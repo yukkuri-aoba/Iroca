@@ -67,9 +67,18 @@ namespace VRCAvatarColorChanger
             Color.RGBToHSV(pixelColor, out pH, out pS, out pV);
             Color.RGBToHSV(sampleColor, out sH, out sS, out sV);
 
-            // Low-saturation pixels have unreliable hue.
-            // Gradual confidence falloff — ramps 0→1 over S=[0.02, 0.10].
-            float satConfidence = Mathf.Clamp01((pS - 0.02f) / 0.08f);
+            // Dynamic saturation threshold: when the sample is highly saturated (e.g. vivid blue),
+            // require pixels to have a proportional minimum saturation to match.
+            // This prevents AO/shadow background layers that share the same hue
+            // (but are much less saturated) from being recoloured.
+            // Trade-off for vivid samples (e.g. sS=0.99):
+            //   satMin=0.45*sS=0.446 blocks 78% of same-hue background pixels,
+            //   at the cost of missing ~28% of hair pixels that are in partial-transparency
+            //   or heavy-shadow composite areas (S=0.20–0.45).
+            // For low-saturation samples the threshold collapses to the fixed 0.02/0.08 ramp.
+            float satMin  = Mathf.Max(0.02f, sS * 0.45f);
+            float satRamp = Mathf.Max(0.08f, sS * 0.10f);
+            float satConfidence = Mathf.Clamp01((pS - satMin) / satRamp);
 
             // Hue distance (circular)
             float hDist = Mathf.Abs(pH - sH);
