@@ -72,11 +72,11 @@ namespace VRCAvatarColorChanger
             // This prevents AO/shadow background layers that share the same hue
             // (but are much less saturated) from being recoloured.
             // Trade-off for vivid samples (e.g. sS=0.99):
-            //   satMin=0.45*sS=0.446 blocks 78% of same-hue background pixels,
-            //   at the cost of missing ~28% of hair pixels that are in partial-transparency
-            //   or heavy-shadow composite areas (S=0.20–0.45).
+            //   satMin=0.50*sS=0.496 blocks ~89% of same-hue background pixels,
+            //   at the cost of missing ~29% of hair pixels that are in partial-transparency
+            //   or heavy-shadow composite areas (S=0.20–0.50).
             // For low-saturation samples the threshold collapses to the fixed 0.02/0.08 ramp.
-            float satMin  = Mathf.Max(0.02f, sS * 0.45f);
+            float satMin  = Mathf.Max(0.02f, sS * 0.50f);
             float satRamp = Mathf.Max(0.08f, sS * 0.10f);
             float satConfidence = Mathf.Clamp01((pS - satMin) / satRamp);
 
