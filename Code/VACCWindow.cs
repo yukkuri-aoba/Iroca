@@ -32,6 +32,7 @@ namespace VRCAvatarColorChanger
 
         // Processing settings
         private float edgeFeather = 0f;
+        private int antiAliasCleanup = 3;
 
         // Foldouts
         private bool zonesFoldout = true;
@@ -41,6 +42,16 @@ namespace VRCAvatarColorChanger
 
         // Preview generation
         private const int PreviewMaxSize = 512;
+
+        // Async preview state
+        private volatile bool _previewGenerating;
+        private volatile bool _asyncCancelled;
+        private volatile int _asyncGeneration;
+        private Color32[] _pendingProcessedDisplay;
+        private Color32[] _pendingRawDisplay;
+        private int _pendingPrevW, _pendingPrevH;
+        private double _lastDirtyTime;
+        private const double PreviewDebounceSeconds = 0.2;
 
         // Phase 2: Before/After comparison
         private Texture2D rawPreviewTexture;
@@ -200,39 +211,39 @@ namespace VRCAvatarColorChanger
                 }
                 EditorGUILayout.EndHorizontal();
 
-                if (zone.enabled)
+                zone.mode = (SelectionMode)EditorGUILayout.EnumPopup(
+                    Localization.SelectionMode, zone.mode);
+
+                if (zone.mode == SelectionMode.ColorPick)
                 {
-                    zone.mode = (SelectionMode)EditorGUILayout.EnumPopup(
-                        Localization.SelectionMode, zone.mode);
-
-                    if (zone.mode == SelectionMode.ColorPick)
-                    {
-                        zone.sampleColor = EditorGUILayout.ColorField(
-                            Localization.SampleColor, zone.sampleColor);
-                        zone.tolerance = EditorGUILayout.Slider(
-                            Localization.Tolerance, zone.tolerance, 0f, 1f);
-                    }
-                    else
-                    {
-                        EditorGUILayout.LabelField(Localization.UVRect);
-                        EditorGUI.indentLevel++;
-                        float x = EditorGUILayout.Slider("X", zone.uvRect.x, 0f, 1f);
-                        float y = EditorGUILayout.Slider("Y", zone.uvRect.y, 0f, 1f);
-                        float w = EditorGUILayout.Slider("W", zone.uvRect.width, 0f, 1f);
-                        float h = EditorGUILayout.Slider("H", zone.uvRect.height, 0f, 1f);
-                        zone.uvRect = new Rect(x, y, w, h);
-                        EditorGUI.indentLevel--;
-                    }
-
-                    zone.targetColor = EditorGUILayout.ColorField(
-                        Localization.TargetColor, zone.targetColor);
-                    zone.valueBlend = EditorGUILayout.Slider(
-                        new GUIContent(Localization.PatternPreserve, Localization.PatternPreserveTooltip),
-                        zone.valueBlend, 0f, 1f);
-                    zone.edgeSoftness = EditorGUILayout.Slider(
-                        new GUIContent(Localization.EdgeSoftness, Localization.EdgeSoftnessTooltip),
-                        zone.edgeSoftness, 0f, 1f);
+                    zone.sampleColor = EditorGUILayout.ColorField(
+                        Localization.SampleColor, zone.sampleColor);
+                    zone.tolerance = EditorGUILayout.Slider(
+                        Localization.Tolerance, zone.tolerance, 0f, 1f);
                 }
+                else
+                {
+                    EditorGUILayout.LabelField(Localization.UVRect);
+                    EditorGUI.indentLevel++;
+                    float x = EditorGUILayout.Slider("X", zone.uvRect.x, 0f, 1f);
+                    float y = EditorGUILayout.Slider("Y", zone.uvRect.y, 0f, 1f);
+                    float w = EditorGUILayout.Slider("W", zone.uvRect.width, 0f, 1f);
+                    float h = EditorGUILayout.Slider("H", zone.uvRect.height, 0f, 1f);
+                    zone.uvRect = new Rect(x, y, w, h);
+                    EditorGUI.indentLevel--;
+                }
+
+                zone.targetColor = EditorGUILayout.ColorField(
+                    Localization.TargetColor, zone.targetColor);
+                zone.valueBlend = EditorGUILayout.Slider(
+                    new GUIContent(Localization.PatternPreserve, Localization.PatternPreserveTooltip),
+                    zone.valueBlend, 0f, 1f);
+                zone.edgeSoftness = EditorGUILayout.Slider(
+                    new GUIContent(Localization.EdgeSoftness, Localization.EdgeSoftnessTooltip),
+                    zone.edgeSoftness, 0f, 1f);
+                zone.saturationStrictness = EditorGUILayout.Slider(
+                    new GUIContent(Localization.SaturationStrictness, Localization.SaturationStrictnessTooltip),
+                    zone.saturationStrictness, 0f, 1f);
 
                 EditorGUILayout.EndVertical();
                 EditorGUILayout.Space(2);
@@ -268,6 +279,10 @@ namespace VRCAvatarColorChanger
             edgeFeather = EditorGUILayout.Slider(
                 new GUIContent(Localization.EdgeFeather, Localization.EdgeFeatherTooltip),
                 edgeFeather, 0f, 5f);
+
+            antiAliasCleanup = EditorGUILayout.IntSlider(
+                new GUIContent(Localization.AntiAliasCleanup, Localization.AntiAliasCleanupTooltip),
+                antiAliasCleanup, 0, 5);
 
             EditorGUILayout.EndFoldoutHeaderGroup();
             EditorGUILayout.Space(4);
@@ -372,16 +387,36 @@ namespace VRCAvatarColorChanger
             if (!IsReadable(sourceTexture))
                 return;
 
-            // hotControl-based update: only regenerate when no control is being dragged
-            // (i.e. the user has released the mouse from a slider)
-            if (previewDirty && GUIUtility.hotControl == 0)
+            // Apply results from background preview task (Texture2D API: main thread only)
+            if (_pendingProcessedDisplay != null)
+                ApplyPendingPreview();
+
+            if (previewDirty)
             {
-                GeneratePreview();
+                // Record the time of the latest change. The async task starts only
+                // after the user stops interacting for PreviewDebounceSeconds.
+                // This keeps the main thread completely free while dragging sliders.
+                _lastDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
+                _asyncGeneration++; // invalidate any in-flight task
+                // Do NOT reset _previewGenerating here: if a task is running it will
+                // detect the generation mismatch and clean up itself via try/finally.
+                // Resetting the flag from the main thread while a task is still alive
+                // causes a race where the old task's finally overwrites the new task's flag.
+                Repaint(); // schedule next frame check
                 previewDirty = false;
             }
-            else if (previewDirty)
+            else if (!_previewGenerating &&
+                     (UnityEditor.EditorApplication.timeSinceStartup - _lastDirtyTime)
+                         >= PreviewDebounceSeconds &&
+                     _lastDirtyTime > 0)
             {
-                Repaint(); // keep polling until slider is released
+                // Debounce elapsed and no task running — start the async generation.
+                _lastDirtyTime = 0;
+                GeneratePreviewAsync();
+            }
+            else if (_lastDirtyTime > 0 || _previewGenerating)
+            {
+                Repaint(); // keep polling: waiting for debounce or bg task
             }
 
             // Rebuild mask overlay separately (lightweight, safe during painting)
@@ -391,7 +426,15 @@ namespace VRCAvatarColorChanger
                 maskDirty = false;
             }
 
-            if (previewTexture == null) return;
+            if (previewTexture == null)
+            {
+                if (_previewGenerating)
+                    EditorGUILayout.HelpBox(Localization.GeneratingPreview, MessageType.None);
+                return;
+            }
+
+            if (_previewGenerating)
+                EditorGUILayout.LabelField(Localization.GeneratingPreview);
 
             // Zoom slider + comparison/diff toggles
             previewZoom = EditorGUILayout.Slider(
@@ -597,126 +640,195 @@ namespace VRCAvatarColorChanger
             lastPaintUV = currentUV;
         }
 
-        private void GeneratePreview()
+        private void GeneratePreviewAsync()
         {
             if (sourceTexture == null || !IsReadable(sourceTexture)) return;
+
+            _previewGenerating = true;
+            int myGen = _asyncGeneration;
 
             int srcW = sourceTexture.width;
             int srcH = sourceTexture.height;
 
-            // Compute preview size
+            // Capture all Unity-dependent data on the main thread before handing off.
+            Color32[] srcPixels = sourceTexture.GetPixels32();
+
+            bool[] maskSnapshot = exclusionMask != null ? (bool[])exclusionMask.Clone() : null;
+            int mW = maskWidth, mH = maskHeight;
+
+            var zonesSnapshot = zones
+                .Where(z => z.enabled)
+                .OrderBy(z => z.layerIndex)
+                .Select(CloneZone)
+                .ToList();
+            float feather = edgeFeather;
+            int aaCleanup = antiAliasCleanup;
+
             float scale = 1f;
             if (srcW > PreviewMaxSize || srcH > PreviewMaxSize)
-            {
                 scale = PreviewMaxSize / (float)Mathf.Max(srcW, srcH);
-            }
             int prevW = Mathf.Max(1, Mathf.RoundToInt(srcW * scale));
             int prevH = Mathf.Max(1, Mathf.RoundToInt(srcH * scale));
 
-            if (previewTexture == null || previewTexture.width != prevW || previewTexture.height != prevH)
+            System.Threading.Tasks.Task.Run(() =>
             {
-                if (previewTexture != null)
-                    DestroyImmediate(previewTexture);
-                previewTexture = new Texture2D(prevW, prevH, TextureFormat.RGBA32, false);
-            }
-
-            // CPU-based box-average downsampling (avoids nearest-neighbor aliasing that
-            // produces isolated mismatched pixels and false colour-match dots in the preview).
-            Color32[] srcPixels = sourceTexture.GetPixels32();
-            Color32[] dstPixels = new Color32[prevW * prevH];
-
-            for (int y = 0; y < prevH; y++)
-            {
-                int sy0 = Mathf.FloorToInt(y / scale);
-                int sy1 = Mathf.Min(Mathf.FloorToInt((y + 1) / scale), srcH - 1);
-                for (int x = 0; x < prevW; x++)
+                try
                 {
-                    int sx0 = Mathf.FloorToInt(x / scale);
-                    int sx1 = Mathf.Min(Mathf.FloorToInt((x + 1) / scale), srcW - 1);
-                    int r = 0, g = 0, b = 0, a = 0, count = 0;
-                    for (int ky = sy0; ky <= sy1; ky++)
-                        for (int kx = sx0; kx <= sx1; kx++)
-                        {
-                            var p = srcPixels[ky * srcW + kx];
-                            r += p.r; g += p.g; b += p.b; a += p.a;
-                            count++;
-                        }
-                    dstPixels[y * prevW + x] = new Color32(
-                        (byte)(r / count), (byte)(g / count),
-                        (byte)(b / count), (byte)(a / count));
+                    // All heavy computation runs on the background thread.
+                    // No Unity Object API is called here — only pure C# math.
+                    Color32[] pixels = (Color32[])srcPixels.Clone();
+                    ProcessPixelsArray(pixels, srcW, srcH, maskSnapshot, mW, mH, zonesSnapshot, feather, aaCleanup);
+
+                    // Superseded by a newer task — discard results silently.
+                    if (myGen != _asyncGeneration || _asyncCancelled)
+                        return;
+
+                    Color32[] rawDisplay = scale < 1f
+                        ? BoxDownsample(srcPixels, srcW, srcH, prevW, prevH, scale)
+                        : srcPixels;
+                    Color32[] processedDisplay = scale < 1f
+                        ? BoxDownsample(pixels, srcW, srcH, prevW, prevH, scale)
+                        : pixels;
+
+                    _pendingRawDisplay       = rawDisplay;
+                    _pendingProcessedDisplay = processedDisplay;
+                    _pendingPrevW            = prevW;
+                    _pendingPrevH            = prevH;
                 }
-            }
+                finally
+                {
+                    // Always reset the flag and schedule a repaint so the main-thread
+                    // polling loop can react — even when cancelled or an exception occurs.
+                    _previewGenerating = false;
+                    Repaint();
+                }
+            });
+        }
 
-            // Save raw (unprocessed) preview for Before/After comparison
-            if (rawPreviewTexture == null || rawPreviewTexture.width != prevW || rawPreviewTexture.height != prevH)
+        private void ApplyPendingPreview()
+        {
+            // Swap out the pending arrays before touching Texture2D objects.
+            var processed = _pendingProcessedDisplay;
+            var raw       = _pendingRawDisplay;
+            int w = _pendingPrevW;
+            int h = _pendingPrevH;
+            _pendingProcessedDisplay = null;
+            _pendingRawDisplay       = null;
+
+            if (processed == null || raw == null) return;
+
+            if (previewTexture == null || previewTexture.width != w || previewTexture.height != h)
             {
-                if (rawPreviewTexture != null) DestroyImmediate(rawPreviewTexture);
-                rawPreviewTexture = new Texture2D(prevW, prevH, TextureFormat.RGBA32, false);
+                if (previewTexture != null) DestroyImmediate(previewTexture);
+                previewTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
             }
-            rawPreviewTexture.SetPixels32(dstPixels);
-            rawPreviewTexture.Apply();
-
-            previewTexture.SetPixels32(dstPixels);
-
-            // Process pixels
-            ProcessPixels(previewTexture);
+            previewTexture.SetPixels32(processed);
             previewTexture.Apply();
 
-            // Build diff texture for diff mode
+            if (rawPreviewTexture == null || rawPreviewTexture.width != w || rawPreviewTexture.height != h)
+            {
+                if (rawPreviewTexture != null) DestroyImmediate(rawPreviewTexture);
+                rawPreviewTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
+            }
+            rawPreviewTexture.SetPixels32(raw);
+            rawPreviewTexture.Apply();
+
             BuildDiffTexture(rawPreviewTexture, previewTexture);
 
-            // Rebuild mask overlay if needed
-            if (maskDirty || maskOverlayTexture == null ||
-                maskOverlayTexture.width != prevW || maskOverlayTexture.height != prevH)
+            if (maskOverlayTexture == null || maskOverlayTexture.width != w || maskOverlayTexture.height != h || maskDirty)
             {
-                RebuildMaskOverlay(prevW, prevH);
+                RebuildMaskOverlay(w, h);
                 maskDirty = false;
             }
         }
 
+        private static ColorZone CloneZone(ColorZone z) => new ColorZone
+        {
+            name         = z.name,
+            enabled      = z.enabled,
+            mode         = z.mode,
+            sampleColor  = z.sampleColor,
+            tolerance    = z.tolerance,
+            uvRect       = z.uvRect,
+            targetColor  = z.targetColor,
+            valueBlend   = z.valueBlend,
+            edgeSoftness = z.edgeSoftness,
+            layerIndex   = z.layerIndex,
+        };
+
+        private static Color32[] BoxDownsample(Color32[] src, int srcW, int srcH,
+            int dstW, int dstH, float scale)
+        {
+            Color32[] dst = new Color32[dstW * dstH];
+            for (int y = 0; y < dstH; y++)
+            {
+                int sy0 = Mathf.FloorToInt(y / scale);
+                int sy1 = Mathf.Min(Mathf.CeilToInt((y + 1f) / scale) - 1, srcH - 1);
+                for (int x = 0; x < dstW; x++)
+                {
+                    int sx0 = Mathf.FloorToInt(x / scale);
+                    int sx1 = Mathf.Min(Mathf.CeilToInt((x + 1f) / scale) - 1, srcW - 1);
+                    int r = 0, g = 0, b = 0, a = 0, count = 0;
+                    for (int ky = sy0; ky <= sy1; ky++)
+                        for (int kx = sx0; kx <= sx1; kx++)
+                        {
+                            var p = src[ky * srcW + kx];
+                            r += p.r; g += p.g; b += p.b; a += p.a;
+                            count++;
+                        }
+                    dst[y * dstW + x] = new Color32(
+                        (byte)(r / count), (byte)(g / count),
+                        (byte)(b / count), (byte)(a / count));
+                }
+            }
+            return dst;
+        }
+
         // ───────────────────────── Pixel Processing ─────────────────────────
 
+        // Instance wrapper used by the export path (main thread, can access instance fields directly).
         private void ProcessPixels(Texture2D tex)
         {
-            if (zones.Count == 0) return;
-
+            var sorted = zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
+            if (sorted.Count == 0) return;
             Color32[] pixels = tex.GetPixels32();
-            int w = tex.width;
-            int h = tex.height;
-            int len = w * h;
+            ProcessPixelsArray(pixels, tex.width, tex.height,
+                exclusionMask, maskWidth, maskHeight, sorted, edgeFeather, antiAliasCleanup);
+            tex.SetPixels32(pixels);
+        }
 
-            // Keep original pixels for color matching (unaffected by previous zone recoloring)
+        // Static pure-computation method — safe to run on a background thread.
+        // No Texture2D, no UnityEngine.Object API, only Mathf and Color math (both thread-safe).
+        private static void ProcessPixelsArray(
+            Color32[] pixels, int w, int h,
+            bool[] mask, int maskW, int maskH,
+            IList<ColorZone> sortedZones, float edgeFeather, int antiAliasCleanup)
+        {
+            int len = w * h;
             Color32[] originalPixels = new Color32[len];
             System.Array.Copy(pixels, originalPixels, len);
 
-            // Phase 9: ゾーンをレイヤー順（昇順）でソートし、上位レイヤーが結果を上書き
-            var sortedZones = zones
-                .Where(z => z.enabled)
-                .OrderBy(z => z.layerIndex)
-                .ToList();
-
-            int currentLayer = -1;
-            Color32[] layerInputPixels = null;
-
             foreach (var zone in sortedZones)
             {
-                // レイヤーが変わったら、前のレイヤー出力を次の入力として使用
-                if (zone.layerIndex != currentLayer)
-                {
-                    currentLayer = zone.layerIndex;
-                    layerInputPixels = new Color32[len];
-                    System.Array.Copy(pixels, layerInputPixels, len);
-                }
-
                 // 1. Build strength map using original pixel colors
                 float[] strength = new float[len];
                 for (int i = 0; i < len; i++)
                 {
-                    int x = i % w;
-                    int y = i / w;
-                    if (IsExcluded(x, y, w, h)) continue;
-                    strength[i] = zone.GetMatchStrength(originalPixels[i], x, y, w, h);
+                    int x = i % w, y = i / w;
+                    if (IsExcludedStatic(x, y, w, h, mask, maskW, maskH)) continue;
+                    strength[i] = zone.GetMatchStrength((Color)originalPixels[i], x, y, w, h);
                 }
+
+                // 1b. Fill isolated holes: anti-aliased edge pixels often have low saturation
+                //     and get missed by satConfidence, leaving isolated dots of the original color.
+                //     If a zero-strength pixel is mostly surrounded by matched pixels, fill it in.
+                FillSmallHoles(strength, w, h);
+
+                // 1c. Boundary recovery: re-evaluate unmatched pixels adjacent to matched ones
+                //     using the old fixed low-saturation threshold, giving correct gradual strength.
+                if (antiAliasCleanup > 0)
+                    RecoverBoundaryEdges(strength, w, h, originalPixels,
+                        zone.sampleColor, zone.tolerance, zone.edgeSoftness, antiAliasCleanup);
 
                 // 2. Gaussian blur for smooth edge transitions (constrained to edges)
                 if (edgeFeather > 0.01f)
@@ -726,35 +838,35 @@ namespace VRCAvatarColorChanger
                     ConstrainBlur(strength, preBlur, w, h, Mathf.CeilToInt(edgeFeather * 2.5f));
                 }
 
-                // 4. Re-apply exclusion mask: blur can spread strength INTO excluded pixels;
-                //    those must never be recoloured regardless of neighbouring matches.
-                if (exclusionMask != null)
+                // 3. Re-apply exclusion mask: blur can spread strength INTO excluded pixels
+                if (mask != null)
                 {
                     for (int i = 0; i < len; i++)
                     {
-                        int x = i % w;
-                        int y = i / w;
-                        if (IsExcluded(x, y, w, h)) strength[i] = 0f;
+                        int x = i % w, y = i / w;
+                        if (IsExcludedStatic(x, y, w, h, mask, maskW, maskH)) strength[i] = 0f;
                     }
                 }
 
-                // 5. Apply recoloring blended by strength
+                // 4. Apply recoloring blended by strength
                 for (int i = 0; i < len; i++)
                 {
                     float s = strength[i];
                     if (s <= 0.001f) continue;
-
                     Color original = originalPixels[i];
                     Color32 recolored = RecolorPixel(original, zone.targetColor, zone.sampleColor, zone.valueBlend);
-
-                    if (s >= 0.999f)
-                        pixels[i] = recolored;
-                    else
-                        pixels[i] = Color32.Lerp(pixels[i], recolored, s);
+                    pixels[i] = s >= 0.999f ? recolored : Color32.Lerp(pixels[i], recolored, s);
                 }
             }
+        }
 
-            tex.SetPixels32(pixels);
+        private static bool IsExcludedStatic(int x, int y, int texW, int texH,
+            bool[] mask, int maskW, int maskH)
+        {
+            if (mask == null) return false;
+            int mx = Mathf.Clamp(x * maskW / texW, 0, maskW - 1);
+            int my = Mathf.Clamp(y * maskH / texH, 0, maskH - 1);
+            return mask[my * maskW + mx];
         }
 
         private static float[] GaussianBlur(float[] map, int w, int h, float sigma)
@@ -839,6 +951,148 @@ namespace VRCAvatarColorChanger
                         blurred[idx] = 0f;
                 }
             }
+        }
+
+        /// <summary>
+        /// Morphological fill: zero-strength pixels surrounded by a majority of matched
+        /// neighbours get filled in with the minimum neighbour strength.
+        /// This removes isolated 1-2px dot artifacts caused by anti-aliased edge pixels
+        /// whose saturation is too low to pass the satConfidence gate.
+        /// Three passes allow filling up to 3px-wide gaps at anti-alias boundaries.
+        /// </summary>
+        private static void FillSmallHoles(float[] strength, int w, int h)
+        {
+            for (int pass = 0; pass < 3; pass++)
+            {
+                float[] filled = (float[])strength.Clone();
+
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = 0; x < w; x++)
+                    {
+                        int idx = y * w + x;
+                        if (strength[idx] > 0f) continue;
+
+                        int matched = 0;
+                        int total = 0;
+                        float minNeighbour = 1f;
+
+                        for (int dy = -1; dy <= 1; dy++)
+                        {
+                            for (int dx = -1; dx <= 1; dx++)
+                            {
+                                if (dx == 0 && dy == 0) continue;
+                                int nx = x + dx, ny = y + dy;
+                                if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+                                total++;
+                                float ns = strength[ny * w + nx];
+                                if (ns > 0f)
+                                {
+                                    matched++;
+                                    if (ns < minNeighbour) minNeighbour = ns;
+                                }
+                            }
+                        }
+
+                        // Fill if at least 4 of the (up to 8) neighbours are matched
+                        if (matched >= 4 && total >= 4)
+                            filled[idx] = minNeighbour;
+                    }
+                }
+
+                System.Array.Copy(filled, strength, strength.Length);
+            }
+        }
+
+        /// <summary>
+        /// Boundary recovery: for unmatched pixels adjacent to at least one matched pixel,
+        /// re-evaluate the colour match using the original fixed low-saturation threshold
+        /// (satMin=0.02, satRamp=0.08). This gives correct gradual strength values for
+        /// anti-alias edge pixels that the strict dynamic satMin rejected.
+        /// Each pass extends recovery by one more pixel outward from the matched boundary.
+        /// The adjacency requirement prevents AO/shadow bleed in interior regions.
+        /// </summary>
+        private static void RecoverBoundaryEdges(
+            float[] strength, int w, int h,
+            Color32[] pixels, Color sampleColor, float tolerance,
+            float edgeSoftness, int passes)
+        {
+            float sH, sS, sV;
+            Color.RGBToHSV(sampleColor, out sH, out sS, out sV);
+
+            for (int pass = 0; pass < passes; pass++)
+            {
+                float[] updated = (float[])strength.Clone();
+
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = 0; x < w; x++)
+                    {
+                        int idx = y * w + x;
+                        if (strength[idx] > 0f) continue;
+
+                        // Check if adjacent to at least one matched pixel
+                        bool hasMatchedNeighbor = false;
+                        for (int dy = -1; dy <= 1 && !hasMatchedNeighbor; dy++)
+                            for (int dx = -1; dx <= 1 && !hasMatchedNeighbor; dx++)
+                            {
+                                if (dx == 0 && dy == 0) continue;
+                                int nx = x + dx, ny = y + dy;
+                                if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+                                if (strength[ny * w + nx] > 0f) hasMatchedNeighbor = true;
+                            }
+
+                        if (!hasMatchedNeighbor) continue;
+
+                        // Re-evaluate this pixel with the relaxed fixed saturation threshold
+                        float relaxed = GetRelaxedMatchStrength(
+                            (Color)pixels[idx], sH, sS, tolerance, edgeSoftness);
+                        if (relaxed > 0f)
+                            updated[idx] = relaxed;
+                    }
+                }
+
+                System.Array.Copy(updated, strength, strength.Length);
+            }
+        }
+
+        /// <summary>
+        /// Colour match using the original fixed low saturation threshold (satMin=0.02/satRamp=0.08).
+        /// Used only for boundary pixels adjacent to already-matched regions.
+        /// </summary>
+        private static float GetRelaxedMatchStrength(
+            Color pixelColor, float sH, float sS,
+            float tolerance, float edgeSoftness)
+        {
+            float pH, pS, pV;
+            Color.RGBToHSV(pixelColor, out pH, out pS, out pV);
+
+            // Fixed low saturation threshold — matches original algorithm before dynamic satMin
+            float satConfidence = Mathf.Clamp01((pS - 0.02f) / 0.08f);
+
+            float hDist = Mathf.Abs(pH - sH);
+            if (hDist > 0.5f) hDist = 1f - hDist;
+
+            // Boundary pixels are expected to have reduced saturation from AA blending.
+            // Use a lower sDist weight (0.15 vs 0.15 in main match) to allow recovery
+            // of edge pixels whose saturation dropped due to alpha compositing.
+            float sDist = Mathf.Abs(pS - sS);
+            float dist = hDist + sDist * 0.15f;
+
+            if (dist >= tolerance) return 0f;
+
+            float softRange = tolerance * edgeSoftness;
+            float hardRange = tolerance - softRange;
+
+            float strength;
+            if (softRange < 0.0001f)
+                strength = 1f;
+            else if (dist <= hardRange)
+                strength = 1f;
+            else
+                strength = 1f - (dist - hardRange) / softRange;
+
+            return strength * satConfidence;
         }
 
         private static Color32 RecolorPixel(Color original, Color target, Color sample, float valueBlend)
@@ -1028,6 +1282,7 @@ namespace VRCAvatarColorChanger
 
         private void OnDestroy()
         {
+            _asyncCancelled = true;  // stop background task from writing results or calling Repaint
             SaveMaskToSession();
             if (previewTexture != null)    DestroyImmediate(previewTexture);
             if (rawPreviewTexture != null) DestroyImmediate(rawPreviewTexture);

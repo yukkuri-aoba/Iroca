@@ -28,11 +28,18 @@ namespace VRCAvatarColorChanger
 
         // 0 = use target V completely (flat/vivid), 1 = keep original V completely (preserve pattern)
         [Range(0f, 1f)]
-        public float valueBlend = 0.85f;
+        public float valueBlend = 1f;
 
         // 0 = hard edge, 1 = very soft edge (anti-alias friendly)
         [Range(0f, 1f)]
         public float edgeSoftness = 0f;
+
+        // Saturation strictness: controls how aggressively low-saturation pixels (AO/shadow)
+        // are excluded from colour matching. Higher = fewer false positives (less bleed) but
+        // may leave dot artifacts at anti-alias edges. Lower = more inclusive matching.
+        // 0 = fixed low threshold (0.02), 0.50 = default, 1.0 = maximum strictness.
+        [Range(0f, 1f)]
+        public float saturationStrictness = 0.50f;
 
         // Layer index: zones in higher layers override lower layers (0 = base layer)
         public int layerIndex = 0;
@@ -71,12 +78,10 @@ namespace VRCAvatarColorChanger
             // require pixels to have a proportional minimum saturation to match.
             // This prevents AO/shadow background layers that share the same hue
             // (but are much less saturated) from being recoloured.
-            // Trade-off for vivid samples (e.g. sS=0.99):
-            //   satMin=0.50*sS=0.496 blocks ~89% of same-hue background pixels,
-            //   at the cost of missing ~29% of hair pixels that are in partial-transparency
-            //   or heavy-shadow composite areas (S=0.20–0.50).
+            // Trade-off: high multiplier blocks AO/shadow background; FillSmallHolesHueAware
+            // spatially recovers AA-edge pixels near matched boundaries.
             // For low-saturation samples the threshold collapses to the fixed 0.02/0.08 ramp.
-            float satMin  = Mathf.Max(0.02f, sS * 0.50f);
+            float satMin  = Mathf.Max(0.02f, sS * saturationStrictness);
             float satRamp = Mathf.Max(0.08f, sS * 0.10f);
             float satConfidence = Mathf.Clamp01((pS - satMin) / satRamp);
 

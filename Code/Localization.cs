@@ -25,7 +25,7 @@ namespace VRCAvatarColorChanger
         public static string WindowTitle => "VRC AvatarColorChanger";
 
         // ─── Header / Language ───
-        public static string LangAuto     => IsJapanese ? "自動" : "Auto";
+        public static string LangAuto     => IsJapanese ? "自動(Auto)" : "Auto";
         public static string LangJapanese => "日本語";
         public static string LangEnglish  => "English";
         public static string Credit       => IsJapanese ? "クレジット" : "Credit";
@@ -62,6 +62,10 @@ namespace VRCAvatarColorChanger
         public static string EdgeSoftnessTooltip => IsJapanese
             ? "0 = 硬いエッジ（従来通り）\n1 = 柔らかいエッジ（アンチエイリアス境界を滑らかに）"
             : "0 = Hard edge (legacy)\n1 = Soft edge (smooth anti-aliased boundaries)";
+        public static string SaturationStrictness => IsJapanese ? "彩度制限" : "Saturation Strictness";
+        public static string SaturationStrictnessTooltip => IsJapanese
+            ? "低彩度ピクセル（AO/影）をどの程度厳しく除外するかを調整します。\n高い値 = はみ出しが少ないが、境界にドットが残る場合がある\n低い値 = ドットが減るが、はみ出しが増える\nデフォルト: 0.50"
+            : "Controls how aggressively low-saturation pixels (AO/shadow) are excluded.\nHigher = less bleed but may leave dot artifacts at edges\nLower = fewer dots but more bleed\nDefault: 0.20";
 
         // ─── Processing ───
         public static string Processing => IsJapanese ? "加工設定" : "Processing";
@@ -69,6 +73,11 @@ namespace VRCAvatarColorChanger
         public static string EdgeFeatherTooltip => IsJapanese
             ? "選択境界をガウシアンブラーでぼかし、滑らかな遷移を実現します。\n0 = オフ"
             : "Gaussian blur on selection boundary for smooth transitions.\n0 = off";
+
+        public static string AntiAliasCleanup => IsJapanese ? "AA境界クリーンアップ" : "AA Edge Cleanup";
+        public static string AntiAliasCleanupTooltip => IsJapanese
+            ? "アンチエイリアス境界の残りドットを除去するパス数。\n0 = オフ、3 = 標準（推奨）、5 = 最大\n値を大きくすると境界の回収範囲が広がります。"
+            : "Number of passes to recover anti-alias boundary pixels.\n0 = off, 3 = normal (recommended), 5 = max\nHigher values recover more edge pixels.";
 
         // ─── Exclusion Mask ───
         public static string ExclusionMask => IsJapanese ? "除外マスク" : "Exclusion Mask";
@@ -83,6 +92,7 @@ namespace VRCAvatarColorChanger
 
         // ─── Preview ───
         public static string Preview => IsJapanese ? "プレビュー" : "Preview";
+        public static string GeneratingPreview => IsJapanese ? "⟳ プレビュー生成中..." : "⟳ Generating preview...";
         public static string Zoom => IsJapanese ? "ズーム" : "Zoom";
         public static string SetTexture => IsJapanese
             ? "テクスチャを設定してください。"

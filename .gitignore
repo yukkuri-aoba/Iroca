@@ -25,3 +25,6 @@ UserSettings/
 # OS
 Thumbs.db
 .DS_Store
+
+Tests
+texture_sample
