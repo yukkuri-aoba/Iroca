@@ -135,8 +135,14 @@ namespace VRCAvatarColorChanger
 
         // ─── Zoom hint ───
         public static string ZoomHint => IsJapanese
-            ? "Ctrl+スクロールでもズームできます"
+            ? "Ctrl+スクロールでズーム"
             : "Ctrl+scroll to zoom";
+        public static string ZoomLabel => IsJapanese
+            ? "ズーム: {0}%  (Ctrl+スクロール)"
+            : "Zoom: {0}%  (Ctrl+Scroll)";
+        public static string PanHint => IsJapanese
+            ? "ドラッグでパン"
+            : "Drag to pan";
 
         // ─── Comparison / Diff ───
         public static string ComparisonMode => IsJapanese ? "前後比較" : "Compare";

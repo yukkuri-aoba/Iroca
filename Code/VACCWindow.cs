@@ -458,11 +458,12 @@ namespace VRCAvatarColorChanger
                 previewDirty = false;
             }
             else if (!_previewGenerating &&
-                     (UnityEditor.EditorApplication.timeSinceStartup - _lastDirtyTime)
-                         >= PreviewDebounceSeconds &&
-                     _lastDirtyTime > 0)
+                     _lastDirtyTime > 0 &&
+                     (GUIUtility.hotControl == 0 ||
+                      (UnityEditor.EditorApplication.timeSinceStartup - _lastDirtyTime)
+                          >= PreviewDebounceSeconds))
             {
-                // Debounce elapsed and no task running — start the async generation.
+                // コントロールが解放された瞬間 or デバウンス経過後に生成開始
                 _lastDirtyTime = 0;
                 GeneratePreviewAsync();
             }
@@ -488,16 +489,11 @@ namespace VRCAvatarColorChanger
             if (_previewGenerating)
                 EditorGUILayout.LabelField(Localization.GeneratingPreview);
 
-            // Zoom slider + comparison/diff toggles
-            float prevZoom = previewZoom;
-            previewZoom = EditorGUILayout.Slider(
-                new GUIContent(Localization.Zoom, Localization.ZoomHint),
-                previewZoom, 0.25f, 4f);
-            if (Mathf.Abs(previewZoom - prevZoom) > 0.0001f)
-            {
-                _lastDetailDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
-                _detailAsyncGeneration++;
-            }
+            // ズームラベル (Ctrl+スクロールで変更)
+            EditorGUILayout.LabelField(
+                new GUIContent(
+                    string.Format(Localization.ZoomLabel, Mathf.RoundToInt(previewZoom * 100f)),
+                    Localization.ZoomHint));
 
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Toggle(comparisonMode, Localization.ComparisonMode, EditorStyles.miniButtonLeft) != comparisonMode)
@@ -636,6 +632,8 @@ namespace VRCAvatarColorChanger
             // Brush paint only when paint mode is ON
             if (maskFoldout && maskPaintActive)
                 HandlePreviewPaintInput(activePreviewRect);
+            else if (!maskPaintActive && previewZoom > 1f)
+                HandlePreviewPanInput(activePreviewRect);
 
             EditorGUILayout.EndScrollView();
 
@@ -699,6 +697,53 @@ namespace VRCAvatarColorChanger
                         UndoMaskStep();
                         e.Use();
                     }
+                    break;
+            }
+        }
+
+        private void HandlePreviewPanInput(Rect previewRect)
+        {
+            Event e = Event.current;
+            if (e == null) return;
+
+            bool isInRect = previewRect.Contains(e.mousePosition);
+            int controlId = GUIUtility.GetControlID(FocusType.Passive);
+
+            switch (e.GetTypeForControl(controlId))
+            {
+                case EventType.MouseDown:
+                    if (e.button == 0 && isInRect)
+                    {
+                        GUIUtility.hotControl = controlId;
+                        e.Use();
+                    }
+                    break;
+
+                case EventType.MouseDrag:
+                    if (GUIUtility.hotControl == controlId)
+                    {
+                        // e.delta はウィンドウ座標系での移動量。ドラッグ方向にコンテンツを追随させる
+                        previewScrollPos -= e.delta;
+                        previewScrollPos.x = Mathf.Max(0f, previewScrollPos.x);
+                        previewScrollPos.y = Mathf.Max(0f, previewScrollPos.y);
+                        _lastDetailDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
+                        _detailAsyncGeneration++;
+                        e.Use();
+                        Repaint();
+                    }
+                    break;
+
+                case EventType.MouseUp:
+                    if (GUIUtility.hotControl == controlId)
+                    {
+                        GUIUtility.hotControl = 0;
+                        e.Use();
+                    }
+                    break;
+
+                case EventType.Repaint:
+                    if (isInRect)
+                        EditorGUIUtility.AddCursorRect(previewRect, MouseCursor.Pan);
                     break;
             }
         }
@@ -859,8 +904,10 @@ namespace VRCAvatarColorChanger
                 {
                     // Always reset the flag and schedule a repaint so the main-thread
                     // polling loop can react — even when cancelled or an exception occurs.
+                    // delayCall はメインスレッドで実行されるため、バックグラウンドスレッドから
+                    // 安全に呼び出せる (Repaint() の直接呼び出しより確実)。
                     _previewGenerating = false;
-                    Repaint();
+                    UnityEditor.EditorApplication.delayCall += Repaint;
                 }
             });
         }
@@ -991,7 +1038,7 @@ namespace VRCAvatarColorChanger
                 finally
                 {
                     _detailGenerating = false;
-                    Repaint();
+                    UnityEditor.EditorApplication.delayCall += Repaint;
                 }
             });
         }
