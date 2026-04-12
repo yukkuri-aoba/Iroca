@@ -148,11 +148,9 @@ namespace VRCAvatarColorChanger
         public static string UndoMask => IsJapanese ? "マスクを元に戻す (Ctrl+Z)" : "Undo Mask (Ctrl+Z)";
 
         // ─── Mask paint mode ───
-        public static string MaskPaintModeOn  => IsJapanese ? "● ペイントモード ON (クリックでOFF)" : "● Paint Mode ON (click to disable)";
-        public static string MaskPaintModeOff => IsJapanese ? "○ ペイントモード OFF (クリックで有効化)" : "○ Paint Mode OFF (click to enable)";
         public static string MaskHintPaintOff => IsJapanese
-            ? "プレビュー上でのマスク塗りはペイントモードが ON のときのみ有効です"
-            : "Mask painting on the preview is only active when Paint Mode is ON";
+            ? "「除外」または「含める」を押すとペイントモードになります。同じボタンを為すと解除。"
+            : "Click Exclude or Include to enter paint mode. Click the active button again to exit.";
 
         // ─── Detail preview ───
         public static string GeneratingDetailPreview => IsJapanese ? "⟳ 詳細プレビュー生成中..." : "⟳ Generating detail preview...";

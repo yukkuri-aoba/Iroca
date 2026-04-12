@@ -100,6 +100,7 @@ namespace VRCAvatarColorChanger
 
         // Persistent detail crop origin (set when detail preview is applied, read by renderer)
         private int _detailOriginX, _detailOriginY;
+        private Texture2D _detailDiffTexture;
 
         [MenuItem("Tools/VRC AvatarColorChanger")]
         public static void ShowWindow()
@@ -325,11 +326,32 @@ namespace VRCAvatarColorChanger
 
             brushSize = EditorGUILayout.IntSlider(Localization.BrushSize, brushSize, 1, 64);
 
+            // Exclude / Include ボタン: 押すとペイントモードON+モード選択、同じボタン再押しでOFF
+            bool excludeActive = maskPaintActive && !brushEraseMode;
+            bool includeActive = maskPaintActive && brushEraseMode;
+
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Toggle(!brushEraseMode, Localization.Exclude, EditorStyles.miniButtonLeft) && brushEraseMode)
-                brushEraseMode = false;
-            if (GUILayout.Toggle(brushEraseMode, Localization.Include, EditorStyles.miniButtonRight) && !brushEraseMode)
-                brushEraseMode = true;
+            var prevBg = GUI.backgroundColor;
+
+            GUI.backgroundColor = excludeActive ? new Color(1f, 0.55f, 0.55f) : Color.white;
+            if (GUILayout.Button(Localization.Exclude, EditorStyles.miniButtonLeft))
+            {
+                if (excludeActive)
+                    maskPaintActive = false;
+                else
+                { maskPaintActive = true; brushEraseMode = false; }
+            }
+
+            GUI.backgroundColor = includeActive ? new Color(0.55f, 1f, 0.55f) : Color.white;
+            if (GUILayout.Button(Localization.Include, EditorStyles.miniButtonRight))
+            {
+                if (includeActive)
+                    maskPaintActive = false;
+                else
+                { maskPaintActive = true; brushEraseMode = true; }
+            }
+
+            GUI.backgroundColor = prevBg;
             EditorGUILayout.EndHorizontal();
 
             if (GUILayout.Button(Localization.ClearMask))
@@ -344,16 +366,6 @@ namespace VRCAvatarColorChanger
             if (GUILayout.Button(Localization.UndoMask))
                 UndoMaskStep();
             EditorGUI.EndDisabledGroup();
-
-            // Paint mode toggle: brush strokes only work when this is ON
-            var prevBg = GUI.backgroundColor;
-            GUI.backgroundColor = maskPaintActive ? new Color(1f, 0.45f, 0.45f) : Color.white;
-            if (GUILayout.Button(maskPaintActive ? Localization.MaskPaintModeOn : Localization.MaskPaintModeOff,
-                GUILayout.Height(24)))
-            {
-                maskPaintActive = !maskPaintActive;
-            }
-            GUI.backgroundColor = prevBg;
 
             EditorGUILayout.HelpBox(
                 maskPaintActive ? Localization.MaskHint : Localization.MaskHintPaintOff,
@@ -510,7 +522,7 @@ namespace VRCAvatarColorChanger
             // Detail mode: active when display pixels > source pixels (scale < 1 and zoom high enough)
             bool detailActive = scale < 1f &&
                                 previewZoom * scale >= DetailUpscaleThreshold &&
-                                !comparisonMode && !diffMode;
+                                !comparisonMode;
 
             // Poll detail preview generation
             if (detailActive)
@@ -590,7 +602,10 @@ namespace VRCAvatarColorChanger
                     GUI.DrawTexture(detailScreenRect, _detailPreviewTexture,
                         ScaleMode.StretchToFill, false);
 
-                    if (_detailMaskOverlayTexture != null)
+                    if (diffMode && _detailDiffTexture != null)
+                        GUI.DrawTexture(detailScreenRect, _detailDiffTexture,
+                            ScaleMode.StretchToFill, true);
+                    else if (_detailMaskOverlayTexture != null)
                         GUI.DrawTexture(detailScreenRect, _detailMaskOverlayTexture,
                             ScaleMode.StretchToFill, true);
                 }
@@ -1004,7 +1019,37 @@ namespace VRCAvatarColorChanger
             _rawDetailPreviewTexture.SetPixels32(raw);
             _rawDetailPreviewTexture.Apply();
 
+            // Build diff overlay for detail view
+            BuildDetailDiffTexture(_rawDetailPreviewTexture, _detailPreviewTexture, w, h);
+
             RebuildDetailMaskOverlay(w, h, ox, oy, fw, fh);
+        }
+
+        private void BuildDetailDiffTexture(Texture2D before, Texture2D after, int w, int h)
+        {
+            if (before == null || after == null) return;
+            if (_detailDiffTexture == null || _detailDiffTexture.width != w || _detailDiffTexture.height != h)
+            {
+                if (_detailDiffTexture != null) DestroyImmediate(_detailDiffTexture);
+                _detailDiffTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
+                _detailDiffTexture.filterMode = FilterMode.Point;
+            }
+
+            Color32[] a = before.GetPixels32();
+            Color32[] b = after.GetPixels32();
+            Color32[] d = new Color32[w * h];
+            var highlight = new Color32(255, 220, 0, 160);
+            var clear     = new Color32(0, 0, 0, 0);
+            for (int i = 0; i < d.Length; i++)
+            {
+                int diff = Mathf.Abs(a[i].r - b[i].r)
+                         + Mathf.Abs(a[i].g - b[i].g)
+                         + Mathf.Abs(a[i].b - b[i].b);
+                d[i] = diff > 10 ? highlight : clear;
+            }
+
+            _detailDiffTexture.SetPixels32(d);
+            _detailDiffTexture.Apply();
         }
 
         private void RebuildDetailMaskOverlay(int cropW, int cropH,
@@ -1604,6 +1649,7 @@ namespace VRCAvatarColorChanger
             if (_detailPreviewTexture != null)    DestroyImmediate(_detailPreviewTexture);
             if (_rawDetailPreviewTexture != null) DestroyImmediate(_rawDetailPreviewTexture);
             if (_detailMaskOverlayTexture != null) DestroyImmediate(_detailMaskOverlayTexture);
+            if (_detailDiffTexture != null)        DestroyImmediate(_detailDiffTexture);
         }
 
         // ───────────────────────── Phase 2: Diff texture ─────────────────────────
