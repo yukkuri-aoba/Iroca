@@ -630,9 +630,12 @@ namespace VRCAvatarColorChanger
             if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
                 _lastPreviewRect = activePreviewRect;
 
-            // Handle brush / wand input on the active (After) panel
+            // Zoom (Ctrl+Scroll) and Ctrl+Z always active regardless of paint mode
+            HandlePreviewGlobalInput(activePreviewRect);
+
+            // Brush paint only when paint mode is ON
             if (maskFoldout && maskPaintActive)
-                HandlePreviewInput(activePreviewRect);
+                HandlePreviewPaintInput(activePreviewRect);
 
             EditorGUILayout.EndScrollView();
 
@@ -658,7 +661,7 @@ namespace VRCAvatarColorChanger
             return new Rect(left, top, width, height);
         }
 
-        private void HandlePreviewInput(Rect previewRect)
+        private void HandlePreviewGlobalInput(Rect previewRect)
         {
             Event e = Event.current;
             if (e == null) return;
@@ -672,13 +675,10 @@ namespace VRCAvatarColorChanger
                     if (isInRect && e.control)
                     {
                         float oldZoom = previewZoom;
-                        // 乗算的ズーム: スクロール1ノッチ(delta≈3)で約10%変化、自然な加速感
                         float newZoom = Mathf.Clamp(oldZoom * Mathf.Pow(1.1f, -e.delta.y / 3f), 0.25f, 4f);
 
-                        // マウス位置を起点にスクロールオフセットを補正
                         if (previewTexture != null && Mathf.Abs(newZoom - oldZoom) > 0.0001f)
                         {
-                            // previewRect との差 = 画像左上からのディスプレイピクセル距離
                             Vector2 mouseInImage = e.mousePosition - new Vector2(previewRect.x, previewRect.y);
                             previewScrollPos += mouseInImage * (newZoom / oldZoom - 1f);
                             previewScrollPos.x = Mathf.Max(0f, previewScrollPos.x);
@@ -686,6 +686,8 @@ namespace VRCAvatarColorChanger
                         }
 
                         previewZoom = newZoom;
+                        _lastDetailDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
+                        _detailAsyncGeneration++;
                         e.Use();
                         Repaint();
                     }
@@ -698,7 +700,19 @@ namespace VRCAvatarColorChanger
                         e.Use();
                     }
                     break;
+            }
+        }
 
+        private void HandlePreviewPaintInput(Rect previewRect)
+        {
+            Event e = Event.current;
+            if (e == null) return;
+
+            bool isInRect = previewRect.Contains(e.mousePosition);
+            int controlId = GUIUtility.GetControlID(FocusType.Passive);
+
+            switch (e.GetTypeForControl(controlId))
+            {
                 case EventType.MouseDown:
                     if (e.button == 0 && isInRect)
                     {
