@@ -77,6 +77,30 @@ namespace VRCAvatarColorChanger
         private List<Texture2D> batchTextures = new List<Texture2D>();
         private Vector2 batchScrollPos;
 
+        // Mask paint mode: must be explicitly activated before brush strokes work
+        private bool maskPaintActive;
+
+        // Detail preview: full-resolution crop rendered when zoomed in
+        private Texture2D _detailPreviewTexture;
+        private Texture2D _rawDetailPreviewTexture;
+        private Texture2D _detailMaskOverlayTexture;
+        private volatile bool _detailGenerating;
+        private volatile int _detailAsyncGeneration;
+        private Color32[] _pendingDetailProcessed;
+        private Color32[] _pendingDetailRaw;
+        private int _pendingDetailW, _pendingDetailH;
+        private int _pendingDetailOriginX, _pendingDetailOriginY; // crop origin in source coords
+        private int _pendingDetailFullW, _pendingDetailFullH;     // full source dimensions
+        private double _lastDetailDirtyTime;
+        private Rect _lastPreviewRect;                            // stored between frames
+        private const double DetailDebounceSeconds = 0.3;
+        // Detail mode: activates when the display-pixel-to-source-pixel ratio > 1
+        // i.e. previewZoom * (srcSize / previewSize) ≥ this value
+        private const float DetailUpscaleThreshold = 1.0f;
+
+        // Persistent detail crop origin (set when detail preview is applied, read by renderer)
+        private int _detailOriginX, _detailOriginY;
+
         [MenuItem("Tools/VRC AvatarColorChanger")]
         public static void ShowWindow()
         {
@@ -321,7 +345,19 @@ namespace VRCAvatarColorChanger
                 UndoMaskStep();
             EditorGUI.EndDisabledGroup();
 
-            EditorGUILayout.HelpBox(Localization.MaskHint, MessageType.Info);
+            // Paint mode toggle: brush strokes only work when this is ON
+            var prevBg = GUI.backgroundColor;
+            GUI.backgroundColor = maskPaintActive ? new Color(1f, 0.45f, 0.45f) : Color.white;
+            if (GUILayout.Button(maskPaintActive ? Localization.MaskPaintModeOn : Localization.MaskPaintModeOff,
+                GUILayout.Height(24)))
+            {
+                maskPaintActive = !maskPaintActive;
+            }
+            GUI.backgroundColor = prevBg;
+
+            EditorGUILayout.HelpBox(
+                maskPaintActive ? Localization.MaskHint : Localization.MaskHintPaintOff,
+                MessageType.Info);
 
             EditorGUILayout.EndFoldoutHeaderGroup();
             EditorGUILayout.Space(4);
@@ -391,6 +427,10 @@ namespace VRCAvatarColorChanger
             if (_pendingProcessedDisplay != null)
                 ApplyPendingPreview();
 
+            // Apply results from background detail preview task
+            if (_pendingDetailProcessed != null)
+                ApplyPendingDetailPreview();
+
             if (previewDirty)
             {
                 // Record the time of the latest change. The async task starts only
@@ -437,9 +477,15 @@ namespace VRCAvatarColorChanger
                 EditorGUILayout.LabelField(Localization.GeneratingPreview);
 
             // Zoom slider + comparison/diff toggles
+            float prevZoom = previewZoom;
             previewZoom = EditorGUILayout.Slider(
                 new GUIContent(Localization.Zoom, Localization.ZoomHint),
                 previewZoom, 0.25f, 4f);
+            if (Mathf.Abs(previewZoom - prevZoom) > 0.0001f)
+            {
+                _lastDetailDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
+                _detailAsyncGeneration++;
+            }
 
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Toggle(comparisonMode, Localization.ComparisonMode, EditorStyles.miniButtonLeft) != comparisonMode)
@@ -454,14 +500,51 @@ namespace VRCAvatarColorChanger
             }
             EditorGUILayout.EndHorizontal();
 
+            // Compute preview scale (ratio of preview texture size to source size)
+            int srcW = sourceTexture.width;
+            int srcH = sourceTexture.height;
+            float scale = (srcW > PreviewMaxSize || srcH > PreviewMaxSize)
+                ? PreviewMaxSize / (float)Mathf.Max(srcW, srcH)
+                : 1f;
+
+            // Detail mode: active when display pixels > source pixels (scale < 1 and zoom high enough)
+            bool detailActive = scale < 1f &&
+                                previewZoom * scale >= DetailUpscaleThreshold &&
+                                !comparisonMode && !diffMode;
+
+            // Poll detail preview generation
+            if (detailActive)
+            {
+                if (!_detailGenerating &&
+                    _lastDetailDirtyTime > 0 &&
+                    (UnityEditor.EditorApplication.timeSinceStartup - _lastDetailDirtyTime)
+                        >= DetailDebounceSeconds &&
+                    _lastPreviewRect.width > 0)
+                {
+                    _lastDetailDirtyTime = 0;
+                    Color32[] srcPixels = sourceTexture.GetPixels32();
+                    GenerateDetailPreviewAsync(srcW, srcH, srcPixels, scale, _lastPreviewRect);
+                }
+                else if (_lastDetailDirtyTime > 0 || _detailGenerating)
+                {
+                    Repaint();
+                }
+            }
+
             float displayW = previewTexture.width  * previewZoom;
             float displayH = previewTexture.height * previewZoom;
 
             float maxViewH = Mathf.Min(displayH, previewTexture.height) + 16f;
 
+            Vector2 prevScroll = previewScrollPos;
             previewScrollPos = EditorGUILayout.BeginScrollView(
                 previewScrollPos,
                 GUILayout.Height(maxViewH));
+            if (previewScrollPos != prevScroll)
+            {
+                _lastDetailDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
+                _detailAsyncGeneration++;
+            }
 
             Rect activePreviewRect = default;
 
@@ -495,21 +578,69 @@ namespace VRCAvatarColorChanger
             {
                 activePreviewRect = GUILayoutUtility.GetRect(displayW, displayH,
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
-                EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
 
-                if (diffMode && diffTexture != null)
-                    GUI.DrawTexture(activePreviewRect, diffTexture, ScaleMode.StretchToFill, true);
-                else if (maskOverlayTexture != null)
-                    GUI.DrawTexture(activePreviewRect, maskOverlayTexture, ScaleMode.StretchToFill, true);
+                // In detail mode, overlay the full-res crop on top of the low-res preview
+                if (detailActive && _detailPreviewTexture != null)
+                {
+                    // Draw low-res base (gives context for non-visible areas)
+                    EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
+
+                    // Compute screen rect that the detail crop should occupy
+                    Rect detailScreenRect = ComputeDetailScreenRect(activePreviewRect, scale, srcW, srcH);
+                    GUI.DrawTexture(detailScreenRect, _detailPreviewTexture,
+                        ScaleMode.StretchToFill, false);
+
+                    if (_detailMaskOverlayTexture != null)
+                        GUI.DrawTexture(detailScreenRect, _detailMaskOverlayTexture,
+                            ScaleMode.StretchToFill, true);
+                }
+                else
+                {
+                    EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
+
+                    if (diffMode && diffTexture != null)
+                        GUI.DrawTexture(activePreviewRect, diffTexture, ScaleMode.StretchToFill, true);
+                    else if (maskOverlayTexture != null)
+                        GUI.DrawTexture(activePreviewRect, maskOverlayTexture, ScaleMode.StretchToFill, true);
+                }
+
+                // Generating indicator for detail preview
+                if (detailActive && _detailGenerating)
+                    EditorGUI.LabelField(
+                        new Rect(activePreviewRect.x + 4, activePreviewRect.y + 4, 300, 20),
+                        Localization.GeneratingDetailPreview);
             }
 
+            // Store the preview rect for use by the next detail generation tick
+            if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
+                _lastPreviewRect = activePreviewRect;
+
             // Handle brush / wand input on the active (After) panel
-            if (maskFoldout)
+            if (maskFoldout && maskPaintActive)
                 HandlePreviewInput(activePreviewRect);
 
             EditorGUILayout.EndScrollView();
 
             EditorGUILayout.Space(4);
+        }
+
+        /// <summary>
+        /// Returns the screen-space rect that the detail crop should be drawn into,
+        /// positioned so it aligns exactly with the corresponding region of the scrolled preview.
+        /// </summary>
+        private Rect ComputeDetailScreenRect(Rect activePreviewRect, float scale, int srcW, int srcH)
+        {
+            if (_detailPreviewTexture == null) return activePreviewRect;
+
+            // display pixels per source pixel
+            float pxPerSrc = scale * previewZoom;
+
+            float left   = _detailOriginX * pxPerSrc - previewScrollPos.x + activePreviewRect.x;
+            float top    = _detailOriginY * pxPerSrc - previewScrollPos.y + activePreviewRect.y;
+            float width  = _detailPreviewTexture.width  * pxPerSrc;
+            float height = _detailPreviewTexture.height * pxPerSrc;
+
+            return new Rect(left, top, width, height);
         }
 
         private void HandlePreviewInput(Rect previewRect)
@@ -740,6 +871,180 @@ namespace VRCAvatarColorChanger
                 RebuildMaskOverlay(w, h);
                 maskDirty = false;
             }
+
+            // Invalidate detail preview so it regenerates at the new crop
+            _lastDetailDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
+            _detailAsyncGeneration++;
+        }
+
+        // ───────────────────────── Detail Preview (full-res crop) ─────────────────────────
+
+        /// <summary>
+        /// Computes the visible crop region in source texture coordinates from the current
+        /// scroll position, zoom and preview scale, then launches a background task that
+        /// processes only that crop at full source resolution.
+        /// </summary>
+        private void GenerateDetailPreviewAsync(int srcW, int srcH, Color32[] srcPixels,
+            float scale, Rect previewRect)
+        {
+            if (sourceTexture == null || !IsReadable(sourceTexture)) return;
+            if (scale >= 1f) return; // source already fits in preview — no upscaling benefit
+
+            // previewZoom * scale = display pixels per source pixel.
+            // If < 1, the preview is still downsampled even after zoom → no detail gain yet.
+            float displayPxPerSrcPx = previewZoom * scale;
+            if (displayPxPerSrcPx < DetailUpscaleThreshold) return;
+
+            // Compute visible region in source pixel coordinates (Y-flipped: texture bottom=0)
+            float invZoomScale = 1f / (previewZoom * scale);
+            int x0 = Mathf.FloorToInt(previewScrollPos.x * invZoomScale);
+            int y0 = Mathf.FloorToInt(previewScrollPos.y * invZoomScale);
+            int x1 = Mathf.CeilToInt((previewScrollPos.x + previewRect.width)  * invZoomScale);
+            int y1 = Mathf.CeilToInt((previewScrollPos.y + previewRect.height) * invZoomScale);
+
+            x0 = Mathf.Clamp(x0, 0, srcW);
+            y0 = Mathf.Clamp(y0, 0, srcH);
+            x1 = Mathf.Clamp(x1, 0, srcW);
+            y1 = Mathf.Clamp(y1, 0, srcH);
+
+            int cropW = x1 - x0;
+            int cropH = y1 - y0;
+            if (cropW <= 0 || cropH <= 0) return;
+
+            _detailGenerating = true;
+            int myGen = _detailAsyncGeneration;
+
+            bool[] maskSnapshot = exclusionMask != null ? (bool[])exclusionMask.Clone() : null;
+            int mW = maskWidth, mH = maskHeight;
+
+            var zonesSnapshot = zones
+                .Where(z => z.enabled)
+                .OrderBy(z => z.layerIndex)
+                .Select(CloneZone)
+                .ToList();
+            float feather   = edgeFeather;
+            int aaCleanup   = antiAliasCleanup;
+            int capX0 = x0, capY0 = y0, capSrcW = srcW, capSrcH = srcH;
+
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    // Extract crop from source
+                    Color32[] rawCrop       = new Color32[cropW * cropH];
+                    Color32[] processedCrop = new Color32[cropW * cropH];
+                    for (int cy = 0; cy < cropH; cy++)
+                    {
+                        int sy = capY0 + cy; // source row (texture bottom=0)
+                        for (int cx = 0; cx < cropW; cx++)
+                        {
+                            int srcIdx = sy * capSrcW + (capX0 + cx);
+                            rawCrop[cy * cropW + cx] = srcPixels[srcIdx];
+                            processedCrop[cy * cropW + cx] = srcPixels[srcIdx];
+                        }
+                    }
+
+                    ProcessPixelsArray(processedCrop, cropW, cropH,
+                        maskSnapshot, mW, mH, zonesSnapshot, feather, aaCleanup,
+                        capX0, capY0, capSrcW, capSrcH);
+
+                    if (myGen != _detailAsyncGeneration || _asyncCancelled) return;
+
+                    _pendingDetailRaw       = rawCrop;
+                    _pendingDetailProcessed = processedCrop;
+                    _pendingDetailW         = cropW;
+                    _pendingDetailH         = cropH;
+                    _pendingDetailOriginX   = capX0;
+                    _pendingDetailOriginY   = capY0;
+                    _pendingDetailFullW     = capSrcW;
+                    _pendingDetailFullH     = capSrcH;
+                }
+                finally
+                {
+                    _detailGenerating = false;
+                    Repaint();
+                }
+            });
+        }
+
+        private void ApplyPendingDetailPreview()
+        {
+            var processed = _pendingDetailProcessed;
+            var raw       = _pendingDetailRaw;
+            int w  = _pendingDetailW;
+            int h  = _pendingDetailH;
+            int ox = _pendingDetailOriginX;
+            int oy = _pendingDetailOriginY;
+            int fw = _pendingDetailFullW;
+            int fh = _pendingDetailFullH;
+            _pendingDetailProcessed = null;
+            _pendingDetailRaw       = null;
+
+            if (processed == null || raw == null) return;
+
+            // Persist the crop origin so the renderer can position the texture correctly
+            _detailOriginX = ox;
+            _detailOriginY = oy;
+
+            if (_detailPreviewTexture == null || _detailPreviewTexture.width != w || _detailPreviewTexture.height != h)
+            {
+                if (_detailPreviewTexture != null) DestroyImmediate(_detailPreviewTexture);
+                _detailPreviewTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
+                _detailPreviewTexture.filterMode = FilterMode.Point;
+            }
+            _detailPreviewTexture.SetPixels32(processed);
+            _detailPreviewTexture.Apply();
+
+            if (_rawDetailPreviewTexture == null || _rawDetailPreviewTexture.width != w || _rawDetailPreviewTexture.height != h)
+            {
+                if (_rawDetailPreviewTexture != null) DestroyImmediate(_rawDetailPreviewTexture);
+                _rawDetailPreviewTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
+                _rawDetailPreviewTexture.filterMode = FilterMode.Point;
+            }
+            _rawDetailPreviewTexture.SetPixels32(raw);
+            _rawDetailPreviewTexture.Apply();
+
+            RebuildDetailMaskOverlay(w, h, ox, oy, fw, fh);
+        }
+
+        private void RebuildDetailMaskOverlay(int cropW, int cropH,
+            int originX, int originY, int fullW, int fullH)
+        {
+            if (exclusionMask == null)
+            {
+                if (_detailMaskOverlayTexture != null)
+                {
+                    DestroyImmediate(_detailMaskOverlayTexture);
+                    _detailMaskOverlayTexture = null;
+                }
+                return;
+            }
+
+            if (_detailMaskOverlayTexture == null ||
+                _detailMaskOverlayTexture.width  != cropW ||
+                _detailMaskOverlayTexture.height != cropH)
+            {
+                if (_detailMaskOverlayTexture != null) DestroyImmediate(_detailMaskOverlayTexture);
+                _detailMaskOverlayTexture = new Texture2D(cropW, cropH, TextureFormat.RGBA32, false);
+                _detailMaskOverlayTexture.filterMode = FilterMode.Point;
+            }
+
+            var overlayPixels = new Color32[cropW * cropH];
+            var excluded = new Color32(255, 60, 60, 80);
+            var clear    = new Color32(0, 0, 0, 0);
+
+            for (int i = 0; i < overlayPixels.Length; i++)
+            {
+                int cx = i % cropW;
+                int cy = i / cropW;
+                int mx = Mathf.Clamp((originX + cx) * maskWidth  / fullW, 0, maskWidth  - 1);
+                int my = Mathf.Clamp((originY + cy) * maskHeight / fullH, 0, maskHeight - 1);
+                bool ex = exclusionMask != null && exclusionMask[my * maskWidth + mx];
+                overlayPixels[i] = ex ? excluded : clear;
+            }
+
+            _detailMaskOverlayTexture.SetPixels32(overlayPixels);
+            _detailMaskOverlayTexture.Apply();
         }
 
         private static ColorZone CloneZone(ColorZone z) => new ColorZone
@@ -799,11 +1104,17 @@ namespace VRCAvatarColorChanger
 
         // Static pure-computation method — safe to run on a background thread.
         // No Texture2D, no UnityEngine.Object API, only Mathf and Color math (both thread-safe).
+        // originX/Y: crop offset in the full-resolution texture (0 for whole-texture processing).
+        // fullW/H: full-resolution texture dimensions (0 = same as w/h, i.e. no crop).
         private static void ProcessPixelsArray(
             Color32[] pixels, int w, int h,
             bool[] mask, int maskW, int maskH,
-            IList<ColorZone> sortedZones, float edgeFeather, int antiAliasCleanup)
+            IList<ColorZone> sortedZones, float edgeFeather, int antiAliasCleanup,
+            int originX = 0, int originY = 0, int fullW = 0, int fullH = 0)
         {
+            if (fullW <= 0) fullW = w;
+            if (fullH <= 0) fullH = h;
+
             int len = w * h;
             Color32[] originalPixels = new Color32[len];
             System.Array.Copy(pixels, originalPixels, len);
@@ -815,8 +1126,9 @@ namespace VRCAvatarColorChanger
                 for (int i = 0; i < len; i++)
                 {
                     int x = i % w, y = i / w;
-                    if (IsExcludedStatic(x, y, w, h, mask, maskW, maskH)) continue;
-                    strength[i] = zone.GetMatchStrength((Color)originalPixels[i], x, y, w, h);
+                    int xf = x + originX, yf = y + originY;
+                    if (IsExcludedStatic(xf, yf, fullW, fullH, mask, maskW, maskH)) continue;
+                    strength[i] = zone.GetMatchStrength((Color)originalPixels[i], xf, yf, fullW, fullH);
                 }
 
                 // 1b. Fill isolated holes: anti-aliased edge pixels often have low saturation
@@ -844,7 +1156,8 @@ namespace VRCAvatarColorChanger
                     for (int i = 0; i < len; i++)
                     {
                         int x = i % w, y = i / w;
-                        if (IsExcludedStatic(x, y, w, h, mask, maskW, maskH)) strength[i] = 0f;
+                        int xf = x + originX, yf = y + originY;
+                        if (IsExcludedStatic(xf, yf, fullW, fullH, mask, maskW, maskH)) strength[i] = 0f;
                     }
                 }
 
@@ -1288,6 +1601,9 @@ namespace VRCAvatarColorChanger
             if (rawPreviewTexture != null) DestroyImmediate(rawPreviewTexture);
             if (diffTexture != null)       DestroyImmediate(diffTexture);
             if (maskOverlayTexture != null) DestroyImmediate(maskOverlayTexture);
+            if (_detailPreviewTexture != null)    DestroyImmediate(_detailPreviewTexture);
+            if (_rawDetailPreviewTexture != null) DestroyImmediate(_rawDetailPreviewTexture);
+            if (_detailMaskOverlayTexture != null) DestroyImmediate(_detailMaskOverlayTexture);
         }
 
         // ───────────────────────── Phase 2: Diff texture ─────────────────────────
