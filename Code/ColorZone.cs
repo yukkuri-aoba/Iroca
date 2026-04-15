@@ -39,14 +39,15 @@ namespace VRCAvatarColorChanger
         // may leave dot artifacts at anti-alias edges. Lower = more inclusive matching.
         // 0 = fixed low threshold (0.02), 0.50 = default, 1.0 = maximum strictness.
         [Range(0f, 1f)]
-        public float saturationStrictness = 0.20f;
+        public float saturationStrictness = 0.50f;
 
         // Value (brightness) weight in the matching distance formula.
-        // Higher values make the algorithm more sensitive to brightness differences,
-        // reducing false positives on different-brightness materials sharing similar hues
-        // (e.g. brown boots vs red bandana).
+        // The actual V penalty is modulated by saturation ratio (pS/sS):
+        // when the pixel has similar saturation to the sample, the V penalty is small
+        // (same material under different lighting). When saturation differs significantly,
+        // the V penalty is large (likely a different material, e.g. brown boots vs red bandana).
         [Range(0f, 1f)]
-        public float valueWeight = 0.15f;
+        public float valueWeight = 1.0f;
 
         // Layer index: zones in higher layers override lower layers (0 = base layer)
         public int layerIndex = 0;
@@ -100,10 +101,13 @@ namespace VRCAvatarColorChanger
             // but allows shadow/highlight variations of the same material.
             float sDist = Mathf.Abs(pS - sS);
 
-            // Value distance: prevents matching materials with similar hue but
-            // very different brightness (e.g. brown boots vs red bandana).
+            // Value distance: modulated by saturation ratio so that pixels with
+            // similar saturation to the sample (same material, different lighting)
+            // receive little V penalty, while pixels with much lower saturation
+            // (different material, e.g. brown boots vs red bandana) receive a strong penalty.
             float vDist = Mathf.Abs(pV - sV);
-            float dist = hDist + sDist * 0.15f + vDist * valueWeight;
+            float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
+            float dist = hDist + sDist * 0.15f + vDist * valueWeight * (1f - sRatio);
 
             if (dist >= tolerance) return 0f;
 

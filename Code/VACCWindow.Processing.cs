@@ -302,11 +302,10 @@ namespace VRCAvatarColorChanger
             if (hDist > 0.5f) hDist = 1f - hDist;
 
             // Boundary pixels are expected to have reduced saturation from AA blending.
-            // Use a lower sDist weight (0.15 vs 0.15 in main match) to allow recovery
-            // of edge pixels whose saturation dropped due to alpha compositing.
             float sDist = Mathf.Abs(pS - sS);
             float vDist = Mathf.Abs(pV - sV);
-            float dist = hDist + sDist * 0.15f + vDist * valueWeight;
+            float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
+            float dist = hDist + sDist * 0.15f + vDist * valueWeight * (1f - sRatio);
 
             if (dist >= tolerance) return 0f;
 
