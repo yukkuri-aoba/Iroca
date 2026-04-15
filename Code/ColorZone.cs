@@ -41,6 +41,13 @@ namespace VRCAvatarColorChanger
         [Range(0f, 1f)]
         public float saturationStrictness = 0.20f;
 
+        // Value (brightness) weight in the matching distance formula.
+        // Higher values make the algorithm more sensitive to brightness differences,
+        // reducing false positives on different-brightness materials sharing similar hues
+        // (e.g. brown boots vs red bandana).
+        [Range(0f, 1f)]
+        public float valueWeight = 0.15f;
+
         // Layer index: zones in higher layers override lower layers (0 = base layer)
         public int layerIndex = 0;
 
@@ -93,9 +100,10 @@ namespace VRCAvatarColorChanger
             // but allows shadow/highlight variations of the same material.
             float sDist = Mathf.Abs(pS - sS);
 
-            // Value distance intentionally omitted: brightness varies across
-            // shadows and highlights of the same hue, and should all be recoloured.
-            float dist = hDist + sDist * 0.15f;
+            // Value distance: prevents matching materials with similar hue but
+            // very different brightness (e.g. brown boots vs red bandana).
+            float vDist = Mathf.Abs(pV - sV);
+            float dist = hDist + sDist * 0.15f + vDist * valueWeight;
 
             if (dist >= tolerance) return 0f;
 

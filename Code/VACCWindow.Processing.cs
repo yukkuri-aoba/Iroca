@@ -55,7 +55,7 @@ namespace VRCAvatarColorChanger
                 //     using the old fixed low-saturation threshold, giving correct gradual strength.
                 if (antiAliasCleanup > 0)
                     RecoverBoundaryEdges(strength, w, h, originalPixels,
-                        zone.sampleColor, zone.tolerance, zone.edgeSoftness, antiAliasCleanup);
+                        zone.sampleColor, zone.tolerance, zone.edgeSoftness, zone.valueWeight, antiAliasCleanup);
 
                 // 2. Gaussian blur for smooth edge transitions (constrained to edges)
                 if (edgeFeather > 0.01f)
@@ -243,7 +243,7 @@ namespace VRCAvatarColorChanger
         private static void RecoverBoundaryEdges(
             float[] strength, int w, int h,
             Color32[] pixels, Color sampleColor, float tolerance,
-            float edgeSoftness, int passes)
+            float edgeSoftness, float valueWeight, int passes)
         {
             float sH, sS, sV;
             Color.RGBToHSV(sampleColor, out sH, out sS, out sV);
@@ -274,7 +274,7 @@ namespace VRCAvatarColorChanger
 
                         // Re-evaluate this pixel with the relaxed fixed saturation threshold
                         float relaxed = GetRelaxedMatchStrength(
-                            (Color)pixels[idx], sH, sS, tolerance, edgeSoftness);
+                            (Color)pixels[idx], sH, sS, sV, tolerance, edgeSoftness, valueWeight);
                         if (relaxed > 0f)
                             updated[idx] = relaxed;
                     }
@@ -289,8 +289,8 @@ namespace VRCAvatarColorChanger
         /// Used only for boundary pixels adjacent to already-matched regions.
         /// </summary>
         private static float GetRelaxedMatchStrength(
-            Color pixelColor, float sH, float sS,
-            float tolerance, float edgeSoftness)
+            Color pixelColor, float sH, float sS, float sV,
+            float tolerance, float edgeSoftness, float valueWeight)
         {
             float pH, pS, pV;
             Color.RGBToHSV(pixelColor, out pH, out pS, out pV);
@@ -305,7 +305,8 @@ namespace VRCAvatarColorChanger
             // Use a lower sDist weight (0.15 vs 0.15 in main match) to allow recovery
             // of edge pixels whose saturation dropped due to alpha compositing.
             float sDist = Mathf.Abs(pS - sS);
-            float dist = hDist + sDist * 0.15f;
+            float vDist = Mathf.Abs(pV - sV);
+            float dist = hDist + sDist * 0.15f + vDist * valueWeight;
 
             if (dist >= tolerance) return 0f;
 
