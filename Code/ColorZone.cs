@@ -39,7 +39,7 @@ namespace VRCAvatarColorChanger
         // may leave dot artifacts at anti-alias edges. Lower = more inclusive matching.
         // 0 = fixed low threshold (0.02), 0.50 = default, 1.0 = maximum strictness.
         [Range(0f, 1f)]
-        public float saturationStrictness = 0.50f;
+        public float saturationStrictness = 0.20f;
 
         // Layer index: zones in higher layers override lower layers (0 = base layer)
         public int layerIndex = 0;
