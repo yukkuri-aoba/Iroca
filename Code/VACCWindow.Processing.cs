@@ -13,7 +13,8 @@ namespace VRCAvatarColorChanger
             if (sorted.Count == 0) return;
             Color32[] pixels = tex.GetPixels32();
             ProcessPixelsArray(pixels, tex.width, tex.height,
-                exclusionMask, maskWidth, maskHeight, sorted, edgeFeather, antiAliasCleanup);
+                exclusionMask, maskWidth, maskHeight, sorted, edgeFeather, antiAliasCleanup,
+                holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp);
             tex.SetPixels32(pixels);
         }
 
@@ -25,6 +26,8 @@ namespace VRCAvatarColorChanger
             Color32[] pixels, int w, int h,
             bool[] mask, int maskW, int maskH,
             IList<ColorZone> sortedZones, float edgeFeather, int antiAliasCleanup,
+            int holeFillPasses = 3, int holeFillMinNeighbors = 4,
+            float relaxedSatMin = 0.02f, float relaxedSatRamp = 0.08f,
             int originX = 0, int originY = 0, int fullW = 0, int fullH = 0)
         {
             if (fullW <= 0) fullW = w;
@@ -49,13 +52,14 @@ namespace VRCAvatarColorChanger
                 // 1b. 孤立した穴を埋める：アンチエイリアス処理された端のピクセルは低彩度を持つことが多く
                 //     satConfidenceで見落とされて、元のカラーの孤立したドットを残す
                 //     ゼロ強度ピクセルが主にマッチしたピクセルに囲まれている場合は埋める
-                FillSmallHoles(strength, w, h);
+                FillSmallHoles(strength, w, h, holeFillPasses, holeFillMinNeighbors);
 
                 // 1c. 境界復元：マッチしたピクセルに隣接するマッチしないピクセルを再評価
                 //     古い固定低彩度閾値を使用して、正しい段階的な強度を与える
                 if (antiAliasCleanup > 0)
                     RecoverBoundaryEdges(strength, w, h, originalPixels,
-                        zone.sampleColor, zone.tolerance, zone.edgeSoftness, zone.valueWeight, antiAliasCleanup);
+                        zone.sampleColor, zone.tolerance, zone.edgeSoftness, zone.valueWeight,
+                        zone.satDistWeight, relaxedSatMin, relaxedSatRamp, antiAliasCleanup);
 
                 // 2. スムーズな端の遷移のためのガウシアンブラー（端に限定）
                 if (edgeFeather > 0.01f)
@@ -186,11 +190,12 @@ namespace VRCAvatarColorChanger
         /// 最小隣接強度で埋める。
         /// これにより、satConfidenceゲートを通過するに低い彩度を持つアンチエイリアス処理された
         /// 端のピクセルが原因の孤立した1-2pxドットアーティファクトを除去します。
-        /// 3パスでアンチエイリアス境界の最大3px幅のギャップを埋められます。
+        /// パス数と最小隣接数はアドバンスモードで調整可能。
         /// </summary>
-        private static void FillSmallHoles(float[] strength, int w, int h)
+        private static void FillSmallHoles(float[] strength, int w, int h,
+            int passes = 3, int minNeighbors = 4)
         {
-            for (int pass = 0; pass < 3; pass++)
+            for (int pass = 0; pass < passes; pass++)
             {
                 float[] filled = (float[])strength.Clone();
 
@@ -222,8 +227,8 @@ namespace VRCAvatarColorChanger
                             }
                         }
 
-                        // Fill if at least 4 of the (up to 8) neighbours are matched
-                        if (matched >= 4 && total >= 4)
+                        // 最小隣接数以上のマッチした隣接ピクセルがあれば埋める
+                        if (matched >= minNeighbors && total >= minNeighbors)
                             filled[idx] = minNeighbour;
                     }
                 }
@@ -242,7 +247,8 @@ namespace VRCAvatarColorChanger
         private static void RecoverBoundaryEdges(
             float[] strength, int w, int h,
             Color32[] pixels, Color sampleColor, float tolerance,
-            float edgeSoftness, float valueWeight, int passes)
+            float edgeSoftness, float valueWeight, float satDistWeight,
+            float relaxedSatMin, float relaxedSatRamp, int passes)
         {
             float sH, sS, sV;
             Color.RGBToHSV(sampleColor, out sH, out sS, out sV);
@@ -273,7 +279,8 @@ namespace VRCAvatarColorChanger
 
                         // Re-evaluate this pixel with the relaxed fixed saturation threshold
                         float relaxed = GetRelaxedMatchStrength(
-                            (Color)pixels[idx], sH, sS, sV, tolerance, edgeSoftness, valueWeight);
+                            (Color)pixels[idx], sH, sS, sV, tolerance, edgeSoftness, valueWeight,
+                            satDistWeight, relaxedSatMin, relaxedSatRamp);
                         if (relaxed > 0f)
                             updated[idx] = relaxed;
                     }
@@ -284,18 +291,20 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
-        /// 元の固定低彩度閾値（satMin=0.02/satRamp=0.08）を使用したカラーマッチ。
+        /// 緩和された彩度閾値を使用したカラーマッチ。
         /// すでにマッチした領域に隣接する境界ピクセルにのみ使用されます。
+        /// アドバンスモードでrelaxedSatMin/relaxedSatRamp/satDistWeightを調整可能。
         /// </summary>
         private static float GetRelaxedMatchStrength(
             Color pixelColor, float sH, float sS, float sV,
-            float tolerance, float edgeSoftness, float valueWeight)
+            float tolerance, float edgeSoftness, float valueWeight,
+            float satDistWeight, float relaxedSatMin, float relaxedSatRamp)
         {
             float pH, pS, pV;
             Color.RGBToHSV(pixelColor, out pH, out pS, out pV);
 
-            // 固定低彩度閾値 — 動的satMin前の元のアルゴリズムと一致
-            float satConfidence = Mathf.Clamp01((pS - 0.02f) / 0.08f);
+            // 緩和された彩度閾値 — アドバンスモードで調整可能
+            float satConfidence = Mathf.Clamp01((pS - relaxedSatMin) / relaxedSatRamp);
 
             float hDist = Mathf.Abs(pH - sH);
             if (hDist > 0.5f) hDist = 1f - hDist;
@@ -304,7 +313,7 @@ namespace VRCAvatarColorChanger
             float sDist = Mathf.Abs(pS - sS);
             float vDist = Mathf.Abs(pV - sV);
             float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
-            float dist = hDist + sDist * 0.15f + vDist * valueWeight * (1f - sRatio);
+            float dist = hDist + sDist * satDistWeight + vDist * valueWeight * (1f - sRatio);
 
             if (dist >= tolerance) return 0f;
 

@@ -463,6 +463,10 @@ namespace VRCAvatarColorChanger
                 .ToList();
             float feather = edgeFeather;
             int aaCleanup = antiAliasCleanup;
+            int hfPasses = holeFillPasses;
+            int hfMinNeighbors = holeFillMinNeighbors;
+            float rSatMin = relaxedSatMin;
+            float rSatRamp = relaxedSatRamp;
 
             float scale = 1f;
             if (srcW > PreviewMaxSize || srcH > PreviewMaxSize)
@@ -477,7 +481,8 @@ namespace VRCAvatarColorChanger
                     // すべての重い計算はバックグラウンドスレッドで実行されます。
                     // ここでは Unity Object API は呼ばれない — 純粋な C# 計算のみ。
                     Color32[] pixels = (Color32[])srcPixels.Clone();
-                    ProcessPixelsArray(pixels, srcW, srcH, maskSnapshot, mW, mH, zonesSnapshot, feather, aaCleanup);
+                    ProcessPixelsArray(pixels, srcW, srcH, maskSnapshot, mW, mH, zonesSnapshot, feather, aaCleanup,
+                        hfPasses, hfMinNeighbors, rSatMin, rSatRamp);
 
                     // 新しいタスクに置き換えられた — 結果を静かに破棄。
                     if (myGen != _asyncGeneration || _asyncCancelled)

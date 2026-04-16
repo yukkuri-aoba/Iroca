@@ -18,6 +18,13 @@ namespace VRCAvatarColorChanger
         private float edgeFeather = 0f;
         private int antiAliasCleanup = 3;
 
+        // アドバンスモード
+        private bool advancedMode;
+        private int holeFillPasses = 3;
+        private int holeFillMinNeighbors = 4;
+        private float relaxedSatMin = 0.02f;
+        private float relaxedSatRamp = 0.08f;
+
         // Foldouts
         private bool zonesFoldout = true;
         private bool processingFoldout = true;
@@ -190,6 +197,19 @@ namespace VRCAvatarColorChanger
                     new GUIContent(Localization.SaturationStrictness, Localization.SaturationStrictnessTooltip),
                     zone.saturationStrictness, 0f, 1f);
 
+                if (advancedMode)
+                {
+                    zone.valueWeight = EditorGUILayout.Slider(
+                        new GUIContent(Localization.ValueWeight, Localization.ValueWeightTooltip),
+                        zone.valueWeight, 0f, 1f);
+                    zone.satDistWeight = EditorGUILayout.Slider(
+                        new GUIContent(Localization.SatDistWeight, Localization.SatDistWeightTooltip),
+                        zone.satDistWeight, 0f, 1f);
+                    zone.satRampScale = EditorGUILayout.Slider(
+                        new GUIContent(Localization.SatRampScale, Localization.SatRampScaleTooltip),
+                        zone.satRampScale, 0.01f, 0.5f);
+                }
+
                 EditorGUILayout.EndVertical();
                 EditorGUILayout.Space(2);
             }
@@ -228,6 +248,28 @@ namespace VRCAvatarColorChanger
             antiAliasCleanup = EditorGUILayout.IntSlider(
                 new GUIContent(Localization.AntiAliasCleanup, Localization.AntiAliasCleanupTooltip),
                 antiAliasCleanup, 0, 5);
+
+            advancedMode = EditorGUILayout.Toggle(
+                new GUIContent(Localization.AdvancedMode, Localization.AdvancedModeTooltip),
+                advancedMode);
+
+            if (advancedMode)
+            {
+                EditorGUI.indentLevel++;
+                holeFillPasses = EditorGUILayout.IntSlider(
+                    new GUIContent(Localization.HoleFillPasses, Localization.HoleFillPassesTooltip),
+                    holeFillPasses, 0, 10);
+                holeFillMinNeighbors = EditorGUILayout.IntSlider(
+                    new GUIContent(Localization.HoleFillMinNeighbors, Localization.HoleFillMinNeighborsTooltip),
+                    holeFillMinNeighbors, 1, 8);
+                relaxedSatMin = EditorGUILayout.Slider(
+                    new GUIContent(Localization.RelaxedSatMin, Localization.RelaxedSatMinTooltip),
+                    relaxedSatMin, 0f, 0.2f);
+                relaxedSatRamp = EditorGUILayout.Slider(
+                    new GUIContent(Localization.RelaxedSatRamp, Localization.RelaxedSatRampTooltip),
+                    relaxedSatRamp, 0.01f, 0.3f);
+                EditorGUI.indentLevel--;
+            }
 
             EditorGUILayout.EndFoldoutHeaderGroup();
             EditorGUILayout.Space(4);

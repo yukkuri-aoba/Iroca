@@ -49,6 +49,16 @@ namespace VRCAvatarColorChanger
         [Range(0f, 1f)]
         public float valueWeight = 1.0f;
 
+        // ── アドバンスモード専用パラメータ ──
+        // 距離式における彩度距離の重み。高い値は彩度差に敏感になる。
+        [Range(0f, 1f)]
+        public float satDistWeight = 0.15f;
+
+        // 動的彩度ランプのスケール。satRamp = Max(0.08, sS * satRampScale)
+        // 大きい値 = 彩度が高いサンプルの閾値付近で段階的な遷移
+        [Range(0.01f, 0.5f)]
+        public float satRampScale = 0.10f;
+
         // レイヤーインデックス: 高いレイヤーのゾーンが低いレイヤーをオーバーライド（0 = ベースレイヤー）
         public int layerIndex = 0;
 
@@ -90,7 +100,7 @@ namespace VRCAvatarColorChanger
             // はマッチ境界付近の AA-エッジピクセルを空間的に回復します。
             // 低彩度サンプルの場合、閾値は固定 0.02/0.08 ランプに縮小します。
             float satMin  = Mathf.Max(0.02f, sS * saturationStrictness);
-            float satRamp = Mathf.Max(0.08f, sS * 0.10f);
+            float satRamp = Mathf.Max(0.08f, sS * satRampScale);
             float satConfidence = Mathf.Clamp01((pS - satMin) / satRamp);
 
             // 色相距離（円形）
@@ -101,13 +111,14 @@ namespace VRCAvatarColorChanger
             // 同じ素材の影/ハイライト変動を許可します。
             float sDist = Mathf.Abs(pS - sS);
 
+            // 彩度距離の重み（アドバンスモードで調整可能）
             // 値距離: ピクセルが持つ彩度比率で調整されるため、
             // サンプルと同様の彩度を持つピクセル（同じ素材、異なる照明）
             // は小さな V 罰則を受け、彩度が非常に低いピクセル
             // （異なる素材、例えば茶色のブーツ対赤いバンダナ）は強い罰則を受けます。
             float vDist = Mathf.Abs(pV - sV);
             float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
-            float dist = hDist + sDist * 0.15f + vDist * valueWeight * (1f - sRatio);
+            float dist = hDist + sDist * satDistWeight + vDist * valueWeight * (1f - sRatio);
 
             if (dist >= tolerance) return 0f;
 

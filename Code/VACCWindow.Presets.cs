@@ -112,7 +112,13 @@ namespace VRCAvatarColorChanger
             {
                 name = name,
                 zones = new List<ColorZone>(zones),
-                edgeFeather = edgeFeather
+                edgeFeather = edgeFeather,
+                advancedMode = advancedMode,
+                antiAliasCleanup = antiAliasCleanup,
+                holeFillPasses = holeFillPasses,
+                holeFillMinNeighbors = holeFillMinNeighbors,
+                relaxedSatMin = relaxedSatMin,
+                relaxedSatRamp = relaxedSatRamp
             };
             string json = JsonUtility.ToJson(data, true);
             string path = System.IO.Path.Combine(folder, name + ".json");
@@ -129,6 +135,12 @@ namespace VRCAvatarColorChanger
 
             zones = data.zones ?? new List<ColorZone>();
             edgeFeather = data.edgeFeather;
+            advancedMode = data.advancedMode;
+            antiAliasCleanup = data.antiAliasCleanup > 0 ? data.antiAliasCleanup : 3;
+            holeFillPasses = data.holeFillPasses > 0 ? data.holeFillPasses : 3;
+            holeFillMinNeighbors = data.holeFillMinNeighbors > 0 ? data.holeFillMinNeighbors : 4;
+            relaxedSatMin = data.relaxedSatMin > 0f ? data.relaxedSatMin : 0.02f;
+            relaxedSatRamp = data.relaxedSatRamp > 0f ? data.relaxedSatRamp : 0.08f;
             previewDirty = true;
         }
 
@@ -154,7 +166,13 @@ namespace VRCAvatarColorChanger
             {
                 name = System.IO.Path.GetFileNameWithoutExtension(path),
                 zones = new List<ColorZone>(zones),
-                edgeFeather = edgeFeather
+                edgeFeather = edgeFeather,
+                advancedMode = advancedMode,
+                antiAliasCleanup = antiAliasCleanup,
+                holeFillPasses = holeFillPasses,
+                holeFillMinNeighbors = holeFillMinNeighbors,
+                relaxedSatMin = relaxedSatMin,
+                relaxedSatRamp = relaxedSatRamp
             };
             System.IO.File.WriteAllText(path, JsonUtility.ToJson(data, true));
         }

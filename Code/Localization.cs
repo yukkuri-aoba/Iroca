@@ -79,6 +79,47 @@ namespace VRCAvatarColorChanger
             ? "アンチエイリアス境界の残りドットを除去するパス数。\n0 = オフ、3 = 標準（推奨）、5 = 最大\n値を大きくすると境界の回収範囲が広がります。"
             : "Number of passes to recover anti-alias boundary pixels.\n0 = off, 3 = normal (recommended), 5 = max\nHigher values recover more edge pixels.";
 
+        // ─── Advanced Mode ───
+        public static string AdvancedMode => IsJapanese ? "アドバンスモード" : "Advanced Mode";
+        public static string AdvancedModeTooltip => IsJapanese
+            ? "有効にすると、アルゴリズムの内部パラメータをより細かく調整できます。\n通常はデフォルト値で十分ですが、特殊なテクスチャに対して微調整が必要な場合に使用してください。"
+            : "Enables fine-grained control over internal algorithm parameters.\nDefault values work well for most textures, but can be tuned for special cases.";
+
+        public static string HoleFillPasses => IsJapanese ? "穴埋めパス数" : "Hole Fill Passes";
+        public static string HoleFillPassesTooltip => IsJapanese
+            ? "アンチエイリアス端の孤立ドットを除去するパス数。\n多いほど大きなギャップを埋めますが、過剰に埋める可能性があります。\nデフォルト: 3"
+            : "Passes to fill isolated dots at anti-aliased edges.\nMore passes fill larger gaps but may over-fill.\nDefault: 3";
+
+        public static string HoleFillMinNeighbors => IsJapanese ? "穴埋め最小隣接数" : "Hole Fill Min Neighbors";
+        public static string HoleFillMinNeighborsTooltip => IsJapanese
+            ? "穴を埋めるために必要なマッチした隣接ピクセルの最小数。\n低い値 = より積極的に穴を埋める\n高い値 = より保守的\nデフォルト: 4"
+            : "Minimum matched neighbors required to fill a hole.\nLower = more aggressive filling\nHigher = more conservative\nDefault: 4";
+
+        public static string RelaxedSatMin => IsJapanese ? "境界復元 彩度最小" : "Boundary Sat Min";
+        public static string RelaxedSatMinTooltip => IsJapanese
+            ? "境界復元時の彩度最小閾値。\n低い値 = より多くの境界ピクセルを回収\n高い値 = より厳格な回収\nデフォルト: 0.02"
+            : "Minimum saturation threshold for boundary recovery.\nLower = recover more boundary pixels\nHigher = stricter recovery\nDefault: 0.02";
+
+        public static string RelaxedSatRamp => IsJapanese ? "境界復元 彩度ランプ" : "Boundary Sat Ramp";
+        public static string RelaxedSatRampTooltip => IsJapanese
+            ? "境界復元時の彩度ランプ幅。\n大きい値 = より段階的な遷移\n小さい値 = よりシャープな境界\nデフォルト: 0.08"
+            : "Saturation ramp width for boundary recovery.\nLarger = more gradual transition\nSmaller = sharper boundary\nDefault: 0.08";
+
+        public static string ValueWeight => IsJapanese ? "明度重み" : "Value Weight";
+        public static string ValueWeightTooltip => IsJapanese
+            ? "距離式における明度（V）の重み。\n高い値 = 明度差に敏感（異なる素材を分離しやすい）\n低い値 = 明度差を許容（同じ素材の影/ハイライト変動を吸収）\nデフォルト: 1.0"
+            : "Weight of value (brightness) in the distance formula.\nHigher = sensitive to brightness differences (separates different materials)\nLower = tolerates brightness variation (absorbs shadow/highlight of same material)\nDefault: 1.0";
+
+        public static string SatDistWeight => IsJapanese ? "彩度距離重み" : "Sat Distance Weight";
+        public static string SatDistWeightTooltip => IsJapanese
+            ? "距離式における彩度距離の重み。\n高い値 = 彩度差に敏感\n低い値 = 彩度差を許容\nデフォルト: 0.15"
+            : "Weight of saturation distance in the distance formula.\nHigher = sensitive to saturation differences\nLower = tolerates saturation differences\nDefault: 0.15";
+
+        public static string SatRampScale => IsJapanese ? "彩度ランプスケール" : "Sat Ramp Scale";
+        public static string SatRampScaleTooltip => IsJapanese
+            ? "動的彩度ランプのスケール係数。\nsatRamp = Max(0.08, サンプル彩度 × この値)\n大きい値 = 彩度閾値付近で段階的なフェードイン\n小さい値 = より急激な閾値\nデフォルト: 0.10"
+            : "Scale factor for the dynamic saturation ramp.\nsatRamp = Max(0.08, sampleSat × this)\nLarger = more gradual fade near threshold\nSmaller = sharper threshold\nDefault: 0.10";
+
         // ─── Exclusion Mask ───
         public static string ExclusionMask => IsJapanese ? "除外マスク" : "Exclusion Mask";
         public static string BrushSize => IsJapanese ? "ブラシサイズ" : "Brush Size";
