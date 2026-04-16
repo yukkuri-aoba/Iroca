@@ -6,7 +6,7 @@ namespace VRCAvatarColorChanger
 {
     public partial class VACCWindow
     {
-        // Instance wrapper used by the export path (main thread, can access instance fields directly).
+        // エクスポート処理で使用されるインスタンスラッパー（メインスレッド、インスタンスフィールドに直接アクセス可能）
         private void ProcessPixels(Texture2D tex)
         {
             var sorted = zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
@@ -17,10 +17,10 @@ namespace VRCAvatarColorChanger
             tex.SetPixels32(pixels);
         }
 
-        // Static pure-computation method — safe to run on a background thread.
-        // No Texture2D, no UnityEngine.Object API, only Mathf and Color math (both thread-safe).
-        // originX/Y: crop offset in the full-resolution texture (0 for whole-texture processing).
-        // fullW/H: full-resolution texture dimensions (0 = same as w/h, i.e. no crop).
+        // スタティック計算メソッド — バックグラウンドスレッドで実行可能
+        // Texture2Dなし、UnityEngine.Object APIなし、Mathfとカラー計算のみ（いずれもスレッドセーフ）
+        // originX/Y: フル解像度テクスチャでのクロップオフセット（0で全テクスチャ処理）
+        // fullW/H: フル解像度テクスチャの寸法（0 = w/hと同じ、つまりクロップなし）
         private static void ProcessPixelsArray(
             Color32[] pixels, int w, int h,
             bool[] mask, int maskW, int maskH,
@@ -36,7 +36,7 @@ namespace VRCAvatarColorChanger
 
             foreach (var zone in sortedZones)
             {
-                // 1. Build strength map using original pixel colors
+                // 1. 元のピクセルカラーを使用した強度マップを構築
                 float[] strength = new float[len];
                 for (int i = 0; i < len; i++)
                 {
@@ -46,18 +46,18 @@ namespace VRCAvatarColorChanger
                     strength[i] = zone.GetMatchStrength((Color)originalPixels[i], xf, yf, fullW, fullH);
                 }
 
-                // 1b. Fill isolated holes: anti-aliased edge pixels often have low saturation
-                //     and get missed by satConfidence, leaving isolated dots of the original color.
-                //     If a zero-strength pixel is mostly surrounded by matched pixels, fill it in.
+                // 1b. 孤立した穴を埋める：アンチエイリアス処理された端のピクセルは低彩度を持つことが多く
+                //     satConfidenceで見落とされて、元のカラーの孤立したドットを残す
+                //     ゼロ強度ピクセルが主にマッチしたピクセルに囲まれている場合は埋める
                 FillSmallHoles(strength, w, h);
 
-                // 1c. Boundary recovery: re-evaluate unmatched pixels adjacent to matched ones
-                //     using the old fixed low-saturation threshold, giving correct gradual strength.
+                // 1c. 境界復元：マッチしたピクセルに隣接するマッチしないピクセルを再評価
+                //     古い固定低彩度閾値を使用して、正しい段階的な強度を与える
                 if (antiAliasCleanup > 0)
                     RecoverBoundaryEdges(strength, w, h, originalPixels,
                         zone.sampleColor, zone.tolerance, zone.edgeSoftness, zone.valueWeight, antiAliasCleanup);
 
-                // 2. Gaussian blur for smooth edge transitions (constrained to edges)
+                // 2. スムーズな端の遷移のためのガウシアンブラー（端に限定）
                 if (edgeFeather > 0.01f)
                 {
                     float[] preBlur = (float[])strength.Clone();
@@ -65,7 +65,7 @@ namespace VRCAvatarColorChanger
                     ConstrainBlur(strength, preBlur, w, h, Mathf.CeilToInt(edgeFeather * 2.5f));
                 }
 
-                // 3. Re-apply exclusion mask: blur can spread strength INTO excluded pixels
+                // 3. 除外マスクを再適用：ブラーが除外ピクセルにはみ出す可能性がある
                 if (mask != null)
                 {
                     for (int i = 0; i < len; i++)
@@ -76,7 +76,7 @@ namespace VRCAvatarColorChanger
                     }
                 }
 
-                // 4. Apply recoloring blended by strength
+                // 4. 強度でブレンドした再色付けを適用
                 for (int i = 0; i < len; i++)
                 {
                     float s = strength[i];
@@ -102,7 +102,7 @@ namespace VRCAvatarColorChanger
             int radius = Mathf.CeilToInt(sigma * 2.5f);
             if (radius < 1) return map;
 
-            // Build 1D kernel
+            // 1D カーネルを構築
             float[] kernel = new float[radius * 2 + 1];
             float sum = 0f;
             for (int i = -radius; i <= radius; i++)
@@ -113,7 +113,7 @@ namespace VRCAvatarColorChanger
             for (int i = 0; i < kernel.Length; i++)
                 kernel[i] /= sum;
 
-            // Horizontal pass
+            // 水平パス
             float[] temp = new float[w * h];
             for (int y = 0; y < h; y++)
             {
@@ -129,7 +129,7 @@ namespace VRCAvatarColorChanger
                 }
             }
 
-            // Vertical pass
+            // 垂直パス
             float[] result = new float[w * h];
             for (int y = 0; y < h; y++)
             {
@@ -150,9 +150,9 @@ namespace VRCAvatarColorChanger
 
         private static void ConstrainBlur(float[] blurred, float[] original, int w, int h, int radius)
         {
-            // Prevent blur from bleeding into areas that had no nearby match.
-            // If neither this pixel nor any neighbor within blur radius had
-            // original strength > 0, zero out the blurred value.
+            // マッチがなかった領域へのブラーの流出を防止
+            // このピクセルもブラー半径内の隣接ピクセルも、元の強度 > 0 がなければ
+            // ブラー値をゼロに
             for (int y = 0; y < h; y++)
             {
                 for (int x = 0; x < w; x++)
@@ -182,11 +182,11 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
-        /// Morphological fill: zero-strength pixels surrounded by a majority of matched
-        /// neighbours get filled in with the minimum neighbour strength.
-        /// This removes isolated 1-2px dot artifacts caused by anti-aliased edge pixels
-        /// whose saturation is too low to pass the satConfidence gate.
-        /// Three passes allow filling up to 3px-wide gaps at anti-alias boundaries.
+        /// 形態学的フィル：ゼロ強度のピクセルがマッチした隣接ピクセルの多数派に囲まれていれば
+        /// 最小隣接強度で埋める。
+        /// これにより、satConfidenceゲートを通過するに低い彩度を持つアンチエイリアス処理された
+        /// 端のピクセルが原因の孤立した1-2pxドットアーティファクトを除去します。
+        /// 3パスでアンチエイリアス境界の最大3px幅のギャップを埋められます。
         /// </summary>
         private static void FillSmallHoles(float[] strength, int w, int h)
         {
@@ -233,12 +233,11 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
-        /// Boundary recovery: for unmatched pixels adjacent to at least one matched pixel,
-        /// re-evaluate the colour match using the original fixed low-saturation threshold
-        /// (satMin=0.02, satRamp=0.08). This gives correct gradual strength values for
-        /// anti-alias edge pixels that the strict dynamic satMin rejected.
-        /// Each pass extends recovery by one more pixel outward from the matched boundary.
-        /// The adjacency requirement prevents AO/shadow bleed in interior regions.
+        /// 境界復元：少なくとも1つのマッチしたピクセルに隣接するマッチしないピクセルについて
+        /// 元の固定低彩度閾値（satMin=0.02, satRamp=0.08）を使用してカラーマッチを再評価します。
+        /// これにより、厳格な動的satMinが拒否したアンチエイリアス端のピクセルに対して
+        /// 正しい段階的な強度値が得られます。各パスはマッチした境界からさらに1ピクセル
+        /// 外側への復元を拡張します。隣接要件により、内部領域でのAO/影のにじみを防ぎます。
         /// </summary>
         private static void RecoverBoundaryEdges(
             float[] strength, int w, int h,
@@ -285,8 +284,8 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
-        /// Colour match using the original fixed low saturation threshold (satMin=0.02/satRamp=0.08).
-        /// Used only for boundary pixels adjacent to already-matched regions.
+        /// 元の固定低彩度閾値（satMin=0.02/satRamp=0.08）を使用したカラーマッチ。
+        /// すでにマッチした領域に隣接する境界ピクセルにのみ使用されます。
         /// </summary>
         private static float GetRelaxedMatchStrength(
             Color pixelColor, float sH, float sS, float sV,
@@ -295,13 +294,13 @@ namespace VRCAvatarColorChanger
             float pH, pS, pV;
             Color.RGBToHSV(pixelColor, out pH, out pS, out pV);
 
-            // Fixed low saturation threshold — matches original algorithm before dynamic satMin
+            // 固定低彩度閾値 — 動的satMin前の元のアルゴリズムと一致
             float satConfidence = Mathf.Clamp01((pS - 0.02f) / 0.08f);
 
             float hDist = Mathf.Abs(pH - sH);
             if (hDist > 0.5f) hDist = 1f - hDist;
 
-            // Boundary pixels are expected to have reduced saturation from AA blending.
+            // 境界ピクセルはAAブレンディングから低下した彩度を持つと予想される
             float sDist = Mathf.Abs(pS - sS);
             float vDist = Mathf.Abs(pV - sV);
             float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
@@ -332,7 +331,7 @@ namespace VRCAvatarColorChanger
             Color.RGBToHSV(target,   out tH, out tS, out tV);
             Color.RGBToHSV(sample,   out sH, out sS, out sV);
 
-            // Preserve saturation ratio: antialias boundary pixels keep their relative saturation
+            // 彩度比を保持：アンチエイリアス境界ピクセルは相対的な彩度を保つ
             float newS = (sS > 0.001f) ? Mathf.Clamp01(oS * tS / sS) : tS;
 
             float newV = Mathf.Lerp(tV, oV, valueBlend);

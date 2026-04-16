@@ -16,45 +16,45 @@ namespace VRCAvatarColorChanger
         public bool enabled = true;
         public SelectionMode mode = SelectionMode.ColorPick;
 
-        // ColorPick mode
+        // カラーピックモード
         public Color sampleColor = Color.white;
         public float tolerance = 0f;
 
-        // Rect mode (UV coordinates 0-1)
+        // 矩形モード（UV座標0-1）
         public Rect uvRect = new Rect(0, 0, 1, 1);
 
-        // Target
+        // 変更先
         public Color targetColor = Color.white;
 
-        // 0 = use target V completely (flat/vivid), 1 = keep original V completely (preserve pattern)
+        // 0 = 変更先Vを完全に使用（べたごし/鮮やか）、1 = 元のVを完全保持（模様不然）
         [Range(0f, 1f)]
         public float valueBlend = 1f;
 
-        // 0 = hard edge, 1 = very soft edge (anti-alias friendly)
+        // 0 = 硬い端、1 = とても柔らかい端（アンチエイリアス友好）
         [Range(0f, 1f)]
         public float edgeSoftness = 0f;
 
-        // Saturation strictness: controls how aggressively low-saturation pixels (AO/shadow)
-        // are excluded from colour matching. Higher = fewer false positives (less bleed) but
-        // may leave dot artifacts at anti-alias edges. Lower = more inclusive matching.
-        // 0 = fixed low threshold (0.02), 0.50 = default, 1.0 = maximum strictness.
+        // 彩度厳格化: 低彩度ピクセル（AO/影）をどの程度決定的に除外するかを制御します。
+        // 高い値 = 誤検知が少ない（はみ出しが少ない）が、アンチエイリアス端にドットが残る可能性があります。
+        // 低い値 = よりインクルーシブなマッチング。
+        // 0 = 固定低閾値（0.02）、0.50 = デフォルト、1.0 = 最大厳格化。
         [Range(0f, 1f)]
         public float saturationStrictness = 0.50f;
 
-        // Value (brightness) weight in the matching distance formula.
-        // The actual V penalty is modulated by saturation ratio (pS/sS):
-        // when the pixel has similar saturation to the sample, the V penalty is small
-        // (same material under different lighting). When saturation differs significantly,
-        // the V penalty is large (likely a different material, e.g. brown boots vs red bandana).
+        // バリューマッチング距離式における（明るさ）の重み。
+        // 実際のV罰則は彩度比率（pS/sS）によって調整されます：
+        // ピクセルがサンプルと同様の彩度を持つ場合、V罰則は小さい
+        // （同じ素材の下の照明が異なる）。彩度が大きく異なる場合、
+        // V罰則は大きい（異なる素材の可能性、例えば茶ブーツ対赤バンダナ）。
         [Range(0f, 1f)]
         public float valueWeight = 1.0f;
 
-        // Layer index: zones in higher layers override lower layers (0 = base layer)
+        // レイヤーインデックス: 高いレイヤーのゾーンが低いレイヤーをオーバーライド（0 = ベースレイヤー）
         public int layerIndex = 0;
 
         /// <summary>
-        /// Returns a match strength in [0, 1] for soft selection.
-        /// 0 = no match, 1 = full match, intermediate = partial (edge/transition).
+        /// [0, 1] 範囲でソフト選択用のマッチ強度を返します。
+        /// 0 = マッチなし、1 = 完全マッチ、中間 = 部分的（エッジ/遷移）。
         /// </summary>
         public float GetMatchStrength(Color pixelColor, int x, int y, int texWidth, int texHeight)
         {
@@ -82,42 +82,42 @@ namespace VRCAvatarColorChanger
             Color.RGBToHSV(pixelColor, out pH, out pS, out pV);
             Color.RGBToHSV(sampleColor, out sH, out sS, out sV);
 
-            // Dynamic saturation threshold: when the sample is highly saturated (e.g. vivid blue),
-            // require pixels to have a proportional minimum saturation to match.
-            // This prevents AO/shadow background layers that share the same hue
-            // (but are much less saturated) from being recoloured.
-            // Trade-off: high multiplier blocks AO/shadow background; FillSmallHolesHueAware
-            // spatially recovers AA-edge pixels near matched boundaries.
-            // For low-saturation samples the threshold collapses to the fixed 0.02/0.08 ramp.
+            // 動的彩度閾値: サンプルが非常に彩度の高い場合（例えば鮮やかな青）、
+            // ピクセルがマッチするためには比例する最小彩度を持つ必要があります。
+            // これにより、同じ色相を共有する AO/影背景レイヤー（ただし彩度が非常に低い）
+            // が再彩色されるのを防ぎます。
+            // トレードオフ: 高い乗数は AO/影背景をブロック; FillSmallHolesHueAware
+            // はマッチ境界付近の AA-エッジピクセルを空間的に回復します。
+            // 低彩度サンプルの場合、閾値は固定 0.02/0.08 ランプに縮小します。
             float satMin  = Mathf.Max(0.02f, sS * saturationStrictness);
             float satRamp = Mathf.Max(0.08f, sS * 0.10f);
             float satConfidence = Mathf.Clamp01((pS - satMin) / satRamp);
 
-            // Hue distance (circular)
+            // 色相距離（円形）
             float hDist = Mathf.Abs(pH - sH);
             if (hDist > 0.5f) hDist = 1f - hDist;
 
-            // Saturation distance (light weight): excludes truly neutral pixels
-            // but allows shadow/highlight variations of the same material.
+            // 彩度距離（軽い重み）：完全に中立したピクセルを除外しますが、
+            // 同じ素材の影/ハイライト変動を許可します。
             float sDist = Mathf.Abs(pS - sS);
 
-            // Value distance: modulated by saturation ratio so that pixels with
-            // similar saturation to the sample (same material, different lighting)
-            // receive little V penalty, while pixels with much lower saturation
-            // (different material, e.g. brown boots vs red bandana) receive a strong penalty.
+            // 値距離: ピクセルが持つ彩度比率で調整されるため、
+            // サンプルと同様の彩度を持つピクセル（同じ素材、異なる照明）
+            // は小さな V 罰則を受け、彩度が非常に低いピクセル
+            // （異なる素材、例えば茶色のブーツ対赤いバンダナ）は強い罰則を受けます。
             float vDist = Mathf.Abs(pV - sV);
             float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
             float dist = hDist + sDist * 0.15f + vDist * valueWeight * (1f - sRatio);
 
             if (dist >= tolerance) return 0f;
 
-            // Soft edge: gradual falloff in the outer portion of the tolerance range
+            // ソフトエッジ: 許容範囲の外側部分での段階的フェードアウト
             float softRange = tolerance * edgeSoftness;
             float hardRange = tolerance - softRange;
 
             float strength;
             if (softRange < 0.0001f)
-                strength = 1f; // hard edge mode
+                strength = 1f; // ハードエッジモード
             else if (dist <= hardRange)
                 strength = 1f;
             else

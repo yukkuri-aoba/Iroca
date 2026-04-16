@@ -64,7 +64,7 @@ namespace VRCAvatarColorChanger
             EditorGUILayout.EndScrollView();
         }
 
-        // ───────────────────────── Header ─────────────────────────
+        // ───────────────────────── ヘッダー ───────────────────────────
 
         private void DrawHeader()
         {
@@ -90,7 +90,7 @@ namespace VRCAvatarColorChanger
             EditorGUILayout.EndHorizontal();
         }
 
-        // ───────────────────────── Texture Field ─────────────────────────
+        // ───────────────────────── テクスチャフィールド ───────────────────────────
 
         private void DrawTextureField()
         {
@@ -127,7 +127,7 @@ namespace VRCAvatarColorChanger
             EditorGUILayout.Space(4);
         }
 
-        // ───────────────────────── Zone List ─────────────────────────
+        // ───────────────────────── ゾーンリスト ───────────────────────────
 
         private void DrawZoneList()
         {
@@ -210,7 +210,7 @@ namespace VRCAvatarColorChanger
             EditorGUILayout.Space(4);
         }
 
-        // ───────────────────────── Processing Settings ─────────────────────────
+        // ───────────────────────── 処理設定 ───────────────────────────
 
         private void DrawProcessingSection()
         {
@@ -233,7 +233,7 @@ namespace VRCAvatarColorChanger
             EditorGUILayout.Space(4);
         }
 
-        // ───────────────────────── Utility ─────────────────────────
+        // ───────────────────────── ユーティリティ ───────────────────────────
 
         private static bool IsReadable(Texture2D tex)
         {

@@ -11,10 +11,10 @@ namespace VRCAvatarColorChanger
         private bool previewDirty = true;
         private Vector2 previewScrollPos;
 
-        // Preview generation
+        // プレビュー生成
         private const int PreviewMaxSize = 512;
 
-        // Async preview state
+        // 非同期プレビュー状態
         private volatile bool _previewGenerating;
         private volatile bool _asyncCancelled;
         private volatile int _asyncGeneration;
@@ -24,13 +24,13 @@ namespace VRCAvatarColorChanger
         private double _lastDirtyTime;
         private const double PreviewDebounceSeconds = 0.2;
 
-        // Before/After comparison
+        // 変更前/変更後比較
         private Texture2D rawPreviewTexture;
         private bool comparisonMode;
         private bool diffMode;
         private Texture2D diffTexture;
 
-        // ───────────────────────── Preview ─────────────────────────
+        // ─────────────────────── プレビュー ─────────────────────────
 
         private void DrawPreview()
         {
@@ -45,26 +45,26 @@ namespace VRCAvatarColorChanger
             if (!IsReadable(sourceTexture))
                 return;
 
-            // Apply results from background preview task (Texture2D API: main thread only)
+            // バックグラウンドプレビュータスクからの結果を適用（Texture2D API: メインスレッドのみ）
             if (_pendingProcessedDisplay != null)
                 ApplyPendingPreview();
 
-            // Apply results from background detail preview task
+            // バックグラウンド詳細プレビュータスクからの結果を適用
             if (_pendingDetailProcessed != null)
                 ApplyPendingDetailPreview();
 
             if (previewDirty)
             {
-                // Record the time of the latest change. The async task starts only
-                // after the user stops interacting for PreviewDebounceSeconds.
-                // This keeps the main thread completely free while dragging sliders.
+                // 最新の変更時刻を記録。非同期タスクは
+                // ユーザーが PreviewDebounceSeconds 間イン операショ終了した後にのみ開始。
+                // これにより、スライダーをドラッグ中メインスレッドが完全に自由になります。
                 _lastDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
-                _asyncGeneration++; // invalidate any in-flight task
-                // Do NOT reset _previewGenerating here: if a task is running it will
-                // detect the generation mismatch and clean up itself via try/finally.
-                // Resetting the flag from the main thread while a task is still alive
-                // causes a race where the old task's finally overwrites the new task's flag.
-                Repaint(); // schedule next frame check
+                _asyncGeneration++; // 進行中のタスクを無効化
+                // ここで _previewGenerating をリセット「しないでください: タスクが実行中の場合、
+                // 生成番号の不一致を検出し、try/finally を介して自己をクリーンアップ。
+                // メインスレッドからフラグをリセットするとタスク関が実行中に
+                // 古いタスクの finally が新しいタスクのフラグを上書きするレースが発生します。
+                Repaint(); // 次のフレーム確認をスケジュール
                 previewDirty = false;
             }
             else if (!_previewGenerating &&
@@ -79,10 +79,10 @@ namespace VRCAvatarColorChanger
             }
             else if (_lastDirtyTime > 0 || _previewGenerating)
             {
-                Repaint(); // keep polling: waiting for debounce or bg task
+                Repaint(); // ポーリング継続: デバウンスまたはバックグラウンドタスクを待機
             }
 
-            // Rebuild mask overlay separately (lightweight, safe during painting)
+            // マスクオーバーレイを個別に再構築（軽量、ペイント中も安全）
             if (maskDirty && previewTexture != null)
             {
                 RebuildMaskOverlay(previewTexture.width, previewTexture.height);
@@ -118,19 +118,19 @@ namespace VRCAvatarColorChanger
             }
             EditorGUILayout.EndHorizontal();
 
-            // Compute preview scale (ratio of preview texture size to source size)
+            // プレビュースケール（プレビューテクスチャサイズとソースサイズの比率）を計算
             int srcW = sourceTexture.width;
             int srcH = sourceTexture.height;
             float scale = (srcW > PreviewMaxSize || srcH > PreviewMaxSize)
                 ? PreviewMaxSize / (float)Mathf.Max(srcW, srcH)
                 : 1f;
 
-            // Detail mode: active when display pixels > source pixels (scale < 1 and zoom high enough)
+            // 詳細モード: ディスプレイピクセル > ソースピクセル時にアクティブ（スケール < 1 かつズーム十分）
             bool detailActive = scale < 1f &&
                                 previewZoom * scale >= DetailUpscaleThreshold &&
                                 !comparisonMode;
 
-            // Poll detail preview generation
+            // 詳細プレビュー生成をポーリング
             if (detailActive)
             {
                 if (!_detailGenerating &&
@@ -197,13 +197,13 @@ namespace VRCAvatarColorChanger
                 activePreviewRect = GUILayoutUtility.GetRect(displayW, displayH,
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
 
-                // In detail mode, overlay the full-res crop on top of the low-res preview
+                // 詳細モードでは低解像度プレビューの上にフル解像度クロップをオーバーレイ
                 if (detailActive && _detailPreviewTexture != null)
                 {
-                    // Draw low-res base (gives context for non-visible areas)
+                    // 低解像度ベースを描画（非表示領域のコンテキストを提供）
                     EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
 
-                    // Compute screen rect that the detail crop should occupy
+                    // 詳細クロップが占める画面レクトを計算
                     Rect detailScreenRect = ComputeDetailScreenRect(activePreviewRect, scale, srcW, srcH);
                     GUI.DrawTexture(detailScreenRect, _detailPreviewTexture,
                         ScaleMode.StretchToFill, false);
@@ -232,14 +232,14 @@ namespace VRCAvatarColorChanger
                         Localization.GeneratingDetailPreview);
             }
 
-            // Store the preview rect for use by the next detail generation tick
+            // プレビューレクトを格納して、次の詳細生成ティックで使用
             if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
                 _lastPreviewRect = activePreviewRect;
 
-            // Zoom (Ctrl+Scroll) and Ctrl+Z always active regardless of paint mode
+            // ズーム (Ctrl+スクロール) と Ctrl+Z は常にアクティブ（ペイントモード関係なし）
             HandlePreviewGlobalInput(activePreviewRect);
 
-            // Brush paint only when paint mode is ON
+            // ブラシペイントはペイントモード ON の場合のみ
             if (maskFoldout && maskPaintActive)
                 HandlePreviewPaintInput(activePreviewRect);
             else if (!maskPaintActive && previewZoom > 1f)
@@ -474,12 +474,12 @@ namespace VRCAvatarColorChanger
             {
                 try
                 {
-                    // All heavy computation runs on the background thread.
-                    // No Unity Object API is called here — only pure C# math.
+                    // すべての重い計算はバックグラウンドスレッドで実行されます。
+                    // ここでは Unity Object API は呼ばれない — 純粋な C# 計算のみ。
                     Color32[] pixels = (Color32[])srcPixels.Clone();
                     ProcessPixelsArray(pixels, srcW, srcH, maskSnapshot, mW, mH, zonesSnapshot, feather, aaCleanup);
 
-                    // Superseded by a newer task — discard results silently.
+                    // 新しいタスクに置き換えられた — 結果を静かに破棄。
                     if (myGen != _asyncGeneration || _asyncCancelled)
                         return;
 
@@ -497,8 +497,8 @@ namespace VRCAvatarColorChanger
                 }
                 finally
                 {
-                    // Always reset the flag and schedule a repaint so the main-thread
-                    // polling loop can react — even when cancelled or an exception occurs.
+                    // 常にフラグをリセットして再描画をスケジュール、メインスレッド
+                    // ポーリングループが反応できるように — キャンセルされたり例外が発生しても。
                     // delayCall はメインスレッドで実行されるため、バックグラウンドスレッドから
                     // 安全に呼び出せる (Repaint() の直接呼び出しより確実)。
                     _previewGenerating = false;

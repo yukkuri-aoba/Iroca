@@ -6,7 +6,7 @@ namespace VRCAvatarColorChanger
 {
     public partial class VACCWindow
     {
-        // Presets
+        // プリセット
         private bool presetsFoldout;
         private string presetSaveName = "Preset";
         private bool presetStorageProject = true;
@@ -23,7 +23,7 @@ namespace VRCAvatarColorChanger
         private string ActivePresetFolder
             => presetStorageProject ? ProjectPresetFolder : UserPresetFolder;
 
-        // ───────────────────────── Presets ──────────────────────────────
+        // ─────────────────────── プリセット ──────────────────────────────
 
         private void DrawPresetsSection()
         {

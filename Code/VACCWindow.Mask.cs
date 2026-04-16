@@ -6,29 +6,29 @@ namespace VRCAvatarColorChanger
 {
     public partial class VACCWindow
     {
-        // Exclusion mask (full resolution, true = excluded)
+        // 除外マスク（フル解像度、true = 除外）
         private bool[] exclusionMask;
         private int maskWidth, maskHeight;
         private int brushSize = 8;
-        private bool brushEraseMode; // false = paint exclusion, true = erase exclusion
+        private bool brushEraseMode; // false = 除外ペイント、true = 除外消去
         private bool isPainting;
         private Vector2 lastPaintUV = -Vector2.one;
 
-        // Mask overlay
+        // マスクオーバーレイ
         private Texture2D maskOverlayTexture;
         private bool maskDirty = true;
 
         private bool maskFoldout = true;
 
-        // Exclusion mask undo history (max 30 steps)
+        // 除外マスク元に戻す履歴（最大30ステップ）
         private readonly List<bool[]> _undoMaskHistory = new List<bool[]>();
         private bool _maskStrokeStarted;
         private const int UndoMaskLimit = 30;
 
-        // Mask paint mode: must be explicitly activated before brush strokes work
+        // マスクペイントモード: ブラシストロークが機能する前に明示的にアクティベートされる必要があります
         private bool maskPaintActive;
 
-        // ───────────────────────── Exclusion Mask ─────────────────────────
+        // ─────────────────────── 除外マスク ─────────────────────────
 
         private void DrawMaskSection()
         {
@@ -106,11 +106,11 @@ namespace VRCAvatarColorChanger
             EnsureMask();
             int cx = Mathf.RoundToInt(uvPos.x * maskWidth);
             int cy = Mathf.RoundToInt(uvPos.y * maskHeight);
-            // Scale brush size from preview pixels to mask pixels
+            // ブラシサイズをプレビューピクセルからマスクピクセルにスケール
             float maskScale = maskWidth / (float)Mathf.Min(maskWidth, PreviewMaxSize);
             int r = Mathf.Max(1, Mathf.RoundToInt(brushSize * maskScale));
 
-            bool value = !brushEraseMode; // true = excluded
+            bool value = !brushEraseMode; // true = 除外
 
             for (int dy = -r; dy <= r; dy++)
             {
@@ -135,7 +135,7 @@ namespace VRCAvatarColorChanger
             return exclusionMask[my * maskWidth + mx];
         }
 
-        // ───────────────────────── Mask Overlay ─────────────────────────
+        // ─────────────────────── マスクオーバーレイ ─────────────────────────
 
         private void RebuildMaskOverlay(int width, int height)
         {

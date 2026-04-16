@@ -6,7 +6,7 @@ namespace VRCAvatarColorChanger
 {
     public partial class VACCWindow
     {
-        // Detail preview: full-resolution crop rendered when zoomed in
+        // 詳細プレビュー: ズームイン時にレンダリングされるフル解像度クロップ
         private Texture2D _detailPreviewTexture;
         private Texture2D _rawDetailPreviewTexture;
         private Texture2D _detailMaskOverlayTexture;
@@ -15,30 +15,30 @@ namespace VRCAvatarColorChanger
         private Color32[] _pendingDetailProcessed;
         private Color32[] _pendingDetailRaw;
         private int _pendingDetailW, _pendingDetailH;
-        private int _pendingDetailOriginX, _pendingDetailOriginY; // crop origin in source coords
-        private int _pendingDetailFullW, _pendingDetailFullH;     // full source dimensions
+        private int _pendingDetailOriginX, _pendingDetailOriginY; // ソース座標でのクロップ原点
+        private int _pendingDetailFullW, _pendingDetailFullH;     // フル解像度ソース寸法
         private double _lastDetailDirtyTime;
-        private Rect _lastPreviewRect;                            // stored between frames
+        private Rect _lastPreviewRect;                            // フレーム間で保存されます
         private const double DetailDebounceSeconds = 0.3;
-        // Detail mode: activates when the display-pixel-to-source-pixel ratio > 1
-        // i.e. previewZoom * (srcSize / previewSize) ≥ this value
+        // 詳細モード: ディスプレイピクセル数/ソースピクセル数比 > 1 時にアクティベート
+        // つまり previewZoom * (srcSize / previewSize) ≥ この値
         private const float DetailUpscaleThreshold = 1.0f;
 
-        // Persistent detail crop origin (set when detail preview is applied, read by renderer)
+        // 永続的な詳細クロップ原点（詳細プレビュー適用時に設定、レンダラーで読み取られます）
         private int _detailOriginX, _detailOriginY;
         private Texture2D _detailDiffTexture;
 
-        // ───────────────────────── Detail Preview (full-res crop) ─────────────────────────
+        // ─────────────────────── 詳細プレビュー（フル解像度クロップ） ─────────────────────────
 
         /// <summary>
-        /// Returns the screen-space rect that the detail crop should be drawn into,
-        /// positioned so it aligns exactly with the corresponding region of the scrolled preview.
+        /// スクロールされたプレビューの対応するリージョンと正確に整列する詳細クロップをレンダリングする
+        /// スクリーン空間矩形を返します。
         /// </summary>
         private Rect ComputeDetailScreenRect(Rect activePreviewRect, float scale, int srcW, int srcH)
         {
             if (_detailPreviewTexture == null) return activePreviewRect;
 
-            // display pixels per source pixel
+            // ソースピクセルあたりのディスプレイピクセル
             float pxPerSrc = scale * previewZoom;
 
             float left   = _detailOriginX * pxPerSrc - previewScrollPos.x + activePreviewRect.x;
@@ -50,22 +50,22 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
-        /// Computes the visible crop region in source texture coordinates from the current
-        /// scroll position, zoom and preview scale, then launches a background task that
-        /// processes only that crop at full source resolution.
+        /// 現在のスクロール位置、ズーム、プレビュースケールからソーステクスチャ座標で見える
+        /// クロップリージョンを計算してから、フルソース解像度でそのクロップのみを処理する
+        /// バックグラウンドタスクを開始します。
         /// </summary>
         private void GenerateDetailPreviewAsync(int srcW, int srcH, Color32[] srcPixels,
             float scale, Rect previewRect)
         {
             if (sourceTexture == null || !IsReadable(sourceTexture)) return;
-            if (scale >= 1f) return; // source already fits in preview — no upscaling benefit
+            if (scale >= 1f) return; // ソースはすでにプレビューに適合 — アップスケーリング利点なし
 
-            // previewZoom * scale = display pixels per source pixel.
-            // If < 1, the preview is still downsampled even after zoom → no detail gain yet.
+            // previewZoom * scale = ソースピクセルあたりのディスプレイピクセル。
+            // < 1 の場合、プレビューはズーム後も縮小 → まだ詳細改善なし。
             float displayPxPerSrcPx = previewZoom * scale;
             if (displayPxPerSrcPx < DetailUpscaleThreshold) return;
 
-            // Compute visible region in source pixel coordinates (Y-flipped: texture bottom=0)
+            // ソースピクセル座標で見える領域を計算（Y反転: テクスチャ底部=0）
             float invZoomScale = 1f / (previewZoom * scale);
             int x0 = Mathf.FloorToInt(previewScrollPos.x * invZoomScale);
             int y0 = Mathf.FloorToInt(previewScrollPos.y * invZoomScale);
@@ -100,12 +100,12 @@ namespace VRCAvatarColorChanger
             {
                 try
                 {
-                    // Extract crop from source
+                    // ソースからクロップを抽出
                     Color32[] rawCrop       = new Color32[cropW * cropH];
                     Color32[] processedCrop = new Color32[cropW * cropH];
                     for (int cy = 0; cy < cropH; cy++)
                     {
-                        int sy = capY0 + cy; // source row (texture bottom=0)
+                        int sy = capY0 + cy; // ソース行（テクスチャ底部=0）
                         for (int cx = 0; cx < cropW; cx++)
                         {
                             int srcIdx = sy * capSrcW + (capX0 + cx);
@@ -152,7 +152,7 @@ namespace VRCAvatarColorChanger
 
             if (processed == null || raw == null) return;
 
-            // Persist the crop origin so the renderer can position the texture correctly
+            // crop origin を永続化してレンダラーがテクスチャを正しく配置できるようにします
             _detailOriginX = ox;
             _detailOriginY = oy;
 
@@ -174,7 +174,7 @@ namespace VRCAvatarColorChanger
             _rawDetailPreviewTexture.SetPixels32(raw);
             _rawDetailPreviewTexture.Apply();
 
-            // Build diff overlay for detail view
+            // 詳細ビュー用の差分オーバーレイを構築
             BuildDetailDiffTexture(_rawDetailPreviewTexture, _detailPreviewTexture, w, h);
 
             RebuildDetailMaskOverlay(w, h, ox, oy, fw, fh);

@@ -7,15 +7,15 @@ namespace VRCAvatarColorChanger
 {
     public partial class VACCWindow
     {
-        // Batch apply
+        // 一括適用
         private bool batchFoldout;
         private List<Texture2D> batchTextures = new List<Texture2D>();
         private Vector2 batchScrollPos;
 
-        // Export
+        // エクスポート
         private bool exportFoldout = true;
 
-        // ───────────────────────── Export ─────────────────────────
+        // ─────────────────────── エクスポート ─────────────────────────
 
         private void DrawExportSection()
         {
@@ -61,10 +61,10 @@ namespace VRCAvatarColorChanger
                 return;
             }
 
-            // Load at full original resolution directly from the file on disk,
-            // bypassing Unity's TextureImporter maxTextureSize / compression settings.
-            // (sourceTexture.GetPixels32() returns the *imported* resolution which may be
-            //  scaled down to 2048 or lower depending on importer settings.)
+            // ディスク上のファイルから元のフル解像度で直接読み込む、
+            // Unity の TextureImporter maxTextureSize / 圧縮設定をバイパス。
+            // (sourceTexture.GetPixels32() は*インポート*解像度を返します。これは
+            //  インポーター設定に応じて 2048 以下にスケーリングされている可能性があります。)
             byte[] srcBytes = File.ReadAllBytes(srcPath);
             var fullTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
             if (!fullTex.LoadImage(srcBytes))
@@ -85,9 +85,9 @@ namespace VRCAvatarColorChanger
             {
                 string dir = Path.GetDirectoryName(srcPath);
                 string safeName = string.IsNullOrWhiteSpace(newFileName) ? "recolored" : newFileName;
-                // Security: prevent path traversal by taking only the filename portion
+                // セキュリティ: ファイル名部分のみを取得してパストラバーサルを防ぐ
                 safeName = Path.GetFileName(safeName);
-                // Strip characters that are invalid in file names
+                // ファイル名に無効な文字を削除
                 foreach (char c in Path.GetInvalidFileNameChars())
                     safeName = safeName.Replace(c.ToString(), "_");
                 if (string.IsNullOrWhiteSpace(safeName)) safeName = "recolored";
@@ -119,7 +119,7 @@ namespace VRCAvatarColorChanger
             EditorUtility.DisplayDialog(Localization.Complete, Localization.Saved(outputPath), Localization.OK);
         }
 
-        // ───────────────────────── Batch Apply ──────────────────────────
+        // ─────────────────────── 一括適用 ──────────────────────────
 
         private void DrawBatchSection()
         {
