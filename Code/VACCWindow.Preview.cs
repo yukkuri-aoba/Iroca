@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
@@ -18,6 +19,7 @@ namespace VRCAvatarColorChanger
         private volatile bool _previewGenerating;
         private volatile bool _asyncCancelled;
         private volatile int _asyncGeneration;
+        private CancellationTokenSource _previewCts;
         private Color32[] _pendingProcessedDisplay;
         private Color32[] _pendingRawDisplay;
         private int _pendingPrevW, _pendingPrevH;
@@ -444,6 +446,12 @@ namespace VRCAvatarColorChanger
         {
             if (sourceTexture == null || !IsReadable(sourceTexture)) return;
 
+            // 前回のプレビュータスクをキャンセル
+            _previewCts?.Cancel();
+            _previewCts?.Dispose();
+            _previewCts = new CancellationTokenSource();
+            var token = _previewCts.Token;
+
             _previewGenerating = true;
             int myGen = _asyncGeneration;
 
@@ -482,7 +490,11 @@ namespace VRCAvatarColorChanger
                     // ここでは Unity Object API は呼ばれない — 純粋な C# 計算のみ。
                     Color32[] pixels = (Color32[])srcPixels.Clone();
                     ProcessPixelsArray(pixels, srcW, srcH, maskSnapshot, mW, mH, zonesSnapshot, feather, aaCleanup,
-                        hfPasses, hfMinNeighbors, rSatMin, rSatRamp);
+                        hfPasses, hfMinNeighbors, rSatMin, rSatRamp,
+                        0, 0, 0, 0, token);
+
+                    // キャンセルされた場合は結果を破棄
+                    token.ThrowIfCancellationRequested();
 
                     // 新しいタスクに置き換えられた — 結果を静かに破棄。
                     if (myGen != _asyncGeneration || _asyncCancelled)
@@ -499,6 +511,10 @@ namespace VRCAvatarColorChanger
                     _pendingProcessedDisplay = processedDisplay;
                     _pendingPrevW            = prevW;
                     _pendingPrevH            = prevH;
+                }
+                catch (System.OperationCanceledException)
+                {
+                    // キャンセルされた — 結果を安全に破棄
                 }
                 finally
                 {

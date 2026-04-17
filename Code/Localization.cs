@@ -144,6 +144,7 @@ namespace VRCAvatarColorChanger
         public static string SaveAsNewFile => IsJapanese ? "新規ファイルとして保存" : "Save as new file";
         public static string FileName => IsJapanese ? "ファイル名" : "File Name";
         public static string ApplyAndSave => IsJapanese ? "適用して保存" : "Apply & Save";
+        public static string OpenFolder => IsJapanese ? "フォルダを開く" : "Open Folder";
 
         // ─── Dialogs ───
         public static string Error => IsJapanese ? "エラー" : "Error";

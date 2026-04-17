@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
@@ -20,6 +21,7 @@ namespace VRCAvatarColorChanger
         private double _lastDetailDirtyTime;
         private Rect _lastPreviewRect;                            // フレーム間で保存されます
         private const double DetailDebounceSeconds = 0.3;
+        private CancellationTokenSource _detailCts;
         // 詳細モード: ディスプレイピクセル数/ソースピクセル数比 > 1 時にアクティベート
         // つまり previewZoom * (srcSize / previewSize) ≥ この値
         private const float DetailUpscaleThreshold = 1.0f;
@@ -59,6 +61,12 @@ namespace VRCAvatarColorChanger
         {
             if (sourceTexture == null || !IsReadable(sourceTexture)) return;
             if (scale >= 1f) return; // ソースはすでにプレビューに適合 — アップスケーリング利点なし
+
+            // 前回の詳細プレビュータスクをキャンセル
+            _detailCts?.Cancel();
+            _detailCts?.Dispose();
+            _detailCts = new CancellationTokenSource();
+            var token = _detailCts.Token;
 
             // previewZoom * scale = ソースピクセルあたりのディスプレイピクセル。
             // < 1 の場合、プレビューはズーム後も縮小 → まだ詳細改善なし。
@@ -121,7 +129,10 @@ namespace VRCAvatarColorChanger
                     ProcessPixelsArray(processedCrop, cropW, cropH,
                         maskSnapshot, mW, mH, zonesSnapshot, feather, aaCleanup,
                         hfPasses, hfMinNeighbors, rSatMin, rSatRamp,
-                        capX0, capY0, capSrcW, capSrcH);
+                        capX0, capY0, capSrcW, capSrcH, token);
+
+                    // キャンセルされた場合は結果を破棄
+                    token.ThrowIfCancellationRequested();
 
                     if (myGen != _detailAsyncGeneration || _asyncCancelled) return;
 
@@ -133,6 +144,10 @@ namespace VRCAvatarColorChanger
                     _pendingDetailOriginY   = capY0;
                     _pendingDetailFullW     = capSrcW;
                     _pendingDetailFullH     = capSrcH;
+                }
+                catch (System.OperationCanceledException)
+                {
+                    // キャンセルされた — 結果を安全に破棄
                 }
                 finally
                 {

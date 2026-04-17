@@ -29,6 +29,12 @@ namespace VRCAvatarColorChanger
         private bool zonesFoldout = true;
         private bool processingFoldout = true;
 
+        // 横並びレイアウトの左右カラム用スクロール
+        private Vector2 leftScrollPos;
+
+        // 横並びレイアウトの最小ウィンドウ幅閾値（これ以下は縦並びにフォールバック）
+        private const float SideBySideMinWidth = 600f;
+
         [MenuItem("Tools/VRC AvatarColorChanger")]
         public static void ShowWindow()
         {
@@ -49,26 +55,71 @@ namespace VRCAvatarColorChanger
         private void OnGUI()
         {
             DrawHeader();
-            scrollPos = EditorGUILayout.BeginScrollView(scrollPos);
 
-            EditorGUI.BeginChangeCheck();
+            bool sideBySide = position.width >= SideBySideMinWidth;
 
-            DrawTextureField();
-            DrawZoneList();
-            DrawProcessingSection();
-            DrawMaskSection();
-
-            if (EditorGUI.EndChangeCheck())
+            if (sideBySide)
             {
-                previewDirty = true;
+                // ── 上部: テクスチャフィールド（フル幅） ──
+                EditorGUI.BeginChangeCheck();
+                DrawTextureField();
+
+                // ── 横並び: 左（設定）＋ 右（プレビュー） ──
+                EditorGUILayout.BeginHorizontal();
+
+                // 左カラム: ゾーン設定 + 処理設定 + マスク + プリセット
+                float leftWidth = Mathf.Clamp(position.width * 0.4f, 280f, 450f);
+                EditorGUILayout.BeginVertical(GUILayout.Width(leftWidth));
+                leftScrollPos = EditorGUILayout.BeginScrollView(leftScrollPos);
+
+                DrawZoneList();
+                DrawProcessingSection();
+                DrawMaskSection();
+
+                if (EditorGUI.EndChangeCheck())
+                {
+                    previewDirty = true;
+                }
+
+                DrawPresetsSection();
+                EditorGUILayout.EndScrollView();
+                EditorGUILayout.EndVertical();
+
+                // 右カラム: プレビュー
+                EditorGUILayout.BeginVertical();
+                DrawPreview();
+                EditorGUILayout.EndVertical();
+
+                EditorGUILayout.EndHorizontal();
+
+                // ── 下部: 一括適用 + エクスポート（フル幅） ──
+                DrawBatchSection();
+                DrawExportSection();
             }
+            else
+            {
+                // ── 従来の縦並びレイアウト（ウィンドウ幅が狭い場合） ──
+                scrollPos = EditorGUILayout.BeginScrollView(scrollPos);
 
-            DrawPresetsSection();
-            DrawPreview();
-            DrawBatchSection();
-            DrawExportSection();
+                EditorGUI.BeginChangeCheck();
 
-            EditorGUILayout.EndScrollView();
+                DrawTextureField();
+                DrawZoneList();
+                DrawProcessingSection();
+                DrawMaskSection();
+
+                if (EditorGUI.EndChangeCheck())
+                {
+                    previewDirty = true;
+                }
+
+                DrawPresetsSection();
+                DrawPreview();
+                DrawBatchSection();
+                DrawExportSection();
+
+                EditorGUILayout.EndScrollView();
+            }
         }
 
         // ───────────────────────── ヘッダー ───────────────────────────

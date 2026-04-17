@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -42,6 +43,13 @@ namespace VRCAvatarColorChanger
                 ApplyRecolor();
             }
 
+            if (GUILayout.Button(Localization.OpenFolder))
+            {
+                string path = AssetDatabase.GetAssetPath(sourceTexture);
+                if (!string.IsNullOrEmpty(path))
+                    EditorUtility.RevealInFinder(path);
+            }
+
             GUI.enabled = true;
             EditorGUILayout.EndFoldoutHeaderGroup();
         }
@@ -65,20 +73,42 @@ namespace VRCAvatarColorChanger
             // Unity の TextureImporter maxTextureSize / 圧縮設定をバイパス。
             // (sourceTexture.GetPixels32() は*インポート*解像度を返します。これは
             //  インポーター設定に応じて 2048 以下にスケーリングされている可能性があります。)
+            EditorUtility.DisplayProgressBar(Localization.ApplyAndSave, Localization.Processing, 0.1f);
+
             byte[] srcBytes = File.ReadAllBytes(srcPath);
             var fullTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
             if (!fullTex.LoadImage(srcBytes))
             {
+                EditorUtility.ClearProgressBar();
                 DestroyImmediate(fullTex);
                 EditorUtility.DisplayDialog(Localization.Error, Localization.TextureLoadError, Localization.OK);
                 return;
             }
 
-            ProcessPixels(fullTex);
+            // ピクセル配列の取得（メインスレッド）
+            Color32[] pixels = fullTex.GetPixels32();
+            int texW = fullTex.width, texH = fullTex.height;
+            var sorted = zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
+
+            // 重い計算をバックグラウンドスレッドで実行
+            EditorUtility.DisplayProgressBar(Localization.ApplyAndSave, Localization.Processing, 0.3f);
+            if (sorted.Count > 0)
+            {
+                var task = System.Threading.Tasks.Task.Run(() =>
+                    ProcessPixelsArray(pixels, texW, texH,
+                        exclusionMask, maskWidth, maskHeight, sorted, edgeFeather, antiAliasCleanup,
+                        holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp));
+                task.Wait();
+            }
+
+            // 結果をテクスチャに反映（メインスレッド）
+            EditorUtility.DisplayProgressBar(Localization.ApplyAndSave, Localization.Export, 0.7f);
+            fullTex.SetPixels32(pixels);
             fullTex.Apply();
 
             byte[] pngData = fullTex.EncodeToPNG();
             DestroyImmediate(fullTex);
+            EditorUtility.ClearProgressBar();
 
             string outputPath;
             if (saveAsNewFile)
@@ -183,7 +213,21 @@ namespace VRCAvatarColorChanger
                 var fullTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
                 if (!fullTex.LoadImage(srcBytes)) { DestroyImmediate(fullTex); continue; }
 
-                ProcessPixels(fullTex);
+                // ピクセル配列取得（メインスレッド）→ 計算（バックグラウンド）→ 反映（メインスレッド）
+                Color32[] pixels = fullTex.GetPixels32();
+                int texW = fullTex.width, texH = fullTex.height;
+                var sorted = zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
+
+                if (sorted.Count > 0)
+                {
+                    var task = System.Threading.Tasks.Task.Run(() =>
+                        ProcessPixelsArray(pixels, texW, texH,
+                            exclusionMask, maskWidth, maskHeight, sorted, edgeFeather, antiAliasCleanup,
+                            holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp));
+                    task.Wait();
+                }
+
+                fullTex.SetPixels32(pixels);
                 fullTex.Apply();
                 byte[] pngData = fullTex.EncodeToPNG();
                 DestroyImmediate(fullTex);

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using UnityEngine;
 
 namespace VRCAvatarColorChanger
@@ -30,6 +31,21 @@ namespace VRCAvatarColorChanger
             float relaxedSatMin = 0.02f, float relaxedSatRamp = 0.08f,
             int originX = 0, int originY = 0, int fullW = 0, int fullH = 0)
         {
+            ProcessPixelsArray(pixels, w, h, mask, maskW, maskH, sortedZones, edgeFeather, antiAliasCleanup,
+                holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
+                originX, originY, fullW, fullH, CancellationToken.None);
+        }
+
+        // キャンセルトークン対応バージョン — バックグラウンドプレビューから使用
+        private static void ProcessPixelsArray(
+            Color32[] pixels, int w, int h,
+            bool[] mask, int maskW, int maskH,
+            IList<ColorZone> sortedZones, float edgeFeather, int antiAliasCleanup,
+            int holeFillPasses, int holeFillMinNeighbors,
+            float relaxedSatMin, float relaxedSatRamp,
+            int originX, int originY, int fullW, int fullH,
+            CancellationToken cancellationToken)
+        {
             if (fullW <= 0) fullW = w;
             if (fullH <= 0) fullH = h;
 
@@ -39,6 +55,9 @@ namespace VRCAvatarColorChanger
 
             foreach (var zone in sortedZones)
             {
+                // キャンセルチェック: 新しいプレビューリクエストが来た場合は即座に中断
+                cancellationToken.ThrowIfCancellationRequested();
+
                 // 1. 元のピクセルカラーを使用した強度マップを構築
                 float[] strength = new float[len];
                 for (int i = 0; i < len; i++)
