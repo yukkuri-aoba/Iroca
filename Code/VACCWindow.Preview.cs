@@ -26,6 +26,13 @@ namespace VRCAvatarColorChanger
         private double _lastDirtyTime;
         private const double PreviewDebounceSeconds = 0.2;
 
+        // ソースピクセルキャッシュ（テクスチャが変わったときのみ再取得）
+        private Texture2D _cachedSourceTexture;
+        private Color32[] _cachedSrcPixels;
+        private Color32[] _cachedRawDisplay;
+        private int _cachedSrcW, _cachedSrcH;
+        private int _cachedPrevW, _cachedPrevH;
+
         // 変更前/変更後比較
         private Texture2D rawPreviewTexture;
         private bool comparisonMode;
@@ -458,8 +465,41 @@ namespace VRCAvatarColorChanger
             int srcW = sourceTexture.width;
             int srcH = sourceTexture.height;
 
-            // Capture all Unity-dependent data on the main thread before handing off.
-            Color32[] srcPixels = sourceTexture.GetPixels32();
+            float scale = 1f;
+            if (srcW > PreviewMaxSize || srcH > PreviewMaxSize)
+                scale = PreviewMaxSize / (float)Mathf.Max(srcW, srcH);
+            int prevW = Mathf.Max(1, Mathf.RoundToInt(srcW * scale));
+            int prevH = Mathf.Max(1, Mathf.RoundToInt(srcH * scale));
+
+            // ソースピクセルとダウンサンプル済みrawDisplayをキャッシュ
+            // テクスチャが変わっていなければ GetPixels32() と BoxDownsample を省略
+            Color32[] srcPixels;
+            Color32[] rawDisplay;
+            if (_cachedSourceTexture == sourceTexture &&
+                _cachedSrcPixels != null &&
+                _cachedRawDisplay != null &&
+                _cachedSrcW == srcW && _cachedSrcH == srcH &&
+                _cachedPrevW == prevW && _cachedPrevH == prevH)
+            {
+                srcPixels = _cachedSrcPixels;
+                rawDisplay = _cachedRawDisplay;
+            }
+            else
+            {
+                // Capture all Unity-dependent data on the main thread before handing off.
+                srcPixels = sourceTexture.GetPixels32();
+                rawDisplay = scale < 1f
+                    ? BoxDownsample(srcPixels, srcW, srcH, prevW, prevH, scale)
+                    : srcPixels;
+
+                _cachedSourceTexture = sourceTexture;
+                _cachedSrcPixels     = srcPixels;
+                _cachedRawDisplay    = rawDisplay;
+                _cachedSrcW          = srcW;
+                _cachedSrcH          = srcH;
+                _cachedPrevW         = prevW;
+                _cachedPrevH         = prevH;
+            }
 
             bool[] maskSnapshot = exclusionMask != null ? (bool[])exclusionMask.Clone() : null;
             int mW = maskWidth, mH = maskHeight;
@@ -476,11 +516,9 @@ namespace VRCAvatarColorChanger
             float rSatMin = relaxedSatMin;
             float rSatRamp = relaxedSatRamp;
 
-            float scale = 1f;
-            if (srcW > PreviewMaxSize || srcH > PreviewMaxSize)
-                scale = PreviewMaxSize / (float)Mathf.Max(srcW, srcH);
-            int prevW = Mathf.Max(1, Mathf.RoundToInt(srcW * scale));
-            int prevH = Mathf.Max(1, Mathf.RoundToInt(srcH * scale));
+            // バックグラウンドスレッドに渡す前にローカル変数として固定
+            var srcPixelsForTask  = srcPixels;
+            var rawDisplayForTask = rawDisplay;
 
             System.Threading.Tasks.Task.Run(() =>
             {
@@ -488,7 +526,7 @@ namespace VRCAvatarColorChanger
                 {
                     // すべての重い計算はバックグラウンドスレッドで実行されます。
                     // ここでは Unity Object API は呼ばれない — 純粋な C# 計算のみ。
-                    Color32[] pixels = (Color32[])srcPixels.Clone();
+                    Color32[] pixels = (Color32[])srcPixelsForTask.Clone();
                     ProcessPixelsArray(pixels, srcW, srcH, maskSnapshot, mW, mH, zonesSnapshot, feather, aaCleanup,
                         hfPasses, hfMinNeighbors, rSatMin, rSatRamp,
                         0, 0, 0, 0, token);
@@ -500,14 +538,11 @@ namespace VRCAvatarColorChanger
                     if (myGen != _asyncGeneration || _asyncCancelled)
                         return;
 
-                    Color32[] rawDisplay = scale < 1f
-                        ? BoxDownsample(srcPixels, srcW, srcH, prevW, prevH, scale)
-                        : srcPixels;
                     Color32[] processedDisplay = scale < 1f
                         ? BoxDownsample(pixels, srcW, srcH, prevW, prevH, scale)
                         : pixels;
 
-                    _pendingRawDisplay       = rawDisplay;
+                    _pendingRawDisplay       = rawDisplayForTask;
                     _pendingProcessedDisplay = processedDisplay;
                     _pendingPrevW            = prevW;
                     _pendingPrevH            = prevH;

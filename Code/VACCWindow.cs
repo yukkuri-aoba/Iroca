@@ -40,6 +40,8 @@ namespace VRCAvatarColorChanger
         {
             var window = GetWindow<VACCWindow>(Localization.WindowTitle);
             window.minSize = new Vector2(340, 500);
+            if (window.position.width < 800 || window.position.height < 700)
+                window.position = new Rect(window.position.x, window.position.y, 800, 700);
         }
 
         private void OnEnable()
@@ -162,6 +164,10 @@ namespace VRCAvatarColorChanger
                 SaveMaskToSession();                         // persist mask for old texture
                 sourceTexture = newTex;
                 previewDirty = true;
+                // テクスチャが変わったのでソースピクセルキャッシュを無効化
+                _cachedSourceTexture = null;
+                _cachedSrcPixels = null;
+                _cachedRawDisplay = null;
                 exclusionMask = null;
                 _undoMaskHistory.Clear();
                 if (sourceTexture != null)
