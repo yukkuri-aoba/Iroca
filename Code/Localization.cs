@@ -33,8 +33,8 @@ namespace VRCAvatarColorChanger
         // ─── Credit Dialog ───
         public static string CreditTitle => IsJapanese ? "クレジット" : "Credits";
         public static string CreditBody  => IsJapanese
-            ? "VRC AvatarColorChanger (VACC)\n\n制作: yukkuri__aoba\nAI補助: Claude (Anthropic)"
-            : "VRC AvatarColorChanger (VACC)\n\nDeveloper: yukkuri__aoba\nAI Assistance: Claude (Anthropic)";
+            ? "VRC AvatarColorChanger (VACC)\n\n制作: yukkuri__aoba\nAI補助: Claude (Anthropic)\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Noncommercial License 1.0.0\nhttps://polyformproject.org/licenses/noncommercial/1.0.0"
+            : "VRC AvatarColorChanger (VACC)\n\nDeveloper: yukkuri__aoba\nAI Assistance: Claude (Anthropic)\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Noncommercial License 1.0.0\nhttps://polyformproject.org/licenses/noncommercial/1.0.0";
 
         // ─── Source Texture ───
         public static string SourceTexture => IsJapanese ? "元テクスチャ" : "Source Texture";
@@ -202,7 +202,7 @@ namespace VRCAvatarColorChanger
 
         // ─── Mask paint mode ───
         public static string MaskHintPaintOff => IsJapanese
-            ? "「除外」または「含める」を押すとペイントモードになります。同じボタンを為すと解除。"
+            ? "「除外」または「含める」を押すとペイントモードになります。同じボタンを押すと解除。"
             : "Click Exclude or Include to enter paint mode. Click the active button again to exit.";
 
         // ─── Detail preview ───
@@ -265,7 +265,7 @@ namespace VRCAvatarColorChanger
             ? "選択するテクスチャ上の矩形範囲をUV座標で指定します（0〜1）\nX/Y: 左下の原点、W/H: 幅と高さ"
             : "UV coordinate rectangle for the selected region (0-1)\nX/Y: bottom-left origin, W/H: width and height";
         public static string TargetColorTooltip => IsJapanese
-            ? "変更後の色。ゾーン内のピクセルがこの色にリカラーされます"
+            ? "変更後の色。対象の部分がこの色に変更されます"
             : "Target color. Pixels in this zone will be recolored to this color";
 
         // ─── Mask tooltips ───
@@ -273,10 +273,10 @@ namespace VRCAvatarColorChanger
             ? "ペイントブラシのサイズ（ピクセル単位）"
             : "Paint brush size in pixels";
         public static string ExcludeTooltip => IsJapanese
-            ? "除外ブラシモード: プレビューをドラッグして赤いマスクを描き、その領域をリカラーから除外します\n同じボタンを再度押すとモードを解除"
+            ? "除外ブラシモード: プレビューをドラッグして赤いマスクを描き、その領域を変更から除外します\n同じボタンを再度押すとモードを解除"
             : "Exclude brush mode: Drag on the preview to paint a red mask and exclude that area from recoloring\nClick again to exit paint mode";
         public static string IncludeTooltip => IsJapanese
-            ? "消去ブラシモード: プレビューをドラッグして除外マスクを消去し、リカラーを再有効化します\n同じボタンを再度押すとモードを解除"
+            ? "消去ブラシモード: プレビューをドラッグして除外マスクを消去し、変更を再有効化します\n同じボタンを再度押すとモードを解除"
             : "Include brush mode: Drag on the preview to erase the exclusion mask and re-enable recoloring\nClick again to exit paint mode";
         public static string ClearMaskTooltip => IsJapanese
             ? "すべての除外マスクを消去します"
