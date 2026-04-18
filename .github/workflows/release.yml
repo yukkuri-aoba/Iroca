@@ -1,0 +1,112 @@
+name: Release VPM Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Prepare unitypackage
+        id: pkg
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          UNITYPACKAGE_SRC="Release/VACC_Ver${VERSION}.unitypackage"
+          UNITYPACKAGE_OUT="VACC_Ver${VERSION}.unitypackage"
+
+          if [ ! -f "$UNITYPACKAGE_SRC" ]; then
+            echo "ERROR: $UNITYPACKAGE_SRC が見つかりません。Release/ フォルダにコミットしてください。" >&2
+            exit 1
+          fi
+
+          cp "$UNITYPACKAGE_SRC" "$UNITYPACKAGE_OUT"
+          echo "UNITYPACKAGE=$UNITYPACKAGE_OUT" >> $GITHUB_OUTPUT
+
+      - name: Create VPM zip
+        id: zip
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          PACKAGE_ID="com.yukkuri-aoba.vrc-avatar-color-changer"
+          ZIP_NAME="${PACKAGE_ID}-${VERSION}.zip"
+
+          zip -r "$ZIP_NAME" \
+            package.json \
+            README.md \
+            MANUAL.md \
+            CHANGELOG.md \
+            LICENSE \
+            Code/ \
+            "${PACKAGE_ID}.Editor.asmdef"
+
+          # .meta ファイルが存在する場合は追加
+          find . -maxdepth 2 -name "*.meta" -print0 | xargs -0 -r zip "$ZIP_NAME"
+
+          SHA256=$(sha256sum "$ZIP_NAME" | cut -d' ' -f1)
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_OUTPUT
+          echo "SHA256=$SHA256" >> $GITHUB_OUTPUT
+
+      - name: Update VPM listing
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          SHA256: ${{ steps.zip.outputs.SHA256 }}
+          ZIP_NAME: ${{ steps.zip.outputs.ZIP_NAME }}
+        run: |
+          python3 - << 'PYEOF'
+          import json, os
+
+          version  = os.environ['VERSION']
+          sha256   = os.environ['SHA256']
+          zip_name = os.environ['ZIP_NAME']
+          repo     = "https://github.com/yukkuri-aoba/VRC_AvatarColorChanger"
+          release_url = f"{repo}/releases/download/v{version}/{zip_name}"
+
+          with open('package.json', encoding='utf-8') as f:
+              pkg = json.load(f)
+
+          pkg['url']        = release_url
+          pkg['zipSHA256']  = sha256
+
+          with open('docs/index.json', encoding='utf-8') as f:
+              listing = json.load(f)
+
+          pid = pkg['name']
+          listing['packages'].setdefault(pid, {'versions': {}})
+          listing['packages'][pid]['versions'][version] = pkg
+
+          with open('docs/index.json', 'w', encoding='utf-8') as f:
+              json.dump(listing, f, ensure_ascii=False, indent=2)
+              f.write('\n')
+          PYEOF
+
+      - name: Commit updated VPM listing
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/index.json
+          git diff --staged --quiet || git commit -m "chore: update VPM listing for ${{ github.ref_name }}"
+          git push origin HEAD:main
+
+      - name: Create GitHub Release (draft)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "VRC AvatarColorChanger ${{ github.ref_name }}"
+          draft: true
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'Beta') || contains(github.ref_name, 'alpha') }}
+          files: |
+            README.md
+            MANUAL.md
+            ${{ steps.pkg.outputs.UNITYPACKAGE }}
+            ${{ steps.zip.outputs.ZIP_NAME }}
