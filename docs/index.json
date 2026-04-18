@@ -3,5 +3,37 @@
   "id": "com.yukkuri-aoba.repo",
   "url": "https://yukkuri-aoba.github.io/VRC_AvatarColorChanger/index.json",
   "author": "yukkuri__aoba",
-  "packages": {}
+  "packages": {
+    "com.yukkuri-aoba.vrc-avatar-color-changer": {
+      "versions": {
+        "0.1.0": {
+          "name": "com.yukkuri-aoba.vrc-avatar-color-changer",
+          "version": "0.1.0",
+          "displayName": "VRC AvatarColorChanger",
+          "description": "Unity Editor extension for intuitively recoloring VRChat avatar textures.",
+          "unity": "2022.3",
+          "author": {
+            "name": "yukkuri__aoba",
+            "email": "yukkuri-aoba@users.noreply.github.com",
+            "url": "https://github.com/yukkuri-aoba/VRCAvatarColorChanger"
+          },
+          "license": "PolyForm-Noncommercial-1.0.0",
+          "keywords": [
+            "vrc",
+            "avatar",
+            "color",
+            "texture",
+            "editor"
+          ],
+          "dependencies": {},
+          "url": "https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/releases/download/v0.1.0/com.yukkuri-aoba.vrc-avatar-color-changer-0.1.0.zip",
+          "changelogUrl": "https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/blob/main/CHANGELOG.md",
+          "documentationUrl": "https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/blob/main/README.md",
+          "samples": [],
+          "type": "tool",
+          "zipSHA256": "571f93f33cc0a386ead8d3dc5df396230a7c88a0a4b5b609951a87de8e446f88"
+        }
+      }
+    }
+  }
 }
