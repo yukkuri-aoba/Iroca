@@ -19,6 +19,21 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
+      - name: Prepare unitypackage
+        id: pkg
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          UNITYPACKAGE_SRC="VACC.unitypackage"
+          UNITYPACKAGE_OUT="VACC-${VERSION}.unitypackage"
+
+          if [ ! -f "$UNITYPACKAGE_SRC" ]; then
+            echo "ERROR: $UNITYPACKAGE_SRC が見つかりません。リポジトリルートにコミットしてください。" >&2
+            exit 1
+          fi
+
+          cp "$UNITYPACKAGE_SRC" "$UNITYPACKAGE_OUT"
+          echo "UNITYPACKAGE=$UNITYPACKAGE_OUT" >> $GITHUB_OUTPUT
+
       - name: Create VPM zip
         id: zip
         run: |
@@ -90,4 +105,8 @@ jobs:
           name: "VRC AvatarColorChanger ${{ github.ref_name }}"
           draft: true
           prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'Beta') || contains(github.ref_name, 'alpha') }}
-          files: ${{ steps.zip.outputs.ZIP_NAME }}
+          files: |
+            README.md
+            MANUAL.md
+            ${{ steps.pkg.outputs.UNITYPACKAGE }}
+            ${{ steps.zip.outputs.ZIP_NAME }}
