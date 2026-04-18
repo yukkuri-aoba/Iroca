@@ -561,14 +561,12 @@ namespace VRCAvatarColorChanger
                 }
                 finally
                 {
-                    // 自分が最新世代のときだけフラグを戻す。
-                    // 古い世代（既に新タスクに置き換えられている）のタスクがここで false を
-                    // 書いてしまうと、新タスクが true にしたフラグを誤って上書きして
-                    // 同じプレビューが再生成されるレース条件が発生するため。
-                    if (myGen == _asyncGeneration)
-                        _previewGenerating = false;
-                    // delayCall はメインスレッドで実行されるため、バックグラウンドスレッドから
-                    // 安全に呼び出せる (Repaint() の直接呼び出しより確実)。
+                    // 必ずフラグをリセットして再描画をスケジュール。
+                    // 新タスクはメインスレッドのポーリングで `!_previewGenerating`
+                    // をゲートにして起動されるため、バックグラウンドタスクが同時に二つ
+                    // 走ることはなく、ここで false に戻さないとフラグが true に張り付き
+                    // 「プレビュー生成中...」が消えなくなる。
+                    _previewGenerating = false;
                     UnityEditor.EditorApplication.delayCall += Repaint;
                 }
             });
