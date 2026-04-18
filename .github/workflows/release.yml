@@ -23,11 +23,11 @@ jobs:
         id: pkg
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
-          UNITYPACKAGE_SRC="VACC.unitypackage"
-          UNITYPACKAGE_OUT="VACC-${VERSION}.unitypackage"
+          UNITYPACKAGE_SRC="Release/VACC_Ver${VERSION}.unitypackage"
+          UNITYPACKAGE_OUT="VACC_Ver${VERSION}.unitypackage"
 
           if [ ! -f "$UNITYPACKAGE_SRC" ]; then
-            echo "ERROR: $UNITYPACKAGE_SRC が見つかりません。リポジトリルートにコミットしてください。" >&2
+            echo "ERROR: $UNITYPACKAGE_SRC が見つかりません。Release/ フォルダにコミットしてください。" >&2
             exit 1
           fi
 
