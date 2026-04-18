@@ -238,5 +238,105 @@ namespace VRCAvatarColorChanger
         public static string BatchComplete(int count) => IsJapanese
             ? $"{count} 件のテクスチャを処理しました"
             : $"Processed {count} texture(s)";
+
+        // ─── Zone tooltips ───
+        public static string ZoneEnabledTooltip => IsJapanese
+            ? "このゾーンを有効/無効にします"
+            : "Enable or disable this zone";
+        public static string ZoneNameTooltip => IsJapanese
+            ? "ゾーンの識別名（処理には影響しません）"
+            : "Zone name for identification (does not affect processing)";
+        public static string LayerIndexTooltip => IsJapanese
+            ? "処理の適用順序。数値が小さいゾーンほど先に処理されます（デフォルト: 0）"
+            : "Processing order. Zones with smaller values are applied first (default: 0)";
+        public static string RemoveZoneTooltip => IsJapanese
+            ? "このゾーンを削除します"
+            : "Remove this zone";
+        public static string SelectionModeTooltip => IsJapanese
+            ? "ColorPick: サンプルカラーに近い色のピクセルを選択\nUVRect: UV座標の矩形範囲内のピクセルを選択"
+            : "ColorPick: Select pixels matching the sampled color\nUVRect: Select pixels within a UV coordinate rectangle";
+        public static string SampleColorTooltip => IsJapanese
+            ? "選択する基準色。スポイトアイコンでテクスチャからサンプリングできます"
+            : "Reference color for selection. Use the eyedropper to sample from the texture";
+        public static string ToleranceTooltip => IsJapanese
+            ? "色の許容範囲。値が大きいほど基準色から離れた色も選択されます（0〜1）"
+            : "Color matching tolerance. Higher values select colors further from the sample (0-1)";
+        public static string UVRectTooltip => IsJapanese
+            ? "選択するテクスチャ上の矩形範囲をUV座標で指定します（0〜1）\nX/Y: 左下の原点、W/H: 幅と高さ"
+            : "UV coordinate rectangle for the selected region (0-1)\nX/Y: bottom-left origin, W/H: width and height";
+        public static string TargetColorTooltip => IsJapanese
+            ? "変更後の色。ゾーン内のピクセルがこの色にリカラーされます"
+            : "Target color. Pixels in this zone will be recolored to this color";
+
+        // ─── Mask tooltips ───
+        public static string BrushSizeTooltip => IsJapanese
+            ? "ペイントブラシのサイズ（ピクセル単位）"
+            : "Paint brush size in pixels";
+        public static string ExcludeTooltip => IsJapanese
+            ? "除外ブラシモード: プレビューをドラッグして赤いマスクを描き、その領域をリカラーから除外します\n同じボタンを再度押すとモードを解除"
+            : "Exclude brush mode: Drag on the preview to paint a red mask and exclude that area from recoloring\nClick again to exit paint mode";
+        public static string IncludeTooltip => IsJapanese
+            ? "消去ブラシモード: プレビューをドラッグして除外マスクを消去し、リカラーを再有効化します\n同じボタンを再度押すとモードを解除"
+            : "Include brush mode: Drag on the preview to erase the exclusion mask and re-enable recoloring\nClick again to exit paint mode";
+        public static string ClearMaskTooltip => IsJapanese
+            ? "すべての除外マスクを消去します"
+            : "Erase all exclusion mask paint";
+        public static string UndoMaskTooltip => IsJapanese
+            ? "マスクの変更を1ステップ前に戻します（Ctrl+Z でも操作可）"
+            : "Undo the last mask change (also available via Ctrl+Z)";
+
+        // ─── Export tooltips ───
+        public static string SaveAsNewFileTooltip => IsJapanese
+            ? "ON: 元のファイルを保持して新規ファイルに保存\nOFF: 元のテクスチャを上書き保存"
+            : "ON: Save as a new file while keeping the original\nOFF: Overwrite the original texture";
+        public static string FileNameTooltip => IsJapanese
+            ? "新規保存するファイルの名前（拡張子なし）"
+            : "File name for the new file (without extension)";
+        public static string ApplyAndSaveTooltip => IsJapanese
+            ? "現在のゾーン設定をリカラーとして適用し、テクスチャを保存します"
+            : "Apply current zone settings as recolor and save the texture";
+        public static string OpenFolderTooltip => IsJapanese
+            ? "元テクスチャのあるフォルダをファイルマネージャーで開きます"
+            : "Open the folder containing the source texture in the file manager";
+        public static string AddBatchTextureTooltip => IsJapanese
+            ? "一括適用リストにテクスチャを追加します"
+            : "Add a texture to the batch apply list";
+        public static string BatchApplyAndSaveTooltip => IsJapanese
+            ? "リスト内のすべてのテクスチャに現在のゾーン設定を一括適用して保存します\n出力ファイル名は元のファイル名に _recolored を付与"
+            : "Apply current zone settings to all textures in the list and save\nOutput files are named with _recolored suffix";
+
+        // ─── Preview tooltips ───
+        public static string ComparisonModeTooltip => IsJapanese
+            ? "変更前と変更後を横並びで比較表示します（高ズーム時は使用不可）"
+            : "Show before and after side by side (unavailable at high zoom)";
+        public static string DiffModeTooltip => IsJapanese
+            ? "変更前後の差分（変化したピクセル）を強調表示します"
+            : "Highlight pixels that changed between before and after";
+
+        // ─── Preset tooltips ───
+        public static string PresetStorageProjectTooltip => IsJapanese
+            ? "プリセットをProjectのAssetsフォルダ内に保存します。Gitなどでチームと共有できます"
+            : "Save presets inside the project's Assets folder. Can be shared via Git.";
+        public static string PresetStorageUserTooltip => IsJapanese
+            ? "プリセットをOSのユーザーフォルダに保存します。この端末の全プロジェクトで共有されます"
+            : "Save presets in the OS user folder. Shared across all projects on this machine.";
+        public static string PresetNameTooltip => IsJapanese
+            ? "保存するプリセットの名前を入力してください"
+            : "Enter a name for the preset to save";
+        public static string SavePresetTooltip => IsJapanese
+            ? "現在のゾーン設定と加工設定をプリセットとして保存します"
+            : "Save current zone and processing settings as a preset";
+        public static string ExportJsonTooltip => IsJapanese
+            ? "現在の保存先のプリセットをJSONファイルとしてエクスポートします"
+            : "Export presets from the current storage location as a JSON file";
+        public static string ImportJsonTooltip => IsJapanese
+            ? "JSONファイルからプリセット設定をインポートします"
+            : "Import preset settings from a JSON file";
+        public static string LoadPresetTooltip => IsJapanese
+            ? "このプリセットを読み込み、現在のゾーン設定を上書きします"
+            : "Load this preset and overwrite current zone settings";
+        public static string DeletePresetTooltip => IsJapanese
+            ? "このプリセットを削除します"
+            : "Delete this preset";
     }
 }

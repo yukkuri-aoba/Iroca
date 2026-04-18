@@ -115,12 +115,12 @@ namespace VRCAvatarColorChanger
                     Localization.ZoomHint));
 
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Toggle(comparisonMode, Localization.ComparisonMode, EditorStyles.miniButtonLeft) != comparisonMode)
+            if (GUILayout.Toggle(comparisonMode, new GUIContent(Localization.ComparisonMode, Localization.ComparisonModeTooltip), EditorStyles.miniButtonLeft) != comparisonMode)
             {
                 comparisonMode = !comparisonMode;
                 if (comparisonMode) diffMode = false;
             }
-            if (GUILayout.Toggle(diffMode, Localization.DiffMode, EditorStyles.miniButtonRight) != diffMode)
+            if (GUILayout.Toggle(diffMode, new GUIContent(Localization.DiffMode, Localization.DiffModeTooltip), EditorStyles.miniButtonRight) != diffMode)
             {
                 diffMode = !diffMode;
                 if (diffMode) comparisonMode = false;
@@ -161,12 +161,18 @@ namespace VRCAvatarColorChanger
             float displayW = previewTexture.width  * previewZoom;
             float displayH = previewTexture.height * previewZoom;
 
+            // スクロールビューの高さをソーステクスチャサイズに制限（ズーム時にレイアウトが崩れないよう）
             float maxViewH = Mathf.Min(displayH, previewTexture.height) + 16f;
+            // スクロールビューの幅も同様に制限（比較モードは2パネル分を考慮）
+            int panelCount = (comparisonMode && rawPreviewTexture != null) ? 2 : 1;
+            float maxViewW = Mathf.Min(displayW * panelCount + (panelCount - 1) * 8f,
+                previewTexture.width * panelCount + (panelCount - 1) * 8f) + 16f;
 
             Vector2 prevScroll = previewScrollPos;
             previewScrollPos = EditorGUILayout.BeginScrollView(
                 previewScrollPos,
-                GUILayout.Height(maxViewH));
+                GUILayout.Height(maxViewH),
+                GUILayout.MaxWidth(maxViewW));
             if (previewScrollPos != prevScroll)
             {
                 _lastDetailDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;

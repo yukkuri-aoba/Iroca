@@ -32,18 +32,22 @@ namespace VRCAvatarColorChanger
                 GUI.enabled = false;
             }
 
-            saveAsNewFile = EditorGUILayout.Toggle(Localization.SaveAsNewFile, saveAsNewFile);
+            saveAsNewFile = EditorGUILayout.Toggle(
+                new GUIContent(Localization.SaveAsNewFile, Localization.SaveAsNewFileTooltip),
+                saveAsNewFile);
             if (saveAsNewFile)
             {
-                newFileName = EditorGUILayout.TextField(Localization.FileName, newFileName);
+                newFileName = EditorGUILayout.TextField(
+                    new GUIContent(Localization.FileName, Localization.FileNameTooltip),
+                    newFileName);
             }
 
-            if (GUILayout.Button(Localization.ApplyAndSave, GUILayout.Height(32)))
+            if (GUILayout.Button(new GUIContent(Localization.ApplyAndSave, Localization.ApplyAndSaveTooltip), GUILayout.Height(32)))
             {
                 ApplyRecolor();
             }
 
-            if (GUILayout.Button(Localization.OpenFolder))
+            if (GUILayout.Button(new GUIContent(Localization.OpenFolder, Localization.OpenFolderTooltip)))
             {
                 string path = AssetDatabase.GetAssetPath(sourceTexture);
                 if (!string.IsNullOrEmpty(path))
@@ -178,11 +182,11 @@ namespace VRCAvatarColorChanger
 
             if (removeIdx >= 0) batchTextures.RemoveAt(removeIdx);
 
-            if (GUILayout.Button(Localization.AddBatchTexture))
+            if (GUILayout.Button(new GUIContent(Localization.AddBatchTexture, Localization.AddBatchTextureTooltip)))
                 batchTextures.Add(null);
 
             EditorGUI.BeginDisabledGroup(batchTextures.Count == 0 || zones.Count == 0);
-            if (GUILayout.Button(Localization.BatchApplyAndSave, GUILayout.Height(28)))
+            if (GUILayout.Button(new GUIContent(Localization.BatchApplyAndSave, Localization.BatchApplyAndSaveTooltip), GUILayout.Height(28)))
                 RunBatchApply();
             EditorGUI.EndDisabledGroup();
 

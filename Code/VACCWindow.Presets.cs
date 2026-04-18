@@ -38,24 +38,26 @@ namespace VRCAvatarColorChanger
 
             // 保存先切り替え
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Toggle(presetStorageProject, Localization.PresetStorageProject, EditorStyles.miniButtonLeft) && !presetStorageProject)
+            if (GUILayout.Toggle(presetStorageProject, new GUIContent(Localization.PresetStorageProject, Localization.PresetStorageProjectTooltip), EditorStyles.miniButtonLeft) && !presetStorageProject)
                 presetStorageProject = true;
-            if (GUILayout.Toggle(!presetStorageProject, Localization.PresetStorageUser, EditorStyles.miniButtonRight) && presetStorageProject)
+            if (GUILayout.Toggle(!presetStorageProject, new GUIContent(Localization.PresetStorageUser, Localization.PresetStorageUserTooltip), EditorStyles.miniButtonRight) && presetStorageProject)
                 presetStorageProject = false;
             EditorGUILayout.EndHorizontal();
 
             // 保存
             EditorGUILayout.BeginHorizontal();
-            presetSaveName = EditorGUILayout.TextField(Localization.PresetName, presetSaveName);
-            if (GUILayout.Button(Localization.SavePreset, GUILayout.Width(48)))
+            presetSaveName = EditorGUILayout.TextField(
+                new GUIContent(Localization.PresetName, Localization.PresetNameTooltip),
+                presetSaveName);
+            if (GUILayout.Button(new GUIContent(Localization.SavePreset, Localization.SavePresetTooltip), GUILayout.Width(48)))
                 SavePreset(presetSaveName);
             EditorGUILayout.EndHorizontal();
 
             // インポート / エクスポート
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(Localization.ExportJson))
+            if (GUILayout.Button(new GUIContent(Localization.ExportJson, Localization.ExportJsonTooltip)))
                 ExportPresetJson();
-            if (GUILayout.Button(Localization.ImportJson))
+            if (GUILayout.Button(new GUIContent(Localization.ImportJson, Localization.ImportJsonTooltip)))
                 ImportPresetJson();
             EditorGUILayout.EndHorizontal();
 
@@ -77,9 +79,9 @@ namespace VRCAvatarColorChanger
                     string pname = System.IO.Path.GetFileNameWithoutExtension(file);
                     EditorGUILayout.BeginHorizontal();
                     EditorGUILayout.LabelField(pname, GUILayout.ExpandWidth(true));
-                    if (GUILayout.Button(Localization.LoadPreset, GUILayout.Width(40)))
+                    if (GUILayout.Button(new GUIContent(Localization.LoadPreset, Localization.LoadPresetTooltip), GUILayout.Width(40)))
                         LoadPreset(file);
-                    if (GUILayout.Button("×", GUILayout.Width(22)))
+                    if (GUILayout.Button(new GUIContent("×", Localization.DeletePresetTooltip), GUILayout.Width(22)))
                     {
                         if (EditorUtility.DisplayDialog(Localization.Confirm,
                             Localization.DeletePresetConfirm(pname), Localization.OK, Localization.Cancel))

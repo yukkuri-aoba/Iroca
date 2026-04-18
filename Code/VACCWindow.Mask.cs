@@ -39,7 +39,9 @@ namespace VRCAvatarColorChanger
                 return;
             }
 
-            brushSize = EditorGUILayout.IntSlider(Localization.BrushSize, brushSize, 1, 64);
+            brushSize = EditorGUILayout.IntSlider(
+                new GUIContent(Localization.BrushSize, Localization.BrushSizeTooltip),
+                brushSize, 1, 64);
 
             // Exclude / Include ボタン: 押すとペイントモードON+モード選択、同じボタン再押しでOFF
             bool excludeActive = maskPaintActive && !brushEraseMode;
@@ -49,7 +51,7 @@ namespace VRCAvatarColorChanger
             var prevBg = GUI.backgroundColor;
 
             GUI.backgroundColor = excludeActive ? new Color(1f, 0.55f, 0.55f) : Color.white;
-            if (GUILayout.Button(Localization.Exclude, EditorStyles.miniButtonLeft))
+            if (GUILayout.Button(new GUIContent(Localization.Exclude, Localization.ExcludeTooltip), EditorStyles.miniButtonLeft))
             {
                 if (excludeActive)
                     maskPaintActive = false;
@@ -58,7 +60,7 @@ namespace VRCAvatarColorChanger
             }
 
             GUI.backgroundColor = includeActive ? new Color(0.55f, 1f, 0.55f) : Color.white;
-            if (GUILayout.Button(Localization.Include, EditorStyles.miniButtonRight))
+            if (GUILayout.Button(new GUIContent(Localization.Include, Localization.IncludeTooltip), EditorStyles.miniButtonRight))
             {
                 if (includeActive)
                     maskPaintActive = false;
@@ -69,7 +71,7 @@ namespace VRCAvatarColorChanger
             GUI.backgroundColor = prevBg;
             EditorGUILayout.EndHorizontal();
 
-            if (GUILayout.Button(Localization.ClearMask))
+            if (GUILayout.Button(new GUIContent(Localization.ClearMask, Localization.ClearMaskTooltip)))
             {
                 PushMaskUndo();
                 exclusionMask = null;
@@ -78,7 +80,7 @@ namespace VRCAvatarColorChanger
             }
 
             EditorGUI.BeginDisabledGroup(_undoMaskHistory.Count == 0);
-            if (GUILayout.Button(Localization.UndoMask))
+            if (GUILayout.Button(new GUIContent(Localization.UndoMask, Localization.UndoMaskTooltip)))
                 UndoMaskStep();
             EditorGUI.EndDisabledGroup();
 

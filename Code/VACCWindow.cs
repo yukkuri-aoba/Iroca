@@ -210,29 +210,39 @@ namespace VRCAvatarColorChanger
 
                 // Header row
                 EditorGUILayout.BeginHorizontal();
-                zone.enabled = EditorGUILayout.ToggleLeft("", zone.enabled, GUILayout.Width(16));
-                zone.name = EditorGUILayout.TextField(zone.name);
-                EditorGUILayout.LabelField(Localization.LayerIndex, GUILayout.Width(14));
+                zone.enabled = EditorGUILayout.ToggleLeft(
+                    new GUIContent("", Localization.ZoneEnabledTooltip),
+                    zone.enabled, GUILayout.Width(16));
+                zone.name = EditorGUILayout.TextField(
+                    new GUIContent("", Localization.ZoneNameTooltip),
+                    zone.name);
+                EditorGUILayout.LabelField(
+                    new GUIContent(Localization.LayerIndex, Localization.LayerIndexTooltip),
+                    GUILayout.Width(14));
                 zone.layerIndex = Mathf.Max(0, EditorGUILayout.IntField(zone.layerIndex, GUILayout.Width(30)));
-                if (GUILayout.Button("×", GUILayout.Width(22)))
+                if (GUILayout.Button(new GUIContent("×", Localization.RemoveZoneTooltip), GUILayout.Width(22)))
                 {
                     removeIndex = i;
                 }
                 EditorGUILayout.EndHorizontal();
 
                 zone.mode = (SelectionMode)EditorGUILayout.EnumPopup(
-                    Localization.SelectionMode, zone.mode);
+                    new GUIContent(Localization.SelectionMode, Localization.SelectionModeTooltip),
+                    zone.mode);
 
                 if (zone.mode == SelectionMode.ColorPick)
                 {
                     zone.sampleColor = EditorGUILayout.ColorField(
-                        Localization.SampleColor, zone.sampleColor);
+                        new GUIContent(Localization.SampleColor, Localization.SampleColorTooltip),
+                        zone.sampleColor);
                     zone.tolerance = EditorGUILayout.Slider(
-                        Localization.Tolerance, zone.tolerance, 0f, 1f);
+                        new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
+                        zone.tolerance, 0f, 1f);
                 }
                 else
                 {
-                    EditorGUILayout.LabelField(Localization.UVRect);
+                    EditorGUILayout.LabelField(
+                        new GUIContent(Localization.UVRect, Localization.UVRectTooltip));
                     EditorGUI.indentLevel++;
                     float x = EditorGUILayout.Slider("X", zone.uvRect.x, 0f, 1f);
                     float y = EditorGUILayout.Slider("Y", zone.uvRect.y, 0f, 1f);
@@ -243,7 +253,8 @@ namespace VRCAvatarColorChanger
                 }
 
                 zone.targetColor = EditorGUILayout.ColorField(
-                    Localization.TargetColor, zone.targetColor);
+                    new GUIContent(Localization.TargetColor, Localization.TargetColorTooltip),
+                    zone.targetColor);
                 zone.valueBlend = EditorGUILayout.Slider(
                     new GUIContent(Localization.PatternPreserve, Localization.PatternPreserveTooltip),
                     zone.valueBlend, 0f, 1f);
