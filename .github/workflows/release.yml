@@ -72,13 +72,13 @@ jobs:
           repo     = "https://github.com/yukkuri-aoba/VRC_AvatarColorChanger"
           release_url = f"{repo}/releases/download/v{version}/{zip_name}"
 
-          with open('package.json', encoding='utf-8') as f:
+          with open('package.json', encoding='utf-8-sig') as f:
               pkg = json.load(f)
 
           pkg['url']        = release_url
           pkg['zipSHA256']  = sha256
 
-          with open('docs/index.json', encoding='utf-8') as f:
+          with open('docs/index.json', encoding='utf-8-sig') as f:
               listing = json.load(f)
 
           pid = pkg['name']
