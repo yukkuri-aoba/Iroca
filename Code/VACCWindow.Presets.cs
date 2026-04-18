@@ -12,8 +12,34 @@ namespace VRCAvatarColorChanger
         private bool presetStorageProject = true;
         private Vector2 presetScrollPos;
 
+        // VACCWindowスクリプトが置かれているフォルダから2階層上 (Assets/VACC) を取得し、
+        // その配下の Presets フォルダをプロジェクト用プリセット保存先とする。
+        // スクリプトが Assets 外 (UPMパッケージ等) にある場合は Assets/VACC/Presets にフォールバック。
         private static string ProjectPresetFolder
-            => System.IO.Path.Combine(Application.dataPath, "VACCPresets");
+        {
+            get
+            {
+                string vaccRelative = "Assets/VACC"; // フォールバック
+                var guids = AssetDatabase.FindAssets("t:Script VACCWindow");
+                foreach (var guid in guids)
+                {
+                    var assetPath = AssetDatabase.GUIDToAssetPath(guid);
+                    // Assets 配下かつ VACCWindow.cs 本体のみを対象にする
+                    if (assetPath.StartsWith("Assets/") && assetPath.EndsWith("VACCWindow.cs"))
+                    {
+                        // Assets/VACC/Editor/VACCWindow.cs → Assets/VACC/Editor → Assets/VACC
+                        var editorDir = System.IO.Path.GetDirectoryName(assetPath)
+                            .Replace('\\', '/');       // Assets/VACC/Editor
+                        vaccRelative = System.IO.Path.GetDirectoryName(editorDir)
+                            .Replace('\\', '/');       // Assets/VACC
+                        break;
+                    }
+                }
+                // assetPath は Assets/ 起点の相対パスなので dataPath の親から結合する
+                return System.IO.Path.GetFullPath(
+                    System.IO.Path.Combine(Application.dataPath, "..", vaccRelative, "Presets"));
+            }
+        }
 
         private static string UserPresetFolder
             => System.IO.Path.Combine(
