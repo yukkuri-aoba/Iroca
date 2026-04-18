@@ -7,8 +7,10 @@ namespace VRCAvatarColorChanger
 {
     public partial class VACCWindow
     {
+        // プレビュー用テクスチャ・スクロール座標はキャッシュであり、再コンパイルで破棄されても
+        // 次回OnGUIで再生成されるためSerializeFieldにしない。
         private Texture2D previewTexture;
-        private float previewZoom = 1f;
+        [SerializeField] private float previewZoom = 1f;
         private bool previewDirty = true;
         private Vector2 previewScrollPos;
 
@@ -35,8 +37,8 @@ namespace VRCAvatarColorChanger
 
         // 変更前/変更後比較
         private Texture2D rawPreviewTexture;
-        private bool comparisonMode;
-        private bool diffMode;
+        [SerializeField] private bool comparisonMode;
+        [SerializeField] private bool diffMode;
         private Texture2D diffTexture;
 
         // ─────────────────────── プレビュー ─────────────────────────
@@ -559,11 +561,14 @@ namespace VRCAvatarColorChanger
                 }
                 finally
                 {
-                    // 常にフラグをリセットして再描画をスケジュール、メインスレッド
-                    // ポーリングループが反応できるように — キャンセルされたり例外が発生しても。
+                    // 自分が最新世代のときだけフラグを戻す。
+                    // 古い世代（既に新タスクに置き換えられている）のタスクがここで false を
+                    // 書いてしまうと、新タスクが true にしたフラグを誤って上書きして
+                    // 同じプレビューが再生成されるレース条件が発生するため。
+                    if (myGen == _asyncGeneration)
+                        _previewGenerating = false;
                     // delayCall はメインスレッドで実行されるため、バックグラウンドスレッドから
                     // 安全に呼び出せる (Repaint() の直接呼び出しより確実)。
-                    _previewGenerating = false;
                     UnityEditor.EditorApplication.delayCall += Repaint;
                 }
             });
@@ -642,24 +647,36 @@ namespace VRCAvatarColorChanger
 
         // ───────────────────────── Utility ─────────────────────────
 
+        // ColorZoneのディープコピー。
+        // 注意: 新しいフィールドをColorZoneに追加した場合はここも更新すること。
+        // コピー漏れがあるとプレビューと最終エクスポートで結果が食い違う原因になる。
         private static ColorZone CloneZone(ColorZone z) => new ColorZone
         {
-            name         = z.name,
-            enabled      = z.enabled,
-            mode         = z.mode,
-            sampleColor  = z.sampleColor,
-            tolerance    = z.tolerance,
-            uvRect       = z.uvRect,
-            targetColor  = z.targetColor,
-            valueBlend   = z.valueBlend,
-            edgeSoftness = z.edgeSoftness,
-            layerIndex   = z.layerIndex,
+            name                 = z.name,
+            enabled              = z.enabled,
+            mode                 = z.mode,
+            sampleColor          = z.sampleColor,
+            tolerance            = z.tolerance,
+            uvRect               = z.uvRect,
+            targetColor          = z.targetColor,
+            valueBlend           = z.valueBlend,
+            edgeSoftness         = z.edgeSoftness,
+            saturationStrictness = z.saturationStrictness,
+            valueWeight          = z.valueWeight,
+            satDistWeight        = z.satDistWeight,
+            satRampScale         = z.satRampScale,
+            highlightRecovery    = z.highlightRecovery,
+            layerIndex           = z.layerIndex,
         };
 
         private static Color32[] BoxDownsample(Color32[] src, int srcW, int srcH,
             int dstW, int dstH, float scale)
         {
             Color32[] dst = new Color32[dstW * dstH];
+            // 合計値が int の範囲を超えないように long を使用。
+            // 例: 8192x8192 の画像を 512x512 に縮小すると 1 ピクセル当たり 256 サンプル以上、
+            // 合計が byte(255) * 256 = 65280 を超え、バッチサイズ次第では int でも桁数が
+            // 増えるため安全側に倒す。
             for (int y = 0; y < dstH; y++)
             {
                 int sy0 = Mathf.FloorToInt(y / scale);
@@ -668,7 +685,8 @@ namespace VRCAvatarColorChanger
                 {
                     int sx0 = Mathf.FloorToInt(x / scale);
                     int sx1 = Mathf.Min(Mathf.CeilToInt((x + 1f) / scale) - 1, srcW - 1);
-                    int r = 0, g = 0, b = 0, a = 0, count = 0;
+                    long r = 0, g = 0, b = 0, a = 0;
+                    int count = 0;
                     for (int ky = sy0; ky <= sy1; ky++)
                         for (int kx = sx0; kx <= sx1; kx++)
                         {
@@ -676,6 +694,7 @@ namespace VRCAvatarColorChanger
                             r += p.r; g += p.g; b += p.b; a += p.a;
                             count++;
                         }
+                    if (count <= 0) count = 1; // ゼロ除算ガード（理論上は到達しないが念のため）
                     dst[y * dstW + x] = new Color32(
                         (byte)(r / count), (byte)(g / count),
                         (byte)(b / count), (byte)(a / count));

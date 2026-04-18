@@ -7,9 +7,9 @@ namespace VRCAvatarColorChanger
     public partial class VACCWindow
     {
         // プリセット
-        private bool presetsFoldout;
-        private string presetSaveName = "Preset";
-        private bool presetStorageProject = true;
+        [SerializeField] private bool presetsFoldout;
+        [SerializeField] private string presetSaveName = "Preset";
+        [SerializeField] private bool presetStorageProject = true;
         private Vector2 presetScrollPos;
 
         // VACCWindowスクリプトが置かれているフォルダから2階層上 (Assets/VACC) を取得し、
@@ -161,14 +161,19 @@ namespace VRCAvatarColorChanger
             var data = JsonUtility.FromJson<VACCPresetData>(json);
             if (data == null) return;
 
+            // Unity の JsonUtility は JSON に含まれないフィールドを「既定値で上書き」ではなく
+            // 「クラスのフィールド初期化子の値を保持」するため、ここで `> 0 ? : default` のような
+            // defaulting を行うとユーザーが明示的に 0 を保存したケース（UI レンジに 0 を含む
+            // antiAliasCleanup や holeFillPasses）を不当に書き換えてしまう。
+            // 旧バージョンとの後方互換は VACCPresetData の初期化子側に寄せる。
             zones = data.zones ?? new List<ColorZone>();
-            edgeFeather = data.edgeFeather;
-            advancedMode = data.advancedMode;
-            antiAliasCleanup = data.antiAliasCleanup > 0 ? data.antiAliasCleanup : 3;
-            holeFillPasses = data.holeFillPasses > 0 ? data.holeFillPasses : 3;
-            holeFillMinNeighbors = data.holeFillMinNeighbors > 0 ? data.holeFillMinNeighbors : 4;
-            relaxedSatMin = data.relaxedSatMin > 0f ? data.relaxedSatMin : 0.02f;
-            relaxedSatRamp = data.relaxedSatRamp > 0f ? data.relaxedSatRamp : 0.08f;
+            edgeFeather          = data.edgeFeather;
+            advancedMode         = data.advancedMode;
+            antiAliasCleanup     = data.antiAliasCleanup;
+            holeFillPasses       = data.holeFillPasses;
+            holeFillMinNeighbors = data.holeFillMinNeighbors;
+            relaxedSatMin        = data.relaxedSatMin;
+            relaxedSatRamp       = data.relaxedSatRamp;
             previewDirty = true;
         }
 

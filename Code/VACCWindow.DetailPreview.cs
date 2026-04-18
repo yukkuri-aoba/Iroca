@@ -151,7 +151,9 @@ namespace VRCAvatarColorChanger
                 }
                 finally
                 {
-                    _detailGenerating = false;
+                    // 自分が最新世代のときだけフラグを戻す。レース回避（Preview.cs と同様の理由）。
+                    if (myGen == _detailAsyncGeneration)
+                        _detailGenerating = false;
                     UnityEditor.EditorApplication.delayCall += Repaint;
                 }
             });
