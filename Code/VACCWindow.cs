@@ -254,6 +254,10 @@ namespace VRCAvatarColorChanger
                     new GUIContent(Localization.SaturationStrictness, Localization.SaturationStrictnessTooltip),
                     zone.saturationStrictness, 0f, 1f);
 
+                zone.highlightRecovery = EditorGUILayout.Toggle(
+                    new GUIContent(Localization.HighlightRecovery, Localization.HighlightRecoveryTooltip),
+                    zone.highlightRecovery);
+
                 if (advancedMode)
                 {
                     zone.valueWeight = EditorGUILayout.Slider(

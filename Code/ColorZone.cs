@@ -59,6 +59,9 @@ namespace VRCAvatarColorChanger
         [Range(0.01f, 0.5f)]
         public float satRampScale = 0.10f;
 
+        // ハイライト補助マッチ: 高明度・低彩度ピクセルを補助的にマッチ
+        public bool highlightRecovery = true;
+
         // レイヤーインデックス: 高いレイヤーのゾーンが低いレイヤーをオーバーライド（0 = ベースレイヤー）
         public int layerIndex = 0;
 
@@ -134,7 +137,31 @@ namespace VRCAvatarColorChanger
             else
                 strength = 1f - (dist - hardRange) / softRange;
 
-            return strength * satConfidence;
+            float primary = strength * satConfidence;
+            if (primary > 0f) return primary;
+
+            // ハイライト補助分岐: 高明度・低彩度ピクセル（鏡面反射/ハイライト）に
+            // 彩度差項を除いた緩和距離式でマッチを試みる
+            if (!highlightRecovery) return 0f;
+            if (pV <= 0.80f || pS >= 0.20f) return 0f;
+
+            float relaxedSatConf = Mathf.Clamp01((pS - 0.02f) / 0.08f);
+            if (relaxedSatConf <= 0f) return 0f;
+
+            float highlightDist = hDist + vDist * valueWeight * (1f - sRatio);
+            if (highlightDist >= tolerance) return 0f;
+
+            float hlSoftRange = tolerance * edgeSoftness;
+            float hlHardRange = tolerance - hlSoftRange;
+            float hlStrength;
+            if (hlSoftRange < 0.0001f)
+                hlStrength = 1f;
+            else if (highlightDist <= hlHardRange)
+                hlStrength = 1f;
+            else
+                hlStrength = 1f - (highlightDist - hlHardRange) / hlSoftRange;
+
+            return hlStrength * relaxedSatConf;
         }
 
         private bool IsInRect(int x, int y, int texWidth, int texHeight)

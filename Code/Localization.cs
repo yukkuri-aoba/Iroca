@@ -120,6 +120,11 @@ namespace VRCAvatarColorChanger
             ? "動的彩度ランプのスケール係数。\nsatRamp = Max(0.08, サンプル彩度 × この値)\n大きい値 = 彩度閾値付近で段階的なフェードイン\n小さい値 = より急激な閾値\nデフォルト: 0.10"
             : "Scale factor for the dynamic saturation ramp.\nsatRamp = Max(0.08, sampleSat × this)\nLarger = more gradual fade near threshold\nSmaller = sharper threshold\nDefault: 0.10";
 
+        public static string HighlightRecovery => IsJapanese ? "ハイライト補助" : "Highlight Recovery";
+        public static string HighlightRecoveryTooltip => IsJapanese
+            ? "高明度・低彩度のハイライト領域を補助的にマッチします。\n鏡面反射や光沢のある素材の色変換漏れを防ぎます。\nデフォルト: ON"
+            : "Match high-brightness low-saturation highlight regions.\nPrevents missed recoloring on reflective/glossy materials.\nDefault: ON";
+
         // ─── Exclusion Mask ───
         public static string ExclusionMask => IsJapanese ? "除外マスク" : "Exclusion Mask";
         public static string BrushSize => IsJapanese ? "ブラシサイズ" : "Brush Size";
