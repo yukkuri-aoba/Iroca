@@ -9,12 +9,12 @@ namespace VRCAvatarColorChanger
     public partial class VACCWindow
     {
         // 一括適用
-        private bool batchFoldout;
-        private List<Texture2D> batchTextures = new List<Texture2D>();
+        [SerializeField] private bool batchFoldout;
+        [SerializeField] private List<Texture2D> batchTextures = new List<Texture2D>();
         private Vector2 batchScrollPos;
 
         // エクスポート
-        private bool exportFoldout = true;
+        [SerializeField] private bool exportFoldout = true;
 
         // ─────────────────────── エクスポート ─────────────────────────
 
@@ -73,47 +73,9 @@ namespace VRCAvatarColorChanger
                 return;
             }
 
-            // ディスク上のファイルから元のフル解像度で直接読み込む、
-            // Unity の TextureImporter maxTextureSize / 圧縮設定をバイパス。
-            // (sourceTexture.GetPixels32() は*インポート*解像度を返します。これは
-            //  インポーター設定に応じて 2048 以下にスケーリングされている可能性があります。)
-            EditorUtility.DisplayProgressBar(Localization.ApplyAndSave, Localization.Processing, 0.1f);
-
-            byte[] srcBytes = File.ReadAllBytes(srcPath);
-            var fullTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            if (!fullTex.LoadImage(srcBytes))
-            {
-                EditorUtility.ClearProgressBar();
-                DestroyImmediate(fullTex);
-                EditorUtility.DisplayDialog(Localization.Error, Localization.TextureLoadError, Localization.OK);
-                return;
-            }
-
-            // ピクセル配列の取得（メインスレッド）
-            Color32[] pixels = fullTex.GetPixels32();
-            int texW = fullTex.width, texH = fullTex.height;
-            var sorted = zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
-
-            // 重い計算をバックグラウンドスレッドで実行
-            EditorUtility.DisplayProgressBar(Localization.ApplyAndSave, Localization.Processing, 0.3f);
-            if (sorted.Count > 0)
-            {
-                var task = System.Threading.Tasks.Task.Run(() =>
-                    ProcessPixelsArray(pixels, texW, texH,
-                        exclusionMask, maskWidth, maskHeight, sorted, edgeFeather, antiAliasCleanup,
-                        holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp));
-                task.Wait();
-            }
-
-            // 結果をテクスチャに反映（メインスレッド）
-            EditorUtility.DisplayProgressBar(Localization.ApplyAndSave, Localization.Export, 0.7f);
-            fullTex.SetPixels32(pixels);
-            fullTex.Apply();
-
-            byte[] pngData = fullTex.EncodeToPNG();
-            DestroyImmediate(fullTex);
-            EditorUtility.ClearProgressBar();
-
+            // ─── 先に出力先パスと上書き確認を済ませる ───
+            // 重い処理のあとでキャンセルされると計算が全て無駄になるので、
+            // 確認はユーザー入力の時点（＝処理前）に行う。
             string outputPath;
             if (saveAsNewFile)
             {
@@ -145,6 +107,55 @@ namespace VRCAvatarColorChanger
                     return;
                 }
             }
+
+            // ─── 実処理 ───
+            // ディスク上のファイルから元のフル解像度で直接読み込む、
+            // Unity の TextureImporter maxTextureSize / 圧縮設定をバイパス。
+            // (sourceTexture.GetPixels32() は*インポート*解像度を返します。これは
+            //  インポーター設定に応じて 2048 以下にスケーリングされている可能性があります。)
+            Texture2D fullTex = null;
+            byte[] pngData = null;
+            try
+            {
+                EditorUtility.DisplayProgressBar(Localization.ApplyAndSave, Localization.Processing, 0.1f);
+
+                byte[] srcBytes = File.ReadAllBytes(srcPath);
+                fullTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (!fullTex.LoadImage(srcBytes))
+                {
+                    EditorUtility.DisplayDialog(Localization.Error, Localization.TextureLoadError, Localization.OK);
+                    return;
+                }
+
+                // ピクセル配列の取得（メインスレッド）
+                Color32[] pixels = fullTex.GetPixels32();
+                int texW = fullTex.width, texH = fullTex.height;
+                var sorted = zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
+
+                // 重い計算をバックグラウンドスレッドで実行
+                EditorUtility.DisplayProgressBar(Localization.ApplyAndSave, Localization.Processing, 0.3f);
+                if (sorted.Count > 0)
+                {
+                    var task = System.Threading.Tasks.Task.Run(() =>
+                        ProcessPixelsArray(pixels, texW, texH,
+                            exclusionMask, maskWidth, maskHeight, sorted, edgeFeather, antiAliasCleanup,
+                            holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp));
+                    task.Wait();
+                }
+
+                // 結果をテクスチャに反映（メインスレッド）
+                EditorUtility.DisplayProgressBar(Localization.ApplyAndSave, Localization.Export, 0.7f);
+                fullTex.SetPixels32(pixels);
+                fullTex.Apply();
+                pngData = fullTex.EncodeToPNG();
+            }
+            finally
+            {
+                if (fullTex != null) DestroyImmediate(fullTex);
+                EditorUtility.ClearProgressBar();
+            }
+
+            if (pngData == null) return;
 
             File.WriteAllBytes(outputPath, pngData);
             AssetDatabase.Refresh();
@@ -196,56 +207,95 @@ namespace VRCAvatarColorChanger
 
         private void RunBatchApply()
         {
-            int success = 0;
-            for (int i = 0; i < batchTextures.Count; i++)
+            // 既存ファイルを検出して、先にまとめて上書き確認するか判定する
+            var plannedOutputs = new List<string>();
+            foreach (var tex in batchTextures)
             {
-                var tex = batchTextures[i];
                 if (tex == null) continue;
-
-                EditorUtility.DisplayProgressBar(
-                    Localization.BatchProgress,
-                    tex.name,
-                    (float)i / batchTextures.Count);
-
-                if (!IsReadable(tex)) EnableReadWrite(tex);
-                if (!IsReadable(tex)) continue;
-
                 string srcPath = AssetDatabase.GetAssetPath(tex);
                 if (string.IsNullOrEmpty(srcPath)) continue;
-
-                byte[] srcBytes = System.IO.File.ReadAllBytes(srcPath);
-                var fullTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                if (!fullTex.LoadImage(srcBytes)) { DestroyImmediate(fullTex); continue; }
-
-                // ピクセル配列取得（メインスレッド）→ 計算（バックグラウンド）→ 反映（メインスレッド）
-                Color32[] pixels = fullTex.GetPixels32();
-                int texW = fullTex.width, texH = fullTex.height;
-                var sorted = zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
-
-                if (sorted.Count > 0)
-                {
-                    var task = System.Threading.Tasks.Task.Run(() =>
-                        ProcessPixelsArray(pixels, texW, texH,
-                            exclusionMask, maskWidth, maskHeight, sorted, edgeFeather, antiAliasCleanup,
-                            holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp));
-                    task.Wait();
-                }
-
-                fullTex.SetPixels32(pixels);
-                fullTex.Apply();
-                byte[] pngData = fullTex.EncodeToPNG();
-                DestroyImmediate(fullTex);
-
                 string dir      = System.IO.Path.GetDirectoryName(srcPath);
                 string baseName = System.IO.Path.GetFileNameWithoutExtension(srcPath) + "_recolored";
-                string outPath  = System.IO.Path.Combine(dir, baseName + ".png");
-                System.IO.File.WriteAllBytes(outPath, pngData);
-                success++;
+                plannedOutputs.Add(System.IO.Path.Combine(dir, baseName + ".png"));
             }
 
-            EditorUtility.ClearProgressBar();
+            bool anyExists = plannedOutputs.Any(System.IO.File.Exists);
+            if (anyExists)
+            {
+                // 既存ファイルがある場合はユーザーに明示的に上書き確認を取る。
+                // 個別ダイアログだと件数が多いと煩雑なので、一括で判断させる。
+                if (!EditorUtility.DisplayDialog(
+                        Localization.Confirm,
+                        Localization.OverwriteConfirm,
+                        Localization.Overwrite,
+                        Localization.Cancel))
+                {
+                    return;
+                }
+            }
+
+            int success = 0;
+            try
+            {
+                for (int i = 0; i < batchTextures.Count; i++)
+                {
+                    var tex = batchTextures[i];
+                    if (tex == null) continue;
+
+                    // キャンセル可能なプログレスバーに変更。長時間処理でユーザーが中断できるようにする。
+                    if (EditorUtility.DisplayCancelableProgressBar(
+                            Localization.BatchProgress,
+                            tex.name,
+                            (float)i / Mathf.Max(1, batchTextures.Count)))
+                    {
+                        break;
+                    }
+
+                    if (!IsReadable(tex)) EnableReadWrite(tex);
+                    if (!IsReadable(tex)) continue;
+
+                    string srcPath = AssetDatabase.GetAssetPath(tex);
+                    if (string.IsNullOrEmpty(srcPath)) continue;
+
+                    byte[] srcBytes = System.IO.File.ReadAllBytes(srcPath);
+                    var fullTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                    if (!fullTex.LoadImage(srcBytes)) { DestroyImmediate(fullTex); continue; }
+
+                    // ピクセル配列取得（メインスレッド）→ 計算（バックグラウンド）→ 反映（メインスレッド）
+                    Color32[] pixels = fullTex.GetPixels32();
+                    int texW = fullTex.width, texH = fullTex.height;
+                    var sorted = zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
+
+                    if (sorted.Count > 0)
+                    {
+                        var task = System.Threading.Tasks.Task.Run(() =>
+                            ProcessPixelsArray(pixels, texW, texH,
+                                exclusionMask, maskWidth, maskHeight, sorted, edgeFeather, antiAliasCleanup,
+                                holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp));
+                        task.Wait();
+                    }
+
+                    fullTex.SetPixels32(pixels);
+                    fullTex.Apply();
+                    byte[] pngData = fullTex.EncodeToPNG();
+                    DestroyImmediate(fullTex);
+
+                    string dir      = System.IO.Path.GetDirectoryName(srcPath);
+                    string baseName = System.IO.Path.GetFileNameWithoutExtension(srcPath) + "_recolored";
+                    string outPath  = System.IO.Path.Combine(dir, baseName + ".png");
+                    System.IO.File.WriteAllBytes(outPath, pngData);
+                    success++;
+                }
+            }
+            finally
+            {
+                // finally で確実にプログレスバーをクリアする（例外でも閉じ忘れないように）
+                EditorUtility.ClearProgressBar();
+            }
+
             AssetDatabase.Refresh();
-            EditorUtility.DisplayDialog(Localization.Complete, Localization.BatchComplete(success), Localization.OK);
+            EditorUtility.DisplayDialog(Localization.Complete,
+                Localization.BatchComplete(success), Localization.OK);
         }
     }
 }

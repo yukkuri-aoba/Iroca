@@ -151,6 +151,7 @@ namespace VRCAvatarColorChanger
                 }
                 finally
                 {
+                    // 必ずフラグをリセット（Preview.cs と同様の理由、フラグ固着回避）。
                     _detailGenerating = false;
                     UnityEditor.EditorApplication.delayCall += Repaint;
                 }

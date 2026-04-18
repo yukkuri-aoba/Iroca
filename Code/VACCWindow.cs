@@ -8,26 +8,29 @@ namespace VRCAvatarColorChanger
 {
     public partial class VACCWindow : EditorWindow
     {
-        private Texture2D sourceTexture;
-        private List<ColorZone> zones = new List<ColorZone>();
+        // ── ユーザー入力・設定 ──
+        // [SerializeField] を付けることで、スクリプト再コンパイル時に Unity が
+        // EditorWindow の状態をシリアライズ/復元し、入力内容が失われにくくなる。
+        [SerializeField] private Texture2D sourceTexture;
+        [SerializeField] private List<ColorZone> zones = new List<ColorZone>();
         private Vector2 scrollPos;
-        private bool saveAsNewFile = true;
-        private string newFileName = "";
+        [SerializeField] private bool saveAsNewFile = true;
+        [SerializeField] private string newFileName = "";
 
         // Processing settings
-        private float edgeFeather = 0f;
-        private int antiAliasCleanup = 3;
+        [SerializeField] private float edgeFeather = 0f;
+        [SerializeField] private int antiAliasCleanup = 3;
 
         // アドバンスモード
-        private bool advancedMode;
-        private int holeFillPasses = 3;
-        private int holeFillMinNeighbors = 4;
-        private float relaxedSatMin = 0.02f;
-        private float relaxedSatRamp = 0.08f;
+        [SerializeField] private bool advancedMode;
+        [SerializeField] private int holeFillPasses = 3;
+        [SerializeField] private int holeFillMinNeighbors = 4;
+        [SerializeField] private float relaxedSatMin = 0.02f;
+        [SerializeField] private float relaxedSatRamp = 0.08f;
 
         // Foldouts
-        private bool zonesFoldout = true;
-        private bool processingFoldout = true;
+        [SerializeField] private bool zonesFoldout = true;
+        [SerializeField] private bool processingFoldout = true;
 
         // 横並びレイアウトの左右カラム用スクロール
         private Vector2 leftScrollPos;
@@ -377,6 +380,10 @@ namespace VRCAvatarColorChanger
         private void OnDestroy()
         {
             _asyncCancelled = true;  // stop background task from writing results or calling Repaint
+            // CancellationToken 経由でバックグラウンドタスクを即時中断。
+            // Cancel() 後も Dispose() するまでは OperationCanceledException を投げ続ける。
+            try { _previewCts?.Cancel(); } catch { /* ignore */ }
+            try { _detailCts?.Cancel();  } catch { /* ignore */ }
             SaveMaskToSession();
             if (previewTexture != null)    DestroyImmediate(previewTexture);
             if (rawPreviewTexture != null) DestroyImmediate(rawPreviewTexture);

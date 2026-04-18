@@ -65,7 +65,7 @@ namespace VRCAvatarColorChanger
         public static string SaturationStrictness => IsJapanese ? "彩度制限" : "Saturation Strictness";
         public static string SaturationStrictnessTooltip => IsJapanese
             ? "低彩度ピクセル（AO/影）をどの程度厳しく除外するかを調整します。\n高い値 = はみ出しが少ないが、境界にドットが残る場合がある\n低い値 = ドットが減るが、はみ出しが増える\nデフォルト: 0.50"
-            : "Controls how aggressively low-saturation pixels (AO/shadow) are excluded.\nHigher = less bleed but may leave dot artifacts at edges\nLower = fewer dots but more bleed\nDefault: 0.20";
+            : "Controls how aggressively low-saturation pixels (AO/shadow) are excluded.\nHigher = less bleed but may leave dot artifacts at edges\nLower = fewer dots but more bleed\nDefault: 0.50";
 
         // ─── Processing ───
         public static string Processing => IsJapanese ? "加工設定" : "Processing";

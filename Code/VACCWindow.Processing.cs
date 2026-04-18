@@ -211,19 +211,31 @@ namespace VRCAvatarColorChanger
         /// 端のピクセルが原因の孤立した1-2pxドットアーティファクトを除去します。
         /// パス数と最小隣接数はアドバンスモードで調整可能。
         /// </summary>
+        /// <remarks>
+        /// ダブルバッファリング方式: パスごとの配列クローンを避け、事前確保した
+        /// バッファを読み書きで swap することで大テクスチャでのメモリコピーを削減。
+        /// </remarks>
         private static void FillSmallHoles(float[] strength, int w, int h,
             int passes = 3, int minNeighbors = 4)
         {
+            if (passes <= 0) return;
+
+            // 事前に 1 つだけ作業バッファを確保し、パスごとに入れ替えて利用する
+            float[] buffer = new float[strength.Length];
+            float[] read = strength;
+            float[] write = buffer;
+
             for (int pass = 0; pass < passes; pass++)
             {
-                float[] filled = (float[])strength.Clone();
+                // 既存の値を write にコピーしておき、変更対象のピクセルのみを上書きする
+                System.Array.Copy(read, write, read.Length);
 
                 for (int y = 0; y < h; y++)
                 {
                     for (int x = 0; x < w; x++)
                     {
                         int idx = y * w + x;
-                        if (strength[idx] > 0f) continue;
+                        if (read[idx] > 0f) continue;
 
                         int matched = 0;
                         int total = 0;
@@ -237,7 +249,7 @@ namespace VRCAvatarColorChanger
                                 int nx = x + dx, ny = y + dy;
                                 if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
                                 total++;
-                                float ns = strength[ny * w + nx];
+                                float ns = read[ny * w + nx];
                                 if (ns > 0f)
                                 {
                                     matched++;
@@ -248,12 +260,19 @@ namespace VRCAvatarColorChanger
 
                         // 最小隣接数以上のマッチした隣接ピクセルがあれば埋める
                         if (matched >= minNeighbors && total >= minNeighbors)
-                            filled[idx] = minNeighbour;
+                            write[idx] = minNeighbour;
                     }
                 }
 
-                System.Array.Copy(filled, strength, strength.Length);
+                // read/write を入れ替え
+                var tmp = read;
+                read = write;
+                write = tmp;
             }
+
+            // 最新結果が呼び出し元の strength 配列に入るように調整
+            if (!ReferenceEquals(read, strength))
+                System.Array.Copy(read, strength, strength.Length);
         }
 
         /// <summary>
@@ -269,19 +288,26 @@ namespace VRCAvatarColorChanger
             float edgeSoftness, float valueWeight, float satDistWeight,
             float relaxedSatMin, float relaxedSatRamp, int passes)
         {
+            if (passes <= 0) return;
+
             float sH, sS, sV;
             Color.RGBToHSV(sampleColor, out sH, out sS, out sV);
 
+            // ダブルバッファリング: パスごとのクローンを避ける
+            float[] buffer = new float[strength.Length];
+            float[] read = strength;
+            float[] write = buffer;
+
             for (int pass = 0; pass < passes; pass++)
             {
-                float[] updated = (float[])strength.Clone();
+                System.Array.Copy(read, write, read.Length);
 
                 for (int y = 0; y < h; y++)
                 {
                     for (int x = 0; x < w; x++)
                     {
                         int idx = y * w + x;
-                        if (strength[idx] > 0f) continue;
+                        if (read[idx] > 0f) continue;
 
                         // Check if adjacent to at least one matched pixel
                         bool hasMatchedNeighbor = false;
@@ -291,7 +317,7 @@ namespace VRCAvatarColorChanger
                                 if (dx == 0 && dy == 0) continue;
                                 int nx = x + dx, ny = y + dy;
                                 if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
-                                if (strength[ny * w + nx] > 0f) hasMatchedNeighbor = true;
+                                if (read[ny * w + nx] > 0f) hasMatchedNeighbor = true;
                             }
 
                         if (!hasMatchedNeighbor) continue;
@@ -301,12 +327,17 @@ namespace VRCAvatarColorChanger
                             (Color)pixels[idx], sH, sS, sV, tolerance, edgeSoftness, valueWeight,
                             satDistWeight, relaxedSatMin, relaxedSatRamp);
                         if (relaxed > 0f)
-                            updated[idx] = relaxed;
+                            write[idx] = relaxed;
                     }
                 }
 
-                System.Array.Copy(updated, strength, strength.Length);
+                var tmp = read;
+                read = write;
+                write = tmp;
             }
+
+            if (!ReferenceEquals(read, strength))
+                System.Array.Copy(read, strength, strength.Length);
         }
 
         /// <summary>

@@ -12,6 +12,17 @@ namespace VRCAvatarColorChanger
     [Serializable]
     public class ColorZone
     {
+        // ハイライト補助マッチで対象ピクセルとみなす「鏡面反射/ハイライトらしさ」の閾値。
+        // V（明度）がこれ以上 かつ S（彩度）がハイライト閾値以下のピクセルのみ対象にする。
+        // これにより、光沢の白飛び部分（彩度が大きく落ちているが本来は同じ素材）を
+        // マッチ対象に戻す。値は多くのアバター系テクスチャでの経験則。
+        private const float HighlightValueMin = 0.80f;
+        private const float HighlightSaturationMax = 0.20f;
+        // ハイライト補助マッチで再評価する際の固定彩度閾値。通常パスの動的閾値より
+        // 緩め（低 satMin + 小さめランプ）にして、白飛び部分を取りこぼさない。
+        private const float HighlightRelaxedSatMin = 0.02f;
+        private const float HighlightRelaxedSatRamp = 0.08f;
+
         public string name = "Zone";
         public bool enabled = true;
         public SelectionMode mode = SelectionMode.ColorPick;
@@ -106,7 +117,10 @@ namespace VRCAvatarColorChanger
             float satRamp = Mathf.Max(0.08f, sS * satRampScale);
             float satConfidence = Mathf.Clamp01((pS - satMin) / satRamp);
 
-            // 色相距離（円形）
+            // 色相距離（色相環 [0,1) 上の最短距離）。
+            // HSV の H は 0 と 1 が同じ（赤）として円環状になっているため、単純差分では
+            // H=0.95 と H=0.05 の距離が 0.9 になってしまう。0.5 を超えたら反対側回りを
+            // 採用することで、実際の最短距離（この例なら 0.1）に補正する。
             float hDist = Mathf.Abs(pH - sH);
             if (hDist > 0.5f) hDist = 1f - hDist;
 
@@ -143,9 +157,9 @@ namespace VRCAvatarColorChanger
             // ハイライト補助分岐: 高明度・低彩度ピクセル（鏡面反射/ハイライト）に
             // 彩度差項を除いた緩和距離式でマッチを試みる
             if (!highlightRecovery) return 0f;
-            if (pV <= 0.80f || pS >= 0.20f) return 0f;
+            if (pV <= HighlightValueMin || pS >= HighlightSaturationMax) return 0f;
 
-            float relaxedSatConf = Mathf.Clamp01((pS - 0.02f) / 0.08f);
+            float relaxedSatConf = Mathf.Clamp01((pS - HighlightRelaxedSatMin) / HighlightRelaxedSatRamp);
             if (relaxedSatConf <= 0f) return 0f;
 
             float highlightDist = hDist + vDist * valueWeight * (1f - sRatio);

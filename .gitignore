@@ -3,6 +3,7 @@
 [Tt]emp/
 [Oo]bj/
 [Bb]uild/
+!build/
 [Bb]uilds/
 [Ll]ogs/
 [Mm]emoryCaptures/
@@ -30,5 +31,5 @@ Tests
 texture_sample
 archive/
 dev_safe
-
 .venv
+.github/instructions/
