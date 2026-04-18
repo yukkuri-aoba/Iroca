@@ -20,9 +20,9 @@
     "dependencies":  {
 
                      },
-    "url":  "https://github.com/yukkuri-aoba/VRCAvatarColorChanger/releases/download/v0.1.0/com.yukkuri-aoba.vrc-avatar-color-changer-0.1.0.zip",
-    "changelogUrl":  "https://github.com/yukkuri-aoba/VRCAvatarColorChanger/blob/main/CHANGELOG.md",
-    "documentationUrl":  "https://github.com/yukkuri-aoba/VRCAvatarColorChanger/blob/main/README.md",
+        "url":  "https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/releases/download/v0.1.0/com.yukkuri-aoba.vrc-avatar-color-changer-0.1.0.zip",
+    "changelogUrl":  "https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/blob/main/CHANGELOG.md",
+    "documentationUrl":  "https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/blob/main/README.md",
     "samples":  [
 
                 ],
