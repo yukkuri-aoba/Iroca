@@ -31,5 +31,5 @@ Tests
 texture_sample
 archive/
 dev_safe
-
 .venv
+.github/instructions/
