@@ -7,18 +7,19 @@ namespace VRCAvatarColorChanger
     public partial class VACCWindow
     {
         // 除外マスク（フル解像度、true = 除外）
+        // exclusionMask 自体はサイズが大きくセッション保存経由で復元するため、SerializeField にはしない。
         private bool[] exclusionMask;
         private int maskWidth, maskHeight;
-        private int brushSize = 8;
-        private bool brushEraseMode; // false = 除外ペイント、true = 除外消去
+        [SerializeField] private int brushSize = 8;
+        [SerializeField] private bool brushEraseMode; // false = 除外ペイント、true = 除外消去
         private bool isPainting;
         private Vector2 lastPaintUV = -Vector2.one;
 
-        // マスクオーバーレイ
+        // マスクオーバーレイ（テクスチャは都度再構築するのでシリアライズ不要）
         private Texture2D maskOverlayTexture;
         private bool maskDirty = true;
 
-        private bool maskFoldout = true;
+        [SerializeField] private bool maskFoldout = true;
 
         // 除外マスク元に戻す履歴（最大30ステップ）
         private readonly List<bool[]> _undoMaskHistory = new List<bool[]>();
@@ -108,7 +109,14 @@ namespace VRCAvatarColorChanger
             EnsureMask();
             int cx = Mathf.RoundToInt(uvPos.x * maskWidth);
             int cy = Mathf.RoundToInt(uvPos.y * maskHeight);
-            // ブラシサイズをプレビューピクセルからマスクピクセルにスケール
+
+            // ブラシサイズは「プレビュー画像上のピクセル数」で設定されるため、
+            // マスク座標系（フル解像度）に合わせてスケーリングする必要がある。
+            //
+            // プレビュー解像度 = Min(maskWidth, PreviewMaxSize)
+            // よって 1 プレビュー px = maskWidth / Min(maskWidth, PreviewMaxSize) マスク px。
+            // テクスチャが PreviewMaxSize 以下ならスケール = 1（そのままのサイズ）。
+            // それより大きい場合は比例してブラシ半径を拡大する。
             float maskScale = maskWidth / (float)Mathf.Min(maskWidth, PreviewMaxSize);
             int r = Mathf.Max(1, Mathf.RoundToInt(brushSize * maskScale));
 

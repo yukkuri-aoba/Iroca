@@ -7,13 +7,39 @@ namespace VRCAvatarColorChanger
     public partial class VACCWindow
     {
         // プリセット
-        private bool presetsFoldout;
-        private string presetSaveName = "Preset";
-        private bool presetStorageProject = true;
+        [SerializeField] private bool presetsFoldout;
+        [SerializeField] private string presetSaveName = "Preset";
+        [SerializeField] private bool presetStorageProject = true;
         private Vector2 presetScrollPos;
 
+        // VACCWindowスクリプトが置かれているフォルダから2階層上 (Assets/VACC) を取得し、
+        // その配下の Presets フォルダをプロジェクト用プリセット保存先とする。
+        // スクリプトが Assets 外 (UPMパッケージ等) にある場合は Assets/VACC/Presets にフォールバック。
         private static string ProjectPresetFolder
-            => System.IO.Path.Combine(Application.dataPath, "VACCPresets");
+        {
+            get
+            {
+                string vaccRelative = "Assets/VACC"; // フォールバック
+                var guids = AssetDatabase.FindAssets("t:Script VACCWindow");
+                foreach (var guid in guids)
+                {
+                    var assetPath = AssetDatabase.GUIDToAssetPath(guid);
+                    // Assets 配下かつ VACCWindow.cs 本体のみを対象にする
+                    if (assetPath.StartsWith("Assets/") && assetPath.EndsWith("VACCWindow.cs"))
+                    {
+                        // Assets/VACC/Editor/VACCWindow.cs → Assets/VACC/Editor → Assets/VACC
+                        var editorDir = System.IO.Path.GetDirectoryName(assetPath)
+                            .Replace('\\', '/');       // Assets/VACC/Editor
+                        vaccRelative = System.IO.Path.GetDirectoryName(editorDir)
+                            .Replace('\\', '/');       // Assets/VACC
+                        break;
+                    }
+                }
+                // assetPath は Assets/ 起点の相対パスなので dataPath の親から結合する
+                return System.IO.Path.GetFullPath(
+                    System.IO.Path.Combine(Application.dataPath, "..", vaccRelative, "Presets"));
+            }
+        }
 
         private static string UserPresetFolder
             => System.IO.Path.Combine(
@@ -135,14 +161,19 @@ namespace VRCAvatarColorChanger
             var data = JsonUtility.FromJson<VACCPresetData>(json);
             if (data == null) return;
 
+            // Unity の JsonUtility は JSON に含まれないフィールドを「既定値で上書き」ではなく
+            // 「クラスのフィールド初期化子の値を保持」するため、ここで `> 0 ? : default` のような
+            // defaulting を行うとユーザーが明示的に 0 を保存したケース（UI レンジに 0 を含む
+            // antiAliasCleanup や holeFillPasses）を不当に書き換えてしまう。
+            // 旧バージョンとの後方互換は VACCPresetData の初期化子側に寄せる。
             zones = data.zones ?? new List<ColorZone>();
-            edgeFeather = data.edgeFeather;
-            advancedMode = data.advancedMode;
-            antiAliasCleanup = data.antiAliasCleanup > 0 ? data.antiAliasCleanup : 3;
-            holeFillPasses = data.holeFillPasses > 0 ? data.holeFillPasses : 3;
-            holeFillMinNeighbors = data.holeFillMinNeighbors > 0 ? data.holeFillMinNeighbors : 4;
-            relaxedSatMin = data.relaxedSatMin > 0f ? data.relaxedSatMin : 0.02f;
-            relaxedSatRamp = data.relaxedSatRamp > 0f ? data.relaxedSatRamp : 0.08f;
+            edgeFeather          = data.edgeFeather;
+            advancedMode         = data.advancedMode;
+            antiAliasCleanup     = data.antiAliasCleanup;
+            holeFillPasses       = data.holeFillPasses;
+            holeFillMinNeighbors = data.holeFillMinNeighbors;
+            relaxedSatMin        = data.relaxedSatMin;
+            relaxedSatRamp       = data.relaxedSatRamp;
             previewDirty = true;
         }
 
