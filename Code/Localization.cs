@@ -298,6 +298,12 @@ namespace VRCAvatarColorChanger
         public static string OpenFolderTooltip => IsJapanese
             ? "元テクスチャのあるフォルダをファイルマネージャーで開きます"
             : "Open the folder containing the source texture in the file manager";
+        public static string InheritImportSettings => IsJapanese
+            ? "インポート設定を引き継ぐ"
+            : "Inherit Import Settings";
+        public static string InheritImportSettingsTooltip => IsJapanese
+            ? "ON: 元テクスチャのインポート設定（テクスチャタイプ・圧縮・ミップマップなど）を出力ファイルに引き継ぎます\nOFF: Unity のデフォルトのインポート設定を使用します"
+            : "ON: Copy import settings (texture type, compression, mipmaps, etc.) from the source texture to the output file\nOFF: Use Unity's default import settings";
         public static string AddBatchTextureTooltip => IsJapanese
             ? "一括適用リストにテクスチャを追加します"
             : "Add a texture to the batch apply list";

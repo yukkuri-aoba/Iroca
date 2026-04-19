@@ -16,6 +16,7 @@ namespace VRCAvatarColorChanger
         private Vector2 scrollPos;
         [SerializeField] private bool saveAsNewFile = true;
         [SerializeField] private string newFileName = "";
+        [SerializeField] private bool inheritImportSettings = true;
 
         // Processing settings
         [SerializeField] private float edgeFeather = 0f;
@@ -43,8 +44,8 @@ namespace VRCAvatarColorChanger
         {
             var window = GetWindow<VACCWindow>(Localization.WindowTitle);
             window.minSize = new Vector2(340, 500);
-            if (window.position.width < 800 || window.position.height < 700)
-                window.position = new Rect(window.position.x, window.position.y, 800, 700);
+            if (window.position.width < 800 || window.position.height < 800)
+                window.position = new Rect(window.position.x, window.position.y, 800, 800);
         }
 
         private void OnEnable()

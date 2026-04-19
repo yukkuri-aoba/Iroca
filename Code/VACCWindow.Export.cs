@@ -42,6 +42,10 @@ namespace VRCAvatarColorChanger
                     newFileName);
             }
 
+            inheritImportSettings = EditorGUILayout.Toggle(
+                new GUIContent(Localization.InheritImportSettings, Localization.InheritImportSettingsTooltip),
+                inheritImportSettings);
+
             if (GUILayout.Button(new GUIContent(Localization.ApplyAndSave, Localization.ApplyAndSaveTooltip), GUILayout.Height(32)))
             {
                 ApplyRecolor();
@@ -160,6 +164,9 @@ namespace VRCAvatarColorChanger
             File.WriteAllBytes(outputPath, pngData);
             AssetDatabase.Refresh();
 
+            if (inheritImportSettings)
+                CopyImportSettings(srcPath, outputPath);
+
             Debug.Log($"[VACC] Saved: {outputPath}");
             EditorUtility.DisplayDialog(Localization.Complete, Localization.Saved(outputPath), Localization.OK);
         }
@@ -205,6 +212,19 @@ namespace VRCAvatarColorChanger
             EditorGUILayout.Space(4);
         }
 
+        private static void CopyImportSettings(string srcPath, string dstPath)
+        {
+            var srcImporter = AssetImporter.GetAtPath(srcPath) as TextureImporter;
+            var dstImporter = AssetImporter.GetAtPath(dstPath) as TextureImporter;
+            if (srcImporter == null || dstImporter == null) return;
+
+            var settings = new TextureImporterSettings();
+            srcImporter.ReadTextureSettings(settings);
+            dstImporter.SetTextureSettings(settings);
+            dstImporter.SetPlatformTextureSettings(srcImporter.GetDefaultPlatformTextureSettings());
+            dstImporter.SaveAndReimport();
+        }
+
         private void RunBatchApply()
         {
             // 既存ファイルを検出して、先にまとめて上書き確認するか判定する
@@ -235,6 +255,7 @@ namespace VRCAvatarColorChanger
             }
 
             int success = 0;
+            var savedPairs = new List<(string src, string dst)>();
             try
             {
                 for (int i = 0; i < batchTextures.Count; i++)
@@ -284,6 +305,7 @@ namespace VRCAvatarColorChanger
                     string baseName = System.IO.Path.GetFileNameWithoutExtension(srcPath) + "_recolored";
                     string outPath  = System.IO.Path.Combine(dir, baseName + ".png");
                     System.IO.File.WriteAllBytes(outPath, pngData);
+                    savedPairs.Add((srcPath, outPath));
                     success++;
                 }
             }
@@ -294,6 +316,13 @@ namespace VRCAvatarColorChanger
             }
 
             AssetDatabase.Refresh();
+
+            if (inheritImportSettings)
+            {
+                foreach (var (src, dst) in savedPairs)
+                    CopyImportSettings(src, dst);
+            }
+
             EditorUtility.DisplayDialog(Localization.Complete,
                 Localization.BatchComplete(success), Localization.OK);
         }
