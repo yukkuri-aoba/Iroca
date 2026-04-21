@@ -140,9 +140,10 @@ namespace VRCAvatarColorChanger
                 EditorUtility.DisplayProgressBar(Localization.ApplyAndSave, Localization.Processing, 0.3f);
                 if (sorted.Count > 0)
                 {
+                    var maskSnap = BuildMaskSnapshot();
                     var task = System.Threading.Tasks.Task.Run(() =>
                         ProcessPixelsArray(pixels, texW, texH,
-                            exclusionMask, maskWidth, maskHeight, sorted, edgeFeather, antiAliasCleanup,
+                            maskSnap, sorted, edgeFeather, antiAliasCleanup,
                             holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp));
                     task.Wait();
                 }
@@ -289,9 +290,10 @@ namespace VRCAvatarColorChanger
 
                     if (sorted.Count > 0)
                     {
+                        var maskSnap = BuildMaskSnapshot();
                         var task = System.Threading.Tasks.Task.Run(() =>
                             ProcessPixelsArray(pixels, texW, texH,
-                                exclusionMask, maskWidth, maskHeight, sorted, edgeFeather, antiAliasCleanup,
+                                maskSnap, sorted, edgeFeather, antiAliasCleanup,
                                 holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp));
                         task.Wait();
                     }

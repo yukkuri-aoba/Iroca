@@ -92,8 +92,7 @@ namespace VRCAvatarColorChanger
             _detailGenerating = true;
             int myGen = _detailAsyncGeneration;
 
-            bool[] maskSnapshot = exclusionMask != null ? (bool[])exclusionMask.Clone() : null;
-            int mW = maskWidth, mH = maskHeight;
+            var maskSnap = BuildMaskSnapshot();
 
             var zonesSnapshot = zones
                 .Where(z => z.enabled)
@@ -127,7 +126,7 @@ namespace VRCAvatarColorChanger
                     }
 
                     ProcessPixelsArray(processedCrop, cropW, cropH,
-                        maskSnapshot, mW, mH, zonesSnapshot, feather, aaCleanup,
+                        maskSnap, zonesSnapshot, feather, aaCleanup,
                         hfPasses, hfMinNeighbors, rSatMin, rSatRamp,
                         capX0, capY0, capSrcW, capSrcH, token);
 
@@ -231,7 +230,19 @@ namespace VRCAvatarColorChanger
         private void RebuildDetailMaskOverlay(int cropW, int cropH,
             int originX, int originY, int fullW, int fullH)
         {
-            if (exclusionMask == null)
+            // 表示すべきマスクが無い場合はテクスチャを破棄
+            bool hasCommon = exclusionMask != null;
+            bool hasAnyZone = false;
+            if (zones != null)
+            {
+                foreach (var z in zones)
+                {
+                    if (z == null || string.IsNullOrEmpty(z.id)) continue;
+                    if (zoneMasks.TryGetValue(z.id, out var zm) && zm != null) { hasAnyZone = true; break; }
+                }
+            }
+
+            if (!hasCommon && !hasAnyZone)
             {
                 if (_detailMaskOverlayTexture != null)
                 {
@@ -251,8 +262,8 @@ namespace VRCAvatarColorChanger
             }
 
             var overlayPixels = new Color32[cropW * cropH];
-            var excluded = new Color32(255, 60, 60, 80);
-            var clear    = new Color32(0, 0, 0, 0);
+            var commonColor = new Color32(255, 60, 60, 80);
+            var clear       = new Color32(0, 0, 0, 0);
 
             for (int i = 0; i < overlayPixels.Length; i++)
             {
@@ -260,8 +271,23 @@ namespace VRCAvatarColorChanger
                 int cy = i / cropW;
                 int mx = Mathf.Clamp((originX + cx) * maskWidth  / fullW, 0, maskWidth  - 1);
                 int my = Mathf.Clamp((originY + cy) * maskHeight / fullH, 0, maskHeight - 1);
-                bool ex = exclusionMask != null && exclusionMask[my * maskWidth + mx];
-                overlayPixels[i] = ex ? excluded : clear;
+                int mi = my * maskWidth + mx;
+
+                Color32 px = clear;
+                if (hasCommon && exclusionMask[mi]) px = commonColor;
+
+                if (hasAnyZone)
+                {
+                    for (int zi = 0; zi < zones.Count; zi++)
+                    {
+                        var zone = zones[zi];
+                        if (zone == null || string.IsNullOrEmpty(zone.id)) continue;
+                        if (!zoneMasks.TryGetValue(zone.id, out var zm) || zm == null) continue;
+                        if (zm[mi]) { px = OverlayColorForZone(zi); break; }
+                    }
+                }
+
+                overlayPixels[i] = px;
             }
 
             _detailMaskOverlayTexture.SetPixels32(overlayPixels);

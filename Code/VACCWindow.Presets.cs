@@ -10,6 +10,8 @@ namespace VRCAvatarColorChanger
         [SerializeField] private bool presetsFoldout;
         [SerializeField] private string presetSaveName = "Preset";
         [SerializeField] private bool presetStorageProject = true;
+        [SerializeField] private bool presetIncludeMasks = true;
+        [SerializeField] private bool presetApplyMasks = true;
         private Vector2 presetScrollPos;
 
         // VACCWindowスクリプトが置かれているフォルダから2階層上 (Assets/VACC) を取得し、
@@ -79,6 +81,14 @@ namespace VRCAvatarColorChanger
                 SavePreset(presetSaveName);
             EditorGUILayout.EndHorizontal();
 
+            // マスク保存・読込トグル
+            presetIncludeMasks = EditorGUILayout.ToggleLeft(
+                new GUIContent(Localization.PresetIncludeMasks, Localization.PresetIncludeMasksTooltip),
+                presetIncludeMasks);
+            presetApplyMasks = EditorGUILayout.ToggleLeft(
+                new GUIContent(Localization.PresetApplyMasks, Localization.PresetApplyMasksTooltip),
+                presetApplyMasks);
+
             // インポート / エクスポート
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button(new GUIContent(Localization.ExportJson, Localization.ExportJsonTooltip)))
@@ -136,22 +146,104 @@ namespace VRCAvatarColorChanger
             if (!System.IO.Directory.Exists(folder))
                 System.IO.Directory.CreateDirectory(folder);
 
+            var data = BuildPresetData(name);
+            string json = JsonUtility.ToJson(data, true);
+            string path = System.IO.Path.Combine(folder, name + ".json");
+            System.IO.File.WriteAllText(path, json);
+            if (presetStorageProject) AssetDatabase.Refresh();
+        }
+
+        // 現在の設定を VACCPresetData に詰めて返す。
+        // presetIncludeMasks=true ならマスクも同梱する。
+        private VACCPresetData BuildPresetData(string presetName)
+        {
+            EnsureAllZoneIds();
+
+            // ColorZone は public フィールドのみなのでシャローコピーでよいが、
+            // id は必ず引き継ぐため変わらない
+            var zonesCopy = new List<ColorZone>(zones);
+
             var data = new VACCPresetData
             {
-                name = name,
-                zones = new List<ColorZone>(zones),
+                name = presetName,
+                zones = zonesCopy,
                 edgeFeather = edgeFeather,
                 advancedMode = advancedMode,
                 antiAliasCleanup = antiAliasCleanup,
                 holeFillPasses = holeFillPasses,
                 holeFillMinNeighbors = holeFillMinNeighbors,
                 relaxedSatMin = relaxedSatMin,
-                relaxedSatRamp = relaxedSatRamp
+                relaxedSatRamp = relaxedSatRamp,
             };
-            string json = JsonUtility.ToJson(data, true);
-            string path = System.IO.Path.Combine(folder, name + ".json");
-            System.IO.File.WriteAllText(path, json);
-            if (presetStorageProject) AssetDatabase.Refresh();
+
+            if (presetIncludeMasks && maskWidth > 0 && maskHeight > 0)
+            {
+                bool includedAnything = false;
+
+                if (exclusionMask != null && HasAnyTrue(exclusionMask))
+                {
+                    data.commonMaskBase64 = EncodeMask(exclusionMask, maskWidth, maskHeight);
+                    includedAnything = true;
+                }
+
+                foreach (var kv in zoneMasks)
+                {
+                    if (kv.Value == null || !HasAnyTrue(kv.Value)) continue;
+                    data.zoneMasks.Add(new ZoneMaskEntry
+                    {
+                        zoneId = kv.Key,
+                        maskBase64 = EncodeMask(kv.Value, maskWidth, maskHeight),
+                    });
+                    includedAnything = true;
+                }
+
+                if (includedAnything)
+                {
+                    data.maskWidth = maskWidth;
+                    data.maskHeight = maskHeight;
+                }
+            }
+
+            return data;
+        }
+
+        private static bool HasAnyTrue(bool[] arr)
+        {
+            if (arr == null) return false;
+            for (int i = 0; i < arr.Length; i++) if (arr[i]) return true;
+            return false;
+        }
+
+        // プリセットに含まれるマスクデータを現在の状態に適用する。
+        private void ApplyPresetMasks(VACCPresetData data)
+        {
+            if (data == null || data.maskWidth <= 0 || data.maskHeight <= 0) return;
+
+            maskWidth = data.maskWidth;
+            maskHeight = data.maskHeight;
+            exclusionMask = null;
+            zoneMasks.Clear();
+
+            if (!string.IsNullOrEmpty(data.commonMaskBase64))
+            {
+                var m = DecodeMask(data.commonMaskBase64, out int w, out int h);
+                if (m != null && w == maskWidth && h == maskHeight)
+                    exclusionMask = m;
+            }
+
+            if (data.zoneMasks != null)
+            {
+                foreach (var e in data.zoneMasks)
+                {
+                    if (e == null || string.IsNullOrEmpty(e.zoneId)) continue;
+                    var m = DecodeMask(e.maskBase64, out int w, out int h);
+                    if (m == null || w != maskWidth || h != maskHeight) continue;
+                    zoneMasks[e.zoneId] = m;
+                }
+            }
+
+            _undoMaskHistory.Clear();
+            SaveMaskToSession();
         }
 
         private void LoadPreset(string filePath)
@@ -167,6 +259,7 @@ namespace VRCAvatarColorChanger
             // antiAliasCleanup や holeFillPasses）を不当に書き換えてしまう。
             // 旧バージョンとの後方互換は VACCPresetData の初期化子側に寄せる。
             zones = data.zones ?? new List<ColorZone>();
+            EnsureAllZoneIds();
             edgeFeather          = data.edgeFeather;
             advancedMode         = data.advancedMode;
             antiAliasCleanup     = data.antiAliasCleanup;
@@ -174,6 +267,14 @@ namespace VRCAvatarColorChanger
             holeFillMinNeighbors = data.holeFillMinNeighbors;
             relaxedSatMin        = data.relaxedSatMin;
             relaxedSatRamp       = data.relaxedSatRamp;
+
+            if (presetApplyMasks && data.maskWidth > 0 && data.maskHeight > 0)
+            {
+                ApplyPresetMasks(data);
+            }
+
+            activeMaskTarget = -1;
+            maskDirty = true;
             previewDirty = true;
         }
 
@@ -195,18 +296,7 @@ namespace VRCAvatarColorChanger
 
         private void SavePresetToPath(string path)
         {
-            var data = new VACCPresetData
-            {
-                name = System.IO.Path.GetFileNameWithoutExtension(path),
-                zones = new List<ColorZone>(zones),
-                edgeFeather = edgeFeather,
-                advancedMode = advancedMode,
-                antiAliasCleanup = antiAliasCleanup,
-                holeFillPasses = holeFillPasses,
-                holeFillMinNeighbors = holeFillMinNeighbors,
-                relaxedSatMin = relaxedSatMin,
-                relaxedSatRamp = relaxedSatRamp
-            };
+            var data = BuildPresetData(System.IO.Path.GetFileNameWithoutExtension(path));
             System.IO.File.WriteAllText(path, JsonUtility.ToJson(data, true));
         }
     }

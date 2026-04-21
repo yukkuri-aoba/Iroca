@@ -205,6 +205,8 @@ namespace VRCAvatarColorChanger
                 EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
                 if (maskOverlayTexture != null)
                     GUI.DrawTexture(activePreviewRect, maskOverlayTexture, ScaleMode.StretchToFill, true);
+                if (zoneMaskOverlayTexture != null)
+                    GUI.DrawTexture(activePreviewRect, zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
                 EditorGUILayout.EndVertical();
 
                 EditorGUILayout.EndHorizontal();
@@ -238,8 +240,13 @@ namespace VRCAvatarColorChanger
 
                     if (diffMode && diffTexture != null)
                         GUI.DrawTexture(activePreviewRect, diffTexture, ScaleMode.StretchToFill, true);
-                    else if (maskOverlayTexture != null)
-                        GUI.DrawTexture(activePreviewRect, maskOverlayTexture, ScaleMode.StretchToFill, true);
+                    else
+                    {
+                        if (maskOverlayTexture != null)
+                            GUI.DrawTexture(activePreviewRect, maskOverlayTexture, ScaleMode.StretchToFill, true);
+                        if (zoneMaskOverlayTexture != null)
+                            GUI.DrawTexture(activePreviewRect, zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
+                    }
                 }
 
                 // Generating indicator for detail preview
@@ -438,7 +445,7 @@ namespace VRCAvatarColorChanger
             {
                 float dist = Vector2.Distance(lastPaintUV, currentUV);
                 // Step size in UV space based on brush size relative to mask resolution
-                EnsureMask();
+                EnsureMasks();
                 float step = (maskWidth > 0) ? 1f / maskWidth : 0.001f;
                 if (dist > step)
                 {
@@ -509,8 +516,7 @@ namespace VRCAvatarColorChanger
                 _cachedPrevH         = prevH;
             }
 
-            bool[] maskSnapshot = exclusionMask != null ? (bool[])exclusionMask.Clone() : null;
-            int mW = maskWidth, mH = maskHeight;
+            var maskSnap = BuildMaskSnapshot();
 
             var zonesSnapshot = zones
                 .Where(z => z.enabled)
@@ -535,7 +541,7 @@ namespace VRCAvatarColorChanger
                     // すべての重い計算はバックグラウンドスレッドで実行されます。
                     // ここでは Unity Object API は呼ばれない — 純粋な C# 計算のみ。
                     Color32[] pixels = (Color32[])srcPixelsForTask.Clone();
-                    ProcessPixelsArray(pixels, srcW, srcH, maskSnapshot, mW, mH, zonesSnapshot, feather, aaCleanup,
+                    ProcessPixelsArray(pixels, srcW, srcH, maskSnap, zonesSnapshot, feather, aaCleanup,
                         hfPasses, hfMinNeighbors, rSatMin, rSatRamp,
                         0, 0, 0, 0, token);
 
@@ -650,6 +656,7 @@ namespace VRCAvatarColorChanger
         // コピー漏れがあるとプレビューと最終エクスポートで結果が食い違う原因になる。
         private static ColorZone CloneZone(ColorZone z) => new ColorZone
         {
+            id                   = z.id,
             name                 = z.name,
             enabled              = z.enabled,
             mode                 = z.mode,

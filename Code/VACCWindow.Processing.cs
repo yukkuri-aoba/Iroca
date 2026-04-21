@@ -14,7 +14,7 @@ namespace VRCAvatarColorChanger
             if (sorted.Count == 0) return;
             Color32[] pixels = tex.GetPixels32();
             ProcessPixelsArray(pixels, tex.width, tex.height,
-                exclusionMask, maskWidth, maskHeight, sorted, edgeFeather, antiAliasCleanup,
+                BuildMaskSnapshot(), sorted, edgeFeather, antiAliasCleanup,
                 holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp);
             tex.SetPixels32(pixels);
         }
@@ -25,13 +25,13 @@ namespace VRCAvatarColorChanger
         // fullW/H: フル解像度テクスチャの寸法（0 = w/hと同じ、つまりクロップなし）
         private static void ProcessPixelsArray(
             Color32[] pixels, int w, int h,
-            bool[] mask, int maskW, int maskH,
+            MaskSnapshot masks,
             IList<ColorZone> sortedZones, float edgeFeather, int antiAliasCleanup,
             int holeFillPasses = 3, int holeFillMinNeighbors = 4,
             float relaxedSatMin = 0.02f, float relaxedSatRamp = 0.08f,
             int originX = 0, int originY = 0, int fullW = 0, int fullH = 0)
         {
-            ProcessPixelsArray(pixels, w, h, mask, maskW, maskH, sortedZones, edgeFeather, antiAliasCleanup,
+            ProcessPixelsArray(pixels, w, h, masks, sortedZones, edgeFeather, antiAliasCleanup,
                 holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
                 originX, originY, fullW, fullH, CancellationToken.None);
         }
@@ -39,7 +39,7 @@ namespace VRCAvatarColorChanger
         // キャンセルトークン対応バージョン — バックグラウンドプレビューから使用
         private static void ProcessPixelsArray(
             Color32[] pixels, int w, int h,
-            bool[] mask, int maskW, int maskH,
+            MaskSnapshot masks,
             IList<ColorZone> sortedZones, float edgeFeather, int antiAliasCleanup,
             int holeFillPasses, int holeFillMinNeighbors,
             float relaxedSatMin, float relaxedSatRamp,
@@ -48,6 +48,11 @@ namespace VRCAvatarColorChanger
         {
             if (fullW <= 0) fullW = w;
             if (fullH <= 0) fullH = h;
+
+            // マスクスナップショットからローカル変数に展開
+            bool[] commonMask = masks?.common;
+            int maskW = masks?.width ?? 0;
+            int maskH = masks?.height ?? 0;
 
             int len = w * h;
             Color32[] originalPixels = new Color32[len];
@@ -58,13 +63,18 @@ namespace VRCAvatarColorChanger
                 // キャンセルチェック: 新しいプレビューリクエストが来た場合は即座に中断
                 cancellationToken.ThrowIfCancellationRequested();
 
+                // このゾーンに紐付くゾーン別マスクを取得（存在しなければ null）
+                bool[] zoneMask = null;
+                if (masks != null && masks.zones != null && !string.IsNullOrEmpty(zone.id))
+                    masks.zones.TryGetValue(zone.id, out zoneMask);
+
                 // 1. 元のピクセルカラーを使用した強度マップを構築
                 float[] strength = new float[len];
                 for (int i = 0; i < len; i++)
                 {
                     int x = i % w, y = i / w;
                     int xf = x + originX, yf = y + originY;
-                    if (IsExcludedStatic(xf, yf, fullW, fullH, mask, maskW, maskH)) continue;
+                    if (IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH)) continue;
                     strength[i] = zone.GetMatchStrength((Color)originalPixels[i], xf, yf, fullW, fullH);
                 }
 
@@ -89,13 +99,13 @@ namespace VRCAvatarColorChanger
                 }
 
                 // 3. 除外マスクを再適用：ブラーが除外ピクセルにはみ出す可能性がある
-                if (mask != null)
+                if (commonMask != null || zoneMask != null)
                 {
                     for (int i = 0; i < len; i++)
                     {
                         int x = i % w, y = i / w;
                         int xf = x + originX, yf = y + originY;
-                        if (IsExcludedStatic(xf, yf, fullW, fullH, mask, maskW, maskH)) strength[i] = 0f;
+                        if (IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH)) strength[i] = 0f;
                     }
                 }
 
@@ -111,13 +121,19 @@ namespace VRCAvatarColorChanger
             }
         }
 
-        private static bool IsExcludedStatic(int x, int y, int texW, int texH,
-            bool[] mask, int maskW, int maskH)
+        // 共通マスクとゾーン別マスクを OR 結合した除外判定。
+        // どちらか片方でも true ならそのピクセルはこのゾーン処理から除外される。
+        private static bool IsExcludedCombined(int x, int y, int texW, int texH,
+            bool[] commonMask, bool[] zoneMask, int maskW, int maskH)
         {
-            if (mask == null) return false;
+            if (commonMask == null && zoneMask == null) return false;
+            if (maskW <= 0 || maskH <= 0) return false;
             int mx = Mathf.Clamp(x * maskW / texW, 0, maskW - 1);
             int my = Mathf.Clamp(y * maskH / texH, 0, maskH - 1);
-            return mask[my * maskW + mx];
+            int idx = my * maskW + mx;
+            if (commonMask != null && idx < commonMask.Length && commonMask[idx]) return true;
+            if (zoneMask != null && idx < zoneMask.Length && zoneMask[idx]) return true;
+            return false;
         }
 
         private static float[] GaussianBlur(float[] map, int w, int h, float sigma)

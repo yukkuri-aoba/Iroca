@@ -50,6 +50,7 @@ namespace VRCAvatarColorChanger
 
         private void OnEnable()
         {
+            EnsureAllZoneIds();
             RestoreMaskFromSession();
         }
 
@@ -173,6 +174,7 @@ namespace VRCAvatarColorChanger
                 _cachedSrcPixels = null;
                 _cachedRawDisplay = null;
                 exclusionMask = null;
+                zoneMasks.Clear();
                 _undoMaskHistory.Clear();
                 if (sourceTexture != null)
                 {
@@ -210,6 +212,7 @@ namespace VRCAvatarColorChanger
             for (int i = 0; i < zones.Count; i++)
             {
                 var zone = zones[i];
+                zone.EnsureId();
                 EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
                 // Header row
@@ -229,6 +232,22 @@ namespace VRCAvatarColorChanger
                     removeIndex = i;
                 }
                 EditorGUILayout.EndHorizontal();
+
+                // ソーンマスク編集ボタン（フル幅・状態連動）
+                {
+                    bool isActive = activeMaskTarget == i;
+                    var prevBg = GUI.backgroundColor;
+                    if (isActive) GUI.backgroundColor = new Color(0.55f, 0.75f, 1f);
+                    string label = isActive ? Localization.EditMaskActiveLabel : Localization.EditMaskInactiveLabel;
+                    if (GUILayout.Button(new GUIContent(label, Localization.EditMaskTooltip)))
+                    {
+                        activeMaskTarget = isActive ? -1 : i;
+                        maskFoldout = true;
+                        maskDirty = true;
+                        Repaint();
+                    }
+                    GUI.backgroundColor = prevBg;
+                }
 
                 zone.mode = (SelectionMode)EditorGUILayout.EnumPopup(
                     new GUIContent(Localization.SelectionMode, Localization.SelectionModeTooltip),
@@ -292,13 +311,16 @@ namespace VRCAvatarColorChanger
 
             if (removeIndex >= 0)
             {
+                OnZoneAboutToBeRemoved(removeIndex);
                 zones.RemoveAt(removeIndex);
                 previewDirty = true;
             }
 
             if (GUILayout.Button(Localization.AddZone))
             {
-                zones.Add(new ColorZone());
+                var newZone = new ColorZone();
+                newZone.EnsureId();
+                zones.Add(newZone);
                 previewDirty = true;
             }
 
@@ -390,6 +412,7 @@ namespace VRCAvatarColorChanger
             if (rawPreviewTexture != null) DestroyImmediate(rawPreviewTexture);
             if (diffTexture != null)       DestroyImmediate(diffTexture);
             if (maskOverlayTexture != null) DestroyImmediate(maskOverlayTexture);
+            if (zoneMaskOverlayTexture != null) DestroyImmediate(zoneMaskOverlayTexture);
             if (_detailPreviewTexture != null)    DestroyImmediate(_detailPreviewTexture);
             if (_rawDetailPreviewTexture != null) DestroyImmediate(_rawDetailPreviewTexture);
             if (_detailMaskOverlayTexture != null) DestroyImmediate(_detailMaskOverlayTexture);

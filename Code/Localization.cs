@@ -285,6 +285,34 @@ namespace VRCAvatarColorChanger
             ? "マスクの変更を1ステップ前に戻します（Ctrl+Z でも操作可）"
             : "Undo the last mask change (also available via Ctrl+Z)";
 
+        // ─── Per-Zone Mask strings ───
+        public static string MaskTarget => IsJapanese ? "編集対象" : "Edit Target";
+        public static string MaskTargetCommon => IsJapanese ? "共通マスク（全ゾーン）" : "Common Mask (all zones)";
+        public static string MaskTargetTooltip => IsJapanese
+            ? "マスクの編集対象を切り替えます\n・共通マスク: 全ゾーンで共通して除外される領域\n・各ゾーン: そのゾーンだけで除外される領域\n処理時は両者が OR 結合されて適用されます"
+            : "Switch which mask is being edited\n- Common: area excluded from every zone\n- Per-zone: area excluded only from that zone\nBoth are OR-combined when processing";
+        public static string EditMaskInactiveLabel => IsJapanese
+            ? "このゾーンのマスクを編集"
+            : "Edit this zone's mask";
+        public static string EditMaskActiveLabel => IsJapanese
+            ? "■ 編集中（クリックで解除）"
+            : "■ Editing (click to release)";
+        public static string EditMaskTooltip => IsJapanese
+            ? "このゾーン専用の除外マスクを編集対象にします\nもう一度押すと共通マスク編集に戻ります"
+            : "Make this zone's exclusion mask the edit target\nClick again to return to the common mask";
+        public static string PresetIncludeMasks => IsJapanese
+            ? "マスクも保存する"
+            : "Include masks when saving";
+        public static string PresetIncludeMasksTooltip => IsJapanese
+            ? "ON にすると、現在描かれている共通マスク・ゾーン別マスクもプリセットに同梱して保存します"
+            : "When ON, currently painted common and per-zone masks are also saved into the preset";
+        public static string PresetApplyMasks => IsJapanese
+            ? "マスクも読み込む"
+            : "Apply masks when loading";
+        public static string PresetApplyMasksTooltip => IsJapanese
+            ? "ON にすると、プリセットに同梱されたマスクを読み込み時に適用します\nOFF の場合はマスクを無視して他のパラメータのみ読み込みます"
+            : "When ON, masks embedded in the preset are applied on load\nWhen OFF, masks are ignored and only other parameters are loaded";
+
         // ─── Export tooltips ───
         public static string SaveAsNewFileTooltip => IsJapanese
             ? "ON: 元のファイルを保持して新規ファイルに保存\nOFF: 元のテクスチャを上書き保存"
