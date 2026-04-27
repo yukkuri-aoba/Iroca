@@ -82,6 +82,15 @@ namespace VRCAvatarColorChanger
         // レイヤーインデックス: 高いレイヤーのゾーンが低いレイヤーをオーバーライド（0 = ベースレイヤー）
         public int layerIndex = 0;
 
+        // ゾーン別マスク識別用 GUID。EnsureId() で初期化されるまで空文字列。
+        public string id = "";
+
+        public void EnsureId()
+        {
+            if (string.IsNullOrEmpty(id))
+                id = Guid.NewGuid().ToString();
+        }
+
         /// <summary>
         /// [0, 1] 範囲でソフト選択用のマッチ強度を返します。
         /// 0 = マッチなし、1 = 完全マッチ、中間 = 部分的（エッジ/遷移）。
