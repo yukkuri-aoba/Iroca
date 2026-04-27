@@ -174,6 +174,8 @@ namespace VRCAvatarColorChanger
                 holeFillMinNeighbors = holeFillMinNeighbors,
                 relaxedSatMin = relaxedSatMin,
                 relaxedSatRamp = relaxedSatRamp,
+                useDecontamination = useDecontamination,
+                decontaminationRadius = decontaminationRadius,
             };
 
             if (presetIncludeMasks && maskWidth > 0 && maskHeight > 0)
@@ -267,6 +269,8 @@ namespace VRCAvatarColorChanger
             holeFillMinNeighbors = data.holeFillMinNeighbors;
             relaxedSatMin        = data.relaxedSatMin;
             relaxedSatRamp       = data.relaxedSatRamp;
+            useDecontamination   = data.useDecontamination;
+            decontaminationRadius = Mathf.Clamp(data.decontaminationRadius, 1, 12);
 
             if (presetApplyMasks && data.maskWidth > 0 && data.maskHeight > 0)
             {

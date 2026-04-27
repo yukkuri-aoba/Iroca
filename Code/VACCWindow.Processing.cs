@@ -15,7 +15,9 @@ namespace VRCAvatarColorChanger
             Color32[] pixels = tex.GetPixels32();
             ProcessPixelsArray(pixels, tex.width, tex.height,
                 BuildMaskSnapshot(), sorted, edgeFeather, antiAliasCleanup,
-                holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp);
+                holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
+                useDecontamination: useDecontamination,
+                decontaminationRadius: decontaminationRadius);
             tex.SetPixels32(pixels);
         }
 
@@ -23,17 +25,21 @@ namespace VRCAvatarColorChanger
         // Texture2Dなし、UnityEngine.Object APIなし、Mathfとカラー計算のみ（いずれもスレッドセーフ）
         // originX/Y: フル解像度テクスチャでのクロップオフセット（0で全テクスチャ処理）
         // fullW/H: フル解像度テクスチャの寸法（0 = w/hと同じ、つまりクロップなし）
+        // useDecontamination: AA境界でα分解＋再合成を行い halo を除去
         private static void ProcessPixelsArray(
             Color32[] pixels, int w, int h,
             MaskSnapshot masks,
             IList<ColorZone> sortedZones, float edgeFeather, int antiAliasCleanup,
-            int holeFillPasses = 3, int holeFillMinNeighbors = 4,
+            int holeFillPasses = 5, int holeFillMinNeighbors = 4,
             float relaxedSatMin = 0.02f, float relaxedSatRamp = 0.08f,
-            int originX = 0, int originY = 0, int fullW = 0, int fullH = 0)
+            int originX = 0, int originY = 0, int fullW = 0, int fullH = 0,
+            bool useDecontamination = true, int decontaminationRadius = 4,
+            float decontaminationInteriorThreshold = 0.97f)
         {
             ProcessPixelsArray(pixels, w, h, masks, sortedZones, edgeFeather, antiAliasCleanup,
                 holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
-                originX, originY, fullW, fullH, CancellationToken.None);
+                originX, originY, fullW, fullH, CancellationToken.None,
+                useDecontamination, decontaminationRadius, decontaminationInteriorThreshold);
         }
 
         // キャンセルトークン対応バージョン — バックグラウンドプレビューから使用
@@ -44,7 +50,9 @@ namespace VRCAvatarColorChanger
             int holeFillPasses, int holeFillMinNeighbors,
             float relaxedSatMin, float relaxedSatRamp,
             int originX, int originY, int fullW, int fullH,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool useDecontamination = true, int decontaminationRadius = 4,
+            float decontaminationInteriorThreshold = 0.97f)
         {
             if (fullW <= 0) fullW = w;
             if (fullH <= 0) fullH = h;
@@ -109,16 +117,172 @@ namespace VRCAvatarColorChanger
                     }
                 }
 
+                // 3b. AA 境界の α 分解（オプション）：strength が 0 < s < interiorThreshold の
+                //     ピクセルを「α×FG + (1-α)×BG」と見て元テクスチャの合成を逆算し、
+                //     新色で再合成する。halo（薄汚れた中間色）を構造的に除去する。
+                //     詳細は dev_safe/docs/edge_decontamination.md を参照。
+                bool[] aaMask = null;
+                Color32[] decontaminatedPixels = null;
+                if (useDecontamination)
+                {
+                    DecontaminateAaBoundary(originalPixels, strength, w, h,
+                        zone.sampleColor, zone.targetColor,
+                        decontaminationRadius, decontaminationInteriorThreshold,
+                        out aaMask, out decontaminatedPixels);
+                }
+
                 // 4. 強度でブレンドした再色付けを適用
                 for (int i = 0; i < len; i++)
                 {
                     float s = strength[i];
                     if (s <= 0.001f) continue;
+                    if (aaMask != null && aaMask[i])
+                    {
+                        // AA pixel: use decontaminated value (overrides standard mix)
+                        pixels[i] = decontaminatedPixels[i];
+                        continue;
+                    }
                     Color original = originalPixels[i];
                     Color32 recolored = RecolorPixel(original, zone.targetColor, zone.sampleColor, zone.valueBlend);
                     pixels[i] = s >= 0.999f ? recolored : Color32.Lerp(pixels[i], recolored, s);
                 }
             }
+        }
+
+        /// <summary>
+        /// AA 境界での α 分解 + 再合成（color decontamination / alpha matting）。
+        /// 元テクスチャは「pixel = α × FG + (1-α) × BG」で合成されているため、
+        /// HSV transfer を直接適用すると AA ピクセル（混色）が薄汚れた中間色になる（halo）。
+        /// このメソッドは BG を局所近傍の strength=0 ピクセルから推定し、
+        /// α を RGB 空間の射影で計算して、新色 target で再合成する。
+        ///
+        /// 出力:
+        ///   aaMask[i] = true なら pixels[i] を decontaminatedPixels[i] で上書きすべき
+        ///   それ以外は通常の HSV transfer にフォールバック
+        /// </summary>
+        private static void DecontaminateAaBoundary(
+            Color32[] originalPixels, float[] strength, int w, int h,
+            Color sampleColor, Color targetColor,
+            int radius, float interiorThreshold,
+            out bool[] aaMask, out Color32[] decontaminatedPixels)
+        {
+            int len = w * h;
+            aaMask = new bool[len];
+            decontaminatedPixels = new Color32[len];
+
+            // 局所 BG 推定: strength=0 のピクセルだけを使った近傍和とその密度
+            // 0..255 のスケールで計算（後で divide で平均化）
+            float[] wR = new float[len];
+            float[] wG = new float[len];
+            float[] wB = new float[len];
+            float[] wD = new float[len];
+            for (int i = 0; i < len; i++)
+            {
+                if (strength[i] <= 0f)
+                {
+                    wR[i] = originalPixels[i].r;
+                    wG[i] = originalPixels[i].g;
+                    wB[i] = originalPixels[i].b;
+                    wD[i] = 1f;
+                }
+            }
+            float[] bgRSum = BoxFilterSum(wR, w, h, radius);
+            float[] bgGSum = BoxFilterSum(wG, w, h, radius);
+            float[] bgBSum = BoxFilterSum(wB, w, h, radius);
+            float[] bgDensity = BoxFilterSum(wD, w, h, radius);
+
+            // sample / target を 0..255 スケールに揃える
+            float sR = sampleColor.r * 255f;
+            float sG = sampleColor.g * 255f;
+            float sB = sampleColor.b * 255f;
+            float tR = targetColor.r * 255f;
+            float tG = targetColor.g * 255f;
+            float tB = targetColor.b * 255f;
+            const float DegenEps = 1f; // ‖sample - BG‖² 下限（≈1 階調）
+
+            for (int i = 0; i < len; i++)
+            {
+                float s = strength[i];
+                if (s <= 0f || s >= interiorThreshold) continue;
+                float density = bgDensity[i];
+                if (density < 1f) continue; // 近傍に BG ピクセルなし → fallback
+
+                float bR = bgRSum[i] / density;
+                float bG = bgGSum[i] / density;
+                float bB = bgBSum[i] / density;
+
+                float dirR = sR - bR;
+                float dirG = sG - bG;
+                float dirB = sB - bB;
+                float dirSq = dirR * dirR + dirG * dirG + dirB * dirB;
+                if (dirSq < DegenEps) continue; // sample ≈ BG → α が定義できない
+
+                float pR = originalPixels[i].r;
+                float pG = originalPixels[i].g;
+                float pB = originalPixels[i].b;
+
+                float dot = (pR - bR) * dirR + (pG - bG) * dirG + (pB - bB) * dirB;
+                float alpha = dot / dirSq;
+                if (alpha < 0f) alpha = 0f;
+                else if (alpha > 1f) alpha = 1f;
+
+                float oneMinusAlpha = 1f - alpha;
+                float resR = alpha * tR + oneMinusAlpha * bR;
+                float resG = alpha * tG + oneMinusAlpha * bG;
+                float resB = alpha * tB + oneMinusAlpha * bB;
+
+                aaMask[i] = true;
+                decontaminatedPixels[i] = new Color32(
+                    (byte)Mathf.Clamp(Mathf.RoundToInt(resR), 0, 255),
+                    (byte)Mathf.Clamp(Mathf.RoundToInt(resG), 0, 255),
+                    (byte)Mathf.Clamp(Mathf.RoundToInt(resB), 0, 255),
+                    originalPixels[i].a);
+            }
+        }
+
+        /// <summary>
+        /// 分離型ボックス和フィルタ。各ピクセル位置で (2r+1)×(2r+1) 窓内の合計を返す
+        /// （境界はゼロ拡張：画像外の寄与を 0 として無視）。スライディングウィンドウで O(N) で計算。
+        /// </summary>
+        private static float[] BoxFilterSum(float[] src, int w, int h, int r)
+        {
+            // 水平パス
+            float[] temp = new float[w * h];
+            for (int y = 0; y < h; y++)
+            {
+                int rowOff = y * w;
+                float sum = 0f;
+                int initEnd = Mathf.Min(r, w - 1);
+                for (int k = 0; k <= initEnd; k++) sum += src[rowOff + k];
+                temp[rowOff] = sum;
+                for (int x = 1; x < w; x++)
+                {
+                    int subIdx = x - 1 - r;
+                    int addIdx = x + r;
+                    if (subIdx >= 0) sum -= src[rowOff + subIdx];
+                    if (addIdx < w) sum += src[rowOff + addIdx];
+                    temp[rowOff + x] = sum;
+                }
+            }
+
+            // 垂直パス
+            float[] result = new float[w * h];
+            for (int x = 0; x < w; x++)
+            {
+                float sum = 0f;
+                int initEnd = Mathf.Min(r, h - 1);
+                for (int k = 0; k <= initEnd; k++) sum += temp[k * w + x];
+                result[x] = sum;
+                for (int y = 1; y < h; y++)
+                {
+                    int subIdx = y - 1 - r;
+                    int addIdx = y + r;
+                    if (subIdx >= 0) sum -= temp[subIdx * w + x];
+                    if (addIdx < h) sum += temp[addIdx * w + x];
+                    result[y * w + x] = sum;
+                }
+            }
+            return result;
         }
 
         // 共通マスクとゾーン別マスクを OR 結合した除外判定。
@@ -361,6 +525,14 @@ namespace VRCAvatarColorChanger
         /// すでにマッチした領域に隣接する境界ピクセルにのみ使用されます。
         /// アドバンスモードでrelaxedSatMin/relaxedSatRamp/satDistWeightを調整可能。
         /// </summary>
+        /// <remarks>
+        /// FIX: satConfidence による強度ダンピングを廃止。境界復元はすでにマッチ済みピクセルに
+        /// 隣接するピクセルのみが対象なので、「微妙にマッチさせる」より「マッチさせるなら全強度で」
+        /// の方が見た目が綺麗。低 satConfidence (例: 0.3) を掛けると AA 縁が部分的に元色を残し、
+        /// 白装飾の周囲などにピンク/赤の残留ピクセルが見える原因になっていた。
+        /// 純白装飾はそのまま残すため、relaxedSatMin による「最低彩度ゲート」だけは保持する。
+        /// relaxedSatRamp は引数互換のため残置（未使用）。
+        /// </remarks>
         private static float GetRelaxedMatchStrength(
             Color pixelColor, float sH, float sS, float sV,
             float tolerance, float edgeSoftness, float valueWeight,
@@ -369,8 +541,8 @@ namespace VRCAvatarColorChanger
             float pH, pS, pV;
             Color.RGBToHSV(pixelColor, out pH, out pS, out pV);
 
-            // 緩和された彩度閾値 — アドバンスモードで調整可能
-            float satConfidence = Mathf.Clamp01((pS - relaxedSatMin) / relaxedSatRamp);
+            // 純白装飾はそのまま残す: relaxedSatMin 未満は弾く（ハードゲート）
+            if (pS < relaxedSatMin) return 0f;
 
             float hDist = Mathf.Abs(pH - sH);
             if (hDist > 0.5f) hDist = 1f - hDist;
@@ -394,7 +566,8 @@ namespace VRCAvatarColorChanger
             else
                 strength = 1f - (dist - hardRange) / softRange;
 
-            return strength * satConfidence;
+            // satConfidence ダンピング廃止 → AA 縁を全強度で再色化
+            return strength;
         }
 
         private static Color32 RecolorPixel(Color original, Color target, Color sample, float valueBlend)

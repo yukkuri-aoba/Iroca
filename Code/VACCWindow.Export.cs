@@ -144,7 +144,9 @@ namespace VRCAvatarColorChanger
                     var task = System.Threading.Tasks.Task.Run(() =>
                         ProcessPixelsArray(pixels, texW, texH,
                             maskSnap, sorted, edgeFeather, antiAliasCleanup,
-                            holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp));
+                            holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
+                            useDecontamination: useDecontamination,
+                            decontaminationRadius: decontaminationRadius));
                     task.Wait();
                 }
 
@@ -294,7 +296,9 @@ namespace VRCAvatarColorChanger
                         var task = System.Threading.Tasks.Task.Run(() =>
                             ProcessPixelsArray(pixels, texW, texH,
                                 maskSnap, sorted, edgeFeather, antiAliasCleanup,
-                                holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp));
+                                holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
+                                useDecontamination: useDecontamination,
+                                decontaminationRadius: decontaminationRadius));
                         task.Wait();
                     }
 

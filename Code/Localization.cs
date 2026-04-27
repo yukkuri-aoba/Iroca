@@ -79,6 +79,16 @@ namespace VRCAvatarColorChanger
             ? "アンチエイリアス境界の残りドットを除去するパス数。\n0 = オフ、3 = 標準（推奨）、5 = 最大\n値を大きくすると境界の回収範囲が広がります。"
             : "Number of passes to recover anti-alias boundary pixels.\n0 = off, 3 = normal (recommended), 5 = max\nHigher values recover more edge pixels.";
 
+        public static string UseDecontamination => IsJapanese ? "境界クリーンアップ（α分解）" : "Edge Decontamination";
+        public static string UseDecontaminationTooltip => IsJapanese
+            ? "AA境界で α 分解＋再合成を行い、薄汚れた中間色（halo）の発生を防ぎます。\n推奨: ON"
+            : "Reconstruct AA boundary via alpha decomposition to prevent muddy halo at edges.\nRecommended: ON";
+
+        public static string DecontaminationRadius => IsJapanese ? "α分解 近傍半径" : "Decontamination Radius";
+        public static string DecontaminationRadiusTooltip => IsJapanese
+            ? "α分解で背景色を推定する近傍ピクセルの半径。\n小さい = シャープな境界に対応、大きい = ノイズの多い背景に対応\n標準: 4"
+            : "Radius of neighborhood used to estimate background color for decontamination.\nSmaller = sharper boundaries, larger = noisier backgrounds\nDefault: 4";
+
         // ─── Advanced Mode ───
         public static string AdvancedMode => IsJapanese ? "アドバンスモード" : "Advanced Mode";
         public static string AdvancedModeTooltip => IsJapanese

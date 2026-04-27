@@ -529,6 +529,8 @@ namespace VRCAvatarColorChanger
             int hfMinNeighbors = holeFillMinNeighbors;
             float rSatMin = relaxedSatMin;
             float rSatRamp = relaxedSatRamp;
+            bool useDecontam = useDecontamination;
+            int decontamRadius = decontaminationRadius;
 
             // バックグラウンドスレッドに渡す前にローカル変数として固定
             var srcPixelsForTask  = srcPixels;
@@ -543,7 +545,8 @@ namespace VRCAvatarColorChanger
                     Color32[] pixels = (Color32[])srcPixelsForTask.Clone();
                     ProcessPixelsArray(pixels, srcW, srcH, maskSnap, zonesSnapshot, feather, aaCleanup,
                         hfPasses, hfMinNeighbors, rSatMin, rSatRamp,
-                        0, 0, 0, 0, token);
+                        0, 0, 0, 0, token,
+                        useDecontam, decontamRadius);
 
                     // キャンセルされた場合は結果を破棄
                     token.ThrowIfCancellationRequested();

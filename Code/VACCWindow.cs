@@ -22,9 +22,16 @@ namespace VRCAvatarColorChanger
         [SerializeField] private float edgeFeather = 0f;
         [SerializeField] private int antiAliasCleanup = 3;
 
+        // Edge decontamination (alpha matting): AA境界での halo を構造的に除去する。
+        // dev_safe/docs/edge_decontamination.md を参照。
+        [SerializeField] private bool useDecontamination = true;
+        [SerializeField] private int decontaminationRadius = 4;
+
         // アドバンスモード
         [SerializeField] private bool advancedMode;
-        [SerializeField] private int holeFillPasses = 3;
+        // 既定 5: バンダナ装飾の細かい三角形など 6px 程度までの細部の取りこぼしを抑える。
+        // 必要なら IntSlider で 0..10 に調整可能。
+        [SerializeField] private int holeFillPasses = 5;
         [SerializeField] private int holeFillMinNeighbors = 4;
         [SerializeField] private float relaxedSatMin = 0.02f;
         [SerializeField] private float relaxedSatRamp = 0.08f;
@@ -347,6 +354,10 @@ namespace VRCAvatarColorChanger
                 new GUIContent(Localization.AntiAliasCleanup, Localization.AntiAliasCleanupTooltip),
                 antiAliasCleanup, 0, 5);
 
+            useDecontamination = EditorGUILayout.Toggle(
+                new GUIContent(Localization.UseDecontamination, Localization.UseDecontaminationTooltip),
+                useDecontamination);
+
             advancedMode = EditorGUILayout.Toggle(
                 new GUIContent(Localization.AdvancedMode, Localization.AdvancedModeTooltip),
                 advancedMode);
@@ -366,6 +377,12 @@ namespace VRCAvatarColorChanger
                 relaxedSatRamp = EditorGUILayout.Slider(
                     new GUIContent(Localization.RelaxedSatRamp, Localization.RelaxedSatRampTooltip),
                     relaxedSatRamp, 0.01f, 0.3f);
+                using (new EditorGUI.DisabledScope(!useDecontamination))
+                {
+                    decontaminationRadius = EditorGUILayout.IntSlider(
+                        new GUIContent(Localization.DecontaminationRadius, Localization.DecontaminationRadiusTooltip),
+                        decontaminationRadius, 1, 12);
+                }
                 EditorGUI.indentLevel--;
             }
 
