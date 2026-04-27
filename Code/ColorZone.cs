@@ -23,6 +23,12 @@ namespace VRCAvatarColorChanger
         private const float HighlightRelaxedSatMin = 0.02f;
         private const float HighlightRelaxedSatRamp = 0.08f;
 
+        // 低彩度サンプル時の RGB ↔ HSV ハイブリッド距離フェード閾値。
+        // sample の彩度が ChromaConfidenceLo 以下なら H が信頼できないので RGB ユークリッド距離を、
+        // ChromaConfidenceHi 以上なら従来通り HSV 距離を、その間は線形ブレンドする。
+        private const float ChromaConfidenceLo = 0.05f;
+        private const float ChromaConfidenceHi = 0.15f;
+
         public string name = "Zone";
         public bool enabled = true;
         public SelectionMode mode = SelectionMode.ColorPick;
@@ -135,7 +141,23 @@ namespace VRCAvatarColorChanger
             // （異なる素材、例えば茶色のブーツ対赤いバンダナ）は強い罰則を受けます。
             float vDist = Mathf.Abs(pV - sV);
             float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
-            float dist = hDist + sDist * satDistWeight + vDist * valueWeight * (1f - sRatio);
+            float hsvDist = hDist + sDist * satDistWeight + vDist * valueWeight * (1f - sRatio);
+
+            // 低彩度サンプルでは色相が雑音同然になるため、RGB ユークリッド距離も使う。
+            // sS が ChromaConfidenceLo 以下なら RGB のみ、ChromaConfidenceHi 以上なら HSV のみ、
+            // その間は線形ブレンド。サンプル側の彩度のみで判定するのがポイント
+            // （白飛びハイライト枝に処理を残すため、ピクセル側の S は判定に使わない）。
+            float chromaConfidence = Mathf.Clamp01(
+                (sS - ChromaConfidenceLo) / (ChromaConfidenceHi - ChromaConfidenceLo));
+            float dr = pixelColor.r - sampleColor.r;
+            float dg = pixelColor.g - sampleColor.g;
+            float db = pixelColor.b - sampleColor.b;
+            // 1/sqrt(3) で 0..1 範囲（ユニットキューブ対角）に正規化
+            float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f;
+
+            float dist = Mathf.Lerp(rgbDist, hsvDist, chromaConfidence);
+            // satConfidence ゲートは HSV 経路でのみ意味があるため、低彩度サンプルでは弱める。
+            float gate = Mathf.Lerp(1f, satConfidence, chromaConfidence);
 
             if (dist >= tolerance) return 0f;
 
@@ -151,13 +173,21 @@ namespace VRCAvatarColorChanger
             else
                 strength = 1f - (dist - hardRange) / softRange;
 
-            float primary = strength * satConfidence;
+            float primary = strength * gate;
             if (primary > 0f) return primary;
 
             // ハイライト補助分岐: 高明度・低彩度ピクセル（鏡面反射/ハイライト）に
             // 彩度差項を除いた緩和距離式でマッチを試みる
             if (!highlightRecovery) return 0f;
             if (pV <= HighlightValueMin || pS >= HighlightSaturationMax) return 0f;
+
+            // FIX: 色相距離は tolerance より明らかに厳しくする。
+            // 通常の鏡面ハイライトはサンプルとほぼ同じ色相（少し白飛びしているだけ）。
+            // tolerance（=0.20 など）をそのまま色相幅に使うと、明るく低彩度の隣接色（クリーム色の服など）
+            // まで「ハイライト扱い」で飲み込んでしまい、巨大な誤検知の温床になる。
+            // 上限を Max(0.05, tolerance * 0.3) に制限することでこの誤マッチを防ぐ。
+            float highlightHueCap = Mathf.Max(0.05f, tolerance * 0.3f);
+            if (hDist > highlightHueCap) return 0f;
 
             float relaxedSatConf = Mathf.Clamp01((pS - HighlightRelaxedSatMin) / HighlightRelaxedSatRamp);
             if (relaxedSatConf <= 0f) return 0f;
