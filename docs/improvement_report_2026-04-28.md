@@ -131,7 +131,36 @@ Total:   70
 Duration: ~16分（フルテクスチャ処理を含む）
 ```
 
-### テスト分類
+### CostumeTextureTests（衣装テクスチャ、5バリエーション）
+
+| 衣装色 | HueError | VividRecall | 目標 |
+|---|---|---|---|
+| red    | 0.0011 | 99.40% | HueError < 0.06 / VividRecall > 98% |
+| green  | 0.0014 | 99.40% | 〃 |
+| purple | 0.0007 | **100.00%** | 〃 |
+| teal   | 0.0015 | 99.98% | 〃 |
+| orange | 0.0014 | 99.39% | 〃 |
+
+HueError は全て目標の **1/40 以下**。VividRecall は全て 99.3% 以上でクリア。
+
+### RealTextureTests / AvatarATextureTests（実テクスチャ）
+
+| テスト | HueError | VividCoverage | 目標 |
+|---|---|---|---|
+| AvatarB (Case 1) | 0.0028 | 99.2% | HueError < 0.06 / Coverage > 90% |
+| AvatarB (Case 2) | 0.0023 | 99.2% | 〃 |
+| AvatarA         | 0.0016 | — | 〃 |
+
+### FalsePositiveTests（誤検知防止）
+
+| テスト | 結果 | 閾値 |
+|---|---|---|
+| ブーツ誤検知率（FP Rate） | ✅ Passed | < 1% |
+| バンダナ正検知率（TP Rate） | ✅ Passed | > 95% |
+| ブーツ色サンプル 4色 | ✅ 全てマッチなし | strength = 0 |
+| バンダナ色サンプル 2色 | ✅ 全てマッチあり | strength > 0 |
+
+### テストクラス一覧
 
 | テストクラス | 検証内容 |
 |---|---|
