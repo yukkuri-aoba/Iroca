@@ -97,16 +97,26 @@ namespace VRCAvatarColorChanger
         /// </summary>
         public float GetMatchStrength(Color pixelColor, int x, int y, int texWidth, int texHeight)
         {
-            if (!enabled) return 0f;
+            float strength, highlightPot;
+            GetMatchScores(pixelColor, x, y, texWidth, texHeight, out strength, out highlightPot);
+            return Mathf.Max(strength, highlightPot);
+        }
+
+        public void GetMatchScores(Color pixelColor, int x, int y, int texWidth, int texHeight, out float strength, out float highlightPot)
+        {
+            strength = 0f;
+            highlightPot = 0f;
+            if (!enabled) return;
 
             switch (mode)
             {
                 case SelectionMode.ColorPick:
-                    return GetColorMatchStrength(pixelColor);
+                    GetColorMatchScores(pixelColor, out strength, out highlightPot);
+                    break;
                 case SelectionMode.Rect:
-                    return IsInRect(x, y, texWidth, texHeight) ? 1f : 0f;
-                default:
-                    return 0f;
+                    if (IsInRect(x, y, texWidth, texHeight))
+                        strength = 1f;
+                    break;
             }
         }
 
@@ -115,8 +125,10 @@ namespace VRCAvatarColorChanger
             return GetMatchStrength(pixelColor, x, y, texWidth, texHeight) > 0f;
         }
 
-        private float GetColorMatchStrength(Color pixelColor)
+        private void GetColorMatchScores(Color pixelColor, out float strength, out float highlightPotential)
         {
+            strength = 0f;
+            highlightPotential = 0f;
             float pH, pS, pV, sH, sS, sV;
             Color.RGBToHSV(pixelColor, out pH, out pS, out pV);
             Color.RGBToHSV(sampleColor, out sH, out sS, out sV);
@@ -168,41 +180,41 @@ namespace VRCAvatarColorChanger
             // satConfidence ゲートは HSV 経路でのみ意味があるため、低彩度サンプルでは弱める。
             float gate = Mathf.Lerp(1f, satConfidence, chromaConfidence);
 
-            if (dist >= tolerance) return 0f;
-
-            // ソフトエッジ: 許容範囲の外側部分での段階的フェードアウト
-            float softRange = tolerance * edgeSoftness;
-            float hardRange = tolerance - softRange;
-
-            float strength;
-            if (softRange < 0.0001f)
-                strength = 1f; // ハードエッジモード
-            else if (dist <= hardRange)
-                strength = 1f;
+            if (dist >= tolerance)
+            {
+                strength = 0f;
+            }
             else
-                strength = 1f - (dist - hardRange) / softRange;
+            {
+                // ソフトエッジ: 許容範囲の外側部分での段階的フェードアウト
+                float softRange = tolerance * edgeSoftness;
+                float hardRange = tolerance - softRange;
 
-            float primary = strength * gate;
-            if (primary > 0f) return primary;
+                float tempStrength;
+                if (softRange < 0.0001f)
+                    tempStrength = 1f; // ハードエッジモード
+                else if (dist <= hardRange)
+                    tempStrength = 1f;
+                else
+                    tempStrength = 1f - (dist - hardRange) / softRange;
+
+                strength = tempStrength * gate;
+            }
 
             // ハイライト補助分岐: 高明度・低彩度ピクセル（鏡面反射/ハイライト）に
             // 彩度差項を除いた緩和距離式でマッチを試みる
-            if (!highlightRecovery) return 0f;
-            if (pV <= HighlightValueMin || pS >= HighlightSaturationMax) return 0f;
+            if (!highlightRecovery) return;
+            if (pV <= HighlightValueMin || pS >= HighlightSaturationMax) return;
 
             // FIX: 色相距離は tolerance より明らかに厳しくする。
-            // 通常の鏡面ハイライトはサンプルとほぼ同じ色相（少し白飛びしているだけ）。
-            // tolerance（=0.20 など）をそのまま色相幅に使うと、明るく低彩度の隣接色（クリーム色の服など）
-            // まで「ハイライト扱い」で飲み込んでしまい、巨大な誤検知の温床になる。
-            // 上限を Max(0.05, tolerance * 0.3) に制限することでこの誤マッチを防ぐ。
             float highlightHueCap = Mathf.Max(0.05f, tolerance * 0.3f);
-            if (hDist > highlightHueCap) return 0f;
+            if (hDist > highlightHueCap) return;
 
             float relaxedSatConf = Mathf.Clamp01((pS - HighlightRelaxedSatMin) / HighlightRelaxedSatRamp);
-            if (relaxedSatConf <= 0f) return 0f;
+            if (relaxedSatConf <= 0f) return;
 
             float highlightDist = hDist + vDist * valueWeight * (1f - sRatio);
-            if (highlightDist >= tolerance) return 0f;
+            if (highlightDist >= tolerance) return;
 
             float hlSoftRange = tolerance * edgeSoftness;
             float hlHardRange = tolerance - hlSoftRange;
@@ -214,7 +226,7 @@ namespace VRCAvatarColorChanger
             else
                 hlStrength = 1f - (highlightDist - hlHardRange) / hlSoftRange;
 
-            return hlStrength * relaxedSatConf;
+            highlightPotential = hlStrength * relaxedSatConf;
         }
 
         private bool IsInRect(int x, int y, int texWidth, int texHeight)

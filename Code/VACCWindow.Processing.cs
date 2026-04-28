@@ -78,12 +78,24 @@ namespace VRCAvatarColorChanger
 
                 // 1. 元のピクセルカラーを使用した強度マップを構築
                 float[] strength = new float[len];
+                float[] highlightPot = zone.highlightRecovery ? new float[len] : null;
+
                 for (int i = 0; i < len; i++)
                 {
                     int x = i % w, y = i / w;
                     int xf = x + originX, yf = y + originY;
                     if (IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH)) continue;
-                    strength[i] = zone.GetMatchStrength((Color)originalPixels[i], xf, yf, fullW, fullH);
+                    
+                    float s, hPot;
+                    zone.GetMatchScores((Color)originalPixels[i], xf, yf, fullW, fullH, out s, out hPot);
+                    strength[i] = s;
+                    if (highlightPot != null) highlightPot[i] = hPot;
+                }
+
+                // 1.a 空間伝播によるハイライト領域の回収 (モルフォロジー拡張)
+                if (highlightPot != null)
+                {
+                    PropagateHighlights(strength, highlightPot, w, h);
                 }
 
                 // 1b. 孤立した穴を埋める：アンチエイリアス処理された端のピクセルは低彩度を持つことが多く
@@ -283,6 +295,84 @@ namespace VRCAvatarColorChanger
                 }
             }
             return result;
+        }
+
+        /// <summary>
+        /// ハイライト候補領域をコア領域から空間伝播させてマスク化する。
+        /// strengthの強いピクセル(コア)から、ハイライト候補スコア(highlightPot)を持つ隣接ピクセルへ
+        /// strengthを徐々に伝播させ、孤立した白いシャツなどを染めないようにする。
+        /// </summary>
+        private static void PropagateHighlights(float[] strength, float[] highlightPot, int w, int h)
+        {
+            int passes = 3;
+            for (int p = 0; p < passes; p++)
+            {
+                bool changed = false;
+
+                // 左上から右下へのパス
+                for (int y = 0; y < h; y++)
+                {
+                    int rowBase = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowBase + x;
+                        float pot = highlightPot[i];
+                        if (pot > 0f && strength[i] < pot)
+                        {
+                            float maxNeighbor = 0f;
+                            if (x > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - 1]);
+                            if (y > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - w]);
+                            
+                            // 右と下も覗き見る (現在の状態で)
+                            if (x < w - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + 1]);
+                            if (y < h - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + w]);
+
+                            if (maxNeighbor > 0.1f)
+                            {
+                                float newS = Mathf.Min(pot, maxNeighbor * 0.95f);
+                                if (newS > strength[i])
+                                {
+                                    strength[i] = newS;
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 右下から左上へのパス
+                for (int y = h - 1; y >= 0; y--)
+                {
+                    int rowBase = y * w;
+                    for (int x = w - 1; x >= 0; x--)
+                    {
+                        int i = rowBase + x;
+                        float pot = highlightPot[i];
+                        if (pot > 0f && strength[i] < pot)
+                        {
+                            float maxNeighbor = 0f;
+                            if (x < w - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + 1]);
+                            if (y < h - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + w]);
+                            
+                            // 左と上も覗き見る
+                            if (x > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - 1]);
+                            if (y > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - w]);
+
+                            if (maxNeighbor > 0.1f)
+                            {
+                                float newS = Mathf.Min(pot, maxNeighbor * 0.95f);
+                                if (newS > strength[i])
+                                {
+                                    strength[i] = newS;
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!changed) break;
+            }
         }
 
         // 共通マスクとゾーン別マスクを OR 結合した除外判定。
@@ -583,6 +673,16 @@ namespace VRCAvatarColorChanger
             float newS = (sS > 0.001f) ? Mathf.Clamp01(oS * tS / sS) : tS;
 
             float newV = Mathf.Lerp(tV, oV, valueBlend);
+
+            // ハイライト合成ロジック: 元のピクセルが白に近く飛んでいるほど、
+            // ターゲットカラーの彩度を急激に落とし、明度を引き上げて「オーバーレイ/スクリーン」的な光沢感を維持する。
+            if (oV > 0.85f && oS < 0.15f)
+            {
+                // どれくらい「白飛び」の特性に近いか (0.0 ～ 1.0)
+                float hlIntensity = Mathf.Clamp01((oV - 0.85f) / 0.15f) * Mathf.Clamp01(1f - oS / 0.15f);
+                newS = Mathf.Lerp(newS, oS, hlIntensity); // 彩度は元の白っぽい状態に逃がす
+                newV = Mathf.Lerp(newV, oV, hlIntensity); // 明度はターゲット色等より優先して元の輝度を残す
+            }
 
             Color result = Color.HSVToRGB(tH, newS, newV);
             result.a = original.a;
