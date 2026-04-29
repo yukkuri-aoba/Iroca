@@ -109,7 +109,7 @@ namespace VRCAvatarColorChanger
             }
             else
             {
-                presetScrollPos = EditorGUILayout.BeginScrollView(presetScrollPos, GUILayout.MaxHeight(120));
+                // 親ScrollViewがあるため、ネストしたScrollViewを削除し全件表示する（UI破壊を防ぐ）
                 foreach (string file in files)
                 {
                     string pname = System.IO.Path.GetFileNameWithoutExtension(file);
@@ -128,7 +128,6 @@ namespace VRCAvatarColorChanger
                     }
                     EditorGUILayout.EndHorizontal();
                 }
-                EditorGUILayout.EndScrollView();
             }
 
             EditorGUILayout.EndFoldoutHeaderGroup();
