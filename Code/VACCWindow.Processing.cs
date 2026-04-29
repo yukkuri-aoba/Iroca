@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace VRCAvatarColorChanger
@@ -76,21 +77,23 @@ namespace VRCAvatarColorChanger
                 if (masks != null && masks.zones != null && !string.IsNullOrEmpty(zone.id))
                     masks.zones.TryGetValue(zone.id, out zoneMask);
 
+                var po = new ParallelOptions { CancellationToken = cancellationToken };
+
                 // 1. 元のピクセルカラーを使用した強度マップを構築
                 float[] strength = new float[len];
                 float[] highlightPot = zone.highlightRecovery ? new float[len] : null;
 
-                for (int i = 0; i < len; i++)
+                Parallel.For(0, len, po, i =>
                 {
                     int x = i % w, y = i / w;
                     int xf = x + originX, yf = y + originY;
-                    if (IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH)) continue;
+                    if (IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH)) return;
                     
                     float s, hPot;
                     zone.GetMatchScores((Color)originalPixels[i], xf, yf, fullW, fullH, out s, out hPot);
                     strength[i] = s;
                     if (highlightPot != null) highlightPot[i] = hPot;
-                }
+                });
 
                 // 1.a 空間伝播によるハイライト領域の回収 (モルフォロジー拡張)
                 if (highlightPot != null)
@@ -121,12 +124,12 @@ namespace VRCAvatarColorChanger
                 // 3. 除外マスクを再適用：ブラーが除外ピクセルにはみ出す可能性がある
                 if (commonMask != null || zoneMask != null)
                 {
-                    for (int i = 0; i < len; i++)
+                    Parallel.For(0, len, po, i =>
                     {
                         int x = i % w, y = i / w;
                         int xf = x + originX, yf = y + originY;
                         if (IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH)) strength[i] = 0f;
-                    }
+                    });
                 }
 
                 // 3b. AA 境界の α 分解（オプション）：strength が 0 < s < interiorThreshold の
@@ -144,20 +147,20 @@ namespace VRCAvatarColorChanger
                 }
 
                 // 4. 強度でブレンドした再色付けを適用
-                for (int i = 0; i < len; i++)
+                Parallel.For(0, len, po, i =>
                 {
                     float s = strength[i];
-                    if (s <= 0.001f) continue;
+                    if (s <= 0.001f) return;
                     if (aaMask != null && aaMask[i])
                     {
                         // AA pixel: use decontaminated value (overrides standard mix)
                         pixels[i] = decontaminatedPixels[i];
-                        continue;
+                        return;
                     }
                     Color original = originalPixels[i];
                     Color32 recolored = RecolorPixel(original, zone.targetColor, zone.sampleColor, zone.valueBlend);
                     pixels[i] = s >= 0.999f ? recolored : Color32.Lerp(pixels[i], recolored, s);
-                }
+                });
             }
         }
 
@@ -179,8 +182,10 @@ namespace VRCAvatarColorChanger
             out bool[] aaMask, out Color32[] decontaminatedPixels)
         {
             int len = w * h;
-            aaMask = new bool[len];
-            decontaminatedPixels = new Color32[len];
+            bool[] localAaMask = new bool[len];
+            Color32[] localDecontaminatedPixels = new Color32[len];
+            aaMask = localAaMask;
+            decontaminatedPixels = localDecontaminatedPixels;
 
             // 局所 BG 推定: strength=0 のピクセルだけを使った近傍和とその密度
             // 0..255 のスケールで計算（後で divide で平均化）
@@ -188,7 +193,7 @@ namespace VRCAvatarColorChanger
             float[] wG = new float[len];
             float[] wB = new float[len];
             float[] wD = new float[len];
-            for (int i = 0; i < len; i++)
+            Parallel.For(0, len, i =>
             {
                 if (strength[i] <= 0f)
                 {
@@ -197,7 +202,7 @@ namespace VRCAvatarColorChanger
                     wB[i] = originalPixels[i].b;
                     wD[i] = 1f;
                 }
-            }
+            });
             float[] bgRSum = BoxFilterSum(wR, w, h, radius);
             float[] bgGSum = BoxFilterSum(wG, w, h, radius);
             float[] bgBSum = BoxFilterSum(wB, w, h, radius);
@@ -212,12 +217,12 @@ namespace VRCAvatarColorChanger
             float tB = targetColor.b * 255f;
             const float DegenEps = 1f; // ‖sample - BG‖² 下限（≈1 階調）
 
-            for (int i = 0; i < len; i++)
+            Parallel.For(0, len, i =>
             {
                 float s = strength[i];
-                if (s <= 0f || s >= interiorThreshold) continue;
+                if (s <= 0f || s >= interiorThreshold) return;
                 float density = bgDensity[i];
-                if (density < 1f) continue; // 近傍に BG ピクセルなし → fallback
+                if (density < 1f) return; // 近傍に BG ピクセルなし → fallback
 
                 float bR = bgRSum[i] / density;
                 float bG = bgGSum[i] / density;
@@ -227,7 +232,7 @@ namespace VRCAvatarColorChanger
                 float dirG = sG - bG;
                 float dirB = sB - bB;
                 float dirSq = dirR * dirR + dirG * dirG + dirB * dirB;
-                if (dirSq < DegenEps) continue; // sample ≈ BG → α が定義できない
+                if (dirSq < DegenEps) return; // sample ≈ BG → α が定義できない
 
                 float pR = originalPixels[i].r;
                 float pG = originalPixels[i].g;
@@ -243,13 +248,13 @@ namespace VRCAvatarColorChanger
                 float resG = alpha * tG + oneMinusAlpha * bG;
                 float resB = alpha * tB + oneMinusAlpha * bB;
 
-                aaMask[i] = true;
-                decontaminatedPixels[i] = new Color32(
+                localAaMask[i] = true;
+                localDecontaminatedPixels[i] = new Color32(
                     (byte)Mathf.Clamp(Mathf.RoundToInt(resR), 0, 255),
                     (byte)Mathf.Clamp(Mathf.RoundToInt(resG), 0, 255),
                     (byte)Mathf.Clamp(Mathf.RoundToInt(resB), 0, 255),
                     originalPixels[i].a);
-            }
+            });
         }
 
         /// <summary>
@@ -260,7 +265,7 @@ namespace VRCAvatarColorChanger
         {
             // 水平パス
             float[] temp = new float[w * h];
-            for (int y = 0; y < h; y++)
+            Parallel.For(0, h, y =>
             {
                 int rowOff = y * w;
                 float sum = 0f;
@@ -275,11 +280,11 @@ namespace VRCAvatarColorChanger
                     if (addIdx < w) sum += src[rowOff + addIdx];
                     temp[rowOff + x] = sum;
                 }
-            }
+            });
 
             // 垂直パス
             float[] result = new float[w * h];
-            for (int x = 0; x < w; x++)
+            Parallel.For(0, w, x =>
             {
                 float sum = 0f;
                 int initEnd = Mathf.Min(r, h - 1);
@@ -293,7 +298,7 @@ namespace VRCAvatarColorChanger
                     if (addIdx < h) sum += temp[addIdx * w + x];
                     result[y * w + x] = sum;
                 }
-            }
+            });
             return result;
         }
 
@@ -408,7 +413,7 @@ namespace VRCAvatarColorChanger
 
             // 水平パス
             float[] temp = new float[w * h];
-            for (int y = 0; y < h; y++)
+            Parallel.For(0, h, y =>
             {
                 for (int x = 0; x < w; x++)
                 {
@@ -420,11 +425,11 @@ namespace VRCAvatarColorChanger
                     }
                     temp[y * w + x] = val;
                 }
-            }
+            });
 
             // 垂直パス
             float[] result = new float[w * h];
-            for (int y = 0; y < h; y++)
+            Parallel.For(0, h, y =>
             {
                 for (int x = 0; x < w; x++)
                 {
@@ -436,7 +441,7 @@ namespace VRCAvatarColorChanger
                     }
                     result[y * w + x] = val;
                 }
-            }
+            });
 
             return result;
         }
@@ -446,7 +451,7 @@ namespace VRCAvatarColorChanger
             // マッチがなかった領域へのブラーの流出を防止
             // このピクセルもブラー半径内の隣接ピクセルも、元の強度 > 0 がなければ
             // ブラー値をゼロに
-            for (int y = 0; y < h; y++)
+            Parallel.For(0, h, y =>
             {
                 for (int x = 0; x < w; x++)
                 {
@@ -471,7 +476,7 @@ namespace VRCAvatarColorChanger
                     if (!hasNearby)
                         blurred[idx] = 0f;
                 }
-            }
+            });
         }
 
         /// <summary>
@@ -500,7 +505,7 @@ namespace VRCAvatarColorChanger
                 // 既存の値を write にコピーしておき、変更対象のピクセルのみを上書きする
                 System.Array.Copy(read, write, read.Length);
 
-                for (int y = 0; y < h; y++)
+                Parallel.For(0, h, y =>
                 {
                     for (int x = 0; x < w; x++)
                     {
@@ -532,7 +537,7 @@ namespace VRCAvatarColorChanger
                         if (matched >= minNeighbors && total >= minNeighbors)
                             write[idx] = minNeighbour;
                     }
-                }
+                });
 
                 // read/write を入れ替え
                 var tmp = read;
@@ -572,7 +577,7 @@ namespace VRCAvatarColorChanger
             {
                 System.Array.Copy(read, write, read.Length);
 
-                for (int y = 0; y < h; y++)
+                Parallel.For(0, h, y =>
                 {
                     for (int x = 0; x < w; x++)
                     {
@@ -599,7 +604,7 @@ namespace VRCAvatarColorChanger
                         if (relaxed > 0f)
                             write[idx] = relaxed;
                     }
-                }
+                });
 
                 var tmp = read;
                 read = write;
