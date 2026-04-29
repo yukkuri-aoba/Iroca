@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - (TBD)
+
+### Added
+- **カラーゾーンごとの除外マスク**: 共通マスクとゾーン別マスクのハイブリッド構成をサポート
+  - ColorZone に GUID ベースの id を追加
+  - SessionState に MaskIndex + 各ターゲットマスクを分割保存
+  - 旧単一マスクフォーマットから自動移行
+  - プリセットにマスクを同梱保存/読み込み（ON/OFF 切替可）
+  - ゾーンマスクオーバーレイを HSV 黄金比色で描画
+  - 各ゾーン行にフル幅の「編集対象」トグルボタンを追加
+- **AA 境界の色汚染除去（Color Decontamination）**: アンチエイリアス境界のハロー効果を構造的に除去
+  - DecontaminateAaBoundary + BoxFilterSum による局所背景推定と α 逆算
+  - useDecontamination トグル（デフォルト有効）をUIに追加
+  - decontaminationRadius スライダー（アドバンスドモード）を追加
+  - プリセットへの保存/復元に対応
+  - 詳細は [edge_decontamination.md](dev_safe/docs/edge_decontamination.md) を参照
+
+### Fixed
+- **低彩度サンプルでの色マッチング精度向上**: RGB-HSV ハイブリッド距離とハイライト色相キャップ
+  - サンプル色の彩度が低い場合（S<0.15）に RGB ユークリッド距離と HSV 距離を彩度に応じて線形ブレンド
+  - ハイライト補助では hDist の上限を制限し、低彩度の隣接色への誤マッチを防止
+- **ColorZone の id フィールドコンパイルエラー修正**: マスク機能追加時のコミット漏れを修正
+- **ハイライトの色変換調整**
+- **UI の可視性問題修正**: UI 要素が長くなると隠れて操作できなくなる問題を解決
+- **テクスチャインポート設定の継承**: 新しく生成されたテクスチャが元のテクスチャのインポート設定を引き継ぐように改善
+
+### Changed
+- **License**: Changed from PolyForm Noncommercial License 1.0.0 to [PolyForm Shield License 1.0.0](LICENSE)
+  - Commercial use is now permitted
+  - Modification and redistribution are now freely permitted
+  - Restriction: Cannot be used to provide a competing product
+- **ColorZone の計算処理リファクタリング**: メソッドに分割し、事前計算をキャッシュ化してパフォーマンスを最適化
+
+### Improved
+- **マルチスレッド化によるパフォーマンス向上**: 色処理・マスク生成の並列化により実行時間を大幅に改善
+
+### 変更点
+- **ライセンス**: 「PolyForm Noncommercial License 1.0.0」から [PolyForm Shield License 1.0.0](LICENSE) に変更
+  - 商用利用が可能になりました
+  - 改変および再配布が自由に許可されるようになりました
+  - 制限事項: 競合製品を提供するために使用することはできません
+
 ## [0.1.0] - 2026-04-18 (Beta)
 
 ### Added
