@@ -32,20 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **テクスチャインポート設定の継承**: 新しく生成されたテクスチャが元のテクスチャのインポート設定を引き継ぐように改善
 
 ### Changed
-- **License**: Changed from PolyForm Noncommercial License 1.0.0 to [PolyForm Shield License 1.0.0](LICENSE)
-  - Commercial use is now permitted
-  - Modification and redistribution are now freely permitted
-  - Restriction: Cannot be used to provide a competing product
 - **ColorZone の計算処理リファクタリング**: メソッドに分割し、事前計算をキャッシュ化してパフォーマンスを最適化
-
-### Improved
-- **マルチスレッド化によるパフォーマンス向上**: 色処理・マスク生成の並列化により実行時間を大幅に改善
-
-### 変更点
 - **ライセンス**: 「PolyForm Noncommercial License 1.0.0」から [PolyForm Shield License 1.0.0](LICENSE) に変更
   - 商用利用が可能になりました
   - 改変および再配布が自由に許可されるようになりました
   - 制限事項: 競合製品を提供するために使用することはできません
+
+### Improved
+- **マルチスレッド化によるパフォーマンス向上**: 色処理・マスク生成の並列化により実行時間を大幅に改善
 
 ## [0.1.0] - 2026-04-18 (Beta)
 
