@@ -382,5 +382,24 @@ namespace VRCAvatarColorChanger
         public static string DeletePresetTooltip => IsJapanese
             ? "このプリセットを削除します"
             : "Delete this preset";
+
+        // ─── Flood Fill ───
+        public static string UseFloodFill => IsJapanese ? "連続領域モード (Flood Fill)" : "Connected Region (Flood Fill)";
+        public static string UseFloodFillTooltip => IsJapanese
+            ? "シード点から色が繋がった領域だけに変換を限定します。\n物理的に離れた同色パーツへの誤爆を防止します。\nプレビューをクリックしてシード点を指定してください。"
+            : "Restrict recoloring to the connected region from the seed point.\nPrevents false hits on physically separate parts of the same color.\nClick on the preview to set the seed point.";
+        public static string FloodFillSeedPoint => IsJapanese ? "シード点" : "Seed Point";
+        public static string FloodFillSeedNotSet => IsJapanese ? "未設定" : "Not set";
+        public static string FloodFillSeedHint => IsJapanese
+            ? "プレビューをクリックしてシード点を設定"
+            : "Click the preview to set the seed point";
+        public static string FloodFillClear => IsJapanese ? "クリア" : "Clear";
+        public static string FloodFillClearTooltip => IsJapanese
+            ? "シード点をリセットして通常の ColorPick モードに戻します"
+            : "Reset the seed point and return to standard ColorPick mode";
+        public static string EdgeStopThreshold => IsJapanese ? "エッジストッパー強度" : "Edge Stop Threshold";
+        public static string EdgeStopThresholdTooltip => IsJapanese
+            ? "輝度・彩度の急激な変化をパーツの境界とみなして Flood Fill を止める強度。\n0 = エッジストッパー無効（色の一致のみで拡張）\n大きいほど敏感に止まります（デフォルト: 0.15）"
+            : "Sensitivity for stopping Flood Fill at edge (sudden brightness/saturation change).\n0 = disabled (expand by color match only)\nHigher = more sensitive stop (default: 0.15)";
     }
 }

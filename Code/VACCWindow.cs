@@ -268,6 +268,40 @@ namespace VRCAvatarColorChanger
                     zone.tolerance = EditorGUILayout.Slider(
                         new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
                         zone.tolerance, 0f, 1f);
+
+                    // ─── Flood Fill UI ───
+                    EditorGUILayout.Space(2);
+                    zone.useFloodFill = EditorGUILayout.Toggle(
+                        new GUIContent(Localization.UseFloodFill, Localization.UseFloodFillTooltip),
+                        zone.useFloodFill);
+
+                    if (zone.useFloodFill)
+                    {
+                        EditorGUI.indentLevel++;
+                        EditorGUILayout.BeginHorizontal();
+                        string seedLabel = zone.seedUV.x >= 0f
+                            ? $"UV ({zone.seedUV.x:F3}, {zone.seedUV.y:F3})"
+                            : Localization.FloodFillSeedNotSet;
+                        EditorGUILayout.LabelField(
+                            new GUIContent(Localization.FloodFillSeedPoint, Localization.FloodFillSeedHint),
+                            seedLabel);
+                        if (GUILayout.Button(
+                            new GUIContent(Localization.FloodFillClear, Localization.FloodFillClearTooltip),
+                            GUILayout.Width(52)))
+                        {
+                            zone.seedUV = new UnityEngine.Vector2(-1f, -1f);
+                            previewDirty = true;
+                        }
+                        EditorGUILayout.EndHorizontal();
+
+                        if (advancedMode)
+                        {
+                            zone.edgeStopThreshold = EditorGUILayout.Slider(
+                                new GUIContent(Localization.EdgeStopThreshold, Localization.EdgeStopThresholdTooltip),
+                                zone.edgeStopThreshold, 0f, 0.5f);
+                        }
+                        EditorGUI.indentLevel--;
+                    }
                 }
                 else
                 {

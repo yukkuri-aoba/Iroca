@@ -256,12 +256,20 @@ namespace VRCAvatarColorChanger
                         Localization.GeneratingDetailPreview);
             }
 
+            // Flood Fill シード点をプレビュー上に × 印としてオーバーレイ描画
+            if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
+                DrawFloodFillSeedOverlay(activePreviewRect);
+
             // プレビューレクトを格納して、次の詳細生成ティックで使用
             if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
                 _lastPreviewRect = activePreviewRect;
 
             // ズーム (Ctrl+スクロール) と Ctrl+Z は常にアクティブ（ペイントモード関係なし）
             HandlePreviewGlobalInput(activePreviewRect);
+
+            // Flood Fill シード点クリック（ペイントモード OFF のとき）
+            if (!maskPaintActive)
+                HandleFloodFillSeedInput(activePreviewRect);
 
             // ブラシペイントはペイントモード ON の場合のみ
             if (maskFoldout && maskPaintActive)
@@ -421,6 +429,88 @@ namespace VRCAvatarColorChanger
                         Handles.DrawSolidDisc(e.mousePosition, Vector3.forward, brushPixels * 0.5f);
                     }
                     break;
+            }
+        }
+
+        private void HandleFloodFillSeedInput(Rect previewRect)
+        {
+            Event e = Event.current;
+            if (e == null) return;
+
+            // GetControlID は常に呼ぶ（呼び出し順が毎フレーム一定でないと IMGUI が壊れる）
+            bool isInRect = previewRect.Contains(e.mousePosition);
+            int controlId = GUIUtility.GetControlID(FocusType.Passive);
+
+            // Flood Fill が有効なゾーンが存在しなければ入力処理はしない
+            bool hasFloodFill = false;
+            foreach (var z in zones)
+                if (z.enabled && z.mode == SelectionMode.ColorPick && z.useFloodFill)
+                { hasFloodFill = true; break; }
+
+            switch (e.GetTypeForControl(controlId))
+            {
+                case EventType.MouseDown:
+                    if (hasFloodFill && e.button == 0 && isInRect && !e.control && !e.alt)
+                    {
+                        float u = (e.mousePosition.x - previewRect.x) / previewRect.width;
+                        float v = 1f - (e.mousePosition.y - previewRect.y) / previewRect.height;
+                        u = Mathf.Clamp01(u);
+                        v = Mathf.Clamp01(v);
+
+                        // 有効な FloodFill ゾーン全員に適用（将来的に「選択中ゾーン」に絞ることも可）
+                        bool changed = false;
+                        foreach (var z in zones)
+                        {
+                            if (z.enabled && z.mode == SelectionMode.ColorPick && z.useFloodFill)
+                            {
+                                z.seedUV = new Vector2(u, v);
+                                changed = true;
+                            }
+                        }
+                        if (changed)
+                        {
+                            previewDirty = true;
+                            GUIUtility.hotControl = controlId;
+                            e.Use();
+                            Repaint();
+                        }
+                    }
+                    break;
+
+                case EventType.MouseUp:
+                    if (GUIUtility.hotControl == controlId)
+                    {
+                        GUIUtility.hotControl = 0;
+                        e.Use();
+                    }
+                    break;
+
+                case EventType.Repaint:
+                    if (hasFloodFill && isInRect)
+                        EditorGUIUtility.AddCursorRect(previewRect, MouseCursor.Link);
+                    break;
+            }
+        }
+
+        private void DrawFloodFillSeedOverlay(Rect previewRect)
+        {
+            // Handles は EditorWindow の ScrollView 内で GUIClips を壊すため
+            // EditorGUI.DrawRect による純粋な GUI 描画で + 印を描く
+            foreach (var z in zones)
+            {
+                if (!z.enabled || z.mode != SelectionMode.ColorPick || !z.useFloodFill) continue;
+                if (z.seedUV.x < 0f) continue;
+
+                float sx = previewRect.x + z.seedUV.x * previewRect.width;
+                float sy = previewRect.y + (1f - z.seedUV.y) * previewRect.height;
+
+                const float armLen = 7f;
+                const float thickness = 2f;
+                var color = new Color(1f, 0.85f, 0f, 0.9f);
+                // 横バー
+                EditorGUI.DrawRect(new Rect(sx - armLen, sy - thickness * 0.5f, armLen * 2f, thickness), color);
+                // 縦バー
+                EditorGUI.DrawRect(new Rect(sx - thickness * 0.5f, sy - armLen, thickness, armLen * 2f), color);
             }
         }
 
@@ -675,6 +765,9 @@ namespace VRCAvatarColorChanger
             satRampScale         = z.satRampScale,
             highlightRecovery    = z.highlightRecovery,
             layerIndex           = z.layerIndex,
+            useFloodFill         = z.useFloodFill,
+            seedUV               = z.seedUV,
+            edgeStopThreshold    = z.edgeStopThreshold,
         };
 
         private static Color32[] BoxDownsample(Color32[] src, int srcW, int srcH,

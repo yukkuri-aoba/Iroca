@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -99,6 +100,21 @@ namespace VRCAvatarColorChanger
                 if (highlightPot != null)
                 {
                     PropagateHighlights(strength, highlightPot, w, h);
+                }
+
+                // 1.a.2 Flood Fill: シード点から連続する領域のみに強度を絞り込む
+                if (zone.mode == SelectionMode.ColorPick && zone.useFloodFill && zone.seedUV.x >= 0f)
+                {
+                    int efW = fullW > 0 ? fullW : w;
+                    int efH = fullH > 0 ? fullH : h;
+                    int seedXFull = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.x * (efW - 1)), 0, efW - 1);
+                    int seedYFull = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.y * (efH - 1)), 0, efH - 1);
+                    int seedX = seedXFull - originX;
+                    int seedY = seedYFull - originY;
+                    if (seedX >= 0 && seedX < w && seedY >= 0 && seedY < h)
+                        ApplyFloodFillMask(strength, originalPixels, w, h, seedX, seedY, zone.edgeStopThreshold);
+                    else
+                        Array.Clear(strength, 0, strength.Length);
                 }
 
                 // 1b. 孤立した穴を埋める：アンチエイリアス処理された端のピクセルは低彩度を持つことが多く
@@ -300,6 +316,62 @@ namespace VRCAvatarColorChanger
                 }
             });
             return result;
+        }
+
+        /// <summary>
+        /// Flood Fill: シード点から strength &gt; 0 の連続領域のみ残し、残りをゼロ化する。
+        /// edgeStopThreshold &gt; 0 のとき、隣接ピクセル間の輝度差・彩度差が閾値を超えると
+        /// そこで拡張を止める（エッジストッパー）。
+        /// </summary>
+        private static void ApplyFloodFillMask(
+            float[] strength, Color32[] pixels, int w, int h,
+            int seedX, int seedY, float edgeStopThreshold)
+        {
+            int seedIdx = seedY * w + seedX;
+            if (strength[seedIdx] <= 0f) return;
+
+            bool[] reachable = new bool[w * h];
+            var queue = new Queue<int>();
+            reachable[seedIdx] = true;
+            queue.Enqueue(seedIdx);
+
+            bool useEdgeStop = edgeStopThreshold > 0f;
+
+            while (queue.Count > 0)
+            {
+                int idx = queue.Dequeue();
+                int x = idx % w;
+                int y = idx / w;
+
+                float curV = 0f, curS = 0f;
+                if (useEdgeStop)
+                    Color.RGBToHSV((Color)(Color32)pixels[idx], out _, out curS, out curV);
+
+                // 隣接4方向を試みる
+                TryEnqueue(idx - 1, x > 0);
+                TryEnqueue(idx + 1, x < w - 1);
+                TryEnqueue(idx - w, y > 0);
+                TryEnqueue(idx + w, y < h - 1);
+
+                void TryEnqueue(int ni, bool inBounds)
+                {
+                    if (!inBounds || reachable[ni] || strength[ni] <= 0f) return;
+
+                    if (useEdgeStop)
+                    {
+                        Color.RGBToHSV((Color)(Color32)pixels[ni], out _, out float nxtS, out float nxtV);
+                        if (Mathf.Abs(curV - nxtV) > edgeStopThreshold ||
+                            Mathf.Abs(curS - nxtS) > edgeStopThreshold * 0.5f)
+                            return;
+                    }
+
+                    reachable[ni] = true;
+                    queue.Enqueue(ni);
+                }
+            }
+
+            for (int i = 0; i < w * h; i++)
+                if (!reachable[i]) strength[i] = 0f;
         }
 
         /// <summary>

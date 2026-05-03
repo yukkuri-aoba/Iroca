@@ -33,6 +33,14 @@ namespace VRCAvatarColorChanger
         // 矩形モード（UV座標0-1）
         public Rect uvRect = new Rect(0, 0, 1, 1);
 
+        // Flood Fill（連続領域モード）: ColorPick モードで有効
+        public bool useFloodFill = false;
+        // シード点のUV座標（0-1）。負値 = 未設定
+        public Vector2 seedUV = new Vector2(-1f, -1f);
+
+        [Range(0f, 0.5f)]
+        public float edgeStopThreshold = 0.15f;
+
         // 変更先
         public Color targetColor = Color.white;
 
