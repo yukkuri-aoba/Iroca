@@ -139,7 +139,33 @@ namespace VRCAvatarColorChanger
             {
                 case SelectionMode.ColorPick:
                     UpdateCacheIfNeeded();
-                    GetColorMatchScores(pixelColor, out strength, out highlightPot);
+                    Color.RGBToHSV(pixelColor, out float pH, out float pS, out float pV);
+                    GetColorMatchScores(pixelColor, pH, pS, pV, out strength, out highlightPot);
+                    break;
+                case SelectionMode.Rect:
+                    if (IsInRect(x, y, texWidth, texHeight))
+                        strength = 1f;
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// HSV が事前計算済みの場合に使うバリアント。ColorPick モード専用。
+        /// キャッシュは呼び出し前に UpdateCacheIfNeeded() で更新しておくこと。
+        /// </summary>
+        public void GetMatchScoresPrecomputedHSV(
+            float pH, float pS, float pV, Color pixelColor,
+            int x, int y, int texWidth, int texHeight,
+            out float strength, out float highlightPot)
+        {
+            strength = 0f;
+            highlightPot = 0f;
+            if (!enabled) return;
+
+            switch (mode)
+            {
+                case SelectionMode.ColorPick:
+                    GetColorMatchScores(pixelColor, pH, pS, pV, out strength, out highlightPot);
                     break;
                 case SelectionMode.Rect:
                     if (IsInRect(x, y, texWidth, texHeight))
@@ -153,12 +179,10 @@ namespace VRCAvatarColorChanger
             return GetMatchStrength(pixelColor, x, y, texWidth, texHeight) > 0f;
         }
 
-        private void GetColorMatchScores(Color pixelColor, out float strength, out float highlightPotential)
+        private void GetColorMatchScores(Color pixelColor, float pH, float pS, float pV, out float strength, out float highlightPotential)
         {
             strength = 0f;
             highlightPotential = 0f;
-
-            Color.RGBToHSV(pixelColor, out float pH, out float pS, out float pV);
 
             // 基礎パラメータの計算
             float satConfidence = Mathf.Clamp01((pS - satMin) / satRamp);
