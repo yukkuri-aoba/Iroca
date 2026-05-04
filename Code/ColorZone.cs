@@ -188,7 +188,13 @@ namespace VRCAvatarColorChanger
             float satConfidence = Mathf.Clamp01((pS - satMin) / satRamp);
             float hDist = CalculateHueDistance(pH, sH);
             float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
-
+            // 同系色・暗部のシャドウ許容（暗い影の部分は彩度や明度が落ちるが、同じ色として拾う）
+            if (pV < sV * 0.6f && hDist < 0.1f)
+            {
+                float darkForgiveness = Mathf.Clamp01((sV * 0.6f - pV) / (sV * 0.6f));
+                // 暗いほど、本来の彩度ゲート（satMin）を無視して拾いやすくする
+                satConfidence = Mathf.Max(satConfidence, darkForgiveness);
+            }
             // 各距離の計算
             float dist = CalculateHybridDistance(pixelColor, pS, pV, hDist, sRatio);
             float gate = Mathf.Lerp(1f, satConfidence, chromaConfidence);
@@ -222,7 +228,16 @@ namespace VRCAvatarColorChanger
             // 距離の近似として平方根を残すが、共通して使うことで計算量を抑制できる
             float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f;
 
-            return Mathf.Lerp(rgbDist, hsvDist, chromaConfidence);
+            float finalDist = Mathf.Lerp(rgbDist, hsvDist, chromaConfidence);
+
+            // シャドウ（暗い色）の距離許容:
+            if (pV < sV * 0.6f && hDist < 0.1f)
+            {
+                float darkForgiveness = Mathf.Clamp01((sV * 0.6f - pV) / (sV * 0.6f));
+                finalDist *= Mathf.Lerp(1f, 0.3f, darkForgiveness); // 距離ペナルティを最大70%免除
+            }
+
+            return finalDist;
         }
 
         private float CalculateHighlightRecovery(float pH, float pS, float pV, float hDist, float sRatio)

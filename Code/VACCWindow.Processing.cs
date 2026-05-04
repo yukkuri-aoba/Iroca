@@ -845,6 +845,15 @@ namespace VRCAvatarColorChanger
             float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
             float dist = hDist + sDist * satDistWeight + vDist * valueWeight * (1f - sRatio);
 
+            // シャドウ（暗い色）の境界許容:
+            // パキッとした影やMultiplyで暗くなった境界部分は、ベース色と同じ色相でも明度や彩度が大きく落ち、
+            // 距離ペナルティがToleranceを超えて取り残されることがあるため、色相が近い暗部は距離を減免する。
+            if (pV < sV * 0.6f && hDist < 0.1f)
+            {
+                float darkForgiveness = Mathf.Clamp01((sV * 0.6f - pV) / (sV * 0.6f));
+                dist *= Mathf.Lerp(1f, 0.3f, darkForgiveness); // 暗いほど距離を最大70%免除
+            }
+
             if (dist >= tolerance) return 0f;
 
             float softRange = tolerance * edgeSoftness;
@@ -882,7 +891,14 @@ namespace VRCAvatarColorChanger
                 newS = Mathf.Lerp(newS, oS, hlIntensity); // 彩度は元の白っぽい状態に逃がす
                 newV = Mathf.Lerp(newV, oV, hlIntensity); // 明度はターゲット色等より優先して元の輝度を残す
             }
-
+            // シャドウ（暗い部分）の彩度の保護ロジック:
+            // 黒や極端に暗いピクセルはHSV変換でおかしな色になりやすいため、暗さに応じて彩度を0に近づける
+            if (oV < 0.3f && oS > 0.3f)
+            {
+                // 0.3以下から一気に暗い色として扱う
+                float shadowIntensity = Mathf.Clamp01((0.3f - oV) / 0.3f);
+                newS = Mathf.Lerp(newS, oS * 0.5f, shadowIntensity); // 暗い部分の彩度をさらに抑える
+            }
             Color result = Color.HSVToRGB(tH, newS, newV);
             result.a = alpha;
             return result;
