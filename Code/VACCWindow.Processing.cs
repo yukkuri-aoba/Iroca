@@ -287,7 +287,8 @@ namespace VRCAvatarColorChanger
             Array.Clear(wD, 0, len);
             Parallel.For(0, len, i =>
             {
-                if (strength[i] <= 0f)
+                // アルファが0のピクセルはRGBがゴミデータ(黒など)の可能性が高いためBG推定から除外
+                if (strength[i] <= 0f && originalPixels[i].a > 0)
                 {
                     wR[i] = originalPixels[i].r;
                     wG[i] = originalPixels[i].g;
@@ -334,6 +335,14 @@ namespace VRCAvatarColorChanger
                 float alpha = dot / dirSq;
                 if (alpha < 0f) alpha = 0f;
                 else if (alpha > 1f) alpha = 1f;
+
+                // BGとSampleで合成される線分からの距離の2乗を確認。
+                // 大きく外れている場合は全く別の色（陰影や別パーツ等）であり、α分解の前提が崩れるためスキップ
+                float projR = bR + alpha * dirR;
+                float projG = bG + alpha * dirG;
+                float projB = bB + alpha * dirB;
+                float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
+                if (distSq > 3000f) return; // 許容誤差。各チャンネル約31のズレまで許容
 
                 float oneMinusAlpha = 1f - alpha;
                 float resR = alpha * tR + oneMinusAlpha * bR;
