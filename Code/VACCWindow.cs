@@ -43,6 +43,14 @@ namespace VRCAvatarColorChanger
         // 横並びレイアウトの左右カラム用スクロール
         private Vector2 leftScrollPos;
 
+        // GUILayout安全な変更保留フラグ
+        // ExitGUI() をネストしたレイアウトグループ内から呼ぶと
+        // Layout/Repaint 間のコントロール数不一致が起きるため、
+        // 変更を次の Layout イベント開始時まで遅延させる。
+        private bool _pendingAddZone;
+        private int _pendingRemoveZoneIndex = -1;
+        private bool? _pendingAdvancedMode;
+
         // 横並びレイアウトの最小ウィンドウ幅閾値（これ以下は縦並びにフォールバック）
         private const float SideBySideMinWidth = 600f;
 
@@ -66,8 +74,36 @@ namespace VRCAvatarColorChanger
             SaveMaskToSession();
         }
 
+        private void ProcessPendingZoneChanges()
+        {
+            if (Event.current.type != EventType.Layout) return;
+
+            if (_pendingRemoveZoneIndex >= 0)
+            {
+                int idx = _pendingRemoveZoneIndex;
+                _pendingRemoveZoneIndex = -1;
+                OnZoneAboutToBeRemoved(idx);
+                zones.RemoveAt(idx);
+                previewDirty = true;
+            }
+            if (_pendingAddZone)
+            {
+                _pendingAddZone = false;
+                var newZone = new ColorZone();
+                newZone.EnsureId();
+                zones.Add(newZone);
+                previewDirty = true;
+            }
+            if (_pendingAdvancedMode.HasValue)
+            {
+                advancedMode = _pendingAdvancedMode.Value;
+                _pendingAdvancedMode = null;
+            }
+        }
+
         private void OnGUI()
         {
+            ProcessPendingZoneChanges();
             DrawHeader();
 
             bool sideBySide = position.width >= SideBySideMinWidth;
@@ -358,19 +394,14 @@ namespace VRCAvatarColorChanger
 
             if (removeIndex >= 0)
             {
-                OnZoneAboutToBeRemoved(removeIndex);
-                zones.RemoveAt(removeIndex);
-                previewDirty = true;
-                GUIUtility.ExitGUI();
+                _pendingRemoveZoneIndex = removeIndex;
+                Repaint();
             }
 
             if (GUILayout.Button(Localization.AddZone))
             {
-                var newZone = new ColorZone();
-                newZone.EnsureId();
-                zones.Add(newZone);
-                previewDirty = true;
-                GUIUtility.ExitGUI();
+                _pendingAddZone = true;
+                Repaint();
             }
 
             EditorGUILayout.EndFoldoutHeaderGroup();
@@ -405,8 +436,8 @@ namespace VRCAvatarColorChanger
                 advancedMode);
             if (newAdvancedMode != advancedMode)
             {
-                advancedMode = newAdvancedMode;
-                GUIUtility.ExitGUI();
+                _pendingAdvancedMode = newAdvancedMode;
+                Repaint();
             }
 
             if (advancedMode)
