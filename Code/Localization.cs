@@ -130,6 +130,16 @@ namespace VRCAvatarColorChanger
             ? "動的彩度ランプのスケール係数。\nsatRamp = Max(0.08, サンプル彩度 × この値)\n大きい値 = 彩度閾値付近で段階的なフェードイン\n小さい値 = より急激な閾値\nデフォルト: 0.10"
             : "Scale factor for the dynamic saturation ramp.\nsatRamp = Max(0.08, sampleSat × this)\nLarger = more gradual fade near threshold\nSmaller = sharper threshold\nDefault: 0.10";
 
+        public static string ShadowDesaturation => IsJapanese ? "シャドウ彩度低下" : "Shadow Desaturation";
+        public static string ShadowDesaturationTooltip => IsJapanese
+            ? "暗いピクセルの彩度をどの程度の明度以下から強制的に落とすかの閾値です。低くすると暗い色でも鮮やかに染まります。\nデフォルト: 0.35"
+            : "Threshold below which dark pixels have their saturation reduced to avoid unnatural colors.\nDefault: 0.35";
+
+        public static string ShadowForgivenessSatMin => IsJapanese ? "シャドウ巻き込み最低彩度" : "Shadow Forgiveness Sat Min";
+        public static string ShadowForgivenessSatMinTooltip => IsJapanese
+            ? "グレーや黒のピクセルを同系色の影として巻き込むのを防ぐための最低彩度です。\nデフォルト: 0.05"
+            : "Minimum saturation required to include a dark pixel as part of the shadow. Prevents pure greys from being colorized.\nDefault: 0.05";
+
         public static string HighlightRecovery => IsJapanese ? "ハイライト補助" : "Highlight Recovery";
         public static string HighlightRecoveryTooltip => IsJapanese
             ? "高明度・低彩度のハイライト領域を補助的にマッチします。\n鏡面反射や光沢のある素材の色変換漏れを防ぎます。\nデフォルト: ON"

@@ -763,6 +763,8 @@ namespace VRCAvatarColorChanger
             valueWeight          = z.valueWeight,
             satDistWeight        = z.satDistWeight,
             satRampScale         = z.satRampScale,
+              shadowDesaturation   = z.shadowDesaturation,
+              shadowForgivenessSatMin = z.shadowForgivenessSatMin,
             highlightRecovery    = z.highlightRecovery,
             layerIndex           = z.layerIndex,
             useFloodFill         = z.useFloodFill,

@@ -344,6 +344,12 @@ namespace VRCAvatarColorChanger
                     zone.satRampScale = EditorGUILayout.Slider(
                         new GUIContent(Localization.SatRampScale, Localization.SatRampScaleTooltip),
                         zone.satRampScale, 0.01f, 0.5f);
+                    zone.shadowDesaturation = EditorGUILayout.Slider(
+                        new GUIContent(Localization.ShadowDesaturation, Localization.ShadowDesaturationTooltip),
+                        zone.shadowDesaturation, 0f, 1f);
+                    zone.shadowForgivenessSatMin = EditorGUILayout.Slider(
+                        new GUIContent(Localization.ShadowForgivenessSatMin, Localization.ShadowForgivenessSatMinTooltip),
+                        zone.shadowForgivenessSatMin, 0f, 1f);
                 }
 
                 EditorGUILayout.EndVertical();

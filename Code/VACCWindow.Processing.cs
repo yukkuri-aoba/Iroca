@@ -228,7 +228,7 @@ namespace VRCAvatarColorChanger
                             continue;
                         }
                         float alpha = originalPixels[i].a / 255f;
-                        Color32 recolored = RecolorPixel(pixH[i], pixS[i], pixV[i], alpha, zTH, zTS, zTV, zSH, zSS, zSV, zValueBlend);
+                        Color32 recolored = RecolorPixel(pixH[i], pixS[i], pixV[i], alpha, zTH, zTS, zTV, zSH, zSS, zSV, zValueBlend, zone.shadowDesaturation);
                         pixels[i] = s >= 0.999f ? recolored : Color32.Lerp(pixels[i], recolored, s);
                     }
                 });
@@ -794,7 +794,7 @@ namespace VRCAvatarColorChanger
                         float relaxed = GetRelaxedMatchStrength(
                             pixH[idx], pixS[idx], pixV[idx],
                             sH, sS, sV, tolerance, edgeSoftness, valueWeight,
-                            satDistWeight, relaxedSatMin, relaxedSatRamp);
+                            satDistWeight, relaxedSatMin, relaxedSatRamp, zone.shadowForgivenessSatMin);
                         if (relaxed > 0f)
                             write[idx] = relaxed;
                     }
@@ -831,7 +831,7 @@ namespace VRCAvatarColorChanger
             float pH, float pS, float pV,
             float sH, float sS, float sV,
             float tolerance, float edgeSoftness, float valueWeight,
-            float satDistWeight, float relaxedSatMin, float relaxedSatRamp)
+            float satDistWeight, float relaxedSatMin, float relaxedSatRamp, float shadowForgivenessSatMin)
         {
             // 純白装飾はそのまま残す: relaxedSatMin 未満は弾く（ハードゲート）
             if (pS < relaxedSatMin) return 0f;
@@ -848,10 +848,10 @@ namespace VRCAvatarColorChanger
             // シャドウ（暗い色）の境界許容:
             // パキッとした影やMultiplyで暗くなった境界部分は、ベース色と同じ色相でも明度や彩度が大きく落ち、
             // 距離ペナルティがToleranceを超えて取り残されることがあるため、色相が近い暗部は距離を減免する。
-            if (pV < sV * 0.6f && hDist < 0.1f)
+            if (pV < sV * 0.75f && hDist < 0.15f && pS >= shadowForgivenessSatMin)
             {
-                float darkForgiveness = Mathf.Clamp01((sV * 0.6f - pV) / (sV * 0.6f));
-                dist *= Mathf.Lerp(1f, 0.3f, darkForgiveness); // 暗いほど距離を最大70%免除
+                float darkForgiveness = Mathf.Clamp01((sV * 0.75f - pV) / (sV * 0.6f));
+                dist *= Mathf.Lerp(1f, 0.2f, darkForgiveness); // 暗いほど距離を最大70%免除
             }
 
             if (dist >= tolerance) return 0f;
@@ -875,7 +875,7 @@ namespace VRCAvatarColorChanger
             float oH, float oS, float oV, float alpha,
             float tH, float tS, float tV,
             float sH, float sS, float sV,
-            float valueBlend)
+            float valueBlend, float shadowDesaturation)
         {
             // 彩度比を保持：アンチエイリアス境界ピクセルは相対的な彩度を保つ
             float newS = (sS > 0.001f) ? Mathf.Clamp01(oS * tS / sS) : tS;
@@ -893,11 +893,11 @@ namespace VRCAvatarColorChanger
             }
             // シャドウ（暗い部分）の彩度の保護ロジック:
             // 黒や極端に暗いピクセルはHSV変換でおかしな色になりやすいため、暗さに応じて彩度を0に近づける
-            if (oV < 0.3f && oS > 0.3f)
+            if (shadowDesaturation > 0f && oV < shadowDesaturation)
             {
                 // 0.3以下から一気に暗い色として扱う
-                float shadowIntensity = Mathf.Clamp01((0.3f - oV) / 0.3f);
-                newS = Mathf.Lerp(newS, oS * 0.5f, shadowIntensity); // 暗い部分の彩度をさらに抑える
+                float shadowIntensity = Mathf.Clamp01((shadowDesaturation - oV) / shadowDesaturation);
+                newS = Mathf.Lerp(newS, Mathf.Min(oS, newS * 0.5f), shadowIntensity); // 暗い部分の彩度をさらに抑える
             }
             Color result = Color.HSVToRGB(tH, newS, newV);
             result.a = alpha;
