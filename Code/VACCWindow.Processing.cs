@@ -155,7 +155,7 @@ namespace VRCAvatarColorChanger
                 if (antiAliasCleanup > 0)
                     RecoverBoundaryEdges(strength, w, h, pixH, pixS, pixV,
                         zone.sampleColor, zone.tolerance, zone.edgeSoftness, zone.valueWeight,
-                        zone.satDistWeight, relaxedSatMin, relaxedSatRamp, antiAliasCleanup);
+                        zone.satDistWeight, relaxedSatMin, relaxedSatRamp, zone.shadowForgivenessSatMin, antiAliasCleanup);
 
                 // 2. スムーズな端の遷移のためのガウシアンブラー（端に限定）
                 if (edgeFeather > 0.01f)
@@ -752,7 +752,7 @@ namespace VRCAvatarColorChanger
             float[] pixH, float[] pixS, float[] pixV,
             Color sampleColor, float tolerance,
             float edgeSoftness, float valueWeight, float satDistWeight,
-            float relaxedSatMin, float relaxedSatRamp, int passes)
+            float relaxedSatMin, float relaxedSatRamp, float shadowForgivenessSatMin, int passes)
         {
             if (passes <= 0) return;
 
@@ -794,7 +794,7 @@ namespace VRCAvatarColorChanger
                         float relaxed = GetRelaxedMatchStrength(
                             pixH[idx], pixS[idx], pixV[idx],
                             sH, sS, sV, tolerance, edgeSoftness, valueWeight,
-                            satDistWeight, relaxedSatMin, relaxedSatRamp, zone.shadowForgivenessSatMin);
+                            satDistWeight, relaxedSatMin, relaxedSatRamp, shadowForgivenessSatMin);
                         if (relaxed > 0f)
                             write[idx] = relaxed;
                     }

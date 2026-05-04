@@ -361,6 +361,7 @@ namespace VRCAvatarColorChanger
                 OnZoneAboutToBeRemoved(removeIndex);
                 zones.RemoveAt(removeIndex);
                 previewDirty = true;
+                GUIUtility.ExitGUI();
             }
 
             if (GUILayout.Button(Localization.AddZone))
@@ -369,6 +370,7 @@ namespace VRCAvatarColorChanger
                 newZone.EnsureId();
                 zones.Add(newZone);
                 previewDirty = true;
+                GUIUtility.ExitGUI();
             }
 
             EditorGUILayout.EndFoldoutHeaderGroup();
@@ -398,9 +400,14 @@ namespace VRCAvatarColorChanger
                 new GUIContent(Localization.UseDecontamination, Localization.UseDecontaminationTooltip),
                 useDecontamination);
 
-            advancedMode = EditorGUILayout.Toggle(
+            bool newAdvancedMode = EditorGUILayout.Toggle(
                 new GUIContent(Localization.AdvancedMode, Localization.AdvancedModeTooltip),
                 advancedMode);
+            if (newAdvancedMode != advancedMode)
+            {
+                advancedMode = newAdvancedMode;
+                GUIUtility.ExitGUI();
+            }
 
             if (advancedMode)
             {
