@@ -18,9 +18,6 @@ namespace VRCAvatarColorChanger
         private const float HighlightRelaxedSatMin = 0.02f;
         private const float HighlightRelaxedSatRamp = 0.08f;
 
-        // 低彩度サンプル時の RGB ↔ HSV ハイブリッド距離フェード閾値。
-        private const float ChromaConfidenceLo = 0.05f;
-        private const float ChromaConfidenceHi = 0.15f;
 
         public string name = "Zone";
         public bool enabled = true;
@@ -67,6 +64,9 @@ namespace VRCAvatarColorChanger
 
         [Range(0f, 1f)]
         public float shadowForgivenessSatMin = 0.05f;
+
+        [Range(0f, 1f)]
+        public float chromaThreshold = 0.05f;
 
         public bool highlightRecovery = true;
         public int layerIndex = 0;
@@ -119,7 +119,8 @@ namespace VRCAvatarColorChanger
             satMin = Mathf.Max(0.02f, sS * saturationStrictness);
             satRamp = Mathf.Max(0.08f, sS * satRampScale);
 
-            float baseChromaConf = Mathf.Clamp01((sS - ChromaConfidenceLo) / (ChromaConfidenceHi - ChromaConfidenceLo));
+            float currentChromaHi = chromaThreshold + 0.10f;
+            float baseChromaConf = Mathf.Clamp01((sS - chromaThreshold) / ((currentChromaHi) - chromaThreshold));
             // 暗すぎる色（黒）は彩度データが高くても色相（Hue）の計算がノイズで暴れるため信用しない
             float valueConf = Mathf.Clamp01((sV - 0.05f) / 0.15f); // Vが0.05(非常に暗い)〜0.20の範囲で減衰
             chromaConfidence = Mathf.Min(baseChromaConf, valueConf);
@@ -193,21 +194,60 @@ namespace VRCAvatarColorChanger
             strength = 0f;
             highlightPotential = 0f;
 
+            // サンプル色の彩度がしきい値以下の場合は、自動的に無彩色(グレー/黒)抽出モードとして扱う
+            // 暗いサンプルはHSV色相・彩度が不安定なため、黒るいほどグレースケールモードの適用範囲を動的に広げる。
+            // sV = 0 で 0.30、sV >= 0.20 で chromaThreshold に収束する。
+            float effectiveChromaThreshold = Mathf.Lerp(0.30f, chromaThreshold, Mathf.Clamp01(sV / 0.20f));
+            if (sS <= effectiveChromaThreshold)
+            {
+                // グレー抽出モード：HueやSatを完全に無視し、純粋なRGBの近さのみで判定する
+                float dr = pixelColor.r - _cSampleColor.r;
+                float dg = pixelColor.g - _cSampleColor.g;
+                float db = pixelColor.b - _cSampleColor.b;
+                float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f;
+
+                // 暗いサンプル（黒〜暗グレー）の明るい側許容:
+                // 黒いファブリックは表面の凹凸・照明により中間グレーのハイライトを持つが同じマテリアル。
+                // サンプルが暗いほど、無彩色ピクセルの彩度（≒中立からの逸脱度）を距離指標として使い、
+                // 輝度差があっても無彩色なら「同素材」とみなせるようにする。
+                float effectiveDist = rgbDist;
+                if (sV < 0.3f)
+                {
+                    float darknessFactor = Mathf.Clamp01((0.3f - sV) / 0.3f);
+                    effectiveDist = Mathf.Lerp(rgbDist, pS, darknessFactor);
+                }
+
+                strength = CalculateEdgeStrength(effectiveDist, hardRange, softRange);
+                // ハイライト復元は輝度のみでざっくり判定
+                if (highlightRecovery && pV > HighlightValueMin)
+                {
+                    float vDist = Mathf.Abs(pV - sV);
+                    highlightPotential = CalculateEdgeStrength(vDist, hlHardRange, hlSoftRange);
+                }
+                return;
+            }
+
             // 基礎パラメータの計算
             float satConfidence = Mathf.Clamp01((pS - satMin) / satRamp);
             float hDist = CalculateHueDistance(pH, sH);
             float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
+
+            // 無彩色領域でのHueのバタつきを緩和する
+            float maxSat = Mathf.Max(pS, sS);
+            float hueRelevance = Mathf.Clamp01(maxSat / Mathf.Max(0.01f, chromaThreshold));
+            float effectiveHDist = hDist * hueRelevance;
+
             // 同系色・暗部のシャドウ許容（暗い影の部分は彩度や明度が落ちるが、同じ色として拾う）
-            if (pV < sV * 0.75f && hDist < 0.15f)
+            if (pV < sV * 0.75f && effectiveHDist < 0.15f)
             {
                 float darkForgiveness = Mathf.Clamp01((sV * 0.75f - pV) / (sV * 0.6f));
                 
                 // 1. 色相(Hue)が離れているほど免除を弱くする（ノイズによる無関係な色の巻き込み防止）
-                float hueFactor = 1f - (hDist / 0.15f);
+                float hueFactor = 1f - (effectiveHDist / 0.15f);
                 darkForgiveness *= hueFactor;
 
-                // 2. サンプルが有彩色(S > 0.05)の場合、対象の彩度が低すぎる(グレー/黒に近い)と免除を減衰
-                if (sS > 0.05f)
+                // 2. サンプルが有彩色の場合、対象の彩度が低すぎる(グレー/黒に近い)と免除を減衰
+                if (sS > chromaThreshold)
                 {
                     float satFactor = Mathf.Clamp01(pS / Mathf.Max(0.01f, shadowForgivenessSatMin));
                     darkForgiveness *= satFactor;
@@ -217,7 +257,7 @@ namespace VRCAvatarColorChanger
                 satConfidence = Mathf.Max(satConfidence, darkForgiveness);
             }
             // 各距離の計算
-            float dist = CalculateHybridDistance(pixelColor, pS, pV, hDist, sRatio);
+            float dist = CalculateHybridDistance(pixelColor, pS, pV, effectiveHDist, sRatio);
             float gate = Mathf.Lerp(1f, satConfidence, chromaConfidence);
 
             // 通常マッチ強度
@@ -226,7 +266,7 @@ namespace VRCAvatarColorChanger
             // ハイライト復元マッチ
             if (highlightRecovery)
             {
-                highlightPotential = CalculateHighlightRecovery(pH, pS, pV, hDist, sRatio);
+                highlightPotential = CalculateHighlightRecovery(pH, pS, pV, effectiveHDist, sRatio);
             }
         }
 

@@ -378,6 +378,9 @@ namespace VRCAvatarColorChanger
                 zone.shadowForgivenessSatMin = EditorGUILayout.Slider(
                     new GUIContent(Localization.ShadowForgivenessSatMin, Localization.ShadowForgivenessSatMinTooltip),
                     zone.shadowForgivenessSatMin, 0f, 1f);
+                zone.chromaThreshold = EditorGUILayout.Slider(
+                    new GUIContent(Localization.IsJapanese ? "自動しきい値(無彩色判定)" : "Auto Grayscale Threshold", Localization.IsJapanese ? "スポイトで取ったサンプルの彩度がこの値以下の場合は、自動的に【無彩色(黒/グレー)】として認識され、色相を無視して綺麗に抽出します。" : "If the sample saturation is below this value, it automatically ignores hue and extracts pure grayscale nicely."),
+                    zone.chromaThreshold, 0f, 1f);
 
                 if (advancedMode)
                 {

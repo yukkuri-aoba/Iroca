@@ -833,8 +833,25 @@ namespace VRCAvatarColorChanger
             float tolerance, float edgeSoftness, float valueWeight,
             float satDistWeight, float relaxedSatMin, float relaxedSatRamp, float shadowForgivenessSatMin)
         {
+            // ColorZone.GetColorMatchScoresと同じ動的頃値：暗いサンプルほどグレースケールモードの範囲を広げる
+            float effectiveChromaThreshold = Mathf.Lerp(0.30f, 0.05f, Mathf.Clamp01(sV / 0.20f));
+
             // 純白装飾はそのまま残す: relaxedSatMin 未満は弾く（ハードゲート）
-            if (pS < relaxedSatMin) return 0f;
+            // ただしサンプル自体が高彩度の場合のみ適用（暗サンプルの低彩度ピクセルは通過させる）
+            if (pS < relaxedSatMin && sS > effectiveChromaThreshold) return 0f;
+
+            // サンプルが暗い型（指定出来ない彩度）の場合: 動的頃値を使って判定
+            if (sS <= effectiveChromaThreshold)
+            {
+                float darknessFactor = Mathf.Clamp01((0.3f - sV) / 0.3f);
+                float vDistGray = Mathf.Abs(pV - sV);
+                float effectiveDist = Mathf.Lerp(vDistGray, pS, darknessFactor);
+                if (effectiveDist >= tolerance) return 0f;
+                float sr = tolerance * edgeSoftness;
+                float hr = tolerance - sr;
+                if (sr < 0.0001f || effectiveDist <= hr) return 1f;
+                return 1f - (effectiveDist - hr) / sr;
+            }
 
             float hDist = Mathf.Abs(pH - sH);
             if (hDist > 0.5f) hDist = 1f - hDist;
