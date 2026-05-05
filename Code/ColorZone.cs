@@ -119,7 +119,10 @@ namespace VRCAvatarColorChanger
             satMin = Mathf.Max(0.02f, sS * saturationStrictness);
             satRamp = Mathf.Max(0.08f, sS * satRampScale);
 
-            chromaConfidence = Mathf.Clamp01((sS - ChromaConfidenceLo) / (ChromaConfidenceHi - ChromaConfidenceLo));
+            float baseChromaConf = Mathf.Clamp01((sS - ChromaConfidenceLo) / (ChromaConfidenceHi - ChromaConfidenceLo));
+            // 暗すぎる色（黒）は彩度データが高くても色相（Hue）の計算がノイズで暴れるため信用しない
+            float valueConf = Mathf.Clamp01((sV - 0.05f) / 0.15f); // Vが0.05(非常に暗い)〜0.20の範囲で減衰
+            chromaConfidence = Mathf.Min(baseChromaConf, valueConf);
 
             softRange = tolerance * edgeSoftness;
             hardRange = tolerance - softRange;
@@ -195,9 +198,21 @@ namespace VRCAvatarColorChanger
             float hDist = CalculateHueDistance(pH, sH);
             float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
             // 同系色・暗部のシャドウ許容（暗い影の部分は彩度や明度が落ちるが、同じ色として拾う）
-            if (pV < sV * 0.75f && hDist < 0.15f && pS >= shadowForgivenessSatMin)
+            if (pV < sV * 0.75f && hDist < 0.15f)
             {
                 float darkForgiveness = Mathf.Clamp01((sV * 0.75f - pV) / (sV * 0.6f));
+                
+                // 1. 色相(Hue)が離れているほど免除を弱くする（ノイズによる無関係な色の巻き込み防止）
+                float hueFactor = 1f - (hDist / 0.15f);
+                darkForgiveness *= hueFactor;
+
+                // 2. サンプルが有彩色(S > 0.05)の場合、対象の彩度が低すぎる(グレー/黒に近い)と免除を減衰
+                if (sS > 0.05f)
+                {
+                    float satFactor = Mathf.Clamp01(pS / Mathf.Max(0.01f, shadowForgivenessSatMin));
+                    darkForgiveness *= satFactor;
+                }
+                
                 // 暗いほど、本来の彩度ゲート（satMin）を無視して拾いやすくする
                 satConfidence = Mathf.Max(satConfidence, darkForgiveness);
             }
@@ -237,10 +252,23 @@ namespace VRCAvatarColorChanger
             float finalDist = Mathf.Lerp(rgbDist, hsvDist, chromaConfidence);
 
             // シャドウ（暗い色）の距離許容:
-            if (pV < sV * 0.75f && hDist < 0.15f && pS >= shadowForgivenessSatMin)
+            if (pV < sV * 0.75f && hDist < 0.15f)
             {
                 float darkForgiveness = Mathf.Clamp01((sV * 0.75f - pV) / (sV * 0.6f));
-                finalDist *= Mathf.Lerp(1f, 0.2f, darkForgiveness); // 距離ペナルティを最大70%免除
+                
+                // 1. 色相(Hue)が離れているほど免除を弱くする（ノイズによる無関係な色の巻き込み防止）
+                float hueFactor = 1f - (hDist / 0.15f);
+                darkForgiveness *= hueFactor;
+
+                // 2. サンプルが有彩色(S > 0.05)の場合、対象の彩度が低すぎる(グレー/黒に近い)と免除を減衰
+                if (sS > 0.05f)
+                {
+                    float satFactor = Mathf.Clamp01(pS / Mathf.Max(0.01f, shadowForgivenessSatMin));
+                    darkForgiveness *= satFactor;
+                }
+
+                // 免除が強すぎると他のテクスチャで許容範囲が広がりすぎるため、0.3f (最大70%免除) に抑える
+                finalDist *= Mathf.Lerp(1f, 0.3f, darkForgiveness);
             }
 
             return finalDist;

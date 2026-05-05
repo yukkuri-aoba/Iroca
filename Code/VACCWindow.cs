@@ -369,6 +369,16 @@ namespace VRCAvatarColorChanger
                     new GUIContent(Localization.HighlightRecovery, Localization.HighlightRecoveryTooltip),
                     zone.highlightRecovery);
 
+                EditorGUILayout.Space(2);
+                EditorGUILayout.LabelField(Localization.IsJapanese ? "=== シャドウ・ハイライト詳細設定 ===" : "=== Shadow/Highlight Details ===", EditorStyles.boldLabel);
+
+                zone.shadowDesaturation = EditorGUILayout.Slider(
+                    new GUIContent(Localization.ShadowDesaturation, Localization.ShadowDesaturationTooltip),
+                    zone.shadowDesaturation, 0f, 1f);
+                zone.shadowForgivenessSatMin = EditorGUILayout.Slider(
+                    new GUIContent(Localization.ShadowForgivenessSatMin, Localization.ShadowForgivenessSatMinTooltip),
+                    zone.shadowForgivenessSatMin, 0f, 1f);
+
                 if (advancedMode)
                 {
                     zone.valueWeight = EditorGUILayout.Slider(
@@ -380,12 +390,6 @@ namespace VRCAvatarColorChanger
                     zone.satRampScale = EditorGUILayout.Slider(
                         new GUIContent(Localization.SatRampScale, Localization.SatRampScaleTooltip),
                         zone.satRampScale, 0.01f, 0.5f);
-                    zone.shadowDesaturation = EditorGUILayout.Slider(
-                        new GUIContent(Localization.ShadowDesaturation, Localization.ShadowDesaturationTooltip),
-                        zone.shadowDesaturation, 0f, 1f);
-                    zone.shadowForgivenessSatMin = EditorGUILayout.Slider(
-                        new GUIContent(Localization.ShadowForgivenessSatMin, Localization.ShadowForgivenessSatMinTooltip),
-                        zone.shadowForgivenessSatMin, 0f, 1f);
                 }
 
                 EditorGUILayout.EndVertical();
