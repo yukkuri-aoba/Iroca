@@ -182,21 +182,11 @@ namespace VRCAvatarColorChanger
             _detailOriginX = ox;
             _detailOriginY = oy;
 
-            if (_detailPreviewTexture == null || _detailPreviewTexture.width != w || _detailPreviewTexture.height != h)
-            {
-                ScheduleDestroy(_detailPreviewTexture);
-                _detailPreviewTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
-                _detailPreviewTexture.filterMode = FilterMode.Point;
-            }
+            TextureSlot.Resize(ref _detailPreviewTexture, w, h, FilterMode.Point);
             _detailPreviewTexture.SetPixels32(processed);
             _detailPreviewTexture.Apply();
 
-            if (_rawDetailPreviewTexture == null || _rawDetailPreviewTexture.width != w || _rawDetailPreviewTexture.height != h)
-            {
-                ScheduleDestroy(_rawDetailPreviewTexture);
-                _rawDetailPreviewTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
-                _rawDetailPreviewTexture.filterMode = FilterMode.Point;
-            }
+            TextureSlot.Resize(ref _rawDetailPreviewTexture, w, h, FilterMode.Point);
             _rawDetailPreviewTexture.SetPixels32(raw);
             _rawDetailPreviewTexture.Apply();
 
@@ -209,12 +199,7 @@ namespace VRCAvatarColorChanger
         private void BuildDetailDiffTexture(Texture2D before, Texture2D after, int w, int h)
         {
             if (before == null || after == null) return;
-            if (_detailDiffTexture == null || _detailDiffTexture.width != w || _detailDiffTexture.height != h)
-            {
-                ScheduleDestroy(_detailDiffTexture);
-                _detailDiffTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
-                _detailDiffTexture.filterMode = FilterMode.Point;
-            }
+            TextureSlot.Resize(ref _detailDiffTexture, w, h, FilterMode.Point);
 
             Color32[] a = before.GetPixels32();
             Color32[] b = after.GetPixels32();
@@ -250,22 +235,11 @@ namespace VRCAvatarColorChanger
 
             if (!hasCommon && !hasAnyZone)
             {
-                if (_detailMaskOverlayTexture != null)
-                {
-                    ScheduleDestroy(_detailMaskOverlayTexture);
-                    _detailMaskOverlayTexture = null;
-                }
+                TextureSlot.Release(ref _detailMaskOverlayTexture);
                 return;
             }
 
-            if (_detailMaskOverlayTexture == null ||
-                _detailMaskOverlayTexture.width  != cropW ||
-                _detailMaskOverlayTexture.height != cropH)
-            {
-                ScheduleDestroy(_detailMaskOverlayTexture);
-                _detailMaskOverlayTexture = new Texture2D(cropW, cropH, TextureFormat.RGBA32, false);
-                _detailMaskOverlayTexture.filterMode = FilterMode.Point;
-            }
+            TextureSlot.Resize(ref _detailMaskOverlayTexture, cropW, cropH, FilterMode.Point);
 
             var overlayPixels = new Color32[cropW * cropH];
             var commonColor = new Color32(255, 60, 60, 80);
