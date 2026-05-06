@@ -332,7 +332,8 @@ namespace VRCAvatarColorChanger
                                 GUILayout.Width(52)))
                             {
                                 zone.seedUV = new UnityEngine.Vector2(-1f, -1f);
-                                previewDirty = true;
+                                // previewDirty は外側の BeginChangeCheck/EndChangeCheck で
+                                // ボタンクリックを検知して立つため、ここで明示しない。
                             }
                             EditorGUILayout.EndHorizontal();
 
