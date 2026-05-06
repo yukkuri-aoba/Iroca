@@ -316,13 +316,6 @@ namespace VRCAvatarColorChanger
                     }
                     break;
 
-                case EventType.KeyDown:
-                    if (e.control && e.keyCode == KeyCode.Z && !isPainting)
-                    {
-                        UndoMaskStep();
-                        e.Use();
-                    }
-                    break;
             }
         }
 

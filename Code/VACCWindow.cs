@@ -103,6 +103,7 @@ namespace VRCAvatarColorChanger
 
         private void OnGUI()
         {
+            HandleGlobalKeyboardShortcuts();
             ProcessPendingZoneChanges();
             DrawHeader();
 
