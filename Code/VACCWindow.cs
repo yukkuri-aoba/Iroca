@@ -552,15 +552,15 @@ namespace VRCAvatarColorChanger
             try { _previewCts?.Cancel(); } catch { /* ignore */ }
             try { _detailCts?.Cancel();  } catch { /* ignore */ }
             SaveMaskToSession();
-            if (previewTexture != null)    DestroyImmediate(previewTexture);
-            if (rawPreviewTexture != null) DestroyImmediate(rawPreviewTexture);
-            if (diffTexture != null)       DestroyImmediate(diffTexture);
-            if (maskOverlayTexture != null) DestroyImmediate(maskOverlayTexture);
-            if (zoneMaskOverlayTexture != null) DestroyImmediate(zoneMaskOverlayTexture);
-            if (_detailPreviewTexture != null)    DestroyImmediate(_detailPreviewTexture);
-            if (_rawDetailPreviewTexture != null) DestroyImmediate(_rawDetailPreviewTexture);
-            if (_detailMaskOverlayTexture != null) DestroyImmediate(_detailMaskOverlayTexture);
-            if (_detailDiffTexture != null)        DestroyImmediate(_detailDiffTexture);
+            TextureSlot.Release(ref previewTexture);
+            TextureSlot.Release(ref rawPreviewTexture);
+            TextureSlot.Release(ref diffTexture);
+            TextureSlot.Release(ref maskOverlayTexture);
+            TextureSlot.Release(ref zoneMaskOverlayTexture);
+            TextureSlot.Release(ref _detailPreviewTexture);
+            TextureSlot.Release(ref _rawDetailPreviewTexture);
+            TextureSlot.Release(ref _detailMaskOverlayTexture);
+            TextureSlot.Release(ref _detailDiffTexture);
         }
     }
 }
