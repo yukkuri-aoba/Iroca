@@ -166,7 +166,9 @@ namespace VRCAvatarColorChanger
             if (pngData == null) return;
 
             File.WriteAllBytes(outputPath, pngData);
-            AssetDatabase.Refresh();
+            string relativePath = ToAssetsRelative(outputPath);
+            if (relativePath != null)
+                AssetDatabase.ImportAsset(relativePath);
 
             if (inheritImportSettings)
                 CopyImportSettings(srcPath, outputPath);
@@ -262,6 +264,7 @@ namespace VRCAvatarColorChanger
             var savedPairs = new List<(string src, string dst)>();
             try
             {
+                AssetDatabase.StartAssetEditing();
                 for (int i = 0; i < batchTextures.Count; i++)
                 {
                     var tex = batchTextures[i];
@@ -310,17 +313,20 @@ namespace VRCAvatarColorChanger
                     string baseName = System.IO.Path.GetFileNameWithoutExtension(srcPath) + "_recolored";
                     string outPath  = System.IO.Path.Combine(dir, baseName + ".png");
                     System.IO.File.WriteAllBytes(outPath, pngData);
+                    string relOutPath = ToAssetsRelative(outPath);
+                    if (relOutPath != null)
+                        AssetDatabase.ImportAsset(relOutPath);
                     savedPairs.Add((srcPath, outPath));
                     success++;
                 }
             }
             finally
             {
+                // StartAssetEditing 中の ImportAsset はバッチング後に StopAssetEditing でまとめて反映される。
+                AssetDatabase.StopAssetEditing();
                 // finally で確実にプログレスバーをクリアする（例外でも閉じ忘れないように）
                 EditorUtility.ClearProgressBar();
             }
-
-            AssetDatabase.Refresh();
 
             if (inheritImportSettings)
             {

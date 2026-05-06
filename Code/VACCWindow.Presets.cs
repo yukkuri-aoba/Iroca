@@ -122,8 +122,15 @@ namespace VRCAvatarColorChanger
                         if (EditorUtility.DisplayDialog(Localization.Confirm,
                             Localization.DeletePresetConfirm(pname), Localization.OK, Localization.Cancel))
                         {
-                            System.IO.File.Delete(file);
-                            AssetDatabase.Refresh();
+                            string rel = ToAssetsRelative(file);
+                            if (rel != null)
+                            {
+                                AssetDatabase.DeleteAsset(rel);
+                            }
+                            else
+                            {
+                                System.IO.File.Delete(file);
+                            }
                         }
                     }
                     EditorGUILayout.EndHorizontal();
@@ -149,7 +156,11 @@ namespace VRCAvatarColorChanger
             string json = JsonUtility.ToJson(data, true);
             string path = System.IO.Path.Combine(folder, name + ".json");
             System.IO.File.WriteAllText(path, json);
-            if (presetStorageProject) AssetDatabase.Refresh();
+            if (presetStorageProject)
+            {
+                string rel = ToAssetsRelative(path);
+                if (rel != null) AssetDatabase.ImportAsset(rel);
+            }
         }
 
         // 現在の設定を VACCPresetData に詰めて返す。
