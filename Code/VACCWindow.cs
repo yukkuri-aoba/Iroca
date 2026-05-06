@@ -51,10 +51,7 @@ namespace VRCAvatarColorChanger
         private int _pendingRemoveZoneIndex = -1;
         private bool? _pendingAdvancedMode;
 
-        // 横並びレイアウトの最小ウィンドウ幅閾値（これ以下は縦並びにフォールバック）
-        private const float SideBySideMinWidth = 600f;
-
-        [MenuItem("Tools/yukkuri-aoba/VRC AvatarColorChanger", priority = 100)]
+        [MenuItem(VACCConsts.MenuPath, priority = 100)]
         public static void ShowWindow()
         {
             var window = GetWindow<VACCWindow>(Localization.WindowTitle);
@@ -110,7 +107,7 @@ namespace VRCAvatarColorChanger
             ProcessPendingZoneChanges();
             DrawHeader();
 
-            bool sideBySide = position.width >= SideBySideMinWidth;
+            bool sideBySide = position.width >= VACCConsts.Layout.SideBySideMinWidth;
 
             if (sideBySide)
             {
@@ -122,7 +119,10 @@ namespace VRCAvatarColorChanger
                 EditorGUILayout.BeginHorizontal();
 
                 // 左カラム: ゾーン設定 + 処理設定 + マスク + プリセット
-                float leftWidth = Mathf.Clamp(position.width * 0.4f, 280f, 450f);
+                float leftWidth = Mathf.Clamp(
+                    position.width * VACCConsts.Layout.LeftColumnRatio,
+                    VACCConsts.Layout.LeftColumnMin,
+                    VACCConsts.Layout.LeftColumnMax);
                 EditorGUILayout.BeginVertical(GUILayout.Width(leftWidth));
                 leftScrollPos = EditorGUILayout.BeginScrollView(leftScrollPos);
 
@@ -275,7 +275,7 @@ namespace VRCAvatarColorChanger
                     new GUIContent(Localization.LayerIndex, Localization.LayerIndexTooltip),
                     GUILayout.Width(14));
                 zone.layerIndex = Mathf.Max(0, EditorGUILayout.IntField(zone.layerIndex, GUILayout.Width(30)));
-                if (GUILayout.Button(new GUIContent("×", Localization.RemoveZoneTooltip), GUILayout.Width(22)))
+                if (GUILayout.Button(new GUIContent("×", Localization.RemoveZoneTooltip), GUILayout.Width(VACCConsts.Layout.RemoveButtonWidth)))
                 {
                     removeIndex = i;
                 }

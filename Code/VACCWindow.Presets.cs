@@ -56,7 +56,7 @@ namespace VRCAvatarColorChanger
             presetSaveName = EditorGUILayout.TextField(
                 new GUIContent(Localization.PresetName, Localization.PresetNameTooltip),
                 presetSaveName);
-            if (GUILayout.Button(new GUIContent(Localization.SavePreset, Localization.SavePresetTooltip), GUILayout.Width(48)))
+            if (GUILayout.Button(new GUIContent(Localization.SavePreset, Localization.SavePresetTooltip), GUILayout.Width(VACCConsts.Layout.SmallButtonWidth)))
                 SavePreset(presetSaveName);
             EditorGUILayout.EndHorizontal();
 
@@ -96,7 +96,7 @@ namespace VRCAvatarColorChanger
                     EditorGUILayout.LabelField(pname, GUILayout.ExpandWidth(true));
                     if (GUILayout.Button(new GUIContent(Localization.LoadPreset, Localization.LoadPresetTooltip), GUILayout.Width(40)))
                         LoadPreset(file);
-                    if (GUILayout.Button(new GUIContent("×", Localization.DeletePresetTooltip), GUILayout.Width(22)))
+                    if (GUILayout.Button(new GUIContent("×", Localization.DeletePresetTooltip), GUILayout.Width(VACCConsts.Layout.RemoveButtonWidth)))
                     {
                         if (EditorUtility.DisplayDialog(Localization.Confirm,
                             Localization.DeletePresetConfirm(pname), Localization.OK, Localization.Cancel))
