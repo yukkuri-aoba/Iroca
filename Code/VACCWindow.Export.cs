@@ -141,13 +141,14 @@ namespace VRCAvatarColorChanger
                 if (sorted.Count > 0)
                 {
                     var maskSnap = BuildMaskSnapshot();
-                    var task = System.Threading.Tasks.Task.Run(() =>
-                        ProcessPixelsArray(pixels, texW, texH,
-                            maskSnap, sorted, edgeFeather, antiAliasCleanup,
-                            holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
-                            useDecontamination: useDecontamination,
-                            decontaminationRadius: decontaminationRadius));
-                    task.Wait();
+                    // エクスポートはボタンクリックハンドラ内（OnGUI外）なので同期実行。
+                    // 以前の Task.Run().Wait() はメインスレッドをブロックした上に
+                    // スレッド切り替えのオーバーヘッドだけが残るアンチパターンだった。
+                    ProcessPixelsArray(pixels, texW, texH,
+                        maskSnap, sorted, edgeFeather, antiAliasCleanup,
+                        holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
+                        useDecontamination: useDecontamination,
+                        decontaminationRadius: decontaminationRadius);
                 }
 
                 // 結果をテクスチャに反映（メインスレッド）
@@ -293,13 +294,11 @@ namespace VRCAvatarColorChanger
                     if (sorted.Count > 0)
                     {
                         var maskSnap = BuildMaskSnapshot();
-                        var task = System.Threading.Tasks.Task.Run(() =>
-                            ProcessPixelsArray(pixels, texW, texH,
-                                maskSnap, sorted, edgeFeather, antiAliasCleanup,
-                                holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
-                                useDecontamination: useDecontamination,
-                                decontaminationRadius: decontaminationRadius));
-                        task.Wait();
+                        ProcessPixelsArray(pixels, texW, texH,
+                            maskSnap, sorted, edgeFeather, antiAliasCleanup,
+                            holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
+                            useDecontamination: useDecontamination,
+                            decontaminationRadius: decontaminationRadius);
                     }
 
                     fullTex.SetPixels32(pixels);

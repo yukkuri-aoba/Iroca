@@ -92,6 +92,14 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
+        /// このゾーンのディープコピーを返します。JsonUtility を使用するため、
+        /// フィールドを追加しても手動更新不要で自動的にコピーされます。
+        /// [NonSerialized] のキャッシュフィールドはコピーされません（意図通り）。
+        /// </summary>
+        public ColorZone Clone() =>
+            JsonUtility.FromJson<ColorZone>(JsonUtility.ToJson(this));
+
+        /// <summary>
         /// セッション開始時などに明示的にキャッシュを更新する場合に呼び出します。
         /// 呼ばれない場合は各ピクセルの評価時に暗黙的に更新されます。
         /// </summary>
