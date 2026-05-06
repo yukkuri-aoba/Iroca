@@ -11,7 +11,7 @@
 ```
 Code/
 ├── VACCWindow.cs              (EditorWindow 本体 — 薄いホスト)
-├── VACCConsts.cs              (MenuPath / WindowTitle / Layout 定数 / IndentScope)
+├── VACCConsts.cs              (MenuPath / Layout 定数)
 ├── VACCColors.cs              (Light/Dark Skin 対応色定数)
 ├── UI/
 │   ├── MaskPaintView.cs       (DrawMaskSection + ペイント入力)
@@ -22,7 +22,7 @@ Code/
 ├── Core/
 │   ├── VACCSessionState.cs    ([Serializable] 編集状態コンテナ — 既存のハードコード初期値を集約)
 │   ├── ColorZoneDrawer.cs     (CustomPropertyDrawer<ColorZone>)
-│   ├── MaskState.cs           (RLE永続表現 + ZoneMaskEntry)
+│   ├── MaskState.cs           (RLE永続表現 + MaskZoneEntry)
 │   ├── PixelProcessor.cs      (静的処理メソッド群 — Editor 非依存・テスト可能)
 │   ├── PreviewJob.cs          (PreviewJob<T> 非同期ヘルパー)
 │   └── TextureSlot.cs         (Texture2D ライフサイクル管理)
@@ -33,6 +33,7 @@ Code/
 ```
 
 > 注記: 本書ではリポジトリ上の説明を簡潔にするため `Code/` 表記を使うが、実際の Unity プロジェクト配置は `Assets/VACC/Editor/` 配下を想定する。`Code/UI/...` は実配置では `Assets/VACC/Editor/UI/...` に対応する。
+> 注記: この計画は **Assets/VACC/Editor へのインプロジェクト配置** を前提とする。VPM / Packages 配置との完全両立は今回のリファクタ対象外とし、必要なら別タスクで扱う。
 
 ### 設定ファイルとマスクの保存場所
 
@@ -44,9 +45,9 @@ Code/
 
 **初期値の扱い**: 新しい ScriptableObject アセットは作成しない。現行 `VACCWindow.cs` にある `[SerializeField]` の初期化子（例: `edgeFeather = 0f`, `antiAliasCleanup = 3`, `useDecontamination = true`, `decontaminationRadius = 4`, `holeFillPasses = 5`, `holeFillMinNeighbors = 4`, `relaxedSatMin = 0.02f`, `relaxedSatRamp = 0.08f`）を `VACCSessionState.CreateDefault()` に 1:1 で移管し、プリセット未読込時の唯一の基準値とする。再現性はプリセット保存・読込で担保する。
 
-**マスクのデータ構造を再設計**: `bool[] + Dictionary<string, bool[]>` → `MaskState`（RLE エンコード文字列 + `List<ZoneMaskEntry>`）に変更。これにより Unity の SerializedObject でシリアライズ可能になり、`[SerializeField]` で持つことで Unity 標準 Undo に乗る。`bool[]` は実行時バッファ（`[NonSerialized]`）として保持し、ペイント時のみ更新→ストローク終了時に RLE 文字列へ encode。独自 Ctrl+Z / `_undoMaskHistory` は撤去。
+**マスクのデータ構造を再設計**: `bool[] + Dictionary<string, bool[]>` → `MaskState`（RLE エンコード文字列 + `List<MaskZoneEntry>`）に変更。これにより Unity の SerializedObject でシリアライズ可能になり、`[SerializeField]` で持つことで Unity 標準 Undo に乗る。`bool[]` は実行時バッファ（`[NonSerialized]`）として保持し、ペイント時のみ更新→ストローク終了時に RLE 文字列へ encode。独自 Ctrl+Z / `_undoMaskHistory` は撤去。
 
-**プリセット内マスクはフルレスで保存**: 解像度を落とすとペイント境界の精度が失われるため、プリセット JSON への同梱時もフルレスのまま RLE エンコードして保存する（`presetIncludeMasks` オプトイン）。RLE の特性上、典型的な使用（疎な除外領域）では 4096² テクスチャでも数KB〜数十KB に収まる。MaskCache にも同じフルレスマスクが保持される。
+**プリセット内マスクはフルレスで保存**: 解像度を落とすとペイント境界の精度が失われるため、プリセット JSON への同梱時もフルレスのまま RLE エンコードして保存する（`presetIncludeMasks` オプトイン）。RLE の特性上、典型的な使用（疎な除外領域）では 4096² テクスチャでも数KB〜数十KB に収まる。MaskCache にも同じフルレスマスクが保持される。現時点では**再現性優先のため `presetIncludeMasks` の既定値は ON のまま**とし、git 差分コストが問題化した時点で既定値変更を検討する。
 
 ### asmdef について
 
@@ -83,7 +84,7 @@ Assets/
 | `UI/ExportView.cs` | 単体/一括出力 UI、PNG 書き出し、必要最小限の AssetDatabase 連携 | プレビュー生成、プリセット管理、マスク編集 |
 | `UI/PresetsView.cs` | プリセット一覧 UI、保存/読込/JSON 入出力、`PresetStore` 呼び出し | マスク描画入力、プレビュー生成、エクスポート |
 | `Core/VACCSessionState.cs` | ゾーン、処理パラメータ、`MaskState` をまとめた**編集状態の永続表現** | GUI、ファイル I/O、`AssetDatabase`、一時 Texture、非同期処理 |
-| `Core/MaskState.cs` | マスク永続表現 (`commonEncoded`, `ZoneMaskEntry`) のデータ定義 | ブラシ処理、ファイル保存、Texture 操作 |
+| `Core/MaskState.cs` | マスク永続表現 (`commonMaskBase64`, `MaskZoneEntry`) のデータ定義 | ブラシ処理、ファイル保存、Texture 操作 |
 | `Core/ColorZoneDrawer.cs` | `ColorZone` 1件分の描画 | ゾーン追加/削除、アクティブマスク切替、プリセット保存、リスト全体制御 |
 | `Core/PixelProcessor.cs` | 再着色アルゴリズム、ダウンサンプル、フラッドフィル等の純粋処理 | `EditorWindow`, `AssetDatabase`, GUI, ファイル I/O |
 | `Core/PreviewJob.cs` | 非同期ジョブの世代管理・キャンセル制御 | UI レイアウト、個別アルゴリズム、ファイル保存 |
@@ -130,6 +131,7 @@ Assets/
 - 各 View/Store は可能な限り **必要最小限の依存だけ** をコンストラクタまたは初期化メソッドで受け取る。`VACCWindow` 全体を丸ごと渡して責務を曖昧にしない。
 - `previewDirty` / `maskDirty` のような無効化通知は、他コンポーネントから直接フィールドを書き換えるのではなく、ホストまたは所有 View のメソッド経由で通知する。
 - フェーズ途中でも、コンパイルが通る中間状態を保つ。特に Phase 4 は「新 View 作成 → 呼び出し切替 → 旧 partial 削除」の順で進める。
+- 新しい serialized field や `ColorZoneDrawer` / `VACCSessionState` に移す既存フィールドは、**既存ツールチップを維持**する。`SerializedProperty` 化で GUIContent 手書きをやめる箇所は `[Tooltip]` 属性を追加する。
 
 ---
 
@@ -137,12 +139,48 @@ Assets/
 
 | Phase | 対象項目 | 難度 | 推定コミット数 |
 |-------|---------|------|--------------|
+| 0 | 回帰ベースライン固定 | 低 | ~2 |
 | 1 | 3, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20 | 低 | ~12 |
 | 2 | 8 | 中 | ~5 |
 | 3 | 6(partial), 11 | 中 | ~5 |
-| 4 | 1, 2, 6(全体) + マスクのデータ構造再設計 | 高 | ~14 |
+| 4a | 状態構造再設計（`VACCSessionState` + `MaskState`） | 高 | ~6 |
+| 4b | View 分離（partial 廃止） | 中 | ~6 |
+| 4c | Undo 統合と独自 Ctrl+Z 撤去 | 中 | ~4 |
 | 5 | 7 | 中 | ~4 |
 | 6 | 4, 5 | 中 | ~4 |
+
+---
+
+## Phase 0 — 回帰ベースライン固定
+
+リファクタ開始前に、既存の `dev_safe/Tests/` と `AlgorithmCore.cs` ミラーを **安全網としてのみ** 利用し、現在のアルゴリズム出力を固定する。テスト再設計は後で行ってよいが、Phase 中の回帰検知は残す。
+
+### 0-1. ベースラインの仕様
+
+| 項目 | 内容 |
+|------|------|
+| 保存先 | `dev_safe/Tests/Baselines/refactor-pre/` |
+| 内容 | (a) 既存 `GroundTruthIoUTests` 等の全テスト出力ログ（IoU 数値・ケース名）／(b) 代表 1〜2 ケースの再着色後 PNG（差分目視用） |
+| 形式 | (a) は plain text のテストランナー出力（`dotnet test ... > baseline.log` でリダイレクト）／(b) は既存テスト内で書き出している PNG をコピー |
+| 比較方法 | (a) は新ログとの diff で IoU 数値の完全一致または許容差（±0.001）以内を確認／(b) は目視 |
+
+**ベースラインは Phase 0 のコミットに含めて固定する**。途中で再生成しない（再生成すると比較対象が動いてしまうため）。
+
+### 0-2. 比較を実施するタイミング
+
+| タイミング | 比較対象 | 必須/任意 |
+|-----------|---------|----------|
+| Phase 3 完了時 | (a) | 必須 |
+| Phase 4a 完了時 | (a) | 必須 |
+| Phase 4b 完了時 | (a) | 必須 |
+| Phase 4c 完了時 | (a) | 必須 |
+| Phase 5 完了時 | (a) | 必須 |
+| **Phase 6 完了時** | **(a) + (b)** | **必須（最終比較）** |
+| 上記以外（Phase 1, 2 等） | — | 任意（アルゴリズム非変更フェーズなので） |
+
+ベースラインと乖離が出た場合は、構造変更ではなくロジック変更が入っていないかを優先確認する。
+
+コミット: `test(refactor): 既存AlgorithmCoreベースラインを凍結`
 
 ---
 
@@ -168,7 +206,13 @@ if (relativePath != null)
 try
 {
     AssetDatabase.StartAssetEditing();
-    foreach (var tex in batchTextures) { /* ... */ }
+    foreach (var tex in batchTextures)
+    {
+        /* PNGを書き出す */
+        string relativePath = ToAssetsRelative(outputPath);
+        if (relativePath != null)
+            AssetDatabase.ImportAsset(relativePath);
+    }
 }
 finally
 {
@@ -186,19 +230,27 @@ finally
 public static class Localization
 {
     private const string PrefsKey = "VACC.Language";
-    private static LanguageMode? _cached;
+    public static LanguageMode CurrentLanguage;
 
-    public static LanguageMode CurrentLanguage
+    static Localization()
     {
-        get => _cached ??= (LanguageMode)EditorPrefs.GetInt(PrefsKey, (int)LanguageMode.Auto);
-        set
-        {
-            _cached = value;
-            EditorPrefs.SetInt(PrefsKey, (int)value);
-        }
+        CurrentLanguage = (LanguageMode)EditorPrefs.GetInt(PrefsKey, (int)LanguageMode.Auto);
     }
+
+    public static void SaveLanguagePreference()
+        => EditorPrefs.SetInt(PrefsKey, (int)CurrentLanguage);
 }
 ```
+
+`CurrentLanguage` は **public static field のまま維持**し、外部スクリプトからのソース互換・バイナリ互換を壊さない。ヘッダー UI 側で値変更後に `SaveLanguagePreference()` を呼ぶ。
+
+**Save 呼び忘れチェック**: 代入だけでは永続化されないため、実装後に必ず以下を確認する:
+
+```
+grep -n "Localization.CurrentLanguage\s*=" Code/
+```
+
+ヒットしたすべての行の直後で `Localization.SaveLanguagePreference()` が呼ばれていることを目視確認する。代入箇所が 1 箇所に限られない場合は、`SetCurrentLanguage(LanguageMode)` ヘルパーに集約することも検討する。
 
 コミット: `fix(ui): 言語設定をEditorPrefsに永続化し再起動後も維持`
 
@@ -219,6 +271,11 @@ internal static class VACCColors
             ? new Color(1f, 0.55f, 0.55f)
             : new Color(0.85f, 0.30f, 0.30f);
 
+    public static Color IncludeButton =>
+        EditorGUIUtility.isProSkin
+            ? new Color(0.55f, 1f, 0.55f)
+            : new Color(0.30f, 0.75f, 0.30f);
+
     // ブラシカーソルは Exclude/Include の意味区別を保つため 2 定数に分離する
     public static Color BrushCursorExclude => new Color(1f, 0f, 0f, 0.5f); // 赤
     public static Color BrushCursorInclude => new Color(0f, 1f, 0f, 0.5f); // 緑
@@ -232,22 +289,46 @@ internal static class VACCColors
 
 コミット: `refactor(ui): ハードコード色をVACCColorsに集約しLight/DarkSkin対応`
 
-### 1-4. 項目12: `EnableReadWrite` に `Undo.RecordObject` を追加
+### 1-4. 項目12: `EnableReadWrite` は Undo 対応とせず明示確認を追加
 
 対象: `Code/VACCWindow.cs:494-504`
 
 ```csharp
-Undo.RecordObject(importer, "Enable Read/Write");
-importer.isReadable = true;
-importer.SaveAndReimport();
+if (EditorUtility.DisplayDialog(
+        Localization.Confirm,
+        Localization.EnableReadWriteConfirm,
+        Localization.OK,
+        Localization.Cancel))
+{
+    importer.isReadable = true;
+    importer.SaveAndReimport();
+}
 ```
 
-コミット: `fix(ui): ReadWrite有効化をUndoスタックに登録`
+`TextureImporter.SaveAndReimport()` はディスク上の import 設定を書き換えるため、`Undo.RecordObject(importer)` だけで「Undo 対応」と謳うのは不正確。ここでは **Undo 不可の明示確認アクション** として扱う。
+
+コミット: `fix(ui): ReadWrite有効化前に確認ダイアログを追加`
 
 ### 1-5. 項目13: 例外握り潰しを修正
 
-- `Code/VACCWindow.cs` の `catch { }` → `catch (ObjectDisposedException) { }`
+- `Code/VACCWindow.cs` の `catch { }` は、**想定済み例外だけを個別に扱い、それ以外はログに出す** 形へ変更する
 - `Code/VACCWindow.Mask.cs` のデコード失敗 catch に `Debug.LogWarning($"[VACC] Mask decode failed: {ex.Message}")` を追加
+
+例:
+
+```csharp
+catch (ObjectDisposedException)
+{
+}
+catch (InvalidOperationException ex)
+{
+    Debug.LogWarning($"[VACC] Ignored UI teardown exception: {ex.Message}");
+}
+catch (Exception ex)
+{
+    Debug.LogException(ex);
+}
+```
 
 コミット: `fix: 例外の握り潰しを修正しデバッグログを追加`
 
@@ -274,6 +355,8 @@ private static string ProjectPresetFolder
 ```csharp
 [MenuItem("Tools/yukkuri-aoba/VRC AvatarColorChanger", priority = 100)]
 ```
+
+`priority = 100` は、`Tools` 配下の他ツールより極端に上にも下にも寄せず、同作者配下の将来項目を前に差し込める余地を残すための値とする。
 
 あわせて `titleContent` にアイコンを設定:
 
@@ -310,7 +393,6 @@ public ColorZone Clone() => (ColorZone)MemberwiseClone();
 internal static class VACCConsts
 {
     public const string MenuPath    = "Tools/yukkuri-aoba/VRC AvatarColorChanger";
-    public const string WindowTitle = "VRC AvatarColorChanger";
 
     public static class Layout
     {
@@ -324,30 +406,22 @@ internal static class VACCConsts
 }
 ```
 
-`VACCWindow.cs` 内の散在するリテラルと `Localization.WindowTitle` の重複定義を置換。
+`VACCWindow.cs` 内の散在するリテラルを置換する。**表示文字列の正は `Localization` に残し、`WindowTitle` は `VACCConsts` に重複定義しない。**
 
 コミット: `refactor(ui): マジックナンバーとMenuPath/WindowTitleをVACCConstsに集約`
 
-### 1-10. 項目18: `EditorGUI.indentLevel` → `IndentScope` struct
+### 1-10. 項目18: `EditorGUI.indentLevel` → `EditorGUI.IndentLevelScope`
 
-`Code/VACCConsts.cs`（または同ファイル）に追加:
+Unity 標準の `EditorGUI.IndentLevelScope` を使う:
 
 ```csharp
-internal struct IndentScope : System.IDisposable
-{
-    private readonly int _delta;
-    public IndentScope(int delta = 1) { _delta = delta; EditorGUI.indentLevel += delta; }
-    public void Dispose() { EditorGUI.indentLevel -= _delta; }
-}
-
-// 使い方
-using (new IndentScope())
+using (new EditorGUI.IndentLevelScope())
 {
     holeFillPasses = EditorGUILayout.IntSlider(...);
 }
 ```
 
-コミット: `refactor(ui): indentLevelの手動管理をIndentScopeに置換`
+コミット: `refactor(ui): indentLevelの手動管理をEditorGUI.IndentLevelScopeに置換`
 
 ### 1-11. 項目19: `BeginChangeCheck` の運用整理
 
@@ -372,23 +446,25 @@ internal static class TextureSlot
                                FilterMode filter = FilterMode.Bilinear)
     {
         if (tex != null && tex.width == w && tex.height == h) return;
-        ScheduleDestroy(tex);
+        DestroyNow(ref tex);
         tex = new Texture2D(w, h, TextureFormat.RGBA32, false) { filterMode = filter };
     }
 
     public static void Release(ref Texture2D tex)
     {
-        ScheduleDestroy(tex);
-        tex = null;
+        DestroyNow(ref tex);
     }
 
-    private static void ScheduleDestroy(Texture2D t)
+    private static void DestroyNow(ref Texture2D t)
     {
         if (t == null) return;
-        EditorApplication.delayCall += () => { if (t != null) Object.DestroyImmediate(t); };
+        Object.DestroyImmediate(t);
+        t = null;
     }
 }
 ```
+
+`TextureSlot` は **メインスレッドからのみ** 呼ぶ前提とし、遅延破棄は使わない。理由がない `delayCall` はリーク追跡と制御フローを複雑にする。
 
 ### 2-2〜2-5. 各ファイルのテクスチャ管理を `TextureSlot` に置換
 
@@ -421,14 +497,29 @@ internal static class TextureSlot
 ### 3-2. `Code/Core/PreviewJob.cs` を新規作成
 
 ```csharp
-internal sealed class PreviewJob<T>
+internal sealed class PreviewJob<T> : IDisposable
 {
+    private static readonly ConcurrentQueue<Action> MainThreadQueue = new();
     private CancellationTokenSource _cts;
     private int _generation;
 
-    public void Schedule(Func<CancellationToken, T> work, Action<T> apply)
+    [InitializeOnLoadMethod]
+    private static void InstallMainThreadPump()
+    {
+        EditorApplication.update -= DrainMainThreadQueue;
+        EditorApplication.update += DrainMainThreadQueue;
+    }
+
+    private static void DrainMainThreadQueue()
+    {
+        while (MainThreadQueue.TryDequeue(out var action))
+            action();
+    }
+
+    public void Schedule(Func<CancellationToken, T> work, Action<T> apply, Action<Exception> onError = null)
     {
         _cts?.Cancel();
+        _cts?.Dispose();
         _cts = new CancellationTokenSource();
         var token = _cts.Token;
         int myGen = ++_generation;
@@ -438,18 +529,31 @@ internal sealed class PreviewJob<T>
             {
                 var result = work(token);
                 token.ThrowIfCancellationRequested();
-                EditorApplication.delayCall += () =>
+                MainThreadQueue.Enqueue(() =>
                 {
                     if (myGen == _generation) apply(result);
-                };
+                });
             }
             catch (OperationCanceledException) { }
-        });
+            catch (Exception ex)
+            {
+                MainThreadQueue.Enqueue(() => onError?.Invoke(ex));
+            }
+        }, token);
     }
 
     public void Cancel() => _cts?.Cancel();
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = null;
+    }
 }
 ```
+
+`EditorApplication.delayCall` をバックグラウンドスレッドから直接触らない。メインスレッド復帰は `EditorApplication.update` で捌くキューを介し、キャンセル以外の例外はログへ流す。
 
 コミット: `refactor(ui): PreviewJobヘルパーを追加`
 
@@ -466,10 +570,18 @@ internal sealed class PreviewJob<T>
 
 ---
 
-## Phase 4 — `VACCSessionState` 化 + Undo 統合（項目 1 / 2 / 6 全体）
+## Phase 4 — `VACCSessionState` 化と View 分離、Undo 統合（項目 1 / 2 / 6 全体）
 
 最大規模フェーズ。**partial class を完全廃止**し UI / Core / Infra 構造に移行する。  
 あわせて **マスクのデータ構造を再設計** し、Unity 標準 Undo に統合する（ゾーン設定 + 処理パラメータ + マスクすべてが Ctrl+Z / Ctrl+Y で戻る/進むようになる）。初期値は新規アセットではなく、現行 `VACCWindow` にハードコードされている既定値から移管する。
+
+**実装順序は 4a / 4b / 4c に分割する。**
+
+- **4a**: `VACCSessionState` と `MaskState` の導入、既存 partial を維持したまま状態の持ち主だけ移す
+- **4b**: View クラス分離。状態構造を固定したまま `VACCWindow` を薄いホストへ縮退させる
+- **4c**: Unity Undo 統合と独自 Ctrl+Z 撤去
+
+1 回のコミットでこの 3 つを同時に進めない。各サブフェーズごとにコンパイル・手動確認・回帰チェックを行う。
 
 ### マスクのデータ構造再設計
 
@@ -481,10 +593,10 @@ internal sealed class PreviewJob<T>
 namespace VRCAvatarColorChanger
 {
     [System.Serializable]
-    public class ZoneMaskEntry
+    public class MaskZoneEntry
     {
         public string zoneId;
-        public string encodedMask; // EncodeMask 結果（RLE + Base64）
+        public string maskBase64; // EncodeMask 結果（RLE + Base64）
     }
 
     [System.Serializable]
@@ -492,11 +604,13 @@ namespace VRCAvatarColorChanger
     {
         public int width;
         public int height;
-        public string commonEncoded;                // 共通マスク（空文字 = 未設定）
-        public List<ZoneMaskEntry> zones = new();   // ゾーン別マスク
+        public string commonMaskBase64;                // 共通マスク（空文字 = 未設定）
+        public List<MaskZoneEntry> zones = new();     // ゾーン別マスク
     }
 }
 ```
+
+`VACCPresetData` 側の既存 JSON 互換を壊さないため、**フィールド名は `maskBase64` / `commonMaskBase64` に揃える**。新規の内部型名は `MaskZoneEntry` とし、既存 `VACCPresetData.ZoneMaskEntry` との型名衝突を避ける。
 
 `VACCWindow` 側のフィールドを以下のように再構成する:
 
@@ -566,7 +680,11 @@ public class ColorZoneDrawer : PropertyDrawer
 - ゾーンマスク編集ボタン（`activeMaskTarget` と連動するためゾーン単独の描画では完結しない）
 - `advancedMode` 連動の表示分岐の一部
 
+`ColorZone` の `[NonSerialized]` キャッシュは、既存通り `UpdateCacheIfNeeded()` / `GetMatchScores()` から再計算される前提を維持する。`ColorZoneDrawer` はキャッシュフィールドを直接触らず、プレビュー・処理側が **必ず既存 API を通って評価** することを前提とする。
+
 最終的に `DrawZoneList` は **40〜50 行程度** に縮退する見込み。
+
+> **レイアウト記法の注意**: `PropertyDrawer.OnGUI` は `Rect` ベースが基本で、`GetPropertyHeight` の上書きと併せて書く。既存の `EditorGUILayout.*` ベタ書きから移行する際、ホスト側（`DrawZoneList`）の行数は減るが、**`ColorZoneDrawer` 自体の総コードはむしろ増える**ことが多い。各フィールドの Rect 計算と `[Range]` 属性に対応した `EditorGUI.PropertyField` への置き換えで、見積もりより重い作業になりうる点に注意。`OnGUI` 内で `EditorGUILayout` を使う書き方も可能だが、Unity 公式は `Rect` ベース推奨。
 
 コミット: `refactor(ui): ColorZoneDrawerを実装しDrawZoneListを簡略化`
 
@@ -625,7 +743,7 @@ private void OnEnable()
 
 ### 4-6. Undo 統合（項目 2 — `VACCSessionState` + マスク）
 
-EditorWindow が保持する `_session`（ゾーン設定 + 処理パラメータ + `MaskState`）全体を Unity 標準 Undo に統合する。
+EditorWindow が保持する `_session`（ゾーン設定 + 処理パラメータ + `MaskState`）全体を Unity 標準 Undo に統合する。初期実装では `Undo.RegisterCompleteObjectUndo(this, ...)` を使うが、**100 ストローク程度の Undo メモリ消費を検証し、過大な場合はマスク専用 Undo ターゲットの分離を検討する**。
 
 ```csharp
 private void OnEnable()
@@ -665,13 +783,15 @@ private void EndMaskStroke()
 {
     if (!_maskStrokeStarted) return;
     // ストローク終了時に bool[] バッファを RLE 文字列に encode して _session.maskState に書き戻す
+    // (Undo は BeginMaskStroke の RegisterCompleteObjectUndo で既に登録済み)
     SyncMaskBuffersToState();
-    EditorUtility.SetDirty(this);
     _maskStrokeStarted = false;
 }
 ```
 
 **ゾーン削除時のマスク連動**: ゾーンが削除されたら `_session.maskState.zones` の対応エントリも削除する。`_session` は EditorWindow の単一所有状態なので、ゾーンリストとマスク状態は同じ Undo ステップで記録できる。
+
+> **`EditorUtility.SetDirty(this)` を呼ばない**: `EditorWindow` はディスクアセットを持たないため `SetDirty` の保存先がなく、Unity Undo に乗せる目的としては `Undo.RegisterCompleteObjectUndo` だけで十分。誤解を招くので呼び出さない。
 
 **まとめ**:
 - `SerializedObject.ApplyModifiedProperties()` 戻り値で `previewDirty` を 1 箇所判定（項目 19 完全解消）
@@ -684,6 +804,7 @@ private void EndMaskStroke()
 - Ctrl+Z / Ctrl+Y でゾーン設定（追加・削除・色・閾値等）が正しく戻る / 進むことを確認
 - Ctrl+Z / Ctrl+Y でマスクペイント1ストロークが正しく戻る / 進むことを確認（プレビュー領域の内外を問わず動作）
 - ゾーン追加→マスクペイント→ゾーン削除のような混在操作で Undo の順序・対応関係が破綻しないことを確認
+- **Ctrl+Z 連打テスト**: 「ゾーン色変更 A → ペイント 1 ストローク B → ゾーン色変更 C」を順に行ったあと、Ctrl+Z を 3 回連打して `C → B → A` の順で 1 ステップずつ巻き戻ることを確認する（`RegisterCompleteObjectUndo` と `ApplyModifiedProperties()` の二経路が同じ Undo スタックに 1 ステップずつ正しく積まれていることの検証）
 - プリセット保存・読み込みが正常に動作することを確認（マスクが `MaskState` 構造に変わってもプリセット側のフォーマット互換が保たれること。必要なら Phase 6-2 のマイグレーションと統合）
 - `dev_safe/Tests/` のテストは本リファクタ後に再設計予定のため、Phase 4 は UI 動作の手動検証で確認
 
@@ -698,12 +819,16 @@ private void EndMaskStroke()
 現状は `maskWidth × maskHeight`（最大4096²）→ プレビュー表示サイズ（≤512²）に変更。  
 4096テクスチャで **64倍** 軽量化。
 
+ただし **詳細プレビュー用オーバーレイは別扱い** とし、`DetailPreviewView` では低解像度オーバーレイを使い回さない。拡大表示時のジャギーや滲みを防ぐため、詳細表示領域に対応する別オーバーレイを持つ。
+
 コミット: `perf(mask): マスクオーバーレイ解像度をプレビュー表示サイズに最適化`
 
 ### 5-2. マスクオーバーレイ生成をバックグラウンドへ
 
 `PreviewJob<T>` を使い、ペイント後の `RebuildMaskOverlay` をバックグラウンドで実行。  
 `SetPixels32 + Apply` のみメインスレッドで呼ぶ。
+
+バックグラウンドへ渡すのは **`bool[]` バッファのスナップショット** とし、メインスレッドが編集中の配列をそのまま読ませない。データレースを避けるため、ジョブ開始時点で `Array.Copy` した内容だけをワーカーに渡す。
 
 コミット: `perf(mask): RebuildMaskOverlayをバックグラウンドスレッドに移行`
 
@@ -746,18 +871,22 @@ internal static class MaskFileStore
     private static string MaskFilePath(string texturePath)
     {
         var guid = AssetDatabase.AssetPathToGUID(texturePath);
+        if (string.IsNullOrEmpty(guid)) return null;
         return Path.Combine(CacheDir, $"{guid}.vacc-mask.json");
     }
 
     public static void SaveMask(string texturePath, MaskState state)
     {
+        var path = MaskFilePath(texturePath);
+        if (string.IsNullOrEmpty(path)) return;
         Directory.CreateDirectory(CacheDir);
-        File.WriteAllText(MaskFilePath(texturePath), JsonUtility.ToJson(state));
+        File.WriteAllText(path, JsonUtility.ToJson(state));
     }
 
     public static MaskState LoadMask(string texturePath)
     {
         var path = MaskFilePath(texturePath);
+        if (string.IsNullOrEmpty(path)) return null;
         if (!File.Exists(path)) return null;
         try { return JsonUtility.FromJson<MaskState>(File.ReadAllText(path)); }
         catch (Exception ex)
@@ -770,12 +899,22 @@ internal static class MaskFileStore
     public static void DeleteMask(string texturePath)
     {
         var path = MaskFilePath(texturePath);
+        if (string.IsNullOrEmpty(path)) return;
+        if (File.Exists(path)) File.Delete(path);
+    }
+
+    public static void DeleteMaskByGuid(string guid)
+    {
+        if (string.IsNullOrEmpty(guid)) return;
+        var path = Path.Combine(CacheDir, $"{guid}.vacc-mask.json");
         if (File.Exists(path)) File.Delete(path);
     }
 }
 ```
 
-`MaskState` は Phase 4 で導入した RLE エンコード文字列を保持する `[Serializable]` クラス（`commonEncoded` + `List<ZoneMaskEntry>`）。`JsonUtility` でそのままシリアライズできる。
+`AssetPathToGUID` が空文字を返す対象については保存をスキップし、`<empty>.vacc-mask.json` の衝突を作らない。
+
+`MaskState` は Phase 4 で導入した RLE エンコード文字列を保持する `[Serializable]` クラス（`commonMaskBase64` + `List<MaskZoneEntry>`）。`JsonUtility` でそのままシリアライズできる。
 
 > **Phase 4 と Phase 6 の関係**: Phase 4 で **データ構造**（`bool[] + Dictionary` → `MaskState` + RLE 文字列）を再設計し、`MaskState` を `[SerializeField]` にすることで Unity Undo に乗せる。Phase 6 ではその `MaskState` の **永続化先**（SessionState → UserSettings 配下のファイル）を切り替える。Phase 4 完了時点ではマスクは Unity Undo に乗っているが、Editor 再起動するとまだ消える状態（SessionState のため）。Phase 6 完了で再起動後も保持されるようになる。
 
@@ -797,20 +936,21 @@ internal static class MaskFileStore
 
 ### 6-3. `Code/Infra/VACCAssetWatcher.cs` を新規作成
 
-テクスチャ削除時のゴミファイルクリーンアップのみ担当（rename/move は GUID ベースのため不要）:
+テクスチャ削除時のゴミファイルクリーンアップのみ担当（rename/move は GUID ベースのため不要）。**削除前フックで GUID を確定し、加えて起動時の orphan 掃除を行う**:
 
 ```csharp
-internal class VACCAssetWatcher : AssetPostprocessor
+internal class VACCAssetWatcher : AssetModificationProcessor
 {
-    static void OnPostprocessAllAssets(
-        string[] imported, string[] deleted,
-        string[] movedTo, string[] movedFromPath)
+    static AssetDeleteResult OnWillDeleteAsset(string assetPath, RemoveAssetOptions options)
     {
-        foreach (var d in deleted)
-            MaskFileStore.DeleteMask(d);
+        string guid = AssetDatabase.AssetPathToGUID(assetPath);
+        MaskFileStore.DeleteMaskByGuid(guid);
+        return AssetDeleteResult.DidNotDelete;
     }
 }
 ```
+
+加えて `MaskFileStore.CleanupOrphans()` を用意し、Editor 起動時または `VACCWindow.OnEnable()` の初回で `MaskCache` を走査して、`GUIDToAssetPath(guid)` が空のファイルを削除する。Unity バージョンやセッション状態による GUID 解決挙動の差に依存しない二段構えにする。
 
 コミット: `feat(infra): VACCAssetWatcherでテクスチャ削除時のマスクファイル自動削除を実装`
 
@@ -850,7 +990,7 @@ Phase 4 での `UI/PresetsView.cs` 移管時に `Infra/PresetStore.cs` に分離
 | `Code/Core/PreviewJob.cs` | 3 |
 | `Code/Core/VACCSessionState.cs` | 4 |
 | `Code/Core/ColorZoneDrawer.cs` | 4 |
-| `Code/Core/MaskState.cs` | 4（`MaskState` + `ZoneMaskEntry` の `[Serializable]` 定義） |
+| `Code/Core/MaskState.cs` | 4（`MaskState` + `MaskZoneEntry` の `[Serializable]` 定義） |
 | `Code/UI/MaskPaintView.cs` | 4 |
 | `Code/UI/PreviewView.cs` | 4 |
 | `Code/UI/DetailPreviewView.cs` | 4 |
@@ -872,7 +1012,7 @@ Phase 4 での `UI/PresetsView.cs` 移管時に `Infra/PresetStore.cs` に分離
 
 ## ブランチ・コミット戦略
 
-- **ブランチ**: Phase 1〜6 を通じて `feature/refactor-all` で行う
+- **ブランチ**: Phase 0〜6 を通じて `feature/refactor-all` で行う
 - **コミット形式**: Conventional Commits（`refactor(ui):`, `perf(mask):` 等）
 - **粒度**: 1 コミット = 1 論理変更（1-1〜1-11 は各々独立コミット）
 - **テスト**: `dev_safe/Tests/` は本リファクタ後に別途再設計する前提のため、各フェーズの検証は Unity 上での手動動作確認で代替する
@@ -887,7 +1027,7 @@ Phase 4 での `UI/PresetsView.cs` 移管時に `Infra/PresetStore.cs` に分離
 | 初期値の定義場所 | コード内。現行 `VACCWindow` の `[SerializeField]` 初期化子を `Code/Core/VACCSessionState.cs` に移管 |
 | 初期値の編集方針 | ユーザー編集不可。プリセット未読込時の基準値としてのみ使い、再現性はプリセットで確保 |
 | マスクの保存先 | `<Project>/UserSettings/VACC/MaskCache/<GUID>.vacc-mask.json`（git 非追跡） |
-| マスクのデータ構造 | Phase 4 で再設計: `bool[] + Dictionary` → `MaskState`（RLE 文字列 + `List<ZoneMaskEntry>`）。`bool[]` は実行時バッファとして残す |
+| マスクのデータ構造 | Phase 4 で再設計: `bool[] + Dictionary` → `MaskState`（RLE 文字列 + `List<MaskZoneEntry>`）。`bool[]` は実行時バッファとして残す |
 | Unity Undo 統合範囲 | `VACCSessionState`（ゾーン + 処理パラメータ + `MaskState`）全体。独自 `_undoMaskHistory` / 独自 Ctrl+Z は撤去 |
 | rename/move 追従 | GUID ベースのため自動追従（AssetPostprocessor は delete 時のみ） |
 | asmdef | 既存の `com.yukkuri-aoba.vrc-avatar-color-changer.Editor.asmdef` を継続使用 |
