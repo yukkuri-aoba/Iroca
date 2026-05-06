@@ -593,7 +593,7 @@ namespace VRCAvatarColorChanger
                 // Capture all Unity-dependent data on the main thread before handing off.
                 srcPixels = sourceTexture.GetPixels32();
                 rawDisplay = scale < 1f
-                    ? BoxDownsample(srcPixels, srcW, srcH, prevW, prevH, scale)
+                    ? PixelProcessor.BoxDownsample(srcPixels, srcW, srcH, prevW, prevH, scale)
                     : srcPixels;
 
                 _cachedSourceTexture = sourceTexture;
@@ -632,7 +632,7 @@ namespace VRCAvatarColorChanger
                     // すべての重い計算はバックグラウンドスレッドで実行されます。
                     // ここでは Unity Object API は呼ばれない — 純粋な C# 計算のみ。
                     Color32[] pixels = (Color32[])srcPixelsForTask.Clone();
-                    ProcessPixelsArray(pixels, srcW, srcH, maskSnap, zonesSnapshot, feather, aaCleanup,
+                    PixelProcessor.ProcessPixelsArray(pixels, srcW, srcH, maskSnap, zonesSnapshot, feather, aaCleanup,
                         hfPasses, hfMinNeighbors, rSatMin, rSatRamp,
                         0, 0, 0, 0, token,
                         useDecontam, decontamRadius);
@@ -647,7 +647,7 @@ namespace VRCAvatarColorChanger
                         return;
 
                     Color32[] processedDisplay = scale < 1f
-                        ? BoxDownsample(pixels, srcW, srcH, prevW, prevH, scale)
+                        ? PixelProcessor.BoxDownsample(pixels, srcW, srcH, prevW, prevH, scale)
                         : pixels;
 
                     _pendingRawDisplay       = rawDisplayForTask;
@@ -738,38 +738,5 @@ namespace VRCAvatarColorChanger
         // フィールド追加時にこのメソッドを更新する必要はなくなった。
         private static ColorZone CloneZone(ColorZone z) => z.Clone();
 
-        private static Color32[] BoxDownsample(Color32[] src, int srcW, int srcH,
-            int dstW, int dstH, float scale)
-        {
-            Color32[] dst = new Color32[dstW * dstH];
-            // 合計値が int の範囲を超えないように long を使用。
-            // 例: 8192x8192 の画像を 512x512 に縮小すると 1 ピクセル当たり 256 サンプル以上、
-            // 合計が byte(255) * 256 = 65280 を超え、バッチサイズ次第では int でも桁数が
-            // 増えるため安全側に倒す。
-            for (int y = 0; y < dstH; y++)
-            {
-                int sy0 = Mathf.FloorToInt(y / scale);
-                int sy1 = Mathf.Min(Mathf.CeilToInt((y + 1f) / scale) - 1, srcH - 1);
-                for (int x = 0; x < dstW; x++)
-                {
-                    int sx0 = Mathf.FloorToInt(x / scale);
-                    int sx1 = Mathf.Min(Mathf.CeilToInt((x + 1f) / scale) - 1, srcW - 1);
-                    long r = 0, g = 0, b = 0, a = 0;
-                    int count = 0;
-                    for (int ky = sy0; ky <= sy1; ky++)
-                        for (int kx = sx0; kx <= sx1; kx++)
-                        {
-                            var p = src[ky * srcW + kx];
-                            r += p.r; g += p.g; b += p.b; a += p.a;
-                            count++;
-                        }
-                    if (count <= 0) count = 1; // ゼロ除算ガード（理論上は到達しないが念のため）
-                    dst[y * dstW + x] = new Color32(
-                        (byte)(r / count), (byte)(g / count),
-                        (byte)(b / count), (byte)(a / count));
-                }
-            }
-            return dst;
-        }
     }
 }

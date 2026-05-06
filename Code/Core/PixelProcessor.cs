@@ -1,14 +1,30 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 
 namespace VRCAvatarColorChanger
 {
-    public partial class VACCWindow
+    /// <summary>
+    /// バックグラウンド処理に渡すためのマスク一式のイミュータブルスナップショット。
+    /// 配列は deep clone 済み（呼び出し側の書き換えと競合しない）。
+    /// </summary>
+    internal class MaskSnapshot
+    {
+        public bool[] common;
+        public int width;
+        public int height;
+        public Dictionary<string, bool[]> zones;
+    }
+
+    /// <summary>
+    /// テクスチャの再着色アルゴリズム本体。
+    /// UnityEditor / EditorWindow / AssetDatabase に依存しない純粋ロジックだけを保持する。
+    /// バックグラウンドスレッドからの呼び出しを前提にしている。
+    /// </summary>
+    internal static class PixelProcessor
     {
         // Parallel.For で使用する、CPU コア数制限。
         // Unity Editor は多数のスレッドを使用するため、全コア並列で
@@ -16,26 +32,12 @@ namespace VRCAvatarColorChanger
         private static readonly int s_maxParallelism =
             Math.Max(1, Environment.ProcessorCount - 2);
 
-        // エクスポート処理で使用するインスタンスラッパー（メインスレッド、インスタンスフィールドに直接アクセス可能）
-        private void ProcessPixels(Texture2D tex)
-        {
-            var sorted = zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
-            if (sorted.Count == 0) return;
-            Color32[] pixels = tex.GetPixels32();
-            ProcessPixelsArray(pixels, tex.width, tex.height,
-                BuildMaskSnapshot(), sorted, edgeFeather, antiAliasCleanup,
-                holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
-                useDecontamination: useDecontamination,
-                decontaminationRadius: decontaminationRadius);
-            tex.SetPixels32(pixels);
-        }
-
         // スタティック計算メソッド — バックグラウンドスレッドで実行可能
         // Texture2Dなし、UnityEngine.Object APIなし、Mathfとカラー計算のみ（いずれもスレッドセーフ）
         // originX/Y: フル解像度テクスチャでのクロップオフセット（0で全テクスチャ処理）
         // fullW/H: フル解像度テクスチャの寸法（0 = w/hと同じ、つまりクロップなし）
         // useDecontamination: AA境界でα分解＋再合成を行い halo を除去
-        private static void ProcessPixelsArray(
+        public static void ProcessPixelsArray(
             Color32[] pixels, int w, int h,
             MaskSnapshot masks,
             IList<ColorZone> sortedZones, float edgeFeather, int antiAliasCleanup,
@@ -52,7 +54,7 @@ namespace VRCAvatarColorChanger
         }
 
         // キャンセルトークン対応バージョン — バックグラウンドプレビューから使用
-        private static void ProcessPixelsArray(
+        public static void ProcessPixelsArray(
             Color32[] pixels, int w, int h,
             MaskSnapshot masks,
             IList<ColorZone> sortedZones, float edgeFeather, int antiAliasCleanup,
@@ -523,7 +525,7 @@ namespace VRCAvatarColorChanger
                             float maxNeighbor = 0f;
                             if (x > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - 1]);
                             if (y > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - w]);
-                            
+
                             // 右と下も覗き見る (現在の状態で)
                             if (x < w - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + 1]);
                             if (y < h - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + w]);
@@ -554,7 +556,7 @@ namespace VRCAvatarColorChanger
                             float maxNeighbor = 0f;
                             if (x < w - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + 1]);
                             if (y < h - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + w]);
-                            
+
                             // 左と上も覗き見る
                             if (x > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - 1]);
                             if (y > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - w]);
@@ -944,6 +946,44 @@ namespace VRCAvatarColorChanger
             Color result = Color.HSVToRGB(tH, newS, newV);
             result.a = alpha;
             return result;
+        }
+
+        /// <summary>
+        /// プレビュー表示用にダウンサンプルした Color32 配列を生成する。
+        /// 各 dst 画素は対応する src ブロック内のピクセル平均色になる（box フィルタ）。
+        /// </summary>
+        public static Color32[] BoxDownsample(Color32[] src, int srcW, int srcH,
+            int dstW, int dstH, float scale)
+        {
+            Color32[] dst = new Color32[dstW * dstH];
+            // 合計値が int の範囲を超えないように long を使用。
+            // 例: 8192x8192 の画像を 512x512 に縮小すると 1 ピクセル当たり 256 サンプル以上、
+            // 合計が byte(255) * 256 = 65280 を超え、バッチサイズ次第では int でも桁数が
+            // 増えるため安全側に倒す。
+            for (int y = 0; y < dstH; y++)
+            {
+                int sy0 = Mathf.FloorToInt(y / scale);
+                int sy1 = Mathf.Min(Mathf.CeilToInt((y + 1f) / scale) - 1, srcH - 1);
+                for (int x = 0; x < dstW; x++)
+                {
+                    int sx0 = Mathf.FloorToInt(x / scale);
+                    int sx1 = Mathf.Min(Mathf.CeilToInt((x + 1f) / scale) - 1, srcW - 1);
+                    long r = 0, g = 0, b = 0, a = 0;
+                    int count = 0;
+                    for (int ky = sy0; ky <= sy1; ky++)
+                        for (int kx = sx0; kx <= sx1; kx++)
+                        {
+                            var p = src[ky * srcW + kx];
+                            r += p.r; g += p.g; b += p.b; a += p.a;
+                            count++;
+                        }
+                    if (count <= 0) count = 1; // ゼロ除算ガード（理論上は到達しないが念のため）
+                    dst[y * dstW + x] = new Color32(
+                        (byte)(r / count), (byte)(g / count),
+                        (byte)(b / count), (byte)(a / count));
+                }
+            }
+            return dst;
         }
     }
 }

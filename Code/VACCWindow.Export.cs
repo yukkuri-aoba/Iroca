@@ -144,7 +144,7 @@ namespace VRCAvatarColorChanger
                     // エクスポートはボタンクリックハンドラ内（OnGUI外）なので同期実行。
                     // 以前の Task.Run().Wait() はメインスレッドをブロックした上に
                     // スレッド切り替えのオーバーヘッドだけが残るアンチパターンだった。
-                    ProcessPixelsArray(pixels, texW, texH,
+                    PixelProcessor.ProcessPixelsArray(pixels, texW, texH,
                         maskSnap, sorted, edgeFeather, antiAliasCleanup,
                         holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
                         useDecontamination: useDecontamination,
@@ -297,7 +297,7 @@ namespace VRCAvatarColorChanger
                     if (sorted.Count > 0)
                     {
                         var maskSnap = BuildMaskSnapshot();
-                        ProcessPixelsArray(pixels, texW, texH,
+                        PixelProcessor.ProcessPixelsArray(pixels, texW, texH,
                             maskSnap, sorted, edgeFeather, antiAliasCleanup,
                             holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
                             useDecontamination: useDecontamination,

@@ -127,7 +127,7 @@ namespace VRCAvatarColorChanger
                         }
                     }
 
-                    ProcessPixelsArray(processedCrop, cropW, cropH,
+                    PixelProcessor.ProcessPixelsArray(processedCrop, cropW, cropH,
                         maskSnap, zonesSnapshot, feather, aaCleanup,
                         hfPasses, hfMinNeighbors, rSatMin, rSatRamp,
                         capX0, capY0, capSrcW, capSrcH, token,

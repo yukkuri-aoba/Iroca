@@ -728,18 +728,6 @@ namespace VRCAvatarColorChanger
         // ───────────────────────── Processing 用スナップショット ────────────────────
 
         /// <summary>
-        /// バックグラウンド処理に渡すためのマスク一式のイミュータブルスナップショット。
-        /// 配列は deep clone 済み（呼び出し側の書き換えと競合しない）。
-        /// </summary>
-        internal class MaskSnapshot
-        {
-            public bool[] common;
-            public int width;
-            public int height;
-            public Dictionary<string, bool[]> zones;
-        }
-
-        /// <summary>
         /// 現在のマスク状態をスナップショット化する（deep clone）。
         /// </summary>
         private MaskSnapshot BuildMaskSnapshot()
