@@ -63,13 +63,13 @@ namespace VRCAvatarColorChanger
         /// OnGUI の先頭で呼ばれるグローバルキーボードショートカット処理。
         /// プレビュー領域の外でも Ctrl+Z でマスクを元に戻せるようにする。
         /// テキストフィールドなど他のコントロールが入力中の場合は干渉しない
-        /// （GUIUtility.editingTextField で判定）。
+        /// （EditorGUIUtility.editingTextField で判定）。
         /// </summary>
         private void HandleGlobalKeyboardShortcuts()
         {
             Event e = Event.current;
             if (e == null || e.type != EventType.KeyDown) return;
-            if (GUIUtility.editingTextField) return;
+            if (EditorGUIUtility.editingTextField) return;
             if (e.control && e.keyCode == KeyCode.Z && !isPainting && _undoMaskHistory.Count > 0)
             {
                 UndoMaskStep();
