@@ -321,20 +321,11 @@ namespace VRCAvatarColorChanger
             // 共通マスクオーバーレイ（赤）
             if (exclusionMask == null)
             {
-                if (maskOverlayTexture != null)
-                {
-                    DestroyImmediate(maskOverlayTexture);
-                    maskOverlayTexture = null;
-                }
+                TextureSlot.Release(ref maskOverlayTexture);
             }
             else
             {
-                if (maskOverlayTexture == null || maskOverlayTexture.width != width || maskOverlayTexture.height != height)
-                {
-                    if (maskOverlayTexture != null) DestroyImmediate(maskOverlayTexture);
-                    maskOverlayTexture = new Texture2D(width, height, TextureFormat.RGBA32, false);
-                    maskOverlayTexture.filterMode = FilterMode.Point;
-                }
+                TextureSlot.Resize(ref maskOverlayTexture, width, height, FilterMode.Point);
 
                 var overlayPixels = new Color32[width * height];
                 var excluded = new Color32(255, 60, 60, 80);
@@ -371,22 +362,11 @@ namespace VRCAvatarColorChanger
 
             if (!hasAny || maskWidth == 0 || maskHeight == 0)
             {
-                if (zoneMaskOverlayTexture != null)
-                {
-                    DestroyImmediate(zoneMaskOverlayTexture);
-                    zoneMaskOverlayTexture = null;
-                }
+                TextureSlot.Release(ref zoneMaskOverlayTexture);
                 return;
             }
 
-            if (zoneMaskOverlayTexture == null
-                || zoneMaskOverlayTexture.width != width
-                || zoneMaskOverlayTexture.height != height)
-            {
-                if (zoneMaskOverlayTexture != null) DestroyImmediate(zoneMaskOverlayTexture);
-                zoneMaskOverlayTexture = new Texture2D(width, height, TextureFormat.RGBA32, false);
-                zoneMaskOverlayTexture.filterMode = FilterMode.Point;
-            }
+            TextureSlot.Resize(ref zoneMaskOverlayTexture, width, height, FilterMode.Point);
 
             var pixels = new Color32[width * height];
             var clear = new Color32(0, 0, 0, 0);
