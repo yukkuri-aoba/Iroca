@@ -515,6 +515,17 @@ namespace VRCAvatarColorChanger
             var importer = AssetImporter.GetAtPath(path) as TextureImporter;
             if (importer == null) return;
 
+            // SaveAndReimport はディスク上の import 設定を書き換えるため Undo 不可。
+            // 不可逆な操作として明示確認を取る。
+            if (!EditorUtility.DisplayDialog(
+                    Localization.Confirm,
+                    Localization.EnableReadWriteConfirm,
+                    Localization.OK,
+                    Localization.Cancel))
+            {
+                return;
+            }
+
             importer.isReadable = true;
             importer.SaveAndReimport();
         }

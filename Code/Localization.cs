@@ -54,6 +54,9 @@ namespace VRCAvatarColorChanger
         public static string EnableReadWrite => IsJapanese
             ? "Read/Write を自動で有効にする"
             : "Enable Read/Write automatically";
+        public static string EnableReadWriteConfirm => IsJapanese
+            ? "このテクスチャの Read/Write Enabled を有効化してインポート設定を変更します。\nこの操作は Undo できません。続行しますか？"
+            : "This will enable Read/Write Enabled on the texture and modify its import settings.\nThis action cannot be undone. Continue?";
 
         // ─── Color Zones ───
         public static string ColorZones => IsJapanese ? "カラーゾーン" : "Color Zones";
