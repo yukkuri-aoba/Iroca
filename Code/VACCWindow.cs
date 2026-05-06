@@ -54,10 +54,13 @@ namespace VRCAvatarColorChanger
         // 横並びレイアウトの最小ウィンドウ幅閾値（これ以下は縦並びにフォールバック）
         private const float SideBySideMinWidth = 600f;
 
-        [MenuItem("Tools/VRC AvatarColorChanger")]
+        [MenuItem("Tools/yukkuri-aoba/VRC AvatarColorChanger", priority = 100)]
         public static void ShowWindow()
         {
             var window = GetWindow<VACCWindow>(Localization.WindowTitle);
+            window.titleContent = new GUIContent(
+                Localization.WindowTitle,
+                EditorGUIUtility.IconContent("d_Image Icon").image);
             window.minSize = new Vector2(340, 500);
             if (window.position.width < 800 || window.position.height < 800)
                 window.position = new Rect(window.position.x, window.position.y, 800, 800);
