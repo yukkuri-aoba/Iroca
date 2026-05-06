@@ -186,6 +186,7 @@ namespace VRCAvatarColorChanger
             if (next != current)
             {
                 Localization.CurrentLanguage = (LanguageMode)next;
+                Localization.SaveLanguagePreference();
                 Repaint();
             }
 

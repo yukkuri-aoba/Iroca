@@ -4,7 +4,16 @@ namespace VRCAvatarColorChanger
 
     public static class Localization
     {
-        public static LanguageMode CurrentLanguage = LanguageMode.Auto;
+        private const string PrefsKey = "VACC.Language";
+        public static LanguageMode CurrentLanguage;
+
+        static Localization()
+        {
+            CurrentLanguage = (LanguageMode)UnityEditor.EditorPrefs.GetInt(PrefsKey, (int)LanguageMode.Auto);
+        }
+
+        public static void SaveLanguagePreference()
+            => UnityEditor.EditorPrefs.SetInt(PrefsKey, (int)CurrentLanguage);
 
         public static bool IsJapanese
         {
