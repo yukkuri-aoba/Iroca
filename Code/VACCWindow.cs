@@ -486,8 +486,15 @@ namespace VRCAvatarColorChanger
                 tex.GetPixel(0, 0);
                 return true;
             }
-            catch
+            catch (UnityException)
             {
+                // Read/Write Enabled がオフのテクスチャに GetPixel すると UnityException。
+                // これは想定済みなので false 返却で扱う。
+                return false;
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogException(ex);
                 return false;
             }
         }

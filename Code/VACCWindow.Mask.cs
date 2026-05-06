@@ -575,7 +575,15 @@ namespace VRCAvatarColorChanger
             if (!string.IsNullOrEmpty(indexJson))
             {
                 MaskIndex idx = null;
-                try { idx = JsonUtility.FromJson<MaskIndex>(indexJson); } catch { idx = null; }
+                try
+                {
+                    idx = JsonUtility.FromJson<MaskIndex>(indexJson);
+                }
+                catch (System.Exception ex)
+                {
+                    Debug.LogWarning($"[VACC] Mask index decode failed: {ex.Message}");
+                    idx = null;
+                }
                 if (idx == null)
                 {
                     SessionState.EraseString(MaskIndexSessionKey(path));
@@ -708,8 +716,9 @@ namespace VRCAvatarColorChanger
                     }
                     return mask;
                 }
-                catch
+                catch (System.Exception ex)
                 {
+                    Debug.LogWarning($"[VACC] Mask decode failed: {ex.Message}");
                     return null;
                 }
             }
@@ -729,8 +738,9 @@ namespace VRCAvatarColorChanger
                     mask[i] = (packed[8 + i / 8] & (1 << (i % 8))) != 0;
                 return mask;
             }
-            catch
+            catch (System.Exception ex)
             {
+                Debug.LogWarning($"[VACC] Mask decode (legacy bitpack) failed: {ex.Message}");
                 return null;
             }
         }
