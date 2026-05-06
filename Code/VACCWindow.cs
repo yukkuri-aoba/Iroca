@@ -318,43 +318,45 @@ namespace VRCAvatarColorChanger
 
                     if (zone.useFloodFill)
                     {
-                        EditorGUI.indentLevel++;
-                        EditorGUILayout.BeginHorizontal();
-                        string seedLabel = zone.seedUV.x >= 0f
-                            ? $"UV ({zone.seedUV.x:F3}, {zone.seedUV.y:F3})"
-                            : Localization.FloodFillSeedNotSet;
-                        EditorGUILayout.LabelField(
-                            new GUIContent(Localization.FloodFillSeedPoint, Localization.FloodFillSeedHint),
-                            seedLabel);
-                        if (GUILayout.Button(
-                            new GUIContent(Localization.FloodFillClear, Localization.FloodFillClearTooltip),
-                            GUILayout.Width(52)))
+                        using (new EditorGUI.IndentLevelScope())
                         {
-                            zone.seedUV = new UnityEngine.Vector2(-1f, -1f);
-                            previewDirty = true;
-                        }
-                        EditorGUILayout.EndHorizontal();
+                            EditorGUILayout.BeginHorizontal();
+                            string seedLabel = zone.seedUV.x >= 0f
+                                ? $"UV ({zone.seedUV.x:F3}, {zone.seedUV.y:F3})"
+                                : Localization.FloodFillSeedNotSet;
+                            EditorGUILayout.LabelField(
+                                new GUIContent(Localization.FloodFillSeedPoint, Localization.FloodFillSeedHint),
+                                seedLabel);
+                            if (GUILayout.Button(
+                                new GUIContent(Localization.FloodFillClear, Localization.FloodFillClearTooltip),
+                                GUILayout.Width(52)))
+                            {
+                                zone.seedUV = new UnityEngine.Vector2(-1f, -1f);
+                                previewDirty = true;
+                            }
+                            EditorGUILayout.EndHorizontal();
 
-                        if (advancedMode)
-                        {
-                            zone.edgeStopThreshold = EditorGUILayout.Slider(
-                                new GUIContent(Localization.EdgeStopThreshold, Localization.EdgeStopThresholdTooltip),
-                                zone.edgeStopThreshold, 0f, 0.5f);
+                            if (advancedMode)
+                            {
+                                zone.edgeStopThreshold = EditorGUILayout.Slider(
+                                    new GUIContent(Localization.EdgeStopThreshold, Localization.EdgeStopThresholdTooltip),
+                                    zone.edgeStopThreshold, 0f, 0.5f);
+                            }
                         }
-                        EditorGUI.indentLevel--;
                     }
                 }
                 else
                 {
                     EditorGUILayout.LabelField(
                         new GUIContent(Localization.UVRect, Localization.UVRectTooltip));
-                    EditorGUI.indentLevel++;
-                    float x = EditorGUILayout.Slider("X", zone.uvRect.x, 0f, 1f);
-                    float y = EditorGUILayout.Slider("Y", zone.uvRect.y, 0f, 1f);
-                    float w = EditorGUILayout.Slider("W", zone.uvRect.width, 0f, 1f);
-                    float h = EditorGUILayout.Slider("H", zone.uvRect.height, 0f, 1f);
-                    zone.uvRect = new Rect(x, y, w, h);
-                    EditorGUI.indentLevel--;
+                    using (new EditorGUI.IndentLevelScope())
+                    {
+                        float x = EditorGUILayout.Slider("X", zone.uvRect.x, 0f, 1f);
+                        float y = EditorGUILayout.Slider("Y", zone.uvRect.y, 0f, 1f);
+                        float w = EditorGUILayout.Slider("W", zone.uvRect.width, 0f, 1f);
+                        float h = EditorGUILayout.Slider("H", zone.uvRect.height, 0f, 1f);
+                        zone.uvRect = new Rect(x, y, w, h);
+                    }
                 }
 
                 zone.targetColor = EditorGUILayout.ColorField(
@@ -454,26 +456,27 @@ namespace VRCAvatarColorChanger
 
             if (advancedMode)
             {
-                EditorGUI.indentLevel++;
-                holeFillPasses = EditorGUILayout.IntSlider(
-                    new GUIContent(Localization.HoleFillPasses, Localization.HoleFillPassesTooltip),
-                    holeFillPasses, 0, 10);
-                holeFillMinNeighbors = EditorGUILayout.IntSlider(
-                    new GUIContent(Localization.HoleFillMinNeighbors, Localization.HoleFillMinNeighborsTooltip),
-                    holeFillMinNeighbors, 1, 8);
-                relaxedSatMin = EditorGUILayout.Slider(
-                    new GUIContent(Localization.RelaxedSatMin, Localization.RelaxedSatMinTooltip),
-                    relaxedSatMin, 0f, 0.2f);
-                relaxedSatRamp = EditorGUILayout.Slider(
-                    new GUIContent(Localization.RelaxedSatRamp, Localization.RelaxedSatRampTooltip),
-                    relaxedSatRamp, 0.01f, 0.3f);
-                using (new EditorGUI.DisabledScope(!useDecontamination))
+                using (new EditorGUI.IndentLevelScope())
                 {
-                    decontaminationRadius = EditorGUILayout.IntSlider(
-                        new GUIContent(Localization.DecontaminationRadius, Localization.DecontaminationRadiusTooltip),
-                        decontaminationRadius, 1, 12);
+                    holeFillPasses = EditorGUILayout.IntSlider(
+                        new GUIContent(Localization.HoleFillPasses, Localization.HoleFillPassesTooltip),
+                        holeFillPasses, 0, 10);
+                    holeFillMinNeighbors = EditorGUILayout.IntSlider(
+                        new GUIContent(Localization.HoleFillMinNeighbors, Localization.HoleFillMinNeighborsTooltip),
+                        holeFillMinNeighbors, 1, 8);
+                    relaxedSatMin = EditorGUILayout.Slider(
+                        new GUIContent(Localization.RelaxedSatMin, Localization.RelaxedSatMinTooltip),
+                        relaxedSatMin, 0f, 0.2f);
+                    relaxedSatRamp = EditorGUILayout.Slider(
+                        new GUIContent(Localization.RelaxedSatRamp, Localization.RelaxedSatRampTooltip),
+                        relaxedSatRamp, 0.01f, 0.3f);
+                    using (new EditorGUI.DisabledScope(!useDecontamination))
+                    {
+                        decontaminationRadius = EditorGUILayout.IntSlider(
+                            new GUIContent(Localization.DecontaminationRadius, Localization.DecontaminationRadiusTooltip),
+                            decontaminationRadius, 1, 12);
+                    }
                 }
-                EditorGUI.indentLevel--;
             }
 
             EditorGUILayout.EndFoldoutHeaderGroup();
