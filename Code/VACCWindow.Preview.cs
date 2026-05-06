@@ -672,16 +672,6 @@ namespace VRCAvatarColorChanger
             });
         }
 
-        /// <summary>
-        /// OnGUI 内から呪うまれても IMGUI のコントロール ID を壊さないよう、
-        /// DestroyImmediate を EditorApplication.delayCall で次フレームに遅延・実行する。
-        /// </summary>
-        private static void ScheduleDestroy(Texture2D tex)
-        {
-            if (tex != null)
-                EditorApplication.delayCall += () => { if (tex != null) DestroyImmediate(tex); };
-        }
-
         private void ApplyPendingPreview()
         {
             // Swap out the pending arrays before touching Texture2D objects.
@@ -694,19 +684,11 @@ namespace VRCAvatarColorChanger
 
             if (processed == null || raw == null) return;
 
-            if (previewTexture == null || previewTexture.width != w || previewTexture.height != h)
-            {
-                ScheduleDestroy(previewTexture);
-                previewTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
-            }
+            TextureSlot.Resize(ref previewTexture, w, h);
             previewTexture.SetPixels32(processed);
             previewTexture.Apply();
 
-            if (rawPreviewTexture == null || rawPreviewTexture.width != w || rawPreviewTexture.height != h)
-            {
-                ScheduleDestroy(rawPreviewTexture);
-                rawPreviewTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
-            }
+            TextureSlot.Resize(ref rawPreviewTexture, w, h);
             rawPreviewTexture.SetPixels32(raw);
             rawPreviewTexture.Apply();
 
@@ -729,11 +711,7 @@ namespace VRCAvatarColorChanger
         {
             if (before == null || after == null) return;
             int w = before.width, h = before.height;
-            if (diffTexture == null || diffTexture.width != w || diffTexture.height != h)
-            {
-                ScheduleDestroy(diffTexture);
-                diffTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
-            }
+            TextureSlot.Resize(ref diffTexture, w, h);
 
             Color32[] a = before.GetPixels32();
             Color32[] b = after.GetPixels32();
