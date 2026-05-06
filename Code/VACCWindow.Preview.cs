@@ -423,10 +423,16 @@ namespace VRCAvatarColorChanger
                     if (isPainting && isInRect)
                     {
                         float brushPixels = brushSize * previewZoom;
-                        Handles.color = brushEraseMode
+                        var cursorColor = brushEraseMode
                             ? new Color(0, 1, 0, 0.5f)
                             : new Color(1, 0, 0, 0.5f);
-                        Handles.DrawSolidDisc(e.mousePosition, Vector3.forward, brushPixels * 0.5f);
+                        // Handles.DrawSolidDisc は EditorWindow の ScrollView 内で
+                        // GUIクリッピングや行列の不整合が発生するため、
+                        // EditorGUI.DrawRect で充填正方形近似に置き換える。
+                        float r = brushPixels * 0.5f;
+                        EditorGUI.DrawRect(
+                            new Rect(e.mousePosition.x - r, e.mousePosition.y - r, r * 2f, r * 2f),
+                            cursorColor);
                     }
                     break;
             }
@@ -642,7 +648,9 @@ namespace VRCAvatarColorChanger
                     token.ThrowIfCancellationRequested();
 
                     // 新しいタスクに置き換えられた — 結果を静かに破棄。
-                    if (myGen != _asyncGeneration || _asyncCancelled)
+                    // CancellationToken によるキャンセルは上の ThrowIfCancellationRequestedで捕捉される。
+                    // myGen チェックは新準 Task に差し替えられた場合のガード。
+                    if (myGen != _asyncGeneration)
                         return;
 
                     Color32[] processedDisplay = scale < 1f
@@ -660,15 +668,25 @@ namespace VRCAvatarColorChanger
                 }
                 finally
                 {
-                    // 必ずフラグをリセットして再描画をスケジュール。
-                    // 新タスクはメインスレッドのポーリングで `!_previewGenerating`
-                    // をゲートにして起動されるため、バックグラウンドタスクが同時に二つ
-                    // 走ることはなく、ここで false に戻さないとフラグが true に張り付き
-                    // 「プレビュー生成中...」が消えなくなる。
-                    _previewGenerating = false;
-                    UnityEditor.EditorApplication.delayCall += Repaint;
+                    // 現世代タスクの場合のみフラグをリセット。
+                    // 古いタスク（myGen != _asyncGeneration）が新タスクの _previewGenerating=true を
+                    // 上書きするレースを防ぐ。
+                    if (myGen == _asyncGeneration)
+                        _previewGenerating = false;
+                    if (!_asyncCancelled)
+                        UnityEditor.EditorApplication.delayCall += Repaint;
                 }
             });
+        }
+
+        /// <summary>
+        /// OnGUI 内から呪うまれても IMGUI のコントロール ID を壊さないよう、
+        /// DestroyImmediate を EditorApplication.delayCall で次フレームに遅延・実行する。
+        /// </summary>
+        private static void ScheduleDestroy(Texture2D tex)
+        {
+            if (tex != null)
+                EditorApplication.delayCall += () => { if (tex != null) DestroyImmediate(tex); };
         }
 
         private void ApplyPendingPreview()
@@ -685,7 +703,7 @@ namespace VRCAvatarColorChanger
 
             if (previewTexture == null || previewTexture.width != w || previewTexture.height != h)
             {
-                if (previewTexture != null) DestroyImmediate(previewTexture);
+                ScheduleDestroy(previewTexture);
                 previewTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
             }
             previewTexture.SetPixels32(processed);
@@ -693,7 +711,7 @@ namespace VRCAvatarColorChanger
 
             if (rawPreviewTexture == null || rawPreviewTexture.width != w || rawPreviewTexture.height != h)
             {
-                if (rawPreviewTexture != null) DestroyImmediate(rawPreviewTexture);
+                ScheduleDestroy(rawPreviewTexture);
                 rawPreviewTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
             }
             rawPreviewTexture.SetPixels32(raw);
@@ -720,7 +738,7 @@ namespace VRCAvatarColorChanger
             int w = before.width, h = before.height;
             if (diffTexture == null || diffTexture.width != w || diffTexture.height != h)
             {
-                if (diffTexture != null) DestroyImmediate(diffTexture);
+                ScheduleDestroy(diffTexture);
                 diffTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
             }
 
@@ -745,33 +763,9 @@ namespace VRCAvatarColorChanger
         // ───────────────────────── Utility ─────────────────────────
 
         // ColorZoneのディープコピー。
-        // 注意: 新しいフィールドをColorZoneに追加した場合はここも更新すること。
-        // コピー漏れがあるとプレビューと最終エクスポートで結果が食い違う原因になる。
-        private static ColorZone CloneZone(ColorZone z) => new ColorZone
-        {
-            id                   = z.id,
-            name                 = z.name,
-            enabled              = z.enabled,
-            mode                 = z.mode,
-            sampleColor          = z.sampleColor,
-            tolerance            = z.tolerance,
-            uvRect               = z.uvRect,
-            targetColor          = z.targetColor,
-            valueBlend           = z.valueBlend,
-            edgeSoftness         = z.edgeSoftness,
-            saturationStrictness = z.saturationStrictness,
-            valueWeight          = z.valueWeight,
-            satDistWeight        = z.satDistWeight,
-            satRampScale         = z.satRampScale,
-              shadowDesaturation   = z.shadowDesaturation,
-              shadowForgivenessSatMin = z.shadowForgivenessSatMin,
-            chromaThreshold      = z.chromaThreshold,
-            highlightRecovery    = z.highlightRecovery,
-            layerIndex           = z.layerIndex,
-            useFloodFill         = z.useFloodFill,
-            seedUV               = z.seedUV,
-            edgeStopThreshold    = z.edgeStopThreshold,
-        };
+        // ColorZone.Clone() が JsonUtility を使って自動的に全フィールドをコピーするため、
+        // フィールド追加時にこのメソッドを更新する必要はなくなった。
+        private static ColorZone CloneZone(ColorZone z) => z.Clone();
 
         private static Color32[] BoxDownsample(Color32[] src, int srcW, int srcH,
             int dstW, int dstH, float scale)

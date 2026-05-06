@@ -136,7 +136,7 @@ namespace VRCAvatarColorChanger
                     // キャンセルされた場合は結果を破棄
                     token.ThrowIfCancellationRequested();
 
-                    if (myGen != _detailAsyncGeneration || _asyncCancelled) return;
+                    if (myGen != _detailAsyncGeneration) return;
 
                     _pendingDetailRaw       = rawCrop;
                     _pendingDetailProcessed = processedCrop;
@@ -153,9 +153,12 @@ namespace VRCAvatarColorChanger
                 }
                 finally
                 {
-                    // 必ずフラグをリセット（Preview.cs と同様の理由、フラグ固着回避）。
-                    _detailGenerating = false;
-                    UnityEditor.EditorApplication.delayCall += Repaint;
+                    // 現世代タスクの場合のみフラグをリセット（Preview.cs と同様の理由）。
+                    // 古いタスクが新タスクの _detailGenerating=true を上書きするレースを防ぐ。
+                    if (myGen == _detailAsyncGeneration)
+                        _detailGenerating = false;
+                    if (!_asyncCancelled)
+                        UnityEditor.EditorApplication.delayCall += Repaint;
                 }
             });
         }
@@ -181,7 +184,7 @@ namespace VRCAvatarColorChanger
 
             if (_detailPreviewTexture == null || _detailPreviewTexture.width != w || _detailPreviewTexture.height != h)
             {
-                if (_detailPreviewTexture != null) DestroyImmediate(_detailPreviewTexture);
+                ScheduleDestroy(_detailPreviewTexture);
                 _detailPreviewTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
                 _detailPreviewTexture.filterMode = FilterMode.Point;
             }
@@ -190,7 +193,7 @@ namespace VRCAvatarColorChanger
 
             if (_rawDetailPreviewTexture == null || _rawDetailPreviewTexture.width != w || _rawDetailPreviewTexture.height != h)
             {
-                if (_rawDetailPreviewTexture != null) DestroyImmediate(_rawDetailPreviewTexture);
+                ScheduleDestroy(_rawDetailPreviewTexture);
                 _rawDetailPreviewTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
                 _rawDetailPreviewTexture.filterMode = FilterMode.Point;
             }
@@ -208,7 +211,7 @@ namespace VRCAvatarColorChanger
             if (before == null || after == null) return;
             if (_detailDiffTexture == null || _detailDiffTexture.width != w || _detailDiffTexture.height != h)
             {
-                if (_detailDiffTexture != null) DestroyImmediate(_detailDiffTexture);
+                ScheduleDestroy(_detailDiffTexture);
                 _detailDiffTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
                 _detailDiffTexture.filterMode = FilterMode.Point;
             }
@@ -249,7 +252,7 @@ namespace VRCAvatarColorChanger
             {
                 if (_detailMaskOverlayTexture != null)
                 {
-                    DestroyImmediate(_detailMaskOverlayTexture);
+                    ScheduleDestroy(_detailMaskOverlayTexture);
                     _detailMaskOverlayTexture = null;
                 }
                 return;
@@ -259,7 +262,7 @@ namespace VRCAvatarColorChanger
                 _detailMaskOverlayTexture.width  != cropW ||
                 _detailMaskOverlayTexture.height != cropH)
             {
-                if (_detailMaskOverlayTexture != null) DestroyImmediate(_detailMaskOverlayTexture);
+                ScheduleDestroy(_detailMaskOverlayTexture);
                 _detailMaskOverlayTexture = new Texture2D(cropW, cropH, TextureFormat.RGBA32, false);
                 _detailMaskOverlayTexture.filterMode = FilterMode.Point;
             }
