@@ -614,31 +614,89 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
-        /// bool 配列を「4byte W + 4byte H + bitpacked body」の Base64 文字列にエンコード。
+        /// bool 配列を RLE 圧縮 + Base64 文字列にエンコード。
+        /// フォーマット: "R:" プレフィックス + Base64(4byte W + 4byte H + 1byte 開始値 + uint32[] ランレングス列)
+        /// 4096×4096 の全 false マスクが旧来のbitpack約21MBから約18バイトに圧縮される。
         /// </summary>
         internal static string EncodeMask(bool[] mask, int w, int h)
         {
             if (mask == null || mask.Length == 0) return "";
             int len = mask.Length;
-            int byteLen = (len + 7) / 8;
-            byte[] packed = new byte[byteLen + 8];
-            System.Buffer.BlockCopy(System.BitConverter.GetBytes(w), 0, packed, 0, 4);
-            System.Buffer.BlockCopy(System.BitConverter.GetBytes(h), 0, packed, 4, 4);
+
+            // RLE: 同値の連続を (uint32 カウント) のリストとして記録。
+            // 値は mask[0] から始まり、各エントリごとに反転する。
+            var runs = new System.Collections.Generic.List<uint>();
+            bool curVal = mask[0];
+            uint count = 0;
             for (int i = 0; i < len; i++)
             {
-                if (mask[i])
-                    packed[8 + i / 8] |= (byte)(1 << (i % 8));
+                if (mask[i] == curVal)
+                {
+                    count++;
+                }
+                else
+                {
+                    runs.Add(count);
+                    curVal = mask[i];
+                    count = 1;
+                }
             }
-            return System.Convert.ToBase64String(packed);
+            runs.Add(count);
+
+            // ヘッダ (9 bytes) + ランレングス列 (4 bytes × runs.Count)
+            byte[] bytes = new byte[9 + runs.Count * 4];
+            System.Buffer.BlockCopy(System.BitConverter.GetBytes(w), 0, bytes, 0, 4);
+            System.Buffer.BlockCopy(System.BitConverter.GetBytes(h), 0, bytes, 4, 4);
+            bytes[8] = mask[0] ? (byte)1 : (byte)0;
+            for (int i = 0; i < runs.Count; i++)
+                System.Buffer.BlockCopy(System.BitConverter.GetBytes(runs[i]), 0, bytes, 9 + i * 4, 4);
+
+            return "R:" + System.Convert.ToBase64String(bytes);
         }
 
         /// <summary>
         /// EncodeMask の逆。デコード失敗時は null を返す。
+        /// "R:" プレフィックスがある場合は RLE フォーマット、ない場合は旧 bitpack フォーマットとして処理。
         /// </summary>
         internal static bool[] DecodeMask(string encoded, out int w, out int h)
         {
             w = 0; h = 0;
             if (string.IsNullOrEmpty(encoded)) return null;
+
+            // ─── RLE フォーマット ───
+            if (encoded.StartsWith("R:", System.StringComparison.Ordinal))
+            {
+                try
+                {
+                    byte[] bytes = System.Convert.FromBase64String(encoded.Substring(2));
+                    if (bytes.Length < 9) return null;
+                    w = System.BitConverter.ToInt32(bytes, 0);
+                    h = System.BitConverter.ToInt32(bytes, 4);
+                    if (w <= 0 || h <= 0) return null;
+                    int len = w * h;
+                    bool curVal = bytes[8] != 0;
+                    bool[] mask = new bool[len];
+                    int pos = 0;
+                    int byteIdx = 9;
+                    while (pos < len && byteIdx + 4 <= bytes.Length)
+                    {
+                        uint run = System.BitConverter.ToUInt32(bytes, byteIdx);
+                        byteIdx += 4;
+                        bool fillVal = curVal;
+                        uint end = (uint)System.Math.Min((long)pos + run, len);
+                        while (pos < (int)end)
+                            mask[pos++] = fillVal;
+                        curVal = !curVal;
+                    }
+                    return mask;
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+
+            // ─── 旧 bitpack フォーマット（後方互換）───
             try
             {
                 byte[] packed = System.Convert.FromBase64String(encoded);
