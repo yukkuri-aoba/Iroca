@@ -100,7 +100,7 @@ namespace VRCAvatarColorChanger
             EditorGUILayout.BeginHorizontal();
             var prevBg = GUI.backgroundColor;
 
-            GUI.backgroundColor = excludeActive ? new Color(1f, 0.55f, 0.55f) : Color.white;
+            GUI.backgroundColor = excludeActive ? VACCColors.ExcludeButton : Color.white;
             if (GUILayout.Button(new GUIContent(Localization.Exclude, Localization.ExcludeTooltip), EditorStyles.miniButtonLeft))
             {
                 if (excludeActive)
@@ -109,7 +109,7 @@ namespace VRCAvatarColorChanger
                 { maskPaintActive = true; brushEraseMode = false; }
             }
 
-            GUI.backgroundColor = includeActive ? new Color(0.55f, 1f, 0.55f) : Color.white;
+            GUI.backgroundColor = includeActive ? VACCColors.IncludeButton : Color.white;
             if (GUILayout.Button(new GUIContent(Localization.Include, Localization.IncludeTooltip), EditorStyles.miniButtonRight))
             {
                 if (includeActive)

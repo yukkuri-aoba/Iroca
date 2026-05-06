@@ -417,8 +417,8 @@ namespace VRCAvatarColorChanger
                     {
                         float brushPixels = brushSize * previewZoom;
                         var cursorColor = brushEraseMode
-                            ? new Color(0, 1, 0, 0.5f)
-                            : new Color(1, 0, 0, 0.5f);
+                            ? VACCColors.BrushCursorInclude
+                            : VACCColors.BrushCursorExclude;
                         // Handles.DrawSolidDisc は EditorWindow の ScrollView 内で
                         // GUIクリッピングや行列の不整合が発生するため、
                         // EditorGUI.DrawRect で充填正方形近似に置き換える。

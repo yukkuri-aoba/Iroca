@@ -282,7 +282,7 @@ namespace VRCAvatarColorChanger
                 {
                     bool isActive = activeMaskTarget == i;
                     var prevBg = GUI.backgroundColor;
-                    if (isActive) GUI.backgroundColor = new Color(0.55f, 0.75f, 1f);
+                    if (isActive) GUI.backgroundColor = VACCColors.ActiveMaskTarget;
                     string label = isActive ? Localization.EditMaskActiveLabel : Localization.EditMaskInactiveLabel;
                     if (GUILayout.Button(new GUIContent(label, Localization.EditMaskTooltip)))
                     {
