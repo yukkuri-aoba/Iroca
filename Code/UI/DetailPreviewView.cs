@@ -1,55 +1,49 @@
+using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
 namespace VRCAvatarColorChanger
 {
-    public partial class VACCWindow
+    /// <summary>
+    /// 詳細プレビュー（フル解像度クロップ）の生成と表示用テクスチャ管理。
+    /// PreviewView の補助として動作し、単独のトップレベル状態管理は持たない。
+    /// </summary>
+    internal class DetailPreviewView
     {
         // 詳細プレビュー: ズームイン時にレンダリングされるフル解像度クロップ
-        private Texture2D _detailPreviewTexture;
-        private Texture2D _rawDetailPreviewTexture;
-        private Texture2D _detailMaskOverlayTexture;
-        // 非同期生成: 世代管理・キャンセル・メインスレッド復帰は PreviewJob<T> 内部に隠蔽
-        private readonly PreviewJob<DetailPreviewResult> _detailJob = new PreviewJob<DetailPreviewResult>();
-        private Color32[] _pendingDetailProcessed;
-        private Color32[] _pendingDetailRaw;
-        private int _pendingDetailW, _pendingDetailH;
-        private int _pendingDetailOriginX, _pendingDetailOriginY; // ソース座標でのクロップ原点
-        private int _pendingDetailFullW, _pendingDetailFullH;     // フル解像度ソース寸法
-        private double _lastDetailDirtyTime;
-        private Rect _lastPreviewRect;                            // フレーム間で保存されます
-        private const double DetailDebounceSeconds = 0.3;
+        [System.NonSerialized] public Texture2D detailPreviewTexture;
+        [System.NonSerialized] public Texture2D rawDetailPreviewTexture;
+        [System.NonSerialized] public Texture2D detailMaskOverlayTexture;
+        [System.NonSerialized] public Texture2D detailDiffTexture;
+
+        // 非同期生成
+        [System.NonSerialized] public readonly PreviewJob<DetailPreviewResult> detailJob = new PreviewJob<DetailPreviewResult>();
+        [System.NonSerialized] private Color32[] _pendingDetailProcessed;
+        [System.NonSerialized] private Color32[] _pendingDetailRaw;
+        [System.NonSerialized] private int _pendingDetailW, _pendingDetailH;
+        [System.NonSerialized] private int _pendingDetailOriginX, _pendingDetailOriginY;
+        [System.NonSerialized] private int _pendingDetailFullW, _pendingDetailFullH;
+        [System.NonSerialized] public double lastDetailDirtyTime;
+        [System.NonSerialized] public Rect lastPreviewRect;
+
+        public const double DetailDebounceSeconds = 0.3;
         // 詳細モード: ディスプレイピクセル数/ソースピクセル数比 > 1 時にアクティベート
-        // つまり previewZoom * (srcSize / previewSize) ≥ この値
-        private const float DetailUpscaleThreshold = 1.0f;
+        public const float DetailUpscaleThreshold = 1.0f;
 
         // 永続的な詳細クロップ原点（詳細プレビュー適用時に設定、レンダラーで読み取られます）
-        private int _detailOriginX, _detailOriginY;
-        private Texture2D _detailDiffTexture;
+        [System.NonSerialized] public int detailOriginX, detailOriginY;
 
-        // ─────────────────────── 詳細プレビュー（フル解像度クロップ） ─────────────────────────
+        [System.NonSerialized] private VACCWindow _host;
 
-        /// <summary>
-        /// スクロールされたプレビューの対応するリージョンと正確に整列する詳細クロップをレンダリングする
-        /// スクリーン空間矩形を返します。
-        /// </summary>
-        private Rect ComputeDetailScreenRect(Rect activePreviewRect, float scale, int srcW, int srcH)
+        public void Initialize(VACCWindow host)
         {
-            if (_detailPreviewTexture == null) return activePreviewRect;
-
-            // ソースピクセルあたりのディスプレイピクセル
-            float pxPerSrc = scale * previewZoom;
-
-            float left   = _detailOriginX * pxPerSrc - previewScrollPos.x + activePreviewRect.x;
-            float top    = _detailOriginY * pxPerSrc - previewScrollPos.y + activePreviewRect.y;
-            float width  = _detailPreviewTexture.width  * pxPerSrc;
-            float height = _detailPreviewTexture.height * pxPerSrc;
-
-            return new Rect(left, top, width, height);
+            _host = host;
         }
 
-        private struct DetailPreviewResult
+        public bool HasPendingResult => _pendingDetailProcessed != null;
+
+        public struct DetailPreviewResult
         {
             public Color32[] Raw;
             public Color32[] Processed;
@@ -62,22 +56,39 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
+        /// スクロールされたプレビューの対応するリージョンと正確に整列する詳細クロップをレンダリングする
+        /// スクリーン空間矩形を返します。
+        /// </summary>
+        public Rect ComputeDetailScreenRect(Rect activePreviewRect, float scale, float previewZoom, Vector2 previewScrollPos, int srcW, int srcH)
+        {
+            if (detailPreviewTexture == null) return activePreviewRect;
+
+            // ソースピクセルあたりのディスプレイピクセル
+            float pxPerSrc = scale * previewZoom;
+
+            float left   = detailOriginX * pxPerSrc - previewScrollPos.x + activePreviewRect.x;
+            float top    = detailOriginY * pxPerSrc - previewScrollPos.y + activePreviewRect.y;
+            float width  = detailPreviewTexture.width  * pxPerSrc;
+            float height = detailPreviewTexture.height * pxPerSrc;
+
+            return new Rect(left, top, width, height);
+        }
+
+        /// <summary>
         /// 現在のスクロール位置、ズーム、プレビュースケールからソーステクスチャ座標で見える
         /// クロップリージョンを計算してから、フルソース解像度でそのクロップのみを処理する
         /// バックグラウンドタスクを開始します。
         /// </summary>
-        private void GenerateDetailPreviewAsync(int srcW, int srcH, Color32[] srcPixels,
-            float scale, Rect previewRect)
+        public void GenerateDetailPreviewAsync(int srcW, int srcH, Color32[] srcPixels,
+            float scale, float previewZoom, Vector2 previewScrollPos, Rect previewRect)
         {
-            if (sourceTexture == null || !IsReadable(sourceTexture)) return;
-            if (scale >= 1f) return; // ソースはすでにプレビューに適合 — アップスケーリング利点なし
+            var sourceTexture = _host.SourceTexture;
+            if (sourceTexture == null || !VACCWindow.IsReadable(sourceTexture)) return;
+            if (scale >= 1f) return;
 
-            // previewZoom * scale = ソースピクセルあたりのディスプレイピクセル。
-            // < 1 の場合、プレビューはズーム後も縮小 → まだ詳細改善なし。
             float displayPxPerSrcPx = previewZoom * scale;
             if (displayPxPerSrcPx < DetailUpscaleThreshold) return;
 
-            // ソースピクセル座標で見える領域を計算（Y反転: テクスチャ底部=0）
             float invZoomScale = 1f / (previewZoom * scale);
             int x0 = Mathf.FloorToInt(previewScrollPos.x * invZoomScale);
             int y0 = Mathf.FloorToInt(previewScrollPos.y * invZoomScale);
@@ -93,33 +104,33 @@ namespace VRCAvatarColorChanger
             int cropH = y1 - y0;
             if (cropW <= 0 || cropH <= 0) return;
 
-            var maskSnap = _maskView.BuildSnapshot();
+            var maskSnap = _host._maskView.BuildSnapshot();
 
-            var zonesSnapshot = zones
+            var session = _host.Session;
+            var zonesSnapshot = session.zones
                 .Where(z => z.enabled)
                 .OrderBy(z => z.layerIndex)
-                .Select(CloneZone)
+                .Select(z => z.Clone())
                 .ToList();
-            float feather   = edgeFeather;
-            int aaCleanup   = antiAliasCleanup;
-            int hfPasses = holeFillPasses;
-            int hfMinNeighbors = holeFillMinNeighbors;
-            float rSatMin = relaxedSatMin;
-            float rSatRamp = relaxedSatRamp;
-            bool useDecontam = useDecontamination;
-            int decontamRadius = decontaminationRadius;
+            float feather   = session.edgeFeather;
+            int aaCleanup   = session.antiAliasCleanup;
+            int hfPasses = session.holeFillPasses;
+            int hfMinNeighbors = session.holeFillMinNeighbors;
+            float rSatMin = session.relaxedSatMin;
+            float rSatRamp = session.relaxedSatRamp;
+            bool useDecontam = session.useDecontamination;
+            int decontamRadius = session.decontaminationRadius;
             int capX0 = x0, capY0 = y0, capSrcW = srcW, capSrcH = srcH;
             var srcPixelsForTask = srcPixels;
 
-            _detailJob.Schedule(
+            detailJob.Schedule(
                 work: token =>
                 {
-                    // ソースからクロップを抽出
                     Color32[] rawCrop       = new Color32[cropW * cropH];
                     Color32[] processedCrop = new Color32[cropW * cropH];
                     for (int cy = 0; cy < cropH; cy++)
                     {
-                        int sy = capY0 + cy; // ソース行（テクスチャ底部=0）
+                        int sy = capY0 + cy;
                         for (int cx = 0; cx < cropW; cx++)
                         {
                             int srcIdx = sy * capSrcW + (capX0 + cx);
@@ -156,11 +167,11 @@ namespace VRCAvatarColorChanger
                     _pendingDetailOriginY   = result.OriginY;
                     _pendingDetailFullW     = result.FullW;
                     _pendingDetailFullH     = result.FullH;
-                    Repaint();
+                    _host.RequestRepaint();
                 });
         }
 
-        private void ApplyPendingDetailPreview()
+        public void ApplyPendingResult()
         {
             var processed = _pendingDetailProcessed;
             var raw       = _pendingDetailRaw;
@@ -175,20 +186,18 @@ namespace VRCAvatarColorChanger
 
             if (processed == null || raw == null) return;
 
-            // crop origin を永続化してレンダラーがテクスチャを正しく配置できるようにします
-            _detailOriginX = ox;
-            _detailOriginY = oy;
+            detailOriginX = ox;
+            detailOriginY = oy;
 
-            TextureSlot.Resize(ref _detailPreviewTexture, w, h, FilterMode.Point);
-            _detailPreviewTexture.SetPixels32(processed);
-            _detailPreviewTexture.Apply();
+            TextureSlot.Resize(ref detailPreviewTexture, w, h, FilterMode.Point);
+            detailPreviewTexture.SetPixels32(processed);
+            detailPreviewTexture.Apply();
 
-            TextureSlot.Resize(ref _rawDetailPreviewTexture, w, h, FilterMode.Point);
-            _rawDetailPreviewTexture.SetPixels32(raw);
-            _rawDetailPreviewTexture.Apply();
+            TextureSlot.Resize(ref rawDetailPreviewTexture, w, h, FilterMode.Point);
+            rawDetailPreviewTexture.SetPixels32(raw);
+            rawDetailPreviewTexture.Apply();
 
-            // 詳細ビュー用の差分オーバーレイを構築
-            BuildDetailDiffTexture(_rawDetailPreviewTexture, _detailPreviewTexture, w, h);
+            BuildDetailDiffTexture(rawDetailPreviewTexture, detailPreviewTexture, w, h);
 
             RebuildDetailMaskOverlay(w, h, ox, oy, fw, fh);
         }
@@ -196,7 +205,7 @@ namespace VRCAvatarColorChanger
         private void BuildDetailDiffTexture(Texture2D before, Texture2D after, int w, int h)
         {
             if (before == null || after == null) return;
-            TextureSlot.Resize(ref _detailDiffTexture, w, h, FilterMode.Point);
+            TextureSlot.Resize(ref detailDiffTexture, w, h, FilterMode.Point);
 
             Color32[] a = before.GetPixels32();
             Color32[] b = after.GetPixels32();
@@ -211,41 +220,42 @@ namespace VRCAvatarColorChanger
                 d[i] = diff > 10 ? highlight : clear;
             }
 
-            _detailDiffTexture.SetPixels32(d);
-            _detailDiffTexture.Apply();
+            detailDiffTexture.SetPixels32(d);
+            detailDiffTexture.Apply();
         }
 
         private void RebuildDetailMaskOverlay(int cropW, int cropH,
             int originX, int originY, int fullW, int fullH)
         {
-            // 表示すべきマスクが無い場合はテクスチャを破棄
-            bool hasCommon = _maskView.exclusionMask != null;
+            var maskView = _host._maskView;
+            var zones = _host.Session.zones;
+            bool hasCommon = maskView.exclusionMask != null;
             bool hasAnyZone = false;
             if (zones != null)
             {
                 foreach (var z in zones)
                 {
                     if (z == null || string.IsNullOrEmpty(z.id)) continue;
-                    if (_maskView.zoneMasks.TryGetValue(z.id, out var zm) && zm != null) { hasAnyZone = true; break; }
+                    if (maskView.zoneMasks.TryGetValue(z.id, out var zm) && zm != null) { hasAnyZone = true; break; }
                 }
             }
 
             if (!hasCommon && !hasAnyZone)
             {
-                TextureSlot.Release(ref _detailMaskOverlayTexture);
+                TextureSlot.Release(ref detailMaskOverlayTexture);
                 return;
             }
 
-            TextureSlot.Resize(ref _detailMaskOverlayTexture, cropW, cropH, FilterMode.Point);
+            TextureSlot.Resize(ref detailMaskOverlayTexture, cropW, cropH, FilterMode.Point);
 
             var overlayPixels = new Color32[cropW * cropH];
             var commonColor = new Color32(255, 60, 60, 80);
             var clear       = new Color32(0, 0, 0, 0);
 
-            int mw = _maskView.maskWidth;
-            int mh = _maskView.maskHeight;
-            var common = _maskView.exclusionMask;
-            var zoneMasks = _maskView.zoneMasks;
+            int mw = maskView.maskWidth;
+            int mh = maskView.maskHeight;
+            var common = maskView.exclusionMask;
+            var zoneMasks = maskView.zoneMasks;
 
             for (int i = 0; i < overlayPixels.Length; i++)
             {
@@ -272,8 +282,17 @@ namespace VRCAvatarColorChanger
                 overlayPixels[i] = px;
             }
 
-            _detailMaskOverlayTexture.SetPixels32(overlayPixels);
-            _detailMaskOverlayTexture.Apply();
+            detailMaskOverlayTexture.SetPixels32(overlayPixels);
+            detailMaskOverlayTexture.Apply();
+        }
+
+        public void Dispose()
+        {
+            detailJob.Dispose();
+            TextureSlot.Release(ref detailPreviewTexture);
+            TextureSlot.Release(ref rawDetailPreviewTexture);
+            TextureSlot.Release(ref detailMaskOverlayTexture);
+            TextureSlot.Release(ref detailDiffTexture);
         }
     }
 }

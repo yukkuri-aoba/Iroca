@@ -16,7 +16,7 @@ namespace VRCAvatarColorChanger
         internal VACCSessionState Session => _session;
 
         // ── 各 View からの再描画通知用 ──
-        internal void MarkPreviewDirty() { previewDirty = true; }
+        internal void MarkPreviewDirty() { if (_previewView != null) _previewView.previewDirty = true; }
         internal void MarkMaskDirty() { if (_maskView != null) _maskView.maskDirty = true; }
         internal void RequestRepaint() { Repaint(); }
         private Vector2 scrollPos;
@@ -25,6 +25,7 @@ namespace VRCAvatarColorChanger
         [SerializeField] private ExportView _exportView = new ExportView();
         [SerializeField] private PresetsView _presetsView = new PresetsView();
         [SerializeField] internal MaskPaintView _maskView = new MaskPaintView();
+        [SerializeField] private PreviewView _previewView = new PreviewView();
 
         // 編集状態（ゾーン定義・処理パラメータ・マスク状態）。
         // Phase 4a で個別 [SerializeField] フィールド群から VACCSessionState に集約。
@@ -88,6 +89,8 @@ namespace VRCAvatarColorChanger
             _presetsView.Initialize(this);
             _maskView ??= new MaskPaintView();
             _maskView.Initialize(this);
+            _previewView ??= new PreviewView();
+            _previewView.Initialize(this);
             _windowSerializedObject = new SerializedObject(this);
             _sessionProperty = _windowSerializedObject.FindProperty(nameof(_session));
             _zonesProperty = _sessionProperty?.FindPropertyRelative(nameof(VACCSessionState.zones));
@@ -114,7 +117,7 @@ namespace VRCAvatarColorChanger
                 _pendingRemoveZoneIndex = -1;
                 _maskView.OnZoneAboutToBeRemoved(idx);
                 zones.RemoveAt(idx);
-                previewDirty = true;
+                MarkPreviewDirty();
             }
             if (_pendingAddZone)
             {
@@ -122,7 +125,7 @@ namespace VRCAvatarColorChanger
                 var newZone = new ColorZone();
                 newZone.EnsureId();
                 zones.Add(newZone);
-                previewDirty = true;
+                MarkPreviewDirty();
             }
             if (_pendingAdvancedMode.HasValue)
             {
@@ -162,7 +165,7 @@ namespace VRCAvatarColorChanger
 
                 if (EditorGUI.EndChangeCheck())
                 {
-                    previewDirty = true;
+                    MarkPreviewDirty();
                 }
 
                 _presetsView.Draw();
@@ -171,7 +174,7 @@ namespace VRCAvatarColorChanger
 
                 // 右カラム: プレビュー
                 EditorGUILayout.BeginVertical();
-                DrawPreview();
+                _previewView.Draw();
                 EditorGUILayout.EndVertical();
 
                 EditorGUILayout.EndHorizontal();
@@ -194,11 +197,11 @@ namespace VRCAvatarColorChanger
 
                 if (EditorGUI.EndChangeCheck())
                 {
-                    previewDirty = true;
+                    MarkPreviewDirty();
                 }
 
                 _presetsView.Draw();
-                DrawPreview();
+                _previewView.Draw();
                 _exportView.DrawBatchSection();
                 _exportView.DrawExportSection();
 
@@ -246,11 +249,9 @@ namespace VRCAvatarColorChanger
             {
                 _maskView.SaveToSession();                   // persist mask for old texture
                 sourceTexture = newTex;
-                previewDirty = true;
+                MarkPreviewDirty();
                 // テクスチャが変わったのでソースピクセルキャッシュを無効化
-                _cachedSourceTexture = null;
-                _cachedSrcPixels = null;
-                _cachedRawDisplay = null;
+                _previewView.InvalidateSourceCache();
                 _maskView.ClearBuffersOnTextureChange();
                 if (sourceTexture != null)
                 {
@@ -576,17 +577,9 @@ namespace VRCAvatarColorChanger
         {
             // PreviewJob 内部の CancellationToken でバックグラウンドタスクを即時中断し、
             // 以降の apply / onError も _disposed フラグで抑止する。
-            _previewJob.Dispose();
-            _detailJob.Dispose();
+            _previewView?.Dispose();
             _maskView?.SaveToSession();
-            TextureSlot.Release(ref previewTexture);
-            TextureSlot.Release(ref rawPreviewTexture);
-            TextureSlot.Release(ref diffTexture);
             _maskView?.ReleaseOverlayTextures();
-            TextureSlot.Release(ref _detailPreviewTexture);
-            TextureSlot.Release(ref _rawDetailPreviewTexture);
-            TextureSlot.Release(ref _detailMaskOverlayTexture);
-            TextureSlot.Release(ref _detailDiffTexture);
         }
 
         // ─────────────────────── 共通ヘルパー ────────────────────

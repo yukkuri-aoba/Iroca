@@ -4,52 +4,90 @@ using UnityEngine;
 
 namespace VRCAvatarColorChanger
 {
-    public partial class VACCWindow
+    /// <summary>
+    /// メインプレビュー描画、比較 / 差分モード、ズーム、プレビュー生成ジョブの起動、
+    /// 表示用 Texture の所有を担当する。詳細プレビューは DetailPreviewView を保持する補助形式。
+    /// </summary>
+    [System.Serializable]
+    internal class PreviewView
     {
-        // プレビュー用テクスチャ・スクロール座標はキャッシュであり、再コンパイルで破棄されても
-        // 次回OnGUIで再生成されるためSerializeFieldにしない。
-        private Texture2D previewTexture;
-        [SerializeField] private float previewZoom = 1f;
-        private bool previewDirty = true;
-        private Vector2 previewScrollPos;
+        // ─── シリアライズ対象（UI 状態） ─────────────────────────────
+        public float previewZoom = 1f;
+        public bool comparisonMode;
+        public bool diffMode;
 
-        // プレビュー生成
-        private const int PreviewMaxSize = 512;
+        // ─── 実行時状態（NonSerialized） ──────────────────────────
+        [System.NonSerialized] public Texture2D previewTexture;
+        [System.NonSerialized] public Texture2D rawPreviewTexture;
+        [System.NonSerialized] public Texture2D diffTexture;
+        [System.NonSerialized] public bool previewDirty = true;
+        [System.NonSerialized] private Vector2 _previewScrollPos;
 
-        // 非同期プレビュー状態：世代管理・キャンセル・メインスレッド復帰は PreviewJob<T> 内部に隠蔽
-        private readonly PreviewJob<Color32[]> _previewJob = new PreviewJob<Color32[]>();
-        private Color32[] _pendingProcessedDisplay;
-        private Color32[] _pendingRawDisplay;
-        private int _pendingPrevW, _pendingPrevH;
-        private double _lastDirtyTime;
+        // 非同期プレビュー状態
+        [System.NonSerialized] private readonly PreviewJob<Color32[]> _previewJob = new PreviewJob<Color32[]>();
+        [System.NonSerialized] private Color32[] _pendingProcessedDisplay;
+        [System.NonSerialized] private Color32[] _pendingRawDisplay;
+        [System.NonSerialized] private int _pendingPrevW, _pendingPrevH;
+        [System.NonSerialized] private double _lastDirtyTime;
         private const double PreviewDebounceSeconds = 0.2;
 
         // ソースピクセルキャッシュ（テクスチャが変わったときのみ再取得）
-        private Texture2D _cachedSourceTexture;
-        private Color32[] _cachedSrcPixels;
-        private Color32[] _cachedRawDisplay;
-        private int _cachedSrcW, _cachedSrcH;
-        private int _cachedPrevW, _cachedPrevH;
+        [System.NonSerialized] private Texture2D _cachedSourceTexture;
+        [System.NonSerialized] private Color32[] _cachedSrcPixels;
+        [System.NonSerialized] private Color32[] _cachedRawDisplay;
+        [System.NonSerialized] private int _cachedSrcW, _cachedSrcH;
+        [System.NonSerialized] private int _cachedPrevW, _cachedPrevH;
 
-        // 変更前/変更後比較
-        private Texture2D rawPreviewTexture;
-        [SerializeField] private bool comparisonMode;
-        [SerializeField] private bool diffMode;
-        private Texture2D diffTexture;
+        // 詳細プレビューは PreviewView の補助。
+        [System.NonSerialized] private DetailPreviewView _detailView;
+
+        [System.NonSerialized] private VACCWindow _host;
+
+        public void Initialize(VACCWindow host)
+        {
+            _host = host;
+            _detailView ??= new DetailPreviewView();
+            _detailView.Initialize(host);
+        }
+
+        public DetailPreviewView Detail => _detailView;
+        public bool IsPreviewJobRunning => _previewJob.IsRunning;
+
+        public void MarkDirty() => previewDirty = true;
+
+        /// <summary>
+        /// テクスチャが変わったときにソースピクセルキャッシュを無効化する。
+        /// </summary>
+        public void InvalidateSourceCache()
+        {
+            _cachedSourceTexture = null;
+            _cachedSrcPixels = null;
+            _cachedRawDisplay = null;
+        }
+
+        public void Dispose()
+        {
+            _previewJob.Dispose();
+            _detailView?.Dispose();
+            TextureSlot.Release(ref previewTexture);
+            TextureSlot.Release(ref rawPreviewTexture);
+            TextureSlot.Release(ref diffTexture);
+        }
 
         // ─────────────────────── プレビュー ─────────────────────────
 
-        private void DrawPreview()
+        public void Draw()
         {
             EditorGUILayout.LabelField(Localization.Preview, EditorStyles.boldLabel);
 
+            var sourceTexture = _host.SourceTexture;
             if (sourceTexture == null)
             {
                 EditorGUILayout.HelpBox(Localization.SetTexture, MessageType.Info);
                 return;
             }
 
-            if (!IsReadable(sourceTexture))
+            if (!VACCWindow.IsReadable(sourceTexture))
                 return;
 
             // バックグラウンドプレビュータスクからの結果を適用（Texture2D API: メインスレッドのみ）
@@ -57,40 +95,37 @@ namespace VRCAvatarColorChanger
                 ApplyPendingPreview();
 
             // バックグラウンド詳細プレビュータスクからの結果を適用
-            if (_pendingDetailProcessed != null)
-                ApplyPendingDetailPreview();
+            if (_detailView.HasPendingResult)
+                _detailView.ApplyPendingResult();
 
             if (previewDirty)
             {
-                // 最新の変更時刻を記録。非同期タスクは
-                // ユーザーが PreviewDebounceSeconds 間入力を終了した後にのみ開始。
-                // これにより、スライダーをドラッグ中メインスレッドが完全に自由になります。
-                _lastDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
-                // 進行中のタスクをキャンセルし、結果を破棄させる
+                _lastDirtyTime = EditorApplication.timeSinceStartup;
                 _previewJob.Cancel();
-                Repaint(); // 次のフレーム確認をスケジュール
+                _host.RequestRepaint();
                 previewDirty = false;
             }
             else if (!_previewJob.IsRunning &&
                      _lastDirtyTime > 0 &&
                      (GUIUtility.hotControl == 0 ||
-                      (UnityEditor.EditorApplication.timeSinceStartup - _lastDirtyTime)
+                      (EditorApplication.timeSinceStartup - _lastDirtyTime)
                           >= PreviewDebounceSeconds))
             {
-                // コントロールが解放された瞬間 or デバウンス経過後に生成開始
                 _lastDirtyTime = 0;
                 GeneratePreviewAsync();
             }
             else if (_lastDirtyTime > 0 || _previewJob.IsRunning)
             {
-                Repaint(); // ポーリング継続: デバウンスまたはバックグラウンドタスクを待機
+                _host.RequestRepaint();
             }
 
+            var maskView = _host._maskView;
+
             // マスクオーバーレイを個別に再構築（軽量、ペイント中も安全）
-            if (_maskView.maskDirty && previewTexture != null)
+            if (maskView.maskDirty && previewTexture != null)
             {
-                _maskView.RebuildMaskOverlay(previewTexture.width, previewTexture.height);
-                _maskView.maskDirty = false;
+                maskView.RebuildMaskOverlay(previewTexture.width, previewTexture.height);
+                maskView.maskDirty = false;
             }
 
             if (previewTexture == null)
@@ -103,7 +138,6 @@ namespace VRCAvatarColorChanger
             if (_previewJob.IsRunning)
                 EditorGUILayout.LabelField(Localization.GeneratingPreview);
 
-            // ズームラベル (Ctrl+スクロールで変更)
             EditorGUILayout.LabelField(
                 new GUIContent(
                     string.Format(Localization.ZoomLabel, Mathf.RoundToInt(previewZoom * 100f)),
@@ -122,56 +156,53 @@ namespace VRCAvatarColorChanger
             }
             EditorGUILayout.EndHorizontal();
 
-            // プレビュースケール（プレビューテクスチャサイズとソースサイズの比率）を計算
             int srcW = sourceTexture.width;
             int srcH = sourceTexture.height;
-            float scale = (srcW > PreviewMaxSize || srcH > PreviewMaxSize)
-                ? PreviewMaxSize / (float)Mathf.Max(srcW, srcH)
+            float scale = (srcW > VACCConsts.Preview.MaxSize || srcH > VACCConsts.Preview.MaxSize)
+                ? VACCConsts.Preview.MaxSize / (float)Mathf.Max(srcW, srcH)
                 : 1f;
 
-            // 詳細モード: ディスプレイピクセル > ソースピクセル時にアクティブ（スケール < 1 かつズーム十分）
+            // 詳細モード: ディスプレイピクセル > ソースピクセル時にアクティブ
             bool detailActive = scale < 1f &&
-                                previewZoom * scale >= DetailUpscaleThreshold &&
+                                previewZoom * scale >= DetailPreviewView.DetailUpscaleThreshold &&
                                 !comparisonMode;
 
             // 詳細プレビュー生成をポーリング
             if (detailActive)
             {
-                if (!_detailJob.IsRunning &&
-                    _lastDetailDirtyTime > 0 &&
-                    (UnityEditor.EditorApplication.timeSinceStartup - _lastDetailDirtyTime)
-                        >= DetailDebounceSeconds &&
-                    _lastPreviewRect.width > 0)
+                if (!_detailView.detailJob.IsRunning &&
+                    _detailView.lastDetailDirtyTime > 0 &&
+                    (EditorApplication.timeSinceStartup - _detailView.lastDetailDirtyTime)
+                        >= DetailPreviewView.DetailDebounceSeconds &&
+                    _detailView.lastPreviewRect.width > 0)
                 {
-                    _lastDetailDirtyTime = 0;
+                    _detailView.lastDetailDirtyTime = 0;
                     Color32[] srcPixels = sourceTexture.GetPixels32();
-                    GenerateDetailPreviewAsync(srcW, srcH, srcPixels, scale, _lastPreviewRect);
+                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, srcPixels, scale, previewZoom, _previewScrollPos, _detailView.lastPreviewRect);
                 }
-                else if (_lastDetailDirtyTime > 0 || _detailJob.IsRunning)
+                else if (_detailView.lastDetailDirtyTime > 0 || _detailView.detailJob.IsRunning)
                 {
-                    Repaint();
+                    _host.RequestRepaint();
                 }
             }
 
             float displayW = previewTexture.width  * previewZoom;
             float displayH = previewTexture.height * previewZoom;
 
-            // スクロールビューの高さをソーステクスチャサイズに制限（ズーム時にレイアウトが崩れないよう）
             float maxViewH = Mathf.Min(displayH, previewTexture.height) + 16f;
-            // スクロールビューの幅も同様に制限（比較モードは2パネル分を考慮）
             int panelCount = (comparisonMode && rawPreviewTexture != null) ? 2 : 1;
             float maxViewW = Mathf.Min(displayW * panelCount + (panelCount - 1) * 8f,
                 previewTexture.width * panelCount + (panelCount - 1) * 8f) + 16f;
 
-            Vector2 prevScroll = previewScrollPos;
-            previewScrollPos = EditorGUILayout.BeginScrollView(
-                previewScrollPos,
+            Vector2 prevScroll = _previewScrollPos;
+            _previewScrollPos = EditorGUILayout.BeginScrollView(
+                _previewScrollPos,
                 GUILayout.Height(maxViewH),
                 GUILayout.MaxWidth(maxViewW));
-            if (previewScrollPos != prevScroll)
+            if (_previewScrollPos != prevScroll)
             {
-                _lastDetailDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
-                _detailJob.Cancel();
+                _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
+                _detailView.detailJob.Cancel();
             }
 
             Rect activePreviewRect = default;
@@ -196,10 +227,10 @@ namespace VRCAvatarColorChanger
                 activePreviewRect = GUILayoutUtility.GetRect(displayW, displayH,
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
                 EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
-                if (_maskView.maskOverlayTexture != null)
-                    GUI.DrawTexture(activePreviewRect, _maskView.maskOverlayTexture, ScaleMode.StretchToFill, true);
-                if (_maskView.zoneMaskOverlayTexture != null)
-                    GUI.DrawTexture(activePreviewRect, _maskView.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
+                if (maskView.maskOverlayTexture != null)
+                    GUI.DrawTexture(activePreviewRect, maskView.maskOverlayTexture, ScaleMode.StretchToFill, true);
+                if (maskView.zoneMaskOverlayTexture != null)
+                    GUI.DrawTexture(activePreviewRect, maskView.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
                 EditorGUILayout.EndVertical();
 
                 EditorGUILayout.EndHorizontal();
@@ -209,22 +240,19 @@ namespace VRCAvatarColorChanger
                 activePreviewRect = GUILayoutUtility.GetRect(displayW, displayH,
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
 
-                // 詳細モードでは低解像度プレビューの上にフル解像度クロップをオーバーレイ
-                if (detailActive && _detailPreviewTexture != null)
+                if (detailActive && _detailView.detailPreviewTexture != null)
                 {
-                    // 低解像度ベースを描画（非表示領域のコンテキストを提供）
                     EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
 
-                    // 詳細クロップが占める画面レクトを計算
-                    Rect detailScreenRect = ComputeDetailScreenRect(activePreviewRect, scale, srcW, srcH);
-                    GUI.DrawTexture(detailScreenRect, _detailPreviewTexture,
+                    Rect detailScreenRect = _detailView.ComputeDetailScreenRect(activePreviewRect, scale, previewZoom, _previewScrollPos, srcW, srcH);
+                    GUI.DrawTexture(detailScreenRect, _detailView.detailPreviewTexture,
                         ScaleMode.StretchToFill, false);
 
-                    if (diffMode && _detailDiffTexture != null)
-                        GUI.DrawTexture(detailScreenRect, _detailDiffTexture,
+                    if (diffMode && _detailView.detailDiffTexture != null)
+                        GUI.DrawTexture(detailScreenRect, _detailView.detailDiffTexture,
                             ScaleMode.StretchToFill, true);
-                    else if (_detailMaskOverlayTexture != null)
-                        GUI.DrawTexture(detailScreenRect, _detailMaskOverlayTexture,
+                    else if (_detailView.detailMaskOverlayTexture != null)
+                        GUI.DrawTexture(detailScreenRect, _detailView.detailMaskOverlayTexture,
                             ScaleMode.StretchToFill, true);
                 }
                 else
@@ -235,15 +263,14 @@ namespace VRCAvatarColorChanger
                         GUI.DrawTexture(activePreviewRect, diffTexture, ScaleMode.StretchToFill, true);
                     else
                     {
-                        if (_maskView.maskOverlayTexture != null)
-                            GUI.DrawTexture(activePreviewRect, _maskView.maskOverlayTexture, ScaleMode.StretchToFill, true);
-                        if (_maskView.zoneMaskOverlayTexture != null)
-                            GUI.DrawTexture(activePreviewRect, _maskView.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
+                        if (maskView.maskOverlayTexture != null)
+                            GUI.DrawTexture(activePreviewRect, maskView.maskOverlayTexture, ScaleMode.StretchToFill, true);
+                        if (maskView.zoneMaskOverlayTexture != null)
+                            GUI.DrawTexture(activePreviewRect, maskView.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
                     }
                 }
 
-                // Generating indicator for detail preview
-                if (detailActive && _detailJob.IsRunning)
+                if (detailActive && _detailView.detailJob.IsRunning)
                     EditorGUI.LabelField(
                         new Rect(activePreviewRect.x + 4, activePreviewRect.y + 4, 300, 20),
                         Localization.GeneratingDetailPreview);
@@ -255,19 +282,16 @@ namespace VRCAvatarColorChanger
 
             // プレビューレクトを格納して、次の詳細生成ティックで使用
             if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
-                _lastPreviewRect = activePreviewRect;
+                _detailView.lastPreviewRect = activePreviewRect;
 
-            // ズーム (Ctrl+スクロール) と Ctrl+Z は常にアクティブ（ペイントモード関係なし）
             HandlePreviewGlobalInput(activePreviewRect);
 
-            // Flood Fill シード点クリック（ペイントモード OFF のとき）
-            if (!_maskView.maskPaintActive)
+            if (!maskView.maskPaintActive)
                 HandleFloodFillSeedInput(activePreviewRect);
 
-            // ブラシペイントはペイントモード ON の場合のみ
-            if (_maskView.maskFoldout && _maskView.maskPaintActive)
+            if (maskView.maskFoldout && maskView.maskPaintActive)
                 HandlePreviewPaintInput(activePreviewRect);
-            else if (!_maskView.maskPaintActive && previewZoom > 1f)
+            else if (!maskView.maskPaintActive && previewZoom > 1f)
                 HandlePreviewPanInput(activePreviewRect);
 
             EditorGUILayout.EndScrollView();
@@ -296,16 +320,16 @@ namespace VRCAvatarColorChanger
                         if (previewTexture != null && Mathf.Abs(newZoom - oldZoom) > 0.0001f)
                         {
                             Vector2 mouseInImage = e.mousePosition - new Vector2(previewRect.x, previewRect.y);
-                            previewScrollPos += mouseInImage * (newZoom / oldZoom - 1f);
-                            previewScrollPos.x = Mathf.Max(0f, previewScrollPos.x);
-                            previewScrollPos.y = Mathf.Max(0f, previewScrollPos.y);
+                            _previewScrollPos += mouseInImage * (newZoom / oldZoom - 1f);
+                            _previewScrollPos.x = Mathf.Max(0f, _previewScrollPos.x);
+                            _previewScrollPos.y = Mathf.Max(0f, _previewScrollPos.y);
                         }
 
                         previewZoom = newZoom;
-                        _lastDetailDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
-                        _detailJob.Cancel();
+                        _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
+                        _detailView.detailJob.Cancel();
                         e.Use();
-                        Repaint();
+                        _host.RequestRepaint();
                     }
                     break;
 
@@ -333,14 +357,13 @@ namespace VRCAvatarColorChanger
                 case EventType.MouseDrag:
                     if (GUIUtility.hotControl == controlId)
                     {
-                        // e.delta はウィンドウ座標系での移動量。ドラッグ方向にコンテンツを追随させる
-                        previewScrollPos -= e.delta;
-                        previewScrollPos.x = Mathf.Max(0f, previewScrollPos.x);
-                        previewScrollPos.y = Mathf.Max(0f, previewScrollPos.y);
-                        _lastDetailDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
-                        _detailJob.Cancel();
+                        _previewScrollPos -= e.delta;
+                        _previewScrollPos.x = Mathf.Max(0f, _previewScrollPos.x);
+                        _previewScrollPos.y = Mathf.Max(0f, _previewScrollPos.y);
+                        _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
+                        _detailView.detailJob.Cancel();
                         e.Use();
-                        Repaint();
+                        _host.RequestRepaint();
                     }
                     break;
 
@@ -366,6 +389,7 @@ namespace VRCAvatarColorChanger
 
             bool isInRect = previewRect.Contains(e.mousePosition);
             int controlId = GUIUtility.GetControlID(FocusType.Passive);
+            var maskView = _host._maskView;
 
             switch (e.GetTypeForControl(controlId))
             {
@@ -373,20 +397,20 @@ namespace VRCAvatarColorChanger
                     if (e.button == 0 && isInRect)
                     {
                         GUIUtility.hotControl = controlId;
-                        _maskView.isPainting = true;
-                        _maskView._maskStrokeStarted = false;
-                        _maskView.lastPaintUV = -Vector2.one;
+                        maskView.isPainting = true;
+                        maskView._maskStrokeStarted = false;
+                        maskView.lastPaintUV = -Vector2.one;
                         PaintAtScreenPos(e.mousePosition, previewRect);
                         e.Use();
                     }
                     break;
 
                 case EventType.MouseDrag:
-                    if (_maskView.isPainting && GUIUtility.hotControl == controlId)
+                    if (maskView.isPainting && GUIUtility.hotControl == controlId)
                     {
                         PaintAtScreenPos(e.mousePosition, previewRect);
                         e.Use();
-                        Repaint();
+                        _host.RequestRepaint();
                     }
                     break;
 
@@ -394,27 +418,22 @@ namespace VRCAvatarColorChanger
                     if (e.button == 0 && GUIUtility.hotControl == controlId)
                     {
                         GUIUtility.hotControl = 0;
-                        _maskView.isPainting = false;
-                        _maskView._maskStrokeStarted = false;
-                        _maskView.lastPaintUV = -Vector2.one;
+                        maskView.isPainting = false;
+                        maskView._maskStrokeStarted = false;
+                        maskView.lastPaintUV = -Vector2.one;
                         previewDirty = true;
                         e.Use();
-                        Repaint();
+                        _host.RequestRepaint();
                     }
                     break;
 
                 case EventType.Repaint:
-                    // ブラシカーソルはペイント中のみ表示
-                    // (ホバー中に表示するとUnity標準スポイトが赤円色を拾うため)
-                    if (_maskView.isPainting && isInRect)
+                    if (maskView.isPainting && isInRect)
                     {
-                        float brushPixels = _maskView.brushSize * previewZoom;
-                        var cursorColor = _maskView.brushEraseMode
+                        float brushPixels = maskView.brushSize * previewZoom;
+                        var cursorColor = maskView.brushEraseMode
                             ? VACCColors.BrushCursorInclude
                             : VACCColors.BrushCursorExclude;
-                        // Handles.DrawSolidDisc は EditorWindow の ScrollView 内で
-                        // GUIクリッピングや行列の不整合が発生するため、
-                        // EditorGUI.DrawRect で充填正方形近似に置き換える。
                         float r = brushPixels * 0.5f;
                         EditorGUI.DrawRect(
                             new Rect(e.mousePosition.x - r, e.mousePosition.y - r, r * 2f, r * 2f),
@@ -429,11 +448,10 @@ namespace VRCAvatarColorChanger
             Event e = Event.current;
             if (e == null) return;
 
-            // GetControlID は常に呼ぶ（呼び出し順が毎フレーム一定でないと IMGUI が壊れる）
             bool isInRect = previewRect.Contains(e.mousePosition);
             int controlId = GUIUtility.GetControlID(FocusType.Passive);
 
-            // Flood Fill が有効なゾーンが存在しなければ入力処理はしない
+            var zones = _host.Session.zones;
             bool hasFloodFill = false;
             foreach (var z in zones)
                 if (z.enabled && z.mode == SelectionMode.ColorPick && z.useFloodFill)
@@ -449,7 +467,6 @@ namespace VRCAvatarColorChanger
                         u = Mathf.Clamp01(u);
                         v = Mathf.Clamp01(v);
 
-                        // 有効な FloodFill ゾーン全員に適用（将来的に「選択中ゾーン」に絞ることも可）
                         bool changed = false;
                         foreach (var z in zones)
                         {
@@ -464,7 +481,7 @@ namespace VRCAvatarColorChanger
                             previewDirty = true;
                             GUIUtility.hotControl = controlId;
                             e.Use();
-                            Repaint();
+                            _host.RequestRepaint();
                         }
                     }
                     break;
@@ -486,9 +503,7 @@ namespace VRCAvatarColorChanger
 
         private void DrawFloodFillSeedOverlay(Rect previewRect)
         {
-            // Handles は EditorWindow の ScrollView 内で GUIClips を壊すため
-            // EditorGUI.DrawRect による純粋な GUI 描画で + 印を描く
-            foreach (var z in zones)
+            foreach (var z in _host.Session.zones)
             {
                 if (!z.enabled || z.mode != SelectionMode.ColorPick || !z.useFloodFill) continue;
                 if (z.seedUV.x < 0f) continue;
@@ -499,68 +514,63 @@ namespace VRCAvatarColorChanger
                 const float armLen = 7f;
                 const float thickness = 2f;
                 var color = new Color(1f, 0.85f, 0f, 0.9f);
-                // 横バー
                 EditorGUI.DrawRect(new Rect(sx - armLen, sy - thickness * 0.5f, armLen * 2f, thickness), color);
-                // 縦バー
                 EditorGUI.DrawRect(new Rect(sx - thickness * 0.5f, sy - armLen, thickness, armLen * 2f), color);
             }
         }
 
         private void PaintAtScreenPos(Vector2 screenPos, Rect previewRect)
         {
-            // Push undo state once at the start of each new brush stroke
-            if (!_maskView._maskStrokeStarted)
+            var maskView = _host._maskView;
+            if (!maskView._maskStrokeStarted)
             {
-                _maskView.PushMaskUndo();
-                _maskView._maskStrokeStarted = true;
+                maskView.PushMaskUndo();
+                maskView._maskStrokeStarted = true;
             }
 
             float u = (screenPos.x - previewRect.x) / previewRect.width;
-            float v = 1f - (screenPos.y - previewRect.y) / previewRect.height; // flip Y
+            float v = 1f - (screenPos.y - previewRect.y) / previewRect.height;
             u = Mathf.Clamp01(u);
             v = Mathf.Clamp01(v);
 
             var currentUV = new Vector2(u, v);
 
-            // Interpolate between last and current position for continuous strokes
-            if (_maskView.lastPaintUV.x >= 0f)
+            if (maskView.lastPaintUV.x >= 0f)
             {
-                float dist = Vector2.Distance(_maskView.lastPaintUV, currentUV);
-                // Step size in UV space based on brush size relative to mask resolution
-                _maskView.EnsureMasks();
-                float step = (_maskView.maskWidth > 0) ? 1f / _maskView.maskWidth : 0.001f;
+                float dist = Vector2.Distance(maskView.lastPaintUV, currentUV);
+                maskView.EnsureMasks();
+                float step = (maskView.maskWidth > 0) ? 1f / maskView.maskWidth : 0.001f;
                 if (dist > step)
                 {
                     int steps = Mathf.CeilToInt(dist / step);
                     for (int i = 1; i < steps; i++)
                     {
-                        Vector2 lerped = Vector2.Lerp(_maskView.lastPaintUV, currentUV, (float)i / steps);
-                        _maskView.PaintMask(lerped);
+                        Vector2 lerped = Vector2.Lerp(maskView.lastPaintUV, currentUV, (float)i / steps);
+                        maskView.PaintMask(lerped);
                     }
                 }
             }
 
-            _maskView.PaintMask(currentUV);
-            _maskView.lastPaintUV = currentUV;
+            maskView.PaintMask(currentUV);
+            maskView.lastPaintUV = currentUV;
         }
 
         // ───────────────────────── Preview Async Generation ─────────────────────────
 
         private void GeneratePreviewAsync()
         {
-            if (sourceTexture == null || !IsReadable(sourceTexture)) return;
+            var sourceTexture = _host.SourceTexture;
+            if (sourceTexture == null || !VACCWindow.IsReadable(sourceTexture)) return;
 
             int srcW = sourceTexture.width;
             int srcH = sourceTexture.height;
 
             float scale = 1f;
-            if (srcW > PreviewMaxSize || srcH > PreviewMaxSize)
-                scale = PreviewMaxSize / (float)Mathf.Max(srcW, srcH);
+            if (srcW > VACCConsts.Preview.MaxSize || srcH > VACCConsts.Preview.MaxSize)
+                scale = VACCConsts.Preview.MaxSize / (float)Mathf.Max(srcW, srcH);
             int prevW = Mathf.Max(1, Mathf.RoundToInt(srcW * scale));
             int prevH = Mathf.Max(1, Mathf.RoundToInt(srcH * scale));
 
-            // ソースピクセルとダウンサンプル済みrawDisplayをキャッシュ
-            // テクスチャが変わっていなければ GetPixels32() と BoxDownsample を省略
             Color32[] srcPixels;
             Color32[] rawDisplay;
             if (_cachedSourceTexture == sourceTexture &&
@@ -574,7 +584,6 @@ namespace VRCAvatarColorChanger
             }
             else
             {
-                // Capture all Unity-dependent data on the main thread before handing off.
                 srcPixels = sourceTexture.GetPixels32();
                 rawDisplay = scale < 1f
                     ? PixelProcessor.BoxDownsample(srcPixels, srcW, srcH, prevW, prevH, scale)
@@ -589,23 +598,23 @@ namespace VRCAvatarColorChanger
                 _cachedPrevH         = prevH;
             }
 
-            var maskSnap = _maskView.BuildSnapshot();
+            var maskSnap = _host._maskView.BuildSnapshot();
 
-            var zonesSnapshot = zones
+            var session = _host.Session;
+            var zonesSnapshot = session.zones
                 .Where(z => z.enabled)
                 .OrderBy(z => z.layerIndex)
-                .Select(CloneZone)
+                .Select(z => z.Clone())
                 .ToList();
-            float feather = edgeFeather;
-            int aaCleanup = antiAliasCleanup;
-            int hfPasses = holeFillPasses;
-            int hfMinNeighbors = holeFillMinNeighbors;
-            float rSatMin = relaxedSatMin;
-            float rSatRamp = relaxedSatRamp;
-            bool useDecontam = useDecontamination;
-            int decontamRadius = decontaminationRadius;
+            float feather = session.edgeFeather;
+            int aaCleanup = session.antiAliasCleanup;
+            int hfPasses = session.holeFillPasses;
+            int hfMinNeighbors = session.holeFillMinNeighbors;
+            float rSatMin = session.relaxedSatMin;
+            float rSatRamp = session.relaxedSatRamp;
+            bool useDecontam = session.useDecontamination;
+            int decontamRadius = session.decontaminationRadius;
 
-            // バックグラウンドスレッドに渡す前にローカル変数として固定
             var srcPixelsForTask  = srcPixels;
             var rawDisplayForTask = rawDisplay;
             float scaleForTask = scale;
@@ -615,8 +624,6 @@ namespace VRCAvatarColorChanger
             _previewJob.Schedule(
                 work: token =>
                 {
-                    // すべての重い計算はバックグラウンドスレッドで実行されます。
-                    // ここでは Unity Object API は呼ばれない — 純粋な C# 計算のみ。
                     Color32[] pixels = (Color32[])srcPixelsForTask.Clone();
                     PixelProcessor.ProcessPixelsArray(pixels, srcW, srcH, maskSnap, zonesSnapshot, feather, aaCleanup,
                         hfPasses, hfMinNeighbors, rSatMin, rSatRamp,
@@ -633,13 +640,12 @@ namespace VRCAvatarColorChanger
                     _pendingProcessedDisplay = processedDisplay;
                     _pendingPrevW            = prevWForTask;
                     _pendingPrevH            = prevHForTask;
-                    Repaint();
+                    _host.RequestRepaint();
                 });
         }
 
         private void ApplyPendingPreview()
         {
-            // Swap out the pending arrays before touching Texture2D objects.
             var processed = _pendingProcessedDisplay;
             var raw       = _pendingRawDisplay;
             int w = _pendingPrevW;
@@ -659,18 +665,19 @@ namespace VRCAvatarColorChanger
 
             BuildDiffTexture(rawPreviewTexture, previewTexture);
 
-            if (_maskView.maskOverlayTexture == null
-                || _maskView.maskOverlayTexture.width != w
-                || _maskView.maskOverlayTexture.height != h
-                || _maskView.maskDirty)
+            var maskView = _host._maskView;
+            if (maskView.maskOverlayTexture == null
+                || maskView.maskOverlayTexture.width != w
+                || maskView.maskOverlayTexture.height != h
+                || maskView.maskDirty)
             {
-                _maskView.RebuildMaskOverlay(w, h);
-                _maskView.maskDirty = false;
+                maskView.RebuildMaskOverlay(w, h);
+                maskView.maskDirty = false;
             }
 
             // Invalidate detail preview so it regenerates at the new crop
-            _lastDetailDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
-            _detailJob.Cancel();
+            _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
+            _detailView.detailJob.Cancel();
         }
 
         // ───────────────────────── Diff Texture ─────────────────────────
@@ -698,13 +705,5 @@ namespace VRCAvatarColorChanger
             diffTexture.SetPixels32(d);
             diffTexture.Apply();
         }
-
-        // ───────────────────────── Utility ─────────────────────────
-
-        // ColorZoneのディープコピー。
-        // ColorZone.Clone() が JsonUtility を使って自動的に全フィールドをコピーするため、
-        // フィールド追加時にこのメソッドを更新する必要はなくなった。
-        private static ColorZone CloneZone(ColorZone z) => z.Clone();
-
     }
 }
