@@ -1,5 +1,4 @@
 using System.Linq;
-using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
@@ -11,8 +10,8 @@ namespace VRCAvatarColorChanger
         private Texture2D _detailPreviewTexture;
         private Texture2D _rawDetailPreviewTexture;
         private Texture2D _detailMaskOverlayTexture;
-        private volatile bool _detailGenerating;
-        private volatile int _detailAsyncGeneration;
+        // 非同期生成: 世代管理・キャンセル・メインスレッド復帰は PreviewJob<T> 内部に隠蔽
+        private readonly PreviewJob<DetailPreviewResult> _detailJob = new PreviewJob<DetailPreviewResult>();
         private Color32[] _pendingDetailProcessed;
         private Color32[] _pendingDetailRaw;
         private int _pendingDetailW, _pendingDetailH;
@@ -21,7 +20,6 @@ namespace VRCAvatarColorChanger
         private double _lastDetailDirtyTime;
         private Rect _lastPreviewRect;                            // フレーム間で保存されます
         private const double DetailDebounceSeconds = 0.3;
-        private CancellationTokenSource _detailCts;
         // 詳細モード: ディスプレイピクセル数/ソースピクセル数比 > 1 時にアクティベート
         // つまり previewZoom * (srcSize / previewSize) ≥ この値
         private const float DetailUpscaleThreshold = 1.0f;
@@ -51,6 +49,18 @@ namespace VRCAvatarColorChanger
             return new Rect(left, top, width, height);
         }
 
+        private struct DetailPreviewResult
+        {
+            public Color32[] Raw;
+            public Color32[] Processed;
+            public int CropW;
+            public int CropH;
+            public int OriginX;
+            public int OriginY;
+            public int FullW;
+            public int FullH;
+        }
+
         /// <summary>
         /// 現在のスクロール位置、ズーム、プレビュースケールからソーステクスチャ座標で見える
         /// クロップリージョンを計算してから、フルソース解像度でそのクロップのみを処理する
@@ -61,12 +71,6 @@ namespace VRCAvatarColorChanger
         {
             if (sourceTexture == null || !IsReadable(sourceTexture)) return;
             if (scale >= 1f) return; // ソースはすでにプレビューに適合 — アップスケーリング利点なし
-
-            // 前回の詳細プレビュータスクをキャンセル
-            _detailCts?.Cancel();
-            _detailCts?.Dispose();
-            _detailCts = new CancellationTokenSource();
-            var token = _detailCts.Token;
 
             // previewZoom * scale = ソースピクセルあたりのディスプレイピクセル。
             // < 1 の場合、プレビューはズーム後も縮小 → まだ詳細改善なし。
@@ -89,9 +93,6 @@ namespace VRCAvatarColorChanger
             int cropH = y1 - y0;
             if (cropW <= 0 || cropH <= 0) return;
 
-            _detailGenerating = true;
-            int myGen = _detailAsyncGeneration;
-
             var maskSnap = BuildMaskSnapshot();
 
             var zonesSnapshot = zones
@@ -108,10 +109,10 @@ namespace VRCAvatarColorChanger
             bool useDecontam = useDecontamination;
             int decontamRadius = decontaminationRadius;
             int capX0 = x0, capY0 = y0, capSrcW = srcW, capSrcH = srcH;
+            var srcPixelsForTask = srcPixels;
 
-            System.Threading.Tasks.Task.Run(() =>
-            {
-                try
+            _detailJob.Schedule(
+                work: token =>
                 {
                     // ソースからクロップを抽出
                     Color32[] rawCrop       = new Color32[cropW * cropH];
@@ -122,8 +123,8 @@ namespace VRCAvatarColorChanger
                         for (int cx = 0; cx < cropW; cx++)
                         {
                             int srcIdx = sy * capSrcW + (capX0 + cx);
-                            rawCrop[cy * cropW + cx] = srcPixels[srcIdx];
-                            processedCrop[cy * cropW + cx] = srcPixels[srcIdx];
+                            rawCrop[cy * cropW + cx] = srcPixelsForTask[srcIdx];
+                            processedCrop[cy * cropW + cx] = srcPixelsForTask[srcIdx];
                         }
                     }
 
@@ -133,34 +134,30 @@ namespace VRCAvatarColorChanger
                         capX0, capY0, capSrcW, capSrcH, token,
                         useDecontam, decontamRadius);
 
-                    // キャンセルされた場合は結果を破棄
-                    token.ThrowIfCancellationRequested();
-
-                    if (myGen != _detailAsyncGeneration) return;
-
-                    _pendingDetailRaw       = rawCrop;
-                    _pendingDetailProcessed = processedCrop;
-                    _pendingDetailW         = cropW;
-                    _pendingDetailH         = cropH;
-                    _pendingDetailOriginX   = capX0;
-                    _pendingDetailOriginY   = capY0;
-                    _pendingDetailFullW     = capSrcW;
-                    _pendingDetailFullH     = capSrcH;
-                }
-                catch (System.OperationCanceledException)
+                    return new DetailPreviewResult
+                    {
+                        Raw = rawCrop,
+                        Processed = processedCrop,
+                        CropW = cropW,
+                        CropH = cropH,
+                        OriginX = capX0,
+                        OriginY = capY0,
+                        FullW = capSrcW,
+                        FullH = capSrcH,
+                    };
+                },
+                apply: result =>
                 {
-                    // キャンセルされた — 結果を安全に破棄
-                }
-                finally
-                {
-                    // 現世代タスクの場合のみフラグをリセット（Preview.cs と同様の理由）。
-                    // 古いタスクが新タスクの _detailGenerating=true を上書きするレースを防ぐ。
-                    if (myGen == _detailAsyncGeneration)
-                        _detailGenerating = false;
-                    if (!_asyncCancelled)
-                        UnityEditor.EditorApplication.delayCall += Repaint;
-                }
-            });
+                    _pendingDetailRaw       = result.Raw;
+                    _pendingDetailProcessed = result.Processed;
+                    _pendingDetailW         = result.CropW;
+                    _pendingDetailH         = result.CropH;
+                    _pendingDetailOriginX   = result.OriginX;
+                    _pendingDetailOriginY   = result.OriginY;
+                    _pendingDetailFullW     = result.FullW;
+                    _pendingDetailFullH     = result.FullH;
+                    Repaint();
+                });
         }
 
         private void ApplyPendingDetailPreview()

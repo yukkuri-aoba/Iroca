@@ -1,5 +1,4 @@
 using System.Linq;
-using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
@@ -17,11 +16,8 @@ namespace VRCAvatarColorChanger
         // プレビュー生成
         private const int PreviewMaxSize = 512;
 
-        // 非同期プレビュー状態
-        private volatile bool _previewGenerating;
-        private volatile bool _asyncCancelled;
-        private volatile int _asyncGeneration;
-        private CancellationTokenSource _previewCts;
+        // 非同期プレビュー状態：世代管理・キャンセル・メインスレッド復帰は PreviewJob<T> 内部に隠蔽
+        private readonly PreviewJob<Color32[]> _previewJob = new PreviewJob<Color32[]>();
         private Color32[] _pendingProcessedDisplay;
         private Color32[] _pendingRawDisplay;
         private int _pendingPrevW, _pendingPrevH;
@@ -67,18 +63,15 @@ namespace VRCAvatarColorChanger
             if (previewDirty)
             {
                 // 最新の変更時刻を記録。非同期タスクは
-                // ユーザーが PreviewDebounceSeconds 間イン операショ終了した後にのみ開始。
+                // ユーザーが PreviewDebounceSeconds 間入力を終了した後にのみ開始。
                 // これにより、スライダーをドラッグ中メインスレッドが完全に自由になります。
                 _lastDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
-                _asyncGeneration++; // 進行中のタスクを無効化
-                // ここで _previewGenerating をリセット「しないでください: タスクが実行中の場合、
-                // 生成番号の不一致を検出し、try/finally を介して自己をクリーンアップ。
-                // メインスレッドからフラグをリセットするとタスク関が実行中に
-                // 古いタスクの finally が新しいタスクのフラグを上書きするレースが発生します。
+                // 進行中のタスクをキャンセルし、結果を破棄させる
+                _previewJob.Cancel();
                 Repaint(); // 次のフレーム確認をスケジュール
                 previewDirty = false;
             }
-            else if (!_previewGenerating &&
+            else if (!_previewJob.IsRunning &&
                      _lastDirtyTime > 0 &&
                      (GUIUtility.hotControl == 0 ||
                       (UnityEditor.EditorApplication.timeSinceStartup - _lastDirtyTime)
@@ -88,7 +81,7 @@ namespace VRCAvatarColorChanger
                 _lastDirtyTime = 0;
                 GeneratePreviewAsync();
             }
-            else if (_lastDirtyTime > 0 || _previewGenerating)
+            else if (_lastDirtyTime > 0 || _previewJob.IsRunning)
             {
                 Repaint(); // ポーリング継続: デバウンスまたはバックグラウンドタスクを待機
             }
@@ -102,12 +95,12 @@ namespace VRCAvatarColorChanger
 
             if (previewTexture == null)
             {
-                if (_previewGenerating)
+                if (_previewJob.IsRunning)
                     EditorGUILayout.HelpBox(Localization.GeneratingPreview, MessageType.None);
                 return;
             }
 
-            if (_previewGenerating)
+            if (_previewJob.IsRunning)
                 EditorGUILayout.LabelField(Localization.GeneratingPreview);
 
             // ズームラベル (Ctrl+スクロールで変更)
@@ -144,7 +137,7 @@ namespace VRCAvatarColorChanger
             // 詳細プレビュー生成をポーリング
             if (detailActive)
             {
-                if (!_detailGenerating &&
+                if (!_detailJob.IsRunning &&
                     _lastDetailDirtyTime > 0 &&
                     (UnityEditor.EditorApplication.timeSinceStartup - _lastDetailDirtyTime)
                         >= DetailDebounceSeconds &&
@@ -154,7 +147,7 @@ namespace VRCAvatarColorChanger
                     Color32[] srcPixels = sourceTexture.GetPixels32();
                     GenerateDetailPreviewAsync(srcW, srcH, srcPixels, scale, _lastPreviewRect);
                 }
-                else if (_lastDetailDirtyTime > 0 || _detailGenerating)
+                else if (_lastDetailDirtyTime > 0 || _detailJob.IsRunning)
                 {
                     Repaint();
                 }
@@ -178,7 +171,7 @@ namespace VRCAvatarColorChanger
             if (previewScrollPos != prevScroll)
             {
                 _lastDetailDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
-                _detailAsyncGeneration++;
+                _detailJob.Cancel();
             }
 
             Rect activePreviewRect = default;
@@ -250,7 +243,7 @@ namespace VRCAvatarColorChanger
                 }
 
                 // Generating indicator for detail preview
-                if (detailActive && _detailGenerating)
+                if (detailActive && _detailJob.IsRunning)
                     EditorGUI.LabelField(
                         new Rect(activePreviewRect.x + 4, activePreviewRect.y + 4, 300, 20),
                         Localization.GeneratingDetailPreview);
@@ -310,7 +303,7 @@ namespace VRCAvatarColorChanger
 
                         previewZoom = newZoom;
                         _lastDetailDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
-                        _detailAsyncGeneration++;
+                        _detailJob.Cancel();
                         e.Use();
                         Repaint();
                     }
@@ -345,7 +338,7 @@ namespace VRCAvatarColorChanger
                         previewScrollPos.x = Mathf.Max(0f, previewScrollPos.x);
                         previewScrollPos.y = Mathf.Max(0f, previewScrollPos.y);
                         _lastDetailDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
-                        _detailAsyncGeneration++;
+                        _detailJob.Cancel();
                         e.Use();
                         Repaint();
                     }
@@ -557,15 +550,6 @@ namespace VRCAvatarColorChanger
         {
             if (sourceTexture == null || !IsReadable(sourceTexture)) return;
 
-            // 前回のプレビュータスクをキャンセル
-            _previewCts?.Cancel();
-            _previewCts?.Dispose();
-            _previewCts = new CancellationTokenSource();
-            var token = _previewCts.Token;
-
-            _previewGenerating = true;
-            int myGen = _asyncGeneration;
-
             int srcW = sourceTexture.width;
             int srcH = sourceTexture.height;
 
@@ -624,10 +608,12 @@ namespace VRCAvatarColorChanger
             // バックグラウンドスレッドに渡す前にローカル変数として固定
             var srcPixelsForTask  = srcPixels;
             var rawDisplayForTask = rawDisplay;
+            float scaleForTask = scale;
+            int prevWForTask = prevW;
+            int prevHForTask = prevH;
 
-            System.Threading.Tasks.Task.Run(() =>
-            {
-                try
+            _previewJob.Schedule(
+                work: token =>
                 {
                     // すべての重い計算はバックグラウンドスレッドで実行されます。
                     // ここでは Unity Object API は呼ばれない — 純粋な C# 計算のみ。
@@ -637,39 +623,18 @@ namespace VRCAvatarColorChanger
                         0, 0, 0, 0, token,
                         useDecontam, decontamRadius);
 
-                    // キャンセルされた場合は結果を破棄
-                    token.ThrowIfCancellationRequested();
-
-                    // 新しいタスクに置き換えられた — 結果を静かに破棄。
-                    // CancellationToken によるキャンセルは上の ThrowIfCancellationRequestedで捕捉される。
-                    // myGen チェックは新準 Task に差し替えられた場合のガード。
-                    if (myGen != _asyncGeneration)
-                        return;
-
-                    Color32[] processedDisplay = scale < 1f
-                        ? PixelProcessor.BoxDownsample(pixels, srcW, srcH, prevW, prevH, scale)
+                    return scaleForTask < 1f
+                        ? PixelProcessor.BoxDownsample(pixels, srcW, srcH, prevWForTask, prevHForTask, scaleForTask)
                         : pixels;
-
+                },
+                apply: processedDisplay =>
+                {
                     _pendingRawDisplay       = rawDisplayForTask;
                     _pendingProcessedDisplay = processedDisplay;
-                    _pendingPrevW            = prevW;
-                    _pendingPrevH            = prevH;
-                }
-                catch (System.OperationCanceledException)
-                {
-                    // キャンセルされた — 結果を安全に破棄
-                }
-                finally
-                {
-                    // 現世代タスクの場合のみフラグをリセット。
-                    // 古いタスク（myGen != _asyncGeneration）が新タスクの _previewGenerating=true を
-                    // 上書きするレースを防ぐ。
-                    if (myGen == _asyncGeneration)
-                        _previewGenerating = false;
-                    if (!_asyncCancelled)
-                        UnityEditor.EditorApplication.delayCall += Repaint;
-                }
-            });
+                    _pendingPrevW            = prevWForTask;
+                    _pendingPrevH            = prevHForTask;
+                    Repaint();
+                });
         }
 
         private void ApplyPendingPreview()
@@ -702,7 +667,7 @@ namespace VRCAvatarColorChanger
 
             // Invalidate detail preview so it regenerates at the new crop
             _lastDetailDirtyTime = UnityEditor.EditorApplication.timeSinceStartup;
-            _detailAsyncGeneration++;
+            _detailJob.Cancel();
         }
 
         // ───────────────────────── Diff Texture ─────────────────────────

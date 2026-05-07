@@ -546,11 +546,10 @@ namespace VRCAvatarColorChanger
 
         private void OnDestroy()
         {
-            _asyncCancelled = true;  // stop background task from writing results or calling Repaint
-            // CancellationToken 経由でバックグラウンドタスクを即時中断。
-            // Cancel() 後も Dispose() するまでは OperationCanceledException を投げ続ける。
-            try { _previewCts?.Cancel(); } catch { /* ignore */ }
-            try { _detailCts?.Cancel();  } catch { /* ignore */ }
+            // PreviewJob 内部の CancellationToken でバックグラウンドタスクを即時中断し、
+            // 以降の apply / onError も _disposed フラグで抑止する。
+            _previewJob.Dispose();
+            _detailJob.Dispose();
             SaveMaskToSession();
             TextureSlot.Release(ref previewTexture);
             TextureSlot.Release(ref rawPreviewTexture);
