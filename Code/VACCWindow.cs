@@ -96,15 +96,31 @@ namespace VRCAvatarColorChanger
             _zonesProperty = _sessionProperty?.FindPropertyRelative(nameof(VACCSessionState.zones));
             EnsureAllZoneIds();
             _maskView.RestoreFromSession();
+            // Unity 標準 Undo の戻り/進みに合わせて bool[] バッファを _session.maskState から再展開
+            Undo.undoRedoPerformed += OnUndoRedoPerformed;
         }
 
         private void OnDisable()
         {
+            Undo.undoRedoPerformed -= OnUndoRedoPerformed;
             _maskView.SaveToSession();
             _sessionProperty = null;
             _zonesProperty = null;
             _windowSerializedObject?.Dispose();
             _windowSerializedObject = null;
+        }
+
+        private void OnUndoRedoPerformed()
+        {
+            // _session.maskState の RLE 文字列が Undo で書き戻されたので、
+            // bool[] バッファを再展開してオーバーレイ・プレビューを更新させる。
+            if (_maskView != null)
+            {
+                _maskView.SyncBuffersFromState();
+                _maskView.maskDirty = true;
+            }
+            MarkPreviewDirty();
+            Repaint();
         }
 
         private void ProcessPendingZoneChanges()
@@ -115,13 +131,19 @@ namespace VRCAvatarColorChanger
             {
                 int idx = _pendingRemoveZoneIndex;
                 _pendingRemoveZoneIndex = -1;
+                // bool[] バッファを _session.maskState に同期してから Undo 登録、削除後に再同期。
+                // これでゾーン削除1回 = Undo 1ステップで完全復元できる。
+                _maskView.SyncBuffersToState();
+                Undo.RegisterCompleteObjectUndo(this, "Remove Zone");
                 _maskView.OnZoneAboutToBeRemoved(idx);
                 zones.RemoveAt(idx);
+                _maskView.SyncBuffersToState();
                 MarkPreviewDirty();
             }
             if (_pendingAddZone)
             {
                 _pendingAddZone = false;
+                Undo.RegisterCompleteObjectUndo(this, "Add Zone");
                 var newZone = new ColorZone();
                 newZone.EnsureId();
                 zones.Add(newZone);
@@ -129,6 +151,7 @@ namespace VRCAvatarColorChanger
             }
             if (_pendingAdvancedMode.HasValue)
             {
+                Undo.RecordObject(this, "Toggle Advanced Mode");
                 advancedMode = _pendingAdvancedMode.Value;
                 _pendingAdvancedMode = null;
             }
@@ -136,7 +159,7 @@ namespace VRCAvatarColorChanger
 
         private void OnGUI()
         {
-            _maskView.HandleGlobalKeyboardShortcuts();
+            // Ctrl+Z / Ctrl+Y は Unity 標準 Undo に統合済みのため、独自処理は不要。
             ProcessPendingZoneChanges();
             DrawHeader();
 

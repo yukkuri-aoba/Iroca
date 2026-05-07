@@ -419,7 +419,8 @@ namespace VRCAvatarColorChanger
                     {
                         GUIUtility.hotControl = 0;
                         maskView.isPainting = false;
-                        maskView._maskStrokeStarted = false;
+                        // ストローク終了: bool[] バッファを _session.maskState に書き戻す。
+                        maskView.EndStroke();
                         maskView.lastPaintUV = -Vector2.one;
                         previewDirty = true;
                         e.Use();
@@ -522,11 +523,8 @@ namespace VRCAvatarColorChanger
         private void PaintAtScreenPos(Vector2 screenPos, Rect previewRect)
         {
             var maskView = _host._maskView;
-            if (!maskView._maskStrokeStarted)
-            {
-                maskView.PushMaskUndo();
-                maskView._maskStrokeStarted = true;
-            }
+            // ストローク開始時に1度だけ Unity Undo を登録する。
+            maskView.BeginStroke();
 
             float u = (screenPos.x - previewRect.x) / previewRect.width;
             float v = 1f - (screenPos.y - previewRect.y) / previewRect.height;

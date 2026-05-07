@@ -36,11 +36,8 @@ namespace VRCAvatarColorChanger
         [System.NonSerialized] public bool isPainting;
         [System.NonSerialized] public Vector2 lastPaintUV = -Vector2.one;
 
-        // 除外マスク元に戻す履歴（最大30ステップ）
-        // ターゲットキー: "__common__" または zone.id
-        [System.NonSerialized] private readonly List<MaskUndoEntry> _undoMaskHistory = new List<MaskUndoEntry>();
+        // ストローク中フラグ（同一ストロークで二重 Undo 登録しないため）
         [System.NonSerialized] public bool _maskStrokeStarted;
-        private const int UndoMaskLimit = 30;
 
         // 共通マスク用のターゲットキー（SessionState キーにも使う）
         public const string CommonMaskKey = "__common__";
@@ -50,37 +47,9 @@ namespace VRCAvatarColorChanger
 
         [System.NonSerialized] private VACCWindow _host;
 
-        private struct MaskUndoEntry
-        {
-            public string targetKey; // CommonMaskKey or zone.id
-            public bool[] snapshot;  // null = マスク未確保状態
-        }
-
         public void Initialize(VACCWindow host)
         {
             _host = host;
-        }
-
-        public bool HasUndoHistory => _undoMaskHistory.Count > 0;
-
-        // ─────────────────────── キーボードショートカット ───────────────────────
-
-        /// <summary>
-        /// OnGUI の先頭で呼ばれるグローバルキーボードショートカット処理。
-        /// プレビュー領域の外でも Ctrl+Z でマスクを元に戻せるようにする。
-        /// テキストフィールドなど他のコントロールが入力中の場合は干渉しない
-        /// （EditorGUIUtility.editingTextField で判定）。
-        /// </summary>
-        public void HandleGlobalKeyboardShortcuts()
-        {
-            Event e = Event.current;
-            if (e == null || e.type != EventType.KeyDown) return;
-            if (EditorGUIUtility.editingTextField) return;
-            if (e.control && e.keyCode == KeyCode.Z && !isPainting && _undoMaskHistory.Count > 0)
-            {
-                UndoMaskStep();
-                e.Use();
-            }
         }
 
         // ─────────────────────── 除外マスク UI ───────────────────────
@@ -130,16 +99,20 @@ namespace VRCAvatarColorChanger
 
             if (GUILayout.Button(new GUIContent(Localization.ClearMask, Localization.ClearMaskTooltip)))
             {
-                PushMaskUndo();
+                // bool[] バッファを _session.maskState に同期してから Undo 登録、クリア後に再同期。
+                SyncBuffersToState();
+                Undo.RegisterCompleteObjectUndo(_host, "Clear Mask");
                 ClearActiveMask();
+                SyncBuffersToState();
                 maskDirty = true;
                 _host.MarkPreviewDirty();
             }
 
-            EditorGUI.BeginDisabledGroup(_undoMaskHistory.Count == 0);
+            // Unity 標準 Undo に統合済みのため、専用ボタンは PerformUndo の薄いショートカットとして残す。
             if (GUILayout.Button(new GUIContent(Localization.UndoMask, Localization.UndoMaskTooltip)))
-                UndoMaskStep();
-            EditorGUI.EndDisabledGroup();
+            {
+                Undo.PerformUndo();
+            }
 
             EditorGUILayout.HelpBox(
                 maskPaintActive ? Localization.MaskHint : Localization.MaskHintPaintOff,
@@ -408,72 +381,31 @@ namespace VRCAvatarColorChanger
                 100);
         }
 
-        // ───────────────────────── Mask Undo ────────────────────────────
+        // ───────────────────────── Mask Stroke Undo ────────────────────────────
 
-        public void PushMaskUndo()
+        /// <summary>
+        /// ペイントストローク開始時に呼び、ストローク前の状態を Unity Undo に登録する。
+        /// 同一ストローク内で複数回呼ばれても _maskStrokeStarted で抑止される。
+        /// </summary>
+        public void BeginStroke()
         {
-            string key = GetActiveTargetKey();
-            bool[] current = GetCurrentArrayForKey(key);
-            bool[] snapshot = current != null ? (bool[])current.Clone() : null;
-            _undoMaskHistory.Add(new MaskUndoEntry { targetKey = key, snapshot = snapshot });
-            if (_undoMaskHistory.Count > UndoMaskLimit)
-                _undoMaskHistory.RemoveAt(0);
+            if (_maskStrokeStarted) return;
+            // bool[] バッファの内容を _session.maskState に書き戻してから Undo 登録すれば、
+            // 戻し操作でストローク開始前の状態に確実に復元できる。
+            SyncBuffersToState();
+            Undo.RegisterCompleteObjectUndo(_host, "Paint Mask Stroke");
+            _maskStrokeStarted = true;
         }
 
-        private bool[] GetCurrentArrayForKey(string key)
+        /// <summary>
+        /// ペイントストローク終了時に呼び、ストローク後の bool[] を _session.maskState へ反映する。
+        /// 次回の Undo でストローク開始前へ戻すための「変更後の状態」が確定する。
+        /// </summary>
+        public void EndStroke()
         {
-            if (key == CommonMaskKey) return exclusionMask;
-            if (!string.IsNullOrEmpty(key) && zoneMasks.TryGetValue(key, out var zm)) return zm;
-            return null;
-        }
-
-        private void SetArrayForKey(string key, bool[] arr)
-        {
-            if (key == CommonMaskKey)
-            {
-                exclusionMask = arr;
-            }
-            else if (!string.IsNullOrEmpty(key))
-            {
-                if (arr == null) zoneMasks.Remove(key);
-                else zoneMasks[key] = arr;
-            }
-        }
-
-        private void UndoMaskStep()
-        {
-            if (_undoMaskHistory.Count == 0) return;
-            var entry = _undoMaskHistory[_undoMaskHistory.Count - 1];
-            _undoMaskHistory.RemoveAt(_undoMaskHistory.Count - 1);
-
-            SetArrayForKey(entry.targetKey, entry.snapshot);
-
-            // アクティブターゲットも巻き戻した対象に合わせる
-            var zones = _host.Session.zones;
-            if (entry.targetKey == CommonMaskKey)
-            {
-                activeMaskTarget = -1;
-            }
-            else if (zones != null)
-            {
-                for (int i = 0; i < zones.Count; i++)
-                {
-                    if (zones[i] != null && zones[i].id == entry.targetKey)
-                    {
-                        activeMaskTarget = i;
-                        break;
-                    }
-                }
-            }
-
-            maskDirty = true;
-            _host.MarkPreviewDirty();
-            _host.RequestRepaint();
-        }
-
-        public void ClearUndoHistory()
-        {
-            _undoMaskHistory.Clear();
+            if (!_maskStrokeStarted) return;
+            SyncBuffersToState();
+            _maskStrokeStarted = false;
         }
 
         // ───────────────────────── Mask Persistence ────────────────────
@@ -686,7 +618,6 @@ namespace VRCAvatarColorChanger
         {
             exclusionMask = null;
             zoneMasks.Clear();
-            _undoMaskHistory.Clear();
         }
 
         // ─────────────────────── Encode / Decode ────────────────────
@@ -853,7 +784,6 @@ namespace VRCAvatarColorChanger
                 }
             }
 
-            _undoMaskHistory.Clear();
             SaveToSession();
         }
 
