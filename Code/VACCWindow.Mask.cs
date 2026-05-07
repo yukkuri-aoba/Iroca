@@ -11,17 +11,22 @@ namespace VRCAvatarColorChanger
         // 処理時はピクセルごとに「共通マスクで除外」OR「そのゾーンの個別マスクで除外」と
         // なった場合に当該ゾーンの再色付けをスキップする。
         //
-        // サイズが大きいため、マスクそのものは SerializeField せず
-        // SessionState 経由で bitpack + Base64 文字列として永続化する。
+        // 永続表現は _session.maskState（RLE エンコード文字列）。
+        // bool[] バッファは実行時の編集用に展開され、ストローク終了時や保存時に
+        // RLE 文字列へエンコードして _session.maskState に書き戻す。
+        // 加えて SessionState 経由でも保存し、Editor 再起動を跨いだ復元を可能にする
+        // （Phase 6 で MaskFileStore 化予定）。
         // ─────────────────────────────────────────────────────────────
 
         // 共通マスク（フル解像度、true = 除外）。全ゾーンに適用される。
-        private bool[] exclusionMask;
-        private int maskWidth, maskHeight;
+        // _session.maskState.commonMaskBase64 から展開された実行時バッファ。
+        [System.NonSerialized] private bool[] exclusionMask;
+        [System.NonSerialized] private int maskWidth, maskHeight;
 
         // ゾーン別マスク: key = ColorZone.id。配列サイズは maskWidth * maskHeight。
         // 値が null のエントリは持たない（存在しない = 全ピクセル非除外扱い）。
-        private Dictionary<string, bool[]> zoneMasks = new Dictionary<string, bool[]>();
+        // _session.maskState.zones から展開された実行時バッファ。
+        [System.NonSerialized] private Dictionary<string, bool[]> zoneMasks = new Dictionary<string, bool[]>();
 
         // どのマスクを編集対象にするか。-1 = 共通マスク、0 以上 = zones[index]。
         [SerializeField] private int activeMaskTarget = -1;
@@ -496,11 +501,17 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
-        /// 現在の全マスク（共通 + 各ゾーン）を SessionState に保存する。
+        /// 現在の全マスク（共通 + 各ゾーン）を SessionState に保存し、
+        /// 同時に _session.maskState を bool[] バッファの内容で更新する。
         /// 全 false のゾーンマスクは書き出さない。
         /// </summary>
         private void SaveMaskToSession()
         {
+            // bool[] バッファを _session.maskState（RLE 文字列）に書き戻す。
+            // Unity の SerializedObject 経由の Undo 連携や Editor 再起動を跨いだ復元の
+            // 永続的な源として MaskState を使う。
+            SyncMaskBuffersToState();
+
             string path = MaskSessionPathKey();
             if (path == null) return;
 
@@ -537,6 +548,69 @@ namespace VRCAvatarColorChanger
             }
 
             SessionState.SetString(MaskIndexSessionKey(path), JsonUtility.ToJson(idx));
+        }
+
+        /// <summary>
+        /// 現在の bool[] バッファ（exclusionMask / zoneMasks）の内容を
+        /// RLE エンコードして _session.maskState に書き戻す。
+        /// 全 false のゾーンマスクは MaskState には含めない。
+        /// </summary>
+        private void SyncMaskBuffersToState()
+        {
+            if (_session == null) return;
+            var ms = _session.maskState ?? (_session.maskState = new MaskState());
+            ms.width = maskWidth;
+            ms.height = maskHeight;
+
+            ms.commonMaskBase64 = (exclusionMask != null && AnyTrue(exclusionMask))
+                ? EncodeMask(exclusionMask, maskWidth, maskHeight)
+                : "";
+
+            ms.zones.Clear();
+            foreach (var kv in zoneMasks)
+            {
+                if (string.IsNullOrEmpty(kv.Key) || kv.Value == null || !AnyTrue(kv.Value)) continue;
+                ms.zones.Add(new MaskZoneEntry
+                {
+                    zoneId = kv.Key,
+                    maskBase64 = EncodeMask(kv.Value, maskWidth, maskHeight),
+                });
+            }
+        }
+
+        /// <summary>
+        /// _session.maskState（RLE 文字列）を bool[] バッファに展開する。
+        /// Phase 4c で Undo / Redo 後の bool[] 再構築に利用する。
+        /// </summary>
+        private void SyncMaskBuffersFromState()
+        {
+            if (_session == null || _session.maskState == null) return;
+            var ms = _session.maskState;
+
+            exclusionMask = null;
+            zoneMasks.Clear();
+
+            if (ms.width <= 0 || ms.height <= 0) return;
+            maskWidth = ms.width;
+            maskHeight = ms.height;
+
+            if (!string.IsNullOrEmpty(ms.commonMaskBase64))
+            {
+                var arr = DecodeMask(ms.commonMaskBase64, out int w, out int h);
+                if (arr != null && w == maskWidth && h == maskHeight)
+                    exclusionMask = arr;
+            }
+
+            if (ms.zones != null)
+            {
+                foreach (var entry in ms.zones)
+                {
+                    if (entry == null || string.IsNullOrEmpty(entry.zoneId)) continue;
+                    var arr = DecodeMask(entry.maskBase64, out int w, out int h);
+                    if (arr != null && w == maskWidth && h == maskHeight)
+                        zoneMasks[entry.zoneId] = arr;
+                }
+            }
         }
 
         /// <summary>
@@ -591,6 +665,8 @@ namespace VRCAvatarColorChanger
                         if (arr != null) zoneMasks[zid] = arr;
                     }
                 }
+                // _session.maskState を bool[] バッファの内容で更新（Undo / 再コンパイル耐性）
+                SyncMaskBuffersToState();
                 maskDirty = true;
                 return;
             }

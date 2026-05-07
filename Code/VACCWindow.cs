@@ -12,29 +12,29 @@ namespace VRCAvatarColorChanger
         // [SerializeField] を付けることで、スクリプト再コンパイル時に Unity が
         // EditorWindow の状態をシリアライズ/復元し、入力内容が失われにくくなる。
         [SerializeField] private Texture2D sourceTexture;
-        [SerializeField] private List<ColorZone> zones = new List<ColorZone>();
         private Vector2 scrollPos;
         [SerializeField] private bool saveAsNewFile = true;
         [SerializeField] private string newFileName = "";
         [SerializeField] private bool inheritImportSettings = true;
 
-        // Processing settings
-        [SerializeField] private float edgeFeather = 0f;
-        [SerializeField] private int antiAliasCleanup = 3;
+        // 編集状態（ゾーン定義・処理パラメータ・マスク状態）。
+        // Phase 4a で個別 [SerializeField] フィールド群から VACCSessionState に集約。
+        [SerializeField] private VACCSessionState _session = VACCSessionState.CreateDefault();
 
-        // Edge decontamination (alpha matting): AA境界での halo を構造的に除去する。
-        // dev_safe/docs/edge_decontamination.md を参照。
-        [SerializeField] private bool useDecontamination = true;
-        [SerializeField] private int decontaminationRadius = 4;
-
-        // アドバンスモード
-        [SerializeField] private bool advancedMode;
-        // 既定 5: バンダナ装飾の細かい三角形など 6px 程度までの細部の取りこぼしを抑える。
-        // 必要なら IntSlider で 0..10 に調整可能。
-        [SerializeField] private int holeFillPasses = 5;
-        [SerializeField] private int holeFillMinNeighbors = 4;
-        [SerializeField] private float relaxedSatMin = 0.02f;
-        [SerializeField] private float relaxedSatRamp = 0.08f;
+        // ── _session への薄いアクセサ ──
+        // Phase 4a では partial class 内のコードに最小限の変更で済むよう、
+        // 既存フィールド名と同じプロパティ経由で _session 内のフィールドへアクセスする。
+        // Phase 4b で View 分離する際、これらのプロパティは _session.xxx の直接参照へ置換される。
+        private List<ColorZone> zones { get => _session.zones; set => _session.zones = value; }
+        private float edgeFeather { get => _session.edgeFeather; set => _session.edgeFeather = value; }
+        private int antiAliasCleanup { get => _session.antiAliasCleanup; set => _session.antiAliasCleanup = value; }
+        private bool useDecontamination { get => _session.useDecontamination; set => _session.useDecontamination = value; }
+        private int decontaminationRadius { get => _session.decontaminationRadius; set => _session.decontaminationRadius = value; }
+        private bool advancedMode { get => _session.advancedMode; set => _session.advancedMode = value; }
+        private int holeFillPasses { get => _session.holeFillPasses; set => _session.holeFillPasses = value; }
+        private int holeFillMinNeighbors { get => _session.holeFillMinNeighbors; set => _session.holeFillMinNeighbors = value; }
+        private float relaxedSatMin { get => _session.relaxedSatMin; set => _session.relaxedSatMin = value; }
+        private float relaxedSatRamp { get => _session.relaxedSatRamp; set => _session.relaxedSatRamp = value; }
 
         // Foldouts
         [SerializeField] private bool zonesFoldout = true;
@@ -65,6 +65,7 @@ namespace VRCAvatarColorChanger
 
         private void OnEnable()
         {
+            _session ??= VACCSessionState.CreateDefault();
             EnsureAllZoneIds();
             RestoreMaskFromSession();
         }
