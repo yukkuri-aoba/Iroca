@@ -5,8 +5,11 @@ namespace VRCAvatarColorChanger
 {
     /// <summary>
     /// EditorGUILayout の各コントロールに「変更前の状態を Unity の Undo に登録する」
-    /// 振る舞いを足したラッパ群。新しい値が古い値と異なる場合のみ Undo.RecordObject を呼ぶ。
-    /// Undo 名は同一フレーム内で同じ名前なら 1 ステップに合流するため、連続スライダー操作も
+    /// 振る舞いを足したラッパ群。
+    /// 内側で EditorGUILayout を呼んで戻り値 n を取得し、入力 value と異なれば
+    /// その時点（呼び出し側の代入前）で Undo.RecordObject(host, ...) を呼ぶ。
+    /// 呼び出し側でまだ代入が行われていないため、host の状態は「変更前」が記録される。
+    /// 同一フレーム内・同一 Undo 名なら 1 ステップに合流するため、連続スライダー操作も
     /// 1 ステップで戻せる。
     /// </summary>
     internal static class UndoHelper
@@ -16,6 +19,13 @@ namespace VRCAvatarColorChanger
         public static float Slider(Object host, GUIContent content, float value, float min, float max, string undoName = DefaultUndoName)
         {
             float n = EditorGUILayout.Slider(content, value, min, max);
+            if (!Mathf.Approximately(n, value)) Undo.RecordObject(host, undoName);
+            return n;
+        }
+
+        public static float Slider(Object host, string label, float value, float min, float max, string undoName = DefaultUndoName)
+        {
+            float n = EditorGUILayout.Slider(label, value, min, max);
             if (!Mathf.Approximately(n, value)) Undo.RecordObject(host, undoName);
             return n;
         }
@@ -41,9 +51,9 @@ namespace VRCAvatarColorChanger
             return n;
         }
 
-        public static bool ToggleLeft(Object host, GUIContent content, bool value)
+        public static bool ToggleLeft(Object host, GUIContent content, bool value, params GUILayoutOption[] options)
         {
-            bool n = EditorGUILayout.Toggle(value, GUILayout.Width(16));
+            bool n = EditorGUILayout.ToggleLeft(content, value, options);
             if (n != value) Undo.RecordObject(host, DefaultUndoName);
             return n;
         }
@@ -55,29 +65,25 @@ namespace VRCAvatarColorChanger
             return n;
         }
 
-        public static string TextField(Object host, GUIContent content, string value)
+        public static string TextField(Object host, GUIContent content, string value, params GUILayoutOption[] options)
         {
-            string n = EditorGUILayout.TextField(content, value);
+            string n = EditorGUILayout.TextField(content, value, options);
             if (n != value) Undo.RecordObject(host, DefaultUndoName);
-            return n;
-        }
-
-        public static System.Enum EnumPopup(Object host, GUIContent content, System.Enum value)
-        {
-            var n = EditorGUILayout.EnumPopup(content, value);
-            if (!System.Object.Equals(n, value)) Undo.RecordObject(host, DefaultUndoName);
             return n;
         }
 
         public static T EnumPopup<T>(Object host, GUIContent content, T value) where T : System.Enum
         {
-            return (T)EnumPopup(host, content, (System.Enum)value);
+            var n = (T)EditorGUILayout.EnumPopup(content, value);
+            if (!System.Object.Equals(n, value)) Undo.RecordObject(host, DefaultUndoName);
+            return n;
         }
 
-        public static Rect RectField(Object host, Rect value, float minXY, float maxXY)
+        public static T ObjectField<T>(Object host, GUIContent content, T value, bool allowSceneObjects) where T : Object
         {
-            // Slider ベースで X/Y/W/H を出すパターンは直接呼び出し側で UndoHelper.Slider を 4 回使う想定。
-            return value;
+            T n = (T)EditorGUILayout.ObjectField(content, value, typeof(T), allowSceneObjects);
+            if (n != value) Undo.RecordObject(host, DefaultUndoName);
+            return n;
         }
     }
 }

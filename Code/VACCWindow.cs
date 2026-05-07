@@ -271,6 +271,7 @@ namespace VRCAvatarColorChanger
             if (newTex != sourceTexture)
             {
                 _maskView.SaveToSession();                   // persist mask for old texture
+                Undo.RecordObject(this, "Change Source Texture");
                 sourceTexture = newTex;
                 MarkPreviewDirty();
                 // テクスチャが変わったのでソースピクセルキャッシュを無効化
@@ -317,16 +318,16 @@ namespace VRCAvatarColorChanger
 
                 // Header row
                 EditorGUILayout.BeginHorizontal();
-                zone.enabled = EditorGUILayout.ToggleLeft(
+                zone.enabled = UndoHelper.ToggleLeft(this,
                     new GUIContent("", Localization.ZoneEnabledTooltip),
                     zone.enabled, GUILayout.Width(16));
-                zone.name = EditorGUILayout.TextField(
+                zone.name = UndoHelper.TextField(this,
                     new GUIContent("", Localization.ZoneNameTooltip),
                     zone.name);
                 EditorGUILayout.LabelField(
                     new GUIContent(Localization.LayerIndex, Localization.LayerIndexTooltip),
                     GUILayout.Width(14));
-                zone.layerIndex = Mathf.Max(0, EditorGUILayout.IntField(zone.layerIndex, GUILayout.Width(30)));
+                zone.layerIndex = Mathf.Max(0, UndoHelper.IntField(this, zone.layerIndex, GUILayout.Width(30)));
                 if (GUILayout.Button(new GUIContent("×", Localization.RemoveZoneTooltip), GUILayout.Width(VACCConsts.Layout.RemoveButtonWidth)))
                 {
                     removeIndex = i;
@@ -349,22 +350,22 @@ namespace VRCAvatarColorChanger
                     GUI.backgroundColor = prevBg;
                 }
 
-                zone.mode = (SelectionMode)EditorGUILayout.EnumPopup(
+                zone.mode = UndoHelper.EnumPopup(this,
                     new GUIContent(Localization.SelectionMode, Localization.SelectionModeTooltip),
                     zone.mode);
 
                 if (zone.mode == SelectionMode.ColorPick)
                 {
-                    zone.sampleColor = EditorGUILayout.ColorField(
+                    zone.sampleColor = UndoHelper.ColorField(this,
                         new GUIContent(Localization.SampleColor, Localization.SampleColorTooltip),
                         zone.sampleColor);
-                    zone.tolerance = EditorGUILayout.Slider(
+                    zone.tolerance = UndoHelper.Slider(this,
                         new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
                         zone.tolerance, 0f, 1f);
 
                     // ─── Flood Fill UI ───
                     EditorGUILayout.Space(2);
-                    zone.useFloodFill = EditorGUILayout.Toggle(
+                    zone.useFloodFill = UndoHelper.Toggle(this,
                         new GUIContent(Localization.UseFloodFill, Localization.UseFloodFillTooltip),
                         zone.useFloodFill);
 
@@ -383,15 +384,14 @@ namespace VRCAvatarColorChanger
                                 new GUIContent(Localization.FloodFillClear, Localization.FloodFillClearTooltip),
                                 GUILayout.Width(52)))
                             {
+                                Undo.RecordObject(this, "Clear Flood Fill Seed");
                                 zone.seedUV = new UnityEngine.Vector2(-1f, -1f);
-                                // previewDirty は外側の BeginChangeCheck/EndChangeCheck で
-                                // ボタンクリックを検知して立つため、ここで明示しない。
                             }
                             EditorGUILayout.EndHorizontal();
 
                             if (advancedMode)
                             {
-                                zone.edgeStopThreshold = EditorGUILayout.Slider(
+                                zone.edgeStopThreshold = UndoHelper.Slider(this,
                                     new GUIContent(Localization.EdgeStopThreshold, Localization.EdgeStopThresholdTooltip),
                                     zone.edgeStopThreshold, 0f, 0.5f);
                             }
@@ -404,53 +404,53 @@ namespace VRCAvatarColorChanger
                         new GUIContent(Localization.UVRect, Localization.UVRectTooltip));
                     using (new EditorGUI.IndentLevelScope())
                     {
-                        float x = EditorGUILayout.Slider("X", zone.uvRect.x, 0f, 1f);
-                        float y = EditorGUILayout.Slider("Y", zone.uvRect.y, 0f, 1f);
-                        float w = EditorGUILayout.Slider("W", zone.uvRect.width, 0f, 1f);
-                        float h = EditorGUILayout.Slider("H", zone.uvRect.height, 0f, 1f);
+                        float x = UndoHelper.Slider(this, "X", zone.uvRect.x, 0f, 1f);
+                        float y = UndoHelper.Slider(this, "Y", zone.uvRect.y, 0f, 1f);
+                        float w = UndoHelper.Slider(this, "W", zone.uvRect.width, 0f, 1f);
+                        float h = UndoHelper.Slider(this, "H", zone.uvRect.height, 0f, 1f);
                         zone.uvRect = new Rect(x, y, w, h);
                     }
                 }
 
-                zone.targetColor = EditorGUILayout.ColorField(
+                zone.targetColor = UndoHelper.ColorField(this,
                     new GUIContent(Localization.TargetColor, Localization.TargetColorTooltip),
                     zone.targetColor);
-                zone.valueBlend = EditorGUILayout.Slider(
+                zone.valueBlend = UndoHelper.Slider(this,
                     new GUIContent(Localization.PatternPreserve, Localization.PatternPreserveTooltip),
                     zone.valueBlend, 0f, 1f);
-                zone.edgeSoftness = EditorGUILayout.Slider(
+                zone.edgeSoftness = UndoHelper.Slider(this,
                     new GUIContent(Localization.EdgeSoftness, Localization.EdgeSoftnessTooltip),
                     zone.edgeSoftness, 0f, 1f);
-                zone.saturationStrictness = EditorGUILayout.Slider(
+                zone.saturationStrictness = UndoHelper.Slider(this,
                     new GUIContent(Localization.SaturationStrictness, Localization.SaturationStrictnessTooltip),
                     zone.saturationStrictness, 0f, 1f);
 
-                zone.highlightRecovery = EditorGUILayout.Toggle(
+                zone.highlightRecovery = UndoHelper.Toggle(this,
                     new GUIContent(Localization.HighlightRecovery, Localization.HighlightRecoveryTooltip),
                     zone.highlightRecovery);
 
                 EditorGUILayout.Space(2);
                 EditorGUILayout.LabelField(Localization.IsJapanese ? "=== シャドウ・ハイライト詳細設定 ===" : "=== Shadow/Highlight Details ===", EditorStyles.boldLabel);
 
-                zone.shadowDesaturation = EditorGUILayout.Slider(
+                zone.shadowDesaturation = UndoHelper.Slider(this,
                     new GUIContent(Localization.ShadowDesaturation, Localization.ShadowDesaturationTooltip),
                     zone.shadowDesaturation, 0f, 1f);
-                zone.shadowForgivenessSatMin = EditorGUILayout.Slider(
+                zone.shadowForgivenessSatMin = UndoHelper.Slider(this,
                     new GUIContent(Localization.ShadowForgivenessSatMin, Localization.ShadowForgivenessSatMinTooltip),
                     zone.shadowForgivenessSatMin, 0f, 1f);
-                zone.chromaThreshold = EditorGUILayout.Slider(
+                zone.chromaThreshold = UndoHelper.Slider(this,
                     new GUIContent(Localization.IsJapanese ? "自動しきい値(無彩色判定)" : "Auto Grayscale Threshold", Localization.IsJapanese ? "スポイトで取ったサンプルの彩度がこの値以下の場合は、自動的に【無彩色(黒/グレー)】として認識され、色相を無視して綺麗に抽出します。" : "If the sample saturation is below this value, it automatically ignores hue and extracts pure grayscale nicely."),
                     zone.chromaThreshold, 0f, 1f);
 
                 if (advancedMode)
                 {
-                    zone.valueWeight = EditorGUILayout.Slider(
+                    zone.valueWeight = UndoHelper.Slider(this,
                         new GUIContent(Localization.ValueWeight, Localization.ValueWeightTooltip),
                         zone.valueWeight, 0f, 1f);
-                    zone.satDistWeight = EditorGUILayout.Slider(
+                    zone.satDistWeight = UndoHelper.Slider(this,
                         new GUIContent(Localization.SatDistWeight, Localization.SatDistWeightTooltip),
                         zone.satDistWeight, 0f, 1f);
-                    zone.satRampScale = EditorGUILayout.Slider(
+                    zone.satRampScale = UndoHelper.Slider(this,
                         new GUIContent(Localization.SatRampScale, Localization.SatRampScaleTooltip),
                         zone.satRampScale, 0.01f, 0.5f);
                 }
@@ -486,15 +486,15 @@ namespace VRCAvatarColorChanger
                 return;
             }
 
-            edgeFeather = EditorGUILayout.Slider(
+            edgeFeather = UndoHelper.Slider(this,
                 new GUIContent(Localization.EdgeFeather, Localization.EdgeFeatherTooltip),
                 edgeFeather, 0f, 5f);
 
-            antiAliasCleanup = EditorGUILayout.IntSlider(
+            antiAliasCleanup = UndoHelper.IntSlider(this,
                 new GUIContent(Localization.AntiAliasCleanup, Localization.AntiAliasCleanupTooltip),
                 antiAliasCleanup, 0, 5);
 
-            useDecontamination = EditorGUILayout.Toggle(
+            useDecontamination = UndoHelper.Toggle(this,
                 new GUIContent(Localization.UseDecontamination, Localization.UseDecontaminationTooltip),
                 useDecontamination);
 
@@ -503,6 +503,8 @@ namespace VRCAvatarColorChanger
                 advancedMode);
             if (newAdvancedMode != advancedMode)
             {
+                // 切替は ProcessPendingZoneChanges 経由で適用されるため、
+                // ここでは Undo 登録せず保留フラグだけ立てる（ProcessPendingZoneChanges 側で登録される）。
                 _pendingAdvancedMode = newAdvancedMode;
                 Repaint();
             }
@@ -511,21 +513,21 @@ namespace VRCAvatarColorChanger
             {
                 using (new EditorGUI.IndentLevelScope())
                 {
-                    holeFillPasses = EditorGUILayout.IntSlider(
+                    holeFillPasses = UndoHelper.IntSlider(this,
                         new GUIContent(Localization.HoleFillPasses, Localization.HoleFillPassesTooltip),
                         holeFillPasses, 0, 10);
-                    holeFillMinNeighbors = EditorGUILayout.IntSlider(
+                    holeFillMinNeighbors = UndoHelper.IntSlider(this,
                         new GUIContent(Localization.HoleFillMinNeighbors, Localization.HoleFillMinNeighborsTooltip),
                         holeFillMinNeighbors, 1, 8);
-                    relaxedSatMin = EditorGUILayout.Slider(
+                    relaxedSatMin = UndoHelper.Slider(this,
                         new GUIContent(Localization.RelaxedSatMin, Localization.RelaxedSatMinTooltip),
                         relaxedSatMin, 0f, 0.2f);
-                    relaxedSatRamp = EditorGUILayout.Slider(
+                    relaxedSatRamp = UndoHelper.Slider(this,
                         new GUIContent(Localization.RelaxedSatRamp, Localization.RelaxedSatRampTooltip),
                         relaxedSatRamp, 0.01f, 0.3f);
                     using (new EditorGUI.DisabledScope(!useDecontamination))
                     {
-                        decontaminationRadius = EditorGUILayout.IntSlider(
+                        decontaminationRadius = UndoHelper.IntSlider(this,
                             new GUIContent(Localization.DecontaminationRadius, Localization.DecontaminationRadiusTooltip),
                             decontaminationRadius, 1, 12);
                     }
