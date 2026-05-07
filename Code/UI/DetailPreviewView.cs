@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
@@ -33,6 +34,11 @@ namespace VRCAvatarColorChanger
 
         // 永続的な詳細クロップ原点（詳細プレビュー適用時に設定、レンダラーで読み取られます）
         [System.NonSerialized] public int detailOriginX, detailOriginY;
+
+        // Diff テクスチャ生成（バックグラウンド）
+        [System.NonSerialized] private readonly PreviewJob<Color32[]> _diffJob = new PreviewJob<Color32[]>();
+        [System.NonSerialized] private Color32[] _pendingDetailDiffPixels;
+        [System.NonSerialized] private int _pendingDetailDiffW, _pendingDetailDiffH;
 
         [System.NonSerialized] private VACCWindow _host;
 
@@ -197,30 +203,51 @@ namespace VRCAvatarColorChanger
             rawDetailPreviewTexture.SetPixels32(raw);
             rawDetailPreviewTexture.Apply();
 
-            BuildDetailDiffTexture(rawDetailPreviewTexture, detailPreviewTexture, w, h);
+            // Color32[] が手元にあるのでそのままバックグラウンド diff へ。GetPixels32 を再度呼ばない。
+            ScheduleDetailDiffTexture(raw, processed, w, h);
 
             RebuildDetailMaskOverlay(w, h, ox, oy, fw, fh);
         }
 
-        private void BuildDetailDiffTexture(Texture2D before, Texture2D after, int w, int h)
+        private void ScheduleDetailDiffTexture(Color32[] before, Color32[] after, int w, int h)
         {
-            if (before == null || after == null) return;
-            TextureSlot.Resize(ref detailDiffTexture, w, h, FilterMode.Point);
+            if (before == null || after == null || before.Length != w * h || after.Length != w * h) return;
+            int capW = w, capH = h;
+            _diffJob.Schedule(
+                work: token => BuildDetailDiffPixels(before, after, capW, capH, token),
+                apply: result =>
+                {
+                    _pendingDetailDiffPixels = result;
+                    _pendingDetailDiffW = capW;
+                    _pendingDetailDiffH = capH;
+                    _host.RequestRepaint();
+                });
+        }
 
-            Color32[] a = before.GetPixels32();
-            Color32[] b = after.GetPixels32();
-            Color32[] d = new Color32[w * h];
+        private static Color32[] BuildDetailDiffPixels(Color32[] a, Color32[] b, int w, int h, CancellationToken token)
+        {
+            var d = new Color32[w * h];
             var highlight = new Color32(255, 220, 0, 160);
-            var clear     = new Color32(0, 0, 0, 0);
             for (int i = 0; i < d.Length; i++)
             {
                 int diff = Mathf.Abs(a[i].r - b[i].r)
                          + Mathf.Abs(a[i].g - b[i].g)
                          + Mathf.Abs(a[i].b - b[i].b);
-                d[i] = diff > 10 ? highlight : clear;
+                if (diff > 10) d[i] = highlight;
+                if ((i & 0x7FFF) == 0) token.ThrowIfCancellationRequested();
             }
+            return d;
+        }
 
-            detailDiffTexture.SetPixels32(d);
+        public void ApplyPendingDiff()
+        {
+            if (_pendingDetailDiffPixels == null) return;
+            var pixels = _pendingDetailDiffPixels;
+            int w = _pendingDetailDiffW, h = _pendingDetailDiffH;
+            _pendingDetailDiffPixels = null;
+
+            TextureSlot.Resize(ref detailDiffTexture, w, h, FilterMode.Point);
+            detailDiffTexture.SetPixels32(pixels);
             detailDiffTexture.Apply();
         }
 
@@ -289,6 +316,8 @@ namespace VRCAvatarColorChanger
         public void Dispose()
         {
             detailJob.Dispose();
+            _diffJob.Dispose();
+            _pendingDetailDiffPixels = null;
             TextureSlot.Release(ref detailPreviewTexture);
             TextureSlot.Release(ref rawDetailPreviewTexture);
             TextureSlot.Release(ref detailMaskOverlayTexture);

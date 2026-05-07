@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
@@ -30,6 +31,11 @@ namespace VRCAvatarColorChanger
         [System.NonSerialized] private int _pendingPrevW, _pendingPrevH;
         [System.NonSerialized] private double _lastDirtyTime;
         private const double PreviewDebounceSeconds = 0.2;
+
+        // Diff テクスチャ生成: ピクセル比較はバックグラウンドへ、SetPixels32/Apply はメインスレッド。
+        [System.NonSerialized] private readonly PreviewJob<Color32[]> _diffJob = new PreviewJob<Color32[]>();
+        [System.NonSerialized] private Color32[] _pendingDiffPixels;
+        [System.NonSerialized] private int _pendingDiffW, _pendingDiffH;
 
         // ソースピクセルキャッシュ（テクスチャが変わったときのみ再取得）
         [System.NonSerialized] private Texture2D _cachedSourceTexture;
@@ -68,7 +74,9 @@ namespace VRCAvatarColorChanger
         public void Dispose()
         {
             _previewJob.Dispose();
+            _diffJob.Dispose();
             _detailView?.Dispose();
+            _pendingDiffPixels = null;
             TextureSlot.Release(ref previewTexture);
             TextureSlot.Release(ref rawPreviewTexture);
             TextureSlot.Release(ref diffTexture);
@@ -94,9 +102,13 @@ namespace VRCAvatarColorChanger
             if (_pendingProcessedDisplay != null)
                 ApplyPendingPreview();
 
+            // バックグラウンドで仕上がった diff ピクセルをテクスチャへ反映
+            ApplyPendingDiff();
+
             // バックグラウンド詳細プレビュータスクからの結果を適用
             if (_detailView.HasPendingResult)
                 _detailView.ApplyPendingResult();
+            _detailView.ApplyPendingDiff();
 
             if (previewDirty)
             {
@@ -664,7 +676,8 @@ namespace VRCAvatarColorChanger
             rawPreviewTexture.SetPixels32(raw);
             rawPreviewTexture.Apply();
 
-            BuildDiffTexture(rawPreviewTexture, previewTexture);
+            // Color32[] が手元にあるのでそのままバックグラウンドへ。GetPixels32 を再度呼ばない。
+            ScheduleDiffTexture(raw, processed, w, h);
 
             var maskView = _host._maskView;
             if (maskView.maskOverlayTexture == null
@@ -682,29 +695,51 @@ namespace VRCAvatarColorChanger
             _detailView.detailJob.Cancel();
         }
 
-        // ───────────────────────── Diff Texture ─────────────────────────
+        // ───────────────────────── Diff Texture（非同期） ─────────────────────────
 
-        private void BuildDiffTexture(Texture2D before, Texture2D after)
+        /// <summary>
+        /// Before/After の Color32 配列から差分ハイライトをバックグラウンドで生成する。
+        /// 結果は <see cref="ApplyPendingDiff"/> で次フレーム以降にテクスチャへ反映される。
+        /// </summary>
+        private void ScheduleDiffTexture(Color32[] before, Color32[] after, int w, int h)
         {
-            if (before == null || after == null) return;
-            int w = before.width, h = before.height;
-            TextureSlot.Resize(ref diffTexture, w, h);
+            if (before == null || after == null || before.Length != w * h || after.Length != w * h) return;
+            int capW = w, capH = h;
+            _diffJob.Schedule(
+                work: token => BuildDiffPixels(before, after, capW, capH, token),
+                apply: result =>
+                {
+                    _pendingDiffPixels = result;
+                    _pendingDiffW = capW;
+                    _pendingDiffH = capH;
+                    _host.RequestRepaint();
+                });
+        }
 
-            Color32[] a = before.GetPixels32();
-            Color32[] b = after.GetPixels32();
-            Color32[] d = new Color32[w * h];
+        private static Color32[] BuildDiffPixels(Color32[] a, Color32[] b, int w, int h, CancellationToken token)
+        {
+            var d = new Color32[w * h];
             var highlight = new Color32(255, 220, 0, 160);
-            var clear     = new Color32(0, 0, 0, 0);
-
             for (int i = 0; i < d.Length; i++)
             {
                 int diff = Mathf.Abs(a[i].r - b[i].r)
                          + Mathf.Abs(a[i].g - b[i].g)
                          + Mathf.Abs(a[i].b - b[i].b);
-                d[i] = diff > 10 ? highlight : clear;
+                if (diff > 10) d[i] = highlight;
+                if ((i & 0x7FFF) == 0) token.ThrowIfCancellationRequested();
             }
+            return d;
+        }
 
-            diffTexture.SetPixels32(d);
+        public void ApplyPendingDiff()
+        {
+            if (_pendingDiffPixels == null) return;
+            var pixels = _pendingDiffPixels;
+            int w = _pendingDiffW, h = _pendingDiffH;
+            _pendingDiffPixels = null;
+
+            TextureSlot.Resize(ref diffTexture, w, h);
+            diffTexture.SetPixels32(pixels);
             diffTexture.Apply();
         }
     }
