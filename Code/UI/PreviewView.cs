@@ -121,7 +121,10 @@ namespace VRCAvatarColorChanger
 
             var maskView = _host._maskView;
 
-            // マスクオーバーレイを個別に再構築（軽量、ペイント中も安全）
+            // バックグラウンドで完了したオーバーレイ Color32[] を先に Texture2D へ適用する。
+            maskView.ApplyPendingOverlay();
+
+            // マスクオーバーレイ再構築をスケジュール（バックグラウンド計算、軽量、ペイント中も安全）
             if (maskView.maskDirty && previewTexture != null)
             {
                 maskView.RebuildMaskOverlay(previewTexture.width, previewTexture.height);
@@ -669,6 +672,7 @@ namespace VRCAvatarColorChanger
                 || maskView.maskOverlayTexture.height != h
                 || maskView.maskDirty)
             {
+                // 非同期スケジュール：結果は次フレームの Draw 冒頭で ApplyPendingOverlay により反映
                 maskView.RebuildMaskOverlay(w, h);
                 maskView.maskDirty = false;
             }

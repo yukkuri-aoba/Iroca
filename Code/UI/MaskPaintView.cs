@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
@@ -282,87 +283,140 @@ namespace VRCAvatarColorChanger
             maskDirty = true;
         }
 
-        // ─────────────────────── マスクオーバーレイ ─────────────────────────
+        // ─────────────────────── マスクオーバーレイ（非同期） ─────────────────────────
+
+        // バックグラウンドで生成したオーバーレイ Color32[] をメインスレッドで Texture2D に
+        // 書き戻すまでの中継。SetPixels32 / Apply は Unity API なので必ずメインスレッド。
+        private struct OverlayResult
+        {
+            public bool hasCommon;
+            public Color32[] commonPixels;
+            public bool hasZone;
+            public Color32[] zonePixels;
+            public int width;
+            public int height;
+        }
+
+        [System.NonSerialized] private readonly PreviewJob<OverlayResult> _overlayJob = new PreviewJob<OverlayResult>();
+        [System.NonSerialized] private OverlayResult? _pendingOverlayResult;
 
         /// <summary>
-        /// 共通マスクとゾーン別マスクのオーバーレイテクスチャを再構築する。
+        /// 共通マスクとゾーン別マスクのオーバーレイテクスチャの再構築をバックグラウンドに
+        /// スケジュールする。bool[] バッファを Clone してワーカに渡すため、ペイント中の
+        /// 変更とデータレースしない。SetPixels32 / Apply は次フレーム以降に
+        /// <see cref="ApplyPendingOverlay"/> で適用される。
         /// </summary>
         public void RebuildMaskOverlay(int width, int height)
         {
-            // 共通マスクオーバーレイ（赤）
-            if (exclusionMask == null)
-            {
-                TextureSlot.Release(ref maskOverlayTexture);
-            }
-            else
-            {
-                TextureSlot.Resize(ref maskOverlayTexture, width, height, FilterMode.Point);
+            if (width <= 0 || height <= 0) return;
 
-                var overlayPixels = new Color32[width * height];
-                var excluded = new Color32(255, 60, 60, 80);
-                var clear = new Color32(0, 0, 0, 0);
-                for (int i = 0; i < overlayPixels.Length; i++)
+            int capW = width;
+            int capH = height;
+            int capMw = maskWidth;
+            int capMh = maskHeight;
+
+            // 共通マスク bool[] のスナップショット
+            bool[] commonSnap = exclusionMask != null ? (bool[])exclusionMask.Clone() : null;
+
+            // ゾーン別マスクのスナップショット（idx, color, mask[]）
+            var zones = _host.Session.zones;
+            var zoneInfos = new List<(Color32 color, bool[] mask)>();
+            if (zones != null && capMw > 0 && capMh > 0)
+            {
+                for (int zi = 0; zi < zones.Count; zi++)
                 {
-                    int x = i % width;
-                    int y = i / width;
-                    int mx = Mathf.Clamp(x * maskWidth / width, 0, maskWidth - 1);
-                    int my = Mathf.Clamp(y * maskHeight / height, 0, maskHeight - 1);
-                    overlayPixels[i] = exclusionMask[my * maskWidth + mx] ? excluded : clear;
+                    var zone = zones[zi];
+                    if (zone == null || string.IsNullOrEmpty(zone.id)) continue;
+                    if (!zoneMasks.TryGetValue(zone.id, out var zm) || zm == null) continue;
+                    zoneInfos.Add((OverlayColorForZone(zi), (bool[])zm.Clone()));
                 }
-                maskOverlayTexture.SetPixels32(overlayPixels);
-                maskOverlayTexture.Apply();
             }
 
-            RebuildZoneMaskOverlay(width, height);
+            _overlayJob.Schedule(
+                work: token => ComputeOverlayPixels(commonSnap, zoneInfos, capW, capH, capMw, capMh, token),
+                apply: result =>
+                {
+                    _pendingOverlayResult = result;
+                    _host.RequestRepaint();
+                });
+        }
+
+        private static OverlayResult ComputeOverlayPixels(
+            bool[] common, List<(Color32 color, bool[] mask)> zoneInfos,
+            int w, int h, int mw, int mh, CancellationToken token)
+        {
+            var result = new OverlayResult { width = w, height = h };
+
+            if (common != null && mw > 0 && mh > 0)
+            {
+                result.hasCommon = true;
+                var pixels = new Color32[w * h];
+                var excluded = new Color32(255, 60, 60, 80);
+                for (int i = 0; i < pixels.Length; i++)
+                {
+                    int x = i % w;
+                    int y = i / w;
+                    int mx = Mathf.Clamp(x * mw / w, 0, mw - 1);
+                    int my = Mathf.Clamp(y * mh / h, 0, mh - 1);
+                    if (common[my * mw + mx]) pixels[i] = excluded;
+                }
+                token.ThrowIfCancellationRequested();
+                result.commonPixels = pixels;
+            }
+
+            if (zoneInfos != null && zoneInfos.Count > 0 && mw > 0 && mh > 0)
+            {
+                result.hasZone = true;
+                var pixels = new Color32[w * h];
+                foreach (var (color, zm) in zoneInfos)
+                {
+                    for (int i = 0; i < pixels.Length; i++)
+                    {
+                        int x = i % w;
+                        int y = i / w;
+                        int mx = Mathf.Clamp(x * mw / w, 0, mw - 1);
+                        int my = Mathf.Clamp(y * mh / h, 0, mh - 1);
+                        if (zm[my * mw + mx]) pixels[i] = color;
+                    }
+                    token.ThrowIfCancellationRequested();
+                }
+                result.zonePixels = pixels;
+            }
+
+            return result;
         }
 
         /// <summary>
-        /// ゾーン別マスクを1枚のテクスチャに合成して描画する（ゾーンごとに色分け）。
+        /// バックグラウンドで生成された Color32[] をオーバーレイテクスチャに適用する。
+        /// PreviewView.Draw の冒頭から呼ばれる。
         /// </summary>
-        private void RebuildZoneMaskOverlay(int width, int height)
+        public void ApplyPendingOverlay()
         {
-            var zones = _host.Session.zones;
-            bool hasAny = false;
-            if (zones != null)
+            if (!_pendingOverlayResult.HasValue) return;
+            var r = _pendingOverlayResult.Value;
+            _pendingOverlayResult = null;
+
+            if (r.hasCommon)
             {
-                foreach (var z in zones)
-                {
-                    if (z == null || string.IsNullOrEmpty(z.id)) continue;
-                    if (zoneMasks.TryGetValue(z.id, out var zm) && zm != null) { hasAny = true; break; }
-                }
+                TextureSlot.Resize(ref maskOverlayTexture, r.width, r.height, FilterMode.Point);
+                maskOverlayTexture.SetPixels32(r.commonPixels);
+                maskOverlayTexture.Apply();
+            }
+            else
+            {
+                TextureSlot.Release(ref maskOverlayTexture);
             }
 
-            if (!hasAny || maskWidth == 0 || maskHeight == 0)
+            if (r.hasZone)
+            {
+                TextureSlot.Resize(ref zoneMaskOverlayTexture, r.width, r.height, FilterMode.Point);
+                zoneMaskOverlayTexture.SetPixels32(r.zonePixels);
+                zoneMaskOverlayTexture.Apply();
+            }
+            else
             {
                 TextureSlot.Release(ref zoneMaskOverlayTexture);
-                return;
             }
-
-            TextureSlot.Resize(ref zoneMaskOverlayTexture, width, height, FilterMode.Point);
-
-            var pixels = new Color32[width * height];
-            var clear = new Color32(0, 0, 0, 0);
-            for (int i = 0; i < pixels.Length; i++) pixels[i] = clear;
-
-            for (int zi = 0; zi < zones.Count; zi++)
-            {
-                var zone = zones[zi];
-                if (zone == null || string.IsNullOrEmpty(zone.id)) continue;
-                if (!zoneMasks.TryGetValue(zone.id, out var zm) || zm == null) continue;
-                Color32 c = OverlayColorForZone(zi);
-
-                for (int i = 0; i < pixels.Length; i++)
-                {
-                    int x = i % width;
-                    int y = i / width;
-                    int mx = Mathf.Clamp(x * maskWidth / width, 0, maskWidth - 1);
-                    int my = Mathf.Clamp(y * maskHeight / height, 0, maskHeight - 1);
-                    if (zm[my * maskWidth + mx]) pixels[i] = c;
-                }
-            }
-
-            zoneMaskOverlayTexture.SetPixels32(pixels);
-            zoneMaskOverlayTexture.Apply();
         }
 
         /// <summary>
@@ -830,10 +884,12 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
-        /// オーバーレイテクスチャを破棄する。
+        /// オーバーレイテクスチャと進行中のオーバーレイ生成ジョブを破棄する。
         /// </summary>
         public void ReleaseOverlayTextures()
         {
+            _overlayJob.Dispose();
+            _pendingOverlayResult = null;
             TextureSlot.Release(ref maskOverlayTexture);
             TextureSlot.Release(ref zoneMaskOverlayTexture);
         }
