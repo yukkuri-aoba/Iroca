@@ -12,10 +12,12 @@ namespace VRCAvatarColorChanger
         // [SerializeField] を付けることで、スクリプト再コンパイル時に Unity が
         // EditorWindow の状態をシリアライズ/復元し、入力内容が失われにくくなる。
         [SerializeField] private Texture2D sourceTexture;
+        internal Texture2D SourceTexture { get => sourceTexture; set => sourceTexture = value; }
+        internal VACCSessionState Session => _session;
         private Vector2 scrollPos;
-        [SerializeField] private bool saveAsNewFile = true;
-        [SerializeField] private string newFileName = "";
-        [SerializeField] private bool inheritImportSettings = true;
+
+        // ── View インスタンス（状態は各 View が自前で保持） ──
+        [SerializeField] private ExportView _exportView = new ExportView();
 
         // 編集状態（ゾーン定義・処理パラメータ・マスク状態）。
         // Phase 4a で個別 [SerializeField] フィールド群から VACCSessionState に集約。
@@ -73,6 +75,8 @@ namespace VRCAvatarColorChanger
         private void OnEnable()
         {
             _session ??= VACCSessionState.CreateDefault();
+            _exportView ??= new ExportView();
+            _exportView.Initialize(this);
             _windowSerializedObject = new SerializedObject(this);
             _sessionProperty = _windowSerializedObject.FindProperty(nameof(_session));
             _zonesProperty = _sessionProperty?.FindPropertyRelative(nameof(VACCSessionState.zones));
@@ -162,8 +166,8 @@ namespace VRCAvatarColorChanger
                 EditorGUILayout.EndHorizontal();
 
                 // ── 下部: 一括適用 + エクスポート（フル幅） ──
-                DrawBatchSection();
-                DrawExportSection();
+                _exportView.DrawBatchSection();
+                _exportView.DrawExportSection();
             }
             else
             {
@@ -184,8 +188,8 @@ namespace VRCAvatarColorChanger
 
                 DrawPresetsSection();
                 DrawPreview();
-                DrawBatchSection();
-                DrawExportSection();
+                _exportView.DrawBatchSection();
+                _exportView.DrawExportSection();
 
                 EditorGUILayout.EndScrollView();
             }
@@ -242,7 +246,7 @@ namespace VRCAvatarColorChanger
                 if (sourceTexture != null)
                 {
                     var path = AssetDatabase.GetAssetPath(sourceTexture);
-                    newFileName = Path.GetFileNameWithoutExtension(path) + "_recolored";
+                    _exportView.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(path));
                 }
                 RestoreMaskFromSession();                    // load mask for new texture
             }
@@ -501,7 +505,7 @@ namespace VRCAvatarColorChanger
 
         // ───────────────────────── ユーティリティ ───────────────────────────
 
-        private static bool IsReadable(Texture2D tex)
+        internal static bool IsReadable(Texture2D tex)
         {
             try
             {
@@ -536,7 +540,7 @@ namespace VRCAvatarColorChanger
             return null;
         }
 
-        private static void EnableReadWrite(Texture2D tex)
+        internal static void EnableReadWrite(Texture2D tex)
         {
             string path = AssetDatabase.GetAssetPath(tex);
             if (string.IsNullOrEmpty(path)) return;

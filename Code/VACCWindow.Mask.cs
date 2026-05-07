@@ -806,7 +806,7 @@ namespace VRCAvatarColorChanger
         /// <summary>
         /// 現在のマスク状態をスナップショット化する（deep clone）。
         /// </summary>
-        private MaskSnapshot BuildMaskSnapshot()
+        internal MaskSnapshot BuildMaskSnapshot()
         {
             var snap = new MaskSnapshot
             {
