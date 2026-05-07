@@ -4,54 +4,51 @@ using UnityEngine;
 
 namespace VRCAvatarColorChanger
 {
-    public partial class VACCWindow
+    /// <summary>
+    /// マスク対象選択・ブラシ入力・オーバーレイ生成・bool[] バッファと
+    /// _session.maskState の同期を担当する。
+    /// ゾーン本体の編集 UI、プレビュー生成本体、プリセット一覧、エクスポートは扱わない。
+    /// </summary>
+    [System.Serializable]
+    internal class MaskPaintView
     {
-        // ─── 除外マスク ────────────────────────────────────────────────
-        // マスクは「共通マスク」と「ゾーン別マスク」のハイブリッド構成。
-        // 処理時はピクセルごとに「共通マスクで除外」OR「そのゾーンの個別マスクで除外」と
-        // なった場合に当該ゾーンの再色付けをスキップする。
-        //
-        // 永続表現は _session.maskState（RLE エンコード文字列）。
-        // bool[] バッファは実行時の編集用に展開され、ストローク終了時や保存時に
-        // RLE 文字列へエンコードして _session.maskState に書き戻す。
-        // 加えて SessionState 経由でも保存し、Editor 再起動を跨いだ復元を可能にする
-        // （Phase 6 で MaskFileStore 化予定）。
-        // ─────────────────────────────────────────────────────────────
+        // ─── シリアライズ対象（UI 状態） ─────────────────────────────
+        // どのマスクを編集対象にするか。-1 = 共通マスク、0 以上 = zones[index]。
+        public int activeMaskTarget = -1;
+        public int brushSize = 8;
+        public bool brushEraseMode; // false = 除外ペイント、true = 除外消去
+        public bool maskFoldout = true;
 
+        // ─── 実行時バッファ（NonSerialized） ──────────────────────────
         // 共通マスク（フル解像度、true = 除外）。全ゾーンに適用される。
-        // _session.maskState.commonMaskBase64 から展開された実行時バッファ。
-        [System.NonSerialized] private bool[] exclusionMask;
-        [System.NonSerialized] private int maskWidth, maskHeight;
+        [System.NonSerialized] public bool[] exclusionMask;
+        [System.NonSerialized] public int maskWidth, maskHeight;
 
         // ゾーン別マスク: key = ColorZone.id。配列サイズは maskWidth * maskHeight。
         // 値が null のエントリは持たない（存在しない = 全ピクセル非除外扱い）。
-        // _session.maskState.zones から展開された実行時バッファ。
-        [System.NonSerialized] private Dictionary<string, bool[]> zoneMasks = new Dictionary<string, bool[]>();
-
-        // どのマスクを編集対象にするか。-1 = 共通マスク、0 以上 = zones[index]。
-        [SerializeField] private int activeMaskTarget = -1;
-
-        [SerializeField] private int brushSize = 8;
-        [SerializeField] private bool brushEraseMode; // false = 除外ペイント、true = 除外消去
-        private bool isPainting;
-        private Vector2 lastPaintUV = -Vector2.one;
+        [System.NonSerialized] public Dictionary<string, bool[]> zoneMasks = new Dictionary<string, bool[]>();
 
         // マスクオーバーレイ（テクスチャは都度再構築するのでシリアライズ不要）
-        // 共通マスク用（赤）とゾーン合成用（ゾーン色分け）の 2 枚。
-        private Texture2D maskOverlayTexture;
-        private Texture2D zoneMaskOverlayTexture;
-        private bool maskDirty = true;
+        [System.NonSerialized] public Texture2D maskOverlayTexture;
+        [System.NonSerialized] public Texture2D zoneMaskOverlayTexture;
+        [System.NonSerialized] public bool maskDirty = true;
 
-        [SerializeField] private bool maskFoldout = true;
+        [System.NonSerialized] public bool isPainting;
+        [System.NonSerialized] public Vector2 lastPaintUV = -Vector2.one;
 
         // 除外マスク元に戻す履歴（最大30ステップ）
         // ターゲットキー: "__common__" または zone.id
-        private readonly List<MaskUndoEntry> _undoMaskHistory = new List<MaskUndoEntry>();
-        private bool _maskStrokeStarted;
+        [System.NonSerialized] private readonly List<MaskUndoEntry> _undoMaskHistory = new List<MaskUndoEntry>();
+        [System.NonSerialized] public bool _maskStrokeStarted;
         private const int UndoMaskLimit = 30;
 
         // 共通マスク用のターゲットキー（SessionState キーにも使う）
-        private const string CommonMaskKey = "__common__";
+        public const string CommonMaskKey = "__common__";
+
+        // マスクペイントモード: ブラシストロークが機能する前に明示的にアクティベートされる必要があります
+        [System.NonSerialized] public bool maskPaintActive;
+
+        [System.NonSerialized] private VACCWindow _host;
 
         private struct MaskUndoEntry
         {
@@ -59,10 +56,14 @@ namespace VRCAvatarColorChanger
             public bool[] snapshot;  // null = マスク未確保状態
         }
 
-        // マスクペイントモード: ブラシストロークが機能する前に明示的にアクティベートされる必要があります
-        private bool maskPaintActive;
+        public void Initialize(VACCWindow host)
+        {
+            _host = host;
+        }
 
-        // ─────────────────────── 除外マスク UI ───────────────────────
+        public bool HasUndoHistory => _undoMaskHistory.Count > 0;
+
+        // ─────────────────────── キーボードショートカット ───────────────────────
 
         /// <summary>
         /// OnGUI の先頭で呼ばれるグローバルキーボードショートカット処理。
@@ -70,7 +71,7 @@ namespace VRCAvatarColorChanger
         /// テキストフィールドなど他のコントロールが入力中の場合は干渉しない
         /// （EditorGUIUtility.editingTextField で判定）。
         /// </summary>
-        private void HandleGlobalKeyboardShortcuts()
+        public void HandleGlobalKeyboardShortcuts()
         {
             Event e = Event.current;
             if (e == null || e.type != EventType.KeyDown) return;
@@ -82,7 +83,9 @@ namespace VRCAvatarColorChanger
             }
         }
 
-        private void DrawMaskSection()
+        // ─────────────────────── 除外マスク UI ───────────────────────
+
+        public void Draw()
         {
             maskFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(maskFoldout, Localization.ExclusionMask);
             if (!maskFoldout)
@@ -91,7 +94,6 @@ namespace VRCAvatarColorChanger
                 return;
             }
 
-            // 編集対象セレクタ（共通 / 各ゾーン）
             DrawMaskTargetSelector();
 
             brushSize = EditorGUILayout.IntSlider(
@@ -131,7 +133,7 @@ namespace VRCAvatarColorChanger
                 PushMaskUndo();
                 ClearActiveMask();
                 maskDirty = true;
-                previewDirty = true;
+                _host.MarkPreviewDirty();
             }
 
             EditorGUI.BeginDisabledGroup(_undoMaskHistory.Count == 0);
@@ -152,7 +154,8 @@ namespace VRCAvatarColorChanger
         /// </summary>
         private void DrawMaskTargetSelector()
         {
-            EnsureAllZoneIds();
+            _host.EnsureAllZoneIds();
+            var zones = _host.Session.zones;
 
             int zoneCount = zones != null ? zones.Count : 0;
             var options = new GUIContent[zoneCount + 1];
@@ -171,18 +174,8 @@ namespace VRCAvatarColorChanger
             {
                 activeMaskTarget = next - 1;
                 maskDirty = true;
-                Repaint();
+                _host.RequestRepaint();
             }
-        }
-
-        /// <summary>
-        /// 現在の zones に対して id 未設定のものへ GUID を振る。
-        /// </summary>
-        internal void EnsureAllZoneIds()
-        {
-            if (zones == null) return;
-            for (int i = 0; i < zones.Count; i++)
-                zones[i]?.EnsureId();
         }
 
         // ─────────────────────── マスク確保 ─────────────────────────
@@ -191,8 +184,9 @@ namespace VRCAvatarColorChanger
         /// 共通マスクおよび、必要ならアクティブゾーンのマスクを確保する。
         /// sourceTexture のサイズが変わった場合は両方再確保。
         /// </summary>
-        private void EnsureMasks()
+        public void EnsureMasks()
         {
+            var sourceTexture = _host.SourceTexture;
             if (sourceTexture == null) return;
             int w = sourceTexture.width;
             int h = sourceTexture.height;
@@ -224,11 +218,11 @@ namespace VRCAvatarColorChanger
 
         /// <summary>
         /// 現在のアクティブターゲット（共通 or ゾーン）のマスク配列を返す。必要なら確保する。
-        /// ターゲットがゾーンでも zones が範囲外になっている場合は共通にフォールバック。
         /// </summary>
-        private bool[] GetActiveMaskArray()
+        public bool[] GetActiveMaskArray()
         {
             EnsureMasks();
+            var zones = _host.Session.zones;
             if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
                 return exclusionMask;
 
@@ -242,6 +236,7 @@ namespace VRCAvatarColorChanger
         /// </summary>
         private string GetActiveTargetKey()
         {
+            var zones = _host.Session.zones;
             if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
                 return CommonMaskKey;
             var zone = zones[activeMaskTarget];
@@ -249,11 +244,9 @@ namespace VRCAvatarColorChanger
             return zone.id;
         }
 
-        /// <summary>
-        /// アクティブターゲットのマスクをクリア（配列を null 化相当に戻す）。
-        /// </summary>
         private void ClearActiveMask()
         {
+            var zones = _host.Session.zones;
             if (activeMaskTarget < 0)
             {
                 exclusionMask = null;
@@ -268,10 +261,10 @@ namespace VRCAvatarColorChanger
 
         /// <summary>
         /// 指定インデックスのゾーンが削除されるタイミングで、紐付くマスクを破棄する。
-        /// 呼び出し側は zones.RemoveAt(index) の直前に呼ぶこと。
         /// </summary>
-        internal void OnZoneAboutToBeRemoved(int index)
+        public void OnZoneAboutToBeRemoved(int index)
         {
+            var zones = _host.Session.zones;
             if (zones == null || index < 0 || index >= zones.Count) return;
             string id = zones[index].id;
             if (!string.IsNullOrEmpty(id))
@@ -286,7 +279,7 @@ namespace VRCAvatarColorChanger
 
         // ─────────────────────── ペイント ─────────────────────────
 
-        private void PaintMask(Vector2 uvPos)
+        public void PaintMask(Vector2 uvPos)
         {
             bool[] target = GetActiveMaskArray();
             if (target == null) return;
@@ -296,10 +289,10 @@ namespace VRCAvatarColorChanger
 
             // ブラシサイズは「プレビュー画像上のピクセル数」で設定されるため、
             // マスク座標系（フル解像度）に合わせてスケーリングする必要がある。
-            float maskScale = maskWidth / (float)Mathf.Min(maskWidth, PreviewMaxSize);
+            float maskScale = maskWidth / (float)Mathf.Min(maskWidth, VACCConsts.Preview.MaxSize);
             int r = Mathf.Max(1, Mathf.RoundToInt(brushSize * maskScale));
 
-            bool value = !brushEraseMode; // true = 除外
+            bool value = !brushEraseMode;
 
             for (int dy = -r; dy <= r; dy++)
             {
@@ -321,7 +314,7 @@ namespace VRCAvatarColorChanger
         /// <summary>
         /// 共通マスクとゾーン別マスクのオーバーレイテクスチャを再構築する。
         /// </summary>
-        private void RebuildMaskOverlay(int width, int height)
+        public void RebuildMaskOverlay(int width, int height)
         {
             // 共通マスクオーバーレイ（赤）
             if (exclusionMask == null)
@@ -355,6 +348,7 @@ namespace VRCAvatarColorChanger
         /// </summary>
         private void RebuildZoneMaskOverlay(int width, int height)
         {
+            var zones = _host.Session.zones;
             bool hasAny = false;
             if (zones != null)
             {
@@ -400,11 +394,9 @@ namespace VRCAvatarColorChanger
 
         /// <summary>
         /// ゾーンインデックスから黄金比ベースのオーバーレイ色を決定する。
-        /// 彩度高め・明度高め・半透明。
         /// </summary>
-        internal static Color32 OverlayColorForZone(int zoneIndex)
+        public static Color32 OverlayColorForZone(int zoneIndex)
         {
-            // 黄金比で色相を散らす
             const float golden = 0.61803398875f;
             float h = (zoneIndex * golden) % 1f;
             if (h < 0) h += 1f;
@@ -418,7 +410,7 @@ namespace VRCAvatarColorChanger
 
         // ───────────────────────── Mask Undo ────────────────────────────
 
-        private void PushMaskUndo()
+        public void PushMaskUndo()
         {
             string key = GetActiveTargetKey();
             bool[] current = GetCurrentArrayForKey(key);
@@ -457,6 +449,7 @@ namespace VRCAvatarColorChanger
             SetArrayForKey(entry.targetKey, entry.snapshot);
 
             // アクティブターゲットも巻き戻した対象に合わせる
+            var zones = _host.Session.zones;
             if (entry.targetKey == CommonMaskKey)
             {
                 activeMaskTarget = -1;
@@ -474,14 +467,20 @@ namespace VRCAvatarColorChanger
             }
 
             maskDirty = true;
-            previewDirty = true;
-            Repaint();
+            _host.MarkPreviewDirty();
+            _host.RequestRepaint();
+        }
+
+        public void ClearUndoHistory()
+        {
+            _undoMaskHistory.Clear();
         }
 
         // ───────────────────────── Mask Persistence ────────────────────
 
         private string MaskSessionPathKey()
         {
+            var sourceTexture = _host.SourceTexture;
             if (sourceTexture == null) return null;
             string path = AssetDatabase.GetAssetPath(sourceTexture);
             return string.IsNullOrEmpty(path) ? null : path;
@@ -503,14 +502,11 @@ namespace VRCAvatarColorChanger
         /// <summary>
         /// 現在の全マスク（共通 + 各ゾーン）を SessionState に保存し、
         /// 同時に _session.maskState を bool[] バッファの内容で更新する。
-        /// 全 false のゾーンマスクは書き出さない。
         /// </summary>
-        internal void SaveMaskToSession()
+        public void SaveToSession()
         {
             // bool[] バッファを _session.maskState（RLE 文字列）に書き戻す。
-            // Unity の SerializedObject 経由の Undo 連携や Editor 再起動を跨いだ復元の
-            // 永続的な源として MaskState を使う。
-            SyncMaskBuffersToState();
+            SyncBuffersToState();
 
             string path = MaskSessionPathKey();
             if (path == null) return;
@@ -520,7 +516,6 @@ namespace VRCAvatarColorChanger
 
             var idx = new MaskIndex { width = maskWidth, height = maskHeight };
 
-            // 共通マスク
             if (exclusionMask != null && AnyTrue(exclusionMask))
             {
                 SessionState.SetString(
@@ -533,7 +528,6 @@ namespace VRCAvatarColorChanger
                 SessionState.EraseString(MaskArraySessionKey(path, CommonMaskKey));
             }
 
-            // ゾーン別マスク
             foreach (var kv in zoneMasks)
             {
                 if (kv.Value == null || !AnyTrue(kv.Value))
@@ -551,14 +545,13 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
-        /// 現在の bool[] バッファ（exclusionMask / zoneMasks）の内容を
-        /// RLE エンコードして _session.maskState に書き戻す。
-        /// 全 false のゾーンマスクは MaskState には含めない。
+        /// 現在の bool[] バッファの内容を RLE エンコードして _session.maskState に書き戻す。
         /// </summary>
-        private void SyncMaskBuffersToState()
+        public void SyncBuffersToState()
         {
-            if (_session == null) return;
-            var ms = _session.maskState ?? (_session.maskState = new MaskState());
+            var session = _host.Session;
+            if (session == null) return;
+            var ms = session.maskState ?? (session.maskState = new MaskState());
             ms.width = maskWidth;
             ms.height = maskHeight;
 
@@ -580,12 +573,12 @@ namespace VRCAvatarColorChanger
 
         /// <summary>
         /// _session.maskState（RLE 文字列）を bool[] バッファに展開する。
-        /// Phase 4c で Undo / Redo 後の bool[] 再構築に利用する。
         /// </summary>
-        private void SyncMaskBuffersFromState()
+        public void SyncBuffersFromState()
         {
-            if (_session == null || _session.maskState == null) return;
-            var ms = _session.maskState;
+            var session = _host.Session;
+            if (session == null || session.maskState == null) return;
+            var ms = session.maskState;
 
             exclusionMask = null;
             zoneMasks.Clear();
@@ -617,7 +610,7 @@ namespace VRCAvatarColorChanger
         /// SessionState から全マスクを復元する。旧フォーマット（単一マスク）しか無い場合は
         /// 共通マスクへ移行してから新フォーマットで保存し直す。
         /// </summary>
-        private void RestoreMaskFromSession()
+        public void RestoreFromSession()
         {
             string path = MaskSessionPathKey();
             if (path == null) return;
@@ -665,8 +658,7 @@ namespace VRCAvatarColorChanger
                         if (arr != null) zoneMasks[zid] = arr;
                     }
                 }
-                // _session.maskState を bool[] バッファの内容で更新（Undo / 再コンパイル耐性）
-                SyncMaskBuffersToState();
+                SyncBuffersToState();
                 maskDirty = true;
                 return;
             }
@@ -682,11 +674,22 @@ namespace VRCAvatarColorChanger
             maskHeight = lh;
             exclusionMask = legacy;
 
-            // 新フォーマットで保存し直し、旧キーは消す
             SessionState.EraseString(LegacyMaskSessionKey(path));
-            SaveMaskToSession();
+            SaveToSession();
             maskDirty = true;
         }
+
+        /// <summary>
+        /// テクスチャ切り替え時にバッファを破棄する。
+        /// </summary>
+        public void ClearBuffersOnTextureChange()
+        {
+            exclusionMask = null;
+            zoneMasks.Clear();
+            _undoMaskHistory.Clear();
+        }
+
+        // ─────────────────────── Encode / Decode ────────────────────
 
         private static bool AnyTrue(bool[] arr)
         {
@@ -698,16 +701,13 @@ namespace VRCAvatarColorChanger
         /// <summary>
         /// bool 配列を RLE 圧縮 + Base64 文字列にエンコード。
         /// フォーマット: "R:" プレフィックス + Base64(4byte W + 4byte H + 1byte 開始値 + uint32[] ランレングス列)
-        /// 4096×4096 の全 false マスクが旧来のbitpack約21MBから約18バイトに圧縮される。
         /// </summary>
-        internal static string EncodeMask(bool[] mask, int w, int h)
+        public static string EncodeMask(bool[] mask, int w, int h)
         {
             if (mask == null || mask.Length == 0) return "";
             int len = mask.Length;
 
-            // RLE: 同値の連続を (uint32 カウント) のリストとして記録。
-            // 値は mask[0] から始まり、各エントリごとに反転する。
-            var runs = new System.Collections.Generic.List<uint>();
+            var runs = new List<uint>();
             bool curVal = mask[0];
             uint count = 0;
             for (int i = 0; i < len; i++)
@@ -725,7 +725,6 @@ namespace VRCAvatarColorChanger
             }
             runs.Add(count);
 
-            // ヘッダ (9 bytes) + ランレングス列 (4 bytes × runs.Count)
             byte[] bytes = new byte[9 + runs.Count * 4];
             System.Buffer.BlockCopy(System.BitConverter.GetBytes(w), 0, bytes, 0, 4);
             System.Buffer.BlockCopy(System.BitConverter.GetBytes(h), 0, bytes, 4, 4);
@@ -740,12 +739,11 @@ namespace VRCAvatarColorChanger
         /// EncodeMask の逆。デコード失敗時は null を返す。
         /// "R:" プレフィックスがある場合は RLE フォーマット、ない場合は旧 bitpack フォーマットとして処理。
         /// </summary>
-        internal static bool[] DecodeMask(string encoded, out int w, out int h)
+        public static bool[] DecodeMask(string encoded, out int w, out int h)
         {
             w = 0; h = 0;
             if (string.IsNullOrEmpty(encoded)) return null;
 
-            // ─── RLE フォーマット ───
             if (encoded.StartsWith("R:", System.StringComparison.Ordinal))
             {
                 try
@@ -779,7 +777,7 @@ namespace VRCAvatarColorChanger
                 }
             }
 
-            // ─── 旧 bitpack フォーマット（後方互換）───
+            // 旧 bitpack フォーマット（後方互換）
             try
             {
                 byte[] packed = System.Convert.FromBase64String(encoded);
@@ -804,9 +802,31 @@ namespace VRCAvatarColorChanger
         // ───────────────────────── Processing 用スナップショット ────────────────────
 
         /// <summary>
+        /// 現在のマスク状態をスナップショット化する（deep clone）。
+        /// </summary>
+        public MaskSnapshot BuildSnapshot()
+        {
+            var snap = new MaskSnapshot
+            {
+                width = maskWidth,
+                height = maskHeight,
+                zones = new Dictionary<string, bool[]>()
+            };
+            if (exclusionMask != null) snap.common = (bool[])exclusionMask.Clone();
+            foreach (var kv in zoneMasks)
+            {
+                if (kv.Value == null) continue;
+                snap.zones[kv.Key] = (bool[])kv.Value.Clone();
+            }
+            return snap;
+        }
+
+        // ───────────────────────── プリセット連携 ────────────────────
+
+        /// <summary>
         /// プリセット内のマスクデータで現在のマスク状態を置き換える。
         /// </summary>
-        internal void ApplyMaskFromPreset(VACCPresetData data)
+        public void ApplyFromPreset(VACCPresetData data)
         {
             if (data == null || data.maskWidth <= 0 || data.maskHeight <= 0) return;
 
@@ -834,14 +854,13 @@ namespace VRCAvatarColorChanger
             }
 
             _undoMaskHistory.Clear();
-            SaveMaskToSession();
+            SaveToSession();
         }
 
         /// <summary>
         /// 現在のマスク状態を VACCPresetData の commonMaskBase64 / zoneMasks フィールドに書き出す。
-        /// 全 false のマスクは含めない。
         /// </summary>
-        internal void WriteMaskToPreset(VACCPresetData data)
+        public void WriteToPreset(VACCPresetData data)
         {
             if (data == null || maskWidth <= 0 || maskHeight <= 0) return;
 
@@ -872,32 +891,21 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
-        /// アクティブなマスク編集対象を共通マスクへリセットする（プリセット読込後など）。
+        /// アクティブなマスク編集対象を共通マスクへリセットする。
         /// </summary>
-        internal void ResetActiveMaskTarget()
+        public void ResetActiveTarget()
         {
             activeMaskTarget = -1;
             maskDirty = true;
         }
 
         /// <summary>
-        /// 現在のマスク状態をスナップショット化する（deep clone）。
+        /// オーバーレイテクスチャを破棄する。
         /// </summary>
-        internal MaskSnapshot BuildMaskSnapshot()
+        public void ReleaseOverlayTextures()
         {
-            var snap = new MaskSnapshot
-            {
-                width = maskWidth,
-                height = maskHeight,
-                zones = new Dictionary<string, bool[]>()
-            };
-            if (exclusionMask != null) snap.common = (bool[])exclusionMask.Clone();
-            foreach (var kv in zoneMasks)
-            {
-                if (kv.Value == null) continue;
-                snap.zones[kv.Key] = (bool[])kv.Value.Clone();
-            }
-            return snap;
+            TextureSlot.Release(ref maskOverlayTexture);
+            TextureSlot.Release(ref zoneMaskOverlayTexture);
         }
     }
 }

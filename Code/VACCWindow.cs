@@ -17,13 +17,14 @@ namespace VRCAvatarColorChanger
 
         // ── 各 View からの再描画通知用 ──
         internal void MarkPreviewDirty() { previewDirty = true; }
-        internal void MarkMaskDirty() { maskDirty = true; }
+        internal void MarkMaskDirty() { if (_maskView != null) _maskView.maskDirty = true; }
         internal void RequestRepaint() { Repaint(); }
         private Vector2 scrollPos;
 
         // ── View インスタンス（状態は各 View が自前で保持） ──
         [SerializeField] private ExportView _exportView = new ExportView();
         [SerializeField] private PresetsView _presetsView = new PresetsView();
+        [SerializeField] internal MaskPaintView _maskView = new MaskPaintView();
 
         // 編集状態（ゾーン定義・処理パラメータ・マスク状態）。
         // Phase 4a で個別 [SerializeField] フィールド群から VACCSessionState に集約。
@@ -85,16 +86,18 @@ namespace VRCAvatarColorChanger
             _exportView.Initialize(this);
             _presetsView ??= new PresetsView();
             _presetsView.Initialize(this);
+            _maskView ??= new MaskPaintView();
+            _maskView.Initialize(this);
             _windowSerializedObject = new SerializedObject(this);
             _sessionProperty = _windowSerializedObject.FindProperty(nameof(_session));
             _zonesProperty = _sessionProperty?.FindPropertyRelative(nameof(VACCSessionState.zones));
             EnsureAllZoneIds();
-            RestoreMaskFromSession();
+            _maskView.RestoreFromSession();
         }
 
         private void OnDisable()
         {
-            SaveMaskToSession();
+            _maskView.SaveToSession();
             _sessionProperty = null;
             _zonesProperty = null;
             _windowSerializedObject?.Dispose();
@@ -109,7 +112,7 @@ namespace VRCAvatarColorChanger
             {
                 int idx = _pendingRemoveZoneIndex;
                 _pendingRemoveZoneIndex = -1;
-                OnZoneAboutToBeRemoved(idx);
+                _maskView.OnZoneAboutToBeRemoved(idx);
                 zones.RemoveAt(idx);
                 previewDirty = true;
             }
@@ -130,7 +133,7 @@ namespace VRCAvatarColorChanger
 
         private void OnGUI()
         {
-            HandleGlobalKeyboardShortcuts();
+            _maskView.HandleGlobalKeyboardShortcuts();
             ProcessPendingZoneChanges();
             DrawHeader();
 
@@ -155,7 +158,7 @@ namespace VRCAvatarColorChanger
 
                 DrawZoneList();
                 DrawProcessingSection();
-                DrawMaskSection();
+                _maskView.Draw();
 
                 if (EditorGUI.EndChangeCheck())
                 {
@@ -187,7 +190,7 @@ namespace VRCAvatarColorChanger
                 DrawTextureField();
                 DrawZoneList();
                 DrawProcessingSection();
-                DrawMaskSection();
+                _maskView.Draw();
 
                 if (EditorGUI.EndChangeCheck())
                 {
@@ -241,22 +244,20 @@ namespace VRCAvatarColorChanger
                 Localization.Texture, sourceTexture, typeof(Texture2D), false);
             if (newTex != sourceTexture)
             {
-                SaveMaskToSession();                         // persist mask for old texture
+                _maskView.SaveToSession();                   // persist mask for old texture
                 sourceTexture = newTex;
                 previewDirty = true;
                 // テクスチャが変わったのでソースピクセルキャッシュを無効化
                 _cachedSourceTexture = null;
                 _cachedSrcPixels = null;
                 _cachedRawDisplay = null;
-                exclusionMask = null;
-                zoneMasks.Clear();
-                _undoMaskHistory.Clear();
+                _maskView.ClearBuffersOnTextureChange();
                 if (sourceTexture != null)
                 {
                     var path = AssetDatabase.GetAssetPath(sourceTexture);
                     _exportView.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(path));
                 }
-                RestoreMaskFromSession();                    // load mask for new texture
+                _maskView.RestoreFromSession();              // load mask for new texture
             }
 
             if (sourceTexture != null && !IsReadable(sourceTexture))
@@ -310,15 +311,15 @@ namespace VRCAvatarColorChanger
 
                 // ソーンマスク編集ボタン（フル幅・状態連動）
                 {
-                    bool isActive = activeMaskTarget == i;
+                    bool isActive = _maskView.activeMaskTarget == i;
                     var prevBg = GUI.backgroundColor;
                     if (isActive) GUI.backgroundColor = VACCColors.ActiveMaskTarget;
                     string label = isActive ? Localization.EditMaskActiveLabel : Localization.EditMaskInactiveLabel;
                     if (GUILayout.Button(new GUIContent(label, Localization.EditMaskTooltip)))
                     {
-                        activeMaskTarget = isActive ? -1 : i;
-                        maskFoldout = true;
-                        maskDirty = true;
+                        _maskView.activeMaskTarget = isActive ? -1 : i;
+                        _maskView.maskFoldout = true;
+                        _maskView.maskDirty = true;
                         Repaint();
                     }
                     GUI.backgroundColor = prevBg;
@@ -577,16 +578,35 @@ namespace VRCAvatarColorChanger
             // 以降の apply / onError も _disposed フラグで抑止する。
             _previewJob.Dispose();
             _detailJob.Dispose();
-            SaveMaskToSession();
+            _maskView?.SaveToSession();
             TextureSlot.Release(ref previewTexture);
             TextureSlot.Release(ref rawPreviewTexture);
             TextureSlot.Release(ref diffTexture);
-            TextureSlot.Release(ref maskOverlayTexture);
-            TextureSlot.Release(ref zoneMaskOverlayTexture);
+            _maskView?.ReleaseOverlayTextures();
             TextureSlot.Release(ref _detailPreviewTexture);
             TextureSlot.Release(ref _rawDetailPreviewTexture);
             TextureSlot.Release(ref _detailMaskOverlayTexture);
             TextureSlot.Release(ref _detailDiffTexture);
         }
+
+        // ─────────────────────── 共通ヘルパー ────────────────────
+
+        /// <summary>
+        /// 現在の zones に対して id 未設定のものへ GUID を振る。
+        /// </summary>
+        internal void EnsureAllZoneIds()
+        {
+            if (_session?.zones == null) return;
+            for (int i = 0; i < _session.zones.Count; i++)
+                _session.zones[i]?.EnsureId();
+        }
+
+        // ── プリセット連携用フォワーダ（PresetsView から呼ばれる） ──
+        internal void ApplyMaskFromPreset(VACCPresetData data) => _maskView?.ApplyFromPreset(data);
+        internal void WriteMaskToPreset(VACCPresetData data) => _maskView?.WriteToPreset(data);
+        internal void ResetActiveMaskTarget() => _maskView?.ResetActiveTarget();
+
+        // ── プレビュー / エクスポート用フォワーダ ──
+        internal MaskSnapshot BuildMaskSnapshot() => _maskView?.BuildSnapshot();
     }
 }

@@ -87,10 +87,10 @@ namespace VRCAvatarColorChanger
             }
 
             // マスクオーバーレイを個別に再構築（軽量、ペイント中も安全）
-            if (maskDirty && previewTexture != null)
+            if (_maskView.maskDirty && previewTexture != null)
             {
-                RebuildMaskOverlay(previewTexture.width, previewTexture.height);
-                maskDirty = false;
+                _maskView.RebuildMaskOverlay(previewTexture.width, previewTexture.height);
+                _maskView.maskDirty = false;
             }
 
             if (previewTexture == null)
@@ -196,10 +196,10 @@ namespace VRCAvatarColorChanger
                 activePreviewRect = GUILayoutUtility.GetRect(displayW, displayH,
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
                 EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
-                if (maskOverlayTexture != null)
-                    GUI.DrawTexture(activePreviewRect, maskOverlayTexture, ScaleMode.StretchToFill, true);
-                if (zoneMaskOverlayTexture != null)
-                    GUI.DrawTexture(activePreviewRect, zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
+                if (_maskView.maskOverlayTexture != null)
+                    GUI.DrawTexture(activePreviewRect, _maskView.maskOverlayTexture, ScaleMode.StretchToFill, true);
+                if (_maskView.zoneMaskOverlayTexture != null)
+                    GUI.DrawTexture(activePreviewRect, _maskView.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
                 EditorGUILayout.EndVertical();
 
                 EditorGUILayout.EndHorizontal();
@@ -235,10 +235,10 @@ namespace VRCAvatarColorChanger
                         GUI.DrawTexture(activePreviewRect, diffTexture, ScaleMode.StretchToFill, true);
                     else
                     {
-                        if (maskOverlayTexture != null)
-                            GUI.DrawTexture(activePreviewRect, maskOverlayTexture, ScaleMode.StretchToFill, true);
-                        if (zoneMaskOverlayTexture != null)
-                            GUI.DrawTexture(activePreviewRect, zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
+                        if (_maskView.maskOverlayTexture != null)
+                            GUI.DrawTexture(activePreviewRect, _maskView.maskOverlayTexture, ScaleMode.StretchToFill, true);
+                        if (_maskView.zoneMaskOverlayTexture != null)
+                            GUI.DrawTexture(activePreviewRect, _maskView.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
                     }
                 }
 
@@ -261,13 +261,13 @@ namespace VRCAvatarColorChanger
             HandlePreviewGlobalInput(activePreviewRect);
 
             // Flood Fill シード点クリック（ペイントモード OFF のとき）
-            if (!maskPaintActive)
+            if (!_maskView.maskPaintActive)
                 HandleFloodFillSeedInput(activePreviewRect);
 
             // ブラシペイントはペイントモード ON の場合のみ
-            if (maskFoldout && maskPaintActive)
+            if (_maskView.maskFoldout && _maskView.maskPaintActive)
                 HandlePreviewPaintInput(activePreviewRect);
-            else if (!maskPaintActive && previewZoom > 1f)
+            else if (!_maskView.maskPaintActive && previewZoom > 1f)
                 HandlePreviewPanInput(activePreviewRect);
 
             EditorGUILayout.EndScrollView();
@@ -373,16 +373,16 @@ namespace VRCAvatarColorChanger
                     if (e.button == 0 && isInRect)
                     {
                         GUIUtility.hotControl = controlId;
-                        isPainting = true;
-                        _maskStrokeStarted = false;
-                        lastPaintUV = -Vector2.one;
+                        _maskView.isPainting = true;
+                        _maskView._maskStrokeStarted = false;
+                        _maskView.lastPaintUV = -Vector2.one;
                         PaintAtScreenPos(e.mousePosition, previewRect);
                         e.Use();
                     }
                     break;
 
                 case EventType.MouseDrag:
-                    if (isPainting && GUIUtility.hotControl == controlId)
+                    if (_maskView.isPainting && GUIUtility.hotControl == controlId)
                     {
                         PaintAtScreenPos(e.mousePosition, previewRect);
                         e.Use();
@@ -394,9 +394,9 @@ namespace VRCAvatarColorChanger
                     if (e.button == 0 && GUIUtility.hotControl == controlId)
                     {
                         GUIUtility.hotControl = 0;
-                        isPainting = false;
-                        _maskStrokeStarted = false;
-                        lastPaintUV = -Vector2.one;
+                        _maskView.isPainting = false;
+                        _maskView._maskStrokeStarted = false;
+                        _maskView.lastPaintUV = -Vector2.one;
                         previewDirty = true;
                         e.Use();
                         Repaint();
@@ -406,10 +406,10 @@ namespace VRCAvatarColorChanger
                 case EventType.Repaint:
                     // ブラシカーソルはペイント中のみ表示
                     // (ホバー中に表示するとUnity標準スポイトが赤円色を拾うため)
-                    if (isPainting && isInRect)
+                    if (_maskView.isPainting && isInRect)
                     {
-                        float brushPixels = brushSize * previewZoom;
-                        var cursorColor = brushEraseMode
+                        float brushPixels = _maskView.brushSize * previewZoom;
+                        var cursorColor = _maskView.brushEraseMode
                             ? VACCColors.BrushCursorInclude
                             : VACCColors.BrushCursorExclude;
                         // Handles.DrawSolidDisc は EditorWindow の ScrollView 内で
@@ -509,10 +509,10 @@ namespace VRCAvatarColorChanger
         private void PaintAtScreenPos(Vector2 screenPos, Rect previewRect)
         {
             // Push undo state once at the start of each new brush stroke
-            if (!_maskStrokeStarted)
+            if (!_maskView._maskStrokeStarted)
             {
-                PushMaskUndo();
-                _maskStrokeStarted = true;
+                _maskView.PushMaskUndo();
+                _maskView._maskStrokeStarted = true;
             }
 
             float u = (screenPos.x - previewRect.x) / previewRect.width;
@@ -523,25 +523,25 @@ namespace VRCAvatarColorChanger
             var currentUV = new Vector2(u, v);
 
             // Interpolate between last and current position for continuous strokes
-            if (lastPaintUV.x >= 0f)
+            if (_maskView.lastPaintUV.x >= 0f)
             {
-                float dist = Vector2.Distance(lastPaintUV, currentUV);
+                float dist = Vector2.Distance(_maskView.lastPaintUV, currentUV);
                 // Step size in UV space based on brush size relative to mask resolution
-                EnsureMasks();
-                float step = (maskWidth > 0) ? 1f / maskWidth : 0.001f;
+                _maskView.EnsureMasks();
+                float step = (_maskView.maskWidth > 0) ? 1f / _maskView.maskWidth : 0.001f;
                 if (dist > step)
                 {
                     int steps = Mathf.CeilToInt(dist / step);
                     for (int i = 1; i < steps; i++)
                     {
-                        Vector2 lerped = Vector2.Lerp(lastPaintUV, currentUV, (float)i / steps);
-                        PaintMask(lerped);
+                        Vector2 lerped = Vector2.Lerp(_maskView.lastPaintUV, currentUV, (float)i / steps);
+                        _maskView.PaintMask(lerped);
                     }
                 }
             }
 
-            PaintMask(currentUV);
-            lastPaintUV = currentUV;
+            _maskView.PaintMask(currentUV);
+            _maskView.lastPaintUV = currentUV;
         }
 
         // ───────────────────────── Preview Async Generation ─────────────────────────
@@ -589,7 +589,7 @@ namespace VRCAvatarColorChanger
                 _cachedPrevH         = prevH;
             }
 
-            var maskSnap = BuildMaskSnapshot();
+            var maskSnap = _maskView.BuildSnapshot();
 
             var zonesSnapshot = zones
                 .Where(z => z.enabled)
@@ -659,10 +659,13 @@ namespace VRCAvatarColorChanger
 
             BuildDiffTexture(rawPreviewTexture, previewTexture);
 
-            if (maskOverlayTexture == null || maskOverlayTexture.width != w || maskOverlayTexture.height != h || maskDirty)
+            if (_maskView.maskOverlayTexture == null
+                || _maskView.maskOverlayTexture.width != w
+                || _maskView.maskOverlayTexture.height != h
+                || _maskView.maskDirty)
             {
-                RebuildMaskOverlay(w, h);
-                maskDirty = false;
+                _maskView.RebuildMaskOverlay(w, h);
+                _maskView.maskDirty = false;
             }
 
             // Invalidate detail preview so it regenerates at the new crop

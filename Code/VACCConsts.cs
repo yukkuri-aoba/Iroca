@@ -15,5 +15,12 @@ namespace VRCAvatarColorChanger
             public const float RemoveButtonWidth  = 22f;
             public const float SmallButtonWidth   = 48f;
         }
+
+        public static class Preview
+        {
+            // メインプレビューの最大寸法（長辺）。
+            // ソーステクスチャはこのサイズへ等比縮小されてから表示・処理される。
+            public const int MaxSize = 512;
+        }
     }
 }

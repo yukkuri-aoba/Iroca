@@ -93,7 +93,7 @@ namespace VRCAvatarColorChanger
             int cropH = y1 - y0;
             if (cropW <= 0 || cropH <= 0) return;
 
-            var maskSnap = BuildMaskSnapshot();
+            var maskSnap = _maskView.BuildSnapshot();
 
             var zonesSnapshot = zones
                 .Where(z => z.enabled)
@@ -219,14 +219,14 @@ namespace VRCAvatarColorChanger
             int originX, int originY, int fullW, int fullH)
         {
             // 表示すべきマスクが無い場合はテクスチャを破棄
-            bool hasCommon = exclusionMask != null;
+            bool hasCommon = _maskView.exclusionMask != null;
             bool hasAnyZone = false;
             if (zones != null)
             {
                 foreach (var z in zones)
                 {
                     if (z == null || string.IsNullOrEmpty(z.id)) continue;
-                    if (zoneMasks.TryGetValue(z.id, out var zm) && zm != null) { hasAnyZone = true; break; }
+                    if (_maskView.zoneMasks.TryGetValue(z.id, out var zm) && zm != null) { hasAnyZone = true; break; }
                 }
             }
 
@@ -242,16 +242,21 @@ namespace VRCAvatarColorChanger
             var commonColor = new Color32(255, 60, 60, 80);
             var clear       = new Color32(0, 0, 0, 0);
 
+            int mw = _maskView.maskWidth;
+            int mh = _maskView.maskHeight;
+            var common = _maskView.exclusionMask;
+            var zoneMasks = _maskView.zoneMasks;
+
             for (int i = 0; i < overlayPixels.Length; i++)
             {
                 int cx = i % cropW;
                 int cy = i / cropW;
-                int mx = Mathf.Clamp((originX + cx) * maskWidth  / fullW, 0, maskWidth  - 1);
-                int my = Mathf.Clamp((originY + cy) * maskHeight / fullH, 0, maskHeight - 1);
-                int mi = my * maskWidth + mx;
+                int mx = Mathf.Clamp((originX + cx) * mw / fullW, 0, mw - 1);
+                int my = Mathf.Clamp((originY + cy) * mh / fullH, 0, mh - 1);
+                int mi = my * mw + mx;
 
                 Color32 px = clear;
-                if (hasCommon && exclusionMask[mi]) px = commonColor;
+                if (hasCommon && common[mi]) px = commonColor;
 
                 if (hasAnyZone)
                 {
@@ -260,7 +265,7 @@ namespace VRCAvatarColorChanger
                         var zone = zones[zi];
                         if (zone == null || string.IsNullOrEmpty(zone.id)) continue;
                         if (!zoneMasks.TryGetValue(zone.id, out var zm) || zm == null) continue;
-                        if (zm[mi]) { px = OverlayColorForZone(zi); break; }
+                        if (zm[mi]) { px = MaskPaintView.OverlayColorForZone(zi); break; }
                     }
                 }
 
