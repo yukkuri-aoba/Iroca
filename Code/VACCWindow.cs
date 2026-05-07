@@ -21,6 +21,13 @@ namespace VRCAvatarColorChanger
         // Phase 4a で個別 [SerializeField] フィールド群から VACCSessionState に集約。
         [SerializeField] private VACCSessionState _session = VACCSessionState.CreateDefault();
 
+        // SerializedObject(this) 経由のプロパティ編集基盤。
+        // Phase 4b で ColorZoneDrawer / PropertyField への移行時に使用し、
+        // Phase 4c で ApplyModifiedProperties() の戻り値を previewDirty 判定に一元化する。
+        private SerializedObject _windowSerializedObject;
+        private SerializedProperty _sessionProperty;
+        private SerializedProperty _zonesProperty;
+
         // ── _session への薄いアクセサ ──
         // Phase 4a では partial class 内のコードに最小限の変更で済むよう、
         // 既存フィールド名と同じプロパティ経由で _session 内のフィールドへアクセスする。
@@ -66,6 +73,9 @@ namespace VRCAvatarColorChanger
         private void OnEnable()
         {
             _session ??= VACCSessionState.CreateDefault();
+            _windowSerializedObject = new SerializedObject(this);
+            _sessionProperty = _windowSerializedObject.FindProperty(nameof(_session));
+            _zonesProperty = _sessionProperty?.FindPropertyRelative(nameof(VACCSessionState.zones));
             EnsureAllZoneIds();
             RestoreMaskFromSession();
         }
@@ -73,6 +83,10 @@ namespace VRCAvatarColorChanger
         private void OnDisable()
         {
             SaveMaskToSession();
+            _sessionProperty = null;
+            _zonesProperty = null;
+            _windowSerializedObject?.Dispose();
+            _windowSerializedObject = null;
         }
 
         private void ProcessPendingZoneChanges()
