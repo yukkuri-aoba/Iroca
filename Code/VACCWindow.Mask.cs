@@ -178,7 +178,7 @@ namespace VRCAvatarColorChanger
         /// <summary>
         /// 現在の zones に対して id 未設定のものへ GUID を振る。
         /// </summary>
-        private void EnsureAllZoneIds()
+        internal void EnsureAllZoneIds()
         {
             if (zones == null) return;
             for (int i = 0; i < zones.Count; i++)
@@ -505,7 +505,7 @@ namespace VRCAvatarColorChanger
         /// 同時に _session.maskState を bool[] バッファの内容で更新する。
         /// 全 false のゾーンマスクは書き出さない。
         /// </summary>
-        private void SaveMaskToSession()
+        internal void SaveMaskToSession()
         {
             // bool[] バッファを _session.maskState（RLE 文字列）に書き戻す。
             // Unity の SerializedObject 経由の Undo 連携や Editor 再起動を跨いだ復元の
@@ -802,6 +802,83 @@ namespace VRCAvatarColorChanger
         }
 
         // ───────────────────────── Processing 用スナップショット ────────────────────
+
+        /// <summary>
+        /// プリセット内のマスクデータで現在のマスク状態を置き換える。
+        /// </summary>
+        internal void ApplyMaskFromPreset(VACCPresetData data)
+        {
+            if (data == null || data.maskWidth <= 0 || data.maskHeight <= 0) return;
+
+            maskWidth = data.maskWidth;
+            maskHeight = data.maskHeight;
+            exclusionMask = null;
+            zoneMasks.Clear();
+
+            if (!string.IsNullOrEmpty(data.commonMaskBase64))
+            {
+                var m = DecodeMask(data.commonMaskBase64, out int w, out int h);
+                if (m != null && w == maskWidth && h == maskHeight)
+                    exclusionMask = m;
+            }
+
+            if (data.zoneMasks != null)
+            {
+                foreach (var e in data.zoneMasks)
+                {
+                    if (e == null || string.IsNullOrEmpty(e.zoneId)) continue;
+                    var m = DecodeMask(e.maskBase64, out int w, out int h);
+                    if (m == null || w != maskWidth || h != maskHeight) continue;
+                    zoneMasks[e.zoneId] = m;
+                }
+            }
+
+            _undoMaskHistory.Clear();
+            SaveMaskToSession();
+        }
+
+        /// <summary>
+        /// 現在のマスク状態を VACCPresetData の commonMaskBase64 / zoneMasks フィールドに書き出す。
+        /// 全 false のマスクは含めない。
+        /// </summary>
+        internal void WriteMaskToPreset(VACCPresetData data)
+        {
+            if (data == null || maskWidth <= 0 || maskHeight <= 0) return;
+
+            bool includedAnything = false;
+
+            if (exclusionMask != null && AnyTrue(exclusionMask))
+            {
+                data.commonMaskBase64 = EncodeMask(exclusionMask, maskWidth, maskHeight);
+                includedAnything = true;
+            }
+
+            foreach (var kv in zoneMasks)
+            {
+                if (kv.Value == null || !AnyTrue(kv.Value)) continue;
+                data.zoneMasks.Add(new ZoneMaskEntry
+                {
+                    zoneId = kv.Key,
+                    maskBase64 = EncodeMask(kv.Value, maskWidth, maskHeight),
+                });
+                includedAnything = true;
+            }
+
+            if (includedAnything)
+            {
+                data.maskWidth = maskWidth;
+                data.maskHeight = maskHeight;
+            }
+        }
+
+        /// <summary>
+        /// アクティブなマスク編集対象を共通マスクへリセットする（プリセット読込後など）。
+        /// </summary>
+        internal void ResetActiveMaskTarget()
+        {
+            activeMaskTarget = -1;
+            maskDirty = true;
+        }
 
         /// <summary>
         /// 現在のマスク状態をスナップショット化する（deep clone）。

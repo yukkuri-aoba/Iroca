@@ -14,10 +14,16 @@ namespace VRCAvatarColorChanger
         [SerializeField] private Texture2D sourceTexture;
         internal Texture2D SourceTexture { get => sourceTexture; set => sourceTexture = value; }
         internal VACCSessionState Session => _session;
+
+        // ── 各 View からの再描画通知用 ──
+        internal void MarkPreviewDirty() { previewDirty = true; }
+        internal void MarkMaskDirty() { maskDirty = true; }
+        internal void RequestRepaint() { Repaint(); }
         private Vector2 scrollPos;
 
         // ── View インスタンス（状態は各 View が自前で保持） ──
         [SerializeField] private ExportView _exportView = new ExportView();
+        [SerializeField] private PresetsView _presetsView = new PresetsView();
 
         // 編集状態（ゾーン定義・処理パラメータ・マスク状態）。
         // Phase 4a で個別 [SerializeField] フィールド群から VACCSessionState に集約。
@@ -77,6 +83,8 @@ namespace VRCAvatarColorChanger
             _session ??= VACCSessionState.CreateDefault();
             _exportView ??= new ExportView();
             _exportView.Initialize(this);
+            _presetsView ??= new PresetsView();
+            _presetsView.Initialize(this);
             _windowSerializedObject = new SerializedObject(this);
             _sessionProperty = _windowSerializedObject.FindProperty(nameof(_session));
             _zonesProperty = _sessionProperty?.FindPropertyRelative(nameof(VACCSessionState.zones));
@@ -154,7 +162,7 @@ namespace VRCAvatarColorChanger
                     previewDirty = true;
                 }
 
-                DrawPresetsSection();
+                _presetsView.Draw();
                 EditorGUILayout.EndScrollView();
                 EditorGUILayout.EndVertical();
 
@@ -186,7 +194,7 @@ namespace VRCAvatarColorChanger
                     previewDirty = true;
                 }
 
-                DrawPresetsSection();
+                _presetsView.Draw();
                 DrawPreview();
                 _exportView.DrawBatchSection();
                 _exportView.DrawExportSection();
