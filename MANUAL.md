@@ -100,6 +100,7 @@
 - **エッジ柔らかさ (Edge Softness)** — エッジの硬さ（0 = 硬い、1 = 柔らかい）
 - **彩度制限 (Saturation Strictness)** — 薄い色の除外度（0 = 除外なし、1 = 鮮やかな色のみ）
 - **ハイライト補助 (Highlight Recovery)** — 鏡面反射/光沢部分の色変換漏れを防ぐ
+- **シャドウ・ハイライト詳細設定** — 暗部の巻き込み制御・無彩色自動判定（アドバンス設定参照）
 - **L (Layer Index)** — 複数ゾーン重複時の優先度（大きい値が後に適用・優先）
 
 #### ステップ 6: エクスポート
@@ -130,7 +131,11 @@
   - 低い値：より厳密に色を判定（選択範囲が狭い）
   - 高い値：より広く色を判定（選択範囲が広い、ノイズが増える傾向）
   - 推奨値：0.15 ～ 0.40（テクスチャに応じて調整）
-
+- **連続領域モード (Flood Fill)**
+  - カラーピック時に表示されるトグル
+  - 有効にすると、プレビュー上をクリックして「シード点」を指定できます
+  - シード点からエッジで境界されるまでを自動追跡し、まとまった領域のみを改変対象にできます
+  - エッジストッパー強度 (Edge Stop Threshold): 領域の境界とみなす色差の閖値（アドバンスモード）
 #### UV矩形 モード
 
 UV座標で矩形範囲を明示的に指定します。複雑な色構成のテクスチャに向いています。
@@ -177,6 +182,14 @@ UV座標で矩形範囲を明示的に指定します。複雑な色構成のテ
 - **ON**（デフォルト） — ハイライト領域の色変換漏れを防ぐ
 - **OFF** — 厳密にハイライト領域を除外したい場合に使用
 
+**シャドウ・ハイライト詳細設定**
+
+暗部やグレーの取り扱いを細かく制御するセクションです。
+
+- **シャドウ彩度低下 (Shadow Desaturation)** — 暗いピクセルの彩度を落とす明度閖値。低い値にすると暗い色も鮮やかに染まります。デフォルト: 0.35
+- **シャドウ巻き込み最低彩度 (Shadow Forgiveness Sat Min)** — 暗いピクセルを影各として巻き込むために必要な最低彩度。純粋なグレー/黒が色付けされるのを防ぐ。デフォルト: 0.05
+- **自動無彩色判定 (Auto Grayscale Threshold)** — サンプル色の彩度がこの値以下の場合、色相を無視して純粋な無彩色（黒/グレー）として高精度に投圖します。デフォルト: 0.05
+
 **L（Layer Index：レイヤーインデックス）**
 
 ゾーンヘッダーの `L` 欄で指定する整数値。複数のカラーゾーンが重なる場合の適用順を制御します。
@@ -213,6 +226,13 @@ UV座標で矩形範囲を明示的に指定します。複雑な色構成のテ
 - **3**（標準） — 標準クリーンアップ（推奨）
 - **4 ～ 5** — 強いクリーンアップ（より多くのノイズを除去）
 
+#### 境界クリーンアップ（α分解）
+
+AA境界で α 分解＋再合成を行い、薄汚れた中間色（ハロー効果）の発生を構造的に防げます。
+
+- **ON**（デフォルト） — 推奨。AA境界の色汚染を防止する。
+- **OFF** — 従来のクリーンアップのみ使用
+
 ---
 
 ### アドバンスモード
@@ -233,12 +253,13 @@ UV座標で矩形範囲を明示的に指定します。複雑な色構成のテ
 
 #### 加工設定のアドバンスパラメータ
 
-- **穴埋めパス数 (Hole Fill Passes)** — AA境界の孤立ドット除去のパス数。デフォルト: 3
+- **穴埋めパス数 (Hole Fill Passes)** — AA境界の孤立ドット除去のパス数。デフォルト: 5
 - **穴埋め最小隣接数 (Hole Fill Min Neighbors)** — 穴埋めに必要なマッチ隣接ピクセル数。デフォルト: 4
   - 低い値：より積極的に穴を埋める（過剰に埋める可能性）
   - 高い値：より保守的
-- **境界復元 彩度最小 (Boundary Sat Min)** — 境界復元時の彩度最小閾値。デフォルト: 0.02
+- **境界復元 彩度最小 (Boundary Sat Min)** — 境界復元時の彩度最小鎖値。デフォルト: 0.02
 - **境界復元 彩度ランプ (Boundary Sat Ramp)** — 境界復元時の彩度ランプ幅。デフォルト: 0.08
+- **α分解 近傍半径 (Decontamination Radius)** — 境界クリーンアップ（α分解）で背景色を推定する近傍ピクセルの半径。デフォルト: 4
 
 > **ヒント：** アドバンスモードの設定はプリセットとして保存・読込できます。うまく機能する組み合わせを見つけたら、プリセットとして保存しておくと便利です。
 
@@ -265,14 +286,20 @@ UV座標で矩形範囲を明示的に指定します。複雑な色構成のテ
 
 ### 除外マスク
 
-プレビュー上でブラシを使用して、色改変したくない領域をマスクします。
+プレビュー上でブラシを使用して、色改変したくない領域をマスクします。共通マスク（全ゾーンに適用）とゾーン別マスク（特定ゾーンのみ適用）の両方を使い分けられます。
 
 #### 使い方
 
-1. 「除外」ボタンをクリックしてペイントモードを開始
-2. プレビュー上でドラッグしてマスクを描画（赤い叠りの部分）
-3. マスクされた部分は色改変されません
-4. 「除外」ボタンを再度クリックするとペイントモードを解除
+1. 「マスク対象」プルダウンで編集対象を選択（共通または各ゾーン）
+2. 「除外」ボタンをクリックしてペイントモードを開始
+3. プレビュー上でドラッグしてマスクを描画（赤い叠り = 共通、黄色系 = ゾーン別）
+4. マスクされた部分は色改変されません
+5. 「除外」ボタンを再度クリックするとペイントモードを解除
+
+#### マスク対象
+
+- **共通マスク** — 全ゾーンに適用されるマスク。デフォルトの選択肢。
+- **ゾーン別マスク** — プルダウンでゾーン名を選択するとそのゾーンにのみ適用されるマスクを編集できます。
 
 #### ブラシ設定
 
@@ -302,11 +329,16 @@ UV座標で矩形範囲を明示的に指定します。複雑な色構成のテ
 1. 「プリセット」セクションを開く
 2. 保存先を選択：「プロジェクト内」または「ユーザー共通」
 3. プリセット名を入力して「保存」をクリック
-4. 保存済みプリセット一覧から「読込」で決定を読み込み、「×」で削除
+4. 保存済みプリセット一覧から「読込」で設定を読み込み、「×」で削除
+
+**マスクの保存/読込オプション:**
+
+- **マスクを含める** — ONにすると現在の除外マスクもプリセットに保存されます。
+- **読込時にマスクも適用** — ONにするとプリセット読込時に保存されたマスクも同時に復元します。
 
 #### JSONエクスポート／インポート
 
-「JSONエクスポート」「「JSONインポート」ボタンで設定を外部ファイルとして尊重できます。
+「JSONエクスポート」「JSONインポート」ボタンで設定を外部ファイルとして共有できます。
 
 ---
 
@@ -339,6 +371,12 @@ UV座標で矩形範囲を明示的に指定します。複雑な色構成のテ
 **「新規ファイルとして保存」 OFF**
 - 元のテクスチャファイルを上書き保存
 - バックアップを強く推奨
+
+**インポート設定を継承**
+- ON（デフォルト）にすると、新しく生成されたテクスチャが元のテクスチャのインポート設定を自動継承します。
+
+**「フォルダを開く」ボタン**
+保存されたテクスチャの存在するフォルダをファイルエクスプローラで開きます。
 
 ---
 
@@ -576,6 +614,7 @@ Adjust any or all of:
 - **Edge Softness** — Edge hardness (0 = hard, 1 = soft)
 - **Saturation Strictness** — Light color exclusion (0 = include all, 1 = vivid only)
 - **Highlight Recovery** — Prevents recoloring gaps on reflective/glossy areas
+- **Shadow/Highlight Details** — Controls dark-area bleed and auto grayscale detection (see Advanced Mode)
 - **L (Layer Index)** — Priority when zones overlap (higher = later = takes priority)
 
 #### Step 6: Export
@@ -600,6 +639,12 @@ Auto-detects target pixels based on sample color and matching criteria.
   - Low: stricter matching (narrow selection)
   - High: broader matching (wider selection, more noise)
   - Recommended: 0.15 ～ 0.40
+
+- **Connected Region (Flood Fill)** — Toggle available in Color Pick mode.
+  When enabled, click on the preview to set a "seed point". The tool automatically
+  traces neighboring pixels up to a color-difference boundary, limiting the recolored
+  area to a connected region only.
+  - Edge Stop Threshold: color-difference value that acts as a region boundary (Advanced Mode)
 
 #### UV Rect Mode
 
@@ -643,6 +688,14 @@ Matches high-brightness, low-saturation highlight regions (reflective/glossy are
 - **ON** (default): Prevents recoloring gaps in highlight areas
 - **OFF**: Use when you want to strictly exclude highlight regions
 
+**Shadow/Highlight Details**
+
+Fine-grained control over how dark and desaturated pixels are handled.
+
+- **Shadow Desaturation** — Brightness threshold below which dark pixels have their saturation reduced. Lower values allow darker colors to be recolored more vividly. Default: 0.35
+- **Shadow Forgiveness Sat Min** — Minimum saturation required to include a dark pixel as shadow. Prevents pure greys from being colorized. Default: 0.05
+- **Auto Grayscale Threshold** — If the sample saturation is below this value, hue is ignored and the zone treats pixels as pure grayscale (black/grey), giving very clean results for dark neutrals. Default: 0.05
+
 **L (Layer Index)**
 
 An integer set via the `L` field in the zone header. Controls application order when zones overlap.
@@ -675,6 +728,13 @@ Number of passes to recover anti-alias boundary pixels.
 - 3: Standard (default)
 - 4 ～ 5: Strong
 
+#### Edge Decontamination
+
+Rebuilds AA boundary pixels via alpha decomposition and recomposition to prevent muddy halo colors at edges.
+
+- **ON** (default): Recommended. Prevents color contamination at AA boundaries.
+- **OFF**: Use legacy cleanup only.
+
 ---
 
 ### Advanced Mode
@@ -695,12 +755,13 @@ Turning on Advanced Mode also reveals additional per-zone parameters.
 
 #### Processing advanced parameters
 
-- **Hole Fill Passes** — Passes to fill isolated dots at anti-aliased edges. Default: 3
+- **Hole Fill Passes** — Passes to fill isolated dots at anti-aliased edges. Default: 5
 - **Hole Fill Min Neighbors** — Minimum matched neighbors required to fill a hole. Default: 4
   - Lower: more aggressive filling (may over-fill)
   - Higher: more conservative
 - **Boundary Sat Min** — Minimum saturation threshold for boundary recovery. Default: 0.02
 - **Boundary Sat Ramp** — Saturation ramp width for boundary recovery. Default: 0.08
+- **Decontamination Radius** — Neighborhood radius used to estimate background color for Edge Decontamination. Default: 4
 
 > **Tip:** Advanced Mode settings are included when saving/loading presets. Once you find a combination that works well for a specific texture style, save it as a preset.
 
@@ -727,14 +788,20 @@ Updates automatically after setting changes (default: 0.2s delay).
 
 ### Exclusion Mask
 
-Paint areas on the preview to exclude them from recoloring.
+Paint areas on the preview to exclude them from recoloring. Supports both a common mask (applied to all zones) and per-zone masks.
 
 #### How to Use
 
-1. Click "Exclude" to enter paint mode
-2. Drag on the preview to paint the exclusion mask (red overlay)
-3. Masked areas won't be recolored
-4. Click "Exclude" again to exit paint mode
+1. Select the mask target from the "Mask Target" dropdown (Common or a specific zone)
+2. Click "Exclude" to enter paint mode
+3. Drag on the preview to paint the exclusion mask (red overlay = common, colored overlay = zone-specific)
+4. Masked areas won't be recolored
+5. Click "Exclude" again to exit paint mode
+
+#### Mask Target
+
+- **Common Mask** — Applied to all zones. Default selection.
+- **Zone-specific Mask** — Select a zone name from the dropdown to edit a mask that applies only to that zone.
 
 #### Brush Settings
 
@@ -779,6 +846,11 @@ Save and load zone and processing settings as presets.
 3. Enter a preset name and click "Save"
 4. Load a preset from the list with "Load", or delete with "×"
 
+**Mask save/load options:**
+
+- **Include Masks** — When ON, the current exclusion masks are saved together with the preset.
+- **Apply Masks on Load** — When ON, masks stored in the preset are restored when loading.
+
 #### JSON Export / Import
 
 Use "Export JSON" / "Import JSON" buttons to share settings as external files.
@@ -799,6 +871,12 @@ Use the "Save as new file" toggle to select the save method, then click "Apply &
 **"Save as new file" OFF**
 - Save over the original texture
 - Backup strongly recommended
+
+**Inherit Import Settings**
+- ON (default): The newly generated texture automatically inherits the import settings of the source texture.
+
+**Open Folder button**
+Reveals the saved texture in the system file explorer.
 
 ---
 
