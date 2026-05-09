@@ -95,6 +95,9 @@ namespace VRCAvatarColorChanger
             _sessionProperty = _windowSerializedObject.FindProperty(nameof(_session));
             _zonesProperty = _sessionProperty?.FindPropertyRelative(nameof(VACCSessionState.zones));
             EnsureAllZoneIds();
+            // AssetWatcher の delete フックを取りこぼした場合の保険として、
+            // ウィンドウを開いた時に MaskCache の orphan ファイルを掃除する。
+            MaskFileStore.CleanupOrphans();
             _maskView.RestoreFromSession();
             // Unity 標準 Undo の戻り/進みに合わせて bool[] バッファを _session.maskState から再展開
             Undo.undoRedoPerformed += OnUndoRedoPerformed;
