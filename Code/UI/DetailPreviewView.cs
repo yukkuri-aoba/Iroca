@@ -297,12 +297,14 @@ namespace VRCAvatarColorChanger
 
                 if (hasAnyZone)
                 {
+                    // 重なった zone mask の表示優先度はメインの RebuildMaskOverlay と同じ
+                    // 「リスト後方のゾーンが上書き勝ち」に揃える（break しない）。
                     for (int zi = 0; zi < zones.Count; zi++)
                     {
                         var zone = zones[zi];
                         if (zone == null || string.IsNullOrEmpty(zone.id)) continue;
                         if (!zoneMasks.TryGetValue(zone.id, out var zm) || zm == null) continue;
-                        if (zm[mi]) { px = MaskPaintView.OverlayColorForZone(zi); break; }
+                        if (zm[mi]) px = MaskPaintView.OverlayColorForZone(zi);
                     }
                 }
 
