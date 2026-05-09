@@ -113,90 +113,25 @@ namespace VRCAvatarColorChanger
                 // Parallel.For に入る前にキャッシュを確定させてホットループ内の条件分岐を排除
                 zone.UpdateCacheIfNeeded();
 
-                // 1. 元のピクセルカラーを使用した強度マップを構築
-                float[] strength = ArrayPool<float>.Shared.Rent(len);
-                Array.Clear(strength, 0, len);
+                // ArrayPool 借用は per-zone の try/finally で必ず返却する。
+                // Parallel.For は po.CancellationToken でキャンセル時に OperationCanceledException
+                // を投げ、FillSmallHoles 等の内部 Parallel.For 利用も例外を伝播し得るため、
+                // 例外経路でもプールが汚染されないよう finally でガードする。
+                float[] strength = null;
                 float[] highlightPot = null;
-                if (zone.highlightRecovery)
+                try
                 {
-                    highlightPot = ArrayPool<float>.Shared.Rent(len);
-                    Array.Clear(highlightPot, 0, len);
-                }
-
-                Parallel.For(0, h, po, y =>
-                {
-                    int yf = y + originY;
-                    int rowOff = y * w;
-                    for (int x = 0; x < w; x++)
+                    // 1. 元のピクセルカラーを使用した強度マップを構築
+                    strength = ArrayPool<float>.Shared.Rent(len);
+                    Array.Clear(strength, 0, len);
+                    if (zone.highlightRecovery)
                     {
-                        int xf = x + originX;
-                        int i = rowOff + x;
-                        if (IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH)) continue;
-
-                        float s, hPot;
-                        zone.GetMatchScoresPrecomputedHSV(pixH[i], pixS[i], pixV[i], (Color)originalPixels[i], xf, yf, fullW, fullH, out s, out hPot);
-                        strength[i] = s;
-                        if (highlightPot != null) highlightPot[i] = hPot;
+                        highlightPot = ArrayPool<float>.Shared.Rent(len);
+                        Array.Clear(highlightPot, 0, len);
                     }
-                });
 
-                // 1.a 空間伝播によるハイライト領域の回収 (モルフォロジー拡張)
-                if (highlightPot != null)
-                {
-                    PropagateHighlights(strength, highlightPot, w, h);
-                    ArrayPool<float>.Shared.Return(highlightPot);
-                    highlightPot = null;
-                }
-
-                // 1.a.2 Flood Fill: シード点から連続する領域のみに強度を絞り込む
-                if (zone.mode == SelectionMode.ColorPick && zone.useFloodFill && zone.seedUV.x >= 0f)
-                {
-                    int efW = fullW > 0 ? fullW : w;
-                    int efH = fullH > 0 ? fullH : h;
-                    int seedXFull = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.x * (efW - 1)), 0, efW - 1);
-                    int seedYFull = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.y * (efH - 1)), 0, efH - 1);
-                    int seedX = seedXFull - originX;
-                    int seedY = seedYFull - originY;
-                    if (seedX >= 0 && seedX < w && seedY >= 0 && seedY < h)
-                        ApplyFloodFillMask(strength, pixS, pixV, w, h, seedX, seedY, zone.edgeStopThreshold);
-                    else
-                        Array.Clear(strength, 0, len);
-                }
-
-                // 1b. 孤立した穴を埋める：アンチエイリアス処理された端のピクセルは低彩度を持つことが多く
-                //     satConfidenceで見落とされて、元のカラーの孤立したドットを残す
-                //     ゼロ強度ピクセルが主にマッチしたピクセルに囲まれている場合は埋める
-                FillSmallHoles(strength, w, h, holeFillPasses, holeFillMinNeighbors);
-
-                // 1c. 境界復元：マッチしたピクセルに隣接するマッチしないピクセルを再評価
-                //     古い固定低彩度閾値を使用して、正しい段階的な強度を与える
-                if (antiAliasCleanup > 0)
-                    RecoverBoundaryEdges(strength, w, h, pixH, pixS, pixV,
-                        zone.sampleColor, zone.tolerance, zone.edgeSoftness, zone.valueWeight,
-                        zone.satDistWeight, relaxedSatMin, relaxedSatRamp, zone.shadowForgivenessSatMin, antiAliasCleanup);
-
-                // 2. スムーズな端の遷移のためのガウシアンブラー（端に限定）
-                if (edgeFeather > 0.01f)
-                {
-                    float[] preBlur = ArrayPool<float>.Shared.Rent(len);
-                    Array.Copy(strength, preBlur, len);
-                    float[] blurOut = ArrayPool<float>.Shared.Rent(len);
-                    if (GaussianBlur(strength, blurOut, w, h, edgeFeather))
-                    {
-                        ArrayPool<float>.Shared.Return(strength);
-                        strength = blurOut;
-                        ConstrainBlur(strength, preBlur, w, h, Mathf.CeilToInt(edgeFeather * 2.5f));
-                    }
-                    else
-                    {
-                        ArrayPool<float>.Shared.Return(blurOut);
-                    }
-                    ArrayPool<float>.Shared.Return(preBlur);
-                }
-
-                // 3. 除外マスクを再適用：ブラーが除外ピクセルにはみ出す可能性がある
-                if (commonMask != null || zoneMask != null)
-                {
+                    var strengthLocal = strength;
+                    var highlightPotLocal = highlightPot;
                     Parallel.For(0, h, po, y =>
                     {
                         int yf = y + originY;
@@ -205,53 +140,144 @@ namespace VRCAvatarColorChanger
                         {
                             int xf = x + originX;
                             int i = rowOff + x;
-                            if (IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH)) strength[i] = 0f;
+                            if (IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH)) continue;
+
+                            float s, hPot;
+                            zone.GetMatchScoresPrecomputedHSV(pixH[i], pixS[i], pixV[i], (Color)originalPixels[i], xf, yf, fullW, fullH, out s, out hPot);
+                            strengthLocal[i] = s;
+                            if (highlightPotLocal != null) highlightPotLocal[i] = hPot;
+                        }
+                    });
+
+                    // 1.a 空間伝播によるハイライト領域の回収 (モルフォロジー拡張)
+                    if (highlightPot != null)
+                    {
+                        PropagateHighlights(strength, highlightPot, w, h);
+                        ArrayPool<float>.Shared.Return(highlightPot);
+                        highlightPot = null;
+                    }
+
+                    // 1.a.2 Flood Fill: シード点から連続する領域のみに強度を絞り込む
+                    if (zone.mode == SelectionMode.ColorPick && zone.useFloodFill && zone.seedUV.x >= 0f)
+                    {
+                        int efW = fullW > 0 ? fullW : w;
+                        int efH = fullH > 0 ? fullH : h;
+                        int seedXFull = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.x * (efW - 1)), 0, efW - 1);
+                        int seedYFull = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.y * (efH - 1)), 0, efH - 1);
+                        int seedX = seedXFull - originX;
+                        int seedY = seedYFull - originY;
+                        if (seedX >= 0 && seedX < w && seedY >= 0 && seedY < h)
+                            ApplyFloodFillMask(strength, pixS, pixV, w, h, seedX, seedY, zone.edgeStopThreshold);
+                        else
+                            Array.Clear(strength, 0, len);
+                    }
+
+                    // 1b. 孤立した穴を埋める：アンチエイリアス処理された端のピクセルは低彩度を持つことが多く
+                    //     satConfidenceで見落とされて、元のカラーの孤立したドットを残す
+                    //     ゼロ強度ピクセルが主にマッチしたピクセルに囲まれている場合は埋める
+                    FillSmallHoles(strength, w, h, holeFillPasses, holeFillMinNeighbors);
+
+                    // 1c. 境界復元：マッチしたピクセルに隣接するマッチしないピクセルを再評価
+                    //     古い固定低彩度閾値を使用して、正しい段階的な強度を与える
+                    if (antiAliasCleanup > 0)
+                        RecoverBoundaryEdges(strength, w, h, pixH, pixS, pixV,
+                            zone.sampleColor, zone.tolerance, zone.edgeSoftness, zone.valueWeight,
+                            zone.satDistWeight, relaxedSatMin, relaxedSatRamp, zone.shadowForgivenessSatMin, antiAliasCleanup);
+
+                    // 2. スムーズな端の遷移のためのガウシアンブラー（端に限定）
+                    if (edgeFeather > 0.01f)
+                    {
+                        // ガウシアンブラー用の一時バッファ。GaussianBlur 内部の Parallel.For
+                        // でキャンセルが入っても preBlur/blurOut が漏れないよう try/finally で囲む。
+                        float[] preBlur = null;
+                        float[] blurOut = null;
+                        try
+                        {
+                            preBlur = ArrayPool<float>.Shared.Rent(len);
+                            Array.Copy(strength, preBlur, len);
+                            blurOut = ArrayPool<float>.Shared.Rent(len);
+                            if (GaussianBlur(strength, blurOut, w, h, edgeFeather))
+                            {
+                                // strength の所有権を blurOut に移し、もとの strength は返却
+                                ArrayPool<float>.Shared.Return(strength);
+                                strength = blurOut;
+                                blurOut = null; // 二重返却防止
+                                ConstrainBlur(strength, preBlur, w, h, Mathf.CeilToInt(edgeFeather * 2.5f));
+                            }
+                        }
+                        finally
+                        {
+                            if (blurOut != null) ArrayPool<float>.Shared.Return(blurOut);
+                            if (preBlur != null) ArrayPool<float>.Shared.Return(preBlur);
+                        }
+                    }
+
+                    // 3. 除外マスクを再適用：ブラーが除外ピクセルにはみ出す可能性がある
+                    if (commonMask != null || zoneMask != null)
+                    {
+                        var strengthForReapply = strength;
+                        Parallel.For(0, h, po, y =>
+                        {
+                            int yf = y + originY;
+                            int rowOff = y * w;
+                            for (int x = 0; x < w; x++)
+                            {
+                                int xf = x + originX;
+                                int i = rowOff + x;
+                                if (IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH)) strengthForReapply[i] = 0f;
+                            }
+                        });
+                    }
+
+                    // 3b. AA 境界の α 分解（オプション）：strength が 0 < s < interiorThreshold の
+                    //     ピクセルを「α×FG + (1-α)×BG」と見て元テクスチャの合成を逆算し、
+                    //     新色で再合成する。halo（薄汚れた中間色）を構造的に除去する。
+                    //     詳細は dev_safe/docs/edge_decontamination.md を参照。
+                    bool[] aaMask = null;
+                    Color32[] decontaminatedPixels = null;
+                    if (useDecontamination)
+                    {
+                        DecontaminateAaBoundary(originalPixels, strength, w, h,
+                            zone.sampleColor, zone.targetColor,
+                            decontaminationRadius, decontaminationInteriorThreshold,
+                            out aaMask, out decontaminatedPixels);
+                    }
+
+                    // 4. 強度でブレンドした再色付けを適用
+                    // target/sample は zone 内で定数なので HSV 変換をループ外で事前計算
+                    float zTH, zTS, zTV;
+                    float zSH, zSS, zSV;
+                    Color.RGBToHSV(zone.targetColor, out zTH, out zTS, out zTV);
+                    Color.RGBToHSV(zone.sampleColor, out zSH, out zSS, out zSV);
+                    float zValueBlend = zone.valueBlend;
+                    var strengthForRecolor = strength;
+                    var aaMaskLocal = aaMask;
+                    var decontaminatedLocal = decontaminatedPixels;
+                    Parallel.For(0, h, po, y =>
+                    {
+                        int rowOff = y * w;
+                        for (int x = 0; x < w; x++)
+                        {
+                            int i = rowOff + x;
+                            float s = strengthForRecolor[i];
+                            if (s <= 0.001f) continue;
+                            if (aaMaskLocal != null && aaMaskLocal[i])
+                            {
+                                // AA pixel: use decontaminated value (overrides standard mix)
+                                pixels[i] = decontaminatedLocal[i];
+                                continue;
+                            }
+                            float alpha = originalPixels[i].a / 255f;
+                            Color32 recolored = RecolorPixel(pixH[i], pixS[i], pixV[i], alpha, zTH, zTS, zTV, zSH, zSS, zSV, zValueBlend, zone.shadowDesaturation);
+                            pixels[i] = s >= 0.999f ? recolored : Color32.Lerp(pixels[i], recolored, s);
                         }
                     });
                 }
-
-                // 3b. AA 境界の α 分解（オプション）：strength が 0 < s < interiorThreshold の
-                //     ピクセルを「α×FG + (1-α)×BG」と見て元テクスチャの合成を逆算し、
-                //     新色で再合成する。halo（薄汚れた中間色）を構造的に除去する。
-                //     詳細は dev_safe/docs/edge_decontamination.md を参照。
-                bool[] aaMask = null;
-                Color32[] decontaminatedPixels = null;
-                if (useDecontamination)
+                finally
                 {
-                    DecontaminateAaBoundary(originalPixels, strength, w, h,
-                        zone.sampleColor, zone.targetColor,
-                        decontaminationRadius, decontaminationInteriorThreshold,
-                        out aaMask, out decontaminatedPixels);
+                    if (highlightPot != null) ArrayPool<float>.Shared.Return(highlightPot);
+                    if (strength != null) ArrayPool<float>.Shared.Return(strength);
                 }
-
-                // 4. 強度でブレンドした再色付けを適用
-                // target/sample は zone 内で定数なので HSV 変換をループ外で事前計算
-                float zTH, zTS, zTV;
-                float zSH, zSS, zSV;
-                Color.RGBToHSV(zone.targetColor, out zTH, out zTS, out zTV);
-                Color.RGBToHSV(zone.sampleColor, out zSH, out zSS, out zSV);
-                float zValueBlend = zone.valueBlend;
-                Parallel.For(0, h, po, y =>
-                {
-                    int rowOff = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
-                        int i = rowOff + x;
-                        float s = strength[i];
-                        if (s <= 0.001f) continue;
-                        if (aaMask != null && aaMask[i])
-                        {
-                            // AA pixel: use decontaminated value (overrides standard mix)
-                            pixels[i] = decontaminatedPixels[i];
-                            continue;
-                        }
-                        float alpha = originalPixels[i].a / 255f;
-                        Color32 recolored = RecolorPixel(pixH[i], pixS[i], pixV[i], alpha, zTH, zTS, zTV, zSH, zSS, zSV, zValueBlend, zone.shadowDesaturation);
-                        pixels[i] = s >= 0.999f ? recolored : Color32.Lerp(pixels[i], recolored, s);
-                    }
-                });
-
-                ArrayPool<float>.Shared.Return(strength);
             } // foreach zone
 
             } // end try (pixH/S/V)
