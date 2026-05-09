@@ -482,7 +482,7 @@ namespace VRCAvatarColorChanger
 
         // ───────────────────────── Mask Persistence ────────────────────
 
-        private string MaskSessionPathKey()
+        private string MaskTexturePath()
         {
             var sourceTexture = _host.SourceTexture;
             if (sourceTexture == null) return null;
@@ -490,12 +490,14 @@ namespace VRCAvatarColorChanger
             return string.IsNullOrEmpty(path) ? null : path;
         }
 
-        private string MaskIndexSessionKey(string path) => "VACC_MaskIndex_" + path;
-        private string MaskArraySessionKey(string path, string targetKey) => "VACC_Mask_" + path + ":" + targetKey;
-        private string LegacyMaskSessionKey(string path) => "VACC_Mask_" + path;
+        // 旧 SessionState キー（Phase 6 で MaskFileStore に移行済み）。
+        // 残存データをマイグレートするためのみ残し、新規書き込みには使わない。
+        private static string LegacyMaskIndexSessionKey(string path) => "VACC_MaskIndex_" + path;
+        private static string LegacyMaskArraySessionKey(string path, string targetKey) => "VACC_Mask_" + path + ":" + targetKey;
+        private static string LegacySingleMaskSessionKey(string path) => "VACC_Mask_" + path;
 
         [System.Serializable]
-        private class MaskIndex
+        private class LegacyMaskIndex
         {
             public bool hasCommon;
             public List<string> zoneIds = new List<string>();
@@ -504,48 +506,18 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
-        /// 現在の全マスク（共通 + 各ゾーン）を SessionState に保存し、
-        /// 同時に _session.maskState を bool[] バッファの内容で更新する。
+        /// 現在の全マスク（共通 + 各ゾーン）をプロジェクト下の MaskCache ファイルへ
+        /// 永続化する。同時に _session.maskState を bool[] バッファの内容で更新する。
         /// </summary>
         public void SaveToSession()
         {
             // bool[] バッファを _session.maskState（RLE 文字列）に書き戻す。
             SyncBuffersToState();
 
-            string path = MaskSessionPathKey();
+            string path = MaskTexturePath();
             if (path == null) return;
 
-            // 旧キーは常にクリア（新フォーマットに移行）
-            SessionState.EraseString(LegacyMaskSessionKey(path));
-
-            var idx = new MaskIndex { width = maskWidth, height = maskHeight };
-
-            if (exclusionMask != null && AnyTrue(exclusionMask))
-            {
-                SessionState.SetString(
-                    MaskArraySessionKey(path, CommonMaskKey),
-                    EncodeMask(exclusionMask, maskWidth, maskHeight));
-                idx.hasCommon = true;
-            }
-            else
-            {
-                SessionState.EraseString(MaskArraySessionKey(path, CommonMaskKey));
-            }
-
-            foreach (var kv in zoneMasks)
-            {
-                if (kv.Value == null || !AnyTrue(kv.Value))
-                {
-                    SessionState.EraseString(MaskArraySessionKey(path, kv.Key));
-                    continue;
-                }
-                SessionState.SetString(
-                    MaskArraySessionKey(path, kv.Key),
-                    EncodeMask(kv.Value, maskWidth, maskHeight));
-                idx.zoneIds.Add(kv.Key);
-            }
-
-            SessionState.SetString(MaskIndexSessionKey(path), JsonUtility.ToJson(idx));
+            MaskFileStore.SaveMask(path, _host.Session?.maskState);
         }
 
         /// <summary>
@@ -611,34 +583,60 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
-        /// SessionState から全マスクを復元する。旧フォーマット（単一マスク）しか無い場合は
-        /// 共通マスクへ移行してから新フォーマットで保存し直す。
+        /// MaskCache ファイルから全マスクを復元する。
+        /// ファイルが見つからない場合は、旧 SessionState 形式の残存データを
+        /// 一度だけマイグレートして MaskCache へ書き出し、SessionState 側を消去する。
         /// </summary>
         public void RestoreFromSession()
         {
-            string path = MaskSessionPathKey();
+            string path = MaskTexturePath();
             if (path == null) return;
 
             exclusionMask = null;
             zoneMasks.Clear();
 
-            string indexJson = SessionState.GetString(MaskIndexSessionKey(path), null);
+            // 1) MaskCache ファイルからの読み込みを最優先する（Editor 再起動を跨ぐ正規ストア）。
+            var fileState = MaskFileStore.LoadMask(path);
+            if (fileState != null && fileState.width > 0 && fileState.height > 0)
+            {
+                _host.Session.maskState = fileState;
+                SyncBuffersFromState();
+                maskDirty = true;
+                return;
+            }
+
+            // 2) ファイルが無ければ、旧 SessionState 形式（Phase 6 以前のデータ）からマイグレート。
+            if (TryMigrateFromLegacySessionState(path))
+            {
+                maskDirty = true;
+                return;
+            }
+        }
+
+        /// <summary>
+        /// 旧 SessionState 形式（Phase 6 以前）のマスクデータを MaskCache ファイルへ移行する。
+        /// 一度移行が完了したら SessionState 側のキーは消去する。
+        /// 戻り値: マイグレーションによりバッファが復元できたら true。
+        /// </summary>
+        private bool TryMigrateFromLegacySessionState(string path)
+        {
+            // 2a) インデックス形式（共通 + ゾーン別）。
+            string indexJson = SessionState.GetString(LegacyMaskIndexSessionKey(path), null);
             if (!string.IsNullOrEmpty(indexJson))
             {
-                MaskIndex idx = null;
+                LegacyMaskIndex idx = null;
                 try
                 {
-                    idx = JsonUtility.FromJson<MaskIndex>(indexJson);
+                    idx = JsonUtility.FromJson<LegacyMaskIndex>(indexJson);
                 }
                 catch (System.Exception ex)
                 {
-                    Debug.LogWarning($"[VACC] Mask index decode failed: {ex.Message}");
-                    idx = null;
+                    Debug.LogWarning($"[VACC] Legacy mask index decode failed: {ex.Message}");
                 }
-                if (idx == null)
+                if (idx == null || idx.width <= 0 || idx.height <= 0)
                 {
-                    SessionState.EraseString(MaskIndexSessionKey(path));
-                    return;
+                    SessionState.EraseString(LegacyMaskIndexSessionKey(path));
+                    return false;
                 }
 
                 maskWidth = idx.width;
@@ -646,7 +644,7 @@ namespace VRCAvatarColorChanger
 
                 if (idx.hasCommon)
                 {
-                    string enc = SessionState.GetString(MaskArraySessionKey(path, CommonMaskKey), null);
+                    string enc = SessionState.GetString(LegacyMaskArraySessionKey(path, CommonMaskKey), null);
                     if (!string.IsNullOrEmpty(enc))
                         exclusionMask = DecodeMask(enc, out _, out _);
                 }
@@ -656,31 +654,52 @@ namespace VRCAvatarColorChanger
                     foreach (var zid in idx.zoneIds)
                     {
                         if (string.IsNullOrEmpty(zid)) continue;
-                        string enc = SessionState.GetString(MaskArraySessionKey(path, zid), null);
+                        string enc = SessionState.GetString(LegacyMaskArraySessionKey(path, zid), null);
                         if (string.IsNullOrEmpty(enc)) continue;
                         var arr = DecodeMask(enc, out _, out _);
                         if (arr != null) zoneMasks[zid] = arr;
                     }
                 }
-                SyncBuffersToState();
-                maskDirty = true;
-                return;
+
+                EraseLegacySessionEntries(path, idx);
+                // bool[] → MaskState → File へ確定保存
+                SaveToSession();
+                return true;
             }
 
-            // ─ 旧フォーマットフォールバック: 単一マスク → 共通へ移行 ─
-            string legacyEncoded = SessionState.GetString(LegacyMaskSessionKey(path), null);
-            if (string.IsNullOrEmpty(legacyEncoded)) return;
+            // 2b) 旧々形式: 単一マスクのみ。共通マスクへ昇格。
+            string legacyEncoded = SessionState.GetString(LegacySingleMaskSessionKey(path), null);
+            if (string.IsNullOrEmpty(legacyEncoded)) return false;
 
             var legacy = DecodeMask(legacyEncoded, out int lw, out int lh);
-            if (legacy == null) return;
+            if (legacy == null)
+            {
+                SessionState.EraseString(LegacySingleMaskSessionKey(path));
+                return false;
+            }
 
             maskWidth = lw;
             maskHeight = lh;
             exclusionMask = legacy;
 
-            SessionState.EraseString(LegacyMaskSessionKey(path));
+            SessionState.EraseString(LegacySingleMaskSessionKey(path));
             SaveToSession();
-            maskDirty = true;
+            return true;
+        }
+
+        private static void EraseLegacySessionEntries(string path, LegacyMaskIndex idx)
+        {
+            SessionState.EraseString(LegacyMaskIndexSessionKey(path));
+            SessionState.EraseString(LegacyMaskArraySessionKey(path, CommonMaskKey));
+            if (idx.zoneIds != null)
+            {
+                foreach (var zid in idx.zoneIds)
+                {
+                    if (string.IsNullOrEmpty(zid)) continue;
+                    SessionState.EraseString(LegacyMaskArraySessionKey(path, zid));
+                }
+            }
+            SessionState.EraseString(LegacySingleMaskSessionKey(path));
         }
 
         /// <summary>
