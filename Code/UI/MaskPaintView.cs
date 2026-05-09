@@ -155,8 +155,10 @@ namespace VRCAvatarColorChanger
         // ─────────────────────── マスク確保 ─────────────────────────
 
         /// <summary>
-        /// 共通マスクおよび、必要ならアクティブゾーンのマスクを確保する。
-        /// sourceTexture のサイズが変わった場合は両方再確保。
+        /// マスクの座標系（maskWidth/maskHeight）を sourceTexture に揃える。
+        /// 解像度が変わったときにのみ既存マスクを破棄する。
+        /// 共通マスク <see cref="exclusionMask"/> の確保は行わない（アクティブターゲットが
+        /// ゾーンだけの場合に zone-only mask を巻き込んで消さないため）。
         /// </summary>
         public void EnsureMasks()
         {
@@ -165,14 +167,28 @@ namespace VRCAvatarColorChanger
             int w = sourceTexture.width;
             int h = sourceTexture.height;
 
-            if (exclusionMask == null || exclusionMask.Length != w * h)
+            if (maskWidth != w || maskHeight != h)
             {
+                // 解像度が変わったのでマスク座標系が合わない。共通もゾーンも全破棄。
                 maskWidth = w;
                 maskHeight = h;
-                exclusionMask = new bool[w * h];
-                // 解像度が変わったのでゾーン別マスクは破棄する（齟齬防止）
+                exclusionMask = null;
                 zoneMasks.Clear();
             }
+        }
+
+        /// <summary>
+        /// 共通マスク bool[] を遅延確保する。<see cref="EnsureMasks"/> は座標系のみを扱い、
+        /// このメソッドは「実際に共通マスクへ書き込む直前」にだけ呼ぶ。
+        /// </summary>
+        private bool[] EnsureCommonMask()
+        {
+            EnsureMasks();
+            if (maskWidth <= 0 || maskHeight <= 0) return null;
+            int len = maskWidth * maskHeight;
+            if (exclusionMask == null || exclusionMask.Length != len)
+                exclusionMask = new bool[len];
+            return exclusionMask;
         }
 
         /// <summary>
@@ -182,9 +198,11 @@ namespace VRCAvatarColorChanger
         {
             EnsureMasks();
             if (string.IsNullOrEmpty(zoneId)) return null;
-            if (!zoneMasks.TryGetValue(zoneId, out var m) || m == null || m.Length != maskWidth * maskHeight)
+            if (maskWidth <= 0 || maskHeight <= 0) return null;
+            int len = maskWidth * maskHeight;
+            if (!zoneMasks.TryGetValue(zoneId, out var m) || m == null || m.Length != len)
             {
-                m = new bool[maskWidth * maskHeight];
+                m = new bool[len];
                 zoneMasks[zoneId] = m;
             }
             return m;
@@ -192,13 +210,13 @@ namespace VRCAvatarColorChanger
 
         /// <summary>
         /// 現在のアクティブターゲット（共通 or ゾーン）のマスク配列を返す。必要なら確保する。
+        /// 共通マスクは実際にペイント先になった時だけ確保される（zone-only mask の保全のため）。
         /// </summary>
         public bool[] GetActiveMaskArray()
         {
-            EnsureMasks();
             var zones = _host.Session.zones;
             if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
-                return exclusionMask;
+                return EnsureCommonMask();
 
             var zone = zones[activeMaskTarget];
             zone.EnsureId();
