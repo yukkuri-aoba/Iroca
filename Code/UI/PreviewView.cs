@@ -483,13 +483,24 @@ namespace VRCAvatarColorChanger
                         u = Mathf.Clamp01(u);
                         v = Mathf.Clamp01(v);
 
+                        // 1 つ目の対象ゾーン更新の直前に Undo を登録する（記録されるのは更新前の seedUV）。
+                        var newSeed = new Vector2(u, v);
+                        bool undoRecorded = false;
                         bool changed = false;
                         foreach (var z in zones)
                         {
                             if (z.enabled && z.mode == SelectionMode.ColorPick && z.useFloodFill)
                             {
-                                z.seedUV = new Vector2(u, v);
-                                changed = true;
+                                if (z.seedUV != newSeed)
+                                {
+                                    if (!undoRecorded)
+                                    {
+                                        Undo.RecordObject(_host, "Set Flood Fill Seed");
+                                        undoRecorded = true;
+                                    }
+                                    z.seedUV = newSeed;
+                                    changed = true;
+                                }
                             }
                         }
                         if (changed)
