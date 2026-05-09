@@ -21,21 +21,8 @@ namespace VRCAvatarColorChanger
         [System.NonSerialized] private Vector2 _presetScrollPos;
         [System.NonSerialized] private VACCWindow _host;
 
-        // Assets/VACC/Editor 配置を前提とした固定パス。
-        // 自己探索を廃止して挙動の予測可能性を上げる。
-        private const string ProjectPresetFolderRelative = "Assets/VACC/Presets";
-
-        private static string ProjectPresetFolder
-            => Path.GetFullPath(Path.Combine(
-                Application.dataPath, "..", ProjectPresetFolderRelative));
-
-        private static string UserPresetFolder
-            => Path.Combine(
-                System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData),
-                "VACCPresets");
-
         private string ActivePresetFolder
-            => presetStorageProject ? ProjectPresetFolder : UserPresetFolder;
+            => presetStorageProject ? PresetStore.ProjectPresetFolder : PresetStore.UserPresetFolder;
 
         public void Initialize(VACCWindow host)
         {
@@ -86,10 +73,7 @@ namespace VRCAvatarColorChanger
             EditorGUILayout.EndHorizontal();
 
             // 一覧
-            string folder = ActivePresetFolder;
-            string[] files = Directory.Exists(folder)
-                ? Directory.GetFiles(folder, "*.json")
-                : System.Array.Empty<string>();
+            string[] files = PresetStore.ListJson(ActivePresetFolder);
 
             if (files.Length == 0)
             {
@@ -109,15 +93,7 @@ namespace VRCAvatarColorChanger
                         if (EditorUtility.DisplayDialog(Localization.Confirm,
                             Localization.DeletePresetConfirm(pname), Localization.OK, Localization.Cancel))
                         {
-                            string rel = VACCWindow.ToAssetsRelative(file);
-                            if (rel != null)
-                            {
-                                AssetDatabase.DeleteAsset(rel);
-                            }
-                            else
-                            {
-                                File.Delete(file);
-                            }
+                            PresetStore.Delete(file);
                         }
                     }
                     EditorGUILayout.EndHorizontal();
@@ -130,23 +106,11 @@ namespace VRCAvatarColorChanger
 
         private void SavePreset(string name)
         {
-            if (string.IsNullOrWhiteSpace(name)) name = "Preset";
-            foreach (char c in Path.GetInvalidFileNameChars())
-                name = name.Replace(c.ToString(), "_");
-
-            string folder = ActivePresetFolder;
-            if (!Directory.Exists(folder))
-                Directory.CreateDirectory(folder);
-
             var data = BuildPresetData(name);
-            string json = JsonUtility.ToJson(data, true);
-            string path = Path.Combine(folder, name + ".json");
-            File.WriteAllText(path, json);
             if (presetStorageProject)
-            {
-                string rel = VACCWindow.ToAssetsRelative(path);
-                if (rel != null) AssetDatabase.ImportAsset(rel);
-            }
+                PresetStore.SaveToProject(name, data);
+            else
+                PresetStore.SaveToUser(name, data);
         }
 
         // 現在の設定を VACCPresetData に詰めて返す。
@@ -184,9 +148,7 @@ namespace VRCAvatarColorChanger
 
         private void LoadPreset(string filePath)
         {
-            if (!File.Exists(filePath)) return;
-            string json = File.ReadAllText(filePath);
-            var data = JsonUtility.FromJson<VACCPresetData>(json);
+            var data = PresetStore.Load(filePath);
             if (data == null) return;
 
             // Unity の JsonUtility は JSON に含まれないフィールドを「既定値で上書き」ではなく
@@ -222,7 +184,8 @@ namespace VRCAvatarColorChanger
             string path = EditorUtility.SaveFilePanel(
                 Localization.ExportJson, "", "VACC_preset", "json");
             if (string.IsNullOrEmpty(path)) return;
-            SavePresetToPath(path);
+            var data = BuildPresetData(Path.GetFileNameWithoutExtension(path));
+            PresetStore.SaveToPath(path, data);
         }
 
         private void ImportPresetJson()
@@ -231,12 +194,6 @@ namespace VRCAvatarColorChanger
                 Localization.ImportJson, "", "json");
             if (string.IsNullOrEmpty(path)) return;
             LoadPreset(path);
-        }
-
-        private void SavePresetToPath(string path)
-        {
-            var data = BuildPresetData(Path.GetFileNameWithoutExtension(path));
-            File.WriteAllText(path, JsonUtility.ToJson(data, true));
         }
     }
 }
