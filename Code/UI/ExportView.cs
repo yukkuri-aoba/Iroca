@@ -281,6 +281,7 @@ namespace VRCAvatarColorChanger
                 {
                     var tex = batchTextures[i];
                     if (tex == null) continue;
+                    Texture2D fullTex = null;
 
                     if (EditorUtility.DisplayCancelableProgressBar(
                             Localization.BatchProgress,
@@ -296,38 +297,49 @@ namespace VRCAvatarColorChanger
                     string srcPath = AssetDatabase.GetAssetPath(tex);
                     if (string.IsNullOrEmpty(srcPath)) continue;
 
-                    byte[] srcBytes = File.ReadAllBytes(srcPath);
-                    var fullTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                    if (!fullTex.LoadImage(srcBytes)) { Object.DestroyImmediate(fullTex); continue; }
-
-                    Color32[] pixels = fullTex.GetPixels32();
-                    int texW = fullTex.width, texH = fullTex.height;
-                    var sorted = session.zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
-
-                    if (sorted.Count > 0)
+                    try
                     {
-                        var maskSnap = _host.BuildMaskSnapshot();
-                        PixelProcessor.ProcessPixelsArray(pixels, texW, texH,
-                            maskSnap, sorted, session.edgeFeather, session.antiAliasCleanup,
-                            session.holeFillPasses, session.holeFillMinNeighbors, session.relaxedSatMin, session.relaxedSatRamp,
-                            useDecontamination: session.useDecontamination,
-                            decontaminationRadius: session.decontaminationRadius);
+                        byte[] srcBytes = File.ReadAllBytes(srcPath);
+                        fullTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                        if (!fullTex.LoadImage(srcBytes)) continue;
+
+                        Color32[] pixels = fullTex.GetPixels32();
+                        int texW = fullTex.width, texH = fullTex.height;
+                        var sorted = session.zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
+
+                        if (sorted.Count > 0)
+                        {
+                            var maskSnap = _host.BuildMaskSnapshot();
+                            PixelProcessor.ProcessPixelsArray(pixels, texW, texH,
+                                maskSnap, sorted, session.edgeFeather, session.antiAliasCleanup,
+                                session.holeFillPasses, session.holeFillMinNeighbors, session.relaxedSatMin, session.relaxedSatRamp,
+                                useDecontamination: session.useDecontamination,
+                                decontaminationRadius: session.decontaminationRadius);
+                        }
+
+                        fullTex.SetPixels32(pixels);
+                        fullTex.Apply();
+                        byte[] pngData = fullTex.EncodeToPNG();
+
+                        string dir      = Path.GetDirectoryName(srcPath);
+                        string baseName = Path.GetFileNameWithoutExtension(srcPath) + "_recolored";
+                        string outPath  = Path.Combine(dir, baseName + ".png");
+                        File.WriteAllBytes(outPath, pngData);
+                        string relOutPath = VACCWindow.ToAssetsRelative(outPath);
+                        if (relOutPath != null)
+                            AssetDatabase.ImportAsset(relOutPath);
+                        savedPairs.Add((srcPath, outPath));
+                        success++;
                     }
-
-                    fullTex.SetPixels32(pixels);
-                    fullTex.Apply();
-                    byte[] pngData = fullTex.EncodeToPNG();
-                    Object.DestroyImmediate(fullTex);
-
-                    string dir      = Path.GetDirectoryName(srcPath);
-                    string baseName = Path.GetFileNameWithoutExtension(srcPath) + "_recolored";
-                    string outPath  = Path.Combine(dir, baseName + ".png");
-                    File.WriteAllBytes(outPath, pngData);
-                    string relOutPath = VACCWindow.ToAssetsRelative(outPath);
-                    if (relOutPath != null)
-                        AssetDatabase.ImportAsset(relOutPath);
-                    savedPairs.Add((srcPath, outPath));
-                    success++;
+                    catch (System.Exception ex)
+                    {
+                        Debug.LogWarning($"[VACC] Batch apply failed for {tex.name}: {ex.Message}");
+                    }
+                    finally
+                    {
+                        if (fullTex != null)
+                            Object.DestroyImmediate(fullTex);
+                    }
                 }
             }
             finally

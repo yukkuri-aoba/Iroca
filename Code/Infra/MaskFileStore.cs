@@ -123,7 +123,11 @@ namespace VRCAvatarColorChanger
 
             foreach (string file in files)
             {
-                string guid = Path.GetFileNameWithoutExtension(file);
+                string fileName = Path.GetFileName(file);
+                if (string.IsNullOrEmpty(fileName) || !fileName.EndsWith(MaskFileExtension, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string guid = fileName.Substring(0, fileName.Length - MaskFileExtension.Length);
                 if (string.IsNullOrEmpty(guid)) continue;
                 string assetPath = AssetDatabase.GUIDToAssetPath(guid);
                 if (!string.IsNullOrEmpty(assetPath)) continue;

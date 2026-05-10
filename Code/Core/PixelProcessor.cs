@@ -158,7 +158,10 @@ namespace VRCAvatarColorChanger
                     }
 
                     // 1.a.2 Flood Fill: シード点から連続する領域のみに強度を絞り込む
-                    if (zone.mode == SelectionMode.ColorPick && zone.useFloodFill && zone.seedUV.x >= 0f)
+                    if (VACCConsts.ExperimentalFeatures.EnableFloodFill
+                        && zone.mode == SelectionMode.ColorPick
+                        && zone.useFloodFill
+                        && zone.seedUV.x >= 0f)
                     {
                         int efW = fullW > 0 ? fullW : w;
                         int efH = fullH > 0 ? fullH : h;

@@ -106,6 +106,8 @@ namespace VRCAvatarColorChanger
         private void OnDisable()
         {
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
+            _previewView?.Suspend();
+            _maskView?.SuspendTransientState();
             _maskView.SaveToSession();
             _sessionProperty = null;
             _zonesProperty = null;
@@ -205,8 +207,9 @@ namespace VRCAvatarColorChanger
 
                 EditorGUILayout.EndHorizontal();
 
-                // ── 下部: 一括適用 + エクスポート（フル幅） ──
-                _exportView.DrawBatchSection();
+                // ── 下部: エクスポート（フル幅） ──
+                // 一括適用は実装継続中のため当面 UI から非表示。
+                // _exportView.DrawBatchSection();
                 _exportView.DrawExportSection();
             }
             else
@@ -228,7 +231,8 @@ namespace VRCAvatarColorChanger
 
                 _presetsView.Draw();
                 _previewView.Draw();
-                _exportView.DrawBatchSection();
+                // 一括適用は実装継続中のため当面 UI から非表示。
+                // _exportView.DrawBatchSection();
                 _exportView.DrawExportSection();
 
                 EditorGUILayout.EndScrollView();
@@ -337,7 +341,7 @@ namespace VRCAvatarColorChanger
                 }
                 EditorGUILayout.EndHorizontal();
 
-                // ソーンマスク編集ボタン（フル幅・状態連動）
+                // ゾーンマスク編集ボタン（フル幅・状態連動）
                 {
                     bool isActive = _maskView.activeMaskTarget == i;
                     var prevBg = GUI.backgroundColor;
@@ -366,7 +370,9 @@ namespace VRCAvatarColorChanger
                         new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
                         zone.tolerance, 0f, 1f);
 
+                    /*
                     // ─── Flood Fill UI ───
+                    // 連続領域モードは実装継続中のため当面 UI から非表示。
                     EditorGUILayout.Space(2);
                     zone.useFloodFill = UndoHelper.Toggle(this,
                         new GUIContent(Localization.UseFloodFill, Localization.UseFloodFillTooltip),
@@ -400,6 +406,7 @@ namespace VRCAvatarColorChanger
                             }
                         }
                     }
+                    */
                 }
                 else
                 {

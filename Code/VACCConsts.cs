@@ -22,5 +22,11 @@ namespace VRCAvatarColorChanger
             // ソーステクスチャはこのサイズへ等比縮小されてから表示・処理される。
             public const int MaxSize = 512;
         }
+
+        public static class ExperimentalFeatures
+        {
+            // 連続領域モードは実装継続中のため、当面は UI/処理の両方で無効化する。
+            public const bool EnableFloodFill = false;
+        }
     }
 }

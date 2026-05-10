@@ -317,9 +317,19 @@ namespace VRCAvatarColorChanger
 
         public void Dispose()
         {
+            Suspend();
             detailJob.Dispose();
             _diffJob.Dispose();
+        }
+
+        public void Suspend()
+        {
+            detailJob.Cancel();
+            _diffJob.Cancel();
+            _pendingDetailProcessed = null;
+            _pendingDetailRaw = null;
             _pendingDetailDiffPixels = null;
+            lastDetailDirtyTime = 0;
             TextureSlot.Release(ref detailPreviewTexture);
             TextureSlot.Release(ref rawDetailPreviewTexture);
             TextureSlot.Release(ref detailMaskOverlayTexture);

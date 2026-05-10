@@ -73,10 +73,21 @@ namespace VRCAvatarColorChanger
 
         public void Dispose()
         {
+            Suspend();
             _previewJob.Dispose();
             _diffJob.Dispose();
             _detailView?.Dispose();
+        }
+
+        public void Suspend()
+        {
+            _previewJob.Cancel();
+            _diffJob.Cancel();
+            _detailView?.Suspend();
+            _pendingProcessedDisplay = null;
+            _pendingRawDisplay = null;
             _pendingDiffPixels = null;
+            _lastDirtyTime = 0;
             TextureSlot.Release(ref previewTexture);
             TextureSlot.Release(ref rawPreviewTexture);
             TextureSlot.Release(ref diffTexture);
@@ -291,9 +302,9 @@ namespace VRCAvatarColorChanger
                         Localization.GeneratingDetailPreview);
             }
 
-            // Flood Fill シード点をプレビュー上に × 印としてオーバーレイ描画
-            if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
-                DrawFloodFillSeedOverlay(activePreviewRect);
+            // Flood Fill は実装継続中のため当面 UI から非表示。
+            // if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
+            //     DrawFloodFillSeedOverlay(activePreviewRect);
 
             // プレビューレクトを格納して、次の詳細生成ティックで使用
             if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
@@ -301,8 +312,9 @@ namespace VRCAvatarColorChanger
 
             HandlePreviewGlobalInput(activePreviewRect);
 
-            if (!maskView.maskPaintActive)
-                HandleFloodFillSeedInput(activePreviewRect);
+            // Flood Fill は実装継続中のため当面 UI から非表示。
+            // if (!maskView.maskPaintActive)
+            //     HandleFloodFillSeedInput(activePreviewRect);
 
             if (maskView.maskFoldout && maskView.maskPaintActive)
                 HandlePreviewPaintInput(activePreviewRect);
@@ -468,10 +480,27 @@ namespace VRCAvatarColorChanger
             int controlId = GUIUtility.GetControlID(FocusType.Passive);
 
             var zones = _host.Session.zones;
-            bool hasFloodFill = false;
-            foreach (var z in zones)
-                if (z.enabled && z.mode == SelectionMode.ColorPick && z.useFloodFill)
-                { hasFloodFill = true; break; }
+            int targetZoneIndex = -1;
+            int activeZoneIndex = _host._maskView.activeMaskTarget;
+            if (zones != null && activeZoneIndex >= 0 && activeZoneIndex < zones.Count)
+            {
+                var activeZone = zones[activeZoneIndex];
+                if (activeZone.enabled && activeZone.mode == SelectionMode.ColorPick && activeZone.useFloodFill)
+                    targetZoneIndex = activeZoneIndex;
+            }
+
+            if (targetZoneIndex < 0)
+            {
+                for (int i = 0; i < zones.Count; i++)
+                {
+                    var zone = zones[i];
+                    if (!zone.enabled || zone.mode != SelectionMode.ColorPick || !zone.useFloodFill) continue;
+                    targetZoneIndex = i;
+                    break;
+                }
+            }
+
+            bool hasFloodFill = targetZoneIndex >= 0;
 
             switch (e.GetTypeForControl(controlId))
             {
@@ -485,23 +514,13 @@ namespace VRCAvatarColorChanger
 
                         // 1 つ目の対象ゾーン更新の直前に Undo を登録する（記録されるのは更新前の seedUV）。
                         var newSeed = new Vector2(u, v);
-                        bool undoRecorded = false;
                         bool changed = false;
-                        foreach (var z in zones)
+                        var zone = zones[targetZoneIndex];
+                        if (zone.seedUV != newSeed)
                         {
-                            if (z.enabled && z.mode == SelectionMode.ColorPick && z.useFloodFill)
-                            {
-                                if (z.seedUV != newSeed)
-                                {
-                                    if (!undoRecorded)
-                                    {
-                                        Undo.RecordObject(_host, "Set Flood Fill Seed");
-                                        undoRecorded = true;
-                                    }
-                                    z.seedUV = newSeed;
-                                    changed = true;
-                                }
-                            }
+                            Undo.RecordObject(_host, "Set Flood Fill Seed");
+                            zone.seedUV = newSeed;
+                            changed = true;
                         }
                         if (changed)
                         {

@@ -707,8 +707,16 @@ namespace VRCAvatarColorChanger
         /// </summary>
         public void ClearBuffersOnTextureChange()
         {
+            _overlayJob.Cancel();
+            _pendingOverlayResult = null;
             exclusionMask = null;
             zoneMasks.Clear();
+            isPainting = false;
+            _maskStrokeStarted = false;
+            lastPaintUV = -Vector2.one;
+            TextureSlot.Release(ref maskOverlayTexture);
+            TextureSlot.Release(ref zoneMaskOverlayTexture);
+            maskDirty = true;
         }
 
         // ─────────────────────── Encode / Decode ────────────────────
@@ -925,8 +933,17 @@ namespace VRCAvatarColorChanger
         /// </summary>
         public void ReleaseOverlayTextures()
         {
+            SuspendTransientState();
             _overlayJob.Dispose();
+        }
+
+        public void SuspendTransientState()
+        {
+            _overlayJob.Cancel();
             _pendingOverlayResult = null;
+            isPainting = false;
+            _maskStrokeStarted = false;
+            lastPaintUV = -Vector2.one;
             TextureSlot.Release(ref maskOverlayTexture);
             TextureSlot.Release(ref zoneMaskOverlayTexture);
         }

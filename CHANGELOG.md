@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-05-10
+
+### Fixed
+- **マスクキャッシュ掃除の誤判定修正**: `*.vacc-mask.json` のファイル名から GUID を正しく抽出するよう修正し、正常な MaskCache が孤児扱いで削除される問題を解消
+- **テクスチャ切り替え時のマスクオーバーレイ残留修正**: 同サイズのテクスチャへ切り替えた際に古いマスクオーバーレイが残る問題を解消
+- **一括適用の例外耐性改善**: 個別テクスチャ処理で失敗しても一時 `Texture2D` を確実に破棄し、残りの処理継続に備えるよう改善
+- **エディタ無効化時の一時リソース解放改善**: プレビュー/詳細プレビュー/マスクオーバーレイの非同期処理と一時テクスチャをウィンドウ無効化時に停止できるよう整理
+- **Flood Fill シード入力の対象ゾーン修正**: 将来再公開する際に、シード入力が複数ゾーンへ一括反映されないようローカル化
+
+### Changed
+- **一括適用 UI を一時的にコメントアウト**: 実装継続中のため、現状は UI から非表示
+- **連続領域モード (Flood Fill) UI を一時的にコメントアウト**: 実装継続中のため、現状は UI から非表示
+- **Flood Fill 処理を一時的に無効化**: 既存データ経由で裏から有効にならないよう、処理本体も当面は停止
+
 ## [0.2.0] - 2026-05-09
 
 ### Added
