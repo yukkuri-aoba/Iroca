@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] - (TBD)
+## [0.2.0] - 2026-05-09
 
 ### Added
 - **カラーゾーンごとの除外マスク**: 共通マスクとゾーン別マスクのハイブリッド構成をサポート
@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - decontaminationRadius スライダー（アドバンスドモード）を追加
   - プリセットへの保存/復元に対応
   - 詳細は [edge_decontamination.md](dev_safe/docs/edge_decontamination.md) を参照
+- **Unity Undo 完全統合**: スライダー・トグル・マスクストローク・ゾーン操作がすべて Unity 標準の Ctrl+Z / Ctrl+Y で取り消し・やり直し可能に。独自 Ctrl+Z キャプチャを撤廃
+- **マスクデータのファイル永続化**: マスクキャッシュを `UserSettings/VACC/MaskCache/` に保存。SessionState に依存せずエディタ再起動後も保持
+- **テクスチャ削除時のマスクキャッシュ自動クリーンアップ**: テクスチャが削除されたとき、対応するマスクファイルを自動削除
 
 ### Fixed
 - **低彩度サンプルでの色マッチング精度向上**: RGB-HSV ハイブリッド距離とハイライト色相キャップ
@@ -30,8 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ハイライトの色変換調整**
 - **UI の可視性問題修正**: UI 要素が長くなると隠れて操作できなくなる問題を解決
 - **テクスチャインポート設定の継承**: 新しく生成されたテクスチャが元のテクスチャのインポート設定を引き継ぐように改善
+- **詳細プレビューのゾーンオーバーレイ表示順修正**: 詳細プレビューのゾーンオーバーレイ優先順位がメインプレビューと一致しない問題を修正
+- **ゾーン専用マスクの誤削除修正**: EnsureMasks 実行時にゾーン専用マスクが誤削除される不具合を修正
+- **ReadWrite 有効化前の確認ダイアログ追加**: テクスチャの ReadWrite 設定を自動変更する前にユーザーへ確認ダイアログを表示
+- **言語設定の永続化**: 言語設定を EditorPrefs に保存し、エディタ再起動後も設定を維持
 
 ### Changed
+- **大規模リファクタリング**: コードを `Core/` / `Infra/` / `UI/` の3層構造に再編。VACCWindow を複数のサブビューに分割し保守性を向上
 - **ColorZone の計算処理リファクタリング**: メソッドに分割し、事前計算をキャッシュ化してパフォーマンスを最適化
 - **ライセンス**: 「PolyForm Noncommercial License 1.0.0」から [PolyForm Shield License 1.0.0](LICENSE) に変更
   - 商用利用が可能になりました
