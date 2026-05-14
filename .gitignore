@@ -34,3 +34,4 @@ dev_safe
 .venv
 .github/instructions/
 Code_Archive/
+.claude/settings.local.json
