@@ -6,19 +6,34 @@ using UnityEngine;
 
 namespace VRCAvatarColorChanger
 {
-    public partial class VACCWindow
+    /// <summary>
+    /// 単体出力 / 一括適用の UI 描画と PNG 書き出しを担当する。
+    /// プレビュー生成・プリセット管理・マスク編集には関与しない。
+    /// </summary>
+    [System.Serializable]
+    internal class ExportView
     {
         // 一括適用
-        [SerializeField] private bool batchFoldout;
-        [SerializeField] private List<Texture2D> batchTextures = new List<Texture2D>();
-        private Vector2 batchScrollPos;
+        public bool batchFoldout;
+        public List<Texture2D> batchTextures = new List<Texture2D>();
 
         // エクスポート
-        [SerializeField] private bool exportFoldout = true;
+        public bool exportFoldout = true;
+        public bool saveAsNewFile = true;
+        public string newFileName = "";
+        public bool inheritImportSettings = true;
+
+        [System.NonSerialized] private Vector2 _batchScrollPos;
+        [System.NonSerialized] private VACCWindow _host;
+
+        public void Initialize(VACCWindow host)
+        {
+            _host = host;
+        }
 
         // ─────────────────────── エクスポート ─────────────────────────
 
-        private void DrawExportSection()
+        public void DrawExportSection()
         {
             exportFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(exportFoldout, Localization.Export);
             if (!exportFoldout)
@@ -27,7 +42,7 @@ namespace VRCAvatarColorChanger
                 return;
             }
 
-            if (sourceTexture == null)
+            if (_host.SourceTexture == null)
             {
                 GUI.enabled = false;
             }
@@ -42,6 +57,10 @@ namespace VRCAvatarColorChanger
                     newFileName);
             }
 
+            inheritImportSettings = EditorGUILayout.Toggle(
+                new GUIContent(Localization.InheritImportSettings, Localization.InheritImportSettingsTooltip),
+                inheritImportSettings);
+
             if (GUILayout.Button(new GUIContent(Localization.ApplyAndSave, Localization.ApplyAndSaveTooltip), GUILayout.Height(32)))
             {
                 ApplyRecolor();
@@ -49,7 +68,7 @@ namespace VRCAvatarColorChanger
 
             if (GUILayout.Button(new GUIContent(Localization.OpenFolder, Localization.OpenFolderTooltip)))
             {
-                string path = AssetDatabase.GetAssetPath(sourceTexture);
+                string path = AssetDatabase.GetAssetPath(_host.SourceTexture);
                 if (!string.IsNullOrEmpty(path))
                     EditorUtility.RevealInFinder(path);
             }
@@ -58,9 +77,15 @@ namespace VRCAvatarColorChanger
             EditorGUILayout.EndFoldoutHeaderGroup();
         }
 
+        public void SetSourceTextureBaseName(string baseNameWithoutExtension)
+        {
+            newFileName = baseNameWithoutExtension + "_recolored";
+        }
+
         private void ApplyRecolor()
         {
-            if (sourceTexture == null || !IsReadable(sourceTexture))
+            var sourceTexture = _host.SourceTexture;
+            if (sourceTexture == null || !VACCWindow.IsReadable(sourceTexture))
             {
                 EditorUtility.DisplayDialog(Localization.Error, Localization.TextureReadError, Localization.OK);
                 return;
@@ -111,8 +136,6 @@ namespace VRCAvatarColorChanger
             // ─── 実処理 ───
             // ディスク上のファイルから元のフル解像度で直接読み込む、
             // Unity の TextureImporter maxTextureSize / 圧縮設定をバイパス。
-            // (sourceTexture.GetPixels32() は*インポート*解像度を返します。これは
-            //  インポーター設定に応じて 2048 以下にスケーリングされている可能性があります。)
             Texture2D fullTex = null;
             byte[] pngData = null;
             try
@@ -127,23 +150,22 @@ namespace VRCAvatarColorChanger
                     return;
                 }
 
-                // ピクセル配列の取得（メインスレッド）
                 Color32[] pixels = fullTex.GetPixels32();
                 int texW = fullTex.width, texH = fullTex.height;
-                var sorted = zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
+                var session = _host.Session;
+                var sorted = session.zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
 
-                // 重い計算をバックグラウンドスレッドで実行
                 EditorUtility.DisplayProgressBar(Localization.ApplyAndSave, Localization.Processing, 0.3f);
                 if (sorted.Count > 0)
                 {
-                    var task = System.Threading.Tasks.Task.Run(() =>
-                        ProcessPixelsArray(pixels, texW, texH,
-                            exclusionMask, maskWidth, maskHeight, sorted, edgeFeather, antiAliasCleanup,
-                            holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp));
-                    task.Wait();
+                    var maskSnap = _host.BuildMaskSnapshot();
+                    PixelProcessor.ProcessPixelsArray(pixels, texW, texH,
+                        maskSnap, sorted, session.edgeFeather, session.antiAliasCleanup,
+                        session.holeFillPasses, session.holeFillMinNeighbors, session.relaxedSatMin, session.relaxedSatRamp,
+                        useDecontamination: session.useDecontamination,
+                        decontaminationRadius: session.decontaminationRadius);
                 }
 
-                // 結果をテクスチャに反映（メインスレッド）
                 EditorUtility.DisplayProgressBar(Localization.ApplyAndSave, Localization.Export, 0.7f);
                 fullTex.SetPixels32(pixels);
                 fullTex.Apply();
@@ -151,14 +173,19 @@ namespace VRCAvatarColorChanger
             }
             finally
             {
-                if (fullTex != null) DestroyImmediate(fullTex);
+                if (fullTex != null) Object.DestroyImmediate(fullTex);
                 EditorUtility.ClearProgressBar();
             }
 
             if (pngData == null) return;
 
             File.WriteAllBytes(outputPath, pngData);
-            AssetDatabase.Refresh();
+            string relativePath = VACCWindow.ToAssetsRelative(outputPath);
+            if (relativePath != null)
+                AssetDatabase.ImportAsset(relativePath);
+
+            if (inheritImportSettings)
+                CopyImportSettings(srcPath, outputPath);
 
             Debug.Log($"[VACC] Saved: {outputPath}");
             EditorUtility.DisplayDialog(Localization.Complete, Localization.Saved(outputPath), Localization.OK);
@@ -166,7 +193,7 @@ namespace VRCAvatarColorChanger
 
         // ─────────────────────── 一括適用 ──────────────────────────
 
-        private void DrawBatchSection()
+        public void DrawBatchSection()
         {
             batchFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(batchFoldout, Localization.BatchApply);
             if (!batchFoldout)
@@ -177,15 +204,14 @@ namespace VRCAvatarColorChanger
 
             EditorGUILayout.HelpBox(Localization.BatchHint, MessageType.Info);
 
-            // テクスチャ一覧
-            batchScrollPos = EditorGUILayout.BeginScrollView(batchScrollPos, GUILayout.MaxHeight(120));
+            _batchScrollPos = EditorGUILayout.BeginScrollView(_batchScrollPos, GUILayout.MaxHeight(120));
             int removeIdx = -1;
             for (int i = 0; i < batchTextures.Count; i++)
             {
                 EditorGUILayout.BeginHorizontal();
                 batchTextures[i] = (Texture2D)EditorGUILayout.ObjectField(
                     batchTextures[i], typeof(Texture2D), false);
-                if (GUILayout.Button("×", GUILayout.Width(22)))
+                if (GUILayout.Button("×", GUILayout.Width(VACCConsts.Layout.RemoveButtonWidth)))
                     removeIdx = i;
                 EditorGUILayout.EndHorizontal();
             }
@@ -196,7 +222,8 @@ namespace VRCAvatarColorChanger
             if (GUILayout.Button(new GUIContent(Localization.AddBatchTexture, Localization.AddBatchTextureTooltip)))
                 batchTextures.Add(null);
 
-            EditorGUI.BeginDisabledGroup(batchTextures.Count == 0 || zones.Count == 0);
+            var session = _host.Session;
+            EditorGUI.BeginDisabledGroup(batchTextures.Count == 0 || session.zones.Count == 0);
             if (GUILayout.Button(new GUIContent(Localization.BatchApplyAndSave, Localization.BatchApplyAndSaveTooltip), GUILayout.Height(28)))
                 RunBatchApply();
             EditorGUI.EndDisabledGroup();
@@ -205,25 +232,36 @@ namespace VRCAvatarColorChanger
             EditorGUILayout.Space(4);
         }
 
+        private static void CopyImportSettings(string srcPath, string dstPath)
+        {
+            var srcImporter = AssetImporter.GetAtPath(srcPath) as TextureImporter;
+            var dstImporter = AssetImporter.GetAtPath(dstPath) as TextureImporter;
+            if (srcImporter == null || dstImporter == null) return;
+
+            var settings = new TextureImporterSettings();
+            srcImporter.ReadTextureSettings(settings);
+            dstImporter.SetTextureSettings(settings);
+            dstImporter.SetPlatformTextureSettings(srcImporter.GetDefaultPlatformTextureSettings());
+            dstImporter.SaveAndReimport();
+        }
+
         private void RunBatchApply()
         {
-            // 既存ファイルを検出して、先にまとめて上書き確認するか判定する
+            var session = _host.Session;
             var plannedOutputs = new List<string>();
             foreach (var tex in batchTextures)
             {
                 if (tex == null) continue;
                 string srcPath = AssetDatabase.GetAssetPath(tex);
                 if (string.IsNullOrEmpty(srcPath)) continue;
-                string dir      = System.IO.Path.GetDirectoryName(srcPath);
-                string baseName = System.IO.Path.GetFileNameWithoutExtension(srcPath) + "_recolored";
-                plannedOutputs.Add(System.IO.Path.Combine(dir, baseName + ".png"));
+                string dir      = Path.GetDirectoryName(srcPath);
+                string baseName = Path.GetFileNameWithoutExtension(srcPath) + "_recolored";
+                plannedOutputs.Add(Path.Combine(dir, baseName + ".png"));
             }
 
-            bool anyExists = plannedOutputs.Any(System.IO.File.Exists);
+            bool anyExists = plannedOutputs.Any(File.Exists);
             if (anyExists)
             {
-                // 既存ファイルがある場合はユーザーに明示的に上書き確認を取る。
-                // 個別ダイアログだと件数が多いと煩雑なので、一括で判断させる。
                 if (!EditorUtility.DisplayDialog(
                         Localization.Confirm,
                         Localization.OverwriteConfirm,
@@ -235,14 +273,16 @@ namespace VRCAvatarColorChanger
             }
 
             int success = 0;
+            var savedPairs = new List<(string src, string dst)>();
             try
             {
+                AssetDatabase.StartAssetEditing();
                 for (int i = 0; i < batchTextures.Count; i++)
                 {
                     var tex = batchTextures[i];
                     if (tex == null) continue;
+                    Texture2D fullTex = null;
 
-                    // キャンセル可能なプログレスバーに変更。長時間処理でユーザーが中断できるようにする。
                     if (EditorUtility.DisplayCancelableProgressBar(
                             Localization.BatchProgress,
                             tex.name,
@@ -251,49 +291,69 @@ namespace VRCAvatarColorChanger
                         break;
                     }
 
-                    if (!IsReadable(tex)) EnableReadWrite(tex);
-                    if (!IsReadable(tex)) continue;
+                    if (!VACCWindow.IsReadable(tex)) VACCWindow.EnableReadWrite(tex);
+                    if (!VACCWindow.IsReadable(tex)) continue;
 
                     string srcPath = AssetDatabase.GetAssetPath(tex);
                     if (string.IsNullOrEmpty(srcPath)) continue;
 
-                    byte[] srcBytes = System.IO.File.ReadAllBytes(srcPath);
-                    var fullTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                    if (!fullTex.LoadImage(srcBytes)) { DestroyImmediate(fullTex); continue; }
-
-                    // ピクセル配列取得（メインスレッド）→ 計算（バックグラウンド）→ 反映（メインスレッド）
-                    Color32[] pixels = fullTex.GetPixels32();
-                    int texW = fullTex.width, texH = fullTex.height;
-                    var sorted = zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
-
-                    if (sorted.Count > 0)
+                    try
                     {
-                        var task = System.Threading.Tasks.Task.Run(() =>
-                            ProcessPixelsArray(pixels, texW, texH,
-                                exclusionMask, maskWidth, maskHeight, sorted, edgeFeather, antiAliasCleanup,
-                                holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp));
-                        task.Wait();
+                        byte[] srcBytes = File.ReadAllBytes(srcPath);
+                        fullTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                        if (!fullTex.LoadImage(srcBytes)) continue;
+
+                        Color32[] pixels = fullTex.GetPixels32();
+                        int texW = fullTex.width, texH = fullTex.height;
+                        var sorted = session.zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
+
+                        if (sorted.Count > 0)
+                        {
+                            var maskSnap = _host.BuildMaskSnapshot();
+                            PixelProcessor.ProcessPixelsArray(pixels, texW, texH,
+                                maskSnap, sorted, session.edgeFeather, session.antiAliasCleanup,
+                                session.holeFillPasses, session.holeFillMinNeighbors, session.relaxedSatMin, session.relaxedSatRamp,
+                                useDecontamination: session.useDecontamination,
+                                decontaminationRadius: session.decontaminationRadius);
+                        }
+
+                        fullTex.SetPixels32(pixels);
+                        fullTex.Apply();
+                        byte[] pngData = fullTex.EncodeToPNG();
+
+                        string dir      = Path.GetDirectoryName(srcPath);
+                        string baseName = Path.GetFileNameWithoutExtension(srcPath) + "_recolored";
+                        string outPath  = Path.Combine(dir, baseName + ".png");
+                        File.WriteAllBytes(outPath, pngData);
+                        string relOutPath = VACCWindow.ToAssetsRelative(outPath);
+                        if (relOutPath != null)
+                            AssetDatabase.ImportAsset(relOutPath);
+                        savedPairs.Add((srcPath, outPath));
+                        success++;
                     }
-
-                    fullTex.SetPixels32(pixels);
-                    fullTex.Apply();
-                    byte[] pngData = fullTex.EncodeToPNG();
-                    DestroyImmediate(fullTex);
-
-                    string dir      = System.IO.Path.GetDirectoryName(srcPath);
-                    string baseName = System.IO.Path.GetFileNameWithoutExtension(srcPath) + "_recolored";
-                    string outPath  = System.IO.Path.Combine(dir, baseName + ".png");
-                    System.IO.File.WriteAllBytes(outPath, pngData);
-                    success++;
+                    catch (System.Exception ex)
+                    {
+                        Debug.LogWarning($"[VACC] Batch apply failed for {tex.name}: {ex.Message}");
+                    }
+                    finally
+                    {
+                        if (fullTex != null)
+                            Object.DestroyImmediate(fullTex);
+                    }
                 }
             }
             finally
             {
-                // finally で確実にプログレスバーをクリアする（例外でも閉じ忘れないように）
+                AssetDatabase.StopAssetEditing();
                 EditorUtility.ClearProgressBar();
             }
 
-            AssetDatabase.Refresh();
+            if (inheritImportSettings)
+            {
+                foreach (var (src, dst) in savedPairs)
+                    CopyImportSettings(src, dst);
+            }
+
             EditorUtility.DisplayDialog(Localization.Complete,
                 Localization.BatchComplete(success), Localization.OK);
         }
