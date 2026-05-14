@@ -4,7 +4,16 @@ namespace VRCAvatarColorChanger
 
     public static class Localization
     {
-        public static LanguageMode CurrentLanguage = LanguageMode.Auto;
+        private const string PrefsKey = "VACC.Language";
+        public static LanguageMode CurrentLanguage;
+
+        static Localization()
+        {
+            CurrentLanguage = (LanguageMode)UnityEditor.EditorPrefs.GetInt(PrefsKey, (int)LanguageMode.Auto);
+        }
+
+        public static void SaveLanguagePreference()
+            => UnityEditor.EditorPrefs.SetInt(PrefsKey, (int)CurrentLanguage);
 
         public static bool IsJapanese
         {
@@ -45,6 +54,9 @@ namespace VRCAvatarColorChanger
         public static string EnableReadWrite => IsJapanese
             ? "Read/Write を自動で有効にする"
             : "Enable Read/Write automatically";
+        public static string EnableReadWriteConfirm => IsJapanese
+            ? "このテクスチャの Read/Write Enabled を有効化してインポート設定を変更します。\nこの操作は Undo できません。続行しますか？"
+            : "This will enable Read/Write Enabled on the texture and modify its import settings.\nThis action cannot be undone. Continue?";
 
         // ─── Color Zones ───
         public static string ColorZones => IsJapanese ? "カラーゾーン" : "Color Zones";
@@ -78,6 +90,16 @@ namespace VRCAvatarColorChanger
         public static string AntiAliasCleanupTooltip => IsJapanese
             ? "アンチエイリアス境界の残りドットを除去するパス数。\n0 = オフ、3 = 標準（推奨）、5 = 最大\n値を大きくすると境界の回収範囲が広がります。"
             : "Number of passes to recover anti-alias boundary pixels.\n0 = off, 3 = normal (recommended), 5 = max\nHigher values recover more edge pixels.";
+
+        public static string UseDecontamination => IsJapanese ? "境界クリーンアップ（α分解）" : "Edge Decontamination";
+        public static string UseDecontaminationTooltip => IsJapanese
+            ? "AA境界で α 分解＋再合成を行い、薄汚れた中間色（halo）の発生を防ぎます。\n推奨: ON"
+            : "Reconstruct AA boundary via alpha decomposition to prevent muddy halo at edges.\nRecommended: ON";
+
+        public static string DecontaminationRadius => IsJapanese ? "α分解 近傍半径" : "Decontamination Radius";
+        public static string DecontaminationRadiusTooltip => IsJapanese
+            ? "α分解で背景色を推定する近傍ピクセルの半径。\n小さい = シャープな境界に対応、大きい = ノイズの多い背景に対応\n標準: 4"
+            : "Radius of neighborhood used to estimate background color for decontamination.\nSmaller = sharper boundaries, larger = noisier backgrounds\nDefault: 4";
 
         // ─── Advanced Mode ───
         public static string AdvancedMode => IsJapanese ? "アドバンスモード" : "Advanced Mode";
@@ -119,6 +141,16 @@ namespace VRCAvatarColorChanger
         public static string SatRampScaleTooltip => IsJapanese
             ? "動的彩度ランプのスケール係数。\nsatRamp = Max(0.08, サンプル彩度 × この値)\n大きい値 = 彩度閾値付近で段階的なフェードイン\n小さい値 = より急激な閾値\nデフォルト: 0.10"
             : "Scale factor for the dynamic saturation ramp.\nsatRamp = Max(0.08, sampleSat × this)\nLarger = more gradual fade near threshold\nSmaller = sharper threshold\nDefault: 0.10";
+
+        public static string ShadowDesaturation => IsJapanese ? "シャドウ彩度低下" : "Shadow Desaturation";
+        public static string ShadowDesaturationTooltip => IsJapanese
+            ? "暗いピクセルの彩度をどの程度の明度以下から強制的に落とすかの閾値です。低くすると暗い色でも鮮やかに染まります。\nデフォルト: 0.35"
+            : "Threshold below which dark pixels have their saturation reduced to avoid unnatural colors.\nDefault: 0.35";
+
+        public static string ShadowForgivenessSatMin => IsJapanese ? "シャドウ巻き込み最低彩度" : "Shadow Forgiveness Sat Min";
+        public static string ShadowForgivenessSatMinTooltip => IsJapanese
+            ? "グレーや黒のピクセルを同系色の影として巻き込むのを防ぐための最低彩度です。\nデフォルト: 0.05"
+            : "Minimum saturation required to include a dark pixel as part of the shadow. Prevents pure greys from being colorized.\nDefault: 0.05";
 
         public static string HighlightRecovery => IsJapanese ? "ハイライト補助" : "Highlight Recovery";
         public static string HighlightRecoveryTooltip => IsJapanese
@@ -285,6 +317,34 @@ namespace VRCAvatarColorChanger
             ? "マスクの変更を1ステップ前に戻します（Ctrl+Z でも操作可）"
             : "Undo the last mask change (also available via Ctrl+Z)";
 
+        // ─── Per-Zone Mask strings ───
+        public static string MaskTarget => IsJapanese ? "編集対象" : "Edit Target";
+        public static string MaskTargetCommon => IsJapanese ? "共通マスク（全ゾーン）" : "Common Mask (all zones)";
+        public static string MaskTargetTooltip => IsJapanese
+            ? "マスクの編集対象を切り替えます\n・共通マスク: 全ゾーンで共通して除外される領域\n・各ゾーン: そのゾーンだけで除外される領域\n処理時は両者が OR 結合されて適用されます"
+            : "Switch which mask is being edited\n- Common: area excluded from every zone\n- Per-zone: area excluded only from that zone\nBoth are OR-combined when processing";
+        public static string EditMaskInactiveLabel => IsJapanese
+            ? "このゾーンのマスクを編集"
+            : "Edit this zone's mask";
+        public static string EditMaskActiveLabel => IsJapanese
+            ? "■ 編集中（クリックで解除）"
+            : "■ Editing (click to release)";
+        public static string EditMaskTooltip => IsJapanese
+            ? "このゾーン専用の除外マスクを編集対象にします\nもう一度押すと共通マスク編集に戻ります"
+            : "Make this zone's exclusion mask the edit target\nClick again to return to the common mask";
+        public static string PresetIncludeMasks => IsJapanese
+            ? "マスクも保存する"
+            : "Include masks when saving";
+        public static string PresetIncludeMasksTooltip => IsJapanese
+            ? "ON にすると、現在描かれている共通マスク・ゾーン別マスクもプリセットに同梱して保存します"
+            : "When ON, currently painted common and per-zone masks are also saved into the preset";
+        public static string PresetApplyMasks => IsJapanese
+            ? "マスクも読み込む"
+            : "Apply masks when loading";
+        public static string PresetApplyMasksTooltip => IsJapanese
+            ? "ON にすると、プリセットに同梱されたマスクを読み込み時に適用します\nOFF の場合はマスクを無視して他のパラメータのみ読み込みます"
+            : "When ON, masks embedded in the preset are applied on load\nWhen OFF, masks are ignored and only other parameters are loaded";
+
         // ─── Export tooltips ───
         public static string SaveAsNewFileTooltip => IsJapanese
             ? "ON: 元のファイルを保持して新規ファイルに保存\nOFF: 元のテクスチャを上書き保存"
@@ -298,6 +358,12 @@ namespace VRCAvatarColorChanger
         public static string OpenFolderTooltip => IsJapanese
             ? "元テクスチャのあるフォルダをファイルマネージャーで開きます"
             : "Open the folder containing the source texture in the file manager";
+        public static string InheritImportSettings => IsJapanese
+            ? "インポート設定を引き継ぐ"
+            : "Inherit Import Settings";
+        public static string InheritImportSettingsTooltip => IsJapanese
+            ? "ON: 元テクスチャのインポート設定（テクスチャタイプ・圧縮・ミップマップなど）を出力ファイルに引き継ぎます\nOFF: Unity のデフォルトのインポート設定を使用します"
+            : "ON: Copy import settings (texture type, compression, mipmaps, etc.) from the source texture to the output file\nOFF: Use Unity's default import settings";
         public static string AddBatchTextureTooltip => IsJapanese
             ? "一括適用リストにテクスチャを追加します"
             : "Add a texture to the batch apply list";
@@ -338,5 +404,24 @@ namespace VRCAvatarColorChanger
         public static string DeletePresetTooltip => IsJapanese
             ? "このプリセットを削除します"
             : "Delete this preset";
+
+        // ─── Flood Fill ───
+        public static string UseFloodFill => IsJapanese ? "連続領域モード (Flood Fill)" : "Connected Region (Flood Fill)";
+        public static string UseFloodFillTooltip => IsJapanese
+            ? "シード点から色が繋がった領域だけに変換を限定します。\n物理的に離れた同色パーツへの誤爆を防止します。\nプレビューをクリックしてシード点を指定してください。"
+            : "Restrict recoloring to the connected region from the seed point.\nPrevents false hits on physically separate parts of the same color.\nClick on the preview to set the seed point.";
+        public static string FloodFillSeedPoint => IsJapanese ? "シード点" : "Seed Point";
+        public static string FloodFillSeedNotSet => IsJapanese ? "未設定" : "Not set";
+        public static string FloodFillSeedHint => IsJapanese
+            ? "プレビューをクリックしてシード点を設定"
+            : "Click the preview to set the seed point";
+        public static string FloodFillClear => IsJapanese ? "クリア" : "Clear";
+        public static string FloodFillClearTooltip => IsJapanese
+            ? "シード点をリセットして通常の ColorPick モードに戻します"
+            : "Reset the seed point and return to standard ColorPick mode";
+        public static string EdgeStopThreshold => IsJapanese ? "エッジストッパー強度" : "Edge Stop Threshold";
+        public static string EdgeStopThresholdTooltip => IsJapanese
+            ? "輝度・彩度の急激な変化をパーツの境界とみなして Flood Fill を止める強度。\n0 = エッジストッパー無効（色の一致のみで拡張）\n大きいほど敏感に止まります（デフォルト: 0.15）"
+            : "Sensitivity for stopping Flood Fill at edge (sudden brightness/saturation change).\n0 = disabled (expand by color match only)\nHigher = more sensitive stop (default: 0.15)";
     }
 }
