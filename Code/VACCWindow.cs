@@ -197,6 +197,9 @@ namespace VRCAvatarColorChanger
                 }
 
                 _presetsView.Draw();
+                // 一括適用は実装継続中のため当面 UI から非表示。
+                // _exportView.DrawBatchSection();
+                _exportView.DrawExportSection();
                 EditorGUILayout.EndScrollView();
                 EditorGUILayout.EndVertical();
 
@@ -206,11 +209,6 @@ namespace VRCAvatarColorChanger
                 EditorGUILayout.EndVertical();
 
                 EditorGUILayout.EndHorizontal();
-
-                // ── 下部: エクスポート（フル幅） ──
-                // 一括適用は実装継続中のため当面 UI から非表示。
-                // _exportView.DrawBatchSection();
-                _exportView.DrawExportSection();
             }
             else
             {
