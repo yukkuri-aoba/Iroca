@@ -36,6 +36,8 @@ namespace VRCAvatarColorChanger
 
         [System.NonSerialized] public bool isPainting;
         [System.NonSerialized] public Vector2 lastPaintUV = -Vector2.one;
+        // ペイント中の RebuildMaskOverlay 間引き用タイムスタンプ（PreviewView から参照）。
+        [System.NonSerialized] public double lastOverlayRebuildTime;
 
         // ストローク中フラグ（同一ストロークで二重 Undo 登録しないため）
         [System.NonSerialized] public bool _maskStrokeStarted;
