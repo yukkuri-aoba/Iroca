@@ -423,5 +423,35 @@ namespace VRCAvatarColorChanger
         public static string EdgeStopThresholdTooltip => IsJapanese
             ? "輝度・彩度の急激な変化をパーツの境界とみなして Flood Fill を止める強度。\n0 = エッジストッパー無効（色の一致のみで拡張）\n大きいほど敏感に止まります（デフォルト: 0.15）"
             : "Sensitivity for stopping Flood Fill at edge (sudden brightness/saturation change).\n0 = disabled (expand by color match only)\nHigher = more sensitive stop (default: 0.15)";
+
+        // ─── Auto-tune ───
+        public static string AutoTune => IsJapanese ? "自動調整" : "Auto-tune";
+        public static string AutoTuneTooltip => IsJapanese
+            ? "サンプルカラーと変更先カラーから、テクスチャを解析して許容範囲・彩度制限などのパラメータを自動的に決定します。\nスポイトでサンプルカラーを取った直後に押すと最も効果的です。"
+            : "Analyzes the texture using the sample and target colors and automatically sets tolerance, saturation strictness, and related parameters.\nMost effective right after sampling a color with the eyedropper.";
+        public static string AutoTuneDisabledTooltip => IsJapanese
+            ? "次のいずれかの条件で使用できません:\n・元テクスチャが未設定\n・テクスチャの Read/Write が無効\n・サンプルカラーが未指定（白のまま）\n・選択モードが Rect"
+            : "Disabled when:\n- Source texture is not set\n- Texture's Read/Write is off\n- Sample color is unset (still white)\n- Selection mode is Rect";
+        public static string AutoTuneConfirmTitle => IsJapanese ? "自動調整の確認" : "Confirm Auto-tune";
+        public static string AutoTuneOverwriteBody(System.Collections.Generic.IList<string> labels, bool includesGlobals)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append(IsJapanese
+                ? "以下のパラメータは既定値から変更されています。自動調整で上書きしますか？\n\n"
+                : "The following parameters have been modified from defaults. Overwrite via Auto-tune?\n\n");
+            for (int i = 0; i < labels.Count; i++)
+            {
+                sb.Append("・");
+                sb.Append(labels[i]);
+                sb.Append('\n');
+            }
+            if (includesGlobals)
+            {
+                sb.Append(IsJapanese
+                    ? "\nグローバル加工設定も変更されます。"
+                    : "\nGlobal processing settings will also be modified.");
+            }
+            return sb.ToString();
+        }
     }
 }
