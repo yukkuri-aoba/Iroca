@@ -109,6 +109,7 @@ namespace VRCAvatarColorChanger
             public float darkestNearSampleS;
             public bool darkSeen;
             public float sH, sS, sV;
+            public float tV;  // target color V（明度差で valueBlend 判定に使う）
         }
 
         private static bool TryAnalyzePixels(Texture2D tex, ColorZone zone, out AnalysisStats stats)
@@ -122,6 +123,7 @@ namespace VRCAvatarColorChanger
             };
 
             Color.RGBToHSV(zone.sampleColor, out stats.sH, out stats.sS, out stats.sV);
+            Color.RGBToHSV(zone.targetColor, out _, out _, out stats.tV);
 
             Color32[] pixels;
             try
@@ -223,8 +225,14 @@ namespace VRCAvatarColorChanger
             int highlightThreshold = Mathf.Max(50, Mathf.RoundToInt(s.nearSampleCount * 0.02f));
             bool highlightRecovery = s.highlightCandidates >= highlightThreshold;
 
-            // valueBlend: 模様の幅が小さければ模様保持を弱める
-            float valueBlend = (vSpread < 0.10f) ? 0.7f : 1.0f;
+            // valueBlend: 原則 1.0（模様完全保持）を維持。
+            // サンプルとターゲットの明度差が極端（例: 明るい色 → 黒）な場合のみ下げる。
+            // それ以外では模様を残すことを最優先する方針。
+            float vDelta = Mathf.Abs(s.sV - s.tV);
+            float valueBlend;
+            if (vDelta > 0.55f) valueBlend = 0.7f;        // 例: 白系 → 黒系
+            else if (vDelta > 0.35f) valueBlend = 0.9f;   // 中程度の明度差
+            else valueBlend = 1.0f;                       // 通常は模様完全保持
 
             // edgeSoftness: 色相広がりが大きいほど柔らかく
             float edgeSoftness;
