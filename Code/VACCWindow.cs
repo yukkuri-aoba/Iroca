@@ -357,6 +357,23 @@ namespace VRCAvatarColorChanger
                     GUI.backgroundColor = prevBg;
                 }
 
+                // 自動調整ボタン（フル幅）
+                {
+                    bool canTune =
+                        sourceTexture != null
+                        && IsReadable(sourceTexture)
+                        && zone.mode == SelectionMode.ColorPick
+                        && zone.sampleColor != Color.white;
+                    string tip = canTune ? Localization.AutoTuneTooltip : Localization.AutoTuneDisabledTooltip;
+                    using (new EditorGUI.DisabledScope(!canTune))
+                    {
+                        if (GUILayout.Button(new GUIContent(Localization.AutoTune, tip)))
+                        {
+                            RunAutoTune(zone);
+                        }
+                    }
+                }
+
                 zone.mode = UndoHelper.EnumPopup(this,
                     new GUIContent(Localization.SelectionMode, Localization.SelectionModeTooltip),
                     zone.mode);
@@ -483,6 +500,42 @@ namespace VRCAvatarColorChanger
 
             EditorGUILayout.EndFoldoutHeaderGroup();
             EditorGUILayout.Space(4);
+        }
+
+        // ───────────────────────── 自動調整 ───────────────────────────
+
+        private void RunAutoTune(ColorZone zone)
+        {
+            var result = ZoneAutoTuner.Analyze(sourceTexture, zone, _session);
+
+            if (result.overwrittenLabels != null && result.overwrittenLabels.Count > 0)
+            {
+                string body = Localization.AutoTuneOverwriteBody(result.overwrittenLabels, result.applyGlobals);
+                if (!EditorUtility.DisplayDialog(
+                        Localization.AutoTuneConfirmTitle, body,
+                        Localization.OK, Localization.Cancel))
+                {
+                    return;
+                }
+            }
+
+            Undo.RegisterCompleteObjectUndo(this, "Auto-tune Zone");
+            zone.tolerance               = result.tolerance;
+            zone.saturationStrictness    = result.saturationStrictness;
+            zone.chromaThreshold         = result.chromaThreshold;
+            zone.highlightRecovery       = result.highlightRecovery;
+            zone.valueBlend              = result.valueBlend;
+            zone.edgeSoftness            = result.edgeSoftness;
+            zone.shadowDesaturation      = result.shadowDesaturation;
+            zone.shadowForgivenessSatMin = result.shadowForgivenessSatMin;
+            if (result.applyGlobals)
+            {
+                edgeFeather        = result.edgeFeather;
+                antiAliasCleanup   = result.antiAliasCleanup;
+                useDecontamination = result.useDecontamination;
+            }
+            MarkPreviewDirty();
+            Repaint();
         }
 
         // ───────────────────────── 処理設定 ───────────────────────────
