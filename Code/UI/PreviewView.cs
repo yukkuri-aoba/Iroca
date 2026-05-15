@@ -31,6 +31,10 @@ namespace VRCAvatarColorChanger
         [System.NonSerialized] private int _pendingPrevW, _pendingPrevH;
         [System.NonSerialized] private double _lastDirtyTime;
         private const double PreviewDebounceSeconds = 0.2;
+        // ペイント中のオーバーレイ再構築の最小間隔（10Hz）。
+        // bool[] の clone とジョブ再スケジュールがメインスレッドで頻発すると
+        // GC でフレームが詰まるため、ペイント中だけ意図的に間引く。
+        private const double PaintOverlayThrottleSeconds = 0.1;
 
         // Diff テクスチャ生成: ピクセル比較はバックグラウンドへ、SetPixels32/Apply はメインスレッド。
         [System.NonSerialized] private readonly PreviewJob<Color32[]> _diffJob = new PreviewJob<Color32[]>();
@@ -147,22 +151,36 @@ namespace VRCAvatarColorChanger
             // バックグラウンドで完了したオーバーレイ Color32[] を先に Texture2D へ適用する。
             maskView.ApplyPendingOverlay();
 
-            // マスクオーバーレイ再構築をスケジュール（バックグラウンド計算、軽量、ペイント中も安全）
+            // マスクオーバーレイ再構築をスケジュール（バックグラウンド計算）。
+            // ペイント中は MouseDrag が毎フレーム maskDirty を立てるため、
+            // 毎回フル解像度 bool[] を clone してジョブを Cancel→再 Schedule すると
+            // GC 圧と CPU 浪費だけが積み上がってジョブが完了しない。
+            // ペイント中だけは PaintOverlayThrottleSeconds 間隔に絞り、
+            // 進行中のジョブが Apply まで届くようにする。
             if (maskView.maskDirty && previewTexture != null)
             {
-                maskView.RebuildMaskOverlay(previewTexture.width, previewTexture.height);
-                maskView.maskDirty = false;
+                bool throttle = maskView.isPainting &&
+                    (EditorApplication.timeSinceStartup - maskView.lastOverlayRebuildTime)
+                        < PaintOverlayThrottleSeconds;
+                if (!throttle)
+                {
+                    maskView.lastOverlayRebuildTime = EditorApplication.timeSinceStartup;
+                    maskView.RebuildMaskOverlay(previewTexture.width, previewTexture.height);
+                    maskView.maskDirty = false;
+                }
+                // throttle 時は maskDirty を残し、次フレームで再評価する。
+                // ペイント中は MouseDrag が継続的に Repaint を呼ぶので追加の RequestRepaint は不要。
             }
+
+            // 「生成中…」インジケータは常に同じ高さの 1 行を確保する。
+            // 出入りで後続の UI（ズーム表示・比較ボタン・プレビュー画像）が
+            // 上下にジャンプするのを防ぐため、非生成時は空白を表示する。
+            EditorGUILayout.LabelField(_previewJob.IsRunning ? Localization.GeneratingPreview : " ");
 
             if (previewTexture == null)
             {
-                if (_previewJob.IsRunning)
-                    EditorGUILayout.HelpBox(Localization.GeneratingPreview, MessageType.None);
                 return;
             }
-
-            if (_previewJob.IsRunning)
-                EditorGUILayout.LabelField(Localization.GeneratingPreview);
 
             EditorGUILayout.LabelField(
                 new GUIContent(
