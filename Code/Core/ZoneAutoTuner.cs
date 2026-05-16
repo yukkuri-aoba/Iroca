@@ -21,7 +21,6 @@ namespace VRCAvatarColorChanger
         private const float DefaultEdgeSoftness            = 0f;
         private const float DefaultShadowDesaturation      = 0.35f;
         private const float DefaultShadowForgivenessSatMin = 0.05f;
-        private const float DefaultEdgeFeather             = 0f;
         private const int   DefaultAntiAliasCleanup        = 3;
         private const bool  DefaultUseDecontamination      = true;
 
@@ -46,8 +45,8 @@ namespace VRCAvatarColorChanger
             public float shadowForgivenessSatMin;
 
             // Globals（applyGlobals が true のときのみ適用）
+            // edgeFeather は「ごまかし」なので自動調整では一切扱わない（既定の 0 を維持）。
             public bool  applyGlobals;
-            public float edgeFeather;
             public int   antiAliasCleanup;
             public bool  useDecontamination;
 
@@ -90,7 +89,6 @@ namespace VRCAvatarColorChanger
                 shadowDesaturation      = DefaultShadowDesaturation,
                 shadowForgivenessSatMin = DefaultShadowForgivenessSatMin,
                 applyGlobals            = false,
-                edgeFeather             = DefaultEdgeFeather,
                 antiAliasCleanup        = DefaultAntiAliasCleanup,
                 useDecontamination      = DefaultUseDecontamination,
                 overwrittenLabels       = new List<string>(),
@@ -258,7 +256,6 @@ namespace VRCAvatarColorChanger
                 shadowDesaturation      = heuristic.shadowDesaturation,
                 shadowForgivenessSatMin = shadowForgivenessSatMin,
                 applyGlobals            = false,
-                edgeFeather             = heuristic.edgeFeather,
                 antiAliasCleanup        = heuristic.antiAliasCleanup,
                 useDecontamination      = heuristic.useDecontamination,
                 overwrittenLabels       = new List<string>(),
@@ -269,10 +266,11 @@ namespace VRCAvatarColorChanger
 
         private static void DecideGlobals(Texture2D tex, VACCSessionState session, ref TuneResult result)
         {
-            // 1) Global が全て既定 かつ 2) 他ゾーンの基本パラメータも全て既定 のときだけ Globals を提案する。
+            // edgeFeather は自動調整では一切触らない（"ごまかし" を増やさない方針）。
+            // 自動調整が扱う Global は antiAliasCleanup と useDecontamination のみ。
+            // 1) これらが既定 かつ 2) 他ゾーンの基本パラメータも全て既定 のときだけ提案する。
             // ユーザーが既に手で動かしている場合は触らない（"後勝ち事故" 防止）。
             bool globalsAtDefault =
-                session.edgeFeather == DefaultEdgeFeather &&
                 session.antiAliasCleanup == DefaultAntiAliasCleanup &&
                 session.useDecontamination == DefaultUseDecontamination;
 
@@ -296,9 +294,19 @@ namespace VRCAvatarColorChanger
             }
 
             result.applyGlobals = true;
-            result.edgeFeather = (tex != null && tex.width >= 2048) ? 0.5f : 0f;
-            result.antiAliasCleanup = DefaultAntiAliasCleanup;
+            // AA 境界クリーンアップ: 高解像度ほど AA フリンジが太く、回収パスを増やす方が
+            // 境界品質が上がる。テクスチャ寸法のみから導出（キャラ・色に依存しない）。
+            result.antiAliasCleanup = AntiAliasCleanupForResolution(tex);
             result.useDecontamination = DefaultUseDecontamination;
+        }
+
+        private static int AntiAliasCleanupForResolution(Texture2D tex)
+        {
+            if (tex == null) return DefaultAntiAliasCleanup;
+            int dim = Mathf.Max(tex.width, tex.height);
+            if (dim >= 2048) return 5;
+            if (dim >= 1024) return 4;
+            return DefaultAntiAliasCleanup; // 3 = 推奨下限
         }
 
         // ─────────────────── 上書き対象ラベル収集 ───────────────────
@@ -326,8 +334,6 @@ namespace VRCAvatarColorChanger
 
             if (result.applyGlobals)
             {
-                if (!Mathf.Approximately(session.edgeFeather, DefaultEdgeFeather))
-                    labels.Add(Localization.EdgeFeather);
                 if (session.antiAliasCleanup != DefaultAntiAliasCleanup)
                     labels.Add(Localization.AntiAliasCleanup);
                 if (session.useDecontamination != DefaultUseDecontamination)
