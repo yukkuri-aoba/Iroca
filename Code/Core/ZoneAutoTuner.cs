@@ -58,7 +58,13 @@ namespace VRCAvatarColorChanger
         /// texture, zone, session の現在値を読み取り、推奨値と上書き対象ラベルを返す。
         /// 副作用なし。失敗時もデフォルト相当の TuneResult を返す。
         /// </summary>
-        public static TuneResult Analyze(Texture2D tex, ColorZone zone, VACCSessionState session)
+        /// <param name="excluded">
+        /// 除外マスク(共通∪ゾーン別の OR 結合, true=除外)。サイズ maskW*maskH。
+        /// null または全 false の場合はマスク無しパス。マスクがある場合は
+        /// 「含有(非除外)領域全体をパーツとみなし、その距離分布から tolerance を導出」する。
+        /// </param>
+        public static TuneResult Analyze(Texture2D tex, ColorZone zone, VACCSessionState session,
+            bool[] excluded = null, int maskW = 0, int maskH = 0)
         {
             var result = BuildHeuristicDefault(zone);
 
@@ -67,6 +73,21 @@ namespace VRCAvatarColorChanger
             {
                 if (TryAnalyzePixels(tex, zone, out var analyzed))
                     result = MergeAnalyzed(result, analyzed);
+
+                // マスク運用前提（はみ出しは手動マスク担当）: 含有領域全体をパーツとみなし、
+                // パーツ内の薄い装飾（白プリント等）まで均一に match できるよう tolerance を
+                // 含有領域の距離分布 P99.9 から導出する。マスクは色からは推論不可能な
+                // 「パーツ分離」をユーザーが与えたものなので、それを最大限尊重する。
+                if (HasUsableMask(excluded, maskW, maskH))
+                {
+                    if (TryDeriveMaskAwareTolerance(tex, zone, excluded, maskW, maskH,
+                            out float maskTol))
+                    {
+                        result.tolerance = maskTol;
+                        // パーツが分離済みなら白プリント等を薄く色づけるため復元を有効化。
+                        result.highlightRecovery = true;
+                    }
+                }
             }
 
             DecideGlobals(tex, session, ref result);
@@ -178,6 +199,94 @@ namespace VRCAvatarColorChanger
             return stats.nearSampleCount >= MinNearSampleCount;
         }
 
+        // ─────────────────── マスク認識型 tolerance ───────────────────
+
+        private const int DistBins = 600;          // 距離 [0,1.5] を 600 分割（分解能 0.0025）
+        private const float DistMax = 1.5f;
+        private const float MaskAwarePercentile = 0.999f;
+        private const float MaskAwareMargin = 0.03f;
+        private const float MaskAwareTolMin = 0.12f;
+        private const float MaskAwareTolMax = 0.40f;
+
+        private static bool HasUsableMask(bool[] excluded, int maskW, int maskH)
+        {
+            if (excluded == null || maskW <= 0 || maskH <= 0) return false;
+            if (excluded.Length < maskW * maskH) return false;
+            // 何も除外していない / 全部除外 のマスクは「パーツ分離」として使えない。
+            int total = maskW * maskH;
+            int ex = 0;
+            for (int i = 0; i < total; i++) if (excluded[i]) ex++;
+            return ex > 0 && ex < total;
+        }
+
+        /// <summary>
+        /// 含有(非除外)opaque ピクセルの「サンプルからの match 距離」分布の高パーセンタイル
+        /// を tolerance とする。マスクが定義したパーツ全体（薄い装飾含む）を均一に
+        /// match させるため。距離式は本番アルゴリズムと同一:
+        ///   d = hueDist + |dS|*satDistWeight + |dV|*valueWeight*(1 - sRatio)
+        /// </summary>
+        private static bool TryDeriveMaskAwareTolerance(Texture2D tex, ColorZone zone,
+            bool[] excluded, int maskW, int maskH, out float tolerance)
+        {
+            tolerance = 0f;
+            Color32[] pixels;
+            try { pixels = tex.GetPixels32(); }
+            catch (UnityEngine.UnityException) { return false; }
+
+            Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
+            float satDistW = zone.satDistWeight;
+            float valueW = zone.valueWeight;
+
+            int w = tex.width, h = tex.height;
+            int stride = (w <= 2048) ? 1 : 2;
+            var bins = new int[DistBins];
+            int count = 0;
+
+            for (int y = 0; y < h; y += stride)
+            {
+                int rowStart = y * w;
+                int my = Mathf.Clamp(y * maskH / h, 0, maskH - 1);
+                for (int x = 0; x < w; x += stride)
+                {
+                    Color32 c32 = pixels[rowStart + x];
+                    if (c32.a < 128) continue;
+                    int mx = Mathf.Clamp(x * maskW / w, 0, maskW - 1);
+                    if (excluded[my * maskW + mx]) continue; // 除外パーツ外
+
+                    Color.RGBToHSV(new Color(c32.r / 255f, c32.g / 255f, c32.b / 255f, 1f),
+                        out float pH, out float pS, out float pV);
+
+                    float hd = Mathf.Abs(pH - sH);
+                    if (hd > 0.5f) hd = 1f - hd;
+                    float sd = Mathf.Abs(pS - sS);
+                    float vd = Mathf.Abs(pV - sV);
+                    float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
+                    float d = hd + sd * satDistW + vd * valueW * (1f - sRatio);
+
+                    int bi = Mathf.Clamp((int)(d / DistMax * DistBins), 0, DistBins - 1);
+                    bins[bi]++;
+                    count++;
+                }
+            }
+
+            if (count < MinNearSampleCount) return false;
+
+            int target = Mathf.CeilToInt(count * MaskAwarePercentile);
+            int cum = 0;
+            float pctDist = DistMax;
+            for (int i = 0; i < DistBins; i++)
+            {
+                cum += bins[i];
+                if (cum >= target)
+                {
+                    pctDist = (i + 1) / (float)DistBins * DistMax;
+                    break;
+                }
+            }
+            tolerance = Mathf.Clamp(pctDist + MaskAwareMargin, MaskAwareTolMin, MaskAwareTolMax);
+            return true;
+        }
+
         private static TuneResult MergeAnalyzed(TuneResult heuristic, AnalysisStats s)
         {
             float hSpread = HueSpreadFromHistogram(s.hBins, s.sH, s.nearSampleCount);
@@ -186,15 +295,16 @@ namespace VRCAvatarColorChanger
             float vP90 = PercentileBin(s.vBins, s.nearSampleCount, 0.90f) / (float)HistogramBins;
             float vSpread = Mathf.Max(0f, vP90 - vP10);
 
-            // tolerance: 色相の広がり + マージン。低彩度時は V の広がりで近似。
+            // tolerance（マスク無しパス）: 色相の広がり + マージン。低彩度時は V の広がりで近似。
+            // マスク運用前提では別途 mask-aware パスで上書きされる（DeriveMaskAwareTolerance）。
             float tolerance;
             if (s.sS < 0.10f)
             {
-                tolerance = Mathf.Clamp(vSpread + 0.05f, 0.10f, 0.50f);
+                tolerance = Mathf.Clamp(vSpread + 0.10f, 0.12f, 0.50f);
             }
             else
             {
-                tolerance = Mathf.Clamp(hSpread + 0.05f, 0.10f, 0.50f);
+                tolerance = Mathf.Clamp(hSpread + 0.10f, 0.12f, 0.50f);
             }
 
             // saturationStrictness: 低彩度サンプル → 緩める。低 S テールが目立つ → 厳しく。
