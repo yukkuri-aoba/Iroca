@@ -953,7 +953,14 @@ namespace VRCAvatarColorChanger
             // 彩度比を保持：アンチエイリアス境界ピクセルは相対的な彩度を保つ
             float newS = (sS > 0.001f) ? Mathf.Clamp01(oS * tS / sS) : tS;
 
-            float newV = Mathf.Lerp(tV, oV, valueBlend);
+            // 相対明度保持（オフセット式）: サンプル明度 sV を基準点に、元画素の
+            // 陰影・段差成分 (oV - sV) はそのまま温存し、全体トーンだけを valueBlend で
+            // ターゲット側へ寄せる。これにより d(newV)/d(oV)=1 となり、手描きの
+            // 多段シェーディング（明るい段）が valueBlend<1 でも潰れない。
+            // valueBlend=1.0 では baseV=sV, newV=sV+(oV-sV)=oV ＝従来 Lerp(tV,oV,1) と完全一致。
+            float shadingOffset = oV - sV;
+            float baseV = Mathf.Lerp(tV, sV, valueBlend);
+            float newV = Mathf.Clamp01(baseV + shadingOffset);
 
             // ハイライト合成ロジック: 元のピクセルが白に近く飛んでいるほど、
             // ターゲットカラーの彩度を急激に落とし、明度を引き上げて「オーバーレイ/スクリーン」的な光沢感を維持する。
