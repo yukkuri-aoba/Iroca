@@ -177,7 +177,13 @@ namespace VRCAvatarColorChanger
                 DrawTextureField();
 
                 // ── 横並び: 左（設定）＋ 右（プレビュー） ──
-                EditorGUILayout.BeginHorizontal();
+                // エクスポートセクションを常にウィンドウ下部に表示するため、
+                // 横並び領域の高さを「ウィンドウ高 - ヘッダー/テクスチャフィールド - エクスポート高」に制限する。
+                float exportH = _exportView.GetSectionHeight();
+                float topOverheadH = EditorStyles.toolbar.fixedHeight
+                    + 4f + (EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing) * 2 + 4f;
+                float horizH = Mathf.Max(100f, position.height - topOverheadH - exportH);
+                EditorGUILayout.BeginHorizontal(GUILayout.Height(horizH));
 
                 // 左カラム: ゾーン設定 + 処理設定 + マスク + プリセット
                 float leftWidth = Mathf.Clamp(
@@ -185,7 +191,7 @@ namespace VRCAvatarColorChanger
                     VACCConsts.Layout.LeftColumnMin,
                     VACCConsts.Layout.LeftColumnMax);
                 EditorGUILayout.BeginVertical(GUILayout.Width(leftWidth));
-                leftScrollPos = EditorGUILayout.BeginScrollView(leftScrollPos);
+                leftScrollPos = EditorGUILayout.BeginScrollView(leftScrollPos, GUILayout.ExpandHeight(true));
 
                 DrawZoneList();
                 DrawProcessingSection();
@@ -197,9 +203,6 @@ namespace VRCAvatarColorChanger
                 }
 
                 _presetsView.Draw();
-                // 一括適用は実装継続中のため当面 UI から非表示。
-                // _exportView.DrawBatchSection();
-                _exportView.DrawExportSection();
                 EditorGUILayout.EndScrollView();
                 EditorGUILayout.EndVertical();
 
@@ -209,6 +212,11 @@ namespace VRCAvatarColorChanger
                 EditorGUILayout.EndVertical();
 
                 EditorGUILayout.EndHorizontal();
+
+                // ── 下部: エクスポート（フル幅・常に表示） ──
+                // 一括適用は実装継続中のため当面 UI から非表示。
+                // _exportView.DrawBatchSection();
+                _exportView.DrawExportSection();
             }
             else
             {
@@ -528,7 +536,6 @@ namespace VRCAvatarColorChanger
             zone.shadowForgivenessSatMin = result.shadowForgivenessSatMin;
             if (result.applyGlobals)
             {
-                edgeFeather        = result.edgeFeather;
                 antiAliasCleanup   = result.antiAliasCleanup;
                 useDecontamination = result.useDecontamination;
             }
@@ -684,6 +691,7 @@ namespace VRCAvatarColorChanger
         internal void ApplyMaskFromPreset(VACCPresetData data) => _maskView?.ApplyFromPreset(data);
         internal void WriteMaskToPreset(VACCPresetData data) => _maskView?.WriteToPreset(data);
         internal void ResetActiveMaskTarget() => _maskView?.ResetActiveTarget();
+        internal float ExportSectionHeight => _exportView.GetSectionHeight();
 
         // ── プレビュー / エクスポート用フォワーダ ──
         internal MaskSnapshot BuildMaskSnapshot() => _maskView?.BuildSnapshot();
