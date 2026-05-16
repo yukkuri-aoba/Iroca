@@ -510,9 +510,35 @@ namespace VRCAvatarColorChanger
 
         // ───────────────────────── 自動調整 ───────────────────────────
 
+        // 自動調整に渡す除外マスク（共通 ∪ このゾーン専用）を OR 結合して返す。
+        // 「パーツをユーザーが粗く囲った」情報を tolerance 導出に活用する。
+        // マスク未使用なら null。
+        private bool[] BuildCombinedExclusionForZone(ColorZone zone, out int mw, out int mh)
+        {
+            mw = _maskView != null ? _maskView.maskWidth : 0;
+            mh = _maskView != null ? _maskView.maskHeight : 0;
+            if (_maskView == null || mw <= 0 || mh <= 0) return null;
+
+            bool[] common = _maskView.exclusionMask;
+            bool[] zoneMask = null;
+            if (!string.IsNullOrEmpty(zone.id) && _maskView.zoneMasks != null)
+                _maskView.zoneMasks.TryGetValue(zone.id, out zoneMask);
+
+            int len = mw * mh;
+            bool commonOk = common != null && common.Length >= len;
+            bool zoneOk = zoneMask != null && zoneMask.Length >= len;
+            if (!commonOk && !zoneOk) return null;
+
+            var combined = new bool[len];
+            for (int i = 0; i < len; i++)
+                combined[i] = (commonOk && common[i]) || (zoneOk && zoneMask[i]);
+            return combined;
+        }
+
         private void RunAutoTune(ColorZone zone)
         {
-            var result = ZoneAutoTuner.Analyze(sourceTexture, zone, _session);
+            bool[] excluded = BuildCombinedExclusionForZone(zone, out int mw, out int mh);
+            var result = ZoneAutoTuner.Analyze(sourceTexture, zone, _session, excluded, mw, mh);
 
             if (result.overwrittenLabels != null && result.overwrittenLabels.Count > 0)
             {
