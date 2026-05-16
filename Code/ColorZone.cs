@@ -263,6 +263,26 @@ namespace VRCAvatarColorChanger
                 // 暗いほど、本来の彩度ゲート（satMin）を無視して拾いやすくする
                 satConfidence = Mathf.Max(satConfidence, darkForgiveness);
             }
+            // 同系色・明部のハイライト許容（上のシャドウ許容の対称形）。
+            // 光が強く当たった部分は同じマテリアルでも明度が上がり彩度が抜けて
+            // 白っぽくなる（手描きハイライトの芯）。サンプルより明るく同色相なら
+            // 彩度ゲートを免除して同素材として拾う。FP は色相ゲートで抑える。
+            // シャドウ側の satFactor 減衰は付けない（ハイライトは低彩度化が正常で
+            // 暗部のグレー/黒混入とは性質が逆のため）。
+            if (pV > sV && effectiveHDist < 0.15f)
+            {
+                // 明度の伸び量を上方ヘッドルーム (1 - sV) で正規化。
+                // 閾値 sV + (1-sV)*0.25 は暗側 sV*0.75（25% デッドマージン）の鏡像。
+                float brightThreshold = sV + (1f - sV) * 0.25f;
+                float brightForgiveness = Mathf.Clamp01(
+                    (pV - brightThreshold) / Mathf.Max(0.01f, (1f - sV) * 0.6f));
+
+                // 色相が離れているほど免除を弱くする（暗側と同形・無関係色の巻き込み防止）
+                float hueFactor = 1f - (effectiveHDist / 0.15f);
+                brightForgiveness *= hueFactor;
+
+                satConfidence = Mathf.Max(satConfidence, brightForgiveness);
+            }
             // 各距離の計算
             float dist = CalculateHybridDistance(pixelColor, pS, pV, effectiveHDist, sRatio);
             float gate = Mathf.Lerp(1f, satConfidence, chromaConfidence);
@@ -316,6 +336,21 @@ namespace VRCAvatarColorChanger
 
                 // 免除が強すぎると他のテクスチャで許容範囲が広がりすぎるため、0.3f (最大70%免除) に抑える
                 finalDist *= Mathf.Lerp(1f, 0.3f, darkForgiveness);
+            }
+
+            // ハイライト（明部）の距離許容: 上のシャドウ許容の対称形。
+            // サンプルより明るく同色相なら、低彩度化したハイライト芯でも同素材として
+            // 距離を免除する。免除上限はシャドウ側と同じ 0.3f（最大70%）で対称。
+            if (pV > sV && hDist < 0.15f)
+            {
+                float brightThreshold = sV + (1f - sV) * 0.25f;
+                float brightForgiveness = Mathf.Clamp01(
+                    (pV - brightThreshold) / Mathf.Max(0.01f, (1f - sV) * 0.6f));
+
+                float hueFactor = 1f - (hDist / 0.15f);
+                brightForgiveness *= hueFactor;
+
+                finalDist *= Mathf.Lerp(1f, 0.3f, brightForgiveness);
             }
 
             return finalDist;
