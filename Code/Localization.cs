@@ -79,6 +79,11 @@ namespace VRCAvatarColorChanger
             ? "低彩度ピクセル（AO/影）をどの程度厳しく除外するかを調整します。\n高い値 = はみ出しが少ないが、境界にドットが残る場合がある\n低い値 = ドットが減るが、はみ出しが増える\nデフォルト: 0.50"
             : "Controls how aggressively low-saturation pixels (AO/shadow) are excluded.\nHigher = less bleed but may leave dot artifacts at edges\nLower = fewer dots but more bleed\nDefault: 0.50";
 
+        public static string SaturationGuard => IsJapanese ? "彩度ガード" : "Saturation Guard";
+        public static string SaturationGuardTooltip => IsJapanese
+            ? "高彩度の対象色を選んだとき、白・黒・灰色など無彩色寄りの領域を結果から除外します。\n0 = 無効（従来動作）\n1 = 厳格（無彩色を強く弾く）\n対象色がもともと灰色寄り（彩度が低い）なら自動的に無効になります。\n許容範囲を上げて色の芯まで拾うときに、関係ない黒/白が混入するのを抑えるのに使ってください。\nデフォルト: 0"
+            : "When the target color is highly saturated, exclude near-achromatic regions (white/black/gray) from the result.\n0 = off (legacy behavior)\n1 = strict (aggressively reject achromatic pixels)\nAutomatically disabled when the target color itself is grayish.\nUse this when raising tolerance to recover the core while keeping unrelated black/white out.\nDefault: 0";
+
         // ─── Processing ───
         public static string Processing => IsJapanese ? "加工設定" : "Processing";
         public static string EdgeFeather => IsJapanese ? "エッジぼかし" : "Edge Feather";

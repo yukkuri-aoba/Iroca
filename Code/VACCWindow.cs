@@ -457,6 +457,9 @@ namespace VRCAvatarColorChanger
                 zone.saturationStrictness = UndoHelper.Slider(this,
                     new GUIContent(Localization.SaturationStrictness, Localization.SaturationStrictnessTooltip),
                     zone.saturationStrictness, 0f, 1f);
+                zone.saturationGuard = UndoHelper.Slider(this,
+                    new GUIContent(Localization.SaturationGuard, Localization.SaturationGuardTooltip),
+                    zone.saturationGuard, 0f, 1f);
 
                 zone.highlightRecovery = UndoHelper.Toggle(this,
                     new GUIContent(Localization.HighlightRecovery, Localization.HighlightRecoveryTooltip),
@@ -554,6 +557,7 @@ namespace VRCAvatarColorChanger
             Undo.RegisterCompleteObjectUndo(this, "Auto-tune Zone");
             zone.tolerance               = result.tolerance;
             zone.saturationStrictness    = result.saturationStrictness;
+            zone.saturationGuard         = result.saturationGuard;
             zone.chromaThreshold         = result.chromaThreshold;
             zone.highlightRecovery       = result.highlightRecovery;
             zone.valueBlend              = result.valueBlend;
