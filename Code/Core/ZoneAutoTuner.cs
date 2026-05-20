@@ -15,6 +15,7 @@ namespace VRCAvatarColorChanger
         // 元ファイルへの変更を避けるためここに定数で持ち、同期は手作業で行う。
         private const float DefaultTolerance               = 0f;
         private const float DefaultSaturationStrictness    = 0.50f;
+        private const float DefaultSaturationGuard         = 0f;
         private const float DefaultChromaThreshold         = 0.05f;
         private const bool  DefaultHighlightRecovery       = true;
         private const float DefaultValueBlend              = 1f;
@@ -23,6 +24,24 @@ namespace VRCAvatarColorChanger
         private const float DefaultShadowForgivenessSatMin = 0.05f;
         private const int   DefaultAntiAliasCleanup        = 3;
         private const bool  DefaultUseDecontamination      = true;
+
+        // 彩度ガード自動導出パラメータ
+        //
+        // 感度解析(dev_safe/scripts/_audit_saturation_guard.py, 2026-05-20)の結論:
+        //   - sneaker(sS=1.0) / costume(sS=1.0): guard ON で大幅改善
+        //       sneaker tol=0.40 IoU 0.655→0.931 (FP 2.46M→325k)
+        //       costume tol=0.15 IoU 0.93996→0.93435
+        //   - hair(sS=0.963) / bandana(sS=0.502): guard ON で悪化
+        //       これらは「暗部で S が落ちる素材(影=低彩度が正常)」のため、
+        //       低彩度画素を弾くと正常なシェーディングまで削ってしまう。
+        //
+        // ⇒ 自動提案は「源色 S が極端に高い (>=0.95)」のときに限定する。
+        //    境界の sS=0.95〜1.0 では guard を 0.5〜0.8 で線形補間。
+        //    UI スライダーは独立に常時露出されているので、中彩度サンプルでも
+        //    ユーザーが手動で guard を有効化することは可能。
+        private const float SaturationGuardActivateSS    = 0.95f;
+        private const float SaturationGuardMinAtActivate = 0.5f;
+        private const float SaturationGuardMaxAtHighSS   = 0.8f;
 
         // ── 解析パラメータ ──
         private const int HistogramBins = 32;
@@ -37,6 +56,7 @@ namespace VRCAvatarColorChanger
             // Per-zone（常に有効）
             public float tolerance;
             public float saturationStrictness;
+            public float saturationGuard;
             public float chromaThreshold;
             public bool  highlightRecovery;
             public float valueBlend;
@@ -103,6 +123,7 @@ namespace VRCAvatarColorChanger
             {
                 tolerance               = 0.25f,
                 saturationStrictness    = DefaultSaturationStrictness,
+                saturationGuard         = DefaultSaturationGuard,
                 chromaThreshold         = DefaultChromaThreshold,
                 highlightRecovery       = DefaultHighlightRecovery,
                 valueBlend              = DefaultValueBlend,
@@ -355,10 +376,32 @@ namespace VRCAvatarColorChanger
                 shadowForgivenessSatMin = Mathf.Clamp(s.darkestNearSampleS * 0.5f, 0.05f, 0.20f);
             }
 
+            // saturationGuard: 源色 S が極端に高い (>=0.95) ときだけ自動提案。
+            // sS=0.95 → Min(0.5)、sS=1.0 → Max(0.8) で線形補間。
+            // sS<0.95 では 0 のまま（感度解析で hair(sS=0.96)/bandana(sS=0.50) が
+            // 控えめ guard でも悪化することを確認 — シェーディングが S を落とす素材を
+            // 巻き込まないよう厳しめのゲート）。
+            //
+            // 数値はキャラ・テクスチャ依存ではなく「源色の彩度」という距離式入力から
+            // 導出しているため、特定テクスチャへのハードコードにはならない。
+            float saturationGuard;
+            if (s.sS < SaturationGuardActivateSS)
+            {
+                saturationGuard = 0f;
+            }
+            else
+            {
+                float t = Mathf.Clamp01((s.sS - SaturationGuardActivateSS)
+                                        / Mathf.Max(0.001f, 1f - SaturationGuardActivateSS));
+                saturationGuard = Mathf.Lerp(SaturationGuardMinAtActivate,
+                                             SaturationGuardMaxAtHighSS, t);
+            }
+
             return new TuneResult
             {
                 tolerance               = tolerance,
                 saturationStrictness    = saturationStrictness,
+                saturationGuard         = saturationGuard,
                 chromaThreshold         = chromaThreshold,
                 highlightRecovery       = highlightRecovery,
                 valueBlend              = valueBlend,
@@ -429,6 +472,8 @@ namespace VRCAvatarColorChanger
                 labels.Add(Localization.Tolerance);
             if (!Mathf.Approximately(zone.saturationStrictness, DefaultSaturationStrictness))
                 labels.Add(Localization.SaturationStrictness);
+            if (!Mathf.Approximately(zone.saturationGuard, DefaultSaturationGuard))
+                labels.Add(Localization.SaturationGuard);
             if (!Mathf.Approximately(zone.chromaThreshold, DefaultChromaThreshold))
                 labels.Add(Localization.IsJapanese ? "自動しきい値(無彩色判定)" : "Auto Grayscale Threshold");
             if (zone.highlightRecovery != DefaultHighlightRecovery)
@@ -458,6 +503,7 @@ namespace VRCAvatarColorChanger
             if (z == null) return true;
             return Mathf.Approximately(z.tolerance, DefaultTolerance)
                 && Mathf.Approximately(z.saturationStrictness, DefaultSaturationStrictness)
+                && Mathf.Approximately(z.saturationGuard, DefaultSaturationGuard)
                 && Mathf.Approximately(z.chromaThreshold, DefaultChromaThreshold)
                 && z.highlightRecovery == DefaultHighlightRecovery
                 && Mathf.Approximately(z.valueBlend, DefaultValueBlend)

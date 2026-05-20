@@ -18,6 +18,12 @@ namespace VRCAvatarColorChanger
         private const float HighlightRelaxedSatMin = 0.02f;
         private const float HighlightRelaxedSatRamp = 0.08f;
 
+        // 彩度ガード: 源色が高彩度なときだけ作動し、対象ピクセルの彩度が
+        // 「源色 S × FractionScale × saturationGuard」を下回ったら hard reject する。
+        // 源色 S が ActiveSourceSat 未満（灰色寄り）のときは作動しない（自動無効）。
+        private const float SaturationGuardActiveSourceSat = 0.40f;
+        private const float SaturationGuardFractionScale = 0.30f;
+
 
         public string name = "Zone";
         public bool enabled = true;
@@ -68,6 +74,9 @@ namespace VRCAvatarColorChanger
         [Range(0f, 1f)]
         public float chromaThreshold = 0.05f;
 
+        [Range(0f, 1f)]
+        public float saturationGuard = 0f;
+
         public bool highlightRecovery = true;
         public int layerIndex = 0;
         public string id = "";
@@ -76,7 +85,8 @@ namespace VRCAvatarColorChanger
         [NonSerialized] private bool _cacheInitiated = false;
         [NonSerialized] private Color _cSampleColor;
         [NonSerialized] private float _cTolerance, _cSatStrictness, _cSatRampScale, _cEdgeSoftness;
-        
+        [NonSerialized] private float _cSaturationGuard;
+
         // キャッシュされた値
         [NonSerialized] private float sH, sS, sV; // サンプル色のHSV
         [NonSerialized] private float satMin, satRamp;
@@ -84,6 +94,8 @@ namespace VRCAvatarColorChanger
         [NonSerialized] private float softRange, hardRange;
         [NonSerialized] private float hlHueCap;
         [NonSerialized] private float hlSoftRange, hlHardRange;
+        // 彩度ガードのカットオフ。0 = 無効。pS がこの値未満なら hard reject。
+        [NonSerialized] private float saturationGuardFloor;
 
         public void EnsureId()
         {
@@ -109,7 +121,8 @@ namespace VRCAvatarColorChanger
                 _cTolerance == tolerance &&
                 _cSatStrictness == saturationStrictness &&
                 _cSatRampScale == satRampScale &&
-                _cEdgeSoftness == edgeSoftness)
+                _cEdgeSoftness == edgeSoftness &&
+                _cSaturationGuard == saturationGuard)
             {
                 return;
             }
@@ -119,9 +132,16 @@ namespace VRCAvatarColorChanger
             _cSatStrictness = saturationStrictness;
             _cSatRampScale = satRampScale;
             _cEdgeSoftness = edgeSoftness;
+            _cSaturationGuard = saturationGuard;
             _cacheInitiated = true;
 
             Color.RGBToHSV(sampleColor, out sH, out sS, out sV);
+
+            // 彩度ガード床: 源色が高彩度なときだけ正値になる。
+            // 既定 saturationGuard=0 では常に 0（=機能無効）で従来動作と完全互換。
+            saturationGuardFloor = (saturationGuard > 0f && sS >= SaturationGuardActiveSourceSat)
+                ? sS * SaturationGuardFractionScale * saturationGuard
+                : 0f;
 
             satMin = Mathf.Max(0.02f, sS * saturationStrictness);
             satRamp = Mathf.Max(0.08f, sS * satRampScale);
@@ -200,6 +220,14 @@ namespace VRCAvatarColorChanger
         {
             strength = 0f;
             highlightPotential = 0f;
+
+            // 彩度ガード: 源色が高彩度なときだけ作動し、白/黒/灰色など無彩色寄りの
+            // 画素を hard reject する。源色 S が低い（グレー/黒）の場合は
+            // saturationGuardFloor が 0 になり、このゲートは作動しない（自動無効）。
+            if (saturationGuardFloor > 0f && pS < saturationGuardFloor)
+            {
+                return;
+            }
 
             // サンプル色の彩度がしきい値以下の場合は、自動的に無彩色(グレー/黒)抽出モードとして扱う
             // 暗いサンプルはHSV色相・彩度が不安定なため、黒るいほどグレースケールモードの適用範囲を動的に広げる。
