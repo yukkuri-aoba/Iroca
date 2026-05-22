@@ -100,6 +100,13 @@ namespace VRCAvatarColorChanger
             }
         }
 
+        /// <summary>
+        /// 指定フォルダ・プリセット名に対応する JSON ファイルの絶対パスを返す。
+        /// 保存時と同じファイル名サニタイズを通すため、上書き判定に使える。
+        /// </summary>
+        public static string PresetFilePath(string folder, string name)
+            => Path.Combine(folder, SanitizeFileName(name) + ".json");
+
         public static string[] ListJson(string folder)
         {
             return Directory.Exists(folder)

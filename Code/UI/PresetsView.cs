@@ -106,6 +106,20 @@ namespace VRCAvatarColorChanger
 
         private void SavePreset(string name)
         {
+            // 同名プリセットが既にある場合は上書き前に確認する。
+            string existingPath = PresetStore.PresetFilePath(ActivePresetFolder, name);
+            if (File.Exists(existingPath))
+            {
+                if (!EditorUtility.DisplayDialog(
+                        Localization.Confirm,
+                        Localization.PresetOverwriteConfirm(Path.GetFileNameWithoutExtension(existingPath)),
+                        Localization.Overwrite,
+                        Localization.Cancel))
+                {
+                    return;
+                }
+            }
+
             var data = BuildPresetData(name);
             if (presetStorageProject)
                 PresetStore.SaveToProject(name, data);

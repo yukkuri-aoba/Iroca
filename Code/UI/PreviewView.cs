@@ -48,6 +48,14 @@ namespace VRCAvatarColorChanger
         [System.NonSerialized] private int _cachedSrcW, _cachedSrcH;
         [System.NonSerialized] private int _cachedPrevW, _cachedPrevH;
 
+        // エクスポートと同じ「ディスク上のフル解像度ファイル」をプレビュー処理にも使うための
+        // キャッシュ。Unity のインポート設定（maxTextureSize / 圧縮）で縮小・劣化した
+        // 画素ではなく元ファイルの画素で処理することで、プレビューと実際のエクスポート結果を
+        // 一致させる。テクスチャ単位でキャッシュする。
+        [System.NonSerialized] private Texture2D _trueSourceFor;
+        [System.NonSerialized] private Color32[] _trueSourcePixels;
+        [System.NonSerialized] private int _trueSourceW, _trueSourceH;
+
         // 詳細プレビューは PreviewView の補助。
         [System.NonSerialized] private DetailPreviewView _detailView;
 
@@ -73,6 +81,56 @@ namespace VRCAvatarColorChanger
             _cachedSourceTexture = null;
             _cachedSrcPixels = null;
             _cachedRawDisplay = null;
+            _trueSourceFor = null;
+            _trueSourcePixels = null;
+        }
+
+        /// <summary>
+        /// プレビュー処理用のソース画素を確保する。可能ならディスク上の元ファイルを
+        /// フル解像度で読み込み（エクスポートと同一経路）、PNG/JPG 以外や生成テクスチャ等で
+        /// 失敗した場合はインポート済みテクスチャの GetPixels32 にフォールバックする。
+        /// 成功すると <see cref="_trueSourcePixels"/> / <see cref="_trueSourceW"/> /
+        /// <see cref="_trueSourceH"/> が有効になる。
+        /// </summary>
+        private bool EnsureTrueSource(Texture2D tex)
+        {
+            if (tex == null) return false;
+            if (_trueSourceFor == tex && _trueSourcePixels != null) return true;
+
+            string path = AssetDatabase.GetAssetPath(tex);
+            if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
+            {
+                Texture2D tmp = null;
+                try
+                {
+                    byte[] bytes = System.IO.File.ReadAllBytes(path);
+                    tmp = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                    if (tmp.LoadImage(bytes))
+                    {
+                        _trueSourcePixels = tmp.GetPixels32();
+                        _trueSourceW = tmp.width;
+                        _trueSourceH = tmp.height;
+                        _trueSourceFor = tex;
+                        return true;
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    Debug.LogWarning($"[VACC] Source file load failed, falling back to imported texture: {ex.Message}");
+                }
+                finally
+                {
+                    if (tmp != null) Object.DestroyImmediate(tmp);
+                }
+            }
+
+            // フォールバック: インポート済みテクスチャ（要 Read/Write）。
+            if (!VACCWindow.IsReadable(tex)) return false;
+            _trueSourcePixels = tex.GetPixels32();
+            _trueSourceW = tex.width;
+            _trueSourceH = tex.height;
+            _trueSourceFor = tex;
+            return true;
         }
 
         public void Dispose()
@@ -111,6 +169,10 @@ namespace VRCAvatarColorChanger
             }
 
             if (!VACCWindow.IsReadable(sourceTexture))
+                return;
+
+            // エクスポートと同じフル解像度ソースを確保（プレビュー＝実結果の一致のため）。
+            if (!EnsureTrueSource(sourceTexture))
                 return;
 
             // バックグラウンドプレビュータスクからの結果を適用（Texture2D API: メインスレッドのみ）
@@ -200,15 +262,15 @@ namespace VRCAvatarColorChanger
             }
             EditorGUILayout.EndHorizontal();
 
-            int srcW = sourceTexture.width;
-            int srcH = sourceTexture.height;
+            int srcW = _trueSourceW;
+            int srcH = _trueSourceH;
             float scale = (srcW > VACCConsts.Preview.MaxSize || srcH > VACCConsts.Preview.MaxSize)
                 ? VACCConsts.Preview.MaxSize / (float)Mathf.Max(srcW, srcH)
                 : 1f;
 
             // 詳細モード: ディスプレイピクセル > ソースピクセル時にアクティブ
             bool detailActive = scale < 1f &&
-                                previewZoom * scale >= DetailPreviewView.DetailUpscaleThreshold &&
+                                previewZoom > DetailPreviewView.DetailMinZoom &&
                                 !comparisonMode;
 
             // 詳細プレビュー生成をポーリング
@@ -221,8 +283,7 @@ namespace VRCAvatarColorChanger
                     _detailView.lastPreviewRect.width > 0)
                 {
                     _detailView.lastDetailDirtyTime = 0;
-                    Color32[] srcPixels = sourceTexture.GetPixels32();
-                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, srcPixels, scale, previewZoom, _previewScrollPos, _detailView.lastPreviewRect);
+                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, _trueSourcePixels, scale, previewZoom, _previewScrollPos, _detailView.lastPreviewRect);
                 }
                 else if (_detailView.lastDetailDirtyTime > 0 || _detailView.detailJob.IsRunning)
                 {
@@ -250,6 +311,9 @@ namespace VRCAvatarColorChanger
             }
 
             Rect activePreviewRect = default;
+            // Ctrl+スクロールズームの判定領域。比較モードでは Before/After 両パネルを
+            // またぐ矩形にし、どちらのパネル上でもズームできるようにする。
+            Rect zoomHitRect = default;
 
             if (comparisonMode && rawPreviewTexture != null)
             {
@@ -278,11 +342,18 @@ namespace VRCAvatarColorChanger
                 EditorGUILayout.EndVertical();
 
                 EditorGUILayout.EndHorizontal();
+
+                zoomHitRect = Rect.MinMaxRect(
+                    Mathf.Min(rawRect.x, activePreviewRect.x),
+                    Mathf.Min(rawRect.y, activePreviewRect.y),
+                    Mathf.Max(rawRect.xMax, activePreviewRect.xMax),
+                    Mathf.Max(rawRect.yMax, activePreviewRect.yMax));
             }
             else
             {
                 activePreviewRect = GUILayoutUtility.GetRect(displayW, displayH,
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
+                zoomHitRect = activePreviewRect;
 
                 if (detailActive && _detailView.detailPreviewTexture != null)
                 {
@@ -328,7 +399,7 @@ namespace VRCAvatarColorChanger
             if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
                 _detailView.lastPreviewRect = activePreviewRect;
 
-            HandlePreviewGlobalInput(activePreviewRect);
+            HandlePreviewGlobalInput(zoomHitRect);
 
             // Flood Fill は実装継続中のため当面 UI から非表示。
             // if (!maskView.maskPaintActive)
@@ -621,10 +692,10 @@ namespace VRCAvatarColorChanger
         private void GeneratePreviewAsync()
         {
             var sourceTexture = _host.SourceTexture;
-            if (sourceTexture == null || !VACCWindow.IsReadable(sourceTexture)) return;
+            if (sourceTexture == null || !EnsureTrueSource(sourceTexture)) return;
 
-            int srcW = sourceTexture.width;
-            int srcH = sourceTexture.height;
+            int srcW = _trueSourceW;
+            int srcH = _trueSourceH;
 
             float scale = 1f;
             if (srcW > VACCConsts.Preview.MaxSize || srcH > VACCConsts.Preview.MaxSize)
@@ -645,7 +716,7 @@ namespace VRCAvatarColorChanger
             }
             else
             {
-                srcPixels = sourceTexture.GetPixels32();
+                srcPixels = _trueSourcePixels;
                 rawDisplay = scale < 1f
                     ? PixelProcessor.BoxDownsample(srcPixels, srcW, srcH, prevW, prevH, scale)
                     : srcPixels;
