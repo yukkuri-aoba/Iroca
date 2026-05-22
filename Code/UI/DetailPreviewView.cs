@@ -29,8 +29,12 @@ namespace VRCAvatarColorChanger
         [System.NonSerialized] public Rect lastPreviewRect;
 
         public const double DetailDebounceSeconds = 0.3;
-        // 詳細モード: ディスプレイピクセル数/ソースピクセル数比 > 1 時にアクティベート
-        public const float DetailUpscaleThreshold = 1.0f;
+        // 詳細モード: プレビュー画像がネイティブ解像度を超えて拡大表示される
+        // （= previewZoom がこの値を超える）ときにフル解像度クロップへ切り替える。
+        // 旧実装は「ディスプレイ/ソース比 >= 1」を条件にしていたが、ソースが
+        // 大きいほど閾値が previewZoom の上限(4x)を超えてしまい、2K超のテクスチャで
+        // 詳細プレビューが一切起動しなくなっていた。
+        public const float DetailMinZoom = 1.0f;
 
         // 永続的な詳細クロップ原点（詳細プレビュー適用時に設定、レンダラーで読み取られます）
         [System.NonSerialized] public int detailOriginX, detailOriginY;
@@ -92,8 +96,7 @@ namespace VRCAvatarColorChanger
             if (sourceTexture == null || !VACCWindow.IsReadable(sourceTexture)) return;
             if (scale >= 1f) return;
 
-            float displayPxPerSrcPx = previewZoom * scale;
-            if (displayPxPerSrcPx < DetailUpscaleThreshold) return;
+            if (previewZoom <= DetailMinZoom) return;
 
             float invZoomScale = 1f / (previewZoom * scale);
             int x0 = Mathf.FloorToInt(previewScrollPos.x * invZoomScale);
@@ -256,18 +259,27 @@ namespace VRCAvatarColorChanger
         {
             var maskView = _host._maskView;
             var zones = _host.Session.zones;
-            bool hasCommon = maskView.exclusionMask != null;
-            bool hasAnyZone = false;
-            if (zones != null)
+
+            // メインのオーバーレイと同じく、編集対象のマスクだけを表示する。
+            bool commonIsActive = maskView.activeMaskTarget < 0
+                || zones == null || maskView.activeMaskTarget >= zones.Count;
+
+            bool hasCommon = commonIsActive && maskView.exclusionMask != null;
+
+            bool[] activeZoneMask = null;
+            Color32 activeZoneColor = default;
+            if (!commonIsActive)
             {
-                foreach (var z in zones)
+                var zone = zones[maskView.activeMaskTarget];
+                if (zone != null && !string.IsNullOrEmpty(zone.id)
+                    && maskView.zoneMasks.TryGetValue(zone.id, out var zm) && zm != null)
                 {
-                    if (z == null || string.IsNullOrEmpty(z.id)) continue;
-                    if (maskView.zoneMasks.TryGetValue(z.id, out var zm) && zm != null) { hasAnyZone = true; break; }
+                    activeZoneMask = zm;
+                    activeZoneColor = MaskPaintView.OverlayColorForZone(maskView.activeMaskTarget);
                 }
             }
 
-            if (!hasCommon && !hasAnyZone)
+            if (!hasCommon && activeZoneMask == null)
             {
                 TextureSlot.Release(ref detailMaskOverlayTexture);
                 return;
@@ -282,7 +294,6 @@ namespace VRCAvatarColorChanger
             int mw = maskView.maskWidth;
             int mh = maskView.maskHeight;
             var common = maskView.exclusionMask;
-            var zoneMasks = maskView.zoneMasks;
 
             for (int i = 0; i < overlayPixels.Length; i++)
             {
@@ -294,19 +305,7 @@ namespace VRCAvatarColorChanger
 
                 Color32 px = clear;
                 if (hasCommon && common[mi]) px = commonColor;
-
-                if (hasAnyZone)
-                {
-                    // 重なった zone mask の表示優先度はメインの RebuildMaskOverlay と同じ
-                    // 「リスト後方のゾーンが上書き勝ち」に揃える（break しない）。
-                    for (int zi = 0; zi < zones.Count; zi++)
-                    {
-                        var zone = zones[zi];
-                        if (zone == null || string.IsNullOrEmpty(zone.id)) continue;
-                        if (!zoneMasks.TryGetValue(zone.id, out var zm) || zm == null) continue;
-                        if (zm[mi]) px = MaskPaintView.OverlayColorForZone(zi);
-                    }
-                }
+                if (activeZoneMask != null && activeZoneMask[mi]) px = activeZoneColor;
 
                 overlayPixels[i] = px;
             }

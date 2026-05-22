@@ -335,20 +335,26 @@ namespace VRCAvatarColorChanger
             int capMw = maskWidth;
             int capMh = maskHeight;
 
-            // 共通マスク bool[] のスナップショット
-            bool[] commonSnap = exclusionMask != null ? (bool[])exclusionMask.Clone() : null;
-
-            // ゾーン別マスクのスナップショット（idx, color, mask[]）
+            // 編集対象のマスクだけをオーバーレイ表示する。
+            // 全ゾーンのマスクを重ねて出すと、重なり順で「最後のゾーン」が見え続け、
+            // どのマスクを編集しているのか分からなくなるため、対象を切り替えたら表示も切り替える。
             var zones = _host.Session.zones;
+            bool commonIsActive = activeMaskTarget < 0
+                || zones == null || activeMaskTarget >= zones.Count;
+
+            // 共通マスク bool[] のスナップショット（共通マスクが編集対象のときのみ）
+            bool[] commonSnap = (commonIsActive && exclusionMask != null)
+                ? (bool[])exclusionMask.Clone() : null;
+
+            // ゾーン別マスクのスナップショット（編集対象ゾーンのみ）
             var zoneInfos = new List<(Color32 color, bool[] mask)>();
-            if (zones != null && capMw > 0 && capMh > 0)
+            if (!commonIsActive && capMw > 0 && capMh > 0)
             {
-                for (int zi = 0; zi < zones.Count; zi++)
+                var zone = zones[activeMaskTarget];
+                if (zone != null && !string.IsNullOrEmpty(zone.id)
+                    && zoneMasks.TryGetValue(zone.id, out var zm) && zm != null)
                 {
-                    var zone = zones[zi];
-                    if (zone == null || string.IsNullOrEmpty(zone.id)) continue;
-                    if (!zoneMasks.TryGetValue(zone.id, out var zm) || zm == null) continue;
-                    zoneInfos.Add((OverlayColorForZone(zi), (bool[])zm.Clone()));
+                    zoneInfos.Add((OverlayColorForZone(activeMaskTarget), (bool[])zm.Clone()));
                 }
             }
 

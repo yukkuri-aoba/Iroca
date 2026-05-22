@@ -15,6 +15,25 @@ namespace VRCAvatarColorChanger
         public static void SaveLanguagePreference()
             => UnityEditor.EditorPrefs.SetInt(PrefsKey, (int)CurrentLanguage);
 
+        private const string EnglishNoticeKey = "VACC.EnglishTranslationNoticeShown";
+
+        /// <summary>
+        /// 英語表示が初めて使われたとき（Auto 判定・手動選択どちらでも）、
+        /// UI の英訳が AI 補助による機械翻訳である旨を一度だけダイアログ表示する。
+        /// </summary>
+        public static void MaybeShowEnglishTranslationNotice()
+        {
+            if (IsJapanese) return;
+            if (UnityEditor.EditorPrefs.GetBool(EnglishNoticeKey, false)) return;
+            UnityEditor.EditorPrefs.SetBool(EnglishNoticeKey, true);
+            UnityEditor.EditorUtility.DisplayDialog(
+                "AI Translation Notice",
+                "The English text in this tool is machine-translated with AI assistance.\n"
+                + "It may contain unnatural or inaccurate wording. The Japanese text is authoritative.\n\n"
+                + "この英語表示は AI による機械翻訳です。",
+                "OK");
+        }
+
         public static bool IsJapanese
         {
             get
@@ -258,6 +277,9 @@ namespace VRCAvatarColorChanger
         public static string DeletePresetConfirm(string name) => IsJapanese
             ? $"プリセット「{name}」を削除しますか？"
             : $"Delete preset '{name}'?";
+        public static string PresetOverwriteConfirm(string name) => IsJapanese
+            ? $"プリセット「{name}」は既に存在します。上書きしますか？"
+            : $"Preset '{name}' already exists. Overwrite?";
 
         // ─── Preset Tips ───
         public static string PresetTips => IsJapanese

@@ -166,6 +166,12 @@ namespace VRCAvatarColorChanger
         {
             // Ctrl+Z / Ctrl+Y は Unity 標準 Undo に統合済みのため、独自処理は不要。
             ProcessPendingZoneChanges();
+
+            // 英語表示が初めて使われたときに AI 機械翻訳である旨を一度だけ告知する。
+            // Layout イベント時のみ実行し、描画途中のモーダル表示を避ける。
+            if (Event.current.type == EventType.Layout)
+                Localization.MaybeShowEnglishTranslationNotice();
+
             DrawHeader();
 
             bool sideBySide = position.width >= VACCConsts.Layout.SideBySideMinWidth;
