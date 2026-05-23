@@ -237,7 +237,15 @@ namespace VRCAvatarColorChanger
             // 「生成中…」インジケータは常に同じ高さの 1 行を確保する。
             // 出入りで後続の UI（ズーム表示・比較ボタン・プレビュー画像）が
             // 上下にジャンプするのを防ぐため、非生成時は空白を表示する。
-            EditorGUILayout.LabelField(_previewJob.IsRunning ? Localization.GeneratingPreview : " ");
+            // 詳細プレビュー生成も同じ枠外行に統一する（fix.md 項目3）。
+            string generatingLabel;
+            if (_previewJob.IsRunning)
+                generatingLabel = Localization.GeneratingPreview;
+            else if (_detailView.detailJob.IsRunning)
+                generatingLabel = Localization.GeneratingDetailPreview;
+            else
+                generatingLabel = " ";
+            EditorGUILayout.LabelField(generatingLabel);
 
             if (previewTexture == null)
             {
@@ -307,7 +315,9 @@ namespace VRCAvatarColorChanger
             if (_previewScrollPos != prevScroll)
             {
                 _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
-                _detailView.detailJob.Cancel();
+                // 古い詳細プレビューは新しいスクロール位置と整合しないため、
+                // 一旦表示を破棄して低解像度プレビューに統一する（fix.md 項目1）。
+                _detailView.InvalidateDisplay();
             }
 
             Rect activePreviewRect = default;
@@ -385,10 +395,8 @@ namespace VRCAvatarColorChanger
                     }
                 }
 
-                if (detailActive && _detailView.detailJob.IsRunning)
-                    EditorGUI.LabelField(
-                        new Rect(activePreviewRect.x + 4, activePreviewRect.y + 4, 300, 20),
-                        Localization.GeneratingDetailPreview);
+                // 詳細プレビュー生成中の表示は、枠内のラベルを廃止し
+                // 枠外の単一行に統合する（fix.md 項目3）。
             }
 
             // Flood Fill は実装継続中のため当面 UI から非表示。
@@ -443,7 +451,9 @@ namespace VRCAvatarColorChanger
 
                         previewZoom = newZoom;
                         _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
-                        _detailView.detailJob.Cancel();
+                        // ズーム比が変わるとピクセル/ソース比も変わるため、
+                        // 古い詳細プレビューは整合しなくなる。破棄して再生成を待つ。
+                        _detailView.InvalidateDisplay();
                         e.Use();
                         _host.RequestRepaint();
                     }
@@ -477,7 +487,8 @@ namespace VRCAvatarColorChanger
                         _previewScrollPos.x = Mathf.Max(0f, _previewScrollPos.x);
                         _previewScrollPos.y = Mathf.Max(0f, _previewScrollPos.y);
                         _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
-                        _detailView.detailJob.Cancel();
+                        // パンで詳細クロップ位置が変わるので古い詳細プレビューを破棄。
+                        _detailView.InvalidateDisplay();
                         e.Use();
                         _host.RequestRepaint();
                     }

@@ -188,7 +188,16 @@ namespace VRCAvatarColorChanger
                 float exportH = _exportView.GetSectionHeight();
                 float topOverheadH = EditorStyles.toolbar.fixedHeight
                     + 4f + (EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing) * 2 + 4f;
-                float horizH = Mathf.Max(100f, position.height - topOverheadH - exportH);
+                // ウィンドウが極端に低くてもエクスポートを完全に押し出さないよう、
+                // 横並び領域に最低高を確保する。残り高が足りない場合は外側 ScrollView で
+                // 縦スクロールしてエクスポートボタンへ到達できるようにする。
+                const float horizMinH = 240f;
+                float horizH = Mathf.Max(horizMinH, position.height - topOverheadH - exportH);
+                bool needOuterScroll = position.height - topOverheadH - exportH < horizMinH;
+
+                if (needOuterScroll)
+                    scrollPos = EditorGUILayout.BeginScrollView(scrollPos);
+
                 EditorGUILayout.BeginHorizontal(GUILayout.Height(horizH));
 
                 // 左カラム: ゾーン設定 + 処理設定 + マスク + プリセット
@@ -223,6 +232,9 @@ namespace VRCAvatarColorChanger
                 // 一括適用は実装継続中のため当面 UI から非表示。
                 // _exportView.DrawBatchSection();
                 _exportView.DrawExportSection();
+
+                if (needOuterScroll)
+                    EditorGUILayout.EndScrollView();
             }
             else
             {
