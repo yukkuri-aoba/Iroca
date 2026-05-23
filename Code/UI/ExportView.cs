@@ -47,19 +47,22 @@ namespace VRCAvatarColorChanger
                 GUI.enabled = false;
             }
 
+            // チェックボックス類を上にまとめる
             saveAsNewFile = EditorGUILayout.Toggle(
                 new GUIContent(Localization.SaveAsNewFile, Localization.SaveAsNewFileTooltip),
                 saveAsNewFile);
+
+            inheritImportSettings = EditorGUILayout.Toggle(
+                new GUIContent(Localization.InheritImportSettings, Localization.InheritImportSettingsTooltip),
+                inheritImportSettings);
+
+            // ファイル名はチェックボックスの下に置く
             if (saveAsNewFile)
             {
                 newFileName = EditorGUILayout.TextField(
                     new GUIContent(Localization.FileName, Localization.FileNameTooltip),
                     newFileName);
             }
-
-            inheritImportSettings = EditorGUILayout.Toggle(
-                new GUIContent(Localization.InheritImportSettings, Localization.InheritImportSettingsTooltip),
-                inheritImportSettings);
 
             if (GUILayout.Button(new GUIContent(Localization.ApplyAndSave, Localization.ApplyAndSaveTooltip), GUILayout.Height(32)))
             {

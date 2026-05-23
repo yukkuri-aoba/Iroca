@@ -334,5 +334,26 @@ namespace VRCAvatarColorChanger
             TextureSlot.Release(ref detailMaskOverlayTexture);
             TextureSlot.Release(ref detailDiffTexture);
         }
+
+        /// <summary>
+        /// スクロール/ズーム変更時に呼び、古い詳細プレビュー表示を破棄する。
+        /// 詳細クロップは「変更前のスクロール位置で生成」されているため、
+        /// 変更後に同じテクスチャを出すと隠していた低解像度プレビューと位置がずれ、
+        /// 結果的に低解像度プレビューが端から見えてしまう（fix.md 項目1）。
+        /// 次の詳細プレビューが完成するまで表示自体を消すことで一貫性を保つ。
+        /// lastDetailDirtyTime は呼び出し側が再設定するので維持する。
+        /// </summary>
+        public void InvalidateDisplay()
+        {
+            detailJob.Cancel();
+            _diffJob.Cancel();
+            _pendingDetailProcessed = null;
+            _pendingDetailRaw = null;
+            _pendingDetailDiffPixels = null;
+            TextureSlot.Release(ref detailPreviewTexture);
+            TextureSlot.Release(ref rawDetailPreviewTexture);
+            TextureSlot.Release(ref detailMaskOverlayTexture);
+            TextureSlot.Release(ref detailDiffTexture);
+        }
     }
 }
