@@ -1,0 +1,63 @@
+<!--
+  Unity を起動せずに Editor asmdef のコードを dotnet で型チェック・ビルドするための
+  最小プロジェクト。CI からも `dotnet build scripts/build-check/VACCEditor.csproj`
+  だけで構文・型エラーを検出できる。
+
+  Unity DLL のパスはデフォルトで VRChat 標準の 2022.3.22f1 を見にいく。
+  別バージョンを使う場合は MSBuild プロパティか環境変数で上書きする:
+
+    dotnet build scripts/build-check/VACCEditor.csproj -p:UnityVersion=2022.3.22f1
+    dotnet build scripts/build-check/VACCEditor.csproj -p:UnityEditorPath="C:\Program Files\Unity\Hub\Editor\2022.3.22f1\Editor\Data\Managed"
+    # または
+    $env:UNITY_EDITOR_PATH = "C:\Program Files\Unity\Hub\Editor\2022.3.22f1\Editor\Data\Managed"
+    dotnet build scripts/build-check/VACCEditor.csproj
+
+  出力 DLL は scripts/build-check/bin/ に置かれる（gitignore 済）。
+  Unity のアセンブリ生成とは別物なので、これをパッケージに含めないこと。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>com.yukkuri-aoba.vrc-avatar-color-changer.Editor</AssemblyName>
+    <RootNamespace>VRCAvatarColorChanger</RootNamespace>
+    <OutputType>Library</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- Unity が再生成する .csproj には警告抑止が入るので、CI ノイズを揃える -->
+    <NoWarn>0414;0649;CS0219;CS8632;CS0169</NoWarn>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <!-- Unity Editor のインストールパス解決 -->
+  <PropertyGroup>
+    <UnityVersion Condition="'$(UnityVersion)' == ''">2022.3.22f1</UnityVersion>
+    <UnityEditorPath Condition="'$(UnityEditorPath)' == '' and '$(UNITY_EDITOR_PATH)' != ''">$(UNITY_EDITOR_PATH)</UnityEditorPath>
+    <UnityEditorPath Condition="'$(UnityEditorPath)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityEditorPath>
+  </PropertyGroup>
+
+  <!-- ソースコード: Code/ 以下のみ。Code_Archive/ は除外 -->
+  <ItemGroup>
+    <Compile Include="..\..\Code\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="UnityEngine">
+      <HintPath>$(UnityEditorPath)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEditor">
+      <HintPath>$(UnityEditorPath)\UnityEditor.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- UnityEngine.dll が見つからないときの早期エラー -->
+  <Target Name="CheckUnityPath" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(UnityEditorPath)\UnityEngine.dll')"
+           Text="UnityEngine.dll が見つかりません: $(UnityEditorPath)\UnityEngine.dll&#xA;`-p:UnityVersion=` か `-p:UnityEditorPath=` で正しいパスを指定してください。" />
+  </Target>
+
+</Project>
