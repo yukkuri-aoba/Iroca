@@ -962,15 +962,6 @@ namespace VRCAvatarColorChanger
             float baseV = Mathf.Lerp(tV, sV, valueBlend);
             float newV = Mathf.Clamp01(baseV + shadingOffset);
 
-            // ハイライト合成ロジック: 元のピクセルが白に近く飛んでいるほど、
-            // ターゲットカラーの彩度を急激に落とし、明度を引き上げて「オーバーレイ/スクリーン」的な光沢感を維持する。
-            if (oV > 0.85f && oS < 0.15f)
-            {
-                // どれくらい「白飛び」の特性に近いか (0.0 ～ 1.0)
-                float hlIntensity = Mathf.Clamp01((oV - 0.85f) / 0.15f) * Mathf.Clamp01(1f - oS / 0.15f);
-                newS = Mathf.Lerp(newS, oS, hlIntensity); // 彩度は元の白っぽい状態に逃がす
-                newV = Mathf.Lerp(newV, oV, hlIntensity); // 明度はターゲット色等より優先して元の輝度を残す
-            }
             // シャドウ（暗い部分）の彩度の保護ロジック:
             // 黒や極端に暗いピクセルはHSV変換でおかしな色になりやすいため、暗さに応じて彩度を0に近づける
             if (shadowDesaturation > 0f && oV < shadowDesaturation)
@@ -980,6 +971,25 @@ namespace VRCAvatarColorChanger
                 newS = Mathf.Lerp(newS, Mathf.Min(oS, newS * 0.5f), shadowIntensity); // 暗い部分の彩度をさらに抑える
             }
             Color result = Color.HSVToRGB(tH, newS, newV);
+
+            // ハイライト合成（RGB 灰色寄せ・出口処理）: サンプル色と比較して
+            //   ・彩度がより落ちている (oS < sS) ほど "白っぽいハイライト"
+            //   ・明度がより上がっている (oV > sV) ほど "光が当たった部分"
+            // と見なし、両者の積で連続的にハイライト強度を算出。
+            // 元画素の明度 oV を「無彩色 (oV, oV, oV)」として RGB レベルで Lerp する。
+            // HSV の S を弄る方法は L953 の彩度比保持と相殺/逆効果になるため不採用。
+            // RGB 灰色寄せは色相非依存に対称な「白っぽさ継承」を実現でき、
+            // 青の S=0.3 と赤の S=0.3 の知覚的非対称性 (青は白く、赤は赤く見える) を回避する。
+            if (sS > 0.01f && oV > sV)
+            {
+                float satFalloff = Mathf.Clamp01(1f - oS / Mathf.Max(sS, 0.01f));
+                float valRise   = Mathf.Clamp01((oV - sV) / Mathf.Max(0.05f, 1f - sV));
+                float hlIntensity = satFalloff * valRise;
+                result.r = Mathf.Lerp(result.r, oV, hlIntensity);
+                result.g = Mathf.Lerp(result.g, oV, hlIntensity);
+                result.b = Mathf.Lerp(result.b, oV, hlIntensity);
+            }
+
             result.a = alpha;
             return result;
         }
