@@ -1,75 +1,85 @@
 # VRC AvatarColorChanger (VACC) Ver 0.2.0 (Beta)
 
-VRC AvatarColorChanger (VACC) は、Unity Editor 上でテクスチャの色を直感的に変更できるエディタ拡張ツールです。
-主に VRChat アバターのテクスチャ編集を想定していますが、一般的な Unity プロジェクトでも使用できます。
+VRC AvatarColorChanger (VACC) は、Unity Editor 上でテクスチャの色を直感的に変更できる拡張ツールです。VRChat アバターのテクスチャ編集を主な対象としていますが、一般的な Unity プロジェクトでも使用できます。
 
 [日本語](#日本語) | [English](#english)
 
 > **注：** 日本語版が公式版です。英語版は参考情報としてご利用ください。
+
+---
 
 ## 日本語
 
 ### 主な特徴
 
 - **無料** — 基本的に無料で利用できます（投げ銭は歓迎しますが、任意です）
-- **PSDがないテクスチャ向け** — 1枚のPNGテクスチャを色改変したい場合に便利
-- **結合されたテクスチャもOK** — ブラシで除外マスクを簡単に描けるため、複数パーツが1枚にまとまっていても利用可能
-- **高精度なアルゴリズム** — 色改変の精度が高く、細かい部分も正確に変更可能
+- **PSD がないテクスチャ向け** — 1 枚の PNG テクスチャを色改変したい場合に便利です
+- **結合されたテクスチャも対応** — ブラシで保護エリアを描けるため、複数パーツが 1 枚にまとまっていても使用できます
+- **高精度な処理** — 陰影や細部も正確に変更できます
 
-### 動作環境(検証済み)
+### 動作環境（検証済み）
 
 - **Unity 2022.3.22f1**
-- VCCなどとの依存関係はありません（Unity Editor 単体で動作）
+- VCC などとの依存関係はありません（Unity Editor 単体で動作します）
 
 ### クイックスタート
 
-1. Unity Editor に `.unitypackage` をインポート
-2. `Tools > VRC AvatarColorChanger` からウィンドウを開く
-3. テクスチャを選択して色改変
+1. [Releases](https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/releases) から最新の `.unitypackage` をダウンロードします
+2. Unity Editor で `Assets > Import Package > Custom Package...` を選び、ファイルを読み込みます
+3. `Tools > VRC AvatarColorChanger` からウィンドウを開きます
+4. テクスチャを選択し、カラーゾーンを追加して色を設定します
+5. `Apply & Save` ボタンで保存します
 
 詳しい使い方は [MANUAL.md](MANUAL.md) をご覧ください。
 
 ### 主な機能
 
-- **カラーゾーン** — 複数ゾーンを定義してテクスチャの特定部分を一括色改変
-  - カラーピック / UV矩形 モード切り替え
-  - 連続領域モード（Flood Fill） — 実装継続中のため現在の UI では非表示
-  - 模様保持スライダー
-  - エッジ柔らかさ調整
-  - 彩度制限
-  - シャドウ・ハイライト詳細設定（暗部の巻き込み制御・無彩色自動判定）
-  - ハイライト補助（鏡面反射・光沢部分の変換漏れ防止）
-  - レイヤーインデックスによる優先度制御
-- **エッジと境界の処理** — エッジぼかし (Edge Feather) / AA境界クリーンアップ / 境界クリーンアップ（α分解）で滑らかな遷移を実現
-- **除外マスク** — プレビュー上でブラシを使って保護エリアを描画（共通マスク / ゾーン別マスク対応・Unity 標準 Undo 対応）
-- **プレビュー** — ズーム対応、前後比較、差分表示、高ズーム時の詳細プレビュー
-- **プリセット** — ゾーン設定・マスクの保存・読み込み（プロジェクト内 / ユーザー共通の 2 つの保存先、JSON インポート/エクスポート対応）
-- **バッチ適用** — 実装継続中のため現在の UI では非表示
-- **アドバンスモード** — 距離計算の重みや穴埋めパス数など内部パラメータを微調整可能
-- **マルチスレッド処理** — 色処理・マスク生成の並列化による高速プレビュー
-- **日本語・英語対応** — 自動検知
+**色改変**
+- テクスチャの特定部分を指定して色を変更します（カラーゾーン）
+- 色の選択方法は「カラーピック」と「UV 矩形」の 2 種類です
+- 複数ゾーンの重なりはレイヤー番号で優先度を制御します
+
+**境界処理**
+- エッジぼかし / AA 境界クリーンアップ / 境界色汚染除去（α 分解）で滑らかな境界を実現します
+
+**保護マスク**
+- プレビュー上でブラシを使って色改変しない領域を指定します
+- 全ゾーン共通と各ゾーン専用の 2 種類を使い分けられます
+- Unity 標準の Undo（Ctrl+Z）に対応しています
+
+**その他**
+- プレビュー：ズーム・前後比較・差分表示
+- プリセット：設定とマスクの保存・読み込み、JSON での書き出し・読み込み対応
+- 日本語・英語の自動切り替え
 
 ### 向いているケース
 
 - 陰影がはっきりしたテクスチャ
-- 単純な色のベタ塗りのテクスチャ
+- 単純なベタ塗りのテクスチャ
 
 ### あまり向かないケース
 
 - 色の似た部分が多いテクスチャ
 - 色のグラデーションが複雑なテクスチャ
-- 反射や光沢のあるテクスチャ
+- 反射や光沢の強いテクスチャ
 
-これらのケースでも、[MANUAL.md](MANUAL.md) の「トラブルシューティング」セクションで対策を紹介しています。
+これらのケースでも、[MANUAL.md](MANUAL.md) の「トラブルシューティング」で対策を紹介しています。
+
+### インストール手順
+
+1. [Releases](https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/releases) から最新の `.unitypackage` をダウンロードします
+2. Unity Editor で `Assets > Import Package > Custom Package...` を選択します
+3. ダウンロードしたファイルを選択し、ダイアログで「Import」をクリックします
+4. `Tools > VRC AvatarColorChanger` からウィンドウを開きます
 
 ### ライセンス
 
 [PolyForm Shield License 1.0.0](LICENSE)
 
-- 個人・商用を問わず自由に使用できます。
-- ただし、本ツールと競合する製品・サービスの開発・提供に使用することは禁止されています。
-- 改変・再配布は自由に許可されます（競合製品への使用以外）。
-- 各利用規約・ガイドラインに従った使用は利用者の責任です。
+- 個人・商用を問わず自由に使用できます
+- 本ツールと競合する製品・サービスの開発・提供に使用することは禁止されています
+- 改変および再配布は自由に許可されています（競合製品への使用を除く）
+- 各規約・ガイドラインに従った使用は利用者の責任です
 
 ---
 
@@ -91,29 +101,30 @@ VRC AvatarColorChanger (VACC) は、Unity Editor 上でテクスチャの色を�
 
 1. Import `.unitypackage` into Unity Editor
 2. Open the window: `Tools > VRC AvatarColorChanger`
-3. Select a texture and recolor
+3. Select a texture, add a color zone, and set the target color
+4. Click `Apply & Save`
 
 See [MANUAL.md](MANUAL.md) for detailed instructions.
 
 ### Main Features
 
-- **Color Zones** — Define zones to recolor specific texture areas
-  - Color Pick / UV Rect modes
-  - Connected Region (Flood Fill) — hidden from the current UI while implementation continues
-  - Pattern Preserve slider
-  - Edge Softness controls
-  - Saturation filtering
-  - Shadow/Highlight Detail settings (dark-area bleed control, auto grayscale detection)
-  - Highlight Recovery (prevents missed recoloring on reflective/glossy areas)
-  - Priority control via Layer Index
-- **Edge & boundary processing** — Edge Feather / AA Edge Cleanup / Edge Decontamination (alpha decomposition) for smooth color transitions
-- **Exclusion Mask** — Paint areas to protect from recoloring (per-zone or common mask, Unity Undo support)
-- **Preview** — Zoom-capable, before/after comparison, diff view, detail preview at high zoom
-- **Presets** — Save and load configurations including masks (in-project or shared user storage, JSON import/export)
-- **Batch Apply** — hidden from the current UI while implementation continues
-- **Advanced Mode** — Fine-tune internal parameters such as distance weights and hole-fill passes
-- **Multithreaded Processing** — Parallelized color processing and mask generation for fast previews
-- **Multilingual UI** — Auto-detects language (Japanese / English)
+**Recoloring**
+- Target specific texture areas and change their color (Color Zones)
+- Two selection methods: Color Pick and UV Rect
+- Control priority across overlapping zones with the Layer Index
+
+**Boundary Processing**
+- Edge Feather / AA Edge Cleanup / Edge Decontamination for smooth color transitions
+
+**Exclusion Mask**
+- Paint protected areas directly on the preview
+- Supports both a common mask and per-zone masks
+- Integrated with Unity's standard Undo (Ctrl+Z)
+
+**Other**
+- Preview: zoom, before/after comparison, diff view
+- Presets: save and load settings with masks, JSON export/import
+- Auto language detection (Japanese / English)
 
 ### Best Use Cases
 
@@ -128,12 +139,19 @@ See [MANUAL.md](MANUAL.md) for detailed instructions.
 
 See [MANUAL.md](MANUAL.md) for workarounds and tips.
 
+### Installation
+
+1. Download the latest `.unitypackage` from [Releases](https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/releases)
+2. In Unity Editor, select `Assets > Import Package > Custom Package...`
+3. Choose the downloaded file, then click "Import" in the dialog
+4. Open the window via `Tools > VRC AvatarColorChanger`
+
 ### License
 
 [PolyForm Shield License 1.0.0](LICENSE)
 
 - Free to use for personal and commercial purposes.
-- Except: Cannot be used to provide a product that competes with this software or with any product the licensor provides using this software.
+- Cannot be used to provide a product that competes with this software.
 - Modification and redistribution are freely permitted (except for competing products).
 - Use in accordance with each license and guideline is the responsibility of the user.
 
@@ -141,25 +159,23 @@ See [MANUAL.md](MANUAL.md) for workarounds and tips.
 
 ## クレジット / Credits
 
-| Role | Name |
-|------|------|
-| Developer / 開発 | **yukkuri__aoba** |
-| AI Assistance / AI補助 | **Claude** ・ **Gemini** |
+| 役割 / Role | 名前 / Name |
+|---|---|
+| 開発 / Developer | **yukkuri__aoba** |
+| AI 補助 / AI Assistance | **Claude** · **Gemini** |
 
 Copyright (c) 2026 yukkuri__aoba  
 Licensed under [PolyForm Shield License 1.0.0](LICENSE)
 
-### アルゴリズムの開発に使用したデータ / Data Used for Development
-かなﾘぁさんち
+### アルゴリズムの開発に使用したデータ / Data Used for Algorithm Development
+
+かなﾘぁさんち  
 [ハオラン-HAOLAN【オリジナル3Dモデル】](https://booth.pm/ja/items/3818504)
 
-Senna Studio
+Senna Studio  
 [オリジナル3Dモデル - フェイナ #Feina3D](https://booth.pm/ja/items/7428637)
 
-アルゴリズムの開発にはこれらのモデルのテクスチャを使用しましたが、
-モデルやテクスチャのデータは含まれていません。
-> フェイナちゃんは開発者のお気に入りらしいです
-
+アルゴリズムの開発にはこれらのモデルのテクスチャを使用しました。モデルやテクスチャのデータ自体は含まれていません。
 
 ### 連絡先 / Contact
 
