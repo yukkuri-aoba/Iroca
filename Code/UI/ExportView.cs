@@ -82,6 +82,30 @@ namespace VRCAvatarColorChanger
             newFileName = baseNameWithoutExtension + "_recolored";
         }
 
+        /// <summary>
+        /// エクスポートセクションの描画想定高さを返す。
+        /// VACCWindow の横並びレイアウトで「上部 + プレビュー領域」の高さ計算に使う。
+        /// 折りたたみ時はヘッダー1行分のみ、展開時は内部コントロールの合計を返す。
+        /// </summary>
+        public float GetSectionHeight()
+        {
+            float lineH = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
+            if (!exportFoldout)
+                return lineH;
+
+            // 展開時の内訳: 折りたたみヘッダ + 新規保存トグル + (新規時のみ)ファイル名 +
+            //               インポート設定継承トグル + 適用ボタン(高さ32) + フォルダを開くボタン + 余白
+            float h = lineH;          // foldout header
+            h += lineH;               // saveAsNewFile トグル
+            if (saveAsNewFile)
+                h += lineH;           // ファイル名フィールド
+            h += lineH;               // inheritImportSettings トグル
+            h += 32f + EditorGUIUtility.standardVerticalSpacing; // ApplyAndSave ボタン
+            h += lineH;               // OpenFolder ボタン
+            h += 4f;                  // 末尾余白
+            return h;
+        }
+
         private void ApplyRecolor()
         {
             var sourceTexture = _host.SourceTexture;
