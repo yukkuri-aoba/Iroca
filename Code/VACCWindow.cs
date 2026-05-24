@@ -176,6 +176,11 @@ namespace VRCAvatarColorChanger
 
             bool sideBySide = position.width >= VACCConsts.Layout.SideBySideMinWidth;
 
+            // position.height はウィンドウ枠（タイトル/タブバー）を含むため、
+            // 実描画領域はそれより低い。エクスポートが画面外に押し出されないよう安全マージンを引く。
+            float availableContentH = position.height - VACCConsts.Layout.WindowChromeMargin;
+            float exportH = _exportView.GetSectionHeight();
+
             if (sideBySide)
             {
                 // ── 上部: テクスチャフィールド（フル幅） ──
@@ -184,19 +189,12 @@ namespace VRCAvatarColorChanger
 
                 // ── 横並び: 左（設定）＋ 右（プレビュー） ──
                 // エクスポートセクションを常にウィンドウ下部に表示するため、
-                // 横並び領域の高さを「ウィンドウ高 - ヘッダー/テクスチャフィールド - エクスポート高」に制限する。
-                float exportH = _exportView.GetSectionHeight();
+                // 横並び領域の高さを「描画領域高 - ヘッダー/テクスチャフィールド - エクスポート高」に制限する。
                 float topOverheadH = EditorStyles.toolbar.fixedHeight
                     + 4f + (EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing) * 2 + 4f;
-                // ウィンドウが極端に低くてもエクスポートを完全に押し出さないよう、
-                // 横並び領域に最低高を確保する。残り高が足りない場合は外側 ScrollView で
-                // 縦スクロールしてエクスポートボタンへ到達できるようにする。
-                const float horizMinH = 240f;
-                float horizH = Mathf.Max(horizMinH, position.height - topOverheadH - exportH);
-                bool needOuterScroll = position.height - topOverheadH - exportH < horizMinH;
-
-                if (needOuterScroll)
-                    scrollPos = EditorGUILayout.BeginScrollView(scrollPos);
+                float horizH = Mathf.Max(
+                    VACCConsts.Layout.MiddleAreaMinHeight,
+                    availableContentH - topOverheadH - exportH);
 
                 EditorGUILayout.BeginHorizontal(GUILayout.Height(horizH));
 
@@ -232,14 +230,17 @@ namespace VRCAvatarColorChanger
                 // 一括適用は実装継続中のため当面 UI から非表示。
                 // _exportView.DrawBatchSection();
                 _exportView.DrawExportSection();
-
-                if (needOuterScroll)
-                    EditorGUILayout.EndScrollView();
             }
             else
             {
-                // ── 従来の縦並びレイアウト（ウィンドウ幅が狭い場合） ──
-                scrollPos = EditorGUILayout.BeginScrollView(scrollPos);
+                // ── 縦並びレイアウト（ウィンドウ幅が狭い場合） ──
+                // エクスポートを常にウィンドウ下部に表示するため、上部だけをスクロール領域にする。
+                float toolbarH = EditorStyles.toolbar.fixedHeight + 4f;
+                float topScrollH = Mathf.Max(
+                    VACCConsts.Layout.MiddleAreaMinHeight,
+                    availableContentH - toolbarH - exportH);
+
+                scrollPos = EditorGUILayout.BeginScrollView(scrollPos, GUILayout.Height(topScrollH));
 
                 EditorGUI.BeginChangeCheck();
 
@@ -255,11 +256,13 @@ namespace VRCAvatarColorChanger
 
                 _presetsView.Draw();
                 _previewView.Draw();
+
+                EditorGUILayout.EndScrollView();
+
+                // ── 下部: エクスポート（フル幅・常に表示） ──
                 // 一括適用は実装継続中のため当面 UI から非表示。
                 // _exportView.DrawBatchSection();
                 _exportView.DrawExportSection();
-
-                EditorGUILayout.EndScrollView();
             }
         }
 

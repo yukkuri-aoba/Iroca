@@ -14,6 +14,12 @@ namespace VRCAvatarColorChanger
             public const float LeftColumnMax      = 450f;
             public const float RemoveButtonWidth  = 22f;
             public const float SmallButtonWidth   = 48f;
+            // EditorWindow.position はタイトルバー/タブバー（ウィンドウクローム）の高さを含むが、
+            // GUI 描画領域はそれより小さい。エクスポートを常にウィンドウ内に収めるための安全マージン。
+            public const float WindowChromeMargin = 24f;
+            // スクロール対象の中央領域に確保する最低高さ。
+            // ウィンドウが極端に低い時もこの高さは確保され、内部スクロールで残りを閲覧する。
+            public const float MiddleAreaMinHeight = 120f;
         }
 
         public static class Preview
