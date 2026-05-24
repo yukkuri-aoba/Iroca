@@ -616,6 +616,24 @@ namespace VRCAvatarColorChanger
             if (_autoTuneJob.IsRunning) return;
             if (zone == null) return;
 
+            // ─── 上書き確認はジョブ開始“前”に行う ───
+            // 完了後にモーダルを出すと Editor がブロックされ、ユーザーの
+            // 「他の作業がしたい」要望が満たされない。ラベルは pixels 解析に
+            // 依存しない per-zone 判定なのでメインスレッドで先に確定できる。
+            var previewLabels = ZoneAutoTuner.PreviewOverwrittenLabels(zone);
+            if (previewLabels.Count > 0)
+            {
+                // applyGlobals は事後判定だが、true になる条件下では globals は既に default
+                // のため AutoTuneOverwriteBody の includesGlobals=true の差分は表示しない。
+                string body = Localization.AutoTuneOverwriteBody(previewLabels, includesGlobals: false);
+                if (!EditorUtility.DisplayDialog(
+                        Localization.AutoTuneConfirmTitle, body,
+                        Localization.OK, Localization.Cancel))
+                {
+                    return;
+                }
+            }
+
             zone.EnsureId();
             string targetId = zone.id;
 
@@ -656,17 +674,7 @@ namespace VRCAvatarColorChanger
                     var targetZone = FindZoneById(_autoTuneTargetZoneId);
                     if (targetZone == null) return;
 
-                    if (result.overwrittenLabels != null && result.overwrittenLabels.Count > 0)
-                    {
-                        string body = Localization.AutoTuneOverwriteBody(result.overwrittenLabels, result.applyGlobals);
-                        if (!EditorUtility.DisplayDialog(
-                                Localization.AutoTuneConfirmTitle, body,
-                                Localization.OK, Localization.Cancel))
-                        {
-                            return;
-                        }
-                    }
-
+                    // 事前確認済みなのでここではダイアログを出さず、結果を即適用する。
                     Undo.RegisterCompleteObjectUndo(this, "Auto-tune Zone");
                     targetZone.tolerance               = result.tolerance;
                     targetZone.saturationStrictness    = result.saturationStrictness;
@@ -683,11 +691,13 @@ namespace VRCAvatarColorChanger
                         useDecontamination = result.useDecontamination;
                     }
                     MarkPreviewDirty();
+                    ShowNotification(new GUIContent(Localization.AutoTune));
                     Repaint();
                 },
                 onError: ex =>
                 {
                     Debug.LogError($"[VACC] Auto-tune failed: {ex.Message}\n{ex.StackTrace}");
+                    ShowNotification(new GUIContent($"{Localization.Error}: {ex.Message}"));
                 });
         }
 
