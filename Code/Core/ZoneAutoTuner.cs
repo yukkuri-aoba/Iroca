@@ -473,6 +473,40 @@ namespace VRCAvatarColorChanger
 
         // ─────────────────── 上書き対象ラベル収集 ───────────────────
 
+        /// <summary>
+        /// Analyze を呼ぶ前に、現在の zone 値が default と異なるか（＝自動調整で上書きされ
+        /// うるか）を判定して labels を返す。globals 関連ラベルは applyGlobals=true 時のみ
+        /// 追加されるが、その条件下では globals は default 値であるため実質追加されない
+        /// （CollectOverwrittenLabels と整合）。
+        ///
+        /// 非同期化のために事前確認をジョブ開始前へ移動する用途で使う。
+        /// </summary>
+        public static List<string> PreviewOverwrittenLabels(ColorZone zone)
+        {
+            var labels = new List<string>();
+            if (zone == null) return labels;
+
+            if (!Mathf.Approximately(zone.tolerance, DefaultTolerance))
+                labels.Add(Localization.Tolerance);
+            if (!Mathf.Approximately(zone.saturationStrictness, DefaultSaturationStrictness))
+                labels.Add(Localization.SaturationStrictness);
+            if (!Mathf.Approximately(zone.saturationGuard, DefaultSaturationGuard))
+                labels.Add(Localization.SaturationGuard);
+            if (!Mathf.Approximately(zone.chromaThreshold, DefaultChromaThreshold))
+                labels.Add(Localization.IsJapanese ? "自動しきい値(無彩色判定)" : "Auto Grayscale Threshold");
+            if (zone.highlightRecovery != DefaultHighlightRecovery)
+                labels.Add(Localization.HighlightRecovery);
+            if (!Mathf.Approximately(zone.valueBlend, DefaultValueBlend))
+                labels.Add(Localization.PatternPreserve);
+            if (!Mathf.Approximately(zone.edgeSoftness, DefaultEdgeSoftness))
+                labels.Add(Localization.EdgeSoftness);
+            if (!Mathf.Approximately(zone.shadowDesaturation, DefaultShadowDesaturation))
+                labels.Add(Localization.ShadowDesaturation);
+            if (!Mathf.Approximately(zone.shadowForgivenessSatMin, DefaultShadowForgivenessSatMin))
+                labels.Add(Localization.ShadowForgivenessSatMin);
+            return labels;
+        }
+
         private static void CollectOverwrittenLabels(ColorZone zone, VACCSessionState session, ref TuneResult result)
         {
             var labels = result.overwrittenLabels;

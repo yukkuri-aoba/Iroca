@@ -139,14 +139,14 @@ namespace VRCAvatarColorChanger
             var sourceTexture = _host.SourceTexture;
             if (sourceTexture == null || !VACCWindow.IsReadable(sourceTexture))
             {
-                EditorUtility.DisplayDialog(Localization.Error, Localization.TextureReadError, Localization.OK);
+                NotifyError(Localization.TextureReadError);
                 return;
             }
 
             string srcPath = AssetDatabase.GetAssetPath(sourceTexture);
             if (string.IsNullOrEmpty(srcPath))
             {
-                EditorUtility.DisplayDialog(Localization.Error, Localization.PathNotFound, Localization.OK);
+                NotifyError(Localization.PathNotFound);
                 return;
             }
 
@@ -196,7 +196,7 @@ namespace VRCAvatarColorChanger
                 loadTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
                 if (!loadTex.LoadImage(srcBytes))
                 {
-                    EditorUtility.DisplayDialog(Localization.Error, Localization.TextureLoadError, Localization.OK);
+                    NotifyError(Localization.TextureLoadError);
                     return;
                 }
                 pixels = loadTex.GetPixels32();
@@ -274,7 +274,8 @@ namespace VRCAvatarColorChanger
 
                         _exportProgress.Report(1.0f);
                         Debug.Log($"[VACC] Saved: {payload.outputPath}");
-                        EditorUtility.DisplayDialog(Localization.Complete, Localization.Saved(payload.outputPath), Localization.OK);
+                        // 非モーダル通知: ファイル名のみウィンドウ右下に短時間表示。詳細パスは Debug.Log。
+                        _host?.ShowNotification(new GUIContent($"{Localization.Complete}: {Path.GetFileName(payload.outputPath)}"));
                     }
                     finally
                     {
@@ -284,8 +285,18 @@ namespace VRCAvatarColorChanger
                 onError: ex =>
                 {
                     Debug.LogError($"[VACC] Export failed: {ex.Message}\n{ex.StackTrace}");
-                    EditorUtility.DisplayDialog(Localization.Error, ex.Message, Localization.OK);
+                    NotifyError(ex.Message);
                 });
+        }
+
+        /// <summary>
+        /// エラーを Console に出しつつ VACC ウィンドウ内に非モーダル通知を表示する。
+        /// EditorUtility.DisplayDialog は Editor 全体をブロックするため避ける。
+        /// </summary>
+        private void NotifyError(string message)
+        {
+            Debug.LogError($"[VACC] {message}");
+            _host?.ShowNotification(new GUIContent($"{Localization.Error}: {message}"));
         }
 
         /// <summary>
