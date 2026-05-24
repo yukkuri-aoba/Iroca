@@ -26,9 +26,32 @@ namespace VRCAvatarColorChanger
         [System.NonSerialized] private Vector2 _batchScrollPos;
         [System.NonSerialized] private VACCWindow _host;
 
+        // ─── 非同期エクスポート ───
+        // メインスレッドで pixels を取得し、PixelProcessor 計算を Task.Run で実行する。
+        // 完了後、メインスレッドで Texture2D 復元 → PNG エンコード → ファイル書き込み。
+        [System.NonSerialized] private readonly PreviewJob<ExportPayload> _exportJob = new PreviewJob<ExportPayload>();
+        [System.NonSerialized] private readonly PreviewJobProgress _exportProgress = new PreviewJobProgress();
+
+        private struct ExportPayload
+        {
+            public Color32[] pixels;
+            public int width, height;
+            public string outputPath;
+            public string srcPath;
+            public bool inheritImportSettings;
+        }
+
+        /// <summary>エクスポート処理中。true の間はウィンドウ全体を Disabled に。</summary>
+        public bool IsExporting => _exportJob.IsRunning;
+
         public void Initialize(VACCWindow host)
         {
             _host = host;
+        }
+
+        public void Dispose()
+        {
+            _exportJob.Dispose();
         }
 
         // ─────────────────────── エクスポート ─────────────────────────
@@ -42,10 +65,9 @@ namespace VRCAvatarColorChanger
                 return;
             }
 
-            if (_host.SourceTexture == null)
-            {
-                GUI.enabled = false;
-            }
+            // 外側の DisabledScope（VACCWindow.OnGUI で囲まれる）を壊さないよう、
+            // GUI.enabled の直接代入ではなく BeginDisabledGroup を使う。
+            EditorGUI.BeginDisabledGroup(_host.SourceTexture == null);
 
             // チェックボックス類を上にまとめる
             saveAsNewFile = EditorGUILayout.Toggle(
@@ -76,7 +98,7 @@ namespace VRCAvatarColorChanger
                     EditorUtility.RevealInFinder(path);
             }
 
-            GUI.enabled = true;
+            EditorGUI.EndDisabledGroup();
             EditorGUILayout.EndFoldoutHeaderGroup();
         }
 
@@ -111,6 +133,9 @@ namespace VRCAvatarColorChanger
 
         private void ApplyRecolor()
         {
+            // 既に実行中なら無視（DisabledScope で防がれているはずだが念のため）
+            if (_exportJob.IsRunning) return;
+
             var sourceTexture = _host.SourceTexture;
             if (sourceTexture == null || !VACCWindow.IsReadable(sourceTexture))
             {
@@ -160,62 +185,129 @@ namespace VRCAvatarColorChanger
                 }
             }
 
-            // ─── 実処理 ───
-            // ディスク上のファイルから元のフル解像度で直接読み込む、
-            // Unity の TextureImporter maxTextureSize / 圧縮設定をバイパス。
-            Texture2D fullTex = null;
-            byte[] pngData = null;
+            // ─── メインスレッド前処理: PNG 読み込み → GetPixels32 → マスクスナップショット ───
+            // Texture2D API はメインスレッド必須なのでここで全て済ませ、計算本体だけ Task.Run へ渡す。
+            Texture2D loadTex = null;
+            Color32[] pixels;
+            int texW, texH;
             try
             {
-                EditorUtility.DisplayProgressBar(Localization.ApplyAndSave, Localization.Processing, 0.1f);
-
                 byte[] srcBytes = File.ReadAllBytes(srcPath);
-                fullTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                if (!fullTex.LoadImage(srcBytes))
+                loadTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (!loadTex.LoadImage(srcBytes))
                 {
                     EditorUtility.DisplayDialog(Localization.Error, Localization.TextureLoadError, Localization.OK);
                     return;
                 }
-
-                Color32[] pixels = fullTex.GetPixels32();
-                int texW = fullTex.width, texH = fullTex.height;
-                var session = _host.Session;
-                var sorted = session.zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
-
-                EditorUtility.DisplayProgressBar(Localization.ApplyAndSave, Localization.Processing, 0.3f);
-                if (sorted.Count > 0)
-                {
-                    var maskSnap = _host.BuildMaskSnapshot();
-                    PixelProcessor.ProcessPixelsArray(pixels, texW, texH,
-                        maskSnap, sorted, session.edgeFeather, session.antiAliasCleanup,
-                        session.holeFillPasses, session.holeFillMinNeighbors, session.relaxedSatMin, session.relaxedSatRamp,
-                        useDecontamination: session.useDecontamination,
-                        decontaminationRadius: session.decontaminationRadius);
-                }
-
-                EditorUtility.DisplayProgressBar(Localization.ApplyAndSave, Localization.Export, 0.7f);
-                fullTex.SetPixels32(pixels);
-                fullTex.Apply();
-                pngData = fullTex.EncodeToPNG();
+                pixels = loadTex.GetPixels32();
+                texW = loadTex.width;
+                texH = loadTex.height;
             }
             finally
             {
-                if (fullTex != null) Object.DestroyImmediate(fullTex);
-                EditorUtility.ClearProgressBar();
+                if (loadTex != null) Object.DestroyImmediate(loadTex);
             }
 
-            if (pngData == null) return;
+            var session = _host.Session;
+            var sorted = session.zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
+            var maskSnap = (sorted.Count > 0) ? _host.BuildMaskSnapshot() : null;
 
-            File.WriteAllBytes(outputPath, pngData);
-            string relativePath = VACCWindow.ToAssetsRelative(outputPath);
-            if (relativePath != null)
-                AssetDatabase.ImportAsset(relativePath);
+            // 計算に必要な値を全てローカル変数に退避（Task.Run の中から session を直接触らない）
+            float edgeFeather = session.edgeFeather;
+            int antiAliasCleanup = session.antiAliasCleanup;
+            int holeFillPasses = session.holeFillPasses;
+            int holeFillMinNeighbors = session.holeFillMinNeighbors;
+            float relaxedSatMin = session.relaxedSatMin;
+            float relaxedSatRamp = session.relaxedSatRamp;
+            bool useDecontamination = session.useDecontamination;
+            int decontaminationRadius = session.decontaminationRadius;
+            bool inheritFlag = inheritImportSettings;
 
-            if (inheritImportSettings)
-                CopyImportSettings(srcPath, outputPath);
+            _exportProgress.Reset();
+            _exportProgress.Report(0.05f);
 
-            Debug.Log($"[VACC] Saved: {outputPath}");
-            EditorUtility.DisplayDialog(Localization.Complete, Localization.Saved(outputPath), Localization.OK);
+            _exportJob.Schedule(
+                work: ct =>
+                {
+                    _exportProgress.Report(0.10f);
+                    if (sorted.Count > 0)
+                    {
+                        // CancellationToken 対応オーバーロード: 内部で ThrowIfCancellationRequested を呼ぶ
+                        PixelProcessor.ProcessPixelsArray(pixels, texW, texH,
+                            maskSnap, sorted, edgeFeather, antiAliasCleanup,
+                            holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
+                            0, 0, 0, 0, ct,
+                            useDecontamination: useDecontamination,
+                            decontaminationRadius: decontaminationRadius);
+                    }
+                    _exportProgress.Report(0.85f);
+                    return new ExportPayload
+                    {
+                        pixels = pixels,
+                        width = texW,
+                        height = texH,
+                        outputPath = outputPath,
+                        srcPath = srcPath,
+                        inheritImportSettings = inheritFlag,
+                    };
+                },
+                apply: payload =>
+                {
+                    // メインスレッドで Texture2D を組み立てて PNG エンコード → 保存。
+                    Texture2D outTex = null;
+                    try
+                    {
+                        outTex = new Texture2D(payload.width, payload.height, TextureFormat.RGBA32, false);
+                        outTex.SetPixels32(payload.pixels);
+                        outTex.Apply();
+                        _exportProgress.Report(0.95f);
+                        byte[] pngData = outTex.EncodeToPNG();
+                        if (pngData == null) return;
+
+                        File.WriteAllBytes(payload.outputPath, pngData);
+                        string relativePath = VACCWindow.ToAssetsRelative(payload.outputPath);
+                        if (relativePath != null)
+                            AssetDatabase.ImportAsset(relativePath);
+
+                        if (payload.inheritImportSettings)
+                            CopyImportSettings(payload.srcPath, payload.outputPath);
+
+                        _exportProgress.Report(1.0f);
+                        Debug.Log($"[VACC] Saved: {payload.outputPath}");
+                        EditorUtility.DisplayDialog(Localization.Complete, Localization.Saved(payload.outputPath), Localization.OK);
+                    }
+                    finally
+                    {
+                        if (outTex != null) Object.DestroyImmediate(outTex);
+                    }
+                },
+                onError: ex =>
+                {
+                    Debug.LogError($"[VACC] Export failed: {ex.Message}\n{ex.StackTrace}");
+                    EditorUtility.DisplayDialog(Localization.Error, ex.Message, Localization.OK);
+                });
+        }
+
+        /// <summary>
+        /// エクスポート実行中の進捗バーとキャンセルボタンを描画する。
+        /// VACCWindow.OnGUI の DisabledScope の外で呼び出すことで、ウィンドウ全体が
+        /// 無効化されている状況でもキャンセルだけは押せるようにする。
+        /// </summary>
+        public void DrawJobOverlay()
+        {
+            if (!_exportJob.IsRunning) return;
+
+            EditorGUILayout.Space(2);
+            var rect = EditorGUILayout.GetControlRect(false, 18f);
+            float pct = _exportProgress.Value;
+            string label = $"{Localization.ApplyAndSave}  {Mathf.RoundToInt(pct * 100f)}%";
+            EditorGUI.ProgressBar(rect, pct, label);
+
+            if (GUILayout.Button(Localization.Cancel, GUILayout.Height(22)))
+            {
+                _exportJob.Cancel();
+            }
+            EditorGUILayout.Space(2);
         }
 
         // ─────────────────────── 一括適用 ──────────────────────────
