@@ -59,6 +59,10 @@ namespace VRCAvatarColorChanger
 
         // 横並びレイアウトの左右カラム用スクロール
         private Vector2 leftScrollPos;
+        // プレビュー側の縦オーバーフロー用。テクスチャ画像が大きいと PreviewView の
+        // 内部 ScrollView 高さ（最大 ~528）＋ラベル類が横並びセクション高を超え、
+        // エクスポートセクションを画面外へ押し出してしまうため、外側にも ScrollView を挟む。
+        private Vector2 rightScrollPos;
 
         // GUILayout安全な変更保留フラグ
         // ExitGUI() をネストしたレイアウトグループ内から呼ぶと
@@ -220,8 +224,13 @@ namespace VRCAvatarColorChanger
                 EditorGUILayout.EndVertical();
 
                 // 右カラム: プレビュー
+                // ExpandHeight な ScrollView で囲うことで、プレビューが
+                // 横並びセクション高（horizH）を超えても列内でスクロールするようになり、
+                // 下部のエクスポートセクションを押し出さない。
                 EditorGUILayout.BeginVertical();
+                rightScrollPos = EditorGUILayout.BeginScrollView(rightScrollPos, GUILayout.ExpandHeight(true));
                 _previewView.Draw();
+                EditorGUILayout.EndScrollView();
                 EditorGUILayout.EndVertical();
 
                 EditorGUILayout.EndHorizontal();

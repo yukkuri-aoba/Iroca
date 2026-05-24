@@ -16,7 +16,9 @@ namespace VRCAvatarColorChanger
             public const float SmallButtonWidth   = 48f;
             // EditorWindow.position はタイトルバー/タブバー（ウィンドウクローム）の高さを含むが、
             // GUI 描画領域はそれより小さい。エクスポートを常にウィンドウ内に収めるための安全マージン。
-            public const float WindowChromeMargin = 24f;
+            // Windows 11 のフローティングウィンドウではタイトルバーが ~30-32px あり、
+            // 加えて下端のリサイズハンドルも考慮して余裕を持たせる。
+            public const float WindowChromeMargin = 44f;
             // スクロール対象の中央領域に確保する最低高さ。
             // ウィンドウが極端に低い時もこの高さは確保され、内部スクロールで残りを閲覧する。
             public const float MiddleAreaMinHeight = 120f;
