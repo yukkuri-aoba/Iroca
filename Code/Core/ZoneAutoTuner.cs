@@ -7,7 +7,7 @@ namespace VRCAvatarColorChanger
     /// テクスチャと ColorZone の (sampleColor, targetColor) から、
     /// 許容範囲・彩度制限などのパラメータを自動的に算出する純粋ロジック層。
     /// UI からは VACCWindow.RunAutoTune() 経由で呼ばれ、結果は TuneResult として返す。
-    /// このクラス自体は Texture2D.GetPixels32() 以外の Unity Editor API に依存しない。
+    /// 純粋計算のため、ピクセル配列さえあればバックグラウンドスレッドからも呼べる。
     /// </summary>
     internal static class ZoneAutoTuner
     {
@@ -75,23 +75,49 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
-        /// texture, zone, session の現在値を読み取り、推奨値と上書き対象ラベルを返す。
+        /// 既存呼び出し互換 API。Texture2D を受け取り、内部でメインスレッド前提の
+        /// GetPixels32 を呼んでからピクセル受け取り版へ委譲する。
+        /// バックグラウンドスレッドから呼ぶ場合は、メインスレッドで取得した
+        /// Color32[] を渡せる <see cref="Analyze(Color32[], int, int, ColorZone, VACCSessionState, bool[], int, int)"/>
+        /// オーバーロードを使用すること。
+        /// </summary>
+        public static TuneResult Analyze(Texture2D tex, ColorZone zone, VACCSessionState session,
+            bool[] excluded = null, int maskW = 0, int maskH = 0)
+        {
+            Color32[] pixels = null;
+            int w = 0, h = 0;
+            if (tex != null)
+            {
+                w = tex.width;
+                h = tex.height;
+                try { pixels = tex.GetPixels32(); }
+                catch (UnityEngine.UnityException) { pixels = null; }
+            }
+            return Analyze(pixels, w, h, zone, session, excluded, maskW, maskH);
+        }
+
+        /// <summary>
+        /// pixels, zone, session から推奨値と上書き対象ラベルを返す。
         /// 副作用なし。失敗時もデフォルト相当の TuneResult を返す。
+        /// pixels が null / 寸法が極端に小さい場合はヒューリスティック既定のみで返す。
         /// </summary>
         /// <param name="excluded">
         /// 除外マスク(共通∪ゾーン別の OR 結合, true=除外)。サイズ maskW*maskH。
         /// null または全 false の場合はマスク無しパス。マスクがある場合は
         /// 「含有(非除外)領域全体をパーツとみなし、その距離分布から tolerance を導出」する。
         /// </param>
-        public static TuneResult Analyze(Texture2D tex, ColorZone zone, VACCSessionState session,
+        public static TuneResult Analyze(Color32[] pixels, int width, int height,
+            ColorZone zone, VACCSessionState session,
             bool[] excluded = null, int maskW = 0, int maskH = 0)
         {
             var result = BuildHeuristicDefault(zone);
 
-            bool canAnalyze = tex != null && tex.width >= MinTextureDim && tex.height >= MinTextureDim;
+            bool canAnalyze = pixels != null
+                && width >= MinTextureDim && height >= MinTextureDim
+                && pixels.Length >= width * height;
             if (canAnalyze)
             {
-                if (TryAnalyzePixels(tex, zone, out var analyzed))
+                if (TryAnalyzePixels(pixels, width, height, zone, out var analyzed))
                     result = MergeAnalyzed(result, analyzed);
 
                 // マスク運用前提（はみ出しは手動マスク担当）: 含有領域全体をパーツとみなし、
@@ -100,7 +126,7 @@ namespace VRCAvatarColorChanger
                 // 「パーツ分離」をユーザーが与えたものなので、それを最大限尊重する。
                 if (HasUsableMask(excluded, maskW, maskH))
                 {
-                    if (TryDeriveMaskAwareTolerance(tex, zone, excluded, maskW, maskH,
+                    if (TryDeriveMaskAwareTolerance(pixels, width, height, zone, excluded, maskW, maskH,
                             out float maskTol))
                     {
                         result.tolerance = maskTol;
@@ -110,7 +136,7 @@ namespace VRCAvatarColorChanger
                 }
             }
 
-            DecideGlobals(tex, session, ref result);
+            DecideGlobals(width, height, session, ref result);
             CollectOverwrittenLabels(zone, session, ref result);
             return result;
         }
@@ -152,7 +178,7 @@ namespace VRCAvatarColorChanger
             public float tV;  // target color V（明度差で valueBlend 判定に使う）
         }
 
-        private static bool TryAnalyzePixels(Texture2D tex, ColorZone zone, out AnalysisStats stats)
+        private static bool TryAnalyzePixels(Color32[] pixels, int w, int h, ColorZone zone, out AnalysisStats stats)
         {
             stats = new AnalysisStats
             {
@@ -165,19 +191,6 @@ namespace VRCAvatarColorChanger
             Color.RGBToHSV(zone.sampleColor, out stats.sH, out stats.sS, out stats.sV);
             Color.RGBToHSV(zone.targetColor, out _, out _, out stats.tV);
 
-            Color32[] pixels;
-            try
-            {
-                pixels = tex.GetPixels32();
-            }
-            catch (UnityEngine.UnityException)
-            {
-                // Read/Write 無効。呼び出し側でガードしている想定だが念のため。
-                return false;
-            }
-
-            int w = tex.width;
-            int h = tex.height;
             int stride = (w <= 2048) ? 1 : 2;
 
             for (int y = 0; y < h; y += stride)
@@ -246,19 +259,15 @@ namespace VRCAvatarColorChanger
         /// match させるため。距離式は本番アルゴリズムと同一:
         ///   d = hueDist + |dS|*satDistWeight + |dV|*valueWeight*(1 - sRatio)
         /// </summary>
-        private static bool TryDeriveMaskAwareTolerance(Texture2D tex, ColorZone zone,
+        private static bool TryDeriveMaskAwareTolerance(Color32[] pixels, int w, int h, ColorZone zone,
             bool[] excluded, int maskW, int maskH, out float tolerance)
         {
             tolerance = 0f;
-            Color32[] pixels;
-            try { pixels = tex.GetPixels32(); }
-            catch (UnityEngine.UnityException) { return false; }
 
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
             float satDistW = zone.satDistWeight;
             float valueW = zone.valueWeight;
 
-            int w = tex.width, h = tex.height;
             int stride = (w <= 2048) ? 1 : 2;
             var bins = new int[DistBins];
             int count = 0;
@@ -417,7 +426,7 @@ namespace VRCAvatarColorChanger
 
         // ─────────────────── Globals 判定 ───────────────────
 
-        private static void DecideGlobals(Texture2D tex, VACCSessionState session, ref TuneResult result)
+        private static void DecideGlobals(int texWidth, int texHeight, VACCSessionState session, ref TuneResult result)
         {
             // edgeFeather は自動調整では一切触らない（"ごまかし" を増やさない方針）。
             // 自動調整が扱う Global は antiAliasCleanup と useDecontamination のみ。
@@ -449,14 +458,14 @@ namespace VRCAvatarColorChanger
             result.applyGlobals = true;
             // AA 境界クリーンアップ: 高解像度ほど AA フリンジが太く、回収パスを増やす方が
             // 境界品質が上がる。テクスチャ寸法のみから導出（キャラ・色に依存しない）。
-            result.antiAliasCleanup = AntiAliasCleanupForResolution(tex);
+            result.antiAliasCleanup = AntiAliasCleanupForResolution(texWidth, texHeight);
             result.useDecontamination = DefaultUseDecontamination;
         }
 
-        private static int AntiAliasCleanupForResolution(Texture2D tex)
+        private static int AntiAliasCleanupForResolution(int width, int height)
         {
-            if (tex == null) return DefaultAntiAliasCleanup;
-            int dim = Mathf.Max(tex.width, tex.height);
+            if (width <= 0 || height <= 0) return DefaultAntiAliasCleanup;
+            int dim = Mathf.Max(width, height);
             if (dim >= 2048) return 5;
             if (dim >= 1024) return 4;
             return DefaultAntiAliasCleanup; // 3 = 推奨下限

@@ -72,6 +72,14 @@ namespace VRCAvatarColorChanger
         private int _pendingRemoveZoneIndex = -1;
         private bool? _pendingAdvancedMode;
 
+        // 自動調整の非同期ジョブ。メインスレッドで pixels を取得し、
+        // バックグラウンドで ZoneAutoTuner.Analyze を走らせる。
+        [System.NonSerialized] private readonly PreviewJob<ZoneAutoTuner.TuneResult> _autoTuneJob = new PreviewJob<ZoneAutoTuner.TuneResult>();
+        [System.NonSerialized] private readonly PreviewJobProgress _autoTuneProgress = new PreviewJobProgress();
+        // apply 時に zone を特定するための GUID。世代不一致で apply が破棄されるか、
+        // ユーザーが zone を削除/追加した場合に備えて id で再ルックアップする。
+        [System.NonSerialized] private string _autoTuneTargetZoneId;
+
         [MenuItem(VACCConsts.MenuPath, priority = 100)]
         public static void ShowWindow()
         {
@@ -178,6 +186,12 @@ namespace VRCAvatarColorChanger
 
             DrawHeader();
 
+            // ジョブ実行中はウィンドウ内 UI を全て無効化する。
+            // ただしジョブのオーバーレイ（進捗バー＋キャンセル）は DisabledScope の外で
+            // 描画し、キャンセルだけは押せるようにする。
+            bool blocking = (_exportView != null && _exportView.IsExporting) || _autoTuneJob.IsRunning;
+            EditorGUI.BeginDisabledGroup(blocking);
+
             bool sideBySide = position.width >= VACCConsts.Layout.SideBySideMinWidth;
 
             // position.height はウィンドウ枠（タイトル/タブバー）を含むため、
@@ -272,6 +286,35 @@ namespace VRCAvatarColorChanger
                 // 一括適用は実装継続中のため当面 UI から非表示。
                 // _exportView.DrawBatchSection();
                 _exportView.DrawExportSection();
+            }
+
+            EditorGUI.EndDisabledGroup();
+
+            // DisabledScope の外でジョブオーバーレイ（進捗バー＋キャンセル）を描画。
+            // ウィンドウ全体が無効化されていてもキャンセルだけは押せる。
+            if (blocking)
+            {
+                DrawJobOverlay();
+                // 進捗バーを次フレームで更新するため、ジョブ中は継続的に再描画を要求する。
+                Repaint();
+            }
+        }
+
+        private void DrawJobOverlay()
+        {
+            _exportView?.DrawJobOverlay();
+
+            if (_autoTuneJob.IsRunning)
+            {
+                EditorGUILayout.Space(2);
+                var rect = EditorGUILayout.GetControlRect(false, 18f);
+                float pct = _autoTuneProgress.Value;
+                EditorGUI.ProgressBar(rect, pct, $"{Localization.AutoTune}  {Mathf.RoundToInt(pct * 100f)}%");
+                if (GUILayout.Button(Localization.Cancel, GUILayout.Height(22)))
+                {
+                    _autoTuneJob.Cancel();
+                }
+                EditorGUILayout.Space(2);
             }
         }
 
@@ -570,37 +613,90 @@ namespace VRCAvatarColorChanger
 
         private void RunAutoTune(ColorZone zone)
         {
+            if (_autoTuneJob.IsRunning) return;
+            if (zone == null) return;
+
+            zone.EnsureId();
+            string targetId = zone.id;
+
+            // メインスレッド前処理: Texture2D.GetPixels32 と除外マスク構築は
+            // バックグラウンドへ持ち込めないので、ここで配列化しておく。
+            Color32[] pixels = null;
+            int texW = 0, texH = 0;
+            var tex = sourceTexture;
+            if (tex != null)
+            {
+                texW = tex.width;
+                texH = tex.height;
+                try { pixels = tex.GetPixels32(); }
+                catch (UnityEngine.UnityException) { pixels = null; }
+            }
             bool[] excluded = BuildCombinedExclusionForZone(zone, out int mw, out int mh);
-            var result = ZoneAutoTuner.Analyze(sourceTexture, zone, _session, excluded, mw, mh);
 
-            if (result.overwrittenLabels != null && result.overwrittenLabels.Count > 0)
-            {
-                string body = Localization.AutoTuneOverwriteBody(result.overwrittenLabels, result.applyGlobals);
-                if (!EditorUtility.DisplayDialog(
-                        Localization.AutoTuneConfirmTitle, body,
-                        Localization.OK, Localization.Cancel))
+            // ZoneAutoTuner.Analyze 内部から触れる session 状態のスナップショット。
+            // 直接 _session を渡しても今回は読み取りしかしないが、明示的にスナップショット化する。
+            var session = _session;
+
+            _autoTuneTargetZoneId = targetId;
+            _autoTuneProgress.Reset();
+            _autoTuneProgress.Report(0.05f);
+
+            _autoTuneJob.Schedule(
+                work: ct =>
                 {
-                    return;
-                }
-            }
+                    _autoTuneProgress.Report(0.10f);
+                    var result = ZoneAutoTuner.Analyze(pixels, texW, texH, zone, session, excluded, mw, mh);
+                    _autoTuneProgress.Report(1.0f);
+                    return result;
+                },
+                apply: result =>
+                {
+                    // ジョブ完走時点で zone が消えている / 別 zone に切り替わっている可能性に備え、
+                    // id で再ルックアップする。
+                    var targetZone = FindZoneById(_autoTuneTargetZoneId);
+                    if (targetZone == null) return;
 
-            Undo.RegisterCompleteObjectUndo(this, "Auto-tune Zone");
-            zone.tolerance               = result.tolerance;
-            zone.saturationStrictness    = result.saturationStrictness;
-            zone.saturationGuard         = result.saturationGuard;
-            zone.chromaThreshold         = result.chromaThreshold;
-            zone.highlightRecovery       = result.highlightRecovery;
-            zone.valueBlend              = result.valueBlend;
-            zone.edgeSoftness            = result.edgeSoftness;
-            zone.shadowDesaturation      = result.shadowDesaturation;
-            zone.shadowForgivenessSatMin = result.shadowForgivenessSatMin;
-            if (result.applyGlobals)
-            {
-                antiAliasCleanup   = result.antiAliasCleanup;
-                useDecontamination = result.useDecontamination;
-            }
-            MarkPreviewDirty();
-            Repaint();
+                    if (result.overwrittenLabels != null && result.overwrittenLabels.Count > 0)
+                    {
+                        string body = Localization.AutoTuneOverwriteBody(result.overwrittenLabels, result.applyGlobals);
+                        if (!EditorUtility.DisplayDialog(
+                                Localization.AutoTuneConfirmTitle, body,
+                                Localization.OK, Localization.Cancel))
+                        {
+                            return;
+                        }
+                    }
+
+                    Undo.RegisterCompleteObjectUndo(this, "Auto-tune Zone");
+                    targetZone.tolerance               = result.tolerance;
+                    targetZone.saturationStrictness    = result.saturationStrictness;
+                    targetZone.saturationGuard         = result.saturationGuard;
+                    targetZone.chromaThreshold         = result.chromaThreshold;
+                    targetZone.highlightRecovery       = result.highlightRecovery;
+                    targetZone.valueBlend              = result.valueBlend;
+                    targetZone.edgeSoftness            = result.edgeSoftness;
+                    targetZone.shadowDesaturation      = result.shadowDesaturation;
+                    targetZone.shadowForgivenessSatMin = result.shadowForgivenessSatMin;
+                    if (result.applyGlobals)
+                    {
+                        antiAliasCleanup   = result.antiAliasCleanup;
+                        useDecontamination = result.useDecontamination;
+                    }
+                    MarkPreviewDirty();
+                    Repaint();
+                },
+                onError: ex =>
+                {
+                    Debug.LogError($"[VACC] Auto-tune failed: {ex.Message}\n{ex.StackTrace}");
+                });
+        }
+
+        private ColorZone FindZoneById(string id)
+        {
+            if (string.IsNullOrEmpty(id) || _session?.zones == null) return null;
+            foreach (var z in _session.zones)
+                if (z != null && z.id == id) return z;
+            return null;
         }
 
         // ───────────────────────── 処理設定 ───────────────────────────
@@ -731,6 +827,8 @@ namespace VRCAvatarColorChanger
             // PreviewJob 内部の CancellationToken でバックグラウンドタスクを即時中断し、
             // 以降の apply / onError も _disposed フラグで抑止する。
             _previewView?.Dispose();
+            _exportView?.Dispose();
+            _autoTuneJob?.Dispose();
             _maskView?.SaveToSession();
             _maskView?.ReleaseOverlayTextures();
         }
