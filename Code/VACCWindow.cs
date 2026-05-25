@@ -453,70 +453,73 @@ namespace VRCAvatarColorChanger
                     }
                 }
 
-                zone.mode = UndoHelper.EnumPopup(this,
-                    new GUIContent(Localization.SelectionMode, Localization.SelectionModeTooltip),
-                    zone.mode);
+                // ─── UV矩形モード選択UI ───
+                // UV矩形モードは実装継続中のため当面 UI から非表示。
+                // zone.mode = UndoHelper.EnumPopup(this,
+                //     new GUIContent(Localization.SelectionMode, Localization.SelectionModeTooltip),
+                //     zone.mode);
 
-                if (zone.mode == SelectionMode.ColorPick)
+                // ColorPick UI（常時表示）
+                zone.sampleColor = UndoHelper.ColorField(this,
+                    new GUIContent(Localization.SampleColor, Localization.SampleColorTooltip),
+                    zone.sampleColor);
+                zone.tolerance = UndoHelper.Slider(this,
+                    new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
+                    zone.tolerance, 0f, 1f);
+
+                /*
+                // ─── Flood Fill UI ───
+                // 連続領域モードは実装継続中のため当面 UI から非表示。
+                EditorGUILayout.Space(2);
+                zone.useFloodFill = UndoHelper.Toggle(this,
+                    new GUIContent(Localization.UseFloodFill, Localization.UseFloodFillTooltip),
+                    zone.useFloodFill);
+
+                if (zone.useFloodFill)
                 {
-                    zone.sampleColor = UndoHelper.ColorField(this,
-                        new GUIContent(Localization.SampleColor, Localization.SampleColorTooltip),
-                        zone.sampleColor);
-                    zone.tolerance = UndoHelper.Slider(this,
-                        new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
-                        zone.tolerance, 0f, 1f);
-
-                    /*
-                    // ─── Flood Fill UI ───
-                    // 連続領域モードは実装継続中のため当面 UI から非表示。
-                    EditorGUILayout.Space(2);
-                    zone.useFloodFill = UndoHelper.Toggle(this,
-                        new GUIContent(Localization.UseFloodFill, Localization.UseFloodFillTooltip),
-                        zone.useFloodFill);
-
-                    if (zone.useFloodFill)
-                    {
-                        using (new EditorGUI.IndentLevelScope())
-                        {
-                            EditorGUILayout.BeginHorizontal();
-                            string seedLabel = zone.seedUV.x >= 0f
-                                ? $"UV ({zone.seedUV.x:F3}, {zone.seedUV.y:F3})"
-                                : Localization.FloodFillSeedNotSet;
-                            EditorGUILayout.LabelField(
-                                new GUIContent(Localization.FloodFillSeedPoint, Localization.FloodFillSeedHint),
-                                seedLabel);
-                            if (GUILayout.Button(
-                                new GUIContent(Localization.FloodFillClear, Localization.FloodFillClearTooltip),
-                                GUILayout.Width(52)))
-                            {
-                                Undo.RecordObject(this, "Clear Flood Fill Seed");
-                                zone.seedUV = new UnityEngine.Vector2(-1f, -1f);
-                            }
-                            EditorGUILayout.EndHorizontal();
-
-                            if (advancedMode)
-                            {
-                                zone.edgeStopThreshold = UndoHelper.Slider(this,
-                                    new GUIContent(Localization.EdgeStopThreshold, Localization.EdgeStopThresholdTooltip),
-                                    zone.edgeStopThreshold, 0f, 0.5f);
-                            }
-                        }
-                    }
-                    */
-                }
-                else
-                {
-                    EditorGUILayout.LabelField(
-                        new GUIContent(Localization.UVRect, Localization.UVRectTooltip));
                     using (new EditorGUI.IndentLevelScope())
                     {
-                        float x = UndoHelper.Slider(this, "X", zone.uvRect.x, 0f, 1f);
-                        float y = UndoHelper.Slider(this, "Y", zone.uvRect.y, 0f, 1f);
-                        float w = UndoHelper.Slider(this, "W", zone.uvRect.width, 0f, 1f);
-                        float h = UndoHelper.Slider(this, "H", zone.uvRect.height, 0f, 1f);
-                        zone.uvRect = new Rect(x, y, w, h);
+                        EditorGUILayout.BeginHorizontal();
+                        string seedLabel = zone.seedUV.x >= 0f
+                            ? $"UV ({zone.seedUV.x:F3}, {zone.seedUV.y:F3})"
+                            : Localization.FloodFillSeedNotSet;
+                        EditorGUILayout.LabelField(
+                            new GUIContent(Localization.FloodFillSeedPoint, Localization.FloodFillSeedHint),
+                            seedLabel);
+                        if (GUILayout.Button(
+                            new GUIContent(Localization.FloodFillClear, Localization.FloodFillClearTooltip),
+                            GUILayout.Width(52)))
+                        {
+                            Undo.RecordObject(this, "Clear Flood Fill Seed");
+                            zone.seedUV = new UnityEngine.Vector2(-1f, -1f);
+                        }
+                        EditorGUILayout.EndHorizontal();
+
+                        if (advancedMode)
+                        {
+                            zone.edgeStopThreshold = UndoHelper.Slider(this,
+                                new GUIContent(Localization.EdgeStopThreshold, Localization.EdgeStopThresholdTooltip),
+                                zone.edgeStopThreshold, 0f, 0.5f);
+                        }
                     }
                 }
+                */
+
+                // ─── UV矩形モード UI ───
+                // UV矩形モードは実装継続中のため当面 UI から非表示。
+                // else
+                // {
+                //     EditorGUILayout.LabelField(
+                //         new GUIContent(Localization.UVRect, Localization.UVRectTooltip));
+                //     using (new EditorGUI.IndentLevelScope())
+                //     {
+                //         float x = UndoHelper.Slider(this, "X", zone.uvRect.x, 0f, 1f);
+                //         float y = UndoHelper.Slider(this, "Y", zone.uvRect.y, 0f, 1f);
+                //         float w = UndoHelper.Slider(this, "W", zone.uvRect.width, 0f, 1f);
+                //         float h = UndoHelper.Slider(this, "H", zone.uvRect.height, 0f, 1f);
+                //         zone.uvRect = new Rect(x, y, w, h);
+                //     }
+                // }
 
                 zone.targetColor = UndoHelper.ColorField(this,
                     new GUIContent(Localization.TargetColor, Localization.TargetColorTooltip),
