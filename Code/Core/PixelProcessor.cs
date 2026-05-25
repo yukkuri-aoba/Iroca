@@ -989,13 +989,17 @@ namespace VRCAvatarColorChanger
             }
             Color result = Color.HSVToRGB(tH, newS, newV);
 
-            // ハイライト白方向射影合成 (P5' / 2026-05-26):
-            // 旧実装 (satFalloff × valRise の経験式) は中心ハイライトで強度が市松状に
-            // 変動し、HSV 不安定な result.rgb と (oV,oV,oV) gray の Lerp 比率がピクセル毎に
-            // 揺れて視覚ノイズを生んでいた。P5' は「pixel が sample から (1,1,1) 白方向に
-            // どれだけ進んだか」を物理的に求めて重み w とする。中心ハイライト (w≈1) は
-            // ほぼ完全に (oV,oV,oV) gray へ寄せられ、HSV 変換の数値感度が出力に乗らない。
-            // 旧実装と整合: ハイライト方向 (oV > sV) のみ適用し、シャドウ側は暗部脱彩で扱う。
+            // ハイライト合成 (P5'' hybrid / 2026-05-26):
+            // 強度 = w (白方向幾何射影) × valRise (明度上昇率)
+            //   w       : pixel が sample から (1,1,1) 白方向にどれだけ進んだかの幾何射影。
+            //             中心ハイライト (w≈1) で完全に (oV,oV,oV) gray に寄り、HSV 変換の
+            //             数値感度が出力に乗らず市松ノイズを生まない。
+            //   valRise : 旧実装と同じ線形フェード (oV-sV)/(1-sV)。oV > sV 境界で 0 から
+            //             連続的に立ち上がるため、強度がジャンプせずハイライト周縁の不自然な
+            //             切り口 (P5' の副作用) を防ぐ。
+            // 旧 satFalloff (=1-oS/sS) を w に置き換えた形と等価。w は低彩度ピクセルで Hue
+            // が暴れても幾何的に安定するため、知覚ノイズの主因 (HSV 不安定 × hl_intensity 揺れ)
+            // を構造的に除去できる。
             if (sS > 0.01f && oV > sV)
             {
                 float dR = 1f - sR;
@@ -1008,9 +1012,11 @@ namespace VRCAvatarColorChanger
                     float pG = oG - sG;
                     float pB = oB - sB;
                     float w = Mathf.Clamp01((pR * dR + pG * dG + pB * dB) / dirSq);
-                    result.r = Mathf.Lerp(result.r, oV, w);
-                    result.g = Mathf.Lerp(result.g, oV, w);
-                    result.b = Mathf.Lerp(result.b, oV, w);
+                    float valRise = Mathf.Clamp01((oV - sV) / Mathf.Max(0.05f, 1f - sV));
+                    float hlIntensity = w * valRise;
+                    result.r = Mathf.Lerp(result.r, oV, hlIntensity);
+                    result.g = Mathf.Lerp(result.g, oV, hlIntensity);
+                    result.b = Mathf.Lerp(result.b, oV, hlIntensity);
                 }
             }
 
