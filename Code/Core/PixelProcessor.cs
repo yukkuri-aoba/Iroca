@@ -252,6 +252,10 @@ namespace VRCAvatarColorChanger
                     float zSH, zSS, zSV;
                     Color.RGBToHSV(zone.targetColor, out zTH, out zTS, out zTV);
                     Color.RGBToHSV(zone.sampleColor, out zSH, out zSS, out zSV);
+                    // P5' (2026-05-26): ハイライト白方向射影に必要な sample RGB を事前取得
+                    float zSR = zone.sampleColor.r;
+                    float zSG = zone.sampleColor.g;
+                    float zSB = zone.sampleColor.b;
                     float zValueBlend = zone.valueBlend;
                     var strengthForRecolor = strength;
                     var aaMaskLocal = aaMask;
@@ -270,8 +274,19 @@ namespace VRCAvatarColorChanger
                                 pixels[i] = decontaminatedLocal[i];
                                 continue;
                             }
-                            float alpha = originalPixels[i].a / 255f;
-                            Color32 recolored = RecolorPixel(pixH[i], pixS[i], pixV[i], alpha, zTH, zTS, zTV, zSH, zSS, zSV, zValueBlend, zone.shadowDesaturation);
+                            Color32 op = originalPixels[i];
+                            float alpha = op.a / 255f;
+                            float oR = op.r / 255f;
+                            float oG = op.g / 255f;
+                            float oB = op.b / 255f;
+                            Color32 recolored = RecolorPixel(
+                                oR, oG, oB,
+                                pixH[i], pixS[i], pixV[i], alpha,
+                                tH: zTH, tS: zTS, tV: zTV,
+                                sH: zSH, sS: zSS, sV: zSV,
+                                sR: zSR, sG: zSG, sB: zSB,
+                                valueBlend: zValueBlend,
+                                shadowDesaturation: zone.shadowDesaturation);
                             pixels[i] = s >= 0.999f ? recolored : Color32.Lerp(pixels[i], recolored, s);
                         }
                     });
@@ -945,9 +960,11 @@ namespace VRCAvatarColorChanger
         }
 
         private static Color32 RecolorPixel(
+            float oR, float oG, float oB,
             float oH, float oS, float oV, float alpha,
             float tH, float tS, float tV,
             float sH, float sS, float sV,
+            float sR, float sG, float sB,
             float valueBlend, float shadowDesaturation)
         {
             // 彩度比を保持：アンチエイリアス境界ピクセルは相対的な彩度を保つ
@@ -972,22 +989,29 @@ namespace VRCAvatarColorChanger
             }
             Color result = Color.HSVToRGB(tH, newS, newV);
 
-            // ハイライト合成（RGB 灰色寄せ・出口処理）: サンプル色と比較して
-            //   ・彩度がより落ちている (oS < sS) ほど "白っぽいハイライト"
-            //   ・明度がより上がっている (oV > sV) ほど "光が当たった部分"
-            // と見なし、両者の積で連続的にハイライト強度を算出。
-            // 元画素の明度 oV を「無彩色 (oV, oV, oV)」として RGB レベルで Lerp する。
-            // HSV の S を弄る方法は L953 の彩度比保持と相殺/逆効果になるため不採用。
-            // RGB 灰色寄せは色相非依存に対称な「白っぽさ継承」を実現でき、
-            // 青の S=0.3 と赤の S=0.3 の知覚的非対称性 (青は白く、赤は赤く見える) を回避する。
+            // ハイライト白方向射影合成 (P5' / 2026-05-26):
+            // 旧実装 (satFalloff × valRise の経験式) は中心ハイライトで強度が市松状に
+            // 変動し、HSV 不安定な result.rgb と (oV,oV,oV) gray の Lerp 比率がピクセル毎に
+            // 揺れて視覚ノイズを生んでいた。P5' は「pixel が sample から (1,1,1) 白方向に
+            // どれだけ進んだか」を物理的に求めて重み w とする。中心ハイライト (w≈1) は
+            // ほぼ完全に (oV,oV,oV) gray へ寄せられ、HSV 変換の数値感度が出力に乗らない。
+            // 旧実装と整合: ハイライト方向 (oV > sV) のみ適用し、シャドウ側は暗部脱彩で扱う。
             if (sS > 0.01f && oV > sV)
             {
-                float satFalloff = Mathf.Clamp01(1f - oS / Mathf.Max(sS, 0.01f));
-                float valRise   = Mathf.Clamp01((oV - sV) / Mathf.Max(0.05f, 1f - sV));
-                float hlIntensity = satFalloff * valRise;
-                result.r = Mathf.Lerp(result.r, oV, hlIntensity);
-                result.g = Mathf.Lerp(result.g, oV, hlIntensity);
-                result.b = Mathf.Lerp(result.b, oV, hlIntensity);
+                float dR = 1f - sR;
+                float dG = 1f - sG;
+                float dB = 1f - sB;
+                float dirSq = dR * dR + dG * dG + dB * dB;
+                if (dirSq > 1e-6f)
+                {
+                    float pR = oR - sR;
+                    float pG = oG - sG;
+                    float pB = oB - sB;
+                    float w = Mathf.Clamp01((pR * dR + pG * dG + pB * dB) / dirSq);
+                    result.r = Mathf.Lerp(result.r, oV, w);
+                    result.g = Mathf.Lerp(result.g, oV, w);
+                    result.b = Mathf.Lerp(result.b, oV, w);
+                }
             }
 
             result.a = alpha;
