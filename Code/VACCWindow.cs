@@ -15,6 +15,11 @@ namespace VRCAvatarColorChanger
         internal Texture2D SourceTexture { get => sourceTexture; set => sourceTexture = value; }
         internal VACCSessionState Session => _session;
 
+        // パイプライン透明化機能（Code.Debug/ asmdef がある場合のみ実体が入る）。
+        // PreviewView が ProcessPixelsArray に渡したインスタンスをここに保管し、
+        // DebugView が後から読み出す。Debug 機能未導入なら常に null。
+        internal IDebugCapture LatestDebugCapture { get; set; }
+
         // ── 各 View からの再描画通知用 ──
         internal void MarkPreviewDirty() { if (_previewView != null) _previewView.previewDirty = true; }
         internal void MarkMaskDirty() { if (_maskView != null) _maskView.maskDirty = true; }
@@ -287,6 +292,10 @@ namespace VRCAvatarColorChanger
                 // _exportView.DrawBatchSection();
                 _exportView.DrawExportSection();
             }
+
+            // パイプライン透明化（Debug View）の描画フック。
+            // Code.Debug/ asmdef がない or 未登録なら subscriber がいないので何も描画されない。
+            DebugCaptureHooks.RaiseDrawFoldout(this);
 
             EditorGUI.EndDisabledGroup();
 

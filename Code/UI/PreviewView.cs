@@ -764,6 +764,10 @@ namespace VRCAvatarColorChanger
             int prevWForTask = prevW;
             int prevHForTask = prevH;
 
+            // Debug capture: Code.Debug/ asmdef があり、かつ DebugView でトグル ON のときだけ
+            // Factory が非 null インスタンスを返す。それ以外は null で、本体は何もキャプチャしない。
+            IDebugCapture debugCap = DebugCaptureHooks.Factory?.Invoke();
+
             _previewJob.Schedule(
                 work: token =>
                 {
@@ -771,7 +775,8 @@ namespace VRCAvatarColorChanger
                     PixelProcessor.ProcessPixelsArray(pixels, srcW, srcH, maskSnap, zonesSnapshot, feather, aaCleanup,
                         hfPasses, hfMinNeighbors, rSatMin, rSatRamp,
                         0, 0, 0, 0, token,
-                        useDecontam, decontamRadius);
+                        useDecontam, decontamRadius,
+                        debug: debugCap);
 
                     return scaleForTask < 1f
                         ? PixelProcessor.BoxDownsample(pixels, srcW, srcH, prevWForTask, prevHForTask, scaleForTask)
@@ -783,6 +788,7 @@ namespace VRCAvatarColorChanger
                     _pendingProcessedDisplay = processedDisplay;
                     _pendingPrevW            = prevWForTask;
                     _pendingPrevH            = prevHForTask;
+                    _host.LatestDebugCapture = debugCap;
                     _host.RequestRepaint();
                 });
         }

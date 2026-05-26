@@ -45,12 +45,14 @@ namespace VRCAvatarColorChanger
             float relaxedSatMin = 0.02f, float relaxedSatRamp = 0.08f,
             int originX = 0, int originY = 0, int fullW = 0, int fullH = 0,
             bool useDecontamination = true, int decontaminationRadius = 4,
-            float decontaminationInteriorThreshold = 0.97f)
+            float decontaminationInteriorThreshold = 0.97f,
+            IDebugCapture debug = null)
         {
             ProcessPixelsArray(pixels, w, h, masks, sortedZones, edgeFeather, antiAliasCleanup,
                 holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
                 originX, originY, fullW, fullH, CancellationToken.None,
-                useDecontamination, decontaminationRadius, decontaminationInteriorThreshold);
+                useDecontamination, decontaminationRadius, decontaminationInteriorThreshold,
+                debug);
         }
 
         // キャンセルトークン対応バージョン — バックグラウンドプレビューから使用
@@ -63,7 +65,8 @@ namespace VRCAvatarColorChanger
             int originX, int originY, int fullW, int fullH,
             CancellationToken cancellationToken,
             bool useDecontamination = true, int decontaminationRadius = 4,
-            float decontaminationInteriorThreshold = 0.97f)
+            float decontaminationInteriorThreshold = 0.97f,
+            IDebugCapture debug = null)
         {
             if (fullW <= 0) fullW = w;
             if (fullH <= 0) fullH = h;
@@ -98,6 +101,8 @@ namespace VRCAvatarColorChanger
             {
                 Color.RGBToHSV((Color)originalPixels[i], out pixH[i], out pixS[i], out pixV[i]);
             });
+
+            debug?.BeginCapture(w, h);
 
             foreach (var zone in sortedZones)
             {
@@ -148,6 +153,7 @@ namespace VRCAvatarColorChanger
                             if (highlightPotLocal != null) highlightPotLocal[i] = hPot;
                         }
                     });
+                    debug?.RecordStage(zone.id, DebugStages.Match, strength, w, h);
 
                     // 1.a 空間伝播によるハイライト領域の回収 (モルフォロジー拡張)
                     if (highlightPot != null)
@@ -155,6 +161,7 @@ namespace VRCAvatarColorChanger
                         PropagateHighlights(strength, highlightPot, w, h);
                         ArrayPool<float>.Shared.Return(highlightPot);
                         highlightPot = null;
+                        debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, strength, w, h);
                     }
 
                     // 1.a.2 Flood Fill: シード点から連続する領域のみに強度を絞り込む
@@ -173,19 +180,24 @@ namespace VRCAvatarColorChanger
                             ApplyFloodFillMask(strength, pixS, pixV, w, h, seedX, seedY, zone.edgeStopThreshold);
                         else
                             Array.Clear(strength, 0, len);
+                        debug?.RecordStage(zone.id, DebugStages.FloodFill, strength, w, h);
                     }
 
                     // 1b. 孤立した穴を埋める：アンチエイリアス処理された端のピクセルは低彩度を持つことが多く
                     //     satConfidenceで見落とされて、元のカラーの孤立したドットを残す
                     //     ゼロ強度ピクセルが主にマッチしたピクセルに囲まれている場合は埋める
                     FillSmallHoles(strength, w, h, holeFillPasses, holeFillMinNeighbors);
+                    debug?.RecordStage(zone.id, DebugStages.HoleFill, strength, w, h);
 
                     // 1c. 境界復元：マッチしたピクセルに隣接するマッチしないピクセルを再評価
                     //     古い固定低彩度閾値を使用して、正しい段階的な強度を与える
                     if (antiAliasCleanup > 0)
+                    {
                         RecoverBoundaryEdges(strength, w, h, pixH, pixS, pixV,
                             zone.sampleColor, zone.tolerance, zone.edgeSoftness, zone.valueWeight,
                             zone.satDistWeight, relaxedSatMin, relaxedSatRamp, zone.shadowForgivenessSatMin, antiAliasCleanup);
+                        debug?.RecordStage(zone.id, DebugStages.BoundaryRecover, strength, w, h);
+                    }
 
                     // 2. スムーズな端の遷移のためのガウシアンブラー（端に限定）
                     if (edgeFeather > 0.01f)
@@ -213,6 +225,7 @@ namespace VRCAvatarColorChanger
                             if (blurOut != null) ArrayPool<float>.Shared.Return(blurOut);
                             if (preBlur != null) ArrayPool<float>.Shared.Return(preBlur);
                         }
+                        debug?.RecordStage(zone.id, DebugStages.Blur, strength, w, h);
                     }
 
                     // 3. 除外マスクを再適用：ブラーが除外ピクセルにはみ出す可能性がある
@@ -230,6 +243,7 @@ namespace VRCAvatarColorChanger
                                 if (IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH)) strengthForReapply[i] = 0f;
                             }
                         });
+                        debug?.RecordStage(zone.id, DebugStages.MaskReapply, strength, w, h);
                     }
 
                     // 3b. AA 境界の α 分解（オプション）：strength が 0 < s < interiorThreshold の
@@ -244,6 +258,7 @@ namespace VRCAvatarColorChanger
                             zone.sampleColor, zone.targetColor,
                             decontaminationRadius, decontaminationInteriorThreshold,
                             out aaMask, out decontaminatedPixels);
+                        debug?.RecordDecontamination(zone.id, aaMask, w, h);
                     }
 
                     // 4. 強度でブレンドした再色付けを適用
@@ -294,6 +309,47 @@ namespace VRCAvatarColorChanger
                             pixels[i] = s >= 0.999f ? recolored : Color32.Lerp(pixels[i], recolored, s);
                         }
                     });
+                    debug?.RecordStage(zone.id, DebugStages.Recolor, strength, w, h);
+
+                    // Recolor 段で各ピクセルに適用されたサブブランチを記録する。
+                    // hot loop には分岐を増やさず、debug 有効時だけ追加の Parallel.For で
+                    // 上の RecolorPixel 内の条件式を再評価する。
+                    // 優先度: Decontaminate > Shadow > Highlight > Base。
+                    // shadow と highlight は条件上ほぼ排他（oV<thr と oV>sV）だが念のため shadow を優先。
+                    if (debug != null)
+                    {
+                        byte[] branchMap = new byte[len];
+                        float zoneShadowDesat = zone.shadowDesaturation;
+                        float zoneSV = zSV;
+                        float zoneSS = zSS;
+                        var aaMaskForBranch = aaMask;
+                        Parallel.For(0, len, po, i =>
+                        {
+                            if (strengthForRecolor[i] <= 0.001f)
+                            {
+                                branchMap[i] = (byte)DebugBranch.None;
+                                return;
+                            }
+                            if (aaMaskForBranch != null && aaMaskForBranch[i])
+                            {
+                                branchMap[i] = (byte)DebugBranch.Decontaminate;
+                                return;
+                            }
+                            float oV = pixV[i];
+                            if (zoneShadowDesat > 0f && oV < zoneShadowDesat)
+                            {
+                                branchMap[i] = (byte)DebugBranch.Shadow;
+                                return;
+                            }
+                            if (zoneSS > 0.01f && oV > zoneSV)
+                            {
+                                branchMap[i] = (byte)DebugBranch.Highlight;
+                                return;
+                            }
+                            branchMap[i] = (byte)DebugBranch.Base;
+                        });
+                        debug.RecordRecolorBranches(zone.id, branchMap, w, h);
+                    }
                 }
                 finally
                 {
