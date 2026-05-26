@@ -1,0 +1,59 @@
+<!--
+  Code.Debug/ 配下を Unity 抜きで型チェック・ビルドするための最小プロジェクト。
+  本体 (com.yukkuri-aoba.vrc-avatar-color-changer.Editor) を ProjectReference で参照する。
+
+  メイン csproj は debug を含まないので、Code.Debug/ フォルダを物理的に削除した状態でも
+  本体 (VACCEditor.csproj) が単独でビルド可能であることを保証する。
+
+  ビルド方法（メインと同じ）:
+    dotnet build scripts/build-check/VACCEditor.Debug.csproj
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>com.yukkuri-aoba.vrc-avatar-color-changer.Editor.Debug</AssemblyName>
+    <RootNamespace>VRCAvatarColorChanger.DebugTools</RootNamespace>
+    <OutputType>Library</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>0414;0649;CS0219;CS8632;CS0169</NoWarn>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <!-- Unity Editor のインストールパス解決（メインと同じロジック） -->
+  <PropertyGroup>
+    <UnityVersion Condition="'$(UnityVersion)' == ''">2022.3.22f1</UnityVersion>
+    <UnityEditorPath Condition="'$(UnityEditorPath)' == '' and '$(UNITY_EDITOR_PATH)' != ''">$(UNITY_EDITOR_PATH)</UnityEditorPath>
+    <UnityEditorPath Condition="'$(UnityEditorPath)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityEditorPath>
+  </PropertyGroup>
+
+  <!-- ソースコード: Code.Debug/ 配下のみ。 -->
+  <ItemGroup>
+    <Compile Include="..\..\Code.Debug\**\*.cs" />
+  </ItemGroup>
+
+  <!-- 本体アセンブリを ProjectReference -->
+  <ItemGroup>
+    <ProjectReference Include="VACCEditor.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="UnityEngine">
+      <HintPath>$(UnityEditorPath)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEditor">
+      <HintPath>$(UnityEditorPath)\UnityEditor.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="CheckUnityPath" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(UnityEditorPath)\UnityEngine.dll')"
+           Text="UnityEngine.dll が見つかりません: $(UnityEditorPath)\UnityEngine.dll" />
+  </Target>
+
+</Project>
