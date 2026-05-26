@@ -1,0 +1,18 @@
+{
+    "name": "com.yukkuri-aoba.vrc-avatar-color-changer.Editor.Debug",
+    "rootNamespace": "VRCAvatarColorChanger.DebugTools",
+    "references": [
+        "com.yukkuri-aoba.vrc-avatar-color-changer.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -39,5 +39,6 @@ Code_Archive/
 # build-check (dotnet 単体での型チェック専用、Unity 非依存)
 # csproj 本体だけはコミット、bin/obj は無視
 !scripts/build-check/VACCEditor.csproj
+!scripts/build-check/VACCEditor.Debug.csproj
 scripts/build-check/bin/
 scripts/build-check/obj/
