@@ -252,10 +252,13 @@ namespace VRCAvatarColorChanger
                     float zSH, zSS, zSV;
                     Color.RGBToHSV(zone.targetColor, out zTH, out zTS, out zTV);
                     Color.RGBToHSV(zone.sampleColor, out zSH, out zSS, out zSV);
-                    // P5' (2026-05-26): ハイライト白方向射影に必要な sample RGB を事前取得
+                    // P5' (2026-05-26): ハイライト白方向射影に必要な sample / target RGB を事前取得
                     float zSR = zone.sampleColor.r;
                     float zSG = zone.sampleColor.g;
                     float zSB = zone.sampleColor.b;
+                    float zTR = zone.targetColor.r;
+                    float zTG = zone.targetColor.g;
+                    float zTB = zone.targetColor.b;
                     float zValueBlend = zone.valueBlend;
                     var strengthForRecolor = strength;
                     var aaMaskLocal = aaMask;
@@ -285,6 +288,7 @@ namespace VRCAvatarColorChanger
                                 tH: zTH, tS: zTS, tV: zTV,
                                 sH: zSH, sS: zSS, sV: zSV,
                                 sR: zSR, sG: zSG, sB: zSB,
+                                tR: zTR, tG: zTG, tB: zTB,
                                 valueBlend: zValueBlend,
                                 shadowDesaturation: zone.shadowDesaturation);
                             pixels[i] = s >= 0.999f ? recolored : Color32.Lerp(pixels[i], recolored, s);
@@ -965,6 +969,7 @@ namespace VRCAvatarColorChanger
             float tH, float tS, float tV,
             float sH, float sS, float sV,
             float sR, float sG, float sB,
+            float tR, float tG, float tB,
             float valueBlend, float shadowDesaturation)
         {
             // 彩度比を保持：アンチエイリアス境界ピクセルは相対的な彩度を保つ
@@ -989,17 +994,21 @@ namespace VRCAvatarColorChanger
             }
             Color result = Color.HSVToRGB(tH, newS, newV);
 
-            // ハイライト合成 (P5'' hybrid / 2026-05-26):
-            // 強度 = w (白方向幾何射影) × valRise (明度上昇率)
-            //   w       : pixel が sample から (1,1,1) 白方向にどれだけ進んだかの幾何射影。
-            //             中心ハイライト (w≈1) で完全に (oV,oV,oV) gray に寄り、HSV 変換の
-            //             数値感度が出力に乗らず市松ノイズを生まない。
-            //   valRise : 旧実装と同じ線形フェード (oV-sV)/(1-sV)。oV > sV 境界で 0 から
-            //             連続的に立ち上がるため、強度がジャンプせずハイライト周縁の不自然な
-            //             切り口 (P5' の副作用) を防ぐ。
-            // 旧 satFalloff (=1-oS/sS) を w に置き換えた形と等価。w は低彩度ピクセルで Hue
-            // が暴れても幾何的に安定するため、知覚ノイズの主因 (HSV 不安定 × hl_intensity 揺れ)
-            // を構造的に除去できる。
+            // ハイライト合成 (P5 軸射影版・residual なし / 2026-05-26):
+            // ピクセルを「sample → (1,1,1) 白直線」に射影して進行度 w を取り、
+            // 同じ w を使って target 軸上の対応点を求める。residual (軸からのずれ) は
+            // 捨てる — これにより青の色相歪みが target 側 (赤) にコピーされてピンク化する
+            // P5 純正版の副作用を構造的に除去する。
+            //
+            //   proj_t = target + w * (white - target)
+            //   result = Lerp(hsv_result, proj_t, valRise)
+            //
+            // 直感: pixel が sample から白に向けて 0.99 進んでいるなら (ハイライト中心)、
+            //       target からも白に向けて 0.99 進んだ点が出力色。中心は完全な白では
+            //       なく「target に向けて 1% 染まった白」(= わずかに赤い白)。
+            //       周辺 (w=0.5) は target と white の中間 (例: 赤と白で薄い赤)。
+            //
+            // 境界 (oV ≤ sV) は valRise=0 で hsv_result に切り戻すため不連続なし。
             if (sS > 0.01f && oV > sV)
             {
                 float dR = 1f - sR;
@@ -1012,11 +1021,17 @@ namespace VRCAvatarColorChanger
                     float pG = oG - sG;
                     float pB = oB - sB;
                     float w = Mathf.Clamp01((pR * dR + pG * dG + pB * dB) / dirSq);
+
+                    // target 軸上の対応点 (residual は捨てる)
+                    float projTR = tR + w * (1f - tR);
+                    float projTG = tG + w * (1f - tG);
+                    float projTB = tB + w * (1f - tB);
+
+                    // 境界連続性のため valRise でフェード (oV=sV で valRise=0、hsv_result に戻る)
                     float valRise = Mathf.Clamp01((oV - sV) / Mathf.Max(0.05f, 1f - sV));
-                    float hlIntensity = w * valRise;
-                    result.r = Mathf.Lerp(result.r, oV, hlIntensity);
-                    result.g = Mathf.Lerp(result.g, oV, hlIntensity);
-                    result.b = Mathf.Lerp(result.b, oV, hlIntensity);
+                    result.r = Mathf.Lerp(result.r, projTR, valRise);
+                    result.g = Mathf.Lerp(result.g, projTG, valRise);
+                    result.b = Mathf.Lerp(result.b, projTB, valRise);
                 }
             }
 
