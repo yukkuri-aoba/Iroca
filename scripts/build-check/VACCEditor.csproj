@@ -38,9 +38,11 @@
     <UnityEditorPath Condition="'$(UnityEditorPath)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityEditorPath>
   </PropertyGroup>
 
-  <!-- ソースコード: Code/ 以下のみ。Code_Archive/ は除外 -->
+  <!-- ソースコード: Code/ 以下のみ。Code_Archive/ は除外。
+       Code/Debug/ は別 asmdef (VACCEditor.Debug) 配下なので Unity の挙動に合わせて除外する。
+       これにより Code/Debug/ フォルダを削除しても本体 csproj は単独でビルド可能。 -->
   <ItemGroup>
-    <Compile Include="..\..\Code\**\*.cs" />
+    <Compile Include="..\..\Code\**\*.cs" Exclude="..\..\Code\Debug\**\*.cs" />
   </ItemGroup>
 
   <ItemGroup>

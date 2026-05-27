@@ -62,20 +62,21 @@ namespace VRCAvatarColorChanger.DebugTools
         {
             EnsurePrefsLoaded();
 
-            EditorGUILayout.Space(4);
-            s_foldout = EditorGUILayout.Foldout(s_foldout, "Debug View (パイプライン透明化)", true);
-            if (!s_foldout) return;
+            EditorGUILayout.Space(6);
 
-            using (new EditorGUI.IndentLevelScope())
+            // セクション枠（背景つき）でデバッグ機能をひと目で見分けられるようにする。
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
-                // ── キャプチャ有効化トグル ─────────────────────────
+                // ── キャプチャ有効化トグル（foldout の外、常時表示） ──
+                // デバッグ asmdef がインストールされていることを示す目印として、
+                // ヘッダー兼チェックボックスを常に出す。
                 EditorGUI.BeginChangeCheck();
                 bool prevEnabled = s_enableCapture;
                 s_enableCapture = EditorGUILayout.ToggleLeft(
                     new GUIContent(
-                        "Enable debug capture",
+                        "デバッグキャプチャを有効化 (パイプライン透明化)",
                         "オンにすると、次回プレビュー/エクスポート時に各パイプライン段階の strength マップ・差分・Recolor サブブランチを採取します。\nオフでは何もキャプチャされず、本体パイプラインに一切のオーバーヘッドはありません。"),
-                    s_enableCapture);
+                    s_enableCapture, EditorStyles.boldLabel);
                 if (EditorGUI.EndChangeCheck())
                 {
                     EditorPrefs.SetBool(PrefKeyEnabled, s_enableCapture);
@@ -84,18 +85,39 @@ namespace VRCAvatarColorChanger.DebugTools
                         // 有効化 / 無効化が切り替わったタイミングで次回プレビューを再キャプチャするため
                         // プレビューをダーティ化する。
                         host.MarkPreviewDirty();
+                        // OFF にしたら現状のキャプチャをすぐ破棄して foldout 内の表示も消す。
+                        if (!s_enableCapture)
+                        {
+                            s_activeContext = null;
+                            host.LatestDebugCapture = null;
+                            DisposeOverlay();
+                        }
                     }
                 }
 
+                if (!s_enableCapture)
+                {
+                    EditorGUILayout.LabelField(
+                        "オフ: 本体パイプラインに何もフックされていません。",
+                        EditorStyles.miniLabel);
+                    return;
+                }
+
+                EditorGUI.BeginChangeCheck();
+                s_foldout = EditorGUILayout.Foldout(s_foldout, "可視化と PNG ダンプ", true);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    EditorPrefs.SetBool(PrefKeyFoldout, s_foldout);
+                }
+                if (!s_foldout) return;
+
                 // ── キャプチャがまだない場合のヘルプ ───────────────
-                // host.LatestDebugCapture はインターフェース型なので、Code.Debug 側では具体型に再キャストして読む。
+                // host.LatestDebugCapture はインターフェース型なので、Debug 側では具体型に再キャストして読む。
                 var ctx = host.LatestDebugCapture as DebugCaptureContext ?? s_activeContext;
                 if (ctx == null || ctx.Snapshots.Count == 0)
                 {
                     EditorGUILayout.HelpBox(
-                        s_enableCapture
-                            ? "プレビューを再生成するとキャプチャされます（テクスチャやゾーン設定を変更してください）。"
-                            : "「Enable debug capture」をオンにしてから操作してください。",
+                        "プレビューを再生成するとキャプチャされます（テクスチャやゾーン設定を変更してください）。",
                         MessageType.Info);
                     return;
                 }
@@ -180,15 +202,20 @@ namespace VRCAvatarColorChanger.DebugTools
 
                 if (GUILayout.Button(new GUIContent(
                         "Dump all stages to PNG",
-                        "全 zone × 全段階のキャプチャを UserSettings/VACC/DebugDumps/<source>/<timestamp>/ 配下に PNG として書き出します。manifest.json も併せて生成されます。")))
+                        "全 zone × 全段階のキャプチャを Assets/VACC/Debug/<source>/<timestamp>/ 配下に PNG として書き出します。manifest.json も併せて生成され、Unity のプロジェクトビューから直接参照できます。")))
                 {
                     string srcName = host.SourceTexture != null ? host.SourceTexture.name : "unknown";
-                    string outDir = DebugDumpStore.DumpAll(ctx, srcName);
-                    if (!string.IsNullOrEmpty(outDir))
+                    string assetsRel = DebugDumpStore.DumpAll(ctx, srcName);
+                    if (!string.IsNullOrEmpty(assetsRel))
                     {
-                        host.ShowNotification(new GUIContent($"Dumped to:\n{outDir}"));
-                        // エクスプローラーで開く便利機能
-                        EditorUtility.RevealInFinder(outDir);
+                        host.ShowNotification(new GUIContent($"Dumped to:\n{assetsRel}"));
+                        // 書き出し先フォルダを Project ビューでハイライト＆フォーカス
+                        var folder = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetsRel);
+                        if (folder != null)
+                        {
+                            EditorGUIUtility.PingObject(folder);
+                            Selection.activeObject = folder;
+                        }
                     }
                     else
                     {
