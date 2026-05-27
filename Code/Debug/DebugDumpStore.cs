@@ -102,7 +102,6 @@ namespace VRCAvatarColorChanger.DebugTools
                     byte v = quantized[i];
                     pixels[i] = new Color32(v, v, v, 255);
                 }
-                FlipVertical(pixels, w, h);
                 tex.SetPixels32(pixels);
                 tex.Apply(false);
                 File.WriteAllBytes(path, tex.EncodeToPNG());
@@ -124,20 +123,19 @@ namespace VRCAvatarColorChanger.DebugTools
                     int signed = delta[i] - 128;
                     if (signed > 0)
                     {
-                        byte mag = (byte)Mathf.Min(255, signed * 2);
+                        byte mag = (byte)Mathf.Min(255, signed * 4);
                         pixels[i] = new Color32(0, mag, 0, 255);
                     }
                     else if (signed < 0)
                     {
-                        byte mag = (byte)Mathf.Min(255, -signed * 2);
+                        byte mag = (byte)Mathf.Min(255, -signed * 4);
                         pixels[i] = new Color32(mag, 0, 0, 255);
                     }
                     else
                     {
-                        pixels[i] = new Color32(32, 32, 32, 255);
+                        pixels[i] = new Color32(0, 0, 0, 255);
                     }
                 }
-                FlipVertical(pixels, w, h);
                 tex.SetPixels32(pixels);
                 tex.Apply(false);
                 File.WriteAllBytes(path, tex.EncodeToPNG());
@@ -178,7 +176,6 @@ namespace VRCAvatarColorChanger.DebugTools
                     Color c = Color.HSVToRGB(hue, 0.8f, 0.95f);
                     pixels[i] = new Color32((byte)(c.r * 255), (byte)(c.g * 255), (byte)(c.b * 255), 255);
                 }
-                FlipVertical(pixels, w, h);
                 tex.SetPixels32(pixels);
                 tex.Apply(false);
                 string fileName = $"{SanitizeFileName(zoneId)}_ownership.png";
@@ -215,7 +212,6 @@ namespace VRCAvatarColorChanger.DebugTools
                         default:                        pixels[i] = new Color32(0, 0, 0, 0); break;
                     }
                 }
-                FlipVertical(pixels, w, h);
                 tex.SetPixels32(pixels);
                 tex.Apply(false);
                 string fileName = $"{SanitizeFileName(zoneId)}_recolorBranch.png";
@@ -286,21 +282,6 @@ namespace VRCAvatarColorChanger.DebugTools
                 sb.Append(ok ? ch : '_');
             }
             return sb.ToString();
-        }
-
-        private static void FlipVertical(Color32[] pixels, int w, int h)
-        {
-            for (int y = 0; y < h / 2; y++)
-            {
-                int top = y * w;
-                int bot = (h - 1 - y) * w;
-                for (int x = 0; x < w; x++)
-                {
-                    var t = pixels[top + x];
-                    pixels[top + x] = pixels[bot + x];
-                    pixels[bot + x] = t;
-                }
-            }
         }
     }
 }
