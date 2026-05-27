@@ -73,13 +73,13 @@ try {
         Write-Host "  + $EntryName"
     }
 
-    # Top-level files
-    foreach ($f in @("package.json","README.md","MANUAL.md","CHANGELOG.md","LICENSE","$PackageId.Editor.asmdef")) {
+    # Top-level files (asmdef は Code/ 配下に移動済みなのでここには含めない)
+    foreach ($f in @("package.json","README.md","MANUAL.md","CHANGELOG.md","LICENSE")) {
         $abs = Join-Path $Root $f
         if (Test-Path $abs) { Add-ZipEntry $abs $f }
     }
 
-    # Code/ directory (recursive)
+    # Code/ directory (recursive) — 本体 asmdef・Debug asmdef・全ソースを一括取得
     $codeDir = Join-Path $Root "Code"
     if (Test-Path $codeDir) {
         Get-ChildItem -Path $codeDir -Recurse -File | ForEach-Object {
