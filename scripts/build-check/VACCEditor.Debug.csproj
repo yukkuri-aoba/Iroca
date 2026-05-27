@@ -1,9 +1,9 @@
 <!--
-  Code.Debug/ 配下を Unity 抜きで型チェック・ビルドするための最小プロジェクト。
+  Code/Debug/ 配下を Unity 抜きで型チェック・ビルドするための最小プロジェクト。
   本体 (com.yukkuri-aoba.vrc-avatar-color-changer.Editor) を ProjectReference で参照する。
 
-  メイン csproj は debug を含まないので、Code.Debug/ フォルダを物理的に削除した状態でも
-  本体 (VACCEditor.csproj) が単独でビルド可能であることを保証する。
+  メイン csproj は Code/Debug/ を除外するため、Code/Debug/ フォルダを物理的に削除した
+  状態でも本体 (VACCEditor.csproj) が単独でビルド可能であることを保証する。
 
   ビルド方法（メインと同じ）:
     dotnet build scripts/build-check/VACCEditor.Debug.csproj
@@ -30,9 +30,9 @@
     <UnityEditorPath Condition="'$(UnityEditorPath)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityEditorPath>
   </PropertyGroup>
 
-  <!-- ソースコード: Code.Debug/ 配下のみ。 -->
+  <!-- ソースコード: Code/Debug/ 配下のみ。 -->
   <ItemGroup>
-    <Compile Include="..\..\Code.Debug\**\*.cs" />
+    <Compile Include="..\..\Code\Debug\**\*.cs" />
   </ItemGroup>
 
   <!-- 本体アセンブリを ProjectReference -->

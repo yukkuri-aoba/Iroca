@@ -9,15 +9,19 @@ namespace VRCAvatarColorChanger.DebugTools
 {
     /// <summary>
     /// <see cref="DebugCaptureContext"/> のスナップショット群を PNG として書き出す。
-    /// 保存先は <c>&lt;Project&gt;/UserSettings/VACC/DebugDumps/&lt;sourceName&gt;/&lt;timestamp&gt;/</c>。
+    /// 保存先は <c>Assets/VACC/Debug/&lt;sourceName&gt;/&lt;timestamp&gt;/</c>。
+    /// プリセットの保存先 (<c>Assets/VACC/Presets</c>) と同じ <c>Assets/VACC/</c> 配下に置くことで
+    /// Unity のプロジェクトビューから直接参照・削除できる。
     /// </summary>
     internal static class DebugDumpStore
     {
-        private const string DumpDirRelative = "UserSettings/VACC/DebugDumps";
+        // プリセット保存先 (Assets/VACC/Presets) と同じ親フォルダ配下に置く。
+        private const string DumpDirRelative = "Assets/VACC/Debug";
 
         /// <summary>
-        /// 指定 context 全体を PNG + manifest.json として書き出し、書き出し先ディレクトリを返す。
-        /// 失敗時は null を返してログにエラーを残す。
+        /// 指定 context 全体を PNG + manifest.json として書き出し、書き出し先ディレクトリ
+        /// （Assets 相対パス）を返す。失敗時は null を返してログにエラーを残す。
+        /// 書き出し後に <see cref="AssetDatabase.Refresh"/> を呼んで Unity に反映する。
         /// </summary>
         public static string DumpAll(DebugCaptureContext ctx, string sourceTextureName)
         {
@@ -29,8 +33,10 @@ namespace VRCAvatarColorChanger.DebugTools
 
             string safeName = SanitizeFileName(string.IsNullOrEmpty(sourceTextureName) ? "unknown" : sourceTextureName);
             string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            // Assets 相対パスを保持しつつ、絶対パスで I/O する。
+            string assetsRelative = $"{DumpDirRelative}/{safeName}/{timestamp}";
             string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
-            string outDir = Path.Combine(projectRoot, DumpDirRelative, safeName, timestamp);
+            string outDir = Path.GetFullPath(Path.Combine(projectRoot, assetsRelative));
 
             try
             {
@@ -38,7 +44,6 @@ namespace VRCAvatarColorChanger.DebugTools
 
                 // zone × stage の strength と delta を書き出し
                 var fileEntries = new List<string>();
-                int globalIdx = 0;
                 var stageIndexPerZone = new Dictionary<string, int>();
                 foreach (var snap in ctx.Snapshots)
                 {
@@ -57,7 +62,6 @@ namespace VRCAvatarColorChanger.DebugTools
                         SaveDeltaPng(snap.deltaQuantized, snap.width, snap.height, deltaPath);
                         fileEntries.Add(Path.GetFileName(deltaPath));
                     }
-                    globalIdx++;
                 }
 
                 // zone ごとの ownership と recolor branch
@@ -73,7 +77,10 @@ namespace VRCAvatarColorChanger.DebugTools
                 // manifest.json
                 WriteManifest(outDir, ctx, sourceTextureName, timestamp, fileEntries);
 
-                return outDir;
+                // Unity 側に新しいアセットを取り込ませる。
+                AssetDatabase.Refresh();
+
+                return assetsRelative;
             }
             catch (Exception ex)
             {
