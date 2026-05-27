@@ -239,6 +239,13 @@ namespace VRCAvatarColorChanger
                 }
 
                 _presetsView.Draw();
+
+                // パイプライン透明化（Debug View）の描画フック。
+                // Code/Debug/ asmdef がない or 未登録なら subscriber がいないので何も描画されない。
+                // 左カラムのスクロール領域内に置くことで、エクスポートのピン留めと
+                // 競合せず、スクロールで到達できるようにする。
+                DebugCaptureHooks.RaiseDrawFoldout(this);
+
                 EditorGUILayout.EndScrollView();
                 EditorGUILayout.EndVertical();
 
@@ -285,6 +292,12 @@ namespace VRCAvatarColorChanger
                 _presetsView.Draw();
                 _previewView.Draw();
 
+                // パイプライン透明化（Debug View）の描画フック。
+                // Code/Debug/ asmdef がない or 未登録なら subscriber がいないので何も描画されない。
+                // メインスクロール領域内に置くことで、エクスポートのピン留めと
+                // 競合せず、スクロールで到達できるようにする。
+                DebugCaptureHooks.RaiseDrawFoldout(this);
+
                 EditorGUILayout.EndScrollView();
 
                 // ── 下部: エクスポート（フル幅・常に表示） ──
@@ -292,10 +305,6 @@ namespace VRCAvatarColorChanger
                 // _exportView.DrawBatchSection();
                 _exportView.DrawExportSection();
             }
-
-            // パイプライン透明化（Debug View）の描画フック。
-            // Code.Debug/ asmdef がない or 未登録なら subscriber がいないので何も描画されない。
-            DebugCaptureHooks.RaiseDrawFoldout(this);
 
             EditorGUI.EndDisabledGroup();
 
