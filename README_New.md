@@ -25,10 +25,11 @@ VRC AvatarColorChanger (VACC) は、Unity Editor 上でテクスチャの色を�
 ### クイックスタート
 
 1. [Releases](https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/releases) から最新の `.unitypackage` をダウンロードします
-2. Unity Editor で `Assets > Import Package > Custom Package...` を選び、ファイルを読み込みます
-3. `Tools > VRC AvatarColorChanger` からウィンドウを開きます
-4. テクスチャを選択し、カラーゾーンを追加して色を設定します
-5. `Apply & Save` ボタンで保存します
+2. Unity Editor のプロジェクトウィンドウ（Assets フォルダ）にドラッグ＆ドロップします
+3. インポートダイアログで「Import」をクリックします
+4. `Tools > VRC AvatarColorChanger` からウィンドウを開きます
+5. テクスチャを選択し、カラーゾーンを追加して色を設定します
+6. `Apply & Save` ボタンで保存します
 
 詳しい使い方は [MANUAL.md](MANUAL.md) をご覧ください。
 

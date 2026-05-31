@@ -525,8 +525,8 @@ ON（デフォルト）にすると、新しく生成されたテクスチャが
 #### Steps
 
 1. Download the latest `.unitypackage` from [GitHub Releases](https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/releases)
-2. In Unity Editor, select `Assets > Import Package > Custom Package...`
-3. Choose the downloaded file and click "Import" in the dialog
+2. Drag and drop the `.unitypackage` into the Unity Editor project window
+3. Click "Import" in the dialog
 4. Open the window via `Tools > VRC AvatarColorChanger`
 
 #### Enable Read/Write on Textures
