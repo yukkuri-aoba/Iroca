@@ -29,23 +29,23 @@
 - Unity 2022.3.22f1 以降
 - 対象テクスチャは **Read/Write Enabled** が有効である必要があります
 
-> ウィンドウ起動後、警告の標のボタンを押すと自動で有効にできます。
+> ウィンドウ起動後、警告のボタンを押すと自動で有効にできます。
 
 #### 手順
 
-1. [GitHub Releases](https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/releases) から最新の `.unitypackage` をダウンロードします
+1. [GitHub Releases](https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/releases) から最新のVACCが入ったzipファイルをダウンロードし、展開します。
 
-2. Unity Editor のメニューから `Assets > Import Package > Custom Package...` を選択します
+2. Unity Editor に`.unitypackage`をドラッグ＆ドロップします。
 
-   [スクリーンショット: Import Package メニュー]
+   [スクリーンショット: エクスプローラとUnity Editor]
 
-3. ダウンロードしたファイルを選択し、ダイアログで「Import」をクリックします
+3. ダイアログで「Import」をクリックします
 
    [スクリーンショット: Import ダイアログ]
 
 4. 読み込みが完了すると、`Assets/VACC` フォルダが作成されます
 
-5. `Tools > VRC AvatarColorChanger` を選択してウィンドウを開きます
+5. `Tools > VRC AvatarColorChanger` を選択してウィンドウを開けば使用可能です！
 
    [スクリーンショット: Tools メニュー]
 
