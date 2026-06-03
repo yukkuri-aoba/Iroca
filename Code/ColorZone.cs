@@ -84,6 +84,11 @@ namespace VRCAvatarColorChanger
 
         public bool highlightRecovery = true;
         public bool highlightBandExpand = true;
+        // 俯瞰スポイト補正: ハイライト合成(wash)用サンプルの明度を、テクスチャの地色まで自動で下げる。
+        // 明るい光沢部をスポイトしても鏡面グラデが潰れない。match/base は不変＝再着色範囲は変えない。
+        // 既定 OFF（オプトイン）。房の多いテクスチャ（髪など）では OFF が望ましいことがあるため、
+        // 必要なゾーンだけ ON にする運用とする。
+        public bool autoHighlightSample = false;
         public int layerIndex = 0;
         public string id = "";
 

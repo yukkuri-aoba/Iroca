@@ -573,6 +573,10 @@ namespace VRCAvatarColorChanger
                     EditorGUI.indentLevel--;
                 }
 
+                zone.autoHighlightSample = UndoHelper.Toggle(this,
+                    new GUIContent(Localization.AutoHighlightSample, Localization.AutoHighlightSampleTooltip),
+                    zone.autoHighlightSample);
+
                 EditorGUILayout.Space(2);
                 EditorGUILayout.LabelField(Localization.IsJapanese ? "=== シャドウ・ハイライト詳細設定 ===" : "=== Shadow/Highlight Details ===", EditorStyles.boldLabel);
 
