@@ -284,6 +284,13 @@ namespace VRCAvatarColorChanger
                     float zTB = zone.targetColor.b;
                     float zValueBlend = zone.valueBlend;
                     float zOutputSat = zone.outputSaturation;
+                    // 俯瞰スポイト補正: ハイライト合成(wash)に使う実効サンプル。テクスチャの地色
+                    // (同色相・低V)を自動導出し、明るい所をスポイトしても wash がドーム全体に効く
+                    // ようにする。autoHighlightSample=false / 低彩度 / 地色不足のときは sample のまま。
+                    Color zWash = HighlightSampleCorrector.ComputeWashSample(
+                        originalPixels, pixH, pixS, pixV, w, h, zone);
+                    float zWR = zWash.r, zWG = zWash.g, zWB = zWash.b;
+                    Color.RGBToHSV(zWash, out _, out _, out float zWV);
                     var strengthForRecolor = strength;
                     var aaMaskLocal = aaMask;
                     var decontaminatedLocal = decontaminatedPixels;
@@ -315,6 +322,7 @@ namespace VRCAvatarColorChanger
                                 tR: zTR, tG: zTG, tB: zTB,
                                 valueBlend: zValueBlend,
                                 shadowDesaturation: zone.shadowDesaturation,
+                                washR: zWR, washG: zWG, washB: zWB, washV: zWV,
                                 outputSaturation: zOutputSat);
                             pixels[i] = s >= 0.999f ? recolored : Color32.Lerp(pixels[i], recolored, s);
                         }
@@ -1137,6 +1145,7 @@ namespace VRCAvatarColorChanger
             float sR, float sG, float sB,
             float tR, float tG, float tB,
             float valueBlend, float shadowDesaturation,
+            float washR, float washG, float washB, float washV,
             float outputSaturation = 1f)
         {
             // 彩度比を保持：アンチエイリアス境界ピクセルは相対的な彩度を保つ
@@ -1180,17 +1189,20 @@ namespace VRCAvatarColorChanger
             //       周辺 (w=0.5) は target と white の中間 (例: 赤と白で薄い赤)。
             //
             // 境界 (oV ≤ sV) は valRise=0 で hsv_result に切り戻すため不連続なし。
-            if (sS > 0.01f && oV > sV)
+            // wash 用サンプル(washR/G/B/V): 既定は match と同じ sample。俯瞰スポイト補正では
+            // パーツ地色(同色相・低V)が渡され、ハイライト合成 (oV>washV) がドーム全体に効く。
+            // match/base は sample のままなので再着色範囲は不変(新規 FP なし)。
+            if (sS > 0.01f && oV > washV)
             {
-                float dR = 1f - sR;
-                float dG = 1f - sG;
-                float dB = 1f - sB;
+                float dR = 1f - washR;
+                float dG = 1f - washG;
+                float dB = 1f - washB;
                 float dirSq = dR * dR + dG * dG + dB * dB;
                 if (dirSq > 1e-6f)
                 {
-                    float pR = oR - sR;
-                    float pG = oG - sG;
-                    float pB = oB - sB;
+                    float pR = oR - washR;
+                    float pG = oG - washG;
+                    float pB = oB - washB;
                     float w = Mathf.Clamp01((pR * dR + pG * dG + pB * dB) / dirSq);
 
                     // target 軸上の対応点 (residual は捨てる)
@@ -1198,8 +1210,8 @@ namespace VRCAvatarColorChanger
                     float projTG = tG + w * (1f - tG);
                     float projTB = tB + w * (1f - tB);
 
-                    // 境界連続性のため valRise でフェード (oV=sV で valRise=0、hsv_result に戻る)
-                    float valRise = Mathf.Clamp01((oV - sV) / Mathf.Max(0.05f, 1f - sV));
+                    // 境界連続性のため valRise でフェード (oV=washV で valRise=0、hsv_result に戻る)
+                    float valRise = Mathf.Clamp01((oV - washV) / Mathf.Max(0.05f, 1f - washV));
                     result.r = Mathf.Lerp(result.r, projTR, valRise);
                     result.g = Mathf.Lerp(result.g, projTG, valRise);
                     result.b = Mathf.Lerp(result.b, projTB, valRise);

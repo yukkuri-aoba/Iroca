@@ -190,6 +190,11 @@ namespace VRCAvatarColorChanger
             ? "本体にマッチした領域から、描き込まれたハイライト（同色相で白方向に色が薄くなった明部）へ\n変換範囲を空間的に広げます。許容値を上げずに、薄いハイライトのベタ塗り化・取りこぼしを防ぎます。\n本体に連結した領域のみ広げるため、別パーツや白素材への巻き込みは起きません。\n「ハイライト補助」が ON のときのみ有効。\nデフォルト: ON"
             : "Expands recoloring from the matched body into drawn-in highlights (same-hue bright pixels washed toward white).\nKeeps thin highlights from being flattened or missed without raising tolerance.\nOnly grows regions connected to the matched body, so it never bleeds into other parts or white material.\nActive only when Highlight Recovery is ON.\nDefault: ON";
 
+        public static string AutoHighlightSample => IsJapanese ? "ハイライト自動補正" : "Auto Highlight Sample";
+        public static string AutoHighlightSampleTooltip => IsJapanese
+            ? "明るい光沢部をスポイトすると、中央ハイライトのグラデーションが潰れて「ベタ塗り」に見えることがあります。\nこの設定は、パーツの地色(同じ色相の中間トーン)をテクスチャから自動で見つけ、ハイライトの白寄せ合成を\n効かせて鏡面の立体感を出します。再着色する範囲(マッチング)は変えず、見え方だけを補正します。\n※ 髪など細い房が多いテクスチャでは白寄せが広がりすぎることがあるため、その場合は OFF にしてください。\nデフォルト: OFF（必要なゾーンだけ ON）"
+            : "When you eyedrop a bright glossy spot, the central highlight gradient can collapse into a flat look.\nThis finds the part's base tone (same-hue mid tone) from the texture automatically and applies the highlight\nwhite-ward blend so specular shading appears. It does not change which pixels are recolored (matching), only how it looks.\nNote: on hair-like textures with many thin strands the white-ward blend can spread too much - turn this OFF there.\nDefault: OFF (enable per zone as needed)";
+
         // ─── Exclusion Mask ───
         public static string ExclusionMask => IsJapanese ? "除外マスク" : "Exclusion Mask";
         public static string BrushSize => IsJapanese ? "ブラシサイズ" : "Brush Size";
