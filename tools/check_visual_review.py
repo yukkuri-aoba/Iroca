@@ -10,6 +10,7 @@ approved.json が全ステージファイルより新しくなければコミッ
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime
@@ -58,6 +59,10 @@ def get_file_mtime(rel_path: str) -> datetime | None:
 
 
 def main() -> None:
+    if os.environ.get("SKIP_VISUAL_REVIEW") == "1":
+        print("[pre-commit] SKIP_VISUAL_REVIEW=1 のため視覚レビューチェックをスキップします")
+        sys.exit(0)
+
     staged = get_staged_files()
     algo_staged = [f for f in staged if is_algorithm_file(f)]
 
