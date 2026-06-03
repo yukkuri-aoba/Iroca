@@ -89,6 +89,10 @@ namespace VRCAvatarColorChanger
         public static string PatternPreserveTooltip => IsJapanese
             ? "0 = 変更先の明度に完全に合わせる（ベタ塗り風）\n1 = 元の明度を完全保持（模様が残りやすい）"
             : "0 = Match target brightness entirely (flat recolor)\n1 = Keep original brightness (preserves patterns)";
+        public static string OutputSaturation => IsJapanese ? "出力彩度" : "Output Saturation";
+        public static string OutputSaturationTooltip => IsJapanese
+            ? "再着色後の彩度。1.0 = 変更先の鮮やかさをそのまま使う。\n彩度100%の純色（例: 純赤）は明暗のグラデーションが潰れて「ベタ塗り」に見えやすい。\n少し下げると（0.7〜0.9）色相は保ったまま明度の立体感（陰影）が戻る。\nデフォルト: 1.0"
+            : "Saturation after recoloring. 1.0 = use the target color's full vividness.\nFully saturated colors (e.g. pure red) tend to flatten brightness gradients (a solid-fill look).\nLowering it (0.7-0.9) keeps the hue but restores the brightness gradient / shading.\nDefault: 1.0";
         public static string EdgeSoftness => IsJapanese ? "エッジ柔らかさ" : "Edge Softness";
         public static string EdgeSoftnessTooltip => IsJapanese
             ? "0 = 硬いエッジ（従来通り）\n1 = 柔らかいエッジ（アンチエイリアス境界を滑らかに）"
@@ -180,6 +184,11 @@ namespace VRCAvatarColorChanger
         public static string HighlightRecoveryTooltip => IsJapanese
             ? "高明度・低彩度のハイライト領域を補助的にマッチします。\n鏡面反射や光沢のある素材の色変換漏れを防ぎます。\nデフォルト: ON"
             : "Match high-brightness low-saturation highlight regions.\nPrevents missed recoloring on reflective/glossy materials.\nDefault: ON";
+
+        public static string HighlightBandExpand => IsJapanese ? "ハイライト帯の拡張" : "Highlight Band Expansion";
+        public static string HighlightBandExpandTooltip => IsJapanese
+            ? "本体にマッチした領域から、描き込まれたハイライト（同色相で白方向に色が薄くなった明部）へ\n変換範囲を空間的に広げます。許容値を上げずに、薄いハイライトのベタ塗り化・取りこぼしを防ぎます。\n本体に連結した領域のみ広げるため、別パーツや白素材への巻き込みは起きません。\n「ハイライト補助」が ON のときのみ有効。\nデフォルト: ON"
+            : "Expands recoloring from the matched body into drawn-in highlights (same-hue bright pixels washed toward white).\nKeeps thin highlights from being flattened or missed without raising tolerance.\nOnly grows regions connected to the matched body, so it never bleeds into other parts or white material.\nActive only when Highlight Recovery is ON.\nDefault: ON";
 
         // ─── Exclusion Mask ───
         public static string ExclusionMask => IsJapanese ? "除外マスク" : "Exclusion Mask";

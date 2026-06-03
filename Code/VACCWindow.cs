@@ -545,6 +545,9 @@ namespace VRCAvatarColorChanger
                 zone.valueBlend = UndoHelper.Slider(this,
                     new GUIContent(Localization.PatternPreserve, Localization.PatternPreserveTooltip),
                     zone.valueBlend, 0f, 1f);
+                zone.outputSaturation = UndoHelper.Slider(this,
+                    new GUIContent(Localization.OutputSaturation, Localization.OutputSaturationTooltip),
+                    zone.outputSaturation, 0f, 1f);
                 zone.edgeSoftness = UndoHelper.Slider(this,
                     new GUIContent(Localization.EdgeSoftness, Localization.EdgeSoftnessTooltip),
                     zone.edgeSoftness, 0f, 1f);
@@ -558,6 +561,17 @@ namespace VRCAvatarColorChanger
                 zone.highlightRecovery = UndoHelper.Toggle(this,
                     new GUIContent(Localization.HighlightRecovery, Localization.HighlightRecoveryTooltip),
                     zone.highlightRecovery);
+
+                // ハイライト帯の拡張は「ハイライト補助」が ON のときのみ有効なので、
+                // OFF のときはグレーアウトして関係を明示する。
+                using (new EditorGUI.DisabledScope(!zone.highlightRecovery))
+                {
+                    EditorGUI.indentLevel++;
+                    zone.highlightBandExpand = UndoHelper.Toggle(this,
+                        new GUIContent(Localization.HighlightBandExpand, Localization.HighlightBandExpandTooltip),
+                        zone.highlightBandExpand);
+                    EditorGUI.indentLevel--;
+                }
 
                 EditorGUILayout.Space(2);
                 EditorGUILayout.LabelField(Localization.IsJapanese ? "=== シャドウ・ハイライト詳細設定 ===" : "=== Shadow/Highlight Details ===", EditorStyles.boldLabel);

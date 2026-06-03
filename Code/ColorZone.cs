@@ -50,6 +50,11 @@ namespace VRCAvatarColorChanger
         [Range(0f, 1f)]
         public float valueBlend = 1f;
 
+        // 出力彩度スケール（1.0=従来の鮮やかさ維持）。1.0未満で再着色後の彩度を比例的に下げ、
+        // 純色 target でも明度グラデーション（立体感）が出るようにする。
+        [Range(0f, 1f)]
+        public float outputSaturation = 1f;
+
         [Range(0f, 1f)]
         public float edgeSoftness = 0f;
 
@@ -78,6 +83,7 @@ namespace VRCAvatarColorChanger
         public float saturationGuard = 0f;
 
         public bool highlightRecovery = true;
+        public bool highlightBandExpand = true;
         public int layerIndex = 0;
         public string id = "";
 
