@@ -164,6 +164,14 @@ namespace VRCAvatarColorChanger
                         debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, strength, w, h);
                     }
 
+                    // 1.a.1 ハイライト帯成長: matched core から「sample→白 軸上の同色相の明部」へ
+                    //       strength を空間連結で伸ばし、薄いハイライトのベタ塗り化・取りこぼしを防ぐ。
+                    if (zone.highlightBandExpand && zone.highlightRecovery)
+                    {
+                        GrowHighlightBand(strength, originalPixels, pixH, pixS, pixV, zone, w, h);
+                        debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, strength, w, h);
+                    }
+
                     // 1.a.2 Flood Fill: シード点から連続する領域のみに強度を絞り込む
                     if (VACCConsts.ExperimentalFeatures.EnableFloodFill
                         && zone.mode == SelectionMode.ColorPick
@@ -275,6 +283,7 @@ namespace VRCAvatarColorChanger
                     float zTG = zone.targetColor.g;
                     float zTB = zone.targetColor.b;
                     float zValueBlend = zone.valueBlend;
+                    float zOutputSat = zone.outputSaturation;
                     var strengthForRecolor = strength;
                     var aaMaskLocal = aaMask;
                     var decontaminatedLocal = decontaminatedPixels;
@@ -305,7 +314,8 @@ namespace VRCAvatarColorChanger
                                 sR: zSR, sG: zSG, sB: zSB,
                                 tR: zTR, tG: zTG, tB: zTB,
                                 valueBlend: zValueBlend,
-                                shadowDesaturation: zone.shadowDesaturation);
+                                shadowDesaturation: zone.shadowDesaturation,
+                                outputSaturation: zOutputSat);
                             pixels[i] = s >= 0.999f ? recolored : Color32.Lerp(pixels[i], recolored, s);
                         }
                     });
@@ -682,6 +692,106 @@ namespace VRCAvatarColorChanger
             }
         }
 
+        // ハイライト帯成長で使用する定数。
+        // dev_safe/vacc_python/algorithm.py の HL_BAND_* と同期。
+        private const float HlBandCoreThreshold = 0.90f;  // 信頼コア（本体）とみなす strength 下限
+        private const float HlBandAxisEps       = 0.10f;  // sample→白 軸からの許容残差（RGB ユークリッド）
+        private const float HlBandMinSampleSat  = 0.20f;  // 源色がこれ未満（灰色寄り）なら無効
+        private const float HlBandMinSatFrac    = 0.15f;  // 帯候補の彩度下限（源色相対）。白素材への流入を防ぐ
+
+        /// <summary>
+        /// ハイライト帯成長: matched core（本体）から「sample→白 直線上に乗った同色相の
+        /// 明部画素」へ strength を空間連結で伸ばす。グローバル tolerance を上げずに
+        /// 描き込みハイライトの薄い帯を full strength で拾い、ベタ塗り化・取りこぼしを防ぐ。
+        ///
+        /// 判定（元テクスチャと比較して「本体色が白く飛んだ画素」か）:
+        ///   候補 = pV&gt;sV ∧ 同色相(hd&lt;hueCap) ∧ sample→白 軸からの残差&lt;eps
+        ///          ∧ sS×MinSatFrac ≤ pS &lt; sS
+        /// 安全ゲート（俯瞰: 周囲の構造を見る）:
+        ///   候補のうち core(strength≥THR) に 4 連結で到達できる画素のみ採用。
+        ///   孤立した同系色の島（別パーツ・白素材）は core に触れないので入らない。
+        /// 採用画素は strength=1 にし、後段の P5 白寄せで階調を保ったまま再着色する。
+        ///
+        /// dev_safe/vacc_python/algorithm.py::grow_highlight_band と等価。
+        /// </summary>
+        private static void GrowHighlightBand(
+            float[] strength, Color32[] originalPixels,
+            float[] pixH, float[] pixS, float[] pixV, ColorZone zone, int w, int h)
+        {
+            float sH, sS, sV;
+            Color.RGBToHSV(zone.sampleColor, out sH, out sS, out sV);
+            if (sS < HlBandMinSampleSat) return;
+
+            float sR = zone.sampleColor.r, sG = zone.sampleColor.g, sB = zone.sampleColor.b;
+            float dR = 1f - sR, dG = 1f - sG, dB = 1f - sB;   // sample → 白 方向
+            float dsq = dR * dR + dG * dG + dB * dB;
+            if (dsq < 1e-6f) return;
+
+            float hueCap = Mathf.Max(0.05f, zone.tolerance * 0.3f);
+            float satFloor = sS * HlBandMinSatFrac;
+
+            int len = w * h;
+            bool[] candidate = new bool[len];
+            bool[] visited = new bool[len];
+            var queue = new Queue<int>();
+
+            // 候補判定 + core をシードとして収集（1 パス）
+            for (int i = 0; i < len; i++)
+            {
+                float pV = pixV[i];
+                if (pV > sV)
+                {
+                    float pS = pixS[i];
+                    if (pS < sS && pS >= satFloor)
+                    {
+                        float hd = Mathf.Abs(pixH[i] - sH);
+                        if (hd > 0.5f) hd = 1f - hd;
+                        if (hd < hueCap)
+                        {
+                            Color32 op = originalPixels[i];
+                            float pr = op.r / 255f, pg = op.g / 255f, pb = op.b / 255f;
+                            float ox = pr - sR, oy = pg - sG, oz = pb - sB;
+                            float wv = (ox * dR + oy * dG + oz * dB) / dsq;
+                            if (wv < 0f) wv = 0f; else if (wv > 1f) wv = 1f;
+                            float rr = pr - (sR + wv * dR);
+                            float rg = pg - (sG + wv * dG);
+                            float rb = pb - (sB + wv * dB);
+                            if (rr * rr + rg * rg + rb * rb < HlBandAxisEps * HlBandAxisEps)
+                                candidate[i] = true;
+                        }
+                    }
+                }
+
+                if (strength[i] >= HlBandCoreThreshold)
+                {
+                    visited[i] = true;
+                    queue.Enqueue(i);
+                }
+            }
+
+            if (queue.Count == 0) return;
+
+            // core から候補領域へ 4 連結 BFS（候補セルのみ拡張）
+            while (queue.Count > 0)
+            {
+                int idx = queue.Dequeue();
+                int x = idx % w;
+                int y = idx / w;
+                TryVisit(idx - 1, x > 0);
+                TryVisit(idx + 1, x < w - 1);
+                TryVisit(idx - w, y > 0);
+                TryVisit(idx + w, y < h - 1);
+            }
+
+            void TryVisit(int ni, bool inBounds)
+            {
+                if (!inBounds || visited[ni] || !candidate[ni]) return;
+                visited[ni] = true;
+                if (strength[ni] < 1f) strength[ni] = 1f;
+                queue.Enqueue(ni);
+            }
+        }
+
         // 共通マスクとゾーン別マスクを OR 結合した除外判定。
         // どちらか片方でも true ならそのピクセルはこのゾーン処理から除外される。
         private static bool IsExcludedCombined(int x, int y, int texW, int texH,
@@ -1026,10 +1136,15 @@ namespace VRCAvatarColorChanger
             float sH, float sS, float sV,
             float sR, float sG, float sB,
             float tR, float tG, float tB,
-            float valueBlend, float shadowDesaturation)
+            float valueBlend, float shadowDesaturation,
+            float outputSaturation = 1f)
         {
             // 彩度比を保持：アンチエイリアス境界ピクセルは相対的な彩度を保つ
             float newS = (sS > 0.001f) ? Mathf.Clamp01(oS * tS / sS) : tS;
+
+            // 出力彩度スケール: 純色 target で潰れる明度グラデーションを、比例的な脱彩で取り戻す。
+            // 1.0 では従来と完全一致。1.0未満で全体の彩度を比例的に下げ立体感を出す。
+            if (outputSaturation < 0.999f) newS *= outputSaturation;
 
             // 相対明度保持（オフセット式）: サンプル明度 sV を基準点に、元画素の
             // 陰影・段差成分 (oV - sV) はそのまま温存し、全体トーンだけを valueBlend で
