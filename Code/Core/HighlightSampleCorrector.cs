@@ -35,7 +35,10 @@ namespace VRCAvatarColorChanger
             Color32[] px, float[] pixH, float[] pixS, float[] pixV, int w, int h, ColorZone zone)
         {
             Color sample = zone.sampleColor;
-            if (!zone.autoHighlightSample) return sample;
+            // 自動導出は「白寄せ合成 ON」かつ「自動補正 ON」の両方が必要。
+            // applyHighlightWash が OFF なら射影自体が走らないので sample のままで十分。
+            // Python 参照 algorithm.py の wash_rgb 条件 (apply_highlight_wash && auto_highlight_sample) と一致。
+            if (!zone.applyHighlightWash || !zone.autoHighlightSample) return sample;
 
             Color.RGBToHSV(sample, out float sH, out float sS, out float sV);
             if (sS < MinSampleSat) return sample;
