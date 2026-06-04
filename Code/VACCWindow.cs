@@ -575,9 +575,20 @@ namespace VRCAvatarColorChanger
                     EditorGUI.indentLevel--;
                 }
 
-                zone.autoHighlightSample = UndoHelper.Toggle(this,
-                    new GUIContent(Localization.AutoHighlightSample, Localization.AutoHighlightSampleTooltip),
-                    zone.autoHighlightSample);
+                zone.applyHighlightWash = UndoHelper.Toggle(this,
+                    new GUIContent(Localization.ApplyHighlightWash, Localization.ApplyHighlightWashTooltip),
+                    zone.applyHighlightWash);
+
+                // 俯瞰スポイト補正(wash サンプル自動導出)は「ハイライト白寄せ合成」が ON の
+                // ときのみ意味を持つので、OFF のときはグレーアウトして関係を明示する。
+                using (new EditorGUI.DisabledScope(!zone.applyHighlightWash))
+                {
+                    EditorGUI.indentLevel++;
+                    zone.autoHighlightSample = UndoHelper.Toggle(this,
+                        new GUIContent(Localization.AutoHighlightSample, Localization.AutoHighlightSampleTooltip),
+                        zone.autoHighlightSample);
+                    EditorGUI.indentLevel--;
+                }
 
                 EditorGUILayout.Space(2);
                 EditorGUILayout.LabelField(Localization.IsJapanese ? "=== シャドウ・ハイライト詳細設定 ===" : "=== Shadow/Highlight Details ===", EditorStyles.boldLabel);

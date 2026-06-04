@@ -286,6 +286,7 @@ namespace VRCAvatarColorChanger
                     float zTB = zone.targetColor.b;
                     float zValueBlend = zone.valueBlend;
                     float zOutputSat = zone.outputSaturation;
+                    bool zApplyWash = zone.applyHighlightWash;
                     // 俯瞰スポイト補正: ハイライト合成(wash)に使う実効サンプル。テクスチャの地色
                     // (同色相・低V)を自動導出し、明るい所をスポイトしても wash がドーム全体に効く
                     // ようにする。autoHighlightSample=false / 低彩度 / 地色不足のときは sample のまま。
@@ -325,6 +326,7 @@ namespace VRCAvatarColorChanger
                                 valueBlend: zValueBlend,
                                 shadowDesaturation: zone.shadowDesaturation,
                                 washR: zWR, washG: zWG, washB: zWB, washV: zWV,
+                                applyHighlightWash: zApplyWash,
                                 outputSaturation: zOutputSat);
                             pixels[i] = s >= 0.999f ? recolored : Color32.Lerp(pixels[i], recolored, s);
                         }
@@ -342,6 +344,7 @@ namespace VRCAvatarColorChanger
                         float zoneShadowDesat = zone.shadowDesaturation;
                         float zoneSV = zSV;
                         float zoneSS = zSS;
+                        bool zoneApplyWash = zone.applyHighlightWash;
                         var aaMaskForBranch = aaMask;
                         Parallel.For(0, len, po, i =>
                         {
@@ -361,7 +364,7 @@ namespace VRCAvatarColorChanger
                                 branchMap[i] = (byte)DebugBranch.Shadow;
                                 return;
                             }
-                            if (zoneSS > 0.01f && oV > zoneSV)
+                            if (zoneApplyWash && zoneSS > 0.01f && oV > zoneSV)
                             {
                                 branchMap[i] = (byte)DebugBranch.Highlight;
                                 return;
@@ -1148,6 +1151,7 @@ namespace VRCAvatarColorChanger
             float tR, float tG, float tB,
             float valueBlend, float shadowDesaturation,
             float washR, float washG, float washB, float washV,
+            bool applyHighlightWash,
             float outputSaturation = 1f)
         {
             // 彩度比を保持：アンチエイリアス境界ピクセルは相対的な彩度を保つ
@@ -1194,7 +1198,11 @@ namespace VRCAvatarColorChanger
             // wash 用サンプル(washR/G/B/V): 既定は match と同じ sample。俯瞰スポイト補正では
             // パーツ地色(同色相・低V)が渡され、ハイライト合成 (oV>washV) がドーム全体に効く。
             // match/base は sample のままなので再着色範囲は不変(新規 FP なし)。
-            if (sS > 0.01f && oV > washV)
+            //
+            // applyHighlightWash ゲート (2026-06-04): この白寄せ射影は既定 OFF のオプトイン。
+            // OFF のときは HSV transfer のみで明部の明度・彩度構造を温存する。Python 参照
+            // algorithm.py recolor_pixels の `if apply_highlight_wash:` と同期。
+            if (applyHighlightWash && sS > 0.01f && oV > washV)
             {
                 float dR = 1f - washR;
                 float dG = 1f - washG;
@@ -1212,8 +1220,22 @@ namespace VRCAvatarColorChanger
                     float projTG = tG + w * (1f - tG);
                     float projTB = tB + w * (1f - tB);
 
+                    // 軸残差フェード (2026-06-04): 元画素が wash→白 軸からどれだけ外れて
+                    // いるか(resid)に応じて白寄せを減衰させる。
+                    //   真の鏡面ハイライト = 地色が光で白く飛んだもの = 軸上(resid≈0) → フル白寄せ
+                    //   有彩の模様        = 別色・高彩度        = 軸外(resid 大)  → 白寄せ 0
+                    // 軸外で proj_t(=軸上の脱彩点)への置換を止めるので、明るい同系色の模様まで
+                    // 白化して模様が壊れる過剰白化を構造的に排除する。残差を捨てる(P5)のは
+                    // resid≈0 の画素に限られるためピンク化抑止特性も維持。dev_safe algorithm.py と同期。
+                    float axR = washR + w * dR;
+                    float axG = washG + w * dG;
+                    float axB = washB + w * dB;
+                    float rr = oR - axR, rg = oG - axG, rb = oB - axB;
+                    float resid = Mathf.Sqrt(rr * rr + rg * rg + rb * rb);
+                    float axisFade = Mathf.Clamp01(1f - resid / HlBandAxisEps);
+
                     // 境界連続性のため valRise でフェード (oV=washV で valRise=0、hsv_result に戻る)
-                    float valRise = Mathf.Clamp01((oV - washV) / Mathf.Max(0.05f, 1f - washV));
+                    float valRise = Mathf.Clamp01((oV - washV) / Mathf.Max(0.05f, 1f - washV)) * axisFade;
                     result.r = Mathf.Lerp(result.r, projTR, valRise);
                     result.g = Mathf.Lerp(result.g, projTG, valRise);
                     result.b = Mathf.Lerp(result.b, projTB, valRise);

@@ -86,10 +86,15 @@ namespace VRCAvatarColorChanger
 
         public bool highlightRecovery = true;
         public bool highlightBandExpand = true;
-        // 俯瞰スポイト補正: ハイライト合成(wash)用サンプルの明度を、テクスチャの地色まで自動で下げる。
-        // 明るい光沢部をスポイトしても鏡面グラデが潰れない。match/base は不変＝再着色範囲は変えない。
-        // 既定 OFF（オプトイン）。房の多いテクスチャ（髪など）では OFF が望ましいことがあるため、
-        // 必要なゾーンだけ ON にする運用とする。
+        // ハイライト白寄せ合成: 明部(明度>サンプル)を「wash→白 軸」へ射影し、鏡面ハイライトを
+        // 表現する。既定 OFF（オプトイン）。OFF のときは色相転送(HSV transfer)のみで、明部の
+        // 明度・彩度構造はそのまま温存される。ON でも有彩の模様は軸残差フェードで保護され、
+        // 軸上の真の鏡面のみが白寄せされる。Python 参照の apply_highlight_wash と同期。
+        public bool applyHighlightWash = false;
+        // 俯瞰スポイト補正: ハイライト白寄せ合成(applyHighlightWash)用サンプルの明度を、テクスチャの
+        // 地色まで自動で下げる配下オプション。明るい光沢部をスポイトしても鏡面グラデが潰れない。
+        // match/base は不変＝再着色範囲は変えない。applyHighlightWash が ON のときだけ作用する。
+        // 既定 OFF。房の多いテクスチャ（髪など）では OFF が望ましいことがある。
         public bool autoHighlightSample = false;
         public int layerIndex = 0;
         public string id = "";
