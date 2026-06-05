@@ -272,12 +272,9 @@ namespace VRCAvatarColorChanger
                     }
 
                     // 4. 強度でブレンドした再色付けを適用
-                    // target/sample は zone 内で定数なので HSV 変換をループ外で事前計算
-                    float zTH, zTS, zTV;
-                    float zSH, zSS, zSV;
-                    Color.RGBToHSV(zone.targetColor, out zTH, out zTS, out zTV);
-                    Color.RGBToHSV(zone.sampleColor, out zSH, out zSS, out zSV);
-                    // P5' (2026-05-26): ハイライト白方向射影に必要な sample / target RGB を事前取得
+                    // sample の S/V は wash ゲートとデバッグ分岐で使うため事前計算しておく。
+                    Color.RGBToHSV(zone.sampleColor, out _, out float zSS, out float zSV);
+                    // ハイライト白方向射影(wash)・OkLab リカラーに必要な sample / target RGB を事前取得
                     float zSR = zone.sampleColor.r;
                     float zSG = zone.sampleColor.g;
                     float zSB = zone.sampleColor.b;
@@ -294,6 +291,31 @@ namespace VRCAvatarColorChanger
                         originalPixels, pixH, pixS, pixV, w, h, zone);
                     float zWR = zWash.r, zWG = zWash.g, zWB = zWash.b;
                     Color.RGBToHSV(zWash, out _, out _, out float zWV);
+
+                    // OkLab 明度保持リカラーのゾーン定数を事前計算 (per-pixel コスト削減)。
+                    // sample/target を OkLab に変換し、彩度(a,b)を sample→target へ写す線形写像
+                    // (回転 dθ + スケール tC/sC、白=0 は不動点) を求める。outputSaturation は
+                    // スケールに畳み込む。sample が無彩(zSC≈0)なら target chroma を一律付与する。
+                    RgbToOklab(zSR, zSG, zSB, out float zSL, out float zSa, out float zSb);
+                    RgbToOklab(zTR, zTG, zTB, out float zTL, out float zTa, out float zTb);
+                    float zSC = Mathf.Sqrt(zSa * zSa + zSb * zSb);
+                    float zTC = Mathf.Sqrt(zTa * zTa + zTb * zTb);
+                    float zOsat = zOutputSat < 0.999f ? zOutputSat : 1f;
+                    bool zOkGray = zSC <= 1e-4f;
+                    float zOkScale = 0f, zOkCos = 1f, zOkSin = 0f, zOkGa = 0f, zOkGb = 0f;
+                    if (zOkGray)
+                    {
+                        zOkGa = zTa * zOsat;
+                        zOkGb = zTb * zOsat;
+                    }
+                    else
+                    {
+                        zOkScale = (zTC / zSC) * zOsat;
+                        float zDth = Mathf.Atan2(zTb, zTa) - Mathf.Atan2(zSb, zSa);
+                        zOkCos = Mathf.Cos(zDth);
+                        zOkSin = Mathf.Sin(zDth);
+                    }
+
                     var strengthForRecolor = strength;
                     var aaMaskLocal = aaMask;
                     var decontaminatedLocal = decontaminatedPixels;
@@ -318,16 +340,15 @@ namespace VRCAvatarColorChanger
                             float oB = op.b / 255f;
                             Color32 recolored = RecolorPixel(
                                 oR, oG, oB,
-                                pixH[i], pixS[i], pixV[i], alpha,
-                                tH: zTH, tS: zTS, tV: zTV,
-                                sH: zSH, sS: zSS, sV: zSV,
-                                sR: zSR, sG: zSG, sB: zSB,
-                                tR: zTR, tG: zTG, tB: zTB,
+                                pixV[i], alpha,
+                                okScale: zOkScale, okCos: zOkCos, okSin: zOkSin,
+                                okGray: zOkGray, okGa: zOkGa, okGb: zOkGb,
+                                okSL: zSL, okTL: zTL,
                                 valueBlend: zValueBlend,
                                 shadowDesaturation: zone.shadowDesaturation,
+                                sS: zSS, tR: zTR, tG: zTG, tB: zTB,
                                 washR: zWR, washG: zWG, washB: zWB, washV: zWV,
-                                applyHighlightWash: zApplyWash,
-                                outputSaturation: zOutputSat);
+                                applyHighlightWash: zApplyWash);
                             pixels[i] = s >= 0.999f ? recolored : Color32.Lerp(pixels[i], recolored, s);
                         }
                     });
@@ -1142,43 +1163,104 @@ namespace VRCAvatarColorChanger
             return strength;
         }
 
+        // ───────────── OkLab 知覚色空間ヘルパー (リング除去の中核) ─────────────
+        // リング(ドーナツ)の根本原因は「HSV の V/S は知覚的でないため、S/V を保持して
+        // 色相だけ変えると元の単調な輝度 falloff が変換先の色の輝度応答で非単調化する」こと。
+        // OkLab で L(知覚明度)を保持し彩度(a,b)を sample→target の線形写像で移すことで、
+        // 明度構造を完全保存しリング・白部サイズ変化・ベタ塗りを構造的に排除する。
+        // dev_safe/vacc_python/algorithm.py の _rgb_to_oklab / _oklab_to_rgb と同期。
+        private static float SrgbToLinear(float c)
+        {
+            c = Mathf.Clamp01(c);
+            return c <= 0.04045f ? c / 12.92f : Mathf.Pow((c + 0.055f) / 1.055f, 2.4f);
+        }
+
+        private static float LinearToSrgb(float c)
+        {
+            c = Mathf.Clamp01(c);
+            return c <= 0.0031308f ? c * 12.92f : 1.055f * Mathf.Pow(c, 1f / 2.4f) - 0.055f;
+        }
+
+        private static float Cbrt(float x)
+        {
+            return x < 0f ? -Mathf.Pow(-x, 1f / 3f) : Mathf.Pow(x, 1f / 3f);
+        }
+
+        private static void RgbToOklab(float r, float g, float b,
+            out float L, out float a, out float bb)
+        {
+            float lr = SrgbToLinear(r), lg = SrgbToLinear(g), lb = SrgbToLinear(b);
+            float l = 0.4122214708f * lr + 0.5363325363f * lg + 0.0514459929f * lb;
+            float m = 0.2119034982f * lr + 0.6806995451f * lg + 0.1073969566f * lb;
+            float s = 0.0883024619f * lr + 0.2817188376f * lg + 0.6299787005f * lb;
+            float l_ = Cbrt(l), m_ = Cbrt(m), s_ = Cbrt(s);
+            L = 0.2104542553f * l_ + 0.7936177850f * m_ - 0.0040720468f * s_;
+            a = 1.9779984951f * l_ - 2.4285922050f * m_ + 0.4505937099f * s_;
+            bb = 0.0259040371f * l_ + 0.7827717662f * m_ - 0.8086757660f * s_;
+        }
+
+        private static void OklabToRgb(float L, float a, float b,
+            out float r, out float g, out float bb)
+        {
+            float l_ = L + 0.3963377774f * a + 0.2158037573f * b;
+            float m_ = L - 0.1055613458f * a - 0.0638541728f * b;
+            float s_ = L - 0.0894841775f * a - 1.2914855480f * b;
+            float l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_;
+            float lr = +4.0767416621f * l - 3.3077115913f * m + 0.2309699292f * s;
+            float lg = -1.2684380046f * l + 2.6097574011f * m - 0.3413193965f * s;
+            float lb = -0.0041960863f * l - 0.7034186147f * m + 1.7076147010f * s;
+            r = LinearToSrgb(lr);
+            g = LinearToSrgb(lg);
+            bb = LinearToSrgb(lb);
+        }
+
         private static Color32 RecolorPixel(
             float oR, float oG, float oB,
-            float oH, float oS, float oV, float alpha,
-            float tH, float tS, float tV,
-            float sH, float sS, float sV,
-            float sR, float sG, float sB,
-            float tR, float tG, float tB,
+            float oV, float alpha,
+            float okScale, float okCos, float okSin,
+            bool okGray, float okGa, float okGb,
+            float okSL, float okTL,
             float valueBlend, float shadowDesaturation,
+            float sS, float tR, float tG, float tB,
             float washR, float washG, float washB, float washV,
-            bool applyHighlightWash,
-            float outputSaturation = 1f)
+            bool applyHighlightWash)
         {
-            // 彩度比を保持：アンチエイリアス境界ピクセルは相対的な彩度を保つ
-            float newS = (sS > 0.001f) ? Mathf.Clamp01(oS * tS / sS) : tS;
+            // === OkLab 明度マップ + 彩度線形写像リカラー ===
+            // L: 2区間線形リマップ (0→0, sL→tL, 1→1)。base を target 明度へ寄せる。単調維持
+            //    (リング無し)・ガンマット内(クリップ無し)・白→白/黒→黒。明度を完全保持すると
+            //    暗い色→黄色が brown 化するため base は target 明度に合わせる。
+            // (a,b)_new = (tC/sC)·R(th-sh)·(a,b) ← 白(chroma 0)固定、sample→target を線形写像
+            RgbToOklab(oR, oG, oB, out float oL, out float oa, out float ob);
+            float na, nb;
+            if (okGray)
+            {
+                // sample が無彩(グレー): target chroma を一律付与(旧 newS=tS 相当)
+                na = okGa;
+                nb = okGb;
+            }
+            else
+            {
+                na = okScale * (okCos * oa - okSin * ob);
+                nb = okScale * (okSin * oa + okCos * ob);
+            }
+            // 2区間線形リマップ: [0,sL]→[0,tL], [sL,1]→[tL,1]。sL→tL を不動点に base を target 明度へ。
+            float remapL = oL <= okSL
+                ? (oL / Mathf.Max(okSL, 1e-4f)) * okTL
+                : okTL + (oL - okSL) / Mathf.Max(1f - okSL, 1e-4f) * (1f - okTL);
+            // valueBlend=1 でフル階調、<1 で target フラットトーンへ寄せる。
+            float nL = okTL * (1f - valueBlend) + remapL * valueBlend;
 
-            // 出力彩度スケール: 純色 target で潰れる明度グラデーションを、比例的な脱彩で取り戻す。
-            // 1.0 では従来と完全一致。1.0未満で全体の彩度を比例的に下げ立体感を出す。
-            if (outputSaturation < 0.999f) newS *= outputSaturation;
-
-            // 相対明度保持（オフセット式）: サンプル明度 sV を基準点に、元画素の
-            // 陰影・段差成分 (oV - sV) はそのまま温存し、全体トーンだけを valueBlend で
-            // ターゲット側へ寄せる。これにより d(newV)/d(oV)=1 となり、手描きの
-            // 多段シェーディング（明るい段）が valueBlend<1 でも潰れない。
-            // valueBlend=1.0 では baseV=sV, newV=sV+(oV-sV)=oV ＝従来 Lerp(tV,oV,1) と完全一致。
-            float shadingOffset = oV - sV;
-            float baseV = Mathf.Lerp(tV, sV, valueBlend);
-            float newV = Mathf.Clamp01(baseV + shadingOffset);
-
-            // シャドウ（暗い部分）の彩度の保護ロジック:
-            // 黒や極端に暗いピクセルはHSV変換でおかしな色になりやすいため、暗さに応じて彩度を0に近づける
+            // 暗部脱彩 (旧 shadowDesaturation の OkLab 等価): 暗い画素の chroma を最大 50% 抑制。
             if (shadowDesaturation > 0f && oV < shadowDesaturation)
             {
-                // 0.3以下から一気に暗い色として扱う
                 float shadowIntensity = Mathf.Clamp01((shadowDesaturation - oV) / shadowDesaturation);
-                newS = Mathf.Lerp(newS, Mathf.Min(oS, newS * 0.5f), shadowIntensity); // 暗い部分の彩度をさらに抑える
+                float fac = 1f - 0.5f * shadowIntensity;
+                na *= fac;
+                nb *= fac;
             }
-            Color result = Color.HSVToRGB(tH, newS, newV);
+
+            OklabToRgb(nL, na, nb, out float outR, out float outG, out float outB);
+            Color result = new Color(Mathf.Clamp01(outR), Mathf.Clamp01(outG), Mathf.Clamp01(outB), 1f);
 
             // ハイライト合成 (P5 軸射影版・residual なし / 2026-05-26):
             // ピクセルを「sample → (1,1,1) 白直線」に射影して進行度 w を取り、
