@@ -195,8 +195,31 @@ namespace VRCAvatarColorChanger
 
                     // 1b. 孤立した穴を埋める：アンチエイリアス処理された端のピクセルは低彩度を持つことが多く
                     //     satConfidenceで見落とされて、元のカラーの孤立したドットを残す
-                    //     ゼロ強度ピクセルが主にマッチしたピクセルに囲まれている場合は埋める
-                    FillSmallHoles(strength, w, h, holeFillPasses, holeFillMinNeighbors);
+                    //     ゼロ強度ピクセルが主にマッチしたピクセルに囲まれている場合は埋める。
+                    //     穴埋め relaxed ゲート (2026-06-07 再移植): 画素自身が relaxed マッチ
+                    //     (dist<tolerance) を通る色だけを穴埋め候補に許可する。薄いロゴ等で
+                    //     「マッチ領域に囲まれただけの背景グレー/白」を full strength に塗ってしまう
+                    //     フリンジ(白/灰ノイズ)を構造的に防ぐ。境界回復(RecoverBoundaryEdges)と同一基準。
+                    //     dev_safe/vacc_python/algorithm.py の hole_fill_relaxed_gate (shipping 既定 True) と同期。
+                    bool[] fillAllowed = ArrayPool<bool>.Shared.Rent(len);
+                    try
+                    {
+                        Color.RGBToHSV(zone.sampleColor, out float gsH, out float gsS, out float gsV);
+                        var fillAllowedLocal = fillAllowed;
+                        Parallel.For(0, len, po, i =>
+                        {
+                            fillAllowedLocal[i] = GetRelaxedMatchStrength(
+                                pixH[i], pixS[i], pixV[i], gsH, gsS, gsV,
+                                zone.tolerance, zone.edgeSoftness, zone.valueWeight,
+                                zone.satDistWeight, relaxedSatMin, relaxedSatRamp,
+                                zone.shadowForgivenessSatMin) > 0f;
+                        });
+                        FillSmallHoles(strength, w, h, holeFillPasses, holeFillMinNeighbors, fillAllowed);
+                    }
+                    finally
+                    {
+                        ArrayPool<bool>.Shared.Return(fillAllowed);
+                    }
                     debug?.RecordStage(zone.id, DebugStages.HoleFill, strength, w, h);
 
                     // 1c. 境界復元：マッチしたピクセルに隣接するマッチしないピクセルを再評価
@@ -947,7 +970,7 @@ namespace VRCAvatarColorChanger
         /// バッファを読み書きで swap することで大テクスチャでのメモリコピーを削減。
         /// </remarks>
         private static void FillSmallHoles(float[] strength, int w, int h,
-            int passes = 3, int minNeighbors = 4)
+            int passes = 3, int minNeighbors = 4, bool[] allowedMask = null)
         {
             if (passes <= 0) return;
 
@@ -969,6 +992,10 @@ namespace VRCAvatarColorChanger
                     {
                         int idx = y * w + x;
                         if (read[idx] > 0f) continue;
+                        // relaxed ゲート: 画素自身が relaxed マッチを通る色でなければ埋めない。
+                        // マッチ領域に囲まれただけの背景グレー/白を full strength に塗らないことで、
+                        // 薄いロゴ周辺のフリンジ(白/灰ノイズ)を構造的に防ぐ。
+                        if (allowedMask != null && !allowedMask[idx]) continue;
 
                         int matched = 0;
                         int total = 0;
