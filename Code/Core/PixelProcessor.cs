@@ -293,16 +293,17 @@ namespace VRCAvatarColorChanger
                     Color.RGBToHSV(zWash, out _, out _, out float zWV);
 
                     // OkLab 明度保持リカラーのゾーン定数を事前計算 (per-pixel コスト削減)。
-                    // sample/target を OkLab に変換し、彩度(a,b)を sample→target へ写す線形写像
-                    // (回転 dθ + スケール tC/sC、白=0 は不動点) を求める。outputSaturation は
-                    // スケールに畳み込む。sample が無彩(zSC≈0)なら target chroma を一律付与する。
+                    // sample/target を OkLab に変換。彩度(a,b)は「大きさを |chroma|/sC で正規化し、
+                    // 向きは target 色相(zTa,zTb)に均一化」する。旧版は source の色相を回転保持していたが、
+                    // 単色ロゴでは AA縁の混色がオレンジ寄りに転写され輪郭に色相ノイズを生んだ。向きを
+                    // target に揃えることで L(リング除去)を保ったまま色相を均一化する。outputSaturation は
+                    // 大きさスケールに畳み込む。sample が無彩(zSC≈0)なら target chroma を一律付与する。
                     RgbToOklab(zSR, zSG, zSB, out float zSL, out float zSa, out float zSb);
                     RgbToOklab(zTR, zTG, zTB, out float zTL, out float zTa, out float zTb);
                     float zSC = Mathf.Sqrt(zSa * zSa + zSb * zSb);
-                    float zTC = Mathf.Sqrt(zTa * zTa + zTb * zTb);
                     float zOsat = zOutputSat < 0.999f ? zOutputSat : 1f;
                     bool zOkGray = zSC <= 1e-4f;
-                    float zOkScale = 0f, zOkCos = 1f, zOkSin = 0f, zOkGa = 0f, zOkGb = 0f;
+                    float zOkMagScale = 0f, zOkGa = 0f, zOkGb = 0f;
                     if (zOkGray)
                     {
                         zOkGa = zTa * zOsat;
@@ -310,10 +311,8 @@ namespace VRCAvatarColorChanger
                     }
                     else
                     {
-                        zOkScale = (zTC / zSC) * zOsat;
-                        float zDth = Mathf.Atan2(zTb, zTa) - Mathf.Atan2(zSb, zSa);
-                        zOkCos = Mathf.Cos(zDth);
-                        zOkSin = Mathf.Sin(zDth);
+                        // na = |chroma| * (osat/sC) * zTa, nb = 同 zTb。oC=sC(sample) で (zTa,zTb)=target に一致。
+                        zOkMagScale = zOsat / zSC;
                     }
 
                     var strengthForRecolor = strength;
@@ -341,7 +340,7 @@ namespace VRCAvatarColorChanger
                             Color32 recolored = RecolorPixel(
                                 oR, oG, oB,
                                 pixV[i], alpha,
-                                okScale: zOkScale, okCos: zOkCos, okSin: zOkSin,
+                                okMagScale: zOkMagScale, okTa: zTa, okTb: zTb,
                                 okGray: zOkGray, okGa: zOkGa, okGb: zOkGb,
                                 okSL: zSL, okTL: zTL,
                                 valueBlend: zValueBlend,
@@ -1217,7 +1216,7 @@ namespace VRCAvatarColorChanger
         private static Color32 RecolorPixel(
             float oR, float oG, float oB,
             float oV, float alpha,
-            float okScale, float okCos, float okSin,
+            float okMagScale, float okTa, float okTb,
             bool okGray, float okGa, float okGb,
             float okSL, float okTL,
             float valueBlend, float shadowDesaturation,
@@ -1225,11 +1224,13 @@ namespace VRCAvatarColorChanger
             float washR, float washG, float washB, float washV,
             bool applyHighlightWash)
         {
-            // === OkLab 明度マップ + 彩度線形写像リカラー ===
+            // === OkLab 明度マップ + 彩度(向きは target 色相に均一化)リカラー ===
             // L: 2区間線形リマップ (0→0, sL→tL, 1→1)。base を target 明度へ寄せる。単調維持
             //    (リング無し)・ガンマット内(クリップ無し)・白→白/黒→黒。明度を完全保持すると
             //    暗い色→黄色が brown 化するため base は target 明度に合わせる。
-            // (a,b)_new = (tC/sC)·R(th-sh)·(a,b) ← 白(chroma 0)固定、sample→target を線形写像
+            // (a,b)_new = |chroma|·(osat/sC)·(target 色相単位ベクトル) ← 大きさは元 chroma に比例、
+            //    向きは target に均一化。旧版の「色相回転保持」は単色ロゴの AA縁でオレンジの色相
+            //    ノイズを生んだため、向きを揃えて L を保ったまま色相を均一化する。
             RgbToOklab(oR, oG, oB, out float oL, out float oa, out float ob);
             float na, nb;
             if (okGray)
@@ -1240,8 +1241,10 @@ namespace VRCAvatarColorChanger
             }
             else
             {
-                na = okScale * (okCos * oa - okSin * ob);
-                nb = okScale * (okSin * oa + okCos * ob);
+                float oC = Mathf.Sqrt(oa * oa + ob * ob);
+                float mag = oC * okMagScale;            // |chroma|/sC · osat
+                na = mag * okTa;                        // 向きは target 色相 (zTa, zTb)
+                nb = mag * okTb;
             }
             // 2区間線形リマップ: [0,sL]→[0,tL], [sL,1]→[tL,1]。sL→tL を不動点に base を target 明度へ。
             float remapL = oL <= okSL
