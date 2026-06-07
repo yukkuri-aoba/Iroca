@@ -365,7 +365,7 @@ namespace VRCAvatarColorChanger
                                 pixV[i], alpha,
                                 okMagScale: zOkMagScale, okTa: zTa, okTb: zTb,
                                 okGray: zOkGray, okGa: zOkGa, okGb: zOkGb,
-                                okSL: zSL, okTL: zTL,
+                                okSL: zSL, okTL: zTL, okSC: zSC,
                                 valueBlend: zValueBlend,
                                 shadowDesaturation: zone.shadowDesaturation,
                                 sS: zSS, tR: zTR, tG: zTG, tB: zTB,
@@ -754,6 +754,11 @@ namespace VRCAvatarColorChanger
         private const float HlBandAxisEps       = 0.10f;  // sample→白 軸からの許容残差（RGB ユークリッド）
         private const float HlBandMinSampleSat  = 0.20f;  // 源色がこれ未満（灰色寄り）なら無効
         private const float HlBandMinSatFrac    = 0.15f;  // 帯候補の彩度下限（源色相対）。白素材への流入を防ぐ
+
+        // L 再マップの彩度ゲート定数。彩度が sample の何割に達したら remap をフル適用するか。
+        // これ未満の低彩度画素は元 L を保持し、target が sample より明るい場合の暗部持ち上げ
+        // (=ロゴ周辺の白/灰ノイズ)を防ぐ。algorithm.py の OKLAB_REMAP_FULL_CHROMA_FRAC と同期。
+        private const float OklabRemapFullChromaFrac = 0.35f;
 
         /// <summary>
         /// ハイライト帯成長: matched core（本体）から「sample→白 直線上に乗った同色相の
@@ -1245,7 +1250,7 @@ namespace VRCAvatarColorChanger
             float oV, float alpha,
             float okMagScale, float okTa, float okTb,
             bool okGray, float okGa, float okGb,
-            float okSL, float okTL,
+            float okSL, float okTL, float okSC,
             float valueBlend, float shadowDesaturation,
             float sS, float tR, float tG, float tB,
             float washR, float washG, float washB, float washV,
@@ -1259,6 +1264,7 @@ namespace VRCAvatarColorChanger
             //    向きは target に均一化。旧版の「色相回転保持」は単色ロゴの AA縁でオレンジの色相
             //    ノイズを生んだため、向きを揃えて L を保ったまま色相を均一化する。
             RgbToOklab(oR, oG, oB, out float oL, out float oa, out float ob);
+            float oC = Mathf.Sqrt(oa * oa + ob * ob);   // 元画素の chroma (L 彩度ゲートでも使う)
             float na, nb;
             if (okGray)
             {
@@ -1268,7 +1274,6 @@ namespace VRCAvatarColorChanger
             }
             else
             {
-                float oC = Mathf.Sqrt(oa * oa + ob * ob);
                 float mag = oC * okMagScale;            // |chroma|/sC · osat
                 na = mag * okTa;                        // 向きは target 色相 (zTa, zTb)
                 nb = mag * okTb;
@@ -1277,8 +1282,21 @@ namespace VRCAvatarColorChanger
             float remapL = oL <= okSL
                 ? (oL / Mathf.Max(okSL, 1e-4f)) * okTL
                 : okTL + (oL - okSL) / Mathf.Max(1f - okSL, 1e-4f) * (1f - okTL);
+            // 彩度ゲート付き L 再マップ (2026-06-07): 低彩度画素では remap(=明るさの持ち上げ)を抑え、
+            // 元の L(暗さ)を保持する。リング/brown 化は「本来のベース色」=高彩度画素で起きる現象なので
+            // remap が必要なのは高彩度画素だけ。一方、ベース×暗部/白の混色や AA 縁(低彩度)に remap を
+            // かけると、target が sample より知覚的に明るいとき暗部が持ち上がり「明るい灰スペック」
+            // =ロゴ周辺の白/灰ノイズになる。chroma_frac=oC/(sC·FULL_FRAC) で彩度が sample の FULL_FRAC 割に
+            // 達したらフル remap、それ未満は元 L を保持。sample 彩度に対する相対量なので色非依存。
+            // sample 無彩(okGray)時は従来どおり一律 remap。algorithm.py の OKLAB_REMAP_* と同期。
+            float effRemapL = remapL;
+            if (!okGray && okSC > 1e-4f)
+            {
+                float chromaFrac = Mathf.Clamp01(oC / (okSC * OklabRemapFullChromaFrac));
+                effRemapL = oL + (remapL - oL) * chromaFrac;
+            }
             // valueBlend=1 でフル階調、<1 で target フラットトーンへ寄せる。
-            float nL = okTL * (1f - valueBlend) + remapL * valueBlend;
+            float nL = okTL * (1f - valueBlend) + effRemapL * valueBlend;
 
             // 暗部脱彩 (旧 shadowDesaturation の OkLab 等価): 暗い画素の chroma を最大 50% 抑制。
             if (shadowDesaturation > 0f && oV < shadowDesaturation)
