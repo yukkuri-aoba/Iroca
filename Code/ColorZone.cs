@@ -96,6 +96,9 @@ namespace VRCAvatarColorChanger
         // match/base は不変＝再着色範囲は変えない。applyHighlightWash が ON のときだけ作用する。
         // 既定 OFF。房の多いテクスチャ（髪など）では OFF が望ましいことがある。
         public bool autoHighlightSample = false;
+        // [非推奨] 旧: 処理順を表す数値。現在は「リストの並び順＝優先度(先頭が最優先)」に
+        // 変更したため未使用。古いプリセット JSON の後方互換のためフィールドのみ残す
+        // (PresetsView.MigrateLegacyLayerPriority が読み込み時に一度だけ降順移行に使用)。
         public int layerIndex = 0;
         public string id = "";
 

@@ -118,9 +118,9 @@ namespace VRCAvatarColorChanger
             var maskSnap = _host._maskView.BuildSnapshot();
 
             var session = _host.Session;
+            // リストの並び順が優先度。先頭(上)ほど優先で先に処理し、重なりを占有する。
             var zonesSnapshot = session.zones
                 .Where(z => z.enabled)
-                .OrderBy(z => z.layerIndex)
                 .Select(z => z.Clone())
                 .ToList();
             float feather   = session.edgeFeather;

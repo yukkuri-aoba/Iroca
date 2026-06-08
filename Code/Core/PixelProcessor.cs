@@ -86,11 +86,18 @@ namespace VRCAvatarColorChanger
             // null 初期化してから try 内で Rent することで、
             // 2番目以降の Rent が例外を投げた場合に先行の配列をリークしない。
             float[]? pixH = null, pixS = null, pixV = null;
+            // 占有率バッファ: 優先度の高い(リスト上位の)ゾーンが書き込んだカバレッジを
+            // ピクセル単位で累積する。下位ゾーンは残り(1-claimed)の範囲だけ適用され、
+            // 「重なった部分は上位ゾーンのみ適用」というレイヤー排他を実現する。
+            // 単一ゾーン/非重複ピクセルでは常に 0 のままで、従来挙動は不変。
+            float[]? claimed = null;
             try
             {
             pixH = ArrayPool<float>.Shared.Rent(len);
             pixS = ArrayPool<float>.Shared.Rent(len);
             pixV = ArrayPool<float>.Shared.Rent(len);
+            claimed = ArrayPool<float>.Shared.Rent(len);
+            Array.Clear(claimed, 0, len);
 
             // po を HSV 計算 + foreach 内の全 Parallel.For で共用。
             // MaxDegreeOfParallelism で Unity Editor のスレッドプール圧迫を防ぐ。
@@ -341,6 +348,7 @@ namespace VRCAvatarColorChanger
                     var strengthForRecolor = strength;
                     var aaMaskLocal = aaMask;
                     var decontaminatedLocal = decontaminatedPixels;
+                    var claimedLocal = claimed;
                     Parallel.For(0, h, po, y =>
                     {
                         int rowOff = y * w;
@@ -349,10 +357,21 @@ namespace VRCAvatarColorChanger
                             int i = rowOff + x;
                             float s = strengthForRecolor[i];
                             if (s <= 0.001f) continue;
+                            // 上位(リスト上位)ゾーンが既に占有した分を差し引いた実効強度 es。
+                            // 残り(room)が無ければこのゾーンは適用しない(= 上位が排他)。
+                            float room = 1f - claimedLocal[i];
+                            if (room <= 0.001f) continue;
+                            float es = s < room ? s : room;
+                            bool topMost = claimedLocal[i] <= 0.0001f;
                             if (aaMaskLocal != null && aaMaskLocal[i])
                             {
-                                // AA pixel: use decontaminated value (overrides standard mix)
-                                pixels[i] = decontaminatedLocal[i];
+                                // AA pixel: use decontaminated value (overrides standard mix)。
+                                // 最上位(room=1)なら従来どおり完全置換。下位なら残り分だけ被せる。
+                                // デコンタミ値は合成済みエッジ色なので、このエッジ画素は上位として占有する。
+                                pixels[i] = room >= 0.999f
+                                    ? decontaminatedLocal[i]
+                                    : Color32.Lerp(pixels[i], decontaminatedLocal[i], room);
+                                claimedLocal[i] = 1f;
                                 continue;
                             }
                             Color32 op = originalPixels[i];
@@ -371,7 +390,24 @@ namespace VRCAvatarColorChanger
                                 sS: zSS, tR: zTR, tG: zTG, tB: zTB,
                                 washR: zWR, washG: zWG, washB: zWB, washV: zWV,
                                 applyHighlightWash: zApplyWash);
-                            pixels[i] = s >= 0.999f ? recolored : Color32.Lerp(pixels[i], recolored, s);
+                            if (topMost)
+                            {
+                                // 最上位の寄与(claimed≈0)。es=s なので従来挙動と完全一致し、
+                                // 単一ゾーン/非重複ピクセルの出力はバイト単位で不変。
+                                pixels[i] = es >= 0.999f ? recolored : Color32.Lerp(pixels[i], recolored, es);
+                            }
+                            else
+                            {
+                                // 下位ゾーン: front-to-back over。透明な残り領域へ es 分だけ色を充填する。
+                                // pixels[i] += (recolored - original) * es （上位が置いた色は保持される）。
+                                Color32 cur = pixels[i];
+                                pixels[i] = new Color32(
+                                    (byte)Mathf.Clamp(Mathf.RoundToInt(cur.r + (recolored.r - op.r) * es), 0, 255),
+                                    (byte)Mathf.Clamp(Mathf.RoundToInt(cur.g + (recolored.g - op.g) * es), 0, 255),
+                                    (byte)Mathf.Clamp(Mathf.RoundToInt(cur.b + (recolored.b - op.b) * es), 0, 255),
+                                    (byte)Mathf.Clamp(Mathf.RoundToInt(cur.a + (recolored.a - op.a) * es), 0, 255));
+                            }
+                            claimedLocal[i] = es >= 1f ? 1f : Mathf.Min(1f, claimedLocal[i] + es);
                         }
                     });
                     debug?.RecordStage(zone.id, DebugStages.Recolor, strength, w, h);
@@ -427,6 +463,7 @@ namespace VRCAvatarColorChanger
             } // end try (pixH/S/V)
             finally
             {
+                if (claimed != null) ArrayPool<float>.Shared.Return(claimed);
                 if (pixV != null) ArrayPool<float>.Shared.Return(pixV);
                 if (pixS != null) ArrayPool<float>.Shared.Return(pixS);
                 if (pixH != null) ArrayPool<float>.Shared.Return(pixH);

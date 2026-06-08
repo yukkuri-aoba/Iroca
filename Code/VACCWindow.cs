@@ -79,6 +79,13 @@ namespace VRCAvatarColorChanger
         private int _pendingRemoveZoneIndex = -1;
         private bool? _pendingAdvancedMode;
 
+        // ゾーン並べ替え（ドラッグ）用。並び順が優先度なので、リスト上のドラッグで優先度を変える。
+        // _dragZoneIndex: 現在ドラッグ中のゾーン index（-1 = ドラッグなし）。
+        // _pendingReorder*: 確定した移動を次の Layout イベントで適用する（遅延ミューテーション）。
+        private int _dragZoneIndex = -1;
+        private int _pendingReorderFrom = -1;
+        private int _pendingReorderTo = -1;
+
         // 自動調整の非同期ジョブ。メインスレッドで pixels を取得し、
         // バックグラウンドで ZoneAutoTuner.Analyze を走らせる。
         [System.NonSerialized] private readonly PreviewJob<ZoneAutoTuner.TuneResult> _autoTuneJob = new PreviewJob<ZoneAutoTuner.TuneResult>();
@@ -172,6 +179,26 @@ namespace VRCAvatarColorChanger
                 newZone.EnsureId();
                 zones.Add(newZone);
                 MarkPreviewDirty();
+            }
+            if (_pendingReorderFrom >= 0 && _pendingReorderTo >= 0)
+            {
+                int from = _pendingReorderFrom;
+                int to = _pendingReorderTo;
+                _pendingReorderFrom = -1;
+                _pendingReorderTo = -1;
+                if (from != to && from >= 0 && from < zones.Count && to >= 0 && to < zones.Count)
+                {
+                    // マスク本体は zone.id キーで管理されるため移動不要。並び順(優先度)のみ変更し、
+                    // 編集中マスクターゲット(index 参照)を移動に追従させる。Undo 1ステップで復元可能。
+                    _maskView.SyncBuffersToState();
+                    Undo.RegisterCompleteObjectUndo(this, "Reorder Zone");
+                    var moved = zones[from];
+                    zones.RemoveAt(from);
+                    zones.Insert(to, moved);
+                    _maskView.OnZoneReordered(from, to);
+                    _maskView.SyncBuffersToState();
+                    MarkPreviewDirty();
+                }
             }
             if (_pendingAdvancedMode.HasValue)
             {
@@ -415,6 +442,22 @@ namespace VRCAvatarColorChanger
                 return;
             }
 
+            // 並び順＝優先度。重なりは上のゾーンのみ適用され、下のゾーンのマスクとして機能する。
+            if (zones.Count >= 2)
+                EditorGUILayout.HelpBox(Localization.ZonePriorityHelp, MessageType.None);
+
+            // 外部要因（削除等）で範囲外になったドラッグ状態をリセット。
+            if (_dragZoneIndex >= zones.Count) _dragZoneIndex = -1;
+
+            // ドラッグハンドル用スタイル（毎フレーム生成を避けるためループ外で1回だけ作る）。
+            var dragHandleStyle = new GUIStyle(EditorStyles.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontStyle = FontStyle.Bold,
+            };
+            // 各ゾーンの矩形を記録し、ドロップ位置の判定とインジケータ描画に使う。
+            var zoneRects = new List<Rect>(zones.Count);
+
             int removeIndex = -1;
             for (int i = 0; i < zones.Count; i++)
             {
@@ -424,16 +467,23 @@ namespace VRCAvatarColorChanger
 
                 // Header row
                 EditorGUILayout.BeginHorizontal();
+                // ドラッグハンドル: 掴んでリストを並べ替える＝優先度を変える。
+                GUILayout.Label(new GUIContent("☰", Localization.ZoneDragHandleTooltip),
+                    dragHandleStyle, GUILayout.Width(18), GUILayout.Height(EditorGUIUtility.singleLineHeight));
+                Rect handleRect = GUILayoutUtility.GetLastRect();
+                EditorGUIUtility.AddCursorRect(handleRect, MouseCursor.Pan);
+                if (GUI.enabled && Event.current.type == EventType.MouseDown
+                    && handleRect.Contains(Event.current.mousePosition))
+                {
+                    _dragZoneIndex = i;
+                    Event.current.Use();
+                }
                 zone.enabled = UndoHelper.ToggleLeft(this,
                     new GUIContent("", Localization.ZoneEnabledTooltip),
                     zone.enabled, GUILayout.Width(16));
                 zone.name = UndoHelper.TextField(this,
                     new GUIContent("", Localization.ZoneNameTooltip),
                     zone.name);
-                EditorGUILayout.LabelField(
-                    new GUIContent(Localization.LayerIndex, Localization.LayerIndexTooltip),
-                    GUILayout.Width(14));
-                zone.layerIndex = Mathf.Max(0, UndoHelper.IntField(this, zone.layerIndex, GUILayout.Width(30)));
                 if (GUILayout.Button(new GUIContent("×", Localization.RemoveZoneTooltip), GUILayout.Width(VACCConsts.Layout.RemoveButtonWidth)))
                 {
                     removeIndex = i;
@@ -617,7 +667,50 @@ namespace VRCAvatarColorChanger
                 }
 
                 EditorGUILayout.EndVertical();
+                // ドロップ位置判定・インジケータ描画用に、このゾーン全体の矩形を記録。
+                // GetLastRect は Layout パスではダミー値だが、判定・描画は非 Layout パスでのみ行う。
+                zoneRects.Add(GUILayoutUtility.GetLastRect());
                 EditorGUILayout.Space(2);
+            }
+
+            // ── ドラッグ並べ替えの処理（インジケータ描画 / ドロップ確定）──
+            if (_dragZoneIndex >= 0 && _dragZoneIndex < zoneRects.Count && zoneRects.Count > 0)
+            {
+                var evt = Event.current;
+                float my = evt.mousePosition.y;
+                // 挿入スロット(0..count): 中点より上のゾーン数。
+                int slot = zoneRects.Count;
+                for (int k = 0; k < zoneRects.Count; k++)
+                {
+                    if (my < zoneRects[k].center.y) { slot = k; break; }
+                }
+                // remove 後の挿入 index に変換（自分より後ろへ落とすと 1 詰まる）。
+                int insertAt = slot > _dragZoneIndex ? slot - 1 : slot;
+
+                if (evt.type == EventType.Repaint)
+                {
+                    float lineY = slot < zoneRects.Count
+                        ? zoneRects[slot].yMin
+                        : zoneRects[zoneRects.Count - 1].yMax;
+                    var lineRect = new Rect(zoneRects[0].xMin, lineY - 1f, zoneRects[0].width, 2f);
+                    EditorGUI.DrawRect(lineRect, VACCColors.ActiveMaskTarget);
+                }
+                else if (evt.type == EventType.MouseDrag)
+                {
+                    evt.Use();
+                    Repaint();
+                }
+                else if (evt.type == EventType.MouseUp)
+                {
+                    if (insertAt != _dragZoneIndex)
+                    {
+                        _pendingReorderFrom = _dragZoneIndex;
+                        _pendingReorderTo = insertAt;
+                    }
+                    _dragZoneIndex = -1;
+                    evt.Use();
+                    Repaint();
+                }
             }
 
             if (removeIndex >= 0)

@@ -273,6 +273,29 @@ namespace VRCAvatarColorChanger
             maskDirty = true;
         }
 
+        /// <summary>
+        /// ゾーンを from から to(remove 後の挿入 index)へ移動した際に、編集中マスクターゲット
+        /// (index 参照)を追従させる。マスク本体は zone.id キーで管理されるため移動は不要。
+        /// </summary>
+        public void OnZoneReordered(int from, int to)
+        {
+            if (activeMaskTarget >= 0)
+            {
+                int a = activeMaskTarget;
+                if (a == from)
+                {
+                    a = to;
+                }
+                else
+                {
+                    if (a > from) a--;
+                    if (a >= to) a++;
+                }
+                activeMaskTarget = a;
+            }
+            maskDirty = true;
+        }
+
         // ─────────────────────── ペイント ─────────────────────────
 
         public void PaintMask(Vector2 uvPos)
