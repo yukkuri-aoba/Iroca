@@ -2,6 +2,7 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -174,6 +175,7 @@ namespace VRCAvatarColorChanger
             // 旧バージョンとの後方互換は VACCPresetData の初期化子側に寄せる。
             var session = _host.Session;
             session.zones = data.zones ?? new List<ColorZone>();
+            MigrateLegacyLayerPriority(session.zones);
             _host.EnsureAllZoneIds();
             session.edgeFeather          = data.edgeFeather;
             session.advancedMode         = data.advancedMode;
@@ -193,6 +195,28 @@ namespace VRCAvatarColorChanger
             _host.ResetActiveMaskTarget();
             _host.MarkMaskDirty();
             _host.MarkPreviewDirty();
+        }
+
+        /// <summary>
+        /// 旧バージョン互換の一度きり移行。かつて優先度は layerIndex(数値・大きいほど
+        /// 重なりで上に来る)で表していたが、現在は「リストの並び順＝優先度(先頭が最優先)」
+        /// に変更した。layerIndex に差異を持つ旧プリセットだけを降順で安定ソートし、
+        /// 旧来の勝敗(大きい layerIndex が勝つ → 先頭が勝つ)を再現する。
+        /// 全ゾーンが同値(既定 0 を含む)なら並び順は既に意図どおりなので何もしない。
+        /// </summary>
+        private static void MigrateLegacyLayerPriority(List<ColorZone> zones)
+        {
+            if (zones == null || zones.Count < 2) return;
+            int first = zones[0].layerIndex;
+            bool allSame = true;
+            for (int i = 1; i < zones.Count; i++)
+            {
+                if (zones[i].layerIndex != first) { allSame = false; break; }
+            }
+            if (allSame) return;
+            var migrated = zones.OrderByDescending(z => z.layerIndex).ToList();
+            zones.Clear();
+            zones.AddRange(migrated);
         }
 
         private void ExportPresetJson()

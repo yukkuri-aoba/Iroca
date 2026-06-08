@@ -212,7 +212,8 @@ namespace VRCAvatarColorChanger
             }
 
             var session = _host.Session;
-            var sorted = session.zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
+            // リストの並び順が優先度。先頭(上)ほど優先で先に処理し、重なりを占有する。
+            var sorted = session.zones.Where(z => z.enabled).ToList();
             var maskSnap = (sorted.Count > 0) ? _host.BuildMaskSnapshot() : null;
 
             // 計算に必要な値を全てローカル変数に退避（Task.Run の中から session を直接触らない）
@@ -451,7 +452,8 @@ namespace VRCAvatarColorChanger
 
                         Color32[] pixels = fullTex.GetPixels32();
                         int texW = fullTex.width, texH = fullTex.height;
-                        var sorted = session.zones.Where(z => z.enabled).OrderBy(z => z.layerIndex).ToList();
+                        // リストの並び順が優先度。先頭(上)ほど優先で先に処理し、重なりを占有する。
+            var sorted = session.zones.Where(z => z.enabled).ToList();
 
                         if (sorted.Count > 0)
                         {

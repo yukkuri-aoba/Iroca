@@ -257,6 +257,14 @@ namespace VRCAvatarColorChanger
         // ─── Layer ───
         public static string LayerIndex => IsJapanese ? "L" : "L";
 
+        // ─── Zone priority (drag reorder) ───
+        public static string ZoneDragHandleTooltip => IsJapanese
+            ? "ドラッグして並べ替え＝優先度の変更。上にあるゾーンほど優先され、重なった部分は上のゾーンだけが適用されます（下のゾーンのマスクとして機能します）。"
+            : "Drag to reorder = change priority. Upper zones take precedence; in overlapping areas only the upper zone is applied (it acts as a mask for lower zones).";
+        public static string ZonePriorityHelp => IsJapanese
+            ? "並び順が優先度です。上のゾーンほど優先され、重なった部分は上のゾーンだけが適用されます（左の ☰ を掴んで並べ替え）。これにより上のゾーンを下のゾーンのマスクとして使えます。"
+            : "List order is the priority. Upper zones win overlaps and only the upper zone is applied there (drag the ☰ handle on the left to reorder). This lets an upper zone act as a mask for lower ones.";
+
         // ─── Zoom hint ───
         public static string ZoomHint => IsJapanese
             ? "Ctrl+スクロールでズーム"
