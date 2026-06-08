@@ -85,6 +85,8 @@ namespace VRCAvatarColorChanger
         private int _dragZoneIndex = -1;
         private int _pendingReorderFrom = -1;
         private int _pendingReorderTo = -1;
+        // 掴んだ位置とゾーン上端の差。ゴースト(追従パネル)を掴んだ位置基準で描くために保持。
+        private float _dragGrabOffsetY;
 
         // 自動調整の非同期ジョブ。メインスレッドで pixels を取得し、
         // バックグラウンドで ZoneAutoTuner.Analyze を走らせる。
@@ -476,6 +478,8 @@ namespace VRCAvatarColorChanger
                     && handleRect.Contains(Event.current.mousePosition))
                 {
                     _dragZoneIndex = i;
+                    // ハンドルはゾーン上端付近にあるので、ここを掴み位置の基準にする。
+                    _dragGrabOffsetY = Event.current.mousePosition.y - handleRect.y;
                     Event.current.Use();
                 }
                 zone.enabled = UndoHelper.ToggleLeft(this,
@@ -689,11 +693,36 @@ namespace VRCAvatarColorChanger
 
                 if (evt.type == EventType.Repaint)
                 {
+                    Rect src = zoneRects[_dragZoneIndex];
+                    Color accent = VACCColors.ActiveMaskTarget;
+
+                    // 1. 元のスロットを暗転して「ここを移動中」と示す。
+                    EditorGUI.DrawRect(src, new Color(0f, 0f, 0f, 0.18f));
+
+                    // 2. 挿入位置のライン。
                     float lineY = slot < zoneRects.Count
                         ? zoneRects[slot].yMin
                         : zoneRects[zoneRects.Count - 1].yMax;
-                    var lineRect = new Rect(zoneRects[0].xMin, lineY - 1f, zoneRects[0].width, 2f);
-                    EditorGUI.DrawRect(lineRect, VACCColors.ActiveMaskTarget);
+                    EditorGUI.DrawRect(new Rect(src.xMin, lineY - 1.5f, src.width, 3f), accent);
+
+                    // 3. マウスに追従するゴースト(ヘッダー帯を模した浮遊パネル)。
+                    float gh = EditorGUIUtility.singleLineHeight + 8f;
+                    float gy = evt.mousePosition.y - _dragGrabOffsetY;
+                    Rect ghost = new Rect(src.xMin, gy, src.width, gh);
+                    Color fill = accent; fill.a = 0.35f;
+                    EditorGUI.DrawRect(ghost, fill);
+                    DrawRectOutline(ghost, accent, 1f);
+
+                    var dz = zones[_dragZoneIndex];
+                    // 変更先カラーのスウォッチ。
+                    Rect swatch = new Rect(ghost.x + 22f, ghost.y + 5f, 14f, gh - 10f);
+                    Color sw = dz.targetColor; sw.a = 1f;
+                    EditorGUI.DrawRect(swatch, sw);
+                    DrawRectOutline(swatch, new Color(0f, 0f, 0f, 0.4f), 1f);
+                    // ゾーン名ラベル。
+                    string gname = string.IsNullOrEmpty(dz.name) ? "Zone" : dz.name;
+                    GUI.Label(new Rect(swatch.xMax + 6f, ghost.y + 3f, ghost.width - 64f, EditorGUIUtility.singleLineHeight),
+                        new GUIContent("☰  " + gname), EditorStyles.boldLabel);
                 }
                 else if (evt.type == EventType.MouseDrag)
                 {
@@ -727,6 +756,15 @@ namespace VRCAvatarColorChanger
 
             EditorGUILayout.EndFoldoutHeaderGroup();
             EditorGUILayout.Space(4);
+        }
+
+        // 矩形の枠線を 4 本の細い矩形で描く（Repaint 中のゴースト/スウォッチ枠用）。
+        private static void DrawRectOutline(Rect r, Color color, float thickness)
+        {
+            EditorGUI.DrawRect(new Rect(r.xMin, r.yMin, r.width, thickness), color);
+            EditorGUI.DrawRect(new Rect(r.xMin, r.yMax - thickness, r.width, thickness), color);
+            EditorGUI.DrawRect(new Rect(r.xMin, r.yMin, thickness, r.height), color);
+            EditorGUI.DrawRect(new Rect(r.xMax - thickness, r.yMin, thickness, r.height), color);
         }
 
         // ───────────────────────── 自動調整 ───────────────────────────
