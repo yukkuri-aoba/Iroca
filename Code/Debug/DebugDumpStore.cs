@@ -11,19 +11,19 @@ namespace VRCAvatarColorChanger.DebugTools
 {
     /// <summary>
     /// <see cref="DebugCaptureContext"/> のスナップショット群を PNG として書き出す。
-    /// 保存先は <c>Assets/VACC/Debug/&lt;sourceName&gt;/&lt;timestamp&gt;/</c>。
-    /// プリセットの保存先 (<c>Assets/VACC/Presets</c>) と同じ <c>Assets/VACC/</c> 配下に置くことで
-    /// Unity のプロジェクトビューから直接参照・削除できる。
+    /// 保存先は <c>Library/VACC/Debug/&lt;sourceName&gt;/&lt;timestamp&gt;/</c>。
+    /// <c>Assets/</c> 外の <c>Library/</c> に置くことで Unity のインポートを回避し、
+    /// Project ビューへの表示を防ぐ。<c>Library/</c> は Unity のデフォルト .gitignore 対象。
     /// </summary>
     internal static class DebugDumpStore
     {
-        // プリセット保存先 (Assets/VACC/Presets) と同じ親フォルダ配下に置く。
-        private const string DumpDirRelative = "Assets/VACC/Debug";
+        // Assets/ 外に置くことで Unity のインポートを回避する。Library/ は既定で gitignore 対象。
+        private const string DumpDirInLibrary = "Library/VACC/Debug";
 
         /// <summary>
-        /// 指定 context 全体を PNG + manifest.json として書き出し、書き出し先ディレクトリ
-        /// （Assets 相対パス）を返す。失敗時は null を返してログにエラーを残す。
-        /// 書き出し後に <see cref="AssetDatabase.Refresh"/> を呼んで Unity に反映する。
+        /// 指定 context 全体を PNG + manifest.json として書き出し、書き出し先ディレクトリの
+        /// 絶対パスを返す。失敗時は null を返してログにエラーを残す。
+        /// <c>Library/</c> 配下に書き出すため <see cref="AssetDatabase.Refresh"/> は不要。
         /// </summary>
         public static string DumpAll(DebugCaptureContext ctx, string sourceTextureName)
         {
@@ -35,10 +35,8 @@ namespace VRCAvatarColorChanger.DebugTools
 
             string safeName = SanitizeFileName(string.IsNullOrEmpty(sourceTextureName) ? "unknown" : sourceTextureName);
             string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            // Assets 相対パスを保持しつつ、絶対パスで I/O する。
-            string assetsRelative = $"{DumpDirRelative}/{safeName}/{timestamp}";
             string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
-            string outDir = Path.GetFullPath(Path.Combine(projectRoot, assetsRelative));
+            string outDir = Path.GetFullPath(Path.Combine(projectRoot, DumpDirInLibrary, safeName, timestamp));
 
             try
             {
@@ -79,10 +77,7 @@ namespace VRCAvatarColorChanger.DebugTools
                 // manifest.json
                 WriteManifest(outDir, ctx, sourceTextureName, timestamp, fileEntries);
 
-                // Unity 側に新しいアセットを取り込ませる。
-                AssetDatabase.Refresh();
-
-                return assetsRelative;
+                return outDir;
             }
             catch (Exception ex)
             {
