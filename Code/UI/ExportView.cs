@@ -3,6 +3,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
 
@@ -269,10 +270,15 @@ namespace VRCAvatarColorChanger
                         File.WriteAllBytes(payload.outputPath, pngData);
                         string relativePath = VACCWindow.ToAssetsRelative(payload.outputPath);
                         if (relativePath != null)
+                        {
+                            if (payload.inheritImportSettings)
+                            {
+                                string srcRel = VACCWindow.ToAssetsRelative(payload.srcPath);
+                                if (srcRel != null)
+                                    PreApplyImportSettings(srcRel, relativePath);
+                            }
                             AssetDatabase.ImportAsset(relativePath);
-
-                        if (payload.inheritImportSettings)
-                            CopyImportSettings(payload.srcPath, payload.outputPath);
+                        }
 
                         _exportProgress.Report(1.0f);
                         Debug.Log($"[VACC] Saved: {payload.outputPath}");
@@ -364,17 +370,26 @@ namespace VRCAvatarColorChanger
             EditorGUILayout.Space(4);
         }
 
-        private static void CopyImportSettings(string srcPath, string dstPath)
+        // .meta ファイルをインポート前に書き込んでおくことで、
+        // ImportAsset の 1 回の圧縮パスで正しい設定が適用される（SaveAndReimport 不要）。
+        private static void PreApplyImportSettings(string srcRelPath, string dstRelPath)
         {
-            var srcImporter = AssetImporter.GetAtPath(srcPath) as TextureImporter;
-            var dstImporter = AssetImporter.GetAtPath(dstPath) as TextureImporter;
-            if (srcImporter == null || dstImporter == null) return;
+            string root = Path.GetDirectoryName(Application.dataPath);
+            string sep  = Path.DirectorySeparatorChar.ToString();
+            string srcMeta = Path.Combine(root, srcRelPath.Replace("/", sep)) + ".meta";
+            string dstMeta = Path.Combine(root, dstRelPath.Replace("/", sep)) + ".meta";
 
-            var settings = new TextureImporterSettings();
-            srcImporter.ReadTextureSettings(settings);
-            dstImporter.SetTextureSettings(settings);
-            dstImporter.SetPlatformTextureSettings(srcImporter.GetDefaultPlatformTextureSettings());
-            dstImporter.SaveAndReimport();
+            if (!File.Exists(srcMeta)) return;
+
+            string content = File.ReadAllText(srcMeta, System.Text.Encoding.UTF8);
+
+            // 上書きなら既存 GUID を維持、新規ファイルなら新 GUID を生成
+            string guid = AssetDatabase.AssetPathToGUID(dstRelPath);
+            if (string.IsNullOrEmpty(guid))
+                guid = System.Guid.NewGuid().ToString("N");
+
+            content = Regex.Replace(content, @"(?m)^guid: [0-9a-f]+$", $"guid: {guid}");
+            File.WriteAllText(dstMeta, content, System.Text.Encoding.UTF8);
         }
 
         private void RunBatchApply()
@@ -405,7 +420,6 @@ namespace VRCAvatarColorChanger
             }
 
             int success = 0;
-            var savedPairs = new List<(string src, string dst)>();
             try
             {
                 AssetDatabase.StartAssetEditing();
@@ -459,8 +473,11 @@ namespace VRCAvatarColorChanger
                         File.WriteAllBytes(outPath, pngData);
                         string relOutPath = VACCWindow.ToAssetsRelative(outPath);
                         if (relOutPath != null)
+                        {
+                            if (inheritImportSettings)
+                                PreApplyImportSettings(srcPath, relOutPath);
                             AssetDatabase.ImportAsset(relOutPath);
-                        savedPairs.Add((srcPath, outPath));
+                        }
                         success++;
                     }
                     catch (System.Exception ex)
@@ -478,12 +495,6 @@ namespace VRCAvatarColorChanger
             {
                 AssetDatabase.StopAssetEditing();
                 EditorUtility.ClearProgressBar();
-            }
-
-            if (inheritImportSettings)
-            {
-                foreach (var (src, dst) in savedPairs)
-                    CopyImportSettings(src, dst);
             }
 
             EditorUtility.DisplayDialog(Localization.Complete,
