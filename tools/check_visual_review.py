@@ -36,6 +36,13 @@ ALGORITHM_PREFIXES = [
     "Code/",
 ]
 
+# 視覚レビュー不要の除外パス（ALGORITHM_PREFIXES より優先）
+# デバッグツール・UI・テストなどアルゴリズム出力に影響しないファイル
+ALGORITHM_EXCLUSION_PREFIXES = [
+    "Code/Debug/",
+    "Code/Tests/",
+]
+
 
 def get_staged_files() -> list[str]:
     result = subprocess.run(
@@ -48,6 +55,8 @@ def get_staged_files() -> list[str]:
 
 def is_algorithm_file(path: str) -> bool:
     normalized = path.replace("\\", "/")
+    if any(normalized.startswith(ex) for ex in ALGORITHM_EXCLUSION_PREFIXES):
+        return False
     return any(normalized.startswith(prefix) for prefix in ALGORITHM_PREFIXES)
 
 

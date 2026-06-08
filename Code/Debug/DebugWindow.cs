@@ -212,23 +212,18 @@ namespace VRCAvatarColorChanger.DebugTools
             EditorGUILayout.Space(4);
             if (GUILayout.Button(new GUIContent(
                     "Dump all stages to PNG",
-                    "全 zone × 全段階のキャプチャを Assets/VACC/Debug/<source>/<timestamp>/ 配下に PNG として書き出します。manifest.json も併せて生成され、Unity のプロジェクトビューから直接参照できます。")))
+                    "全 zone × 全段階のキャプチャを Library/VACC/Debug/<source>/<timestamp>/ 配下に PNG として書き出します。manifest.json も併せて生成されます。\nProject ビューには表示されません（Assets/ 外に保存）。書き出し後にフォルダをエクスプローラーで開きます。")))
             {
                 var vaccWin = Resources.FindObjectsOfTypeAll<VACCWindow>().Length > 0
                     ? Resources.FindObjectsOfTypeAll<VACCWindow>()[0]
                     : null;
                 string srcName = vaccWin != null && vaccWin.SourceTexture != null
                     ? vaccWin.SourceTexture.name : "unknown";
-                string assetsRel = DebugDumpStore.DumpAll(ctx, srcName);
-                if (!string.IsNullOrEmpty(assetsRel))
+                string dumpPath = DebugDumpStore.DumpAll(ctx, srcName);
+                if (!string.IsNullOrEmpty(dumpPath))
                 {
-                    ShowNotification(new GUIContent($"Dumped to:\n{assetsRel}"));
-                    var folder = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetsRel);
-                    if (folder != null)
-                    {
-                        EditorGUIUtility.PingObject(folder);
-                        Selection.activeObject = folder;
-                    }
+                    ShowNotification(new GUIContent("Dumped to Library/VACC/Debug/\n(エクスプローラーで開きます)"));
+                    EditorUtility.RevealInFinder(dumpPath);
                 }
                 else
                 {
