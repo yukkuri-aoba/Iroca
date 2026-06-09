@@ -682,11 +682,31 @@ namespace VRCAvatarColorChanger
             {
                 var evt = Event.current;
                 float my = evt.mousePosition.y;
-                // 挿入スロット(0..count): 中点より上のゾーン数。
-                int slot = zoneRects.Count;
-                for (int k = 0; k < zoneRects.Count; k++)
+
+                // ドラッグ中ゾーンを「掴み位置オフセットぶん」投影した想定矩形。
+                // ゾーンは縦長なので、中心同士を比較すると隣の高さの半分も運ぶ必要があり、
+                // 「かなり上まで持っていかないと入れ替わらない」状態になる。
+                // 代わりに、この投影矩形が隣ゾーンに少しでも重なった瞬間に入れ替える
+                // ことで、移動距離をゾーン高さに依存しない最小限にする。
+                float projTop = my - _dragGrabOffsetY;
+                float projBottom = projTop + zoneRects[_dragZoneIndex].height;
+                // 隙間や微小なブレで誤入れ替えしない最小の重なり量(px)。
+                float overlapTrigger = EditorGUIUtility.singleLineHeight * 0.6f;
+
+                // 挿入スロット(0..count)。既定は移動なし。
+                int slot = _dragZoneIndex;
+                // 上方向: 上端が重なった最上位ゾーンの「前」に挿入。
+                for (int k = 0; k < _dragZoneIndex; k++)
                 {
-                    if (my < zoneRects[k].center.y) { slot = k; break; }
+                    if (projTop < zoneRects[k].yMax - overlapTrigger) { slot = k; break; }
+                }
+                // 下方向: 下端が重なった最下位ゾーンの「後ろ」に挿入。
+                if (slot == _dragZoneIndex)
+                {
+                    for (int k = zoneRects.Count - 1; k > _dragZoneIndex; k--)
+                    {
+                        if (projBottom > zoneRects[k].yMin + overlapTrigger) { slot = k + 1; break; }
+                    }
                 }
                 // remove 後の挿入 index に変換（自分より後ろへ落とすと 1 詰まる）。
                 int insertAt = slot > _dragZoneIndex ? slot - 1 : slot;
