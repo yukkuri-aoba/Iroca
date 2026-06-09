@@ -29,6 +29,9 @@ namespace VRCAvatarColorChanger
         [System.NonSerialized] private int _pendingDetailFullW, _pendingDetailFullH;
         [System.NonSerialized] public double lastDetailDirtyTime;
         [System.NonSerialized] public Rect lastPreviewRect;
+        // スクロールビューの可視領域サイズ（ディスプレイピクセル）。クロップ範囲を
+        // 画像全幅ではなく「実際に見えている範囲」だけに絞るために使う。
+        [System.NonSerialized] public float lastViewportW, lastViewportH;
 
         public const double DetailDebounceSeconds = 0.3;
         // 詳細モード: プレビュー画像がネイティブ解像度を超えて拡大表示される
@@ -97,19 +100,24 @@ namespace VRCAvatarColorChanger
         /// バックグラウンドタスクを開始します。
         /// </summary>
         public void GenerateDetailPreviewAsync(int srcW, int srcH, Color32[] srcPixels,
-            float scale, float previewZoom, Vector2 previewScrollPos, Rect previewRect)
+            float scale, float previewZoom, Vector2 previewScrollPos, float viewportW, float viewportH)
         {
             var sourceTexture = _host.SourceTexture;
             if (sourceTexture == null || !VACCWindow.IsReadable(sourceTexture)) return;
             if (scale >= 1f) return;
 
             if (previewZoom <= DetailMinZoom) return;
+            if (viewportW <= 0f || viewportH <= 0f) return;
 
+            // クロップは「画面に見えている範囲」だけに限定する。以前は画像全幅(previewRect.width
+            // ＝displayW)を使っていたため x1 が常に srcW までクランプされ、ズーム時に
+            // 可視範囲をはるかに超える全幅をフル解像度で処理していた。viewportW/H は
+            // スクロールビューの可視サイズなので、ここから可視ソース範囲を求める。
             float invZoomScale = 1f / (previewZoom * scale);
             int x0 = Mathf.FloorToInt(previewScrollPos.x * invZoomScale);
             int y0 = Mathf.FloorToInt(previewScrollPos.y * invZoomScale);
-            int x1 = Mathf.CeilToInt((previewScrollPos.x + previewRect.width)  * invZoomScale);
-            int y1 = Mathf.CeilToInt((previewScrollPos.y + previewRect.height) * invZoomScale);
+            int x1 = Mathf.CeilToInt((previewScrollPos.x + viewportW) * invZoomScale);
+            int y1 = Mathf.CeilToInt((previewScrollPos.y + viewportH) * invZoomScale);
 
             x0 = Mathf.Clamp(x0, 0, srcW);
             y0 = Mathf.Clamp(y0, 0, srcH);
