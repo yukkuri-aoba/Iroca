@@ -35,6 +35,47 @@ namespace VRCAvatarColorChanger
             return Mathf.Clamp(PixelInspectTargetPx / scale, PixelInspectTargetPx, AbsoluteMaxPreviewZoom);
         }
 
+        // 表示倍率が 104% のような半端な値にならないよう、ズームは「きれいな数字」の
+        // 固定ストップにスナップさせる。1 ノッチ＝隣のストップ。25%〜3200% を網羅。
+        private static readonly float[] ZoomStops =
+        {
+            0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f, 4f, 5f, 6f,
+            8f, 10f, 12f, 16f, 20f, 24f, 32f
+        };
+        private const float ZoomEpsilon = 1e-4f;
+
+        // 現在のズームから、指定方向(zoomIn=拡大)へ 1 ストップ動いた値を返す。
+        // 上限(maxZoom)・下限(MinPreviewZoom)を超えるストップは選ばない。
+        private static float StepZoom(float current, bool zoomIn, float maxZoom)
+        {
+            if (zoomIn)
+            {
+                for (int i = 0; i < ZoomStops.Length; i++)
+                    if (ZoomStops[i] > current + ZoomEpsilon && ZoomStops[i] <= maxZoom + ZoomEpsilon)
+                        return ZoomStops[i];
+                return SnapToStop(maxZoom, maxZoom); // これ以上拡大できない
+            }
+            for (int i = ZoomStops.Length - 1; i >= 0; i--)
+                if (ZoomStops[i] < current - ZoomEpsilon && ZoomStops[i] >= MinPreviewZoom - ZoomEpsilon)
+                    return ZoomStops[i];
+            return MinPreviewZoom;
+        }
+
+        // 任意のズーム値を、有効範囲内で最も近いストップに丸める。
+        // シリアライズで残った半端な値(例 1.04)を毎フレームここで整える。
+        private static float SnapToStop(float zoom, float maxZoom)
+        {
+            float best = Mathf.Clamp(zoom, MinPreviewZoom, maxZoom);
+            float bestDist = float.MaxValue;
+            foreach (float s in ZoomStops)
+            {
+                if (s < MinPreviewZoom - ZoomEpsilon || s > maxZoom + ZoomEpsilon) continue;
+                float d = Mathf.Abs(zoom - s);
+                if (d < bestDist) { bestDist = d; best = s; }
+            }
+            return best;
+        }
+
         // ─── 実行時状態（NonSerialized） ──────────────────────────
         [System.NonSerialized] public Texture2D previewTexture;
         [System.NonSerialized] public Texture2D rawPreviewTexture;
@@ -294,8 +335,9 @@ namespace VRCAvatarColorChanger
                 ? VACCConsts.Preview.MaxSize / (float)Mathf.Max(srcW, srcH)
                 : 1f;
 
-            // テクスチャ切り替えやデシリアライズで上限超過のズーム値が残らないよう毎フレーム丸める。
-            previewZoom = Mathf.Clamp(previewZoom, MinPreviewZoom, ComputeMaxZoom(scale));
+            // テクスチャ切り替えやデシリアライズで残った半端な/上限超過のズーム値を、
+            // 毎フレーム最も近い「きれいな数字」のストップへ丸める（表示倍率の見映え対策）。
+            previewZoom = SnapToStop(previewZoom, ComputeMaxZoom(scale));
 
             // 詳細モード: ディスプレイピクセル > ソースピクセル時にアクティブ
             bool detailActive = scale < 1f &&
@@ -463,11 +505,13 @@ namespace VRCAvatarColorChanger
             switch (e.GetTypeForControl(controlId))
             {
                 case EventType.ScrollWheel:
-                    if (isInRect && e.control)
+                    if (isInRect && e.control && Mathf.Abs(e.delta.y) > ZoomEpsilon)
                     {
                         float oldZoom = previewZoom;
-                        float newZoom = Mathf.Clamp(oldZoom * Mathf.Pow(1.1f, -e.delta.y / 3f),
-                            MinPreviewZoom, ComputeMaxZoom(scale));
+                        // 1 ノッチごとにきれいな数字のストップを 1 つ進める/戻す。
+                        // 上スクロール(delta.y<0)で拡大（従来の -e.delta.y と同符号）。
+                        bool zoomIn = e.delta.y < 0f;
+                        float newZoom = StepZoom(oldZoom, zoomIn, ComputeMaxZoom(scale));
 
                         if (previewTexture != null && Mathf.Abs(newZoom - oldZoom) > 0.0001f)
                         {
