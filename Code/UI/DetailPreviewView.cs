@@ -78,8 +78,13 @@ namespace VRCAvatarColorChanger
             // ソースピクセルあたりのディスプレイピクセル
             float pxPerSrc = scale * previewZoom;
 
-            float left   = detailOriginX * pxPerSrc - previewScrollPos.x + activePreviewRect.x;
-            float top    = detailOriginY * pxPerSrc - previewScrollPos.y + activePreviewRect.y;
+            // activePreviewRect は ScrollView 内のレイアウト座標（＝コンテンツ座標）で渡される。
+            // この空間ではスクロール量はグループ変換側で吸収済みのため、ここで previewScrollPos を
+            // 引いてはいけない（マスクペイントやズーム中心合わせも scrollPos を使っていない）。
+            // 詳細クロップは元画像のピクセル detailOriginX から始まるので、画像左上
+            // (activePreviewRect.x/y) からの相対位置をそのまま足す。
+            float left   = activePreviewRect.x + detailOriginX * pxPerSrc;
+            float top    = activePreviewRect.y + detailOriginY * pxPerSrc;
             float width  = detailPreviewTexture.width  * pxPerSrc;
             float height = detailPreviewTexture.height * pxPerSrc;
 
