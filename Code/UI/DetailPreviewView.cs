@@ -85,11 +85,16 @@ namespace VRCAvatarColorChanger
             // この空間ではスクロール量はグループ変換側で吸収済みのため、ここで previewScrollPos を
             // 引いてはいけない（マスクペイントやズーム中心合わせも scrollPos を使っていない）。
             // 詳細クロップは元画像のピクセル detailOriginX から始まるので、画像左上
-            // (activePreviewRect.x/y) からの相対位置をそのまま足す。
+            // (activePreviewRect.x) からの相対位置をそのまま足す。
             float left   = activePreviewRect.x + detailOriginX * pxPerSrc;
-            float top    = activePreviewRect.y + detailOriginY * pxPerSrc;
             float width  = detailPreviewTexture.width  * pxPerSrc;
             float height = detailPreviewTexture.height * pxPerSrc;
+
+            // Y はメモリ行(上向き)と画面 y(下向き)が反転している。detailOriginY はクロップ
+            // 下端のメモリ行なので、クロップ上端のメモリ行(detailOriginY + 行数)を画面 y の
+            // 上端へ変換する: 画面上からの距離 = (srcH - 上端メモリ行) * pxPerSrc。
+            float top = activePreviewRect.y
+                + (srcH - (detailOriginY + detailPreviewTexture.height)) * pxPerSrc;
 
             return new Rect(left, top, width, height);
         }
@@ -115,9 +120,14 @@ namespace VRCAvatarColorChanger
             // スクロールビューの可視サイズなので、ここから可視ソース範囲を求める。
             float invZoomScale = 1f / (previewZoom * scale);
             int x0 = Mathf.FloorToInt(previewScrollPos.x * invZoomScale);
-            int y0 = Mathf.FloorToInt(previewScrollPos.y * invZoomScale);
             int x1 = Mathf.CeilToInt((previewScrollPos.x + viewportW) * invZoomScale);
-            int y1 = Mathf.CeilToInt((previewScrollPos.y + viewportH) * invZoomScale);
+
+            // Y はソースのメモリ行(GetPixels32 は行0=画像下端の上向き)と、スクロール座標
+            // (画面の下向き、上端=0)で上下が反転している。テクスチャは正立描画されるため、
+            // スクロール量(下向き y)を一旦ソースのメモリ行(上向き)へ変換してからクロップする。
+            // これをしないと、ビュー上端に画像下端のクロップが出る＝表示中の領域とズレる。
+            int y0 = Mathf.FloorToInt(srcH - (previewScrollPos.y + viewportH) * invZoomScale);
+            int y1 = Mathf.CeilToInt (srcH - previewScrollPos.y * invZoomScale);
 
             x0 = Mathf.Clamp(x0, 0, srcW);
             y0 = Mathf.Clamp(y0, 0, srcH);
