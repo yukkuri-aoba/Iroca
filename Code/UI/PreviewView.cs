@@ -19,6 +19,22 @@ namespace VRCAvatarColorChanger
         public bool comparisonMode;
         public bool diffMode;
 
+        // ─── ズーム範囲 ─────────────────────────────────────────────
+        private const float MinPreviewZoom = 0.25f;
+        // ピクセル単位で確認できるよう、最大ズーム時に「ソース 1px が画面上で最低
+        // PixelInspectTargetPx ピクセルになる」ところまで拡大を許可する。高解像度
+        // プレビューが映すのはソース画素で、画面倍率は scale*zoom なので zoom = target/scale。
+        // 大きいテクスチャ(scale 小)ほど高ズームを許す。小さいテクスチャでも最低 8x。
+        private const float PixelInspectTargetPx = 8f;
+        private const float AbsoluteMaxPreviewZoom = 32f;
+
+        // テクスチャの縮小率 scale に応じたズーム上限。
+        private static float ComputeMaxZoom(float scale)
+        {
+            if (scale <= 0f) return AbsoluteMaxPreviewZoom;
+            return Mathf.Clamp(PixelInspectTargetPx / scale, PixelInspectTargetPx, AbsoluteMaxPreviewZoom);
+        }
+
         // ─── 実行時状態（NonSerialized） ──────────────────────────
         [System.NonSerialized] public Texture2D previewTexture;
         [System.NonSerialized] public Texture2D rawPreviewTexture;
@@ -278,6 +294,9 @@ namespace VRCAvatarColorChanger
                 ? VACCConsts.Preview.MaxSize / (float)Mathf.Max(srcW, srcH)
                 : 1f;
 
+            // テクスチャ切り替えやデシリアライズで上限超過のズーム値が残らないよう毎フレーム丸める。
+            previewZoom = Mathf.Clamp(previewZoom, MinPreviewZoom, ComputeMaxZoom(scale));
+
             // 詳細モード: ディスプレイピクセル > ソースピクセル時にアクティブ
             bool detailActive = scale < 1f &&
                                 previewZoom > DetailPreviewView.DetailMinZoom &&
@@ -415,7 +434,7 @@ namespace VRCAvatarColorChanger
             if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
                 _detailView.lastPreviewRect = activePreviewRect;
 
-            HandlePreviewGlobalInput(zoomHitRect);
+            HandlePreviewGlobalInput(zoomHitRect, scale);
 
             // Flood Fill は実装継続中のため当面 UI から非表示。
             // if (!maskView.maskPaintActive)
@@ -433,7 +452,7 @@ namespace VRCAvatarColorChanger
 
         // ───────────────────────── Preview Input ─────────────────────────
 
-        private void HandlePreviewGlobalInput(Rect previewRect)
+        private void HandlePreviewGlobalInput(Rect previewRect, float scale)
         {
             Event e = Event.current;
             if (e == null) return;
@@ -447,7 +466,8 @@ namespace VRCAvatarColorChanger
                     if (isInRect && e.control)
                     {
                         float oldZoom = previewZoom;
-                        float newZoom = Mathf.Clamp(oldZoom * Mathf.Pow(1.1f, -e.delta.y / 3f), 0.25f, 4f);
+                        float newZoom = Mathf.Clamp(oldZoom * Mathf.Pow(1.1f, -e.delta.y / 3f),
+                            MinPreviewZoom, ComputeMaxZoom(scale));
 
                         if (previewTexture != null && Mathf.Abs(newZoom - oldZoom) > 0.0001f)
                         {
