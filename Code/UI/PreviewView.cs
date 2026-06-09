@@ -293,7 +293,7 @@ namespace VRCAvatarColorChanger
                     _detailView.lastPreviewRect.width > 0)
                 {
                     _detailView.lastDetailDirtyTime = 0;
-                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, _trueSourcePixels, scale, previewZoom, _previewScrollPos, _detailView.lastPreviewRect);
+                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, _trueSourcePixels, scale, previewZoom, _previewScrollPos, _detailView.lastViewportW, _detailView.lastViewportH);
                 }
                 else if (_detailView.lastDetailDirtyTime > 0 || _detailView.detailJob.IsRunning)
                 {
@@ -308,6 +308,12 @@ namespace VRCAvatarColorChanger
             int panelCount = (comparisonMode && rawPreviewTexture != null) ? 2 : 1;
             float maxViewW = Mathf.Min(displayW * panelCount + (panelCount - 1) * 8f,
                 previewTexture.width * panelCount + (panelCount - 1) * 8f) + 16f;
+
+            // 次の詳細プレビュー生成で「見えている範囲」だけをクロップするため可視サイズを保存。
+            // maxViewW/H はビューポートの最大サイズ（実ウィンドウが狭ければ実際はこれ以下）なので、
+            // クロップが可視範囲を取りこぼすことはない（過小評価しない＝安全側）。
+            _detailView.lastViewportW = maxViewW;
+            _detailView.lastViewportH = maxViewH;
 
             Vector2 prevScroll = _previewScrollPos;
             _previewScrollPos = EditorGUILayout.BeginScrollView(
