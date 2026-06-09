@@ -267,8 +267,8 @@ namespace VRCAvatarColorChanger
 
         // ─── Zoom hint ───
         public static string ZoomHint => IsJapanese
-            ? "Ctrl+スクロールでズーム"
-            : "Ctrl+scroll to zoom";
+            ? "Ctrl+スクロールでズーム。高解像度プレビューはピクセル単位まで拡大できます（上限はテクスチャ解像度に応じて自動調整）"
+            : "Ctrl+scroll to zoom. The high-res preview can be magnified down to pixel level (max zoom auto-scales with texture resolution).";
         public static string ZoomLabel => IsJapanese
             ? "ズーム: {0}%  (Ctrl+スクロール)"
             : "Zoom: {0}%  (Ctrl+Scroll)";
