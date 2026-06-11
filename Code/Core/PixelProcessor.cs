@@ -337,11 +337,27 @@ namespace VRCAvatarColorChanger
                     // (明部の地色)へ置換する。スポイトを陰影のどの明るさで取ってもパーツの明部が
                     // target 色に一致する。マッチング(strength)・wash・デコンタミはスポイト色の
                     // まま＝再着色範囲は不変。フォールバック時(false)は従来挙動。
+                    float zEffShadowDesat = zone.shadowDesaturation;
                     if (zone.autoRecolorAnchor && !zOkGray &&
                         TryComputeRecolorAnchor(originalPixels, strength, out float anchorL, out float anchorC))
                     {
+                        float zSC0 = zSC;
                         zSL = anchorL;
                         zSC = anchorC;
+                        // 暗部脱彩の領域相対化(アンカー採用時のみ): 絶対 V 閾値のままだと暗い
+                        // パーツは全体が閾値未満になり一律最大50%脱彩される(=入力明度で出力彩度
+                        // が変わる)。閾値に地色アンカーの V(明部の代表明度)を乗じ「パーツ内の
+                        // 相対的な暗部」だけを脱彩する。アンカー非採用時は従来の絶対閾値で完全互換。
+                        // algorithm.py recolor_pixels の eff_shadow_desat と同期。
+                        if (zEffShadowDesat > 0f)
+                        {
+                            OklabToRgb(zSL,
+                                zSa / Mathf.Max(zSC0, 1e-9f) * zSC,
+                                zSb / Mathf.Max(zSC0, 1e-9f) * zSC,
+                                out float aRr, out float aGg, out float aBb);
+                            Color.RGBToHSV(new Color(aRr, aGg, aBb), out _, out _, out float repV);
+                            zEffShadowDesat *= repV;
+                        }
                     }
                     float zOkMagScale = 0f, zOkGa = 0f, zOkGb = 0f;
                     if (zOkGray)
@@ -396,7 +412,7 @@ namespace VRCAvatarColorChanger
                                 okGray: zOkGray, okGa: zOkGa, okGb: zOkGb,
                                 okSL: zSL, okTL: zTL, okSC: zSC,
                                 valueBlend: zValueBlend,
-                                shadowDesaturation: zone.shadowDesaturation,
+                                shadowDesaturation: zEffShadowDesat,
                                 sS: zSS, tR: zTR, tG: zTG, tB: zTB,
                                 washR: zWR, washG: zWG, washB: zWB, washV: zWV,
                                 applyHighlightWash: zApplyWash);
