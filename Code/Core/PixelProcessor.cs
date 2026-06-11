@@ -333,6 +333,16 @@ namespace VRCAvatarColorChanger
                     float zSC = Mathf.Sqrt(zSa * zSa + zSb * zSb);
                     float zOsat = zOutputSat < 0.999f ? zOutputSat : 1f;
                     bool zOkGray = zSC <= 1e-4f;
+                    // サンプル自動補正: アンカー (zSL, zSC) をスポイト画素からマッチ領域の代表色
+                    // (明部の地色)へ置換する。スポイトを陰影のどの明るさで取ってもパーツの明部が
+                    // target 色に一致する。マッチング(strength)・wash・デコンタミはスポイト色の
+                    // まま＝再着色範囲は不変。フォールバック時(false)は従来挙動。
+                    if (zone.autoRecolorAnchor && !zOkGray &&
+                        TryComputeRecolorAnchor(originalPixels, strength, out float anchorL, out float anchorC))
+                    {
+                        zSL = anchorL;
+                        zSC = anchorC;
+                    }
                     float zOkMagScale = 0f, zOkGa = 0f, zOkGb = 0f;
                     if (zOkGray)
                     {
@@ -796,6 +806,110 @@ namespace VRCAvatarColorChanger
         // これ未満の低彩度画素は元 L を保持し、target が sample より明るい場合の暗部持ち上げ
         // (=ロゴ周辺の白/灰ノイズ)を防ぐ。algorithm.py の OKLAB_REMAP_FULL_CHROMA_FRAC と同期。
         private const float OklabRemapFullChromaFrac = 0.35f;
+
+        // サンプル自動補正(再着色アンカー正規化)の定数。algorithm.py の ANCHOR_* と同期。
+        // すべて領域統計に対する相対量(特定色/座標/テクスチャ非依存)。
+        private const float AnchorStrengthMin   = 0.9f;   // コアマッチのみ採用(AA縁・feather裾の混色を除外)
+        private const int   AnchorMinPixels     = 100;    // これ未満はフォールバック(ComputeWashSample と同基準)
+        private const float AnchorBodySatrFrac  = 0.5f;   // 地色とみなす OkLab 飽和度(C/L)下限(候補中央値比)。
+                                                          // C/L は乗算シェーディング不変(L,C とも k^(1/3) 比例)なので
+                                                          // wash 済み明部・AA縁グレーを陰影レベル非依存に除外できる。
+        private const float AnchorLPct          = 0.90f;  // 代表 L percentile(鏡面ハイライト芯の最上位~10%を除外)
+        private const float AnchorLBandLoPct    = 0.80f;  // 代表 C を取る L 帯の下限 percentile
+        private const float AnchorLBandHiPct    = 0.97f;  // 同上限 percentile
+        private const float AnchorMinLSpread    = 0.02f;  // L の P95-P05 がこれ未満=フラット領域は補正不要
+        private const float AnchorSatrHistMax   = 4f;     // 飽和度(C/L)ヒストグラムの値域上限
+        private const float AnchorChromaHistMax = 0.5f;   // chroma ヒストグラムの値域上限(OkLab C は ~0.33 まで)
+
+        /// <summary>256bin ヒストグラムの percentile(0..1) を実値で返す(値域 [0, scale])。
+        /// HighlightSampleCorrector.PercentileFromHist の値域一般化版。Python np.percentile は
+        /// 線形補間のため最大 1bin(scale/255)の離散化差を許容する(auto_wash_sample の前例に従う)。</summary>
+        private static float HistValueAtPercentile(int[] hist, int total, float pct, float scale)
+        {
+            int target = Mathf.Clamp(Mathf.CeilToInt(total * pct), 1, total);
+            int cum = 0;
+            for (int b = 0; b < hist.Length; b++)
+            {
+                cum += hist[b];
+                if (cum >= target) return b / (float)(hist.Length - 1) * scale;
+            }
+            return scale;
+        }
+
+        /// <summary>
+        /// サンプル自動補正: OkLab 再着色のアンカー (sL, sC) をマッチ領域の統計から推定する。
+        ///
+        /// OkLab 再着色は (sL, sC) を不動点とする相対写像のため、スポイトした画素の陰影レベルが
+        /// そのまま出力全体の明度・彩度バイアスになる(明部平均 HSV-S で最大 ~0.22 のブレを実測)。
+        /// 本関数は「パーツの明るい面の地色」を統計的に推定して返し、スポイト位置非依存にする。
+        /// マッチング・wash には影響しない(呼び出し側がアンカー 2 値だけを置き換える)。
+        ///
+        /// algorithm.py の estimate_anchor_oklab と同期(percentile の離散化差 ≤1/255 は許容)。
+        /// </summary>
+        /// <returns>false = フォールバック(スポイト色のまま従来挙動)。
+        /// 条件: コア画素&lt;100 / 地色画素&lt;100 / フラット領域(L スプレッド&lt;0.02) / 推定 C≈0。</returns>
+        private static bool TryComputeRecolorAnchor(
+            Color32[] px, float[] strength, out float anchorL, out float anchorC)
+        {
+            anchorL = 0f;
+            anchorC = 0f;
+            int len = px.Length;
+
+            // pass 1: コアマッチ画素の OkLab 飽和度(C/L)ヒストグラム → 中央値から地色下限を決める
+            var satrHist = new int[256];
+            int candCount = 0;
+            for (int i = 0; i < len; i++)
+            {
+                if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
+                RgbToOklab(px[i].r / 255f, px[i].g / 255f, px[i].b / 255f,
+                    out float L, out float a, out float b);
+                float satr = Mathf.Sqrt(a * a + b * b) / Mathf.Max(L, 1e-4f);
+                int bin = Mathf.Clamp((int)(satr / AnchorSatrHistMax * 255f), 0, 255);
+                satrHist[bin]++;
+                candCount++;
+            }
+            if (candCount < AnchorMinPixels) return false;
+            float satrFloor = AnchorBodySatrFrac *
+                HistValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax);
+
+            // pass 2: 地色画素(飽和度 ≥ 下限)の L ヒストグラム → 代表 L と L 帯
+            var lHist = new int[256];
+            int bodyCount = 0;
+            for (int i = 0; i < len; i++)
+            {
+                if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
+                RgbToOklab(px[i].r / 255f, px[i].g / 255f, px[i].b / 255f,
+                    out float L, out float a, out float b);
+                if (Mathf.Sqrt(a * a + b * b) / Mathf.Max(L, 1e-4f) < satrFloor) continue;
+                lHist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
+                bodyCount++;
+            }
+            if (bodyCount < AnchorMinPixels) return false;
+            float l05 = HistValueAtPercentile(lHist, bodyCount, 0.05f, 1f);
+            float l95 = HistValueAtPercentile(lHist, bodyCount, 0.95f, 1f);
+            if (l95 - l05 < AnchorMinLSpread) return false;  // フラット領域: どこを取っても同じ
+            anchorL = HistValueAtPercentile(lHist, bodyCount, AnchorLPct, 1f);
+            float bandLo = HistValueAtPercentile(lHist, bodyCount, AnchorLBandLoPct, 1f);
+            float bandHi = HistValueAtPercentile(lHist, bodyCount, AnchorLBandHiPct, 1f);
+
+            // pass 3: L 帯内の地色画素の chroma 中央値 → 代表 C
+            var cHist = new int[256];
+            int bandCount = 0;
+            for (int i = 0; i < len; i++)
+            {
+                if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
+                RgbToOklab(px[i].r / 255f, px[i].g / 255f, px[i].b / 255f,
+                    out float L, out float a, out float b);
+                float c = Mathf.Sqrt(a * a + b * b);
+                if (c / Mathf.Max(L, 1e-4f) < satrFloor) continue;
+                if (L < bandLo || L > bandHi) continue;
+                cHist[Mathf.Clamp((int)(c / AnchorChromaHistMax * 255f), 0, 255)]++;
+                bandCount++;
+            }
+            if (bandCount < 1) return false;
+            anchorC = HistValueAtPercentile(cHist, bandCount, 0.5f, AnchorChromaHistMax);
+            return anchorC > 1e-4f;
+        }
 
         /// <summary>
         /// ハイライト帯成長: matched core（本体）から「sample→白 直線上に乗った同色相の
