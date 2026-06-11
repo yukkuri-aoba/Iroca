@@ -604,6 +604,9 @@ namespace VRCAvatarColorChanger
                 zone.outputSaturation = UndoHelper.Slider(this,
                     new GUIContent(Localization.OutputSaturation, Localization.OutputSaturationTooltip),
                     zone.outputSaturation, 0f, 1f);
+                zone.autoRecolorAnchor = UndoHelper.Toggle(this,
+                    new GUIContent(Localization.AutoRecolorAnchor, Localization.AutoRecolorAnchorTooltip),
+                    zone.autoRecolorAnchor);
                 zone.edgeSoftness = UndoHelper.Slider(this,
                     new GUIContent(Localization.EdgeSoftness, Localization.EdgeSoftnessTooltip),
                     zone.edgeSoftness, 0f, 1f);

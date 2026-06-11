@@ -202,6 +202,11 @@ namespace VRCAvatarColorChanger
             ? "「ハイライト白寄せ合成」の配下オプション。ON のときのみ有効です。\n明るい光沢部をスポイトすると、中央ハイライトのグラデーションが潰れて「ベタ塗り」に見えることがあります。\nこの設定は、パーツの地色(同じ色相の中間トーン)をテクスチャから自動で見つけ、白寄せ合成がドーム全体に\n効くようにして鏡面の立体感を出します。再着色する範囲(マッチング)は変えず、見え方だけを補正します。\n※ 髪など細い房が多いテクスチャでは白寄せが広がりすぎることがあるため、その場合は OFF にしてください。\nデフォルト: OFF（必要なゾーンだけ ON）"
             : "A sub-option of \"Highlight White Blend\"; only active when that is ON.\nWhen you eyedrop a bright glossy spot, the central highlight gradient can collapse into a flat look.\nThis finds the part's base tone (same-hue mid tone) from the texture automatically so the white blend covers the\nwhole dome, making specular shading appear. It does not change which pixels are recolored (matching), only how it looks.\nNote: on hair-like textures with many thin strands the white-ward blend can spread too much - turn this OFF there.\nDefault: OFF (enable per zone as needed)";
 
+        public static string AutoRecolorAnchor => IsJapanese ? "サンプル自動補正（再着色）" : "Auto Sample Anchor";
+        public static string AutoRecolorAnchorTooltip => IsJapanese
+            ? "スポイトした位置の明るさ・鮮やかさに関わらず、パーツの明るい面の色が「変更先の色」に一致するよう、\n再着色の基準をマッチした領域の統計から自動で補正します。\nOFF のときはスポイトした画素そのものが変更先の色になるため、影の部分をスポイトすると\nパーツ全体が指定より明るく・鮮やかに見えることがあります。\n再着色する範囲(マッチング)は変わらず、色の写り方だけが補正されます。\nデフォルト: OFF（必要なゾーンだけ ON）"
+            : "Automatically corrects the recoloring reference from the matched region's statistics so the lit side of the part\nmatches the target color, regardless of how bright or saturated the eyedropped spot was.\nWhen OFF, the eyedropped pixel itself maps to the target color, so sampling in a shadow can make the whole part\nlook brighter and more saturated than specified.\nIt does not change which pixels are recolored (matching), only how colors are mapped.\nDefault: OFF (enable per zone as needed)";
+
         // ─── Exclusion Mask ───
         public static string ExclusionMask => IsJapanese ? "除外マスク" : "Exclusion Mask";
         public static string BrushSize => IsJapanese ? "ブラシサイズ" : "Brush Size";
