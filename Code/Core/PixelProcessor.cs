@@ -1005,8 +1005,10 @@ namespace VRCAvatarColorChanger
             bool[] visited = new bool[len];
             var queue = new Queue<int>();
 
-            // 候補判定 + core をシードとして収集（1 パス）
-            for (int i = 0; i < len; i++)
+            // 候補判定: 各画素は独立(他画素を参照しない)なので並列化する。candidate[] は
+            // 走査順に依存せず、書き込みは distinct index のため出力は逐次版とビット不変。
+            var hlbPo = new ParallelOptions { MaxDegreeOfParallelism = s_maxParallelism };
+            Parallel.For(0, len, hlbPo, i =>
             {
                 float pV = pixV[i];
                 if (pV > sV)
@@ -1031,7 +1033,12 @@ namespace VRCAvatarColorChanger
                         }
                     }
                 }
+            });
 
+            // core をシードとして収集する(BFS の Queue は非スレッドセーフ・逐次のまま。
+            // enqueue 順は従来と同一の i 昇順で、BFS 到達集合も順序非依存のため出力不変)。
+            for (int i = 0; i < len; i++)
+            {
                 if (strength[i] >= HlBandCoreThreshold)
                 {
                     visited[i] = true;
