@@ -263,7 +263,9 @@ namespace VRCAvatarColorChanger
                     {
                         outTex = new Texture2D(payload.width, payload.height, TextureFormat.RGBA32, false);
                         outTex.SetPixels32(payload.pixels);
-                        outTex.Apply();
+                        // Apply() は CPU→GPU アップロードで、直後の EncodeToPNG は CPU 側データを
+                        // 読むため不要(4K で 67MB の無駄な転送)。SetPixels32 で更新済みの CPU データを
+                        // EncodeToPNG が直接読む。
                         _exportProgress.Report(0.95f);
                         byte[] pngData = outTex.EncodeToPNG();
                         if (pngData == null) return;
@@ -466,7 +468,7 @@ namespace VRCAvatarColorChanger
                         }
 
                         fullTex.SetPixels32(pixels);
-                        fullTex.Apply();
+                        // Apply()(CPU→GPU アップロード)は CPU 側を読む EncodeToPNG には不要。
                         byte[] pngData = fullTex.EncodeToPNG();
 
                         string dir      = Path.GetDirectoryName(srcPath);
