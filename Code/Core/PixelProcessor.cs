@@ -766,16 +766,38 @@ namespace VRCAvatarColorChanger
         /// </summary>
         private static void PropagateHighlights(float[] strength, float[] highlightPot, int w, int h)
         {
+            // bbox 制限(P1-5): strength を更新し得るのは下のガード `pot > 0f` を満たす画素のみ。
+            // highlightPot>0 の bbox だけ走査すれば、bbox 外画素は元々 skip(何もしない)、bbox 端の
+            // 近傍読み(i±1 / i±w)が指す bbox 外画素は pot=0 で本関数では不変のため値が一致し、
+            // スイープ順序も bbox 内の pot>0 画素の相対順は全面走査と同一。よって出力はビット不変。
+            // ハイライト候補はテクスチャの一部に偏在するため実効コストを大きく削減できる。
+            int minX = w, maxX = -1, minY = h, maxY = -1;
+            for (int y = 0; y < h; y++)
+            {
+                int rb = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    if (highlightPot[rb + x] > 0f)
+                    {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+            }
+            if (maxX < 0) return;   // pot>0 の画素が無い → 伝播対象なし
+
             int passes = 3;
             for (int p = 0; p < passes; p++)
             {
                 bool changed = false;
 
-                // 左上から右下へのパス
-                for (int y = 0; y < h; y++)
+                // 左上から右下へのパス (bbox 内のみ走査)
+                for (int y = minY; y <= maxY; y++)
                 {
                     int rowBase = y * w;
-                    for (int x = 0; x < w; x++)
+                    for (int x = minX; x <= maxX; x++)
                     {
                         int i = rowBase + x;
                         float pot = highlightPot[i];
@@ -802,11 +824,11 @@ namespace VRCAvatarColorChanger
                     }
                 }
 
-                // 右下から左上へのパス
-                for (int y = h - 1; y >= 0; y--)
+                // 右下から左上へのパス (bbox 内のみ走査)
+                for (int y = maxY; y >= minY; y--)
                 {
                     int rowBase = y * w;
-                    for (int x = w - 1; x >= 0; x--)
+                    for (int x = maxX; x >= minX; x--)
                     {
                         int i = rowBase + x;
                         float pot = highlightPot[i];
