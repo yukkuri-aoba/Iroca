@@ -900,60 +900,73 @@ namespace VRCAvatarColorChanger
             anchorC = 0f;
             int len = px.Length;
 
-            // pass 1: コアマッチ画素の OkLab 飽和度(C/L)ヒストグラム → 中央値から地色下限を決める
-            var satrHist = new int[256];
-            int candCount = 0;
-            for (int i = 0; i < len; i++)
+            // コア画素(strength>=AnchorStrengthMin & a>=128)の OkLab (L, C) を pass1 で一度だけ
+            // 計算して圧縮配列に保存し、pass2/3 はそれを読む。従来は 3 パスとも全画素を走査して
+            // 同じ画素の RgbToOklab を再計算していた(4K で計 50M 回の OkLab 変換)。出力は同値。
+            // 配列は s_floatPool から借用(candCount<=len なので 2^24 までプール内)。
+            float[] candL = s_floatPool.Rent(len);
+            float[] candC = s_floatPool.Rent(len);
+            try
             {
-                if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
-                RgbToOklab(px[i].r / 255f, px[i].g / 255f, px[i].b / 255f,
-                    out float L, out float a, out float b);
-                float satr = Mathf.Sqrt(a * a + b * b) / Mathf.Max(L, 1e-4f);
-                int bin = Mathf.Clamp((int)(satr / AnchorSatrHistMax * 255f), 0, 255);
-                satrHist[bin]++;
-                candCount++;
-            }
-            if (candCount < AnchorMinPixels) return false;
-            float satrFloor = AnchorBodySatrFrac *
-                HistValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax);
+                // pass 1: (L, C) を保存しつつ飽和度(C/L)ヒストグラム → 中央値から地色下限を決める
+                var satrHist = new int[256];
+                int candCount = 0;
+                for (int i = 0; i < len; i++)
+                {
+                    if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
+                    RgbToOklab(px[i].r / 255f, px[i].g / 255f, px[i].b / 255f,
+                        out float L, out float a, out float b);
+                    float C = Mathf.Sqrt(a * a + b * b);
+                    candL[candCount] = L;
+                    candC[candCount] = C;
+                    candCount++;
+                    float satr = C / Mathf.Max(L, 1e-4f);
+                    int bin = Mathf.Clamp((int)(satr / AnchorSatrHistMax * 255f), 0, 255);
+                    satrHist[bin]++;
+                }
+                if (candCount < AnchorMinPixels) return false;
+                float satrFloor = AnchorBodySatrFrac *
+                    HistValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax);
 
-            // pass 2: 地色画素(飽和度 ≥ 下限)の L ヒストグラム → 代表 L と L 帯
-            var lHist = new int[256];
-            int bodyCount = 0;
-            for (int i = 0; i < len; i++)
-            {
-                if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
-                RgbToOklab(px[i].r / 255f, px[i].g / 255f, px[i].b / 255f,
-                    out float L, out float a, out float b);
-                if (Mathf.Sqrt(a * a + b * b) / Mathf.Max(L, 1e-4f) < satrFloor) continue;
-                lHist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
-                bodyCount++;
-            }
-            if (bodyCount < AnchorMinPixels) return false;
-            float l05 = HistValueAtPercentile(lHist, bodyCount, 0.05f, 1f);
-            float l95 = HistValueAtPercentile(lHist, bodyCount, 0.95f, 1f);
-            if (l95 - l05 < AnchorMinLSpread) return false;  // フラット領域: どこを取っても同じ
-            anchorL = HistValueAtPercentile(lHist, bodyCount, AnchorLPct, 1f);
-            float bandLo = HistValueAtPercentile(lHist, bodyCount, AnchorLBandLoPct, 1f);
-            float bandHi = HistValueAtPercentile(lHist, bodyCount, AnchorLBandHiPct, 1f);
+                // pass 2: 地色画素(飽和度 ≥ 下限)の L ヒストグラム → 代表 L と L 帯
+                var lHist = new int[256];
+                int bodyCount = 0;
+                for (int k = 0; k < candCount; k++)
+                {
+                    float L = candL[k];
+                    if (candC[k] / Mathf.Max(L, 1e-4f) < satrFloor) continue;
+                    lHist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
+                    bodyCount++;
+                }
+                if (bodyCount < AnchorMinPixels) return false;
+                float l05 = HistValueAtPercentile(lHist, bodyCount, 0.05f, 1f);
+                float l95 = HistValueAtPercentile(lHist, bodyCount, 0.95f, 1f);
+                if (l95 - l05 < AnchorMinLSpread) return false;  // フラット領域: どこを取っても同じ
+                anchorL = HistValueAtPercentile(lHist, bodyCount, AnchorLPct, 1f);
+                float bandLo = HistValueAtPercentile(lHist, bodyCount, AnchorLBandLoPct, 1f);
+                float bandHi = HistValueAtPercentile(lHist, bodyCount, AnchorLBandHiPct, 1f);
 
-            // pass 3: L 帯内の地色画素の chroma 中央値 → 代表 C
-            var cHist = new int[256];
-            int bandCount = 0;
-            for (int i = 0; i < len; i++)
-            {
-                if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
-                RgbToOklab(px[i].r / 255f, px[i].g / 255f, px[i].b / 255f,
-                    out float L, out float a, out float b);
-                float c = Mathf.Sqrt(a * a + b * b);
-                if (c / Mathf.Max(L, 1e-4f) < satrFloor) continue;
-                if (L < bandLo || L > bandHi) continue;
-                cHist[Mathf.Clamp((int)(c / AnchorChromaHistMax * 255f), 0, 255)]++;
-                bandCount++;
+                // pass 3: L 帯内の地色画素の chroma 中央値 → 代表 C
+                var cHist = new int[256];
+                int bandCount = 0;
+                for (int k = 0; k < candCount; k++)
+                {
+                    float L = candL[k];
+                    float c = candC[k];
+                    if (c / Mathf.Max(L, 1e-4f) < satrFloor) continue;
+                    if (L < bandLo || L > bandHi) continue;
+                    cHist[Mathf.Clamp((int)(c / AnchorChromaHistMax * 255f), 0, 255)]++;
+                    bandCount++;
+                }
+                if (bandCount < 1) return false;
+                anchorC = HistValueAtPercentile(cHist, bandCount, 0.5f, AnchorChromaHistMax);
+                return anchorC > 1e-4f;
             }
-            if (bandCount < 1) return false;
-            anchorC = HistValueAtPercentile(cHist, bandCount, 0.5f, AnchorChromaHistMax);
-            return anchorC > 1e-4f;
+            finally
+            {
+                s_floatPool.Return(candL);
+                s_floatPool.Return(candC);
+            }
         }
 
         /// <summary>
