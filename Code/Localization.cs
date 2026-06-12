@@ -184,13 +184,13 @@ namespace VRCAvatarColorChanger
 
         public static string HighlightRecovery => IsJapanese ? "ハイライト補助" : "Highlight Recovery";
         public static string HighlightRecoveryTooltip => IsJapanese
-            ? "高明度・低彩度のハイライト領域を補助的にマッチします。\n鏡面反射や光沢のある素材の色変換漏れを防ぎます。\nデフォルト: ON"
-            : "Match high-brightness low-saturation highlight regions.\nPrevents missed recoloring on reflective/glossy materials.\nDefault: ON";
+            ? "高明度・低彩度のハイライト領域を補助的にマッチします。\n鏡面反射や光沢のある素材の色変換漏れを防ぎます。\n白背景に溶けたアンチエイリアス境界も同じ特徴（明るく低彩度・同色相）を持つため、\n境界の取りこぼし（ドット残り）の低減にも副次的に効きます。\nデフォルト: ON"
+            : "Match high-brightness low-saturation highlight regions.\nPrevents missed recoloring on reflective/glossy materials.\nAnti-aliased edges blended into a light background share the same signature\n(bright, low-saturation, same hue), so this also helps reduce leftover edge dots.\nDefault: ON";
 
         public static string HighlightBandExpand => IsJapanese ? "ハイライト帯の拡張" : "Highlight Band Expansion";
         public static string HighlightBandExpandTooltip => IsJapanese
-            ? "本体にマッチした領域から、描き込まれたハイライト（同色相で白方向に色が薄くなった明部）へ\n変換範囲を空間的に広げます。許容値を上げずに、薄いハイライトのベタ塗り化・取りこぼしを防ぎます。\n本体に連結した領域のみ広げるため、別パーツや白素材への巻き込みは起きません。\n「ハイライト補助」が ON のときのみ有効。\nデフォルト: ON"
-            : "Expands recoloring from the matched body into drawn-in highlights (same-hue bright pixels washed toward white).\nKeeps thin highlights from being flattened or missed without raising tolerance.\nOnly grows regions connected to the matched body, so it never bleeds into other parts or white material.\nActive only when Highlight Recovery is ON.\nDefault: ON";
+            ? "本体にマッチした領域から、描き込まれたハイライト（同色相で白方向に色が薄くなった明部）へ\n変換範囲を空間的に広げます。許容値を上げずに、薄いハイライトのベタ塗り化・取りこぼしを防ぎます。\n本体に連結した領域のみ広げるため、別パーツや白素材への巻き込みは起きません。\n白背景へのアンチエイリアス境界も同じ「源色→白」軸上に乗るため、\n本体に連結した境界の取りこぼし（ドット残り）の低減にも副次的に効きます。\n「ハイライト補助」が ON のときのみ有効。\nデフォルト: ON"
+            : "Expands recoloring from the matched body into drawn-in highlights (same-hue bright pixels washed toward white).\nKeeps thin highlights from being flattened or missed without raising tolerance.\nOnly grows regions connected to the matched body, so it never bleeds into other parts or white material.\nAnti-aliased edges blended into a light background lie on the same sample-to-white axis,\nso this also helps reduce leftover edge dots on boundaries connected to the body.\nActive only when Highlight Recovery is ON.\nDefault: ON";
 
         public static string ApplyHighlightWash => IsJapanese ? "ハイライト白寄せ合成" : "Highlight White Blend";
         public static string ApplyHighlightWashTooltip => IsJapanese
