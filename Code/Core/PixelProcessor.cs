@@ -1584,7 +1584,10 @@ namespace VRCAvatarColorChanger
             // 例: 8192x8192 の画像を 512x512 に縮小すると 1 ピクセル当たり 256 サンプル以上、
             // 合計が byte(255) * 256 = 65280 を超え、バッチサイズ次第では int でも桁数が
             // 増えるため安全側に倒す。
-            for (int y = 0; y < dstH; y++)
+            // 行ごとに dst の異なる領域へ書き込み src は読み取り専用なので、y で行並列化できる
+            // (出力ビット不変)。4K→512 で 16.8M 画素読みのためメインスレッド/ジョブどちらでも効く。
+            var po = new ParallelOptions { MaxDegreeOfParallelism = s_maxParallelism };
+            Parallel.For(0, dstH, po, y =>
             {
                 int sy0 = Mathf.FloorToInt(y / scale);
                 int sy1 = Mathf.Min(Mathf.CeilToInt((y + 1f) / scale) - 1, srcH - 1);
@@ -1606,7 +1609,7 @@ namespace VRCAvatarColorChanger
                         (byte)(r / count), (byte)(g / count),
                         (byte)(b / count), (byte)(a / count));
                 }
-            }
+            });
             return dst;
         }
     }

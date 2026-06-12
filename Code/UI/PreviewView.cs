@@ -84,7 +84,11 @@ namespace VRCAvatarColorChanger
         [System.NonSerialized] private Vector2 _previewScrollPos;
 
         // 非同期プレビュー状態
-        [System.NonSerialized] private readonly PreviewJob<Color32[]> _previewJob = new PreviewJob<Color32[]>();
+        // 戻り値は (processed, raw) のタプル。raw(ダウンサンプル済み元表示)もジョブ側で
+        // 生成することで、テクスチャ切替直後のキャッシュミス時にメインスレッドで走っていた
+        // BoxDownsample のヒッチをバックグラウンドへ追い出す。
+        [System.NonSerialized] private readonly PreviewJob<(Color32[] processed, Color32[] raw)> _previewJob =
+            new PreviewJob<(Color32[] processed, Color32[] raw)>();
         [System.NonSerialized] private Color32[] _pendingProcessedDisplay;
         [System.NonSerialized] private Color32[] _pendingRawDisplay;
         [System.NonSerialized] private int _pendingPrevW, _pendingPrevH;
@@ -787,6 +791,9 @@ namespace VRCAvatarColorChanger
             int prevH = Mathf.Max(1, Mathf.RoundToInt(srcH * scale));
 
             Color32[] srcPixels;
+            // rawDisplay: 既に確定しているもの(キャッシュヒット or scale>=1 で src と同一)は非 null。
+            // キャッシュミス かつ scale<1 のときのみ null にし、ジョブ側で BoxDownsample してから
+            // apply でキャッシュへ確定する(メインスレッドのダウンサンプルヒッチを回避)。
             Color32[] rawDisplay;
             if (_cachedSourceTexture == sourceTexture &&
                 _cachedSrcPixels != null &&
@@ -800,13 +807,12 @@ namespace VRCAvatarColorChanger
             else
             {
                 srcPixels = _trueSourcePixels;
-                rawDisplay = scale < 1f
-                    ? PixelProcessor.BoxDownsample(srcPixels, srcW, srcH, prevW, prevH, scale)
-                    : srcPixels;
+                // scale>=1 は縮小不要で raw==src(コスト 0)。scale<1 はジョブ側で生成するため null。
+                rawDisplay = scale < 1f ? null : srcPixels;
 
                 _cachedSourceTexture = sourceTexture;
                 _cachedSrcPixels     = srcPixels;
-                _cachedRawDisplay    = rawDisplay;
+                _cachedRawDisplay    = rawDisplay;   // scale<1 のときは一旦 null、apply で確定
                 _cachedSrcW          = srcW;
                 _cachedSrcH          = srcH;
                 _cachedPrevW         = prevW;
@@ -850,16 +856,29 @@ namespace VRCAvatarColorChanger
                         useDecontam, decontamRadius,
                         debug: debugCap);
 
-                    return scaleForTask < 1f
+                    Color32[] processedDisplay = scaleForTask < 1f
                         ? PixelProcessor.BoxDownsample(pixels, srcW, srcH, prevWForTask, prevHForTask, scaleForTask)
                         : pixels;
+                    // raw が未確定(キャッシュミス & scale<1)ならバックグラウンドで生成する。
+                    // それ以外(キャッシュヒット or scale>=1)は確定済みをそのまま使う。
+                    Color32[] rawForJob = rawDisplayForTask ?? PixelProcessor.BoxDownsample(
+                        srcPixelsForTask, srcW, srcH, prevWForTask, prevHForTask, scaleForTask);
+                    return (processedDisplay, rawForJob);
                 },
-                apply: processedDisplay =>
+                apply: result =>
                 {
-                    _pendingRawDisplay       = rawDisplayForTask;
-                    _pendingProcessedDisplay = processedDisplay;
+                    _pendingRawDisplay       = result.raw;
+                    _pendingProcessedDisplay = result.processed;
                     _pendingPrevW            = prevWForTask;
                     _pendingPrevH            = prevHForTask;
+                    // ジョブ側で生成した raw をキャッシュへ確定する(まだ未確定で、対象テクスチャと
+                    // 寸法が変わっていない場合のみ。新しいミスで上書きされていれば触らない)。
+                    if (_cachedRawDisplay == null && _cachedSrcPixels == srcPixelsForTask &&
+                        _cachedSrcW == srcW && _cachedSrcH == srcH &&
+                        _cachedPrevW == prevWForTask && _cachedPrevH == prevHForTask)
+                    {
+                        _cachedRawDisplay = result.raw;
+                    }
                     _host.LatestDebugCapture = debugCap;
                     _host.RequestRepaint();
                 });
