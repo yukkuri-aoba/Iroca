@@ -403,13 +403,17 @@ namespace VRCAvatarColorChanger
                 result.hasCommon = true;
                 var pixels = new Color32[w * h];
                 var excluded = new Color32(255, 60, 60, 80);
-                for (int i = 0; i < pixels.Length; i++)
+                // 行ループ化で i%w / i/w の除算を排除(my は行ごとに一定)。出力は不変。
+                for (int y = 0; y < h; y++)
                 {
-                    int x = i % w;
-                    int y = i / w;
-                    int mx = Mathf.Clamp(x * mw / w, 0, mw - 1);
                     int my = Mathf.Clamp(y * mh / h, 0, mh - 1);
-                    if (common[my * mw + mx]) pixels[i] = excluded;
+                    int rowBase = y * w;
+                    int myBase = my * mw;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int mx = Mathf.Clamp(x * mw / w, 0, mw - 1);
+                        if (common[myBase + mx]) pixels[rowBase + x] = excluded;
+                    }
                 }
                 token.ThrowIfCancellationRequested();
                 result.commonPixels = pixels;
@@ -421,13 +425,16 @@ namespace VRCAvatarColorChanger
                 var pixels = new Color32[w * h];
                 foreach (var (color, zm) in zoneInfos)
                 {
-                    for (int i = 0; i < pixels.Length; i++)
+                    for (int y = 0; y < h; y++)
                     {
-                        int x = i % w;
-                        int y = i / w;
-                        int mx = Mathf.Clamp(x * mw / w, 0, mw - 1);
                         int my = Mathf.Clamp(y * mh / h, 0, mh - 1);
-                        if (zm[my * mw + mx]) pixels[i] = color;
+                        int rowBase = y * w;
+                        int myBase = my * mw;
+                        for (int x = 0; x < w; x++)
+                        {
+                            int mx = Mathf.Clamp(x * mw / w, 0, mw - 1);
+                            if (zm[myBase + mx]) pixels[rowBase + x] = color;
+                        }
                     }
                     token.ThrowIfCancellationRequested();
                 }
