@@ -4,6 +4,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Threading;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using UnityEngine;
 
@@ -28,11 +29,21 @@ namespace VRCAvatarColorChanger
     /// </summary>
     internal static class PixelProcessor
     {
-        // Parallel.For で使用する、CPU コア数制限。
+        // Parallel.For で使用する既定の CPU コア数制限。
         // Unity Editor は多数のスレッドを使用するため、全コア並列で
         // スレッドプールを圧迫するのを防ぐため 2 コア分をあけておく。
-        private static readonly int s_maxParallelism =
+        // オーバーライドは DebugCaptureHooks.ParallelismOverride で設定可能。
+        private static readonly int s_defaultParallelism =
             Math.Max(1, Environment.ProcessorCount - 2);
+
+        private static int GetMaxParallelism()
+        {
+            int ov = DebugCaptureHooks.ParallelismOverride;
+            return ov > 0 ? Math.Min(ov, Environment.ProcessorCount) : s_defaultParallelism;
+        }
+
+        private static double TicksToMs(long ticks) =>
+            ticks * 1000.0 / Stopwatch.Frequency;
 
         // ───────────── 大テクスチャ向け専用 ArrayPool ─────────────
         // ArrayPool<T>.Shared は既定でバケット上限 2^20 要素。それを超える Rent は
@@ -96,6 +107,10 @@ namespace VRCAvatarColorChanger
             Color32[] originalPixels = new Color32[len];
             System.Array.Copy(pixels, originalPixels, len);
 
+            long _t0 = Stopwatch.GetTimestamp();
+            var _perfZones = new ZonePerfEntry[sortedZones.Count];
+            int _perfIdx = 0;
+
             // 全ピクセルの HSV を zone ループに入る前に一括計算（zone 数に関わらず1回）
             // null 初期化してから try 内で Rent することで、
             // 2番目以降の Rent が例外を投げた場合に先行の配列をリークしない。
@@ -118,7 +133,7 @@ namespace VRCAvatarColorChanger
             var po = new ParallelOptions
             {
                 CancellationToken      = cancellationToken,
-                MaxDegreeOfParallelism = s_maxParallelism,
+                MaxDegreeOfParallelism = GetMaxParallelism(),
             };
             Parallel.For(0, len, po, i =>
             {
@@ -151,6 +166,7 @@ namespace VRCAvatarColorChanger
                 // po は foreach 外で定義済みなので再宣言しない。
                 // Parallel.For に入る前にキャッシュを確定させてホットループ内の条件分岐を排除
                 zone.UpdateCacheIfNeeded();
+                long _tZone = Stopwatch.GetTimestamp();
 
                 // ArrayPool 借用は per-zone の try/finally で必ず返却する。
                 // Parallel.For は po.CancellationToken でキャンセル時に OperationCanceledException
@@ -523,6 +539,7 @@ namespace VRCAvatarColorChanger
                         });
                         debug.RecordRecolorBranches(zone.id, branchMap, w, h);
                     }
+                    _perfZones[_perfIdx++] = new ZonePerfEntry(zone.id, TicksToMs(Stopwatch.GetTimestamp() - _tZone));
                 }
                 finally
                 {
@@ -539,6 +556,8 @@ namespace VRCAvatarColorChanger
                 if (pixS != null) s_floatPool.Return(pixS);
                 if (pixH != null) s_floatPool.Return(pixH);
             }
+        DebugCaptureHooks.RaisePerfReport(
+            new PerfReport(TicksToMs(Stopwatch.GetTimestamp() - _t0), w, h, _perfZones));
         }
 
         /// <summary>
@@ -586,7 +605,7 @@ namespace VRCAvatarColorChanger
             Array.Clear(wG, 0, len);
             Array.Clear(wB, 0, len);
             Array.Clear(wD, 0, len);
-            var decontamPo = new ParallelOptions { MaxDegreeOfParallelism = s_maxParallelism };
+            var decontamPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
             Parallel.For(0, len, decontamPo, i =>
             {
                 // アルファが0のピクセルはRGBがゴミデータ(黒など)の可能性が高いためBG推定から除外
@@ -682,7 +701,7 @@ namespace VRCAvatarColorChanger
         {
             int len = w * h;
             float[] temp = s_floatPool.Rent(len);
-            var filterPo = new ParallelOptions { MaxDegreeOfParallelism = s_maxParallelism };
+            var filterPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
             try
             {
                 // 水平パス
@@ -1047,7 +1066,7 @@ namespace VRCAvatarColorChanger
 
             // 候補判定: 各画素は独立(他画素を参照しない)なので並列化する。candidate[] は
             // 走査順に依存せず、書き込みは distinct index のため出力は逐次版とビット不変。
-            var hlbPo = new ParallelOptions { MaxDegreeOfParallelism = s_maxParallelism };
+            var hlbPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
             Parallel.For(0, len, hlbPo, i =>
             {
                 float pV = pixV[i];
@@ -1116,19 +1135,8 @@ namespace VRCAvatarColorChanger
         {
             if (commonMask == null && zoneMask == null) return false;
             if (maskW <= 0 || maskH <= 0) return false;
-            int mx, my;
-            if (maskW == texW && maskH == texH)
-            {
-                // マスク解像度＝テクスチャ解像度: 0<=x<texW なので x*maskW/texW==x、クランプも不要。
-                // 毎画素×2 回呼ばれるため乗除算・Clamp を省く(結果は一般パスとビット同一)。
-                mx = x;
-                my = y;
-            }
-            else
-            {
-                mx = Mathf.Clamp(x * maskW / texW, 0, maskW - 1);
-                my = Mathf.Clamp(y * maskH / texH, 0, maskH - 1);
-            }
+            int mx = Mathf.Clamp(x * maskW / texW, 0, maskW - 1);
+            int my = Mathf.Clamp(y * maskH / texH, 0, maskH - 1);
             int idx = my * maskW + mx;
             if (commonMask != null && idx < commonMask.Length && commonMask[idx]) return true;
             if (zoneMask != null && idx < zoneMask.Length && zoneMask[idx]) return true;
@@ -1160,7 +1168,7 @@ namespace VRCAvatarColorChanger
 
             int len = w * h;
             float[] temp = s_floatPool.Rent(len);
-            var gaussPo = new ParallelOptions { MaxDegreeOfParallelism = s_maxParallelism };
+            var gaussPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
             try
             {
                 // 水平パス
@@ -1216,7 +1224,7 @@ namespace VRCAvatarColorChanger
 
                 BoxFilterSum(mask, neighborSum, w, h, radius);
 
-                Parallel.For(0, len, new ParallelOptions { MaxDegreeOfParallelism = s_maxParallelism }, i =>
+                Parallel.For(0, len, new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() }, i =>
                 {
                     if (original[i] > 0f) return; // already matched
                     if (neighborSum[i] <= 0f)
@@ -1248,7 +1256,7 @@ namespace VRCAvatarColorChanger
 
             int len = w * h;
             float[] buffer = s_floatPool.Rent(len);
-            var fillPo = new ParallelOptions { MaxDegreeOfParallelism = s_maxParallelism };
+            var fillPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
             try
             {
             float[] read = strength;
@@ -1333,7 +1341,7 @@ namespace VRCAvatarColorChanger
 
             int len = w * h;
             float[] buffer = s_floatPool.Rent(len);
-            var recoverPo = new ParallelOptions { MaxDegreeOfParallelism = s_maxParallelism };
+            var recoverPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
             try
             {
             float[] read = strength;
@@ -1718,7 +1726,7 @@ namespace VRCAvatarColorChanger
             // 増えるため安全側に倒す。
             // 行ごとに dst の異なる領域へ書き込み src は読み取り専用なので、y で行並列化できる
             // (出力ビット不変)。4K→512 で 16.8M 画素読みのためメインスレッド/ジョブどちらでも効く。
-            var po = new ParallelOptions { MaxDegreeOfParallelism = s_maxParallelism };
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
             Parallel.For(0, dstH, po, y =>
             {
                 int sy0 = Mathf.FloorToInt(y / scale);
