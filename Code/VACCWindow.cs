@@ -435,6 +435,39 @@ namespace VRCAvatarColorChanger
 
         // ───────────────────────── ゾーンリスト ───────────────────────────
 
+        // ゾーンリストのヘッダ行は毎フレーム×ゾーン数で描画されるため、GUIStyle/GUIContent を
+        // 静的キャッシュして毎フレームのアロケーションを避ける。文字列は Localization 由来なので、
+        // 言語切替時(CurrentLanguage 変化)だけ再構築する。GUIContent は IMGUI が即時消費するため
+        // 単一インスタンスの共有で問題ない。
+        private static GUIStyle s_dragHandleStyle;
+        private static LanguageMode s_zoneCacheLang = (LanguageMode)(-1);
+        private static GUIContent s_dragHandleContent, s_zoneEnabledContent, s_zoneNameContent,
+            s_removeZoneContent, s_editMaskActiveContent, s_editMaskInactiveContent,
+            s_autoTuneEnabledContent, s_autoTuneDisabledContent;
+
+        private static void EnsureZoneListCache()
+        {
+            if (s_dragHandleStyle == null)
+            {
+                s_dragHandleStyle = new GUIStyle(EditorStyles.label)
+                {
+                    alignment = TextAnchor.MiddleCenter,
+                    fontStyle = FontStyle.Bold,
+                };
+            }
+            if (s_zoneCacheLang == Localization.CurrentLanguage && s_dragHandleContent != null)
+                return;
+            s_zoneCacheLang = Localization.CurrentLanguage;
+            s_dragHandleContent       = new GUIContent("☰", Localization.ZoneDragHandleTooltip);
+            s_zoneEnabledContent      = new GUIContent("", Localization.ZoneEnabledTooltip);
+            s_zoneNameContent         = new GUIContent("", Localization.ZoneNameTooltip);
+            s_removeZoneContent       = new GUIContent("×", Localization.RemoveZoneTooltip);
+            s_editMaskActiveContent   = new GUIContent(Localization.EditMaskActiveLabel, Localization.EditMaskTooltip);
+            s_editMaskInactiveContent = new GUIContent(Localization.EditMaskInactiveLabel, Localization.EditMaskTooltip);
+            s_autoTuneEnabledContent  = new GUIContent(Localization.AutoTune, Localization.AutoTuneTooltip);
+            s_autoTuneDisabledContent = new GUIContent(Localization.AutoTune, Localization.AutoTuneDisabledTooltip);
+        }
+
         private void DrawZoneList()
         {
             zonesFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(zonesFoldout, Localization.ColorZones);
@@ -451,12 +484,10 @@ namespace VRCAvatarColorChanger
             // 外部要因（削除等）で範囲外になったドラッグ状態をリセット。
             if (_dragZoneIndex >= zones.Count) _dragZoneIndex = -1;
 
-            // ドラッグハンドル用スタイル（毎フレーム生成を避けるためループ外で1回だけ作る）。
-            var dragHandleStyle = new GUIStyle(EditorStyles.label)
-            {
-                alignment = TextAnchor.MiddleCenter,
-                fontStyle = FontStyle.Bold,
-            };
+            // ドラッグハンドル用スタイルとヘッダ行の GUIContent は静的キャッシュを使う
+            // (毎フレーム×ゾーン数のアロケーション回避。言語切替時のみ再構築)。
+            EnsureZoneListCache();
+            var dragHandleStyle = s_dragHandleStyle;
             // 各ゾーンの矩形を記録し、ドロップ位置の判定とインジケータ描画に使う。
             var zoneRects = new List<Rect>(zones.Count);
 
@@ -470,7 +501,7 @@ namespace VRCAvatarColorChanger
                 // Header row
                 EditorGUILayout.BeginHorizontal();
                 // ドラッグハンドル: 掴んでリストを並べ替える＝優先度を変える。
-                GUILayout.Label(new GUIContent("☰", Localization.ZoneDragHandleTooltip),
+                GUILayout.Label(s_dragHandleContent,
                     dragHandleStyle, GUILayout.Width(18), GUILayout.Height(EditorGUIUtility.singleLineHeight));
                 Rect handleRect = GUILayoutUtility.GetLastRect();
                 EditorGUIUtility.AddCursorRect(handleRect, MouseCursor.Pan);
@@ -483,12 +514,12 @@ namespace VRCAvatarColorChanger
                     Event.current.Use();
                 }
                 zone.enabled = UndoHelper.ToggleLeft(this,
-                    new GUIContent("", Localization.ZoneEnabledTooltip),
+                    s_zoneEnabledContent,
                     zone.enabled, GUILayout.Width(16));
                 zone.name = UndoHelper.TextField(this,
-                    new GUIContent("", Localization.ZoneNameTooltip),
+                    s_zoneNameContent,
                     zone.name);
-                if (GUILayout.Button(new GUIContent("×", Localization.RemoveZoneTooltip), GUILayout.Width(VACCConsts.Layout.RemoveButtonWidth)))
+                if (GUILayout.Button(s_removeZoneContent, GUILayout.Width(VACCConsts.Layout.RemoveButtonWidth)))
                 {
                     removeIndex = i;
                 }
@@ -499,8 +530,7 @@ namespace VRCAvatarColorChanger
                     bool isActive = _maskView.activeMaskTarget == i;
                     var prevBg = GUI.backgroundColor;
                     if (isActive) GUI.backgroundColor = VACCColors.ActiveMaskTarget;
-                    string label = isActive ? Localization.EditMaskActiveLabel : Localization.EditMaskInactiveLabel;
-                    if (GUILayout.Button(new GUIContent(label, Localization.EditMaskTooltip)))
+                    if (GUILayout.Button(isActive ? s_editMaskActiveContent : s_editMaskInactiveContent))
                     {
                         _maskView.activeMaskTarget = isActive ? -1 : i;
                         _maskView.maskFoldout = true;
@@ -517,10 +547,9 @@ namespace VRCAvatarColorChanger
                         && IsReadable(sourceTexture)
                         && zone.mode == SelectionMode.ColorPick
                         && zone.sampleColor != Color.white;
-                    string tip = canTune ? Localization.AutoTuneTooltip : Localization.AutoTuneDisabledTooltip;
                     using (new EditorGUI.DisabledScope(!canTune))
                     {
-                        if (GUILayout.Button(new GUIContent(Localization.AutoTune, tip)))
+                        if (GUILayout.Button(canTune ? s_autoTuneEnabledContent : s_autoTuneDisabledContent))
                         {
                             RunAutoTune(zone);
                         }
@@ -982,22 +1011,12 @@ namespace VRCAvatarColorChanger
 
         internal static bool IsReadable(Texture2D tex)
         {
-            try
-            {
-                tex.GetPixel(0, 0);
-                return true;
-            }
-            catch (UnityException)
-            {
-                // Read/Write Enabled がオフのテクスチャに GetPixel すると UnityException。
-                // これは想定済みなので false 返却で扱う。
-                return false;
-            }
-            catch (System.Exception ex)
-            {
-                Debug.LogException(ex);
-                return false;
-            }
+            // isReadable は CPU 側からピクセル読み取り可能かを示すネイティブプロパティ。
+            // 旧実装の GetPixel(0,0)+例外捕捉(Read/Write 無効テクスチャで UnityException を
+            // 投げる)と等価で、Read/Write 無効アセット=false、LoadImage 生成の一時テクスチャ=
+            // true を正しく返す。PreviewView.Draw / DrawTextureField / ゾーンごとの canTune 判定から
+            // 毎フレーム複数回呼ばれるため、例外コストとネイティブ往復を 1 プロパティ読みに削減する。
+            return tex != null && tex.isReadable;
         }
 
         // Assets 配下のパスを "Assets/..." 形式の相対パスに正規化する。
