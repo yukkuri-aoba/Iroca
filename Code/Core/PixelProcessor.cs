@@ -34,6 +34,20 @@ namespace VRCAvatarColorChanger
         private static readonly int s_maxParallelism =
             Math.Max(1, Environment.ProcessorCount - 2);
 
+        // ───────────── 大テクスチャ向け専用 ArrayPool ─────────────
+        // ArrayPool<T>.Shared は既定でバケット上限 2^20 要素。それを超える Rent は
+        // 毎回 new[] を返し Return は捨てるため、2K(4.2M)/4K(16.8M) ではプールが
+        // 全く効かず Rent ごとに LOH 新規確保が発生する(プレビュー再生成のたびに数百MB〜1GB)。
+        // 4096²=2^24 までプールする専用プールに差し替えて GC churn を抑える。
+        // maxArraysPerBucket は ProcessPixelsArray が 1 ゾーンで同時に Rent する本数(〜20)を
+        // 満たす値にする(Create プールは GC 自動トリムされないため上限で保持メモリを抑える)。
+        // 注意: Create プールの Rent はゼロ初期化を保証しない。既存の Array.Clear は残すこと。
+        private const int PoolMaxArrayLength = 1 << 24; // 16,777,216 (4096²)
+        private static readonly ArrayPool<float> s_floatPool =
+            ArrayPool<float>.Create(PoolMaxArrayLength, maxArraysPerBucket: 24);
+        private static readonly ArrayPool<bool> s_boolPool =
+            ArrayPool<bool>.Create(PoolMaxArrayLength, maxArraysPerBucket: 8);
+
         // スタティック計算メソッド — バックグラウンドスレッドで実行可能
         // Texture2Dなし、UnityEngine.Object APIなし、Mathfとカラー計算のみ（いずれもスレッドセーフ）
         // originX/Y: フル解像度テクスチャでのクロップオフセット（0で全テクスチャ処理）
@@ -93,10 +107,10 @@ namespace VRCAvatarColorChanger
             float[]? claimed = null;
             try
             {
-            pixH = ArrayPool<float>.Shared.Rent(len);
-            pixS = ArrayPool<float>.Shared.Rent(len);
-            pixV = ArrayPool<float>.Shared.Rent(len);
-            claimed = ArrayPool<float>.Shared.Rent(len);
+            pixH = s_floatPool.Rent(len);
+            pixS = s_floatPool.Rent(len);
+            pixV = s_floatPool.Rent(len);
+            claimed = s_floatPool.Rent(len);
             Array.Clear(claimed, 0, len);
 
             // po を HSV 計算 + foreach 内の全 Parallel.For で共用。
@@ -136,11 +150,11 @@ namespace VRCAvatarColorChanger
                 try
                 {
                     // 1. 元のピクセルカラーを使用した強度マップを構築
-                    strength = ArrayPool<float>.Shared.Rent(len);
+                    strength = s_floatPool.Rent(len);
                     Array.Clear(strength, 0, len);
                     if (zone.highlightRecovery)
                     {
-                        highlightPot = ArrayPool<float>.Shared.Rent(len);
+                        highlightPot = s_floatPool.Rent(len);
                         Array.Clear(highlightPot, 0, len);
                     }
 
@@ -168,7 +182,7 @@ namespace VRCAvatarColorChanger
                     if (highlightPot != null)
                     {
                         PropagateHighlights(strength, highlightPot, w, h);
-                        ArrayPool<float>.Shared.Return(highlightPot);
+                        s_floatPool.Return(highlightPot);
                         highlightPot = null;
                         debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, strength, w, h);
                     }
@@ -208,7 +222,7 @@ namespace VRCAvatarColorChanger
                     //     「マッチ領域に囲まれただけの背景グレー/白」を full strength に塗ってしまう
                     //     フリンジ(白/灰ノイズ)を構造的に防ぐ。境界回復(RecoverBoundaryEdges)と同一基準。
                     //     dev_safe/vacc_python/algorithm.py の hole_fill_relaxed_gate (shipping 既定 True) と同期。
-                    bool[] fillAllowed = ArrayPool<bool>.Shared.Rent(len);
+                    bool[] fillAllowed = s_boolPool.Rent(len);
                     try
                     {
                         Color.RGBToHSV(zone.sampleColor, out float gsH, out float gsS, out float gsV);
@@ -225,7 +239,7 @@ namespace VRCAvatarColorChanger
                     }
                     finally
                     {
-                        ArrayPool<bool>.Shared.Return(fillAllowed);
+                        s_boolPool.Return(fillAllowed);
                     }
                     debug?.RecordStage(zone.id, DebugStages.HoleFill, strength, w, h);
 
@@ -248,13 +262,13 @@ namespace VRCAvatarColorChanger
                         float[] blurOut = null;
                         try
                         {
-                            preBlur = ArrayPool<float>.Shared.Rent(len);
+                            preBlur = s_floatPool.Rent(len);
                             Array.Copy(strength, preBlur, len);
-                            blurOut = ArrayPool<float>.Shared.Rent(len);
+                            blurOut = s_floatPool.Rent(len);
                             if (GaussianBlur(strength, blurOut, w, h, edgeFeather))
                             {
                                 // strength の所有権を blurOut に移し、もとの strength は返却
-                                ArrayPool<float>.Shared.Return(strength);
+                                s_floatPool.Return(strength);
                                 strength = blurOut;
                                 blurOut = null; // 二重返却防止
                                 ConstrainBlur(strength, preBlur, w, h, Mathf.CeilToInt(edgeFeather * 2.5f));
@@ -262,8 +276,8 @@ namespace VRCAvatarColorChanger
                         }
                         finally
                         {
-                            if (blurOut != null) ArrayPool<float>.Shared.Return(blurOut);
-                            if (preBlur != null) ArrayPool<float>.Shared.Return(preBlur);
+                            if (blurOut != null) s_floatPool.Return(blurOut);
+                            if (preBlur != null) s_floatPool.Return(preBlur);
                         }
                         debug?.RecordStage(zone.id, DebugStages.Blur, strength, w, h);
                     }
@@ -481,18 +495,18 @@ namespace VRCAvatarColorChanger
                 }
                 finally
                 {
-                    if (highlightPot != null) ArrayPool<float>.Shared.Return(highlightPot);
-                    if (strength != null) ArrayPool<float>.Shared.Return(strength);
+                    if (highlightPot != null) s_floatPool.Return(highlightPot);
+                    if (strength != null) s_floatPool.Return(strength);
                 }
             } // foreach zone
 
             } // end try (pixH/S/V)
             finally
             {
-                if (claimed != null) ArrayPool<float>.Shared.Return(claimed);
-                if (pixV != null) ArrayPool<float>.Shared.Return(pixV);
-                if (pixS != null) ArrayPool<float>.Shared.Return(pixS);
-                if (pixH != null) ArrayPool<float>.Shared.Return(pixH);
+                if (claimed != null) s_floatPool.Return(claimed);
+                if (pixV != null) s_floatPool.Return(pixV);
+                if (pixS != null) s_floatPool.Return(pixS);
+                if (pixH != null) s_floatPool.Return(pixH);
             }
         }
 
@@ -526,14 +540,14 @@ namespace VRCAvatarColorChanger
             float[]? bgRSum = null, bgGSum = null, bgBSum = null, bgDensity = null;
             try
             {
-            wR = ArrayPool<float>.Shared.Rent(len);
-            wG = ArrayPool<float>.Shared.Rent(len);
-            wB = ArrayPool<float>.Shared.Rent(len);
-            wD = ArrayPool<float>.Shared.Rent(len);
-            bgRSum = ArrayPool<float>.Shared.Rent(len);
-            bgGSum = ArrayPool<float>.Shared.Rent(len);
-            bgBSum = ArrayPool<float>.Shared.Rent(len);
-            bgDensity = ArrayPool<float>.Shared.Rent(len);
+            wR = s_floatPool.Rent(len);
+            wG = s_floatPool.Rent(len);
+            wB = s_floatPool.Rent(len);
+            wD = s_floatPool.Rent(len);
+            bgRSum = s_floatPool.Rent(len);
+            bgGSum = s_floatPool.Rent(len);
+            bgBSum = s_floatPool.Rent(len);
+            bgDensity = s_floatPool.Rent(len);
             // Rent はゼロ初期化を保証しないので strength>0 のピクセルを明示的にゼロ化
             Array.Clear(wR, 0, len);
             Array.Clear(wG, 0, len);
@@ -614,14 +628,14 @@ namespace VRCAvatarColorChanger
             } // end try
             finally
             {
-                if (bgDensity != null) ArrayPool<float>.Shared.Return(bgDensity);
-                if (bgBSum   != null) ArrayPool<float>.Shared.Return(bgBSum);
-                if (bgGSum   != null) ArrayPool<float>.Shared.Return(bgGSum);
-                if (bgRSum   != null) ArrayPool<float>.Shared.Return(bgRSum);
-                if (wD != null) ArrayPool<float>.Shared.Return(wD);
-                if (wB != null) ArrayPool<float>.Shared.Return(wB);
-                if (wG != null) ArrayPool<float>.Shared.Return(wG);
-                if (wR != null) ArrayPool<float>.Shared.Return(wR);
+                if (bgDensity != null) s_floatPool.Return(bgDensity);
+                if (bgBSum   != null) s_floatPool.Return(bgBSum);
+                if (bgGSum   != null) s_floatPool.Return(bgGSum);
+                if (bgRSum   != null) s_floatPool.Return(bgRSum);
+                if (wD != null) s_floatPool.Return(wD);
+                if (wB != null) s_floatPool.Return(wB);
+                if (wG != null) s_floatPool.Return(wG);
+                if (wR != null) s_floatPool.Return(wR);
             }
         }
 
@@ -634,7 +648,7 @@ namespace VRCAvatarColorChanger
         private static void BoxFilterSum(float[] src, float[] dst, int w, int h, int r)
         {
             int len = w * h;
-            float[] temp = ArrayPool<float>.Shared.Rent(len);
+            float[] temp = s_floatPool.Rent(len);
             var filterPo = new ParallelOptions { MaxDegreeOfParallelism = s_maxParallelism };
             try
             {
@@ -675,7 +689,7 @@ namespace VRCAvatarColorChanger
             }
             finally
             {
-                ArrayPool<float>.Shared.Return(temp);
+                s_floatPool.Return(temp);
             }
         }
 
@@ -1059,7 +1073,7 @@ namespace VRCAvatarColorChanger
                 kernel[i] /= kernelSum;
 
             int len = w * h;
-            float[] temp = ArrayPool<float>.Shared.Rent(len);
+            float[] temp = s_floatPool.Rent(len);
             var gaussPo = new ParallelOptions { MaxDegreeOfParallelism = s_maxParallelism };
             try
             {
@@ -1095,7 +1109,7 @@ namespace VRCAvatarColorChanger
             }
             finally
             {
-                ArrayPool<float>.Shared.Return(temp);
+                s_floatPool.Return(temp);
             }
             return true;
         }
@@ -1109,8 +1123,8 @@ namespace VRCAvatarColorChanger
             float[]? mask = null, neighborSum = null;
             try
             {
-                mask = ArrayPool<float>.Shared.Rent(len);
-                neighborSum = ArrayPool<float>.Shared.Rent(len);
+                mask = s_floatPool.Rent(len);
+                neighborSum = s_floatPool.Rent(len);
                 for (int i = 0; i < len; i++)
                     mask[i] = original[i] > 0f ? 1f : 0f;
 
@@ -1125,8 +1139,8 @@ namespace VRCAvatarColorChanger
             }
             finally
             {
-                if (neighborSum != null) ArrayPool<float>.Shared.Return(neighborSum);
-                if (mask        != null) ArrayPool<float>.Shared.Return(mask);
+                if (neighborSum != null) s_floatPool.Return(neighborSum);
+                if (mask        != null) s_floatPool.Return(mask);
             }
         }
 
@@ -1147,7 +1161,7 @@ namespace VRCAvatarColorChanger
             if (passes <= 0) return;
 
             int len = w * h;
-            float[] buffer = ArrayPool<float>.Shared.Rent(len);
+            float[] buffer = s_floatPool.Rent(len);
             var fillPo = new ParallelOptions { MaxDegreeOfParallelism = s_maxParallelism };
             try
             {
@@ -1208,7 +1222,7 @@ namespace VRCAvatarColorChanger
             } // end try
             finally
             {
-                ArrayPool<float>.Shared.Return(buffer);
+                s_floatPool.Return(buffer);
             }
         }
 
@@ -1232,7 +1246,7 @@ namespace VRCAvatarColorChanger
             Color.RGBToHSV(sampleColor, out sH, out sS, out sV);
 
             int len = w * h;
-            float[] buffer = ArrayPool<float>.Shared.Rent(len);
+            float[] buffer = s_floatPool.Rent(len);
             var recoverPo = new ParallelOptions { MaxDegreeOfParallelism = s_maxParallelism };
             try
             {
@@ -1283,7 +1297,7 @@ namespace VRCAvatarColorChanger
             } // end try
             finally
             {
-                ArrayPool<float>.Shared.Return(buffer);
+                s_floatPool.Return(buffer);
             }
         }
 
