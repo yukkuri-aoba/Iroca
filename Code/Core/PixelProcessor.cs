@@ -402,10 +402,31 @@ namespace VRCAvatarColorChanger
                     var aaMaskLocal = aaMask;
                     var decontaminatedLocal = decontaminatedPixels;
                     var claimedLocal = claimed;
-                    Parallel.For(0, h, po, y =>
+                    // bbox 制限(P2-7): recolor ループは先頭で s<=0.001 を skip し近傍読みをしないため、
+                    // strength>0.001 の bbox だけを走査すれば出力はビット不変。マッチ領域が小さいゾーン
+                    // (ロゴ等)で OkLab 再着色の per-pixel コストを実マッチ範囲に限定する。bbox 走査は
+                    // 軽い比較 1 パスで、recolor の重い per-pixel コスト削減が上回る。
+                    int rcMinX = w, rcMaxX = -1, rcMinY = h, rcMaxY = -1;
+                    for (int yy = 0; yy < h; yy++)
+                    {
+                        int rb = yy * w;
+                        for (int xx = 0; xx < w; xx++)
+                        {
+                            if (strengthForRecolor[rb + xx] > 0.001f)
+                            {
+                                if (xx < rcMinX) rcMinX = xx;
+                                if (xx > rcMaxX) rcMaxX = xx;
+                                if (yy < rcMinY) rcMinY = yy;
+                                if (yy > rcMaxY) rcMaxY = yy;
+                            }
+                        }
+                    }
+                    // rcMaxX<0 はマッチ画素なし → 全画素 continue で何もしないのと同じ(出力不変)。
+                    if (rcMaxX >= 0)
+                    Parallel.For(rcMinY, rcMaxY + 1, po, y =>
                     {
                         int rowOff = y * w;
-                        for (int x = 0; x < w; x++)
+                        for (int x = rcMinX; x <= rcMaxX; x++)
                         {
                             int i = rowOff + x;
                             float s = strengthForRecolor[i];
