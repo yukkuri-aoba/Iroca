@@ -127,6 +127,17 @@ namespace VRCAvatarColorChanger
 
             debug?.BeginCapture(w, h);
 
+            // decontamination 用バッファはゾーン間で再利用する(ゾーンごとの new bool[len]+
+            // new Color32[len] 確保=4K で 17MB+67MB/ゾーンを回避)。aaMask は全画素で読まれるため
+            // 各ゾーン頭でクリアし、decontaminatedPixels は aaMask=true の位置だけ上書き・参照される。
+            bool[] decontamAaMask = null;
+            Color32[] decontamPixels = null;
+            if (useDecontamination)
+            {
+                decontamAaMask = new bool[len];
+                decontamPixels = new Color32[len];
+            }
+
             foreach (var zone in sortedZones)
             {
                 // キャンセルチェック: 新しいプレビューリクエストが来た場合は即座に中断
@@ -308,10 +319,12 @@ namespace VRCAvatarColorChanger
                     Color32[] decontaminatedPixels = null;
                     if (useDecontamination)
                     {
+                        aaMask = decontamAaMask;
+                        decontaminatedPixels = decontamPixels;
                         DecontaminateAaBoundary(originalPixels, strength, w, h,
                             zone.sampleColor, zone.targetColor,
                             decontaminationRadius, decontaminationInteriorThreshold,
-                            out aaMask, out decontaminatedPixels);
+                            aaMask, decontaminatedPixels);
                         debug?.RecordDecontamination(zone.id, aaMask, w, h);
                     }
 
@@ -525,13 +538,15 @@ namespace VRCAvatarColorChanger
             Color32[] originalPixels, float[] strength, int w, int h,
             Color sampleColor, Color targetColor,
             int radius, float interiorThreshold,
-            out bool[] aaMask, out Color32[] decontaminatedPixels)
+            bool[] aaMask, Color32[] decontaminatedPixels)
         {
             int len = w * h;
-            bool[] localAaMask = new bool[len];
-            Color32[] localDecontaminatedPixels = new Color32[len];
-            aaMask = localAaMask;
-            decontaminatedPixels = localDecontaminatedPixels;
+            // 呼び出し側がゾーン間で再利用するバッファを渡す。aaMask は全画素で読まれるため
+            // 前ゾーンの結果をクリアしてから書き込む。decontaminatedPixels は aaMask=true の
+            // 位置だけ下で上書きされ、その位置だけ参照されるためクリア不要。
+            Array.Clear(aaMask, 0, len);
+            bool[] localAaMask = aaMask;
+            Color32[] localDecontaminatedPixels = decontaminatedPixels;
 
             // 局所 BG 推定: strength=0 のピクセルだけを使った近傍和とその密度
             // 0..255 のスケールで計算（後で divide で平均化）
