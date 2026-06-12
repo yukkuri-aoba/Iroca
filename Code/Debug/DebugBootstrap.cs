@@ -16,6 +16,8 @@ namespace VRCAvatarColorChanger.DebugTools
         {
             DebugCaptureHooks.Factory = DebugView.CurrentCaptureOrNull;
             DebugCaptureHooks.OnDrawFoldout += DebugView.Draw;
+            PerfView.Register();
+            DebugCaptureHooks.OnDrawFoldout += PerfView.Draw;
         }
     }
 }

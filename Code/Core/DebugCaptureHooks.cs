@@ -1,6 +1,7 @@
 ﻿// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/VRC_AvatarColorChanger
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
+using System.Threading;
 
 namespace VRCAvatarColorChanger
 {
@@ -35,5 +36,23 @@ namespace VRCAvatarColorChanger
         {
             OnDrawFoldout?.Invoke(window);
         }
+
+        /// <summary>
+        /// ProcessPixelsArray 完了時に発火されるパフォーマンスレポートイベント。
+        /// バックグラウンドスレッドから呼ばれるためハンドラは最小限の処理に留めること。
+        /// </summary>
+        internal static event Action<PerfReport> OnPerfReport;
+
+        internal static void RaisePerfReport(PerfReport report)
+        {
+            OnPerfReport?.Invoke(report);
+        }
+
+        /// <summary>
+        /// Parallel.For の MaxDegreeOfParallelism を手動設定する。
+        /// 0 以下のとき自動設定 (ProcessorCount - 2) を使用する。
+        /// Debug モジュールの PerfView が EditorPrefs に永続化して管理する。
+        /// </summary>
+        internal static int ParallelismOverride;
     }
 }
