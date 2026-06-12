@@ -313,16 +313,23 @@ namespace VRCAvatarColorChanger
 
             bool value = !brushEraseMode;
 
+            // 円ブラシを行ごとの span fill で塗る(従来の (2r+1)² 全走査 + 毎画素の距離判定を回避)。
+            // 各行の最大 dx は floor(sqrt(r²-dy²))。Mathf.Sqrt の丸めで境界 dx を取りこぼさない
+            // よう整数で補正するので、塗る画素集合は従来とビット同一。
+            int rr = r * r;
             for (int dy = -r; dy <= r; dy++)
             {
-                for (int dx = -r; dx <= r; dx++)
-                {
-                    if (dx * dx + dy * dy > r * r) continue;
-                    int px = cx + dx;
-                    int py = cy + dy;
-                    if (px < 0 || px >= maskWidth || py < 0 || py >= maskHeight) continue;
-                    target[py * maskWidth + px] = value;
-                }
+                int py = cy + dy;
+                if (py < 0 || py >= maskHeight) continue;
+                int rowRemain = rr - dy * dy;
+                int dxMax = (int)Mathf.Sqrt(rowRemain);
+                while ((dxMax + 1) * (dxMax + 1) <= rowRemain) dxMax++;
+                while (dxMax > 0 && dxMax * dxMax > rowRemain) dxMax--;
+                int xLo = cx - dxMax; if (xLo < 0) xLo = 0;
+                int xHi = cx + dxMax; if (xHi >= maskWidth) xHi = maskWidth - 1;
+                int rowBase = py * maskWidth;
+                for (int px = xLo; px <= xHi; px++)
+                    target[rowBase + px] = value;
             }
 
             maskDirty = true;
