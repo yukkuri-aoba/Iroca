@@ -1116,8 +1116,19 @@ namespace VRCAvatarColorChanger
         {
             if (commonMask == null && zoneMask == null) return false;
             if (maskW <= 0 || maskH <= 0) return false;
-            int mx = Mathf.Clamp(x * maskW / texW, 0, maskW - 1);
-            int my = Mathf.Clamp(y * maskH / texH, 0, maskH - 1);
+            int mx, my;
+            if (maskW == texW && maskH == texH)
+            {
+                // マスク解像度＝テクスチャ解像度: 0<=x<texW なので x*maskW/texW==x、クランプも不要。
+                // 毎画素×2 回呼ばれるため乗除算・Clamp を省く(結果は一般パスとビット同一)。
+                mx = x;
+                my = y;
+            }
+            else
+            {
+                mx = Mathf.Clamp(x * maskW / texW, 0, maskW - 1);
+                my = Mathf.Clamp(y * maskH / texH, 0, maskH - 1);
+            }
             int idx = my * maskW + mx;
             if (commonMask != null && idx < commonMask.Length && commonMask[idx]) return true;
             if (zoneMask != null && idx < zoneMask.Length && zoneMask[idx]) return true;

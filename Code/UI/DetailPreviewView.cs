@@ -162,16 +162,14 @@ namespace VRCAvatarColorChanger
                 {
                     Color32[] rawCrop       = new Color32[cropW * cropH];
                     Color32[] processedCrop = new Color32[cropW * cropH];
+                    // クロップは各行が連続領域なので行単位 Array.Copy(画素単位 2 配列書き込みを回避)。
+                    // processed は raw のクローンで十分(直後に ProcessPixelsArray が上書きする)。
                     for (int cy = 0; cy < cropH; cy++)
                     {
-                        int sy = capY0 + cy;
-                        for (int cx = 0; cx < cropW; cx++)
-                        {
-                            int srcIdx = sy * capSrcW + (capX0 + cx);
-                            rawCrop[cy * cropW + cx] = srcPixelsForTask[srcIdx];
-                            processedCrop[cy * cropW + cx] = srcPixelsForTask[srcIdx];
-                        }
+                        int srcRow = (capY0 + cy) * capSrcW + capX0;
+                        System.Array.Copy(srcPixelsForTask, srcRow, rawCrop, cy * cropW, cropW);
                     }
+                    System.Array.Copy(rawCrop, processedCrop, rawCrop.Length);
 
                     PixelProcessor.ProcessPixelsArray(processedCrop, cropW, cropH,
                         maskSnap, zonesSnapshot, feather, aaCleanup,
