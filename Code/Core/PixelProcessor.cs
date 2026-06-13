@@ -374,6 +374,7 @@ namespace VRCAvatarColorChanger
                     RgbToOklab(zSR, zSG, zSB, out float zSL, out float zSa, out float zSb);
                     RgbToOklab(zTR, zTG, zTB, out float zTL, out float zTa, out float zTb);
                     float zSC = Mathf.Sqrt(zSa * zSa + zSb * zSb);
+                    float zSampleSC = zSC;   // WS-R: アンカー置換前の元サンプル彩度(achromaSample 用)
                     float zOsat = zOutputSat < 0.999f ? zOutputSat : 1f;
                     bool zOkGray = zSC <= 1e-4f;
                     // サンプル自動補正: アンカー (zSL, zSC) をスポイト画素からマッチ領域の代表色
@@ -413,6 +414,19 @@ namespace VRCAvatarColorChanger
                         // na = |chroma| * (osat/sC) * zTa, nb = 同 zTb。oC=sC(sample) で (zTa,zTb)=target に一致。
                         zOkMagScale = zOsat / zSC;
                     }
+
+                    // WS-R: 無彩再着色パスの重み・領域 L レンジを事前計算。
+                    float zOkTC = Mathf.Sqrt(zTa * zTa + zTb * zTb);
+                    float zAchromaSample = Mathf.Clamp01(1f - zSampleSC / AchromaSampleC);
+                    float zTargetExtremeness = 1f - 4f * zTL * (1f - zTL);            // L=0.5→0, L=0/1→1
+                    float zTargetAchroma = Mathf.Clamp01(1f - zOkTC / AchromaTargetC);
+                    float zCollapseBlend = zTargetExtremeness * zTargetAchroma;
+                    float zAchromaWeight = Mathf.Max(zAchromaSample, zCollapseBlend);
+                    float zRegLlo = 0f, zRegLhi = 1f, zRegLmid = 0.5f;
+                    bool zHasRegL = false;
+                    if (zAchromaWeight > 1e-4f)
+                        zHasRegL = TryComputeRegionLRange(originalPixels, strength,
+                            out zRegLlo, out zRegLhi, out zRegLmid);
 
                     var strengthForRecolor = strength;
                     var aaMaskLocal = aaMask;
@@ -476,7 +490,9 @@ namespace VRCAvatarColorChanger
                                 shadowDesaturation: zEffShadowDesat,
                                 sS: zSS, tR: zTR, tG: zTG, tB: zTB,
                                 washR: zWR, washG: zWG, washB: zWB, washV: zWV,
-                                applyHighlightWash: zApplyWash);
+                                applyHighlightWash: zApplyWash,
+                                achromaWeight: zAchromaWeight, osat: zOsat,
+                                hasRegL: zHasRegL, regLlo: zRegLlo, regLhi: zRegLhi, regLmid: zRegLmid);
                             if (topMost)
                             {
                                 // 最上位の寄与(claimed≈0)。es=s なので従来挙動と完全一致し、
@@ -911,6 +927,19 @@ namespace VRCAvatarColorChanger
         // (=ロゴ周辺の白/灰ノイズ)を防ぐ。algorithm.py の OKLAB_REMAP_FULL_CHROMA_FRAC と同期。
         private const float OklabRemapFullChromaFrac = 0.35f;
 
+        // ───────── WS-R: 無彩サンプル / 極端無彩ターゲットの再着色破綻対策 ─────────
+        // 通常の再着色は sample 彩度 sC を「分母・基準」に使う前提(mag=oC/sC, 彩度ゲート
+        // chroma_frac=oC/(sC·FULL_FRAC))。サンプルが無彩(白/黒/灰)だと前提が崩れ、白い三角→黒で
+        // (1) 彩度ゲートが白を明るく残す＝まだら (2) 2区間リマップが sL より明るい画素を 1.0 へ拡張
+        // (3) mag=oC/sC が微小彩度ノイズを増幅＝脚色 が起きる。サンプルが無彩 or ターゲットが極端
+        // 無彩(白/黒)のとき、L=マッチ領域 L レンジを target ヘッドルームへ収める順序保存リマップ /
+        // 彩度=uniform target chroma へ achroma_weight で連続ブレンドする。有彩×有彩では weight=0 で
+        // 従来式とバイト不変。不変条件: 単調・順序保存・gain≤1(増幅禁止)。algorithm.py ACHROMA_* と同期。
+        private const float AchromaSampleC  = 0.06f;  // sample OkLab chroma がこれ未満で無彩扱い(→1)
+        private const float AchromaTargetC  = 0.06f;  // target OkLab chroma がこれ未満で無彩扱い
+        private const float AchromaRangeGain = 1.0f;  // レンジリマップ出力幅 = 元幅 × min(gain,1)。≤1。
+        private const float AchromaRegionCoreThr = 0.5f; // 領域 L レンジを取る strength 下限
+
         // サンプル自動補正(再着色アンカー正規化)の定数。algorithm.py の ANCHOR_* と同期。
         // すべて領域統計に対する相対量(特定色/座標/テクスチャ非依存)。
         private const float AnchorStrengthMin   = 0.9f;   // コアマッチのみ採用(AA縁・feather裾の混色を除外)
@@ -1026,6 +1055,42 @@ namespace VRCAvatarColorChanger
                 s_floatPool.Return(candL);
                 s_floatPool.Return(candC);
             }
+        }
+
+        /// <summary>
+        /// WS-R 無彩レンジリマップ用: マッチ領域の OkLab L の (P05, P95, 中央値) を求める。
+        /// core 画素(strength>=AchromaRegionCoreThr かつ α>=128)が少なすぎる場合は strength>0 へ
+        /// フォールバック。マッチ画素が無ければ false(呼び出し側は achroma パスをスキップ)。
+        /// 特定色/座標非依存の領域統計のみ(脚色しない不変条件)。algorithm.py _region_l_range と同期
+        /// (percentile はヒストグラム離散化のため Python np.percentile と ≤1/255 の差を許容)。
+        /// </summary>
+        private static bool TryComputeRegionLRange(
+            Color32[] px, float[] strength, out float lo, out float hi, out float mid)
+        {
+            lo = 0f; hi = 1f; mid = 0.5f;
+            int len = px.Length;
+            var hist = new int[256];
+            int count = 0;
+            float thr = AchromaRegionCoreThr;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                Array.Clear(hist, 0, hist.Length);
+                count = 0;
+                for (int i = 0; i < len; i++)
+                {
+                    if (strength[i] < thr || px[i].a < 128) continue;
+                    RgbToOklab(px[i].r, px[i].g, px[i].b, out float L, out _, out _);
+                    hist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
+                    count++;
+                }
+                if (count >= 50 || pass == 1) break;
+                thr = 1e-4f;   // フォールバック: strength>0 の全マッチ画素
+            }
+            if (count < 1) return false;
+            lo  = HistValueAtPercentile(hist, count, 0.05f, 1f);
+            hi  = HistValueAtPercentile(hist, count, 0.95f, 1f);
+            mid = HistValueAtPercentile(hist, count, 0.50f, 1f);
+            return true;
         }
 
         /// <summary>
@@ -1588,7 +1653,9 @@ namespace VRCAvatarColorChanger
             float valueBlend, float shadowDesaturation,
             float sS, float tR, float tG, float tB,
             float washR, float washG, float washB, float washV,
-            bool applyHighlightWash)
+            bool applyHighlightWash,
+            float achromaWeight = 0f, float osat = 1f,
+            bool hasRegL = false, float regLlo = 0f, float regLhi = 1f, float regLmid = 0.5f)
         {
             // === OkLab 明度マップ + 彩度(向きは target 色相に均一化)リカラー ===
             // L: 2区間線形リマップ (0→0, sL→tL, 1→1)。base を target 明度へ寄せる。単調維持
@@ -1609,6 +1676,10 @@ namespace VRCAvatarColorChanger
             else
             {
                 float mag = oC * okMagScale;            // |chroma|/sC · osat
+                // WS-R: 無彩サンプルでは oC/sC が微小彩度ノイズを増幅(脚色)。uniform target 彩度
+                // (osat, oC 非依存)へ achromaWeight でフェードし増幅を止める。weight=0 で従来式。
+                if (achromaWeight > 1e-4f)
+                    mag = mag * (1f - achromaWeight) + osat * achromaWeight;
                 na = mag * okTa;                        // 向きは target 色相 (zTa, zTb)
                 nb = mag * okTb;
             }
@@ -1631,6 +1702,21 @@ namespace VRCAvatarColorChanger
             }
             // valueBlend=1 でフル階調、<1 で target フラットトーンへ寄せる。
             float nL = okTL * (1f - valueBlend) + effRemapL * valueBlend;
+
+            // WS-R: 無彩再着色パスの L。マッチ領域の L レンジ[lo,hi]を target 側ヘッドルームへ
+            // 順序保存で収める(2区間リマップ・彩度ゲートを迂回)。白い三角→黒のまだら/明度崩壊を直す。
+            // algorithm.py recolor_pixels と同期。weight=0(有彩×有彩)では完全 no-op=バイト不変。
+            if (achromaWeight > 1e-4f && hasRegL)
+            {
+                float spread = Mathf.Max(regLhi - regLlo, 1e-4f);
+                float u = (oL - regLlo) / spread;                       // 領域内相対位置(端外→最終 clip)
+                float winW = spread * Mathf.Min(AchromaRangeGain, 1f);  // gain≤1: コントラスト増幅禁止
+                float anchorFrac = Mathf.Clamp01((regLmid - regLlo) / spread);
+                float winLo = Mathf.Clamp(okTL - winW * anchorFrac, 0f, 1f - winW);
+                float rangeRemap = winLo + u * winW;
+                float nLAchroma = okTL * (1f - valueBlend) + rangeRemap * valueBlend;
+                nL = nL * (1f - achromaWeight) + nLAchroma * achromaWeight;
+            }
 
             // 暗部脱彩 (旧 shadowDesaturation の OkLab 等価): 暗い画素の chroma を最大 50% 抑制。
             if (shadowDesaturation > 0f && oV < shadowDesaturation)
