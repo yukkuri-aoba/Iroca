@@ -249,18 +249,28 @@ namespace VRCAvatarColorChanger
                     //     「マッチ領域に囲まれただけの背景グレー/白」を full strength に塗ってしまう
                     //     フリンジ(白/灰ノイズ)を構造的に防ぐ。境界回復(RecoverBoundaryEdges)と同一基準。
                     //     dev_safe/vacc_python/algorithm.py の hole_fill_relaxed_gate (shipping 既定 True) と同期。
+                    // WS-M: relaxed ゲート(穴埋め/境界回復)にプライマリと同じ RGB 距離ブレンドを
+                    // 与えるための chromaConfidence と sample RGB。低彩度サンプルで同色相の高彩度色
+                    // (白→赤バンダナ等)を弾き、境界回復の色スピル(緑ハロー)を防ぐ。有彩は cc≈1 で従来式。
+                    Color.RGBToHSV(zone.sampleColor, out float gsH, out float gsS, out float gsV);
+                    float relaxedChromaConf = Mathf.Min(
+                        Mathf.Clamp01((gsS - zone.chromaThreshold) / 0.10f),
+                        Mathf.Clamp01((gsV - 0.05f) / 0.15f));
+                    float rgSampR = zone.sampleColor.r, rgSampG = zone.sampleColor.g, rgSampB = zone.sampleColor.b;
                     bool[] fillAllowed = s_boolPool.Rent(len);
                     try
                     {
-                        Color.RGBToHSV(zone.sampleColor, out float gsH, out float gsS, out float gsV);
                         var fillAllowedLocal = fillAllowed;
                         Parallel.For(0, len, po, i =>
                         {
+                            Color32 hop = originalPixels[i];
                             fillAllowedLocal[i] = GetRelaxedMatchStrength(
                                 pixH[i], pixS[i], pixV[i], gsH, gsS, gsV,
                                 zone.tolerance, zone.edgeSoftness, zone.valueWeight,
                                 zone.satDistWeight, relaxedSatMin, relaxedSatRamp,
-                                zone.shadowForgivenessSatMin) > 0f;
+                                zone.shadowForgivenessSatMin,
+                                hop.r / 255f, hop.g / 255f, hop.b / 255f,
+                                rgSampR, rgSampG, rgSampB, relaxedChromaConf) > 0f;
                         });
                         FillSmallHoles(strength, w, h, holeFillPasses, holeFillMinNeighbors, fillAllowed);
                     }
@@ -276,7 +286,8 @@ namespace VRCAvatarColorChanger
                     {
                         RecoverBoundaryEdges(strength, w, h, pixH, pixS, pixV,
                             zone.sampleColor, zone.tolerance, zone.edgeSoftness, zone.valueWeight,
-                            zone.satDistWeight, relaxedSatMin, relaxedSatRamp, zone.shadowForgivenessSatMin, antiAliasCleanup);
+                            zone.satDistWeight, relaxedSatMin, relaxedSatRamp, zone.shadowForgivenessSatMin, antiAliasCleanup,
+                            originalPixels, relaxedChromaConf);
                         debug?.RecordStage(zone.id, DebugStages.BoundaryRecover, strength, w, h);
                     }
 
@@ -1397,12 +1408,15 @@ namespace VRCAvatarColorChanger
             float[] pixH, float[] pixS, float[] pixV,
             Color sampleColor, float tolerance,
             float edgeSoftness, float valueWeight, float satDistWeight,
-            float relaxedSatMin, float relaxedSatRamp, float shadowForgivenessSatMin, int passes)
+            float relaxedSatMin, float relaxedSatRamp, float shadowForgivenessSatMin, int passes,
+            Color32[] originalPixels = null, float chromaConfidence = 1f)
         {
             if (passes <= 0) return;
 
             float sH, sS, sV;
             Color.RGBToHSV(sampleColor, out sH, out sS, out sV);
+            // WS-M: relaxed ゲートの RGB ブレンド用 sample RGB(0..1)。
+            float rcSampR = sampleColor.r, rcSampG = sampleColor.g, rcSampB = sampleColor.b;
 
             int len = w * h;
             float[] buffer = s_floatPool.Rent(len);
@@ -1437,10 +1451,17 @@ namespace VRCAvatarColorChanger
                         if (!hasMatchedNeighbor) continue;
 
                         // Re-evaluate this pixel with the relaxed fixed saturation threshold
+                        float rpR = 0f, rpG = 0f, rpB = 0f;
+                        if (originalPixels != null)
+                        {
+                            Color32 rop = originalPixels[idx];
+                            rpR = rop.r / 255f; rpG = rop.g / 255f; rpB = rop.b / 255f;
+                        }
                         float relaxed = GetRelaxedMatchStrength(
                             pixH[idx], pixS[idx], pixV[idx],
                             sH, sS, sV, tolerance, edgeSoftness, valueWeight,
-                            satDistWeight, relaxedSatMin, relaxedSatRamp, shadowForgivenessSatMin);
+                            satDistWeight, relaxedSatMin, relaxedSatRamp, shadowForgivenessSatMin,
+                            rpR, rpG, rpB, rcSampR, rcSampG, rcSampB, chromaConfidence);
                         if (relaxed > 0f)
                             write[idx] = relaxed;
                     }
@@ -1477,7 +1498,9 @@ namespace VRCAvatarColorChanger
             float pH, float pS, float pV,
             float sH, float sS, float sV,
             float tolerance, float edgeSoftness, float valueWeight,
-            float satDistWeight, float relaxedSatMin, float relaxedSatRamp, float shadowForgivenessSatMin)
+            float satDistWeight, float relaxedSatMin, float relaxedSatRamp, float shadowForgivenessSatMin,
+            float pR = 0f, float pG = 0f, float pB = 0f,
+            float sR = 0f, float sG = 0f, float sB = 0f, float chromaConfidence = 1f)
         {
             // ColorZone.GetColorMatchScoresと同じ動的頃値：暗いサンプルほどグレースケールモードの範囲を広げる
             float effectiveChromaThreshold = Mathf.Lerp(0.30f, 0.05f, Mathf.Clamp01(sV / 0.20f));
@@ -1507,6 +1530,18 @@ namespace VRCAvatarColorChanger
             float vDist = Mathf.Abs(pV - sV);
             float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
             float dist = hDist + sDist * satDistWeight + vDist * valueWeight * (1f - sRatio);
+
+            // WS-M (2026-06-14): 低彩度サンプル(白/灰)では HSV 距離が hue 支配になり、同色相の
+            // 高彩度色(off-white→赤バンダナ等)を弾けず境界回復が別色を周囲へ大量スピルさせる。
+            // プライマリ(CalculateHybridDistance)と同じ RGB 距離ブレンドで整合させる:
+            // dist = lerp(rgbDist, hsvDist, chromaConfidence)。有彩サンプルは cc≈1 で従来式と一致。
+            // algorithm.py relaxed_match_strength と同期。数学レビュー §2.3 対応。
+            if (chromaConfidence < 0.999f)
+            {
+                float dr = pR - sR, dg = pG - sG, db = pB - sB;
+                float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f;
+                dist = rgbDist * (1f - chromaConfidence) + dist * chromaConfidence;
+            }
 
             // シャドウ（暗い色）の境界許容:
             // パキッとした影やMultiplyで暗くなった境界部分は、ベース色と同じ色相でも明度や彩度が大きく落ち、
