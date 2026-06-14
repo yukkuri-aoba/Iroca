@@ -639,6 +639,9 @@ namespace VRCAvatarColorChanger
                 zone.edgeSoftness = UndoHelper.Slider(this,
                     new GUIContent(Localization.EdgeSoftness, Localization.EdgeSoftnessTooltip),
                     zone.edgeSoftness, 0f, 1f);
+                zone.extremeTargetSoftening = UndoHelper.Toggle(this,
+                    new GUIContent(Localization.ExtremeTargetSoftening, Localization.ExtremeTargetSofteningTooltip),
+                    zone.extremeTargetSoftening);
                 zone.saturationStrictness = UndoHelper.Slider(this,
                     new GUIContent(Localization.SaturationStrictness, Localization.SaturationStrictnessTooltip),
                     zone.saturationStrictness, 0f, 1f);
