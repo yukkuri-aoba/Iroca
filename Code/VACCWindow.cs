@@ -570,22 +570,6 @@ namespace VRCAvatarColorChanger
                     new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
                     zone.tolerance, 0f, 1f);
 
-                // ─── 連結成分サイズフィルタ UI（オプトイン） ───
-                // マスク内に紛れた同色の小さな誤マッチを除去し、並んだ模様（三角列など）は
-                // 種点なしで自動保持する。
-                zone.removeIsolatedComponents = UndoHelper.Toggle(this,
-                    new GUIContent(Localization.RemoveIsolatedComponents, Localization.RemoveIsolatedComponentsTooltip),
-                    zone.removeIsolatedComponents);
-                if (zone.removeIsolatedComponents)
-                {
-                    using (new EditorGUI.IndentLevelScope())
-                    {
-                        zone.componentMinSizeRatio = UndoHelper.Slider(this,
-                            new GUIContent(Localization.ComponentMinSizeRatio, Localization.ComponentMinSizeRatioTooltip),
-                            zone.componentMinSizeRatio, 0f, 1f);
-                    }
-                }
-
                 /*
                 // ─── Flood Fill UI ───
                 // 連続領域モードは実装継続中のため当面 UI から非表示。

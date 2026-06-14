@@ -485,15 +485,6 @@ namespace VRCAvatarColorChanger
             ? "輝度・彩度の急激な変化をパーツの境界とみなして Flood Fill を止める強度。\n0 = エッジストッパー無効（色の一致のみで拡張）\n大きいほど敏感に止まります（デフォルト: 0.15）"
             : "Sensitivity for stopping Flood Fill at edge (sudden brightness/saturation change).\n0 = disabled (expand by color match only)\nHigher = more sensitive stop (default: 0.15)";
 
-        public static string RemoveIsolatedComponents => IsJapanese ? "孤立マッチを除去" : "Remove Isolated Matches";
-        public static string RemoveIsolatedComponentsTooltip => IsJapanese
-            ? "マスク内に紛れ込んだ「同じ色の小さな誤マッチ」を除去します。\n地色のハイライトなど、本来のターゲットから離れた小さな塊を消し、\n並んだ模様（バンダナの三角列など）は種点なしで自動的に残します。\n白や薄い色をピンポイントで取り出したいときに有効です。"
-            : "Removes small same-color false matches scattered inside the mask.\nDrops tiny blobs far from the real target (e.g. highlights on the base color),\nwhile keeping repeated patterns (such as a row of triangles) automatically — no seed needed.\nUseful when extracting white or pale areas precisely.";
-        public static string ComponentMinSizeRatio => IsJapanese ? "最小サイズ（相対）" : "Min Size (relative)";
-        public static string ComponentMinSizeRatioTooltip => IsJapanese
-            ? "最大の連結領域に対する相対サイズ。これ未満の小さな塊を除去します。\n0 = 除去しない、0.2 = 標準（最大領域の20%未満を除去）。\n大きいほど積極的に小さな領域を消します。細い・小さなターゲットを\n取りこぼす場合は下げてください。解像度には依存しません。"
-            : "Size relative to the largest connected region; smaller blobs are removed.\n0 = remove nothing, 0.2 = default (drop blobs under 20% of the largest).\nHigher removes more aggressively. Lower it if thin/small targets get dropped.\nResolution-independent.";
-
         // ─── Auto-tune ───
         public static string AutoTune => IsJapanese ? "自動調整" : "Auto-tune";
         public static string AutoTuneTooltip => IsJapanese
