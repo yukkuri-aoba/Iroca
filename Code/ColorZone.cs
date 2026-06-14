@@ -46,6 +46,15 @@ namespace VRCAvatarColorChanger
         [Range(0f, 0.5f)]
         public float edgeStopThreshold = 0.15f;
 
+        // 連結成分サイズフィルタ（ColorPick モードで有効・オプトイン）。
+        // strength>0 の連結成分のうち「最大成分 × componentMinSizeRatio」未満の小さな成分を
+        // 除去する。マスク内で同色の小さな誤マッチ（地色のハイライト等）を消し、並んだ模様
+        // （例: バンダナの三角列）は種点なしで自動保持する。閾値は最大成分比の相対値なので
+        // 解像度・テクスチャに依存しない。
+        public bool removeIsolatedComponents = false;
+        [Range(0f, 1f)]
+        public float componentMinSizeRatio = 0.2f;
+
         // 変更先
         public Color targetColor = Color.white;
 

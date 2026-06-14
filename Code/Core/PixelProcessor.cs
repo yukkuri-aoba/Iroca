@@ -291,6 +291,16 @@ namespace VRCAvatarColorChanger
                         debug?.RecordStage(zone.id, DebugStages.BoundaryRecover, strength, w, h);
                     }
 
+                    // 1d. 連結成分サイズフィルタ（オプトイン）: 穴埋め・境界回復で recall を回復した後に、
+                    //     マスク内へ紛れ込んだ同色の小さな誤マッチ（地色のハイライト等）を除去する。
+                    //     並んだ模様（バンダナ三角列など複数の独立成分）は種点なしで自動保持される。
+                    //     ブラー前に実行し、整形済みの crisp なマッチ領域に対して効かせる。
+                    if (zone.removeIsolatedComponents && zone.mode == SelectionMode.ColorPick)
+                    {
+                        ApplyComponentSizeFilter(strength, w, h, zone.componentMinSizeRatio);
+                        debug?.RecordStage(zone.id, DebugStages.FloodFill, strength, w, h);
+                    }
+
                     // 2. スムーズな端の遷移のためのガウシアンブラー（端に限定）
                     if (edgeFeather > 0.01f)
                     {
@@ -826,6 +836,92 @@ namespace VRCAvatarColorChanger
 
             for (int i = 0; i < w * h; i++)
                 if (!reachable[i]) strength[i] = 0f;
+        }
+
+        /// <summary>
+        /// 連結成分サイズフィルタ: strength&gt;0 の 4 近傍連結成分のうち、最大成分のサイズ ×
+        /// minSizeRatio 未満の小さな成分の strength を 0 にする。マスク内に紛れ込んだ同色の
+        /// 小さな誤マッチ（地色のハイライト等）を除去しつつ、並んだ正規ターゲット（例: バンダナ
+        /// の三角列＝複数の独立成分）は種点なしで自動保持する。閾値は最大成分比の相対値なので
+        /// 解像度・テクスチャに依存しない。strength&gt;0 画素の bbox 内のみラベリングするため、
+        /// マッチ領域が小さいゾーンでもコストは実マッチ範囲に限定される。
+        /// </summary>
+        private static void ApplyComponentSizeFilter(float[] strength, int w, int h, float minSizeRatio)
+        {
+            if (minSizeRatio <= 0f) return;
+
+            // strength>0 の bbox を求める（全マッチ画素はこの矩形に収まる＝連結も矩形内で閉じる）。
+            int minX = w, maxX = -1, minY = h, maxY = -1;
+            for (int y = 0; y < h; y++)
+            {
+                int rb = y * w;
+                for (int x = 0; x < w; x++)
+                    if (strength[rb + x] > 0f)
+                    {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
+            }
+            if (maxX < 0) return;   // マッチ画素なし
+
+            int bw = maxX - minX + 1;
+            int bh = maxY - minY + 1;
+            int[] label = new int[bw * bh];   // 0 = 未ラベル/非マッチ（bbox ローカル座標）
+            var sizes = new List<int>();      // sizes[lab-1] = 成分の画素数
+            var queue = new Queue<int>();
+            int maxSize = 0;
+
+            for (int ly = 0; ly < bh; ly++)
+            {
+                for (int lx = 0; lx < bw; lx++)
+                {
+                    int li = ly * bw + lx;
+                    if (label[li] != 0) continue;
+                    if (strength[(ly + minY) * w + (lx + minX)] <= 0f) continue;
+
+                    int lab = sizes.Count + 1;
+                    int size = 0;
+                    label[li] = lab;
+                    queue.Enqueue(li);
+                    while (queue.Count > 0)
+                    {
+                        int ci = queue.Dequeue();
+                        size++;
+                        int cx = ci % bw;
+                        int cy = ci / bw;
+                        TryEnqueue(ci - 1, cx > 0);
+                        TryEnqueue(ci + 1, cx < bw - 1);
+                        TryEnqueue(ci - bw, cy > 0);
+                        TryEnqueue(ci + bw, cy < bh - 1);
+                    }
+                    sizes.Add(size);
+                    if (size > maxSize) maxSize = size;
+
+                    void TryEnqueue(int ni, bool inBounds)
+                    {
+                        if (!inBounds || label[ni] != 0) return;
+                        int nx = ni % bw, ny = ni / bw;
+                        if (strength[(ny + minY) * w + (nx + minX)] <= 0f) return;
+                        label[ni] = lab;
+                        queue.Enqueue(ni);
+                    }
+                }
+            }
+
+            // 最大成分 × ratio 未満の成分を除去（最大成分自身は必ず残る）。
+            int minSize = Mathf.Max(1, Mathf.RoundToInt(maxSize * minSizeRatio));
+            for (int ly = 0; ly < bh; ly++)
+            {
+                int rb = (ly + minY) * w;
+                for (int lx = 0; lx < bw; lx++)
+                {
+                    int lab = label[ly * bw + lx];
+                    if (lab != 0 && sizes[lab - 1] < minSize)
+                        strength[rb + (lx + minX)] = 0f;
+                }
+            }
         }
 
         /// <summary>
