@@ -342,15 +342,24 @@ namespace VRCAvatarColorChanger
                     //     ピクセルを「α×FG + (1-α)×BG」と見て元テクスチャの合成を逆算し、
                     //     新色で再合成する。halo（薄汚れた中間色）を構造的に除去する。
                     //     詳細は dev_safe/docs/edge_decontamination.md を参照。
+                    // 無彩サンプル/極端無彩ターゲットの重み(WS-R と AA フィデリティ修正で共用)。
+                    float zAchromaWeight = ComputeAchromaWeight(zone.sampleColor, zone.targetColor);
                     bool[] aaMask = null;
                     Color32[] decontaminatedPixels = null;
                     if (useDecontamination)
                     {
                         aaMask = decontamAaMask;
                         decontaminatedPixels = decontamPixels;
+                        // AA フィデリティ修正(2026-06-14): 白→黒 等(achromaWeight>0)では、強くマッチした
+                        // AA 画素が「内部」扱いでデコンタミされず純色化し、背景ブレンド(赤成分)を失って
+                        // 段差(ギザギザ)を生む。これらのケースに限り interior_threshold を 1 超に上げ全境界
+                        // AA 画素を α 再合成して元の AA を忠実に転写する。深部内部は BG 密度ゼロで自動スキップ。
+                        // 有彩×有彩(achromaWeight=0)は従来値で byte 不変。algorithm.py と同期。
+                        float effInteriorThreshold = zAchromaWeight > 1e-4f
+                            ? 1.01f : decontaminationInteriorThreshold;
                         DecontaminateAaBoundary(originalPixels, strength, w, h,
                             zone.sampleColor, zone.targetColor,
-                            decontaminationRadius, decontaminationInteriorThreshold,
+                            decontaminationRadius, effInteriorThreshold,
                             aaMask, decontaminatedPixels);
                         debug?.RecordDecontamination(zone.id, aaMask, w, h);
                     }
@@ -385,7 +394,6 @@ namespace VRCAvatarColorChanger
                     RgbToOklab(zSR, zSG, zSB, out float zSL, out float zSa, out float zSb);
                     RgbToOklab(zTR, zTG, zTB, out float zTL, out float zTa, out float zTb);
                     float zSC = Mathf.Sqrt(zSa * zSa + zSb * zSb);
-                    float zSampleSC = zSC;   // WS-R: アンカー置換前の元サンプル彩度(achromaSample 用)
                     float zOsat = zOutputSat < 0.999f ? zOutputSat : 1f;
                     bool zOkGray = zSC <= 1e-4f;
                     // サンプル自動補正: アンカー (zSL, zSC) をスポイト画素からマッチ領域の代表色
@@ -426,13 +434,7 @@ namespace VRCAvatarColorChanger
                         zOkMagScale = zOsat / zSC;
                     }
 
-                    // WS-R: 無彩再着色パスの重み・領域 L レンジを事前計算。
-                    float zOkTC = Mathf.Sqrt(zTa * zTa + zTb * zTb);
-                    float zAchromaSample = Mathf.Clamp01(1f - zSampleSC / AchromaSampleC);
-                    float zTargetExtremeness = 1f - 4f * zTL * (1f - zTL);            // L=0.5→0, L=0/1→1
-                    float zTargetAchroma = Mathf.Clamp01(1f - zOkTC / AchromaTargetC);
-                    float zCollapseBlend = zTargetExtremeness * zTargetAchroma;
-                    float zAchromaWeight = Mathf.Max(zAchromaSample, zCollapseBlend);
+                    // WS-R: 無彩再着色パスの領域 L レンジを事前計算(zAchromaWeight は上で算出済み)。
                     float zRegLlo = 0f, zRegLhi = 1f, zRegLmid = 0.5f;
                     bool zHasRegL = false;
                     if (zAchromaWeight > 1e-4f)
@@ -1066,6 +1068,22 @@ namespace VRCAvatarColorChanger
                 s_floatPool.Return(candL);
                 s_floatPool.Return(candC);
             }
+        }
+
+        /// <summary>
+        /// WS-R/AA フィデリティ用: 「無彩サンプル / 極端無彩ターゲット」の重み(0..1)を sample/target
+        /// 色から求める。有彩サンプル×有彩ターゲットで 0。algorithm.py _achroma_weight と同値。
+        /// </summary>
+        private static float ComputeAchromaWeight(Color sample, Color target)
+        {
+            RgbToOklab(sample.r, sample.g, sample.b, out _, out float sa, out float sb);
+            RgbToOklab(target.r, target.g, target.b, out float tL, out float ta, out float tb);
+            float sC = Mathf.Sqrt(sa * sa + sb * sb);
+            float tC = Mathf.Sqrt(ta * ta + tb * tb);
+            float achromaSample = Mathf.Clamp01(1f - sC / AchromaSampleC);
+            float targetExtremeness = 1f - 4f * tL * (1f - tL);
+            float targetAchroma = Mathf.Clamp01(1f - tC / AchromaTargetC);
+            return Mathf.Max(achromaSample, targetExtremeness * targetAchroma);
         }
 
         /// <summary>
