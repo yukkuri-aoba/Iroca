@@ -166,8 +166,6 @@ namespace VRCAvatarColorChanger
                 // po は foreach 外で定義済みなので再宣言しない。
                 // Parallel.For に入る前にキャッシュを確定させてホットループ内の条件分岐を排除
                 zone.UpdateCacheIfNeeded();
-                // 無彩サンプル/極端無彩ターゲットの重み(WS-R / AA デコンタミ拡張 / 極端軟化で共用)。
-                float zAchromaWeight = ComputeAchromaWeight(zone.sampleColor, zone.targetColor);
                 long _tZone = Stopwatch.GetTimestamp();
 
                 // ArrayPool 借用は per-zone の try/finally で必ず返却する。
@@ -294,13 +292,7 @@ namespace VRCAvatarColorChanger
                     }
 
                     // 2. スムーズな端の遷移のためのガウシアンブラー（端に限定）
-                    // 極端ターゲット軟化(オプトイン): 白→黒 等で元テクスチャの低AA縁が極端コントラストで
-                    // 段差に見える分を、achromaWeight に比例した小さな feather で和らげる。既定 OFF。
-                    // ON でも有彩(achromaWeight=0)では effEdgeFeather=edgeFeather で従来どおり。
-                    float effEdgeFeather = edgeFeather;
-                    if (zone.extremeTargetSoftening)
-                        effEdgeFeather = Mathf.Max(effEdgeFeather, zAchromaWeight * ExtremeSoftenFeather);
-                    if (effEdgeFeather > 0.01f)
+                    if (edgeFeather > 0.01f)
                     {
                         // ガウシアンブラー用の一時バッファ。GaussianBlur 内部の Parallel.For
                         // でキャンセルが入っても preBlur/blurOut が漏れないよう try/finally で囲む。
@@ -311,13 +303,13 @@ namespace VRCAvatarColorChanger
                             preBlur = s_floatPool.Rent(len);
                             Array.Copy(strength, preBlur, len);
                             blurOut = s_floatPool.Rent(len);
-                            if (GaussianBlur(strength, blurOut, w, h, effEdgeFeather))
+                            if (GaussianBlur(strength, blurOut, w, h, edgeFeather))
                             {
                                 // strength の所有権を blurOut に移し、もとの strength は返却
                                 s_floatPool.Return(strength);
                                 strength = blurOut;
                                 blurOut = null; // 二重返却防止
-                                ConstrainBlur(strength, preBlur, w, h, Mathf.CeilToInt(effEdgeFeather * 2.5f));
+                                ConstrainBlur(strength, preBlur, w, h, Mathf.CeilToInt(edgeFeather * 2.5f));
                             }
                         }
                         finally
@@ -350,6 +342,8 @@ namespace VRCAvatarColorChanger
                     //     ピクセルを「α×FG + (1-α)×BG」と見て元テクスチャの合成を逆算し、
                     //     新色で再合成する。halo（薄汚れた中間色）を構造的に除去する。
                     //     詳細は dev_safe/docs/edge_decontamination.md を参照。
+                    // 無彩サンプル/極端無彩ターゲットの重み(WS-R と AA フィデリティ修正で共用)。
+                    float zAchromaWeight = ComputeAchromaWeight(zone.sampleColor, zone.targetColor);
                     bool[] aaMask = null;
                     Color32[] decontaminatedPixels = null;
                     if (useDecontamination)
@@ -958,8 +952,6 @@ namespace VRCAvatarColorChanger
         private const float AchromaTargetC  = 0.06f;  // target OkLab chroma がこれ未満で無彩扱い
         private const float AchromaRangeGain = 1.0f;  // レンジリマップ出力幅 = 元幅 × min(gain,1)。≤1。
         private const float AchromaRegionCoreThr = 0.5f; // 領域 L レンジを取る strength 下限
-        // 極端ターゲット軟化(extremeTargetSoftening)の最大 feather。achromaWeight=1(白↔黒)で適用。
-        private const float ExtremeSoftenFeather = 1.5f;
 
         // サンプル自動補正(再着色アンカー正規化)の定数。algorithm.py の ANCHOR_* と同期。
         // すべて領域統計に対する相対量(特定色/座標/テクスチャ非依存)。

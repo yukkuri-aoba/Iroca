@@ -86,10 +86,6 @@ namespace VRCAvatarColorChanger
 
         public bool highlightRecovery = true;
         public bool highlightBandExpand = true;
-        // 極端ターゲット軟化: 白→黒 など無彩・極端ターゲットのとき、元テクスチャの低AA縁が
-        // 極端コントラストで段差(ギザギザ)に見える分を、小さな edgeFeather で和らげる。
-        // 極端さ(achromaWeight)に比例し、有彩ターゲットでは作用しない。既定 OFF（オプトイン）。
-        public bool extremeTargetSoftening = false;
         // ハイライト白寄せ合成: 明部(明度>サンプル)を「wash→白 軸」へ射影し、鏡面ハイライトを
         // 表現する。既定 OFF（オプトイン）。OFF のときは色相転送(HSV transfer)のみで、明部の
         // 明度・彩度構造はそのまま温存される。ON でも有彩の模様は軸残差フェードで保護され、
