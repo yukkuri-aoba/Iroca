@@ -99,10 +99,6 @@ namespace VRCAvatarColorChanger
         public static string EdgeSoftnessTooltip => IsJapanese
             ? "0 = 硬いエッジ（従来通り）\n1 = 柔らかいエッジ（アンチエイリアス境界を滑らかに）"
             : "0 = Hard edge (legacy)\n1 = Soft edge (smooth anti-aliased boundaries)";
-        public static string ExtremeTargetSoftening => IsJapanese ? "極端色のエッジ軟化" : "Extreme Target Softening";
-        public static string ExtremeTargetSofteningTooltip => IsJapanese
-            ? "白→黒のように極端で無彩なターゲット色のとき、エッジを少しだけ柔らかくします。\n元テクスチャの細い境界（少ないアンチエイリアス）が極端なコントラストで段差（ギザギザ）に見えるのを和らげます。\n極端さに比例して効き、有彩色のターゲットでは作用しません。\nデフォルト: OFF（オプトイン）"
-            : "Slightly softens edges when the target color is extreme and achromatic (e.g. white→black).\nReduces the stair-stepping that appears when the source texture's thin edge (little anti-aliasing) is amplified by extreme contrast.\nScales with how extreme the target is; has no effect for chromatic targets.\nDefault: OFF (opt-in)";
         public static string SaturationStrictness => IsJapanese ? "彩度制限" : "Saturation Strictness";
         public static string SaturationStrictnessTooltip => IsJapanese
             ? "低彩度ピクセル（AO/影）をどの程度厳しく除外するかを調整します。\n高い値 = はみ出しが少ないが、境界にドットが残る場合がある\n低い値 = ドットが減るが、はみ出しが増える\nデフォルト: 0.50"
