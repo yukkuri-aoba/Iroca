@@ -443,9 +443,17 @@ namespace VRCAvatarColorChanger
                     // WS-R: 無彩再着色パスの領域 L レンジを事前計算(zAchromaWeight は上で算出済み)。
                     float zRegLlo = 0f, zRegLhi = 1f, zRegLmid = 0.5f;
                     bool zHasRegL = false;
+                    // 形維持リマップの center 基準(中央値)を連結成分ごとに局所化する per-pixel マップ。
+                    // ゆるいマスクで白背景を巻き込んでも、各成分が自分の地色基準で再着色されるので
+                    // 三角がベタ黒へ潰れない。null のときは zRegLmid(全体中央値)へフォールバック。
+                    float[] zRegMidMap = null;
                     if (zAchromaWeight > 1e-4f)
+                    {
                         zHasRegL = TryComputeRegionLRange(originalPixels, strength,
                             out zRegLlo, out zRegLhi, out zRegLmid);
+                        if (zHasRegL)
+                            zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, 0.05f);
+                    }
 
                     var strengthForRecolor = strength;
                     var aaMaskLocal = aaMask;
@@ -511,7 +519,8 @@ namespace VRCAvatarColorChanger
                                 washR: zWR, washG: zWG, washB: zWB, washV: zWV,
                                 applyHighlightWash: zApplyWash,
                                 achromaWeight: zAchromaWeight, osat: zOsat,
-                                hasRegL: zHasRegL, regLlo: zRegLlo, regLhi: zRegLhi, regLmid: zRegLmid);
+                                hasRegL: zHasRegL, regLlo: zRegLlo, regLhi: zRegLhi,
+                                regLmid: (zRegMidMap != null && zRegMidMap[i] > 0f) ? zRegMidMap[i] : zRegLmid);
                             if (topMost)
                             {
                                 // 最上位の寄与(claimed≈0)。es=s なので従来挙動と完全一致し、
@@ -1145,6 +1154,98 @@ namespace VRCAvatarColorChanger
             float targetExtremeness = 1f - 4f * tL * (1f - tL);
             float targetAchroma = Mathf.Clamp01(1f - tC / AchromaTargetC);
             return Mathf.Max(achromaSample, targetExtremeness * targetAchroma);
+        }
+
+        /// <summary>
+        /// WS-R 形維持リマップ用: マッチ領域を 4 近傍連結成分に分け、各成分の OkLab L 中央値を
+        /// その成分の全画素へ配る per-pixel マップを返す。形維持リマップの center 基準(中央値)を
+        /// **成分ごとに局所化**することで、ゆるいマスクが白背景(L≈1.0)を巻き込んで全体中央値を
+        /// 白へ汚染し、本来の対象(例: クリーム三角 L≈0.95)がベタ黒へ潰れる不具合を防ぐ。
+        /// 各成分は自分自身の地色を基準に再着色されるので、白背景は黒へ・三角は陰影付きの暗色へ
+        /// それぞれ正しく写る。strength>thr の画素のみ連結対象。マッチ無しは null。
+        /// </summary>
+        private static float[] BuildComponentMedianLMap(
+            Color32[] px, float[] strength, int w, int h, float thr)
+        {
+            int len = w * h;
+            int minX = w, maxX = -1, minY = h, maxY = -1;
+            for (int y = 0; y < h; y++)
+            {
+                int rb = y * w;
+                for (int x = 0; x < w; x++)
+                    if (strength[rb + x] > thr && px[rb + x].a >= 128)
+                    {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
+            }
+            if (maxX < 0) return null;
+
+            int bw = maxX - minX + 1, bh = maxY - minY + 1;
+            int[] label = new int[bw * bh];
+            var hists = new List<int[]>();   // hists[lab-1] = 成分の L ヒストグラム(256bin)
+            var sizes = new List<int>();
+            var queue = new Queue<int>();
+
+            for (int ly = 0; ly < bh; ly++)
+            {
+                for (int lx = 0; lx < bw; lx++)
+                {
+                    int li = ly * bw + lx;
+                    if (label[li] != 0) continue;
+                    if (!(strength[(ly + minY) * w + (lx + minX)] > thr
+                          && px[(ly + minY) * w + (lx + minX)].a >= 128)) continue;
+
+                    int lab = hists.Count + 1;
+                    var hist = new int[256];
+                    int size = 0;
+                    label[li] = lab;
+                    queue.Enqueue(li);
+                    while (queue.Count > 0)
+                    {
+                        int ci = queue.Dequeue();
+                        int cx = ci % bw, cy = ci / bw;
+                        int gi = (cy + minY) * w + (cx + minX);
+                        RgbToOklab(px[gi].r, px[gi].g, px[gi].b, out float L, out _, out _);
+                        hist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
+                        size++;
+                        TryEnq(ci - 1, cx > 0);
+                        TryEnq(ci + 1, cx < bw - 1);
+                        TryEnq(ci - bw, cy > 0);
+                        TryEnq(ci + bw, cy < bh - 1);
+                    }
+                    hists.Add(hist);
+                    sizes.Add(size);
+
+                    void TryEnq(int ni, bool inBounds)
+                    {
+                        if (!inBounds || label[ni] != 0) return;
+                        int nx = ni % bw, ny = ni / bw;
+                        if (!(strength[(ny + minY) * w + (nx + minX)] > thr
+                              && px[(ny + minY) * w + (nx + minX)].a >= 128)) return;
+                        label[ni] = lab;
+                        queue.Enqueue(ni);
+                    }
+                }
+            }
+
+            var med = new float[hists.Count];
+            for (int c = 0; c < hists.Count; c++)
+                med[c] = HistValueAtPercentile(hists[c], sizes[c], 0.50f, 1f);
+
+            var map = new float[len];
+            for (int ly = 0; ly < bh; ly++)
+            {
+                int rb = (ly + minY) * w;
+                for (int lx = 0; lx < bw; lx++)
+                {
+                    int lab = label[ly * bw + lx];
+                    if (lab != 0) map[rb + (lx + minX)] = med[lab - 1];
+                }
+            }
+            return map;
         }
 
         /// <summary>
