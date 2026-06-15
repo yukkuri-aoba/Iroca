@@ -975,6 +975,13 @@ namespace VRCAvatarColorChanger
         private const float AchromaRefPercentile = 0.80f;
         private const float AchromaRegionCoreThr = 0.5f; // 領域 L レンジを取る strength 下限
 
+        // 彩度整合ゲート(緩和マッチのグレーモード分岐用)。ColorZone.cs の同名 const と必ず一致させること。
+        // 緩和マッチ(穴埋め/AA クリーンアップ)のグレー分岐は値距離 |pV-sV| で判定するため、明るい
+        // クリームサンプルに対し純白(中性)が近接して一致してしまう。プライマリ経路と同じ相対彩度床で排除する。
+        private const float ChromaGateActivateSat = 0.02f; // この tint 未満のサンプルでは無効
+        private const float ChromaGateFloorFrac = 0.5f;    // サンプル彩度 sS*frac 未満は「中性すぎ」
+        private const float ChromaGatePenalty = 1.0f;      // 最大加算距離(tolerance 単位)
+
         // サンプル自動補正(再着色アンカー正規化)の定数。algorithm.py の ANCHOR_* と同期。
         // すべて領域統計に対する相対量(特定色/座標/テクスチャ非依存)。
         private const float AnchorStrengthMin   = 0.9f;   // コアマッチのみ採用(AA縁・feather裾の混色を除外)
@@ -1698,9 +1705,27 @@ namespace VRCAvatarColorChanger
             // サンプルが暗い型（指定出来ない彩度）の場合: 動的頃値を使って判定
             if (sS <= effectiveChromaThreshold)
             {
+                // 主経路(GetColorMatchScores グレーモード)と同じ RGB 距離で判定する。
+                // 旧実装は値距離 |pV-sV| のみで、明るいサンプルでは色に関係なく「明るい」だけで
+                // 一致したため、珊瑚やバンダナ縁(salmon→白)が境界回復/穴埋めで黒く滲み、三角の
+                // 元領域を超えて黒がはみ出していた。RGB 距離なら主経路と同じく珊瑚(距離>tol)を拒否し、
+                // 三角自身の AA 縁(cream 寄り)だけを回復する。暗サンプルでは Lerp で pS へ収束=従来同等。
+                float dr = pR - sR, dg = pG - sG, db = pB - sB;
+                float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f;
                 float darknessFactor = Mathf.Clamp01((0.3f - sV) / 0.3f);
-                float vDistGray = Mathf.Abs(pV - sV);
-                float effectiveDist = Mathf.Lerp(vDistGray, pS, darknessFactor);
+                float effectiveDist = Mathf.Lerp(rgbDist, pS, darknessFactor);
+                // 彩度整合ゲート(GetColorMatchScores のグレーモードと同じ)。サンプルが微小な tint を
+                // 持つとき、それより著しく中性寄りの候補(純白 UV 背景等)を距離加算でソフト排除する。
+                // 明るいクリームサンプルでは値距離だと純白(pV≈sV)が一致するため、ここでも必要。
+                // sS≈0(真の無彩サンプル)では作動しない=従来挙動を維持。明部限定(gateWeight)で
+                // 暗いサンプル(中性が正常)では矛盾を避けフェードさせる。ColorZone.cs と同期。
+                if (sS > ChromaGateActivateSat)
+                {
+                    float gateWeight = Mathf.Clamp01(sV / 0.3f);
+                    float satFloor = sS * ChromaGateFloorFrac;
+                    float shortfall = Mathf.Clamp01((satFloor - pS) / Mathf.Max(satFloor, 1e-4f));
+                    effectiveDist += shortfall * ChromaGatePenalty * tolerance * gateWeight;
+                }
                 if (effectiveDist >= tolerance) return 0f;
                 float sr = tolerance * edgeSoftness;
                 float hr = tolerance - sr;

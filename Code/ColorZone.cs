@@ -26,6 +26,16 @@ namespace VRCAvatarColorChanger
         private const float SaturationGuardActiveSourceSat = 0.40f;
         private const float SaturationGuardFractionScale = 0.30f;
 
+        // 彩度整合ゲート(グレー抽出モード専用): サンプルが微小な tint(sS)を持つとき、
+        // それより著しく中性(無彩)寄りの候補ピクセル(=純白 UV 背景など)を別マテリアルと
+        // みなし、サンプル彩度に対する相対床を下回る分だけ距離を加算してソフトに排除する。
+        // 純RGB距離だけでは、サンプル(クリーム)と純白が近接(距離~0.03)し、暗い領域を拾う
+        // ための大きな tolerance が純白も巻き込む。tint の有無で両者は明確に分離できる。
+        // サンプル自身が真の無彩(sS≈0)なら作動せず=従来の純RGB距離挙動を完全維持。
+        private const float ChromaGateActivateSat = 0.02f; // この tint 未満のサンプルでは無効
+        private const float ChromaGateFloorFrac = 0.5f;    // サンプル彩度 sS*frac 未満は「中性すぎ」
+        private const float ChromaGatePenalty = 1.0f;      // 最大加算距離(tolerance 単位)
+
 
         public string name = "Zone";
         public bool enabled = true;
@@ -277,6 +287,21 @@ namespace VRCAvatarColorChanger
                 {
                     float darknessFactor = Mathf.Clamp01((0.3f - sV) / 0.3f);
                     effectiveDist = Mathf.Lerp(rgbDist, pS, darknessFactor);
+                }
+
+                // 彩度整合ゲート: サンプルが微小な tint を持つ(sS>ActivateSat)ときのみ作動。
+                // サンプル彩度の相対床 sS*FloorFrac を下回る中性画素(純白背景等)に距離を加算し、
+                // pS=0 では確実に tolerance 超え→strength 0 に落とす。AA縁(tint一部残存)は連続的な
+                // 部分ペナルティで崖を作らない。sS≈0(真の無彩サンプル)では作動しない。
+                // 明部限定(gateWeight=clamp(sV/0.3)): 暗いサンプルは上の分岐で pS を距離指標に使い
+                // 「中性=同素材」とみなす(暗布は中性が正常)ため、中性を罰するこのゲートと矛盾する。
+                // 暗いサンプルではフェードさせ、明るい tint 素材(クリーム等)でのみ全効果にする。
+                if (sS > ChromaGateActivateSat)
+                {
+                    float gateWeight = Mathf.Clamp01(sV / 0.3f);
+                    float satFloor = sS * ChromaGateFloorFrac;
+                    float shortfall = Mathf.Clamp01((satFloor - pS) / Mathf.Max(satFloor, 1e-4f));
+                    effectiveDist += shortfall * ChromaGatePenalty * _cTolerance * gateWeight;
                 }
 
                 strength = CalculateEdgeStrength(effectiveDist, hardRange, softRange);
