@@ -65,7 +65,7 @@ namespace VRCAvatarColorChanger
                 saturationStrictness = 0.5f,
                 saturationGuard = 0.0f,
                 chromaThreshold = 0.05f,
-                highlightRecovery = true,
+                highlightRecovery = false,
                 highlightBandExpand = true,
                 applyHighlightWash = false,
                 autoHighlightSample = false,
