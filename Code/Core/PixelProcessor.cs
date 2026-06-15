@@ -344,19 +344,25 @@ namespace VRCAvatarColorChanger
                     //     詳細は dev_safe/docs/edge_decontamination.md を参照。
                     // 無彩サンプル/極端無彩ターゲットの重み(WS-R と AA フィデリティ修正で共用)。
                     float zAchromaWeight = ComputeAchromaWeight(zone.sampleColor, zone.targetColor);
+
+                    // WS-R 内部固め: 極端な無彩ターゲット(白↔黒)では、マッチ強度が色のばらつきで内部まで
+                    // フルにならず、明るい画素ほど弱く塗られて元色が残り「中央の段差」になる。陰影は塗り
+                    // 強度でなく recolor の achroma レンジリマップ(gain≤1)で表現すべきなので、マッチ領域の
+                    // 内部を full strength に固め、AA 縁(侵食で除いた帯)の taper だけ残す。有彩ターゲット
+                    // (achromaWeight≈0)では no-op = byte 不変。algorithm.py SOLIDIFY_ACHROMA_INTERIOR と同期。
+                    if (zAchromaWeight > 1e-4f)
+                        SolidifyAchromaInterior(strength, w, h, zAchromaWeight);
+
                     bool[] aaMask = null;
                     Color32[] decontaminatedPixels = null;
                     if (useDecontamination)
                     {
                         aaMask = decontamAaMask;
                         decontaminatedPixels = decontamPixels;
-                        // AA フィデリティ修正(2026-06-14): 白→黒 等(achromaWeight>0)では、強くマッチした
-                        // AA 画素が「内部」扱いでデコンタミされず純色化し、背景ブレンド(赤成分)を失って
-                        // 段差(ギザギザ)を生む。これらのケースに限り interior_threshold を 1 超に上げ全境界
-                        // AA 画素を α 再合成して元の AA を忠実に転写する。深部内部は BG 密度ゼロで自動スキップ。
-                        // 有彩×有彩(achromaWeight=0)は従来値で byte 不変。algorithm.py と同期。
-                        float effInteriorThreshold = zAchromaWeight > 1e-4f
-                            ? 1.01f : decontaminationInteriorThreshold;
+                        // 内部固め(上)が無彩ターゲットの内部を均一化したので、旧 AA フィデリティ修正の
+                        // interior_threshold=1.01(全画素 α 再合成)は不要(むしろ内部を背景色で再合成して
+                        // 段差を復活させる)。常に通常閾値で AA 縁だけをデコンタミする。algorithm.py 同期。
+                        float effInteriorThreshold = decontaminationInteriorThreshold;
                         DecontaminateAaBoundary(originalPixels, strength, w, h,
                             zone.sampleColor, zone.targetColor,
                             decontaminationRadius, effInteriorThreshold,
@@ -1067,6 +1073,58 @@ namespace VRCAvatarColorChanger
             {
                 s_floatPool.Return(candL);
                 s_floatPool.Return(candC);
+            }
+        }
+
+        /// <summary>
+        /// WS-R 内部固め: マッチ領域(strength&gt;matchThr)を erodePx だけ侵食した「内部」の
+        /// strength を full(=strength→1 へ achromaWeight 比でフェード)に固める。AA 縁(侵食で
+        /// 除いた帯)は元の taper を保つ。極端な無彩ターゲット(白↔黒)で、明るい画素ほど弱く
+        /// マッチして元色が残る「中央の段差」を消すための前処理。陰影は後段 recolor の achroma
+        /// レンジリマップ(gain≤1)が担う。algorithm.py の SOLIDIFY_ACHROMA_INTERIOR と同値。
+        /// </summary>
+        private static void SolidifyAchromaInterior(float[] strength, int w, int h, float achromaWeight)
+        {
+            const float matchThr = 0.05f;
+            const int erodePx = 2;
+            int len = w * h;
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
+            bool[] cur = s_boolPool.Rent(len);
+            bool[] nxt = s_boolPool.Rent(len);
+            try
+            {
+                for (int i = 0; i < len; i++) cur[i] = strength[i] > matchThr;
+                // 4 近傍 erosion を erodePx 回。画像端の外は「非マッチ」とみなす(scipy 既定と同じ)。
+                for (int it = 0; it < erodePx; it++)
+                {
+                    var curL = cur; var nxtL = nxt;
+                    Parallel.For(0, h, po, y =>
+                    {
+                        int rowOff = y * w;
+                        for (int x = 0; x < w; x++)
+                        {
+                            int i = rowOff + x;
+                            bool keep = curL[i]
+                                && x > 0 && curL[i - 1]
+                                && x < w - 1 && curL[i + 1]
+                                && y > 0 && curL[i - w]
+                                && y < h - 1 && curL[i + w];
+                            nxtL[i] = keep;
+                        }
+                    });
+                    var tmp = cur; cur = nxt; nxt = tmp;
+                }
+                var interior = cur;
+                var strengthL = strength;
+                Parallel.For(0, len, po, i =>
+                {
+                    if (interior[i]) strengthL[i] = strengthL[i] + (1f - strengthL[i]) * achromaWeight;
+                });
+            }
+            finally
+            {
+                s_boolPool.Return(cur);
+                s_boolPool.Return(nxt);
             }
         }
 
