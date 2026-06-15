@@ -1103,7 +1103,10 @@ namespace VRCAvatarColorChanger
         // algorithm.py の match_sat_floor(achroma-gate 分岐)と同期。
         private const float AchromaNeutralRejectWeightMin = 0.5f; // 白↔黒の極端無彩ターゲットでのみ作動
         private const float NeutralRejectActiveSourceSat = 0.40f; // サンプルがこの彩度以上(=有彩)でのみ作動
-        private const float NeutralRejectFloorFrac = 0.30f;       // サンプル彩度 sS·frac 未満を中性とみなす
+        // サンプル彩度 sS·frac 未満を「中性(=白背景)」とみなして弾く。0.10 は中性の白背景
+        // (彩度≈0)だけを落とし、模様に乗った淡い赤(彩度~0.05+)は残す値。大きい(0.30)と淡赤も
+        // 巻き添えで弾いて模様上の赤が放置される。小さすぎる(<0.05)と白背景の取りこぼし。
+        private const float NeutralRejectFloorFrac = 0.10f;
         private const int NeutralRejectProtectRadius = 2;         // 高彩度コアからこの px 以内は保護
 
         // 無彩フチ消し(CleanAchromaFringe)の定数。マッチ境界の外側に残る「残留クリーム」混色画素
