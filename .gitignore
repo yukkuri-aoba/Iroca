@@ -42,3 +42,10 @@ Code_Archive/
 !scripts/build-check/VACCEditor.Debug.csproj
 scripts/build-check/bin/
 scripts/build-check/obj/
+
+# headless-run (実 Unity DLL を参照して PixelProcessor を Unity なしで実行する検証ハーネス)
+# csproj/cs 本体だけコミット、bin/obj は無視
+!scripts/headless-run/Harness.csproj
+!scripts/headless-run/Harness.cs
+scripts/headless-run/bin/
+scripts/headless-run/obj/

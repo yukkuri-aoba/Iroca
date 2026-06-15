@@ -1,0 +1,51 @@
+<!--
+  Code/ の本体ロジック(PixelProcessor 等)を Unity を起動せず dotnet で実行するためのハーネス。
+  実 Unity DLL(CoreModule)を参照するので、リファレンスアセンブリと違い実行時に動く。
+  Code/ を同一アセンブリに取り込むので internal(MaskSnapshot/PixelProcessor)へアクセスできる。
+
+    dotnet run (project scripts/headless-run/Harness.csproj) args: in.raw mask.raw out.raw
+
+  raw 形式: [int32 w][int32 h][payload]  (RGBA=w*h*4 bytes / mask=w*h bytes 1=除外)
+  出力 DLL は scripts/headless-run/bin/ (gitignore 済)。製品パッケージには含めない。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>VRCAvatarColorChanger</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>0414;0649;CS0219;CS8632;CS0169;CS0618</NoWarn>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AssemblyName>VACCHeadless</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <UnityVersion Condition="'$(UnityVersion)' == ''">2022.3.22f1</UnityVersion>
+    <UnityManaged Condition="'$(UnityManaged)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityManaged>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- PixelProcessor の実行に必要な Core ファイルだけを取り込む(UI/Editor 依存を避ける)。 -->
+    <Compile Include="..\..\Code\Core\PixelProcessor.cs" />
+    <Compile Include="..\..\Code\Core\DebugCaptureHooks.cs" />
+    <Compile Include="..\..\Code\Core\IDebugCapture.cs" />
+    <Compile Include="..\..\Code\Core\PerfReport.cs" />
+    <Compile Include="..\..\Code\Core\HighlightSampleCorrector.cs" />
+    <Compile Include="..\..\Code\ColorZone.cs" />
+    <Compile Include="..\..\Code\VACCConsts.cs" />
+    <Compile Include="Harness.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 実装入りの実 DLL を直接参照(リファレンスアセンブリでなく)。Color32/Mathf/Color は CoreModule。 -->
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(UnityManaged)\UnityEngine\UnityEngine.CoreModule.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>
