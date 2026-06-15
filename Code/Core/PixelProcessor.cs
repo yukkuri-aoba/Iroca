@@ -344,6 +344,17 @@ namespace VRCAvatarColorChanger
                     //     詳細は dev_safe/docs/edge_decontamination.md を参照。
                     // 無彩サンプル/極端無彩ターゲットの重み(WS-R と AA フィデリティ修正で共用)。
                     float zAchromaWeight = ComputeAchromaWeight(zone.sampleColor, zone.targetColor);
+                    // sample の S/V (wash ゲート・デバッグ分岐・下の中性リジェクトで共用)。
+                    Color.RGBToHSV(zone.sampleColor, out _, out float zSS, out float zSV);
+
+                    // 有彩サンプル→無彩極端ターゲット(赤→白/黒等)の過選択除去。有彩サンプルはマッチ距離が
+                    // hue 支配になり彩度差を過小評価するため、暖色寄りで明るい中性画素(白UV背景等)を巻き込む。
+                    // 巻き込みで領域が明るい背景に支配されると後段の成分中央値Lが上がり、本体(中L)が形維持
+                    // リマップで黒へ落ちる(黒化)。マッチ全段(穴埋め/境界回復)の後・内部固め/成分統計の前に、
+                    // サンプル彩度の相対床を下回る中性画素を strength から除去する(高彩度コア近傍は保護)。
+                    // 有彩→有彩(achromaWeight≈0)・低彩度サンプル(sS<床)では作動しない=従来挙動を完全維持。
+                    if (zAchromaWeight > AchromaNeutralRejectWeightMin && zSS >= NeutralRejectActiveSourceSat)
+                        RejectNeutralForAchromaTarget(strength, pixS, w, h, zSS);
 
                     // WS-R 内部固め: 極端な無彩ターゲット(白↔黒)では、マッチ強度が色のばらつきで内部まで
                     // フルにならず、明るい画素ほど弱く塗られて元色が残り「中央の段差」になる。陰影は塗り
@@ -371,8 +382,7 @@ namespace VRCAvatarColorChanger
                     }
 
                     // 4. 強度でブレンドした再色付けを適用
-                    // sample の S/V は wash ゲートとデバッグ分岐で使うため事前計算しておく。
-                    Color.RGBToHSV(zone.sampleColor, out _, out float zSS, out float zSV);
+                    // (zSS/zSV は上の中性リジェクト前に算出済み)
                     // ハイライト白方向射影(wash)・OkLab リカラーに必要な sample / target RGB を事前取得
                     float zSR = zone.sampleColor.r;
                     float zSG = zone.sampleColor.g;
@@ -1086,6 +1096,16 @@ namespace VRCAvatarColorChanger
         private const float ChromaGateFloorFrac = 0.5f;    // サンプル彩度 sS*frac 未満は「中性すぎ」
         private const float ChromaGatePenalty = 1.0f;      // 最大加算距離(tolerance 単位)
 
+        // 有彩サンプル→無彩極端ターゲット(赤→白/黒等)の「中性画素リジェクト・フロア」定数。
+        // 有彩サンプルはマッチ距離が hue 支配で彩度差を過小評価し、明るい中性画素(白UV背景等)を巻き込む。
+        // 無彩ターゲットのときだけ、サンプル彩度の相対床 sS·Frac 未満の画素を strength から除去する
+        // (高彩度コア近傍 Radius px は保護=赤自身の脱彩した陰影/AA縁を守る)。値は既存定数を流用。
+        // algorithm.py の match_sat_floor(achroma-gate 分岐)と同期。
+        private const float AchromaNeutralRejectWeightMin = 0.5f; // 白↔黒の極端無彩ターゲットでのみ作動
+        private const float NeutralRejectActiveSourceSat = 0.40f; // サンプルがこの彩度以上(=有彩)でのみ作動
+        private const float NeutralRejectFloorFrac = 0.30f;       // サンプル彩度 sS·frac 未満を中性とみなす
+        private const int NeutralRejectProtectRadius = 2;         // 高彩度コアからこの px 以内は保護
+
         // 無彩フチ消し(CleanAchromaFringe)の定数。マッチ境界の外側に残る「残留クリーム」混色画素
         // (背景より明るく、暗い再着色色に対し明るいフチに見える)を α 分解で背景へ寄せて消す。
         private const int AchromaFringeMatchRadius = 2;    // マッチ境界からこの px 以内の外側を対象
@@ -1206,6 +1226,60 @@ namespace VRCAvatarColorChanger
             {
                 s_floatPool.Return(candL);
                 s_floatPool.Return(candC);
+            }
+        }
+
+        /// <summary>
+        /// 有彩サンプル→無彩極端ターゲット時の中性画素リジェクト・フロア。サンプル彩度の相対床
+        /// (sS·NeutralRejectFloorFrac)未満の画素のうち、高彩度マッチコアから NeutralRejectProtectRadius
+        /// px より遠いものの strength を 0 にする。hue 支配距離で巻き込んだ明るい中性背景(白UV背景等)を
+        /// 落としつつ、コア近傍の脱彩した陰影/AA縁は保護する(彩度だけでは両者を区別できないため空間距離で
+        /// 分離=algorithm.py match_sat_floor と同設計)。呼び出し側で achromaWeight/サンプル彩度を gate。
+        /// </summary>
+        private static void RejectNeutralForAchromaTarget(float[] strength, float[] pixS, int w, int h, float sS)
+        {
+            const float matchThr = 0.05f;
+            float floor = sS * NeutralRejectFloorFrac;
+            int len = w * h;
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
+            bool[] cur = s_boolPool.Rent(len);
+            bool[] nxt = s_boolPool.Rent(len);
+            try
+            {
+                // 高彩度マッチコア(マッチ済み かつ 彩度>=床)。
+                for (int i = 0; i < len; i++) cur[i] = strength[i] > matchThr && pixS[i] >= floor;
+                // 4 近傍 dilation を ProtectRadius 回(コア近傍を保護領域に広げる)。画像端外は false。
+                for (int it = 0; it < NeutralRejectProtectRadius; it++)
+                {
+                    var curL = cur; var nxtL = nxt;
+                    Parallel.For(0, h, po, y =>
+                    {
+                        int rowOff = y * w;
+                        for (int x = 0; x < w; x++)
+                        {
+                            int i = rowOff + x;
+                            bool on = curL[i]
+                                || (x > 0 && curL[i - 1])
+                                || (x < w - 1 && curL[i + 1])
+                                || (y > 0 && curL[i - w])
+                                || (y < h - 1 && curL[i + w]);
+                            nxtL[i] = on;
+                        }
+                    });
+                    var tmp = cur; cur = nxt; nxt = tmp;
+                }
+                var protectedCore = cur;
+                var strengthL = strength;
+                var pixSL = pixS;
+                Parallel.For(0, len, po, i =>
+                {
+                    if (pixSL[i] < floor && !protectedCore[i]) strengthL[i] = 0f;
+                });
+            }
+            finally
+            {
+                s_boolPool.Return(cur);
+                s_boolPool.Return(nxt);
             }
         }
 
