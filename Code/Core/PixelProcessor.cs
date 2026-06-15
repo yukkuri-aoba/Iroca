@@ -543,6 +543,13 @@ namespace VRCAvatarColorChanger
                     });
                     debug?.RecordStage(zone.id, DebugStages.Recolor, strength, w, h);
 
+                    // 無彩(白↔黒)再着色のエッジ「残留クリーム」フチ消し。マッチ境界の外側 2px に残る
+                    // 背景より明るい混色画素を α 分解で背景へ寄せ、暗い再着色色に対する明るいフチを消す。
+                    // 有彩(zAchromaWeight≈0)では呼ばれず完全 no-op。共有のマッチ/合成経路は変更しない。
+                    if (zAchromaWeight > 1e-4f && rcMaxX >= 0)
+                        CleanAchromaFringe(pixels, originalPixels, strengthForRecolor, claimedLocal,
+                            w, h, zone.sampleColor, zone.targetColor, rcMinX, rcMinY, rcMaxX, rcMaxY);
+
                     // Recolor 段で各ピクセルに適用されたサブブランチを記録する。
                     // hot loop には分岐を増やさず、debug 有効時だけ追加の Parallel.For で
                     // 上の RecolorPixel 内の条件式を再評価する。
@@ -728,6 +735,103 @@ namespace VRCAvatarColorChanger
                 if (bgBSum   != null) s_floatPool.Return(bgBSum);
                 if (bgGSum   != null) s_floatPool.Return(bgGSum);
                 if (bgRSum   != null) s_floatPool.Return(bgRSum);
+                if (wD != null) s_floatPool.Return(wD);
+                if (wB != null) s_floatPool.Return(wB);
+                if (wG != null) s_floatPool.Return(wG);
+                if (wR != null) s_floatPool.Return(wR);
+            }
+        }
+
+        /// <summary>
+        /// 無彩(白↔黒)再着色のエッジ「残留クリーム」フチ消し(無彩ゾーンのみ呼ばれる)。
+        /// 二値マッチ+デコンタミは選択 tolerance ちょうどで止まるため、その外側 1〜2px に残る
+        /// 「地色↔背景の混色で背景より明るい(残留クリーム)」画素が、暗い再着色色に対して明るい
+        /// フチに見える。ここをマッチ境界の外側 AchromaFringeMatchRadius px に限り α 分解
+        /// (出力 = α·target + (1-α)·背景)で背景側へ寄せてフチを消す。背景優勢(α 小)の画素だけ
+        /// 対象にし、白寄り(α≈1)の画素は除外して白拒否を維持する。脚色でなく元の混色の打ち消し。
+        /// </summary>
+        private static void CleanAchromaFringe(
+            Color32[] pixels, Color32[] originalPixels, float[] strength, float[] claimed,
+            int w, int h, Color sampleColor, Color targetColor,
+            int bbMinX, int bbMinY, int bbMaxX, int bbMaxY)
+        {
+            int len = w * h;
+            float[] wR = null, wG = null, wB = null, wD = null;
+            float[] bgRSum = null, bgGSum = null, bgBSum = null, bgD = null;
+            float[] wM = null, mNear = null;
+            try
+            {
+                wR = s_floatPool.Rent(len); wG = s_floatPool.Rent(len);
+                wB = s_floatPool.Rent(len); wD = s_floatPool.Rent(len);
+                bgRSum = s_floatPool.Rent(len); bgGSum = s_floatPool.Rent(len);
+                bgBSum = s_floatPool.Rent(len); bgD = s_floatPool.Rent(len);
+                wM = s_floatPool.Rent(len); mNear = s_floatPool.Rent(len);
+                Array.Clear(wR, 0, len); Array.Clear(wG, 0, len);
+                Array.Clear(wB, 0, len); Array.Clear(wD, 0, len); Array.Clear(wM, 0, len);
+                var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
+                // 背景候補(非マッチ かつ α>0)と、マッチ指標を準備
+                Parallel.For(0, len, po, i =>
+                {
+                    float s = strength[i];
+                    if (s <= 0f && originalPixels[i].a > 0)
+                    {
+                        wR[i] = originalPixels[i].r; wG[i] = originalPixels[i].g;
+                        wB[i] = originalPixels[i].b; wD[i] = 1f;
+                    }
+                    if (s > 0.05f) wM[i] = 1f;
+                });
+                BoxFilterSum(wR, bgRSum, w, h, 4);
+                BoxFilterSum(wG, bgGSum, w, h, 4);
+                BoxFilterSum(wB, bgBSum, w, h, 4);
+                BoxFilterSum(wD, bgD, w, h, 4);
+                BoxFilterSum(wM, mNear, w, h, AchromaFringeMatchRadius);
+
+                float sR = sampleColor.r * 255f, sG = sampleColor.g * 255f, sB = sampleColor.b * 255f;
+                float tR = targetColor.r * 255f, tG = targetColor.g * 255f, tB = targetColor.b * 255f;
+                int x0 = Mathf.Max(0, bbMinX - AchromaFringeMatchRadius);
+                int x1 = Mathf.Min(w - 1, bbMaxX + AchromaFringeMatchRadius);
+                int y0 = Mathf.Max(0, bbMinY - AchromaFringeMatchRadius);
+                int y1 = Mathf.Min(h - 1, bbMaxY + AchromaFringeMatchRadius);
+                Parallel.For(y0, y1 + 1, po, y =>
+                {
+                    int row = y * w;
+                    for (int x = x0; x <= x1; x++)
+                    {
+                        int i = row + x;
+                        if (strength[i] > 1e-4f) continue;            // マッチ済みは既存処理が担当
+                        if (claimed != null && claimed[i] > 0.001f) continue; // 上位ゾーン占有は不可侵
+                        if (mNear[i] < 1f) continue;                  // マッチ境界の近傍のみ
+                        float density = bgD[i];
+                        if (density < 1f) continue;
+                        float bR = bgRSum[i] / density, bG = bgGSum[i] / density, bB = bgBSum[i] / density;
+                        float dirR = sR - bR, dirG = sG - bG, dirB = sB - bB;
+                        float dirSq = dirR * dirR + dirG * dirG + dirB * dirB;
+                        if (dirSq < 1f) continue;                     // sample≈BG → α 未定義
+                        float pR = originalPixels[i].r, pG = originalPixels[i].g, pB = originalPixels[i].b;
+                        float alpha = ((pR - bR) * dirR + (pG - bG) * dirG + (pB - bB) * dirB) / dirSq;
+                        // 残留クリームのある背景優勢画素のみ。白寄り(α≈1)は除外=白拒否を維持。
+                        if (alpha < AchromaFringeMinAlpha || alpha > AchromaFringeMaxAlpha) continue;
+                        float projR = bR + alpha * dirR, projG = bG + alpha * dirG, projB = bB + alpha * dirB;
+                        float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
+                        if (distSq > 3000f) continue;                 // 線から外れる=別色 → 触らない
+                        float om = 1f - alpha;
+                        pixels[i] = new Color32(
+                            (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tR + om * bR), 0, 255),
+                            (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tG + om * bG), 0, 255),
+                            (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tB + om * bB), 0, 255),
+                            originalPixels[i].a);
+                        if (claimed != null) claimed[i] = 1f;
+                    }
+                });
+            }
+            finally
+            {
+                if (mNear != null) s_floatPool.Return(mNear);
+                if (wM != null) s_floatPool.Return(wM);
+                if (bgD != null) s_floatPool.Return(bgD);
+                if (bgBSum != null) s_floatPool.Return(bgBSum);
+                if (bgGSum != null) s_floatPool.Return(bgGSum);
+                if (bgRSum != null) s_floatPool.Return(bgRSum);
                 if (wD != null) s_floatPool.Return(wD);
                 if (wB != null) s_floatPool.Return(wB);
                 if (wG != null) s_floatPool.Return(wG);
@@ -981,6 +1085,12 @@ namespace VRCAvatarColorChanger
         private const float ChromaGateActivateSat = 0.02f; // この tint 未満のサンプルでは無効
         private const float ChromaGateFloorFrac = 0.5f;    // サンプル彩度 sS*frac 未満は「中性すぎ」
         private const float ChromaGatePenalty = 1.0f;      // 最大加算距離(tolerance 単位)
+
+        // 無彩フチ消し(CleanAchromaFringe)の定数。マッチ境界の外側に残る「残留クリーム」混色画素
+        // (背景より明るく、暗い再着色色に対し明るいフチに見える)を α 分解で背景へ寄せて消す。
+        private const int AchromaFringeMatchRadius = 2;    // マッチ境界からこの px 以内の外側を対象
+        private const float AchromaFringeMinAlpha = 0.05f; // これ未満=残留クリームほぼ無し→触らない
+        private const float AchromaFringeMaxAlpha = 0.70f; // これ超=白/地色寄り→除外(白拒否を維持)
 
         // サンプル自動補正(再着色アンカー正規化)の定数。algorithm.py の ANCHOR_* と同期。
         // すべて領域統計に対する相対量(特定色/座標/テクスチャ非依存)。
