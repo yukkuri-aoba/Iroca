@@ -966,9 +966,13 @@ namespace VRCAvatarColorChanger
         private const float AchromaSampleC  = 0.06f;  // sample OkLab chroma がこれ未満で無彩扱い(→1)
         private const float AchromaTargetC  = 0.06f;  // target OkLab chroma がこれ未満で無彩扱い
         private const float AchromaRangeGain = 1.0f;  // [旧] レンジリマップ出力幅 = 元幅 × min(gain,1)。form 版へ移行。
-        // 形(立体感)維持版: 中央値を target 側 offset に置き、偏差を gain 倍して陰影を知覚可能に拡張。
-        private const float AchromaFormGain = 2.5f;    // 中央値からの偏差の増幅率(知覚補償)
-        private const float AchromaFormOffset = 0.13f; // 中央値を置く target 側 offset(黒=0+, 白=1-)
+        // 形(立体感)維持版: 成分の地色基準を target 側 offset に置き、偏差を gain 倍して陰影を知覚可能に拡張。
+        private const float AchromaFormGain = 2.5f;    // 基準からの偏差の増幅率(知覚補償)
+        private const float AchromaFormOffset = 0.16f; // 地色基準を置く target 側 offset(黒=0+, 白=1-)
+        // 成分の地色基準に使う L パーセンタイル。中央値(0.5)だと、ゆるい/広いマスクで暗い珊瑚縁が
+        // 成分に混入したとき基準が下振れし、模様ごとに明るさが不揃いになる。高め(0.8)にすると暗い
+        // 混入に頑健で「素材本来の地色レベル」に揃う(並んだ三角が均一になる)。
+        private const float AchromaRefPercentile = 0.80f;
         private const float AchromaRegionCoreThr = 0.5f; // 領域 L レンジを取る strength 下限
 
         // サンプル自動補正(再着色アンカー正規化)の定数。algorithm.py の ANCHOR_* と同期。
@@ -1157,12 +1161,14 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
-        /// WS-R 形維持リマップ用: マッチ領域を 4 近傍連結成分に分け、各成分の OkLab L 中央値を
-        /// その成分の全画素へ配る per-pixel マップを返す。形維持リマップの center 基準(中央値)を
-        /// **成分ごとに局所化**することで、ゆるいマスクが白背景(L≈1.0)を巻き込んで全体中央値を
-        /// 白へ汚染し、本来の対象(例: クリーム三角 L≈0.95)がベタ黒へ潰れる不具合を防ぐ。
-        /// 各成分は自分自身の地色を基準に再着色されるので、白背景は黒へ・三角は陰影付きの暗色へ
-        /// それぞれ正しく写る。strength>thr の画素のみ連結対象。マッチ無しは null。
+        /// WS-R 形維持リマップ用: マッチ領域を 4 近傍連結成分に分け、各成分の OkLab L の
+        /// **地色基準(AchromaRefPercentile=P80)** をその成分の全画素へ配る per-pixel マップを返す。
+        /// center 基準を **成分ごとに局所化**することで、ゆるいマスクが白背景(L≈1.0)を巻き込んで
+        /// 全体中央値を白へ汚染し、本来の対象(クリーム三角 L≈0.95)がベタ黒へ潰れる不具合を防ぐ。
+        /// 基準に中央値でなく高パーセンタイル(P80)を使うのは、暗い珊瑚縁が成分に混入しても
+        /// 基準が下振れせず「素材本来の地色レベル」に揃い、並んだ模様(三角列)が均一になるため。
+        /// 各成分は自分の地色を基準に再着色され、白背景は黒へ・三角は陰影付きの暗色へ正しく写る。
+        /// strength>thr の画素のみ連結対象。マッチ無しは null。
         /// </summary>
         private static float[] BuildComponentMedianLMap(
             Color32[] px, float[] strength, int w, int h, float thr)
@@ -1233,7 +1239,7 @@ namespace VRCAvatarColorChanger
 
             var med = new float[hists.Count];
             for (int c = 0; c < hists.Count; c++)
-                med[c] = HistValueAtPercentile(hists[c], sizes[c], 0.50f, 1f);
+                med[c] = HistValueAtPercentile(hists[c], sizes[c], AchromaRefPercentile, 1f);
 
             var map = new float[len];
             for (int ly = 0; ly < bh; ly++)
