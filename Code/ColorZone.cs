@@ -36,6 +36,13 @@ namespace VRCAvatarColorChanger
         private const float ChromaGateFloorFrac = 0.5f;    // サンプル彩度 sS*frac 未満は「中性すぎ」
         private const float ChromaGatePenalty = 1.0f;      // 最大加算距離(tolerance 単位)
 
+        // グレー抽出モードの AA 縁ソフトランプ床(tolerance 比)。edgeSoftness=0 だとグレーモードは
+        // 二値マッチになり AA 境界(地色↔背景の混色)も full strength に固まる→デコンタミ
+        // (0<s<thr で作動する α 再合成)が走らず、元の滑らかな AA が硬い段差に潰れる。地色コア
+        // (rgbDist が hardRange 未満)は full のまま、外側の混色帯に soft ramp を与えて partial
+        // strength にし、既存デコンタミが α·target+(1-α)·背景 を忠実復元できるようにする。
+        private const float AchromaEdgeSoftness = 0.7f;
+
 
         public string name = "Zone";
         public bool enabled = true;
@@ -304,7 +311,13 @@ namespace VRCAvatarColorChanger
                     effectiveDist += shortfall * ChromaGatePenalty * _cTolerance * gateWeight;
                 }
 
-                strength = CalculateEdgeStrength(effectiveDist, hardRange, softRange);
+                // AA 縁の忠実復元: 外側の混色帯に soft ramp を与え partial strength にして、
+                // 後段デコンタミ(α 再合成)が元の滑らかな AA を復元できるようにする(脚色でなく
+                // 元の AA カバレッジの復元)。地色コアは hardRange 未満で full のまま=陰影は不変。
+                // ユーザーが edgeSoftness を上げている場合はそちらを尊重(floor として作用)。
+                float aaSoftRange = Mathf.Max(softRange, _cTolerance * AchromaEdgeSoftness);
+                float aaHardRange = _cTolerance - aaSoftRange;
+                strength = CalculateEdgeStrength(effectiveDist, aaHardRange, aaSoftRange);
                 // ハイライト復元は輝度のみでざっくり判定
                 if (highlightRecovery && pV > HighlightValueMin)
                 {
