@@ -956,7 +956,10 @@ namespace VRCAvatarColorChanger
         // 従来式とバイト不変。不変条件: 単調・順序保存・gain≤1(増幅禁止)。algorithm.py ACHROMA_* と同期。
         private const float AchromaSampleC  = 0.06f;  // sample OkLab chroma がこれ未満で無彩扱い(→1)
         private const float AchromaTargetC  = 0.06f;  // target OkLab chroma がこれ未満で無彩扱い
-        private const float AchromaRangeGain = 1.0f;  // レンジリマップ出力幅 = 元幅 × min(gain,1)。≤1。
+        private const float AchromaRangeGain = 1.0f;  // [旧] レンジリマップ出力幅 = 元幅 × min(gain,1)。form 版へ移行。
+        // 形(立体感)維持版: 中央値を target 側 offset に置き、偏差を gain 倍して陰影を知覚可能に拡張。
+        private const float AchromaFormGain = 2.5f;    // 中央値からの偏差の増幅率(知覚補償)
+        private const float AchromaFormOffset = 0.13f; // 中央値を置く target 側 offset(黒=0+, 白=1-)
         private const float AchromaRegionCoreThr = 0.5f; // 領域 L レンジを取る strength 下限
 
         // サンプル自動補正(再着色アンカー正規化)の定数。algorithm.py の ANCHOR_* と同期。
@@ -1819,12 +1822,13 @@ namespace VRCAvatarColorChanger
             // algorithm.py recolor_pixels と同期。weight=0(有彩×有彩)では完全 no-op=バイト不変。
             if (achromaWeight > 1e-4f && hasRegL)
             {
-                float spread = Mathf.Max(regLhi - regLlo, 1e-4f);
-                float u = (oL - regLlo) / spread;                       // 領域内相対位置(端外→最終 clip)
-                float winW = spread * Mathf.Min(AchromaRangeGain, 1f);  // gain≤1: コントラスト増幅禁止
-                float anchorFrac = Mathf.Clamp01((regLmid - regLlo) / spread);
-                float winLo = Mathf.Clamp(okTL - winW * anchorFrac, 0f, 1f - winW);
-                float rangeRemap = winLo + u * winW;
+                // 形(立体感)維持: 領域中央値を target 側の控えめ offset(center)に置き、中央値からの
+                // 偏差を AchromaFormGain 倍して陰影を知覚可能な大きさへ拡張する。暗部は 0 へ、明部は
+                // center 近辺の暗灰に収め、白残り(段差)は clamp で防ぐ。単調・領域統計由来で特定座標
+                // 非依存。元の微小陰影をそのまま写すと暗部/明部で知覚的に平坦化(ベタ黒/ベタ白)するため、
+                // 控えめに増幅する(知覚補償)。algorithm.py recolor_pixels と同期。
+                float center = okTL < 0.5f ? AchromaFormOffset : (1f - AchromaFormOffset);
+                float rangeRemap = Mathf.Clamp(center + (oL - regLmid) * AchromaFormGain, 0f, 1f);
                 float nLAchroma = okTL * (1f - valueBlend) + rangeRemap * valueBlend;
                 nL = nL * (1f - achromaWeight) + nLAchroma * achromaWeight;
             }
