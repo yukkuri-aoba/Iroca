@@ -2,8 +2,12 @@
 
 使い方:
     python tools/visual_review.py snapshot    # 変更前スナップショット保存
-    python tools/visual_review.py compare     # 比較パネル生成
+    python tools/visual_review.py compare     # 比較パネル生成(Python 出力)
+    python tools/visual_review.py compare --engine csharp  # 実 C# Harness 出力で比較
     python tools/visual_review.py approve     # 確認完了マーカー書き込み
+
+  --engine csharp は出荷される実 C# 出力を描画する(Python 経路と乖離する gray mode 等を
+  人間レビューでも見られるようにする)。dotnet/Unity DLL が必要。
 
 改善サイクルでの手順:
     1. 変更を加える前に `snapshot` を実行（旧アルゴリズム出力を保存）
@@ -48,6 +52,7 @@ REVIEW_DIR = _TESTS / "visual_review"
 SNAPSHOT_BEFORE_DIR = REVIEW_DIR / "snapshot_before"
 COMPARE_DIR = REVIEW_DIR / "compare"
 APPROVED_JSON = REVIEW_DIR / "approved.json"
+CSHARP_WORK = REVIEW_DIR / "_csharp_work"
 
 THUMB_HEIGHT = 512  # 比較パネルの列高さ（px）
 
@@ -56,7 +61,7 @@ THUMB_HEIGHT = 512  # 比較パネルの列高さ（px）
 # ユーティリティ
 # ---------------------------------------------------------------------------
 def _run_all_cases() -> dict[str, tuple[np.ndarray, np.ndarray]]:
-    """全ケースを現在のアルゴリズムで実行。{case_id: (input_rgba, output_rgba)}"""
+    """全ケースを **Python** アルゴリズムで実行。{case_id: (input_rgba, output_rgba)}"""
     results: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for subject in SUBJECT_REGISTRY.values():
         rgba, _ = load_subject_inputs(subject)
@@ -66,6 +71,69 @@ def _run_all_cases() -> dict[str, tuple[np.ndarray, np.ndarray]]:
             output = process_pixels(rgba, [zone], settings)
             results[case.case_id] = (rgba, output)
     return results
+
+
+def _run_all_cases_csharp() -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """全ケースを **実 C# Harness** で実行。{case_id: (input_rgba, output_rgba)}
+
+    視覚レビューが Python ではなく実際に出荷される C# 出力を見られるようにする
+    (project_visual_review_washoff_blind の「視覚レビューが C# に盲目」を解消)。
+    dotnet/Unity DLL が無ければ RuntimeError で中断する。
+    """
+    from regression import headless_io as hio
+
+    csproj = _ROOT / "scripts" / "headless-run" / "Harness.csproj"
+    dll = _ROOT / "scripts" / "headless-run" / "bin" / "Release" / "VACCHeadless.dll"
+    if hio.run(["dotnet", "--version"]).returncode != 0:
+        raise RuntimeError("dotnet が利用できません(--engine csharp は使えません)")
+    build = hio.run(["dotnet", "build", str(csproj), "-c", "Release", "-nologo"])
+    if build.returncode != 0 or not dll.exists():
+        raise RuntimeError(f"Harness ビルド失敗(Unity DLL 不在?):\n{build.stdout[-800:]}")
+    CSHARP_WORK.mkdir(parents=True, exist_ok=True)
+
+    settings = default_settings()
+    settings_cfg = {
+        "edgeFeather": settings.edge_feather,
+        "antiAliasCleanup": settings.anti_alias_cleanup,
+        "holeFillPasses": settings.hole_fill_passes,
+        "holeFillMinNeighbors": settings.hole_fill_min_neighbors,
+        "relaxedSatMin": settings.relaxed_sat_min,
+        "relaxedSatRamp": settings.relaxed_sat_ramp,
+        "useDecontamination": settings.use_decontamination,
+        "decontaminationRadius": settings.decontamination_radius,
+    }
+    results: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for subject in SUBJECT_REGISTRY.values():
+        rgba, _ = load_subject_inputs(subject)
+        in_raw = CSHARP_WORK / f"{subject.subject_id}_in.raw"
+        mask_raw = CSHARP_WORK / f"{subject.subject_id}_mask.raw"
+        hio.write_raw(in_raw, rgba)
+        hio.write_raw(mask_raw, np.zeros(rgba.shape[:2], np.uint8))  # 全画素処理
+        for case in load_cases(subject):
+            zone = make_zone(case)
+            zones_json = CSHARP_WORK / f"{case.case_id}_zones.json"
+            hio.write_zones_json(zones_json, [{
+                "name": zone.name,
+                "sample": list(case.sample_rgb),
+                "target": list(case.target_rgb),
+                "tolerance": zone.tolerance,
+                "valueBlend": zone.value_blend,
+                "edgeSoftness": zone.edge_softness,
+                "saturationStrictness": zone.saturation_strictness,
+            }], settings_cfg)
+            out_raw = CSHARP_WORK / f"{case.case_id}_out.raw"
+            r = hio.run(["dotnet", str(dll), str(in_raw), str(mask_raw),
+                         str(out_raw), "--zones", str(zones_json)])
+            if r.returncode != 0:
+                raise RuntimeError(f"Harness 実行失敗 {case.case_id}: {r.stderr}\n{r.stdout}")
+            results[case.case_id] = (rgba, hio.read_raw_rgba(out_raw))
+    return results
+
+
+def _run_engine(engine: str) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    if engine == "csharp":
+        return _run_all_cases_csharp()
+    return _run_all_cases()
 
 
 def _make_thumb(rgba: np.ndarray, height: int = THUMB_HEIGHT) -> np.ndarray:
@@ -103,11 +171,11 @@ def _hstack_with_sep(cols: list[np.ndarray], sep_px: int = 4) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # snapshot
 # ---------------------------------------------------------------------------
-def cmd_snapshot() -> None:
+def cmd_snapshot(engine: str = "python") -> None:
     """現在のアルゴリズム出力を全ケース分 snapshot_before に保存する。"""
     SNAPSHOT_BEFORE_DIR.mkdir(parents=True, exist_ok=True)
-    print("[snapshot] 全ケースをスナップショット中 …")
-    cases = _run_all_cases()
+    print(f"[snapshot] 全ケースをスナップショット中 (engine={engine}) …")
+    cases = _run_engine(engine)
     for case_id, (_, output_rgba) in cases.items():
         Image.fromarray(output_rgba).save(SNAPSHOT_BEFORE_DIR / f"{case_id}.png")
         print(f"  保存: {case_id}.png")
@@ -124,8 +192,11 @@ def cmd_snapshot() -> None:
 # ---------------------------------------------------------------------------
 # compare
 # ---------------------------------------------------------------------------
-def cmd_compare() -> None:
-    """3列比較パネル（元テクスチャ | 変更前 | 変更後）を全ケース分生成する。"""
+def cmd_compare(engine: str = "python") -> None:
+    """3列比較パネル（元テクスチャ | 変更前 | 変更後）を全ケース分生成する。
+
+    engine="csharp" のとき「変更後」を実 C# Harness の出力で描画する(出荷物を忠実に確認)。
+    """
     COMPARE_DIR.mkdir(parents=True, exist_ok=True)
 
     # snapshot_before を読み込む
@@ -142,8 +213,8 @@ def cmd_compare() -> None:
         print("[compare] 警告: snapshot_before が見つかりません（変更前との比較なし）。")
 
     # 現在のアルゴリズムで全ケース実行
-    print("[compare] 現在のアルゴリズムで全ケースを実行中 …")
-    current = _run_all_cases()
+    print(f"[compare] 現在のアルゴリズムで全ケースを実行中 (engine={engine}) …")
+    current = _run_engine(engine)
     print(f"[compare] {len(current)} ケース完了")
 
     generated: list[Path] = []
@@ -221,21 +292,40 @@ def cmd_approve() -> None:
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
+def _parse_engine(argv: list[str]) -> str:
+    """argv から --engine python|csharp を取り出す(既定 python)。"""
+    for i, a in enumerate(argv):
+        if a == "--engine" and i + 1 < len(argv):
+            eng = argv[i + 1]
+            if eng not in ("python", "csharp"):
+                print(f"不明な engine: {eng!r} (python|csharp)")
+                sys.exit(1)
+            return eng
+        if a.startswith("--engine="):
+            eng = a.split("=", 1)[1]
+            if eng not in ("python", "csharp"):
+                print(f"不明な engine: {eng!r} (python|csharp)")
+                sys.exit(1)
+            return eng
+    return "python"
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
 
     cmd = sys.argv[1]
+    engine = _parse_engine(sys.argv[2:])
     if cmd == "snapshot":
-        cmd_snapshot()
+        cmd_snapshot(engine)
     elif cmd == "compare":
-        cmd_compare()
+        cmd_compare(engine)
     elif cmd == "approve":
         cmd_approve()
     else:
         print(f"不明なコマンド: {cmd!r}")
-        print("使い方: python tools/visual_review.py [snapshot|compare|approve]")
+        print("使い方: python tools/visual_review.py [snapshot|compare|approve] [--engine python|csharp]")
         sys.exit(1)
 
 
