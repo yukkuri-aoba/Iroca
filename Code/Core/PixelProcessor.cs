@@ -1069,6 +1069,11 @@ namespace VRCAvatarColorChanger
         // (=ロゴ周辺の白/灰ノイズ)を防ぐ。algorithm.py の OKLAB_REMAP_FULL_CHROMA_FRAC と同期。
         private const float OklabRemapFullChromaFrac = 0.35f;
 
+        // chroma 増幅キャップ(有彩ターゲット向け WS-R 拡張): tC > sC の色相変化で OkLab→RGB の
+        // lum 感度が高まりバンディング発生(bandana green: tC/sC=1.57→contrast 2.23x, orange: 1.17→1.58x)。
+        // output chroma = mag*tC が sC*Factor を超えないよう mag を制限。algorithm.py CHROMA_AMP_MAX_FACTOR と同期。
+        private const float ChromaAmpMaxFactor = 1.0f;
+
         // ───────── WS-R: 無彩サンプル / 極端無彩ターゲットの再着色破綻対策 ─────────
         // 通常の再着色は sample 彩度 sC を「分母・基準」に使う前提(mag=oC/sC, 彩度ゲート
         // chroma_frac=oC/(sC·FULL_FRAC))。サンプルが無彩(白/黒/灰)だと前提が崩れ、白い三角→黒で
@@ -2123,6 +2128,17 @@ namespace VRCAvatarColorChanger
                 // (osat, oC 非依存)へ achromaWeight でフェードし増幅を止める。weight=0 で従来式。
                 if (achromaWeight > 1e-4f)
                     mag = mag * (1f - achromaWeight) + osat * achromaWeight;
+                // WS-R 有彩版: tC > sC のとき output chroma = mag*tC が sC*Factor を超えないよう制限。
+                // achromaWeight=1 時は上記で mag=osat 固定済みなのでキャップは no-op。
+                if (ChromaAmpMaxFactor > 0f)
+                {
+                    float tC = Mathf.Sqrt(okTa * okTa + okTb * okTb);
+                    if (tC > 1e-4f)
+                    {
+                        float maxMag = (okSC / tC) * ChromaAmpMaxFactor;
+                        if (mag > maxMag) mag = maxMag;
+                    }
+                }
                 na = mag * okTa;                        // 向きは target 色相 (zTa, zTb)
                 nb = mag * okTb;
             }
