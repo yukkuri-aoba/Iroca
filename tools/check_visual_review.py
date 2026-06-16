@@ -1,7 +1,15 @@
-"""pre-commit フックから呼ばれる視覚レビュー承認チェック。
+"""pre-commit フックから呼ばれる視覚レビュー承認チェック + 出力品質ゲート検証。
 
-アルゴリズムファイル（dev_safe/vacc_python/ または Code/）がステージされているとき、
-approved.json が全ステージファイルより新しくなければコミットをブロックする。
+アルゴリズムファイル（dev_safe/vacc_python/ または Code/）がステージされているとき:
+  1. approved.json が全ステージファイルより新しいか（視覚レビュー実施の確認）。
+  2. 出力品質ゲートのしきい値較正が健全か（quality_report.py --validate が
+     good/bad ラベルを分離できているか）。SKIP_QUALITY_GATE=1 でスキップ可。
+
+【設計メモ】品質ゲート本体(test_recolor_quality_gate.py)はフル計測に数分かかるため
+pre-commit では走らせない(コミットを重くしない)。代わりに既存 CSV を使った高速な
+--validate(しきい値が現状の good/bad を分離し続けるか=baseline 罠/しきい値緩めの検知)を
+回す。フルな品質ゲート(pytest test_recolor_quality_gate.py / test_csharp_quality_gate.py)は
+改善サイクル内で実行する。テスト資産は dev_safe(gitignore)にありローカルでのみ動く。
 
 終了コード:
     0 — チェック通過（コミット許可）
@@ -116,7 +124,37 @@ def main() -> None:
         f"[pre-commit] 視覚レビュー承認確認済み "
         f"({approved_at.strftime('%Y-%m-%d %H:%M:%S')})"
     )
+
+    run_quality_gate_validate()
     sys.exit(0)
+
+
+def run_quality_gate_validate() -> None:
+    """出力品質ゲートのしきい値較正が健全か(--validate)を高速検証する。
+
+    SKIP_QUALITY_GATE=1 でスキップ。quality_report.py / CSV が無い環境では警告のみ(通過)。
+    """
+    if os.environ.get("SKIP_QUALITY_GATE") == "1":
+        print("[pre-commit] SKIP_QUALITY_GATE=1 のため品質ゲート検証をスキップします")
+        return
+    qr = ROOT / "dev_safe" / "Tests" / "regression" / "quality_report.py"
+    if not qr.exists():
+        print("[pre-commit] (品質ゲート未配置のためスキップ)")
+        return
+    res = subprocess.run(
+        [sys.executable, str(qr), "--validate"],
+        capture_output=True, encoding="utf-8", errors="replace",
+    )
+    if res.returncode != 0:
+        _fail(
+            "出力品質ゲートのしきい値較正が good/bad を分離できていません(--validate 失敗)。\n"
+            "しきい値を緩めて破綻を通していないか quality_thresholds.py を見直してください。\n"
+            "（このチェックは SKIP_QUALITY_GATE=1 で一時的に回避できます）\n\n"
+            + (res.stdout or "") + (res.stderr or "")
+        )
+    print("[pre-commit] 品質ゲートしきい値較正 OK (good/bad を分離)")
+    print("  ※ フルな品質ゲートは改善サイクルで: "
+          "pytest dev_safe/Tests/regression/test_recolor_quality_gate.py")
 
 
 def _fail(message: str) -> None:
