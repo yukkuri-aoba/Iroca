@@ -155,7 +155,10 @@ Senna Studio
 
 アルゴリズムの開発にはこれらのモデルのテクスチャを使用しましたが、
 モデルやテクスチャのデータは含まれていません。
-> フェイナちゃんは開発者のお気に入りらしいです
+Although the textures of these models were used for algorithm development, the data of the models and textures are not included.
+
+### スペシャルサンクス / Special Thanks
+Coming Soon...
 
 
 ### 連絡先 / Contact
