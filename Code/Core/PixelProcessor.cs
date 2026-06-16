@@ -1106,7 +1106,10 @@ namespace VRCAvatarColorChanger
         // サンプル彩度 sS·frac 未満を「中性(=白背景)」とみなして弾く。0.10 は中性の白背景
         // (彩度≈0)だけを落とし、模様に乗った淡い赤(彩度~0.05+)は残す値。大きい(0.30)と淡赤も
         // 巻き添えで弾いて模様上の赤が放置される。小さすぎる(<0.05)と白背景の取りこぼし。
-        private const float NeutralRejectFloorFrac = 0.10f;
+        private const float NeutralRejectFloorFrac = 0.07f;
+        // ソフト床のフェード開始 = floor·RampFrac。これ未満(中性の白背景)は完全に弾き、floor 以上は
+        // 完全保持、間は連続フェードで境界の二値ノイズを消す。
+        private const float NeutralRejectRampFrac = 0.5f;
         private const int NeutralRejectProtectRadius = 2;         // 高彩度コアからこの px 以内は保護
 
         // 無彩フチ消し(CleanAchromaFringe)の定数。マッチ境界の外側に残る「残留クリーム」混色画素
@@ -1274,9 +1277,16 @@ namespace VRCAvatarColorChanger
                 var protectedCore = cur;
                 var strengthL = strength;
                 var pixSL = pixS;
+                // ソフトな床: floor で二値カットすると、淡赤→クリームの階調(彩度が床付近で揺らぐ帯)で
+                // 再着色/非再着色が斑に混在しジャギーノイズになる。floorLo..floor を連続フェードにして
+                // 境界を滑らかにする。中性の白背景(彩度<=floorLo)は w=0 で従来通り完全に弾く。
+                float floorLo = floor * NeutralRejectRampFrac;
+                float rampSpan = Mathf.Max(floor - floorLo, 1e-5f);
                 Parallel.For(0, len, po, i =>
                 {
-                    if (pixSL[i] < floor && !protectedCore[i]) strengthL[i] = 0f;
+                    if (protectedCore[i]) return;
+                    float wgt = Mathf.Clamp01((pixSL[i] - floorLo) / rampSpan);
+                    if (wgt < 1f) strengthL[i] *= wgt;
                 });
             }
             finally
