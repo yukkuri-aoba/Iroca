@@ -285,7 +285,12 @@ namespace VRCAvatarColorChanger
                 // 横並びセクション高（horizH）を超えても列内でスクロールするようになり、
                 // 下部のエクスポートセクションを押し出さない。
                 EditorGUILayout.BeginVertical();
-                rightScrollPos = EditorGUILayout.BeginScrollView(rightScrollPos, GUILayout.ExpandHeight(true));
+                // 横バーは無効化(GUIStyle.none)。この外側 ScrollView は縦オーバーフロー専用で、
+                // 横スクロールは内側プレビューに任せる。横を許すと子へ無制限の幅を提供してしまい、
+                // 内側プレビュー枠が確定せずはみ出し、外側の横バーがプレビューの横パンを横取りする。
+                rightScrollPos = EditorGUILayout.BeginScrollView(rightScrollPos,
+                    false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
+                    GUILayout.ExpandHeight(true));
                 _previewView.Draw();
                 EditorGUILayout.EndScrollView();
                 EditorGUILayout.EndVertical();
@@ -306,7 +311,11 @@ namespace VRCAvatarColorChanger
                     VACCConsts.Layout.MiddleAreaMinHeight,
                     availableContentH - toolbarH - exportH);
 
-                scrollPos = EditorGUILayout.BeginScrollView(scrollPos, GUILayout.Height(topScrollH));
+                // 横バーは無効化(GUIStyle.none)。この外側 ScrollView は縦スクロール専用で、
+                // 横スクロールは内側プレビューに任せる（横並びレイアウトと同じ理由）。
+                scrollPos = EditorGUILayout.BeginScrollView(scrollPos,
+                    false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
+                    GUILayout.Height(topScrollH));
 
                 EditorGUI.BeginChangeCheck();
 
@@ -1088,5 +1097,9 @@ namespace VRCAvatarColorChanger
 
         // ── プレビュー / エクスポート用フォワーダ ──
         internal MaskSnapshot BuildMaskSnapshot() => _maskView?.BuildSnapshot();
+
+        // bool[] バッファを _session.maskState に書き戻す（Undo 登録前のスナップショット確定用）。
+        // プリセット読込の Undo 登録（PresetsView.LoadPreset）から呼ばれる。
+        internal void SyncMaskBuffersToState() => _maskView?.SyncBuffersToState();
     }
 }

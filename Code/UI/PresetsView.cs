@@ -168,6 +168,12 @@ namespace VRCAvatarColorChanger
             var data = PresetStore.Load(filePath);
             if (data == null) return;
 
+            // 読込前の状態を Unity Undo に登録する（zones + 処理パラメータ + マスク状態を
+            // 1 ステップで復元可能にする）。マスクは bool[] バッファを先に _session.maskState へ
+            // 同期してから登録することで、Undo 後に SyncBuffersFromState で正しく再展開できる。
+            _host.SyncMaskBuffersToState();
+            Undo.RegisterCompleteObjectUndo(_host, "Load Preset");
+
             // Unity の JsonUtility は JSON に含まれないフィールドを「既定値で上書き」ではなく
             // 「クラスのフィールド初期化子の値を保持」するため、ここで `> 0 ? : default` のような
             // defaulting を行うとユーザーが明示的に 0 を保存したケース（UI レンジに 0 を含む
