@@ -481,8 +481,32 @@ namespace VRCAvatarColorChanger
             s_autoTuneDisabledContent = new GUIContent(Localization.AutoTune, Localization.AutoTuneDisabledTooltip);
         }
 
+        // かんたん / 上級 モード切替。上級でゾーンの詳細パラメータ（エッジ・彩度・
+        // シャドウ/ハイライト等）と加工設定の詳細を表示する。ゾーン foldout の開閉に
+        // 関係なく常に見えるよう、foldout ヘッダの前に描画する。
+        private void DrawModeToggle()
+        {
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(
+                new GUIContent(Localization.EditMode, Localization.EditModeTooltip),
+                GUILayout.Width(70));
+            int cur = advancedMode ? 1 : 0;
+            int next = GUILayout.Toolbar(cur,
+                new[] { Localization.SimpleMode, Localization.AdvancedShort });
+            if (next != cur)
+            {
+                // 制御数が変わるため、ExitGUI 相当の崩れを避けて次の Layout で適用する
+                // （既存の _pendingAdvancedMode 遅延ミューテーションを再利用）。
+                _pendingAdvancedMode = (next == 1);
+                Repaint();
+            }
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(2);
+        }
+
         private void DrawZoneList()
         {
+            DrawModeToggle();
             zonesFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(zonesFoldout, Localization.ColorZones);
             if (!zonesFoldout)
             {
@@ -646,64 +670,68 @@ namespace VRCAvatarColorChanger
                 zone.outputSaturation = UndoHelper.Slider(this,
                     new GUIContent(Localization.OutputSaturation, Localization.OutputSaturationTooltip),
                     zone.outputSaturation, 0f, 1f);
-                zone.autoRecolorAnchor = UndoHelper.Toggle(this,
-                    new GUIContent(Localization.AutoRecolorAnchor, Localization.AutoRecolorAnchorTooltip),
-                    zone.autoRecolorAnchor);
-                zone.edgeSoftness = UndoHelper.Slider(this,
-                    new GUIContent(Localization.EdgeSoftness, Localization.EdgeSoftnessTooltip),
-                    zone.edgeSoftness, 0f, 1f);
-                zone.saturationStrictness = UndoHelper.Slider(this,
-                    new GUIContent(Localization.SaturationStrictness, Localization.SaturationStrictnessTooltip),
-                    zone.saturationStrictness, 0f, 1f);
-                zone.saturationGuard = UndoHelper.Slider(this,
-                    new GUIContent(Localization.SaturationGuard, Localization.SaturationGuardTooltip),
-                    zone.saturationGuard, 0f, 1f);
 
-                zone.highlightRecovery = UndoHelper.Toggle(this,
-                    new GUIContent(Localization.HighlightRecovery, Localization.HighlightRecoveryTooltip),
-                    zone.highlightRecovery);
-
-                // ハイライト帯の拡張は「ハイライト補助」が ON のときのみ有効なので、
-                // OFF のときはグレーアウトして関係を明示する。
-                using (new EditorGUI.DisabledScope(!zone.highlightRecovery))
-                {
-                    EditorGUI.indentLevel++;
-                    zone.highlightBandExpand = UndoHelper.Toggle(this,
-                        new GUIContent(Localization.HighlightBandExpand, Localization.HighlightBandExpandTooltip),
-                        zone.highlightBandExpand);
-                    EditorGUI.indentLevel--;
-                }
-
-                zone.applyHighlightWash = UndoHelper.Toggle(this,
-                    new GUIContent(Localization.ApplyHighlightWash, Localization.ApplyHighlightWashTooltip),
-                    zone.applyHighlightWash);
-
-                // 俯瞰スポイト補正(wash サンプル自動導出)は「ハイライト白寄せ合成」が ON の
-                // ときのみ意味を持つので、OFF のときはグレーアウトして関係を明示する。
-                using (new EditorGUI.DisabledScope(!zone.applyHighlightWash))
-                {
-                    EditorGUI.indentLevel++;
-                    zone.autoHighlightSample = UndoHelper.Toggle(this,
-                        new GUIContent(Localization.AutoHighlightSample, Localization.AutoHighlightSampleTooltip),
-                        zone.autoHighlightSample);
-                    EditorGUI.indentLevel--;
-                }
-
-                EditorGUILayout.Space(2);
-                EditorGUILayout.LabelField(Localization.IsJapanese ? "=== シャドウ・ハイライト詳細設定 ===" : "=== Shadow/Highlight Details ===", EditorStyles.boldLabel);
-
-                zone.shadowDesaturation = UndoHelper.Slider(this,
-                    new GUIContent(Localization.ShadowDesaturation, Localization.ShadowDesaturationTooltip),
-                    zone.shadowDesaturation, 0f, 1f);
-                zone.shadowForgivenessSatMin = UndoHelper.Slider(this,
-                    new GUIContent(Localization.ShadowForgivenessSatMin, Localization.ShadowForgivenessSatMinTooltip),
-                    zone.shadowForgivenessSatMin, 0f, 1f);
-                zone.chromaThreshold = UndoHelper.Slider(this,
-                    new GUIContent(Localization.IsJapanese ? "自動しきい値(無彩色判定)" : "Auto Grayscale Threshold", Localization.IsJapanese ? "スポイトで取ったサンプルの彩度がこの値以下の場合は、自動的に【無彩色(黒/グレー)】として認識され、色相を無視して綺麗に抽出します。" : "If the sample saturation is below this value, it automatically ignores hue and extracts pure grayscale nicely."),
-                    zone.chromaThreshold, 0f, 1f);
-
+                // ─── 上級モード時のみ表示する詳細パラメータ ───
+                // かんたんモードでは核となる色・許容範囲・模様保持・出力彩度だけを見せ、
+                // エッジ/彩度/シャドウ・ハイライト等の調整は「自動調整」に委ねる。
                 if (advancedMode)
                 {
+                    zone.autoRecolorAnchor = UndoHelper.Toggle(this,
+                        new GUIContent(Localization.AutoRecolorAnchor, Localization.AutoRecolorAnchorTooltip),
+                        zone.autoRecolorAnchor);
+                    zone.edgeSoftness = UndoHelper.Slider(this,
+                        new GUIContent(Localization.EdgeSoftness, Localization.EdgeSoftnessTooltip),
+                        zone.edgeSoftness, 0f, 1f);
+                    zone.saturationStrictness = UndoHelper.Slider(this,
+                        new GUIContent(Localization.SaturationStrictness, Localization.SaturationStrictnessTooltip),
+                        zone.saturationStrictness, 0f, 1f);
+                    zone.saturationGuard = UndoHelper.Slider(this,
+                        new GUIContent(Localization.SaturationGuard, Localization.SaturationGuardTooltip),
+                        zone.saturationGuard, 0f, 1f);
+
+                    zone.highlightRecovery = UndoHelper.Toggle(this,
+                        new GUIContent(Localization.HighlightRecovery, Localization.HighlightRecoveryTooltip),
+                        zone.highlightRecovery);
+
+                    // ハイライト帯の拡張は「ハイライト補助」が ON のときのみ有効なので、
+                    // OFF のときはグレーアウトして関係を明示する。
+                    using (new EditorGUI.DisabledScope(!zone.highlightRecovery))
+                    {
+                        EditorGUI.indentLevel++;
+                        zone.highlightBandExpand = UndoHelper.Toggle(this,
+                            new GUIContent(Localization.HighlightBandExpand, Localization.HighlightBandExpandTooltip),
+                            zone.highlightBandExpand);
+                        EditorGUI.indentLevel--;
+                    }
+
+                    zone.applyHighlightWash = UndoHelper.Toggle(this,
+                        new GUIContent(Localization.ApplyHighlightWash, Localization.ApplyHighlightWashTooltip),
+                        zone.applyHighlightWash);
+
+                    // 俯瞰スポイト補正(wash サンプル自動導出)は「ハイライト白寄せ合成」が ON の
+                    // ときのみ意味を持つので、OFF のときはグレーアウトして関係を明示する。
+                    using (new EditorGUI.DisabledScope(!zone.applyHighlightWash))
+                    {
+                        EditorGUI.indentLevel++;
+                        zone.autoHighlightSample = UndoHelper.Toggle(this,
+                            new GUIContent(Localization.AutoHighlightSample, Localization.AutoHighlightSampleTooltip),
+                            zone.autoHighlightSample);
+                        EditorGUI.indentLevel--;
+                    }
+
+                    EditorGUILayout.Space(2);
+                    EditorGUILayout.LabelField(Localization.ShadowHighlightSection, EditorStyles.boldLabel);
+
+                    zone.shadowDesaturation = UndoHelper.Slider(this,
+                        new GUIContent(Localization.ShadowDesaturation, Localization.ShadowDesaturationTooltip),
+                        zone.shadowDesaturation, 0f, 1f);
+                    zone.shadowForgivenessSatMin = UndoHelper.Slider(this,
+                        new GUIContent(Localization.ShadowForgivenessSatMin, Localization.ShadowForgivenessSatMinTooltip),
+                        zone.shadowForgivenessSatMin, 0f, 1f);
+                    zone.chromaThreshold = UndoHelper.Slider(this,
+                        new GUIContent(Localization.ChromaThreshold, Localization.ChromaThresholdTooltip),
+                        zone.chromaThreshold, 0f, 1f);
+
                     zone.valueWeight = UndoHelper.Slider(this,
                         new GUIContent(Localization.ValueWeight, Localization.ValueWeightTooltip),
                         zone.valueWeight, 0f, 1f);
@@ -989,17 +1017,8 @@ namespace VRCAvatarColorChanger
                 new GUIContent(Localization.UseDecontamination, Localization.UseDecontaminationTooltip),
                 useDecontamination);
 
-            bool newAdvancedMode = EditorGUILayout.Toggle(
-                new GUIContent(Localization.AdvancedMode, Localization.AdvancedModeTooltip),
-                advancedMode);
-            if (newAdvancedMode != advancedMode)
-            {
-                // 切替は ProcessPendingZoneChanges 経由で適用されるため、
-                // ここでは Undo 登録せず保留フラグだけ立てる（ProcessPendingZoneChanges 側で登録される）。
-                _pendingAdvancedMode = newAdvancedMode;
-                Repaint();
-            }
-
+            // アドバンスモードの切替はゾーンリスト上部の「かんたん / 上級」トグルに一本化した
+            // （DrawModeToggle）。ここでは上級モード時の詳細パラメータのみを表示する。
             if (advancedMode)
             {
                 using (new EditorGUI.IndentLevelScope())
