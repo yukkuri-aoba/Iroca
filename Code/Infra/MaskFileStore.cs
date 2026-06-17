@@ -36,30 +36,34 @@ namespace VRCAvatarColorChanger
         /// <summary>
         /// 指定テクスチャの <see cref="MaskState"/> を保存する。
         /// 中身が空（共通もゾーンも未設定）の場合は既存ファイルを削除して終わる。
+        /// 保存先パスが解決できない（テクスチャ未設定/Assets 外）場合や中身が空の場合は
+        /// 「保存すべきものが無い＝成功」として true。実際の書き込みに失敗したときだけ false。
         /// </summary>
-        public static void SaveMask(string texturePath, MaskState state)
+        public static bool SaveMask(string texturePath, MaskState state)
         {
             string path = MaskFilePath(texturePath);
-            if (string.IsNullOrEmpty(path)) return;
+            if (string.IsNullOrEmpty(path)) return true;
 
             if (state == null || IsEmpty(state))
             {
                 if (File.Exists(path))
                 {
                     try { File.Delete(path); }
-                    catch (Exception ex) { Debug.LogWarning($"[VACC] Mask delete failed: {ex.Message}"); }
+                    catch (Exception ex) { Debug.LogWarning($"[VACC] Mask delete failed: {ex.Message}"); return false; }
                 }
-                return;
+                return true;
             }
 
             try
             {
                 Directory.CreateDirectory(CacheDir);
                 File.WriteAllText(path, JsonUtility.ToJson(state));
+                return true;
             }
             catch (Exception ex)
             {
                 Debug.LogWarning($"[VACC] Mask save failed: {ex.Message}");
+                return false;
             }
         }
 

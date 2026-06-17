@@ -96,7 +96,8 @@ namespace VRCAvatarColorChanger
                         if (EditorUtility.DisplayDialog(Localization.Confirm,
                             Localization.DeletePresetConfirm(pname), Localization.OK, Localization.Cancel))
                         {
-                            PresetStore.Delete(file);
+                            bool ok = PresetStore.Delete(file);
+                            Notify(ok ? Localization.PresetDeleted : $"{Localization.Error}: {Localization.PresetDeleteFailed}");
                         }
                     }
                     EditorGUILayout.EndHorizontal();
@@ -124,10 +125,17 @@ namespace VRCAvatarColorChanger
             }
 
             var data = BuildPresetData(name);
-            if (presetStorageProject)
-                PresetStore.SaveToProject(name, data);
-            else
-                PresetStore.SaveToUser(name, data);
+            bool ok = presetStorageProject
+                ? PresetStore.SaveToProject(name, data)
+                : PresetStore.SaveToUser(name, data);
+            Notify(ok ? Localization.PresetSaved : $"{Localization.Error}: {Localization.PresetSaveFailed}");
+        }
+
+        // ウィンドウ右下に非モーダル通知を出す（EditorUtility.DisplayDialog は Editor 全体を
+        // ブロックするため、結果通知には ShowNotification を使う。ExportView.NotifyError と同型）。
+        private void Notify(string message)
+        {
+            _host?.ShowNotification(new GUIContent(message));
         }
 
         // 現在の設定を VACCPresetData に詰めて返す。
@@ -166,7 +174,11 @@ namespace VRCAvatarColorChanger
         private void LoadPreset(string filePath)
         {
             var data = PresetStore.Load(filePath);
-            if (data == null) return;
+            if (data == null)
+            {
+                Notify($"{Localization.Error}: {Localization.PresetLoadFailed}");
+                return;
+            }
 
             // 読込前の状態を Unity Undo に登録する（zones + 処理パラメータ + マスク状態を
             // 1 ステップで復元可能にする）。マスクは bool[] バッファを先に _session.maskState へ
@@ -201,6 +213,7 @@ namespace VRCAvatarColorChanger
             _host.ResetActiveMaskTarget();
             _host.MarkMaskDirty();
             _host.MarkPreviewDirty();
+            Notify(Localization.PresetLoaded);
         }
 
         /// <summary>
@@ -231,7 +244,8 @@ namespace VRCAvatarColorChanger
                 Localization.ExportJson, "", "VACC_preset", "json");
             if (string.IsNullOrEmpty(path)) return;
             var data = BuildPresetData(Path.GetFileNameWithoutExtension(path));
-            PresetStore.SaveToPath(path, data);
+            bool ok = PresetStore.SaveToPath(path, data);
+            Notify(ok ? Localization.PresetSaved : $"{Localization.Error}: {Localization.PresetSaveFailed}");
         }
 
         private void ImportPresetJson()

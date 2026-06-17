@@ -315,6 +315,15 @@ namespace VRCAvatarColorChanger
             ? $"プリセット「{name}」は既に存在します。上書きしますか？"
             : $"Preset '{name}' already exists. Overwrite?";
 
+        // ─── 保存/読込/削除の結果通知（ウィンドウ右下に非モーダル表示） ───
+        public static string PresetSaved        => IsJapanese ? "プリセットを保存しました" : "Preset saved";
+        public static string PresetSaveFailed   => IsJapanese ? "プリセットの保存に失敗しました" : "Failed to save preset";
+        public static string PresetLoaded       => IsJapanese ? "プリセットを読み込みました" : "Preset loaded";
+        public static string PresetLoadFailed   => IsJapanese ? "プリセットの読み込みに失敗しました" : "Failed to load preset";
+        public static string PresetDeleted      => IsJapanese ? "プリセットを削除しました" : "Preset deleted";
+        public static string PresetDeleteFailed => IsJapanese ? "プリセットの削除に失敗しました" : "Failed to delete preset";
+        public static string MaskSaveFailed     => IsJapanese ? "マスクの保存に失敗しました" : "Failed to save mask";
+
         // ─── Preset Tips ───
         public static string PresetTips => IsJapanese
             ? "【ヒント】\n保存: 現在のゾーン設定をプリセットとして保存\n読込: プリセットを読み込みゾーン設定を上書き\n×: プリセットを削除\n\n保存先\n・プロジェクト内 … Assets フォルダ内に保存 (Gitなどで共有可)\n・ユーザー共通 … 全プロジェクトで共有 (端末ローカルに保存)\n\nJSON エクスポート/インポートで設定を外部ファイルとして共有できます"

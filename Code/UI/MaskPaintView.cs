@@ -555,16 +555,17 @@ namespace VRCAvatarColorChanger
         /// <summary>
         /// 現在の全マスク（共通 + 各ゾーン）をプロジェクト下の MaskCache ファイルへ
         /// 永続化する。同時に _session.maskState を bool[] バッファの内容で更新する。
+        /// ディスク書き込みに失敗したときだけ false（呼び出し側で通知に使う）。
         /// </summary>
-        public void SaveToSession()
+        public bool SaveToSession()
         {
             // bool[] バッファを _session.maskState（RLE 文字列）に書き戻す。
             SyncBuffersToState();
 
             string path = MaskTexturePath();
-            if (path == null) return;
+            if (path == null) return true;
 
-            MaskFileStore.SaveMask(path, _host.Session?.maskState);
+            return MaskFileStore.SaveMask(path, _host.Session?.maskState);
         }
 
         /// <summary>

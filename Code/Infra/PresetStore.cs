@@ -29,40 +29,41 @@ namespace VRCAvatarColorChanger
 
         /// <summary>
         /// プロジェクト保存フォルダ内に <paramref name="name"/>.json として書き出し、
-        /// Assets 配下なら AssetDatabase に取り込む。
+        /// Assets 配下なら AssetDatabase に取り込む。成功したら true。
         /// </summary>
-        public static void SaveToProject(string name, VACCPresetData data)
+        public static bool SaveToProject(string name, VACCPresetData data)
         {
-            if (data == null) return;
+            if (data == null) return false;
             string sanitized = SanitizeFileName(name);
             EnsureDirectory(ProjectPresetFolder);
             string path = Path.Combine(ProjectPresetFolder, sanitized + ".json");
-            WriteJson(path, data);
+            if (!WriteJson(path, data)) return false;
 
             string rel = ToAssetsRelativeOrNull(path);
             if (rel != null) AssetDatabase.ImportAsset(rel);
+            return true;
         }
 
         /// <summary>
         /// ユーザー保存フォルダ（%APPDATA%/VACCPresets）に書き出す。
-        /// Assets 外なので AssetDatabase は触らない。
+        /// Assets 外なので AssetDatabase は触らない。成功したら true。
         /// </summary>
-        public static void SaveToUser(string name, VACCPresetData data)
+        public static bool SaveToUser(string name, VACCPresetData data)
         {
-            if (data == null) return;
+            if (data == null) return false;
             string sanitized = SanitizeFileName(name);
             EnsureDirectory(UserPresetFolder);
             string path = Path.Combine(UserPresetFolder, sanitized + ".json");
-            WriteJson(path, data);
+            return WriteJson(path, data);
         }
 
         /// <summary>
-        /// 任意の絶対パスへ書き出す（エクスポート用）。
+        /// 任意の絶対パスへ書き出す（エクスポート用）。成功したら true。
         /// </summary>
-        public static void SaveToPath(string path, VACCPresetData data)
+        public static bool SaveToPath(string path, VACCPresetData data)
         {
-            if (data == null || string.IsNullOrEmpty(path)) return;
-            WriteJson(path, data);
+            if (data == null || string.IsNullOrEmpty(path)) return false;
+            return WriteJson(path, data);
         }
 
         /// <summary>
@@ -86,20 +87,22 @@ namespace VRCAvatarColorChanger
 
         /// <summary>
         /// プリセットファイルを削除する。Assets 配下なら AssetDatabase 経由で消す。
+        /// 成功したら true。
         /// </summary>
-        public static void Delete(string filePath)
+        public static bool Delete(string filePath)
         {
-            if (string.IsNullOrEmpty(filePath)) return;
+            if (string.IsNullOrEmpty(filePath)) return false;
             string rel = ToAssetsRelativeOrNull(filePath);
             if (rel != null)
             {
-                AssetDatabase.DeleteAsset(rel);
+                return AssetDatabase.DeleteAsset(rel);
             }
-            else if (File.Exists(filePath))
+            if (File.Exists(filePath))
             {
-                try { File.Delete(filePath); }
-                catch (Exception ex) { Debug.LogWarning($"[VACC] Preset delete failed: {ex.Message}"); }
+                try { File.Delete(filePath); return true; }
+                catch (Exception ex) { Debug.LogWarning($"[VACC] Preset delete failed: {ex.Message}"); return false; }
             }
+            return false;
         }
 
         /// <summary>
@@ -122,15 +125,17 @@ namespace VRCAvatarColorChanger
                 Directory.CreateDirectory(folder);
         }
 
-        private static void WriteJson(string path, VACCPresetData data)
+        private static bool WriteJson(string path, VACCPresetData data)
         {
             try
             {
                 File.WriteAllText(path, JsonUtility.ToJson(data, true));
+                return true;
             }
             catch (Exception ex)
             {
                 Debug.LogWarning($"[VACC] Preset save failed: {ex.Message}");
+                return false;
             }
         }
 
