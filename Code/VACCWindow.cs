@@ -542,8 +542,11 @@ namespace VRCAvatarColorChanger
                 // Header row
                 EditorGUILayout.BeginHorizontal();
                 // ドラッグハンドル: 掴んでリストを並べ替える＝優先度を変える。
+                // 幅は行高(singleLineHeight)に追従させ、エディタのフォントサイズが大きいときも
+                // 縦長に潰れないようにする（高さだけ追従して幅が固定だと非対称になる）。
+                float rowH = EditorGUIUtility.singleLineHeight;
                 GUILayout.Label(s_dragHandleContent,
-                    dragHandleStyle, GUILayout.Width(18), GUILayout.Height(EditorGUIUtility.singleLineHeight));
+                    dragHandleStyle, GUILayout.Width(rowH), GUILayout.Height(rowH));
                 Rect handleRect = GUILayoutUtility.GetLastRect();
                 EditorGUIUtility.AddCursorRect(handleRect, MouseCursor.Pan);
                 if (GUI.enabled && Event.current.type == EventType.MouseDown
@@ -556,7 +559,7 @@ namespace VRCAvatarColorChanger
                 }
                 zone.enabled = UndoHelper.ToggleLeft(this,
                     s_zoneEnabledContent,
-                    zone.enabled, GUILayout.Width(16));
+                    zone.enabled, GUILayout.Width(rowH));
                 zone.name = UndoHelper.TextField(this,
                     s_zoneNameContent,
                     zone.name);
