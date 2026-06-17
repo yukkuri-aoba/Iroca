@@ -127,6 +127,41 @@ namespace VRCAvatarColorChanger
             EditorGUILayout.Space(4);
         }
 
+        // マスク対象プルダウンの GUIContent[] は毎フレーム再生成されアロケーションを生むため、
+        // ゾーン数・各ゾーン名・言語が変わったときだけ作り直してキャッシュする。
+        [System.NonSerialized] private GUIContent[] _targetOptionsCache;
+        [System.NonSerialized] private string[] _targetOptionsNames;
+        [System.NonSerialized] private LanguageMode _targetOptionsLang = (LanguageMode)(-1);
+
+        private GUIContent[] GetMaskTargetOptions(List<ColorZone> zones, int zoneCount)
+        {
+            bool rebuild = _targetOptionsCache == null
+                || _targetOptionsCache.Length != zoneCount + 1
+                || _targetOptionsNames == null
+                || _targetOptionsLang != Localization.CurrentLanguage;
+            if (!rebuild)
+            {
+                for (int i = 0; i < zoneCount; i++)
+                {
+                    if (_targetOptionsNames[i] != (zones[i].name ?? "")) { rebuild = true; break; }
+                }
+            }
+            if (rebuild)
+            {
+                _targetOptionsCache = new GUIContent[zoneCount + 1];
+                _targetOptionsNames = new string[zoneCount];
+                _targetOptionsLang = Localization.CurrentLanguage;
+                _targetOptionsCache[0] = new GUIContent(Localization.MaskTargetCommon);
+                for (int i = 0; i < zoneCount; i++)
+                {
+                    string raw = zones[i].name ?? "";
+                    _targetOptionsNames[i] = raw;
+                    _targetOptionsCache[i + 1] = new GUIContent(string.IsNullOrEmpty(raw) ? Localization.UnnamedZone : raw);
+                }
+            }
+            return _targetOptionsCache;
+        }
+
         /// <summary>
         /// 編集対象プルダウン。-1 = 共通マスク、0 以上 = zones[index] のマスク。
         /// </summary>
@@ -136,13 +171,7 @@ namespace VRCAvatarColorChanger
             var zones = _host.Session.zones;
 
             int zoneCount = zones != null ? zones.Count : 0;
-            var options = new GUIContent[zoneCount + 1];
-            options[0] = new GUIContent(Localization.MaskTargetCommon);
-            for (int i = 0; i < zoneCount; i++)
-            {
-                string label = string.IsNullOrEmpty(zones[i].name) ? "Zone" : zones[i].name;
-                options[i + 1] = new GUIContent(label);
-            }
+            var options = GetMaskTargetOptions(zones, zoneCount);
 
             int selectedIdx = Mathf.Clamp(activeMaskTarget + 1, 0, options.Length - 1);
             int next = EditorGUILayout.Popup(

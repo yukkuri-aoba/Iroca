@@ -85,6 +85,11 @@ namespace VRCAvatarColorChanger
         // プレビュー用 ScrollView の実測ビューポート幅。詳細クロップの可視範囲算出に使う。
         // テクスチャ実寸基準ではカラム/ウィンドウ幅と食い違うため、毎フレーム実測する。
         [System.NonSerialized] private float _viewportWidth;
+        // ズーム率ラベルは毎フレーム描画されるため、ズーム値か言語が変わったときだけ
+        // 文字列を再生成してアロケーションを避ける（VACCWindow.EnsureZoneListCache と同方針）。
+        [System.NonSerialized] private string _cachedZoomLabel;
+        [System.NonSerialized] private int _cachedZoomPercent = -1;
+        [System.NonSerialized] private LanguageMode _cachedZoomLang = (LanguageMode)(-1);
 
         // 非同期プレビュー状態
         // 戻り値は (processed, raw) のタプル。raw(ダウンサンプル済み元表示)もジョブ側で
@@ -318,10 +323,14 @@ namespace VRCAvatarColorChanger
                 return;
             }
 
-            EditorGUILayout.LabelField(
-                new GUIContent(
-                    string.Format(Localization.ZoomLabel, Mathf.RoundToInt(previewZoom * 100f)),
-                    Localization.ZoomHint));
+            int zoomPercent = Mathf.RoundToInt(previewZoom * 100f);
+            if (zoomPercent != _cachedZoomPercent || _cachedZoomLang != Localization.CurrentLanguage || _cachedZoomLabel == null)
+            {
+                _cachedZoomPercent = zoomPercent;
+                _cachedZoomLang = Localization.CurrentLanguage;
+                _cachedZoomLabel = string.Format(Localization.ZoomLabel, zoomPercent);
+            }
+            EditorGUILayout.LabelField(new GUIContent(_cachedZoomLabel, Localization.ZoomHint));
 
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Toggle(comparisonMode, new GUIContent(Localization.ComparisonMode, Localization.ComparisonModeTooltip), EditorStyles.miniButtonLeft) != comparisonMode)

@@ -92,6 +92,8 @@ namespace VRCAvatarColorChanger
 
         // ─── Color Zones ───
         public static string ColorZones => IsJapanese ? "カラーゾーン" : "Color Zones";
+        // 名前未設定ゾーンの表示名（マスク対象プルダウン・ドラッグゴースト等で使用）。
+        public static string UnnamedZone => IsJapanese ? "ゾーン" : "Zone";
         public static string AddZone => IsJapanese ? "+ ゾーン追加" : "+ Add Zone";
         public static string SelectionMode => IsJapanese ? "選択モード" : "Selection Mode";
         public static string SampleColor => IsJapanese ? "サンプルカラー" : "Sample Color";
