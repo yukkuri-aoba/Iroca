@@ -228,6 +228,9 @@ namespace VRCAvatarColorChanger
 
         // ─── Export ───
         public static string Export => IsJapanese ? "エクスポート" : "Export";
+        public static string NoEnabledZones => IsJapanese
+            ? "変更するゾーンがありません。カラーゾーンを追加・有効化してください"
+            : "No zones to apply. Add or enable a color zone first.";
         public static string SaveAsNewFile => IsJapanese ? "新規ファイルとして保存" : "Save as new file";
         public static string FileName => IsJapanese ? "ファイル名" : "File Name";
         public static string ApplyAndSave => IsJapanese ? "適用して保存" : "Apply & Save";
