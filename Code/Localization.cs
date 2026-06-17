@@ -66,6 +66,17 @@ namespace VRCAvatarColorChanger
             ? "VRC AvatarColorChanger (VACC)\n\n制作: yukkuri__aoba\nAI補助: Claude (Anthropic)\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0"
             : "VRC AvatarColorChanger (VACC)\n\nDeveloper: yukkuri__aoba\nAI Assistance: Claude (Anthropic)\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0";
 
+        // ─── Workflow guidance ───
+        // セクションが等価に並んで開始点が分かりにくいので、主要 4 ステップに番号を振り、
+        // テクスチャ未設定時はこの導入ヒントで一連の流れを示す。
+        public static string StepPrefixTexture => IsJapanese ? "① " : "1. ";
+        public static string StepPrefixZones   => IsJapanese ? "② " : "2. ";
+        public static string StepPrefixPreview => IsJapanese ? "③ " : "3. ";
+        public static string StepPrefixExport  => IsJapanese ? "④ " : "4. ";
+        public static string WorkflowHint => IsJapanese
+            ? "手順: ① 元テクスチャを選ぶ → ② カラーゾーンで色を指定（スポイトで色を取り「自動調整」が簡単）→ ③ プレビューで確認 → ④ 適用して保存"
+            : "Steps: 1. Pick a source texture  2. Set colors in Color Zones (sample a color and use Auto-tune)  3. Check the Preview  4. Apply & Save";
+
         // ─── Source Texture ───
         public static string SourceTexture => IsJapanese ? "元テクスチャ" : "Source Texture";
         public static string Texture => IsJapanese ? "テクスチャ" : "Texture";

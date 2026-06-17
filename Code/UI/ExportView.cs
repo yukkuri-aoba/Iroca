@@ -61,7 +61,7 @@ namespace VRCAvatarColorChanger
 
         public void DrawExportSection()
         {
-            exportFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(exportFoldout, Localization.Export);
+            exportFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(exportFoldout, Localization.StepPrefixExport + Localization.Export);
             if (!exportFoldout)
             {
                 EditorGUILayout.EndFoldoutHeaderGroup();
