@@ -741,6 +741,15 @@ namespace VRCAvatarColorChanger
                     zone.satRampScale = UndoHelper.Slider(this,
                         new GUIContent(Localization.SatRampScale, Localization.SatRampScaleTooltip),
                         zone.satRampScale, 0.01f, 0.5f);
+
+                    // 詳細パラメータを既定値へ戻す（色・許容範囲・名前は保持）。
+                    EditorGUILayout.Space(2);
+                    if (GUILayout.Button(new GUIContent(Localization.ResetZoneTuning, Localization.ResetZoneTuningTooltip)))
+                    {
+                        Undo.RegisterCompleteObjectUndo(this, "Reset Zone Tuning");
+                        zone.ResetTuningToDefault();
+                        MarkPreviewDirty();
+                    }
                 }
 
                 EditorGUILayout.EndVertical();

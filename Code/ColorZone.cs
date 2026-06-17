@@ -155,6 +155,33 @@ namespace VRCAvatarColorChanger
         public ColorZone Clone() => (ColorZone)MemberwiseClone();
 
         /// <summary>
+        /// 再着色とマッチングの詳細チューニングだけを既定値へ戻します。
+        /// ユーザーの明示的な選択（名前・id・有効状態・モード・サンプル/変更先カラー・
+        /// 許容範囲）は保持し、上級モードで触る細かいパラメータのみリセットします。
+        /// 試行錯誤で詳細値を壊したときに、ゾーンを作り直さずに復旧できるようにするためのもの。
+        /// </summary>
+        public void ResetTuningToDefault()
+        {
+            var d = new ColorZone();
+            valueBlend              = d.valueBlend;
+            outputSaturation        = d.outputSaturation;
+            edgeSoftness            = d.edgeSoftness;
+            saturationStrictness    = d.saturationStrictness;
+            saturationGuard         = d.saturationGuard;
+            highlightRecovery       = d.highlightRecovery;
+            highlightBandExpand     = d.highlightBandExpand;
+            applyHighlightWash      = d.applyHighlightWash;
+            autoHighlightSample     = d.autoHighlightSample;
+            autoRecolorAnchor       = d.autoRecolorAnchor;
+            shadowDesaturation      = d.shadowDesaturation;
+            shadowForgivenessSatMin = d.shadowForgivenessSatMin;
+            chromaThreshold         = d.chromaThreshold;
+            valueWeight             = d.valueWeight;
+            satDistWeight           = d.satDistWeight;
+            satRampScale            = d.satRampScale;
+        }
+
+        /// <summary>
         /// セッション開始時などに明示的にキャッシュを更新する場合に呼び出します。
         /// 呼ばれない場合は各ピクセルの評価時に暗黙的に更新されます。
         /// </summary>

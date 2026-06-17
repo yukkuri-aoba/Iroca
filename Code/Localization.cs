@@ -145,6 +145,11 @@ namespace VRCAvatarColorChanger
             ? "「かんたん」は色とおおまかな調整だけを表示します（迷ったらこちら。細かい調整は『自動調整』に任せられます）。\n「上級」はエッジ・彩度・シャドウ/ハイライトなど全ての詳細パラメータを表示します。"
             : "Simple shows only colors and basic adjustments (recommended; let 'Auto-tune' handle the rest).\nAdvanced reveals every detailed parameter (edge, saturation, shadow/highlight, etc.).";
 
+        public static string ResetZoneTuning => IsJapanese ? "詳細を既定値に戻す" : "Reset details to default";
+        public static string ResetZoneTuningTooltip => IsJapanese
+            ? "このゾーンの詳細パラメータ（エッジ・彩度・シャドウ/ハイライト等）だけを既定値に戻します。\nサンプル/変更先カラー・許容範囲・名前は変わりません。試行錯誤で値を崩したときの復旧用です。"
+            : "Resets only this zone's detailed parameters (edge, saturation, shadow/highlight, etc.) to defaults.\nSample/target color, tolerance, and name are kept. Handy to recover after over-tweaking.";
+
         public static string HoleFillPasses => IsJapanese ? "穴埋めパス数" : "Hole Fill Passes";
         public static string HoleFillPassesTooltip => IsJapanese
             ? "アンチエイリアス端の孤立ドットを除去するパス数。\n多いほど大きなギャップを埋めますが、過剰に埋める可能性があります。\nデフォルト: 3"
