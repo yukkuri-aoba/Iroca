@@ -127,7 +127,9 @@ namespace VRCAvatarColorChanger
             // ウィンドウを開いた時に MaskCache の orphan ファイルを掃除する。
             MaskFileStore.CleanupOrphans();
             _maskView.RestoreFromSession();
-            // Unity 標準 Undo の戻り/進みに合わせて bool[] バッファを _session.maskState から再展開
+            // Unity 標準 Undo の戻り/進みに合わせて bool[] バッファを _session.maskState から再展開。
+            // 二重購読を避けるため一度外してから登録する（PreviewJobMainThread.Install と同じ防御）。
+            Undo.undoRedoPerformed -= OnUndoRedoPerformed;
             Undo.undoRedoPerformed += OnUndoRedoPerformed;
         }
 
