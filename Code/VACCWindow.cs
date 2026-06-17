@@ -416,7 +416,9 @@ namespace VRCAvatarColorChanger
                 Localization.Texture, sourceTexture, typeof(Texture2D), false);
             if (newTex != sourceTexture)
             {
-                _maskView.SaveToSession();                   // persist mask for old texture
+                // 旧テクスチャのマスクを永続化。失敗時はユーザーに通知（黙って消えないように）。
+                if (!_maskView.SaveToSession())
+                    ShowNotification(new GUIContent($"{Localization.Error}: {Localization.MaskSaveFailed}"));
                 Undo.RecordObject(this, "Change Source Texture");
                 sourceTexture = newTex;
                 MarkPreviewDirty();
