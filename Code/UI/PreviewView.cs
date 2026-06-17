@@ -82,6 +82,9 @@ namespace VRCAvatarColorChanger
         [System.NonSerialized] public Texture2D diffTexture;
         [System.NonSerialized] public bool previewDirty = true;
         [System.NonSerialized] private Vector2 _previewScrollPos;
+        // プレビュー用 ScrollView の実測ビューポート幅。詳細クロップの可視範囲算出に使う。
+        // テクスチャ実寸基準ではカラム/ウィンドウ幅と食い違うため、毎フレーム実測する。
+        [System.NonSerialized] private float _viewportWidth;
 
         // 非同期プレビュー状態
         // 戻り値は (processed, raw) のタプル。raw(ダウンサンプル済み元表示)もジョブ側で
@@ -222,7 +225,7 @@ namespace VRCAvatarColorChanger
 
         public void Draw()
         {
-            EditorGUILayout.LabelField(Localization.Preview, EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(Localization.StepPrefixPreview + Localization.Preview, EditorStyles.boldLabel);
 
             var sourceTexture = _host.SourceTexture;
             if (sourceTexture == null)
@@ -371,20 +374,27 @@ namespace VRCAvatarColorChanger
 
             float maxViewH = Mathf.Min(displayH, previewTexture.height) + 16f;
             int panelCount = (comparisonMode && rawPreviewTexture != null) ? 2 : 1;
-            float maxViewW = Mathf.Min(displayW * panelCount + (panelCount - 1) * 8f,
-                previewTexture.width * panelCount + (panelCount - 1) * 8f) + 16f;
 
-            // 次の詳細プレビュー生成で「見えている範囲」だけをクロップするため可視サイズを保存。
-            // maxViewW/H はビューポートの最大サイズ（実ウィンドウが狭ければ実際はこれ以下）なので、
-            // クロップが可視範囲を取りこぼすことはない（過小評価しない＝安全側）。
-            _detailView.lastViewportW = maxViewW;
+            // プレビュー枠はカラム/ウィンドウ幅いっぱいに広げる（下の ExpandWidth）。
+            // 以前はテクスチャ実寸基準の固定幅(≈528px)を MaxWidth で指定していたため、枠が
+            // カラム幅を超えると外側 ScrollView(縦オーバーフロー用)の横バーが横取りし、
+            // ズームしても横スクロールの可動幅がほぼゼロになっていた。枠を実際の表示領域に
+            // 合わせることで、横パンは内側 ScrollView だけが受け持つ。
+            //
+            // 詳細クロップの「見えている範囲」は実測したスクロールビュー幅(_viewportWidth)を使う。
+            // テクスチャ実寸基準だと、広いウィンドウで可視幅を過小評価して右側の高解像度
+            // クロップを取りこぼす。初回フレームは未計測なのでテクスチャ基準を暫定値にする
+            // (過大評価＝安全側)。高さは GUILayout.Height で固定なので maxViewH が実値。
+            float fallbackViewW = Mathf.Min(displayW * panelCount + (panelCount - 1) * 8f,
+                previewTexture.width * panelCount + (panelCount - 1) * 8f) + 16f;
+            _detailView.lastViewportW = _viewportWidth > 1f ? _viewportWidth : fallbackViewW;
             _detailView.lastViewportH = maxViewH;
 
             Vector2 prevScroll = _previewScrollPos;
             _previewScrollPos = EditorGUILayout.BeginScrollView(
                 _previewScrollPos,
                 GUILayout.Height(maxViewH),
-                GUILayout.MaxWidth(maxViewW));
+                GUILayout.ExpandWidth(true));
             if (_previewScrollPos != prevScroll)
             {
                 _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
@@ -492,6 +502,14 @@ namespace VRCAvatarColorChanger
                 HandlePreviewPanInput(activePreviewRect);
 
             EditorGUILayout.EndScrollView();
+
+            // スクロールビューの実幅を測り、次フレームの詳細クロップ可視範囲に使う。
+            // Repaint 時のみ有効値が返るため、そのときだけ更新する。
+            if (Event.current.type == EventType.Repaint)
+            {
+                float vw = GUILayoutUtility.GetLastRect().width;
+                if (vw > 1f) _viewportWidth = vw;
+            }
 
             EditorGUILayout.Space(4);
         }

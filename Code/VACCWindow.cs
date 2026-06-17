@@ -410,7 +410,11 @@ namespace VRCAvatarColorChanger
         private void DrawTextureField()
         {
             EditorGUILayout.Space(4);
-            EditorGUILayout.LabelField(Localization.SourceTexture, EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(Localization.StepPrefixTexture + Localization.SourceTexture, EditorStyles.boldLabel);
+
+            // 開始点が分かりにくいので、テクスチャ未設定時だけ一連の流れを案内する。
+            if (sourceTexture == null)
+                EditorGUILayout.HelpBox(Localization.WorkflowHint, MessageType.Info);
 
             var newTex = (Texture2D)EditorGUILayout.ObjectField(
                 Localization.Texture, sourceTexture, typeof(Texture2D), false);
@@ -507,7 +511,7 @@ namespace VRCAvatarColorChanger
         private void DrawZoneList()
         {
             DrawModeToggle();
-            zonesFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(zonesFoldout, Localization.ColorZones);
+            zonesFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(zonesFoldout, Localization.StepPrefixZones + Localization.ColorZones);
             if (!zonesFoldout)
             {
                 EditorGUILayout.EndFoldoutHeaderGroup();
