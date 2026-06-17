@@ -137,6 +137,14 @@ namespace VRCAvatarColorChanger
             ? "有効にすると、アルゴリズムの内部パラメータをより細かく調整できます。\n通常はデフォルト値で十分ですが、特殊なテクスチャに対して微調整が必要な場合に使用してください。"
             : "Enables fine-grained control over internal algorithm parameters.\nDefault values work well for most textures, but can be tuned for special cases.";
 
+        // ─── 編集モード切替（かんたん / 上級） ───
+        public static string EditMode      => IsJapanese ? "編集モード" : "Mode";
+        public static string SimpleMode    => IsJapanese ? "かんたん" : "Simple";
+        public static string AdvancedShort => IsJapanese ? "上級" : "Advanced";
+        public static string EditModeTooltip => IsJapanese
+            ? "「かんたん」は色とおおまかな調整だけを表示します（迷ったらこちら。細かい調整は『自動調整』に任せられます）。\n「上級」はエッジ・彩度・シャドウ/ハイライトなど全ての詳細パラメータを表示します。"
+            : "Simple shows only colors and basic adjustments (recommended; let 'Auto-tune' handle the rest).\nAdvanced reveals every detailed parameter (edge, saturation, shadow/highlight, etc.).";
+
         public static string HoleFillPasses => IsJapanese ? "穴埋めパス数" : "Hole Fill Passes";
         public static string HoleFillPassesTooltip => IsJapanese
             ? "アンチエイリアス端の孤立ドットを除去するパス数。\n多いほど大きなギャップを埋めますが、過剰に埋める可能性があります。\nデフォルト: 3"
@@ -181,6 +189,16 @@ namespace VRCAvatarColorChanger
         public static string ShadowForgivenessSatMinTooltip => IsJapanese
             ? "グレーや黒のピクセルを同系色の影として巻き込むのを防ぐための最低彩度です。\nデフォルト: 0.05"
             : "Minimum saturation required to include a dark pixel as part of the shadow. Prevents pure greys from being colorized.\nDefault: 0.05";
+
+        // 上級モードのシャドウ/ハイライト詳細セクション見出し（旧 "=== ... ===" 装飾を置換）。
+        public static string ShadowHighlightSection => IsJapanese ? "シャドウ・ハイライト詳細設定" : "Shadow / Highlight Details";
+
+        // 無彩色（黒/グレー）抽出のしきい値。以前は VACCWindow / ZoneAutoTuner にインラインの
+        // IsJapanese 三項で散在していた文字列を Localization に集約。
+        public static string ChromaThreshold => IsJapanese ? "自動しきい値(無彩色判定)" : "Auto Grayscale Threshold";
+        public static string ChromaThresholdTooltip => IsJapanese
+            ? "スポイトで取ったサンプルの彩度がこの値以下の場合は、自動的に【無彩色(黒/グレー)】として認識され、色相を無視して綺麗に抽出します。"
+            : "If the sample saturation is below this value, it automatically ignores hue and extracts pure grayscale nicely.";
 
         public static string HighlightRecovery => IsJapanese ? "ハイライト補助" : "Highlight Recovery";
         public static string HighlightRecoveryTooltip => IsJapanese

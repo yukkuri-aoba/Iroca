@@ -495,7 +495,7 @@ namespace VRCAvatarColorChanger
             if (!Mathf.Approximately(zone.saturationGuard, DefaultSaturationGuard))
                 labels.Add(Localization.SaturationGuard);
             if (!Mathf.Approximately(zone.chromaThreshold, DefaultChromaThreshold))
-                labels.Add(Localization.IsJapanese ? "自動しきい値(無彩色判定)" : "Auto Grayscale Threshold");
+                labels.Add(Localization.ChromaThreshold);
             if (zone.highlightRecovery != DefaultHighlightRecovery)
                 labels.Add(Localization.HighlightRecovery);
             if (!Mathf.Approximately(zone.valueBlend, DefaultValueBlend))
@@ -520,7 +520,7 @@ namespace VRCAvatarColorChanger
             if (!Mathf.Approximately(zone.saturationGuard, DefaultSaturationGuard))
                 labels.Add(Localization.SaturationGuard);
             if (!Mathf.Approximately(zone.chromaThreshold, DefaultChromaThreshold))
-                labels.Add(Localization.IsJapanese ? "自動しきい値(無彩色判定)" : "Auto Grayscale Threshold");
+                labels.Add(Localization.ChromaThreshold);
             if (zone.highlightRecovery != DefaultHighlightRecovery)
                 labels.Add(Localization.HighlightRecovery);
             if (!Mathf.Approximately(zone.valueBlend, DefaultValueBlend))
