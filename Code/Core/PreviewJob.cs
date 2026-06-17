@@ -21,6 +21,11 @@ namespace VRCAvatarColorChanger
         [InitializeOnLoadMethod]
         private static void Install()
         {
+            // ドメインリロード直後に呼ばれる。通常 Unity はリロードで静的 Queue をリセットするため
+            // 空のはずだが、万一前セッションのアクション（破棄済み EditorWindow を掴んだクロージャ）が
+            // 残っていた場合に備え、防御的に空にしてから再購読する。Drain 自体も世代ガード＋
+            // try/catch で死参照を弾くため二重の安全策。
+            while (Queue.TryDequeue(out _)) { }
             EditorApplication.update -= Drain;
             EditorApplication.update += Drain;
         }
