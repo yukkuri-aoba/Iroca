@@ -381,7 +381,7 @@ namespace VRCAvatarColorChanger
             float displayW = previewTexture.width  * previewZoom;
             float displayH = previewTexture.height * previewZoom;
 
-            float maxViewH = Mathf.Min(displayH, previewTexture.height) + 16f;
+            float maxViewH = Mathf.Min(displayH, previewTexture.height) + VACCConsts.Preview.ViewportMargin;
             int panelCount = (comparisonMode && rawPreviewTexture != null) ? 2 : 1;
 
             // プレビュー枠はカラム/ウィンドウ幅いっぱいに広げる（下の ExpandWidth）。
@@ -394,8 +394,10 @@ namespace VRCAvatarColorChanger
             // テクスチャ実寸基準だと、広いウィンドウで可視幅を過小評価して右側の高解像度
             // クロップを取りこぼす。初回フレームは未計測なのでテクスチャ基準を暫定値にする
             // (過大評価＝安全側)。高さは GUILayout.Height で固定なので maxViewH が実値。
-            float fallbackViewW = Mathf.Min(displayW * panelCount + (panelCount - 1) * 8f,
-                previewTexture.width * panelCount + (panelCount - 1) * 8f) + 16f;
+            float fallbackViewW = Mathf.Min(
+                displayW * panelCount + (panelCount - 1) * VACCConsts.Preview.PanelSpacing,
+                previewTexture.width * panelCount + (panelCount - 1) * VACCConsts.Preview.PanelSpacing)
+                + VACCConsts.Preview.ViewportMargin;
             _detailView.lastViewportW = _viewportWidth > 1f ? _viewportWidth : fallbackViewW;
             _detailView.lastViewportH = maxViewH;
 
@@ -429,7 +431,7 @@ namespace VRCAvatarColorChanger
                 EditorGUI.DrawPreviewTexture(rawRect, rawPreviewTexture);
                 EditorGUILayout.EndVertical();
 
-                GUILayout.Space(8);
+                GUILayout.Space(VACCConsts.Preview.PanelSpacing);
 
                 // After panel
                 EditorGUILayout.BeginVertical(GUILayout.Width(displayW));

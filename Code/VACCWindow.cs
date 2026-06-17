@@ -829,7 +829,7 @@ namespace VRCAvatarColorChanger
                     EditorGUI.DrawRect(swatch, sw);
                     DrawRectOutline(swatch, new Color(0f, 0f, 0f, 0.4f), 1f);
                     // ゾーン名ラベル。
-                    string gname = string.IsNullOrEmpty(dz.name) ? "Zone" : dz.name;
+                    string gname = string.IsNullOrEmpty(dz.name) ? Localization.UnnamedZone : dz.name;
                     GUI.Label(new Rect(swatch.xMax + 6f, ghost.y + 3f, ghost.width - 64f, EditorGUIUtility.singleLineHeight),
                         new GUIContent("☰  " + gname), EditorStyles.boldLabel);
                 }

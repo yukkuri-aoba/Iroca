@@ -31,6 +31,11 @@ namespace VRCAvatarColorChanger
             // メインプレビューの最大寸法（長辺）。
             // ソーステクスチャはこのサイズへ等比縮小されてから表示・処理される。
             public const int MaxSize = 512;
+
+            // 比較モードで Before/After パネルの間に空ける横方向の間隔(px)。
+            public const float PanelSpacing = 8f;
+            // プレビュー枠の縦/横に確保するスクロールバー等の余白(px)。
+            public const float ViewportMargin = 16f;
         }
 
         public static class ExperimentalFeatures
