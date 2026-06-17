@@ -559,7 +559,14 @@ namespace VRCAvatarColorChanger
                 case EventType.MouseDrag:
                     if (GUIUtility.hotControl == controlId)
                     {
-                        _previewScrollPos -= e.delta;
+                        // パン量はズーム倍率に比例させる。スクロールはコンテンツ座標(=ズーム後の
+                        // displayW/H)で持つため、画面 1px のドラッグを等倍で適用すると、高ズーム
+                        // ほど画像が大きい一方でビューポート(≒テクスチャ実寸 ≤512px)は固定のため、
+                        // 1 ストロークで横断できる割合が 1/zoom まで縮む(32x なら数%)。
+                        // delta に previewZoom を掛けることで「枠を 1 回横切る＝画像をほぼ全幅
+                        // 横断」となり、どのズーム倍率でも一定の操作感でパンできる。パンが有効なのは
+                        // previewZoom > 1 のときだけなので、従来の等倍より遅くなることはない。
+                        _previewScrollPos -= e.delta * previewZoom;
                         _previewScrollPos.x = Mathf.Max(0f, _previewScrollPos.x);
                         _previewScrollPos.y = Mathf.Max(0f, _previewScrollPos.y);
                         _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
