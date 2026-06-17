@@ -347,13 +347,16 @@ namespace VRCAvatarColorChanger
                     // sample の S/V (wash ゲート・デバッグ分岐・下の中性リジェクトで共用)。
                     Color.RGBToHSV(zone.sampleColor, out _, out float zSS, out float zSV);
 
-                    // 有彩サンプル→無彩極端ターゲット(赤→白/黒等)の過選択除去。有彩サンプルはマッチ距離が
+                    // 有彩サンプル→無彩ターゲット(赤→白/黒/灰)の過選択除去。有彩サンプルはマッチ距離が
                     // hue 支配になり彩度差を過小評価するため、暖色寄りで明るい中性画素(白UV背景等)を巻き込む。
                     // 巻き込みで領域が明るい背景に支配されると後段の成分中央値Lが上がり、本体(中L)が形維持
                     // リマップで黒へ落ちる(黒化)。マッチ全段(穴埋め/境界回復)の後・内部固め/成分統計の前に、
                     // サンプル彩度の相対床を下回る中性画素を strength から除去する(高彩度コア近傍は保護)。
-                    // 有彩→有彩(achromaWeight≈0)・低彩度サンプル(sS<床)では作動しない=従来挙動を完全維持。
-                    if (zAchromaWeight > AchromaNeutralRejectWeightMin && zSS >= NeutralRejectActiveSourceSat)
+                    // 発動判定は **明度非依存** の ComputeAchromaSelectWeight を使う(灰色=中明度の無彩でも
+                    // 発動させる。ComputeAchromaWeight の extremeness では中明度グレーで重みが落ち白背景が
+                    // 灰色化する)。有彩→有彩(weight≈0)・低彩度サンプル(sS<床)では作動しない=従来挙動を完全維持。
+                    float zAchromaSelectWeight = ComputeAchromaSelectWeight(zone.sampleColor, zone.targetColor);
+                    if (zAchromaSelectWeight > AchromaNeutralRejectWeightMin && zSS >= NeutralRejectActiveSourceSat)
                         RejectNeutralForAchromaTarget(strength, pixS, w, h, zSS);
 
                     // WS-R 内部固め: 極端な無彩ターゲット(白↔黒)では、マッチ強度が色のばらつきで内部まで
@@ -1367,6 +1370,25 @@ namespace VRCAvatarColorChanger
             float targetExtremeness = 1f - 4f * tL * (1f - tL);
             float targetAchroma = Mathf.Clamp01(1f - tC / AchromaTargetC);
             return Mathf.Max(achromaSample, targetExtremeness * targetAchroma);
+        }
+
+        /// <summary>
+        /// 中性背景リジェクト(選択保護)用の無彩重み。**明度に依存しない**。
+        /// ComputeAchromaWeight は collapse_blend に targetExtremeness=(1-4tL(1-tL)) を掛けるため、
+        /// 中明度グレー(tL≈0.5)で重みが≈0 に落ち、灰色ターゲットでは中性背景リジェクトが発動せず
+        /// 「白い背景が灰色になる」破綻が出る(黒/白は extremeness≈1 で発動)。選択保護に必要なのは
+        /// 『ターゲットが無彩か』だけで明度は無関係なので、extremeness を外し彩度のみで判定する。
+        /// algorithm.py _achroma_select_weight と同期。
+        /// </summary>
+        private static float ComputeAchromaSelectWeight(Color sample, Color target)
+        {
+            RgbToOklab(sample.r, sample.g, sample.b, out _, out float sa, out float sb);
+            RgbToOklab(target.r, target.g, target.b, out _, out float ta, out float tb);
+            float sC = Mathf.Sqrt(sa * sa + sb * sb);
+            float tC = Mathf.Sqrt(ta * ta + tb * tb);
+            float achromaSample = Mathf.Clamp01(1f - sC / AchromaSampleC);
+            float targetAchroma = Mathf.Clamp01(1f - tC / AchromaTargetC);
+            return Mathf.Max(achromaSample, targetAchroma);
         }
 
         /// <summary>
