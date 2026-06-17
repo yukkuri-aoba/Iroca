@@ -374,6 +374,9 @@ namespace VRCAvatarColorChanger
             ? "現在のゾーン設定を複数のテクスチャに一括適用します。出力は各ファイル名に _recolored を付与します。"
             : "Apply current zone settings to multiple textures. Output files are named with _recolored suffix.";
         public static string AddBatchTexture   => IsJapanese ? "+ テクスチャ追加" : "+ Add Texture";
+        public static string RemoveBatchTextureTooltip => IsJapanese
+            ? "このテクスチャを一括リストから外します"
+            : "Remove this texture from the batch list";
         public static string BatchApplyAndSave => IsJapanese ? "一括適用して保存" : "Batch Apply & Save";
         public static string BatchProgress     => IsJapanese ? "一括適用中..." : "Batch processing...";
         public static string BatchComplete(int count) => IsJapanese

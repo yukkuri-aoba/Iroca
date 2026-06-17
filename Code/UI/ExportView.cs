@@ -360,7 +360,8 @@ namespace VRCAvatarColorChanger
                 EditorGUILayout.BeginHorizontal();
                 batchTextures[i] = (Texture2D)EditorGUILayout.ObjectField(
                     batchTextures[i], typeof(Texture2D), false);
-                if (GUILayout.Button("×", GUILayout.Width(VACCConsts.Layout.RemoveButtonWidth)))
+                if (GUILayout.Button(new GUIContent("×", Localization.RemoveBatchTextureTooltip),
+                        GUILayout.Width(VACCConsts.Layout.RemoveButtonWidth)))
                     removeIdx = i;
                 EditorGUILayout.EndHorizontal();
             }
