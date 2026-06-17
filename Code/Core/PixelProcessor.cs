@@ -579,11 +579,14 @@ namespace VRCAvatarColorChanger
                     // 上の RecolorPixel 内の条件式を再評価する。
                     // 優先度: Decontaminate > Shadow > Highlight > Base。
                     // shadow と highlight は条件上ほぼ排他（oV<thr と oV>sV）だが念のため shadow を優先。
+                    // NOTE: 実際の RecolorPixel に渡した値を使うこと。
+                    //   Shadow: zone.shadowDesaturation でなく zEffShadowDesat (autoRecolorAnchor 時に補正済み)
+                    //   Highlight: zSV でなく zWV (HighlightSampleCorrector で補正した実効 wash サンプルの V)
                     if (debug != null)
                     {
                         byte[] branchMap = new byte[len];
-                        float zoneShadowDesat = zone.shadowDesaturation;
-                        float zoneSV = zSV;
+                        float zoneShadowDesat = zEffShadowDesat;
+                        float zoneSV = zWV;
                         float zoneSS = zSS;
                         bool zoneApplyWash = zone.applyHighlightWash;
                         var aaMaskForBranch = aaMask;
