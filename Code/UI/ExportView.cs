@@ -139,6 +139,14 @@ namespace VRCAvatarColorChanger
             // 既に実行中なら無視（DisabledScope で防がれているはずだが念のため）
             if (_exportJob.IsRunning) return;
 
+            // 有効なゾーンが無いと無変更ファイルを書き出して「完了」表示になり誤解を生むため、
+            // 処理に入る前に止めてユーザーへ誘導する。
+            if (_host.Session == null || !_host.Session.zones.Any(z => z.enabled))
+            {
+                _host?.ShowNotification(new GUIContent(Localization.NoEnabledZones));
+                return;
+            }
+
             var sourceTexture = _host.SourceTexture;
             if (sourceTexture == null || !VACCWindow.IsReadable(sourceTexture))
             {
