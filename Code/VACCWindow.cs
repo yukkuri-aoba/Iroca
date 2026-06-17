@@ -894,8 +894,17 @@ namespace VRCAvatarColorChanger
             {
                 texW = tex.width;
                 texH = tex.height;
-                try { pixels = tex.GetPixels32(); }
+                // GetPixels32 はメインスレッド必須で、大きいテクスチャでは一瞬フリーズする。
+                // 完全な非同期化はできないため、その間だけモーダル進捗バーで「解析中」を明示し、
+                // 無言の固まりに見えないようにする（バックグラウンド解析本体は別途ウィンドウ内
+                // 進捗バー＋キャンセルで表示される）。
+                try
+                {
+                    EditorUtility.DisplayProgressBar(Localization.AutoTune, Localization.AnalyzingTexture, 0.1f);
+                    pixels = tex.GetPixels32();
+                }
                 catch (UnityEngine.UnityException) { pixels = null; }
+                finally { EditorUtility.ClearProgressBar(); }
             }
             bool[] excluded = BuildCombinedExclusionForZone(zone, out int mw, out int mh);
 
