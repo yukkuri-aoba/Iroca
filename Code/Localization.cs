@@ -499,6 +499,7 @@ namespace VRCAvatarColorChanger
 
         // ─── Auto-tune ───
         public static string AutoTune => IsJapanese ? "自動調整" : "Auto-tune";
+        public static string AnalyzingTexture => IsJapanese ? "テクスチャを解析中…" : "Analyzing texture…";
         public static string AutoTuneTooltip => IsJapanese
             ? "サンプルカラーと変更先カラーから、テクスチャを解析して許容範囲・彩度制限などのパラメータを自動的に決定します。\nスポイトでサンプルカラーを取った直後に押すと最も効果的です。"
             : "Analyzes the texture using the sample and target colors and automatically sets tolerance, saturation strictness, and related parameters.\nMost effective right after sampling a color with the eyedropper.";
