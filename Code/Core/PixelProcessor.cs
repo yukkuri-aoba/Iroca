@@ -452,6 +452,17 @@ namespace VRCAvatarColorChanger
                         // na = |chroma| * (osat/sC) * zTa, nb = 同 zTb。oC=sC(sample) で (zTa,zTb)=target に一致。
                         zOkMagScale = zOsat / zSC;
                     }
+                    // ChromaAmpMaxFactor キャップの上限 mag をゾーン定数として 1 回だけ算出する。
+                    // 旧版は RecolorPixel 内で画素ごとに tC=sqrt(zTa²+zTb²) と maxMag=(zSC/tC)·Factor を
+                    // 再計算していたが、zTa/zTb/zSC はゾーン不変なので per-pixel で常に同値=冗長だった。
+                    // ホットな再着色ループから sqrt+除算を除去する(出力はビット不変)。キャップ非適用
+                    // (Factor<=0 または target が無彩で tC≈0)のときは +∞ にして per-pixel の比較を no-op 化。
+                    float zOkChromaMaxMag = float.PositiveInfinity;
+                    if (ChromaAmpMaxFactor > 0f)
+                    {
+                        float zTC = Mathf.Sqrt(zTa * zTa + zTb * zTb);
+                        if (zTC > 1e-4f) zOkChromaMaxMag = (zSC / zTC) * ChromaAmpMaxFactor;
+                    }
 
                     // WS-R: 無彩再着色パスの領域 L レンジを事前計算(zAchromaWeight は上で算出済み)。
                     float zRegLlo = 0f, zRegLhi = 1f, zRegLmid = 0.5f;
@@ -525,7 +536,7 @@ namespace VRCAvatarColorChanger
                                 pixV[i], alpha,
                                 okMagScale: zOkMagScale, okTa: zTa, okTb: zTb,
                                 okGray: zOkGray, okGa: zOkGa, okGb: zOkGb,
-                                okSL: zSL, okTL: zTL, okSC: zSC,
+                                okSL: zSL, okTL: zTL, okSC: zSC, okChromaMaxMag: zOkChromaMaxMag,
                                 valueBlend: zValueBlend,
                                 shadowDesaturation: zEffShadowDesat,
                                 sS: zSS, tR: zTR, tG: zTG, tB: zTB,
@@ -2119,7 +2130,7 @@ namespace VRCAvatarColorChanger
             float oV, float alpha,
             float okMagScale, float okTa, float okTb,
             bool okGray, float okGa, float okGb,
-            float okSL, float okTL, float okSC,
+            float okSL, float okTL, float okSC, float okChromaMaxMag,
             float valueBlend, float shadowDesaturation,
             float sS, float tR, float tG, float tB,
             float washR, float washG, float washB, float washV,
@@ -2152,15 +2163,9 @@ namespace VRCAvatarColorChanger
                     mag = mag * (1f - achromaWeight) + osat * achromaWeight;
                 // WS-R 有彩版: tC > sC のとき output chroma = mag*tC が sC*Factor を超えないよう制限。
                 // achromaWeight=1 時は上記で mag=osat 固定済みなのでキャップは no-op。
-                if (ChromaAmpMaxFactor > 0f)
-                {
-                    float tC = Mathf.Sqrt(okTa * okTa + okTb * okTb);
-                    if (tC > 1e-4f)
-                    {
-                        float maxMag = (okSC / tC) * ChromaAmpMaxFactor;
-                        if (mag > maxMag) mag = maxMag;
-                    }
-                }
+                // 上限 mag はゾーン定数 okChromaMaxMag に事前算出済み(キャップ非適用時は +∞ で
+                // この比較は no-op)。旧版は per-pixel で tC=sqrt(okTa²+okTb²) と maxMag を再計算していた。
+                if (mag > okChromaMaxMag) mag = okChromaMaxMag;
                 na = mag * okTa;                        // 向きは target 色相 (zTa, zTb)
                 nb = mag * okTb;
             }
