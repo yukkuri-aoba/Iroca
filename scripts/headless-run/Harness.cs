@@ -11,6 +11,24 @@ namespace VRCAvatarColorChanger
     // DebugCaptureHooks が UI イベントで参照するだけのスタブ(headless では未使用)。
     internal class VACCWindow { }
 
+    // ZoneAutoTuner がラベル収集で参照する Localization のスタブ。
+    // 実 Localization は UnityEditor.EditorPrefs に依存するため headless では使えない。
+    // 自動調整の数値計算には影響しない（overwrittenLabels の文字列に使われるだけ）。
+    internal static class Localization
+    {
+        public static string Tolerance               => "Tolerance";
+        public static string SaturationStrictness    => "SaturationStrictness";
+        public static string SaturationGuard         => "SaturationGuard";
+        public static string ChromaThreshold         => "ChromaThreshold";
+        public static string HighlightRecovery       => "HighlightRecovery";
+        public static string PatternPreserve         => "PatternPreserve";
+        public static string EdgeSoftness            => "EdgeSoftness";
+        public static string ShadowDesaturation      => "ShadowDesaturation";
+        public static string ShadowForgivenessSatMin => "ShadowForgivenessSatMin";
+        public static string AntiAliasCleanup        => "AntiAliasCleanup";
+        public static string UseDecontamination      => "UseDecontamination";
+    }
+
     // ─── --zones <json> 用の簡易設定 DTO(System.Text.Json, Unity 非依存) ───
     // Python(headless_io.write_zones_json)が組み立てるフラットなスキーマ。色は [r,g,b] 0..1。
     // 欠落フィールドは既定値(=従来 Harness のハードコード値)にフォールバックする。
@@ -114,6 +132,12 @@ namespace VRCAvatarColorChanger
             for (int i = 3; i < args.Length - 1; i++)
                 if (args[i] == "--zones") { zonesPath = args[i + 1]; break; }
 
+            // --autotune: 各ゾーンの (sample,target) から ZoneAutoTuner を no-mask で走らせ、
+            // 導出パラメータを適用してから処理する（かんたんモードの自動実行を再現）。
+            bool autotune = false;
+            for (int i = 3; i < args.Length; i++)
+                if (args[i] == "--autotune") { autotune = true; break; }
+
             var (w, h, rgba) = ReadRaw(inPath, 4);
             int len = w * h;
             var pixels = new Color32[len];
@@ -154,6 +178,47 @@ namespace VRCAvatarColorChanger
                 }
                 st = new SettingsCfg();
                 zoneList = new List<ColorZone> { BuildZone(z) };
+            }
+
+            // 自動調整: no-mask で各ゾーンの推奨値を導出して適用する（かんたんモード相当）。
+            if (autotune)
+            {
+                var session = VACCSessionState.CreateDefault();
+                foreach (var z in zoneList)
+                {
+                    var tune = ZoneAutoTuner.Analyze(pixels, w, h, z, session, excluded: null, maskW: 0, maskH: 0);
+                    z.tolerance               = tune.tolerance;
+                    z.saturationStrictness    = tune.saturationStrictness;
+                    z.saturationGuard         = tune.saturationGuard;
+                    z.chromaThreshold         = tune.chromaThreshold;
+                    z.highlightRecovery       = tune.highlightRecovery;
+                    z.valueBlend              = tune.valueBlend;
+                    z.edgeSoftness            = tune.edgeSoftness;
+                    z.shadowDesaturation      = tune.shadowDesaturation;
+                    z.shadowForgivenessSatMin = tune.shadowForgivenessSatMin;
+                    if (tune.applyGlobals)
+                    {
+                        st.antiAliasCleanup   = tune.antiAliasCleanup;
+                        st.useDecontamination = tune.useDecontamination;
+                    }
+                    z.UpdateCacheIfNeeded();
+                    // 導出値を stderr に JSON で出す（stdout の "OK" を汚さない）。Python が拾って記録する。
+                    Console.Error.WriteLine("AUTOTUNE " + JsonSerializer.Serialize(new
+                    {
+                        name = z.name,
+                        tolerance = z.tolerance,
+                        saturationStrictness = z.saturationStrictness,
+                        saturationGuard = z.saturationGuard,
+                        chromaThreshold = z.chromaThreshold,
+                        highlightRecovery = z.highlightRecovery,
+                        valueBlend = z.valueBlend,
+                        edgeSoftness = z.edgeSoftness,
+                        shadowDesaturation = z.shadowDesaturation,
+                        shadowForgivenessSatMin = z.shadowForgivenessSatMin,
+                        applyGlobals = tune.applyGlobals,
+                        antiAliasCleanup = st.antiAliasCleanup,
+                    }));
+                }
             }
 
             PixelProcessor.ProcessPixelsArray(
