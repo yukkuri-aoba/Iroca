@@ -37,6 +37,11 @@
     <Compile Include="..\..\Code\Core\HighlightSampleCorrector.cs" />
     <Compile Include="..\..\Code\ColorZone.cs" />
     <Compile Include="..\..\Code\VACCConsts.cs" />
+    <!-- 自動調整(ZoneAutoTuner)を no-mask で実行して GT と突き合わせるための取り込み。
+         Localization は UnityEditor.EditorPrefs に依存するので Harness.cs 内のスタブで代替する。 -->
+    <Compile Include="..\..\Code\Core\ZoneAutoTuner.cs" />
+    <Compile Include="..\..\Code\Core\VACCSessionState.cs" />
+    <Compile Include="..\..\Code\Core\MaskState.cs" />
     <Compile Include="Harness.cs" />
   </ItemGroup>
 
