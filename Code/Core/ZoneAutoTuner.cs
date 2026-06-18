@@ -138,19 +138,27 @@ namespace VRCAvatarColorChanger
                 }
                 else
                 {
-                    // マスク無し(かんたんモード相当)。無彩色サンプルはグレーモードで純 RGB 距離
-                    // マッチになるため、tolerance を「サンプルからの実 RGB 距離分布」から取り直す。
-                    // これで V 広がりの過大評価による黒/有彩の巻き込みを防ぐ。有彩サンプルは
-                    // 従来の hSpread 由来 tolerance(GT で良好)をそのまま使う。
+                    // マスク無し(かんたんモード相当)。tolerance は「サンプル近傍クラスタの実マッチ距離
+                    // 分布」から取り直す。無彩(グレーモード=純 RGB 距離)と有彩(HSV マッチ)で距離式が
+                    // 違うため経路を分けるが、いずれも MergeAnalyzed の hSpread/vSpread 由来ヒューリスティック
+                    // (実距離と切り離され過大選択を招く)を実距離分布へ置き換える。
                     Color.RGBToHSV(zone.sampleColor, out _, out float sampleS, out _);
-                    if (sampleS < AchromaSampleSatMax
-                        && TryDeriveAchromaticTolerance(pixels, width, height, zone, out float achTol))
+                    if (sampleS < AchromaSampleSatMax)
                     {
-                        result.tolerance = achTol;
-                        // 無彩色サンプルではハイライト復元を切る。グレーモードのハイライト経路は
-                        // 「明度だけ」で判定し色相/彩度を見ないため、明るい有彩画素(別素材)まで
-                        // 巻き込んでしまう。グレー本体のハイライトは RGB 距離 tolerance で拾える。
-                        result.highlightRecovery = false;
+                        // 無彩色サンプル: グレーモードの純 RGB 距離分布から(V 広がりの過大評価を回避)。
+                        if (TryDeriveAchromaticTolerance(pixels, width, height, zone, out float achTol))
+                        {
+                            result.tolerance = achTol;
+                            // 無彩色サンプルではハイライト復元を切る。グレーモードのハイライト経路は
+                            // 「明度だけ」で判定し色相/彩度を見ないため、明るい有彩画素(別素材)まで
+                            // 巻き込んでしまう。グレー本体のハイライトは RGB 距離 tolerance で拾える。
+                            result.highlightRecovery = false;
+                        }
+                    }
+                    else if (TryDeriveChromaticTolerance(pixels, width, height, zone, out float chromTol))
+                    {
+                        // 有彩サンプル: 本番 HSV マッチ距離分布から(hSpread+0.10 の過大選択を解消)。
+                        result.tolerance = chromTol;
                     }
                 }
             }
@@ -390,6 +398,73 @@ namespace VRCAvatarColorChanger
                 if (cum >= target) { pctDist = (i + 1) / (float)DistBins * DistMax; break; }
             }
             tolerance = Mathf.Clamp(pctDist + AchromaMargin, AchromaTolMin, AchromaTolMax);
+            return true;
+        }
+
+        // ─────────────────── 有彩(中〜高彩度サンプル)の tolerance ───────────────────
+        // 有彩サンプルの no-mask tolerance は従来 MergeAnalyzed で hSpread(色相広がり P90)+0.10 と
+        // 導出していたが、(1) 実マッチ距離(彩度・明度項を含む)と切り離され、(2) 平坦な +0.10 マージンが
+        // 暗い高彩度パーツ(例: 黒寄りスニーカー青)で過大選択を招いていた(実測: 導出 0.13 / 最適 ~0.08、
+        // tol を下げると IoU 0.85→0.95・precision 0.85→0.99)。無彩経路(TryDeriveAchromaticTolerance,
+        // commit 43e2a0a)と同じく「サンプル近傍クラスタの実距離分布の高パーセンタイル」から導出する。
+        // 距離式は本番(ColorZone)と同一:
+        //   d = hd + |dS|*satDistWeight + |dV|*valueWeight*(1 - clamp(pS/sS))
+        // クラスタは near-sample(色相<0.10, |dS|<0.20, |dV|<0.30 = サンプルに似た同パーツ相当の画素)に
+        // 限定し、別パーツを距離分布から除外する。床は無彩/マスク認識(0.12)より低い 0.08 とし、暗い高彩度
+        // パーツのタイトな分布に追従できるようにする(素直なパーツでは P95+margin がこの床に収まり、内部変動
+        // が大きいパーツでは P95 が上がるので自然に広がる ⇒ 取りこぼしと過選択のバランスが取れる)。
+        // クラスタが過少(<MinNearSampleCount)なら false を返し、MergeAnalyzed の hSpread tolerance を温存。
+        private const float ChromaPercentile = 0.95f;
+        private const float ChromaMargin = 0.03f;
+        private const float ChromaTolMin = 0.08f;
+        private const float ChromaTolMax = 0.40f;
+
+        private static bool TryDeriveChromaticTolerance(Color32[] pixels, int w, int h, ColorZone zone,
+            out float tolerance)
+        {
+            tolerance = 0f;
+            Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
+            float satDistW = zone.satDistWeight;
+            float valueW = zone.valueWeight;
+
+            int stride = (w <= 2048) ? 1 : 2;
+            var bins = new int[DistBins];
+            int count = 0;
+            for (int y = 0; y < h; y += stride)
+            {
+                int rowStart = y * w;
+                for (int x = 0; x < w; x += stride)
+                {
+                    Color32 c = pixels[rowStart + x];
+                    if (c.a < 128) continue;
+                    Color.RGBToHSV(new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f),
+                        out float pH, out float pS, out float pV);
+                    float hd = Mathf.Abs(pH - sH);
+                    if (hd > 0.5f) hd = 1f - hd;
+                    // near-sample クラスタ(サンプルに似た画素=同パーツ相当)に限定
+                    if (hd >= NearHueDist) continue;
+                    if (Mathf.Abs(pS - sS) >= NearSatDist) continue;
+                    if (Mathf.Abs(pV - sV) >= NearValDist) continue;
+                    float sd = Mathf.Abs(pS - sS);
+                    float vd = Mathf.Abs(pV - sV);
+                    float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
+                    float d = hd + sd * satDistW + vd * valueW * (1f - sRatio);
+                    int bi = Mathf.Clamp((int)(d / DistMax * DistBins), 0, DistBins - 1);
+                    bins[bi]++;
+                    count++;
+                }
+            }
+            if (count < MinNearSampleCount) return false;
+
+            int target = Mathf.CeilToInt(count * ChromaPercentile);
+            int cum = 0;
+            float pctDist = DistMax;
+            for (int i = 0; i < DistBins; i++)
+            {
+                cum += bins[i];
+                if (cum >= target) { pctDist = (i + 1) / (float)DistBins * DistMax; break; }
+            }
+            tolerance = Mathf.Clamp(pctDist + ChromaMargin, ChromaTolMin, ChromaTolMax);
             return true;
         }
 
