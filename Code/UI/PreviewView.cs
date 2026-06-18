@@ -44,6 +44,17 @@ namespace VRCAvatarColorChanger
         };
         private const float ZoomEpsilon = 1e-4f;
 
+        // Ctrl+スクロールズームの感度。マウスホイールやトラックパッドは機種によって
+        // 1 回のスクロール操作で複数の ScrollWheel イベントを発生させたり、1 イベント
+        // あたりの delta.y が大きかったりする。1 イベント = 1 ストップで処理すると、
+        // こうしたデバイスではズームが一気に飛んで「感度が高すぎる」と感じる。
+        // delta.y を蓄積し、この閾値ぶんたまるごとに 1 ストップだけ動かすことで、
+        // デバイス差を吸収して操作感を一定（かつ控えめ）に保つ。値を大きくするほど
+        // 1 ストップ進めるのに必要なスクロール量が増える＝感度が下がる。
+        // 一般的なマウスのノッチ 1 段は delta.y≈3 なので、4.0 にすると概ね
+        // 「1.5 ノッチで 1 ストップ」程度の落ち着いた感度になる。
+        private const float ZoomScrollStepThreshold = 4.0f;
+
         // 現在のズームから、指定方向(zoomIn=拡大)へ 1 ストップ動いた値を返す。
         // 上限(maxZoom)・下限(MinPreviewZoom)を超えるストップは選ばない。
         private static float StepZoom(float current, bool zoomIn, float maxZoom)
@@ -82,6 +93,9 @@ namespace VRCAvatarColorChanger
         [System.NonSerialized] public Texture2D diffTexture;
         [System.NonSerialized] public bool previewDirty = true;
         [System.NonSerialized] private Vector2 _previewScrollPos;
+        // Ctrl+スクロールズームで未消化のスクロール量。ZoomScrollStepThreshold を
+        // 超えたぶんだけストップを進め、端数は次イベントへ繰り越す（感度を下げるため）。
+        [System.NonSerialized] private float _zoomScrollAccum;
         // プレビュー用 ScrollView の実測ビューポート幅。詳細クロップの可視範囲算出に使う。
         // テクスチャ実寸基準ではカラム/ウィンドウ幅と食い違うため、毎フレーム実測する。
         [System.NonSerialized] private float _viewportWidth;
@@ -540,27 +554,46 @@ namespace VRCAvatarColorChanger
                 case EventType.ScrollWheel:
                     if (isInRect && e.control && Mathf.Abs(e.delta.y) > ZoomEpsilon)
                     {
-                        float oldZoom = previewZoom;
-                        // 1 ノッチごとにきれいな数字のストップを 1 つ進める/戻す。
-                        // 上スクロール(delta.y<0)で拡大（従来の -e.delta.y と同符号）。
-                        bool zoomIn = e.delta.y < 0f;
-                        float newZoom = StepZoom(oldZoom, zoomIn, ComputeMaxZoom(scale));
+                        // スクロール量を蓄積し、閾値ぶんたまるごとに 1 ストップだけ進める。
+                        // 拡大↔縮小で向きが変わったら貯金をリセットし、逆方向の繰り越しが
+                        // 残って一瞬反対に動くのを防ぐ（即応性を保つ）。
+                        if (_zoomScrollAccum != 0f && Mathf.Sign(e.delta.y) != Mathf.Sign(_zoomScrollAccum))
+                            _zoomScrollAccum = 0f;
+                        _zoomScrollAccum += e.delta.y;
 
-                        if (previewTexture != null && Mathf.Abs(newZoom - oldZoom) > 0.0001f)
+                        // 閾値を超えたぶんのストップ数。端数は次イベントへ繰り越す。
+                        int steps = (int)(_zoomScrollAccum / ZoomScrollStepThreshold);
+                        if (steps != 0)
                         {
-                            Vector2 mouseInImage = e.mousePosition - new Vector2(previewRect.x, previewRect.y);
-                            _previewScrollPos += mouseInImage * (newZoom / oldZoom - 1f);
-                            _previewScrollPos.x = Mathf.Max(0f, _previewScrollPos.x);
-                            _previewScrollPos.y = Mathf.Max(0f, _previewScrollPos.y);
+                            _zoomScrollAccum -= steps * ZoomScrollStepThreshold;
+
+                            float oldZoom = previewZoom;
+                            // 上スクロール(delta.y<0 ⇒ steps<0)で拡大。
+                            bool zoomIn = steps < 0;
+                            int count = Mathf.Abs(steps);
+                            float newZoom = oldZoom;
+                            for (int i = 0; i < count; i++)
+                                newZoom = StepZoom(newZoom, zoomIn, ComputeMaxZoom(scale));
+
+                            if (previewTexture != null && Mathf.Abs(newZoom - oldZoom) > 0.0001f)
+                            {
+                                Vector2 mouseInImage = e.mousePosition - new Vector2(previewRect.x, previewRect.y);
+                                _previewScrollPos += mouseInImage * (newZoom / oldZoom - 1f);
+                                _previewScrollPos.x = Mathf.Max(0f, _previewScrollPos.x);
+                                _previewScrollPos.y = Mathf.Max(0f, _previewScrollPos.y);
+                            }
+
+                            previewZoom = newZoom;
+                            _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
+                            // ズーム比が変わるとピクセル/ソース比も変わるため、
+                            // 古い詳細プレビューは整合しなくなる。破棄して再生成を待つ。
+                            _detailView.InvalidateDisplay();
+                            _host.RequestRepaint();
                         }
 
-                        previewZoom = newZoom;
-                        _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
-                        // ズーム比が変わるとピクセル/ソース比も変わるため、
-                        // 古い詳細プレビューは整合しなくなる。破棄して再生成を待つ。
-                        _detailView.InvalidateDisplay();
+                        // ストップが動かなくてもイベントは消費し、外側スクロールビューが
+                        // 動かないようにする（蓄積中も含め Ctrl+スクロールはここで完結）。
                         e.Use();
-                        _host.RequestRepaint();
                     }
                     break;
 
