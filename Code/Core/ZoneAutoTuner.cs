@@ -136,6 +136,23 @@ namespace VRCAvatarColorChanger
                         result.highlightRecovery = true;
                     }
                 }
+                else
+                {
+                    // マスク無し(かんたんモード相当)。無彩色サンプルはグレーモードで純 RGB 距離
+                    // マッチになるため、tolerance を「サンプルからの実 RGB 距離分布」から取り直す。
+                    // これで V 広がりの過大評価による黒/有彩の巻き込みを防ぐ。有彩サンプルは
+                    // 従来の hSpread 由来 tolerance(GT で良好)をそのまま使う。
+                    Color.RGBToHSV(zone.sampleColor, out _, out float sampleS, out _);
+                    if (sampleS < AchromaSampleSatMax
+                        && TryDeriveAchromaticTolerance(pixels, width, height, zone, out float achTol))
+                    {
+                        result.tolerance = achTol;
+                        // 無彩色サンプルではハイライト復元を切る。グレーモードのハイライト経路は
+                        // 「明度だけ」で判定し色相/彩度を見ないため、明るい有彩画素(別素材)まで
+                        // 巻き込んでしまう。グレー本体のハイライトは RGB 距離 tolerance で拾える。
+                        result.highlightRecovery = false;
+                    }
+                }
             }
 
             DecideGlobals(width, height, session, ref result);
@@ -316,6 +333,63 @@ namespace VRCAvatarColorChanger
                 }
             }
             tolerance = Mathf.Clamp(pctDist + MaskAwareMargin, MaskAwareTolMin, MaskAwareTolMax);
+            return true;
+        }
+
+        // ─────────────────── 無彩色(低彩度サンプル)の tolerance ───────────────────
+        // 無彩色サンプル(白/黒/グレー)はマッチングがグレーモード=純 RGB 距離になる。
+        // 旧来の「near-box の V 広がり(vSpread)+0.10、上限 0.50」は、(1)サンプルからの距離
+        // ではなくパート全体の V 幅(両側)を使うため約 2 倍に過大評価し、(2)上限 0.50 が
+        // 黒や(RGB が近ければ)有彩色まで巻き込む。代わりにマスク認識型と同じく「サンプルからの
+        // 実 RGB 距離分布の高パーセンタイル」で導出する。クラスタは『無彩寄り(低彩度)かつ
+        // サンプルと明度が近い』画素に限定し、別パート(黒/白)や有彩を距離分布から排除する。
+        private const float AchromaSampleSatMax = 0.15f; // このサンプル彩度未満で無彩 tolerance を使う
+        private const float AchromaClusterSatMax = 0.20f; // クラスタに入れる画素の彩度上限(有彩を除外)
+        private const float AchromaVWindow = 0.30f;       // サンプル明度からの V 窓(想定シェーディング幅)
+        private const float AchromaPercentile = 0.95f;
+        private const float AchromaMargin = 0.04f;
+        private const float AchromaTolMin = 0.12f;
+        private const float AchromaTolMax = 0.40f;
+
+        private static bool TryDeriveAchromaticTolerance(Color32[] pixels, int w, int h, ColorZone zone,
+            out float tolerance)
+        {
+            tolerance = 0f;
+            Color.RGBToHSV(zone.sampleColor, out _, out _, out float sV);
+            float sr = zone.sampleColor.r, sg = zone.sampleColor.g, sb = zone.sampleColor.b;
+
+            int stride = (w <= 2048) ? 1 : 2;
+            var bins = new int[DistBins];
+            int count = 0;
+            for (int y = 0; y < h; y += stride)
+            {
+                int rowStart = y * w;
+                for (int x = 0; x < w; x += stride)
+                {
+                    Color32 c = pixels[rowStart + x];
+                    if (c.a < 128) continue;
+                    float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
+                    Color.RGBToHSV(new Color(r, g, b, 1f), out _, out float pS, out float pV);
+                    if (pS > AchromaClusterSatMax) continue;        // 有彩は別素材として距離分布に入れない
+                    if (Mathf.Abs(pV - sV) > AchromaVWindow) continue; // 明度が遠い(黒/白の別パート)は除外
+                    float dr = r - sr, dg = g - sg, db = b - sb;
+                    float d = Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f; // グレーモードの距離式と一致
+                    int bi = Mathf.Clamp((int)(d / DistMax * DistBins), 0, DistBins - 1);
+                    bins[bi]++;
+                    count++;
+                }
+            }
+            if (count < MinNearSampleCount) return false;
+
+            int target = Mathf.CeilToInt(count * AchromaPercentile);
+            int cum = 0;
+            float pctDist = DistMax;
+            for (int i = 0; i < DistBins; i++)
+            {
+                cum += bins[i];
+                if (cum >= target) { pctDist = (i + 1) / (float)DistBins * DistMax; break; }
+            }
+            tolerance = Mathf.Clamp(pctDist + AchromaMargin, AchromaTolMin, AchromaTolMax);
             return true;
         }
 
