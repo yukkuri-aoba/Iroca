@@ -54,7 +54,7 @@ namespace VRCAvatarColorChanger
         private int antiAliasCleanup { get => _session.antiAliasCleanup; set => _session.antiAliasCleanup = value; }
         private bool useDecontamination { get => _session.useDecontamination; set => _session.useDecontamination = value; }
         private int decontaminationRadius { get => _session.decontaminationRadius; set => _session.decontaminationRadius = value; }
-        private bool advancedMode { get => _session.advancedMode; set => _session.advancedMode = value; }
+        private EditMode editMode { get => _session.editMode; set => _session.editMode = value; }
         private int holeFillPasses { get => _session.holeFillPasses; set => _session.holeFillPasses = value; }
         private int holeFillMinNeighbors { get => _session.holeFillMinNeighbors; set => _session.holeFillMinNeighbors = value; }
         private float relaxedSatMin { get => _session.relaxedSatMin; set => _session.relaxedSatMin = value; }
@@ -77,7 +77,7 @@ namespace VRCAvatarColorChanger
         // 変更を次の Layout イベント開始時まで遅延させる。
         private bool _pendingAddZone;
         private int _pendingRemoveZoneIndex = -1;
-        private bool? _pendingAdvancedMode;
+        private EditMode? _pendingEditMode;
 
         // ゾーン並べ替え（ドラッグ）用。並び順が優先度なので、リスト上のドラッグで優先度を変える。
         // _dragZoneIndex: 現在ドラッグ中のゾーン index（-1 = ドラッグなし）。
@@ -213,11 +213,11 @@ namespace VRCAvatarColorChanger
                     MarkPreviewDirty();
                 }
             }
-            if (_pendingAdvancedMode.HasValue)
+            if (_pendingEditMode.HasValue)
             {
-                Undo.RecordObject(this, "Toggle Advanced Mode");
-                advancedMode = _pendingAdvancedMode.Value;
-                _pendingAdvancedMode = null;
+                Undo.RecordObject(this, "Change Edit Mode");
+                editMode = _pendingEditMode.Value;
+                _pendingEditMode = null;
             }
         }
 
@@ -508,14 +508,14 @@ namespace VRCAvatarColorChanger
             EditorGUILayout.LabelField(
                 new GUIContent(Localization.EditMode, Localization.EditModeTooltip),
                 GUILayout.Width(70));
-            int cur = advancedMode ? 1 : 0;
+            int cur = (int)editMode;
             int next = GUILayout.Toolbar(cur,
-                new[] { Localization.SimpleMode, Localization.AdvancedShort });
+                new[] { Localization.SimpleMode, Localization.NormalMode, Localization.AdvancedShort });
             if (next != cur)
             {
                 // 制御数が変わるため、ExitGUI 相当の崩れを避けて次の Layout で適用する
-                // （既存の _pendingAdvancedMode 遅延ミューテーションを再利用）。
-                _pendingAdvancedMode = (next == 1);
+                // （_pendingEditMode 遅延ミューテーション）。
+                _pendingEditMode = (EditMode)next;
                 Repaint();
             }
             // かんたんモードの自動調整は裏で走り、ウィンドウをブロックしない。
@@ -633,7 +633,8 @@ namespace VRCAvatarColorChanger
                 // かんたんモードでは、サンプルカラーが変わったら自動調整を予約する。
                 // 詳細パラメータ（巻き込み抑制の shadowForgivenessSatMin 等）を手で触らせず、
                 // 自動調整に委ねることで簡易ユーザーでも誤爆を抑えられるようにする。
-                if (!advancedMode && zone.sampleColor != prevSampleColor)
+                // 通常/上級モードは従来通り手動操作なので自動実行しない。
+                if (editMode == EditMode.Simple && zone.sampleColor != prevSampleColor)
                     ScheduleAutoTune(zone);
                 zone.tolerance = UndoHelper.Slider(this,
                     new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
@@ -703,10 +704,11 @@ namespace VRCAvatarColorChanger
                     new GUIContent(Localization.OutputSaturation, Localization.OutputSaturationTooltip),
                     zone.outputSaturation, 0f, 1f);
 
-                // ─── 上級モード時のみ表示する詳細パラメータ ───
+                // ─── 通常モード以上で表示する標準の調整項目 ───
                 // かんたんモードでは核となる色・許容範囲・模様保持・出力彩度だけを見せ、
                 // エッジ/彩度/シャドウ・ハイライト等の調整は「自動調整」に委ねる。
-                if (advancedMode)
+                // 通常モードは従来通りこれらを手動表示し、上級モードはさらに内部パラメータも出す。
+                if (editMode != EditMode.Simple)
                 {
                     zone.autoRecolorAnchor = UndoHelper.Toggle(this,
                         new GUIContent(Localization.AutoRecolorAnchor, Localization.AutoRecolorAnchorTooltip),
@@ -764,17 +766,21 @@ namespace VRCAvatarColorChanger
                         new GUIContent(Localization.ChromaThreshold, Localization.ChromaThresholdTooltip),
                         zone.chromaThreshold, 0f, 1f);
 
-                    zone.valueWeight = UndoHelper.Slider(this,
-                        new GUIContent(Localization.ValueWeight, Localization.ValueWeightTooltip),
-                        zone.valueWeight, 0f, 1f);
-                    zone.satDistWeight = UndoHelper.Slider(this,
-                        new GUIContent(Localization.SatDistWeight, Localization.SatDistWeightTooltip),
-                        zone.satDistWeight, 0f, 1f);
-                    zone.satRampScale = UndoHelper.Slider(this,
-                        new GUIContent(Localization.SatRampScale, Localization.SatRampScaleTooltip),
-                        zone.satRampScale, 0.01f, 0.5f);
+                    // ─── 上級モードのみ: マッチング距離の内部重み ───
+                    if (editMode == EditMode.Advanced)
+                    {
+                        zone.valueWeight = UndoHelper.Slider(this,
+                            new GUIContent(Localization.ValueWeight, Localization.ValueWeightTooltip),
+                            zone.valueWeight, 0f, 1f);
+                        zone.satDistWeight = UndoHelper.Slider(this,
+                            new GUIContent(Localization.SatDistWeight, Localization.SatDistWeightTooltip),
+                            zone.satDistWeight, 0f, 1f);
+                        zone.satRampScale = UndoHelper.Slider(this,
+                            new GUIContent(Localization.SatRampScale, Localization.SatRampScaleTooltip),
+                            zone.satRampScale, 0.01f, 0.5f);
+                    }
 
-                    // 詳細パラメータを既定値へ戻す（色・許容範囲・名前は保持）。
+                    // 詳細パラメータを既定値へ戻す（色・許容範囲・名前は保持）。通常/上級どちらでも表示。
                     EditorGUILayout.Space(2);
                     if (GUILayout.Button(new GUIContent(Localization.ResetZoneTuning, Localization.ResetZoneTuningTooltip)))
                     {
@@ -957,8 +963,8 @@ namespace VRCAvatarColorChanger
             string id = _pendingAutoTuneZoneId;
             _pendingAutoTuneZoneId = null;
 
-            // 上級モードへ切り替わっていたら自動実行しない（手動操作を尊重）。
-            if (advancedMode) return;
+            // かんたんモード以外へ切り替わっていたら自動実行しない（手動操作を尊重）。
+            if (editMode != EditMode.Simple) return;
             var zone = FindZoneById(id);
             if (zone == null) return;
             // 手動ボタンの canTune と同じ発火条件。
@@ -982,9 +988,9 @@ namespace VRCAvatarColorChanger
             // 「他の作業がしたい」要望が満たされない。ラベルは pixels 解析に
             // 依存しない per-zone 判定なのでメインスレッドで先に確定できる。
             // かんたんモードでは詳細パラメータは自動管理（手で変更しない）なので、
-            // 自動実行・手動実行ともに上書き確認は出さない。確認が要るのは上級モードで
+            // 自動実行・手動実行ともに上書き確認は出さない。確認が要るのは通常/上級モードで
             // ユーザーが手調整した値を上書きする手動実行のときだけ。
-            if (!auto && advancedMode)
+            if (!auto && editMode != EditMode.Simple)
             {
                 var previewLabels = ZoneAutoTuner.PreviewOverwrittenLabels(zone);
                 if (previewLabels.Count > 0)
@@ -1110,9 +1116,9 @@ namespace VRCAvatarColorChanger
                 new GUIContent(Localization.UseDecontamination, Localization.UseDecontaminationTooltip),
                 useDecontamination);
 
-            // アドバンスモードの切替はゾーンリスト上部の「かんたん / 上級」トグルに一本化した
-            // （DrawModeToggle）。ここでは上級モード時の詳細パラメータのみを表示する。
-            if (advancedMode)
+            // 編集モードの切替はゾーンリスト上部の「かんたん / 通常 / 上級」トグルに一本化した
+            // （DrawModeToggle）。穴埋め・境界復元・α分解半径は上級モード時のみ表示する。
+            if (editMode == EditMode.Advanced)
             {
                 using (new EditorGUI.IndentLevelScope())
                 {

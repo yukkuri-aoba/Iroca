@@ -153,7 +153,8 @@ namespace VRCAvatarColorChanger
                 name = presetName,
                 zones = zonesCopy,
                 edgeFeather = session.edgeFeather,
-                advancedMode = session.advancedMode,
+                // 編集モード(かんたん/通常/上級)は UI 表示の好みであり色設定ではないため、
+                // プリセットには保存しない（読込で表示モードが勝手に変わらないように）。
                 antiAliasCleanup = session.antiAliasCleanup,
                 holeFillPasses = session.holeFillPasses,
                 holeFillMinNeighbors = session.holeFillMinNeighbors,
@@ -196,7 +197,7 @@ namespace VRCAvatarColorChanger
             MigrateLegacyLayerPriority(session.zones);
             _host.EnsureAllZoneIds();
             session.edgeFeather          = data.edgeFeather;
-            session.advancedMode         = data.advancedMode;
+            // 編集モードはプリセットで上書きしない（現在の表示モードを維持）。
             session.antiAliasCleanup     = data.antiAliasCleanup;
             session.holeFillPasses       = data.holeFillPasses;
             session.holeFillMinNeighbors = data.holeFillMinNeighbors;

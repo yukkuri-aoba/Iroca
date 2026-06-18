@@ -150,13 +150,14 @@ namespace VRCAvatarColorChanger
             ? "有効にすると、アルゴリズムの内部パラメータをより細かく調整できます。\n通常はデフォルト値で十分ですが、特殊なテクスチャに対して微調整が必要な場合に使用してください。"
             : "Enables fine-grained control over internal algorithm parameters.\nDefault values work well for most textures, but can be tuned for special cases.";
 
-        // ─── 編集モード切替（かんたん / 上級） ───
+        // ─── 編集モード切替（かんたん / 通常 / 上級） ───
         public static string EditMode      => IsJapanese ? "編集モード" : "Mode";
         public static string SimpleMode    => IsJapanese ? "かんたん" : "Simple";
+        public static string NormalMode    => IsJapanese ? "通常" : "Normal";
         public static string AdvancedShort => IsJapanese ? "上級" : "Advanced";
         public static string EditModeTooltip => IsJapanese
-            ? "「かんたん」は色とおおまかな調整だけを表示します（迷ったらこちら）。サンプルカラーを変えると自動調整が裏で走り、巻き込み抑制などの細部を自動設定します。\n「上級」はエッジ・彩度・シャドウ/ハイライトなど全ての詳細パラメータを手動で調整できます（自動実行はしません）。"
-            : "Simple shows only colors and basic adjustments (recommended). When you change the sample color, Auto-tune runs in the background and sets the details (bleed suppression, etc.) for you.\nAdvanced lets you tune every detailed parameter manually (no auto-run).";
+            ? "「かんたん」: 色とおおまかな調整だけを表示（迷ったらこちら）。サンプルカラーを変えると自動調整が裏で走り、巻き込み抑制などの細部を自動設定します。\n「通常」: 従来通りの標準的な調整項目（エッジ・彩度・シャドウ/ハイライト）を手動表示。自動実行はしません。\n「上級」: 通常に加えて内部マッチング重みなど最も細かいパラメータまで表示します。"
+            : "Simple: shows only colors and basic adjustments (recommended). Changing the sample color runs Auto-tune in the background to set details (bleed suppression, etc.).\nNormal: the classic set of manual controls (edge, saturation, shadow/highlight). No auto-run.\nAdvanced: Normal plus the finest internal parameters (matching weights, etc.).";
         public static string AutoTuningInProgress => IsJapanese ? "自動調整中…" : "Auto-tuning…";
 
         public static string ResetZoneTuning => IsJapanese ? "詳細を既定値に戻す" : "Reset details to default";
