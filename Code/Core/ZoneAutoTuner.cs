@@ -414,10 +414,21 @@ namespace VRCAvatarColorChanger
         // パーツのタイトな分布に追従できるようにする(素直なパーツでは P95+margin がこの床に収まり、内部変動
         // が大きいパーツでは P95 が上がるので自然に広がる ⇒ 取りこぼしと過選択のバランスが取れる)。
         // クラスタが過少(<MinNearSampleCount)なら false を返し、MergeAnalyzed の hSpread tolerance を温存。
+        //
+        // 【無彩画素の混入対策】Unity の Color.RGBToHSV は無彩(R=G=B)画素の hue を 0 に丸める。
+        // そのため暖色(hue≈0)かつ低彩度(sS<NearSatDist=0.20)のサンプルでは、背景や陰影の
+        // グレー画素(pS≈0, hue=0)が near-sample クラスタに紛れ込み、その大きな value 項距離で
+        // P95 が跳ね上がって tolerance が上限に張り付く(実測: 暖色 sS≈0.17 で 0.35〜0.40)。
+        // クラスタは「色のついた同パーツ画素」を表すべきなので、サンプル彩度の一定割合に満たない
+        // 無彩寄り画素を距離分布から除外する(無彩経路 TryDeriveAchromaticTolerance が彩度上限で
+        // 有彩を除外するのと対称)。パーツ自身の中程度の陰影(pS ≳ sS*frac)は残り、彩度が大きく
+        // 落ちる深い陰影は本番のシャドウ免除が拾うので tolerance で覆う必要はない。
+        // 上限は HSV 距離で色相 0.22 ぶん(≈79°)までに抑える(0.40 は色相 144° 相当で広すぎた)。
         private const float ChromaPercentile = 0.95f;
         private const float ChromaMargin = 0.03f;
         private const float ChromaTolMin = 0.08f;
-        private const float ChromaTolMax = 0.40f;
+        private const float ChromaTolMax = 0.22f;
+        private const float ChromaClusterSatFrac = 0.35f; // pS < sS*frac の無彩寄り画素はクラスタから除外
 
         private static bool TryDeriveChromaticTolerance(Color32[] pixels, int w, int h, ColorZone zone,
             out float tolerance)
@@ -445,6 +456,8 @@ namespace VRCAvatarColorChanger
                     if (hd >= NearHueDist) continue;
                     if (Mathf.Abs(pS - sS) >= NearSatDist) continue;
                     if (Mathf.Abs(pV - sV) >= NearValDist) continue;
+                    // 無彩寄り画素(背景/陰影のグレー, hue=0 で暖色サンプルに誤マッチ)を除外
+                    if (pS < sS * ChromaClusterSatFrac) continue;
                     float sd = Mathf.Abs(pS - sS);
                     float vd = Mathf.Abs(pV - sV);
                     float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
