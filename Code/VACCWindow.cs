@@ -96,6 +96,15 @@ namespace VRCAvatarColorChanger
         // ユーザーが zone を削除/追加した場合に備えて id で再ルックアップする。
         [System.NonSerialized] private string _autoTuneTargetZoneId;
 
+        // 自動調整の実行種別。手動実行（ボタン）のときだけウィンドウ全体をブロックし
+        // モーダル進捗を出す。かんたんモードの自動実行ではブロックせず裏で走らせる。
+        [System.NonSerialized] private bool _autoTuneIsManual = true;
+        // かんたんモードの自動調整デバウンス。サンプルカラーが変わってから一定時間
+        // 落ち着いたら自動調整を 1 回だけ走らせる（カラーピッカーのドラッグ連発を間引く）。
+        [System.NonSerialized] private string _pendingAutoTuneZoneId;
+        [System.NonSerialized] private double _pendingAutoTuneTime;
+        private const double AutoTuneDebounceSeconds = 0.4;
+
         [MenuItem(VACCConsts.MenuPath, priority = 100)]
         public static void ShowWindow()
         {
@@ -216,6 +225,8 @@ namespace VRCAvatarColorChanger
         {
             // Ctrl+Z / Ctrl+Y は Unity 標準 Undo に統合済みのため、独自処理は不要。
             ProcessPendingZoneChanges();
+            // かんたんモードで予約された自動調整を、デバウンス経過後に裏で実行する。
+            ProcessPendingAutoTune();
 
             // 英語表示が初めて使われたときに AI 機械翻訳である旨を一度だけ告知する。
             // Layout イベント時のみ実行し、描画途中のモーダル表示を避ける。
@@ -227,7 +238,10 @@ namespace VRCAvatarColorChanger
             // ジョブ実行中はウィンドウ内 UI を全て無効化する。
             // ただしジョブのオーバーレイ（進捗バー＋キャンセル）は DisabledScope の外で
             // 描画し、キャンセルだけは押せるようにする。
-            bool blocking = (_exportView != null && _exportView.IsExporting) || _autoTuneJob.IsRunning;
+            // 自動調整は「手動実行（ボタン）」のときだけウィンドウ全体をブロックする。
+            // かんたんモードの自動実行は裏で走らせ、操作を妨げない。
+            bool blocking = (_exportView != null && _exportView.IsExporting)
+                || (_autoTuneJob.IsRunning && _autoTuneIsManual);
             EditorGUI.BeginDisabledGroup(blocking);
 
             bool sideBySide = position.width >= VACCConsts.Layout.SideBySideMinWidth;
@@ -504,6 +518,11 @@ namespace VRCAvatarColorChanger
                 _pendingAdvancedMode = (next == 1);
                 Repaint();
             }
+            // かんたんモードの自動調整は裏で走り、ウィンドウをブロックしない。
+            // 進行中・予約中であることを軽い文言で示す（操作は妨げない）。
+            if ((_autoTuneJob.IsRunning && !_autoTuneIsManual) || _pendingAutoTuneZoneId != null)
+                GUILayout.Label(Localization.AutoTuningInProgress, EditorStyles.miniLabel,
+                    GUILayout.ExpandWidth(false));
             EditorGUILayout.EndHorizontal();
             EditorGUILayout.Space(2);
         }
@@ -607,9 +626,15 @@ namespace VRCAvatarColorChanger
                 //     zone.mode);
 
                 // ColorPick UI（常時表示）
+                Color prevSampleColor = zone.sampleColor;
                 zone.sampleColor = UndoHelper.ColorField(this,
                     new GUIContent(Localization.SampleColor, Localization.SampleColorTooltip),
                     zone.sampleColor);
+                // かんたんモードでは、サンプルカラーが変わったら自動調整を予約する。
+                // 詳細パラメータ（巻き込み抑制の shadowForgivenessSatMin 等）を手で触らせず、
+                // 自動調整に委ねることで簡易ユーザーでも誤爆を抑えられるようにする。
+                if (!advancedMode && zone.sampleColor != prevSampleColor)
+                    ScheduleAutoTune(zone);
                 zone.tolerance = UndoHelper.Slider(this,
                     new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
                     zone.tolerance, 0f, 1f);
@@ -903,26 +928,76 @@ namespace VRCAvatarColorChanger
             return combined;
         }
 
-        private void RunAutoTune(ColorZone zone)
+        // かんたんモード用: サンプルカラーが変わったら自動調整をデバウンス予約する。
+        // 進行中の（古い色の）自動実行は破棄して、最新の色で取り直す。
+        private void ScheduleAutoTune(ColorZone zone)
+        {
+            if (zone == null) return;
+            zone.EnsureId();
+            _pendingAutoTuneZoneId = zone.id;
+            _pendingAutoTuneTime = EditorApplication.timeSinceStartup;
+            if (_autoTuneJob.IsRunning && !_autoTuneIsManual)
+                _autoTuneJob.Cancel();
+            Repaint();
+        }
+
+        // デバウンス経過後、条件を満たせば自動調整を裏で実行する。OnGUI 冒頭から呼ぶ。
+        private void ProcessPendingAutoTune()
+        {
+            if (_pendingAutoTuneZoneId == null) return;
+            // 何らかの自動調整（手動含む）が走っている間は待つ。
+            if (_autoTuneJob.IsRunning) { Repaint(); return; }
+            // デバウンス時間を進めるため、未到達なら再描画を要求して待つ。
+            if (EditorApplication.timeSinceStartup - _pendingAutoTuneTime < AutoTuneDebounceSeconds)
+            {
+                Repaint();
+                return;
+            }
+
+            string id = _pendingAutoTuneZoneId;
+            _pendingAutoTuneZoneId = null;
+
+            // 上級モードへ切り替わっていたら自動実行しない（手動操作を尊重）。
+            if (advancedMode) return;
+            var zone = FindZoneById(id);
+            if (zone == null) return;
+            // 手動ボタンの canTune と同じ発火条件。
+            if (sourceTexture == null || !IsReadable(sourceTexture)
+                || zone.mode != SelectionMode.ColorPick || zone.sampleColor == Color.white)
+                return;
+
+            RunAutoTune(zone, auto: true);
+        }
+
+        private void RunAutoTune(ColorZone zone, bool auto = false)
         {
             if (_autoTuneJob.IsRunning) return;
             if (zone == null) return;
 
-            // ─── 上書き確認はジョブ開始“前”に行う ───
+            // 実行種別を記録（手動のときだけウィンドウをブロック＋モーダル進捗を出す）。
+            _autoTuneIsManual = !auto;
+
+            // ─── 上書き確認はジョブ開始“前”に行う（上級モードの手動実行時のみ）───
             // 完了後にモーダルを出すと Editor がブロックされ、ユーザーの
             // 「他の作業がしたい」要望が満たされない。ラベルは pixels 解析に
             // 依存しない per-zone 判定なのでメインスレッドで先に確定できる。
-            var previewLabels = ZoneAutoTuner.PreviewOverwrittenLabels(zone);
-            if (previewLabels.Count > 0)
+            // かんたんモードでは詳細パラメータは自動管理（手で変更しない）なので、
+            // 自動実行・手動実行ともに上書き確認は出さない。確認が要るのは上級モードで
+            // ユーザーが手調整した値を上書きする手動実行のときだけ。
+            if (!auto && advancedMode)
             {
-                // applyGlobals は事後判定だが、true になる条件下では globals は既に default
-                // のため AutoTuneOverwriteBody の includesGlobals=true の差分は表示しない。
-                string body = Localization.AutoTuneOverwriteBody(previewLabels, includesGlobals: false);
-                if (!EditorUtility.DisplayDialog(
-                        Localization.AutoTuneConfirmTitle, body,
-                        Localization.OK, Localization.Cancel))
+                var previewLabels = ZoneAutoTuner.PreviewOverwrittenLabels(zone);
+                if (previewLabels.Count > 0)
                 {
-                    return;
+                    // applyGlobals は事後判定だが、true になる条件下では globals は既に default
+                    // のため AutoTuneOverwriteBody の includesGlobals=true の差分は表示しない。
+                    string body = Localization.AutoTuneOverwriteBody(previewLabels, includesGlobals: false);
+                    if (!EditorUtility.DisplayDialog(
+                            Localization.AutoTuneConfirmTitle, body,
+                            Localization.OK, Localization.Cancel))
+                    {
+                        return;
+                    }
                 }
             }
 
@@ -939,16 +1014,18 @@ namespace VRCAvatarColorChanger
                 texW = tex.width;
                 texH = tex.height;
                 // GetPixels32 はメインスレッド必須で、大きいテクスチャでは一瞬フリーズする。
-                // 完全な非同期化はできないため、その間だけモーダル進捗バーで「解析中」を明示し、
-                // 無言の固まりに見えないようにする（バックグラウンド解析本体は別途ウィンドウ内
-                // 進捗バー＋キャンセルで表示される）。
+                // 完全な非同期化はできないため、手動実行のときだけモーダル進捗バーで「解析中」を
+                // 明示し、無言の固まりに見えないようにする（バックグラウンド解析本体は別途
+                // ウィンドウ内進捗バー＋キャンセルで表示される）。かんたんモードの自動実行では
+                // 色を変えるたびにモーダルが点滅すると煩いので出さず、裏で静かに走らせる。
                 try
                 {
-                    EditorUtility.DisplayProgressBar(Localization.AutoTune, Localization.AnalyzingTexture, 0.1f);
+                    if (!auto)
+                        EditorUtility.DisplayProgressBar(Localization.AutoTune, Localization.AnalyzingTexture, 0.1f);
                     pixels = tex.GetPixels32();
                 }
                 catch (UnityEngine.UnityException) { pixels = null; }
-                finally { EditorUtility.ClearProgressBar(); }
+                finally { if (!auto) EditorUtility.ClearProgressBar(); }
             }
             bool[] excluded = BuildCombinedExclusionForZone(zone, out int mw, out int mh);
 

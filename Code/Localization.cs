@@ -155,8 +155,9 @@ namespace VRCAvatarColorChanger
         public static string SimpleMode    => IsJapanese ? "かんたん" : "Simple";
         public static string AdvancedShort => IsJapanese ? "上級" : "Advanced";
         public static string EditModeTooltip => IsJapanese
-            ? "「かんたん」は色とおおまかな調整だけを表示します（迷ったらこちら。細かい調整は『自動調整』に任せられます）。\n「上級」はエッジ・彩度・シャドウ/ハイライトなど全ての詳細パラメータを表示します。"
-            : "Simple shows only colors and basic adjustments (recommended; let 'Auto-tune' handle the rest).\nAdvanced reveals every detailed parameter (edge, saturation, shadow/highlight, etc.).";
+            ? "「かんたん」は色とおおまかな調整だけを表示します（迷ったらこちら）。サンプルカラーを変えると自動調整が裏で走り、巻き込み抑制などの細部を自動設定します。\n「上級」はエッジ・彩度・シャドウ/ハイライトなど全ての詳細パラメータを手動で調整できます（自動実行はしません）。"
+            : "Simple shows only colors and basic adjustments (recommended). When you change the sample color, Auto-tune runs in the background and sets the details (bleed suppression, etc.) for you.\nAdvanced lets you tune every detailed parameter manually (no auto-run).";
+        public static string AutoTuningInProgress => IsJapanese ? "自動調整中…" : "Auto-tuning…";
 
         public static string ResetZoneTuning => IsJapanese ? "詳細を既定値に戻す" : "Reset details to default";
         public static string ResetZoneTuningTooltip => IsJapanese
