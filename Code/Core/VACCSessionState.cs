@@ -6,6 +6,12 @@ using System.Collections.Generic;
 namespace VRCAvatarColorChanger
 {
     /// <summary>
+    /// 編集 UI の表示レベル。Simple=色＋おおまかな調整のみ（色変更で自動調整）、
+    /// Normal=従来の標準的な調整項目（自動実行なし）、Advanced=内部パラメータまで全表示。
+    /// </summary>
+    internal enum EditMode { Simple, Normal, Advanced }
+
+    /// <summary>
     /// 編集状態の永続表現。ゾーン定義・処理パラメータ・マスク状態をまとめて保持し、
     /// EditorWindow に [SerializeField] で持たせることで Unity 標準の SerializedObject /
     /// Undo に乗せる。GUI・ファイル I/O・AssetDatabase に依存しない純粋データ。
@@ -20,7 +26,8 @@ namespace VRCAvatarColorChanger
         public int antiAliasCleanup = 3;
         public bool useDecontamination = true;
         public int decontaminationRadius = 4;
-        public bool advancedMode;
+        // 既定はかんたんモード（初見ユーザー向け）。通常/上級は明示的に切り替える。
+        public EditMode editMode = EditMode.Simple;
         public int holeFillPasses = 5;
         public int holeFillMinNeighbors = 4;
         public float relaxedSatMin = 0.02f;
