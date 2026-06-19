@@ -365,6 +365,26 @@ namespace VRCAvatarColorChanger
         private const float ChromaTolMax = 0.22f;
         private const float ChromaClusterSatFrac = 0.35f; // pS < sS*frac の無彩寄り画素はクラスタから除外
 
+        // ── foreign-hue 隣接パーツ検出(adjacent-part bleed の打ち切り) ──
+        // near 窓(hd<NearHueDist=0.10)内に「彩度/明度は近いが hue が自パーツの自然な広がりを超えて
+        // 外れる」画素が多数あるとき、それは色相が近い別パーツ(例: 青の隣に水色)。tolerance がその
+        // 距離を越えると巻き込む。自パーツ core の hue 広がり(P90)から許容 hue ゲートを導出し、それを
+        // 超える foreign 画素の量(core 比)が閾値を超えたら、foreign の最小距離(P10)の直下で tolerance を
+        // 打ち切る。通常の床(ChromaTolMin=0.08)より低い ForeignLowFloor まで下げてよい(隣接別パーツの
+        // 存在という積極的根拠があるため)。foreign が無いテクスチャでは一切発火せず現行挙動と同一。
+        // 特定の色相・キャラ・ピクセルに依存せず、テクスチャ統計(core hue spread / foreign 比)のみから決まる。
+        private const int   ForeignHueBins     = 200;    // [0,NearHueDist] の hue ヒストグラム分解能
+        private const float CoreHueWindow      = 0.03f;  // core 抽出: サンプルからの hue 窓
+        private const float CoreSatWindow      = 0.15f;  // core 抽出: 彩度窓
+        private const float CoreValWindow      = 0.20f;  // core 抽出: 明度窓
+        private const float ForeignGateK       = 2.5f;   // 許容 hue ゲート = K*coreSpread + floor
+        private const float ForeignGateFloor   = 0.015f;
+        private const float ForeignGateMin     = 0.03f;  // ゲート下限(締まった core でもこの幅は同パーツ扱い)
+        private const float ForeignRatioThresh = 0.25f;  // foreign/core 比がこれ超で隣接別パーツと判定
+        private const int   ForeignMinCount    = 30;     // foreign 画素数の下限(ノイズ無視)
+        private const float ForeignLowFloor    = 0.04f;  // 打ち切り時に許す tolerance 下限(通常床 0.08 より低い)
+        private const float ForeignCapEps      = 0.005f; // foreign 最小距離(P10)からのマージン
+
         private static bool TryDeriveChromaticTolerance(Color32[] pixels, int w, int h, ColorZone zone,
             bool[] excluded, int maskW, int maskH, out float tolerance)
         {
@@ -374,8 +394,50 @@ namespace VRCAvatarColorChanger
             float valueW = zone.valueWeight;
 
             int stride = (w <= 2048) ? 1 : 2;
+
+            // ── 事前パス: 自パーツ core の hue 広がり(P90)から foreign 判定の hue ゲートを導出 ──
+            // core = サンプルにごく近い(hue/彩度/明度の窓内)有彩画素。その hue 広がりの数倍までを
+            // 「同パーツの色相」とみなし、それを超える画素を foreign(別パーツ)候補にする。
+            var coreHueBins = new int[ForeignHueBins];
+            int coreHueCount = 0;
+            for (int y = 0; y < h; y += stride)
+            {
+                int rowStart = y * w;
+                for (int x = 0; x < w; x += stride)
+                {
+                    Color32 c = pixels[rowStart + x];
+                    if (c.a < 128) continue;
+                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
+                    Color.RGBToHSV(new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f),
+                        out float pH, out float pS, out float pV);
+                    if (pS < sS * ChromaClusterSatFrac) continue;
+                    float hdc = Mathf.Abs(pH - sH); if (hdc > 0.5f) hdc = 1f - hdc;
+                    if (hdc >= CoreHueWindow) continue;
+                    if (Mathf.Abs(pS - sS) >= CoreSatWindow) continue;
+                    if (Mathf.Abs(pV - sV) >= CoreValWindow) continue;
+                    int cb = Mathf.Clamp((int)(hdc / NearHueDist * ForeignHueBins), 0, ForeignHueBins - 1);
+                    coreHueBins[cb]++;
+                    coreHueCount++;
+                }
+            }
+            float coreSpread = 0.02f;
+            if (coreHueCount >= MinNearSampleCount)
+            {
+                int ctgt = Mathf.CeilToInt(coreHueCount * 0.90f), ccum = 0;
+                for (int i = 0; i < ForeignHueBins; i++)
+                {
+                    ccum += coreHueBins[i];
+                    if (ccum >= ctgt) { coreSpread = (i + 1) / (float)ForeignHueBins * NearHueDist; break; }
+                }
+            }
+            float effHueGate = Mathf.Clamp(ForeignGateK * coreSpread + ForeignGateFloor,
+                                           ForeignGateMin, NearHueDist);
+
+            // ── 主パス: 既存の near-sample クラスタ距離 P95 + foreign 距離分布/個数を同時に集計 ──
             var bins = new int[DistBins];
             int count = 0;
+            var fgnBins = new int[DistBins];      // foreign 画素(別 hue)の距離分布
+            int fgnCount = 0, coreCount = 0;       // 同パーツ core 個数(foreign 比の分母)
             for (int y = 0; y < h; y += stride)
             {
                 int rowStart = y * w;
@@ -401,6 +463,9 @@ namespace VRCAvatarColorChanger
                     int bi = Mathf.Clamp((int)(d / DistMax * DistBins), 0, DistBins - 1);
                     bins[bi]++;
                     count++;
+                    // core / foreign の振り分け(hue ゲートで分割)
+                    if (hd < effHueGate) coreCount++;
+                    else { fgnBins[bi]++; fgnCount++; }
                 }
             }
             if (count < MinNearSampleCount) return false;
@@ -414,6 +479,23 @@ namespace VRCAvatarColorChanger
                 if (cum >= target) { pctDist = (i + 1) / (float)DistBins * DistMax; break; }
             }
             tolerance = Mathf.Clamp(pctDist + ChromaMargin, ChromaTolMin, ChromaTolMax);
+
+            // ── foreign 打ち切り: 色相の近い隣接別パーツを検出したら、その手前で tolerance を止める ──
+            // foreign 画素が core に対して十分多い(=隣に別パーツがある)ときのみ発火。foreign の最小側
+            // 距離(P10)の直下まで下げ、別パーツの巻き込みを防ぐ。暗部の取りこぼしは本番のシャドウ免除が拾う。
+            if (coreCount > 0 && fgnCount >= ForeignMinCount
+                && fgnCount > coreCount * ForeignRatioThresh)
+            {
+                int ftgt = Mathf.CeilToInt(fgnCount * 0.10f), fcum = 0;
+                float fgnP10 = DistMax;
+                for (int i = 0; i < DistBins; i++)
+                {
+                    fcum += fgnBins[i];
+                    if (fcum >= ftgt) { fgnP10 = (i + 1) / (float)DistBins * DistMax; break; }
+                }
+                tolerance = Mathf.Clamp(Mathf.Min(tolerance, fgnP10 - ForeignCapEps),
+                                        ForeignLowFloor, ChromaTolMax);
+            }
             return true;
         }
 
