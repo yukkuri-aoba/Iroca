@@ -542,11 +542,20 @@ namespace VRCAvatarColorChanger
             else if (hSpread < 0.05f) edgeSoftness = 0.0f;
             else edgeSoftness = 0.15f;
 
-            // shadowForgivenessSatMin: 暗部の最小彩度を見て巻き込みを抑制
+            // shadowForgivenessSatMin: シャドウ免除(暗部の同系色画素を救済する仕組み)の下限彩度。
+            // 免除は「自パーツの暗部彩度まで」に限定する = darkestNearSampleS(自パーツの暗部の
+            // 最小彩度)のすぐ下に下限を置く。darkestNearSampleS は定義上「自パーツ暗部の最小彩度」
+            // なので、その 0.95 倍を下限にすれば自パーツの暗部は全て免除され(recall 不変)、それより
+            // 彩度の低い別パーツの暗部だけが免除から外れる(暗部の巻き込み=はみ出しを抑える)。
+            // 旧式(darkestNearSampleS*0.5, 上限0.20)は、暗部が高彩度を保つパーツ(例: スニーカー青,
+            // 暗部彩度≈0.85)でも下限が 0.20 に張り付き、彩度 0.2〜0.85 の別パーツ暗部を巻き込んでいた
+            // (実測: 下限を 0.20→0.80 にすると precision 0.980→0.994 / IoU 0.951→0.964 で recall 不変)。
+            // 暗部が脱彩する素材は darkestNearSampleS が低く出るので下限も自動的に下がり、免除が効いて
+            // recall を保つ。暗部画素が無いパーツ(darkSeen=false)は既定 0.05 のまま。
             float shadowForgivenessSatMin = DefaultShadowForgivenessSatMin;
             if (s.darkSeen && s.darkestNearSampleS > 0.10f)
             {
-                shadowForgivenessSatMin = Mathf.Clamp(s.darkestNearSampleS * 0.5f, 0.05f, 0.20f);
+                shadowForgivenessSatMin = Mathf.Clamp(s.darkestNearSampleS * 0.95f, 0.05f, 0.90f);
             }
 
             // saturationGuard: 源色 S が極端に高い (>=0.95) ときだけ自動提案。
