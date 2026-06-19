@@ -180,13 +180,19 @@ namespace VRCAvatarColorChanger
                 zoneList = new List<ColorZone> { BuildZone(z) };
             }
 
-            // 自動調整: no-mask で各ゾーンの推奨値を導出して適用する（かんたんモード相当）。
+            // 自動調整: 各ゾーンの推奨値を導出して適用する（かんたんモード/手動 Auto-Tune 相当）。
+            // mask.raw に除外指定があれば実機 RunAutoTune と同様にマスクを渡す(マスク認識経路の検証用)。
             if (autotune)
             {
+                int exCount = 0;
+                for (int k = 0; k < common.Length; k++) if (common[k]) exCount++;
+                bool useMask = exCount > 0 && exCount < common.Length;
                 var session = VACCSessionState.CreateDefault();
                 foreach (var z in zoneList)
                 {
-                    var tune = ZoneAutoTuner.Analyze(pixels, w, h, z, session, excluded: null, maskW: 0, maskH: 0);
+                    var tune = useMask
+                        ? ZoneAutoTuner.Analyze(pixels, w, h, z, session, common, mw, mh)
+                        : ZoneAutoTuner.Analyze(pixels, w, h, z, session, excluded: null, maskW: 0, maskH: 0);
                     z.tolerance               = tune.tolerance;
                     z.saturationStrictness    = tune.saturationStrictness;
                     z.saturationGuard         = tune.saturationGuard;
