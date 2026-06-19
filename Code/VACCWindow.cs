@@ -226,7 +226,8 @@ namespace VRCAvatarColorChanger
             // Ctrl+Z / Ctrl+Y は Unity 標準 Undo に統合済みのため、独自処理は不要。
             ProcessPendingZoneChanges();
             // かんたんモードで予約された自動調整を、デバウンス経過後に裏で実行する。
-            ProcessPendingAutoTune();
+            // ── 自動調整はまだ実用段階でないため無効化（2026-06 一時対応）。再有効化時にコメントを外す。
+            // ProcessPendingAutoTune();
 
             // 英語表示が初めて使われたときに AI 機械翻訳である旨を一度だけ告知する。
             // Layout イベント時のみ実行し、描画途中のモーダル表示を避ける。
@@ -508,18 +509,24 @@ namespace VRCAvatarColorChanger
             EditorGUILayout.LabelField(
                 new GUIContent(Localization.EditMode, Localization.EditModeTooltip),
                 GUILayout.Width(70));
-            int cur = (int)editMode;
+            // かんたんモード（Simple）はまだ実用段階でないため UI から隠す（2026-06 一時対応）。
+            // Normal/Advanced のみ表示し、Simple のセッションは Normal に正規化する。
+            // 再有効化するときは下の 3 択へ戻し、Auto Tune ボタンと
+            // ScheduleAutoTune/ProcessPendingAutoTune のコメントアウトも併せて解除する。
+            if (editMode == EditMode.Simple) editMode = EditMode.Normal;
+            int cur = (int)editMode - 1; // Normal=0, Advanced=1（Simple を隠したぶん 1 ずらす）
             int next = GUILayout.Toolbar(cur,
-                new[] { Localization.SimpleMode, Localization.NormalMode, Localization.AdvancedShort });
-            if (next != cur)
+                new[] { /* Localization.SimpleMode, */ Localization.NormalMode, Localization.AdvancedShort });
+            if (next != cur && next >= 0)
             {
                 // 制御数が変わるため、ExitGUI 相当の崩れを避けて次の Layout で適用する
-                // （_pendingEditMode 遅延ミューテーション）。
-                _pendingEditMode = (EditMode)next;
+                // （_pendingEditMode 遅延ミューテーション）。Simple を隠したぶん +1 して enum に戻す。
+                _pendingEditMode = (EditMode)(next + 1);
                 Repaint();
             }
             // かんたんモードの自動調整は裏で走り、ウィンドウをブロックしない。
             // 進行中・予約中であることを軽い文言で示す（操作は妨げない）。
+            // ※自動調整を隠している間は発火しないが、再有効化に備えて残す。
             if ((_autoTuneJob.IsRunning && !_autoTuneIsManual) || _pendingAutoTuneZoneId != null)
                 GUILayout.Label(Localization.AutoTuningInProgress, EditorStyles.miniLabel,
                     GUILayout.ExpandWidth(false));
@@ -603,7 +610,9 @@ namespace VRCAvatarColorChanger
                     GUI.backgroundColor = prevBg;
                 }
 
-                // 自動調整ボタン（フル幅）
+                // 自動調整ボタン（フル幅）── まだ実用段階でないため UI から隠す（2026-06 一時対応）。
+                // 再有効化するときは下のブロックのコメントを外す（RunAutoTune 本体は残してある）。
+                /*
                 {
                     bool canTune =
                         sourceTexture != null
@@ -618,6 +627,7 @@ namespace VRCAvatarColorChanger
                         }
                     }
                 }
+                */
 
                 // ─── UV矩形モード選択UI ───
                 // UV矩形モードは実装継続中のため当面 UI から非表示。
@@ -634,8 +644,10 @@ namespace VRCAvatarColorChanger
                 // 詳細パラメータ（巻き込み抑制の shadowForgivenessSatMin 等）を手で触らせず、
                 // 自動調整に委ねることで簡易ユーザーでも誤爆を抑えられるようにする。
                 // 通常/上級モードは従来通り手動操作なので自動実行しない。
-                if (editMode == EditMode.Simple && zone.sampleColor != prevSampleColor)
-                    ScheduleAutoTune(zone);
+                // ── 自動調整はまだ実用段階でないため無効化（2026-06 一時対応）。再有効化時にコメントを外す。
+                // if (editMode == EditMode.Simple && zone.sampleColor != prevSampleColor)
+                //     ScheduleAutoTune(zone);
+                _ = prevSampleColor; // 上記コメントアウト中の未使用警告回避（再有効化時に削除）
                 zone.tolerance = UndoHelper.Slider(this,
                     new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
                     zone.tolerance, 0f, 1f);
