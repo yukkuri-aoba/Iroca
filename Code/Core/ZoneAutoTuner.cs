@@ -122,44 +122,37 @@ namespace VRCAvatarColorChanger
                 if (TryAnalyzePixels(pixels, width, height, zone, out var analyzed))
                     result = MergeAnalyzed(result, analyzed);
 
-                // マスク運用前提（はみ出しは手動マスク担当）: 含有領域全体をパーツとみなし、
-                // パーツ内の薄い装飾（白プリント等）まで均一に match できるよう tolerance を
-                // 含有領域の距離分布 P99.9 から導出する。マスクは色からは推論不可能な
-                // 「パーツ分離」をユーザーが与えたものなので、それを最大限尊重する。
-                if (HasUsableMask(excluded, maskW, maskH))
+                // tolerance は常に「サンプル近傍クラスタの実マッチ距離分布」から導出する。
+                // 無彩(グレーモード=純 RGB 距離)と有彩(HSV マッチ)で距離式が違うため経路を分けるが、
+                // いずれも MergeAnalyzed の hSpread/vSpread 由来ヒューリスティック(実距離と切り離され
+                // 過大選択を招く)を実距離分布へ置き換える。
+                //
+                // マスクがある場合は含有(非除外)領域にクラスタを限定する(色が同じ別パーツを除外)が、
+                // tolerance 自体はクラスタの色のまとまりから決める。旧「マスク認識経路(含有領域全画素の
+                // P99.9, 上限0.40)」は、ゆるい/残存マスクや明暗の広いパーツ(例: 明るいサンプルの髪)で
+                // 上限 0.40 に張り付いていた(ユーザー報告)ため廃止。パーツ内の暗部・薄い装飾は本番の
+                // シャドウ免除/ハイライト復元が tolerance とは独立に拾うので、tolerance を膨らませない。
+                bool useMask = HasUsableMask(excluded, maskW, maskH);
+                bool[] clusterMask = useMask ? excluded : null;
+                Color.RGBToHSV(zone.sampleColor, out _, out float sampleS, out _);
+                if (sampleS < AchromaSampleSatMax)
                 {
-                    if (TryDeriveMaskAwareTolerance(pixels, width, height, zone, excluded, maskW, maskH,
-                            out float maskTol))
+                    // 無彩色サンプル: グレーモードの純 RGB 距離分布から(V 広がりの過大評価を回避)。
+                    if (TryDeriveAchromaticTolerance(pixels, width, height, zone,
+                            clusterMask, maskW, maskH, out float achTol))
                     {
-                        result.tolerance = maskTol;
-                        // パーツが分離済みなら白プリント等を薄く色づけるため復元を有効化。
-                        result.highlightRecovery = true;
+                        result.tolerance = achTol;
+                        // 無彩色サンプルではハイライト復元を切る。グレーモードのハイライト経路は
+                        // 「明度だけ」で判定し色相/彩度を見ないため、明るい有彩画素(別素材)まで
+                        // 巻き込んでしまう。グレー本体のハイライトは RGB 距離 tolerance で拾える。
+                        result.highlightRecovery = false;
                     }
                 }
-                else
+                else if (TryDeriveChromaticTolerance(pixels, width, height, zone,
+                            clusterMask, maskW, maskH, out float chromTol))
                 {
-                    // マスク無し(かんたんモード相当)。tolerance は「サンプル近傍クラスタの実マッチ距離
-                    // 分布」から取り直す。無彩(グレーモード=純 RGB 距離)と有彩(HSV マッチ)で距離式が
-                    // 違うため経路を分けるが、いずれも MergeAnalyzed の hSpread/vSpread 由来ヒューリスティック
-                    // (実距離と切り離され過大選択を招く)を実距離分布へ置き換える。
-                    Color.RGBToHSV(zone.sampleColor, out _, out float sampleS, out _);
-                    if (sampleS < AchromaSampleSatMax)
-                    {
-                        // 無彩色サンプル: グレーモードの純 RGB 距離分布から(V 広がりの過大評価を回避)。
-                        if (TryDeriveAchromaticTolerance(pixels, width, height, zone, out float achTol))
-                        {
-                            result.tolerance = achTol;
-                            // 無彩色サンプルではハイライト復元を切る。グレーモードのハイライト経路は
-                            // 「明度だけ」で判定し色相/彩度を見ないため、明るい有彩画素(別素材)まで
-                            // 巻き込んでしまう。グレー本体のハイライトは RGB 距離 tolerance で拾える。
-                            result.highlightRecovery = false;
-                        }
-                    }
-                    else if (TryDeriveChromaticTolerance(pixels, width, height, zone, out float chromTol))
-                    {
-                        // 有彩サンプル: 本番 HSV マッチ距離分布から(hSpread+0.10 の過大選択を解消)。
-                        result.tolerance = chromTol;
-                    }
+                    // 有彩サンプル: 本番 HSV マッチ距離分布から(hSpread+0.10 の過大選択を解消)。
+                    result.tolerance = chromTol;
                 }
             }
 
@@ -260,14 +253,10 @@ namespace VRCAvatarColorChanger
             return stats.nearSampleCount >= MinNearSampleCount;
         }
 
-        // ─────────────────── マスク認識型 tolerance ───────────────────
+        // ─────────────────── クラスタ距離の共通定数 / マスク判定 ───────────────────
 
         private const int DistBins = 600;          // 距離 [0,1.5] を 600 分割（分解能 0.0025）
         private const float DistMax = 1.5f;
-        private const float MaskAwarePercentile = 0.999f;
-        private const float MaskAwareMargin = 0.03f;
-        private const float MaskAwareTolMin = 0.12f;
-        private const float MaskAwareTolMax = 0.40f;
 
         private static bool HasUsableMask(bool[] excluded, int maskW, int maskH)
         {
@@ -280,68 +269,13 @@ namespace VRCAvatarColorChanger
             return ex > 0 && ex < total;
         }
 
-        /// <summary>
-        /// 含有(非除外)opaque ピクセルの「サンプルからの match 距離」分布の高パーセンタイル
-        /// を tolerance とする。マスクが定義したパーツ全体（薄い装飾含む）を均一に
-        /// match させるため。距離式は本番アルゴリズムと同一:
-        ///   d = hueDist + |dS|*satDistWeight + |dV|*valueWeight*(1 - sRatio)
-        /// </summary>
-        private static bool TryDeriveMaskAwareTolerance(Color32[] pixels, int w, int h, ColorZone zone,
-            bool[] excluded, int maskW, int maskH, out float tolerance)
+        // ピクセル (x,y) がマスクで除外されているか。excluded==null なら常に false(マスク無し)。
+        private static bool IsMaskExcluded(bool[] excluded, int maskW, int maskH, int x, int y, int w, int h)
         {
-            tolerance = 0f;
-
-            Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
-            float satDistW = zone.satDistWeight;
-            float valueW = zone.valueWeight;
-
-            int stride = (w <= 2048) ? 1 : 2;
-            var bins = new int[DistBins];
-            int count = 0;
-
-            for (int y = 0; y < h; y += stride)
-            {
-                int rowStart = y * w;
-                int my = Mathf.Clamp(y * maskH / h, 0, maskH - 1);
-                for (int x = 0; x < w; x += stride)
-                {
-                    Color32 c32 = pixels[rowStart + x];
-                    if (c32.a < 128) continue;
-                    int mx = Mathf.Clamp(x * maskW / w, 0, maskW - 1);
-                    if (excluded[my * maskW + mx]) continue; // 除外パーツ外
-
-                    Color.RGBToHSV(new Color(c32.r / 255f, c32.g / 255f, c32.b / 255f, 1f),
-                        out float pH, out float pS, out float pV);
-
-                    float hd = Mathf.Abs(pH - sH);
-                    if (hd > 0.5f) hd = 1f - hd;
-                    float sd = Mathf.Abs(pS - sS);
-                    float vd = Mathf.Abs(pV - sV);
-                    float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
-                    float d = hd + sd * satDistW + vd * valueW * (1f - sRatio);
-
-                    int bi = Mathf.Clamp((int)(d / DistMax * DistBins), 0, DistBins - 1);
-                    bins[bi]++;
-                    count++;
-                }
-            }
-
-            if (count < MinNearSampleCount) return false;
-
-            int target = Mathf.CeilToInt(count * MaskAwarePercentile);
-            int cum = 0;
-            float pctDist = DistMax;
-            for (int i = 0; i < DistBins; i++)
-            {
-                cum += bins[i];
-                if (cum >= target)
-                {
-                    pctDist = (i + 1) / (float)DistBins * DistMax;
-                    break;
-                }
-            }
-            tolerance = Mathf.Clamp(pctDist + MaskAwareMargin, MaskAwareTolMin, MaskAwareTolMax);
-            return true;
+            if (excluded == null) return false;
+            int mx = Mathf.Clamp(x * maskW / w, 0, maskW - 1);
+            int my = Mathf.Clamp(y * maskH / h, 0, maskH - 1);
+            return excluded[my * maskW + mx];
         }
 
         // ─────────────────── 無彩色(低彩度サンプル)の tolerance ───────────────────
@@ -360,7 +294,7 @@ namespace VRCAvatarColorChanger
         private const float AchromaTolMax = 0.40f;
 
         private static bool TryDeriveAchromaticTolerance(Color32[] pixels, int w, int h, ColorZone zone,
-            out float tolerance)
+            bool[] excluded, int maskW, int maskH, out float tolerance)
         {
             tolerance = 0f;
             Color.RGBToHSV(zone.sampleColor, out _, out _, out float sV);
@@ -376,6 +310,7 @@ namespace VRCAvatarColorChanger
                 {
                     Color32 c = pixels[rowStart + x];
                     if (c.a < 128) continue;
+                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue; // マスク除外領域は対象外
                     float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                     Color.RGBToHSV(new Color(r, g, b, 1f), out _, out float pS, out float pV);
                     if (pS > AchromaClusterSatMax) continue;        // 有彩は別素材として距離分布に入れない
@@ -431,7 +366,7 @@ namespace VRCAvatarColorChanger
         private const float ChromaClusterSatFrac = 0.35f; // pS < sS*frac の無彩寄り画素はクラスタから除外
 
         private static bool TryDeriveChromaticTolerance(Color32[] pixels, int w, int h, ColorZone zone,
-            out float tolerance)
+            bool[] excluded, int maskW, int maskH, out float tolerance)
         {
             tolerance = 0f;
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
@@ -448,6 +383,7 @@ namespace VRCAvatarColorChanger
                 {
                     Color32 c = pixels[rowStart + x];
                     if (c.a < 128) continue;
+                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue; // マスク除外領域は対象外
                     Color.RGBToHSV(new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f),
                         out float pH, out float pS, out float pV);
                     float hd = Mathf.Abs(pH - sH);
@@ -489,8 +425,9 @@ namespace VRCAvatarColorChanger
             float vP90 = PercentileBin(s.vBins, s.nearSampleCount, 0.90f) / (float)HistogramBins;
             float vSpread = Mathf.Max(0f, vP90 - vP10);
 
-            // tolerance（マスク無しパス）: 色相の広がり + マージン。低彩度時は V の広がりで近似。
-            // マスク運用前提では別途 mask-aware パスで上書きされる（DeriveMaskAwareTolerance）。
+            // tolerance（フォールバック）: 色相の広がり + マージン。低彩度時は V の広がりで近似。
+            // 通常は Analyze で TryDeriveChromaticTolerance/TryDeriveAchromaticTolerance(実距離分布)に
+            // 上書きされる。ここはクラスタが過少(<MinNearSampleCount)で実距離導出が失敗したときの保険。
             float tolerance;
             if (s.sS < 0.10f)
             {
