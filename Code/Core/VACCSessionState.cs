@@ -26,8 +26,10 @@ namespace VRCAvatarColorChanger
         public int antiAliasCleanup = 3;
         public bool useDecontamination = true;
         public int decontaminationRadius = 4;
-        // 既定はかんたんモード（初見ユーザー向け）。通常/上級は明示的に切り替える。
-        public EditMode editMode = EditMode.Simple;
+        // かんたんモード（Simple）と自動調整はまだ実用段階でないため UI から隠している（2026-06 一時対応）。
+        // 既定を通常モードにする。再有効化するときは Simple に戻し、VACCWindow 側のコメントアウト
+        // （DrawModeToggle のモード選択・Auto Tune ボタン・ScheduleAutoTune/ProcessPendingAutoTune）も解除する。
+        public EditMode editMode = EditMode.Normal;
         public int holeFillPasses = 5;
         public int holeFillMinNeighbors = 4;
         public float relaxedSatMin = 0.02f;
