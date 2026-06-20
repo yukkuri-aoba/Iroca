@@ -148,7 +148,8 @@ namespace VRCAvatarColorChanger
             var (mw, mh, mbytes) = ReadRaw(maskPath, 1);
             var common = new bool[mw * mh];
             for (int i = 0; i < common.Length; i++) common[i] = mbytes[i] != 0;
-            var masks = new MaskSnapshot { common = common, width = mw, height = mh, zones = null };
+            // MaskSnapshot は packed ulong[]。autotune/exCount は下で bool[] common を使うので両方保持する。
+            var masks = new MaskSnapshot { common = MaskSnapshot.Pack(common), width = mw, height = mh, zones = null };
 
             List<ColorZone> zoneList;
             SettingsCfg st;

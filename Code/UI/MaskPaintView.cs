@@ -913,17 +913,20 @@ namespace VRCAvatarColorChanger
         /// </summary>
         public MaskSnapshot BuildSnapshot()
         {
+            // bool[] を 1bit/画素の ulong[] にパックする(従来の deep clone は 4K で 16.7MB/枚、
+            // プレビュー再生成・ペイントのたびに発生し GC を圧迫していた)。パックは clone と同じ
+            // O(N) だがアロケーションが 1/8 になる。作業用マスク(exclusionMask/zoneMasks)は bool[] のまま。
             var snap = new MaskSnapshot
             {
                 width = maskWidth,
                 height = maskHeight,
-                zones = new Dictionary<string, bool[]>()
+                zones = new Dictionary<string, ulong[]>()
             };
-            if (exclusionMask != null) snap.common = (bool[])exclusionMask.Clone();
+            snap.common = MaskSnapshot.Pack(exclusionMask);   // Pack(null) は null
             foreach (var kv in zoneMasks)
             {
                 if (kv.Value == null) continue;
-                snap.zones[kv.Key] = (bool[])kv.Value.Clone();
+                snap.zones[kv.Key] = MaskSnapshot.Pack(kv.Value);
             }
             return snap;
         }
