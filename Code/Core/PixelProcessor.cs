@@ -1992,14 +1992,9 @@ namespace VRCAvatarColorChanger
                 dist = rgbDist * (1f - chromaConfidence) + dist * chromaConfidence;
             }
 
-            // シャドウ（暗い色）の境界許容:
-            // パキッとした影やMultiplyで暗くなった境界部分は、ベース色と同じ色相でも明度や彩度が大きく落ち、
-            // 距離ペナルティがToleranceを超えて取り残されることがあるため、色相が近い暗部は距離を減免する。
-            if (pV < sV * 0.75f && hDist < 0.15f && pS >= shadowForgivenessSatMin)
-            {
-                float darkForgiveness = Mathf.Clamp01((sV * 0.75f - pV) / (sV * 0.6f));
-                dist *= Mathf.Lerp(1f, 0.2f, darkForgiveness); // 暗いほど距離を最大70%免除
-            }
+            // シャドウ（暗い色）の境界距離許容は廃止（プライマリ CalculateHybridDistance と同期、
+            // algorithm.py DARK_FORGIVENESS_DISTANCE_REDUCE=False）。緩和マッチ(穴埋め/境界回復)で
+            // near-black の別マテリアルを tolerance 内へ逆送し巻き込みを広げる経路だったため除去する。
 
             if (dist >= tolerance) return 0f;
 

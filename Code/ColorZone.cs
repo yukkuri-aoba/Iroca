@@ -438,25 +438,12 @@ namespace VRCAvatarColorChanger
 
             float finalDist = Mathf.Lerp(rgbDist, hsvDist, chromaConfidence);
 
-            // シャドウ（暗い色）の距離許容:
-            if (pV < sV * 0.75f && hDist < 0.15f)
-            {
-                float darkForgiveness = Mathf.Clamp01((sV * 0.75f - pV) / (sV * 0.6f));
-                
-                // 1. 色相(Hue)が離れているほど免除を弱くする（ノイズによる無関係な色の巻き込み防止）
-                float hueFactor = 1f - (hDist / 0.15f);
-                darkForgiveness *= hueFactor;
-
-                // 2. サンプルが有彩色(S > 0.05)の場合、対象の彩度が低すぎる(グレー/黒に近い)と免除を減衰
-                if (sS > 0.05f)
-                {
-                    float satFactor = Mathf.Clamp01(pS / Mathf.Max(0.01f, shadowForgivenessSatMin));
-                    darkForgiveness *= satFactor;
-                }
-
-                // 免除が強すぎると他のテクスチャで許容範囲が広がりすぎるため、0.3f (最大70%免除) に抑える
-                finalDist *= Mathf.Lerp(1f, 0.3f, darkForgiveness);
-            }
+            // シャドウ（暗い色）の距離許容は廃止（algorithm.py DARK_FORGIVENESS_DISTANCE_REDUCE=False と同期）。
+            // 距離短縮(dist*=Lerp(1,0.3,df))は、同色相だが彩度の低い near-black の別マテリアル(例:
+            // HAOLAN_Sneakers の暗い紺ベロ S≈0.40/V≈0.09)を tolerance 内へ逆送し巨大な巻き込みを生む主因。
+            // 全 subject で recall 非寄与・sneakers precision 0.72→0.96(GT recall 不変)と実測。暗部の取り
+            // こぼし救済は彩度ゲート緩和(GetColorMatchScores の satConfidence 底上げ)で代替する(in-tolerance
+            // 画素にしか効かず安全)。明部(ハイライト)免除はベタ塗り対策で性質が逆のため温存=非対称は意図的。
 
             // ハイライト（明部）の距離許容: 上のシャドウ許容の対称形。
             // サンプルより明るく同色相なら、低彩度化したハイライト芯でも同素材として
