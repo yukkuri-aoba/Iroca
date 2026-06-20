@@ -3,6 +3,7 @@
 using System;
 using System.IO;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text.Json;
 using UnityEngine;
 
@@ -227,6 +228,9 @@ namespace VRCAvatarColorChanger
                 }
             }
 
+            // ProcessPixelsArray のみを計測(dotnet 起動・raw I/O を除外)。stderr に出すので
+            // stdout の "OK" を汚さない。Python 側が "PROCESS_MS " 行を拾って前後比較に使う。
+            var _sw = Stopwatch.StartNew();
             PixelProcessor.ProcessPixelsArray(
                 pixels, w, h, masks, zoneList,
                 edgeFeather: st.edgeFeather, antiAliasCleanup: st.antiAliasCleanup,
@@ -234,6 +238,8 @@ namespace VRCAvatarColorChanger
                 relaxedSatMin: st.relaxedSatMin, relaxedSatRamp: st.relaxedSatRamp,
                 originX: 0, originY: 0, fullW: 0, fullH: 0,
                 useDecontamination: st.useDecontamination, decontaminationRadius: st.decontaminationRadius);
+            _sw.Stop();
+            Console.Error.WriteLine($"PROCESS_MS {_sw.Elapsed.TotalMilliseconds:F2}");
 
             using (var fs = new FileStream(outPath, FileMode.Create, FileAccess.Write))
             using (var bw = new BinaryWriter(fs))
