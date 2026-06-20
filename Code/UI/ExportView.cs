@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 
 namespace VRCAvatarColorChanger
 {
@@ -30,15 +31,14 @@ namespace VRCAvatarColorChanger
         [System.NonSerialized] private VACCWindow _host;
 
         // ─── 非同期エクスポート ───
-        // メインスレッドで pixels を取得し、PixelProcessor 計算を Task.Run で実行する。
-        // 完了後、メインスレッドで Texture2D 復元 → PNG エンコード → ファイル書き込み。
+        // メインスレッドで pixels を取得し、PixelProcessor 計算 + PNG エンコード + 書き込みを
+        // Task.Run(バックグラウンド)で実行する。完了後、メインスレッドでは AssetDatabase 操作のみ。
+        // (旧: エンコード/書き込みもメインスレッドで行い 4K で終了時にフリーズしていた)
         [System.NonSerialized] private readonly PreviewJob<ExportPayload> _exportJob = new PreviewJob<ExportPayload>();
         [System.NonSerialized] private readonly PreviewJobProgress _exportProgress = new PreviewJobProgress();
 
         private struct ExportPayload
         {
-            public Color32[] pixels;
-            public int width, height;
             public string outputPath;
             public string srcPath;
             public bool inheritImportSettings;
@@ -252,12 +252,36 @@ namespace VRCAvatarColorChanger
                             useDecontamination: useDecontamination,
                             decontaminationRadius: decontaminationRadius);
                     }
-                    _exportProgress.Report(0.85f);
+                    ct.ThrowIfCancellationRequested();
+                    _exportProgress.Report(0.80f);
+
+                    // PNG エンコード + ファイル書き込みもバックグラウンドで行う(メインスレッドの
+                    // 終了時フリーズを解消。旧版は Texture2D + EncodeToPNG をメインスレッドで実行し
+                    // 4K で秒単位ブロックしていた)。Texture2D を介さない ImageConversion.EncodeArrayToPNG
+                    // は Unity 2022.3(本プロジェクト/VRChat の対象)ではスレッドセーフ。Color32[] は
+                    // sRGB バイト値なので R8G8B8A8_SRGB を指定し、旧 Texture2D(RGBA32).EncodeToPNG と
+                    // 同じ画素を書き出す。
+                    // ※ Unity 6+ では EncodeArrayToPNG がメインスレッド必須に変わったため、将来 Unity 6
+                    //    以降へ移行する場合はこのエンコードをメインスレッド(apply 側)へ戻すこと。
+                    byte[] rgba = new byte[pixels.Length * 4];
+                    for (int i = 0; i < pixels.Length; i++)
+                    {
+                        int o = i * 4;
+                        rgba[o]     = pixels[i].r;
+                        rgba[o + 1] = pixels[i].g;
+                        rgba[o + 2] = pixels[i].b;
+                        rgba[o + 3] = pixels[i].a;
+                    }
+                    byte[] pngData = ImageConversion.EncodeArrayToPNG(
+                        rgba, GraphicsFormat.R8G8B8A8_SRGB, (uint)texW, (uint)texH);
+                    if (pngData == null || pngData.Length == 0)
+                        throw new System.Exception("EncodeArrayToPNG が空のデータを返しました");
+                    _exportProgress.Report(0.92f);
+                    File.WriteAllBytes(outputPath, pngData);
+                    _exportProgress.Report(0.97f);
+
                     return new ExportPayload
                     {
-                        pixels = pixels,
-                        width = texW,
-                        height = texH,
                         outputPath = outputPath,
                         srcPath = srcPath,
                         inheritImportSettings = inheritFlag,
@@ -265,41 +289,23 @@ namespace VRCAvatarColorChanger
                 },
                 apply: payload =>
                 {
-                    // メインスレッドで Texture2D を組み立てて PNG エンコード → 保存。
-                    Texture2D outTex = null;
-                    try
+                    // メインスレッド: AssetDatabase 操作のみ(エンコード/保存はバックグラウンドで完了済み)。
+                    string relativePath = VACCWindow.ToAssetsRelative(payload.outputPath);
+                    if (relativePath != null)
                     {
-                        outTex = new Texture2D(payload.width, payload.height, TextureFormat.RGBA32, false);
-                        outTex.SetPixels32(payload.pixels);
-                        // Apply() は CPU→GPU アップロードで、直後の EncodeToPNG は CPU 側データを
-                        // 読むため不要(4K で 67MB の無駄な転送)。SetPixels32 で更新済みの CPU データを
-                        // EncodeToPNG が直接読む。
-                        _exportProgress.Report(0.95f);
-                        byte[] pngData = outTex.EncodeToPNG();
-                        if (pngData == null) return;
-
-                        File.WriteAllBytes(payload.outputPath, pngData);
-                        string relativePath = VACCWindow.ToAssetsRelative(payload.outputPath);
-                        if (relativePath != null)
+                        if (payload.inheritImportSettings)
                         {
-                            if (payload.inheritImportSettings)
-                            {
-                                string srcRel = VACCWindow.ToAssetsRelative(payload.srcPath);
-                                if (srcRel != null)
-                                    PreApplyImportSettings(srcRel, relativePath);
-                            }
-                            AssetDatabase.ImportAsset(relativePath);
+                            string srcRel = VACCWindow.ToAssetsRelative(payload.srcPath);
+                            if (srcRel != null)
+                                PreApplyImportSettings(srcRel, relativePath);
                         }
+                        AssetDatabase.ImportAsset(relativePath);
+                    }
 
-                        _exportProgress.Report(1.0f);
-                        Debug.Log($"[VACC] Saved: {payload.outputPath}");
-                        // 非モーダル通知: ファイル名のみウィンドウ右下に短時間表示。詳細パスは Debug.Log。
-                        _host?.ShowNotification(new GUIContent($"{Localization.Complete}: {Path.GetFileName(payload.outputPath)}"));
-                    }
-                    finally
-                    {
-                        if (outTex != null) Object.DestroyImmediate(outTex);
-                    }
+                    _exportProgress.Report(1.0f);
+                    Debug.Log($"[VACC] Saved: {payload.outputPath}");
+                    // 非モーダル通知: ファイル名のみウィンドウ右下に短時間表示。詳細パスは Debug.Log。
+                    _host?.ShowNotification(new GUIContent($"{Localization.Complete}: {Path.GetFileName(payload.outputPath)}"));
                 },
                 onError: ex =>
                 {
