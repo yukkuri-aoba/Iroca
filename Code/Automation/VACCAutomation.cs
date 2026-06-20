@@ -20,10 +20,10 @@ namespace VRCAvatarColorChanger
     /// 呼び出し経路は 3 つ。いずれも同じ中核（<see cref="RunRecolorCore"/>）を通る:
     ///   1. 静的 API: <see cref="RecolorByPreset"/> / <see cref="RecolorWithZones"/> 等。戻り値は JSON 文字列。
     ///      生 C# 実行が可能な MCP クライアント・EditMode テストから直接呼ぶ。
-    ///   2. メニュー + ジョブファイル: <c>Tools/VRC AvatarColorChanger/Automation/Run Job File</c>。
-    ///      &lt;Project&gt;/UserSettings/VACC/mcp/job.json を読み、result.json を書く。
-    ///      「メニュー実行」と「ファイル読み書き」だけで完結するので、生 C# 実行に非対応の
-    ///      クライアントでも駆動できる。
+    ///   2. MCPForUnity カスタムツール: <c>Code/McpIntegration/VACCMcpTools.cs</c> の <c>vacc_recolor</c> 等。
+    ///      <c>execute_custom_tool</c> から本クラスの公開静的 API を呼ぶ。MCPForUnity 導入時のみ
+    ///      コンパイルされる別 asmdef（VACC_MCP_PRESENT ゲート）で、配布パッケージ本体は依存ゼロを保つ。
+    ///      生 C# 実行に非対応のクライアントでも駆動できる（Tools メニューには何も追加しない）。
     ///   3. batchmode CLI: <c>Unity.exe -batchmode -executeMethod VRCAvatarColorChanger.VACCAutomation.RunFromCommandLine ...</c>。
     ///
     /// v1 ではプリセット同梱マスクはヘッドレス適用しない（パーツ単位の粗いマスクは後続対応）。
@@ -31,8 +31,6 @@ namespace VRCAvatarColorChanger
     /// </summary>
     public static class VACCAutomation
     {
-        private const string AutomationMenu = VACCConsts.MenuPath + "/Automation";
-
         // ジョブ/結果ファイルの置き場。git 非追跡の UserSettings 配下に置き、Assets の import 揺れを避ける。
         private static string McpDir =>
             Path.GetFullPath(Path.Combine(Application.dataPath, "..", "UserSettings/VACC/mcp"));
@@ -164,7 +162,7 @@ namespace VRCAvatarColorChanger
                     "パスは Assets 相対（Assets/...）・プロジェクト相対・絶対のいずれも可。出力は .png。",
                     "色は [r,g,b]（0..1）。enabled なゾーンが 1 つも無いと error になる。",
                     "v1 ではプリセット同梱マスクはヘッドレス適用しない（適用時は warnings に明記）。",
-                    "ジョブファイル経路: UserSettings/VACC/mcp/job.json を書いて 'Run Job File' メニュー実行 → result.json を読む。",
+                    "MCP 経路: execute_custom_tool(\"vacc_recolor\", { source, output, preset|zones }) で呼ぶ（メニュー非依存）。",
                 },
                 fieldDocs = new[]
                 {
@@ -258,65 +256,9 @@ namespace VRCAvatarColorChanger
             }
         }
 
-        // ─────────────────────── メニュー（エージェント起動可） ───────────────────────
-
-        [MenuItem(AutomationMenu + "/Run Job File", priority = 200)]
-        private static void Menu_RunJobFile()
-        {
-            string jobPath = Path.Combine(McpDir, "job.json");
-            string resultPath = Path.Combine(McpDir, "result.json");
-            string resultJson;
-            if (!File.Exists(jobPath))
-            {
-                resultJson = Fail($"job file not found: {jobPath}");
-            }
-            else
-            {
-                try
-                {
-                    var job = JsonUtility.FromJson<JobRequest>(File.ReadAllText(jobPath));
-                    if (job == null) { resultJson = Fail("job.json parse failed (null)."); }
-                    else if (string.Equals(job.mode, "zones", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string zonesJson = job.zones != null ? JsonUtility.ToJson(job.zones) : "";
-                        resultJson = RecolorWithZones(job.source, zonesJson, job.output);
-                    }
-                    else
-                    {
-                        resultJson = RecolorByPreset(job.source, job.preset, job.output);
-                    }
-                }
-                catch (Exception ex) { resultJson = Fail($"{ex.GetType().Name}: {ex.Message}"); }
-            }
-
-            WriteMcpFile(resultPath, resultJson);
-            Debug.Log($"[VACC][MCP] Run Job File -> {resultPath}\n{resultJson}");
-        }
-
-        [MenuItem(AutomationMenu + "/Describe Schema", priority = 201)]
-        private static void Menu_DescribeSchema()
-        {
-            string path = Path.Combine(McpDir, "schema.json");
-            string json = DescribeSchema();
-            WriteMcpFile(path, json);
-            Debug.Log($"[VACC][MCP] Describe Schema -> {path}");
-        }
-
-        [MenuItem(AutomationMenu + "/List Presets", priority = 202)]
-        private static void Menu_ListPresets()
-        {
-            string path = Path.Combine(McpDir, "presets.json");
-            string json = ListPresets();
-            WriteMcpFile(path, json);
-            Debug.Log($"[VACC][MCP] List Presets -> {path}\n{json}");
-        }
-
-        [MenuItem(AutomationMenu + "/Open MCP Folder", priority = 220)]
-        private static void Menu_OpenMcpFolder()
-        {
-            Directory.CreateDirectory(McpDir);
-            EditorUtility.RevealInFinder(McpDir);
-        }
+        // メニュー経路（execute_menu_item）は廃止。MCP からの駆動は MCPForUnity カスタムツール
+        // （Code/McpIntegration/VACCMcpTools.cs の vacc_recolor 等）経由で公開静的 API を呼ぶ。
+        // Tools メニューにはウィンドウ起動の単一項目だけを残し、サブメニュー二重表示を避ける。
 
         // ─────────────────────── batchmode CLI ───────────────────────
 

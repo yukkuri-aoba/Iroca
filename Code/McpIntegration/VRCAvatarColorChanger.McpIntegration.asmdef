@@ -1,0 +1,28 @@
+{
+    "name": "VRCAvatarColorChanger.McpIntegration",
+    "rootNamespace": "VRCAvatarColorChanger.McpIntegration",
+    "references": [
+        "com.yukkuri-aoba.vrc-avatar-color-changer.Editor",
+        "MCPForUnity.Editor",
+        "Unity.Newtonsoft.Json"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "VACC_MCP_PRESENT"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.coplaydev.unity-mcp",
+            "expression": "",
+            "define": "VACC_MCP_PRESENT"
+        }
+    ],
+    "noEngineReferences": false
+}
