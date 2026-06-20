@@ -30,6 +30,9 @@ MCPForUnity を同居させて初めて MCP から操作できる。
    要件: Python 3.10+ / Git。
 4. MCP クライアントを設定する。`Window → MCP for Unity → Configure All Detected Clients`
    （Claude Code / Claude Desktop / VS Code 等）。
+5. MCPForUnity が同居すると `Code/McpIntegration/` の asmdef が自動でコンパイルされ（`com.coplaydev.unity-mcp`
+   検出時のみ・`VACC_MCP_PRESENT` ゲート）、VACC のカスタムツールが登録される。
+   `mcpforunity://custom-tools` リソースに `vacc_recolor` / `vacc_describe_schema` / `vacc_list_presets` が現れれば成功。
 
 ## 呼び出し経路（3 つ・すべて同一の中核を通る）
 
@@ -54,29 +57,24 @@ VRCAvatarColorChanger.VACCAutomation.GetVersion();
 
 戻り値は JSON 文字列（`RecolorResult`）。例外は投げず `{"ok":false,"error":"..."}` で返す。
 
-### 2. メニュー + ジョブファイル（「メニュー実行」と「ファイル読み書き」だけで完結）
+### 2. MCPForUnity カスタムツール（`execute_custom_tool`・メニュー非依存）
 
-生 C# 実行に非対応のクライアントでも駆動できる、保証された経路。
+生 C# 実行に非対応のクライアントでも駆動できる、第一級の経路。`Code/McpIntegration/` の
+カスタムツール（MCPForUnity 導入時のみコンパイル）が静的 API を MCP に公開する。
+Tools メニューには何も追加しない（旧「Automation」サブメニューは撤去済み）。
 
-1. `<host>/UserSettings/VACC/mcp/job.json` を書く（git 非追跡フォルダ）：
-   ```json
-   { "mode": "preset",
-     "source": "Assets/Textures/body.png",
-     "output": "Assets/Textures/body_recolored.png",
-     "preset": "MyPreset" }
-   ```
-   または zones モード：
-   ```json
-   { "mode": "zones",
-     "source": "Assets/Textures/body.png",
-     "output": "Assets/Textures/body_recolored.png",
-     "zones": { "zones": [ { "sample": [1,1,1], "target": [0.1,0.3,0.8], "tolerance": 0.25 } ], "settings": {} } }
-   ```
-2. メニュー `Tools/VRC AvatarColorChanger/Automation/Run Job File` を実行する。
-3. 結果を `<host>/UserSettings/VACC/mcp/result.json` から読む。
+- `execute_custom_tool("vacc_recolor", { "source": ..., "output": ..., "preset": "MyPreset" })`
+  — プリセット経路。`preset` の代わりに `zones`（フラットなゾーン設定 JSON 文字列）でその場指定も可（両者は排他）：
+  ```json
+  { "source": "Assets/Textures/body.png",
+    "output": "Assets/Textures/body_recolored.png",
+    "zones": "{\"zones\":[{\"sample\":[1,1,1],\"target\":[0.1,0.3,0.8],\"tolerance\":0.25}],\"settings\":{}}" }
+  ```
+- `execute_custom_tool("vacc_describe_schema")` — 入力スキーマ・既定値・フィールド説明を返す（呼び出し方の自己発見）。
+- `execute_custom_tool("vacc_list_presets")` — プリセット一覧を返す。
 
-補助メニュー: `Describe Schema`（→ `schema.json`）、`List Presets`（→ `presets.json`）、
-`Open MCP Folder`（フォルダを開く）。
+成功時は再着色結果 JSON（`RecolorResult`）が success data に載る。エラーは `ErrorResponse` で返る。
+利用可能ツールは `mcpforunity://custom-tools` リソースで発見できる。
 
 ### 3. batchmode CLI（MCP を介さない完全ヘッドレス・CI 用）
 
@@ -101,5 +99,6 @@ Unity.exe -batchmode -quit -projectPath <host> \
 - **v1 ではプリセット同梱マスクをヘッドレス適用しない**（パーツ単位の粗いマスクは後続対応）。
   マスクを含むプリセットを渡すと、結果 JSON の `warnings` に明示したうえでマスク無しで処理する。
   マスクを反映したい場合は当面 UI（VACCWindow）から実行する。
-- カスタム MCP ツール登録（MCPForUnity の Tool Group に `vacc_recolor` 等を第一級ツールとして出す）は
-  本 API を素材に後付け可能だが、今回は対象外（汎用 MCP の「C# 実行」「メニュー実行」で駆動する設計）。
+- カスタム MCP ツール登録（`vacc_recolor` / `vacc_describe_schema` / `vacc_list_presets` を第一級ツールとして出す）は
+  `Code/McpIntegration/` で実装済み。MCPForUnity（`com.coplaydev.unity-mcp`）導入時のみ `VACC_MCP_PRESENT`
+  ゲートでコンパイルされ、配布パッケージ本体は依存ゼロを維持する。
