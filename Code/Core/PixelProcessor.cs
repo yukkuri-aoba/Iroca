@@ -16,10 +16,34 @@ namespace VRCAvatarColorChanger
     /// </summary>
     internal class MaskSnapshot
     {
-        public bool[] common;
+        // 1 画素 = 1 bit のビットパック表現(true=除外)。bool[] を deep clone すると 4K で 16.7MB/枚に
+        // なりプレビュー再生成・ペイントのたびに GC を圧迫するため、スナップショットは 1/8 サイズの
+        // ulong[] で保持する。idx 番目の画素は (arr[idx>>6] >> (idx&63)) & 1。範囲は width*height。
+        // 注: 作業用マスク(MaskPaintView.exclusionMask / zoneMasks)や保存形式(MaskFileStore)は
+        //     bool[] / RLE のまま。ここはスレッドへ渡すスナップショットの内部表現のみを packed 化する。
+        public ulong[] common;
         public int width;
         public int height;
-        public Dictionary<string, bool[]> zones;
+        public Dictionary<string, ulong[]> zones;
+
+        /// <summary>bool[](true=除外)を 1bit/画素の ulong[] にパックする。null は null を返す。</summary>
+        public static ulong[] Pack(bool[] mask)
+        {
+            if (mask == null) return null;
+            var packed = new ulong[(mask.Length + 63) >> 6];
+            for (int i = 0; i < mask.Length; i++)
+                if (mask[i]) packed[i >> 6] |= 1UL << (i & 63);
+            return packed;
+        }
+
+        /// <summary>パック済みマスクの idx 番目ビットを読む(null・範囲外は false)。</summary>
+        public static bool GetBit(ulong[] packed, int idx)
+        {
+            if (packed == null) return false;
+            int word = idx >> 6;
+            if (word < 0 || word >= packed.Length) return false;
+            return (packed[word] & (1UL << (idx & 63))) != 0UL;
+        }
     }
 
     /// <summary>
@@ -98,8 +122,8 @@ namespace VRCAvatarColorChanger
             if (fullW <= 0) fullW = w;
             if (fullH <= 0) fullH = h;
 
-            // マスクスナップショットからローカル変数に展開
-            bool[] commonMask = masks?.common;
+            // マスクスナップショットからローカル変数に展開(packed ulong[]、1bit/画素)
+            ulong[] commonMask = masks?.common;
             int maskW = masks?.width ?? 0;
             int maskH = masks?.height ?? 0;
 
@@ -158,8 +182,8 @@ namespace VRCAvatarColorChanger
                 // キャンセルチェック: 新しいプレビューリクエストが来た場合は即座に中断
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // このゾーンに紐付くゾーン別マスクを取得（存在しなければ null）
-                bool[] zoneMask = null;
+                // このゾーンに紐付くゾーン別マスクを取得（存在しなければ null、packed ulong[]）
+                ulong[] zoneMask = null;
                 if (masks != null && masks.zones != null && !string.IsNullOrEmpty(zone.id))
                     masks.zones.TryGetValue(zone.id, out zoneMask);
 
@@ -1672,15 +1696,15 @@ namespace VRCAvatarColorChanger
         // 共通マスクとゾーン別マスクを OR 結合した除外判定。
         // どちらか片方でも true ならそのピクセルはこのゾーン処理から除外される。
         private static bool IsExcludedCombined(int x, int y, int texW, int texH,
-            bool[] commonMask, bool[] zoneMask, int maskW, int maskH)
+            ulong[] commonMask, ulong[] zoneMask, int maskW, int maskH)
         {
             if (commonMask == null && zoneMask == null) return false;
             if (maskW <= 0 || maskH <= 0) return false;
             int mx = Mathf.Clamp(x * maskW / texW, 0, maskW - 1);
             int my = Mathf.Clamp(y * maskH / texH, 0, maskH - 1);
             int idx = my * maskW + mx;
-            if (commonMask != null && idx < commonMask.Length && commonMask[idx]) return true;
-            if (zoneMask != null && idx < zoneMask.Length && zoneMask[idx]) return true;
+            if (MaskSnapshot.GetBit(commonMask, idx)) return true;
+            if (MaskSnapshot.GetBit(zoneMask, idx)) return true;
             return false;
         }
 
