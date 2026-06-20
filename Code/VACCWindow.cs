@@ -71,6 +71,13 @@ namespace VRCAvatarColorChanger
         // エクスポートセクションを画面外へ押し出してしまうため、外側にも ScrollView を挟む。
         private Vector2 rightScrollPos;
 
+        // 横並びモードのテクスチャフィールド込み上部（toolbar＋テクスチャフィールド）の実高を
+        // Repaint 時に実測しキャッシュする。WorkflowHint/ReadWriteError の HelpBox は可変高で
+        // 固定見積もりに入らないため、前フレーム Repaint の実測値を今フレームの horizH 算出に使う
+        // （Layout/Repaint で同一値→GUILayout 整合）。0（未計測）時は決定論フォールバックを使う。
+        // PreviewView._viewportWidth と同方針。
+        [System.NonSerialized] private float _sideBySideTopHeight;
+
         // GUILayout安全な変更保留フラグ
         // ExitGUI() をネストしたレイアウトグループ内から呼ぶと
         // Layout/Repaint 間のコントロール数不一致が起きるため、
@@ -261,8 +268,21 @@ namespace VRCAvatarColorChanger
                 // ── 横並び: 左（設定）＋ 右（プレビュー） ──
                 // エクスポートセクションを常にウィンドウ下部に表示するため、
                 // 横並び領域の高さを「描画領域高 - ヘッダー/テクスチャフィールド - エクスポート高」に制限する。
-                float topOverheadH = EditorStyles.toolbar.fixedHeight
+                //
+                // 上部（toolbar＋テクスチャフィールド）の高さは固定では見積もれない。テクスチャ未設定時の
+                // WorkflowHint や ReadWrite 不可時のエラー HelpBox が可変高で挿入され、固定見積もりだと
+                // horizH が過大になりエクスポートが画面外へはみ出すため。DrawTextureField 直後の
+                // GetLastRect().yMax はウィンドウ最上部(y=0)からの絶対値＝上部全体高そのものなので、
+                // それを Repaint 時に実測してキャッシュし、horizH 算出に使う。
+                if (Event.current.type == EventType.Repaint)
+                {
+                    float measured = GUILayoutUtility.GetLastRect().yMax;
+                    if (measured > 1f) _sideBySideTopHeight = measured;
+                }
+                // 未計測の初回フレームのみ決定論フォールバック（テクスチャ設定済み相当の見積もり）。
+                float fallbackTopH = EditorStyles.toolbar.fixedHeight
                     + 4f + (EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing) * 2 + 4f;
+                float topOverheadH = _sideBySideTopHeight > 1f ? _sideBySideTopHeight : fallbackTopH;
                 float horizH = Mathf.Max(
                     VACCConsts.Layout.MiddleAreaMinHeight,
                     availableContentH - topOverheadH - exportH);
