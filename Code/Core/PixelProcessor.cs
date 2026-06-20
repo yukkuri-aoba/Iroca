@@ -241,6 +241,27 @@ namespace VRCAvatarColorChanger
                         debug?.RecordStage(zone.id, DebugStages.FloodFill, strength, w, h);
                     }
 
+                    // 後段パス(穴埋め/境界回復/ブラー)を実マッチ範囲＋余白に限定する bbox (P2-7 拡張)。
+                    // strength>0 を新たに変えうるのは「現に matched な画素の近傍」だけで、各パスが領域を
+                    // 外側へ伸ばす最大幅は 穴埋め=±holeFillPasses / 境界回復=±antiAliasCleanup /
+                    // ブラー=±radius。その総和ぶん余白を取った bbox の外は、処理の前後で常に 0 のまま=
+                    // 出力ビット不変。bbox 内だけを走査することで、小マッチ(ロゴ等)で全 16.8M 画素の
+                    // 近傍走査を避ける。Array.Copy/Clear は全画素のまま(memcpy で安価)残し、重い近傍
+                    // 走査・relaxed 判定だけを bbox に絞る。マッチ皆無(hasPostBox=false)なら後段は全て no-op。
+                    int ppBlurRadius = edgeFeather > 0.01f ? Mathf.CeilToInt(edgeFeather * 2.5f) : 0;
+                    int ppMargin = holeFillPasses + Mathf.Max(0, antiAliasCleanup) + ppBlurRadius + 2;
+                    int ppMinX, ppMinY, ppMaxX, ppMaxY;
+                    bool hasPostBox = TryComputeStrengthBBox(strength, w, h, 0f,
+                        out ppMinX, out ppMinY, out ppMaxX, out ppMaxY);
+                    if (hasPostBox)
+                    {
+                        ppMinX = Mathf.Max(0, ppMinX - ppMargin);
+                        ppMinY = Mathf.Max(0, ppMinY - ppMargin);
+                        ppMaxX = Mathf.Min(w - 1, ppMaxX + ppMargin);
+                        ppMaxY = Mathf.Min(h - 1, ppMaxY + ppMargin);
+                    }
+                    else { ppMinX = 0; ppMinY = 0; ppMaxX = -1; ppMaxY = -1; } // 空 bbox(後段スキップ)
+
                     // 1b. 孤立した穴を埋める：アンチエイリアス処理された端のピクセルは低彩度を持つことが多く
                     //     satConfidenceで見落とされて、元のカラーの孤立したドットを残す
                     //     ゼロ強度ピクセルが主にマッチしたピクセルに囲まれている場合は埋める。
@@ -257,42 +278,54 @@ namespace VRCAvatarColorChanger
                         Mathf.Clamp01((gsS - zone.chromaThreshold) / 0.10f),
                         Mathf.Clamp01((gsV - 0.05f) / 0.15f));
                     float rgSampR = zone.sampleColor.r, rgSampG = zone.sampleColor.g, rgSampB = zone.sampleColor.b;
-                    bool[] fillAllowed = s_boolPool.Rent(len);
-                    try
+                    if (hasPostBox)
                     {
-                        var fillAllowedLocal = fillAllowed;
-                        Parallel.For(0, len, po, i =>
+                        bool[] fillAllowed = s_boolPool.Rent(len);
+                        try
                         {
-                            Color32 hop = originalPixels[i];
-                            fillAllowedLocal[i] = GetRelaxedMatchStrength(
-                                pixH[i], pixS[i], pixV[i], gsH, gsS, gsV,
-                                zone.tolerance, zone.edgeSoftness, zone.valueWeight,
-                                zone.satDistWeight, relaxedSatMin, relaxedSatRamp,
-                                zone.shadowForgivenessSatMin,
-                                hop.r / 255f, hop.g / 255f, hop.b / 255f,
-                                rgSampR, rgSampG, rgSampB, relaxedChromaConf) > 0f;
-                        });
-                        FillSmallHoles(strength, w, h, holeFillPasses, holeFillMinNeighbors, fillAllowed);
-                    }
-                    finally
-                    {
-                        s_boolPool.Return(fillAllowed);
+                            // fillAllowed は FillSmallHoles が中心画素 idx でのみ参照する(近傍は strength を読む)
+                            // ため、bbox 内だけ計算すれば足りる。bbox 外は読まれない=出力ビット不変。
+                            var fillAllowedLocal = fillAllowed;
+                            Parallel.For(ppMinY, ppMaxY + 1, po, y =>
+                            {
+                                int rowOff = y * w;
+                                for (int x = ppMinX; x <= ppMaxX; x++)
+                                {
+                                    int i = rowOff + x;
+                                    Color32 hop = originalPixels[i];
+                                    fillAllowedLocal[i] = GetRelaxedMatchStrength(
+                                        pixH[i], pixS[i], pixV[i], gsH, gsS, gsV,
+                                        zone.tolerance, zone.edgeSoftness, zone.valueWeight,
+                                        zone.satDistWeight, relaxedSatMin, relaxedSatRamp,
+                                        zone.shadowForgivenessSatMin,
+                                        hop.r / 255f, hop.g / 255f, hop.b / 255f,
+                                        rgSampR, rgSampG, rgSampB, relaxedChromaConf) > 0f;
+                                }
+                            });
+                            FillSmallHoles(strength, w, h, holeFillPasses, holeFillMinNeighbors, fillAllowed,
+                                ppMinX, ppMinY, ppMaxX, ppMaxY);
+                        }
+                        finally
+                        {
+                            s_boolPool.Return(fillAllowed);
+                        }
                     }
                     debug?.RecordStage(zone.id, DebugStages.HoleFill, strength, w, h);
 
                     // 1c. 境界復元：マッチしたピクセルに隣接するマッチしないピクセルを再評価
                     //     古い固定低彩度閾値を使用して、正しい段階的な強度を与える
-                    if (antiAliasCleanup > 0)
+                    if (antiAliasCleanup > 0 && hasPostBox)
                     {
                         RecoverBoundaryEdges(strength, w, h, pixH, pixS, pixV,
                             zone.sampleColor, zone.tolerance, zone.edgeSoftness, zone.valueWeight,
                             zone.satDistWeight, relaxedSatMin, relaxedSatRamp, zone.shadowForgivenessSatMin, antiAliasCleanup,
+                            ppMinX, ppMinY, ppMaxX, ppMaxY,
                             originalPixels, relaxedChromaConf);
                         debug?.RecordStage(zone.id, DebugStages.BoundaryRecover, strength, w, h);
                     }
 
                     // 2. スムーズな端の遷移のためのガウシアンブラー（端に限定）
-                    if (edgeFeather > 0.01f)
+                    if (edgeFeather > 0.01f && hasPostBox)
                     {
                         // ガウシアンブラー用の一時バッファ。GaussianBlur 内部の Parallel.For
                         // でキャンセルが入っても preBlur/blurOut が漏れないよう try/finally で囲む。
@@ -303,7 +336,8 @@ namespace VRCAvatarColorChanger
                             preBlur = s_floatPool.Rent(len);
                             Array.Copy(strength, preBlur, len);
                             blurOut = s_floatPool.Rent(len);
-                            if (GaussianBlur(strength, blurOut, w, h, edgeFeather))
+                            if (GaussianBlur(strength, blurOut, w, h, edgeFeather,
+                                ppMinX, ppMinY, ppMaxX, ppMaxY))
                             {
                                 // strength の所有権を blurOut に移し、もとの strength は返却
                                 s_floatPool.Return(strength);
@@ -1657,7 +1691,8 @@ namespace VRCAvatarColorChanger
         /// radius &lt; 1 のとき何もしない（dst は未定義のまま）。
         /// 戻り値: ブラー処理を行った場合 true、スキップした場合 false。
         /// </summary>
-        private static bool GaussianBlur(float[] src, float[] dst, int w, int h, float sigma)
+        private static bool GaussianBlur(float[] src, float[] dst, int w, int h, float sigma,
+            int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1)
         {
             int radius = Mathf.CeilToInt(sigma * 2.5f);
             if (radius < 1) return false;
@@ -1674,29 +1709,41 @@ namespace VRCAvatarColorChanger
                 kernel[i] /= kernelSum;
 
             int len = w * h;
+            // bbox 未指定(boxMaxX<0)なら全画素。指定時はその矩形内だけブラーする(P2-7)。矩形は
+            // 呼び出し側が「src の非0 が矩形より radius 以上内側」を保証するため、矩形外の真のブラー出力は
+            // 常に 0。dst を全クリアしておけば矩形内だけ計算しても全画素ブラーと出力ビット一致する。
+            if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
+
             float[] temp = s_floatPool.Rent(len);
             var gaussPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
             try
             {
+                Array.Clear(dst, 0, len);   // 矩形外は 0(全画素ブラーの src=0 領域と一致)
+                // 垂直パスが読む行は [boxMinY-radius, boxMaxY+radius] なので、水平パスはその行範囲ぶん
+                // 上下に広げて temp を用意する(列は矩形のまま。垂直は矩形列しか読まない)。
+                int hMinY = Mathf.Max(0, boxMinY - radius);
+                int hMaxY = Mathf.Min(h - 1, boxMaxY + radius);
                 // 水平パス
-                Parallel.For(0, h, gaussPo, y =>
+                Parallel.For(hMinY, hMaxY + 1, gaussPo, y =>
                 {
-                    for (int x = 0; x < w; x++)
+                    int rb = y * w;
+                    for (int x = boxMinX; x <= boxMaxX; x++)
                     {
                         float val = 0f;
                         for (int k = -radius; k <= radius; k++)
                         {
                             int nx = Mathf.Clamp(x + k, 0, w - 1);
-                            val += src[y * w + nx] * kernel[k + radius];
+                            val += src[rb + nx] * kernel[k + radius];
                         }
-                        temp[y * w + x] = val;
+                        temp[rb + x] = val;
                     }
                 });
 
                 // 垂直パス
-                Parallel.For(0, h, gaussPo, y =>
+                Parallel.For(boxMinY, boxMaxY + 1, gaussPo, y =>
                 {
-                    for (int x = 0; x < w; x++)
+                    int rb = y * w;
+                    for (int x = boxMinX; x <= boxMaxX; x++)
                     {
                         float val = 0f;
                         for (int k = -radius; k <= radius; k++)
@@ -1704,7 +1751,7 @@ namespace VRCAvatarColorChanger
                             int ny = Mathf.Clamp(y + k, 0, h - 1);
                             val += temp[ny * w + x] * kernel[k + radius];
                         }
-                        dst[y * w + x] = val;
+                        dst[rb + x] = val;
                     }
                 });
             }
@@ -1746,6 +1793,38 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
+        /// strength &gt; thr の画素を囲むバウンディングボックス(min/max)を求める。
+        /// 後段パス(穴埋め/境界回復/ブラー)を実マッチ範囲＋余白に限定し、全画素走査を避けるために使う。
+        /// </summary>
+        /// <returns>マッチ画素が 1 つ以上あれば true(false のとき bbox は空で、後段パスは no-op)。</returns>
+        private static bool TryComputeStrengthBBox(float[] strength, int w, int h, float thr,
+            out int minX, out int minY, out int maxX, out int maxY)
+        {
+            minX = w; minY = h; maxX = -1; maxY = -1;
+            for (int y = 0; y < h; y++)
+            {
+                int rb = y * w;
+                int rowMinX = -1, rowMaxX = -1;
+                for (int x = 0; x < w; x++)
+                {
+                    if (strength[rb + x] > thr)
+                    {
+                        if (rowMinX < 0) rowMinX = x;
+                        rowMaxX = x;
+                    }
+                }
+                if (rowMaxX >= 0)
+                {
+                    if (rowMinX < minX) minX = rowMinX;
+                    if (rowMaxX > maxX) maxX = rowMaxX;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+            return maxX >= 0;
+        }
+
+        /// <summary>
         /// 形態学的フィル：ゼロ強度のピクセルがマッチした隣接ピクセルの多数派に囲まれていれば
         /// 最小隣接強度で埋める。
         /// これにより、satConfidenceゲートを通過するに低い彩度を持つアンチエイリアス処理された
@@ -1757,9 +1836,15 @@ namespace VRCAvatarColorChanger
         /// バッファを読み書きで swap することで大テクスチャでのメモリコピーを削減。
         /// </remarks>
         private static void FillSmallHoles(float[] strength, int w, int h,
-            int passes = 3, int minNeighbors = 4, bool[] allowedMask = null)
+            int passes = 3, int minNeighbors = 4, bool[] allowedMask = null,
+            int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1)
         {
             if (passes <= 0) return;
+
+            // bbox 未指定(boxMaxX<0)なら全画素。指定時はその矩形内だけ近傍走査する(P2-7)。
+            // 矩形外は呼び出し側が「処理前後とも 0」を保証するので走査を省いても出力ビット不変。
+            // Array.Copy(全画素)は安価なので残し、近傍を読む重いループだけを矩形に絞る。
+            if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
 
             int len = w * h;
             float[] buffer = s_floatPool.Rent(len);
@@ -1773,9 +1858,9 @@ namespace VRCAvatarColorChanger
             {
                 System.Array.Copy(read, write, len);
 
-                Parallel.For(0, h, fillPo, y =>
+                Parallel.For(boxMinY, boxMaxY + 1, fillPo, y =>
                 {
-                    for (int x = 0; x < w; x++)
+                    for (int x = boxMinX; x <= boxMaxX; x++)
                     {
                         int idx = y * w + x;
                         if (read[idx] > 0f) continue;
@@ -1840,9 +1925,13 @@ namespace VRCAvatarColorChanger
             Color sampleColor, float tolerance,
             float edgeSoftness, float valueWeight, float satDistWeight,
             float relaxedSatMin, float relaxedSatRamp, float shadowForgivenessSatMin, int passes,
+            int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1,
             Color32[] originalPixels = null, float chromaConfidence = 1f)
         {
             if (passes <= 0) return;
+
+            // bbox 未指定(boxMaxX<0)なら全画素。指定時はその矩形内だけ走査する(P2-7、出力ビット不変)。
+            if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
 
             float sH, sS, sV;
             Color.RGBToHSV(sampleColor, out sH, out sS, out sV);
@@ -1861,9 +1950,9 @@ namespace VRCAvatarColorChanger
             {
                 System.Array.Copy(read, write, len);
 
-                Parallel.For(0, h, recoverPo, y =>
+                Parallel.For(boxMinY, boxMaxY + 1, recoverPo, y =>
                 {
-                    for (int x = 0; x < w; x++)
+                    for (int x = boxMinX; x <= boxMaxX; x++)
                     {
                         int idx = y * w + x;
                         if (read[idx] > 0f) continue;
