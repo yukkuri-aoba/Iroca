@@ -40,9 +40,12 @@
 
   <!-- ソースコード: Code/ 以下のみ。Code_Archive/ は除外。
        Code/Debug/ は別 asmdef (VACCEditor.Debug) 配下なので Unity の挙動に合わせて除外する。
-       これにより Code/Debug/ フォルダを削除しても本体 csproj は単独でビルド可能。 -->
+       Code/McpIntegration/ は MCPForUnity が導入された環境でのみコンパイルされる別 asmdef
+       (VRCAvatarColorChanger.McpIntegration, VACC_MCP_PRESENT ゲート) で、MCPForUnity 型を参照するため
+       dotnet 単体では解決できない。Unity の挙動に合わせて除外する。
+       これらのフォルダを削除しても本体 csproj は単独でビルド可能。 -->
   <ItemGroup>
-    <Compile Include="..\..\Code\**\*.cs" Exclude="..\..\Code\Debug\**\*.cs" />
+    <Compile Include="..\..\Code\**\*.cs" Exclude="..\..\Code\Debug\**\*.cs;..\..\Code\McpIntegration\**\*.cs" />
   </ItemGroup>
 
   <ItemGroup>
