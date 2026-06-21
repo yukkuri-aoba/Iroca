@@ -70,6 +70,9 @@ namespace VRCAvatarColorChanger
             public bool highlightRecovery = false;
             public bool highlightBandExpand = true;
             public bool applyHighlightWash = false;
+            // 既定 ON: 影をスポイトしても出力が過度に明るく/ベタ塗りにならないよう、再着色アンカーを
+            // 領域の代表地色から自動推定する(ColorZone.autoRecolorAnchor と同既定)。
+            public bool autoRecolorAnchor = true;
             public int layerIndex = 0;
         }
 
@@ -410,7 +413,7 @@ namespace VRCAvatarColorChanger
                 highlightBandExpand = z.highlightBandExpand,
                 applyHighlightWash = z.applyHighlightWash,
                 autoHighlightSample = false,
-                autoRecolorAnchor = false,
+                autoRecolorAnchor = z.autoRecolorAnchor,
                 outputSaturation = z.outputSaturation,
                 shadowDesaturation = z.shadowDesaturation,
                 shadowForgivenessSatMin = z.shadowForgivenessSatMin,

@@ -117,8 +117,11 @@ namespace VRCAvatarColorChanger
         // 画素ではなくマッチ領域の統計(明部の地色)から自動推定する。スポイトを陰影のどの明るさで
         // 取ってもパーツの明部が target 色に一致する(サンプル位置非依存)。マッチング・wash は
         // スポイト色のまま＝再着色範囲は不変。Python 参照の auto_recolor_anchor /
-        // estimate_anchor_oklab と同期。既定 OFF(オプトイン。旧プリセット JSON 互換のため)。
-        public bool autoRecolorAnchor = false;
+        // estimate_anchor_oklab と同期。既定 ON(オプトアウト): 影をスポイトしても出力が過度に
+        // 明るく/ベタ塗りにならないよう、位置非依存で代表地色を target 明度へ合わせる。クリック
+        // 画素を厳密に target 色へ当てたい/意図的に明るく塗りたいゾーンだけ OFF にする。旧プリセット
+        // JSON で明示保存された値は尊重(マイグレーションなし)。フィールド欠落の旧 JSON は新既定 true。
+        public bool autoRecolorAnchor = true;
         // [非推奨] 旧: 処理順を表す数値。現在は「リストの並び順＝優先度(先頭が最優先)」に
         // 変更したため未使用。古いプリセット JSON の後方互換のためフィールドのみ残す
         // (PresetsView.MigrateLegacyLayerPriority が読み込み時に一度だけ降順移行に使用)。
