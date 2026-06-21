@@ -56,6 +56,9 @@ namespace VRCAvatarColorChanger
         public bool highlightRecovery { get; set; } = false;
         public bool highlightBandExpand { get; set; } = true;
         public bool applyHighlightWash { get; set; } = false;
+        // 既定 ON(ColorZone.autoRecolorAnchor と同既定)。JSON で false にすれば従来のクリック画素
+        // アンカー挙動。ON/OFF を JSON から切り替えて A/B 計測できるようにフィールドを公開する。
+        public bool autoRecolorAnchor { get; set; } = true;
         public int layerIndex { get; set; } = 0;
     }
 
@@ -107,7 +110,7 @@ namespace VRCAvatarColorChanger
                 highlightBandExpand = z.highlightBandExpand,
                 applyHighlightWash = z.applyHighlightWash,
                 autoHighlightSample = false,
-                autoRecolorAnchor = false,
+                autoRecolorAnchor = z.autoRecolorAnchor,
                 outputSaturation = z.outputSaturation,
                 shadowDesaturation = z.shadowDesaturation,
                 shadowForgivenessSatMin = z.shadowForgivenessSatMin,
