@@ -10,14 +10,14 @@ namespace Camereo
 {
     /// <summary>
     /// マスクデータ（<see cref="MaskState"/>）の永続化を担う。
-    /// 保存先は <c>&lt;Project&gt;/UserSettings/Camereo/MaskCache/&lt;テクスチャGUID&gt;.vacc-mask.json</c> で、
+    /// 保存先は <c>&lt;Project&gt;/UserSettings/Camereo/MaskCache/&lt;テクスチャGUID&gt;.camereo-mask.json</c> で、
     /// git 非追跡フォルダ（個人作業データ）に置く。GUID ベースのため
     /// テクスチャの rename / move には自動追従する。
     /// </summary>
     internal static class MaskFileStore
     {
         private const string CacheDirRelative = "UserSettings/Camereo/MaskCache";
-        private const string MaskFileExtension = ".vacc-mask.json";
+        private const string MaskFileExtension = ".camereo-mask.json";
 
         /// <summary>
         /// プロジェクトルート直下の <c>UserSettings/Camereo/MaskCache</c> 絶対パスを返す。

@@ -20,7 +20,7 @@ namespace Camereo
     /// 呼び出し経路は 3 つ。いずれも同じ中核（<see cref="RunRecolorCore"/>）を通る:
     ///   1. 静的 API: <see cref="RecolorByPreset"/> / <see cref="RecolorWithZones"/> 等。戻り値は JSON 文字列。
     ///      生 C# 実行が可能な MCP クライアント・EditMode テストから直接呼ぶ。
-    ///   2. MCPForUnity カスタムツール: <c>Code/McpIntegration/CamereoMcpTools.cs</c> の <c>vacc_recolor</c> 等。
+    ///   2. MCPForUnity カスタムツール: <c>Code/McpIntegration/CamereoMcpTools.cs</c> の <c>camereo_recolor</c> 等。
     ///      <c>execute_custom_tool</c> から本クラスの公開静的 API を呼ぶ。MCPForUnity 導入時のみ
     ///      コンパイルされる別 asmdef（CAMEREO_MCP_PRESENT ゲート）で、配布パッケージ本体は依存ゼロを保つ。
     ///      生 C# 実行に非対応のクライアントでも駆動できる（Tools メニューには何も追加しない）。
@@ -165,7 +165,7 @@ namespace Camereo
                     "パスは Assets 相対（Assets/...）・プロジェクト相対・絶対のいずれも可。出力は .png。",
                     "色は [r,g,b]（0..1）。enabled なゾーンが 1 つも無いと error になる。",
                     "v1 ではプリセット同梱マスクはヘッドレス適用しない（適用時は warnings に明記）。",
-                    "MCP 経路: execute_custom_tool(\"vacc_recolor\", { source, output, preset|zones }) で呼ぶ（メニュー非依存）。",
+                    "MCP 経路: execute_custom_tool(\"camereo_recolor\", { source, output, preset|zones }) で呼ぶ（メニュー非依存）。",
                 },
                 fieldDocs = new[]
                 {
@@ -260,24 +260,24 @@ namespace Camereo
         }
 
         // メニュー経路（execute_menu_item）は廃止。MCP からの駆動は MCPForUnity カスタムツール
-        // （Code/McpIntegration/CamereoMcpTools.cs の vacc_recolor 等）経由で公開静的 API を呼ぶ。
+        // （Code/McpIntegration/CamereoMcpTools.cs の camereo_recolor 等）経由で公開静的 API を呼ぶ。
         // Tools メニューにはウィンドウ起動の単一項目だけを残し、サブメニュー二重表示を避ける。
 
         // ─────────────────────── batchmode CLI ───────────────────────
 
         /// <summary>
         /// <c>Unity.exe -batchmode -quit -executeMethod Camereo.CamereoAutomation.RunFromCommandLine
-        ///   -vaccSource &lt;path&gt; -vaccOutput &lt;path&gt; (-vaccPreset &lt;path|name&gt; | -vaccZonesFile &lt;json&gt; | -vaccJob &lt;json&gt;)</c>
+        ///   -camereoSource &lt;path&gt; -camereoOutput &lt;path&gt; (-camereoPreset &lt;path|name&gt; | -camereoZonesFile &lt;json&gt; | -camereoJob &lt;json&gt;)</c>
         /// で呼ぶ、MCP を介さない完全ヘッドレス経路。結果は Console と UserSettings/Camereo/mcp/result.json に出す。
         /// </summary>
         public static void RunFromCommandLine()
         {
             string[] args = Environment.GetCommandLineArgs();
-            string source = GetArg(args, "-vaccSource");
-            string output = GetArg(args, "-vaccOutput");
-            string preset = GetArg(args, "-vaccPreset");
-            string zonesFile = GetArg(args, "-vaccZonesFile");
-            string jobFile = GetArg(args, "-vaccJob");
+            string source = GetArg(args, "-camereoSource");
+            string output = GetArg(args, "-camereoOutput");
+            string preset = GetArg(args, "-camereoPreset");
+            string zonesFile = GetArg(args, "-camereoZonesFile");
+            string jobFile = GetArg(args, "-camereoJob");
 
             string resultJson;
             try

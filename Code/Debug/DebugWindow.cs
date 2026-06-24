@@ -214,11 +214,11 @@ namespace Camereo.DebugTools
                     "Dump all stages to PNG",
                     "全 zone × 全段階のキャプチャを Library/Camereo/Debug/<source>/<timestamp>/ 配下に PNG として書き出します。manifest.json も併せて生成されます。\nProject ビューには表示されません（Assets/ 外に保存）。書き出し後にフォルダをエクスプローラーで開きます。")))
             {
-                var vaccWin = Resources.FindObjectsOfTypeAll<CamereoWindow>().Length > 0
+                var camereoWin = Resources.FindObjectsOfTypeAll<CamereoWindow>().Length > 0
                     ? Resources.FindObjectsOfTypeAll<CamereoWindow>()[0]
                     : null;
-                string srcName = vaccWin != null && vaccWin.SourceTexture != null
-                    ? vaccWin.SourceTexture.name : "unknown";
+                string srcName = camereoWin != null && camereoWin.SourceTexture != null
+                    ? camereoWin.SourceTexture.name : "unknown";
                 string dumpPath = DebugDumpStore.DumpAll(ctx, srcName);
                 if (!string.IsNullOrEmpty(dumpPath))
                 {
