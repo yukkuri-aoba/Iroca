@@ -507,9 +507,9 @@ namespace VRCAvatarColorChanger
                 // 枠外の単一行に統合する（fix.md 項目3）。
             }
 
-            // Flood Fill は実装継続中のため当面 UI から非表示。
-            // if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
-            //     DrawFloodFillSeedOverlay(activePreviewRect);
+            // 連続領域モードのシード(任意上書き)を十字オーバーレイで描画。
+            if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
+                DrawFloodFillSeedOverlay(activePreviewRect);
 
             // プレビューレクトを格納して、次の詳細生成ティックで使用
             if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
@@ -517,9 +517,9 @@ namespace VRCAvatarColorChanger
 
             HandlePreviewGlobalInput(zoomHitRect, scale);
 
-            // Flood Fill は実装継続中のため当面 UI から非表示。
-            // if (!maskView.maskPaintActive)
-            //     HandleFloodFillSeedInput(activePreviewRect);
+            // 連続領域モードの任意シード入力(Shift+クリック)。マスクペイント中は無効。
+            if (!maskView.maskPaintActive)
+                HandleFloodFillSeedInput(activePreviewRect);
 
             if (maskView.maskFoldout && maskView.maskPaintActive)
                 HandlePreviewPaintInput(activePreviewRect);
@@ -749,7 +749,9 @@ namespace VRCAvatarColorChanger
             switch (e.GetTypeForControl(controlId))
             {
                 case EventType.MouseDown:
-                    if (hasFloodFill && e.button == 0 && isInRect && !e.control && !e.alt)
+                    // 自動アンカリングが既定なので、通常クリックはパン/検分に使えるよう温存し、
+                    // シード(任意の上書き=その塊だけ残す)は Shift+クリックでのみ設定する。
+                    if (hasFloodFill && e.button == 0 && e.shift && isInRect && !e.control && !e.alt)
                     {
                         float u = (e.mousePosition.x - previewRect.x) / previewRect.width;
                         float v = 1f - (e.mousePosition.y - previewRect.y) / previewRect.height;
@@ -785,7 +787,7 @@ namespace VRCAvatarColorChanger
                     break;
 
                 case EventType.Repaint:
-                    if (hasFloodFill && isInRect)
+                    if (hasFloodFill && isInRect && e.shift)
                         EditorGUIUtility.AddCursorRect(previewRect, MouseCursor.Link);
                     break;
             }
