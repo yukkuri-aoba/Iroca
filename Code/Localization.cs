@@ -1,12 +1,12 @@
-﻿// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/VRC_AvatarColorChanger
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-namespace VRCAvatarColorChanger
+namespace Camereo
 {
     public enum LanguageMode { Auto, Japanese, English }
 
     public static class Localization
     {
-        private const string PrefsKey = "VACC.Language";
+        private const string PrefsKey = "Camereo.Language";
         public static LanguageMode CurrentLanguage;
 
         static Localization()
@@ -17,7 +17,7 @@ namespace VRCAvatarColorChanger
         public static void SaveLanguagePreference()
             => UnityEditor.EditorPrefs.SetInt(PrefsKey, (int)CurrentLanguage);
 
-        private const string EnglishNoticeKey = "VACC.EnglishTranslationNoticeShown";
+        private const string EnglishNoticeKey = "Camereo.EnglishTranslationNoticeShown";
 
         /// <summary>
         /// 英語表示が初めて使われたとき（Auto 判定・手動選択どちらでも）、
@@ -52,7 +52,7 @@ namespace VRCAvatarColorChanger
         }
 
         // ─── Window ───
-        public static string WindowTitle => "VRC AvatarColorChanger";
+        public static string WindowTitle => "Camereo";
 
         // ─── Header / Language ───
         public static string LangAuto     => IsJapanese ? "自動(Auto)" : "Auto";
@@ -63,8 +63,8 @@ namespace VRCAvatarColorChanger
         // ─── Credit Dialog ───
         public static string CreditTitle => IsJapanese ? "クレジット" : "Credits";
         public static string CreditBody  => IsJapanese
-            ? "VRC AvatarColorChanger (VACC)\n\n制作: yukkuri__aoba\nAI補助: Claude (Anthropic)\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0"
-            : "VRC AvatarColorChanger (VACC)\n\nDeveloper: yukkuri__aoba\nAI Assistance: Claude (Anthropic)\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0";
+            ? "Camereo\n\n制作: yukkuri__aoba\nAI補助: Claude (Anthropic)\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0"
+            : "Camereo\n\nDeveloper: yukkuri__aoba\nAI Assistance: Claude (Anthropic)\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0";
 
         // ─── Workflow guidance ───
         // セクションが等価に並んで開始点が分かりにくいので、主要 4 ステップに番号を振り、
@@ -213,7 +213,7 @@ namespace VRCAvatarColorChanger
         // 上級モードのシャドウ/ハイライト詳細セクション見出し（旧 "=== ... ===" 装飾を置換）。
         public static string ShadowHighlightSection => IsJapanese ? "シャドウ・ハイライト詳細設定" : "Shadow / Highlight Details";
 
-        // 無彩色（黒/グレー）抽出のしきい値。以前は VACCWindow / ZoneAutoTuner にインラインの
+        // 無彩色（黒/グレー）抽出のしきい値。以前は CamereoWindow / ZoneAutoTuner にインラインの
         // IsJapanese 三項で散在していた文字列を Localization に集約。
         public static string ChromaThreshold => IsJapanese ? "自動しきい値(無彩色判定)" : "Auto Grayscale Threshold";
         public static string ChromaThresholdTooltip => IsJapanese

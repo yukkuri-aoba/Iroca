@@ -1,6 +1,6 @@
-﻿// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/VRC_AvatarColorChanger
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-// Assets/VACC/Editor/BuildHelper.cs
+// Assets/Camereo/Editor/BuildHelper.cs
 // unitypackage エクスポート用ビルドヘルパー。
 // PowerShell スクリプト (build/ExportUnityPackage.ps1) から
 // Unity バッチモード (-executeMethod) 経由で呼び出される。
@@ -10,12 +10,12 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 
-namespace VRCAvatarColorChanger
+namespace Camereo
 {
     public static class BuildHelper
     {
         // エクスポート対象の Assets 相対パス
-        private const string ExportRoot = "Assets/VACC";
+        private const string ExportRoot = "Assets/Camereo";
 
         /// <summary>
         /// バッチモードからのエントリポイント。
@@ -29,7 +29,7 @@ namespace VRCAvatarColorChanger
                 // デフォルト出力先（プロジェクトルート）
                 outputPath = Path.Combine(
                     Application.dataPath, "..",
-                    "com.yukkuri-aoba.vrc-avatar-color-changer.unitypackage");
+                    "com.yukkuri-aoba.camereo.unitypackage");
             }
 
             outputPath = Path.GetFullPath(outputPath);

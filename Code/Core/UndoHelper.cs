@@ -1,9 +1,9 @@
-﻿// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/VRC_AvatarColorChanger
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using UnityEditor;
 using UnityEngine;
 
-namespace VRCAvatarColorChanger
+namespace Camereo
 {
     /// <summary>
     /// EditorGUILayout の各コントロールに「変更前の状態を Unity の Undo に登録する」
@@ -16,7 +16,7 @@ namespace VRCAvatarColorChanger
     /// </summary>
     internal static class UndoHelper
     {
-        private const string DefaultUndoName = "VACC Edit";
+        private const string DefaultUndoName = "Camereo Edit";
 
         public static float Slider(Object host, GUIContent content, float value, float min, float max, string undoName = DefaultUndoName)
         {

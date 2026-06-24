@@ -1,4 +1,4 @@
-# VRC AvatarColorChanger (VACC) ユーザーマニュアル
+# Camereo ユーザーマニュアル
 
 *[日本語](#日本語) | [English](#english)*
 
@@ -40,17 +40,17 @@
    - Unity メニューから `Assets > Import Package > Custom Package...` を選択
    - ダウンロードした `.unitypackage` ファイルを選択
    - インポートダイアログで「Import」をクリック
-   - 完了すると、`Assets/VACC` フォルダが作成されます。
+   - 完了すると、`Assets/Camereo` フォルダが作成されます。
 
 3. **ウィンドウを開く**
-   - Unity メニューから `Tools > VRC AvatarColorChanger` を選択
-   - VACC ウィンドウが起動します
+   - Unity メニューから `Tools > Camereo` を選択
+   - Camereo ウィンドウが起動します
 
 #### Read/Write Enabled の有効化
 
 テクスチャが Read/Write Enabled できていない場合：
 
-1. VACC ウィンドウで対象テクスチャを選択
+1. Camereo ウィンドウで対象テクスチャを選択
 2. ウィンドウに警告メッセージが表示されます
 3. 表示されたボタンをクリックして自動的に有効化します
 
@@ -60,7 +60,7 @@
 
 #### ステップ 1: テクスチャを選択
 
-1. VACC ウィンドウの「Texture」フィールドをクリック
+1. Camereo ウィンドウの「Texture」フィールドをクリック
 2. Unity のテクスチャ選択ダイアログが開きます
 3. 色改変したいテクスチャを選択
 4. プレビュー画面にテクスチャが表示されます
@@ -535,18 +535,18 @@ A: テクスチャをメモリ上で処理するため、大きなテクスチ�
    - Select `Assets > Import Package > Custom Package...` from the menu
    - Choose the downloaded `.unitypackage` file
    - Click "Import" in the dialog
-   - An `Assets/VACC` folder will be created
+   - An `Assets/Camereo` folder will be created
 
 3. **Open the Window**
-   - Select `Tools > VRC AvatarColorChanger` from the menu
-   - The VACC window will open
+   - Select `Tools > Camereo` from the menu
+   - The Camereo window will open
    - Dock it in a convenient location
 
 #### Enable Read/Write on Textures
 
 If your texture doesn't support Read/Write Enabled:
 
-1. Select the texture in VACC
+1. Select the texture in Camereo
 2. A warning message will appear
 3. Click the button to auto-enable it
 
@@ -556,7 +556,7 @@ If your texture doesn't support Read/Write Enabled:
 
 #### Step 1: Select Texture
 
-1. Click the "Texture" field in VACC
+1. Click the "Texture" field in Camereo
 2. Unity's texture picker will open
 3. Select the texture you want to recolor
 4. It will appear in the preview
@@ -834,9 +834,9 @@ Use the "Save as new file" toggle to select the save method, then click "Apply &
 - Save over the original texture
 - Backup strongly recommended
 
-If "Inherit Import Settings" is ON, VACC copies the source texture's texture type, compression, mipmap, and platform settings to the exported file.
+If "Inherit Import Settings" is ON, Camereo copies the source texture's texture type, compression, mipmap, and platform settings to the exported file.
 The "Open Folder" button opens the folder containing the source texture in your file manager.
-VACC reads the source file directly from disk, so it processes the original file resolution rather than Unity's imported preview size.
+Camereo reads the source file directly from disk, so it processes the original file resolution rather than Unity's imported preview size.
 
 ---
 
@@ -945,7 +945,7 @@ A: Yes. Import .unitypackage into each project.
 
 **Q: Supported formats?**
 
-A: Input files must be **PNG** or **JPG** (VACC reads raw bytes and decodes them via `Texture2D.LoadImage`). Output is always saved as **PNG**. Other formats such as TGA / EXR / PSD are not supported. Textures also need **Read/Write Enabled** in their import settings.
+A: Input files must be **PNG** or **JPG** (Camereo reads raw bytes and decodes them via `Texture2D.LoadImage`). Output is always saved as **PNG**. Other formats such as TGA / EXR / PSD are not supported. Textures also need **Read/Write Enabled** in their import settings.
 
 **Q: Does Batch Apply include all Color Zones?**
 

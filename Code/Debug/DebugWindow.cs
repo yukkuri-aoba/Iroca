@@ -1,14 +1,14 @@
-﻿// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/VRC_AvatarColorChanger
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
-namespace VRCAvatarColorChanger.DebugTools
+namespace Camereo.DebugTools
 {
     /// <summary>
     /// パイプライン透明化の詳細可視化を担う独立 EditorWindow。
-    /// VACC 本体ウィンドウとは別にサイズ変更・ドッキングできる。
+    /// Camereo 本体ウィンドウとは別にサイズ変更・ドッキングできる。
     /// 表示元のキャプチャは <see cref="DebugView.LatestContext"/> から読み出す。
     /// </summary>
     internal sealed class DebugWindow : EditorWindow
@@ -22,9 +22,9 @@ namespace VRCAvatarColorChanger.DebugTools
         }
 
         // ── EditorPrefs キー ───────────────────────────
-        private const string PrefKeyStage = "VACC.Debug.SelectedStage";
-        private const string PrefKeyZone = "VACC.Debug.SelectedZone";
-        private const string PrefKeyMode = "VACC.Debug.Mode";
+        private const string PrefKeyStage = "Camereo.Debug.SelectedStage";
+        private const string PrefKeyZone = "Camereo.Debug.SelectedZone";
+        private const string PrefKeyMode = "Camereo.Debug.Mode";
 
         // ── ウィンドウ自身が保持する選択状態 ──────────
         [SerializeField] private int _selectedStageIndex;
@@ -39,10 +39,10 @@ namespace VRCAvatarColorChanger.DebugTools
         [System.NonSerialized] private int _overlayBuiltSnapshotCount;
         [System.NonSerialized] private string _overlayBuiltKey = "";
 
-        [MenuItem("Window/VACC/Debug Visualization", priority = 200)]
+        [MenuItem("Window/Camereo/Debug Visualization", priority = 200)]
         public static void OpenOrFocus()
         {
-            var win = GetWindow<DebugWindow>(utility: false, title: "VACC Debug", focus: true);
+            var win = GetWindow<DebugWindow>(utility: false, title: "Camereo Debug", focus: true);
             win.minSize = new Vector2(400, 320);
             win.Show();
         }
@@ -65,7 +65,7 @@ namespace VRCAvatarColorChanger.DebugTools
             _selectedStageIndex = EditorPrefs.GetInt(PrefKeyStage, 0);
             _selectedZoneId = EditorPrefs.GetString(PrefKeyZone, "");
             _mode = (Mode)EditorPrefs.GetInt(PrefKeyMode, (int)Mode.Strength);
-            titleContent = new GUIContent("VACC Debug",
+            titleContent = new GUIContent("Camereo Debug",
                 EditorGUIUtility.IconContent("d_Profiler.UIDetails").image);
         }
 
@@ -79,7 +79,7 @@ namespace VRCAvatarColorChanger.DebugTools
             if (!DebugView.IsCaptureEnabled)
             {
                 EditorGUILayout.HelpBox(
-                    "デバッグキャプチャが無効化されています。\nVACC ウィンドウで「デバッグキャプチャを有効化」をオンにしてからプレビューを再生成してください。",
+                    "デバッグキャプチャが無効化されています。\nCamereo ウィンドウで「デバッグキャプチャを有効化」をオンにしてからプレビューを再生成してください。",
                     MessageType.Info);
                 return;
             }
@@ -88,7 +88,7 @@ namespace VRCAvatarColorChanger.DebugTools
             if (ctx == null || ctx.Snapshots.Count == 0)
             {
                 EditorGUILayout.HelpBox(
-                    "キャプチャがまだありません。VACC ウィンドウで設定を変えるかプレビューを再生成してください。",
+                    "キャプチャがまだありません。Camereo ウィンドウで設定を変えるかプレビューを再生成してください。",
                     MessageType.Info);
                 return;
             }
@@ -212,17 +212,17 @@ namespace VRCAvatarColorChanger.DebugTools
             EditorGUILayout.Space(4);
             if (GUILayout.Button(new GUIContent(
                     "Dump all stages to PNG",
-                    "全 zone × 全段階のキャプチャを Library/VACC/Debug/<source>/<timestamp>/ 配下に PNG として書き出します。manifest.json も併せて生成されます。\nProject ビューには表示されません（Assets/ 外に保存）。書き出し後にフォルダをエクスプローラーで開きます。")))
+                    "全 zone × 全段階のキャプチャを Library/Camereo/Debug/<source>/<timestamp>/ 配下に PNG として書き出します。manifest.json も併せて生成されます。\nProject ビューには表示されません（Assets/ 外に保存）。書き出し後にフォルダをエクスプローラーで開きます。")))
             {
-                var vaccWin = Resources.FindObjectsOfTypeAll<VACCWindow>().Length > 0
-                    ? Resources.FindObjectsOfTypeAll<VACCWindow>()[0]
+                var vaccWin = Resources.FindObjectsOfTypeAll<CamereoWindow>().Length > 0
+                    ? Resources.FindObjectsOfTypeAll<CamereoWindow>()[0]
                     : null;
                 string srcName = vaccWin != null && vaccWin.SourceTexture != null
                     ? vaccWin.SourceTexture.name : "unknown";
                 string dumpPath = DebugDumpStore.DumpAll(ctx, srcName);
                 if (!string.IsNullOrEmpty(dumpPath))
                 {
-                    ShowNotification(new GUIContent("Dumped to Library/VACC/Debug/\n(エクスプローラーで開きます)"));
+                    ShowNotification(new GUIContent("Dumped to Library/Camereo/Debug/\n(エクスプローラーで開きます)"));
                     EditorUtility.RevealInFinder(dumpPath);
                 }
                 else

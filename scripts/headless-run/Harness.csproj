@@ -15,12 +15,12 @@
     <LangVersion>9.0</LangVersion>
     <Nullable>disable</Nullable>
     <OutputType>Exe</OutputType>
-    <RootNamespace>VRCAvatarColorChanger</RootNamespace>
+    <RootNamespace>Camereo</RootNamespace>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <NoWarn>0414;0649;CS0219;CS8632;CS0169;CS0618</NoWarn>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <AssemblyName>VACCHeadless</AssemblyName>
+    <AssemblyName>CamereoHeadless</AssemblyName>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -36,11 +36,11 @@
     <Compile Include="..\..\Code\Core\PerfReport.cs" />
     <Compile Include="..\..\Code\Core\HighlightSampleCorrector.cs" />
     <Compile Include="..\..\Code\ColorZone.cs" />
-    <Compile Include="..\..\Code\VACCConsts.cs" />
+    <Compile Include="..\..\Code\CamereoConsts.cs" />
     <!-- 自動調整(ZoneAutoTuner)を no-mask で実行して GT と突き合わせるための取り込み。
          Localization は UnityEditor.EditorPrefs に依存するので Harness.cs 内のスタブで代替する。 -->
     <Compile Include="..\..\Code\Core\ZoneAutoTuner.cs" />
-    <Compile Include="..\..\Code\Core\VACCSessionState.cs" />
+    <Compile Include="..\..\Code\Core\CamereoSessionState.cs" />
     <Compile Include="..\..\Code\Core\MaskState.cs" />
     <Compile Include="Harness.cs" />
   </ItemGroup>

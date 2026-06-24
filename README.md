@@ -1,6 +1,6 @@
-# VRC AvatarColorChanger (VACC) Ver 0.2.0 (Beta)
+# Camereo Ver 0.2.0 (Beta)
 
-VRC AvatarColorChanger (VACC) は、Unity Editor 上でテクスチャの色を直感的に変更できるエディタ拡張ツールです。
+Camereo は、Unity Editor 上でテクスチャの色を直感的に変更できるエディタ拡張ツールです。
 主に VRChat アバターのテクスチャ編集を想定していますが、一般的な Unity プロジェクトでも使用できます。
 
 [日本語](#日本語) | [English](#english)
@@ -25,7 +25,7 @@ VRC AvatarColorChanger (VACC) は、Unity Editor 上でテクスチャの色を�
 ### クイックスタート
 
 1. Unity Editor に `.unitypackage` をインポート
-2. `Tools > VRC AvatarColorChanger` からウィンドウを開く
+2. `Tools > Camereo` からウィンドウを開く
 3. テクスチャを選択して色改変
 
 詳しい使い方は [MANUAL.md](MANUAL.md) をご覧ください。
@@ -89,7 +89,7 @@ VRC AvatarColorChanger (VACC) は、Unity Editor 上でテクスチャの色を�
 ### Quick Start
 
 1. Import `.unitypackage` into Unity Editor
-2. Open the window: `Tools > VRC AvatarColorChanger`
+2. Open the window: `Tools > Camereo`
 3. Select a texture and recolor
 
 See [MANUAL.md](MANUAL.md) for detailed instructions.

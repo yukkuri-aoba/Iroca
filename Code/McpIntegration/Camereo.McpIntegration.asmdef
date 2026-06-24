@@ -1,8 +1,8 @@
 {
-    "name": "VRCAvatarColorChanger.McpIntegration",
-    "rootNamespace": "VRCAvatarColorChanger.McpIntegration",
+    "name": "Camereo.McpIntegration",
+    "rootNamespace": "Camereo.McpIntegration",
     "references": [
-        "com.yukkuri-aoba.vrc-avatar-color-changer.Editor",
+        "com.yukkuri-aoba.camereo.Editor",
         "MCPForUnity.Editor",
         "Unity.Newtonsoft.Json"
     ],
@@ -15,13 +15,13 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [
-        "VACC_MCP_PRESENT"
+        "CAMEREO_MCP_PRESENT"
     ],
     "versionDefines": [
         {
             "name": "com.coplaydev.unity-mcp",
             "expression": "",
-            "define": "VACC_MCP_PRESENT"
+            "define": "CAMEREO_MCP_PRESENT"
         }
     ],
     "noEngineReferences": false

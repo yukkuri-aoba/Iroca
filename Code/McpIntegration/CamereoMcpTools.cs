@@ -1,24 +1,24 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/VRC_AvatarColorChanger
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 //
-// MCPForUnity（https://github.com/CoplayDev/unity-mcp）のカスタムツールとして VACC を公開する。
+// MCPForUnity（https://github.com/CoplayDev/unity-mcp）のカスタムツールとして Camereo を公開する。
 // このアセンブリは MCPForUnity（パッケージ id com.coplaydev.unity-mcp）が導入されているときだけ
-// コンパイルされる（asmdef の versionDefines + defineConstraints による VACC_MCP_PRESENT ゲート）。
+// コンパイルされる（asmdef の versionDefines + defineConstraints による CAMEREO_MCP_PRESENT ゲート）。
 // → 配布パッケージ本体は MCPForUnity への依存ゼロを維持する。
 //
 // 駆動経路: AI エージェントは execute_custom_tool("vacc_recolor", {...}) のように呼ぶ。
-// 各ツールは VACCAutomation の公開静的 API を薄くラップするだけで、変換の中核（RunRecolorCore）は共有。
-#if VACC_MCP_PRESENT
+// 各ツールは CamereoAutomation の公開静的 API を薄くラップするだけで、変換の中核（RunRecolorCore）は共有。
+#if CAMEREO_MCP_PRESENT
 using Newtonsoft.Json.Linq;
 using MCPForUnity.Editor.Helpers;
 using MCPForUnity.Editor.Tools;
 
-namespace VRCAvatarColorChanger.McpIntegration
+namespace Camereo.McpIntegration
 {
     /// <summary>
     /// テクスチャを再着色して PNG を書き出す MCP カスタムツール。
-    /// <c>preset</c> を渡せばプリセット経路（<see cref="VACCAutomation.RecolorByPreset"/>）、
-    /// <c>zones</c> を渡せばその場のゾーン指定経路（<see cref="VACCAutomation.RecolorWithZones"/>）を通る。
+    /// <c>preset</c> を渡せばプリセット経路（<see cref="CamereoAutomation.RecolorByPreset"/>）、
+    /// <c>zones</c> を渡せばその場のゾーン指定経路（<see cref="CamereoAutomation.RecolorWithZones"/>）を通る。
     /// </summary>
     [McpForUnityTool("vacc_recolor")]
     public static class VaccRecolorTool
@@ -52,20 +52,20 @@ namespace VRCAvatarColorChanger.McpIntegration
             if (hasPreset == hasZones)
                 return new ErrorResponse("exactly one of 'preset' or 'zones' must be provided");
 
-            // VACCAutomation は例外を投げず {"ok":...} の JSON 文字列を返す設計。
+            // CamereoAutomation は例外を投げず {"ok":...} の JSON 文字列を返す設計。
             string json = hasPreset
-                ? VACCAutomation.RecolorByPreset(p.source, p.preset, p.output)
-                : VACCAutomation.RecolorWithZones(p.source, p.zones, p.output);
+                ? CamereoAutomation.RecolorByPreset(p.source, p.preset, p.output)
+                : CamereoAutomation.RecolorWithZones(p.source, p.zones, p.output);
 
             return WrapResult(json, "recolor failed");
         }
 
-        // VACCAutomation の JSON 文字列を MCP の Success/Error レスポンスへ整形する。
+        // CamereoAutomation の JSON 文字列を MCP の Success/Error レスポンスへ整形する。
         internal static object WrapResult(string json, string fallbackError)
         {
             JObject data;
             try { data = JObject.Parse(json); }
-            catch { return new ErrorResponse($"{fallbackError}: invalid JSON from VACC: {json}"); }
+            catch { return new ErrorResponse($"{fallbackError}: invalid JSON from Camereo: {json}"); }
 
             bool ok = data.TryGetValue("ok", out var okToken) && okToken.Type == JTokenType.Boolean && okToken.Value<bool>();
             if (!ok)
@@ -81,7 +81,7 @@ namespace VRCAvatarColorChanger.McpIntegration
         internal static object WrapResultLenient(string json, string fallbackError)
         {
             try { return new SuccessResponse("ok", JObject.Parse(json)); }
-            catch { return new ErrorResponse($"{fallbackError}: invalid JSON from VACC: {json}"); }
+            catch { return new ErrorResponse($"{fallbackError}: invalid JSON from Camereo: {json}"); }
         }
     }
 
@@ -93,7 +93,7 @@ namespace VRCAvatarColorChanger.McpIntegration
 
         public static object HandleCommand(JObject @params)
         {
-            return VaccRecolorTool.WrapResultLenient(VACCAutomation.DescribeSchema(), "describe_schema failed");
+            return VaccRecolorTool.WrapResultLenient(CamereoAutomation.DescribeSchema(), "describe_schema failed");
         }
     }
 
@@ -105,7 +105,7 @@ namespace VRCAvatarColorChanger.McpIntegration
 
         public static object HandleCommand(JObject @params)
         {
-            return VaccRecolorTool.WrapResultLenient(VACCAutomation.ListPresets(), "list_presets failed");
+            return VaccRecolorTool.WrapResultLenient(CamereoAutomation.ListPresets(), "list_presets failed");
         }
     }
 }

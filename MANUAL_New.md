@@ -1,4 +1,4 @@
-﻿# VRC AvatarColorChanger (VACC) ユーザーマニュアル
+# Camereo ユーザーマニュアル
 
 *[日本語](#日本語) | [English](#english)*
 
@@ -33,7 +33,7 @@
 
 #### 手順
 
-1. [GitHub Releases](https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/releases) から最新のVACCが入ったzipファイルをダウンロードし、展開します。
+1. [GitHub Releases](https://github.com/yukkuri-aoba/Camereo/releases) から最新のCamereoが入ったzipファイルをダウンロードし、展開します。
 
 2. Unity Editor に`.unitypackage`をドラッグ＆ドロップします。
 
@@ -43,9 +43,9 @@
 
    [スクリーンショット: Import ダイアログ]
 
-4. 読み込みが完了すると、`Assets/VACC` フォルダが作成されます
+4. 読み込みが完了すると、`Assets/Camereo` フォルダが作成されます
 
-5. `Tools > VRC AvatarColorChanger` を選択してウィンドウを開けば使用可能です！
+5. `Tools > Camereo` を選択してウィンドウを開けば使用可能です！
 
    [スクリーンショット: Tools メニュー]
 
@@ -61,7 +61,7 @@ Read/Write Enabled が無効なテクスチャを選択すると、ウィンド�
 
 #### ステップ 1: テクスチャを選択する
 
-VACC ウィンドウの「Texture」欄をクリックして、色改変したいテクスチャを選択します。選択すると、プレビュー欄にテクスチャが表示されます。
+Camereo ウィンドウの「Texture」欄をクリックして、色改変したいテクスチャを選択します。選択すると、プレビュー欄にテクスチャが表示されます。
 
 [スクリーンショット: テクスチャ選択後のウィンドウ全体]
 
@@ -520,14 +520,14 @@ ON（デフォルト）にすると、新しく生成されたテクスチャが
 - Unity 2022.3.22f1 or later
 - Target textures must have **Read/Write Enabled** activated
 
-> Select a texture in the VACC window and click the button shown in the warning to enable it automatically.
+> Select a texture in the Camereo window and click the button shown in the warning to enable it automatically.
 
 #### Steps
 
-1. Download the latest `.unitypackage` from [GitHub Releases](https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/releases)
+1. Download the latest `.unitypackage` from [GitHub Releases](https://github.com/yukkuri-aoba/Camereo/releases)
 2. Drag and drop the `.unitypackage` into the Unity Editor project window
 3. Click "Import" in the dialog
-4. Open the window via `Tools > VRC AvatarColorChanger`
+4. Open the window via `Tools > Camereo`
 
 #### Enable Read/Write on Textures
 
@@ -539,7 +539,7 @@ If a texture does not have Read/Write Enabled, a warning and a button will appea
 
 #### Step 1: Select a Texture
 
-Click the "Texture" field in the VACC window. A texture picker will open. Select the texture you want to recolor. It will appear in the preview.
+Click the "Texture" field in the Camereo window. A texture picker will open. Select the texture you want to recolor. It will appear in the preview.
 
 #### Step 2: Add a Color Zone
 

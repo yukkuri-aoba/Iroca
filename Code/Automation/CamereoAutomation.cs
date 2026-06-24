@@ -1,4 +1,4 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/VRC_AvatarColorChanger
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.Collections.Generic;
@@ -7,12 +7,12 @@ using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
-namespace VRCAvatarColorChanger
+namespace Camereo
 {
     /// <summary>
-    /// Unity MCP / AI エージェントから VACC をヘッドレス駆動するための自動化 API。
+    /// Unity MCP / AI エージェントから Camereo をヘッドレス駆動するための自動化 API。
     ///
-    /// UI（VACCWindow / ExportView）を介さず、テクスチャ読込 → 再着色 → PNG 出力までを
+    /// UI（CamereoWindow / ExportView）を介さず、テクスチャ読込 → 再着色 → PNG 出力までを
     /// 静的メソッド一発で実行できる。<see cref="ExportView"/> の実出力経路（ディスクの PNG を
     /// 直接読み、<see cref="PixelProcessor.ProcessPixelsArray(Color32[],int,int,MaskSnapshot,System.Collections.Generic.IList{ColorZone},float,int,int,int,float,float,int,int,int,int,bool,int,float,IDebugCapture)"/>
     /// に通す）をそのまま同期で再現するので、製品の出力と一致する。
@@ -20,20 +20,20 @@ namespace VRCAvatarColorChanger
     /// 呼び出し経路は 3 つ。いずれも同じ中核（<see cref="RunRecolorCore"/>）を通る:
     ///   1. 静的 API: <see cref="RecolorByPreset"/> / <see cref="RecolorWithZones"/> 等。戻り値は JSON 文字列。
     ///      生 C# 実行が可能な MCP クライアント・EditMode テストから直接呼ぶ。
-    ///   2. MCPForUnity カスタムツール: <c>Code/McpIntegration/VACCMcpTools.cs</c> の <c>vacc_recolor</c> 等。
+    ///   2. MCPForUnity カスタムツール: <c>Code/McpIntegration/CamereoMcpTools.cs</c> の <c>vacc_recolor</c> 等。
     ///      <c>execute_custom_tool</c> から本クラスの公開静的 API を呼ぶ。MCPForUnity 導入時のみ
-    ///      コンパイルされる別 asmdef（VACC_MCP_PRESENT ゲート）で、配布パッケージ本体は依存ゼロを保つ。
+    ///      コンパイルされる別 asmdef（CAMEREO_MCP_PRESENT ゲート）で、配布パッケージ本体は依存ゼロを保つ。
     ///      生 C# 実行に非対応のクライアントでも駆動できる（Tools メニューには何も追加しない）。
-    ///   3. batchmode CLI: <c>Unity.exe -batchmode -executeMethod VRCAvatarColorChanger.VACCAutomation.RunFromCommandLine ...</c>。
+    ///   3. batchmode CLI: <c>Unity.exe -batchmode -executeMethod Camereo.CamereoAutomation.RunFromCommandLine ...</c>。
     ///
     /// v1 ではプリセット同梱マスクはヘッドレス適用しない（パーツ単位の粗いマスクは後続対応）。
     /// マスクを含むプリセットを渡した場合は結果 JSON の warnings で明示する。
     /// </summary>
-    public static class VACCAutomation
+    public static class CamereoAutomation
     {
         // ジョブ/結果ファイルの置き場。git 非追跡の UserSettings 配下に置き、Assets の import 揺れを避ける。
         private static string McpDir =>
-            Path.GetFullPath(Path.Combine(Application.dataPath, "..", "UserSettings/VACC/mcp"));
+            Path.GetFullPath(Path.Combine(Application.dataPath, "..", "UserSettings/Camereo/mcp"));
 
         // ───────────────────────────── DTO ─────────────────────────────
 
@@ -118,7 +118,7 @@ namespace VRCAvatarColorChanger
         [Serializable]
         private class SchemaDoc
         {
-            public string name = "com.yukkuri-aoba.vrc-avatar-color-changer";
+            public string name = "com.yukkuri-aoba.camereo";
             public string version = "";
             public string[] methods;
             public string[] notes;
@@ -136,11 +136,11 @@ namespace VRCAvatarColorChanger
             string version = "unknown";
             try
             {
-                var info = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(VACCAutomation).Assembly);
+                var info = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(CamereoAutomation).Assembly);
                 if (info != null && !string.IsNullOrEmpty(info.version)) version = info.version;
             }
             catch { /* 埋め込み配置などで解決できない場合は unknown のまま */ }
-            return $"{{\"ok\":true,\"name\":\"com.yukkuri-aoba.vrc-avatar-color-changer\",\"version\":\"{version}\"}}";
+            return $"{{\"ok\":true,\"name\":\"com.yukkuri-aoba.camereo\",\"version\":\"{version}\"}}";
         }
 
         /// <summary>
@@ -260,15 +260,15 @@ namespace VRCAvatarColorChanger
         }
 
         // メニュー経路（execute_menu_item）は廃止。MCP からの駆動は MCPForUnity カスタムツール
-        // （Code/McpIntegration/VACCMcpTools.cs の vacc_recolor 等）経由で公開静的 API を呼ぶ。
+        // （Code/McpIntegration/CamereoMcpTools.cs の vacc_recolor 等）経由で公開静的 API を呼ぶ。
         // Tools メニューにはウィンドウ起動の単一項目だけを残し、サブメニュー二重表示を避ける。
 
         // ─────────────────────── batchmode CLI ───────────────────────
 
         /// <summary>
-        /// <c>Unity.exe -batchmode -quit -executeMethod VRCAvatarColorChanger.VACCAutomation.RunFromCommandLine
+        /// <c>Unity.exe -batchmode -quit -executeMethod Camereo.CamereoAutomation.RunFromCommandLine
         ///   -vaccSource &lt;path&gt; -vaccOutput &lt;path&gt; (-vaccPreset &lt;path|name&gt; | -vaccZonesFile &lt;json&gt; | -vaccJob &lt;json&gt;)</c>
-        /// で呼ぶ、MCP を介さない完全ヘッドレス経路。結果は Console と UserSettings/VACC/mcp/result.json に出す。
+        /// で呼ぶ、MCP を介さない完全ヘッドレス経路。結果は Console と UserSettings/Camereo/mcp/result.json に出す。
         /// </summary>
         public static void RunFromCommandLine()
         {
@@ -307,8 +307,8 @@ namespace VRCAvatarColorChanger
             }
 
             WriteMcpFile(Path.Combine(McpDir, "result.json"), resultJson);
-            Debug.Log($"[VACC][MCP] CLI result: {resultJson}");
-            Console.WriteLine($"[VACC][MCP] {resultJson}");
+            Debug.Log($"[Camereo][MCP] CLI result: {resultJson}");
+            Console.WriteLine($"[Camereo][MCP] {resultJson}");
         }
 
         // ─────────────────────── 中核 ───────────────────────
@@ -318,7 +318,7 @@ namespace VRCAvatarColorChanger
         /// 全経路がここを通る。<see cref="ExportView.ApplyRecolor"/> のメインスレッド前処理と同じ手順。
         /// </summary>
         private static RecolorResult RunRecolorCore(
-            string sourceAssetPath, List<ColorZone> zones, VACCSessionState s,
+            string sourceAssetPath, List<ColorZone> zones, CamereoSessionState s,
             string outputAssetPath, List<string> warnings)
         {
             var result = new RecolorResult { warnings = warnings ?? new List<string>() };
@@ -376,7 +376,7 @@ namespace VRCAvatarColorChanger
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
                 File.WriteAllBytes(outAbs, png);
 
-                string rel = VACCWindow.ToAssetsRelative(outAbs);
+                string rel = CamereoWindow.ToAssetsRelative(outAbs);
                 if (rel != null) AssetDatabase.ImportAsset(rel);
             }
             finally
@@ -430,9 +430,9 @@ namespace VRCAvatarColorChanger
                 c != null && c.Length > 1 ? c[1] : 0f,
                 c != null && c.Length > 2 ? c[2] : 0f, 1f);
 
-        private static VACCSessionState SettingsFromPreset(VACCPresetData p)
+        private static CamereoSessionState SettingsFromPreset(CamereoPresetData p)
         {
-            var s = VACCSessionState.CreateDefault();
+            var s = CamereoSessionState.CreateDefault();
             s.edgeFeather = p.edgeFeather;
             // advancedMode は UI 表示レベルのみで処理結果に影響しないため移送しない。
             s.antiAliasCleanup = p.antiAliasCleanup;
@@ -445,9 +445,9 @@ namespace VRCAvatarColorChanger
             return s;
         }
 
-        private static VACCSessionState SettingsFromDto(SettingsDto d)
+        private static CamereoSessionState SettingsFromDto(SettingsDto d)
         {
-            var s = VACCSessionState.CreateDefault();
+            var s = CamereoSessionState.CreateDefault();
             s.edgeFeather = d.edgeFeather;
             s.antiAliasCleanup = d.antiAliasCleanup;
             s.holeFillPasses = d.holeFillPasses;
@@ -460,9 +460,9 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
-        /// プリセット指定（ファイルパス / プリセット名 / インライン JSON）を <see cref="VACCPresetData"/> へ解決する。
+        /// プリセット指定（ファイルパス / プリセット名 / インライン JSON）を <see cref="CamereoPresetData"/> へ解決する。
         /// </summary>
-        private static VACCPresetData ResolvePreset(string spec)
+        private static CamereoPresetData ResolvePreset(string spec)
         {
             if (string.IsNullOrWhiteSpace(spec)) return null;
 
@@ -474,7 +474,7 @@ namespace VRCAvatarColorChanger
             string trimmed = spec.TrimStart();
             if (trimmed.StartsWith("{"))
             {
-                try { return JsonUtility.FromJson<VACCPresetData>(spec); }
+                try { return JsonUtility.FromJson<CamereoPresetData>(spec); }
                 catch { return null; }
             }
 
@@ -487,7 +487,7 @@ namespace VRCAvatarColorChanger
             return null;
         }
 
-        private static bool HasEmbeddedMask(VACCPresetData p)
+        private static bool HasEmbeddedMask(CamereoPresetData p)
         {
             if (p == null) return false;
             if (p.maskWidth <= 0 || p.maskHeight <= 0) return false;
@@ -543,7 +543,7 @@ namespace VRCAvatarColorChanger
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[VACC][MCP] failed to write {path}: {ex.Message}");
+                Debug.LogWarning($"[Camereo][MCP] failed to write {path}: {ex.Message}");
             }
         }
 
@@ -551,7 +551,7 @@ namespace VRCAvatarColorChanger
         {
             try
             {
-                var info = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(VACCAutomation).Assembly);
+                var info = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(CamereoAutomation).Assembly);
                 return info != null && !string.IsNullOrEmpty(info.version) ? info.version : "unknown";
             }
             catch { return "unknown"; }

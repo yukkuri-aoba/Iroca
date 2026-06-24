@@ -7,10 +7,10 @@ using System.Diagnostics;
 using System.Text.Json;
 using UnityEngine;
 
-namespace VRCAvatarColorChanger
+namespace Camereo
 {
     // DebugCaptureHooks が UI イベントで参照するだけのスタブ(headless では未使用)。
-    internal class VACCWindow { }
+    internal class CamereoWindow { }
 
     // ZoneAutoTuner がラベル収集で参照する Localization のスタブ。
     // 実 Localization は UnityEditor.EditorPrefs に依存するため headless では使えない。
@@ -201,7 +201,7 @@ namespace VRCAvatarColorChanger
                 int exCount = 0;
                 for (int k = 0; k < common.Length; k++) if (common[k]) exCount++;
                 bool useMask = exCount > 0 && exCount < common.Length;
-                var session = VACCSessionState.CreateDefault();
+                var session = CamereoSessionState.CreateDefault();
                 foreach (var z in zoneList)
                 {
                     var tune = useMask

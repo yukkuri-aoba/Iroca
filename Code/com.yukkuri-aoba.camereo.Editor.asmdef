@@ -1,6 +1,6 @@
 {
-    "name": "com.yukkuri-aoba.vrc-avatar-color-changer.Editor",
-    "rootNamespace": "VRCAvatarColorChanger",
+    "name": "com.yukkuri-aoba.camereo.Editor",
+    "rootNamespace": "Camereo",
     "references": [],
     "includePlatforms": [
         "Editor"
