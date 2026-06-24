@@ -22,6 +22,12 @@ namespace VRCAvatarColorChanger
         // DebugView が後から読み出す。Debug 機能未導入なら常に null。
         internal IDebugCapture LatestDebugCapture { get; set; }
 
+        // ── 連続領域モードの keep キャッシュ(メインプレビューがフル画像で解いた結果を
+        //    詳細プレビューへ転写して完全一致させる)。世代スタンプで陳腐キャッシュの誤適用を防ぐ。
+        //    公開後は不変として扱い、メインプレビュージョブは未公開の新規インスタンスにだけ書く。
+        [System.NonSerialized] internal FloodFillKeepCache floodFillKeepCache;
+        [System.NonSerialized] internal int floodFillKeepGen;
+
         // ── 各 View からの再描画通知用 ──
         internal void MarkPreviewDirty() { if (_previewView != null) _previewView.previewDirty = true; }
         internal void MarkMaskDirty() { if (_maskView != null) _maskView.maskDirty = true; }
