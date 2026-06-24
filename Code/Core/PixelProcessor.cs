@@ -246,23 +246,26 @@ namespace VRCAvatarColorChanger
                         debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, strength, w, h);
                     }
 
-                    // 1.a.2 Flood Fill: シード点から連続する領域のみに強度を絞り込む
+                    // 1.a.2 連結成分アンカリング: 確信度コアを含む連結成分のみに strength を絞り込む。
+                    // 連結性は大域演算のため、フル画像経路(メインプレビュー/Apply/Export)でのみ実行する。
+                    // 部分クロップ(詳細プレビュー)はここでは絞り込まず色のみ=最終の上位集合になる
+                    // (M4 でフル画像の keep マスクをキャッシュ転写して完全一致させる予定)。
                     if (VACCConsts.ExperimentalFeatures.EnableFloodFill
                         && zone.mode == SelectionMode.ColorPick
-                        && zone.useFloodFill
-                        && zone.seedUV.x >= 0f)
+                        && zone.useFloodFill)
                     {
-                        int efW = fullW > 0 ? fullW : w;
-                        int efH = fullH > 0 ? fullH : h;
-                        int seedXFull = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.x * (efW - 1)), 0, efW - 1);
-                        int seedYFull = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.y * (efH - 1)), 0, efH - 1);
-                        int seedX = seedXFull - originX;
-                        int seedY = seedYFull - originY;
-                        if (seedX >= 0 && seedX < w && seedY >= 0 && seedY < h)
-                            ApplyFloodFillMask(strength, pixS, pixV, w, h, seedX, seedY, zone.edgeStopThreshold);
-                        else
-                            Array.Clear(strength, 0, len);
-                        debug?.RecordStage(zone.id, DebugStages.FloodFill, strength, w, h);
+                        bool isFullImage = originX == 0 && originY == 0 && fullW == w && fullH == h;
+                        if (isFullImage)
+                        {
+                            int seedX = -1, seedY = -1;
+                            if (zone.seedUV.x >= 0f)
+                            {
+                                seedX = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.x * (w - 1)), 0, w - 1);
+                                seedY = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.y * (h - 1)), 0, h - 1);
+                            }
+                            ApplyConnectedComponentMask(strength, originalPixels, w, h, seedX, seedY);
+                            debug?.RecordStage(zone.id, DebugStages.FloodFill, strength, w, h);
+                        }
                     }
 
                     // 後段パス(穴埋め/境界回復/ブラー)を実マッチ範囲＋余白に限定する bbox (P2-7 拡張)。
@@ -978,58 +981,127 @@ namespace VRCAvatarColorChanger
             }
         }
 
+        // 連結成分アンカリングの確信度コア絶対床。正の strength 群の P75 と比較し大きい方を採る。
+        // 全体が弱 bleed のみのとき弱画素を「コア」に昇格させないための下限(precision 保護)。
+        // HlBandCoreThreshold=0.90 / AchromaRegionCoreThr=0.5 の中間。M2 sweep で確定する出発値。
+        private const float CoreAbsoluteFloor = 0.6f;
+
         /// <summary>
-        /// Flood Fill: シード点から strength &gt; 0 の連続領域のみ残し、残りをゼロ化する。
-        /// edgeStopThreshold &gt; 0 のとき、隣接ピクセル間の輝度差・彩度差が閾値を超えると
-        /// そこで拡張を止める（エッジストッパー）。
+        /// 連結成分アンカリング: strength&gt;0 の画素を4連結でラベリングし、確信度コアを含む成分のみ残す。
+        /// コア = strength &gt;= max(P75(正の strength 群), CoreAbsoluteFloor)。サイズでは切らない
+        /// （小さくても高信頼な成分＝三角などは残す）。bleed(白背景・フリンジ・かろうじてマッチした
+        /// 隣接同色)は弱マッチのみの別成分なので落ちる。確信できるコアが一つも無い(全体が弱マッチ)場合は
+        /// recall 保護のため絞り込まない(=連結制約 OFF と同挙動)。
+        /// seedX&gt;=0 のときはその成分だけを残す上書きモード(無効シード=bleed/背景上 なら自動へフォールバック)。
+        /// 連結予測子(strength&gt;0 &amp;&amp; α&gt;=128)・4近傍は BuildComponentMedianLMap と一致させ成分定義を統一する。
         /// </summary>
-        private static void ApplyFloodFillMask(
-            float[] strength, float[] pixS, float[] pixV, int w, int h,
-            int seedX, int seedY, float edgeStopThreshold)
+        private static void ApplyConnectedComponentMask(
+            float[] strength, Color32[] px, int w, int h, int seedX, int seedY)
         {
-            int seedIdx = seedY * w + seedX;
-            if (strength[seedIdx] <= 0f) return;
-
-            bool[] reachable = new bool[w * h];
-            var queue = new Queue<int>();
-            reachable[seedIdx] = true;
-            queue.Enqueue(seedIdx);
-
-            bool useEdgeStop = edgeStopThreshold > 0f;
-
-            while (queue.Count > 0)
+            // matched 画素(strength>0 && α>=128)の bbox。ラベリングは bbox 内に限定(全画素確保を回避)。
+            int minX = w, maxX = -1, minY = h, maxY = -1;
+            for (int y = 0; y < h; y++)
             {
-                int idx = queue.Dequeue();
-                int x = idx % w;
-                int y = idx / w;
-
-                float curS = useEdgeStop ? pixS[idx] : 0f;
-                float curV = useEdgeStop ? pixV[idx] : 0f;
-
-                // 隣接4方向を試みる
-                TryEnqueue(idx - 1, x > 0);
-                TryEnqueue(idx + 1, x < w - 1);
-                TryEnqueue(idx - w, y > 0);
-                TryEnqueue(idx + w, y < h - 1);
-
-                void TryEnqueue(int ni, bool inBounds)
-                {
-                    if (!inBounds || reachable[ni] || strength[ni] <= 0f) return;
-
-                    if (useEdgeStop)
+                int rb = y * w;
+                for (int x = 0; x < w; x++)
+                    if (strength[rb + x] > 0f && px[rb + x].a >= 128)
                     {
-                        if (Mathf.Abs(curV - pixV[ni]) > edgeStopThreshold ||
-                            Mathf.Abs(curS - pixS[ni]) > edgeStopThreshold * 0.5f)
-                            return;
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
                     }
+            }
+            if (maxX < 0) return; // マッチ皆無
 
-                    reachable[ni] = true;
-                    queue.Enqueue(ni);
+            // コア閾値 = 正の strength 群の P75 と絶対床の大きい方。
+            var sHist = new int[256];
+            int posCount = 0;
+            for (int y = minY; y <= maxY; y++)
+            {
+                int rb = y * w;
+                for (int x = minX; x <= maxX; x++)
+                {
+                    int gi = rb + x;
+                    if (strength[gi] > 0f && px[gi].a >= 128)
+                    {
+                        sHist[Mathf.Clamp((int)(strength[gi] * 255f), 0, 255)]++;
+                        posCount++;
+                    }
+                }
+            }
+            float coreThreshold = Mathf.Max(
+                HistValueAtPercentile(sHist, posCount, 0.75f, 1f), CoreAbsoluteFloor);
+
+            int bw = maxX - minX + 1, bh = maxY - minY + 1;
+            int[] label = new int[bw * bh];
+            var hasCore = new List<bool>();   // hasCore[lab-1] = その成分にコア画素があるか
+            var queue = new Queue<int>();
+
+            for (int ly = 0; ly < bh; ly++)
+            {
+                for (int lx = 0; lx < bw; lx++)
+                {
+                    int li = ly * bw + lx;
+                    if (label[li] != 0) continue;
+                    if (!(strength[(ly + minY) * w + (lx + minX)] > 0f
+                          && px[(ly + minY) * w + (lx + minX)].a >= 128)) continue;
+
+                    int lab = hasCore.Count + 1;
+                    bool core = false;
+                    label[li] = lab;
+                    queue.Enqueue(li);
+                    while (queue.Count > 0)
+                    {
+                        int ci = queue.Dequeue();
+                        int cx = ci % bw, cy = ci / bw;
+                        if (strength[(cy + minY) * w + (cx + minX)] >= coreThreshold) core = true;
+                        TryEnq(ci - 1, cx > 0);
+                        TryEnq(ci + 1, cx < bw - 1);
+                        TryEnq(ci - bw, cy > 0);
+                        TryEnq(ci + bw, cy < bh - 1);
+                    }
+                    hasCore.Add(core);
+
+                    void TryEnq(int ni, bool inBounds)
+                    {
+                        if (!inBounds || label[ni] != 0) return;
+                        int nx = ni % bw, ny = ni / bw;
+                        if (!(strength[(ny + minY) * w + (nx + minX)] > 0f
+                              && px[(ny + minY) * w + (nx + minX)].a >= 128)) return;
+                        label[ni] = lab;
+                        queue.Enqueue(ni);
+                    }
                 }
             }
 
-            for (int i = 0; i < w * h; i++)
-                if (!reachable[i]) strength[i] = 0f;
+            // 残す成分を決定。seed 上書き優先、無効/未指定ならコア規則。
+            int keepLabel = 0; // 0 = コア規則, >0 = その label だけ残す
+            if (seedX >= minX && seedX <= maxX && seedY >= minY && seedY <= maxY)
+            {
+                int sl = label[(seedY - minY) * bw + (seedX - minX)];
+                if (sl != 0) keepLabel = sl; // 有効シード → その成分のみ
+                // sl==0(bleed/背景上) → 自動へフォールバック(keepLabel=0 のまま)
+            }
+
+            if (keepLabel == 0)
+            {
+                bool anyCore = false;
+                for (int c = 0; c < hasCore.Count; c++) if (hasCore[c]) { anyCore = true; break; }
+                if (!anyCore) return; // 確信できるコアが皆無 → 絞り込まない(recall 保護)
+            }
+
+            for (int ly = 0; ly < bh; ly++)
+            {
+                int rb = (ly + minY) * w;
+                for (int lx = 0; lx < bw; lx++)
+                {
+                    int lab = label[ly * bw + lx];
+                    if (lab == 0) continue;
+                    bool keep = keepLabel > 0 ? (lab == keepLabel) : hasCore[lab - 1];
+                    if (!keep) strength[rb + (lx + minX)] = 0f;
+                }
+            }
         }
 
         /// <summary>
