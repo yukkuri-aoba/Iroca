@@ -1,10 +1,10 @@
-# Unity MCP 自動化（VACCAutomation）
+# Unity MCP 自動化（CamereoAutomation）
 
 AI エージェントから [MCP for Unity](https://github.com/CoplayDev/unity-mcp)（UPM パッケージ `MCPForUnity`）経由で
-VACC をヘッドレス駆動するための仕組みと使い方。`docs/idea2.md` の「AIツールによる操作をサポートしたい」への対応。
+Camereo をヘッドレス駆動するための仕組みと使い方。`docs/idea2.md` の「AIツールによる操作をサポートしたい」への対応。
 
 > **これは開発時ツール**。MCP は VRChat アバター制作者（エンドユーザー）に導入を強制しない。
-> 配布パッケージ（`com.yukkuri-aoba.vrc-avatar-color-changer`）は MCPForUnity に依存しない（依存ゼロのまま）。
+> 配布パッケージ（`com.yukkuri-aoba.camereo`）は MCPForUnity に依存しない（依存ゼロのまま）。
 > 将来エンドユーザーに提供する場合も、各自が MCPForUnity を導入すれば同じ自動化 API がそのまま使える。
 
 ## 前提：このリポジトリはパッケージであってプロジェクトではない
@@ -19,7 +19,7 @@ MCPForUnity を同居させて初めて MCP から操作できる。
 2. 本パッケージを導入する。`<host>/Packages/manifest.json` にローカル参照を追加するのが手軽:
    ```json
    { "dependencies": {
-       "com.yukkuri-aoba.vrc-avatar-color-changer": "file:../../AvatarColorChanger"
+       "com.yukkuri-aoba.camereo": "file:../../AvatarColorChanger"
    } }
    ```
    （git URL でも可）。
@@ -31,28 +31,28 @@ MCPForUnity を同居させて初めて MCP から操作できる。
 4. MCP クライアントを設定する。`Window → MCP for Unity → Configure All Detected Clients`
    （Claude Code / Claude Desktop / VS Code 等）。
 5. MCPForUnity が同居すると `Code/McpIntegration/` の asmdef が自動でコンパイルされ（`com.coplaydev.unity-mcp`
-   検出時のみ・`VACC_MCP_PRESENT` ゲート）、VACC のカスタムツールが登録される。
+   検出時のみ・`CAMEREO_MCP_PRESENT` ゲート）、Camereo のカスタムツールが登録される。
    `mcpforunity://custom-tools` リソースに `vacc_recolor` / `vacc_describe_schema` / `vacc_list_presets` が現れれば成功。
 
 ## 呼び出し経路（3 つ・すべて同一の中核を通る）
 
-中核は `Code/Automation/VACCAutomation.cs`。`ExportView` の実出力経路（ディスクの PNG を直接読み、
+中核は `Code/Automation/CamereoAutomation.cs`。`ExportView` の実出力経路（ディスクの PNG を直接読み、
 `PixelProcessor.ProcessPixelsArray` に通す）を同期で再現するので、製品の出力と一致する。
 
 ### 1. 静的 API（生 C# 実行が可能なクライアント / EditMode テスト）
 
 ```csharp
-VRCAvatarColorChanger.VACCAutomation.RecolorByPreset(
+Camereo.CamereoAutomation.RecolorByPreset(
     "Assets/Textures/body.png", "MyPreset", "Assets/Textures/body_recolored.png");
 
-VRCAvatarColorChanger.VACCAutomation.RecolorWithZones(
+Camereo.CamereoAutomation.RecolorWithZones(
     "Assets/Textures/body.png",
     "{\"zones\":[{\"sample\":[1,1,1],\"target\":[0.1,0.3,0.8],\"tolerance\":0.25}],\"settings\":{}}",
     "Assets/Textures/body_recolored.png");
 
-VRCAvatarColorChanger.VACCAutomation.DescribeSchema();  // 呼び出し方を自己発見
-VRCAvatarColorChanger.VACCAutomation.ListPresets();
-VRCAvatarColorChanger.VACCAutomation.GetVersion();
+Camereo.CamereoAutomation.DescribeSchema();  // 呼び出し方を自己発見
+Camereo.CamereoAutomation.ListPresets();
+Camereo.CamereoAutomation.GetVersion();
 ```
 
 戻り値は JSON 文字列（`RecolorResult`）。例外は投げず `{"ok":false,"error":"..."}` で返す。
@@ -80,7 +80,7 @@ Tools メニューには何も追加しない（旧「Automation」サブメニ�
 
 ```
 Unity.exe -batchmode -quit -projectPath <host> \
-  -executeMethod VRCAvatarColorChanger.VACCAutomation.RunFromCommandLine \
+  -executeMethod Camereo.CamereoAutomation.RunFromCommandLine \
   -vaccSource Assets/Textures/body.png \
   -vaccOutput Assets/Textures/body_recolored.png \
   -vaccPreset MyPreset
@@ -98,7 +98,7 @@ Unity.exe -batchmode -quit -projectPath <host> \
 
 - **v1 ではプリセット同梱マスクをヘッドレス適用しない**（パーツ単位の粗いマスクは後続対応）。
   マスクを含むプリセットを渡すと、結果 JSON の `warnings` に明示したうえでマスク無しで処理する。
-  マスクを反映したい場合は当面 UI（VACCWindow）から実行する。
+  マスクを反映したい場合は当面 UI（CamereoWindow）から実行する。
 - カスタム MCP ツール登録（`vacc_recolor` / `vacc_describe_schema` / `vacc_list_presets` を第一級ツールとして出す）は
-  `Code/McpIntegration/` で実装済み。MCPForUnity（`com.coplaydev.unity-mcp`）導入時のみ `VACC_MCP_PRESENT`
+  `Code/McpIntegration/` で実装済み。MCPForUnity（`com.coplaydev.unity-mcp`）導入時のみ `CAMEREO_MCP_PRESENT`
   ゲートでコンパイルされ、配布パッケージ本体は依存ゼロを維持する。

@@ -1,4 +1,4 @@
-﻿// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/VRC_AvatarColorChanger
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.Buffers;
@@ -8,7 +8,7 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace VRCAvatarColorChanger
+namespace Camereo
 {
     /// <summary>
     /// バックグラウンド処理に渡すためのマスク一式のイミュータブルスナップショット。
@@ -279,7 +279,7 @@ namespace VRCAvatarColorChanger
                     // 連結性は大域演算のため、フル画像経路(メインプレビュー/Apply/Export)でのみ実行する。
                     // 部分クロップ(詳細プレビュー)はここでは絞り込まず色のみ=最終の上位集合になる
                     // (M4 でフル画像の keep マスクをキャッシュ転写して完全一致させる予定)。
-                    if (VACCConsts.ExperimentalFeatures.EnableFloodFill
+                    if (CamereoConsts.ExperimentalFeatures.EnableFloodFill
                         && zone.mode == SelectionMode.ColorPick
                         && zone.useFloodFill)
                     {

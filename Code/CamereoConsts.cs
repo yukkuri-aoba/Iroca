@@ -1,12 +1,12 @@
-﻿// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/VRC_AvatarColorChanger
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-namespace VRCAvatarColorChanger
+namespace Camereo
 {
-    // VACC で散在するマジックナンバー・メニューパスを集約する。
+    // Camereo で散在するマジックナンバー・メニューパスを集約する。
     // 表示文字列の正は Localization に残し、ここでは多言語化しない値だけを持つ。
-    internal static class VACCConsts
+    internal static class CamereoConsts
     {
-        public const string MenuPath = "Tools/VRC AvatarColorChanger";
+        public const string MenuPath = "Tools/Camereo";
 
         public static class Layout
         {

@@ -1,12 +1,12 @@
-﻿// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/VRC_AvatarColorChanger
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using UnityEditor;
 using UnityEngine;
 
-namespace VRCAvatarColorChanger.DebugTools
+namespace Camereo.DebugTools
 {
     /// <summary>
-    /// VACCWindow に組み込まれる「デバッグキャプチャ有効化トグル」と
+    /// CamereoWindow に組み込まれる「デバッグキャプチャ有効化トグル」と
     /// 「別ウィンドウで詳細を開く」ボタンだけを担当する小さなフット プリント部品。
     /// 実際の可視化 UI は <see cref="DebugWindow"/> (独立 EditorWindow) に分離されている。
     ///
@@ -15,7 +15,7 @@ namespace VRCAvatarColorChanger.DebugTools
     internal static class DebugView
     {
         // ── UI 状態（EditorPrefs で永続化） ─────────────────
-        private const string PrefKeyEnabled = "VACC.Debug.EnableCapture";
+        private const string PrefKeyEnabled = "Camereo.Debug.EnableCapture";
 
         private static bool s_enableCapture;
         private static bool s_loadedPrefs;
@@ -46,10 +46,10 @@ namespace VRCAvatarColorChanger.DebugTools
         }
 
         /// <summary>
-        /// VACCWindow.OnGUI のスクロール領域内から発火される。
+        /// CamereoWindow.OnGUI のスクロール領域内から発火される。
         /// 最小限のヘッダー（チェックボックス + 別ウィンドウを開くボタン）だけ描画する。
         /// </summary>
-        internal static void Draw(VACCWindow host)
+        internal static void Draw(CamereoWindow host)
         {
             EnsurePrefsLoaded();
 

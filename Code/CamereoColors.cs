@@ -1,12 +1,12 @@
-﻿// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/VRC_AvatarColorChanger
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using UnityEditor;
 using UnityEngine;
 
-namespace VRCAvatarColorChanger
+namespace Camereo
 {
     // GUI で使うカラー定数を Light/Dark Skin で出し分けるユーティリティ。
-    internal static class VACCColors
+    internal static class CamereoColors
     {
         public static Color ActiveMaskTarget =>
             EditorGUIUtility.isProSkin

@@ -1,4 +1,4 @@
-﻿// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/VRC_AvatarColorChanger
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.Collections.Generic;
@@ -6,21 +6,21 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 
-namespace VRCAvatarColorChanger
+namespace Camereo
 {
     /// <summary>
     /// マスクデータ（<see cref="MaskState"/>）の永続化を担う。
-    /// 保存先は <c>&lt;Project&gt;/UserSettings/VACC/MaskCache/&lt;テクスチャGUID&gt;.vacc-mask.json</c> で、
+    /// 保存先は <c>&lt;Project&gt;/UserSettings/Camereo/MaskCache/&lt;テクスチャGUID&gt;.vacc-mask.json</c> で、
     /// git 非追跡フォルダ（個人作業データ）に置く。GUID ベースのため
     /// テクスチャの rename / move には自動追従する。
     /// </summary>
     internal static class MaskFileStore
     {
-        private const string CacheDirRelative = "UserSettings/VACC/MaskCache";
+        private const string CacheDirRelative = "UserSettings/Camereo/MaskCache";
         private const string MaskFileExtension = ".vacc-mask.json";
 
         /// <summary>
-        /// プロジェクトルート直下の <c>UserSettings/VACC/MaskCache</c> 絶対パスを返す。
+        /// プロジェクトルート直下の <c>UserSettings/Camereo/MaskCache</c> 絶対パスを返す。
         /// </summary>
         public static string CacheDir =>
             Path.GetFullPath(Path.Combine(Application.dataPath, "..", CacheDirRelative));
@@ -49,7 +49,7 @@ namespace VRCAvatarColorChanger
                 if (File.Exists(path))
                 {
                     try { File.Delete(path); }
-                    catch (Exception ex) { Debug.LogWarning($"[VACC] Mask delete failed: {ex.Message}"); return false; }
+                    catch (Exception ex) { Debug.LogWarning($"[Camereo] Mask delete failed: {ex.Message}"); return false; }
                 }
                 return true;
             }
@@ -62,7 +62,7 @@ namespace VRCAvatarColorChanger
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[VACC] Mask save failed: {ex.Message}");
+                Debug.LogWarning($"[Camereo] Mask save failed: {ex.Message}");
                 return false;
             }
         }
@@ -82,7 +82,7 @@ namespace VRCAvatarColorChanger
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[VACC] Mask load failed: {ex.Message}");
+                Debug.LogWarning($"[Camereo] Mask load failed: {ex.Message}");
                 return null;
             }
         }
@@ -96,7 +96,7 @@ namespace VRCAvatarColorChanger
             if (string.IsNullOrEmpty(path)) return;
             if (!File.Exists(path)) return;
             try { File.Delete(path); }
-            catch (Exception ex) { Debug.LogWarning($"[VACC] Mask delete failed: {ex.Message}"); }
+            catch (Exception ex) { Debug.LogWarning($"[Camereo] Mask delete failed: {ex.Message}"); }
         }
 
         /// <summary>
@@ -109,7 +109,7 @@ namespace VRCAvatarColorChanger
             string path = Path.Combine(CacheDir, guid + MaskFileExtension);
             if (!File.Exists(path)) return;
             try { File.Delete(path); }
-            catch (Exception ex) { Debug.LogWarning($"[VACC] Mask delete failed: {ex.Message}"); }
+            catch (Exception ex) { Debug.LogWarning($"[Camereo] Mask delete failed: {ex.Message}"); }
         }
 
         /// <summary>
@@ -123,7 +123,7 @@ namespace VRCAvatarColorChanger
             try { files = Directory.GetFiles(CacheDir, "*" + MaskFileExtension); }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[VACC] Mask cache scan failed: {ex.Message}");
+                Debug.LogWarning($"[Camereo] Mask cache scan failed: {ex.Message}");
                 return;
             }
 
@@ -139,7 +139,7 @@ namespace VRCAvatarColorChanger
                 if (!string.IsNullOrEmpty(assetPath)) continue;
 
                 try { File.Delete(file); }
-                catch (Exception ex) { Debug.LogWarning($"[VACC] Orphan mask delete failed: {ex.Message}"); }
+                catch (Exception ex) { Debug.LogWarning($"[Camereo] Orphan mask delete failed: {ex.Message}"); }
             }
         }
 

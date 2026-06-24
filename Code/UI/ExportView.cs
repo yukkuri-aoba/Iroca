@@ -1,4 +1,4 @@
-﻿// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/VRC_AvatarColorChanger
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
 using System.IO;
@@ -8,7 +8,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 
-namespace VRCAvatarColorChanger
+namespace Camereo
 {
     /// <summary>
     /// 単体出力 / 一括適用の UI 描画と PNG 書き出しを担当する。
@@ -28,7 +28,7 @@ namespace VRCAvatarColorChanger
         public bool inheritImportSettings = true;
 
         [System.NonSerialized] private Vector2 _batchScrollPos;
-        [System.NonSerialized] private VACCWindow _host;
+        [System.NonSerialized] private CamereoWindow _host;
 
         // ─── 非同期エクスポート ───
         // メインスレッドで pixels を取得し、PixelProcessor 計算 + PNG エンコード + 書き込みを
@@ -47,7 +47,7 @@ namespace VRCAvatarColorChanger
         /// <summary>エクスポート処理中。true の間はウィンドウ全体を Disabled に。</summary>
         public bool IsExporting => _exportJob.IsRunning;
 
-        public void Initialize(VACCWindow host)
+        public void Initialize(CamereoWindow host)
         {
             _host = host;
         }
@@ -68,7 +68,7 @@ namespace VRCAvatarColorChanger
                 return;
             }
 
-            // 外側の DisabledScope（VACCWindow.OnGUI で囲まれる）を壊さないよう、
+            // 外側の DisabledScope（CamereoWindow.OnGUI で囲まれる）を壊さないよう、
             // GUI.enabled の直接代入ではなく BeginDisabledGroup を使う。
             EditorGUI.BeginDisabledGroup(_host.SourceTexture == null);
 
@@ -112,7 +112,7 @@ namespace VRCAvatarColorChanger
 
         /// <summary>
         /// エクスポートセクションの描画想定高さを返す。
-        /// VACCWindow の横並びレイアウトで「上部 + プレビュー領域」の高さ計算に使う。
+        /// CamereoWindow の横並びレイアウトで「上部 + プレビュー領域」の高さ計算に使う。
         /// 折りたたみ時はヘッダー1行分のみ、展開時は内部コントロールの合計を返す。
         /// </summary>
         public float GetSectionHeight()
@@ -148,7 +148,7 @@ namespace VRCAvatarColorChanger
             }
 
             var sourceTexture = _host.SourceTexture;
-            if (sourceTexture == null || !VACCWindow.IsReadable(sourceTexture))
+            if (sourceTexture == null || !CamereoWindow.IsReadable(sourceTexture))
             {
                 NotifyError(Localization.TextureReadError);
                 return;
@@ -290,12 +290,12 @@ namespace VRCAvatarColorChanger
                 apply: payload =>
                 {
                     // メインスレッド: AssetDatabase 操作のみ(エンコード/保存はバックグラウンドで完了済み)。
-                    string relativePath = VACCWindow.ToAssetsRelative(payload.outputPath);
+                    string relativePath = CamereoWindow.ToAssetsRelative(payload.outputPath);
                     if (relativePath != null)
                     {
                         if (payload.inheritImportSettings)
                         {
-                            string srcRel = VACCWindow.ToAssetsRelative(payload.srcPath);
+                            string srcRel = CamereoWindow.ToAssetsRelative(payload.srcPath);
                             if (srcRel != null)
                                 PreApplyImportSettings(srcRel, relativePath);
                         }
@@ -303,30 +303,30 @@ namespace VRCAvatarColorChanger
                     }
 
                     _exportProgress.Report(1.0f);
-                    Debug.Log($"[VACC] Saved: {payload.outputPath}");
+                    Debug.Log($"[Camereo] Saved: {payload.outputPath}");
                     // 非モーダル通知: ファイル名のみウィンドウ右下に短時間表示。詳細パスは Debug.Log。
                     _host?.ShowNotification(new GUIContent($"{Localization.Complete}: {Path.GetFileName(payload.outputPath)}"));
                 },
                 onError: ex =>
                 {
-                    Debug.LogError($"[VACC] Export failed: {ex.Message}\n{ex.StackTrace}");
+                    Debug.LogError($"[Camereo] Export failed: {ex.Message}\n{ex.StackTrace}");
                     NotifyError(ex.Message);
                 });
         }
 
         /// <summary>
-        /// エラーを Console に出しつつ VACC ウィンドウ内に非モーダル通知を表示する。
+        /// エラーを Console に出しつつ Camereo ウィンドウ内に非モーダル通知を表示する。
         /// EditorUtility.DisplayDialog は Editor 全体をブロックするため避ける。
         /// </summary>
         private void NotifyError(string message)
         {
-            Debug.LogError($"[VACC] {message}");
+            Debug.LogError($"[Camereo] {message}");
             _host?.ShowNotification(new GUIContent($"{Localization.Error}: {message}"));
         }
 
         /// <summary>
         /// エクスポート実行中の進捗バーとキャンセルボタンを描画する。
-        /// VACCWindow.OnGUI の DisabledScope の外で呼び出すことで、ウィンドウ全体が
+        /// CamereoWindow.OnGUI の DisabledScope の外で呼び出すことで、ウィンドウ全体が
         /// 無効化されている状況でもキャンセルだけは押せるようにする。
         /// </summary>
         public void DrawJobOverlay()
@@ -367,7 +367,7 @@ namespace VRCAvatarColorChanger
                 batchTextures[i] = (Texture2D)EditorGUILayout.ObjectField(
                     batchTextures[i], typeof(Texture2D), false);
                 if (GUILayout.Button(new GUIContent("×", Localization.RemoveBatchTextureTooltip),
-                        GUILayout.Width(VACCConsts.Layout.RemoveButtonWidth)))
+                        GUILayout.Width(CamereoConsts.Layout.RemoveButtonWidth)))
                     removeIdx = i;
                 EditorGUILayout.EndHorizontal();
             }
@@ -455,8 +455,8 @@ namespace VRCAvatarColorChanger
                         break;
                     }
 
-                    if (!VACCWindow.IsReadable(tex)) VACCWindow.EnableReadWrite(tex);
-                    if (!VACCWindow.IsReadable(tex)) continue;
+                    if (!CamereoWindow.IsReadable(tex)) CamereoWindow.EnableReadWrite(tex);
+                    if (!CamereoWindow.IsReadable(tex)) continue;
 
                     string srcPath = AssetDatabase.GetAssetPath(tex);
                     if (string.IsNullOrEmpty(srcPath)) continue;
@@ -490,7 +490,7 @@ namespace VRCAvatarColorChanger
                         string baseName = Path.GetFileNameWithoutExtension(srcPath) + "_recolored";
                         string outPath  = Path.Combine(dir, baseName + ".png");
                         File.WriteAllBytes(outPath, pngData);
-                        string relOutPath = VACCWindow.ToAssetsRelative(outPath);
+                        string relOutPath = CamereoWindow.ToAssetsRelative(outPath);
                         if (relOutPath != null)
                         {
                             if (inheritImportSettings)
@@ -501,7 +501,7 @@ namespace VRCAvatarColorChanger
                     }
                     catch (System.Exception ex)
                     {
-                        Debug.LogWarning($"[VACC] Batch apply failed for {tex.name}: {ex.Message}");
+                        Debug.LogWarning($"[Camereo] Batch apply failed for {tex.name}: {ex.Message}");
                     }
                     finally
                     {

@@ -4,14 +4,14 @@
 
 ## 商品タイトル案
 
-**【無料】VRC AvatarColorChanger (VACC) — アバターテクスチャ色改変ツール**
+**【無料】Camereo — アバターテクスチャ色改変ツール**
 
 ---
 
 ## 概要文（本文）
 
 ```
-VRC AvatarColorChanger(略称:VACC)は、独自の再配色エンジンを搭載した、
+Camereoは、独自の再配色エンジンを搭載した、
 Unity上でアバターのテクスチャを直接色改変できるツールです。
 PSD がない・レイヤーが統合済みのテクスチャでも、陰影や模様を保ったまま色を変えられます。
 最適化(アトラス化)されたテクスチャでも使用可能です。
@@ -68,7 +68,7 @@ JSON の書き出し・読み込みに対応しているので、設定をほか
 1. ダウンロードした zip を展開します
 2. .unitypackage を Unity Editor にドラッグ＆ドロップします
 3. Import をクリックします
-4. Tools > VRC AvatarColorChanger でウィンドウを開けば準備完了です
+4. Tools > Camereo でウィンドウを開けば準備完了です
 
 詳しい使い方はツール同梱の MANUAL.md をご覧ください。
 
@@ -89,7 +89,7 @@ https://polyformproject.org/licenses/shield/1.0.0
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Misskey.io: @yukkuri__aoba@misskey.io
-GitHub: https://github.com/yukkuri-aoba/VRC_AvatarColorChanger
+GitHub: https://github.com/yukkuri-aoba/Camereo
 
 不具合報告・要望は GitHub の Issues または Misskey.io へどうぞ。
 ※BOOTHのメッセージは確認が遅れる可能性があります

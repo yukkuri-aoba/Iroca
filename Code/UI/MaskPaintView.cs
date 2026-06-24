@@ -1,11 +1,11 @@
-﻿// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/VRC_AvatarColorChanger
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
 using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
-namespace VRCAvatarColorChanger
+namespace Camereo
 {
     /// <summary>
     /// マスク対象選択・ブラシ入力・オーバーレイ生成・bool[] バッファと
@@ -50,9 +50,9 @@ namespace VRCAvatarColorChanger
         // マスクペイントモード: ブラシストロークが機能する前に明示的にアクティベートされる必要があります
         [System.NonSerialized] public bool maskPaintActive;
 
-        [System.NonSerialized] private VACCWindow _host;
+        [System.NonSerialized] private CamereoWindow _host;
 
-        public void Initialize(VACCWindow host)
+        public void Initialize(CamereoWindow host)
         {
             _host = host;
         }
@@ -81,7 +81,7 @@ namespace VRCAvatarColorChanger
             EditorGUILayout.BeginHorizontal();
             var prevBg = GUI.backgroundColor;
 
-            GUI.backgroundColor = excludeActive ? VACCColors.ExcludeButton : Color.white;
+            GUI.backgroundColor = excludeActive ? CamereoColors.ExcludeButton : Color.white;
             if (GUILayout.Button(new GUIContent(Localization.Exclude, Localization.ExcludeTooltip), EditorStyles.miniButtonLeft))
             {
                 if (excludeActive)
@@ -90,7 +90,7 @@ namespace VRCAvatarColorChanger
                 { maskPaintActive = true; brushEraseMode = false; }
             }
 
-            GUI.backgroundColor = includeActive ? VACCColors.IncludeButton : Color.white;
+            GUI.backgroundColor = includeActive ? CamereoColors.IncludeButton : Color.white;
             if (GUILayout.Button(new GUIContent(Localization.Include, Localization.IncludeTooltip), EditorStyles.miniButtonRight))
             {
                 if (includeActive)
@@ -337,7 +337,7 @@ namespace VRCAvatarColorChanger
 
             // ブラシサイズは「プレビュー画像上のピクセル数」で設定されるため、
             // マスク座標系（フル解像度）に合わせてスケーリングする必要がある。
-            float maskScale = maskWidth / (float)Mathf.Min(maskWidth, VACCConsts.Preview.MaxSize);
+            float maskScale = maskWidth / (float)Mathf.Min(maskWidth, CamereoConsts.Preview.MaxSize);
             int r = Mathf.Max(1, Mathf.RoundToInt(brushSize * maskScale));
 
             bool value = !brushEraseMode;
@@ -568,9 +568,9 @@ namespace VRCAvatarColorChanger
 
         // 旧 SessionState キー（Phase 6 で MaskFileStore に移行済み）。
         // 残存データをマイグレートするためのみ残し、新規書き込みには使わない。
-        private static string LegacyMaskIndexSessionKey(string path) => "VACC_MaskIndex_" + path;
-        private static string LegacyMaskArraySessionKey(string path, string targetKey) => "VACC_Mask_" + path + ":" + targetKey;
-        private static string LegacySingleMaskSessionKey(string path) => "VACC_Mask_" + path;
+        private static string LegacyMaskIndexSessionKey(string path) => "Camereo_MaskIndex_" + path;
+        private static string LegacyMaskArraySessionKey(string path, string targetKey) => "Camereo_Mask_" + path + ":" + targetKey;
+        private static string LegacySingleMaskSessionKey(string path) => "Camereo_Mask_" + path;
 
         [System.Serializable]
         private class LegacyMaskIndex
@@ -708,7 +708,7 @@ namespace VRCAvatarColorChanger
                 }
                 catch (System.Exception ex)
                 {
-                    Debug.LogWarning($"[VACC] Legacy mask index decode failed: {ex.Message}");
+                    Debug.LogWarning($"[Camereo] Legacy mask index decode failed: {ex.Message}");
                 }
                 if (idx == null || idx.width <= 0 || idx.height <= 0)
                 {
@@ -879,7 +879,7 @@ namespace VRCAvatarColorChanger
                 }
                 catch (System.Exception ex)
                 {
-                    Debug.LogWarning($"[VACC] Mask decode failed: {ex.Message}");
+                    Debug.LogWarning($"[Camereo] Mask decode failed: {ex.Message}");
                     return null;
                 }
             }
@@ -901,7 +901,7 @@ namespace VRCAvatarColorChanger
             }
             catch (System.Exception ex)
             {
-                Debug.LogWarning($"[VACC] Mask decode (legacy bitpack) failed: {ex.Message}");
+                Debug.LogWarning($"[Camereo] Mask decode (legacy bitpack) failed: {ex.Message}");
                 return null;
             }
         }
@@ -936,7 +936,7 @@ namespace VRCAvatarColorChanger
         /// <summary>
         /// プリセット内のマスクデータで現在のマスク状態を置き換える。
         /// </summary>
-        public void ApplyFromPreset(VACCPresetData data)
+        public void ApplyFromPreset(CamereoPresetData data)
         {
             if (data == null || data.maskWidth <= 0 || data.maskHeight <= 0) return;
 
@@ -967,9 +967,9 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
-        /// 現在のマスク状態を VACCPresetData の commonMaskBase64 / zoneMasks フィールドに書き出す。
+        /// 現在のマスク状態を CamereoPresetData の commonMaskBase64 / zoneMasks フィールドに書き出す。
         /// </summary>
-        public void WriteToPreset(VACCPresetData data)
+        public void WriteToPreset(CamereoPresetData data)
         {
             if (data == null || maskWidth <= 0 || maskHeight <= 0) return;
 

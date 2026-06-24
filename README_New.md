@@ -1,6 +1,6 @@
-﻿# VRC AvatarColorChanger (VACC) Ver 0.2.0 (Beta)
+# Camereo Ver 0.2.0 (Beta)
 
-VRC AvatarColorChanger (VACC) は、Unity Editor 上でテクスチャの色を直感的に変更できる拡張ツールです。VRChat アバターのテクスチャ編集を主な対象としていますが、一般的な Unity プロジェクトでも使用できます。
+Camereo は、Unity Editor 上でテクスチャの色を直感的に変更できる拡張ツールです。VRChat アバターのテクスチャ編集を主な対象としていますが、一般的な Unity プロジェクトでも使用できます。
 
 [日本語](#日本語) | [English](#english)
 
@@ -24,10 +24,10 @@ VRC AvatarColorChanger (VACC) は、Unity Editor 上でテクスチャの色を�
 
 ### クイックスタート
 
-1. [Releases](https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/releases) から最新の `.unitypackage` をダウンロードします
+1. [Releases](https://github.com/yukkuri-aoba/Camereo/releases) から最新の `.unitypackage` をダウンロードします
 2. Unity Editor のプロジェクトウィンドウ（Assets フォルダ）にドラッグ＆ドロップします
 3. インポートダイアログで「Import」をクリックします
-4. `Tools > VRC AvatarColorChanger` からウィンドウを開きます
+4. `Tools > Camereo` からウィンドウを開きます
 5. テクスチャを選択し、カラーゾーンを追加して色を設定します
 6. 「適用して保存」ボタンで保存します
 
@@ -68,10 +68,10 @@ VRC AvatarColorChanger (VACC) は、Unity Editor 上でテクスチャの色を�
 
 ### インストール手順
 
-1. [Releases](https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/releases) から最新の `.unitypackage` をダウンロードします
+1. [Releases](https://github.com/yukkuri-aoba/Camereo/releases) から最新の `.unitypackage` をダウンロードします
 2. Unity Editor にドラッグ＆ドロップして読み込みます
 3. ダイアログで「Import」をクリックします
-4. `Tools > VRC AvatarColorChanger` からウィンドウを開きます
+4. `Tools > Camereo` からウィンドウを開きます
 
 ### ライセンス
 
@@ -101,7 +101,7 @@ VRC AvatarColorChanger (VACC) は、Unity Editor 上でテクスチャの色を�
 ### Quick Start
 
 1. Import `.unitypackage` into Unity Editor
-2. Open the window: `Tools > VRC AvatarColorChanger`
+2. Open the window: `Tools > Camereo`
 3. Select a texture, add a color zone, and set the target color
 4. Click `Apply & Save`
 
@@ -142,10 +142,10 @@ See [MANUAL.md](MANUAL.md) for workarounds and tips.
 
 ### Installation
 
-1. Download the latest `.unitypackage` from [Releases](https://github.com/yukkuri-aoba/VRC_AvatarColorChanger/releases)
+1. Download the latest `.unitypackage` from [Releases](https://github.com/yukkuri-aoba/Camereo/releases)
 2. In Unity Editor, select `Assets > Import Package > Custom Package...`
 3. Choose the downloaded file, then click "Import" in the dialog
-4. Open the window via `Tools > VRC AvatarColorChanger`
+4. Open the window via `Tools > Camereo`
 
 ### License
 

@@ -1,9 +1,9 @@
-﻿// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/VRC_AvatarColorChanger
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.Threading;
 
-namespace VRCAvatarColorChanger
+namespace Camereo
 {
     /// <summary>
     /// パイプライン透明化機能の静的接続点。実装が同梱されていなくても
@@ -24,15 +24,15 @@ namespace VRCAvatarColorChanger
         internal static Func<IDebugCapture> Factory;
 
         /// <summary>
-        /// VACCWindow の OnGUI から発火される foldout 描画イベント。
+        /// CamereoWindow の OnGUI から発火される foldout 描画イベント。
         /// subscriber がいないときは何も描画されない（本体 UI に影響なし）。
         /// </summary>
-        internal static event Action<VACCWindow> OnDrawFoldout;
+        internal static event Action<CamereoWindow> OnDrawFoldout;
 
         /// <summary>
-        /// VACCWindow から foldout イベントを発火する薄いラッパ。
+        /// CamereoWindow から foldout イベントを発火する薄いラッパ。
         /// </summary>
-        internal static void RaiseDrawFoldout(VACCWindow window)
+        internal static void RaiseDrawFoldout(CamereoWindow window)
         {
             OnDrawFoldout?.Invoke(window);
         }
