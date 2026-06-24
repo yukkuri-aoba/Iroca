@@ -32,7 +32,7 @@ MCPForUnity を同居させて初めて MCP から操作できる。
    （Claude Code / Claude Desktop / VS Code 等）。
 5. MCPForUnity が同居すると `Code/McpIntegration/` の asmdef が自動でコンパイルされ（`com.coplaydev.unity-mcp`
    検出時のみ・`CAMEREO_MCP_PRESENT` ゲート）、Camereo のカスタムツールが登録される。
-   `mcpforunity://custom-tools` リソースに `vacc_recolor` / `vacc_describe_schema` / `vacc_list_presets` が現れれば成功。
+   `mcpforunity://custom-tools` リソースに `camereo_recolor` / `camereo_describe_schema` / `camereo_list_presets` が現れれば成功。
 
 ## 呼び出し経路（3 つ・すべて同一の中核を通る）
 
@@ -63,15 +63,15 @@ Camereo.CamereoAutomation.GetVersion();
 カスタムツール（MCPForUnity 導入時のみコンパイル）が静的 API を MCP に公開する。
 Tools メニューには何も追加しない（旧「Automation」サブメニューは撤去済み）。
 
-- `execute_custom_tool("vacc_recolor", { "source": ..., "output": ..., "preset": "MyPreset" })`
+- `execute_custom_tool("camereo_recolor", { "source": ..., "output": ..., "preset": "MyPreset" })`
   — プリセット経路。`preset` の代わりに `zones`（フラットなゾーン設定 JSON 文字列）でその場指定も可（両者は排他）：
   ```json
   { "source": "Assets/Textures/body.png",
     "output": "Assets/Textures/body_recolored.png",
     "zones": "{\"zones\":[{\"sample\":[1,1,1],\"target\":[0.1,0.3,0.8],\"tolerance\":0.25}],\"settings\":{}}" }
   ```
-- `execute_custom_tool("vacc_describe_schema")` — 入力スキーマ・既定値・フィールド説明を返す（呼び出し方の自己発見）。
-- `execute_custom_tool("vacc_list_presets")` — プリセット一覧を返す。
+- `execute_custom_tool("camereo_describe_schema")` — 入力スキーマ・既定値・フィールド説明を返す（呼び出し方の自己発見）。
+- `execute_custom_tool("camereo_list_presets")` — プリセット一覧を返す。
 
 成功時は再着色結果 JSON（`RecolorResult`）が success data に載る。エラーは `ErrorResponse` で返る。
 利用可能ツールは `mcpforunity://custom-tools` リソースで発見できる。
@@ -81,11 +81,11 @@ Tools メニューには何も追加しない（旧「Automation」サブメニ�
 ```
 Unity.exe -batchmode -quit -projectPath <host> \
   -executeMethod Camereo.CamereoAutomation.RunFromCommandLine \
-  -vaccSource Assets/Textures/body.png \
-  -vaccOutput Assets/Textures/body_recolored.png \
-  -vaccPreset MyPreset
+  -camereoSource Assets/Textures/body.png \
+  -camereoOutput Assets/Textures/body_recolored.png \
+  -camereoPreset MyPreset
 ```
-`-vaccZonesFile <zones.json>` / `-vaccJob <job.json>` でも指定可。結果は Console と `result.json` に出る。
+`-camereoZonesFile <zones.json>` / `-camereoJob <job.json>` でも指定可。結果は Console と `result.json` に出る。
 
 ## 入力スキーマ
 
@@ -99,6 +99,6 @@ Unity.exe -batchmode -quit -projectPath <host> \
 - **v1 ではプリセット同梱マスクをヘッドレス適用しない**（パーツ単位の粗いマスクは後続対応）。
   マスクを含むプリセットを渡すと、結果 JSON の `warnings` に明示したうえでマスク無しで処理する。
   マスクを反映したい場合は当面 UI（CamereoWindow）から実行する。
-- カスタム MCP ツール登録（`vacc_recolor` / `vacc_describe_schema` / `vacc_list_presets` を第一級ツールとして出す）は
+- カスタム MCP ツール登録（`camereo_recolor` / `camereo_describe_schema` / `camereo_list_presets` を第一級ツールとして出す）は
   `Code/McpIntegration/` で実装済み。MCPForUnity（`com.coplaydev.unity-mcp`）導入時のみ `CAMEREO_MCP_PRESENT`
   ゲートでコンパイルされ、配布パッケージ本体は依存ゼロを維持する。

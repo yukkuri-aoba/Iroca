@@ -6,7 +6,7 @@
 // コンパイルされる（asmdef の versionDefines + defineConstraints による CAMEREO_MCP_PRESENT ゲート）。
 // → 配布パッケージ本体は MCPForUnity への依存ゼロを維持する。
 //
-// 駆動経路: AI エージェントは execute_custom_tool("vacc_recolor", {...}) のように呼ぶ。
+// 駆動経路: AI エージェントは execute_custom_tool("camereo_recolor", {...}) のように呼ぶ。
 // 各ツールは CamereoAutomation の公開静的 API を薄くラップするだけで、変換の中核（RunRecolorCore）は共有。
 #if CAMEREO_MCP_PRESENT
 using Newtonsoft.Json.Linq;
@@ -20,8 +20,8 @@ namespace Camereo.McpIntegration
     /// <c>preset</c> を渡せばプリセット経路（<see cref="CamereoAutomation.RecolorByPreset"/>）、
     /// <c>zones</c> を渡せばその場のゾーン指定経路（<see cref="CamereoAutomation.RecolorWithZones"/>）を通る。
     /// </summary>
-    [McpForUnityTool("vacc_recolor")]
-    public static class VaccRecolorTool
+    [McpForUnityTool("camereo_recolor")]
+    public static class CamereoRecolorTool
     {
         public class Parameters
         {
@@ -34,7 +34,7 @@ namespace Camereo.McpIntegration
             [ToolParameter("プリセットのファイルパス・プリセット名・インライン JSON のいずれか。zones と排他", Required = false)]
             public string preset { get; set; }
 
-            [ToolParameter("その場のゾーン設定 JSON（{\"zones\":[...],\"settings\":{...}}）。preset と排他。スキーマは vacc_describe_schema 参照", Required = false)]
+            [ToolParameter("その場のゾーン設定 JSON（{\"zones\":[...],\"settings\":{...}}）。preset と排他。スキーマは camereo_describe_schema 参照", Required = false)]
             public string zones { get; set; }
         }
 
@@ -86,26 +86,26 @@ namespace Camereo.McpIntegration
     }
 
     /// <summary>呼び出し方・入力スキーマ・既定値・フィールド説明を返す自己発見用ツール。</summary>
-    [McpForUnityTool("vacc_describe_schema")]
-    public static class VaccDescribeSchemaTool
+    [McpForUnityTool("camereo_describe_schema")]
+    public static class CamereoDescribeSchemaTool
     {
         public class Parameters { }
 
         public static object HandleCommand(JObject @params)
         {
-            return VaccRecolorTool.WrapResultLenient(CamereoAutomation.DescribeSchema(), "describe_schema failed");
+            return CamereoRecolorTool.WrapResultLenient(CamereoAutomation.DescribeSchema(), "describe_schema failed");
         }
     }
 
     /// <summary>プロジェクト/ユーザー保存先のプリセット一覧を返すツール。</summary>
-    [McpForUnityTool("vacc_list_presets")]
-    public static class VaccListPresetsTool
+    [McpForUnityTool("camereo_list_presets")]
+    public static class CamereoListPresetsTool
     {
         public class Parameters { }
 
         public static object HandleCommand(JObject @params)
         {
-            return VaccRecolorTool.WrapResultLenient(CamereoAutomation.ListPresets(), "list_presets failed");
+            return CamereoRecolorTool.WrapResultLenient(CamereoAutomation.ListPresets(), "list_presets failed");
         }
     }
 }
