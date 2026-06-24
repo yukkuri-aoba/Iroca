@@ -133,6 +133,13 @@
   - 高い値：より広く色を判定（選択範囲が広い、ノイズが増える傾向）
   - 推奨値：0.15 ～ 0.40（テクスチャに応じて調整）
 
+- **連続領域モード (Flood Fill)**
+  - 色が一致した領域のうち、確信度の高い「芯」を含む**つながった塊だけ**に変換を絞り込みます。物理的に離れた同色パーツや背景へのにじみ（誤爆）を自動で除去します。
+  - 許容範囲を高めに設定したときに出やすい「離れた場所への巻き込み」を、真の対象を1pxも削らずに抑えられます（同色でも空間的に離れていれば分離できる、という考え方です）。
+  - **通常はシード指定は不要**（自動）。塊が複数あって特定の1つだけを残したいときは、プレビュー上で **Shift+クリック** してシードを指定すると、その塊だけを残します。
+  - シードを解除して自動に戻すには「自動へ」ボタンを押します。
+  - 同じ色のものを色だけで分けることはできません。連続領域モードは「色は合うが場所が違う」対象を空間的に切り分けるための機能です。
+
 #### UV矩形 モード
 
 UV座標で矩形範囲を明示的に指定します。複雑な色構成のテクスチャに向いています。
@@ -612,6 +619,12 @@ Auto-detects target pixels based on sample color and matching criteria.
   - Low: stricter matching (narrow selection)
   - High: broader matching (wider selection, more noise)
   - Recommended: 0.15 ～ 0.40
+
+- **Connected Region (Flood Fill)**
+  - Restricts recoloring to **connected regions that contain a high-confidence core**, automatically removing bleed into physically separate same-color parts or the background.
+  - Lets you raise Tolerance without spilling onto distant areas — false positives are dropped while every true target pixel is kept (color alone cannot separate same-colored parts; connectivity can).
+  - **No seed is needed by default** (automatic). When several regions match and you want to keep only one, **Shift+click** the preview to set a seed; only that region is kept.
+  - Press "Auto" to clear the seed and return to automatic anchoring.
 
 #### UV Rect Mode
 
