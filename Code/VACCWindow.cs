@@ -23,10 +23,9 @@ namespace VRCAvatarColorChanger
         internal IDebugCapture LatestDebugCapture { get; set; }
 
         // ── 連続領域モードの keep キャッシュ(メインプレビューがフル画像で解いた結果を
-        //    詳細プレビューへ転写して完全一致させる)。世代スタンプで陳腐キャッシュの誤適用を防ぐ。
-        //    公開後は不変として扱い、メインプレビュージョブは未公開の新規インスタンスにだけ書く。
+        //    詳細プレビューへ転写して一致させる)。公開後は不変として扱い、メインプレビュージョブは
+        //    未公開の新規インスタンスにだけ書く。詳細側は最新の公開キャッシュを寸法一致で参照する。
         [System.NonSerialized] internal FloodFillKeepCache floodFillKeepCache;
-        [System.NonSerialized] internal int floodFillKeepGen;
 
         // ── 各 View からの再描画通知用 ──
         internal void MarkPreviewDirty() { if (_previewView != null) _previewView.previewDirty = true; }
@@ -301,7 +300,13 @@ namespace VRCAvatarColorChanger
                     VACCConsts.Layout.LeftColumnMin,
                     VACCConsts.Layout.LeftColumnMax);
                 EditorGUILayout.BeginVertical(GUILayout.Width(leftWidth));
-                leftScrollPos = EditorGUILayout.BeginScrollView(leftScrollPos, GUILayout.ExpandHeight(true));
+                // 縦バーを常時確保し、横バーは無効化する。簡易オーバーロードは縦バーが内容高で
+                // 出入り(トグル)し、その都度コンテンツ幅が ~13px 変わって設定UIが左右にガクつく
+                // (プレビュー生成で上部高/列高がわずかに揺れると境界付近でトグルしやすい)。
+                // 常時確保すれば内容の有無に関わらず横位置が一定になる。
+                leftScrollPos = EditorGUILayout.BeginScrollView(leftScrollPos,
+                    false, true, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
+                    GUILayout.ExpandHeight(true));
 
                 DrawZoneList();
                 DrawProcessingSection();

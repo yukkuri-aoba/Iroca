@@ -157,13 +157,14 @@ namespace VRCAvatarColorChanger
             int capX0 = x0, capY0 = y0, capSrcW = srcW, capSrcH = srcH;
             var srcPixelsForTask = srcPixels;
 
-            // 連続領域モードの keep をメインプレビュー(フル画像)から転写して詳細クロップを完全一致させる。
-            // 世代・寸法が一致するときだけ参照し、不一致(設定変更直後でメイン未完 等)は null=絞り込まず
-            // 上位集合(安全側)。メイン完了時に詳細は再走するため一致へ収束する。
+            // 連続領域モードの keep をメインプレビュー(フル画像)から転写して詳細クロップを一致させる。
+            // 採否は寸法一致のみで決める。世代の厳密一致を条件にすると、メインプレビュー再生成中
+            // (許容値スライダー操作中など)に容易に外れて「絞り込まれない上位集合」を見せ、本来対象外の
+            // 領域が対象に見える誤爆になる。最新キャッシュは直近で完了したフル画像処理の結果であり、
+            // メイン完了時に詳細は再走するため最終へ収束する(過渡的に1世代古くても上位集合よりは正確)。
             var keepCache = _host.floodFillKeepCache;
             FloodFillKeepCache keepForTask =
-                (keepCache != null && keepCache.generation == _host.floodFillKeepGen
-                 && keepCache.fullW == capSrcW && keepCache.fullH == capSrcH)
+                (keepCache != null && keepCache.fullW == capSrcW && keepCache.fullH == capSrcH)
                 ? keepCache : null;
 
             detailJob.Schedule(
