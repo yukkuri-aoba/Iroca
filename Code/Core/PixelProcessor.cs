@@ -47,6 +47,33 @@ namespace VRCAvatarColorChanger
     }
 
     /// <summary>
+    /// 連結成分アンカリングの「残った画素(=full画像の keep)」をゾーン別にビットパックで保持する
+    /// キャッシュ。連結性は大域演算でフル画像経路でしか正しく解けないため、メインプレビュー(フル
+    /// 画像)で解いた結果をここへ書き、詳細プレビュー(部分クロップ)へフル座標で転写して両者を一致
+    /// させる。1画素=1bit(true=残す)。fullW*fullH を表現。スレッド安全性は「未公開の新規インスタンス
+    /// にだけ書き込み、公開後は不変として読むだけ」という運用で担保する(UI 側が世代スタンプで管理)。
+    /// </summary>
+    internal sealed class FloodFillKeepCache
+    {
+        // この keep が有効な入力状態の識別子(UI 側のプレビュー世代)。詳細側が一致時のみ参照する。
+        public int generation;
+        public int fullW;
+        public int fullH;
+        private readonly Dictionary<string, ulong[]> _zones = new Dictionary<string, ulong[]>();
+
+        public void SetZone(string zoneId, ulong[] keep)
+        {
+            if (!string.IsNullOrEmpty(zoneId)) _zones[zoneId] = keep;
+        }
+
+        public ulong[] GetZone(string zoneId)
+        {
+            if (!string.IsNullOrEmpty(zoneId) && _zones.TryGetValue(zoneId, out var k)) return k;
+            return null;
+        }
+    }
+
+    /// <summary>
     /// テクスチャの再着色アルゴリズム本体。
     /// UnityEditor / EditorWindow / AssetDatabase に依存しない純粋ロジックだけを保持する。
     /// バックグラウンドスレッドからの呼び出しを前提にしている。
@@ -97,13 +124,14 @@ namespace VRCAvatarColorChanger
             int originX = 0, int originY = 0, int fullW = 0, int fullH = 0,
             bool useDecontamination = true, int decontaminationRadius = 4,
             float decontaminationInteriorThreshold = 0.97f,
-            IDebugCapture debug = null)
+            IDebugCapture debug = null,
+            FloodFillKeepCache floodFillKeep = null)
         {
             ProcessPixelsArray(pixels, w, h, masks, sortedZones, edgeFeather, antiAliasCleanup,
                 holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
                 originX, originY, fullW, fullH, CancellationToken.None,
                 useDecontamination, decontaminationRadius, decontaminationInteriorThreshold,
-                debug);
+                debug, floodFillKeep);
         }
 
         // キャンセルトークン対応バージョン — バックグラウンドプレビューから使用
@@ -117,7 +145,8 @@ namespace VRCAvatarColorChanger
             CancellationToken cancellationToken,
             bool useDecontamination = true, int decontaminationRadius = 4,
             float decontaminationInteriorThreshold = 0.97f,
-            IDebugCapture debug = null)
+            IDebugCapture debug = null,
+            FloodFillKeepCache floodFillKeep = null)
         {
             if (fullW <= 0) fullW = w;
             if (fullH <= 0) fullH = h;
@@ -264,7 +293,30 @@ namespace VRCAvatarColorChanger
                                 seedY = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.y * (h - 1)), 0, h - 1);
                             }
                             ApplyConnectedComponentMask(strength, originalPixels, w, h, seedX, seedY);
+                            // フル画像で解いた keep(=残った画素 strength>0)をゾーン別にキャッシュへ書き出し、
+                            // 詳細プレビュー(クロップ)へ転写して完全一致させる(どの判定経路でも最終結果を反映)。
+                            if (floodFillKeep != null)
+                            {
+                                var keepBits = new ulong[(len + 63) >> 6];
+                                for (int i = 0; i < len; i++)
+                                    if (strength[i] > 0f) keepBits[i >> 6] |= 1UL << (i & 63);
+                                floodFillKeep.fullW = w;
+                                floodFillKeep.fullH = h;
+                                floodFillKeep.SetZone(zone.id, keepBits);
+                            }
                             debug?.RecordStage(zone.id, DebugStages.FloodFill, strength, w, h);
+                        }
+                        else if (floodFillKeep != null
+                                 && floodFillKeep.fullW == fullW && floodFillKeep.fullH == fullH)
+                        {
+                            // 部分クロップ(詳細プレビュー): フル画像で解いた keep をフル座標で転写。
+                            // keep が無い/寸法不一致なら絞り込まず色のみ=上位集合(安全側)。
+                            var keepBits = floodFillKeep.GetZone(zone.id);
+                            if (keepBits != null)
+                            {
+                                ApplyCachedKeepMask(strength, w, h, originX, originY, fullW, keepBits);
+                                debug?.RecordStage(zone.id, DebugStages.FloodFill, strength, w, h);
+                            }
                         }
                     }
 
@@ -1100,6 +1152,30 @@ namespace VRCAvatarColorChanger
                     if (lab == 0) continue;
                     bool keep = keepLabel > 0 ? (lab == keepLabel) : hasCore[lab - 1];
                     if (!keep) strength[rb + (lx + minX)] = 0f;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 連結成分アンカリングの keep(フル画像で解いた「残す画素」1bit/画素)を部分クロップへ転写する。
+        /// クロップの各画素をフル座標(originX/Y オフセット)で keep 参照し、残さない画素の strength を 0 化。
+        /// これにより詳細プレビュー(クロップ)が大域演算を再実行せずにメイン/最終と完全一致する。
+        /// </summary>
+        private static void ApplyCachedKeepMask(
+            float[] strength, int w, int h, int originX, int originY, int fullW, ulong[] keep)
+        {
+            for (int y = 0; y < h; y++)
+            {
+                int rowOff = y * w;
+                int fRow = (y + originY) * fullW + originX;
+                for (int x = 0; x < w; x++)
+                {
+                    int i = rowOff + x;
+                    if (strength[i] <= 0f) continue;
+                    int gi = fRow + x;
+                    int word = gi >> 6;
+                    if (word < 0 || word >= keep.Length || (keep[word] & (1UL << (gi & 63))) == 0UL)
+                        strength[i] = 0f;
                 }
             }
         }

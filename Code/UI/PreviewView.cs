@@ -916,6 +916,11 @@ namespace VRCAvatarColorChanger
             // Factory が非 null インスタンスを返す。それ以外は null で、本体は何もキャプチャしない。
             IDebugCapture debugCap = DebugCaptureHooks.Factory?.Invoke();
 
+            // 連続領域モードの keep をフル画像で解いて公開する(詳細プレビューが転写して一致させる)。
+            // 世代は「このプレビュー入力状態」の識別子。詳細側はこの世代と一致時のみ keep を参照する。
+            _host.floodFillKeepGen++;
+            var keepCache = new FloodFillKeepCache { generation = _host.floodFillKeepGen };
+
             _previewJob.Schedule(
                 work: token =>
                 {
@@ -924,7 +929,7 @@ namespace VRCAvatarColorChanger
                         hfPasses, hfMinNeighbors, rSatMin, rSatRamp,
                         0, 0, 0, 0, token,
                         useDecontam, decontamRadius,
-                        debug: debugCap);
+                        debug: debugCap, floodFillKeep: keepCache);
 
                     Color32[] processedDisplay = scaleForTask < 1f
                         ? PixelProcessor.BoxDownsample(pixels, srcW, srcH, prevWForTask, prevHForTask, scaleForTask)
@@ -941,6 +946,8 @@ namespace VRCAvatarColorChanger
                     _pendingProcessedDisplay = result.processed;
                     _pendingPrevW            = prevWForTask;
                     _pendingPrevH            = prevHForTask;
+                    // フル画像で解いた keep を公開(以降は不変として詳細プレビューが参照)。
+                    _host.floodFillKeepCache = keepCache;
                     // ジョブ側で生成した raw をキャッシュへ確定する(まだ未確定で、対象テクスチャと
                     // 寸法が変わっていない場合のみ。新しいミスで上書きされていれば触らない)。
                     if (_cachedRawDisplay == null && _cachedSrcPixels == srcPixelsForTask &&

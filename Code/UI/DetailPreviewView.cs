@@ -157,6 +157,15 @@ namespace VRCAvatarColorChanger
             int capX0 = x0, capY0 = y0, capSrcW = srcW, capSrcH = srcH;
             var srcPixelsForTask = srcPixels;
 
+            // 連続領域モードの keep をメインプレビュー(フル画像)から転写して詳細クロップを完全一致させる。
+            // 世代・寸法が一致するときだけ参照し、不一致(設定変更直後でメイン未完 等)は null=絞り込まず
+            // 上位集合(安全側)。メイン完了時に詳細は再走するため一致へ収束する。
+            var keepCache = _host.floodFillKeepCache;
+            FloodFillKeepCache keepForTask =
+                (keepCache != null && keepCache.generation == _host.floodFillKeepGen
+                 && keepCache.fullW == capSrcW && keepCache.fullH == capSrcH)
+                ? keepCache : null;
+
             detailJob.Schedule(
                 work: token =>
                 {
@@ -175,7 +184,8 @@ namespace VRCAvatarColorChanger
                         maskSnap, zonesSnapshot, feather, aaCleanup,
                         hfPasses, hfMinNeighbors, rSatMin, rSatRamp,
                         capX0, capY0, capSrcW, capSrcH, token,
-                        useDecontam, decontamRadius);
+                        useDecontam, decontamRadius,
+                        debug: null, floodFillKeep: keepForTask);
 
                     return new DetailPreviewResult
                     {
