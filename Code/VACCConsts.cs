@@ -40,8 +40,9 @@ namespace VRCAvatarColorChanger
 
         public static class ExperimentalFeatures
         {
-            // 連続領域モードは実装継続中のため、当面は UI/処理の両方で無効化する。
-            public const bool EnableFloodFill = false;
+            // 連続領域モード(連結成分アンカリング)を有効化。useFloodFill=true のゾーンのみ作動し、
+            // 既存ゾーン(useFloodFill=false)は内側ゲートで skip され出力ビット不変。
+            public const bool EnableFloodFill = true;
         }
     }
 }
