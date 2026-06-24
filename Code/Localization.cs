@@ -522,17 +522,17 @@ namespace VRCAvatarColorChanger
         // ─── Flood Fill ───
         public static string UseFloodFill => IsJapanese ? "連続領域モード (Flood Fill)" : "Connected Region (Flood Fill)";
         public static string UseFloodFillTooltip => IsJapanese
-            ? "シード点から色が繋がった領域だけに変換を限定します。\n物理的に離れた同色パーツへの誤爆を防止します。\nプレビューをクリックしてシード点を指定してください。"
-            : "Restrict recoloring to the connected region from the seed point.\nPrevents false hits on physically separate parts of the same color.\nClick on the preview to set the seed point.";
-        public static string FloodFillSeedPoint => IsJapanese ? "シード点" : "Seed Point";
-        public static string FloodFillSeedNotSet => IsJapanese ? "未設定" : "Not set";
+            ? "色が一致した領域のうち、確信度の高い芯を含む『つながった塊』だけに変換を絞り込みます。\n物理的に離れた同色パーツや背景へのにじみ(誤爆)を自動で除去します。\n通常はシード不要(自動)。塊が複数あって特定の1つだけ残したいときは Shift+クリックでシードを指定できます。"
+            : "Restrict recoloring to connected regions that contain a high-confidence core.\nAutomatically removes bleed into physically separate same-color parts or the background.\nNo seed needed by default. To keep only one specific region, Shift+click the preview to set a seed.";
+        public static string FloodFillSeedPoint => IsJapanese ? "シード (任意)" : "Seed (optional)";
+        public static string FloodFillSeedNotSet => IsJapanese ? "自動 (シードなし)" : "Auto (no seed)";
         public static string FloodFillSeedHint => IsJapanese
-            ? "プレビューをクリックしてシード点を設定"
-            : "Click the preview to set the seed point";
-        public static string FloodFillClear => IsJapanese ? "クリア" : "Clear";
+            ? "Shift+クリックでシードを指定すると、その塊だけを残します(任意)"
+            : "Shift+click to set a seed and keep only that region (optional)";
+        public static string FloodFillClear => IsJapanese ? "自動へ" : "Auto";
         public static string FloodFillClearTooltip => IsJapanese
-            ? "シード点をリセットして通常の ColorPick モードに戻します"
-            : "Reset the seed point and return to standard ColorPick mode";
+            ? "シードを解除して自動アンカリングに戻します"
+            : "Clear the seed and return to automatic anchoring";
         public static string EdgeStopThreshold => IsJapanese ? "エッジストッパー強度" : "Edge Stop Threshold";
         public static string EdgeStopThresholdTooltip => IsJapanese
             ? "輝度・彩度の急激な変化をパーツの境界とみなして Flood Fill を止める強度。\n0 = エッジストッパー無効（色の一致のみで拡張）\n大きいほど敏感に止まります（デフォルト: 0.15）"

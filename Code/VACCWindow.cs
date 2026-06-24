@@ -672,13 +672,15 @@ namespace VRCAvatarColorChanger
                     new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
                     zone.tolerance, 0f, 1f);
 
-                /*
-                // ─── Flood Fill UI ───
-                // 連続領域モードは実装継続中のため当面 UI から非表示。
+                // ─── 連続領域モード (Flood Fill / 連結成分アンカリング) ───
+                // 既定は自動アンカリング(シード不要)。確信度の高い芯を含む連結領域だけ残し、
+                // 物理的に離れた同色パーツや背景へのにじみを自動除去する。シードは任意の上書き。
                 EditorGUILayout.Space(2);
+                bool prevUseFloodFill = zone.useFloodFill;
                 zone.useFloodFill = UndoHelper.Toggle(this,
                     new GUIContent(Localization.UseFloodFill, Localization.UseFloodFillTooltip),
                     zone.useFloodFill);
+                if (zone.useFloodFill != prevUseFloodFill) MarkPreviewDirty();
 
                 if (zone.useFloodFill)
                 {
@@ -691,24 +693,21 @@ namespace VRCAvatarColorChanger
                         EditorGUILayout.LabelField(
                             new GUIContent(Localization.FloodFillSeedPoint, Localization.FloodFillSeedHint),
                             seedLabel);
-                        if (GUILayout.Button(
-                            new GUIContent(Localization.FloodFillClear, Localization.FloodFillClearTooltip),
-                            GUILayout.Width(52)))
+                        // シード指定時のみ「自動へ戻す」クリアを出す。
+                        using (new EditorGUI.DisabledScope(zone.seedUV.x < 0f))
                         {
-                            Undo.RecordObject(this, "Clear Flood Fill Seed");
-                            zone.seedUV = new UnityEngine.Vector2(-1f, -1f);
+                            if (GUILayout.Button(
+                                new GUIContent(Localization.FloodFillClear, Localization.FloodFillClearTooltip),
+                                GUILayout.Width(52)))
+                            {
+                                Undo.RecordObject(this, "Clear Flood Fill Seed");
+                                zone.seedUV = new UnityEngine.Vector2(-1f, -1f);
+                                MarkPreviewDirty();
+                            }
                         }
                         EditorGUILayout.EndHorizontal();
-
-                        if (advancedMode)
-                        {
-                            zone.edgeStopThreshold = UndoHelper.Slider(this,
-                                new GUIContent(Localization.EdgeStopThreshold, Localization.EdgeStopThresholdTooltip),
-                                zone.edgeStopThreshold, 0f, 0.5f);
-                        }
                     }
                 }
-                */
 
                 // ─── UV矩形モード UI ───
                 // UV矩形モードは実装継続中のため当面 UI から非表示。
