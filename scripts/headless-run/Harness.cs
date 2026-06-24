@@ -241,6 +241,13 @@ namespace VRCAvatarColorChanger
                 }
             }
 
+            // --ffcheck: 連結keepのクロップ転写がフル画像と一致するか自己検証(M4 完全一致プレビュー)。
+            // フル画像で keep を解いてキャッシュ→同じクロップを (a)キャッシュあり (b)なし で処理し、
+            // クロップ内部(境界マージン除外)をフルのクロップ領域と比較する。元入力 pixels は未改変の
+            // クローンを使い、本処理に影響しない。
+            if (System.Array.IndexOf(args, "--ffcheck") >= 0)
+                RunFloodFillCropCheck((Color32[])pixels.Clone(), w, h, masks, zoneList, st);
+
             // ProcessPixelsArray のみを計測(dotnet 起動・raw I/O を除外)。stderr に出すので
             // stdout の "OK" を汚さない。Python 側が "PROCESS_MS " 行を拾って前後比較に使う。
             var _sw = Stopwatch.StartNew();
@@ -268,6 +275,78 @@ namespace VRCAvatarColorChanger
             }
             Console.WriteLine($"OK {w}x{h} -> {outPath} (zones={zoneList.Count})");
             return 0;
+        }
+
+        // 連結keep のクロップ転写検証(M4)。フル画像で keep をキャッシュし、中央クロップを
+        // (a)キャッシュあり (b)なし で処理。クロップ内部(境界マージン除外)をフルのクロップ領域と
+        // 比較し、(a)が一致・(b)が過選択(上位集合)であることを stderr に出す。
+        private static void RunFloodFillCropCheck(
+            Color32[] input, int w, int h, MaskSnapshot masks, List<ColorZone> zones, SettingsCfg st)
+        {
+            void Process(Color32[] px, int pw, int ph, int ox, int oy, int fw, int fh, FloodFillKeepCache keep)
+            {
+                PixelProcessor.ProcessPixelsArray(px, pw, ph, masks, zones,
+                    edgeFeather: st.edgeFeather, antiAliasCleanup: st.antiAliasCleanup,
+                    holeFillPasses: st.holeFillPasses, holeFillMinNeighbors: st.holeFillMinNeighbors,
+                    relaxedSatMin: st.relaxedSatMin, relaxedSatRamp: st.relaxedSatRamp,
+                    originX: ox, originY: oy, fullW: fw, fullH: fh,
+                    cancellationToken: System.Threading.CancellationToken.None,
+                    useDecontamination: st.useDecontamination, decontaminationRadius: st.decontaminationRadius,
+                    floodFillKeep: keep);
+            }
+
+            // 1) フル画像で処理し keep をキャッシュ。
+            var full = (Color32[])input.Clone();
+            var cache = new FloodFillKeepCache { generation = 1 };
+            Process(full, w, h, 0, 0, 0, 0, cache);
+
+            // 2) 中央クロップ(画像の半分)を (a)キャッシュあり (b)なし で処理。
+            int cx0 = w / 4, cy0 = h / 4, cw = w / 2, ch = h / 2;
+            Color32[] MakeCrop()
+            {
+                var c = new Color32[cw * ch];
+                for (int cy = 0; cy < ch; cy++)
+                    System.Array.Copy(input, (cy0 + cy) * w + cx0, c, cy * cw, cw);
+                return c;
+            }
+            var cropCached = MakeCrop();
+            var cropNoCache = MakeCrop();
+            Process(cropCached, cw, ch, cx0, cy0, w, h, cache);
+            Process(cropNoCache, cw, ch, cx0, cy0, w, h, null);
+
+            // 3) クロップ内部(境界 margin 除外)を full のクロップ領域と比較。
+            int margin = st.holeFillPasses + System.Math.Max(0, st.antiAliasCleanup)
+                         + st.decontaminationRadius + 4;
+            bool Changed(Color32 a, Color32 b) => a.r != b.r || a.g != b.g || a.b != b.b;
+            // 「選択(再着色されたか否か)」を full と比較する。値の差(再着色アンカー等の領域統計が
+            // クロップ/フルで異なることによる)は flood fill keep の正否と無関係なので、選択集合の
+            // XOR で keep 転写の正しさを切り分ける。
+            int recFull = 0, recCached = 0, recNoCache = 0, interior = 0;
+            int selCachedExtra = 0, selCachedMiss = 0, selNoCacheExtra = 0, selNoCacheMiss = 0;
+            for (int cy = margin; cy < ch - margin; cy++)
+            {
+                for (int cx = margin; cx < cw - margin; cx++)
+                {
+                    interior++;
+                    int ci = cy * cw + cx;
+                    int fi = (cy0 + cy) * w + (cx0 + cx);
+                    Color32 src = input[fi];
+                    bool rF = Changed(full[fi], src);
+                    bool rC = Changed(cropCached[ci], src);
+                    bool rN = Changed(cropNoCache[ci], src);
+                    if (rF) recFull++;
+                    if (rC) recCached++;
+                    if (rN) recNoCache++;
+                    if (rC && !rF) selCachedExtra++;   // cache がフルより多く選択(=keep転写漏れ)
+                    if (!rC && rF) selCachedMiss++;     // cache がフルより少なく選択(=過剰除去)
+                    if (rN && !rF) selNoCacheExtra++;   // cacheなしの過選択(=上位集合の超過分)
+                    if (!rN && rF) selNoCacheMiss++;
+                }
+            }
+            Console.Error.WriteLine(
+                $"FFCHECK interior={interior} recFull={recFull} recCached={recCached} recNoCache={recNoCache} | "
+                + $"cachedVsFull selXOR(extra/miss)={selCachedExtra}/{selCachedMiss} | "
+                + $"noCacheVsFull selXOR(extra/miss)={selNoCacheExtra}/{selNoCacheMiss}");
         }
     }
 }
