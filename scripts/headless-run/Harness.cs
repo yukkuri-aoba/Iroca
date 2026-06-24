@@ -60,6 +60,11 @@ namespace VRCAvatarColorChanger
         // アンカー挙動。ON/OFF を JSON から切り替えて A/B 計測できるようにフィールドを公開する。
         public bool autoRecolorAnchor { get; set; } = true;
         public int layerIndex { get; set; } = 0;
+        // 連続領域モード(連結成分アンカリング)。useFloodFill=true で有効。
+        // seedUV=[u,v] は任意の上書きシード(未指定=null=自動アンカリング)。
+        public bool useFloodFill { get; set; } = false;
+        public float[] seedUV { get; set; } = null;
+        public float edgeStopThreshold { get; set; } = 0.15f;
     }
 
     internal sealed class SettingsCfg
@@ -115,6 +120,10 @@ namespace VRCAvatarColorChanger
                 shadowDesaturation = z.shadowDesaturation,
                 shadowForgivenessSatMin = z.shadowForgivenessSatMin,
                 layerIndex = z.layerIndex,
+                useFloodFill = z.useFloodFill,
+                seedUV = (z.seedUV != null && z.seedUV.Length >= 2)
+                    ? new Vector2(z.seedUV[0], z.seedUV[1]) : new Vector2(-1f, -1f),
+                edgeStopThreshold = z.edgeStopThreshold,
             };
             zone.EnsureId();
             zone.UpdateCacheIfNeeded();
