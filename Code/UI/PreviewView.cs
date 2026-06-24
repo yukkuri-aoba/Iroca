@@ -917,9 +917,8 @@ namespace VRCAvatarColorChanger
             IDebugCapture debugCap = DebugCaptureHooks.Factory?.Invoke();
 
             // 連続領域モードの keep をフル画像で解いて公開する(詳細プレビューが転写して一致させる)。
-            // 世代は「このプレビュー入力状態」の識別子。詳細側はこの世代と一致時のみ keep を参照する。
-            _host.floodFillKeepGen++;
-            var keepCache = new FloodFillKeepCache { generation = _host.floodFillKeepGen };
+            // 詳細側は最新の公開キャッシュを寸法一致で参照する(メイン完了時に再走して収束)。
+            var keepCache = new FloodFillKeepCache();
 
             _previewJob.Schedule(
                 work: token =>
