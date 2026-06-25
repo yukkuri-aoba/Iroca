@@ -1,0 +1,521 @@
+/* =============================================================
+   Camereo BOOTH 販促画像スタイル
+   - 各 .slide は実寸ピクセル（square=1280x1280 / wide=1280x720）
+   - ブラウザ上では縮小プレビュー、撮影時は実寸（README参照）
+   ============================================================= */
+
+/* ---------- ブランドトークン ---------- */
+:root {
+  /* ベース：濃紺〜深いティール */
+  --bg-0: #0a0f1c;          /* 最暗 */
+  --bg-1: #0e1730;          /* 背景グラデ上 */
+  --bg-2: #10283c;          /* 背景グラデ下（ティール寄り） */
+  --panel: rgba(255, 255, 255, 0.06);
+  --panel-strong: rgba(255, 255, 255, 0.10);
+  --panel-border: rgba(255, 255, 255, 0.14);
+
+  /* 文字 */
+  --ink: #f4f7fb;           /* オフホワイト */
+  --ink-dim: #aebbd0;       /* サブテキスト */
+  --ink-faint: #7d8aa3;     /* キャプション */
+
+  /* アクセント（カメレオン＝色変化：緑→シアン→マゼンタ） */
+  --c-green: #1ec85a;       /* 既存UI由来の緑(30,140,60)を明るめに基準化 */
+  --c-cyan: #18c8d6;
+  --c-blue: #3b82f6;
+  --c-magenta: #e64bd0;
+  --c-amber: #ffb020;
+
+  --grad-brand: linear-gradient(100deg, #1ec85a 0%, #18c8d6 38%, #3b82f6 64%, #e64bd0 100%);
+  --grad-brand-soft: linear-gradient(100deg, rgba(30,200,90,0.18), rgba(59,130,246,0.18) 60%, rgba(230,75,208,0.18));
+
+  /* 形状 */
+  --radius-lg: 28px;
+  --radius-md: 18px;
+  --radius-sm: 12px;
+  --shadow-soft: 0 24px 60px rgba(0, 0, 0, 0.45);
+  --shadow-card: 0 12px 32px rgba(0, 0, 0, 0.35);
+
+  --font: "Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN",
+          "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font);
+  color: var(--ink);
+  background: #060912;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* =============================================================
+   撮影台（ギャラリー）UI ※スクショには写らない領域
+   ============================================================= */
+.stage-header {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 40px 24px 8px;
+  color: var(--ink-dim);
+}
+.stage-header h1 {
+  font-size: 22px;
+  color: var(--ink);
+  margin: 0 0 8px;
+}
+.stage-header p { margin: 4px 0; font-size: 14px; line-height: 1.7; }
+.stage-header code {
+  background: rgba(255,255,255,0.08);
+  padding: 1px 7px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.stage-header .hint {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 8px 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: var(--panel);
+  font-size: 13px;
+}
+
+.gallery {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 56px;
+  padding: 40px 16px 120px;
+}
+
+/* スライドの「台紙」。実寸スライドを縮小表示するためのラッパ */
+.slot {
+  position: relative;
+}
+.slot__label {
+  position: absolute;
+  top: -26px;
+  left: 4px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+}
+/* ブラウザ幅に合わせて縮小（撮影時は body.actual-size で実寸へ） */
+.slot--square { width: min(92vw, 720px); aspect-ratio: 1/1; }
+.slot--wide   { width: min(92vw, 980px); aspect-ratio: 16/9; }
+.slot__scaler {
+  position: absolute;
+  top: 0; left: 0;
+  transform-origin: top left;
+}
+.slot--square .slot__scaler { transform: scale(calc(min(92vw, 720px) / 1280)); }
+.slot--wide   .slot__scaler { transform: scale(calc(min(92vw, 980px) / 1280)); }
+
+/* 実寸モード：DevTools の Capture node screenshot 用 */
+body.actual-size .gallery { gap: 80px; padding: 40px; }
+body.actual-size .slot--square,
+body.actual-size .slot--wide { width: 1280px; aspect-ratio: auto; }
+body.actual-size .slot--square { height: 1280px; }
+body.actual-size .slot--wide   { height: 720px; }
+body.actual-size .slot__scaler { transform: none !important; position: static; }
+body.actual-size .stage-header { display: none; }
+
+/* =============================================================
+   スライド本体（実寸）
+   ============================================================= */
+.slide {
+  position: relative;
+  width: 1280px;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 12% 0%, rgba(30,200,90,0.10), transparent 50%),
+    radial-gradient(120% 90% at 92% 100%, rgba(230,75,208,0.10), transparent 55%),
+    linear-gradient(160deg, var(--bg-1) 0%, var(--bg-0) 55%, var(--bg-2) 100%);
+  color: var(--ink);
+  box-shadow: var(--shadow-soft);
+  border-radius: 0;
+}
+.slide.square { height: 1280px; }
+.slide.wide   { height: 720px; }
+
+/* 上下の細い装飾ライン */
+.slide::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 6px;
+  background: var(--grad-brand);
+  opacity: 0.9;
+}
+
+/* 微細グリッドのテクスチャ（背景に質感） */
+.slide::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+  background-size: 48px 48px;
+  pointer-events: none;
+  mask-image: radial-gradient(120% 120% at 50% 30%, #000 30%, transparent 80%);
+}
+
+.slide__inner {
+  position: relative;
+  z-index: 2;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* スライド共通パディング */
+.slide.square .slide__inner { padding: 84px 88px; }
+.slide.wide   .slide__inner { padding: 64px 72px; }
+
+/* =============================================================
+   ロゴ / ワードマーク
+   ============================================================= */
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+}
+.logo__mark {
+  width: 56px;
+  height: 56px;
+  flex: none;
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.45));
+}
+.logo--lg .logo__mark { width: 92px; height: 92px; }
+.logo__word {
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  background: var(--grad-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  line-height: 1;
+}
+.logo--lg .logo__word { font-size: 76px; }
+
+/* =============================================================
+   バッジ / チップ
+   ============================================================= */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.badge--free {
+  background: var(--grad-brand);
+  color: #04121e;
+  box-shadow: 0 8px 20px rgba(30,200,90,0.35);
+}
+.badge--ghost {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  color: var(--ink-dim);
+  font-weight: 600;
+}
+
+.chips { display: flex; flex-wrap: wrap; gap: 10px; }
+.chip {
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  color: var(--ink-dim);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* =============================================================
+   見出し
+   ============================================================= */
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--c-cyan);
+  text-transform: none;
+}
+.eyebrow .num {
+  display: inline-grid;
+  place-items: center;
+  width: 34px; height: 34px;
+  border-radius: 10px;
+  background: var(--grad-brand);
+  color: #04121e;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+h2.title {
+  font-size: 52px;
+  font-weight: 800;
+  line-height: 1.12;
+  margin: 18px 0 14px;
+  letter-spacing: 0.005em;
+}
+.slide.square h2.title { font-size: 66px; }
+.title .grad {
+  background: var(--grad-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.lead {
+  font-size: 24px;
+  line-height: 1.6;
+  color: var(--ink-dim);
+  margin: 0;
+  max-width: 24em;
+}
+.slide.square .lead { font-size: 28px; }
+
+/* =============================================================
+   画像差し込み枠（プレースホルダ）
+   ============================================================= */
+.shot-frame {
+  position: relative;
+  width: 100%;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--shadow-card);
+}
+.shot-frame[data-ratio="16/9"] { aspect-ratio: 16/9; }
+.shot-frame[data-ratio="4/3"]  { aspect-ratio: 4/3; }
+.shot-frame[data-ratio="1/1"]  { aspect-ratio: 1/1; }
+.shot-frame[data-ratio="3/4"]  { aspect-ratio: 3/4; }
+
+.shot {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.shot.missing { display: none; }
+
+.placeholder {
+  position: absolute;
+  inset: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  border: 2px dashed rgba(255,255,255,0.22);
+  border-radius: calc(var(--radius-md) - 8px);
+  background:
+    repeating-linear-gradient(45deg,
+      rgba(255,255,255,0.018) 0 12px,
+      rgba(255,255,255,0.04) 12px 24px);
+  color: var(--ink-dim);
+}
+/* 画像が入っていればプレースホルダは隠す */
+.shot:not(.missing) + .placeholder { display: none; }
+
+.placeholder .ph-icon { width: 44px; height: 44px; opacity: 0.7; }
+.placeholder span { font-size: 19px; font-weight: 700; color: var(--ink); }
+.placeholder small {
+  font-size: 14px;
+  color: var(--ink-faint);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+/* =============================================================
+   汎用レイアウト部品
+   ============================================================= */
+.spacer { flex: 1 1 auto; }
+.row { display: flex; gap: 28px; }
+.col { display: flex; flex-direction: column; }
+.center { align-items: center; justify-content: center; text-align: center; }
+.between { justify-content: space-between; }
+.items-center { align-items: center; }
+
+/* 機能スライド：左テキスト / 右ビジュアル */
+.feature {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 40px;
+  align-items: center;
+  height: 100%;
+}
+.feature__media { width: 100%; }
+
+/* 特徴の小リスト（チェック付き） */
+.checklist { list-style: none; margin: 24px 0 0; padding: 0; }
+.checklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  font-size: 19px;
+  line-height: 1.55;
+  color: var(--ink);
+  margin: 13px 0;
+  word-break: auto-phrase;
+  line-break: strict;
+}
+.checklist li .ci {
+  flex: none;
+  width: 30px; height: 30px;
+  margin-top: 2px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(30,200,90,0.16);
+  color: var(--c-green);
+}
+.checklist b { color: #fff; }
+
+/* 課題提起：ペインカード */
+.pain-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 22px;
+  margin-top: 36px;
+}
+.pain-card {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-md);
+  padding: 30px 26px;
+  box-shadow: var(--shadow-card);
+}
+.pain-card .pc-icon {
+  width: 48px; height: 48px;
+  color: var(--c-amber);
+  margin-bottom: 16px;
+}
+.pain-card h3 { font-size: 23px; margin: 0 0 8px; }
+.pain-card p { font-size: 17px; line-height: 1.55; color: var(--ink-dim); margin: 0; }
+
+/* Before/After 比較 */
+.ba {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 24px;
+  align-items: center;
+  margin-top: 8px;
+}
+.ba__cell { width: 100%; }
+.ba__tag {
+  display: inline-block;
+  margin-bottom: 12px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: 16px;
+  font-weight: 700;
+}
+.ba__tag--before { background: rgba(160,80,30,0.22); color: #ffb27a; border: 1px solid rgba(255,160,90,0.3); }
+.ba__tag--after  { background: rgba(30,200,90,0.18); color: #6ef0a3; border: 1px solid rgba(60,220,120,0.32); }
+.ba__arrow {
+  width: 64px; height: 64px;
+  color: var(--c-cyan);
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.4));
+}
+
+/* OkLab 比較バー（CSS 図解） */
+.gradbar-set { display: flex; flex-direction: column; gap: 22px; margin-top: 8px; }
+.gradbar { }
+.gradbar h4 { font-size: 18px; margin: 0 0 8px; color: var(--ink-dim); font-weight: 700; }
+.gradbar .bar {
+  height: 58px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.2);
+}
+.gradbar .bar.bad {
+  /* HSV的：途中で濁る（グレーを挟む） */
+  background: linear-gradient(90deg, #d23b3b 0%, #8a7b5a 50%, #2f7be0 100%);
+}
+.gradbar .bar.good {
+  /* OkLab的：明度を保って滑らか */
+  background: linear-gradient(90deg, #e2473f 0%, #c763a0 50%, #3b82f6 100%);
+}
+.gradbar .tag {
+  display: inline-block; margin-bottom: 6px;
+  font-size: 14px; font-weight: 700; padding: 3px 10px; border-radius: 6px;
+}
+.gradbar .tag.bad  { background: rgba(210,59,59,0.18); color: #ff9b9b; }
+.gradbar .tag.good { background: rgba(30,200,90,0.18); color: #6ef0a3; }
+
+/* インストール手順 */
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-top: 28px; }
+.step {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-md);
+  padding: 24px 20px;
+}
+.step .sn {
+  width: 38px; height: 38px;
+  display: grid; place-items: center;
+  border-radius: 10px;
+  background: var(--grad-brand);
+  color: #04121e; font-weight: 800; font-size: 18px;
+  margin-bottom: 14px;
+}
+.step p { margin: 0; font-size: 16px; line-height: 1.5; color: var(--ink-dim); }
+
+/* 環境スペック行 */
+.specs { display: flex; flex-wrap: wrap; gap: 12px 26px; margin-top: 6px; }
+.spec {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 18px; color: var(--ink-dim);
+}
+.spec .sk { color: var(--ink-faint); font-size: 15px; }
+.spec b { color: #fff; font-weight: 700; }
+
+/* CTA */
+.cta {
+  display: inline-flex; align-items: center; gap: 14px;
+  padding: 18px 34px;
+  border-radius: 999px;
+  background: var(--grad-brand);
+  color: #04121e;
+  font-size: 26px; font-weight: 800;
+  box-shadow: 0 14px 34px rgba(30,200,90,0.4);
+}
+
+/* フッタ情報 */
+.foot {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 16px; color: var(--ink-faint);
+}
+.foot .lic { font-size: 15px; }
+
+/* 大きな装飾カメレオン（ヒーロー右下の透かし） */
+.hero-deco {
+  position: absolute;
+  right: -60px; bottom: -60px;
+  width: 560px; height: 560px;
+  opacity: 0.10;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* ヒーロー専用 */
+.hero { height: 100%; display: flex; flex-direction: column; }
+.hero__top { display: flex; align-items: center; justify-content: space-between; }
+.hero__main { margin-top: auto; margin-bottom: auto; }
+.hero h2.title { margin: 28px 0 20px; }
+.hero .lead { font-size: 30px; max-width: none; }
