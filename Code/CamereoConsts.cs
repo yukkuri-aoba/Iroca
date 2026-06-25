@@ -16,11 +16,11 @@ namespace Camereo
             public const float LeftColumnMax      = 450f;
             public const float RemoveButtonWidth  = 22f;
             public const float SmallButtonWidth   = 48f;
-            // EditorWindow.position はタイトルバー/タブバー（ウィンドウクローム）の高さを含むが、
+            // EditorWindow.position はタブバー（ウィンドウクローム）の高さを含むが、
             // GUI 描画領域はそれより小さい。エクスポートを常にウィンドウ内に収めるための安全マージン。
-            // Windows 11 のフローティングウィンドウではタイトルバーが ~30-32px あり、
-            // 加えて下端のリサイズハンドルも考慮して余裕を持たせる。
-            public const float WindowChromeMargin = 44f;
+            // タブバーは ~21px。この差分がエクスポート下端の空白として見えるため、
+            // クリップしない範囲で詰める（過大だと下に大きな余白が出る）。
+            public const float WindowChromeMargin = 26f;
             // スクロール対象の中央領域に確保する最低高さ。
             // ウィンドウが極端に低い時もこの高さは確保され、内部スクロールで残りを閲覧する。
             public const float MiddleAreaMinHeight = 120f;
