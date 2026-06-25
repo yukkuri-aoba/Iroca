@@ -21,8 +21,7 @@ namespace Camereo
         public bool batchFoldout;
         public List<Texture2D> batchTextures = new List<Texture2D>();
 
-        // エクスポート
-        public bool exportFoldout = true;
+        // エクスポート（常に展開表示。折りたたみは廃止）
         public bool saveAsNewFile = true;
         public string newFileName = "";
         public bool inheritImportSettings = true;
@@ -61,12 +60,8 @@ namespace Camereo
 
         public void DrawExportSection()
         {
-            exportFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(exportFoldout, Localization.StepPrefixExport + Localization.Export);
-            if (!exportFoldout)
-            {
-                EditorGUILayout.EndFoldoutHeaderGroup();
-                return;
-            }
+            // 折りたたみは廃止し、常に見出しラベル＋内容を表示する。
+            EditorGUILayout.LabelField(Localization.StepPrefixExport + Localization.Export, EditorStyles.boldLabel);
 
             // 外側の DisabledScope（CamereoWindow.OnGUI で囲まれる）を壊さないよう、
             // GUI.enabled の直接代入ではなく BeginDisabledGroup を使う。
@@ -102,7 +97,6 @@ namespace Camereo
             }
 
             EditorGUI.EndDisabledGroup();
-            EditorGUILayout.EndFoldoutHeaderGroup();
         }
 
         public void SetSourceTextureBaseName(string baseNameWithoutExtension)
@@ -113,24 +107,21 @@ namespace Camereo
         /// <summary>
         /// エクスポートセクションの描画想定高さを返す。
         /// CamereoWindow の横並びレイアウトで「上部 + プレビュー領域」の高さ計算に使う。
-        /// 折りたたみ時はヘッダー1行分のみ、展開時は内部コントロールの合計を返す。
+        /// 折りたたみは廃止したので常に内部コントロールの合計を返す。
         /// </summary>
         public float GetSectionHeight()
         {
             float lineH = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
-            if (!exportFoldout)
-                return lineH;
 
-            // 展開時の内訳: 折りたたみヘッダ + 新規保存トグル + (新規時のみ)ファイル名 +
-            //               インポート設定継承トグル + 適用ボタン(高さ32) + フォルダを開くボタン + 余白
-            float h = lineH;          // foldout header
+            // 内訳: 見出しラベル + 新規保存トグル + (新規時のみ)ファイル名 +
+            //       インポート設定継承トグル + 適用ボタン(高さ32) + フォルダを開くボタン
+            float h = lineH;          // 見出しラベル
             h += lineH;               // saveAsNewFile トグル
             if (saveAsNewFile)
                 h += lineH;           // ファイル名フィールド
             h += lineH;               // inheritImportSettings トグル
             h += 32f + EditorGUIUtility.standardVerticalSpacing; // ApplyAndSave ボタン
             h += lineH;               // OpenFolder ボタン
-            h += 4f;                  // 末尾余白
             return h;
         }
 
