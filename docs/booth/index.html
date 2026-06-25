@@ -3,376 +3,372 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Camereo — BOOTH 販促画像（撮影台）</title>
+<title>Camereo — BOOTH 販促画像（撮影台 / RISO ED.）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Dela+Gothic+One&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <!-- =============================================================
-     SVG スプライト（ロゴ・アイコン）※画面には直接表示されない
+     SVG スプライト（フラットインク）
      ============================================================= -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <defs>
-    <linearGradient id="g-mark" x1="0" y1="1" x2="1" y2="0">
-      <stop offset="0"   stop-color="#1ec85a"/>
-      <stop offset="0.4" stop-color="#18c8d6"/>
-      <stop offset="0.7" stop-color="#3b82f6"/>
-      <stop offset="1"   stop-color="#e64bd0"/>
-    </linearGradient>
-  </defs>
-
-  <!-- カメレオン（色変化モチーフ） -->
+  <!-- カメレオン（フラット・単色／色は currentColor） -->
   <symbol id="mark-chameleon" viewBox="0 0 64 64">
-    <!-- 背のクレスト -->
-    <path d="M26 22 l3 -5 3 5 z M33 21 l3 -5 3 5 z" fill="url(#g-mark)"/>
-    <!-- 体 -->
-    <path d="M12 42
-             C10 33 16 24 27 23
-             C36 22 43 24 49 30
-             C52 33 52 38 47 39
-             C44 40 41 39 39 37
-             C36 41 30 45 22 45
-             C18 45 14 44 12 42 Z"
-          fill="url(#g-mark)"/>
-    <!-- 脚 -->
-    <path d="M23 44 l-1 8 M36 43 l3 8" fill="none" stroke="url(#g-mark)"
-          stroke-width="3.4" stroke-linecap="round"/>
-    <!-- 巻き尾 -->
-    <path d="M13 42 C7 42 5 35 10 32 C14 30 17 33 15 36 C14 38 11 38 11 35"
-          fill="none" stroke="url(#g-mark)" stroke-width="3.4" stroke-linecap="round"/>
-    <!-- 目（色スウォッチ） -->
-    <circle cx="44" cy="31" r="4.4" fill="#ffffff"/>
-    <circle cx="44" cy="31" r="2.1" fill="#0a0f1c"/>
+    <path d="M26 22l3-5 3 5zM33 21l3-5 3 5z" fill="currentColor"/>
+    <path d="M12 42C10 33 16 24 27 23C36 22 43 24 49 30C52 33 52 38 47 39C44 40 41 39 39 37C36 41 30 45 22 45C18 45 14 44 12 42Z" fill="currentColor"/>
+    <path d="M23 44l-1 8M36 43l3 8" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"/>
+    <path d="M13 42C7 42 5 35 10 32C14 30 17 33 15 36C14 38 11 38 11 35" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"/>
+    <circle cx="44" cy="31" r="4.4" fill="#f3ead4"/>
+    <circle cx="44" cy="31" r="2" fill="currentColor"/>
   </symbol>
 
-  <!-- アイコン群（24x24 / stroke=currentColor） -->
-  <symbol id="i-dropper" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 見当合わせ（トンボ） -->
+  <symbol id="reg" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.4">
+    <circle cx="16" cy="16" r="7"/><path d="M16 0v32M0 16h32"/></symbol>
+
+  <!-- 太い手描き矢印 -->
+  <symbol id="arrow-fat" viewBox="0 0 48 48" fill="currentColor">
+    <path d="M4 18h24V8l16 16-16 16V30H4z"/></symbol>
+
+  <!-- きらめき（ディンバット） -->
+  <symbol id="spark" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M12 0c1 6 5 10 12 12-7 2-11 6-12 12-1-6-5-10-12-12 7-2 11-6 12-12z"/></symbol>
+
+  <!-- 小アイコン -->
+  <symbol id="i-drop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M16 3l5 5-2 2-5-5zM14 7l-8 8-2 4 4-2 8-8"/></symbol>
-  <symbol id="i-brush" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <symbol id="i-brush" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M14 4l6 6-7 7c-1 1-3 1-4 0l-2-2c-1-1-1-3 0-4zM7 17c-2 0-3 1-3 3 2 0 3-1 3-3z"/></symbol>
-  <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M12 3l9 5-9 5-9-5zM3 13l9 5 9-5M3 17l9 5 9-5"/></symbol>
-  <symbol id="i-compare" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="3" y="4" width="8" height="16" rx="1.5"/><rect x="13" y="4" width="8" height="16" rx="1.5"/></symbol>
-  <symbol id="i-palette" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M12 3a9 9 0 1 0 0 18c1.4 0 2-1 2-2 0-1.4 1-2 2-2h2a3 3 0 0 0 3-3 8 8 0 0 0-9-9z"/>
-    <circle cx="7.5" cy="12" r="1"/><circle cx="11" cy="8" r="1"/><circle cx="15.5" cy="9" r="1"/></symbol>
-  <symbol id="i-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <symbol id="i-compare" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="4" width="8" height="16"/><rect x="13" y="4" width="8" height="16"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M5 4h11l3 3v13H5zM8 4v6h7M8 14h8v6"/></symbol>
-  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M5 13l4 4 10-11"/></symbol>
-  <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M4 12h14M13 6l6 6-6 6"/></symbol>
-  <symbol id="i-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M12 3l10 18H2zM12 10v5M12 17.5v.5"/></symbol>
-  <symbol id="i-nofile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M6 3h8l4 4v14H6zM14 3v4h4"/><path d="M4 4l16 16"/></symbol>
-  <symbol id="i-atlas" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></symbol>
-  <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 16l-5-5-7 7"/></symbol>
-  <symbol id="i-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2zM19 13l1 2.5 2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1z"/></symbol>
-  <symbol id="i-cube" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 3v9M12 12l8-4.5M12 12l-8-4.5"/></symbol>
-  <symbol id="i-zoom" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <symbol id="i-zoom" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
     <circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4M8 11h6M11 8v6"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="4" width="18" height="16"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 16l-5-5-7 7"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 13l4 4 10-11"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="6" cy="12" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M8 11l8-4M8 13l8 4"/></symbol>
 </svg>
 
 <!-- =============================================================
-     撮影台ヘッダ ※スクショ対象外。実寸表示で自動的に隠れます。
+     撮影台ヘッダ ※スクショ対象外・実寸表示で自動的に隠れます
      ============================================================= -->
 <header class="stage-header">
-  <h1>Camereo BOOTH 販促画像 — 撮影台</h1>
-  <p>各スライドは実寸（横長 <code>1280×720</code> / 正方形 <code>1280×1280</code>）。下のボタンで実寸表示に切り替え、ブラウザの開発者ツール
-    <code>Capture node screenshot</code> で 1 枚ずつ PNG 化できます。詳しい手順は <code>README.md</code> を参照。</p>
-  <p>Unity スクショは <code>images/</code> フォルダに所定のファイル名で置くと、点線プレースホルダが自動で差し替わります。</p>
-  <button class="hint" title="実寸（1280px）⇄ 縮小プレビューを切り替えます。スクショ撮影時は実寸にしてください。"
+  <h1>Camereo BOOTH 販促画像 — 撮影台（RISOGRAPH ED.）</h1>
+  <p>蛍光ピンク × 青の2色刷り風デザイン。各スライドは実寸（横長 <code>1280×720</code> / 正方形 <code>1280×1280</code>）。</p>
+  <p>下のボタンで実寸表示にし、開発者ツールの <code>Capture node screenshot</code> で 1 枚ずつ PNG 化できます（手順は <code>README.md</code>）。</p>
+  <p>Unity スクショは <code>images/</code> に所定のファイル名で置くと、網点プレースホルダが自動で差し替わります。</p>
+  <button class="hint" title="実寸（1280px）⇄ 縮小プレビューを切り替えます。撮影時は実寸にしてください。"
           onclick="document.body.classList.toggle('actual-size')">⇆ 実寸表示の切り替え</button>
 </header>
 
 <main class="gallery">
 
-  <!-- ============== スライド1：ヒーロー（正方形 1280×1280） ============== -->
+  <!-- ============== 表紙（正方形 1280×1280） ============== -->
   <div class="slot slot--square">
-    <div class="slot__label">スライド1 — ヒーロー / メインサムネ（1280×1280）</div>
+    <div class="slot__label">01 — Cover / 1280×1280</div>
     <div class="slot__scaler">
       <section class="slide square" id="slide-1">
-        <svg class="hero-deco" aria-hidden="true"><use href="#mark-chameleon"/></svg>
-        <div class="slide__inner hero">
-          <div class="hero__top">
-            <span class="logo logo--lg">
-              <svg class="logo__mark" aria-hidden="true"><use href="#mark-chameleon"/></svg>
-              <span class="logo__word">Camereo</span>
-            </span>
-            <span class="badge badge--free">無料 / FREE</span>
-          </div>
+        <svg class="reg tl" aria-hidden="true"><use href="#reg"/></svg>
+        <svg class="reg tr" aria-hidden="true"><use href="#reg"/></svg>
+        <svg class="reg bl" aria-hidden="true"><use href="#reg"/></svg>
+        <svg class="reg br" aria-hidden="true"><use href="#reg"/></svg>
 
-          <div class="hero__main">
-            <span class="badge badge--ghost">アバターテクスチャ色改変ツール</span>
-            <h2 class="title">PSD なしでも、<br><span class="grad">色が変わる。</span></h2>
-            <p class="lead">陰影も模様もそのまま、色だけを置き換える。<br>Unity 上で完結する、アバターテクスチャ色改変ツール。</p>
-          </div>
+        <svg class="deco-cha" style="right:-90px;bottom:-70px;width:560px;height:560px;transform:rotate(8deg)" aria-hidden="true"><use href="#mark-chameleon"/></svg>
+        <div class="blob" style="left:64px;top:300px;width:120px;height:120px"></div>
 
-          <div class="col" style="gap:22px">
-            <div class="shot-frame" data-ratio="16/9">
-              <img class="shot" src="images/hero.png" alt="Camereo のメインビジュアル" onerror="this.classList.add('missing')">
-              <div class="placeholder">
-                <svg class="ph-icon" aria-hidden="true"><use href="#i-image"/></svg>
-                <span>メインビジュアル（任意）</span>
-                <small>推奨 1600×900 ／ images/hero.png</small>
-              </div>
-            </div>
-            <div class="chips">
-              <span class="chip">VRChat</span>
-              <span class="chip">Unity 2022.3</span>
-              <span class="chip">VRCSDK 不要</span>
-              <span class="chip">OkLab エンジン</span>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-  </div>
-
-  <!-- ============== スライド2：課題提起（横長 1280×720） ============== -->
-  <div class="slot slot--wide">
-    <div class="slot__label">スライド2 — 課題提起（1280×720）</div>
-    <div class="slot__scaler">
-      <section class="slide wide" id="slide-2">
-        <div class="slide__inner">
-          <span class="eyebrow"><svg width="22" height="22"><use href="#i-warn"/></svg>こんな経験、ありませんか？</span>
-          <h2 class="title">「色を変えたいだけ」<span class="grad">なのに、つまずく。</span></h2>
-          <div class="pain-grid">
-            <div class="pain-card">
-              <svg class="pc-icon" aria-hidden="true"><use href="#i-nofile"/></svg>
-              <h3>PSD が無い</h3>
-              <p>配布データに改変用ファイルが付いていない。欲しいレイヤーが見当たらない。</p>
-            </div>
-            <div class="pain-card">
-              <svg class="pc-icon" aria-hidden="true"><use href="#i-layers"/></svg>
-              <h3>レイヤー統合済み</h3>
-              <p>一枚絵に焼き込まれていて、パーツごとに分けて塗り直せない。</p>
-            </div>
-            <div class="pain-card">
-              <svg class="pc-icon" aria-hidden="true"><use href="#i-atlas"/></svg>
-              <h3>アトラス化で分離不能</h3>
-              <p>最適化で複数パーツが 1 枚にまとまり、選択して変えづらい。</p>
-            </div>
-          </div>
-          <div class="spacer"></div>
-          <p class="lead" style="max-width:none;color:var(--ink)">
-            <b style="color:#fff">Camereo</b> なら、テクスチャ 1 枚からでも色を変えられます。</p>
-        </div>
-      </section>
-    </div>
-  </div>
-
-  <!-- ============== スライド3：Before / After（横長 1280×720） ============== -->
-  <div class="slot slot--wide">
-    <div class="slot__label">スライド3 — Before / After デモ（1280×720）</div>
-    <div class="slot__scaler">
-      <section class="slide wide" id="slide-3">
-        <div class="slide__inner">
-          <span class="eyebrow"><svg width="22" height="22"><use href="#i-dropper"/></svg>スポイトで選ぶだけ</span>
-          <h2 class="title">選んだ色に、<span class="grad">そのまま着替え。</span></h2>
-          <div class="ba">
-            <div class="ba__cell">
-              <span class="ba__tag ba__tag--before">Before</span>
-              <div class="shot-frame" data-ratio="3/4">
-                <img class="shot" src="images/ba-before.png" alt="色改変前のアバター" onerror="this.classList.add('missing')">
-                <div class="placeholder">
-                  <svg class="ph-icon" aria-hidden="true"><use href="#i-image"/></svg>
-                  <span>改変前のスクショ</span>
-                  <small>推奨 900×1200 ／ images/ba-before.png</small>
-                </div>
-              </div>
-            </div>
-            <svg class="ba__arrow" aria-hidden="true"><use href="#i-arrow"/></svg>
-            <div class="ba__cell">
-              <span class="ba__tag ba__tag--after">After</span>
-              <div class="shot-frame" data-ratio="3/4">
-                <img class="shot" src="images/ba-after.png" alt="色改変後のアバター" onerror="this.classList.add('missing')">
-                <div class="placeholder">
-                  <svg class="ph-icon" aria-hidden="true"><use href="#i-image"/></svg>
-                  <span>改変後のスクショ</span>
-                  <small>推奨 900×1200 ／ images/ba-after.png</small>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-  </div>
-
-  <!-- ============== スライド4：機能① カラーゾーン（横長） ============== -->
-  <div class="slot slot--wide">
-    <div class="slot__label">スライド4 — 機能① カラーゾーン（1280×720）</div>
-    <div class="slot__scaler">
-      <section class="slide wide" id="slide-4">
-        <div class="slide__inner">
-          <div class="feature">
-            <div class="col">
-              <span class="eyebrow"><span class="num">1</span>カラーゾーン</span>
-              <h2 class="title" style="font-size:46px">スポイトで選ぶだけ。<br><span class="grad">陰影も模様もそのまま。</span></h2>
-              <ul class="checklist">
-                <li><span class="ci"><svg width="18" height="18"><use href="#i-check"/></svg></span>
-                  変えたい部分を<b>スポイトで選ぶだけ</b>で色が変わる</li>
-                <li><span class="ci"><svg width="18" height="18"><use href="#i-check"/></svg></span>
-                  <b>複数ゾーンを重ねて</b>使える。並び順のドラッグで優先度を制御</li>
-                <li><span class="ci"><svg width="18" height="18"><use href="#i-check"/></svg></span>
-                  スポイト選択と<b>UV 範囲指定</b>の 2 通りに対応</li>
-              </ul>
-            </div>
-            <div class="feature__media">
-              <div class="shot-frame" data-ratio="16/9">
-                <img class="shot" src="images/zone-eyedropper.png" alt="カラーゾーンのスポイト操作" onerror="this.classList.add('missing')">
-                <div class="placeholder">
-                  <svg class="ph-icon" aria-hidden="true"><use href="#i-image"/></svg>
-                  <span>スポイト操作のスクショ</span>
-                  <small>推奨 1600×900 ／ images/zone-eyedropper.png</small>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-  </div>
-
-  <!-- ============== スライド5：機能② 除外マスク（横長） ============== -->
-  <div class="slot slot--wide">
-    <div class="slot__label">スライド5 — 機能② 除外マスク（ブラシ）（1280×720）</div>
-    <div class="slot__scaler">
-      <section class="slide wide" id="slide-5">
-        <div class="slide__inner">
-          <div class="feature">
-            <div class="col">
-              <span class="eyebrow"><span class="num">2</span>除外マスク（ブラシ）</span>
-              <h2 class="title" style="font-size:46px">変えたくない所は、<br><span class="grad">塗って守る。</span></h2>
-              <ul class="checklist">
-                <li><span class="ci"><svg width="18" height="18"><use href="#i-check"/></svg></span>
-                  プレビュー上を<b>ブラシで塗るだけ</b>で保護できる</li>
-                <li><span class="ci"><svg width="18" height="18"><use href="#i-check"/></svg></span>
-                  <b>全ゾーン共通</b>マスクと<b>ゾーン専用</b>マスクを使い分け</li>
-                <li><span class="ci"><svg width="18" height="18"><use href="#i-check"/></svg></span>
-                  Unity 標準の <b>Undo（Ctrl+Z）</b>対応でやり直しも自在</li>
-              </ul>
-            </div>
-            <div class="feature__media">
-              <div class="shot-frame" data-ratio="16/9">
-                <img class="shot" src="images/mask-brush.png" alt="ブラシによる除外マスク" onerror="this.classList.add('missing')">
-                <div class="placeholder">
-                  <svg class="ph-icon" aria-hidden="true"><use href="#i-brush"/></svg>
-                  <span>ブラシ操作のスクショ</span>
-                  <small>推奨 1600×900 ／ images/mask-brush.png</small>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-  </div>
-
-  <!-- ============== スライド6：機能③ プレビュー＆プリセット（横長） ============== -->
-  <div class="slot slot--wide">
-    <div class="slot__label">スライド6 — 機能③ プレビュー＆プリセット（1280×720）</div>
-    <div class="slot__scaler">
-      <section class="slide wide" id="slide-6">
-        <div class="slide__inner">
-          <div class="feature">
-            <div class="col">
-              <span class="eyebrow"><span class="num">3</span>プレビュー＆プリセット</span>
-              <h2 class="title" style="font-size:46px">確認も共有も、<br><span class="grad">思いのまま。</span></h2>
-              <ul class="checklist">
-                <li><span class="ci"><svg width="18" height="18"><use href="#i-compare"/></svg></span>
-                  <b>前後比較・差分表示</b>に対応。ピクセル単位まで拡大確認</li>
-                <li><span class="ci"><svg width="18" height="18"><use href="#i-save"/></svg></span>
-                  設定を<b>プリセット保存</b>（マスクも含めて保存可）</li>
-                <li><span class="ci"><svg width="18" height="18"><use href="#i-check"/></svg></span>
-                  <b>JSON で書き出し／読み込み</b>。フレンドとも共有できる</li>
-              </ul>
-            </div>
-            <div class="feature__media">
-              <div class="shot-frame" data-ratio="16/9">
-                <img class="shot" src="images/preview-diff.png" alt="前後比較・差分プレビュー" onerror="this.classList.add('missing')">
-                <div class="placeholder">
-                  <svg class="ph-icon" aria-hidden="true"><use href="#i-zoom"/></svg>
-                  <span>プレビュー／差分のスクショ</span>
-                  <small>推奨 1600×900 ／ images/preview-diff.png</small>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-  </div>
-
-  <!-- ============== スライド7：技術 OkLab（横長） ============== -->
-  <div class="slot slot--wide">
-    <div class="slot__label">スライド7 — 技術：OkLab で色濁りなし（1280×720）</div>
-    <div class="slot__scaler">
-      <section class="slide wide" id="slide-7">
-        <div class="slide__inner">
-          <div class="feature">
-            <div class="col">
-              <span class="eyebrow"><svg width="22" height="22"><use href="#i-spark"/></svg>高精度アルゴリズム</span>
-              <h2 class="title" style="font-size:46px">知覚色空間 <span class="grad">OkLab</span> で、<br>色を変えても濁らない。</h2>
-              <ul class="checklist">
-                <li><span class="ci"><svg width="18" height="18"><use href="#i-check"/></svg></span>
-                  色相が変わっても<b>自然な明度・陰影</b>を保つ</li>
-                <li><span class="ci"><svg width="18" height="18"><use href="#i-check"/></svg></span>
-                  境界の<b>色にじみ・色濁り</b>を抑える設計</li>
-              </ul>
-            </div>
-            <div class="feature__media">
-              <div class="gradbar-set">
-                <div class="gradbar">
-                  <span class="tag bad">よくある変換（途中で濁る）</span>
-                  <div class="bar bad"></div>
-                </div>
-                <div class="gradbar">
-                  <span class="tag good">Camereo / OkLab（明度を保って滑らか）</span>
-                  <div class="bar good"></div>
-                </div>
-                <p style="margin:4px 0 0;font-size:15px;color:var(--ink-faint)">
-                  ※ イメージ図。実際の色変化の質感を簡略化して示しています。</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-  </div>
-
-  <!-- ============== スライド8：環境・インストール・CTA（横長） ============== -->
-  <div class="slot slot--wide">
-    <div class="slot__label">スライド8 — 動作環境・導入・CTA（1280×720）</div>
-    <div class="slot__scaler">
-      <section class="slide wide" id="slide-8">
         <div class="slide__inner">
           <div class="row between items-center">
             <span class="logo">
               <svg class="logo__mark" aria-hidden="true"><use href="#mark-chameleon"/></svg>
               <span class="logo__word">Camereo</span>
             </span>
-            <span class="badge badge--free">無料 / FREE</span>
+            <span class="colophon">No.01 — Unity Texture Recolor</span>
           </div>
 
-          <h2 class="title" style="font-size:40px;margin:26px 0 6px">すぐ始められます。</h2>
+          <div class="spacer"></div>
+
+          <span class="kicker">Recolor your avatar <span class="jp">／ 色を、着替える</span></span>
+          <h2 class="head" style="font-size:122px;margin:14px 0 0">
+            <span class="mis" data-t="色を、">色を、</span><br>
+            <span class="mis" data-t="着替える。"><span class="mark">着替える。</span></span>
+          </h2>
+          <p class="lead" style="margin-top:26px;max-width:none">
+            PSD なし。レイヤー統合済み。アトラス化。<br>
+            ぜんぶ越えて、<b>色だけ塗り替える</b> Unity ツール。</p>
+
+          <div class="spacer"></div>
+
+          <div class="row between items-end">
+            <div class="tags">
+              <span class="tag">VRChat</span>
+              <span class="tag tag--pink">Unity 2022.3</span>
+              <span class="tag">VRCSDK 不要</span>
+            </div>
+            <span class="stamp"><span><b>無料</b><small>FREE DL</small></span></span>
+          </div>
+
+          <p class="colophon" style="margin:22px 0 0">2-Color Riso Ed. ／ Fluoro Pink + Blue ／ OkLab Engine</p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ============== 課題（横長） ============== -->
+  <div class="slot slot--wide">
+    <div class="slot__label">02 — Problem / 1280×720</div>
+    <div class="slot__scaler">
+      <section class="slide wide" id="slide-2">
+        <div class="blob" style="right:80px;top:64px;width:150px;height:150px"></div>
+        <div class="slide__inner">
+          <span class="kicker">Why <span class="jp">／ なぜ、手が止まる？</span></span>
+          <h2 class="head" style="font-size:52px;margin:14px 0 0">
+            「塗り直す」の前に、<span class="mis pink" data-t="心が折れる。">心が折れる。</span></h2>
+          <ul class="pains">
+            <li><span class="pn">01</span><span class="strike">PSD が、ない。</span><small>改変用データが付いていない／欲しいレイヤーが無い</small></li>
+            <li><span class="pn">02</span><span class="strike">レイヤー、統合済み。</span><small>一枚絵に焼き込まれて、パーツごとに分けられない</small></li>
+            <li><span class="pn">03</span><span class="strike">アトラス化で、団子。</span><small>最適化で複数パーツが 1 枚にまとまっている</small></li>
+          </ul>
+          <div class="spacer"></div>
+          <p class="head" style="font-size:30px"><span class="blue">――</span> Camereo は、テクスチャ<span class="mark--blue mark">一枚から</span>塗り替える。</p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ============== Before / After（横長） ============== -->
+  <div class="slot slot--wide">
+    <div class="slot__label">03 — Before / After / 1280×720</div>
+    <div class="slot__scaler">
+      <section class="slide wide" id="slide-3">
+        <div class="slide__inner">
+          <span class="kicker">Demo <span class="jp">／ えらぶ → ぬる → きせかえ</span></span>
+          <h2 class="head" style="font-size:46px;margin:12px 0 18px">
+            選んだ色に、<span class="mis" data-t="そのまま。"><span class="mark">そのまま。</span></span></h2>
+          <div class="ba">
+            <div>
+              <span class="ba__tag ba__tag--before">BEFORE</span>
+              <div class="frame" data-ratio="3/4">
+                <img class="shot" src="images/ba-before.png" alt="色改変前のアバター" onerror="this.classList.add('missing')">
+                <div class="placeholder">
+                  <svg class="ph-icon" aria-hidden="true"><use href="#i-image"/></svg>
+                  <span>改変前のスクショ</span><small>900×1200 / images/ba-before.png</small>
+                </div>
+              </div>
+            </div>
+            <svg class="ba__arrow" aria-hidden="true"><use href="#arrow-fat"/></svg>
+            <div>
+              <span class="ba__tag ba__tag--after">AFTER</span>
+              <div class="frame frame--pink" data-ratio="3/4">
+                <img class="shot" src="images/ba-after.png" alt="色改変後のアバター" onerror="this.classList.add('missing')">
+                <div class="placeholder">
+                  <svg class="ph-icon" aria-hidden="true"><use href="#i-image"/></svg>
+                  <span>改変後のスクショ</span><small>900×1200 / images/ba-after.png</small>
+                </div>
+                <span class="tape">スポイトで選ぶだけ</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ============== 機能01 カラーゾーン（横長・画像右） ============== -->
+  <div class="slot slot--wide">
+    <div class="slot__label">04 — Feature 01 Color Zone / 1280×720</div>
+    <div class="slot__scaler">
+      <section class="slide wide" id="slide-4">
+        <div class="slide__inner">
+          <div class="feature">
+            <div class="feature__text">
+              <div class="row items-center" style="gap:18px">
+                <span class="bignum">01</span>
+                <span class="kicker"><span class="jp">カラーゾーン</span></span>
+              </div>
+              <h2 class="head" style="font-size:50px;margin:10px 0 0">
+                スポイトで、<span class="mis pink" data-t="ひと塗り。">ひと塗り。</span></h2>
+              <ul class="notes">
+                <li><span class="nk"><svg width="16" height="16"><use href="#i-drop"/></svg></span>
+                  変えたい部分を<b>スポイトで選ぶだけ</b>。陰影も模様もそのまま</li>
+                <li><span class="nk"><svg width="16" height="16"><use href="#i-check"/></svg></span>
+                  <b>複数ゾーンを重ねて</b>使える。並び順のドラッグで優先度を制御</li>
+                <li><span class="nk"><svg width="16" height="16"><use href="#i-check"/></svg></span>
+                  スポイト選択と <b>UV 範囲指定</b> の 2 通りに対応</li>
+              </ul>
+            </div>
+            <div class="feature__media">
+              <div class="frame" data-ratio="16/9">
+                <img class="shot" src="images/zone-eyedropper.png" alt="カラーゾーンのスポイト操作" onerror="this.classList.add('missing')">
+                <div class="placeholder">
+                  <svg class="ph-icon" aria-hidden="true"><use href="#i-drop"/></svg>
+                  <span>スポイト操作のスクショ</span><small>1600×900 / images/zone-eyedropper.png</small>
+                </div>
+                <span class="tape tape--blue">クリックで色を吸う</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ============== 機能02 除外マスク（横長・画像左） ============== -->
+  <div class="slot slot--wide">
+    <div class="slot__label">05 — Feature 02 Mask / 1280×720</div>
+    <div class="slot__scaler">
+      <section class="slide wide" id="slide-5">
+        <div class="slide__inner">
+          <div class="feature rev">
+            <div class="feature__text">
+              <div class="row items-center" style="gap:18px">
+                <span class="bignum" style="-webkit-text-stroke-color:var(--pink)">02</span>
+                <span class="kicker" style="color:var(--pink)"><span class="jp">除外マスク（ブラシ）</span></span>
+              </div>
+              <h2 class="head" style="font-size:50px;margin:10px 0 0">
+                守りたい所は、<span class="mis" data-t="塗ってよける。"><span class="mark--blue mark">塗ってよける。</span></span></h2>
+              <ul class="notes">
+                <li><span class="nk"><svg width="16" height="16"><use href="#i-brush"/></svg></span>
+                  プレビュー上を<b>ブラシで塗るだけ</b>で保護できる</li>
+                <li><span class="nk"><svg width="16" height="16"><use href="#i-check"/></svg></span>
+                  <b>全ゾーン共通</b>マスクと<b>ゾーン専用</b>マスクを使い分け</li>
+                <li><span class="nk"><svg width="16" height="16"><use href="#i-check"/></svg></span>
+                  Unity 標準の <b>Undo（Ctrl+Z）</b> 対応でやり直しも自在</li>
+              </ul>
+            </div>
+            <div class="feature__media">
+              <div class="frame frame--pink" data-ratio="16/9">
+                <img class="shot" src="images/mask-brush.png" alt="ブラシによる除外マスク" onerror="this.classList.add('missing')">
+                <div class="placeholder">
+                  <svg class="ph-icon" aria-hidden="true"><use href="#i-brush"/></svg>
+                  <span>ブラシ操作のスクショ</span><small>1600×900 / images/mask-brush.png</small>
+                </div>
+                <span class="tape">ここは変えない！</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ============== 機能03 プレビュー&プリセット（横長・画像右） ============== -->
+  <div class="slot slot--wide">
+    <div class="slot__label">06 — Feature 03 Preview & Preset / 1280×720</div>
+    <div class="slot__scaler">
+      <section class="slide wide" id="slide-6">
+        <div class="slide__inner">
+          <div class="feature">
+            <div class="feature__text">
+              <div class="row items-center" style="gap:18px">
+                <span class="bignum">03</span>
+                <span class="kicker"><span class="jp">プレビュー & プリセット</span></span>
+              </div>
+              <h2 class="head" style="font-size:48px;margin:10px 0 0">
+                見て、くらべて、<span class="mis pink" data-t="配って。">配って。</span></h2>
+              <ul class="notes">
+                <li><span class="nk"><svg width="16" height="16"><use href="#i-compare"/></svg></span>
+                  <b>前後比較・差分表示</b>に対応。ピクセル単位まで拡大確認</li>
+                <li><span class="nk"><svg width="16" height="16"><use href="#i-save"/></svg></span>
+                  設定を<b>プリセット保存</b>（マスクも含めて保存できる）</li>
+                <li><span class="nk"><svg width="16" height="16"><use href="#i-share"/></svg></span>
+                  <b>JSON で書き出し／読み込み</b>。フレンドとも共有できる</li>
+              </ul>
+            </div>
+            <div class="feature__media">
+              <div class="frame" data-ratio="16/9">
+                <img class="shot" src="images/preview-diff.png" alt="前後比較・差分プレビュー" onerror="this.classList.add('missing')">
+                <div class="placeholder">
+                  <svg class="ph-icon" aria-hidden="true"><use href="#i-zoom"/></svg>
+                  <span>プレビュー／差分のスクショ</span><small>1600×900 / images/preview-diff.png</small>
+                </div>
+                <span class="tape tape--blue">差分でひと目</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ============== 技術 OkLab（横長） ============== -->
+  <div class="slot slot--wide">
+    <div class="slot__label">07 — Tech / OkLab / 1280×720</div>
+    <div class="slot__scaler">
+      <section class="slide wide" id="slide-7">
+        <div class="slide__inner">
+          <div class="feature">
+            <div class="feature__text">
+              <span class="kicker">Tech <span class="jp">／ 高精度アルゴリズム</span></span>
+              <h2 class="head" style="font-size:50px;margin:12px 0 0">
+                濁らない、<br><span class="mis pink" data-t="という発明。">という発明。</span></h2>
+              <p class="lead" style="margin-top:20px">
+                知覚色空間 <b>OkLab</b> をベースに再着色。<br>
+                色相が変わっても<b>明度・陰影が自然</b>に残り、<br>
+                境界の<b>色にじみ・色濁り</b>を抑えます。</p>
+            </div>
+            <div class="feature__media">
+              <div class="chips-cmp">
+                <div class="chip-row">
+                  <span class="lbl bad">よくある変換（途中で濁る）</span>
+                  <div class="chip-strip">
+                    <span style="background:#ff3d7f"></span><span style="background:#c07a83"></span>
+                    <span style="background:#8f8266"></span><span style="background:#5e6a9e"></span>
+                    <span style="background:#143fc6"></span>
+                  </div>
+                </div>
+                <div class="chip-row">
+                  <span class="lbl good">Camereo / OkLab（澄んだまま）</span>
+                  <div class="chip-strip">
+                    <span style="background:#ff3d7f"></span><span style="background:#c4408f"></span>
+                    <span style="background:#7a3aa6"></span><span style="background:#3f44b8"></span>
+                    <span style="background:#143fc6"></span>
+                  </div>
+                </div>
+                <p class="colophon" style="font-family:var(--font-jp);text-transform:none;letter-spacing:0;font-size:14px;margin:2px 0 0">
+                  ※ イメージ図。刷りの諧調で質感を簡略化して示しています。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ============== 裏表紙 / 奥付（横長） ============== -->
+  <div class="slot slot--wide">
+    <div class="slot__label">08 — Back Cover / Colophon / 1280×720</div>
+    <div class="slot__scaler">
+      <section class="slide wide" id="slide-8">
+        <svg class="reg tl" aria-hidden="true"><use href="#reg"/></svg>
+        <svg class="reg tr" aria-hidden="true"><use href="#reg"/></svg>
+        <svg class="reg bl" aria-hidden="true"><use href="#reg"/></svg>
+        <svg class="reg br" aria-hidden="true"><use href="#reg"/></svg>
+        <svg class="deco-cha" style="right:-70px;top:-60px;width:300px;height:300px;transform:rotate(-12deg);color:var(--pink)" aria-hidden="true"><use href="#mark-chameleon"/></svg>
+
+        <div class="slide__inner">
+          <div class="row between items-center">
+            <span class="logo">
+              <svg class="logo__mark" aria-hidden="true"><use href="#mark-chameleon"/></svg>
+              <span class="logo__word">Camereo</span>
+            </span>
+            <span class="stamp stamp--sm stamp--blue"><span><b>無料</b><small>FREE</small></span></span>
+          </div>
+
+          <h2 class="head" style="font-size:42px;margin:22px 0 16px">
+            BOOTH で、<span class="mis" data-t="手に入れる。"><span class="mark">手に入れる。</span></span></h2>
 
           <div class="specs">
-            <span class="spec"><svg width="20" height="20" style="color:var(--c-cyan)"><use href="#i-cube"/></svg>
-              <span class="sk">動作環境</span><b>Unity 2022.3.22f1 以降</b></span>
-            <span class="spec"><svg width="20" height="20" style="color:var(--c-cyan)"><use href="#i-image"/></svg>
-              <span class="sk">入力</span><b>PNG / JPG</b></span>
-            <span class="spec"><svg width="20" height="20" style="color:var(--c-cyan)"><use href="#i-palette"/></svg>
-              <span class="sk">出力</span><b>PNG</b></span>
-            <span class="spec"><svg width="20" height="20" style="color:var(--c-green)"><use href="#i-check"/></svg>
-              <b>VRCSDK / VCC 不要</b></span>
+            <span class="spec"><span class="sk">ENV</span><b>Unity 2022.3.22f1+</b></span>
+            <span class="spec"><span class="sk">IN</span><b>PNG / JPG</b></span>
+            <span class="spec"><span class="sk">OUT</span><b>PNG</b></span>
+            <span class="spec"><span class="sk">DEP</span><b>VRCSDK / VCC 不要</b></span>
           </div>
 
           <div class="steps">
@@ -384,12 +380,13 @@
 
           <div class="spacer"></div>
 
-          <div class="row between items-center">
-            <span class="cta"><svg width="26" height="26"><use href="#i-arrow"/></svg>BOOTH から無料ダウンロード</span>
-            <div class="foot col" style="gap:4px;text-align:right">
-              <span class="lic">License: PolyForm Shield 1.0.0 ／ 個人・商用OK</span>
-              <span class="lic">github.com/yukkuri-aoba/Camereo</span>
-            </div>
+          <div class="backfoot">
+            <span class="cta"><svg width="26" height="26"><use href="#arrow-fat"/></svg>BOOTH で無料ダウンロード</span>
+            <span class="info">
+              <b>License</b> PolyForm Shield 1.0.0 ／ 個人・商用 OK<br>
+              github.com/yukkuri-aoba/Camereo ／ <b>@yukkuri__aoba</b><br>
+              <span class="colophon" style="font-size:12px">Printed in Unity — 2-Color Riso Ed.</span>
+            </span>
           </div>
         </div>
       </section>
