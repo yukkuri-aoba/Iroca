@@ -3,21 +3,24 @@
 BOOTH の商品ギャラリーに使う販促画像を HTML/CSS で組んだ「撮影台」です。
 Unity Editor のスクショは自動取得できないため、**枠だけ先に作り、後から画像を差し込んで PNG として書き出す** 方式になっています。
 
-デザインは **リソグラフ（蛍光ピンク × 青の 2 色刷り）風の ZINE スタイル**。クリーム紙・網点・版ズレ・トンボ・ゴム印などで「刷りもの」の質感を出しています。
+デザインは **暗いウォームチャコールの "スタジオ" スタイル**（Unity の黒基調エディタに馴染むが、漆黒ではない）。
+アクセントは **カメレオン・グリーン 1 色**、書体は **Zen Kaku Gothic New**（見出し・本文）＋ **Geist Mono**（英字・数値）。
+[Hallmark](https://github.com/) のアンチ AI-slop 原則（OKLCH トークン・アクセント 1 色・eyebrow 番号やグラデ見出しの排除・各スライド別構成）で組んでいます。
 
 ```
 docs/booth/
   index.html   … 8 スライドを並べたギャラリー兼撮影台
-  style.css    … デザイン（インク色・ロゴ・レイアウト・紙の質感）
+  style.css    … レイアウト・コンポーネント（tokens.css を @import）
+  tokens.css   … 色・フォント・余白の設計トークン（OKLCH）
   images/      … ここにスクショを置く（下の表のファイル名で）
   capture.py   … （任意）スライドを一括 PNG 化する補助スクリプト
   README.md    … このファイル
 ```
 
-ロゴ・アイコン・カメレオン・図解はすべて CSS/SVG で描いているので、画像が無くても全スライドはそのまま完成します。
+ロゴ・カメレオン・図解はすべて CSS/SVG で描いているので、画像が無くても全スライドはそのまま完成します。
 差し込むのは **Unity のスクショだけ** で OK です。
 
-> **フォントについて**：見出しに Google Fonts（Dela Gothic One / Anton / Zen Kaku Gothic New）を使っています。
+> **フォントについて**：Google Fonts（Zen Kaku Gothic New / Geist Mono）を使っています。
 > PNG 書き出しのときは **インターネット接続がある状態**で開いてください（フォントが読み込まれます）。
 
 ---
@@ -41,10 +44,7 @@ docs/booth/
 
 スライド 1（表紙）・2・7・8 は文字と図解だけで完結するため、画像は不要です。
 
-### 任意：スクショをリソ 2 色トーン風にする
-
-写真もインクっぽく馴染ませたいときは、`index.html` の該当の `<div class="frame" ...>` に `duo` クラスを足します
-（例：`<div class="frame duo" data-ratio="16/9">`）。グレースケール化＋ピンク／青のトーンが乗ります。既定は OFF（スクショそのまま）です。
+> 暗い地に暗い Unity スクショが乗るので、枠は明度を一段上げた面（エレベーション）＋細い罫にして、スクショが自然に浮いて見えるようにしています。
 
 ---
 
@@ -89,7 +89,7 @@ python capture.py
 ## カスタマイズ
 
 - 文言：`index.html` 内のテキストを直接編集（コピー元は `../BOOTH_description.md`）。
-- 色（インク）：`style.css` 冒頭の `:root` 変数 `--pink` / `--blue` / `--ink` / `--paper` を変更。
-  2 色刷りなので、ピンクと青を別の組み合わせ（例：青→緑 `--blue:#00a15a`）にするだけで刷り色を総入れ替えできます。
-- フォント：`index.html` の Google Fonts リンクと `style.css` の `--font-disp` / `--font-en` を差し替え。
-- ロゴを画像にしたい場合：`index.html` の `<svg class="logo__mark">` を `<img>` に差し替え可能。
+- 色：`tokens.css` の `--color-paper`（地）/ `--color-accent`（アクセント）/ `--color-ink`（文字）を変更。
+  すべて OKLCH なので、`--color-accent` の H（色相）だけ変えれば、アクセントを別の色（例：H=28 で珊瑚、H=255 で青）に総入れ替えできます。
+- フォント：`index.html` の Google Fonts リンクと `tokens.css` の `--font-display` / `--font-mono` を差し替え。
+- ロゴを画像にしたい場合：`index.html` の `<svg class="wordmark__mark">` を `<img>` に差し替え可能。
