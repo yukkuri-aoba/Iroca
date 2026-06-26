@@ -194,7 +194,7 @@ body.actual-size .stage-header { display: none; }
 .problems .p-note { font-size: var(--text-base); color: var(--color-ink-2); }
 
 /* Before / After（非対称） */
-.ba { display: grid; grid-template-columns: 1fr 1.12fr; gap: var(--space-lg); align-items: end; }
+.ba { display: grid; grid-template-columns: 1fr 1.12fr; gap: var(--space-lg); align-items: end; max-width: 700px; }
 .ba__before { align-self: start; margin-top: 28px; }
 .ba__lbl { display: block; margin-bottom: 10px; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-ink-3); }
 .ba__lbl.is-after { color: var(--color-accent); }
