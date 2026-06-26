@@ -1,8 +1,5 @@
-/* Hallmark · pre-emit critique: P5 H4 E4 S5 R4 V4
- * macrostructure: editorial slide-series (per-slide varied composition)
- * tone: technical-warm "studio" · genre: atmospheric
- * anchor hue: warm-charcoal 75 · accent: chameleon-green 162 (one UI accent)
- * Camereo BOOTH promo · 8 slides (square 1280²  + wide 1280×720) */
+/* Camereo BOOTH promo · 8 slides (square 1280² + wide 1280×720)
+ * warm-charcoal 75 · chameleon-green 162 */
 
 @import url("tokens.css");
 
@@ -234,6 +231,23 @@ body.actual-size .stage-header { display: none; }
 
 .foot-info { font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.85; color: var(--color-ink-3); }
 .foot-info b { color: var(--color-ink-2); font-weight: 400; }
+
+/* 課題スライド（シンプルなチェックリスト） */
+.checklist { margin-top: var(--space-lg); max-width: 560px; }
+.check-item {
+  padding: var(--space-sm) 0;
+  font-family: var(--font-display); font-weight: 700;
+  font-size: var(--text-lg); color: var(--color-ink);
+  border-top: 1px solid var(--color-rule);
+}
+.check-item:last-child { border-bottom: 1px solid var(--color-rule); }
+
+/* 機能説明文（箇条書きに代わる流し込みテキスト） */
+.desc {
+  font-size: var(--text-base); line-height: 1.8;
+  color: var(--color-ink-2); margin: var(--space-md) 0 0;
+  max-width: 32ch;
+}
 
 /* 背景に沈める大きなカメレオン（装飾・控えめ） */
 .ghost-cha { position: absolute; z-index: 0; color: var(--color-paper-2); pointer-events: none; }

@@ -45,19 +45,15 @@
       <section class="slide square" id="slide-1">
         <svg class="ghost-cha" style="right:-130px;bottom:-110px;width:640px;height:640px" aria-hidden="true"><use href="#cha"/></svg>
         <div class="inner">
-          <div class="row between items-center">
-            <span class="wordmark wordmark--lg">
-              <svg class="wordmark__mark" aria-hidden="true"><use href="#cha"/></svg>
-              <span class="wordmark__name">Camereo</span>
-            </span>
-            <span class="micro">Unity Texture Recolor</span>
-          </div>
+          <span class="wordmark wordmark--lg">
+            <svg class="wordmark__mark" aria-hidden="true"><use href="#cha"/></svg>
+            <span class="wordmark__name">Camereo</span>
+          </span>
 
           <div class="spacer"></div>
 
-          <hr class="rule-accent">
-          <h1 class="display" style="margin-top:30px">色を、<br><span class="on">着替える。</span></h1>
-          <p class="lead" style="margin-top:30px">PSD も、統合済みレイヤーも、アトラス化も関係ない。陰影を保ったまま、色だけを置き換える Unity ツール。</p>
+          <h1 class="display">PSD なしで<br><span class="on">色を変える</span></h1>
+          <p class="lead" style="margin-top:30px">Unity 上でアバターテクスチャの色を改変するツール。統合済みレイヤーでもアトラス化テクスチャでも、陰影を保ったまま色だけ変えられます。</p>
 
           <div class="spacer"></div>
 
@@ -80,14 +76,14 @@
     <div class="slot__scaler">
       <section class="slide wide" id="slide-2">
         <div class="inner">
-          <h2 class="display" style="max-width:20ch">「色を変えたいだけ」<span class="on">なのに。</span></h2>
-          <ul class="problems" style="max-width:1000px">
-            <li><span class="p-key">PSD がない</span><span class="p-note">— 改変用データが付いていない。欲しいレイヤーもない。</span></li>
-            <li><span class="p-key">レイヤーは統合済み</span><span class="p-note">— 一枚絵に焼き込まれて、パーツごとに分けられない。</span></li>
-            <li><span class="p-key">アトラス化で団子</span><span class="p-note">— 最適化で複数パーツが 1 枚にまとまっている。</span></li>
-          </ul>
+          <h2 class="display" style="max-width:22ch">こんなテクスチャでも<br>使えます</h2>
+          <div class="checklist">
+            <div class="check-item">PSD が付属していない</div>
+            <div class="check-item">レイヤーが統合されている</div>
+            <div class="check-item">アトラス化されている</div>
+          </div>
           <div class="spacer"></div>
-          <p class="display" style="font-size:var(--text-xl)">Camereo は、テクスチャ <span class="on">1 枚から</span> 塗り替える。</p>
+          <p class="lead" style="font-size:var(--text-lg);color:var(--color-ink)">Camereo はテクスチャ 1 枚から色を変えられます。</p>
         </div>
       </section>
     </div>
@@ -99,7 +95,7 @@
     <div class="slot__scaler">
       <section class="slide wide" id="slide-3">
         <div class="inner">
-          <h2 class="display">選んで、塗るだけ。</h2>
+          <h2 class="display">スポイトで色を選ぶだけ</h2>
           <div class="spacer"></div>
           <div class="ba">
             <div class="ba__before">
@@ -114,7 +110,7 @@
               </div>
             </div>
             <div>
-              <span class="ba__lbl is-after">After — スポイトで選んだ色</span>
+              <span class="ba__lbl is-after">After</span>
               <div class="frame accent" data-ratio="3/4">
                 <img class="shot" src="images/ba-after.png" alt="色改変後のアバター" onerror="this.classList.add('missing')">
                 <div class="placeholder">
@@ -138,13 +134,8 @@
         <div class="inner">
           <div class="split">
             <div class="col-text">
-              <p class="micro accent">カラーゾーン</p>
-              <h2 class="display" style="margin-top:12px">スポイトで<br>選ぶだけ。</h2>
-              <ul class="points">
-                <li>変えたい部分を<b>スポイトで選ぶ</b>と、陰影も模様もそのまま色が変わる</li>
-                <li><b>複数ゾーンを重ねて</b>使える。並び順のドラッグで優先度を制御</li>
-                <li>スポイトと <b>UV 範囲指定</b> の 2 通りで選べる</li>
-              </ul>
+              <h2 class="display" style="margin-top:12px">カラーゾーン</h2>
+              <p class="desc">テクスチャ上のスポイトで変えたい色を選択して、ターゲット色を設定するだけ。陰影も模様もそのまま残ります。複数のゾーンを重ねれば、パーツごとに別の色へ変更できます。</p>
             </div>
             <div>
               <div class="frame" data-ratio="16/9">
@@ -153,7 +144,6 @@
                   <svg class="ph-mark" aria-hidden="true"><use href="#ph"/></svg>
                   <span>スポイト操作のスクショ</span><small>1600×900 / images/zone-eyedropper.png</small>
                 </div>
-                <span class="frame__cap">クリックで色を吸う</span>
               </div>
             </div>
           </div>
@@ -176,17 +166,11 @@
                   <svg class="ph-mark" aria-hidden="true"><use href="#ph"/></svg>
                   <span>ブラシ操作のスクショ</span><small>1600×900 / images/mask-brush.png</small>
                 </div>
-                <span class="frame__cap">塗った所は変えない</span>
               </div>
             </div>
             <div class="col-text">
-              <p class="micro accent">除外マスク</p>
-              <h2 class="display" style="margin-top:12px">守りたい所は、<br>塗ってよける。</h2>
-              <ul class="points">
-                <li>プレビュー上を<b>ブラシで塗る</b>だけで、その部分を保護できる</li>
-                <li><b>全ゾーン共通</b>と<b>ゾーン専用</b>の 2 種類を使い分け</li>
-                <li>Unity 標準の <b>Undo（Ctrl+Z）</b>に対応</li>
-              </ul>
+              <h2 class="display" style="margin-top:12px">変えたくない場所を<br>ブラシで保護</h2>
+              <p class="desc">プレビュー上でブラシを塗るだけで、その場所を色改変から保護できます。全ゾーン共通とゾーン専用の 2 種類のマスクを使い分け可能。Ctrl+Z の Undo にも対応。</p>
             </div>
           </div>
         </div>
@@ -202,13 +186,8 @@
         <div class="inner">
           <div class="split wide-media">
             <div class="col-text">
-              <p class="micro accent">プレビュー &amp; プリセット</p>
-              <h2 class="display" style="margin-top:12px">見て、くらべて、<br>配る。</h2>
-              <ul class="points">
-                <li><b>前後比較・差分表示</b>。ピクセル単位まで拡大して確認</li>
-                <li>設定は<b>プリセット保存</b>（マスクも含めて保存できる）</li>
-                <li><b>JSON で書き出し／読み込み</b>。フレンドとも共有できる</li>
-              </ul>
+              <h2 class="display" style="margin-top:12px">プレビューと<br>プリセット</h2>
+              <p class="desc">変更前後の比較や差分表示に対応。ピクセル単位まで拡大して確認できます。設定をマスクごとプリセットとして保存でき、JSON での書き出し・読み込みにも対応しています。</p>
             </div>
             <div>
               <div class="frame" data-ratio="16/9">
@@ -217,7 +196,6 @@
                   <svg class="ph-mark" aria-hidden="true"><use href="#ph"/></svg>
                   <span>前後比較 / 差分のスクショ</span><small>1600×900 / images/preview-diff.png</small>
                 </div>
-                <span class="frame__cap">差分でひと目</span>
               </div>
             </div>
           </div>
@@ -234,13 +212,12 @@
         <div class="inner">
           <div class="split">
             <div class="col-text">
-              <p class="micro accent">高精度アルゴリズム</p>
-              <h2 class="display" style="margin-top:12px">色を変えても、<br>濁らない。</h2>
-              <p class="lead" style="margin-top:20px">知覚色空間 OkLab をベースに再着色。色相が変わっても明度と陰影が自然に残り、境界の色にじみを抑える。</p>
+              <h2 class="display" style="margin-top:12px">OkLab ベースの<br>再着色エンジン</h2>
+              <p class="desc">知覚色空間 OkLab で再着色するため、色相を変えても明度と陰影が自然に残ります。HSV ベースの変換で起きがちな中間色の濁りを抑えます。</p>
             </div>
             <div class="cmp">
               <div class="cmp__row">
-                <span class="cmp__lbl">よくある変換 — 途中で濁る</span>
+                <span class="cmp__lbl">よくある変換</span>
                 <div class="strip">
                   <span style="background:oklch(64% 0.14 28)"></span><span style="background:oklch(60% 0.07 60)"></span>
                   <span style="background:oklch(56% 0.03 90)"></span><span style="background:oklch(58% 0.07 230)"></span>
@@ -248,14 +225,13 @@
                 </div>
               </div>
               <div class="cmp__row">
-                <span class="cmp__lbl">Camereo / OkLab — 澄んだまま</span>
+                <span class="cmp__lbl">Camereo / OkLab</span>
                 <div class="strip">
                   <span style="background:oklch(64% 0.16 28)"></span><span style="background:oklch(66% 0.15 350)"></span>
                   <span style="background:oklch(64% 0.15 310)"></span><span style="background:oklch(62% 0.14 275)"></span>
                   <span style="background:oklch(60% 0.15 255)"></span>
                 </div>
               </div>
-              <span class="cmp__tag">※ イメージ図（質感を簡略化して示しています）</span>
             </div>
           </div>
         </div>
@@ -279,21 +255,20 @@
 
           <div class="spacer"></div>
 
-          <h2 class="display" style="font-size:var(--text-2xl)">いまの色に、<span class="on">飽きたら。</span></h2>
-          <p class="lead" style="margin-top:14px;max-width:42ch">ダウンロードして .unitypackage を入れるだけ。すぐに塗り替えられる。</p>
+          <h2 class="display" style="font-size:var(--text-2xl)">はじめかた</h2>
+
+          <div class="steps" style="margin-top:26px">
+            <div class="step has-accent"><span class="n">01</span><p>zip を展開</p></div>
+            <div class="step"><span class="n">02</span><p>.unitypackage を Unity にドラッグ</p></div>
+            <div class="step"><span class="n">03</span><p>Import をクリック</p></div>
+            <div class="step"><span class="n">04</span><p><b>Tools &gt; Camereo</b> を開く</p></div>
+          </div>
 
           <div class="specs" style="margin-top:26px">
             <span class="spec"><span class="k">env</span><b>Unity 2022.3.22f1+</b></span>
             <span class="spec"><span class="k">in</span><b>PNG / JPG</b></span>
             <span class="spec"><span class="k">out</span><b>PNG</b></span>
             <span class="spec"><span class="k">dep</span><b>VRCSDK / VCC 不要</b></span>
-          </div>
-
-          <div class="steps" style="margin-top:22px">
-            <div class="step has-accent"><span class="n">01</span><p>zip を展開</p></div>
-            <div class="step"><span class="n">02</span><p>.unitypackage を Unity にドラッグ</p></div>
-            <div class="step"><span class="n">03</span><p>Import をクリック</p></div>
-            <div class="step"><span class="n">04</span><p><b>Tools &gt; Camereo</b> を開く</p></div>
           </div>
 
           <div class="spacer"></div>
