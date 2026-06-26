@@ -55,8 +55,12 @@ namespace Camereo
         // 矩形モード（UV座標0-1）
         public Rect uvRect = new Rect(0, 0, 1, 1);
 
-        // Flood Fill（連続領域モード）: ColorPick モードで有効
-        public bool useFloodFill = false;
+        // Flood Fill（連続領域モード／連結成分アンカリング）: ColorPick モードで有効。
+        // 既定 ON＝標準挙動。確信度の高い芯を含む連結領域だけに変換を絞り込み、物理的に離れた
+        // 同色パーツや背景へのにじみ（誤爆）を自動除去する。シード不要の自動アンカリングが既定で、
+        // クリーンな tolerance では OFF と出力ビット等価（効くのは tolerance を盛りすぎた時）。
+        // 通常モードのトグルで OFF に戻せる。
+        public bool useFloodFill = true;
         // シード点のUV座標（0-1）。負値 = 未設定
         public Vector2 seedUV = new Vector2(-1f, -1f);
 

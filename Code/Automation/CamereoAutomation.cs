@@ -74,6 +74,9 @@ namespace Camereo
             // 領域の代表地色から自動推定する(ColorZone.autoRecolorAnchor と同既定)。
             public bool autoRecolorAnchor = true;
             public int layerIndex = 0;
+            // 連続領域モード(連結成分アンカリング)。既定 ON＝製品 UI の標準と一致。自動アンカリング
+            // (シード非依存)なのでバッチでも安全。従来どおり絞り込みたくない場合は false を明示する。
+            public bool useFloodFill = true;
         }
 
         [Serializable]
@@ -418,6 +421,7 @@ namespace Camereo
                 shadowDesaturation = z.shadowDesaturation,
                 shadowForgivenessSatMin = z.shadowForgivenessSatMin,
                 layerIndex = z.layerIndex,
+                useFloodFill = z.useFloodFill,
             };
             zone.EnsureId();
             zone.UpdateCacheIfNeeded();
