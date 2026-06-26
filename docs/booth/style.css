@@ -83,9 +83,9 @@ body.actual-size .stage-header { display: none; }
 .lead {
   font-family: var(--font-body); font-weight: 500;
   font-size: var(--text-md); line-height: 1.75; color: var(--color-ink-2);
-  margin: 0; max-width: 40ch; text-wrap: pretty;
+  margin: 0; text-wrap: pretty;
 }
-.slide.square .lead { font-size: var(--text-lg); max-width: 30ch; }
+.slide.square .lead { font-size: var(--text-lg); }
 
 .micro {
   font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.1em;
