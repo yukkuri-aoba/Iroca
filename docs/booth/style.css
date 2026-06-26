@@ -1,71 +1,44 @@
-/* =============================================================
-   Camereo BOOTH 販促画像 — リソグラフ / ZINE スタイル
-   蛍光ピンク × 青の2色刷り（＋墨）／クリーム紙／網点・版ズレ
-   各 .slide は実寸（square=1280x1280 / wide=1280x720）
-   ============================================================= */
+/* Hallmark · pre-emit critique: P5 H4 E4 S5 R4 V4
+ * macrostructure: editorial slide-series (per-slide varied composition)
+ * tone: technical-warm "studio" · genre: atmospheric
+ * anchor hue: warm-charcoal 75 · accent: chameleon-green 162 (one UI accent)
+ * Camereo BOOTH promo · 8 slides (square 1280²  + wide 1280×720) */
 
-/* ---------- インク & 紙のトークン ---------- */
-:root {
-  --paper:   #f3ead4;     /* クリーム紙 */
-  --paper-2: #ece0c2;     /* 少し沈んだ紙 */
-  --ink:     #241f1c;     /* 墨（やや暖色の黒） */
-  --pink:    #ff3d7f;     /* 蛍光ピンク */
-  --blue:    #143fc6;     /* リソ青 */
-  --green:   #00a15a;     /* リソ緑（カメレオンに少しだけ） */
-
-  --pink-ink:  rgba(255, 61, 127, 1);
-  --blue-ink:  rgba(20, 63, 198, 1);
-
-  --font-jp:   "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
-  --font-disp: "Dela Gothic One", "Zen Kaku Gothic New", sans-serif;
-  --font-en:   "Anton", "Arial Narrow", sans-serif;
-
-  /* 紙のザラつき（feTurbulence ノイズを data URI で） */
-  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
+@import url("tokens.css");
 
 * { box-sizing: border-box; }
-
-html, body {
-  margin: 0; padding: 0;
-  font-family: var(--font-jp);
-  color: var(--ink);
-  background: #d9cba8;
+html, body { margin: 0; padding: 0; overflow-x: clip; }
+body {
+  font-family: var(--font-body);
+  font-weight: 500;
+  color: var(--color-ink);
+  background: oklch(13% 0.01 75);
   -webkit-font-smoothing: antialiased;
 }
 
-/* =============================================================
+/* ============================================================
    撮影台（ギャラリー）UI ※スクショ対象外
-   ============================================================= */
-.stage-header {
-  max-width: 1100px; margin: 0 auto; padding: 40px 24px 8px;
-  color: #4a423a;
-}
-.stage-header h1 { font-family: var(--font-disp); font-size: 22px; color: var(--ink); margin: 0 0 10px; }
+   ============================================================ */
+.stage-header { max-width: 1100px; margin: 0 auto; padding: 40px 24px 8px; color: var(--color-ink-2); }
+.stage-header h1 { font-family: var(--font-display); font-weight: 700; font-size: 22px; color: var(--color-ink); margin: 0 0 10px; }
 .stage-header p { margin: 4px 0; font-size: 14px; line-height: 1.8; }
-.stage-header code { background: rgba(0,0,0,0.07); padding: 1px 7px; border-radius: 4px; font-size: 13px; }
+.stage-header code { font-family: var(--font-mono); background: var(--color-paper-2); padding: 1px 7px; border-radius: 5px; font-size: 13px; color: var(--color-ink); }
 .stage-header .hint {
-  display: inline-block; margin-top: 12px; padding: 9px 16px;
-  border: 2px solid var(--ink); border-radius: 2px; background: var(--paper);
-  font-size: 13px; font-weight: 700; cursor: pointer;
-  box-shadow: 3px 3px 0 var(--pink);
+  display: inline-block; margin-top: 12px; padding: 9px 16px; cursor: pointer;
+  font-family: var(--font-mono); font-size: 13px; color: var(--color-accent);
+  background: transparent; border: 1px solid var(--color-accent-2); border-radius: 8px;
 }
 
 .gallery { display: flex; flex-direction: column; align-items: center; gap: 56px; padding: 40px 16px 120px; }
 
 .slot { position: relative; }
-.slot__label {
-  position: absolute; top: -24px; left: 2px;
-  font-size: 12px; letter-spacing: 0.06em; color: #6a5f50;
-  font-family: var(--font-en); text-transform: uppercase;
-}
+.slot__label { position: absolute; top: -24px; left: 2px; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; color: var(--color-ink-3); }
 .slot--square { width: min(92vw, 720px); aspect-ratio: 1/1; }
 .slot--wide   { width: min(92vw, 980px); aspect-ratio: 16/9; }
 .slot__scaler { position: absolute; top: 0; left: 0; transform-origin: top left; }
 .slot--square .slot__scaler { transform: scale(calc(min(92vw, 720px) / 1280)); }
 .slot--wide   .slot__scaler { transform: scale(calc(min(92vw, 980px) / 1280)); }
 
-/* 実寸モード（Capture node screenshot 用） */
 body.actual-size .gallery { gap: 80px; padding: 40px; }
 body.actual-size .slot--square, body.actual-size .slot--wide { width: 1280px; aspect-ratio: auto; }
 body.actual-size .slot--square { height: 1280px; }
@@ -73,302 +46,194 @@ body.actual-size .slot--wide   { height: 720px; }
 body.actual-size .slot__scaler { transform: none !important; position: static; }
 body.actual-size .stage-header { display: none; }
 
-/* =============================================================
-   スライド本体（紙）
-   ============================================================= */
+/* ============================================================
+   スライド本体
+   ============================================================ */
 .slide {
-  position: relative; width: 1280px; overflow: hidden;
-  background: var(--paper);
-  color: var(--ink);
-  isolation: isolate;            /* インクの乗算をスライド内に閉じる */
-  box-shadow: 0 18px 50px rgba(60, 45, 20, 0.35);
+  position: relative; width: 1280px; overflow: hidden; isolation: isolate;
+  background: var(--color-paper); color: var(--color-ink);
+  box-shadow: 0 20px 60px oklch(0% 0 0 / 0.45);
 }
 .slide.square { height: 1280px; }
 .slide.wide   { height: 720px; }
 
-/* 紙のザラつき（全面・乗算） */
-.slide::before {
-  content: ""; position: absolute; inset: 0; z-index: 0;
-  background-image: var(--grain);
-  background-size: 220px 220px;
-  opacity: 0.30; mix-blend-mode: multiply; pointer-events: none;
-}
-/* 内側の裁ち落としキーライン */
+/* 微粒子グレイン（質感づけ・控えめ） */
 .slide::after {
-  content: ""; position: absolute; inset: 22px; z-index: 6;
-  border: 1.5px solid rgba(36, 31, 28, 0.28);
-  pointer-events: none;
+  content: ""; position: absolute; inset: 0; z-index: 40; pointer-events: none;
+  opacity: 0.05; mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
 }
 
-.slide__inner {
-  position: relative; z-index: 2; height: 100%;
-  display: flex; flex-direction: column;
-}
-.slide.square .slide__inner { padding: 86px 84px; }
-.slide.wide   .slide__inner { padding: 60px 72px; }
+.inner { position: relative; z-index: 2; height: 100%; display: flex; flex-direction: column; }
+.slide.square .inner { padding: 96px 92px; }
+.slide.wide   .inner { padding: 64px 76px; }
 
-/* =============================================================
-   印刷物のクセ（トンボ・見当・奥付）
-   ============================================================= */
-.reg { position: absolute; z-index: 7; width: 30px; height: 30px; opacity: 0.55; color: var(--ink); }
-.reg.tl { top: 16px; left: 16px; }
-.reg.tr { top: 16px; right: 16px; }
-.reg.bl { bottom: 16px; left: 16px; }
-.reg.br { bottom: 16px; right: 16px; }
-
-.colophon {
-  font-family: var(--font-en); font-size: 13px; letter-spacing: 0.12em;
-  text-transform: uppercase; color: rgba(36,31,28,0.62);
-}
-
-/* ゴム印（無料 / FREE） */
-.stamp {
-  display: inline-grid; place-items: center; text-align: center;
-  width: 168px; height: 168px; border-radius: 50%;
-  border: 4px solid var(--pink); color: var(--pink);
-  font-family: var(--font-disp); line-height: 1.05;
-  transform: rotate(-11deg);
-  mix-blend-mode: multiply;
-  box-shadow: inset 0 0 0 3px var(--pink);
-  /* ノイズで版を欠けさせ、ハンコ感を出す */
-  -webkit-mask-image: var(--grain); mask-image: var(--grain);
-  -webkit-mask-size: 90px 90px; mask-size: 90px 90px;
-}
-.stamp b { font-size: 46px; display: block; }
-.stamp small { font-family: var(--font-en); font-size: 15px; letter-spacing: 0.18em; }
-.stamp--sm { width: 116px; height: 116px; border-width: 3px; }
-.stamp--sm b { font-size: 30px; }
-.stamp--blue { border-color: var(--blue); color: var(--blue); box-shadow: inset 0 0 0 3px var(--blue); }
-
-/* =============================================================
+/* ============================================================
    タイポグラフィ
-   ============================================================= */
-.kicker {
-  display: inline-flex; align-items: center; gap: 10px;
-  font-family: var(--font-en); font-size: 18px; letter-spacing: 0.14em;
-  text-transform: uppercase; color: var(--blue);
+   ============================================================ */
+.display {
+  font-family: var(--font-display); font-weight: 900;
+  line-height: 1.16; letter-spacing: -0.01em; margin: 0; color: var(--color-ink);
+  overflow-wrap: anywhere;
 }
-.kicker .jp { font-family: var(--font-jp); font-weight: 700; letter-spacing: 0.04em; }
+.slide.wide   .display { font-size: var(--text-2xl); }
+.slide.square .display { font-size: var(--text-4xl); line-height: 1.1; }
+.display .on { color: var(--color-accent); }     /* accent emphasis — solid, never gradient */
+/* drawn underline emphasis (alternative to accent colour) */
+.display .ul { box-shadow: inset 0 -0.12em 0 var(--color-accent-2); }
 
-/* 大見出し（版ズレのゴースト付き） */
-.head {
-  font-family: var(--font-disp); font-weight: 400;
-  line-height: 1.18; letter-spacing: 0.005em; margin: 0;
-  color: var(--ink); position: relative;
+.lead {
+  font-family: var(--font-body); font-weight: 500;
+  font-size: var(--text-md); line-height: 1.75; color: var(--color-ink-2);
+  margin: 0; max-width: 30ch;
 }
-.head .mis { position: relative; display: inline-block; }
-.head .mis::before {
-  content: attr(data-t); position: absolute; left: -5px; top: 4px; z-index: -1;
-  color: var(--pink); mix-blend-mode: multiply; pointer-events: none;
+.slide.square .lead { font-size: var(--text-lg); max-width: 24ch; }
+
+.micro {
+  font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--color-ink-3);
 }
-.head .blue { color: var(--blue); }
-.head .pink { color: var(--pink); }
-/* 蛍光マーカー風のアンダーライン */
-.mark {
-  background: linear-gradient(transparent 58%, rgba(255,61,127,0.45) 58%, rgba(255,61,127,0.45) 92%, transparent 92%);
-  padding: 0 2px;
-}
-.mark--blue { background: linear-gradient(transparent 58%, rgba(20,63,198,0.30) 58%, rgba(20,63,198,0.30) 92%, transparent 92%); }
+.micro.accent { color: var(--color-accent); }
 
-.slide.wide   .head { font-size: 60px; }
-.slide.square .head { font-size: 88px; }
+/* ワードマーク */
+.wordmark { display: inline-flex; align-items: center; gap: 12px; }
+.wordmark__mark { width: 40px; height: 40px; flex: none; color: var(--color-accent); }
+.wordmark__name { font-family: var(--font-display); font-weight: 900; font-size: 30px; letter-spacing: -0.01em; color: var(--color-ink); }
+.wordmark--lg .wordmark__mark { width: 64px; height: 64px; }
+.wordmark--lg .wordmark__name { font-size: 46px; }
 
-.lead { font-size: 22px; line-height: 1.85; color: #3a322c; margin: 0; font-weight: 500; }
-.slide.square .lead { font-size: 27px; }
-
-/* 巨大セクション番号（中抜き） */
-.bignum {
-  font-family: var(--font-en); font-size: 150px; line-height: 0.8;
-  color: transparent; -webkit-text-stroke: 2.5px var(--blue);
-  letter-spacing: -0.02em;
-}
-
-/* タグ（角丸なしの刷りもの風） */
+/* ============================================================
+   小物：タグ / 無料マーク / アクセント罫
+   ============================================================ */
 .tags { display: flex; flex-wrap: wrap; gap: 10px; }
 .tag {
-  font-family: var(--font-jp); font-weight: 700; font-size: 15px;
-  padding: 6px 12px; color: var(--ink);
-  border: 2px solid var(--ink); background: var(--paper);
-  box-shadow: 3px 3px 0 var(--blue);
+  font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.04em;
+  padding: 6px 12px; color: var(--color-ink-2);
+  border: 1px solid var(--color-rule); border-radius: 999px;
 }
-.tag--pink { box-shadow: 3px 3px 0 var(--pink); }
+.free {
+  display: inline-flex; align-items: baseline; gap: 8px;
+  font-family: var(--font-display); font-weight: 900; font-size: var(--text-lg);
+  color: var(--color-accent); padding: 8px 18px;
+  border: 1.5px solid var(--color-accent-2); border-radius: 999px;
+}
+.free small { font-family: var(--font-mono); font-weight: 400; font-size: var(--text-xs); letter-spacing: 0.12em; color: var(--color-ink-3); }
 
-/* =============================================================
-   ロゴ / ワードマーク
-   ============================================================= */
-.logo { display: inline-flex; align-items: center; gap: 14px; }
-.logo__mark { width: 54px; height: 54px; flex: none; color: var(--ink); }
-.logo--lg .logo__mark { width: 104px; height: 104px; }
-.logo__word {
-  font-family: var(--font-disp); font-size: 38px; color: var(--ink);
-  position: relative; line-height: 1;
-}
-.logo__word::before {
-  content: "Camereo"; position: absolute; left: -3px; top: 2px; z-index: -1;
-  color: var(--pink); mix-blend-mode: multiply;
-}
-.logo--lg .logo__word { font-size: 84px; }
+.rule-accent { width: 56px; height: 3px; background: var(--color-accent); border: 0; margin: 0; }
 
-/* =============================================================
-   網点（ハーフトーン）ユーティリティ
-   ============================================================= */
-.halftone {
-  background-image: radial-gradient(var(--blue) 32%, transparent 34%);
-  background-size: 9px 9px; mix-blend-mode: multiply;
-}
-.halftone--pink { background-image: radial-gradient(var(--pink) 32%, transparent 34%); }
-.halftone--ink  { background-image: radial-gradient(var(--ink)  30%, transparent 32%); }
-
-/* 網点のにじみ blob（装飾） */
-.blob {
-  position: absolute; border-radius: 50%; z-index: 1; pointer-events: none;
-  background-image: radial-gradient(var(--pink) 30%, transparent 32%);
-  background-size: 12px 12px; mix-blend-mode: multiply; opacity: 0.9;
-}
-
-/* =============================================================
-   画像差し込み枠（リソ風フレーム）
-   ============================================================= */
+/* ============================================================
+   画像差し込み枠（暗所＝明度でエレベーション、薄い罫）
+   ============================================================ */
 .frame {
-  position: relative; width: 100%;
-  border: 3px solid var(--ink);
-  background: var(--paper-2);
-  /* 版ズレ風：青いインクが少しズレて敷いてある */
-  box-shadow: 10px 10px 0 var(--blue);
+  position: relative; width: 100%; border-radius: var(--radius); overflow: hidden;
+  background: var(--color-paper-3);
+  box-shadow: inset 0 0 0 1px var(--color-rule);
 }
 .frame[data-ratio="16/9"] { aspect-ratio: 16/9; }
 .frame[data-ratio="4/3"]  { aspect-ratio: 4/3; }
-.frame[data-ratio="1/1"]  { aspect-ratio: 1/1; }
 .frame[data-ratio="3/4"]  { aspect-ratio: 3/4; }
-.frame--pink { box-shadow: 10px 10px 0 var(--pink); }
+.frame[data-ratio="1/1"]  { aspect-ratio: 1/1; }
+.frame.accent { box-shadow: inset 0 0 0 1.5px var(--color-accent-2); }
 
 .shot { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .shot.missing { display: none; }
 
-/* 任意：写真をリソ2色トーン風にする（README参照、既定OFF） */
-.frame.duo .shot { filter: grayscale(1) contrast(1.08) brightness(1.04); }
-.frame.duo::after {
-  content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none;
-  background: var(--blue); mix-blend-mode: lighten; opacity: 0.55;
-}
-.frame.duo .shot:not(.missing) ~ .duo-tint {
-  position: absolute; inset: 0; z-index: 4; pointer-events: none;
-  background: var(--pink); mix-blend-mode: multiply; opacity: 0.45;
-}
-
 .placeholder {
   position: absolute; inset: 0; z-index: 2;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 12px; text-align: center; color: #5a5046;
-  background-image: radial-gradient(rgba(36,31,28,0.18) 30%, transparent 32%);
-  background-size: 11px 11px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  text-align: center; color: var(--color-ink-3);
+  background-image: radial-gradient(var(--color-rule) 1px, transparent 1.4px);
+  background-size: 16px 16px;
 }
 .shot:not(.missing) + .placeholder { display: none; }
-.placeholder .ph-icon { width: 46px; height: 46px; color: var(--ink); opacity: 0.65; }
-.placeholder span { font-family: var(--font-disp); font-size: 19px; color: var(--ink); }
-.placeholder small { font-family: var(--font-en); font-size: 13px; letter-spacing: 0.08em; color: #7a6f60; }
+.placeholder .ph-mark { width: 40px; height: 40px; opacity: 0.7; color: var(--color-ink-3); }
+.placeholder span { font-family: var(--font-display); font-weight: 700; font-size: var(--text-base); color: var(--color-ink-2); }
+.placeholder small { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-ink-3); }
 
-/* 画像枠に貼る手書き風キャプション付箋 */
-.tape {
-  position: absolute; z-index: 5; bottom: -16px; left: 24px;
-  font-family: var(--font-jp); font-weight: 700; font-size: 16px;
-  padding: 6px 14px; background: var(--pink); color: #fff;
-  transform: rotate(-2deg); mix-blend-mode: multiply;
+/* 枠の隅キャプション（小さなモノラベル） */
+.frame__cap {
+  position: absolute; left: 14px; bottom: 12px; z-index: 5;
+  font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.06em;
+  color: var(--color-ink-2); background: oklch(19% 0.012 75 / 0.78);
+  padding: 4px 10px; border-radius: 6px; backdrop-filter: blur(2px);
 }
-.tape--blue { background: var(--blue); }
 
-/* =============================================================
-   レイアウト部品
-   ============================================================= */
+/* ============================================================
+   レイアウト補助
+   ============================================================ */
 .spacer { flex: 1 1 auto; }
-.row { display: flex; gap: 28px; }
+.row { display: flex; gap: var(--space-md); }
 .between { justify-content: space-between; }
-.items-center { align-items: center; }
 .items-end { align-items: flex-end; }
+.items-center { align-items: center; }
 
-/* 機能スライド：番号＋テキスト / ビジュアル */
-.feature { display: grid; grid-template-columns: 1.12fr 0.88fr; gap: 44px; align-items: center; height: 100%; }
-.feature.rev { grid-template-columns: 0.88fr 1.12fr; }
-.feature.rev .feature__text { order: 2; }
+/* 機能スライド：テキスト / 画像（左右は HTML 側で order 入替） */
+.split { display: grid; grid-template-columns: 1.06fr 0.94fr; gap: var(--space-xl); align-items: center; height: 100%; }
+.split.media-left { grid-template-columns: 0.94fr 1.06fr; }
+.split.media-left .col-text { order: 2; }
+.split.wide-media { grid-template-columns: 0.82fr 1.18fr; }
 
-/* 箇条（リソのチェック）。3つ並べだけにしない、刷りものの“項目” */
-.notes { list-style: none; margin: 22px 0 0; padding: 0; }
-.notes li {
-  display: flex; align-items: flex-start; gap: 14px;
-  font-size: 18px; line-height: 1.65; margin: 14px 0; color: var(--ink);
+/* 機能の要点：アイコンに頼らず、アクセント罫＋テキスト */
+.points { list-style: none; margin: var(--space-md) 0 0; padding: 0; }
+.points li {
+  position: relative; padding-left: 22px; margin: var(--space-sm) 0;
+  font-size: var(--text-base); line-height: 1.7; color: var(--color-ink);
 }
-.notes li .nk {
-  flex: none; width: 28px; height: 28px; margin-top: 2px;
-  display: grid; place-items: center; color: var(--paper);
-  background: var(--ink); transform: rotate(-3deg);
+.points li::before {
+  content: ""; position: absolute; left: 0; top: 0.7em; width: 11px; height: 2px;
+  background: var(--color-accent);
 }
-.notes li:nth-child(2) .nk { background: var(--pink); }
-.notes li:nth-child(3) .nk { background: var(--blue); }
-.notes b { font-weight: 900; }
+.points b { font-weight: 900; }
 
-/* 課題（取り消し線つきの“あるある”） */
-.pains { list-style: none; margin: 30px 0 0; padding: 0; max-width: 940px; }
-.pains li {
-  display: flex; align-items: baseline; gap: 18px; margin: 18px 0;
-  font-family: var(--font-disp); font-size: 34px; color: var(--ink);
-  position: relative;
+/* 課題リスト（番号 eyebrow なし・注釈つき一行） */
+.problems { list-style: none; margin: var(--space-lg) 0 0; padding: 0; }
+.problems li {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px;
+  padding: var(--space-md) 0; border-top: 1px solid var(--color-rule);
 }
-.pains li .pn { font-family: var(--font-en); font-size: 22px; color: var(--pink); flex: none; width: 44px; }
-.pains li .strike { position: relative; }
-.pains li .strike::after {
-  content: ""; position: absolute; left: -4px; right: -4px; top: 56%; height: 6px;
-  background: var(--pink); mix-blend-mode: multiply; transform: rotate(-1.5deg);
-}
-.pains li small { font-family: var(--font-jp); font-size: 16px; color: #5a5046; font-weight: 500; margin-left: 6px; }
+.problems li:last-child { border-bottom: 1px solid var(--color-rule); }
+.problems .p-key { font-family: var(--font-display); font-weight: 900; font-size: var(--text-lg); color: var(--color-ink); }
+.problems .p-note { font-size: var(--text-base); color: var(--color-ink-2); }
 
-/* Before / After */
-.ba { display: grid; grid-template-columns: 1fr auto 1fr; gap: 28px; align-items: center; margin-top: 6px; }
-.ba__tag {
-  display: inline-block; margin-bottom: 14px; font-family: var(--font-en);
-  font-size: 20px; letter-spacing: 0.16em; padding: 4px 14px; color: #fff;
-}
-.ba__tag--before { background: var(--ink); }
-.ba__tag--after  { background: var(--pink); mix-blend-mode: multiply; }
-.ba__arrow { width: 92px; height: 92px; color: var(--blue); }
+/* Before / After（非対称） */
+.ba { display: grid; grid-template-columns: 1fr 1.12fr; gap: var(--space-lg); align-items: end; }
+.ba__before { align-self: start; margin-top: 28px; }
+.ba__lbl { display: block; margin-bottom: 10px; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-ink-3); }
+.ba__lbl.is-after { color: var(--color-accent); }
 
-/* OkLab：フラットな色チップ（グラデではなく刷りの諧調） */
-.chips-cmp { display: flex; flex-direction: column; gap: 26px; }
-.chip-row h4 { font-family: var(--font-jp); font-weight: 700; font-size: 17px; margin: 0 0 8px; color: #4a423a; }
-.chip-strip { display: flex; height: 72px; border: 3px solid var(--ink); }
-.chip-strip > span { flex: 1; }
-.chip-strip .lbl { display: inline-block; margin-bottom: 6px; font-size: 13px; font-weight: 700;
-  font-family: var(--font-en); letter-spacing: 0.08em; padding: 2px 8px; }
-.lbl.bad  { background: var(--ink); color: var(--paper); }
-.lbl.good { background: var(--pink); color: #fff; mix-blend-mode: multiply; }
+/* OkLab：フラットな色チップ（=製品が扱う実コンテンツの色） */
+.cmp { display: flex; flex-direction: column; gap: var(--space-md); }
+.cmp__row .cmp__lbl { display: block; margin-bottom: 8px; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.06em; color: var(--color-ink-2); }
+.strip { display: flex; height: 66px; border-radius: 8px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--color-rule); }
+.strip > span { flex: 1; }
+.cmp__tag { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-ink-3); }
 
-/* インストール手順（刷りの番号付き） */
-.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 24px; }
-.step { border: 3px solid var(--ink); background: var(--paper); padding: 20px 18px; box-shadow: 5px 5px 0 var(--blue); }
-.step .sn { font-family: var(--font-en); font-size: 34px; color: var(--pink); line-height: 1; }
-.step p { margin: 8px 0 0; font-size: 15px; line-height: 1.55; font-weight: 500; color: #3a322c; }
-.step b { font-weight: 900; color: var(--ink); }
+/* 導入手順（順序が本質＝番号は妥当） */
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-md); }
+.step { border-top: 2px solid var(--color-rule); padding-top: var(--space-sm); }
+.step.has-accent { border-top-color: var(--color-accent); }
+.step .n { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-accent); }
+.step p { margin: 6px 0 0; font-size: var(--text-base); line-height: 1.55; color: var(--color-ink-2); }
+.step b { color: var(--color-ink); font-weight: 900; }
 
-/* スペック行 */
-.specs { display: flex; flex-wrap: wrap; gap: 10px 24px; }
-.spec { font-size: 17px; color: #3a322c; font-weight: 500; }
-.spec .sk { font-family: var(--font-en); font-size: 13px; letter-spacing: 0.08em; color: var(--blue); margin-right: 8px; }
-.spec b { font-weight: 900; color: var(--ink); }
+/* スペック */
+.specs { display: flex; flex-wrap: wrap; gap: 8px 28px; }
+.spec { font-size: var(--text-base); color: var(--color-ink-2); }
+.spec .k { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-ink-3); margin-right: 8px; }
+.spec b { color: var(--color-ink); font-weight: 900; }
 
-/* CTA（刷りもの風ボタン） */
+/* CTA（塗りつぶしの巨大ボタンにしない・アクセント枠＋地色） */
 .cta {
-  display: inline-flex; align-items: center; gap: 14px;
-  font-family: var(--font-disp); font-size: 28px; color: var(--paper);
-  background: var(--ink); padding: 18px 34px;
-  box-shadow: 8px 8px 0 var(--pink);
+  display: inline-flex; align-items: center; gap: 12px;
+  font-family: var(--font-display); font-weight: 900; font-size: var(--text-lg);
+  color: var(--color-accent-ink); background: var(--color-accent);
+  padding: 14px 26px; border-radius: 999px;
 }
-.cta svg { color: var(--pink); }
+.cta .arrow { width: 22px; height: 22px; }
 
-.backfoot { display: flex; align-items: flex-end; justify-content: space-between; }
-.backfoot .info { font-size: 14px; line-height: 1.7; color: #5a5046; text-align: right; font-weight: 500; }
-.backfoot .info b { color: var(--ink); }
+.foot-info { font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.85; color: var(--color-ink-3); }
+.foot-info b { color: var(--color-ink-2); font-weight: 400; }
 
-/* 大きな装飾カメレオン（裁ち落とし・網点） */
-.deco-cha {
-  position: absolute; z-index: 1; pointer-events: none;
-  color: var(--blue); mix-blend-mode: multiply; opacity: 0.9;
-}
+/* 背景に沈める大きなカメレオン（装飾・控えめ） */
+.ghost-cha { position: absolute; z-index: 0; color: var(--color-paper-2); pointer-events: none; }
