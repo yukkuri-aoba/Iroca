@@ -113,7 +113,7 @@ body.actual-size .stage-header { display: none; }
   display: inline-flex; align-items: baseline; gap: 8px;
   font-family: var(--font-display); font-weight: 900; font-size: var(--text-lg);
   color: var(--color-accent); padding: 8px 18px;
-  border: 1.5px solid var(--color-accent-2); border-radius: 999px;
+  background: var(--color-paper); border: 1.5px solid var(--color-accent-2); border-radius: 999px;
 }
 .free small { font-family: var(--font-mono); font-weight: 400; font-size: var(--text-xs); letter-spacing: 0.12em; color: var(--color-ink-3); }
 
