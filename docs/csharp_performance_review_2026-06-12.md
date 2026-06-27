@@ -21,7 +21,7 @@
 | 9 | **P2** | マスクの deep clone（`BuildSnapshot` / `RebuildMaskOverlay`）がプレビュー生成・ペイント中にメインスレッドで頻発 | MaskPaintView.cs:370-383, 870-885 |
 | 10 | **P2** | エクスポートの `EncodeToPNG` がメインスレッド実行＋不要な `Apply()`（GPU アップロード） | ExportView.cs:264-268 |
 | 11 | **P2** | `RunBatchApply` が完全同期（フル解像度処理×枚数分メインスレッドをブロック） | ExportView.cs:396-504 |
-| 12 | **P3** | OnGUI の毎フレームアロケーション（`new GUIContent` 多数、`new GUIStyle`）と `IsReadable` の GetPixel 呼び出し | VACCWindow.cs ほか |
+| 12 | **P3** | OnGUI の毎フレームアロケーション（`new GUIContent` 多数、`new GUIStyle`）と `IsReadable` の GetPixel 呼び出し | IrocaWindow.cs ほか |
 | 13 | **P3** | ストロークごとの全マスク RLE エンコード、詳細クロップの画素単位コピー等の小粒問題 | MaskPaintView.cs:559-581 ほか |
 
 ---
@@ -162,12 +162,12 @@ out で所有権を返す現 API のままでも、呼び出し側（ProcessPixe
 ## P3-12: OnGUI のフレーム毎アロケーション・冗長呼び出し
 
 - `DrawZoneList` はゾーンごとに `new GUIContent(...)` を 20 個以上／フレーム生成し、
-  `new GUIStyle(EditorStyles.label)` ([VACCWindow.cs:455](../Code/VACCWindow.cs#L455)) も毎フレーム。
+  `new GUIStyle(EditorStyles.label)` ([IrocaWindow.cs:455](../Code/IrocaWindow.cs#L455)) も毎フレーム。
   静的キャッシュ（`static readonly GUIContent`）化でゼロにできる。Localization 切替時のみ再構築すればよい。
 - `IsReadable` は `GetPixel(0,0)` + 例外捕捉で判定しており
-  ([VACCWindow.cs:983-1001](../Code/VACCWindow.cs#L983-L1001))、
+  ([IrocaWindow.cs:983-1001](../Code/IrocaWindow.cs#L983-L1001))、
   `PreviewView.Draw`（毎フレーム）＋ `DrawTextureField`（毎フレーム）＋ **ゾーンごとの canTune 判定**
-  ([VACCWindow.cs:516-517](../Code/VACCWindow.cs#L516-L517)) から呼ばれる。
+  ([IrocaWindow.cs:516-517](../Code/IrocaWindow.cs#L516-L517)) から呼ばれる。
   `Texture2D.isReadable` プロパティならネイティブ呼び出し 1 回で済み、例外コストもない
   （`LoadImage` で作った一時テクスチャには使えないが、アセット参照には使える）。
 - `DrawHeader` の `new[] { labels }` も毎フレーム。微小。
