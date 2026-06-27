@@ -22,7 +22,11 @@
   --swatch-before: oklch(64% 0.14 28);
   --swatch-after:  oklch(83% 0.15 162);
 
-  --font-display: "Zen Kaku Gothic New", system-ui, sans-serif;
+  --color-stage-bg: oklch(13% 0.01 75);
+  --color-cap-bg:   oklch(19% 0.012 75 / 0.78);
+  --color-shadow:   oklch(0% 0 0 / 0.45);
+
+  --font-display: "Zen Old Mincho", serif;
   --font-body:    "Zen Kaku Gothic New", system-ui, sans-serif;
   --font-mono:    "Geist Mono", ui-monospace, "SFMono-Regular", monospace;
 

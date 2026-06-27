@@ -6,7 +6,7 @@
 <title>Camereo — BOOTH 販促画像（撮影台）</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@500;700;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@500;700;900&family=Zen+Old+Mincho:wght@700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -209,28 +209,24 @@
     <div class="slot__label">07 — OkLab / 1280×720</div>
     <div class="slot__scaler">
       <section class="slide wide" id="slide-7">
-        <div class="inner">
-          <div class="split">
-            <div class="col-text">
-              <h2 class="display" style="margin-top:12px">OkLab ベースの<br>再着色エンジン</h2>
-              <p class="desc">知覚色空間 OkLab で再着色するため、<br>色相を変えても明度と陰影が自然に残ります。<br>HSV ベースの変換で起きがちな中間色の濁りを抑えます。</p>
-            </div>
-            <div class="cmp">
-              <div class="cmp__row">
-                <span class="cmp__lbl">よくある変換</span>
-                <div class="strip">
-                  <span style="background:oklch(64% 0.14 28)"></span><span style="background:oklch(60% 0.07 60)"></span>
-                  <span style="background:oklch(56% 0.03 90)"></span><span style="background:oklch(58% 0.07 230)"></span>
-                  <span style="background:oklch(60% 0.13 255)"></span>
-                </div>
+        <div class="inner" style="justify-content:center;gap:var(--space-md)">
+          <h2 class="display">OkLab ベースの再着色エンジン</h2>
+          <p class="desc" style="margin-top:0">知覚色空間 OkLab で再着色するため、<br>色相を変えても明度と陰影が自然に残ります。<br>HSV ベースの変換で起きがちな中間色の濁りを抑えます。</p>
+          <div class="cmp" style="max-width:720px">
+            <div class="cmp__row">
+              <span class="cmp__lbl">よくある変換</span>
+              <div class="strip">
+                <span style="background:oklch(64% 0.14 28)"></span><span style="background:oklch(60% 0.07 60)"></span>
+                <span style="background:oklch(56% 0.03 90)"></span><span style="background:oklch(58% 0.07 230)"></span>
+                <span style="background:oklch(60% 0.13 255)"></span>
               </div>
-              <div class="cmp__row">
-                <span class="cmp__lbl">Camereo / OkLab</span>
-                <div class="strip">
-                  <span style="background:oklch(64% 0.16 28)"></span><span style="background:oklch(66% 0.15 350)"></span>
-                  <span style="background:oklch(64% 0.15 310)"></span><span style="background:oklch(62% 0.14 275)"></span>
-                  <span style="background:oklch(60% 0.15 255)"></span>
-                </div>
+            </div>
+            <div class="cmp__row">
+              <span class="cmp__lbl">Camereo / OkLab</span>
+              <div class="strip">
+                <span style="background:oklch(64% 0.16 28)"></span><span style="background:oklch(66% 0.15 350)"></span>
+                <span style="background:oklch(64% 0.15 310)"></span><span style="background:oklch(62% 0.14 275)"></span>
+                <span style="background:oklch(60% 0.15 255)"></span>
               </div>
             </div>
           </div>
@@ -264,12 +260,7 @@
             <div class="step"><span class="n">04</span><p><b>Tools &gt; Camereo</b> を開く</p></div>
           </div>
 
-          <div class="specs" style="margin-top:26px">
-            <span class="spec"><span class="k">env</span><b>Unity 2022.3.22f1+</b></span>
-            <span class="spec"><span class="k">in</span><b>PNG / JPG</b></span>
-            <span class="spec"><span class="k">out</span><b>PNG</b></span>
-            <span class="spec"><span class="k">dep</span><b>VRCSDK / VCC 不要</b></span>
-          </div>
+          <p class="specs-line" style="margin-top:26px">Unity 2022.3.22f1+ · PNG / JPG → PNG · VRCSDK / VCC 不要</p>
 
           <div class="spacer"></div>
 

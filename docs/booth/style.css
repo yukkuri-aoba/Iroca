@@ -9,7 +9,7 @@ body {
   font-family: var(--font-body);
   font-weight: 500;
   color: var(--color-ink);
-  background: oklch(13% 0.01 75);
+  background: var(--color-stage-bg);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -49,7 +49,7 @@ body.actual-size .stage-header { display: none; }
 .slide {
   position: relative; width: 1280px; overflow: hidden; isolation: isolate;
   background: var(--color-paper); color: var(--color-ink);
-  box-shadow: 0 20px 60px oklch(0% 0 0 / 0.45);
+  box-shadow: 0 20px 60px var(--color-shadow);
 }
 .slide.square { height: 1280px; }
 .slide.wide   { height: 720px; }
@@ -107,7 +107,7 @@ body.actual-size .stage-header { display: none; }
 .tag {
   font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.04em;
   padding: 6px 12px; color: var(--color-ink-2);
-  border: 1px solid var(--color-rule); border-radius: 999px;
+  border: 1px solid var(--color-rule); border-radius: 6px;
 }
 .free {
   display: inline-flex; align-items: baseline; gap: 8px;
@@ -152,7 +152,7 @@ body.actual-size .stage-header { display: none; }
 .frame__cap {
   position: absolute; left: 14px; bottom: 12px; z-index: 5;
   font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.06em;
-  color: var(--color-ink-2); background: oklch(19% 0.012 75 / 0.78);
+  color: var(--color-ink-2); background: var(--color-cap-bg);
   padding: 4px 10px; border-radius: 6px; backdrop-filter: blur(2px);
 }
 
@@ -214,33 +214,28 @@ body.actual-size .stage-header { display: none; }
 .step p { margin: 6px 0 0; font-size: var(--text-base); line-height: 1.55; color: var(--color-ink-2); }
 .step b { color: var(--color-ink); font-weight: 900; }
 
-/* スペック */
-.specs { display: flex; flex-wrap: wrap; gap: 8px 28px; }
-.spec { font-size: var(--text-base); color: var(--color-ink-2); }
-.spec .k { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-ink-3); margin-right: 8px; }
-.spec b { color: var(--color-ink); font-weight: 900; }
+/* スペック（インライン） */
+.specs-line { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-ink-3); letter-spacing: 0.03em; margin: 0; }
 
-/* CTA（塗りつぶしの巨大ボタンにしない・アクセント枠＋地色） */
+/* CTA（アクセント塗り・角丸） */
 .cta {
   display: inline-flex; align-items: center; gap: 12px;
   font-family: var(--font-display); font-weight: 900; font-size: var(--text-lg);
   color: var(--color-accent-ink); background: var(--color-accent);
-  padding: 14px 26px; border-radius: 999px;
+  padding: 14px 26px; border-radius: var(--radius);
 }
 .cta .arrow { width: 22px; height: 22px; }
 
 .foot-info { font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.85; color: var(--color-ink-3); }
 .foot-info b { color: var(--color-ink-2); font-weight: 400; }
 
-/* 課題スライド（シンプルなチェックリスト） */
+/* 課題スライド（チェックリスト） */
 .checklist { margin-top: var(--space-lg); max-width: 560px; }
 .check-item {
-  padding: var(--space-sm) 0;
+  padding: var(--space-xs) 0;
   font-family: var(--font-display); font-weight: 700;
   font-size: var(--text-lg); color: var(--color-ink);
-  border-top: 1px solid var(--color-rule);
 }
-.check-item:last-child { border-bottom: 1px solid var(--color-rule); }
 
 /* 機能説明文（箇条書きに代わる流し込みテキスト） */
 .desc {
