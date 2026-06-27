@@ -227,6 +227,7 @@ namespace Iroca
                 // 例外経路でもプールが汚染されないよう finally でガードする。
                 float[] strength = null;
                 float[] highlightPot = null;
+                float[] matchConf = null;
                 try
                 {
                     // 1. 元のピクセルカラーを使用した強度マップを構築
@@ -237,9 +238,20 @@ namespace Iroca
                         highlightPot = s_floatPool.Rent(len);
                         Array.Clear(highlightPot, 0, len);
                     }
+                    // matchConf は連結成分アンカリング(flood fill)のコア判定専用。FF が有効でフル画像
+                    // 経路のときだけ確保・充填する(部分クロップはキャッシュ転写で絞り込むため不要)。
+                    bool needMatchConf = IrocaConsts.ExperimentalFeatures.EnableFloodFill
+                        && zone.mode == SelectionMode.ColorPick && zone.useFloodFill
+                        && originX == 0 && originY == 0 && fullW == w && fullH == h;
+                    if (needMatchConf)
+                    {
+                        matchConf = s_floatPool.Rent(len);
+                        Array.Clear(matchConf, 0, len);
+                    }
 
                     var strengthLocal = strength;
                     var highlightPotLocal = highlightPot;
+                    var matchConfLocal = matchConf;
                     Parallel.For(0, h, po, y =>
                     {
                         int yf = y + originY;
@@ -250,10 +262,11 @@ namespace Iroca
                             int i = rowOff + x;
                             if (IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH)) continue;
 
-                            float s, hPot;
-                            zone.GetMatchScoresPrecomputedHSV(pixH[i], pixS[i], pixV[i], (Color)originalPixels[i], xf, yf, fullW, fullH, out s, out hPot);
+                            float s, hPot, mc;
+                            zone.GetMatchScoresPrecomputedHSV(pixH[i], pixS[i], pixV[i], (Color)originalPixels[i], xf, yf, fullW, fullH, out s, out hPot, out mc);
                             strengthLocal[i] = s;
                             if (highlightPotLocal != null) highlightPotLocal[i] = hPot;
+                            if (matchConfLocal != null) matchConfLocal[i] = mc;
                         }
                     });
                     debug?.RecordStage(zone.id, DebugStages.Match, strength, w, h);
@@ -292,7 +305,7 @@ namespace Iroca
                                 seedX = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.x * (w - 1)), 0, w - 1);
                                 seedY = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.y * (h - 1)), 0, h - 1);
                             }
-                            ApplyConnectedComponentMask(strength, originalPixels, w, h, seedX, seedY);
+                            ApplyConnectedComponentMask(strength, matchConf, originalPixels, w, h, seedX, seedY);
                             // フル画像で解いた keep(=残った画素 strength>0)をゾーン別にキャッシュへ書き出し、
                             // 詳細プレビュー(クロップ)へ転写して完全一致させる(どの判定経路でも最終結果を反映)。
                             if (floodFillKeep != null)
@@ -732,6 +745,7 @@ namespace Iroca
                 {
                     if (highlightPot != null) s_floatPool.Return(highlightPot);
                     if (strength != null) s_floatPool.Return(strength);
+                    if (matchConf != null) s_floatPool.Return(matchConf);
                 }
             } // foreach zone
 
@@ -1029,22 +1043,26 @@ namespace Iroca
             }
         }
 
-        // 連結成分アンカリングの確信度コア絶対床。正の strength 群の P75 と比較し大きい方を採る。
-        // 全体が弱 bleed のみのとき弱画素を「コア」に昇格させないための下限(precision 保護)。
-        // HlBandCoreThreshold=0.90 / AchromaRegionCoreThr=0.5 の中間。M2 sweep で確定する出発値。
+        // 連結成分アンカリングの確信度コア絶対床(matchConf 不在時のフォールバック専用)。
         private const float CoreAbsoluteFloor = 0.6f;
 
         /// <summary>
         /// 連結成分アンカリング: strength&gt;0 の画素を4連結でラベリングし、確信度コアを含む成分のみ残す。
-        /// コア = strength &gt;= max(P75(正の strength 群), CoreAbsoluteFloor)。サイズでは切らない
-        /// （小さくても高信頼な成分＝三角などは残す）。bleed(白背景・フリンジ・かろうじてマッチした
-        /// 隣接同色)は弱マッチのみの別成分なので落ちる。確信できるコアが一つも無い(全体が弱マッチ)場合は
-        /// recall 保護のため絞り込まない(=連結制約 OFF と同挙動)。
+        /// コア = matchConf &gt; 0(= マッチ距離が固定半径 ColorZone.CoreMatchDistance 未満 = サンプル色に
+        /// 確信できる近さ。matchConf が null のときのみ従来の strength&gt;=max(P75,CoreAbsoluteFloor) に
+        /// フォールバック)。matchConf は strength(有彩では彩度ゲートのみ/edgeSoftness=0 で二値)と違い
+        /// 「色がどれだけ近いか」を表すため:
+        ///   ・色は遠いが彩度が高い別素材の塊 → matchConf=0 → コアにならず落ちる(過選択ノイズを除去)
+        ///   ・色は近いが strength が中位の分離領域(陰影/別アイランド) → matchConf&gt;0 → 残る(取りこぼし防止)
+        /// 半径が固定なので tolerance を上げても下げてもコア判定は安定(tolerance≤半径なら全マッチが
+        /// コア=FF 実質 OFF で取りこぼしゼロ、tolerance&gt;半径で初めて遠い滲みを落とす)。サイズでは
+        /// 切らない（小さくても高信頼な成分＝三角などは残す）。確信できるコアが一つも無い(全体が弱マッチ)
+        /// 場合は recall 保護のため絞り込まない(=連結制約 OFF と同挙動)。
         /// seedX&gt;=0 のときはその成分だけを残す上書きモード(無効シード=bleed/背景上 なら自動へフォールバック)。
         /// 連結予測子(strength&gt;0 &amp;&amp; α&gt;=128)・4近傍は BuildComponentMedianLMap と一致させ成分定義を統一する。
         /// </summary>
         private static void ApplyConnectedComponentMask(
-            float[] strength, Color32[] px, int w, int h, int seedX, int seedY)
+            float[] strength, float[] matchConf, Color32[] px, int w, int h, int seedX, int seedY)
         {
             // matched 画素(strength>0 && α>=128)の bbox。ラベリングは bbox 内に限定(全画素確保を回避)。
             int minX = w, maxX = -1, minY = h, maxY = -1;
@@ -1062,24 +1080,34 @@ namespace Iroca
             }
             if (maxX < 0) return; // マッチ皆無
 
-            // コア閾値 = 正の strength 群の P75 と絶対床の大きい方。
-            var sHist = new int[256];
+            // フォールバック用コア閾値(matchConf 不在時のみ使用)= 正の strength 群の P75 と絶対床の
+            // 大きい方。matchConf があるときは固定半径ベースの色一致確信度で判定するので不要。
+            float coreThreshold = 0f;
             int posCount = 0;
-            for (int y = minY; y <= maxY; y++)
+            if (matchConf == null)
             {
-                int rb = y * w;
-                for (int x = minX; x <= maxX; x++)
+                var sHist = new int[256];
+                for (int y = minY; y <= maxY; y++)
                 {
-                    int gi = rb + x;
-                    if (strength[gi] > 0f && px[gi].a >= 128)
+                    int rb = y * w;
+                    for (int x = minX; x <= maxX; x++)
                     {
-                        sHist[Mathf.Clamp((int)(strength[gi] * 255f), 0, 255)]++;
-                        posCount++;
+                        int gi = rb + x;
+                        if (strength[gi] > 0f && px[gi].a >= 128)
+                        {
+                            sHist[Mathf.Clamp((int)(strength[gi] * 255f), 0, 255)]++;
+                            posCount++;
+                        }
                     }
                 }
+                coreThreshold = Mathf.Max(
+                    HistValueAtPercentile(sHist, posCount, 0.75f, 1f), CoreAbsoluteFloor);
             }
-            float coreThreshold = Mathf.Max(
-                HistValueAtPercentile(sHist, posCount, 0.75f, 1f), CoreAbsoluteFloor);
+
+            // コア判定: matchConf があれば色一致確信度(>0 = 固定半径内)で、無ければ strength 閾値で判定。
+            bool IsCore(int gi) => matchConf != null
+                ? matchConf[gi] > 0f
+                : strength[gi] >= coreThreshold;
 
             int bw = maxX - minX + 1, bh = maxY - minY + 1;
             int[] label = new int[bw * bh];
@@ -1103,7 +1131,7 @@ namespace Iroca
                     {
                         int ci = queue.Dequeue();
                         int cx = ci % bw, cy = ci / bw;
-                        if (strength[(cy + minY) * w + (cx + minX)] >= coreThreshold) core = true;
+                        if (IsCore((cy + minY) * w + (cx + minX))) core = true;
                         TryEnq(ci - 1, cx > 0);
                         TryEnq(ci + 1, cx < bw - 1);
                         TryEnq(ci - bw, cy > 0);

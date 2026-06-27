@@ -44,6 +44,17 @@ namespace Iroca
         // strength にし、既存デコンタミが α·target+(1-α)·背景 を忠実復元できるようにする。
         private const float AchromaEdgeSoftness = 0.7f;
 
+        // 連結成分アンカリング(flood fill)の「確信できる地色」の固定半径。matchConf はマッチ距離
+        // dist をこの半径で正規化した値(matchConf>0 ⟺ dist<CoreMatchDistance)で、FF はこの確信コアを
+        // 含む連結成分だけを残す。**tolerance ではなく固定半径**にするのが要点:
+        //   ・tolerance ≤ この半径(タイト) → 全マッチ画素が自動的にコア → FF は何も落とさない
+        //     (=取りこぼしゼロ。低 tolerance で正当画素が消える症状を防ぐ)
+        //   ・tolerance > この半径(ルーズ) → 色が半径より遠い過選択(別素材の滲み)だけが、確信コアを
+        //     持たない別成分として落ちる(=ノイズ除去)。確信コアに連結した陰影/AA は残る。
+        // コア判定が tolerance 非依存=安定になり、「tolerance を動かすと挙動が反転する」感覚を解消する。
+        // 値はテクスチャ非依存の色距離(ハイブリッド HSV/RGB, [0,1])で、複数被写体の sweep で確定。
+        private const float CoreMatchDistance = 0.14f;
+
         // ── マッチング(MatchOneSample / CalculateHybridDistance)のしきい値定数 ──
         // すべてテクスチャ非依存の比率/正規化係数。
         // RGB 3 次元ユークリッド距離を [0,1] へ正規化する係数 1/√3(=単位立方体対角 √3 の逆数)。
@@ -351,7 +362,7 @@ namespace Iroca
                 case SelectionMode.ColorPick:
                     UpdateCacheIfNeeded();
                     Color.RGBToHSV(pixelColor, out float pH, out float pS, out float pV);
-                    GetColorMatchScores(pixelColor, pH, pS, pV, out strength, out highlightPot);
+                    GetColorMatchScores(pixelColor, pH, pS, pV, out strength, out highlightPot, out _);
                     break;
                 case SelectionMode.Rect:
                     if (IsInRect(x, y, texWidth, texHeight))
@@ -367,20 +378,24 @@ namespace Iroca
         public void GetMatchScoresPrecomputedHSV(
             float pH, float pS, float pV, Color pixelColor,
             int x, int y, int texWidth, int texHeight,
-            out float strength, out float highlightPot)
+            out float strength, out float highlightPot, out float matchConf)
         {
             strength = 0f;
             highlightPot = 0f;
+            matchConf = 0f;
             if (!enabled) return;
 
             switch (mode)
             {
                 case SelectionMode.ColorPick:
-                    GetColorMatchScores(pixelColor, pH, pS, pV, out strength, out highlightPot);
+                    GetColorMatchScores(pixelColor, pH, pS, pV, out strength, out highlightPot, out matchConf);
                     break;
                 case SelectionMode.Rect:
                     if (IsInRect(x, y, texWidth, texHeight))
+                    {
                         strength = 1f;
+                        matchConf = 1f; // 矩形選択は確定領域=完全確信
+                    }
                     break;
             }
         }
@@ -393,10 +408,11 @@ namespace Iroca
         // マルチサンプルの和集合マッチング。全サンプル（主＋追加スポイト）に対して
         // 1 サンプル分のマッチを計算し、最大強度を採る。サンプルが 1 個なら従来の
         // 単一サンプル計算と完全に一致する（追加スポイトが無い限り出力はビット不変）。
-        private void GetColorMatchScores(Color pixelColor, float pH, float pS, float pV, out float strength, out float highlightPotential)
+        private void GetColorMatchScores(Color pixelColor, float pH, float pS, float pV, out float strength, out float highlightPotential, out float matchConf)
         {
             strength = 0f;
             highlightPotential = 0f;
+            matchConf = 0f;
 
             var caches = _sampleCaches;
             if (caches == null || caches.Length == 0)
@@ -408,18 +424,26 @@ namespace Iroca
 
             for (int si = 0; si < caches.Length; si++)
             {
-                MatchOneSample(in caches[si], pixelColor, pH, pS, pV, out float s, out float hPot);
+                MatchOneSample(in caches[si], pixelColor, pH, pS, pV, out float s, out float hPot, out float mc);
                 if (s > strength) strength = s;
                 if (hPot > highlightPotential) highlightPotential = hPot;
+                if (mc > matchConf) matchConf = mc;
             }
         }
 
         // 1 サンプル分のマッチ強度／ハイライト候補を計算する。サンプル依存の値は sc から、
         // ゾーン共通の値（tolerance・各 range・重み・閾値）はインスタンスフィールドから読む。
-        private void MatchOneSample(in SampleCache sc, Color pixelColor, float pH, float pS, float pV, out float strength, out float highlightPotential)
+        private void MatchOneSample(in SampleCache sc, Color pixelColor, float pH, float pS, float pV, out float strength, out float highlightPotential, out float matchConf)
         {
             strength = 0f;
             highlightPotential = 0f;
+            // matchConf: 連結成分アンカリング(flood fill)のコア判定専用の「色一致の確信度」。
+            // strength は edgeSoftness=0 だと tolerance 内で二値(=色距離を反映しない)・有彩では
+            // 彩度ゲートのみを反映するため、コア判定に使うと「色は遠いが彩度が高い別素材」を
+            // コア扱いしてしまう。matchConf は固定半径 CoreMatchDistance で正規化した連続距離
+            // (1=サンプル色に一致, 0=半径以遠)で、tolerance に依存せず「色がどれだけ近いか」を表す。
+            // 選択/出力には一切使わない(FF OFF ではビット不変)。
+            matchConf = 0f;
 
             // 彩度ガード: 源色が高彩度なときだけ作動し、白/黒/灰色など無彩色寄りの
             // 画素を hard reject する。源色 S が低い（グレー/黒）の場合は
@@ -474,6 +498,8 @@ namespace Iroca
                 float aaSoftRange = Mathf.Max(softRange, _cTolerance * AchromaEdgeSoftness);
                 float aaHardRange = _cTolerance - aaSoftRange;
                 strength = CalculateEdgeStrength(effectiveDist, aaHardRange, aaSoftRange);
+                // FF コア判定用: グレーモードの色一致確信度(中性ペナルティ込み effectiveDist を使う)。
+                if (strength > 0f) matchConf = Mathf.Clamp01(1f - effectiveDist / CoreMatchDistance);
                 // ハイライト復元は輝度のみでざっくり判定
                 if (highlightRecovery && pV > HighlightValueMin)
                 {
@@ -538,6 +564,9 @@ namespace Iroca
 
             // 通常マッチ強度
             strength = CalculateEdgeStrength(dist, hardRange, softRange) * gate;
+            // FF コア判定用: 有彩モードの色一致確信度。strength は彩度ゲートを掛けるため色の近さを
+            // 表さない。dist(実マッチ距離)を「確信できる地色」の固定半径 CoreMatchDistance で正規化。
+            if (strength > 0f) matchConf = Mathf.Clamp01(1f - dist / CoreMatchDistance);
 
             // ハイライト復元マッチ
             if (highlightRecovery)
