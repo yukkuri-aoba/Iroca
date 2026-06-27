@@ -641,7 +641,24 @@ namespace Camereo
                     GUI.backgroundColor = prevBg;
                 }
 
-                // 自動調整ボタンは「サンプルカラー」「追加スポイト」の下に配置する（採色後に押す流れ）。
+                // 自動調整ボタン（フル幅）── まだ実用段階でないため UI から隠す（2026-06 一時対応）。
+                // 再有効化するときは下のブロックのコメントを外す（RunAutoTune 本体は残してある）。
+                /*
+                {
+                    bool canTune =
+                        sourceTexture != null
+                        && IsReadable(sourceTexture)
+                        && zone.mode == SelectionMode.ColorPick
+                        && zone.sampleColor != Color.white;
+                    using (new EditorGUI.DisabledScope(!canTune))
+                    {
+                        if (GUILayout.Button(canTune ? s_autoTuneEnabledContent : s_autoTuneDisabledContent))
+                        {
+                            RunAutoTune(zone);
+                        }
+                    }
+                }
+                */
 
                 // ─── UV矩形モード選択UI ───
                 // UV矩形モードは実装継続中のため当面 UI から非表示。
@@ -662,80 +679,6 @@ namespace Camereo
                 // if (editMode == EditMode.Simple && zone.sampleColor != prevSampleColor)
                 //     ScheduleAutoTune(zone);
                 _ = prevSampleColor; // 上記コメントアウト中の未使用警告回避（再有効化時に削除）
-
-                // ─── 追加スポイト（マルチサンプル選択）───
-                // 同じパーツの濃い所・薄い所を複数スポイトして登録すると、許容範囲を大きく広げずに
-                // パーツ全体を正確に選べる（各サンプル周辺の小さな許容範囲の和集合で覆う）。色は
-                // 「選択」だけに使われ、塗りの色合いは主サンプル基準のまま変わらない。
-                {
-                    if (zone.extraSamples == null) zone.extraSamples = new System.Collections.Generic.List<Color>();
-                    EditorGUILayout.BeginHorizontal();
-                    EditorGUILayout.LabelField(
-                        new GUIContent(Localization.ExtraSamples, Localization.ExtraSamplesTooltip));
-                    if (GUILayout.Button(
-                            new GUIContent(Localization.AddExtraSample, Localization.AddExtraSampleTooltip),
-                            GUILayout.Width(120)))
-                    {
-                        Undo.RegisterCompleteObjectUndo(this, "Add Extra Sample");
-                        // 既定は主サンプル色（その後スポイトで濃い所/薄い所へ採り直す）。
-                        zone.extraSamples.Add(zone.sampleColor);
-                        MarkPreviewDirty();
-                    }
-                    EditorGUILayout.EndHorizontal();
-
-                    if (zone.extraSamples.Count > 0)
-                    {
-                        using (new EditorGUI.IndentLevelScope())
-                        {
-                            int removeSample = -1;
-                            for (int sIdx = 0; sIdx < zone.extraSamples.Count; sIdx++)
-                            {
-                                EditorGUILayout.BeginHorizontal();
-                                Color edited = UndoHelper.ColorField(this,
-                                    new GUIContent($"{Localization.ExtraSampleRowLabel} {sIdx + 1}",
-                                                   Localization.ExtraSamplesTooltip),
-                                    zone.extraSamples[sIdx]);
-                                if (edited != zone.extraSamples[sIdx])
-                                {
-                                    zone.extraSamples[sIdx] = edited;
-                                    MarkPreviewDirty();
-                                }
-                                if (GUILayout.Button(
-                                        new GUIContent("×", Localization.RemoveExtraSampleTooltip),
-                                        GUILayout.Width(24)))
-                                {
-                                    removeSample = sIdx;
-                                }
-                                EditorGUILayout.EndHorizontal();
-                            }
-                            if (removeSample >= 0)
-                            {
-                                Undo.RegisterCompleteObjectUndo(this, "Remove Extra Sample");
-                                zone.extraSamples.RemoveAt(removeSample);
-                                MarkPreviewDirty();
-                            }
-                        }
-                    }
-                }
-
-                // ─── 自動調整ボタン ───
-                // サンプル（主＋追加スポイト）から最適な許容範囲などを自動計算する。
-                // 複数スポイトを登録してから押すと、濃淡の和集合からタイトな許容範囲を導出する。
-                {
-                    bool canTune =
-                        sourceTexture != null
-                        && IsReadable(sourceTexture)
-                        && zone.mode == SelectionMode.ColorPick
-                        && zone.sampleColor != Color.white;
-                    using (new EditorGUI.DisabledScope(!canTune))
-                    {
-                        if (GUILayout.Button(canTune ? s_autoTuneEnabledContent : s_autoTuneDisabledContent))
-                        {
-                            RunAutoTune(zone);
-                        }
-                    }
-                }
-
                 zone.tolerance = UndoHelper.Slider(this,
                     new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
                     zone.tolerance, 0f, 1f);

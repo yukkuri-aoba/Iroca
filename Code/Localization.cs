@@ -97,20 +97,6 @@ namespace Camereo
         public static string AddZone => IsJapanese ? "+ ゾーン追加" : "+ Add Zone";
         public static string SelectionMode => IsJapanese ? "選択モード" : "Selection Mode";
         public static string SampleColor => IsJapanese ? "サンプルカラー" : "Sample Color";
-
-        // ─── 複数スポイト（マルチサンプル選択） ───
-        public static string ExtraSamples => IsJapanese ? "追加スポイト（濃淡）" : "Extra Samples (light/dark)";
-        public static string ExtraSamplesTooltip => IsJapanese
-            ? "同じパーツでも光の当たり方で色の濃い所・薄い所があります。\nそれらを複数スポイトして登録すると、許容範囲を大きく広げなくても\nパーツ全体を正確に選べます（はみ出しを抑えつつ取りこぼしも減る）。\n\n使い方: 主サンプルはパーツの中間色、追加スポイトでいちばん明るい所と\n暗い所を採ると効果的です。色は選択のみに使われ、塗りの色合いは主サンプル基準のまま変わりません。\nスポイト後に「自動調整」を押すと、登録した濃淡から最適な許容範囲を計算します。"
-            : "Even one part has lighter and darker areas depending on lighting.\nSampling several of them lets you select the whole part accurately\nwithout widening Tolerance too much (less bleed, fewer misses).\n\nTip: use the main Sample for a mid tone, and add the brightest and\ndarkest spots here. These colors only affect selection; the recolor tint stays anchored to the main sample.\nPress Auto-Tune afterwards to derive the best Tolerance from the light/dark set.";
-        public static string AddExtraSample => IsJapanese ? "+ スポイトを追加" : "+ Add Sample";
-        public static string AddExtraSampleTooltip => IsJapanese
-            ? "このパーツの別の濃さ（明るい所／暗い所）をもう1点スポイトして追加します。"
-            : "Add one more sample from a different tone (lighter/darker spot) of this part.";
-        public static string RemoveExtraSampleTooltip => IsJapanese
-            ? "この追加スポイトを削除します。" : "Remove this extra sample.";
-        public static string ExtraSampleRowLabel => IsJapanese ? "濃淡" : "Tone";
-
         public static string Tolerance => IsJapanese ? "許容範囲" : "Tolerance";
         public static string UVRect => IsJapanese ? "UV範囲 (0-1)" : "UV Rect (0-1)";
         public static string TargetColor => IsJapanese ? "変更先カラー" : "Target Color";
