@@ -42,8 +42,10 @@ com.yukkuri-aoba.iroca.Editor        … 本体（Editor 専用、references: []
 
 | フォルダ | 役割 | 主なファイル |
 |---------|------|------------|
-| `Code/`(直下) | ドメイン中核 + ウィンドウ | `ColorZone.cs`(597)、`IrocaWindow.cs`(1285)、`Localization.cs`(572)、`IrocaConsts/Colors/PresetData` |
-| `Core/` | Editor 非依存の計算・状態 | `PixelProcessor.cs`(2588)、`ZoneAutoTuner.cs`(1129)、`PreviewJob`、`SessionState`、`TextureSlot`、`HighlightSampleCorrector` |
+| `Code/`(直下) | ドメイン中核 + ウィンドウ | `ColorZone.cs`(646)、`IrocaWindow.*.cs`(責務別 4 partial で計 ~1,359 行)、`Localization.cs`(572)、`IrocaConsts/Colors/PresetData` |
+| `Core/` | Editor 非依存の計算・状態 | `PixelProcessor.cs`(~2,670)、`ZoneAutoTuner.cs`(1129)、`PreviewJob`、`SessionState`、`TextureSlot`、`HighlightSampleCorrector` |
+
+> ※ 行番号・行数は本書執筆時点(2026-06-27)の値。直後の §6.1/§6.2 の対応コミット(`IrocaWindow` の partial 分割・命名定数追加・`RecolorParams` 化等)で多くがシフトしている。位置は file:line ではなくシンボル名で辿ること。
 | `UI/` | IMGUI 描画ビュー | `PreviewView.cs`(1049)、`MaskPaintView.cs`(1031)、`DetailPreviewView`、`ExportView`、`PresetsView` |
 | `Infra/` | 永続化・アセット監視 | `PresetStore`、`MaskFileStore`、`IrocaAssetWatcher` |
 | `Automation/` | ヘッドレス実行口 | `IrocaAutomation.cs`(572) |
@@ -153,6 +155,8 @@ com.yukkuri-aoba.iroca.Editor        … 本体（Editor 専用、references: []
 ### 4.2 分離が弱い箇所（弱み）
 
 #### (A) `IrocaWindow` の神クラス化（Major）
+> **更新(2026-06-28)**: 本書執筆後、`IrocaWindow` は責務別 4 partial（`IrocaWindow.cs` 本体/ライフサイクル・`.Layout.cs`・`.ZoneList.cs`・`.AutoTune.cs`）へ分割され、巨大メソッドも分解された（§6.2）。「1 ファイルが長大」面は解消。ただし下記の **View→Window 逆参照（66 箇所）と状態分散は partial 化では変わらず残存**する（同一クラスをファイル分割しただけのため）。逆依存の縮小は引き続き未対応（§6.2 で再評価）。
+
 - 約 **38 フィールド・5+ の責務**（レイアウト / ゾーン CRUD / ドラッグ&ドロップ / 各 View 統制 / 自動調整ジョブ / Undo 統合 / パス正規化）。
 - View 群が `_host`（=IrocaWindow）への逆ポインタを持ち、`_host.Session.zones` / `_host._maskView` / `_host.MarkPreviewDirty()` と**内部構造へ直接アクセス**する（PreviewView ↔ MaskPaintView の相互参照を Window 経由で行う）。
 - dirty / pending / drag 状態が Window と各 View に**分散**し、状態遷移ルールが暗黙。
@@ -216,11 +220,47 @@ com.yukkuri-aoba.iroca.Editor        … 本体（Editor 専用、references: []
 | C3 ColorZone マジックナンバー命名 | ✅ 解消 | `9386ddf` | マッチ部のインライン定数を named const + 根拠/同期コメント化。出力バイト不変 |
 | B1 レイヤー名前空間導入 | ⏸ 見送り | — | 26 ファイル一括変更・回帰面が広く効果中。asmdef + headless 制約で境界は概ね既達のため限界効用が小さい |
 | C1 ProcessPixelsArray 段分割 | ⏸ 見送り | — | 既に 8 段抽出済み・共有可変バッファ密結合でコスト大。テスト境界は B2 ゴールデンで代替 |
-| C2 IrocaWindow 状態集約 | ⏸ 見送り | — | IMGUI 構造的制約・View 逆参照 66 箇所で大規模・実機手動検証必須 |
+| C2 IrocaWindow 状態集約 | 🔶 一部対応(§6.2) | `a818d50` `a8d683c` | partial 分割＋巨大メソッド分解で「単一肥大」面は解消。View 逆参照 66 箇所の縮小は未対応 |
 
 補足:
 - **B2 の方針変更**: 当初案（C#↔Python 双方向一致テスト）は、実測で両者が複数経路（グレーモード・ハイライト等）で意図的に乖離していることが判明し、かつ「Python は使い捨て」という運用方針と相反するため不採用。代わりに製品である C# 自身の出力スナップショットを固定する回帰テストとした。
 - 既存の `dev_safe/Tests/regression/test_csharp_quality_gate.py` が旧 DLL 名 `VACCHeadless` を参照したまま skip に落ちていたリネーム取り残しをローカル修正（`IrocaHeadless`）。`dev_safe` は git 管理外のためコミットには含まれない。
+
+---
+
+## 6.2 追加対応と再監査（2026-06-28）
+
+§6.1 の後、`IrocaWindow` への追加リファクタと、本書未記載の問題を探す**再監査**を実施した。コア計算（計算層分離・再着色アルゴリズム）は引き続き不変。
+
+### 6.2.1 §6.1 採用項目の実コード検証
+
+§6.1 で「✅ 解消」とした 5 項目を現行コードで再確認し、すべて実体を伴うことを確認した。
+
+| 項目 | 検証結果 |
+|------|---------|
+| A1 PathUtils 抽出 | `Code/Infra/PathUtils.cs` 実在。`IrocaWindow.ToAssetsRelative` 参照は **0 件**。Infra/Automation に加え **ExportView も `PathUtils` を利用**しており、UI 非依存化は文書以上に広く波及済み |
+| A2 台帳更新 | 該当 docs に注記済み |
+| B2 ゴールデン回帰 | `scripts/golden/`（`golden_hashes.json` / `golden_lib.py` / `test_golden_csharp.py`）実在 |
+| B3 RecolorParams | `Code/Core/PixelProcessor.cs` に `private readonly struct RecolorParams` + `in` 渡し実在 |
+| C3 命名定数 | `ColorZone.cs` 冒頭にしきい値 const 群（`ShadowValueThresholdFrac` 等）＋根拠コメント実在 |
+
+ビルド健全性: `dotnet build scripts/build-check/IrocaEditor.csproj` が **0 警告・0 エラー**。
+
+### 6.2.2 C2（IrocaWindow）の進展
+
+§4.2(A) で指摘した神クラス化のうち「単一肥大」面は、`a818d50`（責務別 partial 分割）＋ `a8d683c`（巨大メソッド分解）で解消した。現状は本体/ライフサイクル(`IrocaWindow.cs` 211 行)・`.Layout.cs`(361)・`.ZoneList.cs`(563)・`.AutoTune.cs`(224) の 4 ファイル。**ただし View→Window 逆参照は依然 66 箇所**（`_host.Session`×22・`_host.RequestRepaint`×14 等）で、これは同一クラスをファイル分割しただけのため partial 化では減らない。逆依存の縮小（View が必要最小限のインターフェースだけ受け取る形）は引き続き **C 優先・未対応**。
+
+### 6.2.3 再監査で見つかった新規の小さな負債
+
+本書未記載の問題を Core/UI/Infra/Automation 全体で探索した。**重大な新規問題は無し**（リソース解放・スレッド安全性・例外処理・null 安全性はおおむね健全）。確認できた軽微な負債のみ列挙する。
+
+| 重大度 | 項目 | 位置 | 内容 / 推奨 |
+|:---:|------|------|------|
+| 低 | 完了済み計画コメントの残存 | `IrocaWindow.cs:45,49,50,56,58` | 「Phase 4a/4b/4c で〜する」という**未来形の計画コメント**が、対応完了後も残り誤読を招く（例: 「Phase 4b で View 分離する際これらは置換される」＝実際にはその予定は当面なし）。現状を述べる文へ書き換えるか削除 |
+| 低 | 公開 API の防御的検証不足 | `Code/Core/PixelProcessor.cs` `ProcessPixelsArray`（`pixels==null`/`w,h<=0` の早期 return 無し） | 呼び出し側（PreviewView/ExportView/Harness）は検証済みだが、`public static` API として `if (pixels==null || w<=0 || h<=0) return;` の 1 行ガードがあると堅牢。出力不変 |
+| 低 | ゾーン 0 件時の契約が暗黙 | 同 `ProcessPixelsArray`（`sortedZones` が空） | 「ゾーン無し＝`pixels` 無変更」がコメント化されていない。明記推奨 |
+
+> **再監査の所見**: 自動探索が挙げた「PresetsView の Dispose 漏れ」「ExportView.batchTextures の破棄漏れ」「MaskPaintView の二重 Dispose」はいずれも**誤検出**だった。PresetsView は破棄対象リソースを持たない純 IMGUI ＋ JSON I/O、`batchTextures` は `ObjectField(allowSceneObjects:false)` が返す**ユーザーのアセット参照**（破棄すれば資産破壊）、所有する一時テクスチャ（`loadTex`/`fullTex`）は既に `DestroyImmediate` 済み、MaskPaintView の解放は Cancel→Dispose の順で正しい。**コードベースの分離・解放設計は §0 の高評価どおり健全**であることが再確認できた。
 
 ---
 
