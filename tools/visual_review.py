@@ -83,7 +83,7 @@ def _run_all_cases_csharp() -> dict[str, tuple[np.ndarray, np.ndarray]]:
     from regression import headless_io as hio
 
     csproj = _ROOT / "scripts" / "headless-run" / "Harness.csproj"
-    dll = _ROOT / "scripts" / "headless-run" / "bin" / "Release" / "CamereoHeadless.dll"
+    dll = _ROOT / "scripts" / "headless-run" / "bin" / "Release" / "IrocaHeadless.dll"
     if hio.run(["dotnet", "--version"]).returncode != 0:
         raise RuntimeError("dotnet が利用できません(--engine csharp は使えません)")
     build = hio.run(["dotnet", "build", str(csproj), "-c", "Release", "-nologo"])

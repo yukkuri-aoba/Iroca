@@ -1,4 +1,4 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.Collections.Generic;
@@ -7,18 +7,18 @@ using System.Text;
 using UnityEditor;
 using UnityEngine;
 
-namespace Camereo.DebugTools
+namespace Iroca.DebugTools
 {
     /// <summary>
     /// <see cref="DebugCaptureContext"/> のスナップショット群を PNG として書き出す。
-    /// 保存先は <c>Library/Camereo/Debug/&lt;sourceName&gt;/&lt;timestamp&gt;/</c>。
+    /// 保存先は <c>Library/Iroca/Debug/&lt;sourceName&gt;/&lt;timestamp&gt;/</c>。
     /// <c>Assets/</c> 外の <c>Library/</c> に置くことで Unity のインポートを回避し、
     /// Project ビューへの表示を防ぐ。<c>Library/</c> は Unity のデフォルト .gitignore 対象。
     /// </summary>
     internal static class DebugDumpStore
     {
         // Assets/ 外に置くことで Unity のインポートを回避する。Library/ は既定で gitignore 対象。
-        private const string DumpDirInLibrary = "Library/Camereo/Debug";
+        private const string DumpDirInLibrary = "Library/Iroca/Debug";
 
         /// <summary>
         /// 指定 context 全体を PNG + manifest.json として書き出し、書き出し先ディレクトリの
@@ -29,7 +29,7 @@ namespace Camereo.DebugTools
         {
             if (ctx == null || ctx.Snapshots.Count == 0)
             {
-                Debug.LogWarning("[Camereo.Debug] DumpAll: 空の context がわたされました。");
+                Debug.LogWarning("[Iroca.Debug] DumpAll: 空の context がわたされました。");
                 return null;
             }
 
@@ -81,7 +81,7 @@ namespace Camereo.DebugTools
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[Camereo.Debug] DumpAll failed: {ex.Message}\n{ex.StackTrace}");
+                Debug.LogError($"[Iroca.Debug] DumpAll failed: {ex.Message}\n{ex.StackTrace}");
                 return null;
             }
         }

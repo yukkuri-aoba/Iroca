@@ -1,8 +1,8 @@
 {
-    "name": "Camereo.McpIntegration",
-    "rootNamespace": "Camereo.McpIntegration",
+    "name": "Iroca.McpIntegration",
+    "rootNamespace": "Iroca.McpIntegration",
     "references": [
-        "com.yukkuri-aoba.camereo.Editor",
+        "com.yukkuri-aoba.iroca.Editor",
         "MCPForUnity.Editor",
         "Unity.Newtonsoft.Json"
     ],
@@ -15,13 +15,13 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [
-        "CAMEREO_MCP_PRESENT"
+        "IROCA_MCP_PRESENT"
     ],
     "versionDefines": [
         {
             "name": "com.coplaydev.unity-mcp",
             "expression": "",
-            "define": "CAMEREO_MCP_PRESENT"
+            "define": "IROCA_MCP_PRESENT"
         }
     ],
     "noEngineReferences": false

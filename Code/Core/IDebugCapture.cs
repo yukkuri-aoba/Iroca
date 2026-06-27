@@ -1,10 +1,10 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-namespace Camereo
+namespace Iroca
 {
     /// <summary>
     /// パイプライン透明化（診断/デバッグ）機能の本体側インターフェース。
-    /// 実装は独立 asmdef (CamereoEditor.Debug) 側にあり、本体は型として存在を知らない。
+    /// 実装は独立 asmdef (IrocaEditor.Debug) 側にあり、本体は型として存在を知らない。
     /// <see cref="DebugCaptureHooks.Factory"/> が null（= Code.Debug/ 未導入 or トグル OFF）の
     /// とき、本体パイプラインは何もキャプチャしないし、何も呼び出さない。
     /// </summary>

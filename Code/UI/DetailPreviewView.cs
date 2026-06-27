@@ -1,4 +1,4 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
 using System.Linq;
@@ -6,7 +6,7 @@ using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
-namespace Camereo
+namespace Iroca
 {
     /// <summary>
     /// 詳細プレビュー（フル解像度クロップ）の生成と表示用テクスチャ管理。
@@ -49,9 +49,9 @@ namespace Camereo
         [System.NonSerialized] private Color32[] _pendingDetailDiffPixels;
         [System.NonSerialized] private int _pendingDetailDiffW, _pendingDetailDiffH;
 
-        [System.NonSerialized] private CamereoWindow _host;
+        [System.NonSerialized] private IrocaWindow _host;
 
-        public void Initialize(CamereoWindow host)
+        public void Initialize(IrocaWindow host)
         {
             _host = host;
         }
@@ -108,7 +108,7 @@ namespace Camereo
             float scale, float previewZoom, Vector2 previewScrollPos, float viewportW, float viewportH)
         {
             var sourceTexture = _host.SourceTexture;
-            if (sourceTexture == null || !CamereoWindow.IsReadable(sourceTexture)) return;
+            if (sourceTexture == null || !IrocaWindow.IsReadable(sourceTexture)) return;
             if (scale >= 1f) return;
 
             if (previewZoom <= DetailMinZoom) return;

@@ -1,19 +1,19 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Camereo
+namespace Iroca
 {
     /// <summary>
     /// テクスチャと ColorZone の (sampleColor, targetColor) から、
     /// 許容範囲・彩度制限などのパラメータを自動的に算出する純粋ロジック層。
-    /// UI からは CamereoWindow.RunAutoTune() 経由で呼ばれ、結果は TuneResult として返す。
+    /// UI からは IrocaWindow.RunAutoTune() 経由で呼ばれ、結果は TuneResult として返す。
     /// 純粋計算のため、ピクセル配列さえあればバックグラウンドスレッドからも呼べる。
     /// </summary>
     internal static class ZoneAutoTuner
     {
-        // ── デフォルト値（ColorZone.cs / CamereoSessionState.cs と同期） ──
+        // ── デフォルト値（ColorZone.cs / IrocaSessionState.cs と同期） ──
         // 元ファイルへの変更を避けるためここに定数で持ち、同期は手作業で行う。
         private const float DefaultTolerance               = 0f;
         private const float DefaultSaturationStrictness    = 0.50f;
@@ -85,10 +85,10 @@ namespace Camereo
         /// 既存呼び出し互換 API。Texture2D を受け取り、内部でメインスレッド前提の
         /// GetPixels32 を呼んでからピクセル受け取り版へ委譲する。
         /// バックグラウンドスレッドから呼ぶ場合は、メインスレッドで取得した
-        /// Color32[] を渡せる <see cref="Analyze(Color32[], int, int, ColorZone, CamereoSessionState, bool[], int, int)"/>
+        /// Color32[] を渡せる <see cref="Analyze(Color32[], int, int, ColorZone, IrocaSessionState, bool[], int, int)"/>
         /// オーバーロードを使用すること。
         /// </summary>
-        public static TuneResult Analyze(Texture2D tex, ColorZone zone, CamereoSessionState session,
+        public static TuneResult Analyze(Texture2D tex, ColorZone zone, IrocaSessionState session,
             bool[] excluded = null, int maskW = 0, int maskH = 0)
         {
             Color32[] pixels = null;
@@ -114,7 +114,7 @@ namespace Camereo
         /// 「含有(非除外)領域全体をパーツとみなし、その距離分布から tolerance を導出」する。
         /// </param>
         public static TuneResult Analyze(Color32[] pixels, int width, int height,
-            ColorZone zone, CamereoSessionState session,
+            ColorZone zone, IrocaSessionState session,
             bool[] excluded = null, int maskW = 0, int maskH = 0)
         {
             var result = BuildHeuristicDefault(zone);
@@ -934,7 +934,7 @@ namespace Camereo
 
         // ─────────────────── Globals 判定 ───────────────────
 
-        private static void DecideGlobals(int texWidth, int texHeight, CamereoSessionState session, ref TuneResult result)
+        private static void DecideGlobals(int texWidth, int texHeight, IrocaSessionState session, ref TuneResult result)
         {
             // edgeFeather は自動調整では一切触らない（"ごまかし" を増やさない方針）。
             // 自動調整が扱う Global は antiAliasCleanup と useDecontamination のみ。
@@ -1015,7 +1015,7 @@ namespace Camereo
             return labels;
         }
 
-        private static void CollectOverwrittenLabels(ColorZone zone, CamereoSessionState session, ref TuneResult result)
+        private static void CollectOverwrittenLabels(ColorZone zone, IrocaSessionState session, ref TuneResult result)
         {
             var labels = result.overwrittenLabels;
 

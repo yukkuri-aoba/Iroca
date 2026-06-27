@@ -1,12 +1,12 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-namespace Camereo
+namespace Iroca
 {
-    // Camereo で散在するマジックナンバー・メニューパスを集約する。
+    // Iroca で散在するマジックナンバー・メニューパスを集約する。
     // 表示文字列の正は Localization に残し、ここでは多言語化しない値だけを持つ。
-    internal static class CamereoConsts
+    internal static class IrocaConsts
     {
-        public const string MenuPath = "Tools/Camereo";
+        public const string MenuPath = "Tools/いろか";
 
         public static class Layout
         {

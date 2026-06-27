@@ -7,10 +7,10 @@ using System.Diagnostics;
 using System.Text.Json;
 using UnityEngine;
 
-namespace Camereo
+namespace Iroca
 {
     // DebugCaptureHooks が UI イベントで参照するだけのスタブ(headless では未使用)。
-    internal class CamereoWindow { }
+    internal class IrocaWindow { }
 
     // ZoneAutoTuner がラベル収集で参照する Localization のスタブ。
     // 実 Localization は UnityEditor.EditorPrefs に依存するため headless では使えない。
@@ -213,7 +213,7 @@ namespace Camereo
                 int exCount = 0;
                 for (int k = 0; k < common.Length; k++) if (common[k]) exCount++;
                 bool useMask = exCount > 0 && exCount < common.Length;
-                var session = CamereoSessionState.CreateDefault();
+                var session = IrocaSessionState.CreateDefault();
                 foreach (var z in zoneList)
                 {
                     var tune = useMask

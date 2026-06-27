@@ -1,6 +1,6 @@
 """C# 自己ゴールデン回帰テストの共有ロジック。
 
-実 C# 実装（scripts/headless-run の Harness, AssemblyName=CamereoHeadless）を合成入力で走らせ、
+実 C# 実装（scripts/headless-run の Harness, AssemblyName=IrocaHeadless）を合成入力で走らせ、
 出力ハッシュを golden（コミット済み golden_hashes.json）と照合する。
 
 このプロジェクトでは **C# が製品の唯一の正** であり、Python(dev_safe/vacc_python) はアルゴリズム
@@ -27,7 +27,7 @@ import synth_textures as S
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 HARNESS_CSPROJ = REPO / "scripts" / "headless-run" / "Harness.csproj"
-HARNESS_DLL = REPO / "scripts" / "headless-run" / "bin" / "Release" / "CamereoHeadless.dll"
+HARNESS_DLL = REPO / "scripts" / "headless-run" / "bin" / "Release" / "IrocaHeadless.dll"
 GOLDEN_FILE = HERE / "golden_hashes.json"
 
 # ── 正準 zone パラメータ（Harness の JSON スキーマ ZoneCfg と同名フィールド） ──
@@ -263,7 +263,7 @@ def regenerate() -> int:
             "note": "C# 自己ゴールデン（製品 C# の出力ハッシュ）。Python 非依存の回帰検出。"
                     "意図的変更・toolchain 更新時は `python scripts/golden/golden_lib.py` で再生成。",
             "unity": "2022.3.22f1",
-            "assembly": "CamereoHeadless",
+            "assembly": "IrocaHeadless",
         },
         "cases": dict(sorted(out_cases.items())),
     }

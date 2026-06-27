@@ -1,11 +1,11 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Linq;
 using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
-namespace Camereo
+namespace Iroca
 {
     /// <summary>
     /// メインプレビュー描画、比較 / 差分モード、ズーム、プレビュー生成ジョブの起動、
@@ -100,7 +100,7 @@ namespace Camereo
         // テクスチャ実寸基準ではカラム/ウィンドウ幅と食い違うため、毎フレーム実測する。
         [System.NonSerialized] private float _viewportWidth;
         // ズーム率ラベルは毎フレーム描画されるため、ズーム値か言語が変わったときだけ
-        // 文字列を再生成してアロケーションを避ける（CamereoWindow.EnsureZoneListCache と同方針）。
+        // 文字列を再生成してアロケーションを避ける（IrocaWindow.EnsureZoneListCache と同方針）。
         [System.NonSerialized] private string _cachedZoomLabel;
         [System.NonSerialized] private int _cachedZoomPercent = -1;
         [System.NonSerialized] private LanguageMode _cachedZoomLang = (LanguageMode)(-1);
@@ -144,9 +144,9 @@ namespace Camereo
         // 詳細プレビューは PreviewView の補助。
         [System.NonSerialized] private DetailPreviewView _detailView;
 
-        [System.NonSerialized] private CamereoWindow _host;
+        [System.NonSerialized] private IrocaWindow _host;
 
-        public void Initialize(CamereoWindow host)
+        public void Initialize(IrocaWindow host)
         {
             _host = host;
             _detailView ??= new DetailPreviewView();
@@ -201,7 +201,7 @@ namespace Camereo
                 }
                 catch (System.Exception ex)
                 {
-                    Debug.LogWarning($"[Camereo] Source file load failed, falling back to imported texture: {ex.Message}");
+                    Debug.LogWarning($"[Iroca] Source file load failed, falling back to imported texture: {ex.Message}");
                 }
                 finally
                 {
@@ -210,7 +210,7 @@ namespace Camereo
             }
 
             // フォールバック: インポート済みテクスチャ（要 Read/Write）。
-            if (!CamereoWindow.IsReadable(tex)) return false;
+            if (!IrocaWindow.IsReadable(tex)) return false;
             _trueSourcePixels = tex.GetPixels32();
             _trueSourceW = tex.width;
             _trueSourceH = tex.height;
@@ -253,7 +253,7 @@ namespace Camereo
                 return;
             }
 
-            if (!CamereoWindow.IsReadable(sourceTexture))
+            if (!IrocaWindow.IsReadable(sourceTexture))
                 return;
 
             // エクスポートと同じフル解像度ソースを確保（プレビュー＝実結果の一致のため）。
@@ -361,8 +361,8 @@ namespace Camereo
 
             int srcW = _trueSourceW;
             int srcH = _trueSourceH;
-            float scale = (srcW > CamereoConsts.Preview.MaxSize || srcH > CamereoConsts.Preview.MaxSize)
-                ? CamereoConsts.Preview.MaxSize / (float)Mathf.Max(srcW, srcH)
+            float scale = (srcW > IrocaConsts.Preview.MaxSize || srcH > IrocaConsts.Preview.MaxSize)
+                ? IrocaConsts.Preview.MaxSize / (float)Mathf.Max(srcW, srcH)
                 : 1f;
 
             // テクスチャ切り替えやデシリアライズで残った半端な/上限超過のズーム値を、
@@ -395,7 +395,7 @@ namespace Camereo
             float displayW = previewTexture.width  * previewZoom;
             float displayH = previewTexture.height * previewZoom;
 
-            float maxViewH = Mathf.Min(displayH, previewTexture.height) + CamereoConsts.Preview.ViewportMargin;
+            float maxViewH = Mathf.Min(displayH, previewTexture.height) + IrocaConsts.Preview.ViewportMargin;
             int panelCount = (comparisonMode && rawPreviewTexture != null) ? 2 : 1;
 
             // プレビュー枠はカラム/ウィンドウ幅いっぱいに広げる（下の ExpandWidth）。
@@ -409,9 +409,9 @@ namespace Camereo
             // クロップを取りこぼす。初回フレームは未計測なのでテクスチャ基準を暫定値にする
             // (過大評価＝安全側)。高さは GUILayout.Height で固定なので maxViewH が実値。
             float fallbackViewW = Mathf.Min(
-                displayW * panelCount + (panelCount - 1) * CamereoConsts.Preview.PanelSpacing,
-                previewTexture.width * panelCount + (panelCount - 1) * CamereoConsts.Preview.PanelSpacing)
-                + CamereoConsts.Preview.ViewportMargin;
+                displayW * panelCount + (panelCount - 1) * IrocaConsts.Preview.PanelSpacing,
+                previewTexture.width * panelCount + (panelCount - 1) * IrocaConsts.Preview.PanelSpacing)
+                + IrocaConsts.Preview.ViewportMargin;
             _detailView.lastViewportW = _viewportWidth > 1f ? _viewportWidth : fallbackViewW;
             _detailView.lastViewportH = maxViewH;
 
@@ -445,7 +445,7 @@ namespace Camereo
                 EditorGUI.DrawPreviewTexture(rawRect, rawPreviewTexture);
                 EditorGUILayout.EndVertical();
 
-                GUILayout.Space(CamereoConsts.Preview.PanelSpacing);
+                GUILayout.Space(IrocaConsts.Preview.PanelSpacing);
 
                 // After panel
                 EditorGUILayout.BeginVertical(GUILayout.Width(displayW));
@@ -704,8 +704,8 @@ namespace Camereo
                     {
                         float brushPixels = maskView.brushSize * previewZoom;
                         var cursorColor = maskView.brushEraseMode
-                            ? CamereoColors.BrushCursorInclude
-                            : CamereoColors.BrushCursorExclude;
+                            ? IrocaColors.BrushCursorInclude
+                            : IrocaColors.BrushCursorExclude;
                         float r = brushPixels * 0.5f;
                         EditorGUI.DrawRect(
                             new Rect(e.mousePosition.x - r, e.mousePosition.y - r, r * 2f, r * 2f),
@@ -855,8 +855,8 @@ namespace Camereo
             int srcH = _trueSourceH;
 
             float scale = 1f;
-            if (srcW > CamereoConsts.Preview.MaxSize || srcH > CamereoConsts.Preview.MaxSize)
-                scale = CamereoConsts.Preview.MaxSize / (float)Mathf.Max(srcW, srcH);
+            if (srcW > IrocaConsts.Preview.MaxSize || srcH > IrocaConsts.Preview.MaxSize)
+                scale = IrocaConsts.Preview.MaxSize / (float)Mathf.Max(srcW, srcH);
             int prevW = Mathf.Max(1, Mathf.RoundToInt(srcW * scale));
             int prevH = Mathf.Max(1, Mathf.RoundToInt(srcH * scale));
 

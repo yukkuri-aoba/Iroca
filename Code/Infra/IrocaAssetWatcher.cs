@@ -1,14 +1,14 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using UnityEditor;
 
-namespace Camereo
+namespace Iroca
 {
     /// <summary>
     /// テクスチャ削除に追従して、対応する MaskCache のゴミファイルを掃除する。
     /// rename / move は GUID ベースで自動追従するため、ここでは扱わない。
     /// </summary>
-    internal class CamereoAssetWatcher : AssetModificationProcessor
+    internal class IrocaAssetWatcher : AssetModificationProcessor
     {
         // 削除確定前に GUID を解決する（OnPostprocessAllAssets まで待つと
         // GUIDToAssetPath が空を返す場合があり、特定が難しくなるため）。

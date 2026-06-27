@@ -2,8 +2,8 @@
 
 > **【状態: 概ね解消済み — 2026-06-27 追記】**
 > 本書は旧 `VACCWindow` partial class 時代（単一クラス ~4,900 行）の棚卸し・計画を記録したもの。
-> その後 Phase 4a–4c のリファクタが実装され、`VACC` → `Camereo` へのリネームも完了しており、
-> ここに挙げた問題の大半は **既に解消済み**（神クラスの View 分離・`CamereoSessionState` 導入・
+> その後 Phase 4a–4c のリファクタが実装され、`VACC` → `Iroca` へのリネームも完了しており、
+> ここに挙げた問題の大半は **既に解消済み**（神クラスの View 分離・`IrocaSessionState` 導入・
 > Undo/SerializedObject 対応等）。本文中の `VACCWindow.*.cs` 等のファイル名・クラス名は当時のまま残す。
 > **リファクタ完了後の現状構造の評価は [`architecture_review_2026-06-27.md`](architecture_review_2026-06-27.md) を参照すること。**
 > 本書は設計判断の経緯（歴史記録）として保全する。

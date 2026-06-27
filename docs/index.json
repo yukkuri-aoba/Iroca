@@ -9,7 +9,7 @@
         "0.2.0": {
           "name": "com.yukkuri-aoba.vrc-avatar-color-changer",
           "version": "0.2.0",
-          "displayName": "Camereo",
+          "displayName": "いろか",
           "description": "Unity Editor extension for intuitively recoloring VRChat avatar textures.",
           "unity": "2022.3",
           "author": {
@@ -36,7 +36,7 @@
         "0.1.0": {
           "name": "com.yukkuri-aoba.vrc-avatar-color-changer",
           "version": "0.1.0",
-          "displayName": "Camereo",
+          "displayName": "いろか",
           "description": "Unity Editor extension for intuitively recoloring VRChat avatar textures.",
           "unity": "2022.3",
           "author": {

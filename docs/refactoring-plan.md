@@ -2,8 +2,8 @@
 
 > **【状態: 実施済み — 2026-06-27 追記】**
 > 本書は旧 `VACCWindow` partial class 時代に立てた段階的リファクタ計画。
-> Phase 4a–4c は実装され、`VACC` → `Camereo` のリネームも完了済みで、ここに記した「目標アーキテクチャ」は
-> 概ね現コードの実体となっている（`CamereoWindow` + `Code/UI` 各 View + `Code/Core` への分割）。
+> Phase 4a–4c は実装され、`VACC` → `Iroca` のリネームも完了済みで、ここに記した「目標アーキテクチャ」は
+> 概ね現コードの実体となっている（`IrocaWindow` + `Code/UI` 各 View + `Code/Core` への分割）。
 > 本文中の `VACCWindow` / `Assets/VACC/...` / `feature/refactor-all` 等は計画当時の表記のまま残す。
 > **リファクタ完了後の現状構造の評価は [`architecture_review_2026-06-27.md`](architecture_review_2026-06-27.md) を参照すること。**
 > 本書は設計判断の経緯（歴史記録）として保全する。

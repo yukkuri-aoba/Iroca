@@ -14,7 +14,7 @@ Unity を起動せずに Editor asmdef (`Code/**/*.cs`) のコンパイルチェ
 
 ```powershell
 # プロジェクトルートから
-dotnet build scripts/build-check/CamereoEditor.csproj
+dotnet build scripts/build-check/IrocaEditor.csproj
 ```
 
 - 成功すると `scripts/build-check/bin/` に DLL が出力される（gitignore 済）
@@ -24,14 +24,14 @@ dotnet build scripts/build-check/CamereoEditor.csproj
 
 ```powershell
 # バージョンだけ変える
-dotnet build scripts/build-check/CamereoEditor.csproj -p:UnityVersion=2022.3.22f1
+dotnet build scripts/build-check/IrocaEditor.csproj -p:UnityVersion=2022.3.22f1
 
 # フルパスを上書き（Hub 経由でないインストール等）
-dotnet build scripts/build-check/CamereoEditor.csproj -p:UnityEditorPath="D:\Unity\2022.3.22f1\Editor\Data\Managed"
+dotnet build scripts/build-check/IrocaEditor.csproj -p:UnityEditorPath="D:\Unity\2022.3.22f1\Editor\Data\Managed"
 
 # 環境変数で恒久指定
 $env:UNITY_EDITOR_PATH = "D:\Unity\2022.3.22f1\Editor\Data\Managed"
-dotnet build scripts/build-check/CamereoEditor.csproj
+dotnet build scripts/build-check/IrocaEditor.csproj
 ```
 
 ## 既知の限界

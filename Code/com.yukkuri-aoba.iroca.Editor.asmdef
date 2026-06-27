@@ -1,6 +1,6 @@
 {
-    "name": "com.yukkuri-aoba.camereo.Editor",
-    "rootNamespace": "Camereo",
+    "name": "com.yukkuri-aoba.iroca.Editor",
+    "rootNamespace": "Iroca",
     "references": [],
     "includePlatforms": [
         "Editor"

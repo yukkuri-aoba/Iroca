@@ -1,16 +1,16 @@
 <!--
   Unity を起動せずに Editor asmdef のコードを dotnet で型チェック・ビルドするための
-  最小プロジェクト。CI からも `dotnet build scripts/build-check/CamereoEditor.csproj`
+  最小プロジェクト。CI からも `dotnet build scripts/build-check/IrocaEditor.csproj`
   だけで構文・型エラーを検出できる。
 
   Unity DLL のパスはデフォルトで VRChat 標準の 2022.3.22f1 を見にいく。
   別バージョンを使う場合は MSBuild プロパティか環境変数で上書きする:
 
-    dotnet build scripts/build-check/CamereoEditor.csproj -p:UnityVersion=2022.3.22f1
-    dotnet build scripts/build-check/CamereoEditor.csproj -p:UnityEditorPath="C:\Program Files\Unity\Hub\Editor\2022.3.22f1\Editor\Data\Managed"
+    dotnet build scripts/build-check/IrocaEditor.csproj -p:UnityVersion=2022.3.22f1
+    dotnet build scripts/build-check/IrocaEditor.csproj -p:UnityEditorPath="C:\Program Files\Unity\Hub\Editor\2022.3.22f1\Editor\Data\Managed"
     # または
     $env:UNITY_EDITOR_PATH = "C:\Program Files\Unity\Hub\Editor\2022.3.22f1\Editor\Data\Managed"
-    dotnet build scripts/build-check/CamereoEditor.csproj
+    dotnet build scripts/build-check/IrocaEditor.csproj
 
   出力 DLL は scripts/build-check/bin/ に置かれる（gitignore 済）。
   Unity のアセンブリ生成とは別物なので、これをパッケージに含めないこと。
@@ -21,8 +21,8 @@
     <TargetFramework>netstandard2.1</TargetFramework>
     <LangVersion>9.0</LangVersion>
     <Nullable>disable</Nullable>
-    <AssemblyName>com.yukkuri-aoba.camereo.Editor</AssemblyName>
-    <RootNamespace>Camereo</RootNamespace>
+    <AssemblyName>com.yukkuri-aoba.iroca.Editor</AssemblyName>
+    <RootNamespace>Iroca</RootNamespace>
     <OutputType>Library</OutputType>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <!-- Unity が再生成する .csproj には警告抑止が入るので、CI ノイズを揃える -->
@@ -39,9 +39,9 @@
   </PropertyGroup>
 
   <!-- ソースコード: Code/ 以下のみ。Code_Archive/ は除外。
-       Code/Debug/ は別 asmdef (CamereoEditor.Debug) 配下なので Unity の挙動に合わせて除外する。
+       Code/Debug/ は別 asmdef (IrocaEditor.Debug) 配下なので Unity の挙動に合わせて除外する。
        Code/McpIntegration/ は MCPForUnity が導入された環境でのみコンパイルされる別 asmdef
-       (Camereo.McpIntegration, CAMEREO_MCP_PRESENT ゲート) で、MCPForUnity 型を参照するため
+       (Iroca.McpIntegration, IROCA_MCP_PRESENT ゲート) で、MCPForUnity 型を参照するため
        dotnet 単体では解決できない。Unity の挙動に合わせて除外する。
        これらのフォルダを削除しても本体 csproj は単独でビルド可能。 -->
   <ItemGroup>

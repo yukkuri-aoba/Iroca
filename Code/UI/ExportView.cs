@@ -1,4 +1,4 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
 using System.IO;
@@ -8,7 +8,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 
-namespace Camereo
+namespace Iroca
 {
     /// <summary>
     /// 単体出力 / 一括適用の UI 描画と PNG 書き出しを担当する。
@@ -27,7 +27,7 @@ namespace Camereo
         public bool inheritImportSettings = true;
 
         [System.NonSerialized] private Vector2 _batchScrollPos;
-        [System.NonSerialized] private CamereoWindow _host;
+        [System.NonSerialized] private IrocaWindow _host;
 
         // ─── 非同期エクスポート ───
         // メインスレッドで pixels を取得し、PixelProcessor 計算 + PNG エンコード + 書き込みを
@@ -46,7 +46,7 @@ namespace Camereo
         /// <summary>エクスポート処理中。true の間はウィンドウ全体を Disabled に。</summary>
         public bool IsExporting => _exportJob.IsRunning;
 
-        public void Initialize(CamereoWindow host)
+        public void Initialize(IrocaWindow host)
         {
             _host = host;
         }
@@ -63,7 +63,7 @@ namespace Camereo
             // 折りたたみは廃止し、常に見出しラベル＋内容を表示する。
             EditorGUILayout.LabelField(Localization.StepPrefixExport + Localization.Export, EditorStyles.boldLabel);
 
-            // 外側の DisabledScope（CamereoWindow.OnGUI で囲まれる）を壊さないよう、
+            // 外側の DisabledScope（IrocaWindow.OnGUI で囲まれる）を壊さないよう、
             // GUI.enabled の直接代入ではなく BeginDisabledGroup を使う。
             EditorGUI.BeginDisabledGroup(_host.SourceTexture == null);
 
@@ -106,7 +106,7 @@ namespace Camereo
 
         /// <summary>
         /// エクスポートセクションの描画想定高さを返す。
-        /// CamereoWindow の横並びレイアウトで「上部 + プレビュー領域」の高さ計算に使う。
+        /// IrocaWindow の横並びレイアウトで「上部 + プレビュー領域」の高さ計算に使う。
         /// 折りたたみは廃止したので常に内部コントロールの合計を返す。
         /// </summary>
         public float GetSectionHeight()
@@ -139,7 +139,7 @@ namespace Camereo
             }
 
             var sourceTexture = _host.SourceTexture;
-            if (sourceTexture == null || !CamereoWindow.IsReadable(sourceTexture))
+            if (sourceTexture == null || !IrocaWindow.IsReadable(sourceTexture))
             {
                 NotifyError(Localization.TextureReadError);
                 return;
@@ -294,30 +294,30 @@ namespace Camereo
                     }
 
                     _exportProgress.Report(1.0f);
-                    Debug.Log($"[Camereo] Saved: {payload.outputPath}");
+                    Debug.Log($"[Iroca] Saved: {payload.outputPath}");
                     // 非モーダル通知: ファイル名のみウィンドウ右下に短時間表示。詳細パスは Debug.Log。
                     _host?.ShowNotification(new GUIContent($"{Localization.Complete}: {Path.GetFileName(payload.outputPath)}"));
                 },
                 onError: ex =>
                 {
-                    Debug.LogError($"[Camereo] Export failed: {ex.Message}\n{ex.StackTrace}");
+                    Debug.LogError($"[Iroca] Export failed: {ex.Message}\n{ex.StackTrace}");
                     NotifyError(ex.Message);
                 });
         }
 
         /// <summary>
-        /// エラーを Console に出しつつ Camereo ウィンドウ内に非モーダル通知を表示する。
+        /// エラーを Console に出しつつ Iroca ウィンドウ内に非モーダル通知を表示する。
         /// EditorUtility.DisplayDialog は Editor 全体をブロックするため避ける。
         /// </summary>
         private void NotifyError(string message)
         {
-            Debug.LogError($"[Camereo] {message}");
+            Debug.LogError($"[Iroca] {message}");
             _host?.ShowNotification(new GUIContent($"{Localization.Error}: {message}"));
         }
 
         /// <summary>
         /// エクスポート実行中の進捗バーとキャンセルボタンを描画する。
-        /// CamereoWindow.OnGUI の DisabledScope の外で呼び出すことで、ウィンドウ全体が
+        /// IrocaWindow.OnGUI の DisabledScope の外で呼び出すことで、ウィンドウ全体が
         /// 無効化されている状況でもキャンセルだけは押せるようにする。
         /// </summary>
         public void DrawJobOverlay()
@@ -358,7 +358,7 @@ namespace Camereo
                 batchTextures[i] = (Texture2D)EditorGUILayout.ObjectField(
                     batchTextures[i], typeof(Texture2D), false);
                 if (GUILayout.Button(new GUIContent("×", Localization.RemoveBatchTextureTooltip),
-                        GUILayout.Width(CamereoConsts.Layout.RemoveButtonWidth)))
+                        GUILayout.Width(IrocaConsts.Layout.RemoveButtonWidth)))
                     removeIdx = i;
                 EditorGUILayout.EndHorizontal();
             }
@@ -446,8 +446,8 @@ namespace Camereo
                         break;
                     }
 
-                    if (!CamereoWindow.IsReadable(tex)) CamereoWindow.EnableReadWrite(tex);
-                    if (!CamereoWindow.IsReadable(tex)) continue;
+                    if (!IrocaWindow.IsReadable(tex)) IrocaWindow.EnableReadWrite(tex);
+                    if (!IrocaWindow.IsReadable(tex)) continue;
 
                     string srcPath = AssetDatabase.GetAssetPath(tex);
                     if (string.IsNullOrEmpty(srcPath)) continue;
@@ -492,7 +492,7 @@ namespace Camereo
                     }
                     catch (System.Exception ex)
                     {
-                        Debug.LogWarning($"[Camereo] Batch apply failed for {tex.name}: {ex.Message}");
+                        Debug.LogWarning($"[Iroca] Batch apply failed for {tex.name}: {ex.Message}");
                     }
                     finally
                     {
