@@ -1,12 +1,12 @@
 <!--
   Code/Debug/ 配下を Unity 抜きで型チェック・ビルドするための最小プロジェクト。
-  本体 (com.yukkuri-aoba.camereo.Editor) を ProjectReference で参照する。
+  本体 (com.yukkuri-aoba.iroca.Editor) を ProjectReference で参照する。
 
   メイン csproj は Code/Debug/ を除外するため、Code/Debug/ フォルダを物理的に削除した
-  状態でも本体 (CamereoEditor.csproj) が単独でビルド可能であることを保証する。
+  状態でも本体 (IrocaEditor.csproj) が単独でビルド可能であることを保証する。
 
   ビルド方法（メインと同じ）:
-    dotnet build scripts/build-check/CamereoEditor.Debug.csproj
+    dotnet build scripts/build-check/IrocaEditor.Debug.csproj
 -->
 <Project Sdk="Microsoft.NET.Sdk">
 
@@ -14,8 +14,8 @@
     <TargetFramework>netstandard2.1</TargetFramework>
     <LangVersion>9.0</LangVersion>
     <Nullable>disable</Nullable>
-    <AssemblyName>com.yukkuri-aoba.camereo.Editor.Debug</AssemblyName>
-    <RootNamespace>Camereo.DebugTools</RootNamespace>
+    <AssemblyName>com.yukkuri-aoba.iroca.Editor.Debug</AssemblyName>
+    <RootNamespace>Iroca.DebugTools</RootNamespace>
     <OutputType>Library</OutputType>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <NoWarn>0414;0649;CS0219;CS8632;CS0169</NoWarn>
@@ -37,7 +37,7 @@
 
   <!-- 本体アセンブリを ProjectReference -->
   <ItemGroup>
-    <ProjectReference Include="CamereoEditor.csproj" />
+    <ProjectReference Include="IrocaEditor.csproj" />
   </ItemGroup>
 
   <ItemGroup>

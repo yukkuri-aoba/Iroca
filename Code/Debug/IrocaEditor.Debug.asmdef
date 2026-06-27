@@ -1,8 +1,8 @@
 {
-    "name": "com.yukkuri-aoba.camereo.Editor.Debug",
-    "rootNamespace": "Camereo.DebugTools",
+    "name": "com.yukkuri-aoba.iroca.Editor.Debug",
+    "rootNamespace": "Iroca.DebugTools",
     "references": [
-        "com.yukkuri-aoba.camereo.Editor"
+        "com.yukkuri-aoba.iroca.Editor"
     ],
     "includePlatforms": [
         "Editor"

@@ -1,12 +1,12 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.Collections.Generic;
 
-namespace Camereo
+namespace Iroca
 {
     [Serializable]
-    public class CamereoPresetData
+    public class IrocaPresetData
     {
         public string name = "";
         public List<ColorZone> zones = new List<ColorZone>();

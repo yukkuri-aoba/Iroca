@@ -1,13 +1,13 @@
 {
-    "name":  "com.yukkuri-aoba.camereo",
+    "name":  "com.yukkuri-aoba.iroca",
     "version":  "0.2.0",
-    "displayName":  "Camereo",
+    "displayName":  "いろか",
     "description":  "Unity Editor extension for intuitively recoloring VRChat avatar textures.",
     "unity":  "2022.3",
     "author":  {
                    "name":  "yukkuri__aoba",
                    "email":  "yukkuri-aoba@users.noreply.github.com",
-                   "url":  "https://github.com/yukkuri-aoba/Camereo"
+                   "url":  "https://github.com/yukkuri-aoba/Iroca"
                },
     "license":  "PolyForm-Shield-1.0.0",
     "keywords":  [
@@ -20,9 +20,9 @@
     "dependencies":  {
 
                      },
-    "url":  "https://github.com/yukkuri-aoba/Camereo/releases/download/v0.2.0/com.yukkuri-aoba.camereo-0.2.0.zip",
-    "changelogUrl":  "https://github.com/yukkuri-aoba/Camereo/blob/main/CHANGELOG.md",
-    "documentationUrl":  "https://github.com/yukkuri-aoba/Camereo/blob/main/README.md",
+    "url":  "https://github.com/yukkuri-aoba/Iroca/releases/download/v0.2.0/com.yukkuri-aoba.iroca-0.2.0.zip",
+    "changelogUrl":  "https://github.com/yukkuri-aoba/Iroca/blob/main/CHANGELOG.md",
+    "documentationUrl":  "https://github.com/yukkuri-aoba/Iroca/blob/main/README.md",
     "samples":  [
 
                 ],

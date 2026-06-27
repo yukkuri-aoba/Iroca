@@ -1,8 +1,8 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using UnityEngine;
 
-namespace Camereo
+namespace Iroca
 {
     /// <summary>
     /// 俯瞰スポイト補正: ハイライト合成(wash)に使う実効サンプル色を、テクスチャ全体から自動導出する。

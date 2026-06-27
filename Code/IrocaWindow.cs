@@ -1,4 +1,4 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
 using System.IO;
@@ -6,16 +6,16 @@ using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
-namespace Camereo
+namespace Iroca
 {
-    public partial class CamereoWindow : EditorWindow
+    public partial class IrocaWindow : EditorWindow
     {
         // ── ユーザー入力・設定 ──
         // [SerializeField] を付けることで、スクリプト再コンパイル時に Unity が
         // EditorWindow の状態をシリアライズ/復元し、入力内容が失われにくくなる。
         [SerializeField] private Texture2D sourceTexture;
         internal Texture2D SourceTexture { get => sourceTexture; set => sourceTexture = value; }
-        internal CamereoSessionState Session => _session;
+        internal IrocaSessionState Session => _session;
 
         // パイプライン透明化機能（Code.Debug/ asmdef がある場合のみ実体が入る）。
         // PreviewView が ProcessPixelsArray に渡したインスタンスをここに保管し、
@@ -40,8 +40,8 @@ namespace Camereo
         [SerializeField] private PreviewView _previewView = new PreviewView();
 
         // 編集状態（ゾーン定義・処理パラメータ・マスク状態）。
-        // Phase 4a で個別 [SerializeField] フィールド群から CamereoSessionState に集約。
-        [SerializeField] private CamereoSessionState _session = CamereoSessionState.CreateDefault();
+        // Phase 4a で個別 [SerializeField] フィールド群から IrocaSessionState に集約。
+        [SerializeField] private IrocaSessionState _session = IrocaSessionState.CreateDefault();
 
         // SerializedObject(this) 経由のプロパティ編集基盤。
         // Phase 4b で ColorZoneDrawer / PropertyField への移行時に使用し、
@@ -117,10 +117,10 @@ namespace Camereo
         [System.NonSerialized] private double _pendingAutoTuneTime;
         private const double AutoTuneDebounceSeconds = 0.4;
 
-        [MenuItem(CamereoConsts.MenuPath, priority = 100)]
+        [MenuItem(IrocaConsts.MenuPath, priority = 100)]
         public static void ShowWindow()
         {
-            var window = GetWindow<CamereoWindow>(Localization.WindowTitle);
+            var window = GetWindow<IrocaWindow>(Localization.WindowTitle);
             window.titleContent = new GUIContent(
                 Localization.WindowTitle,
                 EditorGUIUtility.IconContent("d_Image Icon").image);
@@ -131,7 +131,7 @@ namespace Camereo
 
         private void OnEnable()
         {
-            _session ??= CamereoSessionState.CreateDefault();
+            _session ??= IrocaSessionState.CreateDefault();
             _exportView ??= new ExportView();
             _exportView.Initialize(this);
             _presetsView ??= new PresetsView();
@@ -142,7 +142,7 @@ namespace Camereo
             _previewView.Initialize(this);
             _windowSerializedObject = new SerializedObject(this);
             _sessionProperty = _windowSerializedObject.FindProperty(nameof(_session));
-            _zonesProperty = _sessionProperty?.FindPropertyRelative(nameof(CamereoSessionState.zones));
+            _zonesProperty = _sessionProperty?.FindPropertyRelative(nameof(IrocaSessionState.zones));
             EnsureAllZoneIds();
             // AssetWatcher の delete フックを取りこぼした場合の保険として、
             // ウィンドウを開いた時に MaskCache の orphan ファイルを掃除する。
@@ -257,11 +257,11 @@ namespace Camereo
                 || (_autoTuneJob.IsRunning && _autoTuneIsManual);
             EditorGUI.BeginDisabledGroup(blocking);
 
-            bool sideBySide = position.width >= CamereoConsts.Layout.SideBySideMinWidth;
+            bool sideBySide = position.width >= IrocaConsts.Layout.SideBySideMinWidth;
 
             // position.height はウィンドウ枠（タイトル/タブバー）を含むため、
             // 実描画領域はそれより低い。エクスポートが画面外に押し出されないよう安全マージンを引く。
-            float availableContentH = position.height - CamereoConsts.Layout.WindowChromeMargin;
+            float availableContentH = position.height - IrocaConsts.Layout.WindowChromeMargin;
             float exportH = _exportView.GetSectionHeight();
 
             if (sideBySide)
@@ -289,16 +289,16 @@ namespace Camereo
                     + 4f + (EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing) * 2 + 4f;
                 float topOverheadH = _sideBySideTopHeight > 1f ? _sideBySideTopHeight : fallbackTopH;
                 float horizH = Mathf.Max(
-                    CamereoConsts.Layout.MiddleAreaMinHeight,
+                    IrocaConsts.Layout.MiddleAreaMinHeight,
                     availableContentH - topOverheadH - exportH);
 
                 EditorGUILayout.BeginHorizontal(GUILayout.Height(horizH));
 
                 // 左カラム: ゾーン設定 + 処理設定 + マスク + プリセット
                 float leftWidth = Mathf.Clamp(
-                    position.width * CamereoConsts.Layout.LeftColumnRatio,
-                    CamereoConsts.Layout.LeftColumnMin,
-                    CamereoConsts.Layout.LeftColumnMax);
+                    position.width * IrocaConsts.Layout.LeftColumnRatio,
+                    IrocaConsts.Layout.LeftColumnMin,
+                    IrocaConsts.Layout.LeftColumnMax);
                 EditorGUILayout.BeginVertical(GUILayout.Width(leftWidth));
                 // 縦バーを常時確保し、横バーは無効化する。簡易オーバーロードは縦バーが内容高で
                 // 出入り(トグル)し、その都度コンテンツ幅が ~13px 変わって設定UIが左右にガクつく
@@ -356,7 +356,7 @@ namespace Camereo
                 // エクスポートを常にウィンドウ下部に表示するため、上部だけをスクロール領域にする。
                 float toolbarH = EditorStyles.toolbar.fixedHeight + 4f;
                 float topScrollH = Mathf.Max(
-                    CamereoConsts.Layout.MiddleAreaMinHeight,
+                    IrocaConsts.Layout.MiddleAreaMinHeight,
                     availableContentH - toolbarH - exportH);
 
                 // 横バーは無効化(GUIStyle.none)。この外側 ScrollView は縦スクロール専用で、
@@ -620,7 +620,7 @@ namespace Camereo
                 zone.name = UndoHelper.TextField(this,
                     s_zoneNameContent,
                     zone.name);
-                if (GUILayout.Button(s_removeZoneContent, GUILayout.Width(CamereoConsts.Layout.RemoveButtonWidth)))
+                if (GUILayout.Button(s_removeZoneContent, GUILayout.Width(IrocaConsts.Layout.RemoveButtonWidth)))
                 {
                     removeIndex = i;
                 }
@@ -630,7 +630,7 @@ namespace Camereo
                 {
                     bool isActive = _maskView.activeMaskTarget == i;
                     var prevBg = GUI.backgroundColor;
-                    if (isActive) GUI.backgroundColor = CamereoColors.ActiveMaskTarget;
+                    if (isActive) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
                     if (GUILayout.Button(isActive ? s_editMaskActiveContent : s_editMaskInactiveContent))
                     {
                         _maskView.activeMaskTarget = isActive ? -1 : i;
@@ -879,7 +879,7 @@ namespace Camereo
                 if (evt.type == EventType.Repaint)
                 {
                     Rect src = zoneRects[_dragZoneIndex];
-                    Color accent = CamereoColors.ActiveMaskTarget;
+                    Color accent = IrocaColors.ActiveMaskTarget;
 
                     // 1. 元のスロットを暗転して「ここを移動中」と示す。
                     EditorGUI.DrawRect(src, new Color(0f, 0f, 0f, 0.18f));
@@ -1129,7 +1129,7 @@ namespace Camereo
                 },
                 onError: ex =>
                 {
-                    Debug.LogError($"[Camereo] Auto-tune failed: {ex.Message}\n{ex.StackTrace}");
+                    Debug.LogError($"[Iroca] Auto-tune failed: {ex.Message}\n{ex.StackTrace}");
                     ShowNotification(new GUIContent($"{Localization.Error}: {ex.Message}"));
                 });
         }
@@ -1255,8 +1255,8 @@ namespace Camereo
         }
 
         // ── プリセット連携用フォワーダ（PresetsView から呼ばれる） ──
-        internal void ApplyMaskFromPreset(CamereoPresetData data) => _maskView?.ApplyFromPreset(data);
-        internal void WriteMaskToPreset(CamereoPresetData data) => _maskView?.WriteToPreset(data);
+        internal void ApplyMaskFromPreset(IrocaPresetData data) => _maskView?.ApplyFromPreset(data);
+        internal void WriteMaskToPreset(IrocaPresetData data) => _maskView?.WriteToPreset(data);
         internal void ResetActiveMaskTarget() => _maskView?.ResetActiveTarget();
         internal float ExportSectionHeight => _exportView.GetSectionHeight();
 

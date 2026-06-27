@@ -1,11 +1,11 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
 using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
-namespace Camereo
+namespace Iroca
 {
     /// <summary>
     /// マスク対象選択・ブラシ入力・オーバーレイ生成・bool[] バッファと
@@ -50,9 +50,9 @@ namespace Camereo
         // マスクペイントモード: ブラシストロークが機能する前に明示的にアクティベートされる必要があります
         [System.NonSerialized] public bool maskPaintActive;
 
-        [System.NonSerialized] private CamereoWindow _host;
+        [System.NonSerialized] private IrocaWindow _host;
 
-        public void Initialize(CamereoWindow host)
+        public void Initialize(IrocaWindow host)
         {
             _host = host;
         }
@@ -81,7 +81,7 @@ namespace Camereo
             EditorGUILayout.BeginHorizontal();
             var prevBg = GUI.backgroundColor;
 
-            GUI.backgroundColor = excludeActive ? CamereoColors.ExcludeButton : Color.white;
+            GUI.backgroundColor = excludeActive ? IrocaColors.ExcludeButton : Color.white;
             if (GUILayout.Button(new GUIContent(Localization.Exclude, Localization.ExcludeTooltip), EditorStyles.miniButtonLeft))
             {
                 if (excludeActive)
@@ -90,7 +90,7 @@ namespace Camereo
                 { maskPaintActive = true; brushEraseMode = false; }
             }
 
-            GUI.backgroundColor = includeActive ? CamereoColors.IncludeButton : Color.white;
+            GUI.backgroundColor = includeActive ? IrocaColors.IncludeButton : Color.white;
             if (GUILayout.Button(new GUIContent(Localization.Include, Localization.IncludeTooltip), EditorStyles.miniButtonRight))
             {
                 if (includeActive)
@@ -337,7 +337,7 @@ namespace Camereo
 
             // ブラシサイズは「プレビュー画像上のピクセル数」で設定されるため、
             // マスク座標系（フル解像度）に合わせてスケーリングする必要がある。
-            float maskScale = maskWidth / (float)Mathf.Min(maskWidth, CamereoConsts.Preview.MaxSize);
+            float maskScale = maskWidth / (float)Mathf.Min(maskWidth, IrocaConsts.Preview.MaxSize);
             int r = Mathf.Max(1, Mathf.RoundToInt(brushSize * maskScale));
 
             bool value = !brushEraseMode;
@@ -568,9 +568,9 @@ namespace Camereo
 
         // 旧 SessionState キー（Phase 6 で MaskFileStore に移行済み）。
         // 残存データをマイグレートするためのみ残し、新規書き込みには使わない。
-        private static string LegacyMaskIndexSessionKey(string path) => "Camereo_MaskIndex_" + path;
-        private static string LegacyMaskArraySessionKey(string path, string targetKey) => "Camereo_Mask_" + path + ":" + targetKey;
-        private static string LegacySingleMaskSessionKey(string path) => "Camereo_Mask_" + path;
+        private static string LegacyMaskIndexSessionKey(string path) => "Iroca_MaskIndex_" + path;
+        private static string LegacyMaskArraySessionKey(string path, string targetKey) => "Iroca_Mask_" + path + ":" + targetKey;
+        private static string LegacySingleMaskSessionKey(string path) => "Iroca_Mask_" + path;
 
         [System.Serializable]
         private class LegacyMaskIndex
@@ -708,7 +708,7 @@ namespace Camereo
                 }
                 catch (System.Exception ex)
                 {
-                    Debug.LogWarning($"[Camereo] Legacy mask index decode failed: {ex.Message}");
+                    Debug.LogWarning($"[Iroca] Legacy mask index decode failed: {ex.Message}");
                 }
                 if (idx == null || idx.width <= 0 || idx.height <= 0)
                 {
@@ -879,7 +879,7 @@ namespace Camereo
                 }
                 catch (System.Exception ex)
                 {
-                    Debug.LogWarning($"[Camereo] Mask decode failed: {ex.Message}");
+                    Debug.LogWarning($"[Iroca] Mask decode failed: {ex.Message}");
                     return null;
                 }
             }
@@ -901,7 +901,7 @@ namespace Camereo
             }
             catch (System.Exception ex)
             {
-                Debug.LogWarning($"[Camereo] Mask decode (legacy bitpack) failed: {ex.Message}");
+                Debug.LogWarning($"[Iroca] Mask decode (legacy bitpack) failed: {ex.Message}");
                 return null;
             }
         }
@@ -936,7 +936,7 @@ namespace Camereo
         /// <summary>
         /// プリセット内のマスクデータで現在のマスク状態を置き換える。
         /// </summary>
-        public void ApplyFromPreset(CamereoPresetData data)
+        public void ApplyFromPreset(IrocaPresetData data)
         {
             if (data == null || data.maskWidth <= 0 || data.maskHeight <= 0) return;
 
@@ -967,9 +967,9 @@ namespace Camereo
         }
 
         /// <summary>
-        /// 現在のマスク状態を CamereoPresetData の commonMaskBase64 / zoneMasks フィールドに書き出す。
+        /// 現在のマスク状態を IrocaPresetData の commonMaskBase64 / zoneMasks フィールドに書き出す。
         /// </summary>
-        public void WriteToPreset(CamereoPresetData data)
+        public void WriteToPreset(IrocaPresetData data)
         {
             if (data == null || maskWidth <= 0 || maskHeight <= 0) return;
 

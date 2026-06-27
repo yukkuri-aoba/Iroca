@@ -1,6 +1,6 @@
-# Camereo アーキテクチャレビュー（2026-06-27）
+# Iroca アーキテクチャレビュー（2026-06-27）
 
-**対象**: `Code/` 配下の全 C#（`com.yukkuri-aoba.camereo` v0.2.0、計 ~12,400 行 / 38 ファイル）
+**対象**: `Code/` 配下の全 C#（`com.yukkuri-aoba.iroca` v0.2.0、計 ~12,400 行 / 38 ファイル）
 **目的**: 採用アルゴリズムの構造、レイヤー分割、責務分離、依存関係を多角的に評価し、強み・弱み・改善優先度を整理する。
 **位置づけ**: 本書は**現状（大規模リファクタ完了後）の構造を新規評価**する。旧 partial class 時代の問題を扱う [`refactoring-unity-editor-antipatterns.md`](refactoring-unity-editor-antipatterns.md) / [`refactoring-plan.md`](refactoring-plan.md) は概ね解消済みで、それらの「目標アーキテクチャ」が現コードの実体である。アルゴリズム内部の数学的妥当性は [`image_processing_math_review_2026-06-10.md`](image_processing_math_review_2026-06-10.md) / [`recolor_design_rationale.md`](recolor_design_rationale.md) を参照し、本書では深入りしない。
 
@@ -16,7 +16,7 @@
 | **永続化層の設計** | ★★★★☆ | GUID 追従・orphan 清理が堅牢。UI への逆依存 1 箇所が傷 |
 | **パフォーマンス設計** | ★★★★★ | ArrayPool / ビットパック / bbox 限定 / 並列度制御 / 世代キャンセル |
 | **ドキュメント** | ★★★★★ | 数学・設計根拠・性能・リファクタ計画を体系的に保有（異例の充実度） |
-| **UI 層の構造** | ★★★☆☆ | `CamereoWindow` が神クラス化。View が Window 内部へ逆依存 |
+| **UI 層の構造** | ★★★☆☆ | `IrocaWindow` が神クラス化。View が Window 内部へ逆依存 |
 | **巨大ファイル / 巨大関数** | ★★☆☆☆ | `PixelProcessor`(2588行) / `ProcessPixelsArray`(~600行) が単一肥大 |
 | **パラメータ管理** | ★★☆☆☆ | `RecolorPixel`≈30 引数・`ColorZone` 18+ フィールドの引数爆発 |
 | **C# ↔ Python 二重実装** | ★★☆☆☆ | アルゴリズムを 2 言語で手動同期。ドリフトが実際に発生している |
@@ -30,23 +30,23 @@
 ### 1.1 アセンブリ構成（3 + 衛星）
 
 ```
-com.yukkuri-aoba.camereo.Editor        … 本体（Editor 専用、references: [] = 外部依存ゼロ）
-├─ com.yukkuri-aoba.camereo.Editor.Debug   … デバッグ可視化（本体のみ参照、フォルダ削除で消滅）
-└─ Camereo.McpIntegration                  … MCP 連携（#if CAMEREO_MCP_PRESENT で自動ゲート）
+com.yukkuri-aoba.iroca.Editor        … 本体（Editor 専用、references: [] = 外部依存ゼロ）
+├─ com.yukkuri-aoba.iroca.Editor.Debug   … デバッグ可視化（本体のみ参照、フォルダ削除で消滅）
+└─ Iroca.McpIntegration                  … MCP 連携（#if IROCA_MCP_PRESENT で自動ゲート）
 ```
 
-- 本体 asmdef の `references: []` は**「配布パッケージが MCPForUnity 等の外部パッケージに一切依存しない」**ことを構造的に保証している（`Code/com.yukkuri-aoba.camereo.Editor.asmdef`）。
+- 本体 asmdef の `references: []` は**「配布パッケージが MCPForUnity 等の外部パッケージに一切依存しない」**ことを構造的に保証している（`Code/com.yukkuri-aoba.iroca.Editor.asmdef`）。
 - Debug / MCP は `versionDefines` + `defineConstraints` で、依存パッケージが無ければコンパイル対象から外れる。**オプション機能をプラグイン化する設計として教科書的**。
 
 ### 1.2 フォルダ（≒論理レイヤー）
 
 | フォルダ | 役割 | 主なファイル |
 |---------|------|------------|
-| `Code/`(直下) | ドメイン中核 + ウィンドウ | `ColorZone.cs`(597)、`CamereoWindow.cs`(1285)、`Localization.cs`(572)、`CamereoConsts/Colors/PresetData` |
+| `Code/`(直下) | ドメイン中核 + ウィンドウ | `ColorZone.cs`(597)、`IrocaWindow.cs`(1285)、`Localization.cs`(572)、`IrocaConsts/Colors/PresetData` |
 | `Core/` | Editor 非依存の計算・状態 | `PixelProcessor.cs`(2588)、`ZoneAutoTuner.cs`(1129)、`PreviewJob`、`SessionState`、`TextureSlot`、`HighlightSampleCorrector` |
 | `UI/` | IMGUI 描画ビュー | `PreviewView.cs`(1049)、`MaskPaintView.cs`(1031)、`DetailPreviewView`、`ExportView`、`PresetsView` |
-| `Infra/` | 永続化・アセット監視 | `PresetStore`、`MaskFileStore`、`CamereoAssetWatcher` |
-| `Automation/` | ヘッドレス実行口 | `CamereoAutomation.cs`(572) |
+| `Infra/` | 永続化・アセット監視 | `PresetStore`、`MaskFileStore`、`IrocaAssetWatcher` |
+| `Automation/` | ヘッドレス実行口 | `IrocaAutomation.cs`(572) |
 | `Debug/` / `McpIntegration/` | オプション衛星 | 別 asmdef |
 
 ---
@@ -58,7 +58,7 @@ com.yukkuri-aoba.camereo.Editor        … 本体（Editor 専用、references: 
 ```
         ┌──────────── Automation ─── McpIntegration（衛星）
         │                  │
-   CamereoWindow(UI) ──→ UI/Views ──┐
+   IrocaWindow(UI) ──→ UI/Views ──┐
         │                            ├──→ Core（PixelProcessor / ZoneAutoTuner / PreviewJob …）
         │                            │         │
         └──────────────→ Infra ──────┘         └──→ ドメイン（ColorZone / SessionState）
@@ -72,11 +72,11 @@ com.yukkuri-aoba.camereo.Editor        … 本体（Editor 専用、references: 
 ### 2.2 検出した依存違反・におい
 
 1. **【要修正】Infra → UI の逆流**
-   `Code/Infra/PresetStore.cs:151` と `Code/Automation/CamereoAutomation.cs:382` が `CamereoWindow.ToAssetsRelative()` を呼ぶ。下位（永続化・自動化）が上位（UI ウィンドウ）の static メソッドに依存している。
+   `Code/Infra/PresetStore.cs:151` と `Code/Automation/IrocaAutomation.cs:382` が `IrocaWindow.ToAssetsRelative()` を呼ぶ。下位（永続化・自動化）が上位（UI ウィンドウ）の static メソッドに依存している。
    → `PathUtils.ToAssetsRelativeOrNull()` 等のユーティリティへ抽出すれば、Infra / Automation が完全に UI 非依存になる（低コスト・効果大）。
 
 2. **【構造的弱点】名前空間がフラット**
-   フォルダで `Core` / `UI` / `Infra` を分けているが、**名前空間は全て `Camereo`**（Debug/MCP のみ別）。`grep "^namespace"` で確認済み。レイヤー境界が**命名規約だけで、コンパイラに強制されていない**。`UI` が `Infra` の内部型を直接触っても誰も止められない。サブ名前空間（`Camereo.Core` 等）導入で境界を可視化・強制できる。
+   フォルダで `Core` / `UI` / `Infra` を分けているが、**名前空間は全て `Iroca`**（Debug/MCP のみ別）。`grep "^namespace"` で確認済み。レイヤー境界が**命名規約だけで、コンパイラに強制されていない**。`UI` が `Infra` の内部型を直接触っても誰も止められない。サブ名前空間（`Iroca.Core` 等）導入で境界を可視化・強制できる。
 
 3. **循環依存** … **なし**（Automation→Infra、Core→ドメインはいずれも一方向）。
 
@@ -148,13 +148,13 @@ com.yukkuri-aoba.camereo.Editor        … 本体（Editor 専用、references: 
 - **Core サポート群の粒度が適切**: `TextureSlot`(40行=Texture2D ライフサイクル)、`PreviewJob<T>`(126行=世代管理+キャンセル)、`MaskState`(23行=純データ)、`UndoHelper`(91行=Undo ラッパー) 等、いずれも単一責任で小さい。
 - **PreviewJob<T> の非同期抽象化**: 世代インクリメントで古い結果を破棄、`ConcurrentQueue` でメインスレッド復帰、ドメインリロード防御まで含む。プレビュー/Diff/オーバーレイ/エクスポート/自動調整が同じ仕組みに乗る。
 - **永続化の分離**: `PresetStore`（JSON、Assets/ユーザー/任意パスを明確に分岐）、`MaskFileStore`（GUID キーで rename/move 追従 + 二段構えの orphan 清理 `:119`）。マスクが空なら既存ファイルを削除しディスクを節約（`:47`）。
-- **ヘッドレス API の自己記述**: `CamereoAutomation.DescribeSchema()` が AI エージェント向けに JSON スキーマ・既定値・説明を返す。MCP ツールはこれを薄くラップするだけ。
+- **ヘッドレス API の自己記述**: `IrocaAutomation.DescribeSchema()` が AI エージェント向けに JSON スキーマ・既定値・説明を返す。MCP ツールはこれを薄くラップするだけ。
 
 ### 4.2 分離が弱い箇所（弱み）
 
-#### (A) `CamereoWindow` の神クラス化（Major）
+#### (A) `IrocaWindow` の神クラス化（Major）
 - 約 **38 フィールド・5+ の責務**（レイアウト / ゾーン CRUD / ドラッグ&ドロップ / 各 View 統制 / 自動調整ジョブ / Undo 統合 / パス正規化）。
-- View 群が `_host`（=CamereoWindow）への逆ポインタを持ち、`_host.Session.zones` / `_host._maskView` / `_host.MarkPreviewDirty()` と**内部構造へ直接アクセス**する（PreviewView ↔ MaskPaintView の相互参照を Window 経由で行う）。
+- View 群が `_host`（=IrocaWindow）への逆ポインタを持ち、`_host.Session.zones` / `_host._maskView` / `_host.MarkPreviewDirty()` と**内部構造へ直接アクセス**する（PreviewView ↔ MaskPaintView の相互参照を Window 経由で行う）。
 - dirty / pending / drag 状態が Window と各 View に**分散**し、状態遷移ルールが暗黙。
 - ※ ただし IMGUI（即時モード）では「描画と状態変更が同一フレームで混ざる」「`ExitGUI` 回避の pending パターン」は構造的に避けにくい。UI のテスト困難性も IMGUI 由来で、設計者だけの責任ではない。
 
@@ -180,8 +180,8 @@ com.yukkuri-aoba.camereo.Editor        … 本体（Editor 専用、references: 
 ## 5. 横断的関心事
 
 - **パフォーマンス**: `ArrayPool<float/bool>`（GC 圧迫回避）、マスクの `ulong[]` ビットパック（`MaskSnapshot`）、後段パスの **bbox 限定**（小マッチで全画素走査回避、出力ビット不変を担保）、`MaxDegreeOfParallelism = コア数-2` で Editor スレッドプール保護。詳細は [`csharp_performance_review_2026-06-12.md`](csharp_performance_review_2026-06-12.md)。**コア計算の性能設計は一級**。
-- **国際化**: `Localization.cs` に集約。キャッシュでアロケーション削減、言語設定を EditorPrefs に永続化。表示文字列の正を一元化し `CamereoConsts` は非多言語値のみ持つ、という分担も明確。
-- **定数集約**: `CamereoConsts`（レイアウト/プレビュー/実験フラグ）。実験機能は `ExperimentalFeatures.EnableFloodFill` のようにコンパイル時 const で集約。
+- **国際化**: `Localization.cs` に集約。キャッシュでアロケーション削減、言語設定を EditorPrefs に永続化。表示文字列の正を一元化し `IrocaConsts` は非多言語値のみ持つ、という分担も明確。
+- **定数集約**: `IrocaConsts`（レイアウト/プレビュー/実験フラグ）。実験機能は `ExperimentalFeatures.EnableFloodFill` のようにコンパイル時 const で集約。
 - **ドキュメント**: 数学レビュー・設計根拠・性能レビュー・リファクタ計画/アンチパターン台帳を体系保有。**コードと並走するドキュメント文化は希少な強み**。ただし `refactoring-unity-editor-antipatterns.md` は旧 partial class 時代（VACCWindow 4900行）の記述で**陳腐化**しており、「解消済み」追記が望ましい。
 
 ---
@@ -192,11 +192,11 @@ com.yukkuri-aoba.camereo.Editor        … 本体（Editor 専用、references: 
 |:----:|------|------|:----------:|
 | **A** | Infra→UI 逆流解消 | `ToAssetsRelative` を `PathUtils` へ抽出（PresetStore:151 / Automation:382） | 低 / 中 |
 | **A** | アンチパターン台帳の更新 | 旧 partial class 前提の記述に「解消済み」を明記し誤読防止 | 低 / 中 |
-| **B** | レイヤー名前空間の導入 | `Camereo.Core/UI/Infra` で境界をコンパイラ強制 | 中 / 中 |
+| **B** | レイヤー名前空間の導入 | `Iroca.Core/UI/Infra` で境界をコンパイラ強制 | 中 / 中 |
 | **B** | C#↔Python ドリフト対策 | 移植チェックリスト + headless 差分テストの常設化 | 中 / 大 |
 | **B** | パラメータの構造体化 | `RecolorPixel`/`ColorZone` の関連引数をグループ化 | 中 / 中 |
 | **C** | `ProcessPixelsArray` の段分割 | パイプライン段を抽出しテスト境界を作る（出力不変を担保しつつ） | 大 / 中 |
-| **C** | `CamereoWindow` の状態集約 | dirty/pending を状態クラスへ、View の Window 内部参照を縮小 | 大 / 中 |
+| **C** | `IrocaWindow` の状態集約 | dirty/pending を状態クラスへ、View の Window 内部参照を縮小 | 大 / 中 |
 | **C** | `ColorZone` マジックナンバー命名 | インライン定数を named const + 根拠コメント化 | 低 / 小 |
 
 > いずれも**設計の根本的欠陥ではなく、物量・境界強制・運用ドリフトの管理**に関する改善。コア（計算層の分離と再着色アルゴリズム）には手を入れる必要がない。
@@ -216,19 +216,19 @@ com.yukkuri-aoba.camereo.Editor        … 本体（Editor 専用、references: 
 | C3 ColorZone マジックナンバー命名 | ✅ 解消 | `9386ddf` | マッチ部のインライン定数を named const + 根拠/同期コメント化。出力バイト不変 |
 | B1 レイヤー名前空間導入 | ⏸ 見送り | — | 26 ファイル一括変更・回帰面が広く効果中。asmdef + headless 制約で境界は概ね既達のため限界効用が小さい |
 | C1 ProcessPixelsArray 段分割 | ⏸ 見送り | — | 既に 8 段抽出済み・共有可変バッファ密結合でコスト大。テスト境界は B2 ゴールデンで代替 |
-| C2 CamereoWindow 状態集約 | ⏸ 見送り | — | IMGUI 構造的制約・View 逆参照 66 箇所で大規模・実機手動検証必須 |
+| C2 IrocaWindow 状態集約 | ⏸ 見送り | — | IMGUI 構造的制約・View 逆参照 66 箇所で大規模・実機手動検証必須 |
 
 補足:
 - **B2 の方針変更**: 当初案（C#↔Python 双方向一致テスト）は、実測で両者が複数経路（グレーモード・ハイライト等）で意図的に乖離していることが判明し、かつ「Python は使い捨て」という運用方針と相反するため不採用。代わりに製品である C# 自身の出力スナップショットを固定する回帰テストとした。
-- 既存の `dev_safe/Tests/regression/test_csharp_quality_gate.py` が旧 DLL 名 `VACCHeadless` を参照したまま skip に落ちていたリネーム取り残しをローカル修正（`CamereoHeadless`）。`dev_safe` は git 管理外のためコミットには含まれない。
+- 既存の `dev_safe/Tests/regression/test_csharp_quality_gate.py` が旧 DLL 名 `VACCHeadless` を参照したまま skip に落ちていたリネーム取り残しをローカル修正（`IrocaHeadless`）。`dev_safe` は git 管理外のためコミットには含まれない。
 
 ---
 
 ## 7. 結論
 
-Camereo は **「画像処理エンジン」としては模範的に分離されたアーキテクチャ**を持つ。選択 / 自動調整 / 再着色の 3 関心事が疎結合で、計算層が Unity Editor から完全独立し headless テスト可能であること、オプション機能（Debug / MCP）が asmdef + 条件コンパイルで本体から隔離され外部依存ゼロを保っていることは、特に評価できる。
+Iroca は **「画像処理エンジン」としては模範的に分離されたアーキテクチャ**を持つ。選択 / 自動調整 / 再着色の 3 関心事が疎結合で、計算層が Unity Editor から完全独立し headless テスト可能であること、オプション機能（Debug / MCP）が asmdef + 条件コンパイルで本体から隔離され外部依存ゼロを保っていることは、特に評価できる。
 
-一方、弱点は **Unity Editor UI 層とコード物量の管理**に集中する。`CamereoWindow` の神クラス化と View の逆依存、`PixelProcessor`(2588行)/`ProcessPixelsArray`(600行) の単一肥大、約 30 引数のパラメータ爆発、そして C# と Python の二重実装によるドリフトリスクが主な負債である。ただしこれらは段階的リファクタで解消可能で、コア計算の正しさ・性能には影響しない。
+一方、弱点は **Unity Editor UI 層とコード物量の管理**に集中する。`IrocaWindow` の神クラス化と View の逆依存、`PixelProcessor`(2588行)/`ProcessPixelsArray`(600行) の単一肥大、約 30 引数のパラメータ爆発、そして C# と Python の二重実装によるドリフトリスクが主な負債である。ただしこれらは段階的リファクタで解消可能で、コア計算の正しさ・性能には影響しない。
 
 総じて、**「価値の中心（再着色アルゴリズム）を最も丁寧に設計し、周辺（UI・物量・運用）に技術的負債を寄せている」**、優先順位の付け方として合理的なコードベースである。
 

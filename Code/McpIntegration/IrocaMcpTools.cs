@@ -1,27 +1,27 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 //
-// MCPForUnity（https://github.com/CoplayDev/unity-mcp）のカスタムツールとして Camereo を公開する。
+// MCPForUnity（https://github.com/CoplayDev/unity-mcp）のカスタムツールとして Iroca を公開する。
 // このアセンブリは MCPForUnity（パッケージ id com.coplaydev.unity-mcp）が導入されているときだけ
-// コンパイルされる（asmdef の versionDefines + defineConstraints による CAMEREO_MCP_PRESENT ゲート）。
+// コンパイルされる（asmdef の versionDefines + defineConstraints による IROCA_MCP_PRESENT ゲート）。
 // → 配布パッケージ本体は MCPForUnity への依存ゼロを維持する。
 //
-// 駆動経路: AI エージェントは execute_custom_tool("camereo_recolor", {...}) のように呼ぶ。
-// 各ツールは CamereoAutomation の公開静的 API を薄くラップするだけで、変換の中核（RunRecolorCore）は共有。
-#if CAMEREO_MCP_PRESENT
+// 駆動経路: AI エージェントは execute_custom_tool("iroca_recolor", {...}) のように呼ぶ。
+// 各ツールは IrocaAutomation の公開静的 API を薄くラップするだけで、変換の中核（RunRecolorCore）は共有。
+#if IROCA_MCP_PRESENT
 using Newtonsoft.Json.Linq;
 using MCPForUnity.Editor.Helpers;
 using MCPForUnity.Editor.Tools;
 
-namespace Camereo.McpIntegration
+namespace Iroca.McpIntegration
 {
     /// <summary>
     /// テクスチャを再着色して PNG を書き出す MCP カスタムツール。
-    /// <c>preset</c> を渡せばプリセット経路（<see cref="CamereoAutomation.RecolorByPreset"/>）、
-    /// <c>zones</c> を渡せばその場のゾーン指定経路（<see cref="CamereoAutomation.RecolorWithZones"/>）を通る。
+    /// <c>preset</c> を渡せばプリセット経路（<see cref="IrocaAutomation.RecolorByPreset"/>）、
+    /// <c>zones</c> を渡せばその場のゾーン指定経路（<see cref="IrocaAutomation.RecolorWithZones"/>）を通る。
     /// </summary>
-    [McpForUnityTool("camereo_recolor")]
-    public static class CamereoRecolorTool
+    [McpForUnityTool("iroca_recolor")]
+    public static class IrocaRecolorTool
     {
         public class Parameters
         {
@@ -34,7 +34,7 @@ namespace Camereo.McpIntegration
             [ToolParameter("プリセットのファイルパス・プリセット名・インライン JSON のいずれか。zones と排他", Required = false)]
             public string preset { get; set; }
 
-            [ToolParameter("その場のゾーン設定 JSON（{\"zones\":[...],\"settings\":{...}}）。preset と排他。スキーマは camereo_describe_schema 参照", Required = false)]
+            [ToolParameter("その場のゾーン設定 JSON（{\"zones\":[...],\"settings\":{...}}）。preset と排他。スキーマは iroca_describe_schema 参照", Required = false)]
             public string zones { get; set; }
         }
 
@@ -52,20 +52,20 @@ namespace Camereo.McpIntegration
             if (hasPreset == hasZones)
                 return new ErrorResponse("exactly one of 'preset' or 'zones' must be provided");
 
-            // CamereoAutomation は例外を投げず {"ok":...} の JSON 文字列を返す設計。
+            // IrocaAutomation は例外を投げず {"ok":...} の JSON 文字列を返す設計。
             string json = hasPreset
-                ? CamereoAutomation.RecolorByPreset(p.source, p.preset, p.output)
-                : CamereoAutomation.RecolorWithZones(p.source, p.zones, p.output);
+                ? IrocaAutomation.RecolorByPreset(p.source, p.preset, p.output)
+                : IrocaAutomation.RecolorWithZones(p.source, p.zones, p.output);
 
             return WrapResult(json, "recolor failed");
         }
 
-        // CamereoAutomation の JSON 文字列を MCP の Success/Error レスポンスへ整形する。
+        // IrocaAutomation の JSON 文字列を MCP の Success/Error レスポンスへ整形する。
         internal static object WrapResult(string json, string fallbackError)
         {
             JObject data;
             try { data = JObject.Parse(json); }
-            catch { return new ErrorResponse($"{fallbackError}: invalid JSON from Camereo: {json}"); }
+            catch { return new ErrorResponse($"{fallbackError}: invalid JSON from Iroca: {json}"); }
 
             bool ok = data.TryGetValue("ok", out var okToken) && okToken.Type == JTokenType.Boolean && okToken.Value<bool>();
             if (!ok)
@@ -81,31 +81,31 @@ namespace Camereo.McpIntegration
         internal static object WrapResultLenient(string json, string fallbackError)
         {
             try { return new SuccessResponse("ok", JObject.Parse(json)); }
-            catch { return new ErrorResponse($"{fallbackError}: invalid JSON from Camereo: {json}"); }
+            catch { return new ErrorResponse($"{fallbackError}: invalid JSON from Iroca: {json}"); }
         }
     }
 
     /// <summary>呼び出し方・入力スキーマ・既定値・フィールド説明を返す自己発見用ツール。</summary>
-    [McpForUnityTool("camereo_describe_schema")]
-    public static class CamereoDescribeSchemaTool
+    [McpForUnityTool("iroca_describe_schema")]
+    public static class IrocaDescribeSchemaTool
     {
         public class Parameters { }
 
         public static object HandleCommand(JObject @params)
         {
-            return CamereoRecolorTool.WrapResultLenient(CamereoAutomation.DescribeSchema(), "describe_schema failed");
+            return IrocaRecolorTool.WrapResultLenient(IrocaAutomation.DescribeSchema(), "describe_schema failed");
         }
     }
 
     /// <summary>プロジェクト/ユーザー保存先のプリセット一覧を返すツール。</summary>
-    [McpForUnityTool("camereo_list_presets")]
-    public static class CamereoListPresetsTool
+    [McpForUnityTool("iroca_list_presets")]
+    public static class IrocaListPresetsTool
     {
         public class Parameters { }
 
         public static object HandleCommand(JObject @params)
         {
-            return CamereoRecolorTool.WrapResultLenient(CamereoAutomation.ListPresets(), "list_presets failed");
+            return IrocaRecolorTool.WrapResultLenient(IrocaAutomation.ListPresets(), "list_presets failed");
         }
     }
 }

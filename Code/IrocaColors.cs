@@ -1,12 +1,12 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using UnityEditor;
 using UnityEngine;
 
-namespace Camereo
+namespace Iroca
 {
     // GUI で使うカラー定数を Light/Dark Skin で出し分けるユーティリティ。
-    internal static class CamereoColors
+    internal static class IrocaColors
     {
         public static Color ActiveMaskTarget =>
             EditorGUIUtility.isProSkin

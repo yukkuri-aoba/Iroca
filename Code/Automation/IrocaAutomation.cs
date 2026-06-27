@@ -1,4 +1,4 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.Collections.Generic;
@@ -7,12 +7,12 @@ using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
-namespace Camereo
+namespace Iroca
 {
     /// <summary>
-    /// Unity MCP / AI エージェントから Camereo をヘッドレス駆動するための自動化 API。
+    /// Unity MCP / AI エージェントから Iroca をヘッドレス駆動するための自動化 API。
     ///
-    /// UI（CamereoWindow / ExportView）を介さず、テクスチャ読込 → 再着色 → PNG 出力までを
+    /// UI（IrocaWindow / ExportView）を介さず、テクスチャ読込 → 再着色 → PNG 出力までを
     /// 静的メソッド一発で実行できる。<see cref="ExportView"/> の実出力経路（ディスクの PNG を
     /// 直接読み、<see cref="PixelProcessor.ProcessPixelsArray(Color32[],int,int,MaskSnapshot,System.Collections.Generic.IList{ColorZone},float,int,int,int,float,float,int,int,int,int,bool,int,float,IDebugCapture)"/>
     /// に通す）をそのまま同期で再現するので、製品の出力と一致する。
@@ -20,20 +20,20 @@ namespace Camereo
     /// 呼び出し経路は 3 つ。いずれも同じ中核（<see cref="RunRecolorCore"/>）を通る:
     ///   1. 静的 API: <see cref="RecolorByPreset"/> / <see cref="RecolorWithZones"/> 等。戻り値は JSON 文字列。
     ///      生 C# 実行が可能な MCP クライアント・EditMode テストから直接呼ぶ。
-    ///   2. MCPForUnity カスタムツール: <c>Code/McpIntegration/CamereoMcpTools.cs</c> の <c>camereo_recolor</c> 等。
+    ///   2. MCPForUnity カスタムツール: <c>Code/McpIntegration/IrocaMcpTools.cs</c> の <c>iroca_recolor</c> 等。
     ///      <c>execute_custom_tool</c> から本クラスの公開静的 API を呼ぶ。MCPForUnity 導入時のみ
-    ///      コンパイルされる別 asmdef（CAMEREO_MCP_PRESENT ゲート）で、配布パッケージ本体は依存ゼロを保つ。
+    ///      コンパイルされる別 asmdef（IROCA_MCP_PRESENT ゲート）で、配布パッケージ本体は依存ゼロを保つ。
     ///      生 C# 実行に非対応のクライアントでも駆動できる（Tools メニューには何も追加しない）。
-    ///   3. batchmode CLI: <c>Unity.exe -batchmode -executeMethod Camereo.CamereoAutomation.RunFromCommandLine ...</c>。
+    ///   3. batchmode CLI: <c>Unity.exe -batchmode -executeMethod Iroca.IrocaAutomation.RunFromCommandLine ...</c>。
     ///
     /// v1 ではプリセット同梱マスクはヘッドレス適用しない（パーツ単位の粗いマスクは後続対応）。
     /// マスクを含むプリセットを渡した場合は結果 JSON の warnings で明示する。
     /// </summary>
-    public static class CamereoAutomation
+    public static class IrocaAutomation
     {
         // ジョブ/結果ファイルの置き場。git 非追跡の UserSettings 配下に置き、Assets の import 揺れを避ける。
         private static string McpDir =>
-            Path.GetFullPath(Path.Combine(Application.dataPath, "..", "UserSettings/Camereo/mcp"));
+            Path.GetFullPath(Path.Combine(Application.dataPath, "..", "UserSettings/Iroca/mcp"));
 
         // ───────────────────────────── DTO ─────────────────────────────
 
@@ -121,7 +121,7 @@ namespace Camereo
         [Serializable]
         private class SchemaDoc
         {
-            public string name = "com.yukkuri-aoba.camereo";
+            public string name = "com.yukkuri-aoba.iroca";
             public string version = "";
             public string[] methods;
             public string[] notes;
@@ -139,11 +139,11 @@ namespace Camereo
             string version = "unknown";
             try
             {
-                var info = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(CamereoAutomation).Assembly);
+                var info = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(IrocaAutomation).Assembly);
                 if (info != null && !string.IsNullOrEmpty(info.version)) version = info.version;
             }
             catch { /* 埋め込み配置などで解決できない場合は unknown のまま */ }
-            return $"{{\"ok\":true,\"name\":\"com.yukkuri-aoba.camereo\",\"version\":\"{version}\"}}";
+            return $"{{\"ok\":true,\"name\":\"com.yukkuri-aoba.iroca\",\"version\":\"{version}\"}}";
         }
 
         /// <summary>
@@ -168,7 +168,7 @@ namespace Camereo
                     "パスは Assets 相対（Assets/...）・プロジェクト相対・絶対のいずれも可。出力は .png。",
                     "色は [r,g,b]（0..1）。enabled なゾーンが 1 つも無いと error になる。",
                     "v1 ではプリセット同梱マスクはヘッドレス適用しない（適用時は warnings に明記）。",
-                    "MCP 経路: execute_custom_tool(\"camereo_recolor\", { source, output, preset|zones }) で呼ぶ（メニュー非依存）。",
+                    "MCP 経路: execute_custom_tool(\"iroca_recolor\", { source, output, preset|zones }) で呼ぶ（メニュー非依存）。",
                 },
                 fieldDocs = new[]
                 {
@@ -263,24 +263,24 @@ namespace Camereo
         }
 
         // メニュー経路（execute_menu_item）は廃止。MCP からの駆動は MCPForUnity カスタムツール
-        // （Code/McpIntegration/CamereoMcpTools.cs の camereo_recolor 等）経由で公開静的 API を呼ぶ。
+        // （Code/McpIntegration/IrocaMcpTools.cs の iroca_recolor 等）経由で公開静的 API を呼ぶ。
         // Tools メニューにはウィンドウ起動の単一項目だけを残し、サブメニュー二重表示を避ける。
 
         // ─────────────────────── batchmode CLI ───────────────────────
 
         /// <summary>
-        /// <c>Unity.exe -batchmode -quit -executeMethod Camereo.CamereoAutomation.RunFromCommandLine
-        ///   -camereoSource &lt;path&gt; -camereoOutput &lt;path&gt; (-camereoPreset &lt;path|name&gt; | -camereoZonesFile &lt;json&gt; | -camereoJob &lt;json&gt;)</c>
-        /// で呼ぶ、MCP を介さない完全ヘッドレス経路。結果は Console と UserSettings/Camereo/mcp/result.json に出す。
+        /// <c>Unity.exe -batchmode -quit -executeMethod Iroca.IrocaAutomation.RunFromCommandLine
+        ///   -irocaSource &lt;path&gt; -irocaOutput &lt;path&gt; (-irocaPreset &lt;path|name&gt; | -irocaZonesFile &lt;json&gt; | -irocaJob &lt;json&gt;)</c>
+        /// で呼ぶ、MCP を介さない完全ヘッドレス経路。結果は Console と UserSettings/Iroca/mcp/result.json に出す。
         /// </summary>
         public static void RunFromCommandLine()
         {
             string[] args = Environment.GetCommandLineArgs();
-            string source = GetArg(args, "-camereoSource");
-            string output = GetArg(args, "-camereoOutput");
-            string preset = GetArg(args, "-camereoPreset");
-            string zonesFile = GetArg(args, "-camereoZonesFile");
-            string jobFile = GetArg(args, "-camereoJob");
+            string source = GetArg(args, "-irocaSource");
+            string output = GetArg(args, "-irocaOutput");
+            string preset = GetArg(args, "-irocaPreset");
+            string zonesFile = GetArg(args, "-irocaZonesFile");
+            string jobFile = GetArg(args, "-irocaJob");
 
             string resultJson;
             try
@@ -310,8 +310,8 @@ namespace Camereo
             }
 
             WriteMcpFile(Path.Combine(McpDir, "result.json"), resultJson);
-            Debug.Log($"[Camereo][MCP] CLI result: {resultJson}");
-            Console.WriteLine($"[Camereo][MCP] {resultJson}");
+            Debug.Log($"[Iroca][MCP] CLI result: {resultJson}");
+            Console.WriteLine($"[Iroca][MCP] {resultJson}");
         }
 
         // ─────────────────────── 中核 ───────────────────────
@@ -321,7 +321,7 @@ namespace Camereo
         /// 全経路がここを通る。<see cref="ExportView.ApplyRecolor"/> のメインスレッド前処理と同じ手順。
         /// </summary>
         private static RecolorResult RunRecolorCore(
-            string sourceAssetPath, List<ColorZone> zones, CamereoSessionState s,
+            string sourceAssetPath, List<ColorZone> zones, IrocaSessionState s,
             string outputAssetPath, List<string> warnings)
         {
             var result = new RecolorResult { warnings = warnings ?? new List<string>() };
@@ -434,9 +434,9 @@ namespace Camereo
                 c != null && c.Length > 1 ? c[1] : 0f,
                 c != null && c.Length > 2 ? c[2] : 0f, 1f);
 
-        private static CamereoSessionState SettingsFromPreset(CamereoPresetData p)
+        private static IrocaSessionState SettingsFromPreset(IrocaPresetData p)
         {
-            var s = CamereoSessionState.CreateDefault();
+            var s = IrocaSessionState.CreateDefault();
             s.edgeFeather = p.edgeFeather;
             // advancedMode は UI 表示レベルのみで処理結果に影響しないため移送しない。
             s.antiAliasCleanup = p.antiAliasCleanup;
@@ -449,9 +449,9 @@ namespace Camereo
             return s;
         }
 
-        private static CamereoSessionState SettingsFromDto(SettingsDto d)
+        private static IrocaSessionState SettingsFromDto(SettingsDto d)
         {
-            var s = CamereoSessionState.CreateDefault();
+            var s = IrocaSessionState.CreateDefault();
             s.edgeFeather = d.edgeFeather;
             s.antiAliasCleanup = d.antiAliasCleanup;
             s.holeFillPasses = d.holeFillPasses;
@@ -464,9 +464,9 @@ namespace Camereo
         }
 
         /// <summary>
-        /// プリセット指定（ファイルパス / プリセット名 / インライン JSON）を <see cref="CamereoPresetData"/> へ解決する。
+        /// プリセット指定（ファイルパス / プリセット名 / インライン JSON）を <see cref="IrocaPresetData"/> へ解決する。
         /// </summary>
-        private static CamereoPresetData ResolvePreset(string spec)
+        private static IrocaPresetData ResolvePreset(string spec)
         {
             if (string.IsNullOrWhiteSpace(spec)) return null;
 
@@ -478,7 +478,7 @@ namespace Camereo
             string trimmed = spec.TrimStart();
             if (trimmed.StartsWith("{"))
             {
-                try { return JsonUtility.FromJson<CamereoPresetData>(spec); }
+                try { return JsonUtility.FromJson<IrocaPresetData>(spec); }
                 catch { return null; }
             }
 
@@ -491,7 +491,7 @@ namespace Camereo
             return null;
         }
 
-        private static bool HasEmbeddedMask(CamereoPresetData p)
+        private static bool HasEmbeddedMask(IrocaPresetData p)
         {
             if (p == null) return false;
             if (p.maskWidth <= 0 || p.maskHeight <= 0) return false;
@@ -547,7 +547,7 @@ namespace Camereo
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[Camereo][MCP] failed to write {path}: {ex.Message}");
+                Debug.LogWarning($"[Iroca][MCP] failed to write {path}: {ex.Message}");
             }
         }
 
@@ -555,7 +555,7 @@ namespace Camereo
         {
             try
             {
-                var info = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(CamereoAutomation).Assembly);
+                var info = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(IrocaAutomation).Assembly);
                 return info != null && !string.IsNullOrEmpty(info.version) ? info.version : "unknown";
             }
             catch { return "unknown"; }

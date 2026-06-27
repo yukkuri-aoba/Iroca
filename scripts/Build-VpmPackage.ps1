@@ -10,7 +10,7 @@
     If omitted, a zip without unitypackage is created (SHA256 will differ from final zip).
 
 .EXAMPLE
-    .\scripts\Build-VpmPackage.ps1 -UnityPackagePath "C:\path\to\Camereo_Ver0.2.0.unitypackage"
+    .\scripts\Build-VpmPackage.ps1 -UnityPackagePath "C:\path\to\Iroca_Ver0.2.0.unitypackage"
 #>
 param(
     [string]$Version = "",
@@ -21,8 +21,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $Root        = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$PackageId   = "com.yukkuri-aoba.camereo"
-$RepoUrl     = "https://github.com/yukkuri-aoba/Camereo"
+$PackageId   = "com.yukkuri-aoba.iroca"
+$RepoUrl     = "https://github.com/yukkuri-aoba/Iroca"
 $PkgJsonPath = Join-Path $Root "package.json"
 $IndexPath   = Join-Path $Root "docs\index.json"
 

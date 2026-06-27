@@ -1,22 +1,22 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
 
-namespace Camereo
+namespace Iroca
 {
     /// <summary>
     /// プリセット JSON の保存・読込・削除と、保存先フォルダの解決を担う。
     /// UI / プレビュー状態 / マスク描画には依存しない。
-    /// 既存 <see cref="CamereoPresetData"/> のスキーマはそのまま使う。
+    /// 既存 <see cref="IrocaPresetData"/> のスキーマはそのまま使う。
     /// </summary>
     internal static class PresetStore
     {
-        // Assets/Camereo/Editor 配置を前提とした固定パス。
+        // Assets/Iroca/Editor 配置を前提とした固定パス。
         // 自己探索を廃止して挙動の予測可能性を上げる。
-        private const string ProjectPresetFolderRelative = "Assets/Camereo/Presets";
+        private const string ProjectPresetFolderRelative = "Assets/Iroca/Presets";
 
         public static string ProjectPresetFolder
             => Path.GetFullPath(Path.Combine(
@@ -25,13 +25,13 @@ namespace Camereo
         public static string UserPresetFolder
             => Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "CamereoPresets");
+                "IrocaPresets");
 
         /// <summary>
         /// プロジェクト保存フォルダ内に <paramref name="name"/>.json として書き出し、
         /// Assets 配下なら AssetDatabase に取り込む。成功したら true。
         /// </summary>
-        public static bool SaveToProject(string name, CamereoPresetData data)
+        public static bool SaveToProject(string name, IrocaPresetData data)
         {
             if (data == null) return false;
             string sanitized = SanitizeFileName(name);
@@ -45,10 +45,10 @@ namespace Camereo
         }
 
         /// <summary>
-        /// ユーザー保存フォルダ（%APPDATA%/CamereoPresets）に書き出す。
+        /// ユーザー保存フォルダ（%APPDATA%/IrocaPresets）に書き出す。
         /// Assets 外なので AssetDatabase は触らない。成功したら true。
         /// </summary>
-        public static bool SaveToUser(string name, CamereoPresetData data)
+        public static bool SaveToUser(string name, IrocaPresetData data)
         {
             if (data == null) return false;
             string sanitized = SanitizeFileName(name);
@@ -60,27 +60,27 @@ namespace Camereo
         /// <summary>
         /// 任意の絶対パスへ書き出す（エクスポート用）。成功したら true。
         /// </summary>
-        public static bool SaveToPath(string path, CamereoPresetData data)
+        public static bool SaveToPath(string path, IrocaPresetData data)
         {
             if (data == null || string.IsNullOrEmpty(path)) return false;
             return WriteJson(path, data);
         }
 
         /// <summary>
-        /// 指定 JSON ファイルから <see cref="CamereoPresetData"/> を読み込む。
+        /// 指定 JSON ファイルから <see cref="IrocaPresetData"/> を読み込む。
         /// 失敗時は <c>null</c>。
         /// </summary>
-        public static CamereoPresetData Load(string filePath)
+        public static IrocaPresetData Load(string filePath)
         {
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return null;
             try
             {
                 string json = File.ReadAllText(filePath);
-                return JsonUtility.FromJson<CamereoPresetData>(json);
+                return JsonUtility.FromJson<IrocaPresetData>(json);
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[Camereo] Preset load failed: {ex.Message}");
+                Debug.LogWarning($"[Iroca] Preset load failed: {ex.Message}");
                 return null;
             }
         }
@@ -100,7 +100,7 @@ namespace Camereo
             if (File.Exists(filePath))
             {
                 try { File.Delete(filePath); return true; }
-                catch (Exception ex) { Debug.LogWarning($"[Camereo] Preset delete failed: {ex.Message}"); return false; }
+                catch (Exception ex) { Debug.LogWarning($"[Iroca] Preset delete failed: {ex.Message}"); return false; }
             }
             return false;
         }
@@ -125,7 +125,7 @@ namespace Camereo
                 Directory.CreateDirectory(folder);
         }
 
-        private static bool WriteJson(string path, CamereoPresetData data)
+        private static bool WriteJson(string path, IrocaPresetData data)
         {
             try
             {
@@ -134,7 +134,7 @@ namespace Camereo
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"[Camereo] Preset save failed: {ex.Message}");
+                Debug.LogWarning($"[Iroca] Preset save failed: {ex.Message}");
                 return false;
             }
         }

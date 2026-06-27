@@ -1,4 +1,4 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
 using System.IO;
@@ -6,7 +6,7 @@ using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
-namespace Camereo
+namespace Iroca
 {
     /// <summary>
     /// プリセット一覧 UI、保存 / 読込 / JSON 入出力を担当する。
@@ -22,12 +22,12 @@ namespace Camereo
         public bool presetApplyMasks = true;
 
         [System.NonSerialized] private Vector2 _presetScrollPos;
-        [System.NonSerialized] private CamereoWindow _host;
+        [System.NonSerialized] private IrocaWindow _host;
 
         private string ActivePresetFolder
             => presetStorageProject ? PresetStore.ProjectPresetFolder : PresetStore.UserPresetFolder;
 
-        public void Initialize(CamereoWindow host)
+        public void Initialize(IrocaWindow host)
         {
             _host = host;
         }
@@ -56,7 +56,7 @@ namespace Camereo
             presetSaveName = EditorGUILayout.TextField(
                 new GUIContent(Localization.PresetName, Localization.PresetNameTooltip),
                 presetSaveName);
-            if (GUILayout.Button(new GUIContent(Localization.SavePreset, Localization.SavePresetTooltip), GUILayout.Width(CamereoConsts.Layout.SmallButtonWidth)))
+            if (GUILayout.Button(new GUIContent(Localization.SavePreset, Localization.SavePresetTooltip), GUILayout.Width(IrocaConsts.Layout.SmallButtonWidth)))
                 SavePreset(presetSaveName);
             EditorGUILayout.EndHorizontal();
 
@@ -91,7 +91,7 @@ namespace Camereo
                     EditorGUILayout.LabelField(pname, GUILayout.ExpandWidth(true));
                     if (GUILayout.Button(new GUIContent(Localization.LoadPreset, Localization.LoadPresetTooltip), GUILayout.Width(40)))
                         LoadPreset(file);
-                    if (GUILayout.Button(new GUIContent("×", Localization.DeletePresetTooltip), GUILayout.Width(CamereoConsts.Layout.RemoveButtonWidth)))
+                    if (GUILayout.Button(new GUIContent("×", Localization.DeletePresetTooltip), GUILayout.Width(IrocaConsts.Layout.RemoveButtonWidth)))
                     {
                         if (EditorUtility.DisplayDialog(Localization.Confirm,
                             Localization.DeletePresetConfirm(pname), Localization.OK, Localization.Cancel))
@@ -138,8 +138,8 @@ namespace Camereo
             _host?.ShowNotification(new GUIContent(message));
         }
 
-        // 現在の設定を CamereoPresetData に詰めて返す。
-        private CamereoPresetData BuildPresetData(string presetName)
+        // 現在の設定を IrocaPresetData に詰めて返す。
+        private IrocaPresetData BuildPresetData(string presetName)
         {
             _host.EnsureAllZoneIds();
             var session = _host.Session;
@@ -148,7 +148,7 @@ namespace Camereo
             // id は必ず引き継ぐため変わらない
             var zonesCopy = new List<ColorZone>(session.zones);
 
-            var data = new CamereoPresetData
+            var data = new IrocaPresetData
             {
                 name = presetName,
                 zones = zonesCopy,
@@ -191,7 +191,7 @@ namespace Camereo
             // 「クラスのフィールド初期化子の値を保持」するため、ここで `> 0 ? : default` のような
             // defaulting を行うとユーザーが明示的に 0 を保存したケース（UI レンジに 0 を含む
             // antiAliasCleanup や holeFillPasses）を不当に書き換えてしまう。
-            // 旧バージョンとの後方互換は CamereoPresetData の初期化子側に寄せる。
+            // 旧バージョンとの後方互換は IrocaPresetData の初期化子側に寄せる。
             var session = _host.Session;
             session.zones = data.zones ?? new List<ColorZone>();
             MigrateLegacyLayerPriority(session.zones);
@@ -242,7 +242,7 @@ namespace Camereo
         private void ExportPresetJson()
         {
             string path = EditorUtility.SaveFilePanel(
-                Localization.ExportJson, "", "Camereo_preset", "json");
+                Localization.ExportJson, "", "Iroca_preset", "json");
             if (string.IsNullOrEmpty(path)) return;
             var data = BuildPresetData(Path.GetFileNameWithoutExtension(path));
             bool ok = PresetStore.SaveToPath(path, data);

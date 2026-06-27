@@ -1,18 +1,18 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using UnityEditor;
 using UnityEngine;
 
-namespace Camereo.DebugTools
+namespace Iroca.DebugTools
 {
     /// <summary>
-    /// CamereoWindow に組み込まれる「スレッド数調整 + パフォーマンス表示」セクション。
+    /// IrocaWindow に組み込まれる「スレッド数調整 + パフォーマンス表示」セクション。
     /// Debug asmdef ごと削除すれば <see cref="DebugBootstrap"/> の登録も消え、本体に影響なし。
     /// </summary>
     internal static class PerfView
     {
-        private const string PrefKeyThreads = "Camereo.Perf.ThreadOverride";
+        private const string PrefKeyThreads = "Iroca.Perf.ThreadOverride";
 
         private static bool s_prefsLoaded;
         private static volatile bool s_hasReport;
@@ -30,7 +30,7 @@ namespace Camereo.DebugTools
             s_hasReport = true;
         }
 
-        internal static void Draw(CamereoWindow host)
+        internal static void Draw(IrocaWindow host)
         {
             EnsurePrefsLoaded();
             EditorGUILayout.Space(4);
@@ -48,7 +48,7 @@ namespace Camereo.DebugTools
             }
         }
 
-        private static void DrawThreadControl(CamereoWindow host)
+        private static void DrawThreadControl(IrocaWindow host)
         {
             int cpuCount = Environment.ProcessorCount;
             int defaultCount = Math.Max(1, cpuCount - 2);

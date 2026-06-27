@@ -102,7 +102,7 @@ python dev_safe/Tests/run_baseline.py --subject <bandana|haolan-costume|haolan-s
   **製品 C# に存在しない**（`grep` 0 件）。Python 専用機能をテストして「緑」になっていた＝最も危険な
   ドリフト（実在しない挙動への偽の安心）。製品に無い以上、守るべき挙動が無い。
 - 副産物のバグ修正: `test_triangle_csharp_headless.py` / `test_recolor_anchor_brightness.py` が
-  旧アセンブリ名 `VACCHeadless.dll` を参照しており**サイレント skip していた**のを `CamereoHeadless.dll`
+  旧アセンブリ名 `VACCHeadless.dll` を参照しており**サイレント skip していた**のを `IrocaHeadless.dll`
   へ修正。これで 16 個の実 C# テストが復活し全 pass。
 
 ### 将来 C# へ移植する候補（撤去機能のアイデアは保存）
