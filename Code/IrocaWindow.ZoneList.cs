@@ -173,257 +173,13 @@ namespace Iroca
             // ドラッグハンドル用スタイルとヘッダ行の GUIContent は静的キャッシュを使う
             // (毎フレーム×ゾーン数のアロケーション回避。言語切替時のみ再構築)。
             EnsureZoneListCache();
-            var dragHandleStyle = s_dragHandleStyle;
             // 各ゾーンの矩形を記録し、ドロップ位置の判定とインジケータ描画に使う。
             var zoneRects = new List<Rect>(zones.Count);
 
             int removeIndex = -1;
             for (int i = 0; i < zones.Count; i++)
             {
-                var zone = zones[i];
-                zone.EnsureId();
-                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-
-                // Header row
-                EditorGUILayout.BeginHorizontal();
-                // ドラッグハンドル: 掴んでリストを並べ替える＝優先度を変える。
-                // 幅は行高(singleLineHeight)に追従させ、エディタのフォントサイズが大きいときも
-                // 縦長に潰れないようにする（高さだけ追従して幅が固定だと非対称になる）。
-                float rowH = EditorGUIUtility.singleLineHeight;
-                GUILayout.Label(s_dragHandleContent,
-                    dragHandleStyle, GUILayout.Width(rowH), GUILayout.Height(rowH));
-                Rect handleRect = GUILayoutUtility.GetLastRect();
-                EditorGUIUtility.AddCursorRect(handleRect, MouseCursor.Pan);
-                if (GUI.enabled && Event.current.type == EventType.MouseDown
-                    && handleRect.Contains(Event.current.mousePosition))
-                {
-                    _dragZoneIndex = i;
-                    // ハンドルはゾーン上端付近にあるので、ここを掴み位置の基準にする。
-                    _dragGrabOffsetY = Event.current.mousePosition.y - handleRect.y;
-                    Event.current.Use();
-                }
-                zone.enabled = UndoHelper.ToggleLeft(this,
-                    s_zoneEnabledContent,
-                    zone.enabled, GUILayout.Width(rowH));
-                zone.name = UndoHelper.TextField(this,
-                    s_zoneNameContent,
-                    zone.name);
-                if (GUILayout.Button(s_removeZoneContent, GUILayout.Width(IrocaConsts.Layout.RemoveButtonWidth)))
-                {
-                    removeIndex = i;
-                }
-                EditorGUILayout.EndHorizontal();
-
-                // ゾーンマスク編集ボタン（フル幅・状態連動）
-                {
-                    bool isActive = _maskView.activeMaskTarget == i;
-                    var prevBg = GUI.backgroundColor;
-                    if (isActive) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
-                    if (GUILayout.Button(isActive ? s_editMaskActiveContent : s_editMaskInactiveContent))
-                    {
-                        _maskView.activeMaskTarget = isActive ? -1 : i;
-                        _maskView.maskFoldout = true;
-                        _maskView.maskDirty = true;
-                        Repaint();
-                    }
-                    GUI.backgroundColor = prevBg;
-                }
-
-                // 自動調整ボタンは「サンプルカラー」の直下に配置する（採色 → 自動調整 の流れ）。
-
-                // ─── UV矩形モード選択UI ───
-                // UV矩形モードは実装継続中のため当面 UI から非表示。
-                // zone.mode = UndoHelper.EnumPopup(this,
-                //     new GUIContent(Localization.SelectionMode, Localization.SelectionModeTooltip),
-                //     zone.mode);
-
-                // ColorPick UI（常時表示）
-                Color prevSampleColor = zone.sampleColor;
-                zone.sampleColor = UndoHelper.ColorField(this,
-                    new GUIContent(Localization.SampleColor, Localization.SampleColorTooltip),
-                    zone.sampleColor);
-                // サンプルカラーが変わったら、自動トーン抽出で生成済みの内部サンプルは
-                // 古いパーツのものになるためクリアする（次の自動調整で作り直す）。
-                // これにより内部サンプルが陳腐化してマッチングがズレるのを防ぐ。
-                if (zone.sampleColor != prevSampleColor
-                    && zone.extraSamples != null && zone.extraSamples.Count > 0)
-                {
-                    zone.extraSamples.Clear();
-                    MarkPreviewDirty();
-                }
-
-                // ─── 自動調整ボタン ───
-                // スポイト1点から、パーツの濃淡（暗部/中間/明部）を内部で自動サンプリングして
-                // 許容範囲などを最適化する。ユーザーが濃淡を手で採り直す必要はない。
-                {
-                    bool canTune =
-                        sourceTexture != null
-                        && IsReadable(sourceTexture)
-                        && zone.mode == SelectionMode.ColorPick
-                        && zone.sampleColor != Color.white;
-                    using (new EditorGUI.DisabledScope(!canTune))
-                    {
-                        if (GUILayout.Button(canTune ? s_autoTuneEnabledContent : s_autoTuneDisabledContent))
-                        {
-                            RunAutoTune(zone);
-                        }
-                    }
-                }
-
-                zone.tolerance = UndoHelper.Slider(this,
-                    new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
-                    zone.tolerance, 0f, 1f);
-
-                // ─── 連続領域モード (Flood Fill / 連結成分アンカリング) ───
-                // 既定は自動アンカリング(シード不要)。確信度の高い芯を含む連結領域だけ残し、
-                // 物理的に離れた同色パーツや背景へのにじみを自動除去する。シードは任意の上書き。
-                EditorGUILayout.Space(2);
-                bool prevUseFloodFill = zone.useFloodFill;
-                zone.useFloodFill = UndoHelper.Toggle(this,
-                    new GUIContent(Localization.UseFloodFill, Localization.UseFloodFillTooltip),
-                    zone.useFloodFill);
-                if (zone.useFloodFill != prevUseFloodFill) MarkPreviewDirty();
-
-                if (zone.useFloodFill)
-                {
-                    using (new EditorGUI.IndentLevelScope())
-                    {
-                        EditorGUILayout.BeginHorizontal();
-                        string seedLabel = zone.seedUV.x >= 0f
-                            ? $"UV ({zone.seedUV.x:F3}, {zone.seedUV.y:F3})"
-                            : Localization.FloodFillSeedNotSet;
-                        EditorGUILayout.LabelField(
-                            new GUIContent(Localization.FloodFillSeedPoint, Localization.FloodFillSeedHint),
-                            seedLabel);
-                        // シード指定時のみ「自動へ戻す」クリアを出す。
-                        using (new EditorGUI.DisabledScope(zone.seedUV.x < 0f))
-                        {
-                            if (GUILayout.Button(
-                                new GUIContent(Localization.FloodFillClear, Localization.FloodFillClearTooltip),
-                                GUILayout.Width(52)))
-                            {
-                                Undo.RecordObject(this, "Clear Flood Fill Seed");
-                                zone.seedUV = new UnityEngine.Vector2(-1f, -1f);
-                                MarkPreviewDirty();
-                            }
-                        }
-                        EditorGUILayout.EndHorizontal();
-                    }
-                }
-
-                // ─── UV矩形モード UI ───
-                // UV矩形モードは実装継続中のため当面 UI から非表示。
-                // else
-                // {
-                //     EditorGUILayout.LabelField(
-                //         new GUIContent(Localization.UVRect, Localization.UVRectTooltip));
-                //     using (new EditorGUI.IndentLevelScope())
-                //     {
-                //         float x = UndoHelper.Slider(this, "X", zone.uvRect.x, 0f, 1f);
-                //         float y = UndoHelper.Slider(this, "Y", zone.uvRect.y, 0f, 1f);
-                //         float w = UndoHelper.Slider(this, "W", zone.uvRect.width, 0f, 1f);
-                //         float h = UndoHelper.Slider(this, "H", zone.uvRect.height, 0f, 1f);
-                //         zone.uvRect = new Rect(x, y, w, h);
-                //     }
-                // }
-
-                zone.targetColor = UndoHelper.ColorField(this,
-                    new GUIContent(Localization.TargetColor, Localization.TargetColorTooltip),
-                    zone.targetColor);
-                zone.valueBlend = UndoHelper.Slider(this,
-                    new GUIContent(Localization.PatternPreserve, Localization.PatternPreserveTooltip),
-                    zone.valueBlend, 0f, 1f);
-                zone.outputSaturation = UndoHelper.Slider(this,
-                    new GUIContent(Localization.OutputSaturation, Localization.OutputSaturationTooltip),
-                    zone.outputSaturation, 0f, 1f);
-
-                // ─── 通常モード以上で表示する標準の調整項目 ───
-                // かんたんモードでは核となる色・許容範囲・模様保持・出力彩度だけを見せ、
-                // エッジ/彩度/シャドウ・ハイライト等の調整は「自動調整」に委ねる。
-                // 通常モードは従来通りこれらを手動表示し、上級モードはさらに内部パラメータも出す。
-                if (editMode != EditMode.Simple)
-                {
-                    zone.autoRecolorAnchor = UndoHelper.Toggle(this,
-                        new GUIContent(Localization.AutoRecolorAnchor, Localization.AutoRecolorAnchorTooltip),
-                        zone.autoRecolorAnchor);
-                    zone.edgeSoftness = UndoHelper.Slider(this,
-                        new GUIContent(Localization.EdgeSoftness, Localization.EdgeSoftnessTooltip),
-                        zone.edgeSoftness, 0f, 1f);
-                    zone.saturationStrictness = UndoHelper.Slider(this,
-                        new GUIContent(Localization.SaturationStrictness, Localization.SaturationStrictnessTooltip),
-                        zone.saturationStrictness, 0f, 1f);
-                    zone.saturationGuard = UndoHelper.Slider(this,
-                        new GUIContent(Localization.SaturationGuard, Localization.SaturationGuardTooltip),
-                        zone.saturationGuard, 0f, 1f);
-
-                    zone.highlightRecovery = UndoHelper.Toggle(this,
-                        new GUIContent(Localization.HighlightRecovery, Localization.HighlightRecoveryTooltip),
-                        zone.highlightRecovery);
-
-                    // ハイライト帯の拡張は「ハイライト補助」が ON のときのみ有効なので、
-                    // OFF のときはグレーアウトして関係を明示する。
-                    using (new EditorGUI.DisabledScope(!zone.highlightRecovery))
-                    {
-                        EditorGUI.indentLevel++;
-                        zone.highlightBandExpand = UndoHelper.Toggle(this,
-                            new GUIContent(Localization.HighlightBandExpand, Localization.HighlightBandExpandTooltip),
-                            zone.highlightBandExpand);
-                        EditorGUI.indentLevel--;
-                    }
-
-                    zone.applyHighlightWash = UndoHelper.Toggle(this,
-                        new GUIContent(Localization.ApplyHighlightWash, Localization.ApplyHighlightWashTooltip),
-                        zone.applyHighlightWash);
-
-                    // 俯瞰スポイト補正(wash サンプル自動導出)は「ハイライト白寄せ合成」が ON の
-                    // ときのみ意味を持つので、OFF のときはグレーアウトして関係を明示する。
-                    using (new EditorGUI.DisabledScope(!zone.applyHighlightWash))
-                    {
-                        EditorGUI.indentLevel++;
-                        zone.autoHighlightSample = UndoHelper.Toggle(this,
-                            new GUIContent(Localization.AutoHighlightSample, Localization.AutoHighlightSampleTooltip),
-                            zone.autoHighlightSample);
-                        EditorGUI.indentLevel--;
-                    }
-
-                    EditorGUILayout.Space(2);
-                    EditorGUILayout.LabelField(Localization.ShadowHighlightSection, EditorStyles.boldLabel);
-
-                    zone.shadowDesaturation = UndoHelper.Slider(this,
-                        new GUIContent(Localization.ShadowDesaturation, Localization.ShadowDesaturationTooltip),
-                        zone.shadowDesaturation, 0f, 1f);
-                    zone.shadowForgivenessSatMin = UndoHelper.Slider(this,
-                        new GUIContent(Localization.ShadowForgivenessSatMin, Localization.ShadowForgivenessSatMinTooltip),
-                        zone.shadowForgivenessSatMin, 0f, 1f);
-                    zone.chromaThreshold = UndoHelper.Slider(this,
-                        new GUIContent(Localization.ChromaThreshold, Localization.ChromaThresholdTooltip),
-                        zone.chromaThreshold, 0f, 1f);
-
-                    // ─── 上級モードのみ: マッチング距離の内部重み ───
-                    if (editMode == EditMode.Advanced)
-                    {
-                        zone.valueWeight = UndoHelper.Slider(this,
-                            new GUIContent(Localization.ValueWeight, Localization.ValueWeightTooltip),
-                            zone.valueWeight, 0f, 1f);
-                        zone.satDistWeight = UndoHelper.Slider(this,
-                            new GUIContent(Localization.SatDistWeight, Localization.SatDistWeightTooltip),
-                            zone.satDistWeight, 0f, 1f);
-                        zone.satRampScale = UndoHelper.Slider(this,
-                            new GUIContent(Localization.SatRampScale, Localization.SatRampScaleTooltip),
-                            zone.satRampScale, 0.01f, 0.5f);
-                    }
-
-                    // 詳細パラメータを既定値へ戻す（色・許容範囲・名前は保持）。通常/上級どちらでも表示。
-                    EditorGUILayout.Space(2);
-                    if (GUILayout.Button(new GUIContent(Localization.ResetZoneTuning, Localization.ResetZoneTuningTooltip)))
-                    {
-                        Undo.RegisterCompleteObjectUndo(this, "Reset Zone Tuning");
-                        zone.ResetTuningToDefault();
-                        MarkPreviewDirty();
-                    }
-                }
-
-                EditorGUILayout.EndVertical();
+                if (DrawZoneCard(zones[i], i)) removeIndex = i;
                 // ドロップ位置判定・インジケータ描画用に、このゾーン全体の矩形を記録。
                 // GetLastRect は Layout パスではダミー値だが、判定・描画は非 Layout パスでのみ行う。
                 zoneRects.Add(GUILayoutUtility.GetLastRect());
@@ -431,89 +187,7 @@ namespace Iroca
             }
 
             // ── ドラッグ並べ替えの処理（インジケータ描画 / ドロップ確定）──
-            if (_dragZoneIndex >= 0 && _dragZoneIndex < zoneRects.Count && zoneRects.Count > 0)
-            {
-                var evt = Event.current;
-                float my = evt.mousePosition.y;
-
-                // ドラッグ中ゾーンを「掴み位置オフセットぶん」投影した想定矩形。
-                // ゾーンは縦長なので、中心同士を比較すると隣の高さの半分も運ぶ必要があり、
-                // 「かなり上まで持っていかないと入れ替わらない」状態になる。
-                // 代わりに、この投影矩形が隣ゾーンに少しでも重なった瞬間に入れ替える
-                // ことで、移動距離をゾーン高さに依存しない最小限にする。
-                float projTop = my - _dragGrabOffsetY;
-                float projBottom = projTop + zoneRects[_dragZoneIndex].height;
-                // 隙間や微小なブレで誤入れ替えしない最小の重なり量(px)。
-                float overlapTrigger = EditorGUIUtility.singleLineHeight * 0.6f;
-
-                // 挿入スロット(0..count)。既定は移動なし。
-                int slot = _dragZoneIndex;
-                // 上方向: 上端が重なった最上位ゾーンの「前」に挿入。
-                for (int k = 0; k < _dragZoneIndex; k++)
-                {
-                    if (projTop < zoneRects[k].yMax - overlapTrigger) { slot = k; break; }
-                }
-                // 下方向: 下端が重なった最下位ゾーンの「後ろ」に挿入。
-                if (slot == _dragZoneIndex)
-                {
-                    for (int k = zoneRects.Count - 1; k > _dragZoneIndex; k--)
-                    {
-                        if (projBottom > zoneRects[k].yMin + overlapTrigger) { slot = k + 1; break; }
-                    }
-                }
-                // remove 後の挿入 index に変換（自分より後ろへ落とすと 1 詰まる）。
-                int insertAt = slot > _dragZoneIndex ? slot - 1 : slot;
-
-                if (evt.type == EventType.Repaint)
-                {
-                    Rect src = zoneRects[_dragZoneIndex];
-                    Color accent = IrocaColors.ActiveMaskTarget;
-
-                    // 1. 元のスロットを暗転して「ここを移動中」と示す。
-                    EditorGUI.DrawRect(src, new Color(0f, 0f, 0f, 0.18f));
-
-                    // 2. 挿入位置のライン。
-                    float lineY = slot < zoneRects.Count
-                        ? zoneRects[slot].yMin
-                        : zoneRects[zoneRects.Count - 1].yMax;
-                    EditorGUI.DrawRect(new Rect(src.xMin, lineY - 1.5f, src.width, 3f), accent);
-
-                    // 3. マウスに追従するゴースト(ヘッダー帯を模した浮遊パネル)。
-                    float gh = EditorGUIUtility.singleLineHeight + 8f;
-                    float gy = evt.mousePosition.y - _dragGrabOffsetY;
-                    Rect ghost = new Rect(src.xMin, gy, src.width, gh);
-                    Color fill = accent; fill.a = 0.35f;
-                    EditorGUI.DrawRect(ghost, fill);
-                    DrawRectOutline(ghost, accent, 1f);
-
-                    var dz = zones[_dragZoneIndex];
-                    // 変更先カラーのスウォッチ。
-                    Rect swatch = new Rect(ghost.x + 22f, ghost.y + 5f, 14f, gh - 10f);
-                    Color sw = dz.targetColor; sw.a = 1f;
-                    EditorGUI.DrawRect(swatch, sw);
-                    DrawRectOutline(swatch, new Color(0f, 0f, 0f, 0.4f), 1f);
-                    // ゾーン名ラベル。
-                    string gname = string.IsNullOrEmpty(dz.name) ? Localization.UnnamedZone : dz.name;
-                    GUI.Label(new Rect(swatch.xMax + 6f, ghost.y + 3f, ghost.width - 64f, EditorGUIUtility.singleLineHeight),
-                        new GUIContent("☰  " + gname), EditorStyles.boldLabel);
-                }
-                else if (evt.type == EventType.MouseDrag)
-                {
-                    evt.Use();
-                    Repaint();
-                }
-                else if (evt.type == EventType.MouseUp)
-                {
-                    if (insertAt != _dragZoneIndex)
-                    {
-                        _pendingReorderFrom = _dragZoneIndex;
-                        _pendingReorderTo = insertAt;
-                    }
-                    _dragZoneIndex = -1;
-                    evt.Use();
-                    Repaint();
-                }
-            }
+            HandleZoneReorderDrag(zoneRects);
 
             if (removeIndex >= 0)
             {
@@ -529,6 +203,352 @@ namespace Iroca
 
             EditorGUILayout.EndFoldoutHeaderGroup();
             EditorGUILayout.Space(4);
+        }
+
+        // 1 ゾーン分のカード（ヘッダ行＋マスク編集＋採色＋自動調整＋許容範囲＋連続領域＋
+        // 変更先/模様保持/出力彩度＋通常以上の詳細）を描画する。
+        // 戻り値 true = このカードの削除(×)ボタンが押された。
+        private bool DrawZoneCard(ColorZone zone, int index)
+        {
+            bool removeRequested = false;
+            zone.EnsureId();
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+
+            // Header row
+            EditorGUILayout.BeginHorizontal();
+            // ドラッグハンドル: 掴んでリストを並べ替える＝優先度を変える。
+            // 幅は行高(singleLineHeight)に追従させ、エディタのフォントサイズが大きいときも
+            // 縦長に潰れないようにする（高さだけ追従して幅が固定だと非対称になる）。
+            float rowH = EditorGUIUtility.singleLineHeight;
+            GUILayout.Label(s_dragHandleContent,
+                s_dragHandleStyle, GUILayout.Width(rowH), GUILayout.Height(rowH));
+            Rect handleRect = GUILayoutUtility.GetLastRect();
+            EditorGUIUtility.AddCursorRect(handleRect, MouseCursor.Pan);
+            if (GUI.enabled && Event.current.type == EventType.MouseDown
+                && handleRect.Contains(Event.current.mousePosition))
+            {
+                _dragZoneIndex = index;
+                // ハンドルはゾーン上端付近にあるので、ここを掴み位置の基準にする。
+                _dragGrabOffsetY = Event.current.mousePosition.y - handleRect.y;
+                Event.current.Use();
+            }
+            zone.enabled = UndoHelper.ToggleLeft(this,
+                s_zoneEnabledContent,
+                zone.enabled, GUILayout.Width(rowH));
+            zone.name = UndoHelper.TextField(this,
+                s_zoneNameContent,
+                zone.name);
+            if (GUILayout.Button(s_removeZoneContent, GUILayout.Width(IrocaConsts.Layout.RemoveButtonWidth)))
+            {
+                removeRequested = true;
+            }
+            EditorGUILayout.EndHorizontal();
+
+            // ゾーンマスク編集ボタン（フル幅・状態連動）
+            {
+                bool isActive = _maskView.activeMaskTarget == index;
+                var prevBg = GUI.backgroundColor;
+                if (isActive) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
+                if (GUILayout.Button(isActive ? s_editMaskActiveContent : s_editMaskInactiveContent))
+                {
+                    _maskView.activeMaskTarget = isActive ? -1 : index;
+                    _maskView.maskFoldout = true;
+                    _maskView.maskDirty = true;
+                    Repaint();
+                }
+                GUI.backgroundColor = prevBg;
+            }
+
+            // 自動調整ボタンは「サンプルカラー」の直下に配置する（採色 → 自動調整 の流れ）。
+
+            // ─── UV矩形モード選択UI ───
+            // UV矩形モードは実装継続中のため当面 UI から非表示。
+            // zone.mode = UndoHelper.EnumPopup(this,
+            //     new GUIContent(Localization.SelectionMode, Localization.SelectionModeTooltip),
+            //     zone.mode);
+
+            // ColorPick UI（常時表示）
+            Color prevSampleColor = zone.sampleColor;
+            zone.sampleColor = UndoHelper.ColorField(this,
+                new GUIContent(Localization.SampleColor, Localization.SampleColorTooltip),
+                zone.sampleColor);
+            // サンプルカラーが変わったら、自動トーン抽出で生成済みの内部サンプルは
+            // 古いパーツのものになるためクリアする（次の自動調整で作り直す）。
+            // これにより内部サンプルが陳腐化してマッチングがズレるのを防ぐ。
+            if (zone.sampleColor != prevSampleColor
+                && zone.extraSamples != null && zone.extraSamples.Count > 0)
+            {
+                zone.extraSamples.Clear();
+                MarkPreviewDirty();
+            }
+
+            // ─── 自動調整ボタン ───
+            // スポイト1点から、パーツの濃淡（暗部/中間/明部）を内部で自動サンプリングして
+            // 許容範囲などを最適化する。ユーザーが濃淡を手で採り直す必要はない。
+            {
+                bool canTune =
+                    sourceTexture != null
+                    && IsReadable(sourceTexture)
+                    && zone.mode == SelectionMode.ColorPick
+                    && zone.sampleColor != Color.white;
+                using (new EditorGUI.DisabledScope(!canTune))
+                {
+                    if (GUILayout.Button(canTune ? s_autoTuneEnabledContent : s_autoTuneDisabledContent))
+                    {
+                        RunAutoTune(zone);
+                    }
+                }
+            }
+
+            zone.tolerance = UndoHelper.Slider(this,
+                new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
+                zone.tolerance, 0f, 1f);
+
+            // ─── 連続領域モード (Flood Fill / 連結成分アンカリング) ───
+            // 既定は自動アンカリング(シード不要)。確信度の高い芯を含む連結領域だけ残し、
+            // 物理的に離れた同色パーツや背景へのにじみを自動除去する。シードは任意の上書き。
+            EditorGUILayout.Space(2);
+            bool prevUseFloodFill = zone.useFloodFill;
+            zone.useFloodFill = UndoHelper.Toggle(this,
+                new GUIContent(Localization.UseFloodFill, Localization.UseFloodFillTooltip),
+                zone.useFloodFill);
+            if (zone.useFloodFill != prevUseFloodFill) MarkPreviewDirty();
+
+            if (zone.useFloodFill)
+            {
+                using (new EditorGUI.IndentLevelScope())
+                {
+                    EditorGUILayout.BeginHorizontal();
+                    string seedLabel = zone.seedUV.x >= 0f
+                        ? $"UV ({zone.seedUV.x:F3}, {zone.seedUV.y:F3})"
+                        : Localization.FloodFillSeedNotSet;
+                    EditorGUILayout.LabelField(
+                        new GUIContent(Localization.FloodFillSeedPoint, Localization.FloodFillSeedHint),
+                        seedLabel);
+                    // シード指定時のみ「自動へ戻す」クリアを出す。
+                    using (new EditorGUI.DisabledScope(zone.seedUV.x < 0f))
+                    {
+                        if (GUILayout.Button(
+                            new GUIContent(Localization.FloodFillClear, Localization.FloodFillClearTooltip),
+                            GUILayout.Width(52)))
+                        {
+                            Undo.RecordObject(this, "Clear Flood Fill Seed");
+                            zone.seedUV = new UnityEngine.Vector2(-1f, -1f);
+                            MarkPreviewDirty();
+                        }
+                    }
+                    EditorGUILayout.EndHorizontal();
+                }
+            }
+
+            // ─── UV矩形モード UI ───
+            // UV矩形モードは実装継続中のため当面 UI から非表示。
+            // else
+            // {
+            //     EditorGUILayout.LabelField(
+            //         new GUIContent(Localization.UVRect, Localization.UVRectTooltip));
+            //     using (new EditorGUI.IndentLevelScope())
+            //     {
+            //         float x = UndoHelper.Slider(this, "X", zone.uvRect.x, 0f, 1f);
+            //         float y = UndoHelper.Slider(this, "Y", zone.uvRect.y, 0f, 1f);
+            //         float w = UndoHelper.Slider(this, "W", zone.uvRect.width, 0f, 1f);
+            //         float h = UndoHelper.Slider(this, "H", zone.uvRect.height, 0f, 1f);
+            //         zone.uvRect = new Rect(x, y, w, h);
+            //     }
+            // }
+
+            zone.targetColor = UndoHelper.ColorField(this,
+                new GUIContent(Localization.TargetColor, Localization.TargetColorTooltip),
+                zone.targetColor);
+            zone.valueBlend = UndoHelper.Slider(this,
+                new GUIContent(Localization.PatternPreserve, Localization.PatternPreserveTooltip),
+                zone.valueBlend, 0f, 1f);
+            zone.outputSaturation = UndoHelper.Slider(this,
+                new GUIContent(Localization.OutputSaturation, Localization.OutputSaturationTooltip),
+                zone.outputSaturation, 0f, 1f);
+
+            // ─── 通常モード以上で表示する標準の調整項目 ───
+            // かんたんモードでは核となる色・許容範囲・模様保持・出力彩度だけを見せ、
+            // エッジ/彩度/シャドウ・ハイライト等の調整は「自動調整」に委ねる。
+            // 通常モードは従来通りこれらを手動表示し、上級モードはさらに内部パラメータも出す。
+            if (editMode != EditMode.Simple)
+                DrawZoneAdvancedParams(zone);
+
+            EditorGUILayout.EndVertical();
+            return removeRequested;
+        }
+
+        // 通常/上級モードで表示する詳細パラメータ（アンカー正規化・エッジ・彩度・
+        // シャドウ/ハイライト、上級限定のマッチング距離重み、既定へ戻すボタン）。
+        private void DrawZoneAdvancedParams(ColorZone zone)
+        {
+            zone.autoRecolorAnchor = UndoHelper.Toggle(this,
+                new GUIContent(Localization.AutoRecolorAnchor, Localization.AutoRecolorAnchorTooltip),
+                zone.autoRecolorAnchor);
+            zone.edgeSoftness = UndoHelper.Slider(this,
+                new GUIContent(Localization.EdgeSoftness, Localization.EdgeSoftnessTooltip),
+                zone.edgeSoftness, 0f, 1f);
+            zone.saturationStrictness = UndoHelper.Slider(this,
+                new GUIContent(Localization.SaturationStrictness, Localization.SaturationStrictnessTooltip),
+                zone.saturationStrictness, 0f, 1f);
+            zone.saturationGuard = UndoHelper.Slider(this,
+                new GUIContent(Localization.SaturationGuard, Localization.SaturationGuardTooltip),
+                zone.saturationGuard, 0f, 1f);
+
+            zone.highlightRecovery = UndoHelper.Toggle(this,
+                new GUIContent(Localization.HighlightRecovery, Localization.HighlightRecoveryTooltip),
+                zone.highlightRecovery);
+
+            // ハイライト帯の拡張は「ハイライト補助」が ON のときのみ有効なので、
+            // OFF のときはグレーアウトして関係を明示する。
+            using (new EditorGUI.DisabledScope(!zone.highlightRecovery))
+            {
+                EditorGUI.indentLevel++;
+                zone.highlightBandExpand = UndoHelper.Toggle(this,
+                    new GUIContent(Localization.HighlightBandExpand, Localization.HighlightBandExpandTooltip),
+                    zone.highlightBandExpand);
+                EditorGUI.indentLevel--;
+            }
+
+            zone.applyHighlightWash = UndoHelper.Toggle(this,
+                new GUIContent(Localization.ApplyHighlightWash, Localization.ApplyHighlightWashTooltip),
+                zone.applyHighlightWash);
+
+            // 俯瞰スポイト補正(wash サンプル自動導出)は「ハイライト白寄せ合成」が ON の
+            // ときのみ意味を持つので、OFF のときはグレーアウトして関係を明示する。
+            using (new EditorGUI.DisabledScope(!zone.applyHighlightWash))
+            {
+                EditorGUI.indentLevel++;
+                zone.autoHighlightSample = UndoHelper.Toggle(this,
+                    new GUIContent(Localization.AutoHighlightSample, Localization.AutoHighlightSampleTooltip),
+                    zone.autoHighlightSample);
+                EditorGUI.indentLevel--;
+            }
+
+            EditorGUILayout.Space(2);
+            EditorGUILayout.LabelField(Localization.ShadowHighlightSection, EditorStyles.boldLabel);
+
+            zone.shadowDesaturation = UndoHelper.Slider(this,
+                new GUIContent(Localization.ShadowDesaturation, Localization.ShadowDesaturationTooltip),
+                zone.shadowDesaturation, 0f, 1f);
+            zone.shadowForgivenessSatMin = UndoHelper.Slider(this,
+                new GUIContent(Localization.ShadowForgivenessSatMin, Localization.ShadowForgivenessSatMinTooltip),
+                zone.shadowForgivenessSatMin, 0f, 1f);
+            zone.chromaThreshold = UndoHelper.Slider(this,
+                new GUIContent(Localization.ChromaThreshold, Localization.ChromaThresholdTooltip),
+                zone.chromaThreshold, 0f, 1f);
+
+            // ─── 上級モードのみ: マッチング距離の内部重み ───
+            if (editMode == EditMode.Advanced)
+            {
+                zone.valueWeight = UndoHelper.Slider(this,
+                    new GUIContent(Localization.ValueWeight, Localization.ValueWeightTooltip),
+                    zone.valueWeight, 0f, 1f);
+                zone.satDistWeight = UndoHelper.Slider(this,
+                    new GUIContent(Localization.SatDistWeight, Localization.SatDistWeightTooltip),
+                    zone.satDistWeight, 0f, 1f);
+                zone.satRampScale = UndoHelper.Slider(this,
+                    new GUIContent(Localization.SatRampScale, Localization.SatRampScaleTooltip),
+                    zone.satRampScale, 0.01f, 0.5f);
+            }
+
+            // 詳細パラメータを既定値へ戻す（色・許容範囲・名前は保持）。通常/上級どちらでも表示。
+            EditorGUILayout.Space(2);
+            if (GUILayout.Button(new GUIContent(Localization.ResetZoneTuning, Localization.ResetZoneTuningTooltip)))
+            {
+                Undo.RegisterCompleteObjectUndo(this, "Reset Zone Tuning");
+                zone.ResetTuningToDefault();
+                MarkPreviewDirty();
+            }
+        }
+
+        // ドラッグ中ゾーンのインジケータ描画とドロップ確定。zoneRects は各ゾーンカードの矩形。
+        // 判定・描画は非 Layout パスでのみ行う（Layout パスの GetLastRect はダミー値のため）。
+        private void HandleZoneReorderDrag(List<Rect> zoneRects)
+        {
+            if (!(_dragZoneIndex >= 0 && _dragZoneIndex < zoneRects.Count && zoneRects.Count > 0))
+                return;
+
+            var evt = Event.current;
+            float my = evt.mousePosition.y;
+
+            // ドラッグ中ゾーンを「掴み位置オフセットぶん」投影した想定矩形。
+            // ゾーンは縦長なので、中心同士を比較すると隣の高さの半分も運ぶ必要があり、
+            // 「かなり上まで持っていかないと入れ替わらない」状態になる。
+            // 代わりに、この投影矩形が隣ゾーンに少しでも重なった瞬間に入れ替える
+            // ことで、移動距離をゾーン高さに依存しない最小限にする。
+            float projTop = my - _dragGrabOffsetY;
+            float projBottom = projTop + zoneRects[_dragZoneIndex].height;
+            // 隙間や微小なブレで誤入れ替えしない最小の重なり量(px)。
+            float overlapTrigger = EditorGUIUtility.singleLineHeight * 0.6f;
+
+            // 挿入スロット(0..count)。既定は移動なし。
+            int slot = _dragZoneIndex;
+            // 上方向: 上端が重なった最上位ゾーンの「前」に挿入。
+            for (int k = 0; k < _dragZoneIndex; k++)
+            {
+                if (projTop < zoneRects[k].yMax - overlapTrigger) { slot = k; break; }
+            }
+            // 下方向: 下端が重なった最下位ゾーンの「後ろ」に挿入。
+            if (slot == _dragZoneIndex)
+            {
+                for (int k = zoneRects.Count - 1; k > _dragZoneIndex; k--)
+                {
+                    if (projBottom > zoneRects[k].yMin + overlapTrigger) { slot = k + 1; break; }
+                }
+            }
+            // remove 後の挿入 index に変換（自分より後ろへ落とすと 1 詰まる）。
+            int insertAt = slot > _dragZoneIndex ? slot - 1 : slot;
+
+            if (evt.type == EventType.Repaint)
+            {
+                Rect src = zoneRects[_dragZoneIndex];
+                Color accent = IrocaColors.ActiveMaskTarget;
+
+                // 1. 元のスロットを暗転して「ここを移動中」と示す。
+                EditorGUI.DrawRect(src, new Color(0f, 0f, 0f, 0.18f));
+
+                // 2. 挿入位置のライン。
+                float lineY = slot < zoneRects.Count
+                    ? zoneRects[slot].yMin
+                    : zoneRects[zoneRects.Count - 1].yMax;
+                EditorGUI.DrawRect(new Rect(src.xMin, lineY - 1.5f, src.width, 3f), accent);
+
+                // 3. マウスに追従するゴースト(ヘッダー帯を模した浮遊パネル)。
+                float gh = EditorGUIUtility.singleLineHeight + 8f;
+                float gy = evt.mousePosition.y - _dragGrabOffsetY;
+                Rect ghost = new Rect(src.xMin, gy, src.width, gh);
+                Color fill = accent; fill.a = 0.35f;
+                EditorGUI.DrawRect(ghost, fill);
+                DrawRectOutline(ghost, accent, 1f);
+
+                var dz = zones[_dragZoneIndex];
+                // 変更先カラーのスウォッチ。
+                Rect swatch = new Rect(ghost.x + 22f, ghost.y + 5f, 14f, gh - 10f);
+                Color sw = dz.targetColor; sw.a = 1f;
+                EditorGUI.DrawRect(swatch, sw);
+                DrawRectOutline(swatch, new Color(0f, 0f, 0f, 0.4f), 1f);
+                // ゾーン名ラベル。
+                string gname = string.IsNullOrEmpty(dz.name) ? Localization.UnnamedZone : dz.name;
+                GUI.Label(new Rect(swatch.xMax + 6f, ghost.y + 3f, ghost.width - 64f, EditorGUIUtility.singleLineHeight),
+                    new GUIContent("☰  " + gname), EditorStyles.boldLabel);
+            }
+            else if (evt.type == EventType.MouseDrag)
+            {
+                evt.Use();
+                Repaint();
+            }
+            else if (evt.type == EventType.MouseUp)
+            {
+                if (insertAt != _dragZoneIndex)
+                {
+                    _pendingReorderFrom = _dragZoneIndex;
+                    _pendingReorderTo = insertAt;
+                }
+                _dragZoneIndex = -1;
+                evt.Use();
+                Repaint();
+            }
         }
 
         // 矩形の枠線を 4 本の細い矩形で描く（Repaint 中のゴースト/スウォッチ枠用）。

@@ -101,63 +101,77 @@ namespace Iroca
             // 実行種別を記録（手動のときだけウィンドウをブロック＋モーダル進捗を出す）。
             _autoTuneIsManual = !auto;
 
-            // ─── 上書き確認はジョブ開始“前”に行う（上級モードの手動実行時のみ）───
-            // 完了後にモーダルを出すと Editor がブロックされ、ユーザーの
-            // 「他の作業がしたい」要望が満たされない。ラベルは pixels 解析に
-            // 依存しない per-zone 判定なのでメインスレッドで先に確定できる。
-            // かんたんモードでは詳細パラメータは自動管理（手で変更しない）なので、
-            // 自動実行・手動実行ともに上書き確認は出さない。確認が要るのは通常/上級モードで
-            // ユーザーが手調整した値を上書きする手動実行のときだけ。
-            if (!auto && editMode != EditMode.Simple)
-            {
-                var previewLabels = ZoneAutoTuner.PreviewOverwrittenLabels(zone);
-                if (previewLabels.Count > 0)
-                {
-                    // applyGlobals は事後判定だが、true になる条件下では globals は既に default
-                    // のため AutoTuneOverwriteBody の includesGlobals=true の差分は表示しない。
-                    string body = Localization.AutoTuneOverwriteBody(previewLabels, includesGlobals: false);
-                    if (!EditorUtility.DisplayDialog(
-                            Localization.AutoTuneConfirmTitle, body,
-                            Localization.OK, Localization.Cancel))
-                    {
-                        return;
-                    }
-                }
-            }
+            // 上書き確認（通常/上級モードの手動実行時のみ）。キャンセルなら中止。
+            if (!ConfirmAutoTuneOverwriteIfNeeded(zone, auto))
+                return;
 
             zone.EnsureId();
-            string targetId = zone.id;
 
             // メインスレッド前処理: Texture2D.GetPixels32 と除外マスク構築は
             // バックグラウンドへ持ち込めないので、ここで配列化しておく。
-            Color32[] pixels = null;
-            int texW = 0, texH = 0;
-            var tex = sourceTexture;
-            if (tex != null)
-            {
-                texW = tex.width;
-                texH = tex.height;
-                // GetPixels32 はメインスレッド必須で、大きいテクスチャでは一瞬フリーズする。
-                // 完全な非同期化はできないため、手動実行のときだけモーダル進捗バーで「解析中」を
-                // 明示し、無言の固まりに見えないようにする（バックグラウンド解析本体は別途
-                // ウィンドウ内進捗バー＋キャンセルで表示される）。かんたんモードの自動実行では
-                // 色を変えるたびにモーダルが点滅すると煩いので出さず、裏で静かに走らせる。
-                try
-                {
-                    if (!auto)
-                        EditorUtility.DisplayProgressBar(Localization.AutoTune, Localization.AnalyzingTexture, 0.1f);
-                    pixels = tex.GetPixels32();
-                }
-                catch (UnityEngine.UnityException) { pixels = null; }
-                finally { if (!auto) EditorUtility.ClearProgressBar(); }
-            }
+            PrepareAutoTunePixels(auto, out Color32[] pixels, out int texW, out int texH);
             bool[] excluded = BuildCombinedExclusionForZone(zone, out int mw, out int mh);
 
+            ScheduleAutoTuneJob(zone, pixels, texW, texH, excluded, mw, mh);
+        }
+
+        // ─── 上書き確認はジョブ開始“前”に行う（通常/上級モードの手動実行時のみ）───
+        // 完了後にモーダルを出すと Editor がブロックされ、ユーザーの
+        // 「他の作業がしたい」要望が満たされない。ラベルは pixels 解析に
+        // 依存しない per-zone 判定なのでメインスレッドで先に確定できる。
+        // かんたんモードでは詳細パラメータは自動管理（手で変更しない）なので、
+        // 自動実行・手動実行ともに上書き確認は出さない。確認が要るのは通常/上級モードで
+        // ユーザーが手調整した値を上書きする手動実行のときだけ。
+        // 戻り値 false = ユーザーがキャンセル（呼び出し側は実行を中止する）。
+        private bool ConfirmAutoTuneOverwriteIfNeeded(ColorZone zone, bool auto)
+        {
+            if (auto || editMode == EditMode.Simple) return true;
+
+            var previewLabels = ZoneAutoTuner.PreviewOverwrittenLabels(zone);
+            if (previewLabels.Count == 0) return true;
+
+            // applyGlobals は事後判定だが、true になる条件下では globals は既に default
+            // のため AutoTuneOverwriteBody の includesGlobals=true の差分は表示しない。
+            string body = Localization.AutoTuneOverwriteBody(previewLabels, includesGlobals: false);
+            return EditorUtility.DisplayDialog(
+                Localization.AutoTuneConfirmTitle, body,
+                Localization.OK, Localization.Cancel);
+        }
+
+        // GetPixels32 はメインスレッド必須で、大きいテクスチャでは一瞬フリーズする。
+        // 完全な非同期化はできないため、手動実行のときだけモーダル進捗バーで「解析中」を
+        // 明示し、無言の固まりに見えないようにする（バックグラウンド解析本体は別途
+        // ウィンドウ内進捗バー＋キャンセルで表示される）。かんたんモードの自動実行では
+        // 色を変えるたびにモーダルが点滅すると煩いので出さず、裏で静かに走らせる。
+        private void PrepareAutoTunePixels(bool auto, out Color32[] pixels, out int texW, out int texH)
+        {
+            pixels = null;
+            texW = 0;
+            texH = 0;
+            var tex = sourceTexture;
+            if (tex == null) return;
+
+            texW = tex.width;
+            texH = tex.height;
+            try
+            {
+                if (!auto)
+                    EditorUtility.DisplayProgressBar(Localization.AutoTune, Localization.AnalyzingTexture, 0.1f);
+                pixels = tex.GetPixels32();
+            }
+            catch (UnityEngine.UnityException) { pixels = null; }
+            finally { if (!auto) EditorUtility.ClearProgressBar(); }
+        }
+
+        // バックグラウンドで ZoneAutoTuner.Analyze を走らせ、完了後にメインスレッドで zone へ適用する。
+        private void ScheduleAutoTuneJob(ColorZone zone, Color32[] pixels, int texW, int texH, bool[] excluded, int mw, int mh)
+        {
             // ZoneAutoTuner.Analyze 内部から触れる session 状態のスナップショット。
             // 直接 _session を渡しても今回は読み取りしかしないが、明示的にスナップショット化する。
             var session = _session;
 
-            _autoTuneTargetZoneId = targetId;
+            zone.EnsureId();
+            _autoTuneTargetZoneId = zone.id;
             _autoTuneProgress.Reset();
             _autoTuneProgress.Report(0.05f);
 
