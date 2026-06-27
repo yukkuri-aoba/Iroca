@@ -641,9 +641,32 @@ namespace Camereo
                     GUI.backgroundColor = prevBg;
                 }
 
-                // 自動調整ボタン（フル幅）── まだ実用段階でないため UI から隠す（2026-06 一時対応）。
-                // 再有効化するときは下のブロックのコメントを外す（RunAutoTune 本体は残してある）。
-                /*
+                // 自動調整ボタンは「サンプルカラー」の直下に配置する（採色 → 自動調整 の流れ）。
+
+                // ─── UV矩形モード選択UI ───
+                // UV矩形モードは実装継続中のため当面 UI から非表示。
+                // zone.mode = UndoHelper.EnumPopup(this,
+                //     new GUIContent(Localization.SelectionMode, Localization.SelectionModeTooltip),
+                //     zone.mode);
+
+                // ColorPick UI（常時表示）
+                Color prevSampleColor = zone.sampleColor;
+                zone.sampleColor = UndoHelper.ColorField(this,
+                    new GUIContent(Localization.SampleColor, Localization.SampleColorTooltip),
+                    zone.sampleColor);
+                // サンプルカラーが変わったら、自動トーン抽出で生成済みの内部サンプルは
+                // 古いパーツのものになるためクリアする（次の自動調整で作り直す）。
+                // これにより内部サンプルが陳腐化してマッチングがズレるのを防ぐ。
+                if (zone.sampleColor != prevSampleColor
+                    && zone.extraSamples != null && zone.extraSamples.Count > 0)
+                {
+                    zone.extraSamples.Clear();
+                    MarkPreviewDirty();
+                }
+
+                // ─── 自動調整ボタン ───
+                // スポイト1点から、パーツの濃淡（暗部/中間/明部）を内部で自動サンプリングして
+                // 許容範囲などを最適化する。ユーザーが濃淡を手で採り直す必要はない。
                 {
                     bool canTune =
                         sourceTexture != null
@@ -658,27 +681,7 @@ namespace Camereo
                         }
                     }
                 }
-                */
 
-                // ─── UV矩形モード選択UI ───
-                // UV矩形モードは実装継続中のため当面 UI から非表示。
-                // zone.mode = UndoHelper.EnumPopup(this,
-                //     new GUIContent(Localization.SelectionMode, Localization.SelectionModeTooltip),
-                //     zone.mode);
-
-                // ColorPick UI（常時表示）
-                Color prevSampleColor = zone.sampleColor;
-                zone.sampleColor = UndoHelper.ColorField(this,
-                    new GUIContent(Localization.SampleColor, Localization.SampleColorTooltip),
-                    zone.sampleColor);
-                // かんたんモードでは、サンプルカラーが変わったら自動調整を予約する。
-                // 詳細パラメータ（巻き込み抑制の shadowForgivenessSatMin 等）を手で触らせず、
-                // 自動調整に委ねることで簡易ユーザーでも誤爆を抑えられるようにする。
-                // 通常/上級モードは従来通り手動操作なので自動実行しない。
-                // ── 自動調整はまだ実用段階でないため無効化（2026-06 一時対応）。再有効化時にコメントを外す。
-                // if (editMode == EditMode.Simple && zone.sampleColor != prevSampleColor)
-                //     ScheduleAutoTune(zone);
-                _ = prevSampleColor; // 上記コメントアウト中の未使用警告回避（再有効化時に削除）
                 zone.tolerance = UndoHelper.Slider(this,
                     new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
                     zone.tolerance, 0f, 1f);
@@ -1111,6 +1114,10 @@ namespace Camereo
                     targetZone.edgeSoftness            = result.edgeSoftness;
                     targetZone.shadowDesaturation      = result.shadowDesaturation;
                     targetZone.shadowForgivenessSatMin = result.shadowForgivenessSatMin;
+                    // 自動トーン抽出で得た内部サンプル（暗部/中間/明部の代表色）を適用する。
+                    // ユーザーが複数スポイトする代わりに、アルゴリズムがパーツの濃淡を自動取得した結果。
+                    // 選択（マッチング）の和集合に使われ、出力色は主サンプル基準のまま変わらない。
+                    targetZone.extraSamples = result.autoSamples ?? new System.Collections.Generic.List<Color>();
                     if (result.applyGlobals)
                     {
                         antiAliasCleanup   = result.antiAliasCleanup;

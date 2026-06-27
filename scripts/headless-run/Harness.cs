@@ -43,6 +43,8 @@ namespace Camereo
     {
         public string name { get; set; } = "Zone";
         public float[] sample { get; set; } = new[] { 1f, 1f, 1f };
+        // 追加スポイト（マルチサンプル選択）。各要素は [r,g,b] 0..1。未指定=null=単一サンプル。
+        public float[][] samples { get; set; } = null;
         public float[] target { get; set; } = new[] { 0f, 0f, 0f };
         public float tolerance { get; set; } = 0.2f;
         public float valueBlend { get; set; } = 1.0f;
@@ -96,6 +98,15 @@ namespace Camereo
                       c != null && c.Length > 1 ? c[1] : 0f,
                       c != null && c.Length > 2 ? c[2] : 0f, 1f);
 
+        private static List<Color> BuildExtraSamples(float[][] samples)
+        {
+            var list = new List<Color>();
+            if (samples != null)
+                foreach (var s in samples)
+                    if (s != null && s.Length >= 3) list.Add(Col(s));
+            return list;
+        }
+
         private static ColorZone BuildZone(ZoneCfg z)
         {
             var zone = new ColorZone
@@ -104,6 +115,7 @@ namespace Camereo
                 enabled = true,
                 mode = SelectionMode.ColorPick,
                 sampleColor = Col(z.sample),
+                extraSamples = BuildExtraSamples(z.samples),
                 targetColor = Col(z.target),
                 tolerance = z.tolerance,
                 valueBlend = z.valueBlend,
@@ -216,6 +228,10 @@ namespace Camereo
                     z.edgeSoftness            = tune.edgeSoftness;
                     z.shadowDesaturation      = tune.shadowDesaturation;
                     z.shadowForgivenessSatMin = tune.shadowForgivenessSatMin;
+                    // 自動トーン抽出で得た内部サンプル（暗部/中間/明部の代表色）を適用する。
+                    // これにより --autotune は実機 RunAutoTune と同じ「ユーザー操作なしの内部マルチサンプル」
+                    // 挙動を再現する（テストが automatic な選択を直接測れる）。
+                    z.extraSamples = tune.autoSamples ?? new List<Color>();
                     if (tune.applyGlobals)
                     {
                         st.antiAliasCleanup   = tune.antiAliasCleanup;
@@ -237,6 +253,7 @@ namespace Camereo
                         shadowForgivenessSatMin = z.shadowForgivenessSatMin,
                         applyGlobals = tune.applyGlobals,
                         antiAliasCleanup = st.antiAliasCleanup,
+                        autoSamples = z.extraSamples.Count,
                     }));
                 }
             }
