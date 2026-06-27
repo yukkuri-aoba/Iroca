@@ -45,8 +45,7 @@ namespace Iroca
         private const float AchromaEdgeSoftness = 0.7f;
 
         // ── マッチング(MatchOneSample / CalculateHybridDistance)のしきい値定数 ──
-        // すべてテクスチャ非依存の比率/正規化係数。値は dev_safe/vacc_python/algorithm.py の
-        // production_match_strength(:254,:308-326) にインラインで存在する同値と同期している。
+        // すべてテクスチャ非依存の比率/正規化係数。
         // RGB 3 次元ユークリッド距離を [0,1] へ正規化する係数 1/√3(=単位立方体対角 √3 の逆数)。
         // グレー抽出モードとハイブリッド距離の RGB 項で共用する。
         private const float InvSqrt3 = 0.57735027f;

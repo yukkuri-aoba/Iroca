@@ -348,7 +348,6 @@ namespace Iroca
                     //     (dist<tolerance) を通る色だけを穴埋め候補に許可する。薄いロゴ等で
                     //     「マッチ領域に囲まれただけの背景グレー/白」を full strength に塗ってしまう
                     //     フリンジ(白/灰ノイズ)を構造的に防ぐ。境界回復(RecoverBoundaryEdges)と同一基準。
-                    //     dev_safe/vacc_python/algorithm.py の hole_fill_relaxed_gate (shipping 既定 True) と同期。
                     // WS-M: relaxed ゲート(穴埋め/境界回復)にプライマリと同じ RGB 距離ブレンドを
                     // 与えるための chromaConfidence と sample RGB。低彩度サンプルで同色相の高彩度色
                     // (白→赤バンダナ等)を弾き、境界回復の色スピル(緑ハロー)を防ぐ。有彩は cc≈1 で従来式。
@@ -1278,7 +1277,6 @@ namespace Iroca
         }
 
         // ハイライト帯成長で使用する定数。
-        // dev_safe/vacc_python/algorithm.py の HL_BAND_* と同期。
         private const float HlBandCoreThreshold = 0.90f;  // 信頼コア（本体）とみなす strength 下限
         private const float HlBandAxisEps       = 0.10f;  // sample→白 軸からの許容残差（RGB ユークリッド）
         private const float HlBandMinSampleSat  = 0.20f;  // 源色がこれ未満（灰色寄り）なら無効
@@ -1750,8 +1748,6 @@ namespace Iroca
         ///   候補のうち core(strength≥THR) に 4 連結で到達できる画素のみ採用。
         ///   孤立した同系色の島（別パーツ・白素材）は core に触れないので入らない。
         /// 採用画素は strength=1 にし、後段の P5 白寄せで階調を保ったまま再着色する。
-        ///
-        /// dev_safe/vacc_python/algorithm.py::grow_highlight_band と等価。
         /// </summary>
         private static void GrowHighlightBand(
             float[] strength, Color32[] originalPixels,
@@ -2276,7 +2272,6 @@ namespace Iroca
         // 色相だけ変えると元の単調な輝度 falloff が変換先の色の輝度応答で非単調化する」こと。
         // OkLab で L(知覚明度)を保持し彩度(a,b)を sample→target の線形写像で移すことで、
         // 明度構造を完全保存しリング・白部サイズ変化・ベタ塗りを構造的に排除する。
-        // dev_safe/vacc_python/algorithm.py の _rgb_to_oklab / _oklab_to_rgb と同期。
         //
         // パフォーマンス(P1-3): 再着色ホットループは画素あたり ~9 回の Mathf.Pow を呼んでいた
         // (Pow は乗算の数十倍コスト)。Pow を以下で置換する:
