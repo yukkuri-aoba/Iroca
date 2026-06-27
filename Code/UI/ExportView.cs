@@ -281,12 +281,12 @@ namespace Camereo
                 apply: payload =>
                 {
                     // メインスレッド: AssetDatabase 操作のみ(エンコード/保存はバックグラウンドで完了済み)。
-                    string relativePath = CamereoWindow.ToAssetsRelative(payload.outputPath);
+                    string relativePath = PathUtils.ToAssetsRelativeOrNull(payload.outputPath);
                     if (relativePath != null)
                     {
                         if (payload.inheritImportSettings)
                         {
-                            string srcRel = CamereoWindow.ToAssetsRelative(payload.srcPath);
+                            string srcRel = PathUtils.ToAssetsRelativeOrNull(payload.srcPath);
                             if (srcRel != null)
                                 PreApplyImportSettings(srcRel, relativePath);
                         }
@@ -481,7 +481,7 @@ namespace Camereo
                         string baseName = Path.GetFileNameWithoutExtension(srcPath) + "_recolored";
                         string outPath  = Path.Combine(dir, baseName + ".png");
                         File.WriteAllBytes(outPath, pngData);
-                        string relOutPath = CamereoWindow.ToAssetsRelative(outPath);
+                        string relOutPath = PathUtils.ToAssetsRelativeOrNull(outPath);
                         if (relOutPath != null)
                         {
                             if (inheritImportSettings)

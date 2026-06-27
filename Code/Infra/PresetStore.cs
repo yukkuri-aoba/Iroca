@@ -39,7 +39,7 @@ namespace Camereo
             string path = Path.Combine(ProjectPresetFolder, sanitized + ".json");
             if (!WriteJson(path, data)) return false;
 
-            string rel = ToAssetsRelativeOrNull(path);
+            string rel = PathUtils.ToAssetsRelativeOrNull(path);
             if (rel != null) AssetDatabase.ImportAsset(rel);
             return true;
         }
@@ -92,7 +92,7 @@ namespace Camereo
         public static bool Delete(string filePath)
         {
             if (string.IsNullOrEmpty(filePath)) return false;
-            string rel = ToAssetsRelativeOrNull(filePath);
+            string rel = PathUtils.ToAssetsRelativeOrNull(filePath);
             if (rel != null)
             {
                 return AssetDatabase.DeleteAsset(rel);
@@ -146,8 +146,5 @@ namespace Camereo
                 name = name.Replace(c.ToString(), "_");
             return name;
         }
-
-        private static string ToAssetsRelativeOrNull(string path)
-            => CamereoWindow.ToAssetsRelative(path);
     }
 }

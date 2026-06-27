@@ -379,7 +379,7 @@ namespace Camereo
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
                 File.WriteAllBytes(outAbs, png);
 
-                string rel = CamereoWindow.ToAssetsRelative(outAbs);
+                string rel = PathUtils.ToAssetsRelativeOrNull(outAbs);
                 if (rel != null) AssetDatabase.ImportAsset(rel);
             }
             finally
