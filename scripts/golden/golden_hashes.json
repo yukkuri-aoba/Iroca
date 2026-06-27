@@ -1,0 +1,137 @@
+{
+  "_meta": {
+    "note": "C# 自己ゴールデン（製品 C# の出力ハッシュ）。Python 非依存の回帰検出。意図的変更・toolchain 更新時は `python scripts/golden/golden_lib.py` で再生成。",
+    "unity": "2022.3.22f1",
+    "assembly": "CamereoHeadless"
+  },
+  "cases": {
+    "aa_red_green_to_blue": {
+      "sha256": "dc9ffd34f576917b491c8e7a2e0e8d88595e023f1fe1481e2ea45f5ade14bc0c",
+      "shape": [
+        48,
+        48,
+        4
+      ]
+    },
+    "chroma_on_white_satguard": {
+      "sha256": "3440db8833a6d7c2373aac081f321864eddb41acfa9f6318738d55d81cec642d",
+      "shape": [
+        48,
+        48,
+        4
+      ]
+    },
+    "chroma_on_white_to_blue": {
+      "sha256": "3440db8833a6d7c2373aac081f321864eddb41acfa9f6318738d55d81cec642d",
+      "shape": [
+        48,
+        48,
+        4
+      ]
+    },
+    "grad_blue_to_white": {
+      "sha256": "5dd3a3cc2df8a78306a7e0960a25bd0083a7995185f1fc22e73bd472fefc5a94",
+      "shape": [
+        48,
+        48,
+        4
+      ]
+    },
+    "grad_red_to_blue_anchor": {
+      "sha256": "64f19e7e31dd3d57a8b754b4828882227b3b4fd262b3921db5f9733c5571a087",
+      "shape": [
+        48,
+        48,
+        4
+      ]
+    },
+    "grad_red_to_green": {
+      "sha256": "144a6ff646217d6a5f986ea065e3e6a5a645e6b31304391bbe1fed6f6148340c",
+      "shape": [
+        48,
+        48,
+        4
+      ]
+    },
+    "hl_red_to_blue_wash": {
+      "sha256": "3ec25d2ad82b96c07e35703f218ed03a26bf8fcacaf5ef0beae5ee79b4199653",
+      "shape": [
+        48,
+        48,
+        4
+      ]
+    },
+    "hl_red_to_bright_yellow": {
+      "sha256": "61c853a772b69e90005f74a39927c83b3f610ab6cbd7d928bc69e5d48cd4c447",
+      "shape": [
+        48,
+        48,
+        4
+      ]
+    },
+    "hl_red_to_dark_navy": {
+      "sha256": "7ce6b4fc9b4b2963a9a92646e6459a262664f94486965e0bda65a0b8ee2b4d75",
+      "shape": [
+        48,
+        48,
+        4
+      ]
+    },
+    "solid_blue_to_orange": {
+      "sha256": "5e605d646d461667558fec757088569a26e3c3600ae6f1b0dae73e56250b6c04",
+      "shape": [
+        40,
+        40,
+        4
+      ]
+    },
+    "solid_gray_to_red": {
+      "sha256": "380036de87e2504508df6f6926c411bf055a9b6a6be597eae6f9596d62629b3c",
+      "shape": [
+        40,
+        40,
+        4
+      ]
+    },
+    "solid_red_to_black": {
+      "sha256": "118bb65701ac0a6eaec90e6350995fa03e7034134b3f3f61aba9243f33b4c099",
+      "shape": [
+        40,
+        40,
+        4
+      ]
+    },
+    "solid_red_to_blue": {
+      "sha256": "e8c3ddf74c89ba0cd1f3cbffca05f3b4486a6723cdec352e8168800c1fd87b41",
+      "shape": [
+        40,
+        40,
+        4
+      ]
+    },
+    "solid_red_to_blue_outsat": {
+      "sha256": "698cf1a9dd8f32eccdf16f780eb51af59a81fb79b1c4013266133e3e3f3908d6",
+      "shape": [
+        40,
+        40,
+        4
+      ]
+    },
+    "solid_red_to_blue_shadowdesat": {
+      "sha256": "f6a7a31e70da4af19c59734e905cfcce516f6bba40c618ba09d494d0c199ca53",
+      "shape": [
+        48,
+        48,
+        4
+      ]
+    },
+    "solid_red_to_white": {
+      "sha256": "e370ec10dbeca3fef8683f15c06bfabb711194a30073c3428a735a7de6e30174",
+      "shape": [
+        40,
+        40,
+        4
+      ]
+    }
+  }
+}
