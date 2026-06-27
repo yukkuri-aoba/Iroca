@@ -60,134 +60,9 @@ namespace Iroca
             float exportH = _exportView.GetSectionHeight();
 
             if (sideBySide)
-            {
-                // ── 上部: テクスチャフィールド（フル幅） ──
-                EditorGUI.BeginChangeCheck();
-                DrawTextureField();
-
-                // ── 横並び: 左（設定）＋ 右（プレビュー） ──
-                // エクスポートセクションを常にウィンドウ下部に表示するため、
-                // 横並び領域の高さを「描画領域高 - ヘッダー/テクスチャフィールド - エクスポート高」に制限する。
-                //
-                // 上部（toolbar＋テクスチャフィールド）の高さは固定では見積もれない。テクスチャ未設定時の
-                // WorkflowHint や ReadWrite 不可時のエラー HelpBox が可変高で挿入され、固定見積もりだと
-                // horizH が過大になりエクスポートが画面外へはみ出すため。DrawTextureField 直後の
-                // GetLastRect().yMax はウィンドウ最上部(y=0)からの絶対値＝上部全体高そのものなので、
-                // それを Repaint 時に実測してキャッシュし、horizH 算出に使う。
-                if (Event.current.type == EventType.Repaint)
-                {
-                    float measured = GUILayoutUtility.GetLastRect().yMax;
-                    if (measured > 1f) _sideBySideTopHeight = measured;
-                }
-                // 未計測の初回フレームのみ決定論フォールバック（テクスチャ設定済み相当の見積もり）。
-                float fallbackTopH = EditorStyles.toolbar.fixedHeight
-                    + 4f + (EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing) * 2 + 4f;
-                float topOverheadH = _sideBySideTopHeight > 1f ? _sideBySideTopHeight : fallbackTopH;
-                float horizH = Mathf.Max(
-                    IrocaConsts.Layout.MiddleAreaMinHeight,
-                    availableContentH - topOverheadH - exportH);
-
-                EditorGUILayout.BeginHorizontal(GUILayout.Height(horizH));
-
-                // 左カラム: ゾーン設定 + 処理設定 + マスク + プリセット
-                float leftWidth = Mathf.Clamp(
-                    position.width * IrocaConsts.Layout.LeftColumnRatio,
-                    IrocaConsts.Layout.LeftColumnMin,
-                    IrocaConsts.Layout.LeftColumnMax);
-                EditorGUILayout.BeginVertical(GUILayout.Width(leftWidth));
-                // 縦バーを常時確保し、横バーは無効化する。簡易オーバーロードは縦バーが内容高で
-                // 出入り(トグル)し、その都度コンテンツ幅が ~13px 変わって設定UIが左右にガクつく
-                // (プレビュー生成で上部高/列高がわずかに揺れると境界付近でトグルしやすい)。
-                // 常時確保すれば内容の有無に関わらず横位置が一定になる。
-                leftScrollPos = EditorGUILayout.BeginScrollView(leftScrollPos,
-                    false, true, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
-                    GUILayout.ExpandHeight(true));
-
-                DrawZoneList();
-                DrawProcessingSection();
-                _maskView.Draw();
-
-                if (EditorGUI.EndChangeCheck())
-                {
-                    MarkPreviewDirty();
-                }
-
-                _presetsView.Draw();
-
-                // パイプライン透明化（Debug View）の描画フック。
-                // Code/Debug/ asmdef がない or 未登録なら subscriber がいないので何も描画されない。
-                // 左カラムのスクロール領域内に置くことで、エクスポートのピン留めと
-                // 競合せず、スクロールで到達できるようにする。
-                DebugCaptureHooks.RaiseDrawFoldout(this);
-
-                EditorGUILayout.EndScrollView();
-                EditorGUILayout.EndVertical();
-
-                // 右カラム: プレビュー
-                // ExpandHeight な ScrollView で囲うことで、プレビューが
-                // 横並びセクション高（horizH）を超えても列内でスクロールするようになり、
-                // 下部のエクスポートセクションを押し出さない。
-                EditorGUILayout.BeginVertical();
-                // 横バーは無効化(GUIStyle.none)。この外側 ScrollView は縦オーバーフロー専用で、
-                // 横スクロールは内側プレビューに任せる。横を許すと子へ無制限の幅を提供してしまい、
-                // 内側プレビュー枠が確定せずはみ出し、外側の横バーがプレビューの横パンを横取りする。
-                rightScrollPos = EditorGUILayout.BeginScrollView(rightScrollPos,
-                    false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
-                    GUILayout.ExpandHeight(true));
-                _previewView.Draw();
-                EditorGUILayout.EndScrollView();
-                EditorGUILayout.EndVertical();
-
-                EditorGUILayout.EndHorizontal();
-
-                // ── 下部: エクスポート（フル幅・常に表示） ──
-                // 一括適用は実装継続中のため当面 UI から非表示。
-                // _exportView.DrawBatchSection();
-                _exportView.DrawExportSection();
-            }
+                DrawSideBySideLayout(availableContentH, exportH);
             else
-            {
-                // ── 縦並びレイアウト（ウィンドウ幅が狭い場合） ──
-                // エクスポートを常にウィンドウ下部に表示するため、上部だけをスクロール領域にする。
-                float toolbarH = EditorStyles.toolbar.fixedHeight + 4f;
-                float topScrollH = Mathf.Max(
-                    IrocaConsts.Layout.MiddleAreaMinHeight,
-                    availableContentH - toolbarH - exportH);
-
-                // 横バーは無効化(GUIStyle.none)。この外側 ScrollView は縦スクロール専用で、
-                // 横スクロールは内側プレビューに任せる（横並びレイアウトと同じ理由）。
-                scrollPos = EditorGUILayout.BeginScrollView(scrollPos,
-                    false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
-                    GUILayout.Height(topScrollH));
-
-                EditorGUI.BeginChangeCheck();
-
-                DrawTextureField();
-                DrawZoneList();
-                DrawProcessingSection();
-                _maskView.Draw();
-
-                if (EditorGUI.EndChangeCheck())
-                {
-                    MarkPreviewDirty();
-                }
-
-                _presetsView.Draw();
-                _previewView.Draw();
-
-                // パイプライン透明化（Debug View）の描画フック。
-                // Code/Debug/ asmdef がない or 未登録なら subscriber がいないので何も描画されない。
-                // メインスクロール領域内に置くことで、エクスポートのピン留めと
-                // 競合せず、スクロールで到達できるようにする。
-                DebugCaptureHooks.RaiseDrawFoldout(this);
-
-                EditorGUILayout.EndScrollView();
-
-                // ── 下部: エクスポート（フル幅・常に表示） ──
-                // 一括適用は実装継続中のため当面 UI から非表示。
-                // _exportView.DrawBatchSection();
-                _exportView.DrawExportSection();
-            }
+                DrawVerticalLayout(availableContentH, exportH);
 
             EditorGUI.EndDisabledGroup();
 
@@ -199,6 +74,144 @@ namespace Iroca
                 // 進捗バーを次フレームで更新するため、ジョブ中は継続的に再描画を要求する。
                 Repaint();
             }
+        }
+
+        // 左カラム（横並び）/ 上部スクロール（縦並び）共通の設定スタック。
+        // 横並び・縦並び双方から呼ぶことで描画の重複を避ける。
+        // 呼び出し側の BeginChangeCheck/EndChangeCheck に挟まれて previewDirty 判定に使われる。
+        private void DrawLeftColumnSettings()
+        {
+            DrawZoneList();
+            DrawProcessingSection();
+            _maskView.Draw();
+        }
+
+        // ── 横並びレイアウト: 上部テクスチャ（フル幅）＋左（設定）／右（プレビュー）＋下部エクスポート ──
+        private void DrawSideBySideLayout(float availableContentH, float exportH)
+        {
+            // ── 上部: テクスチャフィールド（フル幅） ──
+            EditorGUI.BeginChangeCheck();
+            DrawTextureField();
+
+            // ── 横並び: 左（設定）＋ 右（プレビュー） ──
+            // エクスポートセクションを常にウィンドウ下部に表示するため、
+            // 横並び領域の高さを「描画領域高 - ヘッダー/テクスチャフィールド - エクスポート高」に制限する。
+            //
+            // 上部（toolbar＋テクスチャフィールド）の高さは固定では見積もれない。テクスチャ未設定時の
+            // WorkflowHint や ReadWrite 不可時のエラー HelpBox が可変高で挿入され、固定見積もりだと
+            // horizH が過大になりエクスポートが画面外へはみ出すため。DrawTextureField 直後の
+            // GetLastRect().yMax はウィンドウ最上部(y=0)からの絶対値＝上部全体高そのものなので、
+            // それを Repaint 時に実測してキャッシュし、horizH 算出に使う。
+            if (Event.current.type == EventType.Repaint)
+            {
+                float measured = GUILayoutUtility.GetLastRect().yMax;
+                if (measured > 1f) _sideBySideTopHeight = measured;
+            }
+            // 未計測の初回フレームのみ決定論フォールバック（テクスチャ設定済み相当の見積もり）。
+            float fallbackTopH = EditorStyles.toolbar.fixedHeight
+                + 4f + (EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing) * 2 + 4f;
+            float topOverheadH = _sideBySideTopHeight > 1f ? _sideBySideTopHeight : fallbackTopH;
+            float horizH = Mathf.Max(
+                IrocaConsts.Layout.MiddleAreaMinHeight,
+                availableContentH - topOverheadH - exportH);
+
+            EditorGUILayout.BeginHorizontal(GUILayout.Height(horizH));
+
+            // 左カラム: ゾーン設定 + 処理設定 + マスク + プリセット
+            float leftWidth = Mathf.Clamp(
+                position.width * IrocaConsts.Layout.LeftColumnRatio,
+                IrocaConsts.Layout.LeftColumnMin,
+                IrocaConsts.Layout.LeftColumnMax);
+            EditorGUILayout.BeginVertical(GUILayout.Width(leftWidth));
+            // 縦バーを常時確保し、横バーは無効化する。簡易オーバーロードは縦バーが内容高で
+            // 出入り(トグル)し、その都度コンテンツ幅が ~13px 変わって設定UIが左右にガクつく
+            // (プレビュー生成で上部高/列高がわずかに揺れると境界付近でトグルしやすい)。
+            // 常時確保すれば内容の有無に関わらず横位置が一定になる。
+            leftScrollPos = EditorGUILayout.BeginScrollView(leftScrollPos,
+                false, true, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
+                GUILayout.ExpandHeight(true));
+
+            DrawLeftColumnSettings();
+
+            if (EditorGUI.EndChangeCheck())
+            {
+                MarkPreviewDirty();
+            }
+
+            _presetsView.Draw();
+
+            // パイプライン透明化（Debug View）の描画フック。
+            // Code/Debug/ asmdef がない or 未登録なら subscriber がいないので何も描画されない。
+            // 左カラムのスクロール領域内に置くことで、エクスポートのピン留めと
+            // 競合せず、スクロールで到達できるようにする。
+            DebugCaptureHooks.RaiseDrawFoldout(this);
+
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
+
+            // 右カラム: プレビュー
+            // ExpandHeight な ScrollView で囲うことで、プレビューが
+            // 横並びセクション高（horizH）を超えても列内でスクロールするようになり、
+            // 下部のエクスポートセクションを押し出さない。
+            EditorGUILayout.BeginVertical();
+            // 横バーは無効化(GUIStyle.none)。この外側 ScrollView は縦オーバーフロー専用で、
+            // 横スクロールは内側プレビューに任せる。横を許すと子へ無制限の幅を提供してしまい、
+            // 内側プレビュー枠が確定せずはみ出し、外側の横バーがプレビューの横パンを横取りする。
+            rightScrollPos = EditorGUILayout.BeginScrollView(rightScrollPos,
+                false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
+                GUILayout.ExpandHeight(true));
+            _previewView.Draw();
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.EndHorizontal();
+
+            // ── 下部: エクスポート（フル幅・常に表示） ──
+            // 一括適用は実装継続中のため当面 UI から非表示。
+            // _exportView.DrawBatchSection();
+            _exportView.DrawExportSection();
+        }
+
+        // ── 縦並びレイアウト（ウィンドウ幅が狭い場合）: 上部スクロール＋下部エクスポート ──
+        private void DrawVerticalLayout(float availableContentH, float exportH)
+        {
+            // エクスポートを常にウィンドウ下部に表示するため、上部だけをスクロール領域にする。
+            float toolbarH = EditorStyles.toolbar.fixedHeight + 4f;
+            float topScrollH = Mathf.Max(
+                IrocaConsts.Layout.MiddleAreaMinHeight,
+                availableContentH - toolbarH - exportH);
+
+            // 横バーは無効化(GUIStyle.none)。この外側 ScrollView は縦スクロール専用で、
+            // 横スクロールは内側プレビューに任せる（横並びレイアウトと同じ理由）。
+            scrollPos = EditorGUILayout.BeginScrollView(scrollPos,
+                false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
+                GUILayout.Height(topScrollH));
+
+            EditorGUI.BeginChangeCheck();
+
+            DrawTextureField();
+            DrawLeftColumnSettings();
+
+            if (EditorGUI.EndChangeCheck())
+            {
+                MarkPreviewDirty();
+            }
+
+            _presetsView.Draw();
+            _previewView.Draw();
+
+            // パイプライン透明化（Debug View）の描画フック。
+            // Code/Debug/ asmdef がない or 未登録なら subscriber がいないので何も描画されない。
+            // メインスクロール領域内に置くことで、エクスポートのピン留めと
+            // 競合せず、スクロールで到達できるようにする。
+            DebugCaptureHooks.RaiseDrawFoldout(this);
+
+            EditorGUILayout.EndScrollView();
+
+            // ── 下部: エクスポート（フル幅・常に表示） ──
+            // 一括適用は実装継続中のため当面 UI から非表示。
+            // _exportView.DrawBatchSection();
+            _exportView.DrawExportSection();
         }
 
         private void DrawJobOverlay()
