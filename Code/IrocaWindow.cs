@@ -42,20 +42,18 @@ namespace Iroca
         [SerializeField] private PreviewView _previewView = new PreviewView();
 
         // 編集状態（ゾーン定義・処理パラメータ・マスク状態）。
-        // Phase 4a で個別 [SerializeField] フィールド群から IrocaSessionState に集約。
+        // 個別 [SerializeField] フィールド群を IrocaSessionState に集約したもの。
         [SerializeField] private IrocaSessionState _session = IrocaSessionState.CreateDefault();
 
         // SerializedObject(this) 経由のプロパティ編集基盤。
-        // Phase 4b で ColorZoneDrawer / PropertyField への移行時に使用し、
-        // Phase 4c で ApplyModifiedProperties() の戻り値を previewDirty 判定に一元化する。
+        // ColorZoneDrawer / PropertyField 経由の編集と、Undo・previewDirty 判定の起点に使う。
         private SerializedObject _windowSerializedObject;
         private SerializedProperty _sessionProperty;
         private SerializedProperty _zonesProperty;
 
         // ── _session への薄いアクセサ ──
-        // Phase 4a では partial class 内のコードに最小限の変更で済むよう、
-        // 既存フィールド名と同じプロパティ経由で _session 内のフィールドへアクセスする。
-        // Phase 4b で View 分離する際、これらのプロパティは _session.xxx の直接参照へ置換される。
+        // partial class 内のコードが、集約前と同じフィールド名のまま _session 内のフィールドへ
+        // アクセスできるようにするブリッジ。新規コードは _session.xxx を直接参照してよい。
         private List<ColorZone> zones { get => _session.zones; set => _session.zones = value; }
         private float edgeFeather { get => _session.edgeFeather; set => _session.edgeFeather = value; }
         private int antiAliasCleanup { get => _session.antiAliasCleanup; set => _session.antiAliasCleanup = value; }
