@@ -15,9 +15,6 @@ namespace Iroca
     /// V を地色まで下げた wash 用サンプルを返す。これで wash がドーム全体に効き、明るい所をスポイトしても
     /// 鏡面グラデが潰れない。**match / base は元の sampleColor のまま**なので再着色範囲は不変
     /// (= 新規の誤検出は増えない)。
-    ///
-    /// dev_safe/vacc_python/algorithm.py の recolor_pixels(wash_sample_rgb=...) と
-    /// diag の auto_wash_sample に対応(同期維持)。
     /// </summary>
     internal static class HighlightSampleCorrector
     {
