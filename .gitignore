@@ -27,6 +27,10 @@ UserSettings/
 Thumbs.db
 .DS_Store
 
+# Python (scripts/ 配下のテスト補助の生成物)
+__pycache__/
+*.pyc
+
 Tests
 texture_sample
 archive/
