@@ -1,5 +1,13 @@
 # AvatarColorChanger リファクタリング計画
 
+> **【状態: 実施済み — 2026-06-27 追記】**
+> 本書は旧 `VACCWindow` partial class 時代に立てた段階的リファクタ計画。
+> Phase 4a–4c は実装され、`VACC` → `Camereo` のリネームも完了済みで、ここに記した「目標アーキテクチャ」は
+> 概ね現コードの実体となっている（`CamereoWindow` + `Code/UI` 各 View + `Code/Core` への分割）。
+> 本文中の `VACCWindow` / `Assets/VACC/...` / `feature/refactor-all` 等は計画当時の表記のまま残す。
+> **リファクタ完了後の現状構造の評価は [`architecture_review_2026-06-27.md`](architecture_review_2026-06-27.md) を参照すること。**
+> 本書は設計判断の経緯（歴史記録）として保全する。
+
 **対象**: `refactoring-unity-editor-antipatterns.md` 記載の20項目アンチパターン  
 **方針**: 6フェーズで段階的に解消。フェーズ完了ごとに Unity 上で手動検証してからコミット（`dev_safe/Tests/` は本リファクタ後に別途設計し直す前提）  
 **ブランチ**: `main` から `feature/refactor-all` を切って全フェーズを進める
