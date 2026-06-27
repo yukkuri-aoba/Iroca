@@ -1,5 +1,13 @@
 # Unity Editor 拡張アンチパターン棚卸しとリファクタリング計画
 
+> **【状態: 概ね解消済み — 2026-06-27 追記】**
+> 本書は旧 `VACCWindow` partial class 時代（単一クラス ~4,900 行）の棚卸し・計画を記録したもの。
+> その後 Phase 4a–4c のリファクタが実装され、`VACC` → `Camereo` へのリネームも完了しており、
+> ここに挙げた問題の大半は **既に解消済み**（神クラスの View 分離・`CamereoSessionState` 導入・
+> Undo/SerializedObject 対応等）。本文中の `VACCWindow.*.cs` 等のファイル名・クラス名は当時のまま残す。
+> **リファクタ完了後の現状構造の評価は [`architecture_review_2026-06-27.md`](architecture_review_2026-06-27.md) を参照すること。**
+> 本書は設計判断の経緯（歴史記録）として保全する。
+
 **対象**: `Code/` 配下（VACCWindow とその partial 群、ColorZone、Localization、BuildHelper 等）
 **目的**: Unity Editor 拡張として「望ましくない実装」を整理し、次回リファクタリングの優先度・修正方針を共有する。
 **読み方**: 各項目は **問題 → 該当箇所 → なぜ悪いか → 修正方針 → 修正例** の順。重大度（Critical / Major / Minor）と推定影響範囲を併記。
