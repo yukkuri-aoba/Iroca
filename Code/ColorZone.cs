@@ -44,6 +44,38 @@ namespace Camereo
         // strength にし、既存デコンタミが α·target+(1-α)·背景 を忠実復元できるようにする。
         private const float AchromaEdgeSoftness = 0.7f;
 
+        // ── マッチング(MatchOneSample / CalculateHybridDistance)のしきい値定数 ──
+        // すべてテクスチャ非依存の比率/正規化係数。値は dev_safe/vacc_python/algorithm.py の
+        // production_match_strength(:254,:308-326) にインラインで存在する同値と同期している。
+        // RGB 3 次元ユークリッド距離を [0,1] へ正規化する係数 1/√3(=単位立方体対角 √3 の逆数)。
+        // グレー抽出モードとハイブリッド距離の RGB 項で共用する。
+        private const float InvSqrt3 = 0.57735027f;
+        // 同色相とみなすシャドウ/ハイライト免除の色相距離ゲート上限。これを超える色相差は別色として
+        // 免除しない(無関係色の巻き込み防止)。免除のオン/オフ判定とフェード分母の双方で使う。
+        private const float ForgivenessHueGate = 0.15f;
+        // シャドウ免除を始める明度しきい(源色 V 比)。pV が sV×この値 未満なら「影」とみなす(25%
+        // デッドマージン)。1-この値(=0.25)が明部側ヘッドルーム HighlightValueHeadroomFrac の鏡像。
+        private const float ShadowValueThresholdFrac = 0.75f;
+        // ハイライト免除を始める明度ヘッドルーム(上方 1-sV に対する比)。ShadowValueThresholdFrac の
+        // 鏡像(0.25 = 1 - 0.75)で、明暗対称に免除を始める。
+        private const float HighlightValueHeadroomFrac = 0.25f;
+        // シャドウ/ハイライト免除ランプの幅(利用可能レンジ比)。免除が 0→1 へ立ち上がる区間長。
+        // シャドウは sV×この値、ハイライトは (1-sV)×この値。
+        private const float ForgivenessRangeFrac = 0.6f;
+        // ハイブリッド距離のハイライト距離免除の下限係数(Lerp(1,この値))。同色相・明部で最大
+        // 1-0.3=70% まで距離を短縮する。シャドウ側距離短縮は廃止済み(暗部巻き込み防止)のため明部のみ
+        // 非対称に温存している。
+        private const float BrightDistanceForgivenessMin = 0.3f;
+        // グレー抽出モードの有効 chromaThreshold は源色 V で動的に決まる: sV=0 で BaseChromaThreshold、
+        // sV>=ChromaConfidenceRamp で zone.chromaThreshold に収束。暗い源色ほど色相/彩度が不安定なため
+        // グレーモード適用範囲を広げる。
+        private const float GrayModeBaseChromaThreshold = 0.30f;
+        private const float GrayModeChromaConfidenceRamp = 0.20f;
+        // グレー抽出モードで「暗い源色」とみなす V 上限。これ未満では無彩色の彩度(中立逸脱度)を距離
+        // 指標に混ぜ(輝度差があっても無彩なら同素材)、彩度整合ゲートの明部限定 gateWeight のフェード
+        // 区間 [0,この値] にも使う。
+        private const float GrayModeDarkSampleValue = 0.3f;
+
 
         public string name = "Zone";
         public bool enabled = true;
@@ -401,23 +433,23 @@ namespace Camereo
             // サンプル色の彩度がしきい値以下の場合は、自動的に無彩色(グレー/黒)抽出モードとして扱う
             // 暗いサンプルはHSV色相・彩度が不安定なため、黒るいほどグレースケールモードの適用範囲を動的に広げる。
             // sV = 0 で 0.30、sV >= 0.20 で chromaThreshold に収束する。
-            float effectiveChromaThreshold = Mathf.Lerp(0.30f, chromaThreshold, Mathf.Clamp01(sc.sV / 0.20f));
+            float effectiveChromaThreshold = Mathf.Lerp(GrayModeBaseChromaThreshold, chromaThreshold, Mathf.Clamp01(sc.sV / GrayModeChromaConfidenceRamp));
             if (sc.sS <= effectiveChromaThreshold)
             {
                 // グレー抽出モード：HueやSatを完全に無視し、純粋なRGBの近さのみで判定する
                 float dr = pixelColor.r - sc.color.r;
                 float dg = pixelColor.g - sc.color.g;
                 float db = pixelColor.b - sc.color.b;
-                float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f;
+                float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * InvSqrt3;
 
                 // 暗いサンプル（黒〜暗グレー）の明るい側許容:
                 // 黒いファブリックは表面の凹凸・照明により中間グレーのハイライトを持つが同じマテリアル。
                 // サンプルが暗いほど、無彩色ピクセルの彩度（≒中立からの逸脱度）を距離指標として使い、
                 // 輝度差があっても無彩色なら「同素材」とみなせるようにする。
                 float effectiveDist = rgbDist;
-                if (sc.sV < 0.3f)
+                if (sc.sV < GrayModeDarkSampleValue)
                 {
-                    float darknessFactor = Mathf.Clamp01((0.3f - sc.sV) / 0.3f);
+                    float darknessFactor = Mathf.Clamp01((GrayModeDarkSampleValue - sc.sV) / GrayModeDarkSampleValue);
                     effectiveDist = Mathf.Lerp(rgbDist, pS, darknessFactor);
                 }
 
@@ -430,7 +462,7 @@ namespace Camereo
                 // 暗いサンプルではフェードさせ、明るい tint 素材(クリーム等)でのみ全効果にする。
                 if (sc.sS > ChromaGateActivateSat)
                 {
-                    float gateWeight = Mathf.Clamp01(sc.sV / 0.3f);
+                    float gateWeight = Mathf.Clamp01(sc.sV / GrayModeDarkSampleValue);
                     float satFloor = sc.sS * ChromaGateFloorFrac;
                     float shortfall = Mathf.Clamp01((satFloor - pS) / Mathf.Max(satFloor, 1e-4f));
                     effectiveDist += shortfall * ChromaGatePenalty * _cTolerance * gateWeight;
@@ -463,12 +495,12 @@ namespace Camereo
             float effectiveHDist = hDist * hueRelevance;
 
             // 同系色・暗部のシャドウ許容（暗い影の部分は彩度や明度が落ちるが、同じ色として拾う）
-            if (pV < sc.sV * 0.75f && effectiveHDist < 0.15f)
+            if (pV < sc.sV * ShadowValueThresholdFrac && effectiveHDist < ForgivenessHueGate)
             {
-                float darkForgiveness = Mathf.Clamp01((sc.sV * 0.75f - pV) / (sc.sV * 0.6f));
+                float darkForgiveness = Mathf.Clamp01((sc.sV * ShadowValueThresholdFrac - pV) / (sc.sV * ForgivenessRangeFrac));
 
                 // 1. 色相(Hue)が離れているほど免除を弱くする（ノイズによる無関係な色の巻き込み防止）
-                float hueFactor = 1f - (effectiveHDist / 0.15f);
+                float hueFactor = 1f - (effectiveHDist / ForgivenessHueGate);
                 darkForgiveness *= hueFactor;
 
                 // 2. サンプルが有彩色の場合、対象の彩度が低すぎる(グレー/黒に近い)と免除を減衰
@@ -487,16 +519,16 @@ namespace Camereo
             // 彩度ゲートを免除して同素材として拾う。FP は色相ゲートで抑える。
             // シャドウ側の satFactor 減衰は付けない（ハイライトは低彩度化が正常で
             // 暗部のグレー/黒混入とは性質が逆のため）。
-            if (pV > sc.sV && effectiveHDist < 0.15f)
+            if (pV > sc.sV && effectiveHDist < ForgivenessHueGate)
             {
                 // 明度の伸び量を上方ヘッドルーム (1 - sV) で正規化。
                 // 閾値 sV + (1-sV)*0.25 は暗側 sV*0.75（25% デッドマージン）の鏡像。
-                float brightThreshold = sc.sV + (1f - sc.sV) * 0.25f;
+                float brightThreshold = sc.sV + (1f - sc.sV) * HighlightValueHeadroomFrac;
                 float brightForgiveness = Mathf.Clamp01(
-                    (pV - brightThreshold) / Mathf.Max(0.01f, (1f - sc.sV) * 0.6f));
+                    (pV - brightThreshold) / Mathf.Max(0.01f, (1f - sc.sV) * ForgivenessRangeFrac));
 
                 // 色相が離れているほど免除を弱くする（暗側と同形・無関係色の巻き込み防止）
-                float hueFactor = 1f - (effectiveHDist / 0.15f);
+                float hueFactor = 1f - (effectiveHDist / ForgivenessHueGate);
                 brightForgiveness *= hueFactor;
 
                 satConfidence = Mathf.Max(satConfidence, brightForgiveness);
@@ -532,7 +564,7 @@ namespace Camereo
             float db = pixelColor.b - sc.color.b;
 
             // 距離の近似として平方根を残すが、共通して使うことで計算量を抑制できる
-            float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f;
+            float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * InvSqrt3;
 
             float finalDist = Mathf.Lerp(rgbDist, hsvDist, sc.chromaConfidence);
 
@@ -546,16 +578,16 @@ namespace Camereo
             // ハイライト（明部）の距離許容: 上のシャドウ許容の対称形。
             // サンプルより明るく同色相なら、低彩度化したハイライト芯でも同素材として
             // 距離を免除する。免除上限はシャドウ側と同じ 0.3f（最大70%）で対称。
-            if (pV > sc.sV && hDist < 0.15f)
+            if (pV > sc.sV && hDist < ForgivenessHueGate)
             {
-                float brightThreshold = sc.sV + (1f - sc.sV) * 0.25f;
+                float brightThreshold = sc.sV + (1f - sc.sV) * HighlightValueHeadroomFrac;
                 float brightForgiveness = Mathf.Clamp01(
-                    (pV - brightThreshold) / Mathf.Max(0.01f, (1f - sc.sV) * 0.6f));
+                    (pV - brightThreshold) / Mathf.Max(0.01f, (1f - sc.sV) * ForgivenessRangeFrac));
 
-                float hueFactor = 1f - (hDist / 0.15f);
+                float hueFactor = 1f - (hDist / ForgivenessHueGate);
                 brightForgiveness *= hueFactor;
 
-                finalDist *= Mathf.Lerp(1f, 0.3f, brightForgiveness);
+                finalDist *= Mathf.Lerp(1f, BrightDistanceForgivenessMin, brightForgiveness);
             }
 
             return finalDist;
