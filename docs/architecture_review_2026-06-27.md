@@ -203,6 +203,27 @@ com.yukkuri-aoba.camereo.Editor        … 本体（Editor 専用、references: 
 
 ---
 
+## 6.1 対応状況（2026-06-27 実施）
+
+§6 のうち、費用対効果が高く・低〜中リスク・**コア計算の出力を変えない**項目を実施した。コア（計算層の分離・再着色アルゴリズム）は不変。出力バイト不変が要る項目は、新設した **C# 自己ゴールデン回帰テスト**（後述）で全件バイト一致を機械確認している。
+
+| 項目 | 状態 | コミット | 備考 |
+|------|:----:|---------|------|
+| A1 Infra→UI 逆流解消 | ✅ 解消 | `7b59e01` | `ToAssetsRelative` を [`Code/Infra/PathUtils.cs`](../Code/Infra/PathUtils.cs) へ抽出。Infra/Automation が UI 非依存に。出力不変 |
+| A2 アンチパターン台帳更新 | ✅ 解消 | `284649f` | 旧 partial class 台帳 2 件の冒頭に「解消済み」状態ヘッダ注記を追加 |
+| B2 C#↔Python ドリフト対策 | ✅ 解消（方針変更） | `78068da` | **C# が製品の唯一の正・Python は使い捨て試作**という実態に合わせ、「C#≡Python 一致テスト」ではなく **C# 自己ゴールデン回帰テスト**（[`scripts/golden/`](../scripts/golden/)、Python 非依存）を新設。C# が黙って退行（段の欠落・定数ずれ等）したら検出。ネガティブ検証済み |
+| B3 パラメータ構造体化 | ✅ 解消（RecolorPixel） | `3713c0e` | `RecolorPixel` の約27引数→`readonly struct RecolorParams` の `in` 渡しで 7 引数に。出力バイト不変。`ColorZone` 全体の構造体化は Preset JSON 互換破壊のため見送り |
+| C3 ColorZone マジックナンバー命名 | ✅ 解消 | `9386ddf` | マッチ部のインライン定数を named const + 根拠/同期コメント化。出力バイト不変 |
+| B1 レイヤー名前空間導入 | ⏸ 見送り | — | 26 ファイル一括変更・回帰面が広く効果中。asmdef + headless 制約で境界は概ね既達のため限界効用が小さい |
+| C1 ProcessPixelsArray 段分割 | ⏸ 見送り | — | 既に 8 段抽出済み・共有可変バッファ密結合でコスト大。テスト境界は B2 ゴールデンで代替 |
+| C2 CamereoWindow 状態集約 | ⏸ 見送り | — | IMGUI 構造的制約・View 逆参照 66 箇所で大規模・実機手動検証必須 |
+
+補足:
+- **B2 の方針変更**: 当初案（C#↔Python 双方向一致テスト）は、実測で両者が複数経路（グレーモード・ハイライト等）で意図的に乖離していることが判明し、かつ「Python は使い捨て」という運用方針と相反するため不採用。代わりに製品である C# 自身の出力スナップショットを固定する回帰テストとした。
+- 既存の `dev_safe/Tests/regression/test_csharp_quality_gate.py` が旧 DLL 名 `VACCHeadless` を参照したまま skip に落ちていたリネーム取り残しをローカル修正（`CamereoHeadless`）。`dev_safe` は git 管理外のためコミットには含まれない。
+
+---
+
 ## 7. 結論
 
 Camereo は **「画像処理エンジン」としては模範的に分離されたアーキテクチャ**を持つ。選択 / 自動調整 / 再着色の 3 関心事が疎結合で、計算層が Unity Editor から完全独立し headless テスト可能であること、オプション機能（Debug / MCP）が asmdef + 条件コンパイルで本体から隔離され外部依存ゼロを保っていることは、特に評価できる。
