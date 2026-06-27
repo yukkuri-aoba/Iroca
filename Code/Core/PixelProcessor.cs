@@ -615,6 +615,12 @@ namespace Camereo
                             }
                         }
                     }
+                    // ゾーン不変の再着色パラメータをループ前に 1 回だけ構築(in 渡しで per-pixel コピー回避)。
+                    var rcParams = new RecolorParams(
+                        zOkMagScale, zTa, zTb, zOkGray, zOkGa, zOkGb,
+                        zSL, zTL, zSC, zOkChromaMaxMag, zValueBlend, zEffShadowDesat,
+                        zSS, zTR, zTG, zTB, zWR, zWG, zWB, zWV,
+                        zApplyWash, zAchromaWeight, zOsat, zHasRegL, zRegLlo, zRegLhi);
                     // rcMaxX<0 はマッチ画素なし → 全画素 continue で何もしないのと同じ(出力不変)。
                     if (rcMaxX >= 0)
                     Parallel.For(rcMinY, rcMaxY + 1, po, y =>
@@ -647,17 +653,8 @@ namespace Camereo
                             Color32 recolored = RecolorPixel(
                                 op.r, op.g, op.b,
                                 pixV[i], alpha,
-                                okMagScale: zOkMagScale, okTa: zTa, okTb: zTb,
-                                okGray: zOkGray, okGa: zOkGa, okGb: zOkGb,
-                                okSL: zSL, okTL: zTL, okSC: zSC, okChromaMaxMag: zOkChromaMaxMag,
-                                valueBlend: zValueBlend,
-                                shadowDesaturation: zEffShadowDesat,
-                                sS: zSS, tR: zTR, tG: zTG, tB: zTB,
-                                washR: zWR, washG: zWG, washB: zWB, washV: zWV,
-                                applyHighlightWash: zApplyWash,
-                                achromaWeight: zAchromaWeight, osat: zOsat,
-                                hasRegL: zHasRegL, regLlo: zRegLlo, regLhi: zRegLhi,
-                                regLmid: (zRegMidMap != null && zRegMidMap[i] > 0f) ? zRegMidMap[i] : zRegLmid);
+                                in rcParams,
+                                (zRegMidMap != null && zRegMidMap[i] > 0f) ? zRegMidMap[i] : zRegLmid);
                             if (topMost)
                             {
                                 // 最上位の寄与(claimed≈0)。es=s なので従来挙動と完全一致し、
@@ -2384,19 +2381,60 @@ namespace Camereo
             bb = LinearToSrgb(lb);
         }
 
+        // RecolorPixel のゾーン不変パラメータ(再着色ホットループの前に 1 回だけ確定する値)をまとめた
+        // readonly struct。in 渡しで per-pixel のコピーを避ける。フィールドは旧 RecolorPixel 引数を
+        // そのまま転記(型・順序・意味を保持)。約30引数の緩和=シグネチャ整理のみで数値ロジックは不変
+        // (architecture_review_2026-06-27 §4.2(C))。
+        private readonly struct RecolorParams
+        {
+            public readonly float okMagScale, okTa, okTb;
+            public readonly bool okGray;
+            public readonly float okGa, okGb;
+            public readonly float okSL, okTL, okSC, okChromaMaxMag;
+            public readonly float valueBlend, shadowDesaturation;
+            public readonly float sS, tR, tG, tB;
+            public readonly float washR, washG, washB, washV;
+            public readonly bool applyHighlightWash;
+            public readonly float achromaWeight, osat;
+            public readonly bool hasRegL;
+            public readonly float regLlo, regLhi;
+            public RecolorParams(
+                float okMagScale, float okTa, float okTb, bool okGray, float okGa, float okGb,
+                float okSL, float okTL, float okSC, float okChromaMaxMag,
+                float valueBlend, float shadowDesaturation, float sS, float tR, float tG, float tB,
+                float washR, float washG, float washB, float washV, bool applyHighlightWash,
+                float achromaWeight, float osat, bool hasRegL, float regLlo, float regLhi)
+            {
+                this.okMagScale = okMagScale; this.okTa = okTa; this.okTb = okTb;
+                this.okGray = okGray; this.okGa = okGa; this.okGb = okGb;
+                this.okSL = okSL; this.okTL = okTL; this.okSC = okSC; this.okChromaMaxMag = okChromaMaxMag;
+                this.valueBlend = valueBlend; this.shadowDesaturation = shadowDesaturation;
+                this.sS = sS; this.tR = tR; this.tG = tG; this.tB = tB;
+                this.washR = washR; this.washG = washG; this.washB = washB; this.washV = washV;
+                this.applyHighlightWash = applyHighlightWash;
+                this.achromaWeight = achromaWeight; this.osat = osat;
+                this.hasRegL = hasRegL; this.regLlo = regLlo; this.regLhi = regLhi;
+            }
+        }
+
         private static Color32 RecolorPixel(
             byte oRb, byte oGb, byte oBb,
             float oV, float alpha,
-            float okMagScale, float okTa, float okTb,
-            bool okGray, float okGa, float okGb,
-            float okSL, float okTL, float okSC, float okChromaMaxMag,
-            float valueBlend, float shadowDesaturation,
-            float sS, float tR, float tG, float tB,
-            float washR, float washG, float washB, float washV,
-            bool applyHighlightWash,
-            float achromaWeight = 0f, float osat = 1f,
-            bool hasRegL = false, float regLlo = 0f, float regLhi = 1f, float regLmid = 0.5f)
+            in RecolorParams p,
+            float regLmid)
         {
+            // ゾーン不変パラメータをローカルへ展開する。以降の本体ロジックは従来のまま=出力バイト不変。
+            float okMagScale = p.okMagScale, okTa = p.okTa, okTb = p.okTb;
+            bool okGray = p.okGray;
+            float okGa = p.okGa, okGb = p.okGb;
+            float okSL = p.okSL, okTL = p.okTL, okSC = p.okSC, okChromaMaxMag = p.okChromaMaxMag;
+            float valueBlend = p.valueBlend, shadowDesaturation = p.shadowDesaturation;
+            float sS = p.sS, tR = p.tR, tG = p.tG, tB = p.tB;
+            float washR = p.washR, washG = p.washG, washB = p.washB, washV = p.washV;
+            bool applyHighlightWash = p.applyHighlightWash;
+            float achromaWeight = p.achromaWeight, osat = p.osat;
+            bool hasRegL = p.hasRegL;
+            float regLlo = p.regLlo, regLhi = p.regLhi;
             // === OkLab 明度マップ + 彩度(向きは target 色相に均一化)リカラー ===
             // L: 2区間線形リマップ (0→0, sL→tL, 1→1)。base を target 明度へ寄せる。単調維持
             //    (リング無し)・ガンマット内(クリップ無し)・白→白/黒→黒。明度を完全保持すると
