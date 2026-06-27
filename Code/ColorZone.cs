@@ -1,6 +1,7 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Camereo
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Camereo
@@ -51,6 +52,17 @@ namespace Camereo
         // カラーピックモード
         public Color sampleColor = Color.white;
         public float tolerance = 0f;
+
+        // マルチサンプル選択用の内部サンプル（暗部／中間／明部の代表色）。空＝単一サンプルと等価。
+        // ★ユーザーが手で追加するものではない★ — 自動調整（ZoneAutoTuner.DeriveAutoTonalSamples）が
+        // スポイト1点から「同色相パーツのトーン分布」を走査して自動生成し、RunAutoTune が設定する。
+        // 単一サンプル＋大きな許容範囲は濃淡を覆おうとして隣接パーツまで巻き込みやすい（誤爆の主因）。
+        // 代わりにパーツの濃い所・薄い所の代表色を中心とした小さな許容範囲の「和集合」でパーツ全体を
+        // 捉えることで、precision（はみ出し低減）と recall（取りこぼし低減）を同時に高める。
+        //   sampleColor   … 主サンプル（スポイト点）。再着色アンカー（＝出力色マッピング）に使う。
+        //   extraSamples  … 自動生成の内部サンプル。選択（マッチング）だけを広げ、出力色には影響しない。
+        // 出力を主サンプル基準に固定するのは autoRecolorAnchor と同じ「選択と出力の分離」方針に沿う。
+        public List<Color> extraSamples = new List<Color>();
 
         // 矩形モード（UV座標0-1）
         public Rect uvRect = new Rect(0, 0, 1, 1);
@@ -137,16 +149,27 @@ namespace Camereo
         [NonSerialized] private Color _cSampleColor;
         [NonSerialized] private float _cTolerance, _cSatStrictness, _cSatRampScale, _cEdgeSoftness;
         [NonSerialized] private float _cSaturationGuard;
+        // extraSamples の変更検知用スナップショット（内容が変わったらキャッシュを作り直す）。
+        [NonSerialized] private Color[] _cExtraSamples;
 
-        // キャッシュされた値
-        [NonSerialized] private float sH, sS, sV; // サンプル色のHSV
-        [NonSerialized] private float satMin, satRamp;
-        [NonSerialized] private float chromaConfidence;
+        // サンプルごとに変わる派生値（HSV・彩度ゲート床など）。マルチサンプルでは
+        // サンプル数ぶんの配列を持ち、マッチングは全サンプルの最大強度を採る（和集合）。
+        // ゾーン全体で共通の値（tolerance・各 range・重み・chromaThreshold 等）は
+        // インスタンスフィールドのまま保持する。
+        private struct SampleCache
+        {
+            public Color color;
+            public float sH, sS, sV;       // サンプル色の HSV
+            public float satMin, satRamp;
+            public float chromaConfidence;
+            public float saturationGuardFloor; // 0=無効。pS がこの値未満なら hard reject。
+        }
+        [NonSerialized] private SampleCache[] _sampleCaches;
+
+        // ゾーン共通のキャッシュ値（サンプルに依存しない）
         [NonSerialized] private float softRange, hardRange;
         [NonSerialized] private float hlHueCap;
         [NonSerialized] private float hlSoftRange, hlHardRange;
-        // 彩度ガードのカットオフ。0 = 無効。pS がこの値未満なら hard reject。
-        [NonSerialized] private float saturationGuardFloor;
 
         public void EnsureId()
         {
@@ -155,11 +178,21 @@ namespace Camereo
         }
 
         /// <summary>
-        /// このゾーンのシャローコピーを返します。
+        /// このゾーンのコピーを返します。
         /// [NonSerialized] のキャッシュフィールドもコピーされますが、
         /// 値の変更は UpdateCacheIfNeeded で再計算されるため安全です。
+        /// extraSamples は可変リストなので、クローン間で共有しないよう深いコピーにし、
+        /// キャッシュのスナップショット参照も切り離して各クローンが独立に再計算するようにします。
         /// </summary>
-        public ColorZone Clone() => (ColorZone)MemberwiseClone();
+        public ColorZone Clone()
+        {
+            var c = (ColorZone)MemberwiseClone();
+            c.extraSamples = (extraSamples != null) ? new List<Color>(extraSamples) : new List<Color>();
+            c._cExtraSamples = null;
+            c._sampleCaches = null;
+            c._cacheInitiated = false;
+            return c;
+        }
 
         /// <summary>
         /// 再着色とマッチングの詳細チューニングだけを既定値へ戻します。
@@ -200,7 +233,8 @@ namespace Camereo
                 _cSatStrictness == saturationStrictness &&
                 _cSatRampScale == satRampScale &&
                 _cEdgeSoftness == edgeSoftness &&
-                _cSaturationGuard == saturationGuard)
+                _cSaturationGuard == saturationGuard &&
+                !ExtraSamplesChanged())
             {
                 return;
             }
@@ -213,22 +247,16 @@ namespace Camereo
             _cSaturationGuard = saturationGuard;
             _cacheInitiated = true;
 
-            Color.RGBToHSV(sampleColor, out sH, out sS, out sV);
-
-            // 彩度ガード床: 源色が高彩度なときだけ正値になる。
-            // 既定 saturationGuard=0 では常に 0（=機能無効）で従来動作と完全互換。
-            saturationGuardFloor = (saturationGuard > 0f && sS >= SaturationGuardActiveSourceSat)
-                ? sS * SaturationGuardFractionScale * saturationGuard
-                : 0f;
-
-            satMin = Mathf.Max(0.02f, sS * saturationStrictness);
-            satRamp = Mathf.Max(0.08f, sS * satRampScale);
-
-            float currentChromaHi = chromaThreshold + 0.10f;
-            float baseChromaConf = Mathf.Clamp01((sS - chromaThreshold) / ((currentChromaHi) - chromaThreshold));
-            // 暗すぎる色（黒）は彩度データが高くても色相（Hue）の計算がノイズで暴れるため信用しない
-            float valueConf = Mathf.Clamp01((sV - 0.05f) / 0.15f); // Vが0.05(非常に暗い)〜0.20の範囲で減衰
-            chromaConfidence = Mathf.Min(baseChromaConf, valueConf);
+            // サンプルごとの派生値を構築（主サンプル + 追加スポイト）。
+            int extraN = extraSamples?.Count ?? 0;
+            _sampleCaches = new SampleCache[1 + extraN];
+            _sampleCaches[0] = BuildSampleCache(sampleColor);
+            for (int i = 0; i < extraN; i++)
+                _sampleCaches[i + 1] = BuildSampleCache(extraSamples[i]);
+            // 変更検知用にスナップショットを取る。
+            if (_cExtraSamples == null || _cExtraSamples.Length != extraN)
+                _cExtraSamples = new Color[extraN];
+            for (int i = 0; i < extraN; i++) _cExtraSamples[i] = extraSamples[i];
 
             softRange = tolerance * edgeSoftness;
             hardRange = tolerance - softRange;
@@ -236,6 +264,43 @@ namespace Camereo
             hlHueCap = Mathf.Max(0.05f, tolerance * 0.3f);
             hlSoftRange = tolerance * edgeSoftness;
             hlHardRange = tolerance - hlSoftRange;
+        }
+
+        // extraSamples の内容が前回キャッシュ時と変わったか（個数・各色）。
+        private bool ExtraSamplesChanged()
+        {
+            int n = extraSamples?.Count ?? 0;
+            int cn = _cExtraSamples?.Length ?? 0;
+            if (n != cn) return true;
+            for (int i = 0; i < n; i++)
+                if (_cExtraSamples[i] != extraSamples[i]) return true;
+            return false;
+        }
+
+        // 1 サンプル分の派生キャッシュを計算する。ゾーン共通の倍率
+        // （saturationStrictness/satRampScale/chromaThreshold/saturationGuard）を使うので、
+        // 主サンプルに対しては従来の単一サンプル計算と完全に一致する（＝後方互換）。
+        private SampleCache BuildSampleCache(Color c)
+        {
+            SampleCache sc;
+            sc.color = c;
+            Color.RGBToHSV(c, out sc.sH, out sc.sS, out sc.sV);
+
+            // 彩度ガード床: 源色が高彩度なときだけ正値になる。
+            // 既定 saturationGuard=0 では常に 0（=機能無効）で従来動作と完全互換。
+            sc.saturationGuardFloor = (saturationGuard > 0f && sc.sS >= SaturationGuardActiveSourceSat)
+                ? sc.sS * SaturationGuardFractionScale * saturationGuard
+                : 0f;
+
+            sc.satMin = Mathf.Max(0.02f, sc.sS * saturationStrictness);
+            sc.satRamp = Mathf.Max(0.08f, sc.sS * satRampScale);
+
+            float currentChromaHi = chromaThreshold + 0.10f;
+            float baseChromaConf = Mathf.Clamp01((sc.sS - chromaThreshold) / ((currentChromaHi) - chromaThreshold));
+            // 暗すぎる色（黒）は彩度データが高くても色相（Hue）の計算がノイズで暴れるため信用しない
+            float valueConf = Mathf.Clamp01((sc.sV - 0.05f) / 0.15f); // Vが0.05(非常に暗い)〜0.20の範囲で減衰
+            sc.chromaConfidence = Mathf.Min(baseChromaConf, valueConf);
+            return sc;
         }
 
         public float GetMatchStrength(Color pixelColor, int x, int y, int texWidth, int texHeight)
@@ -294,7 +359,33 @@ namespace Camereo
             return GetMatchStrength(pixelColor, x, y, texWidth, texHeight) > 0f;
         }
 
+        // マルチサンプルの和集合マッチング。全サンプル（主＋追加スポイト）に対して
+        // 1 サンプル分のマッチを計算し、最大強度を採る。サンプルが 1 個なら従来の
+        // 単一サンプル計算と完全に一致する（追加スポイトが無い限り出力はビット不変）。
         private void GetColorMatchScores(Color pixelColor, float pH, float pS, float pV, out float strength, out float highlightPotential)
+        {
+            strength = 0f;
+            highlightPotential = 0f;
+
+            var caches = _sampleCaches;
+            if (caches == null || caches.Length == 0)
+            {
+                // UpdateCacheIfNeeded 未実行時の安全網（通常は到達しない）。
+                UpdateCacheIfNeeded();
+                caches = _sampleCaches;
+            }
+
+            for (int si = 0; si < caches.Length; si++)
+            {
+                MatchOneSample(in caches[si], pixelColor, pH, pS, pV, out float s, out float hPot);
+                if (s > strength) strength = s;
+                if (hPot > highlightPotential) highlightPotential = hPot;
+            }
+        }
+
+        // 1 サンプル分のマッチ強度／ハイライト候補を計算する。サンプル依存の値は sc から、
+        // ゾーン共通の値（tolerance・各 range・重み・閾値）はインスタンスフィールドから読む。
+        private void MatchOneSample(in SampleCache sc, Color pixelColor, float pH, float pS, float pV, out float strength, out float highlightPotential)
         {
             strength = 0f;
             highlightPotential = 0f;
@@ -302,7 +393,7 @@ namespace Camereo
             // 彩度ガード: 源色が高彩度なときだけ作動し、白/黒/灰色など無彩色寄りの
             // 画素を hard reject する。源色 S が低い（グレー/黒）の場合は
             // saturationGuardFloor が 0 になり、このゲートは作動しない（自動無効）。
-            if (saturationGuardFloor > 0f && pS < saturationGuardFloor)
+            if (sc.saturationGuardFloor > 0f && pS < sc.saturationGuardFloor)
             {
                 return;
             }
@@ -310,13 +401,13 @@ namespace Camereo
             // サンプル色の彩度がしきい値以下の場合は、自動的に無彩色(グレー/黒)抽出モードとして扱う
             // 暗いサンプルはHSV色相・彩度が不安定なため、黒るいほどグレースケールモードの適用範囲を動的に広げる。
             // sV = 0 で 0.30、sV >= 0.20 で chromaThreshold に収束する。
-            float effectiveChromaThreshold = Mathf.Lerp(0.30f, chromaThreshold, Mathf.Clamp01(sV / 0.20f));
-            if (sS <= effectiveChromaThreshold)
+            float effectiveChromaThreshold = Mathf.Lerp(0.30f, chromaThreshold, Mathf.Clamp01(sc.sV / 0.20f));
+            if (sc.sS <= effectiveChromaThreshold)
             {
                 // グレー抽出モード：HueやSatを完全に無視し、純粋なRGBの近さのみで判定する
-                float dr = pixelColor.r - _cSampleColor.r;
-                float dg = pixelColor.g - _cSampleColor.g;
-                float db = pixelColor.b - _cSampleColor.b;
+                float dr = pixelColor.r - sc.color.r;
+                float dg = pixelColor.g - sc.color.g;
+                float db = pixelColor.b - sc.color.b;
                 float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f;
 
                 // 暗いサンプル（黒〜暗グレー）の明るい側許容:
@@ -324,9 +415,9 @@ namespace Camereo
                 // サンプルが暗いほど、無彩色ピクセルの彩度（≒中立からの逸脱度）を距離指標として使い、
                 // 輝度差があっても無彩色なら「同素材」とみなせるようにする。
                 float effectiveDist = rgbDist;
-                if (sV < 0.3f)
+                if (sc.sV < 0.3f)
                 {
-                    float darknessFactor = Mathf.Clamp01((0.3f - sV) / 0.3f);
+                    float darknessFactor = Mathf.Clamp01((0.3f - sc.sV) / 0.3f);
                     effectiveDist = Mathf.Lerp(rgbDist, pS, darknessFactor);
                 }
 
@@ -337,10 +428,10 @@ namespace Camereo
                 // 明部限定(gateWeight=clamp(sV/0.3)): 暗いサンプルは上の分岐で pS を距離指標に使い
                 // 「中性=同素材」とみなす(暗布は中性が正常)ため、中性を罰するこのゲートと矛盾する。
                 // 暗いサンプルではフェードさせ、明るい tint 素材(クリーム等)でのみ全効果にする。
-                if (sS > ChromaGateActivateSat)
+                if (sc.sS > ChromaGateActivateSat)
                 {
-                    float gateWeight = Mathf.Clamp01(sV / 0.3f);
-                    float satFloor = sS * ChromaGateFloorFrac;
+                    float gateWeight = Mathf.Clamp01(sc.sV / 0.3f);
+                    float satFloor = sc.sS * ChromaGateFloorFrac;
                     float shortfall = Mathf.Clamp01((satFloor - pS) / Mathf.Max(satFloor, 1e-4f));
                     effectiveDist += shortfall * ChromaGatePenalty * _cTolerance * gateWeight;
                 }
@@ -355,38 +446,38 @@ namespace Camereo
                 // ハイライト復元は輝度のみでざっくり判定
                 if (highlightRecovery && pV > HighlightValueMin)
                 {
-                    float vDist = Mathf.Abs(pV - sV);
+                    float vDist = Mathf.Abs(pV - sc.sV);
                     highlightPotential = CalculateEdgeStrength(vDist, hlHardRange, hlSoftRange);
                 }
                 return;
             }
 
             // 基礎パラメータの計算
-            float satConfidence = Mathf.Clamp01((pS - satMin) / satRamp);
-            float hDist = CalculateHueDistance(pH, sH);
-            float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
+            float satConfidence = Mathf.Clamp01((pS - sc.satMin) / sc.satRamp);
+            float hDist = CalculateHueDistance(pH, sc.sH);
+            float sRatio = (sc.sS > 0.01f) ? Mathf.Clamp01(pS / sc.sS) : 1f;
 
             // 無彩色領域でのHueのバタつきを緩和する
-            float maxSat = Mathf.Max(pS, sS);
+            float maxSat = Mathf.Max(pS, sc.sS);
             float hueRelevance = Mathf.Clamp01(maxSat / Mathf.Max(0.01f, chromaThreshold));
             float effectiveHDist = hDist * hueRelevance;
 
             // 同系色・暗部のシャドウ許容（暗い影の部分は彩度や明度が落ちるが、同じ色として拾う）
-            if (pV < sV * 0.75f && effectiveHDist < 0.15f)
+            if (pV < sc.sV * 0.75f && effectiveHDist < 0.15f)
             {
-                float darkForgiveness = Mathf.Clamp01((sV * 0.75f - pV) / (sV * 0.6f));
-                
+                float darkForgiveness = Mathf.Clamp01((sc.sV * 0.75f - pV) / (sc.sV * 0.6f));
+
                 // 1. 色相(Hue)が離れているほど免除を弱くする（ノイズによる無関係な色の巻き込み防止）
                 float hueFactor = 1f - (effectiveHDist / 0.15f);
                 darkForgiveness *= hueFactor;
 
                 // 2. サンプルが有彩色の場合、対象の彩度が低すぎる(グレー/黒に近い)と免除を減衰
-                if (sS > chromaThreshold)
+                if (sc.sS > chromaThreshold)
                 {
                     float satFactor = Mathf.Clamp01(pS / Mathf.Max(0.01f, shadowForgivenessSatMin));
                     darkForgiveness *= satFactor;
                 }
-                
+
                 // 暗いほど、本来の彩度ゲート（satMin）を無視して拾いやすくする
                 satConfidence = Mathf.Max(satConfidence, darkForgiveness);
             }
@@ -396,13 +487,13 @@ namespace Camereo
             // 彩度ゲートを免除して同素材として拾う。FP は色相ゲートで抑える。
             // シャドウ側の satFactor 減衰は付けない（ハイライトは低彩度化が正常で
             // 暗部のグレー/黒混入とは性質が逆のため）。
-            if (pV > sV && effectiveHDist < 0.15f)
+            if (pV > sc.sV && effectiveHDist < 0.15f)
             {
                 // 明度の伸び量を上方ヘッドルーム (1 - sV) で正規化。
                 // 閾値 sV + (1-sV)*0.25 は暗側 sV*0.75（25% デッドマージン）の鏡像。
-                float brightThreshold = sV + (1f - sV) * 0.25f;
+                float brightThreshold = sc.sV + (1f - sc.sV) * 0.25f;
                 float brightForgiveness = Mathf.Clamp01(
-                    (pV - brightThreshold) / Mathf.Max(0.01f, (1f - sV) * 0.6f));
+                    (pV - brightThreshold) / Mathf.Max(0.01f, (1f - sc.sV) * 0.6f));
 
                 // 色相が離れているほど免除を弱くする（暗側と同形・無関係色の巻き込み防止）
                 float hueFactor = 1f - (effectiveHDist / 0.15f);
@@ -411,8 +502,8 @@ namespace Camereo
                 satConfidence = Mathf.Max(satConfidence, brightForgiveness);
             }
             // 各距離の計算
-            float dist = CalculateHybridDistance(pixelColor, pS, pV, effectiveHDist, sRatio);
-            float gate = Mathf.Lerp(1f, satConfidence, chromaConfidence);
+            float dist = CalculateHybridDistance(in sc, pixelColor, pS, pV, effectiveHDist, sRatio);
+            float gate = Mathf.Lerp(1f, satConfidence, sc.chromaConfidence);
 
             // 通常マッチ強度
             strength = CalculateEdgeStrength(dist, hardRange, softRange) * gate;
@@ -420,7 +511,7 @@ namespace Camereo
             // ハイライト復元マッチ
             if (highlightRecovery)
             {
-                highlightPotential = CalculateHighlightRecovery(pH, pS, pV, effectiveHDist, sRatio);
+                highlightPotential = CalculateHighlightRecovery(in sc, pH, pS, pV, effectiveHDist, sRatio);
             }
         }
 
@@ -430,20 +521,20 @@ namespace Camereo
             return hDist > 0.5f ? 1f - hDist : hDist;
         }
 
-        private float CalculateHybridDistance(Color pixelColor, float pS, float pV, float hDist, float sRatio)
+        private float CalculateHybridDistance(in SampleCache sc, Color pixelColor, float pS, float pV, float hDist, float sRatio)
         {
-            float sDist = Mathf.Abs(pS - sS);
-            float vDist = Mathf.Abs(pV - sV);
+            float sDist = Mathf.Abs(pS - sc.sS);
+            float vDist = Mathf.Abs(pV - sc.sV);
             float hsvDist = hDist + sDist * satDistWeight + vDist * valueWeight * (1f - sRatio);
 
-            float dr = pixelColor.r - _cSampleColor.r;
-            float dg = pixelColor.g - _cSampleColor.g;
-            float db = pixelColor.b - _cSampleColor.b;
-            
+            float dr = pixelColor.r - sc.color.r;
+            float dg = pixelColor.g - sc.color.g;
+            float db = pixelColor.b - sc.color.b;
+
             // 距離の近似として平方根を残すが、共通して使うことで計算量を抑制できる
             float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f;
 
-            float finalDist = Mathf.Lerp(rgbDist, hsvDist, chromaConfidence);
+            float finalDist = Mathf.Lerp(rgbDist, hsvDist, sc.chromaConfidence);
 
             // シャドウ（暗い色）の距離許容は廃止（algorithm.py DARK_FORGIVENESS_DISTANCE_REDUCE=False と同期）。
             // 距離短縮(dist*=Lerp(1,0.3,df))は、同色相だが彩度の低い near-black の別マテリアル(例:
@@ -455,11 +546,11 @@ namespace Camereo
             // ハイライト（明部）の距離許容: 上のシャドウ許容の対称形。
             // サンプルより明るく同色相なら、低彩度化したハイライト芯でも同素材として
             // 距離を免除する。免除上限はシャドウ側と同じ 0.3f（最大70%）で対称。
-            if (pV > sV && hDist < 0.15f)
+            if (pV > sc.sV && hDist < 0.15f)
             {
-                float brightThreshold = sV + (1f - sV) * 0.25f;
+                float brightThreshold = sc.sV + (1f - sc.sV) * 0.25f;
                 float brightForgiveness = Mathf.Clamp01(
-                    (pV - brightThreshold) / Mathf.Max(0.01f, (1f - sV) * 0.6f));
+                    (pV - brightThreshold) / Mathf.Max(0.01f, (1f - sc.sV) * 0.6f));
 
                 float hueFactor = 1f - (hDist / 0.15f);
                 brightForgiveness *= hueFactor;
@@ -470,19 +561,19 @@ namespace Camereo
             return finalDist;
         }
 
-        private float CalculateHighlightRecovery(float pH, float pS, float pV, float hDist, float sRatio)
+        private float CalculateHighlightRecovery(in SampleCache sc, float pH, float pS, float pV, float hDist, float sRatio)
         {
-            if (pV <= HighlightValueMin || pS >= HighlightSaturationMax || hDist > hlHueCap) 
+            if (pV <= HighlightValueMin || pS >= HighlightSaturationMax || hDist > hlHueCap)
                 return 0f;
 
             float relaxedSatConf = Mathf.Clamp01((pS - HighlightRelaxedSatMin) / HighlightRelaxedSatRamp);
-            if (relaxedSatConf <= 0f) 
+            if (relaxedSatConf <= 0f)
                 return 0f;
 
-            float vDist = Mathf.Abs(pV - sV);
+            float vDist = Mathf.Abs(pV - sc.sV);
             float highlightDist = hDist + vDist * valueWeight * (1f - sRatio);
 
-            if (highlightDist >= _cTolerance) 
+            if (highlightDist >= _cTolerance)
                 return 0f;
 
             float hlStrength = CalculateEdgeStrength(highlightDist, hlHardRange, hlSoftRange);

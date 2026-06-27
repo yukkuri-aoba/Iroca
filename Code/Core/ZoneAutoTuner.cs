@@ -74,6 +74,11 @@ namespace Camereo
 
             // 現在値がデフォルトと異なるフィールドのローカライズ済みラベル
             public List<string> overwrittenLabels;
+
+            // 自動トーン抽出で生成した内部サンプル（暗部/中間/明部の代表色）。
+            // ユーザーのスポイト1点から算出され、選択（マッチング）の和集合に使う。
+            // 空のとき＝単一サンプル挙動。zone.extraSamples へ適用される。
+            public List<Color> autoSamples;
         }
 
         /// <summary>
@@ -135,9 +140,11 @@ namespace Camereo
                 bool useMask = HasUsableMask(excluded, maskW, maskH);
                 bool[] clusterMask = useMask ? excluded : null;
                 Color.RGBToHSV(zone.sampleColor, out _, out float sampleS, out _);
+
                 if (sampleS < AchromaSampleSatMax)
                 {
                     // 無彩色サンプル: グレーモードの純 RGB 距離分布から(V 広がりの過大評価を回避)。
+                    // 自動トーン抽出は無彩では背景の白/黒と色で分離できず危険なので行わない（単一経路）。
                     if (TryDeriveAchromaticTolerance(pixels, width, height, zone,
                             clusterMask, maskW, maskH, out float achTol))
                     {
@@ -148,11 +155,33 @@ namespace Camereo
                         result.highlightRecovery = false;
                     }
                 }
-                else if (TryDeriveChromaticTolerance(pixels, width, height, zone,
-                            clusterMask, maskW, maskH, out float chromTol))
+                else
                 {
-                    // 有彩サンプル: 本番 HSV マッチ距離分布から(hSpread+0.10 の過大選択を解消)。
-                    result.tolerance = chromTol;
+                    // ── 有彩サンプル: 自動トーン抽出（内部マルチサンプル）─────────────────
+                    // スポイト1点から、同色相のパーツ全体のトーン分布を内部で走査し、暗部・中間・
+                    // 明部の代表色を自動生成する（ユーザーの追加スポイト操作は不要）。これらを和集合の
+                    // 内部サンプルとして、各画素の最近サンプルまでの距離 P95 から tolerance を導出する。
+                    // スポイト位置が明部でも暗部でも、トーン全域を覆うので取りこぼし/はみ出しを抑えられる。
+                    var autoSamples = DeriveAutoTonalSamples(pixels, width, height, zone,
+                        clusterMask, maskW, maskH);
+                    bool derivedMulti = false;
+                    if (autoSamples.Count > 0)
+                    {
+                        var samples = BuildSampleHSVs(zone.sampleColor, autoSamples);
+                        if (TryDeriveChromaticToleranceMulti(pixels, width, height, zone, samples,
+                                clusterMask, maskW, maskH, out float chromTolM))
+                        {
+                            result.autoSamples = autoSamples;
+                            result.tolerance = chromTolM;
+                            derivedMulti = true;
+                        }
+                    }
+                    if (!derivedMulti && TryDeriveChromaticTolerance(pixels, width, height, zone,
+                            clusterMask, maskW, maskH, out float chromTol))
+                    {
+                        // 単一サンプルへフォールバック(トーン抽出が不発/クラスタ過少)。
+                        result.tolerance = chromTol;
+                    }
                 }
             }
 
@@ -180,6 +209,7 @@ namespace Camereo
                 antiAliasCleanup        = DefaultAntiAliasCleanup,
                 useDecontamination      = DefaultUseDecontamination,
                 overwrittenLabels       = new List<string>(),
+                autoSamples             = new List<Color>(),
             };
         }
 
@@ -499,6 +529,291 @@ namespace Camereo
             return true;
         }
 
+        // ─────────────────── マルチサンプル tolerance 導出 ───────────────────
+        // 複数スポイト（主サンプル + extraSamples）から、各画素の「最も近いサンプルまでの距離」
+        // の高パーセンタイルで tolerance を決める。和集合マッチング（ColorZone 側で全サンプルの
+        // max 強度）と整合する。単一サンプルのとき（extraSamples 空）は呼ばれず、既存の単一経路が
+        // そのまま走るので後方互換は保たれる。
+
+        private struct SampleHSV
+        {
+            public float r, g, b;
+            public float h, s, v;
+            public float effHueGate; // foreign 判定の hue ゲート（このサンプルの core hue 広がりから導出）
+        }
+
+        private static SampleHSV[] BuildSampleHSVs(Color primary, List<Color> extras)
+        {
+            int extraN = extras?.Count ?? 0;
+            var arr = new SampleHSV[1 + extraN];
+            arr[0] = MakeSampleHSV(primary);
+            for (int i = 0; i < extraN; i++) arr[i + 1] = MakeSampleHSV(extras[i]);
+            return arr;
+        }
+
+        // ─────────────────── 自動トーン抽出（内部マルチサンプル） ───────────────────
+        // スポイト1点(zone.sampleColor)から、同色相のパーツ全体のトーン分布を走査し、暗部・中間・
+        // 明部の代表色を内部サンプルとして自動生成する。ユーザーの追加スポイト操作は一切不要。
+        // 目的: スポイト位置（明るい所/暗い所/中間）に依存せず、トーン全域を和集合で覆い、
+        // 「明部クリックで暗部を取りこぼす（または逆）」位置依存を解消する。
+        //
+        // 仕組み: まず主サンプル近傍クラスタ(near-window)の彩度分布から「パーツの彩度バンド」を
+        // 推定し、その下限(satFloor)を求める。次に、同色相かつ satFloor 以上の画素を明度(V)で
+        // ビン分けし、低/中/高パーセンタイルの代表色(そのVバンドの平均RGB)を取る。サンプル色や
+        // 既存代表に近すぎる代表は重複として除く。無彩サンプルでは呼ばない(背景の白/黒と分離不能)。
+        //
+        // ★彩度バンドで限定する理由★: 同色相でも「彩度が著しく低い別マテリアル」(例: HAOLAN_Sneakers
+        // の暗い紺ベロ navy, S≈0.4 / パーツ本体 S≈0.85+)が暗部に大量にあると、単純な明度パーセンタイルの
+        // 暗部代表がその別パーツの色になって巻き込む。パーツの彩度バンド内に絞れば、percentile 前に
+        // 別マテリアルを除外でき、暗部代表がパーツ本来の暗い影になる。色だけでパーツ分離できない領域での
+        // 過検出を防ぐ安全弁(汎化のため特定色・座標に依存せず、テクスチャ統計のみから決める)。
+        private const float AutoToneHueBand   = 0.06f;  // 同パーツとみなす hue 近傍
+        private const float AutoToneSatFrac   = 0.35f;  // satFloor の下限 = sS*frac
+        private const float AutoTonePartSatRelax = 0.85f; // satFloor = max(sS*frac, nearClusterSatP10*relax)
+        private const float AutoToneDarkPct   = 0.12f;  // 暗部代表のパーセンタイル
+        private const float AutoToneMidPct    = 0.50f;  // 中間代表のパーセンタイル
+        private const float AutoToneLightPct  = 0.85f;  // 明部代表のパーセンタイル
+        private const float AutoToneMinSep    = 0.10f;  // サンプル/既存代表とこの距離未満は重複として除外
+        private const int   AutoToneMinPixels = 200;    // 同色相画素がこれ未満なら抽出しない
+        private const int   AutoToneValueBins = 64;
+        private const int   AutoToneSatBins   = 64;
+
+        private static List<Color> DeriveAutoTonalSamples(Color32[] pixels, int w, int h,
+            ColorZone zone, bool[] excluded, int maskW, int maskH)
+        {
+            var samples = new List<Color>();
+            Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
+            if (sS < AchromaSampleSatMax) return samples; // 無彩は対象外
+
+            int stride = (w <= 2048) ? 1 : 2;
+
+            // ── パス1: near-window(主サンプルに似た=パーツ本体相当の画素)の彩度 P10 を求める ──
+            // |dS|<NearSatDist かつ |dV|<NearValDist の窓に入る同色相画素の彩度分布。低彩度の別
+            // マテリアルはこの窓(サンプル彩度の近傍)に入らないので、P10 はパーツ本体の彩度下限を表す。
+            var satBins = new int[AutoToneSatBins];
+            int nearCount = 0;
+            for (int y = 0; y < h; y += stride)
+            {
+                int rowStart = y * w;
+                for (int x = 0; x < w; x += stride)
+                {
+                    Color32 c = pixels[rowStart + x];
+                    if (c.a < 128) continue;
+                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
+                    Color.RGBToHSV(new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f),
+                        out float pH, out float pS, out float pV);
+                    float hd0 = Mathf.Abs(pH - sH); if (hd0 > 0.5f) hd0 = 1f - hd0;
+                    if (hd0 >= NearHueDist) continue;
+                    if (Mathf.Abs(pS - sS) >= NearSatDist) continue;
+                    if (Mathf.Abs(pV - sV) >= NearValDist) continue;
+                    int sb = Mathf.Clamp((int)(pS * AutoToneSatBins), 0, AutoToneSatBins - 1);
+                    satBins[sb]++; nearCount++;
+                }
+            }
+            float nearSatP10 = 0f;
+            if (nearCount >= MinNearSampleCount)
+            {
+                int tgt = Mathf.CeilToInt(nearCount * 0.10f), cum0 = 0;
+                for (int i = 0; i < AutoToneSatBins; i++)
+                {
+                    cum0 += satBins[i];
+                    if (cum0 >= tgt) { nearSatP10 = i / (float)AutoToneSatBins; break; }
+                }
+            }
+            // パーツの彩度バンド下限: sS*frac と「near-cluster の彩度 P10*relax」の大きい方。
+            // 高彩度均一パーツ(sneakers)では P10≈0.85 が効いて低彩度 navy を弾く。脱彩する素材では
+            // P10 が低く出るので下限も下がり、自パーツの中程度の影は残る。
+            float satFloor = Mathf.Max(sS * AutoToneSatFrac, nearSatP10 * AutoTonePartSatRelax);
+
+            // ── パス2: 同色相 かつ 彩度バンド内 の画素を V でビン分け ──
+            int VB = AutoToneValueBins;
+            var cnt = new int[VB];
+            var sumR = new float[VB];
+            var sumG = new float[VB];
+            var sumB = new float[VB];
+            int total = 0;
+            for (int y = 0; y < h; y += stride)
+            {
+                int rowStart = y * w;
+                for (int x = 0; x < w; x += stride)
+                {
+                    Color32 c = pixels[rowStart + x];
+                    if (c.a < 128) continue;
+                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
+                    float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
+                    Color.RGBToHSV(new Color(r, g, b, 1f), out float pH, out float pS, out float pV);
+                    if (pS < satFloor) continue;                     // パーツの彩度バンド外(別マテリアル/脱彩)を除外
+                    float hd = Mathf.Abs(pH - sH); if (hd > 0.5f) hd = 1f - hd;
+                    if (hd >= AutoToneHueBand) continue;              // 別色相パーツを除外
+                    int vb = Mathf.Clamp((int)(pV * VB), 0, VB - 1);
+                    cnt[vb]++; sumR[vb] += r; sumG[vb] += g; sumB[vb] += b; total++;
+                }
+            }
+            if (total < AutoToneMinPixels) return samples;
+
+            // 指定パーセンタイルの V バンドの平均色を代表色として取る。
+            Color RepAtPct(float pct)
+            {
+                int targetCount = Mathf.Clamp(Mathf.RoundToInt(pct * total), 1, total);
+                int cum = 0, bin = VB - 1;
+                for (int i = 0; i < VB; i++) { cum += cnt[i]; if (cum >= targetCount) { bin = i; break; } }
+                // RepAtPct は累積が閾値を越えた bin を返すので cnt[bin] > 0 が保証される。
+                float inv = 1f / cnt[bin];
+                return new Color(sumR[bin] * inv, sumG[bin] * inv, sumB[bin] * inv, 1f);
+            }
+            void TryAdd(float pct)
+            {
+                Color rep = RepAtPct(pct);
+                if (ColorDist(rep, zone.sampleColor) < AutoToneMinSep) return; // クリック色と重複
+                foreach (var s in samples) if (ColorDist(rep, s) < AutoToneMinSep) return; // 既存代表と重複
+                samples.Add(rep);
+            }
+            TryAdd(AutoToneDarkPct);
+            TryAdd(AutoToneMidPct);
+            TryAdd(AutoToneLightPct);
+            return samples;
+        }
+
+        private static float ColorDist(Color a, Color b)
+        {
+            float dr = a.r - b.r, dg = a.g - b.g, db = a.b - b.b;
+            return Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f;
+        }
+
+        private static SampleHSV MakeSampleHSV(Color c)
+        {
+            SampleHSV s;
+            s.r = c.r; s.g = c.g; s.b = c.b;
+            Color.RGBToHSV(c, out s.h, out s.s, out s.v);
+            s.effHueGate = ForeignGateMin;
+            return s;
+        }
+
+        // 有彩マルチサンプル: 各画素を「いずれかのサンプルの near 窓に入る画素」に限定し、
+        // その画素から全サンプルへの最小マッチ距離を距離分布に積む。P95+margin を tolerance とする。
+        // foreign 打ち切り: どのサンプルの core hue ゲートにも入らない near 画素（=隣接別パーツ）が
+        // core に対し多いとき、その最小距離手前で tolerance を止める（単一経路と同じ思想を和集合化）。
+        private static bool TryDeriveChromaticToleranceMulti(Color32[] pixels, int w, int h,
+            ColorZone zone, SampleHSV[] samples, bool[] excluded, int maskW, int maskH, out float tolerance)
+        {
+            tolerance = 0f;
+            float satDistW = zone.satDistWeight;
+            float valueW = zone.valueWeight;
+            int stride = (w <= 2048) ? 1 : 2;
+
+            // ── 事前パス: 各サンプルの core hue 広がり(P90)→ effHueGate を導出 ──
+            for (int si = 0; si < samples.Length; si++)
+            {
+                var sm = samples[si];
+                if (sm.s < AchromaSampleSatMax) { samples[si].effHueGate = ForeignGateMin; continue; }
+                var coreHueBins = new int[ForeignHueBins];
+                int coreHueCount = 0;
+                for (int y = 0; y < h; y += stride)
+                {
+                    int rowStart = y * w;
+                    for (int x = 0; x < w; x += stride)
+                    {
+                        Color32 c = pixels[rowStart + x];
+                        if (c.a < 128) continue;
+                        if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
+                        Color.RGBToHSV(new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f),
+                            out float pH, out float pS, out float pV);
+                        if (pS < sm.s * ChromaClusterSatFrac) continue;
+                        float hdc = Mathf.Abs(pH - sm.h); if (hdc > 0.5f) hdc = 1f - hdc;
+                        if (hdc >= CoreHueWindow) continue;
+                        if (Mathf.Abs(pS - sm.s) >= CoreSatWindow) continue;
+                        if (Mathf.Abs(pV - sm.v) >= CoreValWindow) continue;
+                        int cb = Mathf.Clamp((int)(hdc / NearHueDist * ForeignHueBins), 0, ForeignHueBins - 1);
+                        coreHueBins[cb]++;
+                        coreHueCount++;
+                    }
+                }
+                float coreSpread = 0.02f;
+                if (coreHueCount >= MinNearSampleCount)
+                {
+                    int ctgt = Mathf.CeilToInt(coreHueCount * 0.90f), ccum = 0;
+                    for (int i = 0; i < ForeignHueBins; i++)
+                    {
+                        ccum += coreHueBins[i];
+                        if (ccum >= ctgt) { coreSpread = (i + 1) / (float)ForeignHueBins * NearHueDist; break; }
+                    }
+                }
+                samples[si].effHueGate = Mathf.Clamp(ForeignGateK * coreSpread + ForeignGateFloor,
+                                                     ForeignGateMin, NearHueDist);
+            }
+
+            // ── 主パス: 最小距離分布 + foreign 集計 ──
+            var bins = new int[DistBins];
+            int count = 0;
+            var fgnBins = new int[DistBins];
+            int fgnCount = 0, coreCount = 0;
+            for (int y = 0; y < h; y += stride)
+            {
+                int rowStart = y * w;
+                for (int x = 0; x < w; x += stride)
+                {
+                    Color32 c = pixels[rowStart + x];
+                    if (c.a < 128) continue;
+                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
+                    Color.RGBToHSV(new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f),
+                        out float pH, out float pS, out float pV);
+
+                    float minDist = float.MaxValue;
+                    bool inAnyNear = false, isCore = false;
+                    for (int si = 0; si < samples.Length; si++)
+                    {
+                        var sm = samples[si];
+                        float hd = Mathf.Abs(pH - sm.h); if (hd > 0.5f) hd = 1f - hd;
+                        if (hd >= NearHueDist) continue;
+                        if (Mathf.Abs(pS - sm.s) >= NearSatDist) continue;
+                        if (Mathf.Abs(pV - sm.v) >= NearValDist) continue;
+                        if (pS < sm.s * ChromaClusterSatFrac) continue; // 無彩寄り画素を除外
+                        inAnyNear = true;
+                        float sd = Mathf.Abs(pS - sm.s);
+                        float vd = Mathf.Abs(pV - sm.v);
+                        float sRatio = (sm.s > 0.01f) ? Mathf.Clamp01(pS / sm.s) : 1f;
+                        float d = hd + sd * satDistW + vd * valueW * (1f - sRatio);
+                        if (d < minDist) minDist = d;
+                        if (hd < sm.effHueGate) isCore = true; // どれかのサンプル core hue 内なら core
+                    }
+                    if (!inAnyNear) continue;
+                    int bi = Mathf.Clamp((int)(minDist / DistMax * DistBins), 0, DistBins - 1);
+                    bins[bi]++;
+                    count++;
+                    if (isCore) coreCount++;
+                    else { fgnBins[bi]++; fgnCount++; }
+                }
+            }
+            if (count < MinNearSampleCount) return false;
+
+            int target = Mathf.CeilToInt(count * ChromaPercentile);
+            int cum = 0;
+            float pctDist = DistMax;
+            for (int i = 0; i < DistBins; i++)
+            {
+                cum += bins[i];
+                if (cum >= target) { pctDist = (i + 1) / (float)DistBins * DistMax; break; }
+            }
+            tolerance = Mathf.Clamp(pctDist + ChromaMargin, ChromaTolMin, ChromaTolMax);
+
+            // foreign 打ち切り（単一経路と同形）
+            if (coreCount > 0 && fgnCount >= ForeignMinCount
+                && fgnCount > coreCount * ForeignRatioThresh)
+            {
+                int ftgt = Mathf.CeilToInt(fgnCount * 0.10f), fcum = 0;
+                float fgnP10 = DistMax;
+                for (int i = 0; i < DistBins; i++)
+                {
+                    fcum += fgnBins[i];
+                    if (fcum >= ftgt) { fgnP10 = (i + 1) / (float)DistBins * DistMax; break; }
+                }
+                tolerance = Mathf.Clamp(Mathf.Min(tolerance, fgnP10 - ForeignCapEps),
+                                        ForeignLowFloor, ChromaTolMax);
+            }
+            return true;
+        }
+
+        // 無彩マルチサンプル: 各画素から全サンプルへの最小 RGB 距離（グレーモード距離式）の P95。
         private static TuneResult MergeAnalyzed(TuneResult heuristic, AnalysisStats s)
         {
             float hSpread = HueSpreadFromHistogram(s.hBins, s.sH, s.nearSampleCount);
@@ -613,6 +928,7 @@ namespace Camereo
                 antiAliasCleanup        = heuristic.antiAliasCleanup,
                 useDecontamination      = heuristic.useDecontamination,
                 overwrittenLabels       = new List<string>(),
+                autoSamples             = new List<Color>(),
             };
         }
 
