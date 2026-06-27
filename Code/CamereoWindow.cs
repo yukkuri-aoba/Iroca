@@ -1208,21 +1208,6 @@ namespace Camereo
             return tex != null && tex.isReadable;
         }
 
-        // Assets 配下のパスを "Assets/..." 形式の相対パスに正規化する。
-        // 既に "Assets/" で始まる相対パスでも、絶対パスでも受け付ける。
-        // Assets 配下でない場合は null を返す。
-        internal static string ToAssetsRelative(string path)
-        {
-            if (string.IsNullOrEmpty(path)) return null;
-            string normalized = path.Replace('\\', '/');
-            if (normalized.StartsWith("Assets/") || normalized == "Assets")
-                return normalized;
-            string dataPath = Application.dataPath.Replace('\\', '/');
-            if (normalized.StartsWith(dataPath + "/"))
-                return "Assets" + normalized.Substring(dataPath.Length);
-            return null;
-        }
-
         internal static void EnableReadWrite(Texture2D tex)
         {
             string path = AssetDatabase.GetAssetPath(tex);
