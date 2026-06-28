@@ -50,4 +50,4 @@ dotnet build scripts/build-check/IrocaEditor.csproj
 - ローカル: コミット前の素振り (`dotnet build scripts/build-check/`)
 - CI: GitHub Actions の job として「Unity Editor を起動せずに通る最低限の型チェック」
   を回す（Unity Hub を CI に入れるより安価）
-- AI エージェント: Code/ を書き換えた直後に呼んで構文エラーを即検知
+- 変更直後: Code/ を書き換えたらすぐ呼んで構文エラーを即検知
