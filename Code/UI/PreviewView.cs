@@ -916,9 +916,10 @@ namespace Iroca
             // Factory が非 null インスタンスを返す。それ以外は null で、本体は何もキャプチャしない。
             IDebugCapture debugCap = DebugCaptureHooks.Factory?.Invoke();
 
-            // 連続領域モードの keep をフル画像で解いて公開する(詳細プレビューが転写して一致させる)。
-            // 詳細側は最新の公開キャッシュを寸法一致で参照する(メイン完了時に再走して収束)。
-            var keepCache = new FloodFillKeepCache();
+            // 連続領域モードの keep と再着色アンカー/wash/領域L統計をフル画像で解いて公開する
+            // (詳細プレビューが転写して出力色まで一致させる)。詳細側は最新の公開キャッシュを寸法一致で
+            // 参照する(メイン完了時に再走して収束)。
+            var parityCache = new PreviewParityCache();
 
             _previewJob.Schedule(
                 work: token =>
@@ -928,7 +929,7 @@ namespace Iroca
                         hfPasses, hfMinNeighbors, rSatMin, rSatRamp,
                         0, 0, 0, 0, token,
                         useDecontam, decontamRadius,
-                        debug: debugCap, floodFillKeep: keepCache);
+                        debug: debugCap, parityCache: parityCache);
 
                     Color32[] processedDisplay = scaleForTask < 1f
                         ? PixelProcessor.BoxDownsample(pixels, srcW, srcH, prevWForTask, prevHForTask, scaleForTask)
@@ -945,8 +946,8 @@ namespace Iroca
                     _pendingProcessedDisplay = result.processed;
                     _pendingPrevW            = prevWForTask;
                     _pendingPrevH            = prevHForTask;
-                    // フル画像で解いた keep を公開(以降は不変として詳細プレビューが参照)。
-                    _host.floodFillKeepCache = keepCache;
+                    // フル画像で解いた keep と領域統計を公開(以降は不変として詳細プレビューが参照)。
+                    _host.previewParityCache = parityCache;
                     // ジョブ側で生成した raw をキャッシュへ確定する(まだ未確定で、対象テクスチャと
                     // 寸法が変わっていない場合のみ。新しいミスで上書きされていれば触らない)。
                     if (_cachedRawDisplay == null && _cachedSrcPixels == srcPixelsForTask &&

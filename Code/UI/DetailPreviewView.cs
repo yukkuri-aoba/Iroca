@@ -157,15 +157,16 @@ namespace Iroca
             int capX0 = x0, capY0 = y0, capSrcW = srcW, capSrcH = srcH;
             var srcPixelsForTask = srcPixels;
 
-            // 連続領域モードの keep をメインプレビュー(フル画像)から転写して詳細クロップを一致させる。
-            // 採否は寸法一致のみで決める。世代の厳密一致を条件にすると、メインプレビュー再生成中
-            // (許容値スライダー操作中など)に容易に外れて「絞り込まれない上位集合」を見せ、本来対象外の
-            // 領域が対象に見える誤爆になる。最新キャッシュは直近で完了したフル画像処理の結果であり、
-            // メイン完了時に詳細は再走するため最終へ収束する(過渡的に1世代古くても上位集合よりは正確)。
-            var keepCache = _host.floodFillKeepCache;
-            FloodFillKeepCache keepForTask =
-                (keepCache != null && keepCache.fullW == capSrcW && keepCache.fullH == capSrcH)
-                ? keepCache : null;
+            // メインプレビュー(フル画像)で解いた keep と再着色アンカー/wash/領域L統計を転写して、
+            // 詳細クロップの選択・出力色を一致させる。採否は寸法一致のみで決める。世代の厳密一致を条件に
+            // すると、メインプレビュー再生成中(許容値スライダー操作中など)に容易に外れて「絞り込まれない
+            // 上位集合」や「クロップ統計で再計算した別の色」を見せてしまう。最新キャッシュは直近で完了した
+            // フル画像処理の結果であり、メイン完了時に詳細は再走するため最終へ収束する(過渡的に1世代古くても
+            // クロップ内再計算よりは正確)。
+            var parityCache = _host.previewParityCache;
+            PreviewParityCache parityForTask =
+                (parityCache != null && parityCache.fullW == capSrcW && parityCache.fullH == capSrcH)
+                ? parityCache : null;
 
             detailJob.Schedule(
                 work: token =>
@@ -186,7 +187,7 @@ namespace Iroca
                         hfPasses, hfMinNeighbors, rSatMin, rSatRamp,
                         capX0, capY0, capSrcW, capSrcH, token,
                         useDecontam, decontamRadius,
-                        debug: null, floodFillKeep: keepForTask);
+                        debug: null, parityCache: parityForTask);
 
                     return new DetailPreviewResult
                     {

@@ -25,10 +25,11 @@ namespace Iroca
         // DebugView が後から読み出す。Debug 機能未導入なら常に null。
         internal IDebugCapture LatestDebugCapture { get; set; }
 
-        // ── 連続領域モードの keep キャッシュ(メインプレビューがフル画像で解いた結果を
-        //    詳細プレビューへ転写して一致させる)。公開後は不変として扱い、メインプレビュージョブは
-        //    未公開の新規インスタンスにだけ書く。詳細側は最新の公開キャッシュを寸法一致で参照する。
-        [System.NonSerialized] internal FloodFillKeepCache floodFillKeepCache;
+        // ── プレビューパリティキャッシュ(メインプレビューがフル画像で解いた連結成分 keep と
+        //    再着色アンカー/wash/領域L統計を、詳細プレビュー(クロップ)へ転写して出力を一致させる)。
+        //    公開後は不変として扱い、メインプレビュージョブは未公開の新規インスタンスにだけ書く。
+        //    詳細側は最新の公開キャッシュを寸法一致で参照する。
+        [System.NonSerialized] internal PreviewParityCache previewParityCache;
 
         // ── 各 View からの再描画通知用 ──
         internal void MarkPreviewDirty() { if (_previewView != null) _previewView.previewDirty = true; }

@@ -300,7 +300,7 @@ namespace Iroca
         private static void RunFloodFillCropCheck(
             Color32[] input, int w, int h, MaskSnapshot masks, List<ColorZone> zones, SettingsCfg st)
         {
-            void Process(Color32[] px, int pw, int ph, int ox, int oy, int fw, int fh, FloodFillKeepCache keep)
+            void Process(Color32[] px, int pw, int ph, int ox, int oy, int fw, int fh, PreviewParityCache keep)
             {
                 PixelProcessor.ProcessPixelsArray(px, pw, ph, masks, zones,
                     edgeFeather: st.edgeFeather, antiAliasCleanup: st.antiAliasCleanup,
@@ -309,12 +309,12 @@ namespace Iroca
                     originX: ox, originY: oy, fullW: fw, fullH: fh,
                     cancellationToken: System.Threading.CancellationToken.None,
                     useDecontamination: st.useDecontamination, decontaminationRadius: st.decontaminationRadius,
-                    floodFillKeep: keep);
+                    parityCache: keep);
             }
 
-            // 1) フル画像で処理し keep をキャッシュ。
+            // 1) フル画像で処理し keep/領域統計をキャッシュ。
             var full = (Color32[])input.Clone();
-            var cache = new FloodFillKeepCache { generation = 1 };
+            var cache = new PreviewParityCache { generation = 1 };
             Process(full, w, h, 0, 0, 0, 0, cache);
 
             // 2) 中央クロップ(画像の半分)を (a)キャッシュあり (b)なし で処理。
@@ -328,8 +328,15 @@ namespace Iroca
             }
             var cropCached = MakeCrop();
             var cropNoCache = MakeCrop();
+            var swCached = Stopwatch.StartNew();
             Process(cropCached, cw, ch, cx0, cy0, w, h, cache);
+            swCached.Stop();
+            var swNoCache = Stopwatch.StartNew();
             Process(cropNoCache, cw, ch, cx0, cy0, w, h, null);
+            swNoCache.Stop();
+            Console.Error.WriteLine(
+                $"FFCHECK_CROPMS cached={swCached.Elapsed.TotalMilliseconds:F1} "
+                + $"noCache(recompute)={swNoCache.Elapsed.TotalMilliseconds:F1}");
 
             // 3) クロップ内部(境界 margin 除外)を full のクロップ領域と比較。
             int margin = st.holeFillPasses + System.Math.Max(0, st.antiAliasCleanup)
@@ -340,6 +347,10 @@ namespace Iroca
             // XOR で keep 転写の正しさを切り分ける。
             int recFull = 0, recCached = 0, recNoCache = 0, interior = 0;
             int selCachedExtra = 0, selCachedMiss = 0, selNoCacheExtra = 0, selNoCacheMiss = 0;
+            // 色のズレ計測(選択が一致した画素に限定)。keep 転写で選択は一致するが、autoRecolorAnchor /
+            // wash サンプルが「クロップ領域の統計」から導出されるためフルと出力色が乖離する=ズーム/
+            // スクロールで色が変わる症状を定量化する。
+            long colDeltaSum = 0; int colDeltaMax = 0; int colDeltaCount = 0; int colDeltaOver8 = 0;
             for (int cy = margin; cy < ch - margin; cy++)
             {
                 for (int cx = margin; cx < cw - margin; cx++)
@@ -358,12 +369,24 @@ namespace Iroca
                     if (!rC && rF) selCachedMiss++;     // cache がフルより少なく選択(=過剰除去)
                     if (rN && !rF) selNoCacheExtra++;   // cacheなしの過選択(=上位集合の超過分)
                     if (!rN && rF) selNoCacheMiss++;
+                    // 選択がフルと一致した画素だけの色差(|dr|+|dg|+|db|)。
+                    if (rF && rC)
+                    {
+                        int d = System.Math.Abs(full[fi].r - cropCached[ci].r)
+                              + System.Math.Abs(full[fi].g - cropCached[ci].g)
+                              + System.Math.Abs(full[fi].b - cropCached[ci].b);
+                        colDeltaSum += d; colDeltaCount++;
+                        if (d > colDeltaMax) colDeltaMax = d;
+                        if (d > 8) colDeltaOver8++;
+                    }
                 }
             }
+            double colMean = colDeltaCount > 0 ? (double)colDeltaSum / colDeltaCount : 0.0;
             Console.Error.WriteLine(
                 $"FFCHECK interior={interior} recFull={recFull} recCached={recCached} recNoCache={recNoCache} | "
                 + $"cachedVsFull selXOR(extra/miss)={selCachedExtra}/{selCachedMiss} | "
-                + $"noCacheVsFull selXOR(extra/miss)={selNoCacheExtra}/{selNoCacheMiss}");
+                + $"noCacheVsFull selXOR(extra/miss)={selNoCacheExtra}/{selNoCacheMiss} | "
+                + $"colorDelta(mean/max/over8 of {colDeltaCount})={colMean:F2}/{colDeltaMax}/{colDeltaOver8}");
         }
     }
 }
