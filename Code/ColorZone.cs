@@ -164,7 +164,7 @@ namespace Iroca
         // ハイライト白寄せ合成: 明部(明度>サンプル)を「wash→白 軸」へ射影し、鏡面ハイライトを
         // 表現する。既定 OFF（オプトイン）。OFF のときは色相転送(HSV transfer)のみで、明部の
         // 明度・彩度構造はそのまま温存される。ON でも有彩の模様は軸残差フェードで保護され、
-        // 軸上の真の鏡面のみが白寄せされる。Python 参照の apply_highlight_wash と同期。
+        // 軸上の真の鏡面のみが白寄せされる。
         public bool applyHighlightWash = false;
         // 俯瞰スポイト補正: ハイライト白寄せ合成(applyHighlightWash)用サンプルの明度を、テクスチャの
         // 地色まで自動で下げる配下オプション。明るい光沢部をスポイトしても鏡面グラデが潰れない。
@@ -174,8 +174,7 @@ namespace Iroca
         // サンプル自動補正(再着色アンカー正規化): OkLab 再着色のアンカー (sL, sC) を、スポイト
         // 画素ではなくマッチ領域の統計(明部の地色)から自動推定する。スポイトを陰影のどの明るさで
         // 取ってもパーツの明部が target 色に一致する(サンプル位置非依存)。マッチング・wash は
-        // スポイト色のまま＝再着色範囲は不変。Python 参照の auto_recolor_anchor /
-        // estimate_anchor_oklab と同期。既定 ON(オプトアウト): 影をスポイトしても出力が過度に
+        // スポイト色のまま＝再着色範囲は不変。既定 ON(オプトアウト): 影をスポイトしても出力が過度に
         // 明るく/ベタ塗りにならないよう、位置非依存で代表地色を target 明度へ合わせる。クリック
         // 画素を厳密に target 色へ当てたい/意図的に明るく塗りたいゾーンだけ OFF にする。旧プリセット
         // JSON で明示保存された値は尊重(マイグレーションなし)。フィールド欠落の旧 JSON は新既定 true。
@@ -596,12 +595,12 @@ namespace Iroca
 
             float finalDist = Mathf.Lerp(rgbDist, hsvDist, sc.chromaConfidence);
 
-            // シャドウ（暗い色）の距離許容は廃止（algorithm.py DARK_FORGIVENESS_DISTANCE_REDUCE=False と同期）。
-            // 距離短縮(dist*=Lerp(1,0.3,df))は、同色相だが彩度の低い near-black の別マテリアル(例:
-            // HAOLAN_Sneakers の暗い紺ベロ S≈0.40/V≈0.09)を tolerance 内へ逆送し巨大な巻き込みを生む主因。
-            // 全 subject で recall 非寄与・sneakers precision 0.72→0.96(GT recall 不変)と実測。暗部の取り
-            // こぼし救済は彩度ゲート緩和(GetColorMatchScores の satConfidence 底上げ)で代替する(in-tolerance
-            // 画素にしか効かず安全)。明部(ハイライト)免除はベタ塗り対策で性質が逆のため温存=非対称は意図的。
+            // シャドウ（暗い色）の距離許容は廃止。距離短縮(dist*=Lerp(1,0.3,df))は、同色相だが彩度の
+            // 低い near-black の別マテリアル(例: 暗い紺色 S≈0.40/V≈0.09 のパーツ)を tolerance 内へ逆送し
+            // 巨大な巻き込みを生む主因。全 subject で recall 非寄与・precision が大幅改善(GT recall 不変)と
+            // 実測。暗部の取りこぼし救済は彩度ゲート緩和(GetColorMatchScores の satConfidence 底上げ)で
+            // 代替する(in-tolerance 画素にしか効かず安全)。明部(ハイライト)免除はベタ塗り対策で性質が逆の
+            // ため温存=非対称は意図的。
 
             // ハイライト（明部）の距離許容: 上のシャドウ許容の対称形。
             // サンプルより明るく同色相なら、低彩度化したハイライト芯でも同素材として
