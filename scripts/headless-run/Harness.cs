@@ -265,6 +265,11 @@ namespace Iroca
             if (System.Array.IndexOf(args, "--ffcheck") >= 0)
                 RunFloodFillCropCheck((Color32[])pixels.Clone(), w, h, masks, zoneList, st);
 
+            // --selcache: 選択キャッシュのヒット経路が「フル再計算」と byte 一致するか自己検証する。
+            // 元入力 pixels は未改変クローンを使い、ゾーンも複製するので本処理に影響しない。
+            if (System.Array.IndexOf(args, "--selcache") >= 0)
+                RunSelectionCacheCheck((Color32[])pixels.Clone(), w, h, masks, zoneList, st);
+
             // ProcessPixelsArray のみを計測(dotnet 起動・raw I/O を除外)。stderr に出すので
             // stdout の "OK" を汚さない。Python 側が "PROCESS_MS " 行を拾って前後比較に使う。
             // フェーズ別内訳(HSV/Match/FloodFill/...)も stderr へ。--ffcheck の余分な実行を
@@ -395,6 +400,64 @@ namespace Iroca
                 + $"cachedVsFull selXOR(extra/miss)={selCachedExtra}/{selCachedMiss} | "
                 + $"noCacheVsFull selXOR(extra/miss)={selNoCacheExtra}/{selNoCacheMiss} | "
                 + $"colorDelta(mean/max/over8 of {colDeltaCount})={colMean:F2}/{colDeltaMax}/{colDeltaOver8}");
+        }
+
+        // 選択キャッシュ検証: 「再着色のみ変更した再生成」がキャッシュヒットでフル再計算と byte 一致し、
+        // 「選択パラメータ変更」はミスして正しく再計算されることを確認する。
+        //   populate_diff : 空キャッシュで populate した出力 == キャッシュ無し出力 か(0 が正)
+        //   hit_vs_fresh  : ターゲット色のみ変更→ヒット復元→再着色した出力 == フル再計算 か(★0 が正)
+        //   miss_vs_fresh : tolerance 変更→ミス再計算した出力 == フル再計算 か(0 が正)
+        private static void RunSelectionCacheCheck(
+            Color32[] input, int w, int h, MaskSnapshot masks, List<ColorZone> zonesIn, SettingsCfg st)
+        {
+            var zones = new List<ColorZone>();
+            foreach (var z in zonesIn) { var c = z.Clone(); c.UpdateCacheIfNeeded(); zones.Add(c); }
+
+            void Run(Color32[] px, SelectionCache cache)
+            {
+                PixelProcessor.ProcessPixelsArray(px, w, h, masks, zones,
+                    edgeFeather: st.edgeFeather, antiAliasCleanup: st.antiAliasCleanup,
+                    holeFillPasses: st.holeFillPasses, holeFillMinNeighbors: st.holeFillMinNeighbors,
+                    relaxedSatMin: st.relaxedSatMin, relaxedSatRamp: st.relaxedSatRamp,
+                    originX: 0, originY: 0, fullW: 0, fullH: 0,
+                    cancellationToken: System.Threading.CancellationToken.None,
+                    useDecontamination: st.useDecontamination, decontaminationRadius: st.decontaminationRadius,
+                    selectionCache: cache);
+            }
+            int Diff(Color32[] a, Color32[] b)
+            {
+                int n = 0;
+                for (int i = 0; i < a.Length; i++)
+                    if (a[i].r != b[i].r || a[i].g != b[i].g || a[i].b != b[i].b || a[i].a != b[i].a) n++;
+                return n;
+            }
+
+            // 1) target T1: キャッシュ無し O1 と、空キャッシュで populate した O1c。
+            var o1 = (Color32[])input.Clone(); Run(o1, null);
+            var cache = new SelectionCache();
+            var o1c = (Color32[])input.Clone(); Run(o1c, cache);
+            int dPopulate = Diff(o1, o1c);
+
+            // 2) ターゲット色のみ変更(再着色のみ=選択キー不変)→ キャッシュ HIT。フル再計算 O2 と一致すべき。
+            foreach (var z in zones)
+                z.targetColor = new Color(1f - z.targetColor.r, 1f - z.targetColor.g, 1f - z.targetColor.b, 1f);
+            var sw = Stopwatch.StartNew();
+            var o2c = (Color32[])input.Clone(); Run(o2c, cache);
+            sw.Stop();
+            var swf = Stopwatch.StartNew();
+            var o2 = (Color32[])input.Clone(); Run(o2, null);
+            swf.Stop();
+            int dHit = Diff(o2, o2c);
+
+            // 3) tolerance 変更(選択キー変化)→ キャッシュ MISS。フル再計算と一致すべき。
+            foreach (var z in zones) { z.tolerance = Mathf.Clamp01(z.tolerance + 0.05f); z.UpdateCacheIfNeeded(); }
+            var o3c = (Color32[])input.Clone(); Run(o3c, cache);
+            var o3 = (Color32[])input.Clone(); Run(o3, null);
+            int dMiss = Diff(o3, o3c);
+
+            Console.Error.WriteLine(
+                $"SELCACHE populate_diff={dPopulate} hit_vs_fresh={dHit} miss_vs_fresh={dMiss} "
+                + $"hitMs={sw.Elapsed.TotalMilliseconds:F1} freshMs={swf.Elapsed.TotalMilliseconds:F1}");
         }
     }
 }
