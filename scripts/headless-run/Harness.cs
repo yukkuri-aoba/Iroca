@@ -267,6 +267,14 @@ namespace Iroca
 
             // ProcessPixelsArray のみを計測(dotnet 起動・raw I/O を除外)。stderr に出すので
             // stdout の "OK" を汚さない。Python 側が "PROCESS_MS " 行を拾って前後比較に使う。
+            // フェーズ別内訳(HSV/Match/FloodFill/...)も stderr へ。--ffcheck の余分な実行を
+            // 拾わないよう、本計測の直前で購読する(全ゾーン合算の 1 レポートだけが出る)。
+            DebugCaptureHooks.OnPerfReport += rep =>
+            {
+                if (rep.Phases != null)
+                    foreach (var ph in rep.Phases)
+                        Console.Error.WriteLine($"PHASE {ph.Name} {ph.TotalMs:F2}");
+            };
             var _sw = Stopwatch.StartNew();
             PixelProcessor.ProcessPixelsArray(
                 pixels, w, h, masks, zoneList,

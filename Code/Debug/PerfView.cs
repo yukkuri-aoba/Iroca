@@ -107,7 +107,30 @@ namespace Iroca.DebugTools
                     "ProcessPixelsArray の総実行時間とテクスチャサイズ。\nゾーン数が多いほど比例して増加します。"),
                 EditorStyles.boldLabel);
 
+            // フェーズ別内訳(全ゾーン合算)。どの段が重いかを把握して最適化対象を絞るための表示。
+            if (rep.Phases != null && rep.Phases.Length > 0)
+            {
+                EditorGUILayout.LabelField(
+                    new GUIContent("フェーズ別内訳",
+                        "ProcessPixelsArray の各段(HSV/Match/FloodFill/穴埋め/境界/ブラー/デコンタミ/領域統計/再着色)\n" +
+                        "の所要時間を全ゾーン合算で表示します。最も重い段が最適化の第一候補です。"),
+                    EditorStyles.miniBoldLabel);
+
+                double maxPhaseMs = 0.0;
+                foreach (var p in rep.Phases)
+                    if (p.TotalMs > maxPhaseMs) maxPhaseMs = p.TotalMs;
+
+                foreach (var p in rep.Phases)
+                    DrawBarRow(p.Name, p.TotalMs, maxPhaseMs, new Color(0.30f, 0.50f, 0.75f),
+                        $"フェーズ \"{p.Name}\" の所要時間(全ゾーン合算)");
+                EditorGUILayout.Space(2);
+            }
+
             if (rep.Zones == null || rep.Zones.Length == 0) return;
+
+            EditorGUILayout.LabelField(
+                new GUIContent("ゾーン別内訳", "各ゾーンの処理時間。ゾーン数に比例して総時間が増えます。"),
+                EditorStyles.miniBoldLabel);
 
             float maxMs = 0f;
             foreach (var z in rep.Zones)
@@ -115,28 +138,29 @@ namespace Iroca.DebugTools
 
             foreach (var z in rep.Zones)
             {
-                using (new EditorGUILayout.HorizontalScope())
-                {
-                    string label = string.IsNullOrEmpty(z.ZoneId) ? "(unnamed)" : z.ZoneId;
-                    EditorGUILayout.LabelField(
-                        new GUIContent(label, $"ゾーン \"{label}\" の処理時間"),
-                        GUILayout.Width(150));
+                string label = string.IsNullOrEmpty(z.ZoneId) ? "(unnamed)" : z.ZoneId;
+                DrawBarRow(label, z.TotalMs, maxMs, new Color(0.25f, 0.65f, 0.35f),
+                    $"ゾーン \"{label}\" の処理時間");
+            }
+        }
 
-                    var barRect = GUILayoutUtility.GetRect(0, 14, GUILayout.ExpandWidth(true));
+        private static void DrawBarRow(string label, double ms, double maxMs, Color barColor, string tooltip)
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField(new GUIContent(label, tooltip), GUILayout.Width(150));
+
+                var barRect = GUILayoutUtility.GetRect(0, 14, GUILayout.ExpandWidth(true));
+                EditorGUI.DrawRect(
+                    new Rect(barRect.x, barRect.y + 2, barRect.width, barRect.height - 4),
+                    new Color(0.18f, 0.18f, 0.18f));
+                float ratio = maxMs > 0.0 ? (float)(ms / maxMs) : 0f;
+                if (ratio > 0f)
                     EditorGUI.DrawRect(
-                        new Rect(barRect.x, barRect.y + 2, barRect.width, barRect.height - 4),
-                        new Color(0.18f, 0.18f, 0.18f));
-                    float ratio = maxMs > 0f ? (float)(z.TotalMs / maxMs) : 0f;
-                    if (ratio > 0f)
-                        EditorGUI.DrawRect(
-                            new Rect(barRect.x, barRect.y + 2, barRect.width * ratio, barRect.height - 4),
-                            new Color(0.25f, 0.65f, 0.35f));
+                        new Rect(barRect.x, barRect.y + 2, barRect.width * ratio, barRect.height - 4),
+                        barColor);
 
-                    EditorGUILayout.LabelField(
-                        $"{z.TotalMs:F1} ms",
-                        EditorStyles.miniLabel,
-                        GUILayout.Width(58));
-                }
+                EditorGUILayout.LabelField($"{ms:F1} ms", EditorStyles.miniLabel, GUILayout.Width(58));
             }
         }
 
