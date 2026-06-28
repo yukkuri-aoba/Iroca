@@ -93,6 +93,10 @@ namespace Iroca
 
         // カラーピックモード
         public Color sampleColor = Color.white;
+        // ユーザーがサンプルカラーを実際に指定したか。既定の白を「未指定センチネル」として
+        // 扱うと、白い服・白髪など「色替え対象が白」という正当なケースまで自動調整不可になる。
+        // スポイトやカラーフィールドで色を取った瞬間に true にし、明示的な白選択を未指定と区別する。
+        public bool sampleColorSet = false;
         public float tolerance = 0f;
 
         // マルチサンプル選択用の内部サンプル（暗部／中間／明部の代表色）。空＝単一サンプルと等価。
@@ -184,6 +188,18 @@ namespace Iroca
         // (PresetsView.MigrateLegacyLayerPriority が読み込み時に一度だけ降順移行に使用)。
         public int layerIndex = 0;
         public string id = "";
+
+        // ゾーンカードの「詳細設定」折りたたみ状態（UI 専用・非永続）。既定 false＝畳む。
+        // 通常モードで詳細パラメータをゾーンごとに畳んで初見の圧を下げるために使う。
+        // データ・プリセット JSON には残さないため [NonSerialized]（ドメインリロードで畳みへ戻る）。
+        [NonSerialized] public bool detailFoldout = false;
+
+        /// <summary>
+        /// ユーザーがサンプルカラーを明示的に指定したか。既定の白（＝未指定センチネル）と、
+        /// 「白を意図的に選んだ」正当なケースを区別して自動調整の可否などに使う。
+        /// フラグを持たない旧データとの後方互換のため、非白なら指定済みとみなす。
+        /// </summary>
+        public bool HasSampleColor => sampleColorSet || sampleColor != Color.white;
 
         // === 事前計算キャッシュ ===
         [NonSerialized] private bool _cacheInitiated = false;

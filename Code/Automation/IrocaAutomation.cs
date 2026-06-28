@@ -405,6 +405,7 @@ namespace Iroca
                 enabled = true,
                 mode = SelectionMode.ColorPick,
                 sampleColor = ToColor(z.sample),
+                sampleColorSet = true,
                 targetColor = ToColor(z.target),
                 tolerance = z.tolerance,
                 valueBlend = z.valueBlend,

@@ -97,6 +97,17 @@ namespace Iroca
         public static string AddZone => IsJapanese ? "+ ゾーン追加" : "+ Add Zone";
         public static string SelectionMode => IsJapanese ? "選択モード" : "Selection Mode";
         public static string SampleColor => IsJapanese ? "サンプルカラー" : "Sample Color";
+
+        // ─── プレビュー直接スポイト ───
+        public static string EyedropperIdle => IsJapanese
+            ? "スポイト（プレビューから色を取得）"
+            : "Eyedropper (pick from preview)";
+        public static string EyedropperActive => IsJapanese
+            ? "■ プレビューをクリックして取得（クリックで解除）"
+            : "■ Click the preview to sample (click to cancel)";
+        public static string EyedropperTooltip => IsJapanese
+            ? "押すとスポイトモードになり、プレビュー上をクリックするとそのピクセルの色を\nこのゾーンの「サンプルカラー」に取り込みます。\n実テクスチャの画素から直接取得するため、カラーピッカーのスポイトより正確です。\nもう一度押すと解除します。"
+            : "Enters eyedropper mode; click the preview to load that pixel's color into this zone's Sample Color.\nIt reads the actual texture pixel directly, so it is more accurate than the color picker's eyedropper.\nClick again to cancel.";
         public static string Tolerance => IsJapanese ? "許容範囲" : "Tolerance";
         public static string UVRect => IsJapanese ? "UV範囲 (0-1)" : "UV Rect (0-1)";
         public static string TargetColor => IsJapanese ? "変更先カラー" : "Target Color";
@@ -159,6 +170,9 @@ namespace Iroca
             ? "「かんたん」: 色とおおまかな調整だけを表示（迷ったらこちら）。サンプルカラーを変えると自動調整が裏で走り、巻き込み抑制などの細部を自動設定します。\n「通常」: 従来通りの標準的な調整項目（エッジ・彩度・シャドウ/ハイライト）を手動表示。自動実行はしません。\n「上級」: 通常に加えて内部マッチング重みなど最も細かいパラメータまで表示します。"
             : "Simple: shows only colors and basic adjustments (recommended). Changing the sample color runs Auto-tune in the background to set details (bleed suppression, etc.).\nNormal: the classic set of manual controls (edge, saturation, shadow/highlight). No auto-run.\nAdvanced: Normal plus the finest internal parameters (matching weights, etc.).";
         public static string AutoTuningInProgress => IsJapanese ? "自動調整中…" : "Auto-tuning…";
+
+        // ゾーンカード内の詳細パラメータ折りたたみ見出し（通常モードで既定畳む）。
+        public static string ZoneDetailFoldout => IsJapanese ? "詳細設定" : "Details";
 
         public static string ResetZoneTuning => IsJapanese ? "詳細を既定値に戻す" : "Reset details to default";
         public static string ResetZoneTuningTooltip => IsJapanese
@@ -402,8 +416,8 @@ namespace Iroca
             ? "ColorPick: サンプルカラーに近い色のピクセルを選択\nUVRect: UV座標の矩形範囲内のピクセルを選択"
             : "ColorPick: Select pixels matching the sampled color\nUVRect: Select pixels within a UV coordinate rectangle";
         public static string SampleColorTooltip => IsJapanese
-            ? "選択する基準色。スポイトアイコンでテクスチャからサンプリングできます"
-            : "Reference color for selection. Use the eyedropper to sample from the texture";
+            ? "選択する基準色。下の「スポイト」ボタンを押してプレビューを直接クリックすると、実テクスチャの色を正確に取得できます"
+            : "Reference color for selection. Press the Eyedropper button below and click the preview to sample the exact texture color";
         public static string ToleranceTooltip => IsJapanese
             ? "色の許容範囲。値が大きいほど基準色から離れた色も選択されます（0〜1）"
             : "Color matching tolerance. Higher values select colors further from the sample (0-1)";
@@ -545,8 +559,8 @@ namespace Iroca
             ? "サンプルカラーと変更先カラーから、テクスチャを解析して許容範囲・彩度制限などのパラメータを自動的に決定します。\nスポイトでサンプルカラーを取った直後に押すと最も効果的です。"
             : "Analyzes the texture using the sample and target colors and automatically sets tolerance, saturation strictness, and related parameters.\nMost effective right after sampling a color with the eyedropper.";
         public static string AutoTuneDisabledTooltip => IsJapanese
-            ? "次のいずれかの条件で使用できません:\n・元テクスチャが未設定\n・テクスチャの Read/Write が無効\n・サンプルカラーが未指定（白のまま）\n・選択モードが Rect"
-            : "Disabled when:\n- Source texture is not set\n- Texture's Read/Write is off\n- Sample color is unset (still white)\n- Selection mode is Rect";
+            ? "次のいずれかの条件で使用できません:\n・元テクスチャが未設定\n・テクスチャの Read/Write が無効\n・サンプルカラーが未指定（スポイト等でまだ色を取っていない）\n・選択モードが Rect"
+            : "Disabled when:\n- Source texture is not set\n- Texture's Read/Write is off\n- Sample color has not been picked yet\n- Selection mode is Rect";
         public static string AutoTuneConfirmTitle => IsJapanese ? "自動調整の確認" : "Confirm Auto-tune";
         public static string AutoTuneOverwriteBody(System.Collections.Generic.IList<string> labels, bool includesGlobals)
         {

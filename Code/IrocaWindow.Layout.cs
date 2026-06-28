@@ -32,6 +32,11 @@ namespace Iroca
         {
             // Ctrl+Z / Ctrl+Y は Unity 標準 Undo に統合済みのため、独自処理は不要。
             ProcessPendingZoneChanges();
+
+            // スポイト武装中にテクスチャが外れた／対象ゾーンが消えたら解除（クリックで解けなくなるのを防ぐ）。
+            if (_eyedropperZoneIndex >= 0 &&
+                (sourceTexture == null || _eyedropperZoneIndex >= zones.Count))
+                _eyedropperZoneIndex = -1;
             // かんたんモードで予約された自動調整を、デバウンス経過後に裏で実行する。
             // ── 自動調整はまだ実用段階でないため無効化（2026-06 一時対応）。再有効化時にコメントを外す。
             // ProcessPendingAutoTune();
