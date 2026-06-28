@@ -5,7 +5,7 @@ namespace Iroca
     // Assets 配下のパスを "Assets/..." 形式の相対パスへ正規化する純粋ユーティリティ。
     // 永続化(PresetStore/MaskFileStore)・自動化(IrocaAutomation)・エクスポート(ExportView)が
     // 共通で使うため、UI ウィンドウ(IrocaWindow)から切り離して Infra に置く。これにより
-    // 下位層(Infra/Automation)が UI へ逆依存しなくなる(architecture_review_2026-06-27 §2.2-1)。
+    // 下位層(Infra/Automation)が UI へ逆依存しなくなる。
     // UnityEditor 非依存(Application.dataPath は UnityEngine)なので headless でも参照できる。
     internal static class PathUtils
     {

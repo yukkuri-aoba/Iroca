@@ -506,7 +506,6 @@ namespace Iroca
                     // 3b. AA 境界の α 分解（オプション）：strength が 0 < s < interiorThreshold の
                     //     ピクセルを「α×FG + (1-α)×BG」と見て元テクスチャの合成を逆算し、
                     //     新色で再合成する。halo（薄汚れた中間色）を構造的に除去する。
-                    //     詳細は dev_safe/docs/edge_decontamination.md を参照。
                     // 無彩サンプル/極端無彩ターゲットの重み(WS-R と AA フィデリティ修正で共用)。
                     float zAchromaWeight = ComputeAchromaWeight(zone.sampleColor, zone.targetColor);
                     // sample の S/V (wash ゲート・デバッグ分岐・下の中性リジェクトで共用)。
@@ -528,7 +527,7 @@ namespace Iroca
                     // フルにならず、明るい画素ほど弱く塗られて元色が残り「中央の段差」になる。陰影は塗り
                     // 強度でなく recolor の achroma レンジリマップ(gain≤1)で表現すべきなので、マッチ領域の
                     // 内部を full strength に固め、AA 縁(侵食で除いた帯)の taper だけ残す。有彩ターゲット
-                    // (achromaWeight≈0)では no-op = byte 不変。algorithm.py SOLIDIFY_ACHROMA_INTERIOR と同期。
+                    // (achromaWeight≈0)では no-op = byte 不変。
                     if (zAchromaWeight > 1e-4f)
                         SolidifyAchromaInterior(strength, w, h, zAchromaWeight);
 
@@ -540,7 +539,7 @@ namespace Iroca
                         decontaminatedPixels = decontamPixels;
                         // 内部固め(上)が無彩ターゲットの内部を均一化したので、旧 AA フィデリティ修正の
                         // interior_threshold=1.01(全画素 α 再合成)は不要(むしろ内部を背景色で再合成して
-                        // 段差を復活させる)。常に通常閾値で AA 縁だけをデコンタミする。algorithm.py 同期。
+                        // 段差を復活させる)。常に通常閾値で AA 縁だけをデコンタミする。
                         float effInteriorThreshold = decontaminationInteriorThreshold;
                         DecontaminateAaBoundary(originalPixels, strength, w, h,
                             zone.sampleColor, zone.targetColor,
@@ -625,7 +624,6 @@ namespace Iroca
                         // パーツは全体が閾値未満になり一律最大50%脱彩される(=入力明度で出力彩度
                         // が変わる)。閾値に地色アンカーの V(明部の代表明度)を乗じ「パーツ内の
                         // 相対的な暗部」だけを脱彩する。アンカー非採用時は従来の絶対閾値で完全互換。
-                        // algorithm.py recolor_pixels の eff_shadow_desat と同期。
                         if (zEffShadowDesat > 0f)
                         {
                             OklabToRgb(zSL,
@@ -1432,12 +1430,12 @@ namespace Iroca
 
         // L 再マップの彩度ゲート定数。彩度が sample の何割に達したら remap をフル適用するか。
         // これ未満の低彩度画素は元 L を保持し、target が sample より明るい場合の暗部持ち上げ
-        // (=ロゴ周辺の白/灰ノイズ)を防ぐ。algorithm.py の OKLAB_REMAP_FULL_CHROMA_FRAC と同期。
+        // (=ロゴ周辺の白/灰ノイズ)を防ぐ。
         private const float OklabRemapFullChromaFrac = 0.35f;
 
         // chroma 増幅キャップ(有彩ターゲット向け WS-R 拡張): tC > sC の色相変化で OkLab→RGB の
-        // lum 感度が高まりバンディング発生(bandana green: tC/sC=1.57→contrast 2.23x, orange: 1.17→1.58x)。
-        // output chroma = mag*tC が sC*Factor を超えないよう mag を制限。algorithm.py CHROMA_AMP_MAX_FACTOR と同期。
+        // lum 感度が高まりバンディングが発生しうる(彩度比 tC/sC が大きいほど明度コントラストが増幅される)。
+        // output chroma = mag*tC が sC*Factor を超えないよう mag を制限。
         private const float ChromaAmpMaxFactor = 1.0f;
 
         // ───────── WS-R: 無彩サンプル / 極端無彩ターゲットの再着色破綻対策 ─────────
@@ -1447,7 +1445,7 @@ namespace Iroca
         // (3) mag=oC/sC が微小彩度ノイズを増幅＝脚色 が起きる。サンプルが無彩 or ターゲットが極端
         // 無彩(白/黒)のとき、L=マッチ領域 L レンジを target ヘッドルームへ収める順序保存リマップ /
         // 彩度=uniform target chroma へ achroma_weight で連続ブレンドする。有彩×有彩では weight=0 で
-        // 従来式とバイト不変。不変条件: 単調・順序保存・gain≤1(増幅禁止)。algorithm.py ACHROMA_* と同期。
+        // 従来式とバイト不変。不変条件: 単調・順序保存・gain≤1(増幅禁止)。
         private const float AchromaSampleC  = 0.06f;  // sample OkLab chroma がこれ未満で無彩扱い(→1)
         private const float AchromaTargetC  = 0.06f;  // target OkLab chroma がこれ未満で無彩扱い
         private const float AchromaRangeGain = 1.0f;  // [旧] レンジリマップ出力幅 = 元幅 × min(gain,1)。form 版へ移行。
@@ -1471,7 +1469,6 @@ namespace Iroca
         // 有彩サンプルはマッチ距離が hue 支配で彩度差を過小評価し、明るい中性画素(白UV背景等)を巻き込む。
         // 無彩ターゲットのときだけ、サンプル彩度の相対床 sS·Frac 未満の画素を strength から除去する
         // (高彩度コア近傍 Radius px は保護=赤自身の脱彩した陰影/AA縁を守る)。値は既存定数を流用。
-        // algorithm.py の match_sat_floor(achroma-gate 分岐)と同期。
         private const float AchromaNeutralRejectWeightMin = 0.5f; // 白↔黒の極端無彩ターゲットでのみ作動
         private const float NeutralRejectActiveSourceSat = 0.40f; // サンプルがこの彩度以上(=有彩)でのみ作動
         // サンプル彩度 sS·frac 未満を「中性(=白背景)」とみなして弾く。0.10 は中性の白背景
@@ -1489,7 +1486,7 @@ namespace Iroca
         private const float AchromaFringeMinAlpha = 0.05f; // これ未満=残留クリームほぼ無し→触らない
         private const float AchromaFringeMaxAlpha = 0.70f; // これ超=白/地色寄り→除外(白拒否を維持)
 
-        // サンプル自動補正(再着色アンカー正規化)の定数。algorithm.py の ANCHOR_* と同期。
+        // サンプル自動補正(再着色アンカー正規化)の定数。
         // すべて領域統計に対する相対量(特定色/座標/テクスチャ非依存)。
         private const float AnchorStrengthMin   = 0.9f;   // コアマッチのみ採用(AA縁・feather裾の混色を除外)
         private const int   AnchorMinPixels     = 100;    // これ未満はフォールバック(ComputeWashSample と同基準)
@@ -1504,8 +1501,8 @@ namespace Iroca
         private const float AnchorChromaHistMax = 0.5f;   // chroma ヒストグラムの値域上限(OkLab C は ~0.33 まで)
 
         /// <summary>256bin ヒストグラムの percentile(0..1) を実値で返す(値域 [0, scale])。
-        /// HighlightSampleCorrector.PercentileFromHist の値域一般化版。Python np.percentile は
-        /// 線形補間のため最大 1bin(scale/255)の離散化差を許容する(auto_wash_sample の前例に従う)。</summary>
+        /// HighlightSampleCorrector.PercentileFromHist の値域一般化版。線形補間の percentile に対し
+        /// 最大 1bin(scale/255)の離散化差を許容する(auto_wash_sample の前例に従う)。</summary>
         private static float HistValueAtPercentile(int[] hist, int total, float pct, float scale)
         {
             int target = Mathf.Clamp(Mathf.CeilToInt(total * pct), 1, total);
@@ -1526,7 +1523,7 @@ namespace Iroca
         /// 本関数は「パーツの明るい面の地色」を統計的に推定して返し、スポイト位置非依存にする。
         /// マッチング・wash には影響しない(呼び出し側がアンカー 2 値だけを置き換える)。
         ///
-        /// algorithm.py の estimate_anchor_oklab と同期(percentile の離散化差 ≤1/255 は許容)。
+        /// percentile はヒストグラム離散化のため厳密値と最大 1/255 の差を許容する。
         /// </summary>
         /// <returns>false = フォールバック(スポイト色のまま従来挙動)。
         /// 条件: コア画素&lt;100 / 地色画素&lt;100 / フラット領域(L スプレッド&lt;0.02) / 推定 C≈0。</returns>
@@ -1611,7 +1608,7 @@ namespace Iroca
         /// (sS·NeutralRejectFloorFrac)未満の画素のうち、高彩度マッチコアから NeutralRejectProtectRadius
         /// px より遠いものの strength を 0 にする。hue 支配距離で巻き込んだ明るい中性背景(白UV背景等)を
         /// 落としつつ、コア近傍の脱彩した陰影/AA縁は保護する(彩度だけでは両者を区別できないため空間距離で
-        /// 分離=algorithm.py match_sat_floor と同設計)。呼び出し側で achromaWeight/サンプル彩度を gate。
+        /// 分離する)。呼び出し側で achromaWeight/サンプル彩度を gate。
         /// </summary>
         private static void RejectNeutralForAchromaTarget(float[] strength, float[] pixS, int w, int h, float sS)
         {
@@ -1672,7 +1669,7 @@ namespace Iroca
         /// strength を full(=strength→1 へ achromaWeight 比でフェード)に固める。AA 縁(侵食で
         /// 除いた帯)は元の taper を保つ。極端な無彩ターゲット(白↔黒)で、明るい画素ほど弱く
         /// マッチして元色が残る「中央の段差」を消すための前処理。陰影は後段 recolor の achroma
-        /// レンジリマップ(gain≤1)が担う。algorithm.py の SOLIDIFY_ACHROMA_INTERIOR と同値。
+        /// レンジリマップ(gain≤1)が担う。
         /// </summary>
         private static void SolidifyAchromaInterior(float[] strength, int w, int h, float achromaWeight)
         {
@@ -1721,7 +1718,7 @@ namespace Iroca
 
         /// <summary>
         /// WS-R/AA フィデリティ用: 「無彩サンプル / 極端無彩ターゲット」の重み(0..1)を sample/target
-        /// 色から求める。有彩サンプル×有彩ターゲットで 0。algorithm.py _achroma_weight と同値。
+        /// 色から求める。有彩サンプル×有彩ターゲットで 0。
         /// </summary>
         private static float ComputeAchromaWeight(Color sample, Color target)
         {
@@ -1741,7 +1738,6 @@ namespace Iroca
         /// 中明度グレー(tL≈0.5)で重みが≈0 に落ち、灰色ターゲットでは中性背景リジェクトが発動せず
         /// 「白い背景が灰色になる」破綻が出る(黒/白は extremeness≈1 で発動)。選択保護に必要なのは
         /// 『ターゲットが無彩か』だけで明度は無関係なので、extremeness を外し彩度のみで判定する。
-        /// algorithm.py _achroma_select_weight と同期。
         /// </summary>
         private static float ComputeAchromaSelectWeight(Color sample, Color target)
         {
@@ -1852,8 +1848,8 @@ namespace Iroca
         /// WS-R 無彩レンジリマップ用: マッチ領域の OkLab L の (P05, P95, 中央値) を求める。
         /// core 画素(strength>=AchromaRegionCoreThr かつ α>=128)が少なすぎる場合は strength>0 へ
         /// フォールバック。マッチ画素が無ければ false(呼び出し側は achroma パスをスキップ)。
-        /// 特定色/座標非依存の領域統計のみ(脚色しない不変条件)。algorithm.py _region_l_range と同期
-        /// (percentile はヒストグラム離散化のため Python np.percentile と ≤1/255 の差を許容)。
+        /// 特定色/座標非依存の領域統計のみ(脚色しない不変条件)。percentile はヒストグラム離散化のため
+        /// 厳密値と ≤1/255 の差を許容する。
         /// </summary>
         private static bool TryComputeRegionLRange(
             Color32[] px, float[] strength, out float lo, out float hi, out float mid)
@@ -2386,7 +2382,6 @@ namespace Iroca
             // 高彩度色(off-white→赤バンダナ等)を弾けず境界回復が別色を周囲へ大量スピルさせる。
             // プライマリ(CalculateHybridDistance)と同じ RGB 距離ブレンドで整合させる:
             // dist = lerp(rgbDist, hsvDist, chromaConfidence)。有彩サンプルは cc≈1 で従来式と一致。
-            // algorithm.py relaxed_match_strength と同期。数学レビュー §2.3 対応。
             if (chromaConfidence < 0.999f)
             {
                 float dr = pR - sR, dg = pG - sG, db = pB - sB;
@@ -2394,9 +2389,9 @@ namespace Iroca
                 dist = rgbDist * (1f - chromaConfidence) + dist * chromaConfidence;
             }
 
-            // シャドウ（暗い色）の境界距離許容は廃止（プライマリ CalculateHybridDistance と同期、
-            // algorithm.py DARK_FORGIVENESS_DISTANCE_REDUCE=False）。緩和マッチ(穴埋め/境界回復)で
-            // near-black の別マテリアルを tolerance 内へ逆送し巻き込みを広げる経路だったため除去する。
+            // シャドウ（暗い色）の境界距離許容は廃止（プライマリ CalculateHybridDistance と同期）。
+            // 緩和マッチ(穴埋め/境界回復)で near-black の別マテリアルを tolerance 内へ逆送し
+            // 巻き込みを広げる経路だったため除去する。
 
             if (dist >= tolerance) return 0f;
 
@@ -2425,8 +2420,8 @@ namespace Iroca
         // (Pow は乗算の数十倍コスト)。Pow を以下で置換する:
         //  - SrgbToLinear: 入力が byte/255 の 256 通りしかない per-pixel 経路は 256 エントリ LUT で
         //    厳密置換(s_srgbToLinearLut)。任意 float 入力(ゾーン定数)は従来どおり Pow。
-        //  - Cbrt: Mathf.Pow(x,1/3) は cbrt の近似。Python 参照は np.cbrt なので MathF.Cbrt へ置換
-        //    すると参照に近づき、かつ Pow を除去できる。
+        //  - Cbrt: Mathf.Pow(x,1/3) は cbrt の近似。MathF.Cbrt へ置換すると精度が上がり、
+        //    かつ Pow を除去できる。
         //  - LinearToSrgb: 出力は byte に量子化されるため LUT+線形補間で視覚的に無損失に置換。
         private const int LinToSrgbLutSize = 4096;
         private static readonly float[] s_srgbToLinearLut = BuildSrgbToLinearLut();
@@ -2477,7 +2472,7 @@ namespace Iroca
 
         private static float Cbrt(float x)
         {
-            // MathF.Cbrt は負値も正しく扱い、Mathf.Pow(x,1/3) より高精度(Python np.cbrt 相当)。
+            // MathF.Cbrt は負値も正しく扱い、Mathf.Pow(x,1/3) より高精度。
             return MathF.Cbrt(x);
         }
 
@@ -2526,8 +2521,7 @@ namespace Iroca
 
         // RecolorPixel のゾーン不変パラメータ(再着色ホットループの前に 1 回だけ確定する値)をまとめた
         // readonly struct。in 渡しで per-pixel のコピーを避ける。フィールドは旧 RecolorPixel 引数を
-        // そのまま転記(型・順序・意味を保持)。約30引数の緩和=シグネチャ整理のみで数値ロジックは不変
-        // (architecture_review_2026-06-27 §4.2(C))。
+        // そのまま転記(型・順序・意味を保持)。約30引数の緩和=シグネチャ整理のみで数値ロジックは不変。
         private readonly struct RecolorParams
         {
             public readonly float okMagScale, okTa, okTb;
@@ -2619,7 +2613,7 @@ namespace Iroca
             // かけると、target が sample より知覚的に明るいとき暗部が持ち上がり「明るい灰スペック」
             // =ロゴ周辺の白/灰ノイズになる。chroma_frac=oC/(sC·FULL_FRAC) で彩度が sample の FULL_FRAC 割に
             // 達したらフル remap、それ未満は元 L を保持。sample 彩度に対する相対量なので色非依存。
-            // sample 無彩(okGray)時は従来どおり一律 remap。algorithm.py の OKLAB_REMAP_* と同期。
+            // sample 無彩(okGray)時は従来どおり一律 remap。
             float effRemapL = remapL;
             if (!okGray && okSC > 1e-4f)
             {
@@ -2631,14 +2625,14 @@ namespace Iroca
 
             // WS-R: 無彩再着色パスの L。マッチ領域の L レンジ[lo,hi]を target 側ヘッドルームへ
             // 順序保存で収める(2区間リマップ・彩度ゲートを迂回)。白い三角→黒のまだら/明度崩壊を直す。
-            // algorithm.py recolor_pixels と同期。weight=0(有彩×有彩)では完全 no-op=バイト不変。
+            // weight=0(有彩×有彩)では完全 no-op=バイト不変。
             if (achromaWeight > 1e-4f && hasRegL)
             {
                 // 形(立体感)維持: 領域中央値を target 側の控えめ offset(center)に置き、中央値からの
                 // 偏差を AchromaFormGain 倍して陰影を知覚可能な大きさへ拡張する。暗部は 0 へ、明部は
                 // center 近辺の暗灰に収め、白残り(段差)は clamp で防ぐ。単調・領域統計由来で特定座標
                 // 非依存。元の微小陰影をそのまま写すと暗部/明部で知覚的に平坦化(ベタ黒/ベタ白)するため、
-                // 控えめに増幅する(知覚補償)。algorithm.py recolor_pixels と同期。
+                // 控えめに増幅する(知覚補償)。
                 float center = okTL < 0.5f ? AchromaFormOffset : (1f - AchromaFormOffset);
                 float rangeRemap = Mathf.Clamp(center + (oL - regLmid) * AchromaFormGain, 0f, 1f);
                 float nLAchroma = okTL * (1f - valueBlend) + rangeRemap * valueBlend;
@@ -2677,8 +2671,7 @@ namespace Iroca
             // match/base は sample のままなので再着色範囲は不変(新規 FP なし)。
             //
             // applyHighlightWash ゲート (2026-06-04): この白寄せ射影は既定 OFF のオプトイン。
-            // OFF のときは HSV transfer のみで明部の明度・彩度構造を温存する。Python 参照
-            // algorithm.py recolor_pixels の `if apply_highlight_wash:` と同期。
+            // OFF のときは HSV transfer のみで明部の明度・彩度構造を温存する。
             if (applyHighlightWash && sS > 0.01f && oV > washV)
             {
                 float dR = 1f - washR;
@@ -2705,7 +2698,7 @@ namespace Iroca
                     //   有彩の模様        = 別色・高彩度        = 軸外(resid 大)  → 白寄せ 0
                     // 軸外で proj_t(=軸上の脱彩点)への置換を止めるので、明るい同系色の模様まで
                     // 白化して模様が壊れる過剰白化を構造的に排除する。残差を捨てる(P5)のは
-                    // resid≈0 の画素に限られるためピンク化抑止特性も維持。dev_safe algorithm.py と同期。
+                    // resid≈0 の画素に限られるためピンク化抑止特性も維持。
                     float axR = washR + w * dR;
                     float axG = washG + w * dG;
                     float axB = washB + w * dB;
