@@ -1,4 +1,4 @@
-# Camereo ユーザーマニュアル
+# いろか ユーザーマニュアル
 
 *[日本語](#日本語) | [English](#english)*
 
@@ -10,14 +10,13 @@
 
 - [インストール](#インストール)
 - [基本的な使い方](#基本的な使い方)
-- [カラーゾーンの詳しい説明](#カラーゾーンの詳しい説明)
+- [カラーゾーンの設定](#カラーゾーンの設定)
 - [加工設定](#加工設定)
 - [アドバンスモード](#アドバンスモード)
 - [プレビュー機能](#プレビュー機能)
 - [除外マスク](#除外マスク)
 - [プリセット](#プリセット)
-- [一括適用](#一括適用)
-- [エクスポート](#エクスポート)
+- [書き出し](#書き出し)
 - [トラブルシューティング](#トラブルシューティング)
 - [よくある質問](#よくある質問)
 
@@ -28,285 +27,290 @@
 #### 前提条件
 
 - Unity 2022.3.22f1 以降
-- 対象テクスチャは **Read/Write Enabled** が有効である必要があります。
-> ツールを起動した後ボタンを押すと、自動で有効にすることも可能です。
+- 対象テクスチャは **Read/Write Enabled** が有効である必要があります
 
-#### インストール手順
+> ウィンドウ起動後、警告のボタンを押すと自動で有効にできます。
 
-1. **Unity Editor を開く**
-   - プロジェクトの Assets フォルダを開きます。
+#### 手順
 
-2. **.unitypackage をインポート**
-   - Unity メニューから `Assets > Import Package > Custom Package...` を選択
-   - ダウンロードした `.unitypackage` ファイルを選択
-   - インポートダイアログで「Import」をクリック
-   - 完了すると、`Assets/Camereo` フォルダが作成されます。
+1. [GitHub Releases](https://github.com/yukkuri-aoba/Iroca/releases) から最新のいろかが入ったzipファイルをダウンロードし、展開します。
 
-3. **ウィンドウを開く**
-   - Unity メニューから `Tools > Camereo` を選択
-   - Camereo ウィンドウが起動します
+2. Unity Editor に`.unitypackage`をドラッグ＆ドロップします。
+
+   [スクリーンショット: エクスプローラとUnity Editor]
+
+3. ダイアログで「Import」をクリックします
+
+   [スクリーンショット: Import ダイアログ]
+
+4. 読み込みが完了すると、`Assets/Iroca` フォルダが作成されます
+
+5. `Tools > いろか` を選択してウィンドウを開けば使用可能です！
+
+   [スクリーンショット: Tools メニュー]
 
 #### Read/Write Enabled の有効化
 
-テクスチャが Read/Write Enabled できていない場合：
+Read/Write Enabled が無効なテクスチャを選択すると、ウィンドウに警告とボタンが表示されます。ボタンをクリックすると自動で有効になります。
 
-1. Camereo ウィンドウで対象テクスチャを選択
-2. ウィンドウに警告メッセージが表示されます
-3. 表示されたボタンをクリックして自動的に有効化します
+[スクリーンショット: Read/Write 警告と有効化ボタン]
 
 ---
 
 ### 基本的な使い方
 
-#### ステップ 1: テクスチャを選択
+#### ステップ 1: テクスチャを選択する
 
-1. Camereo ウィンドウの「Texture」フィールドをクリック
-2. Unity のテクスチャ選択ダイアログが開きます
-3. 色改変したいテクスチャを選択
-4. プレビュー画面にテクスチャが表示されます
+いろか ウィンドウの「Texture」欄をクリックして、色改変したいテクスチャを選択します。選択すると、プレビュー欄にテクスチャが表示されます。
 
-#### ステップ 2: カラーゾーンを追加
+[スクリーンショット: テクスチャ選択後のウィンドウ全体]
 
-1. ウィンドウの「+ ゾーン追加」ボタンをクリック
-2. 新しいカラーゾーンが作成されます
-3. 各ゾーンには名前を自由に付けられます（処理には影響しません）
-各ゾーンのヘッダーにあるチェックボックスで、そのゾーンを削除せずに一時的に無効化できます。
-ウィンドウ上部の言語ボタンで Auto / 日本語 / English を切り替えられます。Auto は OS の UI 言語に従います。
+#### ステップ 2: カラーゾーンを追加する
 
-#### ステップ 3: 色改変対象を選択
+「+ ゾーン追加」ボタンをクリックします。新しいカラーゾーンが作成されます。ゾーン名は自由に変更できます（処理には影響しません）。
 
-カラーピック モードとUV矩形 モードの2つがあります。
+#### ステップ 3: 色改変対象を選択する
 
-**カラーピック モード（推奨）：**
-1. ゾーン設定の「選択モード」を「ColorPick」に設定
-2. 「サンプルカラー」のカラーフィールドをクリック
-3. カラーピッカーが開くので、スポイト（Eyedropper）アイコンでプレビューから改変したい色をクリック
-4. 「許容範囲」スライダーを調整して、選択範囲を微調整
+カラーピック モードと UV 矩形 モードの 2 つがあります。
 
-**UV矩形 モード：**
-1. ゾーン設定の「選択モード」を「Rect」に設定
-2. UV座標（0〜1）で X / Y（左下原点）と W / H（幅・高さ）を指定
-3. 色情報に頼らず正確な範囲指定が可能です
+**カラーピック モード（推奨）**
 
-#### ステップ 4: 色を設定
+1. ゾーン設定の「選択モード」を「ColorPick」に設定します
+2. 「サンプルカラー」のカラーフィールドをクリックします
+3. カラーピッカーが開くので、スポイトアイコンでプレビュー上の色をクリックします
+4. 「許容範囲」スライダーを調整して選択範囲を微調整します
 
-1. ゾーン設定の「Target Color」をクリック
-2. カラーピッカーで新しい色を選択
-3. プレビューに反映されます
+> 改変したい部分の中で最も鮮やかな色を選ぶとうまくいきやすいです。
 
-#### ステップ 5: 詳細を調整（必要に応じて）
+**UV 矩形 モード**
 
-以下の設定のいずれかまたはすべてを調整します：
+1. ゾーン設定の「選択モード」を「UVRect」に設定します
+2. UV 座標（0〜1）で X / Y（左下が原点）と W / H（幅・高さ）を指定します
 
-- **模様保持 (Pattern Preserve)** — 元の柄の残し具合（0 = 単色、1 = 柄がそのまま）
-- **エッジ柔らかさ (Edge Softness)** — エッジの硬さ（0 = 硬い、1 = 柔らかい）
-- **彩度制限 (Saturation Strictness)** — 薄い色の除外度（0 = 除外なし、1 = 鮮やかな色のみ）
-- **ハイライト補助 (Highlight Recovery)** — 鏡面反射/光沢部分の色変換漏れを防ぐ
-- **L (Layer Index)** — 複数ゾーン重複時の優先度（大きい値が後に適用・優先）
+色情報に頼らず、正確な範囲指定が必要な場合に使います。
 
-#### ステップ 6: エクスポート
+#### ステップ 4: 改変後の色を設定する
 
-1. ウィンドウの「新規ファイルとして保存」トグルで保存方法を選択
-   - ON: 元のファイルを保持して新規ファイルとして保存（ファイル名を入力）
-   - OFF: 元のテクスチャを上書き保存
-2. 「Apply & Save」ボタンをクリック
-3. ファイルが保存されます
+ゾーン設定の「変更先カラー」をクリックして、変更後の色を選びます。プレビューに即座に反映されます。
+
+#### ステップ 5: 各設定を調整する（必要に応じて）
+
+| 設定 | 内容 |
+|---|---|
+| **模様保持 (Pattern Preserve)** | 元の柄の残し具合（0 = 単色、1 = 柄をそのまま保持） |
+| **エッジ柔らかさ (Edge Softness)** | エッジの硬さ（0 = 硬い、1 = 柔らかい） |
+| **彩度制限 (Saturation Strictness)** | 薄い色の除外度（0 = 除外なし、1 = 鮮やかな色のみ） |
+| **ハイライト補助 (Highlight Recovery)** | 鏡面反射・光沢部分の変換漏れを防ぎます |
+| **L (Layer Index)** | 複数ゾーン重複時の優先度（大きい値が後に適用されるため優先されます） |
+
+#### ステップ 6: テクスチャを保存する
+
+保存手順は「[書き出し](#書き出し)」を参照してください。
 
 ---
 
-### カラーゾーンの詳しい説明
+### カラーゾーンの設定
 
 #### カラーピック モード
 
-サンプル色と合致度に基づいて自動的に改変対象を検出します。
+サンプル色との一致度に基づいて、改変対象のピクセルを自動で検出します。
 
-**設定項目：**
+**サンプルカラー (Sample Color)**
 
-- **サンプルカラー (Sample Color)**
-  - カラーフィールドをクリックすると Unity のカラーピッカーが開きます
-  - ピッカー内のスポイト (Eyedropper) アイコンを使うと、プレビューや画面上の任意のピクセルから色をサンプリングできます
-  - 改変したい部分の中で最も鮮やかな色を選ぶとうまくいきやすい
+カラーフィールドをクリックすると Unity のカラーピッカーが開きます。ピッカー内のスポイトアイコンを使うと、プレビューや画面上の任意のピクセルから色を取得できます。
 
-- **許容範囲 (Tolerance)**
-  - 色の合致許容範囲（0.0 ～ 1.0）
-  - 低い値：より厳密に色を判定（選択範囲が狭い）
-  - 高い値：より広く色を判定（選択範囲が広い、ノイズが増える傾向）
-  - 推奨値：0.15 ～ 0.40（テクスチャに応じて調整）
+**許容範囲 (Tolerance)**
 
-- **連続領域モード (Flood Fill)**
-  - 色が一致した領域のうち、確信度の高い「芯」を含む**つながった塊だけ**に変換を絞り込みます。物理的に離れた同色パーツや背景へのにじみ（誤爆）を自動で除去します。
-  - 許容範囲を高めに設定したときに出やすい「離れた場所への巻き込み」を、真の対象を1pxも削らずに抑えられます（同色でも空間的に離れていれば分離できる、という考え方です）。
-  - **通常はシード指定は不要**（自動）。塊が複数あって特定の1つだけを残したいときは、プレビュー上で **Shift+クリック** してシードを指定すると、その塊だけを残します。
-  - シードを解除して自動に戻すには「自動へ」ボタンを押します。
-  - 同じ色のものを色だけで分けることはできません。連続領域モードは「色は合うが場所が違う」対象を空間的に切り分けるための機能です。
+色の一致許容範囲です（0.0〜1.0）。推奨値は 0.15〜0.40 です。
 
-#### UV矩形 モード
+| 値 | 効果 |
+|---|---|
+| 低い | 厳密に判定する（選択範囲が狭い） |
+| 高い | 広く判定する（選択範囲が広い、ノイズが増える） |
 
-UV座標で矩形範囲を明示的に指定します。複雑な色構成のテクスチャに向いています。
+#### UV 矩形 モード
 
-**設定項目：**
+UV 座標で矩形範囲を直接指定します。複雑な色構成のテクスチャに向いています。
 
-- **X / Y** — 矩形の左下コーナーのUV座標（0〜1）
-- **W / H** — 矩形の幅と高さ（UV座標、0〜1）
+| 設定 | 説明 |
+|---|---|
+| **X / Y** | 矩形の左下コーナーの UV 座標（0〜1） |
+| **W / H** | 矩形の幅と高さ（UV 座標、0〜1） |
 
 #### 共通設定
 
-**Pattern Preserve（模様保持スライダー）**
+**模様保持 (Pattern Preserve)**
 
-改変されたピクセルの明度をどの程度残すかを制御します。
+改変後のピクセルに元の明度をどの程度残すかを制御します。
 
-- **0 に近い** — 指定した色で完全に上書き（単色）
-- **0.5** — 元の柄の明度を50%保持（バランス重視）
-- **1 に近い** — 元の柄をほぼそのまま保持（明度パターンのみ変更）
+- 0 に近い値：指定した色で完全に上書きします（単色）
+- 0.5：元の柄の明度を 50% 保持します
+- 1 に近い値：元の柄をほぼそのまま保持します
 
-**Edge Softness（エッジ柔らかさ）**
+**エッジ柔らかさ (Edge Softness)**
 
-選択エッジの判定の柔軟性を制御します。ぼやけたテクスチャに対応します。
+選択エッジ判定の柔軟性を制御します。ぼかし処理のあるテクスチャに対応します。
 
-- **0**（硬い） — エッジをシャープに判定（通常のテクスチャ向け）
-- **0.5** — バランス型
-- **1**（柔らかい） — エッジをぼやけた状態で判定（ぼかしがあるテクスチャ向け）
+- 0（硬い）：エッジをシャープに判定します（通常のテクスチャ向け）
+- 0.5：バランス型
+- 1（柔らかい）：ぼやけたエッジでも判定します（ぼかしのあるテクスチャ向け）
 
 **彩度制限 (Saturation Strictness)**
 
-テクスチャの周辺に存在する「薄い色（低彩度色）」をどう扱うかを制御します。
+テクスチャ周辺の薄い色（低彩度の色）を対象に含めるかを調整します。
 
-- **0**（含める） — 薄い色も対象に含める
-- **0.5**（標準・デフォルト） — 中程度のフィルタリング
-- **1**（除外） — 鮮やかな色のみを対象
+| 値 | 効果 |
+|---|---|
+| 0 | 薄い色も対象に含めます |
+| 0.5（デフォルト） | 中程度の絞り込み |
+| 1 | 鮮やかな色のみを対象にします |
 
-> **注：** テクスチャの周辺部分はぼかし処理などがされていることが多く、薄い色になっています。この設定を0に近くすると、元の色のドットが残るのを抑制できます。
+> テクスチャ周辺はぼかし処理で薄い色になりがちです。値を上げると周辺を無視でき、元の色のドットが残るのを抑えられます。
 
-**詳しくは「トラブルシューティング」を参照してください。**
+**ハイライト補助 (Highlight Recovery)**
 
-**Highlight Recovery（ハイライト補助）**
+高明度・低彩度のハイライト領域（鏡面反射や光沢部分）も色改変の対象に含めます。
 
-高明度・低彩度のハイライト領域（鏡面反射や光沢部分）を補助的にマッチします。
+- ON（デフォルト）：ハイライト領域の変換漏れを防ぎます
+- OFF：ハイライト領域を厳密に除外したい場合に使います
 
-- **ON**（デフォルト） — ハイライト領域の色変換漏れを防ぐ
-- **OFF** — 厳密にハイライト領域を除外したい場合に使用
+**シャドウ・ハイライト詳細設定**
 
-**L（Layer Index：レイヤーインデックス）**
+暗部やグレーの扱いを細かく制御します。
 
-ゾーンヘッダーの `L` 欄で指定する整数値。複数のカラーゾーンが重なる場合の適用順を制御します。
+| 設定 | 説明 | デフォルト |
+|---|---|---|
+| **シャドウ彩度低下 (Shadow Desaturation)** | 暗いピクセルの彩度を落とす明度の閾値。低い値にすると暗い色も鮮やかに染まります | 0.35 |
+| **シャドウ巻き込み最低彩度 (Shadow Forgiveness Sat Min)** | 暗いピクセルを影として巻き込むために必要な最低彩度。純粋なグレー・黒が色付けされるのを防ぎます | 0.05 |
+| **自動無彩色判定 (Auto Grayscale Threshold)** | サンプル色の彩度がこの値以下の場合、色相を無視して純粋な無彩色（黒・グレー）として処理します | 0.05 |
+
+**L（レイヤーインデックス）**
+
+ゾーンヘッダーの `L` 欄で指定する整数値です。複数のゾーンが重なる場合の適用順を制御します。
 
 - 値が小さいゾーンから順に処理されます
-- 大きい値のゾーンが後から適用されるため、上書き優先となります
-- 同じ値の場合は追加された順に適用
+- 大きい値のゾーンが後から適用されるため、上書きされます（優先されます）
+- 同じ値の場合は追加した順に適用されます
 
-#### Target Color（対象色）
+**変更先カラー**
 
-改変後の色を指定します。
+変更後の色を指定します。
 
 ---
 
 ### 加工設定
 
-エッジやノイズの処理を調整する設定です（「加工設定」セクションにあります）。
-設定変更はプレビューに自動反映されます。最終的には「Apply & Save」で適用・保存されます。
+エッジやノイズの処理を調整する設定です。設定の変更はプレビューに自動で反映されます。最終的には「適用して保存」ボタンで適用・保存します。
 
-#### Edge Feather（エッジぼかし）
+#### エッジぼかし (Edge Feather)
 
-選択エッジに Gaussian Blur を適用して滑らかな色の遷移を実現します。
+選択エッジにぼかし処理を適用し、エッジの色を自然になじませます。
 
-- **0** — オフ（エッジがシャープ）
-- **0.5 ～ 1.5** — 標準的なぼかし
-- **2.0 以上** — 強いぼかし（滑らかなテクスチャ向け）
+| 値 | 効果 |
+|---|---|
+| 0 | オフ（エッジがシャープ） |
+| 0.5〜1.5 | 標準的なぼかし |
+| 2.0 以上 | 強いぼかし（滑らかなテクスチャ向け） |
 
-#### AA境界クリーンアップ（AA Edge Cleanup）
+#### AA 境界クリーンアップ (AA Edge Cleanup)
 
 アンチエイリアス境界に残った細かいノイズを除去するパス数です。
 
-- **0** — オフ
-- **1 ～ 2** — 弱いクリーンアップ
-- **3**（標準） — 標準クリーンアップ（推奨）
-- **4 ～ 5** — 強いクリーンアップ（より多くのノイズを除去）
+| 値 | 効果 |
+|---|---|
+| 0 | オフ |
+| 1〜2 | 弱いクリーンアップ |
+| 3 | 標準（推奨） |
+| 4〜5 | 強いクリーンアップ |
 
-#### 境界クリーンアップ（α分解）
+#### 境界クリーンアップ（α 分解）
 
-AA 境界で α 分解＋再合成を行い、薄汚いハローを抑えます。ON 推奨です。
-アドバンスモードでは「α分解 近傍半径」（1〜12、デフォルト 4）を調整でき、小さい値はシャープな境界、大きい値はノイズの多い背景に向きます。
+アンチエイリアス境界で α 分解と再合成を行い、境界に発生する薄汚れた色（ハロー効果）を防ぎます。
+
+- ON（デフォルト）：推奨。AA 境界の色汚染を防止します。
+- OFF：従来のクリーンアップのみ使用します。
 
 ---
 
 ### アドバンスモード
 
-加工設定セクションの「アドバンスモード」トグルを有効にすると、アルゴリズムの内部パラメータを微調整できます。通常のテクスチャではデフォルト値のままで十分ですが、特殊なテクスチャで思い通りの結果が出ない場合に使用してください。
+加工設定セクションの「アドバンスモード」トグルを有効にすると、アルゴリズムの内部パラメータを調整できます。通常のテクスチャではデフォルト値のままで問題ありません。思い通りの結果が出ない場合にのみ使用してください。
 
-アドバンスモードを有効にするとゾーン設定にも以下の追加項目が表示されます。
+アドバンスモードを有効にすると、ゾーン設定にも追加項目が表示されます。
 
 #### ゾーンごとのアドバンスパラメータ
 
-- **明度重み (Value Weight)** — 距離計算における明度（V）の重み。デフォルト: 1.0
-  - 高い値：明度差に敏感（異なる素材をより分離しやすい）
-  - 低い値：明度差を許容（同じ素材の影/ハイライト変動を吸収）
-- **彩度距離重み (Sat Distance Weight)** — 彩度距離の重み。デフォルト: 0.15
-- **彩度ランプスケール (Sat Ramp Scale)** — 動的彩度ランプのスケール。デフォルト: 0.10
-  - 大きい値：彩度閾値付近で段階的なフェードイン
-  - 小さい値：より急激な閾値
+| 設定 | 説明 | デフォルト |
+|---|---|---|
+| **明度重み (Value Weight)** | 距離計算における明度の重み。高い値は明度差に敏感になります。低い値は同じ素材の影・ハイライトを吸収します | 1.0 |
+| **彩度距離重み (Sat Distance Weight)** | 彩度距離の重み | 0.15 |
+| **彩度ランプスケール (Sat Ramp Scale)** | 動的彩度ランプのスケール。大きい値は彩度閾値付近でなだらかにフェードします | 0.10 |
 
 #### 加工設定のアドバンスパラメータ
 
-- **穴埋めパス数 (Hole Fill Passes)** — AA境界の孤立ドット除去のパス数。デフォルト: 3
-- **穴埋め最小隣接数 (Hole Fill Min Neighbors)** — 穴埋めに必要なマッチ隣接ピクセル数。デフォルト: 4
-  - 低い値：より積極的に穴を埋める（過剰に埋める可能性）
-  - 高い値：より保守的
-- **境界復元 彩度最小 (Boundary Sat Min)** — 境界復元時の彩度最小閾値。デフォルト: 0.02
-- **境界復元 彩度ランプ (Boundary Sat Ramp)** — 境界復元時の彩度ランプ幅。デフォルト: 0.08
+| 設定 | 説明 | デフォルト |
+|---|---|---|
+| **穴埋めパス数 (Hole Fill Passes)** | AA 境界の孤立ドット除去のパス数 | 5 |
+| **穴埋め最小隣接数 (Hole Fill Min Neighbors)** | 穴埋めに必要な一致隣接ピクセル数。低い値はより積極的に埋めます | 4 |
+| **境界復元 彩度最小 (Boundary Sat Min)** | 境界復元時の彩度最小閾値 | 0.02 |
+| **境界復元 彩度ランプ (Boundary Sat Ramp)** | 境界復元時の彩度ランプ幅 | 0.08 |
+| **α 分解 近傍半径 (Decontamination Radius)** | 境界クリーンアップ（α 分解）で背景色を推定する近傍ピクセルの半径 | 4 |
 
-> **ヒント：** アドバンスモードの設定はプリセットとして保存・読込できます。うまく機能する組み合わせを見つけたら、プリセットとして保存しておくと便利です。
+> アドバンスモードの設定はプリセットに含めて保存・読み込みできます。うまく機能する組み合わせが見つかったら、プリセットとして保存しておくと便利です。
 
 ---
 
 ### プレビュー機能
 
-#### ズーム
+#### ズーム操作
 
-- **Ctrl + スクロール** — ズームイン/アウト
-- **ドラッグ** — ビューをパン（移動）（ズーム1倍超の時のみ有効）
+- **Ctrl + スクロール**: ズームイン・アウト
+- **ドラッグ**: ビューを移動（ズーム 1 倍超のときのみ有効）
 
-#### ビューモード
+#### 表示モード
 
-- **Normal**（前後比較/差分表示OFFの状態） — 現在の処理結果をプレビュー
-- **前後比較** — 変更前後を左右に並べて表示
-- **差分表示** — 変更されたピクセルのみをハイライト表示
+- **Normal**: 現在の処理結果を表示します
+- **前後比較**: 変更前後を左右に並べて表示します
+- **差分表示**: 変更されたピクセルのみを強調表示します
 
-#### プレビューの自動更新
+#### 自動更新
 
-設定変更後、短い遅延（デフォルト: 0.2秒）で自動的に更新されます。
+設定変更後、短い遅延（デフォルト：0.2 秒）で自動的に更新されます。
 
 ---
 
 ### 除外マスク
 
-プレビュー上でブラシを使用して、色改変したくない領域をマスクします。
+プレビュー上でブラシを使って、色改変したくない領域を指定します。共通マスク（全ゾーンに適用）とゾーン別マスク（特定ゾーンにのみ適用）を使い分けられます。
 
-マスクには共通マスクとゾーン別マスクがあります。「編集対象」プルダウン、または各ゾーンの「このゾーンのマスクを編集」ボタンで切り替えられます。
-共通マスクは全ゾーンに適用され、ゾーン別マスクはそのゾーンにだけ適用されます。処理時は両方が OR 結合されます。
+[スクリーンショット: 除外マスクを描いた状態のプレビュー]
 
 #### 使い方
 
-1. 「除外」ボタンをクリックしてペイントモードを開始
-2. プレビュー上でドラッグしてマスクを描画（赤い叠りの部分）
-3. マスクされた部分は色改変されません
-4. 「除外」ボタンを再度クリックするとペイントモードを解除
+1. 「マスク対象」プルダウンで編集対象を選択します（共通または各ゾーン）
+2. 「除外」ボタンをクリックして描画モードを開始します
+3. プレビュー上でドラッグしてマスクを描きます（赤い重ね表示 = 共通、黄色系 = ゾーン別）
+4. マスクした部分は色改変されません
+5. 「除外」ボタンを再度クリックすると描画モードを解除します
+
+#### マスク対象
+
+- **共通マスク**: 全ゾーンに適用されるマスクです
+- **ゾーン別マスク**: プルダウンでゾーン名を選択すると、そのゾーンにのみ適用されるマスクを編集できます
 
 #### ブラシ設定
 
-- **Brush Size（ブラシサイズ）** — ブラシサイズ（1 ～ 64）
+- **ブラシサイズ (Brush Size)**: ブラシの大きさを 1〜64 で指定します
 
-#### ブラシモード
+#### 描画モード
 
-- **除外** ボタン — クリックでペイントモード開始（赤いマスクを描画）、再クリックで解除
-- **含める** ボタン — クリックで消去モード開始（マスクを消去）、再クリックで解除
+- **除外** ボタン: クリックで描画モードを開始します（マスクを追加します）。再クリックで解除します
+- **含める** ボタン: クリックで消去モードを開始します（マスクを削除します）。再クリックで解除します
 
-#### アンドゥ
+#### 取り消しとリセット
 
-- **Ctrl + Z** または「マスクを元に戻す」ボタン — 最後の描画をアンドゥ
-
-#### リセット
-
-「マスクをクリア」ボタンで全てのマスクをクリアします。
+- **Ctrl+Z**: 直前のストロークを取り消します（Unity 標準の Undo に対応しています）
+- **マスクをクリア** ボタン: 現在選択中の対象のマスクをすべて削除します
 
 ---
 
@@ -314,157 +318,152 @@ AA 境界で α 分解＋再合成を行い、薄汚いハローを抑えます�
 
 カラーゾーン設定や加工設定をプリセットとして保存・読み込みできます。
 
-#### 手順
+#### 保存と読み込み
 
-1. 「プリセット」セクションを開く
-2. 保存先を選択：「プロジェクト内」または「ユーザー共通」
-3. プリセット名を入力して「保存」をクリック
-4. 保存済みプリセット一覧から「読込」で決定を読み込み、「×」で削除
+1. 「プリセット」セクションを開きます
+2. 保存先を選びます（「プロジェクト内」または「ユーザー共通」）
+3. プリセット名を入力して「保存」をクリックします
+4. 一覧から「読込」で設定を読み込み、「×」で削除します
 
-#### JSONエクスポート／インポート
+#### マスクの保存・読み込みオプション
 
-「JSONエクスポート」「「JSONインポート」ボタンで設定を外部ファイルとして尊重できます。
+- **マスクを含める**: ON にすると除外マスクもプリセットに含めて保存します
+- **読込時にマスクも適用**: ON にするとプリセット読み込み時にマスクも同時に復元します
 
----
+#### JSON の書き出し・読み込み
 
-### 一括適用
-
-同じカラーゾーン設定を複数のテクスチャに一括適用します。
-
-#### 手順
-
-1. マスターテクスチャでカラーゾーンを完成させる
-2. 「一括適用」セクションを開く
-3. 適用対象のテクスチャを追加
-4. 「一括適用して保存」ボタンをクリック
-
-出力ファイルは元ファイル名に "_recolored" を付けた名前で保存されます。
-
-全対象テクスチャに同じ設定が適用されます。
+「JSON 書き出し」「JSON 読み込み」ボタンで設定を外部ファイルとして共有できます。
 
 ---
 
 ### エクスポート
 
-#### 保存方法
+「新規ファイルとして保存」トグルで保存方法を選択してから「適用して保存」ボタンをクリックします。
 
-「新規ファイルとして保存」トグルで保存方法を事前に選択してから「Apply & Save」ボタンをクリックします。
+#### 保存方法の選択
 
-**「新規ファイルとして保存」 ON**
-- 元のテクスチャを保持して新規ファイルに保存
-- ファイル名を指定可能
-- 元のテクスチャは保護される
+**「新規ファイルとして保存」ON**
 
-**「新規ファイルとして保存」 OFF**
-- 元のテクスチャファイルを上書き保存
-- バックアップを強く推奨
+元のテクスチャを保持したまま、別のファイルに保存します。ファイル名を指定できます。
+
+**「新規ファイルとして保存」OFF**
+
+元のテクスチャファイルを上書き保存します。バックアップを強く推奨します。
+
+#### その他のオプション
+
+**インポート設定を継承**
+
+ON（デフォルト）にすると、新しく生成されたテクスチャが元のテクスチャのインポート設定を自動で引き継ぎます。
+
+**「フォルダを開く」ボタン**
+
+保存されたテクスチャが入っているフォルダをファイルエクスプローラで開きます。
 
 ---
 
 ### トラブルシューティング
 
-#### 問題: 図形の周りに色が薄い部分やドットが残る
+#### 図形の周りに薄い色やドットが残る
 
-**原因：**
-テクスチャの周辺部分（アンチエイリアス処理やぼかしがされている部分）は「薄い色」になっています。
+**原因**
 
-**対策：**
+テクスチャの周辺部分（アンチエイリアスやぼかし処理がされた箇所）は薄い色になっています。この薄い色が改変されずに残ることがあります。
 
-1. **彩度制限を高めに設定**（推奨）
-   - 0.7 ～ 0.9 あたりから試す
-   - 「薄い色を除外」するため、周辺部分を無視できる
+**対策**
 
-2. **許容範囲 を狭める**
-   - より厳密に色を判定し、混ざった色を除外
+1. **彩度制限を高く設定する（推奨）**
+   - 0.7〜0.9 あたりから試します
+   - 薄い色を除外するため、周辺部分を無視できます
 
-3. **除外マスクを使用**
-   - 混ざっている部分を明示的にマスクする
+2. **許容範囲を狭める**
+   - 混ざった色を厳密に除外します
 
-#### 問題: 色がはみ出してしまう
+3. **除外マスクを使う**
+   - 残ってしまう部分を直接マスクします
 
-**原因：**
-彩度制限が低すぎるか、Toleranceが広すぎます。
+---
 
-**対策：**
+#### 色がはみ出す
 
-1. **彩度制限を高める**（推奨：0.8 ～ 0.95）
-   - より薄い色を除外
+**原因**
 
-2. **Tolerance を狭める**
-   - より限定的に色を判定
+彩度制限が低すぎるか、許容範囲が広すぎます。
 
-3. **Edge Softness を調整**
-   - テクスチャに応じて 0.0 ～ 0.5 で試す
+**対策**
 
-#### 問題: 境界に細かいノイズが残る
+1. **彩度制限を高く設定する（推奨：0.8〜0.95）**
+2. **許容範囲を狭める**
+3. **エッジ柔らかさを調整する**（0.0〜0.5 で試します）
 
-**原因：**
+---
+
+#### 境界に細かいノイズが残る
+
+**原因**
+
 彩度制限が高すぎるか、境界処理が不足しています。
 
-**対策：**
+**対策**
 
-1. **彩度制限を低めに設定**（0.1 ～ 0.4）
-   - より多くの薄い色を対象にする
-   - ただし色がはみ出しやすくなる
+1. **彩度制限を低めに設定する（0.1〜0.4）**
+   - より多くの薄い色を対象にします（ただし色がはみ出しやすくなります）
 
-2. **AA境界クリーンアップ（AA Edge Cleanup）を有効にする**
-   - 0 → 3 に設定、または 3 → 5 に増やす
+2. **AA 境界クリーンアップを有効にする**
+   - 0 → 3 に設定するか、3 → 5 に増やします
 
-3. **Edge Feather を有効にする**
-   - 0.5 ～ 1.5 程度から開始
+3. **エッジぼかしを有効にする**
+   - 0.5〜1.5 程度から始めます
 
-4. **Edge Softness を上げる**
-   - 0.3 ～ 0.7 で試す
+4. **エッジ柔らかさを上げる**
+   - 0.3〜0.7 で試します
 
-#### 問題: 境界がギザギザしている / 硬い
+---
 
-**原因：**
+#### 境界がギザギザしている・硬い
+
+**原因**
+
 エッジ処理が不足しています。
 
-**対策：**
+**対策**
 
-1. **Edge Feather を有効にする**（推奨）
-   - 0.5 ～ 1.5 程度から開始
+1. **エッジぼかしを有効にする（推奨）**
+   - 0.5〜1.5 程度から始めます
 
-2. **Edge Softness を上げる**
-   - 0.3 ～ 0.7 で試す
+2. **エッジ柔らかさを上げる**
+   - 0.3〜0.7 で試します
 
 3. **彩度制限を少し下げる**
-   - 0.3 ～ 0.45 で試す
-   - 境界部分のピクセルをより多く拾える
+   - 0.3〜0.45 で試します（境界部分のピクセルを拾いやすくなります）
 
-#### 問題: テクスチャ全体が変わってしまう
+---
 
-**原因：**
-Tolerance が高すぎます。
+#### テクスチャ全体が変わってしまう
 
-**対策：**
+**原因**
 
-1. **Tolerance を大幅に狭める**
-   - 0.05～0.15程度から始めて調整
+許容範囲が広すぎます。
 
-2. **Sample Color を再選択**
-   - より限定的な色を選ぶ
+**対策**
 
-3. **UV矩形 モードへの切り替えを検討**
-   - 正確な範囲指定が可能
+1. **許容範囲を大幅に狭める**（0.05〜0.15 程度から始めます）
+2. **サンプルカラーを選び直す**（より限定的な色を選びます）
+3. **UV 矩形 モードへの切り替えを検討する**（正確な範囲指定が可能です）
 
-#### 問題: 黒い色に変更できない
+---
 
-**原因：**
-黒色は明度情報を失うため、Pattern Preserve の効果が適用しにくいです。
+#### 黒い色に変更できない
 
-**対策：**
+**原因**
 
-1. **Pattern Preserve を低めに設定**
-   - 0 ～ 0.3 あたりから試す
-   - 「単色へのべた塗り」になり、黒も指定可能
+黒色は明度情報がほぼないため、模様保持の効果が適用しにくいです。
 
-2. **Edge Softness を 0 に設定**
-   - より硬いエッジで判定
+**対策**
 
-3. **除外マスクを活用**
-   - 保護したい部分を先に指定
+1. **模様保持を低く設定する**（0〜0.3 あたりで試します）
+2. **エッジ柔らかさを 0 に設定する**
+3. **除外マスクを活用する**（保護したい部分を先にマスクします）
 
 ---
 
@@ -472,31 +471,27 @@ Tolerance が高すぎます。
 
 **Q: 複数のカラーゾーンを組み合わせられますか？**
 
-A: はい。「Add Color Zone」で複数ゾーンを追加できます。Layer Index で優先度を制御できます。
+はい。「+ ゾーン追加」で複数ゾーンを追加できます。レイヤーインデックスで優先度を制御できます。
 
 **Q: PSD のレイヤー構造をサポートしていますか？**
 
-A: いいえ。本ツールは PNG などの統合テクスチャを対象としています。PSD がある場合は、そちらを編集することをお勧めします。
+いいえ。本ツールは PNG などの統合済みテクスチャを対象としています。PSD がある場合は、そちらを直接編集することをお勧めします。
 
 **Q: Undo は対応していますか？**
 
-A: 除外マスク作成時には Ctrl+Z でアンドゥできます。ただし、テクスチャの色改変自体は一度適用すると戻せませんので、バックアップを推奨します。
+除外マスクの描画は Ctrl+Z で取り消せます。Unity 標準の Undo に統合されています。テクスチャへの色適用自体は元に戻せないため、事前にバックアップをお勧めします。
 
-**Q: 複数の Project で使用できますか？**
+**Q: 複数のプロジェクトで使えますか？**
 
-A: はい。.unitypackage をインポートするだけで使用できます。異なるプロジェクト間での共有も可能です。
+はい。`.unitypackage` を各プロジェクトに読み込むだけで使えます。「ユーザー共通」の保存先を選ぶと、プロジェクト間で設定を共有できます。
 
-**Q: フォーマットに制限はありますか？**
+**Q: 対応しているファイル形式は？**
 
-A: 入力は **PNG / JPG** ファイルに対応しています（Unity の `Texture2D.LoadImage` を使用して元ファイルから直接読み込むため）。出力は常に **PNG** 形式で保存されます。TGA / EXR / PSD などその他の形式は現在サポートしていません。また、Unity 上で **Read/Write Enabled** を有効にしておく必要があります。
+入力は **PNG / JPG** です。出力は常に **PNG** で保存されます。TGA、EXR、PSD などは現在対応していません。Unity 上で **Read/Write Enabled** を有効にする必要があります。
 
-**Q: バッチ適用時にカラーゾーンも複数適用されますか？**
+**Q: 大きなテクスチャでも使えますか？**
 
-A: はい。バッチ適用時は、全てのカラーゾーン設定が対象テクスチャに適用されます。
-
-**Q: RAM 使用量が増えるのでは？**
-
-A: テクスチャをメモリ上で処理するため、大きなテクスチャではメモリ使用量が一時的に増えます。
+使えます。ただし、処理はメモり上で行うため、大きなテクスチャでは一時的にメモリ使用量が増えます。
 
 ---
 
@@ -508,13 +503,12 @@ A: テクスチャをメモリ上で処理するため、大きなテクスチ�
 - [Basic Usage](#basic-usage)
 - [Color Zone Settings](#color-zone-settings)
 - [Processing Settings](#processing-settings)
-- [Advanced Mode](#advanced-mode)
-- [Preview Features](#preview-features)
-- [Exclusion Mask](#exclusion-mask)
-- [Presets](#presets)
-- [Batch Apply](#batch-apply)
+- [Advanced Mode](#advanced-mode-1)
+- [Preview Features](#preview-features-1)
+- [Exclusion Mask](#exclusion-mask-1)
+- [Presets](#presets-1)
 - [Export](#export)
-- [Troubleshooting](#troubleshooting)
+- [Troubleshooting](#troubleshooting-1)
 - [FAQ](#faq)
 
 ---
@@ -526,82 +520,68 @@ A: テクスチャをメモリ上で処理するため、大きなテクスチ�
 - Unity 2022.3.22f1 or later
 - Target textures must have **Read/Write Enabled** activated
 
-#### Installation Steps
+> Select a texture in the いろか window and click the button shown in the warning to enable it automatically.
 
-1. **Open Unity Editor**
-   - Prepare your project's Assets folder
+#### Steps
 
-2. **Import .unitypackage**
-   - Select `Assets > Import Package > Custom Package...` from the menu
-   - Choose the downloaded `.unitypackage` file
-   - Click "Import" in the dialog
-   - An `Assets/Camereo` folder will be created
-
-3. **Open the Window**
-   - Select `Tools > Camereo` from the menu
-   - The Camereo window will open
-   - Dock it in a convenient location
+1. Download the latest `.unitypackage` from [GitHub Releases](https://github.com/yukkuri-aoba/Iroca/releases)
+2. Drag and drop the `.unitypackage` into the Unity Editor project window
+3. Click "Import" in the dialog
+4. Open the window via `Tools > いろか`
 
 #### Enable Read/Write on Textures
 
-If your texture doesn't support Read/Write Enabled:
-
-1. Select the texture in Camereo
-2. A warning message will appear
-3. Click the button to auto-enable it
+If a texture does not have Read/Write Enabled, a warning and a button will appear in the window. Click the button to enable it automatically.
 
 ---
 
 ### Basic Usage
 
-#### Step 1: Select Texture
+#### Step 1: Select a Texture
 
-1. Click the "Texture" field in Camereo
-2. Unity's texture picker will open
-3. Select the texture you want to recolor
-4. It will appear in the preview
+Click the "Texture" field in the いろか window. A texture picker will open. Select the texture you want to recolor. It will appear in the preview.
 
-#### Step 2: Add Color Zone
+#### Step 2: Add a Color Zone
 
-1. Click "+ Add Zone"
-2. A new zone is created; you can rename it freely (name is for display only)
+Click "+ Add Zone". A new color zone is created. You can rename it freely (the name does not affect processing).
 
-#### Step 3: Select Color Target
+#### Step 3: Select the Recolor Target
 
-Two modes are available:
+Two modes are available.
 
-**Color Pick Mode (recommended):**
+**Color Pick Mode (recommended)**
+
 1. Set "Selection Mode" to "ColorPick" in zone settings
-2. Click the "Sample Color" color field to open Unity's color picker
-3. Use the eyedropper icon inside the picker to sample a color from the preview or anywhere on screen
-4. Adjust "Tolerance" to fine-tune the selection
+2. Click the "Sample Color" field
+3. Use the eyedropper icon in the color picker to sample a color from the preview
+4. Adjust "Tolerance" to fine-tune the selection range
 
-**UV Rect Mode:**
+> Pick the most vivid color in the area you want to recolor for best results.
+
+**UV Rect Mode**
+
 1. Set "Selection Mode" to "Rect" in zone settings
 2. Specify X/Y (bottom-left origin) and W/H (width/height) using UV coordinates (0–1)
-3. More precise range control available without relying on color information
 
-#### Step 4: Set Target Color
+Use this mode for precise range control without relying on color detection.
 
-1. Click "Target Color" in zone settings
-2. Choose a new color
-3. Preview updates instantly
+#### Step 4: Set the Target Color
 
-#### Step 5: Fine-tune (optional)
+Click "Target Color" in zone settings and choose the new color. The preview updates instantly.
 
-Adjust any or all of:
+#### Step 5: Adjust settings (optional)
 
-- **Pattern Preserve** — How much pattern to retain (0 = solid, 1 = full pattern)
-- **Edge Softness** — Edge hardness (0 = hard, 1 = soft)
-- **Saturation Strictness** — Light color exclusion (0 = include all, 1 = vivid only)
-- **Highlight Recovery** — Prevents recoloring gaps on reflective/glossy areas
-- **L (Layer Index)** — Priority when zones overlap (higher = later = takes priority)
+| Setting | Description |
+|---|---|
+| **Pattern Preserve** | How much of the original pattern to retain (0 = solid color, 1 = full pattern) |
+| **Edge Softness** | Edge detection flexibility (0 = hard, 1 = soft) |
+| **Saturation Strictness** | Exclusion of light colors (0 = include all, 1 = vivid only) |
+| **Highlight Recovery** | Prevents missed recoloring on reflective/glossy areas |
+| **L (Layer Index)** | Priority when zones overlap (higher = applied later = takes priority) |
 
-#### Step 6: Export
+#### Step 6: Save the texture
 
-1. Use the "Save as new file" toggle to choose whether to save as a new file or overwrite
-2. Click "Apply & Save"
-3. File is saved
+See the [Export](#export) section for details.
 
 ---
 
@@ -609,37 +589,35 @@ Adjust any or all of:
 
 #### Color Pick Mode
 
-Auto-detects target pixels based on sample color and matching criteria.
+Auto-detects target pixels based on the sample color and matching criteria.
 
-**Settings:**
+**Sample Color**
 
-- **Sample Color** — Click the color field to open Unity's color picker, then use the built-in eyedropper icon to sample a color from the preview or any on-screen pixel. Pick the most vivid color in the target area for best results.
+Click the color field to open Unity's color picker. Use the built-in eyedropper icon to sample a color from the preview or any on-screen pixel.
 
-- **Tolerance** — Matching range (0.0 ～ 1.0)
-  - Low: stricter matching (narrow selection)
-  - High: broader matching (wider selection, more noise)
-  - Recommended: 0.15 ～ 0.40
+**Tolerance**
 
-- **Connected Region (Flood Fill)**
-  - Restricts recoloring to **connected regions that contain a high-confidence core**, automatically removing bleed into physically separate same-color parts or the background.
-  - Lets you raise Tolerance without spilling onto distant areas — false positives are dropped while every true target pixel is kept (color alone cannot separate same-colored parts; connectivity can).
-  - **No seed is needed by default** (automatic). When several regions match and you want to keep only one, **Shift+click** the preview to set a seed; only that region is kept.
-  - Press "Auto" to clear the seed and return to automatic anchoring.
+The color matching range (0.0–1.0). Recommended: 0.15–0.40.
+
+| Value | Effect |
+|---|---|
+| Low | Stricter matching (narrower selection) |
+| High | Broader matching (wider selection, more noise) |
 
 #### UV Rect Mode
 
 Explicitly specify a rectangular region using UV coordinates.
 
-**Settings:**
-
-- **X / Y** — Bottom-left corner of the rectangle in UV coordinates (0–1)
-- **W / H** — Width and height in UV coordinates (0–1)
+| Setting | Description |
+|---|---|
+| **X / Y** | Bottom-left corner of the rectangle in UV coordinates (0–1) |
+| **W / H** | Width and height of the rectangle in UV coordinates (0–1) |
 
 #### Common Settings
 
 **Pattern Preserve**
 
-Controls how much of the original brightness is retained.
+Controls how much of the original brightness is retained after recoloring.
 
 - Near 0: Complete override (solid color)
 - 0.5: Balanced
@@ -649,85 +627,110 @@ Controls how much of the original brightness is retained.
 
 Controls edge detection flexibility for blurred textures.
 
-- 0 (hard): Sharp edge (normal textures)
+- 0 (hard): Sharp edge detection (normal textures)
 - 0.5: Balanced
-- 1 (soft): Blurred edge detection (soft textures)
+- 1 (soft): Handles blurred edges (soft/blurred textures)
 
 **Saturation Strictness**
 
-Controls handling of "light colors" at texture edges.
+Controls whether light-colored (low-saturation) pixels at texture edges are included.
 
-- 0: Include light colors
-- 0.5: Standard filtering (default)
-- 1: Vivid colors only
+| Value | Effect |
+|---|---|
+| 0 | Include light colors |
+| 0.5 (default) | Standard filtering |
+| 1 | Vivid colors only |
 
 **Highlight Recovery**
 
-Matches high-brightness, low-saturation highlight regions (reflective/glossy areas) to prevent missed recoloring.
+Matches high-brightness, low-saturation highlight regions to prevent missed recoloring on reflective/glossy surfaces.
 
-- **ON** (default): Prevents recoloring gaps in highlight areas
-- **OFF**: Use when you want to strictly exclude highlight regions
+- ON (default): Prevents recoloring gaps in highlight areas
+- OFF: Use when you want to strictly exclude highlights
+
+**Shadow/Highlight Details**
+
+Fine-grained control over dark and desaturated pixel handling.
+
+| Setting | Description | Default |
+|---|---|---|
+| **Shadow Desaturation** | Brightness threshold below which dark pixels lose saturation. Lower values allow darker colors to be recolored more vividly. | 0.35 |
+| **Shadow Forgiveness Sat Min** | Minimum saturation required to include dark pixels as shadow. Prevents pure grey/black from being colorized. | 0.05 |
+| **Auto Grayscale Threshold** | If sample saturation is below this value, hue is ignored and the zone treats pixels as pure grayscale (black/grey). | 0.05 |
 
 **L (Layer Index)**
 
-An integer set via the `L` field in the zone header. Controls application order when zones overlap.
+An integer set in the `L` field of the zone header. Controls application order when zones overlap.
 
-- Zones are processed in ascending order of Layer Index
-- Higher values apply later and therefore overwrite lower ones (take priority)
+- Zones are processed in ascending order
+- Higher values apply later and overwrite lower ones (take priority)
 - Zones with the same index are applied in the order they were added
+
+**Target Color**
+
+The color to apply after recoloring.
 
 ---
 
 ### Processing Settings
 
-Profiles for edge and noise processing (found in the "Processing" section).
-Changes are reflected in the preview automatically and applied on "Apply & Save".
+Settings for edge and noise processing. Changes are reflected in the preview automatically and saved when you click "Apply & Save".
 
 #### Edge Feather
 
-Gaussian blur on selection boundaries for smooth transitions.
+Applies blur to selection boundaries for smooth color transitions.
 
-- 0: Off
-- 0.5 ～ 1.5: Standard blur
-- 2.0+: Strong blur
+| Value | Effect |
+|---|---|
+| 0 | Off (sharp edges) |
+| 0.5–1.5 | Standard blur |
+| 2.0+ | Strong blur |
 
 #### AA Edge Cleanup
 
-Number of passes to recover anti-alias boundary pixels.
+Number of passes to remove fine noise at anti-aliased boundaries.
 
-- 0: Off
-- 1 ～ 2: Weak
-- 3: Standard (default)
-- 4 ～ 5: Strong
+| Value | Effect |
+|---|---|
+| 0 | Off |
+| 1–2 | Weak |
+| 3 | Standard (recommended) |
+| 4–5 | Strong |
+
+#### Edge Decontamination
+
+Rebuilds AA boundary pixels via alpha decomposition and recomposition to prevent halo-like muddy colors at edges.
+
+- ON (default): Recommended. Prevents color contamination at AA boundaries.
+- OFF: Use legacy cleanup only.
 
 ---
 
 ### Advanced Mode
 
-Enable the "Advanced Mode" toggle in the Processing section to fine-tune internal algorithm parameters. Default values work well for most textures; use Advanced Mode only when you need tighter control for tricky textures.
+Enable the "Advanced Mode" toggle in the Processing section to access internal processing values. Default values work well for most textures. Use this only when the standard settings cannot achieve the desired result.
 
-Turning on Advanced Mode also reveals additional per-zone parameters.
+Enabling this mode also reveals additional per-zone values.
 
-#### Per-zone advanced parameters
+#### Per-zone Values
 
-- **Value Weight** — Weight of value (brightness) in the distance formula. Default: 1.0
-  - Higher: sensitive to brightness differences (better separation between materials)
-  - Lower: tolerates brightness variation (absorbs shadow/highlight of the same material)
-- **Sat Distance Weight** — Weight of saturation distance in the distance formula. Default: 0.15
-- **Sat Ramp Scale** — Scale factor for the dynamic saturation ramp. Default: 0.10
-  - Larger: more gradual fade near the saturation threshold
-  - Smaller: sharper threshold
+| Setting | Description | Default |
+|---|---|---|
+| **Value Weight** | Brightness weight in color distance calculation. Higher = sensitive to brightness differences. Lower = tolerates shadow/highlight variation. | 1.0 |
+| **Sat Distance Weight** | Saturation distance weight. | 0.15 |
+| **Sat Ramp Scale** | Controls fade smoothness near the saturation threshold. Larger = more gradual. | 0.10 |
 
-#### Processing advanced parameters
+#### Processing Values
 
-- **Hole Fill Passes** — Passes to fill isolated dots at anti-aliased edges. Default: 3
-- **Hole Fill Min Neighbors** — Minimum matched neighbors required to fill a hole. Default: 4
-  - Lower: more aggressive filling (may over-fill)
-  - Higher: more conservative
-- **Boundary Sat Min** — Minimum saturation threshold for boundary recovery. Default: 0.02
-- **Boundary Sat Ramp** — Saturation ramp width for boundary recovery. Default: 0.08
+| Setting | Description | Default |
+|---|---|---|
+| **Hole Fill Passes** | Passes to fill isolated dots at anti-aliased edges. | 5 |
+| **Hole Fill Min Neighbors** | Minimum matched neighbors to fill a hole. Lower = more aggressive. | 4 |
+| **Boundary Sat Min** | Minimum saturation threshold for boundary recovery. | 0.02 |
+| **Boundary Sat Ramp** | Saturation ramp width for boundary recovery. | 0.08 |
+| **Decontamination Radius** | Neighborhood radius used to estimate background color for Edge Decontamination. | 4 |
 
-> **Tip:** Advanced Mode settings are included when saving/loading presets. Once you find a combination that works well for a specific texture style, save it as a preset.
+> Advanced Mode values are saved and loaded with presets. Once you find a combination that works well, save it as a preset.
 
 ---
 
@@ -735,222 +738,209 @@ Turning on Advanced Mode also reveals additional per-zone parameters.
 
 #### Zoom
 
-- **Ctrl + Scroll** — Zoom in/out
-- **Drag** — Pan (available only when zoom > 1x)
+- **Ctrl + Scroll**: Zoom in/out
+- **Drag**: Pan the view (available only when zoom > 1x)
 
 #### View Modes
 
-- **Normal** (comparison/diff off) — Current result
-- **Compare** — Side-by-side before/after comparison
-- **Diff** — Highlight changed pixels
+- **Normal**: Shows the current processing result
+- **Compare**: Side-by-side before/after comparison
+- **Diff**: Highlights changed pixels
 
 #### Auto-update
 
 Updates automatically after setting changes (default: 0.2s delay).
 
-#### 詳細プレビュー
-
-ズームして表示ピクセルが元画像より細かくなると、少し遅延してフル解像度の詳細クロップを自動生成して重ね描きします。
-前後比較モードでは詳細プレビューは使用されません。
-
 ---
 
 ### Exclusion Mask
 
-Paint areas on the preview to exclude them from recoloring.
+Paint areas on the preview to exclude them from recoloring. Supports both a common mask (applied to all zones) and per-zone masks.
 
 #### How to Use
 
-1. Click "Exclude" to enter paint mode
-2. Drag on the preview to paint the exclusion mask (red overlay)
-3. Masked areas won't be recolored
-4. Click "Exclude" again to exit paint mode
+1. Select the mask target from the "Mask Target" dropdown (Common or a specific zone)
+2. Click "Exclude" to enter paint mode
+3. Drag on the preview to paint the exclusion mask (red overlay = common, colored overlay = zone-specific)
+4. Painted areas will not be recolored
+5. Click "Exclude" again to exit paint mode
+
+#### Mask Target
+
+- **Common Mask**: Applied to all zones
+- **Zone-specific Mask**: Select a zone name from the dropdown to edit a mask that applies only to that zone
 
 #### Brush Settings
 
-- **Brush Size** — Brush size (1–64)
+- **Brush Size**: Brush size (1–64)
 
 #### Brush Modes
 
-- **Exclude** button — Click to enter paint mode (draw red mask), click again to exit
-- **Include** button — Click to enter erase mode (erase mask), click again to exit
+- **Exclude** button: Click to start paint mode (adds mask). Click again to stop.
+- **Include** button: Click to start erase mode (removes mask). Click again to stop.
 
-#### Undo
+#### Undo and Reset
 
-- **Ctrl + Z** or "Undo Mask" button — Undo last stroke
-
-#### Clear
-
-Click "Clear Mask" to remove all masks.
-
----
-
-### Batch Apply
-
-Apply the same zone settings to multiple textures at once.
-
-#### Steps
-
-1. Complete zones on a master texture
-2. Open the "Batch Apply" section
-3. Add target textures
-4. Click "Batch Apply & Save"
+- **Ctrl+Z**: Undo the last brush stroke (integrated with Unity's standard Undo)
+- **Clear Mask** button: Removes all masks for the currently selected mask target
 
 ---
 
 ### Presets
 
-Save and load zone and processing settings as presets.
+Save and load color zone and processing settings as presets.
 
-#### Steps
+#### Save and Load
 
 1. Open the "Presets" section
-2. Select storage location: "In Project" or "Shared (User)"
+2. Select a storage location ("In-Project" or "User Common")
 3. Enter a preset name and click "Save"
-4. Load a preset from the list with "Load", or delete with "×"
+4. Click "Load" to restore a preset, or "×" to delete it
+
+#### Mask Options
+
+- **Include Mask**: When ON, the exclusion mask is saved with the preset
+- **Apply Mask on Load**: When ON, the saved mask is restored when loading
 
 #### JSON Export / Import
 
-Use "Export JSON" / "Import JSON" buttons to share settings as external files.
-
-The presets panel also includes toggles for including masks when saving and applying masks when loading.
-If you want to share only zone and processing settings, you can leave mask application off when saving or loading.
+Use the "JSON Export" and "JSON Import" buttons to share settings as external files.
 
 ---
 
 ### Export
 
-#### Save Methods
-
-Use the "Save as new file" toggle to select the save method, then click "Apply & Save".
+Choose a save method with the "Save as new file" toggle, then click "Apply & Save".
 
 **"Save as new file" ON**
-- Save as a new file while keeping the original
-- Choose a filename
-- The filename field defaults to the selected texture name + "_recolored"
-- Original texture protected
+
+Saves to a new file while keeping the original texture intact. You can specify the filename.
 
 **"Save as new file" OFF**
-- Save over the original texture
-- Backup strongly recommended
 
-If "Inherit Import Settings" is ON, Camereo copies the source texture's texture type, compression, mipmap, and platform settings to the exported file.
-The "Open Folder" button opens the folder containing the source texture in your file manager.
-Camereo reads the source file directly from disk, so it processes the original file resolution rather than Unity's imported preview size.
+Overwrites the original texture file. Back up the original before proceeding.
+
+#### Other Options
+
+**Inherit Import Settings**
+
+When ON (default), the new texture automatically inherits the original texture's import settings.
+
+**"Open Folder" button**
+
+Opens the folder containing the saved texture in the file explorer.
 
 ---
 
 ### Troubleshooting
 
-#### Issue: Light colors or dots remain around edges
+#### Faint colors or stray dots remain around shapes
 
-**Cause:** Antialiased/blurred edges create light colors.
+**Cause**
 
-**Solutions:**
+Texture edges affected by anti-aliasing or blur are rendered as light colors. These can be left unrecolored.
 
-1. **Increase Saturation Filter** (0.7 ～ 0.9)
-   - Excludes light colors
+**Solutions**
 
-2. **Narrow Tolerance**
-   - Stricter color judgment
+1. **Increase Saturation Strictness (recommended)**: Try 0.7–0.9. Light colors are excluded from recoloring.
+2. **Decrease Tolerance**: Stricter matching excludes mixed colors.
+3. **Use the Exclusion Mask**: Manually mask the remaining areas.
 
-3. **Use Exclusion Mask**
-   - Explicitly mask affected areas
+---
 
-#### Issue: Color bleeds outside boundaries
+#### Color bleeds outside the intended area
 
-**Cause:** Saturation Filter too low or Tolerance too high.
+**Cause**
 
-**Solutions:**
+Saturation Strictness is too low or Tolerance is too high.
 
-1. **Increase Saturation Filter** (0.8 ～ 0.95)
+**Solutions**
 
-2. **Narrow Tolerance**
+1. **Increase Saturation Strictness (recommended: 0.8–0.95)**
+2. **Decrease Tolerance**
+3. **Adjust Edge Softness** (try 0.0–0.5)
 
-3. **Adjust Edge Softness** (0.0 ～ 0.5)
+---
 
-#### Issue: Fine noise remains at boundaries
+#### Fine noise remains at boundaries
 
-**Cause:** Saturation Filter too high or insufficient boundary processing.
+**Cause**
 
-**Solutions:**
+Saturation Strictness is too high or boundary processing is insufficient.
 
-1. **Lower Saturation Filter** (0.1 ～ 0.4)
-   - Includes more colors (may bleed)
+**Solutions**
 
-2. **Enable AA Edge Cleanup** (set to 3 or 5)
+1. **Lower Saturation Strictness (try 0.1–0.4)**: Includes more light-colored pixels (may increase bleed slightly)
+2. **Increase AA Edge Cleanup**: Set from 0 → 3, or increase from 3 → 5
+3. **Enable Edge Feather**: Start at 0.5–1.5
+4. **Increase Edge Softness**: Try 0.3–0.7
 
-3. **Enable Edge Feather** (0.5 ～ 1.5)
+---
 
-4. **Increase Edge Softness** (0.3 ～ 0.7)
+#### Boundaries appear jagged or hard
 
-#### Issue: Jagged / hard boundaries
+**Cause**
 
-**Cause:** Insufficient edge processing.
+Edge processing is insufficient.
 
-**Solutions:**
+**Solutions**
 
-1. **Enable Edge Feather** (0.5 ～ 1.5)
+1. **Enable Edge Feather (recommended)**: Start at 0.5–1.5
+2. **Increase Edge Softness**: Try 0.3–0.7
+3. **Slightly lower Saturation Strictness**: Try 0.3–0.45 to include more boundary pixels
 
-2. **Increase Edge Softness** (0.3 ～ 0.7)
+---
 
-3. **Lower Saturation Filter** (0.3 ～ 0.45)
+#### The entire texture is recolored
 
-#### Issue: Entire texture changes
+**Cause**
 
-**Cause:** Tolerance too high.
+Tolerance is too high.
 
-**Solutions:**
+**Solutions**
 
-1. **Greatly narrow Tolerance** (start at 0.05～0.15)
+1. **Lower Tolerance significantly** (start around 0.05–0.15)
+2. **Re-select Sample Color** (choose a more specific color)
+3. **Switch to UV Rect Mode** (allows precise range specification)
 
-2. **Resample Color** — Choose more specific color
+---
 
-3. **Switch to UV Rect Mode** — More precise control
+#### Cannot change to black
 
-#### Issue: Can't recolor to black
+**Cause**
 
-**Cause:** Black loses brightness info; Pattern Preserve less effective.
+Black has almost no brightness information, making Pattern Preserve difficult to apply.
 
-**Solutions:**
+**Solutions**
 
-1. **Lower Pattern Preserve** (0 ～ 0.3)
-   - Achieves flat black
-
+1. **Lower Pattern Preserve** (try 0–0.3)
 2. **Set Edge Softness to 0**
-   - Harder edge detection
-
-3. **Use Exclusion Mask**
-   - Protect important areas first
+3. **Use the Exclusion Mask** to protect areas you do not want changed
 
 ---
 
 ### FAQ
 
-**Q: Can I combine multiple Color Zones?**
+**Q: Can I use multiple color zones together?**
 
-A: Yes. Add multiple zones and control priority with Layer Index.
+Yes. Click "+ Add Zone" to add multiple zones. Use Layer Index to control priority.
 
-**Q: Does it support PSD layer structures?**
+**Q: Does this support PSD layer structures?**
 
-A: No. This tool targets flattened textures (PNG, etc.). Use Photoshop for PSD files.
+No. This tool targets merged textures such as PNG files. If you have a PSD file, editing it directly is recommended.
 
 **Q: Is Undo supported?**
 
-A: Yes for mask painting (Ctrl+Z). For texture changes, backup beforehand.
+Brush strokes in the Exclusion Mask support Ctrl+Z (integrated with Unity's standard Undo). Applying color changes to a texture cannot be undone. Keep a backup of the original.
 
-**Q: Can I use it across multiple projects?**
+**Q: Can I use this in multiple projects?**
 
-A: Yes. Import .unitypackage into each project.
+Yes. Import the `.unitypackage` into each project. Use the "User Common" preset location to share settings across projects.
 
-**Q: Supported formats?**
+**Q: What file formats are supported?**
 
-A: Input files must be **PNG** or **JPG** (Camereo reads raw bytes and decodes them via `Texture2D.LoadImage`). Output is always saved as **PNG**. Other formats such as TGA / EXR / PSD are not supported. Textures also need **Read/Write Enabled** in their import settings.
+Input: **PNG / JPG**. Output: always **PNG**. TGA, EXR, and PSD are not supported. The texture must also have **Read/Write Enabled** set in Unity.
 
-**Q: Does Batch Apply include all Color Zones?**
+**Q: Does it work with large textures?**
 
-A: Yes. All zones are applied to each target texture.
-
-**Q: Does it increase RAM usage?**
-
-A: Yes temporarily, as textures are processed in memory. Large textures may use significant RAM.
+Yes. Processing happens in memory, so large textures will temporarily increase RAM usage.

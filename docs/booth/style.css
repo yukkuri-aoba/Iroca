@@ -1,4 +1,4 @@
-/* Camereo BOOTH promo · 8 slides (square 1280² + wide 1280×720)
+/* いろか BOOTH promo · 8 slides (square 1280² + wide 1280×720)
  * warm-charcoal 75 · chameleon-green 162 */
 
 @import url("tokens.css");
@@ -53,14 +53,6 @@ body.actual-size .stage-header { display: none; }
 }
 .slide.square { height: 1280px; }
 .slide.wide   { height: 720px; }
-
-/* 微粒子グレイン（質感づけ・控えめ） */
-.slide::after {
-  content: ""; position: absolute; inset: 0; z-index: 40; pointer-events: none;
-  opacity: 0.05; mix-blend-mode: soft-light;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-size: 200px 200px;
-}
 
 .inner { position: relative; z-index: 2; height: 100%; display: flex; flex-direction: column; }
 .slide.square .inner { padding: 96px 92px; }
@@ -246,3 +238,99 @@ body.actual-size .stage-header { display: none; }
 
 /* 背景に沈める大きなカメレオン（装飾・控えめ） */
 .ghost-cha { position: absolute; z-index: 0; color: var(--color-paper-2); pointer-events: none; }
+
+/* ============================================================
+   ポスター共通（再設計）
+   ============================================================ */
+.vtext { writing-mode: vertical-rl; }
+
+.poster-eyebrow {
+  font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.18em;
+  color: var(--color-ink-3);
+}
+.poster-h2 {
+  font-family: var(--font-display); font-weight: 900;
+  font-size: var(--text-2xl); line-height: 1.16; letter-spacing: -0.01em;
+  color: var(--color-ink); margin: 0; overflow-wrap: anywhere;
+}
+.poster-h2 .on { color: var(--color-accent); }
+.poster-note {
+  font-family: var(--font-body); font-weight: 500;
+  font-size: var(--text-base); line-height: 1.85; color: var(--color-ink-2);
+  margin: 22px 0 0;
+}
+
+/* 角印風スタンプ（無料）— ピルにしない */
+.stamp {
+  display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+  width: 128px; height: 128px; flex: none;
+  font-family: var(--font-display); font-weight: 900; font-size: 38px; line-height: 1;
+  color: var(--color-accent);
+  border: 3px solid var(--color-accent); border-radius: 18px;
+  transform: rotate(-7deg);
+}
+.stamp small { font-family: var(--font-mono); font-weight: 400; font-size: 11px; letter-spacing: 0.22em; margin-top: 7px; color: var(--color-ink-3); }
+
+/* ============================================================
+   01 表紙（タイポ主役・縦書きアクセント・カメレオン断ち落とし）
+   ============================================================ */
+.poster-cover .inner { padding: 100px 96px; }
+.cover-cha {
+  position: absolute; right: -130px; bottom: -120px;
+  width: 800px; height: 800px; z-index: 0;
+  color: var(--color-cha-tint); transform: scaleX(-1); pointer-events: none;
+}
+.cover-spine {
+  position: absolute; top: 104px; right: 64px; z-index: 3;
+  writing-mode: vertical-rl;
+  font-family: var(--font-body); font-weight: 500;
+  font-size: var(--text-md); letter-spacing: 0.34em; color: var(--color-ink-3);
+}
+.cover-head { margin: 0; position: relative; z-index: 2; }
+.cover-head__sm {
+  display: block; font-family: var(--font-display); font-weight: 700;
+  font-size: var(--text-xl); color: var(--color-ink-2);
+  letter-spacing: 0.01em; margin-bottom: 14px;
+}
+.cover-head__lg {
+  display: block; font-family: var(--font-display); font-weight: 900;
+  font-size: var(--text-5xl); line-height: 1.0; letter-spacing: -0.015em;
+  color: var(--color-ink);
+}
+.cover-head__lg .on { color: var(--color-accent); }
+.cover-foot { display: flex; align-items: center; gap: 32px; position: relative; z-index: 2; }
+.cover-tags { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* ============================================================
+   03 Before / After（重ね・ズラし・縦書きラベル・ブリード）
+   ============================================================ */
+.poster-ba { display: flex; align-items: stretch; }
+.ba-text {
+  flex: 0 0 470px; padding: 80px 0 80px 88px;
+  display: flex; flex-direction: column; justify-content: center;
+  position: relative; z-index: 3;
+}
+.ba-spine {
+  position: absolute; left: 40px; top: 50%; transform: translateY(-50%);
+  writing-mode: vertical-rl;
+  font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.3em;
+  color: var(--color-ink-3);
+}
+.ba-stage { position: relative; flex: 1 1 auto; }
+.ba-shot { position: absolute; margin: 0; }
+.ba-shot--after  { top: -44px; right: 96px; }
+.ba-shot--before { bottom: 64px; right: 430px; }
+.ba-frame { border-radius: 4px; box-shadow: 0 18px 44px var(--color-shadow); }
+.ba-shot--after  .ba-frame { width: 432px; height: 700px; }
+.ba-shot--before .ba-frame { width: 300px; height: 400px; }
+.ba-tag {
+  position: absolute; font-family: var(--font-display); font-weight: 900;
+  color: var(--color-ink-2); letter-spacing: 0.02em;
+}
+.ba-shot--before .ba-tag {
+  top: -34px; left: 2px; font-size: var(--text-lg);
+}
+.ba-tag--after {
+  writing-mode: vertical-rl; right: -62px; top: 96px;
+  font-size: var(--text-2xl); color: var(--color-accent);
+}

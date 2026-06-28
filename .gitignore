@@ -53,3 +53,4 @@ scripts/build-check/obj/
 !scripts/headless-run/Harness.cs
 scripts/headless-run/bin/
 scripts/headless-run/obj/
+.playwright-mcp

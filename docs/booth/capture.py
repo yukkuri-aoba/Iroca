@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Camereo BOOTH 販促スライドを実寸 PNG に一括書き出しする（任意の補助スクリプト）。
+"""いろか BOOTH 販促スライドを実寸 PNG に一括書き出しする（任意の補助スクリプト）。
 
 主手段はブラウザ開発者ツールの "Capture node screenshot"（README 参照・依存ゼロ）。
 こちらは一括で書き出したい人向けの補助で、Playwright を使う。
