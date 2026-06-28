@@ -133,6 +133,13 @@ namespace Iroca
         [System.NonSerialized] private int _cachedSrcW, _cachedSrcH;
         [System.NonSerialized] private int _cachedPrevW, _cachedPrevH;
 
+        // 選択結果キャッシュ: 「ターゲット色など再着色のみ」を変えたプレビュー再生成で、選択フェーズ
+        // (Match/FloodFill/穴埋め/境界/ブラー/マスク再適用)を再計算せず復元して高速化する。
+        // 出力はフル再計算と byte 一致(ProcessPixelsArray が選択パラメータのキーで管理)。テクスチャ/
+        // 寸法が変わると画素前提が崩れるので Clear する。Unity の [Serializable]/ドメインリロード後も
+        // 確実に生成されるよう、inline 初期化でなく Initialize() で ??= する(NonSerialized の流儀)。
+        [System.NonSerialized] private SelectionCache _selectionCache;
+
         // エクスポートと同じ「ディスク上のフル解像度ファイル」をプレビュー処理にも使うための
         // キャッシュ。Unity のインポート設定（maxTextureSize / 圧縮）で縮小・劣化した
         // 画素ではなく元ファイルの画素で処理することで、プレビューと実際のエクスポート結果を
@@ -149,6 +156,7 @@ namespace Iroca
         public void Initialize(IrocaWindow host)
         {
             _host = host;
+            _selectionCache ??= new SelectionCache();
             _detailView ??= new DetailPreviewView();
             _detailView.Initialize(host);
         }
@@ -168,6 +176,8 @@ namespace Iroca
             _cachedRawDisplay = null;
             _trueSourceFor = null;
             _trueSourcePixels = null;
+            // ソース画素が変わる = キャッシュ済み選択の前提が変わるので選択キャッシュも破棄する。
+            _selectionCache?.Clear();
         }
 
         /// <summary>
@@ -880,6 +890,11 @@ namespace Iroca
                 // scale>=1 は縮小不要で raw==src(コスト 0)。scale<1 はジョブ側で生成するため null。
                 rawDisplay = scale < 1f ? null : srcPixels;
 
+                // テクスチャ/寸法が変わった = キャッシュ済み選択(strength)の前提画素が変わる。
+                // 選択キャッシュはキーに画素内容を含まないので、ここで必ず破棄する(寸法不一致は
+                // TryGet で自動ミスするが、同寸法の別テクスチャを取り違えないよう明示的に Clear)。
+                _selectionCache?.Clear();
+
                 _cachedSourceTexture = sourceTexture;
                 _cachedSrcPixels     = srcPixels;
                 _cachedRawDisplay    = rawDisplay;   // scale<1 のときは一旦 null、apply で確定
@@ -911,6 +926,7 @@ namespace Iroca
             float scaleForTask = scale;
             int prevWForTask = prevW;
             int prevHForTask = prevH;
+            var selCacheForTask = _selectionCache;
 
             // Debug capture: Code.Debug/ asmdef があり、かつ DebugView でトグル ON のときだけ
             // Factory が非 null インスタンスを返す。それ以外は null で、本体は何もキャプチャしない。
@@ -929,7 +945,7 @@ namespace Iroca
                         hfPasses, hfMinNeighbors, rSatMin, rSatRamp,
                         0, 0, 0, 0, token,
                         useDecontam, decontamRadius,
-                        debug: debugCap, parityCache: parityCache);
+                        debug: debugCap, parityCache: parityCache, selectionCache: selCacheForTask);
 
                     Color32[] processedDisplay = scaleForTask < 1f
                         ? PixelProcessor.BoxDownsample(pixels, srcW, srcH, prevWForTask, prevHForTask, scaleForTask)
