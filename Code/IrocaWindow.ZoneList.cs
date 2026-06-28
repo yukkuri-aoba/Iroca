@@ -94,7 +94,8 @@ namespace Iroca
         private static LanguageMode s_zoneCacheLang = (LanguageMode)(-1);
         private static GUIContent s_dragHandleContent, s_zoneEnabledContent, s_zoneNameContent,
             s_removeZoneContent, s_editMaskActiveContent, s_editMaskInactiveContent,
-            s_autoTuneEnabledContent, s_autoTuneDisabledContent;
+            s_autoTuneEnabledContent, s_autoTuneDisabledContent,
+            s_eyedropperIdleContent, s_eyedropperActiveContent;
 
         private static void EnsureZoneListCache()
         {
@@ -117,6 +118,8 @@ namespace Iroca
             s_editMaskInactiveContent = new GUIContent(Localization.EditMaskInactiveLabel, Localization.EditMaskTooltip);
             s_autoTuneEnabledContent  = new GUIContent(Localization.AutoTune, Localization.AutoTuneTooltip);
             s_autoTuneDisabledContent = new GUIContent(Localization.AutoTune, Localization.AutoTuneDisabledTooltip);
+            s_eyedropperIdleContent   = new GUIContent(Localization.EyedropperIdle, Localization.EyedropperTooltip);
+            s_eyedropperActiveContent = new GUIContent(Localization.EyedropperActive, Localization.EyedropperTooltip);
         }
 
         // かんたん / 上級 モード切替。上級でゾーンの詳細パラメータ（エッジ・彩度・
@@ -272,14 +275,37 @@ namespace Iroca
             zone.sampleColor = UndoHelper.ColorField(this,
                 new GUIContent(Localization.SampleColor, Localization.SampleColorTooltip),
                 zone.sampleColor);
-            // サンプルカラーが変わったら、自動トーン抽出で生成済みの内部サンプルは
-            // 古いパーツのものになるためクリアする（次の自動調整で作り直す）。
-            // これにより内部サンプルが陳腐化してマッチングがズレるのを防ぐ。
-            if (zone.sampleColor != prevSampleColor
-                && zone.extraSamples != null && zone.extraSamples.Count > 0)
+            if (zone.sampleColor != prevSampleColor)
             {
-                zone.extraSamples.Clear();
+                // スポイト/カラーフィールドで色を取った＝サンプル指定済み。意図的な白選択を
+                // 「未指定の白」と区別し、白い服・白髪などでも自動調整を許可できるようにする。
+                zone.sampleColorSet = true;
+                // サンプルカラーが変わったら、自動トーン抽出で生成済みの内部サンプルは
+                // 古いパーツのものになるためクリアする（次の自動調整で作り直す）。
+                if (zone.extraSamples != null && zone.extraSamples.Count > 0)
+                    zone.extraSamples.Clear();
                 MarkPreviewDirty();
+            }
+
+            // ─── プレビュー直接スポイト ───
+            // カラーピッカーを経由せず、プレビュー上のクリックでこのゾーンのサンプルカラーを
+            // 実テクスチャ画素から直接取得する（PreviewView 側が実画素を読む）。読み取り不可では押せない。
+            {
+                bool canSample = sourceTexture != null && IsReadable(sourceTexture)
+                    && zone.mode == SelectionMode.ColorPick;
+                bool armed = EyedropperZoneIndex == index;
+                using (new EditorGUI.DisabledScope(!canSample))
+                {
+                    var prevBg = GUI.backgroundColor;
+                    if (armed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
+                    if (GUILayout.Button(armed ? s_eyedropperActiveContent : s_eyedropperIdleContent))
+                    {
+                        // トグル：武装↔解除。武装はこのゾーンだけに絞る（クリックで一発取得→自動解除）。
+                        EyedropperZoneIndex = armed ? -1 : index;
+                        Repaint();
+                    }
+                    GUI.backgroundColor = prevBg;
+                }
             }
 
             // ─── 自動調整ボタン ───
@@ -290,7 +316,7 @@ namespace Iroca
                     sourceTexture != null
                     && IsReadable(sourceTexture)
                     && zone.mode == SelectionMode.ColorPick
-                    && zone.sampleColor != Color.white;
+                    && zone.HasSampleColor;
                 using (new EditorGUI.DisabledScope(!canTune))
                 {
                     if (GUILayout.Button(canTune ? s_autoTuneEnabledContent : s_autoTuneDisabledContent))
@@ -370,9 +396,20 @@ namespace Iroca
             // ─── 通常モード以上で表示する標準の調整項目 ───
             // かんたんモードでは核となる色・許容範囲・模様保持・出力彩度だけを見せ、
             // エッジ/彩度/シャドウ・ハイライト等の調整は「自動調整」に委ねる。
-            // 通常モードは従来通りこれらを手動表示し、上級モードはさらに内部パラメータも出す。
-            if (editMode != EditMode.Simple)
+            // 通常モードは初見の圧を下げるためゾーンごとに「詳細設定」へ畳む（既定で閉じる）。
+            // 上級モードは「すべて見たい」という明示的な選択なので、畳まず常に展開する。
+            if (editMode == EditMode.Advanced)
+            {
                 DrawZoneAdvancedParams(zone);
+            }
+            else if (editMode == EditMode.Normal)
+            {
+                EditorGUILayout.Space(2);
+                zone.detailFoldout = EditorGUILayout.Foldout(
+                    zone.detailFoldout, Localization.ZoneDetailFoldout, true);
+                if (zone.detailFoldout)
+                    DrawZoneAdvancedParams(zone);
+            }
 
             EditorGUILayout.EndVertical();
             return removeRequested;

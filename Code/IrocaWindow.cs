@@ -31,6 +31,13 @@ namespace Iroca
         //    詳細側は最新の公開キャッシュを寸法一致で参照する。
         [System.NonSerialized] internal PreviewParityCache previewParityCache;
 
+        // ── プレビュー直接スポイト ──
+        // スポイトモードで武装中のゾーン index（-1 = 解除）。プレビュー上のクリックで
+        // そのゾーンのサンプルカラーを実テクスチャ画素から取得する（一発で自動解除）。
+        // 一時状態なのでドメインリロードをまたいで保持しない（NonSerialized）。
+        [System.NonSerialized] private int _eyedropperZoneIndex = -1;
+        internal int EyedropperZoneIndex { get => _eyedropperZoneIndex; set => _eyedropperZoneIndex = value; }
+
         // ── 各 View からの再描画通知用 ──
         internal void MarkPreviewDirty() { if (_previewView != null) _previewView.previewDirty = true; }
         internal void MarkMaskDirty() { if (_maskView != null) _maskView.maskDirty = true; }

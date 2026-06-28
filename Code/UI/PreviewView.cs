@@ -527,13 +527,24 @@ namespace Iroca
 
             HandlePreviewGlobalInput(zoomHitRect, scale);
 
-            // 連続領域モードの任意シード入力(Shift+クリック)。マスクペイント中は無効。
-            if (!maskView.maskPaintActive)
+            // スポイトとマスクペイントは排他。ペイントに入ったらスポイトを解除する。
+            if (maskView.maskPaintActive && _host.EyedropperZoneIndex >= 0)
+                _host.EyedropperZoneIndex = -1;
+
+            bool eyedropperArmed = _host.EyedropperZoneIndex >= 0 && !maskView.maskPaintActive;
+
+            // スポイト武装中はプレビュークリックを横取りして実画素からサンプル取得に充てる
+            // （シード設定・パンより優先。取得すると one-shot で自動解除）。
+            if (eyedropperArmed)
+                HandleEyedropperInput(activePreviewRect, srcW, srcH);
+
+            // 連続領域モードの任意シード入力(Shift+クリック)。マスクペイント中・スポイト中は無効。
+            if (!maskView.maskPaintActive && !eyedropperArmed)
                 HandleFloodFillSeedInput(activePreviewRect);
 
             if (maskView.maskFoldout && maskView.maskPaintActive)
                 HandlePreviewPaintInput(activePreviewRect);
-            else if (!maskView.maskPaintActive && previewZoom > 1f)
+            else if (!maskView.maskPaintActive && !eyedropperArmed && previewZoom > 1f)
                 HandlePreviewPanInput(activePreviewRect);
 
             EditorGUILayout.EndScrollView();
@@ -819,6 +830,83 @@ namespace Iroca
                 EditorGUI.DrawRect(new Rect(sx - armLen, sy - thickness * 0.5f, armLen * 2f, thickness), color);
                 EditorGUI.DrawRect(new Rect(sx - thickness * 0.5f, sy - armLen, thickness, armLen * 2f), color);
             }
+        }
+
+        // ───────────────────────── Eyedropper（プレビュー直接スポイト） ─────────────────────────
+
+        // プレビュー上のクリックで、武装中ゾーンのサンプルカラーを実テクスチャ画素から取得する。
+        // 一発取得したら自動で武装解除する（one-shot）。マスクペイント中は呼ばれない。
+        private void HandleEyedropperInput(Rect previewRect, int srcW, int srcH)
+        {
+            Event e = Event.current;
+            if (e == null) return;
+
+            bool isInRect = previewRect.Contains(e.mousePosition);
+            int controlId = GUIUtility.GetControlID(FocusType.Passive);
+
+            switch (e.GetTypeForControl(controlId))
+            {
+                case EventType.MouseDown:
+                    // 素のクリックのみ受ける（修飾キー付きは別操作なので拾わない）。
+                    if (e.button == 0 && isInRect && !e.shift && !e.control && !e.alt)
+                    {
+                        float u = Mathf.Clamp01((e.mousePosition.x - previewRect.x) / previewRect.width);
+                        float v = Mathf.Clamp01(1f - (e.mousePosition.y - previewRect.y) / previewRect.height);
+                        if (SampleTrueSourceColor(u, v, srcW, srcH, out Color picked))
+                        {
+                            var zones = _host.Session.zones;
+                            int idx = _host.EyedropperZoneIndex;
+                            if (zones != null && idx >= 0 && idx < zones.Count)
+                            {
+                                var zone = zones[idx];
+                                if (zone.sampleColor != picked || !zone.sampleColorSet)
+                                {
+                                    Undo.RecordObject(_host, "Sample Color");
+                                    zone.sampleColor = picked;
+                                    zone.sampleColorSet = true;
+                                    // 主サンプル変更で陳腐化する内部サンプルを破棄（ColorField と同じ挙動）。
+                                    if (zone.extraSamples != null && zone.extraSamples.Count > 0)
+                                        zone.extraSamples.Clear();
+                                    previewDirty = true;
+                                }
+                            }
+                            // one-shot: 取得したら武装解除。
+                            _host.EyedropperZoneIndex = -1;
+                            GUIUtility.hotControl = controlId;
+                            e.Use();
+                            _host.RequestRepaint();
+                        }
+                    }
+                    break;
+
+                case EventType.MouseUp:
+                    if (GUIUtility.hotControl == controlId)
+                    {
+                        GUIUtility.hotControl = 0;
+                        e.Use();
+                    }
+                    break;
+
+                case EventType.Repaint:
+                    if (isInRect)
+                        EditorGUIUtility.AddCursorRect(previewRect, MouseCursor.Link);
+                    break;
+            }
+        }
+
+        // u,v(0-1, v は下端=0)を実フル解像度ソース画素にマップして色を返す。
+        // _trueSourcePixels は GetPixels32 由来で行 0 = 画像下端。取得不能なら false。
+        private bool SampleTrueSourceColor(float u, float v, int srcW, int srcH, out Color color)
+        {
+            color = Color.white;
+            var px = _trueSourcePixels;
+            if (px == null || srcW <= 0 || srcH <= 0 || px.Length < srcW * srcH) return false;
+            int x = Mathf.Clamp(Mathf.FloorToInt(u * srcW), 0, srcW - 1);
+            int y = Mathf.Clamp(Mathf.FloorToInt(v * srcH), 0, srcH - 1);
+            Color32 c = px[y * srcW + x];
+            // サンプルカラーはマッチング基準(HSV)に使い α は無関係。スウォッチを不透明にするため a=1。
+            color = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
+            return true;
         }
 
         private void PaintAtScreenPos(Vector2 screenPos, Rect previewRect)

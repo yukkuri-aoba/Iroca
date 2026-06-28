@@ -87,7 +87,7 @@ namespace Iroca
             if (zone == null) return;
             // 手動ボタンの canTune と同じ発火条件。
             if (sourceTexture == null || !IsReadable(sourceTexture)
-                || zone.mode != SelectionMode.ColorPick || zone.sampleColor == Color.white)
+                || zone.mode != SelectionMode.ColorPick || !zone.HasSampleColor)
                 return;
 
             RunAutoTune(zone, auto: true);
