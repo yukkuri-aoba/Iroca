@@ -37,8 +37,21 @@ archive/
 dev_safe
 .venv
 .github/instructions/
+/CLAUDE.md
 Code_Archive/
 .claude/settings.local.json
+
+# 内部向けドキュメント（設計レビュー・計画・テスト構成など開発内部用。公開リポには含めない）
+docs/idea2.md
+docs/architecture_review_2026-06-27.md
+docs/csharp_performance_review_2026-06-12.md
+docs/flood-fill-reactivation-plan.md
+docs/image_processing_math_review_2026-06-10.md
+docs/recolor_design_rationale.md
+docs/refactoring-plan.md
+docs/refactoring-unity-editor-antipatterns.md
+docs/testing-architecture.md
+docs/unity-mcp-automation.md
 
 # build-check (dotnet 単体での型チェック専用、Unity 非依存)
 # csproj 本体だけはコミット、bin/obj は無視
