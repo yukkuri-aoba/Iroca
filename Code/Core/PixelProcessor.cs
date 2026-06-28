@@ -133,6 +133,18 @@ namespace Iroca
         private static double TicksToMs(long ticks) =>
             ticks * 1000.0 / Stopwatch.Frequency;
 
+        // ───────────── フェーズ別計測(出力不変・加算のみ) ─────────────
+        // ProcessPixelsArray の各段の所要時間を全ゾーン合算で累積し PerfReport に載せる。
+        // どのフェーズが重いかを実 C# で測ってから最適化するための計測専用(値・分岐は変えない)。
+        private const int PhHsv = 0, PhMatch = 1, PhHighlight = 2, PhFloodFill = 3,
+            PhHoleFill = 4, PhBoundary = 5, PhBlur = 6, PhDecontam = 7,
+            PhRegionStats = 8, PhRecolor = 9, PhaseCount = 10;
+        private static readonly string[] s_perfPhaseNames =
+        {
+            "HSV", "Match", "Highlight", "FloodFill", "HoleFill",
+            "BoundaryRecover", "Blur", "Decontaminate", "RegionStats", "Recolor",
+        };
+
         // ───────────── 大テクスチャ向け専用 ArrayPool ─────────────
         // ArrayPool<T>.Shared は既定でバケット上限 2^20 要素。それを超える Rent は
         // 毎回 new[] を返し Return は捨てるため、2K(4.2M)/4K(16.8M) ではプールが
@@ -200,6 +212,9 @@ namespace Iroca
             long _t0 = Stopwatch.GetTimestamp();
             var _perfZones = new ZonePerfEntry[sortedZones.Count];
             int _perfIdx = 0;
+            // フェーズ別累積(ticks)。計測のみで出力には一切影響しない。
+            var _phaseTicks = new long[PhaseCount];
+            long _tp = _t0;
 
             // 全ピクセルの HSV を zone ループに入る前に一括計算（zone 数に関わらず1回）
             // null 初期化してから try 内で Rent することで、
@@ -229,6 +244,7 @@ namespace Iroca
             {
                 Color.RGBToHSV((Color)originalPixels[i], out pixH[i], out pixS[i], out pixV[i]);
             });
+            _phaseTicks[PhHsv] += Stopwatch.GetTimestamp() - _tp;
 
             debug?.BeginCapture(w, h);
 
@@ -257,6 +273,7 @@ namespace Iroca
                 // Parallel.For に入る前にキャッシュを確定させてホットループ内の条件分岐を排除
                 zone.UpdateCacheIfNeeded();
                 long _tZone = Stopwatch.GetTimestamp();
+                _tp = _tZone;
 
                 // ArrayPool 借用は per-zone の try/finally で必ず返却する。
                 // Parallel.For は po.CancellationToken でキャンセル時に OperationCanceledException
@@ -312,6 +329,7 @@ namespace Iroca
                         }
                     });
                     debug?.RecordStage(zone.id, DebugStages.Match, strength, w, h);
+                    _phaseTicks[PhMatch] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
                     // 1.a 空間伝播によるハイライト領域の回収 (モルフォロジー拡張)
                     if (highlightPot != null)
@@ -329,6 +347,8 @@ namespace Iroca
                         GrowHighlightBand(strength, originalPixels, pixH, pixS, pixV, zone, w, h);
                         debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, strength, w, h);
                     }
+
+                    _phaseTicks[PhHighlight] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
                     // 1.a.2 連結成分アンカリング: 確信度コアを含む連結成分のみに strength を絞り込む。
                     // 連結性は大域演算のため、フル画像経路(メインプレビュー/Apply/Export)でのみ実行する。
@@ -372,6 +392,8 @@ namespace Iroca
                             }
                         }
                     }
+
+                    _phaseTicks[PhFloodFill] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
                     // 後段パス(穴埋め/境界回復/ブラー)を実マッチ範囲＋余白に限定する bbox (P2-7 拡張)。
                     // strength>0 を新たに変えうるのは「現に matched な画素の近傍」だけで、各パスが領域を
@@ -442,6 +464,7 @@ namespace Iroca
                         }
                     }
                     debug?.RecordStage(zone.id, DebugStages.HoleFill, strength, w, h);
+                    _phaseTicks[PhHoleFill] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
                     // 1c. 境界復元：マッチしたピクセルに隣接するマッチしないピクセルを再評価
                     //     古い固定低彩度閾値を使用して、正しい段階的な強度を与える
@@ -454,6 +477,8 @@ namespace Iroca
                             originalPixels, relaxedChromaConf);
                         debug?.RecordStage(zone.id, DebugStages.BoundaryRecover, strength, w, h);
                     }
+
+                    _phaseTicks[PhBoundary] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
                     // 2. スムーズな端の遷移のためのガウシアンブラー（端に限定）
                     if (edgeFeather > 0.01f && hasPostBox)
@@ -484,6 +509,8 @@ namespace Iroca
                         }
                         debug?.RecordStage(zone.id, DebugStages.Blur, strength, w, h);
                     }
+
+                    _phaseTicks[PhBlur] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
                     // 3. 除外マスクを再適用：ブラーが除外ピクセルにはみ出す可能性がある
                     if (commonMask != null || zoneMask != null)
@@ -544,9 +571,11 @@ namespace Iroca
                         DecontaminateAaBoundary(originalPixels, strength, w, h,
                             zone.sampleColor, zone.targetColor,
                             decontaminationRadius, effInteriorThreshold,
-                            aaMask, decontaminatedPixels);
+                            aaMask, decontaminatedPixels, hasPostBox);
                         debug?.RecordDecontamination(zone.id, aaMask, w, h);
                     }
+
+                    _phaseTicks[PhDecontam] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
                     // 4. 強度でブレンドした再色付けを適用
                     // (zSS/zSV は上の中性リジェクト前に算出済み)
@@ -702,6 +731,8 @@ namespace Iroca
                         });
                     }
 
+                    _phaseTicks[PhRegionStats] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
+
                     var strengthForRecolor = strength;
                     var aaMaskLocal = aaMask;
                     var decontaminatedLocal = decontaminatedPixels;
@@ -794,6 +825,8 @@ namespace Iroca
                         CleanAchromaFringe(pixels, originalPixels, strengthForRecolor, claimedLocal,
                             w, h, zone.sampleColor, zone.targetColor, rcMinX, rcMinY, rcMaxX, rcMaxY);
 
+                    _phaseTicks[PhRecolor] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
+
                     // Recolor 段で各ピクセルに適用されたサブブランチを記録する。
                     // hot loop には分岐を増やさず、debug 有効時だけ追加の Parallel.For で
                     // 上の RecolorPixel 内の条件式を再評価する。
@@ -855,8 +888,11 @@ namespace Iroca
                 if (pixS != null) s_floatPool.Return(pixS);
                 if (pixH != null) s_floatPool.Return(pixH);
             }
-        DebugCaptureHooks.RaisePerfReport(
-            new PerfReport(TicksToMs(Stopwatch.GetTimestamp() - _t0), w, h, _perfZones));
+            var _perfPhases = new PhasePerfEntry[PhaseCount];
+            for (int p = 0; p < PhaseCount; p++)
+                _perfPhases[p] = new PhasePerfEntry(s_perfPhaseNames[p], TicksToMs(_phaseTicks[p]));
+            DebugCaptureHooks.RaisePerfReport(
+                new PerfReport(TicksToMs(Stopwatch.GetTimestamp() - _t0), w, h, _perfZones, _perfPhases));
         }
 
         /// <summary>
@@ -874,13 +910,16 @@ namespace Iroca
             Color32[] originalPixels, float[] strength, int w, int h,
             Color sampleColor, Color targetColor,
             int radius, float interiorThreshold,
-            bool[] aaMask, Color32[] decontaminatedPixels)
+            bool[] aaMask, Color32[] decontaminatedPixels, bool hasMatch = true)
         {
             int len = w * h;
             // 呼び出し側がゾーン間で再利用するバッファを渡す。aaMask は全画素で読まれるため
             // 前ゾーンの結果をクリアしてから書き込む。decontaminatedPixels は aaMask=true の
             // 位置だけ下で上書きされ、その位置だけ参照されるためクリア不要。
             Array.Clear(aaMask, 0, len);
+            // マッチ皆無(strength>0 が無い)なら AA 境界画素も存在しないので、4ch BG 推定
+            // (BoxFilterSum)を丸ごと省く。aaMask は上でクリア済み=出力ビット不変。
+            if (!hasMatch) return;
             bool[] localAaMask = aaMask;
             Color32[] localDecontaminatedPixels = decontaminatedPixels;
 
@@ -916,6 +955,8 @@ namespace Iroca
                     wD[i] = 1f;
                 }
             });
+            // BG 推定(R/G/B/density)。各 ch を順に処理する(融合版は temp ストリームが 4 本同時に
+            // なりメモリ帯域律速のこの処理ではキャッシュスラッシングで遅くなったため単一版に戻した)。
             BoxFilterSum(wR, bgRSum, w, h, radius);
             BoxFilterSum(wG, bgGSum, w, h, radius);
             BoxFilterSum(wB, bgBSum, w, h, radius);
