@@ -1,4 +1,4 @@
-/* Camereo · design tokens (Hallmark)
+/* いろか · design tokens (Hallmark)
  * Warm-charcoal dark system that harmonizes with Unity's dark editor UI.
  * One UI accent (chameleon green). Neutrals tinted warm (anchor hue 75).
  * No pure #000 / #fff. OKLCH only. */
@@ -26,7 +26,13 @@
   --color-cap-bg:   oklch(19% 0.012 75 / 0.78);
   --color-shadow:   oklch(0% 0 0 / 0.45);
 
-  --font-display: "Zen Old Mincho", serif;
+  /* poster: muted chameleon-green silhouette (symbolic, subdued on dark) */
+  --color-cha-tint: oklch(30% 0.045 165);
+  /* poster: bold colour field grounds (rhythm — used on 1–2 slides only) */
+  --color-field:    oklch(30% 0.045 162);
+  --color-field-2:  oklch(24% 0.035 162);
+
+  --font-display: "Zen Maru Gothic", system-ui, sans-serif;
   --font-body:    "Zen Kaku Gothic New", system-ui, sans-serif;
   --font-mono:    "Geist Mono", ui-monospace, "SFMono-Regular", monospace;
 
@@ -36,7 +42,8 @@
 
   /* type scale (~1.3 ratio, fixed canvas) */
   --text-xs: 13px; --text-sm: 15px; --text-base: 18px; --text-md: 22px;
-  --text-lg: 28px; --text-xl: 38px; --text-2xl: 52px; --text-3xl: 72px; --text-4xl: 104px;
+  --text-lg: 28px; --text-xl: 38px; --text-2xl: 52px; --text-3xl: 72px;
+  --text-4xl: 104px; --text-5xl: 150px;
 
   --rule-thin: 1px;
   --radius: 12px;
