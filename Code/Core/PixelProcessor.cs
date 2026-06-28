@@ -837,7 +837,16 @@ namespace Iroca
                 float s = strength[i];
                 if (s <= 0f || s >= interiorThreshold) return;
                 float density = bgDensity[i];
-                if (density < 1f) return; // 近傍に BG ピクセルなし → fallback
+                if (density < 1f)
+                {
+                    // 近傍 radius 内に背景(非選択)画素が皆無 = この弱AA画素は選択領域の「内部」。
+                    // 背景が無いので α 分解で再合成できないが、内部なら元色を残すべきでない。weak strength
+                    // のままだと再着色が部分的になり元色(例: 白文字×青地の縁の薄青)が残留する。full に
+                    // 固めて完全再着色する(SolidifyAchromaInterior の有彩ターゲット版・内部限定)。
+                    // 境界(背景に接する縁)は density>=1 で従来どおり α 分解されるので AA ソフトさは不変。
+                    strength[i] = 1f;
+                    return;
+                }
 
                 float bR = bgRSum[i] / density;
                 float bG = bgGSum[i] / density;
