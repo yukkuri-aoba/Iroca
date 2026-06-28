@@ -53,24 +53,61 @@ namespace Iroca
     /// させる。1画素=1bit(true=残す)。fullW*fullH を表現。スレッド安全性は「未公開の新規インスタンス
     /// にだけ書き込み、公開後は不変として読むだけ」という運用で担保する(UI 側が世代スタンプで管理)。
     /// </summary>
-    internal sealed class FloodFillKeepCache
+    // 詳細プレビュー(クロップ)をメインプレビュー(フル画像)と完全一致させるための転写キャッシュ。
+    // クロップは可視範囲のピクセルしか持たないため、「マッチ領域全体の統計からしか正しく決まらない値」を
+    // クロップ内統計で再計算すると値がズレ、ズーム/スクロールで選択や出力色が変わってしまう。これを防ぐ
+    // ため、フル画像で 1 度だけ解いた結果をゾーン別に保持してクロップ処理へ転写する。
+    //  ・keep  : 連結成分アンカリング(flood fill)で「残す」と判定された画素ビット(=選択結果)。
+    //  ・stats : 再着色アンカー(autoRecolorAnchor)・wash 実効サンプル・無彩再着色の領域 L 統計。
+    //            いずれもマッチ領域全体の統計から導出されるので、クロップ領域だけでは別の色になる。
+    internal sealed class PreviewParityCache
     {
-        // この keep が有効な入力状態の識別子(UI 側のプレビュー世代)。詳細側が一致時のみ参照する。
+        // この内容が有効な入力状態の識別子(UI 側のプレビュー世代)。詳細側が一致時のみ参照する。
         public int generation;
         public int fullW;
         public int fullH;
-        private readonly Dictionary<string, ulong[]> _zones = new Dictionary<string, ulong[]>();
+        private readonly Dictionary<string, ulong[]> _keep = new Dictionary<string, ulong[]>();
+        private readonly Dictionary<string, ZoneRecolorStats> _stats = new Dictionary<string, ZoneRecolorStats>();
 
-        public void SetZone(string zoneId, ulong[] keep)
+        // フル画像処理が確定した入力寸法。keep / stats のどちらを書く場合も最初に設定する
+        // (flood fill OFF でも stats 転写を効かせるため keep 書き込みとは独立に呼ぶ)。
+        public void SetFullSize(int w, int h) { fullW = w; fullH = h; }
+
+        public void SetKeep(string zoneId, ulong[] keep)
         {
-            if (!string.IsNullOrEmpty(zoneId)) _zones[zoneId] = keep;
+            if (!string.IsNullOrEmpty(zoneId)) _keep[zoneId] = keep;
         }
 
-        public ulong[] GetZone(string zoneId)
+        public ulong[] GetKeep(string zoneId)
         {
-            if (!string.IsNullOrEmpty(zoneId) && _zones.TryGetValue(zoneId, out var k)) return k;
+            if (!string.IsNullOrEmpty(zoneId) && _keep.TryGetValue(zoneId, out var k)) return k;
             return null;
         }
+
+        public void SetStats(string zoneId, in ZoneRecolorStats s)
+        {
+            if (!string.IsNullOrEmpty(zoneId)) _stats[zoneId] = s;
+        }
+
+        public bool TryGetStats(string zoneId, out ZoneRecolorStats s)
+        {
+            if (!string.IsNullOrEmpty(zoneId)) return _stats.TryGetValue(zoneId, out s);
+            s = default;
+            return false;
+        }
+    }
+
+    // フル画像のマッチ領域統計から導出され、クロップへそのまま転写すべき再着色パラメータ。
+    // クロップ内のピクセル統計から再計算すると値が変わり、出力色がズーム位置で揺れる原因になる。
+    internal struct ZoneRecolorStats
+    {
+        public bool anchorApplied;       // autoRecolorAnchor が実際に適用されたか(false=スポイト色アンカーのまま)
+        public float anchorL, anchorC;   // OkLab アンカー(マッチ領域の明部地色)
+        public float effShadowDesat;     // アンカー補正後の実効シャドウ脱彩
+        public float washR, washG, washB, washV; // wash(ハイライト白射影)の実効サンプル
+        public bool hasRegL;             // 無彩再着色の領域 L レンジが有効か
+        public float regLlo, regLhi, regLmid;
+        public float[] regMidMapFull;    // 無彩再着色の成分別中央値 L マップ(フル画像 per-pixel)。null=不要
     }
 
     /// <summary>
@@ -125,13 +162,13 @@ namespace Iroca
             bool useDecontamination = true, int decontaminationRadius = 4,
             float decontaminationInteriorThreshold = 0.97f,
             IDebugCapture debug = null,
-            FloodFillKeepCache floodFillKeep = null)
+            PreviewParityCache parityCache = null)
         {
             ProcessPixelsArray(pixels, w, h, masks, sortedZones, edgeFeather, antiAliasCleanup,
                 holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
                 originX, originY, fullW, fullH, CancellationToken.None,
                 useDecontamination, decontaminationRadius, decontaminationInteriorThreshold,
-                debug, floodFillKeep);
+                debug, parityCache);
         }
 
         // キャンセルトークン対応バージョン — バックグラウンドプレビューから使用
@@ -146,7 +183,7 @@ namespace Iroca
             bool useDecontamination = true, int decontaminationRadius = 4,
             float decontaminationInteriorThreshold = 0.97f,
             IDebugCapture debug = null,
-            FloodFillKeepCache floodFillKeep = null)
+            PreviewParityCache parityCache = null)
         {
             if (fullW <= 0) fullW = w;
             if (fullH <= 0) fullH = h;
@@ -238,11 +275,16 @@ namespace Iroca
                         highlightPot = s_floatPool.Rent(len);
                         Array.Clear(highlightPot, 0, len);
                     }
+                    // フル画像経路(メインプレビュー/Apply/Export)か部分クロップ(詳細プレビュー)か。
+                    // 大域統計(連結成分/再着色アンカー/wash/領域L)はフル画像でしか正しく解けないので、
+                    // フル画像では解いてキャッシュへ書き、クロップではキャッシュを転写する。
+                    bool isFullImagePath = originX == 0 && originY == 0 && fullW == w && fullH == h;
+
                     // matchConf は連結成分アンカリング(flood fill)のコア判定専用。FF が有効でフル画像
                     // 経路のときだけ確保・充填する(部分クロップはキャッシュ転写で絞り込むため不要)。
                     bool needMatchConf = IrocaConsts.ExperimentalFeatures.EnableFloodFill
                         && zone.mode == SelectionMode.ColorPick && zone.useFloodFill
-                        && originX == 0 && originY == 0 && fullW == w && fullH == h;
+                        && isFullImagePath;
                     if (needMatchConf)
                     {
                         matchConf = s_floatPool.Rent(len);
@@ -296,8 +338,7 @@ namespace Iroca
                         && zone.mode == SelectionMode.ColorPick
                         && zone.useFloodFill)
                     {
-                        bool isFullImage = originX == 0 && originY == 0 && fullW == w && fullH == h;
-                        if (isFullImage)
+                        if (isFullImagePath)
                         {
                             int seedX = -1, seedY = -1;
                             if (zone.seedUV.x >= 0f)
@@ -308,23 +349,22 @@ namespace Iroca
                             ApplyConnectedComponentMask(strength, matchConf, originalPixels, w, h, seedX, seedY);
                             // フル画像で解いた keep(=残った画素 strength>0)をゾーン別にキャッシュへ書き出し、
                             // 詳細プレビュー(クロップ)へ転写して完全一致させる(どの判定経路でも最終結果を反映)。
-                            if (floodFillKeep != null)
+                            if (parityCache != null)
                             {
                                 var keepBits = new ulong[(len + 63) >> 6];
                                 for (int i = 0; i < len; i++)
                                     if (strength[i] > 0f) keepBits[i >> 6] |= 1UL << (i & 63);
-                                floodFillKeep.fullW = w;
-                                floodFillKeep.fullH = h;
-                                floodFillKeep.SetZone(zone.id, keepBits);
+                                parityCache.SetFullSize(w, h);
+                                parityCache.SetKeep(zone.id, keepBits);
                             }
                             debug?.RecordStage(zone.id, DebugStages.FloodFill, strength, w, h);
                         }
-                        else if (floodFillKeep != null
-                                 && floodFillKeep.fullW == fullW && floodFillKeep.fullH == fullH)
+                        else if (parityCache != null
+                                 && parityCache.fullW == fullW && parityCache.fullH == fullH)
                         {
                             // 部分クロップ(詳細プレビュー): フル画像で解いた keep をフル座標で転写。
                             // keep が無い/寸法不一致なら絞り込まず色のみ=上位集合(安全側)。
-                            var keepBits = floodFillKeep.GetZone(zone.id);
+                            var keepBits = parityCache.GetKeep(zone.id);
                             if (keepBits != null)
                             {
                                 ApplyCachedKeepMask(strength, w, h, originX, originY, fullW, keepBits);
@@ -521,13 +561,32 @@ namespace Iroca
                     float zValueBlend = zone.valueBlend;
                     float zOutputSat = zone.outputSaturation;
                     bool zApplyWash = zone.applyHighlightWash;
+
+                    // 詳細プレビュー(クロップ)は可視範囲のピクセルしか持たないため、wash 実効サンプル・
+                    // 再着色アンカー・領域 L をクロップ内統計から再計算すると値がズレ、ズーム/スクロールで
+                    // 出力色が変わってしまう。フル画像で解いた値をキャッシュから転写して完全一致させる。
+                    // キャッシュが無い/寸法不一致のとき(キャッシュ生成前の過渡状態)のみ従来どおり計算する。
+                    ZoneRecolorStats cachedStats = default;
+                    bool useCachedStats = !isFullImagePath && parityCache != null
+                        && parityCache.fullW == fullW && parityCache.fullH == fullH
+                        && parityCache.TryGetStats(zone.id, out cachedStats);
+
                     // 俯瞰スポイト補正: ハイライト合成(wash)に使う実効サンプル。テクスチャの地色
                     // (同色相・低V)を自動導出し、明るい所をスポイトしても wash がドーム全体に効く
                     // ようにする。autoHighlightSample=false / 低彩度 / 地色不足のときは sample のまま。
-                    Color zWash = HighlightSampleCorrector.ComputeWashSample(
-                        originalPixels, pixH, pixS, pixV, w, h, zone);
-                    float zWR = zWash.r, zWG = zWash.g, zWB = zWash.b;
-                    Color.RGBToHSV(zWash, out _, out _, out float zWV);
+                    float zWR, zWG, zWB, zWV;
+                    if (useCachedStats)
+                    {
+                        zWR = cachedStats.washR; zWG = cachedStats.washG;
+                        zWB = cachedStats.washB; zWV = cachedStats.washV;
+                    }
+                    else
+                    {
+                        Color zWash = HighlightSampleCorrector.ComputeWashSample(
+                            originalPixels, pixH, pixS, pixV, w, h, zone);
+                        zWR = zWash.r; zWG = zWash.g; zWB = zWash.b;
+                        Color.RGBToHSV(zWash, out _, out _, out zWV);
+                    }
 
                     // OkLab 明度保持リカラーのゾーン定数を事前計算 (per-pixel コスト削減)。
                     // sample/target を OkLab に変換。彩度(a,b)は「大きさを |chroma|/sC で正規化し、
@@ -544,13 +603,24 @@ namespace Iroca
                     // (明部の地色)へ置換する。スポイトを陰影のどの明るさで取ってもパーツの明部が
                     // target 色に一致する。マッチング(strength)・wash・デコンタミはスポイト色の
                     // まま＝再着色範囲は不変。フォールバック時(false)は従来挙動。
+                    // クロップ(useCachedStats)はフル画像で確定した値を転写する(クロップ統計だと別色になる)。
                     float zEffShadowDesat = zone.shadowDesaturation;
-                    if (zone.autoRecolorAnchor && !zOkGray &&
+                    bool zAnchorApplied = false;
+                    float zAnchorL = 0f, zAnchorC = 0f;
+                    if (useCachedStats)
+                    {
+                        if (cachedStats.anchorApplied) { zSL = cachedStats.anchorL; zSC = cachedStats.anchorC; }
+                        zEffShadowDesat = cachedStats.effShadowDesat;
+                    }
+                    else if (zone.autoRecolorAnchor && !zOkGray &&
                         TryComputeRecolorAnchor(originalPixels, strength, out float anchorL, out float anchorC))
                     {
                         float zSC0 = zSC;
                         zSL = anchorL;
                         zSC = anchorC;
+                        zAnchorApplied = true;
+                        zAnchorL = anchorL;
+                        zAnchorC = anchorC;
                         // 暗部脱彩の領域相対化(アンカー採用時のみ): 絶対 V 閾値のままだと暗い
                         // パーツは全体が閾値未満になり一律最大50%脱彩される(=入力明度で出力彩度
                         // が変わる)。閾値に地色アンカーの V(明部の代表明度)を乗じ「パーツ内の
@@ -598,10 +668,40 @@ namespace Iroca
                     float[] zRegMidMap = null;
                     if (zAchromaWeight > 1e-4f)
                     {
-                        zHasRegL = TryComputeRegionLRange(originalPixels, strength,
-                            out zRegLlo, out zRegLhi, out zRegLmid);
-                        if (zHasRegL)
-                            zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, 0.05f);
+                        if (useCachedStats)
+                        {
+                            // クロップ: フル画像の領域 L 統計と成分中央値マップ(該当クロップ領域)を転写。
+                            zHasRegL = cachedStats.hasRegL;
+                            zRegLlo = cachedStats.regLlo; zRegLhi = cachedStats.regLhi; zRegLmid = cachedStats.regLmid;
+                            if (zHasRegL && cachedStats.regMidMapFull != null)
+                                zRegMidMap = CropFullMidMap(cachedStats.regMidMapFull, w, h, originX, originY, fullW);
+                        }
+                        else
+                        {
+                            zHasRegL = TryComputeRegionLRange(originalPixels, strength,
+                                out zRegLlo, out zRegLhi, out zRegLmid);
+                            if (zHasRegL)
+                                zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, 0.05f);
+                        }
+                    }
+
+                    // フル画像で確定した領域統計をキャッシュへ書き、詳細プレビュー(クロップ)へ転写する。
+                    // flood fill の有無と独立に書く(アンカー/wash 転写は FF OFF でも必要)。zRegMidMap は
+                    // フル画像 per-pixel(w==fullW)なのでそのまま保持し、クロップ側で該当領域を切り出す。
+                    if (isFullImagePath && parityCache != null)
+                    {
+                        parityCache.SetFullSize(w, h);
+                        parityCache.SetStats(zone.id, new ZoneRecolorStats
+                        {
+                            anchorApplied = zAnchorApplied,
+                            anchorL = zAnchorL,
+                            anchorC = zAnchorC,
+                            effShadowDesat = zEffShadowDesat,
+                            washR = zWR, washG = zWG, washB = zWB, washV = zWV,
+                            hasRegL = zHasRegL,
+                            regLlo = zRegLlo, regLhi = zRegLhi, regLmid = zRegLmid,
+                            regMidMapFull = zRegMidMap,
+                        });
                     }
 
                     var strengthForRecolor = strength;
@@ -1194,6 +1294,17 @@ namespace Iroca
         /// クロップの各画素をフル座標(originX/Y オフセット)で keep 参照し、残さない画素の strength を 0 化。
         /// これにより詳細プレビュー(クロップ)が大域演算を再実行せずにメイン/最終と完全一致する。
         /// </summary>
+        // フル画像 per-pixel マップ(成分別中央値 L 等)から、クロップ(originX/Y, w×h)に対応する
+        // 矩形を切り出してクロップ座標の新しい配列に詰める。詳細プレビューがフル画像と同じ成分基準で
+        // 再着色できるようにするための転写。行ごとに連続コピーするだけ(全画素 1 回読み)。
+        private static float[] CropFullMidMap(float[] full, int w, int h, int originX, int originY, int fullW)
+        {
+            var map = new float[w * h];
+            for (int y = 0; y < h; y++)
+                System.Array.Copy(full, (y + originY) * fullW + originX, map, y * w, w);
+            return map;
+        }
+
         private static void ApplyCachedKeepMask(
             float[] strength, int w, int h, int originX, int originY, int fullW, ulong[] keep)
         {
