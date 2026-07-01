@@ -45,7 +45,6 @@ from regression.fixtures import (
     make_zone,
     default_settings,
 )
-from vacc_python.algorithm import process_pixels
 
 # --- 出力ディレクトリ ---
 REVIEW_DIR = _TESTS / "visual_review"
@@ -61,16 +60,10 @@ THUMB_HEIGHT = 512  # 比較パネルの列高さ（px）
 # ユーティリティ
 # ---------------------------------------------------------------------------
 def _run_all_cases() -> dict[str, tuple[np.ndarray, np.ndarray]]:
-    """全ケースを **Python** アルゴリズムで実行。{case_id: (input_rgba, output_rgba)}"""
-    results: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-    for subject in SUBJECT_REGISTRY.values():
-        rgba, _ = load_subject_inputs(subject)
-        settings = default_settings()
-        for case in load_cases(subject):
-            zone = make_zone(case)
-            output = process_pixels(rgba, [zone], settings)
-            results[case.case_id] = (rgba, output)
-    return results
+    """(引退) Python 再実装は削除済み。csharp エンジンを使うこと。"""
+    raise RuntimeError(
+        "Python エンジン(vacc_python)は完全引退しました。"
+        "実 C# 出力で確認してください: python tools/visual_review.py <cmd> --engine csharp")
 
 
 def _run_all_cases_csharp() -> dict[str, tuple[np.ndarray, np.ndarray]]:
@@ -262,11 +255,12 @@ def cmd_compare(engine: str = "python") -> None:
     for p in generated:
         print(f"  {p}")
     print()
+    # Windows コンソール(cp932)で例外にならないよう ASCII 記号を使う。
     print("各画像で以下を確認:")
-    print("  ✔ 元テクスチャにない質感・ノイズが追加されていないか")
-    print("  ✔ 変換対象エリアに変換漏れがないか")
-    print("  ✔ 関係ない部分（全体サムネイルで確認）が変わっていないか")
-    print("  ✔ 全体サムネイルで切り出し範囲外のエリアも確認したか")
+    print("  [v] 元テクスチャにない質感・ノイズが追加されていないか")
+    print("  [v] 変換対象エリアに変換漏れがないか")
+    print("  [v] 関係ない部分（全体サムネイルで確認）が変わっていないか")
+    print("  [v] 全体サムネイルで切り出し範囲外のエリアも確認したか")
     print()
     print("問題がなければ:")
     print("  python tools/visual_review.py approve")
@@ -293,7 +287,10 @@ def cmd_approve() -> None:
 # main
 # ---------------------------------------------------------------------------
 def _parse_engine(argv: list[str]) -> str:
-    """argv から --engine python|csharp を取り出す(既定 python)。"""
+    """argv から --engine python|csharp を取り出す(既定 csharp = 出荷される実 C#)。
+
+    Python 再実装(vacc_python)は引退済みのため、python 指定は明示エラーになる。
+    """
     for i, a in enumerate(argv):
         if a == "--engine" and i + 1 < len(argv):
             eng = argv[i + 1]
@@ -307,7 +304,7 @@ def _parse_engine(argv: list[str]) -> str:
                 print(f"不明な engine: {eng!r} (python|csharp)")
                 sys.exit(1)
             return eng
-    return "python"
+    return "csharp"
 
 
 def main() -> None:
