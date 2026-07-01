@@ -165,6 +165,10 @@ namespace Iroca
 
         public bool highlightRecovery = true;
         public bool highlightBandExpand = true;
+        // 【シミュレーション専用】ハイライト(明部)の距離免除・彩度ゲート免除を無効化する。
+        // ZoneAutoTuner の閉ループ検証が「免除経路だけで選択される画素」を切り分けて数える
+        // ために使う。製品 UI からは変更されず常に false(=免除有効)。シリアライズ対象外。
+        [System.NonSerialized] internal bool simDisableBrightForgiveness = false;
         // ハイライト白寄せ合成: 明部(明度>サンプル)を「wash→白 軸」へ射影し、鏡面ハイライトを
         // 表現する。既定 OFF（オプトイン）。OFF のときは色相転送(HSV transfer)のみで、明部の
         // 明度・彩度構造はそのまま温存される。ON でも有彩の模様は軸残差フェードで保護され、
@@ -559,7 +563,7 @@ namespace Iroca
             // 彩度ゲートを免除して同素材として拾う。FP は色相ゲートで抑える。
             // シャドウ側の satFactor 減衰は付けない（ハイライトは低彩度化が正常で
             // 暗部のグレー/黒混入とは性質が逆のため）。
-            if (pV > sc.sV && effectiveHDist < ForgivenessHueGate)
+            if (!simDisableBrightForgiveness && pV > sc.sV && effectiveHDist < ForgivenessHueGate)
             {
                 // 明度の伸び量を上方ヘッドルーム (1 - sV) で正規化。
                 // 閾値 sV + (1-sV)*0.25 は暗側 sV*0.75（25% デッドマージン）の鏡像。
@@ -621,7 +625,7 @@ namespace Iroca
             // ハイライト（明部）の距離許容: 上のシャドウ許容の対称形。
             // サンプルより明るく同色相なら、低彩度化したハイライト芯でも同素材として
             // 距離を免除する。免除上限はシャドウ側と同じ 0.3f（最大70%）で対称。
-            if (pV > sc.sV && hDist < ForgivenessHueGate)
+            if (!simDisableBrightForgiveness && pV > sc.sV && hDist < ForgivenessHueGate)
             {
                 float brightThreshold = sc.sV + (1f - sc.sV) * HighlightValueHeadroomFrac;
                 float brightForgiveness = Mathf.Clamp01(

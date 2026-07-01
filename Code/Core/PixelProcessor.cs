@@ -1615,10 +1615,12 @@ namespace Iroca
         }
 
         // ハイライト帯成長で使用する定数。
-        private const float HlBandCoreThreshold = 0.90f;  // 信頼コア（本体）とみなす strength 下限
-        private const float HlBandAxisEps       = 0.10f;  // sample→白 軸からの許容残差（RGB ユークリッド）
-        private const float HlBandMinSampleSat  = 0.20f;  // 源色がこれ未満（灰色寄り）なら無効
-        private const float HlBandMinSatFrac    = 0.15f;  // 帯候補の彩度下限（源色相対）。白素材への流入を防ぐ
+        // internal: ZoneAutoTuner の閉ループ検証が「帯候補になり得る画素」を同一条件で
+        // シミュレートするために参照する（手動同期による定数ドリフトを避ける）。
+        internal const float HlBandCoreThreshold = 0.90f;  // 信頼コア（本体）とみなす strength 下限
+        internal const float HlBandAxisEps       = 0.10f;  // sample→白 軸からの許容残差（RGB ユークリッド）
+        internal const float HlBandMinSampleSat  = 0.20f;  // 源色がこれ未満（灰色寄り）なら無効
+        internal const float HlBandMinSatFrac    = 0.15f;  // 帯候補の彩度下限（源色相対）。白素材への流入を防ぐ
 
         // L 再マップの彩度ゲート定数。彩度が sample の何割に達したら remap をフル適用するか。
         // これ未満の低彩度画素は元 L を保持し、target が sample より明るい場合の暗部持ち上げ
