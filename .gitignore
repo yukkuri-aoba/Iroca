@@ -36,8 +36,7 @@ texture_sample
 archive/
 dev_safe
 .venv
-.github/instructions/
-/CLAUDE.md
+.claude/instructions/notify.md
 Code_Archive/
 .claude/settings.local.json
 
