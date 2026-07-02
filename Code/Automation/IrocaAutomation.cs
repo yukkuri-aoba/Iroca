@@ -312,6 +312,15 @@ namespace Iroca
             WriteMcpFile(Path.Combine(McpDir, "result.json"), resultJson);
             Debug.Log($"[Iroca][MCP] CLI result: {resultJson}");
             Console.WriteLine($"[Iroca][MCP] {resultJson}");
+
+            // batchmode の呼び出し側が終了コードで成否を検知できるようにする。
+            // -quit だけでは RunFromCommandLine の成否に関わらず Unity は exit 0 で終了し、
+            // 失敗(デコード失敗・ゾーン無し・書き込み失敗等)が握り潰されていた。result.json と
+            // ログは上で出力済みなので、ここで成否に応じた終了コードで明示終了する。
+            bool ok = false;
+            try { ok = JsonUtility.FromJson<RecolorResult>(resultJson)?.ok ?? false; }
+            catch { ok = false; }
+            EditorApplication.Exit(ok ? 0 : 1);
         }
 
         // ─────────────────────── 中核 ───────────────────────
