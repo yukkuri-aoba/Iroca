@@ -79,11 +79,15 @@ try {
         if (Test-Path $abs) { Add-ZipEntry $abs $f }
     }
 
-    # Code/ directory (recursive) — 本体 asmdef・Debug asmdef・全ソースを一括取得
+    # Code/ directory (recursive) — 本体 asmdef・全ソースを取得。
+    # Debug 衛星(Code/Debug/)は配布対象外にする。IrocaEditor.Debug.asmdef は defineConstraints 無し
+    # ・autoReferenced=true で、同梱すると全ユーザーで常時コンパイルされ Debug ウィンドウが見えてしまう。
+    # AssemblyInfo.cs の「Code/Debug が無ければ Debug ターゲットは単に存在しない」という非同梱運用想定と一致させる。
     $codeDir = Join-Path $Root "Code"
     if (Test-Path $codeDir) {
         Get-ChildItem -Path $codeDir -Recurse -File | ForEach-Object {
             $rel = $_.FullName.Substring($Root.Length + 1).Replace('\', '/')
+            if ($rel -like "Code/Debug/*") { return }  # Debug 衛星は同梱しない(開発専用)
             Add-ZipEntry $_.FullName $rel
         }
     }
