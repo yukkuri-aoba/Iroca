@@ -29,8 +29,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- PixelProcessor の実行に必要な Core ファイルだけを取り込む(UI/Editor 依存を避ける)。 -->
-    <Compile Include="..\..\Code\Core\PixelProcessor.cs" />
+    <!-- PixelProcessor の実行に必要な Core ファイルだけを取り込む(UI/Editor 依存を避ける)。
+         PixelProcessor は partial 分割されているため glob で本体+全 partial を取り込む。 -->
+    <Compile Include="..\..\Code\Core\PixelProcessor*.cs" />
+    <Compile Include="..\..\Code\Core\MaskSnapshot.cs" />
+    <Compile Include="..\..\Code\Core\PreviewParityCache.cs" />
+    <Compile Include="..\..\Code\Core\SelectionCache.cs" />
     <Compile Include="..\..\Code\Core\DebugCaptureHooks.cs" />
     <Compile Include="..\..\Code\Core\IDebugCapture.cs" />
     <Compile Include="..\..\Code\Core\PerfReport.cs" />
