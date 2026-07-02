@@ -101,6 +101,24 @@ def dotnet_available() -> bool:
         return False
 
 
+def unity_dll_missing() -> str | None:
+    """Harness が参照する Unity CoreModule DLL が無ければそのパスを返す（環境不備 = skip 対象）。
+
+    Harness.csproj の既定 (UnityVersion / UnityManaged、環境変数で上書き可) をミラーする。
+    これで「環境不備 (skip してよい)」と「Code/ のコンパイルエラー (fail すべき)」を
+    テスト側で区別できる — 過去に DLL 名の陳腐化で実 C# を走らせないまま
+    テストが緑に見えるサイレント skip 事故が起きている。
+    """
+    import os
+
+    version = os.environ.get("UnityVersion", "2022.3.22f1")
+    managed = os.environ.get(
+        "UnityManaged",
+        rf"C:\Program Files\Unity\Hub\Editor\{version}\Editor\Data\Managed")
+    dll = Path(managed) / "UnityEngine" / "UnityEngine.CoreModule.dll"
+    return None if dll.exists() else str(dll)
+
+
 def build_harness() -> tuple[bool, subprocess.CompletedProcess]:
     r = subprocess.run(
         ["dotnet", "build", str(HARNESS_CSPROJ), "-c", "Release", "-nologo", "-v", "quiet"],

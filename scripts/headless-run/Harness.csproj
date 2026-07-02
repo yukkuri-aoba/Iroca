@@ -53,4 +53,11 @@
     </Reference>
   </ItemGroup>
 
+  <!-- Unity DLL 不在を「Code/ のコンパイルエラー」と区別できる明示メッセージで fail させる。
+       これが無いと参照解決エラーの羅列になり、テスト側の skip/fail 分離が濁る。 -->
+  <Target Name="CheckUnityDlls" BeforeTargets="CoreCompile">
+    <Error Condition="!Exists('$(UnityManaged)\UnityEngine\UnityEngine.CoreModule.dll')"
+           Text="Unity CoreModule DLL が見つかりません: $(UnityManaged)。UnityVersion / UnityManaged プロパティ(または環境変数)で上書きしてください。" />
+  </Target>
+
 </Project>

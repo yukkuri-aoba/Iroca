@@ -29,11 +29,19 @@ _CASES = G.build_cases()
 
 @pytest.fixture(scope="module")
 def harness():
+    # skip は「環境不備」だけに限定する。環境が揃っているのにビルドが失敗するのは
+    # Code/ のコンパイルエラー（＝製品退行そのもの）なので fail で顕在化させる。
     if not G.dotnet_available():
         pytest.skip("dotnet が利用できません")
+    missing = G.unity_dll_missing()
+    if missing:
+        pytest.skip(f"Unity CoreModule DLL がありません: {missing}")
     ok, r = G.build_harness()
     if not ok:
-        pytest.skip(f"Harness ビルド失敗（Unity DLL 不在?）:\n{(r.stdout or '')[-600:]}")
+        pytest.fail(
+            "Harness ビルド失敗。dotnet と Unity DLL は存在するため、Code/ の"
+            "コンパイルエラーの可能性が高い（サイレント skip にしない）:\n"
+            f"{((r.stdout or '') + (r.stderr or ''))[-1500:]}")
     if not _GOLDEN:
         pytest.skip("golden_hashes.json が未生成です。`python scripts/golden/golden_lib.py` で生成してください")
     return True
