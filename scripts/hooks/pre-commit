@@ -1,0 +1,20 @@
+#!/bin/sh
+# Iroca pre-commit フック（git 追跡される正はこのファイル）。
+#
+# 有効化（clone 直後に 1 回、リポジトリルートで実行）:
+#   git config core.hooksPath scripts/hooks
+#
+# 内容: Code/ 配下（Debug/Tests 除く）がステージされているとき、
+#   1. 視覚レビュー承認 (approved.json) がステージファイルより新しいこと
+#   2. 出力品質ゲートのしきい値較正 (--validate) が健全なこと
+# を tools/check_visual_review.py で検査する。
+# 回避: SKIP_VISUAL_REVIEW=1（出力に影響しない変更＝IO/プレビュー/コメントのみに限る）
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+
+PY="$ROOT/.venv/Scripts/python.exe"
+if [ ! -x "$PY" ]; then
+    PY=python
+fi
+
+exec "$PY" "$ROOT/tools/check_visual_review.py"

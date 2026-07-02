@@ -1,6 +1,8 @@
 """pre-commit フックから呼ばれる視覚レビュー承認チェック + 出力品質ゲート検証。
 
-アルゴリズムファイル（dev_safe/vacc_python/ または Code/）がステージされているとき:
+フックの実体は scripts/hooks/pre-commit（有効化: git config core.hooksPath scripts/hooks）。
+
+アルゴリズムファイル（Code/、ただし Debug/Tests 除く）がステージされているとき:
   1. approved.json が全ステージファイルより新しいか（視覚レビュー実施の確認）。
   2. 出力品質ゲートのしきい値較正が健全か（quality_report.py --validate が
      good/bad ラベルを分離できているか）。SKIP_QUALITY_GATE=1 でスキップ可。
@@ -40,7 +42,6 @@ APPROVED_JSON = ROOT / "dev_safe" / "Tests" / "visual_review" / "approved.json"
 
 # 視覚レビュー要求の対象パス prefix（前方一致、スラッシュ区切り）
 ALGORITHM_PREFIXES = [
-    "dev_safe/vacc_python/",
     "Code/",
 ]
 
