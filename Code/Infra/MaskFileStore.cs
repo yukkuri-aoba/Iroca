@@ -38,8 +38,14 @@ namespace Iroca
         /// 中身が空（共通もゾーンも未設定）の場合は既存ファイルを削除して終わる。
         /// 保存先パスが解決できない（テクスチャ未設定/Assets 外）場合や中身が空の場合は
         /// 「保存すべきものが無い＝成功」として true。実際の書き込みに失敗したときだけ false。
+        /// <para>
+        /// <paramref name="lastLoadFailed"/> が true（このセッションで既存ファイルを
+        /// 読み込めていない）のときは破壊的動作を抑止する: 空保存でも既存ファイルを
+        /// 削除せず、上書き時は先に <c>.bak</c> へ退避する。ウイルススキャナ等による
+        /// 一時的な読込失敗が「空保存 → 無傷ファイルの恒久削除」に化けるのを防ぐ。
+        /// </para>
         /// </summary>
-        public static bool SaveMask(string texturePath, MaskState state)
+        public static bool SaveMask(string texturePath, MaskState state, bool lastLoadFailed = false)
         {
             string path = MaskFilePath(texturePath);
             if (string.IsNullOrEmpty(path)) return true;
@@ -48,6 +54,12 @@ namespace Iroca
             {
                 if (File.Exists(path))
                 {
+                    if (lastLoadFailed)
+                    {
+                        Debug.LogWarning(
+                            "[Iroca] マスクファイルの読み込みに失敗したセッションのため、空マスクによる削除をスキップしました: " + path);
+                        return true;
+                    }
                     try { File.Delete(path); }
                     catch (Exception ex) { Debug.LogWarning($"[Iroca] Mask delete failed: {ex.Message}"); return false; }
                 }
@@ -57,6 +69,16 @@ namespace Iroca
             try
             {
                 Directory.CreateDirectory(CacheDir);
+                if (lastLoadFailed && File.Exists(path))
+                {
+                    // 読めなかった既存データを潰す前に退避する（失敗しても保存は続行）。
+                    try
+                    {
+                        File.Copy(path, path + ".bak", overwrite: true);
+                        Debug.LogWarning($"[Iroca] 読み込めなかった既存マスクを退避しました: {path}.bak");
+                    }
+                    catch (Exception ex) { Debug.LogWarning($"[Iroca] Mask backup failed: {ex.Message}"); }
+                }
                 AtomicFile.WriteAllText(path, JsonUtility.ToJson(state));
                 return true;
             }
@@ -70,9 +92,12 @@ namespace Iroca
         /// <summary>
         /// 指定テクスチャの <see cref="MaskState"/> を読み込む。
         /// ファイルが無い・破損していれば <c>null</c> を返す。
+        /// <paramref name="unreadable"/> は「ファイルは存在するのに読めなかった」ときだけ true
+        /// （呼び出し側はこのセッションでの破壊的保存を抑止すること）。
         /// </summary>
-        public static MaskState LoadMask(string texturePath)
+        public static MaskState LoadMask(string texturePath, out bool unreadable)
         {
+            unreadable = false;
             string path = MaskFilePath(texturePath);
             if (string.IsNullOrEmpty(path)) return null;
             if (!File.Exists(path)) return null;
@@ -83,6 +108,7 @@ namespace Iroca
             catch (Exception ex)
             {
                 Debug.LogWarning($"[Iroca] Mask load failed: {ex.Message}");
+                unreadable = true;
                 return null;
             }
         }

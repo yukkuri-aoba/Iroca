@@ -44,6 +44,11 @@ namespace Iroca
         // ストローク中フラグ（同一ストロークで二重 Undo 登録しないため）
         [System.NonSerialized] public bool _maskStrokeStarted;
 
+        // 現在のテクスチャの MaskCache ファイルが「存在するのに読めなかった」フラグ。
+        // true の間は空保存での削除・無退避の上書きを抑止する（一時的な読込失敗が
+        // データ恒久消失に化けるのを防ぐ）。有効な内容を保存できたら解除。
+        [System.NonSerialized] private bool _maskLoadFailed;
+
         // 共通マスク用のターゲットキー（SessionState キーにも使う）
         public const string CommonMaskKey = "__common__";
 
@@ -636,7 +641,15 @@ namespace Iroca
             string path = MaskTexturePath();
             if (path == null) return true;
 
-            return MaskFileStore.SaveMask(path, _host.Session?.maskState);
+            var ms = _host.Session?.maskState;
+            bool ok = MaskFileStore.SaveMask(path, ms, _maskLoadFailed);
+
+            // 有効な内容を書き込めたら通常動作へ復帰する（空保存スキップの場合は
+            // 解除しない: 解除すると次の空保存が未読ファイルを削除してしまう）。
+            bool hasContent = ms != null &&
+                (!string.IsNullOrEmpty(ms.commonMaskBase64) || (ms.zones != null && ms.zones.Count > 0));
+            if (ok && hasContent) _maskLoadFailed = false;
+            return ok;
         }
 
         /// <summary>
@@ -713,9 +726,10 @@ namespace Iroca
 
             exclusionMask = null;
             zoneMasks.Clear();
+            _maskLoadFailed = false;
 
             // 1) MaskCache ファイルからの読み込みを最優先する（Editor 再起動を跨ぐ正規ストア）。
-            var fileState = MaskFileStore.LoadMask(path);
+            var fileState = MaskFileStore.LoadMask(path, out bool unreadable);
             if (fileState != null && fileState.width > 0 && fileState.height > 0)
             {
                 _host.Session.maskState = fileState;
@@ -723,6 +737,10 @@ namespace Iroca
                 maskDirty = true;
                 return;
             }
+
+            // ファイルは存在するのに使える状態を得られなかった（IO失敗 or 形状不正の JSON）。
+            // このセッションでの空保存による削除・無退避上書きを抑止する。
+            _maskLoadFailed = unreadable || fileState != null;
 
             // 2) ファイルが無ければ、旧 SessionState 形式（Phase 6 以前のデータ）からマイグレート。
             if (TryMigrateFromLegacySessionState(path))
