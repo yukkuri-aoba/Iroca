@@ -1,6 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-// Assets/Iroca/Editor/BuildHelper.cs
+// Assets/Iroca/Editor/Infra/BuildHelper.cs
 // unitypackage エクスポート用ビルドヘルパー。
 // PowerShell スクリプト (build/ExportUnityPackage.ps1) から
 // Unity バッチモード (-executeMethod) 経由で呼び出される。
