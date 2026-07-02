@@ -84,11 +84,14 @@ namespace Iroca
         // 左カラム（横並び）/ 上部スクロール（縦並び）共通の設定スタック。
         // 横並び・縦並び双方から呼ぶことで描画の重複を避ける。
         // 呼び出し側の BeginChangeCheck/EndChangeCheck に挟まれて previewDirty 判定に使われる。
+        // マスク UI(_maskView.Draw)はここに含めない: ブラシサイズ・ペイントモード切替・foldout 開閉など
+        // マスク内容と無関係な操作でも previewDirty が立ち 4K フル再生成が走ってしまうため。マスク内容の
+        // 変更はストローク時に maskDirty 経由で別途プレビュー再生成をトリガするので、Draw は呼び出し側が
+        // ChangeCheck の外で行う。
         private void DrawLeftColumnSettings()
         {
             DrawZoneList();
             DrawProcessingSection();
-            _maskView.Draw();
         }
 
         // ── 横並びレイアウト: 上部テクスチャ（フル幅）＋左（設定）／右（プレビュー）＋下部エクスポート ──
@@ -142,6 +145,9 @@ namespace Iroca
             {
                 MarkPreviewDirty();
             }
+
+            // マスク UI は ChangeCheck の外・スクロール領域内で描画する(DrawLeftColumnSettings のコメント参照)。
+            _maskView.Draw();
 
             _presetsView.Draw();
 
@@ -201,6 +207,9 @@ namespace Iroca
             {
                 MarkPreviewDirty();
             }
+
+            // マスク UI は ChangeCheck の外・スクロール領域内で描画する(DrawLeftColumnSettings のコメント参照)。
+            _maskView.Draw();
 
             _presetsView.Draw();
             _previewView.Draw();
