@@ -37,8 +37,8 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 
 #### 色改変
 - テクスチャの特定部分を指定して色を変更します（カラーゾーン）
-- 色の選択方法は「カラーピック」と「UV 矩形」の 2 種類です
-- 複数ゾーンの重なりはレイヤー番号で優先度を制御します
+- 色替え対象は、プレビュー上の変えたい色をスポイトでクリックして指定します（カラーピック）
+- 複数ゾーンが重なる部分の優先度は、ゾーンリストの並び順（`☰` ハンドルをドラッグ）で制御します
 
 #### 境界処理
 - エッジぼかし・AA 境界クリーンアップ・境界クリーンアップ（α分解）に対応します
@@ -111,8 +111,8 @@ See [MANUAL.md](MANUAL.md) for detailed instructions.
 
 #### Recoloring
 - Target specific texture areas and change their color (Color Zones)
-- Two selection methods: Color Pick and UV Rect
-- Control priority across overlapping zones with the Layer Index
+- Select the color to replace by picking it directly on the preview (Color Pick)
+- Control priority across overlapping zones by their order in the zone list (drag the `☰` handle to reorder)
 
 #### Boundary Processing
 - Edge Feather / AA Edge Cleanup / Edge Decontamination for smooth color transitions
