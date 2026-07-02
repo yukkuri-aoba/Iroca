@@ -77,6 +77,14 @@
         4
       ]
     },
+    "nondefault_chromathreshold_graymode": {
+      "sha256": "f6676ff5e5d603c7bed969bbb8da72a1a70b4b6c319994c1324b51e1567c567a",
+      "shape": [
+        48,
+        48,
+        4
+      ]
+    },
     "solid_blue_to_orange": {
       "sha256": "5e605d646d461667558fec757088569a26e3c3600ae6f1b0dae73e56250b6c04",
       "shape": [

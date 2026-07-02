@@ -246,6 +246,18 @@ def build_cases() -> list[tuple[str, np.ndarray, dict, dict]]:
                   zone(sample=n((210, 50, 50)), target=n((40, 70, 200)), tolerance=0.40,
                        saturationGuard=0.5), settings()))
 
+    # 非既定 chromaThreshold の出力ロック（W2）。他の全ケースは既定 chromaThreshold=0.05 のため、
+    # chromaThreshold の plumbing（主経路 ColorZone と緩和経路 GetRelaxedMatchStrength の双方が
+    # zone.chromaThreshold を使う）が壊れても検出できなかった。微かに tint した明るいグレー（sS≈0.10）を
+    # 非既定 0.15 でグレーモードに入れる（sS=0.10 は 0.05 なら有彩分岐、0.15 ならグレー分岐）。W2 は
+    # 緩和経路の chromaThreshold 焼き込み（0.05）を撤去し zone 値へ追従させた修正で、これはその値を
+    # 通した出力を固定する。※このフィクスチャ自体の出力は主に主経路の分岐で決まる（緩和経路の寄与は
+    # 小さい）ため、緩和経路専用のロックではなく chromaThreshold 全体の非既定回帰ガードとして機能する。
+    cases.append(("nondefault_chromathreshold_graymode",
+                  S.two_color_aa((200, 190, 180), (150, 60, 60)),
+                  zone(sample=n((200, 190, 180)), target=n((40, 160, 60)), tolerance=0.35,
+                       chromaThreshold=0.15), settings()))
+
     return cases
 
 

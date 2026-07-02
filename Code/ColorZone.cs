@@ -33,9 +33,11 @@ namespace Iroca
         // 純RGB距離だけでは、サンプル(クリーム)と純白が近接(距離~0.03)し、暗い領域を拾う
         // ための大きな tolerance が純白も巻き込む。tint の有無で両者は明確に分離できる。
         // サンプル自身が真の無彩(sS≈0)なら作動せず=従来の純RGB距離挙動を完全維持。
-        private const float ChromaGateActivateSat = 0.02f; // この tint 未満のサンプルでは無効
-        private const float ChromaGateFloorFrac = 0.5f;    // サンプル彩度 sS*frac 未満は「中性すぎ」
-        private const float ChromaGatePenalty = 1.0f;      // 最大加算距離(tolerance 単位)
+        // internal: 緩和マッチ経路(PixelProcessor.GetRelaxedMatchStrength)が同じ値を使うため共有する。
+        // かつては PixelProcessor 側に同名 const を複製していたが、二重管理で乖離の温床になるため一本化。
+        internal const float ChromaGateActivateSat = 0.02f; // この tint 未満のサンプルでは無効
+        internal const float ChromaGateFloorFrac = 0.5f;    // サンプル彩度 sS*frac 未満は「中性すぎ」
+        internal const float ChromaGatePenalty = 1.0f;      // 最大加算距離(tolerance 単位)
 
         // グレー抽出モードの AA 縁ソフトランプ床(tolerance 比)。edgeSoftness=0 だとグレーモードは
         // 二値マッチになり AA 境界(地色↔背景の混色)も full strength に固まる→デコンタミ
@@ -79,12 +81,14 @@ namespace Iroca
         // グレー抽出モードの有効 chromaThreshold は源色 V で動的に決まる: sV=0 で BaseChromaThreshold、
         // sV>=ChromaConfidenceRamp で zone.chromaThreshold に収束。暗い源色ほど色相/彩度が不安定なため
         // グレーモード適用範囲を広げる。
-        private const float GrayModeBaseChromaThreshold = 0.30f;
-        private const float GrayModeChromaConfidenceRamp = 0.20f;
+        // internal: 緩和マッチ経路(PixelProcessor.GetRelaxedMatchStrength)が主経路と同じ動的しきい値を
+        // 使うため共有する(以前は 0.30/0.20 を複製焼き込みしていた)。
+        internal const float GrayModeBaseChromaThreshold = 0.30f;
+        internal const float GrayModeChromaConfidenceRamp = 0.20f;
         // グレー抽出モードで「暗い源色」とみなす V 上限。これ未満では無彩色の彩度(中立逸脱度)を距離
         // 指標に混ぜ(輝度差があっても無彩なら同素材)、彩度整合ゲートの明部限定 gateWeight のフェード
         // 区間 [0,この値] にも使う。
-        private const float GrayModeDarkSampleValue = 0.3f;
+        internal const float GrayModeDarkSampleValue = 0.3f; // internal: 緩和マッチ経路と共有(暗サンプル判定/gateWeight)
 
 
         public string name = "Zone";
