@@ -144,10 +144,14 @@ namespace Iroca
 
         public static int Main(string[] args)
         {
+            // --selkey-audit: 入力画像不要の特別モード(選択キャッシュキーの網羅性監査)。
+            if (args.Length >= 1 && args[0] == "--selkey-audit")
+                return RunSelectionKeyAudit();
+
             if (args.Length < 3)
             {
                 Console.Error.WriteLine("usage: Harness <in.raw RGBA> <mask.raw 1=exclude> <out.raw RGBA> "
-                    + "[sampleR sampleG sampleB targetR targetG targetB tolerance | --zones zones.json]");
+                    + "[sampleR sampleG sampleB targetR targetG targetB tolerance | --zones zones.json] | --selkey-audit");
                 return 2;
             }
             string inPath = args[0], maskPath = args[1], outPath = args[2];
@@ -306,6 +310,94 @@ namespace Iroca
             Console.WriteLine($"OK {w}x{h} -> {outPath} (zones={zoneList.Count})");
             return 0;
         }
+
+        // ─── 選択キャッシュキー(BuildSelectionKey)の網羅性監査 ───
+        // ColorZone の各 public フィールドを 1 つずつ摂動し、キーが変化するかを
+        // "SELKEY <field> <0|1>" 行で stdout に出す(摂動不能な型は "?" )。
+        // どのフィールドが選択に影響すべきかの判定は Python 側テスト
+        // (scripts/golden/test_selection_key_audit.py) の分類台帳が行う。
+        // フィールド追加時にキーへの反映を忘れると誤ヒット(古い選択のままのプレビュー)に
+        // なるため、その取りこぼしを機械検出するのが目的。
+        private static int RunSelectionKeyAudit()
+        {
+            var mi = typeof(PixelProcessor).GetMethod(
+                "BuildSelectionKey",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            if (mi == null)
+            {
+                Console.Error.WriteLine(
+                    "BuildSelectionKey が見つかりません(リネーム?)。selkey-audit の追従修正が必要です。");
+                return 3;
+            }
+
+            string KeyOf(ColorZone z) => (string)mi.Invoke(null, new object[]
+            {
+                z, /*edgeFeather*/0f, /*aaCleanup*/3, /*holeFillPasses*/5, /*holeFillMinNeighbors*/4,
+                /*relaxedSatMin*/0.02f, /*relaxedSatRamp*/0.08f, /*commonMask*/null, /*zoneMask*/null,
+            });
+
+            var baseline = new ColorZone();
+            baseline.extraSamples = new List<Color> { new Color(0.3f, 0.4f, 0.5f, 1f) };
+            string baseKey = KeyOf(baseline);
+
+            foreach (var f in typeof(ColorZone).GetFields(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            {
+                var z = baseline.Clone();
+                if (!TryPerturbField(z, f))
+                {
+                    Console.WriteLine($"SELKEY {f.Name} ?");
+                    continue;
+                }
+                bool changed = KeyOf(z) != baseKey;
+                Console.WriteLine($"SELKEY {f.Name} {(changed ? 1 : 0)}");
+            }
+            return 0;
+        }
+
+        // 対象フィールドを「必ず元と異なる値」に書き換える。未知の型は false。
+        private static bool TryPerturbField(ColorZone z, System.Reflection.FieldInfo f)
+        {
+            object v = f.GetValue(z);
+            object nv;
+            if (f.FieldType == typeof(bool)) nv = !(bool)v;
+            else if (f.FieldType == typeof(float)) nv = (float)v + 0.1237f;
+            else if (f.FieldType == typeof(int)) nv = (int)v + 1;
+            else if (f.FieldType == typeof(string)) nv = ((string)v ?? "") + "_x";
+            else if (f.FieldType == typeof(Color))
+            {
+                var c = (Color)v;
+                nv = new Color(PerturbChannel(c.r), PerturbChannel(c.g), PerturbChannel(c.b), c.a);
+            }
+            else if (f.FieldType == typeof(Rect))
+            {
+                var r = (Rect)v;
+                nv = new Rect(r.x + 0.1f, r.y + 0.1f, r.width * 0.8f + 0.01f, r.height * 0.8f + 0.01f);
+            }
+            else if (f.FieldType == typeof(Vector2))
+            {
+                var p = (Vector2)v;
+                nv = new Vector2(p.x + 0.17f, p.y + 0.17f);
+            }
+            else if (f.FieldType.IsEnum)
+            {
+                var vals = Enum.GetValues(f.FieldType);
+                int idx = Array.IndexOf(vals, v);
+                nv = vals.GetValue((idx + 1) % vals.Length);
+            }
+            else if (f.FieldType == typeof(List<Color>))
+            {
+                var list = new List<Color>((List<Color>)v ?? new List<Color>());
+                list.Add(new Color(0.9f, 0.1f, 0.2f, 1f));
+                nv = list;
+            }
+            else return false;
+            f.SetValue(z, nv);
+            return true;
+        }
+
+        // 0..1 に収まりつつ必ず元と異なる値へ（反転だと 0.5 で不動点になる）。
+        private static float PerturbChannel(float c) => c < 0.5f ? c + 0.25f : c - 0.25f;
 
         // 連結keep のクロップ転写検証(M4)。フル画像で keep をキャッシュし、中央クロップを
         // (a)キャッシュあり (b)なし で処理。クロップ内部(境界マージン除外)をフルのクロップ領域と
