@@ -1,5 +1,11 @@
 name: Release VPM Package
 
+# フロー: scripts/Build-VpmPackage.ps1 で zip + SHA256 + docs/index.json を更新
+#   → main へコミット → v<VERSION> タグ push → 本ワークフローが整合検証 + draft 作成
+#   → 人間が zip / unitypackage を draft へアップロードして publish
+#   → release-verify.yml が公開資産の SHA256 を docs/index.json と照合
+# 手順の全体像は docs/RELEASING.md を参照。
+
 on:
   push:
     tags:
@@ -7,6 +13,9 @@ on:
 
 permissions:
   contents: write
+
+env:
+  PACKAGE_ID: com.yukkuri-aoba.iroca
 
 jobs:
   release:
@@ -19,32 +28,77 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
+      # tag / package.json / CHANGELOG / docs/index.json のバージョン整合を検証。
+      # 不一致のまま draft を作らない（壊れた listing を公開する事故の防止）。
+      - name: Validate version consistency
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          EXPECTED_URL="https://github.com/${{ github.repository }}/releases/download/v$VERSION/$PACKAGE_ID-$VERSION.zip"
+
+          PKG_VERSION=$(jq -r .version package.json)
+          if [ "$PKG_VERSION" != "$VERSION" ]; then
+            echo "::error::package.json の version ($PKG_VERSION) が tag ($VERSION) と不一致"
+            exit 1
+          fi
+
+          PKG_URL=$(jq -r '.url // empty' package.json)
+          if [ "$PKG_URL" != "$EXPECTED_URL" ]; then
+            echo "::error::package.json の url が想定リリース URL と不一致 (Build-VpmPackage.ps1 を実行し忘れていないか)"
+            echo "  actual:   $PKG_URL"
+            echo "  expected: $EXPECTED_URL"
+            exit 1
+          fi
+
+          if ! grep -q "^## \[$VERSION\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md に '## [$VERSION]' 節がありません"
+            exit 1
+          fi
+
+          LISTING_URL=$(jq -r --arg id "$PACKAGE_ID" --arg v "$VERSION" \
+            '.packages[$id].versions[$v].url // empty' docs/index.json)
+          if [ "$LISTING_URL" != "$EXPECTED_URL" ]; then
+            echo "::error::docs/index.json に $VERSION のエントリが無いか URL が不一致 (Build-VpmPackage.ps1 を実行し忘れていないか)"
+            echo "  actual:   $LISTING_URL"
+            echo "  expected: $EXPECTED_URL"
+            exit 1
+          fi
+
+          LISTING_SHA=$(jq -r --arg id "$PACKAGE_ID" --arg v "$VERSION" \
+            '.packages[$id].versions[$v].zipSHA256 // empty' docs/index.json)
+          if [ -z "$LISTING_SHA" ]; then
+            echo "::error::docs/index.json の $VERSION エントリに zipSHA256 がありません"
+            exit 1
+          fi
+          echo "listing SHA256: $LISTING_SHA"
+
       - name: Extract changelog section
         id: changelog
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
           BODY=$(awk "/^## \[$VERSION\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md)
-          echo "BODY<<EOF" >> $GITHUB_OUTPUT
-          echo "$BODY" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          if [ -z "$(echo "$BODY" | tr -d '[:space:]')" ]; then
+            echo "::error::CHANGELOG.md の [$VERSION] 節が空です"
+            exit 1
+          fi
+          SHA=$(jq -r --arg id "$PACKAGE_ID" --arg v "$VERSION" \
+            '.packages[$id].versions[$v].zipSHA256' docs/index.json)
+          {
+            echo "BODY<<CHANGELOG_EOF"
+            echo "$BODY"
+            echo ""
+            echo "---"
+            echo "### 公開前チェックリスト（draft のまま実施 → 完了後にこの節を削除して publish）"
+            echo "- [ ] \`$PACKAGE_ID-$VERSION.zip\` をこのリリースへアップロード（SHA256 = \`$SHA\`）"
+            echo "- [ ] \`Iroca_Ver$VERSION.unitypackage\` をこのリリースへアップロード"
+            echo "- [ ] publish 後、release-verify ワークフローが成功することを確認"
+            echo "CHANGELOG_EOF"
+          } >> $GITHUB_OUTPUT
 
       - name: Create draft GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "v${{ steps.version.outputs.VERSION }}"
+          tag_name: ${{ github.ref_name }}
+          name: "Iroca v${{ steps.version.outputs.VERSION }}"
           body: ${{ steps.changelog.outputs.BODY }}
           draft: true
-          prerelease: false
-
-      - name: Create GitHub Release (draft)
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: "Iroca ${{ github.ref_name }}"
-          draft: true
           prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'Beta') || contains(github.ref_name, 'alpha') }}
-          files: |
-            README.md
-            MANUAL.md
-            ${{ steps.pkg.outputs.UNITYPACKAGE }}
-            ${{ steps.zip.outputs.ZIP_NAME }}
