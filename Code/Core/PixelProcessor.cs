@@ -381,9 +381,10 @@ namespace Iroca
                 _tp = _tZone;
 
                 // ArrayPool 借用は per-zone の try/finally で必ず返却する。
-                // Parallel.For は po.CancellationToken でキャンセル時に OperationCanceledException
-                // を投げ、FillSmallHoles 等の内部 Parallel.For 利用も例外を伝播し得るため、
-                // 例外経路でもプールが汚染されないよう finally でガードする。
+                // Parallel.For は po.CancellationToken でキャンセル時に OperationCanceledException を投げる。
+                // 後段ヘルパー(Decontaminate/CleanAchromaFringe/GaussianBlur/FillSmallHoles/RecoverBoundaryEdges
+                // /RejectNeutral/Solidify/GrowHighlightBand)にも cancellationToken を渡しており、内部 Parallel.For も
+                // 同様にキャンセル例外を伝播するため、例外経路でもプールが汚染されないよう finally でガードする。
                 float[] strength = null;
                 float[] highlightPot = null;
                 float[] matchConf = null;
@@ -474,7 +475,7 @@ namespace Iroca
                     //       strength を空間連結で伸ばし、薄いハイライトのベタ塗り化・取りこぼしを防ぐ。
                     if (!selCached && zone.highlightBandExpand && zone.highlightRecovery)
                     {
-                        GrowHighlightBand(strength, originalPixels, pixH, pixS, pixV, zone, w, h);
+                        GrowHighlightBand(strength, originalPixels, pixH, pixS, pixV, zone, w, h, cancellationToken);
                         debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, strength, w, h);
                     }
 
@@ -600,7 +601,7 @@ namespace Iroca
                                 }
                             });
                             FillSmallHoles(strength, w, h, holeFillPasses, holeFillMinNeighbors, fillAllowed,
-                                ppMinX, ppMinY, ppMaxX, ppMaxY);
+                                ppMinX, ppMinY, ppMaxX, ppMaxY, cancellationToken);
                         }
                         finally
                         {
@@ -618,7 +619,7 @@ namespace Iroca
                             zone.sampleColor, zone.tolerance, zone.edgeSoftness, zone.valueWeight,
                             zone.satDistWeight, relaxedSatMin, relaxedSatRamp, zone.shadowForgivenessSatMin, antiAliasCleanup,
                             ppMinX, ppMinY, ppMaxX, ppMaxY,
-                            originalPixels, relaxedChromaConf, zone.chromaThreshold);
+                            originalPixels, relaxedChromaConf, zone.chromaThreshold, cancellationToken);
                         debug?.RecordStage(zone.id, DebugStages.BoundaryRecover, strength, w, h);
                     }
 
@@ -637,13 +638,13 @@ namespace Iroca
                             Array.Copy(strength, preBlur, len);
                             blurOut = s_floatPool.Rent(len);
                             if (GaussianBlur(strength, blurOut, w, h, edgeFeather,
-                                ppMinX, ppMinY, ppMaxX, ppMaxY))
+                                ppMinX, ppMinY, ppMaxX, ppMaxY, cancellationToken))
                             {
                                 // strength の所有権を blurOut に移し、もとの strength は返却
                                 s_floatPool.Return(strength);
                                 strength = blurOut;
                                 blurOut = null; // 二重返却防止
-                                ConstrainBlur(strength, preBlur, w, h, Mathf.CeilToInt(edgeFeather * 2.5f));
+                                ConstrainBlur(strength, preBlur, w, h, Mathf.CeilToInt(edgeFeather * 2.5f), cancellationToken);
                             }
                         }
                         finally
@@ -699,7 +700,7 @@ namespace Iroca
                     // 灰色化する)。有彩→有彩(weight≈0)・低彩度サンプル(sS<床)では作動しない=従来挙動を完全維持。
                     float zAchromaSelectWeight = ComputeAchromaSelectWeight(zone.sampleColor, zone.targetColor);
                     if (zAchromaSelectWeight > AchromaNeutralRejectWeightMin && zSS >= NeutralRejectActiveSourceSat)
-                        RejectNeutralForAchromaTarget(strength, pixS, w, h, zSS);
+                        RejectNeutralForAchromaTarget(strength, pixS, w, h, zSS, cancellationToken);
 
                     // WS-R 内部固め: 極端な無彩ターゲット(白↔黒)では、マッチ強度が色のばらつきで内部まで
                     // フルにならず、明るい画素ほど弱く塗られて元色が残り「中央の段差」になる。陰影は塗り
@@ -707,7 +708,7 @@ namespace Iroca
                     // 内部を full strength に固め、AA 縁(侵食で除いた帯)の taper だけ残す。有彩ターゲット
                     // (achromaWeight≈0)では no-op = byte 不変。
                     if (zAchromaWeight > 1e-4f)
-                        SolidifyAchromaInterior(strength, w, h, zAchromaWeight);
+                        SolidifyAchromaInterior(strength, w, h, zAchromaWeight, cancellationToken);
 
                     bool[] aaMask = null;
                     Color32[] decontaminatedPixels = null;
@@ -722,7 +723,7 @@ namespace Iroca
                         DecontaminateAaBoundary(originalPixels, strength, w, h,
                             zone.sampleColor, zone.targetColor,
                             decontaminationRadius, effInteriorThreshold,
-                            aaMask, decontaminatedPixels, hasPostBox);
+                            aaMask, decontaminatedPixels, hasPostBox, cancellationToken);
                         debug?.RecordDecontamination(zone.id, aaMask, w, h);
                     }
 
@@ -974,7 +975,7 @@ namespace Iroca
                     // 有彩(zAchromaWeight≈0)では呼ばれず完全 no-op。共有のマッチ/合成経路は変更しない。
                     if (zAchromaWeight > 1e-4f && rcMaxX >= 0)
                         CleanAchromaFringe(pixels, originalPixels, strengthForRecolor, claimedLocal,
-                            w, h, zone.sampleColor, zone.targetColor, rcMinX, rcMinY, rcMaxX, rcMaxY);
+                            w, h, zone.sampleColor, zone.targetColor, rcMinX, rcMinY, rcMaxX, rcMaxY, cancellationToken);
 
                     _phaseTicks[PhRecolor] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
@@ -1061,7 +1062,8 @@ namespace Iroca
             Color32[] originalPixels, float[] strength, int w, int h,
             Color sampleColor, Color targetColor,
             int radius, float interiorThreshold,
-            bool[] aaMask, Color32[] decontaminatedPixels, bool hasMatch = true)
+            bool[] aaMask, Color32[] decontaminatedPixels, bool hasMatch = true,
+            CancellationToken ct = default)
         {
             int len = w * h;
             // 呼び出し側がゾーン間で再利用するバッファを渡す。aaMask は全画素で読まれるため
@@ -1094,7 +1096,7 @@ namespace Iroca
             Array.Clear(wG, 0, len);
             Array.Clear(wB, 0, len);
             Array.Clear(wD, 0, len);
-            var decontamPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
+            var decontamPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             Parallel.For(0, len, decontamPo, i =>
             {
                 // アルファが0のピクセルはRGBがゴミデータ(黒など)の可能性が高いためBG推定から除外
@@ -1108,10 +1110,10 @@ namespace Iroca
             });
             // BG 推定(R/G/B/density)。各 ch を順に処理する(融合版は temp ストリームが 4 本同時に
             // なりメモリ帯域律速のこの処理ではキャッシュスラッシングで遅くなったため単一版に戻した)。
-            BoxFilterSum(wR, bgRSum, w, h, radius);
-            BoxFilterSum(wG, bgGSum, w, h, radius);
-            BoxFilterSum(wB, bgBSum, w, h, radius);
-            BoxFilterSum(wD, bgDensity, w, h, radius);
+            BoxFilterSum(wR, bgRSum, w, h, radius, ct);
+            BoxFilterSum(wG, bgGSum, w, h, radius, ct);
+            BoxFilterSum(wB, bgBSum, w, h, radius, ct);
+            BoxFilterSum(wD, bgDensity, w, h, radius, ct);
 
             // sample / target を 0..255 スケールに揃える
             float sR = sampleColor.r * 255f;
@@ -1202,7 +1204,7 @@ namespace Iroca
         private static void CleanAchromaFringe(
             Color32[] pixels, Color32[] originalPixels, float[] strength, float[] claimed,
             int w, int h, Color sampleColor, Color targetColor,
-            int bbMinX, int bbMinY, int bbMaxX, int bbMaxY)
+            int bbMinX, int bbMinY, int bbMaxX, int bbMaxY, CancellationToken ct = default)
         {
             int len = w * h;
             float[] wR = null, wG = null, wB = null, wD = null;
@@ -1217,7 +1219,7 @@ namespace Iroca
                 wM = s_floatPool.Rent(len); mNear = s_floatPool.Rent(len);
                 Array.Clear(wR, 0, len); Array.Clear(wG, 0, len);
                 Array.Clear(wB, 0, len); Array.Clear(wD, 0, len); Array.Clear(wM, 0, len);
-                var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
+                var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
                 // 背景候補(非マッチ かつ α>0)と、マッチ指標を準備
                 Parallel.For(0, len, po, i =>
                 {
@@ -1229,11 +1231,11 @@ namespace Iroca
                     }
                     if (s > 0.05f) wM[i] = 1f;
                 });
-                BoxFilterSum(wR, bgRSum, w, h, 4);
-                BoxFilterSum(wG, bgGSum, w, h, 4);
-                BoxFilterSum(wB, bgBSum, w, h, 4);
-                BoxFilterSum(wD, bgD, w, h, 4);
-                BoxFilterSum(wM, mNear, w, h, AchromaFringeMatchRadius);
+                BoxFilterSum(wR, bgRSum, w, h, 4, ct);
+                BoxFilterSum(wG, bgGSum, w, h, 4, ct);
+                BoxFilterSum(wB, bgBSum, w, h, 4, ct);
+                BoxFilterSum(wD, bgD, w, h, 4, ct);
+                BoxFilterSum(wM, mNear, w, h, AchromaFringeMatchRadius, ct);
 
                 float sR = sampleColor.r * 255f, sG = sampleColor.g * 255f, sB = sampleColor.b * 255f;
                 float tR = targetColor.r * 255f, tG = targetColor.g * 255f, tB = targetColor.b * 255f;
@@ -1294,11 +1296,11 @@ namespace Iroca
         /// 内部 temp バッファは ArrayPool から借用・返却するのでヒープアロケーションなし。
         /// dst は呼び出し元が事前に確保すること（ArrayPool.Rent 推奨）。
         /// </summary>
-        private static void BoxFilterSum(float[] src, float[] dst, int w, int h, int r)
+        private static void BoxFilterSum(float[] src, float[] dst, int w, int h, int r, CancellationToken ct = default)
         {
             int len = w * h;
             float[] temp = s_floatPool.Rent(len);
-            var filterPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
+            var filterPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             try
             {
                 // 水平パス
@@ -1801,12 +1803,12 @@ namespace Iroca
         /// 落としつつ、コア近傍の脱彩した陰影/AA縁は保護する(彩度だけでは両者を区別できないため空間距離で
         /// 分離する)。呼び出し側で achromaWeight/サンプル彩度を gate。
         /// </summary>
-        private static void RejectNeutralForAchromaTarget(float[] strength, float[] pixS, int w, int h, float sS)
+        private static void RejectNeutralForAchromaTarget(float[] strength, float[] pixS, int w, int h, float sS, CancellationToken ct = default)
         {
             const float matchThr = 0.05f;
             float floor = sS * NeutralRejectFloorFrac;
             int len = w * h;
-            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             bool[] cur = s_boolPool.Rent(len);
             bool[] nxt = s_boolPool.Rent(len);
             try
@@ -1862,12 +1864,12 @@ namespace Iroca
         /// マッチして元色が残る「中央の段差」を消すための前処理。陰影は後段 recolor の achroma
         /// レンジリマップ(gain≤1)が担う。
         /// </summary>
-        private static void SolidifyAchromaInterior(float[] strength, int w, int h, float achromaWeight)
+        private static void SolidifyAchromaInterior(float[] strength, int w, int h, float achromaWeight, CancellationToken ct = default)
         {
             const float matchThr = 0.05f;
             const int erodePx = 2;
             int len = w * h;
-            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             bool[] cur = s_boolPool.Rent(len);
             bool[] nxt = s_boolPool.Rent(len);
             try
@@ -2086,7 +2088,8 @@ namespace Iroca
         /// </summary>
         private static void GrowHighlightBand(
             float[] strength, Color32[] originalPixels,
-            float[] pixH, float[] pixS, float[] pixV, ColorZone zone, int w, int h)
+            float[] pixH, float[] pixS, float[] pixV, ColorZone zone, int w, int h,
+            CancellationToken ct = default)
         {
             float sH, sS, sV;
             Color.RGBToHSV(zone.sampleColor, out sH, out sS, out sV);
@@ -2107,7 +2110,7 @@ namespace Iroca
 
             // 候補判定: 各画素は独立(他画素を参照しない)なので並列化する。candidate[] は
             // 走査順に依存せず、書き込みは distinct index のため出力は逐次版とビット不変。
-            var hlbPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
+            var hlbPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             Parallel.For(0, len, hlbPo, i =>
             {
                 float pV = pixV[i];
@@ -2192,7 +2195,8 @@ namespace Iroca
         /// 戻り値: ブラー処理を行った場合 true、スキップした場合 false。
         /// </summary>
         private static bool GaussianBlur(float[] src, float[] dst, int w, int h, float sigma,
-            int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1)
+            int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1,
+            CancellationToken ct = default)
         {
             int radius = Mathf.CeilToInt(sigma * 2.5f);
             if (radius < 1) return false;
@@ -2215,7 +2219,7 @@ namespace Iroca
             if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
 
             float[] temp = s_floatPool.Rent(len);
-            var gaussPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
+            var gaussPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             try
             {
                 Array.Clear(dst, 0, len);   // 矩形外は 0(全画素ブラーの src=0 領域と一致)
@@ -2262,7 +2266,7 @@ namespace Iroca
             return true;
         }
 
-        private static void ConstrainBlur(float[] blurred, float[] original, int w, int h, int radius)
+        private static void ConstrainBlur(float[] blurred, float[] original, int w, int h, int radius, CancellationToken ct = default)
         {
             // マッチがなかった領域へのブラーの流出を防止。
             // original > 0 を float マスクに変換して BoxFilterSum に流すことで
@@ -2276,9 +2280,9 @@ namespace Iroca
                 for (int i = 0; i < len; i++)
                     mask[i] = original[i] > 0f ? 1f : 0f;
 
-                BoxFilterSum(mask, neighborSum, w, h, radius);
+                BoxFilterSum(mask, neighborSum, w, h, radius, ct);
 
-                Parallel.For(0, len, new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() }, i =>
+                Parallel.For(0, len, new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct }, i =>
                 {
                     if (original[i] > 0f) return; // already matched
                     if (neighborSum[i] <= 0f)
@@ -2337,7 +2341,8 @@ namespace Iroca
         /// </remarks>
         private static void FillSmallHoles(float[] strength, int w, int h,
             int passes = 3, int minNeighbors = 4, bool[] allowedMask = null,
-            int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1)
+            int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1,
+            CancellationToken ct = default)
         {
             if (passes <= 0) return;
 
@@ -2348,7 +2353,7 @@ namespace Iroca
 
             int len = w * h;
             float[] buffer = s_floatPool.Rent(len);
-            var fillPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
+            var fillPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             try
             {
             float[] read = strength;
@@ -2426,7 +2431,8 @@ namespace Iroca
             float edgeSoftness, float valueWeight, float satDistWeight,
             float relaxedSatMin, float relaxedSatRamp, float shadowForgivenessSatMin, int passes,
             int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1,
-            Color32[] originalPixels = null, float chromaConfidence = 1f, float chromaThreshold = 0.05f)
+            Color32[] originalPixels = null, float chromaConfidence = 1f, float chromaThreshold = 0.05f,
+            CancellationToken ct = default)
         {
             if (passes <= 0) return;
 
@@ -2440,7 +2446,7 @@ namespace Iroca
 
             int len = w * h;
             float[] buffer = s_floatPool.Rent(len);
-            var recoverPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
+            var recoverPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             try
             {
             float[] read = strength;
