@@ -129,6 +129,7 @@ namespace Iroca
         {
             try
             {
+                data.schemaVersion = IrocaPresetData.CurrentSchemaVersion;
                 AtomicFile.WriteAllText(path, JsonUtility.ToJson(data, true));
                 return true;
             }
