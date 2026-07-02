@@ -32,11 +32,13 @@ namespace Iroca
         [System.NonSerialized] internal PreviewParityCache previewParityCache;
 
         // ── プレビュー直接スポイト ──
-        // スポイトモードで武装中のゾーン index（-1 = 解除）。プレビュー上のクリックで
+        // スポイトモードで武装中のゾーン id（null/空 = 解除）。プレビュー上のクリックで
         // そのゾーンのサンプルカラーを実テクスチャ画素から取得する（一発で自動解除）。
+        // index でなく id で保持するのは、武装中にゾーンを並べ替え・削除しても別ゾーンに
+        // 色が入らないようにするため（自動調整の GUID 方式と同様、FindZoneById で解決）。
         // 一時状態なのでドメインリロードをまたいで保持しない（NonSerialized）。
-        [System.NonSerialized] private int _eyedropperZoneIndex = -1;
-        internal int EyedropperZoneIndex { get => _eyedropperZoneIndex; set => _eyedropperZoneIndex = value; }
+        [System.NonSerialized] private string _eyedropperZoneId;
+        internal string EyedropperZoneId { get => _eyedropperZoneId; set => _eyedropperZoneId = value; }
 
         // ── 各 View からの再描画通知用 ──
         internal void MarkPreviewDirty() { if (_previewView != null) _previewView.previewDirty = true; }
@@ -122,7 +124,7 @@ namespace Iroca
             Repaint();
         }
 
-        private ColorZone FindZoneById(string id)
+        internal ColorZone FindZoneById(string id)
         {
             if (string.IsNullOrEmpty(id) || _session?.zones == null) return null;
             foreach (var z in _session.zones)

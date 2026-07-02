@@ -544,10 +544,10 @@ namespace Iroca
             HandlePreviewGlobalInput(zoomHitRect, scale);
 
             // スポイトとマスクペイントは排他。ペイントに入ったらスポイトを解除する。
-            if (maskView.maskPaintActive && _host.EyedropperZoneIndex >= 0)
-                _host.EyedropperZoneIndex = -1;
+            if (maskView.maskPaintActive && !string.IsNullOrEmpty(_host.EyedropperZoneId))
+                _host.EyedropperZoneId = null;
 
-            bool eyedropperArmed = _host.EyedropperZoneIndex >= 0 && !maskView.maskPaintActive;
+            bool eyedropperArmed = !string.IsNullOrEmpty(_host.EyedropperZoneId) && !maskView.maskPaintActive;
 
             // スポイト武装中はプレビュークリックを横取りして実画素からサンプル取得に充てる
             // （シード設定・パンより優先。取得すると one-shot で自動解除）。
@@ -870,11 +870,10 @@ namespace Iroca
                         float v = Mathf.Clamp01(1f - (e.mousePosition.y - previewRect.y) / previewRect.height);
                         if (SampleTrueSourceColor(u, v, srcW, srcH, out Color picked))
                         {
-                            var zones = _host.Session.zones;
-                            int idx = _host.EyedropperZoneIndex;
-                            if (zones != null && idx >= 0 && idx < zones.Count)
+                            // 武装ゾーンは id で解決する（並べ替え・削除で index がずれても正しいゾーンに入る）。
+                            var zone = _host.FindZoneById(_host.EyedropperZoneId);
+                            if (zone != null)
                             {
-                                var zone = zones[idx];
                                 if (zone.sampleColor != picked || !zone.sampleColorSet)
                                 {
                                     Undo.RecordObject(_host, "Sample Color");
@@ -887,7 +886,7 @@ namespace Iroca
                                 }
                             }
                             // one-shot: 取得したら武装解除。
-                            _host.EyedropperZoneIndex = -1;
+                            _host.EyedropperZoneId = null;
                             GUIUtility.hotControl = controlId;
                             e.Use();
                             _host.RequestRepaint();
