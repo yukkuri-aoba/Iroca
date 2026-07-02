@@ -1,6 +1,7 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
+using System.IO;
 using UnityEditor;
 using UnityEngine;
 
@@ -94,9 +95,19 @@ namespace Iroca
             _previewView.Initialize(this);
             EnsureAllZoneIds();
             // AssetWatcher の delete フックを取りこぼした場合の保険として、
-            // ウィンドウを開いた時に MaskCache の orphan ファイルを掃除する。
+            // ウィンドウを開いた時に MaskCache / SessionCache の orphan ファイルを掃除する。
             MaskFileStore.CleanupOrphans();
-            _maskView.RestoreFromSession();
+            SessionFileStore.CleanupOrphans();
+
+            // 初回オープン（sourceTexture 未設定）時のみ、前回編集していたテクスチャを自動ロードし、
+            // そのテクスチャのセッション（ゾーン/色/処理設定）＋マスクをまるごと復元する。
+            // ドメインリロード/レイアウト復元では sourceTexture と _session が既にメモリ上にあるので、
+            // ディスクから読み直さず（未保存の変更を潰さないため）、マスクバッファの再展開だけ行う。
+            if (sourceTexture == null && TryAutoLoadLastEditedTexture())
+                LoadPersistedSessionForCurrentTexture();
+            else
+                _maskView.RestoreFromSession();
+
             // Unity 標準 Undo の戻り/進みに合わせて bool[] バッファを _session.maskState から再展開。
             // 二重購読を避けるため一度外してから登録する（PreviewJobMainThread.Install と同じ防御）。
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
@@ -108,7 +119,8 @@ namespace Iroca
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
             _previewView?.Suspend();
             _maskView?.SuspendTransientState();
-            _maskView.SaveToSession();
+            SavePersistedSessionForCurrentTexture();
+            RememberLastEditedTexture();
         }
 
         private void OnUndoRedoPerformed()
@@ -174,7 +186,8 @@ namespace Iroca
             _previewView?.Dispose();
             _exportView?.Dispose();
             _autoTuneJob?.Dispose();
-            _maskView?.SaveToSession();
+            SavePersistedSessionForCurrentTexture();
+            RememberLastEditedTexture();
             _maskView?.ReleaseOverlayTextures();
         }
 
@@ -202,5 +215,112 @@ namespace Iroca
         // bool[] バッファを _session.maskState に書き戻す（Undo 登録前のスナップショット確定用）。
         // プリセット読込の Undo 登録（PresetsView.LoadPreset）から呼ばれる。
         internal void SyncMaskBuffersToState() => _maskView?.SyncBuffersToState();
+
+        // ─────────────── セッション永続化（テクスチャ GUID 単位） ───────────────
+        // マスクは MaskFileStore、ゾーン・色・処理設定は SessionFileStore が、それぞれ
+        // テクスチャ GUID 単位でディスク保存する。ウィンドウを閉じても、開き直した
+        // テクスチャの編集内容がまるごと復元される。前回編集テクスチャは EditorPrefs に
+        // 記憶し、初回オープン時に自動ロードする。
+
+        // 最後に編集していたテクスチャの GUID を保存する EditorPrefs キー（Editor 再起動を跨ぐ）。
+        private const string LastTextureGuidPrefKey = "Iroca.LastTextureGuid";
+
+        // SessionCache ファイルが「存在するのに読めなかった」フラグ。true の間は空保存での
+        // 削除・無退避上書きを抑止する（MaskPaintView._maskLoadFailed と同じ防御）。
+        [System.NonSerialized] private bool _sessionLoadFailed;
+
+        private static string CurrentTexturePath(Texture2D tex)
+        {
+            if (tex == null) return null;
+            string path = AssetDatabase.GetAssetPath(tex);
+            return string.IsNullOrEmpty(path) ? null : path;
+        }
+
+        /// <summary>
+        /// 現在のテクスチャのマスク＋セッション（ゾーン/色/処理設定）をディスクへ保存する。
+        /// マスク保存に失敗したときだけ false（呼び出し側でユーザー通知に使う）。
+        /// </summary>
+        private bool SavePersistedSessionForCurrentTexture()
+        {
+            bool maskOk = _maskView == null || _maskView.SaveToSession();
+            string path = CurrentTexturePath(sourceTexture);
+            if (path != null && _session != null)
+                SessionFileStore.SaveSession(path, _session, _sessionLoadFailed);
+            return maskOk;
+        }
+
+        /// <summary>
+        /// 現在のテクスチャに保存済みのセッション（ゾーン/色/処理設定）を読み込んで適用し、
+        /// 続けてマスクを復元する。保存が無ければ既定値（空ゾーン）にリセットする。
+        /// テクスチャ切替時・初回自動ロード時に呼ぶ。
+        /// </summary>
+        private void LoadPersistedSessionForCurrentTexture()
+        {
+            string path = CurrentTexturePath(sourceTexture);
+            IrocaSessionState loaded = null;
+            _sessionLoadFailed = false;
+            if (path != null)
+            {
+                loaded = SessionFileStore.LoadSession(path, out bool unreadable);
+                _sessionLoadFailed = unreadable;
+            }
+
+            // 読み込めた内容 or 既定値で _session をまるごと置き換える。maskState は空にしておき、
+            // 直後の RestoreFromSession がディスクのマスクファイルから読み直して上書きする
+            // （マスクが無ければ空のまま＝正しい）。
+            _session = loaded ?? IrocaSessionState.CreateDefault();
+            _session.maskState = new MaskState();
+            EnsureAllZoneIds();
+
+            _maskView?.RestoreFromSession();
+            MarkPreviewDirty();
+        }
+
+        /// <summary>
+        /// 現在のテクスチャ GUID を「前回編集テクスチャ」として記憶する（テクスチャ未設定なら空）。
+        /// </summary>
+        private void RememberLastEditedTexture()
+        {
+            string path = CurrentTexturePath(sourceTexture);
+            string guid = path != null ? AssetDatabase.AssetPathToGUID(path) : "";
+            EditorPrefs.SetString(LastTextureGuidPrefKey, guid ?? "");
+        }
+
+        /// <summary>
+        /// EditorPrefs に記憶した前回編集テクスチャを解決して sourceTexture へ設定する。
+        /// 解決できたら true（呼び出し側でセッション/マスク復元を続ける）。
+        /// </summary>
+        private bool TryAutoLoadLastEditedTexture()
+        {
+            string guid = EditorPrefs.GetString(LastTextureGuidPrefKey, "");
+            if (string.IsNullOrEmpty(guid)) return false;
+            string path = AssetDatabase.GUIDToAssetPath(guid);
+            if (string.IsNullOrEmpty(path)) return false;
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            if (tex == null) return false;
+
+            sourceTexture = tex;
+            _exportView?.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(path));
+            return true;
+        }
+
+        /// <summary>
+        /// 現在のテクスチャの編集内容（ゾーン・色・処理設定・マスク）をすべて破棄して
+        /// 初期状態へ戻す。Undo 登録するので「元に戻す」で復元できる。
+        /// ヘッダーの「リセット」ボタンから確認ダイアログを経て呼ばれる。
+        /// </summary>
+        private void ResetCurrentSession()
+        {
+            Undo.RegisterCompleteObjectUndo(this, "Reset Iroca Session");
+
+            _session = IrocaSessionState.CreateDefault();   // ゾーン・色・処理設定を既定へ
+            _maskView?.ClearBuffersOnTextureChange();        // マスク bool[] バッファを全消去
+            _maskView?.SyncBuffersToState();                 // 空バッファを maskState へ反映（＝空マスク）
+            EnsureAllZoneIds();
+
+            _previewView?.InvalidateSourceCache();
+            MarkPreviewDirty();
+            Repaint();
+        }
     }
 }
