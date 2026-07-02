@@ -66,7 +66,6 @@ namespace Iroca
         // seedUV=[u,v] は任意の上書きシード(未指定=null=自動アンカリング)。
         public bool useFloodFill { get; set; } = false;
         public float[] seedUV { get; set; } = null;
-        public float edgeStopThreshold { get; set; } = 0.15f;
     }
 
     internal sealed class SettingsCfg
@@ -135,7 +134,6 @@ namespace Iroca
                 useFloodFill = z.useFloodFill,
                 seedUV = (z.seedUV != null && z.seedUV.Length >= 2)
                     ? new Vector2(z.seedUV[0], z.seedUV[1]) : new Vector2(-1f, -1f),
-                edgeStopThreshold = z.edgeStopThreshold,
             };
             zone.EnsureId();
             zone.UpdateCacheIfNeeded();
