@@ -189,7 +189,9 @@ namespace Iroca
 
         /// <summary>
         /// マスクの座標系（maskWidth/maskHeight）を sourceTexture に揃える。
-        /// 解像度が変わったときにのみ既存マスクを破棄する。
+        /// 解像度が変わったときは既存マスクを新しい座標系へ最近傍でリスケールする
+        /// （破棄すると import Max Size を変えただけで描いたマスクが消え、
+        /// その状態が次回保存で永続化されてしまう）。
         /// 共通マスク <see cref="exclusionMask"/> の確保は行わない（アクティブターゲットが
         /// ゾーンだけの場合に zone-only mask を巻き込んで消さないため）。
         /// </summary>
@@ -202,12 +204,52 @@ namespace Iroca
 
             if (maskWidth != w || maskHeight != h)
             {
-                // 解像度が変わったのでマスク座標系が合わない。共通もゾーンも全破棄。
+                int oldW = maskWidth, oldH = maskHeight;
+                bool hadData = exclusionMask != null || zoneMasks.Count > 0;
+                if (hadData && oldW > 0 && oldH > 0)
+                {
+                    exclusionMask = RescaleMask(exclusionMask, oldW, oldH, w, h);
+                    var keys = new List<string>(zoneMasks.Keys);
+                    foreach (var key in keys)
+                    {
+                        var scaled = RescaleMask(zoneMasks[key], oldW, oldH, w, h);
+                        if (scaled != null) zoneMasks[key] = scaled;
+                        else zoneMasks.Remove(key); // 不変条件: null 値のエントリは持たない
+                    }
+                    Debug.Log($"[Iroca] テクスチャ解像度の変更 ({oldW}x{oldH} → {w}x{h}) に合わせてマスクをリスケールしました。");
+                }
+                else
+                {
+                    exclusionMask = null;
+                    zoneMasks.Clear();
+                }
                 maskWidth = w;
                 maskHeight = h;
-                exclusionMask = null;
-                zoneMasks.Clear();
+                maskDirty = true;
             }
+        }
+
+        /// <summary>
+        /// 旧解像度の bool マスクを新解像度へ最近傍でリスケールする。
+        /// サンプリング式は処理側（PixelProcessor の <c>mx = x * maskW / texW</c>）と同じ
+        /// 整数切り捨てで、適用結果の対応関係を保つ。<c>null</c> や不整合サイズは <c>null</c> を返す。
+        /// </summary>
+        private static bool[] RescaleMask(bool[] src, int oldW, int oldH, int newW, int newH)
+        {
+            if (src == null || src.Length != oldW * oldH || newW <= 0 || newH <= 0) return null;
+            var dst = new bool[newW * newH];
+            for (int y = 0; y < newH; y++)
+            {
+                int oy = (int)((long)y * oldH / newH);
+                int rowOld = oy * oldW;
+                int rowNew = y * newW;
+                for (int x = 0; x < newW; x++)
+                {
+                    int ox = (int)((long)x * oldW / newW);
+                    dst[rowNew + x] = src[rowOld + ox];
+                }
+            }
+            return dst;
         }
 
         /// <summary>
