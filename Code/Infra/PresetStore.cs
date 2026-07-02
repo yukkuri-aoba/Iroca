@@ -129,7 +129,7 @@ namespace Iroca
         {
             try
             {
-                File.WriteAllText(path, JsonUtility.ToJson(data, true));
+                AtomicFile.WriteAllText(path, JsonUtility.ToJson(data, true));
                 return true;
             }
             catch (Exception ex)

@@ -57,7 +57,7 @@ namespace Iroca
             try
             {
                 Directory.CreateDirectory(CacheDir);
-                File.WriteAllText(path, JsonUtility.ToJson(state));
+                AtomicFile.WriteAllText(path, JsonUtility.ToJson(state));
                 return true;
             }
             catch (Exception ex)
