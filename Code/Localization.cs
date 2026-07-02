@@ -379,6 +379,15 @@ namespace Iroca
         public static string PresetDeleteFailed => IsJapanese ? "プリセットの削除に失敗しました" : "Failed to delete preset";
         public static string MaskSaveFailed     => IsJapanese ? "マスクの保存に失敗しました" : "Failed to save mask";
 
+        // ─── セッションのリセット ───
+        public static string ResetSession => IsJapanese ? "リセット" : "Reset";
+        public static string ResetSessionTooltip => IsJapanese
+            ? "現在のテクスチャのゾーン・色・処理設定・マスクをすべて消して初期状態に戻します（Ctrl+Z の「元に戻す」で復元できます）。"
+            : "Clear all zones, colors, processing settings and masks for the current texture and return to the initial state (undoable with Ctrl+Z).";
+        public static string ResetSessionConfirm => IsJapanese
+            ? "現在のテクスチャのゾーン・色・処理設定・マスクをすべて消して初期状態に戻します。よろしいですか？\n（「元に戻す」で復元できます）"
+            : "This clears all zones, colors, processing settings and masks for the current texture. Continue?\n(You can undo this.)";
+
         // ─── Preset Tips ───
         public static string PresetTips => IsJapanese
             ? "【ヒント】\n保存: 現在のゾーン設定をプリセットとして保存\n読込: プリセットを読み込みゾーン設定を上書き\n×: プリセットを削除\n\n保存先\n・プロジェクト内 … Assets フォルダ内に保存 (Gitなどで共有可)\n・ユーザー共通 … 全プロジェクトで共有 (端末ローカルに保存)\n\nJSON エクスポート/インポートで設定を外部ファイルとして共有できます"

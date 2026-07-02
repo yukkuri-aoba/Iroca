@@ -270,6 +270,19 @@ namespace Iroca
 
             GUILayout.FlexibleSpace();
 
+            // 現在のテクスチャの編集内容（ゾーン・色・処理設定・マスク）を初期状態へ戻す逃げ道。
+            // 確認ダイアログを挟み、Undo 登録するので誤操作しても「元に戻す」で復元できる。
+            using (new EditorGUI.DisabledScope(sourceTexture == null))
+            {
+                if (GUILayout.Button(new GUIContent(Localization.ResetSession, Localization.ResetSessionTooltip),
+                        EditorStyles.toolbarButton, GUILayout.ExpandWidth(false)))
+                {
+                    if (EditorUtility.DisplayDialog(
+                            Localization.Confirm, Localization.ResetSessionConfirm, Localization.OK, Localization.Cancel))
+                        ResetCurrentSession();
+                }
+            }
+
             if (GUILayout.Button(new GUIContent(Localization.Credit, Localization.CreditTooltip), EditorStyles.toolbarButton, GUILayout.ExpandWidth(false)))
             {
                 EditorUtility.DisplayDialog(Localization.CreditTitle, Localization.CreditBody, Localization.OK);
@@ -293,12 +306,13 @@ namespace Iroca
                 Localization.Texture, sourceTexture, typeof(Texture2D), false);
             if (newTex != sourceTexture)
             {
-                // 旧テクスチャのマスクを永続化。失敗時はユーザーに通知（黙って消えないように）。
-                if (!_maskView.SaveToSession())
+                // 旧テクスチャのマスク＋セッション（ゾーン/色/処理設定）を永続化。
+                // マスク保存失敗時はユーザーに通知（黙って消えないように）。
+                if (!SavePersistedSessionForCurrentTexture())
                     ShowNotification(new GUIContent($"{Localization.Error}: {Localization.MaskSaveFailed}"));
-                Undo.RecordObject(this, "Change Source Texture");
+                // _session をまるごと差し替えるため、深い Undo (RegisterCompleteObjectUndo) を使う。
+                Undo.RegisterCompleteObjectUndo(this, "Change Source Texture");
                 sourceTexture = newTex;
-                MarkPreviewDirty();
                 // テクスチャが変わったのでソースピクセルキャッシュを無効化
                 _previewView.InvalidateSourceCache();
                 _maskView.ClearBuffersOnTextureChange();
@@ -307,7 +321,9 @@ namespace Iroca
                     var path = AssetDatabase.GetAssetPath(sourceTexture);
                     _exportView.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(path));
                 }
-                _maskView.RestoreFromSession();              // load mask for new texture
+                // 新テクスチャのセッション（ゾーン/色/処理設定）＋マスクを復元（保存が無ければ既定へ）。
+                LoadPersistedSessionForCurrentTexture();
+                RememberLastEditedTexture();
             }
 
             if (sourceTexture != null && !IsReadable(sourceTexture))
