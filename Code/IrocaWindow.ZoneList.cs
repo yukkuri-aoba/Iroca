@@ -138,7 +138,12 @@ namespace Iroca
             if (editMode == EditMode.Simple) editMode = EditMode.Normal;
             int cur = (int)editMode - 1; // Normal=0, Advanced=1（Simple を隠したぶん 1 ずらす）
             int next = GUILayout.Toolbar(cur,
-                new[] { /* Localization.SimpleMode, */ Localization.NormalMode, Localization.AdvancedShort });
+                new[]
+                {
+                    /* Localization.SimpleMode, */
+                    new GUIContent(Localization.NormalMode, Localization.EditModeToolbarTooltip),
+                    new GUIContent(Localization.AdvancedShort, Localization.EditModeToolbarTooltip),
+                });
             if (next != cur && next >= 0)
             {
                 // 制御数が変わるため、ExitGUI 相当の崩れを避けて次の Layout で適用する
@@ -198,7 +203,7 @@ namespace Iroca
                 Repaint();
             }
 
-            if (GUILayout.Button(Localization.AddZone))
+            if (GUILayout.Button(new GUIContent(Localization.AddZone, Localization.AddZoneTooltip)))
             {
                 _pendingAddZone = true;
                 Repaint();

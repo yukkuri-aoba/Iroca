@@ -238,7 +238,7 @@ namespace Iroca
                 var rect = EditorGUILayout.GetControlRect(false, 18f);
                 float pct = _autoTuneProgress.Value;
                 EditorGUI.ProgressBar(rect, pct, $"{Localization.AutoTune}  {Mathf.RoundToInt(pct * 100f)}%");
-                if (GUILayout.Button(Localization.Cancel, GUILayout.Height(22)))
+                if (GUILayout.Button(new GUIContent(Localization.Cancel, Localization.CancelActionTooltip), GUILayout.Height(22)))
                 {
                     _autoTuneJob.Cancel();
                 }
@@ -253,7 +253,12 @@ namespace Iroca
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
 
             // Language selector
-            var labels = new[] { Localization.LangAuto, Localization.LangJapanese, Localization.LangEnglish };
+            var labels = new[]
+            {
+                new GUIContent(Localization.LangAuto, Localization.LanguageToolbarTooltip),
+                new GUIContent(Localization.LangJapanese, Localization.LanguageToolbarTooltip),
+                new GUIContent(Localization.LangEnglish, Localization.LanguageToolbarTooltip),
+            };
             int current = (int)Localization.CurrentLanguage;
             int next = GUILayout.Toolbar(current, labels, EditorStyles.toolbarButton, GUILayout.ExpandWidth(false));
             if (next != current)
@@ -265,7 +270,7 @@ namespace Iroca
 
             GUILayout.FlexibleSpace();
 
-            if (GUILayout.Button(Localization.Credit, EditorStyles.toolbarButton, GUILayout.ExpandWidth(false)))
+            if (GUILayout.Button(new GUIContent(Localization.Credit, Localization.CreditTooltip), EditorStyles.toolbarButton, GUILayout.ExpandWidth(false)))
             {
                 EditorUtility.DisplayDialog(Localization.CreditTitle, Localization.CreditBody, Localization.OK);
             }
@@ -309,7 +314,7 @@ namespace Iroca
             {
                 EditorGUILayout.HelpBox(Localization.ReadWriteError, MessageType.Error);
 
-                if (GUILayout.Button(Localization.EnableReadWrite))
+                if (GUILayout.Button(new GUIContent(Localization.EnableReadWrite, Localization.EnableReadWriteTooltip)))
                 {
                     EnableReadWrite(sourceTexture);
                 }

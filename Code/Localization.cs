@@ -533,6 +533,26 @@ namespace Iroca
             ? "このプリセットを削除します"
             : "Delete this preset";
 
+        // ─── Header / Toolbar / Action tooltips ───
+        public static string EnableReadWriteTooltip => IsJapanese
+            ? "元テクスチャのインポート設定で Read/Write を有効化します。プレビューと色替えに必要です"
+            : "Enable Read/Write in the source texture's import settings. Required for preview and recoloring";
+        public static string AddZoneTooltip => IsJapanese
+            ? "色替え対象を指定する新しいゾーンを追加します"
+            : "Add a new zone to define a recolor target";
+        public static string CancelActionTooltip => IsJapanese
+            ? "実行中の処理を中止します"
+            : "Cancel the running operation";
+        public static string CreditTooltip => IsJapanese
+            ? "このツールのクレジット（作者・ライセンス）を表示します"
+            : "Show credits (author and license) for this tool";
+        public static string LanguageToolbarTooltip => IsJapanese
+            ? "UI の表示言語を切り替えます（自動 / 日本語 / English）"
+            : "Switch the UI display language (Auto / Japanese / English)";
+        public static string EditModeToolbarTooltip => IsJapanese
+            ? "通常: よく使う設定のみ表示 / 上級: 詳細パラメータも表示します"
+            : "Normal: show common settings only / Advanced: also reveal detailed parameters";
+
         // ─── Flood Fill ───
         public static string UseFloodFill => IsJapanese ? "連続領域モード (Flood Fill)" : "Connected Region (Flood Fill)";
         public static string UseFloodFillTooltip => IsJapanese

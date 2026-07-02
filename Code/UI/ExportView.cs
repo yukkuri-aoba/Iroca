@@ -333,7 +333,7 @@ namespace Iroca
             string label = $"{Localization.ApplyAndSave}  {Mathf.RoundToInt(pct * 100f)}%";
             EditorGUI.ProgressBar(rect, pct, label);
 
-            if (GUILayout.Button(Localization.Cancel, GUILayout.Height(22)))
+            if (GUILayout.Button(new GUIContent(Localization.Cancel, Localization.CancelActionTooltip), GUILayout.Height(22)))
             {
                 _exportJob.Cancel();
             }
