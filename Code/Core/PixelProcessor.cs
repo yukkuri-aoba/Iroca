@@ -596,7 +596,7 @@ namespace Iroca
                                         zone.satDistWeight, relaxedSatMin, relaxedSatRamp,
                                         zone.shadowForgivenessSatMin,
                                         hop.r / 255f, hop.g / 255f, hop.b / 255f,
-                                        rgSampR, rgSampG, rgSampB, relaxedChromaConf) > 0f;
+                                        rgSampR, rgSampG, rgSampB, relaxedChromaConf, zone.chromaThreshold) > 0f;
                                 }
                             });
                             FillSmallHoles(strength, w, h, holeFillPasses, holeFillMinNeighbors, fillAllowed,
@@ -618,7 +618,7 @@ namespace Iroca
                             zone.sampleColor, zone.tolerance, zone.edgeSoftness, zone.valueWeight,
                             zone.satDistWeight, relaxedSatMin, relaxedSatRamp, zone.shadowForgivenessSatMin, antiAliasCleanup,
                             ppMinX, ppMinY, ppMaxX, ppMaxY,
-                            originalPixels, relaxedChromaConf);
+                            originalPixels, relaxedChromaConf, zone.chromaThreshold);
                         debug?.RecordStage(zone.id, DebugStages.BoundaryRecover, strength, w, h);
                     }
 
@@ -1652,12 +1652,9 @@ namespace Iroca
         private const float AchromaRefPercentile = 0.80f;
         private const float AchromaRegionCoreThr = 0.5f; // 領域 L レンジを取る strength 下限
 
-        // 彩度整合ゲート(緩和マッチのグレーモード分岐用)。ColorZone.cs の同名 const と必ず一致させること。
-        // 緩和マッチ(穴埋め/AA クリーンアップ)のグレー分岐は値距離 |pV-sV| で判定するため、明るい
-        // クリームサンプルに対し純白(中性)が近接して一致してしまう。プライマリ経路と同じ相対彩度床で排除する。
-        private const float ChromaGateActivateSat = 0.02f; // この tint 未満のサンプルでは無効
-        private const float ChromaGateFloorFrac = 0.5f;    // サンプル彩度 sS*frac 未満は「中性すぎ」
-        private const float ChromaGatePenalty = 1.0f;      // 最大加算距離(tolerance 単位)
+        // 彩度整合ゲート(緩和マッチのグレーモード分岐用)の定数は ColorZone.ChromaGate* を共有する
+        // (二重定義で乖離しないよう一本化)。緩和マッチ(穴埋め/境界回復)のグレー分岐は主経路と同じ
+        // 相対彩度床で純白(中性)を排除する。
 
         // 有彩サンプル→無彩極端ターゲット(赤→白/黒等)の「中性画素リジェクト・フロア」定数。
         // 有彩サンプルはマッチ距離が hue 支配で彩度差を過小評価し、明るい中性画素(白UV背景等)を巻き込む。
@@ -2429,7 +2426,7 @@ namespace Iroca
             float edgeSoftness, float valueWeight, float satDistWeight,
             float relaxedSatMin, float relaxedSatRamp, float shadowForgivenessSatMin, int passes,
             int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1,
-            Color32[] originalPixels = null, float chromaConfidence = 1f)
+            Color32[] originalPixels = null, float chromaConfidence = 1f, float chromaThreshold = 0.05f)
         {
             if (passes <= 0) return;
 
@@ -2484,7 +2481,7 @@ namespace Iroca
                             pixH[idx], pixS[idx], pixV[idx],
                             sH, sS, sV, tolerance, edgeSoftness, valueWeight,
                             satDistWeight, relaxedSatMin, relaxedSatRamp, shadowForgivenessSatMin,
-                            rpR, rpG, rpB, rcSampR, rcSampG, rcSampB, chromaConfidence);
+                            rpR, rpG, rpB, rcSampR, rcSampG, rcSampB, chromaConfidence, chromaThreshold);
                         if (relaxed > 0f)
                             write[idx] = relaxed;
                     }
@@ -2523,10 +2520,13 @@ namespace Iroca
             float tolerance, float edgeSoftness, float valueWeight,
             float satDistWeight, float relaxedSatMin, float relaxedSatRamp, float shadowForgivenessSatMin,
             float pR = 0f, float pG = 0f, float pB = 0f,
-            float sR = 0f, float sG = 0f, float sB = 0f, float chromaConfidence = 1f)
+            float sR = 0f, float sG = 0f, float sB = 0f, float chromaConfidence = 1f,
+            float chromaThreshold = 0.05f)
         {
-            // ColorZone.GetColorMatchScoresと同じ動的頃値：暗いサンプルほどグレースケールモードの範囲を広げる
-            float effectiveChromaThreshold = Mathf.Lerp(0.30f, 0.05f, Mathf.Clamp01(sV / 0.20f));
+            // ColorZone.MatchOneSample と同じ動的しきい値：暗いサンプルほどグレースケールモードの範囲を広げる。
+            // 上端は zone.chromaThreshold(ユーザー可変)を使う。以前は既定値 0.05 を焼き込んでいたため、
+            // ユーザーが chromaThreshold を変えると主経路と穴埋め/境界回復でグレーモード判定が食い違っていた。
+            float effectiveChromaThreshold = Mathf.Lerp(ColorZone.GrayModeBaseChromaThreshold, chromaThreshold, Mathf.Clamp01(sV / ColorZone.GrayModeChromaConfidenceRamp));
 
             // 純白装飾はそのまま残す: relaxedSatMin 未満は弾く（ハードゲート）
             // ただしサンプル自体が高彩度の場合のみ適用（暗サンプルの低彩度ピクセルは通過させる）
@@ -2542,19 +2542,19 @@ namespace Iroca
                 // 三角自身の AA 縁(cream 寄り)だけを回復する。暗サンプルでは Lerp で pS へ収束=従来同等。
                 float dr = pR - sR, dg = pG - sG, db = pB - sB;
                 float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f;
-                float darknessFactor = Mathf.Clamp01((0.3f - sV) / 0.3f);
+                float darknessFactor = Mathf.Clamp01((ColorZone.GrayModeDarkSampleValue - sV) / ColorZone.GrayModeDarkSampleValue);
                 float effectiveDist = Mathf.Lerp(rgbDist, pS, darknessFactor);
                 // 彩度整合ゲート(GetColorMatchScores のグレーモードと同じ)。サンプルが微小な tint を
                 // 持つとき、それより著しく中性寄りの候補(純白 UV 背景等)を距離加算でソフト排除する。
                 // 明るいクリームサンプルでは値距離だと純白(pV≈sV)が一致するため、ここでも必要。
                 // sS≈0(真の無彩サンプル)では作動しない=従来挙動を維持。明部限定(gateWeight)で
                 // 暗いサンプル(中性が正常)では矛盾を避けフェードさせる。ColorZone.cs と同期。
-                if (sS > ChromaGateActivateSat)
+                if (sS > ColorZone.ChromaGateActivateSat)
                 {
-                    float gateWeight = Mathf.Clamp01(sV / 0.3f);
-                    float satFloor = sS * ChromaGateFloorFrac;
+                    float gateWeight = Mathf.Clamp01(sV / ColorZone.GrayModeDarkSampleValue);
+                    float satFloor = sS * ColorZone.ChromaGateFloorFrac;
                     float shortfall = Mathf.Clamp01((satFloor - pS) / Mathf.Max(satFloor, 1e-4f));
-                    effectiveDist += shortfall * ChromaGatePenalty * tolerance * gateWeight;
+                    effectiveDist += shortfall * ColorZone.ChromaGatePenalty * tolerance * gateWeight;
                 }
                 if (effectiveDist >= tolerance) return 0f;
                 float sr = tolerance * edgeSoftness;
