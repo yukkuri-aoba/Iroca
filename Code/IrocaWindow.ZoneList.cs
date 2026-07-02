@@ -293,15 +293,17 @@ namespace Iroca
             {
                 bool canSample = sourceTexture != null && IsReadable(sourceTexture)
                     && zone.mode == SelectionMode.ColorPick;
-                bool armed = EyedropperZoneIndex == index;
+                bool armed = !string.IsNullOrEmpty(zone.id) && EyedropperZoneId == zone.id;
                 using (new EditorGUI.DisabledScope(!canSample))
                 {
                     var prevBg = GUI.backgroundColor;
                     if (armed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
                     if (GUILayout.Button(armed ? s_eyedropperActiveContent : s_eyedropperIdleContent))
                     {
-                        // トグル：武装↔解除。武装はこのゾーンだけに絞る（クリックで一発取得→自動解除）。
-                        EyedropperZoneIndex = armed ? -1 : index;
+                        // トグル：武装↔解除。武装は id で保持し、並べ替え・削除で別ゾーンを指さないようにする
+                        // （クリックで一発取得→自動解除）。
+                        zone.EnsureId();
+                        EyedropperZoneId = armed ? null : zone.id;
                         Repaint();
                     }
                     GUI.backgroundColor = prevBg;
