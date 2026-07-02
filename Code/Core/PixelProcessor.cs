@@ -235,7 +235,7 @@ namespace Iroca
             F(z.tolerance);
             // 矩形モードの選択範囲
             F(z.uvRect.x); F(z.uvRect.y); F(z.uvRect.width); F(z.uvRect.height);
-            B(z.useFloodFill); F(z.seedUV.x); F(z.seedUV.y); F(z.edgeStopThreshold);
+            B(z.useFloodFill); F(z.seedUV.x); F(z.seedUV.y);
             F(z.edgeSoftness); F(z.saturationStrictness); F(z.valueWeight); F(z.satDistWeight);
             F(z.satRampScale); F(z.shadowForgivenessSatMin); F(z.chromaThreshold); F(z.saturationGuard);
             B(z.highlightRecovery); B(z.highlightBandExpand);
