@@ -1,0 +1,64 @@
+name: Verify Published Release
+
+# リリース publish 後の安全網: 公開された zip が docs/index.json（VPM listing）の
+# SHA256 と一致することを検証する。不一致 = VCC からインストール不能な壊れた listing。
+# 失敗したら zip を差し替えるか Build-VpmPackage.ps1 で listing を再生成すること。
+
+on:
+  release:
+    types: [published, edited]
+
+permissions:
+  contents: read
+
+env:
+  PACKAGE_ID: com.yukkuri-aoba.iroca
+
+jobs:
+  verify:
+    # draft には資産が揃っていないことがあるため published/edited のみ対象
+    if: ${{ !github.event.release.draft }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tagged revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Verify zip asset against docs/index.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          ZIP="$PACKAGE_ID-$VERSION.zip"
+
+          if ! gh release download "$TAG" --repo "${{ github.repository }}" --pattern "$ZIP" --output "$ZIP"; then
+            echo "::error::リリース $TAG に $ZIP が添付されていません"
+            exit 1
+          fi
+
+          ACTUAL=$(sha256sum "$ZIP" | cut -d' ' -f1)
+          EXPECTED=$(jq -r --arg id "$PACKAGE_ID" --arg v "$VERSION" \
+            '.packages[$id].versions[$v].zipSHA256 // empty' docs/index.json)
+
+          if [ -z "$EXPECTED" ]; then
+            echo "::error::docs/index.json に $VERSION の zipSHA256 がありません"
+            exit 1
+          fi
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::SHA256 不一致: 公開 zip=$ACTUAL / listing=$EXPECTED (VCC でインストール不能になります)"
+            exit 1
+          fi
+          echo "OK: $ZIP sha256=$ACTUAL は docs/index.json と一致"
+
+      - name: Check unitypackage asset (warning only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          if ! gh release view "$TAG" --repo "${{ github.repository }}" --json assets \
+            --jq '.assets[].name' | grep -q "^Iroca_Ver$VERSION\.unitypackage$"; then
+            echo "::warning::Iroca_Ver$VERSION.unitypackage がリリースに添付されていません（BOOTH 単体配布ユーザー向け）"
+          fi
