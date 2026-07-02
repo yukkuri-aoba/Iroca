@@ -59,19 +59,25 @@ chore(ci): release.yml に SHA256 検証ステップを追加
 - ドキュメント・テスト・chore 系の変更
 
 ## リリース手順
-リリースは `release.yml` ワークフローで自動化されている。手順は以下の通り。
+詳細は `docs/RELEASING.md` が正。概要は以下の通り。
 
-1. `package.json` の `"version"` フィールドを更新する（例: `"0.1.0"` → `"0.2.0"`）。
-2. `CHANGELOG.md` に変更内容を記載する。
-3. `Release/Camereo_Ver<VERSION>.unitypackage` を配置する。
-4. `main` にコミット・プッシュする。
-5. タグを打つ（CI がリリースと VPM listing 更新を自動実行する）：
+1. `CHANGELOG.md` に `## [<VERSION>]` 節を記載する。
+2. Unity で `Iroca_Ver<VERSION>.unitypackage` をエクスポートする（`BuildHelper`）。
+3. `scripts/Build-VpmPackage.ps1 -Version <VERSION> -UnityPackagePath <unitypackageのパス>` を実行する。
+   package.json / docs/index.json / zip + SHA256 が更新される。
+   **`-UnityPackagePath` を省略しない**（省略した zip は SHA256 が最終版と一致しない）。
+4. `package.json` / `docs/index.json` / `CHANGELOG.md` をコミットする。
+5. `develop` を `main` へマージし、タグを push する（いずれもユーザー確認必須の操作）：
    ```
    git tag v<VERSION>
    git push origin v<VERSION>
    ```
+   CI（release.yml）がバージョン整合を検証し、**draft** リリースを作成する。
+6. draft へ zip と unitypackage を手動アップロードし、本文のチェックリスト節を消して publish する。
+7. publish 後、release-verify ワークフローが zip の SHA256 を listing と照合する。green を確認して完了。
 
 > タグ形式は必ず `v` プレフィックスを付けること（例: `v0.2.0`）。これが `release.yml` の起動条件。
+> CI が作るのは draft まで。資産のアップロードと publish は手動ステップ。
 
 ## エージェントが自動実行してよい操作
 - `git add` / `git commit`（テストパス済みの変更に限る）
