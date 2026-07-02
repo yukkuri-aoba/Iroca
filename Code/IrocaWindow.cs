@@ -53,12 +53,6 @@ namespace Iroca
         // 個別 [SerializeField] フィールド群を IrocaSessionState に集約したもの。
         [SerializeField] private IrocaSessionState _session = IrocaSessionState.CreateDefault();
 
-        // SerializedObject(this) 経由のプロパティ編集基盤。
-        // ColorZoneDrawer / PropertyField 経由の編集と、Undo・previewDirty 判定の起点に使う。
-        private SerializedObject _windowSerializedObject;
-        private SerializedProperty _sessionProperty;
-        private SerializedProperty _zonesProperty;
-
         // ── _session への薄いアクセサ ──
         // partial class 内のコードが、集約前と同じフィールド名のまま _session 内のフィールドへ
         // アクセスできるようにするブリッジ。新規コードは _session.xxx を直接参照してよい。
@@ -96,9 +90,6 @@ namespace Iroca
             _maskView.Initialize(this);
             _previewView ??= new PreviewView();
             _previewView.Initialize(this);
-            _windowSerializedObject = new SerializedObject(this);
-            _sessionProperty = _windowSerializedObject.FindProperty(nameof(_session));
-            _zonesProperty = _sessionProperty?.FindPropertyRelative(nameof(IrocaSessionState.zones));
             EnsureAllZoneIds();
             // AssetWatcher の delete フックを取りこぼした場合の保険として、
             // ウィンドウを開いた時に MaskCache の orphan ファイルを掃除する。
@@ -116,10 +107,6 @@ namespace Iroca
             _previewView?.Suspend();
             _maskView?.SuspendTransientState();
             _maskView.SaveToSession();
-            _sessionProperty = null;
-            _zonesProperty = null;
-            _windowSerializedObject?.Dispose();
-            _windowSerializedObject = null;
         }
 
         private void OnUndoRedoPerformed()
