@@ -48,10 +48,21 @@ namespace Iroca
 
                             if (previewTexture != null && Mathf.Abs(newZoom - oldZoom) > 0.0001f)
                             {
-                                Vector2 mouseInImage = e.mousePosition - new Vector2(previewRect.x, previewRect.y);
-                                _previewScrollPos += mouseInImage * (newZoom / oldZoom - 1f);
-                                _previewScrollPos.x = Mathf.Max(0f, _previewScrollPos.x);
-                                _previewScrollPos.y = Mathf.Max(0f, _previewScrollPos.y);
+                                if (newZoom <= 1f + ZoomEpsilon)
+                                {
+                                    // 等倍(100%)以下はフィット表示なのでスクロールを原点へ戻す。
+                                    // マウス中心アンカー補正はズームイン/アウトでマウス位置が
+                                    // 一致しない限り往復で打ち消されず残差が残る。パンは zoom>1
+                                    // 限定のため、残ると画像が枠から数 px ずれたまま直せない。
+                                    _previewScrollPos = Vector2.zero;
+                                }
+                                else
+                                {
+                                    Vector2 mouseInImage = e.mousePosition - new Vector2(previewRect.x, previewRect.y);
+                                    _previewScrollPos += mouseInImage * (newZoom / oldZoom - 1f);
+                                    _previewScrollPos.x = Mathf.Max(0f, _previewScrollPos.x);
+                                    _previewScrollPos.y = Mathf.Max(0f, _previewScrollPos.y);
+                                }
                             }
 
                             previewZoom = newZoom;
