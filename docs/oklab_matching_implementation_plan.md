@@ -140,3 +140,55 @@ python tools/visual_review.py compare --engine csharp --match-distance oklab
 - ChromaGate/彩度ゲートの C 翻訳は HSV 定数を流用するため正規化 chroma とのスケール差でずれる可能性 → v1 は流用で計測し、乖離はチューニングフェーズ（スコープ外）の課題としてメモ。
 - OKLab ON のまま自動調整すると HSV 較正の tolerance が適用される → tooltip とコメントで明示。初期計測は固定 tolerance ケースのみ使用。
 - 並行エージェント対策: コミットは明示パスで `git add`（`-A` 禁止）。
+
+---
+
+## 実装・初期計測結果（2026-07-04 実施）
+
+状態: **実装完了・初期計測完了。採否＝ユーザー判断待ち。本番デフォルトは HSV のまま変更していない。**
+
+### 実装（本体リポ・コミット済み）
+
+| commit | 内容 |
+|---|---|
+| `d31afc8` feat(core) | OKLab 距離の隔離実装 `ColorZone.MatchOklab.cs`（未接続）。SampleCache に OKLab 派生値追加・RgbToOklab internal 化 |
+| `4268d39` feat(core) | 切替フラグ配線（既定 HSV・golden バイト不変）。選択キャッシュキー＋selkey-audit を同一コミットで修正。Harness `--matchDistance` |
+| `fc1dfb8` fix(core) | **L 項過選択の修正**（下記「計画式のバグ」） |
+| `97c425f` feat(debug) | PerfView の OKLab トグル |
+| `436c22e` test | visual_review の `--match-distance` |
+
+dev_safe 側（`fixtures.py` の env パススルー ＋ `_oklab_ab.py` 計測スクリプト）は、`fixtures.py` に別作業由来の大きな未コミット変更（`require_harness` リファクタ）が同居していたため、それを巻き込まないようワーキングツリーに保持（並行エージェント注意ルール）。
+
+### 実装中に判明した計画式のバグ（修正済み）
+
+実装計画 §実装の距離式 `|ΔL| * valueWeight * (1 - cRatio)` は、**無彩サンプル（sCn≈0 → cRatio=1）で L 項が完全に消え、明度を無視して黒〜白の低 chroma 画素を全て拾う致命的過選択**になっていた（クリーム→青 tol0.32 で選択画素が 5.6k→715k＝126倍）。これは計画の「式」と「意図（低 chroma では |ΔCn|+|ΔL| 距離へ退化）」の内部矛盾。L 減衰を `chromaConfidenceOk` でゲート（`lWeight = 1 - cRatio * chromaConfidenceOk`）して修正。以降の計測はこの修正版で実施。
+
+### A/B 計測（実 C# Harness・固定 tolerance・全被写体×各色）
+
+`python dev_safe/Tests/regression/_oklab_ab.py`（HSV 既定 vs OKLab 実験の 2 周）。選択は sample 依存で target 非依存のため、各被写体で 5 色すべて同値＝実質 4 データ点。
+
+| 被写体 | sample | IoU HSV | IoU OKLab | ΔIoU | recall HSV→OKLab | 所見 |
+|---|---|---|---|---|---|---|
+| bandana | クリーム | 0.998 | 0.995 | −0.003 | 1.000→0.997 | ほぼ同等 |
+| haolan-hair | 青 | 0.993 | 0.992 | −0.001 | 0.993→0.992 | 実質同等 |
+| **haolan-costume** | **青 S=1.0 V=1.0** | **0.937** | **0.558** | **−0.379** | **0.997→0.609** | **recall 崩壊** |
+| haolan-sneakers | 青 | 0.991 | 0.984 | −0.007 | 0.999→1.000 | precision 微減（暗部わずかに過選択） |
+
+**全体: 平均 ΔIoU = −0.097、改善 0 / 悪化 5 / 横ばい 15。OKLab は全被写体で HSV 以下。**
+
+### 視覚レビュー（`compare` 相当パネル・Read で目視）
+
+- **haolan-costume**: HSV は青パーツを全面変換、OKLab は明るい青だけ変換し**陰影の濃い青が未変換のまま残留**（miss overlay で陰影領域が大量に赤）。数値の recall 崩壊と一致。
+- bandana / hair: HSV と OKLab は視覚的にほぼ区別不能。
+- sneakers: ほぼ同等。暗い靴本体にごく僅かな過選択（数値の precision −0.007 と一致）。
+
+### 根本原因（診断済み）
+
+costume 崩壊は **satConfidence ゲート床の再較正問題**。ゲート床 `satMinOk = sCn × saturationStrictness(0.5) = 0.469` は OKLab の**知覚 chroma** を使うが、飽和材質でも**陰影では OKLab chroma が下がる**（青サンプル Cn=0.937 に対し、取りこぼした 720k 画素は 100% が Cn<床、median Cn=0.437・L=0.220＝暗い陰影）。HSV の S は陰影でも ≈1.0 を保つため、HSV 較正の `saturationStrictness=0.5` を OKLab chroma 単位に流用すると陰影の飽和材質を過剰にゲート除外する。shadow 免除は最暗部のみ救済し中間陰影の帯を取りこぼす。これは**リスク・注意に予告した「C 翻訳の HSV 定数流用によるスケール差」がそのまま顕在化**したもので、定数再較正フェーズ（スコープ外）の課題。
+
+### 結論・申し送り
+
+- **v1（HSV 定数流用）のままでは OKLab は採用不可。** 全被写体で同等以下、飽和×陰影材質で壊滅的。
+- ただし失敗は距離式の構造ではなく**単一の再較正点（彩度ゲート床の chroma スケール）**に集約されており、仮説「ハード分岐を単一連続式へ統合」自体は否定されていない（bandana/hair/sneakers は同等＝連続式で破綻しない）。
+- 次フェーズ（要ユーザー判断・スコープ外）の第一候補: `saturationStrictness` の OKLab chroma スケールへの再較正、または satConfidence ゲートを OKLab では chroma でなく別軸（例: 色相一致度）へ置換。あわせて `CoreMatchDistanceOklab` / ChromaGate の chroma スケール再導出。
+- **本番デフォルトは HSV のまま。** 切替は Debug モードのトグル（実験）でのみ有効。
