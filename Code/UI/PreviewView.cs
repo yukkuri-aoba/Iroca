@@ -421,8 +421,21 @@ namespace Iroca
             float displayW = previewTexture.width  * previewZoom;
             float displayH = previewTexture.height * previewZoom;
 
-            float maxViewH = Mathf.Min(displayH, previewTexture.height) + IrocaConsts.Preview.ViewportMargin;
             int panelCount = (comparisonMode && rawPreviewTexture != null) ? 2 : 1;
+
+            // 縦ビューポート高。以前は固定 16px(ViewportMargin)を足すだけだったが、横スクロール
+            // バー表示時に IMGUI がクライアント高から差し引くのは skin 実寸
+            // (horizontalScrollbar.fixedHeight + margin)で、16px で足りる保証がない。不足すると
+            // 画像がカラムより横に広い(=横バーが出る)とき、等倍(100%)でもクライアント高が
+            // 内容高を数 px 下回り、縦スクロールバーが消えない。skin から実寸を導出して常時
+            // 確保する(+2 は丸めの保険)。比較モードは Before/After ラベル行も内容高に含める
+            // (これも縦バー残留の原因だった)。
+            var hBarStyle = GUI.skin.horizontalScrollbar;
+            float hBarReserve = hBarStyle.fixedHeight + hBarStyle.margin.vertical + 2f;
+            float contentH = Mathf.Min(displayH, previewTexture.height) + GUI.skin.scrollView.padding.vertical;
+            if (panelCount == 2)
+                contentH += EditorGUIUtility.singleLineHeight + EditorStyles.label.margin.vertical;
+            float maxViewH = contentH + Mathf.Max(IrocaConsts.Preview.ViewportMargin, hBarReserve);
 
             // プレビュー枠はカラム/ウィンドウ幅いっぱいに広げる（下の ExpandWidth）。
             // 以前はテクスチャ実寸基準の固定幅(≈528px)を MaxWidth で指定していたため、枠が
