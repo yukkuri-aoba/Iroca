@@ -122,15 +122,22 @@ namespace Iroca
             float hueRelevanceOk = Mathf.Clamp01(Mathf.Max(pCn, sc.sCn) / Mathf.Max(0.01f, chromaThreshold));
             float effHueDist = hueDistOk * hueRelevanceOk;
 
-            // L 距離の chroma-ratio 減衰(HSV の sRatio と同型: 有彩どうしでは明度差の寄与を抑える)。
+            // L 距離の chroma-ratio 減衰(HSV の sRatio と同型: 有彩どうしでは明度差=陰影の寄与を抑える)。
             float cRatio = (sc.sCn > 0.01f) ? Mathf.Clamp01(pCn / sc.sCn) : 1f;
+            // L 減衰の重み。有彩サンプルでは (1-cRatio) で同 chroma の陰影を許容する(HSV と同型)。
+            // ただし **減衰を chromaConfidenceOk でゲートする**: 無彩サンプル(sCn≈0)は cRatio→1 で L 項が
+            // 消えるが、無彩素材は L(明度)こそが識別軸なので減衰させてはいけない。ゲート無しの literal な
+            // (1-cRatio) だと無彩サンプルで黒〜白の低 chroma 画素を全て拾う致命的な過選択になる(計測で
+            // 4096² クリーム→青が 5.6k→715k 画素に膨張=126倍を確認)。chromaConfidenceOk→0 で lWeight→1 と
+            // し、実験計画書の意図「低 chroma では |ΔCn|+|ΔL| 距離へ連続退化」(§3.2/実装計画 §核心)を満たす。
+            float lWeight = 1f - cRatio * sc.chromaConfidenceOk;
 
-            // 単一連続距離(グレー/有彩のハード分岐を撤廃=仮説の核心)。低 chroma では hueRelevanceOk→0
-            // で自然に |ΔCn|+|ΔL| 距離へ退化する。HSV hsvDist と同型・同スケールなので tolerance を流用。
-            // 注: RGB 距離との chromaConfidence Lerp(HSV の :343)は載せない(Hue 特異点パッチそのもの)。
+            // 単一連続距離(グレー/有彩のハード分岐を撤廃=仮説の核心)。低 chroma では hueRelevanceOk→0 で
+            // 色相項が落ち、lWeight→1 で |ΔCn|+|ΔL| 距離へ連続退化する。HSV hsvDist と同型・同スケールなので
+            // tolerance を流用。注: RGB 距離との chromaConfidence Lerp(HSV の :343)は載せない(Hue 特異点パッチ)。
             float distOklab = effHueDist
                 + Mathf.Abs(pCn - sc.sCn) * satDistWeight
-                + Mathf.Abs(pL - sc.sL) * valueWeight * (1f - cRatio);
+                + Mathf.Abs(pL - sc.sL) * valueWeight * lWeight;
 
             // 彩度ゲート satConfidence(C 基準)。有彩サンプルでのみ効かせる(下の gate で chromaConfidenceOk Lerp)。
             float cConf = Mathf.Clamp01((pCn - sc.satMinOk) / sc.satRampOk);
