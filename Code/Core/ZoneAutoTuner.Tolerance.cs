@@ -140,6 +140,10 @@ namespace Iroca
         private const float ForeignLowFloor    = 0.04f;  // 打ち切り時に許す tolerance 下限(通常床 0.08 より低い)
         private const float ForeignCapEps      = 0.005f; // foreign 最小距離(P10)からのマージン
 
+        // 【実験・申し送り】この tolerance 自動導出は HSV 主距離式(hd + sd*satDistW + vd*valueW*(1-sRatio))を
+        // インラインで再実装して距離分布をサンプリングしている。OKLab マッチング距離を本採用する際は、
+        // ここも OKLab スケールの距離分布から再導出する必要がある(実装計画書 §3.5 の再較正フェーズ)。
+        // v1 実験では ZoneAutoTuner は常に HSV のまま(自動調整は MatchDistanceOklab の影響を受けない)。
         private static bool TryDeriveChromaticTolerance(Color32[] pixels, int w, int h, ColorZone zone,
             bool[] excluded, int maskW, int maskH, out float tolerance)
         {
