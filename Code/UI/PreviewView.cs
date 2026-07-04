@@ -103,7 +103,7 @@ namespace Iroca
         // プレビュー枠をこの中に収める動的高さ調整に使う。0 は未設定＝調整なし(固定高)。
         [System.NonSerialized] public float availableColumnHeight;
         // 外側 ScrollView の内容座標系で、プレビュー枠より上に積まれた UI の実測高
-        // (セクション見出し・生成中ラベル・ズーム率・比較ボタン等。縦並びレイアウトでは
+        // (セクション見出し・操作行(比較/差分・ズーム率・生成状態)。縦並びレイアウトでは
         // 設定群も含む)。Repaint 時に実測し、次フレームの動的高さ算出に使う。
         [System.NonSerialized] private float _chromeAboveViewportH;
         // プレビュー枠の下の Space(4) と丸めの逃げ。動的高さの計算で差し引く。
@@ -354,10 +354,10 @@ namespace Iroca
                 // ペイント中は MouseDrag が継続的に Repaint を呼ぶので追加の RequestRepaint は不要。
             }
 
-            // 「生成中…」インジケータは常に同じ高さの 1 行を確保する。
-            // 出入りで後続の UI（ズーム表示・比較ボタン・プレビュー画像）が
-            // 上下にジャンプするのを防ぐため、非生成時は空白を表示する。
-            // 詳細プレビュー生成も同じ枠外行に統一する（fix.md 項目3）。
+            // 「生成中…」インジケータの文言。プレビュー確立後は下の操作行（比較/差分・
+            // ズーム率と同じ行）の右端に出す。非生成時も空白 " " を同じ場所に描き、
+            // 出入りで UI が上下にジャンプしないよう行高を固定する。
+            // 詳細プレビュー生成も同じ表示に統一する（fix.md 項目3）。
             string generatingLabel;
             if (_proxyJob.IsRunning || _previewJob.IsRunning)
                 generatingLabel = Localization.GeneratingPreview;
@@ -365,10 +365,11 @@ namespace Iroca
                 generatingLabel = Localization.GeneratingDetailPreview;
             else
                 generatingLabel = " ";
-            EditorGUILayout.LabelField(generatingLabel);
 
             if (previewTexture == null)
             {
+                // 初回生成中はまだ操作行が無いので、生成状態だけ単独の 1 行で表示する。
+                EditorGUILayout.LabelField(generatingLabel);
                 return;
             }
 
@@ -379,19 +380,26 @@ namespace Iroca
                 _cachedZoomLang = Localization.CurrentLanguage;
                 _cachedZoomLabel = string.Format(Localization.ZoomLabel, zoomPercent);
             }
-            EditorGUILayout.LabelField(new GUIContent(_cachedZoomLabel, Localization.ZoomHint));
 
+            // 操作行: 比較/差分トグル・ズーム率・生成状態を 1 行にまとめる。以前は
+            // それぞれ 1 行ずつ計 3 行を使っており、既定ウィンドウ高(IrocaWindow.ShowWindow)
+            // ではプレビュー枠の残り高が等倍 512px に届かず、100% でも縦スクロールバーが
+            // 常に出ていた。トグルは内容幅に縮め、生成状態は右端に置く。
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Toggle(comparisonMode, new GUIContent(Localization.ComparisonMode, Localization.ComparisonModeTooltip), EditorStyles.miniButtonLeft) != comparisonMode)
+            if (GUILayout.Toggle(comparisonMode, new GUIContent(Localization.ComparisonMode, Localization.ComparisonModeTooltip), EditorStyles.miniButtonLeft, GUILayout.ExpandWidth(false)) != comparisonMode)
             {
                 comparisonMode = !comparisonMode;
                 if (comparisonMode) diffMode = false;
             }
-            if (GUILayout.Toggle(diffMode, new GUIContent(Localization.DiffMode, Localization.DiffModeTooltip), EditorStyles.miniButtonRight) != diffMode)
+            if (GUILayout.Toggle(diffMode, new GUIContent(Localization.DiffMode, Localization.DiffModeTooltip), EditorStyles.miniButtonRight, GUILayout.ExpandWidth(false)) != diffMode)
             {
                 diffMode = !diffMode;
                 if (diffMode) comparisonMode = false;
             }
+            GUILayout.Space(10f);
+            GUILayout.Label(new GUIContent(_cachedZoomLabel, Localization.ZoomHint), GUILayout.ExpandWidth(false));
+            GUILayout.FlexibleSpace();
+            GUILayout.Label(generatingLabel);
             EditorGUILayout.EndHorizontal();
 
             int srcW = _trueSourceW;

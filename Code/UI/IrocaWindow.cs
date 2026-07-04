@@ -78,8 +78,11 @@ namespace Iroca
                 Localization.WindowTitle,
                 EditorGUIUtility.IconContent("d_Image Icon").image);
             window.minSize = new Vector2(340, 500);
-            if (window.position.width < 800 || window.position.height < 800)
-                window.position = new Rect(window.position.x, window.position.y, 800, 800);
+            // 高さ 850 は、上部テクスチャ欄＋プレビュー章の見出し/操作行＋エクスポート欄
+            // (新規保存 ON のファイル名行込み)を積んでも、等倍(100%)の 512px プレビューが
+            // 縦スクロールバーなしで収まる高さ。800 だと数十 px 不足して常時縦バーが出る。
+            if (window.position.width < 800 || window.position.height < 850)
+                window.position = new Rect(window.position.x, window.position.y, 800, 850);
         }
 
         private void OnEnable()
