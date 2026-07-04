@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -115,8 +116,14 @@ def _run_all_cases_csharp() -> dict[str, tuple[np.ndarray, np.ndarray]]:
                 "saturationStrictness": zone.saturation_strictness,
             }], settings_cfg)
             out_raw = CSHARP_WORK / f"{case.case_id}_out.raw"
-            r = hio.run(["dotnet", str(dll), str(in_raw), str(mask_raw),
-                         str(out_raw), "--zones", str(zones_json)])
+            cmd = ["dotnet", str(dll), str(in_raw), str(mask_raw),
+                   str(out_raw), "--zones", str(zones_json)]
+            # 【実験】--match-distance oklab|hsv が指定されていれば Harness へ渡す
+            # (選択距離の視覚 A/B 用)。未指定(既定)なら付与しない=従来の出荷 C# 経路。
+            _md = os.environ.get("IROCA_MATCH_DISTANCE", "").strip()
+            if _md:
+                cmd.append(f"--matchDistance={_md}")
+            r = hio.run(cmd)
             if r.returncode != 0:
                 raise RuntimeError(f"Harness 実行失敗 {case.case_id}: {r.stderr}\n{r.stdout}")
             results[case.case_id] = (rgba, hio.read_raw_rgba(out_raw))
@@ -307,6 +314,25 @@ def _parse_engine(argv: list[str]) -> str:
     return "csharp"
 
 
+def _parse_match_distance(argv: list[str]) -> str:
+    """argv から --match-distance oklab|hsv を取り出す(既定 ""=付与しない=出荷 C#)。
+
+    csharp エンジンのときだけ意味を持つ。oklab 指定で Harness に --matchDistance=oklab を渡す。
+    """
+    for i, a in enumerate(argv):
+        if a == "--match-distance" and i + 1 < len(argv):
+            v = argv[i + 1]
+        elif a.startswith("--match-distance="):
+            v = a.split("=", 1)[1]
+        else:
+            continue
+        if v not in ("oklab", "hsv"):
+            print(f"不明な match-distance: {v!r} (oklab|hsv)")
+            sys.exit(1)
+        return v
+    return ""
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         print(__doc__)
@@ -314,6 +340,10 @@ def main() -> None:
 
     cmd = sys.argv[1]
     engine = _parse_engine(sys.argv[2:])
+    # 【実験】選択距離の色空間切替(csharp エンジン専用)。設定時のみ env 経由で Harness に渡す。
+    md = _parse_match_distance(sys.argv[2:])
+    if md:
+        os.environ["IROCA_MATCH_DISTANCE"] = md
     if cmd == "snapshot":
         cmd_snapshot(engine)
     elif cmd == "compare":
