@@ -34,6 +34,11 @@ namespace Iroca
         // ・同スケールに構成したので同値から開始する。採用時の再導出は再較正フェーズ(スコープ外)。
         private const float CoreMatchDistanceOklab = 0.14f;
 
+        // 【C1 実験: 明度リフト彩度】暗部での chroma-lift(pCn*sL/pL)の爆発を抑える L 下限。
+        // OKLab L=0.10 は知覚的「非常に暗い」境界(sRGB ~30/255 相当)で、これ未満は a,b が小さく
+        // 色相/彩度がノイズで不安定=リフトすると増幅されるだけ。テクスチャ非依存の知覚定数。
+        private const float SatLiftLFloor = 0.10f;
+
         /// <summary>
         /// 【実験】OKLab マッチング距離版。<see cref="GetMatchScoresPrecomputedHSV"/> と同型で、
         /// L / a / b が事前計算済みの場合に使う。HSV(pH/pS/pV)も受けるのは温存ヒューリスティック
@@ -122,8 +127,21 @@ namespace Iroca
             float hueRelevanceOk = Mathf.Clamp01(Mathf.Max(pCn, sc.sCn) / Mathf.Max(0.01f, chromaThreshold));
             float effHueDist = hueDistOk * hueRelevanceOk;
 
+            // 【C1 実験: 明度リフト彩度】OKLab 絶対 chroma は飽和色でも陰影(低 L)で縮むため、下の
+            // |ΔCn| 距離項と satConfidence ゲートが陰影を別素材として弾いてしまう(costume 青の
+            // recall 0.997→0.609 崩壊の主因)。線形暗化では L も C も f^(1/3) 倍になり C/L が不変という
+            // 性質を使い、各画素の chroma を「サンプル明度 sL ならいくつか」へ持ち上げる。同素材の陰影は
+            // pSat≈sCn となり距離/ゲートで罰されない(HSV の S が陰影でも≈1.0 を保つのと同型)。サンプル
+            // 自身では pSat=sCn なので既存 satMinOk/satRampOk([0,1]スケール床)はそのまま有効。hue 角の
+            // 信頼度(hueRelevanceOk/chromaConfidenceOk/ChromaGate)は絶対 chroma 依存なので pCn を温存。
+            // 【C1b】リフトは陰影方向(pL<sL, lift>1)のみに限定する(max(1,lift))。明部(pL≥sL)の chroma
+            // 低下は「白へ寄る」別現象で、既に bright-forgiveness が別途処理する。明部まで pSat を圧縮
+            // (lift<1)すると同色相の明るい画素を取りこぼす(hair recall 0.992→0.986 の劣化を確認)。
+            float lift = sc.sL / Mathf.Max(SatLiftLFloor, pL);
+            float pSat = Mathf.Min(1f, pCn * Mathf.Max(1f, lift));
+
             // L 距離の chroma-ratio 減衰(HSV の sRatio と同型: 有彩どうしでは明度差=陰影の寄与を抑える)。
-            float cRatio = (sc.sCn > 0.01f) ? Mathf.Clamp01(pCn / sc.sCn) : 1f;
+            float cRatio = (sc.sCn > 0.01f) ? Mathf.Clamp01(pSat / sc.sCn) : 1f;
             // L 減衰の重み。有彩サンプルでは (1-cRatio) で同 chroma の陰影を許容する(HSV と同型)。
             // ただし **減衰を chromaConfidenceOk でゲートする**: 無彩サンプル(sCn≈0)は cRatio→1 で L 項が
             // 消えるが、無彩素材は L(明度)こそが識別軸なので減衰させてはいけない。ゲート無しの literal な
@@ -136,11 +154,11 @@ namespace Iroca
             // 色相項が落ち、lWeight→1 で |ΔCn|+|ΔL| 距離へ連続退化する。HSV hsvDist と同型・同スケールなので
             // tolerance を流用。注: RGB 距離との chromaConfidence Lerp(HSV の :343)は載せない(Hue 特異点パッチ)。
             float distOklab = effHueDist
-                + Mathf.Abs(pCn - sc.sCn) * satDistWeight
+                + Mathf.Abs(pSat - sc.sCn) * satDistWeight
                 + Mathf.Abs(pL - sc.sL) * valueWeight * lWeight;
 
-            // 彩度ゲート satConfidence(C 基準)。有彩サンプルでのみ効かせる(下の gate で chromaConfidenceOk Lerp)。
-            float cConf = Mathf.Clamp01((pCn - sc.satMinOk) / sc.satRampOk);
+            // 彩度ゲート satConfidence(pSat 基準)。有彩サンプルでのみ効かせる(下の gate で chromaConfidenceOk Lerp)。
+            float cConf = Mathf.Clamp01((pSat - sc.satMinOk) / sc.satRampOk);
 
             // シャドウ免除(L 基準・同型翻訳): 同色相で暗い画素(影)の彩度ゲートを緩めて同素材として拾う。
             if (pL < sc.sL * ShadowValueThresholdFrac && effHueDist < ForgivenessHueGate)
