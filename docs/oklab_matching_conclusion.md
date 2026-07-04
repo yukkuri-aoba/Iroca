@@ -1,9 +1,9 @@
 # OKLab 選択距離 実験の結論 — なぜ選択は HSV+RGB ハイブリッドが正しいか
 
-状態: **実験完了・不採用確定（2026-07-04）**。本番デフォルトは HSV+RGB ハイブリッドのまま変更しない。
-親ドキュメント: [`oklab_matching_distance_experiment_plan.md`](oklab_matching_distance_experiment_plan.md)（実験の背景・仮説）/ [`oklab_matching_implementation_plan.md`](oklab_matching_implementation_plan.md)（v1 実装手順・初期計測）。
+状態: **実験完了・不採用確定（2026-07-04）。実験コードは破棄済み（§6）。** 本番デフォルトは HSV+RGB ハイブリッドのまま。
+背景・仮説・実装手順・初期計測を記した計画ドキュメント（`oklab_matching_distance_experiment_plan.md` / `oklab_matching_implementation_plan.md`）は実験破棄に伴い削除した。必要なら git 履歴（実装コミット `bd64c12`〜`d110de6` とその revert）から辿れる。
 
-本書は、その先の「実験 II（明度正規化彩度による再較正）」を実施した結果と、そこから固まった**現行 HSV+RGB ハイブリッドの正当性**を機構レベルで記録する。目的は「現行が優れているなら、その理由を証拠付きで固める」こと。
+本書は、実験 I（絶対 chroma）〜 II（明度正規化彩度による再較正）の計測結果と、そこから固まった**現行 HSV+RGB ハイブリッドの正当性**を機構レベルで独立記録する。目的は「現行が優れているなら、その理由を証拠付きで固める」こと。**実験コードを消しても、この理由は残す**（同じ検討を繰り返さないため）。
 
 ---
 
@@ -92,13 +92,20 @@ C1b では、costume（飽和青）の陰影を救うリフトが、**同じ飽�
 - OKLab（または他の色空間）が parity でなく、**ある被写体で HSV を有意に上回る証拠**。
 - それが無い限り、この結論（parity 止まり・移行コスト不合）を覆さない。**同じ検討を繰り返し起こさないこと。**
 
+### 5.1 次の伸びしろは「色距離」ではなく「空間・構造」の軸にある
+
+本実験が確定させたのは「**選択のボトルネックは色空間ではない**」ということでもある。色距離を差し替える方向（HSV↔OKLab↔CIELAB…）は、Lab 系すべてに同じ絶対 chroma 崩壊が効くため実質打ち止め。したがって**今後の改善リソースを色距離いじりに使うのは非効率**。
+
+現行が原理的に解けない最難関——**同色相・同彩度で明度だけ違う別パーツ（例: 濃紺 navy の別マテリアル）**——は、色距離である限り HSV でも OKLab でも分離不能。ここを超える道は色ではなく、**連結成分（flood-fill・既に稼働）／マスク／シード**という空間・構造の軸にある。ただしシード統合は過去に頓挫しており（tolerance 再走と非同期化の両立が必要）、着手するなら狙う失敗ケースを GT で先に固めること。
+
 ---
 
-## 6. 実験コードの所在（既定 HSV でバイト不変）
+## 6. 実験コードの扱い（破棄済み）
 
-- 隔離実装: `Code/Core/ColorZone.MatchOklab.cs`（`MatchOneSampleOklab`。C1b の明度リフト彩度 `pSat` を反映済み。コメントに機構の要約あり）。
-- 切替: `DebugCaptureHooks.MatchDistanceOklab`（Harness `--matchDistance=oklab` / Unity デバッグモードの PerfView トグル）。**既定 false=HSV。**
-- 計器: `dev_safe/Tests/regression/_oklab_ab.py`（HSV vs OKLab 全被写体差分表）。
-- 非対象（常に HSV）: `ZoneAutoTuner`（自動調整）・緩和経路（穴埋め/境界回復）。ハイブリッド構成のため OKLab トグルの影響を受けない。
+本結論（不採用）を受けて、OKLab 選択距離の実装・配線・デバッグトグル・計器フラグ・計画 doc は**コードベースから破棄した**（実装コミット `bd64c12`〜`d110de6` を revert）。既定の HSV 経路はバイト不変のまま（golden 18 pass・選択キー監査 pass）。
 
-> この経路はデバッグ実験用に残置してある。本結論により**本番デフォルトの切替は行わない**。
+- 破棄したもの: `Code/Core/ColorZone.MatchOklab.cs`、`DebugCaptureHooks.MatchDistanceOklab` と `PixelProcessor` の分岐、`ColorZone.cs` の OKLab 派生キャッシュ、Harness `--matchDistance`、PerfView トグル、visual_review の `--match-distance`、OKLab 計画 doc 2 本。
+- 影響なし（元から HSV / OkLab）: 再着色本体（`RecolorPixel` は引き続き OkLab 発色）、`ZoneAutoTuner`（自動調整）、緩和経路（穴埋め/境界回復）。
+- 再現したい場合: 上記コミット範囲を git 履歴から復元すれば隔離実験経路を再構築できる。計測計器は dev_safe（別リポ）の `_oklab_ab.py`。
+
+> 本書（理由の記録）は残す。コードは消えても、なぜ OKLab を採らず HSV が正しいかの機構と、次に掘るべき軸（§5.1）は残す。
