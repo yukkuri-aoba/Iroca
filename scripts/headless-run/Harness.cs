@@ -149,7 +149,8 @@ namespace Iroca
             if (args.Length < 3)
             {
                 Console.Error.WriteLine("usage: Harness <in.raw RGBA> <mask.raw 1=exclude> <out.raw RGBA> "
-                    + "[sampleR sampleG sampleB targetR targetG targetB tolerance | --zones zones.json] | --selkey-audit");
+                    + "[sampleR sampleG sampleB targetR targetG targetB tolerance | --zones zones.json] "
+                    + "[--matchDistance=oklab|hsv] | --selkey-audit");
                 return 2;
             }
             string inPath = args[0], maskPath = args[1], outPath = args[2];
@@ -164,6 +165,20 @@ namespace Iroca
             bool autotune = false;
             for (int i = 3; i < args.Length; i++)
                 if (args[i] == "--autotune") { autotune = true; break; }
+
+            // --matchDistance=oklab|hsv: 【実験】選択(マッチング)距離の色空間を切替える。既定 hsv=従来
+            // HSV/RGB ハイブリッド、oklab=OKLab 隔離経路。DebugCaptureHooks 経由で ProcessPixelsArray が
+            // ジョブ開始時に 1 回読む。stdout の "OK" を汚さないよう選択結果は stderr へ出す(--ffcheck と同型)。
+            // ⚠ --autotune との併用は「HSV で較正した tolerance を OKLab 距離に適用する」ため計測として
+            // 無意味(初期計測は固定 tolerance ケースのみで比較すること)。
+            for (int i = 3; i < args.Length; i++)
+                if (args[i].StartsWith("--matchDistance="))
+                {
+                    string md = args[i].Substring("--matchDistance=".Length).Trim().ToLowerInvariant();
+                    DebugCaptureHooks.MatchDistanceOklab = (md == "oklab");
+                    Console.Error.WriteLine("MATCH_DISTANCE " + (DebugCaptureHooks.MatchDistanceOklab ? "oklab" : "hsv"));
+                    break;
+                }
 
             var (w, h, rgba) = ReadRaw(inPath, 4);
             int len = w * h;
@@ -331,7 +346,8 @@ namespace Iroca
             string KeyOf(ColorZone z) => (string)mi.Invoke(null, new object[]
             {
                 z, /*edgeFeather*/0f, /*aaCleanup*/3, /*holeFillPasses*/5, /*holeFillMinNeighbors*/4,
-                /*relaxedSatMin*/0.02f, /*relaxedSatRamp*/0.08f, /*commonMask*/null, /*zoneMask*/null,
+                /*relaxedSatMin*/0.02f, /*relaxedSatRamp*/0.08f, /*matchDistanceOklab*/false,
+                /*commonMask*/null, /*zoneMask*/null,
             });
 
             var baseline = new ColorZone();

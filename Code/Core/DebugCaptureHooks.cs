@@ -54,5 +54,13 @@ namespace Iroca
         /// Debug モジュールの PerfView が EditorPrefs に永続化して管理する。
         /// </summary>
         internal static int ParallelismOverride;
+
+        /// <summary>
+        /// 【実験】選択(マッチング)距離を OKLab へ切替。false(既定)=従来 HSV/RGB ハイブリッド。
+        /// ProcessPixelsArray がジョブ開始時に 1 回読んでローカル化(ジョブ途中の変更は次回から)。
+        /// Harness は --matchDistance=oklab、Unity は Debug/PerfView が EditorPrefs 永続化で設定。
+        /// docs/oklab_matching_distance_experiment_plan.md 参照。
+        /// </summary>
+        internal static bool MatchDistanceOklab;
     }
 }
