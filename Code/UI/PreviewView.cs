@@ -99,6 +99,15 @@ namespace Iroca
         // プレビュー用 ScrollView の実測ビューポート幅。詳細クロップの可視範囲算出に使う。
         // テクスチャ実寸基準ではカラム/ウィンドウ幅と食い違うため、毎フレーム実測する。
         [System.NonSerialized] private float _viewportWidth;
+        // プレビューカラム(外側 ScrollView)の高さ。ホストがレイアウト確定値を毎フレーム渡す。
+        // プレビュー枠をこの中に収める動的高さ調整に使う。0 は未設定＝調整なし(固定高)。
+        [System.NonSerialized] public float availableColumnHeight;
+        // 外側 ScrollView の内容座標系で、プレビュー枠より上に積まれた UI の実測高
+        // (セクション見出し・生成中ラベル・ズーム率・比較ボタン等。縦並びレイアウトでは
+        // 設定群も含む)。Repaint 時に実測し、次フレームの動的高さ算出に使う。
+        [System.NonSerialized] private float _chromeAboveViewportH;
+        // プレビュー枠の下の Space(4) と丸めの逃げ。動的高さの計算で差し引く。
+        private const float ViewportBottomPadding = 8f;
         // ズーム率ラベルは毎フレーム描画されるため、ズーム値か言語が変わったときだけ
         // 文字列を再生成してアロケーションを避ける（IrocaWindow.EnsureZoneListCache と同方針）。
         [System.NonSerialized] private string _cachedZoomLabel;
@@ -437,6 +446,18 @@ namespace Iroca
                 contentH += EditorGUIUtility.singleLineHeight + EditorStyles.label.margin.vertical;
             float maxViewH = contentH + Mathf.Max(IrocaConsts.Preview.ViewportMargin, hBarReserve);
 
+            // プレビュー枠をカラムの残り空間に収める(動的高さ調整)。従来はテクスチャ実寸基準の
+            // 固定高(等倍 512px なら ~530px)で、ウィンドウが低いとプレビュー枠自体が外側
+            // ScrollView(縦オーバーフロー用)をあふれさせ、「③プレビュー」セクション全体が常時
+            // スクロール範囲になっていた。カラム高からプレビュー枠より上の実測高を引いた残りへ
+            // 縮め、収まらない分は内側 ScrollView のスクロール/パンに任せる。下限未満しか残らない
+            // 低ウィンドウでは下限で止め、従来どおり外側スクロールへ逃がす。
+            if (availableColumnHeight > 0f && _chromeAboveViewportH > 0f)
+            {
+                float avail = availableColumnHeight - _chromeAboveViewportH - ViewportBottomPadding;
+                maxViewH = Mathf.Min(maxViewH, Mathf.Max(avail, IrocaConsts.Preview.MinViewportHeight));
+            }
+
             // プレビュー枠はカラム/ウィンドウ幅いっぱいに広げる（下の ExpandWidth）。
             // 以前はテクスチャ実寸基準の固定幅(≈528px)を MaxWidth で指定していたため、枠が
             // カラム幅を超えると外側 ScrollView(縦オーバーフロー用)の横バーが横取りし、
@@ -453,6 +474,15 @@ namespace Iroca
                 + IrocaConsts.Preview.ViewportMargin;
             _detailView.lastViewportW = _viewportWidth > 1f ? _viewportWidth : fallbackViewW;
             _detailView.lastViewportH = maxViewH;
+
+            // プレビュー枠より上に積まれた UI の実測高(外側 ScrollView の内容座標系なので
+            // 外側のスクロール位置に依存しない)。動的高さ調整(次フレーム)に使う。
+            // 同一フレーム内の Layout/Repaint は前フレームの値を共有するため整合する。
+            if (Event.current.type == EventType.Repaint)
+            {
+                float chrome = GUILayoutUtility.GetLastRect().yMax;
+                if (chrome > 1f) _chromeAboveViewportH = chrome;
+            }
 
             Vector2 prevScroll = _previewScrollPos;
             _previewScrollPos = EditorGUILayout.BeginScrollView(
@@ -573,7 +603,13 @@ namespace Iroca
 
             if (maskView.maskFoldout && maskView.maskPaintActive)
                 HandlePreviewPaintInput(activePreviewRect);
-            else if (!maskView.maskPaintActive && !eyedropperArmed && previewZoom > 1f)
+            // パンはズーム>1 に限らず「画像がビューポートに収まっていない」とき常に許可する。
+            // 動的高さ調整により等倍(100%)以下でも縦がはみ出すことがあり、そのとき
+            // ズーム率だけで判定するとスクロールバー以外に位置を動かす手段がなくなる。
+            else if (!maskView.maskPaintActive && !eyedropperArmed &&
+                     (previewZoom > 1f
+                      || displayH > maxViewH - hBarReserve
+                      || displayW * panelCount > _detailView.lastViewportW))
                 HandlePreviewPanInput(activePreviewRect);
 
             EditorGUILayout.EndScrollView();

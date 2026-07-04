@@ -48,12 +48,20 @@ namespace Iroca
 
                             if (previewTexture != null && Mathf.Abs(newZoom - oldZoom) > 0.0001f)
                             {
-                                if (newZoom <= 1f + ZoomEpsilon)
+                                // 等倍(100%)以下でも、動的高さ調整でビューポートが画像より
+                                // 小さいことがある。画像が収まるときだけスクロールを原点へ戻す
+                                // (アンカー補正の残差が残ると枠からずれたまま直せない)。
+                                // 収まらないときはスクロール位置が正当なのでアンカー補正で
+                                // 追従させる(その間はパンも等倍以下で有効になる)。
+                                int panels = (comparisonMode && rawPreviewTexture != null) ? 2 : 1;
+                                float dispW = previewTexture.width * newZoom * panels
+                                    + (panels - 1) * IrocaConsts.Preview.PanelSpacing;
+                                float dispH = previewTexture.height * newZoom;
+                                bool fitsViewport = newZoom <= 1f + ZoomEpsilon &&
+                                    dispW <= _detailView.lastViewportW + 1f &&
+                                    dispH <= _detailView.lastViewportH + 1f;
+                                if (fitsViewport)
                                 {
-                                    // 等倍(100%)以下はフィット表示なのでスクロールを原点へ戻す。
-                                    // マウス中心アンカー補正はズームイン/アウトでマウス位置が
-                                    // 一致しない限り往復で打ち消されず残差が残る。パンは zoom>1
-                                    // 限定のため、残ると画像が枠から数 px ずれたまま直せない。
                                     _previewScrollPos = Vector2.zero;
                                 }
                                 else

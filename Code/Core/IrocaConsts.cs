@@ -44,6 +44,9 @@ namespace Iroca
             public const float PanelSpacing = 8f;
             // プレビュー枠の縦/横に確保するスクロールバー等の余白(px)。
             public const float ViewportMargin = 16f;
+            // 動的高さ調整でプレビュー枠を縮める際の下限高(px)。これ未満まで縮めても
+            // プレビューとして実用にならないため、不足分は外側 ScrollView のスクロールに任せる。
+            public const float MinViewportHeight = 160f;
         }
 
         public static class ExperimentalFeatures

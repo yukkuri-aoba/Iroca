@@ -16,9 +16,9 @@ namespace Iroca
         private Vector2 scrollPos;
         // 横並びレイアウトの左右カラム用スクロール
         private Vector2 leftScrollPos;
-        // プレビュー側の縦オーバーフロー用。テクスチャ画像が大きいと PreviewView の
-        // 内部 ScrollView 高さ（最大 ~528）＋ラベル類が横並びセクション高を超え、
-        // エクスポートセクションを画面外へ押し出してしまうため、外側にも ScrollView を挟む。
+        // プレビュー側の縦オーバーフロー用。プレビュー枠はカラム高に収まるよう動的に縮む
+        // (PreviewView.availableColumnHeight)が、下限(MinViewportHeight)まで縮んでも
+        // 収まらない低ウィンドウではあふれるため、外側にも ScrollView を挟んで逃がす。
         private Vector2 rightScrollPos;
 
         // 横並びモードのテクスチャフィールド込み上部（toolbar＋テクスチャフィールド）の実高を
@@ -171,6 +171,8 @@ namespace Iroca
             rightScrollPos = EditorGUILayout.BeginScrollView(rightScrollPos,
                 false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
                 GUILayout.ExpandHeight(true));
+            // プレビュー枠が右カラム高に収まるよう動的に縮むためのカラム高を渡す。
+            _previewView.availableColumnHeight = horizH;
             _previewView.Draw();
             EditorGUILayout.EndScrollView();
             EditorGUILayout.EndVertical();
@@ -212,6 +214,9 @@ namespace Iroca
             _maskView.Draw();
 
             _presetsView.Draw();
+            // 縦並びでは上部スクロール領域全体がプレビューのカラムに相当する。
+            // プレビュー枠より上の実測高は PreviewView 側が差し引く。
+            _previewView.availableColumnHeight = topScrollH;
             _previewView.Draw();
 
             // パイプライン透明化（Debug View）の描画フック。
