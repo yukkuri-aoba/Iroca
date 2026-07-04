@@ -36,15 +36,48 @@ namespace Iroca.DebugTools
             EditorGUILayout.Space(4);
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
+                bool debug = DebugMode.IsEnabled;
+
                 EditorGUILayout.LabelField(
-                    new GUIContent("パフォーマンス / スレッド設定",
-                        "プレビュー処理の実行時間計測と Parallel.For スレッド数の手動調整ができます。\n" +
+                    new GUIContent("パフォーマンス",
+                        "プレビュー処理の実行時間を表示します。\n" +
+                        "デバッグモードをオンにすると、フェーズ別/ゾーン別の詳細内訳・スレッド数調整・段階ごとのキャプチャが使えます。\n" +
                         "このセクションは Debug asmdef ごと削除することで本体から切り離せます。"),
                     EditorStyles.boldLabel);
 
-                DrawThreadControl(host);
+                // 計測結果: 簡略時は合計だけ、デバッグモード時はフェーズ別/ゾーン別も表示。
+                DrawPerfReport(debug);
+
                 EditorGUILayout.Space(4);
-                DrawPerfReport();
+                DrawDebugModeToggle(host);
+
+                // デバッグモード時のみ: スレッド調整と段階キャプチャの制御を展開。
+                if (debug)
+                {
+                    EditorGUILayout.Space(4);
+                    DrawThreadControl(host);
+                    EditorGUILayout.Space(4);
+                    DebugView.DrawCaptureControls(host);
+                }
+            }
+        }
+
+        private static void DrawDebugModeToggle(IrocaWindow host)
+        {
+            EditorGUI.BeginChangeCheck();
+            bool prev = DebugMode.IsEnabled;
+            bool now = EditorGUILayout.ToggleLeft(
+                new GUIContent(
+                    "デバッグモード",
+                    "オフ: 実行時間の合計のみを簡潔に表示します。\n" +
+                    "オン: フェーズ別/ゾーン別の詳細内訳・スレッド数調整・段階ごとのキャプチャ（パイプライン透明化）を表示します。"),
+                prev, EditorStyles.boldLabel);
+            if (EditorGUI.EndChangeCheck() && now != prev)
+            {
+                DebugMode.IsEnabled = now;
+                host.MarkPreviewDirty();
+                // デバッグモードを切ったらキャプチャ結果も破棄する（次回プレビューは非キャプチャで走る）。
+                if (!now) DebugView.ClearCapture(host);
             }
         }
 
@@ -88,7 +121,7 @@ namespace Iroca.DebugTools
             }
         }
 
-        private static void DrawPerfReport()
+        private static void DrawPerfReport(bool detailed)
         {
             if (!s_hasReport)
             {
@@ -106,6 +139,9 @@ namespace Iroca.DebugTools
                     $"最終実行: {rep.TotalMs:F1} ms  ({rep.Width}×{rep.Height})",
                     "ProcessPixelsArray の総実行時間とテクスチャサイズ。\nゾーン数が多いほど比例して増加します。"),
                 EditorStyles.boldLabel);
+
+            // 簡略表示（デバッグモード OFF）は合計だけで打ち切り。
+            if (!detailed) return;
 
             // フェーズ別内訳(全ゾーン合算)。どの段が重いかを把握して最適化対象を絞るための表示。
             if (rep.Phases != null && rep.Phases.Length > 0)

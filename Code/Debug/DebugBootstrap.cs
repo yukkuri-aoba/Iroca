@@ -15,8 +15,9 @@ namespace Iroca.DebugTools
         private static void Init()
         {
             DebugCaptureHooks.Factory = DebugView.CurrentCaptureOrNull;
-            DebugCaptureHooks.OnDrawFoldout += DebugView.Draw;
             PerfView.Register();
+            // 「パフォーマンス」セクション 1 つに集約。デバッグモード ON のとき
+            // 詳細内訳・スレッド設定・段階キャプチャ(DebugView)を PerfView が内包して描画する。
             DebugCaptureHooks.OnDrawFoldout += PerfView.Draw;
         }
     }

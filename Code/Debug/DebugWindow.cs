@@ -79,7 +79,7 @@ namespace Iroca.DebugTools
             if (!DebugView.IsCaptureEnabled)
             {
                 EditorGUILayout.HelpBox(
-                    "デバッグキャプチャが無効化されています。\nIroca ウィンドウで「デバッグキャプチャを有効化」をオンにしてからプレビューを再生成してください。",
+                    "段階ごとのキャプチャが無効です。\nIroca ウィンドウのパフォーマンスセクションで「デバッグモード」をオンにし、さらに「段階ごとのキャプチャを有効化」をオンにしてからプレビューを再生成してください。",
                     MessageType.Info);
                 return;
             }
