@@ -225,17 +225,6 @@ namespace Iroca
             public float satMin, satRamp;
             public float chromaConfidence;
             public float saturationGuardFloor; // 0=無効。pS がこの値未満なら hard reject。
-            // 【実験】OKLab マッチング距離(ColorZone.MatchOklab.cs)用の派生値。BuildSampleCache が
-            // 無条件で充填する(HSV 既定経路では未読=バイト不変)。
-            //   sL         … サンプル色の OKLab L(知覚明度)
-            //   sCn        … 正規化 chroma sqrt(a²+b²)*InvOklabChromaNorm([0,1]、HSV の S とスケール整合)
-            //   sHueOk     … 色相角 atan2(b,a)*InvTwoPi(turns [-0.5,0.5]、HSV の Hue とスケール整合)
-            //   satMinOk/satRampOk … 彩度ゲート(C 基準)。satMin/satRamp の chroma 版
-            //   chromaConfidenceOk … Hue 関連度ブレンド重み。Clamp01((sCn-chromaThreshold)/0.10)。
-            //                        Hue 角は暗部でも安定なので HSV 版と違い valueConf の min は取らない。
-            public float sL, sCn, sHueOk;
-            public float satMinOk, satRampOk;
-            public float chromaConfidenceOk;
         }
         [NonSerialized] private SampleCache[] _sampleCaches;
 

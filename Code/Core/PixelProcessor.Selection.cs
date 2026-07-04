@@ -410,9 +410,6 @@ namespace Iroca
             float sR = 0f, float sG = 0f, float sB = 0f, float chromaConfidence = 1f,
             float chromaThreshold = 0.05f)
         {
-            // 【実験】OKLab マッチング距離(DebugCaptureHooks.MatchDistanceOklab)経路では、主距離式だけを
-            // OKLab 化し、この緩和経路(穴埋め/境界回復)は当面 HSV のまま(ハイブリッド構成)。OKLab を
-            // 本採用する際はここも OKLab へ翻訳して主経路と整合させること(v1 は主距離のみ差替え)。
             // ColorZone.MatchOneSample と同じ動的しきい値：暗いサンプルほどグレースケールモードの範囲を広げる。
             // 上端は zone.chromaThreshold(ユーザー可変)を使う。以前は既定値 0.05 を焼き込んでいたため、
             // ユーザーが chromaThreshold を変えると主経路と穴埋め/境界回復でグレーモード判定が食い違っていた。
