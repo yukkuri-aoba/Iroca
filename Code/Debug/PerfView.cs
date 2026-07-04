@@ -13,6 +13,7 @@ namespace Iroca.DebugTools
     internal static class PerfView
     {
         private const string PrefKeyThreads = "Iroca.Perf.ThreadOverride";
+        private const string PrefKeyMatchOklab = "Iroca.Debug.MatchDistanceOklab";
 
         private static bool s_prefsLoaded;
         private static volatile bool s_hasReport;
@@ -57,6 +58,8 @@ namespace Iroca.DebugTools
                     EditorGUILayout.Space(4);
                     DrawThreadControl(host);
                     EditorGUILayout.Space(4);
+                    DrawMatchDistanceControl(host);
+                    EditorGUILayout.Space(4);
                     DebugView.DrawCaptureControls(host);
                 }
             }
@@ -79,6 +82,32 @@ namespace Iroca.DebugTools
                 // デバッグモードを切ったらキャプチャ結果も破棄する（次回プレビューは非キャプチャで走る）。
                 if (!now) DebugView.ClearCapture(host);
             }
+        }
+
+        private static void DrawMatchDistanceControl(IrocaWindow host)
+        {
+            EditorGUI.BeginChangeCheck();
+            bool prev = DebugCaptureHooks.MatchDistanceOklab;
+            bool now = EditorGUILayout.ToggleLeft(
+                new GUIContent(
+                    "実験: OKLab マッチング距離",
+                    "選択（色替え対象にする画素の判定）距離を、従来の HSV/RGB ハイブリッドから OKLab へ切替える実験機能です。\n" +
+                    "プレビュー・適用・エクスポートの選択結果（どの画素が変わるか）が変化します。発色（色の計算）そのものは変わりません。\n" +
+                    "自動調整・穴埋め/境界回復は HSV のままのため、この実験距離と整合しない場合があります。\n" +
+                    "通常は OFF（既定）を推奨します。"),
+                prev);
+            // PerfView は BeginChangeCheck の外なので自動 dirty 化されない。明示的に MarkPreviewDirty する。
+            if (EditorGUI.EndChangeCheck() && now != prev)
+            {
+                DebugCaptureHooks.MatchDistanceOklab = now;
+                EditorPrefs.SetBool(PrefKeyMatchOklab, now);
+                host.MarkPreviewDirty();
+            }
+            // ON のまま忘れる対策として、有効中は常に警告を出す。
+            if (DebugCaptureHooks.MatchDistanceOklab)
+                EditorGUILayout.HelpBox(
+                    "OKLab マッチング距離（実験）が有効です。エクスポート結果も変わります。",
+                    MessageType.Warning);
         }
 
         private static void DrawThreadControl(IrocaWindow host)
@@ -205,6 +234,8 @@ namespace Iroca.DebugTools
             if (s_prefsLoaded) return;
             s_prefsLoaded = true;
             DebugCaptureHooks.ParallelismOverride = EditorPrefs.GetInt(PrefKeyThreads, 0);
+            // Debug asmdef を削除した環境ではこの復元コードごと消え、フラグは常に false=本番安全。
+            DebugCaptureHooks.MatchDistanceOklab = EditorPrefs.GetBool(PrefKeyMatchOklab, false);
         }
     }
 }
