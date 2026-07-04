@@ -94,14 +94,16 @@ namespace Iroca
         }
 
         // 任意 float 入力版(ゾーン定数: sample/target 色)。
-        private static void RgbToOklab(float r, float g, float b,
+        // internal: ColorZone.MatchOklab.cs / BuildSampleCache が OKLab マッチング距離用に呼ぶ(同一 asmdef)。
+        internal static void RgbToOklab(float r, float g, float b,
             out float L, out float a, out float bb)
         {
             OklabFromLinear(SrgbToLinear(r), SrgbToLinear(g), SrgbToLinear(b), out L, out a, out bb);
         }
 
         // byte 入力版(per-pixel 経路)。SrgbToLinear を 256 エントリ LUT で厳密に表引きする。
-        private static void RgbToOklab(byte r, byte g, byte b,
+        // internal: OKLab マッチング距離 ON 時に ProcessPixelsArray が per-pixel の L/a/b 充填で使う。
+        internal static void RgbToOklab(byte r, byte g, byte b,
             out float L, out float a, out float bb)
         {
             OklabFromLinear(s_srgbToLinearLut[r], s_srgbToLinearLut[g], s_srgbToLinearLut[b],

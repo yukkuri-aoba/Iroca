@@ -88,6 +88,18 @@ namespace Iroca
             // 暗すぎる色（黒）は彩度データが高くても色相（Hue）の計算がノイズで暴れるため信用しない
             float valueConf = Mathf.Clamp01((sc.sV - 0.05f) / 0.15f); // Vが0.05(非常に暗い)〜0.20の範囲で減衰
             sc.chromaConfidence = Mathf.Min(baseChromaConf, valueConf);
+
+            // 【実験】OKLab マッチング距離(ColorZone.MatchOklab.cs)用の派生値を無条件で充填する。
+            // 既定 HSV 経路ではこれらは一切読まれないためバイト不変。キャッシュ無効化条件も変えない。
+            PixelProcessor.RgbToOklab(c.r, c.g, c.b, out float sL, out float sa, out float sb);
+            sc.sL = sL;
+            sc.sCn = Mathf.Sqrt(sa * sa + sb * sb) * InvOklabChromaNorm;
+            sc.sHueOk = Mathf.Atan2(sb, sa) * InvTwoPi; // turns [-0.5, 0.5]
+            // satMin/satRamp の chroma 版(sS→sCn)。床 0.02/0.08 は HSV 版と同一。
+            sc.satMinOk = Mathf.Max(0.02f, sc.sCn * saturationStrictness);
+            sc.satRampOk = Mathf.Max(0.08f, sc.sCn * satRampScale);
+            // chromaConfidence の chroma 版。valueConf の min は取らない(OKLab 色相角は暗部でも安定)。
+            sc.chromaConfidenceOk = Mathf.Clamp01((sc.sCn - chromaThreshold) / 0.10f);
             return sc;
         }
 
