@@ -30,7 +30,7 @@
       ]
     },
     "grad_blue_to_white": {
-      "sha256": "5dd3a3cc2df8a78306a7e0960a25bd0083a7995185f1fc22e73bd472fefc5a94",
+      "sha256": "3b3b22e7d09a031466c190b57d441c49ddb154ffc12cb9a3cb87279054507deb",
       "shape": [
         48,
         48,
@@ -78,7 +78,7 @@
       ]
     },
     "nondefault_chromathreshold_graymode": {
-      "sha256": "f6676ff5e5d603c7bed969bbb8da72a1a70b4b6c319994c1324b51e1567c567a",
+      "sha256": "a927537b35b1482ee092771a83c632a327a4c0adf158115793f75132c9ccb973",
       "shape": [
         48,
         48,
@@ -94,7 +94,7 @@
       ]
     },
     "solid_gray_to_red": {
-      "sha256": "380036de87e2504508df6f6926c411bf055a9b6a6be597eae6f9596d62629b3c",
+      "sha256": "47de9ec9c957dff183214d5fee84ce578dbe0f2c00a06b0cb108e01a380ae6a2",
       "shape": [
         40,
         40,

@@ -26,7 +26,14 @@ namespace Iroca
         private const float AchromaTargetC  = 0.06f;  // target OkLab chroma がこれ未満で無彩扱い
         private const float AchromaRangeGain = 1.0f;  // [旧] レンジリマップ出力幅 = 元幅 × min(gain,1)。form 版へ移行。
         // 形(立体感)維持版: 成分の地色基準を target 側 offset に置き、偏差を gain 倍して陰影を知覚可能に拡張。
-        private const float AchromaFormGain = 2.5f;    // 基準からの偏差の増幅率(知覚補償)
+        // rangeRemap = center + (oL−regLmid)·gain。gain は per-pixel 偏差 (oL−regLmid) を一律に倍すため、
+        // 入力 L の**高周波(質感/圧縮ノイズ)まで gain 倍**されブロックノイズになる。旧 gain=2.5 は
+        // 実機 三角(cream→黒)で noise_amplification=1.775>1.5(品質ゲート)を出していた(高周波成分だけ
+        // 分離して増幅する平滑化案は、マスク無しで白背景が連結・混入するケースで oLsmooth が汚染され
+        // 成分の陰影相関(form_fidelity)を壊すため不採用)。gain を 1.5 に下げると pointwise 線形が保たれ
+        // form_fidelity は不変(相関はスケール不変=0.986維持)、noise_amplification は 1.775→1.411 に収まり、
+        // 陰影 P90(form_brightness=0.168≥0.15)も維持される(視覚レビューで陰影の立体感も確認済)。
+        private const float AchromaFormGain = 1.5f;    // 基準からの偏差の増幅率(知覚補償。ノイズ増幅を抑えるため 2.5→1.5)
         private const float AchromaFormOffset = 0.16f; // 地色基準を置く target 側 offset(黒=0+, 白=1-)
         // 成分の地色基準に使う L パーセンタイル。中央値(0.5)だと、ゆるい/広いマスクで暗い珊瑚縁が
         // 成分に混入したとき基準が下振れし、模様ごとに明るさが不揃いになる。高め(0.8)にすると暗い
