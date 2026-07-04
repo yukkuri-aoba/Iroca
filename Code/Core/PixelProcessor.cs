@@ -62,7 +62,7 @@ namespace Iroca
         // ビット表現で完全一致判定(丸め衝突を避ける)。曖昧なものは安全側で含める(ミスが増えるだけ)。
         private static string BuildSelectionKey(
             ColorZone z, float edgeFeather, int aaCleanup, int holeFillPasses, int holeFillMinNeighbors,
-            float relaxedSatMin, float relaxedSatRamp, bool matchDistanceOklab, ulong[] commonMask, ulong[] zoneMask)
+            float relaxedSatMin, float relaxedSatRamp, ulong[] commonMask, ulong[] zoneMask)
         {
             var sb = new StringBuilder(320);
             void F(float v) { sb.Append(BitConverter.SingleToInt32Bits(v)); sb.Append(','); }
@@ -85,9 +85,6 @@ namespace Iroca
             // 選択に効くグローバル後段設定
             F(edgeFeather); I(aaCleanup); I(holeFillPasses); I(holeFillMinNeighbors);
             F(relaxedSatMin); F(relaxedSatRamp);
-            // 【実験】マッチング距離の色空間(OKLab/HSV)。トグル切替時に旧経路の選択がキャッシュヒットで
-            // 復元されるのを防ぐためキーに含める(この 1 行の欠落が実装計画書の最大の落とし穴)。
-            B(matchDistanceOklab);
             // マスク内容(common + zone)
             sb.Append(MaskHash(commonMask)); sb.Append(';');
             sb.Append(MaskHash(zoneMask)); sb.Append(';');
@@ -151,11 +148,6 @@ namespace Iroca
             if (fullW <= 0) fullW = w;
             if (fullH <= 0) fullH = h;
 
-            // 【実験】選択距離を OKLab に切替えるか。ジョブ開始時に 1 回だけ捕捉してローカル化する
-            // (非同期プレビュージョブ中にトグルが変わってもジョブ内は一貫。bool なので torn read なし)。
-            // false(既定)=従来 HSV/RGB ハイブリッド距離。docs/oklab_matching_distance_experiment_plan.md 参照。
-            bool useOklab = DebugCaptureHooks.MatchDistanceOklab;
-
             // マスクスナップショットからローカル変数に展開(packed ulong[]、1bit/画素)
             ulong[] commonMask = masks?.common;
             int maskW = masks?.width ?? 0;
@@ -176,10 +168,6 @@ namespace Iroca
             // null 初期化してから try 内で Rent することで、
             // 2番目以降の Rent が例外を投げた場合に先行の配列をリークしない。
             float[]? pixH = null, pixS = null, pixV = null;
-            // 【実験】OKLab マッチング距離 ON 時のみ確保する per-pixel の OKLab L/a/b。
-            // OFF 時は Rent 自体をスキップしコスト完全ゼロ(=既定 HSV 経路はバイト不変)。
-            // 4K で float[]×3 ≈ 201MB 追加だが s_floatPool(上限 2^24, maxArraysPerBucket 24)の範囲内。
-            float[]? pixOkL = null, pixOkA = null, pixOkB = null;
             // 占有率バッファ: 優先度の高い(リスト上位の)ゾーンが書き込んだカバレッジを
             // ピクセル単位で累積する。下位ゾーンは残り(1-claimed)の範囲だけ適用され、
             // 「重なった部分は上位ゾーンのみ適用」というレイヤー排他を実現する。
@@ -192,12 +180,6 @@ namespace Iroca
             pixV = s_floatPool.Rent(len);
             claimed = s_floatPool.Rent(len);
             Array.Clear(claimed, 0, len);
-            if (useOklab)
-            {
-                pixOkL = s_floatPool.Rent(len);
-                pixOkA = s_floatPool.Rent(len);
-                pixOkB = s_floatPool.Rent(len);
-            }
 
             // po を HSV 計算 + foreach 内の全 Parallel.For で共用。
             // MaxDegreeOfParallelism で Unity Editor のスレッドプール圧迫を防ぐ。
@@ -208,11 +190,7 @@ namespace Iroca
             };
             Parallel.For(0, len, po, i =>
             {
-                Color32 op = originalPixels[i];
-                Color.RGBToHSV((Color)op, out pixH[i], out pixS[i], out pixV[i]);
-                // OKLab 経路のときだけ per-pixel の L/a/b を byte LUT 版で充填する。
-                if (useOklab)
-                    RgbToOklab(op.r, op.g, op.b, out pixOkL[i], out pixOkA[i], out pixOkB[i]);
+                Color.RGBToHSV((Color)originalPixels[i], out pixH[i], out pixS[i], out pixV[i]);
             });
             _phaseTicks[PhHsv] += Stopwatch.GetTimestamp() - _tp;
 
@@ -270,7 +248,7 @@ namespace Iroca
                     if (selectionCache != null && isFullImagePath)
                     {
                         selKey = BuildSelectionKey(zone, edgeFeather, antiAliasCleanup, holeFillPasses,
-                            holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp, useOklab, commonMask, zoneMask);
+                            holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp, commonMask, zoneMask);
                         selCached = selectionCache.TryGet(zone.id, selKey, w, h, out cachedStrength, out cachedKeep);
                     }
 
@@ -317,12 +295,7 @@ namespace Iroca
                                 if (IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH)) continue;
 
                                 float s, hPot, mc;
-                                // 【実験】OKLab 経路のときは事前計算済みの L/a/b を渡す。else は従来 HSV を
-                                // そのまま呼ぶ(この分岐が既定時バイト不変の根拠)。
-                                if (useOklab)
-                                    zone.GetMatchScoresPrecomputedOklab(pixH[i], pixS[i], pixV[i], pixOkL[i], pixOkA[i], pixOkB[i], (Color)originalPixels[i], xf, yf, fullW, fullH, out s, out hPot, out mc);
-                                else
-                                    zone.GetMatchScoresPrecomputedHSV(pixH[i], pixS[i], pixV[i], (Color)originalPixels[i], xf, yf, fullW, fullH, out s, out hPot, out mc);
+                                zone.GetMatchScoresPrecomputedHSV(pixH[i], pixS[i], pixV[i], (Color)originalPixels[i], xf, yf, fullW, fullH, out s, out hPot, out mc);
                                 strengthLocal[i] = s;
                                 if (highlightPotLocal != null) highlightPotLocal[i] = hPot;
                                 if (matchConfLocal != null) matchConfLocal[i] = mc;
@@ -905,9 +878,6 @@ namespace Iroca
             } // end try (pixH/S/V)
             finally
             {
-                if (pixOkB != null) s_floatPool.Return(pixOkB);
-                if (pixOkA != null) s_floatPool.Return(pixOkA);
-                if (pixOkL != null) s_floatPool.Return(pixOkL);
                 if (claimed != null) s_floatPool.Return(claimed);
                 if (pixV != null) s_floatPool.Return(pixV);
                 if (pixS != null) s_floatPool.Return(pixS);
