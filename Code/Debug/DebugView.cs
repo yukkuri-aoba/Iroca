@@ -6,9 +6,15 @@ using UnityEngine;
 namespace Iroca.DebugTools
 {
     /// <summary>
-    /// IrocaWindow に組み込まれる「デバッグキャプチャ有効化トグル」と
-    /// 「別ウィンドウで詳細を開く」ボタンだけを担当する小さなフット プリント部品。
-    /// 実際の可視化 UI は <see cref="DebugWindow"/> (独立 EditorWindow) に分離されている。
+    /// 「段階ごとのキャプチャ」トグルとキャプチャ状態を担当する部品。
+    /// UI は <see cref="PerfView"/> のデバッグモードブロック内から
+    /// <see cref="DrawCaptureControls"/> 経由で描画され、詳細可視化は独立 EditorWindow
+    /// (<see cref="DebugWindow"/>) に分離されている。
+    ///
+    /// キャプチャは <see cref="DebugMode"/>（マスタースイッチ）と本トグルの
+    /// 両方が ON のときだけ走る。片方でも OFF なら <see cref="CurrentCaptureOrNull"/> が
+    /// null を返し、本体パイプラインの <c>debug?.</c> が全て skip される
+    /// ＝ キャプチャのオーバーヘッドなしで実パフォーマンスを計測できる。
     ///
     /// EditorWindow 一個前提のプロセス内グローバル状態。
     /// </summary>
@@ -23,9 +29,12 @@ namespace Iroca.DebugTools
         // ── キャプチャ状態 ────────────────────────────
         private static DebugCaptureContext s_activeContext;
 
+        /// <summary>
+        /// キャプチャが実際に走る状態か。デバッグモードとキャプチャトグルの両方が ON のときだけ true。
+        /// </summary>
         internal static bool IsCaptureEnabled
         {
-            get { EnsurePrefsLoaded(); return s_enableCapture; }
+            get { EnsurePrefsLoaded(); return DebugMode.IsEnabled && s_enableCapture; }
         }
 
         /// <summary>最新のキャプチャ（DebugWindow から読み出される）。null 可。</summary>
@@ -33,12 +42,12 @@ namespace Iroca.DebugTools
 
         /// <summary>
         /// <see cref="DebugCaptureHooks.Factory"/> から呼ばれる。
-        /// トグル OFF なら null を返してパイプラインを完全 no-op にする。
+        /// デバッグモード OFF or キャプチャトグル OFF なら null を返してパイプラインを完全 no-op にする。
         /// </summary>
         internal static IDebugCapture CurrentCaptureOrNull()
         {
             EnsurePrefsLoaded();
-            if (!s_enableCapture) return null;
+            if (!DebugMode.IsEnabled || !s_enableCapture) return null;
             // 毎プレビュー/エクスポートで新しいインスタンスを作って渡す。
             var ctx = new DebugCaptureContext();
             s_activeContext = ctx;
@@ -46,67 +55,68 @@ namespace Iroca.DebugTools
         }
 
         /// <summary>
-        /// IrocaWindow.OnGUI のスクロール領域内から発火される。
-        /// 最小限のヘッダー（チェックボックス + 別ウィンドウを開くボタン）だけ描画する。
+        /// PerfView のデバッグモードブロック内から呼ばれ、
+        /// 「段階ごとのキャプチャ」サブトグルと詳細ウィンドウを開くボタンを描画する。
+        /// 外側の helpBox は PerfView 側が持つ（デバッグ UI を 1 セクションに集約するため）。
         /// </summary>
-        internal static void Draw(IrocaWindow host)
+        internal static void DrawCaptureControls(IrocaWindow host)
         {
             EnsurePrefsLoaded();
 
-            EditorGUILayout.Space(6);
-            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            EditorGUI.BeginChangeCheck();
+            bool prevEnabled = s_enableCapture;
+            s_enableCapture = EditorGUILayout.ToggleLeft(
+                new GUIContent(
+                    "段階ごとのキャプチャを有効化 (パイプライン透明化)",
+                    "オンにすると、次回プレビュー/エクスポート時に各パイプライン段階の strength マップ・差分・Recolor サブブランチを採取します。\n" +
+                    "採取はピクセル配列の量子化・コピーを伴うため処理が重くなります。\n" +
+                    "実際のパフォーマンスを計測したいときはオフにしてください（デバッグモードの詳細内訳表示は維持されます）。"),
+                s_enableCapture);
+            if (EditorGUI.EndChangeCheck() && s_enableCapture != prevEnabled)
             {
-                EditorGUI.BeginChangeCheck();
-                bool prevEnabled = s_enableCapture;
-                s_enableCapture = EditorGUILayout.ToggleLeft(
-                    new GUIContent(
-                        "デバッグキャプチャを有効化 (パイプライン透明化)",
-                        "オンにすると、次回プレビュー/エクスポート時に各パイプライン段階の strength マップ・差分・Recolor サブブランチを採取します。\nオフでは何もキャプチャされず、本体パイプラインに一切のオーバーヘッドはありません。"),
-                    s_enableCapture, EditorStyles.boldLabel);
-                if (EditorGUI.EndChangeCheck())
-                {
-                    EditorPrefs.SetBool(PrefKeyEnabled, s_enableCapture);
-                    if (s_enableCapture != prevEnabled)
-                    {
-                        host.MarkPreviewDirty();
-                        if (!s_enableCapture)
-                        {
-                            // OFF にしたら現状のキャプチャを破棄
-                            s_activeContext = null;
-                            host.LatestDebugCapture = null;
-                            DebugWindow.NotifyCaptureCleared();
-                        }
-                    }
-                }
+                EditorPrefs.SetBool(PrefKeyEnabled, s_enableCapture);
+                host.MarkPreviewDirty();
+                if (!s_enableCapture) ClearCapture(host); // OFF にしたら現状のキャプチャを破棄
+            }
 
-                if (!s_enableCapture)
+            if (!s_enableCapture)
+            {
+                EditorGUILayout.LabelField(
+                    "キャプチャ OFF: 実パイプラインのみ実行（オーバーヘッドなしで計測できます）。",
+                    EditorStyles.miniLabel);
+                return;
+            }
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                if (GUILayout.Button(new GUIContent(
+                        "詳細を別ウィンドウで開く",
+                        "可視化（ステージごとのヒートマップ・差分・オーナーシップ・Recolor ブランチ）と PNG ダンプを別ウィンドウで開きます。\nウィンドウを自由にサイズ変更してデバッグできます。")))
                 {
-                    EditorGUILayout.LabelField(
-                        "オフ: 本体パイプラインに何もフックされていません。",
+                    DebugWindow.OpenOrFocus();
+                }
+                if (s_activeContext != null && s_activeContext.Snapshots.Count > 0)
+                {
+                    GUILayout.Label(
+                        $"capture: {s_activeContext.Snapshots.Count} snapshots × {s_activeContext.Width}x{s_activeContext.Height}",
                         EditorStyles.miniLabel);
-                    return;
                 }
-
-                using (new EditorGUILayout.HorizontalScope())
+                else
                 {
-                    if (GUILayout.Button(new GUIContent(
-                            "詳細を別ウィンドウで開く",
-                            "可視化（ステージごとのヒートマップ・差分・オーナーシップ・Recolor ブランチ）と PNG ダンプを別ウィンドウで開きます。\nウィンドウを自由にサイズ変更してデバッグできます。")))
-                    {
-                        DebugWindow.OpenOrFocus();
-                    }
-                    if (s_activeContext != null && s_activeContext.Snapshots.Count > 0)
-                    {
-                        GUILayout.Label(
-                            $"capture: {s_activeContext.Snapshots.Count} snapshots × {s_activeContext.Width}x{s_activeContext.Height}",
-                            EditorStyles.miniLabel);
-                    }
-                    else
-                    {
-                        GUILayout.Label("(プレビューを再生成するとキャプチャされます)", EditorStyles.miniLabel);
-                    }
+                    GUILayout.Label("(プレビューを再生成するとキャプチャされます)", EditorStyles.miniLabel);
                 }
             }
+        }
+
+        /// <summary>
+        /// キャプチャ結果を破棄し DebugWindow に通知する。
+        /// デバッグモード OFF もしくはキャプチャトグル OFF に切り替えたときに呼ぶ。
+        /// </summary>
+        internal static void ClearCapture(IrocaWindow host)
+        {
+            s_activeContext = null;
+            if (host != null) host.LatestDebugCapture = null;
+            DebugWindow.NotifyCaptureCleared();
         }
 
         // ──────────────────────────────────────────────
@@ -114,7 +124,9 @@ namespace Iroca.DebugTools
         {
             if (s_loadedPrefs) return;
             s_loadedPrefs = true;
-            s_enableCapture = EditorPrefs.GetBool(PrefKeyEnabled, false);
+            // 既定 true: デバッグモードをオンにした時点でキャプチャも有効になる。
+            // （実パフォーマンスを測りたいときはユーザーが個別にオフにする）
+            s_enableCapture = EditorPrefs.GetBool(PrefKeyEnabled, true);
         }
     }
 }
