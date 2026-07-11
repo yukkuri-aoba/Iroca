@@ -54,7 +54,7 @@ Unity 上でアバターのテクスチャを直接色改変できるエディ�
 2. スポイトで「変えたい色」を選ぶ
 3. 「変更先の色」を決めて PNG に書き出す
 
-VRCSDK / VCC は不要。Unity にインポートするだけで動きます。
+Unity にインポートするだけで動きます。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🧰 主な機能
@@ -89,7 +89,6 @@ JSON の書き出し・読み込みに対応しているので、
 
 ・Unity 2022.3.22f1
 ・入力形式：PNG / JPG　→　出力形式：PNG
-・VRCSDK / VCC 不要
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📦 インストール方法
@@ -146,13 +145,19 @@ VRChat, VRC, アバター改変, 衣装改変, 色改変, テクスチャ, Unity
 
 ## 掲載画像の並び（docs/booth/ のスライド）
 
-1. `slide-1`（正方形の表紙）… **メイン画像**。検索サムネで「無料」「色を変える」が読めるように設計。
-2. `slide-2` こんなテクスチャでも
-3. `slide-3` Before / After
-4. `slide-4` カラーゾーン
-5. `slide-5` 除外マスク
-6. `slide-6` プレビュー & プリセット
-7. `slide-7` 色が濁らない（OkLab）
+デザインは商業POP風（案1 王道レッド：黄地×赤・袋文字・爆発形「無料」バッジ）。
+
+1. `slide-1`（正方形 1280×1280 の表紙）… **メイン画像**。検索サムネ（150px相当）で「無料」「いろか」「その色、変えられます。」が読めることを確認済み。
+2. `slide-2` こんなテクスチャでも、使えます。
+3. `slide-3` スポイトで色を選ぶだけ。（Before / After 実写）
+4. `slide-4` カラーゾーン（要 Unity スクショ: `images/zone-eyedropper.png`）
+5. `slide-5` 変えたくない場所はブラシで保護（要 Unity スクショ: `images/mask-brush.png`）
+6. `slide-6` プレビューとプリセット（要 Unity スクショ: `images/preview-diff.png`）
+7. `slide-7` 色を変えても、濁らない。（HSV vs OkLab、`tools/oklab_strip.py` の実計算値）
 8. `slide-8` はじめかた / CTA
 
-書き出し手順は `docs/booth/README.md` を参照。
+書き出し: `python docs/booth/tools/capture.py`（`slides.html` の 8 枚 → `out/`）。
+スライド 4〜6 は Unity スクショを `docs/booth/images/` に置いて再実行すると自動で差し替わる（未配置の間はプレースホルダ表示）。
+サムネ判読チェック: `python docs/booth/tools/thumbcheck.py out/slide-1.png`。
+
+※権利メモ: バンダナの Before/After は Feina アバターの3Dレンダー（レンダー掲載は可）。Feina のテクスチャを平面画像としてそのまま載せるのは全スライドで禁止。アトラス見本は CSS モックで作成済み。
