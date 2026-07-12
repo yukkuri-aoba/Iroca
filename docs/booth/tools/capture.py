@@ -17,7 +17,7 @@ def main() -> None:
     ap.add_argument("--ids", default=",".join(f"slide-{i}" for i in range(1, 9)))
     ap.add_argument("--out", default="out")
     # ページ内で実際に使うフォントのみ指定する（未使用フォントは遅延ロードされず false になる）
-    ap.add_argument("--fonts", default="Dela Gothic One,Noto Sans JP")
+    ap.add_argument("--fonts", default="Noto Sans JP")
     args = ap.parse_args()
     required_fonts = [f.strip() for f in args.fonts.split(",") if f.strip()]
     ids = [s for s in args.ids.split(",") if s]

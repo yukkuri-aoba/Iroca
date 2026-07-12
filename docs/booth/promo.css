@@ -1,57 +1,241 @@
-/* BOOTH 商品画像: 実例と操作手順を最優先にした情報デザイン */
-:root { --ink:#172033; --sub:#5c6678; --line:#dce2ed; --paper:#f7f8fb; --blue:#4d63c7; --blue-pale:#eff2ff; --green:#2f8b70; }
-* { box-sizing:border-box; margin:0; padding:0; }
-body { display:flex; flex-direction:column; align-items:center; gap:32px; padding:32px; background:#e9edf4; color:var(--ink); font-family:"Noto Sans JP",sans-serif; }
-.cover,.slide { position:relative; flex:none; overflow:hidden; border:1px solid var(--line); background:var(--paper); box-shadow:0 12px 30px rgba(23,32,51,.12); }
-.cover { width:1280px; height:1280px; background:linear-gradient(145deg,#fff 0 61%,#f0f3fa 61%); }
-.slide { width:1280px; height:720px; background:linear-gradient(#fff 0 144px,var(--paper) 144px); }
-.fk { display:block; white-space:nowrap; }
-.fk::before,.fk::after { content:none; }
+/* BOOTH 商品画像 —— アートディレクション「色を、撮る」
+ *
+ * 原則（全スライドを貫く。破ったら元の迷走に戻る）
+ *   1. 色を持つのは被写体だけ。背景・文字・UI は無彩色に落とす。
+ *      過去の POP 版は黄地と赤枠が被写体の色と喧嘩し、色替えツールなのに色が見えなくなった。
+ *   2. 装飾で美しくしようとしない。傾けた枠・ドロップシャドウ・袋文字・集中線・
+ *      爆発バッジ・角丸は使わない。写真は矩形で大きく断ち落とす。
+ *   3. 文字は少なく、大きく。BOOTH 一覧では約 150px に縮小される（thumbcheck.py で検証）。
+ */
 
-/* 表紙 */
-.cover-kicker { position:absolute; top:72px; left:72px; color:var(--blue); font-size:21px; font-weight:700; letter-spacing:.12em; }
-.c1 .title { position:absolute; top:156px; left:70px; z-index:2; font-size:88px; font-weight:900; letter-spacing:-.06em; line-height:1.18; }
-.c1 .title .l2 { color:var(--blue); font-size:116px; }
-.c1 .sub { position:absolute; top:530px; left:74px; color:var(--sub); font-size:30px; font-weight:500; }
-.photo { position:absolute; padding:8px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 12px 25px rgba(23,32,51,.12); }
-.photo img { display:block; width:100%; border-radius:4px; }
-.photo .tag { position:absolute; top:-21px; left:14px; padding:5px 14px; color:#fff; background:#596276; border-radius:5px; font-size:21px; font-weight:700; white-space:nowrap; }
-.c1 .photo.before { width:470px; top:625px; left:82px; transform:rotate(-2deg); }
-.c1 .photo.after { width:560px; top:600px; left:628px; transform:rotate(2deg); }
-.c1 .photo.after .tag { background:var(--blue); }
-.arrow { position:absolute; z-index:4; filter:none; }
-.c1 .arrow { top:815px; left:526px; transform:rotate(-7deg); }
-.arrow use { fill:#fff; stroke:var(--blue); }
-.c1 .band { position:absolute; bottom:0; left:0; display:flex; align-items:center; justify-content:space-between; width:100%; height:118px; padding:0 58px; background:var(--ink); color:#fff; }
-.c1 .band .pitch { color:#c5cde5; font-size:25px; font-weight:500; }
-.c1 .band .name { display:flex; align-items:baseline; gap:18px; font-size:58px; font-weight:900; letter-spacing:-.05em; }
-.c1 .band small { color:#bdc6db; font-size:20px; font-weight:500; letter-spacing:0; }
+:root {
+  --paper: #f2f1ee;   /* 無彩色の紙。純白にしない（被写体の白が沈む） */
+  --ink:   #16181c;   /* 墨。純黒にしない */
+  --sub:   #6f7278;
+  --line:  #dedbd5;   /* 髪罫。ここぞという区切りだけ */
+  --accent:#c2452c;   /* 朱。差し色は1色だけ、面積は最小に */
+}
 
-/* 横長スライド共通 */
-.slide .h { position:absolute; top:32px; left:60px; z-index:6; font-size:45px; font-weight:900; letter-spacing:-.035em; line-height:1.2; }
-.kicker { display:block; margin-bottom:9px; color:var(--blue); font-size:16px; font-weight:700; letter-spacing:.12em; }
-.slide .lead { position:absolute; z-index:5; color:var(--sub); font-size:24px; font-weight:500; line-height:1.6; }
-.slide .tickets { position:absolute; z-index:5; display:flex; flex-direction:column; gap:14px; }
-.slide .ticket { display:flex; align-items:center; gap:14px; width:max-content; padding:14px 20px; color:var(--ink); background:#fff; border:1px solid var(--line); border-radius:7px; box-shadow:0 5px 12px rgba(23,32,51,.06); font-size:26px; font-weight:700; transform:none!important; }
-.slide .ticket .ok { display:grid; flex:none; place-items:center; width:39px; height:39px; border-radius:50%; background:var(--blue); color:#fff; font-size:13px; font-weight:700; }
-.shotcard,.atlas { position:absolute; z-index:3; padding:7px; background:#fff; border:1px solid var(--line); border-radius:7px; box-shadow:0 8px 19px rgba(23,32,51,.1); transform:none!important; }
-.shotcard .inner,.atlas .board { width:100%; height:100%; }
-.shotcard img { display:block; width:100%; height:100%; object-fit:cover; border-radius:3px; }
-.shotcard .ph { display:none; }
-.shotcard.missing img { display:none; }
-.shotcard.missing .ph { display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; gap:12px; color:var(--sub); background:#f4f6fa; border:2px dashed #bfc8d7; border-radius:3px; }
-.shotcard .ph b { font-size:28px; }.shotcard .ph span { font-size:20px; }
-.atlas .board { position:relative; overflow:hidden; background:#303846; border-radius:3px; }.atlas .blk { position:absolute; border-radius:4px; }
-.atlas .cap { position:absolute; right:12px; bottom:-20px; padding:4px 12px; color:#fff; background:#596276; border-radius:4px; font-size:15px; font-weight:500; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* 比較・技術説明・導入 */
-.strips { position:absolute; top:286px; right:64px; left:64px; z-index:4; display:flex; flex-direction:column; gap:17px; }
-.striprow { display:flex; align-items:center; gap:15px; }.striprow .lbl { width:272px; flex:none; padding:10px; color:var(--ink); background:#fff; border:1px solid var(--line); border-radius:5px; font-size:24px; font-weight:700; text-align:center; }.striprow .lbl.bad { color:#6a7487; }.striprow .lbl.good { color:#fff; background:var(--blue); border-color:var(--blue); }.striprow .sw { height:78px; flex:1; border-radius:5px; box-shadow:inset 0 0 0 2px rgba(255,255,255,.45); }
-.slide .foot { position:absolute; bottom:29px; left:64px; color:var(--sub); font-size:19px; }
-.steps { position:absolute; top:192px; right:60px; left:60px; z-index:4; display:flex; gap:16px; }.step { flex:1; min-height:225px; padding:23px 18px; background:#fff; border:1px solid var(--line); border-radius:8px; text-align:left; }.step .no { display:grid; place-items:center; width:37px; height:37px; margin-bottom:18px; border-radius:50%; color:#fff; background:var(--blue); font-size:17px; font-weight:700; }.step .tx { color:var(--ink); font-size:25px; font-weight:700; line-height:1.42; }.step .note { margin-top:10px; color:var(--sub); font-size:18px; }.cta { position:absolute; top:494px; left:60px; padding:16px 24px; color:#fff; background:var(--blue); border-radius:6px; font-size:29px; font-weight:700; }.spec { position:absolute; right:60px; bottom:40px; left:60px; color:var(--sub); font-size:18px; text-align:center; }
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+  padding: 40px;
+  background: #cfccc6;
+  color: var(--ink);
+  font-family: "Noto Sans JP", sans-serif;
+  font-feature-settings: "palt";  /* 日本語の字詰め。これだけで見違える */
+}
 
-/* 実UIを指す注釈。説明・線・枠が同じ対象を示す */
-.ui-callout { position:absolute; z-index:8; display:flex; align-items:center; gap:9px; padding:9px 12px; color:var(--ink); background:#fff; border:1px solid #b8c3ed; border-radius:5px; box-shadow:0 5px 12px rgba(23,32,51,.1); font-size:18px; }.ui-callout span { display:grid; place-items:center; width:24px; height:24px; border-radius:50%; color:#fff; background:var(--blue); font-size:13px; }.ui-callout::after { position:absolute; width:2px; height:56px; content:""; background:var(--blue); transform-origin:top; }.ui-callout::before { position:absolute; width:0; height:0; content:""; border-top:6px solid var(--blue); border-right:5px solid transparent; border-left:5px solid transparent; }.ui-box { position:absolute; z-index:7; border:3px solid var(--blue); border-radius:3px; box-shadow:0 0 0 3px rgba(255,255,255,.86); }
-.eye-callout { top:160px; left:700px; }.eye-callout::after { top:47px; left:140px; transform:rotate(65deg); }.eye-callout::before { top:95px; left:162px; transform:rotate(65deg); }.eye-box { top:247px; left:728px; width:158px; height:24px; }
-.mask-callout { top:150px; left:480px; }.mask-callout::after { top:46px; left:83px; transform:rotate(74deg); }.mask-callout::before { top:98px; left:99px; transform:rotate(74deg); }.mask-box { top:477px; left:165px; width:140px; height:22px; }
-.preview-callout { top:150px; left:738px; }.preview-callout::after { top:46px; left:99px; transform:rotate(67deg); }.preview-callout::before { top:98px; left:120px; transform:rotate(67deg); }.preview-box { top:217px; left:870px; width:370px; height:20px; }
+.cover, .slide {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+  background: var(--paper);
+}
+.cover { width: 1280px; height: 1280px; }
+.slide { width: 1280px; height: 720px; }
+
+/* ── 共通パーツ ───────────────────────────── */
+
+.kicker {
+  color: var(--sub);
+  font-size: 17px;
+  font-weight: 400;
+  letter-spacing: .22em;
+}
+
+.headline {
+  font-size: 52px;
+  font-weight: 900;
+  letter-spacing: -.02em;
+  line-height: 1.3;
+}
+
+.note {
+  color: var(--sub);
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1.7;
+}
+
+/* 被写体。矩形で断ち落とす。枠・影・角丸・回転はつけない */
+.shot { position: absolute; overflow: hidden; }
+.shot img { display: block; width: 100%; height: 100%; object-fit: contain; }
+
+/* 撮影前のプレースホルダ。画像が置かれたら自動で消える */
+.shot .ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%; height: 100%;
+  color: var(--sub);
+  background: #e6e3dd;
+  font-size: 20px;
+  text-align: center;
+  line-height: 1.8;
+}
+.shot img { display: block; }
+.shot.missing img { display: none; }
+.shot:not(.missing) .ph { display: none; }
+
+/* ── 表紙 ─────────────────────────────────
+ * 同一カメラ・同一ポーズの2枚（元の色 / 変更後）を重ね、斜めにクリップする。
+ * 1足の靴の左半分が青、右半分が朱になり、分割線そのものが「色の境界」になる。
+ * これは連番撮影が画素単位で一致していないと成立しない。
+ */
+.c1 .kicker { position: absolute; top: 76px; left: 76px; }
+.c1 .title {
+  position: absolute; top: 118px; left: 74px;
+  z-index: 3;
+  font-size: 96px;
+  font-weight: 900;
+  letter-spacing: -.045em;
+  line-height: 1.15;
+}
+.c1 .lede {
+  position: absolute; top: 368px; left: 78px;
+  z-index: 3;
+  color: var(--sub);
+  font-size: 29px;
+  font-weight: 400;
+  letter-spacing: .02em;
+}
+
+/* 撮影は 16:10（2560×1600）。枠も 1120×700 の 16:10 にして歪みなく収める */
+.split {
+  position: absolute;
+  top: 432px; left: 80px;
+  width: 1120px; height: 700px;
+}
+.split img {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+}
+/* 変更後を右上→左下の対角でクリップする。
+   分割線（.rule の SVG）は同じ座標系に同じ端点で引くので、角度が必ず一致する。 */
+.split .after { clip-path: polygon(100% 0, 100% 100%, 20% 100%); }
+.split .rule { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+.split.missing .rule, .split.missing .tag { display: none; }
+.split .rule line { stroke: var(--ink); stroke-width: 2; opacity: .45; }
+
+.split .tag {
+  position: absolute;
+  z-index: 2;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: .16em;
+}
+.split .tag.l { left: 4px;  bottom: 6px; color: var(--sub); }
+.split .tag.r { right: 4px; top: 6px;    color: var(--accent); }
+
+.c1 .foot {
+  position: absolute;
+  right: 76px; bottom: 58px; left: 76px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-top: 26px;
+  border-top: 1px solid var(--line);
+}
+.c1 .brand { font-size: 46px; font-weight: 900; letter-spacing: -.02em; }
+.c1 .brand small { margin-left: 14px; color: var(--sub); font-size: 20px; font-weight: 400; letter-spacing: .18em; }
+.c1 .spec { color: var(--sub); font-size: 22px; font-weight: 400; }
+.c1 .spec b { color: var(--ink); font-weight: 700; }
+
+/* ── 横長スライド共通 ─────────────────────── */
+.slide .kicker { position: absolute; top: 56px; left: 64px; }
+.slide .headline { position: absolute; top: 84px; left: 64px; }
+.slide .note { position: absolute; left: 64px; }
+
+/* 2. マクロ（質感が残っていることの証明） */
+.s-macro .shot { top: 0; width: 640px; height: 720px; }
+.s-macro .shot.before { left: 0; }
+.s-macro .shot.after  { left: 640px; }
+.s-macro .shot img { object-fit: cover; }
+.s-macro .overlay {
+  position: absolute; top: 0; left: 0;
+  width: 560px; height: 720px;
+  background: linear-gradient(to right, var(--paper) 62%, rgba(242,241,238,0));
+}
+.s-macro .kicker, .s-macro .headline, .s-macro .note { z-index: 2; }
+.s-macro .note { top: 268px; width: 400px; }
+.s-macro .tag {
+  position: absolute; bottom: 28px;
+  z-index: 2;
+  color: #fff;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  mix-blend-mode: difference;
+}
+.s-macro .tag.l { left: 600px; }
+.s-macro .tag.r { left: 1180px; }
+
+/* 3. 色見本帳（8色グリッド）*/
+.chart {
+  position: absolute;
+  top: 176px; left: 64px;
+  display: grid;
+  grid-template-columns: repeat(4, 268px);
+  grid-template-rows: repeat(2, 226px);
+  gap: 12px;
+}
+.chip { position: relative; overflow: hidden; background: #e6e3dd; }
+.chip img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.chip .ph { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; color: var(--sub); font-size: 15px; }
+.chip.missing img { display: none; }
+.chip:not(.missing) .ph { display: none; }
+.chip .nm {
+  position: absolute; bottom: 0; left: 0;
+  padding: 5px 10px;
+  color: var(--ink);
+  background: var(--paper);
+  font-size: 18px;
+  font-weight: 700;
+}
+.chip .nm small { margin-left: 5px; color: var(--sub); font-size: 12px; font-weight: 400; }
+.s-chart .foot {
+  position: absolute; bottom: 26px; left: 64px;
+  color: var(--sub);
+  font-size: 18px;
+}
+
+/* 4-6. UI スクリーンショット */
+.s-ui .shot { top: 96px; right: 64px; width: 660px; height: 560px; background: #e6e3dd; }
+.s-ui .shot img { object-fit: cover; object-position: top left; }
+.s-ui .note { top: 268px; width: 460px; }
+.steps-min { position: absolute; top: 380px; left: 64px; }
+.steps-min li {
+  display: flex;
+  gap: 16px;
+  padding: 13px 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+  font-size: 23px;
+  font-weight: 700;
+  width: 460px;
+}
+.steps-min li:last-child { border-bottom: 1px solid var(--line); }
+.steps-min li i { color: var(--accent); font-style: normal; font-weight: 900; }
+
+/* 7. OkLab ストリップ（実計算値。模式値の使用は禁止） */
+.strips { position: absolute; top: 268px; right: 64px; left: 64px; display: flex; flex-direction: column; gap: 18px; }
+.striprow { display: flex; align-items: center; gap: 20px; }
+.striprow .lbl { width: 280px; flex: none; font-size: 23px; font-weight: 700; text-align: right; }
+.striprow .lbl.bad  { color: var(--sub); font-weight: 400; }
+.striprow .lbl.good { color: var(--ink); }
+.striprow .sw { height: 86px; flex: 1; }
+.s-oklab .foot { position: absolute; bottom: 30px; left: 64px; color: var(--sub); font-size: 18px; }
+
+/* 8. はじめかた */
+.steps { position: absolute; top: 210px; right: 64px; left: 64px; display: flex; }
+.step { flex: 1; padding-right: 28px; border-top: 2px solid var(--ink); padding-top: 20px; }
+.step .no { color: var(--accent); font-size: 20px; font-weight: 900; letter-spacing: .1em; }
+.step .tx { margin-top: 12px; font-size: 26px; font-weight: 700; line-height: 1.45; }
+.s-start .cta { position: absolute; bottom: 118px; left: 64px; font-size: 40px; font-weight: 900; }
+.s-start .spec { position: absolute; bottom: 46px; left: 64px; color: var(--sub); font-size: 19px; }
