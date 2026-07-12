@@ -62,7 +62,10 @@ namespace Iroca
 
         public static Color ColorField(Object host, GUIContent content, Color value)
         {
-            Color n = EditorGUILayout.ColorField(content, value);
+            // Unity 純正のスポイト（スクリーン色を吸う）は無効化する。色取得は実テクスチャ画素を
+            // 読む独自の「プレビュー直接スポイト」に一本化しており、純正スポイトは機能重複かつ
+            // ガンマ空間のスクリーン色を拾うため精度的に劣り、誤操作の元になる。
+            Color n = EditorGUILayout.ColorField(content, value, showEyedropper: false, showAlpha: true, hdr: false);
             if (n != value) Undo.RecordObject(host, DefaultUndoName);
             return n;
         }
