@@ -66,7 +66,3 @@ scripts/build-check/obj/
 scripts/headless-run/bin/
 scripts/headless-run/obj/
 .playwright-mcp
-# 第三者テクスチャ(HAOLAN アトラス)が平面で写り込んでおり掲載不可。撮り直すまで追跡しない
-docs/booth/images/zone-eyedropper.png
-docs/booth/images/mask-brush.png
-docs/booth/images/preview-diff.png

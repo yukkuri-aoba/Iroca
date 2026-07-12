@@ -205,9 +205,11 @@ body {
   font-size: 18px;
 }
 
-/* 4-6. UI スクリーンショット */
-.s-ui .shot { top: 96px; right: 64px; width: 660px; height: 560px; background: #e6e3dd; }
-.s-ui .shot img { object-fit: cover; object-position: top left; }
+/* 4-6. UI スクリーンショット
+ * 生のダーク UI を丸ごと貼らない。訴えたい 1 点だけを crop_assets.py で切り出し、
+ * 余白の中に置いて「証拠」として扱う。contain なのでクロップの比率は自由。 */
+.s-ui .shot { top: 96px; right: 64px; width: 660px; height: 560px; }
+.s-ui .shot img { object-fit: contain; object-position: center; }
 .s-ui .note { top: 268px; width: 460px; }
 .steps-min { position: absolute; top: 380px; left: 64px; }
 .steps-min li {
