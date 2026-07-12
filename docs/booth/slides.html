@@ -5,7 +5,7 @@
 <title>いろか BOOTH スライド（8枚）</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Mochiy+Pop+One&family=Noto+Sans+JP:wght@500;700;900&family=Yusei+Magic&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="promo.css">
 </head>
 <body>
@@ -20,13 +20,13 @@
   </defs>
 </svg>
 
-<!-- ============ 1. 表紙（正方形・案1 王道レッド） ============ -->
 <section class="cover c1" id="slide-1">
+  <div class="cover-kicker">TEXTURE RECOLOR TOOL FOR UNITY</div>
   <div class="title">
     <span class="fk l1" data-t="その色、">その色、</span><br>
     <span class="fk l2" data-t="変えられます。">変えられます。</span>
   </div>
-  <div class="sub">PSDなしで直接色改変。陰影・模様はそのまま</div>
+  <div class="sub">テクスチャを直接色替え。陰影・模様の見え方を保ちます</div>
 
   <div class="photo before">
     <span class="tag">変更前</span>
@@ -42,25 +42,20 @@
     <img src="images/ba-after-wide.png" alt="">
   </div>
 
-  <div class="burst">
-    <svg viewBox="0 0 240 240"><use href="#burst-shape"/></svg>
-    <span class="lb">無料</span>
-  </div>
-
   <div class="band">
-    <div class="pitch">スポイトで選ぶだけ！</div>
+    <div class="pitch">PSD不要｜PNG / JPG に対応</div>
     <div class="name">いろか<small>Iroca｜Unity用ツール</small></div>
   </div>
 </section>
 
 <!-- ============ 2. こんなテクスチャでも ============ -->
 <section class="slide" id="slide-2">
-  <div class="h"><span class="fk" data-t="こんなテクスチャでも、使えます。">こんなテクスチャでも、使えます。</span></div>
+  <div class="h"><span class="kicker">01 / COMPATIBILITY</span><span class="fk" data-t="PSDがなくても、色を変えられる。">PSDがなくても、色を変えられる。</span></div>
 
   <div class="tickets" style="left:60px; top:216px">
-    <div class="ticket" style="transform:rotate(-1.5deg)"><span class="ok">OK</span>PSD・改変データが無い</div>
-    <div class="ticket" style="transform:rotate(1deg); margin-left:26px"><span class="ok">OK</span>パーツが1枚に統合済み</div>
-    <div class="ticket" style="transform:rotate(-0.5deg); margin-left:8px"><span class="ok">OK</span>アトラス化（最適化）済み</div>
+    <div class="ticket"><span class="ok">01</span>PSD・改変データがない</div>
+    <div class="ticket"><span class="ok">02</span>パーツが1枚に統合済み</div>
+    <div class="ticket"><span class="ok">03</span>アトラス化（最適化）済み</div>
   </div>
 
   <div class="atlas" style="right:66px; top:196px; width:420px; height:400px; transform:rotate(1.5deg)">
@@ -81,7 +76,7 @@
 
 <!-- ============ 3. スポイトで色を選ぶだけ（Before/After） ============ -->
 <section class="slide" id="slide-3">
-  <div class="h"><span class="fk" data-t="スポイトで色を選ぶだけ。">スポイトで色を選ぶだけ。</span></div>
+  <div class="h"><span class="kicker">02 / BASIC FLOW</span><span class="fk" data-t="色を選んで、変更先を決める。">色を選んで、変更先を決める。</span></div>
 
   <div class="photo before" style="width:300px; left:200px; top:186px; transform:rotate(-3deg)">
     <span class="tag" style="font-size:30px; top:-22px">変更前</span>
@@ -102,7 +97,7 @@
 
 <!-- ============ 4. カラーゾーン ============ -->
 <section class="slide" id="slide-4">
-  <div class="h"><span class="fk" data-t="カラーゾーン">カラーゾーン</span></div>
+  <div class="h"><span class="kicker">03 / COLOR ZONES</span><span class="fk" data-t="色ごとに、変更範囲を分ける。">色ごとに、変更範囲を分ける。</span></div>
 
   <div class="tickets" style="left:60px; top:216px">
     <div class="ticket" style="font-size:30px"><span class="ok">1</span>スポイトで色を拾う</div>
@@ -117,13 +112,15 @@
       <div class="ph"><b>スクリーンショット準備中</b><span>スポイトで色を選択中の画面</span></div>
     </div>
   </div>
+  <div class="ui-callout eye-callout"><span>1</span><b>スポイトで対象色を取得</b></div>
+  <div class="ui-box eye-box"></div>
 
   <div class="lead" style="left:60px; bottom:36px">変えたい色ごとにゾーンを追加して、パーツ別に色替えできます。</div>
 </section>
 
 <!-- ============ 5. 除外マスク ============ -->
 <section class="slide" id="slide-5">
-  <div class="h"><span class="fk" data-t="変えたくない場所はブラシで保護">変えたくない場所はブラシで保護</span></div>
+  <div class="h"><span class="kicker">04 / EXCLUSION MASK</span><span class="fk" data-t="変えたくない場所だけ、守る。">変えたくない場所だけ、守る。</span></div>
 
   <div class="shotcard missing" style="left:60px; top:186px; width:640px; height:400px; transform:rotate(-1deg)">
     <div class="inner">
@@ -132,6 +129,8 @@
       <div class="ph"><b>スクリーンショット準備中</b><span>マスクをブラシで塗っている画面</span></div>
     </div>
   </div>
+  <div class="ui-callout mask-callout"><span>1</span><b>ブラシで除外範囲を塗る</b></div>
+  <div class="ui-box mask-box"></div>
 
   <div class="tickets" style="left:770px; top:216px">
     <div class="ticket" style="font-size:30px"><span class="ok">OK</span>塗った場所は変わらない</div>
@@ -144,7 +143,7 @@
 
 <!-- ============ 6. プレビューとプリセット ============ -->
 <section class="slide" id="slide-6">
-  <div class="h"><span class="fk" data-t="プレビューとプリセット">プレビューとプリセット</span></div>
+  <div class="h"><span class="kicker">05 / PREVIEW & PRESET</span><span class="fk" data-t="仕上がりを確認してから書き出す。">仕上がりを確認してから書き出す。</span></div>
 
   <div class="tickets" style="left:60px; top:216px">
     <div class="ticket" style="font-size:30px"><span class="ok">OK</span>前後比較・差分・拡大表示</div>
@@ -159,13 +158,15 @@
       <div class="ph"><b>スクリーンショット準備中</b><span>変更前後の比較プレビュー画面</span></div>
     </div>
   </div>
+  <div class="ui-callout preview-callout"><span>1</span><b>前後比較・差分を切り替え</b></div>
+  <div class="ui-box preview-box"></div>
 
   <div class="lead" style="left:60px; bottom:36px">書き出す前に、仕上がりをしっかり確認できます。</div>
 </section>
 
 <!-- ============ 7. 色を変えても、濁らない ============ -->
 <section class="slide" id="slide-7">
-  <div class="h"><span class="fk" data-t="色を変えても、濁らない。">色を変えても、濁らない。</span></div>
+  <div class="h"><span class="kicker">06 / RECOLOR ENGINE</span><span class="fk" data-t="陰影の見え方を保ったまま、色を移す。">陰影の見え方を保ったまま、色を移す。</span></div>
 
   <div class="lead" style="left:64px; top:150px; right:64px">いろかの再着色エンジンは知覚色空間 <b>OkLab</b> ベース。単純な色相回転と違い、明るさの見え方を保ったまま色を移すので、暗く沈みません。</div>
 
@@ -190,7 +191,7 @@
 
 <!-- ============ 8. はじめかた ============ -->
 <section class="slide" id="slide-8">
-  <div class="h"><span class="fk" data-t="はじめかた">はじめかた</span></div>
+  <div class="h"><span class="kicker">07 / GETTING STARTED</span><span class="fk" data-t="導入から書き出しまで、4ステップ。">導入から書き出しまで、4ステップ。</span></div>
 
   <div class="steps">
     <div class="step">
@@ -215,7 +216,7 @@
     </div>
   </div>
 
-  <div class="cta">まずは無料でダウンロード</div>
+  <div class="cta">まずは無料版で試す</div>
   <div class="spec">Unity 2022.3.22f1｜入力 PNG / JPG → 出力 PNG｜基本無料（応援パックは任意）｜PolyForm Shield 1.0.0</div>
 </section>
 
