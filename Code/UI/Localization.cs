@@ -467,8 +467,8 @@ namespace Iroca
             ? "■ 編集中（クリックで解除）"
             : "■ Editing (click to release)";
         public static string EditMaskTooltip => IsJapanese
-            ? "このゾーン専用の除外マスクを編集対象にします\nもう一度押すと共通マスク編集に戻ります"
-            : "Make this zone's exclusion mask the edit target\nClick again to return to the common mask";
+            ? "このゾーン専用の除外マスクをペイント編集します\n押すとペイントモードが ON になり、プレビュー上をドラッグして塗れます（既定＝除外ブラシ）\nもう一度押すとペイントを終了し共通マスク編集に戻ります"
+            : "Paint this zone's exclusion mask\nTurns on paint mode so you can drag on the preview to paint (default = exclude brush)\nClick again to stop painting and return to the common mask";
         public static string PresetIncludeMasks => IsJapanese
             ? "マスクも保存する"
             : "Include masks when saving";

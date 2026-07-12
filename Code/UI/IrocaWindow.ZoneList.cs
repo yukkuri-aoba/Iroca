@@ -253,14 +253,31 @@ namespace Iroca
             EditorGUILayout.EndHorizontal();
 
             // ゾーンマスク編集ボタン（フル幅・状態連動）
+            // 押したら「このゾーンを編集対象にする」だけでなく、そのままプレビュー上を
+            // ドラッグして塗れるようペイントモード(maskPaintActive)も同時に ON にする。
+            // 以前は編集対象の選択だけで、実際に塗るには除外マスク欄の「除外／含める」を
+            // 別途押して maskPaintActive を立てる必要があった。ボタンが「編集中」表示なのに
+            // ドラッグしても塗れず、バグに見えていたため一体化する。
             {
                 bool isActive = _maskView.activeMaskTarget == index;
                 var prevBg = GUI.backgroundColor;
                 if (isActive) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
                 if (GUILayout.Button(isActive ? s_editMaskActiveContent : s_editMaskInactiveContent))
                 {
-                    _maskView.activeMaskTarget = isActive ? -1 : index;
-                    _maskView.maskFoldout = true;
+                    if (isActive)
+                    {
+                        // 「編集中（クリックで解除）」→ 編集終了。共通マスクへ戻し、ペイントも止める。
+                        _maskView.activeMaskTarget = -1;
+                        _maskView.maskPaintActive = false;
+                    }
+                    else
+                    {
+                        // このゾーンを編集対象にし、すぐ塗れるようペイントモードへ（既定＝除外ブラシ）。
+                        _maskView.activeMaskTarget = index;
+                        _maskView.maskFoldout = true;
+                        _maskView.maskPaintActive = true;
+                        _maskView.brushEraseMode = false;
+                    }
                     _maskView.maskDirty = true;
                     Repaint();
                 }
