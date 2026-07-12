@@ -145,16 +145,16 @@ VRChat, VRC, アバター改変, 衣装改変, 色改変, テクスチャ, Unity
 
 ## 掲載画像の並び（docs/booth/ のスライド）
 
-デザインは商業POP風（案1 王道レッド：黄地×赤・袋文字・爆発形「無料」バッジ）。
+デザインは、比較画像とUIを主役にした紺×白の情報デザイン。装飾フォント・放射背景・爆発形バッジは使わず、Noto Sans JPのウェイト、余白、細い罫線で情報の優先順位を作る。
 
-1. `slide-1`（正方形 1280×1280 の表紙）… **メイン画像**。検索サムネ（150px相当）で「無料」「いろか」「その色、変えられます。」が読めることを確認済み。
-2. `slide-2` こんなテクスチャでも、使えます。
-3. `slide-3` スポイトで色を選ぶだけ。（Before / After 実写）
-4. `slide-4` カラーゾーン（要 Unity スクショ: `images/zone-eyedropper.png`）
-5. `slide-5` 変えたくない場所はブラシで保護（要 Unity スクショ: `images/mask-brush.png`）
-6. `slide-6` プレビューとプリセット（要 Unity スクショ: `images/preview-diff.png`）
-7. `slide-7` 色を変えても、濁らない。（HSV vs OkLab、`tools/oklab_strip.py` の実計算値）
-8. `slide-8` はじめかた / CTA
+1. `slide-1`（正方形 1280×1280 の表紙）… **メイン画像**。変化の実例と「いろか」を最優先で見せる。
+2. `slide-2` PSDがなくても、色を変えられる。
+3. `slide-3` 色を選んで、変更先を決める。（Before / After）
+4. `slide-4` 色ごとに、変更範囲を分ける（実UIのスポイト箇所を注釈）
+5. `slide-5` 変えたくない場所だけ、守る（実UIのブラシ箇所を注釈）
+6. `slide-6` 仕上がりを確認してから書き出す（実UIの比較・差分タブを注釈）
+7. `slide-7` 陰影の見え方を保ったまま、色を移す。（HSV vs OkLab、`tools/oklab_strip.py` の実計算値）
+8. `slide-8` 導入から書き出しまで、4ステップ。
 
 書き出し: `python docs/booth/tools/capture.py`（`slides.html` の 8 枚 → `out/`）。
 スライド 4〜6 は Unity スクショを `docs/booth/images/` に置いて再実行すると自動で差し替わる（未配置の間はプレースホルダ表示）。
