@@ -46,6 +46,19 @@ namespace Iroca
         internal void MarkMaskDirty() { if (_maskView != null) _maskView.maskDirty = true; }
         internal void RequestRepaint() { Repaint(); }
 
+        /// <summary>
+        /// ディスク上のソース画素が変わったときに呼ぶ（エクスポートで元ファイルを上書きした等）。
+        /// プレビューはディスクの現物を読み直して処理するため、ここで無効化しないと
+        /// 「旧画素 × 1 回再着色」を表示したまま実出力だけが「上書き済み画素 × もう 1 回再着色」
+        /// ＝二重適用になる。
+        /// </summary>
+        internal void InvalidateSourceAndRepaint()
+        {
+            _previewView?.InvalidateSourceCache();
+            MarkPreviewDirty();
+            Repaint();
+        }
+
         // ── View インスタンス（状態は各 View が自前で保持） ──
         [SerializeField] private ExportView _exportView = new ExportView();
         [SerializeField] private PresetsView _presetsView = new PresetsView();
