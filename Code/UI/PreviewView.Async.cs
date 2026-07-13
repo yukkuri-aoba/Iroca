@@ -89,7 +89,8 @@ namespace Iroca
                 debugCap = debugCap,
                 // 連続領域モードの keep と再着色アンカー/wash/領域L統計をフル画像で解いて公開する
                 // (詳細プレビューが転写して出力色まで一致させる)。プロキシ段は公開しない。
-                parityCache = new PreviewParityCache(),
+                // sourceId を刻んでおき、詳細側が「同寸法の別テクスチャ」を取り違えないようにする。
+                parityCache = new PreviewParityCache { sourceId = sourceTexture.GetInstanceID() },
             };
 
             // 段階的リファイン: ソースが縮小される(scale<1)ときだけ、まず低解像度プロキシで概要を

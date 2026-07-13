@@ -417,7 +417,9 @@ namespace Iroca
 
             // 1) フル画像で処理し keep/領域統計をキャッシュ。
             var full = (Color32[])input.Clone();
-            var cache = new PreviewParityCache { generation = 1 };
+            // sourceId は UI 側(詳細プレビューの採否)専用。ハーネスは採否判定を通さず
+            // parityCache を直接渡すので未設定(0)のままでよい。
+            var cache = new PreviewParityCache();
             Process(full, w, h, 0, 0, 0, 0, cache);
 
             // 2) 中央クロップ(画像の半分)を (a)キャッシュあり (b)なし で処理。

@@ -158,14 +158,19 @@ namespace Iroca
             var srcPixelsForTask = srcPixels;
 
             // メインプレビュー(フル画像)で解いた keep と再着色アンカー/wash/領域L統計を転写して、
-            // 詳細クロップの選択・出力色を一致させる。採否は寸法一致のみで決める。世代の厳密一致を条件に
-            // すると、メインプレビュー再生成中(許容値スライダー操作中など)に容易に外れて「絞り込まれない
-            // 上位集合」や「クロップ統計で再計算した別の色」を見せてしまう。最新キャッシュは直近で完了した
-            // フル画像処理の結果であり、メイン完了時に詳細は再走するため最終へ収束する(過渡的に1世代古くても
-            // クロップ内再計算よりは正確)。
+            // 詳細クロップの選択・出力色を一致させる。採否は「同じテクスチャ・同じ寸法」で決める。
+            // 世代の厳密一致まで条件にすると、メインプレビュー再生成中(許容値スライダー操作中など)に
+            // 容易に外れて「絞り込まれない上位集合」や「クロップ統計で再計算した別の色」を見せてしまう。
+            // 最新キャッシュは直近で完了したフル画像処理の結果であり、メイン完了時に詳細は再走するため
+            // 最終へ収束する(過渡的に1世代古くてもクロップ内再計算よりは正確)。
+            // 一方 sourceId は「どのテクスチャを解いた結果か」であって世代ではないため、切替時にしか
+            // 変わらない = 上記の過渡的な取りこぼしを起こさずに、寸法が偶然一致する別テクスチャの
+            // keep/統計を転写する事故だけを弾ける。
+            int sourceId = sourceTexture.GetInstanceID();
             var parityCache = _host.previewParityCache;
             PreviewParityCache parityForTask =
-                (parityCache != null && parityCache.fullW == capSrcW && parityCache.fullH == capSrcH)
+                (parityCache != null && parityCache.sourceId == sourceId &&
+                 parityCache.fullW == capSrcW && parityCache.fullH == capSrcH)
                 ? parityCache : null;
 
             detailJob.Schedule(
