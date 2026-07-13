@@ -296,6 +296,12 @@ namespace Iroca
                         AssetDatabase.ImportAsset(relativePath);
                     }
 
+                    // ソース自身を書き換えたなら、プレビューが握っている「ディスク原本の画素」は
+                    // もう古い。捨てないと、次のエクスポートが再着色済みファイルを読み直して
+                    // 二重適用になる（プレビューは旧画素を表示し続けるので画面では気づけない）。
+                    if (IsSameFile(payload.outputPath, payload.srcPath))
+                        _host?.InvalidateSourceAndRepaint();
+
                     _exportProgress.Report(1.0f);
                     Debug.Log($"[Iroca] Saved: {payload.outputPath}");
                     // 非モーダル通知: ファイル名のみウィンドウ右下に短時間表示。詳細パスは Debug.Log。
@@ -306,6 +312,23 @@ namespace Iroca
                     Debug.LogError($"[Iroca] Export failed: {ex.Message}\n{ex.StackTrace}");
                     NotifyError(ex.Message);
                 });
+        }
+
+        /// <summary>
+        /// 2 つのパスが同一ファイルを指すか。書き出し先がプレビューのソース自身かの判定に使う。
+        /// AssetDatabase のパスは '/' 区切り、Path.Combine は '\' を混ぜるため、素の文字列比較では
+        /// 取りこぼす。フルパスへ正規化してから比較する。判定に迷ったら「同一」と答える側が安全
+        /// （余分なキャッシュ破棄で済み、逆は二重適用を見逃す）。
+        /// </summary>
+        private static bool IsSameFile(string a, string b)
+        {
+            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
+            try
+            {
+                return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b),
+                    System.StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
         }
 
         /// <summary>
@@ -432,6 +455,11 @@ namespace Iroca
             }
 
             int success = 0;
+            // 一括対象に現在プレビュー中のテクスチャの出力先が含まれると、ソース画素が書き換わる。
+            // 単体エクスポートと同じくキャッシュを捨てないと二重適用になるので、書き出し先を照合する。
+            string previewSrcPath = _host.SourceTexture != null
+                ? AssetDatabase.GetAssetPath(_host.SourceTexture) : null;
+            bool previewSourceOverwritten = false;
             try
             {
                 AssetDatabase.StartAssetEditing();
@@ -484,6 +512,7 @@ namespace Iroca
                         string baseName = Path.GetFileNameWithoutExtension(srcPath) + "_recolored";
                         string outPath  = Path.Combine(dir, baseName + ".png");
                         File.WriteAllBytes(outPath, pngData);
+                        if (IsSameFile(outPath, previewSrcPath)) previewSourceOverwritten = true;
                         string relOutPath = PathUtils.ToAssetsRelativeOrNull(outPath);
                         if (relOutPath != null)
                         {
@@ -509,6 +538,8 @@ namespace Iroca
                 AssetDatabase.StopAssetEditing();
                 EditorUtility.ClearProgressBar();
             }
+
+            if (previewSourceOverwritten) _host?.InvalidateSourceAndRepaint();
 
             EditorUtility.DisplayDialog(Localization.Complete,
                 Localization.BatchComplete(success), Localization.OK);

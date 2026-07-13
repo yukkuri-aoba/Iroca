@@ -186,18 +186,42 @@ namespace Iroca
         public void MarkDirty() => previewDirty = true;
 
         /// <summary>
-        /// テクスチャが変わったときにソースピクセルキャッシュを無効化する。
+        /// ソース画素が変わったとき（テクスチャ差し替え・セッションリセット・エクスポートで
+        /// 元ファイルを上書き）に、その画素から導かれた状態を漏れなく捨てる。
+        /// ここで捨て損ねた状態は「プレビュー＝実出力」の一致を破る:
+        /// 走行中ジョブは旧画素の結果を新テクスチャの表示へ apply し、フル段は旧 parityCache を
+        /// 公開する。詳細プレビューはその parityCache を寸法一致だけで採用するため、同寸法の
+        /// 別テクスチャへ切り替えると旧テクスチャの選択・色をズーム画面に転写する。
         /// </summary>
         public void InvalidateSourceCache()
         {
+            // 走行中のジョブは旧画素を処理中。世代をぶつけて apply ごと無効化する。
+            _proxyJob.Cancel();
+            _previewJob.Cancel();
+            _diffJob.Cancel();
+            _pendingProcessedDisplay = null;
+            _pendingRawDisplay = null;
+            _pendingDiffPixels = null;
+
             _cachedSourceTexture = null;
             _cachedSrcPixels = null;
             _cachedRawDisplay = null;
+            _cachedSrcW = _cachedSrcH = 0;
+            _cachedPrevW = _cachedPrevH = 0;
             _trueSourceFor = null;
             _trueSourcePixels = null;
+            _trueSourceW = _trueSourceH = 0;
+
             // ソース画素が変わる = キャッシュ済み選択の前提が変わるので選択キャッシュも破棄する。
             _selectionCache?.Clear();
             _proxySelectionCache?.Clear();
+
+            // フル画像で解いた keep / 再着色統計も旧画素由来。
+            if (_host != null) _host.previewParityCache = null;
+
+            // 旧テクスチャのクロップが新テクスチャ上に重なって見えるのを防ぐ
+            // （詳細ジョブのキャンセルと表示テクスチャの解放を含む）。
+            _detailView?.InvalidateDisplay();
         }
 
         /// <summary>
