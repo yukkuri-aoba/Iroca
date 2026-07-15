@@ -60,6 +60,16 @@ namespace Iroca.DebugTools
             }
         }
 
+        /// <summary>
+        /// キャプチャが完了して <see cref="DebugView.LatestContext"/> が更新された際の通知。
+        /// 既存ウィンドウを再描画する（overlay は DrawOverlay 内の変更検知で再構築される）。
+        /// </summary>
+        public static void NotifyCaptureUpdated()
+        {
+            foreach (var w in Resources.FindObjectsOfTypeAll<DebugWindow>())
+                w.Repaint();
+        }
+
         private void OnEnable()
         {
             _selectedStageIndex = EditorPrefs.GetInt(PrefKeyStage, 0);

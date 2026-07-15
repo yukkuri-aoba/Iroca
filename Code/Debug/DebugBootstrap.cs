@@ -15,6 +15,9 @@ namespace Iroca.DebugTools
         private static void Init()
         {
             DebugCaptureHooks.Factory = DebugView.CurrentCaptureOrNull;
+            // ジョブ完了時（メインスレッド）に埋め終わったキャプチャを公開する。生成時公開だと
+            // 背景ジョブの Snapshots.Add と DebugWindow の OnGUI foreach が競合するため。
+            DebugCaptureHooks.OnCaptureComplete += DebugView.PublishCompletedCapture;
             PerfView.Register();
             // 「パフォーマンス」セクション 1 つに集約。デバッグモード ON のとき
             // 詳細内訳・スレッド設定・段階キャプチャ(DebugView)を PerfView が内包して描画する。
