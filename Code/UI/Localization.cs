@@ -310,6 +310,11 @@ namespace Iroca
         public static string OverwriteConfirm => IsJapanese
             ? "元のテクスチャファイルを上書きします。よろしいですか？"
             : "This will overwrite the original texture file. Are you sure?";
+        // ソースが PNG でない（.jpg/.tga 等）ときの上書きは、元ファイルを上書きせず隣に .png を
+        // 新規作成する挙動になる。マテリアルは自動で切り替わらない旨を明示して誤解を防ぐ。
+        public static string OverwriteNonPngConfirm(string newFileName) => IsJapanese
+            ? $"元のテクスチャは PNG ではないため上書きできません。\n代わりに同じ場所へ「{newFileName}」を新規作成します。\nマテリアルの参照は自動で切り替わりません（手動で差し替えてください）。続けますか？"
+            : $"The source texture is not a PNG, so it cannot be overwritten.\nInstead, a new file \"{newFileName}\" will be created in the same folder.\nThe material reference will NOT switch automatically (re-assign it manually). Proceed?";
         public static string Saved(string path) => IsJapanese
             ? $"保存しました:\n{path}"
             : $"Saved:\n{path}";

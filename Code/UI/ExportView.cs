@@ -180,8 +180,17 @@ namespace Iroca
             else
             {
                 outputPath = Path.ChangeExtension(srcPath, ".png");
-                if (!EditorUtility.DisplayDialog(Localization.Confirm,
-                    Localization.OverwriteConfirm, Localization.Overwrite, Localization.Cancel))
+                // ソースが PNG なら真の上書き。非 PNG（.jpg/.tga 等）だと ChangeExtension は
+                // 元ファイルを上書きせず隣に .png を新規作成するだけで、マテリアルは旧ファイル参照の
+                // まま＝「色が変わらない」ように見える。ダイアログ文言も「上書き」で矛盾するので、
+                // 非 PNG のときは新規作成＋非自動切替を明示する専用ダイアログを出す。
+                bool srcIsPng = string.Equals(Path.GetExtension(srcPath), ".png", System.StringComparison.OrdinalIgnoreCase);
+                bool confirmed = srcIsPng
+                    ? EditorUtility.DisplayDialog(Localization.Confirm,
+                        Localization.OverwriteConfirm, Localization.Overwrite, Localization.Cancel)
+                    : EditorUtility.DisplayDialog(Localization.Confirm,
+                        Localization.OverwriteNonPngConfirm(Path.GetFileName(outputPath)), Localization.OK, Localization.Cancel);
+                if (!confirmed)
                 {
                     return;
                 }
