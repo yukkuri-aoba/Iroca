@@ -376,6 +376,8 @@ namespace Iroca
 
             // ── PNG エンコード → 書き出し → AssetDatabase 取り込み（Assets 配下のみ） ──
             string outAbs = ResolveOutputPath(outputAssetPath);
+            if (outAbs == null)
+            { result.error = $"output must be a .png inside the project: {outputAssetPath}"; return result; }
             Texture2D outTex = null;
             try
             {
@@ -522,22 +524,52 @@ namespace Iroca
             }
         }
 
-        // 絶対 / プロジェクト相対 / Assets 相対のいずれかを実在する絶対パスへ解決する。無ければ null。
+        // 絶対 / プロジェクト相対 / Assets 相対のいずれかを実在する絶対パスへ解決する。
+        // プロジェクトルート配下でなければ拒否する（範囲外ファイルの読み取りを防ぐ）。無ければ null。
         private static string ResolveExistingFile(string path)
         {
             if (string.IsNullOrEmpty(path)) return null;
-            if (File.Exists(path)) return Path.GetFullPath(path);
-            string projRoot = Path.GetDirectoryName(Application.dataPath);
-            string combined = Path.GetFullPath(Path.Combine(projRoot, path));
-            return File.Exists(combined) ? combined : null;
+            string abs = ToProjectAbsolute(path);
+            if (abs == null || !IsWithinProjectRoot(abs)) return null;
+            return File.Exists(abs) ? abs : null;
         }
 
-        // 出力パスを絶対パスへ解決する（存在不要）。
+        // 出力パスを絶対パスへ解決する（存在不要）。プロジェクトルート配下かつ .png のみ許可する。
+        // 自動化/MCP 経由での範囲外書き込み（任意ファイルの上書き）と非画像ファイル生成を防ぐ。
+        // 条件を満たさなければ null。
         private static string ResolveOutputPath(string path)
         {
-            if (Path.IsPathRooted(path)) return Path.GetFullPath(path);
-            string projRoot = Path.GetDirectoryName(Application.dataPath);
-            return Path.GetFullPath(Path.Combine(projRoot, path));
+            if (string.IsNullOrEmpty(path)) return null;
+            string abs = ToProjectAbsolute(path);
+            if (abs == null || !IsWithinProjectRoot(abs)) return null;
+            if (!abs.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) return null;
+            return abs;
+        }
+
+        // 絶対パスはそのまま、相対パスはプロジェクトルート基準で絶対化する。失敗時は null。
+        private static string ToProjectAbsolute(string path)
+        {
+            try
+            {
+                string projRoot = Path.GetDirectoryName(Application.dataPath);
+                return Path.IsPathRooted(path)
+                    ? Path.GetFullPath(path)
+                    : Path.GetFullPath(Path.Combine(projRoot, path));
+            }
+            catch { return null; }
+        }
+
+        // 解決済み絶対パスがプロジェクトルート配下かを判定する（パストラバーサル/範囲外 I/O 防止）。
+        private static bool IsWithinProjectRoot(string absPath)
+        {
+            if (string.IsNullOrEmpty(absPath)) return false;
+            string projRoot;
+            try { projRoot = Path.GetFullPath(Path.GetDirectoryName(Application.dataPath)); }
+            catch { return false; }
+            // 末尾セパレータを付けて "Proj" と "ProjectX" の前方一致誤判定を防ぐ。
+            string rootWithSep = projRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            return absPath.StartsWith(rootWithSep, StringComparison.OrdinalIgnoreCase);
         }
 
         private static string GetArg(string[] args, string name)
