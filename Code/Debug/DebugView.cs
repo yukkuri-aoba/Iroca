@@ -48,10 +48,22 @@ namespace Iroca.DebugTools
         {
             EnsurePrefsLoaded();
             if (!DebugMode.IsEnabled || !s_enableCapture) return null;
-            // 毎プレビュー/エクスポートで新しいインスタンスを作って渡す。
-            var ctx = new DebugCaptureContext();
-            s_activeContext = ctx;
-            return ctx;
+            // 毎プレビュー/エクスポートで新しいインスタンスを作って返す。ここではまだ公開しない
+            // （s_activeContext への公開は充填完了後 PublishCompletedCapture で行う）。生成時に
+            // 公開すると、背景ジョブが Snapshots.Add している最中のリストを DebugWindow の OnGUI が
+            // foreach してスレッド競合する。
+            return new DebugCaptureContext();
+        }
+
+        /// <summary>
+        /// プレビュージョブ完了時（メインスレッド）に、埋め終わったキャプチャを公開する。
+        /// 以降 DebugWindow / DrawCaptureControls は不変（Add 完了済み）の context だけを読む。
+        /// DebugCaptureHooks.OnCaptureComplete 経由で DebugBootstrap が接続する。
+        /// </summary>
+        internal static void PublishCompletedCapture(IDebugCapture capture)
+        {
+            s_activeContext = capture as DebugCaptureContext;
+            DebugWindow.NotifyCaptureUpdated();
         }
 
         /// <summary>

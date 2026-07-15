@@ -49,6 +49,18 @@ namespace Iroca
         }
 
         /// <summary>
+        /// プレビュージョブ完了時（メインスレッド）に、埋め終わったキャプチャを公開するイベント。
+        /// これを完了時に発火することで、DebugWindow が「背景ジョブが Add 中のリスト」を読まずに済む。
+        /// 生成時に公開すると OnGUI の foreach と Snapshots.Add がスレッド競合する。
+        /// </summary>
+        internal static event Action<IDebugCapture> OnCaptureComplete;
+
+        internal static void RaiseCaptureComplete(IDebugCapture capture)
+        {
+            OnCaptureComplete?.Invoke(capture);
+        }
+
+        /// <summary>
         /// Parallel.For の MaxDegreeOfParallelism を手動設定する。
         /// 0 以下のとき自動設定 (ProcessorCount - 2) を使用する。
         /// Debug モジュールの PerfView が EditorPrefs に永続化して管理する。

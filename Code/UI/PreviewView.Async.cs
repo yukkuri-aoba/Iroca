@@ -212,6 +212,10 @@ namespace Iroca
                         _cachedRawDisplay = result.raw;
                     }
                     _host.LatestDebugCapture = req.debugCap;
+                    // 充填完了したキャプチャを（メインスレッドの）ここで初めて公開する。
+                    // 生成時公開だと DebugWindow が Add 中のリストを foreach して競合する（監査 H-2）。
+                    if (req.debugCap != null)
+                        DebugCaptureHooks.RaiseCaptureComplete(req.debugCap);
                     _host.RequestRepaint();
                 });
         }
