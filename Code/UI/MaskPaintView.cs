@@ -384,7 +384,10 @@ namespace Iroca
 
             // ブラシサイズは「プレビュー画像上のピクセル数」で設定されるため、
             // マスク座標系（フル解像度）に合わせてスケーリングする必要がある。
-            float maskScale = maskWidth / (float)Mathf.Min(maskWidth, IrocaConsts.Preview.MaxSize);
+            // プレビュー縮小率は長辺基準（PreviewView: MaxSize / Max(srcW,srcH)）なので、
+            // ここも長辺で割る。幅のみ基準だと縦長テクスチャ（例 512×2048）で半径が 1/4 になる。
+            int maxDim = Mathf.Max(maskWidth, maskHeight);
+            float maskScale = maxDim / (float)Mathf.Min(maxDim, IrocaConsts.Preview.MaxSize);
             int r = Mathf.Max(1, Mathf.RoundToInt(brushSize * maskScale));
 
             bool value = !brushEraseMode;
