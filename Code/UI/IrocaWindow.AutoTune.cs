@@ -110,6 +110,13 @@ namespace Iroca
             // メインスレッド前処理: Texture2D.GetPixels32 と除外マスク構築は
             // バックグラウンドへ持ち込めないので、ここで配列化しておく。
             PrepareAutoTunePixels(auto, out Color32[] pixels, out int texW, out int texH);
+            if (pixels == null)
+            {
+                // GetPixels32 が失敗（非 Readable / 一時例外）。null を背景ジョブへ渡すと
+                // NullReference の生メッセージ通知になるので、読める文言で知らせて中止する。
+                ShowNotification(new GUIContent(Localization.TextureReadError));
+                return;
+            }
             bool[] excluded = BuildCombinedExclusionForZone(zone, out int mw, out int mh);
 
             ScheduleAutoTuneJob(zone, pixels, texW, texH, excluded, mw, mh);
@@ -166,12 +173,16 @@ namespace Iroca
         // バックグラウンドで ZoneAutoTuner.Analyze を走らせ、完了後にメインスレッドで zone へ適用する。
         private void ScheduleAutoTuneJob(ColorZone zone, Color32[] pixels, int texW, int texH, bool[] excluded, int mw, int mh)
         {
-            // ZoneAutoTuner.Analyze 内部から触れる session 状態のスナップショット。
-            // 直接 _session を渡しても今回は読み取りしかしないが、明示的にスナップショット化する。
-            var session = _session;
-
             zone.EnsureId();
-            _autoTuneTargetZoneId = zone.id;
+            _autoTuneTargetZoneId = zone.id; // apply は live zone を id で再ルックアップする
+
+            // 背景解析には live の zone / session を直接渡さず、値等価コピーを渡す。
+            // かんたんモードの非ブロック実行では解析中も編集可能で、live を渡すと sampleColor 変異で
+            // 混成サンプルから無意味な tolerance を導出したり、session.zones 列挙中の add/remove で
+            // InvalidOperationException になり得る（プレビュー/エクスポート経路は既に Clone 済み）。
+            var zoneSnapshot = zone.Clone();
+            var sessionSnapshot = SnapshotSessionForAutoTune();
+
             _autoTuneProgress.Reset();
             _autoTuneProgress.Report(0.05f);
 
@@ -179,7 +190,7 @@ namespace Iroca
                 work: ct =>
                 {
                     _autoTuneProgress.Report(0.10f);
-                    var result = ZoneAutoTuner.Analyze(pixels, texW, texH, zone, session, excluded, mw, mh);
+                    var result = ZoneAutoTuner.Analyze(pixels, texW, texH, zoneSnapshot, sessionSnapshot, excluded, mw, mh);
                     _autoTuneProgress.Report(1.0f);
                     return result;
                 },
@@ -219,6 +230,25 @@ namespace Iroca
                     Debug.LogError($"[Iroca] Auto-tune failed: {ex.Message}\n{ex.StackTrace}");
                     ShowNotification(new GUIContent($"{Localization.Error}: {ex.Message}"));
                 });
+        }
+
+        // 背景の ZoneAutoTuner.Analyze へ渡す session のスナップショット。Analyze が読むのは
+        // antiAliasCleanup / useDecontamination / zones のみなので、それらを値コピーし、zones は
+        // リストごとクローンして列挙中の構造変更（InvalidOperationException）を断つ。
+        private IrocaSessionState SnapshotSessionForAutoTune()
+        {
+            var snap = new IrocaSessionState
+            {
+                antiAliasCleanup   = _session.antiAliasCleanup,
+                useDecontamination = _session.useDecontamination,
+            };
+            snap.zones.Clear();
+            if (_session.zones != null)
+            {
+                foreach (var z in _session.zones)
+                    if (z != null) snap.zones.Add(z.Clone());
+            }
+            return snap;
         }
     }
 }
