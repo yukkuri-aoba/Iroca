@@ -18,6 +18,10 @@ namespace Iroca
     {
         private const string CacheDirRelative = "UserSettings/Iroca/MaskCache";
         private const string MaskFileExtension = ".iroca-mask.json";
+        // 未解決 GUID のファイルは即削除せずこの接尾辞を付けて退避する（CleanupOrphans 参照）。
+        private const string OrphanSuffix = ".orphan";
+        // 退避したまま GUID がこの日数を超えて解決できなければ初めて実削除する（猶予期間）。
+        private const int OrphanRetentionDays = 30;
 
         /// <summary>
         /// プロジェクトルート直下の <c>UserSettings/Iroca/MaskCache</c> 絶対パスを返す。
@@ -140,14 +144,22 @@ namespace Iroca
         }
 
         /// <summary>
-        /// MaskCache を走査し、対応するテクスチャ（GUID）が見つからないファイルを削除する。
+        /// MaskCache を走査し、対応するテクスチャ（GUID）が見つからないファイルを整理する。
         /// AssetWatcher の delete フックを取りこぼした場合の二段構え。
+        /// <para>
+        /// GUID が未解決というだけでは即削除しない: ブランチ切替中・Library 再構築中など
+        /// 一時的に GUID を引けないだけのことがあり、その瞬間に消すと手描きマスクが恒久的に失われる
+        /// （ブランチを戻しても復元不能）。そこで未解決ファイルは <c>.orphan</c> へリネーム退避し、
+        /// GUID が再び解決できたら元名へ復元、猶予期間（<see cref="OrphanRetentionDays"/> 日）を
+        /// 超えて未解決のままの退避ファイルだけを実削除する。CleanupOrphans は Load より先に走る
+        /// （<c>IrocaWindow.OnEnable</c>）ので、退避→復元は読み込み前に完了する。
+        /// </para>
         /// </summary>
         public static void CleanupOrphans()
         {
             if (!Directory.Exists(CacheDir)) return;
             string[] files;
-            try { files = Directory.GetFiles(CacheDir, "*" + MaskFileExtension); }
+            try { files = Directory.GetFiles(CacheDir); }
             catch (Exception ex)
             {
                 Debug.LogWarning($"[Iroca] Mask cache scan failed: {ex.Message}");
@@ -157,17 +169,64 @@ namespace Iroca
             foreach (string file in files)
             {
                 string fileName = Path.GetFileName(file);
-                if (string.IsNullOrEmpty(fileName) || !fileName.EndsWith(MaskFileExtension, StringComparison.OrdinalIgnoreCase))
-                    continue;
+                if (string.IsNullOrEmpty(fileName)) continue;
 
-                string guid = fileName.Substring(0, fileName.Length - MaskFileExtension.Length);
-                if (string.IsNullOrEmpty(guid)) continue;
-                string assetPath = AssetDatabase.GUIDToAssetPath(guid);
-                if (!string.IsNullOrEmpty(assetPath)) continue;
-
-                try { File.Delete(file); }
-                catch (Exception ex) { Debug.LogWarning($"[Iroca] Orphan mask delete failed: {ex.Message}"); }
+                if (fileName.EndsWith(MaskFileExtension + OrphanSuffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    // 退避ファイル: GUID が解決できたら復元、猶予超過なら実削除。
+                    string activeName = fileName.Substring(0, fileName.Length - OrphanSuffix.Length);
+                    string guid = activeName.Substring(0, activeName.Length - MaskFileExtension.Length);
+                    if (string.IsNullOrEmpty(guid)) continue;
+                    if (!string.IsNullOrEmpty(AssetDatabase.GUIDToAssetPath(guid)))
+                        RestoreFromOrphan(file, Path.Combine(CacheDir, activeName));
+                    else
+                        DeleteOrphanIfExpired(file);
+                }
+                else if (fileName.EndsWith(MaskFileExtension, StringComparison.OrdinalIgnoreCase))
+                {
+                    // 現用ファイル: GUID 未解決なら削除せず .orphan へ退避。
+                    string guid = fileName.Substring(0, fileName.Length - MaskFileExtension.Length);
+                    if (string.IsNullOrEmpty(guid)) continue;
+                    if (string.IsNullOrEmpty(AssetDatabase.GUIDToAssetPath(guid)))
+                        RetireToOrphan(file);
+                }
             }
+        }
+
+        // GUID 未解決の現用ファイルを削除せず .orphan へ退避する。退避時刻を LastWriteTime に刻んで
+        // 猶予クロックの起点にする（元の最終編集時刻ではなく「退避した瞬間」から N 日数える）。
+        private static void RetireToOrphan(string file)
+        {
+            string orphanPath = file + OrphanSuffix;
+            try
+            {
+                if (File.Exists(orphanPath)) File.Delete(orphanPath);
+                File.Move(file, orphanPath);
+                File.SetLastWriteTimeUtc(orphanPath, DateTime.UtcNow);
+            }
+            catch (Exception ex) { Debug.LogWarning($"[Iroca] Orphan mask retire failed: {ex.Message}"); }
+        }
+
+        // GUID が再解決できた退避ファイルを元名へ戻す。現用ファイルが既にあれば退避側は不要なので消す。
+        private static void RestoreFromOrphan(string orphan, string activePath)
+        {
+            try
+            {
+                if (File.Exists(activePath)) File.Delete(orphan);
+                else File.Move(orphan, activePath);
+            }
+            catch (Exception ex) { Debug.LogWarning($"[Iroca] Orphan mask restore failed: {ex.Message}"); }
+        }
+
+        // 猶予期間を超えて未解決のままの退避ファイルだけを実削除する。
+        private static void DeleteOrphanIfExpired(string orphan)
+        {
+            try
+            {
+                if (File.GetLastWriteTimeUtc(orphan) < DateTime.UtcNow.AddDays(-OrphanRetentionDays))
+                    File.Delete(orphan);
+            }
+            catch (Exception ex) { Debug.LogWarning($"[Iroca] Orphan mask delete failed: {ex.Message}"); }
         }
 
         private static bool IsEmpty(MaskState state)
