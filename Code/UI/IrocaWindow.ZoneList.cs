@@ -29,6 +29,11 @@ namespace Iroca
         private int _pendingReorderTo = -1;
         // 掴んだ位置とゾーン上端の差。ゴースト(追従パネル)を掴んだ位置基準で描くために保持。
         private float _dragGrabOffsetY;
+        // ドラッグ操作の hotControl 用 ID。HandleZoneReorderDrag で毎フレーム確保して保持し、
+        // MouseDown で hotControl に据える。hotControl を取ると Unity がマウスをキャプチャし、
+        // ウィンドウ外リリースでも MouseUp が届く＝_dragZoneIndex が残留して次の無関係な MouseUp で
+        // 誤並べ替え（＝優先度変更＝出力変化）が確定する事故を防ぐ。
+        private int _dragControlId;
 
         private void ProcessPendingZoneChanges()
         {
@@ -238,6 +243,9 @@ namespace Iroca
                 _dragZoneIndex = index;
                 // ハンドルはゾーン上端付近にあるので、ここを掴み位置の基準にする。
                 _dragGrabOffsetY = Event.current.mousePosition.y - handleRect.y;
+                // マウスキャプチャを取得（ウィンドウ外リリースでも MouseUp を確実に受け取るため）。
+                // _dragControlId は前フレームの HandleZoneReorderDrag が確保した安定 ID。
+                GUIUtility.hotControl = _dragControlId;
                 Event.current.Use();
             }
             zone.enabled = UndoHelper.ToggleLeft(this,
@@ -527,6 +535,11 @@ namespace Iroca
         // 判定・描画は非 Layout パスでのみ行う（Layout パスの GetLastRect はダミー値のため）。
         private void HandleZoneReorderDrag(List<Rect> zoneRects)
         {
+            // hotControl 用 ID を毎フレーム無条件に確保して IMGUI の ID 割り当てを安定させる。
+            // MouseDown（カード描画中＝この呼び出しより前）は前フレームの値を読むが、ドラッグ中は
+            // UI 構造が不変なので同値になる。
+            _dragControlId = GUIUtility.GetControlID(FocusType.Passive);
+
             if (!(_dragZoneIndex >= 0 && _dragZoneIndex < zoneRects.Count && zoneRects.Count > 0))
                 return;
 
@@ -596,19 +609,28 @@ namespace Iroca
             }
             else if (evt.type == EventType.MouseDrag)
             {
-                evt.Use();
-                Repaint();
+                if (GUIUtility.hotControl == _dragControlId)
+                {
+                    evt.Use();
+                    Repaint();
+                }
             }
             else if (evt.type == EventType.MouseUp)
             {
-                if (insertAt != _dragZoneIndex)
+                // 自分がキャプチャした MouseUp のときだけ確定する（ウィンドウ外リリースでも hotControl
+                // 経由で必ずここに届く）。hotControl が自分のものでない無関係な MouseUp では並べ替えない。
+                if (GUIUtility.hotControl == _dragControlId)
                 {
-                    _pendingReorderFrom = _dragZoneIndex;
-                    _pendingReorderTo = insertAt;
+                    GUIUtility.hotControl = 0;
+                    if (insertAt != _dragZoneIndex)
+                    {
+                        _pendingReorderFrom = _dragZoneIndex;
+                        _pendingReorderTo = insertAt;
+                    }
+                    _dragZoneIndex = -1;
+                    evt.Use();
+                    Repaint();
                 }
-                _dragZoneIndex = -1;
-                evt.Use();
-                Repaint();
             }
         }
 
