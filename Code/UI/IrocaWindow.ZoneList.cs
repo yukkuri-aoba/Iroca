@@ -438,7 +438,9 @@ namespace Iroca
             {
                 EditorGUILayout.Space(2);
                 zone.detailFoldout = EditorGUILayout.Foldout(
-                    zone.detailFoldout, Localization.ZoneDetailFoldout, true);
+                    zone.detailFoldout,
+                    new GUIContent(Localization.ZoneDetailFoldout, Localization.ZoneDetailFoldoutTooltip),
+                    true);
                 if (zone.detailFoldout)
                     DrawZoneAdvancedParams(zone);
             }
