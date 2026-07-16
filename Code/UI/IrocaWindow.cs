@@ -239,7 +239,20 @@ namespace Iroca
         // 記憶し、初回オープン時に自動ロードする。
 
         // 最後に編集していたテクスチャの GUID を保存する EditorPrefs キー（Editor 再起動を跨ぐ）。
-        private const string LastTextureGuidPrefKey = "Iroca.LastTextureGuid";
+        // EditorPrefs は Unity インストール単位(全プロジェクト共有)なので、プロジェクトパス
+        // (Application.dataPath)の安定ハッシュを付与してプロジェクトごとに分離する。これが無いと
+        // コピーした別プロジェクトが前プロジェクトの GUID を誤って自動ロードしうる。string.GetHashCode
+        // はプロセス間で不安定(乱択化)なため FNV-1a を使う(再起動を跨いで同一キー)。
+        private static string LastTextureGuidPrefKey =>
+            "Iroca.LastTextureGuid." + StableHashHex(Application.dataPath);
+
+        private static string StableHashHex(string s)
+        {
+            uint h = 2166136261u; // FNV-1a 32bit
+            if (s != null)
+                foreach (char c in s) { h ^= c; h *= 16777619u; }
+            return h.ToString("X8");
+        }
 
         // SessionCache ファイルが「存在するのに読めなかった」フラグ。true の間は空保存での
         // 削除・無退避上書きを抑止する（MaskPaintView._maskLoadFailed と同じ防御）。
