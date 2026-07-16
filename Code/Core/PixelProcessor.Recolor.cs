@@ -19,6 +19,12 @@ namespace Iroca
         // (=ロゴ周辺の白/灰ノイズ)を防ぐ。
         private const float OklabRemapFullChromaFrac = 0.35f;
 
+        // 暗いターゲットの明部白暴走対策: 2区間リマップの上端を 1(白) でなく min(1, tL*この値) に
+        // キャップする。tL≥1/MULT(=0.5) では topL=1 で完全 no-op(中〜明ターゲットは従来挙動=byte 不変)、
+        // tL<0.5 の暗いターゲットだけ明部(スペキュラ)が白へ暴走せず tL×MULT に収まる。暗い色を
+        // ターゲットにしても出力がその暗さに収まるための既定挙動。
+        private const float HighlightLMult = 2.0f;
+
         // chroma 増幅キャップ(有彩ターゲット向け WS-R 拡張): tC > sC の色相変化で OkLab→RGB の
         // lum 感度が高まりバンディングが発生しうる(彩度比 tC/sC が大きいほど明度コントラストが増幅される)。
         // output chroma = mag*tC が sC*Factor を超えないよう mag を制限。
@@ -210,10 +216,14 @@ namespace Iroca
                 na = mag * okTa;                        // 向きは target 色相 (zTa, zTb)
                 nb = mag * okTb;
             }
-            // 2区間線形リマップ: [0,sL]→[0,tL], [sL,1]→[tL,1]。sL→tL を不動点に base を target 明度へ。
+            // 2区間線形リマップ: [0,sL]→[0,tL], [sL,1]→[tL,topL]。sL→tL を不動点に base を target 明度へ。
+            // 上端は白(1)固定でなく topL=min(1,tL*HighlightLMult)。暗いターゲット(tL<0.5)では明部/
+            // スペキュラが白へ暴走せず tL×MULT に収まる(暗い色ターゲットの出力をその暗さに収める)。
+            // tL≥0.5 では topL=1 = 従来どおり(中〜明ターゲットは完全 no-op)。
+            float topL = Mathf.Min(1f, okTL * HighlightLMult);
             float remapL = oL <= okSL
                 ? (oL / Mathf.Max(okSL, 1e-4f)) * okTL
-                : okTL + (oL - okSL) / Mathf.Max(1f - okSL, 1e-4f) * (1f - okTL);
+                : okTL + (oL - okSL) / Mathf.Max(1f - okSL, 1e-4f) * (topL - okTL);
             // 彩度ゲート付き L 再マップ (2026-06-07): 低彩度画素では remap(=明るさの持ち上げ)を抑え、
             // 元の L(暗さ)を保持する。リング/brown 化は「本来のベース色」=高彩度画素で起きる現象なので
             // remap が必要なのは高彩度画素だけ。一方、ベース×暗部/白の混色や AA 縁(低彩度)に remap を
@@ -229,6 +239,14 @@ namespace Iroca
             }
             // valueBlend=1 でフル階調、<1 で target フラットトーンへ寄せる。
             float nL = okTL * (1f - valueBlend) + effRemapL * valueBlend;
+
+            // 暗いターゲットの明部白暴走キャップ（有彩=主経路のみ）: 出力明度を topL=min(1,tL*HighlightLMult)
+            // 以下に収める。彩度ゲートは低彩度画素(白いスペキュラ=低chroma高L)の元 L(白)を保持し remap を
+            // 迂回するため、remap 上端キャップだけでは白が残る→ここでクランプ。**achroma ブレンドの前**に
+            // 適用するのが要点: 黒/白の achroma パスは FormGain で陰影を意図的に拡張するので、キャップすると
+            // 三角(cream→黒)等の form が潰れる。achroma 成分は下のブレンドで(キャップ前の値として)混ぜ、
+            // FormGain を温存する。tL≥0.5(中〜明ターゲット)では topL=1 で完全 no-op。
+            nL = Mathf.Min(nL, topL);
 
             // WS-R: 無彩再着色パスの L。マッチ領域の L レンジ[lo,hi]を target 側ヘッドルームへ
             // 順序保存で収める(2区間リマップ・彩度ゲートを迂回)。白い三角→黒のまだら/明度崩壊を直す。
