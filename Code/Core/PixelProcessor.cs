@@ -104,6 +104,10 @@ namespace Iroca
             ArrayPool<float>.Create(PoolMaxArrayLength, maxArraysPerBucket: 24);
         private static readonly ArrayPool<bool> s_boolPool =
             ArrayPool<bool>.Create(PoolMaxArrayLength, maxArraysPerBucket: 8);
+        // originalPixels(入力画素のスナップショット)用。従来は毎回 new Color32[len](4K で 67MB)を
+        // LOH に確保していた。Rent はゼロ初期化されないが Array.Copy で全域上書きするので問題なし。
+        private static readonly ArrayPool<Color32> s_color32Pool =
+            ArrayPool<Color32>.Create(PoolMaxArrayLength, maxArraysPerBucket: 4);
 
         // スタティック計算メソッド — バックグラウンドスレッドで実行可能
         // Texture2Dなし、UnityEngine.Object APIなし、Mathfとカラー計算のみ（いずれもスレッドセーフ）
@@ -154,7 +158,7 @@ namespace Iroca
             int maskH = masks?.height ?? 0;
 
             int len = w * h;
-            Color32[] originalPixels = new Color32[len];
+            Color32[] originalPixels = s_color32Pool.Rent(len);   // 末尾の finally で Return
             System.Array.Copy(pixels, originalPixels, len);
 
             long _t0 = Stopwatch.GetTimestamp();
@@ -882,6 +886,7 @@ namespace Iroca
                 if (pixV != null) s_floatPool.Return(pixV);
                 if (pixS != null) s_floatPool.Return(pixS);
                 if (pixH != null) s_floatPool.Return(pixH);
+                s_color32Pool.Return(originalPixels);
             }
             var _perfPhases = new PhasePerfEntry[PhaseCount];
             for (int p = 0; p < PhaseCount; p++)
