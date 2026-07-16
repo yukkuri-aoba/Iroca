@@ -1,6 +1,7 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
+using System.Threading;
 using UnityEngine;
 
 namespace Iroca
@@ -86,7 +87,7 @@ namespace Iroca
         /// オーバーロードを使用すること。
         /// </summary>
         public static TuneResult Analyze(Texture2D tex, ColorZone zone, IrocaSessionState session,
-            bool[] excluded = null, int maskW = 0, int maskH = 0)
+            bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default)
         {
             Color32[] pixels = null;
             int w = 0, h = 0;
@@ -97,7 +98,7 @@ namespace Iroca
                 try { pixels = tex.GetPixels32(); }
                 catch (UnityEngine.UnityException) { pixels = null; }
             }
-            return Analyze(pixels, w, h, zone, session, excluded, maskW, maskH);
+            return Analyze(pixels, w, h, zone, session, excluded, maskW, maskH, ct);
         }
 
         /// <summary>
@@ -112,7 +113,7 @@ namespace Iroca
         /// </param>
         public static TuneResult Analyze(Color32[] pixels, int width, int height,
             ColorZone zone, IrocaSessionState session,
-            bool[] excluded = null, int maskW = 0, int maskH = 0)
+            bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default)
         {
             var result = BuildHeuristicDefault(zone);
 
@@ -121,6 +122,10 @@ namespace Iroca
                 && pixels.Length >= width * height;
             if (canAnalyze)
             {
+                // 解析は最大 15 回前後の全画面走査で数百 ms かかる。各ステップ間でキャンセルを確認し、
+                // 新しい自動調整が来たら旧解析をゾンビ実行させない(CPU 2 倍/進捗バー飛びを防ぐ)。
+                // 各ステップは O(len) なので最悪でも 1 ステップ分で停止する。
+                ct.ThrowIfCancellationRequested();
                 // マスクがある場合は含有(非除外)領域にクラスタを限定する(色が同じ別パーツを除外)。
                 // ヒストグラム解析(TryAnalyzePixels)も含め全経路で同じ含有領域だけを見る。マスクで
                 // 除外したパーツの画素が shadowForgivenessSatMin / saturationStrictness /
@@ -142,6 +147,7 @@ namespace Iroca
                 // とは独立に拾うので、tolerance を膨らませない。
                 Color.RGBToHSV(zone.sampleColor, out _, out float sampleS, out _);
 
+                ct.ThrowIfCancellationRequested();
                 if (sampleS < AchromaSampleSatMax)
                 {
                     // 無彩色サンプル: グレーモードの純 RGB 距離分布から(V 広がりの過大評価を回避)。
@@ -186,9 +192,11 @@ namespace Iroca
                 }
 
                 // ── 閉ループ検証: 導出パラメータを実マッチャーに通し、有害な設定を安全側へ倒す ──
+                ct.ThrowIfCancellationRequested();
                 if (result.highlightRecovery)
                     VerifyHighlightRecoveryGrowth(pixels, width, height, zone,
                         excluded, maskW, maskH, ref result);
+                ct.ThrowIfCancellationRequested();
                 if (sampleS >= AchromaSampleSatMax)
                     VerifyBrightForgivenessOvershoot(pixels, width, height, zone,
                         excluded, maskW, maskH, ref result);
