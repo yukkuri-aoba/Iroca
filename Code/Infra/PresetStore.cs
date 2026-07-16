@@ -140,11 +140,28 @@ namespace Iroca
             }
         }
 
+        // Windows の予約デバイス名(拡張子有無・大小無視で衝突する)。これらの名前のファイルは
+        // そのままでは作成に失敗するため、前置 '_' で退避する。
+        private static readonly string[] s_reservedNames =
+        {
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        };
+
         private static string SanitizeFileName(string name)
         {
             if (string.IsNullOrWhiteSpace(name)) name = "Preset";
             foreach (char c in Path.GetInvalidFileNameChars())
                 name = name.Replace(c.ToString(), "_");
+            // Windows は末尾の '.' / ' ' を無言で除去するため、そのままだと保存名と参照名がずれる。
+            name = name.TrimEnd('.', ' ');
+            if (name.Length == 0) name = "Preset";
+            // 予約名判定は拡張子より前の基底名で行う(例: "CON.foo" も予約)。
+            int dot = name.IndexOf('.');
+            string baseName = dot >= 0 ? name.Substring(0, dot) : name;
+            if (System.Array.IndexOf(s_reservedNames, baseName.ToUpperInvariant()) >= 0)
+                name = "_" + name;
             return name;
         }
     }
