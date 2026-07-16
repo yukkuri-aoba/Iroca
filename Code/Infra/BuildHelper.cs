@@ -6,6 +6,7 @@
 // Unity バッチモード (-executeMethod) 経由で呼び出される。
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
@@ -16,6 +17,12 @@ namespace Iroca
     {
         // エクスポート対象の Assets 相対パス
         private const string ExportRoot = "Assets/Iroca";
+
+        // Debug 衛星(Code/Debug/)は配布対象外。IrocaEditor.Debug.asmdef は defineConstraints 無し
+        // ・autoReferenced=true で、同梱すると全ユーザーで常時コンパイルされ Debug ウィンドウが
+        // 見えてしまう。zip 生成(Build-VpmPackage.ps1)は既にこのフォルダを除外しており、
+        // unitypackage も同じ非同梱運用に揃える。
+        private const string DebugFolder = "Assets/Iroca/Code/Debug";
 
         /// <summary>
         /// バッチモードからのエントリポイント。
@@ -39,12 +46,24 @@ namespace Iroca
 
             Debug.Log($"[BuildHelper] エクスポート開始: {ExportRoot} → {outputPath}");
 
-            AssetDatabase.ExportPackage(
-                ExportRoot,
-                outputPath,
-                ExportPackageOptions.Recurse);
+            // Code/Debug 以外の Assets/Iroca 配下アセットを明示列挙して同梱する。
+            // フォルダ 1 つを Recurse で丸ごと渡すと Debug も入ってしまうため、対象パスを
+            // フィルタした配列を渡し Recurse は使わない(=渡したアセットのみを厳密に同梱)。
+            string debugPrefix = DebugFolder + "/";
+            var included = new List<string>();
+            foreach (string p in AssetDatabase.GetAllAssetPaths())
+            {
+                if (p != ExportRoot && !p.StartsWith(ExportRoot + "/", StringComparison.Ordinal)) continue;
+                if (p == DebugFolder || p.StartsWith(debugPrefix, StringComparison.Ordinal)) continue;
+                included.Add(p);
+            }
 
-            Debug.Log($"[BuildHelper] エクスポート完了: {outputPath}");
+            AssetDatabase.ExportPackage(
+                included.ToArray(),
+                outputPath,
+                ExportPackageOptions.Default);
+
+            Debug.Log($"[BuildHelper] エクスポート完了: {outputPath}（{included.Count} アセット, Code/Debug 除外）");
         }
 
         // コマンドライン引数から値を取得するユーティリティ
