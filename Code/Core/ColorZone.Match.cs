@@ -251,8 +251,13 @@ namespace Iroca
                 strength = CalculateEdgeStrength(effectiveDist, aaHardRange, aaSoftRange);
                 // FF コア判定用: グレーモードの色一致確信度(中性ペナルティ込み effectiveDist を使う)。
                 if (strength > 0f) matchConf = Mathf.Clamp01(1f - effectiveDist / CoreMatchDistance);
-                // ハイライト復元は輝度のみでざっくり判定
-                if (highlightRecovery && pV > HighlightValueMin)
+                // ハイライト復元は輝度で判定するが、彩度ゲートを付ける(B-3)。グレー/黒素材の
+                // ハイライトはグレー/白(低彩度)なので、明るい高彩度画素(隣接する別の有彩素材)を
+                // highlightPotential から除外する。これが無いと明るいグレーサンプルの隣にある有彩
+                // トリムが PropagateHighlights でコアから滲む。有彩版 CalculateHighlightRecovery の
+                // pS>=HighlightSaturationMax 棄却と同じ趣旨(無彩サンプルには意味ある sample hue が
+                // 無いので彩度ゲートのみ)。
+                if (highlightRecovery && pV > HighlightValueMin && pS < HighlightSaturationMax)
                 {
                     float vDist = Mathf.Abs(pV - sc.sV);
                     highlightPotential = CalculateEdgeStrength(vDist, hlHardRange, hlSoftRange);
