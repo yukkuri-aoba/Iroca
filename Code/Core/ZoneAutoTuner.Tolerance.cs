@@ -302,6 +302,7 @@ namespace Iroca
         private const int   AutoToneMinPixels = 200;    // 同色相画素がこれ未満なら抽出しない
         private const int   AutoToneValueBins = 64;
         private const int   AutoToneSatBins   = 64;
+        private const float AutoToneGapFloorFrac = 0.0005f; // V ヒストグラムの「空の谷」判定床(総数比)
 
         private static List<Color> DeriveAutoTonalSamples(Color32[] pixels, int w, int h,
             ColorZone zone, bool[] excluded, int maskW, int maskH)
@@ -375,6 +376,53 @@ namespace Iroca
                 }
             }
             if (total < AutoToneMinPixels) return samples;
+
+            // ── V 連結領域ゲート: 代表色はサンプル自身のトーン連結域からのみ選ぶ ──
+            // シェーディングは V 上で連続に分布するため、同一パーツの V ヒストグラムは
+            // サンプル V を含むひと続きの山になる。(ほぼ)空の谷を挟んで現れる別クラスタは、
+            // 同色相・彩度バンド内でもベース明度の異なる別パーツ(例: 暗色レザーに対する
+            // クリーム生地)であり、そこから明部/暗部代表を取ると和集合マッチがそのパーツ
+            // 全体を巻き込む(実測: feina-boots で選択面積が GT の 5 倍)。サンプル V の bin
+            // から両方向へ、gapFloor 以上の画素を持つ bin が続く範囲(1 bin だけの欠けは
+            // 疎なシェーディングとして橋渡し)を代表色の母集団にする。gapFloor は総数比で
+            // スケール不変。連続シェーディングのパーツでは全域が連結のままなので挙動不変
+            // (bandana/costume/sneakers/hair で代表 bin 不変を確認済み)。
+            int sBin = Mathf.Clamp((int)(sV * VB), 0, VB - 1);
+            int gapFloor = Mathf.Max(2, Mathf.CeilToInt(total * AutoToneGapFloorFrac));
+            if (cnt[sBin] < gapFloor)
+            {
+                // サンプル bin 自体が疎(クリック画素が satFloor 直下等)なら最寄りの実在 bin へ寄せる
+                int nearest = -1;
+                for (int off = 1; off < VB; off++)
+                {
+                    if (sBin - off >= 0 && cnt[sBin - off] >= gapFloor) { nearest = sBin - off; break; }
+                    if (sBin + off < VB && cnt[sBin + off] >= gapFloor) { nearest = sBin + off; break; }
+                }
+                if (nearest < 0) return samples;
+                sBin = nearest;
+            }
+            int loBin = sBin, hiBin = sBin;
+            while (loBin > 0)
+            {
+                if (cnt[loBin - 1] >= gapFloor) { loBin--; continue; }
+                if (loBin > 1 && cnt[loBin - 2] >= gapFloor) { loBin -= 2; continue; }
+                break;
+            }
+            while (hiBin < VB - 1)
+            {
+                if (cnt[hiBin + 1] >= gapFloor) { hiBin++; continue; }
+                if (hiBin < VB - 2 && cnt[hiBin + 2] >= gapFloor) { hiBin += 2; continue; }
+                break;
+            }
+            if (loBin > 0 || hiBin < VB - 1)
+            {
+                int regionTotal = 0;
+                for (int i = loBin; i <= hiBin; i++) regionTotal += cnt[i];
+                if (regionTotal < AutoToneMinPixels) return samples;
+                for (int i = 0; i < loBin; i++) cnt[i] = 0;
+                for (int i = hiBin + 1; i < VB; i++) cnt[i] = 0;
+                total = regionTotal;
+            }
 
             // 指定パーセンタイルの V バンドの平均色を代表色として取る。
             Color RepAtPct(float pct)
