@@ -89,6 +89,13 @@ namespace Iroca
         // 指標に混ぜ(輝度差があっても無彩なら同素材)、彩度整合ゲートの明部限定 gateWeight のフェード
         // 区間 [0,この値] にも使う。
         internal const float GrayModeDarkSampleValue = 0.3f; // internal: 緩和マッチ経路と共有(暗サンプル判定/gateWeight)
+        // 輝度盲対策(A-6): 暗サンプルのグレーモードは距離を彩度 pS へ寄せて輝度差を捨てるため、
+        // 純白(pS=0)まで距離0でマッチしていた。サンプルより「ヘッドルームを超えて明るい」画素へ
+        // 輝度超過ペナルティ (pV-sV-headroom)*weight を距離に加える。黒布の中間グレーハイライト
+        // (V ≲ sV+headroom)は無罰で拾い、純白/白装飾/UV 背景(超過大)だけを距離で弾く。
+        // weight は最暗サンプルでも AchromaTolMax(0.40)を超えて白を弾ける大きさ((1-headroom)*weight>0.40)。
+        internal const float GrayHighlightHeadroom = 0.55f;
+        internal const float GrayLumExcessWeight   = 1.2f;
 
 
         public string name = "Zone";
