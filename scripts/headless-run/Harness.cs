@@ -256,6 +256,9 @@ namespace Iroca
                         applyGlobals = tune.applyGlobals,
                         antiAliasCleanup = st.antiAliasCleanup,
                         autoSamples = z.extraSamples.Count,
+                        // 診断用: 自動トーン抽出の実色。アブレーション計測(--autotune なしで
+                        // 同一パラメータを再現する)に必要。
+                        autoSampleColors = z.extraSamples.ConvertAll(c => new[] { c.r, c.g, c.b }),
                     }));
                 }
             }
