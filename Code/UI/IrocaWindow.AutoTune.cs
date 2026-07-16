@@ -145,11 +145,16 @@ namespace Iroca
                 Localization.OK, Localization.Cancel);
         }
 
-        // GetPixels32 はメインスレッド必須で、大きいテクスチャでは一瞬フリーズする。
+        // 画素取得はメインスレッド必須で、大きいテクスチャでは一瞬フリーズする。
         // 完全な非同期化はできないため、手動実行のときだけモーダル進捗バーで「解析中」を
         // 明示し、無言の固まりに見えないようにする（バックグラウンド解析本体は別途
         // ウィンドウ内進捗バー＋キャンセルで表示される）。かんたんモードの自動実行では
         // 色を変えるたびにモーダルが点滅すると煩いので出さず、裏で静かに走らせる。
+        //
+        // 解析対象は選択・プレビュー・エクスポートと同じ true source（ディスク原本）を使う。
+        // インポート済みテクスチャ（maxTextureSize 縮小・圧縮）を解析すると、彩度/距離分布が
+        // 実処理経路とずれて導出パラメータが歪む。通常はプレビューが同じキャッシュを温めて
+        // いるため追加コストはない。true source が取れないときのみ GetPixels32 へフォールバック。
         private void PrepareAutoTunePixels(bool auto, out Color32[] pixels, out int texW, out int texH)
         {
             pixels = null;
@@ -158,12 +163,16 @@ namespace Iroca
             var tex = sourceTexture;
             if (tex == null) return;
 
-            texW = tex.width;
-            texH = tex.height;
             try
             {
                 if (!auto)
                     EditorUtility.DisplayProgressBar(Localization.AutoTune, Localization.AnalyzingTexture, 0.1f);
+                if (_previewView != null &&
+                    _previewView.TryGetTrueSourcePixels(tex, out pixels, out texW, out texH))
+                    return;
+
+                texW = tex.width;
+                texH = tex.height;
                 pixels = tex.GetPixels32();
             }
             catch (UnityEngine.UnityException) { pixels = null; }

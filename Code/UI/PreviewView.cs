@@ -272,6 +272,26 @@ namespace Iroca
             return true;
         }
 
+        /// <summary>
+        /// 自動調整など他ビューが、プレビュー/エクスポートと同一の true source 画素で解析する
+        /// ための読み取り専用アクセサ。返す配列は内部キャッシュの共有インスタンスなので、
+        /// 呼び出し側は書き換えないこと（プレビュージョブ側も clone してから処理する規約）。
+        /// 取得不能（元ファイル読込失敗 かつ 非 Readable）なら false。
+        /// </summary>
+        public bool TryGetTrueSourcePixels(Texture2D tex, out Color32[] pixels, out int w, out int h)
+        {
+            if (EnsureTrueSource(tex))
+            {
+                pixels = _trueSourcePixels;
+                w = _trueSourceW;
+                h = _trueSourceH;
+                return true;
+            }
+            pixels = null;
+            w = h = 0;
+            return false;
+        }
+
         public void Dispose()
         {
             Suspend();
