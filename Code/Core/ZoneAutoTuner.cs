@@ -121,7 +121,14 @@ namespace Iroca
                 && pixels.Length >= width * height;
             if (canAnalyze)
             {
-                if (TryAnalyzePixels(pixels, width, height, zone, out var analyzed))
+                // マスクがある場合は含有(非除外)領域にクラスタを限定する(色が同じ別パーツを除外)。
+                // ヒストグラム解析(TryAnalyzePixels)も含め全経路で同じ含有領域だけを見る。マスクで
+                // 除外したパーツの画素が shadowForgivenessSatMin / saturationStrictness /
+                // highlightRecovery 初期値へ混入するのを防ぐ(tolerance 導出側は元から尊重していた)。
+                bool useMask = HasUsableMask(excluded, maskW, maskH);
+                bool[] clusterMask = useMask ? excluded : null;
+
+                if (TryAnalyzePixels(pixels, width, height, zone, clusterMask, maskW, maskH, out var analyzed))
                     result = MergeAnalyzed(result, analyzed);
 
                 // tolerance は常に「サンプル近傍クラスタの実マッチ距離分布」から導出する。
@@ -129,13 +136,10 @@ namespace Iroca
                 // いずれも MergeAnalyzed の hSpread/vSpread 由来ヒューリスティック(実距離と切り離され
                 // 過大選択を招く)を実距離分布へ置き換える。
                 //
-                // マスクがある場合は含有(非除外)領域にクラスタを限定する(色が同じ別パーツを除外)が、
-                // tolerance 自体はクラスタの色のまとまりから決める。旧「マスク認識経路(含有領域全画素の
-                // P99.9, 上限0.40)」は、ゆるい/残存マスクや明暗の広いパーツ(例: 明るいサンプルの髪)で
-                // 上限 0.40 に張り付いていた(ユーザー報告)ため廃止。パーツ内の暗部・薄い装飾は本番の
-                // シャドウ免除/ハイライト復元が tolerance とは独立に拾うので、tolerance を膨らませない。
-                bool useMask = HasUsableMask(excluded, maskW, maskH);
-                bool[] clusterMask = useMask ? excluded : null;
+                // 旧「マスク認識経路(含有領域全画素の P99.9, 上限0.40)」は、ゆるい/残存マスクや
+                // 明暗の広いパーツ(例: 明るいサンプルの髪)で上限 0.40 に張り付いていた(ユーザー報告)
+                // ため廃止。パーツ内の暗部・薄い装飾は本番のシャドウ免除/ハイライト復元が tolerance
+                // とは独立に拾うので、tolerance を膨らませない。
                 Color.RGBToHSV(zone.sampleColor, out _, out float sampleS, out _);
 
                 if (sampleS < AchromaSampleSatMax)
@@ -233,7 +237,8 @@ namespace Iroca
             public float tV;  // target color V（明度差で valueBlend 判定に使う）
         }
 
-        private static bool TryAnalyzePixels(Color32[] pixels, int w, int h, ColorZone zone, out AnalysisStats stats)
+        private static bool TryAnalyzePixels(Color32[] pixels, int w, int h, ColorZone zone,
+            bool[] excluded, int maskW, int maskH, out AnalysisStats stats)
         {
             stats = new AnalysisStats
             {
@@ -255,6 +260,7 @@ namespace Iroca
                 {
                     Color32 c32 = pixels[rowStart + x];
                     if (c32.a < 128) continue;
+                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue; // マスク除外領域は対象外
 
                     float r = c32.r / 255f;
                     float g = c32.g / 255f;
