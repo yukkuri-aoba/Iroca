@@ -51,5 +51,5 @@ zip生成 + SHA256 + listing更新  →  整合検証 + draft作成  →  資産
 
 ## 補足
 
-- 配布 zip には `Code/` 全体が同梱される（`Build-VpmPackage.ps1` が再帰収集）。**`Code/Debug/` も現状は同梱され、全ユーザーに Debug ウィンドウが見える**。出荷から外すか否かは未決定（レビュー §3.5）。
+- 配布 zip・unitypackage とも `Code/` を収集するが、**`Code/Debug/`（開発専用の Debug ウィンドウ）は両方とも同梱しない**。zip は `Build-VpmPackage.ps1` が、unitypackage は `BuildHelper.cs` が明示的に Code/Debug を除外する。IrocaEditor.Debug.asmdef は defineConstraints 無しのため、同梱すると全ユーザーで常時コンパイルされ Debug ウィンドウが見えてしまうのを避けるため。
 - `BuildHelper.cs` が参照する Unity 開発プロジェクトはこのリポジトリの外にある。エクスポート前に `Assets/Iroca` 配下へ旧コード（`Code_Archive/` 等）が紛れていないか確認すること。
