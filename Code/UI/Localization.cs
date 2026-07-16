@@ -173,6 +173,9 @@ namespace Iroca
 
         // ゾーンカード内の詳細パラメータ折りたたみ見出し（通常モードで既定畳む）。
         public static string ZoneDetailFoldout => IsJapanese ? "詳細設定" : "Details";
+        public static string ZoneDetailFoldoutTooltip => IsJapanese
+            ? "許容範囲・彩度制限・エッジなどの詳細パラメータを開閉します。通常は自動調整に任せて閉じたままで構いません。"
+            : "Show/hide advanced parameters (tolerance, saturation limits, edges). Usually you can leave this closed and rely on auto-tune.";
 
         public static string ResetZoneTuning => IsJapanese ? "詳細を既定値に戻す" : "Reset details to default";
         public static string ResetZoneTuningTooltip => IsJapanese
