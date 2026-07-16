@@ -153,8 +153,15 @@ namespace Iroca
             float satFloor = sS * HlBandMinSatFrac;
 
             int len = w * h;
-            bool[] candidate = new bool[len];
-            bool[] visited = new bool[len];
+            // 従来はゾーンごとに bool[len]×2(4K で 16.7MB×2)を GC 確保していた。プールから
+            // Rent(Create プールはゼロ初期化しないので Array.Clear で全 false に戻す)し、
+            // 早期 return / キャンセル例外を含む全経路で finally から Return する。
+            bool[] candidate = s_boolPool.Rent(len);
+            bool[] visited = s_boolPool.Rent(len);
+            try
+            {
+            Array.Clear(candidate, 0, len);
+            Array.Clear(visited, 0, len);
             var queue = new Queue<int>();
 
             // 候補判定: 各画素は独立(他画素を参照しない)なので並列化する。candidate[] は
@@ -218,6 +225,12 @@ namespace Iroca
                 visited[ni] = true;
                 if (strength[ni] < 1f) strength[ni] = 1f;
                 queue.Enqueue(ni);
+            }
+            }
+            finally
+            {
+                s_boolPool.Return(candidate);
+                s_boolPool.Return(visited);
             }
         }
     }
