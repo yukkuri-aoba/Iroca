@@ -220,6 +220,11 @@ namespace Iroca
                 {
                     float darknessFactor = Mathf.Clamp01((GrayModeDarkSampleValue - sc.sV) / GrayModeDarkSampleValue);
                     effectiveDist = Mathf.Lerp(rgbDist, pS, darknessFactor);
+                    // 輝度盲対策(A-6): pS へ寄せると輝度差を捨て純白(pS=0)まで距離0でマッチする。
+                    // ヘッドルームを超えて明るい画素に輝度超過ペナルティを加え、白装飾/UV 背景を弾く。
+                    // 中間グレーハイライト(V ≲ sV+headroom)は超過0で無罰=recall 維持。
+                    float lumExcess = Mathf.Max(0f, (pV - sc.sV) - GrayHighlightHeadroom);
+                    effectiveDist += lumExcess * GrayLumExcessWeight;
                 }
 
                 // 彩度整合ゲート: サンプルが微小な tint を持つ(sS>ActivateSat)ときのみ作動。

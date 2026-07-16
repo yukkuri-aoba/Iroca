@@ -431,6 +431,10 @@ namespace Iroca
                 float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f;
                 float darknessFactor = Mathf.Clamp01((ColorZone.GrayModeDarkSampleValue - sV) / ColorZone.GrayModeDarkSampleValue);
                 float effectiveDist = Mathf.Lerp(rgbDist, pS, darknessFactor);
+                // 輝度盲対策(A-6): 純黒サンプルで純白まで距離0マッチするのを防ぐ。ヘッドルーム超えの
+                // 明るさに輝度超過ペナルティを加える。ColorZone.MatchOneSample のグレーモードと同期。
+                float lumExcess = Mathf.Max(0f, (pV - sV) - ColorZone.GrayHighlightHeadroom);
+                effectiveDist += lumExcess * ColorZone.GrayLumExcessWeight;
                 // 彩度整合ゲート(GetColorMatchScores のグレーモードと同じ)。サンプルが微小な tint を
                 // 持つとき、それより著しく中性寄りの候補(純白 UV 背景等)を距離加算でソフト排除する。
                 // 明るいクリームサンプルでは値距離だと純白(pV≈sV)が一致するため、ここでも必要。
