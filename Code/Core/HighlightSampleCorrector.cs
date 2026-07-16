@@ -69,15 +69,17 @@ namespace Iroca
             return new Color(sample.r * scale, sample.g * scale, sample.b * scale, 1f);
         }
 
-        /// <summary>0..255 V ヒストグラムの percentile(0..1) を 0..1 の V で返す。</summary>
+        /// <summary>V ヒストグラムの percentile(0..1) を 0..1 の V で返す。
+        /// bin→値マッピングは HistValueAtPercentile と同一規約(b/(Length-1))。
+        /// 256bin では従来の b/255f と一致し、将来 bin 数を変えても両者が揃う。</summary>
         private static float PercentileFromHist(int[] hist, int total, float pct)
         {
             int target = Mathf.Clamp(Mathf.CeilToInt(total * pct), 1, total);
             int cum = 0;
-            for (int b = 0; b < 256; b++)
+            for (int b = 0; b < hist.Length; b++)
             {
                 cum += hist[b];
-                if (cum >= target) return b / 255f;
+                if (cum >= target) return b / (float)(hist.Length - 1);
             }
             return 1f;
         }
