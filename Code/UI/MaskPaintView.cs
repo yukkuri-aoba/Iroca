@@ -374,41 +374,62 @@ namespace Iroca
 
         // ─────────────────────── ペイント ─────────────────────────
 
-        public void PaintMask(Vector2 uvPos)
+        /// <summary>
+        /// ブラシ 1 スタンプ分を塗る。gridW/gridH は表示プレビューの画素格子
+        /// (previewTexture の実寸)で、brushSize はこの格子セル単位の半径。
+        ///
+        /// 塗りは格子セル単位で行い、セルに対応するマスクブロック
+        /// [gx*maskW/gridW, (gx+1)*maskW/gridW) を丸ごと塗る。オーバーレイ表示
+        /// (ComputeOverlayPixels)とプロキシ処理(IsExcludedCombined)は各セルにつき
+        /// ブロック先頭の 1 画素だけを最近傍で読むため、セル内部に塗り残しがあると
+        /// 「縮小表示では塗れて見えるのにフル解像度適用(詳細プレビュー/エクスポート)
+        /// では穴」という不一致が起きていた。ブロック単位で塗ることでマスクが常に
+        /// セル内一様になり、この不一致を構造的に排除する(WYSIWYG)。
+        /// </summary>
+        public void PaintMask(Vector2 uvPos, int gridW, int gridH)
         {
             bool[] target = GetActiveMaskArray();
             if (target == null) return;
+            if (maskWidth <= 0 || maskHeight <= 0) return;
+            if (gridW <= 0) gridW = maskWidth;
+            if (gridH <= 0) gridH = maskHeight;
 
-            int cx = Mathf.RoundToInt(uvPos.x * maskWidth);
-            int cy = Mathf.RoundToInt(uvPos.y * maskHeight);
-
-            // ブラシサイズは「プレビュー画像上のピクセル数」で設定されるため、
-            // マスク座標系（フル解像度）に合わせてスケーリングする必要がある。
-            // プレビュー縮小率は長辺基準（PreviewView: MaxSize / Max(srcW,srcH)）なので、
-            // ここも長辺で割る。幅のみ基準だと縦長テクスチャ（例 512×2048）で半径が 1/4 になる。
-            int maxDim = Mathf.Max(maskWidth, maskHeight);
-            float maskScale = maxDim / (float)Mathf.Min(maxDim, IrocaConsts.Preview.MaxSize);
-            int r = Mathf.Max(1, Mathf.RoundToInt(brushSize * maskScale));
-
+            int cx = Mathf.Min(gridW - 1, Mathf.FloorToInt(uvPos.x * gridW));
+            int cy = Mathf.Min(gridH - 1, Mathf.FloorToInt(uvPos.y * gridH));
+            int r = Mathf.Max(1, brushSize);
             bool value = !brushEraseMode;
 
-            // 円ブラシを行ごとの span fill で塗る(従来の (2r+1)² 全走査 + 毎画素の距離判定を回避)。
-            // 各行の最大 dx は floor(sqrt(r²-dy²))。Mathf.Sqrt の丸めで境界 dx を取りこぼさない
-            // よう整数で補正するので、塗る画素集合は従来とビット同一。
+            // 円ブラシをセル行ごとの span で決め、対応するマスクブロック矩形を塗る。
+            // 各行の最大 dx は floor(sqrt(r²-dy²))。Mathf.Sqrt の丸めで境界セルを
+            // 取りこぼさないよう整数で補正する。
             int rr = r * r;
             for (int dy = -r; dy <= r; dy++)
             {
-                int py = cy + dy;
-                if (py < 0 || py >= maskHeight) continue;
+                int gy = cy + dy;
+                if (gy < 0 || gy >= gridH) continue;
                 int rowRemain = rr - dy * dy;
                 int dxMax = (int)Mathf.Sqrt(rowRemain);
                 while ((dxMax + 1) * (dxMax + 1) <= rowRemain) dxMax++;
                 while (dxMax > 0 && dxMax * dxMax > rowRemain) dxMax--;
-                int xLo = cx - dxMax; if (xLo < 0) xLo = 0;
-                int xHi = cx + dxMax; if (xHi >= maskWidth) xHi = maskWidth - 1;
-                int rowBase = py * maskWidth;
-                for (int px = xLo; px <= xHi; px++)
-                    target[rowBase + px] = value;
+                int gxLo = cx - dxMax; if (gxLo < 0) gxLo = 0;
+                int gxHi = cx + dxMax; if (gxHi >= gridW) gxHi = gridW - 1;
+
+                // セル範囲 → マスクブロック矩形 [mx0, mx1) × [my0, my1)。
+                // 除算は処理側(IsExcludedCombined の x*maskW/texW)と同じ整数切り捨て。
+                // grid が mask より細かい方向ではブロックが空になり得るため 1 画素を保証する。
+                int my0 = (int)((long)gy * maskHeight / gridH);
+                int my1 = (int)((long)(gy + 1) * maskHeight / gridH);
+                if (my1 <= my0) my1 = Mathf.Min(maskHeight, my0 + 1);
+                int mx0 = (int)((long)gxLo * maskWidth / gridW);
+                int mx1 = (int)((long)(gxHi + 1) * maskWidth / gridW);
+                if (mx1 <= mx0) mx1 = Mathf.Min(maskWidth, mx0 + 1);
+
+                for (int my = my0; my < my1; my++)
+                {
+                    int rowBase = my * maskWidth;
+                    for (int px = mx0; px < mx1; px++)
+                        target[rowBase + px] = value;
+                }
             }
 
             maskDirty = true;

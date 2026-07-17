@@ -192,7 +192,10 @@ namespace Iroca
                 case EventType.Repaint:
                     if (maskView.isPainting && isInRect)
                     {
-                        float brushPixels = maskView.brushSize * previewZoom;
+                        // 実際に塗られる円は直径 (2*brushSize+1) 格子セル。1 セルの画面上の
+                        // サイズは previewZoom なので、カーソルも同じ大きさで描いて
+                        // 「見えている範囲 = 塗られる範囲」を一致させる(従来は半分だった)。
+                        float brushPixels = (maskView.brushSize * 2f + 1f) * previewZoom;
                         var cursorColor = maskView.brushEraseMode
                             ? IrocaColors.BrushCursorInclude
                             : IrocaColors.BrushCursorExclude;
@@ -390,23 +393,31 @@ namespace Iroca
 
             var currentUV = new Vector2(u, v);
 
+            // 塗り格子 = 表示プレビューの画素格子。オーバーレイ/プロキシ処理が最近傍で
+            // 代表点を読む単位と一致させるため、previewTexture の実寸を渡す(WYSIWYG)。
+            maskView.EnsureMasks();
+            int gridW = previewTexture != null ? previewTexture.width : maskView.maskWidth;
+            int gridH = previewTexture != null ? previewTexture.height : maskView.maskHeight;
+
             if (maskView.lastPaintUV.x >= 0f)
             {
                 float dist = Vector2.Distance(maskView.lastPaintUV, currentUV);
-                maskView.EnsureMasks();
-                float step = (maskView.maskWidth > 0) ? 1f / maskView.maskWidth : 0.001f;
+                // 補間ステップは格子の長辺基準。UV 距離は正規化空間なので、短辺基準だと
+                // 縦長/横長テクスチャで長辺方向のスタンプ間隔がセルを跨いで点線になる。
+                int gridLong = Mathf.Max(1, Mathf.Max(gridW, gridH));
+                float step = 1f / gridLong;
                 if (dist > step)
                 {
                     int steps = Mathf.CeilToInt(dist / step);
                     for (int i = 1; i < steps; i++)
                     {
                         Vector2 lerped = Vector2.Lerp(maskView.lastPaintUV, currentUV, (float)i / steps);
-                        maskView.PaintMask(lerped);
+                        maskView.PaintMask(lerped, gridW, gridH);
                     }
                 }
             }
 
-            maskView.PaintMask(currentUV);
+            maskView.PaintMask(currentUV, gridW, gridH);
             maskView.lastPaintUV = currentUV;
         }
     }
