@@ -41,6 +41,8 @@
     <Compile Include="..\..\Code\Core\HighlightSampleCorrector.cs" />
     <Compile Include="..\..\Code\Core\ColorZone*.cs" />
     <Compile Include="..\..\Code\Core\IrocaConsts.cs" />
+    <!-- 自動化(MCP)の目視検証パネル/メトリクス生成。UnityEditor 非依存なので headless で実 C# 検証できる。 -->
+    <Compile Include="..\..\Code\Core\RecolorPreview.cs" />
     <!-- 自動調整(ZoneAutoTuner)を no-mask で実行して GT と突き合わせるための取り込み。
          Localization は UnityEditor.EditorPrefs に依存するので Harness.cs 内のスタブで代替する。 -->
     <Compile Include="..\..\Code\Core\ZoneAutoTuner*.cs" />

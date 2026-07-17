@@ -146,6 +146,11 @@ namespace Iroca
             if (args.Length >= 1 && args[0] == "--selkey-audit")
                 return RunSelectionKeyAudit();
 
+            // --previewselftest: 入力画像不要。RecolorPreview(自動化の目視検証パネル/メトリクス)を
+            // 合成 before/after で実 C# 実行し、既知の不変量を検証する。
+            if (args.Length >= 1 && args[0] == "--previewselftest")
+                return RunPreviewSelfTest();
+
             if (args.Length < 3)
             {
                 Console.Error.WriteLine("usage: Harness <in.raw RGBA> <mask.raw 1=exclude> <out.raw RGBA> "
@@ -354,6 +359,82 @@ namespace Iroca
                 Console.WriteLine($"SELKEY {f.Name} {(changed ? 1 : 0)}");
             }
             return 0;
+        }
+
+        // ─── RecolorPreview 自己検証(入力画像不要) ───
+        // 合成した before/after で ComputeMetrics / BuildComparisonPanel を実 C# 実行し、
+        // 既知の不変量(変化画素数・連結成分・パネル寸法・マゼンタ着色)を検証する。
+        // 自動化(IrocaAutomation)は UnityEditor 依存で headless 実行できないため、Unity 非依存の
+        // 診断ロジック本体をここで直接測る。1 件でも不変量に反したら非 0 を返す。
+        private static int RunPreviewSelfTest()
+        {
+            int fails = 0;
+            void Check(bool cond, string label)
+            {
+                Console.WriteLine($"PREVIEWSELFTEST {(cond ? "PASS" : "FAIL")} {label}");
+                if (!cond) fails++;
+            }
+
+            // 64x48 の before(勾配)。after は矩形 [16,48)x[12,36) と孤立 2 画素だけ b を 128→129 に変える。
+            // → 変化画素は「自分が変えた場所」だけと厳密に一致する。
+            const int w = 64, h = 48;
+            var before = new Color32[w * h];
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                    before[y * w + x] = new Color32((byte)((x * 4) & 255), (byte)((y * 4) & 255), 128, 255);
+
+            var after = (Color32[])before.Clone();
+            int rectCount = 0;
+            for (int y = 12; y < 36; y++)
+                for (int x = 16; x < 48; x++)
+                {
+                    int i = y * w + x;
+                    after[i] = new Color32(before[i].r, before[i].g, 129, 255);
+                    rectCount++;
+                }
+            // 矩形外の孤立 2 画素(別成分)。
+            int iso0 = 2 * w + 2, iso1 = 45 * w + 61;
+            after[iso0] = new Color32(before[iso0].r, before[iso0].g, 129, 255);
+            after[iso1] = new Color32(before[iso1].r, before[iso1].g, 129, 255);
+            int expectedChanged = rectCount + 2;   // 768 + 2
+
+            var m = RecolorPreview.ComputeMetrics(before, after, w, h);
+            Check(m.totalPixels == w * h, $"totalPixels={m.totalPixels}");
+            Check(m.changedPixels == expectedChanged, $"changedPixels={m.changedPixels} (want {expectedChanged})");
+            Check(m.componentCount == 3, $"componentCount={m.componentCount} (want 3)");
+            // 最大成分は矩形(rectCount)。占有率 = rectCount / expectedChanged。
+            float wantFrac = (float)rectCount / expectedChanged;
+            Check(System.Math.Abs(m.largestComponentFraction - wantFrac) < 1e-4f,
+                $"largestComponentFraction={m.largestComponentFraction:F5} (want {wantFrac:F5})");
+            // bbox は孤立画素を含み (2,2)-(61,45) → x=2,y=2,w=60,h=44。
+            Check(m.bboxX == 2 && m.bboxY == 2 && m.bboxW == 60 && m.bboxH == 44,
+                $"bbox=({m.bboxX},{m.bboxY},{m.bboxW},{m.bboxH}) (want 2,2,60,44)");
+
+            // 等倍(64<=512)なのでタイルは 64x48、パネル幅 = 64*3 + gutter*2。
+            RecolorPreview.ComputeTileSize(w, h, RecolorPreview.DefaultMaxTile, out int tw, out int th);
+            Check(tw == 64 && th == 48, $"tile={tw}x{th} (want 64x48)");
+            var panel = RecolorPreview.BuildComparisonPanel(
+                before, after, w, h, RecolorPreview.DefaultMaxTile, out int pw, out int ph);
+            int expW = tw * 3 + RecolorPreview.PanelGutter * 2;
+            Check(pw == expW && ph == th, $"panel={pw}x{ph} (want {expW}x{th})");
+            Check(panel.Length == pw * ph, $"panelLen={panel.Length}");
+
+            // 縮小経路: 2000x1000 → 512x256。
+            RecolorPreview.ComputeTileSize(2000, 1000, RecolorPreview.DefaultMaxTile, out int dw, out int dh);
+            Check(dw == 512 && dh == 256, $"downscaleTile={dw}x{dh} (want 512x256)");
+
+            // 変化マップタイル(右端, xOff = tw*2 + gutter*2)の内容確認。
+            int changeXoff = tw * 2 + RecolorPreview.PanelGutter * 2;
+            // 矩形中央(変化) → マゼンタ。
+            var cChanged = panel[24 * pw + (changeXoff + 32)];
+            Check(cChanged.r == 255 && cChanged.g == 0 && cChanged.b == 255, "changeTile center is magenta");
+            // 左上角(0,0 は非変化) → グレー(r==g==b, 非マゼンタ)。
+            var cUnchanged = panel[0 * pw + (changeXoff + 0)];
+            Check(cUnchanged.r == cUnchanged.g && cUnchanged.g == cUnchanged.b &&
+                  !(cUnchanged.r == 255 && cUnchanged.g == 0 && cUnchanged.b == 255), "changeTile corner is gray");
+
+            Console.WriteLine(fails == 0 ? "PREVIEWSELFTEST ALL PASS" : $"PREVIEWSELFTEST {fails} FAILED");
+            return fails == 0 ? 0 : 4;
         }
 
         // 対象フィールドを「必ず元と異なる値」に書き換える。未知の型は false。
