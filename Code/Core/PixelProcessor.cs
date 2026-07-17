@@ -415,9 +415,10 @@ namespace Iroca
                     //     (dist<tolerance) を通る色だけを穴埋め候補に許可する。薄いロゴ等で
                     //     「マッチ領域に囲まれただけの背景グレー/白」を full strength に塗ってしまう
                     //     フリンジ(白/灰ノイズ)を構造的に防ぐ。境界回復(RecoverBoundaryEdges)と同一基準。
-                    // WS-M: relaxed ゲート(穴埋め/境界回復)にプライマリと同じ RGB 距離ブレンドを
-                    // 与えるための chromaConfidence と sample RGB。低彩度サンプルで同色相の高彩度色
-                    // (白→赤バンダナ等)を弾き、境界回復の色スピル(緑ハロー)を防ぐ。有彩は cc≈1 で従来式。
+                    // relaxed ゲート(穴埋め/境界回復)にプライマリと同じ RGB 距離ブレンドを与えるための
+                    // chromaConfidence と sample RGB。低彩度サンプル(白/灰)で同色相の高彩度色を弾き、
+                    // 境界回復が無関係な色を周囲へスピルさせる(対象の縁に別色のハローが出る)のを防ぐ。
+                    // 有彩は cc≈1 で従来式。
                     Color.RGBToHSV(zone.sampleColor, out float gsH, out float gsS, out float gsV);
                     float relaxedChromaConf = Mathf.Min(
                         Mathf.Clamp01((gsS - zone.chromaThreshold) / 0.10f),
@@ -532,13 +533,14 @@ namespace Iroca
                     // 3b. AA 境界の α 分解（オプション）：strength が 0 < s < interiorThreshold の
                     //     ピクセルを「α×FG + (1-α)×BG」と見て元テクスチャの合成を逆算し、
                     //     新色で再合成する。halo（薄汚れた中間色）を構造的に除去する。
-                    // 無彩サンプル/極端無彩ターゲットの重み(WS-R と AA フィデリティ修正で共用)。
+                    // 無彩サンプル/極端無彩ターゲットの重み(無彩パスと AA フィデリティ修正で共用)。
                     float zAchromaWeight = ComputeAchromaWeight(zone.sampleColor, zone.targetColor);
                     // sample の S/V (wash ゲート・デバッグ分岐・下の中性リジェクトで共用)。
                     Color.RGBToHSV(zone.sampleColor, out _, out float zSS, out float zSV);
 
-                    // 有彩サンプル→無彩ターゲット(赤→白/黒/灰)の過選択除去。有彩サンプルはマッチ距離が
-                    // hue 支配になり彩度差を過小評価するため、暖色寄りで明るい中性画素(白UV背景等)を巻き込む。
+                    // 有彩サンプル→無彩ターゲット(有彩色→白/黒/灰)の過選択除去。有彩サンプルはマッチ距離が
+                    // hue 支配になり彩度差を過小評価するため、明るい中性画素(白UV背景等)を巻き込む
+                    // (特に暖色サンプルで顕著。無彩画素の hue は 0 に丸められ暖色と同色相に見えるため)。
                     // 巻き込みで領域が明るい背景に支配されると後段の成分中央値Lが上がり、本体(中L)が形維持
                     // リマップで黒へ落ちる(黒化)。マッチ全段(穴埋め/境界回復)の後・内部固め/成分統計の前に、
                     // サンプル彩度の相対床を下回る中性画素を strength から除去する(高彩度コア近傍は保護)。
@@ -549,7 +551,7 @@ namespace Iroca
                     if (zAchromaSelectWeight > AchromaNeutralRejectWeightMin && zSS >= NeutralRejectActiveSourceSat)
                         RejectNeutralForAchromaTarget(strength, pixS, w, h, zSS, cancellationToken);
 
-                    // WS-R 内部固め: 極端な無彩ターゲット(白↔黒)では、マッチ強度が色のばらつきで内部まで
+                    // 無彩パスの内部固め: 極端な無彩ターゲット(白↔黒)では、マッチ強度が色のばらつきで内部まで
                     // フルにならず、明るい画素ほど弱く塗られて元色が残り「中央の段差」になる。陰影は塗り
                     // 強度でなく recolor の achroma レンジリマップ(gain≤1)で表現すべきなので、マッチ領域の
                     // 内部を full strength に固め、AA 縁(侵食で除いた帯)の taper だけ残す。有彩ターゲット
@@ -618,8 +620,8 @@ namespace Iroca
                     // OkLab 明度保持リカラーのゾーン定数を事前計算 (per-pixel コスト削減)。
                     // sample/target を OkLab に変換。彩度(a,b)は「大きさを |chroma|/sC で正規化し、
                     // 向きは target 色相(zTa,zTb)に均一化」する。旧版は source の色相を回転保持していたが、
-                    // 単色ロゴでは AA縁の混色がオレンジ寄りに転写され輪郭に色相ノイズを生んだ。向きを
-                    // target に揃えることで L(リング除去)を保ったまま色相を均一化する。outputSaturation は
+                    // 単色ロゴなどでは AA 縁の混色が元と違う色相へ転写され、輪郭だけが別色に転ぶ色相ノイズを
+                    // 生んだ。向きを target に揃えることで L(リング除去)を保ったまま色相を均一化する。outputSaturation は
                     // 大きさスケールに畳み込む。sample が無彩(zSC≈0)なら target chroma を一律付与する。
                     RgbToOklab(zSR, zSG, zSB, out float zSL, out float zSa, out float zSb);
                     RgbToOklab(zTR, zTG, zTB, out float zTL, out float zTa, out float zTb);
@@ -685,12 +687,13 @@ namespace Iroca
                         if (zTC > 1e-4f) zOkChromaMaxMag = (zSC / zTC) * ChromaAmpMaxFactor;
                     }
 
-                    // WS-R: 無彩再着色パスの領域 L レンジを事前計算(zAchromaWeight は上で算出済み)。
+                    // 無彩パスの領域 L レンジを事前計算(zAchromaWeight は上で算出済み)。
                     float zRegLlo = 0f, zRegLhi = 1f, zRegLmid = 0.5f;
                     bool zHasRegL = false;
                     // 形維持リマップの center 基準(中央値)を連結成分ごとに局所化する per-pixel マップ。
-                    // ゆるいマスクで白背景を巻き込んでも、各成分が自分の地色基準で再着色されるので
-                    // 三角がベタ黒へ潰れない。null のときは zRegLmid(全体中央値)へフォールバック。
+                    // ゆるいマスクで明るい背景を巻き込んでも、各成分が自分の地色基準で再着色されるので、
+                    // 背景よりわずかに暗いだけの明るい対象がベタ黒へ潰れない。null のときは
+                    // zRegLmid(全体中央値)へフォールバック。
                     float[] zRegMidMap = null;
                     if (zAchromaWeight > 1e-4f)
                     {
@@ -817,7 +820,7 @@ namespace Iroca
                     });
                     debug?.RecordStage(zone.id, DebugStages.Recolor, strength, w, h);
 
-                    // 無彩(白↔黒)再着色のエッジ「残留クリーム」フチ消し。マッチ境界の外側 2px に残る
+                    // 無彩(白↔黒)再着色のエッジに残る「地色の残り」フチ消し。マッチ境界の外側 2px に残る
                     // 背景より明るい混色画素を α 分解で背景へ寄せ、暗い再着色色に対する明るいフチを消す。
                     // 有彩(zAchromaWeight≈0)では呼ばれず完全 no-op。共有のマッチ/合成経路は変更しない。
                     if (zAchromaWeight > 1e-4f && rcMaxX >= 0)

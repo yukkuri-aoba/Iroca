@@ -14,11 +14,11 @@ namespace Iroca
     // PixelProcessor: AA 境界の α 分解 + 再合成(color decontamination)と無彩フチ消し。
     internal static partial class PixelProcessor
     {
-        // 無彩フチ消し(CleanAchromaFringe)の定数。マッチ境界の外側に残る「残留クリーム」混色画素
-        // (背景より明るく、暗い再着色色に対し明るいフチに見える)を α 分解で背景へ寄せて消す。
+        // 無彩フチ消し(CleanAchromaFringe)の定数。マッチ境界の外側に残る「地色の残った」混色画素
+        // (背景より地色寄り=明るく、暗い再着色色に対し明るいフチに見える)を α 分解で背景へ寄せて消す。
         private const int AchromaFringeMatchRadius = 2;    // マッチ境界からこの px 以内の外側を対象
-        private const float AchromaFringeMinAlpha = 0.05f; // これ未満=残留クリームほぼ無し→触らない
-        private const float AchromaFringeMaxAlpha = 0.70f; // これ超=白/地色寄り→除外(白拒否を維持)
+        private const float AchromaFringeMinAlpha = 0.05f; // これ未満=地色の残りがほぼ無い→触らない
+        private const float AchromaFringeMaxAlpha = 0.70f; // これ超=地色寄り→除外(白拒否を維持)
 
         /// <summary>
         /// AA 境界での α 分解 + 再合成（color decontamination / alpha matting）。
@@ -167,9 +167,9 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 無彩(白↔黒)再着色のエッジ「残留クリーム」フチ消し(無彩ゾーンのみ呼ばれる)。
-        /// 二値マッチ+デコンタミは選択 tolerance ちょうどで止まるため、その外側 1〜2px に残る
-        /// 「地色↔背景の混色で背景より明るい(残留クリーム)」画素が、暗い再着色色に対して明るい
+        /// 無彩(白↔黒)再着色のエッジに残る「地色の残り」フチ消し(無彩ゾーンのみ呼ばれる)。
+        /// 二値マッチ+デコンタミは選択 tolerance ちょうどで止まるため、その外側 1〜2px に
+        /// 「地色↔背景の混色で、背景より地色寄り(=明るい)」画素が残り、暗い再着色色に対して明るい
         /// フチに見える。ここをマッチ境界の外側 AchromaFringeMatchRadius px に限り α 分解
         /// (出力 = α·target + (1-α)·背景)で背景側へ寄せてフチを消す。背景優勢(α 小)の画素だけ
         /// 対象にし、白寄り(α≈1)の画素は除外して白拒否を維持する。脚色でなく元の混色の打ち消し。
@@ -233,7 +233,7 @@ namespace Iroca
                         if (dirSq < 1f) continue;                     // sample≈BG → α 未定義
                         float pR = originalPixels[i].r, pG = originalPixels[i].g, pB = originalPixels[i].b;
                         float alpha = ((pR - bR) * dirR + (pG - bG) * dirG + (pB - bB) * dirB) / dirSq;
-                        // 残留クリームのある背景優勢画素のみ。白寄り(α≈1)は除外=白拒否を維持。
+                        // 地色の残りがある背景優勢画素のみ。地色寄り(α≈1)は除外=白拒否を維持。
                         if (alpha < AchromaFringeMinAlpha || alpha > AchromaFringeMaxAlpha) continue;
                         float projR = bR + alpha * dirR, projG = bG + alpha * dirG, projB = bB + alpha * dirB;
                         float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);

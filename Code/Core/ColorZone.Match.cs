@@ -220,7 +220,7 @@ namespace Iroca
                 {
                     float darknessFactor = Mathf.Clamp01((GrayModeDarkSampleValue - sc.sV) / GrayModeDarkSampleValue);
                     effectiveDist = Mathf.Lerp(rgbDist, pS, darknessFactor);
-                    // 輝度盲対策(A-6): pS へ寄せると輝度差を捨て純白(pS=0)まで距離0でマッチする。
+                    // 輝度盲対策: pS へ寄せると輝度差を捨て純白(pS=0)まで距離0でマッチする。
                     // ヘッドルームを超えて明るい画素に輝度超過ペナルティを加え、白装飾/UV 背景を弾く。
                     // 中間グレーハイライト(V ≲ sV+headroom)は超過0で無罰=recall 維持。
                     float lumExcess = Mathf.Max(0f, (pV - sc.sV) - GrayHighlightHeadroom);
@@ -233,7 +233,8 @@ namespace Iroca
                 // 部分ペナルティで崖を作らない。sS≈0(真の無彩サンプル)では作動しない。
                 // 明部限定(gateWeight=clamp(sV/0.3)): 暗いサンプルは上の分岐で pS を距離指標に使い
                 // 「中性=同素材」とみなす(暗布は中性が正常)ため、中性を罰するこのゲートと矛盾する。
-                // 暗いサンプルではフェードさせ、明るい tint 素材(クリーム等)でのみ全効果にする。
+                // 暗いサンプルではフェードさせ、明るい tint 素材(生成り・オフホワイトの布地等)でのみ
+                // 全効果にする。
                 if (sc.sS > ChromaGateActivateSat)
                 {
                     float gateWeight = Mathf.Clamp01(sc.sV / GrayModeDarkSampleValue);
@@ -251,7 +252,7 @@ namespace Iroca
                 strength = CalculateEdgeStrength(effectiveDist, aaHardRange, aaSoftRange);
                 // FF コア判定用: グレーモードの色一致確信度(中性ペナルティ込み effectiveDist を使う)。
                 if (strength > 0f) matchConf = Mathf.Clamp01(1f - effectiveDist / CoreMatchDistance);
-                // ハイライト復元は輝度で判定するが、彩度ゲートを付ける(B-3)。グレー/黒素材の
+                // ハイライト復元は輝度で判定するが、彩度ゲートを付ける。グレー/黒素材の
                 // ハイライトはグレー/白(低彩度)なので、明るい高彩度画素(隣接する別の有彩素材)を
                 // highlightPotential から除外する。これが無いと明るいグレーサンプルの隣にある有彩
                 // トリムが PropagateHighlights でコアから滲む。有彩版 CalculateHighlightRecovery の
@@ -353,11 +354,11 @@ namespace Iroca
             float finalDist = Mathf.Lerp(rgbDist, hsvDist, sc.chromaConfidence);
 
             // シャドウ（暗い色）の距離許容は廃止。距離短縮(dist*=Lerp(1,0.3,df))は、同色相だが彩度の
-            // 低い near-black の別マテリアル(例: 暗い紺色 S≈0.40/V≈0.09 のパーツ)を tolerance 内へ逆送し
-            // 巨大な巻き込みを生む主因。全 subject で recall 非寄与・precision が大幅改善(GT recall 不変)と
-            // 実測。暗部の取りこぼし救済は彩度ゲート緩和(GetColorMatchScores の satConfidence 底上げ)で
-            // 代替する(in-tolerance 画素にしか効かず安全)。明部(ハイライト)免除はベタ塗り対策で性質が逆の
-            // ため温存=非対称は意図的。
+            // 低い near-black の別マテリアル(S≈0.40/V≈0.09 程度の暗い布地など)を tolerance 内へ逆送し
+            // 巨大な巻き込みを生む主因だった。検証した全被写体で取りこぼしの救済には寄与せず(除去しても
+            // recall は不変)、はみ出しだけが大幅に減った。暗部の取りこぼし救済は彩度ゲート緩和
+            // (GetColorMatchScores の satConfidence 底上げ)で代替する(in-tolerance 画素にしか効かず安全)。
+            // 明部(ハイライト)免除はベタ塗り対策で性質が逆のため温存=非対称は意図的。
 
             // ハイライト（明部）の距離許容: 上のシャドウ許容の対称形。
             // サンプルより明るく同色相なら、低彩度化したハイライト芯でも同素材として
