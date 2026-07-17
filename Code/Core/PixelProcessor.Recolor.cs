@@ -25,7 +25,7 @@ namespace Iroca
         // ターゲットにしても出力がその暗さに収まるための既定挙動。
         private const float HighlightLMult = 2.0f;
 
-        // chroma 増幅キャップ(有彩ターゲット向け WS-R 拡張): tC > sC の色相変化で OkLab→RGB の
+        // chroma 増幅キャップ(有彩ターゲット向けの無彩パス拡張): tC > sC の色相変化で OkLab→RGB の
         // lum 感度が高まりバンディングが発生しうる(彩度比 tC/sC が大きいほど明度コントラストが増幅される)。
         // output chroma = mag*tC が sC*Factor を超えないよう mag を制限。
         private const float ChromaAmpMaxFactor = 1.0f;
@@ -190,8 +190,9 @@ namespace Iroca
             //    (リング無し)・ガンマット内(クリップ無し)・白→白/黒→黒。明度を完全保持すると
             //    暗い色→黄色が brown 化するため base は target 明度に合わせる。
             // (a,b)_new = |chroma|·(osat/sC)·(target 色相単位ベクトル) ← 大きさは元 chroma に比例、
-            //    向きは target に均一化。旧版の「色相回転保持」は単色ロゴの AA縁でオレンジの色相
-            //    ノイズを生んだため、向きを揃えて L を保ったまま色相を均一化する。
+            //    向きは target に均一化。旧版の「色相回転保持」は、単色ロゴなどの AA 縁で元テクスチャに
+            //    無い色相ノイズ(輪郭だけが別色へ転ぶ)を生んだため、向きを揃えて L を保ったまま色相を
+            //    均一化する。
             RgbToOklab(oRb, oGb, oBb, out float oL, out float oa, out float ob);
             float oC = Mathf.Sqrt(oa * oa + ob * ob);   // 元画素の chroma (L 彩度ゲートでも使う)
             float na, nb;
@@ -204,11 +205,11 @@ namespace Iroca
             else
             {
                 float mag = oC * okMagScale;            // |chroma|/sC · osat
-                // WS-R: 無彩サンプルでは oC/sC が微小彩度ノイズを増幅(脚色)。uniform target 彩度
+                // 無彩パス: 無彩サンプルでは oC/sC が微小彩度ノイズを増幅(脚色)。uniform target 彩度
                 // (osat, oC 非依存)へ achromaWeight でフェードし増幅を止める。weight=0 で従来式。
                 if (achromaWeight > 1e-4f)
                     mag = mag * (1f - achromaWeight) + osat * achromaWeight;
-                // WS-R 有彩版: tC > sC のとき output chroma = mag*tC が sC*Factor を超えないよう制限。
+                // 無彩パスの有彩版: tC > sC のとき output chroma = mag*tC が sC*Factor を超えないよう制限。
                 // achromaWeight=1 時は上記で mag=osat 固定済みなのでキャップは no-op。
                 // 上限 mag はゾーン定数 okChromaMaxMag に事前算出済み(キャップ非適用時は +∞ で
                 // この比較は no-op)。旧版は per-pixel で tC=sqrt(okTa²+okTb²) と maxMag を再計算していた。
@@ -243,13 +244,15 @@ namespace Iroca
             // 暗いターゲットの明部白暴走キャップ（有彩=主経路のみ）: 出力明度を topL=min(1,tL*HighlightLMult)
             // 以下に収める。彩度ゲートは低彩度画素(白いスペキュラ=低chroma高L)の元 L(白)を保持し remap を
             // 迂回するため、remap 上端キャップだけでは白が残る→ここでクランプ。**achroma ブレンドの前**に
-            // 適用するのが要点: 黒/白の achroma パスは FormGain で陰影を意図的に拡張するので、キャップすると
-            // 三角(cream→黒)等の form が潰れる。achroma 成分は下のブレンドで(キャップ前の値として)混ぜ、
-            // FormGain を温存する。tL≥0.5(中〜明ターゲット)では topL=1 で完全 no-op。
+            // 適用するのが要点: 黒/白の achroma パスは FormGain で陰影を意図的に拡張するので、ここで
+            // キャップすると明るい地色→黒のような無彩変換で form(立体感)が潰れる。achroma 成分は下の
+            // ブレンドで(キャップ前の値として)混ぜ、FormGain を温存する。tL≥0.5(中〜明ターゲット)では
+            // topL=1 で完全 no-op。
             nL = Mathf.Min(nL, topL);
 
-            // WS-R: 無彩再着色パスの L。マッチ領域の L レンジ[lo,hi]を target 側ヘッドルームへ
-            // 順序保存で収める(2区間リマップ・彩度ゲートを迂回)。白い三角→黒のまだら/明度崩壊を直す。
+            // 無彩パスの L。マッチ領域の L レンジ[lo,hi]を target 側ヘッドルームへ順序保存で収める
+            // (2区間リマップ・彩度ゲートを迂回)。白い地色→黒のような無彩変換で、彩度ゲートが白を明るく
+            // 残して起きる「まだら」と、2区間リマップの明度崩壊を直す。
             // weight=0(有彩×有彩)では完全 no-op=バイト不変。
             if (achromaWeight > 1e-4f && hasRegL)
             {

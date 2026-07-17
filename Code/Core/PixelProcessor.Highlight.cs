@@ -133,7 +133,7 @@ namespace Iroca
         /// 安全ゲート（俯瞰: 周囲の構造を見る）:
         ///   候補のうち core(strength≥THR) に 4 連結で到達できる画素のみ採用。
         ///   孤立した同系色の島（別パーツ・白素材）は core に触れないので入らない。
-        /// 採用画素は strength=1 にし、後段の P5 白寄せで階調を保ったまま再着色する。
+        /// 採用画素は strength=1 にし、後段のハイライト白寄せ合成で階調を保ったまま再着色する。
         /// </summary>
         private static void GrowHighlightBand(
             float[] strength, Color32[] originalPixels,

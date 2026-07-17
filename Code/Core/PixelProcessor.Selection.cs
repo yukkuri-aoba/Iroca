@@ -322,7 +322,7 @@ namespace Iroca
 
             float sH, sS, sV;
             Color.RGBToHSV(sampleColor, out sH, out sS, out sV);
-            // WS-M: relaxed ゲートの RGB ブレンド用 sample RGB(0..1)。
+            // relaxed ゲートの RGB ブレンド用 sample RGB(0..1)。
             float rcSampR = sampleColor.r, rcSampG = sampleColor.g, rcSampB = sampleColor.b;
 
             int len = w * h;
@@ -423,21 +423,23 @@ namespace Iroca
             if (sS <= effectiveChromaThreshold)
             {
                 // 主経路(GetColorMatchScores グレーモード)と同じ RGB 距離で判定する。
-                // 旧実装は値距離 |pV-sV| のみで、明るいサンプルでは色に関係なく「明るい」だけで
-                // 一致したため、珊瑚やバンダナ縁(salmon→白)が境界回復/穴埋めで黒く滲み、三角の
-                // 元領域を超えて黒がはみ出していた。RGB 距離なら主経路と同じく珊瑚(距離>tol)を拒否し、
-                // 三角自身の AA 縁(cream 寄り)だけを回復する。暗サンプルでは Lerp で pS へ収束=従来同等。
+                // 旧実装は値距離 |pV-sV| のみで、明るいサンプルでは色に関係なく「明るい」だけで一致
+                // したため、対象と同じくらい明るい隣接の有彩色(布地の縁など)まで境界回復/穴埋めが
+                // 拾い、再着色色が対象の元領域を超えてはみ出していた。RGB 距離なら主経路と同じく
+                // 色の遠い隣接色(距離>tol)を拒否し、対象自身の AA 縁(地色寄りの混色)だけを回復する。
+                // 暗サンプルでは Lerp で pS へ収束=従来同等。
                 float dr = pR - sR, dg = pG - sG, db = pB - sB;
                 float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f;
                 float darknessFactor = Mathf.Clamp01((ColorZone.GrayModeDarkSampleValue - sV) / ColorZone.GrayModeDarkSampleValue);
                 float effectiveDist = Mathf.Lerp(rgbDist, pS, darknessFactor);
-                // 輝度盲対策(A-6): 純黒サンプルで純白まで距離0マッチするのを防ぐ。ヘッドルーム超えの
+                // 輝度盲対策: 純黒サンプルで純白まで距離0マッチするのを防ぐ。ヘッドルーム超えの
                 // 明るさに輝度超過ペナルティを加える。ColorZone.MatchOneSample のグレーモードと同期。
                 float lumExcess = Mathf.Max(0f, (pV - sV) - ColorZone.GrayHighlightHeadroom);
                 effectiveDist += lumExcess * ColorZone.GrayLumExcessWeight;
                 // 彩度整合ゲート(GetColorMatchScores のグレーモードと同じ)。サンプルが微小な tint を
                 // 持つとき、それより著しく中性寄りの候補(純白 UV 背景等)を距離加算でソフト排除する。
-                // 明るいクリームサンプルでは値距離だと純白(pV≈sV)が一致するため、ここでも必要。
+                // 明るい tint 付きサンプル(生成りの布地など)では値距離だと純白(pV≈sV)が一致するため、
+                // ここでも必要。
                 // sS≈0(真の無彩サンプル)では作動しない=従来挙動を維持。明部限定(gateWeight)で
                 // 暗いサンプル(中性が正常)では矛盾を避けフェードさせる。ColorZone.cs と同期。
                 if (sS > ColorZone.ChromaGateActivateSat)
@@ -463,8 +465,9 @@ namespace Iroca
             float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
             float dist = hDist + sDist * satDistWeight + vDist * valueWeight * (1f - sRatio);
 
-            // WS-M (2026-06-14): 低彩度サンプル(白/灰)では HSV 距離が hue 支配になり、同色相の
-            // 高彩度色(off-white→赤バンダナ等)を弾けず境界回復が別色を周囲へ大量スピルさせる。
+            // 低彩度サンプル(白/灰)では HSV 距離が hue 支配になり、同色相だが彩度だけが大きく違う別色
+            // (オフホワイトの地の隣にある鮮やかな布地など)を弾けず、境界回復が別色を周囲へ大量にスピル
+            // させる。
             // プライマリ(CalculateHybridDistance)と同じ RGB 距離ブレンドで整合させる:
             // dist = lerp(rgbDist, hsvDist, chromaConfidence)。有彩サンプルは cc≈1 で従来式と一致。
             if (chromaConfidence < 0.999f)
