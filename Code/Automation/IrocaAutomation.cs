@@ -47,6 +47,17 @@ namespace Iroca
             public int width;
             public int height;
             public int zonesApplied;
+            // 比較パネル PNG(左=変換前 / 中=変換後 / 右=変化画素をマゼンタ表示)の絶対パス。
+            // 生成に失敗した場合は空文字(理由は warnings)。エージェントはこれを画像として開いて目視検証する。
+            public string preview = "";
+            // preview を「見て確かめる」ようエージェントを誘導する短い案内。
+            public string note = "";
+            // 変化量メトリクス。意図通りかを数値でも裏取りできるようにする(過検出/変換漏れの早期検知)。
+            public int changedPixels;
+            public float changedFraction;              // 変化画素 / 全画素
+            public float largestComponentFraction;     // 変化画素中、最大連結成分の占有率(小=散在=過検出の兆候)
+            public int changeComponentCount;           // 変化領域の 4-連結成分数
+            public int[] changeBBox = new int[0];      // 変化領域の [x, y, w, h]
             public List<string> warnings = new List<string>();
         }
 
@@ -169,6 +180,10 @@ namespace Iroca
                     "色は [r,g,b]（0..1）。enabled なゾーンが 1 つも無いと error になる。",
                     "v1 ではプリセット同梱マスクはヘッドレス適用しない（適用時は warnings に明記）。",
                     "MCP 経路: execute_custom_tool(\"iroca_recolor\", { source, output, preset|zones }) で呼ぶ（メニュー非依存）。",
+                    "結果には 'preview'（比較パネル PNG のパス: 左=変換前 / 中=変換後 / 右=変化画素をマゼンタ表示）と "
+                        + "変化メトリクス（changedPixels / changedFraction / largestComponentFraction / changeComponentCount / changeBBox）が付く。",
+                    "検証ループ: 再着色 → 'preview' 画像を開いて意図通りか目視 → ずれていれば target/tolerance を調整して再実行。"
+                        + "largestComponentFraction が小さい・changeComponentCount が多い＝変化が散在＝過検出の疑い。",
                 },
                 fieldDocs = new[]
                 {
@@ -366,6 +381,9 @@ namespace Iroca
                 if (loadTex != null) UnityEngine.Object.DestroyImmediate(loadTex);
             }
 
+            // 比較パネル/メトリクス用に、再着色前の画素を退避する(ProcessPixelsArray は in-place 変換)。
+            var originalPixels = (Color32[])pixels.Clone();
+
             // v1: マスクはヘッドレス適用しない（masks=null は ProcessPixelsArray で安全に扱われる）。
             PixelProcessor.ProcessPixelsArray(
                 pixels, w, h, null, sorted,
@@ -398,6 +416,15 @@ namespace Iroca
                 if (outTex != null) UnityEngine.Object.DestroyImmediate(outTex);
             }
 
+            // ── 変化量メトリクス + 比較パネル(目視検証用)。本体出力には影響しない後段生成 ──
+            var metrics = RecolorPreview.ComputeMetrics(originalPixels, pixels, w, h);
+            result.changedPixels = metrics.changedPixels;
+            result.changedFraction = metrics.changedFraction;
+            result.largestComponentFraction = metrics.largestComponentFraction;
+            result.changeComponentCount = metrics.componentCount;
+            result.changeBBox = new[] { metrics.bboxX, metrics.bboxY, metrics.bboxW, metrics.bboxH };
+            WritePreviewPanel(originalPixels, pixels, w, h, outAbs, result);
+
             result.ok = true;
             result.output = outAbs;
             result.width = w;
@@ -407,6 +434,56 @@ namespace Iroca
         }
 
         // ─────────────────────── ヘルパー ───────────────────────
+
+        /// <summary>
+        /// 変換前/後から比較パネル PNG を組み立てて <paramref name="outAbs"/> の隣(&lt;stem&gt;_preview.png)へ書き出す。
+        /// 生成できたら <see cref="RecolorResult.preview"/> とエージェント向け <see cref="RecolorResult.note"/> を設定。
+        /// 失敗は非致命(本体出力は成功のまま)で warnings に残す。
+        /// </summary>
+        private static void WritePreviewPanel(
+            Color32[] before, Color32[] after, int w, int h, string outAbs, RecolorResult result)
+        {
+            Texture2D panelTex = null;
+            try
+            {
+                var panel = RecolorPreview.BuildComparisonPanel(
+                    before, after, w, h, RecolorPreview.DefaultMaxTile, out int pw, out int ph);
+                panelTex = new Texture2D(pw, ph, TextureFormat.RGBA32, false);
+                panelTex.SetPixels32(panel);
+                byte[] png = panelTex.EncodeToPNG();
+                if (png == null) { result.warnings.Add("preview panel PNG encode failed."); return; }
+
+                string previewAbs = MakePreviewPath(outAbs);
+                string dir = Path.GetDirectoryName(previewAbs);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllBytes(previewAbs, png);
+
+                string rel = PathUtils.ToAssetsRelativeOrNull(previewAbs);
+                if (rel != null) AssetDatabase.ImportAsset(rel);
+
+                result.preview = previewAbs;
+                result.note = "Open 'preview' to visually verify the result: left=before, middle=after, "
+                    + "right=changed pixels (magenta). Scattered magenta or a low largestComponentFraction "
+                    + "suggests over-selection; empty magenta where you expected change suggests it was missed. "
+                    + "Adjust 'target'/'tolerance' and re-run if it does not match intent.";
+            }
+            catch (Exception ex)
+            {
+                result.warnings.Add($"preview generation failed: {ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                if (panelTex != null) UnityEngine.Object.DestroyImmediate(panelTex);
+            }
+        }
+
+        // 出力 PNG の隣に置く比較パネルのパス(&lt;stem&gt;_preview.png)。outAbs は検証済み(.png・プロジェクト内)。
+        private static string MakePreviewPath(string outAbs)
+        {
+            string dir = Path.GetDirectoryName(outAbs) ?? "";
+            string stem = Path.GetFileNameWithoutExtension(outAbs);
+            return Path.Combine(dir, stem + "_preview.png");
+        }
 
         private static ColorZone BuildZone(ZoneDto z)
         {
