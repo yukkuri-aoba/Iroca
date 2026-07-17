@@ -623,9 +623,18 @@ namespace Iroca
                     if (diffMode && _detailView.detailDiffTexture != null)
                         GUI.DrawTexture(detailScreenRect, _detailView.detailDiffTexture,
                             ScaleMode.StretchToFill, true);
-                    else if (_detailView.detailMaskOverlayTexture != null)
-                        GUI.DrawTexture(detailScreenRect, _detailView.detailMaskOverlayTexture,
-                            ScaleMode.StretchToFill, true);
+                    else
+                    {
+                        // マスクオーバーレイは等倍用の低解像度テクスチャを画像全体へ引き伸ばして
+                        // 描く。ブロック整列ペイント後は 1 画素 = マスクブロック一様なので Point
+                        // 拡大でも正確で、クロップ専用オーバーレイ(詳細再生成まで更新されず
+                        // ペイントが見えなかった)を廃止できる。ペイント中の直接書き込み
+                        // (PaintMask)も即このテクスチャに反映される。
+                        if (maskView.maskOverlayTexture != null)
+                            GUI.DrawTexture(activePreviewRect, maskView.maskOverlayTexture, ScaleMode.StretchToFill, true);
+                        if (maskView.zoneMaskOverlayTexture != null)
+                            GUI.DrawTexture(activePreviewRect, maskView.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
+                    }
                 }
                 else
                 {

@@ -15,9 +15,12 @@ namespace Iroca
     internal class DetailPreviewView
     {
         // 詳細プレビュー: ズームイン時にレンダリングされるフル解像度クロップ
+        // マスクオーバーレイ専用テクスチャは持たない: ブロック整列ペイント後は等倍用の
+        // 低解像度オーバーレイ(1 画素 = マスクブロック一様)を Point 拡大するだけで
+        // 情報損失なく表示でき、クロップ再生成までペイントが見えない問題と
+        // メインスレッドの全画素ループを両方排除できる(PreviewView.Draw 側で描画)。
         [System.NonSerialized] public Texture2D detailPreviewTexture;
         [System.NonSerialized] public Texture2D rawDetailPreviewTexture;
-        [System.NonSerialized] public Texture2D detailMaskOverlayTexture;
         [System.NonSerialized] public Texture2D detailDiffTexture;
 
         // 非同期生成
@@ -26,7 +29,6 @@ namespace Iroca
         [System.NonSerialized] private Color32[] _pendingDetailRaw;
         [System.NonSerialized] private int _pendingDetailW, _pendingDetailH;
         [System.NonSerialized] private int _pendingDetailOriginX, _pendingDetailOriginY;
-        [System.NonSerialized] private int _pendingDetailFullW, _pendingDetailFullH;
         [System.NonSerialized] public double lastDetailDirtyTime;
         [System.NonSerialized] public Rect lastPreviewRect;
         // スクロールビューの可視領域サイズ（ディスプレイピクセル）。クロップ範囲を
@@ -66,8 +68,6 @@ namespace Iroca
             public int CropH;
             public int OriginX;
             public int OriginY;
-            public int FullW;
-            public int FullH;
         }
 
         /// <summary>
@@ -202,8 +202,6 @@ namespace Iroca
                         CropH = cropH,
                         OriginX = capX0,
                         OriginY = capY0,
-                        FullW = capSrcW,
-                        FullH = capSrcH,
                     };
                 },
                 apply: result =>
@@ -214,8 +212,6 @@ namespace Iroca
                     _pendingDetailH         = result.CropH;
                     _pendingDetailOriginX   = result.OriginX;
                     _pendingDetailOriginY   = result.OriginY;
-                    _pendingDetailFullW     = result.FullW;
-                    _pendingDetailFullH     = result.FullH;
                     _host.RequestRepaint();
                 });
         }
@@ -228,8 +224,6 @@ namespace Iroca
             int h  = _pendingDetailH;
             int ox = _pendingDetailOriginX;
             int oy = _pendingDetailOriginY;
-            int fw = _pendingDetailFullW;
-            int fh = _pendingDetailFullH;
             _pendingDetailProcessed = null;
             _pendingDetailRaw       = null;
 
@@ -248,8 +242,6 @@ namespace Iroca
 
             // Color32[] が手元にあるのでそのままバックグラウンド diff へ。GetPixels32 を再度呼ばない。
             ScheduleDetailDiffTexture(raw, processed, w, h);
-
-            RebuildDetailMaskOverlay(w, h, ox, oy, fw, fh);
         }
 
         private void ScheduleDetailDiffTexture(Color32[] before, Color32[] after, int w, int h)
@@ -294,66 +286,6 @@ namespace Iroca
             detailDiffTexture.Apply();
         }
 
-        private void RebuildDetailMaskOverlay(int cropW, int cropH,
-            int originX, int originY, int fullW, int fullH)
-        {
-            var maskView = _host._maskView;
-            var zones = _host.Session.zones;
-
-            // メインのオーバーレイと同じく、編集対象のマスクだけを表示する。
-            bool commonIsActive = maskView.activeMaskTarget < 0
-                || zones == null || maskView.activeMaskTarget >= zones.Count;
-
-            bool hasCommon = commonIsActive && maskView.exclusionMask != null;
-
-            bool[] activeZoneMask = null;
-            Color32 activeZoneColor = default;
-            if (!commonIsActive)
-            {
-                var zone = zones[maskView.activeMaskTarget];
-                if (zone != null && !string.IsNullOrEmpty(zone.id)
-                    && maskView.zoneMasks.TryGetValue(zone.id, out var zm) && zm != null)
-                {
-                    activeZoneMask = zm;
-                    activeZoneColor = MaskPaintView.OverlayColorForZone(maskView.activeMaskTarget);
-                }
-            }
-
-            if (!hasCommon && activeZoneMask == null)
-            {
-                TextureSlot.Release(ref detailMaskOverlayTexture);
-                return;
-            }
-
-            TextureSlot.Resize(ref detailMaskOverlayTexture, cropW, cropH, FilterMode.Point);
-
-            var overlayPixels = new Color32[cropW * cropH];
-            var commonColor = new Color32(255, 60, 60, 80);
-            var clear       = new Color32(0, 0, 0, 0);
-
-            int mw = maskView.maskWidth;
-            int mh = maskView.maskHeight;
-            var common = maskView.exclusionMask;
-
-            for (int i = 0; i < overlayPixels.Length; i++)
-            {
-                int cx = i % cropW;
-                int cy = i / cropW;
-                int mx = Mathf.Clamp((originX + cx) * mw / fullW, 0, mw - 1);
-                int my = Mathf.Clamp((originY + cy) * mh / fullH, 0, mh - 1);
-                int mi = my * mw + mx;
-
-                Color32 px = clear;
-                if (hasCommon && common[mi]) px = commonColor;
-                if (activeZoneMask != null && activeZoneMask[mi]) px = activeZoneColor;
-
-                overlayPixels[i] = px;
-            }
-
-            detailMaskOverlayTexture.SetPixels32(overlayPixels);
-            detailMaskOverlayTexture.Apply();
-        }
-
         public void Dispose()
         {
             Suspend();
@@ -371,7 +303,6 @@ namespace Iroca
             lastDetailDirtyTime = 0;
             TextureSlot.Release(ref detailPreviewTexture);
             TextureSlot.Release(ref rawDetailPreviewTexture);
-            TextureSlot.Release(ref detailMaskOverlayTexture);
             TextureSlot.Release(ref detailDiffTexture);
         }
 
@@ -392,7 +323,6 @@ namespace Iroca
             _pendingDetailDiffPixels = null;
             TextureSlot.Release(ref detailPreviewTexture);
             TextureSlot.Release(ref rawDetailPreviewTexture);
-            TextureSlot.Release(ref detailMaskOverlayTexture);
             TextureSlot.Release(ref detailDiffTexture);
         }
     }

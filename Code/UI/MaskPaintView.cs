@@ -36,6 +36,16 @@ namespace Iroca
         [System.NonSerialized] public Texture2D zoneMaskOverlayTexture;
         [System.NonSerialized] public bool maskDirty = true;
 
+        // ペイント中のオーバーレイ直接書き込み管理。
+        // _overlayDirectPendingApply: SetPixels32 済みで Apply 待ち(ドラッグイベント単位でまとめる)。
+        // _strokeHadDirectOverlayWrite: このストロークで直接書き込みに成功したか。成功後は
+        // 進行中の非同期再構築結果を適用しない(clone 時点より新しいスタンプが一瞬消えるため)。
+        [System.NonSerialized] private bool _overlayDirectPendingApply;
+        [System.NonSerialized] private bool _strokeHadDirectOverlayWrite;
+
+        // 共通(除外)マスクのオーバーレイ色。非同期再構築と直接書き込みで共用。
+        private static readonly Color32 ExcludedOverlayColor = new Color32(255, 60, 60, 80);
+
         [System.NonSerialized] public bool isPainting;
         [System.NonSerialized] public Vector2 lastPaintUV = -Vector2.one;
         // ペイント中の RebuildMaskOverlay 間引き用タイムスタンプ（PreviewView から参照）。
@@ -399,6 +409,13 @@ namespace Iroca
             int r = Mathf.Max(1, brushSize);
             bool value = !brushEraseMode;
 
+            // オーバーレイ直接書き込み: テクスチャが塗り格子と同寸のときは、ブロック塗りと
+            // 同時に対応セルを更新して即時フィードバックする(非同期再構築のスロットル待ちと
+            // フル解像度 bool[] clone をストローク中に発生させない)。使えないとき
+            // (未生成・寸法違い)は従来どおり maskDirty を立てて非同期再構築に任せる。
+            var overlayTex = ActiveOverlayTexture(out Color32 overlayColor);
+            bool direct = overlayTex != null && overlayTex.width == gridW && overlayTex.height == gridH;
+
             // 円ブラシをセル行ごとの span で決め、対応するマスクブロック矩形を塗る。
             // 各行の最大 dx は floor(sqrt(r²-dy²))。Mathf.Sqrt の丸めで境界セルを
             // 取りこぼさないよう整数で補正する。
@@ -430,9 +447,57 @@ namespace Iroca
                     for (int px = mx0; px < mx1; px++)
                         target[rowBase + px] = value;
                 }
+
+                if (direct)
+                {
+                    // オーバーレイの 1 画素 = 1 セル。SetPixels32 の y は行 0 = 下端で、
+                    // gy(v 上向き)とそのまま一致する。消去は default(0,0,0,0) = 透明。
+                    int spanW = gxHi - gxLo + 1;
+                    var row = new Color32[spanW];
+                    if (value)
+                        for (int k = 0; k < spanW; k++) row[k] = overlayColor;
+                    overlayTex.SetPixels32(gxLo, gy, spanW, 1, row);
+                }
             }
 
-            maskDirty = true;
+            if (direct)
+            {
+                _overlayDirectPendingApply = true;
+                _strokeHadDirectOverlayWrite = true;
+            }
+            else
+            {
+                maskDirty = true;
+            }
+        }
+
+        /// <summary>
+        /// 現在の編集対象マスクに対応するオーバーレイテクスチャと塗り色を返す。
+        /// (共通=maskOverlayTexture/赤、ゾーン=zoneMaskOverlayTexture/ゾーン色)
+        /// </summary>
+        private Texture2D ActiveOverlayTexture(out Color32 paintColor)
+        {
+            var zones = _host.Session.zones;
+            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
+            {
+                paintColor = ExcludedOverlayColor;
+                return maskOverlayTexture;
+            }
+            paintColor = OverlayColorForZone(activeMaskTarget);
+            return zoneMaskOverlayTexture;
+        }
+
+        /// <summary>
+        /// PaintMask のオーバーレイ直接書き込みを GPU へ反映する。スタンプごとではなく
+        /// ドラッグイベント 1 回分につき 1 回だけ Apply するため、呼び出し側
+        /// (PaintAtScreenPos)の末尾で呼ぶ。
+        /// </summary>
+        public void FlushOverlayDirect()
+        {
+            if (!_overlayDirectPendingApply) return;
+            _overlayDirectPendingApply = false;
+            var tex = ActiveOverlayTexture(out _);
+            if (tex != null) tex.Apply();
         }
 
         // ─────────────────────── マスクオーバーレイ（非同期） ─────────────────────────
@@ -509,7 +574,7 @@ namespace Iroca
             {
                 result.hasCommon = true;
                 var pixels = new Color32[w * h];
-                var excluded = new Color32(255, 60, 60, 80);
+                var excluded = ExcludedOverlayColor;
                 // 行ループ化で i%w / i/w の除算を排除(my は行ごとに一定)。出力は不変。
                 for (int y = 0; y < h; y++)
                 {
@@ -558,6 +623,10 @@ namespace Iroca
         public void ApplyPendingOverlay()
         {
             if (!_pendingOverlayResult.HasValue) return;
+            // ペイント中に直接書き込みへ移行済みなら適用を保留する。スナップショット clone
+            // 時点より新しいスタンプが古い結果に一瞬上書きされて見えるのを防ぐ。結果は保持し、
+            // ストローク終了後(EndStroke が maskDirty を立てて再構築)に最新内容へ収束する。
+            if (isPainting && _strokeHadDirectOverlayWrite) return;
             var r = _pendingOverlayResult.Value;
             _pendingOverlayResult = null;
 
@@ -609,6 +678,7 @@ namespace Iroca
         public void BeginStroke()
         {
             if (_maskStrokeStarted) return;
+            _strokeHadDirectOverlayWrite = false;
             // bool[] バッファの内容を _session.maskState に書き戻してから Undo 登録すれば、
             // 戻し操作でストローク開始前の状態に確実に復元できる。
             SyncBuffersToState();
@@ -625,6 +695,9 @@ namespace Iroca
             if (!_maskStrokeStarted) return;
             SyncBuffersToState();
             _maskStrokeStarted = false;
+            // ストローク中の直接書き込みは表示テクスチャのみの更新なので、確定時に一度だけ
+            // 正規の再構築を予約して収束させる(保留した非同期結果や対象切替の過渡も含む)。
+            maskDirty = true;
         }
 
         // ───────────────────────── Processing 用スナップショット ────────────────────
@@ -676,6 +749,8 @@ namespace Iroca
             _pendingOverlayResult = null;
             isPainting = false;
             _maskStrokeStarted = false;
+            _overlayDirectPendingApply = false;
+            _strokeHadDirectOverlayWrite = false;
             lastPaintUV = -Vector2.one;
             TextureSlot.Release(ref maskOverlayTexture);
             TextureSlot.Release(ref zoneMaskOverlayTexture);

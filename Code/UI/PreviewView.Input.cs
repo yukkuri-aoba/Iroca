@@ -419,6 +419,8 @@ namespace Iroca
 
             maskView.PaintMask(currentUV, gridW, gridH);
             maskView.lastPaintUV = currentUV;
+            // 直接書き込みしたオーバーレイセルを、イベント 1 回分まとめて GPU へ反映。
+            maskView.FlushOverlayDirect();
         }
     }
 }
