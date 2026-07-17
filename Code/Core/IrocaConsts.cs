@@ -14,6 +14,12 @@ namespace Iroca
             public const float LeftColumnRatio    = 0.4f;
             public const float LeftColumnMin      = 280f;
             public const float LeftColumnMax      = 450f;
+            // 横並び時に右(プレビュー)カラムへ優先確保する幅。等倍(100%)の MaxSize px
+            // プレビューが横スクロールバー無しで収まる幅＋外側縦バー(~13px)と丸めの余裕。
+            // 比率どおりだと既定ウィンドウ幅(800)で右カラムが ~480px となり 512px 画像に
+            // 届かず、100% でも横バーが常時出る。左カラムは LeftColumnMin までの範囲で
+            // この幅に譲る(テクスチャ非依存の固定値にして、切替時に設定列の幅が動かないようにする)。
+            public const float PreviewColumnReserve = Preview.MaxSize + 24f;
             public const float RemoveButtonWidth  = 22f;
             public const float SmallButtonWidth   = 48f;
             // EditorWindow.position はタブバー（ウィンドウクローム）の高さを含むが、
