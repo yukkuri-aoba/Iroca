@@ -113,7 +113,15 @@ namespace Iroca
             if (Event.current.type == EventType.Repaint)
             {
                 float measured = GUILayoutUtility.GetLastRect().yMax;
-                if (measured > 1f) _sideBySideTopHeight = measured;
+                // 値が変わったら追い再描画を 1 回要求する。エディタウィンドウは要求が無い限り
+                // 再描画されないため、これが無いと HelpBox の出入り等で上部高が変わった操作の
+                // 最終フレームが旧値の horizH のまま画面に固定される(PreviewView の chrome
+                // 実測と同方針)。上部高は horizH に依存しないため 1 回で収束しループしない。
+                if (measured > 1f && Mathf.Abs(measured - _sideBySideTopHeight) > 0.5f)
+                {
+                    _sideBySideTopHeight = measured;
+                    Repaint();
+                }
             }
             // 未計測の初回フレームのみ決定論フォールバック（テクスチャ設定済み相当の見積もり）。
             float fallbackTopH = EditorStyles.toolbar.fixedHeight
