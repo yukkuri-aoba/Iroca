@@ -138,6 +138,12 @@ namespace Iroca
                 position.width * IrocaConsts.Layout.LeftColumnRatio,
                 IrocaConsts.Layout.LeftColumnMin,
                 IrocaConsts.Layout.LeftColumnMax);
+            // 等倍(100%)プレビューがバー無しで収まる幅を右カラムへ優先確保する。
+            // 比率どおりだと既定ウィンドウ幅(800)で右カラムが 512px 画像に ~32px 届かず
+            // 横スクロールバーが常時出るため、左カラムが下限(LeftColumnMin)までの範囲で譲る。
+            // 下限は既に狭いウィンドウで常用される幅なので設定 UI は崩れない。
+            leftWidth = Mathf.Max(IrocaConsts.Layout.LeftColumnMin,
+                Mathf.Min(leftWidth, position.width - IrocaConsts.Layout.PreviewColumnReserve));
             EditorGUILayout.BeginVertical(GUILayout.Width(leftWidth));
             // 縦バーを常時確保し、横バーは無効化する。簡易オーバーロードは縦バーが内容高で
             // 出入り(トグル)し、その都度コンテンツ幅が ~13px 変わって設定UIが左右にガクつく
