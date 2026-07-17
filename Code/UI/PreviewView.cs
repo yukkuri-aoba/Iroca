@@ -502,12 +502,21 @@ namespace Iroca
             // 固定高(等倍 512px なら ~530px)で、ウィンドウが低いとプレビュー枠自体が外側
             // ScrollView(縦オーバーフロー用)をあふれさせ、「③プレビュー」セクション全体が常時
             // スクロール範囲になっていた。カラム高からプレビュー枠より上の実測高を引いた残りへ
-            // 縮め、収まらない分は内側 ScrollView のスクロール/パンに任せる。下限未満しか残らない
+            // 縮め、収まらない分は内側 ScrollView のスクロール/パンに任せる。
+            //
+            // ただし枠を画像の自然サイズ(バー無しで収まる maxViewH)より小さくは潰さない。
+            // 潰すと等倍(100%)でも枠内に縦バーが恒常的に出て、縦バーが幅を奪う分だけ横バーも
+            // 連鎖しやすい(「100% に戻してもスクロールバーが残る」の主因)。chrome ごと収まる
+            // ときだけそこへ縮め、収まらないときは枠にカラムビューポート高まで使わせ、あふれた
+            // chrome は外側 ScrollView(縦オーバーフロー用)に任せる。カラム自体が下限未満の
             // 低ウィンドウでは下限で止め、従来どおり外側スクロールへ逃がす。
             if (availableColumnHeight > 0f && _chromeAboveViewportH > 0f)
             {
-                float avail = availableColumnHeight - _chromeAboveViewportH - ViewportBottomPadding;
-                maxViewH = Mathf.Min(maxViewH, Mathf.Max(avail, IrocaConsts.Preview.MinViewportHeight));
+                float availWithChrome = availableColumnHeight - _chromeAboveViewportH - ViewportBottomPadding;
+                float cap = availWithChrome >= maxViewH
+                    ? availWithChrome
+                    : availableColumnHeight - ViewportBottomPadding;
+                maxViewH = Mathf.Min(maxViewH, Mathf.Max(cap, IrocaConsts.Preview.MinViewportHeight));
             }
 
             // プレビュー枠はカラム/ウィンドウ幅いっぱいに広げる（下の ExpandWidth）。
@@ -530,10 +539,19 @@ namespace Iroca
             // プレビュー枠より上に積まれた UI の実測高(外側 ScrollView の内容座標系なので
             // 外側のスクロール位置に依存しない)。動的高さ調整(次フレーム)に使う。
             // 同一フレーム内の Layout/Repaint は前フレームの値を共有するため整合する。
+            // 値が変わったら追い再描画を 1 回要求する。エディタウィンドウは要求が無い限り
+            // 再描画されないため、これが無いと chrome が変わる操作(マスク/プリセット節の
+            // 開閉など previewDirty を立てないもの)の最終フレームが旧値のレイアウトのまま
+            // 画面に固定され、不要なスクロールバー付きの枠が出たままになる。chrome は枠より
+            // 上の UI のみで maxViewH に依存しないため、追い再描画は 1 回で収束しループしない。
             if (Event.current.type == EventType.Repaint)
             {
                 float chrome = GUILayoutUtility.GetLastRect().yMax;
-                if (chrome > 1f) _chromeAboveViewportH = chrome;
+                if (chrome > 1f && Mathf.Abs(chrome - _chromeAboveViewportH) > 0.5f)
+                {
+                    _chromeAboveViewportH = chrome;
+                    _host.RequestRepaint();
+                }
             }
 
             Vector2 prevScroll = _previewScrollPos;
@@ -667,11 +685,17 @@ namespace Iroca
             EditorGUILayout.EndScrollView();
 
             // スクロールビューの実幅を測り、次フレームの詳細クロップ可視範囲に使う。
-            // Repaint 時のみ有効値が返るため、そのときだけ更新する。
+            // Repaint 時のみ有効値が返るため、そのときだけ更新する。値が変わったら追い再描画を
+            // 1 回要求し、旧幅ベースの表示が画面に固定されないようにする(chrome 実測と同方針。
+            // 幅はレイアウト高に影響しないため追い再描画がループすることはない)。
             if (Event.current.type == EventType.Repaint)
             {
                 float vw = GUILayoutUtility.GetLastRect().width;
-                if (vw > 1f) _viewportWidth = vw;
+                if (vw > 1f && Mathf.Abs(vw - _viewportWidth) > 0.5f)
+                {
+                    _viewportWidth = vw;
+                    _host.RequestRepaint();
+                }
             }
 
             EditorGUILayout.Space(4);
