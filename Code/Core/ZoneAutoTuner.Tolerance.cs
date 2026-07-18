@@ -327,8 +327,12 @@ namespace Iroca
             // ── パス1: near-window(主サンプルに似た=パーツ本体相当の画素)の彩度 P10 を求める ──
             // |dS|<NearSatDist かつ |dV|<NearValDist の窓に入る同色相画素の彩度分布。低彩度の別
             // マテリアルはこの窓(サンプル彩度の近傍)に入らないので、P10 はパーツ本体の彩度下限を表す。
+            // 同じループで core(サンプルにごく近い画素)の hue 広がりも集計し、代表色の hue 純度
+            // ゲート(下記 TryAdd)に使う。窓・式は foreign 打ち切りの core 抽出と同一。
             var satBins = new int[AutoToneSatBins];
             int nearCount = 0;
+            var coreHueBins = new int[ForeignHueBins];
+            int coreHueCount = 0;
             for (int y = 0; y < h; y += stride)
             {
                 int rowStart = y * w;
@@ -345,6 +349,15 @@ namespace Iroca
                     if (Mathf.Abs(pV - sV) >= NearValDist) continue;
                     int sb = Mathf.Clamp((int)(pS * AutoToneSatBins), 0, AutoToneSatBins - 1);
                     satBins[sb]++; nearCount++;
+                    if (pS >= sS * ChromaClusterSatFrac
+                        && hd0 < CoreHueWindow
+                        && Mathf.Abs(pS - sS) < CoreSatWindow
+                        && Mathf.Abs(pV - sV) < CoreValWindow)
+                    {
+                        int cb = Mathf.Clamp((int)(hd0 / NearHueDist * ForeignHueBins), 0, ForeignHueBins - 1);
+                        coreHueBins[cb]++;
+                        coreHueCount++;
+                    }
                 }
             }
             float nearSatP10 = 0f;
@@ -357,6 +370,21 @@ namespace Iroca
                     if (cum0 >= tgt) { nearSatP10 = i / (float)AutoToneSatBins; break; }
                 }
             }
+            // core hue 広がり(P90)→ 代表色に許す hue ずれの上限。foreign 打ち切りの effHueGate と
+            // 同じ導出式(K*coreSpread+floor)。色相が一定のパーツではタイトに、陰影で色相が回る
+            // パーツでは core 自体の広がりが大きくなるため自動的に緩む。
+            float repCoreSpread = 0.02f;
+            if (coreHueCount >= MinNearSampleCount)
+            {
+                int ctgt = Mathf.CeilToInt(coreHueCount * 0.90f), ccum = 0;
+                for (int i = 0; i < ForeignHueBins; i++)
+                {
+                    ccum += coreHueBins[i];
+                    if (ccum >= ctgt) { repCoreSpread = (i + 1) / (float)ForeignHueBins * NearHueDist; break; }
+                }
+            }
+            float repHueGate = Mathf.Clamp(ForeignGateK * repCoreSpread + ForeignGateFloor,
+                                           ForeignGateMin, NearHueDist);
             // パーツの彩度バンド下限: sS*frac と「near-cluster の彩度 P10*relax」の大きい方。
             // 高彩度均一パーツでは P10≈0.85 が効いて低彩度の別マテリアルを弾く。脱彩する素材では
             // P10 が低く出るので下限も下がり、自パーツの中程度の影は残る。
@@ -452,6 +480,14 @@ namespace Iroca
                 Color rep = RepAtPct(pct);
                 if (ColorDist(rep, zone.sampleColor) < AutoToneMinSep) return; // クリック色と重複
                 foreach (var s in samples) if (ColorDist(rep, s) < AutoToneMinSep) return; // 既存代表と重複
+                // hue 純度ゲート: 代表色(bin 平均)の hue がサンプルの core hue 広がり由来のゲートを
+                // 超えて外れる場合、その bin は hue 帯(AutoToneHueBand)内に同居する近色相の
+                // 「別パーツ」に支配されている(例: 同 V 帯を占める hue差0.05 の隣接パーツが
+                // V 連結ゲートの再正規化後に暗部/明部パーセンタイルを乗っ取る)。同一パーツの
+                // 暗部/明部代表は hue≈サンプルなので影響しない。棄却=安全側(単一サンプル挙動へ)。
+                Color.RGBToHSV(rep, out float repH, out _, out _);
+                float repHd = Mathf.Abs(repH - sH); if (repHd > 0.5f) repHd = 1f - repHd;
+                if (repHd >= repHueGate) return;
                 samples.Add(rep);
             }
             TryAdd(AutoToneDarkPct);
