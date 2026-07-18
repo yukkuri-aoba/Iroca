@@ -143,9 +143,10 @@ namespace Iroca
         private const float ForeignCapEps      = 0.005f; // foreign 最小距離(P10)からのマージン
 
         private static bool TryDeriveChromaticTolerance(Color32[] pixels, int w, int h, ColorZone zone,
-            bool[] excluded, int maskW, int maskH, out float tolerance)
+            bool[] excluded, int maskW, int maskH, out float tolerance, out bool foreignCapped)
         {
             tolerance = 0f;
+            foreignCapped = false;
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
             float satDistW = zone.satDistWeight;
             float valueW = zone.valueWeight;
@@ -250,8 +251,10 @@ namespace Iroca
                     fcum += fgnBins[i];
                     if (fcum >= ftgt) { fgnP10 = (i + 1) / (float)DistBins * DistMax; break; }
                 }
-                tolerance = Mathf.Clamp(Mathf.Min(tolerance, fgnP10 - ForeignCapEps),
-                                        ForeignLowFloor, ChromaTolMax);
+                float capped = Mathf.Clamp(Mathf.Min(tolerance, fgnP10 - ForeignCapEps),
+                                           ForeignLowFloor, ChromaTolMax);
+                foreignCapped = capped < tolerance; // 実際に打ち切りが効いたときのみ報告
+                tolerance = capped;
             }
             return true;
         }
@@ -306,9 +309,15 @@ namespace Iroca
         private const int   AutoToneSatBins   = 64;
         private const float AutoToneGapFloorFrac = 0.0005f; // V ヒストグラムの「空の谷」判定床(総数比)
 
+        // vConnLoBin/vConnHiBin: V 連結領域ゲートで確定した「サンプルのトーン連結域」の V bin 範囲
+        // (AutoToneValueBins 分割)。明部ツヤ救済(VerifyBrightSheenRecall)が「連結域のすぐ上まで」を
+        // ツヤとみなす上限に使う。ヒストグラムが作れず範囲を確定できなかったときは -1(無効)。
         private static List<Color> DeriveAutoTonalSamples(Color32[] pixels, int w, int h,
-            ColorZone zone, bool[] excluded, int maskW, int maskH)
+            ColorZone zone, bool[] excluded, int maskW, int maskH,
+            out int vConnLoBin, out int vConnHiBin)
         {
+            vConnLoBin = -1;
+            vConnHiBin = -1;
             var samples = new List<Color>();
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
             if (sS < AchromaSampleSatMax) return samples; // 無彩は対象外
@@ -425,6 +434,8 @@ namespace Iroca
                 for (int i = hiBin + 1; i < VB; i++) cnt[i] = 0;
                 total = regionTotal;
             }
+            vConnLoBin = loBin;
+            vConnHiBin = hiBin;
 
             // 指定パーセンタイルの V バンドの平均色を代表色として取る。
             Color RepAtPct(float pct)
@@ -469,9 +480,11 @@ namespace Iroca
         // foreign 打ち切り: どのサンプルの core hue ゲートにも入らない near 画素（=隣接別パーツ）が
         // core に対し多いとき、その最小距離手前で tolerance を止める（単一経路と同じ思想を和集合化）。
         private static bool TryDeriveChromaticToleranceMulti(Color32[] pixels, int w, int h,
-            ColorZone zone, SampleHSV[] samples, bool[] excluded, int maskW, int maskH, out float tolerance)
+            ColorZone zone, SampleHSV[] samples, bool[] excluded, int maskW, int maskH,
+            out float tolerance, out bool foreignCapped)
         {
             tolerance = 0f;
+            foreignCapped = false;
             float satDistW = zone.satDistWeight;
             float valueW = zone.valueWeight;
             int stride = (w <= 2048) ? 1 : 2;
@@ -582,8 +595,10 @@ namespace Iroca
                     fcum += fgnBins[i];
                     if (fcum >= ftgt) { fgnP10 = (i + 1) / (float)DistBins * DistMax; break; }
                 }
-                tolerance = Mathf.Clamp(Mathf.Min(tolerance, fgnP10 - ForeignCapEps),
-                                        ForeignLowFloor, ChromaTolMax);
+                float capped = Mathf.Clamp(Mathf.Min(tolerance, fgnP10 - ForeignCapEps),
+                                           ForeignLowFloor, ChromaTolMax);
+                foreignCapped = capped < tolerance; // 実際に打ち切りが効いたときのみ報告
+                tolerance = capped;
             }
             return true;
         }

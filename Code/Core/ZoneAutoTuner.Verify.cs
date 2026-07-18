@@ -173,6 +173,114 @@ namespace Iroca
             }
         }
 
+        // 明部同色相テール(塗りツヤ/スペキュラ)の取りこぼし救済:
+        // スタイライズド塗りのツヤは「色相を僅かにずらし軽く脱彩した明部」(実測例: hd≈0.06,
+        // |dS|≈0.22, |dV|≈0.35)として near 窓のすぐ外に分布するため、距離分布 P95 に一切現れず、
+        // 導出 tolerance は原理的に届かない(明部距離免除を効かせても僅かに tolerance 超過で全滅する)。
+        // そこで実マッチャーで tolerance を段階拡張し、「追加で選択される画素」が
+        //   (1) 基礎選択に対して小面積(本物のツヤはパーツ面積の数%。明るい同色相の別素材=肌などは
+        //       数十%に達するため面積比で分離できる)
+        //   (2) 圧倒的に「サンプルより明るい・同色相・無彩寄りでない・トーン連結域の延長上」
+        //       (ツヤのシグネチャ。隣接色ブリードは同色相でなく、白背景の巻き込みは相対彩度床
+        //       sS*ChromaClusterSatFrac を割るため棄却。同色相・軽脱彩でもツヤと区別できない
+        //       「V の空谷の向こうの明るい別素材」(暗い革地に対する明るいクリーム生地の色双子)は、
+        //       V 連結領域ゲートの上端 vConnHiBin を僅かに超えるだけの画素に限る条件で棄却する。
+        //       シェーディングが V 連続というトーン抽出と同じ仮定で、ツヤは連結域の明端に接するが
+        //       別素材は谷の向こうに孤立する。副作用として V が段状に量子化されたベタ塗りパーツの
+        //       明段は拡張対象から外れるが、これは色統計上「別パーツの明段」と同型で原理的に区別
+        //       できないため、安全側(拡張しない)に倒す)
+        // の両方を満たす最大ステップだけを受け入れる。シグネチャ不合格のステップは採用しない(打ち切りは
+        // しない: 累積判定なので、より広いステップで追加集合全体が合格すればそれを採る)。面積超過は
+        // 単調増加なので、そこで打ち切る。判定はすべてテクスチャ統計(面積比・サンプル相対の色信号)のみで、
+        // 特定キャラ・色・座標には依存しない。
+        // 発動しない条件(呼び出し側でスキップ): 無彩サンプル / foreign 打ち切り発火(隣接同色相パーツを
+        // 検出済み) / 免除過剰で tolerance 縮小済み / hlRec 成長テストで別素材巻き込みを検出済み /
+        // V 連結範囲が確定できなかった。
+        private const float SheenGrowMaxAddedFrac = 0.05f;  // 追加画素/基礎選択(累積)の上限
+        private const float SheenSigMinFrac       = 0.90f;  // 追加画素中のツヤシグネチャ率の下限
+        private const int   SheenMinAddedCount    = 24;     // これ未満の追加は証拠不足として採用しない
+        private const int   SheenVConnMarginBins  = 2;      // 連結域上端から許す V 余白(連結歩行の橋渡し幅と同じ)
+        private static readonly float[] SheenTolGrowSteps = { 1.15f, 1.3f, 1.5f };
+
+        private static void VerifyBrightSheenRecall(Color32[] pixels, int w, int h,
+            ColorZone zone, bool[] excluded, int maskW, int maskH, int vConnHiBin, ref TuneResult result)
+        {
+            float derived = result.tolerance;
+            if (derived >= ChromaTolMax) return; // 既に上限=伸ばす余地なし
+
+            var sim = BuildSimZone(zone, result);
+            sim.highlightRecovery = false; // 基底マッチのみ測る(ハイライト系は成長テスト側の管轄)
+
+            Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
+            float satSigFloor = sS * ChromaClusterSatFrac;
+            // ツヤとして許す V 上限 = トーン連結域の上端 + 余白。連結域が明端まで届いている
+            // パーツ(素直な連続シェーディング)では 1.0 超になり実質無制限。
+            float sheenVMax = (vConnHiBin + 1 + SheenVConnMarginBins) / (float)AutoToneValueBins;
+
+            int stride = (w <= 2048) ? 1 : 2;
+            int gw = (w + stride - 1) / stride;
+            int gh = (h + stride - 1) / stride;
+
+            // ── 基礎選択(導出 tolerance)のビットマスク ──
+            var baseSel = new bool[gw * gh];
+            int baseCount = 0;
+            for (int y = 0, gy = 0; y < h; y += stride, gy++)
+            {
+                int rowStart = y * w;
+                for (int x = 0, gx = 0; x < w; x += stride, gx++)
+                {
+                    Color32 c = pixels[rowStart + x];
+                    if (c.a < 128) continue;
+                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
+                    float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
+                    var col = new Color(r, g, b, 1f);
+                    Color.RGBToHSV(col, out float pH, out float pS, out float pV);
+                    sim.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
+                        out float s0, out _, out _);
+                    if (s0 > 0f) { baseSel[gy * gw + gx] = true; baseCount++; }
+                }
+            }
+            if (baseCount < VerifyMinBaseSelected) return;
+
+            // ── 段階拡張: 追加画素の面積とシグネチャを実マッチャーで判定 ──
+            float accepted = derived;
+            foreach (float mult in SheenTolGrowSteps)
+            {
+                float t = Mathf.Min(derived * mult, ChromaTolMax);
+                if (t <= accepted) break; // 上限到達でこれ以上伸ばせない
+                sim.tolerance = t;
+                sim.UpdateCacheIfNeeded();
+                int added = 0, sig = 0;
+                for (int y = 0, gy = 0; y < h; y += stride, gy++)
+                {
+                    int rowStart = y * w;
+                    for (int x = 0, gx = 0; x < w; x += stride, gx++)
+                    {
+                        if (baseSel[gy * gw + gx]) continue;
+                        Color32 c = pixels[rowStart + x];
+                        if (c.a < 128) continue;
+                        if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
+                        float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
+                        var col = new Color(r, g, b, 1f);
+                        Color.RGBToHSV(col, out float pH, out float pS, out float pV);
+                        sim.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
+                            out float st, out _, out _);
+                        if (st <= 0f) continue;
+                        added++;
+                        float hd = Mathf.Abs(pH - sH); if (hd > 0.5f) hd = 1f - hd;
+                        if (pV > sV && pV < sheenVMax
+                            && hd < ColorZone.ForgivenessHueGate && pS >= satSigFloor)
+                            sig++;
+                    }
+                }
+                if (added > baseCount * SheenGrowMaxAddedFrac) break; // 面積超過(単調)→打ち切り
+                if (added >= SheenMinAddedCount && sig >= added * SheenSigMinFrac)
+                    accepted = t; // このステップの累積追加集合はツヤとして合格
+                if (t >= ChromaTolMax) break; // 上限で評価済み=以降のステップは同値
+            }
+            if (accepted > derived) result.tolerance = accepted;
+        }
+
         // 証拠判定用: 各サンプルの HSV と near 窓下限彩度を前計算する。
         private static SampleHSV[] SampleWindows(ColorZone sim)
         {
