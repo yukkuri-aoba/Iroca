@@ -148,6 +148,12 @@ namespace Iroca
                 Color.RGBToHSV(zone.sampleColor, out _, out float sampleS, out _);
 
                 ct.ThrowIfCancellationRequested();
+                // foreign 打ち切り(隣接同色相パーツの検出)が効いた場合は覚えておき、
+                // 明部ツヤ救済(VerifyBrightSheenRecall)の拡張を封印する(打ち切りと拡張が相殺し
+                // 隣接パーツを再び巻き込むのを防ぐ)。
+                bool foreignCapped = false;
+                // トーン連結域の V 上端 bin(明部ツヤ救済の上限に使う)。-1=未確定。
+                int vConnHiBin = -1;
                 if (sampleS < AchromaSampleSatMax)
                 {
                     // 無彩色サンプル: グレーモードの純 RGB 距離分布から(V 広がりの過大評価を回避)。
@@ -170,36 +176,54 @@ namespace Iroca
                     // 内部サンプルとして、各画素の最近サンプルまでの距離 P95 から tolerance を導出する。
                     // スポイト位置が明部でも暗部でも、トーン全域を覆うので取りこぼし/はみ出しを抑えられる。
                     var autoSamples = DeriveAutoTonalSamples(pixels, width, height, zone,
-                        clusterMask, maskW, maskH);
+                        clusterMask, maskW, maskH, out _, out vConnHiBin);
                     bool derivedMulti = false;
                     if (autoSamples.Count > 0)
                     {
                         var samples = BuildSampleHSVs(zone.sampleColor, autoSamples);
                         if (TryDeriveChromaticToleranceMulti(pixels, width, height, zone, samples,
-                                clusterMask, maskW, maskH, out float chromTolM))
+                                clusterMask, maskW, maskH, out float chromTolM, out bool fCapM))
                         {
                             result.autoSamples = autoSamples;
                             result.tolerance = chromTolM;
+                            foreignCapped = fCapM;
                             derivedMulti = true;
                         }
                     }
                     if (!derivedMulti && TryDeriveChromaticTolerance(pixels, width, height, zone,
-                            clusterMask, maskW, maskH, out float chromTol))
+                            clusterMask, maskW, maskH, out float chromTol, out bool fCap))
                     {
                         // 単一サンプルへフォールバック(トーン抽出が不発/クラスタ過少)。
                         result.tolerance = chromTol;
+                        foreignCapped = fCap;
                     }
                 }
 
                 // ── 閉ループ検証: 導出パラメータを実マッチャーに通し、有害な設定を安全側へ倒す ──
                 ct.ThrowIfCancellationRequested();
+                bool hlRecBeforeVerify = result.highlightRecovery;
                 if (result.highlightRecovery)
                     VerifyHighlightRecoveryGrowth(pixels, width, height, zone,
                         excluded, maskW, maskH, ref result);
+                // 成長テストが highlightRecovery を落とした=「明るい同色相の別素材」が既に検出された
+                // 状況なので、同じ方向へ広げる明部ツヤ救済も封印する。
+                bool hlRecVetoed = hlRecBeforeVerify && !result.highlightRecovery;
                 ct.ThrowIfCancellationRequested();
                 if (sampleS >= AchromaSampleSatMax)
+                {
+                    float tolBeforeOvershoot = result.tolerance;
                     VerifyBrightForgivenessOvershoot(pixels, width, height, zone,
                         excluded, maskW, maskH, ref result);
+                    // 免除過剰で tolerance を縮めた直後に拡張するのは矛盾するのでスキップする。
+                    bool overshootShrunk = result.tolerance < tolBeforeOvershoot;
+
+                    ct.ThrowIfCancellationRequested();
+                    // vConnHiBin < 0(トーン構造を確定できなかった)ときは拡張しない(構造未知のまま
+                    // 広げるのは危険。素直なパーツならヒストグラムは常に作れる)。
+                    if (!foreignCapped && !overshootShrunk && !hlRecVetoed && vConnHiBin >= 0)
+                        VerifyBrightSheenRecall(pixels, width, height, zone,
+                            excluded, maskW, maskH, vConnHiBin, ref result);
+                }
             }
 
             DecideGlobals(width, height, session, ref result);

@@ -65,7 +65,9 @@ namespace Iroca
         private const float InvSqrt3 = 0.57735027f;
         // 同色相とみなすシャドウ/ハイライト免除の色相距離ゲート上限。これを超える色相差は別色として
         // 免除しない(無関係色の巻き込み防止)。免除のオン/オフ判定とフェード分母の双方で使う。
-        private const float ForgivenessHueGate = 0.15f;
+        // internal: ZoneAutoTuner の閉ループ検証(明部ツヤ判定)が同じ「同色相」定義を共有する
+        // (手動同期による定数ドリフトを避ける)。
+        internal const float ForgivenessHueGate = 0.15f;
         // シャドウ免除を始める明度しきい(源色 V 比)。pV が sV×この値 未満なら「影」とみなす(25%
         // デッドマージン)。1-この値(=0.25)が明部側ヘッドルーム HighlightValueHeadroomFrac の鏡像。
         private const float ShadowValueThresholdFrac = 0.75f;
