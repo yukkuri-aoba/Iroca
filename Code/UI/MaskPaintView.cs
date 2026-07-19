@@ -67,10 +67,36 @@ namespace Iroca
 
         [System.NonSerialized] private IrocaWindow _host;
 
+        // AI マスク提案(Sentis 統合が存在するときのみ生成される。不在なら常に null = 機能 OFF)
+        [System.NonSerialized] private MaskSuggestController _suggestController;
+
         public void Initialize(IrocaWindow host)
         {
             _host = host;
         }
+
+        /// <summary>AI マスク提案コントローラ(遅延生成)。Sentis 不在時は null。</summary>
+        public MaskSuggestController SuggestController
+        {
+            get
+            {
+                if (_suggestController == null && MaskSuggestBridge.Available && _host != null)
+                {
+                    _suggestController = new MaskSuggestController();
+                    _suggestController.Initialize(_host, this);
+                }
+                return _suggestController;
+            }
+        }
+
+        /// <summary>生成済みのときだけ返す(参照しても生成しない)。</summary>
+        public MaskSuggestController SuggestControllerIfCreated => _suggestController;
+
+        /// <summary>AI 提案モードがプレビュークリックを受け取るべきか。</summary>
+        public bool AiSuggestArmed => _suggestController != null && _suggestController.Active;
+
+        /// <summary>プレビューへ重ねる AI 提案オーバーレイ(なければ null)。</summary>
+        public Texture2D AiSuggestOverlay => _suggestController?.OverlayTexture;
 
         // ─────────────────────── 除外マスク UI ───────────────────────
 
@@ -102,7 +128,10 @@ namespace Iroca
                 if (excludeActive)
                     maskPaintActive = false;
                 else
-                { maskPaintActive = true; brushEraseMode = false; }
+                {
+                    maskPaintActive = true; brushEraseMode = false;
+                    _suggestController?.SetActive(false); // AI 提案とは排他
+                }
             }
 
             GUI.backgroundColor = includeActive ? IrocaColors.IncludeButton : Color.white;
@@ -111,7 +140,10 @@ namespace Iroca
                 if (includeActive)
                     maskPaintActive = false;
                 else
-                { maskPaintActive = true; brushEraseMode = true; }
+                {
+                    maskPaintActive = true; brushEraseMode = true;
+                    _suggestController?.SetActive(false); // AI 提案とは排他
+                }
             }
 
             GUI.backgroundColor = prevBg;
@@ -137,6 +169,9 @@ namespace Iroca
             EditorGUILayout.HelpBox(
                 maskPaintActive ? Localization.MaskHint : Localization.MaskHintPaintOff,
                 MessageType.Info);
+
+            // AI マスク提案(Sentis 統合が存在するときのみ描画される)
+            MaskSuggestSection.Draw(_host, this);
 
             EditorGUILayout.EndFoldoutHeaderGroup();
             EditorGUILayout.Space(4);
@@ -741,6 +776,8 @@ namespace Iroca
         {
             SuspendTransientState();
             _overlayJob.Dispose();
+            // AI 提案の積み上げ・オーバーレイ・進行中推論も破棄(ウィンドウ破棄時)
+            _suggestController?.OnSourceChangedOrClosing();
         }
 
         public void SuspendTransientState()

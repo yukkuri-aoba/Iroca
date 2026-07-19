@@ -131,6 +131,9 @@ namespace Iroca
             string path = MaskTexturePath();
             if (path == null) return;
 
+            // テクスチャ(セッション)切替: AI 提案の積み上げ・進行中推論は旧テクスチャ由来なので破棄
+            _suggestController?.OnSourceChangedOrClosing();
+
             exclusionMask = null;
             zoneMasks.Clear();
             _maskLoadFailed = false;
