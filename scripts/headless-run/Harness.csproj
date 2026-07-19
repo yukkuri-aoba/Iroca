@@ -48,6 +48,10 @@
     <Compile Include="..\..\Code\Core\ZoneAutoTuner*.cs" />
     <Compile Include="..\..\Code\Core\IrocaSessionState.cs" />
     <Compile Include="..\..\Code\Core\MaskState.cs" />
+    <!-- AI マスク提案の純計算層(前処理/座標変換/後処理)+ RLE コーデック。
+         samops 検証モードで pytest の NumPy リファレンスと突き合わせる。 -->
+    <Compile Include="..\..\Code\MaskSuggest\Ops\*.cs" />
+    <Compile Include="..\..\Code\Core\MaskRle.cs" />
     <Compile Include="Harness.cs" />
   </ItemGroup>
 
