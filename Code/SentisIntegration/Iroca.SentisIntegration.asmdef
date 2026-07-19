@@ -1,0 +1,27 @@
+{
+    "name": "Iroca.SentisIntegration",
+    "rootNamespace": "Iroca.SentisIntegration",
+    "references": [
+        "com.yukkuri-aoba.iroca.Editor",
+        "Unity.Sentis"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "IROCA_SENTIS_PRESENT"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.sentis",
+            "expression": "[2.0.0,3.0.0)",
+            "define": "IROCA_SENTIS_PRESENT"
+        }
+    ],
+    "noEngineReferences": false
+}

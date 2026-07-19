@@ -44,8 +44,12 @@
        (Iroca.McpIntegration, IROCA_MCP_PRESENT ゲート) で、MCPForUnity 型を参照するため
        dotnet 単体では解決できない。Unity の挙動に合わせて除外する。
        これらのフォルダを削除しても本体 csproj は単独でビルド可能。 -->
+  <!-- Code/SentisIntegration/ は com.unity.sentis 導入環境でのみコンパイルされる別 asmdef
+       (Iroca.SentisIntegration, IROCA_SENTIS_PRESENT ゲート)で、Unity.Sentis 型を参照するため
+       dotnet 単体では解決できない。McpIntegration と同じ理由で除外する
+       (コンパイル検証はホスト Unity プロジェクト側で行う)。 -->
   <ItemGroup>
-    <Compile Include="..\..\Code\**\*.cs" Exclude="..\..\Code\Debug\**\*.cs;..\..\Code\McpIntegration\**\*.cs" />
+    <Compile Include="..\..\Code\**\*.cs" Exclude="..\..\Code\Debug\**\*.cs;..\..\Code\McpIntegration\**\*.cs;..\..\Code\SentisIntegration\**\*.cs" />
   </ItemGroup>
 
   <ItemGroup>
