@@ -445,7 +445,7 @@ namespace Iroca
                 if (sS > ColorZone.ChromaGateActivateSat)
                 {
                     float gateWeight = Mathf.Clamp01(sV / ColorZone.GrayModeDarkSampleValue);
-                    float satFloor = sS * ColorZone.ChromaGateFloorFrac;
+                    float satFloor = Mathf.Min(sS * ColorZone.ChromaGateFloorFrac, ColorZone.ChromaGateFloorCap);
                     float shortfall = Mathf.Clamp01((satFloor - pS) / Mathf.Max(satFloor, 1e-4f));
                     effectiveDist += shortfall * ColorZone.ChromaGatePenalty * tolerance * gateWeight;
                 }

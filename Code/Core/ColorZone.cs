@@ -36,8 +36,15 @@ namespace Iroca
         // サンプル自身が真の無彩(sS≈0)なら作動せず=従来の純RGB距離挙動を完全維持。
         // internal: 緩和マッチ経路(PixelProcessor.GetRelaxedMatchStrength)が同じ値を使うため共有する。
         // かつては PixelProcessor 側に同名 const を複製していたが、二重管理で乖離の温床になるため一本化。
+        // 床には絶対上限 FloorCap を併置する。中性性は絶対量であり(圧縮ノイズ由来の偽 tint は
+        // S≈0.01 台、視認可能な tint は S≈0.02 以上)、相対床 sS*frac 単独だとサンプル彩度が
+        // 高めの無彩寄り素材(生成り・クリーム sS 0.05〜0.15)で床が 0.03〜0.08 まで上がり、
+        // その素材自身の脱彩部(白プリーツ・ハイライト、S 0.02〜0.05)まで「中性すぎ」と棄却して
+        // recall を壊す。S≥cap の画素は絶対的に tint を持つ=純白 UV 背景(S≲0.012)ではないので
+        // ペナルティ対象にしない。cap は ActivateSat と同じ「絶対中性境界」のスケール。
         internal const float ChromaGateActivateSat = 0.02f; // この tint 未満のサンプルでは無効
         internal const float ChromaGateFloorFrac = 0.5f;    // サンプル彩度 sS*frac 未満は「中性すぎ」
+        internal const float ChromaGateFloorCap = 0.02f;    // 床の絶対上限。これ以上の tint は中性扱いしない
         internal const float ChromaGatePenalty = 1.0f;      // 最大加算距離(tolerance 単位)
 
         // グレー抽出モードの AA 縁ソフトランプ床(tolerance 比)。edgeSoftness=0 だとグレーモードは

@@ -20,6 +20,15 @@ namespace Iroca
         private const float AchromaFringeMinAlpha = 0.05f; // これ未満=地色の残りがほぼ無い→触らない
         private const float AchromaFringeMaxAlpha = 0.70f; // これ超=地色寄り→除外(白拒否を維持)
 
+        // 弱AA画素を「選択領域の内部」とみなして strength=1 に固める背景密度のしきい(窓面積比)。
+        // 旧実装は「窓内に背景ドナーが1画素でもあれば α 分解」だったため、淡 tint 布地の内部に
+        // 点在するごく少数の未選択画素(彩度整合ゲートの残余等、窓内密度 ~2%)が偽の背景ドナーに
+        // なり、布の内部を「背景との AA 混色」として α 再合成→明るい斑点ノイズになっていた。
+        // 真の AA 境界は片側が背景に接するため窓内密度が高い(細い1px背景スリットでも
+        // ≈1/(2r+1)=14% @r=3)。この比率未満は背景不在=内部と判定して完全再着色に固める。
+        // テクスチャ非依存の幾何比率であり特定素材への較正ではない。
+        private const float DecontamInteriorBgFrac = 0.08f;
+
         /// <summary>
         /// AA 境界での α 分解 + 再合成（color decontamination / alpha matting）。
         /// 元テクスチャは「pixel = α × FG + (1-α) × BG」で合成されているため、
@@ -97,18 +106,22 @@ namespace Iroca
             float tB = targetColor.b * 255f;
             const float DegenEps = 1f; // ‖sample - BG‖² 下限（≈1 階調）
 
+            int winSide = 2 * radius + 1;
+            float interiorBgDensityMin = Mathf.Max(1f, winSide * winSide * DecontamInteriorBgFrac);
             Parallel.For(0, len, decontamPo, i =>
             {
                 float s = strength[i];
                 if (s <= 0f || s >= interiorThreshold) return;
                 float density = bgDensity[i];
-                if (density < 1f)
+                if (density < interiorBgDensityMin)
                 {
-                    // 近傍 radius 内に背景(非選択)画素が皆無 = この弱AA画素は選択領域の「内部」。
+                    // 近傍 radius 内に背景(非選択)画素が実質無い = この弱AA画素は選択領域の「内部」。
                     // 背景が無いので α 分解で再合成できないが、内部なら元色を残すべきでない。weak strength
                     // のままだと再着色が部分的になり元色(例: 白文字×青地の縁の薄青)が残留する。full に
                     // 固めて完全再着色する(SolidifyAchromaInterior の有彩ターゲット版・内部限定)。
-                    // 境界(背景に接する縁)は density>=1 で従来どおり α 分解されるので AA ソフトさは不変。
+                    // 「実質無い」= 窓面積比 DecontamInteriorBgFrac 未満。点在ピンホール(偽ドナー)は
+                    // 内部扱いで固め、境界(背景に面し密度が高い縁)は従来どおり α 分解されるので
+                    // AA ソフトさは不変。
                     strength[i] = 1f;
                     return;
                 }
