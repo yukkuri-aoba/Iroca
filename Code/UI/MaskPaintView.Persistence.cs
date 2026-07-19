@@ -273,105 +273,15 @@ namespace Iroca
         }
 
         /// <summary>
-        /// bool 配列を RLE 圧縮 + Base64 文字列にエンコード。
-        /// フォーマット: "R:" プレフィックス + Base64(4byte W + 4byte H + 1byte 開始値 + uint32[] ランレングス列)
+        /// bool 配列を RLE 圧縮 + Base64 文字列にエンコード(実体は Core の MaskRle)。
         /// </summary>
-        public static string EncodeMask(bool[] mask, int w, int h)
-        {
-            if (mask == null || mask.Length == 0) return "";
-            int len = mask.Length;
-
-            var runs = new List<uint>();
-            bool curVal = mask[0];
-            uint count = 0;
-            for (int i = 0; i < len; i++)
-            {
-                if (mask[i] == curVal)
-                {
-                    count++;
-                }
-                else
-                {
-                    runs.Add(count);
-                    curVal = mask[i];
-                    count = 1;
-                }
-            }
-            runs.Add(count);
-
-            byte[] bytes = new byte[9 + runs.Count * 4];
-            System.Buffer.BlockCopy(System.BitConverter.GetBytes(w), 0, bytes, 0, 4);
-            System.Buffer.BlockCopy(System.BitConverter.GetBytes(h), 0, bytes, 4, 4);
-            bytes[8] = mask[0] ? (byte)1 : (byte)0;
-            for (int i = 0; i < runs.Count; i++)
-                System.Buffer.BlockCopy(System.BitConverter.GetBytes(runs[i]), 0, bytes, 9 + i * 4, 4);
-
-            return "R:" + System.Convert.ToBase64String(bytes);
-        }
+        public static string EncodeMask(bool[] mask, int w, int h) => MaskRle.Encode(mask, w, h);
 
         /// <summary>
-        /// EncodeMask の逆。デコード失敗時は null を返す。
-        /// "R:" プレフィックスがある場合は RLE フォーマット、ない場合は旧 bitpack フォーマットとして処理。
+        /// EncodeMask の逆。デコード失敗時は null を返す(実体は Core の MaskRle)。
         /// </summary>
-        public static bool[] DecodeMask(string encoded, out int w, out int h)
-        {
-            w = 0; h = 0;
-            if (string.IsNullOrEmpty(encoded)) return null;
-
-            if (encoded.StartsWith("R:", System.StringComparison.Ordinal))
-            {
-                try
-                {
-                    byte[] bytes = System.Convert.FromBase64String(encoded.Substring(2));
-                    if (bytes.Length < 9) return null;
-                    w = System.BitConverter.ToInt32(bytes, 0);
-                    h = System.BitConverter.ToInt32(bytes, 4);
-                    if (w <= 0 || h <= 0) return null;
-                    int len = w * h;
-                    bool curVal = bytes[8] != 0;
-                    bool[] mask = new bool[len];
-                    int pos = 0;
-                    int byteIdx = 9;
-                    while (pos < len && byteIdx + 4 <= bytes.Length)
-                    {
-                        uint run = System.BitConverter.ToUInt32(bytes, byteIdx);
-                        byteIdx += 4;
-                        bool fillVal = curVal;
-                        uint end = (uint)System.Math.Min((long)pos + run, len);
-                        while (pos < (int)end)
-                            mask[pos++] = fillVal;
-                        curVal = !curVal;
-                    }
-                    return mask;
-                }
-                catch (System.Exception ex)
-                {
-                    Debug.LogWarning($"[Iroca] Mask decode failed: {ex.Message}");
-                    return null;
-                }
-            }
-
-            // 旧 bitpack フォーマット（後方互換）
-            try
-            {
-                byte[] packed = System.Convert.FromBase64String(encoded);
-                if (packed.Length < 9) return null;
-                w = System.BitConverter.ToInt32(packed, 0);
-                h = System.BitConverter.ToInt32(packed, 4);
-                if (w <= 0 || h <= 0) return null;
-                int len = w * h;
-                if (packed.Length < 8 + (len + 7) / 8) return null;
-                bool[] mask = new bool[len];
-                for (int i = 0; i < len; i++)
-                    mask[i] = (packed[8 + i / 8] & (1 << (i % 8))) != 0;
-                return mask;
-            }
-            catch (System.Exception ex)
-            {
-                Debug.LogWarning($"[Iroca] Mask decode (legacy bitpack) failed: {ex.Message}");
-                return null;
-            }
-        }
+        public static bool[] DecodeMask(string encoded, out int w, out int h) =>
+            MaskRle.Decode(encoded, out w, out h);
 
         // ───────────────────────── プリセット連携 ────────────────────
 
