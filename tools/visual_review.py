@@ -269,17 +269,46 @@ def cmd_compare(engine: str = "python") -> None:
 # ---------------------------------------------------------------------------
 # approve
 # ---------------------------------------------------------------------------
+def _newest_code_mtime() -> float:
+    """Code/ 配下の製品ソース(.cs)の最新 mtime。Debug/ は視覚レビュー対象外なので除外。
+
+    pre-commit フック(tools/check_visual_review.py)が approve を要求する範囲と揃える。
+    """
+    newest = 0.0
+    for p in (_ROOT / "Code").rglob("*.cs"):
+        if "Debug" in p.parts:
+            continue
+        newest = max(newest, p.stat().st_mtime)
+    return newest
+
+
 def cmd_approve() -> None:
-    """視覚レビュー確認完了マーカーを書き込む。"""
+    """視覚レビュー確認完了マーカーを書き込む。
+
+    空承認ガード(監査 4-1): compare パネルが存在し、かつ最新の Code/ ソース変更より
+    新しいことを検証する。パネルより後にコードを変えた場合は compare からやり直し。
+    """
+    panels = sorted(COMPARE_DIR.glob("*_comparison.png"))
+    if not panels:
+        print("[approve] エラー: 比較パネルがありません。先に compare を実行してください:")
+        print("  python tools/visual_review.py compare --engine csharp")
+        sys.exit(1)
+    oldest_panel = min(p.stat().st_mtime for p in panels)
+    code_mtime = _newest_code_mtime()
+    if code_mtime > oldest_panel:
+        print("[approve] エラー: 比較パネルより新しい Code/ 変更があります(パネルが陳腐)。")
+        print("  compare を再実行してから approve してください。")
+        sys.exit(1)
     REVIEW_DIR.mkdir(parents=True, exist_ok=True)
     marker = {
         "approved_at": datetime.now().isoformat(),
         "note": "全比較パネルを Read ツールで確認済み",
+        "panels": len(panels),
     }
     APPROVED_JSON.write_text(
         json.dumps(marker, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    print(f"[approve] マーカーを書き込みました: {APPROVED_JSON}")
+    print(f"[approve] マーカーを書き込みました: {APPROVED_JSON} (panels={len(panels)})")
     print("  コミット可能です。")
 
 
