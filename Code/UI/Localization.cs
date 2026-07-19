@@ -462,6 +462,63 @@ namespace Iroca
             ? "マスクの変更を1ステップ前に戻します（Ctrl+Z でも操作可）"
             : "Undo the last mask change (also available via Ctrl+Z)";
 
+        // ─── AI Mask Suggestion ───
+        public static string AiSuggest => IsJapanese ? "AI マスク提案（実験的）" : "AI Mask Suggestion (Experimental)";
+        public static string AiSuggestStart => IsJapanese ? "AI 提案を開始" : "Start AI Suggestion";
+        public static string AiSuggestActive => IsJapanese ? "■ AI 提案中（クリックで終了）" : "■ AI Suggesting (click to stop)";
+        public static string AiSuggestToggleTooltip => IsJapanese
+            ? "プレビュー上のパーツをクリックすると、AI がそのパーツの領域を推定して提案します\n提案を「追加」で積み上げ、最後にまとめて除外マスクへ確定します\nブラシペイントとは排他で、開始するとペイントモードは解除されます"
+            : "Click a part on the preview and the AI proposes that part's region.\nAccept proposals to accumulate a selection, then commit it to the exclusion mask.\nMutually exclusive with brush painting; starting this exits paint mode.";
+        public static string AiSuggestAccept => IsJapanese ? "この領域を追加" : "Add this region";
+        public static string AiSuggestAcceptTooltip => IsJapanese
+            ? "表示中の提案（水色）を選択に追加します\n続けて別のピースをクリックすると選択を積み上げられます"
+            : "Add the shown proposal (cyan) to the selection.\nClick another piece to keep accumulating.";
+        public static string AiSuggestRetry => IsJapanese ? "やり直し" : "Retry";
+        public static string AiSuggestRetryTooltip => IsJapanese
+            ? "表示中の提案を破棄します（別の場所をクリックしても取り直せます）"
+            : "Discard the shown proposal (clicking elsewhere also replaces it).";
+        public static string AiSuggestUndoPiece => IsJapanese ? "1つ戻す" : "Undo last";
+        public static string AiSuggestUndoPieceTooltip => IsJapanese
+            ? "最後に追加した提案を選択から取り消します\n（悪い提案を混ぜてしまったときはここで戻してください）"
+            : "Remove the last accepted proposal from the selection.\n(Use this if a bad proposal got mixed in.)";
+        public static string AiSuggestClear => IsJapanese ? "選択をクリア" : "Clear selection";
+        public static string AiSuggestClearTooltip => IsJapanese
+            ? "積み上げた選択（緑）と表示中の提案をすべて破棄します（既存のマスクは変わりません）"
+            : "Discard the accumulated selection (green) and any shown proposal. The existing mask is unchanged.";
+        public static string AiSuggestCommitExclude => IsJapanese ? "選択を除外に追加" : "Exclude selection";
+        public static string AiSuggestCommitExcludeTooltip => IsJapanese
+            ? "積み上げた選択（緑）を現在の編集対象の除外マスクへ追加します\n確定後は通常のマスクとしてブラシ修正・Ctrl+Z できます"
+            : "Add the accumulated selection (green) to the current target's exclusion mask.\nAfter commit it behaves as a normal mask (brush edit / Ctrl+Z).";
+        public static string AiSuggestCommitKeep => IsJapanese ? "選択以外を除外に追加" : "Exclude everything else";
+        public static string AiSuggestCommitKeepTooltip => IsJapanese
+            ? "積み上げた選択（緑）「以外」を現在の編集対象の除外マスクへ追加します\n「このパーツだけ色替えしたい」ときに使います\n確定後は通常のマスクとしてブラシ修正・Ctrl+Z できます"
+            : "Add everything OUTSIDE the accumulated selection (green) to the exclusion mask.\nUse this to recolor only the selected part.\nAfter commit it behaves as a normal mask (brush edit / Ctrl+Z).";
+        public static string AiSuggestLoadingModel => IsJapanese ? "モデルを読み込み中..." : "Loading model...";
+        public static string AiSuggestEncoding => IsJapanese ? "画像を解析中..." : "Analyzing image...";
+        public static string AiSuggestDecoding => IsJapanese ? "提案を生成中..." : "Generating proposal...";
+        public static string AiSuggestNoModel => IsJapanese
+            ? "AI モデルが未配置です。モデルをダウンロードして下のフォルダへ配置すると使えるようになります。"
+            : "AI model files are not installed. Download the models into the folder below to enable this feature.";
+        public static string AiSuggestOpenModelFolder => IsJapanese ? "モデルフォルダを開く" : "Open model folder";
+        public static string AiSuggestOpenModelFolderTooltip => IsJapanese
+            ? "モデルファイル（.onnx）を配置するフォルダをエクスプローラーで開きます"
+            : "Open the folder where the model files (.onnx) should be placed.";
+        public static string AiSuggestDownload => IsJapanese ? "モデルをダウンロード" : "Download models";
+        public static string AiSuggestDownloadTooltip => IsJapanese
+            ? "MobileSAM の AI モデル 2 ファイル（合計約 45MB、Apache-2.0 ライセンス）を\n{0}\nからダウンロードし、モデルフォルダへ自動配置します（sha256 検証つき）"
+            : "Download the two MobileSAM model files (about 45MB total, Apache-2.0 license) from\n{0}\nand place them into the model folder automatically (with sha256 verification).";
+        public static string AiSuggestDownloading => IsJapanese ? "モデルをダウンロード中..." : "Downloading models...";
+        public static string AiSuggestDownloadFailed => IsJapanese
+            ? "ダウンロードに失敗しました: {0}\n手動でダウンロードしてモデルフォルダへ配置することもできます（手順はマニュアル参照）"
+            : "Download failed: {0}\nYou can also download manually and place the files into the model folder (see the manual).";
+        public static string AiSuggestAreaWarning => IsJapanese
+            ? "提案が背景まで広がっている可能性があります。追加せず、パーツの内側をクリックし直すことをおすすめします。"
+            : "The proposal may have spread into the background. Consider clicking again inside the part instead of adding it.";
+        public static string AiSuggestHintIdle => IsJapanese
+            ? "プレビュー上でパーツをクリックすると領域を提案します。水色=提案中 / 緑=追加済み"
+            : "Click a part on the preview to get a region proposal. Cyan = proposed, green = accepted";
+        public static string AiSuggestPiecesFormat => IsJapanese ? "追加済み: {0} 個" : "Accepted: {0}";
+
         // ─── Per-Zone Mask strings ───
         public static string MaskTarget => IsJapanese ? "編集対象" : "Edit Target";
         public static string MaskTargetCommon => IsJapanese ? "共通マスク（全ゾーン）" : "Common Mask (all zones)";

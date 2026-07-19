@@ -147,6 +147,8 @@ namespace Iroca
             {
                 _maskView.SyncBuffersFromState();
                 _maskView.maskDirty = true;
+                // 保留中の AI 提案は Undo 前の状態に対する提案なので重ねない
+                _maskView.SuggestControllerIfCreated?.OnUndoRedoPerformed();
             }
             MarkPreviewDirty();
             Repaint();

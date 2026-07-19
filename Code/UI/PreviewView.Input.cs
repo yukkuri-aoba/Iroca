@@ -380,6 +380,64 @@ namespace Iroca
             return true;
         }
 
+        // ─────────────────── AI マスク提案のクリック入力 ───────────────────
+        // クリック位置を UV(下原点)に変換してコントローラへ渡す。実際の推論・提案表示は
+        // MaskSuggestController + Sentis サービス側が担い、ここは入力の横取りだけを行う。
+        private void HandleAiSuggestInput(Rect previewRect, int srcW, int srcH)
+        {
+            var maskView = _host._maskView;
+            var ctl = maskView != null ? maskView.SuggestControllerIfCreated : null;
+            if (ctl == null || !ctl.Active) return;
+
+            var e = Event.current;
+            int controlId = GUIUtility.GetControlID(FocusType.Passive);
+            bool isInRect = previewRect.Contains(e.mousePosition);
+
+            switch (e.type)
+            {
+                case EventType.MouseDown:
+                    if (e.button == 0 && isInRect && !e.alt)
+                    {
+                        float u = Mathf.Clamp01((e.mousePosition.x - previewRect.x) / previewRect.width);
+                        float v = Mathf.Clamp01(1f - (e.mousePosition.y - previewRect.y) / previewRect.height);
+                        // エクスポートと同一の実フル解像度ソースで推論する(プレビュー縮小の影響を受けない)
+                        if (_trueSourcePixels == null)
+                            EnsureTrueSource(_host.SourceTexture);
+                        if (_trueSourcePixels != null && _trueSourceW > 0)
+                            ctl.OnPreviewClick(u, v, _trueSourcePixels, _trueSourceW, _trueSourceH,
+                                               TrueSourceCacheKey());
+                        GUIUtility.hotControl = controlId;
+                        e.Use();
+                        _host.RequestRepaint();
+                    }
+                    break;
+
+                case EventType.MouseUp:
+                    if (GUIUtility.hotControl == controlId)
+                    {
+                        GUIUtility.hotControl = 0;
+                        e.Use();
+                    }
+                    break;
+
+                case EventType.Repaint:
+                    if (isInRect)
+                        EditorGUIUtility.AddCursorRect(previewRect, MouseCursor.Link);
+                    break;
+            }
+        }
+
+        // 埋め込みキャッシュのキー。テクスチャの中身が変わったら別キーになるよう
+        // アセットパス + ファイル更新時刻 + 実寸で構成する。
+        private string TrueSourceCacheKey()
+        {
+            string path = _trueSourceFor != null ? AssetDatabase.GetAssetPath(_trueSourceFor) : null;
+            long ticks = 0;
+            if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
+                ticks = System.IO.File.GetLastWriteTimeUtc(path).Ticks;
+            return $"{path}|{ticks}|{_trueSourceW}x{_trueSourceH}";
+        }
+
         private void PaintAtScreenPos(Vector2 screenPos, Rect previewRect)
         {
             var maskView = _host._maskView;

@@ -596,6 +596,8 @@ namespace Iroca
                     GUI.DrawTexture(activePreviewRect, maskView.maskOverlayTexture, ScaleMode.StretchToFill, true);
                 if (maskView.zoneMaskOverlayTexture != null)
                     GUI.DrawTexture(activePreviewRect, maskView.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
+                if (maskView.AiSuggestOverlay != null)
+                    GUI.DrawTexture(activePreviewRect, maskView.AiSuggestOverlay, ScaleMode.StretchToFill, true);
                 EditorGUILayout.EndVertical();
 
                 EditorGUILayout.EndHorizontal();
@@ -634,6 +636,8 @@ namespace Iroca
                             GUI.DrawTexture(activePreviewRect, maskView.maskOverlayTexture, ScaleMode.StretchToFill, true);
                         if (maskView.zoneMaskOverlayTexture != null)
                             GUI.DrawTexture(activePreviewRect, maskView.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
+                        if (maskView.AiSuggestOverlay != null)
+                            GUI.DrawTexture(activePreviewRect, maskView.AiSuggestOverlay, ScaleMode.StretchToFill, true);
                     }
                 }
                 else
@@ -648,6 +652,8 @@ namespace Iroca
                             GUI.DrawTexture(activePreviewRect, maskView.maskOverlayTexture, ScaleMode.StretchToFill, true);
                         if (maskView.zoneMaskOverlayTexture != null)
                             GUI.DrawTexture(activePreviewRect, maskView.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
+                        if (maskView.AiSuggestOverlay != null)
+                            GUI.DrawTexture(activePreviewRect, maskView.AiSuggestOverlay, ScaleMode.StretchToFill, true);
                     }
                 }
 
@@ -671,17 +677,23 @@ namespace Iroca
 
             bool eyedropperArmed = !string.IsNullOrEmpty(_host.EyedropperZoneId) && !maskView.maskPaintActive;
 
+            // AI マスク提案モード(ブラシペイントと排他・スポイトは one-shot なので優先)。
+            bool aiSuggestArmed = maskView.maskFoldout && !maskView.maskPaintActive
+                && maskView.AiSuggestArmed;
+
             // スポイト武装中はプレビュークリックを横取りして実画素からサンプル取得に充てる
             // （シード設定・パンより優先。取得すると one-shot で自動解除）。
             if (eyedropperArmed)
                 HandleEyedropperInput(activePreviewRect, srcW, srcH);
 
-            // 連続領域モードの任意シード入力(Shift+クリック)。マスクペイント中・スポイト中は無効。
-            if (!maskView.maskPaintActive && !eyedropperArmed)
+            // 連続領域モードの任意シード入力(Shift+クリック)。マスクペイント中・スポイト中・AI 提案中は無効。
+            if (!maskView.maskPaintActive && !eyedropperArmed && !aiSuggestArmed)
                 HandleFloodFillSeedInput(activePreviewRect);
 
             if (maskView.maskFoldout && maskView.maskPaintActive)
                 HandlePreviewPaintInput(activePreviewRect);
+            else if (aiSuggestArmed && !eyedropperArmed)
+                HandleAiSuggestInput(activePreviewRect, srcW, srcH);
             // パンはズーム>1 に限らず「画像がビューポートに収まっていない」とき常に許可する。
             // 動的高さ調整により等倍(100%)以下でも縦がはみ出すことがあり、そのとき
             // ズーム率だけで判定するとスクロールバー以外に位置を動かす手段がなくなる。
