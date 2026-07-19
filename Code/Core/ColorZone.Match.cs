@@ -238,7 +238,7 @@ namespace Iroca
                 if (sc.sS > ChromaGateActivateSat)
                 {
                     float gateWeight = Mathf.Clamp01(sc.sV / GrayModeDarkSampleValue);
-                    float satFloor = sc.sS * ChromaGateFloorFrac;
+                    float satFloor = Mathf.Min(sc.sS * ChromaGateFloorFrac, ChromaGateFloorCap);
                     float shortfall = Mathf.Clamp01((satFloor - pS) / Mathf.Max(satFloor, 1e-4f));
                     effectiveDist += shortfall * ChromaGatePenalty * _cTolerance * gateWeight;
                 }
