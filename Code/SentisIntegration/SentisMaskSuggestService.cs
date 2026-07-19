@@ -278,9 +278,11 @@ namespace Iroca.SentisIntegration
             }
 
             int w = _texW, h = _texH;
+            var px = _sourcePixels;
             _postJob ??= new PreviewJob<SamMaskPostprocess.Result>();
             _postJob.Schedule(
-                ct => SamMaskPostprocess.SelectAndUpscale(logits, scores, w, h),
+                ct => SamMaskPostprocess.SelectAndUpscale(
+                    logits, scores, w, h, pixelsBottomUp: px),
                 res =>
                 {
                     if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み

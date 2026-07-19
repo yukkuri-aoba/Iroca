@@ -705,6 +705,34 @@ namespace Iroca
                     return 0;
                 }
 
+                // --samops-refine <mask.raw> <image.raw RGBA> <out.raw> : 境界色スナップ単体
+                case "--samops-refine":
+                {
+                    var (mw2, mh2, mbytes2) = ReadRaw(args[1], 1);
+                    var mask2 = new bool[mw2 * mh2];
+                    for (int i = 0; i < mask2.Length; i++) mask2[i] = mbytes2[i] != 0;
+                    var (iw, ih, rgba2) = ReadRaw(args[2], 4);
+                    if (iw != mw2 || ih != mh2)
+                    {
+                        Console.Error.WriteLine("refine: mask/image size mismatch");
+                        return 2;
+                    }
+                    var px2 = new Color32[iw * ih];
+                    for (int i = 0; i < px2.Length; i++)
+                        px2[i] = new Color32(rgba2[i * 4], rgba2[i * 4 + 1], rgba2[i * 4 + 2], rgba2[i * 4 + 3]);
+                    SamMaskRefine.SnapBoundary(mask2, px2, iw, ih);
+                    using (var fs = new FileStream(args[3], FileMode.Create, FileAccess.Write))
+                    using (var bw = new BinaryWriter(fs))
+                    {
+                        bw.Write(iw); bw.Write(ih);
+                        var bytes = new byte[iw * ih];
+                        for (int i = 0; i < bytes.Length; i++) bytes[i] = mask2[i] ? (byte)1 : (byte)0;
+                        bw.Write(bytes);
+                    }
+                    Console.WriteLine($"REFINE OK {iw}x{ih}");
+                    return 0;
+                }
+
                 // --samops-rle <mask.raw> <encoded.txt> : エンコード文字列を書き出し、往復一致を自己検証
                 case "--samops-rle":
                 {

@@ -37,9 +37,12 @@ namespace Iroca
 
         /// <summary>
         /// logits: [4,256,256] 平坦配列(上原点・パディング込みキャンバス空間)。scores: [4]。
+        /// pixelsBottomUp を渡すと、拡大後に境界色スナップ(SamMaskRefine)で低解像度由来の
+        /// 階段状はみ出しを実テクスチャの色エッジへ吸着させる。
         /// </summary>
         public static Result SelectAndUpscale(float[] logits, float[] scores, int texW, int texH,
-                                              float floodRejectFrac = DefaultFloodRejectFrac)
+                                              float floodRejectFrac = DefaultFloodRejectFrac,
+                                              Color32[] pixelsBottomUp = null)
         {
             SamImageOps.GetResizedSize(texW, texH, out int newW, out int newH);
             // 低解像度空間での有効域(パディング除去相当)。1024→256 は 1/4。
@@ -80,9 +83,12 @@ namespace Iroca
                 for (int c = 2; c < 4; c++) if (area[c] < area[chosen]) chosen = c;
             }
 
+            var mask = UpscaleChannel(logits, chosen, texW, texH, newW, newH);
+            if (pixelsBottomUp != null)
+                SamMaskRefine.SnapBoundary(mask, pixelsBottomUp, texW, texH);
             return new Result
             {
-                maskBottomUp = UpscaleChannel(logits, chosen, texW, texH, newW, newH),
+                maskBottomUp = mask,
                 channel = chosen,
                 score = scores[chosen],
                 areaFrac = area[chosen],
