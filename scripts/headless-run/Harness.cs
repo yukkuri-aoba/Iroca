@@ -151,6 +151,11 @@ namespace Iroca
             if (args.Length >= 1 && args[0] == "--previewselftest")
                 return RunPreviewSelfTest();
 
+            // --samops-*: AI マスク提案の純計算層(SamImageOps/SamCoordMapper/SamMaskPostprocess/
+            // MaskRle)を実 C# で駆動し、pytest の NumPy リファレンスと突き合わせる決定的検証モード。
+            if (args.Length >= 1 && args[0].StartsWith("--samops-", StringComparison.Ordinal))
+                return RunSamOps(args);
+
             if (args.Length < 3)
             {
                 Console.Error.WriteLine("usage: Harness <in.raw RGBA> <mask.raw 1=exclude> <out.raw RGBA> "
@@ -634,6 +639,106 @@ namespace Iroca
             Console.Error.WriteLine(
                 $"SELCACHE populate_diff={dPopulate} hit_vs_fresh={dHit} miss_vs_fresh={dMiss} "
                 + $"hitMs={sw.Elapsed.TotalMilliseconds:F1} freshMs={swf.Elapsed.TotalMilliseconds:F1}");
+        }
+
+        // ─── AI マスク提案の純計算層検証(--samops-*) ───
+        // raw 規約: 画像 [int32 w][int32 h][RGBA w*h*4](行 0 = 画像下端 = GetPixels32 順)、
+        //           マスク [int32 w][int32 h][bytes w*h](行 0 = 下端、非 0 = true)。
+        // 浮動小数バイナリは float32 LE。数値の書式は InvariantCulture。
+        private static int RunSamOps(string[] args)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            switch (args[0])
+            {
+                // --samops-encinput <in.raw RGBA> <out.bin>
+                // 出力: [int32 newW][int32 newH] + float32[3*1024*1024] CHW(正規化・パディング済み)
+                case "--samops-encinput":
+                {
+                    var (w, h, rgba) = ReadRaw(args[1], 4);
+                    var pixels = new Color32[w * h];
+                    for (int i = 0; i < pixels.Length; i++)
+                        pixels[i] = new Color32(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2], rgba[i * 4 + 3]);
+                    float[] chw = SamImageOps.BuildEncoderInput(pixels, w, h);
+                    SamImageOps.GetResizedSize(w, h, out int newW, out int newH);
+                    using (var fs = new FileStream(args[2], FileMode.Create, FileAccess.Write))
+                    using (var bw = new BinaryWriter(fs))
+                    {
+                        bw.Write(newW); bw.Write(newH);
+                        var bytes = new byte[chw.Length * 4];
+                        System.Buffer.BlockCopy(chw, 0, bytes, 0, bytes.Length);
+                        bw.Write(bytes);
+                    }
+                    Console.WriteLine($"ENCINPUT OK {w}x{h} -> {newW}x{newH}");
+                    return 0;
+                }
+
+                // --samops-coords <texW> <texH> <u> <v>
+                case "--samops-coords":
+                {
+                    int w = int.Parse(args[1], inv), h = int.Parse(args[2], inv);
+                    float u = float.Parse(args[3], inv), v = float.Parse(args[4], inv);
+                    SamCoordMapper.UvTo1024(u, v, w, h, out float x, out float y);
+                    SamImageOps.GetResizedSize(w, h, out int newW, out int newH);
+                    Console.WriteLine(string.Format(inv, "COORDS {0:R} {1:R} {2} {3}", x, y, newW, newH));
+                    return 0;
+                }
+
+                // --samops-post <texW> <texH> <floodFrac> <logits.bin f32[4*256*256]> <scores.bin f32[4]> <out.raw>
+                case "--samops-post":
+                {
+                    int w = int.Parse(args[1], inv), h = int.Parse(args[2], inv);
+                    float frac = float.Parse(args[3], inv);
+                    float[] logits = ReadF32(args[4], 4 * 256 * 256);
+                    float[] scores = ReadF32(args[5], 4);
+                    var res = SamMaskPostprocess.SelectAndUpscale(logits, scores, w, h, frac);
+                    using (var fs = new FileStream(args[6], FileMode.Create, FileAccess.Write))
+                    using (var bw = new BinaryWriter(fs))
+                    {
+                        bw.Write(w); bw.Write(h);
+                        var bytes = new byte[w * h];
+                        for (int i = 0; i < bytes.Length; i++) bytes[i] = res.maskBottomUp[i] ? (byte)1 : (byte)0;
+                        bw.Write(bytes);
+                    }
+                    Console.WriteLine(string.Format(inv,
+                        "POST channel={0} score={1:R} area={2:R} warn={3}",
+                        res.channel, res.score, res.areaFrac, res.floodWarning ? 1 : 0));
+                    return 0;
+                }
+
+                // --samops-rle <mask.raw> <encoded.txt> : エンコード文字列を書き出し、往復一致を自己検証
+                case "--samops-rle":
+                {
+                    var (w, h, mbytes) = ReadRaw(args[1], 1);
+                    var mask = new bool[w * h];
+                    for (int i = 0; i < mask.Length; i++) mask[i] = mbytes[i] != 0;
+                    string encoded = MaskRle.Encode(mask, w, h);
+                    File.WriteAllText(args[2], encoded);
+                    bool[] back = MaskRle.Decode(encoded, out int dw, out int dh);
+                    if (back == null || dw != w || dh != h)
+                    {
+                        Console.Error.WriteLine("RLE FAIL decode");
+                        return 1;
+                    }
+                    for (int i = 0; i < mask.Length; i++)
+                        if (mask[i] != back[i]) { Console.Error.WriteLine($"RLE FAIL at {i}"); return 1; }
+                    Console.WriteLine($"RLE OK {w}x{h} len={encoded.Length}");
+                    return 0;
+                }
+
+                default:
+                    Console.Error.WriteLine($"unknown samops mode: {args[0]}");
+                    return 2;
+            }
+        }
+
+        private static float[] ReadF32(string path, int expected)
+        {
+            var bytes = File.ReadAllBytes(path);
+            if (bytes.Length != expected * 4)
+                throw new InvalidDataException($"{path}: {bytes.Length} bytes != {expected * 4}");
+            var floats = new float[expected];
+            System.Buffer.BlockCopy(bytes, 0, floats, 0, bytes.Length);
+            return floats;
         }
     }
 }
