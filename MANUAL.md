@@ -15,6 +15,7 @@
 - [編集モード（通常・上級）](#編集モード通常上級)
 - [プレビュー機能](#プレビュー機能)
 - [除外マスク](#除外マスク)
+- [AI マスク提案（実験的機能）](#ai-マスク提案実験的機能)
 - [プリセット](#プリセット)
 - [エクスポート](#エクスポート)
 - [トラブルシューティング](#トラブルシューティング)
@@ -308,6 +309,39 @@ Read/Write Enabled が無効なテクスチャを選ぶと、ウィンドウに�
 
 ---
 
+### AI マスク提案（実験的機能）
+
+プレビュー上のパーツをクリックすると、AI（MobileSAM）がそのパーツの領域を推定して提案します。提案を積み上げて、まとめて除外マスクに変換できます。手描きでパーツを囲む手間を大幅に減らせます。
+
+#### 必要なもの（任意インストール）
+
+この機能は追加セットアップをした場合のみ表示されます。不要ならセットアップしなければ、従来と完全に同じ動作です。
+
+1. **Unity Sentis パッケージ**: Package Manager → 左上の「+」→「Add package by name...」→ `com.unity.sentis` を入力（バージョン `2.1.3`）。
+2. **AI モデル（2 ファイル・合計約 45MB）**: 除外マスク欄の「AI マスク提案」→「モデルをダウンロード」を押すと自動で配置されます（sha256 検証つき）。手動の場合は配布ページから 2 つの `.onnx` をダウンロードし、「モデルフォルダを開く」で開いたフォルダ（`UserSettings/Iroca/Models/`）へ置いてください。
+
+#### 使い方
+
+1. 除外マスク欄の「AI 提案を開始」を押します（ブラシペイントとは排他です）。
+2. プレビュー上で、選びたいパーツの内側をクリックします。初回クリック時は画像の解析（数秒）が入ります。
+3. 提案領域が水色で表示されます。良ければ「この領域を追加」、外れなら「やり直し」か別の場所をクリックします。
+4. 追加した領域は緑色で積み上がります。パーツが複数の島に分かれている場合は、まだ緑になっていない島を順にクリックして追加していきます。
+5. 悪い提案を追加してしまったら「1つ戻す」で取り消せます。
+6. そろったら「選択を除外に追加」（選んだ部分を変更対象から外す）か「選択以外を除外に追加」（選んだパーツだけを色替え対象にする）で確定します。
+7. 確定後は通常のマスクなので、ブラシでの微修正や Ctrl+Z、ファイル保存はいつも通りです。
+
+#### 苦手なケース
+
+- 白背景に白いパーツなど、見た目の境界が無い場合は正しく提案できません。手描きマスクを使ってください。
+- 数十個の小さなピースに分かれたパーツはクリック回数が多くなります。大きな塊だけ AI で選び、残りをブラシで足すのが早道です。
+- 「提案が背景まで広がっている可能性があります」と警告が出たら、追加せずにパーツのより内側をクリックし直すのがおすすめです。
+
+#### クレジット / ライセンス
+
+この機能は [MobileSAM](https://github.com/ChaoningZhang/MobileSAM)（Apache License 2.0）を ONNX 形式に変換して使用しています。モデルの著作権は原作者に帰属します。詳細は配布ページの NOTICE ファイルを参照してください。
+
+---
+
 ### プリセット
 
 カラーゾーンと加工設定をプリセットとして保存・読み込みできます。
@@ -438,6 +472,7 @@ OFF にすると、元のテクスチャファイルを上書きします。上�
 - [Edit Mode (Normal / Advanced)](#edit-mode-normal--advanced)
 - [Preview](#preview)
 - [Exclusion Mask](#exclusion-mask)
+- [AI Mask Suggestion (Experimental)](#ai-mask-suggestion-experimental)
 - [Presets](#presets)
 - [Export](#export)
 - [Troubleshooting](#troubleshooting)
@@ -712,6 +747,39 @@ Brush size ranges from 1 to 64.
 
 - Ctrl+Z: undoes the last stroke (integrated with Unity's standard Undo; the "Undo Mask" button does the same).
 - Clear Mask: removes the entire mask for the currently selected target.
+
+---
+
+### AI Mask Suggestion (Experimental)
+
+Click a part on the preview and the AI (MobileSAM) proposes that part's region. Accept proposals to accumulate a selection, then convert it into the exclusion mask in one step — a big time-saver over painting parts by hand.
+
+#### Requirements (optional install)
+
+This feature only appears after the extra setup below. Without it, the tool behaves exactly as before.
+
+1. **Unity Sentis package**: Package Manager → "+" → "Add package by name..." → enter `com.unity.sentis` (version `2.1.3`).
+2. **AI models (2 files, ~45MB total)**: In the Exclusion Mask panel, open "AI Mask Suggestion" and press "Download models" (with sha256 verification). To install manually, download the two `.onnx` files from the distribution page and place them into the folder opened by "Open model folder" (`UserSettings/Iroca/Models/`).
+
+#### How to use
+
+1. Press "Start AI Suggestion" in the Exclusion Mask panel (mutually exclusive with brush painting).
+2. Click inside the part you want to select on the preview. The first click triggers image analysis (a few seconds).
+3. The proposed region is shown in cyan. Press "Add this region" if it looks right, or "Retry" / click elsewhere if not.
+4. Accepted regions accumulate in green. If the part is split into multiple islands, click the islands that are not yet green one by one.
+5. If a bad proposal got added, press "Undo last" to remove it.
+6. When done, press "Exclude selection" (protect the selection from recoloring) or "Exclude everything else" (recolor only the selected part).
+7. After committing it is a normal mask: brush touch-ups, Ctrl+Z and file persistence work as usual.
+
+#### Known limitations
+
+- Parts with no visible boundary (e.g. white pieces on a white background) cannot be proposed correctly — use hand-painted masks there.
+- Parts split into dozens of tiny pieces need many clicks; select the large chunks with AI and fill the rest with the brush.
+- If you see the "may have spread into the background" warning, click again further inside the part instead of adding.
+
+#### Credits / License
+
+This feature uses [MobileSAM](https://github.com/ChaoningZhang/MobileSAM) (Apache License 2.0) converted to ONNX. The model is copyrighted by its original authors. See the NOTICE file on the distribution page for details.
 
 ---
 
