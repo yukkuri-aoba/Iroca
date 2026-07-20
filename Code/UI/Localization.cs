@@ -514,6 +514,22 @@ namespace Iroca
         public static string AiSuggestAreaWarning => IsJapanese
             ? "提案が背景まで広がっている可能性があります。追加せず、パーツの内側をクリックし直すことをおすすめします。"
             : "The proposal may have spread into the background. Consider clicking again inside the part instead of adding it.";
+        public static string AiSuggestGranularity => IsJapanese ? "提案の粒度" : "Granularity";
+        public static string AiSuggestGranularityTooltip => IsJapanese
+            ? "AI はクリック 1 点に対して粒度の違う候補(模様・パーツ・全体)を同時に推定します\nどの候補を提案として表示するかを選びます(次のクリックから適用)"
+            : "The AI estimates candidates of different granularity (pattern / part / whole) for one click.\nChoose which candidate to show as the proposal (applies from the next click).";
+        public static string AiSuggestGranularityAuto => IsJapanese ? "自動" : "Auto";
+        public static string AiSuggestGranularityAutoTooltip => IsJapanese
+            ? "モデルの確信度が最も高い候補を採用します(標準)"
+            : "Use the candidate the model is most confident about (default).";
+        public static string AiSuggestGranularityFine => IsJapanese ? "細かい" : "Fine";
+        public static string AiSuggestGranularityFineTooltip => IsJapanese
+            ? "最も小さい候補を採用します。模様や小さなパーツ(例: バンダナの三角模様)だけを選びたいときに"
+            : "Use the smallest candidate. For selecting patterns or small pieces only.";
+        public static string AiSuggestGranularityCoarse => IsJapanese ? "大きい" : "Coarse";
+        public static string AiSuggestGranularityCoarseTooltip => IsJapanese
+            ? "最も大きい候補を採用します。パーツ全体をまとめて選びたいときに"
+            : "Use the largest candidate. For selecting the whole part at once.";
         public static string AiSuggestHintIdle => IsJapanese
             ? "プレビュー上でパーツをクリックすると領域を提案します。水色=提案中 / 緑=追加済み"
             : "Click a part on the preview to get a region proposal. Cyan = proposed, green = accepted";

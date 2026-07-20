@@ -65,7 +65,7 @@ namespace Iroca
         void SetSource(string cacheKey, Color32[] pixelsBottomUp, int width, int height);
 
         /// <summary>プレビュー UV(下原点)のクリックに対する提案を要求する。</summary>
-        void RequestProposal(float u, float v);
+        void RequestProposal(float u, float v, MaskSuggestGranularity granularity);
 
         /// <summary>ProposalReady の提案を取り出す(取り出すと Idle に戻る)。</summary>
         bool TryTakeProposal(out MaskSuggestProposal proposal);
