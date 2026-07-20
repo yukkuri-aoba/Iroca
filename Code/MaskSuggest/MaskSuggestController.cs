@@ -207,14 +207,24 @@ namespace Iroca
 
         // ─────────────────────── オーバーレイ ───────────────────────
 
-        static readonly Color32 PendingColor = new Color32(80, 200, 255, 110);   // 提案(未採用)
-        static readonly Color32 AcceptedColor = new Color32(80, 230, 140, 80);   // 採用済み和集合
+        // 提案・採用済みのオーバーレイ色は「確定先の実マスク」と同じ色相にする(共通=赤/ゾーン=ゾーン色)。
+        // 手描きマスクと別色(旧: 水色/緑)だと「これは別物?」と混乱し、確定で色が変わって戸惑うため。
+        // 採用済み和集合 = 確定後のマスクと同じ見た目(同アルファ)。表示中の提案 = 同色をやや強調(高アルファ)
+        // して「今レビュー中の 1 ピース」を区別する。
+        static Color32 WithAlpha(Color32 c, int a) { c.a = (byte)Mathf.Clamp(a, 0, 255); return c; }
 
         /// <summary>必要ならオーバーレイテクスチャを組み直す(メインスレッド・毎 GUI 呼び出し可)。</summary>
         public void UpdateOverlayIfNeeded()
         {
             if (!_overlayDirty) return;
             _overlayDirty = false;
+
+            // 確定先マスクの色に追従(編集対象=共通なら赤、ゾーンならそのゾーン色)。
+            Color32 maskColor = _maskView != null
+                ? _maskView.ActiveMaskOverlayColor()
+                : new Color32(255, 60, 60, 80);
+            Color32 acceptedColor = maskColor;                              // 確定後と同じ見た目
+            Color32 pendingColor = WithAlpha(maskColor, maskColor.a + 120); // 提案中は強調
 
             bool hasPending = _pending != null;
             bool hasUnion = HasUnion;
@@ -270,14 +280,14 @@ namespace Iroca
                     }
                     if (nPending > 0)
                     {
-                        var c = PendingColor;
-                        c.a = (byte)Mathf.Clamp(Mathf.RoundToInt(c.a * nPending / (float)total), 1, c.a);
+                        var c = pendingColor;
+                        c.a = (byte)Mathf.Clamp(Mathf.RoundToInt(pendingColor.a * nPending / (float)total), 1, pendingColor.a);
                         px[dstRow + x] = c;
                     }
                     else if (nUnion > 0)
                     {
-                        var c = AcceptedColor;
-                        c.a = (byte)Mathf.Clamp(Mathf.RoundToInt(c.a * nUnion / (float)total), 1, c.a);
+                        var c = acceptedColor;
+                        c.a = (byte)Mathf.Clamp(Mathf.RoundToInt(acceptedColor.a * nUnion / (float)total), 1, acceptedColor.a);
                         px[dstRow + x] = c;
                     }
                     else px[dstRow + x] = clear;

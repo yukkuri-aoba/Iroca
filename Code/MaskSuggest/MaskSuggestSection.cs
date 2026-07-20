@@ -36,7 +36,7 @@ namespace Iroca
             if (!ctl.Active)
             {
                 // 非アクティブでも積み上げが残っていれば操作は出す(誤ってモードを閉じた場合の救済)
-                DrawAccumulationControls(ctl);
+                DrawAccumulationControls(host, maskView, ctl);
                 ctl.UpdateOverlayIfNeeded();
                 return;
             }
@@ -131,16 +131,34 @@ namespace Iroca
                 EditorGUILayout.EndHorizontal();
             }
 
-            DrawAccumulationControls(ctl);
+            DrawAccumulationControls(host, maskView, ctl);
             ctl.UpdateOverlayIfNeeded();
         }
 
-        static void DrawAccumulationControls(MaskSuggestController ctl)
+        static void DrawAccumulationControls(IrocaWindow host, MaskPaintView maskView, MaskSuggestController ctl)
         {
             if (!ctl.HasUnion) return;
             EditorGUILayout.LabelField(
                 string.Format(Localization.AiSuggestPiecesFormat, ctl.AcceptedCount),
                 EditorStyles.miniLabel);
+
+            // 確定先マスク(共通 or ゾーン)を明示する。編集対象が想定と違うゾーンだと
+            // 「確定しても対象ゾーンに効かず変化なし」に見えるため、取り違えを防ぐ。
+            var zones = host.Session?.zones;
+            int t = maskView.activeMaskTarget;
+            string target = (t >= 0 && zones != null && t < zones.Count)
+                ? (string.IsNullOrEmpty(zones[t].name) ? Localization.UnnamedZone : zones[t].name)
+                : Localization.MaskTargetCommon;
+            EditorGUILayout.LabelField(
+                string.Format(Localization.AiSuggestCommitTargetFormat, target),
+                EditorStyles.miniLabel);
+
+            // マスクは色ゾーンの色替え範囲を制限する機能。有効な色ゾーンが無いと確定しても
+            // 出力は変わらない(=「反映されない」の主因の一つ)。ここで先に気づけるようにする。
+            bool anyEnabledZone = zones != null && zones.Exists(z => z != null && z.enabled);
+            if (!anyEnabledZone)
+                EditorGUILayout.HelpBox(Localization.AiSuggestNoZoneWarning, MessageType.Warning);
+
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button(new GUIContent(Localization.AiSuggestUndoPiece,
                                                 Localization.AiSuggestUndoPieceTooltip)))
