@@ -471,8 +471,8 @@ namespace Iroca
             : "Click a part on the preview and the AI proposes that part's region.\nAccept proposals to accumulate a selection, then commit it to the exclusion mask.\nMutually exclusive with brush painting; starting this exits paint mode.";
         public static string AiSuggestAccept => IsJapanese ? "この領域を追加" : "Add this region";
         public static string AiSuggestAcceptTooltip => IsJapanese
-            ? "表示中の提案（水色）を選択に追加します\n続けて別のピースをクリックすると選択を積み上げられます"
-            : "Add the shown proposal (cyan) to the selection.\nClick another piece to keep accumulating.";
+            ? "表示中の提案（濃い色）を選択に追加します\n続けて別のピースをクリックすると選択を積み上げられます\n色は確定先マスクと同じ（共通=赤／ゾーン=そのゾーン色）です"
+            : "Add the shown proposal (brighter) to the selection.\nClick another piece to keep accumulating.\nThe color matches the target mask (common = red / zone = its color).";
         public static string AiSuggestRetry => IsJapanese ? "やり直し" : "Retry";
         public static string AiSuggestRetryTooltip => IsJapanese
             ? "表示中の提案を破棄します（別の場所をクリックしても取り直せます）"
@@ -483,16 +483,17 @@ namespace Iroca
             : "Remove the last accepted proposal from the selection.\n(Use this if a bad proposal got mixed in.)";
         public static string AiSuggestClear => IsJapanese ? "選択をクリア" : "Clear selection";
         public static string AiSuggestClearTooltip => IsJapanese
-            ? "積み上げた選択（緑）と表示中の提案をすべて破棄します（既存のマスクは変わりません）"
-            : "Discard the accumulated selection (green) and any shown proposal. The existing mask is unchanged.";
-        public static string AiSuggestCommitExclude => IsJapanese ? "選択を除外に追加" : "Exclude selection";
+            ? "積み上げた選択と表示中の提案をすべて破棄します（既存のマスクは変わりません）"
+            : "Discard the accumulated selection and any shown proposal. The existing mask is unchanged.";
+        // 意図ベースのラベル（除外マスクは「色替えしない範囲」なので、機構でなく結果で説明する）。
+        public static string AiSuggestCommitExclude => IsJapanese ? "選択部分を色替えしない" : "Protect selection";
         public static string AiSuggestCommitExcludeTooltip => IsJapanese
-            ? "積み上げた選択（緑）を現在の編集対象の除外マスクへ追加します\n確定後は通常のマスクとしてブラシ修正・Ctrl+Z できます"
-            : "Add the accumulated selection (green) to the current target's exclusion mask.\nAfter commit it behaves as a normal mask (brush edit / Ctrl+Z).";
-        public static string AiSuggestCommitKeep => IsJapanese ? "選択以外を除外に追加" : "Exclude everything else";
+            ? "積み上げた選択を、現在の編集対象の除外マスク（＝色替えしない範囲）へ追加します\n選択したパーツを色替えから守りたいときに使います\n※マスクは色ゾーンの色替え範囲を制限する機能です。色ゾーンが無いと見た目は変わりません\n確定後は通常のマスクとしてブラシ修正・Ctrl+Z できます"
+            : "Add the accumulated selection to the exclusion mask (the 'do-not-recolor' area) of the current target.\nUse this to protect the selected part from recoloring.\nNote: masks only constrain color zones — with no color zone, the output does not change.\nAfter commit it behaves as a normal mask (brush edit / Ctrl+Z).";
+        public static string AiSuggestCommitKeep => IsJapanese ? "選択部分だけ色替え" : "Recolor only selection";
         public static string AiSuggestCommitKeepTooltip => IsJapanese
-            ? "積み上げた選択（緑）「以外」を現在の編集対象の除外マスクへ追加します\n「このパーツだけ色替えしたい」ときに使います\n確定後は通常のマスクとしてブラシ修正・Ctrl+Z できます"
-            : "Add everything OUTSIDE the accumulated selection (green) to the exclusion mask.\nUse this to recolor only the selected part.\nAfter commit it behaves as a normal mask (brush edit / Ctrl+Z).";
+            ? "積み上げた選択「以外」を除外マスクへ追加します（＝選択したパーツだけ色替え対象に残す）\n「このパーツだけ色替えしたい」ときに使います\n※マスクは色ゾーンの色替え範囲を制限する機能です。色ゾーンが無いと見た目は変わりません\n確定後は通常のマスクとしてブラシ修正・Ctrl+Z できます"
+            : "Add everything OUTSIDE the accumulated selection to the exclusion mask (keeping only the selection recolorable).\nUse this to recolor only the selected part.\nNote: masks only constrain color zones — with no color zone, the output does not change.\nAfter commit it behaves as a normal mask (brush edit / Ctrl+Z).";
         public static string AiSuggestLoadingModel => IsJapanese ? "モデルを読み込み中..." : "Loading model...";
         public static string AiSuggestEncoding => IsJapanese ? "画像を解析中..." : "Analyzing image...";
         public static string AiSuggestDecoding => IsJapanese ? "提案を生成中..." : "Generating proposal...";
@@ -531,9 +532,14 @@ namespace Iroca
             ? "最も大きい候補を採用します。パーツ全体をまとめて選びたいときに"
             : "Use the largest candidate. For selecting the whole part at once.";
         public static string AiSuggestHintIdle => IsJapanese
-            ? "プレビュー上でパーツをクリックすると領域を提案します。水色=提案中 / 緑=追加済み"
-            : "Click a part on the preview to get a region proposal. Cyan = proposed, green = accepted";
+            ? "プレビュー上でパーツをクリックすると領域を提案します。オーバーレイの色は確定先マスクと同じ（提案中は濃く、追加済みは薄く表示）"
+            : "Click a part on the preview to get a region proposal. The overlay color matches the target mask (proposal = brighter, accepted = dimmer).";
         public static string AiSuggestPiecesFormat => IsJapanese ? "追加済み: {0} 個" : "Accepted: {0}";
+        public static string AiSuggestCommitTargetFormat => IsJapanese
+            ? "確定先: {0}" : "Commit to: {0}";
+        public static string AiSuggestNoZoneWarning => IsJapanese
+            ? "色ゾーンがありません。マスクは色ゾーンの色替え範囲を制限する機能なので、確定してもプレビュー／エクスポートの見た目は変わりません。まず色替えする色ゾーンを追加してください。"
+            : "No color zone exists. A mask only limits where color zones recolor, so committing will not change the preview/export. Add a color zone to recolor first.";
 
         // ─── Per-Zone Mask strings ───
         public static string MaskTarget => IsJapanese ? "編集対象" : "Edit Target";

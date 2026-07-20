@@ -507,6 +507,19 @@ namespace Iroca
         }
 
         /// <summary>
+        /// 現在の編集対象マスク(共通=赤 / ゾーン=ゾーン色)のオーバーレイ色を返す。
+        /// AI 提案のオーバーレイを実マスクと同色に揃えるために公開する
+        /// (提案→確定でマスクの見た目が変わらず「同じマスクになる」ことを示すため)。
+        /// </summary>
+        public Color32 ActiveMaskOverlayColor()
+        {
+            var zones = _host.Session.zones;
+            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
+                return ExcludedOverlayColor;
+            return OverlayColorForZone(activeMaskTarget);
+        }
+
+        /// <summary>
         /// 現在の編集対象マスクに対応するオーバーレイテクスチャと塗り色を返す。
         /// (共通=maskOverlayTexture/赤、ゾーン=zoneMaskOverlayTexture/ゾーン色)
         /// </summary>
