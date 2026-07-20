@@ -23,6 +23,9 @@ namespace Iroca.SentisIntegration
     internal sealed class SentisMaskSuggestService : IMaskSuggestService
     {
         const int EmbeddingCacheCapacity = 2;
+        // クロップ埋め込み(ズームイン再推論用)。1 件 4.2MB × 4 = 約 17MB。
+        // 近接クリックは SamZoomOps の矩形グリッドスナップで同一キーに揃う。
+        const int CropEmbeddingCacheCapacity = 4;
         const int EmbeddingLength = 1 * 256 * 64 * 64;
 
         // ─── モデル/ワーカー ───
@@ -49,12 +52,30 @@ namespace Iroca.SentisIntegration
         // ─── 進行中の処理 ───
         readonly EditorIteratorPump _pump = new EditorIteratorPump();
         PreviewJob<float[]> _prepJob;
-        PreviewJob<SamMaskPostprocess.Result> _postJob;
+        PreviewJob<PostOutcome> _postJob;
         Tensor<float> _encInput;                    // pump 中だけ保持
         MaskSuggestProposal _proposal;
         bool _hasPendingClick;
         float _pendingU, _pendingV;
         MaskSuggestGranularity _pendingGranularity;
+
+        // ─── クロップ埋め込み(ズームイン再推論) ───
+        readonly Dictionary<string, float[]> _cropEmbeddingCache = new Dictionary<string, float[]>();
+        readonly List<string> _cropLruOrder = new List<string>();
+
+        /// <summary>後処理ジョブの結果。第 1 段では提案ペイロード+ズーム計画、
+        /// ズーム後処理では提案ペイロードのみ(hasCrop=false)。</summary>
+        sealed class PostOutcome
+        {
+            public bool[] mask;
+            public float score;
+            public float areaFrac;
+            public bool floodWarning;
+            // ズーム計画(hasCrop=true のときのみ有効。下原点矩形)
+            public bool hasCrop;
+            public int cropX0, cropY0, cropSide;
+            public Color32[] cropPixels;
+        }
 
         public SentisMaskSuggestService()
         {
@@ -260,11 +281,76 @@ namespace Iroca.SentisIntegration
         void RunDecode(float u, float v, MaskSuggestGranularity granularity)
         {
             SetPhase(MaskSuggestPhase.Decoding);
-            float[] logits, scores;
+            if (!TryRunDecoderCore(u, v, cropRect: null, out float[] logits, out float[] scores,
+                                   out Exception decErr))
+            {
+                SetPhase(MaskSuggestPhase.Error, error: $"提案の推論に失敗しました: {decErr.Message}");
+                return;
+            }
+
+            int w = _texW, h = _texH;
+            var px = _sourcePixels;
+            _postJob ??= new PreviewJob<PostOutcome>();
+            _postJob.Schedule(
+                ct =>
+                {
+                    var s1 = SamMaskPostprocess.SelectAndUpscale(
+                        logits, scores, w, h, pixelsBottomUp: px, granularity: granularity);
+                    var o = new PostOutcome
+                    {
+                        mask = s1.maskBottomUp,
+                        score = s1.score,
+                        areaFrac = s1.areaFrac,
+                        floodWarning = s1.floodWarning,
+                    };
+                    // ズームイン再推論の判定: クリック成分が小さい(=256²ロジットで形状表現
+                    // できない)場合のみ、クリック周辺クロップの再推論計画を積む。
+                    int cx = Mathf.Clamp((int)(u * w), 0, w - 1);
+                    int cy = Mathf.Clamp((int)(v * h), 0, h - 1); // v は下原点 → 下原点行と一致
+                    int bb = SamZoomOps.ClickComponentBBoxLong(s1.maskBottomUp, w, h, cx, cy);
+                    if (SamZoomOps.TryDeriveCropRect(bb, cx, cy, w, h,
+                                                     out int x0, out int y0, out int side))
+                    {
+                        o.hasCrop = true;
+                        o.cropX0 = x0;
+                        o.cropY0 = y0;
+                        o.cropSide = side;
+                        o.cropPixels = SamZoomOps.ExtractCrop(px, w, h, x0, y0, side);
+                    }
+                    return o;
+                },
+                o =>
+                {
+                    if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み
+                    if (o.hasCrop) StartZoomStage(o, u, v, granularity);
+                    else DeliverProposal(o);
+                },
+                e => SetPhase(MaskSuggestPhase.Error, error: $"提案の生成に失敗しました: {e.Message}"));
+        }
+
+        /// <summary>デコーダ同期実行(数十 ms)。cropRect が null なら全体埋め込み+全体座標系、
+        /// 指定ありなら渡されたクロップ埋め込み+クロップ座標系で推論する。</summary>
+        bool TryRunDecoderCore(float u, float v, (int x0, int y0, int side, float[] emb)? cropRect,
+                               out float[] logits, out float[] scores, out Exception error)
+        {
+            logits = scores = null;
+            error = null;
             try
             {
-                SamCoordMapper.UvTo1024(u, v, _texW, _texH, out float x, out float y);
-                using var emb = new Tensor<float>(new TensorShape(1, 256, 64, 64), _embedding);
+                float x, y;
+                float[] embedding;
+                if (cropRect.HasValue)
+                {
+                    var c = cropRect.Value;
+                    SamCoordMapper.UvToCrop1024(u, v, _texW, _texH, c.x0, c.y0, c.side, out x, out y);
+                    embedding = c.emb;
+                }
+                else
+                {
+                    SamCoordMapper.UvTo1024(u, v, _texW, _texH, out x, out y);
+                    embedding = _embedding;
+                }
+                using var emb = new Tensor<float>(new TensorShape(1, 256, 64, 64), embedding);
                 using var pts = new Tensor<float>(new TensorShape(1, 2, 2), new[] { x, y, 0f, 0f });
                 using var lbl = new Tensor<float>(new TensorShape(1, 2), new[] { 1f, -1f });
                 _decoder.Schedule(emb, pts, lbl);
@@ -272,41 +358,168 @@ namespace Iroca.SentisIntegration
                 using var sc = (_decoder.PeekOutput("iou_predictions") as Tensor<float>).ReadbackAndClone();
                 logits = lo.DownloadToArray();
                 scores = sc.DownloadToArray();
+                return true;
             }
             catch (Exception e)
             {
-                SetPhase(MaskSuggestPhase.Error, error: $"提案の推論に失敗しました: {e.Message}");
+                error = e;
+                return false;
+            }
+        }
+
+        /// <summary>提案を確定し、保留クリックがあれば取り直す。</summary>
+        void DeliverProposal(PostOutcome o)
+        {
+            _proposal = new MaskSuggestProposal
+            {
+                maskBottomUp = o.mask,
+                width = _texW,
+                height = _texH,
+                score = o.score,
+                areaFrac = o.areaFrac,
+                floodWarning = o.floodWarning,
+            };
+            if (_hasPendingClick)
+            {
+                // 提案表示前に次クリックが来ていたら差し替え(取り直し)
+                _hasPendingClick = false;
+                RunDecode(_pendingU, _pendingV, _pendingGranularity);
                 return;
             }
+            SetPhase(MaskSuggestPhase.ProposalReady);
+        }
 
-            int w = _texW, h = _texH;
-            var px = _sourcePixels;
-            _postJob ??= new PreviewJob<SamMaskPostprocess.Result>();
-            _postJob.Schedule(
-                ct => SamMaskPostprocess.SelectAndUpscale(
-                    logits, scores, w, h, pixelsBottomUp: px, granularity: granularity),
-                res =>
+        // ───────────────────────── ズームイン再推論(第 2 段) ─────────────────────────
+        // 小パーツはクリック周辺クロップを再エンコード・再デコードして実効解像度を上げる
+        // (計測: dev_safe/ml/zoom_infer_spike2.py。バンダナ三角 IoU 0.04-0.10 → 0.94-0.97)。
+        // 失敗時は第 1 段の提案へグレースフルに退避し、エラー状態にはしない。
+
+        void StartZoomStage(PostOutcome plan, float u, float v, MaskSuggestGranularity granularity)
+        {
+            string key = $"{_sourceKey}|{plan.cropX0},{plan.cropY0},{plan.cropSide}";
+            if (_cropEmbeddingCache.TryGetValue(key, out var cached))
+            {
+                TouchCropLru(key);
+                RunZoomDecode(cached, plan, u, v, granularity);
+                return;
+            }
+            var cropPx = plan.cropPixels;
+            int side = plan.cropSide;
+            _prepJob ??= new PreviewJob<float[]>();
+            _prepJob.Schedule(
+                ct => SamImageOps.BuildEncoderInput(cropPx, side, side),
+                chw => StartZoomEncoderPump(chw, key, plan, u, v, granularity),
+                e => FallbackToStage1(plan, e));
+        }
+
+        void StartZoomEncoderPump(float[] chw, string key, PostOutcome plan,
+                                  float u, float v, MaskSuggestGranularity granularity)
+        {
+            if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み
+            try
+            {
+                _encInput = new Tensor<float>(
+                    new TensorShape(1, 3, SamImageOps.InputSize, SamImageOps.InputSize), chw);
+                var it = _encoder.ScheduleIterable(_encInput);
+                int total = _encoderModel.layers != null ? _encoderModel.layers.Count : 0;
+                _pump.Start(it, total,
+                    onDone: () => FinishZoomEncode(key, plan, u, v, granularity),
+                    onError: e => { DisposeEncInput(); FallbackToStage1(plan, e); },
+                    onProgress: p => { _progress = p; StateChanged?.Invoke(); });
+            }
+            catch (Exception e)
+            {
+                DisposeEncInput();
+                FallbackToStage1(plan, e);
+            }
+        }
+
+        void FinishZoomEncode(string key, PostOutcome plan,
+                              float u, float v, MaskSuggestGranularity granularity)
+        {
+            float[] emb;
+            try
+            {
+                using (var output = (_encoder.PeekOutput() as Tensor<float>).ReadbackAndClone())
                 {
-                    if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み
-                    _proposal = new MaskSuggestProposal
+                    emb = output.DownloadToArray();
+                }
+                DisposeEncInput();
+                if (emb == null || emb.Length != EmbeddingLength)
+                    throw new InvalidOperationException(
+                        $"クロップ埋め込みサイズが不正です: {emb?.Length ?? 0}");
+            }
+            catch (Exception e)
+            {
+                DisposeEncInput();
+                FallbackToStage1(plan, e);
+                return;
+            }
+            CacheCropEmbedding(key, emb);
+            RunZoomDecode(emb, plan, u, v, granularity);
+        }
+
+        void RunZoomDecode(float[] cropEmbedding, PostOutcome plan,
+                           float u, float v, MaskSuggestGranularity granularity)
+        {
+            if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み
+            if (!TryRunDecoderCore(u, v, (plan.cropX0, plan.cropY0, plan.cropSide, cropEmbedding),
+                                   out float[] logits, out float[] scores, out Exception decErr))
+            {
+                FallbackToStage1(plan, decErr);
+                return;
+            }
+            int w = _texW, h = _texH;
+            int x0 = plan.cropX0, y0 = plan.cropY0, side = plan.cropSide;
+            var cropPx = plan.cropPixels;
+            _postJob.Schedule(
+                ct =>
+                {
+                    var res = SamMaskPostprocess.SelectAndUpscale(
+                        logits, scores, side, side, pixelsBottomUp: cropPx, granularity: granularity);
+                    var full = SamZoomOps.PasteCrop(res.maskBottomUp, side, w, h, x0, y0,
+                                                    out int trueCount);
+                    return new PostOutcome
                     {
-                        maskBottomUp = res.maskBottomUp,
-                        width = w,
-                        height = h,
+                        mask = full,
                         score = res.score,
-                        areaFrac = res.areaFrac,
+                        areaFrac = trueCount / (float)(w * h),
                         floodWarning = res.floodWarning,
                     };
-                    if (_hasPendingClick)
-                    {
-                        // 提案表示前に次クリックが来ていたら差し替え(取り直し)
-                        _hasPendingClick = false;
-                        RunDecode(_pendingU, _pendingV, _pendingGranularity);
-                        return;
-                    }
-                    SetPhase(MaskSuggestPhase.ProposalReady);
+                },
+                o =>
+                {
+                    if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み
+                    DeliverProposal(o);
                 },
                 e => SetPhase(MaskSuggestPhase.Error, error: $"提案の生成に失敗しました: {e.Message}"));
+        }
+
+        void FallbackToStage1(PostOutcome plan, Exception e)
+        {
+            if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み
+            if (e != null)
+                Debug.LogWarning($"[Iroca] ズームイン再推論に失敗したため全体推論の提案を表示します: {e.Message}");
+            DeliverProposal(plan);
+        }
+
+        void CacheCropEmbedding(string key, float[] embedding)
+        {
+            if (string.IsNullOrEmpty(key)) return;
+            _cropEmbeddingCache[key] = embedding;
+            TouchCropLru(key);
+            while (_cropLruOrder.Count > CropEmbeddingCacheCapacity)
+            {
+                string evict = _cropLruOrder[0];
+                _cropLruOrder.RemoveAt(0);
+                _cropEmbeddingCache.Remove(evict);
+            }
+        }
+
+        void TouchCropLru(string key)
+        {
+            _cropLruOrder.Remove(key);
+            _cropLruOrder.Add(key);
         }
 
         public bool TryTakeProposal(out MaskSuggestProposal proposal)

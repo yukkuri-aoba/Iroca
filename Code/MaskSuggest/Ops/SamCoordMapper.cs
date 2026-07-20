@@ -37,5 +37,21 @@ namespace Iroca
             UvToOrigTopDown(u, v, texW, texH, out float x, out float y);
             OrigTopDownTo1024(x, y, texW, texH, out x1024, out y1024);
         }
+
+        /// <summary>
+        /// UV(下原点) → ズームインクロップ(下原点矩形 cropX0/cropY0/side)内の 1024 空間座標。
+        /// 正方形クロップはリサイズ後ちょうど 1024×1024(パディングなし)なので
+        /// 倍率は InputSize/side の一定値。
+        /// </summary>
+        public static void UvToCrop1024(float u, float v, int texW, int texH,
+                                        int cropX0, int cropY0, int side,
+                                        out float x1024, out float y1024)
+        {
+            UvToOrigTopDown(u, v, texW, texH, out float x, out float y);
+            // クロップ上端の上原点 y = texH - (cropY0 + side)
+            float scale = SamImageOps.InputSize / (float)side;
+            x1024 = (x - cropX0) * scale;
+            y1024 = (y - (texH - cropY0 - side)) * scale;
+        }
     }
 }
