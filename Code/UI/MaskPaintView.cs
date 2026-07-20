@@ -608,47 +608,67 @@ namespace Iroca
             if (common != null && mw > 0 && mh > 0)
             {
                 result.hasCommon = true;
-                var pixels = new Color32[w * h];
-                var excluded = ExcludedOverlayColor;
-                // 行ループ化で i%w / i/w の除算を排除(my は行ごとに一定)。出力は不変。
-                for (int y = 0; y < h; y++)
-                {
-                    int my = Mathf.Clamp(y * mh / h, 0, mh - 1);
-                    int rowBase = y * w;
-                    int myBase = my * mw;
-                    for (int x = 0; x < w; x++)
-                    {
-                        int mx = Mathf.Clamp(x * mw / w, 0, mw - 1);
-                        if (common[myBase + mx]) pixels[rowBase + x] = excluded;
-                    }
-                }
+                result.commonPixels = RenderMaskCoverage(common, ExcludedOverlayColor, null, w, h, mw, mh);
                 token.ThrowIfCancellationRequested();
-                result.commonPixels = pixels;
             }
 
             if (zoneInfos != null && zoneInfos.Count > 0 && mw > 0 && mh > 0)
             {
                 result.hasZone = true;
-                var pixels = new Color32[w * h];
+                Color32[] pixels = null;
                 foreach (var (color, zm) in zoneInfos)
                 {
-                    for (int y = 0; y < h; y++)
-                    {
-                        int my = Mathf.Clamp(y * mh / h, 0, mh - 1);
-                        int rowBase = y * w;
-                        int myBase = my * mw;
-                        for (int x = 0; x < w; x++)
-                        {
-                            int mx = Mathf.Clamp(x * mw / w, 0, mw - 1);
-                            if (zm[myBase + mx]) pixels[rowBase + x] = color;
-                        }
-                    }
+                    pixels = RenderMaskCoverage(zm, color, pixels, w, h, mw, mh);
                     token.ThrowIfCancellationRequested();
                 }
                 result.zonePixels = pixels;
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// マスクをオーバーレイ解像度へ「被覆率比例アルファ」で描画する。
+        /// マスクと表示が同解像度なら被覆率は 0/1 で従来の最近傍と同一出力。
+        /// マスクの方が高解像度(例: 4096 マスク→2048 表示)のときは境界セルのアルファが
+        /// 被覆率で階調化され、実体どおりの滑らかな縁に見える(二値ブロックの偽ギザギザを防ぐ)。
+        /// accumulate 非 null 時はその配列に上書き合成して返す(ゾーン重ね描き用)。
+        /// </summary>
+        private static Color32[] RenderMaskCoverage(
+            bool[] mask, Color32 color, Color32[] accumulate, int w, int h, int mw, int mh)
+        {
+            var pixels = accumulate ?? new Color32[w * h];
+            for (int y = 0; y < h; y++)
+            {
+                int my0 = Mathf.Clamp(y * mh / h, 0, mh - 1);
+                int my1 = Mathf.Clamp((y + 1) * mh / h, my0 + 1, mh);
+                int rowBase = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    int mx0 = Mathf.Clamp(x * mw / w, 0, mw - 1);
+                    int mx1 = Mathf.Clamp((x + 1) * mw / w, mx0 + 1, mw);
+                    int count = 0;
+                    for (int my = my0; my < my1; my++)
+                    {
+                        int myBase = my * mw;
+                        for (int mx = mx0; mx < mx1; mx++)
+                            if (mask[myBase + mx]) count++;
+                    }
+                    if (count == 0) continue;
+                    int total = (my1 - my0) * (mx1 - mx0);
+                    if (count == total)
+                    {
+                        pixels[rowBase + x] = color;
+                    }
+                    else
+                    {
+                        var c = color;
+                        c.a = (byte)Mathf.Clamp(Mathf.RoundToInt(color.a * count / (float)total), 1, color.a);
+                        pixels[rowBase + x] = c;
+                    }
+                }
+            }
+            return pixels;
         }
 
         /// <summary>
