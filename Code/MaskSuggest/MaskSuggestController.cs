@@ -16,7 +16,9 @@ namespace Iroca
     /// </summary>
     internal sealed class MaskSuggestController
     {
-        const int OverlayMaxSize = 1024;
+        // 表示オーバーレイの長辺上限。マスク実体は常にフル解像度で、これは表示の量子化幅を
+        // 決めるだけ(2048 で 4096² テクスチャでも 2px 粒度。RGBA 16MB = 許容)。
+        const int OverlayMaxSize = 2048;
 
         // 未採用の提案(クリック毎に 1 つ)
         MaskSuggestProposal _pending;
