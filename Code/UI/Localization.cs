@@ -485,15 +485,11 @@ namespace Iroca
         public static string AiSuggestClearTooltip => IsJapanese
             ? "積み上げた選択と表示中の提案をすべて破棄します（既存のマスクは変わりません）"
             : "Discard the accumulated selection and any shown proposal. The existing mask is unchanged.";
-        // 意図ベースのラベル（除外マスクは「色替えしない範囲」なので、機構でなく結果で説明する）。
-        public static string AiSuggestCommitExclude => IsJapanese ? "選択部分を色替えしない" : "Protect selection";
-        public static string AiSuggestCommitExcludeTooltip => IsJapanese
+        // 確定は単一操作に一本化: 選んだ部分を除外マスク（＝色替えしない範囲）へ追加する。
+        public static string AiSuggestCommit => IsJapanese ? "確定（この部分を色替えしない）" : "Commit (protect this part)";
+        public static string AiSuggestCommitTooltip => IsJapanese
             ? "積み上げた選択を、現在の編集対象の除外マスク（＝色替えしない範囲）へ追加します\n選択したパーツを色替えから守りたいときに使います\n※マスクは色ゾーンの色替え範囲を制限する機能です。色ゾーンが無いと見た目は変わりません\n確定後は通常のマスクとしてブラシ修正・Ctrl+Z できます"
             : "Add the accumulated selection to the exclusion mask (the 'do-not-recolor' area) of the current target.\nUse this to protect the selected part from recoloring.\nNote: masks only constrain color zones — with no color zone, the output does not change.\nAfter commit it behaves as a normal mask (brush edit / Ctrl+Z).";
-        public static string AiSuggestCommitKeep => IsJapanese ? "選択部分だけ色替え" : "Recolor only selection";
-        public static string AiSuggestCommitKeepTooltip => IsJapanese
-            ? "積み上げた選択「以外」を除外マスクへ追加します（＝選択したパーツだけ色替え対象に残す）\n「このパーツだけ色替えしたい」ときに使います\n※マスクは色ゾーンの色替え範囲を制限する機能です。色ゾーンが無いと見た目は変わりません\n確定後は通常のマスクとしてブラシ修正・Ctrl+Z できます"
-            : "Add everything OUTSIDE the accumulated selection to the exclusion mask (keeping only the selection recolorable).\nUse this to recolor only the selected part.\nNote: masks only constrain color zones — with no color zone, the output does not change.\nAfter commit it behaves as a normal mask (brush edit / Ctrl+Z).";
         public static string AiSuggestLoadingModel => IsJapanese ? "モデルを読み込み中..." : "Loading model...";
         public static string AiSuggestEncoding => IsJapanese ? "画像を解析中..." : "Analyzing image...";
         public static string AiSuggestDecoding => IsJapanese ? "提案を生成中..." : "Generating proposal...";
