@@ -119,6 +119,40 @@ namespace Iroca
                     mask[i] = dIn < dOut;
                 }
             }
+
+            // AA 境界画素(地色と背景の中間色)は二値分類がどちらへ転ぶか不安定で
+            // ±1px の点状ノイズになる。帯内のみ 3x3 多数決で平滑化して点滅を除去する
+            // (帯外は不変なので形状は保たれる)。
+            MajoritySmoothBand(mask, mask0, distIn, distOut, d, w, h);
+        }
+
+        /// <summary>帯内画素を 3x3 多数決(5/9 以上)で平滑化する。読みはスナップ結果の
+        /// スナップショット、書きは mask(決定的・順序非依存)。</summary>
+        static void MajoritySmoothBand(bool[] mask, bool[] mask0, int[] distIn, int[] distOut,
+                                       int d, int w, int h)
+        {
+            var snapped = (bool[])mask.Clone();
+            for (int y = 1; y < h - 1; y++)
+            {
+                int row = y * w;
+                for (int x = 1; x < w - 1; x++)
+                {
+                    int i = row + x;
+                    bool inBand = mask0[i] ? distIn[i] <= d : distOut[i] <= d;
+                    if (!inBand) continue;
+                    int n = 0;
+                    if (snapped[i - w - 1]) n++;
+                    if (snapped[i - w]) n++;
+                    if (snapped[i - w + 1]) n++;
+                    if (snapped[i - 1]) n++;
+                    if (snapped[i]) n++;
+                    if (snapped[i + 1]) n++;
+                    if (snapped[i + w - 1]) n++;
+                    if (snapped[i + w]) n++;
+                    if (snapped[i + w + 1]) n++;
+                    mask[i] = n >= 5;
+                }
+            }
         }
 
         static double Dist2(Color32 c, long sr, long sg, long sb, long sa, int n)
