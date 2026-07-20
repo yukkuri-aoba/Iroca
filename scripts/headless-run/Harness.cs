@@ -737,6 +737,88 @@ namespace Iroca
                     return 0;
                 }
 
+                // --samops-zoomrect <mask.raw> <clickX> <clickY> : ズームイン判定
+                // (クリック成分 bbox 長辺 + クロップ矩形導出。座標は下原点)
+                case "--samops-zoomrect":
+                {
+                    var (w, h, mbytes) = ReadRaw(args[1], 1);
+                    var mask = new bool[w * h];
+                    for (int i = 0; i < mask.Length; i++) mask[i] = mbytes[i] != 0;
+                    int cx = int.Parse(args[2], inv), cy = int.Parse(args[3], inv);
+                    int bb = SamZoomOps.ClickComponentBBoxLong(mask, w, h, cx, cy);
+                    if (SamZoomOps.TryDeriveCropRect(bb, cx, cy, w, h,
+                                                     out int zx0, out int zy0, out int zside))
+                        Console.WriteLine($"ZOOMRECT bb={bb} crop={zx0},{zy0},{zside}");
+                    else
+                        Console.WriteLine($"ZOOMRECT bb={bb} NONE");
+                    return 0;
+                }
+
+                // --samops-cropcoords <texW> <texH> <u> <v> <x0> <y0> <side> : クロップ 1024 座標
+                case "--samops-cropcoords":
+                {
+                    int w = int.Parse(args[1], inv), h = int.Parse(args[2], inv);
+                    float u = float.Parse(args[3], inv), v = float.Parse(args[4], inv);
+                    int zx0 = int.Parse(args[5], inv), zy0 = int.Parse(args[6], inv);
+                    int zside = int.Parse(args[7], inv);
+                    SamCoordMapper.UvToCrop1024(u, v, w, h, zx0, zy0, zside,
+                                                out float x, out float y);
+                    Console.WriteLine(string.Format(inv, "CROPCOORDS {0:R} {1:R}", x, y));
+                    return 0;
+                }
+
+                // --samops-crop <image.raw RGBA> <x0> <y0> <side> <out.raw> : クロップ切り出し
+                case "--samops-crop":
+                {
+                    var (w, h, rgba) = ReadRaw(args[1], 4);
+                    var pixels = new Color32[w * h];
+                    for (int i = 0; i < pixels.Length; i++)
+                        pixels[i] = new Color32(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2], rgba[i * 4 + 3]);
+                    int zx0 = int.Parse(args[2], inv), zy0 = int.Parse(args[3], inv);
+                    int zside = int.Parse(args[4], inv);
+                    Color32[] crop = SamZoomOps.ExtractCrop(pixels, w, h, zx0, zy0, zside);
+                    using (var fs = new FileStream(args[5], FileMode.Create, FileAccess.Write))
+                    using (var bw = new BinaryWriter(fs))
+                    {
+                        bw.Write(zside); bw.Write(zside);
+                        var bytes = new byte[crop.Length * 4];
+                        for (int i = 0; i < crop.Length; i++)
+                        {
+                            bytes[i * 4] = crop[i].r; bytes[i * 4 + 1] = crop[i].g;
+                            bytes[i * 4 + 2] = crop[i].b; bytes[i * 4 + 3] = crop[i].a;
+                        }
+                        bw.Write(bytes);
+                    }
+                    Console.WriteLine($"CROP OK {zside}x{zside}");
+                    return 0;
+                }
+
+                // --samops-paste <cropmask.raw> <texW> <texH> <x0> <y0> <out.raw> : 貼り戻し
+                case "--samops-paste":
+                {
+                    var (cw, ch, mbytes) = ReadRaw(args[1], 1);
+                    if (cw != ch)
+                    {
+                        Console.Error.WriteLine("paste: crop mask must be square");
+                        return 2;
+                    }
+                    var cmask = new bool[cw * ch];
+                    for (int i = 0; i < cmask.Length; i++) cmask[i] = mbytes[i] != 0;
+                    int w = int.Parse(args[2], inv), h = int.Parse(args[3], inv);
+                    int zx0 = int.Parse(args[4], inv), zy0 = int.Parse(args[5], inv);
+                    bool[] full = SamZoomOps.PasteCrop(cmask, cw, w, h, zx0, zy0, out int trueCount);
+                    using (var fs = new FileStream(args[6], FileMode.Create, FileAccess.Write))
+                    using (var bw = new BinaryWriter(fs))
+                    {
+                        bw.Write(w); bw.Write(h);
+                        var bytes = new byte[w * h];
+                        for (int i = 0; i < bytes.Length; i++) bytes[i] = full[i] ? (byte)1 : (byte)0;
+                        bw.Write(bytes);
+                    }
+                    Console.WriteLine($"PASTE OK {w}x{h} count={trueCount}");
+                    return 0;
+                }
+
                 // --samops-rle <mask.raw> <encoded.txt> : エンコード文字列を書き出し、往復一致を自己検証
                 case "--samops-rle":
                 {
