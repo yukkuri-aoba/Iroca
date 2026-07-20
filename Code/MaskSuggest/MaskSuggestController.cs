@@ -156,10 +156,10 @@ namespace Iroca
 
         /// <summary>
         /// 積み上げた和集合を既存の除外マスク(編集対象に従う)へ確定する。
-        /// invert=false: 選択部分を除外に追加 / true: 選択部分「以外」を除外に追加。
+        /// 選んだ部分を除外マスク(=色替えしない範囲)へ追加する = 選択パーツを保護する。
         /// 確定後は通常のマスクとしてブラシ修正・Ctrl+Z(1 ストローク扱い)が効く。
         /// </summary>
-        public void CommitToMask(bool invert)
+        public void CommitToMask()
         {
             if (!HasUnion || _maskView == null) return;
             _maskView.EnsureMasks();
@@ -171,7 +171,7 @@ namespace Iroca
             if (mw == _unionW && mh == _unionH)
             {
                 for (int i = 0; i < mask.Length; i++)
-                    if (_union[i] != invert) mask[i] = true;
+                    if (_union[i]) mask[i] = true;
             }
             else
             {
@@ -183,7 +183,7 @@ namespace Iroca
                     for (int mx = 0; mx < mw; mx++)
                     {
                         int sx = (int)((long)mx * _unionW / mw);
-                        if (_union[srcRow + sx] != invert) mask[dstRow + mx] = true;
+                        if (_union[srcRow + sx]) mask[dstRow + mx] = true;
                     }
                 }
             }

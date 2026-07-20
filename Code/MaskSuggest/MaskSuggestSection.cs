@@ -167,14 +167,10 @@ namespace Iroca
                                                 Localization.AiSuggestClearTooltip)))
                 ctl.ClearAccumulation();
             EditorGUILayout.EndHorizontal();
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(new GUIContent(Localization.AiSuggestCommitExclude,
-                                                Localization.AiSuggestCommitExcludeTooltip)))
-                ctl.CommitToMask(invert: false);
-            if (GUILayout.Button(new GUIContent(Localization.AiSuggestCommitKeep,
-                                                Localization.AiSuggestCommitKeepTooltip)))
-                ctl.CommitToMask(invert: true);
-            EditorGUILayout.EndHorizontal();
+            // 確定は単一操作(選んだ部分を除外マスク=色替えしない範囲へ追加)。
+            if (GUILayout.Button(new GUIContent(Localization.AiSuggestCommit,
+                                                Localization.AiSuggestCommitTooltip)))
+                ctl.CommitToMask();
         }
     }
 }
