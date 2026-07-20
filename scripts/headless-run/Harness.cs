@@ -683,14 +683,18 @@ namespace Iroca
                     return 0;
                 }
 
-                // --samops-post <texW> <texH> <floodFrac> <logits.bin f32[4*256*256]> <scores.bin f32[4]> <out.raw>
+                // --samops-post <texW> <texH> <floodFrac> <logits.bin f32[4*256*256]> <scores.bin f32[4]> <out.raw> [granularity 0|1|2]
                 case "--samops-post":
                 {
                     int w = int.Parse(args[1], inv), h = int.Parse(args[2], inv);
                     float frac = float.Parse(args[3], inv);
                     float[] logits = ReadF32(args[4], 4 * 256 * 256);
                     float[] scores = ReadF32(args[5], 4);
-                    var res = SamMaskPostprocess.SelectAndUpscale(logits, scores, w, h, frac);
+                    var gran = args.Length > 7
+                        ? (MaskSuggestGranularity)int.Parse(args[7], inv)
+                        : MaskSuggestGranularity.Auto;
+                    var res = SamMaskPostprocess.SelectAndUpscale(logits, scores, w, h, frac,
+                                                                  granularity: gran);
                     using (var fs = new FileStream(args[6], FileMode.Create, FileAccess.Write))
                     using (var bw = new BinaryWriter(fs))
                     {

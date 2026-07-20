@@ -54,6 +54,7 @@ namespace Iroca.SentisIntegration
         MaskSuggestProposal _proposal;
         bool _hasPendingClick;
         float _pendingU, _pendingV;
+        MaskSuggestGranularity _pendingGranularity;
 
         public SentisMaskSuggestService()
         {
@@ -200,7 +201,7 @@ namespace Iroca.SentisIntegration
                 if (_hasPendingClick)
                 {
                     _hasPendingClick = false;
-                    RunDecode(_pendingU, _pendingV);
+                    RunDecode(_pendingU, _pendingV, _pendingGranularity);
                 }
                 else
                 {
@@ -234,7 +235,7 @@ namespace Iroca.SentisIntegration
         }
 
         // ───────────────────────── クリック → 提案 ─────────────────────────
-        public void RequestProposal(float u, float v)
+        public void RequestProposal(float u, float v, MaskSuggestGranularity granularity)
         {
             if (!_modelsLoaded) return;
             switch (_phase)
@@ -244,18 +245,19 @@ namespace Iroca.SentisIntegration
                     _hasPendingClick = true; // 最新クリックだけ残す
                     _pendingU = u;
                     _pendingV = v;
+                    _pendingGranularity = granularity;
                     return;
                 case MaskSuggestPhase.Idle:
                 case MaskSuggestPhase.ProposalReady:
                     if (_embedding == null) return;
-                    RunDecode(u, v);
+                    RunDecode(u, v, granularity);
                     return;
                 default:
                     return;
             }
         }
 
-        void RunDecode(float u, float v)
+        void RunDecode(float u, float v, MaskSuggestGranularity granularity)
         {
             SetPhase(MaskSuggestPhase.Decoding);
             float[] logits, scores;
@@ -282,7 +284,7 @@ namespace Iroca.SentisIntegration
             _postJob ??= new PreviewJob<SamMaskPostprocess.Result>();
             _postJob.Schedule(
                 ct => SamMaskPostprocess.SelectAndUpscale(
-                    logits, scores, w, h, pixelsBottomUp: px),
+                    logits, scores, w, h, pixelsBottomUp: px, granularity: granularity),
                 res =>
                 {
                     if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み
@@ -299,7 +301,7 @@ namespace Iroca.SentisIntegration
                     {
                         // 提案表示前に次クリックが来ていたら差し替え(取り直し)
                         _hasPendingClick = false;
-                        RunDecode(_pendingU, _pendingV);
+                        RunDecode(_pendingU, _pendingV, _pendingGranularity);
                         return;
                     }
                     SetPhase(MaskSuggestPhase.ProposalReady);

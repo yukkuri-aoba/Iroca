@@ -39,10 +39,12 @@ namespace Iroca
         /// logits: [4,256,256] 平坦配列(上原点・パディング込みキャンバス空間)。scores: [4]。
         /// pixelsBottomUp を渡すと、拡大後に境界色スナップ(SamMaskRefine)で低解像度由来の
         /// 階段状はみ出しを実テクスチャの色エッジへ吸着させる。
+        /// granularity: 洪水棄却を通った候補の中からの採用規則(スコア/最小面積/最大面積)。
         /// </summary>
         public static Result SelectAndUpscale(float[] logits, float[] scores, int texW, int texH,
                                               float floodRejectFrac = DefaultFloodRejectFrac,
-                                              Color32[] pixelsBottomUp = null)
+                                              Color32[] pixelsBottomUp = null,
+                                              MaskSuggestGranularity granularity = MaskSuggestGranularity.Auto)
         {
             SamImageOps.GetResizedSize(texW, texH, out int newW, out int newH);
             // 低解像度空間での有効域(パディング除去相当)。1024→256 は 1/4。
@@ -66,13 +68,28 @@ namespace Iroca
                 area[c] = count / (lw * lh);
             }
 
-            // スコア降順に走査し、面積が棄却しきい未満の最良を採用
+            // 粒度規則に従い、面積が棄却しきい未満の候補から採用
+            // (Auto=スコア降順 / Fine=面積昇順 / Coarse=面積降順。同値はスコアで決着)
             int chosen = -1;
             var order = new[] { 1, 2, 3 };
-            System.Array.Sort(order, (a, b) => scores[b].CompareTo(scores[a]));
+            switch (granularity)
+            {
+                case MaskSuggestGranularity.Fine:
+                    System.Array.Sort(order, (a, b) =>
+                        area[a] != area[b] ? area[a].CompareTo(area[b]) : scores[b].CompareTo(scores[a]));
+                    break;
+                case MaskSuggestGranularity.Coarse:
+                    System.Array.Sort(order, (a, b) =>
+                        area[a] != area[b] ? area[b].CompareTo(area[a]) : scores[b].CompareTo(scores[a]));
+                    break;
+                default:
+                    System.Array.Sort(order, (a, b) => scores[b].CompareTo(scores[a]));
+                    break;
+            }
             foreach (int c in order)
             {
-                if (area[c] < floodRejectFrac) { chosen = c; break; }
+                // 面積 0 の空候補は採用しない(Fine の面積昇順で空マスクを掴む事故を防ぐ)
+                if (area[c] > 0f && area[c] < floodRejectFrac) { chosen = c; break; }
             }
             bool warn = chosen < 0;
             if (warn)

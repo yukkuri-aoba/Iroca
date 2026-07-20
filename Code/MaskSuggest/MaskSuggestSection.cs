@@ -41,6 +41,22 @@ namespace Iroca
                 return;
             }
 
+            // 提案の粒度(SAM はクリック 1 点に粒度違いの候補を同時出力する)
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(
+                new GUIContent(Localization.AiSuggestGranularity, Localization.AiSuggestGranularityTooltip),
+                GUILayout.Width(70));
+            var granOptions = new[]
+            {
+                new GUIContent(Localization.AiSuggestGranularityAuto, Localization.AiSuggestGranularityAutoTooltip),
+                new GUIContent(Localization.AiSuggestGranularityFine, Localization.AiSuggestGranularityFineTooltip),
+                new GUIContent(Localization.AiSuggestGranularityCoarse, Localization.AiSuggestGranularityCoarseTooltip),
+            };
+            int gran = GUILayout.Toolbar((int)ctl.Granularity, granOptions);
+            if (gran != (int)ctl.Granularity)
+                ctl.Granularity = (MaskSuggestGranularity)gran;
+            EditorGUILayout.EndHorizontal();
+
             // ─── サービス状態 ───
             switch (svc.Phase)
             {

@@ -38,6 +38,9 @@ namespace Iroca
         /// <summary>AI 提案モードが有効か(プレビュークリックを提案に使う)。</summary>
         public bool Active { get; private set; }
 
+        /// <summary>提案の粒度(次のクリックから適用)。</summary>
+        public MaskSuggestGranularity Granularity = MaskSuggestGranularity.Auto;
+
         public MaskSuggestProposal Pending => _pending;
         public int AcceptedCount => _acceptedPieces.Count;
         public bool HasUnion => _union != null && _acceptedPieces.Count > 0;
@@ -90,7 +93,7 @@ namespace Iroca
                 ClearAccumulation();
 
             svc.SetSource(sourceKey, pixelsBottomUp, width, height);
-            svc.RequestProposal(u, v);
+            svc.RequestProposal(u, v, Granularity);
         }
 
         void OnServiceStateChanged()
@@ -234,9 +237,11 @@ namespace Iroca
             if (_overlayTexture == null || _overlayTexture.width != ow || _overlayTexture.height != oh)
             {
                 ReleaseOverlay();
+                // Bilinear + 被覆率アルファで、二値マスクを実体どおりの滑らかな縁として描く
+                // (Point だと縮小表示時にブロックの偽ギザギザが出て、正しいマスクでも粗く見える)。
                 _overlayTexture = new Texture2D(ow, oh, TextureFormat.RGBA32, false)
                 {
-                    filterMode = FilterMode.Point,
+                    filterMode = FilterMode.Bilinear,
                     hideFlags = HideFlags.HideAndDontSave,
                 };
             }
@@ -245,14 +250,36 @@ namespace Iroca
             var clear = new Color32(0, 0, 0, 0);
             for (int y = 0; y < oh; y++)
             {
-                int sy = (int)((long)y * srcH / oh);
-                int srcRow = sy * srcW, dstRow = y * ow;
+                int sy0 = (int)((long)y * srcH / oh);
+                int sy1 = Mathf.Clamp((int)((long)(y + 1) * srcH / oh), sy0 + 1, srcH);
+                int dstRow = y * ow;
                 for (int x = 0; x < ow; x++)
                 {
-                    int sx = (int)((long)x * srcW / ow);
-                    int si = srcRow + sx;
-                    if (hasPending && _pending.maskBottomUp[si]) px[dstRow + x] = PendingColor;
-                    else if (hasUnion && _union[si]) px[dstRow + x] = AcceptedColor;
+                    int sx0 = (int)((long)x * srcW / ow);
+                    int sx1 = Mathf.Clamp((int)((long)(x + 1) * srcW / ow), sx0 + 1, srcW);
+                    int nPending = 0, nUnion = 0, total = (sy1 - sy0) * (sx1 - sx0);
+                    for (int sy = sy0; sy < sy1; sy++)
+                    {
+                        int srcRow = sy * srcW;
+                        for (int sx = sx0; sx < sx1; sx++)
+                        {
+                            int si = srcRow + sx;
+                            if (hasPending && _pending.maskBottomUp[si]) nPending++;
+                            else if (hasUnion && _union[si]) nUnion++;
+                        }
+                    }
+                    if (nPending > 0)
+                    {
+                        var c = PendingColor;
+                        c.a = (byte)Mathf.Clamp(Mathf.RoundToInt(c.a * nPending / (float)total), 1, c.a);
+                        px[dstRow + x] = c;
+                    }
+                    else if (nUnion > 0)
+                    {
+                        var c = AcceptedColor;
+                        c.a = (byte)Mathf.Clamp(Mathf.RoundToInt(c.a * nUnion / (float)total), 1, c.a);
+                        px[dstRow + x] = c;
+                    }
                     else px[dstRow + x] = clear;
                 }
             }
