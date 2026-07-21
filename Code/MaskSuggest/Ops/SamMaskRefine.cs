@@ -20,6 +20,128 @@ namespace Iroca
         /// <summary>確信領域の平均色に必要な最小画素数(これ未満の側があれば再分類しない)。</summary>
         const int MinSamples = 16;
 
+        // ─────────────────── 房外郭への境界拡張(ExtendFringe) ───────────────────
+        // SAM のマスクは房(細い frayed strands)を無視して滑らかに切る。房 strands は
+        // render 対象(strand 間の gap は非表示)なので、「局所背景色から遠い outside 画素」を
+        // 連結成長させて房を先端まで覆う。gate: strand-like(横に背景が隣接する細い構造)のみ育て、
+        // solid な部品間境界・AA・文字は弾く。統計は対象テクスチャ自身から局所導出(色/座標非依存)。
+
+        /// <summary>色距離のしきい(局所背景色からこの距離²を超えたら生地/strand とみなす)。</summary>
+        const float FringeColorThresh = 26f;
+
+        /// <summary>
+        /// mask(下原点 w*h)の境界を、房 strands を覆うように実テクスチャの信号で外郭まで拡張する(in-place)。
+        /// SnapBoundary の後段で呼ぶ。房が無い部位ではほとんど成長しない(precision 影響 &lt;=0.004)。
+        /// </summary>
+        public static void ExtendFringe(bool[] mask, Color32[] pixelsBottomUp, int w, int h)
+        {
+            if (mask == null || pixelsBottomUp == null || mask.Length != w * h ||
+                pixelsBottomUp.Length < w * h) return;
+
+            int maxDim = Mathf.Max(w, h);
+            // グリッド幅 d は SnapBoundary と同一(低解像度セルの 3/4)。reach/strand 幅は解像度比例
+            // (4096² で d=12 / reach=50 / strandHalf=10)。
+            int d = Mathf.Max(2, Mathf.CeilToInt(maxDim / (float)SamMaskPostprocess.LowRes * 0.75f));
+            int reach = Mathf.Max(d, Mathf.RoundToInt(maxDim / 82f));
+            int strandHalf = Mathf.Max(2, Mathf.RoundToInt(maxDim / 410f));
+            float thr2 = FringeColorThresh * FringeColorThresh;
+
+            // mask 外画素→最近 mask までの L1 距離(within/conf_out 判定に使う)
+            var distOut = DistanceToOpposite(mask, w, h, inside: false);
+
+            // 局所背景色 = mask 直外の確信領域(distOut>d)を粗グリッド集計 → 各画素 5x5 グリッド窓合算平均。
+            int gw = (w + d - 1) / d, gh = (h + d - 1) / d;
+            var sum = new long[gw * gh * 3];
+            var cnt = new int[gw * gh];
+            for (int y = 0; y < h; y++)
+            {
+                int gRow = (y / d) * gw, row = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    int i = row + x;
+                    if (mask[i] || distOut[i] <= d) continue; // 確信背景のみ
+                    int g = gRow + x / d, o = g * 3;
+                    var c = pixelsBottomUp[i];
+                    sum[o] += c.r; sum[o + 1] += c.g; sum[o + 2] += c.b; cnt[g]++;
+                }
+            }
+
+            // far[i]: 局所背景から色が遠い(生地/strand)。near は strand-like gate 用に横合算する。
+            var far = new bool[w * h];
+            var nearBg = new bool[w * h];
+            for (int y = 0; y < h; y++)
+            {
+                int gy = y / d, row = y * w;
+                int gy0 = Mathf.Max(0, gy - 2), gy1 = Mathf.Min(gh - 1, gy + 2);
+                for (int x = 0; x < w; x++)
+                {
+                    int i = row + x;
+                    int gx = x / d;
+                    int gx0 = Mathf.Max(0, gx - 2), gx1 = Mathf.Min(gw - 1, gx + 2);
+                    long sr = 0, sg = 0, sb = 0; int n = 0;
+                    for (int yy = gy0; yy <= gy1; yy++)
+                    {
+                        int gr = yy * gw;
+                        for (int xx = gx0; xx <= gx1; xx++)
+                        {
+                            int g = gr + xx, o = g * 3;
+                            sr += sum[o]; sg += sum[o + 1]; sb += sum[o + 2]; n += cnt[g];
+                        }
+                    }
+                    if (n < MinSamples) { nearBg[i] = true; continue; } // bg 不明 → 育てない側に倒す
+                    var c = pixelsBottomUp[i];
+                    double mr = sr / (double)n, mg = sg / (double)n, mb = sb / (double)n;
+                    double dr = c.r - mr, dg = c.g - mg, db = c.b - mb;
+                    if (dr * dr + dg * dg + db * db > thr2) far[i] = true;
+                    else nearBg[i] = true;
+                }
+            }
+
+            // strand-like gate: 横 ±strandHalf 内に nearBg がある far 画素のみ育てる
+            // (縦 strand は左右に背景 → 通す。solid 縁/文字は横に背景無し → 弾く)。
+            var growZone = new bool[w * h];
+            for (int y = 0; y < h; y++)
+            {
+                int row = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    int i = row + x;
+                    if (mask[i] || !far[i] || distOut[i] > reach) continue;
+                    int x0 = Mathf.Max(0, x - strandHalf), x1 = Mathf.Min(w - 1, x + strandHalf);
+                    bool horizNear = false;
+                    for (int xx = x0; xx <= x1; xx++)
+                        if (nearBg[row + xx]) { horizNear = true; break; }
+                    if (horizNear) growZone[i] = true;
+                }
+            }
+
+            // grow_zone を mask 境界から 4 連結でフラッドして房を覆う(順序非依存の fixpoint)。
+            var queue = new System.Collections.Generic.Queue<int>();
+            for (int y = 0; y < h; y++)
+            {
+                int row = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    int i = row + x;
+                    if (!growZone[i]) continue;
+                    // 4 近傍に mask があれば種
+                    if ((x > 0 && mask[i - 1]) || (x < w - 1 && mask[i + 1]) ||
+                        (y > 0 && mask[i - w]) || (y < h - 1 && mask[i + w]))
+                    {
+                        mask[i] = true; growZone[i] = false; queue.Enqueue(i);
+                    }
+                }
+            }
+            while (queue.Count > 0)
+            {
+                int i = queue.Dequeue(); int x = i % w, y = i / w;
+                if (x > 0 && growZone[i - 1]) { mask[i - 1] = true; growZone[i - 1] = false; queue.Enqueue(i - 1); }
+                if (x < w - 1 && growZone[i + 1]) { mask[i + 1] = true; growZone[i + 1] = false; queue.Enqueue(i + 1); }
+                if (y > 0 && growZone[i - w]) { mask[i - w] = true; growZone[i - w] = false; queue.Enqueue(i - w); }
+                if (y < h - 1 && growZone[i + w]) { mask[i + w] = true; growZone[i + w] = false; queue.Enqueue(i + w); }
+            }
+        }
+
         /// <summary>
         /// mask(下原点 w*h)の境界帯を pixels の色統計で再分類する(in-place)。
         /// </summary>
