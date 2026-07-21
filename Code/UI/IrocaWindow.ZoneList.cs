@@ -382,7 +382,7 @@ namespace Iroca
                         : Localization.FloodFillSeedNotSet;
                     EditorGUILayout.LabelField(
                         new GUIContent(Localization.FloodFillSeedPoint, Localization.FloodFillSeedHint),
-                        seedLabel);
+                        new GUIContent(seedLabel));
                     // シード指定時のみ「自動へ戻す」クリアを出す。
                     using (new EditorGUI.DisabledScope(zone.seedUV.x < 0f))
                     {
