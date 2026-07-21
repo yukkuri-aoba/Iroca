@@ -737,6 +737,34 @@ namespace Iroca
                     return 0;
                 }
 
+                // --samops-fringe <mask.raw> <image.raw RGBA> <out.raw> : 房外郭への境界拡張単体
+                case "--samops-fringe":
+                {
+                    var (mw2, mh2, mbytes2) = ReadRaw(args[1], 1);
+                    var mask2 = new bool[mw2 * mh2];
+                    for (int i = 0; i < mask2.Length; i++) mask2[i] = mbytes2[i] != 0;
+                    var (iw, ih, rgba2) = ReadRaw(args[2], 4);
+                    if (iw != mw2 || ih != mh2)
+                    {
+                        Console.Error.WriteLine("fringe: mask/image size mismatch");
+                        return 2;
+                    }
+                    var px2 = new Color32[iw * ih];
+                    for (int i = 0; i < px2.Length; i++)
+                        px2[i] = new Color32(rgba2[i * 4], rgba2[i * 4 + 1], rgba2[i * 4 + 2], rgba2[i * 4 + 3]);
+                    SamMaskRefine.ExtendFringe(mask2, px2, iw, ih);
+                    using (var fs = new FileStream(args[3], FileMode.Create, FileAccess.Write))
+                    using (var bw = new BinaryWriter(fs))
+                    {
+                        bw.Write(iw); bw.Write(ih);
+                        var bytes = new byte[iw * ih];
+                        for (int i = 0; i < bytes.Length; i++) bytes[i] = mask2[i] ? (byte)1 : (byte)0;
+                        bw.Write(bytes);
+                    }
+                    Console.WriteLine($"FRINGE OK {iw}x{ih}");
+                    return 0;
+                }
+
                 // --samops-zoomrect <mask.raw> <clickX> <clickY> : ズームイン判定
                 // (クリック成分 bbox 長辺 + クロップ矩形導出。座標は下原点)
                 case "--samops-zoomrect":
