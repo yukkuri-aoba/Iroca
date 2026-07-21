@@ -318,7 +318,7 @@ Read/Write Enabled が無効なテクスチャを選ぶと、ウィンドウに�
 スクリプトを入れただけの素の状態でも、除外マスク欄に「AI マスク提案」欄が表示されます。以下の 2 つを Unity 上のボタンでセットアップすると有効になります（セットアップしなければ従来どおりの動作で、ストレージも消費しません）。
 
 1. **Unity Sentis パッケージ**: 除外マスク欄の「AI マスク提案」に出る **「AI 機能を有効化（Sentis を導入）」** ボタンを押すと、Package Manager 経由で自動導入されます（導入後 Unity が自動で再コンパイルします）。手動で入れる場合は Package Manager → 左上の「+」→「Add package by name...」→ `com.unity.sentis`（バージョン `2.1.3`）。
-2. **AI モデル（2 ファイル・合計約 45MB）**: 「AI マスク提案」→「モデルをダウンロード」を押すと自動で配置されます（sha256 検証つき）。モデルは **プロジェクトごとではなくユーザー共通のフォルダに 1 か所だけ** 保存されるため（Windows は `%LOCALAPPDATA%\Iroca\Models`）、別プロジェクトでも再ダウンロードは不要です。手動の場合は配布ページから 2 つの `.onnx` をダウンロードし、「モデルフォルダを開く」で開いたフォルダへ置いてください。
+2. **AI モデル（2 ファイル・合計約 45MB）**: 「AI マスク提案」→「モデルをダウンロード」を押すと自動で配置されます（sha256 検証つき）。モデルは **プロジェクトごとではなくユーザー共通のフォルダに 1 か所だけ** 保存されるため（Windows は `%LOCALAPPDATA%\Iroca\Models`）、別プロジェクトでも再ダウンロードは不要です。手動の場合はモデル配布リポジトリ [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) から 2 つの `.onnx` をダウンロードし、「モデルフォルダを開く」で開いたフォルダへ置いてください。
 
 #### 使い方
 
@@ -338,7 +338,7 @@ Read/Write Enabled が無効なテクスチャを選ぶと、ウィンドウに�
 
 #### クレジット / ライセンス
 
-この機能は [MobileSAM](https://github.com/ChaoningZhang/MobileSAM)（Apache License 2.0）を ONNX 形式に変換して使用しています。モデルの著作権は原作者に帰属します。詳細は配布ページの NOTICE ファイルを参照してください。
+この機能は [MobileSAM](https://github.com/ChaoningZhang/MobileSAM)（Apache License 2.0）を ONNX 形式に変換して使用しています。モデルの著作権は原作者に帰属します。変換済みモデルは [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) リポジトリで Apache License 2.0 のもと配布しています。詳細は同リポジトリの NOTICE ファイルを参照してください。
 
 ---
 
@@ -759,7 +759,7 @@ Click a part on the preview and the AI (MobileSAM) proposes that part's region. 
 Even with just the scripts dropped in, the "AI Mask Suggestion" panel appears in the Exclusion Mask section. Set up the two items below with in-Unity buttons to enable it (skip the setup to keep the classic behavior with no extra storage).
 
 1. **Unity Sentis package**: Press the **"Enable AI feature (install Sentis)"** button shown under "AI Mask Suggestion" in the Exclusion Mask panel — it installs the package via the Package Manager (Unity recompiles automatically afterward). To install manually: Package Manager → "+" → "Add package by name..." → enter `com.unity.sentis` (version `2.1.3`).
-2. **AI models (2 files, ~45MB total)**: Open "AI Mask Suggestion" and press "Download models" (with sha256 verification). Models are stored **once in a per-user shared folder, not per project** (`%LOCALAPPDATA%\Iroca\Models` on Windows), so other projects don't need to re-download. To install manually, download the two `.onnx` files from the distribution page and place them into the folder opened by "Open model folder".
+2. **AI models (2 files, ~45MB total)**: Open "AI Mask Suggestion" and press "Download models" (with sha256 verification). Models are stored **once in a per-user shared folder, not per project** (`%LOCALAPPDATA%\Iroca\Models` on Windows), so other projects don't need to re-download. To install manually, download the two `.onnx` files from the model repository [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) and place them into the folder opened by "Open model folder".
 
 #### How to use
 
@@ -779,7 +779,7 @@ Even with just the scripts dropped in, the "AI Mask Suggestion" panel appears in
 
 #### Credits / License
 
-This feature uses [MobileSAM](https://github.com/ChaoningZhang/MobileSAM) (Apache License 2.0) converted to ONNX. The model is copyrighted by its original authors. See the NOTICE file on the distribution page for details.
+This feature uses [MobileSAM](https://github.com/ChaoningZhang/MobileSAM) (Apache License 2.0) converted to ONNX. The model is copyrighted by its original authors. The converted models are distributed under the Apache License 2.0 in the [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) repository; see its NOTICE file for details.
 
 ---
 
