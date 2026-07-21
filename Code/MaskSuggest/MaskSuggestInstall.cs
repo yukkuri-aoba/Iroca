@@ -21,6 +21,10 @@ namespace Iroca
     {
         public const string SentisPackageId = "com.unity.sentis";
 
+        /// <summary>Sentis 導入直後に「再起動推奨」を出すためのフラグ(SessionState キー)。
+        /// SessionState はドメインリロードを跨いで残り、エディタ再起動で消える = 再起動するまで表示。</summary>
+        public const string RestartRecommendedKey = "Iroca.Sentis.RestartRecommended";
+
         // asmdef の versionDefine 範囲 [2.0.0,3.0.0) に収まる検証済みバージョンを固定導入する。
         // (配布モデルの ONNX もこの版でエクスポート・検証している。版を上げるときはここと
         //  Iroca.SentisIntegration.asmdef の versionDefines、MANUAL の記載を揃える)
@@ -54,8 +58,12 @@ namespace Iroca
 
             if (_request.Status == StatusCode.Failure)
                 Error = _request.Error != null ? _request.Error.message : "unknown error";
-            // 成功時はここでの後処理は不要: パッケージ追加により Unity が自動で
-            // リコンパイルし、Sentis 統合アセンブリが [InitializeOnLoad] でサービスを登録する。
+            else if (_request.Status == StatusCode.Success)
+                // 導入自体はパッケージ追加→自動リコンパイルで完了するが、その導入時のドメイン
+                // リロードでは Burst のコールドスタート失敗(関数ポインタ初期化例外)を踏むことがあり、
+                // その世代だけ Sentis の畳み込みが全滅して AI が動かない。確実に有効化するため
+                // 再起動を促すフラグを立てる(クリーンな Burst 初期化になる)。
+                SessionState.SetBool(RestartRecommendedKey, true);
 
             _request = null;
             EditorApplication.update -= Tick;
