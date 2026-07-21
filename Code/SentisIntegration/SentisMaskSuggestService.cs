@@ -99,6 +99,8 @@ namespace Iroca.SentisIntegration
         public bool TryEnsureModels()
         {
             if (_modelsLoaded) return true;
+            // 共有フォルダ化(80d1000)以前に旧プロジェクト内へ置いたモデルを、初回だけ共有先へ引き継ぐ。
+            MaskSuggestBridge.MigrateLegacyModelsIfNeeded();
             if (!SentisModelRepository.ModelsPresent())
             {
                 if (_phase != MaskSuggestPhase.NoModel) SetPhase(MaskSuggestPhase.NoModel);

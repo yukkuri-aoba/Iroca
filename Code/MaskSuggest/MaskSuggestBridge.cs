@@ -88,6 +88,10 @@ namespace Iroca
 
         public static bool Available => Service != null;
 
+        /// <summary>配布モデル(MobileSAM)の onnx ファイル名。パスを組む唯一の正。</summary>
+        internal const string EncoderFileName = "mobile_sam_encoder.onnx";
+        internal const string DecoderFileName = "mobile_sam_decoder.onnx";
+
         /// <summary>
         /// モデル配置ディレクトリ。モデル(ONNX と .sentis 変換キャッシュ)はプロジェクトに
         /// 依存しない同一バイナリなので、プロジェクトごとに複製せず「ユーザー単位の共有フォルダ」に
@@ -105,8 +109,57 @@ namespace Iroca
                 if (!string.IsNullOrEmpty(root))
                     return System.IO.Path.GetFullPath(
                         System.IO.Path.Combine(root, "Iroca", "Models"));
-                return System.IO.Path.GetFullPath(System.IO.Path.Combine(
-                    Application.dataPath, "..", "UserSettings", "Iroca", "Models"));
+                return LegacyProjectModelsDirectory;
+            }
+        }
+
+        /// <summary>
+        /// 共有フォルダ化(80d1000)より前は、モデルをこのプロジェクト内パスへ置いていた。
+        /// 既存プロジェクトからの「引き継ぎ元」としてのみ参照する(新規配置先ではない)。
+        /// </summary>
+        static string LegacyProjectModelsDirectory =>
+            System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                Application.dataPath, "..", "UserSettings", "Iroca", "Models"));
+
+        static bool _legacyMigrationDone;
+
+        /// <summary>
+        /// 共有モデルフォルダにモデルが無く、旧プロジェクト内フォルダ(共有化以前の配置先)に
+        /// 残っているときだけ、共有フォルダへ onnx を引き継ぐ。共有化(80d1000)後に既存ユーザーが
+        /// 「モデル無し」に戻って再ダウンロードを強いられるのを防ぐ。
+        /// 非破壊(旧フォルダは消さない・既存の共有ファイルは上書きしない)かつベストエフォート
+        /// (失敗してもダウンロード導線で復帰できる)。セッション中 1 回だけ実行する。
+        /// </summary>
+        public static void MigrateLegacyModelsIfNeeded()
+        {
+            if (_legacyMigrationDone) return;
+            _legacyMigrationDone = true;
+            try
+            {
+                string shared = ModelsDirectory;
+                string legacy = LegacyProjectModelsDirectory;
+                if (string.Equals(shared, legacy, System.StringComparison.OrdinalIgnoreCase))
+                    return; // 共有先＝旧先の環境(LocalAppData 取得不可)は移行不要
+
+                string sharedEnc = System.IO.Path.Combine(shared, EncoderFileName);
+                string sharedDec = System.IO.Path.Combine(shared, DecoderFileName);
+                if (System.IO.File.Exists(sharedEnc) && System.IO.File.Exists(sharedDec))
+                    return; // 既に共有先にある(移行済み or ダウンロード済み)
+
+                string legacyEnc = System.IO.Path.Combine(legacy, EncoderFileName);
+                string legacyDec = System.IO.Path.Combine(legacy, DecoderFileName);
+                if (!System.IO.File.Exists(legacyEnc) || !System.IO.File.Exists(legacyDec))
+                    return; // 引き継ぐモデルが無い
+
+                System.IO.Directory.CreateDirectory(shared);
+                if (!System.IO.File.Exists(sharedEnc)) System.IO.File.Copy(legacyEnc, sharedEnc);
+                if (!System.IO.File.Exists(sharedDec)) System.IO.File.Copy(legacyDec, sharedDec);
+                Debug.Log($"[Iroca] 旧フォルダの AI モデルを共有フォルダへ引き継ぎました: {legacy} → {shared}");
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning(
+                    $"[Iroca] AI モデルの共有フォルダ移行に失敗しました(ダウンロードで復帰できます): {e.Message}");
             }
         }
     }
