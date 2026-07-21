@@ -7,14 +7,20 @@ namespace Iroca
 {
     /// <summary>
     /// 除外マスク UI 内に描く「AI マスク提案」セクション。
-    /// Sentis 統合(MaskSuggestBridge.Service)が不在なら一切描画しない = 既存 UI 完全不変。
+    /// Sentis 統合(MaskSuggestBridge.Service)が不在のときは、AI 機能の存在を知らせて
+    /// ワンクリックで有効化する導線(Sentis 導入ボタン)だけを描く。これが無いと
+    /// Sentis を手動導入した開発環境でしか AI 機能に到達できない。
     /// </summary>
     internal static class MaskSuggestSection
     {
         public static void Draw(IrocaWindow host, MaskPaintView maskView)
         {
             var svc = MaskSuggestBridge.Service;
-            if (svc == null) return;
+            if (svc == null)
+            {
+                DrawSentisSetup();
+                return;
+            }
             var ctl = maskView.SuggestController;
             if (ctl == null) return;
 
@@ -133,6 +139,35 @@ namespace Iroca
 
             DrawAccumulationControls(host, maskView, ctl);
             ctl.UpdateOverlayIfNeeded();
+        }
+
+        /// <summary>
+        /// Sentis 未導入時の導線。AI 機能の存在を知らせ、Package Manager 経由の
+        /// ワンクリック導入ボタンを出す(導入後 Unity が再コンパイルして機能が有効になる)。
+        /// </summary>
+        static void DrawSentisSetup()
+        {
+            EditorGUILayout.Space(4);
+            EditorGUILayout.LabelField(Localization.AiSuggest, EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(Localization.AiSuggestSentisRequired, MessageType.Info);
+
+            if (MaskSuggestInstall.InProgress)
+            {
+                EditorGUILayout.HelpBox(Localization.AiSuggestInstalling, MessageType.Info);
+                return;
+            }
+
+            if (MaskSuggestInstall.Error != null)
+                EditorGUILayout.HelpBox(
+                    string.Format(Localization.AiSuggestInstallFailed, MaskSuggestInstall.Error),
+                    MessageType.Warning);
+
+            if (GUILayout.Button(new GUIContent(
+                    Localization.AiSuggestInstallSentis,
+                    string.Format(Localization.AiSuggestInstallSentisTooltip,
+                                  MaskSuggestInstall.SentisPackageId,
+                                  MaskSuggestInstall.SentisPackageVersion))))
+                MaskSuggestInstall.StartInstall();
         }
 
         static void DrawAccumulationControls(IrocaWindow host, MaskPaintView maskView, MaskSuggestController ctl)
