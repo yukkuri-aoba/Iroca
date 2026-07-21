@@ -15,6 +15,10 @@ namespace Iroca
     {
         public static void Draw(IrocaWindow host, MaskPaintView maskView)
         {
+            // 導入直後の「Unity 再起動」案内は、サービスが載ったか(Burst 失敗で載らない場合も含む)に
+            // かかわらず出したいので、サービス分岐より前に描く。
+            DrawPostInstallRestartNoticeIfNeeded();
+
             var svc = MaskSuggestBridge.Service;
             if (svc == null)
             {
@@ -139,6 +143,32 @@ namespace Iroca
 
             DrawAccumulationControls(host, maskView, ctl);
             ctl.UpdateOverlayIfNeeded();
+        }
+
+        /// <summary>
+        /// Sentis 導入直後に「Unity 再起動」を促す。導入時のドメインリロードで Burst の
+        /// コールドスタート失敗を踏むと、その世代だけ AI が動かない。再起動でクリーンな
+        /// Burst 初期化になるため、確実に有効化したいユーザー向けの導線。
+        /// SessionState はエディタ再起動で消えるので、再起動すれば自動的に消える。
+        /// </summary>
+        static void DrawPostInstallRestartNoticeIfNeeded()
+        {
+            if (!SessionState.GetBool(MaskSuggestInstall.RestartRecommendedKey, false)) return;
+            EditorGUILayout.Space(4);
+            EditorGUILayout.HelpBox(Localization.AiSuggestRestartRecommended, MessageType.Info);
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button(new GUIContent(Localization.AiSuggestRestartNow,
+                                                Localization.AiSuggestRestartNowTooltip)))
+            {
+                SessionState.SetBool(MaskSuggestInstall.RestartRecommendedKey, false);
+                // 現在のプロジェクトを開き直す = エディタ再起動(Burst をクリーンに初期化)。
+                EditorApplication.OpenProject(System.IO.Directory.GetCurrentDirectory());
+            }
+            if (GUILayout.Button(new GUIContent(Localization.AiSuggestRestartLater,
+                                                Localization.AiSuggestRestartLaterTooltip),
+                                 GUILayout.Width(80)))
+                SessionState.SetBool(MaskSuggestInstall.RestartRecommendedKey, false);
+            EditorGUILayout.EndHorizontal();
         }
 
         /// <summary>

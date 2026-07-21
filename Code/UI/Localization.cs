@@ -503,6 +503,17 @@ namespace Iroca
         public static string AiSuggestInstallFailed => IsJapanese
             ? "Sentis の導入に失敗しました: {0}\nPackage Manager から手動で「com.unity.sentis」を追加することもできます（手順はマニュアル参照）。"
             : "Failed to install Sentis: {0}\nYou can also add 'com.unity.sentis' manually via the Package Manager (see the manual).";
+        public static string AiSuggestRestartRecommended => IsJapanese
+            ? "AI 機能を導入しました。確実に有効化するため Unity の再起動を推奨します。\n（再起動しないと、まれに初回だけ内部コンパイル（Burst）の準備が間に合わず AI が動かないことがあります。その場合も再起動で直ります。）"
+            : "The AI feature has been installed. Restarting Unity is recommended to enable it reliably.\n(Without a restart, the internal compiler (Burst) can occasionally fail to warm up on the first load and the AI won't run. A restart fixes it.)";
+        public static string AiSuggestRestartNow => IsJapanese ? "Unity を再起動" : "Restart Unity";
+        public static string AiSuggestRestartNowTooltip => IsJapanese
+            ? "現在のプロジェクトを開き直して Unity を再起動します（未保存の変更は先に保存してください）"
+            : "Reopens the current project to restart Unity (save any unsaved changes first).";
+        public static string AiSuggestRestartLater => IsJapanese ? "後で" : "Later";
+        public static string AiSuggestRestartLaterTooltip => IsJapanese
+            ? "この案内を閉じます（このまま使えることが多いですが、AI が動かないときは Unity を再起動してください）"
+            : "Dismiss this notice (it usually works as-is; if the AI doesn't run, restart Unity).";
         public static string AiSuggestLoadingModel => IsJapanese ? "モデルを読み込み中..." : "Loading model...";
         public static string AiSuggestEncoding => IsJapanese ? "画像を解析中..." : "Analyzing image...";
         public static string AiSuggestDecoding => IsJapanese ? "提案を生成中..." : "Generating proposal...";
