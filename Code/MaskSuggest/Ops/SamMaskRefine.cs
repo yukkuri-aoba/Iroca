@@ -20,6 +20,12 @@ namespace Iroca
         /// <summary>確信領域の平均色に必要な最小画素数(これ未満の側があれば再分類しない)。</summary>
         const int MinSamples = 16;
 
+        /// <summary>
+        /// 統計不足時に広げる近傍グリッド半径の上限(セル単位)。d はテクスチャ解像度に
+        /// 比例するため、この上限もテクスチャサイズに応じて実 px 幅が自動的にスケールする。
+        /// </summary>
+        const int MaxWindowRadius = 8;
+
         // ─────────────────── 房外郭への境界拡張(ExtendFringe) ───────────────────
         // SAM のマスクは房(細い frayed strands)を無視して滑らかに切る。房 strands は
         // render 対象(strand 間の gap は非表示)なので、「局所背景色から遠い outside 画素」を
@@ -208,29 +214,37 @@ namespace Iroca
                     bool inBand = mask0[i] ? distIn[i] <= d : distOut[i] <= d;
                     if (!inBand) continue;
 
+                    // 近傍半径2セル(5x5相当)から開始し、片側でも統計不足なら半径を広げて
+                    // 再集計する。先細りウェッジ等、局所幅が帯より狭い形状では片側の確信領域が
+                    // 直近に無いことがあるため(過去は即座に諦めて SAM の粗い判定を残していた)。
                     int gx = x / d;
                     long ir = 0, ig = 0, ib = 0, ia = 0, or_ = 0, og = 0, ob = 0, oa = 0;
                     int ic = 0, oc = 0;
-                    int gy0 = Mathf.Max(0, gy - 2), gy1 = Mathf.Min(gh - 1, gy + 2);
-                    int gx0 = Mathf.Max(0, gx - 2), gx1 = Mathf.Min(gw - 1, gx + 2);
-                    for (int yy = gy0; yy <= gy1; yy++)
+                    for (int radius = 2; radius <= MaxWindowRadius; radius += 2)
                     {
-                        int gRow = yy * gw;
-                        for (int xx = gx0; xx <= gx1; xx++)
+                        ir = ig = ib = ia = or_ = og = ob = oa = 0; ic = 0; oc = 0;
+                        int gy0 = Mathf.Max(0, gy - radius), gy1 = Mathf.Min(gh - 1, gy + radius);
+                        int gx0 = Mathf.Max(0, gx - radius), gx1 = Mathf.Min(gw - 1, gx + radius);
+                        for (int yy = gy0; yy <= gy1; yy++)
                         {
-                            int g = gRow + xx;
-                            int o = g * 4;
-                            if (cntIn[g] > 0)
+                            int gRow = yy * gw;
+                            for (int xx = gx0; xx <= gx1; xx++)
                             {
-                                ir += sumIn[o]; ig += sumIn[o + 1]; ib += sumIn[o + 2]; ia += sumIn[o + 3];
-                                ic += cntIn[g];
-                            }
-                            if (cntOut[g] > 0)
-                            {
-                                or_ += sumOut[o]; og += sumOut[o + 1]; ob += sumOut[o + 2]; oa += sumOut[o + 3];
-                                oc += cntOut[g];
+                                int g = gRow + xx;
+                                int o = g * 4;
+                                if (cntIn[g] > 0)
+                                {
+                                    ir += sumIn[o]; ig += sumIn[o + 1]; ib += sumIn[o + 2]; ia += sumIn[o + 3];
+                                    ic += cntIn[g];
+                                }
+                                if (cntOut[g] > 0)
+                                {
+                                    or_ += sumOut[o]; og += sumOut[o + 1]; ob += sumOut[o + 2]; oa += sumOut[o + 3];
+                                    oc += cntOut[g];
+                                }
                             }
                         }
+                        if (ic >= MinSamples && oc >= MinSamples) break;
                     }
                     if (ic < MinSamples || oc < MinSamples) continue; // 統計不足 → SAM の判定を維持
 
