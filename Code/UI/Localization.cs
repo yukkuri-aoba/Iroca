@@ -467,29 +467,8 @@ namespace Iroca
         public static string AiSuggestStart => IsJapanese ? "AI 提案を開始" : "Start AI Suggestion";
         public static string AiSuggestActive => IsJapanese ? "■ AI 提案中（クリックで終了）" : "■ AI Suggesting (click to stop)";
         public static string AiSuggestToggleTooltip => IsJapanese
-            ? "プレビュー上のパーツをクリックすると、AI がそのパーツの領域を推定して提案します\n提案を「追加」で積み上げ、最後にまとめて除外マスクへ確定します\nブラシペイントとは排他で、開始するとペイントモードは解除されます"
-            : "Click a part on the preview and the AI proposes that part's region.\nAccept proposals to accumulate a selection, then commit it to the exclusion mask.\nMutually exclusive with brush painting; starting this exits paint mode.";
-        public static string AiSuggestAccept => IsJapanese ? "この領域を追加" : "Add this region";
-        public static string AiSuggestAcceptTooltip => IsJapanese
-            ? "表示中の提案（濃い色）を選択に追加します\n続けて別のピースをクリックすると選択を積み上げられます\n色は確定先マスクと同じ（共通=赤／ゾーン=そのゾーン色）です"
-            : "Add the shown proposal (brighter) to the selection.\nClick another piece to keep accumulating.\nThe color matches the target mask (common = red / zone = its color).";
-        public static string AiSuggestRetry => IsJapanese ? "やり直し" : "Retry";
-        public static string AiSuggestRetryTooltip => IsJapanese
-            ? "表示中の提案を破棄します（別の場所をクリックしても取り直せます）"
-            : "Discard the shown proposal (clicking elsewhere also replaces it).";
-        public static string AiSuggestUndoPiece => IsJapanese ? "1つ戻す" : "Undo last";
-        public static string AiSuggestUndoPieceTooltip => IsJapanese
-            ? "最後に追加した提案を選択から取り消します\n（悪い提案を混ぜてしまったときはここで戻してください）"
-            : "Remove the last accepted proposal from the selection.\n(Use this if a bad proposal got mixed in.)";
-        public static string AiSuggestClear => IsJapanese ? "選択をクリア" : "Clear selection";
-        public static string AiSuggestClearTooltip => IsJapanese
-            ? "積み上げた選択と表示中の提案をすべて破棄します（既存のマスクは変わりません）"
-            : "Discard the accumulated selection and any shown proposal. The existing mask is unchanged.";
-        // 確定は単一操作に一本化: 選んだ部分を除外マスク（＝色替えしない範囲）へ追加する。
-        public static string AiSuggestCommit => IsJapanese ? "確定（この部分を色替えしない）" : "Commit (protect this part)";
-        public static string AiSuggestCommitTooltip => IsJapanese
-            ? "積み上げた選択を、現在の編集対象の除外マスク（＝色替えしない範囲）へ追加します\n選択したパーツを色替えから守りたいときに使います\n※マスクは色ゾーンの色替え範囲を制限する機能です。色ゾーンが無いと見た目は変わりません\n確定後は通常のマスクとしてブラシ修正・Ctrl+Z できます"
-            : "Add the accumulated selection to the exclusion mask (the 'do-not-recolor' area) of the current target.\nUse this to protect the selected part from recoloring.\nNote: masks only constrain color zones — with no color zone, the output does not change.\nAfter commit it behaves as a normal mask (brush edit / Ctrl+Z).";
+            ? "プレビュー上のパーツをクリックすると、AI がそのパーツの領域を推定して、その場で除外マスク（＝色替えしない範囲）へ追加します\n間違えたら Ctrl+Z で 1 つずつ戻せます（確定ボタンはありません）\nブラシペイントとは排他で、開始するとペイントモードは解除されます"
+            : "Click a part on the preview and the AI estimates that part's region and adds it to the exclusion mask ('do-not-recolor' area) right away.\nUndo with Ctrl+Z one step at a time (there is no commit button).\nMutually exclusive with brush painting; starting this exits paint mode.";
         public static string AiSuggestSentisRequired => IsJapanese
             ? "この AI 機能には Unity Sentis パッケージが必要です。下のボタンで導入すると有効になります（不要なら導入しなければ従来どおりの動作で、ストレージも消費しません）。"
             : "This AI feature needs the Unity Sentis package. Install it with the button below to enable it (skip it to keep the classic behavior with no extra storage).";
@@ -533,8 +512,8 @@ namespace Iroca
             ? "ダウンロードに失敗しました: {0}\n手動でダウンロードしてモデルフォルダへ配置することもできます（手順はマニュアル参照）"
             : "Download failed: {0}\nYou can also download manually and place the files into the model folder (see the manual).";
         public static string AiSuggestAreaWarning => IsJapanese
-            ? "提案が背景まで広がっている可能性があります。追加せず、パーツの内側をクリックし直すことをおすすめします。"
-            : "The proposal may have spread into the background. Consider clicking again inside the part instead of adding it.";
+            ? "直前のクリックが背景まで広がった可能性があります。Ctrl+Z で戻して、粒度を「細かい」にするか、パーツのより内側をクリックし直してください。"
+            : "The last click may have spread into the background. Undo with Ctrl+Z, then set granularity to 'Fine' or click again further inside the part.";
         public static string AiSuggestGranularity => IsJapanese ? "提案の粒度" : "Granularity";
         public static string AiSuggestGranularityTooltip => IsJapanese
             ? "AI はクリック 1 点に対して粒度の違う候補(模様・パーツ・全体)を同時に推定します\nどの候補を提案として表示するかを選びます(次のクリックから適用)"
@@ -552,14 +531,13 @@ namespace Iroca
             ? "最も大きい候補を採用します。パーツ全体をまとめて選びたいときに"
             : "Use the largest candidate. For selecting the whole part at once.";
         public static string AiSuggestHintIdle => IsJapanese
-            ? "プレビュー上でパーツをクリックすると領域を提案します。オーバーレイの色は確定先マスクと同じ（提案中は濃く、追加済みは薄く表示）"
-            : "Click a part on the preview to get a region proposal. The overlay color matches the target mask (proposal = brighter, accepted = dimmer).";
-        public static string AiSuggestPiecesFormat => IsJapanese ? "追加済み: {0} 個" : "Accepted: {0}";
+            ? "プレビュー上でパーツをクリックすると、その領域をその場で除外マスクへ追加します（マスクの色で表示）。間違えたら Ctrl+Z で戻せます。"
+            : "Click a part on the preview to add its region to the exclusion mask right away (shown in the mask color). Undo with Ctrl+Z.";
         public static string AiSuggestCommitTargetFormat => IsJapanese
-            ? "確定先: {0}" : "Commit to: {0}";
+            ? "追加先: {0}" : "Add to: {0}";
         public static string AiSuggestNoZoneWarning => IsJapanese
-            ? "色ゾーンがありません。マスクは色ゾーンの色替え範囲を制限する機能なので、確定してもプレビュー／エクスポートの見た目は変わりません。まず色替えする色ゾーンを追加してください。"
-            : "No color zone exists. A mask only limits where color zones recolor, so committing will not change the preview/export. Add a color zone to recolor first.";
+            ? "色ゾーンがありません。マスクは色ゾーンの色替え範囲を制限する機能なので、足してもプレビュー／エクスポートの見た目は変わりません。まず色替えする色ゾーンを追加してください。"
+            : "No color zone exists. A mask only limits where color zones recolor, so adding to it will not change the preview/export. Add a color zone to recolor first.";
 
         // ─── Per-Zone Mask strings ───
         public static string MaskTarget => IsJapanese ? "編集対象" : "Edit Target";

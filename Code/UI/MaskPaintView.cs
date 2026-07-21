@@ -95,9 +95,6 @@ namespace Iroca
         /// <summary>AI 提案モードがプレビュークリックを受け取るべきか。</summary>
         public bool AiSuggestArmed => _suggestController != null && _suggestController.Active;
 
-        /// <summary>プレビューへ重ねる AI 提案オーバーレイ(なければ null)。</summary>
-        public Texture2D AiSuggestOverlay => _suggestController?.OverlayTexture;
-
         // ─────────────────────── 除外マスク UI ───────────────────────
 
         public void Draw()

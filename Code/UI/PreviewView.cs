@@ -596,8 +596,6 @@ namespace Iroca
                     GUI.DrawTexture(activePreviewRect, maskView.maskOverlayTexture, ScaleMode.StretchToFill, true);
                 if (maskView.zoneMaskOverlayTexture != null)
                     GUI.DrawTexture(activePreviewRect, maskView.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
-                if (maskView.AiSuggestOverlay != null)
-                    GUI.DrawTexture(activePreviewRect, maskView.AiSuggestOverlay, ScaleMode.StretchToFill, true);
                 EditorGUILayout.EndVertical();
 
                 EditorGUILayout.EndHorizontal();
@@ -636,8 +634,6 @@ namespace Iroca
                             GUI.DrawTexture(activePreviewRect, maskView.maskOverlayTexture, ScaleMode.StretchToFill, true);
                         if (maskView.zoneMaskOverlayTexture != null)
                             GUI.DrawTexture(activePreviewRect, maskView.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
-                        if (maskView.AiSuggestOverlay != null)
-                            GUI.DrawTexture(activePreviewRect, maskView.AiSuggestOverlay, ScaleMode.StretchToFill, true);
                     }
                 }
                 else
@@ -652,8 +648,6 @@ namespace Iroca
                             GUI.DrawTexture(activePreviewRect, maskView.maskOverlayTexture, ScaleMode.StretchToFill, true);
                         if (maskView.zoneMaskOverlayTexture != null)
                             GUI.DrawTexture(activePreviewRect, maskView.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
-                        if (maskView.AiSuggestOverlay != null)
-                            GUI.DrawTexture(activePreviewRect, maskView.AiSuggestOverlay, ScaleMode.StretchToFill, true);
                     }
                 }
 
