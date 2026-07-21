@@ -15,10 +15,14 @@ namespace Iroca
     /// </summary>
     internal static class MaskSuggestModelDownload
     {
-        // 配布リリース(モデルはバージョン独立のタグで配布し、本体リリースと分離する)
-        public const string ReleaseTag = "models-mobilesam-v1";
+        // AI モデルは本体と分離した「モデル専用リポジトリ」の main ブランチ直下に置き、
+        // raw で取得する。GitHub Release の儀式(タグ/資産アップロード)が不要で、main へ
+        // push した時点で即配布される(モデルの差し替えも push だけ)。
+        // 配布先を変えるときは owner/repo をここだけ直す。
+        public const string ModelRepo = "yukkuri-aoba/Iroca-Models"; // owner/repo
+        public const string ModelBranch = "main";
         public const string BaseUrl =
-            "https://github.com/yukkuri-aoba/Iroca/releases/download/" + ReleaseTag + "/";
+            "https://raw.githubusercontent.com/" + ModelRepo + "/" + ModelBranch + "/";
 
         // export_meta.json (dev_safe/ml) で確定したエクスポート成果物のハッシュ。
         // リリースへは必ずこのハッシュのファイルをアップロードする。
