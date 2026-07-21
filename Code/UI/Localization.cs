@@ -490,6 +490,19 @@ namespace Iroca
         public static string AiSuggestCommitTooltip => IsJapanese
             ? "積み上げた選択を、現在の編集対象の除外マスク（＝色替えしない範囲）へ追加します\n選択したパーツを色替えから守りたいときに使います\n※マスクは色ゾーンの色替え範囲を制限する機能です。色ゾーンが無いと見た目は変わりません\n確定後は通常のマスクとしてブラシ修正・Ctrl+Z できます"
             : "Add the accumulated selection to the exclusion mask (the 'do-not-recolor' area) of the current target.\nUse this to protect the selected part from recoloring.\nNote: masks only constrain color zones — with no color zone, the output does not change.\nAfter commit it behaves as a normal mask (brush edit / Ctrl+Z).";
+        public static string AiSuggestSentisRequired => IsJapanese
+            ? "この AI 機能には Unity Sentis パッケージが必要です。下のボタンで導入すると有効になります（不要なら導入しなければ従来どおりの動作で、ストレージも消費しません）。"
+            : "This AI feature needs the Unity Sentis package. Install it with the button below to enable it (skip it to keep the classic behavior with no extra storage).";
+        public static string AiSuggestInstallSentis => IsJapanese ? "AI 機能を有効化（Sentis を導入）" : "Enable AI feature (install Sentis)";
+        public static string AiSuggestInstallSentisTooltip => IsJapanese
+            ? "Unity Package Manager 経由で {0}（バージョン {1}）を導入します\n導入後 Unity が自動で再コンパイルし、AI マスク提案が使えるようになります\n（Package Manager から手動で「Add package by name」しても同じです）"
+            : "Installs {0} (version {1}) via the Unity Package Manager.\nUnity recompiles automatically afterward and AI mask suggestion becomes available.\n(Equivalent to adding it manually via 'Add package by name'.)";
+        public static string AiSuggestInstalling => IsJapanese
+            ? "Sentis を導入中... 完了すると Unity が自動で再コンパイルします。"
+            : "Installing Sentis... Unity will recompile automatically when it finishes.";
+        public static string AiSuggestInstallFailed => IsJapanese
+            ? "Sentis の導入に失敗しました: {0}\nPackage Manager から手動で「com.unity.sentis」を追加することもできます（手順はマニュアル参照）。"
+            : "Failed to install Sentis: {0}\nYou can also add 'com.unity.sentis' manually via the Package Manager (see the manual).";
         public static string AiSuggestLoadingModel => IsJapanese ? "モデルを読み込み中..." : "Loading model...";
         public static string AiSuggestEncoding => IsJapanese ? "画像を解析中..." : "Analyzing image...";
         public static string AiSuggestDecoding => IsJapanese ? "提案を生成中..." : "Generating proposal...";

@@ -89,11 +89,25 @@ namespace Iroca
         public static bool Available => Service != null;
 
         /// <summary>
-        /// モデル配置ディレクトリ(プロジェクトの UserSettings/Iroca/Models)。
-        /// MaskFileStore と同じ Application.dataPath 起点の規約。
+        /// モデル配置ディレクトリ。モデル(ONNX と .sentis 変換キャッシュ)はプロジェクトに
+        /// 依存しない同一バイナリなので、プロジェクトごとに複製せず「ユーザー単位の共有フォルダ」に
+        /// 1 か所だけ置く。こうするとプロジェクトを増やしても AI モデルがストレージを圧迫せず、
+        /// 一度ダウンロードすれば別プロジェクトでも再ダウンロード不要になる。
+        /// 保存先: Windows は %LOCALAPPDATA%\Iroca\Models、mac/Linux は ~/.local/share 等。
+        /// (取得できない特殊環境ではプロジェクト内 UserSettings/Iroca/Models へフォールバック)
         /// </summary>
-        public static string ModelsDirectory =>
-            System.IO.Path.GetFullPath(System.IO.Path.Combine(
-                Application.dataPath, "..", "UserSettings", "Iroca", "Models"));
+        public static string ModelsDirectory
+        {
+            get
+            {
+                string root = System.Environment.GetFolderPath(
+                    System.Environment.SpecialFolder.LocalApplicationData);
+                if (!string.IsNullOrEmpty(root))
+                    return System.IO.Path.GetFullPath(
+                        System.IO.Path.Combine(root, "Iroca", "Models"));
+                return System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                    Application.dataPath, "..", "UserSettings", "Iroca", "Models"));
+            }
+        }
     }
 }

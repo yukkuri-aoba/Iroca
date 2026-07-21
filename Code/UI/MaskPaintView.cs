@@ -170,7 +170,7 @@ namespace Iroca
                 maskPaintActive ? Localization.MaskHint : Localization.MaskHintPaintOff,
                 MessageType.Info);
 
-            // AI マスク提案(Sentis 統合が存在するときのみ描画される)
+            // AI マスク提案(Sentis 導入時は本編、未導入時はワンクリック有効化の導線を描く)
             MaskSuggestSection.Draw(_host, this);
 
             EditorGUILayout.EndFoldoutHeaderGroup();
