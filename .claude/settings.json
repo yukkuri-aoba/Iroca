@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/dev_safe_autosync.sh",
+            "shell": "bash",
+            "timeout": 30,
+            "statusMessage": "dev_safe を同期中..."
+          }
+        ]
+      }
+    ]
+  }
+}
