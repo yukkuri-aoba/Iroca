@@ -43,13 +43,7 @@ namespace Iroca
             }
             GUI.backgroundColor = prevBg;
 
-            if (!ctl.Active)
-            {
-                // 非アクティブでも積み上げが残っていれば操作は出す(誤ってモードを閉じた場合の救済)
-                DrawAccumulationControls(host, maskView, ctl);
-                ctl.UpdateOverlayIfNeeded();
-                return;
-            }
+            if (!ctl.Active) return;
 
             // 提案の粒度(SAM はクリック 1 点に粒度違いの候補を同時出力する)
             EditorGUILayout.BeginHorizontal();
@@ -126,23 +120,7 @@ namespace Iroca
                     break;
             }
 
-            // ─── 表示中の提案 ───
-            if (ctl.Pending != null)
-            {
-                if (ctl.Pending.floodWarning)
-                    EditorGUILayout.HelpBox(Localization.AiSuggestAreaWarning, MessageType.Warning);
-                EditorGUILayout.BeginHorizontal();
-                if (GUILayout.Button(new GUIContent(Localization.AiSuggestAccept,
-                                                    Localization.AiSuggestAcceptTooltip)))
-                    ctl.AcceptPending();
-                if (GUILayout.Button(new GUIContent(Localization.AiSuggestRetry,
-                                                    Localization.AiSuggestRetryTooltip)))
-                    ctl.DiscardPending();
-                EditorGUILayout.EndHorizontal();
-            }
-
-            DrawAccumulationControls(host, maskView, ctl);
-            ctl.UpdateOverlayIfNeeded();
+            DrawTargetAndWarnings(host, maskView, ctl);
         }
 
         /// <summary>
@@ -200,15 +178,15 @@ namespace Iroca
                 MaskSuggestInstall.StartInstall();
         }
 
-        static void DrawAccumulationControls(IrocaWindow host, MaskPaintView maskView, MaskSuggestController ctl)
+        /// <summary>
+        /// クリックがどのマスクへ足されるかの明示と、効果が出ない/外した場合の注意書き。
+        /// クリック 1 回で即マスクへ反映されるため(積み上げ・確定ボタンは無い)、取り違えや
+        /// 「反映されない」に先に気づけるよう常時表示する。
+        /// </summary>
+        static void DrawTargetAndWarnings(IrocaWindow host, MaskPaintView maskView, MaskSuggestController ctl)
         {
-            if (!ctl.HasUnion) return;
-            EditorGUILayout.LabelField(
-                string.Format(Localization.AiSuggestPiecesFormat, ctl.AcceptedCount),
-                EditorStyles.miniLabel);
-
-            // 確定先マスク(共通 or ゾーン)を明示する。編集対象が想定と違うゾーンだと
-            // 「確定しても対象ゾーンに効かず変化なし」に見えるため、取り違えを防ぐ。
+            // 追加先マスク(共通 or ゾーン)を明示する。編集対象が想定と違うゾーンだと
+            // 「足しても対象ゾーンに効かず変化なし」に見えるため、取り違えを防ぐ。
             var zones = host.Session?.zones;
             int t = maskView.activeMaskTarget;
             string target = (t >= 0 && zones != null && t < zones.Count)
@@ -218,24 +196,15 @@ namespace Iroca
                 string.Format(Localization.AiSuggestCommitTargetFormat, target),
                 EditorStyles.miniLabel);
 
-            // マスクは色ゾーンの色替え範囲を制限する機能。有効な色ゾーンが無いと確定しても
+            // マスクは色ゾーンの色替え範囲を制限する機能。有効な色ゾーンが無いと足しても
             // 出力は変わらない(=「反映されない」の主因の一つ)。ここで先に気づけるようにする。
             bool anyEnabledZone = zones != null && zones.Exists(z => z != null && z.enabled);
             if (!anyEnabledZone)
                 EditorGUILayout.HelpBox(Localization.AiSuggestNoZoneWarning, MessageType.Warning);
 
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(new GUIContent(Localization.AiSuggestUndoPiece,
-                                                Localization.AiSuggestUndoPieceTooltip)))
-                ctl.UndoLastAccepted();
-            if (GUILayout.Button(new GUIContent(Localization.AiSuggestClear,
-                                                Localization.AiSuggestClearTooltip)))
-                ctl.ClearAccumulation();
-            EditorGUILayout.EndHorizontal();
-            // 確定は単一操作(選んだ部分を除外マスク=色替えしない範囲へ追加)。
-            if (GUILayout.Button(new GUIContent(Localization.AiSuggestCommit,
-                                                Localization.AiSuggestCommitTooltip)))
-                ctl.CommitToMask();
+            // 直近クリックが背景まで広がった可能性があれば、Ctrl+Z で戻す誘導を出す。
+            if (ctl.LastClickFloodWarning)
+                EditorGUILayout.HelpBox(Localization.AiSuggestAreaWarning, MessageType.Warning);
         }
     }
 }
