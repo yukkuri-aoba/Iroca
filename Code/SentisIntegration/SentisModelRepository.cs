@@ -21,8 +21,8 @@ namespace Iroca.SentisIntegration
     /// </summary>
     internal static class SentisModelRepository
     {
-        public const string EncoderFileName = "mobile_sam_encoder.onnx";
-        public const string DecoderFileName = "mobile_sam_decoder.onnx";
+        public const string EncoderFileName = MaskSuggestBridge.EncoderFileName;
+        public const string DecoderFileName = MaskSuggestBridge.DecoderFileName;
         const string TempImportDir = "Assets/IrocaModelImportTemp";
 
         static string ModelsDir => MaskSuggestBridge.ModelsDirectory;
