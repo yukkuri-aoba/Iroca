@@ -308,6 +308,67 @@ namespace Iroca
             for (int pass = 0; pass < AaMaxPasses; pass++)
                 if (IncludeAaTransitionPass(mask, pixelsBottomUp, w, h, d) == 0)
                     break;
+
+            // フェーズ2: 境界 1px リングの局所ブレンド吸収。フェーズ1 の面統計は soft skirt
+            // (ぼかし縁)が近傍にある素材で外側平均が skirt 色に汚染され、階段の角に残る
+            // 遷移画素(隣接マスク色と背景の 1px 混合)の混合率を 0 と誤評価して取り残す
+            // (実測: 各階段角に 1 画素、再着色で点ノイズ化)。ここでは面統計を使わず、
+            // 画素自身の「隣接マスク画素 m ⇄ 反対側の画素 q」を両端とする局所線分で
+            // p = α·m + (1-α)·q の実混合判定を行う(統計汚染と無縁・向き非依存)。
+            for (int pass = 0; pass < AaMaxPasses; pass++)
+                if (AbsorbEdgeBlendPass(mask, pixelsBottomUp, w, h) == 0)
+                    break;
+        }
+
+        /// <summary>
+        /// 境界に接する外側画素を、隣接マスク画素 m と反対側画素 q の局所線分で実混合判定して
+        /// マスクへ吸収する 1 パス。追加した画素数を返す。読みはパス開始時のスナップショット、
+        /// 書きは追加のみ(決定的・順序非依存)。別色の構造(輪郭線等)は残差ゲートで残る。
+        /// </summary>
+        static int AbsorbEdgeBlendPass(bool[] mask, Color32[] pixelsBottomUp, int w, int h)
+        {
+            var mask0 = (bool[])mask.Clone();
+            // 8 方向(反対方向は符号反転で得る)
+            int[] ex = { 1, -1, 0, 0, 1, 1, -1, -1 };
+            int[] ey = { 0, 0, 1, -1, 1, -1, 1, -1 };
+            int added = 0;
+            for (int y = 0; y < h; y++)
+            {
+                int row = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    int i = row + x;
+                    if (mask0[i]) continue;
+                    for (int k = 0; k < 8; k++)
+                    {
+                        int mx2 = x + ex[k], my2 = y + ey[k];
+                        int qx = x - ex[k], qy = y - ey[k];
+                        if (mx2 < 0 || mx2 >= w || my2 < 0 || my2 >= h) continue;
+                        if (qx < 0 || qx >= w || qy < 0 || qy >= h) continue;
+                        int mi = my2 * w + mx2, qi = qy * w + qx;
+                        if (!mask0[mi] || mask0[qi]) continue;
+
+                        var cm = pixelsBottomUp[mi];
+                        var cq = pixelsBottomUp[qi];
+                        var cp = pixelsBottomUp[i];
+                        double dR = cm.r - (double)cq.r, dG = cm.g - (double)cq.g,
+                               dB = cm.b - (double)cq.b, dA = cm.a - (double)cq.a;
+                        double dirSq = dR * dR + dG * dG + dB * dB + dA * dA;
+                        if (dirSq < AaMinContrastSq) continue; // 平坦(m≈q) → 混合が定義できない
+
+                        double pR = cp.r - (double)cq.r, pG = cp.g - (double)cq.g,
+                               pB = cp.b - (double)cq.b, pA = cp.a - (double)cq.a;
+                        double t = (pR * dR + pG * dG + pB * dB + pA * dA) / dirSq;
+                        if (t < AaBlendMin) continue;          // ほぼ q(背景側) → 吸収しない
+                        double residSq = pR * pR + pG * pG + pB * pB + pA * pA - t * t * dirSq;
+                        if (residSq > AaResidFracSq * dirSq) continue; // 別色 → 吸収しない
+                        mask[i] = true;
+                        added++;
+                        break;
+                    }
+                }
+            }
+            return added;
         }
 
         /// <summary>IncludeAaTransition の 1 パス。追加した画素数を返す。</summary>
