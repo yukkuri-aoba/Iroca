@@ -793,6 +793,31 @@ namespace Iroca
                     return 0;
                 }
 
+                // --samops-covertransfer <mask.raw> <dw> <dh> <out.raw> : 被覆保存の解像度転写
+                case "--samops-covertransfer":
+                {
+                    var (sw2, sh2, mbytes2) = ReadRaw(args[1], 1);
+                    var src2 = new bool[sw2 * sh2];
+                    for (int i = 0; i < src2.Length; i++) src2[i] = mbytes2[i] != 0;
+                    int dw = int.Parse(args[2]), dh = int.Parse(args[3]);
+                    var dst2 = SamMaskRefine.TransferCoverage(src2, sw2, sh2, dw, dh);
+                    if (dst2 == null)
+                    {
+                        Console.Error.WriteLine("covertransfer: invalid input");
+                        return 2;
+                    }
+                    using (var fs = new FileStream(args[4], FileMode.Create, FileAccess.Write))
+                    using (var bw = new BinaryWriter(fs))
+                    {
+                        bw.Write(dw); bw.Write(dh);
+                        var bytes = new byte[dw * dh];
+                        for (int i = 0; i < bytes.Length; i++) bytes[i] = dst2[i] ? (byte)1 : (byte)0;
+                        bw.Write(bytes);
+                    }
+                    Console.WriteLine($"COVERTRANSFER OK {sw2}x{sh2} -> {dw}x{dh}");
+                    return 0;
+                }
+
                 // --samops-zoomrect <mask.raw> <clickX> <clickY> : ズームイン判定
                 // (クリック成分 bbox 長辺 + クロップ矩形導出。座標は下原点)
                 case "--samops-zoomrect":
