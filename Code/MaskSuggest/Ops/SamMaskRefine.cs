@@ -26,6 +26,34 @@ namespace Iroca
         /// </summary>
         const int MaxWindowRadius = 8;
 
+        // ─────────────────── AA 遷移帯のマスク包含(IncludeAaTransition) ───────────────────
+        // SnapBoundary は境界を「内側/外側の等距離点」(混合率 ≈50%)に置き、多数決平滑が
+        // 階段の角を ±1px 削る。除外(保護)マスクとしては、パーツ色が目に見えて混ざる画素が
+        // 外側に取り残されると、そこだけ再着色されて点ノイズになる(実測: 実 SAM 提案で
+        // 最外周 1px の混合率 50% 前後の画素が漏れ、ドット化)。ここでは境界外側の帯に限り、
+        // 「局所外側平均色 → 局所内側平均色」の線分への射影で実混合(AA)画素を判定し、
+        // 混合率が下限を超えるものをマスクへ含める。ExtendFringe の strand ゲートと異なり
+        // 境界の向きに依存せず、統計は対象テクスチャ自身から局所導出する。
+
+        /// <summary>マスクへ含める混合率(パーツ色比率)の下限。これ未満はほぼ背景で、
+        /// 再着色されても変化が知覚しきい未満に留まる。</summary>
+        const float AaBlendMin = 0.10f;
+
+        /// <summary>実混合とみなす線分残差の上限(線分長に対する比の 2 乗)。
+        /// これ超は別色(隣接する別パーツ等)であり、混色の前提が崩れるため含めない。</summary>
+        const float AaResidFracSq = 0.35f * 0.35f;
+
+        /// <summary>混合軸が定義できる最小コントラスト(RGBA 距離 2 乗)。
+        /// 内外の平均色がこれより近い境界は視覚的に既に継ぎ目が無く、包含の益もない。</summary>
+        const float AaMinContrastSq = 24f * 24f;
+
+        /// <summary>
+        /// 包含の反復上限。パーツ縁の soft skirt(ぼかし縁)が帯幅 d を超えて伸びる場合、
+        /// 1 回の包含では途中までしか覆えないため、境界を進めながら固定点まで繰り返す
+        /// (追加ゼロで早期終了)。skirt は実測で 2d 前後まで、3 回で十分に収束する。
+        /// </summary>
+        const int AaMaxPasses = 3;
+
         // ─────────────────── 房外郭への境界拡張(ExtendFringe) ───────────────────
         // SAM のマスクは房(細い frayed strands)を無視して滑らかに切る。房 strands は
         // render 対象(strand 間の gap は非表示)なので、「局所背景色から遠い outside 画素」を
@@ -260,6 +288,169 @@ namespace Iroca
             // ±1px の点状ノイズになる。帯内のみ 3x3 多数決で平滑化して点滅を除去する
             // (帯外は不変なので形状は保たれる)。
             MajoritySmoothBand(mask, mask0, distIn, distOut, d, w, h);
+        }
+
+        /// <summary>
+        /// mask(下原点 w*h)の境界外側の AA 遷移帯(内側色と外側色の実混合画素)をマスクへ
+        /// 含める(in-place)。SnapBoundary → ExtendFringe の後段で呼ぶ最終仕上げ。
+        /// 除外(保護)マスクの意味論では「パーツ色が目に見えて混ざる画素」を取り残すと
+        /// そこだけ再着色されて点ノイズになるため、混合率 AaBlendMin 以上の実混合を包含する。
+        /// </summary>
+        public static void IncludeAaTransition(bool[] mask, Color32[] pixelsBottomUp, int w, int h)
+        {
+            if (mask == null || pixelsBottomUp == null || mask.Length != w * h ||
+                pixelsBottomUp.Length < w * h) return;
+
+            int d = Mathf.Max(2, Mathf.CeilToInt(
+                Mathf.Max(w, h) / (float)SamMaskPostprocess.LowRes * 0.75f));
+
+            // soft skirt が帯幅を超える場合に境界を進めながら吸収する(追加ゼロで早期終了)。
+            for (int pass = 0; pass < AaMaxPasses; pass++)
+                if (IncludeAaTransitionPass(mask, pixelsBottomUp, w, h, d) == 0)
+                    break;
+        }
+
+        /// <summary>IncludeAaTransition の 1 パス。追加した画素数を返す。</summary>
+        static int IncludeAaTransitionPass(bool[] mask, Color32[] pixelsBottomUp, int w, int h, int d)
+        {
+            var distIn = DistanceToOpposite(mask, w, h, inside: true);
+            var distOut = DistanceToOpposite(mask, w, h, inside: false);
+
+            // 確信領域の局所色統計(SnapBoundary と同じ粗グリッド集計・現マスク基準)。
+            // 外側統計は近傍(d 超)と遠方(2d 超)の 2 系統を持ち、判定はユニオン(どちらかの
+            // 軸で実混合なら包含)にする。近傍軸だけだと、パーツ縁の soft skirt(ぼかし縁)が
+            // 帯幅を超えて伸びる素材で外側平均が skirt 自身に汚染され、skirt 画素の混合率が
+            // 0 に見えて取り残される(実測: 遠方軸のみへの置換は逆に隣接パーツ汚染で悪化。
+            // 軸の原点=外側平均の近傍にある画素は t≈0 で弾かれる構造のため、ユニオンは
+            // どちらかの軸が汚染されても誤包含になりにくい)。
+            int gw = (w + d - 1) / d, gh = (h + d - 1) / d;
+            var sumIn = new long[gw * gh * 4];
+            var sumOutNear = new long[gw * gh * 4];
+            var sumOutFar = new long[gw * gh * 4];
+            var cntIn = new int[gw * gh];
+            var cntOutNear = new int[gw * gh];
+            var cntOutFar = new int[gw * gh];
+            int farDist = 2 * d;
+            for (int y = 0; y < h; y++)
+            {
+                int gRow = (y / d) * gw;
+                int row = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    int i = row + x;
+                    bool inConf = mask[i] && distIn[i] > d;
+                    bool outNear = !mask[i] && distOut[i] > d;
+                    if (!inConf && !outNear) continue;
+                    int g = gRow + x / d;
+                    var c = pixelsBottomUp[i];
+                    int o = g * 4;
+                    if (inConf)
+                    {
+                        sumIn[o] += c.r; sumIn[o + 1] += c.g; sumIn[o + 2] += c.b; sumIn[o + 3] += c.a;
+                        cntIn[g]++;
+                    }
+                    else
+                    {
+                        sumOutNear[o] += c.r; sumOutNear[o + 1] += c.g;
+                        sumOutNear[o + 2] += c.b; sumOutNear[o + 3] += c.a;
+                        cntOutNear[g]++;
+                        if (distOut[i] > farDist)
+                        {
+                            sumOutFar[o] += c.r; sumOutFar[o + 1] += c.g;
+                            sumOutFar[o + 2] += c.b; sumOutFar[o + 3] += c.a;
+                            cntOutFar[g]++;
+                        }
+                    }
+                }
+            }
+
+            // 判定はパス開始時のマスク由来の distOut に対して行い、書き込みは追加のみ
+            // (決定的・順序非依存。統計は確信領域=帯外なので追加書き込みの影響を受けない)。
+            int added = 0;
+            for (int y = 0; y < h; y++)
+            {
+                int row = y * w;
+                int gy = y / d;
+                for (int x = 0; x < w; x++)
+                {
+                    int i = row + x;
+                    if (mask[i] || distOut[i] > d) continue; // 境界外側の帯のみ
+
+                    int gx = x / d;
+                    // 内側統計(共通)と、近傍/遠方の外側統計を半径段階拡大で収集
+                    long ir = 0, ig = 0, ib = 0, ia = 0;
+                    long nr = 0, ng = 0, nb = 0, na = 0, fr = 0, fg = 0, fb = 0, fa = 0;
+                    int ic = 0, nc = 0, fc = 0;
+                    for (int radius = 2; radius <= MaxWindowRadius; radius += 2)
+                    {
+                        ir = ig = ib = ia = 0; ic = 0;
+                        nr = ng = nb = na = 0; nc = 0;
+                        fr = fg = fb = fa = 0; fc = 0;
+                        int gy0 = Mathf.Max(0, gy - radius), gy1 = Mathf.Min(gh - 1, gy + radius);
+                        int gx0 = Mathf.Max(0, gx - radius), gx1 = Mathf.Min(gw - 1, gx + radius);
+                        for (int yy = gy0; yy <= gy1; yy++)
+                        {
+                            int gRow = yy * gw;
+                            for (int xx = gx0; xx <= gx1; xx++)
+                            {
+                                int g = gRow + xx;
+                                int o = g * 4;
+                                if (cntIn[g] > 0)
+                                {
+                                    ir += sumIn[o]; ig += sumIn[o + 1]; ib += sumIn[o + 2]; ia += sumIn[o + 3];
+                                    ic += cntIn[g];
+                                }
+                                if (cntOutNear[g] > 0)
+                                {
+                                    nr += sumOutNear[o]; ng += sumOutNear[o + 1];
+                                    nb += sumOutNear[o + 2]; na += sumOutNear[o + 3];
+                                    nc += cntOutNear[g];
+                                }
+                                if (cntOutFar[g] > 0)
+                                {
+                                    fr += sumOutFar[o]; fg += sumOutFar[o + 1];
+                                    fb += sumOutFar[o + 2]; fa += sumOutFar[o + 3];
+                                    fc += cntOutFar[g];
+                                }
+                            }
+                        }
+                        if (ic >= MinSamples && nc >= MinSamples) break;
+                    }
+                    if (ic < MinSamples) continue; // 内側統計不足 → 触らない
+
+                    var c = pixelsBottomUp[i];
+                    double inR = ir / (double)ic, inG = ig / (double)ic,
+                           inB = ib / (double)ic, inA = ia / (double)ic;
+                    if (IsAaBlend(c, inR, inG, inB, inA, nr, ng, nb, na, nc) ||
+                        IsAaBlend(c, inR, inG, inB, inA, fr, fg, fb, fa, fc))
+                    {
+                        mask[i] = true;
+                        added++;
+                    }
+                }
+            }
+            return added;
+        }
+
+        /// <summary>
+        /// 画素 c が「外側平均色 → 内側平均色」の線分上の実混合(混合率 AaBlendMin 以上)かを
+        /// 判定する。外側統計が不足していれば false(その軸では判定しない)。
+        /// </summary>
+        static bool IsAaBlend(Color32 c, double inR, double inG, double inB, double inA,
+                              long or_, long og, long ob, long oa, int oc)
+        {
+            if (oc < MinSamples) return false;
+            double outR = or_ / (double)oc, outG = og / (double)oc,
+                   outB = ob / (double)oc, outA = oa / (double)oc;
+            double dR = inR - outR, dG = inG - outG, dB = inB - outB, dA = inA - outA;
+            double dirSq = dR * dR + dG * dG + dB * dB + dA * dA;
+            if (dirSq < AaMinContrastSq) return false; // 低コントラスト境界 → 混合軸が無意味
+
+            double pR = c.r - outR, pG = c.g - outG, pB = c.b - outB, pA = c.a - outA;
+            double t = (pR * dR + pG * dG + pB * dB + pA * dA) / dirSq;
+            if (t < AaBlendMin) return false;          // ほぼ背景 → 含めない
+            double residSq = pR * pR + pG * pG + pB * pB + pA * pA - t * t * dirSq;
+            return residSq <= AaResidFracSq * dirSq;   // 線分から外れる別色は含めない
         }
 
         /// <summary>帯内画素を 3x3 多数決(5/9 以上)で平滑化する。読みはスナップ結果の
