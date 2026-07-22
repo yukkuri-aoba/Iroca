@@ -45,7 +45,7 @@ namespace Iroca
             Color sampleColor, Color targetColor,
             int radius, float interiorThreshold,
             bool[] aaMask, Color32[] decontaminatedPixels, bool hasMatch = true,
-            CancellationToken ct = default)
+            CancellationToken ct = default, bool[] maskExcluded = null)
         {
             int len = w * h;
             // 呼び出し側がゾーン間で再利用するバッファを渡す。aaMask は全画素で読まれるため
@@ -81,8 +81,12 @@ namespace Iroca
             var decontamPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             Parallel.For(0, len, decontamPo, i =>
             {
-                // アルファが0のピクセルはRGBがゴミデータ(黒など)の可能性が高いためBG推定から除外
-                if (strength[i] <= 0f && originalPixels[i].a > 0)
+                // アルファが0のピクセルはRGBがゴミデータ(黒など)の可能性が高いためBG推定から除外。
+                // 除外マスク画素も除く: strength=0 だが背景ではなく「保護されたパーツ」(サンプル同色で
+                // あり得る)ため、ドナーに入れると BG 推定がサンプル色側へ汚染され、α 分解の前提
+                // (BG=非対象色)が崩れてマスク境界の外側に誤色の点ノイズを塗ってしまう。
+                if (strength[i] <= 0f && originalPixels[i].a > 0 &&
+                    (maskExcluded == null || !maskExcluded[i]))
                 {
                     wR[i] = originalPixels[i].r;
                     wG[i] = originalPixels[i].g;
