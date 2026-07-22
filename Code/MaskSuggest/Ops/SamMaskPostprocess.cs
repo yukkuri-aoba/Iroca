@@ -107,6 +107,9 @@ namespace Iroca
                 // 房(細い frayed strands)を実テクスチャ信号で外郭まで拡張(SAM の滑らかな境界が
                 // 切り落とす房を救済)。房が無い部位ではほとんど成長しない。
                 SamMaskRefine.ExtendFringe(mask, pixelsBottomUp, texW, texH);
+                // 境界外側の AA 遷移(パーツ色の実混合)を包含する最終仕上げ。スナップ境界は
+                // 混合率 ≈50% 点に乗るため、外側に残る混合画素が再着色で点ノイズになるのを防ぐ。
+                SamMaskRefine.IncludeAaTransition(mask, pixelsBottomUp, texW, texH);
             }
             return new Result
             {
