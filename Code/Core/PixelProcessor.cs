@@ -205,6 +205,8 @@ namespace Iroca
             // 各ゾーン頭でクリアし、decontaminatedPixels は aaMask=true の位置だけ上書き・参照される。
             bool[] decontamAaMask = null;
             Color32[] decontamPixels = null;
+            // 除外マスク画素の位置(BG ドナー隠蔽用)。マスクがあるゾーンで初回に確保し再利用。
+            bool[] decontamMaskExcluded = null;
             if (useDecontamination)
             {
                 decontamAaMask = new bool[len];
@@ -569,10 +571,29 @@ namespace Iroca
                         // interior_threshold=1.01(全画素 α 再合成)は不要(むしろ内部を背景色で再合成して
                         // 段差を復活させる)。常に通常閾値で AA 縁だけをデコンタミする。
                         float effInteriorThreshold = decontaminationInteriorThreshold;
+                        // 除外マスク画素は strength=0 だが「背景」ではない(サンプル同色の保護パーツで
+                        // あり得る)。BG ドナーに入れると推定色がサンプル色で汚染され、マスク境界の外側に
+                        // 誤色の点ノイズを塗るため、位置を渡してドナーから隠す(マスク中立化)。
+                        bool[] deconExcluded = null;
+                        if (commonMask != null || zoneMask != null)
+                        {
+                            if (decontamMaskExcluded == null) decontamMaskExcluded = new bool[len];
+                            deconExcluded = decontamMaskExcluded;
+                            var excl = deconExcluded;
+                            Parallel.For(0, h, po, y =>
+                            {
+                                int yf = y + originY;
+                                int rowOff = y * w;
+                                for (int x = 0; x < w; x++)
+                                    excl[rowOff + x] = IsExcludedCombined(x + originX, yf, fullW, fullH,
+                                        commonMask, zoneMask, maskW, maskH);
+                            });
+                        }
                         DecontaminateAaBoundary(originalPixels, strength, w, h,
                             zone.sampleColor, zone.targetColor,
                             decontaminationRadius, effInteriorThreshold,
-                            aaMask, decontaminatedPixels, hasPostBox, cancellationToken);
+                            aaMask, decontaminatedPixels, hasPostBox, cancellationToken,
+                            deconExcluded);
                         debug?.RecordDecontamination(zone.id, aaMask, w, h);
                     }
 
