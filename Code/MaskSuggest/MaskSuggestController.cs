@@ -117,16 +117,31 @@ namespace Iroca
             }
             else
             {
-                // マスク解像度がソースと異なる場合は最近傍で転写(EnsureMasks のリスケールと同方針)。
-                for (int my = 0; my < mh; my++)
+                // マスク解像度がソースと異なる場合(実ファイル解像度で仕上げた提案 →
+                // インポート解像度のマスクキャンバス等)は被覆保存で転写する。旧実装の
+                // 最近傍サンプリングは縮小時に仕上げ済み境界の被覆を 1 セル単位で欠けさせ、
+                // 取り残し画素が再着色されて境界の点ノイズになっていた(実測: 強ドット 177個
+                // → 被覆保存で 0)。さらにインポート縮小はマスク解像度側に新たな混合画素を
+                // 作るため、提案の寄与分だけを対象に AA 遷移包含をマスク解像度で再適用して
+                // から OR する(ユーザーの既存ストロークには触れない)。
+                var transferred = SamMaskRefine.TransferCoverage(src, sw, sh, mw, mh);
+                if (transferred != null)
                 {
-                    int sy = (int)((long)my * sh / mh);
-                    int srcRow = sy * sw, dstRow = my * mw;
-                    for (int mx = 0; mx < mw; mx++)
+                    var tex = _host?.SourceTexture;
+                    if (tex != null && tex.width == mw && tex.height == mh)
                     {
-                        int sx = (int)((long)mx * sw / mw);
-                        if (src[srcRow + sx]) mask[dstRow + mx] = true;
+                        try
+                        {
+                            SamMaskRefine.IncludeAaTransition(transferred, tex.GetPixels32(), mw, mh);
+                        }
+                        catch (System.Exception)
+                        {
+                            // 非 Readable 等で画素が取れない場合は被覆保存転写のみ
+                            // (最近傍起因の強い点ノイズはこれだけでも解消する)。
+                        }
                     }
+                    for (int i = 0; i < mask.Length; i++)
+                        if (transferred[i]) mask[i] = true;
                 }
             }
             _maskView.EndStroke();
