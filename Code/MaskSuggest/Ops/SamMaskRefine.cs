@@ -21,6 +21,14 @@ namespace Iroca
         const int MinSamples = 16;
 
         /// <summary>
+        /// 単一グリッドセルを色モードとして扱う最小画素数。確信領域の色は窓プール平均だと
+        /// 多峰背景(白ギャップ+隣接する別パーツ等)で実在しない中間色に潰れ、素の背景画素が
+        /// 「背景から遠い」と誤判定される(実測: 隣接パーツ脇のギャップへ提案が成長)。
+        /// 各段の判定はセル単位モードへの最近傍距離で行い、この汚染を避ける。
+        /// </summary>
+        const int MinCellSamples = 4;
+
+        /// <summary>
         /// 統計不足時に広げる近傍グリッド半径の上限(セル単位)。d はテクスチャ解像度に
         /// 比例するため、この上限もテクスチャサイズに応じて実 px 幅が自動的にスケールする。
         /// </summary>
@@ -31,9 +39,10 @@ namespace Iroca
         // 階段の角を ±1px 削る。除外(保護)マスクとしては、パーツ色が目に見えて混ざる画素が
         // 外側に取り残されると、そこだけ再着色されて点ノイズになる(実測: 実 SAM 提案で
         // 最外周 1px の混合率 50% 前後の画素が漏れ、ドット化)。ここでは境界外側の帯に限り、
-        // 「局所外側平均色 → 局所内側平均色」の線分への射影で実混合(AA)画素を判定し、
-        // 混合率が下限を超えるものをマスクへ含める。ExtendFringe の strand ゲートと異なり
-        // 境界の向きに依存せず、統計は対象テクスチャ自身から局所導出する。
+        // 「局所外側モード色(画素に最近傍のセル平均) → 局所内側平均色」の線分への射影で
+        // 実混合(AA)画素を判定し、混合率が下限を超えるものをマスクへ含める。
+        // ExtendFringe の strand ゲートと異なり境界の向きに依存せず、統計は対象テクスチャ
+        // 自身から局所導出する。
 
         /// <summary>マスクへ含める混合率(パーツ色比率)の下限。これ未満はほぼ背景で、
         /// 再着色されても変化が知覚しきい未満に留まる。</summary>
@@ -82,25 +91,100 @@ namespace Iroca
 
             // mask 外画素→最近 mask までの L1 距離(within/conf_out 判定に使う)
             var distOut = DistanceToOpposite(mask, w, h, inside: false);
+            var distIn = DistanceToOpposite(mask, w, h, inside: true);
 
             // 局所背景色 = mask 直外の確信領域(distOut>d)を粗グリッド集計 → 各画素 5x5 グリッド窓合算平均。
+            // 内側確信領域(distIn>d)も同時に集計する(背景モードの生地類似判定に使う)。
             int gw = (w + d - 1) / d, gh = (h + d - 1) / d;
             var sum = new long[gw * gh * 3];
             var cnt = new int[gw * gh];
+            var sumIn = new long[gw * gh * 3];
+            var cntIn = new int[gw * gh];
             for (int y = 0; y < h; y++)
             {
                 int gRow = (y / d) * gw, row = y * w;
                 for (int x = 0; x < w; x++)
                 {
                     int i = row + x;
-                    if (mask[i] || distOut[i] <= d) continue; // 確信背景のみ
-                    int g = gRow + x / d, o = g * 3;
+                    bool confOut = !mask[i] && distOut[i] > d;
+                    bool confIn = mask[i] && distIn[i] > d;
+                    if (!confOut && !confIn) continue;
+                    int g = gRow + x / d;
                     var c = pixelsBottomUp[i];
-                    sum[o] += c.r; sum[o + 1] += c.g; sum[o + 2] += c.b; cnt[g]++;
+                    if (confOut)
+                    {
+                        int o = g * 3;
+                        sum[o] += c.r; sum[o + 1] += c.g; sum[o + 2] += c.b; cnt[g]++;
+                    }
+                    else
+                    {
+                        int o = g * 3;
+                        sumIn[o] += c.r; sumIn[o + 1] += c.g; sumIn[o + 2] += c.b; cntIn[g]++;
+                    }
                 }
             }
 
-            // far[i]: 局所背景から色が遠い(生地/strand)。near は strand-like gate 用に横合算する。
+            // セル単位の背景モード(MinCellSamples 以上のセルのみ)。距離判定は最近傍モードで
+            // 行う: 窓プール平均だと隣接する別パーツの色が混入した瞬間に平均が実在しない
+            // 中間色へずれ、素の背景画素が「背景から遠い=生地」と誤判定されて提案が
+            // ギャップへ成長する(多峰背景の平均は無意味)。
+            var cellMean = new double[gw * gh * 3];
+            var cellValid = new bool[gw * gh];
+            var inMean = new double[gw * gh * 3];
+            var inValid = new bool[gw * gh];
+            for (int g = 0; g < gw * gh; g++)
+            {
+                int o = g * 3;
+                if (cnt[g] >= MinCellSamples)
+                {
+                    cellValid[g] = true;
+                    cellMean[o] = sum[o] / (double)cnt[g];
+                    cellMean[o + 1] = sum[o + 1] / (double)cnt[g];
+                    cellMean[o + 2] = sum[o + 2] / (double)cnt[g];
+                }
+                if (cntIn[g] >= MinCellSamples)
+                {
+                    inValid[g] = true;
+                    inMean[o] = sumIn[o] / (double)cntIn[g];
+                    inMean[o + 1] = sumIn[o + 1] / (double)cntIn[g];
+                    inMean[o + 2] = sumIn[o + 2] / (double)cntIn[g];
+                }
+            }
+
+            // 生地類似の外側モードを無効化: マスク直外の確信領域には SAM が切り落とした
+            // 生地(房 strands)自体が含まれ得る。その色クラスタを背景モードとして信用すると
+            // 房画素が「背景に近い」と誤判定されて成長が止まる。近傍 5x5 セル内のどれかの
+            // 内側モードと同色(しきい以内)の外側モードは生地の可能性が高いため除外する
+            // (プール平均時代は希釈で偶然無害だった汚染の、モード化に伴う明示対処)。
+            for (int gy = 0; gy < gh; gy++)
+            {
+                int gy0 = Mathf.Max(0, gy - 2), gy1 = Mathf.Min(gh - 1, gy + 2);
+                for (int gx = 0; gx < gw; gx++)
+                {
+                    int g = gy * gw + gx;
+                    if (!cellValid[g]) continue;
+                    int o = g * 3;
+                    int gx0 = Mathf.Max(0, gx - 2), gx1 = Mathf.Min(gw - 1, gx + 2);
+                    bool fabricLike = false;
+                    for (int yy = gy0; yy <= gy1 && !fabricLike; yy++)
+                    {
+                        int gr = yy * gw;
+                        for (int xx = gx0; xx <= gx1; xx++)
+                        {
+                            int g2 = gr + xx;
+                            if (!inValid[g2]) continue;
+                            int o2 = g2 * 3;
+                            double dr = cellMean[o] - inMean[o2],
+                                   dg = cellMean[o + 1] - inMean[o2 + 1],
+                                   db = cellMean[o + 2] - inMean[o2 + 2];
+                            if (dr * dr + dg * dg + db * db <= thr2) { fabricLike = true; break; }
+                        }
+                    }
+                    if (fabricLike) cellValid[g] = false;
+                }
+            }
+
+            // far[i]: どの局所背景モードからも色が遠い(生地/strand)。near は strand-like gate 用に横合算する。
             var far = new bool[w * h];
             var nearBg = new bool[w * h];
             for (int y = 0; y < h; y++)
@@ -112,7 +196,9 @@ namespace Iroca
                     int i = row + x;
                     int gx = x / d;
                     int gx0 = Mathf.Max(0, gx - 2), gx1 = Mathf.Min(gw - 1, gx + 2);
+                    var c = pixelsBottomUp[i];
                     long sr = 0, sg = 0, sb = 0; int n = 0;
+                    double minD = double.MaxValue;
                     for (int yy = gy0; yy <= gy1; yy++)
                     {
                         int gr = yy * gw;
@@ -120,13 +206,24 @@ namespace Iroca
                         {
                             int g = gr + xx, o = g * 3;
                             sr += sum[o]; sg += sum[o + 1]; sb += sum[o + 2]; n += cnt[g];
+                            if (!cellValid[g]) continue;
+                            double dr = c.r - cellMean[o], dg = c.g - cellMean[o + 1],
+                                   db = c.b - cellMean[o + 2];
+                            double dd = dr * dr + dg * dg + db * db;
+                            if (dd < minD) minD = dd;
                         }
                     }
                     if (n < MinSamples) { nearBg[i] = true; continue; } // bg 不明 → 育てない側に倒す
-                    var c = pixelsBottomUp[i];
-                    double mr = sr / (double)n, mg = sg / (double)n, mb = sb / (double)n;
-                    double dr = c.r - mr, dg = c.g - mg, db = c.b - mb;
-                    if (dr * dr + dg * dg + db * db > thr2) far[i] = true;
+                    double dist2;
+                    if (minD != double.MaxValue) dist2 = minD;
+                    else
+                    {
+                        // モードを成すセルが無い散在サンプル → 従来のプール平均で判定
+                        double mr = sr / (double)n, mg = sg / (double)n, mb = sb / (double)n;
+                        double dr = c.r - mr, dg = c.g - mg, db = c.b - mb;
+                        dist2 = dr * dr + dg * dg + db * db;
+                    }
+                    if (dist2 > thr2) far[i] = true;
                     else nearBg[i] = true;
                 }
             }
@@ -230,6 +327,34 @@ namespace Iroca
                 }
             }
 
+            // セル単位モード(MinCellSamples 以上のセル)。判定はモードへの最近傍距離で行う:
+            // プール平均は多峰統計(白ギャップ+隣接する別パーツ、柄の複数色)で実在しない
+            // 中間色に潰れ、素の背景画素が「外側平均より内側平均に近い」と誤判定される。
+            var meanIn = new double[gw * gh * 4];
+            var meanOut = new double[gw * gh * 4];
+            var validIn = new bool[gw * gh];
+            var validOut = new bool[gw * gh];
+            for (int g = 0; g < gw * gh; g++)
+            {
+                int o = g * 4;
+                if (cntIn[g] >= MinCellSamples)
+                {
+                    validIn[g] = true;
+                    meanIn[o] = sumIn[o] / (double)cntIn[g];
+                    meanIn[o + 1] = sumIn[o + 1] / (double)cntIn[g];
+                    meanIn[o + 2] = sumIn[o + 2] / (double)cntIn[g];
+                    meanIn[o + 3] = sumIn[o + 3] / (double)cntIn[g];
+                }
+                if (cntOut[g] >= MinCellSamples)
+                {
+                    validOut[g] = true;
+                    meanOut[o] = sumOut[o] / (double)cntOut[g];
+                    meanOut[o + 1] = sumOut[o + 1] / (double)cntOut[g];
+                    meanOut[o + 2] = sumOut[o + 2] / (double)cntOut[g];
+                    meanOut[o + 3] = sumOut[o + 3] / (double)cntOut[g];
+                }
+            }
+
             // 帯画素の再分類。元の mask を読みながら書き換えると統計自体は粗グリッド由来なので
             // 影響しない(確信領域は帯外で不変)。
             for (int y = 0; y < h; y++)
@@ -246,11 +371,14 @@ namespace Iroca
                     // 再集計する。先細りウェッジ等、局所幅が帯より狭い形状では片側の確信領域が
                     // 直近に無いことがあるため(過去は即座に諦めて SAM の粗い判定を残していた)。
                     int gx = x / d;
+                    var c = pixelsBottomUp[i];
                     long ir = 0, ig = 0, ib = 0, ia = 0, or_ = 0, og = 0, ob = 0, oa = 0;
                     int ic = 0, oc = 0;
+                    double minIn = double.MaxValue, minOut = double.MaxValue;
                     for (int radius = 2; radius <= MaxWindowRadius; radius += 2)
                     {
                         ir = ig = ib = ia = or_ = og = ob = oa = 0; ic = 0; oc = 0;
+                        minIn = minOut = double.MaxValue;
                         int gy0 = Mathf.Max(0, gy - radius), gy1 = Mathf.Min(gh - 1, gy + radius);
                         int gx0 = Mathf.Max(0, gx - radius), gx1 = Mathf.Min(gw - 1, gx + radius);
                         for (int yy = gy0; yy <= gy1; yy++)
@@ -264,11 +392,21 @@ namespace Iroca
                                 {
                                     ir += sumIn[o]; ig += sumIn[o + 1]; ib += sumIn[o + 2]; ia += sumIn[o + 3];
                                     ic += cntIn[g];
+                                    if (validIn[g])
+                                    {
+                                        double dd = Dist2Mean(c, meanIn, o);
+                                        if (dd < minIn) minIn = dd;
+                                    }
                                 }
                                 if (cntOut[g] > 0)
                                 {
                                     or_ += sumOut[o]; og += sumOut[o + 1]; ob += sumOut[o + 2]; oa += sumOut[o + 3];
                                     oc += cntOut[g];
+                                    if (validOut[g])
+                                    {
+                                        double dd = Dist2Mean(c, meanOut, o);
+                                        if (dd < minOut) minOut = dd;
+                                    }
                                 }
                             }
                         }
@@ -276,9 +414,8 @@ namespace Iroca
                     }
                     if (ic < MinSamples || oc < MinSamples) continue; // 統計不足 → SAM の判定を維持
 
-                    var c = pixelsBottomUp[i];
-                    double dIn = Dist2(c, ir, ig, ib, ia, ic);
-                    double dOut = Dist2(c, or_, og, ob, oa, oc);
+                    double dIn = minIn != double.MaxValue ? minIn : Dist2(c, ir, ig, ib, ia, ic);
+                    double dOut = minOut != double.MaxValue ? minOut : Dist2(c, or_, og, ob, oa, oc);
                     if (dIn == dOut) continue;
                     mask[i] = dIn < dOut;
                 }
@@ -425,6 +562,36 @@ namespace Iroca
                 }
             }
 
+            // 外側セルモード(MinCellSamples 以上のセル)。混合軸の原点は「画素色に最も近い
+            // 外側モード」を使う: プール平均だと隣接する別パーツの色が混入した窓で原点が
+            // 実在しない中間色(例: 暗色+白の灰)へずれ、素の背景画素が「原点→内側」軸上の
+            // 実混合に見えて層状に吸収され続ける(実測: ギャップ突出の最大増幅段だった)。
+            // 最近傍モードなら素の背景画素は原点そのもの(t≈0)で弾かれる。
+            var meanNear = new double[gw * gh * 4];
+            var meanFar = new double[gw * gh * 4];
+            var validNear = new bool[gw * gh];
+            var validFar = new bool[gw * gh];
+            for (int g = 0; g < gw * gh; g++)
+            {
+                int o = g * 4;
+                if (cntOutNear[g] >= MinCellSamples)
+                {
+                    validNear[g] = true;
+                    meanNear[o] = sumOutNear[o] / (double)cntOutNear[g];
+                    meanNear[o + 1] = sumOutNear[o + 1] / (double)cntOutNear[g];
+                    meanNear[o + 2] = sumOutNear[o + 2] / (double)cntOutNear[g];
+                    meanNear[o + 3] = sumOutNear[o + 3] / (double)cntOutNear[g];
+                }
+                if (cntOutFar[g] >= MinCellSamples)
+                {
+                    validFar[g] = true;
+                    meanFar[o] = sumOutFar[o] / (double)cntOutFar[g];
+                    meanFar[o + 1] = sumOutFar[o + 1] / (double)cntOutFar[g];
+                    meanFar[o + 2] = sumOutFar[o + 2] / (double)cntOutFar[g];
+                    meanFar[o + 3] = sumOutFar[o + 3] / (double)cntOutFar[g];
+                }
+            }
+
             // 判定はパス開始時のマスク由来の distOut に対して行い、書き込みは追加のみ
             // (決定的・順序非依存。統計は確信領域=帯外なので追加書き込みの影響を受けない)。
             int added = 0;
@@ -438,15 +605,20 @@ namespace Iroca
                     if (mask[i] || distOut[i] > d) continue; // 境界外側の帯のみ
 
                     int gx = x / d;
+                    var c = pixelsBottomUp[i];
                     // 内側統計(共通)と、近傍/遠方の外側統計を半径段階拡大で収集
                     long ir = 0, ig = 0, ib = 0, ia = 0;
                     long nr = 0, ng = 0, nb = 0, na = 0, fr = 0, fg = 0, fb = 0, fa = 0;
                     int ic = 0, nc = 0, fc = 0;
+                    double bestNearD = double.MaxValue, bestFarD = double.MaxValue;
+                    int bestNearO = -1, bestFarO = -1;
                     for (int radius = 2; radius <= MaxWindowRadius; radius += 2)
                     {
                         ir = ig = ib = ia = 0; ic = 0;
                         nr = ng = nb = na = 0; nc = 0;
                         fr = fg = fb = fa = 0; fc = 0;
+                        bestNearD = bestFarD = double.MaxValue;
+                        bestNearO = bestFarO = -1;
                         int gy0 = Mathf.Max(0, gy - radius), gy1 = Mathf.Min(gh - 1, gy + radius);
                         int gx0 = Mathf.Max(0, gx - radius), gx1 = Mathf.Min(gw - 1, gx + radius);
                         for (int yy = gy0; yy <= gy1; yy++)
@@ -466,12 +638,22 @@ namespace Iroca
                                     nr += sumOutNear[o]; ng += sumOutNear[o + 1];
                                     nb += sumOutNear[o + 2]; na += sumOutNear[o + 3];
                                     nc += cntOutNear[g];
+                                    if (validNear[g])
+                                    {
+                                        double dd = Dist2Mean(c, meanNear, o);
+                                        if (dd < bestNearD) { bestNearD = dd; bestNearO = o; }
+                                    }
                                 }
                                 if (cntOutFar[g] > 0)
                                 {
                                     fr += sumOutFar[o]; fg += sumOutFar[o + 1];
                                     fb += sumOutFar[o + 2]; fa += sumOutFar[o + 3];
                                     fc += cntOutFar[g];
+                                    if (validFar[g])
+                                    {
+                                        double dd = Dist2Mean(c, meanFar, o);
+                                        if (dd < bestFarD) { bestFarD = dd; bestFarO = o; }
+                                    }
                                 }
                             }
                         }
@@ -479,11 +661,28 @@ namespace Iroca
                     }
                     if (ic < MinSamples) continue; // 内側統計不足 → 触らない
 
-                    var c = pixelsBottomUp[i];
                     double inR = ir / (double)ic, inG = ig / (double)ic,
                            inB = ib / (double)ic, inA = ia / (double)ic;
-                    if (IsAaBlend(c, inR, inG, inB, inA, nr, ng, nb, na, nc) ||
-                        IsAaBlend(c, inR, inG, inB, inA, fr, fg, fb, fa, fc))
+                    bool include = false;
+                    if (nc >= MinSamples)
+                    {
+                        include = bestNearO >= 0
+                            ? IsAaBlend(c, inR, inG, inB, inA, meanNear[bestNearO],
+                                        meanNear[bestNearO + 1], meanNear[bestNearO + 2],
+                                        meanNear[bestNearO + 3])
+                            : IsAaBlend(c, inR, inG, inB, inA, nr / (double)nc,
+                                        ng / (double)nc, nb / (double)nc, na / (double)nc);
+                    }
+                    if (!include && fc >= MinSamples)
+                    {
+                        include = bestFarO >= 0
+                            ? IsAaBlend(c, inR, inG, inB, inA, meanFar[bestFarO],
+                                        meanFar[bestFarO + 1], meanFar[bestFarO + 2],
+                                        meanFar[bestFarO + 3])
+                            : IsAaBlend(c, inR, inG, inB, inA, fr / (double)fc,
+                                        fg / (double)fc, fb / (double)fc, fa / (double)fc);
+                    }
+                    if (include)
                     {
                         mask[i] = true;
                         added++;
@@ -494,15 +693,12 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 画素 c が「外側平均色 → 内側平均色」の線分上の実混合(混合率 AaBlendMin 以上)かを
-        /// 判定する。外側統計が不足していれば false(その軸では判定しない)。
+        /// 画素 c が「外側原点色 → 内側平均色」の線分上の実混合(混合率 AaBlendMin 以上)かを
+        /// 判定する。原点は呼び出し側が選ぶ(最近傍外側モード、無ければプール平均)。
         /// </summary>
         static bool IsAaBlend(Color32 c, double inR, double inG, double inB, double inA,
-                              long or_, long og, long ob, long oa, int oc)
+                              double outR, double outG, double outB, double outA)
         {
-            if (oc < MinSamples) return false;
-            double outR = or_ / (double)oc, outG = og / (double)oc,
-                   outB = ob / (double)oc, outA = oa / (double)oc;
             double dR = inR - outR, dG = inG - outG, dB = inB - outB, dA = inA - outA;
             double dirSq = dR * dR + dG * dG + dB * dB + dA * dA;
             if (dirSq < AaMinContrastSq) return false; // 低コントラスト境界 → 混合軸が無意味
@@ -584,6 +780,14 @@ namespace Iroca
         {
             double mr = sr / (double)n, mg = sg / (double)n, mb = sb / (double)n, ma = sa / (double)n;
             double dr = c.r - mr, dg = c.g - mg, db = c.b - mb, da = c.a - ma;
+            return dr * dr + dg * dg + db * db + da * da;
+        }
+
+        /// <summary>事前計算済みセル平均(RGBA, オフセット o)との距離 2 乗。</summary>
+        static double Dist2Mean(Color32 c, double[] mean, int o)
+        {
+            double dr = c.r - mean[o], dg = c.g - mean[o + 1],
+                   db = c.b - mean[o + 2], da = c.a - mean[o + 3];
             return dr * dr + dg * dg + db * db + da * da;
         }
 
