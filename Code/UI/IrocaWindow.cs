@@ -92,8 +92,10 @@ namespace Iroca
                 EditorGUIUtility.IconContent("d_Image Icon").image);
             window.minSize = new Vector2(340, 500);
             // 高さ 850 は、上部テクスチャ欄＋プレビュー章の見出し/操作行＋エクスポート欄
-            // (新規保存 ON のファイル名行込み)を積んでも、等倍(100%)の 512px プレビューが
-            // 縦スクロールバーなしで収まる高さ。800 だと数十 px 不足して常時縦バーが出る。
+            // (新規保存 ON のファイル名行込み)を積んでも、等倍(100%)の MaxSize(448)px
+            // プレビューが縦スクロールバーなしで収まる高さ(数十 px の余裕込み)。
+            // 幅 800 は左カラム 320(設定行がすべて見える幅)＋プレビュー予約 472 が
+            // ちょうど収まる幅(IrocaConsts.Layout.PreviewColumnReserve のコメント参照)。
             if (window.position.width < 800 || window.position.height < 850)
                 window.position = new Rect(window.position.x, window.position.y, 800, 850);
         }

@@ -81,6 +81,14 @@ namespace Iroca
             }
         }
 
+        // 設定列のプレフィックスラベル幅。既定(150)のままだと狭いカラムでは
+        // 「ラベル150＋スライダー最小幅＋数値フィールド」等の行最小幅がカラム幅を超え、
+        // 横スクロールバーを無効化している設定列では超過分が右端で切れて
+        // プレビューの下に隠れて見える。カラム幅に比例させ、行がカラム内に収まるようにする。
+        // 下限 95 はラベルが読める最低限、上限 150 は Unity 既定（広いカラムでは従来どおり）。
+        private static float SettingsLabelWidth(float contentWidth)
+            => Mathf.Clamp(contentWidth * 0.45f, 95f, 150f);
+
         // 左カラム（横並び）/ 上部スクロール（縦並び）共通の設定スタック。
         // 横並び・縦並び双方から呼ぶことで描画の重複を避ける。
         // 呼び出し側の BeginChangeCheck/EndChangeCheck に挟まれて previewDirty 判定に使われる。
@@ -153,6 +161,12 @@ namespace Iroca
                 false, true, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
                 GUILayout.ExpandHeight(true));
 
+            // 設定列の実内容幅（カラム幅 − 常時表示の縦スクロールバー）に合わせて
+            // ラベル幅を縮め、行の右端（数値フィールド・ボタン）が切れないようにする。
+            float prevLabelWidth = EditorGUIUtility.labelWidth;
+            EditorGUIUtility.labelWidth = SettingsLabelWidth(
+                leftWidth - GUI.skin.verticalScrollbar.fixedWidth);
+
             DrawLeftColumnSettings();
 
             if (EditorGUI.EndChangeCheck())
@@ -171,6 +185,7 @@ namespace Iroca
             // 競合せず、スクロールで到達できるようにする。
             DebugCaptureHooks.RaiseDrawFoldout(this);
 
+            EditorGUIUtility.labelWidth = prevLabelWidth;
             EditorGUILayout.EndScrollView();
             EditorGUILayout.EndVertical();
 
@@ -214,6 +229,12 @@ namespace Iroca
                 false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
                 GUILayout.Height(topScrollH));
 
+            // 縦並び＝狭いウィンドウなので、設定行が右端で切れないよう
+            // ラベル幅を内容幅（ウィンドウ幅 − 縦スクロールバー）に追従させる。
+            float prevLabelWidth = EditorGUIUtility.labelWidth;
+            EditorGUIUtility.labelWidth = SettingsLabelWidth(
+                position.width - GUI.skin.verticalScrollbar.fixedWidth);
+
             EditorGUI.BeginChangeCheck();
 
             DrawTextureField();
@@ -239,6 +260,7 @@ namespace Iroca
             // 競合せず、スクロールで到達できるようにする。
             DebugCaptureHooks.RaiseDrawFoldout(this);
 
+            EditorGUIUtility.labelWidth = prevLabelWidth;
             EditorGUILayout.EndScrollView();
 
             // ── 下部: エクスポート（フル幅・常に表示） ──
