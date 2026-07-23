@@ -28,8 +28,9 @@ namespace Iroca
             var ctl = maskView.SuggestController;
             if (ctl == null) return;
 
-            EditorGUILayout.Space(4);
-            EditorGUILayout.LabelField(Localization.AiSuggest, EditorStyles.boldLabel);
+            // 見出しラベルは置かない（ボタン文言が自明で、詳細は AiSuggestToggleTooltip にある。
+            // マスク欄インラインの行数を抑えるため）。
+            EditorGUILayout.Space(2);
 
             // ─── モード切替(ペイントと排他) ───
             var prevBg = GUI.backgroundColor;

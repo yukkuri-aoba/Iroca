@@ -108,43 +108,19 @@ namespace Iroca
 
             DrawMaskTargetSelector();
 
-            brushSize = EditorGUILayout.IntSlider(
-                new GUIContent(Localization.BrushSize, Localization.BrushSizeTooltip),
-                brushSize, 1, 64);
-
-            // Exclude / Include ボタン: 押すとペイントモードON+モード選択、同じボタン再押しでOFF
-            bool excludeActive = maskPaintActive && !brushEraseMode;
-            bool includeActive = maskPaintActive && brushEraseMode;
-
-            EditorGUILayout.BeginHorizontal();
+            // ブラシ操作（サイズ・除外/含める・元に戻す）は MaskBrushWindow パレットへ分離し、
+            // ここは「開いてすぐ塗れる」入口ボタンだけにする。
             var prevBg = GUI.backgroundColor;
-
-            GUI.backgroundColor = excludeActive ? IrocaColors.ExcludeButton : Color.white;
-            if (GUILayout.Button(new GUIContent(Localization.Exclude, Localization.ExcludeTooltip), EditorStyles.miniButtonLeft))
+            if (maskPaintActive) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
+            if (GUILayout.Button(new GUIContent(Localization.BrushEdit, Localization.BrushEditTooltip)))
             {
-                if (excludeActive)
-                    maskPaintActive = false;
-                else
-                {
-                    maskPaintActive = true; brushEraseMode = false;
-                    _suggestController?.SetActive(false); // AI 提案とは排他
-                }
+                ActivateBrush(erase: false);
+                MaskBrushWindow.Open(_host);
             }
-
-            GUI.backgroundColor = includeActive ? IrocaColors.IncludeButton : Color.white;
-            if (GUILayout.Button(new GUIContent(Localization.Include, Localization.IncludeTooltip), EditorStyles.miniButtonRight))
-            {
-                if (includeActive)
-                    maskPaintActive = false;
-                else
-                {
-                    maskPaintActive = true; brushEraseMode = true;
-                    _suggestController?.SetActive(false); // AI 提案とは排他
-                }
-            }
-
             GUI.backgroundColor = prevBg;
-            EditorGUILayout.EndHorizontal();
+
+            // AI マスク提案(Sentis 導入時は本編、未導入時はワンクリック有効化の導線を描く)
+            MaskSuggestSection.Draw(_host, this);
 
             if (GUILayout.Button(new GUIContent(Localization.ClearMask, Localization.ClearMaskTooltip)))
             {
@@ -157,6 +133,75 @@ namespace Iroca
                 _host.MarkPreviewDirty();
             }
 
+            EditorGUILayout.EndFoldoutHeaderGroup();
+            EditorGUILayout.Space(4);
+        }
+
+        /// <summary>ブラシペイントモードを ON にする（AI 提案とは排他）。</summary>
+        public void ActivateBrush(bool erase)
+        {
+            maskPaintActive = true;
+            brushEraseMode = erase;
+            _suggestController?.SetActive(false);
+        }
+
+        /// <summary>ブラシペイントモードを OFF にする。</summary>
+        public void DeactivateBrush()
+        {
+            maskPaintActive = false;
+        }
+
+        /// <summary>
+        /// ブラシ操作パレット（MaskBrushWindow）の中身。状態はすべて本クラスに集約されたままなので、
+        /// メインウィンドウ側のハイライトや AI 提案との排他は従来ロジックがそのまま機能する。
+        /// </summary>
+        public void DrawBrushPalette()
+        {
+            // 現在の編集対象（メインの「編集対象」プルダウンで選択）を読み取り表示する。
+            var zones = _host.Session.zones;
+            string targetName;
+            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
+                targetName = Localization.MaskTargetCommon;
+            else
+            {
+                string raw = zones[activeMaskTarget].name;
+                targetName = string.IsNullOrEmpty(raw) ? Localization.UnnamedZone : raw;
+            }
+            EditorGUILayout.LabelField(
+                string.Format(Localization.BrushPaletteTargetFormat, targetName),
+                EditorStyles.miniLabel);
+
+            brushSize = EditorGUILayout.IntSlider(
+                new GUIContent(Localization.BrushSize, Localization.BrushSizeTooltip),
+                brushSize, 1, 64);
+
+            // Exclude / Include ボタン: 押すとペイントモードON+モード選択、同じボタン再押しでOFF
+            bool excludeActive = maskPaintActive && !brushEraseMode;
+            bool includeActive = maskPaintActive && brushEraseMode;
+            bool stateChanged = false;
+
+            EditorGUILayout.BeginHorizontal();
+            var prevBg = GUI.backgroundColor;
+
+            GUI.backgroundColor = excludeActive ? IrocaColors.ExcludeButton : Color.white;
+            if (GUILayout.Button(new GUIContent(Localization.Exclude, Localization.ExcludeTooltip), EditorStyles.miniButtonLeft))
+            {
+                if (excludeActive) DeactivateBrush();
+                else ActivateBrush(erase: false);
+                stateChanged = true;
+            }
+
+            GUI.backgroundColor = includeActive ? IrocaColors.IncludeButton : Color.white;
+            if (GUILayout.Button(new GUIContent(Localization.Include, Localization.IncludeTooltip), EditorStyles.miniButtonRight))
+            {
+                if (includeActive) DeactivateBrush();
+                else ActivateBrush(erase: true);
+                stateChanged = true;
+            }
+
+            GUI.backgroundColor = prevBg;
+            EditorGUILayout.EndHorizontal();
+
             // Unity 標準 Undo に統合済みのため、専用ボタンは PerformUndo の薄いショートカットとして残す。
             if (GUILayout.Button(new GUIContent(Localization.UndoMask, Localization.UndoMaskTooltip)))
             {
@@ -167,11 +212,9 @@ namespace Iroca
                 maskPaintActive ? Localization.MaskHint : Localization.MaskHintPaintOff,
                 MessageType.Info);
 
-            // AI マスク提案(Sentis 導入時は本編、未導入時はワンクリック有効化の導線を描く)
-            MaskSuggestSection.Draw(_host, this);
-
-            EditorGUILayout.EndFoldoutHeaderGroup();
-            EditorGUILayout.Space(4);
+            // メイン側の「ブラシで編集」ハイライトを即時同期する。
+            if (stateChanged)
+                _host.RequestRepaint();
         }
 
         // マスク対象プルダウンの GUIContent[] は毎フレーム再生成されアロケーションを生むため、

@@ -684,7 +684,9 @@ namespace Iroca
             if (!maskView.maskPaintActive && !eyedropperArmed && !aiSuggestArmed)
                 HandleFloodFillSeedInput(activePreviewRect);
 
-            if (maskView.maskFoldout && maskView.maskPaintActive)
+            // ブラシ操作 UI は MaskBrushWindow パレットに分離されたため、メインの
+            // マスク foldout の開閉とペイント可否は連動させない（閉じても塗れる）。
+            if (maskView.maskPaintActive)
                 HandlePreviewPaintInput(activePreviewRect);
             else if (aiSuggestArmed && !eyedropperArmed)
                 HandleAiSuggestInput(activePreviewRect, srcW, srcH);
