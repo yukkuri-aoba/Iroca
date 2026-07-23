@@ -462,6 +462,21 @@ namespace Iroca
             ? "マスクの変更を1ステップ前に戻します（Ctrl+Z でも操作可）"
             : "Undo the last mask change (also available via Ctrl+Z)";
 
+        // ─── Brush palette window ───
+        public static string BrushEdit => IsJapanese ? "ブラシで編集..." : "Edit with Brush...";
+        public static string BrushEditTooltip => IsJapanese
+            ? "ブラシ操作パレットを開き、除外ブラシを ON にします\nプレビュー上をドラッグして塗れます\nパレットを閉じるとペイントモードは解除されます"
+            : "Opens the brush palette and arms the exclude brush\nDrag on the preview to paint\nClosing the palette exits paint mode";
+        public static string BrushPaletteTitle => IsJapanese ? "Iroca ブラシ" : "Iroca Brush";
+        public static string BrushPaletteTargetFormat => IsJapanese ? "編集対象: {0}" : "Editing: {0}";
+        public static string BrushPaletteNoHost => IsJapanese
+            ? "Iroca ウィンドウが開いていません。"
+            : "The Iroca window is not open.";
+        public static string OpenIrocaWindow => IsJapanese ? "Iroca を開く" : "Open Iroca";
+        public static string OpenIrocaWindowTooltip => IsJapanese
+            ? "Iroca 本体ウィンドウを開きます"
+            : "Opens the main Iroca window";
+
         // ─── AI Mask Suggestion ───
         public static string AiSuggest => IsJapanese ? "AI マスク提案（実験的）" : "AI Mask Suggestion (Experimental)";
         public static string AiSuggestStart => IsJapanese ? "AI 提案を開始" : "Start AI Suggestion";
