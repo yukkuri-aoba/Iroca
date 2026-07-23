@@ -558,17 +558,8 @@ namespace Iroca
         public static string MaskTarget => IsJapanese ? "編集対象" : "Edit Target";
         public static string MaskTargetCommon => IsJapanese ? "共通マスク（全ゾーン）" : "Common Mask (all zones)";
         public static string MaskTargetTooltip => IsJapanese
-            ? "マスクの編集対象を切り替えます\n・共通マスク: 全ゾーンで共通して除外される領域\n・各ゾーン: そのゾーンだけで除外される領域\n処理時は両者が OR 結合されて適用されます"
-            : "Switch which mask is being edited\n- Common: area excluded from every zone\n- Per-zone: area excluded only from that zone\nBoth are OR-combined when processing";
-        public static string EditMaskInactiveLabel => IsJapanese
-            ? "このゾーンのマスクを編集"
-            : "Edit this zone's mask";
-        public static string EditMaskActiveLabel => IsJapanese
-            ? "■ 編集中（クリックで解除）"
-            : "■ Editing (click to release)";
-        public static string EditMaskTooltip => IsJapanese
-            ? "このゾーン専用の除外マスクをペイント編集します\n押すとペイントモードが ON になり、プレビュー上をドラッグして塗れます（既定＝除外ブラシ）\nもう一度押すとペイントを終了し共通マスク編集に戻ります"
-            : "Paint this zone's exclusion mask\nTurns on paint mode so you can drag on the preview to paint (default = exclude brush)\nClick again to stop painting and return to the common mask";
+            ? "マスクの編集対象を切り替えます\n・共通マスク: 全ゾーンで共通して除外される領域\n・各ゾーン: そのゾーンだけで除外される領域\n処理時は両者が OR 結合されて適用されます\n※ここは選択のみです。塗るには「ブラシで編集」を押してください"
+            : "Switch which mask is being edited\n- Common: area excluded from every zone\n- Per-zone: area excluded only from that zone\nBoth are OR-combined when processing\nNote: this only selects the target. To paint, press \"Edit with Brush\"";
         public static string PresetIncludeMasks => IsJapanese
             ? "マスクも保存する"
             : "Include masks when saving";
