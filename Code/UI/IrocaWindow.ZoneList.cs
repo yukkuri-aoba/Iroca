@@ -98,7 +98,7 @@ namespace Iroca
         private static GUIStyle s_dragHandleStyle;
         private static LanguageMode s_zoneCacheLang = (LanguageMode)(-1);
         private static GUIContent s_dragHandleContent, s_zoneEnabledContent, s_zoneNameContent,
-            s_removeZoneContent, s_editMaskActiveContent, s_editMaskInactiveContent,
+            s_removeZoneContent,
             s_autoTuneEnabledContent, s_autoTuneDisabledContent,
             s_eyedropperIdleContent, s_eyedropperActiveContent;
 
@@ -119,8 +119,6 @@ namespace Iroca
             s_zoneEnabledContent      = new GUIContent("", Localization.ZoneEnabledTooltip);
             s_zoneNameContent         = new GUIContent("", Localization.ZoneNameTooltip);
             s_removeZoneContent       = new GUIContent("×", Localization.RemoveZoneTooltip);
-            s_editMaskActiveContent   = new GUIContent(Localization.EditMaskActiveLabel, Localization.EditMaskTooltip);
-            s_editMaskInactiveContent = new GUIContent(Localization.EditMaskInactiveLabel, Localization.EditMaskTooltip);
             s_autoTuneEnabledContent  = new GUIContent(Localization.AutoTune, Localization.AutoTuneTooltip);
             s_autoTuneDisabledContent = new GUIContent(Localization.AutoTune, Localization.AutoTuneDisabledTooltip);
             s_eyedropperIdleContent   = new GUIContent(Localization.EyedropperIdle, Localization.EyedropperTooltip);
@@ -260,37 +258,8 @@ namespace Iroca
             }
             EditorGUILayout.EndHorizontal();
 
-            // ゾーンマスク編集ボタン（フル幅・状態連動）
-            // 押したら「このゾーンを編集対象にする」だけでなく、そのままプレビュー上を
-            // ドラッグして塗れるようペイントモード(maskPaintActive)も同時に ON にする。
-            // 以前は編集対象の選択だけで、実際に塗るには除外マスク欄の「除外／含める」を
-            // 別途押して maskPaintActive を立てる必要があった。ボタンが「編集中」表示なのに
-            // ドラッグしても塗れず、バグに見えていたため一体化する。
-            {
-                bool isActive = _maskView.activeMaskTarget == index;
-                var prevBg = GUI.backgroundColor;
-                if (isActive) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
-                if (GUILayout.Button(isActive ? s_editMaskActiveContent : s_editMaskInactiveContent))
-                {
-                    if (isActive)
-                    {
-                        // 「編集中（クリックで解除）」→ 編集終了。共通マスクへ戻し、ペイントも止める。
-                        _maskView.activeMaskTarget = -1;
-                        _maskView.maskPaintActive = false;
-                    }
-                    else
-                    {
-                        // このゾーンを編集対象にし、すぐ塗れるようペイントモードへ（既定＝除外ブラシ）。
-                        _maskView.activeMaskTarget = index;
-                        _maskView.maskFoldout = true;
-                        _maskView.maskPaintActive = true;
-                        _maskView.brushEraseMode = false;
-                    }
-                    _maskView.maskDirty = true;
-                    Repaint();
-                }
-                GUI.backgroundColor = prevBg;
-            }
+            // ゾーン別マスクの編集は除外マスク欄の「編集対象」プルダウン＋「ブラシで編集」に
+            // 一本化した（かつてここにあった専用ボタンは経路重複のため削除）。
 
             // 自動調整ボタンは「サンプルカラー」の直下に配置する（採色 → 自動調整 の流れ）。
 
