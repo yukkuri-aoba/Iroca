@@ -20,6 +20,8 @@ namespace Iroca
         public bool presetStorageProject = true;
         public bool presetIncludeMasks = true;
         public bool presetApplyMasks = true;
+        // マスクオプションと JSON 入出力をまとめる低頻度操作の折りたたみ（既定で閉じる）。
+        public bool presetAdvancedFoldout;
 
         [System.NonSerialized] private Vector2 _presetScrollPos;
         [System.NonSerialized] private IrocaWindow _host;
@@ -41,7 +43,7 @@ namespace Iroca
                 return;
             }
 
-            EditorGUILayout.HelpBox(Localization.PresetTips, MessageType.Info);
+            // 使い方の説明は各コントロールのツールチップに委ね、常時表示の HelpBox は置かない。
 
             // 保存先切り替え
             EditorGUILayout.BeginHorizontal();
@@ -60,20 +62,29 @@ namespace Iroca
                 SavePreset(presetSaveName);
             EditorGUILayout.EndHorizontal();
 
-            presetIncludeMasks = EditorGUILayout.ToggleLeft(
-                new GUIContent(Localization.PresetIncludeMasks, Localization.PresetIncludeMasksTooltip),
-                presetIncludeMasks);
-            presetApplyMasks = EditorGUILayout.ToggleLeft(
-                new GUIContent(Localization.PresetApplyMasks, Localization.PresetApplyMasksTooltip),
-                presetApplyMasks);
+            // 低頻度のオプション（マスク同梱/適用・JSON 入出力）は折りたたみへ。
+            presetAdvancedFoldout = EditorGUILayout.Foldout(presetAdvancedFoldout,
+                new GUIContent(Localization.PresetAdvanced, Localization.PresetAdvancedTooltip), true);
+            if (presetAdvancedFoldout)
+            {
+                using (new EditorGUI.IndentLevelScope())
+                {
+                    presetIncludeMasks = EditorGUILayout.ToggleLeft(
+                        new GUIContent(Localization.PresetIncludeMasks, Localization.PresetIncludeMasksTooltip),
+                        presetIncludeMasks);
+                    presetApplyMasks = EditorGUILayout.ToggleLeft(
+                        new GUIContent(Localization.PresetApplyMasks, Localization.PresetApplyMasksTooltip),
+                        presetApplyMasks);
 
-            // インポート / エクスポート
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(new GUIContent(Localization.ExportJson, Localization.ExportJsonTooltip)))
-                ExportPresetJson();
-            if (GUILayout.Button(new GUIContent(Localization.ImportJson, Localization.ImportJsonTooltip)))
-                ImportPresetJson();
-            EditorGUILayout.EndHorizontal();
+                    // インポート / エクスポート
+                    EditorGUILayout.BeginHorizontal();
+                    if (GUILayout.Button(new GUIContent(Localization.ExportJson, Localization.ExportJsonTooltip)))
+                        ExportPresetJson();
+                    if (GUILayout.Button(new GUIContent(Localization.ImportJson, Localization.ImportJsonTooltip)))
+                        ImportPresetJson();
+                    EditorGUILayout.EndHorizontal();
+                }
+            }
 
             // 一覧
             string[] files = PresetStore.ListJson(ActivePresetFolder);

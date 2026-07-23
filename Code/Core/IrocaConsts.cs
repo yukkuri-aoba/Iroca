@@ -25,6 +25,10 @@ namespace Iroca
             public const float PreviewColumnReserve = Preview.MaxSize + 24f;
             public const float RemoveButtonWidth  = 22f;
             public const float SmallButtonWidth   = 48f;
+            // サンプルカラー欄と同一行に置くスポイトボタンの幅。ラベル短縮版
+            // (EyedropperIdle/Active)が JA/EN とも収まり、左カラム下限(280px)でも
+            // カラーフィールドの操作幅を残せる値。
+            public const float EyedropperButtonWidth = 96f;
             // EditorWindow.position はタブバー（ウィンドウクローム）の高さを含むが、
             // GUI 描画領域はそれより小さい。エクスポートを常にウィンドウ内に収めるための安全マージン。
             // タブバーは ~21px。この差分がエクスポート下端の空白として見えるため、
