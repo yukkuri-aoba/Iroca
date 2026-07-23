@@ -99,12 +99,13 @@ namespace Iroca
         public static string SampleColor => IsJapanese ? "サンプルカラー" : "Sample Color";
 
         // ─── プレビュー直接スポイト ───
+        // サンプルカラー欄と同一行に置くため短縮ラベル（詳細説明は EyedropperTooltip が保持）。
         public static string EyedropperIdle => IsJapanese
-            ? "スポイト（プレビューから色を取得）"
-            : "Eyedropper (pick from preview)";
+            ? "スポイト"
+            : "Eyedropper";
         public static string EyedropperActive => IsJapanese
-            ? "■ プレビューをクリックして取得（クリックで解除）"
-            : "■ Click the preview to sample (click to cancel)";
+            ? "■ クリック取得"
+            : "■ Click to pick";
         public static string EyedropperTooltip => IsJapanese
             ? "押すとスポイトモードになり、プレビュー上をクリックするとそのピクセルの色を\nこのゾーンの「サンプルカラー」に取り込みます。\n実テクスチャの画素から直接取得するため、カラーピッカーのスポイトより正確です。\nもう一度押すと解除します。"
             : "Enters eyedropper mode; click the preview to load that pixel's color into this zone's Sample Color.\nIt reads the actual texture pixel directly, so it is more accurate than the color picker's eyedropper.\nClick again to cancel.";
@@ -329,10 +330,6 @@ namespace Iroca
         public static string ZoneDragHandleTooltip => IsJapanese
             ? "ドラッグして並べ替え＝優先度の変更。上にあるゾーンほど優先され、重なった部分は上のゾーンだけが適用されます（下のゾーンのマスクとして機能します）。"
             : "Drag to reorder = change priority. Upper zones take precedence; in overlapping areas only the upper zone is applied (it acts as a mask for lower zones).";
-        public static string ZonePriorityHelp => IsJapanese
-            ? "並び順が優先度です。上のゾーンほど優先され、重なった部分は上のゾーンだけが適用されます（左の ☰ を掴んで並べ替え）。これにより上のゾーンを下のゾーンのマスクとして使えます。"
-            : "List order is the priority. Upper zones win overlaps and only the upper zone is applied there (drag the ☰ handle on the left to reorder). This lets an upper zone act as a mask for lower ones.";
-
         // ─── Zoom hint ───
         public static string ZoomHint => IsJapanese
             ? "Ctrl+スクロールでズーム。高解像度プレビューはピクセル単位まで拡大できます（上限はテクスチャ解像度に応じて自動調整）"
@@ -395,11 +392,6 @@ namespace Iroca
         public static string ResetSessionConfirm => IsJapanese
             ? "現在のテクスチャのゾーン・色・処理設定・マスクをすべて消して初期状態に戻します。よろしいですか？\n（「元に戻す」で復元できます）"
             : "This clears all zones, colors, processing settings and masks for the current texture. Continue?\n(You can undo this.)";
-
-        // ─── Preset Tips ───
-        public static string PresetTips => IsJapanese
-            ? "【ヒント】\n保存: 現在のゾーン設定をプリセットとして保存\n読込: プリセットを読み込みゾーン設定を上書き\n×: プリセットを削除\n\n保存先\n・プロジェクト内 … Assets フォルダ内に保存 (Gitなどで共有可)\n・ユーザー共通 … 全プロジェクトで共有 (端末ローカルに保存)\n\nJSON エクスポート/インポートで設定を外部ファイルとして共有できます"
-            : "[Tips]\nSave: Save current zone settings as a preset\nLoad: Overwrite zone settings with a preset\n×: Delete a preset\n\nStorage\n· In Project … Saved inside Assets folder (shareable via Git)\n· Shared (User) … Shared across all projects (machine-local)\n\nUse Export/Import JSON to share settings as a file";
 
         // ─── Batch apply ───
         public static string BatchApply        => IsJapanese ? "一括適用" : "Batch Apply";
@@ -572,6 +564,12 @@ namespace Iroca
         public static string PresetApplyMasksTooltip => IsJapanese
             ? "ON にすると、プリセットに同梱されたマスクを読み込み時に適用します\nOFF の場合はマスクを無視して他のパラメータのみ読み込みます"
             : "When ON, masks embedded in the preset are applied on load\nWhen OFF, masks are ignored and only other parameters are loaded";
+        public static string PresetAdvanced => IsJapanese
+            ? "詳細（マスク・JSON入出力）"
+            : "Advanced (masks / JSON)";
+        public static string PresetAdvancedTooltip => IsJapanese
+            ? "マスクの保存/適用オプションと、設定を JSON ファイルとして書き出し/読み込みする機能です"
+            : "Mask save/apply options and JSON export/import of settings";
 
         // ─── Export tooltips ───
         public static string SaveAsNewFileTooltip => IsJapanese

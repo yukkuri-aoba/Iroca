@@ -174,9 +174,8 @@ namespace Iroca
                 return;
             }
 
-            // 並び順＝優先度。重なりは上のゾーンのみ適用され、下のゾーンのマスクとして機能する。
-            if (zones.Count >= 2)
-                EditorGUILayout.HelpBox(Localization.ZonePriorityHelp, MessageType.None);
+            // 並び順＝優先度（重なりは上のゾーンのみ適用）。説明は ☰ ハンドルのツールチップ
+            // (ZoneDragHandleTooltip) に集約し、常時表示の HelpBox は置かない。
 
             // 外部要因（削除等）で範囲外になったドラッグ状態をリセット。
             if (_dragZoneIndex >= zones.Count) _dragZoneIndex = -1;
@@ -269,7 +268,9 @@ namespace Iroca
             //     new GUIContent(Localization.SelectionMode, Localization.SelectionModeTooltip),
             //     zone.mode);
 
-            // ColorPick UI（常時表示）
+            // ColorPick UI（常時表示）。カラーフィールドとプレビュー直接スポイトは
+            // どちらも sampleColor を決める手段なので 1 行に統合してカードの行数を抑える。
+            EditorGUILayout.BeginHorizontal();
             Color prevSampleColor = zone.sampleColor;
             zone.sampleColor = UndoHelper.ColorField(this,
                 new GUIContent(Localization.SampleColor, Localization.SampleColorTooltip),
@@ -297,7 +298,8 @@ namespace Iroca
                 {
                     var prevBg = GUI.backgroundColor;
                     if (armed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
-                    if (GUILayout.Button(armed ? s_eyedropperActiveContent : s_eyedropperIdleContent))
+                    if (GUILayout.Button(armed ? s_eyedropperActiveContent : s_eyedropperIdleContent,
+                        GUILayout.Width(IrocaConsts.Layout.EyedropperButtonWidth)))
                     {
                         // トグル：武装↔解除。武装は id で保持し、並べ替え・削除で別ゾーンを指さないようにする
                         // （クリックで一発取得→自動解除）。
@@ -308,6 +310,7 @@ namespace Iroca
                     GUI.backgroundColor = prevBg;
                 }
             }
+            EditorGUILayout.EndHorizontal();
 
             // ─── 自動調整ボタン ───
             // スポイト1点から、パーツの濃淡（暗部/中間/明部）を内部で自動サンプリングして
