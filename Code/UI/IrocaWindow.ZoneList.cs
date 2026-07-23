@@ -380,9 +380,13 @@ namespace Iroca
                     string seedLabel = zone.seedUV.x >= 0f
                         ? $"UV ({zone.seedUV.x:F3}, {zone.seedUV.y:F3})"
                         : Localization.FloodFillSeedNotSet;
+                    // MinWidth(0): 値テキストの実幅を行の最小幅にしない。狭いカラムでは
+                    // この行（ラベル＋値＋クリアボタン）が設定列で最も幅を要求し、
+                    // 超過分が右端で切れて隣のクリアボタンごと隠れていた。
                     EditorGUILayout.LabelField(
                         new GUIContent(Localization.FloodFillSeedPoint, Localization.FloodFillSeedHint),
-                        new GUIContent(seedLabel));
+                        new GUIContent(seedLabel),
+                        GUILayout.MinWidth(0), GUILayout.ExpandWidth(true));
                     // シード指定時のみ「自動へ戻す」クリアを出す。
                     using (new EditorGUI.DisabledScope(zone.seedUV.x < 0f))
                     {
