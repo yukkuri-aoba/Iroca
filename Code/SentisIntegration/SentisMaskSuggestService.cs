@@ -34,6 +34,10 @@ namespace Iroca.SentisIntegration
         BackendType _backend;
         bool _modelsLoaded;
         bool _triedCpuFallback;
+        // デコーダの初回実行は推論カーネル(Burst / コンピュートシェーダ)のコンパイルを伴い、
+        // Unity 起動後の 1 回だけ数秒〜数十秒かかる。クリック後に踏むと「押しても返ってこない」
+        // 時間になるので、埋め込み計算の直後に 1 回だけ捨て推論して温めておく。
+        bool _decoderWarmed;
 
         // ─── 状態 ───
         MaskSuggestPhase _phase = MaskSuggestPhase.NoModel;
@@ -107,26 +111,40 @@ namespace Iroca.SentisIntegration
                 return false;
             }
             // 初回は ONNX→.sentis 変換込みで数秒かかる(2 回目以降はキャッシュで高速)。
+            // ここは同期処理でエディタが止まるため、無反応に見えないよう進捗バーを出す。
             SetPhase(MaskSuggestPhase.LoadingModel);
-            _encoderModel = SentisModelRepository.LoadOrConvert(
-                SentisModelRepository.EncoderOnnxPath, out string encErr);
-            if (_encoderModel == null)
+            try
             {
-                SetPhase(MaskSuggestPhase.Error, error: encErr);
-                return false;
+                EditorUtility.DisplayProgressBar(
+                    Localization.AiSuggest, Localization.AiSuggestLoadingModel, 0.1f);
+                _encoderModel = SentisModelRepository.LoadOrConvert(
+                    SentisModelRepository.EncoderOnnxPath, out string encErr);
+                if (_encoderModel == null)
+                {
+                    SetPhase(MaskSuggestPhase.Error, error: encErr);
+                    return false;
+                }
+                EditorUtility.DisplayProgressBar(
+                    Localization.AiSuggest, Localization.AiSuggestLoadingModel, 0.6f);
+                _decoderModel = SentisModelRepository.LoadOrConvert(
+                    SentisModelRepository.DecoderOnnxPath, out string decErr);
+                if (_decoderModel == null)
+                {
+                    SetPhase(MaskSuggestPhase.Error, error: decErr);
+                    return false;
+                }
+                EditorUtility.DisplayProgressBar(
+                    Localization.AiSuggest, Localization.AiSuggestLoadingModel, 0.9f);
+                _backend = SystemInfo.supportsComputeShaders ? BackendType.GPUCompute : BackendType.CPU;
+                if (!TryCreateWorkers(out string werr))
+                {
+                    SetPhase(MaskSuggestPhase.Error, error: werr);
+                    return false;
+                }
             }
-            _decoderModel = SentisModelRepository.LoadOrConvert(
-                SentisModelRepository.DecoderOnnxPath, out string decErr);
-            if (_decoderModel == null)
+            finally
             {
-                SetPhase(MaskSuggestPhase.Error, error: decErr);
-                return false;
-            }
-            _backend = SystemInfo.supportsComputeShaders ? BackendType.GPUCompute : BackendType.CPU;
-            if (!TryCreateWorkers(out string werr))
-            {
-                SetPhase(MaskSuggestPhase.Error, error: werr);
-                return false;
+                EditorUtility.ClearProgressBar();
             }
             _modelsLoaded = true;
             SetPhase(MaskSuggestPhase.Idle);
@@ -141,6 +159,7 @@ namespace Iroca.SentisIntegration
                 DisposeWorkers();
                 _encoder = new Worker(_encoderModel, _backend);
                 _decoder = new Worker(_decoderModel, _backend);
+                _decoderWarmed = false; // バックエンドが変わればカーネルも作り直しになる
                 return true;
             }
             catch (Exception e)
@@ -219,6 +238,14 @@ namespace Iroca.SentisIntegration
                 if (_embedding == null || _embedding.Length != EmbeddingLength)
                     throw new InvalidOperationException(
                         $"埋め込みサイズが不正です: {_embedding?.Length ?? 0}");
+                // 形は正しいのに中身が定数/NaN = 推論カーネルが実行されていない。下流では
+                // 「提案は返るのにマスクへ 1 画素も足されない」という分かりにくい失敗になるため、
+                // ここで異常として扱いフォールバック/報告へ回す。
+                if (IsDegenerate(_embedding))
+                {
+                    throw new InvalidOperationException(
+                        "推論結果が空です(バックエンドがカーネルを実行できていません)");
+                }
                 CacheEmbedding(_sourceKey, _embedding);
                 _triedCpuFallback = false;
                 if (_hasPendingClick)
@@ -226,8 +253,9 @@ namespace Iroca.SentisIntegration
                     _hasPendingClick = false;
                     RunDecode(_pendingU, _pendingV, _pendingGranularity);
                 }
-                else
+                else if (!TryStartDecoderWarmup())
                 {
+                    // 暖機を始めた場合は Decoding 表示のまま次の tick に渡す(完了時に Idle へ戻る)
                     SetPhase(MaskSuggestPhase.Idle);
                 }
             }
@@ -235,6 +263,58 @@ namespace Iroca.SentisIntegration
             {
                 OnEncoderError(e);
             }
+        }
+
+        /// <summary>
+        /// 埋め込みが「形は正しいが中身が無い」状態か(全要素同値、または NaN/Inf を含む)。
+        /// Burst のコールドスタート失敗などでカーネルが実行されないと、例外が出ないまま
+        /// 出力が定数になることがある。定数出力は全域で定数なので、全走査せず間引いて見る。
+        /// </summary>
+        static bool IsDegenerate(float[] embedding)
+        {
+            float first = embedding[0];
+            bool allSame = true;
+            int step = Mathf.Max(1, embedding.Length / 4096);
+            for (int i = 0; i < embedding.Length; i += step)
+            {
+                float v = embedding[i];
+                if (float.IsNaN(v) || float.IsInfinity(v)) return true;
+                if (v != first) allSame = false;
+            }
+            return allSame;
+        }
+
+        /// <summary>
+        /// デコーダを 1 回だけ捨て推論し、推論カーネルのコンパイルをクリック前に済ませる。
+        /// 結果は使わない。失敗しても無視する(実クリック時に通常のエラー経路で報告される)。
+        ///
+        /// 同期実行すると初回は固まって見えるので、Decoding を表示してから次の tick で走らせる。
+        /// Decoding 中のクリックは保留される規約なので、暖機中に押されても取りこぼさない
+        /// (完了時に <see cref="RunDecoderWarmup"/> が拾う)。
+        /// </summary>
+        /// <returns>暖機を開始したか(false = 済み・不要で、呼び出し側が Idle へ戻す)。</returns>
+        bool TryStartDecoderWarmup()
+        {
+            if (_decoderWarmed || _embedding == null) return false;
+            _decoderWarmed = true;
+            SetPhase(MaskSuggestPhase.Decoding);
+            EditorApplication.delayCall += RunDecoderWarmup;
+            return true;
+        }
+
+        void RunDecoderWarmup()
+        {
+            EditorApplication.delayCall -= RunDecoderWarmup;
+            if (_phase != MaskSuggestPhase.Decoding || _embedding == null) return; // キャンセル済み
+            TryRunDecoderCore(0.5f, 0.5f, cropRect: null, out _, out _, out _);
+            if (_phase != MaskSuggestPhase.Decoding) return;
+            if (_hasPendingClick)
+            {
+                _hasPendingClick = false;
+                RunDecode(_pendingU, _pendingV, _pendingGranularity);
+                return;
+            }
+            SetPhase(MaskSuggestPhase.Idle);
         }
 
         void OnEncoderError(Exception e)
@@ -540,12 +620,15 @@ namespace Iroca.SentisIntegration
             _sourceKey = null;
             _sourcePixels = null;
             _embedding = null;
-            if (_modelsLoaded && _phase != MaskSuggestPhase.Error)
+            // Error を持ち越すと以降のクリックが全部無視されるので、モデルが載っているなら
+            // Idle に戻す(UI からはテクスチャ切替・AI モードの入り直しが再試行導線になる)。
+            if (_modelsLoaded)
                 SetPhase(MaskSuggestPhase.Idle);
         }
 
         void CancelOps()
         {
+            EditorApplication.delayCall -= RunDecoderWarmup;
             _pump.Stop();
             _prepJob?.Cancel();
             _postJob?.Cancel();

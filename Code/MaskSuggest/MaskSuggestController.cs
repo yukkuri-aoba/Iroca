@@ -36,6 +36,18 @@ namespace Iroca
         /// <summary>直近のクリックが背景まで広がった可能性(粒度を下げる/やり直しの誘導に使う)。</summary>
         public bool LastClickFloodWarning { get; private set; }
 
+        /// <summary>
+        /// 直近のクリックでマスクへ 1 画素も追加されなかった。推論が完走しても何も足されないと
+        /// 画面上は「何も起きない」としか見えないので、UI で明示するために持つ。
+        /// </summary>
+        public bool LastCommitEmpty { get; private set; }
+
+        /// <summary>
+        /// 直近のクリックで AI が領域を 1 画素も返さなかった(= 追加済みだったのではなく推論が空)。
+        /// 「すでに塗ってある所を押しただけ」と「推論エンジンが動いていない」を UI で区別するために持つ。
+        /// </summary>
+        public bool LastProposalEmpty { get; private set; }
+
         public void Initialize(IrocaWindow host, MaskPaintView maskView)
         {
             _host = host;
@@ -52,12 +64,43 @@ namespace Iroca
         {
             if (Active == active) return;
             Active = active;
-            if (active) MaskSuggestBridge.Service?.TryEnsureModels();
-            else LastClickFloodWarning = false;
+            if (active)
+            {
+                var svc = MaskSuggestBridge.Service;
+                // エラー表示のまま入り直したときは、ここが唯一の再試行導線になる
+                // (自動再試行は原因が直らないまま毎レイアウト走るので入れない)。
+                if (svc != null && svc.Phase == MaskSuggestPhase.Error) svc.CancelAll();
+                svc?.TryEnsureModels();
+            }
+            else
+            {
+                LastClickFloodWarning = false;
+                LastCommitEmpty = false;
+                LastProposalEmpty = false;
+            }
             _host?.RequestRepaint();
         }
 
         // ─────────────────── クリック → 推論 → 即マスク反映 ───────────────────
+
+        /// <summary>
+        /// クリックを待たずにソース画像の解析(埋め込み計算)を先行させる。
+        ///
+        /// Unity 起動後の初回はモデルのロードと推論カーネル(Burst / コンピュートシェーダ)の
+        /// コンパイルで時間がかかる。クリック後にそれを始めると「押しても無反応」に見えるため、
+        /// AI モードに入った時点で走らせて進捗を出す。AI モード中は毎レイアウトで呼ばれるが、
+        /// 同一ソースならサービス側で no-op になる。
+        /// </summary>
+        public void PrepareSource(Color32[] pixelsBottomUp, int width, int height, string sourceKey)
+        {
+            var svc = MaskSuggestBridge.Service;
+            if (svc == null || !Active) return;
+            // 待機中だけ先行させる。モデルのロードは同期で重いのでレイアウト中には開始せず
+            // (それは AI 提案を開始したときの仕事)、エラー中も再試行しない(原因が直らない
+            // まま毎レイアウト走ってエディタが重くなる。復帰は AI 提案の入り直し)。
+            if (svc.Phase != MaskSuggestPhase.Idle) return;
+            svc.SetSource(sourceKey, pixelsBottomUp, width, height);
+        }
 
         /// <summary>
         /// プレビュークリック。pixels は実フル解像度ソース(下原点)。
@@ -99,6 +142,10 @@ namespace Iroca
         /// </summary>
         void CommitProposalToMask(MaskSuggestProposal proposal)
         {
+            // 反映できなかったときは黙って戻らず「空だった」と UI に出す。画面上は
+            // どのルートも「クリックしたのに何も起きない」に見えてしまうため。
+            LastProposalEmpty = true;
+            LastCommitEmpty = true;
             if (_maskView == null) return;
             var src = proposal.maskBottomUp;
             int sw = proposal.width, sh = proposal.height;
@@ -109,11 +156,17 @@ namespace Iroca
             int mw = _maskView.maskWidth, mh = _maskView.maskHeight;
             if (mask == null || mw <= 0 || mh <= 0) return;
 
+            int added = 0;    // 実際にマスクへ足された画素数
+            int proposed = 0; // 提案そのものの画素数(0 = 推論が領域を返していない)
             _maskView.BeginStroke();
             if (mw == sw && mh == sh)
             {
                 for (int i = 0; i < mask.Length; i++)
-                    if (src[i]) mask[i] = true;
+                {
+                    if (!src[i]) continue;
+                    proposed++;
+                    if (!mask[i]) { mask[i] = true; added++; }
+                }
             }
             else
             {
@@ -141,12 +194,18 @@ namespace Iroca
                         }
                     }
                     for (int i = 0; i < mask.Length; i++)
-                        if (transferred[i]) mask[i] = true;
+                    {
+                        if (!transferred[i]) continue;
+                        proposed++;
+                        if (!mask[i]) { mask[i] = true; added++; }
+                    }
                 }
             }
             _maskView.EndStroke();
             _maskView.maskDirty = true;
             LastClickFloodWarning = proposal.floodWarning;
+            LastCommitEmpty = added == 0;
+            LastProposalEmpty = proposed == 0;
             _host?.MarkPreviewDirty();
             _host?.RequestRepaint();
         }
@@ -156,6 +215,8 @@ namespace Iroca
         {
             if (_awaitingProposal) _dropNextProposal = true;
             LastClickFloodWarning = false;
+            LastCommitEmpty = false;
+            LastProposalEmpty = false;
         }
 
         /// <summary>テクスチャ切替・ウィンドウ破棄時の後始末。</summary>
@@ -165,6 +226,8 @@ namespace Iroca
             _awaitingProposal = false;
             _dropNextProposal = false;
             LastClickFloodWarning = false;
+            LastCommitEmpty = false;
+            LastProposalEmpty = false;
         }
     }
 }
