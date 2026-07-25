@@ -323,7 +323,7 @@ Read/Write Enabled が無効なテクスチャを選ぶと、ウィンドウに�
 #### 使い方
 
 1. 除外マスク欄の「AI 提案を開始」を押します（ブラシペイントとは排他です）。
-2. プレビュー上で、選びたいパーツの内側をクリックします。初回クリック時は画像の解析（数秒）が入ります。小さいパーツ（模様・ワンポイントなど）をクリックした場合は、クリック周辺を自動で拡大して推定し直すため、待ち時間が少し延びることがあります。
+2. プレビュー上で、選びたいパーツの内側をクリックします。画像の解析は「AI 提案を開始」を押した時点で先に始まるので、進捗表示が消えてからクリックすると待たずに済みます。小さいパーツ（模様・ワンポイントなど）をクリックした場合は、クリック周辺を自動で拡大して推定し直すため、待ち時間が少し延びることがあります。
 3. 推定された領域は **その場で除外マスク（＝色替えしない範囲）へ追加され**、マスクの色で表示されます。確定ボタンはありません。パーツが複数の島に分かれている場合は、島を順にクリックすればそれぞれが足されていきます。
 4. 外した提案が足されてしまったら **Ctrl+Z** で 1 つずつ戻せます（手描きブラシと同じ操作です）。
 5. 足した領域は通常のマスクなので、ブラシでの微修正・ファイル保存はいつも通りです。仕上げに全体をブラシで整えられます。
@@ -335,6 +335,12 @@ Read/Write Enabled が無効なテクスチャを選ぶと、ウィンドウに�
 - 白背景に白いパーツなど、見た目の境界が無い場合は正しく提案できません。手描きマスクを使ってください。
 - 数十個の小さなピースに分かれたパーツはクリック回数が多くなります。大きな塊だけ AI で選び、残りをブラシで足すのが早道です。
 - 「直前のクリックが背景まで広がった可能性があります」と警告が出たら、Ctrl+Z で戻し、粒度を「細かい」にするかパーツのより内側をクリックし直すのがおすすめです。
+
+#### うまく動かないとき
+
+- **Unity を起動して最初の 1 回だけ時間がかかる**: AI エンジン（Burst）のコンパイルが入るためで、異常ではありません。「AI 提案を開始」を押した時点で解析と暖機を先に済ませるので、進捗表示が消えてからクリックすれば待ち時間はほぼありません。2 回目以降のクリックはすぐ返ります。
+- **クリックしてもマスクが何も変わらない**: 「AI が領域を返しませんでした」または「内部コンパイル（Burst）が失敗しています」と表示された場合、Unity 起動時に Burst の初期化に失敗しています。この状態は同じセッションでは直らないので、**Unity を再起動**してください（欄に出る「Unity を再起動」ボタンでプロジェクトを開き直せます）。再起動しても再発するときは、プロジェクトの `Library\BurstCache` と `Library\Bee` フォルダを削除してから起動し直すと直ることがあります（`Library` 配下は自動で再生成されるため削除して問題ありません）。
+- **「マスクが変わりませんでした（すでに追加済み）」と出る**: 異常ではありません。クリックした領域はすでにマスクへ入っています。
 
 #### クレジット / ライセンス
 
@@ -764,7 +770,7 @@ Even with just the scripts dropped in, the "AI Mask Suggestion" panel appears in
 #### How to use
 
 1. Press "Start AI Suggestion" in the Exclusion Mask panel (mutually exclusive with brush painting).
-2. Click inside the part you want to select on the preview. The first click triggers image analysis (a few seconds).
+2. Click inside the part you want to select on the preview. Image analysis starts as soon as you press "Start AI Suggestion", so clicking after the progress indicator disappears avoids the wait.
 3. The proposed region is shown in cyan. Press "Add this region" if it looks right, or "Retry" / click elsewhere if not.
 4. Accepted regions accumulate in green. If the part is split into multiple islands, click the islands that are not yet green one by one.
 5. If a bad proposal got added, press "Undo last" to remove it.
@@ -776,6 +782,8 @@ Even with just the scripts dropped in, the "AI Mask Suggestion" panel appears in
 - Parts with no visible boundary (e.g. white pieces on a white background) cannot be proposed correctly — use hand-painted masks there.
 - Parts split into dozens of tiny pieces need many clicks; select the large chunks with AI and fill the rest with the brush.
 - If you see the "may have spread into the background" warning, click again further inside the part instead of adding.
+- The first use after starting Unity takes longer because the AI engine (Burst) compiles once — this is expected.
+- If clicks never change the mask ("The AI returned no region" / "the internal compiler (Burst) failed"), Burst failed to initialize in this Unity session. It cannot recover within the same session: restart Unity with the "Restart Unity" button in the panel. If it keeps happening, delete the project's `Library\BurstCache` and `Library\Bee` folders and start Unity again (everything under `Library` is regenerated automatically).
 
 #### Credits / License
 

@@ -420,6 +420,16 @@ namespace Iroca
                     }
                     break;
 
+                case EventType.Layout:
+                    // クリックを待たず、AI モードでいる間にソース画像の解析を先行させる。
+                    // 初回はモデルのロードと推論カーネルのコンパイルで時間がかかるため、
+                    // クリック後に始めると押しても無反応な時間が生まれる(同一ソースなら no-op)。
+                    // EnsureTrueSource はテクスチャが変わったときだけ読み直す(通常はキャッシュ)。
+                    if (EnsureTrueSource(_host.SourceTexture) && _trueSourceW > 0)
+                        ctl.PrepareSource(_trueSourcePixels, _trueSourceW, _trueSourceH,
+                                          TrueSourceCacheKey());
+                    break;
+
                 case EventType.Repaint:
                     if (isInRect)
                         EditorGUIUtility.AddCursorRect(previewRect, MouseCursor.Link);

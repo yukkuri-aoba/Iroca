@@ -28,6 +28,10 @@ namespace Iroca
             var ctl = maskView.SuggestController;
             if (ctl == null) return;
 
+            // Burst が失敗した世代では推論が空を返すだけで、エラーも出ずに「動かない」ように
+            // 見える。クリックを試す前に気づけるよう、モードに入る前から知らせる。
+            DrawBurstFailureNoticeIfNeeded();
+
             // 見出しラベルは置かない（ボタン文言が自明で、詳細は AiSuggestToggleTooltip にある。
             // マスク欄インラインの行数を抑えるため）。
             EditorGUILayout.Space(2);
@@ -114,6 +118,10 @@ namespace Iroca
 
                 case MaskSuggestPhase.Error:
                     EditorGUILayout.HelpBox(svc.ErrorMessage ?? "error", MessageType.Error);
+                    // 推論の失敗は Burst のコールドスタート失敗が原因のことが多く、その世代では
+                    // 何度クリックしても直らない。再起動導線をエラーと同じ場所に出す。
+                    EditorGUILayout.HelpBox(Localization.AiSuggestErrorRestartHint, MessageType.Info);
+                    DrawRestartButton();
                     break;
 
                 default:
@@ -136,18 +144,35 @@ namespace Iroca
             EditorGUILayout.Space(4);
             EditorGUILayout.HelpBox(Localization.AiSuggestRestartRecommended, MessageType.Info);
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(new GUIContent(Localization.AiSuggestRestartNow,
-                                                Localization.AiSuggestRestartNowTooltip)))
-            {
-                SessionState.SetBool(MaskSuggestInstall.RestartRecommendedKey, false);
-                // 現在のプロジェクトを開き直す = エディタ再起動(Burst をクリーンに初期化)。
-                EditorApplication.OpenProject(System.IO.Directory.GetCurrentDirectory());
-            }
+            DrawRestartButton();
             if (GUILayout.Button(new GUIContent(Localization.AiSuggestRestartLater,
                                                 Localization.AiSuggestRestartLaterTooltip),
                                  GUILayout.Width(80)))
                 SessionState.SetBool(MaskSuggestInstall.RestartRecommendedKey, false);
             EditorGUILayout.EndHorizontal();
+        }
+
+        /// <summary>
+        /// このセッションで Burst のコンパイル失敗を観測していたら、AI が使えない状態だと知らせる。
+        /// Unity を再起動するまで直らないため、クリックを試す前に出す。
+        /// </summary>
+        static void DrawBurstFailureNoticeIfNeeded()
+        {
+            if (!MaskSuggestBurstWatch.FailedThisSession) return;
+            EditorGUILayout.Space(4);
+            EditorGUILayout.HelpBox(Localization.AiSuggestBurstFailed, MessageType.Warning);
+            DrawRestartButton();
+        }
+
+        /// <summary>Unity を再起動する(現在のプロジェクトを開き直す)ボタン。</summary>
+        static void DrawRestartButton()
+        {
+            if (!GUILayout.Button(new GUIContent(Localization.AiSuggestRestartNow,
+                                                 Localization.AiSuggestRestartNowTooltip)))
+                return;
+            SessionState.SetBool(MaskSuggestInstall.RestartRecommendedKey, false);
+            // 現在のプロジェクトを開き直す = エディタ再起動(Burst をクリーンに初期化)。
+            EditorApplication.OpenProject(System.IO.Directory.GetCurrentDirectory());
         }
 
         /// <summary>
@@ -206,6 +231,19 @@ namespace Iroca
             // 直近クリックが背景まで広がった可能性があれば、Ctrl+Z で戻す誘導を出す。
             if (ctl.LastClickFloodWarning)
                 EditorGUILayout.HelpBox(Localization.AiSuggestAreaWarning, MessageType.Warning);
+
+            // 推論が完走してもマスクが変わらないと、画面上は「何も起きない」としか見えない。
+            // 「AI が領域を返していない(エンジンの異常を疑う)」と「すでに追加済みだった(正常)」を
+            // 区別して出し、Unity 再起動が要る状況かどうかがその場で分かるようにする。
+            if (ctl.LastProposalEmpty)
+            {
+                EditorGUILayout.HelpBox(Localization.AiSuggestEmptyProposal, MessageType.Warning);
+                DrawRestartButton();
+            }
+            else if (ctl.LastCommitEmpty)
+            {
+                EditorGUILayout.HelpBox(Localization.AiSuggestEmptyCommit, MessageType.Info);
+            }
         }
     }
 }

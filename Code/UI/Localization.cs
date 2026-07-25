@@ -521,6 +521,18 @@ namespace Iroca
         public static string AiSuggestAreaWarning => IsJapanese
             ? "直前のクリックが背景まで広がった可能性があります。Ctrl+Z で戻して、粒度を「細かい」にするか、パーツのより内側をクリックし直してください。"
             : "The last click may have spread into the background. Undo with Ctrl+Z, then set granularity to 'Fine' or click again further inside the part.";
+        public static string AiSuggestEmptyCommit => IsJapanese
+            ? "直前のクリックではマスクが変わりませんでした（その領域はすでに追加済みです）。"
+            : "The last click did not change the mask (that region was already added).";
+        public static string AiSuggestEmptyProposal => IsJapanese
+            ? "AI が領域を返しませんでした。別の場所をクリックするか、粒度を変えてみてください。\nどこをクリックしても同じ場合は、内部コンパイル（Burst）の初期化に失敗している可能性があります。Unity を再起動すると直ります。"
+            : "The AI returned no region. Try clicking elsewhere or changing the granularity.\nIf every click behaves this way, the internal compiler (Burst) may have failed to initialize — restarting Unity fixes it.";
+        public static string AiSuggestBurstFailed => IsJapanese
+            ? "この Unity セッションでは内部コンパイル（Burst）が失敗しています。この状態では AI が領域を返せず、クリックしてもマスクが変わりません。Unity を再起動してください（再起動すれば直ります）。"
+            : "The internal compiler (Burst) failed in this Unity session. The AI cannot produce regions in this state, so clicks won't change the mask. Please restart Unity (a restart fixes it).";
+        public static string AiSuggestErrorRestartHint => IsJapanese
+            ? "推論エンジンの初期化に失敗している可能性があります（Unity 起動時の Burst コンパイル失敗など）。Unity を再起動すると直ることが多いです。AI 提案を一度終了してから開始し直すと再試行します。"
+            : "The inference engine may have failed to initialize (e.g. a Burst compile failure at Unity startup). Restarting Unity usually fixes it. Stopping and restarting AI suggestion retries the setup.";
         public static string AiSuggestGranularity => IsJapanese ? "提案の粒度" : "Granularity";
         public static string AiSuggestGranularityTooltip => IsJapanese
             ? "AI はクリック 1 点に対して粒度の違う候補(模様・パーツ・全体)を同時に推定します\nどの候補を提案として表示するかを選びます(次のクリックから適用)"
