@@ -1,0 +1,91 @@
+<!--
+  Sentis 統合（Code/SentisIntegration/）まで含めた型チェック。
+
+  IrocaEditor.csproj は Unity.Sentis 型を解決できないため Code/SentisIntegration/ を
+  除外しており、そこは長らく「Unity を起動するまで型エラーに気づけない」死角だった。
+  こちらは Sentis が入った Unity プロジェクトの Library/ScriptAssemblies から
+  Unity.Sentis.dll などを借りてコンパイルし、その死角を埋める。
+
+    dotnet build scripts/build-check/IrocaSentisCheck.csproj
+
+  Sentis を導入した Unity プロジェクトが手元にある環境でだけ動く（CI では走らせない）。
+  別のプロジェクトを使う場合はパスを渡す:
+
+    dotnet build scripts/build-check/IrocaSentisCheck.csproj -p:SentisAssembliesPath="D:\path\to\Project\Library\ScriptAssemblies"
+    # または
+    $env:IROCA_SENTIS_ASSEMBLIES = "D:\path\to\Project\Library\ScriptAssemblies"
+
+  制約: Unity の asmdef 境界（本体 / Iroca.SentisIntegration の 2 アセンブリ分割）は
+  再現せず、1 アセンブリとしてまとめてコンパイルする。検証できるのは構文・型・API 使用で、
+  アセンブリ境界（internal の見え方など）は Unity 側のコンパイルが最終確認になる。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>IrocaSentisCheck</AssemblyName>
+    <RootNamespace>Iroca</RootNamespace>
+    <OutputType>Library</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>0414;0649;CS0219;CS8632;CS0169</NoWarn>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- IrocaEditor.csproj と出力を混ぜない（bin/ は .gitignore 済み） -->
+    <BaseOutputPath>bin\sentis\</BaseOutputPath>
+    <!-- Iroca.SentisIntegration の asmdef が持つ define。これが無いと中身が丸ごと消える。 -->
+    <DefineConstants>$(DefineConstants);IROCA_SENTIS_PRESENT</DefineConstants>
+  </PropertyGroup>
+
+  <!-- Unity Editor と Sentis アセンブリのパス解決 -->
+  <PropertyGroup>
+    <UnityVersion Condition="'$(UnityVersion)' == ''">2022.3.22f1</UnityVersion>
+    <UnityEditorPath Condition="'$(UnityEditorPath)' == '' and '$(UNITY_EDITOR_PATH)' != ''">$(UNITY_EDITOR_PATH)</UnityEditorPath>
+    <UnityEditorPath Condition="'$(UnityEditorPath)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityEditorPath>
+    <SentisAssembliesPath Condition="'$(SentisAssembliesPath)' == '' and '$(IROCA_SENTIS_ASSEMBLIES)' != ''">$(IROCA_SENTIS_ASSEMBLIES)</SentisAssembliesPath>
+    <SentisAssembliesPath Condition="'$(SentisAssembliesPath)' == ''">$(MSBuildThisFileDirectory)..\..\..\Avatar_Projects\Iroca_MLDev\Library\ScriptAssemblies</SentisAssembliesPath>
+  </PropertyGroup>
+
+  <!-- Debug / McpIntegration は IrocaEditor.csproj と同じ理由で除外。SentisIntegration は含める。 -->
+  <ItemGroup>
+    <Compile Include="..\..\Code\**\*.cs"
+             Exclude="..\..\Code\Debug\**\*.cs;..\..\Code\McpIntegration\**\*.cs" />
+  </ItemGroup>
+
+  <!-- UnityEngine.dll / UnityEditor.dll は型フォワードだけの facade。Sentis の公開 API は
+       UnityEngine.CoreModule の型（ScriptableObject / NativeArray）を直接露出するので、
+       facade ではなくモジュール実体を参照する（両方入れると型が二重定義になる）。 -->
+  <ItemGroup>
+    <Reference Include="$(UnityEditorPath)\UnityEngine\*.dll">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Unity.Sentis">
+      <HintPath>$(SentisAssembliesPath)\Unity.Sentis.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.Burst">
+      <HintPath>$(SentisAssembliesPath)\Unity.Burst.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.Collections">
+      <HintPath>$(SentisAssembliesPath)\Unity.Collections.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.Mathematics">
+      <HintPath>$(SentisAssembliesPath)\Unity.Mathematics.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="CheckSentisPath" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(UnityEditorPath)\UnityEngine\UnityEngine.CoreModule.dll')"
+           Text="UnityEngine のモジュール DLL が見つかりません: $(UnityEditorPath)\UnityEngine\&#xA;`-p:UnityVersion=` か `-p:UnityEditorPath=` で正しいパスを指定してください。" />
+    <Error Condition="!Exists('$(SentisAssembliesPath)\Unity.Sentis.dll')"
+           Text="Unity.Sentis.dll が見つかりません: $(SentisAssembliesPath)&#xA;Sentis を導入した Unity プロジェクトを一度開いてから、`-p:SentisAssembliesPath=` か環境変数 IROCA_SENTIS_ASSEMBLIES でその Library\ScriptAssemblies を指定してください。" />
+  </Target>
+
+</Project>

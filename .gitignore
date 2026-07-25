@@ -59,6 +59,7 @@ docs/unity-mcp-automation.md
 # csproj 本体だけはコミット、bin/obj は無視
 !scripts/build-check/IrocaEditor.csproj
 !scripts/build-check/IrocaEditor.Debug.csproj
+!scripts/build-check/IrocaSentisCheck.csproj
 scripts/build-check/bin/
 scripts/build-check/obj/
 
