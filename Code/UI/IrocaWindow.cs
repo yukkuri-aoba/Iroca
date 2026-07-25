@@ -91,13 +91,16 @@ namespace Iroca
                 Localization.WindowTitle,
                 EditorGUIUtility.IconContent("d_Image Icon").image);
             window.minSize = new Vector2(340, 500);
-            // 高さ 850 は、上部テクスチャ欄＋プレビュー章の見出し/操作行＋エクスポート欄
-            // (新規保存 ON のファイル名行込み)を積んでも、等倍(100%)の MaxSize(448)px
-            // プレビューが縦スクロールバーなしで収まる高さ(数十 px の余裕込み)。
-            // 幅 800 は左カラム 320(設定行がすべて見える幅)＋プレビュー予約 472 が
-            // ちょうど収まる幅(IrocaConsts.Layout.PreviewColumnReserve のコメント参照)。
-            if (window.position.width < 800 || window.position.height < 850)
-                window.position = new Rect(window.position.x, window.position.y, 800, 850);
+            // 中身が要求するぶんだけの既定サイズ。どちらも実ウィンドウのキャプチャで詰めた値で、
+            // これ未満にすると設定行の右端が切れるか、プレビューにスクロールバーが出る。
+            //   幅 728 = 左カラム 320(Layout.LeftColumnMin=設定行がすべて見える幅)
+            //          + プレビュー予約 408(Layout.PreviewColumnReserve)
+            //   高さ 786 = 上部テクスチャ欄＋プレビュー章の見出し/操作行＋エクスポート欄
+            //          (新規保存 ON のファイル名行込み)を積んでも、等倍(100%)の
+            //          MaxSize(384)px プレビューが縦スクロールバーなしで収まる高さ
+            //          (実測で数十 px の余裕。設定列を見渡せるぶんとして残す)。
+            if (window.position.width < 728 || window.position.height < 786)
+                window.position = new Rect(window.position.x, window.position.y, 728, 786);
         }
 
         private void OnEnable()
