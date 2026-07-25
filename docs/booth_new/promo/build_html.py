@@ -140,7 +140,7 @@ html = """<meta charset="utf-8">
       <div class="b-foot">アバターテクスチャ色改変ツール ・ 無料</div>
     </div>
   </div>
-  <p class="note"><b>構成：</b>左＝元の青（素立ち）、右＝いろかでレッドに色替え（ピースサイン）。「変わった側が嬉しそう」という物語を 1 枚に。ポーズは <code>Assets/_Promo/PeacePose.anim</code> の筋肉カーブ（Muscle 値）で自由に調整できます。</p>
+  <p class="note"><b>構成：</b>左＝元の青（素立ち）、右＝いろかでレッドに色替え（ウィンク＋ピース）。「変わった側が嬉しそう」という物語を 1 枚に。ポーズは <code>Assets/_Promo/PeacePose.anim</code> の筋肉カーブ、表情は Body の BlendShape（ウィンク／にっこり／にこり眉）で調整できます。</p>
 
   <div class="slide-head"><span class="no">SLIDE 2</span><span class="use">カラーラインナップ・1280×1280</span></div>
   <div class="stage">
