@@ -39,54 +39,23 @@ chore(ci): release.yml に SHA256 検証ステップを追加
 ```
 
 ## ブランチ運用
+高速な開発サイクルのため、**ブランチを切らずに `develop` へ直接コミット**するのが原則。バグ修正・アルゴリズム改善・機能追加・ドキュメント・テストのいずれも `develop` 直コミットでよい。
 
-### 基本方針：`develop` 直コミットを原則とする
-このプロジェクトは次々と変更を実装する高速開発サイクルのため、**ブランチを切らずに `develop` へ直接コミット**するのが原則。
-
-- `main` — 安定版。直接プッシュは原則禁止（リリース bot コミットを除く）。
-- `develop` — **メインの開発ブランチ。通常の修正・機能追加・アルゴリズム改善はここに直接コミット。**
-- `feature/<短い説明>` — **例外的な場合のみ使用**。壊れる可能性が高い実験的変更で、失敗したら丸ごと捨てたいときだけブランチを切る。数コミット以内で完結させ、完了後すぐ `develop` へマージして削除する（長生きさせない）。
-- リリース時は `develop` を `main` へマージし、タグを打つ。
-
-### ブランチを切ってよいケース（限定）
-- 実装が完全に失敗した場合に丸ごと破棄したい実験
-- 上記以外は `develop` へ直接コミット
-
-### ブランチを切ってはいけないケース
-- 通常のバグ修正
-- アルゴリズムの改善
-- 機能追加（改善サイクル内の変更はすべて含む）
-- ドキュメント・テスト・chore 系の変更
+- `main` — 安定版。直接プッシュは原則禁止（リリース bot コミットを除く）。リリース時に `develop` からマージする。
+- `develop` — メインの開発ブランチ。
+- `feature/<短い説明>` — 壊れる可能性が高く、失敗したら丸ごと捨てたい実験のときだけ。数コミット以内で終わらせ、すぐ `develop` へマージして削除する（長生きさせない）。
 
 ## リリース手順
-詳細は `docs/RELEASING.md` が正。概要は以下の通り。
+**`docs/RELEASING.md` が正。** リリース作業のときはそちらを読むこと。ここには忘れやすい前提だけ残す。
 
-1. `CHANGELOG.md` に `## [<VERSION>]` 節を記載する。
-2. Unity で `Iroca_Ver<VERSION>.unitypackage` をエクスポートする（`BuildHelper`）。
-3. `scripts/Build-VpmPackage.ps1 -Version <VERSION> -UnityPackagePath <unitypackageのパス>` を実行する。
-   package.json / docs/index.json / zip + SHA256 が更新される。
-   **`-UnityPackagePath` を省略しない**（省略した zip は SHA256 が最終版と一致しない）。
-4. `package.json` / `docs/index.json` / `CHANGELOG.md` をコミットする。
-5. `develop` を `main` へマージし、タグを push する（いずれもユーザー確認必須の操作）：
-   ```
-   git tag v<VERSION>
-   git push origin v<VERSION>
-   ```
-   CI（release.yml）がバージョン整合を検証し、**draft** リリースを作成する。
-6. draft へ zip と unitypackage を手動アップロードし、本文のチェックリスト節を消して publish する。
-7. publish 後、release-verify ワークフローが zip の SHA256 を listing と照合する。green を確認して完了。
+- `scripts/Build-VpmPackage.ps1` の **`-UnityPackagePath` を省略しない**（省略した zip は SHA256 が最終版と一致しない）。
+- タグは必ず `v` プレフィックス（例: `v0.2.0`）。これが `release.yml` の起動条件。
+- CI が作るのは **draft まで**。資産のアップロードと publish は手動ステップ。
 
-> タグ形式は必ず `v` プレフィックスを付けること（例: `v0.2.0`）。これが `release.yml` の起動条件。
-> CI が作るのは draft まで。資産のアップロードと publish は手動ステップ。
+## 確認なしに実行してはいけない git 操作
+`git add` / `git commit`（テストパス済みに限る）、読み取り系、`git stash` は自動実行してよい。以下はユーザー確認を取る。
 
-## エージェントが自動実行してよい操作
-- `git add` / `git commit`（テストパス済みの変更に限る）
-- `git status` / `git diff` / `git log`（読み取り専用操作）
-- `git stash` / `git stash pop`（試行中変更の一時退避）
-
-## エージェントが確認なしに実行してはいけない操作
-- `git push`（リモートへの反映は必ずユーザー確認を取る）
+- `git push`（`--force` / `--force-with-lease` を含む）
 - `git tag` の作成・削除
-- `git reset --hard` / `git clean -fd`（作業ツリーの破壊的操作）
-- `git rebase` / `git merge`（履歴改変・統合操作）
-- `git push --force` / `git push --force-with-lease`
+- `git reset --hard` / `git clean -fd`
+- `git rebase` / `git merge`
