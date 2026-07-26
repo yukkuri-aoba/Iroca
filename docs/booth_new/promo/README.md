@@ -37,7 +37,10 @@ Apple 調・実写主義の販促画像一式。掲載写真はすべて **HAOLA
 
 ## 再撮影の要点（Unity MCP）
 
-1. 色替えは `iroca_recolor`（マスク不要 zones。パラメータは `Assets/Iroca/Presets/HAOLAN_*_Red.json` 由来）
+1. 色替えは `iroca_recolor`。**衣装は必ず `HAOLAN_Costume_Red_2`（tolerance 0.4）系を使う** —
+   無印 Red（tol 0.27）はロゴの影と AA 境界を取り残しジャギー/ゴーストが出る。
+   各色は `Assets/_Promo/presets/Promo_Costume_<色>.json`（Red_2 の target 差し替え版）を preset パス指定で実行。
+   髪=tol 0.16（広げると薄紫の地毛を巻き込むので厳守）/靴=ユーザープリセット準拠（tol 0.25）。
 2. 並べ撮りは**平行投影**（`orthographic=true`）にすると全員が完全正面になる
    （透視投影では中央から離れた個体が斜めに写る）
 3. ポーズ焼き込みは筋肉カーブ入り AnimationClip を AnimatorController 経由で割り当て、
