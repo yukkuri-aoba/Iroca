@@ -222,69 +222,70 @@ namespace Iroca
         /// strength>thr の画素のみ連結対象。マッチ無しは null。
         /// </summary>
         private static float[] BuildComponentMedianLMap(
-            Color32[] px, float[] strength, int w, int h, float thr)
+            Color32[] px, float[] strength, int w, int h, float thr, CancellationToken ct = default)
         {
             int len = w * h;
-            int minX = w, maxX = -1, minY = h, maxY = -1;
-            for (int y = 0; y < h; y++)
-            {
-                int rb = y * w;
-                for (int x = 0; x < w; x++)
-                    if (strength[rb + x] > thr && px[rb + x].a >= 128)
-                    {
-                        if (x < minX) minX = x;
-                        if (x > maxX) maxX = x;
-                        if (y < minY) minY = y;
-                        if (y > maxY) maxY = y;
-                    }
-            }
-            if (maxX < 0) return null;
+            var bboxPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            // 対象画素の bbox(連結予測子と同条件)。連結成分アンカリングと同じ共通版を使う。
+            if (!TryComputeMatchedBBox(strength, px, w, h, thr,
+                    out int minX, out int minY, out int maxX, out int maxY, ct))
+                return null;
 
             int bw = maxX - minX + 1, bh = maxY - minY + 1;
-            int[] label = new int[bw * bh];
+            int bwh = bw * bh;
+            // label / 探索スタックはプールから借りる(従来は呼び出しごとに new int[bw*bh])。
+            int[] label = s_intPool.Rent(bwh);
+            int[] stack = s_intPool.Rent(bwh);
+            try
+            {
+            Array.Clear(label, 0, bwh);   // Create プールの Rent はゼロ初期化しない
             var hists = new List<int[]>();   // hists[lab-1] = 成分の L ヒストグラム(256bin)
             var sizes = new List<int>();
-            var queue = new Queue<int>();
+
+            bool Matched(int gi) => strength[gi] > thr && px[gi].a >= 128;
 
             for (int ly = 0; ly < bh; ly++)
             {
+                // 逐次ラベリングは数百 ms 級になり得るので、行ごとにキャンセルを見て
+                // ドラッグ中の旧ジョブが CPU を焼き続けないようにする(数値ロジックは不変)。
+                if ((ly & 63) == 0) ct.ThrowIfCancellationRequested();
+                int lrb = ly * bw;
+                int grb = (ly + minY) * w + minX;
                 for (int lx = 0; lx < bw; lx++)
                 {
-                    int li = ly * bw + lx;
+                    int li = lrb + lx;
                     if (label[li] != 0) continue;
-                    if (!(strength[(ly + minY) * w + (lx + minX)] > thr
-                          && px[(ly + minY) * w + (lx + minX)].a >= 128)) continue;
+                    if (!Matched(grb + lx)) continue;
 
                     int lab = hists.Count + 1;
                     var hist = new int[256];
                     int size = 0;
                     label[li] = lab;
-                    queue.Enqueue(li);
-                    while (queue.Count > 0)
+                    int sp = 0;
+                    // スタック要素は (y<<16)|x のパック座標(除算なしで隣接と大域 index を出すため)。
+                    // 探索順は BFS→DFS に変わるが、成分の分割・採番・ヒストグラム(整数カウント)は
+                    // いずれも探索順に依存しないので結果は同一。
+                    stack[sp++] = (ly << 16) | lx;
+                    while (sp > 0)
                     {
-                        int ci = queue.Dequeue();
-                        int cx = ci % bw, cy = ci / bw;
+                        int packed = stack[--sp];
+                        int cx = packed & 0xFFFF, cy = packed >> 16;
+                        int ci = cy * bw + cx;
                         int gi = (cy + minY) * w + (cx + minX);
                         RgbToOklab(px[gi].r, px[gi].g, px[gi].b, out float L, out _, out _);
                         hist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
                         size++;
-                        TryEnq(ci - 1, cx > 0);
-                        TryEnq(ci + 1, cx < bw - 1);
-                        TryEnq(ci - bw, cy > 0);
-                        TryEnq(ci + bw, cy < bh - 1);
+                        if (cx > 0 && label[ci - 1] == 0 && Matched(gi - 1))
+                        { label[ci - 1] = lab; stack[sp++] = (cy << 16) | (cx - 1); }
+                        if (cx < bw - 1 && label[ci + 1] == 0 && Matched(gi + 1))
+                        { label[ci + 1] = lab; stack[sp++] = (cy << 16) | (cx + 1); }
+                        if (cy > 0 && label[ci - bw] == 0 && Matched(gi - w))
+                        { label[ci - bw] = lab; stack[sp++] = ((cy - 1) << 16) | cx; }
+                        if (cy < bh - 1 && label[ci + bw] == 0 && Matched(gi + w))
+                        { label[ci + bw] = lab; stack[sp++] = ((cy + 1) << 16) | cx; }
                     }
                     hists.Add(hist);
                     sizes.Add(size);
-
-                    void TryEnq(int ni, bool inBounds)
-                    {
-                        if (!inBounds || label[ni] != 0) return;
-                        int nx = ni % bw, ny = ni / bw;
-                        if (!(strength[(ny + minY) * w + (nx + minX)] > thr
-                              && px[(ny + minY) * w + (nx + minX)].a >= 128)) return;
-                        label[ni] = lab;
-                        queue.Enqueue(ni);
-                    }
                 }
             }
 
@@ -292,17 +293,25 @@ namespace Iroca
             for (int c = 0; c < hists.Count; c++)
                 med[c] = HistValueAtPercentile(hists[c], sizes[c], AchromaRefPercentile, 1f);
 
+            // ラベル → 代表 L の配り直し。行ごとに書き込み先が独立なので並列化しても同一結果。
             var map = new float[len];
-            for (int ly = 0; ly < bh; ly++)
+            Parallel.For(0, bh, bboxPo, ly =>
             {
                 int rb = (ly + minY) * w;
+                int lrb = ly * bw;
                 for (int lx = 0; lx < bw; lx++)
                 {
-                    int lab = label[ly * bw + lx];
+                    int lab = label[lrb + lx];
                     if (lab != 0) map[rb + (lx + minX)] = med[lab - 1];
                 }
-            }
+            });
             return map;
+            }
+            finally
+            {
+                s_intPool.Return(stack);
+                s_intPool.Return(label);
+            }
         }
 
         /// <summary>
@@ -313,7 +322,8 @@ namespace Iroca
         /// 厳密値と ≤1/255 の差を許容する。
         /// </summary>
         private static bool TryComputeRegionLRange(
-            Color32[] px, float[] strength, out float lo, out float hi, out float mid)
+            Color32[] px, float[] strength, out float lo, out float hi, out float mid,
+            CancellationToken ct = default)
         {
             lo = 0f; hi = 1f; mid = 0.5f;
             int len = px.Length;
@@ -323,14 +333,19 @@ namespace Iroca
             for (int pass = 0; pass < 2; pass++)
             {
                 Array.Clear(hist, 0, hist.Length);
-                count = 0;
-                for (int i = 0; i < len; i++)
+                float passThr = thr;   // ラムダは ref ローカルを捕獲できないのでパス毎に固定する
+                count = AccumulateHistParallel(len, hist, (from, to, localHist) =>
                 {
-                    if (strength[i] < thr || px[i].a < 128) continue;
-                    RgbToOklab(px[i].r, px[i].g, px[i].b, out float L, out _, out _);
-                    hist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
-                    count++;
-                }
+                    int n = 0;
+                    for (int i = from; i < to; i++)
+                    {
+                        if (strength[i] < passThr || px[i].a < 128) continue;
+                        RgbToOklab(px[i].r, px[i].g, px[i].b, out float L, out _, out _);
+                        localHist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
+                        n++;
+                    }
+                    return n;
+                }, ct);
                 if (count >= 50 || pass == 1) break;
                 thr = 1e-4f;   // フォールバック: strength>0 の全マッチ画素
             }

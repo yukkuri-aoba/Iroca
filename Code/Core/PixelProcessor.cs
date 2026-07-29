@@ -2,6 +2,7 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading;
@@ -108,6 +109,11 @@ namespace Iroca
         // LOH に確保していた。Rent はゼロ初期化されないが Array.Copy で全域上書きするので問題なし。
         private static readonly ArrayPool<Color32> s_color32Pool =
             ArrayPool<Color32>.Create(PoolMaxArrayLength, maxArraysPerBucket: 4);
+        // 連結成分ラベリング(label / BFS スタック)用。従来は呼び出しごとに new int[bw*bh]
+        // (4K 全面マッチで 67MB)を LOH へ確保していた。Rent はゼロ初期化しないので label は
+        // 使用前に Array.Clear すること。
+        private static readonly ArrayPool<int> s_intPool =
+            ArrayPool<int>.Create(PoolMaxArrayLength, maxArraysPerBucket: 4);
 
         // スタティック計算メソッド — バックグラウンドスレッドで実行可能
         // Texture2Dなし、UnityEngine.Object APIなし、Mathfとカラー計算のみ（いずれもスレッドセーフ）
@@ -321,7 +327,7 @@ namespace Iroca
                     // 1.a 空間伝播によるハイライト領域の回収 (モルフォロジー拡張)
                     if (highlightPot != null)
                     {
-                        PropagateHighlights(strength, highlightPot, w, h);
+                        PropagateHighlights(strength, highlightPot, w, h, cancellationToken);
                         s_floatPool.Return(highlightPot);
                         highlightPot = null;
                         debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, strength, w, h);
@@ -363,7 +369,7 @@ namespace Iroca
                                 seedX = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.x * (w - 1)), 0, w - 1);
                                 seedY = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.y * (h - 1)), 0, h - 1);
                             }
-                            ApplyConnectedComponentMask(strength, matchConf, originalPixels, w, h, seedX, seedY);
+                            ApplyConnectedComponentMask(strength, matchConf, originalPixels, w, h, seedX, seedY, cancellationToken);
                             // フル画像で解いた keep(=残った画素 strength>0)を作り、詳細プレビュー(クロップ)へ
                             // 転写(parityCache)・次回の選択キャッシュ復元(keepBitsForCache)の両方に使う。
                             if (parityCache != null || selectionCache != null)
@@ -407,7 +413,7 @@ namespace Iroca
                     int ppMargin = holeFillPasses + Mathf.Max(0, antiAliasCleanup) + ppBlurRadius + 2;
                     int ppMinX, ppMinY, ppMaxX, ppMaxY;
                     bool hasPostBox = TryComputeStrengthBBox(strength, w, h, 0f,
-                        out ppMinX, out ppMinY, out ppMaxX, out ppMaxY);
+                        out ppMinX, out ppMinY, out ppMaxX, out ppMaxY, cancellationToken);
                     if (hasPostBox)
                     {
                         ppMinX = Mathf.Max(0, ppMinX - ppMargin);
@@ -587,20 +593,30 @@ namespace Iroca
                             if (decontamMaskExcluded == null) decontamMaskExcluded = new bool[len];
                             deconExcluded = decontamMaskExcluded;
                             var excl = deconExcluded;
-                            Parallel.For(0, h, po, y =>
-                            {
-                                int yf = y + originY;
-                                int rowOff = y * w;
-                                for (int x = 0; x < w; x++)
-                                    excl[rowOff + x] = IsExcludedCombined(x + originX, yf, fullW, fullH,
-                                        commonMask, zoneMask, maskW, maskH);
-                            });
+                            // デコンタミが除外フラグを読むのは BG ドナー範囲(後段 bbox ± radius)だけ
+                            // なので、そこだけ埋める。範囲外は読まれない=出力ビット不変
+                            // (バッファはゾーン間で使い回すが、各ゾーンが自分の読む範囲を必ず埋める)。
+                            int exY0 = Mathf.Max(0, ppMinY - decontaminationRadius);
+                            int exY1 = Mathf.Min(h - 1, ppMaxY + decontaminationRadius);
+                            int exX0 = Mathf.Max(0, ppMinX - decontaminationRadius);
+                            int exX1 = Mathf.Min(w - 1, ppMaxX + decontaminationRadius);
+                            if (hasPostBox)
+                                Parallel.For(exY0, exY1 + 1, po, y =>
+                                {
+                                    int yf = y + originY;
+                                    int rowOff = y * w;
+                                    for (int x = exX0; x <= exX1; x++)
+                                        excl[rowOff + x] = IsExcludedCombined(x + originX, yf, fullW, fullH,
+                                            commonMask, zoneMask, maskW, maskH);
+                                });
                         }
+                        // 後段 bbox(ppMin/Max)を渡してデコンタミを実マッチ範囲に限定する。α 分解が
+                        // 触るのは 0<strength<threshold の画素だけ=定義上この bbox 内なので出力ビット不変。
                         DecontaminateAaBoundary(originalPixels, strength, w, h,
                             zone.sampleColor, zone.targetColor,
                             decontaminationRadius, effInteriorThreshold,
                             aaMask, decontaminatedPixels, hasPostBox, cancellationToken,
-                            deconExcluded);
+                            deconExcluded, ppMinX, ppMinY, ppMaxX, ppMaxY);
                         debug?.RecordDecontamination(zone.id, aaMask, w, h);
                     }
 
@@ -670,7 +686,7 @@ namespace Iroca
                         zEffShadowDesat = cachedStats.effShadowDesat;
                     }
                     else if (zone.autoRecolorAnchor && !zOkGray &&
-                        TryComputeRecolorAnchor(originalPixels, strength, out float anchorL, out float anchorC))
+                        TryComputeRecolorAnchor(originalPixels, strength, out float anchorL, out float anchorC, cancellationToken))
                     {
                         float zSC0 = zSC;
                         zSL = anchorL;
@@ -736,9 +752,9 @@ namespace Iroca
                         else
                         {
                             zHasRegL = TryComputeRegionLRange(originalPixels, strength,
-                                out zRegLlo, out zRegLhi, out zRegLmid);
+                                out zRegLlo, out zRegLhi, out zRegLmid, cancellationToken);
                             if (zHasRegL)
-                                zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, 0.05f);
+                                zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, 0.05f, cancellationToken);
                         }
                     }
 
@@ -771,21 +787,9 @@ namespace Iroca
                     // strength>0.001 の bbox だけを走査すれば出力はビット不変。マッチ領域が小さいゾーン
                     // (ロゴ等)で OkLab 再着色の per-pixel コストを実マッチ範囲に限定する。bbox 走査は
                     // 軽い比較 1 パスで、recolor の重い per-pixel コスト削減が上回る。
-                    int rcMinX = w, rcMaxX = -1, rcMinY = h, rcMaxY = -1;
-                    for (int yy = 0; yy < h; yy++)
-                    {
-                        int rb = yy * w;
-                        for (int xx = 0; xx < w; xx++)
-                        {
-                            if (strengthForRecolor[rb + xx] > 0.001f)
-                            {
-                                if (xx < rcMinX) rcMinX = xx;
-                                if (xx > rcMaxX) rcMaxX = xx;
-                                if (yy < rcMinY) rcMinY = yy;
-                                if (yy > rcMaxY) rcMaxY = yy;
-                            }
-                        }
-                    }
+                    // 走査自体は共通の並列 bbox ヘルパへ寄せる(同条件の逐次コピーだった)。
+                    TryComputeStrengthBBox(strengthForRecolor, w, h, 0.001f,
+                        out int rcMinX, out int rcMinY, out int rcMaxX, out int rcMaxY, cancellationToken);
                     // ゾーン不変の再着色パラメータをループ前に 1 回だけ構築(in 渡しで per-pixel コピー回避)。
                     var rcParams = new RecolorParams(
                         zOkMagScale, zTa, zTb, zOkGray, zOkGa, zOkGb,
@@ -924,6 +928,39 @@ namespace Iroca
                 _perfPhases[p] = new PhasePerfEntry(s_perfPhaseNames[p], TicksToMs(_phaseTicks[p]));
             DebugCaptureHooks.RaisePerfReport(
                 new PerfReport(TicksToMs(Stopwatch.GetTimestamp() - _t0), w, h, _perfZones, _perfPhases));
+        }
+
+        // ───────────── 領域統計(RegionStats)の並列ヒストグラム集計 ─────────────
+        // 集計対象が [from,to) の連続レンジ 1 本を処理するデリゲート。戻り値は集計した画素数。
+        private delegate int HistChunk(int from, int to, int[] localHist);
+
+        /// <summary>
+        /// [0,len) をチャンク分割し、チャンクごとにスレッドローカルのヒストグラムへ集計してから
+        /// マージする。ヒストグラムは整数カウントの加算だけで**集計順に依存しない**ので、結果は
+        /// 単スレッド逐次版と完全に同値(=percentile もビット不変)。領域統計の各パスは全画素走査
+        /// なのに単スレッドで、無彩寄りサンプルでは処理全体の最大コストになっていた。
+        /// </summary>
+        /// <returns>全チャンクの集計画素数の合計。</returns>
+        private static int AccumulateHistParallel(int len, int[] hist, HistChunk chunk,
+            CancellationToken ct = default)
+        {
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            int total = 0;
+            object gate = new object();
+            Parallel.ForEach(Partitioner.Create(0, len), po,
+                () => new int[hist.Length],
+                (range, _, local) =>
+                {
+                    int c = chunk(range.Item1, range.Item2, local);
+                    if (c != 0) Interlocked.Add(ref total, c);
+                    return local;
+                },
+                local =>
+                {
+                    lock (gate)
+                        for (int b = 0; b < local.Length; b++) hist[b] += local[b];
+                });
+            return total;
         }
 
         /// <summary>256bin ヒストグラムの percentile(0..1) を実値で返す(値域 [0, scale])。

@@ -19,29 +19,18 @@ namespace Iroca
         /// strengthの強いピクセル(コア)から、ハイライト候補スコア(highlightPot)を持つ隣接ピクセルへ
         /// strengthを徐々に伝播させ、孤立した白いシャツなどを染めないようにする。
         /// </summary>
-        private static void PropagateHighlights(float[] strength, float[] highlightPot, int w, int h)
+        private static void PropagateHighlights(float[] strength, float[] highlightPot, int w, int h,
+            CancellationToken ct = default)
         {
             // bbox 制限(P1-5): strength を更新し得るのは下のガード `pot > 0f` を満たす画素のみ。
             // highlightPot>0 の bbox だけ走査すれば、bbox 外画素は元々 skip(何もしない)、bbox 端の
             // 近傍読み(i±1 / i±w)が指す bbox 外画素は pot=0 で本関数では不変のため値が一致し、
             // スイープ順序も bbox 内の pot>0 画素の相対順は全面走査と同一。よって出力はビット不変。
             // ハイライト候補はテクスチャの一部に偏在するため実効コストを大きく削減できる。
-            int minX = w, maxX = -1, minY = h, maxY = -1;
-            for (int y = 0; y < h; y++)
-            {
-                int rb = y * w;
-                for (int x = 0; x < w; x++)
-                {
-                    if (highlightPot[rb + x] > 0f)
-                    {
-                        if (x < minX) minX = x;
-                        if (x > maxX) maxX = x;
-                        if (y < minY) minY = y;
-                        if (y > maxY) maxY = y;
-                    }
-                }
-            }
-            if (maxX < 0) return;   // pot>0 の画素が無い → 伝播対象なし
+            // bbox 走査は行ごとに独立(min/max のマージ)なので並列化しても逐次と同一結果。
+            if (!TryComputeStrengthBBox(highlightPot, w, h, 0f,
+                    out int minX, out int minY, out int maxX, out int maxY, ct))
+                return;   // pot>0 の画素が無い → 伝播対象なし
 
             int passes = 3;
             for (int p = 0; p < passes; p++)
@@ -51,6 +40,8 @@ namespace Iroca
                 // 左上から右下へのパス (bbox 内のみ走査)
                 for (int y = minY; y <= maxY; y++)
                 {
+                    // 伝播スイープは逐次(順序依存)なので、行単位でキャンセルだけ見る。
+                    if ((y & 63) == 0) ct.ThrowIfCancellationRequested();
                     int rowBase = y * w;
                     for (int x = minX; x <= maxX; x++)
                     {
@@ -82,6 +73,7 @@ namespace Iroca
                 // 右下から左上へのパス (bbox 内のみ走査)
                 for (int y = maxY; y >= minY; y--)
                 {
+                    if ((y & 63) == 0) ct.ThrowIfCancellationRequested();
                     int rowBase = y * w;
                     for (int x = maxX; x >= minX; x--)
                     {
@@ -158,11 +150,17 @@ namespace Iroca
             // 早期 return / キャンセル例外を含む全経路で finally から Return する。
             bool[] candidate = s_boolPool.Rent(len);
             bool[] visited = s_boolPool.Rent(len);
+            // 探索キューは (y<<16)|x のパック座標を持つ int[]。旧実装は Queue<int> に画素 index を
+            // 積み、デキューごとに idx%w と idx/w を計算していた(コアが数百万画素あるので除算だけで
+            // 数千万回)。座標を持ち回れば除算はゼロになる(w/h は Unity の最大テクスチャ 16384 でも
+            // 16bit に収まる)。各画素は visited を立ててから 1 回だけ積むので容量は len で足りる。
+            // 到達集合は探索順に依存しないので出力は不変。
+            int[] queue = s_intPool.Rent(len);
+            int qHead = 0, qTail = 0;
             try
             {
             Array.Clear(candidate, 0, len);
             Array.Clear(visited, 0, len);
-            var queue = new Queue<int>();
 
             // 候補判定: 各画素は独立(他画素を参照しない)なので並列化する。candidate[] は
             // 走査順に依存せず、書き込みは distinct index のため出力は逐次版とビット不変。
@@ -194,41 +192,49 @@ namespace Iroca
                 }
             });
 
-            // core をシードとして収集する(BFS の Queue は非スレッドセーフ・逐次のまま。
-            // enqueue 順は従来と同一の i 昇順で、BFS 到達集合も順序非依存のため出力不変)。
-            for (int i = 0; i < len; i++)
+            // core をシードとして収集する(逐次のまま。enqueue 順は従来と同一の i 昇順で、
+            // BFS 到達集合も順序非依存のため出力不変)。
+            for (int y = 0; y < h; y++)
             {
-                if (strength[i] >= HlBandCoreThreshold)
+                int rb = y * w;
+                for (int x = 0; x < w; x++)
                 {
-                    visited[i] = true;
-                    queue.Enqueue(i);
+                    int i = rb + x;
+                    if (strength[i] >= HlBandCoreThreshold)
+                    {
+                        visited[i] = true;
+                        queue[qTail++] = (y << 16) | x;
+                    }
                 }
             }
 
-            if (queue.Count == 0) return;
+            if (qTail == 0) return;
 
             // core から候補領域へ 4 連結 BFS（候補セルのみ拡張）
-            while (queue.Count > 0)
+            while (qHead < qTail)
             {
-                int idx = queue.Dequeue();
-                int x = idx % w;
-                int y = idx / w;
-                TryVisit(idx - 1, x > 0);
-                TryVisit(idx + 1, x < w - 1);
-                TryVisit(idx - w, y > 0);
-                TryVisit(idx + w, y < h - 1);
+                int packed = queue[qHead++];
+                int x = packed & 0xFFFF, y = packed >> 16;
+                int idx = y * w + x;
+                if (x > 0)     TryVisit(idx - 1, (y << 16) | (x - 1));
+                if (x < w - 1) TryVisit(idx + 1, (y << 16) | (x + 1));
+                if (y > 0)     TryVisit(idx - w, ((y - 1) << 16) | x);
+                if (y < h - 1) TryVisit(idx + w, ((y + 1) << 16) | x);
+                // 逐次 BFS なので定期的にキャンセルを見る(数値ロジックは不変)。
+                if ((qHead & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
             }
 
-            void TryVisit(int ni, bool inBounds)
+            void TryVisit(int ni, int npacked)
             {
-                if (!inBounds || visited[ni] || !candidate[ni]) return;
+                if (visited[ni] || !candidate[ni]) return;
                 visited[ni] = true;
                 if (strength[ni] < 1f) strength[ni] = 1f;
-                queue.Enqueue(ni);
+                queue[qTail++] = npacked;
             }
             }
             finally
             {
+                if (queue != null) s_intPool.Return(queue);
                 s_boolPool.Return(candidate);
                 s_boolPool.Return(visited);
             }

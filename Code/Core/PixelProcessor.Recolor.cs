@@ -57,50 +57,63 @@ namespace Iroca
         /// <returns>false = フォールバック(スポイト色のまま従来挙動)。
         /// 条件: コア画素&lt;100 / 地色画素&lt;100 / フラット領域(L スプレッド&lt;0.02) / 推定 C≈0。</returns>
         private static bool TryComputeRecolorAnchor(
-            Color32[] px, float[] strength, out float anchorL, out float anchorC)
+            Color32[] px, float[] strength, out float anchorL, out float anchorC,
+            CancellationToken ct = default)
         {
             anchorL = 0f;
             anchorC = 0f;
             int len = px.Length;
 
             // コア画素(strength>=AnchorStrengthMin & a>=128)の OkLab (L, C) を pass1 で一度だけ
-            // 計算して圧縮配列に保存し、pass2/3 はそれを読む。従来は 3 パスとも全画素を走査して
+            // 計算して保存し、pass2/3 はそれを読む。従来は 3 パスとも全画素を走査して
             // 同じ画素の RgbToOklab を再計算していた(4K で計 50M 回の OkLab 変換)。出力は同値。
-            // 配列は s_floatPool から借用(candCount<=len なので 2^24 までプール内)。
+            // 配列は s_floatPool から借用(len<=2^24 なのでプール内)。
+            // 保存は **元画素インデックスのまま**(旧: 先頭詰めの圧縮配列)。pass2/3 は pass1 と同じ
+            // コア判定で候補を選び直して読むだけになり、各パスが画素位置だけで完結する=チャンク
+            // 並列化できる。集計はヒストグラム(整数加算)なので順序非依存で、逐次版とビット不変。
             float[] candL = s_floatPool.Rent(len);
             float[] candC = s_floatPool.Rent(len);
             try
             {
                 // pass 1: (L, C) を保存しつつ飽和度(C/L)ヒストグラム → 中央値から地色下限を決める
                 var satrHist = new int[256];
-                int candCount = 0;
-                for (int i = 0; i < len; i++)
+                int candCount = AccumulateHistParallel(len, satrHist, (from, to, hist) =>
                 {
-                    if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
-                    RgbToOklab(px[i].r, px[i].g, px[i].b,
-                        out float L, out float a, out float b);
-                    float C = Mathf.Sqrt(a * a + b * b);
-                    candL[candCount] = L;
-                    candC[candCount] = C;
-                    candCount++;
-                    float satr = C / Mathf.Max(L, 1e-4f);
-                    int bin = Mathf.Clamp((int)(satr / AnchorSatrHistMax * 255f), 0, 255);
-                    satrHist[bin]++;
-                }
+                    int n = 0;
+                    for (int i = from; i < to; i++)
+                    {
+                        if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
+                        RgbToOklab(px[i].r, px[i].g, px[i].b,
+                            out float L, out float a, out float b);
+                        float C = Mathf.Sqrt(a * a + b * b);
+                        candL[i] = L;
+                        candC[i] = C;
+                        n++;
+                        float satr = C / Mathf.Max(L, 1e-4f);
+                        int bin = Mathf.Clamp((int)(satr / AnchorSatrHistMax * 255f), 0, 255);
+                        hist[bin]++;
+                    }
+                    return n;
+                }, ct);
                 if (candCount < AnchorMinPixels) return false;
                 float satrFloor = AnchorBodySatrFrac *
                     HistValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax);
 
                 // pass 2: 地色画素(飽和度 ≥ 下限)の L ヒストグラム → 代表 L と L 帯
                 var lHist = new int[256];
-                int bodyCount = 0;
-                for (int k = 0; k < candCount; k++)
+                int bodyCount = AccumulateHistParallel(len, lHist, (from, to, hist) =>
                 {
-                    float L = candL[k];
-                    if (candC[k] / Mathf.Max(L, 1e-4f) < satrFloor) continue;
-                    lHist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
-                    bodyCount++;
-                }
+                    int n = 0;
+                    for (int i = from; i < to; i++)
+                    {
+                        if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
+                        float L = candL[i];
+                        if (candC[i] / Mathf.Max(L, 1e-4f) < satrFloor) continue;
+                        hist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
+                        n++;
+                    }
+                    return n;
+                }, ct);
                 if (bodyCount < AnchorMinPixels) return false;
                 float l05 = HistValueAtPercentile(lHist, bodyCount, 0.05f, 1f);
                 float l95 = HistValueAtPercentile(lHist, bodyCount, 0.95f, 1f);
@@ -111,16 +124,21 @@ namespace Iroca
 
                 // pass 3: L 帯内の地色画素の chroma 中央値 → 代表 C
                 var cHist = new int[256];
-                int bandCount = 0;
-                for (int k = 0; k < candCount; k++)
+                int bandCount = AccumulateHistParallel(len, cHist, (from, to, hist) =>
                 {
-                    float L = candL[k];
-                    float c = candC[k];
-                    if (c / Mathf.Max(L, 1e-4f) < satrFloor) continue;
-                    if (L < bandLo || L > bandHi) continue;
-                    cHist[Mathf.Clamp((int)(c / AnchorChromaHistMax * 255f), 0, 255)]++;
-                    bandCount++;
-                }
+                    int n = 0;
+                    for (int i = from; i < to; i++)
+                    {
+                        if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
+                        float L = candL[i];
+                        float c = candC[i];
+                        if (c / Mathf.Max(L, 1e-4f) < satrFloor) continue;
+                        if (L < bandLo || L > bandHi) continue;
+                        hist[Mathf.Clamp((int)(c / AnchorChromaHistMax * 255f), 0, 255)]++;
+                        n++;
+                    }
+                    return n;
+                }, ct);
                 if (bandCount < 1) return false;
                 anchorC = HistValueAtPercentile(cHist, bandCount, 0.5f, AnchorChromaHistMax);
                 return anchorC > 1e-4f;

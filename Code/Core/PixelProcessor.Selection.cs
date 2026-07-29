@@ -19,23 +19,35 @@ namespace Iroca
         /// （境界はゼロ拡張：画像外の寄与を 0 として無視）。スライディングウィンドウで O(N) で計算。
         /// 内部 temp バッファは ArrayPool から借用・返却するのでヒープアロケーションなし。
         /// dst は呼び出し元が事前に確保すること（ArrayPool.Rent 推奨）。
+        ///
+        /// bbox 未指定(boxMaxX&lt;0)なら全画素。指定時は dst をその矩形内だけ埋める(GaussianBlur と
+        /// 同じ形)。src は矩形を r だけ広げた範囲 [boxMinX-r, boxMaxX+r]×[boxMinY-r, boxMaxY+r] が
+        /// 正しく用意されていれば足り、その外は読まれない。
+        /// 矩形指定時はスライディング和の開始位置が変わるため、加算順序が全画素版と一致するのは
+        /// **src が整数値(0..255 のバイト値 / 0-1 マスク)で窓和が float の整数精度に収まる**用途に限る
+        /// (現在の呼び出し元はすべてこれを満たす)。その場合は丸め差が原理的に生じず出力ビット不変。
         /// </summary>
-        private static void BoxFilterSum(float[] src, float[] dst, int w, int h, int r, CancellationToken ct = default)
+        private static void BoxFilterSum(float[] src, float[] dst, int w, int h, int r, CancellationToken ct = default,
+            int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1)
         {
             int len = w * h;
+            if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
             float[] temp = s_floatPool.Rent(len);
             var filterPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             try
             {
-                // 水平パス
-                Parallel.For(0, h, filterPo, y =>
+                // 水平パス。垂直パスが読む行は [boxMinY-r, boxMaxY+r] なので、その行範囲だけ作る。
+                int hMinY = Mathf.Max(0, boxMinY - r);
+                int hMaxY = Mathf.Min(h - 1, boxMaxY + r);
+                Parallel.For(hMinY, hMaxY + 1, filterPo, y =>
                 {
                     int rowOff = y * w;
                     float sum = 0f;
-                    int initEnd = Mathf.Min(r, w - 1);
-                    for (int k = 0; k <= initEnd; k++) sum += src[rowOff + k];
-                    temp[rowOff] = sum;
-                    for (int x = 1; x < w; x++)
+                    int initBeg = Mathf.Max(0, boxMinX - r);
+                    int initEnd = Mathf.Min(w - 1, boxMinX + r);
+                    for (int k = initBeg; k <= initEnd; k++) sum += src[rowOff + k];
+                    temp[rowOff + boxMinX] = sum;
+                    for (int x = boxMinX + 1; x <= boxMaxX; x++)
                     {
                         int subIdx = x - 1 - r;
                         int addIdx = x + r;
@@ -45,20 +57,42 @@ namespace Iroca
                     }
                 });
 
-                // 垂直パス
-                Parallel.For(0, w, filterPo, x =>
+                // 垂直パス。1 反復 = 1 列の縦走査だと、4K ではストライド 16KB でキャッシュラインの
+                // 1/16 しか使えない。VBlock 列ぶんの走査和をまとめて持ち行方向に進むことで、1 行の
+                // アクセスが連続 16 要素(=1 キャッシュライン)になる。各列の加算順序は従来と同一
+                // (初期窓を昇順に加算 → 行ごとに sub → add)なので出力ビット不変。
+                const int VBlock = 16;
+                int blockCount = (boxMaxX - boxMinX + VBlock) / VBlock;
+                Parallel.For(0, blockCount, filterPo, bi =>
                 {
-                    float sum = 0f;
-                    int initEnd = Mathf.Min(r, h - 1);
-                    for (int k = 0; k <= initEnd; k++) sum += temp[k * w + x];
-                    dst[x] = sum;
-                    for (int y = 1; y < h; y++)
+                    int xs = boxMinX + bi * VBlock;
+                    int xe = Mathf.Min(xs + VBlock - 1, boxMaxX);
+                    var sums = new float[VBlock];
+                    int initBeg = Mathf.Max(0, boxMinY - r);
+                    int initEnd = Mathf.Min(h - 1, boxMinY + r);
+                    for (int k = initBeg; k <= initEnd; k++)
+                    {
+                        int krb = k * w;
+                        for (int x = xs; x <= xe; x++) sums[x - xs] += temp[krb + x];
+                    }
+                    int drb = boxMinY * w;
+                    for (int x = xs; x <= xe; x++) dst[drb + x] = sums[x - xs];
+                    for (int y = boxMinY + 1; y <= boxMaxY; y++)
                     {
                         int subIdx = y - 1 - r;
                         int addIdx = y + r;
-                        if (subIdx >= 0) sum -= temp[subIdx * w + x];
-                        if (addIdx < h) sum += temp[addIdx * w + x];
-                        dst[y * w + x] = sum;
+                        if (subIdx >= 0)
+                        {
+                            int srb = subIdx * w;
+                            for (int x = xs; x <= xe; x++) sums[x - xs] -= temp[srb + x];
+                        }
+                        if (addIdx < h)
+                        {
+                            int arb = addIdx * w;
+                            for (int x = xs; x <= xe; x++) sums[x - xs] += temp[arb + x];
+                        }
+                        int yrb = y * w;
+                        for (int x = xs; x <= xe; x++) dst[yrb + x] = sums[x - xs];
                     }
                 });
             }
@@ -178,35 +212,94 @@ namespace Iroca
         }
 
         /// <summary>
+        /// strength &gt; thr かつ α&gt;=128 の画素を囲むバウンディングボックスを求める。
+        /// 連結成分系(連結成分アンカリング / 成分別 L マップ)が「連結予測子」と同じ条件で使う共通版。
+        /// 行ごとに独立に求めた min/max をマージするだけなので、逐次走査と結果は同一(順序非依存)。
+        /// </summary>
+        /// <returns>該当画素が 1 つ以上あれば true。</returns>
+        private static bool TryComputeMatchedBBox(float[] strength, Color32[] px, int w, int h, float thr,
+            out int minX, out int minY, out int maxX, out int maxY, CancellationToken ct = default)
+        {
+            int lminX = w, lmaxX = -1, lminY = h, lmaxY = -1;
+            object gate = new object();
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            Parallel.For(0, h, po,
+                () => (minX: w, maxX: -1, minY: h, maxY: -1),
+                (y, _, loc) =>
+                {
+                    int rb = y * w;
+                    for (int x = 0; x < w; x++)
+                        if (strength[rb + x] > thr && px[rb + x].a >= 128)
+                        {
+                            if (x < loc.minX) loc.minX = x;
+                            if (x > loc.maxX) loc.maxX = x;
+                            if (y < loc.minY) loc.minY = y;
+                            if (y > loc.maxY) loc.maxY = y;
+                        }
+                    return loc;
+                },
+                loc =>
+                {
+                    lock (gate)
+                    {
+                        if (loc.minX < lminX) lminX = loc.minX;
+                        if (loc.maxX > lmaxX) lmaxX = loc.maxX;
+                        if (loc.minY < lminY) lminY = loc.minY;
+                        if (loc.maxY > lmaxY) lmaxY = loc.maxY;
+                    }
+                });
+            minX = lminX; minY = lminY; maxX = lmaxX; maxY = lmaxY;
+            return lmaxX >= 0;
+        }
+
+        /// <summary>
         /// strength &gt; thr の画素を囲むバウンディングボックス(min/max)を求める。
         /// 後段パス(穴埋め/境界回復/ブラー)を実マッチ範囲＋余白に限定し、全画素走査を避けるために使う。
         /// </summary>
         /// <returns>マッチ画素が 1 つ以上あれば true(false のとき bbox は空で、後段パスは no-op)。</returns>
         private static bool TryComputeStrengthBBox(float[] strength, int w, int h, float thr,
-            out int minX, out int minY, out int maxX, out int maxY)
+            out int minX, out int minY, out int maxX, out int maxY, CancellationToken ct = default)
         {
-            minX = w; minY = h; maxX = -1; maxY = -1;
-            for (int y = 0; y < h; y++)
-            {
-                int rb = y * w;
-                int rowMinX = -1, rowMaxX = -1;
-                for (int x = 0; x < w; x++)
+            // 行ごとに独立に求めた min/max をマージするだけなので順序非依存(逐次走査と同一結果)。
+            // 4K では全画素走査なので、単スレッドのままだと後段 bbox の算出自体が無視できない。
+            int lminX = w, lmaxX = -1, lminY = h, lmaxY = -1;
+            object gate = new object();
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            Parallel.For(0, h, po,
+                () => (minX: w, maxX: -1, minY: h, maxY: -1),
+                (y, _, loc) =>
                 {
-                    if (strength[rb + x] > thr)
+                    int rb = y * w;
+                    int rowMinX = -1, rowMaxX = -1;
+                    for (int x = 0; x < w; x++)
                     {
-                        if (rowMinX < 0) rowMinX = x;
-                        rowMaxX = x;
+                        if (strength[rb + x] > thr)
+                        {
+                            if (rowMinX < 0) rowMinX = x;
+                            rowMaxX = x;
+                        }
                     }
-                }
-                if (rowMaxX >= 0)
+                    if (rowMaxX >= 0)
+                    {
+                        if (rowMinX < loc.minX) loc.minX = rowMinX;
+                        if (rowMaxX > loc.maxX) loc.maxX = rowMaxX;
+                        if (y < loc.minY) loc.minY = y;
+                        if (y > loc.maxY) loc.maxY = y;
+                    }
+                    return loc;
+                },
+                loc =>
                 {
-                    if (rowMinX < minX) minX = rowMinX;
-                    if (rowMaxX > maxX) maxX = rowMaxX;
-                    if (y < minY) minY = y;
-                    if (y > maxY) maxY = y;
-                }
-            }
-            return maxX >= 0;
+                    lock (gate)
+                    {
+                        if (loc.minX < lminX) lminX = loc.minX;
+                        if (loc.maxX > lmaxX) lmaxX = loc.maxX;
+                        if (loc.minY < lminY) lminY = loc.minY;
+                        if (loc.maxY > lmaxY) lmaxY = loc.maxY;
+                    }
+                });
+            minX = lminX; minY = lminY; maxX = lmaxX; maxY = lmaxY;
+            return lmaxX >= 0;
         }
 
         /// <summary>
