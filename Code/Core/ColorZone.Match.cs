@@ -243,6 +243,12 @@ namespace Iroca
                     effectiveDist += shortfall * ChromaGatePenalty * _cTolerance * gateWeight;
                 }
 
+                // 彩度天井(高彩度の別素材排除)は主経路では距離加算しない。
+                // 部分強度への格下げは陰影相関(form_fidelity)を壊すことが判明したため、
+                // 天井の適用は PixelProcessor.ApplyChromaCeilingGate が post-match の
+                // 空間ゲート(低彩度コア近接保護付きの除去)として行う。
+                // 緩和マッチ(穴埋め/境界回復)側には逆送防止として距離加算版を残す。
+
                 // AA 縁の忠実復元: 外側の混色帯に soft ramp を与え partial strength にして、
                 // 後段デコンタミ(α 再合成)が元の滑らかな AA を復元できるようにする(脚色でなく
                 // 元の AA カバレッジの復元)。地色コアは hardRange 未満で full のまま=陰影は不変。
