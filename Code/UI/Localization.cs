@@ -282,6 +282,30 @@ namespace Iroca
             ? "テクスチャを設定してください。"
             : "Please set a texture.";
 
+        // ─── Preview window (別ウィンドウ表示) ───
+        public static string PreviewWindowTitle => IsJapanese ? "いろか プレビュー" : "Iroca Preview";
+        public static string OpenPreviewWindow => IsJapanese
+            ? "プレビューを別ウィンドウで開く"
+            : "Open preview in a separate window";
+        public static string FocusPreviewWindow => IsJapanese
+            ? "プレビューウィンドウを前面に表示"
+            : "Bring the preview window to front";
+        public static string OpenPreviewWindowTooltip => IsJapanese
+            ? "プレビューを独立したウィンドウで開きます\nズーム・比較/差分・スポイト・マスクのブラシ/AI 操作はそのウィンドウ上で行えます\n開いている間は同じプレビューの二重表示を避けるため、本体ウィンドウ側には表示しません"
+            : "Opens the preview in its own window.\nZoom, comparison/diff, the eyedropper, and brush/AI mask editing all work there.\nWhile it is open the main window does not draw the preview, to avoid showing the same preview twice.";
+        public static string PreviewDetachedNarrowHint => IsJapanese
+            ? "ウィンドウ幅が狭いため、本体にはプレビューを表示していません。別ウィンドウで開くか、ウィンドウ幅を広げてください。"
+            : "The window is too narrow, so the preview is not shown here. Open it in a separate window, or widen this window.";
+        public static string PreviewDetachedActive => IsJapanese
+            ? "プレビューは別ウィンドウで表示中です。"
+            : "The preview is currently shown in a separate window.";
+        public static string ReattachPreview => IsJapanese
+            ? "プレビューを本体に戻す"
+            : "Show the preview in the main window";
+        public static string ReattachPreviewTooltip => IsJapanese
+            ? "プレビューウィンドウを閉じて、本体ウィンドウ内の表示に戻します"
+            : "Closes the preview window and shows the preview inside the main window again";
+
         // ─── Export ───
         public static string Export => IsJapanese ? "エクスポート" : "Export";
         public static string NoEnabledZones => IsJapanese
