@@ -492,6 +492,145 @@ namespace Iroca
             }
         }
 
+        // 中性ツヤ復帰(グレーモード専用)の開領域伝播の収束上限。前方/後方ラスタ走査の対で
+        // 伝播させるため、素直な UV レイアウトなら数回で収束する(細い渦巻き状の通路だけが
+        // 多くの反復を要するが、テクスチャのパディングはそうならない)。到達しきらなかった
+        // 場合は「開領域が未確定=復帰しない」側に倒れるので安全。
+        private const int EnclosedNeutralMaxSweeps = 24;
+
+        /// <summary>
+        /// 彩度整合ゲートが落とした「素材自身の純白ツヤ」を空間的に復帰させる(グレーモード専用)。
+        ///
+        /// 彩度整合ゲート(ColorZone.Match の床ゲート)は、サンプルより著しく中性な画素=純白の
+        /// UV パディングを別マテリアルとみなし距離加算で落とす。これは実測で有効(Feina では
+        /// パディングへの巻き込みが false positive の 0.0〜0.9% に収まる)一方、生成り/オフホワイトの
+        /// 布のように **素材自身のツヤが純白へ脱彩する** 場合、そのハイライトも同じ色になるため
+        /// 巻き添えで落ちる(実測: 白衣装の recall 0.665)。両者は色が完全に同一なので、色空間の
+        /// どのしきい値でも分離できない。
+        ///
+        /// 唯一残る非対称性は空間にある。パディングは画像端まで繋がった開領域だが、素材のツヤは
+        /// 選択済みの地色に囲まれた閉領域である。そこで未選択画素を画像端から辿り、届かなかった
+        /// 閉領域のうち「ゲートが落としたはずの画素」だけを戻す。ApplyChromaCeilingGate
+        /// (コア近接保護付きの空間ゲート)の鏡像で、判定は連結性とサンプル相対の色量のみ=
+        /// 特定キャラ・色・座標には依存しない。
+        ///
+        /// 復帰対象は「ゲートが無ければマッチしていたはず」の画素に限る:
+        ///   ・未選択(strength &lt;= matchThr)
+        ///   ・彩度がゲートの床未満(= ゲートがペナルティを課した画素)
+        ///   ・グレーモードの素の RGB 距離が tolerance 以内(= 距離加算だけが棄却の理由だった)
+        /// 部分強度でなく full strength で戻す(部分強度は出力を中途半端な明るさにして陰影相関を
+        /// 壊す、という ApplyChromaCeilingGate と同じ理由)。
+        ///
+        /// 連結性は大域演算なので **フル画像経路でのみ**呼ぶこと(呼び出し側で担保)。部分クロップで
+        /// 走らせるとクロップ境界に接した閉領域が開領域と誤判定される。
+        /// </summary>
+        private static void RecoverEnclosedNeutral(
+            float[] strength, float[] matchConf, float[] pixS, Color32[] pixels,
+            Color sampleColor, float tolerance, float sS, float sV, float chromaThreshold,
+            int w, int h, CancellationToken ct = default)
+        {
+            // グレーモード判定は ColorZone.MatchOneSample / ApplyChromaCeilingGate と同一式。
+            float effectiveChromaThreshold = Mathf.Lerp(
+                ColorZone.GrayModeBaseChromaThreshold, chromaThreshold,
+                Mathf.Clamp01(sV / ColorZone.GrayModeChromaConfidenceRamp));
+            if (sS > effectiveChromaThreshold) return;   // 有彩サンプル=グレーモードではない
+            // 彩度整合ゲートが作動しないサンプル(真の無彩)では打ち消す対象が無い。
+            if (sS <= ColorZone.ChromaGateActivateSat) return;
+            // 暗いサンプルではゲート重みがフェードし、距離指標も pS 側へ lerp されるため
+            // 素の RGB 距離では「ゲートが無ければマッチしたか」を再現できない。対象外。
+            if (sV < ColorZone.GrayModeDarkSampleValue) return;
+
+            float satFloor = Mathf.Min(sS * ColorZone.ChromaGateFloorFrac, ColorZone.ChromaGateFloorCap);
+            float sr = sampleColor.r, sg = sampleColor.g, sb = sampleColor.b;
+
+            int len = w * h;
+            const float matchThr = 0.05f;   // 未選択判定(ApplyChromaCeilingGate と同じ床)
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            bool[] free = s_boolPool.Rent(len);   // 未選択=開領域を辿れる画素
+            bool[] open = s_boolPool.Rent(len);   // 画像端から到達できた未選択画素
+            try
+            {
+                bool anyCandidate = false;
+                Parallel.For(0, h, po, y =>
+                {
+                    int rowOff = y * w;
+                    bool local = false;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        bool f = strength[i] <= matchThr;
+                        free[i] = f;
+                        open[i] = false;
+                        if (f && pixS[i] < satFloor) local = true;
+                    }
+                    if (local) anyCandidate = true;
+                });
+                if (!anyCandidate) return;
+
+                // 画像端の未選択画素を種に、未選択画素だけを 4 近傍で伝播させる。前方(左/上から)と
+                // 後方(右/下から)のラスタ走査を交互に回すと、単純な dilation を距離ぶん繰り返すより
+                // 桁違いに速く収束する。
+                bool changed = true;
+                for (int sweep = 0; sweep < EnclosedNeutralMaxSweeps && changed; sweep++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    changed = false;
+                    for (int y = 0; y < h; y++)
+                    {
+                        int rowOff = y * w;
+                        for (int x = 0; x < w; x++)
+                        {
+                            int i = rowOff + x;
+                            if (!free[i] || open[i]) continue;
+                            if (y == 0 || x == 0 || open[i - 1] || open[i - w])
+                            {
+                                open[i] = true;
+                                changed = true;
+                            }
+                        }
+                    }
+                    for (int y = h - 1; y >= 0; y--)
+                    {
+                        int rowOff = y * w;
+                        for (int x = w - 1; x >= 0; x--)
+                        {
+                            int i = rowOff + x;
+                            if (!free[i] || open[i]) continue;
+                            if (y == h - 1 || x == w - 1 || open[i + 1] || open[i + w])
+                            {
+                                open[i] = true;
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+
+                // 閉領域(画像端から到達できなかった未選択画素)のうち、ゲートが落としたはずの
+                // 中性画素を full strength で戻す。
+                Parallel.For(0, h, po, y =>
+                {
+                    int rowOff = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        if (!free[i] || open[i]) continue;
+                        if (pixS[i] >= satFloor) continue;
+                        Color32 c = pixels[i];
+                        float dr = c.r / 255f - sr, dg = c.g / 255f - sg, db = c.b / 255f - sb;
+                        float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * ColorZone.InvSqrt3;
+                        if (rgbDist > tolerance) continue;   // ゲート以外の理由で外れていた画素
+                        strength[i] = 1f;
+                        if (matchConf != null) matchConf[i] = 1f;
+                    }
+                });
+            }
+            finally
+            {
+                s_boolPool.Return(free);
+                s_boolPool.Return(open);
+            }
+        }
+
         /// <summary>
         /// 境界復元：少なくとも1つのマッチしたピクセルに隣接するマッチしないピクセルについて
         /// 元の固定低彩度閾値（satMin=0.02, satRamp=0.08）を使用してカラーマッチを再評価します。
