@@ -320,6 +320,14 @@ namespace Iroca
                         Color.RGBToHSV(zone.sampleColor, out _, out float cgSS, out float cgSV);
                         ApplyChromaCeilingGate(strength, matchConf, pixS, cgSS, cgSV,
                             zone.chromaThreshold, w, h, cancellationToken);
+                        // 中性ツヤ復帰(グレーモード以外では内部で no-op): 彩度整合ゲートが純白
+                        // パディングと一緒に落とした「素材自身の純白ツヤ」を、選択領域に囲まれた
+                        // 閉領域という空間条件だけで戻す。連結性は大域演算なのでフル画像経路限定
+                        // (部分クロップではクロップ境界に接した閉領域を開領域と誤判定するため)。
+                        if (isFullImagePath)
+                            RecoverEnclosedNeutral(strength, matchConf, pixS, originalPixels,
+                                zone.sampleColor, zone.tolerance, cgSS, cgSV,
+                                zone.chromaThreshold, w, h, cancellationToken);
                         debug?.RecordStage(zone.id, DebugStages.Match, strength, w, h);
                     }
                     _phaseTicks[PhMatch] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
