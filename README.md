@@ -16,6 +16,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 - **PSD がないテクスチャ向け**: 1 枚の PNG テクスチャを色改変したい場合に便利です
 - **結合されたテクスチャも対応**: ブラシで保護エリアを描けるため、複数パーツが 1 枚にまとまっていても使用できます
 - **高精度な処理**: 陰影や細部も正確に変更できます
+- **3Dモデルに依存しない**: UV情報などに依存せず、テクスチャ単体で使用できます
 
 ### 動作環境（検証済み）
 
@@ -42,6 +43,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 
 #### 境界処理
 - エッジぼかし・AA 境界クリーンアップ・境界クリーンアップ（α分解）に対応します
+(元のテクスチャを壊さず、誤った部分を変換しないための仕組みです)
 
 #### 保護マスク
 - プレビュー上でブラシを使って色改変しない領域を指定します
@@ -93,6 +95,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 - **For textures without a PSD**: Great when you just want to recolor a single PNG texture
 - **Works with merged textures**: The exclusion mask brush makes it easy to isolate parts even when multiple elements share one texture
 - **High-precision algorithm**: Accurate recoloring with fine details preserved
+- **Independent of 3D models**: Works on textures alone, without relying on UV information or other model data
 
 ### Requirements
 

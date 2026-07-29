@@ -88,7 +88,7 @@ JSON の書き出し・読み込みに対応しているので、
 暗い影の部分から明るいハイライトまでまとめて選択します。
 許容範囲の数値を自分で調整する必要はありません。
 
-【色が濁らない再着色エンジン】
+【色が濁らない再配色エンジン】
 知覚色空間（OkLab）ベースのアルゴリズムで、
 色相を大きく変えても明度・陰影が自然に残ります。
 
@@ -129,7 +129,7 @@ https://polyformproject.org/licenses/shield/1.0.0
 💬 連絡先・更新情報
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Misskey.io: @yukkuri__aoba@misskey.io
+Misskey.io(Fediverse): @yukkuri__aoba@misskey.io
 GitHub: https://github.com/yukkuri-aoba/Iroca
 
 不具合報告・要望は GitHub の Issues または Misskey.io へどうぞ。
@@ -139,7 +139,8 @@ GitHub: https://github.com/yukkuri-aoba/Iroca
 🕒 更新履歴
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-yyyy/mm/dd  v_._._  初回リリース
+2026/04/18 v0.1.0 初回リリース
+
 ```
 
 ---
