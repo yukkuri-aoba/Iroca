@@ -740,7 +740,10 @@ namespace Iroca
 
             if (r.hasCommon)
             {
-                TextureSlot.Resize(ref maskOverlayTexture, r.width, r.height, FilterMode.Point);
+                // Bilinear: プレビュー本体テクスチャ(previewTexture)と同じ補間で拡大表示する。
+                // Point だと拡大時にオーバーレイだけ格子状にカクつき、実際は正しい判定でも
+                // マスクがはみ出しているように見えてしまう。
+                TextureSlot.Resize(ref maskOverlayTexture, r.width, r.height, FilterMode.Bilinear);
                 maskOverlayTexture.SetPixels32(r.commonPixels);
                 maskOverlayTexture.Apply();
             }
@@ -751,7 +754,7 @@ namespace Iroca
 
             if (r.hasZone)
             {
-                TextureSlot.Resize(ref zoneMaskOverlayTexture, r.width, r.height, FilterMode.Point);
+                TextureSlot.Resize(ref zoneMaskOverlayTexture, r.width, r.height, FilterMode.Bilinear);
                 zoneMaskOverlayTexture.SetPixels32(r.zonePixels);
                 zoneMaskOverlayTexture.Apply();
             }
