@@ -44,7 +44,10 @@ namespace Iroca
         // ── 各 View からの再描画通知用 ──
         internal void MarkPreviewDirty() { if (_previewView != null) _previewView.previewDirty = true; }
         internal void MarkMaskDirty() { if (_maskView != null) _maskView.maskDirty = true; }
-        internal void RequestRepaint() { Repaint(); }
+        // プレビューが別ウィンドウ(IrocaPreviewWindow)へ切り出されているときは、そちらも
+        // 再描画する。PreviewView は自分の実測値の収束・生成ジョブのポーリング・パン/ズームの
+        // 反映をこの要求に頼っているため、描画先の窓に届かないと表示が旧フレームで固まる。
+        internal void RequestRepaint() { Repaint(); IrocaPreviewWindow.RepaintIfOpen(); }
 
         /// <summary>
         /// ディスク上のソース画素が変わったときに呼ぶ（エクスポートで元ファイルを上書きした等）。
@@ -64,6 +67,9 @@ namespace Iroca
         [SerializeField] private PresetsView _presetsView = new PresetsView();
         [SerializeField] internal MaskPaintView _maskView = new MaskPaintView();
         [SerializeField] private PreviewView _previewView = new PreviewView();
+        // プレビューを別ウィンドウ(IrocaPreviewWindow)へ切り出すときの描画委譲先。
+        // 状態の所有はここ(本体)のまま＝どちらの窓で描いてもズーム/比較/マスクは同じ。
+        internal PreviewView Preview => _previewView;
 
         // 編集状態（ゾーン定義・処理パラメータ・マスク状態）。
         // 個別 [SerializeField] フィールド群を IrocaSessionState に集約したもの。

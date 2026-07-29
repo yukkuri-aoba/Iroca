@@ -28,6 +28,16 @@ namespace Iroca
         // PreviewView._viewportWidth と同方針。
         [System.NonSerialized] private float _sideBySideTopHeight;
 
+        /// <summary>
+        /// ジョブ実行中で UI 操作を止めるべきか。エクスポート中と、手動実行の自動調整中は
+        /// 操作を受け付けない（かんたんモードの裏実行は妨げない）。
+        /// 別ウィンドウへ切り出したプレビュー(IrocaPreviewWindow)も同じ条件で無効化し、
+        /// 本体が止まっている間にプレビュー上のペイント/スポイトだけ通ってしまうのを防ぐ。
+        /// </summary>
+        internal bool IsJobBlockingUI =>
+            (_exportView != null && _exportView.IsExporting)
+            || (_autoTuneJob.IsRunning && _autoTuneIsManual);
+
         private void OnGUI()
         {
             // Ctrl+Z / Ctrl+Y は Unity 標準 Undo に統合済みのため、独自処理は不要。
@@ -53,8 +63,7 @@ namespace Iroca
             // 描画し、キャンセルだけは押せるようにする。
             // 自動調整は「手動実行（ボタン）」のときだけウィンドウ全体をブロックする。
             // かんたんモードの自動実行は裏で走らせ、操作を妨げない。
-            bool blocking = (_exportView != null && _exportView.IsExporting)
-                || (_autoTuneJob.IsRunning && _autoTuneIsManual);
+            bool blocking = IsJobBlockingUI;
             EditorGUI.BeginDisabledGroup(blocking);
 
             bool sideBySide = position.width >= IrocaConsts.Layout.SideBySideMinWidth;
@@ -200,9 +209,18 @@ namespace Iroca
             rightScrollPos = EditorGUILayout.BeginScrollView(rightScrollPos,
                 false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
                 GUILayout.ExpandHeight(true));
-            // プレビュー枠が右カラム高に収まるよう動的に縮むためのカラム高を渡す。
-            _previewView.availableColumnHeight = horizH;
-            _previewView.Draw();
+            // 別ウィンドウへ切り出している間は本体では描かない(同一 PreviewView の二重
+            // レイアウトを避ける。理由は IrocaPreviewWindow のクラスコメント)。
+            if (IrocaPreviewWindow.IsOpen)
+            {
+                DrawPreviewDetachedSection(canReattach: true);
+            }
+            else
+            {
+                // プレビュー枠が右カラム高に収まるよう動的に縮むためのカラム高を渡す。
+                _previewView.availableColumnHeight = horizH;
+                _previewView.Draw();
+            }
             EditorGUILayout.EndScrollView();
             EditorGUILayout.EndVertical();
 
@@ -249,10 +267,11 @@ namespace Iroca
             _maskView.Draw();
 
             _presetsView.Draw();
-            // 縦並びでは上部スクロール領域全体がプレビューのカラムに相当する。
-            // プレビュー枠より上の実測高は PreviewView 側が差し引く。
-            _previewView.availableColumnHeight = topScrollH;
-            _previewView.Draw();
+
+            // 縦並び(＝狭幅)ではプレビューを本体に描かない。設定列の下へ積まれると、
+            // プレビューに割ける高さも幅も足りず検分に使えないため、別ウィンドウへ
+            // 切り出す導線だけを置く。ウィンドウを広げれば従来どおり本体内に戻る。
+            DrawPreviewDetachedSection(canReattach: false);
 
             // パイプライン透明化（Debug View）の描画フック。
             // Code/Debug/ asmdef がない or 未登録なら subscriber がいないので何も描画されない。
@@ -267,6 +286,38 @@ namespace Iroca
             // 一括適用は実装継続中のため当面 UI から非表示。
             // _exportView.DrawBatchSection();
             _exportView.DrawExportSection();
+        }
+
+        // ── プレビューを別ウィンドウへ切り出しているときの、本体側プレビュー位置の中身 ──
+        // 縦並び(狭幅)では常にここを描き、横並びでは別ウィンドウが開いている間だけ描く。
+        // canReattach=false(縦並び)では「本体に戻す」を出さない。戻しても設定列の下に
+        // 押し出されて実用にならず、押した直後にまたこの案内へ戻るだけになるため。
+        private void DrawPreviewDetachedSection(bool canReattach)
+        {
+            EditorGUILayout.LabelField(
+                Localization.StepPrefixPreview + Localization.Preview, EditorStyles.boldLabel);
+
+            bool open = IrocaPreviewWindow.IsOpen;
+            EditorGUILayout.HelpBox(
+                open ? Localization.PreviewDetachedActive : Localization.PreviewDetachedNarrowHint,
+                MessageType.Info);
+
+            if (GUILayout.Button(new GUIContent(
+                    open ? Localization.FocusPreviewWindow : Localization.OpenPreviewWindow,
+                    Localization.OpenPreviewWindowTooltip)))
+            {
+                if (open) IrocaPreviewWindow.FocusIfOpen();
+                else IrocaPreviewWindow.Open(this);
+            }
+
+            if (open && canReattach &&
+                GUILayout.Button(new GUIContent(
+                    Localization.ReattachPreview, Localization.ReattachPreviewTooltip)))
+            {
+                IrocaPreviewWindow.CloseIfOpen();
+            }
+
+            EditorGUILayout.Space(4);
         }
 
         private void DrawJobOverlay()
