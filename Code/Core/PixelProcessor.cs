@@ -307,6 +307,13 @@ namespace Iroca
                                 if (matchConfLocal != null) matchConfLocal[i] = mc;
                             }
                         });
+                        // 彩度天井ゲート(グレーモード以外では内部で no-op): 無彩素材の彩度包絡を
+                        // 超える独立した高彩度の別素材(クリーム布等)を選択から除去する。素材自身の
+                        // 高彩度装飾は低彩度コア近接で保護される。ハイライト伝播・FF・穴埋めより前に
+                        // 適用し、後段パスが別素材を再伝播/復元しないようにする。
+                        Color.RGBToHSV(zone.sampleColor, out _, out float cgSS, out float cgSV);
+                        ApplyChromaCeilingGate(strength, matchConf, pixS, cgSS, cgSV,
+                            zone.chromaThreshold, w, h, cancellationToken);
                         debug?.RecordStage(zone.id, DebugStages.Match, strength, w, h);
                     }
                     _phaseTicks[PhMatch] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();

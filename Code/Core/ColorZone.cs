@@ -47,6 +47,22 @@ namespace Iroca
         internal const float ChromaGateFloorCap = 0.02f;    // 床の絶対上限。これ以上の tint は中性扱いしない
         internal const float ChromaGatePenalty = 1.0f;      // 最大加算距離(tolerance 単位)
 
+        // ── 彩度天井(グレーモード専用、彩度整合ゲートの鏡像) ──
+        // 無彩/微 tint サンプルの「素材彩度包絡」を大きく超える高彩度画素=染められた別素材
+        // (クリーム色の布等)を排除するための天井。無彩素材の濃淡・AA は彩度がサンプル近辺に
+        // 留まるのに対し、染められた別素材はサンプルよりはるかに高彩度になる、という非対称性
+        // で分離する。彩度整合ゲートが「サンプルより中性すぎる画素=UV 背景」を弾くのに対し、
+        // こちらは「サンプルより彩度が高すぎる画素=染めた別素材」を弾く。
+        // 天井は床ゲートと同じくサンプル相対(sS*Frac)と絶対床(Abs)の大きい方。
+        // 適用は 2 経路:
+        //   ・主経路: PixelProcessor.ApplyChromaCeilingGate が post-match の空間ゲートとして
+        //     適用(低彩度コア近傍の高彩度画素=素材自身の装飾は保護し、独立した別素材だけ落とす)。
+        //   ・緩和マッチ(穴埋め/境界回復): GetRelaxedMatchStrength 内で距離加算として適用し、
+        //     主経路で落とした別素材を復元経路から逆送しないようにする。
+        internal const float ChromaCeilSampleFrac = 3.0f; // 天井 = max(サンプル彩度×この倍率, 絶対床)
+        internal const float ChromaCeilAbs = 0.04f;       // 天井の絶対床(真の無彩サンプルでも作動)
+        internal const float ChromaCeilPenalty = 1.0f;    // 緩和マッチ側の最大加算距離(tolerance 単位)
+
         // グレー抽出モードの AA 縁ソフトランプ床(tolerance 比)。edgeSoftness=0 だとグレーモードは
         // 二値マッチになり AA 境界(地色↔背景の混色)も full strength に固まる→デコンタミ
         // (0<s<thr で作動する α 再合成)が走らず、元の滑らかな AA が硬い段差に潰れる。地色コア

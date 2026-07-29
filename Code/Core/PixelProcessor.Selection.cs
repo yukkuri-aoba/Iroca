@@ -298,6 +298,107 @@ namespace Iroca
             }
         }
 
+        // 彩度天井ゲート(グレーモード専用)のコア近接保護半径。この px 以内に低彩度コアが
+        // ある高彩度画素は「素材自身の装飾/陰影」(クリーム素材のピンク縫い取りや濃い目の
+        // シェーディング帯、三角の頂点ハイライト等)とみなして除去しない。手描きテクスチャの
+        // 陰影グラデ帯・先端の装飾はコアの地色から数 px〜10px 規模で連続するため、帯を覆える
+        // 幅(実測で GT 高彩度画素の 99%+ をカバー)に置く。独立した別素材はコアから
+        // 数十〜数百 px 離れているため、この半径では保護されない。
+        private const int ChromaCeilProtectRadius = 12;
+
+        /// <summary>
+        /// 彩度天井ゲート(グレーモード専用・コア近接保護付き)を post-match に適用する。
+        /// 無彩/微 tint サンプルの彩度包絡(ceil=max(sS*ChromaCeilSampleFrac, ChromaCeilAbs))を
+        /// 超える高彩度画素のうち、低彩度コア(strength>0.05 かつ pS&lt;ceil)から
+        /// ChromaCeilProtectRadius px より遠いものを strength(と matchConf)から除去する。
+        /// 白い布をスポイトしたときクリーム色のワンピース等の別素材が巻き込まれるのを防ぐ。
+        /// 素材自身の高彩度ディテール(三角のピンク角・濃い陰影帯等)は低彩度コアに隣接する
+        /// ため保護される。除去は部分強度への格下げでなく 0 へのハード除去とする
+        /// (部分強度は出力を中途半端な明るさにし、陰影相関 form_fidelity を壊すことが判明)。
+        /// matchConf も除去しないと flood fill が「確信コアを含む成分」として別素材を保持する。
+        /// 保護はコアからの 4 近傍 dilation を 1 回限りで行い、保護の連鎖はしない。
+        /// </summary>
+        private static void ApplyChromaCeilingGate(
+            float[] strength, float[] matchConf, float[] pixS,
+            float sS, float sV, float chromaThreshold,
+            int w, int h, CancellationToken ct = default)
+        {
+            // グレーモード判定は ColorZone.MatchOneSample / GetRelaxedMatchStrength と同一式。
+            float effectiveChromaThreshold = Mathf.Lerp(
+                ColorZone.GrayModeBaseChromaThreshold, chromaThreshold,
+                Mathf.Clamp01(sV / ColorZone.GrayModeChromaConfidenceRamp));
+            if (sS > effectiveChromaThreshold) return;   // 有彩サンプル=グレーモードではない
+
+            float satCeil = Mathf.Max(sS * ColorZone.ChromaCeilSampleFrac, ColorZone.ChromaCeilAbs);
+
+            int len = w * h;
+            const float matchThr = 0.05f;  // コア判定の strength 床(NeutralReject と同じ)
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            bool[] cur = s_boolPool.Rent(len);
+            bool[] nxt = s_boolPool.Rent(len);
+            try
+            {
+                // 低彩度コア: 選択済み かつ 彩度が天井未満。同時に保護候補(高彩度画素)の有無を調べる。
+                bool anyHigh = false;
+                Parallel.For(0, h, po, y =>
+                {
+                    int rowOff = y * w;
+                    bool localHigh = false;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        cur[i] = strength[i] > matchThr && pixS[i] < satCeil;
+                        if (pixS[i] >= satCeil) localHigh = true;
+                    }
+                    if (localHigh) anyHigh = true;
+                });
+                if (!anyHigh) return;
+
+                // 低彩度コアから 4 近傍 dilation を ProtectRadius 回(保護領域を広げる)。画像端外は false。
+                for (int it = 0; it < ChromaCeilProtectRadius; it++)
+                {
+                    var curL = cur; var nxtL = nxt;
+                    Parallel.For(0, h, po, y =>
+                    {
+                        int rowOff = y * w;
+                        for (int x = 0; x < w; x++)
+                        {
+                            int i = rowOff + x;
+                            bool on = curL[i]
+                                || (x > 0 && curL[i - 1])
+                                || (x < w - 1 && curL[i + 1])
+                                || (y > 0 && curL[i - w])
+                                || (y < h - 1 && curL[i + w]);
+                            nxtL[i] = on;
+                        }
+                    });
+                    (cur, nxt) = (nxt, cur);
+                }
+
+                // 保護領域外の高彩度選択画素を除去(別素材)。matchConf も除去しないと
+                // flood fill が「確信コアを含む成分」として別素材を保持してしまう。
+                var prot = cur;
+                Parallel.For(0, h, po, y =>
+                {
+                    int rowOff = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        if (!prot[i] && pixS[i] >= satCeil && strength[i] > 0f)
+                        {
+                            strength[i] = 0f;
+                            if (matchConf != null) matchConf[i] = 0f;
+                        }
+                    }
+                });
+            }
+            finally
+            {
+                s_boolPool.Return(cur);
+                s_boolPool.Return(nxt);
+            }
+        }
+
         /// <summary>
         /// 境界復元：少なくとも1つのマッチしたピクセルに隣接するマッチしないピクセルについて
         /// 元の固定低彩度閾値（satMin=0.02, satRamp=0.08）を使用してカラーマッチを再評価します。
@@ -448,6 +549,15 @@ namespace Iroca
                     float satFloor = Mathf.Min(sS * ColorZone.ChromaGateFloorFrac, ColorZone.ChromaGateFloorCap);
                     float shortfall = Mathf.Clamp01((satFloor - pS) / Mathf.Max(satFloor, 1e-4f));
                     effectiveDist += shortfall * ColorZone.ChromaGatePenalty * tolerance * gateWeight;
+                }
+                // 彩度天井ゲート(主経路 GetColorMatchScores のグレーモードと同期): 無彩/微 tint
+                // 素材の彩度包絡を超える高彩度画素(染められた別素材)に距離を加算する。
+                // 穴埋め/境界回復が主経路で弾かれた別素材を復元してしまわないよう同じゲートを課す。
+                {
+                    float ceilWeight = Mathf.Clamp01(sV / ColorZone.GrayModeDarkSampleValue);
+                    float satCeil = Mathf.Max(sS * ColorZone.ChromaCeilSampleFrac, ColorZone.ChromaCeilAbs);
+                    float overS = Mathf.Clamp01((pS - satCeil) / Mathf.Max(satCeil, 1e-4f));
+                    effectiveDist += overS * ColorZone.ChromaCeilPenalty * tolerance * ceilWeight;
                 }
                 if (effectiveDist >= tolerance) return 0f;
                 float sr = tolerance * edgeSoftness;
