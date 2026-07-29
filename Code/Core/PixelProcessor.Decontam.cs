@@ -45,7 +45,8 @@ namespace Iroca
             Color sampleColor, Color targetColor,
             int radius, float interiorThreshold,
             bool[] aaMask, Color32[] decontaminatedPixels, bool hasMatch = true,
-            CancellationToken ct = default, bool[] maskExcluded = null)
+            CancellationToken ct = default, bool[] maskExcluded = null,
+            int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1)
         {
             int len = w * h;
             // 呼び出し側がゾーン間で再利用するバッファを渡す。aaMask は全画素で読まれるため
@@ -57,6 +58,18 @@ namespace Iroca
             if (!hasMatch) return;
             bool[] localAaMask = aaMask;
             Color32[] localDecontaminatedPixels = decontaminatedPixels;
+
+            // 処理矩形(P2-7 の後段 bbox)。α 分解が触るのは 0<strength<interiorThreshold の画素だけ=
+            // 定義上 strength>0 の bbox 内なので、矩形外は前後で常に無変更=出力ビット不変。
+            // 未指定(boxMaxX<0)なら従来どおり全画素。
+            if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
+            // BG ドナー(w*)は出力矩形の各画素から窓 ±radius だけ読まれるので、その分広げた範囲を
+            // 用意すれば足りる。ここまで含めて矩形限定になるので、小 match のゾーン(ロゴ等)でも
+            // 全画素分の Array.Clear ×4(4K で各 67MB)と窓和 ×4 を払わなくなる。
+            int donorX0 = Mathf.Max(0, boxMinX - radius);
+            int donorX1 = Mathf.Min(w - 1, boxMaxX + radius);
+            int donorY0 = Mathf.Max(0, boxMinY - radius);
+            int donorY1 = Mathf.Min(h - 1, boxMaxY + radius);
 
             // 局所 BG 推定: strength=0 のピクセルだけを使った近傍和とその密度
             // 0..255 のスケールで計算（後で divide で平均化）
@@ -73,33 +86,41 @@ namespace Iroca
             bgGSum = s_floatPool.Rent(len);
             bgBSum = s_floatPool.Rent(len);
             bgDensity = s_floatPool.Rent(len);
-            // Rent はゼロ初期化を保証しないので strength>0 のピクセルを明示的にゼロ化
-            Array.Clear(wR, 0, len);
-            Array.Clear(wG, 0, len);
-            Array.Clear(wB, 0, len);
-            Array.Clear(wD, 0, len);
             var decontamPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-            Parallel.For(0, len, decontamPo, i =>
+            // ドナー範囲だけを「行ごとにゼロ化 → ドナー画素だけ充填」する(Rent はゼロ初期化を
+            // 保証しない)。範囲外は BoxFilterSum から読まれないので未初期化のままでよい。
+            int donorSpan = donorX1 - donorX0 + 1;
+            Parallel.For(donorY0, donorY1 + 1, decontamPo, y =>
             {
-                // アルファが0のピクセルはRGBがゴミデータ(黒など)の可能性が高いためBG推定から除外。
-                // 除外マスク画素も除く: strength=0 だが背景ではなく「保護されたパーツ」(サンプル同色で
-                // あり得る)ため、ドナーに入れると BG 推定がサンプル色側へ汚染され、α 分解の前提
-                // (BG=非対象色)が崩れてマスク境界の外側に誤色の点ノイズを塗ってしまう。
-                if (strength[i] <= 0f && originalPixels[i].a > 0 &&
-                    (maskExcluded == null || !maskExcluded[i]))
+                int rowOff = y * w;
+                int beg = rowOff + donorX0;
+                Array.Clear(wR, beg, donorSpan);
+                Array.Clear(wG, beg, donorSpan);
+                Array.Clear(wB, beg, donorSpan);
+                Array.Clear(wD, beg, donorSpan);
+                for (int x = donorX0; x <= donorX1; x++)
                 {
-                    wR[i] = originalPixels[i].r;
-                    wG[i] = originalPixels[i].g;
-                    wB[i] = originalPixels[i].b;
-                    wD[i] = 1f;
+                    int i = rowOff + x;
+                    // アルファが0のピクセルはRGBがゴミデータ(黒など)の可能性が高いためBG推定から除外。
+                    // 除外マスク画素も除く: strength=0 だが背景ではなく「保護されたパーツ」(サンプル同色で
+                    // あり得る)ため、ドナーに入れると BG 推定がサンプル色側へ汚染され、α 分解の前提
+                    // (BG=非対象色)が崩れてマスク境界の外側に誤色の点ノイズを塗ってしまう。
+                    if (strength[i] <= 0f && originalPixels[i].a > 0 &&
+                        (maskExcluded == null || !maskExcluded[i]))
+                    {
+                        wR[i] = originalPixels[i].r;
+                        wG[i] = originalPixels[i].g;
+                        wB[i] = originalPixels[i].b;
+                        wD[i] = 1f;
+                    }
                 }
             });
             // BG 推定(R/G/B/density)。各 ch を順に処理する(融合版は temp ストリームが 4 本同時に
             // なりメモリ帯域律速のこの処理ではキャッシュスラッシングで遅くなったため単一版に戻した)。
-            BoxFilterSum(wR, bgRSum, w, h, radius, ct);
-            BoxFilterSum(wG, bgGSum, w, h, radius, ct);
-            BoxFilterSum(wB, bgBSum, w, h, radius, ct);
-            BoxFilterSum(wD, bgDensity, w, h, radius, ct);
+            BoxFilterSum(wR, bgRSum, w, h, radius, ct, boxMinX, boxMinY, boxMaxX, boxMaxY);
+            BoxFilterSum(wG, bgGSum, w, h, radius, ct, boxMinX, boxMinY, boxMaxX, boxMaxY);
+            BoxFilterSum(wB, bgBSum, w, h, radius, ct, boxMinX, boxMinY, boxMaxX, boxMaxY);
+            BoxFilterSum(wD, bgDensity, w, h, radius, ct, boxMinX, boxMinY, boxMaxX, boxMaxY);
 
             // sample / target を 0..255 スケールに揃える
             float sR = sampleColor.r * 255f;
@@ -112,10 +133,14 @@ namespace Iroca
 
             int winSide = 2 * radius + 1;
             float interiorBgDensityMin = Mathf.Max(1f, winSide * winSide * DecontamInteriorBgFrac);
-            Parallel.For(0, len, decontamPo, i =>
+            Parallel.For(boxMinY, boxMaxY + 1, decontamPo, y =>
             {
+            int rowOff = y * w;
+            for (int x = boxMinX; x <= boxMaxX; x++)
+            {
+                int i = rowOff + x;
                 float s = strength[i];
-                if (s <= 0f || s >= interiorThreshold) return;
+                if (s <= 0f || s >= interiorThreshold) continue;
                 float density = bgDensity[i];
                 if (density < interiorBgDensityMin)
                 {
@@ -127,7 +152,7 @@ namespace Iroca
                     // 内部扱いで固め、境界(背景に面し密度が高い縁)は従来どおり α 分解されるので
                     // AA ソフトさは不変。
                     strength[i] = 1f;
-                    return;
+                    continue;
                 }
 
                 float bR = bgRSum[i] / density;
@@ -138,7 +163,7 @@ namespace Iroca
                 float dirG = sG - bG;
                 float dirB = sB - bB;
                 float dirSq = dirR * dirR + dirG * dirG + dirB * dirB;
-                if (dirSq < DegenEps) return; // sample ≈ BG → α が定義できない
+                if (dirSq < DegenEps) continue; // sample ≈ BG → α が定義できない
 
                 float pR = originalPixels[i].r;
                 float pG = originalPixels[i].g;
@@ -155,7 +180,7 @@ namespace Iroca
                 float projG = bG + alpha * dirG;
                 float projB = bB + alpha * dirB;
                 float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
-                if (distSq > 3000f) return; // 許容誤差。各チャンネル約31のズレまで許容
+                if (distSq > 3000f) continue; // 許容誤差。各チャンネル約31のズレまで許容
 
                 float oneMinusAlpha = 1f - alpha;
                 float resR = alpha * tR + oneMinusAlpha * bR;
@@ -168,6 +193,7 @@ namespace Iroca
                     (byte)Mathf.Clamp(Mathf.RoundToInt(resG), 0, 255),
                     (byte)Mathf.Clamp(Mathf.RoundToInt(resB), 0, 255),
                     originalPixels[i].a);
+            }
             });
             } // end try
             finally
@@ -207,25 +233,7 @@ namespace Iroca
                 bgRSum = s_floatPool.Rent(len); bgGSum = s_floatPool.Rent(len);
                 bgBSum = s_floatPool.Rent(len); bgD = s_floatPool.Rent(len);
                 wM = s_floatPool.Rent(len); mNear = s_floatPool.Rent(len);
-                Array.Clear(wR, 0, len); Array.Clear(wG, 0, len);
-                Array.Clear(wB, 0, len); Array.Clear(wD, 0, len); Array.Clear(wM, 0, len);
                 var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-                // 背景候補(非マッチ かつ α>0)と、マッチ指標を準備
-                Parallel.For(0, len, po, i =>
-                {
-                    float s = strength[i];
-                    if (s <= 0f && originalPixels[i].a > 0)
-                    {
-                        wR[i] = originalPixels[i].r; wG[i] = originalPixels[i].g;
-                        wB[i] = originalPixels[i].b; wD[i] = 1f;
-                    }
-                    if (s > 0.05f) wM[i] = 1f;
-                });
-                BoxFilterSum(wR, bgRSum, w, h, 4, ct);
-                BoxFilterSum(wG, bgGSum, w, h, 4, ct);
-                BoxFilterSum(wB, bgBSum, w, h, 4, ct);
-                BoxFilterSum(wD, bgD, w, h, 4, ct);
-                BoxFilterSum(wM, mNear, w, h, AchromaFringeMatchRadius, ct);
 
                 float sR = sampleColor.r * 255f, sG = sampleColor.g * 255f, sB = sampleColor.b * 255f;
                 float tR = targetColor.r * 255f, tG = targetColor.g * 255f, tB = targetColor.b * 255f;
@@ -233,6 +241,39 @@ namespace Iroca
                 int x1 = Mathf.Min(w - 1, bbMaxX + AchromaFringeMatchRadius);
                 int y0 = Mathf.Max(0, bbMinY - AchromaFringeMatchRadius);
                 int y1 = Mathf.Min(h - 1, bbMaxY + AchromaFringeMatchRadius);
+                if (x1 < x0 || y1 < y0) return;   // 対象矩形が空(マッチ皆無) → 何もしない
+                // フチ消しが触るのは矩形 [x0..x1]×[y0..y1] だけ。窓和(半径 4)の入力はその ±4 まで
+                // あれば足りるので、ドナー/マッチ指標の準備も窓和もこの範囲に限定する
+                // (従来は全画素で Array.Clear ×5 と窓和 ×5 = 4K で無彩ゾーンごとに固定コストだった)。
+                const int FringeBgRadius = 4;
+                int fx0 = Mathf.Max(0, x0 - FringeBgRadius), fx1 = Mathf.Min(w - 1, x1 + FringeBgRadius);
+                int fy0 = Mathf.Max(0, y0 - FringeBgRadius), fy1 = Mathf.Min(h - 1, y1 + FringeBgRadius);
+                // 背景候補(非マッチ かつ α>0)と、マッチ指標を準備(行ごとにゼロ化 → 該当画素だけ充填)
+                int fspan = fx1 - fx0 + 1;
+                Parallel.For(fy0, fy1 + 1, po, y =>
+                {
+                    int rowOff = y * w;
+                    int beg = rowOff + fx0;
+                    Array.Clear(wR, beg, fspan); Array.Clear(wG, beg, fspan);
+                    Array.Clear(wB, beg, fspan); Array.Clear(wD, beg, fspan);
+                    Array.Clear(wM, beg, fspan);
+                    for (int x = fx0; x <= fx1; x++)
+                    {
+                        int i = rowOff + x;
+                        float s = strength[i];
+                        if (s <= 0f && originalPixels[i].a > 0)
+                        {
+                            wR[i] = originalPixels[i].r; wG[i] = originalPixels[i].g;
+                            wB[i] = originalPixels[i].b; wD[i] = 1f;
+                        }
+                        if (s > 0.05f) wM[i] = 1f;
+                    }
+                });
+                BoxFilterSum(wR, bgRSum, w, h, FringeBgRadius, ct, x0, y0, x1, y1);
+                BoxFilterSum(wG, bgGSum, w, h, FringeBgRadius, ct, x0, y0, x1, y1);
+                BoxFilterSum(wB, bgBSum, w, h, FringeBgRadius, ct, x0, y0, x1, y1);
+                BoxFilterSum(wD, bgD,    w, h, FringeBgRadius, ct, x0, y0, x1, y1);
+                BoxFilterSum(wM, mNear,  w, h, AchromaFringeMatchRadius, ct, x0, y0, x1, y1);
                 Parallel.For(y0, y1 + 1, po, y =>
                 {
                     int row = y * w;

@@ -34,23 +34,13 @@ namespace Iroca
         /// 連結予測子(strength&gt;0 &amp;&amp; α&gt;=128)・4近傍は BuildComponentMedianLMap と一致させ成分定義を統一する。
         /// </summary>
         private static void ApplyConnectedComponentMask(
-            float[] strength, float[] matchConf, Color32[] px, int w, int h, int seedX, int seedY)
+            float[] strength, float[] matchConf, Color32[] px, int w, int h, int seedX, int seedY,
+            CancellationToken ct = default)
         {
             // matched 画素(strength>0 && α>=128)の bbox。ラベリングは bbox 内に限定(全画素確保を回避)。
-            int minX = w, maxX = -1, minY = h, maxY = -1;
-            for (int y = 0; y < h; y++)
-            {
-                int rb = y * w;
-                for (int x = 0; x < w; x++)
-                    if (strength[rb + x] > 0f && px[rb + x].a >= 128)
-                    {
-                        if (x < minX) minX = x;
-                        if (x > maxX) maxX = x;
-                        if (y < minY) minY = y;
-                        if (y > maxY) maxY = y;
-                    }
-            }
-            if (maxX < 0) return; // マッチ皆無
+            if (!TryComputeMatchedBBox(strength, px, w, h, 0f,
+                    out int minX, out int minY, out int maxX, out int maxY, ct))
+                return; // マッチ皆無
 
             // フォールバック用コア閾値(matchConf 不在時のみ使用)= 正の strength 群の P75 と絶対床の
             // 大きい方。matchConf があるときは固定半径ベースの色一致確信度で判定するので不要。
@@ -76,50 +66,64 @@ namespace Iroca
                     HistValueAtPercentile(sHist, posCount, 0.75f, 1f), CoreAbsoluteFloor);
             }
 
+            int bw = maxX - minX + 1, bh = maxY - minY + 1;
+            int bwh = bw * bh;
+            // label / 探索スタックはプールから借りる(従来は呼び出しごとに new int[bw*bh]=4K 全面で 67MB)。
+            // スタックは「push 直前に必ず label を立てる」ので 1 セル 1 回しか積まれず bwh で足りる。
+            int[] label = s_intPool.Rent(bwh);
+            int[] stack = s_intPool.Rent(bwh);
+            try
+            {
+            Array.Clear(label, 0, bwh);   // Create プールの Rent はゼロ初期化しない
+            var hasCore = new List<bool>();   // hasCore[lab-1] = その成分にコア画素があるか
+
+            // 連結予測子。bbox 内の隣接判定でしか使わないので gi は呼び出し側が算出済みの値を渡す。
+            bool Matched(int gi) => strength[gi] > 0f && px[gi].a >= 128;
             // コア判定: matchConf があれば色一致確信度(>0 = 固定半径内)で、無ければ strength 閾値で判定。
             bool IsCore(int gi) => matchConf != null
                 ? matchConf[gi] > 0f
                 : strength[gi] >= coreThreshold;
 
-            int bw = maxX - minX + 1, bh = maxY - minY + 1;
-            int[] label = new int[bw * bh];
-            var hasCore = new List<bool>();   // hasCore[lab-1] = その成分にコア画素があるか
-            var queue = new Queue<int>();
-
             for (int ly = 0; ly < bh; ly++)
             {
+                // 逐次ラベリングは数百 ms 級になり得るので、行ごとにキャンセルを見て
+                // ドラッグ中の旧ジョブが CPU を焼き続けないようにする(数値ロジックは不変)。
+                if ((ly & 63) == 0) ct.ThrowIfCancellationRequested();
+                int lrb = ly * bw;
+                int grb = (ly + minY) * w + minX;
                 for (int lx = 0; lx < bw; lx++)
                 {
-                    int li = ly * bw + lx;
+                    int li = lrb + lx;
                     if (label[li] != 0) continue;
-                    if (!(strength[(ly + minY) * w + (lx + minX)] > 0f
-                          && px[(ly + minY) * w + (lx + minX)].a >= 128)) continue;
+                    if (!Matched(grb + lx)) continue;
 
                     int lab = hasCore.Count + 1;
                     bool core = false;
                     label[li] = lab;
-                    queue.Enqueue(li);
-                    while (queue.Count > 0)
+                    int sp = 0;
+                    // スタック要素は (y<<16)|x のパック座標。旧実装は要素ごとに ci%bw と ci/bw を
+                    // 計算しており、デキュー 1 回 + 4 近傍で最大 10 回の整数除算が走っていた。
+                    // 座標を持ち回れば除算はゼロになる(bw/bh は Unity の最大テクスチャ 16384 でも
+                    // 16bit に収まる)。探索順は BFS→DFS に変わるが、連結成分の分割・ラベル番号
+                    // (外側走査順で採番)・コア有無はいずれも探索順に依存しないので結果は同一。
+                    stack[sp++] = (ly << 16) | lx;
+                    while (sp > 0)
                     {
-                        int ci = queue.Dequeue();
-                        int cx = ci % bw, cy = ci / bw;
-                        if (IsCore((cy + minY) * w + (cx + minX))) core = true;
-                        TryEnq(ci - 1, cx > 0);
-                        TryEnq(ci + 1, cx < bw - 1);
-                        TryEnq(ci - bw, cy > 0);
-                        TryEnq(ci + bw, cy < bh - 1);
+                        int packed = stack[--sp];
+                        int cx = packed & 0xFFFF, cy = packed >> 16;
+                        int ci = cy * bw + cx;
+                        int gi = (cy + minY) * w + (cx + minX);
+                        if (IsCore(gi)) core = true;
+                        if (cx > 0 && label[ci - 1] == 0 && Matched(gi - 1))
+                        { label[ci - 1] = lab; stack[sp++] = (cy << 16) | (cx - 1); }
+                        if (cx < bw - 1 && label[ci + 1] == 0 && Matched(gi + 1))
+                        { label[ci + 1] = lab; stack[sp++] = (cy << 16) | (cx + 1); }
+                        if (cy > 0 && label[ci - bw] == 0 && Matched(gi - w))
+                        { label[ci - bw] = lab; stack[sp++] = ((cy - 1) << 16) | cx; }
+                        if (cy < bh - 1 && label[ci + bw] == 0 && Matched(gi + w))
+                        { label[ci + bw] = lab; stack[sp++] = ((cy + 1) << 16) | cx; }
                     }
                     hasCore.Add(core);
-
-                    void TryEnq(int ni, bool inBounds)
-                    {
-                        if (!inBounds || label[ni] != 0) return;
-                        int nx = ni % bw, ny = ni / bw;
-                        if (!(strength[(ny + minY) * w + (nx + minX)] > 0f
-                              && px[(ny + minY) * w + (nx + minX)].a >= 128)) return;
-                        label[ni] = lab;
-                        queue.Enqueue(ni);
-                    }
                 }
             }
 
@@ -139,16 +143,26 @@ namespace Iroca
                 if (!anyCore) return; // 確信できるコアが皆無 → 絞り込まない(recall 保護)
             }
 
-            for (int ly = 0; ly < bh; ly++)
+            // 落とす成分の strength を 0 に。行ごとに書き込み先が独立なので並列化しても同一結果。
+            var keepLabelLocal = keepLabel;
+            var hasCoreArr = hasCore;
+            Parallel.For(0, bh, new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct }, ly =>
             {
                 int rb = (ly + minY) * w;
+                int lrb = ly * bw;
                 for (int lx = 0; lx < bw; lx++)
                 {
-                    int lab = label[ly * bw + lx];
+                    int lab = label[lrb + lx];
                     if (lab == 0) continue;
-                    bool keep = keepLabel > 0 ? (lab == keepLabel) : hasCore[lab - 1];
+                    bool keep = keepLabelLocal > 0 ? (lab == keepLabelLocal) : hasCoreArr[lab - 1];
                     if (!keep) strength[rb + (lx + minX)] = 0f;
                 }
+            });
+            }
+            finally
+            {
+                s_intPool.Return(stack);
+                s_intPool.Return(label);
             }
         }
 
