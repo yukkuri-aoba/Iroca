@@ -41,6 +41,14 @@ zip生成 + SHA256 + listing更新  →  整合検証 + draft作成  →  資産
 
 レビュー（`architecture_review_2026-07-02.md` §1.1-1.2）で判明した既存の破損状態。**GitHub Pages を有効化（= listing 公開）する前に必ず完了させること。**
 
+> **機械ゲート化（2026-08-03）**: この節が残っている間、`release.yml` はタグを push しても
+> fail する。完了したら本節を丸ごと削除すること（それでゲートが解除される）。
+>
+> **2026-08-03 時点の実測**: 公開済みリリースは 0 件（draft の有無は要認証のため未確認）、
+> Pages は 404（未有効化）＝ 実害はまだ出ていない。ただし `docs/index.json` の 0.2.0 は
+> 「存在しない資産の URL + リネーム前 zip の SHA256」のまま。zip 再生成には unitypackage
+> （リポジトリ外の Unity 開発プロジェクトでエクスポート）が必要。
+
 - [ ] `v0.2.0` の draft リリース（旧 release.yml が作った不完全な draft が 2 つ存在しうる）を整理し、1 つに統一する。
 - [ ] `com.yukkuri-aoba.iroca-0.2.0.zip` を `Build-VpmPackage.ps1 -UnityPackagePath ...` で再生成し、`docs/index.json` の zipSHA256 更新を main へ反映する。
 - [ ] zip / unitypackage を v0.2.0 リリースへアップロードして publish、release-verify green を確認する。
