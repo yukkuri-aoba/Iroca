@@ -177,6 +177,31 @@ namespace Iroca
             }
         }
 
+        /// <summary>
+        /// グレーモード発動しきい値。暗いサンプルほどグレースケールモードの適用範囲を動的に広げる
+        /// (sV=0 で GrayModeBaseChromaThreshold、sV>=Ramp で chromaThreshold に収束)。
+        /// 主経路(MatchOneSample)・緩和経路(GetRelaxedMatchStrength)・後段ゲート
+        /// (ApplyChromaCeilingGate / RecoverEnclosedNeutral)の 4 箇所が同式をインライン複製して
+        /// いたため一本化(式・演算順は従来と同一=出力ビット不変)。
+        /// </summary>
+        internal static float GrayModeEffectiveChromaThreshold(float sV, float chromaThreshold)
+            => Mathf.Lerp(GrayModeBaseChromaThreshold, chromaThreshold, Mathf.Clamp01(sV / GrayModeChromaConfidenceRamp));
+
+        /// <summary>
+        /// グレーモードの彩度整合ゲート(微 tint サンプルより著しく中性寄りの画素への距離加算)。
+        /// 非作動(sS が ActivateSat 以下)なら 0。toleranceScale には主経路が _cTolerance、
+        /// 緩和経路が tolerance を渡す。主経路と緩和経路が同ブロックを複製していたため一本化
+        /// (式・演算順は従来と同一=出力ビット不変)。
+        /// </summary>
+        internal static float GrayChromaGatePenalty(float sS, float sV, float pS, float toleranceScale)
+        {
+            if (sS <= ChromaGateActivateSat) return 0f;
+            float gateWeight = Mathf.Clamp01(sV / GrayModeDarkSampleValue);
+            float satFloor = Mathf.Min(sS * ChromaGateFloorFrac, ChromaGateFloorCap);
+            float shortfall = Mathf.Clamp01((satFloor - pS) / Mathf.Max(satFloor, 1e-4f));
+            return shortfall * ChromaGatePenalty * toleranceScale * gateWeight;
+        }
+
         // 1 サンプル分のマッチ強度／ハイライト候補を計算する。サンプル依存の値は sc から、
         // ゾーン共通の値（tolerance・各 range・重み・閾値）はインスタンスフィールドから読む。
         private void MatchOneSample(in SampleCache sc, Color pixelColor, float pH, float pS, float pV, out float strength, out float highlightPotential, out float matchConf)
@@ -200,9 +225,7 @@ namespace Iroca
             }
 
             // サンプル色の彩度がしきい値以下の場合は、自動的に無彩色(グレー/黒)抽出モードとして扱う
-            // 暗いサンプルはHSV色相・彩度が不安定なため、黒るいほどグレースケールモードの適用範囲を動的に広げる。
-            // sV = 0 で 0.30、sV >= 0.20 で chromaThreshold に収束する。
-            float effectiveChromaThreshold = Mathf.Lerp(GrayModeBaseChromaThreshold, chromaThreshold, Mathf.Clamp01(sc.sV / GrayModeChromaConfidenceRamp));
+            float effectiveChromaThreshold = GrayModeEffectiveChromaThreshold(sc.sV, chromaThreshold);
             if (sc.sS <= effectiveChromaThreshold)
             {
                 // グレー抽出モード：HueやSatを完全に無視し、純粋なRGBの近さのみで判定する
@@ -235,13 +258,7 @@ namespace Iroca
                 // 「中性=同素材」とみなす(暗布は中性が正常)ため、中性を罰するこのゲートと矛盾する。
                 // 暗いサンプルではフェードさせ、明るい tint 素材(生成り・オフホワイトの布地等)でのみ
                 // 全効果にする。
-                if (sc.sS > ChromaGateActivateSat)
-                {
-                    float gateWeight = Mathf.Clamp01(sc.sV / GrayModeDarkSampleValue);
-                    float satFloor = Mathf.Min(sc.sS * ChromaGateFloorFrac, ChromaGateFloorCap);
-                    float shortfall = Mathf.Clamp01((satFloor - pS) / Mathf.Max(satFloor, 1e-4f));
-                    effectiveDist += shortfall * ChromaGatePenalty * _cTolerance * gateWeight;
-                }
+                effectiveDist += GrayChromaGatePenalty(sc.sS, sc.sV, pS, _cTolerance);
 
                 // 彩度天井(高彩度の別素材排除)は主経路では距離加算しない。
                 // 部分強度への格下げは陰影相関(form_fidelity)を壊すことが判明したため、

@@ -72,7 +72,7 @@ namespace Iroca
         /// </summary>
         private static void RejectNeutralForAchromaTarget(float[] strength, float[] pixS, int w, int h, float sS, CancellationToken ct = default)
         {
-            const float matchThr = 0.05f;
+            const float matchThr = ColorZone.MatchStrengthFloor;
             float floor = sS * NeutralRejectFloorFrac;
             int len = w * h;
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
@@ -133,7 +133,7 @@ namespace Iroca
         /// </summary>
         private static void SolidifyAchromaInterior(float[] strength, int w, int h, float achromaWeight, CancellationToken ct = default)
         {
-            const float matchThr = 0.05f;
+            const float matchThr = ColorZone.MatchStrengthFloor;
             const int erodePx = 2;
             int len = w * h;
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };

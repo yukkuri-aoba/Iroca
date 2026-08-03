@@ -16,10 +16,16 @@ namespace Iroca
     public partial class ColorZone
     {
         // ハイライト補助マッチで対象ピクセルとみなす「鏡面反射/ハイライトらしさ」の閾値。
-        private const float HighlightValueMin = 0.80f;
-        private const float HighlightSaturationMax = 0.20f;
+        // internal: ZoneAutoTuner のハイライト候補カウントが同じ条件をリテラルで再掲していたため共有。
+        internal const float HighlightValueMin = 0.80f;
+        internal const float HighlightSaturationMax = 0.20f;
         private const float HighlightRelaxedSatMin = 0.02f;
         private const float HighlightRelaxedSatRamp = 0.08f;
+
+        // 選択済み判定の strength 床。PixelProcessor 側の後段ゲート
+        // (ApplyChromaCeilingGate / RecoverEnclosedNeutral / NeutralReject / SolidifyAchromaInterior)が
+        // それぞれローカル const 0.05f を持っていたため一本化(値の意味: これ以下は「未選択」扱い)。
+        internal const float MatchStrengthFloor = 0.05f;
 
         // 彩度ガード: 源色が高彩度なときだけ作動し、対象ピクセルの彩度が
         // 「源色 S × FractionScale × saturationGuard」を下回ったら hard reject する。

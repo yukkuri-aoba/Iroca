@@ -416,16 +416,14 @@ namespace Iroca
             float sS, float sV, float chromaThreshold,
             int w, int h, CancellationToken ct = default)
         {
-            // グレーモード判定は ColorZone.MatchOneSample / GetRelaxedMatchStrength と同一式。
-            float effectiveChromaThreshold = Mathf.Lerp(
-                ColorZone.GrayModeBaseChromaThreshold, chromaThreshold,
-                Mathf.Clamp01(sV / ColorZone.GrayModeChromaConfidenceRamp));
+            // グレーモード判定は ColorZone.MatchOneSample / GetRelaxedMatchStrength と共有ヘルパー。
+            float effectiveChromaThreshold = ColorZone.GrayModeEffectiveChromaThreshold(sV, chromaThreshold);
             if (sS > effectiveChromaThreshold) return;   // 有彩サンプル=グレーモードではない
 
             float satCeil = Mathf.Max(sS * ColorZone.ChromaCeilSampleFrac, ColorZone.ChromaCeilAbs);
 
             int len = w * h;
-            const float matchThr = 0.05f;  // コア判定の strength 床(NeutralReject と同じ)
+            const float matchThr = ColorZone.MatchStrengthFloor;  // コア判定の strength 床(NeutralReject と同じ)
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             bool[] cur = s_boolPool.Rent(len);
             bool[] nxt = s_boolPool.Rent(len);
@@ -529,10 +527,8 @@ namespace Iroca
             Color sampleColor, float tolerance, float sS, float sV, float chromaThreshold,
             int w, int h, CancellationToken ct = default)
         {
-            // グレーモード判定は ColorZone.MatchOneSample / ApplyChromaCeilingGate と同一式。
-            float effectiveChromaThreshold = Mathf.Lerp(
-                ColorZone.GrayModeBaseChromaThreshold, chromaThreshold,
-                Mathf.Clamp01(sV / ColorZone.GrayModeChromaConfidenceRamp));
+            // グレーモード判定は ColorZone.MatchOneSample / ApplyChromaCeilingGate と共有ヘルパー。
+            float effectiveChromaThreshold = ColorZone.GrayModeEffectiveChromaThreshold(sV, chromaThreshold);
             if (sS > effectiveChromaThreshold) return;   // 有彩サンプル=グレーモードではない
             // 彩度整合ゲートが作動しないサンプル(真の無彩)では打ち消す対象が無い。
             if (sS <= ColorZone.ChromaGateActivateSat) return;
@@ -544,7 +540,7 @@ namespace Iroca
             float sr = sampleColor.r, sg = sampleColor.g, sb = sampleColor.b;
 
             int len = w * h;
-            const float matchThr = 0.05f;   // 未選択判定(ApplyChromaCeilingGate と同じ床)
+            const float matchThr = ColorZone.MatchStrengthFloor;   // 未選択判定(ApplyChromaCeilingGate と同じ床)
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             bool[] free = s_boolPool.Rent(len);   // 未選択=開領域を辿れる画素
             bool[] open = s_boolPool.Rent(len);   // 画像端から到達できた未選択画素
@@ -743,10 +739,10 @@ namespace Iroca
             float sR = 0f, float sG = 0f, float sB = 0f, float chromaConfidence = 1f,
             float chromaThreshold = 0.05f)
         {
-            // ColorZone.MatchOneSample と同じ動的しきい値：暗いサンプルほどグレースケールモードの範囲を広げる。
+            // ColorZone.MatchOneSample と共有ヘルパーによる動的しきい値（暗いサンプルほど範囲拡大）。
             // 上端は zone.chromaThreshold(ユーザー可変)を使う。以前は既定値 0.05 を焼き込んでいたため、
             // ユーザーが chromaThreshold を変えると主経路と穴埋め/境界回復でグレーモード判定が食い違っていた。
-            float effectiveChromaThreshold = Mathf.Lerp(ColorZone.GrayModeBaseChromaThreshold, chromaThreshold, Mathf.Clamp01(sV / ColorZone.GrayModeChromaConfidenceRamp));
+            float effectiveChromaThreshold = ColorZone.GrayModeEffectiveChromaThreshold(sV, chromaThreshold);
 
             // 純白装飾はそのまま残す: relaxedSatMin 未満は弾く（ハードゲート）
             // ただしサンプル自体が高彩度の場合のみ適用（暗サンプルの低彩度ピクセルは通過させる）
@@ -762,26 +758,18 @@ namespace Iroca
                 // 色の遠い隣接色(距離>tol)を拒否し、対象自身の AA 縁(地色寄りの混色)だけを回復する。
                 // 暗サンプルでは Lerp で pS へ収束=従来同等。
                 float dr = pR - sR, dg = pG - sG, db = pB - sB;
-                float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f;
+                float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * ColorZone.InvSqrt3;
                 float darknessFactor = Mathf.Clamp01((ColorZone.GrayModeDarkSampleValue - sV) / ColorZone.GrayModeDarkSampleValue);
                 float effectiveDist = Mathf.Lerp(rgbDist, pS, darknessFactor);
                 // 輝度盲対策: 純黒サンプルで純白まで距離0マッチするのを防ぐ。ヘッドルーム超えの
                 // 明るさに輝度超過ペナルティを加える。ColorZone.MatchOneSample のグレーモードと同期。
                 float lumExcess = Mathf.Max(0f, (pV - sV) - ColorZone.GrayHighlightHeadroom);
                 effectiveDist += lumExcess * ColorZone.GrayLumExcessWeight;
-                // 彩度整合ゲート(GetColorMatchScores のグレーモードと同じ)。サンプルが微小な tint を
+                // 彩度整合ゲート(主経路 MatchOneSample と共有ヘルパー)。サンプルが微小な tint を
                 // 持つとき、それより著しく中性寄りの候補(純白 UV 背景等)を距離加算でソフト排除する。
                 // 明るい tint 付きサンプル(生成りの布地など)では値距離だと純白(pV≈sV)が一致するため、
                 // ここでも必要。
-                // sS≈0(真の無彩サンプル)では作動しない=従来挙動を維持。明部限定(gateWeight)で
-                // 暗いサンプル(中性が正常)では矛盾を避けフェードさせる。ColorZone.cs と同期。
-                if (sS > ColorZone.ChromaGateActivateSat)
-                {
-                    float gateWeight = Mathf.Clamp01(sV / ColorZone.GrayModeDarkSampleValue);
-                    float satFloor = Mathf.Min(sS * ColorZone.ChromaGateFloorFrac, ColorZone.ChromaGateFloorCap);
-                    float shortfall = Mathf.Clamp01((satFloor - pS) / Mathf.Max(satFloor, 1e-4f));
-                    effectiveDist += shortfall * ColorZone.ChromaGatePenalty * tolerance * gateWeight;
-                }
+                effectiveDist += ColorZone.GrayChromaGatePenalty(sS, sV, pS, tolerance);
                 // 彩度天井ゲート(主経路 GetColorMatchScores のグレーモードと同期): 無彩/微 tint
                 // 素材の彩度包絡を超える高彩度画素(染められた別素材)に距離を加算する。
                 // 穴埋め/境界回復が主経路で弾かれた別素材を復元してしまわないよう同じゲートを課す。
@@ -815,7 +803,7 @@ namespace Iroca
             if (chromaConfidence < 0.999f)
             {
                 float dr = pR - sR, dg = pG - sG, db = pB - sB;
-                float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f;
+                float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * ColorZone.InvSqrt3;
                 dist = rgbDist * (1f - chromaConfidence) + dist * chromaConfidence;
             }
 
