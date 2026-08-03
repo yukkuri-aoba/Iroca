@@ -63,7 +63,19 @@ namespace Iroca.SentisIntegration
                 if (File.Exists(cachePath) &&
                     File.GetLastWriteTimeUtc(cachePath) >= File.GetLastWriteTimeUtc(onnxPath))
                 {
-                    return ModelLoader.Load(cachePath);
+                    try
+                    {
+                        return ModelLoader.Load(cachePath);
+                    }
+                    catch (Exception cacheEx)
+                    {
+                        // Save 中クラッシュ・空き容量枯渇等で壊れたキャッシュは「新しいタイムスタンプ」で
+                        // 残り続け、従来はユーザーが手動で消すまで AI 機能が永続エラーだった。
+                        // 削除して ONNX からの再変換にフォールバックする。
+                        UnityEngine.Debug.LogWarning(
+                            $"[Iroca] .sentis キャッシュの読込に失敗したため削除して再変換します: {cachePath}\n{cacheEx.Message}");
+                        try { File.Delete(cachePath); } catch { /* 削除失敗でも下の Save が上書きする */ }
+                    }
                 }
 
                 var model = ConvertViaAssetPipeline(onnxPath, out error);
