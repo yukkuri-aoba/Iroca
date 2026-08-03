@@ -7,14 +7,20 @@
 
 .PARAMETER UnityPackagePath
     Path to the .unitypackage file to include in the zip.
-    If omitted, a zip without unitypackage is created (SHA256 will differ from final zip).
+    REQUIRED unless -AllowNoUnityPackage is given: omitting it produces a zip whose
+    SHA256 differs from the final release asset (past incident source).
+
+.PARAMETER AllowNoUnityPackage
+    Explicitly build a zip WITHOUT the unitypackage (SHA256 will not match the
+    final release asset — docs/index.json must be regenerated before publishing).
 
 .EXAMPLE
     .\scripts\Build-VpmPackage.ps1 -UnityPackagePath "C:\path\to\Iroca_Ver0.2.0.unitypackage"
 #>
 param(
     [string]$Version = "",
-    [string]$UnityPackagePath = ""
+    [string]$UnityPackagePath = "",
+    [switch]$AllowNoUnityPackage
 )
 
 Set-StrictMode -Version Latest
@@ -44,13 +50,24 @@ try {
         throw "unitypackage not found: $UnityPackagePath"
     }
 
+    # -UnityPackagePath 省略はドキュメント警告だけでは防げなかった既知の事故経路
+    # （非同梱 zip の SHA256 で docs/index.json を上書き→listing 不一致）。明示スイッチを要求する。
+    if ($UnityPackagePath -eq "" -and -not $AllowNoUnityPackage) {
+        throw ("-UnityPackagePath が指定されていません。最終 zip と SHA256 が一致しなくなります。`n" +
+               "  unitypackage を同梱する:   -UnityPackagePath <path>`n" +
+               "  意図的に省略する(検証用):  -AllowNoUnityPackage")
+    }
+
     # --- Update package.json FIRST (zip must include the updated version/url) ---
     $pkg.version = $Version
     $pkg.url     = $ReleaseUrl
     if ($pkg.PSObject.Properties["zipSHA256"]) {
         $pkg.PSObject.Properties.Remove("zipSHA256")
     }
-    $pkg | ConvertTo-Json -Depth 10 | Set-Content $PkgJsonPath -Encoding UTF8 -NoNewline
+    # Set-Content -Encoding UTF8 は Windows PowerShell 5.1 だと BOM 付きになり、
+    # release.yml の jq が parse に失敗する。BOM なし UTF-8 を明示して版差を消す。
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($PkgJsonPath, ($pkg | ConvertTo-Json -Depth 10), $utf8NoBom)
     Write-Host "[OK] package.json updated"
 
     # --- Remove old zip ---
@@ -126,7 +143,7 @@ try {
     } else {
         $verObj.$Version = $listingEntry
     }
-    $index | ConvertTo-Json -Depth 20 | Set-Content $IndexPath -Encoding UTF8 -NoNewline
+    [System.IO.File]::WriteAllText($IndexPath, ($index | ConvertTo-Json -Depth 20), $utf8NoBom)
     Write-Host "[OK] docs/index.json updated"
 
     # --- Next steps ---
@@ -135,7 +152,7 @@ try {
     Write-Host "1. (If not done) Re-run with -UnityPackagePath to finalize the zip + SHA256"
     Write-Host "2. git add package.json docs/index.json CHANGELOG.md"
     Write-Host "3. git commit"
-    Write-Host "4. Merge feature/refactor-all -> main (PR or local merge)"
+    Write-Host "4. Merge develop -> main (PR or local merge)"
     Write-Host "5. git push origin main"
     Write-Host "6. git tag v$Version && git push origin v$Version"
     Write-Host "   -> CI will create a DRAFT release on GitHub"
