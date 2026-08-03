@@ -71,7 +71,7 @@ namespace Iroca
                     if (pS > AchromaClusterSatMax) continue;        // 有彩は別素材として距離分布に入れない
                     if (Mathf.Abs(pV - sV) > AchromaVWindow) continue; // 明度が遠い(黒/白の別パート)は除外
                     float dr = r - sr, dg = g - sg, db = b - sb;
-                    float d = Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f; // グレーモードの距離式と一致
+                    float d = Mathf.Sqrt(dr * dr + dg * dg + db * db) * ColorZone.InvSqrt3; // グレーモードの距離式と一致
                     int bi = Mathf.Clamp((int)(d / DistMax * DistBins), 0, DistBins - 1);
                     bins[bi]++;
                     count++;
@@ -499,7 +499,7 @@ namespace Iroca
         private static float ColorDist(Color a, Color b)
         {
             float dr = a.r - b.r, dg = a.g - b.g, db = a.b - b.b;
-            return Mathf.Sqrt(dr * dr + dg * dg + db * db) * 0.57735027f;
+            return Mathf.Sqrt(dr * dr + dg * dg + db * db) * ColorZone.InvSqrt3;
         }
 
         private static SampleHSV MakeSampleHSV(Color c)

@@ -14,19 +14,24 @@ namespace Iroca
     /// </summary>
     internal static partial class ZoneAutoTuner
     {
-        // ── デフォルト値（ColorZone.cs / IrocaSessionState.cs と同期） ──
-        // 元ファイルへの変更を避けるためここに定数で持ち、同期は手作業で行う。
-        private const float DefaultTolerance               = 0f;
-        private const float DefaultSaturationStrictness    = 0.50f;
-        private const float DefaultSaturationGuard         = 0f;
-        private const float DefaultChromaThreshold         = 0.05f;
-        private const bool  DefaultHighlightRecovery       = true;
-        private const float DefaultValueBlend              = 1f;
-        private const float DefaultEdgeSoftness            = 0f;
-        private const float DefaultShadowDesaturation      = 0.35f;
-        private const float DefaultShadowForgivenessSatMin = 0.05f;
-        private const int   DefaultAntiAliasCleanup        = 3;
-        private const bool  DefaultUseDecontamination      = true;
+        // ── デフォルト値（単一ソース: ColorZone / IrocaSessionState のフィールド初期値） ──
+        // 旧実装は const をここへ複製し「同期は手作業」だったが、片側だけ変えると
+        // IsZoneBasicsAtDefault / CollectOverwrittenLabels / Globals 適用可否の判定が静かに壊れる
+        // (2026-07/08 監査で指摘)。既定値インスタンスから読むことで構造的に同期する。
+        // 注意: 読み取り専用。変異させないこと(BG スレッドからも参照される)。
+        private static readonly ColorZone s_zoneDefaults = new ColorZone();
+        private static readonly IrocaSessionState s_sessionDefaults = new IrocaSessionState();
+        private static float DefaultTolerance               => s_zoneDefaults.tolerance;
+        private static float DefaultSaturationStrictness    => s_zoneDefaults.saturationStrictness;
+        private static float DefaultSaturationGuard         => s_zoneDefaults.saturationGuard;
+        private static float DefaultChromaThreshold         => s_zoneDefaults.chromaThreshold;
+        private static bool  DefaultHighlightRecovery       => s_zoneDefaults.highlightRecovery;
+        private static float DefaultValueBlend              => s_zoneDefaults.valueBlend;
+        private static float DefaultEdgeSoftness            => s_zoneDefaults.edgeSoftness;
+        private static float DefaultShadowDesaturation      => s_zoneDefaults.shadowDesaturation;
+        private static float DefaultShadowForgivenessSatMin => s_zoneDefaults.shadowForgivenessSatMin;
+        private static int   DefaultAntiAliasCleanup        => s_sessionDefaults.antiAliasCleanup;
+        private static bool  DefaultUseDecontamination      => s_sessionDefaults.useDecontamination;
 
         // 彩度ガード自動導出パラメータ
         //
@@ -301,8 +306,10 @@ namespace Iroca
 
                     float hDist = HueDistance(pH, stats.sH);
 
-                    // ハイライト復元候補（サンプル色と同系のハイライト領域）
-                    if (pV > 0.80f && pS < 0.20f && hDist < 0.15f)
+                    // ハイライト復元候補（サンプル色と同系のハイライト領域）。
+                    // 条件は ColorZone のハイライト判定・Verify.cs:GrowHighlightBand ミラーと同じ定数を共有する。
+                    if (pV > ColorZone.HighlightValueMin && pS < ColorZone.HighlightSaturationMax
+                        && hDist < ColorZone.ForgivenessHueGate)
                         stats.highlightCandidates++;
 
                     if (hDist < NearHueDist &&
