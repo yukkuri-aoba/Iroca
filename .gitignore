@@ -52,7 +52,8 @@ docs/image_processing_math_review_2026-06-10.md
 docs/recolor_design_rationale.md
 docs/refactoring-plan.md
 docs/refactoring-unity-editor-antipatterns.md
-docs/testing-architecture.md
+# testing-architecture.md は 2026-08-03 の環境全損で「ローカルのみ運用」の脆さが実証されたため
+# git 追跡へ昇格（CLAUDE.md が正として参照する文書。秘匿情報なし）
 docs/unity-mcp-automation.md
 
 # build-check (dotnet 単体での型チェック専用、Unity 非依存)
