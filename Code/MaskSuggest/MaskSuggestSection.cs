@@ -73,9 +73,15 @@ namespace Iroca
                     EditorGUILayout.HelpBox(Localization.AiSuggestNoModel, MessageType.Info);
                     if (MaskSuggestModelDownload.InProgress)
                     {
+                        EditorGUILayout.BeginHorizontal();
                         var pr = EditorGUILayout.GetControlRect(false, 18f);
                         EditorGUI.ProgressBar(pr, MaskSuggestModelDownload.Progress,
                                               Localization.AiSuggestDownloading);
+                        if (GUILayout.Button(new GUIContent(Localization.AiSuggestDownloadCancel,
+                                                            Localization.AiSuggestDownloadCancelTooltip),
+                                             GUILayout.Width(48f)))
+                            MaskSuggestModelDownload.Cancel();
+                        EditorGUILayout.EndHorizontal();
                     }
                     else
                     {

@@ -539,6 +539,10 @@ namespace Iroca
             ? "MobileSAM の AI モデル 2 ファイル（合計約 45MB、Apache-2.0 ライセンス）を\n{0}\nからダウンロードし、モデルフォルダへ自動配置します（sha256 検証つき）"
             : "Download the two MobileSAM model files (about 45MB total, Apache-2.0 license) from\n{0}\nand place them into the model folder automatically (with sha256 verification).";
         public static string AiSuggestDownloading => IsJapanese ? "モデルをダウンロード中..." : "Downloading models...";
+        public static string AiSuggestDownloadCancel => IsJapanese ? "中止" : "Cancel";
+        public static string AiSuggestDownloadCancelTooltip => IsJapanese
+            ? "ダウンロードを中止します（ダウンロード済みの部分ファイルは削除されます）"
+            : "Cancel the download (partially downloaded files are deleted).";
         public static string AiSuggestDownloadFailed => IsJapanese
             ? "ダウンロードに失敗しました: {0}\n手動でダウンロードしてモデルフォルダへ配置することもできます（手順はマニュアル参照）"
             : "Download failed: {0}\nYou can also download manually and place the files into the model folder (see the manual).";
