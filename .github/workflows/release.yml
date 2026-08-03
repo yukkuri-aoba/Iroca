@@ -71,6 +71,15 @@ jobs:
           fi
           echo "listing SHA256: $LISTING_SHA"
 
+      # docs/RELEASING.md の「公開前の一度きり復旧タスク」（2026-07-02 起票の listing 破損）が
+      # 未消化の間はリリースを進めさせない。チェックリストを完了して該当節を削除すると自動解除。
+      - name: Block release while listing-recovery checklist remains
+        run: |
+          if grep -q "公開前の一度きり復旧タスク" docs/RELEASING.md; then
+            echo "::error::docs/RELEASING.md の「公開前の一度きり復旧タスク」が未消化です。完了して該当節を削除してから再タグしてください。"
+            exit 1
+          fi
+
       - name: Extract changelog section
         id: changelog
         run: |
