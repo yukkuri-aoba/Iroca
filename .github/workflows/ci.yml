@@ -1,0 +1,61 @@
+# push/PR ごとの最小 CI。
+# 「コンパイルが通るか」を人間のローカル環境に頼らず機械検証する（2026-08 監査 §CI 不在への対応）。
+#
+# - metadata:    package.json / docs/index.json の JSON 妥当性と BOM 混入チェック
+#                （BOM は release.yml の jq を壊す既知の事故経路）
+# - build-check: GameCI の Unity イメージから UnityEngine/UnityEditor DLL を借りて
+#                dotnet 型チェック（Unity エディタは起動しない）。
+#                IrocaEditor.Debug.csproj は本体を ProjectReference するため 1 ビルドで
+#                本体 + Debug 衛星の両方を検証できる。
+#                headless ハーネス（Harness.csproj）のビルドも検証し、
+#                Code/Core の取り込みリスト切れ（新規ファイル追加漏れ）を検知する。
+#
+# 回帰テスト(pytest)はテスト資産がプライベートリポジトリ(Iroca_dev_safe)のため未実施。
+# 追加する場合は deploy key を Secrets に登録して checkout を足すこと。
+name: ci
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  metadata:
+    name: metadata validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: JSON parse & required fields
+        run: |
+          jq -e '.name and .version and .url' package.json > /dev/null
+          jq -e '.packages | type == "object"' docs/index.json > /dev/null
+          echo "package.json version: $(jq -r .version package.json)"
+      - name: UTF-8 BOM check
+        run: |
+          for f in package.json docs/index.json; do
+            if [ "$(head -c 3 "$f" | od -An -tx1 | tr -d ' \n')" = "efbbbf" ]; then
+              echo "::error file=$f::UTF-8 BOM が混入しています（jq が parse に失敗します）"
+              exit 1
+            fi
+          done
+
+  build-check:
+    name: build-check (dotnet type check)
+    runs-on: ubuntu-latest
+    container:
+      # Unity 2022.3.22f1 の DLL 参照用。エディタは起動しないのでライセンス不要。
+      image: unityci/editor:ubuntu-2022.3.22f1-base-3.2.2
+    env:
+      UNITY_EDITOR_PATH: /opt/unity/Editor/Data/Managed
+      UnityManaged: /opt/unity/Editor/Data/Managed
+      DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: 本体 + Debug 衛星の型チェック
+        run: dotnet build scripts/build-check/IrocaEditor.Debug.csproj -c Release -nologo
+      - name: headless ハーネスのビルド検証
+        run: dotnet build scripts/headless-run/Harness.csproj -c Release -nologo
