@@ -47,6 +47,22 @@ dev_safe/（別リポジトリ・プライベート: yukkuri-aoba/Iroca_dev_safe
 | .NET SDK | 8.0+（`dotnet --version`） | ハーネス・build-check のビルドに必要 |
 | Unity CoreModule DLL | ハーネスのビルドに必要 | 既定: `C:\Program Files\Unity\Hub\Editor\2022.3.22f1\Editor\Data\Managed`。無い場合は `UnityManaged` 環境変数で上書き（下記） |
 | Unity Editor 一式 | build-check のみ必要 | `UnityEngine.dll`+`UnityEditor.dll` を参照。`UNITY_EDITOR_PATH` で上書き可 |
+| ホスト Unity プロジェクト | Editor UI の実機確認・`#if UNITY_EDITOR` 内の検証に必要 | 本体を `file:` ローカルパッケージ参照する（下記「ホスト Unity プロジェクト」） |
+
+### Unity 導入済み環境（推奨。2026-08-04 に本機で復旧）
+
+Unity 2022.3.22f1 が既定パスに入っていれば、`UnityManaged` / `UNITY_EDITOR_PATH` は
+どちらも `...\Editor\Data\Managed` を指す **1 つの値で足りる**。両方をここに向けておくと、
+ハーネス・build-check・Sentis チェックが同じ Unity を見る:
+
+```powershell
+$real = "C:\Program Files\Unity\Hub\Editor\2022.3.22f1\Editor\Data\Managed"
+[Environment]::SetEnvironmentVariable("UnityManaged", $real, "User")
+[Environment]::SetEnvironmentVariable("UNITY_EDITOR_PATH", $real, "User")
+```
+
+下の「Unity 未インストール環境」の 2 DLL シムは、Unity が入ったら**使わない**
+（CoreModule 以外のモジュールを参照する変更が入った時に、原因の分かりにくい参照解決エラーになる）。
 
 ### Unity 未インストール環境でのハーネス実行（2026-08-03 確立）
 
@@ -68,6 +84,57 @@ dev_safe/（別リポジトリ・プライベート: yukkuri-aoba/Iroca_dev_safe
 DLL の出所は Unity 2022.3.22f1 の `Editor\Data\Managed\UnityEngine\`（過去ビルドの
 `scripts/headless-run/bin/Release/` にもコピーが残る）。**DLL は Unity のライセンス物なので
 リポジトリにコミットしない。**
+
+## ホスト Unity プロジェクト
+
+`.meta` はリポジトリで追跡しない（`.gitignore`）。**ホスト Unity プロジェクトから本体を
+ローカルパッケージ参照し、そこで `.meta` を生成させる**のが正の構成。headless ハーネスと
+build-check は Unity を起動しないので、この構成が無くても pytest は緑になる。だが
+Editor UI の実機確認と `#if UNITY_EDITOR` 内のコンパイル検証は Unity 経由でしかできない。
+
+- 本機のホスト: `C:\Users\k6803\Documents\Avatar_Projects\Iroca_Dev`（2022.3.22f1 / VRC SDK 3.10.4 / lilToon）
+- リンクは **`scripts/Link-HostPackage.ps1`** で行う:
+  ```powershell
+  .\scripts\Link-HostPackage.ps1 -HostProject "C:\...\Avatar_Projects\Iroca_Dev"
+  .\scripts\Link-HostPackage.ps1 -HostProject "..." -Unlink   # 解除
+  ```
+  ホスト側に `Packages/com.yukkuri-aoba.iroca/` を作り、`Code/` だけをディレクトリ
+  ジャンクションで繋ぎ、`package.json` などの配布物をコピーする。`Packages/<名前>/` は
+  Unity が自動で埋め込みパッケージとして認識するので manifest.json への追記は不要。
+  配布時と同じ形なので `PackageInfo.FindForAssembly` も期待どおり解決される。
+  **package.json のバージョンを上げたらスクリプトを再実行してコピーを同期すること。**
+
+#### manifest.json に `file:<リポジトリルート>` を書いてはいけない（2026-08-04 に実測で却下）
+
+一見自然だが破綻する。リポジトリルートには dev_safe（約 10GB の PSD/テクスチャ）と
+dotnet のビルド成果物が同居しており、Unity がそれらを全部アセットとして取り込む:
+
+- `dev_safe/texture_sample` の PSD/PNG を延々インポートし続けて実用にならない
+  （`.venv` や `.git` は先頭が `.` なので Unity が無視するが、`dev_safe` は無視されない）
+- `scripts/build-check/bin/com.yukkuri-aoba.iroca.Editor.dll` が **同名アセンブリの
+  プラグイン** として読み込まれ、ソースからのコンパイルと型が衝突する
+  （`warning CS0436: The type ... conflicts with the imported type ...`）。
+  `scripts/headless-run/obj/Release/IrocaHeadless.dll` も
+  `Assembly ... will not be loaded due to errors` になる
+- Unity 側で生成された `.meta` が dev_safe（別リポジトリ）に大量に流れ込む
+
+- Unity を起動せずコンパイルだけ確認する:
+  ```powershell
+  & "C:\Program Files\Unity\Hub\Editor\2022.3.22f1\Editor\Unity.exe" `
+      -batchmode -nographics -quit -projectPath "<ホスト>" -logFile "<ログ>"
+  ```
+  Unity.exe は GUI サブシステムなので **PowerShell は待たずに戻る**。終了判定は
+  プロセス消滅かログの `Exiting batchmode successfully` で見ること。
+
+### IrocaSentisCheck の前提（未整備）
+
+`scripts/build-check/IrocaSentisCheck.csproj` は com.unity.sentis 2.x を入れた **別の**
+ホストプロジェクトの `Library\ScriptAssemblies` を要求する（既定 `../../../Avatar_Projects/Iroca_MLDev`）。
+本機には未作成のため、このチェックだけは失敗する。CI（`ci.yml`）は対象外。
+使う場合は Sentis 入りプロジェクトを一度開いてから:
+```powershell
+$env:IROCA_SENTIS_ASSEMBLIES = "<Sentis 入りプロジェクト>\Library\ScriptAssemblies"
+```
 
 ## 標準の実行コマンド
 
@@ -120,10 +187,13 @@ python tools/visual_review.py approve             # 承認マーカー書き込�
    .\.venv\Scripts\python.exe -m pip install -r dev_safe\Tests\requirements.txt
    ```
 2. .NET SDK 8 をインストール（winget: `Microsoft.DotNet.SDK.8`）。
-3. Unity DLL を用意（上記「Unity 未インストール環境」参照）。
+3. Unity 2022.3.22f1 を Unity Hub で入れて `UnityManaged` / `UNITY_EDITOR_PATH` を設定
+   （上記「Unity 導入済み環境」）。Unity を入れられない場合のみ 2 DLL シムで代替。
 4. `git config core.hooksPath scripts/hooks` でフックを有効化。
 5. `dotnet build scripts/headless-run/Harness.csproj -c Release` → pytest 一式で緑を確認。
 6. dev_safe が無いマシンでは `git clone https://github.com/yukkuri-aoba/Iroca_dev_safe dev_safe`。
+7. ホスト Unity プロジェクトに本体を `file:` 参照でリンクする（上記「ホスト Unity プロジェクト」）。
+   ここまでやって初めて Editor UI の実機確認まで再開できる。
 
 ## 既知の限界・注意
 
