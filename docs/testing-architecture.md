@@ -47,7 +47,8 @@ dev_safe/（別リポジトリ・プライベート: yukkuri-aoba/Iroca_dev_safe
 | .NET SDK | 8.0+（`dotnet --version`） | ハーネス・build-check のビルドに必要 |
 | Unity CoreModule DLL | ハーネスのビルドに必要 | 既定: `C:\Program Files\Unity\Hub\Editor\2022.3.22f1\Editor\Data\Managed`。無い場合は `UnityManaged` 環境変数で上書き（下記） |
 | Unity Editor 一式 | build-check のみ必要 | `UnityEngine.dll`+`UnityEditor.dll` を参照。`UNITY_EDITOR_PATH` で上書き可 |
-| ホスト Unity プロジェクト | Editor UI の実機確認・`#if UNITY_EDITOR` 内の検証に必要 | 本体を `file:` ローカルパッケージ参照する（下記「ホスト Unity プロジェクト」） |
+| ホスト Unity プロジェクト | Editor UI の実機確認・`#if UNITY_EDITOR` 内の検証に必要 | `scripts/Link-HostPackage.ps1` でリンクする（下記「ホスト Unity プロジェクト」） |
+| ML ホスト（Sentis 入り） | `IrocaSentisCheck` と `Code/SentisIntegration/` の検証に必要 | `yukkuri-aoba/Iroca_MLDev`（下記「ML ホスト」） |
 
 ### Unity 導入済み環境（推奨。2026-08-04 に本機で復旧）
 
@@ -126,15 +127,28 @@ dotnet のビルド成果物が同居しており、Unity がそれらを全部�
   Unity.exe は GUI サブシステムなので **PowerShell は待たずに戻る**。終了判定は
   プロセス消滅かログの `Exiting batchmode successfully` で見ること。
 
-### IrocaSentisCheck の前提（未整備）
+### ML ホスト（Sentis 用・IrocaSentisCheck の前提）
 
-`scripts/build-check/IrocaSentisCheck.csproj` は com.unity.sentis 2.x を入れた **別の**
-ホストプロジェクトの `Library\ScriptAssemblies` を要求する（既定 `../../../Avatar_Projects/Iroca_MLDev`）。
-本機には未作成のため、このチェックだけは失敗する。CI（`ci.yml`）は対象外。
-使う場合は Sentis 入りプロジェクトを一度開いてから:
+`Code/SentisIntegration/` は `IROCA_SENTIS_PRESENT` ゲートの別 asmdef なので、通常のホスト
+（VRChat 側）でも `IrocaEditor.csproj` でもコンパイルされない。ここを検査するのが
+`scripts/build-check/IrocaSentisCheck.csproj` で、com.unity.sentis 2.x を入れた **別の**
+ホストプロジェクトの `Library\ScriptAssemblies`（Unity.Sentis / Burst / Collections /
+Mathematics）を要求する。CI（`ci.yml`）は対象外＝ローカル専用のチェック。
+
+そのプロジェクトは **`yukkuri-aoba/Iroca_MLDev`（Sentis 2.1.3 入り）** で、csproj の既定パス
+`../../../Avatar_Projects/Iroca_MLDev` に置けば環境変数の上書きは不要:
+
 ```powershell
-$env:IROCA_SENTIS_ASSEMBLIES = "<Sentis 入りプロジェクト>\Library\ScriptAssemblies"
+git clone https://github.com/yukkuri-aoba/Iroca_MLDev "$env:USERPROFILE\Documents\Avatar_Projects\Iroca_MLDev"
+.\scripts\Link-HostPackage.ps1 -HostProject "$env:USERPROFILE\Documents\Avatar_Projects\Iroca_MLDev"
+# Unity で一度開いて Library\ScriptAssemblies を生成させる（batchmode でよい）
+dotnet build scripts/build-check/IrocaSentisCheck.csproj
 ```
+
+別の場所に置くなら `-p:SentisAssembliesPath=` か `IROCA_SENTIS_ASSEMBLIES` で上書きする。
+Unity で開くと `Iroca.SentisIntegration.dll` も `Library\ScriptAssemblies` に出る。
+**dotnet 側は 1 アセンブリにまとめてコンパイルするので asmdef 境界は再現しない。**
+境界（internal の見え方など）の最終確認はこの Unity 側コンパイルが正。
 
 ## 標準の実行コマンド
 
@@ -192,8 +206,9 @@ python tools/visual_review.py approve             # 承認マーカー書き込�
 4. `git config core.hooksPath scripts/hooks` でフックを有効化。
 5. `dotnet build scripts/headless-run/Harness.csproj -c Release` → pytest 一式で緑を確認。
 6. dev_safe が無いマシンでは `git clone https://github.com/yukkuri-aoba/Iroca_dev_safe dev_safe`。
-7. ホスト Unity プロジェクトに本体を `file:` 参照でリンクする（上記「ホスト Unity プロジェクト」）。
+7. ホスト Unity プロジェクトに本体をリンクする（上記「ホスト Unity プロジェクト」）。
    ここまでやって初めて Editor UI の実機確認まで再開できる。
+8. Sentis 統合を触るなら ML ホスト（`Iroca_MLDev`）も用意する（上記「ML ホスト」）。
 
 ## 既知の限界・注意
 
