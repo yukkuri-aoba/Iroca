@@ -63,44 +63,46 @@ namespace Iroca
 
         // --zones / zones モード用のフラットなゾーン設定（Harness.ZoneCfg と同一スキーマ、色は [r,g,b] 0..1）。
         // JsonUtility 用に public フィールドで定義する。
+        // 既定値は ZonesJsonDefaults が唯一の正。ここにリテラルを書き戻さないこと
+        // (Harness.ZoneCfg と乖離し、テストが製品でない挙動を測る事故になる)。
         [Serializable]
         private class ZoneDto
         {
-            public string name = "Zone";
-            public float[] sample = { 1f, 1f, 1f };
-            public float[] target = { 0f, 0f, 0f };
-            public float tolerance = 0.2f;
-            public float valueBlend = 1.0f;
-            public float edgeSoftness = 0.0f;
-            public float saturationStrictness = 0.5f;
-            public float saturationGuard = 0.0f;
-            public float chromaThreshold = 0.05f;
-            public float shadowDesaturation = 0.35f;
-            public float shadowForgivenessSatMin = 0.05f;
-            public float outputSaturation = 1.0f;
-            public bool highlightRecovery = false;
-            public bool highlightBandExpand = true;
-            public bool applyHighlightWash = false;
-            // 既定 ON: 影をスポイトしても出力が過度に明るく/ベタ塗りにならないよう、再着色アンカーを
-            // 領域の代表地色から自動推定する(ColorZone.autoRecolorAnchor と同既定)。
-            public bool autoRecolorAnchor = true;
-            public int layerIndex = 0;
-            // 連続領域モード(連結成分アンカリング)。既定 ON＝製品 UI の標準と一致。自動アンカリング
-            // (シード非依存)なのでバッチでも安全。従来どおり絞り込みたくない場合は false を明示する。
-            public bool useFloodFill = true;
+            public string name = ZonesJsonDefaults.Name;
+            public float[] sample = ZonesJsonDefaults.NewSample();
+            public float[] target = ZonesJsonDefaults.NewTarget();
+            public float tolerance = ZonesJsonDefaults.Tolerance;
+            public float valueBlend = ZonesJsonDefaults.ValueBlend;
+            public float edgeSoftness = ZonesJsonDefaults.EdgeSoftness;
+            public float saturationStrictness = ZonesJsonDefaults.SaturationStrictness;
+            public float saturationGuard = ZonesJsonDefaults.SaturationGuard;
+            public float chromaThreshold = ZonesJsonDefaults.ChromaThreshold;
+            public float shadowDesaturation = ZonesJsonDefaults.ShadowDesaturation;
+            public float shadowForgivenessSatMin = ZonesJsonDefaults.ShadowForgivenessSatMin;
+            public float outputSaturation = ZonesJsonDefaults.OutputSaturation;
+            public bool highlightRecovery = ZonesJsonDefaults.HighlightRecovery;
+            public bool highlightBandExpand = ZonesJsonDefaults.HighlightBandExpand;
+            public bool applyHighlightWash = ZonesJsonDefaults.ApplyHighlightWash;
+            public bool autoRecolorAnchor = ZonesJsonDefaults.AutoRecolorAnchor;
+            public int layerIndex = ZonesJsonDefaults.LayerIndex;
+            public bool useFloodFill = ZonesJsonDefaults.UseFloodFill;
+            // 連続領域モードの上書きシード [u,v]（0-1）。未指定/長さ不足 = 自動アンカリング。
+            // JsonUtility は未知フィールドを無言で捨てるため、ハーネス側だけが持っていた頃は
+            // seedUV 付き zones JSON を製品へ渡しても黙って無視されていた。
+            public float[] seedUV = null;
         }
 
         [Serializable]
         private class SettingsDto
         {
-            public float edgeFeather = 0.0f;
-            public int antiAliasCleanup = 3;
-            public int holeFillPasses = 5;
-            public int holeFillMinNeighbors = 4;
-            public float relaxedSatMin = 0.02f;
-            public float relaxedSatRamp = 0.08f;
-            public bool useDecontamination = true;
-            public int decontaminationRadius = 4;
+            public float edgeFeather = ZonesJsonDefaults.EdgeFeather;
+            public int antiAliasCleanup = ZonesJsonDefaults.AntiAliasCleanup;
+            public int holeFillPasses = ZonesJsonDefaults.HoleFillPasses;
+            public int holeFillMinNeighbors = ZonesJsonDefaults.HoleFillMinNeighbors;
+            public float relaxedSatMin = ZonesJsonDefaults.RelaxedSatMin;
+            public float relaxedSatRamp = ZonesJsonDefaults.RelaxedSatRamp;
+            public bool useDecontamination = ZonesJsonDefaults.UseDecontamination;
+            public int decontaminationRadius = ZonesJsonDefaults.DecontaminationRadius;
         }
 
         [Serializable]
@@ -511,6 +513,9 @@ namespace Iroca
                 shadowForgivenessSatMin = z.shadowForgivenessSatMin,
                 layerIndex = z.layerIndex,
                 useFloodFill = z.useFloodFill,
+                // 未指定/長さ不足 = 負値 = 自動アンカリング（Harness.BuildZone と同一の写像）。
+                seedUV = (z.seedUV != null && z.seedUV.Length >= 2)
+                    ? new Vector2(z.seedUV[0], z.seedUV[1]) : new Vector2(-1f, -1f),
             };
             zone.EnsureId();
             zone.UpdateCacheIfNeeded();

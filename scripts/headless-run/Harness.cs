@@ -39,45 +39,49 @@ namespace Iroca
         public SettingsCfg settings { get; set; } = new SettingsCfg();
     }
 
+    // 既定値は ZonesJsonDefaults が唯一の正。ここにリテラルを書き戻さないこと
+    // (IrocaAutomation.ZoneDto と乖離し、テストが製品でない挙動を測る事故になる)。
     internal sealed class ZoneCfg
     {
-        public string name { get; set; } = "Zone";
-        public float[] sample { get; set; } = new[] { 1f, 1f, 1f };
+        public string name { get; set; } = ZonesJsonDefaults.Name;
+        public float[] sample { get; set; } = ZonesJsonDefaults.NewSample();
         // 追加スポイト（マルチサンプル選択）。各要素は [r,g,b] 0..1。未指定=null=単一サンプル。
+        // ★ハーネス専用フィールド★ — 製品側 ZoneDto には対応が無い。UnityEngine.JsonUtility が
+        // 配列の配列(float[][])をデシリアライズできないため製品 DTO では表現できず、
+        // ColorZone.extraSamples は本来 ZoneAutoTuner が自動生成するもので JSON 入力を想定しない。
+        // 現在どのテストからも使われていない。test_zones_schema_parity.py の除外リスト参照。
         public float[][] samples { get; set; } = null;
-        public float[] target { get; set; } = new[] { 0f, 0f, 0f };
-        public float tolerance { get; set; } = 0.2f;
-        public float valueBlend { get; set; } = 1.0f;
-        public float edgeSoftness { get; set; } = 0.0f;
-        public float saturationStrictness { get; set; } = 0.5f;
-        public float saturationGuard { get; set; } = 0.0f;
-        public float chromaThreshold { get; set; } = 0.05f;
-        public float shadowDesaturation { get; set; } = 0.35f;
-        public float shadowForgivenessSatMin { get; set; } = 0.05f;
-        public float outputSaturation { get; set; } = 1.0f;
-        public bool highlightRecovery { get; set; } = false;
-        public bool highlightBandExpand { get; set; } = true;
-        public bool applyHighlightWash { get; set; } = false;
-        // 既定 ON(ColorZone.autoRecolorAnchor と同既定)。JSON で false にすれば従来のクリック画素
-        // アンカー挙動。ON/OFF を JSON から切り替えて A/B 計測できるようにフィールドを公開する。
-        public bool autoRecolorAnchor { get; set; } = true;
-        public int layerIndex { get; set; } = 0;
-        // 連続領域モード(連結成分アンカリング)。useFloodFill=true で有効。
-        // seedUV=[u,v] は任意の上書きシード(未指定=null=自動アンカリング)。
-        public bool useFloodFill { get; set; } = false;
+        public float[] target { get; set; } = ZonesJsonDefaults.NewTarget();
+        public float tolerance { get; set; } = ZonesJsonDefaults.Tolerance;
+        public float valueBlend { get; set; } = ZonesJsonDefaults.ValueBlend;
+        public float edgeSoftness { get; set; } = ZonesJsonDefaults.EdgeSoftness;
+        public float saturationStrictness { get; set; } = ZonesJsonDefaults.SaturationStrictness;
+        public float saturationGuard { get; set; } = ZonesJsonDefaults.SaturationGuard;
+        public float chromaThreshold { get; set; } = ZonesJsonDefaults.ChromaThreshold;
+        public float shadowDesaturation { get; set; } = ZonesJsonDefaults.ShadowDesaturation;
+        public float shadowForgivenessSatMin { get; set; } = ZonesJsonDefaults.ShadowForgivenessSatMin;
+        public float outputSaturation { get; set; } = ZonesJsonDefaults.OutputSaturation;
+        public bool highlightRecovery { get; set; } = ZonesJsonDefaults.HighlightRecovery;
+        public bool highlightBandExpand { get; set; } = ZonesJsonDefaults.HighlightBandExpand;
+        public bool applyHighlightWash { get; set; } = ZonesJsonDefaults.ApplyHighlightWash;
+        public bool autoRecolorAnchor { get; set; } = ZonesJsonDefaults.AutoRecolorAnchor;
+        public int layerIndex { get; set; } = ZonesJsonDefaults.LayerIndex;
+        // 連続領域モード(連結成分アンカリング)。seedUV=[u,v] は任意の上書きシード
+        // (未指定=null=自動アンカリング)。
+        public bool useFloodFill { get; set; } = ZonesJsonDefaults.UseFloodFill;
         public float[] seedUV { get; set; } = null;
     }
 
     internal sealed class SettingsCfg
     {
-        public float edgeFeather { get; set; } = 0.0f;
-        public int antiAliasCleanup { get; set; } = 3;
-        public int holeFillPasses { get; set; } = 5;
-        public int holeFillMinNeighbors { get; set; } = 4;
-        public float relaxedSatMin { get; set; } = 0.02f;
-        public float relaxedSatRamp { get; set; } = 0.08f;
-        public bool useDecontamination { get; set; } = true;
-        public int decontaminationRadius { get; set; } = 4;
+        public float edgeFeather { get; set; } = ZonesJsonDefaults.EdgeFeather;
+        public int antiAliasCleanup { get; set; } = ZonesJsonDefaults.AntiAliasCleanup;
+        public int holeFillPasses { get; set; } = ZonesJsonDefaults.HoleFillPasses;
+        public int holeFillMinNeighbors { get; set; } = ZonesJsonDefaults.HoleFillMinNeighbors;
+        public float relaxedSatMin { get; set; } = ZonesJsonDefaults.RelaxedSatMin;
+        public float relaxedSatRamp { get; set; } = ZonesJsonDefaults.RelaxedSatRamp;
+        public bool useDecontamination { get; set; } = ZonesJsonDefaults.UseDecontamination;
+        public int decontaminationRadius { get; set; } = ZonesJsonDefaults.DecontaminationRadius;
     }
 
     internal static class Harness
