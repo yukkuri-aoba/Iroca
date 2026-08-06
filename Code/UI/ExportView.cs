@@ -41,6 +41,10 @@ namespace Iroca
             public string outputPath;
             public string srcPath;
             public bool inheritImportSettings;
+            // エンコード済み PNG。ディスクへの書き込みは apply(メインスレッド)で行う。
+            // BG で書くと「ファイルは書けたがキャンセルで apply が走らない」中途半端な状態
+            // (ImportAsset も InvalidateSourceAndRepaint も未実行)が作れてしまうため。
+            public byte[] pngData;
         }
 
         /// <summary>エクスポート処理中。true の間はウィンドウ全体を Disabled に。</summary>
@@ -279,48 +283,72 @@ namespace Iroca
                         rgba, GraphicsFormat.R8G8B8A8_SRGB, (uint)texW, (uint)texH);
                     if (pngData == null || pngData.Length == 0)
                         throw new System.Exception("EncodeArrayToPNG が空のデータを返しました");
-                    _exportProgress.Report(0.92f);
-                    File.WriteAllBytes(outputPath, pngData);
-                    _exportProgress.Report(0.97f);
+                    _exportProgress.Report(0.95f);
 
+                    // ★ここでディスクへ書かない★ — 書いてしまうと、この直後〜apply までの間に
+                    // キャンセルされた場合に「PNG は置き換わったのに ImportAsset も
+                    // InvalidateSourceAndRepaint も走っていない」状態が残る。上書きモードでは
+                    // A-2 で塞いだ二重適用経路(プレビューが古い原本画素を握り続ける)が復活する。
+                    // 重いのはエンコードでありファイル書き込みではないので、書き込みは apply で行う。
                     return new ExportPayload
                     {
                         outputPath = outputPath,
                         srcPath = srcPath,
                         inheritImportSettings = inheritFlag,
+                        pngData = pngData,
                     };
                 },
                 apply: payload =>
                 {
-                    // メインスレッド: AssetDatabase 操作のみ(エンコード/保存はバックグラウンドで完了済み)。
-                    string relativePath = PathUtils.ToAssetsRelativeOrNull(payload.outputPath);
-                    if (relativePath != null)
+                    // メインスレッド: 書き込み + AssetDatabase 操作(重いエンコードは BG で完了済み)。
+                    // ここまで来たらキャンセルされないので、書き込みと取り込みは必ず対で走る。
+                    //
+                    // PreviewJob は apply で投げた例外を onError へ回さない(BG の例外だけを拾う)。
+                    // 書き込みは権限不足・ディスクフル等で普通に失敗し得るので、ここで受けて
+                    // BG 失敗時と同じ経路へ流す。放置すると失敗が UI に一切出ない。
+                    try
                     {
-                        if (payload.inheritImportSettings)
+                        // 書き込み自体はアトミック(一時ファイル→rename)にする。書き潰す相手が
+                        // 元テクスチャそのものであり得るため、途中で落ちた書き込みで原本を失わない。
+                        AtomicFile.WriteAllBytes(payload.outputPath, payload.pngData);
+                        _exportProgress.Report(0.97f);
+
+                        string relativePath = PathUtils.ToAssetsRelativeOrNull(payload.outputPath);
+                        if (relativePath != null)
                         {
-                            string srcRel = PathUtils.ToAssetsRelativeOrNull(payload.srcPath);
-                            if (srcRel != null)
-                                PreApplyImportSettings(srcRel, relativePath);
+                            if (payload.inheritImportSettings)
+                            {
+                                string srcRel = PathUtils.ToAssetsRelativeOrNull(payload.srcPath);
+                                if (srcRel != null)
+                                    PreApplyImportSettings(srcRel, relativePath);
+                            }
+                            AssetDatabase.ImportAsset(relativePath);
                         }
-                        AssetDatabase.ImportAsset(relativePath);
+
+                        // ソース自身を書き換えたなら、プレビューが握っている「ディスク原本の画素」は
+                        // もう古い。捨てないと、次のエクスポートが再着色済みファイルを読み直して
+                        // 二重適用になる（プレビューは旧画素を表示し続けるので画面では気づけない）。
+                        if (IsSameFile(payload.outputPath, payload.srcPath))
+                            _host?.InvalidateSourceAndRepaint();
+
+                        _exportProgress.Report(1.0f);
+                        Debug.Log($"[Iroca] Saved: {payload.outputPath}");
+                        // 非モーダル通知: ファイル名のみウィンドウ右下に短時間表示。詳細パスは Debug.Log。
+                        _host?.ShowNotification(new GUIContent($"{Localization.Complete}: {Path.GetFileName(payload.outputPath)}"));
                     }
-
-                    // ソース自身を書き換えたなら、プレビューが握っている「ディスク原本の画素」は
-                    // もう古い。捨てないと、次のエクスポートが再着色済みファイルを読み直して
-                    // 二重適用になる（プレビューは旧画素を表示し続けるので画面では気づけない）。
-                    if (IsSameFile(payload.outputPath, payload.srcPath))
-                        _host?.InvalidateSourceAndRepaint();
-
-                    _exportProgress.Report(1.0f);
-                    Debug.Log($"[Iroca] Saved: {payload.outputPath}");
-                    // 非モーダル通知: ファイル名のみウィンドウ右下に短時間表示。詳細パスは Debug.Log。
-                    _host?.ShowNotification(new GUIContent($"{Localization.Complete}: {Path.GetFileName(payload.outputPath)}"));
+                    catch (System.Exception ex)
+                    {
+                        ReportExportFailure(ex);
+                    }
                 },
-                onError: ex =>
-                {
-                    Debug.LogError($"[Iroca] Export failed: {ex.Message}\n{ex.StackTrace}");
-                    NotifyError(ex.Message);
-                });
+                onError: ReportExportFailure);
+        }
+
+        /// <summary>エクスポート失敗をログ＋UI 通知へ流す（BG 側と apply 側で共有）。</summary>
+        private void ReportExportFailure(System.Exception ex)
+        {
+            Debug.LogError($"[Iroca] Export failed: {ex.Message}\n{ex.StackTrace}");
+            NotifyError(ex.Message);
         }
 
         /// <summary>
