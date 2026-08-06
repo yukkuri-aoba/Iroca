@@ -371,8 +371,12 @@ namespace Iroca
         public static string Before         => IsJapanese ? "変更前" : "Before";
         public static string After          => IsJapanese ? "変更後" : "After";
 
-        // ─── Undo mask ───
-        public static string UndoMask => IsJapanese ? "マスクを元に戻す (Ctrl+Z)" : "Undo Mask (Ctrl+Z)";
+        // ─── Undo ───
+        // 実装は Unity 標準 Undo（Undo.PerformUndo）の薄いショートカットで、対象は「直前の操作」。
+        // 直前がマスク編集とは限らない（スライダー変更やシーン編集かもしれない）ため、
+        // 「マスクを元に戻す」とは名乗らない。名乗ると、マスク以外が巻き戻ったとき破壊的な
+        // サプライズになる。
+        public static string UndoMask => IsJapanese ? "直前の操作を元に戻す (Ctrl+Z)" : "Undo Last Action (Ctrl+Z)";
 
         // ─── Mask paint mode ───
         public static string MaskHintPaintOff => IsJapanese
@@ -475,8 +479,10 @@ namespace Iroca
             ? "すべての除外マスクを消去します"
             : "Erase all exclusion mask paint";
         public static string UndoMaskTooltip => IsJapanese
-            ? "マスクの変更を1ステップ前に戻します（Ctrl+Z でも操作可）"
-            : "Undo the last mask change (also available via Ctrl+Z)";
+            ? "直前の操作を1ステップ前に戻します（Unity 標準の Ctrl+Z と同じ）。"
+              + "マスク専用ではないため、直前がマスク以外の操作ならそちらが戻ります"
+            : "Undo the last action, same as Unity's Ctrl+Z. This is not mask-specific: "
+              + "if your last action was not a mask edit, that action is undone instead";
 
         // ─── Brush palette window ───
         public static string BrushEdit => IsJapanese ? "ブラシで編集..." : "Edit with Brush...";
