@@ -19,6 +19,13 @@ namespace Iroca
         private const int AchromaFringeMatchRadius = 2;    // マッチ境界からこの px 以内の外側を対象
         private const float AchromaFringeMinAlpha = 0.05f; // これ未満=地色の残りがほぼ無い→触らない
         private const float AchromaFringeMaxAlpha = 0.70f; // これ超=地色寄り→除外(白拒否を維持)
+        private const int AchromaFringeBgRadius = 4;       // BG 推定の窓半径
+        // CleanAchromaFringe が maskExcluded を読む最大マージン(bbox からの距離)。
+        // 書き込み側は bbox±MatchRadius、BG ドナー収集はさらに ±BgRadius まで読む。
+        // 呼び出し側はこのマージン分だけ除外フラグを埋めれば足りる(単一ソース化して
+        // 「呼び出し側が狭く埋めて未初期化を読む」事故を防ぐ)。
+        internal const int AchromaFringeExclusionMargin =
+            AchromaFringeMatchRadius + AchromaFringeBgRadius;
 
         // 弱AA画素を「選択領域の内部」とみなして strength=1 に固める背景密度のしきい(窓面積比)。
         // 旧実装は「窓内に背景ドナーが1画素でもあれば α 分解」だったため、淡 tint 布地の内部に
@@ -216,11 +223,20 @@ namespace Iroca
         /// フチに見える。ここをマッチ境界の外側 AchromaFringeMatchRadius px に限り α 分解
         /// (出力 = α·target + (1-α)·背景)で背景側へ寄せてフチを消す。背景優勢(α 小)の画素だけ
         /// 対象にし、白寄り(α≈1)の画素は除外して白拒否を維持する。脚色でなく元の混色の打ち消し。
+        ///
+        /// maskExcluded: 除外マスク画素の位置(null=マスクなし)。呼び出し側は
+        /// bbox±AchromaFringeExclusionMargin の範囲を必ず埋めること。
+        /// DecontaminateAaBoundary と同じ 2 つの理由で参照する:
+        ///   - BG ドナーから隠す … 除外画素は strength=0 だが「背景」ではない(サンプル同色の
+        ///     保護パーツであり得る)。ドナーに入れると BG 推定がサンプル色で汚染される。
+        ///   - 書き込み対象から外す … ユーザーが「触るな」と指定した画素であり、
+        ///     target 混色を塗るのはマスク契約の違反。
         /// </summary>
         private static void CleanAchromaFringe(
             Color32[] pixels, Color32[] originalPixels, float[] strength, float[] claimed,
             int w, int h, Color sampleColor, Color targetColor,
-            int bbMinX, int bbMinY, int bbMaxX, int bbMaxY, CancellationToken ct = default)
+            int bbMinX, int bbMinY, int bbMaxX, int bbMaxY, CancellationToken ct = default,
+            bool[] maskExcluded = null)
         {
             int len = w * h;
             float[] wR = null, wG = null, wB = null, wD = null;
@@ -245,7 +261,7 @@ namespace Iroca
                 // フチ消しが触るのは矩形 [x0..x1]×[y0..y1] だけ。窓和(半径 4)の入力はその ±4 まで
                 // あれば足りるので、ドナー/マッチ指標の準備も窓和もこの範囲に限定する
                 // (従来は全画素で Array.Clear ×5 と窓和 ×5 = 4K で無彩ゾーンごとに固定コストだった)。
-                const int FringeBgRadius = 4;
+                const int FringeBgRadius = AchromaFringeBgRadius;
                 int fx0 = Mathf.Max(0, x0 - FringeBgRadius), fx1 = Mathf.Min(w - 1, x1 + FringeBgRadius);
                 int fy0 = Mathf.Max(0, y0 - FringeBgRadius), fy1 = Mathf.Min(h - 1, y1 + FringeBgRadius);
                 // 背景候補(非マッチ かつ α>0)と、マッチ指標を準備(行ごとにゼロ化 → 該当画素だけ充填)
@@ -261,7 +277,11 @@ namespace Iroca
                     {
                         int i = rowOff + x;
                         float s = strength[i];
-                        if (s <= 0f && originalPixels[i].a > 0)
+                        // 除外マスク画素はドナーから隠す(マスク中立化)。DecontaminateAaBoundary
+                        // (:109)と同じ扱い。入れると BG 推定がサンプル色で汚染され、マスク境界の
+                        // 外側に誤色を塗る。
+                        if (s <= 0f && originalPixels[i].a > 0
+                            && (maskExcluded == null || !maskExcluded[i]))
                         {
                             wR[i] = originalPixels[i].r; wG[i] = originalPixels[i].g;
                             wB[i] = originalPixels[i].b; wD[i] = 1f;
@@ -281,6 +301,7 @@ namespace Iroca
                     {
                         int i = row + x;
                         if (strength[i] > 1e-4f) continue;            // マッチ済みは既存処理が担当
+                        if (maskExcluded != null && maskExcluded[i]) continue; // 除外マスクは不可侵
                         if (claimed != null && claimed[i] > 0.001f) continue; // 上位ゾーン占有は不可侵
                         if (mNear[i] < 1f) continue;                  // マッチ境界の近傍のみ
                         float density = bgD[i];
