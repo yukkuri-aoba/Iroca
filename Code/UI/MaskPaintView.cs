@@ -203,6 +203,9 @@ namespace Iroca
             EditorGUILayout.EndHorizontal();
 
             // Unity 標準 Undo に統合済みのため、専用ボタンは PerformUndo の薄いショートカットとして残す。
+            // ★ラベルは「マスクを元に戻す」にしないこと★ — PerformUndo の対象は直前の操作であり、
+            // マスク編集とは限らない。マスク限定の Undo を名乗ると、スライダー変更やシーン編集が
+            // 巻き戻ったときに破壊的なサプライズになる（Localization.UndoMask のコメント参照）。
             if (GUILayout.Button(new GUIContent(Localization.UndoMask, Localization.UndoMaskTooltip)))
             {
                 Undo.PerformUndo();
