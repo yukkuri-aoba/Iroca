@@ -41,6 +41,9 @@
     <Compile Include="..\..\Code\Core\HighlightSampleCorrector.cs" />
     <Compile Include="..\..\Code\Core\ColorZone*.cs" />
     <Compile Include="..\..\Code\Core\IrocaConsts.cs" />
+    <!-- zones JSON スキーマ既定値の唯一の正。製品側 DTO(IrocaAutomation)と共有し、
+         ハーネスだけ既定値がずれる事故(useFloodFill 製品 true / ハーネス false)を防ぐ。 -->
+    <Compile Include="..\..\Code\Core\ZonesJsonDefaults.cs" />
     <!-- 自動化(MCP)の目視検証パネル/メトリクス生成。UnityEditor 非依存なので headless で実 C# 検証できる。 -->
     <Compile Include="..\..\Code\Core\RecolorPreview.cs" />
     <!-- 自動調整(ZoneAutoTuner)を no-mask で実行して GT と突き合わせるための取り込み。

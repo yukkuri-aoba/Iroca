@@ -105,6 +105,20 @@ def _run_all_cases_csharp() -> dict[str, tuple[np.ndarray, np.ndarray]]:
         for case in load_cases(subject):
             zone = make_zone(case)
             zones_json = CSHARP_WORK / f"{case.case_id}_zones.json"
+            # ここで書かないフィールド(useFloodFill / autoRecolorAnchor / highlightRecovery /
+            # shadowDesaturation ほか)は **意図的に省略** して製品既定へフォールバックさせる。
+            # 出荷ゲートの目視は「出荷される設定の出力」を見るべきなので、ケース固有の選択
+            # パラメータ(下の 7 つ)だけをケースから取り、残りは製品既定に任せる。
+            #
+            # この省略が安全なのは、zones JSON の既定値が Code/Core/ZonesJsonDefaults.cs に
+            # 単一ソース化され、ハーネス DTO と製品 DTO の一致を
+            # dev_safe/Tests/regression/test_zones_schema_parity.py が機械検査しているから。
+            # 2026-08-06 以前はハーネス既定が製品と乖離しており(useFloodFill 製品 true /
+            # ハーネス false)、このパネルは製品でも回帰テスト設定でもない混成を映していた。
+            #
+            # 注意: 回帰テストの数値は fixtures.ZoneSpec(use_flood_fill=False 等、
+            # Python→C# 移行時のベースライン可比性のために製品と異なる値で凍結)で測っている。
+            # パネルと IoU は別設定を指すので、突き合わせるときはこの差を踏まえること。
             hio.write_zones_json(zones_json, [{
                 "name": zone.name,
                 "sample": list(case.sample_rgb),
