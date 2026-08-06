@@ -28,6 +28,13 @@ namespace Iroca
         // PreviewView._viewportWidth と同方針。
         [System.NonSerialized] private float _sideBySideTopHeight;
 
+        // ジョブオーバーレイ（進捗バー＋キャンセル）の実測高。オーバーレイは DisabledScope の外・
+        // 本体レイアウトの後ろに積まれるため、その分を availableContentH から引かないと
+        // キャンセルボタンがウィンドウ下端で切れて押せなくなる（ジョブ中の唯一の脱出口が消える）。
+        // _sideBySideTopHeight と同方針で前フレーム Repaint の実測値を使う（定数で見積もると
+        // オーバーレイの中身を変えたときに黙ってずれる）。0（未計測）時は決定論フォールバック。
+        [System.NonSerialized] private float _jobOverlayHeight;
+
         /// <summary>
         /// ジョブ実行中で UI 操作を止めるべきか。エクスポート中と、手動実行の自動調整中は
         /// 操作を受け付けない（かんたんモードの裏実行は妨げない）。
@@ -56,21 +63,28 @@ namespace Iroca
             if (Event.current.type == EventType.Layout)
                 Localization.MaybeShowEnglishTranslationNotice();
 
-            DrawHeader();
-
             // ジョブ実行中はウィンドウ内 UI を全て無効化する。
             // ただしジョブのオーバーレイ（進捗バー＋キャンセル）は DisabledScope の外で
             // 描画し、キャンセルだけは押せるようにする。
             // 自動調整は「手動実行（ボタン）」のときだけウィンドウ全体をブロックする。
             // かんたんモードの自動実行は裏で走らせ、操作を妨げない。
             bool blocking = IsJobBlockingUI;
+
+            // ヘッダーは DisabledScope の外に置く（言語切替・クレジットはジョブ中でも安全）。
+            // ただしリセットはセッション状態を破壊的に書き換えるので、ジョブ完了時の apply と
+            // 競合しないよう blocking を渡してヘッダー内で個別に無効化する。
+            DrawHeader(blocking);
+
             EditorGUI.BeginDisabledGroup(blocking);
 
             bool sideBySide = position.width >= IrocaConsts.Layout.SideBySideMinWidth;
 
             // position.height はウィンドウ枠（タイトル/タブバー）を含むため、
             // 実描画領域はそれより低い。エクスポートが画面外に押し出されないよう安全マージンを引く。
-            float availableContentH = position.height - IrocaConsts.Layout.WindowChromeMargin;
+            // ジョブ中はオーバーレイが本体レイアウトの後ろに積まれるので、その高さも先に引く
+            // （引かないとキャンセルボタンが下端で切れ、ジョブ中の唯一の脱出口が押せなくなる）。
+            float availableContentH = position.height - IrocaConsts.Layout.WindowChromeMargin
+                                      - (blocking ? JobOverlayReserve() : 0f);
             float exportH = _exportView.GetSectionHeight();
 
             if (sideBySide)
@@ -84,10 +98,36 @@ namespace Iroca
             // ウィンドウ全体が無効化されていてもキャンセルだけは押せる。
             if (blocking)
             {
+                var overlayRect = EditorGUILayout.BeginVertical();
                 DrawJobOverlay();
+                EditorGUILayout.EndVertical();
+
+                // 実測値を次フレームの予約高に使う。値が変わったら追い再描画を 1 回要求する
+                // （_sideBySideTopHeight と同方針。予約高はオーバーレイ自身の高さに影響しないので収束する）。
+                if (Event.current.type == EventType.Repaint && overlayRect.height > 1f
+                    && Mathf.Abs(overlayRect.height - _jobOverlayHeight) > 0.5f)
+                {
+                    _jobOverlayHeight = overlayRect.height;
+                    Repaint();
+                }
                 // 進捗バーを次フレームで更新するため、ジョブ中は継続的に再描画を要求する。
                 Repaint();
             }
+            else
+            {
+                _jobOverlayHeight = 0f;
+            }
+        }
+
+        /// <summary>
+        /// ジョブオーバーレイのために本体レイアウトから引いておく高さ。
+        /// 実測値があればそれを、未計測の初回フレームだけ決定論フォールバックを返す。
+        /// </summary>
+        private float JobOverlayReserve()
+        {
+            if (_jobOverlayHeight > 1f) return _jobOverlayHeight;
+            // 初回フレーム用の見積もり: Space(2) + 進捗バー 18 + キャンセル 22 + Space(2) + 行間。
+            return 2f + 18f + 22f + 2f + EditorGUIUtility.standardVerticalSpacing * 3f;
         }
 
         // 設定列のプレフィックスラベル幅。既定(150)のままだと狭いカラムでは
@@ -340,7 +380,12 @@ namespace Iroca
 
         // ───────────────────────── ヘッダー ───────────────────────────
 
-        private void DrawHeader()
+        /// <param name="jobBlocking">
+        /// ジョブ実行中か。ヘッダー自体は DisabledScope の外に置く（言語切替・クレジットは
+        /// ジョブ中でも安全で、むしろ待ち時間に触れて困らない）が、セッション状態を破壊的に
+        /// 書き換えるリセットだけはここで無効化する。
+        /// </param>
+        private void DrawHeader(bool jobBlocking)
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
 
@@ -364,7 +409,9 @@ namespace Iroca
 
             // 現在のテクスチャの編集内容（ゾーン・色・処理設定・マスク）を初期状態へ戻す逃げ道。
             // 確認ダイアログを挟み、Undo 登録するので誤操作しても「元に戻す」で復元できる。
-            using (new EditorGUI.DisabledScope(sourceTexture == null))
+            // ジョブ実行中は無効化する: エクスポート/自動調整の完了時 apply がリセット後の
+            // セッションへ書き戻し、状態不整合を生み得るため。
+            using (new EditorGUI.DisabledScope(sourceTexture == null || jobBlocking))
             {
                 if (GUILayout.Button(new GUIContent(Localization.ResetSession, Localization.ResetSessionTooltip),
                         EditorStyles.toolbarButton, GUILayout.ExpandWidth(false)))
