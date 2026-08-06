@@ -17,13 +17,25 @@ namespace Iroca
         /// 失敗時は例外を伝播する（既存ファイルは無傷、書きかけの一時ファイルは削除）。
         /// </summary>
         public static void WriteAllText(string path, string contents)
+            => Write(path, tmp => File.WriteAllText(tmp, contents));
+
+        /// <summary>
+        /// <paramref name="path"/> へバイト列をアトミックに書き込む。
+        /// 失敗時は例外を伝播する（既存ファイルは無傷、書きかけの一時ファイルは削除）。
+        /// エクスポート PNG のように「書き潰す相手が元テクスチャそのもの」であり得る用途では、
+        /// 途中で落ちた書き込みが原本を壊すため直接 <see cref="File.WriteAllBytes"/> を使わない。
+        /// </summary>
+        public static void WriteAllBytes(string path, byte[] contents)
+            => Write(path, tmp => File.WriteAllBytes(tmp, contents));
+
+        private static void Write(string path, System.Action<string> writeTemp)
         {
             // 一時ファイルは必ず同一フォルダに置く（File.Replace/Move が同一ボリューム内で完結し
             // rename が原子的になる）。
             string tmp = path + ".tmp";
             try
             {
-                File.WriteAllText(tmp, contents);
+                writeTemp(tmp);
                 if (File.Exists(path))
                     File.Replace(tmp, path, null);
                 else
