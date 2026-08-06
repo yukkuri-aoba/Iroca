@@ -34,11 +34,14 @@ Thumbs.db
 __pycache__/
 *.pyc
 
-Tests
-texture_sample
+# 先頭 / でルート直下に限定する。スラッシュを含まないパターンは任意階層にマッチするため、
+# 素の "Tests" は将来 Code/Tests/ を作っても git が黙って無視してしまう
+# (check_visual_review.py は Code/Tests/ を視覚レビュー除外対象として既に想定している)。
+/Tests
+/texture_sample
 archive/
-dev_safe
-.venv
+/dev_safe
+/.venv
 .claude/instructions/notify.md
 Code_Archive/
 .claude/settings.local.json
