@@ -43,6 +43,20 @@ namespace Iroca
         public const float ShadowDesaturation = 0.35f;
         public const float ShadowForgivenessSatMin = 0.05f;
         public const float OutputSaturation = 1.0f;
+        // 既定 OFF。**ColorZone.highlightRecovery（= true）と意図的に異なる。**
+        //
+        // UI ではこの値を自動調整がテクスチャ統計から決める（ZoneAutoTuner.cs の
+        // highlightCandidates 判定 + ZoneAutoTuner.Verify.cs の成長テストによる拒否）。
+        // ColorZone の既定 true は「自動調整を一度も走らせていないゾーンの初期値」でしかない。
+        // 一方 zones JSON 経路（MCP・batchmode）には自動調整が無く、ここの値がテクスチャに
+        // 関係なくそのまま使われる。
+        //
+        // 2026-08-07 に true へ揃えて GT で実測したところ、70 ケース平均で
+        // IoU 0.6150→0.6060 / Precision 0.6315→0.6200 / Recall 0.9520→0.9724 となり、
+        // 悪化が 2 被写体に集中した（quanstella-black は Recall 1.000 のまま
+        // IoU 0.718→0.654 の純粋な過検出、feina-white は IoU 0.199→0.144）。
+        // テクスチャ適応のない固定既定としては、再現率より過検出耐性を取る false が妥当。
+        // 明部の回復が要るバッチ呼び出しは JSON で true を明示すること。
         public const bool HighlightRecovery = false;
         public const bool HighlightBandExpand = true;
         public const bool ApplyHighlightWash = false;
