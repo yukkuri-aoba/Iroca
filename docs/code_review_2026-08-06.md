@@ -14,7 +14,7 @@
 
 ---
 
-## 0. 対応状況（2026-08-07 更新）
+## 0. 対応状況（2026-08-08 更新）
 
 | # | 状態 | コミット | 備考 |
 |---|------|---------|------|
@@ -27,6 +27,10 @@
 | §3 中 ExportView キャンセル残骸 | **完了** | `401d870` | ディスク書き込みを `apply`（メインスレッド）へ移動し「書けたのに取り込まれない」窓を構造的に除去。`AtomicFile.WriteAllBytes` を新設し原本破壊と部分ファイルも防止。`apply` 内例外を `onError` 経路へ |
 | §7 ルート `CODE_REVIEW.md` | **完了** | `0c7147f` | `docs/code_review_2026-06-28.md` へアーカイブ。Medium 指摘は本文書へ引き継ぎ |
 | §7 bare `Tests` パターン | **完了** | `d1b3844` | `/Tests` `/texture_sample` へアンカー |
+| N-4 | **完了** | 下記 §0-3 | `MaskSuggestController.Shutdown()` で購読解除。加えて破棄済みウィンドウの残骸購読者が提案に触れる前に自己解除するガード。再発防止の機械検査を新設 |
+| N-10 | **完了** | 下記 §0-3 | `fixtures.ZoneSpec` の選択挙動 3 項目を製品既定へ。ベースライン 4 本を再生成し **50 ケース平均 IoU +0.0054 / Precision +0.0057** |
+| N-11 | **完了** | 下記 §0-3 | `visual_review.py` に等倍クロップ列と変化画素の内訳サマリを組み込み |
+| N-12 | **完了** | 下記 §0-3 | 視覚レビューに除外マスク付き 4 ケースを追加。マスク契約違反を機械で数え、違反時は `approve` をブロック |
 
 ### 現況の測定値（2026-08-07 / `cba0138`）
 
@@ -72,7 +76,7 @@ VACC_CSHARP_GATE_FULL=1 pytest dev_safe/Tests/regression/ -q -ra
 N-2 の単一ソース化で省略時のフォールバック先が製品既定に揃い、
 `test_zones_schema_parity.py` がその状態を機械で守る。設計判断は同ファイルにコメントで明記。
 
-### N-10. `fixtures.ZoneSpec` の `use_flood_fill=False` が陳腐化している [裏取り済み・未対応]
+### N-10. `fixtures.ZoneSpec` の `use_flood_fill=False` が陳腐化している [裏取り済み・**対応済み** → §0-3]
 
 - `dev_safe/Tests/regression/fixtures.py:215-240` の docstring は
   「連続領域モード(flood fill)は実験中のため、その挙動を baseline に焼き付けないよう常に OFF」
@@ -87,7 +91,7 @@ N-2 の単一ソース化で省略時のフォールバック先が製品既定�
   改善**が見つかった。
 - 対処は全ベースラインの再生成を伴うため別タスク。判断が必要（2026-08-07 時点で保留）。
 
-### N-11. 視覚レビューの検出力不足を実地で確認（§6-22 の裏取り） [裏取り済み・未対応]
+### N-11. 視覚レビューの検出力不足を実地で確認（§6-22 の裏取り） [裏取り済み・**対応済み** → §0-3]
 
 N-2 のレビュー時、512px サムネイルの 3 列パネルでは 4K テクスチャの変化を判定できず、
 **別途こちらでツールを書いて**「変化画素の分類」「等倍クロップ」「GT 内部クロップ」を
@@ -98,7 +102,7 @@ N-2 のレビュー時、512px サムネイルの 3 列パネルでは 4K テク
 2. 差分が最大／最密な領域の等倍クロップ列
 3. 変化画素数と「元へ復帰 / 新規着色」の内訳サマリ（数値で当たりを付けてから目視する）
 
-### N-12. 出荷ゲートに除外マスク経路のカバレッジが皆無 [裏取り済み・未対応]
+### N-12. 出荷ゲートに除外マスク経路のカバレッジが皆無 [裏取り済み・**対応済み** → §0-3]
 
 `tools/visual_review.py:104` は常に `np.zeros(...)`（全画素処理）でハーネスを呼ぶため、
 **視覚レビュー 75 ケースのどれもマスクを使っていない**。その結果 N-1（マスク契約違反）は
@@ -107,6 +111,94 @@ N-2 のレビュー時、512px サムネイルの 3 列パネルでは 4K テク
 マスクは「プレビュー＝出力」と並ぶ中核保証（ユーザーが手で守った画素は絶対に変わらない）
 であり、ゲートに 1 件も無いのは穴。代表被写体 1〜2 件にマスク付きケースを足すべき
 （GT マスクは `dev_safe/texture_sample/ground_truth/` に既にある）。
+
+---
+
+## 0-3. 2026-08-08 の対応（N-4 / N-10 / N-11 / N-12）と、その過程で棄却した変更
+
+### N-10 — 回帰テストのゾーン既定を製品へ揃えた（採用）
+
+`fixtures.ZoneSpec` のうち **選択挙動を決める 3 項目**を製品 `ColorZone` のフィールド既定へ揃えた:
+
+| フィールド | 旧（Python 実装時代の既定） | 新（製品 `ColorZone`） |
+|---|---|---|
+| `use_flood_fill` | false | **true** |
+| `shadow_desaturation` | 0.0 | **0.35** |
+| `auto_recolor_anchor` | false | **true** |
+
+`highlight_recovery=True` は **元から `ColorZone` と一致**しており、レビュー本文の
+「製品と異なる」という記述は誤りだった。`tolerance` / `value_blend` / `edge_softness` /
+`saturation_strictness` は `make_zone()` が明示指定するテストシナリオのパラメータなので
+対象外（製品既定の `tolerance=0` は未設定センチネルでそのままでは走らない）。
+
+ベースライン 4 本（`haolan_costume` / `haolan_sneakers` / `feina_iou` / `quanstella_iou`）を
+再生成した結果は **全 50 ケースで悪化らしい悪化なし**:
+
+```
+mean dIoU        +0.0054      mean dPrecision  +0.0057
+mean 再着色画素   -2.5%（＝過検出が減った）
+改善 40 / 悪化 5 / 横ばい 5     最悪ケース -0.0007（quanstella-gold, Precision は +0.0002）
+```
+
+被写体別: feina +0.0098（pants +0.0166・tops +0.0094・boots +0.0035、再着色画素は
+pants で -16.3%）/ quanstella +0.0048（black +0.0101・eye +0.0111）/ costume +0.0001 /
+sneakers ±0。**Precision の伸びが IoU の伸びとほぼ一致**しており、Recall を落とさずに
+誤爆だけが減っている。連結成分アンカリング（`useFloodFill`）が効いた形。
+
+再発防止として `test_zones_schema_parity.py` に **ZoneSpec ⇔ `ColorZone.cs` の既定一致**を
+機械検査するテストを追加した（製品側を変えたらテストが落ちて追随を促す）。
+
+### 棄却: `ZonesJsonDefaults.HighlightRecovery` を製品 UI 既定に合わせる変更
+
+本対応中に「zones JSON 既定 `highlightRecovery=false` が `ColorZone.highlightRecovery=true` と
+食い違う」ことを見つけ、N-2 と同型の乖離として `true` へ揃えたが、**GT 実測で悪化したため
+取り消した**。
+
+- 前提が違った: UI ではこの値を **自動調整がテクスチャ統計から決める**
+  （`ZoneAutoTuner.cs` の `highlightCandidates` 判定 + `ZoneAutoTuner.Verify.cs` の成長テストが
+  「明るい同色相の別素材」を検出したら false へ拒否）。`ColorZone` の既定 true は
+  「自動調整を一度も走らせていないゾーンの初期値」でしかない。zones JSON 経路（MCP・batchmode）に
+  自動調整は無く、ここの値がテクスチャに関係なくそのまま使われる。
+- GT 実測（70 ケース、他の設定は同一）:
+
+  ```
+  IoU 0.6150 -> 0.6060 (-0.0089) / Precision 0.6315 -> 0.6200 (-0.0116) / Recall 0.9520 -> 0.9724 (+0.0203)
+  ```
+
+  悪化は 2 被写体に集中: `quanstella-black` は Recall 1.000 のまま IoU 0.718→0.654 の
+  **純粋な過検出**（白いビスチェが染まる）、`feina-white` は IoU 0.199→0.144。
+- さらに `test_triangle_csharp_headless.py` の **過検出ガード 2 本**
+  （`test_csharp_preset_white_background_preserved` / `test_csharp_preset_triangle_no_overflow`）が
+  この変更で落ちた。取り消しで復帰。
+
+結論: テクスチャ適応のない固定既定としては、再現率より過検出耐性を取る `false` が妥当。
+**`ColorZone` と意図的に異なる**ことと理由を `ZonesJsonDefaults.cs` にコメントで明記した。
+
+### N-4 — AI マスク提案の購読解除
+
+`MaskSuggestController.Shutdown()` を新設し、`MaskPaintView.ReleaseOverlayTextures()`
+（＝ `IrocaWindow.OnDestroy`）から呼んで `StateChanged` を解除、参照も落とす。加えて
+`OnServiceStateChanged` の先頭に「`_host` が破棄済みなら提案に触れず自己解除する」ガードを
+置いた（解除を取りこぼした経路があっても、生きている購読者から提案を奪わない）。
+Unity の fake-null は `?.` をすり抜けるため、判定はオーバーロードされた `==` で行う。
+
+再発防止に `test_event_subscription_symmetry.py` を新設。ドメイン寿命イベント
+（`EditorApplication.update` / `AssemblyReloadEvents.*` / `Undo.undoRedoPerformed` /
+`StateChanged`）への `+=` に対の `-=` があることを C# ソースから検査する（例外は理由付きの
+許可リストにのみ載せる。現在 1 件＝ドメイン破棄直前に走る `SentisMaskSuggestService.DisposeAll`）。
+
+### N-11 / N-12 — 視覚レビューの検出力
+
+- **N-12**: 除外マスク付きケースを 4 件追加（`bandana` 2 色＝有彩の通常マッチ、
+  `feina-goggles` 2 色＝暗い無彩＝グレーモードと無彩フチ消しの現場）。マスクは GT の bbox 中央で
+  割り、「守った側」と「変換される側」が必ず両方できるようにした（被写体ごとの座標を焼き込まない）。
+  **`compare` が「守った画素が 1px でも変わっていないか」を機械で数え、違反があれば `approve` が
+  失敗する。** 512px サムネイルの目視では原理的に検出できない項目なので、人間の注意力に委ねない。
+  初回実行は 4 ケースとも違反 0（N-1 の修正が保たれていることの初めての機械確認）。
+- **N-11**: パネルに **等倍クロップ行**（変化が最も密な 384px 窓を元/変更前/変更後で並べる）と、
+  **変化画素の内訳サマリ**（変化数 / 元へ復帰 / 元から離れた / 最大差、変化の大きい順）を追加。
+  内訳は `change_summary.json` にも残す。§6-22 が指摘したとおり、この 2 つが無いために
+  2026-08-06 と 08-07 のレビューはどちらも判定用スクリプトを別途書き起こす必要があった。
 
 ---
 
