@@ -60,6 +60,32 @@ namespace Iroca
             }
         }
 
+        /// <summary>
+        /// 静的サービスへの購読を解除する。<see cref="Shutdown"/> と自己修復経路の共通処理。
+        /// </summary>
+        void Unsubscribe()
+        {
+            var svc = MaskSuggestBridge.Service;
+            if (svc != null && _subscribed) svc.StateChanged -= OnServiceStateChanged;
+            _subscribed = false;
+        }
+
+        /// <summary>
+        /// ウィンドウ破棄時の後始末。**購読解除がここの主目的**。
+        ///
+        /// サービスはドメイン寿命の静的保持(<see cref="MaskSuggestBridge.Service"/>)なので、
+        /// 解除しないと閉じたウィンドウのコントローラがイベント経由で生き続ける。再オープン後は
+        /// 新旧 2 購読者が並び、**先に登録された旧側**が <see cref="OnServiceStateChanged"/> で
+        /// <c>TryTakeProposal</c> を先に呼んで提案を奪い、そのまま捨てる(サービスは Idle へ戻るので
+        /// 新側には何も届かない)。ユーザーには「クリックしても時々何も起きない」としか見えない。
+        /// </summary>
+        public void Shutdown()
+        {
+            Unsubscribe();
+            OnSourceChangedOrClosing();
+            Active = false;
+        }
+
         public void SetActive(bool active)
         {
             if (Active == active) return;
@@ -123,6 +149,15 @@ namespace Iroca
         {
             var svc = MaskSuggestBridge.Service;
             if (svc == null) return;
+            // 破棄済みウィンドウに紐づく購読者(= Shutdown を取りこぼした残骸)は、提案に一切触れずに
+            // 自己解除する。触れると生きている購読者から提案を奪ってしまう。
+            // Unity の破棄済みオブジェクトは「fake-null」で参照自体は非 null のため `?.` をすり抜ける。
+            // 判定には Unity がオーバーロードした `==` を使うこと(以降の _host 参照も同様)。
+            if (_host == null)
+            {
+                Unsubscribe();
+                return;
+            }
             if (svc.Phase == MaskSuggestPhase.ProposalReady &&
                 svc.TryTakeProposal(out var proposal))
             {
@@ -132,7 +167,7 @@ namespace Iroca
                     CommitProposalToMask(proposal);
                 _dropNextProposal = false;
             }
-            _host?.RequestRepaint();
+            _host.RequestRepaint();
         }
 
         /// <summary>
