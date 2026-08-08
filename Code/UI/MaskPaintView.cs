@@ -855,8 +855,12 @@ namespace Iroca
         {
             SuspendTransientState();
             _overlayJob.Dispose();
-            // AI 提案の積み上げ・オーバーレイ・進行中推論も破棄(ウィンドウ破棄時)
-            _suggestController?.OnSourceChangedOrClosing();
+            // AI 提案の進行中推論を破棄し、**静的サービスへの購読も解除する**(ウィンドウ破棄時)。
+            // 解除しないと閉じたウィンドウのコントローラがイベント経由で生き残り、再オープン後に
+            // 新しいコントローラから提案を横取りする(MaskSuggestController.Shutdown 参照)。
+            // 参照も落として、万一この後に触られても新しいインスタンスが作り直されるようにする。
+            _suggestController?.Shutdown();
+            _suggestController = null;
         }
 
         public void SuspendTransientState()
