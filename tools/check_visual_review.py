@@ -2,7 +2,8 @@
 
 フックの実体は scripts/hooks/pre-commit（有効化: git config core.hooksPath scripts/hooks）。
 
-アルゴリズムファイル（Code/、ただし Debug/Tests 除く）がステージされているとき:
+アルゴリズムファイル（headless ハーネスがコンパイルする製品ソース。範囲は
+Harness.csproj から導出 = tools/harness_scope.py）がステージされているとき:
   1. approved.json が全ステージファイルより新しいか（視覚レビュー実施の確認）。
   2. 出力品質ゲートのしきい値較正が健全か（quality_report.py --validate が
      good/bad ラベルを分離できているか）。SKIP_QUALITY_GATE=1 でスキップ可。
@@ -26,6 +27,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from harness_scope import is_harness_source  # noqa: E402
+
 # git リポジトリルートを取得
 try:
     ROOT = Path(
@@ -40,18 +44,6 @@ except (subprocess.CalledProcessError, UnicodeDecodeError):
 
 APPROVED_JSON = ROOT / "dev_safe" / "Tests" / "visual_review" / "approved.json"
 
-# 視覚レビュー要求の対象パス prefix（前方一致、スラッシュ区切り）
-ALGORITHM_PREFIXES = [
-    "Code/",
-]
-
-# 視覚レビュー不要の除外パス（ALGORITHM_PREFIXES より優先）
-# デバッグツール・UI・テストなどアルゴリズム出力に影響しないファイル
-ALGORITHM_EXCLUSION_PREFIXES = [
-    "Code/Debug/",
-    "Code/Tests/",
-]
-
 
 def get_staged_files() -> list[str]:
     result = subprocess.run(
@@ -63,10 +55,14 @@ def get_staged_files() -> list[str]:
 
 
 def is_algorithm_file(path: str) -> bool:
-    normalized = path.replace("\\", "/")
-    if any(normalized.startswith(ex) for ex in ALGORITHM_EXCLUSION_PREFIXES):
-        return False
-    return any(normalized.startswith(prefix) for prefix in ALGORITHM_PREFIXES)
+    """視覚レビューを要求するファイルか（＝ headless ハーネスがコンパイルする製品ソースか）。
+
+    範囲は Harness.csproj から導出する（tools/harness_scope.py）。詳細な理由はそちらの
+    docstring を参照。要点は「ハーネスがコンパイルしないファイルの変更は compare を
+    何回回しても検出できない」ので、compare を要求しても検証にならず、バイパスを
+    常態化させるだけ、ということ。対象外のファイルは ci.yml の型チェックが受け持つ。
+    """
+    return is_harness_source(path)
 
 
 def get_file_mtime(rel_path: str) -> datetime | None:

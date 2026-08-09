@@ -188,12 +188,21 @@ $env:VACC_CSHARP_GATE_FULL = "1"
 python tools/visual_review.py snapshot            # 変更前の出力を保存
 python tools/visual_review.py compare --engine csharp   # 3 列比較パネル生成
 （パネル PNG を Read で 1 枚ずつ目視確認）
-python tools/visual_review.py approve             # 承認マーカー書き込み
+python tools/visual_review.py approve --note "確認した範囲と根拠"   # 承認マーカー
 ```
 
-- 承認は `dev_safe/Tests/visual_review/approved.json` に記録される。
-- pre-commit フック（`scripts/hooks/pre-commit`）が `Code/` 変更コミット時に
-  承認の鮮度と品質ゲート較正（`tools/check_visual_review.py`）を検査する。
+- 承認は `dev_safe/Tests/visual_review/approved.json` に記録される。`--note` には
+  **実際に見た範囲と、それで十分と判断した根拠**を書く（未指定だと「注記なし」と残る）。
+- pre-commit フック（`scripts/hooks/pre-commit`）が承認の鮮度と品質ゲート較正
+  （`tools/check_visual_review.py`）を検査する。
+- **ゲートの対象は「headless ハーネスがコンパイルする製品ソース」**（`Harness.csproj` から
+  導出＝`tools/harness_scope.py`。現在 `Code/Core` と `Code/MaskSuggest/Ops` の 32 ファイル）。
+  UI / Infra / Automation は対象外で、`Code/` 全体を対象にしていた頃のように
+  「文言 1 行の修正で 30 分の compare か SKIP 変数か」の二択にはならない。
+  - 理由: ハーネスがコンパイルしないファイルの変更は、compare を何回回しても検出できない。
+    要求しても検証にならず、バイパスを日常動作として学習させるだけだった（レビュー §6-14）。
+  - 対象外のファイルは ci.yml の `build-check`（dotnet 型チェック）が受け持つ。
+  - csproj に Core ファイルを足せばゲート対象も自動で増える（手書きミラーを置かない）。
 - **フックは clone ごとに 1 回の有効化が必要**（忘れるとゲートは一切動かない）:
   ```
   git config core.hooksPath scripts/hooks

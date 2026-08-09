@@ -34,6 +34,9 @@ from PIL import Image, ImageDraw
 
 # --- sys.path 設定 ---
 _ROOT = Path(__file__).resolve().parent.parent          # リポジトリルート
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from harness_scope import harness_source_files          # noqa: E402
 _DEV_SAFE = _ROOT / "dev_safe"
 _TESTS = _DEV_SAFE / "Tests"
 for _p in [str(_DEV_SAFE), str(_TESTS)]:
@@ -527,14 +530,14 @@ def cmd_compare(engine: str = "python") -> None:
 # approve
 # ---------------------------------------------------------------------------
 def _newest_code_mtime() -> float:
-    """Code/ 配下の製品ソース(.cs)の最新 mtime。Debug/ は視覚レビュー対象外なので除外。
+    """ハーネスがコンパイルする製品ソースの最新 mtime。
 
-    pre-commit フック(tools/check_visual_review.py)が approve を要求する範囲と揃える。
+    pre-commit フック(tools/check_visual_review.py)が approve を要求する範囲と同じ
+    定義(tools/harness_scope.py)を共有する。ここがズレると「フックは通るのに
+    approve が陳腐と言う」のような食い違いが起きる。
     """
     newest = 0.0
-    for p in (_ROOT / "Code").rglob("*.cs"):
-        if "Debug" in p.parts:
-            continue
+    for p in harness_source_files():
         newest = max(newest, p.stat().st_mtime)
     return newest
 
