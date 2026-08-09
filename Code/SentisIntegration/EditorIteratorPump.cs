@@ -48,6 +48,11 @@ namespace Iroca.SentisIntegration
             _running = false;
             EditorApplication.update -= Tick;
             _iterator = null;
+            // コールバックは推論の入出力テンソル（CHW で 12MB 級）を捕捉したクロージャであり得る。
+            // 参照を残すと次の Start まで解放されない。停止時にまとめて手放す。
+            _onDone = null;
+            _onError = null;
+            _onProgress = null;
         }
 
         void Tick()
