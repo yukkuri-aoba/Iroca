@@ -35,6 +35,10 @@ namespace Iroca
         public int sourceId;
         public int fullW;
         public int fullH;
+        // 同型の SelectionCache は lock 保護済み。こちらは「未公開インスタンスにだけ書く」という
+        // 遠隔の呼び出し規律だけが安全性を担保していて、規律を破る変更をコンパイラも実行時も
+        // 検出できなかった（レビュー §4 中）。Dictionary は並行アクセスで無限ループや破損を起こす。
+        private readonly object _lock = new object();
         private readonly Dictionary<string, ulong[]> _keep = new Dictionary<string, ulong[]>();
         private readonly Dictionary<string, ZoneRecolorStats> _stats = new Dictionary<string, ZoneRecolorStats>();
 
@@ -44,25 +48,26 @@ namespace Iroca
 
         public void SetKeep(string zoneId, ulong[] keep)
         {
-            if (!string.IsNullOrEmpty(zoneId)) _keep[zoneId] = keep;
+            if (string.IsNullOrEmpty(zoneId)) return;
+            lock (_lock) _keep[zoneId] = keep;
         }
 
         public ulong[] GetKeep(string zoneId)
         {
-            if (!string.IsNullOrEmpty(zoneId) && _keep.TryGetValue(zoneId, out var k)) return k;
-            return null;
+            if (string.IsNullOrEmpty(zoneId)) return null;
+            lock (_lock) return _keep.TryGetValue(zoneId, out var k) ? k : null;
         }
 
         public void SetStats(string zoneId, in ZoneRecolorStats s)
         {
-            if (!string.IsNullOrEmpty(zoneId)) _stats[zoneId] = s;
+            if (string.IsNullOrEmpty(zoneId)) return;
+            lock (_lock) _stats[zoneId] = s;
         }
 
         public bool TryGetStats(string zoneId, out ZoneRecolorStats s)
         {
-            if (!string.IsNullOrEmpty(zoneId)) return _stats.TryGetValue(zoneId, out s);
-            s = default;
-            return false;
+            if (string.IsNullOrEmpty(zoneId)) { s = default; return false; }
+            lock (_lock) return _stats.TryGetValue(zoneId, out s);
         }
     }
 
