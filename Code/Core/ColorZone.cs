@@ -255,6 +255,9 @@ namespace Iroca
         // chromaThreshold も派生値(SampleCache.chromaConfidence)の入力なので無効化判定に要る。
         // ここに載せ忘れると「値は変えたのに派生値だけ古い」不整合になる（UpdateCacheIfNeeded 参照）。
         [NonSerialized] private float _cChromaThreshold;
+        // 遅延キャッシュ構築(ColorZone.Match の安全網)を直列化するゲート。Unity の逆シリアライズで
+        // フィールド初期化子が走らない可能性があるため、初期化子ではなく遅延生成する。
+        [NonSerialized] private object _cacheGate;
         // extraSamples の変更検知用スナップショット（内容が変わったらキャッシュを作り直す）。
         [NonSerialized] private Color[] _cExtraSamples;
 
