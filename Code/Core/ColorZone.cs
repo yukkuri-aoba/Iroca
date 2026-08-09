@@ -252,6 +252,9 @@ namespace Iroca
         [NonSerialized] private Color _cSampleColor;
         [NonSerialized] private float _cTolerance, _cSatStrictness, _cSatRampScale, _cEdgeSoftness;
         [NonSerialized] private float _cSaturationGuard;
+        // chromaThreshold も派生値(SampleCache.chromaConfidence)の入力なので無効化判定に要る。
+        // ここに載せ忘れると「値は変えたのに派生値だけ古い」不整合になる（UpdateCacheIfNeeded 参照）。
+        [NonSerialized] private float _cChromaThreshold;
         // extraSamples の変更検知用スナップショット（内容が変わったらキャッシュを作り直す）。
         [NonSerialized] private Color[] _cExtraSamples;
 

@@ -22,6 +22,7 @@ namespace Iroca
                 _cSatRampScale == satRampScale &&
                 _cEdgeSoftness == edgeSoftness &&
                 _cSaturationGuard == saturationGuard &&
+                _cChromaThreshold == chromaThreshold &&
                 !ExtraSamplesChanged())
             {
                 return;
@@ -33,6 +34,7 @@ namespace Iroca
             _cSatRampScale = satRampScale;
             _cEdgeSoftness = edgeSoftness;
             _cSaturationGuard = saturationGuard;
+            _cChromaThreshold = chromaThreshold;
             _cacheInitiated = true;
 
             // サンプルごとの派生値を構築（主サンプル + 追加スポイト）。
