@@ -58,6 +58,18 @@ namespace Iroca
                 included.Add(p);
             }
 
+            if (included.Count == 0)
+            {
+                // 0 件でも ExportPackage は成功し、空の unitypackage が「エクスポート完了」として
+                // 出力されていた。呼び出し側（PowerShell）は exit code しか見ないため、
+                // 空の配布物ができたことに誰も気づけない。バッチモードでは失敗として落とす。
+                Debug.LogError(
+                    $"[BuildHelper] エクスポート対象が 0 件です（{ExportRoot} が見つかりません）。" +
+                    "空の unitypackage を出力しないため中止します。");
+                if (Application.isBatchMode) EditorApplication.Exit(1);
+                return;
+            }
+
             AssetDatabase.ExportPackage(
                 included.ToArray(),
                 outputPath,
