@@ -86,7 +86,26 @@ namespace Iroca
 
         static void BeginCurrentFile()
         {
-            var (file, _) = Files[_fileIndex];
+            var (file, sha) = Files[_fileIndex];
+
+            // 既に検証済みのファイルが置いてあるなら取り直さない。再試行は常に file 0 から
+            // 始まるため、2 個目で失敗するたびに 1 個目(約 20MB)を落とし直していた
+            // （レビュー §5 低）。ハッシュ計算は再取得に比べれば桁違いに安い。
+            try
+            {
+                string existing = Path.Combine(MaskSuggestBridge.ModelsDirectory, file);
+                if (File.Exists(existing) &&
+                    string.Equals(Sha256Of(existing), sha, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    AdvanceToNextFile();
+                    return;
+                }
+            }
+            catch (System.Exception)
+            {
+                // 読めない・壊れている → 通常どおりダウンロードし直す
+            }
+
             string tmp = TempPath(file);
             try
             {
@@ -167,6 +186,12 @@ namespace Iroca
                 return;
             }
 
+            AdvanceToNextFile();
+        }
+
+        /// <summary>次のファイルへ進む。全部終わっていれば完了処理。</summary>
+        static void AdvanceToNextFile()
+        {
             _fileIndex++;
             if (_fileIndex >= Files.Length)
             {
