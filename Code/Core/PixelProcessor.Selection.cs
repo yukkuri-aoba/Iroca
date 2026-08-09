@@ -319,6 +319,10 @@ namespace Iroca
             CancellationToken ct = default)
         {
             if (passes <= 0) return;
+            // minNeighbors<=0 だと「matched>=0 かつ total>=0」が常に真になり、relaxed 許可領域
+            // 全体が毎パス埋まる（プリセット JSON 由来の 0 で到達し得た。レビュー §4 低）。
+            // 8 近傍のうち最低 1 つは一致していることを要求し、上限も近傍数で頭打ちにする。
+            minNeighbors = Mathf.Clamp(minNeighbors, 1, 8);
 
             // bbox 未指定(boxMaxX<0)なら全画素。指定時はその矩形内だけ近傍走査する(P2-7)。
             // 矩形外は呼び出し側が「処理前後とも 0」を保証するので走査を省いても出力ビット不変。
