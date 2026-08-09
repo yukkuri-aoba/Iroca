@@ -202,14 +202,19 @@ namespace Iroca
 
         // GUID 未解決の現用ファイルを削除せず .orphan へ退避する。退避時刻を LastWriteTime に刻んで
         // 猶予クロックの起点にする（元の最終編集時刻ではなく「退避した瞬間」から N 日数える）。
+        //
+        // 刻んでから移動する順序が重要。移動後に刻む順序だと SetLastWriteTimeUtc が失敗したとき
+        // 「元の最終編集時刻のまま .orphan になったファイル」が残り、それが猶予日数より古ければ
+        // 次回の掃除で猶予を待たず即削除される（＝データを守るための退避が消す側に回る）。
+        // 先に刻めば、失敗した場合は退避自体が起きず現用のまま残る。
         private static void RetireToOrphan(string file)
         {
             string orphanPath = file + OrphanSuffix;
             try
             {
+                File.SetLastWriteTimeUtc(file, DateTime.UtcNow);
                 if (File.Exists(orphanPath)) File.Delete(orphanPath);
-                File.Move(file, orphanPath);
-                File.SetLastWriteTimeUtc(orphanPath, DateTime.UtcNow);
+                File.Move(file, orphanPath);   // 同一ボリュームの rename は mtime を保つ
             }
             catch (Exception ex) { Debug.LogWarning($"[Iroca] Orphan session retire failed: {ex.Message}"); }
         }
