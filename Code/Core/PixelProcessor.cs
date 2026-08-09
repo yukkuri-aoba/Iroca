@@ -63,7 +63,8 @@ namespace Iroca
         // ビット表現で完全一致判定(丸め衝突を避ける)。曖昧なものは安全側で含める(ミスが増えるだけ)。
         private static string BuildSelectionKey(
             ColorZone z, float edgeFeather, int aaCleanup, int holeFillPasses, int holeFillMinNeighbors,
-            float relaxedSatMin, float relaxedSatRamp, ulong[] commonMask, ulong[] zoneMask)
+            float relaxedSatMin, float relaxedSatRamp, ulong[] commonMask, ulong[] zoneMask,
+            int maskW, int maskH)
         {
             var sb = new StringBuilder(320);
             void F(float v) { sb.Append(BitConverter.SingleToInt32Bits(v)); sb.Append(','); }
@@ -86,7 +87,11 @@ namespace Iroca
             // 選択に効くグローバル後段設定
             F(edgeFeather); I(aaCleanup); I(holeFillPasses); I(holeFillMinNeighbors);
             F(relaxedSatMin); F(relaxedSatRamp);
-            // マスク内容(common + zone)
+            // マスク内容(common + zone)。ビット列のハッシュだけでは、同じビット列を別の寸法で
+            // 解釈したケースを区別できない（マスクは packed ulong[] で寸法が別持ちのため、
+            // 寸法が変われば同じビット列でも指す画素が変わる）。寸法もキーに入れる
+            // （レビュー §4 低 / 監査 L-6）。
+            I(maskW); I(maskH);
             sb.Append(MaskHash(commonMask)); sb.Append(';');
             sb.Append(MaskHash(zoneMask)); sb.Append(';');
             return sb.ToString();
@@ -155,6 +160,21 @@ namespace Iroca
             PreviewParityCache parityCache = null,
             SelectionCache selectionCache = null)
         {
+            // 引数検証。ここが無いと、不正な引数（null / 長さ不足）で Array.Copy が投げたとき
+            // 直前に Rent したプール配列（4K で 64MB）が返却されずリークする。Rent は
+            // finally が守る try の外にあるため、例外が出るなら Rent の前に出さないといけない
+            // （レビュー §4 低）。
+            if (pixels == null) throw new System.ArgumentNullException(nameof(pixels));
+            if (w <= 0 || h <= 0)
+                throw new System.ArgumentOutOfRangeException(nameof(w), $"invalid size: {w}x{h}");
+            long lenLong = (long)w * h;
+            if (lenLong > int.MaxValue)
+                throw new System.ArgumentOutOfRangeException(nameof(w), $"size too large: {w}x{h}");
+            if (pixels.Length < lenLong)
+                throw new System.ArgumentException(
+                    $"pixels.Length({pixels.Length}) < w*h({lenLong})", nameof(pixels));
+            if (sortedZones == null) throw new System.ArgumentNullException(nameof(sortedZones));
+
             if (fullW <= 0) fullW = w;
             if (fullH <= 0) fullH = h;
 
@@ -163,7 +183,7 @@ namespace Iroca
             int maskW = masks?.width ?? 0;
             int maskH = masks?.height ?? 0;
 
-            int len = w * h;
+            int len = (int)lenLong;
             Color32[] originalPixels = s_color32Pool.Rent(len);   // 末尾の finally で Return
             System.Array.Copy(pixels, originalPixels, len);
 
@@ -260,7 +280,8 @@ namespace Iroca
                     if (selectionCache != null && isFullImagePath)
                     {
                         selKey = BuildSelectionKey(zone, edgeFeather, antiAliasCleanup, holeFillPasses,
-                            holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp, commonMask, zoneMask);
+                            holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp, commonMask, zoneMask,
+                            maskW, maskH);
                         selCached = selectionCache.TryGet(zone.id, selKey, w, h, out cachedStrength, out cachedKeep);
                     }
 
@@ -317,17 +338,25 @@ namespace Iroca
                         // 超える独立した高彩度の別素材(クリーム布等)を選択から除去する。素材自身の
                         // 高彩度装飾は低彩度コア近接で保護される。ハイライト伝播・FF・穴埋めより前に
                         // 適用し、後段パスが別素材を再伝播/復元しないようにする。
-                        Color.RGBToHSV(zone.sampleColor, out _, out float cgSS, out float cgSV);
-                        ApplyChromaCeilingGate(strength, matchConf, pixS, cgSS, cgSV,
-                            zone.chromaThreshold, w, h, cancellationToken);
-                        // 中性ツヤ復帰(グレーモード以外では内部で no-op): 彩度整合ゲートが純白
-                        // パディングと一緒に落とした「素材自身の純白ツヤ」を、選択領域に囲まれた
-                        // 閉領域という空間条件だけで戻す。連結性は大域演算なのでフル画像経路限定
-                        // (部分クロップではクロップ境界に接した閉領域を開領域と誤判定するため)。
-                        if (isFullImagePath)
-                            RecoverEnclosedNeutral(strength, matchConf, pixS, originalPixels,
-                                zone.sampleColor, zone.tolerance, cgSS, cgSV,
+                        // どちらも「サンプル色が無彩か」を起点にしたグレーモード専用の絞り込みなので、
+                        // 色サンプルを持つ ColorPick モードでのみ適用する。Rect モードは sampleColor が
+                        // 既定の白のままで、mode を見ないと必ずグレーモード判定が真になり、有彩画素が
+                        // 削除されて矩形選択が壊れる（レビュー 2026-08-06 §4 中）。現行 UI から Rect は
+                        // 設定できないが、enum は public でシリアライズ対象＝旧プリセット JSON から到達し得る。
+                        if (zone.mode == SelectionMode.ColorPick)
+                        {
+                            Color.RGBToHSV(zone.sampleColor, out _, out float cgSS, out float cgSV);
+                            ApplyChromaCeilingGate(strength, matchConf, pixS, cgSS, cgSV,
                                 zone.chromaThreshold, w, h, cancellationToken);
+                            // 中性ツヤ復帰(グレーモード以外では内部で no-op): 彩度整合ゲートが純白
+                            // パディングと一緒に落とした「素材自身の純白ツヤ」を、選択領域に囲まれた
+                            // 閉領域という空間条件だけで戻す。連結性は大域演算なのでフル画像経路限定
+                            // (部分クロップではクロップ境界に接した閉領域を開領域と誤判定するため)。
+                            if (isFullImagePath)
+                                RecoverEnclosedNeutral(strength, matchConf, pixS, originalPixels,
+                                    zone.sampleColor, zone.tolerance, cgSS, cgSV,
+                                    zone.chromaThreshold, w, h, cancellationToken);
+                        }
                         debug?.RecordStage(zone.id, DebugStages.Match, strength, w, h);
                     }
                     _phaseTicks[PhMatch] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
@@ -1036,6 +1065,17 @@ namespace Iroca
         public static Color32[] BoxDownsample(Color32[] src, int srcW, int srcH,
             int dstW, int dstH, float scale)
         {
+            // scale と dst 寸法の整合を呼び出し側の契約に丸投げしており、不整合だと
+            // src の範囲外を読んで IndexOutOfRange になっていた（レビュー §4 低）。
+            // 読み出し位置を src 範囲にクランプして、契約違反を例外でなく劣化で吸収する。
+            if (src == null) throw new System.ArgumentNullException(nameof(src));
+            if (srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0 || scale <= 0f)
+                throw new System.ArgumentOutOfRangeException(nameof(scale),
+                    $"invalid downsample params: src={srcW}x{srcH} dst={dstW}x{dstH} scale={scale}");
+            if (src.Length < (long)srcW * srcH)
+                throw new System.ArgumentException(
+                    $"src.Length({src.Length}) < srcW*srcH({(long)srcW * srcH})", nameof(src));
+
             Color32[] dst = new Color32[dstW * dstH];
             // 合計値が int の範囲を超えないように long を使用。
             // 例: 8192x8192 の画像を 512x512 に縮小すると 1 ピクセル当たり 256 サンプル以上、
@@ -1046,12 +1086,12 @@ namespace Iroca
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism() };
             Parallel.For(0, dstH, po, y =>
             {
-                int sy0 = Mathf.FloorToInt(y / scale);
-                int sy1 = Mathf.Min(Mathf.CeilToInt((y + 1f) / scale) - 1, srcH - 1);
+                int sy0 = Mathf.Clamp(Mathf.FloorToInt(y / scale), 0, srcH - 1);
+                int sy1 = Mathf.Clamp(Mathf.CeilToInt((y + 1f) / scale) - 1, sy0, srcH - 1);
                 for (int x = 0; x < dstW; x++)
                 {
-                    int sx0 = Mathf.FloorToInt(x / scale);
-                    int sx1 = Mathf.Min(Mathf.CeilToInt((x + 1f) / scale) - 1, srcW - 1);
+                    int sx0 = Mathf.Clamp(Mathf.FloorToInt(x / scale), 0, srcW - 1);
+                    int sx1 = Mathf.Clamp(Mathf.CeilToInt((x + 1f) / scale) - 1, sx0, srcW - 1);
                     long r = 0, g = 0, b = 0, a = 0;
                     int count = 0;
                     for (int ky = sy0; ky <= sy1; ky++)
