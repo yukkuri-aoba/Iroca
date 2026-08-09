@@ -161,9 +161,18 @@ Unity で開くと `Iroca.SentisIntegration.dll` も `Library\ScriptAssemblies` 
 
 # 実 C# 品質ゲートを bandana 以外の被写体（hair/costume/sneakers）まで広げる
 $env:VACC_CSHARP_GATE_FULL = "1"
+
+# golden（C# 出力ハッシュの固定）— dev_safe を必要としない自己完結テスト
+.\.venv\Scripts\python.exe -m pytest scripts/golden -q
 ```
 
 - マーカー: `perf`（性能計測・品質検査なし）/ `slow`（メモリ・時間コスト大）。
+  マーカー登録とルート rootdir はリポジトリルートの `pytest.ini` が持つ。
+- **`scripts/golden` は `dev_safe/Tests/regression/` に含まれない**（別ツリー）。合成入力で
+  自己完結しており実行は数十秒なので、`Code/Core` を触ったときは回帰テストと併せて回すこと。
+  golden が落ちる＝C# の出力が変わった、の意味。意図した変更なら
+  `python scripts/golden/golden_lib.py --force` で再生成する（`--force` 無しだと、
+  どのケースがどう変わるかを列挙して止まる）。
 - **改善サイクルの採否判断では `VACC_CSHARP_GATE_FULL=1` を必ず立てる**（既定は bandana のみで、
   残り 3 被写体の実 C# 品質を測らずに「全パス」と誤認するため）。
 

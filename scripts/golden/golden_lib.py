@@ -10,12 +10,15 @@ L キャップ欠落のようなリグレッション）を検出するのが本
 （必要なのは dotnet + Unity CoreModule DLL のみ）。
 
 ゴールデンは toolchain（Unity 2022.3.22f1 / dotnet ランタイム）に紐づく。意図的にアルゴリズムを
-変更したとき、または toolchain を更新したときは `python scripts/golden/golden_lib.py` で再生成する。
+変更したとき、または toolchain を更新したときは `python scripts/golden/golden_lib.py` で再生成する
+（既存 golden と差分があるときは内容を列挙して止まる。確認のうえ --force を付ける）。
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 import struct
 import subprocess
 from pathlib import Path
@@ -23,6 +26,13 @@ from pathlib import Path
 import numpy as np
 
 import synth_textures as S
+
+# サブプロセスに timeout を渡さないと、ハーネスがハングしたとき pytest / pre-commit が
+# 無期限に固まる（レビュー §6-15）。「遅い」と「止まっている」を区別するための上限で、
+# 正常系の実測（1 ケース数秒）に対して十分な余裕を取ってある。
+BUILD_TIMEOUT_S = int(os.environ.get("VACC_HARNESS_BUILD_TIMEOUT", "600"))
+RUN_TIMEOUT_S = int(os.environ.get("VACC_HARNESS_RUN_TIMEOUT", "600"))
+PROBE_TIMEOUT_S = int(os.environ.get("VACC_HARNESS_PROBE_TIMEOUT", "60"))
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -96,33 +106,55 @@ def read_raw_rgba(path: Path) -> np.ndarray:
 # ─────────────────────────── C# 経路 ───────────────────────────
 def dotnet_available() -> bool:
     try:
-        return subprocess.run(["dotnet", "--version"], capture_output=True, text=True).returncode == 0
-    except (FileNotFoundError, OSError):
+        return subprocess.run(["dotnet", "--version"], capture_output=True, text=True,
+                              timeout=PROBE_TIMEOUT_S).returncode == 0
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
         return False
+
+
+def _csproj_unity_defaults() -> tuple[str, str, str]:
+    """Harness.csproj から (UnityVersion 既定, UnityManaged 既定テンプレート, DLL 相対パス) を読む。
+
+    以前はこの 3 つを Python 側にハードコードして csproj を手書きミラーしていたが、
+    csproj を変えたときミラーが陳腐化すると「DLL が無い」と誤判定して実 C# を走らせないまま
+    テストが緑に見える（サイレント skip）。csproj を唯一の正として読む。
+    """
+    text = HARNESS_CSPROJ.read_text(encoding="utf-8")
+
+    def prop(name: str) -> str:
+        m = re.search(rf"<{name}\s+Condition=[^>]*>([^<]+)</{name}>", text)
+        if not m:
+            raise RuntimeError(
+                f"Harness.csproj から {name} の既定値を読めません: {HARNESS_CSPROJ}")
+        return m.group(1).strip()
+
+    m = re.search(r"<HintPath>\$\(UnityManaged\)[\\/](.+?)</HintPath>", text)
+    if not m:
+        raise RuntimeError(f"Harness.csproj から Unity DLL の HintPath を読めません: {HARNESS_CSPROJ}")
+    return prop("UnityVersion"), prop("UnityManaged"), m.group(1).strip()
 
 
 def unity_dll_missing() -> str | None:
     """Harness が参照する Unity CoreModule DLL が無ければそのパスを返す（環境不備 = skip 対象）。
 
-    Harness.csproj の既定 (UnityVersion / UnityManaged、環境変数で上書き可) をミラーする。
+    既定値は Harness.csproj から読む（環境変数 UnityVersion / UnityManaged で上書き可）。
     これで「環境不備 (skip してよい)」と「Code/ のコンパイルエラー (fail すべき)」を
     テスト側で区別できる — 過去に DLL 名の陳腐化で実 C# を走らせないまま
     テストが緑に見えるサイレント skip 事故が起きている。
     """
-    import os
-
-    version = os.environ.get("UnityVersion", "2022.3.22f1")
-    managed = os.environ.get(
-        "UnityManaged",
-        rf"C:\Program Files\Unity\Hub\Editor\{version}\Editor\Data\Managed")
-    dll = Path(managed) / "UnityEngine" / "UnityEngine.CoreModule.dll"
+    default_version, managed_template, dll_rel = _csproj_unity_defaults()
+    version = os.environ.get("UnityVersion", default_version)
+    managed = os.environ.get("UnityManaged",
+                             managed_template.replace("$(UnityVersion)", version))
+    dll = Path(managed) / dll_rel.replace("\\", "/")
     return None if dll.exists() else str(dll)
 
 
 def build_harness() -> tuple[bool, subprocess.CompletedProcess]:
     r = subprocess.run(
         ["dotnet", "build", str(HARNESS_CSPROJ), "-c", "Release", "-nologo", "-v", "quiet"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace")
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=BUILD_TIMEOUT_S)
     return (r.returncode == 0 and HARNESS_DLL.exists()), r
 
 
@@ -144,7 +176,8 @@ def run_csharp(rgba: np.ndarray, z: dict, s: dict, work: Path) -> np.ndarray:
                   encoding="utf-8")
     r = subprocess.run(
         ["dotnet", str(HARNESS_DLL), str(in_raw), str(mask_raw), str(out_raw), "--zones", str(zj)],
-        capture_output=True, text=True, encoding="utf-8", errors="replace")
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=RUN_TIMEOUT_S)
     if r.returncode != 0:
         raise RuntimeError(f"Harness 実行失敗: {r.stderr}\n{r.stdout}")
     return read_raw_rgba(out_raw)
@@ -268,8 +301,13 @@ def load_golden() -> dict:
     return json.loads(GOLDEN_FILE.read_text(encoding="utf-8")).get("cases", {})
 
 
-def regenerate() -> int:
-    """全ケースを C# で走らせ golden_hashes.json を書き出す。toolchain 変更/意図的変更時に実行。"""
+def regenerate(force: bool = False) -> int:
+    """全ケースを C# で走らせ golden_hashes.json を書き出す。toolchain 変更/意図的変更時に実行。
+
+    既存 golden と差分があるときは、何が変わるのかを列挙したうえで --force を要求する。
+    golden は「C# の出力が黙って変わっていないか」を見る唯一の基準なので、無警告の一括上書きを
+    許すと、退行を焼き付けたことに誰も気づけない（レビュー 2026-08-06 §6-19）。
+    """
     import tempfile
 
     if not dotnet_available():
@@ -288,10 +326,31 @@ def regenerate() -> int:
             out_cases[label] = {"sha256": output_hash(arr), "shape": list(arr.shape)}
             print(f"  {label:32s} {out_cases[label]['sha256'][:16]} shape={out_cases[label]['shape']}")
 
+    prev = load_golden()
+    changed = sorted(l for l in out_cases if l in prev
+                     and prev[l].get("sha256") != out_cases[l]["sha256"])
+    added = sorted(l for l in out_cases if l not in prev)
+    removed = sorted(l for l in prev if l not in out_cases)
+
+    if changed or removed:
+        print("\n=== 既存 golden との差分 ===")
+        for l in changed:
+            print(f"  変化 {l:32s} {prev[l].get('sha256','?')[:16]} -> {out_cases[l]['sha256'][:16]}")
+        for l in removed:
+            print(f"  消滅 {l:32s} (ケース定義から無くなりました)")
+        if not force:
+            print(f"\n変化 {len(changed)} 件 / 消滅 {len(removed)} 件。"
+                  "\nこれは『C# の出力が変わった』ことを意味する。意図した変更（アルゴリズム改善・"
+                  "toolchain 更新）であることを確認したうえで、--force を付けて再実行すること。")
+            return 2
+        print("\n--force 指定のため上書きします。")
+    if added:
+        print(f"\n新規ケース {len(added)} 件: {', '.join(added)}")
+
     doc = {
         "_meta": {
             "note": "C# 自己ゴールデン（製品 C# の出力ハッシュ）。Python 非依存の回帰検出。"
-                    "意図的変更・toolchain 更新時は `python scripts/golden/golden_lib.py` で再生成。",
+                    "意図的変更・toolchain 更新時は `python scripts/golden/golden_lib.py --force` で再生成。",
             "unity": "2022.3.22f1",
             "assembly": "IrocaHeadless",
         },
@@ -304,4 +363,4 @@ def regenerate() -> int:
 
 if __name__ == "__main__":
     import sys
-    sys.exit(regenerate())
+    sys.exit(regenerate(force="--force" in sys.argv[1:]))
