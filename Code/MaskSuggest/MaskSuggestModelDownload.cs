@@ -154,8 +154,12 @@ namespace Iroca
                     return;
                 }
                 string dst = Path.Combine(MaskSuggestBridge.ModelsDirectory, file);
-                if (File.Exists(dst)) File.Delete(dst);
-                File.Move(tmp, dst);
+                // 別インスタンスが同じ onnx をロード中かもしれない。Delete→Move だと
+                // 「一瞬ファイルが存在しない」窓ができ、読み込み中のファイルを消すことにもなる。
+                // Replace は原子的に差し替えるので、読み手は旧か新のどちらかを必ず見る
+                // （ロックされていれば例外 → Fail に落ちる。黙って壊すより良い）。
+                if (File.Exists(dst)) File.Replace(tmp, dst, null);
+                else File.Move(tmp, dst);
             }
             catch (System.Exception e)
             {
@@ -212,8 +216,15 @@ namespace Iroca
             }
         }
 
+        // 一時ファイル名は Unity プロセスごとに分ける。モデル置き場は LOCALAPPDATA の
+        // 全プロジェクト共有なので、"<file>.download" 固定だと、別インスタンスが落としている
+        // 最中の一時ファイルを開始時の無条件削除で壊していた（レビュー §5 中）。
+        // プロセス ID はドメインリロードを跨いでも同じなので、リロード時の後始末とも整合する。
+        static readonly string TempSuffix =
+            ".download." + System.Diagnostics.Process.GetCurrentProcess().Id;
+
         static string TempPath(string file) =>
-            Path.Combine(MaskSuggestBridge.ModelsDirectory, file + ".download");
+            Path.Combine(MaskSuggestBridge.ModelsDirectory, file + TempSuffix);
 
         static string Sha256Of(string path)
         {
