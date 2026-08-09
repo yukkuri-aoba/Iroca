@@ -63,7 +63,17 @@ namespace Iroca
         {
             if (InProgress) return;
             Error = null;
-            Directory.CreateDirectory(MaskSuggestBridge.ModelsDirectory);
+            try
+            {
+                Directory.CreateDirectory(MaskSuggestBridge.ModelsDirectory);
+            }
+            catch (System.Exception e)
+            {
+                // ここで例外を投げると UI のボタンハンドラへ素通しになり、Error にも載らないため
+                // 画面には何も出ない（押しても無反応に見える）。Error に載せて表示させる。
+                Error = $"モデル置き場を作成できません: {e.Message}";
+                return;
+            }
             _fileIndex = 0;
             EditorApplication.update += Tick;
             // ドメインリロードで static 状態(進捗・購読)は消えるため、ネイティブの
