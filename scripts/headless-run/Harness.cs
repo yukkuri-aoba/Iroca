@@ -349,6 +349,7 @@ namespace Iroca
             {
                 z, /*edgeFeather*/0f, /*aaCleanup*/3, /*holeFillPasses*/5, /*holeFillMinNeighbors*/4,
                 /*relaxedSatMin*/0.02f, /*relaxedSatRamp*/0.08f, /*commonMask*/null, /*zoneMask*/null,
+                /*maskW*/0, /*maskH*/0,
             });
 
             var baseline = new ColorZone();
