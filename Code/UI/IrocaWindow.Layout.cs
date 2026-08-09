@@ -442,7 +442,8 @@ namespace Iroca
                 EditorGUILayout.HelpBox(Localization.WorkflowHint, MessageType.Info);
 
             var newTex = (Texture2D)EditorGUILayout.ObjectField(
-                Localization.Texture, sourceTexture, typeof(Texture2D), false);
+                new GUIContent(Localization.Texture, Localization.TextureTooltip),
+                sourceTexture, typeof(Texture2D), false);
             if (newTex != sourceTexture)
             {
                 // 旧テクスチャのマスク＋セッション（ゾーン/色/処理設定）を永続化。

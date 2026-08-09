@@ -233,7 +233,7 @@ namespace Iroca
                         useDecontamination = result.useDecontamination;
                     }
                     MarkPreviewDirty();
-                    ShowNotification(new GUIContent(Localization.AutoTune));
+                    ShowNotification(new GUIContent(Localization.AutoTuneDone));
                     Repaint();
                 },
                 onError: ex =>

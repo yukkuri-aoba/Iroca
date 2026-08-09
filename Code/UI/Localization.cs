@@ -80,6 +80,9 @@ namespace Iroca
         // ─── Source Texture ───
         public static string SourceTexture => IsJapanese ? "元テクスチャ" : "Source Texture";
         public static string Texture => IsJapanese ? "テクスチャ" : "Texture";
+        public static string TextureTooltip => IsJapanese
+            ? "色を変えたいテクスチャをここにドラッグ＆ドロップ、または右の◎から選びます（作業の開始点）。\nテクスチャごとにゾーン設定とマスクが保存され、切り替えると自動で読み戻されます。"
+            : "Drag & drop the texture you want to recolor here, or pick it with the ◎ button (this is where the workflow starts).\nZones and masks are saved per texture and restored when you switch back.";
         public static string ReadWriteError => IsJapanese
             ? "Read/Write Enabled がオフです。\nインポート設定で有効にしてください。"
             : "Read/Write Enabled is off.\nPlease enable it in the import settings.";
@@ -167,9 +170,11 @@ namespace Iroca
         public static string SimpleMode    => IsJapanese ? "かんたん" : "Simple";
         public static string NormalMode    => IsJapanese ? "通常" : "Normal";
         public static string AdvancedShort => IsJapanese ? "上級" : "Advanced";
+        // 「かんたん」モードは UI から隠してある（IrocaWindow.ZoneList.cs の Simple 非表示を参照）。
+        // 再表示するときはこのツールチップにも説明を戻すこと。
         public static string EditModeTooltip => IsJapanese
-            ? "「かんたん」: 色とおおまかな調整だけを表示（迷ったらこちら）。サンプルカラーを変えると自動調整が裏で走り、巻き込み抑制などの細部を自動設定します。\n「通常」: 従来通りの標準的な調整項目（エッジ・彩度・シャドウ/ハイライト）を手動表示。自動実行はしません。\n「上級」: 通常に加えて内部マッチング重みなど最も細かいパラメータまで表示します。"
-            : "Simple: shows only colors and basic adjustments (recommended). Changing the sample color runs Auto-tune in the background to set details (bleed suppression, etc.).\nNormal: the classic set of manual controls (edge, saturation, shadow/highlight). No auto-run.\nAdvanced: Normal plus the finest internal parameters (matching weights, etc.).";
+            ? "「通常」: 標準的な調整項目（エッジ・彩度・シャドウ/ハイライト）を手動で調整します。\n「上級」: 通常に加えて、内部マッチング重みなど最も細かいパラメータまで表示します。\nどちらのモードでも自動調整が勝手に走ることはありません（「自動調整」ボタンを押したときだけ実行）。"
+            : "Normal: the standard manual controls (edge, saturation, shadow/highlight).\nAdvanced: Normal plus the finest internal parameters (matching weights, etc.).\nNeither mode runs Auto-tune on its own - it only runs when you press the Auto-tune button.";
         public static string AutoTuningInProgress => IsJapanese ? "自動調整中…" : "Auto-tuning…";
 
         // ゾーンカード内の詳細パラメータ折りたたみ見出し（通常モードで既定畳む）。
@@ -467,8 +472,8 @@ namespace Iroca
 
         // ─── Mask tooltips ───
         public static string BrushSizeTooltip => IsJapanese
-            ? "ペイントブラシのサイズ（ピクセル単位）"
-            : "Paint brush size in pixels";
+            ? "ペイントブラシの半径（プレビューの格子セル単位。塗られる円の直径は 2×サイズ+1 セル）。\n1 セルが何テクセルに当たるかは表示倍率で変わります（4K を全体表示すると 1 セル = 10 テクセル超）。"
+            : "Brush radius in preview grid cells (the painted circle is 2 x size + 1 cells across).\nHow many texels one cell covers depends on the zoom (over 10 texels per cell when a 4K texture is fully zoomed out).";
         public static string ExcludeTooltip => IsJapanese
             ? "除外ブラシモード: プレビューをドラッグして赤いマスクを描き、その領域を変更から除外します\n同じボタンを再度押すとモードを解除"
             : "Exclude brush mode: Drag on the preview to paint a red mask and exclude that area from recoloring\nClick again to exit paint mode";
@@ -476,8 +481,8 @@ namespace Iroca
             ? "消去ブラシモード: プレビューをドラッグして除外マスクを消去し、変更を再有効化します\n同じボタンを再度押すとモードを解除"
             : "Include brush mode: Drag on the preview to erase the exclusion mask and re-enable recoloring\nClick again to exit paint mode";
         public static string ClearMaskTooltip => IsJapanese
-            ? "すべての除外マスクを消去します"
-            : "Erase all exclusion mask paint";
+            ? "いま「編集対象」に選ばれているマスク 1 枚だけを消去します（共通マスク、またはゾーン別マスク）。\nほかのマスクはそのまま残ります。"
+            : "Erases only the mask currently selected as the edit target (the common mask, or one zone's mask).\nOther masks are left untouched.";
         public static string UndoMaskTooltip => IsJapanese
             ? "直前の操作を1ステップ前に戻します（Unity 標準の Ctrl+Z と同じ）。"
               + "マスク専用ではないため、直前がマスク以外の操作ならそちらが戻ります"
@@ -718,6 +723,8 @@ namespace Iroca
 
         // ─── Auto-tune ───
         public static string AutoTune => IsJapanese ? "自動調整" : "Auto-tune";
+        // 完了通知に使う。ボタン名と同じ「自動調整」だけを出すと、開始・完了・失敗の区別がつかない。
+        public static string AutoTuneDone => IsJapanese ? "自動調整が完了しました" : "Auto-tune complete";
         public static string AnalyzingTexture => IsJapanese ? "テクスチャを解析中…" : "Analyzing texture…";
         public static string AutoTuneTooltip => IsJapanese
             ? "サンプルカラーと変更先カラーから、テクスチャを解析して許容範囲・彩度制限などのパラメータを自動的に決定します。\nスポイトでサンプルカラーを取った直後に押すと最も効果的です。"
