@@ -5,12 +5,15 @@ Apple 調・実写主義の販促画像一式。掲載写真はすべて **HAOLA
 
 ## ファイル構成
 
+**生成物は公開リポに置かない。** コンプ HTML と書き出し PNG は
+`dev_safe/promo/booth_new/`（プライベート側）へ出力される。素材とスクリプトだけが
+この公開ディレクトリに残る（`docs/booth/out/` を除外している既存方針と揃えた）。
+
 | ファイル | 役割 |
 |---|---|
-| `build_html.py` | コンプ HTML を生成（`img/*.jpg` を data URI で埋め込み） |
+| `build_html.py` | コンプ HTML を生成（`img/*.jpg` を data URI で埋め込み）→ `dev_safe/promo/booth_new/booth-promo-comps.html` |
 | `img/*.jpg` | 撮影済み写真（Web 用縮小版）。原板は下記 PromoShots/ |
-| `booth-promo-comps.html` | 生成されたコンプ（ブラウザで開けばプレビュー） |
-| `export_slides.py` | 各ボードを **1280×1280 PNG** に書き出し → `out/slide-N.png` |
+| `export_slides.py` | 各ボードを **1280×1280 PNG** に書き出し → `dev_safe/promo/booth_new/out/slide-N.png` |
 
 ## ワークフロー
 
@@ -20,7 +23,7 @@ Apple 調・実写主義の販促画像一式。掲載写真はすべて **HAOLA
 
 # 2. BOOTH 掲載用 PNG に書き出し
 .venv\Scripts\python.exe docs/booth_new/promo/export_slides.py
-#    → out/slide-1.png … slide-5.png（1280×1280）
+#    → dev_safe/promo/booth_new/out/slide-1.png … slide-5.png（1280×1280）
 ```
 
 写真を差し替える場合は `img/` の同名 jpg を上書きして 1 → 2 の順に再実行。

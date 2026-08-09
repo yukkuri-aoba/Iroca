@@ -78,3 +78,7 @@ scripts/headless-run/obj/
 # 一時作業ファイル・生成物（コミット対象外）
 tmp/
 docs/booth/out/
+# 販促の生成物は dev_safe/promo/ へ出力する（スクリプトの出力先もそちら）。
+# 古いスクリプトを実行した場合にここへ出ても追跡しないための保険。
+docs/booth_new/promo/out/
+docs/booth_new/promo/booth-promo-comps.html

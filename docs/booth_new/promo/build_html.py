@@ -3,6 +3,11 @@ import base64, os
 
 D = os.path.dirname(os.path.abspath(__file__))
 IMG = os.path.join(D, 'img')
+# 生成物は公開リポに置かない（dev_safe = プライベート側へ書き出す）。
+# 素材(img/)とスクリプトは公開側に残し、出力だけ private にする運用。
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(D)))   # docs/booth_new/promo -> リポジトリルート
+OUT_DIR = os.path.join(REPO, 'dev_safe', 'promo', 'booth_new')
+os.makedirs(OUT_DIR, exist_ok=True)
 
 def b64(name):
     with open(os.path.join(IMG, name), 'rb') as f:
@@ -239,7 +244,7 @@ html = html.replace('%%LINEUP%%', b64('lineup_wide.jpg'))
 html = html.replace('%%MACROB%%', b64('macro_before.jpg'))
 html = html.replace('%%MACROA%%', b64('macro_after.jpg'))
 
-out = os.path.join(D, 'booth-promo-comps.html')
+out = os.path.join(OUT_DIR, 'booth-promo-comps.html')
 with open(out, 'w', encoding='utf-8') as f:
     f.write(html)
 print('written', out, len(html))
