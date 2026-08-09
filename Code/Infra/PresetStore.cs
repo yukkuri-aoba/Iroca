@@ -35,7 +35,7 @@ namespace Iroca
         {
             if (data == null) return false;
             string sanitized = SanitizeFileName(name);
-            EnsureDirectory(ProjectPresetFolder);
+            if (!EnsureDirectory(ProjectPresetFolder)) return false;
             string path = Path.Combine(ProjectPresetFolder, sanitized + ".json");
             if (!WriteJson(path, data)) return false;
 
@@ -52,7 +52,7 @@ namespace Iroca
         {
             if (data == null) return false;
             string sanitized = SanitizeFileName(name);
-            EnsureDirectory(UserPresetFolder);
+            if (!EnsureDirectory(UserPresetFolder)) return false;
             string path = Path.Combine(UserPresetFolder, sanitized + ".json");
             return WriteJson(path, data);
         }
@@ -114,15 +114,36 @@ namespace Iroca
 
         public static string[] ListJson(string folder)
         {
-            return Directory.Exists(folder)
-                ? Directory.GetFiles(folder, "*.json")
-                : Array.Empty<string>();
+            // 権限不足・読み取り専用・パス長超過などで例外になり得る。呼び出し元は
+            // UI の描画中（プリセット一覧）や MCP なので、素通しすると OnGUI が壊れるか
+            // JSON でなく例外が返る。空リスト扱いにして警告だけ残す。
+            try
+            {
+                return Directory.Exists(folder)
+                    ? Directory.GetFiles(folder, "*.json")
+                    : Array.Empty<string>();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[Iroca] Preset list failed ({folder}): {ex.Message}");
+                return Array.Empty<string>();
+            }
         }
 
-        private static void EnsureDirectory(string folder)
+        /// <summary>保存先フォルダを用意する。失敗したら false（例外は呼び出し元へ流さない）。</summary>
+        private static bool EnsureDirectory(string folder)
         {
-            if (!Directory.Exists(folder))
-                Directory.CreateDirectory(folder);
+            try
+            {
+                if (!Directory.Exists(folder))
+                    Directory.CreateDirectory(folder);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[Iroca] Preset folder create failed ({folder}): {ex.Message}");
+                return false;
+            }
         }
 
         private static bool WriteJson(string path, IrocaPresetData data)
