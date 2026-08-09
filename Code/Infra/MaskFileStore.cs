@@ -108,7 +108,14 @@ namespace Iroca
             if (!File.Exists(path)) return null;
             try
             {
-                return JsonUtility.FromJson<MaskState>(File.ReadAllText(path));
+                var state = JsonUtility.FromJson<MaskState>(File.ReadAllText(path));
+                // JsonUtility は空文字や "null" で例外を投げずに null を返す。ここを見落とすと
+                // 「ファイルはあるのに読めなかった」を「マスク無し」と誤認し、破壊的保存の抑止
+                // (lastLoadFailed) が効かないまま空マスクで上書き＝手描きマスクの恒久喪失になる。
+                // SessionFileStore.LoadSession は同じケースを unreadable=true にしており、
+                // ここだけ非対称だった。
+                if (state == null) { unreadable = true; return null; }
+                return state;
             }
             catch (Exception ex)
             {
