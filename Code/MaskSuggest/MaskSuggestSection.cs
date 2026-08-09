@@ -178,7 +178,11 @@ namespace Iroca
                 return;
             SessionState.SetBool(MaskSuggestInstall.RestartRecommendedKey, false);
             // 現在のプロジェクトを開き直す = エディタ再起動(Burst をクリーンに初期化)。
-            EditorApplication.OpenProject(System.IO.Directory.GetCurrentDirectory());
+            // CWD はプロジェクトルートである保証がない（batchmode 起動やスクリプトからの
+            // Directory.SetCurrentDirectory で変わる）。ズレていると別のフォルダを
+            // プロジェクトとして開こうとするので、dataPath から確実に導出する。
+            EditorApplication.OpenProject(
+                System.IO.Path.GetDirectoryName(Application.dataPath));
         }
 
         /// <summary>
