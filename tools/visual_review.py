@@ -539,7 +539,7 @@ def _newest_code_mtime() -> float:
     return newest
 
 
-def cmd_approve() -> None:
+def cmd_approve(note: str | None = None) -> None:
     """視覚レビュー確認完了マーカーを書き込む。
 
     空承認ガード(監査 4-1): compare パネルが存在し、かつ最新の Code/ ソース変更より
@@ -577,9 +577,12 @@ def cmd_approve() -> None:
         print("  これは目視では見えない退行です。承認せず原因を直してください。")
         sys.exit(1)
     REVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    # 既定の注記は「何をどこまで見たか」を書かない定型文だった。ツールが検証できない主張
+    # （全パネル確認済み）を勝手に記録すると、承認記録そのものが信用できなくなるので、
+    # 実際に見た範囲と根拠を --note で残せるようにしてある。
     marker = {
         "approved_at": datetime.now().isoformat(),
-        "note": "全比較パネルを Read ツールで確認済み",
+        "note": note or "(注記なし: --note で確認範囲と根拠を記録すること)",
         "panels": len(panels),
         "mask_contract_cases": len(cases),
         "mask_contract_violations": 0,
@@ -615,6 +618,16 @@ def _parse_engine(argv: list[str]) -> str:
     return "csharp"
 
 
+def _parse_note(argv: list[str]) -> str | None:
+    """argv から --note <text> / --note=<text> を取り出す(approve 用)。"""
+    for i, a in enumerate(argv):
+        if a == "--note" and i + 1 < len(argv):
+            return argv[i + 1]
+        if a.startswith("--note="):
+            return a.split("=", 1)[1]
+    return None
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         print(__doc__)
@@ -627,7 +640,7 @@ def main() -> None:
     elif cmd == "compare":
         cmd_compare(engine)
     elif cmd == "approve":
-        cmd_approve()
+        cmd_approve(_parse_note(sys.argv[2:]))
     else:
         print(f"不明なコマンド: {cmd!r}")
         print("使い方: python tools/visual_review.py [snapshot|compare|approve] [--engine python|csharp]")
