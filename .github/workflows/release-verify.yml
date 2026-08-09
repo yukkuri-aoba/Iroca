@@ -3,10 +3,24 @@ name: Verify Published Release
 # リリース publish 後の安全網: 公開された zip が docs/index.json（VPM listing）の
 # SHA256 と一致することを検証する。不一致 = VCC からインストール不能な壊れた listing。
 # 失敗したら zip を差し替えるか Build-VpmPackage.ps1 で listing を再生成すること。
+#
+# release イベントは「資産のアップロード・差し替え・削除」では発火しない。publish 後に
+# zip だけ差し替えると再検証が走らず、検証の効力が publish 直後の一度きりになる。
+# その穴を塞ぐため、週次 schedule と手動 workflow_dispatch で listing 上の全バージョンを
+# 突き合わせ直す（事後の資産差し替えを遅くとも 1 週間で検知する）。
 
 on:
   release:
     types: [published, edited]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '検証するタグ (例: v0.2.0)。空なら listing の全バージョン'
+        required: false
+        default: ''
+  schedule:
+    # 資産の事後差し替えを拾う定期照合（毎週月曜 03:17 UTC）
+    - cron: '17 3 * * 1'
 
 permissions:
   contents: read
@@ -16,49 +30,106 @@ env:
 
 jobs:
   verify:
-    # draft には資産が揃っていないことがあるため published/edited のみ対象
-    if: ${{ !github.event.release.draft }}
+    # draft には資産が揃っていないことがあるため対象外（schedule/dispatch には効かせない）
+    if: github.event_name != 'release' || !github.event.release.draft
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout tagged revision
+      - name: Resolve target
+        id: target
+        env:
+          # ${{ }} をシェルへ直接展開せず env 経由で渡す（タグ名からのインジェクション面を潰す）
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          # release イベントはそのタグの内容を、それ以外は main を見る。
+          # VCC が読む Pages は main 配信なので、定期照合の基準も main の listing が正しい。
+          if [ "$EVENT_NAME" = "release" ]; then
+            echo "ref=$RELEASE_TAG"     >> "$GITHUB_OUTPUT"
+            echo "tags=$RELEASE_TAG"    >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=main"             >> "$GITHUB_OUTPUT"
+            echo "tags=$INPUT_TAG"      >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout listing source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ steps.target.outputs.ref }}
 
-      - name: Verify zip asset against docs/index.json
+      - name: Verify release assets against docs/index.json
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAGS: ${{ steps.target.outputs.tags }}
+          # release イベントは対象リリースが必ず存在する前提なので不在をエラーにする。
+          # 全件照合では「listing にあるが未公開」= 準備中を許容し warning に留める。
+          STRICT: ${{ github.event_name == 'release' }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
-          VERSION="${TAG#v}"
-          ZIP="$PACKAGE_ID-$VERSION.zip"
+          set -uo pipefail
 
-          if ! gh release download "$TAG" --repo "${{ github.repository }}" --pattern "$ZIP" --output "$ZIP"; then
-            echo "::error::リリース $TAG に $ZIP が添付されていません"
+          if [ -n "$TAGS" ]; then
+            VERSIONS="${TAGS#v}"
+          else
+            VERSIONS=$(jq -r --arg id "$PACKAGE_ID" \
+              '.packages[$id].versions | keys[]' docs/index.json)
+          fi
+          if [ -z "$VERSIONS" ]; then
+            echo "::error::docs/index.json に $PACKAGE_ID のバージョンがありません"
             exit 1
           fi
 
-          ACTUAL=$(sha256sum "$ZIP" | cut -d' ' -f1)
-          EXPECTED=$(jq -r --arg id "$PACKAGE_ID" --arg v "$VERSION" \
-            '.packages[$id].versions[$v].zipSHA256 // empty' docs/index.json)
+          fail=0
+          for V in $VERSIONS; do
+            TAG="v$V"
+            ZIP="$PACKAGE_ID-$V.zip"
+            echo "--- $TAG"
 
-          if [ -z "$EXPECTED" ]; then
-            echo "::error::docs/index.json に $VERSION の zipSHA256 がありません"
-            exit 1
-          fi
-          if [ "$ACTUAL" != "$EXPECTED" ]; then
-            echo "::error::SHA256 不一致: 公開 zip=$ACTUAL / listing=$EXPECTED (VCC でインストール不能になります)"
-            exit 1
-          fi
-          echo "OK: $ZIP sha256=$ACTUAL は docs/index.json と一致"
+            EXPECTED=$(jq -r --arg id "$PACKAGE_ID" --arg v "$V" \
+              '.packages[$id].versions[$v].zipSHA256 // empty' docs/index.json)
+            LISTED_URL=$(jq -r --arg id "$PACKAGE_ID" --arg v "$V" \
+              '.packages[$id].versions[$v].url // empty' docs/index.json)
+            if [ -z "$EXPECTED" ]; then
+              echo "::error::docs/index.json に $V の zipSHA256 がありません"
+              fail=1; continue
+            fi
 
-      - name: Check unitypackage asset (warning only)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG="${{ github.event.release.tag_name }}"
-          VERSION="${TAG#v}"
-          if ! gh release view "$TAG" --repo "${{ github.repository }}" --json assets \
-            --jq '.assets[].name' | grep -q "^Iroca_Ver$VERSION\.unitypackage$"; then
-            echo "::warning::Iroca_Ver$VERSION.unitypackage がリリースに添付されていません（BOOTH 単体配布ユーザー向け）"
-          fi
+            if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+              if [ "$STRICT" = "true" ]; then
+                echo "::error::リリース $TAG が見つかりません"
+                fail=1
+              else
+                echo "::warning::$TAG は listing にあるがリリースが未公開です"
+              fi
+              continue
+            fi
+
+            if ! gh release download "$TAG" --repo "$REPO" --pattern "$ZIP" --output "$ZIP"; then
+              echo "::error::リリース $TAG に $ZIP が添付されていません"
+              fail=1; continue
+            fi
+
+            ACTUAL=$(sha256sum "$ZIP" | cut -d' ' -f1)
+            if [ "$ACTUAL" != "$EXPECTED" ]; then
+              echo "::error::SHA256 不一致 ($TAG): 公開 zip=$ACTUAL / listing=$EXPECTED (VCC でインストール不能になります)"
+              fail=1
+            else
+              echo "OK: $ZIP sha256=$ACTUAL は docs/index.json と一致"
+            fi
+
+            # listing の url が別リリースを指していると、SHA が合っていても配信物が食い違う
+            WANT_URL="https://github.com/$REPO/releases/download/$TAG/$ZIP"
+            if [ "$LISTED_URL" != "$WANT_URL" ]; then
+              echo "::error::listing の url が想定と違います ($TAG): $LISTED_URL != $WANT_URL"
+              fail=1
+            fi
+
+            if ! gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name' \
+              | grep -q "^Iroca_Ver$V\.unitypackage$"; then
+              echo "::warning::Iroca_Ver$V.unitypackage が $TAG に添付されていません（BOOTH 単体配布ユーザー向け）"
+            fi
+
+            rm -f "$ZIP"
+          done
+
+          exit $fail
