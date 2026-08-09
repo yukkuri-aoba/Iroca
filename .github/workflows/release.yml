@@ -73,6 +73,13 @@ jobs:
             exit 1
           fi
 
+          # README の見出しにもバージョンがハードコードされており、検証対象外だったため
+          # 更新漏れがそのまま公開されていた（レビュー §7）。
+          if ! grep -Fq "Ver $VERSION" README.md; then
+            echo "::error::README.md の見出しに 'Ver $VERSION' がありません（バージョン更新漏れ）"
+            exit 1
+          fi
+
           LISTING_URL=$(jq -r --arg id "$PACKAGE_ID" --arg v "$VERSION" \
             '.packages[$id].versions[$v].url // empty' docs/index.json)
           if [ "$LISTING_URL" != "$EXPECTED_URL" ]; then
