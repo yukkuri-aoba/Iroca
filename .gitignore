@@ -46,15 +46,18 @@ archive/
 Code_Archive/
 .claude/settings.local.json
 
-# 内部向けドキュメント（設計レビュー・計画・テスト構成など開発内部用。公開リポには含めない）
-docs/idea2.md
-docs/architecture_review_2026-06-27.md
-docs/csharp_performance_review_2026-06-12.md
-docs/flood-fill-reactivation-plan.md
-docs/image_processing_math_review_2026-06-10.md
-docs/recolor_design_rationale.md
-docs/refactoring-plan.md
-docs/refactoring-unity-editor-antipatterns.md
+# 内部向けドキュメント（設計レビュー・監査・計画）は公開リポに置かない。
+# docs/ は GitHub Pages がそのまま配信するため、置いた時点で公開される
+# （未修正の弱点を列挙した監査文書がそのまま読める状態になっていた）。
+# 実体は dev_safe/docs/（プライベート側）に置くこと。
+#
+# 以前はここにファイル名を列挙していたが、新しい文書が増えるたびに追記が漏れ、
+# 宣言と実態が食い違っていた（レビュー 2026-08-06 §7）。列挙をやめ「場所で分ける」方針にし、
+# 下のパターンは公開側へ置き戻す事故を防ぐ保険（網羅が目的ではない）。
+docs/*_review_*.md
+docs/*-review-*.md
+docs/*_audit_*.md
+docs/*roadmap*.md
 # testing-architecture.md は 2026-08-03 の環境全損で「ローカルのみ運用」の脆さが実証されたため
 # git 追跡へ昇格（CLAUDE.md が正として参照する文書。秘匿情報なし）
 docs/unity-mcp-automation.md
