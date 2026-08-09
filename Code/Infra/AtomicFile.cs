@@ -17,7 +17,7 @@ namespace Iroca
         /// 失敗時は例外を伝播する（既存ファイルは無傷、書きかけの一時ファイルは削除）。
         /// </summary>
         public static void WriteAllText(string path, string contents)
-            => Write(path, tmp => File.WriteAllText(tmp, contents));
+            => Write(path, tmp => WriteAndFlush(tmp, Utf8NoBom.GetBytes(contents)));
 
         /// <summary>
         /// <paramref name="path"/> へバイト列をアトミックに書き込む。
@@ -26,7 +26,27 @@ namespace Iroca
         /// 途中で落ちた書き込みが原本を壊すため直接 <see cref="File.WriteAllBytes"/> を使わない。
         /// </summary>
         public static void WriteAllBytes(string path, byte[] contents)
-            => Write(path, tmp => File.WriteAllBytes(tmp, contents));
+            => Write(path, tmp => WriteAndFlush(tmp, contents));
+
+        // File.WriteAllText の既定と同じ「BOM なし UTF-8」を保つ。
+        private static readonly System.Text.UTF8Encoding Utf8NoBom = new System.Text.UTF8Encoding(false);
+
+        /// <summary>一時ファイルへ書き、デバイスまで書き切ってから閉じる。</summary>
+        private static void WriteAndFlush(string path, byte[] bytes)
+        {
+            // rename の原子性が保証するのは「置換が中途半端に見えないこと」だけで、
+            // 中身が永続化済みであることまでは保証しない。一時ファイルの内容が OS のバッファに
+            // 残ったまま rename だけ先に永続化されると、電源断で新旧どちらも失う
+            // （「壊さないための仕組み」が壊す側に回る）。Flush(true) でデバイスまで送る。
+            //
+            // 限界: ディレクトリエントリ自体の fsync は .NET から移植性のある形で呼べない。
+            // ファイル内容の永続化までを保証する、という水準。
+            using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                fs.Write(bytes, 0, bytes.Length);
+                fs.Flush(true);
+            }
+        }
 
         private static void Write(string path, System.Action<string> writeTemp)
         {
