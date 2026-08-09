@@ -20,6 +20,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# 同一ブランチ/PR への連続 push で古い実行を積み上げない（build-check は Unity イメージ
+# を引くので 1 本が重い）
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   metadata:
     name: metadata validate
@@ -31,14 +37,27 @@ jobs:
           jq -e '.name and .version and .url' package.json > /dev/null
           jq -e '.packages | type == "object"' docs/index.json > /dev/null
           echo "package.json version: $(jq -r .version package.json)"
-      - name: UTF-8 BOM check
+      # BOM は release.yml の jq を壊す既知の事故経路。決め打ち 2 ファイルだと、新しい
+      # JSON を足したときに素通りする。追跡中の JSON を全件見る。
+      # 併せて、2026-06-28 レビューの displayName 文字化けと同型の事故（不正な UTF-8 が
+      # そのまま公開される）を機械検出する。.ps1 は Windows PowerShell 5.1 が
+      # BOM 無しを cp932 として読むため BOM が必要で、BOM 検査の対象外。
+      - name: UTF-8 BOM / エンコーディング検査
         run: |
-          for f in package.json docs/index.json; do
+          fail=0
+          for f in $(git ls-files '*.json'); do
             if [ "$(head -c 3 "$f" | od -An -tx1 | tr -d ' \n')" = "efbbbf" ]; then
               echo "::error file=$f::UTF-8 BOM が混入しています（jq が parse に失敗します）"
-              exit 1
+              fail=1
             fi
           done
+          for f in $(git ls-files '*.json' '*.md' '*.cs' '*.asmdef' '*.yml' '*.ps1'); do
+            if ! iconv -f UTF-8 -t UTF-8 "$f" > /dev/null 2>&1; then
+              echo "::error file=$f::UTF-8 として不正なバイト列です（文字化けの原因）"
+              fail=1
+            fi
+          done
+          exit $fail
 
   build-check:
     name: build-check (dotnet type check)
