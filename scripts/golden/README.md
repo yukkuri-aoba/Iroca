@@ -41,7 +41,7 @@ pytest scripts/golden/test_golden_csharp.py -q
 意図的にアルゴリズムを変更した、または toolchain（Unity / dotnet）を更新したときのみ:
 
 ```bash
-python scripts/golden/golden_lib.py
+python scripts/golden/golden_lib.py --force
 ```
 
 `golden_hashes.json` が上書きされる。**再生成前に、その出力変化が意図通りかを必ず確認すること**

@@ -5,7 +5,7 @@
 CoreModule DLL のみで、無ければ skip する。
 
   実行:        pytest scripts/golden/test_golden_csharp.py -q
-  ゴールデン更新: python scripts/golden/golden_lib.py   （意図的変更・toolchain 更新時のみ）
+  ゴールデン更新: python scripts/golden/golden_lib.py --force   （意図的変更・toolchain 更新時のみ）
 
 ゴールデンは toolchain（Unity 2022.3.22f1 / dotnet ランタイム）に紐づくため、別環境ではハッシュが
 変わりうる。主用途はローカル/開発者環境でのリグレッション検出（C# が改善サイクルの reset 等で
@@ -60,7 +60,7 @@ def test_golden_matches(label, rgba, zone, settings, harness, tmp_path):
     assert cur == g["sha256"], (
         f"{label}: C# 出力が golden と不一致（C# の挙動が変化しています）。\n"
         f"  golden ={g['sha256'][:16]}…\n  current={cur[:16]}… shape={list(out.shape)}\n"
-        f"  → 意図的なアルゴリズム変更なら `python scripts/golden/golden_lib.py` で再生成、\n"
+        f"  → 意図的なアルゴリズム変更なら `python scripts/golden/golden_lib.py --force` で再生成、\n"
         f"     想定外なら C# のリグレッション（段の欠落・定数ずれ等）を調査してください。")
 
 

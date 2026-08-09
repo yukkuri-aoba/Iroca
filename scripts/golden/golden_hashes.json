@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "note": "C# 自己ゴールデン（製品 C# の出力ハッシュ）。Python 非依存の回帰検出。意図的変更・toolchain 更新時は `python scripts/golden/golden_lib.py` で再生成。",
+    "note": "C# 自己ゴールデン（製品 C# の出力ハッシュ）。Python 非依存の回帰検出。意図的変更・toolchain 更新時は `python scripts/golden/golden_lib.py --force` で再生成。",
     "unity": "2022.3.22f1",
     "assembly": "IrocaHeadless"
   },
