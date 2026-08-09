@@ -56,6 +56,18 @@ namespace Iroca
             hlHardRange = tolerance - hlSoftRange;
         }
 
+        // 遅延キャッシュ構築の直列化用ゲート。フィールド初期化子に頼らず遅延生成する
+        // （Unity の逆シリアライズで初期化子が走らない経路があっても null にならないように）。
+        private object CacheGate
+        {
+            get
+            {
+                if (_cacheGate != null) return _cacheGate;
+                System.Threading.Interlocked.CompareExchange(ref _cacheGate, new object(), null);
+                return _cacheGate;
+            }
+        }
+
         // extraSamples の内容が前回キャッシュ時と変わったか（個数・各色）。
         private bool ExtraSamplesChanged()
         {
@@ -166,8 +178,14 @@ namespace Iroca
             if (caches == null || caches.Length == 0)
             {
                 // UpdateCacheIfNeeded 未実行時の安全網（通常は到達しない）。
-                UpdateCacheIfNeeded();
-                caches = _sampleCaches;
+                // この関数は Parallel.For の中から呼ばれるため、無同期で共有 _sampleCaches を
+                // 作り直すと他スレッドが構築途中の配列を読み得た（安全網自体が危険。レビュー §4 中）。
+                // ゲートで直列化する。主経路はループ前に初期化済みなので、ここは通らない。
+                lock (CacheGate)
+                {
+                    UpdateCacheIfNeeded();
+                    caches = _sampleCaches;
+                }
             }
 
             for (int si = 0; si < caches.Length; si++)
