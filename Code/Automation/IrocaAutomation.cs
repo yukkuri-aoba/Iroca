@@ -398,6 +398,16 @@ namespace Iroca
             string outAbs = ResolveOutputPath(outputAssetPath);
             if (outAbs == null)
             { result.error = $"output must be a .png inside the project: {outputAssetPath}"; return result; }
+            // 出力先が元テクスチャそのものだと、再着色結果で原本を上書きして戻せなくなる。
+            // UI の「上書き保存」は明示操作＋確認ダイアログ＋Undo があるが、MCP/batchmode 経由には
+            // 何も無く、引数のミス 1 つで非可逆に原本が失われる。ここで断る。
+            // 比較は大小無視: 取りこぼして原本を壊すより、別ファイルを拒否する側に倒す。
+            if (string.Equals(outAbs, srcAbs, StringComparison.OrdinalIgnoreCase))
+            {
+                result.error = "output must differ from source "
+                             + $"(recoloring in place would destroy the original irreversibly): {outputAssetPath}";
+                return result;
+            }
             Texture2D outTex = null;
             try
             {
