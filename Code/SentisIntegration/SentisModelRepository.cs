@@ -23,7 +23,9 @@ namespace Iroca.SentisIntegration
     {
         public const string EncoderFileName = MaskSuggestBridge.EncoderFileName;
         public const string DecoderFileName = MaskSuggestBridge.DecoderFileName;
-        const string TempImportDir = "Assets/IrocaModelImportTemp";
+        // 実行ごとに一意名を作る。固定名フォルダを finally でフォルダごと消していたため、
+        // ユーザーが偶然同名フォルダを持っていると中身ごと失われた。
+        const string TempImportDirPrefix = "Assets/IrocaModelImportTemp_";
 
         static string ModelsDir => MaskSuggestBridge.ModelsDirectory;
         static string CacheDir => Path.Combine(ModelsDir, "cache");
@@ -97,10 +99,19 @@ namespace Iroca.SentisIntegration
         static Model ConvertViaAssetPipeline(string onnxPath, out string error)
         {
             error = null;
-            string assetPath = TempImportDir + "/" + Path.GetFileName(onnxPath);
+            string tempDir = TempImportDirPrefix + Guid.NewGuid().ToString("N");
+            string assetPath = tempDir + "/" + Path.GetFileName(onnxPath);
+            bool createdTempDir = false;
             try
             {
-                Directory.CreateDirectory(TempImportDir);
+                if (Directory.Exists(tempDir))
+                {
+                    // GUID 衝突は現実には起きないが、起きたなら他人のフォルダなので触らない。
+                    error = "一時フォルダ名が衝突しました: " + tempDir;
+                    return null;
+                }
+                Directory.CreateDirectory(tempDir);
+                createdTempDir = true;
                 File.Copy(onnxPath, assetPath, overwrite: true);
                 AssetDatabase.ImportAsset(assetPath,
                     ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
@@ -117,8 +128,9 @@ namespace Iroca.SentisIntegration
                 // 一時アセットは成功・失敗を問わず必ず消す(ユーザープロジェクトを汚さない)
                 if (AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPath) != null)
                     AssetDatabase.DeleteAsset(assetPath);
-                if (AssetDatabase.IsValidFolder(TempImportDir))
-                    AssetDatabase.DeleteAsset(TempImportDir);
+                // 自分が作ったフォルダのときだけ消す（既存フォルダを巻き込まない）
+                if (createdTempDir && AssetDatabase.IsValidFolder(tempDir))
+                    AssetDatabase.DeleteAsset(tempDir);
             }
         }
     }
