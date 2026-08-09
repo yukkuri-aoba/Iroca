@@ -12,9 +12,10 @@
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 
+# venv の python を優先する。Windows と POSIX でレイアウトが違うので両方見る
+# （以前は Windows 決め打ちで、POSIX では素の python へ落ちていた）。
 PY="$ROOT/.venv/Scripts/python.exe"
-if [ ! -x "$PY" ]; then
-    PY=python
-fi
+[ -x "$PY" ] || PY="$ROOT/.venv/bin/python"
+[ -x "$PY" ] || PY=python
 
 exec "$PY" "$ROOT/tools/check_visual_review.py"
