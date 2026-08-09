@@ -200,6 +200,25 @@ try {
     Write-StableJsonFile $PkgJsonPath $pkg
     Write-Host "[OK] package.json updated"
 
+    # README の見出しにもバージョンが出る。手で 4 箇所（README / package.json /
+    # docs/index.json / CHANGELOG）を直す運用だったため更新漏れが起きていた（レビュー §7）。
+    # package.json を単一の正として、ここで機械的に追随させる。
+    $ReadmePath = Join-Path $Root "README.md"
+    $readmeText = [System.IO.File]::ReadAllText($ReadmePath, [System.Text.Encoding]::UTF8)
+    $headingRe  = [regex]'(?m)^(#\s+\S+\s+Ver\s+)(\S+)'
+    if (-not $headingRe.IsMatch($readmeText)) {
+        throw ("README.md の見出しからバージョン表記を見つけられません（'# ... Ver <version>' 形式）。" +
+               "見出しを変えたならこのスクリプトの追随処理も直してください。")
+    }
+    $readmeNew = $headingRe.Replace($readmeText, "`${1}$Version", 1)
+    if ($readmeNew -ne $readmeText) {
+        # 改行コードは読み取った文字列のまま保持される（BOM 無しで書き戻す）。
+        [System.IO.File]::WriteAllText($ReadmePath, $readmeNew, $utf8NoBom)
+        Write-Host "[OK] README.md heading version -> $Version"
+    } else {
+        Write-Host "[OK] README.md heading already $Version"
+    }
+
     # --- Remove old zip ---
     if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 
