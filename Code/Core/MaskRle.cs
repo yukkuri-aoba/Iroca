@@ -62,7 +62,11 @@ namespace Iroca
                     w = System.BitConverter.ToInt32(bytes, 0);
                     h = System.BitConverter.ToInt32(bytes, 4);
                     if (w <= 0 || h <= 0) return null;
-                    int len = w * h;
+                    // w * h の int オーバーフローを弾く。w=h=65536 だと len=0 になり、
+                    // 破損データに対して「成功・空マスク」を黙って返していた（レビュー §4 中）。
+                    long lenLong = (long)w * h;
+                    if (lenLong > int.MaxValue) return null;
+                    int len = (int)lenLong;
                     bool curVal = bytes[8] != 0;
                     bool[] mask = new bool[len];
                     int pos = 0;
@@ -77,6 +81,10 @@ namespace Iroca
                             mask[pos++] = fillVal;
                         curVal = !curVal;
                     }
+                    // Encode は必ず全画素分のランを書く。ここで埋め切れていない = 切断データ。
+                    // 「成功・途中まで正しいマスク」として返すと、欠けた部分が「除外なし」に化けて
+                    // ユーザーが守ったつもりの画素が変換される。
+                    if (pos < len) return null;
                     return mask;
                 }
                 catch (System.Exception ex)
