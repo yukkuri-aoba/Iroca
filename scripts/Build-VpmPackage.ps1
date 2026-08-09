@@ -114,6 +114,25 @@ try {
         throw "unitypackage not found: $UnityPackagePath"
     }
 
+    # release-verify.yml は資産名を Iroca_Ver<VERSION>.unitypackage で照合する。
+    # ここで弾かないと、publish 後に「添付されていません」warning で初めて気づくことになる。
+    if ($UnityPackagePath -ne "") {
+        $expectedUpkg = "Iroca_Ver$Version.unitypackage"
+        $actualUpkg   = Split-Path $UnityPackagePath -Leaf
+        if ($actualUpkg -ne $expectedUpkg) {
+            throw ("unitypackage のファイル名が release-verify の期待形式と違います。`n" +
+                   "  actual:   $actualUpkg`n" +
+                   "  expected: $expectedUpkg")
+        }
+    }
+
+    # CHANGELOG の節が無いと release.yml が draft 作成前に落ちる。zip を作る前に気づけるよう
+    # 同じ条件をここでも見る（release.yml 側の検証が正で、こちらは前倒しの早期失敗）。
+    $changelogPath = Join-Path $Root "CHANGELOG.md"
+    if (-not (Select-String -Path $changelogPath -Pattern "^## \[$([regex]::Escape($Version))\]" -Quiet)) {
+        throw "CHANGELOG.md に '## [$Version]' 節がありません（release.yml が draft 作成前に落ちます）"
+    }
+
     # -UnityPackagePath 省略はドキュメント警告だけでは防げなかった既知の事故経路
     # （非同梱 zip の SHA256 で docs/index.json を上書き→listing 不一致）。明示スイッチを要求する。
     if ($UnityPackagePath -eq "" -and -not $AllowNoUnityPackage) {
