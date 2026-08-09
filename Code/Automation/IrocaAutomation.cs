@@ -418,7 +418,9 @@ namespace Iroca
 
                 string dir = Path.GetDirectoryName(outAbs);
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                File.WriteAllBytes(outAbs, png);
+                // 出力先に既存 PNG があると、書き込み途中で落ちたときその既存物を壊す。
+                // AtomicFile は一時ファイルへ書き切ってから置換する。
+                AtomicFile.WriteAllBytes(outAbs, png);
 
                 string rel = PathUtils.ToAssetsRelativeOrNull(outAbs);
                 if (rel != null) AssetDatabase.ImportAsset(rel);
@@ -468,7 +470,7 @@ namespace Iroca
                 string previewAbs = MakePreviewPath(outAbs);
                 string dir = Path.GetDirectoryName(previewAbs);
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                File.WriteAllBytes(previewAbs, png);
+                AtomicFile.WriteAllBytes(previewAbs, png);
 
                 string rel = PathUtils.ToAssetsRelativeOrNull(previewAbs);
                 if (rel != null) AssetDatabase.ImportAsset(rel);
@@ -677,7 +679,9 @@ namespace Iroca
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
-                File.WriteAllText(path, content);
+                // 呼び出し側は result.json を読んで成否を判断する。直書きだとクラッシュ時に
+                // 途中まで書けた壊れた JSON を読ませてしまう。
+                AtomicFile.WriteAllText(path, content);
             }
             catch (Exception ex)
             {
