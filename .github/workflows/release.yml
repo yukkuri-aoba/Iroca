@@ -26,14 +26,33 @@ jobs:
 
       - name: Get version from tag
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # 起動条件のタグパターン 'v*' は緩く、v0.2 や vfoo でも走ってしまう。
+          # 以降のステップは全て v<semver> 前提なので、ここで弾く。
+          # （同時に、以後シェルへ渡す VERSION が semver 文字だけであることを保証する）
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::タグ $GITHUB_REF_NAME が v<semver> 形式ではありません"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+          # プレリリース判定は semver のプレリリース部の有無で決める。
+          # contains(ref_name,'beta') の部分一致は rc/dev を取りこぼし、
+          # 逆に 1.0.0-notbeta のような名前も拾う。
+          case "$VERSION" in
+            *-*) echo "PRERELEASE=true"  >> "$GITHUB_OUTPUT" ;;
+            *)   echo "PRERELEASE=false" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       # tag / package.json / CHANGELOG / docs/index.json のバージョン整合を検証。
       # 不一致のまま draft を作らない（壊れた listing を公開する事故の防止）。
       - name: Validate version consistency
+        env:
+          # ${{ }} をシェルスクリプトへ直接展開しない（タグ名由来のインジェクション面を潰す）
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          REPO: ${{ github.repository }}
         run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
-          EXPECTED_URL="https://github.com/${{ github.repository }}/releases/download/v$VERSION/$PACKAGE_ID-$VERSION.zip"
+          EXPECTED_URL="https://github.com/$REPO/releases/download/v$VERSION/$PACKAGE_ID-$VERSION.zip"
 
           PKG_VERSION=$(jq -r .version package.json)
           if [ "$PKG_VERSION" != "$VERSION" ]; then
@@ -80,10 +99,10 @@ jobs:
             exit 1
           fi
 
-      - name: Extract changelog section
-        id: changelog
+      - name: Build release body
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
           BODY=$(awk "/^## \[$VERSION\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md)
           if [ -z "$(echo "$BODY" | tr -d '[:space:]')" ]; then
             echo "::error::CHANGELOG.md の [$VERSION] 節が空です"
@@ -91,23 +110,22 @@ jobs:
           fi
           SHA=$(jq -r --arg id "$PACKAGE_ID" --arg v "$VERSION" \
             '.packages[$id].versions[$v].zipSHA256' docs/index.json)
+          # GITHUB_OUTPUT の heredoc 経由だと、CHANGELOG に区切り行と同じ文字列が 1 行あるだけで
+          # 出力が壊れる（任意の step output を注入できる）。ファイルに書いて body_path で渡す。
           {
-            echo "BODY<<CHANGELOG_EOF"
-            echo "$BODY"
-            echo ""
+            printf '%s\n\n' "$BODY"
             echo "---"
             echo "### 公開前チェックリスト（draft のまま実施 → 完了後にこの節を削除して publish）"
             echo "- [ ] \`$PACKAGE_ID-$VERSION.zip\` をこのリリースへアップロード（SHA256 = \`$SHA\`）"
             echo "- [ ] \`Iroca_Ver$VERSION.unitypackage\` をこのリリースへアップロード"
             echo "- [ ] publish 後、release-verify ワークフローが成功することを確認"
-            echo "CHANGELOG_EOF"
-          } >> $GITHUB_OUTPUT
+          } > "$RUNNER_TEMP/release-body.md"
 
       - name: Create draft GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
         with:
           tag_name: ${{ github.ref_name }}
           name: "Iroca v${{ steps.version.outputs.VERSION }}"
-          body: ${{ steps.changelog.outputs.BODY }}
+          body_path: ${{ runner.temp }}/release-body.md
           draft: true
-          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'Beta') || contains(github.ref_name, 'alpha') }}
+          prerelease: ${{ steps.version.outputs.PRERELEASE }}
