@@ -13,8 +13,12 @@ import pathlib
 from playwright.sync_api import sync_playwright
 
 D = os.path.dirname(os.path.abspath(__file__))
-HTML = pathlib.Path(D, "booth-promo-comps.html").as_uri()
-OUT = os.path.join(D, "out")
+# 入力の HTML も出力の PNG も生成物なので dev_safe（プライベート側）に置く。
+# 先に build_html.py を実行して HTML を作っておくこと。
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(D)))   # docs/booth_new/promo -> リポジトリルート
+OUT_DIR = os.path.join(REPO, "dev_safe", "promo", "booth_new")
+HTML = pathlib.Path(OUT_DIR, "booth-promo-comps.html").as_uri()
+OUT = os.path.join(OUT_DIR, "out")
 os.makedirs(OUT, exist_ok=True)
 
 with sync_playwright() as p:
