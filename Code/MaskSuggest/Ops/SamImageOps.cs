@@ -1,5 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Iroca
@@ -45,18 +46,17 @@ namespace Iroca
             float[] resized = ResizeTopDown(pixelsBottomUp, w, h, newW, newH);
 
             var chw = new float[3 * InputSize * InputSize]; // パディング領域は 0 のまま
-            for (int c = 0; c < 3; c++)
+            // (c, y) を平坦化した行並列。各反復は自分の出力行だけに書き、読みは resized の
+            // 読み取り専用参照のみなので決定的(出力ビット同一)。
+            Parallel.For(0, 3 * newH, SamMaskRefine.MakeParallelOptions(), i =>
             {
+                int c = i / newH, y = i % newH;
                 float mean = Mean[c], std = Std[c];
-                int cOff = c * InputSize * InputSize;
-                for (int y = 0; y < newH; y++)
-                {
-                    int rowOff = y * newW * 3;
-                    int dstOff = cOff + y * InputSize;
-                    for (int x = 0; x < newW; x++)
-                        chw[dstOff + x] = (resized[rowOff + x * 3 + c] - mean) / std;
-                }
-            }
+                int rowOff = y * newW * 3;
+                int dstOff = c * InputSize * InputSize + y * InputSize;
+                for (int x = 0; x < newW; x++)
+                    chw[dstOff + x] = (resized[rowOff + x * 3 + c] - mean) / std;
+            });
             return chw;
         }
 
@@ -69,9 +69,13 @@ namespace Iroca
             var dst = new float[newW * newH * 3];
             bool downX = newW < w, downY = newH < h;
 
+            // 行並列(4K で実測 300-400ms の単スレッドがクリティカルパスだった)。全パスとも
+            // 「読みは読み取り専用・書きは自分の出力行のみ・行内の加算順序は不変」なので
+            // 並列化しても出力ビット同一(a791ac5 と同じ論法)。
+            var po = SamMaskRefine.MakeParallelOptions();
             if (newW == w && newH == h)
             {
-                for (int y = 0; y < newH; y++)
+                Parallel.For(0, newH, po, y =>
                 {
                     int srcRow = (h - 1 - y) * w;
                     for (int x = 0; x < newW; x++)
@@ -80,20 +84,20 @@ namespace Iroca
                         int o = (y * newW + x) * 3;
                         dst[o] = p.r; dst[o + 1] = p.g; dst[o + 2] = p.b;
                     }
-                }
+                });
                 return dst;
             }
 
             // 軸ごとの分離適用: まず X 軸 → 次に Y 軸(面積平均/bilinear どちらも分離可能)。
             // 中間バッファ: 上原点 h 行 × newW 列
             var mid = new float[newW * h * 3];
-            for (int ty = 0; ty < h; ty++)
+            Parallel.For(0, h, po, ty =>
             {
                 int srcRow = (h - 1 - ty) * w; // 上下反転しつつ読む
                 int midRow = ty * newW * 3;
                 if (downX) ResampleRowArea(pixelsBottomUp, srcRow, w, mid, midRow, newW);
                 else ResampleRowBilinear(pixelsBottomUp, srcRow, w, mid, midRow, newW);
-            }
+            });
             // Y 軸(mid は上原点なので反転不要)
             if (downY) ResampleColsArea(mid, h, newW, dst, newH);
             else ResampleColsBilinear(mid, h, newW, dst, newH);
@@ -143,7 +147,8 @@ namespace Iroca
         {
             double scale = srcH / (double)dstH; // >1
             int stride = width * 3;
-            for (int y = 0; y < dstH; y++)
+            // 出力行単位の並列。行内の加算順序(i 昇順・k 昇順)は逐次版と同一。
+            Parallel.For(0, dstH, SamMaskRefine.MakeParallelOptions(), y =>
             {
                 double s0 = y * scale, s1 = (y + 1) * scale;
                 int i0 = (int)s0, i1 = System.Math.Min((int)System.Math.Ceiling(s1), srcH);
@@ -161,14 +166,14 @@ namespace Iroca
                 }
                 float inv = (float)(1.0 / wsum);
                 for (int k = 0; k < stride; k++) dst[dstRow + k] *= inv;
-            }
+            });
         }
 
         static void ResampleColsBilinear(float[] src, int srcH, int width, float[] dst, int dstH)
         {
             double scale = srcH / (double)dstH; // <1 (拡大)
             int stride = width * 3;
-            for (int y = 0; y < dstH; y++)
+            Parallel.For(0, dstH, SamMaskRefine.MakeParallelOptions(), y =>
             {
                 double sy = (y + 0.5) * scale - 0.5;
                 if (sy < 0) sy = 0; if (sy > srcH - 1) sy = srcH - 1;
@@ -177,7 +182,7 @@ namespace Iroca
                 int r0 = y0 * stride, r1 = y1 * stride, dr = y * stride;
                 for (int k = 0; k < stride; k++)
                     dst[dr + k] = src[r0 + k] + (src[r1 + k] - src[r0 + k]) * f;
-            }
+            });
         }
     }
 }
