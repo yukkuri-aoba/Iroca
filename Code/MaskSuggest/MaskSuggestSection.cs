@@ -115,11 +115,15 @@ namespace Iroca
                 {
                     var r = EditorGUILayout.GetControlRect(false, 18f);
                     EditorGUI.ProgressBar(r, Mathf.Clamp01(svc.Progress), Localization.AiSuggestEncoding);
+                    // Encoding 中のクリックは全て待ち(処理中なし)なので 1 件から出す
+                    DrawPendingClickCount(svc, minCount: 1);
                     break;
                 }
 
                 case MaskSuggestPhase.Decoding:
                     EditorGUILayout.LabelField(Localization.AiSuggestDecoding, EditorStyles.miniLabel);
+                    // 処理中の 1 件は「生成中...」が示すので、それを超える待ちがあるときだけ出す
+                    DrawPendingClickCount(svc, minCount: 2);
                     break;
 
                 case MaskSuggestPhase.Error:
@@ -136,6 +140,19 @@ namespace Iroca
             }
 
             DrawTargetAndWarnings(host, maskView, ctl);
+        }
+
+        /// <summary>
+        /// 反映待ちクリックの件数表示。クリックは FIFO で全て順に反映されるため、
+        /// 「押した分が消えていない」ことをここで明示する(プレビュー上のマーカーと対)。
+        /// </summary>
+        static void DrawPendingClickCount(IMaskSuggestService svc, int minCount)
+        {
+            int pending = svc.PendingClickCount;
+            if (pending < minCount) return;
+            EditorGUILayout.LabelField(
+                string.Format(Localization.AiSuggestPendingClicksFormat, pending),
+                EditorStyles.miniLabel);
         }
 
         /// <summary>

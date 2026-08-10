@@ -380,6 +380,33 @@ namespace Iroca
             return true;
         }
 
+        // AI 提案の反映待ちクリック位置に目印を描く。推論が追いつくまで「押したのに未反映」の
+        // 時間があるため、受理済みクリックを可視化して二度押し・押し忘れの混乱を防ぐ。
+        // 先頭(処理中)は明るく、待ちの分は薄く描いて進行が分かるようにする。
+        private void DrawAiSuggestPendingOverlay(Rect previewRect)
+        {
+            var maskView = _host._maskView;
+            var ctl = maskView != null ? maskView.SuggestControllerIfCreated : null;
+            if (ctl == null || !ctl.Active) return;
+            var clicks = ctl.PendingClicks;
+            if (clicks == null || clicks.Count == 0) return;
+
+            for (int i = 0; i < clicks.Count; i++)
+            {
+                float sx = previewRect.x + clicks[i].x * previewRect.width;
+                float sy = previewRect.y + (1f - clicks[i].y) * previewRect.height;
+                float alpha = i == 0 ? 0.95f : 0.55f;
+                const float half = 4f;
+                // 明るい生地でも暗い生地でも沈まないよう、暗い縁取りの上に明色ドットを重ねる
+                EditorGUI.DrawRect(
+                    new Rect(sx - half - 1f, sy - half - 1f, (half + 1f) * 2f, (half + 1f) * 2f),
+                    new Color(0f, 0f, 0f, alpha * 0.6f));
+                EditorGUI.DrawRect(
+                    new Rect(sx - half, sy - half, half * 2f, half * 2f),
+                    new Color(0.3f, 0.85f, 1f, alpha));
+            }
+        }
+
         // ─────────────────── AI マスク提案のクリック入力 ───────────────────
         // クリック位置を UV(下原点)に変換してコントローラへ渡す。実際の推論・提案表示は
         // MaskSuggestController + Sentis サービス側が担い、ここは入力の横取りだけを行う。

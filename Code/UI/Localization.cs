@@ -538,6 +538,9 @@ namespace Iroca
         public static string AiSuggestLoadingModel => IsJapanese ? "モデルを読み込み中..." : "Loading model...";
         public static string AiSuggestEncoding => IsJapanese ? "画像を解析中..." : "Analyzing image...";
         public static string AiSuggestDecoding => IsJapanese ? "提案を生成中..." : "Generating proposal...";
+        public static string AiSuggestPendingClicksFormat => IsJapanese
+            ? "処理待ちクリック {0} 件(順に反映されます)"
+            : "{0} click(s) queued (applied in order)";
         public static string AiSuggestNoModel => IsJapanese
             ? "AI モデルが未配置です。モデルをダウンロードして下のフォルダへ配置すると使えるようになります。"
             : "AI model files are not installed. Download the models into the folder below to enable this feature.";

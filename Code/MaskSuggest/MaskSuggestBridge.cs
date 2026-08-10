@@ -71,10 +71,24 @@ namespace Iroca
         /// </summary>
         void SetSource(string cacheKey, Color32[] pixelsBottomUp, int width, int height);
 
-        /// <summary>プレビュー UV(下原点)のクリックに対する提案を要求する。</summary>
-        void RequestProposal(float u, float v, MaskSuggestGranularity granularity);
+        /// <summary>
+        /// プレビュー UV(下原点)のクリックに対する提案を要求する。推論中に来たクリックは
+        /// FIFO で処理待ちに積まれ、順に処理・反映される(捨てられない)。
+        /// 戻り値 = 受理したか(false: モデル未ロード・エラー中・ソース未設定)。
+        /// </summary>
+        bool RequestProposal(float u, float v, MaskSuggestGranularity granularity);
 
-        /// <summary>ProposalReady の提案を取り出す(取り出すと Idle に戻る)。</summary>
+        /// <summary>処理待ちクリック数(処理中の 1 件を含む)。UI の件数表示用。</summary>
+        int PendingClickCount { get; }
+
+        /// <summary>
+        /// 処理待ちクリックを破棄する(Undo 割り込み・AI モード離脱時)。進行中の推論は
+        /// 中断せず完走させるが、その提案は ProposalReady にせず捨てる。
+        /// ソース・埋め込みは保持する(<see cref="CancelAll"/> との違い)。
+        /// </summary>
+        void FlushPendingClicks();
+
+        /// <summary>ProposalReady の提案を取り出す(処理待ちがあれば続行し、なければ Idle に戻る)。</summary>
         bool TryTakeProposal(out MaskSuggestProposal proposal);
 
         /// <summary>進行中の処理を破棄する(テクスチャ切替・ウィンドウ破棄時)。</summary>
