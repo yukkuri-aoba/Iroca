@@ -54,6 +54,13 @@ namespace Iroca
         /// <summary>Phase == Error のときの表示用メッセージ。</summary>
         string ErrorMessage { get; }
 
+        /// <summary>
+        /// 推論が Burst 依存の CPU バックエンドで走っているか(モデル未ロード時は false)。
+        /// GPU バックエンドの推論カーネルはコンピュートシェーダで Burst を通らないため、
+        /// Burst のコンパイル失敗をユーザーに警告してよいのはこれが true のときだけ。
+        /// </summary>
+        bool UsesCpuBackend { get; }
+
         /// <summary>モデルファイルの存在確認と非同期ロード開始。false = 未配置(NoModel)。</summary>
         bool TryEnsureModels();
 

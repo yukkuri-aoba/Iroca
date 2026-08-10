@@ -91,6 +91,13 @@ namespace Iroca.SentisIntegration
         public float Progress => _progress;
         public string ErrorMessage => _error;
 
+        // Burst の ILPP はアセンブリ内の BurstDirectCall 関数ポインタをドメインロード時に
+        // 一括で先行コンパイルするため、GPUCompute でしか動かさない環境でも
+        // Unity.Sentis.CPUBackend 側の失敗ログは出る。その関数は呼ばれないので推論には
+        // 影響しない(GPU の推論カーネルはコンピュートシェーダで Burst を通らない)。
+        // 実際に CPU で走るときだけが、Burst 失敗を警告してよい状況。
+        public bool UsesCpuBackend => _modelsLoaded && _backend == BackendType.CPU;
+
         void SetPhase(MaskSuggestPhase phase, float progress = 0f, string error = null)
         {
             _phase = phase;
@@ -248,6 +255,11 @@ namespace Iroca.SentisIntegration
                 }
                 CacheEmbedding(_sourceKey, _embedding);
                 _triedCpuFallback = false;
+                // 健全な埋め込みが得られた = 実際に使うバックエンドで推論カーネルが動いた証拠。
+                // ログ文字列からの Burst 失敗推定より強い根拠なので、再起動を促す案内を取り下げる
+                // (CPU へフォールバックしたうえで成功した場合もここを通る)。
+                SessionState.SetBool(MaskSuggestBurstWatch.BurstFailedKey, false);
+                SessionState.SetBool(MaskSuggestInstall.RestartRecommendedKey, false);
                 if (_hasPendingClick)
                 {
                     _hasPendingClick = false;

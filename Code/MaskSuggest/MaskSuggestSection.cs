@@ -30,7 +30,7 @@ namespace Iroca
 
             // Burst が失敗した世代では推論が空を返すだけで、エラーも出ずに「動かない」ように
             // 見える。クリックを試す前に気づけるよう、モードに入る前から知らせる。
-            DrawBurstFailureNoticeIfNeeded();
+            DrawBurstFailureNoticeIfNeeded(svc);
 
             // 見出しラベルは置かない（ボタン文言が自明で、詳細は AiSuggestToggleTooltip にある。
             // マスク欄インラインの行数を抑えるため）。
@@ -161,10 +161,16 @@ namespace Iroca
         /// <summary>
         /// このセッションで Burst のコンパイル失敗を観測していたら、AI が使えない状態だと知らせる。
         /// Unity を再起動するまで直らないため、クリックを試す前に出す。
+        ///
+        /// ただし出すのは推論が CPU バックエンドで走るときだけ。Burst は Sentis アセンブリの
+        /// 関数ポインタをドメインロード時に一括で先行コンパイルするので、GPU バックエンドしか
+        /// 使わない環境でも Unity.Sentis.CPUBackend の失敗ログは出る。そこで警告すると
+        /// 「正常に動いているのに再起動を促される」誤検出になる。
         /// </summary>
-        static void DrawBurstFailureNoticeIfNeeded()
+        static void DrawBurstFailureNoticeIfNeeded(IMaskSuggestService svc)
         {
             if (!MaskSuggestBurstWatch.FailedThisSession) return;
+            if (!svc.UsesCpuBackend) return;
             EditorGUILayout.Space(4);
             EditorGUILayout.HelpBox(Localization.AiSuggestBurstFailed, MessageType.Warning);
             DrawRestartButton();
