@@ -311,7 +311,7 @@ Read/Write Enabled が無効なテクスチャを選ぶと、ウィンドウに�
 
 ### AI マスク提案（実験的機能）
 
-プレビュー上のパーツをクリックすると、AI（MobileSAM）がそのパーツの領域を推定して提案します。提案を積み上げて、まとめて除外マスクに変換できます。手描きでパーツを囲む手間を大幅に減らせます。
+プレビュー上のパーツをクリックすると、AI（MobileSAM）がそのパーツの領域を推定し、その場で除外マスクへ追加します。手描きでパーツを囲む手間を大幅に減らせます。
 
 #### 必要なもの（任意インストール）
 
@@ -758,7 +758,7 @@ Brush size ranges from 1 to 64.
 
 ### AI Mask Suggestion (Experimental)
 
-Click a part on the preview and the AI (MobileSAM) proposes that part's region. Accept proposals to accumulate a selection, then convert it into the exclusion mask in one step — a big time-saver over painting parts by hand.
+Click a part on the preview and the AI (MobileSAM) estimates that part's region and adds it to the exclusion mask right away — a big time-saver over painting parts by hand.
 
 #### Requirements (optional install)
 
@@ -770,18 +770,18 @@ Even with just the scripts dropped in, the "AI Mask Suggestion" panel appears in
 #### How to use
 
 1. Press "Start AI Suggestion" in the Exclusion Mask panel (mutually exclusive with brush painting).
-2. Click inside the part you want to select on the preview. Image analysis starts as soon as you press "Start AI Suggestion", so clicking after the progress indicator disappears avoids the wait.
-3. The proposed region is shown in cyan. Press "Add this region" if it looks right, or "Retry" / click elsewhere if not.
-4. Accepted regions accumulate in green. If the part is split into multiple islands, click the islands that are not yet green one by one.
-5. If a bad proposal got added, press "Undo last" to remove it.
-6. When done, press "Exclude selection" (protect the selection from recoloring) or "Exclude everything else" (recolor only the selected part).
-7. After committing it is a normal mask: brush touch-ups, Ctrl+Z and file persistence work as usual.
+2. Click inside the part you want to select on the preview. Image analysis starts as soon as you press "Start AI Suggestion", so clicking after the progress indicator disappears avoids the wait. Clicking a small part (a pattern, a small accent) may take slightly longer, because the area around the click is automatically zoomed and re-estimated.
+3. The estimated region is **added to the exclusion mask (= the area that is not recolored) on the spot** and drawn in the mask color. There is no confirm button. If the part is split into multiple islands, click them one by one and each is added.
+4. If a bad proposal got added, press **Ctrl+Z** to undo them one at a time (the same as with the hand brush).
+5. Added regions are ordinary mask data, so brush touch-ups and file persistence work as usual. Finish up with the brush if needed.
+
+> Because a click commits immediately, mistakes are undone with Ctrl+Z. The "Commit target: ◯◯" label shows which mask (common / zone) the region is being added to.
 
 #### Known limitations
 
 - Parts with no visible boundary (e.g. white pieces on a white background) cannot be proposed correctly — use hand-painted masks there.
 - Parts split into dozens of tiny pieces need many clicks; select the large chunks with AI and fill the rest with the brush.
-- If you see the "may have spread into the background" warning, click again further inside the part instead of adding.
+- If you see the "may have spread into the background" warning, press Ctrl+Z to undo it, then set the granularity to "Fine" or click again further inside the part.
 - The first use after starting Unity takes longer because the AI engine (Burst) compiles once — this is expected.
 - If clicks never change the mask ("The AI returned no region" / "the internal compiler (Burst) failed"), Burst failed to initialize in this Unity session. It cannot recover within the same session: restart Unity with the "Restart Unity" button in the panel. If it keeps happening, delete the project's `Library\BurstCache` and `Library\Bee` folders and start Unity again (everything under `Library` is regenerated automatically).
 
