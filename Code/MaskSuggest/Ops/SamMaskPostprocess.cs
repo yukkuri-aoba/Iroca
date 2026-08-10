@@ -103,15 +103,7 @@ namespace Iroca
 
             var mask = UpscaleChannel(logits, chosen, texW, texH, newW, newH);
             if (pixelsBottomUp != null)
-            {
-                SamMaskRefine.SnapBoundary(mask, pixelsBottomUp, texW, texH);
-                // 房(細い frayed strands)を実テクスチャ信号で外郭まで拡張(SAM の滑らかな境界が
-                // 切り落とす房を救済)。房が無い部位ではほとんど成長しない。
-                SamMaskRefine.ExtendFringe(mask, pixelsBottomUp, texW, texH);
-                // 境界外側の AA 遷移(パーツ色の実混合)を包含する最終仕上げ。スナップ境界は
-                // 混合率 ≈50% 点に乗るため、外側に残る混合画素が再着色で点ノイズになるのを防ぐ。
-                SamMaskRefine.IncludeAaTransition(mask, pixelsBottomUp, texW, texH);
-            }
+                RefineInPlace(mask, pixelsBottomUp, texW, texH);
             return new Result
             {
                 maskBottomUp = mask,
@@ -120,6 +112,23 @@ namespace Iroca
                 areaFrac = area[chosen],
                 floodWarning = warn,
             };
+        }
+
+        /// <summary>
+        /// 拡大済みマスクへの精密化 3 段(境界色スナップ → 房外郭拡張 → AA 遷移包含)を
+        /// この順で適用する。SelectAndUpscale(pixelsBottomUp 付き) と同値になる唯一の
+        /// 実行順の単一ソース。粗マスクを後から精密化する遅延実行(ズーム不発時)もここを通す。
+        /// </summary>
+        public static void RefineInPlace(bool[] maskBottomUp, Color32[] pixelsBottomUp,
+                                         int texW, int texH)
+        {
+            SamMaskRefine.SnapBoundary(maskBottomUp, pixelsBottomUp, texW, texH);
+            // 房(細い frayed strands)を実テクスチャ信号で外郭まで拡張(SAM の滑らかな境界が
+            // 切り落とす房を救済)。房が無い部位ではほとんど成長しない。
+            SamMaskRefine.ExtendFringe(maskBottomUp, pixelsBottomUp, texW, texH);
+            // 境界外側の AA 遷移(パーツ色の実混合)を包含する最終仕上げ。スナップ境界は
+            // 混合率 ≈50% 点に乗るため、外側に残る混合画素が再着色で点ノイズになるのを防ぐ。
+            SamMaskRefine.IncludeAaTransition(maskBottomUp, pixelsBottomUp, texW, texH);
         }
 
         /// <summary>
