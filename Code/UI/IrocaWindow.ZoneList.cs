@@ -215,8 +215,8 @@ namespace Iroca
             EditorGUILayout.Space(4);
         }
 
-        // 1 ゾーン分のカード（ヘッダ行＋マスク編集＋採色＋自動調整＋許容範囲＋連続領域＋
-        // 変更先/模様保持/出力彩度＋通常以上の詳細）を描画する。
+        // 1 ゾーン分のカード（ヘッダ行＋マスク編集＋採色/変更先＋自動調整＋許容範囲＋連続領域＋
+        // 模様保持/出力彩度＋通常以上の詳細）を描画する。
         // 戻り値 true = このカードの削除(×)ボタンが押された。
         private bool DrawZoneCard(ColorZone zone, int index)
         {
@@ -259,8 +259,6 @@ namespace Iroca
 
             // ゾーン別マスクの編集は除外マスク欄の「編集対象」プルダウン＋「ブラシで編集」に
             // 一本化した（かつてここにあった専用ボタンは経路重複のため削除）。
-
-            // 自動調整ボタンは「サンプルカラー」の直下に配置する（採色 → 自動調整 の流れ）。
 
             // ─── UV矩形モード選択UI ───
             // UV矩形モードは実装継続中のため当面 UI から非表示。
@@ -311,6 +309,15 @@ namespace Iroca
                 }
             }
             EditorGUILayout.EndHorizontal();
+
+            // ─── 変更先カラー ───
+            // 自動調整の直上に置く。ZoneAutoTuner は sampleColor だけでなく targetColor も
+            // 入力に取り（両者の明度差から模様保持 valueBlend を決める）、変更先が未決のまま
+            // 押すと既定色を前提とした結果になる。「元の色 → 変更先の色 → 自動調整」の順に
+            // 並べることで、入力が全てボタンの上・書き換わる項目が全て下に揃う。
+            zone.targetColor = UndoHelper.ColorField(this,
+                new GUIContent(Localization.TargetColor, Localization.TargetColorTooltip),
+                zone.targetColor);
 
             // ─── 自動調整ボタン ───
             // スポイト1点から、パーツの濃淡（暗部/中間/明部）を内部で自動サンプリングして
@@ -391,9 +398,8 @@ namespace Iroca
             //     }
             // }
 
-            zone.targetColor = UndoHelper.ColorField(this,
-                new GUIContent(Localization.TargetColor, Localization.TargetColorTooltip),
-                zone.targetColor);
+            // 変更先カラーは自動調整の入力なのでボタンの上（採色の直下）へ移した。
+            // ここには自動調整が書き換える出力系スライダーだけを残す。
             zone.valueBlend = UndoHelper.Slider(this,
                 new GUIContent(Localization.PatternPreserve, Localization.PatternPreserveTooltip),
                 zone.valueBlend, 0f, 1f);
