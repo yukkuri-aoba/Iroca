@@ -727,8 +727,8 @@ namespace Iroca
         public static string AutoTuneDone => IsJapanese ? "自動調整が完了しました" : "Auto-tune complete";
         public static string AnalyzingTexture => IsJapanese ? "テクスチャを解析中…" : "Analyzing texture…";
         public static string AutoTuneTooltip => IsJapanese
-            ? "サンプルカラーと変更先カラーから、テクスチャを解析して許容範囲・彩度制限などのパラメータを自動的に決定します。\nスポイトでサンプルカラーを取った直後に押すと最も効果的です。"
-            : "Analyzes the texture using the sample and target colors and automatically sets tolerance, saturation strictness, and related parameters.\nMost effective right after sampling a color with the eyedropper.";
+            ? "サンプルカラーと変更先カラーから、テクスチャを解析して許容範囲・彩度制限などのパラメータを自動的に決定します。\n上の 2 色（サンプルカラー・変更先カラー）を決めてから押してください。下の項目が結果で上書きされます。"
+            : "Analyzes the texture using the sample and target colors and automatically sets tolerance, saturation strictness, and related parameters.\nSet both colors above (sample and target) before pressing; the settings below are overwritten with the result.";
         public static string AutoTuneDisabledTooltip => IsJapanese
             ? "次のいずれかの条件で使用できません:\n・元テクスチャが未設定\n・テクスチャの Read/Write が無効\n・サンプルカラーが未指定（スポイト等でまだ色を取っていない）\n・選択モードが Rect"
             : "Disabled when:\n- Source texture is not set\n- Texture's Read/Write is off\n- Sample color has not been picked yet\n- Selection mode is Rect";
