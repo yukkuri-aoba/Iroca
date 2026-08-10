@@ -673,7 +673,11 @@ namespace Iroca
 
             // 連続領域モードのシード(任意上書き)を十字オーバーレイで描画。
             if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
+            {
                 DrawFloodFillSeedOverlay(activePreviewRect);
+                // AI 提案の反映待ちクリック位置(受理済み・未反映)の目印
+                DrawAiSuggestPendingOverlay(activePreviewRect);
+            }
 
             // プレビューレクトを格納して、次の詳細生成ティックで使用
             if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)

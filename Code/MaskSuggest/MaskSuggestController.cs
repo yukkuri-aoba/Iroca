@@ -1,5 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Iroca
@@ -22,13 +23,16 @@ namespace Iroca
         MaskPaintView _maskView;
         bool _subscribed;
 
-        // クリック後、推論結果を待っている間 true。結果が来たら即マスクへ反映する。
-        bool _awaitingProposal;
-        // 待っている間に Undo/Redo が割り込んだら、遅れて届く提案を古い状態へ誤って足さないよう捨てる。
-        bool _dropNextProposal;
+        // 反映待ちクリックの UV(古い順)。サービスは FIFO で処理するので、提案を 1 件
+        // 受け取るたび先頭を除く。プレビュー上の待機マーカー表示に使う(可視化しないと
+        // 推論が追いつくまで「押したのに無反応」に見えて二度押しを誘う)。
+        readonly List<Vector2> _pendingClicks = new List<Vector2>();
 
         /// <summary>AI 提案モードが有効か(プレビュークリックを提案に使う)。</summary>
         public bool Active { get; private set; }
+
+        /// <summary>反映待ちクリックの UV(古い順・先頭が処理中)。プレビューの待機マーカー用。</summary>
+        public IReadOnlyList<Vector2> PendingClicks => _pendingClicks;
 
         /// <summary>提案の粒度(次のクリックから適用)。</summary>
         public MaskSuggestGranularity Granularity = MaskSuggestGranularity.Auto;
@@ -100,6 +104,10 @@ namespace Iroca
             }
             else
             {
+                // モードを抜けたら処理待ちクリックは破棄する(進行中の 1 件はサービス側が
+                // 完走後に捨てる)。残すと再入時に古いクリックが突然反映されて見える。
+                MaskSuggestBridge.Service?.FlushPendingClicks();
+                _pendingClicks.Clear();
                 LastClickFloodWarning = false;
                 LastCommitEmpty = false;
                 LastProposalEmpty = false;
@@ -131,6 +139,7 @@ namespace Iroca
         /// <summary>
         /// プレビュークリック。pixels は実フル解像度ソース(下原点)。
         /// 推論は非同期で、結果は <see cref="OnServiceStateChanged"/> がマスクへ直接反映する。
+        /// 推論中のクリックも FIFO で受理され順に反映される(受理された分だけマーカーを積む)。
         /// </summary>
         public void OnPreviewClick(float u, float v, Color32[] pixelsBottomUp,
                                    int width, int height, string sourceKey)
@@ -140,9 +149,8 @@ namespace Iroca
             if (!svc.TryEnsureModels()) return;
 
             svc.SetSource(sourceKey, pixelsBottomUp, width, height);
-            svc.RequestProposal(u, v, Granularity);
-            _awaitingProposal = true;
-            _dropNextProposal = false;
+            if (svc.RequestProposal(u, v, Granularity))
+                _pendingClicks.Add(new Vector2(u, v));
         }
 
         void OnServiceStateChanged()
@@ -161,11 +169,17 @@ namespace Iroca
             if (svc.Phase == MaskSuggestPhase.ProposalReady &&
                 svc.TryTakeProposal(out var proposal))
             {
-                _awaitingProposal = false;
-                // モードを抜けた・Undo が割り込んだ・空提案、のいずれかなら反映しない。
-                if (!_dropNextProposal && Active && proposal != null)
+                // サービスは FIFO 処理なので、届いた提案 = マーカー先頭のクリック分。
+                if (_pendingClicks.Count > 0) _pendingClicks.RemoveAt(0);
+                // モードを抜けていたら反映しない(Undo 割り込み分はサービス側で破棄済み)。
+                if (Active && proposal != null)
                     CommitProposalToMask(proposal);
-                _dropNextProposal = false;
+            }
+            else if (svc.Phase == MaskSuggestPhase.Error)
+            {
+                // Error では処理待ちがサービス側で破棄される(復帰は AI モード入り直し)。
+                // マーカーだけ残ると「処理中」に見え続けるため同期して消す。
+                _pendingClicks.Clear();
             }
             _host.RequestRepaint();
         }
@@ -245,10 +259,17 @@ namespace Iroca
             _host?.RequestRepaint();
         }
 
-        /// <summary>Unity Undo/Redo 実行時: 反映待ちの提案は古い状態に重なるため、届いても捨てる。</summary>
+        /// <summary>
+        /// Unity Undo/Redo 実行時: ユーザーは巻き戻し中なので、処理待ち・処理中のクリックを
+        /// まとめて破棄する(進行中の 1 件は完走後にサービス側が提案を捨てる)。
+        /// </summary>
         public void OnUndoRedoPerformed()
         {
-            if (_awaitingProposal) _dropNextProposal = true;
+            if (_pendingClicks.Count > 0)
+            {
+                MaskSuggestBridge.Service?.FlushPendingClicks();
+                _pendingClicks.Clear();
+            }
             LastClickFloodWarning = false;
             LastCommitEmpty = false;
             LastProposalEmpty = false;
@@ -258,8 +279,7 @@ namespace Iroca
         public void OnSourceChangedOrClosing()
         {
             MaskSuggestBridge.Service?.CancelAll();
-            _awaitingProposal = false;
-            _dropNextProposal = false;
+            _pendingClicks.Clear();
             LastClickFloodWarning = false;
             LastCommitEmpty = false;
             LastProposalEmpty = false;
