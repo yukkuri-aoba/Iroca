@@ -84,7 +84,8 @@ namespace Iroca.SentisIntegration
         long _clickStartedAt;        // クリック処理(デコード)開始
         double _clickQueueWaitMs;    // クリック受理 → 処理開始までの待ち
         double _clickDecodeMs;       // 第 1 段デコーダ
-        double _clickPostMs;         // 第 1 段後処理
+        double _clickPostMs;         // 第 1 段後処理(粗マスク生成+ズーム判定)
+        double _clickRefineMs;       // 第 1 段精密化(ズーム不発時のみ走る)
         double _clickZoomDecodeMs;   // ズーム第 2 段デコーダ(走った時のみ)
         double _clickZoomPostMs;     // ズーム第 2 段後処理(同上)
         bool _clickZoomRan;
@@ -104,12 +105,15 @@ namespace Iroca.SentisIntegration
             public float score;
             public float areaFrac;
             public bool floodWarning;
-            // ズーム計画(hasCrop=true のときのみ有効。下原点矩形)
+            // ズーム計画(hasCrop=true のときのみ有効。下原点矩形)。
+            // hasCrop=true の mask は粗マスクのまま(精密化はズーム不発時のみ行う)。
+            // ズーム失敗で第 1 段へ退避するときは FallbackToStage1 が配信前に精密化する。
             public bool hasCrop;
             public int cropX0, cropY0, cropSide;
             public Color32[] cropPixels;
             // 後処理の所要時間(BG スレッドで計測し、メインスレッド側の集計へ運ぶ)
             public double postMs;
+            public double refineMs; // 精密化 3 段(走ったときのみ非 0)
         }
 
         public SentisMaskSuggestService()
@@ -486,7 +490,7 @@ namespace Iroca.SentisIntegration
             SetPhase(MaskSuggestPhase.Decoding);
             _clickStartedAt = MaskSuggestPerf.Now;
             _clickQueueWaitMs = queueWaitMs;
-            _clickDecodeMs = _clickPostMs = _clickZoomDecodeMs = _clickZoomPostMs = 0;
+            _clickDecodeMs = _clickPostMs = _clickRefineMs = _clickZoomDecodeMs = _clickZoomPostMs = 0;
             _clickZoomRan = false;
             long tDec = MaskSuggestPerf.Now;
             if (!TryRunDecoderCore(u, v, cropRect: null, out float[] logits, out float[] scores,
@@ -504,8 +508,13 @@ namespace Iroca.SentisIntegration
                 ct =>
                 {
                     long t0 = MaskSuggestPerf.Now;
+                    // まず精密化なしの粗マスクだけ作り、ズームイン再推論の要否を判定する。
+                    // ズーム発火時は第 1 段マスクが最終出力に使われない(RunZoomDecode が
+                    // 空配列へ PasteCrop した結果で置き換える)ため、発火時に精密化すると
+                    // その分(4K 実測 0.8-1.4s)が丸ごと捨てられる。不発時のみ従来と同一
+                    // 順序・同一入力で精密化する(= SelectAndUpscale(px) と厳密同値)。
                     var s1 = SamMaskPostprocess.SelectAndUpscale(
-                        logits, scores, w, h, pixelsBottomUp: px, granularity: granularity);
+                        logits, scores, w, h, pixelsBottomUp: null, granularity: granularity);
                     var o = new PostOutcome
                     {
                         mask = s1.maskBottomUp,
@@ -514,12 +523,15 @@ namespace Iroca.SentisIntegration
                         floodWarning = s1.floodWarning,
                     };
                     // ズームイン再推論の判定: クリック成分が小さい(=256²ロジットで形状表現
-                    // できない)場合のみ、クリック周辺クロップの再推論計画を積む。
+                    // できない)場合のみ、クリック周辺クロップの再推論計画を積む。粗マスクの
+                    // bbox は精密化後と数 px しか違わず、クロップ矩形は 2 冪スナップで吸収される
+                    // (実 SAM fixture で crop 決定の一致を確認済み)。
                     int cx = Mathf.Clamp((int)(u * w), 0, w - 1);
                     int cy = Mathf.Clamp((int)(v * h), 0, h - 1); // v は下原点 → 下原点行と一致
                     int bb = SamZoomOps.ClickComponentBBoxLong(s1.maskBottomUp, w, h, cx, cy);
-                    if (SamZoomOps.TryDeriveCropRect(bb, cx, cy, w, h,
-                                                     out int x0, out int y0, out int side))
+                    bool hasCrop = SamZoomOps.TryDeriveCropRect(bb, cx, cy, w, h,
+                                                                out int x0, out int y0, out int side);
+                    if (hasCrop)
                     {
                         o.hasCrop = true;
                         o.cropX0 = x0;
@@ -528,12 +540,19 @@ namespace Iroca.SentisIntegration
                         o.cropPixels = SamZoomOps.ExtractCrop(px, w, h, x0, y0, side);
                     }
                     o.postMs = MaskSuggestPerf.MsSince(t0);
+                    if (!hasCrop)
+                    {
+                        long tr = MaskSuggestPerf.Now;
+                        SamMaskPostprocess.RefineInPlace(s1.maskBottomUp, px, w, h);
+                        o.refineMs = MaskSuggestPerf.MsSince(tr);
+                    }
                     return o;
                 },
                 o =>
                 {
                     if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み
                     _clickPostMs = o.postMs;
+                    _clickRefineMs = o.refineMs;
                     if (o.hasCrop) StartZoomStage(o, u, v, granularity);
                     else DeliverProposal(o);
                 },
@@ -586,7 +605,8 @@ namespace Iroca.SentisIntegration
             if (MaskSuggestPerf.Enabled)
                 MaskSuggestPerf.Log(
                     $"クリック: 待ち {_clickQueueWaitMs:F0}ms / デコード {_clickDecodeMs:F0}ms" +
-                    $" / 後処理 {_clickPostMs:F0}ms" +
+                    $" / 後処理(粗) {_clickPostMs:F0}ms" +
+                    (_clickRefineMs > 0 ? $" / 精密化 {_clickRefineMs:F0}ms" : "") +
                     (_clickZoomRan
                         ? $" / ズーム: デコード {_clickZoomDecodeMs:F0}ms + 後処理 {_clickZoomPostMs:F0}ms" +
                           "(クロップのエンコードは別行)"
@@ -751,7 +771,31 @@ namespace Iroca.SentisIntegration
             if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み
             if (e != null)
                 Debug.LogWarning($"[Iroca] ズームイン再推論に失敗したため全体推論の提案を表示します: {e.Message}");
-            DeliverProposal(plan);
+            // ズーム計画の第 1 段マスクは粗マスクのまま(発火時は精密化を省く)。そのまま
+            // 配信すると品質後退なので、破棄予定でなければここで精密化してから配信する
+            // (稀な経路。所要時間は従来の第 1 段精密化と同等)。
+            var px = _sourcePixels;
+            if (!plan.hasCrop || _discardInFlight || px == null)
+            {
+                DeliverProposal(plan);
+                return;
+            }
+            int w = _texW, h = _texH;
+            _postJob.Schedule(
+                ct =>
+                {
+                    long t0 = MaskSuggestPerf.Now;
+                    SamMaskPostprocess.RefineInPlace(plan.mask, px, w, h);
+                    plan.refineMs = MaskSuggestPerf.MsSince(t0);
+                    return plan;
+                },
+                o =>
+                {
+                    if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み
+                    _clickRefineMs = o.refineMs;
+                    DeliverProposal(o);
+                },
+                err => SetPhase(MaskSuggestPhase.Error, error: $"提案の生成に失敗しました: {err.Message}"));
         }
 
         void CacheCropEmbedding(string key, float[] embedding)
