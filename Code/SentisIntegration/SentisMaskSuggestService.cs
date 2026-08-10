@@ -55,6 +55,7 @@ namespace Iroca.SentisIntegration
 
         // ─── 進行中の処理 ───
         readonly EditorIteratorPump _pump = new EditorIteratorPump();
+        readonly EditorReadbackPoller _readback = new EditorReadbackPoller();
         PreviewJob<float[]> _prepJob;
         PreviewJob<PostOutcome> _postJob;
         Tensor<float> _encInput;                    // pump 中だけ保持
@@ -296,15 +297,32 @@ namespace Iroca.SentisIntegration
             {
                 double pumpMs = MaskSuggestPerf.MsSince(_pumpStartedAt);
                 long tRead = MaskSuggestPerf.Now;
-                using (var output = (_encoder.PeekOutput() as Tensor<float>).ReadbackAndClone())
-                {
-                    _embedding = output.DownloadToArray();
-                }
+                // pump 完了 = ディスパッチ完了であって GPU 実行完了ではない。同期
+                // ReadbackAndClone は実行完了まで(数百 ms 級)メインスレッドを止めるため、
+                // 非同期リクエスト + ポーリングで待つ(待機中もエディタは応答する)。
+                // 待機中も Phase は Encoding のままなのでクリックはキューに積まれ、
+                // 同一 Worker への新規 Schedule は起きない(フェーズの単一実行)。
+                var output = _encoder.PeekOutput() as Tensor<float>;
+                _readback.Start(output,
+                    data => CompleteEncode(data, pumpMs, tRead),
+                    OnEncoderError);
+            }
+            catch (Exception e)
+            {
+                OnEncoderError(e);
+            }
+        }
+
+        void CompleteEncode(float[] data, double pumpMs, long readStartedAt)
+        {
+            try
+            {
+                _embedding = data;
                 if (MaskSuggestPerf.Enabled)
                     MaskSuggestPerf.Log(
                         $"エンコード(全体 {_texW}x{_texH}): 前処理 {_encodePrepMs:F0}ms" +
                         $" / pump {pumpMs:F0}ms ({_pump.Steps} steps / {_pump.Ticks} ticks)" +
-                        $" / 読出 {MaskSuggestPerf.MsSince(tRead):F0}ms" +
+                        $" / 読出 {MaskSuggestPerf.MsSince(readStartedAt):F0}ms(非同期)" +
                         $" / 合計 {MaskSuggestPerf.MsSince(_encodeStartedAt):F0}ms ({_backend})");
                 DisposeEncInput();
                 if (_embedding == null || _embedding.Length != EmbeddingLength)
@@ -695,20 +713,36 @@ namespace Iroca.SentisIntegration
         void FinishZoomEncode(string key, PostOutcome plan,
                               float u, float v, MaskSuggestGranularity granularity)
         {
-            float[] emb;
             try
             {
                 double pumpMs = MaskSuggestPerf.MsSince(_pumpStartedAt);
                 long tRead = MaskSuggestPerf.Now;
-                using (var output = (_encoder.PeekOutput() as Tensor<float>).ReadbackAndClone())
-                {
-                    emb = output.DownloadToArray();
-                }
+                // 全体エンコードと同じく非同期リクエスト + ポーリング(FinishEncode 参照)。
+                // ズームは毎クリック走り得るため、同期読出のメイン停止(実測 129-194ms)が
+                // そのまま操作の引っ掛かりになっていた。
+                var output = _encoder.PeekOutput() as Tensor<float>;
+                _readback.Start(output,
+                    data => CompleteZoomEncode(data, key, plan, u, v, granularity, pumpMs, tRead),
+                    e => { DisposeEncInput(); FallbackToStage1(plan, e); });
+            }
+            catch (Exception e)
+            {
+                DisposeEncInput();
+                FallbackToStage1(plan, e);
+            }
+        }
+
+        void CompleteZoomEncode(float[] emb, string key, PostOutcome plan,
+                                float u, float v, MaskSuggestGranularity granularity,
+                                double pumpMs, long readStartedAt)
+        {
+            try
+            {
                 if (MaskSuggestPerf.Enabled)
                     MaskSuggestPerf.Log(
                         $"エンコード(ズーム crop {plan.cropSide}px): 前処理 {_encodePrepMs:F0}ms" +
                         $" / pump {pumpMs:F0}ms ({_pump.Steps} steps / {_pump.Ticks} ticks)" +
-                        $" / 読出 {MaskSuggestPerf.MsSince(tRead):F0}ms" +
+                        $" / 読出 {MaskSuggestPerf.MsSince(readStartedAt):F0}ms(非同期)" +
                         $" / 合計 {MaskSuggestPerf.MsSince(_encodeStartedAt):F0}ms ({_backend})");
                 DisposeEncInput();
                 if (emb == null || emb.Length != EmbeddingLength)
@@ -844,6 +878,7 @@ namespace Iroca.SentisIntegration
             EditorApplication.delayCall -= RunDecoderWarmup;
             EditorApplication.delayCall -= ProcessNextQueuedClick;
             _pump.Stop();
+            _readback.Stop();
             _prepJob?.Cancel();
             _postJob?.Cancel();
             DisposeEncInput();
