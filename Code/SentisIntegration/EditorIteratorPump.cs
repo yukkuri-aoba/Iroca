@@ -23,9 +23,17 @@ namespace Iroca.SentisIntegration
         Action<float> _onProgress;
         int _totalSteps;
         int _steps;
+        int _ticks;
         bool _running;
 
         public bool IsRunning => _running;
+
+        // ─── 計測用(直近の実行分。Stop では消さないので onDone 内から読める) ───
+        /// <summary>消化したイテレータステップ数。</summary>
+        public int Steps => _steps;
+        /// <summary>要した EditorApplication.update tick 数。スループットが tick 頻度で
+        /// 頭打ちかを見る(Steps/Ticks が予算に届かず小さい = tick 側がボトルネック)。</summary>
+        public int Ticks => _ticks;
 
         /// <summary>実行開始。totalSteps は進捗計算用(0 = 不定)。</summary>
         public void Start(IEnumerator iterator, int totalSteps,
@@ -38,6 +46,7 @@ namespace Iroca.SentisIntegration
             _onError = onError;
             _onProgress = onProgress;
             _steps = 0;
+            _ticks = 0;
             _running = true;
             EditorApplication.update += Tick;
         }
@@ -57,6 +66,7 @@ namespace Iroca.SentisIntegration
 
         void Tick()
         {
+            _ticks++;
             var sw = Stopwatch.StartNew();
             try
             {
