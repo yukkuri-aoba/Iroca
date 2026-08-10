@@ -161,6 +161,9 @@ namespace Iroca
                 // 保留中の AI 提案は Undo 前の状態に対する提案なので重ねない
                 _maskView.SuggestControllerIfCreated?.OnUndoRedoPerformed();
             }
+            // ズーム倍率・スクロール位置は「今どこを見ているか」であって編集内容ではない。
+            // Undo の書き戻しで一緒に巻き戻るため、直前の視点へ戻して見ている箇所を保つ。
+            _previewView?.RestoreViewStateAfterUndo(this);
             MarkPreviewDirty();
             Repaint();
         }
