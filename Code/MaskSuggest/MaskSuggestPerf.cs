@@ -56,5 +56,24 @@ namespace Iroca
         {
             if (Enabled) UnityEngine.Debug.Log($"[Iroca][AI計測] {message}");
         }
+
+        // ─────────────── クリック→フルプレビュー適用の E2E 計測(one-shot) ───────────────
+        // AI 提案のコミットがアームし、直後のフル段プレビュー適用が 1 回だけ回収する。
+        // フルプレビューは AI 以外の契機(ゾーン編集等)でも走るため、値は「アーム後最初の
+        // フル段適用までの時間」= 近似。連続コミット時は最後のアームが勝つ(前のは上書き)。
+
+        static long _e2eArmedAt; // 0 = 非アーム
+
+        /// <summary>クリック受理時刻を控えて E2E 計測をアームする(メインスレッドのみ)。</summary>
+        public static void ArmE2EWatch(long clickStartedAt) => _e2eArmedAt = clickStartedAt;
+
+        /// <summary>フル段プレビュー適用時に呼ぶ。アーム中のみ 1 回ログして解除する。</summary>
+        public static void NotifyFullPreviewApplied()
+        {
+            if (_e2eArmedAt == 0) return;
+            long t0 = _e2eArmedAt;
+            _e2eArmedAt = 0;
+            Log($"クリック→フルプレビュー適用 {MsSince(t0):F0}ms (近似)");
+        }
     }
 }

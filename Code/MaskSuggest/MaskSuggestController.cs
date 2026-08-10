@@ -28,6 +28,10 @@ namespace Iroca
         // 推論が追いつくまで「押したのに無反応」に見えて二度押しを誘う)。
         readonly List<Vector2> _pendingClicks = new List<Vector2>();
 
+        // _pendingClicks と同期して保つクリック受理時刻(E2E 計測用)。要素の増減は
+        // 必ず _pendingClicks と同じ箇所で行うこと。
+        readonly List<long> _pendingClickTimes = new List<long>();
+
         /// <summary>AI 提案モードが有効か(プレビュークリックを提案に使う)。</summary>
         public bool Active { get; private set; }
 
@@ -108,6 +112,7 @@ namespace Iroca
                 // 完走後に捨てる)。残すと再入時に古いクリックが突然反映されて見える。
                 MaskSuggestBridge.Service?.FlushPendingClicks();
                 _pendingClicks.Clear();
+                _pendingClickTimes.Clear();
                 LastClickFloodWarning = false;
                 LastCommitEmpty = false;
                 LastProposalEmpty = false;
@@ -150,7 +155,10 @@ namespace Iroca
 
             svc.SetSource(sourceKey, pixelsBottomUp, width, height);
             if (svc.RequestProposal(u, v, Granularity))
+            {
                 _pendingClicks.Add(new Vector2(u, v));
+                _pendingClickTimes.Add(MaskSuggestPerf.Now);
+            }
         }
 
         void OnServiceStateChanged()
@@ -171,15 +179,22 @@ namespace Iroca
             {
                 // サービスは FIFO 処理なので、届いた提案 = マーカー先頭のクリック分。
                 if (_pendingClicks.Count > 0) _pendingClicks.RemoveAt(0);
+                long clickAt = 0;
+                if (_pendingClickTimes.Count > 0)
+                {
+                    clickAt = _pendingClickTimes[0];
+                    _pendingClickTimes.RemoveAt(0);
+                }
                 // モードを抜けていたら反映しない(Undo 割り込み分はサービス側で破棄済み)。
                 if (Active && proposal != null)
-                    CommitProposalToMask(proposal);
+                    CommitProposalToMask(proposal, clickAt);
             }
             else if (svc.Phase == MaskSuggestPhase.Error)
             {
                 // Error では処理待ちがサービス側で破棄される(復帰は AI モード入り直し)。
                 // マーカーだけ残ると「処理中」に見え続けるため同期して消す。
                 _pendingClicks.Clear();
+                _pendingClickTimes.Clear();
             }
             _host.RequestRepaint();
         }
@@ -189,7 +204,7 @@ namespace Iroca
         /// 選んだ部分を「色替えしない範囲」へ加える = そのパーツを色替えから保護する。
         /// 反映後は通常のマスクとしてブラシ修正・Ctrl+Z(1 ストローク扱い)が効く。
         /// </summary>
-        void CommitProposalToMask(MaskSuggestProposal proposal)
+        void CommitProposalToMask(MaskSuggestProposal proposal, long clickStartedAt = 0)
         {
             // 反映できなかったときは黙って戻らず「空だった」と UI に出す。画面上は
             // どのルートも「クリックしたのに何も起きない」に見えてしまうため。
@@ -205,17 +220,23 @@ namespace Iroca
             int mw = _maskView.maskWidth, mh = _maskView.maskHeight;
             if (mask == null || mw <= 0 || mh <= 0) return;
 
+            long tCommit = MaskSuggestPerf.Now;
+            double beginMs, transferMs = 0, getPixelsMs = 0, aaMs = 0, orMs, endMs;
             int added = 0;    // 実際にマスクへ足された画素数
             int proposed = 0; // 提案そのものの画素数(0 = 推論が領域を返していない)
+            long t = MaskSuggestPerf.Now;
             _maskView.BeginStroke();
+            beginMs = MaskSuggestPerf.MsSince(t);
             if (mw == sw && mh == sh)
             {
+                t = MaskSuggestPerf.Now;
                 for (int i = 0; i < mask.Length; i++)
                 {
                     if (!src[i]) continue;
                     proposed++;
                     if (!mask[i]) { mask[i] = true; added++; }
                 }
+                orMs = MaskSuggestPerf.MsSince(t);
             }
             else
             {
@@ -226,7 +247,10 @@ namespace Iroca
                 // → 被覆保存で 0)。さらにインポート縮小はマスク解像度側に新たな混合画素を
                 // 作るため、提案の寄与分だけを対象に AA 遷移包含をマスク解像度で再適用して
                 // から OR する(ユーザーの既存ストロークには触れない)。
+                t = MaskSuggestPerf.Now;
                 var transferred = SamMaskRefine.TransferCoverage(src, sw, sh, mw, mh);
+                transferMs = MaskSuggestPerf.MsSince(t);
+                orMs = 0;
                 if (transferred != null)
                 {
                     var tex = _host?.SourceTexture;
@@ -234,7 +258,12 @@ namespace Iroca
                     {
                         try
                         {
-                            SamMaskRefine.IncludeAaTransition(transferred, tex.GetPixels32(), mw, mh);
+                            t = MaskSuggestPerf.Now;
+                            var texPx = tex.GetPixels32();
+                            getPixelsMs = MaskSuggestPerf.MsSince(t);
+                            t = MaskSuggestPerf.Now;
+                            SamMaskRefine.IncludeAaTransition(transferred, texPx, mw, mh);
+                            aaMs = MaskSuggestPerf.MsSince(t);
                         }
                         catch (System.Exception)
                         {
@@ -242,21 +271,33 @@ namespace Iroca
                             // (最近傍起因の強い点ノイズはこれだけでも解消する)。
                         }
                     }
+                    t = MaskSuggestPerf.Now;
                     for (int i = 0; i < mask.Length; i++)
                     {
                         if (!transferred[i]) continue;
                         proposed++;
                         if (!mask[i]) { mask[i] = true; added++; }
                     }
+                    orMs = MaskSuggestPerf.MsSince(t);
                 }
             }
+            t = MaskSuggestPerf.Now;
             _maskView.EndStroke();
+            endMs = MaskSuggestPerf.MsSince(t);
             _maskView.maskDirty = true;
             LastClickFloodWarning = proposal.floodWarning;
             LastCommitEmpty = added == 0;
             LastProposalEmpty = proposed == 0;
+            if (MaskSuggestPerf.Enabled)
+                MaskSuggestPerf.Log(
+                    $"コミット: BeginStroke {beginMs:F0}ms / 転写 {transferMs:F0}ms" +
+                    $" / GetPixels32 {getPixelsMs:F0}ms / AA包含 {aaMs:F0}ms / OR {orMs:F0}ms" +
+                    $" / EndStroke {endMs:F0}ms / 合計 {MaskSuggestPerf.MsSince(tCommit):F0}ms");
+            if (clickStartedAt != 0)
+                MaskSuggestPerf.Log($"クリック→コミット完了 {MaskSuggestPerf.MsSince(clickStartedAt):F0}ms");
             // プロキシ段なしの再生成: 確定表示中のプレビューが低解像度へ一瞬戻る「ちらつき」を
             // 防ぐ(キューで連続コミットすると毎回プロキシが挟まり点滅に見える)。
+            if (clickStartedAt != 0) MaskSuggestPerf.ArmE2EWatch(clickStartedAt);
             _host?.MarkPreviewDirtyFullRefine();
             _host?.RequestRepaint();
         }
@@ -271,6 +312,7 @@ namespace Iroca
             {
                 MaskSuggestBridge.Service?.FlushPendingClicks();
                 _pendingClicks.Clear();
+                _pendingClickTimes.Clear();
             }
             LastClickFloodWarning = false;
             LastCommitEmpty = false;
@@ -282,6 +324,7 @@ namespace Iroca
         {
             MaskSuggestBridge.Service?.CancelAll();
             _pendingClicks.Clear();
+            _pendingClickTimes.Clear();
             LastClickFloodWarning = false;
             LastCommitEmpty = false;
             LastProposalEmpty = false;

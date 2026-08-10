@@ -207,6 +207,9 @@ namespace Iroca
                 },
                 apply: result =>
                 {
+                    // AI 提案コミットの E2E 計測(アーム中のみ 1 回ログ)。実際の画面反映は
+                    // 次フレームの ApplyPendingPreview だが、差は 1 フレームなので近似で計上。
+                    MaskSuggestPerf.NotifyFullPreviewApplied();
                     _pendingRawDisplay       = result.raw;
                     _pendingProcessedDisplay = result.processed;
                     _pendingPrevW            = req.prevW;
