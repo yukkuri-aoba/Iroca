@@ -93,6 +93,22 @@ namespace Iroca
         [System.NonSerialized] public Texture2D diffTexture;
         [System.NonSerialized] public bool previewDirty = true;
         [System.NonSerialized] private Vector2 _previewScrollPos;
+
+        // ── Undo/Redo で巻き戻さないビュー状態 ───────────────────────
+        // Unity の Undo はウィンドウのシリアライズ状態を丸ごと記録・書き戻すため、
+        // previewZoom（シリアライズ対象）も編集内容と一緒に巻き戻る。拡大して細部を
+        // 見ている最中に Ctrl+Z（AI マスク提案・ブラシ塗りなど）を押すと、その操作を
+        // 記録した時点のズームまで戻され、倍率が下がるとスクロールの可動域も詰められて
+        // 見ていた箇所が左上へ飛ぶ。ズーム倍率とスクロール位置は「何を編集したか」では
+        // なく「今どこを見ているか」なので、Undo 履歴に属さない。
+        // static はシリアライズされない＝ Undo の書き戻し対象外なので、直近の描画で
+        // 使ったビュー状態をここへ控え、Undo/Redo 後に書き戻して視点を保つ
+        // （PreviewView 自体が書き戻しでインスタンスごと差し替わっても残る）。
+        // キーは所有ウィンドウの InstanceID。別ウィンドウの値は復元に使わない。
+        private static int s_viewStateOwner;
+        private static float s_viewStateZoom;
+        private static Vector2 s_viewStateScroll;
+
         // Ctrl+スクロールズームで未消化のスクロール量。ZoomScrollStepThreshold を
         // 超えたぶんだけストップを進め、端数は次イベントへ繰り越す（感度を下げるため）。
         [System.NonSerialized] private float _zoomScrollAccum;
@@ -716,7 +732,28 @@ namespace Iroca
             }
 
             EditorGUILayout.Space(4);
+
+            // 今の視点を Undo 非対象の場所へ控える（Undo/Redo 後にここから復元する）。
+            if (_host != null)
+            {
+                s_viewStateOwner = _host.GetInstanceID();
+                s_viewStateZoom = previewZoom;
+                s_viewStateScroll = _previewScrollPos;
+            }
         }
 
+        /// <summary>
+        /// Undo/Redo 直後に、直前まで見ていたズーム倍率・スクロール位置へ戻す。
+        /// Undo はウィンドウのシリアライズ状態を丸ごと書き戻すため、これをしないと
+        /// 編集内容と一緒に視点まで巻き戻り、拡大中の Ctrl+Z で表示が左上へ飛ぶ。
+        /// </summary>
+        internal void RestoreViewStateAfterUndo(IrocaWindow host)
+        {
+            // 一度も描画していない（＝控えが無い）／別ウィンドウの控えなら何もしない。
+            if (host == null || s_viewStateOwner != host.GetInstanceID() || s_viewStateZoom <= 0f) return;
+
+            previewZoom = s_viewStateZoom;
+            _previewScrollPos = s_viewStateScroll;
+        }
     }
 }
