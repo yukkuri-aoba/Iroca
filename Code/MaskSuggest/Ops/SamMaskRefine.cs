@@ -1,5 +1,7 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Iroca
@@ -14,11 +16,28 @@ namespace Iroca
     /// 再分類し、境界を実テクスチャの色エッジへ吸着させる。
     /// 統計は対象テクスチャ自身から局所的に導出し、特定の色・座標・素材への
     /// 依存はない(デコンタミの局所ドナー統計と同じ思想)。
+    ///
+    /// 並列化について: 全画素ループは Parallel.For で行分割する(4K で数秒 → コア数分の一)。
+    /// 出力の決定性は「各画素の書き込み先は自分のインデックスのみ・入力は読み取り専用・
+    /// スレッド間の浮動小数集約なし」で保証する(集計はグリッド行単位に分割し、同一セルへの
+    /// 書き込みを単一タスクに閉じる)。結果は逐次実行とビット同一。
     /// </summary>
     internal static class SamMaskRefine
     {
         /// <summary>確信領域の平均色に必要な最小画素数(これ未満の側があれば再分類しない)。</summary>
         const int MinSamples = 16;
+
+        /// <summary>
+        /// Ops 共通の並列設定。PixelProcessor と同じ既定(全コア−2。Editor の他スレッドを
+        /// 圧迫しない)+ DebugCaptureHooks.ParallelismOverride によるオーバーライド。
+        /// </summary>
+        internal static ParallelOptions MakeParallelOptions() => new ParallelOptions
+        {
+            MaxDegreeOfParallelism = DebugCaptureHooks.ParallelismOverride > 0
+                ? System.Math.Min(DebugCaptureHooks.ParallelismOverride,
+                                  System.Environment.ProcessorCount)
+                : System.Math.Max(1, System.Environment.ProcessorCount - 2),
+        };
 
         /// <summary>
         /// 単一グリッドセルを色モードとして扱う最小画素数。確信領域の色は窓プール平均だと
@@ -92,37 +111,45 @@ namespace Iroca
             // mask 外画素→最近 mask までの L1 距離(within/conf_out 判定に使う)
             var distOut = DistanceToOpposite(mask, w, h, inside: false);
             var distIn = DistanceToOpposite(mask, w, h, inside: true);
+            var po = MakeParallelOptions();
 
             // 局所背景色 = mask 直外の確信領域(distOut>d)を粗グリッド集計 → 各画素 5x5 グリッド窓合算平均。
             // 内側確信領域(distIn>d)も同時に集計する(背景モードの生地類似判定に使う)。
+            // 並列化はグリッド行単位: 1 タスク = 1 グリッド行(画素行 d 本)で、同一セルへの
+            // 書き込みがタスク間で共有されない(long 加算の順序も行内逐次のまま=決定的)。
             int gw = (w + d - 1) / d, gh = (h + d - 1) / d;
             var sum = new long[gw * gh * 3];
             var cnt = new int[gw * gh];
             var sumIn = new long[gw * gh * 3];
             var cntIn = new int[gw * gh];
-            for (int y = 0; y < h; y++)
+            Parallel.For(0, gh, po, gy =>
             {
-                int gRow = (y / d) * gw, row = y * w;
-                for (int x = 0; x < w; x++)
+                int gRow = gy * gw;
+                int yEnd = System.Math.Min(h, (gy + 1) * d);
+                for (int y = gy * d; y < yEnd; y++)
                 {
-                    int i = row + x;
-                    bool confOut = !mask[i] && distOut[i] > d;
-                    bool confIn = mask[i] && distIn[i] > d;
-                    if (!confOut && !confIn) continue;
-                    int g = gRow + x / d;
-                    var c = pixelsBottomUp[i];
-                    if (confOut)
+                    int row = y * w;
+                    for (int x = 0; x < w; x++)
                     {
-                        int o = g * 3;
-                        sum[o] += c.r; sum[o + 1] += c.g; sum[o + 2] += c.b; cnt[g]++;
-                    }
-                    else
-                    {
-                        int o = g * 3;
-                        sumIn[o] += c.r; sumIn[o + 1] += c.g; sumIn[o + 2] += c.b; cntIn[g]++;
+                        int i = row + x;
+                        bool confOut = !mask[i] && distOut[i] > d;
+                        bool confIn = mask[i] && distIn[i] > d;
+                        if (!confOut && !confIn) continue;
+                        int g = gRow + x / d;
+                        var c = pixelsBottomUp[i];
+                        if (confOut)
+                        {
+                            int o = g * 3;
+                            sum[o] += c.r; sum[o + 1] += c.g; sum[o + 2] += c.b; cnt[g]++;
+                        }
+                        else
+                        {
+                            int o = g * 3;
+                            sumIn[o] += c.r; sumIn[o + 1] += c.g; sumIn[o + 2] += c.b; cntIn[g]++;
+                        }
                     }
                 }
-            }
+            });
 
             // セル単位の背景モード(MinCellSamples 以上のセルのみ)。距離判定は最近傍モードで
             // 行う: 窓プール平均だと隣接する別パーツの色が混入した瞬間に平均が実在しない
@@ -185,9 +212,11 @@ namespace Iroca
             }
 
             // far[i]: どの局所背景モードからも色が遠い(生地/strand)。near は strand-like gate 用に横合算する。
+            // 全画素 × 5x5 セル窓の走査で ExtendFringe 最大のホットループ(4K 実測 ~3s)。
+            // 読み取り専用入力から far/nearBg の自画素のみへ書くため行並列で決定的。
             var far = new bool[w * h];
             var nearBg = new bool[w * h];
-            for (int y = 0; y < h; y++)
+            Parallel.For(0, h, po, y =>
             {
                 int gy = y / d, row = y * w;
                 int gy0 = Mathf.Max(0, gy - 2), gy1 = Mathf.Min(gh - 1, gy + 2);
@@ -226,12 +255,12 @@ namespace Iroca
                     if (dist2 > thr2) far[i] = true;
                     else nearBg[i] = true;
                 }
-            }
+            });
 
             // strand-like gate: 横 ±strandHalf 内に nearBg がある far 画素のみ育てる
             // (縦 strand は左右に背景 → 通す。solid 縁/文字は横に背景無し → 弾く)。
             var growZone = new bool[w * h];
-            for (int y = 0; y < h; y++)
+            Parallel.For(0, h, po, y =>
             {
                 int row = y * w;
                 for (int x = 0; x < w; x++)
@@ -244,7 +273,7 @@ namespace Iroca
                         if (nearBg[row + xx]) { horizNear = true; break; }
                     if (horizNear) growZone[i] = true;
                 }
-            }
+            });
 
             // grow_zone を mask 境界から 4 連結でフラッドして房を覆う(順序非依存の fixpoint)。
             var queue = new System.Collections.Generic.Queue<int>();
@@ -295,37 +324,43 @@ namespace Iroca
 
             // 確信領域の局所色統計を粗グリッド(ストライド d)で集計。
             // 帯画素は近傍グリッド(半径 2d 相当)の合算平均と比較する。
+            // 並列化はグリッド行単位(1 タスク = 画素行 d 本)でセル書き込みを共有しない=決定的。
+            var po = MakeParallelOptions();
             int gw = (w + d - 1) / d, gh = (h + d - 1) / d;
             var sumIn = new long[gw * gh * 4];
             var sumOut = new long[gw * gh * 4];
             var cntIn = new int[gw * gh];
             var cntOut = new int[gw * gh];
-            for (int y = 0; y < h; y++)
+            Parallel.For(0, gh, po, gy =>
             {
-                int gRow = (y / d) * gw;
-                int row = y * w;
-                for (int x = 0; x < w; x++)
+                int gRow = gy * gw;
+                int yEnd = System.Math.Min(h, (gy + 1) * d);
+                for (int y = gy * d; y < yEnd; y++)
                 {
-                    int i = row + x;
-                    bool confIn = mask0[i] && distIn[i] > d;
-                    bool confOut = !mask0[i] && distOut[i] > d;
-                    if (!confIn && !confOut) continue;
-                    int g = gRow + x / d;
-                    var c = pixelsBottomUp[i];
-                    if (confIn)
+                    int row = y * w;
+                    for (int x = 0; x < w; x++)
                     {
-                        int o = g * 4;
-                        sumIn[o] += c.r; sumIn[o + 1] += c.g; sumIn[o + 2] += c.b; sumIn[o + 3] += c.a;
-                        cntIn[g]++;
-                    }
-                    else
-                    {
-                        int o = g * 4;
-                        sumOut[o] += c.r; sumOut[o + 1] += c.g; sumOut[o + 2] += c.b; sumOut[o + 3] += c.a;
-                        cntOut[g]++;
+                        int i = row + x;
+                        bool confIn = mask0[i] && distIn[i] > d;
+                        bool confOut = !mask0[i] && distOut[i] > d;
+                        if (!confIn && !confOut) continue;
+                        int g = gRow + x / d;
+                        var c = pixelsBottomUp[i];
+                        if (confIn)
+                        {
+                            int o = g * 4;
+                            sumIn[o] += c.r; sumIn[o + 1] += c.g; sumIn[o + 2] += c.b; sumIn[o + 3] += c.a;
+                            cntIn[g]++;
+                        }
+                        else
+                        {
+                            int o = g * 4;
+                            sumOut[o] += c.r; sumOut[o + 1] += c.g; sumOut[o + 2] += c.b; sumOut[o + 3] += c.a;
+                            cntOut[g]++;
+                        }
                     }
                 }
-            }
+            });
 
             // セル単位モード(MinCellSamples 以上のセル)。判定はモードへの最近傍距離で行う:
             // プール平均は多峰統計(白ギャップ+隣接する別パーツ、柄の複数色)で実在しない
@@ -356,8 +391,9 @@ namespace Iroca
             }
 
             // 帯画素の再分類。元の mask を読みながら書き換えると統計自体は粗グリッド由来なので
-            // 影響しない(確信領域は帯外で不変)。
-            for (int y = 0; y < h; y++)
+            // 影響しない(確信領域は帯外で不変)。判定入力は mask0/統計(読み取り専用)、
+            // 書き込みは自画素のみなので行並列で決定的。
+            Parallel.For(0, h, po, y =>
             {
                 int row = y * w;
                 int gy = y / d;
@@ -419,7 +455,7 @@ namespace Iroca
                     if (dIn == dOut) continue;
                     mask[i] = dIn < dOut;
                 }
-            }
+            });
 
             // AA 境界画素(地色と背景の中間色)は二値分類がどちらへ転ぶか不安定で
             // ±1px の点状ノイズになる。帯内のみ 3x3 多数決で平滑化して点滅を除去する
@@ -468,43 +504,49 @@ namespace Iroca
             // 8 方向(反対方向は符号反転で得る)
             int[] ex = { 1, -1, 0, 0, 1, 1, -1, -1 };
             int[] ey = { 0, 0, 1, -1, 1, -1, 1, -1 };
+            // 読みはスナップショット・書きは自画素のみなので行並列で決定的。
+            // added は行ローカルに数えて最後に合算する(値も逐次実行と一致)。
             int added = 0;
-            for (int y = 0; y < h; y++)
-            {
-                int row = y * w;
-                for (int x = 0; x < w; x++)
+            Parallel.For(0, h, MakeParallelOptions(),
+                () => 0,
+                (y, _, local) =>
                 {
-                    int i = row + x;
-                    if (mask0[i]) continue;
-                    for (int k = 0; k < 8; k++)
+                    int row = y * w;
+                    for (int x = 0; x < w; x++)
                     {
-                        int mx2 = x + ex[k], my2 = y + ey[k];
-                        int qx = x - ex[k], qy = y - ey[k];
-                        if (mx2 < 0 || mx2 >= w || my2 < 0 || my2 >= h) continue;
-                        if (qx < 0 || qx >= w || qy < 0 || qy >= h) continue;
-                        int mi = my2 * w + mx2, qi = qy * w + qx;
-                        if (!mask0[mi] || mask0[qi]) continue;
+                        int i = row + x;
+                        if (mask0[i]) continue;
+                        for (int k = 0; k < 8; k++)
+                        {
+                            int mx2 = x + ex[k], my2 = y + ey[k];
+                            int qx = x - ex[k], qy = y - ey[k];
+                            if (mx2 < 0 || mx2 >= w || my2 < 0 || my2 >= h) continue;
+                            if (qx < 0 || qx >= w || qy < 0 || qy >= h) continue;
+                            int mi = my2 * w + mx2, qi = qy * w + qx;
+                            if (!mask0[mi] || mask0[qi]) continue;
 
-                        var cm = pixelsBottomUp[mi];
-                        var cq = pixelsBottomUp[qi];
-                        var cp = pixelsBottomUp[i];
-                        double dR = cm.r - (double)cq.r, dG = cm.g - (double)cq.g,
-                               dB = cm.b - (double)cq.b, dA = cm.a - (double)cq.a;
-                        double dirSq = dR * dR + dG * dG + dB * dB + dA * dA;
-                        if (dirSq < AaMinContrastSq) continue; // 平坦(m≈q) → 混合が定義できない
+                            var cm = pixelsBottomUp[mi];
+                            var cq = pixelsBottomUp[qi];
+                            var cp = pixelsBottomUp[i];
+                            double dR = cm.r - (double)cq.r, dG = cm.g - (double)cq.g,
+                                   dB = cm.b - (double)cq.b, dA = cm.a - (double)cq.a;
+                            double dirSq = dR * dR + dG * dG + dB * dB + dA * dA;
+                            if (dirSq < AaMinContrastSq) continue; // 平坦(m≈q) → 混合が定義できない
 
-                        double pR = cp.r - (double)cq.r, pG = cp.g - (double)cq.g,
-                               pB = cp.b - (double)cq.b, pA = cp.a - (double)cq.a;
-                        double t = (pR * dR + pG * dG + pB * dB + pA * dA) / dirSq;
-                        if (t < AaBlendMin) continue;          // ほぼ q(背景側) → 吸収しない
-                        double residSq = pR * pR + pG * pG + pB * pB + pA * pA - t * t * dirSq;
-                        if (residSq > AaResidFracSq * dirSq) continue; // 別色 → 吸収しない
-                        mask[i] = true;
-                        added++;
-                        break;
+                            double pR = cp.r - (double)cq.r, pG = cp.g - (double)cq.g,
+                                   pB = cp.b - (double)cq.b, pA = cp.a - (double)cq.a;
+                            double t = (pR * dR + pG * dG + pB * dB + pA * dA) / dirSq;
+                            if (t < AaBlendMin) continue;          // ほぼ q(背景側) → 吸収しない
+                            double residSq = pR * pR + pG * pG + pB * pB + pA * pA - t * t * dirSq;
+                            if (residSq > AaResidFracSq * dirSq) continue; // 別色 → 吸収しない
+                            mask[i] = true;
+                            local++;
+                            break;
+                        }
                     }
-                }
-            }
+                    return local;
+                },
+                local => Interlocked.Add(ref added, local));
             return added;
         }
 
@@ -521,6 +563,8 @@ namespace Iroca
             // 0 に見えて取り残される(実測: 遠方軸のみへの置換は逆に隣接パーツ汚染で悪化。
             // 軸の原点=外側平均の近傍にある画素は t≈0 で弾かれる構造のため、ユニオンは
             // どちらかの軸が汚染されても誤包含になりにくい)。
+            // 並列化はグリッド行単位(1 タスク = 画素行 d 本)でセル書き込みを共有しない=決定的。
+            var po = MakeParallelOptions();
             int gw = (w + d - 1) / d, gh = (h + d - 1) / d;
             var sumIn = new long[gw * gh * 4];
             var sumOutNear = new long[gw * gh * 4];
@@ -529,38 +573,42 @@ namespace Iroca
             var cntOutNear = new int[gw * gh];
             var cntOutFar = new int[gw * gh];
             int farDist = 2 * d;
-            for (int y = 0; y < h; y++)
+            Parallel.For(0, gh, po, gy =>
             {
-                int gRow = (y / d) * gw;
-                int row = y * w;
-                for (int x = 0; x < w; x++)
+                int gRow = gy * gw;
+                int yEnd = System.Math.Min(h, (gy + 1) * d);
+                for (int y = gy * d; y < yEnd; y++)
                 {
-                    int i = row + x;
-                    bool inConf = mask[i] && distIn[i] > d;
-                    bool outNear = !mask[i] && distOut[i] > d;
-                    if (!inConf && !outNear) continue;
-                    int g = gRow + x / d;
-                    var c = pixelsBottomUp[i];
-                    int o = g * 4;
-                    if (inConf)
+                    int row = y * w;
+                    for (int x = 0; x < w; x++)
                     {
-                        sumIn[o] += c.r; sumIn[o + 1] += c.g; sumIn[o + 2] += c.b; sumIn[o + 3] += c.a;
-                        cntIn[g]++;
-                    }
-                    else
-                    {
-                        sumOutNear[o] += c.r; sumOutNear[o + 1] += c.g;
-                        sumOutNear[o + 2] += c.b; sumOutNear[o + 3] += c.a;
-                        cntOutNear[g]++;
-                        if (distOut[i] > farDist)
+                        int i = row + x;
+                        bool inConf = mask[i] && distIn[i] > d;
+                        bool outNear = !mask[i] && distOut[i] > d;
+                        if (!inConf && !outNear) continue;
+                        int g = gRow + x / d;
+                        var c = pixelsBottomUp[i];
+                        int o = g * 4;
+                        if (inConf)
                         {
-                            sumOutFar[o] += c.r; sumOutFar[o + 1] += c.g;
-                            sumOutFar[o + 2] += c.b; sumOutFar[o + 3] += c.a;
-                            cntOutFar[g]++;
+                            sumIn[o] += c.r; sumIn[o + 1] += c.g; sumIn[o + 2] += c.b; sumIn[o + 3] += c.a;
+                            cntIn[g]++;
+                        }
+                        else
+                        {
+                            sumOutNear[o] += c.r; sumOutNear[o + 1] += c.g;
+                            sumOutNear[o + 2] += c.b; sumOutNear[o + 3] += c.a;
+                            cntOutNear[g]++;
+                            if (distOut[i] > farDist)
+                            {
+                                sumOutFar[o] += c.r; sumOutFar[o + 1] += c.g;
+                                sumOutFar[o + 2] += c.b; sumOutFar[o + 3] += c.a;
+                                cntOutFar[g]++;
+                            }
                         }
                     }
                 }
-            }
+            });
 
             // 外側セルモード(MinCellSamples 以上のセル)。混合軸の原点は「画素色に最も近い
             // 外側モード」を使う: プール平均だと隣接する別パーツの色が混入した窓で原点が
@@ -594,9 +642,13 @@ namespace Iroca
 
             // 判定はパス開始時のマスク由来の distOut に対して行い、書き込みは追加のみ
             // (決定的・順序非依存。統計は確信領域=帯外なので追加書き込みの影響を受けない)。
+            // 行並列でも決定的: 各画素の mask 読みは自インデックスのみで、そこへ書くのは
+            // 自イテレーションだけ(近傍の mask は読まない)。added は行ローカル合算。
             int added = 0;
-            for (int y = 0; y < h; y++)
-            {
+            Parallel.For(0, h, po,
+                () => 0,
+                (y, _, local) =>
+                {
                 int row = y * w;
                 int gy = y / d;
                 for (int x = 0; x < w; x++)
@@ -685,10 +737,12 @@ namespace Iroca
                     if (include)
                     {
                         mask[i] = true;
-                        added++;
+                        local++;
                     }
                 }
-            }
+                return local;
+                },
+                local => Interlocked.Add(ref added, local));
             return added;
         }
 
@@ -716,7 +770,7 @@ namespace Iroca
                                        int d, int w, int h)
         {
             var snapped = (bool[])mask.Clone();
-            for (int y = 1; y < h - 1; y++)
+            Parallel.For(1, h - 1, MakeParallelOptions(), y =>
             {
                 int row = y * w;
                 for (int x = 1; x < w - 1; x++)
@@ -736,7 +790,7 @@ namespace Iroca
                     if (snapped[i + w + 1]) n++;
                     mask[i] = n >= 5;
                 }
-            }
+            });
         }
 
         /// <summary>
@@ -752,7 +806,9 @@ namespace Iroca
             if (src == null || sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0 ||
                 src.Length != sw * sh) return null;
             var dst = new bool[dw * dh];
-            for (int my = 0; my < dh; my++)
+            // 各出力画素は自分のフットプリントだけを読む(行並列で決定的)。
+            // コミット経路のメインスレッドで呼ばれるため、ここの短縮は UI の引っかかりに直接効く。
+            Parallel.For(0, dh, MakeParallelOptions(), my =>
             {
                 int sy0 = (int)((long)my * sh / dh);
                 int sy1 = (int)((long)(my + 1) * sh / dh);
@@ -772,7 +828,7 @@ namespace Iroca
                     }
                     dst[dRow + mx] = any;
                 }
-            }
+            });
             return dst;
         }
 
@@ -793,43 +849,73 @@ namespace Iroca
 
         /// <summary>
         /// inside=true: mask 内の各画素について最も近い mask 外画素までの L1 距離(外は 0)。
-        /// inside=false: 逆。セパラブル 2 パスの city-block 距離変換。
+        /// inside=false: 逆。分離型 city-block 距離変換:
+        ///   行パス(行内 1D 距離)→ 列パス(min over y' of rowDist + |y-y'| を前進/後退走査で合成)。
+        /// 旧 2 パスチャンファー(左下前進/右上後退)と厳密に同値(どちらも正確な L1)だが、
+        /// 行パスは行単位・列パスは列レンジ単位で並列化できる(いずれも決定的)。
         /// </summary>
         internal static int[] DistanceToOpposite(bool[] mask, int w, int h, bool inside)
         {
             const int Inf = 1 << 28;
             var dist = new int[w * h];
-            for (int i = 0; i < dist.Length; i++)
-                dist[i] = (mask[i] == inside) ? Inf : 0;
+            var po = MakeParallelOptions();
 
-            // forward (左・下 = 配列順)
-            for (int y = 0; y < h; y++)
+            // 行パス: 各行の左右走査で「同じ行内の最近接反対側画素」までの距離(無ければ Inf)
+            Parallel.For(0, h, po, y =>
             {
                 int row = y * w;
+                int run = Inf;
                 for (int x = 0; x < w; x++)
                 {
                     int i = row + x;
-                    if (dist[i] == 0) continue;
-                    int best = dist[i];
-                    if (x > 0 && dist[i - 1] + 1 < best) best = dist[i - 1] + 1;
-                    if (y > 0 && dist[i - w] + 1 < best) best = dist[i - w] + 1;
-                    dist[i] = best;
+                    if (mask[i] == inside)
+                    {
+                        if (run < Inf) run++;
+                        dist[i] = run;
+                    }
+                    else
+                    {
+                        run = 0;
+                        dist[i] = 0;
+                    }
                 }
-            }
-            // backward (右・上)
-            for (int y = h - 1; y >= 0; y--)
-            {
-                int row = y * w;
+                run = Inf;
                 for (int x = w - 1; x >= 0; x--)
                 {
                     int i = row + x;
-                    if (dist[i] == 0) continue;
-                    int best = dist[i];
-                    if (x < w - 1 && dist[i + 1] + 1 < best) best = dist[i + 1] + 1;
-                    if (y < h - 1 && dist[i + w] + 1 < best) best = dist[i + w] + 1;
-                    dist[i] = best;
+                    if (dist[i] == 0) { run = 0; continue; }
+                    if (run < Inf) run++;
+                    if (run < dist[i]) dist[i] = run;
                 }
-            }
+            });
+
+            // 列パス: x を並列度ぶんの連続レンジに分け、各レンジで y 前進/後退走査
+            // (行メジャー配列で連続アクセスになり、列単位分割よりキャッシュ効率が良い)
+            int dop = System.Math.Max(1, po.MaxDegreeOfParallelism);
+            int chunk = (w + dop - 1) / dop;
+            Parallel.For(0, dop, po, p =>
+            {
+                int x0 = p * chunk, x1 = System.Math.Min(w, x0 + chunk);
+                if (x0 >= x1) return;
+                for (int y = 1; y < h; y++)
+                {
+                    int row = y * w, prev = row - w;
+                    for (int x = x0; x < x1; x++)
+                    {
+                        int v = dist[prev + x] + 1;
+                        if (v < dist[row + x]) dist[row + x] = v;
+                    }
+                }
+                for (int y = h - 2; y >= 0; y--)
+                {
+                    int row = y * w, next = row + w;
+                    for (int x = x0; x < x1; x++)
+                    {
+                        int v = dist[next + x] + 1;
+                        if (v < dist[row + x]) dist[row + x] = v;
+                    }
+                }
+            });
             return dist;
         }
     }

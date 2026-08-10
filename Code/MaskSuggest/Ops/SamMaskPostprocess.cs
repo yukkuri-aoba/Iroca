@@ -1,5 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Iroca
@@ -143,7 +144,9 @@ namespace Iroca
                 int x0 = (int)sx;
                 x0s[x] = x0; x1s[x] = Mathf.Min(x0 + 1, LowRes - 1); fxs[x] = sx - x0;
             }
-            for (int y = 0; y < S; y++)
+            // 行ごとに独立な bilinear(書き込みは自行のみ)なので行並列で決定的
+            var po = SamMaskRefine.MakeParallelOptions();
+            Parallel.For(0, S, po, y =>
             {
                 float sy = (y + 0.5f) * scale1 - 0.5f;
                 if (sy < 0f) sy = 0f; if (sy > LowRes - 1) sy = LowRes - 1;
@@ -156,7 +159,7 @@ namespace Iroca
                     float b = logits[r1 + x0s[x]] + (logits[r1 + x1s[x]] - logits[r1 + x0s[x]]) * fxs[x];
                     up[dr + x] = a + (b - a) * fy;
                 }
-            }
+            });
 
             // 第 2 段: [:newH,:newW] の切り出しを (texH,texW) へ bilinear → 閾値 0 → 下原点反転
             var mask = new bool[texW * texH];
@@ -169,7 +172,7 @@ namespace Iroca
                 int x0 = (int)sx;
                 cx0[x] = x0; cx1[x] = Mathf.Min(x0 + 1, newW - 1); cfx[x] = sx - x0;
             }
-            for (int y = 0; y < texH; y++)
+            Parallel.For(0, texH, po, y =>
             {
                 float sy = (y + 0.5f) * scaleY - 0.5f;
                 if (sy < 0f) sy = 0f; if (sy > newH - 1) sy = newH - 1;
@@ -183,7 +186,7 @@ namespace Iroca
                     float b = up[r1 + cx0[x]] + (up[r1 + cx1[x]] - up[r1 + cx0[x]]) * cfx[x];
                     mask[dstRow + x] = (a + (b - a) * fy) > 0f;
                 }
-            }
+            });
             return mask;
         }
     }
