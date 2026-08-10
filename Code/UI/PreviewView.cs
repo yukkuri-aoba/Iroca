@@ -201,6 +201,24 @@ namespace Iroca
 
         public void MarkDirty() => previewDirty = true;
 
+        // 次回の再生成でプロキシ段(低解像度の概要表示)を使わない 1 回限りのフラグ。
+        // GeneratePreviewAsync が消費してリセットする。
+        [System.NonSerialized] private bool _skipProxyOnce;
+
+        /// <summary>
+        /// プレビュー再生成を要求するが、段階的リファインのプロキシ段は使わない。
+        /// 確定表示が既にある状態での差分的な更新(AI 提案のマスク反映など)でプロキシを挟むと、
+        /// 鮮明な表示が一瞬低解像度へ戻る「ちらつき」になる(クリックキュー化でコミットが
+        /// 連続すると特に目立つ)。フル段のみで、旧表示を保ったまま静かに差し替える。
+        /// 通常の <see cref="MarkDirty"/> が直後に重なった場合もフラグは 1 回で消費され、
+        /// その再生成のプロキシが 1 度飛ぶだけ(結果は同じ・フィードバックが少し遅れるのみ)。
+        /// </summary>
+        public void MarkDirtyFullRefine()
+        {
+            previewDirty = true;
+            _skipProxyOnce = true;
+        }
+
         /// <summary>
         /// ソース画素が変わったとき（テクスチャ差し替え・セッションリセット・エクスポートで
         /// 元ファイルを上書き）に、その画素から導かれた状態を漏れなく捨てる。
