@@ -102,7 +102,11 @@ namespace Iroca
             // 段階的リファイン: ソースが縮小される(scale<1)ときだけ、まず低解像度プロキシで概要を
             // 即表示し、続けてフル解像度で確定する。scale>=1(ソースが既に小さい)ではプロキシの利得が
             // 無いので従来どおりフルのみ走らせる。
-            if (scale < 1f)
+            // MarkDirtyFullRefine 経由(AI 提案コミット等)はプロキシを飛ばし、確定表示を保った
+            // ままフルで差し替える(プロキシへ一瞬戻る「ちらつき」の防止)。
+            bool skipProxy = _skipProxyOnce;
+            _skipProxyOnce = false;
+            if (scale < 1f && !skipProxy)
                 ScheduleProxyPreview(req);
             else
                 ScheduleFullPreview(req);

@@ -255,7 +255,9 @@ namespace Iroca
             LastClickFloodWarning = proposal.floodWarning;
             LastCommitEmpty = added == 0;
             LastProposalEmpty = proposed == 0;
-            _host?.MarkPreviewDirty();
+            // プロキシ段なしの再生成: 確定表示中のプレビューが低解像度へ一瞬戻る「ちらつき」を
+            // 防ぐ(キューで連続コミットすると毎回プロキシが挟まり点滅に見える)。
+            _host?.MarkPreviewDirtyFullRefine();
             _host?.RequestRepaint();
         }
 

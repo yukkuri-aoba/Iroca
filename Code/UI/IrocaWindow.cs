@@ -43,6 +43,10 @@ namespace Iroca
 
         // ── 各 View からの再描画通知用 ──
         internal void MarkPreviewDirty() { if (_previewView != null) _previewView.previewDirty = true; }
+
+        /// <summary>プレビュー再生成(プロキシ段なし)。確定表示がある前提の差分更新用
+        /// (詳細は PreviewView.MarkDirtyFullRefine 参照)。</summary>
+        internal void MarkPreviewDirtyFullRefine() => _previewView?.MarkDirtyFullRefine();
         internal void MarkMaskDirty() { if (_maskView != null) _maskView.maskDirty = true; }
         // プレビューが別ウィンドウ(IrocaPreviewWindow)へ切り出されているときは、そちらも
         // 再描画する。PreviewView は自分の実測値の収束・生成ジョブのポーリング・パン/ズームの
