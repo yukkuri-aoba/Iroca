@@ -1,7 +1,9 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Iroca
@@ -116,6 +118,53 @@ namespace Iroca
         /// null または全 false の場合はマスク無しパス。マスクがある場合は
         /// 「含有(非除外)領域全体をパーツとみなし、その距離分布から tolerance を導出」する。
         /// </param>
+        /// <summary>
+        /// 解析の全走査が共有する HSV 前計算格子。
+        ///
+        /// 自動調整は最大 15 回前後の全画面走査を行うが、走査対象の格子(ストライド)と
+        /// 変換式(<see cref="Color.RGBToHSV"/> に r/255f,g/255f,b/255f を渡す)は全パスで同一
+        /// だった。従来はそれぞれのパスが同じ画素の HSV を毎回計算し直しており、4K では
+        /// RGBToHSV だけで延べ 1 億回規模になっていた(しかも全て単スレッド)。
+        /// ここで 1 回だけ並列に作って全パスで読む。同じ関数に同じ入力を与えた値を配列経由で
+        /// 読むだけなので、各パスの判定・集計は従来と完全に同一 = 出力ビット不変。
+        /// </summary>
+        internal sealed class HsvGrid
+        {
+            public int stride, gw, gh;
+            public float[] h, s, v;
+
+            /// <summary>格子座標 (gx,gy) → 配列 index。</summary>
+            public int Index(int gx, int gy) => gy * gw + gx;
+        }
+
+        private static HsvGrid BuildHsvGrid(Color32[] pixels, int w, int h, CancellationToken ct)
+        {
+            int stride = (w <= 2048) ? 1 : 2;
+            int gw = (w + stride - 1) / stride, gh = (h + stride - 1) / stride;
+            var grid = new HsvGrid
+            {
+                stride = stride, gw = gw, gh = gh,
+                h = new float[gw * gh], s = new float[gw * gh], v = new float[gw * gh],
+            };
+            var po = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 2),
+                CancellationToken = ct,
+            };
+            Parallel.For(0, gh, po, gy =>
+            {
+                int row = (gy * stride) * w;
+                int grow = gy * gw;
+                for (int gx = 0; gx < gw; gx++)
+                {
+                    Color32 c = pixels[row + gx * stride];
+                    Color.RGBToHSV(new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f),
+                        out grid.h[grow + gx], out grid.s[grow + gx], out grid.v[grow + gx]);
+                }
+            });
+            return grid;
+        }
+
         public static TuneResult Analyze(Color32[] pixels, int width, int height,
             ColorZone zone, IrocaSessionState session,
             bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default)
@@ -138,7 +187,10 @@ namespace Iroca
                 bool useMask = HasUsableMask(excluded, maskW, maskH);
                 bool[] clusterMask = useMask ? excluded : null;
 
-                if (TryAnalyzePixels(pixels, width, height, zone, clusterMask, maskW, maskH, out var analyzed))
+                // 全走査が共有する HSV 格子を 1 回だけ並列で作る(以降のパスは表引きするだけ)。
+                var hsv = BuildHsvGrid(pixels, width, height, ct);
+
+                if (TryAnalyzePixels(pixels, width, height, zone, clusterMask, maskW, maskH, hsv, out var analyzed))
                     result = MergeAnalyzed(result, analyzed);
 
                 // tolerance は常に「サンプル近傍クラスタの実マッチ距離分布」から導出する。
@@ -164,7 +216,7 @@ namespace Iroca
                     // 無彩色サンプル: グレーモードの純 RGB 距離分布から(V 広がりの過大評価を回避)。
                     // 自動トーン抽出は無彩では背景の白/黒と色で分離できず危険なので行わない（単一経路）。
                     if (TryDeriveAchromaticTolerance(pixels, width, height, zone,
-                            clusterMask, maskW, maskH, out float achTol))
+                            clusterMask, maskW, maskH, hsv, out float achTol))
                     {
                         result.tolerance = achTol;
                         // 無彩色サンプルではハイライト復元を切る。グレーモードのハイライト経路は
@@ -181,13 +233,13 @@ namespace Iroca
                     // 内部サンプルとして、各画素の最近サンプルまでの距離 P95 から tolerance を導出する。
                     // スポイト位置が明部でも暗部でも、トーン全域を覆うので取りこぼし/はみ出しを抑えられる。
                     var autoSamples = DeriveAutoTonalSamples(pixels, width, height, zone,
-                        clusterMask, maskW, maskH, out _, out vConnHiBin);
+                        clusterMask, maskW, maskH, hsv, out _, out vConnHiBin);
                     bool derivedMulti = false;
                     if (autoSamples.Count > 0)
                     {
                         var samples = BuildSampleHSVs(zone.sampleColor, autoSamples);
                         if (TryDeriveChromaticToleranceMulti(pixels, width, height, zone, samples,
-                                clusterMask, maskW, maskH, out float chromTolM, out bool fCapM))
+                                clusterMask, maskW, maskH, hsv, out float chromTolM, out bool fCapM))
                         {
                             result.autoSamples = autoSamples;
                             result.tolerance = chromTolM;
@@ -196,7 +248,7 @@ namespace Iroca
                         }
                     }
                     if (!derivedMulti && TryDeriveChromaticTolerance(pixels, width, height, zone,
-                            clusterMask, maskW, maskH, out float chromTol, out bool fCap))
+                            clusterMask, maskW, maskH, hsv, out float chromTol, out bool fCap))
                     {
                         // 単一サンプルへフォールバック(トーン抽出が不発/クラスタ過少)。
                         result.tolerance = chromTol;
@@ -209,7 +261,7 @@ namespace Iroca
                 bool hlRecBeforeVerify = result.highlightRecovery;
                 if (result.highlightRecovery)
                     VerifyHighlightRecoveryGrowth(pixels, width, height, zone,
-                        excluded, maskW, maskH, ref result);
+                        excluded, maskW, maskH, hsv, ref result);
                 // 成長テストが highlightRecovery を落とした=「明るい同色相の別素材」が既に検出された
                 // 状況なので、同じ方向へ広げる明部ツヤ救済も封印する。
                 bool hlRecVetoed = hlRecBeforeVerify && !result.highlightRecovery;
@@ -218,7 +270,7 @@ namespace Iroca
                 {
                     float tolBeforeOvershoot = result.tolerance;
                     VerifyBrightForgivenessOvershoot(pixels, width, height, zone,
-                        excluded, maskW, maskH, ref result);
+                        excluded, maskW, maskH, hsv, ref result);
                     // 免除過剰で tolerance を縮めた直後に拡張するのは矛盾するのでスキップする。
                     bool overshootShrunk = result.tolerance < tolBeforeOvershoot;
 
@@ -227,7 +279,7 @@ namespace Iroca
                     // 広げるのは危険。素直なパーツならヒストグラムは常に作れる)。
                     if (!foreignCapped && !overshootShrunk && !hlRecVetoed && vConnHiBin >= 0)
                         VerifyBrightSheenRecall(pixels, width, height, zone,
-                            excluded, maskW, maskH, vConnHiBin, ref result);
+                            excluded, maskW, maskH, hsv, vConnHiBin, ref result);
                 }
             }
 
@@ -275,7 +327,7 @@ namespace Iroca
         }
 
         private static bool TryAnalyzePixels(Color32[] pixels, int w, int h, ColorZone zone,
-            bool[] excluded, int maskW, int maskH, out AnalysisStats stats)
+            bool[] excluded, int maskW, int maskH, HsvGrid hsv, out AnalysisStats stats)
         {
             stats = new AnalysisStats
             {
@@ -288,21 +340,20 @@ namespace Iroca
             Color.RGBToHSV(zone.sampleColor, out stats.sH, out stats.sS, out stats.sV);
             Color.RGBToHSV(zone.targetColor, out _, out _, out stats.tV);
 
-            int stride = (w <= 2048) ? 1 : 2;
+            int stride = hsv.stride;
 
-            for (int y = 0; y < h; y += stride)
+            for (int y = 0, gy = 0; y < h; y += stride, gy++)
             {
                 int rowStart = y * w;
-                for (int x = 0; x < w; x += stride)
+                int grow = gy * hsv.gw;
+                for (int x = 0, gx = 0; x < w; x += stride, gx++)
                 {
                     Color32 c32 = pixels[rowStart + x];
                     if (c32.a < 128) continue;
                     if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue; // マスク除外領域は対象外
 
-                    float r = c32.r / 255f;
-                    float g = c32.g / 255f;
-                    float b = c32.b / 255f;
-                    Color.RGBToHSV(new Color(r, g, b, 1f), out float pH, out float pS, out float pV);
+                    int gi = grow + gx;
+                    float pH = hsv.h[gi], pS = hsv.s[gi], pV = hsv.v[gi];
 
                     float hDist = HueDistance(pH, stats.sH);
 
