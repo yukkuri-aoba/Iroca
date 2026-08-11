@@ -258,7 +258,9 @@ namespace Iroca.SentisIntegration
                 ct =>
                 {
                     long t0 = MaskSuggestPerf.Now;
-                    var chw = SamImageOps.BuildEncoderInput(px, w, h);
+                    // ct を貫通させ、キャンセル済みジョブが全コア−2 を占有し続けないようにする
+                    // (完走時の出力には影響しない)。
+                    var chw = SamImageOps.BuildEncoderInput(px, w, h, ct);
                     prepMs = MaskSuggestPerf.MsSince(t0);
                     return chw;
                 },
@@ -532,7 +534,8 @@ namespace Iroca.SentisIntegration
                     // その分(4K 実測 0.8-1.4s)が丸ごと捨てられる。不発時のみ従来と同一
                     // 順序・同一入力で精密化する(= SelectAndUpscale(px) と厳密同値)。
                     var s1 = SamMaskPostprocess.SelectAndUpscale(
-                        logits, scores, w, h, pixelsBottomUp: null, granularity: granularity);
+                        logits, scores, w, h, pixelsBottomUp: null, granularity: granularity,
+                        token: ct);
                     var o = new PostOutcome
                     {
                         mask = s1.maskBottomUp,
@@ -561,7 +564,7 @@ namespace Iroca.SentisIntegration
                     if (!hasCrop)
                     {
                         long tr = MaskSuggestPerf.Now;
-                        SamMaskPostprocess.RefineInPlace(s1.maskBottomUp, px, w, h);
+                        SamMaskPostprocess.RefineInPlace(s1.maskBottomUp, px, w, h, ct);
                         o.refineMs = MaskSuggestPerf.MsSince(tr);
                     }
                     return o;
@@ -675,7 +678,7 @@ namespace Iroca.SentisIntegration
                 ct =>
                 {
                     long t0 = MaskSuggestPerf.Now;
-                    var chw = SamImageOps.BuildEncoderInput(cropPx, side, side);
+                    var chw = SamImageOps.BuildEncoderInput(cropPx, side, side, ct);
                     prepMs = MaskSuggestPerf.MsSince(t0);
                     return chw;
                 },
@@ -779,7 +782,8 @@ namespace Iroca.SentisIntegration
                 {
                     long t0 = MaskSuggestPerf.Now;
                     var res = SamMaskPostprocess.SelectAndUpscale(
-                        logits, scores, side, side, pixelsBottomUp: cropPx, granularity: granularity);
+                        logits, scores, side, side, pixelsBottomUp: cropPx, granularity: granularity,
+                        token: ct);
                     var full = SamZoomOps.PasteCrop(res.maskBottomUp, side, w, h, x0, y0,
                                                     out int trueCount);
                     return new PostOutcome
@@ -819,7 +823,7 @@ namespace Iroca.SentisIntegration
                 ct =>
                 {
                     long t0 = MaskSuggestPerf.Now;
-                    SamMaskPostprocess.RefineInPlace(plan.mask, px, w, h);
+                    SamMaskPostprocess.RefineInPlace(plan.mask, px, w, h, ct);
                     plan.refineMs = MaskSuggestPerf.MsSince(t0);
                     return plan;
                 },
