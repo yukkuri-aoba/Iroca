@@ -267,8 +267,23 @@ namespace Iroca
             // label / 探索スタックはプールから借りる(従来は呼び出しごとに new int[bw*bh])。
             int[] label = s_intPool.Rent(bwh);
             int[] stack = s_intPool.Rent(bwh);
+            // OkLab L を bbox 全画素ぶん並列で前計算する。従来は逐次 DFS の内側で
+            // RgbToOklab(Cbrt×3=最重量の per-pixel 変換)を呼んでおり、シリアル区間の支配項
+            // だった。同一入力に同一関数を適用した値を配列経由で読むだけなので出力ビット不変。
+            float[] okL = s_floatPool.Rent(bwh);
             try
             {
+            Parallel.For(0, bh, bboxPo, ly =>
+            {
+                int lrb = ly * bw;
+                int grb = (ly + minY) * w + minX;
+                for (int lx = 0; lx < bw; lx++)
+                {
+                    var p = px[grb + lx];
+                    RgbToOklab(p.r, p.g, p.b, out float L, out _, out _);
+                    okL[lrb + lx] = L;
+                }
+            });
             Array.Clear(label, 0, bwh);   // Create プールの Rent はゼロ初期化しない
             var hists = new List<int[]>();   // hists[lab-1] = 成分の L ヒストグラム(256bin)
             var sizes = new List<int>();
@@ -303,8 +318,7 @@ namespace Iroca
                         int cx = packed & 0xFFFF, cy = packed >> 16;
                         int ci = cy * bw + cx;
                         int gi = (cy + minY) * w + (cx + minX);
-                        RgbToOklab(px[gi].r, px[gi].g, px[gi].b, out float L, out _, out _);
-                        hist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
+                        hist[Mathf.Clamp((int)(okL[ci] * 255f), 0, 255)]++;
                         size++;
                         if (cx > 0 && label[ci - 1] == 0 && Matched(gi - 1))
                         { label[ci - 1] = lab; stack[sp++] = (cy << 16) | (cx - 1); }
@@ -340,6 +354,7 @@ namespace Iroca
             }
             finally
             {
+                s_floatPool.Return(okL);
                 s_intPool.Return(stack);
                 s_intPool.Return(label);
             }
