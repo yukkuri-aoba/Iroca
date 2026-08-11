@@ -164,12 +164,16 @@ namespace Iroca
 
             // 候補判定: 各画素は独立(他画素を参照しない)なので並列化する。candidate[] は
             // 走査順に依存せず、書き込みは distinct index のため出力は逐次版とビット不変。
+            // 行並列(per-index デリゲートの 1670 万回呼び出しを避ける)。
             var hlbPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-            Parallel.For(0, len, hlbPo, i =>
+            Parallel.For(0, h, hlbPo, y =>
             {
-                float pV = pixV[i];
-                if (pV > sV)
+                int rowOff = y * w;
+                for (int x = 0; x < w; x++)
                 {
+                    int i = rowOff + x;
+                    float pV = pixV[i];
+                    if (pV <= sV) continue;
                     float pS = pixS[i];
                     if (pS < sS && pS >= satFloor)
                     {

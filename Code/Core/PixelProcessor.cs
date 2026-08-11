@@ -218,9 +218,16 @@ namespace Iroca
                 CancellationToken      = cancellationToken,
                 MaxDegreeOfParallelism = GetMaxParallelism(),
             };
-            Parallel.For(0, len, po, i =>
+            // 行並列(per-index デリゲートは 4K で 1670 万回の呼び出しになるため行単位に集約)。
+            // 各画素は独立・書き込みは自 index のみなので出力は逐次版とビット不変。
+            Parallel.For(0, h, po, y =>
             {
-                Color.RGBToHSV((Color)originalPixels[i], out pixH[i], out pixS[i], out pixV[i]);
+                int rowOff = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    int i = rowOff + x;
+                    Color.RGBToHSV((Color)originalPixels[i], out pixH[i], out pixS[i], out pixV[i]);
+                }
             });
             _phaseTicks[PhHsv] += Stopwatch.GetTimestamp() - _tp;
 
