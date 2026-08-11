@@ -264,13 +264,12 @@ namespace Iroca
 
             int bw = maxX - minX + 1, bh = maxY - minY + 1;
             int bwh = bw * bh;
-            // label / 探索スタックはプールから借りる(従来は呼び出しごとに new int[bw*bh])。
-            int[] label = s_intPool.Rent(bwh);
-            int[] stack = s_intPool.Rent(bwh);
             // OkLab L を bbox 全画素ぶん並列で前計算する。従来は逐次 DFS の内側で
             // RgbToOklab(Cbrt×3=最重量の per-pixel 変換)を呼んでおり、シリアル区間の支配項
             // だった。同一入力に同一関数を適用した値を配列経由で読むだけなので出力ビット不変。
             float[] okL = s_floatPool.Rent(bwh);
+            // 行 run 方式の連結成分ラベリングで使う配列(確保は run 数 R が確定してから)。
+            int[] runX0 = null, runX1 = null, parent = null, comp = null;
             try
             {
             Parallel.For(0, bh, bboxPo, ly =>
@@ -284,79 +283,135 @@ namespace Iroca
                     okL[lrb + lx] = L;
                 }
             });
-            Array.Clear(label, 0, bwh);   // Create プールの Rent はゼロ初期化しない
-            var hists = new List<int[]>();   // hists[lab-1] = 成分の L ヒストグラム(256bin)
-            var sizes = new List<int>();
 
-            bool Matched(int gi) => strength[gi] > thr && px[gi].a >= 128;
+            // ───────── 連結成分ラベリング: 行 run + union-find ─────────
+            // 旧実装は画素単位の逐次 DFS で、bbox 全画素 × 4 近傍を単スレッドで舐めていた
+            // (無彩サンプルのケースでは RegionStats フェーズの支配項)。ここでは
+            //   ① 行内の連続 matched 区間(run)を行並列で抽出   ← O(N) 並列
+            //   ② 上下に重なる run だけを union-find で結合     ← O(R α), R ≪ N
+            //   ③ run 単位の連続アクセスでヒストグラム集計
+            // に置き換える。run は「行内の左右連結」そのもの、上下は x 範囲の重なり = 4 近傍の
+            // 縦連結そのものなので、成分の分割は DFS と厳密に同一。ラベル番号の付き方だけが
+            // 変わるが、出力は「成分ごとの L の P80 をその成分の全画素へ配る」だけで番号に
+            // 依存せず、ヒストグラムは整数加算なので集計順にも依存しない = 出力ビット不変。
 
-            for (int ly = 0; ly < bh; ly++)
+            // ① 行ごとの run 数 → オフセット → run の x 範囲
+            var runCount = new int[bh];
+            Parallel.For(0, bh, bboxPo, ly =>
             {
-                // 逐次ラベリングは数百 ms 級になり得るので、行ごとにキャンセルを見て
-                // ドラッグ中の旧ジョブが CPU を焼き続けないようにする(数値ロジックは不変)。
-                if ((ly & 63) == 0) ct.ThrowIfCancellationRequested();
-                int lrb = ly * bw;
                 int grb = (ly + minY) * w + minX;
+                int n = 0;
+                bool prev = false;
                 for (int lx = 0; lx < bw; lx++)
                 {
-                    int li = lrb + lx;
-                    if (label[li] != 0) continue;
-                    if (!Matched(grb + lx)) continue;
+                    int gi = grb + lx;
+                    bool m = strength[gi] > thr && px[gi].a >= 128;
+                    if (m && !prev) n++;
+                    prev = m;
+                }
+                runCount[ly] = n;
+            });
+            var rowOff = new int[bh + 1];
+            for (int ly = 0; ly < bh; ly++) rowOff[ly + 1] = rowOff[ly] + runCount[ly];
+            int R = rowOff[bh];
+            if (R == 0) return null;   // マッチ皆無(bbox はあるが α などで全て落ちた)
 
-                    int lab = hists.Count + 1;
-                    var hist = new int[256];
-                    int size = 0;
-                    label[li] = lab;
-                    int sp = 0;
-                    // スタック要素は (y<<16)|x のパック座標(除算なしで隣接と大域 index を出すため)。
-                    // 探索順は BFS→DFS に変わるが、成分の分割・採番・ヒストグラム(整数カウント)は
-                    // いずれも探索順に依存しないので結果は同一。
-                    stack[sp++] = (ly << 16) | lx;
-                    while (sp > 0)
+            runX0 = s_intPool.Rent(R);
+            runX1 = s_intPool.Rent(R);
+            Parallel.For(0, bh, bboxPo, ly =>
+            {
+                int grb = (ly + minY) * w + minX;
+                int k = rowOff[ly];
+                int lx = 0;
+                while (lx < bw)
+                {
+                    int gi = grb + lx;
+                    if (!(strength[gi] > thr && px[gi].a >= 128)) { lx++; continue; }
+                    int s0 = lx;
+                    while (lx < bw && strength[grb + lx] > thr && px[grb + lx].a >= 128) lx++;
+                    runX0[k] = s0; runX1[k] = lx - 1; k++;
+                }
+            });
+
+            // ② 上下隣接行の run を 2 ポインタで走査し、x 範囲が重なるものを結合
+            parent = s_intPool.Rent(R);
+            for (int r = 0; r < R; r++) parent[r] = r;
+            var par = parent;
+            int Find(int x)
+            {
+                while (par[x] != x) { par[x] = par[par[x]]; x = par[x]; }
+                return x;
+            }
+            for (int ly = 0; ly + 1 < bh; ly++)
+            {
+                if ((ly & 1023) == 0) ct.ThrowIfCancellationRequested();
+                int i = rowOff[ly], iEnd = rowOff[ly + 1];
+                int j = rowOff[ly + 1], jEnd = rowOff[ly + 2];
+                while (i < iEnd && j < jEnd)
+                {
+                    if (runX0[i] <= runX1[j] && runX0[j] <= runX1[i])
                     {
-                        int packed = stack[--sp];
-                        int cx = packed & 0xFFFF, cy = packed >> 16;
-                        int ci = cy * bw + cx;
-                        int gi = (cy + minY) * w + (cx + minX);
-                        hist[Mathf.Clamp((int)(okL[ci] * 255f), 0, 255)]++;
-                        size++;
-                        if (cx > 0 && label[ci - 1] == 0 && Matched(gi - 1))
-                        { label[ci - 1] = lab; stack[sp++] = (cy << 16) | (cx - 1); }
-                        if (cx < bw - 1 && label[ci + 1] == 0 && Matched(gi + 1))
-                        { label[ci + 1] = lab; stack[sp++] = (cy << 16) | (cx + 1); }
-                        if (cy > 0 && label[ci - bw] == 0 && Matched(gi - w))
-                        { label[ci - bw] = lab; stack[sp++] = ((cy - 1) << 16) | cx; }
-                        if (cy < bh - 1 && label[ci + bw] == 0 && Matched(gi + w))
-                        { label[ci + bw] = lab; stack[sp++] = ((cy + 1) << 16) | cx; }
+                        int a = Find(i), b = Find(j);
+                        if (a != b) { if (b < a) { int t = a; a = b; b = t; } par[b] = a; }
                     }
-                    hists.Add(hist);
-                    sizes.Add(size);
+                    if (runX1[i] < runX1[j]) i++; else j++;
                 }
             }
 
-            var med = new float[hists.Count];
-            for (int c = 0; c < hists.Count; c++)
+            // run → 成分 index(0..C-1)へ圧縮
+            comp = s_intPool.Rent(R);
+            var rootToComp = new Dictionary<int, int>();
+            int compCount = 0;
+            for (int r = 0; r < R; r++)
+            {
+                int root = Find(r);
+                if (!rootToComp.TryGetValue(root, out int c)) { c = compCount++; rootToComp[root] = c; }
+                comp[r] = c;
+            }
+
+            // ③ 成分ごとの L ヒストグラム(run 単位の連続アクセス)
+            var hists = new int[compCount][];
+            for (int c = 0; c < compCount; c++) hists[c] = new int[256];
+            var sizes = new int[compCount];
+            for (int ly = 0; ly < bh; ly++)
+            {
+                if ((ly & 63) == 0) ct.ThrowIfCancellationRequested();
+                int lrb = ly * bw;
+                for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
+                {
+                    var hist = hists[comp[k]];
+                    int x0 = runX0[k], x1 = runX1[k];
+                    for (int lx = x0; lx <= x1; lx++)
+                        hist[Mathf.Clamp((int)(okL[lrb + lx] * 255f), 0, 255)]++;
+                    sizes[comp[k]] += x1 - x0 + 1;
+                }
+            }
+
+            var med = new float[compCount];
+            for (int c = 0; c < compCount; c++)
                 med[c] = HistValueAtPercentile(hists[c], sizes[c], AchromaRefPercentile, 1f);
 
-            // ラベル → 代表 L の配り直し。行ごとに書き込み先が独立なので並列化しても同一結果。
+            // 成分 → 代表 L の配り直し。行ごとに書き込み先が独立なので並列化しても同一結果。
             var map = new float[len];
             Parallel.For(0, bh, bboxPo, ly =>
             {
-                int rb = (ly + minY) * w;
-                int lrb = ly * bw;
-                for (int lx = 0; lx < bw; lx++)
+                int rb = (ly + minY) * w + minX;
+                for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
                 {
-                    int lab = label[lrb + lx];
-                    if (lab != 0) map[rb + (lx + minX)] = med[lab - 1];
+                    float v = med[comp[k]];
+                    int x1 = runX1[k];
+                    for (int lx = runX0[k]; lx <= x1; lx++) map[rb + lx] = v;
                 }
             });
             return map;
             }
             finally
             {
+                if (comp != null) s_intPool.Return(comp);
+                if (parent != null) s_intPool.Return(parent);
+                if (runX1 != null) s_intPool.Return(runX1);
+                if (runX0 != null) s_intPool.Return(runX0);
                 s_floatPool.Return(okL);
-                s_intPool.Return(stack);
-                s_intPool.Return(label);
             }
         }
 
@@ -367,12 +422,16 @@ namespace Iroca
         /// 特定色/座標非依存の領域統計のみ(脚色しない不変条件)。percentile はヒストグラム離散化のため
         /// 厳密値と ≤1/255 の差を許容する。
         /// </summary>
+        // bbMinX..bbMaxY: 対象(strength>0)が存在しうる矩形。呼び出し側が後段 bbox を渡す。
+        // 集計対象はこの矩形の外に 1 画素も無いので、走査を絞ってもヒストグラム(整数加算・
+        // 順序非依存)は全画素走査と完全に一致する = 出力ビット不変。
         private static bool TryComputeRegionLRange(
-            Color32[] px, float[] strength, out float lo, out float hi, out float mid,
+            Color32[] px, float[] strength, int w,
+            int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
+            out float lo, out float hi, out float mid,
             CancellationToken ct = default)
         {
             lo = 0f; hi = 1f; mid = 0.5f;
-            int len = px.Length;
             var hist = new int[256];
             int count = 0;
             float thr = AchromaRegionCoreThr;
@@ -380,15 +439,20 @@ namespace Iroca
             {
                 Array.Clear(hist, 0, hist.Length);
                 float passThr = thr;   // ラムダは ref ローカルを捕獲できないのでパス毎に固定する
-                count = AccumulateHistParallel(len, hist, (from, to, localHist) =>
+                count = AccumulateHistParallelRows(bbMinY, bbMaxY + 1, hist, (y0, y1, localHist) =>
                 {
                     int n = 0;
-                    for (int i = from; i < to; i++)
+                    for (int y = y0; y < y1; y++)
                     {
-                        if (strength[i] < passThr || px[i].a < 128) continue;
-                        RgbToOklab(px[i].r, px[i].g, px[i].b, out float L, out _, out _);
-                        localHist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
-                        n++;
+                        int rowOff = y * w;
+                        for (int x = bbMinX; x <= bbMaxX; x++)
+                        {
+                            int i = rowOff + x;
+                            if (strength[i] < passThr || px[i].a < 128) continue;
+                            RgbToOklab(px[i].r, px[i].g, px[i].b, out float L, out _, out _);
+                            localHist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
+                            n++;
+                        }
                     }
                     return n;
                 }, ct);
