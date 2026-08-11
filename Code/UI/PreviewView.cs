@@ -472,7 +472,13 @@ namespace Iroca
             if (GUILayout.Toggle(diffMode, new GUIContent(Localization.DiffMode, Localization.DiffModeTooltip), EditorStyles.miniButtonRight, GUILayout.ExpandWidth(false)) != diffMode)
             {
                 diffMode = !diffMode;
-                if (diffMode) comparisonMode = false;
+                if (diffMode)
+                {
+                    comparisonMode = false;
+                    // 詳細 diff は diff モード表示中しか生成しない(DetailPreviewView 参照)ため、
+                    // ON へ切り替えたら詳細クロップを再生成して diff を作らせる。
+                    _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
+                }
             }
             GUILayout.Space(10f);
             GUILayout.Label(new GUIContent(_cachedZoomLabel, Localization.ZoomHint), GUILayout.ExpandWidth(false));

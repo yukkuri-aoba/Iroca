@@ -20,7 +20,6 @@ namespace Iroca
         // 情報損失なく表示でき、クロップ再生成までペイントが見えない問題と
         // メインスレッドの全画素ループを両方排除できる(PreviewView.Draw 側で描画)。
         [System.NonSerialized] public Texture2D detailPreviewTexture;
-        [System.NonSerialized] public Texture2D rawDetailPreviewTexture;
         [System.NonSerialized] public Texture2D detailDiffTexture;
 
         // 非同期生成
@@ -236,12 +235,12 @@ namespace Iroca
             detailPreviewTexture.SetPixels32(processed);
             detailPreviewTexture.Apply();
 
-            TextureSlot.Resize(ref rawDetailPreviewTexture, w, h, FilterMode.Point);
-            rawDetailPreviewTexture.SetPixels32(raw);
-            rawDetailPreviewTexture.Apply();
-
+            // diff は diff モード表示中のみ生成する(クロップは 4K ズーム閾値直上で数十 MB 級。
+            // OFF 中の生成+アップロードは描画されず捨てられるだけだった)。ON へ切り替えた
+            // ときは PreviewView 側が詳細を dirty にして再生成する。
             // Color32[] が手元にあるのでそのままバックグラウンド diff へ。GetPixels32 を再度呼ばない。
-            ScheduleDetailDiffTexture(raw, processed, w, h);
+            if (_host.Preview.diffMode)
+                ScheduleDetailDiffTexture(raw, processed, w, h);
         }
 
         private void ScheduleDetailDiffTexture(Color32[] before, Color32[] after, int w, int h)
@@ -302,7 +301,6 @@ namespace Iroca
             _pendingDetailDiffPixels = null;
             lastDetailDirtyTime = 0;
             TextureSlot.Release(ref detailPreviewTexture);
-            TextureSlot.Release(ref rawDetailPreviewTexture);
             TextureSlot.Release(ref detailDiffTexture);
         }
 
@@ -322,7 +320,6 @@ namespace Iroca
             _pendingDetailRaw = null;
             _pendingDetailDiffPixels = null;
             TextureSlot.Release(ref detailPreviewTexture);
-            TextureSlot.Release(ref rawDetailPreviewTexture);
             TextureSlot.Release(ref detailDiffTexture);
         }
     }
