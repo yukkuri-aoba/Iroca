@@ -442,71 +442,106 @@ namespace Iroca
 
             float satCeil = Mathf.Max(sS * ColorZone.ChromaCeilSampleFrac, ColorZone.ChromaCeilAbs);
 
-            int len = w * h;
             const float matchThr = ColorZone.MatchStrengthFloor;  // コア判定の strength 床(NeutralReject と同じ)
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-            bool[] cur = s_boolPool.Rent(len);
-            bool[] nxt = s_boolPool.Rent(len);
+
+            // bbox 限定(出力ビット不変): 除去が起こり得るのは strength>0 の画素だけなので
+            // 対象は strength の bbox 内に限られる。保護領域の種(低彩度コア)は
+            // 「strength>matchThr」= これも bbox 内。分離型 L1 距離変換は経路でなく
+            // 「全種への最小 L1 距離」を直接求めるので、bbox の外を走査に含めなくても
+            // bbox 内の距離は厳密に正しい。よって窓 = strength bbox で足りる。
+            if (!TryComputeStrengthBBox(strength, w, h, 0f,
+                    out int bx0, out int by0, out int bx1, out int by1, ct))
+                return;   // マッチ皆無 → 除去対象なし
+            int bw = bx1 - bx0 + 1, bh = by1 - by0 + 1;
+            int bwh = bw * bh;
+
+            // 4 近傍 dilation を R 回 = 「種からのマンハッタン(L1)距離 ≤ R」と厳密に等価。
+            // 旧実装は全画素 × R(=12)パスの dilation を回していたが、分離型 L1 距離変換なら
+            // 行パス + 列パスの実質 4 スイープで同じ集合が得られる(結果は集合として同一
+            // = 出力ビット不変)。
+            const int R = ChromaCeilProtectRadius;
+            const int Inf = 1 << 28;
+            int[] dist = s_intPool.Rent(bwh);
             try
             {
-                // 低彩度コア: 選択済み かつ 彩度が天井未満。同時に保護候補(高彩度画素)の有無を調べる。
+                // 低彩度コアを種に行パス(行内 1D 距離)。同時に保護候補(高彩度画素)の有無を調べる。
+                // anyHigh を bbox 内だけで見ても結果は同じ: bbox 外は strength=0 で除去対象外なので、
+                // bbox 外にしか高彩度画素が無い場合は旧実装も 1 画素も除去しない。
                 bool anyHigh = false;
-                Parallel.For(0, h, po, y =>
+                Parallel.For(0, bh, po, ly =>
                 {
-                    int rowOff = y * w;
+                    int lrb = ly * bw;
+                    int grb = (ly + by0) * w + bx0;
                     bool localHigh = false;
-                    for (int x = 0; x < w; x++)
+                    int run = Inf;
+                    for (int lx = 0; lx < bw; lx++)
                     {
-                        int i = rowOff + x;
-                        cur[i] = strength[i] > matchThr && pixS[i] < satCeil;
-                        if (pixS[i] >= satCeil) localHigh = true;
+                        int gi = grb + lx;
+                        float ps = pixS[gi];
+                        if (ps >= satCeil) localHigh = true;
+                        if (strength[gi] > matchThr && ps < satCeil) { run = 0; dist[lrb + lx] = 0; }
+                        else { if (run < Inf) run++; dist[lrb + lx] = run; }
+                    }
+                    run = Inf;
+                    for (int lx = bw - 1; lx >= 0; lx--)
+                    {
+                        int li = lrb + lx;
+                        if (dist[li] == 0) { run = 0; continue; }
+                        if (run < Inf) run++;
+                        if (run < dist[li]) dist[li] = run;
                     }
                     if (localHigh) anyHigh = true;
                 });
                 if (!anyHigh) return;
 
-                // 低彩度コアから 4 近傍 dilation を ProtectRadius 回(保護領域を広げる)。画像端外は false。
-                for (int it = 0; it < ChromaCeilProtectRadius; it++)
+                // 列パス: x を並列度ぶんの連続レンジに分けて y 前進/後退走査(行メジャーで連続アクセス)
+                int dop = Mathf.Max(1, po.MaxDegreeOfParallelism);
+                int chunk = (bw + dop - 1) / dop;
+                Parallel.For(0, dop, po, p =>
                 {
-                    var curL = cur; var nxtL = nxt;
-                    Parallel.For(0, h, po, y =>
+                    int lx0 = p * chunk, lx1 = Math.Min(bw, lx0 + chunk);
+                    if (lx0 >= lx1) return;
+                    for (int ly = 1; ly < bh; ly++)
                     {
-                        int rowOff = y * w;
-                        for (int x = 0; x < w; x++)
+                        int cur = ly * bw, prev = cur - bw;
+                        for (int lx = lx0; lx < lx1; lx++)
                         {
-                            int i = rowOff + x;
-                            bool on = curL[i]
-                                || (x > 0 && curL[i - 1])
-                                || (x < w - 1 && curL[i + 1])
-                                || (y > 0 && curL[i - w])
-                                || (y < h - 1 && curL[i + w]);
-                            nxtL[i] = on;
+                            int v = dist[prev + lx] + 1;
+                            if (v < dist[cur + lx]) dist[cur + lx] = v;
                         }
-                    });
-                    (cur, nxt) = (nxt, cur);
-                }
-
-                // 保護領域外の高彩度選択画素を除去(別素材)。matchConf も除去しないと
-                // flood fill が「確信コアを含む成分」として別素材を保持してしまう。
-                var prot = cur;
-                Parallel.For(0, h, po, y =>
-                {
-                    int rowOff = y * w;
-                    for (int x = 0; x < w; x++)
+                    }
+                    for (int ly = bh - 2; ly >= 0; ly--)
                     {
-                        int i = rowOff + x;
-                        if (!prot[i] && pixS[i] >= satCeil && strength[i] > 0f)
+                        int cur = ly * bw, next = cur + bw;
+                        for (int lx = lx0; lx < lx1; lx++)
                         {
-                            strength[i] = 0f;
-                            if (matchConf != null) matchConf[i] = 0f;
+                            int v = dist[next + lx] + 1;
+                            if (v < dist[cur + lx]) dist[cur + lx] = v;
+                        }
+                    }
+                });
+
+                // 保護領域(L1 距離 ≤ R)外の高彩度選択画素を除去(別素材)。matchConf も除去しないと
+                // flood fill が「確信コアを含む成分」として別素材を保持してしまう。
+                Parallel.For(0, bh, po, ly =>
+                {
+                    int lrb = ly * bw;
+                    int grb = (ly + by0) * w + bx0;
+                    for (int lx = 0; lx < bw; lx++)
+                    {
+                        int gi = grb + lx;
+                        if (dist[lrb + lx] > R && pixS[gi] >= satCeil && strength[gi] > 0f)
+                        {
+                            strength[gi] = 0f;
+                            if (matchConf != null) matchConf[gi] = 0f;
                         }
                     }
                 });
             }
             finally
             {
-                s_boolPool.Return(cur);
-                s_boolPool.Return(nxt);
+                s_intPool.Return(dist);
             }
         }
 
@@ -583,42 +618,52 @@ namespace Iroca
                 });
                 if (!anyCandidate) return;
 
-                // 画像端の未選択画素を種に、未選択画素だけを 4 近傍で伝播させる。前方(左/上から)と
-                // 後方(右/下から)のラスタ走査を交互に回すと、単純な dilation を距離ぶん繰り返すより
-                // 桁違いに速く収束する。
-                bool changed = true;
-                for (int sweep = 0; sweep < EnclosedNeutralMaxSweeps && changed; sweep++)
+                // 画像端の未選択画素を種に、未選択画素だけを 4 近傍で伝播させる。
+                //
+                // 旧実装は前方/後方のラスタスイープ対を最大 EnclosedNeutralMaxSweeps 回まわして
+                // 到達集合を近似していた(全画素を毎スイープ 2 回、単スレッド)。ここでは明示スタックの
+                // 4 近傍探索へ置き換える。探索が返すのは同じ伝播規則の**不動点そのもの**で、各画素の
+                // 訪問は 1 回きり。スイープが収束(changed=false)して終わった場合の結果と完全に一致し、
+                // 反復上限で打ち切られていた場合だけ「本来到達できるはずの画素」が追加で開領域になる
+                // (= 打ち切りの取りこぼしが無くなる方向。復帰は閉領域限定なので過剰復帰は起きない)。
+                int[] stack = s_intPool.Rent(len);   // パック座標 (y<<16)|x。各画素は 1 回だけ積む
+                try
                 {
-                    ct.ThrowIfCancellationRequested();
-                    changed = false;
+                    int sp = 0;
+                    // 種: 画像端の未選択画素(旧実装の `y==0 || x==0 || y==h-1 || x==w-1` 条件と同じ)
+                    for (int x = 0; x < w; x++)
+                    {
+                        int iTop = x, iBot = (h - 1) * w + x;
+                        if (free[iTop] && !open[iTop]) { open[iTop] = true; stack[sp++] = x; }
+                        if (free[iBot] && !open[iBot]) { open[iBot] = true; stack[sp++] = ((h - 1) << 16) | x; }
+                    }
                     for (int y = 0; y < h; y++)
                     {
-                        int rowOff = y * w;
-                        for (int x = 0; x < w; x++)
-                        {
-                            int i = rowOff + x;
-                            if (!free[i] || open[i]) continue;
-                            if (y == 0 || x == 0 || open[i - 1] || open[i - w])
-                            {
-                                open[i] = true;
-                                changed = true;
-                            }
-                        }
+                        int iL = y * w, iR = y * w + (w - 1);
+                        if (free[iL] && !open[iL]) { open[iL] = true; stack[sp++] = (y << 16); }
+                        if (free[iR] && !open[iR]) { open[iR] = true; stack[sp++] = (y << 16) | (w - 1); }
                     }
-                    for (int y = h - 1; y >= 0; y--)
+
+                    int visited = 0;
+                    while (sp > 0)
                     {
-                        int rowOff = y * w;
-                        for (int x = w - 1; x >= 0; x--)
-                        {
-                            int i = rowOff + x;
-                            if (!free[i] || open[i]) continue;
-                            if (y == h - 1 || x == w - 1 || open[i + 1] || open[i + w])
-                            {
-                                open[i] = true;
-                                changed = true;
-                            }
-                        }
+                        int packed = stack[--sp];
+                        int x = packed & 0xFFFF, y = packed >> 16;
+                        int i = y * w + x;
+                        if (x > 0 && free[i - 1] && !open[i - 1])
+                        { open[i - 1] = true; stack[sp++] = (y << 16) | (x - 1); }
+                        if (x < w - 1 && free[i + 1] && !open[i + 1])
+                        { open[i + 1] = true; stack[sp++] = (y << 16) | (x + 1); }
+                        if (y > 0 && free[i - w] && !open[i - w])
+                        { open[i - w] = true; stack[sp++] = ((y - 1) << 16) | x; }
+                        if (y < h - 1 && free[i + w] && !open[i + w])
+                        { open[i + w] = true; stack[sp++] = ((y + 1) << 16) | x; }
+                        if ((++visited & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
                     }
+                }
+                finally
+                {
+                    s_intPool.Return(stack);
                 }
 
                 // 閉領域(画像端から到達できなかった未選択画素)のうち、ゲートが落としたはずの
