@@ -259,10 +259,15 @@ namespace Iroca
 
             // strand-like gate: 横 ±strandHalf 内に nearBg がある far 画素のみ育てる
             // (縦 strand は左右に背景 → 通す。solid 縁/文字は横に背景無し → 弾く)。
+            // 同じループで「mask に 4 近傍が接する growZone 画素」を行ごとの種リストへ収集する
+            // (mask はこのループでは読み取り専用=判定は決定的。従来は種のために全画素をもう
+            //  1 パス逐次走査しており、そのパスを丸ごと削減する)。
             var growZone = new bool[w * h];
+            var rowSeeds = new System.Collections.Generic.List<int>[h];
             Parallel.For(0, h, po, y =>
             {
                 int row = y * w;
+                System.Collections.Generic.List<int> seeds = null;
                 for (int x = 0; x < w; x++)
                 {
                     int i = row + x;
@@ -271,41 +276,50 @@ namespace Iroca
                     bool horizNear = false;
                     for (int xx = x0; xx <= x1; xx++)
                         if (nearBg[row + xx]) { horizNear = true; break; }
-                    if (horizNear) growZone[i] = true;
+                    if (!horizNear) continue;
+                    growZone[i] = true;
+                    if ((x > 0 && mask[i - 1]) || (x < w - 1 && mask[i + 1]) ||
+                        (y > 0 && mask[i - w]) || (y < h - 1 && mask[i + w]))
+                        (seeds ??= new System.Collections.Generic.List<int>()).Add(x);
                 }
+                rowSeeds[y] = seeds;
             });
 
             // grow_zone を mask 境界から 4 連結でフラッドして房を覆う(順序非依存の fixpoint)。
+            // 種を「元 mask に隣接する growZone」に限っても、旧実装の種スキャン中に連鎖で
+            // 種化していた画素は BFS で到達するため、最終集合はビット同一。
+            // キュー要素は (y<<16)|x のパック座標(デキューごとの %w・/w を除去。Unity の
+            // 最大テクスチャ 16384 でも 16bit に収まる)。
             var queue = new System.Collections.Generic.Queue<int>();
             for (int y = 0; y < h; y++)
             {
+                var seeds = rowSeeds[y];
+                if (seeds == null) continue;
                 int row = y * w;
-                for (int x = 0; x < w; x++)
+                for (int k = 0; k < seeds.Count; k++)
                 {
+                    int x = seeds[k];
                     int i = row + x;
-                    if (!growZone[i]) continue;
-                    // 4 近傍に mask があれば種
-                    if ((x > 0 && mask[i - 1]) || (x < w - 1 && mask[i + 1]) ||
-                        (y > 0 && mask[i - w]) || (y < h - 1 && mask[i + w]))
-                    {
-                        mask[i] = true; growZone[i] = false; queue.Enqueue(i);
-                    }
+                    mask[i] = true; growZone[i] = false; queue.Enqueue((y << 16) | x);
                 }
             }
             while (queue.Count > 0)
             {
-                int i = queue.Dequeue(); int x = i % w, y = i / w;
-                if (x > 0 && growZone[i - 1]) { mask[i - 1] = true; growZone[i - 1] = false; queue.Enqueue(i - 1); }
-                if (x < w - 1 && growZone[i + 1]) { mask[i + 1] = true; growZone[i + 1] = false; queue.Enqueue(i + 1); }
-                if (y > 0 && growZone[i - w]) { mask[i - w] = true; growZone[i - w] = false; queue.Enqueue(i - w); }
-                if (y < h - 1 && growZone[i + w]) { mask[i + w] = true; growZone[i + w] = false; queue.Enqueue(i + w); }
+                int packed = queue.Dequeue();
+                int x = packed & 0xFFFF, y = packed >> 16;
+                int i = y * w + x;
+                if (x > 0 && growZone[i - 1]) { mask[i - 1] = true; growZone[i - 1] = false; queue.Enqueue((y << 16) | (x - 1)); }
+                if (x < w - 1 && growZone[i + 1]) { mask[i + 1] = true; growZone[i + 1] = false; queue.Enqueue((y << 16) | (x + 1)); }
+                if (y > 0 && growZone[i - w]) { mask[i - w] = true; growZone[i - w] = false; queue.Enqueue(((y - 1) << 16) | x); }
+                if (y < h - 1 && growZone[i + w]) { mask[i + w] = true; growZone[i + w] = false; queue.Enqueue(((y + 1) << 16) | x); }
             }
         }
 
         /// <summary>
         /// mask(下原点 w*h)の境界帯を pixels の色統計で再分類する(in-place)。
         /// </summary>
-        public static void SnapBoundary(bool[] mask, Color32[] pixelsBottomUp, int w, int h)
+        public static void SnapBoundary(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
+                                        System.Threading.CancellationToken token = default)
         {
             if (mask == null || pixelsBottomUp == null || mask.Length != w * h ||
                 pixelsBottomUp.Length < w * h) return;
