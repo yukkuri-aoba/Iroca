@@ -33,7 +33,7 @@ namespace Iroca
         private const int   VerifyMinBaseSelected  = 64;
 
         private static void VerifyHighlightRecoveryGrowth(Color32[] pixels, int w, int h,
-            ColorZone zone, bool[] excluded, int maskW, int maskH, ref TuneResult result)
+            ColorZone zone, bool[] excluded, int maskW, int maskH, HsvGrid hsv, ref TuneResult result)
         {
             var sim = BuildSimZone(zone, result);
 
@@ -50,19 +50,20 @@ namespace Iroca
             float bandSatFloor = bSS * PixelProcessor.HlBandMinSatFrac;
             float axisEpsSq = PixelProcessor.HlBandAxisEps * PixelProcessor.HlBandAxisEps;
 
-            int stride = (w <= 2048) ? 1 : 2;
+            int stride = hsv.stride;
             int baseSel = 0, hlOnly = 0;
-            for (int y = 0; y < h; y += stride)
+            for (int y = 0, gy = 0; y < h; y += stride, gy++)
             {
                 int rowStart = y * w;
-                for (int x = 0; x < w; x += stride)
+                int grow = gy * hsv.gw;
+                for (int x = 0, gx = 0; x < w; x += stride, gx++)
                 {
                     Color32 c = pixels[rowStart + x];
                     if (c.a < 128) continue;
                     if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
                     float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                     var col = new Color(r, g, b, 1f);
-                    Color.RGBToHSV(col, out float pH, out float pS, out float pV);
+                    float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
                     sim.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
                         out float strength, out float hlPot, out _);
                     if (strength > 0f) { baseSel++; continue; }
@@ -104,7 +105,7 @@ namespace Iroca
         private static readonly float[] TolShrinkSteps = { 0.8f, 0.65f, 0.5f };
 
         private static void VerifyBrightForgivenessOvershoot(Color32[] pixels, int w, int h,
-            ColorZone zone, bool[] excluded, int maskW, int maskH, ref TuneResult result)
+            ColorZone zone, bool[] excluded, int maskW, int maskH, HsvGrid hsv, ref TuneResult result)
         {
             var sim = BuildSimZone(zone, result);
             sim.highlightRecovery = false;  // ハイライト復元は成長テスト側で扱う(基底マッチのみ測る)
@@ -116,18 +117,19 @@ namespace Iroca
                 sim.UpdateCacheIfNeeded();
                 int sw = 0, swo = 0, ec = 0;
                 var caches = SampleWindows(sim);
-                int stride = (w <= 2048) ? 1 : 2;
-                for (int y = 0; y < h; y += stride)
+                int stride = hsv.stride;
+                for (int y = 0, gy = 0; y < h; y += stride, gy++)
                 {
                     int rowStart = y * w;
-                    for (int x = 0; x < w; x += stride)
+                    int grow = gy * hsv.gw;
+                    for (int x = 0, gx = 0; x < w; x += stride, gx++)
                     {
                         Color32 c = pixels[rowStart + x];
                         if (c.a < 128) continue;
                         if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
                         float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                         var col = new Color(r, g, b, 1f);
-                        Color.RGBToHSV(col, out float pH, out float pS, out float pV);
+                        float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
 
                         sim.simDisableBrightForgiveness = false;
                         sim.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
@@ -203,7 +205,7 @@ namespace Iroca
         private static readonly float[] SheenTolGrowSteps = { 1.15f, 1.3f, 1.5f };
 
         private static void VerifyBrightSheenRecall(Color32[] pixels, int w, int h,
-            ColorZone zone, bool[] excluded, int maskW, int maskH, int vConnHiBin, ref TuneResult result)
+            ColorZone zone, bool[] excluded, int maskW, int maskH, HsvGrid hsv, int vConnHiBin, ref TuneResult result)
         {
             float derived = result.tolerance;
             if (derived >= ChromaTolMax) return; // 既に上限=伸ばす余地なし
@@ -217,7 +219,7 @@ namespace Iroca
             // パーツ(素直な連続シェーディング)では 1.0 超になり実質無制限。
             float sheenVMax = (vConnHiBin + 1 + SheenVConnMarginBins) / (float)AutoToneValueBins;
 
-            int stride = (w <= 2048) ? 1 : 2;
+            int stride = hsv.stride;
             int gw = (w + stride - 1) / stride;
             int gh = (h + stride - 1) / stride;
 
@@ -227,6 +229,7 @@ namespace Iroca
             for (int y = 0, gy = 0; y < h; y += stride, gy++)
             {
                 int rowStart = y * w;
+                int grow = gy * hsv.gw;
                 for (int x = 0, gx = 0; x < w; x += stride, gx++)
                 {
                     Color32 c = pixels[rowStart + x];
@@ -234,7 +237,7 @@ namespace Iroca
                     if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
                     float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                     var col = new Color(r, g, b, 1f);
-                    Color.RGBToHSV(col, out float pH, out float pS, out float pV);
+                    float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
                     sim.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
                         out float s0, out _, out _);
                     if (s0 > 0f) { baseSel[gy * gw + gx] = true; baseCount++; }
@@ -254,6 +257,7 @@ namespace Iroca
                 for (int y = 0, gy = 0; y < h; y += stride, gy++)
                 {
                     int rowStart = y * w;
+                    int grow = gy * hsv.gw;
                     for (int x = 0, gx = 0; x < w; x += stride, gx++)
                     {
                         if (baseSel[gy * gw + gx]) continue;
@@ -262,7 +266,7 @@ namespace Iroca
                         if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
                         float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                         var col = new Color(r, g, b, 1f);
-                        Color.RGBToHSV(col, out float pH, out float pS, out float pV);
+                        float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
                         sim.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
                             out float st, out _, out _);
                         if (st <= 0f) continue;
