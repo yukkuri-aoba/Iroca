@@ -272,6 +272,23 @@ namespace Iroca
             public float satMin, satRamp;
             public float chromaConfidence;
             public float saturationGuardFloor; // 0=無効。pS がこの値未満なら hard reject。
+
+            // ── 以下は MatchOneSample が毎画素で再計算していたサンプル定数 ──
+            // マッチは「全画素 × 全ゾーン × 全サンプル」で回る最ホットループ(4K・4 サンプルで
+            // 6700 万回)なので、サンプル色にしか依存しない値をここへ畳む。式と演算順は元の
+            // インライン計算と一字一句同じで、除算は除算のまま残す(逆数化は丸めが変わる)ため
+            // 出力はビット不変。
+            public bool  isGrayMode;       // sS <= GrayModeEffectiveChromaThreshold(sV, chromaThreshold)
+            public bool  isDarkGray;       // sV < GrayModeDarkSampleValue(暗サンプルの明側許容)
+            public float darknessFactor;   // Clamp01((GrayModeDarkSampleValue - sV) / GrayModeDarkSampleValue)
+            public bool  grayGateActive;   // sS > ChromaGateActivateSat(彩度整合ゲートが作動するか)
+            public float grayGateWeight;   // Clamp01(sV / GrayModeDarkSampleValue)
+            public float graySatFloor;     // Min(sS * ChromaGateFloorFrac, ChromaGateFloorCap)
+            public float graySatFloorDen;  // Max(graySatFloor, 1e-4f)
+            public float shadowVThreshold; // sV * ShadowValueThresholdFrac
+            public float shadowRangeDen;   // sV * ForgivenessRangeFrac
+            public float brightThreshold;  // sV + (1 - sV) * HighlightValueHeadroomFrac
+            public float brightRangeDen;   // Max(0.01f, (1 - sV) * ForgivenessRangeFrac)
         }
         [NonSerialized] private SampleCache[] _sampleCaches;
 
@@ -279,6 +296,10 @@ namespace Iroca
         [NonSerialized] private float softRange, hardRange;
         [NonSerialized] private float hlHueCap;
         [NonSerialized] private float hlSoftRange, hlHardRange;
+        // グレーモードの AA 縁レンジと hueRelevance の分母。どちらも tolerance/edgeSoftness/
+        // chromaThreshold だけに依存する(いずれも UpdateCacheIfNeeded の無効化条件に入っている)。
+        [NonSerialized] private float aaSoftRange, aaHardRange;
+        [NonSerialized] private float chromaThresholdFloor;
 
         public void EnsureId()
         {
