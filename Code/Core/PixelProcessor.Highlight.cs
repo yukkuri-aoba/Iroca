@@ -32,22 +32,56 @@ namespace Iroca
                     out int minX, out int minY, out int maxX, out int maxY, ct))
                 return;   // pot>0 の画素が無い → 伝播対象なし
 
-            int passes = 3;
-            for (int p = 0; p < passes; p++)
+            // 候補画素(pot>0)だけをラスタ順のパック座標列に畳む(出力ビット不変)。
+            // 旧実装は bbox の全画素を最大 6 回(3 パス × 前方/後方)走査していたが、
+            // 外側ガード `pot > 0f` を満たさない画素は訪問しても読み書きが一切ない。
+            // 同じ画素集合を同じ順序(前方=ラスタ順・後方=その逆順)で辿るので、近傍読みが
+            // 見る途中経過まで含めて逐次スイープと完全に一致する。ハイライト候補は
+            // テクスチャ中で疎なため、bbox 内でもさらに大きく実効走査量が減る。
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            int bh = maxY - minY + 1;
+            var rowCount = new int[bh];
+            Parallel.For(0, bh, po, ly =>
             {
-                bool changed = false;
+                int rb = (ly + minY) * w;
+                int n = 0;
+                for (int x = minX; x <= maxX; x++) if (highlightPot[rb + x] > 0f) n++;
+                rowCount[ly] = n;
+            });
+            var rowOff = new int[bh + 1];
+            for (int ly = 0; ly < bh; ly++) rowOff[ly + 1] = rowOff[ly] + rowCount[ly];
+            int nCand = rowOff[bh];
+            if (nCand == 0) return;
 
-                // 左上から右下へのパス (bbox 内のみ走査)
-                for (int y = minY; y <= maxY; y++)
+            // パック座標 (y<<16)|x で保持する(index からの %w・/w を避ける。w/h は Unity の
+            // 最大テクスチャ 16384 でも 16bit に収まる)。
+            int[] cand = s_intPool.Rent(nCand);
+            try
+            {
+                Parallel.For(0, bh, po, ly =>
                 {
-                    // 伝播スイープは逐次(順序依存)なので、行単位でキャンセルだけ見る。
-                    if ((y & 63) == 0) ct.ThrowIfCancellationRequested();
-                    int rowBase = y * w;
+                    int y = ly + minY;
+                    int rb = y * w;
+                    int k = rowOff[ly];
                     for (int x = minX; x <= maxX; x++)
+                        if (highlightPot[rb + x] > 0f) cand[k++] = (y << 16) | x;
+                });
+
+                int passes = 3;
+                for (int p = 0; p < passes; p++)
+                {
+                    bool changed = false;
+
+                    // 左上から右下へのパス (候補のみ・ラスタ順)
+                    for (int k = 0; k < nCand; k++)
                     {
-                        int i = rowBase + x;
+                        // 伝播スイープは逐次(順序依存)なので、一定間隔でキャンセルだけ見る。
+                        if ((k & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
+                        int packed = cand[k];
+                        int x = packed & 0xFFFF, y = packed >> 16;
+                        int i = y * w + x;
                         float pot = highlightPot[i];
-                        if (pot > 0f && strength[i] < pot)
+                        if (strength[i] < pot)
                         {
                             float maxNeighbor = 0f;
                             if (x > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - 1]);
@@ -68,18 +102,16 @@ namespace Iroca
                             }
                         }
                     }
-                }
 
-                // 右下から左上へのパス (bbox 内のみ走査)
-                for (int y = maxY; y >= minY; y--)
-                {
-                    if ((y & 63) == 0) ct.ThrowIfCancellationRequested();
-                    int rowBase = y * w;
-                    for (int x = maxX; x >= minX; x--)
+                    // 右下から左上へのパス (候補のみ・逆ラスタ順)
+                    for (int k = nCand - 1; k >= 0; k--)
                     {
-                        int i = rowBase + x;
+                        if ((k & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
+                        int packed = cand[k];
+                        int x = packed & 0xFFFF, y = packed >> 16;
+                        int i = y * w + x;
                         float pot = highlightPot[i];
-                        if (pot > 0f && strength[i] < pot)
+                        if (strength[i] < pot)
                         {
                             float maxNeighbor = 0f;
                             if (x < w - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + 1]);
@@ -100,9 +132,13 @@ namespace Iroca
                             }
                         }
                     }
-                }
 
-                if (!changed) break;
+                    if (!changed) break;
+                }
+            }
+            finally
+            {
+                s_intPool.Return(cand);
             }
         }
 
@@ -196,23 +232,36 @@ namespace Iroca
                 }
             });
 
-            // core をシードとして収集する(逐次のまま。enqueue 順は従来と同一の i 昇順で、
-            // BFS 到達集合も順序非依存のため出力不変)。
-            for (int y = 0; y < h; y++)
+            // core をシードとして収集する。行ごとの本数を数えてから行並列で詰めることで、
+            // 全画素の逐次走査(4K で 1670 万回)を排除する。書き込み位置は行オフセットで
+            // 決まるので enqueue 順は従来と同一の i 昇順のまま、visited も同じ集合に立つ。
+            // BFS 到達集合はもともと探索順に依存しないので出力は不変。
+            var seedRowCount = new int[h];
+            Parallel.For(0, h, hlbPo, y =>
             {
                 int rb = y * w;
+                int n = 0;
+                for (int x = 0; x < w; x++) if (strength[rb + x] >= HlBandCoreThreshold) n++;
+                seedRowCount[y] = n;
+            });
+            var seedRowOff = new int[h + 1];
+            for (int y = 0; y < h; y++) seedRowOff[y + 1] = seedRowOff[y] + seedRowCount[y];
+            qTail = seedRowOff[h];
+            if (qTail == 0) return;
+            Parallel.For(0, h, hlbPo, y =>
+            {
+                int rb = y * w;
+                int k = seedRowOff[y];
                 for (int x = 0; x < w; x++)
                 {
                     int i = rb + x;
                     if (strength[i] >= HlBandCoreThreshold)
                     {
                         visited[i] = true;
-                        queue[qTail++] = (y << 16) | x;
+                        queue[k++] = (y << 16) | x;
                     }
                 }
-            }
-
-            if (qTail == 0) return;
+            });
 
             // core から候補領域へ 4 連結 BFS（候補セルのみ拡張）
             while (qHead < qTail)
