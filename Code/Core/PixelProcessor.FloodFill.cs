@@ -67,102 +67,158 @@ namespace Iroca
             }
 
             int bw = maxX - minX + 1, bh = maxY - minY + 1;
-            int bwh = bw * bh;
-            // label / 探索スタックはプールから借りる(従来は呼び出しごとに new int[bw*bh]=4K 全面で 67MB)。
-            // スタックは「push 直前に必ず label を立てる」ので 1 セル 1 回しか積まれず bwh で足りる。
-            int[] label = s_intPool.Rent(bwh);
-            int[] stack = s_intPool.Rent(bwh);
+            var ccPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+
+            // ───────── 連結成分ラベリング: 行 run + union-find ─────────
+            // 旧実装は画素単位の逐次 DFS(bbox 全画素 × 4 近傍を単スレッド)。ここでは
+            //   ① 行内の連続 matched 区間(run)を行並列で抽出   ← O(N) 並列
+            //   ② 上下に x 範囲が重なる run だけを union-find で結合 ← O(R α), R ≪ N
+            //   ③ 成分ごとのコア有無を run 単位の連続アクセスで集計
+            // に置き換える。run は行内の左右連結そのもの、上下の重なりは縦の 4 近傍連結
+            // そのものなので、成分の分割は DFS と厳密に同一。ラベル番号の付き方は変わるが、
+            // 判定に使うのは「その成分にコアがあるか」と「シードの属する成分か」だけで
+            // 番号に依存しない = 出力ビット不変。
+            int[] runX0 = null, runX1 = null, parent = null, comp = null;
             try
             {
-            Array.Clear(label, 0, bwh);   // Create プールの Rent はゼロ初期化しない
-            var hasCore = new List<bool>();   // hasCore[lab-1] = その成分にコア画素があるか
-
             // 連結予測子。bbox 内の隣接判定でしか使わないので gi は呼び出し側が算出済みの値を渡す。
-            bool Matched(int gi) => strength[gi] > 0f && px[gi].a >= 128;
             // コア判定: matchConf があれば色一致確信度(>0 = 固定半径内)で、無ければ strength 閾値で判定。
-            bool IsCore(int gi) => matchConf != null
-                ? matchConf[gi] > 0f
-                : strength[gi] >= coreThreshold;
+            bool useConf = matchConf != null;
 
-            for (int ly = 0; ly < bh; ly++)
+            // ① 行ごとの run 数 → オフセット → run の x 範囲
+            var runCount = new int[bh];
+            Parallel.For(0, bh, ccPo, ly =>
             {
-                // 逐次ラベリングは数百 ms 級になり得るので、行ごとにキャンセルを見て
-                // ドラッグ中の旧ジョブが CPU を焼き続けないようにする(数値ロジックは不変)。
-                if ((ly & 63) == 0) ct.ThrowIfCancellationRequested();
-                int lrb = ly * bw;
                 int grb = (ly + minY) * w + minX;
+                int n = 0;
+                bool prev = false;
                 for (int lx = 0; lx < bw; lx++)
                 {
-                    int li = lrb + lx;
-                    if (label[li] != 0) continue;
-                    if (!Matched(grb + lx)) continue;
+                    int gi = grb + lx;
+                    bool m = strength[gi] > 0f && px[gi].a >= 128;
+                    if (m && !prev) n++;
+                    prev = m;
+                }
+                runCount[ly] = n;
+            });
+            var rowOff = new int[bh + 1];
+            for (int ly = 0; ly < bh; ly++) rowOff[ly + 1] = rowOff[ly] + runCount[ly];
+            int R = rowOff[bh];
+            if (R == 0) return;   // マッチ皆無
 
-                    int lab = hasCore.Count + 1;
-                    bool core = false;
-                    label[li] = lab;
-                    int sp = 0;
-                    // スタック要素は (y<<16)|x のパック座標。旧実装は要素ごとに ci%bw と ci/bw を
-                    // 計算しており、デキュー 1 回 + 4 近傍で最大 10 回の整数除算が走っていた。
-                    // 座標を持ち回れば除算はゼロになる(bw/bh は Unity の最大テクスチャ 16384 でも
-                    // 16bit に収まる)。探索順は BFS→DFS に変わるが、連結成分の分割・ラベル番号
-                    // (外側走査順で採番)・コア有無はいずれも探索順に依存しないので結果は同一。
-                    stack[sp++] = (ly << 16) | lx;
-                    while (sp > 0)
+            runX0 = s_intPool.Rent(R);
+            runX1 = s_intPool.Rent(R);
+            Parallel.For(0, bh, ccPo, ly =>
+            {
+                int grb = (ly + minY) * w + minX;
+                int k = rowOff[ly];
+                int lx = 0;
+                while (lx < bw)
+                {
+                    int gi = grb + lx;
+                    if (!(strength[gi] > 0f && px[gi].a >= 128)) { lx++; continue; }
+                    int s0 = lx;
+                    while (lx < bw && strength[grb + lx] > 0f && px[grb + lx].a >= 128) lx++;
+                    runX0[k] = s0; runX1[k] = lx - 1; k++;
+                }
+            });
+
+            // ② 上下隣接行の run を 2 ポインタで走査し、x 範囲が重なるものを結合
+            parent = s_intPool.Rent(R);
+            for (int r = 0; r < R; r++) parent[r] = r;
+            var par = parent;
+            int Find(int x)
+            {
+                while (par[x] != x) { par[x] = par[par[x]]; x = par[x]; }
+                return x;
+            }
+            for (int ly = 0; ly + 1 < bh; ly++)
+            {
+                if ((ly & 1023) == 0) ct.ThrowIfCancellationRequested();
+                int i = rowOff[ly], iEnd = rowOff[ly + 1];
+                int j = rowOff[ly + 1], jEnd = rowOff[ly + 2];
+                while (i < iEnd && j < jEnd)
+                {
+                    if (runX0[i] <= runX1[j] && runX0[j] <= runX1[i])
                     {
-                        int packed = stack[--sp];
-                        int cx = packed & 0xFFFF, cy = packed >> 16;
-                        int ci = cy * bw + cx;
-                        int gi = (cy + minY) * w + (cx + minX);
-                        if (IsCore(gi)) core = true;
-                        if (cx > 0 && label[ci - 1] == 0 && Matched(gi - 1))
-                        { label[ci - 1] = lab; stack[sp++] = (cy << 16) | (cx - 1); }
-                        if (cx < bw - 1 && label[ci + 1] == 0 && Matched(gi + 1))
-                        { label[ci + 1] = lab; stack[sp++] = (cy << 16) | (cx + 1); }
-                        if (cy > 0 && label[ci - bw] == 0 && Matched(gi - w))
-                        { label[ci - bw] = lab; stack[sp++] = ((cy - 1) << 16) | cx; }
-                        if (cy < bh - 1 && label[ci + bw] == 0 && Matched(gi + w))
-                        { label[ci + bw] = lab; stack[sp++] = ((cy + 1) << 16) | cx; }
+                        int a = Find(i), b = Find(j);
+                        if (a != b) { if (b < a) { int t = a; a = b; b = t; } par[b] = a; }
                     }
-                    hasCore.Add(core);
+                    if (runX1[i] < runX1[j]) i++; else j++;
+                }
+            }
+
+            // run → 成分 index(0..compCount-1)へ圧縮
+            comp = s_intPool.Rent(R);
+            var rootToComp = new Dictionary<int, int>();
+            int compCount = 0;
+            for (int r = 0; r < R; r++)
+            {
+                int root = Find(r);
+                if (!rootToComp.TryGetValue(root, out int c)) { c = compCount++; rootToComp[root] = c; }
+                comp[r] = c;
+            }
+
+            // ③ 成分ごとのコア有無(run 単位の連続アクセス)
+            var hasCore = new bool[compCount];
+            for (int ly = 0; ly < bh; ly++)
+            {
+                if ((ly & 63) == 0) ct.ThrowIfCancellationRequested();
+                int grb = (ly + minY) * w + minX;
+                for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
+                {
+                    int c = comp[k];
+                    if (hasCore[c]) continue;   // 既に確定した成分は走査不要
+                    int x1 = runX1[k];
+                    for (int lx = runX0[k]; lx <= x1; lx++)
+                    {
+                        int gi = grb + lx;
+                        if (useConf ? matchConf[gi] > 0f : strength[gi] >= coreThreshold)
+                        { hasCore[c] = true; break; }
+                    }
                 }
             }
 
             // 残す成分を決定。seed 上書き優先、無効/未指定ならコア規則。
-            int keepLabel = 0; // 0 = コア規則, >0 = その label だけ残す
+            int keepComp = -1; // -1 = コア規則, >=0 = その成分だけ残す
             if (seedX >= minX && seedX <= maxX && seedY >= minY && seedY <= maxY)
             {
-                int sl = label[(seedY - minY) * bw + (seedX - minX)];
-                if (sl != 0) keepLabel = sl; // 有効シード → その成分のみ
-                // sl==0(bleed/背景上) → 自動へフォールバック(keepLabel=0 のまま)
+                int sly = seedY - minY, slx = seedX - minX;
+                for (int k = rowOff[sly]; k < rowOff[sly + 1]; k++)
+                    if (slx >= runX0[k] && slx <= runX1[k]) { keepComp = comp[k]; break; }
+                // 見つからない(bleed/背景上) → 自動へフォールバック(keepComp=-1 のまま)
             }
 
-            if (keepLabel == 0)
+            if (keepComp < 0)
             {
                 bool anyCore = false;
-                for (int c = 0; c < hasCore.Count; c++) if (hasCore[c]) { anyCore = true; break; }
+                for (int c = 0; c < compCount; c++) if (hasCore[c]) { anyCore = true; break; }
                 if (!anyCore) return; // 確信できるコアが皆無 → 絞り込まない(recall 保護)
             }
 
             // 落とす成分の strength を 0 に。行ごとに書き込み先が独立なので並列化しても同一結果。
-            var keepLabelLocal = keepLabel;
+            var keepCompLocal = keepComp;
             var hasCoreArr = hasCore;
-            Parallel.For(0, bh, new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct }, ly =>
+            var runX0L = runX0; var runX1L = runX1; var compL = comp;
+            Parallel.For(0, bh, ccPo, ly =>
             {
-                int rb = (ly + minY) * w;
-                int lrb = ly * bw;
-                for (int lx = 0; lx < bw; lx++)
+                int rb = (ly + minY) * w + minX;
+                for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
                 {
-                    int lab = label[lrb + lx];
-                    if (lab == 0) continue;
-                    bool keep = keepLabelLocal > 0 ? (lab == keepLabelLocal) : hasCoreArr[lab - 1];
-                    if (!keep) strength[rb + (lx + minX)] = 0f;
+                    int c = compL[k];
+                    bool keep = keepCompLocal >= 0 ? (c == keepCompLocal) : hasCoreArr[c];
+                    if (keep) continue;
+                    int x1 = runX1L[k];
+                    for (int lx = runX0L[k]; lx <= x1; lx++) strength[rb + lx] = 0f;
                 }
             });
             }
             finally
             {
-                s_intPool.Return(stack);
-                s_intPool.Return(label);
+                if (comp != null) s_intPool.Return(comp);
+                if (parent != null) s_intPool.Return(parent);
+                if (runX1 != null) s_intPool.Return(runX1);
+                if (runX0 != null) s_intPool.Return(runX0);
             }
         }
 
