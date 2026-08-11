@@ -491,12 +491,15 @@ namespace Iroca
         /// そこだけ再着色されて点ノイズになるため、混合率 AaBlendMin 以上の実混合を包含する。
         /// </summary>
         public static void IncludeAaTransition(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
-                                               System.Threading.CancellationToken token = default)
+                                               System.Threading.CancellationToken token = default,
+                                               int dOverride = 0)
         {
             if (mask == null || pixelsBottomUp == null || mask.Length != w * h ||
                 pixelsBottomUp.Length < w * h) return;
 
-            int d = Mathf.Max(2, Mathf.CeilToInt(
+            // dOverride: クロップ実行(IncludeAaTransitionCropped)が全画像実行と同じ帯幅を使う
+            // ための上書き。0 なら従来どおり自寸法から導出(既存呼び出しは全て 0 = 挙動不変)。
+            int d = dOverride > 0 ? dOverride : Mathf.Max(2, Mathf.CeilToInt(
                 Mathf.Max(w, h) / (float)SamMaskPostprocess.LowRes * 0.75f));
 
             // soft skirt が帯幅を超える場合に境界を進めながら吸収する(追加ゼロで早期終了)。
@@ -513,6 +516,79 @@ namespace Iroca
             for (int pass = 0; pass < AaMaxPasses; pass++)
                 if (AbsorbEdgeBlendPass(mask, pixelsBottomUp, w, h, token) == 0)
                     break;
+        }
+
+        /// <summary>
+        /// IncludeAaTransition をクロップで実行しても全画像実行とビット同一になる矩形
+        /// (d 格子整列・マージン込み)を導出する。mask に true が無ければ false(AA 不要)。
+        ///
+        /// マージンの根拠(=クロップ実行が読むデータが全画像実行と一致する条件):
+        /// - 各パスの追加は境界外側の帯(距離 ≤ d)のみ → 3 パスで成長 ≤ 3d、
+        ///   フェーズ 2 のリング吸収は 1px × 3 パス。
+        /// - 帯画素が読むセル統計は半径 MaxWindowRadius(8) セル = (8+1)d 以内。
+        ///   クロップ端の欠けセルまで読まないよう +1 セル。
+        /// - 距離変換は mask がクロップ内に完全に収まっていれば全画素で全画像実行と一致
+        ///   (最近接 mask/非 mask 画素がクロップ内にあるため)。
+        /// → パディング 15d(切り上げで格子整列)で全条件を満たす。
+        /// rx0/ry0 は d の倍数に切り下げ、セル境界(x/d)を全画像実行と一致させる。
+        /// </summary>
+        public static bool TryDeriveAaCropRect(bool[] mask, int w, int h,
+                                               out int rx0, out int ry0, out int rw, out int rh,
+                                               out int d)
+        {
+            rx0 = ry0 = rw = rh = 0;
+            d = Mathf.Max(2, Mathf.CeilToInt(
+                Mathf.Max(w, h) / (float)SamMaskPostprocess.LowRes * 0.75f));
+            if (mask == null || mask.Length != w * h) return false;
+
+            int bx0 = int.MaxValue, by0 = int.MaxValue, bx1 = -1, by1 = -1;
+            for (int y = 0; y < h; y++)
+            {
+                int row = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    if (!mask[row + x]) continue;
+                    if (x < bx0) bx0 = x;
+                    if (x > bx1) bx1 = x;
+                    if (y < by0) by0 = y;
+                    by1 = y;
+                }
+            }
+            if (bx1 < 0) return false; // true 画素なし → AA 包含は no-op
+
+            int pad = 15 * d;
+            rx0 = Mathf.Max(0, (bx0 - pad) / d * d);
+            ry0 = Mathf.Max(0, (by0 - pad) / d * d);
+            int rx1 = Mathf.Min(w - 1, ((bx1 + pad) / d + 1) * d - 1);
+            int ry1 = Mathf.Min(h - 1, ((by1 + pad) / d + 1) * d - 1);
+            rw = rx1 - rx0 + 1;
+            rh = ry1 - ry0 + 1;
+            return true;
+        }
+
+        /// <summary>
+        /// fullMask のうち TryDeriveAaCropRect で導出した矩形だけを切り出して
+        /// IncludeAaTransition(d は全画像値で上書き)を実行し、追加画素を fullMask へ書き戻す。
+        /// cropPixels は同矩形の下原点画素列(呼び出し側が GetPixels(rect) 等で用意する)。
+        /// 出力は全画像実行とビット同一(根拠は TryDeriveAaCropRect のコメント)。
+        /// </summary>
+        public static void IncludeAaTransitionCropped(bool[] fullMask, int w, int h,
+                                                      Color32[] cropPixels,
+                                                      int rx0, int ry0, int rw, int rh, int d,
+                                                      System.Threading.CancellationToken token = default)
+        {
+            if (fullMask == null || cropPixels == null || fullMask.Length != w * h ||
+                cropPixels.Length < rw * rh || rw <= 0 || rh <= 0) return;
+
+            var cropMask = new bool[rw * rh];
+            for (int cy = 0; cy < rh; cy++)
+                System.Array.Copy(fullMask, (ry0 + cy) * w + rx0, cropMask, cy * rw, rw);
+
+            IncludeAaTransition(cropMask, cropPixels, rw, rh, token, dOverride: d);
+
+            // IncludeAaTransition は追加のみ(true→false は起きない)なので行コピーで書き戻せる。
+            for (int cy = 0; cy < rh; cy++)
+                System.Array.Copy(cropMask, cy * rw, fullMask, (ry0 + cy) * w + rx0, rw);
         }
 
         /// <summary>

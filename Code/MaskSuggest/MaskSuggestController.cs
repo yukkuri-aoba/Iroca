@@ -254,15 +254,37 @@ namespace Iroca
                 if (transferred != null)
                 {
                     var tex = _host?.SourceTexture;
-                    if (tex != null && tex.width == mw && tex.height == mh)
+                    if (tex != null && tex.width == mw && tex.height == mh &&
+                        SamMaskRefine.TryDeriveAaCropRect(transferred, mw, mh,
+                            out int rx0, out int ry0, out int rw, out int rh, out int aaD))
                     {
+                        // AA 包含は提案 bbox + マージンのクロップで実行する(出力は全画像実行と
+                        // ビット同一 — 根拠は TryDeriveAaCropRect)。小パーツ提案でもマスク全
+                        // 解像度の距離変換×最大 10 回が走っていた(実測 162-225ms のメイン停止)
+                        // のを、画素取得ごとクロップ分に抑える。提案が空なら丸ごとスキップ。
                         try
                         {
+                            // 画素は GetPixels32 で取り(GetPixels(rect) の float→byte 丸めは
+                            // テクスチャ形式によって GetPixels32 と一致する保証がない)、
+                            // クロップは行コピーで切り出す。
                             t = MaskSuggestPerf.Now;
                             var texPx = tex.GetPixels32();
+                            Color32[] cropPx;
+                            if (rw == mw && rh == mh)
+                            {
+                                cropPx = texPx;
+                            }
+                            else
+                            {
+                                cropPx = new Color32[rw * rh];
+                                for (int cy = 0; cy < rh; cy++)
+                                    System.Array.Copy(texPx, (ry0 + cy) * mw + rx0,
+                                                      cropPx, cy * rw, rw);
+                            }
                             getPixelsMs = MaskSuggestPerf.MsSince(t);
                             t = MaskSuggestPerf.Now;
-                            SamMaskRefine.IncludeAaTransition(transferred, texPx, mw, mh);
+                            SamMaskRefine.IncludeAaTransitionCropped(transferred, mw, mh,
+                                cropPx, rx0, ry0, rw, rh, aaD);
                             aaMs = MaskSuggestPerf.MsSince(t);
                         }
                         catch (System.Exception)
