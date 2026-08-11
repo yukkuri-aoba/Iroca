@@ -40,21 +40,32 @@ namespace Iroca
             if (sS < MinSampleSat) return sample;
 
             float satFloor = sS * BodySatFrac;
-            int len = w * h;
 
-            // 同色相・有彩の地色画素の V ヒストグラムを作る
+            // 同色相・有彩の地色画素の V ヒストグラムを作る。
+            // 地色統計はテクスチャ全体から採る仕様(マッチ範囲に限定しない)なので走査量は減らせないが、
+            // ヒストグラムは整数加算だけで集計順に依存しないため行並列化できる(結果は逐次版と同値)。
+            // 4K では全画素 1670 万回の逐次ループで、再着色パラメータを変えるたびに毎回走っていた。
             var vHist = new int[256];
-            int body = 0;
-            for (int i = 0; i < len; i++)
+            int body = PixelProcessor.AccumulateHistParallelRows(0, h, vHist, (y0, y1, hist) =>
             {
-                if (px[i].a < 128) continue;
-                if (pixS[i] < satFloor) continue;
-                float hd = Mathf.Abs(pixH[i] - sH);
-                if (hd > 0.5f) hd = 1f - hd;
-                if (hd >= HueBand) continue;
-                body++;
-                vHist[Mathf.Clamp((int)(pixV[i] * 255f), 0, 255)]++;
-            }
+                int n = 0;
+                for (int y = y0; y < y1; y++)
+                {
+                    int rowOff = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        if (px[i].a < 128) continue;
+                        if (pixS[i] < satFloor) continue;
+                        float hd = Mathf.Abs(pixH[i] - sH);
+                        if (hd > 0.5f) hd = 1f - hd;
+                        if (hd >= HueBand) continue;
+                        n++;
+                        hist[Mathf.Clamp((int)(pixV[i] * 255f), 0, 255)]++;
+                    }
+                }
+                return n;
+            });
             if (body < 100) return sample;
 
             // スポイトが地色帯の高 percentile より上＝明らかにハイライトを取った時だけ補正する。

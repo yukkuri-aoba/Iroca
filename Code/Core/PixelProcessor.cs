@@ -730,7 +730,8 @@ namespace Iroca
                         zEffShadowDesat = cachedStats.effShadowDesat;
                     }
                     else if (zone.autoRecolorAnchor && !zOkGray &&
-                        TryComputeRecolorAnchor(originalPixels, strength, out float anchorL, out float anchorC, cancellationToken))
+                        TryComputeRecolorAnchor(originalPixels, strength, w,
+                            ppMinX, ppMinY, ppMaxX, ppMaxY, out float anchorL, out float anchorC, cancellationToken))
                     {
                         float zSC0 = zSC;
                         zSL = anchorL;
@@ -795,7 +796,8 @@ namespace Iroca
                         }
                         else
                         {
-                            zHasRegL = TryComputeRegionLRange(originalPixels, strength,
+                            zHasRegL = TryComputeRegionLRange(originalPixels, strength, w,
+                                ppMinX, ppMinY, ppMaxX, ppMaxY,
                                 out zRegLlo, out zRegLhi, out zRegLmid, cancellationToken);
                             if (zHasRegL)
                                 zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, 0.05f, cancellationToken);
@@ -1005,6 +1007,37 @@ namespace Iroca
         // ───────────── 領域統計(RegionStats)の並列ヒストグラム集計 ─────────────
         // 集計対象が [from,to) の連続レンジ 1 本を処理するデリゲート。戻り値は集計した画素数。
         private delegate int HistChunk(int from, int to, int[] localHist);
+
+        /// <summary>集計対象が行レンジ [yFrom,yTo) のデリゲート。戻り値は集計した画素数。</summary>
+        internal delegate int HistRowChunk(int yFrom, int yTo, int[] localHist);
+
+        /// <summary>
+        /// <see cref="AccumulateHistParallel"/> の行レンジ版。全画素 [0,len) でなく bbox の行だけを
+        /// 分割したいとき(領域統計を実マッチ範囲に限定するとき)に使う。ヒストグラムは整数加算
+        /// だけで集計順に依存しないので、結果は単スレッド逐次版と完全に同値。
+        /// </summary>
+        internal static int AccumulateHistParallelRows(int yFrom, int yTo, int[] hist,
+            HistRowChunk chunk, CancellationToken ct = default)
+        {
+            if (yTo <= yFrom) return 0;
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            int total = 0;
+            object gate = new object();
+            Parallel.ForEach(Partitioner.Create(yFrom, yTo), po,
+                () => new int[hist.Length],
+                (range, _, local) =>
+                {
+                    int c = chunk(range.Item1, range.Item2, local);
+                    if (c != 0) Interlocked.Add(ref total, c);
+                    return local;
+                },
+                local =>
+                {
+                    lock (gate)
+                        for (int b = 0; b < local.Length; b++) hist[b] += local[b];
+                });
+            return total;
+        }
 
         /// <summary>
         /// [0,len) をチャンク分割し、チャンクごとにスレッドローカルのヒストグラムへ集計してから
