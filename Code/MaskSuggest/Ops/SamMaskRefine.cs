@@ -218,6 +218,18 @@ namespace Iroca
             // far[i]: どの局所背景モードからも色が遠い(生地/strand)。near は strand-like gate 用に横合算する。
             // 全画素 × 5x5 セル窓の走査で ExtendFringe 最大のホットループ(4K 実測 ~3s)。
             // 読み取り専用入力から far/nearBg の自画素のみへ書くため行並列で決定的。
+            //
+            // 境界帯限定(出力ビット同一): この 2 配列は後段の strand-like gate でしか読まれず、
+            // 読まれる位置は
+            //   far[i]    … `!mask[i] && distOut[i] <= reach` の候補画素のみ
+            //   nearBg[j] … その候補と同じ行で横 ±strandHalf 内の画素のみ
+            // に限られる。distIn/distOut は厳密な L1 距離変換なので画素間 L1 距離に対し
+            // 1-Lipschitz であり、候補 i(非 mask, distOut<=reach)と L1 距離 strandHalf 以内の j は
+            //   ・非 mask なら distOut[j] <= distOut[i] + strandHalf <= reach + strandHalf
+            //   ・mask なら i が非 mask なので distIn[j] <= strandHalf
+            // を必ず満たす。よって下の帯の外は「読まれない」ことが厳密に言え、false のまま
+            // 残しても出力は変わらない。房は境界近傍にしか出ないので実効面積は典型 1 割未満。
+            int fringeBand = reach + strandHalf;
             var far = new bool[w * h];
             var nearBg = new bool[w * h];
             Parallel.For(0, h, po, y =>
@@ -227,6 +239,7 @@ namespace Iroca
                 for (int x = 0; x < w; x++)
                 {
                     int i = row + x;
+                    if (mask[i] ? distIn[i] > strandHalf : distOut[i] > fringeBand) continue;
                     int gx = x / d;
                     int gx0 = Mathf.Max(0, gx - 2), gx1 = Mathf.Min(gw - 1, gx + 2);
                     var c = pixelsBottomUp[i];
