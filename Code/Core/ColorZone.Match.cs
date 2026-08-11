@@ -54,6 +54,12 @@ namespace Iroca
             hlHueCap = Mathf.Max(0.05f, tolerance * 0.3f);
             hlSoftRange = tolerance * edgeSoftness;
             hlHardRange = tolerance - hlSoftRange;
+
+            // ホットループから追い出したゾーン定数(式は MatchOneSample のインライン計算と同一)。
+            // softRange 確定後に計算する必要があるのでここに置く。
+            aaSoftRange = Mathf.Max(softRange, _cTolerance * AchromaEdgeSoftness);
+            aaHardRange = _cTolerance - aaSoftRange;
+            chromaThresholdFloor = Mathf.Max(0.01f, chromaThreshold);
         }
 
         // 遅延キャッシュ構築の直列化用ゲート。フィールド初期化子に頼らず遅延生成する
@@ -102,6 +108,19 @@ namespace Iroca
             // 暗すぎる色（黒）は彩度データが高くても色相（Hue）の計算がノイズで暴れるため信用しない
             float valueConf = Mathf.Clamp01((sc.sV - 0.05f) / 0.15f); // Vが0.05(非常に暗い)〜0.20の範囲で減衰
             sc.chromaConfidence = Mathf.Min(baseChromaConf, valueConf);
+
+            // ── ホットループから追い出したサンプル定数(式・演算順は MatchOneSample と同一) ──
+            sc.isGrayMode = sc.sS <= GrayModeEffectiveChromaThreshold(sc.sV, chromaThreshold);
+            sc.isDarkGray = sc.sV < GrayModeDarkSampleValue;
+            sc.darknessFactor = Mathf.Clamp01((GrayModeDarkSampleValue - sc.sV) / GrayModeDarkSampleValue);
+            sc.grayGateActive = sc.sS > ChromaGateActivateSat;
+            sc.grayGateWeight = Mathf.Clamp01(sc.sV / GrayModeDarkSampleValue);
+            sc.graySatFloor = Mathf.Min(sc.sS * ChromaGateFloorFrac, ChromaGateFloorCap);
+            sc.graySatFloorDen = Mathf.Max(sc.graySatFloor, 1e-4f);
+            sc.shadowVThreshold = sc.sV * ShadowValueThresholdFrac;
+            sc.shadowRangeDen = sc.sV * ForgivenessRangeFrac;
+            sc.brightThreshold = sc.sV + (1f - sc.sV) * HighlightValueHeadroomFrac;
+            sc.brightRangeDen = Mathf.Max(0.01f, (1f - sc.sV) * ForgivenessRangeFrac);
             return sc;
         }
 
@@ -245,8 +264,8 @@ namespace Iroca
             }
 
             // サンプル色の彩度がしきい値以下の場合は、自動的に無彩色(グレー/黒)抽出モードとして扱う
-            float effectiveChromaThreshold = GrayModeEffectiveChromaThreshold(sc.sV, chromaThreshold);
-            if (sc.sS <= effectiveChromaThreshold)
+            // (判定は BuildSampleCache で確定済み。同じ Lerp+Clamp01 を毎画素回していた)
+            if (sc.isGrayMode)
             {
                 // グレー抽出モード：HueやSatを完全に無視し、純粋なRGBの近さのみで判定する
                 float dr = pixelColor.r - sc.color.r;
@@ -259,10 +278,9 @@ namespace Iroca
                 // サンプルが暗いほど、無彩色ピクセルの彩度（≒中立からの逸脱度）を距離指標として使い、
                 // 輝度差があっても無彩色なら「同素材」とみなせるようにする。
                 float effectiveDist = rgbDist;
-                if (sc.sV < GrayModeDarkSampleValue)
+                if (sc.isDarkGray)
                 {
-                    float darknessFactor = Mathf.Clamp01((GrayModeDarkSampleValue - sc.sV) / GrayModeDarkSampleValue);
-                    effectiveDist = Mathf.Lerp(rgbDist, pS, darknessFactor);
+                    effectiveDist = Mathf.Lerp(rgbDist, pS, sc.darknessFactor);
                     // 輝度盲対策: pS へ寄せると輝度差を捨て純白(pS=0)まで距離0でマッチする。
                     // ヘッドルームを超えて明るい画素に輝度超過ペナルティを加え、白装飾/UV 背景を弾く。
                     // 中間グレーハイライト(V ≲ sV+headroom)は超過0で無罰=recall 維持。
@@ -278,7 +296,14 @@ namespace Iroca
                 // 「中性=同素材」とみなす(暗布は中性が正常)ため、中性を罰するこのゲートと矛盾する。
                 // 暗いサンプルではフェードさせ、明るい tint 素材(生成り・オフホワイトの布地等)でのみ
                 // 全効果にする。
-                effectiveDist += GrayChromaGatePenalty(sc.sS, sc.sV, pS, _cTolerance);
+                // GrayChromaGatePenalty と同一(ゲート判定・gateWeight・satFloor はサンプル定数なので
+                // キャッシュから読む)。乗算の結合順は元のまま保つ。非作動時は元コードが 0f を
+                // 加算していただけなので、分岐で飛ばしても値は同じ。
+                if (sc.grayGateActive)
+                {
+                    float shortfall = Mathf.Clamp01((sc.graySatFloor - pS) / sc.graySatFloorDen);
+                    effectiveDist += shortfall * ChromaGatePenalty * _cTolerance * sc.grayGateWeight;
+                }
 
                 // 彩度天井(高彩度の別素材排除)は主経路では距離加算しない。
                 // 部分強度への格下げは陰影相関(form_fidelity)を壊すことが判明したため、
@@ -290,8 +315,6 @@ namespace Iroca
                 // 後段デコンタミ(α 再合成)が元の滑らかな AA を復元できるようにする(脚色でなく
                 // 元の AA カバレッジの復元)。地色コアは hardRange 未満で full のまま=陰影は不変。
                 // ユーザーが edgeSoftness を上げている場合はそちらを尊重(floor として作用)。
-                float aaSoftRange = Mathf.Max(softRange, _cTolerance * AchromaEdgeSoftness);
-                float aaHardRange = _cTolerance - aaSoftRange;
                 strength = CalculateEdgeStrength(effectiveDist, aaHardRange, aaSoftRange);
                 // FF コア判定用: グレーモードの色一致確信度(中性ペナルティ込み effectiveDist を使う)。
                 if (strength > 0f) matchConf = Mathf.Clamp01(1f - effectiveDist / CoreMatchDistance);
@@ -316,13 +339,13 @@ namespace Iroca
 
             // 無彩色領域でのHueのバタつきを緩和する
             float maxSat = Mathf.Max(pS, sc.sS);
-            float hueRelevance = Mathf.Clamp01(maxSat / Mathf.Max(0.01f, chromaThreshold));
+            float hueRelevance = Mathf.Clamp01(maxSat / chromaThresholdFloor);
             float effectiveHDist = hDist * hueRelevance;
 
             // 同系色・暗部のシャドウ許容（暗い影の部分は彩度や明度が落ちるが、同じ色として拾う）
-            if (pV < sc.sV * ShadowValueThresholdFrac && effectiveHDist < ForgivenessHueGate)
+            if (pV < sc.shadowVThreshold && effectiveHDist < ForgivenessHueGate)
             {
-                float darkForgiveness = Mathf.Clamp01((sc.sV * ShadowValueThresholdFrac - pV) / (sc.sV * ForgivenessRangeFrac));
+                float darkForgiveness = Mathf.Clamp01((sc.shadowVThreshold - pV) / sc.shadowRangeDen);
 
                 // 1. 色相(Hue)が離れているほど免除を弱くする（ノイズによる無関係な色の巻き込み防止）
                 float hueFactor = 1f - (effectiveHDist / ForgivenessHueGate);
@@ -344,13 +367,16 @@ namespace Iroca
             // 彩度ゲートを免除して同素材として拾う。FP は色相ゲートで抑える。
             // シャドウ側の satFactor 減衰は付けない（ハイライトは低彩度化が正常で
             // 暗部のグレー/黒混入とは性質が逆のため）。
-            if (!simDisableBrightForgiveness && pV > sc.sV && effectiveHDist < ForgivenessHueGate)
+            // 免除量は距離免除(CalculateHybridDistance)と発動条件・式・入力が完全に同一なので、
+            // ここで 1 回だけ求めて渡す(従来は同じ Clamp01+除算+色相減衰を 2 回評価していた)。
+            float brightForgiveness = 0f;
+            bool brightActive = !simDisableBrightForgiveness && pV > sc.sV
+                                && effectiveHDist < ForgivenessHueGate;
+            if (brightActive)
             {
                 // 明度の伸び量を上方ヘッドルーム (1 - sV) で正規化。
                 // 閾値 sV + (1-sV)*0.25 は暗側 sV*0.75（25% デッドマージン）の鏡像。
-                float brightThreshold = sc.sV + (1f - sc.sV) * HighlightValueHeadroomFrac;
-                float brightForgiveness = Mathf.Clamp01(
-                    (pV - brightThreshold) / Mathf.Max(0.01f, (1f - sc.sV) * ForgivenessRangeFrac));
+                brightForgiveness = Mathf.Clamp01((pV - sc.brightThreshold) / sc.brightRangeDen);
 
                 // 色相が離れているほど免除を弱くする（暗側と同形・無関係色の巻き込み防止）
                 float hueFactor = 1f - (effectiveHDist / ForgivenessHueGate);
@@ -359,7 +385,8 @@ namespace Iroca
                 satConfidence = Mathf.Max(satConfidence, brightForgiveness);
             }
             // 各距離の計算
-            float dist = CalculateHybridDistance(in sc, pixelColor, pS, pV, effectiveHDist, sRatio);
+            float dist = CalculateHybridDistance(in sc, pixelColor, pS, pV, effectiveHDist, sRatio,
+                                                 brightActive, brightForgiveness);
             float gate = Mathf.Lerp(1f, satConfidence, sc.chromaConfidence);
 
             // 通常マッチ強度
@@ -381,7 +408,10 @@ namespace Iroca
             return hDist > 0.5f ? 1f - hDist : hDist;
         }
 
-        private float CalculateHybridDistance(in SampleCache sc, Color pixelColor, float pS, float pV, float hDist, float sRatio)
+        // brightActive / brightForgiveness は呼び出し側(MatchOneSample)が算出済みの値を渡す。
+        // 旧版はここで同じ条件式と同じ免除量をもう一度計算していた(完全に同一入力の重複評価)。
+        private float CalculateHybridDistance(in SampleCache sc, Color pixelColor, float pS, float pV, float hDist, float sRatio,
+                                              bool brightActive, float brightForgiveness)
         {
             float sDist = Mathf.Abs(pS - sc.sS);
             float vDist = Mathf.Abs(pV - sc.sV);
@@ -406,17 +436,8 @@ namespace Iroca
             // ハイライト（明部）の距離許容: 上のシャドウ許容の対称形。
             // サンプルより明るく同色相なら、低彩度化したハイライト芯でも同素材として
             // 距離を免除する。免除上限はシャドウ側と同じ 0.3f（最大70%）で対称。
-            if (!simDisableBrightForgiveness && pV > sc.sV && hDist < ForgivenessHueGate)
-            {
-                float brightThreshold = sc.sV + (1f - sc.sV) * HighlightValueHeadroomFrac;
-                float brightForgiveness = Mathf.Clamp01(
-                    (pV - brightThreshold) / Mathf.Max(0.01f, (1f - sc.sV) * ForgivenessRangeFrac));
-
-                float hueFactor = 1f - (hDist / ForgivenessHueGate);
-                brightForgiveness *= hueFactor;
-
+            if (brightActive)
                 finalDist *= Mathf.Lerp(1f, BrightDistanceForgivenessMin, brightForgiveness);
-            }
 
             return finalDist;
         }
