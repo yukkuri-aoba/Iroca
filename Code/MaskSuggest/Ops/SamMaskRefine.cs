@@ -30,9 +30,12 @@ namespace Iroca
         /// <summary>
         /// Ops 共通の並列設定。PixelProcessor と同じ既定(全コア−2。Editor の他スレッドを
         /// 圧迫しない)+ DebugCaptureHooks.ParallelismOverride によるオーバーライド。
+        /// token を渡すと Parallel.For がパーティション境界でキャンセルを観測する
+        /// (破棄確定の後処理が全コア−2 を占有し続け、次クリックの計算と奪い合うのを防ぐ)。
         /// </summary>
-        internal static ParallelOptions MakeParallelOptions() => new ParallelOptions
+        internal static ParallelOptions MakeParallelOptions(System.Threading.CancellationToken token = default) => new ParallelOptions
         {
+            CancellationToken = token,
             MaxDegreeOfParallelism = DebugCaptureHooks.ParallelismOverride > 0
                 ? System.Math.Min(DebugCaptureHooks.ParallelismOverride,
                                   System.Environment.ProcessorCount)
@@ -95,7 +98,8 @@ namespace Iroca
         /// mask(下原点 w*h)の境界を、房 strands を覆うように実テクスチャの信号で外郭まで拡張する(in-place)。
         /// SnapBoundary の後段で呼ぶ。房が無い部位ではほとんど成長しない(precision 影響 &lt;=0.004)。
         /// </summary>
-        public static void ExtendFringe(bool[] mask, Color32[] pixelsBottomUp, int w, int h)
+        public static void ExtendFringe(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
+                                        System.Threading.CancellationToken token = default)
         {
             if (mask == null || pixelsBottomUp == null || mask.Length != w * h ||
                 pixelsBottomUp.Length < w * h) return;
@@ -109,9 +113,9 @@ namespace Iroca
             float thr2 = FringeColorThresh * FringeColorThresh;
 
             // mask 外画素→最近 mask までの L1 距離(within/conf_out 判定に使う)
-            var distOut = DistanceToOpposite(mask, w, h, inside: false);
-            var distIn = DistanceToOpposite(mask, w, h, inside: true);
-            var po = MakeParallelOptions();
+            var distOut = DistanceToOpposite(mask, w, h, inside: false, token);
+            var distIn = DistanceToOpposite(mask, w, h, inside: true, token);
+            var po = MakeParallelOptions(token);
 
             // 局所背景色 = mask 直外の確信領域(distOut>d)を粗グリッド集計 → 各画素 5x5 グリッド窓合算平均。
             // 内側確信領域(distIn>d)も同時に集計する(背景モードの生地類似判定に使う)。
@@ -303,6 +307,7 @@ namespace Iroca
                     mask[i] = true; growZone[i] = false; queue.Enqueue((y << 16) | x);
                 }
             }
+            int visited = 0;
             while (queue.Count > 0)
             {
                 int packed = queue.Dequeue();
@@ -312,6 +317,8 @@ namespace Iroca
                 if (x < w - 1 && growZone[i + 1]) { mask[i + 1] = true; growZone[i + 1] = false; queue.Enqueue((y << 16) | (x + 1)); }
                 if (y > 0 && growZone[i - w]) { mask[i - w] = true; growZone[i - w] = false; queue.Enqueue(((y - 1) << 16) | x); }
                 if (y < h - 1 && growZone[i + w]) { mask[i + w] = true; growZone[i + w] = false; queue.Enqueue(((y + 1) << 16) | x); }
+                // 逐次 BFS なので定期的にキャンセルを見る(数値ロジックは不変)。
+                if ((++visited & 0xFFFF) == 0) token.ThrowIfCancellationRequested();
             }
         }
 
@@ -329,8 +336,8 @@ namespace Iroca
                 Mathf.Max(w, h) / (float)SamMaskPostprocess.LowRes * 0.75f));
 
             // L1 距離変換で「境界からの深さ」を測る(セパラブル2パス・O(N))
-            var distIn = DistanceToOpposite(mask, w, h, inside: true);   // mask 内→外境界までの距離
-            var distOut = DistanceToOpposite(mask, w, h, inside: false); // mask 外→内境界までの距離
+            var distIn = DistanceToOpposite(mask, w, h, inside: true, token);   // mask 内→外境界までの距離
+            var distOut = DistanceToOpposite(mask, w, h, inside: false, token); // mask 外→内境界までの距離
 
             // 再分類は元マスクのスナップショットに対して行う(書き換え順序への依存を排除し、
             // NumPy リファレンスと決定的に一致させるため)。
@@ -339,7 +346,7 @@ namespace Iroca
             // 確信領域の局所色統計を粗グリッド(ストライド d)で集計。
             // 帯画素は近傍グリッド(半径 2d 相当)の合算平均と比較する。
             // 並列化はグリッド行単位(1 タスク = 画素行 d 本)でセル書き込みを共有しない=決定的。
-            var po = MakeParallelOptions();
+            var po = MakeParallelOptions(token);
             int gw = (w + d - 1) / d, gh = (h + d - 1) / d;
             var sumIn = new long[gw * gh * 4];
             var sumOut = new long[gw * gh * 4];
@@ -474,7 +481,7 @@ namespace Iroca
             // AA 境界画素(地色と背景の中間色)は二値分類がどちらへ転ぶか不安定で
             // ±1px の点状ノイズになる。帯内のみ 3x3 多数決で平滑化して点滅を除去する
             // (帯外は不変なので形状は保たれる)。
-            MajoritySmoothBand(mask, mask0, distIn, distOut, d, w, h);
+            MajoritySmoothBand(mask, mask0, distIn, distOut, d, w, h, token);
         }
 
         /// <summary>
@@ -483,7 +490,8 @@ namespace Iroca
         /// 除外(保護)マスクの意味論では「パーツ色が目に見えて混ざる画素」を取り残すと
         /// そこだけ再着色されて点ノイズになるため、混合率 AaBlendMin 以上の実混合を包含する。
         /// </summary>
-        public static void IncludeAaTransition(bool[] mask, Color32[] pixelsBottomUp, int w, int h)
+        public static void IncludeAaTransition(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
+                                               System.Threading.CancellationToken token = default)
         {
             if (mask == null || pixelsBottomUp == null || mask.Length != w * h ||
                 pixelsBottomUp.Length < w * h) return;
@@ -493,7 +501,7 @@ namespace Iroca
 
             // soft skirt が帯幅を超える場合に境界を進めながら吸収する(追加ゼロで早期終了)。
             for (int pass = 0; pass < AaMaxPasses; pass++)
-                if (IncludeAaTransitionPass(mask, pixelsBottomUp, w, h, d) == 0)
+                if (IncludeAaTransitionPass(mask, pixelsBottomUp, w, h, d, token) == 0)
                     break;
 
             // フェーズ2: 境界 1px リングの局所ブレンド吸収。フェーズ1 の面統計は soft skirt
@@ -503,7 +511,7 @@ namespace Iroca
             // 画素自身の「隣接マスク画素 m ⇄ 反対側の画素 q」を両端とする局所線分で
             // p = α·m + (1-α)·q の実混合判定を行う(統計汚染と無縁・向き非依存)。
             for (int pass = 0; pass < AaMaxPasses; pass++)
-                if (AbsorbEdgeBlendPass(mask, pixelsBottomUp, w, h) == 0)
+                if (AbsorbEdgeBlendPass(mask, pixelsBottomUp, w, h, token) == 0)
                     break;
         }
 
@@ -512,7 +520,8 @@ namespace Iroca
         /// マスクへ吸収する 1 パス。追加した画素数を返す。読みはパス開始時のスナップショット、
         /// 書きは追加のみ(決定的・順序非依存)。別色の構造(輪郭線等)は残差ゲートで残る。
         /// </summary>
-        static int AbsorbEdgeBlendPass(bool[] mask, Color32[] pixelsBottomUp, int w, int h)
+        static int AbsorbEdgeBlendPass(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
+                                       System.Threading.CancellationToken token = default)
         {
             var mask0 = (bool[])mask.Clone();
             // 8 方向(反対方向は符号反転で得る)
@@ -521,7 +530,7 @@ namespace Iroca
             // 読みはスナップショット・書きは自画素のみなので行並列で決定的。
             // added は行ローカルに数えて最後に合算する(値も逐次実行と一致)。
             int added = 0;
-            Parallel.For(0, h, MakeParallelOptions(),
+            Parallel.For(0, h, MakeParallelOptions(token),
                 () => 0,
                 (y, _, local) =>
                 {
@@ -565,10 +574,11 @@ namespace Iroca
         }
 
         /// <summary>IncludeAaTransition の 1 パス。追加した画素数を返す。</summary>
-        static int IncludeAaTransitionPass(bool[] mask, Color32[] pixelsBottomUp, int w, int h, int d)
+        static int IncludeAaTransitionPass(bool[] mask, Color32[] pixelsBottomUp, int w, int h, int d,
+                                           System.Threading.CancellationToken token = default)
         {
-            var distIn = DistanceToOpposite(mask, w, h, inside: true);
-            var distOut = DistanceToOpposite(mask, w, h, inside: false);
+            var distIn = DistanceToOpposite(mask, w, h, inside: true, token);
+            var distOut = DistanceToOpposite(mask, w, h, inside: false, token);
 
             // 確信領域の局所色統計(SnapBoundary と同じ粗グリッド集計・現マスク基準)。
             // 外側統計は近傍(d 超)と遠方(2d 超)の 2 系統を持ち、判定はユニオン(どちらかの
@@ -578,7 +588,7 @@ namespace Iroca
             // 軸の原点=外側平均の近傍にある画素は t≈0 で弾かれる構造のため、ユニオンは
             // どちらかの軸が汚染されても誤包含になりにくい)。
             // 並列化はグリッド行単位(1 タスク = 画素行 d 本)でセル書き込みを共有しない=決定的。
-            var po = MakeParallelOptions();
+            var po = MakeParallelOptions(token);
             int gw = (w + d - 1) / d, gh = (h + d - 1) / d;
             var sumIn = new long[gw * gh * 4];
             var sumOutNear = new long[gw * gh * 4];
@@ -781,10 +791,11 @@ namespace Iroca
         /// <summary>帯内画素を 3x3 多数決(5/9 以上)で平滑化する。読みはスナップ結果の
         /// スナップショット、書きは mask(決定的・順序非依存)。</summary>
         static void MajoritySmoothBand(bool[] mask, bool[] mask0, int[] distIn, int[] distOut,
-                                       int d, int w, int h)
+                                       int d, int w, int h,
+                                       System.Threading.CancellationToken token = default)
         {
             var snapped = (bool[])mask.Clone();
-            Parallel.For(1, h - 1, MakeParallelOptions(), y =>
+            Parallel.For(1, h - 1, MakeParallelOptions(token), y =>
             {
                 int row = y * w;
                 for (int x = 1; x < w - 1; x++)
@@ -868,11 +879,12 @@ namespace Iroca
         /// 旧 2 パスチャンファー(左下前進/右上後退)と厳密に同値(どちらも正確な L1)だが、
         /// 行パスは行単位・列パスは列レンジ単位で並列化できる(いずれも決定的)。
         /// </summary>
-        internal static int[] DistanceToOpposite(bool[] mask, int w, int h, bool inside)
+        internal static int[] DistanceToOpposite(bool[] mask, int w, int h, bool inside,
+                                                 System.Threading.CancellationToken token = default)
         {
             const int Inf = 1 << 28;
             var dist = new int[w * h];
-            var po = MakeParallelOptions();
+            var po = MakeParallelOptions(token);
 
             // 行パス: 各行の左右走査で「同じ行内の最近接反対側画素」までの距離(無ければ Inf)
             Parallel.For(0, h, po, y =>

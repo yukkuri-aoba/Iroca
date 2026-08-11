@@ -45,7 +45,8 @@ namespace Iroca
         public static Result SelectAndUpscale(float[] logits, float[] scores, int texW, int texH,
                                               float floodRejectFrac = DefaultFloodRejectFrac,
                                               Color32[] pixelsBottomUp = null,
-                                              MaskSuggestGranularity granularity = MaskSuggestGranularity.Auto)
+                                              MaskSuggestGranularity granularity = MaskSuggestGranularity.Auto,
+                                              System.Threading.CancellationToken token = default)
         {
             SamImageOps.GetResizedSize(texW, texH, out int newW, out int newH);
             // 低解像度空間での有効域(パディング除去相当)。1024→256 は 1/4。
@@ -101,9 +102,9 @@ namespace Iroca
                 for (int c = 2; c < 4; c++) if (area[c] < area[chosen]) chosen = c;
             }
 
-            var mask = UpscaleChannel(logits, chosen, texW, texH, newW, newH);
+            var mask = UpscaleChannel(logits, chosen, texW, texH, newW, newH, token);
             if (pixelsBottomUp != null)
-                RefineInPlace(mask, pixelsBottomUp, texW, texH);
+                RefineInPlace(mask, pixelsBottomUp, texW, texH, token);
             return new Result
             {
                 maskBottomUp = mask,
@@ -120,15 +121,18 @@ namespace Iroca
         /// 実行順の単一ソース。粗マスクを後から精密化する遅延実行(ズーム不発時)もここを通す。
         /// </summary>
         public static void RefineInPlace(bool[] maskBottomUp, Color32[] pixelsBottomUp,
-                                         int texW, int texH)
+                                         int texW, int texH,
+                                         System.Threading.CancellationToken token = default)
         {
-            SamMaskRefine.SnapBoundary(maskBottomUp, pixelsBottomUp, texW, texH);
+            SamMaskRefine.SnapBoundary(maskBottomUp, pixelsBottomUp, texW, texH, token);
+            token.ThrowIfCancellationRequested();
             // 房(細い frayed strands)を実テクスチャ信号で外郭まで拡張(SAM の滑らかな境界が
             // 切り落とす房を救済)。房が無い部位ではほとんど成長しない。
-            SamMaskRefine.ExtendFringe(maskBottomUp, pixelsBottomUp, texW, texH);
+            SamMaskRefine.ExtendFringe(maskBottomUp, pixelsBottomUp, texW, texH, token);
+            token.ThrowIfCancellationRequested();
             // 境界外側の AA 遷移(パーツ色の実混合)を包含する最終仕上げ。スナップ境界は
             // 混合率 ≈50% 点に乗るため、外側に残る混合画素が再着色で点ノイズになるのを防ぐ。
-            SamMaskRefine.IncludeAaTransition(maskBottomUp, pixelsBottomUp, texW, texH);
+            SamMaskRefine.IncludeAaTransition(maskBottomUp, pixelsBottomUp, texW, texH, token);
         }
 
         /// <summary>
@@ -136,7 +140,8 @@ namespace Iroca
         /// 閾値 0 で二値化して下原点 bool[] を返す。
         /// </summary>
         internal static bool[] UpscaleChannel(float[] logits, int channel, int texW, int texH,
-                                              int newW, int newH)
+                                              int newW, int newH,
+                                              System.Threading.CancellationToken token = default)
         {
             int cOff = channel * LowRes * LowRes;
 
@@ -154,7 +159,7 @@ namespace Iroca
                 x0s[x] = x0; x1s[x] = Mathf.Min(x0 + 1, LowRes - 1); fxs[x] = sx - x0;
             }
             // 行ごとに独立な bilinear(書き込みは自行のみ)なので行並列で決定的
-            var po = SamMaskRefine.MakeParallelOptions();
+            var po = SamMaskRefine.MakeParallelOptions(token);
             Parallel.For(0, S, po, y =>
             {
                 float sy = (y + 0.5f) * scale1 - 0.5f;

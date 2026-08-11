@@ -38,17 +38,19 @@ namespace Iroca
 
         /// <summary>
         /// 下原点 RGBA 画素列から [1,3,1024,1024] CHW float テンソル(平坦配列)を作る。
+        /// token はキャンセル観測のみ(完走時の出力には影響しない)。
         /// </summary>
-        public static float[] BuildEncoderInput(Color32[] pixelsBottomUp, int w, int h)
+        public static float[] BuildEncoderInput(Color32[] pixelsBottomUp, int w, int h,
+                                                System.Threading.CancellationToken token = default)
         {
             GetResizedSize(w, h, out int newW, out int newH);
             // resized: 上原点 RGB interleaved float(0..255 スケール)
-            float[] resized = ResizeTopDown(pixelsBottomUp, w, h, newW, newH);
+            float[] resized = ResizeTopDown(pixelsBottomUp, w, h, newW, newH, token);
 
             var chw = new float[3 * InputSize * InputSize]; // パディング領域は 0 のまま
             // (c, y) を平坦化した行並列。各反復は自分の出力行だけに書き、読みは resized の
             // 読み取り専用参照のみなので決定的(出力ビット同一)。
-            Parallel.For(0, 3 * newH, SamMaskRefine.MakeParallelOptions(), i =>
+            Parallel.For(0, 3 * newH, SamMaskRefine.MakeParallelOptions(token), i =>
             {
                 int c = i / newH, y = i % newH;
                 float mean = Mean[c], std = Std[c];
@@ -64,7 +66,8 @@ namespace Iroca
         /// 下原点 Color32[] → 上原点 RGB interleaved float(0..255)。
         /// 縮小軸は面積平均、拡大軸は bilinear(align_corners=False 相当)。
         /// </summary>
-        internal static float[] ResizeTopDown(Color32[] pixelsBottomUp, int w, int h, int newW, int newH)
+        internal static float[] ResizeTopDown(Color32[] pixelsBottomUp, int w, int h, int newW, int newH,
+                                              System.Threading.CancellationToken token = default)
         {
             var dst = new float[newW * newH * 3];
             bool downX = newW < w, downY = newH < h;
@@ -72,7 +75,7 @@ namespace Iroca
             // 行並列(4K で実測 300-400ms の単スレッドがクリティカルパスだった)。全パスとも
             // 「読みは読み取り専用・書きは自分の出力行のみ・行内の加算順序は不変」なので
             // 並列化しても出力ビット同一(a791ac5 と同じ論法)。
-            var po = SamMaskRefine.MakeParallelOptions();
+            var po = SamMaskRefine.MakeParallelOptions(token);
             if (newW == w && newH == h)
             {
                 Parallel.For(0, newH, po, y =>
@@ -99,8 +102,8 @@ namespace Iroca
                 else ResampleRowBilinear(pixelsBottomUp, srcRow, w, mid, midRow, newW);
             });
             // Y 軸(mid は上原点なので反転不要)
-            if (downY) ResampleColsArea(mid, h, newW, dst, newH);
-            else ResampleColsBilinear(mid, h, newW, dst, newH);
+            if (downY) ResampleColsArea(mid, h, newW, dst, newH, token);
+            else ResampleColsBilinear(mid, h, newW, dst, newH, token);
             return dst;
         }
 
@@ -143,12 +146,13 @@ namespace Iroca
         }
 
         // ─── Y 軸リサンプル(全列一括、interleaved RGB) ───
-        static void ResampleColsArea(float[] src, int srcH, int width, float[] dst, int dstH)
+        static void ResampleColsArea(float[] src, int srcH, int width, float[] dst, int dstH,
+                                     System.Threading.CancellationToken token = default)
         {
             double scale = srcH / (double)dstH; // >1
             int stride = width * 3;
             // 出力行単位の並列。行内の加算順序(i 昇順・k 昇順)は逐次版と同一。
-            Parallel.For(0, dstH, SamMaskRefine.MakeParallelOptions(), y =>
+            Parallel.For(0, dstH, SamMaskRefine.MakeParallelOptions(token), y =>
             {
                 double s0 = y * scale, s1 = (y + 1) * scale;
                 int i0 = (int)s0, i1 = System.Math.Min((int)System.Math.Ceiling(s1), srcH);
@@ -169,11 +173,12 @@ namespace Iroca
             });
         }
 
-        static void ResampleColsBilinear(float[] src, int srcH, int width, float[] dst, int dstH)
+        static void ResampleColsBilinear(float[] src, int srcH, int width, float[] dst, int dstH,
+                                         System.Threading.CancellationToken token = default)
         {
             double scale = srcH / (double)dstH; // <1 (拡大)
             int stride = width * 3;
-            Parallel.For(0, dstH, SamMaskRefine.MakeParallelOptions(), y =>
+            Parallel.For(0, dstH, SamMaskRefine.MakeParallelOptions(token), y =>
             {
                 double sy = (y + 0.5) * scale - 0.5;
                 if (sy < 0) sy = 0; if (sy > srcH - 1) sy = srcH - 1;
