@@ -798,6 +798,48 @@ namespace Iroca
                     return 0;
                 }
 
+                // --samops-aainclude-crop <mask.raw> <image.raw RGBA> <out.raw> :
+                // AA 遷移包含のクロップ実行(コミット段の経路)。--samops-aainclude と
+                // 出力ビット同一であることの機械検証に使う。
+                case "--samops-aainclude-crop":
+                {
+                    var (mw2, mh2, mbytes2) = ReadRaw(args[1], 1);
+                    var mask2 = new bool[mw2 * mh2];
+                    for (int i = 0; i < mask2.Length; i++) mask2[i] = mbytes2[i] != 0;
+                    var (iw, ih, rgba2) = ReadRaw(args[2], 4);
+                    if (iw != mw2 || ih != mh2)
+                    {
+                        Console.Error.WriteLine("aainclude-crop: mask/image size mismatch");
+                        return 2;
+                    }
+                    if (SamMaskRefine.TryDeriveAaCropRect(mask2, iw, ih,
+                            out int rx0, out int ry0, out int rw, out int rh, out int aaD))
+                    {
+                        var cropPx = new Color32[rw * rh];
+                        for (int cy = 0; cy < rh; cy++)
+                        {
+                            int srcRow = (ry0 + cy) * iw + rx0;
+                            for (int cx = 0; cx < rw; cx++)
+                            {
+                                int s = (srcRow + cx) * 4;
+                                cropPx[cy * rw + cx] = new Color32(rgba2[s], rgba2[s + 1], rgba2[s + 2], rgba2[s + 3]);
+                            }
+                        }
+                        SamMaskRefine.IncludeAaTransitionCropped(mask2, iw, ih, cropPx, rx0, ry0, rw, rh, aaD);
+                        Console.Error.WriteLine($"AACROP rect=({rx0},{ry0}) {rw}x{rh} d={aaD}");
+                    }
+                    using (var fs = new FileStream(args[3], FileMode.Create, FileAccess.Write))
+                    using (var bw = new BinaryWriter(fs))
+                    {
+                        bw.Write(iw); bw.Write(ih);
+                        var bytes = new byte[iw * ih];
+                        for (int i = 0; i < bytes.Length; i++) bytes[i] = mask2[i] ? (byte)1 : (byte)0;
+                        bw.Write(bytes);
+                    }
+                    Console.WriteLine($"AAINCLUDE-CROP OK {iw}x{ih}");
+                    return 0;
+                }
+
                 // --samops-covertransfer <mask.raw> <dw> <dh> <out.raw> : 被覆保存の解像度転写
                 case "--samops-covertransfer":
                 {
