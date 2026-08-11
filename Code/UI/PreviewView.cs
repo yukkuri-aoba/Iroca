@@ -24,9 +24,13 @@ namespace Iroca
         // ピクセル単位で確認できるよう、最大ズーム時に「ソース 1px が画面上で最低
         // PixelInspectTargetPx ピクセルになる」ところまで拡大を許可する。高解像度
         // プレビューが映すのはソース画素で、画面倍率は scale*zoom なので zoom = target/scale。
-        // 大きいテクスチャ(scale 小)ほど高ズームを許す。小さいテクスチャでも最低 8x。
-        private const float PixelInspectTargetPx = 8f;
-        private const float AbsoluteMaxPreviewZoom = 32f;
+        // 大きいテクスチャ(scale 小)ほど高ズームを許す。小さいテクスチャでも最低 16x。
+        private const float PixelInspectTargetPx = 16f;
+        // 倍率そのものの上限。プレビュー枠(内側 ScrollView)の内容幅は
+        // previewTexture.width * zoom まで広がり、ここでは最大 MaxSize(384) * 64 ≒ 24.6k px。
+        // これ以上は IMGUI のレイアウト/スクロール可動域とパン操作量が現実的でなくなるため
+        // 頭打ちにする(4K テクスチャなら 64x でソース 1px ≒ 画面 6px 相当)。
+        private const float AbsoluteMaxPreviewZoom = 64f;
 
         // テクスチャの縮小率 scale に応じたズーム上限。
         private static float ComputeMaxZoom(float scale)
@@ -36,11 +40,11 @@ namespace Iroca
         }
 
         // 表示倍率が 104% のような半端な値にならないよう、ズームは「きれいな数字」の
-        // 固定ストップにスナップさせる。1 ノッチ＝隣のストップ。25%〜3200% を網羅。
+        // 固定ストップにスナップさせる。1 ノッチ＝隣のストップ。25%〜6400% を網羅。
         private static readonly float[] ZoomStops =
         {
             0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f, 4f, 5f, 6f,
-            8f, 10f, 12f, 16f, 20f, 24f, 32f
+            8f, 10f, 12f, 16f, 20f, 24f, 32f, 40f, 48f, 64f
         };
         private const float ZoomEpsilon = 1e-4f;
 
