@@ -192,16 +192,32 @@ namespace Iroca
             {
                 mask = s_floatPool.Rent(len);
                 neighborSum = s_floatPool.Rent(len);
-                for (int i = 0; i < len; i++)
-                    mask[i] = original[i] > 0f ? 1f : 0f;
+                // 行並列(要素独立・自 index 書き込みのみ=出力ビット不変)。per-index デリゲートを避ける。
+                var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+                var maskL = mask;
+                Parallel.For(0, h, po, y =>
+                {
+                    int rowOff = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        maskL[i] = original[i] > 0f ? 1f : 0f;
+                    }
+                });
 
                 BoxFilterSum(mask, neighborSum, w, h, radius, ct);
 
-                Parallel.For(0, len, new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct }, i =>
+                var neighborSumL = neighborSum;
+                Parallel.For(0, h, po, y =>
                 {
-                    if (original[i] > 0f) return; // already matched
-                    if (neighborSum[i] <= 0f)
-                        blurred[i] = 0f;
+                    int rowOff = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        if (original[i] > 0f) continue; // already matched
+                        if (neighborSumL[i] <= 0f)
+                            blurred[i] = 0f;
+                    }
                 });
             }
             finally

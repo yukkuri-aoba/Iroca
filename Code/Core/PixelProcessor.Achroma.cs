@@ -80,8 +80,17 @@ namespace Iroca
             bool[] nxt = s_boolPool.Rent(len);
             try
             {
-                // 高彩度マッチコア(マッチ済み かつ 彩度>=床)。
-                for (int i = 0; i < len; i++) cur[i] = strength[i] > matchThr && pixS[i] >= floor;
+                // 高彩度マッチコア(マッチ済み かつ 彩度>=床)。行並列(要素独立=ビット不変)。
+                var curInit = cur;
+                Parallel.For(0, h, po, y =>
+                {
+                    int rowOff = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        curInit[i] = strength[i] > matchThr && pixS[i] >= floor;
+                    }
+                });
                 // 4 近傍 dilation を ProtectRadius 回(コア近傍を保護領域に広げる)。画像端外は false。
                 for (int it = 0; it < NeutralRejectProtectRadius; it++)
                 {
@@ -110,11 +119,17 @@ namespace Iroca
                 // フェードにして境界を滑らかにする。中性の背景(彩度<=floorLo)は w=0 で完全に弾く。
                 float floorLo = floor * NeutralRejectRampFrac;
                 float rampSpan = Mathf.Max(floor - floorLo, 1e-5f);
-                Parallel.For(0, len, po, i =>
+                // 行並列(要素独立・自 index 書き込みのみ=ビット不変)。
+                Parallel.For(0, h, po, y =>
                 {
-                    if (protectedCore[i]) return;
-                    float wgt = Mathf.Clamp01((pixSL[i] - floorLo) / rampSpan);
-                    if (wgt < 1f) strengthL[i] *= wgt;
+                    int rowOff = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        if (protectedCore[i]) continue;
+                        float wgt = Mathf.Clamp01((pixSL[i] - floorLo) / rampSpan);
+                        if (wgt < 1f) strengthL[i] *= wgt;
+                    }
                 });
             }
             finally
@@ -141,7 +156,17 @@ namespace Iroca
             bool[] nxt = s_boolPool.Rent(len);
             try
             {
-                for (int i = 0; i < len; i++) cur[i] = strength[i] > matchThr;
+                // 行並列(要素独立=ビット不変)。
+                var curInit = cur;
+                Parallel.For(0, h, po, y =>
+                {
+                    int rowOff = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        curInit[i] = strength[i] > matchThr;
+                    }
+                });
                 // 4 近傍 erosion を erodePx 回。画像端の外は「非マッチ」とみなす(scipy 既定と同じ)。
                 for (int it = 0; it < erodePx; it++)
                 {
@@ -164,9 +189,15 @@ namespace Iroca
                 }
                 var interior = cur;
                 var strengthL = strength;
-                Parallel.For(0, len, po, i =>
+                // 行並列(要素独立・自 index 書き込みのみ=ビット不変)。
+                Parallel.For(0, h, po, y =>
                 {
-                    if (interior[i]) strengthL[i] = strengthL[i] + (1f - strengthL[i]) * achromaWeight;
+                    int rowOff = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        if (interior[i]) strengthL[i] = strengthL[i] + (1f - strengthL[i]) * achromaWeight;
+                    }
                 });
             }
             finally
