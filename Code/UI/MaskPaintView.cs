@@ -92,7 +92,7 @@ namespace Iroca
         /// <summary>生成済みのときだけ返す(参照しても生成しない)。</summary>
         public MaskSuggestController SuggestControllerIfCreated => _suggestController;
 
-        /// <summary>AI 提案モードがプレビュークリックを受け取るべきか。</summary>
+        /// <summary>AI 提案モードがプレビューの右クリックを受け取るべきか。</summary>
         public bool AiSuggestArmed => _suggestController != null && _suggestController.Active;
 
         // ─────────────────────── 除外マスク UI ───────────────────────

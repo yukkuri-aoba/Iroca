@@ -116,6 +116,11 @@ namespace Iroca
         // Ctrl+スクロールズームで未消化のスクロール量。ZoomScrollStepThreshold を
         // 超えたぶんだけストップを進め、端数は次イベントへ繰り越す（感度を下げるため）。
         [System.NonSerialized] private float _zoomScrollAccum;
+        // AI 提案の右クリックを MouseDown で処理済みか。Windows/Linux は右ボタンの
+        // MouseDown の後に ContextClick も届くため、これが無いと 1 回の右クリックで
+        // 2 回提案してしまう。ContextClick 単独で来る経路(mac の Control+クリック)は
+        // このフラグが false のままなので、そちらでは提案として受ける。
+        [System.NonSerialized] private bool _aiSuggestRightPressHandled;
         // プレビュー用 ScrollView の実測ビューポート幅。詳細クロップの可視範囲算出に使う。
         // テクスチャ実寸基準ではカラム/ウィンドウ幅と食い違うため、毎フレーム実測する。
         [System.NonSerialized] private float _viewportWidth;
@@ -760,21 +765,32 @@ namespace Iroca
             // ブラシ操作 UI は MaskBrushWindow パレットに分離されたため、メインの
             // マスク foldout の開閉とペイント可否は連動させない（閉じても塗れる）。
             if (maskView.maskPaintActive)
+            {
                 HandlePreviewPaintInput(activePreviewRect);
-            else if (aiSuggestArmed && !eyedropperArmed)
-                HandleAiSuggestInput(activePreviewRect, srcW, srcH);
-            // パンはズーム>1 に限らず「画像がビューポートに収まっていない」とき常に許可する。
-            // 動的高さ調整により等倍(100%)以下でも縦がはみ出すことがあり、そのとき
-            // ズーム率だけで判定するとスクロールバー以外に位置を動かす手段がなくなる。
-            // 横の判定は枠幅から縦バー分を引いた「実際に見えている幅」で行う。枠幅そのままだと
-            // 縦バーが出ている間は画像右端の縦バー幅ぶんが隠れているのにパンが無効になり、
-            // その部分へ手が届かない。
-            else if (!maskView.maskPaintActive && !eyedropperArmed &&
-                     (previewZoom > 1f
-                      || displayH > maxViewH - hBarReserve
-                      || displayW * panelCount + (panelCount - 1) * IrocaConsts.Preview.PanelSpacing
-                          > _detailView.lastViewportW - vBarReserve))
-                HandlePreviewPanInput(activePreviewRect);
+            }
+            else
+            {
+                // AI 提案は右クリックで受けるので、左ドラッグのパンと同居できる。
+                // (以前は AI 提案が左クリックを取り、AI モード中はプレビューを
+                //  動かせなかった。推論を待つ間に次の対象へ寄る操作ができない。)
+                // パンより先に呼ぶ: 同じ枠に両方がカーソル矩形を出すため、後勝ちの
+                // AddCursorRect でパン(=左ドラッグの実際の挙動)を見せる。
+                if (aiSuggestArmed && !eyedropperArmed)
+                    HandleAiSuggestInput(activePreviewRect, srcW, srcH);
+
+                // パンはズーム>1 に限らず「画像がビューポートに収まっていない」とき常に許可する。
+                // 動的高さ調整により等倍(100%)以下でも縦がはみ出すことがあり、そのとき
+                // ズーム率だけで判定するとスクロールバー以外に位置を動かす手段がなくなる。
+                // 横の判定は枠幅から縦バー分を引いた「実際に見えている幅」で行う。枠幅そのままだと
+                // 縦バーが出ている間は画像右端の縦バー幅ぶんが隠れているのにパンが無効になり、
+                // その部分へ手が届かない。
+                if (!eyedropperArmed &&
+                    (previewZoom > 1f
+                     || displayH > maxViewH - hBarReserve
+                     || displayW * panelCount + (panelCount - 1) * IrocaConsts.Preview.PanelSpacing
+                         > _detailView.lastViewportW - vBarReserve))
+                    HandlePreviewPanInput(activePreviewRect);
+            }
 
             EditorGUILayout.EndScrollView();
 

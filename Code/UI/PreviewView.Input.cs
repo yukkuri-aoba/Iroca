@@ -410,6 +410,11 @@ namespace Iroca
         // ─────────────────── AI マスク提案のクリック入力 ───────────────────
         // クリック位置を UV(下原点)に変換してコントローラへ渡す。実際の推論・提案表示は
         // MaskSuggestController + Sentis サービス側が担い、ここは入力の横取りだけを行う。
+        //
+        // 受けるのは**右クリック**(mac は Control+クリックでも可)。左ボタンを取ると
+        // AI モード中はパンが完全に止まり、推論の待ち時間に画像を動かして次の対象を
+        // 探すことすらできなくなる。右へ寄せることで、左ドラッグのパンを AI モード中も
+        // そのまま残せる。
         private void HandleAiSuggestInput(Rect previewRect, int srcW, int srcH)
         {
             var maskView = _host._maskView;
@@ -423,19 +428,20 @@ namespace Iroca
             switch (e.type)
             {
                 case EventType.MouseDown:
-                    if (e.button == 0 && isInRect && !e.alt)
+                    if (e.button == 1 && isInRect && !e.alt)
                     {
-                        float u = Mathf.Clamp01((e.mousePosition.x - previewRect.x) / previewRect.width);
-                        float v = Mathf.Clamp01(1f - (e.mousePosition.y - previewRect.y) / previewRect.height);
-                        // エクスポートと同一の実フル解像度ソースで推論する(プレビュー縮小の影響を受けない)
-                        if (_trueSourcePixels == null)
-                            EnsureTrueSource(_host.SourceTexture);
-                        if (_trueSourcePixels != null && _trueSourceW > 0)
-                            ctl.OnPreviewClick(u, v, _trueSourcePixels, _trueSourceW, _trueSourceH,
-                                               TrueSourceCacheKey());
+                        RequestAiSuggestAt(ctl, e.mousePosition, previewRect);
+                        _aiSuggestRightPressHandled = true;
                         GUIUtility.hotControl = controlId;
                         e.Use();
                         _host.RequestRepaint();
+                    }
+                    else if (e.button != 1)
+                    {
+                        // 右ボタン以外の押下が入った = 前の右クリックの ContextClick は
+                        // もう来ない。ここで下ろしておかないと、mac の Control+クリック
+                        // (MouseDown は左 → ContextClick)が抑止側と誤認されて 1 回空振る。
+                        _aiSuggestRightPressHandled = false;
                     }
                     break;
 
@@ -443,6 +449,22 @@ namespace Iroca
                     if (GUIUtility.hotControl == controlId)
                     {
                         GUIUtility.hotControl = 0;
+                        e.Use();
+                    }
+                    break;
+
+                case EventType.ContextClick:
+                    // 右クリックは MouseDown で受け済みなので、ここは menu 抑止のためだけに
+                    // 消費する。逆に MouseDown を伴わず ContextClick だけが来る環境
+                    // (mac の Control+クリック)では、これが唯一の受け口になる。
+                    if (isInRect)
+                    {
+                        if (!_aiSuggestRightPressHandled)
+                        {
+                            RequestAiSuggestAt(ctl, e.mousePosition, previewRect);
+                            _host.RequestRepaint();
+                        }
+                        _aiSuggestRightPressHandled = false;
                         e.Use();
                     }
                     break;
@@ -456,12 +478,21 @@ namespace Iroca
                         ctl.PrepareSource(_trueSourcePixels, _trueSourceW, _trueSourceH,
                                           TrueSourceCacheKey());
                     break;
-
-                case EventType.Repaint:
-                    if (isInRect)
-                        EditorGUIUtility.AddCursorRect(previewRect, MouseCursor.Link);
-                    break;
             }
+        }
+
+        // 画面座標を UV(下原点)へ直して提案を要求する。MouseDown / ContextClick の
+        // 2 経路から呼ばれるため切り出してある。
+        private void RequestAiSuggestAt(MaskSuggestController ctl, Vector2 screenPos, Rect previewRect)
+        {
+            float u = Mathf.Clamp01((screenPos.x - previewRect.x) / previewRect.width);
+            float v = Mathf.Clamp01(1f - (screenPos.y - previewRect.y) / previewRect.height);
+            // エクスポートと同一の実フル解像度ソースで推論する(プレビュー縮小の影響を受けない)
+            if (_trueSourcePixels == null)
+                EnsureTrueSource(_host.SourceTexture);
+            if (_trueSourcePixels != null && _trueSourceW > 0)
+                ctl.OnPreviewClick(u, v, _trueSourcePixels, _trueSourceW, _trueSourceH,
+                                   TrueSourceCacheKey());
         }
 
         // 埋め込みキャッシュのキー。テクスチャの中身が変わったら別キーになるよう

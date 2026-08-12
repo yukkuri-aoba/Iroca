@@ -509,8 +509,8 @@ namespace Iroca
         public static string AiSuggestStart => IsJapanese ? "AI 提案を開始" : "Start AI Suggestion";
         public static string AiSuggestActive => IsJapanese ? "■ AI 提案中（クリックで終了）" : "■ AI Suggesting (click to stop)";
         public static string AiSuggestToggleTooltip => IsJapanese
-            ? "プレビュー上のパーツをクリックすると、AI がそのパーツの領域を推定して、その場で除外マスク（＝色替えしない範囲）へ追加します\n間違えたら Ctrl+Z で 1 つずつ戻せます（確定ボタンはありません）\nブラシペイントとは排他で、開始するとペイントモードは解除されます"
-            : "Click a part on the preview and the AI estimates that part's region and adds it to the exclusion mask ('do-not-recolor' area) right away.\nUndo with Ctrl+Z one step at a time (there is no commit button).\nMutually exclusive with brush painting; starting this exits paint mode.";
+            ? "プレビュー上のパーツを右クリック（mac は Control+クリック）すると、AI がそのパーツの領域を推定して、その場で除外マスク（＝色替えしない範囲）へ追加します\n左ドラッグはこれまでどおりプレビューの移動（パン）なので、AI モード中でも見たい場所へ寄せられます\n間違えたら Ctrl+Z で 1 つずつ戻せます（確定ボタンはありません）\nブラシペイントとは排他で、開始するとペイントモードは解除されます"
+            : "Right-click a part on the preview (Control+click on macOS) and the AI estimates that part's region and adds it to the exclusion mask ('do-not-recolor' area) right away.\nLeft-drag still pans the preview, so you can move around while this mode is on.\nUndo with Ctrl+Z one step at a time (there is no commit button).\nMutually exclusive with brush painting; starting this exits paint mode.";
         public static string AiSuggestSentisRequired => IsJapanese
             ? "この AI 機能には Unity Sentis パッケージが必要です。下のボタンで導入すると有効になります（不要なら導入しなければ従来どおりの動作で、ストレージも消費しません）。"
             : "This AI feature needs the Unity Sentis package. Install it with the button below to enable it (skip it to keep the classic behavior with no extra storage).";
@@ -561,16 +561,16 @@ namespace Iroca
             ? "ダウンロードに失敗しました: {0}\n手動でダウンロードしてモデルフォルダへ配置することもできます（手順はマニュアル参照）"
             : "Download failed: {0}\nYou can also download manually and place the files into the model folder (see the manual).";
         public static string AiSuggestAreaWarning => IsJapanese
-            ? "直前のクリックが背景まで広がった可能性があります。Ctrl+Z で戻して、粒度を「細かい」にするか、パーツのより内側をクリックし直してください。"
-            : "The last click may have spread into the background. Undo with Ctrl+Z, then set granularity to 'Fine' or click again further inside the part.";
+            ? "直前のクリックが背景まで広がった可能性があります。Ctrl+Z で戻して、粒度を「細かい」にするか、パーツのより内側を右クリックし直してください。"
+            : "The last click may have spread into the background. Undo with Ctrl+Z, then set granularity to 'Fine' or right-click again further inside the part.";
         public static string AiSuggestEmptyCommit => IsJapanese
             ? "直前のクリックではマスクが変わりませんでした（その領域はすでに追加済みです）。"
             : "The last click did not change the mask (that region was already added).";
         public static string AiSuggestEmptyProposal => IsJapanese
-            ? "AI が領域を返しませんでした。別の場所をクリックするか、粒度を変えてみてください。\nどこをクリックしても同じ場合は、内部コンパイル（Burst）の初期化に失敗している可能性があります。Unity を再起動すると直ります。"
-            : "The AI returned no region. Try clicking elsewhere or changing the granularity.\nIf every click behaves this way, the internal compiler (Burst) may have failed to initialize — restarting Unity fixes it.";
+            ? "AI が領域を返しませんでした。別の場所を右クリックするか、粒度を変えてみてください。\nどこを右クリックしても同じ場合は、内部コンパイル（Burst）の初期化に失敗している可能性があります。Unity を再起動すると直ります。"
+            : "The AI returned no region. Try right-clicking elsewhere or changing the granularity.\nIf every click behaves this way, the internal compiler (Burst) may have failed to initialize — restarting Unity fixes it.";
         public static string AiSuggestBurstFailed => IsJapanese
-            ? "この Unity セッションでは内部コンパイル（Burst）が失敗しています。この状態では AI が領域を返せず、クリックしてもマスクが変わりません。Unity を再起動してください（再起動すれば直ります）。"
+            ? "この Unity セッションでは内部コンパイル（Burst）が失敗しています。この状態では AI が領域を返せず、右クリックしてもマスクが変わりません。Unity を再起動してください（再起動すれば直ります）。"
             : "The internal compiler (Burst) failed in this Unity session. The AI cannot produce regions in this state, so clicks won't change the mask. Please restart Unity (a restart fixes it).";
         public static string AiSuggestErrorRestartHint => IsJapanese
             ? "推論エンジンの初期化に失敗している可能性があります（Unity 起動時の Burst コンパイル失敗など）。Unity を再起動すると直ることが多いです。AI 提案を一度終了してから開始し直すと再試行します。"
@@ -592,8 +592,8 @@ namespace Iroca
             ? "最も大きい候補を採用します。パーツ全体をまとめて選びたいときに"
             : "Use the largest candidate. For selecting the whole part at once.";
         public static string AiSuggestHintIdle => IsJapanese
-            ? "プレビュー上でパーツをクリックすると、その領域をその場で除外マスクへ追加します（マスクの色で表示）。間違えたら Ctrl+Z で戻せます。"
-            : "Click a part on the preview to add its region to the exclusion mask right away (shown in the mask color). Undo with Ctrl+Z.";
+            ? "プレビュー上でパーツを右クリック（mac は Control+クリック）すると、その領域をその場で除外マスクへ追加します（マスクの色で表示）。左ドラッグはプレビューの移動です。間違えたら Ctrl+Z で戻せます。"
+            : "Right-click a part on the preview (Control+click on macOS) to add its region to the exclusion mask right away (shown in the mask color). Left-drag still pans. Undo with Ctrl+Z.";
         public static string AiSuggestCommitTargetFormat => IsJapanese
             ? "追加先: {0}" : "Add to: {0}";
         public static string AiSuggestNoZoneWarning => IsJapanese
