@@ -242,10 +242,14 @@ namespace Iroca
             // ExpandHeight な ScrollView で囲うことで、プレビューが
             // 横並びセクション高（horizH）を超えても列内でスクロールするようになり、
             // 下部のエクスポートセクションを押し出さない。
+            float rightWidth = Mathf.Max(0f, position.width - leftWidth);
             EditorGUILayout.BeginVertical();
-            // 横バーは無効化(GUIStyle.none)。この外側 ScrollView は縦オーバーフロー専用で、
-            // 横スクロールは内側プレビューに任せる。横を許すと子へ無制限の幅を提供してしまい、
-            // 内側プレビュー枠が確定せずはみ出し、外側の横バーがプレビューの横パンを横取りする。
+            // 横バーは描かない(GUIStyle.none)。この外側 ScrollView は縦オーバーフロー専用で、
+            // 横スクロールは内側プレビューに任せる。ただし GUIStyle.none は「描かない・幅0」で
+            // あってレイアウト上の横スクロールを禁止はしないので、カラム幅より最小幅の大きい子
+            // (狭幅時の操作行など)があると、この ScrollView はカラムより広いクライアント幅を
+            // 子へ配る。プレビュー枠が一緒に広がらないよう、枠幅は availableColumnWidth 経由で
+            // 明示的に固定する(PreviewView 側 frameW のコメント参照)。
             rightScrollPos = EditorGUILayout.BeginScrollView(rightScrollPos,
                 false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
                 GUILayout.ExpandHeight(true));
@@ -257,8 +261,10 @@ namespace Iroca
             }
             else
             {
-                // プレビュー枠が右カラム高に収まるよう動的に縮むためのカラム高を渡す。
+                // プレビュー枠が右カラム高に収まるよう動的に縮むためのカラム高と、
+                // 枠幅を固定するためのカラム幅を渡す。
                 _previewView.availableColumnHeight = horizH;
+                _previewView.availableColumnWidth = rightWidth;
                 _previewView.Draw();
             }
             EditorGUILayout.EndScrollView();

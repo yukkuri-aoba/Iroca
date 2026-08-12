@@ -124,15 +124,17 @@ namespace Iroca
             // 本体が固まっている間にプレビュー上のペイント/スポイトだけ通ってしまう。
             using (new EditorGUI.DisabledScope(host.IsJobBlockingUI))
             {
-                // 横バーは無効化(GUIStyle.none)。この外側 ScrollView は縦オーバーフロー専用で、
+                // 横バーは描かない(GUIStyle.none)。この外側 ScrollView は縦オーバーフロー専用で、
                 // 横スクロールは内側プレビューに任せる（本体の右カラムと同じ理由）。
                 _scrollPos = EditorGUILayout.BeginScrollView(_scrollPos,
                     false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
                     GUILayout.ExpandHeight(true));
 
-                // プレビュー枠がウィンドウ高に収まるよう動的に縮むためのカラム高を渡す
-                // （本体の横並びレイアウトが horizH を渡すのと同じ役割）。
+                // プレビュー枠がウィンドウ高に収まるよう動的に縮むためのカラム高と、
+                // 枠幅を固定するためのカラム幅を渡す
+                // （本体の横並びレイアウトが horizH / 右カラム幅を渡すのと同じ役割）。
                 preview.availableColumnHeight = position.height - IrocaConsts.Layout.WindowChromeMargin;
+                preview.availableColumnWidth = position.width;
                 preview.Draw();
 
                 EditorGUILayout.EndScrollView();

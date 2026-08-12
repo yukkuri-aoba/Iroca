@@ -122,6 +122,10 @@ namespace Iroca
         // プレビューカラム(外側 ScrollView)の高さ。ホストがレイアウト確定値を毎フレーム渡す。
         // プレビュー枠をこの中に収める動的高さ調整に使う。0 は未設定＝調整なし(固定高)。
         [System.NonSerialized] public float availableColumnHeight;
+        // プレビューカラム(外側 ScrollView)の幅。ホストがレイアウト確定値を毎フレーム渡す。
+        // プレビュー枠の幅をここへ固定するために使う(理由は Draw の frameW 算出コメント)。
+        // 0 は未設定＝従来どおり ExpandWidth で親のクライアント幅いっぱいに伸ばす。
+        [System.NonSerialized] public float availableColumnWidth;
         // 外側 ScrollView の内容座標系で、プレビュー枠より上に積まれた UI の実測高
         // (セクション見出し・操作行(比較/差分・ズーム率・生成状態)。縦並びレイアウトでは
         // 設定群も含む)。Repaint 時に実測し、次フレームの動的高さ算出に使う。
@@ -487,7 +491,11 @@ namespace Iroca
             GUILayout.Space(10f);
             GUILayout.Label(new GUIContent(_cachedZoomLabel, Localization.ZoomHint), GUILayout.ExpandWidth(false));
             GUILayout.FlexibleSpace();
-            GUILayout.Label(generatingLabel);
+            // MinWidth(0): 生成状態ラベルは文字数が多く、既定では「文字幅＝最小幅」として
+            // この行の最小幅に丸ごと乗る。狭いカラムではそれがカラム幅を超え、外側 ScrollView が
+            // カラムより広い clientWidth を配ってしまう(GUIScrollGroup の仕様。frameW のコメント参照)。
+            // 最小幅 0 にすると足りない分は文字が切れるだけで、他の要素の配置には影響しない。
+            GUILayout.Label(generatingLabel, GUILayout.MinWidth(0f));
             EditorGUILayout.EndHorizontal();
 
             int srcW = _trueSourceW;
@@ -500,7 +508,8 @@ namespace Iroca
             // 毎フレーム最も近い「きれいな数字」のストップへ丸める（表示倍率の見映え対策）。
             previewZoom = SnapToStop(previewZoom, ComputeMaxZoom(scale));
 
-            // 詳細モード: ディスプレイピクセル > ソースピクセル時にアクティブ
+            // 詳細モード: ソースが縮小されて表示されている(scale<1)テクスチャを拡大したとき、
+            // 低解像度プレビューの引き伸ばしではなくソース解像度から作り直したクロップを出す。
             bool detailActive = scale < 1f &&
                                 previewZoom > DetailPreviewView.DetailMinZoom &&
                                 !comparisonMode;
@@ -527,6 +536,25 @@ namespace Iroca
             float displayH = previewTexture.height * previewZoom;
 
             int panelCount = (comparisonMode && rawPreviewTexture != null) ? 2 : 1;
+
+            // プレビュー枠の幅は「カラムの見えている幅」に固定する。ExpandWidth(true) だと
+            // GUILayout は外側 ScrollView の clientWidth をそのまま配るが、GUIScrollGroup は
+            // 「子の最小幅がカラム幅を超えたら clientWidth をその最小幅まで広げ、子をその幅で
+            // 並べる」仕様で、横バーの style を GUIStyle.none にしてもレイアウト上の横スクロールは
+            // 生きている(none は"描かない・幅0"であって"許可しない"ではない)。
+            // その結果、操作行(比較/差分・ズーム率・生成状態)の最小幅がカラム幅を超えるほど
+            // 狭い横並びでは、生成状態ラベルが出入りするだけで枠幅が数十 px 動き、
+            //   ・枠幅がカラム可視幅を超えた分、画像右端がカラムのクリップ外に出る
+            //     (内側の横スクロールでも届かない＝右端が外側スクロールバーの位置で隠れる)
+            //   ・横スクロールの可動域(内容幅 − 枠幅)が縮み、右端まで送った表示が左へ戻る
+            // が同時に起きていた。カラム幅から外側縦バー分を引いた固定値にすれば、枠は常に
+            // カラムの可視範囲へ収まり、chrome の都合で幅が動かない。縦バーは出入りするので
+            // 常に引いておく(左カラムで縦バーを常時確保しているのと同じ「幅を動かさない」方針)。
+            var vBarStyle = GUI.skin.verticalScrollbar;
+            float vBarReserve = vBarStyle.fixedWidth + vBarStyle.margin.left;
+            float frameW = availableColumnWidth > 1f
+                ? Mathf.Max(IrocaConsts.Preview.MinViewportWidth, availableColumnWidth - vBarReserve)
+                : 0f;
 
             // 縦ビューポート高。以前は固定 16px(ViewportMargin)を足すだけだったが、横スクロール
             // バー表示時に IMGUI がクライアント高から差し引くのは skin 実寸
@@ -563,21 +591,18 @@ namespace Iroca
                 maxViewH = Mathf.Min(maxViewH, Mathf.Max(cap, IrocaConsts.Preview.MinViewportHeight));
             }
 
-            // プレビュー枠はカラム/ウィンドウ幅いっぱいに広げる（下の ExpandWidth）。
-            // 以前はテクスチャ実寸基準の固定幅(≈528px)を MaxWidth で指定していたため、枠が
-            // カラム幅を超えると外側 ScrollView(縦オーバーフロー用)の横バーが横取りし、
-            // ズームしても横スクロールの可動幅がほぼゼロになっていた。枠を実際の表示領域に
-            // 合わせることで、横パンは内側 ScrollView だけが受け持つ。
-            //
-            // 詳細クロップの「見えている範囲」は実測したスクロールビュー幅(_viewportWidth)を使う。
-            // テクスチャ実寸基準だと、広いウィンドウで可視幅を過小評価して右側の高解像度
-            // クロップを取りこぼす。初回フレームは未計測なのでテクスチャ基準を暫定値にする
-            // (過大評価＝安全側)。高さは GUILayout.Height で固定なので maxViewH が実値。
+            // 詳細クロップの「見えている範囲」は上で確定させた枠幅(frameW)を使う。テクスチャ
+            // 実寸基準だと、広いウィンドウで可視幅を過小評価して右側の高解像度クロップを
+            // 取りこぼす。カラム幅が未設定のホストでは実測値(_viewportWidth)、それも未計測の
+            // 初回フレームだけテクスチャ基準を暫定値にする(過大評価＝安全側)。
+            // 高さは GUILayout.Height で固定なので maxViewH が実値。
             float fallbackViewW = Mathf.Min(
                 displayW * panelCount + (panelCount - 1) * IrocaConsts.Preview.PanelSpacing,
                 previewTexture.width * panelCount + (panelCount - 1) * IrocaConsts.Preview.PanelSpacing)
                 + IrocaConsts.Preview.ViewportMargin;
-            _detailView.lastViewportW = _viewportWidth > 1f ? _viewportWidth : fallbackViewW;
+            _detailView.lastViewportW = frameW > 1f
+                ? frameW
+                : (_viewportWidth > 1f ? _viewportWidth : fallbackViewW);
             _detailView.lastViewportH = maxViewH;
 
             // プレビュー枠より上に積まれた UI の実測高(外側 ScrollView の内容座標系なので
@@ -602,7 +627,7 @@ namespace Iroca
             _previewScrollPos = EditorGUILayout.BeginScrollView(
                 _previewScrollPos,
                 GUILayout.Height(maxViewH),
-                GUILayout.ExpandWidth(true));
+                frameW > 1f ? GUILayout.Width(frameW) : GUILayout.ExpandWidth(true));
             if (_previewScrollPos != prevScroll)
             {
                 _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
@@ -741,10 +766,14 @@ namespace Iroca
             // パンはズーム>1 に限らず「画像がビューポートに収まっていない」とき常に許可する。
             // 動的高さ調整により等倍(100%)以下でも縦がはみ出すことがあり、そのとき
             // ズーム率だけで判定するとスクロールバー以外に位置を動かす手段がなくなる。
+            // 横の判定は枠幅から縦バー分を引いた「実際に見えている幅」で行う。枠幅そのままだと
+            // 縦バーが出ている間は画像右端の縦バー幅ぶんが隠れているのにパンが無効になり、
+            // その部分へ手が届かない。
             else if (!maskView.maskPaintActive && !eyedropperArmed &&
                      (previewZoom > 1f
                       || displayH > maxViewH - hBarReserve
-                      || displayW * panelCount > _detailView.lastViewportW))
+                      || displayW * panelCount + (panelCount - 1) * IrocaConsts.Preview.PanelSpacing
+                          > _detailView.lastViewportW - vBarReserve))
                 HandlePreviewPanInput(activePreviewRect);
 
             EditorGUILayout.EndScrollView();
