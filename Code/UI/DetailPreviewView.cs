@@ -26,7 +26,8 @@ namespace Iroca
         [System.NonSerialized] public readonly PreviewJob<DetailPreviewResult> detailJob = new PreviewJob<DetailPreviewResult>();
         [System.NonSerialized] private Color32[] _pendingDetailProcessed;
         [System.NonSerialized] private Color32[] _pendingDetailRaw;
-        [System.NonSerialized] private int _pendingDetailW, _pendingDetailH;
+        [System.NonSerialized] private int _pendingDetailTexW, _pendingDetailTexH;
+        [System.NonSerialized] private int _pendingDetailCropW, _pendingDetailCropH;
         [System.NonSerialized] private int _pendingDetailOriginX, _pendingDetailOriginY;
         [System.NonSerialized] public double lastDetailDirtyTime;
         [System.NonSerialized] public Rect lastPreviewRect;
@@ -35,15 +36,21 @@ namespace Iroca
         [System.NonSerialized] public float lastViewportW, lastViewportH;
 
         public const double DetailDebounceSeconds = 0.3;
-        // 詳細モード: プレビュー画像がネイティブ解像度を超えて拡大表示される
-        // （= previewZoom がこの値を超える）ときにフル解像度クロップへ切り替える。
+        // 詳細モード: 表示倍率がこの値を超えたら、低解像度プレビューの引き伸ばしをやめて
+        // ソース解像度から作り直したクロップへ切り替える。
         // 旧実装は「ディスプレイ/ソース比 >= 1」を条件にしていたが、ソースが
         // 大きいほど閾値が previewZoom の上限(4x)を超えてしまい、2K超のテクスチャで
         // 詳細プレビューが一切起動しなくなっていた。
+        // なお previewZoom > 1 は「ソース画素より大きく表示されている」ことを意味しない
+        // (画面倍率は scale * previewZoom で、4K なら 125% でも 1/8.5 の縮小)。クロップは
+        // 表示ピクセル数へ面平均してからアップロードする(GenerateDetailPreviewAsync 参照)。
         public const float DetailMinZoom = 1.0f;
 
         // 永続的な詳細クロップ原点（詳細プレビュー適用時に設定、レンダラーで読み取られます）
         [System.NonSerialized] public int detailOriginX, detailOriginY;
+        // クロップが覆うソース画素数。表示矩形の計算はこちらを使う（テクスチャ解像度は
+        // 縮小表示のとき表示ピクセル数まで落とすので、両者は一致しない）。
+        [System.NonSerialized] public int detailCropW, detailCropH;
 
         // Diff テクスチャ生成（バックグラウンド）
         [System.NonSerialized] private readonly PreviewJob<Color32[]> _diffJob = new PreviewJob<Color32[]>();
@@ -63,6 +70,10 @@ namespace Iroca
         {
             public Color32[] Raw;
             public Color32[] Processed;
+            // テクスチャ解像度（＝表示ピクセル数。拡大表示ではクロップ寸法と同じ）
+            public int TexW;
+            public int TexH;
+            // クロップが覆うソース画素数（表示矩形の計算用）
             public int CropW;
             public int CropH;
             public int OriginX;
@@ -86,14 +97,14 @@ namespace Iroca
             // 詳細クロップは元画像のピクセル detailOriginX から始まるので、画像左上
             // (activePreviewRect.x) からの相対位置をそのまま足す。
             float left   = activePreviewRect.x + detailOriginX * pxPerSrc;
-            float width  = detailPreviewTexture.width  * pxPerSrc;
-            float height = detailPreviewTexture.height * pxPerSrc;
+            float width  = detailCropW * pxPerSrc;
+            float height = detailCropH * pxPerSrc;
 
             // Y はメモリ行(上向き)と画面 y(下向き)が反転している。detailOriginY はクロップ
             // 下端のメモリ行なので、クロップ上端のメモリ行(detailOriginY + 行数)を画面 y の
             // 上端へ変換する: 画面上からの距離 = (srcH - 上端メモリ行) * pxPerSrc。
             float top = activePreviewRect.y
-                + (srcH - (detailOriginY + detailPreviewTexture.height)) * pxPerSrc;
+                + (srcH - (detailOriginY + detailCropH)) * pxPerSrc;
 
             return new Rect(left, top, width, height);
         }
@@ -136,6 +147,21 @@ namespace Iroca
             int cropW = x1 - x0;
             int cropH = y1 - y0;
             if (cropW <= 0 || cropH <= 0) return;
+
+            // クロップをアップロードする解像度。ソース 1 画素が占めるディスプレイ画素数
+            // (pxPerSrc = scale * previewZoom) が 1 未満なら、画面上は縮小表示されている。
+            // その状態でフル解像度のままテクスチャ化すると、GPU の Point サンプリングが
+            // 数画素に 1 つを拾う最近傍間引きになり、細かい模様がモアレ＝ブロック状の
+            // ノイズとして出る(4K テクスチャの 125% は 8.5:1 の間引き)。表示ピクセル数まで
+            // 面平均(BoxDownsample)してから渡せば、メインプレビューと同じ縮小品質になる。
+            // 拡大表示(pxPerSrc>=1)ではソース画素をそのまま見せたいので縮小しない。
+            float pxPerSrc = scale * previewZoom;
+            int outW = cropW, outH = cropH;
+            if (pxPerSrc < 1f)
+            {
+                outW = Mathf.Clamp(Mathf.RoundToInt(cropW * pxPerSrc), 1, cropW);
+                outH = Mathf.Clamp(Mathf.RoundToInt(cropH * pxPerSrc), 1, cropH);
+            }
 
             var maskSnap = _host._maskView.BuildSnapshot();
 
@@ -193,10 +219,24 @@ namespace Iroca
                         useDecontam, decontamRadius,
                         debug: null, parityCache: parityForTask);
 
+                    // 縮小表示のときだけ表示解像度へ落とす。BoxDownsample の scale は
+                    // dst/src 比なので pxPerSrc をそのまま渡す(端は内部でクランプされる)。
+                    Color32[] outProcessed = processedCrop;
+                    Color32[] outRaw       = rawCrop;
+                    if (outW != cropW || outH != cropH)
+                    {
+                        outProcessed = PixelProcessor.BoxDownsample(
+                            processedCrop, cropW, cropH, outW, outH, pxPerSrc);
+                        outRaw = PixelProcessor.BoxDownsample(
+                            rawCrop, cropW, cropH, outW, outH, pxPerSrc);
+                    }
+
                     return new DetailPreviewResult
                     {
-                        Raw = rawCrop,
-                        Processed = processedCrop,
+                        Raw = outRaw,
+                        Processed = outProcessed,
+                        TexW = outW,
+                        TexH = outH,
                         CropW = cropW,
                         CropH = cropH,
                         OriginX = capX0,
@@ -207,8 +247,10 @@ namespace Iroca
                 {
                     _pendingDetailRaw       = result.Raw;
                     _pendingDetailProcessed = result.Processed;
-                    _pendingDetailW         = result.CropW;
-                    _pendingDetailH         = result.CropH;
+                    _pendingDetailTexW      = result.TexW;
+                    _pendingDetailTexH      = result.TexH;
+                    _pendingDetailCropW     = result.CropW;
+                    _pendingDetailCropH     = result.CropH;
                     _pendingDetailOriginX   = result.OriginX;
                     _pendingDetailOriginY   = result.OriginY;
                     _host.RequestRepaint();
@@ -219,8 +261,10 @@ namespace Iroca
         {
             var processed = _pendingDetailProcessed;
             var raw       = _pendingDetailRaw;
-            int w  = _pendingDetailW;
-            int h  = _pendingDetailH;
+            int w  = _pendingDetailTexW;
+            int h  = _pendingDetailTexH;
+            int cw = _pendingDetailCropW;
+            int ch = _pendingDetailCropH;
             int ox = _pendingDetailOriginX;
             int oy = _pendingDetailOriginY;
             _pendingDetailProcessed = null;
@@ -230,8 +274,13 @@ namespace Iroca
 
             detailOriginX = ox;
             detailOriginY = oy;
+            detailCropW   = cw;
+            detailCropH   = ch;
 
-            TextureSlot.Resize(ref detailPreviewTexture, w, h, FilterMode.Point);
+            // filterMode は Resize では決めない(再利用時に既存設定が維持され、縮小あり/なしを
+            // 行き来したときに前回のモードが残るため)。確保後に毎回明示する。
+            TextureSlot.Resize(ref detailPreviewTexture, w, h);
+            detailPreviewTexture.filterMode = DetailFilterMode(w, cw);
             detailPreviewTexture.SetPixels32(processed);
             detailPreviewTexture.Apply();
 
@@ -242,6 +291,14 @@ namespace Iroca
             if (_host.Preview.diffMode)
                 ScheduleDetailDiffTexture(raw, processed, w, h);
         }
+
+        /// <summary>
+        /// 詳細クロップの拡大フィルタ。表示解像度へ縮小済み(texW &lt; cropW)なら表示ピクセルと
+        /// ほぼ 1:1 なので Bilinear で端数のズレをなじませる。等倍以上のときはソース画素を
+        /// くっきり見せたいので Point のままにする（ピクセル単位の確認用）。
+        /// </summary>
+        private static FilterMode DetailFilterMode(int texW, int cropW)
+            => texW < cropW ? FilterMode.Bilinear : FilterMode.Point;
 
         private void ScheduleDetailDiffTexture(Color32[] before, Color32[] after, int w, int h)
         {
@@ -280,7 +337,8 @@ namespace Iroca
             int w = _pendingDetailDiffW, h = _pendingDetailDiffH;
             _pendingDetailDiffPixels = null;
 
-            TextureSlot.Resize(ref detailDiffTexture, w, h, FilterMode.Point);
+            TextureSlot.Resize(ref detailDiffTexture, w, h);
+            detailDiffTexture.filterMode = DetailFilterMode(w, detailCropW);
             detailDiffTexture.SetPixels32(pixels);
             detailDiffTexture.Apply();
         }
@@ -300,6 +358,7 @@ namespace Iroca
             _pendingDetailRaw = null;
             _pendingDetailDiffPixels = null;
             lastDetailDirtyTime = 0;
+            detailCropW = detailCropH = 0;
             TextureSlot.Release(ref detailPreviewTexture);
             TextureSlot.Release(ref detailDiffTexture);
         }
@@ -319,6 +378,7 @@ namespace Iroca
             _pendingDetailProcessed = null;
             _pendingDetailRaw = null;
             _pendingDetailDiffPixels = null;
+            detailCropW = detailCropH = 0;
             TextureSlot.Release(ref detailPreviewTexture);
             TextureSlot.Release(ref detailDiffTexture);
         }
