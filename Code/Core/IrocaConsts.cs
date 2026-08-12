@@ -75,6 +75,10 @@ namespace Iroca
             // 動的高さ調整でプレビュー枠を縮める際の下限高(px)。これ未満まで縮めても
             // プレビューとして実用にならないため、不足分は外側 ScrollView のスクロールに任せる。
             public const float MinViewportHeight = 160f;
+            // プレビュー枠をカラム幅へ合わせる際の下限幅(px)。カラムがこれより狭くても
+            // 枠はここで止める(横並びの最小ウィンドウ幅でも右カラムは 280px 前後あるので、
+            // 通常はこの下限に当たらない。異常に狭い実測値が来たときの保険)。
+            public const float MinViewportWidth = 120f;
         }
 
         public static class ExperimentalFeatures
