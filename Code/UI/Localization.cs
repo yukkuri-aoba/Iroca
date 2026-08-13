@@ -521,6 +521,10 @@ namespace Iroca
         public static string AiSuggestInstalling => IsJapanese
             ? "Sentis を導入中... 完了すると Unity が自動で再コンパイルします。"
             : "Installing Sentis... Unity will recompile automatically when it finishes.";
+        public static string AiSuggestSentisVersionReplace => IsJapanese
+            ? "このプロジェクトには Sentis {0} が導入済みですが、AI マスク提案は {1} でのみ動作確認しています。\n下のボタンを押すと {1} に差し替わります。他のツールが Sentis {0} を使っている場合は、そちらへの影響をご確認ください。"
+            : "Sentis {0} is already installed in this project, but AI mask suggestion is verified only with {1}.\nThe button below will replace it with {1}. If another tool depends on Sentis {0}, please check the impact on it first.";
+        public static string AiSuggestReplaceSentis => IsJapanese ? "AI 機能を有効化（Sentis を {0} に差し替え）" : "Enable AI feature (replace Sentis with {0})";
         public static string AiSuggestInstallFailed => IsJapanese
             ? "Sentis の導入に失敗しました: {0}\nPackage Manager から手動で「com.unity.sentis」を追加することもできます（手順はマニュアル参照）。"
             : "Failed to install Sentis: {0}\nYou can also add 'com.unity.sentis' manually via the Package Manager (see the manual).";

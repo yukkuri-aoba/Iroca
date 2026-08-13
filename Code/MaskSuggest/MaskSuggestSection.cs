@@ -229,8 +229,21 @@ namespace Iroca
                     string.Format(Localization.AiSuggestInstallFailed, MaskSuggestInstall.Error),
                     MessageType.Warning);
 
+            // この導線は「Sentis 統合アセンブリが不在」で出るため、未導入だけでなく
+            // 対応範囲外の版が既に入っている場合も含む。押すと他ツールが入れた Sentis を
+            // 差し替えることになるので、黙って実行せず先に伝える。
+            string replaced = MaskSuggestInstall.VersionThatWouldBeReplaced();
+            if (replaced != null)
+                EditorGUILayout.HelpBox(
+                    string.Format(Localization.AiSuggestSentisVersionReplace,
+                                  replaced, MaskSuggestInstall.SentisPackageVersion),
+                    MessageType.Warning);
+
+            string label = replaced != null
+                ? string.Format(Localization.AiSuggestReplaceSentis, MaskSuggestInstall.SentisPackageVersion)
+                : Localization.AiSuggestInstallSentis;
             if (GUILayout.Button(new GUIContent(
-                    Localization.AiSuggestInstallSentis,
+                    label,
                     string.Format(Localization.AiSuggestInstallSentisTooltip,
                                   MaskSuggestInstall.SentisPackageId,
                                   MaskSuggestInstall.SentisPackageVersion))))
