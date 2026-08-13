@@ -28,7 +28,8 @@ namespace Iroca
         private void OnEnable()
         {
             titleContent = new GUIContent(Localization.BrushPaletteTitle,
-                EditorGUIUtility.IconContent("d_Grid.PaintTool").image);
+                // "d_" は付けない(ダークスキンでは IconContent が自動で付ける。IrocaWindow 参照)
+                EditorGUIUtility.IconContent("Grid.PaintTool").image);
         }
 
         /// <summary>

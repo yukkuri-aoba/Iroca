@@ -89,7 +89,8 @@ namespace Iroca
             _instance = this;
             _instanceSearched = true;
             titleContent = new GUIContent(Localization.PreviewWindowTitle,
-                EditorGUIUtility.IconContent("d_Image Icon").image);
+                // "d_" は付けない(ダークスキンでは IconContent が自動で付ける。IrocaWindow 参照)
+                EditorGUIUtility.IconContent("Image Icon").image);
         }
 
         /// <summary>
