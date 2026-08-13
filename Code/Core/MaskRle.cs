@@ -102,7 +102,11 @@ namespace Iroca
                 w = System.BitConverter.ToInt32(packed, 0);
                 h = System.BitConverter.ToInt32(packed, 4);
                 if (w <= 0 || h <= 0) return null;
-                int len = w * h;
+                // RLE 側と同じオーバーフロー判定。w=h=65536 だと len=0 になって長さ検査も
+                // 素通りし、破損データに対して「成功・空マスク」を黙って返してしまう。
+                long lenLong = (long)w * h;
+                if (lenLong > int.MaxValue) return null;
+                int len = (int)lenLong;
                 if (packed.Length < 8 + (len + 7) / 8) return null;
                 bool[] mask = new bool[len];
                 for (int i = 0; i < len; i++)
