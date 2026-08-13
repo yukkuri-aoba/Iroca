@@ -437,7 +437,7 @@ namespace Iroca
             result.largestComponentFraction = metrics.largestComponentFraction;
             result.changeComponentCount = metrics.componentCount;
             result.changeBBox = new[] { metrics.bboxX, metrics.bboxY, metrics.bboxW, metrics.bboxH };
-            WritePreviewPanel(originalPixels, pixels, w, h, outAbs, result);
+            WritePreviewPanel(originalPixels, pixels, w, h, outAbs, srcAbs, result);
 
             result.ok = true;
             result.output = outAbs;
@@ -455,8 +455,22 @@ namespace Iroca
         /// 失敗は非致命(本体出力は成功のまま)で warnings に残す。
         /// </summary>
         private static void WritePreviewPanel(
-            Color32[] before, Color32[] after, int w, int h, string outAbs, RecolorResult result)
+            Color32[] before, Color32[] after, int w, int h, string outAbs, string srcAbs, RecolorResult result)
         {
+            // 比較パネルの行き先は outAbs から機械的に導く(&lt;stem&gt;_preview.png)ため、
+            // 本体出力が原本と別でも、パネルだけが原本を指すことがある
+            // (例: source=Assets/tex_preview.png, output=Assets/tex.png)。
+            // 呼び出し側の output != source ガードはここを通らないので、同じ判定をこちらにも置く。
+            // 目視検証用の後段生成のために原本を壊すことは絶対に許容できない。
+            string previewAbs = MakePreviewPath(outAbs);
+            if (string.Equals(previewAbs, srcAbs, StringComparison.OrdinalIgnoreCase))
+            {
+                result.warnings.Add(
+                    "preview panel skipped: its path would overwrite the source texture "
+                    + $"(rename the output so that <stem>_preview.png differs from the source): {previewAbs}");
+                return;
+            }
+
             Texture2D panelTex = null;
             try
             {
@@ -467,7 +481,6 @@ namespace Iroca
                 byte[] png = panelTex.EncodeToPNG();
                 if (png == null) { result.warnings.Add("preview panel PNG encode failed."); return; }
 
-                string previewAbs = MakePreviewPath(outAbs);
                 string dir = Path.GetDirectoryName(previewAbs);
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
                 AtomicFile.WriteAllBytes(previewAbs, png);
