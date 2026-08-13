@@ -148,7 +148,9 @@ namespace Iroca
             };
             var po = new ParallelOptions
             {
-                MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 2),
+                // PixelProcessor と同じ規則を使う。直書きするとデバッグ時のスレッド数指定
+                // (DebugCaptureHooks.ParallelismOverride) がここだけ効かず計測が食い違う。
+                MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(),
                 CancellationToken = ct,
             };
             Parallel.For(0, gh, po, gy =>

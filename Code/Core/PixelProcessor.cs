@@ -26,7 +26,10 @@ namespace Iroca
         private static readonly int s_defaultParallelism =
             Math.Max(1, Environment.ProcessorCount - 2);
 
-        private static int GetMaxParallelism()
+        // ZoneAutoTuner など Core の他クラスからも同じ規則で並列度を決められるよう internal。
+        // 各所で Environment.ProcessorCount - 2 を直書きすると、デバッグ時のスレッド数指定が
+        // 一部の処理にだけ効かず、計測が食い違う。
+        internal static int GetMaxParallelism()
         {
             int ov = DebugCaptureHooks.ParallelismOverride;
             return ov > 0 ? Math.Min(ov, Environment.ProcessorCount) : s_defaultParallelism;
