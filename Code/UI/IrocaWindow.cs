@@ -97,9 +97,12 @@ namespace Iroca
         public static void ShowWindow()
         {
             var window = GetWindow<IrocaWindow>(Localization.WindowTitle);
+            // アイコン名に "d_" を付けないこと。IconContent は装飾なしの名前を渡すと
+            // ダークスキンのとき自動で "d_" 版を探す(無ければ素の名前へフォールバックする)。
+            // "d_" を書くとライトスキンでもダーク用アイコンが出る。
             window.titleContent = new GUIContent(
                 Localization.WindowTitle,
-                EditorGUIUtility.IconContent("d_Image Icon").image);
+                EditorGUIUtility.IconContent("Image Icon").image);
             window.minSize = new Vector2(340, 500);
             // 中身が要求するぶんだけの既定サイズ。どちらも実ウィンドウのキャプチャで詰めた値で、
             // これ未満にすると設定行の右端が切れるか、プレビューにスクロールバーが出る。
