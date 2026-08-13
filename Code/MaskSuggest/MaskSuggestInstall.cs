@@ -35,6 +35,31 @@ namespace Iroca
         /// <summary>導入処理が進行中か。</summary>
         public static bool InProgress => _request != null && !_request.IsCompleted;
 
+        /// <summary>
+        /// 導入ボタンが「既存 Sentis の版の差し替え」になる場合、その導入済み版を返す
+        /// (未導入、または既に <see cref="SentisPackageVersion"/> と同じ版なら null)。
+        ///
+        /// 導入導線は「Sentis 統合アセンブリが不在」= IROCA_SENTIS_PRESENT 未定義で出るが、
+        /// これは未導入だけでなく asmdef の versionDefines 範囲 [2.0.0,3.0.0) を外れた版
+        /// (1.x や将来の 3.x)が既に入っている場合も含む。その状態で Add すると、他のツールの
+        /// ために手動導入された Sentis を黙って差し替えてしまう。押す前に伝えるための判定。
+        /// </summary>
+        public static string VersionThatWouldBeReplaced()
+        {
+            // PackageInfo は UnityEditor 直下の同名(旧 AssetStore 用)と衝突するので完全修飾する。
+            UnityEditor.PackageManager.PackageInfo found = null;
+            try
+            {
+                foreach (var p in UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages())
+                {
+                    if (p != null && p.name == SentisPackageId) { found = p; break; }
+                }
+            }
+            catch { return null; }  // 情報が取れないだけで導入導線は塞がない
+            if (found == null || string.IsNullOrEmpty(found.version)) return null;
+            return found.version == SentisPackageVersion ? null : found.version;
+        }
+
         /// <summary>直近の導入失敗メッセージ(成功・未実行時は null)。</summary>
         public static string Error { get; private set; }
 
