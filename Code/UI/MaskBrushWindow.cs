@@ -60,7 +60,13 @@ namespace Iroca
                 EditorGUILayout.HelpBox(Localization.SetTexture, MessageType.Info);
                 return;
             }
-            host._maskView.DrawBrushPalette();
+            // エクスポート中・手動の自動調整中は本体・別窓プレビューと同じく操作を止める
+            // (IrocaPreviewWindow と同条件)。ここを開けておくと、ジョブの適用待ちの最中に
+            // 「マスクを元に戻す」= Undo.PerformUndo だけが通り、apply と競合する。
+            using (new EditorGUI.DisabledScope(host.IsJobBlockingUI))
+            {
+                host._maskView.DrawBrushPalette();
+            }
         }
 
         // ブラシ/AI の状態はメインウィンドウ側で変わる（AI 開始でブラシ解除など）ため、
