@@ -27,12 +27,16 @@ namespace Iroca
         public const string BaseUrl =
             "https://raw.githubusercontent.com/" + ModelRepo + "/" + ModelBranch + "/";
 
-        // export_meta.json (dev_safe/ml) で確定したエクスポート成果物のハッシュ。
+        // export_meta.json (dev_safe/ml) で確定したエクスポート成果物のハッシュとバイト数。
         // リリースへは必ずこのハッシュのファイルをアップロードする。
-        static readonly (string file, string sha256)[] Files =
+        // size は「これを超えたら即打ち切る」上限として使う。sha256 は全量を受け取った後でしか
+        // 検証できないため、それだけだと配布元異常や経路上の改竄で無制限に書き込まれ得る
+        // (ストール検知は「止まる」側にしか効かず、「流れ続ける」側は素通りする)。
+        // 正しいファイルはこのサイズちょうどなので、超過した時点で異常と判断してよい。
+        static readonly (string file, string sha256, long size)[] Files =
         {
-            ("mobile_sam_encoder.onnx", "25fb1f619027c2e81a7e54425c148e16e99990c8f0d83eefd29a0f4495a75865"),
-            ("mobile_sam_decoder.onnx", "2196a2a4b153528d00383c7c6a363dd765725c10097bb06233917b171d8ceda4"),
+            ("mobile_sam_encoder.onnx", "25fb1f619027c2e81a7e54425c148e16e99990c8f0d83eefd29a0f4495a75865", 27969755L),
+            ("mobile_sam_decoder.onnx", "2196a2a4b153528d00383c7c6a363dd765725c10097bb06233917b171d8ceda4", 16353451L),
         };
 
         static UnityWebRequest _request;
@@ -96,7 +100,7 @@ namespace Iroca
 
         static void BeginCurrentFile()
         {
-            var (file, sha) = Files[_fileIndex];
+            var (file, sha, _) = Files[_fileIndex];
 
             // 既に検証済みのファイルが置いてあるなら取り直さない。再試行は常に file 0 から
             // 始まるため、2 個目で失敗するたびに 1 個目(約 20MB)を落とし直していた
@@ -144,6 +148,18 @@ namespace Iroca
             {
                 // ストール検知(進捗が止まったままの接続を打ち切る)
                 ulong got = _request.downloadedBytes;
+                // サイズ超過検知。sha256 は全量取得後にしか効かないので、その前にここで止める。
+                // 放置すると異常な応答でディスクを埋め尽くされる。
+                long expected = Files[_fileIndex].size;
+                if (expected > 0 && got > (ulong)expected)
+                {
+                    var (oversized, _, _) = Files[_fileIndex];
+                    string oversizedTmp = TempPath(oversized);
+                    AbortRequest();
+                    Fail($"{oversized}: 配布サイズ({expected:N0} バイト)を超えたため中止しました"
+                         + "(配布元が想定と異なります。時間をおいて再試行してください)", oversizedTmp);
+                    return;
+                }
                 if (got != _lastProgressBytes)
                 {
                     _lastProgressBytes = got;
@@ -151,7 +167,7 @@ namespace Iroca
                 }
                 else if (EditorApplication.timeSinceStartup - _lastProgressTime > StallTimeoutSeconds)
                 {
-                    var (stalled, _) = Files[_fileIndex];
+                    var (stalled, _, _) = Files[_fileIndex];
                     string stalledTmp = TempPath(stalled);
                     AbortRequest();
                     Fail($"{stalled}: {StallTimeoutSeconds:F0} 秒間応答がありません(接続を確認して再試行してください)", stalledTmp);
@@ -159,7 +175,7 @@ namespace Iroca
                 return;
             }
 
-            var (file, sha) = Files[_fileIndex];
+            var (file, sha, _) = Files[_fileIndex];
             string tmp = TempPath(file);
             bool ok = _request.result == UnityWebRequest.Result.Success;
             string netError = _request.error;
