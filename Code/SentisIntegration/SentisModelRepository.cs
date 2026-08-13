@@ -87,13 +87,42 @@ namespace Iroca.SentisIntegration
                 ModelWriter.Save(cachePath, model);
                 // Save 直後の Load で「キャッシュから読めること」まで検証しておく
                 // (次回起動時に壊れたキャッシュで失敗するより今失敗する方が診断しやすい)
-                return ModelLoader.Load(cachePath);
+                var loaded = ModelLoader.Load(cachePath);
+                DeleteStaleCaches(onnxPath, cachePath);
+                return loaded;
             }
             catch (Exception e)
             {
                 error = $"モデルのロードに失敗しました: {e.Message}";
                 return null;
             }
+        }
+
+        /// <summary>
+        /// 同じ .onnx から作られた旧 Sentis 版の .sentis キャッシュを削除する。
+        ///
+        /// キャッシュ名は &lt;stem&gt;.&lt;version&gt;.sentis で、Sentis の版が変わると別ファイルになる。
+        /// 掃除しないと版を上げるたびに 45MB 級の孤児が %LOCALAPPDATA% に積み上がる
+        /// (旧版のキャッシュは二度と参照されない)。
+        /// 現行版の変換が成功した後にだけ呼ぶこと。失敗は無視する(掃除は best-effort で、
+        /// 消せなくても AI マスク提案の動作には影響しない)。
+        /// </summary>
+        static void DeleteStaleCaches(string onnxPath, string keepPath)
+        {
+            try
+            {
+                string stem = Path.GetFileNameWithoutExtension(onnxPath);
+                foreach (string f in Directory.GetFiles(CacheDir, stem + ".*.sentis"))
+                {
+                    // GetFiles の検索パターンは環境によって拡張子の前方一致まで拾うことがあるため、
+                    // 消す前に本当に .sentis かを明示的に確認する。
+                    if (!f.EndsWith(".sentis", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(f, keepPath, StringComparison.OrdinalIgnoreCase)) continue;
+                    try { File.Delete(f); }
+                    catch { /* 別インスタンスが読込中などは掴まれたまま。次回の変換で消せばよい */ }
+                }
+            }
+            catch { /* CacheDir 不在・列挙失敗も無視 */ }
         }
 
         static Model ConvertViaAssetPipeline(string onnxPath, out string error)
