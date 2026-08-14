@@ -30,6 +30,33 @@ namespace Iroca
         // output chroma = mag*tC が sC*Factor を超えないよう mag を制限。
         private const float ChromaAmpMaxFactor = 1.0f;
 
+        // ハイライト白寄せ(wash)の軸残差フェード定数 (2026-08-15 OkLab 方向分解版)。
+        // 旧実装は RGB ユークリッド残差(許容 HlBandAxisEps=0.10)で一律減衰しており、作画表現として
+        // 色相を寒色にずらした手描きスペキュラ(淡青の宝石光点など)が「軸外の模様」と誤認され、
+        // base 転写に落ちて明るいターゲットで光点が桃色に濁った
+        // (dev_safe/docs/specular-hue-drift-2026-08.md)。残差を OkLab で
+        //   彩度超過(軸予測より高彩度) / 暗化(軸予測より暗い) / 色相弧(同彩度での色相回転)
+        // に分解し、前 2 成分は「模様の証拠」として減衰に使い、色相弧は「色付き光点の証拠」として
+        // 白寄せから元色保持への切り替えに使う(合成本体のコメント参照)。
+        // いずれも全テクスチャ共通の知覚量で、特定色・座標・テクスチャ統計に依存しない。
+        //   HlWashResidEps   : 模様性残差(彩度超過・暗化)の許容 OkLab 距離。実テクスチャの実測では
+        //                      模様・金属光沢の残差 ≥ 0.033、色相ずらし光点 ≤ 0.01 に分離する。
+        //   HlWashTintKeepLo : 色相弧がこれ以下なら従来どおり projT へ白寄せ(軸上ドーム階調の互換)。
+        //                      実測: 真の鏡面ハイライト(軸上)の色相弧は ≤ 0.007。
+        //   HlWashTintKeepHi : 色相弧がこれ以上なら元色保持側へ完全に切り替え。実測: 色相ずらし
+        //                      光点は ≥ 0.023。
+        //   HlWashKeepWhiteLo/Hi: 元色保持を「白に近い画素(=光点の芯)」だけに絞る白距離ゲート。
+        //                      ΔE_white = √((1−L)²+C²) が Lo 以下で完全保持、Hi 以上で保持ゼロ。
+        //                      色相をずらした光点でも芯はほぼ白(実測 ΔE≈0.135)、その周囲の
+        //                      有彩のにじみ(ドーム階調, ΔE≥0.26)まで保持すると灰色の滲みに
+        //                      見えるため(販促時の目視結論「守るのは芯だけ」と同じ)、白距離で
+        //                      連続に絞る。
+        private const float HlWashResidEps    = 0.035f;
+        private const float HlWashTintKeepLo  = 0.012f;
+        private const float HlWashTintKeepHi  = 0.024f;
+        private const float HlWashKeepWhiteLo = 0.15f;
+        private const float HlWashKeepWhiteHi = 0.25f;
+
         // サンプル自動補正(再着色アンカー正規化)の定数。
         // すべて領域統計に対する相対量(特定色/座標/テクスチャ非依存)。
         private const float AnchorStrengthMin   = 0.9f;   // コアマッチのみ採用(AA縁・feather裾の混色を除外)
@@ -359,25 +386,60 @@ namespace Iroca
                     float projTG = tG + w * (1f - tG);
                     float projTB = tB + w * (1f - tB);
 
-                    // 軸残差フェード (2026-06-04): 元画素が wash→白 軸からどれだけ外れて
-                    // いるか(resid)に応じて白寄せを減衰させる。
-                    //   真の鏡面ハイライト = 地色が光で白く飛んだもの = 軸上(resid≈0) → フル白寄せ
-                    //   有彩の模様        = 別色・高彩度        = 軸外(resid 大)  → 白寄せ 0
-                    // 軸外で proj_t(=軸上の脱彩点)への置換を止めるので、明るい同系色の模様まで
-                    // 白化して模様が壊れる過剰白化を構造的に排除する。残差を捨てる(P5)のは
-                    // resid≈0 の画素に限られるためピンク化抑止特性も維持。
+                    // 軸残差フェード (2026-06-04 導入 / 2026-08-15 OkLab 方向分解へ改訂):
+                    //   真の鏡面ハイライト = 地色が光で白く飛んだもの = 軸上     → フル白寄せ
+                    //   有彩の模様        = 別色・高彩度            = 軸外れ大 → 白寄せ 0
+                    // 軸外で proj_t(=軸上の脱彩点)への置換を止めるので、明るい模様まで白化して
+                    // 壊れる過剰白化を構造的に排除する。残差を捨てる(P5)のは残差の小さい画素に
+                    // 限られるためピンク化抑止特性も維持。
+                    //
+                    // 旧実装は RGB ユークリッド残差一律で「ずれの向き」を区別しなかったため、
+                    // 作画表現として色相を寒色にずらした手描きスペキュラ(淡青の宝石光点など)まで
+                    // 模様と誤認し、base 転写(=target 色相へ写る)に落ちて明るいターゲットで
+                    // 桃色に濁った(dev_safe/docs/specular-hue-drift-2026-08.md)。残差を OkLab で
+                    //   彩度超過 max(0, C_o−C_ax) / 暗化 max(0, L_ax−L_o) / 色相弧 d_tan
+                    // に分解して 2 つの判定に使う:
+                    //   patternFade: 模様の証拠(彩度超過・暗化)による減衰。有彩の模様・金属光沢は
+                    //                従来どおり base 転写のまま守られる。
+                    //   tintness   : 色相弧の量。0 = 軸上のドーム階調 → 従来どおり projT へ白寄せ。
+                    //                1 = 色相をずらした光点 → projT でなく**元色を保持**する。
+                    //                白寄せで直せないのが要点: この光点は軸射影 w が低く(色相ずれの
+                    //                直交成分は射影に乗らない)、projT 自体が「白に遠い pale target」
+                    //                になるため、フェードを直しても白くはならない(実測 sat 0.255)。
+                    //                作画者が光として描いた画素は色ごと残すのが販促時に目視確認
+                    //                された正解で、誤判定時も「白塗り潰し」でなく「残しすぎ」に
+                    //                倒れる安全側の合成。
+                    // 選択側の帯候補判定(HlBandAxisEps)は不変。
                     float axR = washR + w * dR;
                     float axG = washG + w * dG;
                     float axB = washB + w * dB;
-                    float rr = oR - axR, rg = oG - axG, rb = oB - axB;
-                    float resid = Mathf.Sqrt(rr * rr + rg * rg + rb * rb);
-                    float axisFade = Mathf.Clamp01(1f - resid / HlBandAxisEps);
+                    RgbToOklab(axR, axG, axB, out float axL, out float axA, out float axB2);
+                    float dOkA = oa - axA, dOkB = ob - axB2;
+                    float axC = Mathf.Sqrt(axA * axA + axB2 * axB2);
+                    float dRad = oC - axC;                      // +: 軸予測より高彩度
+                    float dTanSq = Mathf.Max(dOkA * dOkA + dOkB * dOkB - dRad * dRad, 0f);
+                    float chromaExcess = Mathf.Max(dRad, 0f);
+                    float darkening = Mathf.Max(axL - oL, 0f);
+                    float patternResid = Mathf.Sqrt(chromaExcess * chromaExcess + darkening * darkening);
+                    float patternFade = Mathf.Clamp01(1f - patternResid / HlWashResidEps);
+                    float dTan = Mathf.Sqrt(dTanSq);
+                    float tintness = Mathf.Clamp01(
+                        (dTan - HlWashTintKeepLo) / (HlWashTintKeepHi - HlWashTintKeepLo));
+                    // 元色保持は「白に近い芯」だけ。有彩のにじみ(ドーム階調)まで保持すると
+                    // 灰色の滲みに見える(定数コメント参照)。白距離ゲートで連続に絞り、
+                    // 絞られた分は base 転写(従来の色相ずれ画素の挙動)へ落ちる。
+                    float dEwhite = Mathf.Sqrt((1f - oL) * (1f - oL) + oC * oC);
+                    float whiteKeep = Mathf.Clamp01(
+                        (HlWashKeepWhiteHi - dEwhite) / (HlWashKeepWhiteHi - HlWashKeepWhiteLo));
 
                     // 境界連続性のため valRise でフェード (oV=washV で valRise=0、hsv_result に戻る)
-                    float valRise = Mathf.Clamp01((oV - washV) / Mathf.Max(0.05f, 1f - washV)) * axisFade;
-                    result.r = Mathf.Lerp(result.r, projTR, valRise);
-                    result.g = Mathf.Lerp(result.g, projTG, valRise);
-                    result.b = Mathf.Lerp(result.b, projTB, valRise);
+                    float valRise = Mathf.Clamp01((oV - washV) / Mathf.Max(0.05f, 1f - washV)) * patternFade;
+                    float washMix = valRise * (1f - tintness);          // → projT (従来の白寄せ)
+                    float keepMix = valRise * tintness * whiteKeep;     // → 元色 (色相ずれ光点の芯の保持)
+                    float baseMix = 1f - washMix - keepMix;
+                    result.r = result.r * baseMix + projTR * washMix + oR * keepMix;
+                    result.g = result.g * baseMix + projTG * washMix + oG * keepMix;
+                    result.b = result.b * baseMix + projTB * washMix + oB * keepMix;
                 }
             }
 
