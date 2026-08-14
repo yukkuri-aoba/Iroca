@@ -60,6 +60,10 @@ namespace Iroca
         public const bool HighlightRecovery = false;
         public const bool HighlightBandExpand = true;
         public const bool ApplyHighlightWash = false;
+        // 俯瞰スポイト補正(wash 用サンプル明度の自動導出)。ColorZone.autoHighlightSample と同既定。
+        // 2026-08-15 まで zones JSON 経路(製品/ハーネスとも)は false ハードコードでパース不能だった
+        // (dev_safe/docs/specular-hue-drift-2026-08.md §5a)。
+        public const bool AutoHighlightSample = false;
         // 既定 ON: 影をスポイトしても出力が過度に明るく/ベタ塗りにならないよう、再着色アンカーを
         // 領域の代表地色から自動推定する（ColorZone.autoRecolorAnchor と同既定）。
         public const bool AutoRecolorAnchor = true;

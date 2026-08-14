@@ -64,6 +64,7 @@ namespace Iroca
         public bool highlightRecovery { get; set; } = ZonesJsonDefaults.HighlightRecovery;
         public bool highlightBandExpand { get; set; } = ZonesJsonDefaults.HighlightBandExpand;
         public bool applyHighlightWash { get; set; } = ZonesJsonDefaults.ApplyHighlightWash;
+        public bool autoHighlightSample { get; set; } = ZonesJsonDefaults.AutoHighlightSample;
         public bool autoRecolorAnchor { get; set; } = ZonesJsonDefaults.AutoRecolorAnchor;
         public int layerIndex { get; set; } = ZonesJsonDefaults.LayerIndex;
         // 連続領域モード(連結成分アンカリング)。seedUV=[u,v] は任意の上書きシード
@@ -129,7 +130,7 @@ namespace Iroca
                 highlightRecovery = z.highlightRecovery,
                 highlightBandExpand = z.highlightBandExpand,
                 applyHighlightWash = z.applyHighlightWash,
-                autoHighlightSample = false,
+                autoHighlightSample = z.autoHighlightSample,
                 autoRecolorAnchor = z.autoRecolorAnchor,
                 outputSaturation = z.outputSaturation,
                 shadowDesaturation = z.shadowDesaturation,
