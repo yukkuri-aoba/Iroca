@@ -83,6 +83,7 @@ namespace Iroca
             public bool highlightRecovery = ZonesJsonDefaults.HighlightRecovery;
             public bool highlightBandExpand = ZonesJsonDefaults.HighlightBandExpand;
             public bool applyHighlightWash = ZonesJsonDefaults.ApplyHighlightWash;
+            public bool autoHighlightSample = ZonesJsonDefaults.AutoHighlightSample;
             public bool autoRecolorAnchor = ZonesJsonDefaults.AutoRecolorAnchor;
             public int layerIndex = ZonesJsonDefaults.LayerIndex;
             public bool useFloodFill = ZonesJsonDefaults.UseFloodFill;
@@ -531,7 +532,7 @@ namespace Iroca
                 highlightRecovery = z.highlightRecovery,
                 highlightBandExpand = z.highlightBandExpand,
                 applyHighlightWash = z.applyHighlightWash,
-                autoHighlightSample = false,
+                autoHighlightSample = z.autoHighlightSample,
                 autoRecolorAnchor = z.autoRecolorAnchor,
                 outputSaturation = z.outputSaturation,
                 shadowDesaturation = z.shadowDesaturation,
