@@ -6,12 +6,8 @@ using UnityEngine;
 
 namespace Iroca
 {
-    // 自動調整（ZoneAutoTuner 連携）。スポイト1点からパーツの濃淡を内部サンプリングして
-    // 許容範囲などを推定する。メインスレッドで pixels を取得し、バックグラウンドで Analyze を走らせる。
     public partial class IrocaWindow
     {
-        // 自動調整の非同期ジョブ。メインスレッドで pixels を取得し、
-        // バックグラウンドで ZoneAutoTuner.Analyze を走らせる。
         [System.NonSerialized] private readonly PreviewJob<ZoneAutoTuner.TuneResult> _autoTuneJob = new PreviewJob<ZoneAutoTuner.TuneResult>();
         [System.NonSerialized] private readonly PreviewJobProgress _autoTuneProgress = new PreviewJobProgress();
         // apply 時に zone を特定するための GUID。世代不一致で apply が破棄されるか、
@@ -27,7 +23,6 @@ namespace Iroca
         [System.NonSerialized] private double _pendingAutoTuneTime;
         private const double AutoTuneDebounceSeconds = 0.4;
 
-        // 自動調整に渡す除外マスク（共通 ∪ このゾーン専用）を OR 結合して返す。
         // 「パーツをユーザーが粗く囲った」情報を tolerance 導出に活用する。
         // マスク未使用なら null。
         private bool[] BuildCombinedExclusionForZone(ColorZone zone, out int mw, out int mh)
@@ -52,7 +47,6 @@ namespace Iroca
             return combined;
         }
 
-        // かんたんモード用: サンプルカラーが変わったら自動調整をデバウンス予約する。
         // 進行中の（古い色の）自動実行は破棄して、最新の色で取り直す。
         private void ScheduleAutoTune(ColorZone zone)
         {
@@ -65,13 +59,10 @@ namespace Iroca
             Repaint();
         }
 
-        // デバウンス経過後、条件を満たせば自動調整を裏で実行する。OnGUI 冒頭から呼ぶ。
         private void ProcessPendingAutoTune()
         {
             if (_pendingAutoTuneZoneId == null) return;
-            // 何らかの自動調整（手動含む）が走っている間は待つ。
             if (_autoTuneJob.IsRunning) { Repaint(); return; }
-            // デバウンス時間を進めるため、未到達なら再描画を要求して待つ。
             if (EditorApplication.timeSinceStartup - _pendingAutoTuneTime < AutoTuneDebounceSeconds)
             {
                 Repaint();
@@ -81,11 +72,9 @@ namespace Iroca
             string id = _pendingAutoTuneZoneId;
             _pendingAutoTuneZoneId = null;
 
-            // かんたんモード以外へ切り替わっていたら自動実行しない（手動操作を尊重）。
             if (editMode != EditMode.Simple) return;
             var zone = FindZoneById(id);
             if (zone == null) return;
-            // 手動ボタンの canTune と同じ発火条件。
             if (sourceTexture == null || !IsReadable(sourceTexture)
                 || zone.mode != SelectionMode.ColorPick || !zone.HasSampleColor)
                 return;
@@ -98,10 +87,8 @@ namespace Iroca
             if (_autoTuneJob.IsRunning) return;
             if (zone == null) return;
 
-            // 実行種別を記録（手動のときだけウィンドウをブロック＋モーダル進捗を出す）。
             _autoTuneIsManual = !auto;
 
-            // 上書き確認（通常/上級モードの手動実行時のみ）。キャンセルなら中止。
             if (!ConfirmAutoTuneOverwriteIfNeeded(zone, auto))
                 return;
 
@@ -179,11 +166,10 @@ namespace Iroca
             finally { if (!auto) EditorUtility.ClearProgressBar(); }
         }
 
-        // バックグラウンドで ZoneAutoTuner.Analyze を走らせ、完了後にメインスレッドで zone へ適用する。
         private void ScheduleAutoTuneJob(ColorZone zone, Color32[] pixels, int texW, int texH, bool[] excluded, int mw, int mh)
         {
             zone.EnsureId();
-            _autoTuneTargetZoneId = zone.id; // apply は live zone を id で再ルックアップする
+            _autoTuneTargetZoneId = zone.id;
 
             // 背景解析には live の zone / session を直接渡さず、値等価コピーを渡す。
             // かんたんモードの非ブロック実行では解析中も編集可能で、live を渡すと sampleColor 変異で
@@ -207,13 +193,16 @@ namespace Iroca
                 },
                 apply: result =>
                 {
-                    // ジョブ完走時点で zone が消えている / 別 zone に切り替わっている可能性に備え、
-                    // id で再ルックアップする。
+                    // 実行中に削除・追加された可能性があるため、live zone を id で引き直す。
                     var targetZone = FindZoneById(_autoTuneTargetZoneId);
                     if (targetZone == null) return;
 
-                    // 事前確認済みなのでここではダイアログを出さず、結果を即適用する。
                     Undo.RegisterCompleteObjectUndo(this, "Auto-tune Zone");
+                    // スポイト位置の正規化: クリックした 1 texel がツヤや深い影でも、パーツの
+                    // 代表地色を基準色に据え直す。以降の選択・再着色がクリック位置に依存しなくなる
+                    // （スウォッチの色も代表地色へ変わるので、何が基準かが UI から見て分かる）。
+                    if (result.hasNormalizedSample)
+                        targetZone.sampleColor         = result.normalizedSample;
                     targetZone.tolerance               = result.tolerance;
                     targetZone.saturationStrictness    = result.saturationStrictness;
                     targetZone.saturationGuard         = result.saturationGuard;
@@ -223,7 +212,6 @@ namespace Iroca
                     targetZone.edgeSoftness            = result.edgeSoftness;
                     targetZone.shadowDesaturation      = result.shadowDesaturation;
                     targetZone.shadowForgivenessSatMin = result.shadowForgivenessSatMin;
-                    // 自動トーン抽出で得た内部サンプル（暗部/中間/明部の代表色）を適用する。
                     // ユーザーが複数スポイトする代わりに、アルゴリズムがパーツの濃淡を自動取得した結果。
                     // 選択（マッチング）の和集合に使われ、出力色は主サンプル基準のまま変わらない。
                     targetZone.extraSamples = result.autoSamples ?? new System.Collections.Generic.List<Color>();
