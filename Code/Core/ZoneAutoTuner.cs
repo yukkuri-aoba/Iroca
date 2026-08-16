@@ -84,6 +84,12 @@ namespace Iroca
             // ユーザーのスポイト1点から算出され、選択（マッチング）の和集合に使う。
             // 空のとき＝単一サンプル挙動。zone.extraSamples へ適用される。
             public List<Color> autoSamples;
+
+            // スポイト位置の正規化で得たパーツの代表地色。hasNormalizedSample が true のとき
+            // zone.sampleColor へ適用する（ツヤや深い影をクリックしても、同じパーツなら同じ
+            // 基準色で選択・再着色されるようにするため）。詳細は ZoneAutoTuner.Normalize.cs。
+            public Color normalizedSample;
+            public bool  hasNormalizedSample;
         }
 
         /// <summary>
@@ -192,7 +198,22 @@ namespace Iroca
                 // 全走査が共有する HSV 格子を 1 回だけ並列で作る(以降のパスは表引きするだけ)。
                 var hsv = BuildHsvGrid(pixels, width, height, ct);
 
-                if (TryAnalyzePixels(pixels, width, height, zone, clusterMask, maskW, maskH, hsv, out var analyzed))
+                // ── スポイト位置の正規化 ──
+                // 以降の導出はすべて「サンプル色」起点なので、クリック画素がツヤ/深い影だと
+                // パーツの同じ場所を指していても別の結論になる。ここでクリック色をパーツの
+                // 代表地色へ寄せ、以降の全パスへ同じ入力を渡す(ZoneAutoTuner.Normalize.cs)。
+                // 正規化できない場合(無彩クリック等)は aZone == zone のまま従来挙動。
+                ct.ThrowIfCancellationRequested();
+                ColorZone aZone = zone;
+                bool hasNorm = TryNormalizeSample(pixels, width, height, zone,
+                    clusterMask, maskW, maskH, hsv, out Color canonicalSample);
+                if (hasNorm)
+                {
+                    aZone = zone.Clone();
+                    aZone.sampleColor = canonicalSample;
+                }
+
+                if (TryAnalyzePixels(pixels, width, height, aZone, clusterMask, maskW, maskH, hsv, out var analyzed))
                     result = MergeAnalyzed(result, analyzed);
 
                 // tolerance は常に「サンプル近傍クラスタの実マッチ距離分布」から導出する。
@@ -204,7 +225,7 @@ namespace Iroca
                 // 明暗の広いパーツ(例: 明るいサンプルの髪)で上限 0.40 に張り付いていた(ユーザー報告)
                 // ため廃止。パーツ内の暗部・薄い装飾は本番のシャドウ免除/ハイライト復元が tolerance
                 // とは独立に拾うので、tolerance を膨らませない。
-                Color.RGBToHSV(zone.sampleColor, out _, out float sampleS, out _);
+                Color.RGBToHSV(aZone.sampleColor, out _, out float sampleS, out _);
 
                 ct.ThrowIfCancellationRequested();
                 // foreign 打ち切り(隣接同色相パーツの検出)が効いた場合は覚えておき、
@@ -217,7 +238,7 @@ namespace Iroca
                 {
                     // 無彩色サンプル: グレーモードの純 RGB 距離分布から(V 広がりの過大評価を回避)。
                     // 自動トーン抽出は無彩では背景の白/黒と色で分離できず危険なので行わない（単一経路）。
-                    if (TryDeriveAchromaticTolerance(pixels, width, height, zone,
+                    if (TryDeriveAchromaticTolerance(pixels, width, height, aZone,
                             clusterMask, maskW, maskH, hsv, out float achTol))
                     {
                         result.tolerance = achTol;
@@ -234,13 +255,13 @@ namespace Iroca
                     // 明部の代表色を自動生成する（ユーザーの追加スポイト操作は不要）。これらを和集合の
                     // 内部サンプルとして、各画素の最近サンプルまでの距離 P95 から tolerance を導出する。
                     // スポイト位置が明部でも暗部でも、トーン全域を覆うので取りこぼし/はみ出しを抑えられる。
-                    var autoSamples = DeriveAutoTonalSamples(pixels, width, height, zone,
+                    var autoSamples = DeriveAutoTonalSamples(pixels, width, height, aZone,
                         clusterMask, maskW, maskH, hsv, out _, out vConnHiBin);
                     bool derivedMulti = false;
                     if (autoSamples.Count > 0)
                     {
-                        var samples = BuildSampleHSVs(zone.sampleColor, autoSamples);
-                        if (TryDeriveChromaticToleranceMulti(pixels, width, height, zone, samples,
+                        var samples = BuildSampleHSVs(aZone.sampleColor, autoSamples);
+                        if (TryDeriveChromaticToleranceMulti(pixels, width, height, aZone, samples,
                                 clusterMask, maskW, maskH, hsv, out float chromTolM, out bool fCapM))
                         {
                             result.autoSamples = autoSamples;
@@ -249,7 +270,7 @@ namespace Iroca
                             derivedMulti = true;
                         }
                     }
-                    if (!derivedMulti && TryDeriveChromaticTolerance(pixels, width, height, zone,
+                    if (!derivedMulti && TryDeriveChromaticTolerance(pixels, width, height, aZone,
                             clusterMask, maskW, maskH, hsv, out float chromTol, out bool fCap))
                     {
                         // 単一サンプルへフォールバック(トーン抽出が不発/クラスタ過少)。
@@ -262,7 +283,7 @@ namespace Iroca
                 ct.ThrowIfCancellationRequested();
                 bool hlRecBeforeVerify = result.highlightRecovery;
                 if (result.highlightRecovery)
-                    VerifyHighlightRecoveryGrowth(pixels, width, height, zone,
+                    VerifyHighlightRecoveryGrowth(pixels, width, height, aZone,
                         excluded, maskW, maskH, hsv, ref result);
                 // 成長テストが highlightRecovery を落とした=「明るい同色相の別素材」が既に検出された
                 // 状況なので、同じ方向へ広げる明部ツヤ救済も封印する。
@@ -271,7 +292,7 @@ namespace Iroca
                 if (sampleS >= AchromaSampleSatMax)
                 {
                     float tolBeforeOvershoot = result.tolerance;
-                    VerifyBrightForgivenessOvershoot(pixels, width, height, zone,
+                    VerifyBrightForgivenessOvershoot(pixels, width, height, aZone,
                         excluded, maskW, maskH, hsv, ref result);
                     // 免除過剰で tolerance を縮めた直後に拡張するのは矛盾するのでスキップする。
                     bool overshootShrunk = result.tolerance < tolBeforeOvershoot;
@@ -280,9 +301,13 @@ namespace Iroca
                     // vConnHiBin < 0(トーン構造を確定できなかった)ときは拡張しない(構造未知のまま
                     // 広げるのは危険。素直なパーツならヒストグラムは常に作れる)。
                     if (!foreignCapped && !overshootShrunk && !hlRecVetoed && vConnHiBin >= 0)
-                        VerifyBrightSheenRecall(pixels, width, height, zone,
+                        VerifyBrightSheenRecall(pixels, width, height, aZone,
                             excluded, maskW, maskH, hsv, vConnHiBin, ref result);
                 }
+
+                // MergeAnalyzed が TuneResult を作り直すので、正規化結果は全解析の後で載せる。
+                result.normalizedSample = canonicalSample;
+                result.hasNormalizedSample = hasNorm;
             }
 
             DecideGlobals(width, height, session, ref result);

@@ -236,6 +236,8 @@ namespace Iroca
                     var tune = useMask
                         ? ZoneAutoTuner.Analyze(pixels, w, h, z, session, common, mw, mh)
                         : ZoneAutoTuner.Analyze(pixels, w, h, z, session, excluded: null, maskW: 0, maskH: 0);
+                    // スポイト位置の正規化（実機 RunAutoTune の apply と同じ順序で適用する）。
+                    if (tune.hasNormalizedSample) z.sampleColor = tune.normalizedSample;
                     z.tolerance               = tune.tolerance;
                     z.saturationStrictness    = tune.saturationStrictness;
                     z.saturationGuard         = tune.saturationGuard;
@@ -271,6 +273,9 @@ namespace Iroca
                         applyGlobals = tune.applyGlobals,
                         antiAliasCleanup = st.antiAliasCleanup,
                         autoSamples = z.extraSamples.Count,
+                        // スポイト位置の正規化が効いたか（true のとき sample は代表地色へ差し替わっている）。
+                        normalized = tune.hasNormalizedSample,
+                        sample = new[] { z.sampleColor.r, z.sampleColor.g, z.sampleColor.b },
                         // 診断用: 自動トーン抽出の実色。アブレーション計測(--autotune なしで
                         // 同一パラメータを再現する)に必要。
                         autoSampleColors = z.extraSamples.ConvertAll(c => new[] { c.r, c.g, c.b }),
