@@ -17,11 +17,9 @@ namespace Iroca
     [System.Serializable]
     internal class ExportView
     {
-        // 一括適用
         public bool batchFoldout;
         public List<Texture2D> batchTextures = new List<Texture2D>();
 
-        // エクスポート（常に展開表示。折りたたみは廃止）
         public bool saveAsNewFile = true;
         public string newFileName = "";
         public bool inheritImportSettings = true;
@@ -29,7 +27,6 @@ namespace Iroca
         [System.NonSerialized] private Vector2 _batchScrollPos;
         [System.NonSerialized] private IrocaWindow _host;
 
-        // ─── 非同期エクスポート ───
         // メインスレッドで pixels を取得し、PixelProcessor 計算 + PNG エンコード + 書き込みを
         // Task.Run(バックグラウンド)で実行する。完了後、メインスレッドでは AssetDatabase 操作のみ。
         // (旧: エンコード/書き込みもメインスレッドで行い 4K で終了時にフリーズしていた)
@@ -60,18 +57,14 @@ namespace Iroca
             _exportJob.Dispose();
         }
 
-        // ─────────────────────── エクスポート ─────────────────────────
-
         public void DrawExportSection()
         {
-            // 折りたたみは廃止し、常に見出しラベル＋内容を表示する。
             EditorGUILayout.LabelField(Localization.StepPrefixExport + Localization.Export, EditorStyles.boldLabel);
 
             // 外側の DisabledScope（IrocaWindow.OnGUI で囲まれる）を壊さないよう、
             // GUI.enabled の直接代入ではなく BeginDisabledGroup を使う。
             EditorGUI.BeginDisabledGroup(_host.SourceTexture == null);
 
-            // チェックボックス類を上にまとめる
             saveAsNewFile = EditorGUILayout.Toggle(
                 new GUIContent(Localization.SaveAsNewFile, Localization.SaveAsNewFileTooltip),
                 saveAsNewFile);
@@ -80,7 +73,6 @@ namespace Iroca
                 new GUIContent(Localization.InheritImportSettings, Localization.InheritImportSettingsTooltip),
                 inheritImportSettings);
 
-            // ファイル名はチェックボックスの下に置く
             if (saveAsNewFile)
             {
                 newFileName = EditorGUILayout.TextField(
@@ -131,7 +123,6 @@ namespace Iroca
 
         private void ApplyRecolor()
         {
-            // 既に実行中なら無視（DisabledScope で防がれているはずだが念のため）
             if (_exportJob.IsRunning) return;
 
             // 有効なゾーンが無いと無変更ファイルを書き出して「完了」表示になり誤解を生むため、
@@ -156,7 +147,6 @@ namespace Iroca
                 return;
             }
 
-            // ─── 先に出力先パスと上書き確認を済ませる ───
             // 重い処理のあとでキャンセルされると計算が全て無駄になるので、
             // 確認はユーザー入力の時点（＝処理前）に行う。
             string outputPath;
@@ -166,7 +156,6 @@ namespace Iroca
                 string safeName = string.IsNullOrWhiteSpace(newFileName) ? "recolored" : newFileName;
                 // セキュリティ: ファイル名部分のみを取得してパストラバーサルを防ぐ
                 safeName = Path.GetFileName(safeName);
-                // ファイル名に無効な文字を削除
                 foreach (char c in Path.GetInvalidFileNameChars())
                     safeName = safeName.Replace(c.ToString(), "_");
                 if (string.IsNullOrWhiteSpace(safeName)) safeName = "recolored";
@@ -200,7 +189,6 @@ namespace Iroca
                 }
             }
 
-            // ─── メインスレッド前処理: PNG 読み込み → GetPixels32 → マスクスナップショット ───
             // Texture2D API はメインスレッド必須なのでここで全て済ませ、計算本体だけ Task.Run へ渡す。
             Texture2D loadTex = null;
             Color32[] pixels;
@@ -224,7 +212,7 @@ namespace Iroca
             }
 
             var session = _host.Session;
-            // リストの並び順が優先度。先頭(上)ほど優先で先に処理し、重なりを占有する。
+            // リスト先頭のゾーンほど先に処理され、重なった領域を占有する。
             // ゾーンは Clone してから BG へ渡す(プレビュー系と同じ防御コピー)。かんたんモードの
             // 自動調整はエクスポート中も裏で走るため、生参照だと apply や Undo でゾーンが変異し
             // 一部ゾーンだけ新旧混在の出力になり得る。Clone は値等価コピーで出力ビット不変。
@@ -400,8 +388,6 @@ namespace Iroca
             EditorGUILayout.Space(2);
         }
 
-        // ─────────────────────── 一括適用 ──────────────────────────
-
         public void DrawBatchSection()
         {
             batchFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(batchFoldout, Localization.BatchApply);
@@ -528,7 +514,7 @@ namespace Iroca
 
                         Color32[] pixels = fullTex.GetPixels32();
                         int texW = fullTex.width, texH = fullTex.height;
-                        // リストの並び順が優先度。先頭(上)ほど優先で先に処理し、重なりを占有する。
+                        // リスト先頭のゾーンほど先に処理され、重なった領域を占有する。
             var sorted = session.zones.Where(z => z.enabled).ToList();
 
                         if (sorted.Count > 0)

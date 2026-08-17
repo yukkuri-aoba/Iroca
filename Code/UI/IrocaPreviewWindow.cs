@@ -131,9 +131,6 @@ namespace Iroca
                     false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
                     GUILayout.ExpandHeight(true));
 
-                // プレビュー枠がウィンドウ高に収まるよう動的に縮むためのカラム高と、
-                // 枠幅を固定するためのカラム幅を渡す
-                // （本体の横並びレイアウトが horizH / 右カラム幅を渡すのと同じ役割）。
                 preview.availableColumnHeight = position.height - IrocaConsts.Layout.WindowChromeMargin;
                 preview.availableColumnWidth = position.width;
                 preview.Draw();

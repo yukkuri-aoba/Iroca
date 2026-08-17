@@ -80,6 +80,7 @@ namespace Iroca
                     token.ThrowIfCancellationRequested();
                     PreviewJobMainThread.Post(() =>
                     {
+                        // 古い世代の完了通知で、現世代の実行状態を上書きしない。
                         if (_disposed || myGen != _generation) return;
                         _isRunning = false;
                         apply(result);
@@ -89,7 +90,6 @@ namespace Iroca
                 {
                     PreviewJobMainThread.Post(() =>
                     {
-                        // 古い世代のキャンセルでも、現世代でなければ _isRunning は触らない
                         if (_disposed || myGen != _generation) return;
                         _isRunning = false;
                     });
@@ -109,7 +109,7 @@ namespace Iroca
         public void Cancel()
         {
             try { _cts?.Cancel(); } catch { /* ignore */ }
-            // 世代をぶつけて in-flight タスクの apply を抑止
+            // in-flight タスクが結果を適用できないよう世代を進める。
             _generation++;
             _isRunning = false;
         }

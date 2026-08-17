@@ -36,21 +36,19 @@ namespace Iroca
             // マスク欄インラインの行数を抑えるため）。
             EditorGUILayout.Space(2);
 
-            // ─── モード切替(ペイントと排他) ───
             var prevBg = GUI.backgroundColor;
             GUI.backgroundColor = ctl.Active ? IrocaColors.IncludeButton : Color.white;
             string toggleLabel = ctl.Active ? Localization.AiSuggestActive : Localization.AiSuggestStart;
             if (GUILayout.Button(new GUIContent(toggleLabel, Localization.AiSuggestToggleTooltip)))
             {
                 bool next = !ctl.Active;
-                if (next) maskView.maskPaintActive = false; // ブラシとは排他
+                if (next) maskView.maskPaintActive = false;
                 ctl.SetActive(next);
             }
             GUI.backgroundColor = prevBg;
 
             if (!ctl.Active) return;
 
-            // 提案の粒度(SAM はクリック 1 点に粒度違いの候補を同時出力する)
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField(
                 new GUIContent(Localization.AiSuggestGranularity, Localization.AiSuggestGranularityTooltip),
@@ -66,7 +64,6 @@ namespace Iroca
                 ctl.Granularity = (MaskSuggestGranularity)gran;
             EditorGUILayout.EndHorizontal();
 
-            // ─── サービス状態 ───
             switch (svc.Phase)
             {
                 case MaskSuggestPhase.NoModel:
@@ -103,7 +100,6 @@ namespace Iroca
                         }
                         EditorGUILayout.EndHorizontal();
                     }
-                    // 手動配置後の再チェックはモード再有効化ではなくここで拾う
                     if (Event.current.type == EventType.Layout) svc.TryEnsureModels();
                     break;
 
@@ -115,14 +111,12 @@ namespace Iroca
                 {
                     var r = EditorGUILayout.GetControlRect(false, 18f);
                     EditorGUI.ProgressBar(r, Mathf.Clamp01(svc.Progress), Localization.AiSuggestEncoding);
-                    // Encoding 中のクリックは全て待ち(処理中なし)なので 1 件から出す
                     DrawPendingClickCount(svc, minCount: 1);
                     break;
                 }
 
                 case MaskSuggestPhase.Decoding:
                     EditorGUILayout.LabelField(Localization.AiSuggestDecoding, EditorStyles.miniLabel);
-                    // 処理中の 1 件は「生成中...」が示すので、それを超える待ちがあるときだけ出す
                     DrawPendingClickCount(svc, minCount: 2);
                     break;
 

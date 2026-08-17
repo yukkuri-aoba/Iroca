@@ -11,7 +11,6 @@ using UnityEngine;
 
 namespace Iroca
 {
-    // PixelProcessor: AA 境界の α 分解 + 再合成(color decontamination)と無彩フチ消し。
     internal static partial class PixelProcessor
     {
         // 無彩フチ消し(CleanAchromaFringe)の定数。マッチ境界の外側に残る「地色の残った」混色画素
@@ -129,7 +128,6 @@ namespace Iroca
             BoxFilterSum(wB, bgBSum, w, h, radius, ct, boxMinX, boxMinY, boxMaxX, boxMaxY);
             BoxFilterSum(wD, bgDensity, w, h, radius, ct, boxMinX, boxMinY, boxMaxX, boxMaxY);
 
-            // sample / target を 0..255 スケールに揃える
             float sR = sampleColor.r * 255f;
             float sG = sampleColor.g * 255f;
             float sB = sampleColor.b * 255f;
@@ -181,8 +179,7 @@ namespace Iroca
                 if (alpha < 0f) alpha = 0f;
                 else if (alpha > 1f) alpha = 1f;
 
-                // BGとSampleで合成される線分からの距離の2乗を確認。
-                // 大きく外れている場合は全く別の色（陰影や別パーツ等）であり、α分解の前提が崩れるためスキップ
+                // BG–sample 線分から大きく外れる色は、α 分解の前提が成り立たないためスキップする。
                 float projR = bR + alpha * dirR;
                 float projG = bG + alpha * dirG;
                 float projB = bB + alpha * dirB;
@@ -202,7 +199,7 @@ namespace Iroca
                     originalPixels[i].a);
             }
             });
-            } // end try
+            }
             finally
             {
                 if (bgDensity != null) s_floatPool.Return(bgDensity);

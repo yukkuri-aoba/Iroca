@@ -11,7 +11,6 @@ using UnityEngine;
 
 namespace Iroca
 {
-    // PixelProcessor: 連結成分アンカリング(flood fill)と、フル画像で解いた keep/マップの部分クロップ転写。
     internal static partial class PixelProcessor
     {
         // 連結成分アンカリングの確信度コア絶対床(matchConf 不在時のフォールバック専用)。
@@ -85,7 +84,6 @@ namespace Iroca
             // コア判定: matchConf があれば色一致確信度(>0 = 固定半径内)で、無ければ strength 閾値で判定。
             bool useConf = matchConf != null;
 
-            // ① 行ごとの run 数 → オフセット → run の x 範囲
             var runCount = new int[bh];
             Parallel.For(0, bh, ccPo, ly =>
             {
@@ -123,7 +121,6 @@ namespace Iroca
                 }
             });
 
-            // ② 上下隣接行の run を 2 ポインタで走査し、x 範囲が重なるものを結合
             parent = s_intPool.Rent(R);
             for (int r = 0; r < R; r++) parent[r] = r;
             var par = parent;
@@ -148,7 +145,6 @@ namespace Iroca
                 }
             }
 
-            // run → 成分 index(0..compCount-1)へ圧縮
             comp = s_intPool.Rent(R);
             var rootToComp = new Dictionary<int, int>();
             int compCount = 0;
@@ -159,7 +155,6 @@ namespace Iroca
                 comp[r] = c;
             }
 
-            // ③ 成分ごとのコア有無(run 単位の連続アクセス)
             var hasCore = new bool[compCount];
             for (int ly = 0; ly < bh; ly++)
             {
@@ -186,7 +181,7 @@ namespace Iroca
                 int sly = seedY - minY, slx = seedX - minX;
                 for (int k = rowOff[sly]; k < rowOff[sly + 1]; k++)
                     if (slx >= runX0[k] && slx <= runX1[k]) { keepComp = comp[k]; break; }
-                // 見つからない(bleed/背景上) → 自動へフォールバック(keepComp=-1 のまま)
+                // シードが候補領域外なら、自動アンカリングへフォールバックする。
             }
 
             if (keepComp < 0)
@@ -196,7 +191,6 @@ namespace Iroca
                 if (!anyCore) return; // 確信できるコアが皆無 → 絞り込まない(recall 保護)
             }
 
-            // 落とす成分の strength を 0 に。行ごとに書き込み先が独立なので並列化しても同一結果。
             var keepCompLocal = keepComp;
             var hasCoreArr = hasCore;
             var runX0L = runX0; var runX1L = runX1; var compL = comp;

@@ -32,8 +32,6 @@ namespace Iroca
             Color32[] px, float[] pixH, float[] pixS, float[] pixV, int w, int h, ColorZone zone)
         {
             Color sample = zone.sampleColor;
-            // 自動導出は「白寄せ合成 ON」かつ「自動補正 ON」の両方が必要。
-            // applyHighlightWash が OFF なら射影自体が走らないので sample のままで十分。
             if (!zone.applyHighlightWash || !zone.autoHighlightSample) return sample;
 
             Color.RGBToHSV(sample, out float sH, out float sS, out float sV);
@@ -41,7 +39,6 @@ namespace Iroca
 
             float satFloor = sS * BodySatFrac;
 
-            // 同色相・有彩の地色画素の V ヒストグラムを作る。
             // 地色統計はテクスチャ全体から採る仕様(マッチ範囲に限定しない)なので走査量は減らせないが、
             // ヒストグラムは整数加算だけで集計順に依存しないため行並列化できる(結果は逐次版と同値)。
             // 4K では全画素 1670 万回の逐次ループで、再着色パラメータを変えるたびに毎回走っていた。

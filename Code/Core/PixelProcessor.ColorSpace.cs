@@ -11,7 +11,6 @@ using UnityEngine;
 
 namespace Iroca
 {
-    // PixelProcessor: OkLab / sRGB 色空間変換ヘルパー(LUT 含む)。
     internal static partial class PixelProcessor
     {
         // ───────────── OkLab 知覚色空間ヘルパー (リング除去の中核) ─────────────
@@ -33,7 +32,6 @@ namespace Iroca
 
         private static float[] BuildSrgbToLinearLut()
         {
-            // インデックス = 0..255 の byte 値。SrgbToLinear(i/255f) と完全一致。
             var lut = new float[256];
             for (int i = 0; i < 256; i++) lut[i] = SrgbToLinear(i / 255f);
             return lut;
@@ -48,21 +46,18 @@ namespace Iroca
             return lut;
         }
 
-        // 任意 float 入力向けの厳密版(ゾーン定数の RgbToOklab と LUT 構築に使用)。
         private static float SrgbToLinear(float c)
         {
             c = Mathf.Clamp01(c);
             return c <= 0.04045f ? c / 12.92f : Mathf.Pow((c + 0.055f) / 1.055f, 2.4f);
         }
 
-        // LUT 構築専用の厳密版。
         private static float LinearToSrgbExact(float c)
         {
             c = Mathf.Clamp01(c);
             return c <= 0.0031308f ? c * 12.92f : 1.055f * Mathf.Pow(c, 1f / 2.4f) - 0.055f;
         }
 
-        // ホットループ用 LUT 版(4096 分割 + 線形補間)。LinearToSrgbExact と視覚的に無損失。
         private static float LinearToSrgb(float c)
         {
             if (c <= 0f) return 0f;
@@ -80,7 +75,6 @@ namespace Iroca
             return MathF.Cbrt(x);
         }
 
-        // OkLab 行列本体。linear RGB から OkLab を計算する。
         private static void OklabFromLinear(float lr, float lg, float lb,
             out float L, out float a, out float bb)
         {

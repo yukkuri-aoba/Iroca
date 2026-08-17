@@ -56,7 +56,6 @@ namespace Iroca
         /// </summary>
         const int MaxWindowRadius = 8;
 
-        // ─────────────────── AA 遷移帯のマスク包含(IncludeAaTransition) ───────────────────
         // SnapBoundary は境界を「内側/外側の等距離点」(混合率 ≈50%)に置き、多数決平滑が
         // 階段の角を ±1px 削る。除外(保護)マスクとしては、パーツ色が目に見えて混ざる画素が
         // 外側に取り残されると、そこだけ再着色されて点ノイズになる(実測: 実 SAM 提案で
@@ -85,7 +84,6 @@ namespace Iroca
         /// </summary>
         const int AaMaxPasses = 3;
 
-        // ─────────────────── 房外郭への境界拡張(ExtendFringe) ───────────────────
         // SAM のマスクは房(細い frayed strands)を無視して滑らかに切る。房 strands は
         // render 対象(strand 間の gap は非表示)なので、「局所背景色から遠い outside 画素」を
         // 連結成長させて房を先端まで覆う。gate: strand-like(横に背景が隣接する細い構造)のみ育て、
@@ -112,7 +110,6 @@ namespace Iroca
             int strandHalf = Mathf.Max(2, Mathf.RoundToInt(maxDim / 410f));
             float thr2 = FringeColorThresh * FringeColorThresh;
 
-            // mask 外画素→最近 mask までの L1 距離(within/conf_out 判定に使う)
             var distOut = DistanceToOpposite(mask, w, h, inside: false, token);
             var distIn = DistanceToOpposite(mask, w, h, inside: true, token);
             var po = MakeParallelOptions(token);
@@ -330,7 +327,6 @@ namespace Iroca
                 if (x < w - 1 && growZone[i + 1]) { mask[i + 1] = true; growZone[i + 1] = false; queue.Enqueue((y << 16) | (x + 1)); }
                 if (y > 0 && growZone[i - w]) { mask[i - w] = true; growZone[i - w] = false; queue.Enqueue(((y - 1) << 16) | x); }
                 if (y < h - 1 && growZone[i + w]) { mask[i + w] = true; growZone[i + w] = false; queue.Enqueue(((y + 1) << 16) | x); }
-                // 逐次 BFS なので定期的にキャンセルを見る(数値ロジックは不変)。
                 if ((++visited & 0xFFFF) == 0) token.ThrowIfCancellationRequested();
             }
         }
@@ -348,7 +344,7 @@ namespace Iroca
             int d = Mathf.Max(2, Mathf.CeilToInt(
                 Mathf.Max(w, h) / (float)SamMaskPostprocess.LowRes * 0.75f));
 
-            // L1 距離変換で「境界からの深さ」を測る(セパラブル2パス・O(N))
+            // 境界からの深さはセパラブルな L1 距離変換で求める。
             var distIn = DistanceToOpposite(mask, w, h, inside: true, token);   // mask 内→外境界までの距離
             var distOut = DistanceToOpposite(mask, w, h, inside: false, token); // mask 外→内境界までの距離
 
@@ -613,7 +609,6 @@ namespace Iroca
                                        System.Threading.CancellationToken token = default)
         {
             var mask0 = (bool[])mask.Clone();
-            // 8 方向(反対方向は符号反転で得る)
             int[] ex = { 1, -1, 0, 0, 1, 1, -1, -1 };
             int[] ey = { 0, 0, 1, -1, 1, -1, 1, -1 };
             // 読みはスナップショット・書きは自画素のみなので行並列で決定的。
@@ -771,7 +766,6 @@ namespace Iroca
 
                     int gx = x / d;
                     var c = pixelsBottomUp[i];
-                    // 内側統計(共通)と、近傍/遠方の外側統計を半径段階拡大で収集
                     long ir = 0, ig = 0, ib = 0, ia = 0;
                     long nr = 0, ng = 0, nb = 0, na = 0, fr = 0, fg = 0, fb = 0, fa = 0;
                     int ic = 0, nc = 0, fc = 0;

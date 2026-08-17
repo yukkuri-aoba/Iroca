@@ -180,7 +180,6 @@ namespace Iroca
 
                 if (fileName.EndsWith(SessionFileExtension + OrphanSuffix, StringComparison.OrdinalIgnoreCase))
                 {
-                    // 退避ファイル: GUID が解決できたら復元、猶予超過なら実削除。
                     string activeName = fileName.Substring(0, fileName.Length - OrphanSuffix.Length);
                     string guid = activeName.Substring(0, activeName.Length - SessionFileExtension.Length);
                     if (string.IsNullOrEmpty(guid)) continue;
@@ -191,7 +190,6 @@ namespace Iroca
                 }
                 else if (fileName.EndsWith(SessionFileExtension, StringComparison.OrdinalIgnoreCase))
                 {
-                    // 現用ファイル: GUID 未解決なら削除せず .orphan へ退避。
                     string guid = fileName.Substring(0, fileName.Length - SessionFileExtension.Length);
                     if (string.IsNullOrEmpty(guid)) continue;
                     if (string.IsNullOrEmpty(AssetDatabase.GUIDToAssetPath(guid)))
@@ -219,7 +217,6 @@ namespace Iroca
             catch (Exception ex) { Debug.LogWarning($"[Iroca] Orphan session retire failed: {ex.Message}"); }
         }
 
-        // GUID が再解決できた退避ファイルを元名へ戻す。現用ファイルが既にあれば退避側は不要なので消す。
         private static void RestoreFromOrphan(string orphan, string activePath)
         {
             try
@@ -230,7 +227,6 @@ namespace Iroca
             catch (Exception ex) { Debug.LogWarning($"[Iroca] Orphan session restore failed: {ex.Message}"); }
         }
 
-        // 猶予期間を超えて未解決のままの退避ファイルだけを実削除する。
         private static void DeleteOrphanIfExpired(string orphan)
         {
             try

@@ -117,7 +117,7 @@ namespace Iroca
             }
             catch (System.Exception)
             {
-                // 読めない・壊れている → 通常どおりダウンロードし直す
+                // 既存ファイルを検証できない場合は再ダウンロードへ進む。
             }
 
             string tmp = TempPath(file);
@@ -146,7 +146,6 @@ namespace Iroca
 
             if (!_request.isDone)
             {
-                // ストール検知(進捗が止まったままの接続を打ち切る)
                 ulong got = _request.downloadedBytes;
                 // サイズ超過検知。sha256 は全量取得後にしか効かないので、その前にここで止める。
                 // 放置すると異常な応答でディスクを埋め尽くされる。
@@ -222,7 +221,6 @@ namespace Iroca
             if (_fileIndex >= Files.Length)
             {
                 Finish();
-                // 配置完了 → サービスにロードさせる(次の GUI フレームで反映)
                 MaskSuggestBridge.Service?.TryEnsureModels();
             }
             else

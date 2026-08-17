@@ -5,7 +5,6 @@ using UnityEngine;
 
 namespace Iroca
 {
-    // GUI で使うカラー定数を Light/Dark Skin で出し分けるユーティリティ。
     internal static class IrocaColors
     {
         public static Color ActiveMaskTarget =>
@@ -24,7 +23,7 @@ namespace Iroca
                 : new Color(0.30f, 0.75f, 0.30f);
 
         // ブラシカーソルは Exclude/Include の意味区別を保つため 2 定数に分離する。
-        public static Color BrushCursorExclude => new Color(1f, 0f, 0f, 0.5f); // 赤
-        public static Color BrushCursorInclude => new Color(0f, 1f, 0f, 0.5f); // 緑
+        public static Color BrushCursorExclude => new Color(1f, 0f, 0f, 0.5f);
+        public static Color BrushCursorInclude => new Color(0f, 1f, 0f, 0.5f);
     }
 }

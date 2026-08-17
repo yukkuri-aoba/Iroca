@@ -11,7 +11,6 @@ using UnityEngine;
 
 namespace Iroca
 {
-    // PixelProcessor: 選択リファイン後段(ボックス和/ブラー/bbox/穴埋め/境界回復/緩和マッチ)。
     internal static partial class PixelProcessor
     {
         /// <summary>
@@ -116,7 +115,6 @@ namespace Iroca
             int radius = Mathf.CeilToInt(sigma * 2.5f);
             if (radius < 1) return false;
 
-            // 1D カーネルを構築
             float[] kernel = new float[radius * 2 + 1];
             float kernelSum = 0f;
             for (int i = -radius; i <= radius; i++)
@@ -142,7 +140,6 @@ namespace Iroca
                 // 上下に広げて temp を用意する(列は矩形のまま。垂直は矩形列しか読まない)。
                 int hMinY = Mathf.Max(0, boxMinY - radius);
                 int hMaxY = Mathf.Min(h - 1, boxMaxY + radius);
-                // 水平パス
                 Parallel.For(hMinY, hMaxY + 1, gaussPo, y =>
                 {
                     int rb = y * w;
@@ -158,7 +155,6 @@ namespace Iroca
                     }
                 });
 
-                // 垂直パス
                 Parallel.For(boxMinY, boxMaxY + 1, gaussPo, y =>
                 {
                     int rb = y * w;
@@ -214,7 +210,7 @@ namespace Iroca
                     for (int x = 0; x < w; x++)
                     {
                         int i = rowOff + x;
-                        if (original[i] > 0f) continue; // already matched
+                        if (original[i] > 0f) continue;
                         if (neighborSumL[i] <= 0f)
                             blurred[i] = 0f;
                     }
@@ -389,13 +385,11 @@ namespace Iroca
                             }
                         }
 
-                        // 最小隣接数以上のマッチした隣接ピクセルがあれば埋める
                         if (matched >= minNeighbors && total >= minNeighbors)
                             write[idx] = minNeighbour;
                     }
                 });
 
-                // read/write を入れ替え
                 var tmp = read;
                 read = write;
                 write = tmp;
@@ -404,7 +398,7 @@ namespace Iroca
             // 最新結果が呼び出し元の strength 配列に入るように調整
             if (!ReferenceEquals(read, strength))
                 System.Array.Copy(read, strength, len);
-            } // end try
+            }
             finally
             {
                 s_floatPool.Return(buffer);
@@ -716,7 +710,6 @@ namespace Iroca
 
             float sH, sS, sV;
             Color.RGBToHSV(sampleColor, out sH, out sS, out sV);
-            // relaxed ゲートの RGB ブレンド用 sample RGB(0..1)。
             float rcSampR = sampleColor.r, rcSampG = sampleColor.g, rcSampB = sampleColor.b;
 
             int len = w * h;
@@ -738,7 +731,6 @@ namespace Iroca
                         int idx = y * w + x;
                         if (read[idx] > 0f) continue;
 
-                        // Check if adjacent to at least one matched pixel
                         bool hasMatchedNeighbor = false;
                         for (int dy = -1; dy <= 1 && !hasMatchedNeighbor; dy++)
                             for (int dx = -1; dx <= 1 && !hasMatchedNeighbor; dx++)
@@ -751,7 +743,6 @@ namespace Iroca
 
                         if (!hasMatchedNeighbor) continue;
 
-                        // Re-evaluate this pixel with the relaxed fixed saturation threshold
                         float rpR = 0f, rpG = 0f, rpB = 0f;
                         if (originalPixels != null)
                         {
@@ -775,7 +766,7 @@ namespace Iroca
 
             if (!ReferenceEquals(read, strength))
                 System.Array.Copy(read, strength, len);
-            } // end try
+            }
             finally
             {
                 s_floatPool.Return(buffer);
@@ -889,7 +880,6 @@ namespace Iroca
             else
                 strength = 1f - (dist - hardRange) / softRange;
 
-            // satConfidence ダンピング廃止 → AA 縁を全強度で再色化
             return strength;
         }
     }

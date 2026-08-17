@@ -45,7 +45,6 @@ namespace Iroca
 
             // 使い方の説明は各コントロールのツールチップに委ね、常時表示の HelpBox は置かない。
 
-            // 保存先切り替え
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Toggle(presetStorageProject, new GUIContent(Localization.PresetStorageProject, Localization.PresetStorageProjectTooltip), EditorStyles.miniButtonLeft) && !presetStorageProject)
                 presetStorageProject = true;
@@ -53,7 +52,6 @@ namespace Iroca
                 presetStorageProject = false;
             EditorGUILayout.EndHorizontal();
 
-            // 保存
             EditorGUILayout.BeginHorizontal();
             presetSaveName = EditorGUILayout.TextField(
                 new GUIContent(Localization.PresetName, Localization.PresetNameTooltip),
@@ -76,7 +74,6 @@ namespace Iroca
                         new GUIContent(Localization.PresetApplyMasks, Localization.PresetApplyMasksTooltip),
                         presetApplyMasks);
 
-                    // インポート / エクスポート
                     EditorGUILayout.BeginHorizontal();
                     if (GUILayout.Button(new GUIContent(Localization.ExportJson, Localization.ExportJsonTooltip)))
                         ExportPresetJson();
@@ -86,7 +83,6 @@ namespace Iroca
                 }
             }
 
-            // 一覧
             string[] files = PresetStore.ListJson(ActivePresetFolder);
 
             if (files.Length == 0)
@@ -121,7 +117,6 @@ namespace Iroca
 
         private void SavePreset(string name)
         {
-            // 同名プリセットが既にある場合は上書き前に確認する。
             string existingPath = PresetStore.PresetFilePath(ActivePresetFolder, name);
             if (File.Exists(existingPath))
             {
@@ -149,7 +144,6 @@ namespace Iroca
             _host?.ShowNotification(new GUIContent(message));
         }
 
-        // 現在の設定を IrocaPresetData に詰めて返す。
         private IrocaPresetData BuildPresetData(string presetName)
         {
             _host.EnsureAllZoneIds();

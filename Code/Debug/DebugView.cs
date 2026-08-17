@@ -20,13 +20,11 @@ namespace Iroca.DebugTools
     /// </summary>
     internal static class DebugView
     {
-        // ── UI 状態（EditorPrefs で永続化） ─────────────────
         private const string PrefKeyEnabled = "Iroca.Debug.EnableCapture";
 
         private static bool s_enableCapture;
         private static bool s_loadedPrefs;
 
-        // ── キャプチャ状態 ────────────────────────────
         private static DebugCaptureContext s_activeContext;
 
         /// <summary>
@@ -88,7 +86,7 @@ namespace Iroca.DebugTools
             {
                 EditorPrefs.SetBool(PrefKeyEnabled, s_enableCapture);
                 host.MarkPreviewDirty();
-                if (!s_enableCapture) ClearCapture(host); // OFF にしたら現状のキャプチャを破棄
+                if (!s_enableCapture) ClearCapture(host);
             }
 
             if (!s_enableCapture)
@@ -131,7 +129,6 @@ namespace Iroca.DebugTools
             DebugWindow.NotifyCaptureCleared();
         }
 
-        // ──────────────────────────────────────────────
         private static void EnsurePrefsLoaded()
         {
             if (s_loadedPrefs) return;

@@ -35,8 +35,6 @@ namespace Iroca
         private static string McpDir =>
             Path.GetFullPath(Path.Combine(Application.dataPath, "..", "UserSettings/Iroca/mcp"));
 
-        // ───────────────────────────── DTO ─────────────────────────────
-
         /// <summary>再着色 1 回分の結果。JSON 文字列としてエージェントへ返す。</summary>
         [Serializable]
         public class RecolorResult
@@ -144,8 +142,6 @@ namespace Iroca
             public SettingsDto settingsDefaults = new SettingsDto();
             public JobRequest jobExample = new JobRequest();
         }
-
-        // ───────────────────────── 公開 API ─────────────────────────
 
         /// <summary>パッケージ名とバージョンを JSON で返す。</summary>
         public static string GetVersion()
@@ -284,8 +280,6 @@ namespace Iroca
         // （Code/McpIntegration/IrocaMcpTools.cs の iroca_recolor 等）経由で公開静的 API を呼ぶ。
         // Tools メニューにはウィンドウ起動の単一項目だけを残し、サブメニュー二重表示を避ける。
 
-        // ─────────────────────── batchmode CLI ───────────────────────
-
         /// <summary>
         /// <c>Unity.exe -batchmode -quit -executeMethod Iroca.IrocaAutomation.RunFromCommandLine
         ///   -irocaSource &lt;path&gt; -irocaOutput &lt;path&gt; (-irocaPreset &lt;path|name&gt; | -irocaZonesFile &lt;json&gt; | -irocaJob &lt;json&gt;)</c>
@@ -341,8 +335,6 @@ namespace Iroca
             EditorApplication.Exit(ok ? 0 : 1);
         }
 
-        // ─────────────────────── 中核 ───────────────────────
-
         /// <summary>
         /// テクスチャ読込 → <see cref="PixelProcessor.ProcessPixelsArray"/>（同期）→ PNG 書き出し。
         /// 全経路がここを通る。<see cref="ExportView.ApplyRecolor"/> のメインスレッド前処理と同じ手順。
@@ -395,7 +387,6 @@ namespace Iroca
                 0, 0, 0, 0,
                 useDecontamination: s.useDecontamination, decontaminationRadius: s.decontaminationRadius);
 
-            // ── PNG エンコード → 書き出し → AssetDatabase 取り込み（Assets 配下のみ） ──
             string outAbs = ResolveOutputPath(outputAssetPath);
             if (outAbs == null)
             { result.error = $"output must be a .png inside the project: {outputAssetPath}"; return result; }
@@ -431,7 +422,6 @@ namespace Iroca
                 if (outTex != null) UnityEngine.Object.DestroyImmediate(outTex);
             }
 
-            // ── 変化量メトリクス + 比較パネル(目視検証用)。本体出力には影響しない後段生成 ──
             var metrics = RecolorPreview.ComputeMetrics(originalPixels, pixels, w, h);
             result.changedPixels = metrics.changedPixels;
             result.changedFraction = metrics.changedFraction;
@@ -447,8 +437,6 @@ namespace Iroca
             result.zonesApplied = sorted.Count;
             return result;
         }
-
-        // ─────────────────────── ヘルパー ───────────────────────
 
         /// <summary>
         /// 変換前/後から比較パネル PNG を組み立てて <paramref name="outAbs"/> の隣(&lt;stem&gt;_preview.png)へ書き出す。
@@ -505,7 +493,6 @@ namespace Iroca
             }
         }
 
-        // 出力 PNG の隣に置く比較パネルのパス(&lt;stem&gt;_preview.png)。outAbs は検証済み(.png・プロジェクト内)。
         private static string MakePreviewPath(string outAbs)
         {
             string dir = Path.GetDirectoryName(outAbs) ?? "";
@@ -590,11 +577,9 @@ namespace Iroca
         {
             if (string.IsNullOrWhiteSpace(spec)) return null;
 
-            // 1) ファイルパスとして解決できれば PresetStore.Load を使う。
             string abs = ResolveExistingFile(spec);
             if (abs != null) return PresetStore.Load(abs);
 
-            // 2) インライン JSON（'{' 始まり）なら直接パース。
             string trimmed = spec.TrimStart();
             if (trimmed.StartsWith("{"))
             {
@@ -602,7 +587,6 @@ namespace Iroca
                 catch { return null; }
             }
 
-            // 3) プリセット名としてプロジェクト→ユーザー保存先を探索。
             foreach (var folder in new[] { PresetStore.ProjectPresetFolder, PresetStore.UserPresetFolder })
             {
                 string p = PresetStore.PresetFilePath(folder, spec);

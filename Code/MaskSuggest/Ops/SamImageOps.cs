@@ -92,7 +92,6 @@ namespace Iroca
             }
 
             // 軸ごとの分離適用: まず X 軸 → 次に Y 軸(面積平均/bilinear どちらも分離可能)。
-            // 中間バッファ: 上原点 h 行 × newW 列
             var mid = new float[newW * h * 3];
             Parallel.For(0, h, po, ty =>
             {
@@ -101,13 +100,12 @@ namespace Iroca
                 if (downX) ResampleRowArea(pixelsBottomUp, srcRow, w, mid, midRow, newW);
                 else ResampleRowBilinear(pixelsBottomUp, srcRow, w, mid, midRow, newW);
             });
-            // Y 軸(mid は上原点なので反転不要)
+            // mid は上原点なので、Y 軸処理での反転は不要。
             if (downY) ResampleColsArea(mid, h, newW, dst, newH, token);
             else ResampleColsBilinear(mid, h, newW, dst, newH, token);
             return dst;
         }
 
-        // ─── X 軸リサンプル(1 行) ───
         static void ResampleRowArea(Color32[] src, int srcOff, int srcW, float[] dst, int dstOff, int dstW)
         {
             double scale = srcW / (double)dstW; // >1
@@ -145,7 +143,6 @@ namespace Iroca
             }
         }
 
-        // ─── Y 軸リサンプル(全列一括、interleaved RGB) ───
         static void ResampleColsArea(float[] src, int srcH, int width, float[] dst, int dstH,
                                      System.Threading.CancellationToken token = default)
         {

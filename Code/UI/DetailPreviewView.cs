@@ -14,7 +14,6 @@ namespace Iroca
     /// </summary>
     internal class DetailPreviewView
     {
-        // 詳細プレビュー: ズームイン時にレンダリングされるフル解像度クロップ
         // マスクオーバーレイ専用テクスチャは持たない: ブロック整列ペイント後は等倍用の
         // 低解像度オーバーレイ(1 画素 = マスクブロック一様)を Point 拡大するだけで
         // 情報損失なく表示でき、クロップ再生成までペイントが見えない問題と
@@ -22,7 +21,6 @@ namespace Iroca
         [System.NonSerialized] public Texture2D detailPreviewTexture;
         [System.NonSerialized] public Texture2D detailDiffTexture;
 
-        // 非同期生成
         [System.NonSerialized] public readonly PreviewJob<DetailPreviewResult> detailJob = new PreviewJob<DetailPreviewResult>();
         [System.NonSerialized] private Color32[] _pendingDetailProcessed;
         [System.NonSerialized] private Color32[] _pendingDetailRaw;
@@ -166,7 +164,7 @@ namespace Iroca
             var maskSnap = _host._maskView.BuildSnapshot();
 
             var session = _host.Session;
-            // リストの並び順が優先度。先頭(上)ほど優先で先に処理し、重なりを占有する。
+            // リスト先頭のゾーンほど先に処理され、重なった領域を占有する。
             var zonesSnapshot = session.zones
                 .Where(z => z.enabled)
                 .Select(z => z.Clone())

@@ -10,10 +10,8 @@ namespace Iroca
     // GUILayout 安全のため、確定したミューテーションは次の Layout イベントで適用する（遅延ミューテーション）。
     public partial class IrocaWindow
     {
-        // Foldout
         [SerializeField] private bool zonesFoldout = true;
 
-        // GUILayout安全な変更保留フラグ
         // ExitGUI() をネストしたレイアウトグループ内から呼ぶと
         // Layout/Repaint 間のコントロール数不一致が起きるため、
         // 変更を次の Layout イベント開始時まで遅延させる。
@@ -88,8 +86,6 @@ namespace Iroca
                 _pendingEditMode = null;
             }
         }
-
-        // ───────────────────────── ゾーンリスト ───────────────────────────
 
         // ゾーンリストのヘッダ行は毎フレーム×ゾーン数で描画されるため、GUIStyle/GUIContent を
         // 静的キャッシュして毎フレームのアロケーションを避ける。文字列は Localization 由来なので、
@@ -177,13 +173,11 @@ namespace Iroca
             // 並び順＝優先度（重なりは上のゾーンのみ適用）。説明は ☰ ハンドルのツールチップ
             // (ZoneDragHandleTooltip) に集約し、常時表示の HelpBox は置かない。
 
-            // 外部要因（削除等）で範囲外になったドラッグ状態をリセット。
             if (_dragZoneIndex >= zones.Count) _dragZoneIndex = -1;
 
             // ドラッグハンドル用スタイルとヘッダ行の GUIContent は静的キャッシュを使う
             // (毎フレーム×ゾーン数のアロケーション回避。言語切替時のみ再構築)。
             EnsureZoneListCache();
-            // 各ゾーンの矩形を記録し、ドロップ位置の判定とインジケータ描画に使う。
             var zoneRects = new List<Rect>(zones.Count);
 
             int removeIndex = -1;
@@ -196,7 +190,6 @@ namespace Iroca
                 EditorGUILayout.Space(2);
             }
 
-            // ── ドラッグ並べ替えの処理（インジケータ描画 / ドロップ確定）──
             HandleZoneReorderDrag(zoneRects);
 
             if (removeIndex >= 0)
@@ -224,7 +217,6 @@ namespace Iroca
             zone.EnsureId();
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
-            // Header row
             EditorGUILayout.BeginHorizontal();
             // ドラッグハンドル: 掴んでリストを並べ替える＝優先度を変える。
             // 幅は行高(singleLineHeight)に追従させ、エディタのフォントサイズが大きいときも
@@ -238,7 +230,6 @@ namespace Iroca
                 && handleRect.Contains(Event.current.mousePosition))
             {
                 _dragZoneIndex = index;
-                // ハンドルはゾーン上端付近にあるので、ここを掴み位置の基準にする。
                 _dragGrabOffsetY = Event.current.mousePosition.y - handleRect.y;
                 // マウスキャプチャを取得（ウィンドウ外リリースでも MouseUp を確実に受け取るため）。
                 // _dragControlId は前フレームの HandleZoneReorderDrag が確保した安定 ID。
@@ -260,7 +251,6 @@ namespace Iroca
             // ゾーン別マスクの編集は除外マスク欄の「編集対象」プルダウン＋「ブラシで編集」に
             // 一本化した（かつてここにあった専用ボタンは経路重複のため削除）。
 
-            // ─── UV矩形モード選択UI ───
             // UV矩形モードは実装継続中のため当面 UI から非表示。
             // zone.mode = UndoHelper.EnumPopup(this,
             //     new GUIContent(Localization.SelectionMode, Localization.SelectionModeTooltip),
@@ -285,7 +275,6 @@ namespace Iroca
                 MarkPreviewDirty();
             }
 
-            // ─── プレビュー直接スポイト ───
             // カラーピッカーを経由せず、プレビュー上のクリックでこのゾーンのサンプルカラーを
             // 実テクスチャ画素から直接取得する（PreviewView 側が実画素を読む）。読み取り不可では押せない。
             {
@@ -310,7 +299,6 @@ namespace Iroca
             }
             EditorGUILayout.EndHorizontal();
 
-            // ─── 変更先カラー ───
             // 自動調整の直上に置く。ZoneAutoTuner は sampleColor だけでなく targetColor も
             // 入力に取り（両者の明度差から模様保持 valueBlend を決める）、変更先が未決のまま
             // 押すと既定色を前提とした結果になる。「元の色 → 変更先の色 → 自動調整」の順に
@@ -319,7 +307,6 @@ namespace Iroca
                 new GUIContent(Localization.TargetColor, Localization.TargetColorTooltip),
                 zone.targetColor);
 
-            // ─── 自動調整ボタン ───
             // スポイト1点から、パーツの濃淡（暗部/中間/明部）を内部で自動サンプリングして
             // 許容範囲などを最適化する。ユーザーが濃淡を手で採り直す必要はない。
             {
@@ -341,7 +328,6 @@ namespace Iroca
                 new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
                 zone.tolerance, 0f, 1f);
 
-            // ─── 連続領域モード (Flood Fill / 連結成分アンカリング) ───
             // 既定は自動アンカリング(シード不要)。確信度の高い芯を含む連結領域だけ残し、
             // 物理的に離れた同色パーツや背景へのにじみを自動除去する。シードは任意の上書き。
             EditorGUILayout.Space(2);
@@ -366,7 +352,6 @@ namespace Iroca
                         new GUIContent(Localization.FloodFillSeedPoint, Localization.FloodFillSeedHint),
                         new GUIContent(seedLabel),
                         GUILayout.MinWidth(0), GUILayout.ExpandWidth(true));
-                    // シード指定時のみ「自動へ戻す」クリアを出す。
                     using (new EditorGUI.DisabledScope(zone.seedUV.x < 0f))
                     {
                         if (GUILayout.Button(
@@ -382,7 +367,6 @@ namespace Iroca
                 }
             }
 
-            // ─── UV矩形モード UI ───
             // UV矩形モードは実装継続中のため当面 UI から非表示。
             // else
             // {
@@ -407,7 +391,6 @@ namespace Iroca
                 new GUIContent(Localization.OutputSaturation, Localization.OutputSaturationTooltip),
                 zone.outputSaturation, 0f, 1f);
 
-            // ─── 通常モード以上で表示する標準の調整項目 ───
             // かんたんモードでは核となる色・許容範囲・模様保持・出力彩度だけを見せ、
             // エッジ/彩度/シャドウ・ハイライト等の調整は「自動調整」に委ねる。
             // 通常モードは初見の圧を下げるためゾーンごとに「詳細設定」へ畳む（既定で閉じる）。
@@ -491,7 +474,6 @@ namespace Iroca
                 new GUIContent(Localization.ChromaThreshold, Localization.ChromaThresholdTooltip),
                 zone.chromaThreshold, 0f, 1f);
 
-            // ─── 上級モードのみ: マッチング距離の内部重み ───
             if (editMode == EditMode.Advanced)
             {
                 zone.valueWeight = UndoHelper.Slider(this,
@@ -505,7 +487,6 @@ namespace Iroca
                     zone.satRampScale, 0.01f, 0.5f);
             }
 
-            // 詳細パラメータを既定値へ戻す（色・許容範囲・名前は保持）。通常/上級どちらでも表示。
             EditorGUILayout.Space(2);
             if (GUILayout.Button(new GUIContent(Localization.ResetZoneTuning, Localization.ResetZoneTuningTooltip)))
             {
@@ -515,7 +496,6 @@ namespace Iroca
             }
         }
 
-        // ドラッグ中ゾーンのインジケータ描画とドロップ確定。zoneRects は各ゾーンカードの矩形。
         // 判定・描画は非 Layout パスでのみ行う（Layout パスの GetLastRect はダミー値のため）。
         private void HandleZoneReorderDrag(List<Rect> zoneRects)
         {
@@ -540,14 +520,11 @@ namespace Iroca
             // 隙間や微小なブレで誤入れ替えしない最小の重なり量(px)。
             float overlapTrigger = EditorGUIUtility.singleLineHeight * 0.6f;
 
-            // 挿入スロット(0..count)。既定は移動なし。
             int slot = _dragZoneIndex;
-            // 上方向: 上端が重なった最上位ゾーンの「前」に挿入。
             for (int k = 0; k < _dragZoneIndex; k++)
             {
                 if (projTop < zoneRects[k].yMax - overlapTrigger) { slot = k; break; }
             }
-            // 下方向: 下端が重なった最下位ゾーンの「後ろ」に挿入。
             if (slot == _dragZoneIndex)
             {
                 for (int k = zoneRects.Count - 1; k > _dragZoneIndex; k--)
@@ -563,16 +540,13 @@ namespace Iroca
                 Rect src = zoneRects[_dragZoneIndex];
                 Color accent = IrocaColors.ActiveMaskTarget;
 
-                // 1. 元のスロットを暗転して「ここを移動中」と示す。
                 EditorGUI.DrawRect(src, new Color(0f, 0f, 0f, 0.18f));
 
-                // 2. 挿入位置のライン。
                 float lineY = slot < zoneRects.Count
                     ? zoneRects[slot].yMin
                     : zoneRects[zoneRects.Count - 1].yMax;
                 EditorGUI.DrawRect(new Rect(src.xMin, lineY - 1.5f, src.width, 3f), accent);
 
-                // 3. マウスに追従するゴースト(ヘッダー帯を模した浮遊パネル)。
                 float gh = EditorGUIUtility.singleLineHeight + 8f;
                 float gy = evt.mousePosition.y - _dragGrabOffsetY;
                 Rect ghost = new Rect(src.xMin, gy, src.width, gh);
@@ -581,12 +555,10 @@ namespace Iroca
                 DrawRectOutline(ghost, accent, 1f);
 
                 var dz = zones[_dragZoneIndex];
-                // 変更先カラーのスウォッチ。
                 Rect swatch = new Rect(ghost.x + 22f, ghost.y + 5f, 14f, gh - 10f);
                 Color sw = dz.targetColor; sw.a = 1f;
                 EditorGUI.DrawRect(swatch, sw);
                 DrawRectOutline(swatch, new Color(0f, 0f, 0f, 0.4f), 1f);
-                // ゾーン名ラベル。
                 string gname = string.IsNullOrEmpty(dz.name) ? Localization.UnnamedZone : dz.name;
                 GUI.Label(new Rect(swatch.xMax + 6f, ghost.y + 3f, ghost.width - 64f, EditorGUIUtility.singleLineHeight),
                     new GUIContent("☰  " + gname), EditorStyles.boldLabel);
@@ -618,7 +590,6 @@ namespace Iroca
             }
         }
 
-        // 矩形の枠線を 4 本の細い矩形で描く（Repaint 中のゴースト/スウォッチ枠用）。
         private static void DrawRectOutline(Rect r, Color color, float thickness)
         {
             EditorGUI.DrawRect(new Rect(r.xMin, r.yMin, r.width, thickness), color);

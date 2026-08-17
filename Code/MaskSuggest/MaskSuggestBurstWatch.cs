@@ -32,7 +32,7 @@ namespace Iroca
 
         static MaskSuggestBurstWatch()
         {
-            if (FailedThisSession) return; // 観測済みなら監視不要
+            if (FailedThisSession) return;
             Application.logMessageReceived += OnLog;
             EditorApplication.update += StopWatching;
         }

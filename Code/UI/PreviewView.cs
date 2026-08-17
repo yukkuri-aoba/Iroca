@@ -14,12 +14,10 @@ namespace Iroca
     [System.Serializable]
     internal partial class PreviewView
     {
-        // ─── シリアライズ対象（UI 状態） ─────────────────────────────
         public float previewZoom = 1f;
         public bool comparisonMode;
         public bool diffMode;
 
-        // ─── ズーム範囲 ─────────────────────────────────────────────
         private const float MinPreviewZoom = 0.25f;
         // ピクセル単位で確認できるよう、最大ズーム時に「ソース 1px が画面上で最低
         // PixelInspectTargetPx ピクセルになる」ところまで拡大を許可する。高解像度
@@ -91,7 +89,6 @@ namespace Iroca
             return best;
         }
 
-        // ─── 実行時状態（NonSerialized） ──────────────────────────
         [System.NonSerialized] public Texture2D previewTexture;
         [System.NonSerialized] public Texture2D rawPreviewTexture;
         [System.NonSerialized] public Texture2D diffTexture;
@@ -143,7 +140,6 @@ namespace Iroca
         [System.NonSerialized] private int _cachedZoomPercent = -1;
         [System.NonSerialized] private LanguageMode _cachedZoomLang = (LanguageMode)(-1);
 
-        // 非同期プレビュー状態
         // 戻り値は (processed, raw) のタプル。raw(ダウンサンプル済み元表示)もジョブ側で
         // 生成することで、テクスチャ切替直後のキャッシュミス時にメインスレッドで走っていた
         // BoxDownsample のヒッチをバックグラウンドへ追い出す。
@@ -168,7 +164,6 @@ namespace Iroca
         [System.NonSerialized] private Color32[] _pendingDiffPixels;
         [System.NonSerialized] private int _pendingDiffW, _pendingDiffH;
 
-        // ソースピクセルキャッシュ（テクスチャが変わったときのみ再取得）
         [System.NonSerialized] private Texture2D _cachedSourceTexture;
         [System.NonSerialized] private Color32[] _cachedSrcPixels;
         [System.NonSerialized] private Color32[] _cachedRawDisplay;
@@ -195,7 +190,6 @@ namespace Iroca
         [System.NonSerialized] private Color32[] _trueSourcePixels;
         [System.NonSerialized] private int _trueSourceW, _trueSourceH;
 
-        // 詳細プレビューは PreviewView の補助。
         [System.NonSerialized] private DetailPreviewView _detailView;
 
         [System.NonSerialized] private IrocaWindow _host;
@@ -363,8 +357,6 @@ namespace Iroca
             TextureSlot.Release(ref diffTexture);
         }
 
-        // ─────────────────────── プレビュー ─────────────────────────
-
         public void Draw()
         {
             EditorGUILayout.LabelField(Localization.StepPrefixPreview + Localization.Preview, EditorStyles.boldLabel);
@@ -519,7 +511,6 @@ namespace Iroca
                                 previewZoom > DetailPreviewView.DetailMinZoom &&
                                 !comparisonMode;
 
-            // 詳細プレビュー生成をポーリング
             if (detailActive)
             {
                 if (!_detailView.detailJob.IsRunning &&
@@ -650,7 +641,6 @@ namespace Iroca
             {
                 EditorGUILayout.BeginHorizontal();
 
-                // Before panel
                 EditorGUILayout.BeginVertical(GUILayout.Width(displayW));
                 EditorGUILayout.LabelField(Localization.Before, GUILayout.Width(displayW));
                 var rawRect = GUILayoutUtility.GetRect(displayW, displayH,
@@ -660,7 +650,6 @@ namespace Iroca
 
                 GUILayout.Space(IrocaConsts.Preview.PanelSpacing);
 
-                // After panel
                 EditorGUILayout.BeginVertical(GUILayout.Width(displayW));
                 EditorGUILayout.LabelField(Localization.After, GUILayout.Width(displayW));
                 activePreviewRect = GUILayoutUtility.GetRect(displayW, displayH,

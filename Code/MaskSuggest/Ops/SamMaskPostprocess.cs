@@ -55,7 +55,7 @@ namespace Iroca
             int lwCeil = Mathf.Min(LowRes, Mathf.CeilToInt(lw));
             int lhCeil = Mathf.Min(LowRes, Mathf.CeilToInt(lh));
 
-            // multimask チャンネル 1..3 の面積比を低解像度で見積もる
+            // multimask の各チャンネルを低解像度の面積比で比較する。
             var area = new float[4];
             for (int c = 1; c < 4; c++)
             {
@@ -145,11 +145,10 @@ namespace Iroca
         {
             int cOff = channel * LowRes * LowRes;
 
-            // 第 1 段: 256 → 1024(キャンバス全域、align_corners=False)
+            // 256 から 1024 のキャンバス全域へ補間する。
             const int S = SamImageOps.InputSize;
             var up = new float[S * S];
-            float scale1 = LowRes / (float)S; // 0.25
-            // 列方向の補間位置を前計算
+            float scale1 = LowRes / (float)S;
             var x0s = new int[S]; var x1s = new int[S]; var fxs = new float[S];
             for (int x = 0; x < S; x++)
             {
@@ -175,7 +174,7 @@ namespace Iroca
                 }
             });
 
-            // 第 2 段: [:newH,:newW] の切り出しを (texH,texW) へ bilinear → 閾値 0 → 下原点反転
+            // 有効領域を元テクスチャ寸法へ補間し、下原点へ戻す。
             var mask = new bool[texW * texH];
             float scaleX = newW / (float)texW, scaleY = newH / (float)texH;
             var cx0 = new int[texW]; var cx1 = new int[texW]; var cfx = new float[texW];

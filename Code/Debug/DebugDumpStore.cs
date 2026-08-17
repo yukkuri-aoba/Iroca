@@ -42,7 +42,6 @@ namespace Iroca.DebugTools
             {
                 Directory.CreateDirectory(outDir);
 
-                // zone × stage の strength と delta を書き出し
                 var fileEntries = new List<string>();
                 var stageIndexPerZone = new Dictionary<string, int>();
                 foreach (var snap in ctx.Snapshots)
@@ -64,7 +63,6 @@ namespace Iroca.DebugTools
                     }
                 }
 
-                // zone ごとの ownership と recolor branch
                 foreach (var zoneId in ctx.CollectZoneIds())
                 {
                     var ownershipTex = BuildAndSaveOwnership(ctx, zoneId, outDir);
@@ -74,7 +72,6 @@ namespace Iroca.DebugTools
                     if (branchTex != null) fileEntries.Add(branchTex);
                 }
 
-                // manifest.json
                 WriteManifest(outDir, ctx, sourceTextureName, timestamp, fileEntries);
 
                 return outDir;
@@ -86,7 +83,6 @@ namespace Iroca.DebugTools
             }
         }
 
-        // ──────────────────────────────────────────────────────
         private static void SaveGrayscalePng(byte[] quantized, int w, int h, string path)
         {
             if (quantized == null || quantized.Length != w * h) return;

@@ -20,7 +20,7 @@ namespace Iroca
                 MaskFileStore.DeleteMaskByGuid(guid);
                 SessionFileStore.DeleteSessionByGuid(guid);
             }
-            // 実際の削除は Unity 側に任せる。
+            // アセット本体の削除は Unity に続行させる。
             return AssetDeleteResult.DidNotDelete;
         }
     }

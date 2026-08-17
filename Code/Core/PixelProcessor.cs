@@ -38,7 +38,6 @@ namespace Iroca
         private static double TicksToMs(long ticks) =>
             ticks * 1000.0 / Stopwatch.Frequency;
 
-        // ───────────── フェーズ別計測(出力不変・加算のみ) ─────────────
         // ProcessPixelsArray の各段の所要時間を全ゾーン合算で累積し PerfReport に載せる。
         // どのフェーズが重いかを実 C# で測ってから最適化するための計測専用(値・分岐は変えない)。
         private const int PhHsv = 0, PhMatch = 1, PhHighlight = 2, PhFloodFill = 3,
@@ -50,7 +49,6 @@ namespace Iroca
             "BoundaryRecover", "Blur", "Decontaminate", "RegionStats", "Recolor",
         };
 
-        // ───────────── 選択キャッシュのキー生成(出力不変高速化) ─────────────
         // packed mask の内容ハッシュ(FNV-1a 64bit)。マスク編集を選択キーに反映するため。
         private static ulong MaskHash(ulong[] m)
         {
@@ -81,13 +79,11 @@ namespace Iroca
             I(extraN);
             for (int i = 0; i < extraN; i++) C(z.extraSamples[i]);
             F(z.tolerance);
-            // 矩形モードの選択範囲
             F(z.uvRect.x); F(z.uvRect.y); F(z.uvRect.width); F(z.uvRect.height);
             B(z.useFloodFill); F(z.seedUV.x); F(z.seedUV.y);
             F(z.edgeSoftness); F(z.saturationStrictness); F(z.valueWeight); F(z.satDistWeight);
             F(z.satRampScale); F(z.shadowForgivenessSatMin); F(z.chromaThreshold); F(z.saturationGuard);
             B(z.highlightRecovery); B(z.highlightBandExpand);
-            // 選択に効くグローバル後段設定
             F(edgeFeather); I(aaCleanup); I(holeFillPasses); I(holeFillMinNeighbors);
             F(relaxedSatMin); F(relaxedSatRamp);
             // マスク内容(common + zone)。ビット列のハッシュだけでは、同じビット列を別の寸法で
@@ -100,7 +96,6 @@ namespace Iroca
             return sb.ToString();
         }
 
-        // ───────────── 大テクスチャ向け専用 ArrayPool ─────────────
         // ArrayPool<T>.Shared は既定でバケット上限 2^20 要素。それを超える Rent は
         // 毎回 new[] を返し Return は捨てるため、2K(4.2M)/4K(16.8M) ではプールが
         // 全く効かず Rent ごとに LOH 新規確保が発生する(プレビュー再生成のたびに数百MB〜1GB)。
@@ -193,7 +188,6 @@ namespace Iroca
             long _t0 = Stopwatch.GetTimestamp();
             var _perfZones = new ZonePerfEntry[sortedZones.Count];
             int _perfIdx = 0;
-            // フェーズ別累積(ticks)。計測のみで出力には一切影響しない。
             var _phaseTicks = new long[PhaseCount];
             long _tp = _t0;
 
@@ -251,15 +245,12 @@ namespace Iroca
 
             foreach (var zone in sortedZones)
             {
-                // キャンセルチェック: 新しいプレビューリクエストが来た場合は即座に中断
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // このゾーンに紐付くゾーン別マスクを取得（存在しなければ null、packed ulong[]）
                 ulong[] zoneMask = null;
                 if (masks != null && masks.zones != null && !string.IsNullOrEmpty(zone.id))
                     masks.zones.TryGetValue(zone.id, out zoneMask);
 
-                // po は foreach 外で定義済みなので再宣言しない。
                 // Parallel.For に入る前にキャッシュを確定させてホットループ内の条件分岐を排除
                 zone.UpdateCacheIfNeeded();
                 long _tZone = Stopwatch.GetTimestamp();
@@ -307,7 +298,6 @@ namespace Iroca
 
                     if (selCached)
                     {
-                        // ヒット: マスク再適用直後の strength をそのまま復元(選択フェーズは全て省略)。
                         Array.Copy(cachedStrength, strength, len);
                     }
                     else
@@ -535,7 +525,6 @@ namespace Iroca
 
                     _phaseTicks[PhBoundary] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
-                    // 2. スムーズな端の遷移のためのガウシアンブラー（端に限定）
                     if (!selCached && edgeFeather > 0.01f && hasPostBox)
                     {
                         // ガウシアンブラー用の一時バッファ。GaussianBlur 内部の Parallel.For
@@ -989,9 +978,9 @@ namespace Iroca
                     if (strength != null) s_floatPool.Return(strength);
                     if (matchConf != null) s_floatPool.Return(matchConf);
                 }
-            } // foreach zone
+            }
 
-            } // end try (pixH/S/V)
+            }
             finally
             {
                 if (claimed != null) s_floatPool.Return(claimed);
@@ -1007,7 +996,6 @@ namespace Iroca
                 new PerfReport(TicksToMs(Stopwatch.GetTimestamp() - _t0), w, h, _perfZones, _perfPhases));
         }
 
-        // ───────────── 領域統計(RegionStats)の並列ヒストグラム集計 ─────────────
         // 集計対象が [from,to) の連続レンジ 1 本を処理するデリゲート。戻り値は集計した画素数。
         private delegate int HistChunk(int from, int to, int[] localHist);
 
@@ -1086,8 +1074,6 @@ namespace Iroca
             return scale;
         }
 
-        // 共通マスクとゾーン別マスクを OR 結合した除外判定。
-        // どちらか片方でも true ならそのピクセルはこのゾーン処理から除外される。
         private static bool IsExcludedCombined(int x, int y, int texW, int texH,
             ulong[] commonMask, ulong[] zoneMask, int maskW, int maskH)
         {
