@@ -1,6 +1,5 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-// Assets/Iroca/Editor/Infra/BuildHelper.cs
 // unitypackage エクスポート用ビルドヘルパー。
 // PowerShell スクリプト (build/ExportUnityPackage.ps1) から
 // Unity バッチモード (-executeMethod) 経由で呼び出される。
@@ -15,7 +14,6 @@ namespace Iroca
 {
     public static class BuildHelper
     {
-        // エクスポート対象の Assets 相対パス
         private const string ExportRoot = "Assets/Iroca";
 
         // Debug 衛星(Code/Debug/)は配布対象外。IrocaEditor.Debug.asmdef は defineConstraints 無し
@@ -33,7 +31,6 @@ namespace Iroca
             string outputPath = GetArgValue("-outputPath");
             if (string.IsNullOrEmpty(outputPath))
             {
-                // デフォルト出力先（プロジェクトルート）
                 outputPath = Path.Combine(
                     Application.dataPath, "..",
                     "com.yukkuri-aoba.iroca.unitypackage");
@@ -78,7 +75,6 @@ namespace Iroca
             Debug.Log($"[BuildHelper] エクスポート完了: {outputPath}（{included.Count} アセット, Code/Debug 除外）");
         }
 
-        // コマンドライン引数から値を取得するユーティリティ
         private static string GetArgValue(string key)
         {
             var args = Environment.GetCommandLineArgs();

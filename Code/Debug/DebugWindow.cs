@@ -21,18 +21,15 @@ namespace Iroca.DebugTools
             RecolorBranch,
         }
 
-        // ── EditorPrefs キー ───────────────────────────
         private const string PrefKeyStage = "Iroca.Debug.SelectedStage";
         private const string PrefKeyZone = "Iroca.Debug.SelectedZone";
         private const string PrefKeyMode = "Iroca.Debug.Mode";
 
-        // ── ウィンドウ自身が保持する選択状態 ──────────
         [SerializeField] private int _selectedStageIndex;
         [SerializeField] private string _selectedZoneId = "";
         [SerializeField] private Mode _mode;
         [SerializeField] private Vector2 _scrollPos;
 
-        // ── 表示用テクスチャ ─────────────────────────
         [System.NonSerialized] private Texture2D _overlayTexture;
         // overlay 再生成判定用に「最後にどのキャプチャを描いたか」を覚えておく。
         [System.NonSerialized] private DebugCaptureContext _overlayBuiltFrom;
@@ -109,7 +106,6 @@ namespace Iroca.DebugTools
             DrawDumpButton(ctx);
         }
 
-        // ──────────────────────────────────────────────
         private void DrawToolbar(DebugCaptureContext ctx)
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
@@ -242,7 +238,6 @@ namespace Iroca.DebugTools
             }
         }
 
-        // ─── オーバーレイ構築 ─────────────────────────
         private void EnsureOverlayUpToDate(DebugCaptureContext ctx)
         {
             string key = _selectedZoneId + "|" + (int)_mode + "|" + _selectedStageIndex;

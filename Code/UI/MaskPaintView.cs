@@ -15,14 +15,12 @@ namespace Iroca
     [System.Serializable]
     internal partial class MaskPaintView
     {
-        // ─── シリアライズ対象（UI 状態） ─────────────────────────────
         // どのマスクを編集対象にするか。-1 = 共通マスク、0 以上 = zones[index]。
         public int activeMaskTarget = -1;
         public int brushSize = 8;
         public bool brushEraseMode; // false = 除外ペイント、true = 除外消去
         public bool maskFoldout = true;
 
-        // ─── 実行時バッファ（NonSerialized） ──────────────────────────
         // 共通マスク（フル解像度、true = 除外）。全ゾーンに適用される。
         [System.NonSerialized] public bool[] exclusionMask;
         [System.NonSerialized] public int maskWidth, maskHeight;
@@ -59,10 +57,8 @@ namespace Iroca
         // データ恒久消失に化けるのを防ぐ）。有効な内容を保存できたら解除。
         [System.NonSerialized] private bool _maskLoadFailed;
 
-        // 共通マスク用のターゲットキー（SessionState キーにも使う）
         public const string CommonMaskKey = "__common__";
 
-        // マスクペイントモード: ブラシストロークが機能する前に明示的にアクティベートされる必要があります
         [System.NonSerialized] public bool maskPaintActive;
 
         [System.NonSerialized] private IrocaWindow _host;
@@ -95,8 +91,6 @@ namespace Iroca
         /// <summary>AI 提案モードがプレビューの右クリックを受け取るべきか。</summary>
         public bool AiSuggestArmed => _suggestController != null && _suggestController.Active;
 
-        // ─────────────────────── 除外マスク UI ───────────────────────
-
         public void Draw()
         {
             maskFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(maskFoldout, Localization.ExclusionMask);
@@ -119,7 +113,6 @@ namespace Iroca
             }
             GUI.backgroundColor = prevBg;
 
-            // AI マスク提案(Sentis 導入時は本編、未導入時はワンクリック有効化の導線を描く)
             MaskSuggestSection.Draw(_host, this);
 
             if (GUILayout.Button(new GUIContent(Localization.ClearMask, Localization.ClearMaskTooltip)))
@@ -157,7 +150,6 @@ namespace Iroca
         /// </summary>
         public void DrawBrushPalette()
         {
-            // 現在の編集対象（メインの「編集対象」プルダウンで選択）を読み取り表示する。
             var zones = _host.Session.zones;
             string targetName;
             if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
@@ -175,7 +167,6 @@ namespace Iroca
                 new GUIContent(Localization.BrushSize, Localization.BrushSizeTooltip),
                 brushSize, 1, 64);
 
-            // Exclude / Include ボタン: 押すとペイントモードON+モード選択、同じボタン再押しでOFF
             bool excludeActive = maskPaintActive && !brushEraseMode;
             bool includeActive = maskPaintActive && brushEraseMode;
             bool stateChanged = false;
@@ -215,7 +206,6 @@ namespace Iroca
                 maskPaintActive ? Localization.MaskHint : Localization.MaskHintPaintOff,
                 MessageType.Info);
 
-            // メイン側の「ブラシで編集」ハイライトを即時同期する。
             if (stateChanged)
                 _host.RequestRepaint();
         }
@@ -277,8 +267,6 @@ namespace Iroca
                 _host.RequestRepaint();
             }
         }
-
-        // ─────────────────────── マスク確保 ─────────────────────────
 
         /// <summary>
         /// マスクの座標系（maskWidth/maskHeight）を sourceTexture に揃える。
@@ -430,7 +418,6 @@ namespace Iroca
             if (!string.IsNullOrEmpty(id))
                 zoneMasks.Remove(id);
 
-            // アクティブターゲットの調整
             if (activeMaskTarget == index) activeMaskTarget = -1;
             else if (activeMaskTarget > index) activeMaskTarget--;
 
@@ -459,8 +446,6 @@ namespace Iroca
             }
             maskDirty = true;
         }
-
-        // ─────────────────────── ペイント ─────────────────────────
 
         /// <summary>
         /// ブラシ 1 スタンプ分を塗る。gridW/gridH は表示プレビューの画素格子
@@ -591,8 +576,6 @@ namespace Iroca
             if (tex != null) tex.Apply();
         }
 
-        // ─────────────────────── マスクオーバーレイ（非同期） ─────────────────────────
-
         // バックグラウンドで生成したオーバーレイ Color32[] をメインスレッドで Texture2D に
         // 書き戻すまでの中継。SetPixels32 / Apply は Unity API なので必ずメインスレッド。
         private struct OverlayResult
@@ -630,11 +613,9 @@ namespace Iroca
             bool commonIsActive = activeMaskTarget < 0
                 || zones == null || activeMaskTarget >= zones.Count;
 
-            // 共通マスク bool[] のスナップショット（共通マスクが編集対象のときのみ）
             bool[] commonSnap = (commonIsActive && exclusionMask != null)
                 ? (bool[])exclusionMask.Clone() : null;
 
-            // ゾーン別マスクのスナップショット（編集対象ゾーンのみ）
             var zoneInfos = new List<(Color32 color, bool[] mask)>();
             if (!commonIsActive && capMw > 0 && capMh > 0)
             {
@@ -783,8 +764,6 @@ namespace Iroca
                 100);
         }
 
-        // ───────────────────────── Mask Stroke Undo ────────────────────────────
-
         /// <summary>
         /// ペイントストローク開始時に呼び、ストローク前の状態を Unity Undo に登録する。
         /// 同一ストローク内で複数回呼ばれても _maskStrokeStarted で抑止される。
@@ -813,8 +792,6 @@ namespace Iroca
             // 正規の再構築を予約して収束させる(保留した非同期結果や対象切替の過渡も含む)。
             maskDirty = true;
         }
-
-        // ───────────────────────── Processing 用スナップショット ────────────────────
 
         /// <summary>
         /// 現在のマスク状態をスナップショット化する（deep clone）。

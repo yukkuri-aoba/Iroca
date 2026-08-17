@@ -28,7 +28,6 @@ namespace Iroca.SentisIntegration
         const int CropEmbeddingCacheCapacity = 4;
         const int EmbeddingLength = 1 * 256 * 64 * 64;
 
-        // ─── モデル/ワーカー ───
         Model _encoderModel, _decoderModel;
         Worker _encoder, _decoder;
         BackendType _backend;
@@ -39,13 +38,11 @@ namespace Iroca.SentisIntegration
         // 時間になるので、埋め込み計算の直後に 1 回だけ捨て推論して温めておく。
         bool _decoderWarmed;
 
-        // ─── 状態 ───
         MaskSuggestPhase _phase = MaskSuggestPhase.NoModel;
         float _progress;
         string _error;
         public event Action StateChanged;
 
-        // ─── ソース/埋め込み ───
         string _sourceKey;
         Color32[] _sourcePixels;
         int _texW, _texH;
@@ -53,7 +50,6 @@ namespace Iroca.SentisIntegration
         readonly Dictionary<string, float[]> _embeddingCache = new Dictionary<string, float[]>();
         readonly List<string> _lruOrder = new List<string>();
 
-        // ─── 進行中の処理 ───
         readonly EditorIteratorPump _pump = new EditorIteratorPump();
         readonly EditorReadbackPoller _readback = new EditorReadbackPoller();
         PreviewJob<float[]> _prepJob;
@@ -81,7 +77,6 @@ namespace Iroca.SentisIntegration
             }
         }
 
-        // ─── 段別計測(値の取得は常時・ログ整形は MaskSuggestPerf.Enabled 時のみ) ───
         long _clickStartedAt;        // クリック処理(デコード)開始
         double _clickQueueWaitMs;    // クリック受理 → 処理開始までの待ち
         double _clickDecodeMs;       // 第 1 段デコーダ
@@ -94,7 +89,6 @@ namespace Iroca.SentisIntegration
         double _encodePrepMs;        // BuildEncoderInput(BG スレッド)
         long _pumpStartedAt;         // pump 開始
 
-        // ─── クロップ埋め込み(ズームイン再推論) ───
         readonly Dictionary<string, float[]> _cropEmbeddingCache = new Dictionary<string, float[]>();
         readonly List<string> _cropLruOrder = new List<string>();
 
@@ -112,7 +106,6 @@ namespace Iroca.SentisIntegration
             public bool hasCrop;
             public int cropX0, cropY0, cropSide;
             public Color32[] cropPixels;
-            // 後処理の所要時間(BG スレッドで計測し、メインスレッド側の集計へ運ぶ)
             public double postMs;
             public double refineMs; // 精密化 3 段(走ったときのみ非 0)
         }
@@ -150,7 +143,6 @@ namespace Iroca.SentisIntegration
             StateChanged?.Invoke();
         }
 
-        // ───────────────────────── モデルロード ─────────────────────────
         public bool TryEnsureModels()
         {
             if (_modelsLoaded) return true;
@@ -220,13 +212,12 @@ namespace Iroca.SentisIntegration
             }
         }
 
-        // ───────────────────────── ソース設定/エンコード ─────────────────────────
         public void SetSource(string cacheKey, Color32[] pixelsBottomUp, int width, int height)
         {
             if (!_modelsLoaded) return;
             if (cacheKey == _sourceKey &&
                 (_embedding != null || _phase == MaskSuggestPhase.Encoding))
-                return; // 同一ソースで計算済み/計算中
+                return;
 
             CancelOps();
             _sourceKey = cacheKey;
@@ -274,7 +265,7 @@ namespace Iroca.SentisIntegration
 
         void StartEncoderPump(float[] chw)
         {
-            if (_phase != MaskSuggestPhase.Encoding) return; // キャンセル済み
+            if (_phase != MaskSuggestPhase.Encoding) return;
             try
             {
                 _encInput = new Tensor<float>(
@@ -401,7 +392,7 @@ namespace Iroca.SentisIntegration
         void RunDecoderWarmup()
         {
             EditorApplication.delayCall -= RunDecoderWarmup;
-            if (_phase != MaskSuggestPhase.Decoding || _embedding == null) return; // キャンセル済み
+            if (_phase != MaskSuggestPhase.Decoding || _embedding == null) return;
             long t0 = MaskSuggestPerf.Now;
             TryRunDecoderCore(0.5f, 0.5f, cropRect: null, out _, out _, out _);
             MaskSuggestPerf.Log($"デコーダ暖機: {MaskSuggestPerf.MsSince(t0):F0}ms");
@@ -434,7 +425,6 @@ namespace Iroca.SentisIntegration
             SetPhase(MaskSuggestPhase.Error, error: $"画像の解析に失敗しました: {e.Message}");
         }
 
-        // ───────────────────────── クリック → 提案 ─────────────────────────
         public int PendingClickCount => _clickQueue.Count + (_clickInFlight ? 1 : 0);
 
         public bool RequestProposal(float u, float v, MaskSuggestGranularity granularity)
@@ -445,7 +435,7 @@ namespace Iroca.SentisIntegration
                 case MaskSuggestPhase.Encoding:
                 case MaskSuggestPhase.Decoding:
                     _clickQueue.Enqueue(new PendingClick(u, v, granularity));
-                    StateChanged?.Invoke(); // 処理待ち件数の表示更新
+                    StateChanged?.Invoke();
                     return true;
                 case MaskSuggestPhase.Idle:
                 case MaskSuggestPhase.ProposalReady:
@@ -464,7 +454,7 @@ namespace Iroca.SentisIntegration
             _clickQueue.Clear();
             // 進行中の 1 件は途中で殺さず完走させ、提案だけ捨てる(GPU/ジョブの中断より単純で安全)。
             if (_clickInFlight) _discardInFlight = true;
-            StateChanged?.Invoke(); // 件数表示更新
+            StateChanged?.Invoke();
         }
 
         /// <summary>キュー先頭のクリックを取り出してデコードを開始する。</summary>
@@ -496,7 +486,7 @@ namespace Iroca.SentisIntegration
         void ProcessNextQueuedClick()
         {
             EditorApplication.delayCall -= ProcessNextQueuedClick;
-            if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み
+            if (_phase != MaskSuggestPhase.Decoding) return;
             if (_clickQueue.Count == 0) // 予約後に FlushPendingClicks が挟まった
             {
                 SetPhase(MaskSuggestPhase.Idle);
@@ -571,7 +561,7 @@ namespace Iroca.SentisIntegration
                 },
                 o =>
                 {
-                    if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み
+                    if (_phase != MaskSuggestPhase.Decoding) return;
                     _clickPostMs = o.postMs;
                     _clickRefineMs = o.refineMs;
                     if (o.hasCrop) StartZoomStage(o, u, v, granularity);
@@ -653,7 +643,6 @@ namespace Iroca.SentisIntegration
             SetPhase(MaskSuggestPhase.ProposalReady);
         }
 
-        // ───────────────────────── ズームイン再推論(第 2 段) ─────────────────────────
         // 小パーツはクリック周辺クロップを再エンコード・再デコードして実効解像度を上げる
         // (計測: dev_safe/ml/zoom_infer_spike2.py。バンダナ三角 IoU 0.04-0.10 → 0.94-0.97)。
         // 失敗時は第 1 段の提案へグレースフルに退避し、エラー状態にはしない。
@@ -693,7 +682,7 @@ namespace Iroca.SentisIntegration
         void StartZoomEncoderPump(float[] chw, string key, PostOutcome plan,
                                   float u, float v, MaskSuggestGranularity granularity)
         {
-            if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み
+            if (_phase != MaskSuggestPhase.Decoding) return;
             try
             {
                 _encInput = new Tensor<float>(
@@ -765,7 +754,7 @@ namespace Iroca.SentisIntegration
         void RunZoomDecode(float[] cropEmbedding, PostOutcome plan,
                            float u, float v, MaskSuggestGranularity granularity)
         {
-            if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み
+            if (_phase != MaskSuggestPhase.Decoding) return;
             long tDec = MaskSuggestPerf.Now;
             if (!TryRunDecoderCore(u, v, (plan.cropX0, plan.cropY0, plan.cropSide, cropEmbedding),
                                    out float[] logits, out float[] scores, out Exception decErr))
@@ -797,7 +786,7 @@ namespace Iroca.SentisIntegration
                 },
                 o =>
                 {
-                    if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み
+                    if (_phase != MaskSuggestPhase.Decoding) return;
                     _clickZoomPostMs = o.postMs;
                     DeliverProposal(o);
                 },
@@ -806,7 +795,7 @@ namespace Iroca.SentisIntegration
 
         void FallbackToStage1(PostOutcome plan, Exception e)
         {
-            if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み
+            if (_phase != MaskSuggestPhase.Decoding) return;
             if (e != null)
                 Debug.LogWarning($"[Iroca] ズームイン再推論に失敗したため全体推論の提案を表示します: {e.Message}");
             // ズーム計画の第 1 段マスクは粗マスクのまま(発火時は精密化を省く)。そのまま
@@ -829,7 +818,7 @@ namespace Iroca.SentisIntegration
                 },
                 o =>
                 {
-                    if (_phase != MaskSuggestPhase.Decoding) return; // キャンセル済み
+                    if (_phase != MaskSuggestPhase.Decoding) return;
                     _clickRefineMs = o.refineMs;
                     DeliverProposal(o);
                 },
@@ -864,7 +853,6 @@ namespace Iroca.SentisIntegration
             return true;
         }
 
-        // ───────────────────────── キャンセル/破棄 ─────────────────────────
         public void CancelAll()
         {
             CancelOps();

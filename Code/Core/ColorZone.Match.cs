@@ -332,7 +332,6 @@ namespace Iroca
                 return;
             }
 
-            // 基礎パラメータの計算
             float satConfidence = Mathf.Clamp01((pS - sc.satMin) / sc.satRamp);
             float hDist = CalculateHueDistance(pH, sc.sH);
             float sRatio = (sc.sS > 0.01f) ? Mathf.Clamp01(pS / sc.sS) : 1f;
@@ -384,18 +383,15 @@ namespace Iroca
 
                 satConfidence = Mathf.Max(satConfidence, brightForgiveness);
             }
-            // 各距離の計算
             float dist = CalculateHybridDistance(in sc, pixelColor, pS, pV, effectiveHDist, sRatio,
                                                  brightActive, brightForgiveness);
             float gate = Mathf.Lerp(1f, satConfidence, sc.chromaConfidence);
 
-            // 通常マッチ強度
             strength = CalculateEdgeStrength(dist, hardRange, softRange) * gate;
             // FF コア判定用: 有彩モードの色一致確信度。strength は彩度ゲートを掛けるため色の近さを
             // 表さない。dist(実マッチ距離)を「確信できる地色」の固定半径 CoreMatchDistance で正規化。
             if (strength > 0f) matchConf = Mathf.Clamp01(1f - dist / CoreMatchDistance);
 
-            // ハイライト復元マッチ
             if (highlightRecovery)
             {
                 highlightPotential = CalculateHighlightRecovery(in sc, pH, pS, pV, effectiveHDist, sRatio);

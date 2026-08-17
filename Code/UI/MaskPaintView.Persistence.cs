@@ -7,10 +7,8 @@ using UnityEngine;
 
 namespace Iroca
 {
-    // MaskPaintView: マスクの永続化(MaskCache ファイル/セッション同期/レガシー移行/エンコード/プリセット連携)。
     internal partial class MaskPaintView
     {
-        // ───────────────────────── Mask Persistence ────────────────────
 
         private string MaskTexturePath()
         {
@@ -209,7 +207,6 @@ namespace Iroca
                 }
 
                 EraseLegacySessionEntries(path, idx);
-                // bool[] → MaskState → File へ確定保存
                 SaveToSession();
                 return true;
             }
@@ -266,8 +263,6 @@ namespace Iroca
             maskDirty = true;
         }
 
-        // ─────────────────────── Encode / Decode ────────────────────
-
         private static bool AnyTrue(bool[] arr)
         {
             if (arr == null) return false;
@@ -285,8 +280,6 @@ namespace Iroca
         /// </summary>
         public static bool[] DecodeMask(string encoded, out int w, out int h) =>
             MaskRle.Decode(encoded, out w, out h);
-
-        // ───────────────────────── プリセット連携 ────────────────────
 
         /// <summary>
         /// プリセット内のマスクデータで現在のマスク状態を置き換える。

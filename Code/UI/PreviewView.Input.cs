@@ -10,7 +10,6 @@ namespace Iroca
     // PreviewView: プレビュー上の入力処理(ズーム/パン/マスクペイント/FF シード/スポイト)。
     internal partial class PreviewView
     {
-        // ───────────────────────── Preview Input ─────────────────────────
 
         private void HandlePreviewGlobalInput(Rect previewRect, float scale)
         {
@@ -304,8 +303,6 @@ namespace Iroca
             }
         }
 
-        // ───────────────────────── Eyedropper（プレビュー直接スポイト） ─────────────────────────
-
         // プレビュー上のクリックで、武装中ゾーンのサンプルカラーを実テクスチャ画素から取得する。
         // 一発取得したら自動で武装解除する（one-shot）。マスクペイント中は呼ばれない。
         private void HandleEyedropperInput(Rect previewRect, int srcW, int srcH)
@@ -407,7 +404,6 @@ namespace Iroca
             }
         }
 
-        // ─────────────────── AI マスク提案のクリック入力 ───────────────────
         // クリック位置を UV(下原点)に変換してコントローラへ渡す。実際の推論・提案表示は
         // MaskSuggestController + Sentis サービス側が担い、ここは入力の横取りだけを行う。
         //

@@ -123,8 +123,6 @@ namespace Iroca
             _host?.RequestRepaint();
         }
 
-        // ─────────────────── クリック → 推論 → 即マスク反映 ───────────────────
-
         /// <summary>
         /// クリックを待たずにソース画像の解析(埋め込み計算)を先行させる。
         ///
@@ -180,7 +178,7 @@ namespace Iroca
             if (svc.Phase == MaskSuggestPhase.ProposalReady &&
                 svc.TryTakeProposal(out var proposal))
             {
-                // サービスは FIFO 処理なので、届いた提案 = マーカー先頭のクリック分。
+                // サービスは FIFO のため、提案は保留クリックの先頭に対応する。
                 if (_pendingClicks.Count > 0) _pendingClicks.RemoveAt(0);
                 long clickAt = 0;
                 if (_pendingClickTimes.Count > 0)
@@ -188,7 +186,7 @@ namespace Iroca
                     clickAt = _pendingClickTimes[0];
                     _pendingClickTimes.RemoveAt(0);
                 }
-                // モードを抜けていたら反映しない(Undo 割り込み分はサービス側で破棄済み)。
+                // モード解除後に完了した提案はマスクへ反映しない。
                 if (Active && proposal != null)
                     CommitProposalToMask(proposal, clickAt);
             }
@@ -292,8 +290,7 @@ namespace Iroca
                         }
                         catch (System.Exception)
                         {
-                            // 非 Readable 等で画素が取れない場合は被覆保存転写のみ
-                            // (最近傍起因の強い点ノイズはこれだけでも解消する)。
+                            // 画素を取得できない場合も、被覆保存転写だけで提案を適用できる。
                         }
                     }
                     t = MaskSuggestPerf.Now;

@@ -6,15 +6,11 @@ using UnityEngine;
 
 namespace Iroca
 {
-    // ウィンドウ全体のレイアウト・描画（OnGUI とその直下のセクション描画）。
-    // 横並び/縦並びの分岐、ヘッダー、テクスチャフィールド、処理設定、ジョブオーバーレイ。
     public partial class IrocaWindow
     {
-        // Foldout
         [SerializeField] private bool processingFoldout = true;
 
         private Vector2 scrollPos;
-        // 横並びレイアウトの左右カラム用スクロール
         private Vector2 leftScrollPos;
         // プレビュー側の縦オーバーフロー用。プレビュー枠はカラム高に収まるよう動的に縮む
         // (PreviewView.availableColumnHeight)が、下限(MinViewportHeight)まで縮んでも
@@ -151,14 +147,11 @@ namespace Iroca
             DrawProcessingSection();
         }
 
-        // ── 横並びレイアウト: 上部テクスチャ（フル幅）＋左（設定）／右（プレビュー）＋下部エクスポート ──
         private void DrawSideBySideLayout(float availableContentH, float exportH)
         {
-            // ── 上部: テクスチャフィールド（フル幅） ──
             EditorGUI.BeginChangeCheck();
             DrawTextureField();
 
-            // ── 横並び: 左（設定）＋ 右（プレビュー） ──
             // エクスポートセクションを常にウィンドウ下部に表示するため、
             // 横並び領域の高さを「描画領域高 - ヘッダー/テクスチャフィールド - エクスポート高」に制限する。
             //
@@ -190,7 +183,6 @@ namespace Iroca
 
             EditorGUILayout.BeginHorizontal(GUILayout.Height(horizH));
 
-            // 左カラム: ゾーン設定 + 処理設定 + マスク + プリセット
             float leftWidth = Mathf.Clamp(
                 position.width * IrocaConsts.Layout.LeftColumnRatio,
                 IrocaConsts.Layout.LeftColumnMin,
@@ -238,7 +230,6 @@ namespace Iroca
             EditorGUILayout.EndScrollView();
             EditorGUILayout.EndVertical();
 
-            // 右カラム: プレビュー
             // ExpandHeight な ScrollView で囲うことで、プレビューが
             // 横並びセクション高（horizH）を超えても列内でスクロールするようになり、
             // 下部のエクスポートセクションを押し出さない。
@@ -272,13 +263,11 @@ namespace Iroca
 
             EditorGUILayout.EndHorizontal();
 
-            // ── 下部: エクスポート（フル幅・常に表示） ──
             // 一括適用は実装継続中のため当面 UI から非表示。
             // _exportView.DrawBatchSection();
             _exportView.DrawExportSection();
         }
 
-        // ── 縦並びレイアウト（ウィンドウ幅が狭い場合）: 上部スクロール＋下部エクスポート ──
         private void DrawVerticalLayout(float availableContentH, float exportH)
         {
             // エクスポートを常にウィンドウ下部に表示するため、上部だけをスクロール領域にする。
@@ -328,13 +317,11 @@ namespace Iroca
             EditorGUIUtility.labelWidth = prevLabelWidth;
             EditorGUILayout.EndScrollView();
 
-            // ── 下部: エクスポート（フル幅・常に表示） ──
             // 一括適用は実装継続中のため当面 UI から非表示。
             // _exportView.DrawBatchSection();
             _exportView.DrawExportSection();
         }
 
-        // ── プレビューを別ウィンドウへ切り出しているときの、本体側プレビュー位置の中身 ──
         // 縦並び(狭幅)では常にここを描き、横並びでは別ウィンドウが開いている間だけ描く。
         // canReattach=false(縦並び)では「本体に戻す」を出さない。戻しても設定列の下に
         // 押し出されて実用にならず、押した直後にまたこの案内へ戻るだけになるため。
@@ -384,8 +371,6 @@ namespace Iroca
             }
         }
 
-        // ───────────────────────── ヘッダー ───────────────────────────
-
         /// <param name="jobBlocking">
         /// ジョブ実行中か。ヘッダー自体は DisabledScope の外に置く（言語切替・クレジットは
         /// ジョブ中でも安全で、むしろ待ち時間に触れて困らない）が、セッション状態を破壊的に
@@ -395,7 +380,6 @@ namespace Iroca
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
 
-            // Language selector
             var labels = new[]
             {
                 new GUIContent(Localization.LangAuto, Localization.LanguageToolbarTooltip),
@@ -436,8 +420,6 @@ namespace Iroca
             EditorGUILayout.EndHorizontal();
         }
 
-        // ───────────────────────── テクスチャフィールド ───────────────────────────
-
         private void DrawTextureField()
         {
             EditorGUILayout.Space(4);
@@ -452,14 +434,12 @@ namespace Iroca
                 sourceTexture, typeof(Texture2D), false);
             if (newTex != sourceTexture)
             {
-                // 旧テクスチャのマスク＋セッション（ゾーン/色/処理設定）を永続化。
                 // マスク保存失敗時はユーザーに通知（黙って消えないように）。
                 if (!SavePersistedSessionForCurrentTexture())
                     ShowNotification(new GUIContent($"{Localization.Error}: {Localization.MaskSaveFailed}"));
                 // _session をまるごと差し替えるため、深い Undo (RegisterCompleteObjectUndo) を使う。
                 Undo.RegisterCompleteObjectUndo(this, "Change Source Texture");
                 sourceTexture = newTex;
-                // テクスチャが変わったのでソースピクセルキャッシュを無効化
                 _previewView.InvalidateSourceCache();
                 _maskView.ClearBuffersOnTextureChange();
                 if (sourceTexture != null)
@@ -467,7 +447,6 @@ namespace Iroca
                     var path = AssetDatabase.GetAssetPath(sourceTexture);
                     _exportView.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(path));
                 }
-                // 新テクスチャのセッション（ゾーン/色/処理設定）＋マスクを復元（保存が無ければ既定へ）。
                 LoadPersistedSessionForCurrentTexture();
                 RememberLastEditedTexture();
             }
@@ -484,8 +463,6 @@ namespace Iroca
 
             EditorGUILayout.Space(4);
         }
-
-        // ───────────────────────── 処理設定 ───────────────────────────
 
         private void DrawProcessingSection()
         {

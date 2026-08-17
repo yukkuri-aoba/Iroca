@@ -11,7 +11,6 @@ namespace Iroca
     // PreviewView: 非同期プレビュー生成(プロキシ/フル解像度ジョブ・pending 適用・diff 生成)。
     internal partial class PreviewView
     {
-        // ───────────────────────── Preview Async Generation ─────────────────────────
 
         private void GeneratePreviewAsync()
         {
@@ -270,8 +269,6 @@ namespace Iroca
             _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
             _detailView.detailJob.Cancel();
         }
-
-        // ───────────────────────── Diff Texture（非同期） ─────────────────────────
 
         /// <summary>
         /// Before/After の Color32 配列から差分ハイライトをバックグラウンドで生成する。

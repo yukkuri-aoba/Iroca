@@ -11,7 +11,6 @@ using UnityEngine;
 
 namespace Iroca
 {
-    // PixelProcessor: ハイライト処理(コアからの空間伝播・sample→白 軸の帯成長)。
     internal static partial class PixelProcessor
     {
         /// <summary>
@@ -72,7 +71,6 @@ namespace Iroca
                 {
                     bool changed = false;
 
-                    // 左上から右下へのパス (候補のみ・ラスタ順)
                     for (int k = 0; k < nCand; k++)
                     {
                         // 伝播スイープは逐次(順序依存)なので、一定間隔でキャンセルだけ見る。
@@ -87,7 +85,6 @@ namespace Iroca
                             if (x > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - 1]);
                             if (y > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - w]);
 
-                            // 右と下も覗き見る (現在の状態で)
                             if (x < w - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + 1]);
                             if (y < h - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + w]);
 
@@ -103,7 +100,6 @@ namespace Iroca
                         }
                     }
 
-                    // 右下から左上へのパス (候補のみ・逆ラスタ順)
                     for (int k = nCand - 1; k >= 0; k--)
                     {
                         if ((k & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
@@ -117,7 +113,6 @@ namespace Iroca
                             if (x < w - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + 1]);
                             if (y < h - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + w]);
 
-                            // 左と上も覗き見る
                             if (x > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - 1]);
                             if (y > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - w]);
 
@@ -263,7 +258,6 @@ namespace Iroca
                 }
             });
 
-            // core から候補領域へ 4 連結 BFS（候補セルのみ拡張）
             while (qHead < qTail)
             {
                 int packed = queue[qHead++];
@@ -273,7 +267,6 @@ namespace Iroca
                 if (x < w - 1) TryVisit(idx + 1, (y << 16) | (x + 1));
                 if (y > 0)     TryVisit(idx - w, ((y - 1) << 16) | x);
                 if (y < h - 1) TryVisit(idx + w, ((y + 1) << 16) | x);
-                // 逐次 BFS なので定期的にキャンセルを見る(数値ロジックは不変)。
                 if ((qHead & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
             }
 

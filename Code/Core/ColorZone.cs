@@ -131,12 +131,10 @@ namespace Iroca
         internal const float GrayHighlightHeadroom = 0.55f;
         internal const float GrayLumExcessWeight   = 1.2f;
 
-
         public string name = "Zone";
         public bool enabled = true;
         public SelectionMode mode = SelectionMode.ColorPick;
 
-        // カラーピックモード
         public Color sampleColor = Color.white;
         // ユーザーがサンプルカラーを実際に指定したか。既定の白を「未指定センチネル」として
         // 扱うと、白い服・白髪など「色替え対象が白」という正当なケースまで自動調整不可になる。
@@ -155,7 +153,6 @@ namespace Iroca
         // 出力を主サンプル基準に固定するのは autoRecolorAnchor と同じ「選択と出力の分離」方針に沿う。
         public List<Color> extraSamples = new List<Color>();
 
-        // 矩形モード（UV座標0-1）
         public Rect uvRect = new Rect(0, 0, 1, 1);
 
         // Flood Fill（連続領域モード／連結成分アンカリング）: ColorPick モードで有効。
@@ -167,7 +164,6 @@ namespace Iroca
         // シード点のUV座標（0-1）。負値 = 未設定
         public Vector2 seedUV = new Vector2(-1f, -1f);
 
-        // 変更先
         public Color targetColor = Color.white;
 
         [Range(0f, 1f)]
@@ -247,7 +243,6 @@ namespace Iroca
         /// </summary>
         public bool HasSampleColor => sampleColorSet || sampleColor != Color.white;
 
-        // === 事前計算キャッシュ ===
         [NonSerialized] private bool _cacheInitiated = false;
         [NonSerialized] private Color _cSampleColor;
         [NonSerialized] private float _cTolerance, _cSatStrictness, _cSatRampScale, _cEdgeSoftness;
@@ -258,7 +253,7 @@ namespace Iroca
         // 遅延キャッシュ構築(ColorZone.Match の安全網)を直列化するゲート。Unity の逆シリアライズで
         // フィールド初期化子が走らない可能性があるため、初期化子ではなく遅延生成する。
         [NonSerialized] private object _cacheGate;
-        // extraSamples の変更検知用スナップショット（内容が変わったらキャッシュを作り直す）。
+        // extraSamples の内容が変わった場合にキャッシュを再構築するためのスナップショット。
         [NonSerialized] private Color[] _cExtraSamples;
 
         // サンプルごとに変わる派生値（HSV・彩度ゲート床など）。マルチサンプルでは
@@ -292,7 +287,6 @@ namespace Iroca
         }
         [NonSerialized] private SampleCache[] _sampleCaches;
 
-        // ゾーン共通のキャッシュ値（サンプルに依存しない）
         [NonSerialized] private float softRange, hardRange;
         [NonSerialized] private float hlHueCap;
         [NonSerialized] private float hlSoftRange, hlHardRange;

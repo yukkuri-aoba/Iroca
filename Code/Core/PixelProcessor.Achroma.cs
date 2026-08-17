@@ -11,7 +11,6 @@ using UnityEngine;
 
 namespace Iroca
 {
-    // PixelProcessor: 無彩(achroma)再着色サポート(定数・中性リジェクト・内部固め・成分別 L 統計)。
     internal static partial class PixelProcessor
     {
         // ───────── 無彩(achroma)パス: 無彩サンプル / 極端無彩ターゲットの再着色破綻対策 ─────────
@@ -295,7 +294,6 @@ namespace Iroca
             // 変わるが、出力は「成分ごとの L の P80 をその成分の全画素へ配る」だけで番号に
             // 依存せず、ヒストグラムは整数加算なので集計順にも依存しない = 出力ビット不変。
 
-            // ① 行ごとの run 数 → オフセット → run の x 範囲
             var runCount = new int[bh];
             Parallel.For(0, bh, bboxPo, ly =>
             {
@@ -333,7 +331,6 @@ namespace Iroca
                 }
             });
 
-            // ② 上下隣接行の run を 2 ポインタで走査し、x 範囲が重なるものを結合
             parent = s_intPool.Rent(R);
             for (int r = 0; r < R; r++) parent[r] = r;
             var par = parent;
@@ -358,7 +355,6 @@ namespace Iroca
                 }
             }
 
-            // run → 成分 index(0..C-1)へ圧縮
             comp = s_intPool.Rent(R);
             var rootToComp = new Dictionary<int, int>();
             int compCount = 0;
@@ -369,7 +365,6 @@ namespace Iroca
                 comp[r] = c;
             }
 
-            // ③ 成分ごとの L ヒストグラム(run 単位の連続アクセス)
             var hists = new int[compCount][];
             for (int c = 0; c < compCount; c++) hists[c] = new int[256];
             var sizes = new int[compCount];

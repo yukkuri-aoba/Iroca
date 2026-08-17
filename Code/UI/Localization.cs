@@ -51,22 +51,18 @@ namespace Iroca
             }
         }
 
-        // ─── Window ───
         public static string WindowTitle => "いろか";
 
-        // ─── Header / Language ───
         public static string LangAuto     => IsJapanese ? "自動(Auto)" : "Auto";
         public static string LangJapanese => "日本語";
         public static string LangEnglish  => "English";
         public static string Credit       => IsJapanese ? "クレジット" : "Credit";
 
-        // ─── Credit Dialog ───
         public static string CreditTitle => IsJapanese ? "クレジット" : "Credits";
         public static string CreditBody  => IsJapanese
             ? "いろか\n\n制作: yukkuri__aoba\nAI補助: Claude (Anthropic)\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0"
             : "いろか\n\nDeveloper: yukkuri__aoba\nAI Assistance: Claude (Anthropic)\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0";
 
-        // ─── Workflow guidance ───
         // セクションが等価に並んで開始点が分かりにくいので、主要 4 ステップに番号を振り、
         // テクスチャ未設定時はこの導入ヒントで一連の流れを示す。
         public static string StepPrefixTexture => IsJapanese ? "① " : "1. ";
@@ -77,7 +73,6 @@ namespace Iroca
             ? "手順: ① 元テクスチャを選ぶ → ② カラーゾーンで色を指定（スポイトで色を取り「自動調整」が簡単）→ ③ プレビューで確認 → ④ 適用して保存"
             : "Steps: 1. Pick a source texture  2. Set colors in Color Zones (sample a color and use Auto-tune)  3. Check the Preview  4. Apply & Save";
 
-        // ─── Source Texture ───
         public static string SourceTexture => IsJapanese ? "元テクスチャ" : "Source Texture";
         public static string Texture => IsJapanese ? "テクスチャ" : "Texture";
         public static string TextureTooltip => IsJapanese
@@ -93,7 +88,6 @@ namespace Iroca
             ? "このテクスチャの Read/Write Enabled を有効化してインポート設定を変更します。\nこの操作は Undo できません。続行しますか？"
             : "This will enable Read/Write Enabled on the texture and modify its import settings.\nThis action cannot be undone. Continue?";
 
-        // ─── Color Zones ───
         public static string ColorZones => IsJapanese ? "カラーゾーン" : "Color Zones";
         // 名前未設定ゾーンの表示名（マスク対象プルダウン・ドラッグゴースト等で使用）。
         public static string UnnamedZone => IsJapanese ? "ゾーン" : "Zone";
@@ -101,7 +95,6 @@ namespace Iroca
         public static string SelectionMode => IsJapanese ? "選択モード" : "Selection Mode";
         public static string SampleColor => IsJapanese ? "サンプルカラー" : "Sample Color";
 
-        // ─── プレビュー直接スポイト ───
         // サンプルカラー欄と同一行に置くため短縮ラベル（詳細説明は EyedropperTooltip が保持）。
         public static string EyedropperIdle => IsJapanese
             ? "スポイト"
@@ -137,7 +130,6 @@ namespace Iroca
             ? "【何をする?】鮮やかな色を選んだとき、白・黒・灰色など“色味のない”部分が結果に混ざるのを防ぐ安全装置。\n0 = 無効（従来動作）\n1 = 厳格（無彩色を強く弾く）\n選んだ色がもともと灰色寄りなら自動で無効になります。\n許容範囲を大きく上げて色の芯まで拾うとき、関係ない黒/白の巻き込みを抑えるのに使います。\n※「彩度制限」との違い：あちらは“薄い影の拾い方”、こちらは“無彩色そのものの除外”。\nデフォルト: 0"
             : "[What] A safety guard that keeps colorless areas (white/black/gray) out of the result when you pick a vivid color.\n0 = off (legacy behavior)\n1 = strict (aggressively reject achromatic pixels)\nAutomatically disabled when the picked color is itself grayish.\nUse it when raising tolerance to recover the core while keeping unrelated black/white out.\nNote vs 'Saturation Strictness': that one tunes shadow handling; this one excludes achromatic pixels outright.\nDefault: 0";
 
-        // ─── Processing ───
         public static string Processing => IsJapanese ? "加工設定" : "Processing";
         public static string EdgeFeather => IsJapanese ? "エッジぼかし" : "Edge Feather";
         public static string EdgeFeatherTooltip => IsJapanese
@@ -159,13 +151,11 @@ namespace Iroca
             ? "α分解で背景色を推定する近傍ピクセルの半径。\n小さい = シャープな境界に対応、大きい = ノイズの多い背景に対応\n標準: 4"
             : "Radius of neighborhood used to estimate background color for decontamination.\nSmaller = sharper boundaries, larger = noisier backgrounds\nDefault: 4";
 
-        // ─── Advanced Mode ───
         public static string AdvancedMode => IsJapanese ? "アドバンスモード" : "Advanced Mode";
         public static string AdvancedModeTooltip => IsJapanese
             ? "有効にすると、アルゴリズムの内部パラメータをより細かく調整できます。\n通常はデフォルト値で十分ですが、特殊なテクスチャに対して微調整が必要な場合に使用してください。"
             : "Enables fine-grained control over internal algorithm parameters.\nDefault values work well for most textures, but can be tuned for special cases.";
 
-        // ─── 編集モード切替（かんたん / 通常 / 上級） ───
         public static string EditMode      => IsJapanese ? "編集モード" : "Mode";
         public static string SimpleMode    => IsJapanese ? "かんたん" : "Simple";
         public static string NormalMode    => IsJapanese ? "通常" : "Normal";
@@ -233,11 +223,8 @@ namespace Iroca
             ? "グレーや黒のピクセルを同系色の影として巻き込むのを防ぐための最低彩度です。\nデフォルト: 0.05"
             : "Minimum saturation required to include a dark pixel as part of the shadow. Prevents pure greys from being colorized.\nDefault: 0.05";
 
-        // 上級モードのシャドウ/ハイライト詳細セクション見出し（旧 "=== ... ===" 装飾を置換）。
         public static string ShadowHighlightSection => IsJapanese ? "シャドウ・ハイライト詳細設定" : "Shadow / Highlight Details";
 
-        // 無彩色（黒/グレー）抽出のしきい値。以前は IrocaWindow / ZoneAutoTuner にインラインの
-        // IsJapanese 三項で散在していた文字列を Localization に集約。
         public static string ChromaThreshold => IsJapanese ? "自動しきい値(無彩色判定)" : "Auto Grayscale Threshold";
         public static string ChromaThresholdTooltip => IsJapanese
             ? "スポイトで取ったサンプルの彩度がこの値以下の場合は、自動的に【無彩色(黒/グレー)】として認識され、色相を無視して綺麗に抽出します。"
@@ -268,7 +255,6 @@ namespace Iroca
             ? "スポイトした位置の明るさ・鮮やかさに関わらず、パーツの明るい面の色が「変更先の色」に一致するよう、\n再着色の基準をマッチした領域の統計から自動で補正します。\nこれにより、影の部分をスポイトしても出力が指定より過度に明るく・ベタ塗りになるのを防ぎます。\nOFF にするとスポイトした画素そのものが変更先の色になるため、クリックした画素を厳密に変更先の色へ\n当てたいとき、または意図的に明るく塗りたいときに使います。\n再着色する範囲(マッチング)は変わらず、色の写り方だけが補正されます。\nデフォルト: ON（明るくしたいゾーンだけ OFF）"
             : "Automatically corrects the recoloring reference from the matched region's statistics so the lit side of the part\nmatches the target color, regardless of how bright or saturated the eyedropped spot was.\nThis prevents the output from looking excessively brighter or flatter than specified when you sample in a shadow.\nWhen OFF, the eyedropped pixel itself maps to the target color — use OFF when you want the clicked pixel mapped\nexactly to the target, or when you intentionally want a brighter result.\nIt does not change which pixels are recolored (matching), only how colors are mapped.\nDefault: ON (turn OFF per zone when you want it brighter)";
 
-        // ─── Exclusion Mask ───
         public static string ExclusionMask => IsJapanese ? "除外マスク" : "Exclusion Mask";
         public static string BrushSize => IsJapanese ? "ブラシサイズ" : "Brush Size";
         public static string BrushMode => IsJapanese ? "ブラシモード" : "Brush Mode";
@@ -279,7 +265,6 @@ namespace Iroca
             ? "プレビュー上でドラッグして塗りつぶし除外"
             : "Drag on preview to paint exclusion";
 
-        // ─── Preview ───
         public static string Preview => IsJapanese ? "プレビュー" : "Preview";
         public static string GeneratingPreview => IsJapanese ? "⟳ プレビュー生成中..." : "⟳ Generating preview...";
         public static string Zoom => IsJapanese ? "ズーム" : "Zoom";
@@ -287,7 +272,6 @@ namespace Iroca
             ? "テクスチャを設定してください。"
             : "Please set a texture.";
 
-        // ─── Preview window (別ウィンドウ表示) ───
         public static string PreviewWindowTitle => IsJapanese ? "いろか プレビュー" : "Iroca Preview";
         public static string OpenPreviewWindow => IsJapanese
             ? "プレビューを別ウィンドウで開く"
@@ -311,7 +295,6 @@ namespace Iroca
             ? "プレビューウィンドウを閉じて、本体ウィンドウ内の表示に戻します"
             : "Closes the preview window and shows the preview inside the main window again";
 
-        // ─── Export ───
         public static string Export => IsJapanese ? "エクスポート" : "Export";
         public static string NoEnabledZones => IsJapanese
             ? "変更するゾーンがありません。カラーゾーンを追加・有効化してください"
@@ -321,7 +304,6 @@ namespace Iroca
         public static string ApplyAndSave => IsJapanese ? "適用して保存" : "Apply & Save";
         public static string OpenFolder => IsJapanese ? "フォルダを開く" : "Open Folder";
 
-        // ─── Dialogs ───
         public static string Error => IsJapanese ? "エラー" : "Error";
         public static string Confirm => IsJapanese ? "確認" : "Confirm";
         public static string Complete => IsJapanese ? "完了" : "Complete";
@@ -352,14 +334,11 @@ namespace Iroca
             ? $"保存しました:\n{path}"
             : $"Saved:\n{path}";
 
-        // ─── Layer ───
         public static string LayerIndex => IsJapanese ? "L" : "L";
 
-        // ─── Zone priority (drag reorder) ───
         public static string ZoneDragHandleTooltip => IsJapanese
             ? "ドラッグして並べ替え＝優先度の変更。上にあるゾーンほど優先され、重なった部分は上のゾーンだけが適用されます（下のゾーンのマスクとして機能します）。"
             : "Drag to reorder = change priority. Upper zones take precedence; in overlapping areas only the upper zone is applied (it acts as a mask for lower zones).";
-        // ─── Zoom hint ───
         public static string ZoomHint => IsJapanese
             ? "Ctrl+スクロールでズーム。高解像度プレビューはピクセル単位まで拡大できます（上限はテクスチャ解像度に応じて自動調整）"
             : "Ctrl+scroll to zoom. The high-res preview can be magnified down to pixel level (max zoom auto-scales with texture resolution).";
@@ -370,28 +349,23 @@ namespace Iroca
             ? "ドラッグでパン"
             : "Drag to pan";
 
-        // ─── Comparison / Diff ───
         public static string ComparisonMode => IsJapanese ? "前後比較" : "Compare";
         public static string DiffMode       => IsJapanese ? "差分表示" : "Diff";
         public static string Before         => IsJapanese ? "変更前" : "Before";
         public static string After          => IsJapanese ? "変更後" : "After";
 
-        // ─── Undo ───
         // 実装は Unity 標準 Undo（Undo.PerformUndo）の薄いショートカットで、対象は「直前の操作」。
         // 直前がマスク編集とは限らない（スライダー変更やシーン編集かもしれない）ため、
         // 「マスクを元に戻す」とは名乗らない。名乗ると、マスク以外が巻き戻ったとき破壊的な
         // サプライズになる。
         public static string UndoMask => IsJapanese ? "直前の操作を元に戻す (Ctrl+Z)" : "Undo Last Action (Ctrl+Z)";
 
-        // ─── Mask paint mode ───
         public static string MaskHintPaintOff => IsJapanese
             ? "「除外」または「含める」を押すとペイントモードになります。同じボタンを押すと解除。"
             : "Click Exclude or Include to enter paint mode. Click the active button again to exit.";
 
-        // ─── Detail preview ───
         public static string GeneratingDetailPreview => IsJapanese ? "⟳ 詳細プレビュー生成中..." : "⟳ Generating detail preview...";
 
-        // ─── Presets ───
         public static string Presets              => IsJapanese ? "プリセット" : "Presets";
         public static string PresetName           => IsJapanese ? "プリセット名" : "Preset Name";
         public static string SavePreset           => IsJapanese ? "保存" : "Save";
@@ -408,7 +382,6 @@ namespace Iroca
             ? $"プリセット「{name}」は既に存在します。上書きしますか？"
             : $"Preset '{name}' already exists. Overwrite?";
 
-        // ─── 保存/読込/削除の結果通知（ウィンドウ右下に非モーダル表示） ───
         public static string PresetSaved        => IsJapanese ? "プリセットを保存しました" : "Preset saved";
         public static string PresetSaveFailed   => IsJapanese ? "プリセットの保存に失敗しました" : "Failed to save preset";
         public static string PresetLoaded       => IsJapanese ? "プリセットを読み込みました" : "Preset loaded";
@@ -417,7 +390,6 @@ namespace Iroca
         public static string PresetDeleteFailed => IsJapanese ? "プリセットの削除に失敗しました" : "Failed to delete preset";
         public static string MaskSaveFailed     => IsJapanese ? "マスクの保存に失敗しました" : "Failed to save mask";
 
-        // ─── セッションのリセット ───
         public static string ResetSession => IsJapanese ? "リセット" : "Reset";
         public static string ResetSessionTooltip => IsJapanese
             ? "現在のテクスチャのゾーン・色・処理設定・マスクをすべて消して初期状態に戻します（Ctrl+Z の「元に戻す」で復元できます）。"
@@ -426,7 +398,6 @@ namespace Iroca
             ? "現在のテクスチャのゾーン・色・処理設定・マスクをすべて消して初期状態に戻します。よろしいですか？\n（「元に戻す」で復元できます）"
             : "This clears all zones, colors, processing settings and masks for the current texture. Continue?\n(You can undo this.)";
 
-        // ─── Batch apply ───
         public static string BatchApply        => IsJapanese ? "一括適用" : "Batch Apply";
         public static string BatchHint         => IsJapanese
             ? "現在のゾーン設定を複数のテクスチャに一括適用します。出力は各ファイル名に _recolored を付与します。"
@@ -441,7 +412,6 @@ namespace Iroca
             ? $"{count} 件のテクスチャを処理しました"
             : $"Processed {count} texture(s)";
 
-        // ─── Zone tooltips ───
         public static string ZoneEnabledTooltip => IsJapanese
             ? "このゾーンを有効/無効にします"
             : "Enable or disable this zone";
@@ -470,7 +440,6 @@ namespace Iroca
             ? "変更後の色。対象の部分がこの色に変更されます"
             : "Target color. Pixels in this zone will be recolored to this color";
 
-        // ─── Mask tooltips ───
         public static string BrushSizeTooltip => IsJapanese
             ? "ペイントブラシの半径（プレビューの格子セル単位。塗られる円の直径は 2×サイズ+1 セル）。\n1 セルが何テクセルに当たるかは表示倍率で変わります（4K を全体表示すると 1 セル = 10 テクセル超）。"
             : "Brush radius in preview grid cells (the painted circle is 2 x size + 1 cells across).\nHow many texels one cell covers depends on the zoom (over 10 texels per cell when a 4K texture is fully zoomed out).";
@@ -489,7 +458,6 @@ namespace Iroca
             : "Undo the last action, same as Unity's Ctrl+Z. This is not mask-specific: "
               + "if your last action was not a mask edit, that action is undone instead";
 
-        // ─── Brush palette window ───
         public static string BrushEdit => IsJapanese ? "ブラシで編集..." : "Edit with Brush...";
         public static string BrushEditTooltip => IsJapanese
             ? "ブラシ操作パレットを開き、除外ブラシを ON にします\nプレビュー上をドラッグして塗れます\nパレットを閉じるとペイントモードは解除されます"
@@ -504,7 +472,6 @@ namespace Iroca
             ? "Iroca 本体ウィンドウを開きます"
             : "Opens the main Iroca window";
 
-        // ─── AI Mask Suggestion ───
         public static string AiSuggest => IsJapanese ? "AI マスク提案（実験的）" : "AI Mask Suggestion (Experimental)";
         public static string AiSuggestStart => IsJapanese ? "AI 提案を開始" : "Start AI Suggestion";
         public static string AiSuggestActive => IsJapanese ? "■ AI 提案中（クリックで終了）" : "■ AI Suggesting (click to stop)";
@@ -604,7 +571,6 @@ namespace Iroca
             ? "色ゾーンがありません。マスクは色ゾーンの色替え範囲を制限する機能なので、足してもプレビュー／エクスポートの見た目は変わりません。まず色替えする色ゾーンを追加してください。"
             : "No color zone exists. A mask only limits where color zones recolor, so adding to it will not change the preview/export. Add a color zone to recolor first.";
 
-        // ─── Per-Zone Mask strings ───
         public static string MaskTarget => IsJapanese ? "編集対象" : "Edit Target";
         public static string MaskTargetCommon => IsJapanese ? "共通マスク（全ゾーン）" : "Common Mask (all zones)";
         public static string MaskTargetTooltip => IsJapanese
@@ -629,7 +595,6 @@ namespace Iroca
             ? "マスクの保存/適用オプションと、設定を JSON ファイルとして書き出し/読み込みする機能です"
             : "Mask save/apply options and JSON export/import of settings";
 
-        // ─── Export tooltips ───
         public static string SaveAsNewFileTooltip => IsJapanese
             ? "ON: 元のファイルを保持して新規ファイルに保存\nOFF: 元のテクスチャを上書き保存"
             : "ON: Save as a new file while keeping the original\nOFF: Overwrite the original texture";
@@ -655,7 +620,6 @@ namespace Iroca
             ? "リスト内のすべてのテクスチャに現在のゾーン設定を一括適用して保存します\n出力ファイル名は元のファイル名に _recolored を付与"
             : "Apply current zone settings to all textures in the list and save\nOutput files are named with _recolored suffix";
 
-        // ─── Preview tooltips ───
         public static string ComparisonModeTooltip => IsJapanese
             ? "変更前と変更後を横並びで比較表示します（高ズーム時は使用不可）"
             : "Show before and after side by side (unavailable at high zoom)";
@@ -663,7 +627,6 @@ namespace Iroca
             ? "変更前後の差分（変化したピクセル）を強調表示します"
             : "Highlight pixels that changed between before and after";
 
-        // ─── Preset tooltips ───
         public static string PresetStorageProjectTooltip => IsJapanese
             ? "プリセットをProjectのAssetsフォルダ内に保存します。Gitなどでチームと共有できます"
             : "Save presets inside the project's Assets folder. Can be shared via Git.";
@@ -689,7 +652,6 @@ namespace Iroca
             ? "このプリセットを削除します"
             : "Delete this preset";
 
-        // ─── Header / Toolbar / Action tooltips ───
         public static string EnableReadWriteTooltip => IsJapanese
             ? "元テクスチャのインポート設定で Read/Write を有効化します。プレビューと色替えに必要です"
             : "Enable Read/Write in the source texture's import settings. Required for preview and recoloring";
@@ -709,7 +671,6 @@ namespace Iroca
             ? "通常: よく使う設定のみ表示 / 上級: 詳細パラメータも表示します"
             : "Normal: show common settings only / Advanced: also reveal detailed parameters";
 
-        // ─── Flood Fill ───
         public static string UseFloodFill => IsJapanese ? "連続領域モード (Flood Fill)" : "Connected Region (Flood Fill)";
         public static string UseFloodFillTooltip => IsJapanese
             ? "色が一致した領域のうち、確信度の高い芯を含む『つながった塊』だけに変換を絞り込みます。\n物理的に離れた同色パーツや背景へのにじみ(誤爆)を自動で除去します。\n通常はシード不要(自動)。塊が複数あって特定の1つだけ残したいときは Shift+クリックでシードを指定できます。"
@@ -728,7 +689,6 @@ namespace Iroca
             ? "輝度・彩度の急激な変化をパーツの境界とみなして Flood Fill を止める強度。\n0 = エッジストッパー無効（色の一致のみで拡張）\n大きいほど敏感に止まります（デフォルト: 0.15）"
             : "Sensitivity for stopping Flood Fill at edge (sudden brightness/saturation change).\n0 = disabled (expand by color match only)\nHigher = more sensitive stop (default: 0.15)";
 
-        // ─── Auto-tune ───
         public static string AutoTune => IsJapanese ? "自動調整" : "Auto-tune";
         // 完了通知に使う。ボタン名と同じ「自動調整」だけを出すと、開始・完了・失敗の区別がつかない。
         public static string AutoTuneDone => IsJapanese ? "自動調整が完了しました" : "Auto-tune complete";

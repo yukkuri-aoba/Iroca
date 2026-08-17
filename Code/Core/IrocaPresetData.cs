@@ -18,7 +18,6 @@ namespace Iroca
         public List<ColorZone> zones = new List<ColorZone>();
         public float edgeFeather;
 
-        // アドバンスモード設定
         public bool advancedMode;
         public int antiAliasCleanup = 3;
         public int holeFillPasses = 5;
@@ -28,7 +27,6 @@ namespace Iroca
         public bool useDecontamination = true;
         public int decontaminationRadius = 4;
 
-        // ─── マスク同梱（任意） ───
         // マスク配列の解像度。0 の場合はマスク情報なし。
         public int maskWidth;
         public int maskHeight;

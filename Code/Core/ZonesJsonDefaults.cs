@@ -27,7 +27,6 @@ namespace Iroca
     /// </summary>
     internal static class ZonesJsonDefaults
     {
-        // ───────── zone ─────────
         public const string Name = "Zone";
         // sample は白、target は黒。配列は DTO ごとに新しい実体が要る（共有すると
         // 1 ゾーンへの書き込みが全ゾーンに波及する）ので、定数ではなくファクトリで返す。
@@ -73,7 +72,6 @@ namespace Iroca
         // 従来どおり絞り込みたくない場合は JSON で false を明示する。
         public const bool UseFloodFill = true;
 
-        // ───────── settings ─────────
         public const float EdgeFeather = 0.0f;
         public const int AntiAliasCleanup = 3;
         public const int HoleFillPasses = 5;

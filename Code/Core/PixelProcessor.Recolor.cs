@@ -251,7 +251,6 @@ namespace Iroca
             float achromaWeight = p.achromaWeight, osat = p.osat;
             bool hasRegL = p.hasRegL;
             float regLlo = p.regLlo, regLhi = p.regLhi;
-            // === OkLab 明度マップ + 彩度(向きは target 色相に均一化)リカラー ===
             // L: 2区間線形リマップ (0→0, sL→tL, 1→1)。base を target 明度へ寄せる。単調維持
             //    (リング無し)・ガンマット内(クリップ無し)・白→白/黒→黒。明度を完全保持すると
             //    暗い色→黄色が brown 化するため base は target 明度に合わせる。
@@ -260,7 +259,7 @@ namespace Iroca
             //    無い色相ノイズ(輪郭だけが別色へ転ぶ)を生んだため、向きを揃えて L を保ったまま色相を
             //    均一化する。
             RgbToOklab(oRb, oGb, oBb, out float oL, out float oa, out float ob);
-            float oC = Mathf.Sqrt(oa * oa + ob * ob);   // 元画素の chroma (L 彩度ゲートでも使う)
+            float oC = Mathf.Sqrt(oa * oa + ob * ob);
             float na, nb;
             if (okGray)
             {
@@ -280,7 +279,7 @@ namespace Iroca
                 // 上限 mag はゾーン定数 okChromaMaxMag に事前算出済み(キャップ非適用時は +∞ で
                 // この比較は no-op)。旧版は per-pixel で tC=sqrt(okTa²+okTb²) と maxMag を再計算していた。
                 if (mag > okChromaMaxMag) mag = okChromaMaxMag;
-                na = mag * okTa;                        // 向きは target 色相 (zTa, zTb)
+                na = mag * okTa;
                 nb = mag * okTb;
             }
             // 2区間線形リマップ: [0,sL]→[0,tL], [sL,1]→[tL,topL]。sL→tL を不動点に base を target 明度へ。
@@ -304,7 +303,7 @@ namespace Iroca
                 float chromaFrac = Mathf.Clamp01(oC / (okSC * OklabRemapFullChromaFrac));
                 effRemapL = oL + (remapL - oL) * chromaFrac;
             }
-            // valueBlend=1 でフル階調、<1 で target フラットトーンへ寄せる。
+            // valueBlend を下げるほど target のフラットな明度へ寄せる。
             float nL = okTL * (1f - valueBlend) + effRemapL * valueBlend;
 
             // 暗いターゲットの明部白暴走キャップ（有彩=主経路のみ）: 出力明度を topL=min(1,tL*HighlightLMult)
@@ -374,14 +373,13 @@ namespace Iroca
                 float dirSq = dR * dR + dG * dG + dB * dB;
                 if (dirSq > 1e-6f)
                 {
-                    // wash 射影は 0..1 の RGB で行うため byte 入力をここで float に戻す。
                     float oR = oRb / 255f, oG = oGb / 255f, oB = oBb / 255f;
                     float pR = oR - washR;
                     float pG = oG - washG;
                     float pB = oB - washB;
                     float w = Mathf.Clamp01((pR * dR + pG * dG + pB * dB) / dirSq);
 
-                    // target 軸上の対応点 (residual は捨てる)
+                    // target 軸から外れる residual は意図的に捨てる。
                     float projTR = tR + w * (1f - tR);
                     float projTG = tG + w * (1f - tG);
                     float projTB = tB + w * (1f - tB);
@@ -434,8 +432,8 @@ namespace Iroca
 
                     // 境界連続性のため valRise でフェード (oV=washV で valRise=0、hsv_result に戻る)
                     float valRise = Mathf.Clamp01((oV - washV) / Mathf.Max(0.05f, 1f - washV)) * patternFade;
-                    float washMix = valRise * (1f - tintness);          // → projT (従来の白寄せ)
-                    float keepMix = valRise * tintness * whiteKeep;     // → 元色 (色相ずれ光点の芯の保持)
+                    float washMix = valRise * (1f - tintness);      // target→白への射影
+                    float keepMix = valRise * tintness * whiteKeep; // 色相ずれした光点の芯を保持
                     float baseMix = 1f - washMix - keepMix;
                     result.r = result.r * baseMix + projTR * washMix + oR * keepMix;
                     result.g = result.g * baseMix + projTG * washMix + oG * keepMix;

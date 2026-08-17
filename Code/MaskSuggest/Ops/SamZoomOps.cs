@@ -90,7 +90,6 @@ namespace Iroca
                 if (maxX - minX >= cap || maxY - minY >= cap)
                     return Mathf.Max(maxX - minX + 1, maxY - minY + 1); // ズーム対象外確定
 
-                // 4 近傍(窓内のみ)
                 if (x > wx0 && mask[i - 1] && !visited[(y - wy0) * ww + (x - 1 - wx0)])
                 { visited[(y - wy0) * ww + (x - 1 - wx0)] = true; stack.Push(i - 1); }
                 if (x < wx1 && mask[i + 1] && !visited[(y - wy0) * ww + (x + 1 - wx0)])

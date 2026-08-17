@@ -48,7 +48,7 @@ namespace Iroca.DebugTools
 
         public void BeginCapture(int width, int height)
         {
-            // 同じインスタンスを使い回すケースに備え、毎回リセットする。
+            // コンテキストは再利用されるため、前回のキャプチャを持ち越さない。
             Snapshots.Clear();
             _previousStrengthPerZone.Clear();
             AaMasks.Clear();
@@ -75,7 +75,7 @@ namespace Iroca.DebugTools
                 delta = new byte[len];
                 for (int i = 0; i < len; i++)
                 {
-                    // 差分: 現在 - 直前 を 128 中央にオフセット
+                    // 符号付き差分を 128 中央の byte として格納する。
                     int d = quantized[i] - prev[i] + 128;
                     if (d < 0) d = 0;
                     else if (d > 255) d = 255;

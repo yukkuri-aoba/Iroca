@@ -14,7 +14,6 @@ namespace Iroca
     //   IrocaWindow.AutoTune.cs … 自動調整(ZoneAutoTuner)連携
     public partial class IrocaWindow : EditorWindow
     {
-        // ── ユーザー入力・設定 ──
         // [SerializeField] を付けることで、スクリプト再コンパイル時に Unity が
         // EditorWindow の状態をシリアライズ/復元し、入力内容が失われにくくなる。
         [SerializeField] private Texture2D sourceTexture;
@@ -32,7 +31,6 @@ namespace Iroca
         //    詳細側は最新の公開キャッシュを寸法一致で参照する。
         [System.NonSerialized] internal PreviewParityCache previewParityCache;
 
-        // ── プレビュー直接スポイト ──
         // スポイトモードで武装中のゾーン id（null/空 = 解除）。プレビュー上のクリックで
         // そのゾーンのサンプルカラーを実テクスチャ画素から取得する（一発で自動解除）。
         // index でなく id で保持するのは、武装中にゾーンを並べ替え・削除しても別ゾーンに
@@ -41,7 +39,6 @@ namespace Iroca
         [System.NonSerialized] private string _eyedropperZoneId;
         internal string EyedropperZoneId { get => _eyedropperZoneId; set => _eyedropperZoneId = value; }
 
-        // ── 各 View からの再描画通知用 ──
         internal void MarkPreviewDirty() { if (_previewView != null) _previewView.previewDirty = true; }
 
         /// <summary>プレビュー再生成(プロキシ段なし)。確定表示がある前提の差分更新用
@@ -66,7 +63,6 @@ namespace Iroca
             Repaint();
         }
 
-        // ── View インスタンス（状態は各 View が自前で保持） ──
         [SerializeField] private ExportView _exportView = new ExportView();
         [SerializeField] private PresetsView _presetsView = new PresetsView();
         [SerializeField] internal MaskPaintView _maskView = new MaskPaintView();
@@ -79,7 +75,6 @@ namespace Iroca
         // 個別 [SerializeField] フィールド群を IrocaSessionState に集約したもの。
         [SerializeField] private IrocaSessionState _session = IrocaSessionState.CreateDefault();
 
-        // ── _session への薄いアクセサ ──
         // partial class 内のコードが、集約前と同じフィールド名のまま _session 内のフィールドへ
         // アクセスできるようにするブリッジ。新規コードは _session.xxx を直接参照してよい。
         private List<ColorZone> zones { get => _session.zones; set => _session.zones = value; }
@@ -183,8 +178,6 @@ namespace Iroca
             return null;
         }
 
-        // ───────────────────────── ユーティリティ ───────────────────────────
-
         internal static bool IsReadable(Texture2D tex)
         {
             // isReadable は CPU 側からピクセル読み取り可能かを示すネイティブプロパティ。
@@ -230,8 +223,6 @@ namespace Iroca
             _maskView?.ReleaseOverlayTextures();
         }
 
-        // ─────────────────────── 共通ヘルパー ────────────────────
-
         /// <summary>
         /// 現在の zones に対して id 未設定のものへ GUID を振る。
         /// </summary>
@@ -242,13 +233,11 @@ namespace Iroca
                 _session.zones[i]?.EnsureId();
         }
 
-        // ── プリセット連携用フォワーダ（PresetsView から呼ばれる） ──
         internal void ApplyMaskFromPreset(IrocaPresetData data) => _maskView?.ApplyFromPreset(data);
         internal void WriteMaskToPreset(IrocaPresetData data) => _maskView?.WriteToPreset(data);
         internal void ResetActiveMaskTarget() => _maskView?.ResetActiveTarget();
         internal float ExportSectionHeight => _exportView.GetSectionHeight();
 
-        // ── プレビュー / エクスポート用フォワーダ ──
         internal MaskSnapshot BuildMaskSnapshot() => _maskView?.BuildSnapshot();
 
         // bool[] バッファを _session.maskState に書き戻す（Undo 登録前のスナップショット確定用）。
@@ -365,9 +354,9 @@ namespace Iroca
         {
             Undo.RegisterCompleteObjectUndo(this, "Reset Iroca Session");
 
-            _session = IrocaSessionState.CreateDefault();   // ゾーン・色・処理設定を既定へ
-            _maskView?.ClearBuffersOnTextureChange();        // マスク bool[] バッファを全消去
-            _maskView?.SyncBuffersToState();                 // 空バッファを maskState へ反映（＝空マスク）
+            _session = IrocaSessionState.CreateDefault();
+            _maskView?.ClearBuffersOnTextureChange();
+            _maskView?.SyncBuffersToState();
             EnsureAllZoneIds();
 
             _previewView?.InvalidateSourceCache();
