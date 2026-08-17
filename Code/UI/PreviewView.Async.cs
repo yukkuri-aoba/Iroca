@@ -149,6 +149,11 @@ namespace Iroca
                     // BoxDownsample は新規配列を返すので ProcessPixelsArray の破壊書き換えで clone 不要。
                     Color32[] proxyPixels = PixelProcessor.BoxDownsample(
                         req.srcPixels, req.srcW, req.srcH, proxyW, proxyH, proxyScale);
+                    // raw(比較/差分表示の before)は processed と同じリサンプル鎖を通す。
+                    // src→表示 の 1 段縮小と src→proxy→表示 の 2 段縮小では箱平均の境界が
+                    // 揃わず、再着色していない画素まで差分閾値を超えて誤点灯するため
+                    // (実テクスチャで表示画素の ~17%)。処理前のプロキシを控えて同じ鎖へ流す。
+                    Color32[] proxyRaw = (Color32[])proxyPixels.Clone();
                     PixelProcessor.ProcessPixelsArray(proxyPixels, proxyW, proxyH, req.maskSnap, req.zonesSnapshot,
                         req.feather, req.aaCleanup, req.hfPasses, req.hfMinNeighbors, req.rSatMin, req.rSatRamp,
                         0, 0, 0, 0, token,
@@ -156,13 +161,14 @@ namespace Iroca
                         debug: null, parityCache: null, selectionCache: proxySelCache);
 
                     // 表示寸法へ。ProxyMaxSize==MaxSize なら proxy==表示で再縮小なし(最頻ケース)。
-                    Color32[] processedDisplay = (proxyW != req.prevW || proxyH != req.prevH)
-                        ? PixelProcessor.BoxDownsample(proxyPixels, proxyW, proxyH, req.prevW, req.prevH,
-                            req.prevW / (float)proxyW)
+                    bool needsResample = proxyW != req.prevW || proxyH != req.prevH;
+                    float toDisplay = req.prevW / (float)proxyW;
+                    Color32[] processedDisplay = needsResample
+                        ? PixelProcessor.BoxDownsample(proxyPixels, proxyW, proxyH, req.prevW, req.prevH, toDisplay)
                         : proxyPixels;
-                    // raw(比較表示用の縮小済み元画像)は表示解像度・ソース由来。確定済みならそれを使う。
-                    Color32[] rawForJob = req.rawDisplay ?? PixelProcessor.BoxDownsample(
-                        req.srcPixels, req.srcW, req.srcH, req.prevW, req.prevH, req.scale);
+                    Color32[] rawForJob = needsResample
+                        ? PixelProcessor.BoxDownsample(proxyRaw, proxyW, proxyH, req.prevW, req.prevH, toDisplay)
+                        : proxyRaw;
                     return (processedDisplay, rawForJob);
                 },
                 apply: result =>
