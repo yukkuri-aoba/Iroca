@@ -402,8 +402,9 @@ namespace Iroca
                     float hDist = HueDistance(pH, stats.sH);
 
                     // ハイライト復元候補（サンプル色と同系のハイライト領域）。
-                    // 条件は ColorZone のハイライト判定・Verify.cs:GrowHighlightBand ミラーと同じ定数を共有する。
-                    if (pV > ColorZone.HighlightValueMin && pS < ColorZone.HighlightSaturationMax
+                    // 条件は ColorZone のハイライト判定(HighlightSaturationCeiling で動的化)と
+                    // Verify.cs:GrowHighlightBand ミラーと同じ定数を共有する。
+                    if (pV > ColorZone.HighlightValueMin && pS < ColorZone.HighlightSaturationCeiling(stats.sS)
                         && hDist < ColorZone.ForgivenessHueGate)
                         stats.highlightCandidates++;
 
