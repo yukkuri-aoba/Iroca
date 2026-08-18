@@ -19,8 +19,24 @@ namespace Iroca
         // internal: ZoneAutoTuner のハイライト候補カウントが同じ条件をリテラルで再掲していたため共有。
         internal const float HighlightValueMin = 0.80f;
         internal const float HighlightSaturationMax = 0.20f;
+        // 高彩度サンプル(sS≈1.0 の塗り)ほど、ハイライトの塗り自体が完全な白ではなく
+        // 「本体色をやや脱彩した色」で表現されがち(実測: HAOLAN スニーカー青 sS=1.0 の
+        // ハイライトは S 0.2〜0.5 に分布し、絶対閾値 0.20 の外側に外れて高確率で取りこぼしていた)。
+        // 固定の絶対閾値だとサンプル自身が高彩度なときに閾値がハイライトの実分布より内側に
+        // 寄ってしまうため、サンプル彩度に比例した床を追加する(サンプル彩度に依存する統計量で、
+        // 特定キャラ・テクスチャへのハードコードではない)。低〜中彩度サンプルでは
+        // sS*Frac が絶対閾値を下回るため従来どおり 0.20 のまま(回帰なし)。
+        internal const float HighlightSaturationMaxSampleFrac = 0.5f;
         private const float HighlightRelaxedSatMin = 0.02f;
         private const float HighlightRelaxedSatRamp = 0.08f;
+
+        /// <summary>
+        /// ハイライト判定に使う彩度上限を、サンプル彩度に応じて動的に返す。
+        /// 高彩度サンプルほど「地色をやや脱彩しただけ」のハイライト塗りが遠くまで分布するため、
+        /// 絶対床 <see cref="HighlightSaturationMax"/> とサンプル比例床の大きい方を採る。
+        /// </summary>
+        internal static float HighlightSaturationCeiling(float sampleS)
+            => Mathf.Max(HighlightSaturationMax, sampleS * HighlightSaturationMaxSampleFrac);
 
         // 選択済み判定の strength 床。PixelProcessor 側の後段ゲート
         // (ApplyChromaCeilingGate / RecoverEnclosedNeutral / NeutralReject / SolidifyAchromaInterior)が

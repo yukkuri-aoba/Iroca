@@ -440,7 +440,7 @@ namespace Iroca
 
         private float CalculateHighlightRecovery(in SampleCache sc, float pH, float pS, float pV, float hDist, float sRatio)
         {
-            if (pV <= HighlightValueMin || pS >= HighlightSaturationMax || hDist > hlHueCap)
+            if (pV <= HighlightValueMin || pS >= HighlightSaturationCeiling(sc.sS) || hDist > hlHueCap)
                 return 0f;
 
             float relaxedSatConf = Mathf.Clamp01((pS - HighlightRelaxedSatMin) / HighlightRelaxedSatRamp);
