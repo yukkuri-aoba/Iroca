@@ -187,7 +187,10 @@ namespace Iroca
                     _autoTuneProgress.Report(0.10f);
                     // ct を Analyze へ渡す。新しい自動調整が来て前ジョブが Cancel されたら、
                     // 各解析ステップ間で停止しゾンビ実行(CPU 2 倍/進捗バー飛び)を防ぐ。
-                    var result = ZoneAutoTuner.Analyze(pixels, texW, texH, zoneSnapshot, sessionSnapshot, excluded, mw, mh, ct);
+                    // 解析の各ステップから進捗を受け取る。渡さないと 0.10 → 1.00 の 2 点しか
+                    // 報告されず、進捗バーが 10% で固まってから完了に飛ぶ。
+                    var result = ZoneAutoTuner.Analyze(pixels, texW, texH, zoneSnapshot, sessionSnapshot, excluded, mw, mh, ct,
+                        p => _autoTuneProgress.Report(p));
                     _autoTuneProgress.Report(1.0f);
                     return result;
                 },
