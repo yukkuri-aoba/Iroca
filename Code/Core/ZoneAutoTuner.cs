@@ -100,7 +100,8 @@ namespace Iroca
         /// オーバーロードを使用すること。
         /// </summary>
         public static TuneResult Analyze(Texture2D tex, ColorZone zone, IrocaSessionState session,
-            bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default)
+            bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
+            Action<float> report = null)
         {
             Color32[] pixels = null;
             int w = 0, h = 0;
@@ -111,7 +112,7 @@ namespace Iroca
                 try { pixels = tex.GetPixels32(); }
                 catch (UnityEngine.UnityException) { pixels = null; }
             }
-            return Analyze(pixels, w, h, zone, session, excluded, maskW, maskH, ct);
+            return Analyze(pixels, w, h, zone, session, excluded, maskW, maskH, ct, report);
         }
 
         /// <summary>
@@ -175,8 +176,13 @@ namespace Iroca
 
         public static TuneResult Analyze(Color32[] pixels, int width, int height,
             ColorZone zone, IrocaSessionState session,
-            bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default)
+            bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
+            Action<float> report = null)
         {
+            // 進捗は「解析ステップの通過点」を単調増加で報告する。各ステップの実時間は
+            // テクスチャ次第で読めないため、割合はステップ数ベースの目安。null 可(テスト等)。
+            void Progress(float v) { report?.Invoke(v); }
+
             var result = BuildHeuristicDefault(zone);
 
             bool canAnalyze = pixels != null
@@ -197,6 +203,7 @@ namespace Iroca
 
                 // 全走査が共有する HSV 格子を 1 回だけ並列で作る(以降のパスは表引きするだけ)。
                 var hsv = BuildHsvGrid(pixels, width, height, ct);
+                Progress(0.30f);
 
                 // ── スポイト位置の正規化 ──
                 // 以降の導出はすべて「サンプル色」起点なので、クリック画素がツヤ/深い影だと
@@ -213,8 +220,11 @@ namespace Iroca
                     aZone.sampleColor = canonicalSample;
                 }
 
+                Progress(0.40f);
+
                 if (TryAnalyzePixels(pixels, width, height, aZone, clusterMask, maskW, maskH, hsv, out var analyzed))
                     result = MergeAnalyzed(result, analyzed);
+                Progress(0.50f);
 
                 // tolerance は常に「サンプル近傍クラスタの実マッチ距離分布」から導出する。
                 // 無彩(グレーモード=純 RGB 距離)と有彩(HSV マッチ)で距離式が違うため経路を分けるが、
@@ -257,6 +267,7 @@ namespace Iroca
                     // スポイト位置が明部でも暗部でも、トーン全域を覆うので取りこぼし/はみ出しを抑えられる。
                     var autoSamples = DeriveAutoTonalSamples(pixels, width, height, aZone,
                         clusterMask, maskW, maskH, hsv, out _, out vConnHiBin);
+                    Progress(0.62f);
                     bool derivedMulti = false;
                     if (autoSamples.Count > 0)
                     {
@@ -279,6 +290,8 @@ namespace Iroca
                     }
                 }
 
+                Progress(0.75f);
+
                 // ── 閉ループ検証: 導出パラメータを実マッチャーに通し、有害な設定を安全側へ倒す ──
                 ct.ThrowIfCancellationRequested();
                 bool hlRecBeforeVerify = result.highlightRecovery;
@@ -288,6 +301,7 @@ namespace Iroca
                 // 成長テストが highlightRecovery を落とした=「明るい同色相の別素材」が既に検出された
                 // 状況なので、同じ方向へ広げる明部ツヤ救済も封印する。
                 bool hlRecVetoed = hlRecBeforeVerify && !result.highlightRecovery;
+                Progress(0.85f);
                 ct.ThrowIfCancellationRequested();
                 if (sampleS >= AchromaSampleSatMax)
                 {
@@ -296,6 +310,7 @@ namespace Iroca
                         excluded, maskW, maskH, hsv, ref result);
                     // 免除過剰で tolerance を縮めた直後に拡張するのは矛盾するのでスキップする。
                     bool overshootShrunk = result.tolerance < tolBeforeOvershoot;
+                    Progress(0.92f);
 
                     ct.ThrowIfCancellationRequested();
                     // vConnHiBin < 0(トーン構造を確定できなかった)ときは拡張しない(構造未知のまま
@@ -304,6 +319,8 @@ namespace Iroca
                         VerifyBrightSheenRecall(pixels, width, height, aZone,
                             excluded, maskW, maskH, hsv, vConnHiBin, ref result);
                 }
+
+                Progress(0.98f);
 
                 // MergeAnalyzed が TuneResult を作り直すので、正規化結果は全解析の後で載せる。
                 result.normalizedSample = canonicalSample;
