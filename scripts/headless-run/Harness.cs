@@ -85,6 +85,24 @@ namespace Iroca
         public int decontaminationRadius { get; set; } = ZonesJsonDefaults.DecontaminationRadius;
     }
 
+    // ─── --batch <json> 用 DTO ───
+    // 同じテクスチャに対する複数ケースを 1 プロセスで処理するための入れ物。
+    // 1 ケースごとに dotnet を起動すると、起動 + 入力 raw の読み直し(4096² で 64MB)が
+    // ケース数ぶん積み上がる。回帰スイートは同じテクスチャを 5 色ぶん回すのでそこが丸損だった。
+    // 処理そのものは単発実行と同じ ProcessZones() を通す(経路を分岐させない)。
+    internal sealed class BatchCase
+    {
+        public string zones { get; set; }
+        public string @out { get; set; }
+    }
+
+    internal sealed class BatchConfig
+    {
+        public string input { get; set; }
+        public string mask { get; set; }
+        public List<BatchCase> cases { get; set; } = new List<BatchCase>();
+    }
+
     internal static class Harness
     {
         private static (int w, int h, byte[] payload) ReadRaw(string path, int bpp)
@@ -161,6 +179,17 @@ namespace Iroca
             if (args.Length >= 1 && args[0].StartsWith("--samops-", StringComparison.Ordinal))
                 return RunSamOps(args);
 
+            // 並列テスト実行時にスレッド数を絞れるようにする(既定=未設定=製品と同じ
+            // ProcessorCount-2)。設定したときだけ効くので、通常実行の挙動は変わらない。
+            var threadsEnv = Environment.GetEnvironmentVariable("IROCA_HARNESS_THREADS");
+            if (!string.IsNullOrEmpty(threadsEnv)
+                && int.TryParse(threadsEnv, out int threads) && threads > 0)
+                DebugCaptureHooks.ParallelismOverride = threads;
+
+            // --batch <json>: 同一入力・複数ゾーン設定をまとめて処理する(テスト実行の高速化)。
+            if (args.Length >= 2 && args[0] == "--batch")
+                return RunBatch(args[1]);
+
             if (args.Length < 3)
             {
                 Console.Error.WriteLine("usage: Harness <in.raw RGBA> <mask.raw 1=exclude> <out.raw RGBA> "
@@ -196,12 +225,7 @@ namespace Iroca
             SettingsCfg st;
             if (zonesPath != null)
             {
-                var cfg = JsonSerializer.Deserialize<ZonesConfig>(
-                    File.ReadAllText(zonesPath),
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                st = cfg.settings ?? new SettingsCfg();
-                zoneList = new List<ColorZone>();
-                foreach (var z in cfg.zones) zoneList.Add(BuildZone(z));
+                (zoneList, st) = LoadZones(zonesPath);
             }
             else
             {
@@ -305,7 +329,18 @@ namespace Iroca
                     foreach (var ph in rep.Phases)
                         Console.Error.WriteLine($"PHASE {ph.Name} {ph.TotalMs:F2}");
             };
-            var _sw = Stopwatch.StartNew();
+            ProcessZones(pixels, w, h, masks, zoneList, st);
+            WriteRawRgba(outPath, w, h, pixels);
+            Console.WriteLine($"OK {w}x{h} -> {outPath} (zones={zoneList.Count})");
+            return 0;
+        }
+
+        // ─── 単発実行と --batch が共有する処理本体 ───
+        // ここを経由しない処理経路を足さないこと(テストが製品と違う設定を測る事故になる)。
+        private static void ProcessZones(Color32[] pixels, int w, int h,
+                                         MaskSnapshot masks, List<ColorZone> zoneList, SettingsCfg st)
+        {
+            var sw = Stopwatch.StartNew();
             PixelProcessor.ProcessPixelsArray(
                 pixels, w, h, masks, zoneList,
                 edgeFeather: st.edgeFeather, antiAliasCleanup: st.antiAliasCleanup,
@@ -313,22 +348,69 @@ namespace Iroca
                 relaxedSatMin: st.relaxedSatMin, relaxedSatRamp: st.relaxedSatRamp,
                 originX: 0, originY: 0, fullW: 0, fullH: 0,
                 useDecontamination: st.useDecontamination, decontaminationRadius: st.decontaminationRadius);
-            _sw.Stop();
-            Console.Error.WriteLine($"PROCESS_MS {_sw.Elapsed.TotalMilliseconds:F2}");
+            sw.Stop();
+            Console.Error.WriteLine($"PROCESS_MS {sw.Elapsed.TotalMilliseconds:F2}");
+        }
 
-            using (var fs = new FileStream(outPath, FileMode.Create, FileAccess.Write))
-            using (var bw = new BinaryWriter(fs))
+        private static void WriteRawRgba(string path, int w, int h, Color32[] pixels)
+        {
+            using var fs = new FileStream(path, FileMode.Create, FileAccess.Write);
+            using var bw = new BinaryWriter(fs);
+            bw.Write(w); bw.Write(h);
+            var outBytes = new byte[w * h * 4];
+            for (int i = 0; i < w * h; i++)
             {
-                bw.Write(w); bw.Write(h);
-                var outBytes = new byte[len * 4];
-                for (int i = 0; i < len; i++)
-                {
-                    outBytes[i * 4] = pixels[i].r; outBytes[i * 4 + 1] = pixels[i].g;
-                    outBytes[i * 4 + 2] = pixels[i].b; outBytes[i * 4 + 3] = pixels[i].a;
-                }
-                bw.Write(outBytes);
+                outBytes[i * 4] = pixels[i].r; outBytes[i * 4 + 1] = pixels[i].g;
+                outBytes[i * 4 + 2] = pixels[i].b; outBytes[i * 4 + 3] = pixels[i].a;
             }
-            Console.WriteLine($"OK {w}x{h} -> {outPath} (zones={zoneList.Count})");
+            bw.Write(outBytes);
+        }
+
+        private static (List<ColorZone> zones, SettingsCfg settings) LoadZones(string path)
+        {
+            var cfg = JsonSerializer.Deserialize<ZonesConfig>(
+                File.ReadAllText(path),
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var list = new List<ColorZone>();
+            foreach (var z in cfg.zones) list.Add(BuildZone(z));
+            return (list, cfg.settings ?? new SettingsCfg());
+        }
+
+        // ─── --batch: 同一入力・複数ゾーン設定をまとめて処理 ───
+        // 各ケースは元入力のクローンから始め、マスクも複製して渡すので、
+        // ケースを跨いだ状態の持ち越しは無い(単発実行と byte 一致することをテストで検証している)。
+        private static int RunBatch(string batchPath)
+        {
+            var cfg = JsonSerializer.Deserialize<BatchConfig>(
+                File.ReadAllText(batchPath),
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            var (w, h, rgba) = ReadRaw(cfg.input, 4);
+            int len = w * h;
+            var basePixels = new Color32[len];
+            for (int i = 0; i < len; i++)
+                basePixels[i] = new Color32(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2], rgba[i * 4 + 3]);
+
+            var (mw, mh, mbytes) = ReadRaw(cfg.mask, 1);
+            var common = new bool[mw * mh];
+            for (int i = 0; i < common.Length; i++) common[i] = mbytes[i] != 0;
+            var packed = MaskSnapshot.Pack(common);
+
+            foreach (var c in cfg.cases)
+            {
+                var (zoneList, st) = LoadZones(c.zones);
+                var pixels = (Color32[])basePixels.Clone();
+                var masks = new MaskSnapshot
+                {
+                    common = (ulong[])packed.Clone(),
+                    width = mw,
+                    height = mh,
+                    zones = null,
+                };
+                ProcessZones(pixels, w, h, masks, zoneList, st);
+                WriteRawRgba(c.@out, w, h, pixels);
+                Console.WriteLine($"OK {w}x{h} -> {c.@out} (zones={zoneList.Count})");
+            }
             return 0;
         }
 
