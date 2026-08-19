@@ -50,10 +50,20 @@ namespace Iroca
         // 「当たっている位置を作り直す」ためのものではない。
         private const float NormOutlierFrac = 0.10f;
 
+        // 無彩クリック用の分解能。母集団の彩度が [0, AchromaClusterSatMax] の狭帯に潰れるので、
+        // 有彩と同じ「彩度 [0,1] を 16 分割」では tint の有無(白布 S≈0.05 と純白 S=0)が同じ bin に
+        // 落ち、最頻値が地色と端を区別できない。彩度軸を帯幅で正規化し、明度も細かく取る
+        // (近白の V=0.95 と V=1.00 は 32 分割では隣接 bin=クリックが常に地色帯の内側と判定される)。
+        private const int NormAchromaSatBins = 16;
+        private const int NormAchromaValBins = 128;
+
         /// <summary>
         /// クリック色 <paramref name="zone"/>.sampleColor をパーツの代表地色へ正規化する。
-        /// 正規化できないとき（無彩クリック / 候補画素が少ない / トーン連結域を確定できない /
-        /// 移動量が NormMinShift 未満）は false を返し、呼び出し側はクリック色をそのまま使う。
+        /// 正規化できないとき（候補画素が少ない / トーン連結域を確定できない / クリックが既に
+        /// 地色帯 / 移動量が NormMinShift 未満）は false を返し、呼び出し側はクリック色をそのまま使う。
+        ///
+        /// 母集団の採り方だけがクリック彩度で変わり、以降の手順（V 連結域 → 最頻 (S,V) bin →
+        /// ±1 bin 平均 → 裾判定）は共通。
         /// </summary>
         private static bool TryNormalizeSample(
             Color32[] pixels, int w, int h, ColorZone zone,
@@ -61,13 +71,55 @@ namespace Iroca
         {
             normalized = zone.sampleColor;
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
-            if (sS < AchromaSampleSatMax) return false; // 無彩クリックは色相でパーツを特定できない
+
+            // 中性境界(R≒G≒B)より下のクリックだけを無彩として扱う。無彩 tolerance の分岐点
+            // (AchromaSampleSatMax=0.15)まで広げてはいけない: 0.02〜0.15 の「色味の乗ったグレー」
+            // には使える色相があり、色相帯を捨てると同じ明度帯に居る別の低彩度素材と混ざる。
+            // 実測 2026-08-19: 暖色グレーのパンツ(84,81,77 / h≈0.08)をクリックすると、無彩母集団の
+            // 最頻値が面積の大きい真無彩のゴーグル(56,56,56)に落ち、代表地色がそちらへ乗り換えて
+            // IoU 0.211→0.000(まったく別のパーツを塗る)になった。中性境界は彩度整合ゲートと同じ
+            // 「これ未満の tint は色として扱わない」線なので、判断基準を 1 本に揃える。
+            if (sS <= ColorZone.ChromaGateActivateSat)
+            {
+                // 真の無彩クリック（白/グレー/黒の布）。色相が定まらないので同色相帯は使えないが、
+                // 「無彩寄り」という彩度条件がその代わりになる（有彩の別素材はここで落ち、白/中間/黒の
+                // 別クラスタは V 連結域が落とす。彩度上限は無彩 tolerance 導出のクラスタ条件と同一）。
+                //
+                // これが無いと、無彩クリックだけがクリック 1 texel の HSV を起点にしたままになり、
+                // トーンの端（白布の純白部分・黒布の最暗部）を踏んだときに導出がパーツ本体を覆えない。
+                // 実測 2026-08-19（実 C# ハーネス --autotune、GT 内の V パーセンタイル 6 位置）:
+                // quanstella-white は明部クリックで recall 0.92→0.60、quanstella-black は IoU が
+                // 位置で 0.72〜0.98、feina-goggles は 0.73〜1.00 に振れていた（有彩は正規化済みで
+                // ブレ 0.001〜0.017）。
+                return TryNormalizeFromPopulation(pixels, w, h, zone, excluded, maskW, maskH, hsv,
+                    sH, sS, sV, useHueBand: false, satFloor: 0f, satCeil: AchromaClusterSatMax,
+                    satBinSpan: AchromaClusterSatMax,
+                    satBins: NormAchromaSatBins, valBins: NormAchromaValBins, out normalized);
+            }
+
+            if (sS < AchromaSampleSatMax) return false; // 色味の乗ったグレー: 従来どおりクリック色のまま
 
             // 無彩画素は Unity の RGBToHSV が hue=0 へ丸めるため、暖色クリックへ大量に誤混入する。
             // クリック彩度の床（下記）は通常この無彩床より高いが、低彩度クリックでも下回らないようにする。
             float satFloor = Mathf.Max(AchromaSampleSatMax, sS * NormSatFloorFrac);
+            return TryNormalizeFromPopulation(pixels, w, h, zone, excluded, maskW, maskH, hsv,
+                sH, sS, sV, useHueBand: true, satFloor: satFloor, satCeil: float.MaxValue,
+                satBinSpan: 1f, satBins: NormSatBins, valBins: NormValBins, out normalized);
+        }
 
-            int SB = NormSatBins, VB = NormValBins;
+        /// <summary>
+        /// 彩度帯 [<paramref name="satFloor"/>, <paramref name="satCeil"/>) の（必要なら同色相の）
+        /// 画素を母集団として代表地色を推定する共通部。
+        /// </summary>
+        private static bool TryNormalizeFromPopulation(
+            Color32[] pixels, int w, int h, ColorZone zone,
+            bool[] excluded, int maskW, int maskH, HsvGrid hsv,
+            float sH, float sS, float sV, bool useHueBand, float satFloor, float satCeil,
+            float satBinSpan, int satBins, int valBins, out Color normalized)
+        {
+            normalized = zone.sampleColor;
+
+            int SB = satBins, VB = valBins;
             var cnt = new int[SB * VB];
             var sumR = new float[SB * VB];
             var sumG = new float[SB * VB];
@@ -87,10 +139,14 @@ namespace Iroca
                     if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
                     float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
                     if (pS < satFloor) continue;         // クリックより淡い側（＝別素材/脱彩の裾）を除外
-                    float hd = Mathf.Abs(pH - sH); if (hd > 0.5f) hd = 1f - hd;
-                    if (hd >= AutoToneHueBand) continue; // 別色相パーツを除外
+                    if (pS >= satCeil) continue;         // 有彩の別素材を除外（無彩クリック時のみ有効な上限）
+                    if (useHueBand)
+                    {
+                        float hd = Mathf.Abs(pH - sH); if (hd > 0.5f) hd = 1f - hd;
+                        if (hd >= AutoToneHueBand) continue; // 別色相パーツを除外
+                    }
 
-                    int sb = Mathf.Clamp((int)(pS * SB), 0, SB - 1);
+                    int sb = Mathf.Clamp((int)(pS / satBinSpan * SB), 0, SB - 1);
                     int vb = Mathf.Clamp((int)(pV * VB), 0, VB - 1);
                     int i = sb * VB + vb;
                     cnt[i]++;
@@ -120,6 +176,19 @@ namespace Iroca
             }
             if (bestSb < 0) return false;
 
+            // 【無彩のみ】最頻値がトーン連結域の端に立っているなら、それは地色ではなくベタ塗り。
+            // 素材の地色には必ず両側に陰影が付く(暗部と明部が地色を挟む)ので、最頻 bin は分布の
+            // 内側に来る。逆に、テクスチャへ焼かれた背景レイヤーや UV パディングは単一色の巨大な
+            // 塊なので、無彩母集団の最頻値を奪ったうえで V の端（純白なら上端・黒なら下端）に立つ。
+            // 有彩クリックは色相帯が背景を除くのでこの現象が起きず、判定も掛けない（出力不変）。
+            //
+            // 実測 2026-08-19（実 C# ハーネス --autotune）: 純白 BG レイヤーを持つテクスチャで、
+            // 白い衣装のどこをクリックしても代表地色が (255,255,255)=背景に落ち、衣装の地色
+            // (229,230,242) を踏んだ良いクリックまで recall 0.92→0.60 へ引きずられた。
+            // この門で背景を弾くと、地色が分布の内側にある被写体（黒衣装 (32,31,38)・
+            // ゴーグル (54,54,54)）の正規化はそのまま効く。
+            if (!useHueBand && (bestVb <= loBin || bestVb >= hiBin)) return false;
+
             // 量子化で山が隣の bin へ割れても代表色がぶれないよう ±1 bin まで含めて平均する。
             int sbLo = Mathf.Max(0, bestSb - 1), sbHi = Mathf.Min(SB - 1, bestSb + 1);
             int vbLo = Mathf.Max(loBin, bestVb - 1), vbHi = Mathf.Min(hiBin, bestVb + 1);
@@ -137,13 +206,24 @@ namespace Iroca
             if (n2 < MinNearSampleCount) return false; // 代表色の平均を取るには標本が足りない
 
             // クリックが既に地色帯に居るなら触らない（同じ ±1 bin の窓で数えて比較する）。
-            int clickSb = Mathf.Clamp((int)(sS * SB), 0, SB - 1);
-            int clickVb = Mathf.Clamp((int)(sV * VB), 0, VB - 1);
-            int clickN = 0;
-            for (int sb = Mathf.Max(0, clickSb - 1); sb <= Mathf.Min(SB - 1, clickSb + 1); sb++)
-                for (int vb = Mathf.Max(0, clickVb - 1); vb <= Mathf.Min(VB - 1, clickVb + 1); vb++)
-                    clickN += cnt[sb * VB + vb];
-            if (clickN >= n2 * NormOutlierFrac) return false;
+            //
+            // 無彩クリックではこの門を掛けない。門は「裾(ツヤ・柄)を踏んだときだけ直す」ための
+            // もので、閾値 1/10 は『ツヤや柄はパーツ面積の 1% 前後』という有彩パーツの前提で
+            // 引かれている。無彩の布は陰影のランプそのものが面積の大半を占めるため、地色から
+            // 大きく外れた暗部を踏んでも「主要な色帯の中」と判定されてしまい、直すべきクリックが
+            // 素通りする(実測 2026-08-19: ゴーグルの最暗部クリックで IoU 0.726、地色クリックなら
+            // 0.995。黒衣装も最暗部 0.715 対 地色 0.982)。無彩側は上の「連結域の端＝ベタ塗り」門が
+            // 暴走を止めるので、地色帯へは常に寄せてよい(既に地色なら下の NormMinShift で止まる)。
+            if (useHueBand)
+            {
+                int clickSb = Mathf.Clamp((int)(sS / satBinSpan * SB), 0, SB - 1);
+                int clickVb = Mathf.Clamp((int)(sV * VB), 0, VB - 1);
+                int clickN = 0;
+                for (int sb = Mathf.Max(0, clickSb - 1); sb <= Mathf.Min(SB - 1, clickSb + 1); sb++)
+                    for (int vb = Mathf.Max(0, clickVb - 1); vb <= Mathf.Min(VB - 1, clickVb + 1); vb++)
+                        clickN += cnt[sb * VB + vb];
+                if (clickN >= n2 * NormOutlierFrac) return false;
+            }
 
             float inv = 1f / n2;
             var rep = new Color(r * inv, g * inv, b * inv, 1f);
