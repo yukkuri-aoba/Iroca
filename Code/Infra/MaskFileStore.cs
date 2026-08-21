@@ -241,18 +241,19 @@ namespace Iroca
         {
             if (state == null) return true;
             bool hasCommon = !string.IsNullOrEmpty(state.commonMaskBase64);
-            bool hasZone = false;
-            if (state.zones != null)
+            return !hasCommon && !HasAnyEntry(state.zones) && !HasAnyEntry(state.zoneIncludes);
+        }
+
+        private static bool HasAnyEntry(System.Collections.Generic.List<MaskZoneEntry> entries)
+        {
+            if (entries == null) return false;
+            foreach (var entry in entries)
             {
-                foreach (var entry in state.zones)
-                {
-                    if (entry == null) continue;
-                    if (string.IsNullOrEmpty(entry.maskBase64)) continue;
-                    hasZone = true;
-                    break;
-                }
+                if (entry == null) continue;
+                if (string.IsNullOrEmpty(entry.maskBase64)) continue;
+                return true;
             }
-            return !hasCommon && !hasZone;
+            return false;
         }
     }
 }

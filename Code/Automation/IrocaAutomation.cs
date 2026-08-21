@@ -600,7 +600,8 @@ namespace Iroca
             if (p == null) return false;
             if (p.maskWidth <= 0 || p.maskHeight <= 0) return false;
             if (!string.IsNullOrEmpty(p.commonMaskBase64)) return true;
-            return p.zoneMasks != null && p.zoneMasks.Any(z => z != null && !string.IsNullOrEmpty(z.maskBase64));
+            if (p.zoneMasks != null && p.zoneMasks.Any(z => z != null && !string.IsNullOrEmpty(z.maskBase64))) return true;
+            return p.zoneIncludeMasks != null && p.zoneIncludeMasks.Any(z => z != null && !string.IsNullOrEmpty(z.maskBase64));
         }
 
         private static void AddPresets(PresetList list, string folder, string scope)

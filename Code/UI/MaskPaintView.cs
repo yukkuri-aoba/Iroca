@@ -18,7 +18,11 @@ namespace Iroca
         // どのマスクを編集対象にするか。-1 = 共通マスク、0 以上 = zones[index]。
         public int activeMaskTarget = -1;
         public int brushSize = 8;
-        public bool brushEraseMode; // false = 除外ペイント、true = 除外消去
+        public bool brushEraseMode; // false = ペイント、true = 消去(いずれも編集中レイヤーに対して)
+        // 編集対象レイヤー。false = 除外マスク、true = 含めるマスク。
+        // 含めるはゾーン単位のみ(共通マスクには存在しない)。共通ターゲット選択時は
+        // Draw 側で false へ強制リセットされる。
+        public bool editIncludeLayer;
         public bool maskFoldout = true;
 
         // 共通マスク（フル解像度、true = 除外）。全ゾーンに適用される。
@@ -28,6 +32,10 @@ namespace Iroca
         // ゾーン別マスク: key = ColorZone.id。配列サイズは maskWidth * maskHeight。
         // 値が null のエントリは持たない（存在しない = 全ピクセル非除外扱い）。
         [System.NonSerialized] public Dictionary<string, bool[]> zoneMasks = new Dictionary<string, bool[]>();
+
+        // ゾーン別「含める」マスク: key = ColorZone.id、true = 強制的に色替えへ含める。
+        // 除外と同じキャンバス寸法(maskWidth × maskHeight)。null 値のエントリは持たない。
+        [System.NonSerialized] public Dictionary<string, bool[]> zoneIncludeMasks = new Dictionary<string, bool[]>();
 
         // マスクオーバーレイ（テクスチャは都度再構築するのでシリアライズ不要）
         [System.NonSerialized] public Texture2D maskOverlayTexture;
@@ -43,6 +51,9 @@ namespace Iroca
 
         // 共通(除外)マスクのオーバーレイ色。非同期再構築と直接書き込みで共用。
         private static readonly Color32 ExcludedOverlayColor = new Color32(255, 60, 60, 80);
+        // 含めるマスクのオーバーレイ色。ゾーンに依らず固定の緑(「緑 = 含める」を一意にする。
+        // 除外側のゾーン色は黄金比生成で緑近傍も出るため、彩度と明度で差を付けている)。
+        private static readonly Color32 IncludedOverlayColor = new Color32(50, 230, 110, 100);
 
         [System.NonSerialized] public bool isPainting;
         [System.NonSerialized] public Vector2 lastPaintUV = -Vector2.one;
@@ -101,8 +112,9 @@ namespace Iroca
             }
 
             DrawMaskTargetSelector();
+            EnforceLayerConsistency();
 
-            // ブラシ操作（サイズ・除外/含める・元に戻す）は MaskBrushWindow パレットへ分離し、
+            // ブラシ操作（サイズ・種類・塗る/消す・元に戻す）は MaskBrushWindow パレットへ分離し、
             // ここは「開いてすぐ塗れる」入口ボタンだけにする。
             var prevBg = GUI.backgroundColor;
             if (maskPaintActive) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
@@ -145,14 +157,31 @@ namespace Iroca
         }
 
         /// <summary>
+        /// レイヤー選択の整合を保つ: 含めるレイヤーはゾーン単位のみなので、編集対象が
+        /// 共通マスクのときは除外レイヤーへ戻す(ゾーン削除・対象切替の過渡で不整合になり得る)。
+        /// </summary>
+        private void EnforceLayerConsistency()
+        {
+            if (!editIncludeLayer) return;
+            var zones = _host.Session?.zones;
+            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
+            {
+                editIncludeLayer = false;
+                maskDirty = true;
+            }
+        }
+
+        /// <summary>
         /// ブラシ操作パレット（MaskBrushWindow）の中身。状態はすべて本クラスに集約されたままなので、
         /// メインウィンドウ側のハイライトや AI 提案との排他は従来ロジックがそのまま機能する。
         /// </summary>
         public void DrawBrushPalette()
         {
             var zones = _host.Session.zones;
+            bool commonTarget = activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count;
+            EnforceLayerConsistency();
             string targetName;
-            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
+            if (commonTarget)
                 targetName = Localization.MaskTargetCommon;
             else
             {
@@ -167,29 +196,60 @@ namespace Iroca
                 new GUIContent(Localization.BrushSize, Localization.BrushSizeTooltip),
                 brushSize, 1, 64);
 
-            bool excludeActive = maskPaintActive && !brushEraseMode;
-            bool includeActive = maskPaintActive && brushEraseMode;
             bool stateChanged = false;
-
-            EditorGUILayout.BeginHorizontal();
             var prevBg = GUI.backgroundColor;
 
-            GUI.backgroundColor = excludeActive ? IrocaColors.ExcludeButton : Color.white;
-            if (GUILayout.Button(new GUIContent(Localization.Exclude, Localization.ExcludeTooltip), EditorStyles.miniButtonLeft))
+            // マスクの種類(レイヤー)選択: 除外 / 含める。含めるはゾーン単位のみなので、
+            // 共通マスクが編集対象のときは無効化する(理由はツールチップに記載)。
+            EditorGUILayout.LabelField(
+                new GUIContent(Localization.MaskLayerKind, Localization.MaskLayerKindTooltip),
+                EditorStyles.miniLabel);
+            EditorGUILayout.BeginHorizontal();
+            GUI.backgroundColor = !editIncludeLayer ? IrocaColors.ExcludeButton : Color.white;
+            if (GUILayout.Button(new GUIContent(Localization.Exclude, Localization.ExcludeTooltip),
+                    EditorStyles.miniButtonLeft)
+                && editIncludeLayer)
             {
-                if (excludeActive) DeactivateBrush();
+                editIncludeLayer = false;
+                maskDirty = true;
+                stateChanged = true;
+            }
+            using (new EditorGUI.DisabledScope(commonTarget))
+            {
+                GUI.backgroundColor = editIncludeLayer ? IrocaColors.IncludeButton : Color.white;
+                if (GUILayout.Button(
+                        new GUIContent(Localization.Include, Localization.IncludeLayerTooltip),
+                        EditorStyles.miniButtonRight)
+                    && !editIncludeLayer)
+                {
+                    editIncludeLayer = true;
+                    maskDirty = true;
+                    stateChanged = true;
+                }
+            }
+            GUI.backgroundColor = prevBg;
+            EditorGUILayout.EndHorizontal();
+
+            // ブラシモード: 塗る / 消す(いずれも上で選んだレイヤーに対して作用する)。
+            bool paintActive = maskPaintActive && !brushEraseMode;
+            bool eraseActive = maskPaintActive && brushEraseMode;
+            EditorGUILayout.BeginHorizontal();
+            GUI.backgroundColor = paintActive ? IrocaColors.ExcludeButton : Color.white;
+            if (GUILayout.Button(new GUIContent(Localization.BrushPaint, Localization.BrushPaintTooltip),
+                    EditorStyles.miniButtonLeft))
+            {
+                if (paintActive) DeactivateBrush();
                 else ActivateBrush(erase: false);
                 stateChanged = true;
             }
-
-            GUI.backgroundColor = includeActive ? IrocaColors.IncludeButton : Color.white;
-            if (GUILayout.Button(new GUIContent(Localization.Include, Localization.IncludeTooltip), EditorStyles.miniButtonRight))
+            GUI.backgroundColor = eraseActive ? IrocaColors.IncludeButton : Color.white;
+            if (GUILayout.Button(new GUIContent(Localization.BrushErase, Localization.BrushEraseTooltip),
+                    EditorStyles.miniButtonRight))
             {
-                if (includeActive) DeactivateBrush();
+                if (eraseActive) DeactivateBrush();
                 else ActivateBrush(erase: true);
                 stateChanged = true;
             }
-
             GUI.backgroundColor = prevBg;
             EditorGUILayout.EndHorizontal();
 
@@ -286,7 +346,7 @@ namespace Iroca
             if (maskWidth != w || maskHeight != h)
             {
                 int oldW = maskWidth, oldH = maskHeight;
-                bool hadData = exclusionMask != null || zoneMasks.Count > 0;
+                bool hadData = exclusionMask != null || zoneMasks.Count > 0 || zoneIncludeMasks.Count > 0;
                 if (hadData && oldW > 0 && oldH > 0)
                 {
                     exclusionMask = RescaleMask(exclusionMask, oldW, oldH, w, h);
@@ -297,12 +357,20 @@ namespace Iroca
                         if (scaled != null) zoneMasks[key] = scaled;
                         else zoneMasks.Remove(key); // 不変条件: null 値のエントリは持たない
                     }
+                    var incKeys = new List<string>(zoneIncludeMasks.Keys);
+                    foreach (var key in incKeys)
+                    {
+                        var scaled = RescaleMask(zoneIncludeMasks[key], oldW, oldH, w, h);
+                        if (scaled != null) zoneIncludeMasks[key] = scaled;
+                        else zoneIncludeMasks.Remove(key);
+                    }
                     Debug.Log($"[Iroca] テクスチャ解像度の変更 ({oldW}x{oldH} → {w}x{h}) に合わせてマスクをリスケールしました。");
                 }
                 else
                 {
                     exclusionMask = null;
                     zoneMasks.Clear();
+                    zoneIncludeMasks.Clear();
                 }
                 maskWidth = w;
                 maskHeight = h;
@@ -365,18 +433,38 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 現在のアクティブターゲット（共通 or ゾーン）のマスク配列を返す。必要なら確保する。
+        /// 指定ゾーンの「含める」マスクを確保（存在しなければ新規作成）して返す。
+        /// </summary>
+        private bool[] EnsureZoneIncludeMask(string zoneId)
+        {
+            EnsureMasks();
+            if (string.IsNullOrEmpty(zoneId)) return null;
+            if (maskWidth <= 0 || maskHeight <= 0) return null;
+            int len = maskWidth * maskHeight;
+            if (!zoneIncludeMasks.TryGetValue(zoneId, out var m) || m == null || m.Length != len)
+            {
+                m = new bool[len];
+                zoneIncludeMasks[zoneId] = m;
+            }
+            return m;
+        }
+
+        /// <summary>
+        /// 現在のアクティブターゲット（共通 or ゾーン）× レイヤー(除外 or 含める)の
+        /// マスク配列を返す。必要なら確保する。
         /// 共通マスクは実際にペイント先になった時だけ確保される（zone-only mask の保全のため）。
+        /// 共通ターゲット × 含めるレイヤーは存在しない組み合わせで null を返す
+        /// (UI 側は EnforceLayerConsistency がこの状態を解消する。データ経路の防御)。
         /// </summary>
         public bool[] GetActiveMaskArray()
         {
             var zones = _host.Session.zones;
             if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
-                return EnsureCommonMask();
+                return editIncludeLayer ? null : EnsureCommonMask();
 
             var zone = zones[activeMaskTarget];
             zone.EnsureId();
-            return EnsureZoneMask(zone.id);
+            return editIncludeLayer ? EnsureZoneIncludeMask(zone.id) : EnsureZoneMask(zone.id);
         }
 
         /// <summary>
@@ -397,13 +485,15 @@ namespace Iroca
             var zones = _host.Session.zones;
             if (activeMaskTarget < 0)
             {
-                exclusionMask = null;
+                // 共通ターゲットに含めるレイヤーは存在しない(EnforceLayerConsistency 済み)。
+                if (!editIncludeLayer) exclusionMask = null;
             }
             else if (zones != null && activeMaskTarget < zones.Count)
             {
                 var zone = zones[activeMaskTarget];
                 zone.EnsureId();
-                zoneMasks.Remove(zone.id);
+                if (editIncludeLayer) zoneIncludeMasks.Remove(zone.id);
+                else zoneMasks.Remove(zone.id);
             }
         }
 
@@ -416,7 +506,10 @@ namespace Iroca
             if (zones == null || index < 0 || index >= zones.Count) return;
             string id = zones[index].id;
             if (!string.IsNullOrEmpty(id))
+            {
                 zoneMasks.Remove(id);
+                zoneIncludeMasks.Remove(id);
+            }
 
             if (activeMaskTarget == index) activeMaskTarget = -1;
             else if (activeMaskTarget > index) activeMaskTarget--;
@@ -544,7 +637,7 @@ namespace Iroca
             var zones = _host.Session.zones;
             if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
                 return ExcludedOverlayColor;
-            return OverlayColorForZone(activeMaskTarget);
+            return editIncludeLayer ? IncludedOverlayColor : OverlayColorForZone(activeMaskTarget);
         }
 
         /// <summary>
@@ -559,7 +652,8 @@ namespace Iroca
                 paintColor = ExcludedOverlayColor;
                 return maskOverlayTexture;
             }
-            paintColor = OverlayColorForZone(activeMaskTarget);
+            // 含めるレイヤーも表示スロットはゾーン用テクスチャを共用する(同時表示しないため)。
+            paintColor = editIncludeLayer ? IncludedOverlayColor : OverlayColorForZone(activeMaskTarget);
             return zoneMaskOverlayTexture;
         }
 
@@ -620,10 +714,14 @@ namespace Iroca
             if (!commonIsActive && capMw > 0 && capMh > 0)
             {
                 var zone = zones[activeMaskTarget];
-                if (zone != null && !string.IsNullOrEmpty(zone.id)
-                    && zoneMasks.TryGetValue(zone.id, out var zm) && zm != null)
+                if (zone != null && !string.IsNullOrEmpty(zone.id))
                 {
-                    zoneInfos.Add((OverlayColorForZone(activeMaskTarget), (bool[])zm.Clone()));
+                    // 編集中レイヤーのマスクだけを表示する(除外=ゾーン色 / 含める=緑)。
+                    var dict = editIncludeLayer ? zoneIncludeMasks : zoneMasks;
+                    var color = editIncludeLayer
+                        ? IncludedOverlayColor : OverlayColorForZone(activeMaskTarget);
+                    if (dict.TryGetValue(zone.id, out var zm) && zm != null)
+                        zoneInfos.Add((color, (bool[])zm.Clone()));
                 }
             }
 
@@ -812,6 +910,19 @@ namespace Iroca
             {
                 if (kv.Value == null) continue;
                 snap.zones[kv.Key] = MaskSnapshot.Pack(kv.Value);
+            }
+            if (zoneIncludeMasks.Count > 0)
+            {
+                foreach (var kv in zoneIncludeMasks)
+                {
+                    // 全 false の含めるマスクはスナップショットに載せない。載せると処理側が
+                    // 空の includedPx 展開(全画素ループ)を毎回行い、選択キャッシュキーも
+                    // 「含めるなし」と別になってしまう(出力は同じなのにミスが増える)。
+                    if (kv.Value == null || !AnyTrue(kv.Value)) continue;
+                    if (snap.zoneIncludes == null)
+                        snap.zoneIncludes = new Dictionary<string, ulong[]>();
+                    snap.zoneIncludes[kv.Key] = MaskSnapshot.Pack(kv.Value);
+                }
             }
             return snap;
         }
