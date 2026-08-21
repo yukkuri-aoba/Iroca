@@ -208,6 +208,12 @@ $env:VACC_AUTOTUNE_GATE_FULL = "1"
   `run_harness_autotune`（実行キャッシュ + AUTOTUNE パラメータの aux キャッシュ）に一本化して
   あり、DLL 不変なら 2 回目以降の追加コストはほぼゼロ。初回も避けたい場合のみ
   `VACC_FEINA_AUTOTUNE=0` / `VACC_GEN2_FULL=0` で絞れる。
+- **no-mask のアトラス系の低い precision（feina pants 0.21 等）は最悪条件の番兵であって
+  製品品質ではない**。実操作相当（部位マスク/シードで空間的に絞る）の正のゲートは
+  `test_autotune_masked`（partsim 部位マップ: pants/boots IoU 0.997〜0.998）と
+  `test_autotune_seeded`（Shift+クリック相当: 全被写体 precision ≥0.98 のハード契約）で、
+  どちらも既定 ON（`VACC_AUTOTUNE_MASKED=0` / `VACC_AUTOTUNE_SEEDED=0` で opt-out）。
+  過検出の議論はこの 2 つの数字で行う（2026-08-21 の 3 条件比較計測）。
 
 ## skip と fail の区別（fixtures.require_harness）
 
