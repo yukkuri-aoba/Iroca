@@ -71,6 +71,13 @@ namespace Iroca
         // (未指定=null=自動アンカリング)。
         public bool useFloodFill { get; set; } = ZonesJsonDefaults.UseFloodFill;
         public float[] seedUV { get; set; } = null;
+        // ゾーン別の含めるマスク(raw ファイルパス, [int32 w][int32 h][w*h bytes], 1=含める)。
+        // 寸法は mask.raw と一致必須。未指定=null=含めるマスクなし。
+        // ★ハーネス専用フィールド★ — 製品の含めるマスクは MaskFileStore / プリセット経由で、
+        // zones JSON 経路(MCP/batchmode)は v1 でマスク自体を適用しない(IrocaAutomation の警告参照)。
+        // テストから含めるマスク経路を駆動するための入力。test_zones_schema_parity.py の
+        // HARNESS_ONLY 参照。
+        public string includeMask { get; set; } = null;
     }
 
     internal sealed class SettingsCfg
@@ -225,7 +232,9 @@ namespace Iroca
             SettingsCfg st;
             if (zonesPath != null)
             {
-                (zoneList, st) = LoadZones(zonesPath);
+                List<(string zoneId, string path)> includes;
+                (zoneList, st, includes) = LoadZones(zonesPath);
+                AttachIncludeMasks(masks, includes);
             }
             else
             {
@@ -366,14 +375,47 @@ namespace Iroca
             bw.Write(outBytes);
         }
 
-        private static (List<ColorZone> zones, SettingsCfg settings) LoadZones(string path)
+        private static (List<ColorZone> zones, SettingsCfg settings,
+                        List<(string zoneId, string path)> includes) LoadZones(string path)
         {
             var cfg = JsonSerializer.Deserialize<ZonesConfig>(
                 File.ReadAllText(path),
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
             var list = new List<ColorZone>();
-            foreach (var z in cfg.zones) list.Add(BuildZone(z));
-            return (list, cfg.settings ?? new SettingsCfg());
+            var includes = new List<(string zoneId, string path)>();
+            foreach (var z in cfg.zones)
+            {
+                var zone = BuildZone(z);
+                list.Add(zone);
+                // 含めるマスクは MaskSnapshot 側(zone.id キー)に載るため、生成済み id と
+                // ファイルパスの対応をここで確定させる。
+                if (!string.IsNullOrEmpty(z.includeMask))
+                    includes.Add((zone.id, z.includeMask));
+            }
+            return (list, cfg.settings ?? new SettingsCfg(), includes);
+        }
+
+        /// <summary>
+        /// ゾーン別の含めるマスク raw を読み、MaskSnapshot へ取り付ける。
+        /// 寸法は mask.raw(= snapshot の寸法)と一致必須(製品でもマスクは全レイヤー同一
+        /// キャンバス寸法で管理されるため、不一致はテスト側の組み立てミス)。
+        /// </summary>
+        private static void AttachIncludeMasks(
+            MaskSnapshot masks, List<(string zoneId, string path)> includes)
+        {
+            if (includes == null || includes.Count == 0) return;
+            foreach (var (zoneId, path) in includes)
+            {
+                var (iw, ih, ibytes) = ReadRaw(path, 1);
+                if (iw != masks.width || ih != masks.height)
+                    throw new InvalidOperationException(
+                        $"includeMask 寸法 {iw}x{ih} が mask.raw 寸法 {masks.width}x{masks.height} と不一致: {path}");
+                var inc = new bool[iw * ih];
+                for (int i = 0; i < inc.Length; i++) inc[i] = ibytes[i] != 0;
+                if (masks.zoneIncludes == null)
+                    masks.zoneIncludes = new Dictionary<string, ulong[]>();
+                masks.zoneIncludes[zoneId] = MaskSnapshot.Pack(inc);
+            }
         }
 
         // ─── --batch: 同一入力・複数ゾーン設定をまとめて処理 ───
@@ -398,7 +440,7 @@ namespace Iroca
 
             foreach (var c in cfg.cases)
             {
-                var (zoneList, st) = LoadZones(c.zones);
+                var (zoneList, st, includes) = LoadZones(c.zones);
                 var pixels = (Color32[])basePixels.Clone();
                 var masks = new MaskSnapshot
                 {
@@ -407,6 +449,7 @@ namespace Iroca
                     height = mh,
                     zones = null,
                 };
+                AttachIncludeMasks(masks, includes);
                 ProcessZones(pixels, w, h, masks, zoneList, st);
                 WriteRawRgba(c.@out, w, h, pixels);
                 Console.WriteLine($"OK {w}x{h} -> {c.@out} (zones={zoneList.Count})");
@@ -437,7 +480,7 @@ namespace Iroca
             {
                 z, /*edgeFeather*/0f, /*aaCleanup*/3, /*holeFillPasses*/5, /*holeFillMinNeighbors*/4,
                 /*relaxedSatMin*/0.02f, /*relaxedSatRamp*/0.08f, /*commonMask*/null, /*zoneMask*/null,
-                /*maskW*/0, /*maskH*/0,
+                /*zoneInclude*/null, /*maskW*/0, /*maskH*/0,
             });
 
             var baseline = new ColorZone();

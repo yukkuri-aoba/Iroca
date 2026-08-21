@@ -87,10 +87,17 @@ namespace Iroca
         // 渡す。候補はこの矩形の外に 1 画素も無いので、走査を矩形に限ると 3 パスとも「読む量」だけが
         // 減り、ヒストグラム(整数加算・順序非依存)の中身は全画素走査と完全に一致する = 出力ビット不変。
         // 空矩形(マッチ皆無, bbMaxX<bbMinX)なら候補 0 件で false を返す(従来の「候補不足」と同じ)。
+        // statsExclude: 統計から除外する画素(テクスチャ解像度、null=除外なし)。含めるマスクで
+        // 強制追加された画素は strength=1 でコア判定を通ってしまうが、手動追加領域(別素材の
+        // 可能性がある)が地色統計を汚すとゾーン全体の再着色が遠隔で変わるため、大域統計からは
+        // 除外する。除外された画素も再着色自体は受ける(色マッチ画素から推定した素材モデルで
+        // 「同素材として」写像される)。3 パスとも同一の判定で除外すること — pass1 で除外した
+        // 画素の candL/candC は未初期化(プール再利用のゴミ)であり、pass2/3 が読むと壊れる。
         private static bool TryComputeRecolorAnchor(
             Color32[] px, float[] strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out float anchorL, out float anchorC,
+            bool[] statsExclude = null,
             CancellationToken ct = default)
         {
             anchorL = 0f;
@@ -120,6 +127,7 @@ namespace Iroca
                         {
                             int i = rowOff + x;
                             if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
+                            if (statsExclude != null && statsExclude[i]) continue;
                             RgbToOklab(px[i].r, px[i].g, px[i].b,
                                 out float L, out float a, out float b);
                             float C = Mathf.Sqrt(a * a + b * b);
@@ -149,6 +157,7 @@ namespace Iroca
                         {
                             int i = rowOff + x;
                             if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
+                            if (statsExclude != null && statsExclude[i]) continue;
                             float L = candL[i];
                             if (candC[i] / Mathf.Max(L, 1e-4f) < satrFloor) continue;
                             hist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
@@ -177,6 +186,7 @@ namespace Iroca
                         {
                             int i = rowOff + x;
                             if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
+                            if (statsExclude != null && statsExclude[i]) continue;
                             float L = candL[i];
                             float c = candC[i];
                             if (c / Mathf.Max(L, 1e-4f) < satrFloor) continue;
