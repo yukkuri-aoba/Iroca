@@ -26,6 +26,10 @@ namespace Iroca
         public int width;
         public int height;
         public Dictionary<string, ulong[]> zones;
+        // ゾーン別「含める」マスク(true=強制的に選択へ含める)。key = ColorZone.id。
+        // 除外(common/zones)と違い共通版は持たない(「どのゾーンの選択に含めるか」が
+        // 定まらないため、含めるは常にゾーン単位)。除外と重なった画素は除外が勝つ。
+        public Dictionary<string, ulong[]> zoneIncludes;
 
         /// <summary>bool[](true=除外)を 1bit/画素の ulong[] にパックする。null は null を返す。</summary>
         public static ulong[] Pack(bool[] mask)

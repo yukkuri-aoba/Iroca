@@ -65,7 +65,7 @@ namespace Iroca
         private static string BuildSelectionKey(
             ColorZone z, float edgeFeather, int aaCleanup, int holeFillPasses, int holeFillMinNeighbors,
             float relaxedSatMin, float relaxedSatRamp, ulong[] commonMask, ulong[] zoneMask,
-            int maskW, int maskH)
+            ulong[] zoneInclude, int maskW, int maskH)
         {
             var sb = new StringBuilder(320);
             void F(float v) { sb.Append(BitConverter.SingleToInt32Bits(v)); sb.Append(','); }
@@ -93,6 +93,7 @@ namespace Iroca
             I(maskW); I(maskH);
             sb.Append(MaskHash(commonMask)); sb.Append(';');
             sb.Append(MaskHash(zoneMask)); sb.Append(';');
+            sb.Append(MaskHash(zoneInclude)); sb.Append(';');
             return sb.ToString();
         }
 
@@ -250,6 +251,10 @@ namespace Iroca
                 ulong[] zoneMask = null;
                 if (masks != null && masks.zones != null && !string.IsNullOrEmpty(zone.id))
                     masks.zones.TryGetValue(zone.id, out zoneMask);
+                // 含めるマスク(ゾーン別のみ)。除外と重なった画素は除外が勝つ。
+                ulong[] zoneInclude = null;
+                if (masks != null && masks.zoneIncludes != null && !string.IsNullOrEmpty(zone.id))
+                    masks.zoneIncludes.TryGetValue(zone.id, out zoneInclude);
 
                 // Parallel.For に入る前にキャッシュを確定させてホットループ内の条件分岐を排除
                 zone.UpdateCacheIfNeeded();
@@ -264,6 +269,7 @@ namespace Iroca
                 float[] strength = null;
                 float[] highlightPot = null;
                 float[] matchConf = null;
+                bool[] includedPx = null;
                 try
                 {
                     // フル画像経路(メインプレビュー/Apply/Export)か部分クロップ(詳細プレビュー)か。
@@ -282,8 +288,33 @@ namespace Iroca
                     {
                         selKey = BuildSelectionKey(zone, edgeFeather, antiAliasCleanup, holeFillPasses,
                             holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp, commonMask, zoneMask,
-                            maskW, maskH);
+                            zoneInclude, maskW, maskH);
                         selCached = selectionCache.TryGet(zone.id, selKey, w, h, out cachedStrength, out cachedKeep);
+                    }
+
+                    // 含めるマスクをテクスチャ解像度の bool[] へ展開する(除外優先を焼き込む)。
+                    // 用途は 3 つ: (a) 選択への強制適用(マスク再適用の直後・キャッシュ保存の前)
+                    // (b) 大域統計(再着色アンカー/領域Lレンジ)からの除外 — 手動追加した画素が
+                    //     地色統計を汚し、ゾーン全体の再着色が遠隔で変わるのを防ぐ
+                    // (c) 中性リジェクト等 target 依存ヒューリスティック後の再主張
+                    // キャッシュヒット時も (b)(c) で必要になるため selCached と無関係に作る。
+                    // 含めるマスクが無ければ null のまま = 以降の全分岐が no-op(出力ビット不変)。
+                    if (zoneInclude != null)
+                    {
+                        includedPx = s_boolPool.Rent(len);
+                        var incLocal = includedPx;
+                        Parallel.For(0, h, po, y =>
+                        {
+                            int yf = y + originY;
+                            int rowOff = y * w;
+                            for (int x = 0; x < w; x++)
+                            {
+                                int xf = x + originX;
+                                incLocal[rowOff + x] =
+                                    IsIncludedZone(xf, yf, fullW, fullH, zoneInclude, maskW, maskH)
+                                    && !IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH);
+                            }
+                        });
                     }
 
                     // 1. 元のピクセルカラーを使用した強度マップを構築(キャッシュヒット時は復元のみ)
@@ -574,6 +605,27 @@ namespace Iroca
                         debug?.RecordStage(zone.id, DebugStages.MaskReapply, strength, w, h);
                     }
 
+                    // 3a. 含めるマスク適用: 指定画素を full strength で選択へ強制追加する。
+                    //     除外の再適用より後に置くが、includedPx には除外優先が焼き込み済みなので
+                    //     順序に依らず「除外が勝つ」。ブラー等の後段パスより後 = マスク解像度の
+                    //     ハードエッジになる(除外マスクと同じ WYSIWYG 契約)。選択キャッシュ保存の
+                    //     前に置くことで、キー(含めるマスク内容ハッシュ)と保存内容が常に対応する。
+                    if (!selCached && includedPx != null)
+                    {
+                        var strengthForInclude = strength;
+                        var incApply = includedPx;
+                        Parallel.For(0, h, po, y =>
+                        {
+                            int rowOff = y * w;
+                            for (int x = 0; x < w; x++)
+                            {
+                                int i = rowOff + x;
+                                if (incApply[i]) strengthForInclude[i] = 1f;
+                            }
+                        });
+                        debug?.RecordStage(zone.id, DebugStages.MaskReapply, strength, w, h);
+                    }
+
                     // 選択フェーズ(Match〜マスク再適用)完了。ここが「生の選択」の境界で、この後の
                     // RejectNeutral/SolidifyAchromaInterior/decontam は target 依存で strength を破壊的に
                     // 書き換える。ミス時のみ、この時点の strength(コピー)+ FF keep を選択キャッシュへ保存し、
@@ -600,7 +652,27 @@ namespace Iroca
                     // 灰色化する)。有彩→有彩(weight≈0)・低彩度サンプル(sS<床)では作動しない=従来挙動を完全維持。
                     float zAchromaSelectWeight = ComputeAchromaSelectWeight(zone.sampleColor, zone.targetColor);
                     if (zAchromaSelectWeight > AchromaNeutralRejectWeightMin && zSS >= NeutralRejectActiveSourceSat)
+                    {
                         RejectNeutralForAchromaTarget(strength, pixS, w, h, zSS, cancellationToken);
+                        // 含める画素の再主張: 中性リジェクトは target 依存で strength を破壊的に
+                        // 書き換え、ユーザーが明示的に含めた画素(例: 白ツヤ)まで落とし得る。
+                        // 「含める」は明示指示なのでヒューリスティックより優先する。
+                        // 本段は選択キャッシュのヒット経路でも毎回走るため、selCached と無関係に適用する。
+                        if (includedPx != null)
+                        {
+                            var strengthReassert = strength;
+                            var incReassert = includedPx;
+                            Parallel.For(0, h, po, y =>
+                            {
+                                int rowOff = y * w;
+                                for (int x = 0; x < w; x++)
+                                {
+                                    int i = rowOff + x;
+                                    if (incReassert[i]) strengthReassert[i] = 1f;
+                                }
+                            });
+                        }
+                    }
 
                     // 無彩パスの内部固め: 極端な無彩ターゲット(白↔黒)では、マッチ強度が色のばらつきで内部まで
                     // フルにならず、明るい画素ほど弱く塗られて元色が残り「中央の段差」になる。陰影は塗り
@@ -723,7 +795,8 @@ namespace Iroca
                     }
                     else if (zone.autoRecolorAnchor && !zOkGray &&
                         TryComputeRecolorAnchor(originalPixels, strength, w,
-                            ppMinX, ppMinY, ppMaxX, ppMaxY, out float anchorL, out float anchorC, cancellationToken))
+                            ppMinX, ppMinY, ppMaxX, ppMaxY, out float anchorL, out float anchorC,
+                            includedPx, cancellationToken))
                     {
                         float zSC0 = zSC;
                         zSL = anchorL;
@@ -790,7 +863,7 @@ namespace Iroca
                         {
                             zHasRegL = TryComputeRegionLRange(originalPixels, strength, w,
                                 ppMinX, ppMinY, ppMaxX, ppMaxY,
-                                out zRegLlo, out zRegLhi, out zRegLmid, cancellationToken);
+                                out zRegLlo, out zRegLhi, out zRegLmid, includedPx, cancellationToken);
                             if (zHasRegL)
                                 zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, 0.05f, cancellationToken);
                         }
@@ -977,6 +1050,7 @@ namespace Iroca
                     if (highlightPot != null) s_floatPool.Return(highlightPot);
                     if (strength != null) s_floatPool.Return(strength);
                     if (matchConf != null) s_floatPool.Return(matchConf);
+                    if (includedPx != null) s_boolPool.Return(includedPx);
                 }
             }
 
@@ -1072,6 +1146,21 @@ namespace Iroca
                 if (cum >= target) return b / (float)(hist.Length - 1) * scale;
             }
             return scale;
+        }
+
+        /// <summary>
+        /// ゾーンの含めるマスク(1=強制的に選択へ含める)の判定。座標スケーリングは
+        /// <see cref="IsExcludedCombined"/> と同一(整数切り捨て)で、マスク解像度と
+        /// テクスチャ解像度の対応関係を除外側と揃える。除外優先は呼び出し側が組む。
+        /// </summary>
+        private static bool IsIncludedZone(int x, int y, int texW, int texH,
+            ulong[] includeMask, int maskW, int maskH)
+        {
+            if (includeMask == null) return false;
+            if (maskW <= 0 || maskH <= 0) return false;
+            int mx = Mathf.Clamp(x * maskW / texW, 0, maskW - 1);
+            int my = Mathf.Clamp(y * maskH / texH, 0, maskH - 1);
+            return MaskSnapshot.GetBit(includeMask, my * maskW + mx);
         }
 
         private static bool IsExcludedCombined(int x, int y, int texW, int texH,

@@ -420,10 +420,17 @@ namespace Iroca
         // bbMinX..bbMaxY: 対象(strength>0)が存在しうる矩形。呼び出し側が後段 bbox を渡す。
         // 集計対象はこの矩形の外に 1 画素も無いので、走査を絞ってもヒストグラム(整数加算・
         // 順序非依存)は全画素走査と完全に一致する = 出力ビット不変。
+        // statsExclude: 統計から除外する画素(null=除外なし)。含めるマスクの強制追加画素が
+        // 領域 L レンジ(P05/P95/中央値)を汚し、無彩リマップがゾーン全体で遠隔に変わるのを防ぐ。
+        // 除外された画素の再着色は、色マッチ画素から求めたレンジで「同素材として」写像される。
+        // なお成分別の地色基準(BuildComponentMedianLMap)は意図的に除外しない — あちらは
+        // 成分ローカルな統計で遠隔作用が無く、同素材の島を含めた場合はその島自身の地色基準を
+        // 使うのが正しいため。
         private static bool TryComputeRegionLRange(
             Color32[] px, float[] strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out float lo, out float hi, out float mid,
+            bool[] statsExclude = null,
             CancellationToken ct = default)
         {
             lo = 0f; hi = 1f; mid = 0.5f;
@@ -444,6 +451,7 @@ namespace Iroca
                         {
                             int i = rowOff + x;
                             if (strength[i] < passThr || px[i].a < 128) continue;
+                            if (statsExclude != null && statsExclude[i]) continue;
                             RgbToOklab(px[i].r, px[i].g, px[i].b, out float L, out _, out _);
                             localHist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
                             n++;
