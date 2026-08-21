@@ -162,6 +162,9 @@ Unity で開くと `Iroca.SentisIntegration.dll` も `Library\ScriptAssemblies` 
 # 実 C# 品質ゲートを bandana 以外の被写体（hair/costume/sneakers）まで広げる
 $env:VACC_CSHARP_GATE_FULL = "1"
 
+# 自動調整の品質ゲート(compute_all_metrics)を全被写体へ広げる（採否判断時に必須）
+$env:VACC_AUTOTUNE_GATE_FULL = "1"
+
 # golden（C# 出力ハッシュの固定）— dev_safe を必要としない自己完結テスト
 .\.venv\Scripts\python.exe -m pytest scripts/golden -q
 ```
@@ -196,8 +199,15 @@ $env:VACC_CSHARP_GATE_FULL = "1"
   golden が落ちる＝C# の出力が変わった、の意味。意図した変更なら
   `python scripts/golden/golden_lib.py --force` で再生成する（`--force` 無しだと、
   どのケースがどう変わるかを列挙して止まる）。
-- **改善サイクルの採否判断では `VACC_CSHARP_GATE_FULL=1` を必ず立てる**（既定は bandana のみで、
-  残り 3 被写体の実 C# 品質を測らずに「全パス」と誤認するため）。
+- **改善サイクルの採否判断では `VACC_CSHARP_GATE_FULL=1` と `VACC_AUTOTUNE_GATE_FULL=1` を
+  必ず立てる**（品質ゲートの既定は bandana のみで、残り被写体の実 C# 品質を測らずに
+  「全パス」と誤認するため）。
+- **自動調整（スポイト→自動調整＝ユーザーの主経路）の選択ゲートは既定 ON**（2026-08-21〜）:
+  `test_autotune_accuracy` は 4 被写体の選択床を常時、`test_feina_autotune`（アトラス 6 被写体）と
+  `test_synth_gen2` の 3 クリック位置も既定で回る。ハーネス実行は fixtures の
+  `run_harness_autotune`（実行キャッシュ + AUTOTUNE パラメータの aux キャッシュ）に一本化して
+  あり、DLL 不変なら 2 回目以降の追加コストはほぼゼロ。初回も避けたい場合のみ
+  `VACC_FEINA_AUTOTUNE=0` / `VACC_GEN2_FULL=0` で絞れる。
 
 ## skip と fail の区別（fixtures.require_harness）
 
