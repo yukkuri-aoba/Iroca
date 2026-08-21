@@ -255,15 +255,28 @@ namespace Iroca
             ? "スポイトした位置の明るさ・鮮やかさに関わらず、パーツの明るい面の色が「変更先の色」に一致するよう、\n再着色の基準をマッチした領域の統計から自動で補正します。\nこれにより、影の部分をスポイトしても出力が指定より過度に明るく・ベタ塗りになるのを防ぎます。\nOFF にするとスポイトした画素そのものが変更先の色になるため、クリックした画素を厳密に変更先の色へ\n当てたいとき、または意図的に明るく塗りたいときに使います。\n再着色する範囲(マッチング)は変わらず、色の写り方だけが補正されます。\nデフォルト: ON（明るくしたいゾーンだけ OFF）"
             : "Automatically corrects the recoloring reference from the matched region's statistics so the lit side of the part\nmatches the target color, regardless of how bright or saturated the eyedropped spot was.\nThis prevents the output from looking excessively brighter or flatter than specified when you sample in a shadow.\nWhen OFF, the eyedropped pixel itself maps to the target color — use OFF when you want the clicked pixel mapped\nexactly to the target, or when you intentionally want a brighter result.\nIt does not change which pixels are recolored (matching), only how colors are mapped.\nDefault: ON (turn OFF per zone when you want it brighter)";
 
-        public static string ExclusionMask => IsJapanese ? "除外マスク" : "Exclusion Mask";
+        // 含めるマスク追加(2026-08)以降、このセクションは除外/含めるの両マスクを扱う。
+        public static string ExclusionMask => IsJapanese ? "マスク" : "Masks";
         public static string BrushSize => IsJapanese ? "ブラシサイズ" : "Brush Size";
         public static string BrushMode => IsJapanese ? "ブラシモード" : "Brush Mode";
         public static string Exclude => IsJapanese ? "除外" : "Exclude";
         public static string Include => IsJapanese ? "含める" : "Include";
+        public static string MaskLayerKind => IsJapanese ? "マスクの種類" : "Mask Type";
+        public static string MaskLayerKindTooltip => IsJapanese
+            ? "編集するマスクの種類を切り替えます\n・除外: 塗った領域を色替えから外す（色が合っていても変更しない）\n・含める: 塗った領域を必ず色替えに含める（色が合わなくても変更する）\n両方に塗られた画素は「除外」が優先されます"
+            : "Switch which kind of mask you edit\n- Exclude: painted areas are never recolored (even if the color matches)\n- Include: painted areas are always recolored (even if the color does not match)\nWhere both overlap, Exclude wins";
+        public static string BrushPaint => IsJapanese ? "塗る" : "Paint";
+        public static string BrushPaintTooltip => IsJapanese
+            ? "ペイントモード: プレビューをドラッグして、いま選んでいる種類のマスクを塗ります\n同じボタンを再度押すとモードを解除"
+            : "Paint mode: drag on the preview to paint the currently selected mask type\nClick again to exit paint mode";
+        public static string BrushErase => IsJapanese ? "消す" : "Erase";
+        public static string BrushEraseTooltip => IsJapanese
+            ? "消しゴムモード: プレビューをドラッグして、いま選んでいる種類のマスクを消します\n同じボタンを再度押すとモードを解除"
+            : "Eraser mode: drag on the preview to erase the currently selected mask type\nClick again to exit paint mode";
         public static string ClearMask => IsJapanese ? "マスクをクリア" : "Clear Mask";
         public static string MaskHint => IsJapanese
-            ? "プレビュー上でドラッグして塗りつぶし除外"
-            : "Drag on preview to paint exclusion";
+            ? "プレビュー上でドラッグしてマスクを塗り/消しできます"
+            : "Drag on the preview to paint or erase the mask";
 
         public static string Preview => IsJapanese ? "プレビュー" : "Preview";
         public static string GeneratingPreview => IsJapanese ? "⟳ プレビュー生成中..." : "⟳ Generating preview...";
@@ -361,8 +374,8 @@ namespace Iroca
         public static string UndoMask => IsJapanese ? "直前の操作を元に戻す (Ctrl+Z)" : "Undo Last Action (Ctrl+Z)";
 
         public static string MaskHintPaintOff => IsJapanese
-            ? "「除外」または「含める」を押すとペイントモードになります。同じボタンを押すと解除。"
-            : "Click Exclude or Include to enter paint mode. Click the active button again to exit.";
+            ? "「塗る」または「消す」を押すとペイントモードになります。同じボタンを押すと解除。"
+            : "Click Paint or Erase to enter paint mode. Click the active button again to exit.";
 
         public static string GeneratingDetailPreview => IsJapanese ? "⟳ 詳細プレビュー生成中..." : "⟳ Generating detail preview...";
 
@@ -444,14 +457,14 @@ namespace Iroca
             ? "ペイントブラシの半径（プレビューの格子セル単位。塗られる円の直径は 2×サイズ+1 セル）。\n1 セルが何テクセルに当たるかは表示倍率で変わります（4K を全体表示すると 1 セル = 10 テクセル超）。"
             : "Brush radius in preview grid cells (the painted circle is 2 x size + 1 cells across).\nHow many texels one cell covers depends on the zoom (over 10 texels per cell when a 4K texture is fully zoomed out).";
         public static string ExcludeTooltip => IsJapanese
-            ? "除外ブラシモード: プレビューをドラッグして赤いマスクを描き、その領域を変更から除外します\n同じボタンを再度押すとモードを解除"
-            : "Exclude brush mode: Drag on the preview to paint a red mask and exclude that area from recoloring\nClick again to exit paint mode";
-        public static string IncludeTooltip => IsJapanese
-            ? "消去ブラシモード: プレビューをドラッグして除外マスクを消去し、変更を再有効化します\n同じボタンを再度押すとモードを解除"
-            : "Include brush mode: Drag on the preview to erase the exclusion mask and re-enable recoloring\nClick again to exit paint mode";
+            ? "除外マスクを編集対象にします（赤系の表示）\n塗った領域は色が合っていても色替えされません"
+            : "Edit the exclusion mask (shown in red)\nPainted areas are never recolored, even if their color matches";
+        public static string IncludeLayerTooltip => IsJapanese
+            ? "含めるマスクを編集対象にします（緑の表示）\n塗った領域は色が合わなくても必ず色替えに含まれます（色で拾えなかった部分の追加用）\nゾーン別のみ編集できます（共通マスクには「含める」はありません — どのゾーンの色にするかが決まらないため）\n除外マスクと重なった画素は除外が優先されます"
+            : "Edit the include mask (shown in green)\nPainted areas are always recolored, even if their color does not match (use it to add areas the color match missed)\nPer-zone only (the common mask has no include layer — there would be no way to know which zone's color to apply)\nWhere it overlaps the exclusion mask, exclusion wins";
         public static string ClearMaskTooltip => IsJapanese
-            ? "いま「編集対象」に選ばれているマスク 1 枚だけを消去します（共通マスク、またはゾーン別マスク）。\nほかのマスクはそのまま残ります。"
-            : "Erases only the mask currently selected as the edit target (the common mask, or one zone's mask).\nOther masks are left untouched.";
+            ? "いま「編集対象」と「マスクの種類」に選ばれているマスク 1 枚だけを消去します。\nほかのマスクはそのまま残ります。"
+            : "Erases only the mask currently selected by \"Edit Target\" and \"Mask Type\".\nOther masks are left untouched.";
         public static string UndoMaskTooltip => IsJapanese
             ? "直前の操作を1ステップ前に戻します（Unity 標準の Ctrl+Z と同じ）。"
               + "マスク専用ではないため、直前がマスク以外の操作ならそちらが戻ります"
@@ -460,8 +473,8 @@ namespace Iroca
 
         public static string BrushEdit => IsJapanese ? "ブラシで編集..." : "Edit with Brush...";
         public static string BrushEditTooltip => IsJapanese
-            ? "ブラシ操作パレットを開き、除外ブラシを ON にします\nプレビュー上をドラッグして塗れます\nパレットを閉じるとペイントモードは解除されます"
-            : "Opens the brush palette and arms the exclude brush\nDrag on the preview to paint\nClosing the palette exits paint mode";
+            ? "ブラシ操作パレットを開き、ペイントモードを ON にします\nプレビュー上をドラッグして塗れます（マスクの種類はパレットで切り替え）\nパレットを閉じるとペイントモードは解除されます"
+            : "Opens the brush palette and arms the paint brush\nDrag on the preview to paint (switch the mask type in the palette)\nClosing the palette exits paint mode";
         public static string BrushPaletteTitle => IsJapanese ? "Iroca ブラシ" : "Iroca Brush";
         public static string BrushPaletteTargetFormat => IsJapanese ? "編集対象: {0}" : "Editing: {0}";
         public static string BrushPaletteNoHost => IsJapanese
@@ -476,8 +489,8 @@ namespace Iroca
         public static string AiSuggestStart => IsJapanese ? "AI 提案を開始" : "Start AI Suggestion";
         public static string AiSuggestActive => IsJapanese ? "■ AI 提案中（クリックで終了）" : "■ AI Suggesting (click to stop)";
         public static string AiSuggestToggleTooltip => IsJapanese
-            ? "プレビュー上のパーツを右クリック（mac は Control+クリック）すると、AI がそのパーツの領域を推定して、その場で除外マスク（＝色替えしない範囲）へ追加します\n左ドラッグはこれまでどおりプレビューの移動（パン）なので、AI モード中でも見たい場所へ寄せられます\n間違えたら Ctrl+Z で 1 つずつ戻せます（確定ボタンはありません）\nブラシペイントとは排他で、開始するとペイントモードは解除されます"
-            : "Right-click a part on the preview (Control+click on macOS) and the AI estimates that part's region and adds it to the exclusion mask ('do-not-recolor' area) right away.\nLeft-drag still pans the preview, so you can move around while this mode is on.\nUndo with Ctrl+Z one step at a time (there is no commit button).\nMutually exclusive with brush painting; starting this exits paint mode.";
+            ? "プレビュー上のパーツを右クリック（mac は Control+クリック）すると、AI がそのパーツの領域を推定して、その場で編集対象のマスクへ追加します\n追加先は「マスクの種類」に従います — 除外（＝色替えしない範囲）または含める（＝必ず色替えする範囲）\n左ドラッグはこれまでどおりプレビューの移動（パン）なので、AI モード中でも見たい場所へ寄せられます\n間違えたら Ctrl+Z で 1 つずつ戻せます（確定ボタンはありません）\nブラシペイントとは排他で、開始するとペイントモードは解除されます"
+            : "Right-click a part on the preview (Control+click on macOS) and the AI estimates that part's region and adds it to the active mask right away.\nWhere it goes follows \"Mask Type\" — Exclude ('do-not-recolor' area) or Include ('always-recolor' area).\nLeft-drag still pans the preview, so you can move around while this mode is on.\nUndo with Ctrl+Z one step at a time (there is no commit button).\nMutually exclusive with brush painting; starting this exits paint mode.";
         public static string AiSuggestSentisRequired => IsJapanese
             ? "この AI 機能には Unity Sentis パッケージが必要です。下のボタンで導入すると有効になります（不要なら導入しなければ従来どおりの動作で、ストレージも消費しません）。"
             : "This AI feature needs the Unity Sentis package. Install it with the button below to enable it (skip it to keep the classic behavior with no extra storage).";
@@ -574,8 +587,8 @@ namespace Iroca
         public static string MaskTarget => IsJapanese ? "編集対象" : "Edit Target";
         public static string MaskTargetCommon => IsJapanese ? "共通マスク（全ゾーン）" : "Common Mask (all zones)";
         public static string MaskTargetTooltip => IsJapanese
-            ? "マスクの編集対象を切り替えます\n・共通マスク: 全ゾーンで共通して除外される領域\n・各ゾーン: そのゾーンだけで除外される領域\n処理時は両者が OR 結合されて適用されます\n※ここは選択のみです。塗るには「ブラシで編集」を押してください"
-            : "Switch which mask is being edited\n- Common: area excluded from every zone\n- Per-zone: area excluded only from that zone\nBoth are OR-combined when processing\nNote: this only selects the target. To paint, press \"Edit with Brush\"";
+            ? "マスクの編集対象を切り替えます\n・共通マスク: 全ゾーンで共通して除外される領域\n・各ゾーン: そのゾーンだけの除外／含める領域\n除外は共通とゾーンが OR 結合されて適用されます\n「含める」マスクはゾーン選択時のみ編集できます\n※ここは選択のみです。塗るには「ブラシで編集」を押してください"
+            : "Switch which mask is being edited\n- Common: area excluded from every zone\n- Per-zone: that zone's exclude / include areas\nExclusions are OR-combined (common + zone) when processing\nThe Include mask can only be edited when a zone is selected\nNote: this only selects the target. To paint, press \"Edit with Brush\"";
         public static string PresetIncludeMasks => IsJapanese
             ? "マスクも保存する"
             : "Include masks when saving";

@@ -52,7 +52,9 @@ namespace Iroca
             // 有効な内容を書き込めたら通常動作へ復帰する（空保存スキップの場合は
             // 解除しない: 解除すると次の空保存が未読ファイルを削除してしまう）。
             bool hasContent = ms != null &&
-                (!string.IsNullOrEmpty(ms.commonMaskBase64) || (ms.zones != null && ms.zones.Count > 0));
+                (!string.IsNullOrEmpty(ms.commonMaskBase64)
+                 || (ms.zones != null && ms.zones.Count > 0)
+                 || (ms.zoneIncludes != null && ms.zoneIncludes.Count > 0));
             if (ok && hasContent) _maskLoadFailed = false;
             return ok;
         }
@@ -82,6 +84,18 @@ namespace Iroca
                     maskBase64 = EncodeMask(kv.Value, maskWidth, maskHeight),
                 });
             }
+
+            if (ms.zoneIncludes == null) ms.zoneIncludes = new List<MaskZoneEntry>();
+            ms.zoneIncludes.Clear();
+            foreach (var kv in zoneIncludeMasks)
+            {
+                if (string.IsNullOrEmpty(kv.Key) || kv.Value == null || !AnyTrue(kv.Value)) continue;
+                ms.zoneIncludes.Add(new MaskZoneEntry
+                {
+                    zoneId = kv.Key,
+                    maskBase64 = EncodeMask(kv.Value, maskWidth, maskHeight),
+                });
+            }
         }
 
         /// <summary>
@@ -95,6 +109,7 @@ namespace Iroca
 
             exclusionMask = null;
             zoneMasks.Clear();
+            zoneIncludeMasks.Clear();
 
             if (ms.width <= 0 || ms.height <= 0) return;
             maskWidth = ms.width;
@@ -117,6 +132,18 @@ namespace Iroca
                         zoneMasks[entry.zoneId] = arr;
                 }
             }
+
+            // 含めるマスク(v2)。旧 JSON では欠落フィールド=空リストなので単に何も入らない。
+            if (ms.zoneIncludes != null)
+            {
+                foreach (var entry in ms.zoneIncludes)
+                {
+                    if (entry == null || string.IsNullOrEmpty(entry.zoneId)) continue;
+                    var arr = DecodeMask(entry.maskBase64, out int w, out int h);
+                    if (arr != null && w == maskWidth && h == maskHeight)
+                        zoneIncludeMasks[entry.zoneId] = arr;
+                }
+            }
         }
 
         /// <summary>
@@ -134,6 +161,7 @@ namespace Iroca
 
             exclusionMask = null;
             zoneMasks.Clear();
+            zoneIncludeMasks.Clear();
             _maskLoadFailed = false;
 
             // 1) MaskCache ファイルからの読み込みを最優先する（Editor 再起動を跨ぐ正規ストア）。
@@ -255,6 +283,7 @@ namespace Iroca
             _pendingOverlayResult = null;
             exclusionMask = null;
             zoneMasks.Clear();
+            zoneIncludeMasks.Clear();
             isPainting = false;
             _maskStrokeStarted = false;
             lastPaintUV = -Vector2.one;
@@ -292,6 +321,7 @@ namespace Iroca
             maskHeight = data.maskHeight;
             exclusionMask = null;
             zoneMasks.Clear();
+            zoneIncludeMasks.Clear();
 
             if (!string.IsNullOrEmpty(data.commonMaskBase64))
             {
@@ -308,6 +338,18 @@ namespace Iroca
                     var m = DecodeMask(e.maskBase64, out int w, out int h);
                     if (m == null || w != maskWidth || h != maskHeight) continue;
                     zoneMasks[e.zoneId] = m;
+                }
+            }
+
+            // 含めるマスク(v2)。旧プリセットでは欠落フィールド=空リスト。
+            if (data.zoneIncludeMasks != null)
+            {
+                foreach (var e in data.zoneIncludeMasks)
+                {
+                    if (e == null || string.IsNullOrEmpty(e.zoneId)) continue;
+                    var m = DecodeMask(e.maskBase64, out int w, out int h);
+                    if (m == null || w != maskWidth || h != maskHeight) continue;
+                    zoneIncludeMasks[e.zoneId] = m;
                 }
             }
 
@@ -333,6 +375,17 @@ namespace Iroca
             {
                 if (kv.Value == null || !AnyTrue(kv.Value)) continue;
                 data.zoneMasks.Add(new ZoneMaskEntry
+                {
+                    zoneId = kv.Key,
+                    maskBase64 = EncodeMask(kv.Value, maskWidth, maskHeight),
+                });
+                includedAnything = true;
+            }
+
+            foreach (var kv in zoneIncludeMasks)
+            {
+                if (kv.Value == null || !AnyTrue(kv.Value)) continue;
+                data.zoneIncludeMasks.Add(new ZoneMaskEntry
                 {
                     zoneId = kv.Key,
                     maskBase64 = EncodeMask(kv.Value, maskWidth, maskHeight),

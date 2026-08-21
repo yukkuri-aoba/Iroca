@@ -21,7 +21,8 @@ namespace Iroca
         {
             var win = GetWindow<MaskBrushWindow>(utility: false, title: Localization.BrushPaletteTitle, focus: true);
             win._host = host;
-            win.minSize = new Vector2(260, 200);
+            // 高さは「マスクの種類」行の追加(2026-08)を含む全要素が収まる値。
+            win.minSize = new Vector2(260, 240);
             win.Show();
         }
 

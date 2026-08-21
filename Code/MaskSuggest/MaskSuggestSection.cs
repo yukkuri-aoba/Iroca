@@ -251,15 +251,16 @@ namespace Iroca
         /// </summary>
         static void DrawTargetAndWarnings(IrocaWindow host, MaskPaintView maskView, MaskSuggestController ctl)
         {
-            // 追加先マスク(共通 or ゾーン)を明示する。編集対象が想定と違うゾーンだと
-            // 「足しても対象ゾーンに効かず変化なし」に見えるため、取り違えを防ぐ。
+            // 追加先マスク(共通 or ゾーン × 除外 or 含める)を明示する。編集対象が想定と
+            // 違うゾーン/種類だと「足しても効かず変化なし」に見えるため、取り違えを防ぐ。
             var zones = host.Session?.zones;
             int t = maskView.activeMaskTarget;
             string target = (t >= 0 && zones != null && t < zones.Count)
                 ? (string.IsNullOrEmpty(zones[t].name) ? Localization.UnnamedZone : zones[t].name)
                 : Localization.MaskTargetCommon;
+            string layer = maskView.editIncludeLayer ? Localization.Include : Localization.Exclude;
             EditorGUILayout.LabelField(
-                string.Format(Localization.AiSuggestCommitTargetFormat, target),
+                string.Format(Localization.AiSuggestCommitTargetFormat, $"{target} / {layer}"),
                 EditorStyles.miniLabel);
 
             // マスクは色ゾーンの色替え範囲を制限する機能。有効な色ゾーンが無いと足しても
