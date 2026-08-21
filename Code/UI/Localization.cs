@@ -273,6 +273,13 @@ namespace Iroca
         public static string BrushEraseTooltip => IsJapanese
             ? "消しゴムモード: プレビューをドラッグして、いま選んでいる種類のマスクを消します\n同じボタンを再度押すとモードを解除"
             : "Eraser mode: drag on the preview to erase the currently selected mask type\nClick again to exit paint mode";
+        public static string AiSuggestTool => IsJapanese ? "AI 提案" : "AI Suggest";
+        public static string AiSuggestToolTooltip => IsJapanese
+            ? "AI 提案モード: プレビューでパーツを右クリックすると、AI が推定した領域を\nいま選んでいる種類のマスク（除外/含める）へ追加します\n同じボタンを再度押すとモードを解除\n塗る/消すとは排他です（選ぶとブラシは解除されます）"
+            : "AI Suggest mode: right-click a part on the preview and the AI-estimated region is added\nto the currently selected mask type (Exclude/Include)\nClick again to exit\nMutually exclusive with Paint/Erase (selecting this exits the brush)";
+        public static string MaskHintAi => IsJapanese
+            ? "プレビュー上でパーツを右クリックすると、AI が推定した領域をマスクへ追加します（Ctrl+Z で 1 手ずつ戻せます）"
+            : "Right-click a part on the preview to add the AI-estimated region to the mask (Ctrl+Z undoes one step at a time)";
         public static string ClearMask => IsJapanese ? "マスクをクリア" : "Clear Mask";
         public static string MaskHint => IsJapanese
             ? "プレビュー上でドラッグしてマスクを塗り/消しできます"

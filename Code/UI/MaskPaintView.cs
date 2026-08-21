@@ -172,8 +172,10 @@ namespace Iroca
         }
 
         /// <summary>
-        /// ブラシ操作パレット（MaskBrushWindow）の中身。状態はすべて本クラスに集約されたままなので、
-        /// メインウィンドウ側のハイライトや AI 提案との排他は従来ロジックがそのまま機能する。
+        /// マスク編集パレット（MaskBrushWindow）の中身。マスクの種類(除外/含める)×
+        /// ツール(塗る/消す/AI 提案)の 2 軸で構成する。状態はすべて本クラスに集約された
+        /// ままなので、メインウィンドウ側のハイライトや AI 提案との排他は従来ロジックが
+        /// そのまま機能する。
         /// </summary>
         public void DrawBrushPalette()
         {
@@ -192,45 +194,17 @@ namespace Iroca
                 string.Format(Localization.BrushPaletteTargetFormat, targetName),
                 EditorStyles.miniLabel);
 
-            brushSize = EditorGUILayout.IntSlider(
-                new GUIContent(Localization.BrushSize, Localization.BrushSizeTooltip),
-                brushSize, 1, 64);
-
             bool stateChanged = false;
             var prevBg = GUI.backgroundColor;
 
-            // マスクの種類(レイヤー)選択: 除外 / 含める。含めるはゾーン単位のみなので、
-            // 共通マスクが編集対象のときは無効化する(理由はツールチップに記載)。
-            EditorGUILayout.LabelField(
-                new GUIContent(Localization.MaskLayerKind, Localization.MaskLayerKindTooltip),
-                EditorStyles.miniLabel);
-            EditorGUILayout.BeginHorizontal();
-            GUI.backgroundColor = !editIncludeLayer ? IrocaColors.ExcludeButton : Color.white;
-            if (GUILayout.Button(new GUIContent(Localization.Exclude, Localization.ExcludeTooltip),
-                    EditorStyles.miniButtonLeft)
-                && editIncludeLayer)
-            {
-                editIncludeLayer = false;
-                maskDirty = true;
-                stateChanged = true;
-            }
-            using (new EditorGUI.DisabledScope(commonTarget))
-            {
-                GUI.backgroundColor = editIncludeLayer ? IrocaColors.IncludeButton : Color.white;
-                if (GUILayout.Button(
-                        new GUIContent(Localization.Include, Localization.IncludeLayerTooltip),
-                        EditorStyles.miniButtonRight)
-                    && !editIncludeLayer)
-                {
-                    editIncludeLayer = true;
-                    maskDirty = true;
-                    stateChanged = true;
-                }
-            }
-            GUI.backgroundColor = prevBg;
-            EditorGUILayout.EndHorizontal();
+            // マスクの種類(除外/含める)。AI 提案セクションと共通の切り替え行。
+            DrawLayerKindSelector();
 
-            // ブラシモード: 塗る / 消す(いずれも上で選んだレイヤーに対して作用する)。
+            // ツール選択: 塗る / 消す / AI 提案(いずれも上で選んだ種類のマスクに対して作用する)。
+            // AI 提案は Sentis 統合が載っているときだけ出す(導入・モデル DL・状態表示などの
+            // 導線はメインウィンドウのマスク欄 = MaskSuggestSection にある)。
+            var ctl = SuggestController;
+            bool aiActive = ctl != null && ctl.Active;
             bool paintActive = maskPaintActive && !brushEraseMode;
             bool eraseActive = maskPaintActive && brushEraseMode;
             EditorGUILayout.BeginHorizontal();
@@ -244,14 +218,38 @@ namespace Iroca
             }
             GUI.backgroundColor = eraseActive ? IrocaColors.IncludeButton : Color.white;
             if (GUILayout.Button(new GUIContent(Localization.BrushErase, Localization.BrushEraseTooltip),
-                    EditorStyles.miniButtonRight))
+                    ctl != null ? EditorStyles.miniButtonMid : EditorStyles.miniButtonRight))
             {
                 if (eraseActive) DeactivateBrush();
                 else ActivateBrush(erase: true);
                 stateChanged = true;
             }
+            if (ctl != null)
+            {
+                GUI.backgroundColor = aiActive ? IrocaColors.IncludeButton : Color.white;
+                if (GUILayout.Button(new GUIContent(Localization.AiSuggestTool,
+                                                    Localization.AiSuggestToolTooltip),
+                        EditorStyles.miniButtonRight))
+                {
+                    if (aiActive) ctl.SetActive(false);
+                    else
+                    {
+                        DeactivateBrush();
+                        ctl.SetActive(true);
+                    }
+                    stateChanged = true;
+                }
+            }
             GUI.backgroundColor = prevBg;
             EditorGUILayout.EndHorizontal();
+
+            // ブラシサイズは塗る/消す専用(AI 提案中は使わないので無効表示にする)。
+            using (new EditorGUI.DisabledScope(aiActive))
+            {
+                brushSize = EditorGUILayout.IntSlider(
+                    new GUIContent(Localization.BrushSize, Localization.BrushSizeTooltip),
+                    brushSize, 1, 64);
+            }
 
             // Unity 標準 Undo に統合済みのため、専用ボタンは PerformUndo の薄いショートカットとして残す。
             // ★ラベルは「マスクを元に戻す」にしないこと★ — PerformUndo の対象は直前の操作であり、
@@ -263,11 +261,54 @@ namespace Iroca
             }
 
             EditorGUILayout.HelpBox(
-                maskPaintActive ? Localization.MaskHint : Localization.MaskHintPaintOff,
+                aiActive ? Localization.MaskHintAi
+                : maskPaintActive ? Localization.MaskHint
+                : Localization.MaskHintPaintOff,
                 MessageType.Info);
 
             if (stateChanged)
                 _host.RequestRepaint();
+        }
+
+        /// <summary>
+        /// 「マスクの種類」(除外/含める)の切り替え行。ブラシパレットと AI 提案セクションの
+        /// 両方から呼ぶ(種類はツールに依らない共通の軸なので、どちらの UI からも同じ状態を
+        /// 切り替える)。含めるはゾーン単位のみなので、共通マスクが編集対象のときは無効化する。
+        /// </summary>
+        public void DrawLayerKindSelector()
+        {
+            var zones = _host.Session?.zones;
+            bool commonTarget = activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count;
+            EnforceLayerConsistency();
+            var prevBg = GUI.backgroundColor;
+            EditorGUILayout.LabelField(
+                new GUIContent(Localization.MaskLayerKind, Localization.MaskLayerKindTooltip),
+                EditorStyles.miniLabel);
+            EditorGUILayout.BeginHorizontal();
+            GUI.backgroundColor = !editIncludeLayer ? IrocaColors.ExcludeButton : Color.white;
+            if (GUILayout.Button(new GUIContent(Localization.Exclude, Localization.ExcludeTooltip),
+                    EditorStyles.miniButtonLeft)
+                && editIncludeLayer)
+            {
+                editIncludeLayer = false;
+                maskDirty = true;
+                _host.RequestRepaint();
+            }
+            using (new EditorGUI.DisabledScope(commonTarget))
+            {
+                GUI.backgroundColor = editIncludeLayer ? IrocaColors.IncludeButton : Color.white;
+                if (GUILayout.Button(
+                        new GUIContent(Localization.Include, Localization.IncludeLayerTooltip),
+                        EditorStyles.miniButtonRight)
+                    && !editIncludeLayer)
+                {
+                    editIncludeLayer = true;
+                    maskDirty = true;
+                    _host.RequestRepaint();
+                }
+            }
+            GUI.backgroundColor = prevBg;
+            EditorGUILayout.EndHorizontal();
         }
 
         // マスク対象プルダウンの GUIContent[] は毎フレーム再生成されアロケーションを生むため、

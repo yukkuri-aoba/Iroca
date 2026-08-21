@@ -49,6 +49,11 @@ namespace Iroca
 
             if (!ctl.Active) return;
 
+            // 追加先の種類(除外/含める)をこの場で切り替えられるようにする。従来はブラシパレット
+            // でしか切り替えられず、AI 提案を「含める」へ出すためだけにパレットを開く必要が
+            // あった(2026-08-22 の UI 指摘)。状態はパレットと共通(editIncludeLayer)。
+            maskView.DrawLayerKindSelector();
+
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField(
                 new GUIContent(Localization.AiSuggestGranularity, Localization.AiSuggestGranularityTooltip),
