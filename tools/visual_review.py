@@ -45,6 +45,7 @@ for _p in [str(_DEV_SAFE), str(_TESTS)]:
 
 from regression.fixtures import (
     SUBJECT_REGISTRY,
+    _zone_to_harness,
     load_cases,
     load_subject_inputs,
     make_zone,
@@ -152,28 +153,17 @@ def _run_all_cases_csharp() -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarra
     def _run(case, tag: str, in_raw: Path, mask_raw: Path) -> np.ndarray:
         zone = make_zone(case)
         zones_json = CSHARP_WORK / f"{tag}_zones.json"
-        # ここで書かないフィールド(useFloodFill / autoRecolorAnchor / highlightRecovery /
-        # shadowDesaturation ほか)は **意図的に省略** して製品既定へフォールバックさせる。
-        # 出荷ゲートの目視は「出荷される設定の出力」を見るべきなので、ケース固有の選択
-        # パラメータ(下の 7 つ)だけをケースから取り、残りは製品既定に任せる。
-        #
-        # この省略が安全なのは、zones JSON の既定値が Code/Core/ZonesJsonDefaults.cs に
-        # 単一ソース化され、ハーネス DTO と製品 DTO の一致を
-        # dev_safe/Tests/regression/test_zones_schema_parity.py が機械検査しているから。
-        # 2026-08-06 以前はハーネス既定が製品と乖離しており(useFloodFill 製品 true /
-        # ハーネス false)、このパネルは製品でも回帰テスト設定でもない混成を映していた。
-        #
-        # 2026-08-07 以降、fixtures.ZoneSpec の選択挙動も製品既定へ揃えた(N-10)ため、
-        # **このパネルと回帰テストの IoU は同一設定を指す**(以前は別物だった)。
-        hio.write_zones_json(zones_json, [{
-            "name": zone.name,
-            "sample": list(case.sample_rgb),
-            "target": list(case.target_rgb),
-            "tolerance": zone.tolerance,
-            "valueBlend": zone.value_blend,
-            "edgeSoftness": zone.edge_softness,
-            "saturationStrictness": zone.saturation_strictness,
-        }], settings_cfg)
+        # ゾーンは fixtures._zone_to_harness で **全フィールド明示** する(IoU 回帰と同一の
+        # 直列化)。以前はケース固有 7 フィールドだけ書き、残りを zones JSON 既定
+        # (ZonesJsonDefaults)へフォールバックさせていたが、highlightRecovery の JSON 既定は
+        # false で **UI の ColorZone 既定(true)と意図的に異なる**(2026-08-07 の GT 実測で
+        # MCP/バッチ向けに false を採った。ZonesJsonDefaults.cs 参照)。その結果、
+        #   UI(true) / IoU 回帰(true 明示) / このパネル(false)
+        # の三者不一致になり、出荷ゲートの目視が製品既定とも回帰テストとも違う設定の絵を
+        # 見ていた(2026-08-21 テストと実操作の乖離調査)。全フィールド明示に揃えることで
+        # 「このパネルと回帰テストの IoU は同一設定を指す」を再び真にする。
+        # ZoneSpec と製品 ColorZone 既定の一致は test_zones_schema_parity.py が機械検査する。
+        hio.write_zones_json(zones_json, [_zone_to_harness(zone, case)], settings_cfg)
         out_raw = CSHARP_WORK / f"{tag}_out.raw"
         r = hio.run(["dotnet", str(dll), str(in_raw), str(mask_raw),
                      str(out_raw), "--zones", str(zones_json)])
