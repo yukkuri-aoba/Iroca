@@ -572,16 +572,16 @@ namespace Iroca
             : "The AI estimates candidates of different granularity (pattern / part / whole) for one click.\nChoose which candidate to show as the proposal (applies from the next click).";
         public static string AiSuggestGranularityAuto => IsJapanese ? "自動" : "Auto";
         public static string AiSuggestGranularityAutoTooltip => IsJapanese
-            ? "モデルの確信度が最も高い候補を採用します(標準)"
-            : "Use the candidate the model is most confident about (default).";
+            ? "輪郭がはっきりした候補のうち、最も大きいものを採用します(標準)"
+            : "Use the largest candidate among those with a crisp outline (default).";
         public static string AiSuggestGranularityFine => IsJapanese ? "細かい" : "Fine";
         public static string AiSuggestGranularityFineTooltip => IsJapanese
-            ? "最も小さい候補を採用します。模様や小さなパーツ(例: バンダナの三角模様)だけを選びたいときに"
-            : "Use the smallest candidate. For selecting patterns or small pieces only.";
+            ? "輪郭がはっきりした候補のうち、最も小さいものを採用します。模様や小さなパーツ(例: バンダナの三角模様)だけを選びたいときに"
+            : "Use the smallest candidate among those with a crisp outline. For selecting patterns or small pieces only.";
         public static string AiSuggestGranularityCoarse => IsJapanese ? "大きい" : "Coarse";
         public static string AiSuggestGranularityCoarseTooltip => IsJapanese
-            ? "最も大きい候補を採用します。パーツ全体をまとめて選びたいときに"
-            : "Use the largest candidate. For selecting the whole part at once.";
+            ? "輪郭のはっきりさを問わず、最も大きい候補を採用します。「自動」で足りないときに(周囲を巻き込むこともあります)"
+            : "Use the largest candidate regardless of outline crispness. When Auto is not enough (may spill into surroundings).";
         public static string AiSuggestHintIdle => IsJapanese
             ? "プレビュー上でパーツを右クリック（mac は Control+クリック）すると、その領域をその場で除外マスクへ追加します（マスクの色で表示）。左ドラッグはプレビューの移動です。間違えたら Ctrl+Z で戻せます。"
             : "Right-click a part on the preview (Control+click on macOS) to add its region to the exclusion mask right away (shown in the mask color). Left-drag still pans. Undo with Ctrl+Z.";

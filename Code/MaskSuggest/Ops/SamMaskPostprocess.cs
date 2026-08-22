@@ -10,9 +10,7 @@ namespace Iroca
     /// SamPredictor の後処理と同値:
     ///   bilinear 256→1024(align_corners=False) → リサイズ実寸 (newH,newW) で切り出し →
     ///   bilinear で元寸 → 閾値 0 で二値化。最後に下原点(GetPixels32 順)へ反転して返す。
-    /// チャンネル選択は計測プロトコル(dev_safe/ml/sam_spike.py)と同じ:
-    ///   multimask チャンネル 1..3 をスコア降順に走査し、面積がキャンバス比 floodRejectFrac
-    ///   未満の最良を採用。全滅時は最小面積のチャンネルを警告付きで返す(最終判断はユーザー)。
+    /// チャンネル選択は <see cref="SelectChannels"/> が正(妥当性判定 → 粒度規則の 2 段)。
     /// </summary>
     internal static class SamMaskPostprocess
     {
@@ -21,6 +19,19 @@ namespace Iroca
 
         /// <summary>スパイクで確定した背景洪水マスクの棄却しきい(キャンバス面積比)。</summary>
         public const float DefaultFloodRejectFrac = 0.40f;
+
+        /// <summary>
+        /// stability score のロジットオフセット(SAM 標準値)。mask_threshold=0 に対し ±1 の
+        /// 二値化を比べる。
+        /// </summary>
+        public const float StabilityOffset = 1.0f;
+
+        /// <summary>
+        /// 候補を「安定」とみなす stability score の下限。
+        /// GT 15 被写体 × クリック 3 位置(45 件)の実測で 0.70〜0.90 の間は結果が動かない
+        /// 平坦域なので、その中央を採る(テクスチャ個別の調整値ではない)。
+        /// </summary>
+        public const float StabilityThreshold = 0.80f;
 
         internal sealed class Result
         {
@@ -37,16 +48,49 @@ namespace Iroca
         }
 
         /// <summary>
-        /// logits: [4,256,256] 平坦配列(上原点・パディング込みキャンバス空間)。scores: [4]。
-        /// pixelsBottomUp を渡すと、拡大後に境界色スナップ(SamMaskRefine)で低解像度由来の
-        /// 階段状はみ出しを実テクスチャの色エッジへ吸着させる。
-        /// granularity: 洪水棄却を通った候補の中からの採用規則(スコア/最小面積/最大面積)。
+        /// 拡大前のチャンネル選択結果。低解像度ロジットだけを見るので安価
+        /// (高価な <see cref="UpscaleChannel"/> を呼ぶ前に、どれを拡大するか決められる)。
         /// </summary>
-        public static Result SelectAndUpscale(float[] logits, float[] scores, int texW, int texH,
-                                              float floodRejectFrac = DefaultFloodRejectFrac,
-                                              Color32[] pixelsBottomUp = null,
-                                              MaskSuggestGranularity granularity = MaskSuggestGranularity.Auto,
-                                              System.Threading.CancellationToken token = default)
+        internal struct Selection
+        {
+            /// <summary>採用チャンネル(1..3)。</summary>
+            public int channel;
+            /// <summary>採用チャンネルの予測 IoU スコア。</summary>
+            public float score;
+            /// <summary>採用チャンネルのキャンバス面積比(低解像度での近似)。</summary>
+            public float areaFrac;
+            /// <summary>妥当な候補が 1 つも無かった = 背景に流れた可能性。</summary>
+            public bool floodWarning;
+        }
+
+        /// <summary>
+        /// 低解像度ロジットからチャンネルを選ぶ(拡大なし)。
+        ///
+        /// 妥当性は 2 条件:
+        ///   (1) 面積比が floodRejectFrac 未満かつ 0 でない(背景洪水・空候補の棄却)
+        ///   (2) stability score = |logit &gt; +1| / |logit &gt; -1| が StabilityThreshold 以上
+        ///       (SAM 標準の安定度。背景へにじんだ候補はロジットが 0 付近に寝るため
+        ///        この比が落ちる。面積規則がそういう候補を掴むのを防ぐ)
+        /// 採用は粒度規則: 自動 = 面積最大 / 細かい = 面積最小 / 大きい = 面積最大。
+        /// 「大きい」だけは (2) を課さない — 自動より大きく取りたいという明示指示なので、
+        /// 安定度で切ると自動と同じ答えになり選択肢として機能しないため。
+        /// 同面積はスコアで決着。妥当候補が全滅したら最小面積を警告付きで返す。
+        ///
+        /// 自動が「予測スコア最大」でないのは、SAM の iou_predictions が自然画像の物体
+        /// としての自信であってアトラスのパーツ境界の正しさではないため(実測: 3 候補中の
+        /// 最良を選べたのは 5/15、規則差し替えで平均 IoU 0.233 → 0.308)。
+        ///
+        /// 棄却した仮説(GT 15 被写体 × クリック 3 位置で実測、いずれも採用せず):
+        ///   - 「クリック画素を含む」を妥当性に足す … 全粒度で悪化(自動 0.308 → 0.277)。
+        ///     最良候補でもクリック直上のロジットが 0 をわずかに割ることがあり、
+        ///     その 1 点で候補ごと落とすと代わりに悪い候補が上がる。
+        ///   - ズーム発火判定を最小面積候補で行う … 主スイートで悪化(0.308 → 0.296)。
+        ///     自動が正しく大きい領域を選んだケースでクロップが対象を切ってしまう。
+        ///     小パーツを 1 クリックで取る用途は「細かい」+ ズームが担当する(実測 IoU 0.96-0.98)。
+        /// </summary>
+        public static Selection SelectChannels(float[] logits, float[] scores, int texW, int texH,
+                                               float floodRejectFrac = DefaultFloodRejectFrac,
+                                               MaskSuggestGranularity granularity = MaskSuggestGranularity.Auto)
         {
             SamImageOps.GetResizedSize(texW, texH, out int newW, out int newH);
             // 低解像度空間での有効域(パディング除去相当)。1024→256 は 1/4。
@@ -55,63 +99,105 @@ namespace Iroca
             int lwCeil = Mathf.Min(LowRes, Mathf.CeilToInt(lw));
             int lhCeil = Mathf.Min(LowRes, Mathf.CeilToInt(lh));
 
-            // multimask の各チャンネルを低解像度の面積比で比較する。
+            // multimask の各チャンネルの面積比と安定度を低解像度で測る。
             var area = new float[4];
+            var stability = new float[4];
             for (int c = 1; c < 4; c++)
             {
                 int cOff = c * LowRes * LowRes;
-                int count = 0;
+                int count = 0, hi = 0, lo = 0;
                 for (int y = 0; y < lhCeil; y++)
                 {
                     int row = cOff + y * LowRes;
                     for (int x = 0; x < lwCeil; x++)
-                        if (logits[row + x] > 0f) count++;
+                    {
+                        float v = logits[row + x];
+                        if (v > 0f) count++;
+                        if (v > StabilityOffset) hi++;
+                        if (v > -StabilityOffset) lo++;
+                    }
                 }
                 area[c] = count / (lw * lh);
+                stability[c] = lo > 0 ? hi / (float)lo : 0f;
             }
 
-            // 粒度規則に従い、面積が棄却しきい未満の候補から採用
-            // (Auto=スコア降順 / Fine=面積昇順 / Coarse=面積降順。同値はスコアで決着)
-            int chosen = -1;
-            var order = new[] { 1, 2, 3 };
-            switch (granularity)
-            {
-                case MaskSuggestGranularity.Fine:
-                    System.Array.Sort(order, (a, b) =>
-                        area[a] != area[b] ? area[a].CompareTo(area[b]) : scores[b].CompareTo(scores[a]));
-                    break;
-                case MaskSuggestGranularity.Coarse:
-                    System.Array.Sort(order, (a, b) =>
-                        area[a] != area[b] ? area[b].CompareTo(area[a]) : scores[b].CompareTo(scores[a]));
-                    break;
-                default:
-                    System.Array.Sort(order, (a, b) => scores[b].CompareTo(scores[a]));
-                    break;
-            }
-            foreach (int c in order)
-            {
-                // 面積 0 の空候補は採用しない(Fine の面積昇順で空マスクを掴む事故を防ぐ)
-                if (area[c] > 0f && area[c] < floodRejectFrac) { chosen = c; break; }
-            }
-            bool warn = chosen < 0;
+            bool InFloodRange(int c) => area[c] > 0f && area[c] < floodRejectFrac;
+            bool IsStable(int c) => InFloodRange(c) && stability[c] >= StabilityThreshold;
+
+            // 母集団: 安定候補 → (全滅なら)面積だけ通った候補。
+            bool anyStable = IsStable(1) || IsStable(2) || IsStable(3);
+            bool anyInRange = InFloodRange(1) || InFloodRange(2) || InFloodRange(3);
+            bool warn = !anyInRange;
+
+            int chosen;
             if (warn)
             {
                 // 全滅: 最小面積のチャンネルを警告付きで提示(スパイクでは無駄撃ち扱いだが、
                 // 製品はユーザーが見て捨てられるので情報を残す)
-                chosen = 1;
-                for (int c = 2; c < 4; c++) if (area[c] < area[chosen]) chosen = c;
+                chosen = PickExtreme(_ => true, area, scores, smallest: true);
+            }
+            else
+            {
+                // 「大きい」は安定ゲートを外す(上記の理由)。
+                bool useStable = granularity != MaskSuggestGranularity.Coarse && anyStable;
+                var pool = useStable ? (System.Func<int, bool>)IsStable : InFloodRange;
+                chosen = PickExtreme(pool, area, scores,
+                                     smallest: granularity == MaskSuggestGranularity.Fine);
             }
 
-            var mask = UpscaleChannel(logits, chosen, texW, texH, newW, newH, token);
+            return new Selection
+            {
+                channel = chosen,
+                score = scores[chosen],
+                areaFrac = area[chosen],
+                floodWarning = warn,
+            };
+        }
+
+        /// <summary>母集団 pool の中で面積が最小/最大のチャンネル(同面積はスコアで決着)。</summary>
+        static int PickExtreme(System.Func<int, bool> pool, float[] area, float[] scores, bool smallest)
+        {
+            int best = -1;
+            for (int c = 1; c < 4; c++)
+            {
+                if (!pool(c)) continue;
+                if (best < 0) { best = c; continue; }
+                bool better = area[c] != area[best]
+                    ? (smallest ? area[c] < area[best] : area[c] > area[best])
+                    : scores[c] > scores[best];
+                if (better) best = c;
+            }
+            if (best >= 0) return best;
+            // pool が空(呼び出し側が保証するが念のため): 面積最小へ退避。
+            best = 1;
+            for (int c = 2; c < 4; c++) if (area[c] < area[best]) best = c;
+            return best;
+        }
+
+        /// <summary>
+        /// logits: [4,256,256] 平坦配列(上原点・パディング込みキャンバス空間)。scores: [4]。
+        /// pixelsBottomUp を渡すと、拡大後に境界色スナップ(SamMaskRefine)で低解像度由来の
+        /// 階段状はみ出しを実テクスチャの色エッジへ吸着させる。
+        /// granularity: 採用規則(<see cref="SelectChannels"/> が正)。
+        /// </summary>
+        public static Result SelectAndUpscale(float[] logits, float[] scores, int texW, int texH,
+                                              float floodRejectFrac = DefaultFloodRejectFrac,
+                                              Color32[] pixelsBottomUp = null,
+                                              MaskSuggestGranularity granularity = MaskSuggestGranularity.Auto,
+                                              System.Threading.CancellationToken token = default)
+        {
+            var sel = SelectChannels(logits, scores, texW, texH, floodRejectFrac, granularity);
+            SamImageOps.GetResizedSize(texW, texH, out int newW, out int newH);
+            var mask = UpscaleChannel(logits, sel.channel, texW, texH, newW, newH, token);
             if (pixelsBottomUp != null)
                 RefineInPlace(mask, pixelsBottomUp, texW, texH, token);
             return new Result
             {
                 maskBottomUp = mask,
-                channel = chosen,
-                score = scores[chosen],
-                areaFrac = area[chosen],
-                floodWarning = warn,
+                channel = sel.channel,
+                score = sel.score,
+                areaFrac = sel.areaFrac,
+                floodWarning = sel.floodWarning,
             };
         }
 
