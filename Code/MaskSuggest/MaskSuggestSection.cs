@@ -6,14 +6,39 @@ using UnityEngine;
 namespace Iroca
 {
     /// <summary>
-    /// 除外マスク UI 内に描く「AI マスク提案」セクション。
-    /// Sentis 統合(MaskSuggestBridge.Service)が不在のときは、AI 機能の存在を知らせて
-    /// ワンクリックで有効化する導線(Sentis 導入ボタン)だけを描く。これが無いと
-    /// Sentis を手動導入した開発環境でしか AI 機能に到達できない。
+    /// 「AI マスク提案」の UI。置き場は役割で 2 つに分かれる:
+    ///
+    ///   <see cref="DrawSetup"/>        … メインウィンドウのマスク欄。**一度きりの有効化**
+    ///                                    (Sentis 導入・モデル取得・要再起動の案内)だけを持つ。
+    ///                                    ここに無いと、Sentis を手動導入した環境でしか AI 機能に
+    ///                                    到達できず、機能の存在にも気づけない。
+    ///   <see cref="DrawToolControls"/> … マスク編集ウィンドウ。AI 提案ツールを選んでいる間の
+    ///                                    **操作と状態**(粒度・進捗・警告)。
+    ///
+    /// 分け方の基準は「編集中に触るものか」。編集中に触るものはすべてマスク編集ウィンドウへ寄せる
+    /// (対象ゾーン・マスクの種類・ツール・粒度が別ウィンドウに散っていると取り違えが起きる。
+    ///  2026-08-22 のユーザー指摘)。
     /// </summary>
     internal static class MaskSuggestSection
     {
-        public static void Draw(IrocaWindow host, MaskPaintView maskView)
+        /// <summary>
+        /// AI 提案ツールが今すぐ使えるか。false ならマスク編集ウィンドウ側でツールボタンを
+        /// 無効表示にし、有効化はメインウィンドウのマスク欄(<see cref="DrawSetup"/>)へ誘導する。
+        /// </summary>
+        public static bool ToolReady
+        {
+            get
+            {
+                var svc = MaskSuggestBridge.Service;
+                return svc != null && svc.Phase != MaskSuggestPhase.NoModel;
+            }
+        }
+
+        /// <summary>
+        /// メインウィンドウのマスク欄に描く有効化導線。セットアップが済んでいる間は何も描かない
+        /// (常設の説明は編集ウィンドウ側のツールチップが持つ)。
+        /// </summary>
+        public static void DrawSetup(IrocaWindow host)
         {
             // 導入直後の「Unity 再起動」案内は、サービスが載ったか(Burst 失敗で載らない場合も含む)に
             // かかわらず出したいので、サービス分岐より前に描く。
@@ -25,34 +50,26 @@ namespace Iroca
                 DrawSentisSetup();
                 return;
             }
-            var ctl = maskView.SuggestController;
-            if (ctl == null) return;
 
             // Burst が失敗した世代では推論が空を返すだけで、エラーも出ずに「動かない」ように
             // 見える。クリックを試す前に気づけるよう、モードに入る前から知らせる。
             DrawBurstFailureNoticeIfNeeded(svc);
 
-            // 見出しラベルは置かない（ボタン文言が自明で、詳細は AiSuggestToggleTooltip にある。
-            // マスク欄インラインの行数を抑えるため）。
-            EditorGUILayout.Space(2);
+            if (svc.Phase != MaskSuggestPhase.NoModel) return;
+            EditorGUILayout.Space(4);
+            EditorGUILayout.LabelField(Localization.AiSuggest, EditorStyles.boldLabel);
+            DrawModelDownload(svc);
+        }
 
-            var prevBg = GUI.backgroundColor;
-            GUI.backgroundColor = ctl.Active ? IrocaColors.IncludeButton : Color.white;
-            string toggleLabel = ctl.Active ? Localization.AiSuggestActive : Localization.AiSuggestStart;
-            if (GUILayout.Button(new GUIContent(toggleLabel, Localization.AiSuggestToggleTooltip)))
-            {
-                bool next = !ctl.Active;
-                if (next) maskView.maskPaintActive = false;
-                ctl.SetActive(next);
-            }
-            GUI.backgroundColor = prevBg;
-
-            if (!ctl.Active) return;
-
-            // 追加先の種類(除外/含める)をこの場で切り替えられるようにする。従来はブラシパレット
-            // でしか切り替えられず、AI 提案を「含める」へ出すためだけにパレットを開く必要が
-            // あった(2026-08-22 の UI 指摘)。状態はパレットと共通(editIncludeLayer)。
-            maskView.DrawLayerKindSelector();
+        /// <summary>
+        /// マスク編集ウィンドウで AI 提案ツールを選んでいる間の操作・状態表示。
+        /// 「マスクの種類」と対象ゾーンは呼び出し側(パレット上部)が既に描いているのでここには置かない。
+        /// </summary>
+        public static void DrawToolControls(IrocaWindow host, MaskPaintView maskView)
+        {
+            var svc = MaskSuggestBridge.Service;
+            var ctl = maskView.SuggestControllerIfCreated;
+            if (svc == null || ctl == null) return;
 
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField(
@@ -72,40 +89,9 @@ namespace Iroca
             switch (svc.Phase)
             {
                 case MaskSuggestPhase.NoModel:
-                    EditorGUILayout.HelpBox(Localization.AiSuggestNoModel, MessageType.Info);
-                    if (MaskSuggestModelDownload.InProgress)
-                    {
-                        EditorGUILayout.BeginHorizontal();
-                        var pr = EditorGUILayout.GetControlRect(false, 18f);
-                        EditorGUI.ProgressBar(pr, MaskSuggestModelDownload.Progress,
-                                              Localization.AiSuggestDownloading);
-                        if (GUILayout.Button(new GUIContent(Localization.AiSuggestDownloadCancel,
-                                                            Localization.AiSuggestDownloadCancelTooltip),
-                                             GUILayout.Width(48f)))
-                            MaskSuggestModelDownload.Cancel();
-                        EditorGUILayout.EndHorizontal();
-                    }
-                    else
-                    {
-                        if (MaskSuggestModelDownload.Error != null)
-                            EditorGUILayout.HelpBox(
-                                string.Format(Localization.AiSuggestDownloadFailed,
-                                              MaskSuggestModelDownload.Error),
-                                MessageType.Warning);
-                        EditorGUILayout.BeginHorizontal();
-                        if (GUILayout.Button(new GUIContent(Localization.AiSuggestDownload,
-                                string.Format(Localization.AiSuggestDownloadTooltip,
-                                              MaskSuggestModelDownload.BaseUrl))))
-                            MaskSuggestModelDownload.Start();
-                        if (GUILayout.Button(new GUIContent(Localization.AiSuggestOpenModelFolder,
-                                                            Localization.AiSuggestOpenModelFolderTooltip)))
-                        {
-                            System.IO.Directory.CreateDirectory(MaskSuggestBridge.ModelsDirectory);
-                            EditorUtility.RevealInFinder(MaskSuggestBridge.ModelsDirectory);
-                        }
-                        EditorGUILayout.EndHorizontal();
-                    }
-                    if (Event.current.type == EventType.Layout) svc.TryEnsureModels();
+                    // 取得操作そのものはメインウィンドウ側(DrawSetup)が持つ。ここへ複製すると
+                    // 「同じボタンが 2 か所」になり、今回まとめた意味が無くなる。
+                    EditorGUILayout.HelpBox(Localization.AiSuggestNoModelInEditor, MessageType.Info);
                     break;
 
                 case MaskSuggestPhase.LoadingModel:
@@ -134,11 +120,54 @@ namespace Iroca
                     break;
 
                 default:
-                    EditorGUILayout.HelpBox(Localization.AiSuggestHintIdle, MessageType.Info);
+                    // 待機中の操作説明は出さない。同じウィンドウの最下部に
+                    // ツール共通のヒント(Localization.MaskHintAi)が出ており、二重になる。
                     break;
             }
 
             DrawTargetAndWarnings(host, maskView, ctl);
+        }
+
+        /// <summary>
+        /// AI モデル(2 ファイル・約 45MB)の取得導線。ユーザー共通フォルダへ 1 か所だけ置くので
+        /// プロジェクトごとの再取得は要らない。Sentis 導入と対で「一度きりの有効化」に属する。
+        /// </summary>
+        static void DrawModelDownload(IMaskSuggestService svc)
+        {
+            EditorGUILayout.HelpBox(Localization.AiSuggestNoModel, MessageType.Info);
+            if (MaskSuggestModelDownload.InProgress)
+            {
+                EditorGUILayout.BeginHorizontal();
+                var pr = EditorGUILayout.GetControlRect(false, 18f);
+                EditorGUI.ProgressBar(pr, MaskSuggestModelDownload.Progress,
+                                      Localization.AiSuggestDownloading);
+                if (GUILayout.Button(new GUIContent(Localization.AiSuggestDownloadCancel,
+                                                    Localization.AiSuggestDownloadCancelTooltip),
+                                     GUILayout.Width(48f)))
+                    MaskSuggestModelDownload.Cancel();
+                EditorGUILayout.EndHorizontal();
+            }
+            else
+            {
+                if (MaskSuggestModelDownload.Error != null)
+                    EditorGUILayout.HelpBox(
+                        string.Format(Localization.AiSuggestDownloadFailed,
+                                      MaskSuggestModelDownload.Error),
+                        MessageType.Warning);
+                EditorGUILayout.BeginHorizontal();
+                if (GUILayout.Button(new GUIContent(Localization.AiSuggestDownload,
+                        string.Format(Localization.AiSuggestDownloadTooltip,
+                                      MaskSuggestModelDownload.BaseUrl))))
+                    MaskSuggestModelDownload.Start();
+                if (GUILayout.Button(new GUIContent(Localization.AiSuggestOpenModelFolder,
+                                                    Localization.AiSuggestOpenModelFolderTooltip)))
+                {
+                    System.IO.Directory.CreateDirectory(MaskSuggestBridge.ModelsDirectory);
+                    EditorUtility.RevealInFinder(MaskSuggestBridge.ModelsDirectory);
+                }
+                EditorGUILayout.EndHorizontal();
+            }
+            if (Event.current.type == EventType.Layout) svc.TryEnsureModels();
         }
 
         /// <summary>
@@ -250,23 +279,16 @@ namespace Iroca
         }
 
         /// <summary>
-        /// クリックがどのマスクへ足されるかの明示と、効果が出ない/外した場合の注意書き。
-        /// クリック 1 回で即マスクへ反映されるため(積み上げ・確定ボタンは無い)、取り違えや
-        /// 「反映されない」に先に気づけるよう常時表示する。
+        /// 効果が出ない/外した場合の注意書き。クリック 1 回で即マスクへ反映されるため
+        /// (積み上げ・確定ボタンは無い)、「反映されない」に先に気づけるよう常時表示する。
+        ///
+        /// 「追加先: ゾーン / 種類」の明示ラベルはここには置かない。同じウィンドウの数行上に
+        /// 対象プルダウンと種類ボタンが現物として見えており、文字での言い直しは冗長なため
+        /// (別ウィンドウに散っていた頃は取り違え防止に必要だった)。
         /// </summary>
         static void DrawTargetAndWarnings(IrocaWindow host, MaskPaintView maskView, MaskSuggestController ctl)
         {
-            // 追加先マスク(共通 or ゾーン × 除外 or 含める)を明示する。編集対象が想定と
-            // 違うゾーン/種類だと「足しても効かず変化なし」に見えるため、取り違えを防ぐ。
             var zones = host.Session?.zones;
-            int t = maskView.activeMaskTarget;
-            string target = (t >= 0 && zones != null && t < zones.Count)
-                ? (string.IsNullOrEmpty(zones[t].name) ? Localization.UnnamedZone : zones[t].name)
-                : Localization.MaskTargetCommon;
-            string layer = maskView.editIncludeLayer ? Localization.Include : Localization.Exclude;
-            EditorGUILayout.LabelField(
-                string.Format(Localization.AiSuggestCommitTargetFormat, $"{target} / {layer}"),
-                EditorStyles.miniLabel);
 
             // マスクは色ゾーンの色替え範囲を制限する機能。有効な色ゾーンが無いと足しても
             // 出力は変わらない(=「反映されない」の主因の一つ)。ここで先に気づけるようにする。

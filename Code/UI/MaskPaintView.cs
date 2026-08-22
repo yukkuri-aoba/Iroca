@@ -111,36 +111,52 @@ namespace Iroca
                 return;
             }
 
-            DrawMaskTargetSelector();
             EnforceLayerConsistency();
 
-            // ブラシ操作（サイズ・種類・塗る/消す・元に戻す）は MaskBrushWindow パレットへ分離し、
-            // ここは「開いてすぐ塗れる」入口ボタンだけにする。
+            // マスク編集の操作と状態(対象ゾーン・種類・ツール・ブラシ・AI 提案)は
+            // すべて MaskBrushWindow へ集約した。編集中に見ているのは「編集ウィンドウ +
+            // プレビュー」であり、対象ゾーンだけがここ(左カラム・要スクロール)に残っていると、
+            // 塗る前に別ウィンドウへ視線を往復することになる(2026-08-22 のユーザー指摘)。
+            // ここに残すのは入口と、いま何を編集する状態かの読み取り専用サマリだけ。
+            EditorGUILayout.LabelField(
+                new GUIContent(string.Format(Localization.MaskCurrentTargetFormat,
+                                             ActiveTargetName(), ActiveLayerName()),
+                               Localization.MaskCurrentTargetTooltip),
+                EditorStyles.miniLabel);
+
             var prevBg = GUI.backgroundColor;
-            if (maskPaintActive) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
-            if (GUILayout.Button(new GUIContent(Localization.BrushEdit, Localization.BrushEditTooltip)))
+            if (maskPaintActive || AiSuggestArmed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
+            if (GUILayout.Button(new GUIContent(Localization.MaskEditOpen, Localization.MaskEditOpenTooltip)))
             {
-                ActivateBrush(erase: false);
+                // 初回は「押せば塗れる」ようブラシを ON にする。すでにどちらかのツールを
+                // 使っている最中なら触らない(AI 提案中に押しただけでブラシへ切り替わると、
+                // ウィンドウを前面に出したかっただけのユーザーがモードを失う)。
+                if (!maskPaintActive && !AiSuggestArmed) ActivateBrush(erase: false);
                 MaskBrushWindow.Open(_host);
             }
             GUI.backgroundColor = prevBg;
 
-            MaskSuggestSection.Draw(_host, this);
-
-            if (GUILayout.Button(new GUIContent(Localization.ClearMask, Localization.ClearMaskTooltip)))
-            {
-                // bool[] バッファを _session.maskState に同期してから Undo 登録、クリア後に再同期。
-                SyncBuffersToState();
-                Undo.RegisterCompleteObjectUndo(_host, "Clear Mask");
-                ClearActiveMask();
-                SyncBuffersToState();
-                maskDirty = true;
-                _host.MarkPreviewDirty();
-            }
+            // AI 提案は「一度きりの有効化」だけをここに置く(Sentis 導入・モデル取得)。
+            // 素のプロジェクトでも機能の存在に気づけるようにするため。
+            MaskSuggestSection.DrawSetup(_host);
 
             EditorGUILayout.EndFoldoutHeaderGroup();
             EditorGUILayout.Space(4);
         }
+
+        /// <summary>いま編集対象になっているマスクのゾーン名(共通マスクなら共通の表示名)。</summary>
+        public string ActiveTargetName()
+        {
+            var zones = _host.Session?.zones;
+            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
+                return Localization.MaskTargetCommon;
+            string raw = zones[activeMaskTarget].name;
+            return string.IsNullOrEmpty(raw) ? Localization.UnnamedZone : raw;
+        }
+
+        /// <summary>いま編集対象になっているマスクの種類の表示名(除外 / 含める)。</summary>
+        public string ActiveLayerName()
+            => editIncludeLayer ? Localization.Include : Localization.Exclude;
 
         /// <summary>ブラシペイントモードを ON にする（AI 提案とは排他）。</summary>
         public void ActivateBrush(bool erase)
@@ -172,37 +188,31 @@ namespace Iroca
         }
 
         /// <summary>
-        /// マスク編集パレット（MaskBrushWindow）の中身。マスクの種類(除外/含める)×
-        /// ツール(塗る/消す/AI 提案)の 2 軸で構成する。状態はすべて本クラスに集約された
-        /// ままなので、メインウィンドウ側のハイライトや AI 提案との排他は従来ロジックが
-        /// そのまま機能する。
+        /// マスク編集ウィンドウ（MaskBrushWindow）の中身。**マスク編集の操作と状態はここに全部ある**
+        /// のが設計上の約束で、メインウィンドウ側には入口と読み取り専用サマリしか置かない。
+        ///
+        /// 上から「対象(どのゾーンの) → 種類(除外/含める) → ツール(塗る/消す/AI 提案) →
+        /// ツール別の設定 → 取り消し/クリア」の順。ユーザーが決める順序どおりに並べてある。
+        /// 状態はすべて本クラスに集約されたままなので、メインウィンドウ側のハイライトや
+        /// AI 提案との排他は従来ロジックがそのまま機能する。
         /// </summary>
         public void DrawBrushPalette()
         {
-            var zones = _host.Session.zones;
-            bool commonTarget = activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count;
             EnforceLayerConsistency();
-            string targetName;
-            if (commonTarget)
-                targetName = Localization.MaskTargetCommon;
-            else
-            {
-                string raw = zones[activeMaskTarget].name;
-                targetName = string.IsNullOrEmpty(raw) ? Localization.UnnamedZone : raw;
-            }
-            EditorGUILayout.LabelField(
-                string.Format(Localization.BrushPaletteTargetFormat, targetName),
-                EditorStyles.miniLabel);
+
+            // 1. 対象ゾーン。ここに無いと「塗る直前にメインウィンドウへ視線を往復する」ことになる
+            //    (元はメインの左カラムにあり、スクロールしないと見えなかった)。
+            DrawMaskTargetSelector();
 
             bool stateChanged = false;
             var prevBg = GUI.backgroundColor;
 
-            // マスクの種類(除外/含める)。AI 提案セクションと共通の切り替え行。
+            // 2. マスクの種類(除外/含める)。
             DrawLayerKindSelector();
 
-            // ツール選択: 塗る / 消す / AI 提案(いずれも上で選んだ種類のマスクに対して作用する)。
-            // AI 提案は Sentis 統合が載っているときだけ出す(導入・モデル DL・状態表示などの
-            // 導線はメインウィンドウのマスク欄 = MaskSuggestSection にある)。
+            // 3. ツール選択: 塗る / 消す / AI 提案(いずれも上で選んだ対象・種類に対して作用する)。
+            //    AI 提案は Sentis 統合が載っているときだけ出す(導入・モデル取得は一度きりの
+            //    セットアップなのでメインウィンドウのマスク欄 = MaskSuggestSection.DrawSetup)。
             var ctl = SuggestController;
             bool aiActive = ctl != null && ctl.Active;
             bool paintActive = maskPaintActive && !brushEraseMode;
@@ -226,31 +236,47 @@ namespace Iroca
             }
             if (ctl != null)
             {
+                // モデル未取得のうちは押しても何も起きないので、押せない理由ごと見せる
+                // (取得ボタンをここへ複製すると、集約した意味が無くなる)。
+                bool ready = MaskSuggestSection.ToolReady;
                 GUI.backgroundColor = aiActive ? IrocaColors.IncludeButton : Color.white;
-                if (GUILayout.Button(new GUIContent(Localization.AiSuggestTool,
-                                                    Localization.AiSuggestToolTooltip),
-                        EditorStyles.miniButtonRight))
+                using (new EditorGUI.DisabledScope(!ready))
                 {
-                    if (aiActive) ctl.SetActive(false);
-                    else
+                    if (GUILayout.Button(new GUIContent(Localization.AiSuggestTool,
+                            ready ? Localization.AiSuggestToolTooltip
+                                  : Localization.AiSuggestToolNotReadyTooltip),
+                            EditorStyles.miniButtonRight))
                     {
-                        DeactivateBrush();
-                        ctl.SetActive(true);
+                        if (aiActive) ctl.SetActive(false);
+                        else
+                        {
+                            DeactivateBrush();
+                            ctl.SetActive(true);
+                        }
+                        stateChanged = true;
                     }
-                    stateChanged = true;
                 }
             }
             GUI.backgroundColor = prevBg;
             EditorGUILayout.EndHorizontal();
 
-            // ブラシサイズは塗る/消す専用(AI 提案中は使わないので無効表示にする)。
-            using (new EditorGUI.DisabledScope(aiActive))
+            // 4. ツール別の設定。塗る/消すならブラシサイズ、AI 提案なら粒度と推論の状態。
+            //    使わない側を無効表示で残すより、選んだツールのものだけを出すほうが
+            //    「いま何を調整できるのか」が一目で分かる。
+            if (aiActive)
+            {
+                MaskSuggestSection.DrawToolControls(_host, this);
+            }
+            else
             {
                 brushSize = EditorGUILayout.IntSlider(
                     new GUIContent(Localization.BrushSize, Localization.BrushSizeTooltip),
                     brushSize, 1, 64);
             }
 
+            EditorGUILayout.Space(2);
+
+            // 5. 取り消し / クリア。
             // Unity 標準 Undo に統合済みのため、専用ボタンは PerformUndo の薄いショートカットとして残す。
             // ★ラベルは「マスクを元に戻す」にしないこと★ — PerformUndo の対象は直前の操作であり、
             // マスク編集とは限らない。マスク限定の Undo を名乗ると、スライダー変更やシーン編集が
@@ -258,6 +284,23 @@ namespace Iroca
             if (GUILayout.Button(new GUIContent(Localization.UndoMask, Localization.UndoMaskTooltip)))
             {
                 Undo.PerformUndo();
+            }
+
+            // クリアは「対象 × 種類」で決まる 1 枚だけを消す操作なので、その 2 つを選ぶ
+            // プルダウン/ボタンと同じウィンドウに置く(元はメインウィンドウ側にあり、
+            // 何を消すのかがその場で確認できなかった)。
+            if (GUILayout.Button(new GUIContent(
+                    string.Format(Localization.ClearMaskTargetFormat,
+                                  ActiveTargetName(), ActiveLayerName()),
+                    Localization.ClearMaskTooltip)))
+            {
+                // bool[] バッファを _session.maskState に同期してから Undo 登録、クリア後に再同期。
+                SyncBuffersToState();
+                Undo.RegisterCompleteObjectUndo(_host, "Clear Mask");
+                ClearActiveMask();
+                SyncBuffersToState();
+                maskDirty = true;
+                _host.MarkPreviewDirty();
             }
 
             EditorGUILayout.HelpBox(

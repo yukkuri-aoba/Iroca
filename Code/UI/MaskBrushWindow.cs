@@ -6,12 +6,19 @@ using UnityEngine;
 namespace Iroca
 {
     /// <summary>
-    /// マスク編集の操作パレット（マスクの種類: 除外/含める × ツール: 塗る/消す/AI 提案、
-    /// サイズ・元に戻す）。
+    /// マスク編集ウィンドウ。**マスク編集の操作と状態はすべてここにある**:
+    /// 対象（共通 / 各ゾーン）× 種類（除外 / 含める）× ツール（塗る / 消す / AI 提案）と、
+    /// ツール別の設定・取り消し・クリア。
+    ///
+    /// メインウィンドウのマスク欄に残るのは、ここを開く入口・読み取り専用サマリ・
+    /// AI の一度きりの有効化（Sentis 導入とモデル取得）だけ。編集中に見ているのは
+    /// 「このウィンドウ + プレビュー」なので、編集中に触るものが左カラムに残っていると
+    /// 視線と操作がウィンドウ間を往復することになる（2026-08-22 のユーザー指摘で集約）。
+    ///
     /// 描画内容は <see cref="MaskPaintView.DrawBrushPalette"/> へ委譲する薄い殻で、
     /// 状態は従来どおり IrocaWindow 側の MaskPaintView に集約される。
-    /// 塗る/クリックの作業自体はメインウィンドウのプレビュー上で行う。
-    /// MenuItem は持たない（到達経路はメインの「ブラシで編集」ボタンのみ。
+    /// 塗る/クリックの作業自体はプレビュー上で行う。
+    /// MenuItem は持たない（到達経路はメインの「マスクを編集...」ボタンのみ。
     /// ドメインリロード後にレイアウトへ残った場合は ResolveHost で再接続する）。
     /// </summary>
     internal sealed class MaskBrushWindow : EditorWindow
@@ -20,16 +27,17 @@ namespace Iroca
 
         internal static void Open(IrocaWindow host)
         {
-            var win = GetWindow<MaskBrushWindow>(utility: false, title: Localization.BrushPaletteTitle, focus: true);
+            var win = GetWindow<MaskBrushWindow>(utility: false, title: Localization.MaskEditWindowTitle, focus: true);
             win._host = host;
-            // 高さは「マスクの種類」行の追加(2026-08)を含む全要素が収まる値。
-            win.minSize = new Vector2(260, 240);
+            // 高さは対象プルダウン・種類・ツール・ツール別設定・取り消し/クリア・ヒントが
+            // 収まる値（AI 提案の状態表示が出るぶんを含む）。
+            win.minSize = new Vector2(280, 320);
             win.Show();
         }
 
         private void OnEnable()
         {
-            titleContent = new GUIContent(Localization.BrushPaletteTitle,
+            titleContent = new GUIContent(Localization.MaskEditWindowTitle,
                 // "d_" は付けない(ダークスキンでは IconContent が自動で付ける。IrocaWindow 参照)
                 EditorGUIUtility.IconContent("Grid.PaintTool").image);
         }
@@ -81,14 +89,16 @@ namespace Iroca
 
         private void OnDestroy()
         {
-            // パレットを閉じたらペイントモードも終了する。
-            // 「ブラシ操作 UI が見えないのに塗れる」状態を残さない。
-            // AI 提案モードは終了しない: メインウィンドウのマスク欄に状態表示と終了導線が
-            // 常に見えており、パレット無しでも成立する操作だから。
+            // このウィンドウを閉じる = マスク編集を終える、と一対一にする。
+            // ブラシだけでなく AI 提案も解除するのは、状態表示と終了導線がこのウィンドウにしか
+            // 無くなったため（以前はメインウィンドウのマスク欄に AI の終了導線があったので
+            // ブラシだけ解除していた）。見えない操作モードが残ると、プレビューの右クリックが
+            // 黙ってマスクへ反映され続けることになる。
             var host = ResolveHost();
             if (host != null && host._maskView != null)
             {
                 host._maskView.DeactivateBrush();
+                host._maskView.SuggestControllerIfCreated?.SetActive(false);
                 host.RequestRepaint();
             }
         }

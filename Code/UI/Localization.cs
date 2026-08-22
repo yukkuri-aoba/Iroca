@@ -275,8 +275,14 @@ namespace Iroca
             : "Eraser mode: drag on the preview to erase the currently selected mask type\nClick again to exit paint mode";
         public static string AiSuggestTool => IsJapanese ? "AI 提案" : "AI Suggest";
         public static string AiSuggestToolTooltip => IsJapanese
-            ? "AI 提案モード: プレビューでパーツを右クリックすると、AI が推定した領域を\nいま選んでいる種類のマスク（除外/含める）へ追加します\n同じボタンを再度押すとモードを解除\n塗る/消すとは排他です（選ぶとブラシは解除されます）"
-            : "AI Suggest mode: right-click a part on the preview and the AI-estimated region is added\nto the currently selected mask type (Exclude/Include)\nClick again to exit\nMutually exclusive with Paint/Erase (selecting this exits the brush)";
+            ? "AI 提案モード: プレビューでパーツを右クリックすると、AI が推定した領域を\nいま選んでいる対象・種類のマスク（除外/含める）へ追加します\n同じボタンを再度押すとモードを解除\n塗る/消すとは排他です（選ぶとブラシは解除されます）"
+            : "AI Suggest mode: right-click a part on the preview and the AI-estimated region is added\nto the mask currently selected above (target and Exclude/Include)\nClick again to exit\nMutually exclusive with Paint/Erase (selecting this exits the brush)";
+        public static string AiSuggestToolNotReadyTooltip => IsJapanese
+            ? "AI モデルがまだ取得されていないため使えません\nIroca 本体ウィンドウの「マスク」欄にある「AI マスク提案」から取得してください（約 45MB・一度きり）"
+            : "Unavailable until the AI model is downloaded\nGet it from \"AI Mask Suggestion\" in the Masks section of the main Iroca window (about 45MB, one time)";
+        public static string AiSuggestNoModelInEditor => IsJapanese
+            ? "AI モデルが未取得です。Iroca 本体ウィンドウの「マスク」欄から取得してください。"
+            : "The AI model has not been downloaded yet. Get it from the Masks section of the main Iroca window.";
         public static string MaskHintAi => IsJapanese
             ? "プレビュー上でパーツを右クリックすると、AI が推定した領域をマスクへ追加します（Ctrl+Z で 1 手ずつ戻せます）"
             : "Right-click a part on the preview to add the AI-estimated region to the mask (Ctrl+Z undoes one step at a time)";
@@ -478,12 +484,18 @@ namespace Iroca
             : "Undo the last action, same as Unity's Ctrl+Z. This is not mask-specific: "
               + "if your last action was not a mask edit, that action is undone instead";
 
-        public static string BrushEdit => IsJapanese ? "ブラシで編集..." : "Edit with Brush...";
-        public static string BrushEditTooltip => IsJapanese
-            ? "ブラシ操作パレットを開き、ペイントモードを ON にします\nプレビュー上をドラッグして塗れます（マスクの種類はパレットで切り替え）\nパレットを閉じるとペイントモードは解除されます"
-            : "Opens the brush palette and arms the paint brush\nDrag on the preview to paint (switch the mask type in the palette)\nClosing the palette exits paint mode";
-        public static string BrushPaletteTitle => IsJapanese ? "Iroca ブラシ" : "Iroca Brush";
-        public static string BrushPaletteTargetFormat => IsJapanese ? "編集対象: {0}" : "Editing: {0}";
+        public static string MaskEditOpen => IsJapanese ? "マスクを編集..." : "Edit Masks...";
+        public static string MaskEditOpenTooltip => IsJapanese
+            ? "マスク編集ウィンドウを開き、ペイントモードを ON にします\n編集対象のゾーン・マスクの種類（除外/含める）・ツール（塗る/消す/AI 提案）は\nすべてそのウィンドウで切り替えます（プレビューのすぐ横に置いて使えます）\nウィンドウを閉じるとマスク編集モードは解除されます"
+            : "Opens the mask editing window and arms the paint brush\nThe target zone, mask type (Exclude/Include) and tool (Paint/Erase/AI Suggest)\nare all switched in that window, so you can keep it next to the preview\nClosing the window exits mask editing";
+        public static string MaskEditWindowTitle => IsJapanese ? "Iroca マスク編集" : "Iroca Masks";
+        public static string MaskCurrentTargetFormat => IsJapanese
+            ? "編集対象: {0} / {1}" : "Edit target: {0} / {1}";
+        public static string MaskCurrentTargetTooltip => IsJapanese
+            ? "「マスクを編集...」で開くウィンドウが、いまどのマスクを対象にしているかの表示です\n切り替えはそのウィンドウの「編集対象」「マスクの種類」で行います"
+            : "Shows which mask the editing window currently targets\nSwitch it with \"Edit Target\" and \"Mask Type\" in that window";
+        public static string ClearMaskTargetFormat => IsJapanese
+            ? "このマスクをクリア（{0} / {1}）" : "Clear this mask ({0} / {1})";
         public static string BrushPaletteNoHost => IsJapanese
             ? "Iroca ウィンドウが開いていません。"
             : "The Iroca window is not open.";
@@ -493,11 +505,6 @@ namespace Iroca
             : "Opens the main Iroca window";
 
         public static string AiSuggest => IsJapanese ? "AI マスク提案（実験的）" : "AI Mask Suggestion (Experimental)";
-        public static string AiSuggestStart => IsJapanese ? "AI 提案を開始" : "Start AI Suggestion";
-        public static string AiSuggestActive => IsJapanese ? "■ AI 提案中（クリックで終了）" : "■ AI Suggesting (click to stop)";
-        public static string AiSuggestToggleTooltip => IsJapanese
-            ? "プレビュー上のパーツを右クリック（mac は Control+クリック）すると、AI がそのパーツの領域を推定して、その場で編集対象のマスクへ追加します\n追加先は「マスクの種類」に従います — 除外（＝色替えしない範囲）または含める（＝必ず色替えする範囲）\n左ドラッグはこれまでどおりプレビューの移動（パン）なので、AI モード中でも見たい場所へ寄せられます\n間違えたら Ctrl+Z で 1 つずつ戻せます（確定ボタンはありません）\nブラシペイントとは排他で、開始するとペイントモードは解除されます"
-            : "Right-click a part on the preview (Control+click on macOS) and the AI estimates that part's region and adds it to the active mask right away.\nWhere it goes follows \"Mask Type\" — Exclude ('do-not-recolor' area) or Include ('always-recolor' area).\nLeft-drag still pans the preview, so you can move around while this mode is on.\nUndo with Ctrl+Z one step at a time (there is no commit button).\nMutually exclusive with brush painting; starting this exits paint mode.";
         public static string AiSuggestSentisRequired => IsJapanese
             ? "この AI 機能には Unity Sentis パッケージが必要です。下のボタンで導入すると有効になります（不要なら導入しなければ従来どおりの動作で、ストレージも消費しません）。"
             : "This AI feature needs the Unity Sentis package. Install it with the button below to enable it (skip it to keep the classic behavior with no extra storage).";
@@ -582,11 +589,6 @@ namespace Iroca
         public static string AiSuggestGranularityCoarseTooltip => IsJapanese
             ? "輪郭のはっきりさを問わず、最も大きい候補を採用します。「自動」で足りないときに(周囲を巻き込むこともあります)"
             : "Use the largest candidate regardless of outline crispness. When Auto is not enough (may spill into surroundings).";
-        public static string AiSuggestHintIdle => IsJapanese
-            ? "プレビュー上でパーツを右クリック（mac は Control+クリック）すると、その領域をその場で除外マスクへ追加します（マスクの色で表示）。左ドラッグはプレビューの移動です。間違えたら Ctrl+Z で戻せます。"
-            : "Right-click a part on the preview (Control+click on macOS) to add its region to the exclusion mask right away (shown in the mask color). Left-drag still pans. Undo with Ctrl+Z.";
-        public static string AiSuggestCommitTargetFormat => IsJapanese
-            ? "追加先: {0}" : "Add to: {0}";
         public static string AiSuggestNoZoneWarning => IsJapanese
             ? "色ゾーンがありません。マスクは色ゾーンの色替え範囲を制限する機能なので、足してもプレビュー／エクスポートの見た目は変わりません。まず色替えする色ゾーンを追加してください。"
             : "No color zone exists. A mask only limits where color zones recolor, so adding to it will not change the preview/export. Add a color zone to recolor first.";
@@ -594,8 +596,8 @@ namespace Iroca
         public static string MaskTarget => IsJapanese ? "編集対象" : "Edit Target";
         public static string MaskTargetCommon => IsJapanese ? "共通マスク（全ゾーン）" : "Common Mask (all zones)";
         public static string MaskTargetTooltip => IsJapanese
-            ? "マスクの編集対象を切り替えます\n・共通マスク: 全ゾーンで共通して除外される領域\n・各ゾーン: そのゾーンだけの除外／含める領域\n除外は共通とゾーンが OR 結合されて適用されます\n「含める」マスクはゾーン選択時のみ編集できます\n※ここは選択のみです。塗るには「ブラシで編集」を押してください"
-            : "Switch which mask is being edited\n- Common: area excluded from every zone\n- Per-zone: that zone's exclude / include areas\nExclusions are OR-combined (common + zone) when processing\nThe Include mask can only be edited when a zone is selected\nNote: this only selects the target. To paint, press \"Edit with Brush\"";
+            ? "マスクの編集対象を切り替えます\n・共通マスク: 全ゾーンで共通して除外される領域\n・各ゾーン: そのゾーンだけの除外／含める領域\n除外は共通とゾーンが OR 結合されて適用されます\n「含める」マスクはゾーン選択時のみ編集できます\n下の「塗る／消す／AI 提案」は、ここで選んだマスクに対して働きます"
+            : "Switch which mask is being edited\n- Common: area excluded from every zone\n- Per-zone: that zone's exclude / include areas\nExclusions are OR-combined (common + zone) when processing\nThe Include mask can only be edited when a zone is selected\nThe Paint / Erase / AI Suggest tools below act on the mask selected here";
         public static string PresetIncludeMasks => IsJapanese
             ? "マスクも保存する"
             : "Include masks when saving";
