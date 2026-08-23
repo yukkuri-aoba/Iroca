@@ -78,6 +78,11 @@ namespace Iroca
         // テストから含めるマスク経路を駆動するための入力。test_zones_schema_parity.py の
         // HARNESS_ONLY 参照。
         public string includeMask { get; set; } = null;
+        // ゾーン別の除外マスク(raw ファイルパス、形式・寸法制約は includeMask と同じ。1=除外)。
+        // ★ハーネス専用フィールド★ — 製品ではマスクは MaskFileStore/セッション経由で zones JSON に
+        // 載らない。再現ケース(repro_cases)とテストが MaskSnapshot.zones(ゾーン別除外)経路を
+        // 駆動するための入力。
+        public string excludeMask { get; set; } = null;
     }
 
     internal sealed class SettingsCfg
@@ -108,6 +113,22 @@ namespace Iroca
         public string input { get; set; }
         public string mask { get; set; }
         public List<BatchCase> cases { get; set; } = new List<BatchCase>();
+    }
+
+    // ─── --session <json> 用 DTO ───
+    // 連続適用セッション(設定変更・マスク塗り・ゾーン追加の往復)の再現。--batch と違い
+    // ステップ間で SelectionCache を持ち越す(製品 PreviewView の _selectionCache 相当)。
+    internal sealed class SessionStep
+    {
+        public string zones { get; set; }
+        public string mask { get; set; }
+        public string @out { get; set; }
+    }
+
+    internal sealed class SessionConfig
+    {
+        public string input { get; set; }
+        public List<SessionStep> steps { get; set; } = new List<SessionStep>();
     }
 
     internal static class Harness
@@ -186,6 +207,26 @@ namespace Iroca
             if (args.Length >= 1 && args[0].StartsWith("--samops-", StringComparison.Ordinal))
                 return RunSamOps(args);
 
+            // --previewcoords <rx> <ry> <rw> <rh> <sx> <sy> <texW> <texH>: 入力画像不要。
+            // プレビュー座標変換(PreviewCoords: スポイト/シード/ペイント/AI クリックの単一の正)を
+            // 実 C# で評価して uv・画素座標・スクリーン往復を出力する。v 反転の退行検証用。
+            if (args.Length >= 9 && args[0] == "--previewcoords")
+            {
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
+                var rect = new Rect(
+                    float.Parse(args[1], ic), float.Parse(args[2], ic),
+                    float.Parse(args[3], ic), float.Parse(args[4], ic));
+                var screen = new Vector2(float.Parse(args[5], ic), float.Parse(args[6], ic));
+                int tw = int.Parse(args[7], ic), th = int.Parse(args[8], ic);
+                var uv = PreviewCoords.ScreenToUv(screen, rect);
+                PreviewCoords.UvToPixel(uv.x, uv.y, tw, th, out int px, out int py);
+                var back = PreviewCoords.UvToScreen(uv, rect);
+                Console.WriteLine(string.Format(ic,
+                    "PREVIEWCOORDS {0:R} {1:R} {2} {3} {4:R} {5:R}",
+                    uv.x, uv.y, px, py, back.x, back.y));
+                return 0;
+            }
+
             // 並列テスト実行時にスレッド数を絞れるようにする(既定=未設定=製品と同じ
             // ProcessorCount-2)。設定したときだけ効くので、通常実行の挙動は変わらない。
             var threadsEnv = Environment.GetEnvironmentVariable("IROCA_HARNESS_THREADS");
@@ -197,6 +238,10 @@ namespace Iroca
             if (args.Length >= 2 && args[0] == "--batch")
                 return RunBatch(args[1]);
 
+            // --session <json>: 連続適用セッション(SelectionCache をステップ間で持ち越す)。
+            if (args.Length >= 2 && args[0] == "--session")
+                return RunSession(args[1]);
+
             if (args.Length < 3)
             {
                 Console.Error.WriteLine("usage: Harness <in.raw RGBA> <mask.raw 1=exclude> <out.raw RGBA> "
@@ -204,6 +249,26 @@ namespace Iroca
                 return 2;
             }
             string inPath = args[0], maskPath = args[1], outPath = args[2];
+
+            // 未知の引数は黙って無視せず失敗させる。過去、パーサの無い --matchDistance が
+            // 渡され続け、A/B 計測が同条件を 2 回測る「死にノブ」事故があった
+            // (dev_safe/docs/oklab_matching_conclusion.md)。フラグを増やしたらここにも足すこと。
+            for (int i = 3; i < args.Length; i++)
+            {
+                switch (args[i])
+                {
+                    case "--zones": case "--stage": i++; break;   // 値を 1 つ消費
+                    case "--autotune": case "--ffcheck": case "--selcache": break;
+                    default:
+                        // 後方互換の位置引数(sample/target/tolerance の数値 7 個)だけ許す。
+                        if (i <= 9 && args.Length >= 10 && double.TryParse(
+                                args[i], System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out _))
+                            break;
+                        Console.Error.WriteLine($"unknown arg: {args[i]}");
+                        return 2;
+                }
+            }
 
             // --zones <path> があれば全ゾーン設定を JSON から読む(汎用パス)。
             string zonesPath = null;
@@ -215,6 +280,21 @@ namespace Iroca
             bool autotune = false;
             for (int i = 3; i < args.Length; i++)
                 if (args[i] == "--autotune") { autotune = true; break; }
+
+            // --stage proxy|full-display: 段階的リファインの表示画像を再現する検証モード。
+            //   proxy        = ScheduleProxyPreview と同じ鎖（src→プロキシ縮小→処理→表示縮小）
+            //   full-display = ScheduleFullPreview と同じ鎖（フル解像度処理→表示縮小）
+            // どちらも出力は表示解像度（Preview.MaxSize フィット）。「ユーザーが操作中に見る絵」と
+            // 「確定後に見る絵」を実 C# で取り出すためのモードで、通常実行（出力=フル解像度）の
+            // 経路・出力は変えない。--batch では解釈しない（単発実行専用）。
+            string stage = null;
+            for (int i = 3; i < args.Length - 1; i++)
+                if (args[i] == "--stage") { stage = args[i + 1]; break; }
+            if (stage != null && stage != "proxy" && stage != "full-display")
+            {
+                Console.Error.WriteLine($"unknown --stage: {stage} (proxy|full-display)");
+                return 2;
+            }
 
             var (w, h, rgba) = ReadRaw(inPath, 4);
             int len = w * h;
@@ -232,9 +312,9 @@ namespace Iroca
             SettingsCfg st;
             if (zonesPath != null)
             {
-                List<(string zoneId, string path)> includes;
-                (zoneList, st, includes) = LoadZones(zonesPath);
-                AttachIncludeMasks(masks, includes);
+                List<(string zoneId, string path, bool include)> zoneMasks;
+                (zoneList, st, zoneMasks) = LoadZones(zonesPath);
+                AttachZoneMasks(masks, zoneMasks);
             }
             else
             {
@@ -328,6 +408,42 @@ namespace Iroca
             if (System.Array.IndexOf(args, "--selcache") >= 0)
                 RunSelectionCacheCheck((Color32[])pixels.Clone(), w, h, masks, zoneList, st);
 
+            // 段階的リファインの表示画像を出力して終了（--stage。上記コメント参照）。
+            // 自動調整は実機同様フル解像度の pixels で済ませてから（この上のブロック）、
+            // プロキシ縮小・処理・表示縮小を PreviewView.Async と同一の鎖・丸めで行う。
+            if (stage != null)
+            {
+                PixelProcessor.ComputeFitSize(w, h, IrocaConsts.Preview.MaxSize,
+                    out int prevW, out int prevH, out float dispScale);
+                Color32[] display;
+                if (stage == "proxy")
+                {
+                    PixelProcessor.ComputeFitSize(w, h, IrocaConsts.Preview.ProxyMaxSize,
+                        out int proxyW, out int proxyH, out float proxyScale);
+                    var proxyPixels = PixelProcessor.BoxDownsample(
+                        pixels, w, h, proxyW, proxyH, proxyScale);
+                    ProcessZones(proxyPixels, proxyW, proxyH, masks, zoneList, st);
+                    // ScheduleProxyPreview と同じ: プロキシ寸法≠表示寸法のときだけ再縮小。
+                    bool needsResample = proxyW != prevW || proxyH != prevH;
+                    float toDisplay = prevW / (float)proxyW;
+                    display = needsResample
+                        ? PixelProcessor.BoxDownsample(
+                            proxyPixels, proxyW, proxyH, prevW, prevH, toDisplay)
+                        : proxyPixels;
+                }
+                else
+                {
+                    ProcessZones(pixels, w, h, masks, zoneList, st);
+                    display = dispScale < 1f
+                        ? PixelProcessor.BoxDownsample(pixels, w, h, prevW, prevH, dispScale)
+                        : pixels;
+                }
+                WriteRawRgba(outPath, prevW, prevH, display);
+                Console.WriteLine(
+                    $"OK-STAGE {stage} {prevW}x{prevH} -> {outPath} (zones={zoneList.Count})");
+                return 0;
+            }
+
             // ProcessPixelsArray のみを計測(dotnet 起動・raw I/O を除外)。stderr に出すので
             // stdout の "OK" を汚さない。Python 側が "PROCESS_MS " 行を拾って前後比較に使う。
             // フェーズ別内訳(HSV/Match/FloodFill/...)も stderr へ。--ffcheck の余分な実行を
@@ -344,10 +460,12 @@ namespace Iroca
             return 0;
         }
 
-        // ─── 単発実行と --batch が共有する処理本体 ───
+        // ─── 単発実行・--batch・--session が共有する処理本体 ───
         // ここを経由しない処理経路を足さないこと(テストが製品と違う設定を測る事故になる)。
+        // selectionCache は --session だけが渡す(製品 PreviewView の持ち越しを再現)。
         private static void ProcessZones(Color32[] pixels, int w, int h,
-                                         MaskSnapshot masks, List<ColorZone> zoneList, SettingsCfg st)
+                                         MaskSnapshot masks, List<ColorZone> zoneList, SettingsCfg st,
+                                         SelectionCache selectionCache = null)
         {
             var sw = Stopwatch.StartNew();
             PixelProcessor.ProcessPixelsArray(
@@ -356,7 +474,8 @@ namespace Iroca
                 holeFillPasses: st.holeFillPasses, holeFillMinNeighbors: st.holeFillMinNeighbors,
                 relaxedSatMin: st.relaxedSatMin, relaxedSatRamp: st.relaxedSatRamp,
                 originX: 0, originY: 0, fullW: 0, fullH: 0,
-                useDecontamination: st.useDecontamination, decontaminationRadius: st.decontaminationRadius);
+                useDecontamination: st.useDecontamination, decontaminationRadius: st.decontaminationRadius,
+                selectionCache: selectionCache);
             sw.Stop();
             Console.Error.WriteLine($"PROCESS_MS {sw.Elapsed.TotalMilliseconds:F2}");
         }
@@ -375,46 +494,61 @@ namespace Iroca
             bw.Write(outBytes);
         }
 
+        // persistentIds: --session 用の name→id 台帳。同名ゾーンをセッション内の同一ゾーンと
+        // みなして id を引き継ぐ(製品ではゾーン id が適用を跨いで安定なのを再現する。
+        // SelectionCache の持ち越しはゾーン id 単位なので、これが無いと毎ステップ全ミスになり
+        // ヒット経路を検証できない)。null(単発/--batch)なら従来どおり毎回新規 id。
         private static (List<ColorZone> zones, SettingsCfg settings,
-                        List<(string zoneId, string path)> includes) LoadZones(string path)
+                        List<(string zoneId, string path, bool include)> zoneMasks) LoadZones(
+            string path, Dictionary<string, string> persistentIds = null)
         {
             var cfg = JsonSerializer.Deserialize<ZonesConfig>(
                 File.ReadAllText(path),
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
             var list = new List<ColorZone>();
-            var includes = new List<(string zoneId, string path)>();
+            var zoneMasks = new List<(string zoneId, string path, bool include)>();
             foreach (var z in cfg.zones)
             {
                 var zone = BuildZone(z);
+                if (persistentIds != null)
+                {
+                    if (persistentIds.TryGetValue(zone.name, out var known))
+                        zone.id = known;
+                    else
+                        persistentIds[zone.name] = zone.id;
+                }
                 list.Add(zone);
-                // 含めるマスクは MaskSnapshot 側(zone.id キー)に載るため、生成済み id と
+                // ゾーン別マスクは MaskSnapshot 側(zone.id キー)に載るため、確定済み id と
                 // ファイルパスの対応をここで確定させる。
                 if (!string.IsNullOrEmpty(z.includeMask))
-                    includes.Add((zone.id, z.includeMask));
+                    zoneMasks.Add((zone.id, z.includeMask, true));
+                if (!string.IsNullOrEmpty(z.excludeMask))
+                    zoneMasks.Add((zone.id, z.excludeMask, false));
             }
-            return (list, cfg.settings ?? new SettingsCfg(), includes);
+            return (list, cfg.settings ?? new SettingsCfg(), zoneMasks);
         }
 
         /// <summary>
-        /// ゾーン別の含めるマスク raw を読み、MaskSnapshot へ取り付ける。
+        /// ゾーン別マスク(含める/除外)の raw を読み、MaskSnapshot へ取り付ける。
         /// 寸法は mask.raw(= snapshot の寸法)と一致必須(製品でもマスクは全レイヤー同一
         /// キャンバス寸法で管理されるため、不一致はテスト側の組み立てミス)。
         /// </summary>
-        private static void AttachIncludeMasks(
-            MaskSnapshot masks, List<(string zoneId, string path)> includes)
+        private static void AttachZoneMasks(
+            MaskSnapshot masks, List<(string zoneId, string path, bool include)> zoneMasks)
         {
-            if (includes == null || includes.Count == 0) return;
-            foreach (var (zoneId, path) in includes)
+            if (zoneMasks == null || zoneMasks.Count == 0) return;
+            foreach (var (zoneId, path, include) in zoneMasks)
             {
                 var (iw, ih, ibytes) = ReadRaw(path, 1);
                 if (iw != masks.width || ih != masks.height)
                     throw new InvalidOperationException(
-                        $"includeMask 寸法 {iw}x{ih} が mask.raw 寸法 {masks.width}x{masks.height} と不一致: {path}");
-                var inc = new bool[iw * ih];
-                for (int i = 0; i < inc.Length; i++) inc[i] = ibytes[i] != 0;
-                if (masks.zoneIncludes == null)
-                    masks.zoneIncludes = new Dictionary<string, ulong[]>();
-                masks.zoneIncludes[zoneId] = MaskSnapshot.Pack(inc);
+                        $"ゾーン別マスク寸法 {iw}x{ih} が mask.raw 寸法 {masks.width}x{masks.height} と不一致: {path}");
+                var arr = new bool[iw * ih];
+                for (int i = 0; i < arr.Length; i++) arr[i] = ibytes[i] != 0;
+                var dict = include
+                    ? (masks.zoneIncludes ??= new Dictionary<string, ulong[]>())
+                    : (masks.zones ??= new Dictionary<string, ulong[]>());
+                dict[zoneId] = MaskSnapshot.Pack(arr);
             }
         }
 
@@ -440,7 +574,7 @@ namespace Iroca
 
             foreach (var c in cfg.cases)
             {
-                var (zoneList, st, includes) = LoadZones(c.zones);
+                var (zoneList, st, zoneMasks) = LoadZones(c.zones);
                 var pixels = (Color32[])basePixels.Clone();
                 var masks = new MaskSnapshot
                 {
@@ -449,10 +583,53 @@ namespace Iroca
                     height = mh,
                     zones = null,
                 };
-                AttachIncludeMasks(masks, includes);
+                AttachZoneMasks(masks, zoneMasks);
                 ProcessZones(pixels, w, h, masks, zoneList, st);
                 WriteRawRgba(c.@out, w, h, pixels);
                 Console.WriteLine($"OK {w}x{h} -> {c.@out} (zones={zoneList.Count})");
+            }
+            return 0;
+        }
+
+        // ─── --session: 連続適用セッション(SelectionCache 持ち越し)の再現 ───
+        // 製品のプレビュー生成は毎回ソース画素から処理し直すが、SelectionCache を
+        // セッション内で持ち越す(PreviewView._selectionCache)。ここを再現し、
+        // 「各ステップの出力がフレッシュ単発実行と byte 一致するか」を Python 側テスト
+        // (test_session_state.py)が検証する。キーの取りこぼし=誤ヒットはここで露見する。
+        private static int RunSession(string sessionPath)
+        {
+            var cfg = JsonSerializer.Deserialize<SessionConfig>(
+                File.ReadAllText(sessionPath),
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            var (w, h, rgba) = ReadRaw(cfg.input, 4);
+            int len = w * h;
+            var basePixels = new Color32[len];
+            for (int i = 0; i < len; i++)
+                basePixels[i] = new Color32(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2], rgba[i * 4 + 3]);
+
+            var selCache = new SelectionCache();
+            var ids = new Dictionary<string, string>();
+            int step = 0;
+            foreach (var s in cfg.steps)
+            {
+                var (mw, mh, mbytes) = ReadRaw(s.mask, 1);
+                var common = new bool[mw * mh];
+                for (int i = 0; i < common.Length; i++) common[i] = mbytes[i] != 0;
+                var masks = new MaskSnapshot
+                {
+                    common = MaskSnapshot.Pack(common),
+                    width = mw,
+                    height = mh,
+                    zones = null,
+                };
+                var (zoneList, st, zoneMasks) = LoadZones(s.zones, ids);
+                AttachZoneMasks(masks, zoneMasks);
+                var pixels = (Color32[])basePixels.Clone();
+                ProcessZones(pixels, w, h, masks, zoneList, st, selCache);
+                WriteRawRgba(s.@out, w, h, pixels);
+                Console.WriteLine($"OK-SESSION step={step} {w}x{h} -> {s.@out} (zones={zoneList.Count})");
+                step++;
             }
             return 0;
         }
