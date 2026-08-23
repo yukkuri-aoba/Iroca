@@ -63,8 +63,9 @@ namespace Iroca
         // JsonUtility 用に public フィールドで定義する。
         // 既定値は ZonesJsonDefaults が唯一の正。ここにリテラルを書き戻さないこと
         // (Harness.ZoneCfg と乖離し、テストが製品でない挙動を測る事故になる)。
+        // internal: ReproDump(再現データ書き出し)が同一スキーマで zones.json を書くために共有する。
         [Serializable]
-        private class ZoneDto
+        internal class ZoneDto
         {
             public string name = ZonesJsonDefaults.Name;
             public float[] sample = ZonesJsonDefaults.NewSample();
@@ -92,7 +93,7 @@ namespace Iroca
         }
 
         [Serializable]
-        private class SettingsDto
+        internal class SettingsDto
         {
             public float edgeFeather = ZonesJsonDefaults.EdgeFeather;
             public int antiAliasCleanup = ZonesJsonDefaults.AntiAliasCleanup;
@@ -105,7 +106,7 @@ namespace Iroca
         }
 
         [Serializable]
-        private class ZonesRequest
+        internal class ZonesRequest
         {
             public List<ZoneDto> zones = new List<ZoneDto>();
             public SettingsDto settings = new SettingsDto();
