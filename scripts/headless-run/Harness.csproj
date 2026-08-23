@@ -41,6 +41,9 @@
     <Compile Include="..\..\Code\Core\HighlightSampleCorrector.cs" />
     <Compile Include="..\..\Code\Core\ColorZone*.cs" />
     <Compile Include="..\..\Code\Core\IrocaConsts.cs" />
+    <!-- プレビュー座標変換(スポイト/シード/ペイント/AI 提案クリックの単一の正)。
+         UI が壊れても処理系テストにかからないため previewcoords モードで直接検証する。 -->
+    <Compile Include="..\..\Code\Core\PreviewCoords.cs" />
     <!-- zones JSON スキーマ既定値の唯一の正。製品側 DTO(IrocaAutomation)と共有し、
          ハーネスだけ既定値がずれる事故(useFloodFill 製品 true / ハーネス false)を防ぐ。 -->
     <Compile Include="..\..\Code\Core\ZonesJsonDefaults.cs" />
