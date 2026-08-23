@@ -214,6 +214,37 @@ $env:VACC_AUTOTUNE_GATE_FULL = "1"
   `test_autotune_seeded`（Shift+クリック相当: 全被写体 precision ≥0.98 のハード契約）で、
   どちらも既定 ON（`VACC_AUTOTUNE_MASKED=0` / `VACC_AUTOTUNE_SEEDED=0` で opt-out）。
   過検出の議論はこの 2 つの数字で行う（2026-08-21 の 3 条件比較計測）。
+- **プロキシ段（操作中の表示）とフル確定段の表示一致ゲートは既定 ON**（2026-08-23〜）:
+  ユーザーが操作中に見るのは長辺 ProxyMaxSize(512) の縮小処理表示で、確定表示とは設計上
+  一致しない。`test_proxy_parity` が Harness `--stage proxy` / `--stage full-display`
+  （PreviewView.Async の段階的リファイン両段を同じ丸め `PixelProcessor.ComputeFitSize` で
+  再現し、表示解像度で出力）の乖離（選択 IoU・色差）を degradation-only で凍結する。
+  opt-out は `VACC_PROXY_PARITY=0`、再凍結は `python dev_safe/measure_proxy_parity.py
+  --baseline`（乖離を意図して受け入れる変更のときのみ。理由をコミットに残す）。
+- **連続適用セッションの状態持ち越し契約**（2026-08-23〜）: `test_session_state` が
+  Harness `--session`（SelectionCache をステップ間で持ち越し、ゾーンは name で同定）で
+  マスク塗り→設定変更→ゾーン追加の往復を再現し、各ステップ出力が新規単発実行と
+  byte 一致することを検証する（誤ヒット＝「前回の選択が残る」の機械検出）。
+- **AI 提案の E2E 品質ゲート**（2026-08-23〜）: `test_sam_e2e` が凍結ロジット + ONNX 推論
+  (onnxruntime) + 実 C# 純計算層で「クリック→提案マスク」の IoU / precision を
+  degradation-only で凍結する（`measure_sam_e2e.one_case` = 製品と同順・ズームイン再推論込み）。
+  既定は granularity auto × クリック p50 の 15 被写体、採否判断時は `VACC_SAM_E2E_FULL=1`
+  で p25/p95 も回す。ONNX モデル / 凍結ロジット不在は skip。再凍結は
+  `python dev_safe/scripts/measure_sam_e2e.py --grans auto`。
+- **プレビュー座標変換（スポイト/シード/ペイント/AI クリックの v 反転）**（2026-08-23〜）:
+  変換は `Code/Core/PreviewCoords.cs` が単一の正（UI でインライン再実装しない）。
+  `test_preview_coords` が Harness `--previewcoords` で実 C# を駆動し、独立リファレンスと
+  v 反転の向き（上端クリック→画素行 h-1）を固定する。UI 実行テストを持たない方針の中で、
+  「クリックと違う画素を拾う」だけは機械検出できるようにするための切り出し。
+- **現場の失敗→回帰ケースの取り込み口**（2026-08-23〜）: Unity メニュー
+  `Tools/いろか/再現データを書き出す...`（`Code/UI/ReproDump.cs`）が現在のセッション
+  （テクスチャ・有効ゾーン・マスク・設定・extraSamples）を 1 フォルダに書き出す。
+  それを `dev_safe/Tests/repro_cases/<名前>/` に置くと `test_repro_cases` が実 C# で
+  再現実行する（expected 未凍結の間は「調査中」skip、凍結後は byte 一致の恒久回帰）。
+  ワークフローの正は `dev_safe/Tests/repro_cases/README.md`。
+- Harness は未知の引数を拒否する（exit 2）。過去 `--matchDistance` がパーサ無しのまま
+  渡され続けた「死にノブ」事故の再発防止。フラグを増やすときは Harness.Main の検証
+  switch にも足すこと。
 
 ## skip と fail の区別（fixtures.require_harness）
 
