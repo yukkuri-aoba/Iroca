@@ -1177,6 +1177,21 @@ namespace Iroca
         }
 
         /// <summary>
+        /// 長辺を maxSize に収める等比縮小の寸法規約（単一の正）。長辺が maxSize 以下なら
+        /// scale=1（縮小なし）。表示寸法（Preview.MaxSize）・プロキシ寸法（Preview.ProxyMaxSize）・
+        /// headless ハーネスのプレビュー段検証が全てこの丸めを共有する
+        /// （呼び出し側が独自に丸めるとテストが製品と別の絵を測る）。
+        /// </summary>
+        public static void ComputeFitSize(int srcW, int srcH, int maxSize,
+            out int dstW, out int dstH, out float scale)
+        {
+            int srcLong = Mathf.Max(srcW, srcH);
+            scale = maxSize >= srcLong ? 1f : maxSize / (float)srcLong;
+            dstW = Mathf.Max(1, Mathf.RoundToInt(srcW * scale));
+            dstH = Mathf.Max(1, Mathf.RoundToInt(srcH * scale));
+        }
+
+        /// <summary>
         /// プレビュー表示用にダウンサンプルした Color32 配列を生成する。
         /// 各 dst 画素は対応する src ブロック内のピクセル平均色になる（box フィルタ）。
         /// </summary>

@@ -20,11 +20,9 @@ namespace Iroca
             int srcW = _trueSourceW;
             int srcH = _trueSourceH;
 
-            float scale = 1f;
-            if (srcW > IrocaConsts.Preview.MaxSize || srcH > IrocaConsts.Preview.MaxSize)
-                scale = IrocaConsts.Preview.MaxSize / (float)Mathf.Max(srcW, srcH);
-            int prevW = Mathf.Max(1, Mathf.RoundToInt(srcW * scale));
-            int prevH = Mathf.Max(1, Mathf.RoundToInt(srcH * scale));
+            // 表示寸法の丸めは ComputeFitSize が単一の正(ハーネスのプレビュー段検証と共有)。
+            PixelProcessor.ComputeFitSize(srcW, srcH, IrocaConsts.Preview.MaxSize,
+                out int prevW, out int prevH, out float scale);
 
             Color32[] srcPixels;
             // rawDisplay: 既に確定しているもの(キャッシュヒット or scale>=1 で src と同一)は非 null。
@@ -135,11 +133,9 @@ namespace Iroca
         // parityCache は公開しない(詳細プレビューはフル解像度の正確な統計を使い続ける)。
         private void ScheduleProxyPreview(PreviewRequest req)
         {
-            int srcLong = Mathf.Max(req.srcW, req.srcH);
-            float proxyScale = IrocaConsts.Preview.ProxyMaxSize >= srcLong
-                ? 1f : IrocaConsts.Preview.ProxyMaxSize / (float)srcLong;
-            int proxyW = Mathf.Max(1, Mathf.RoundToInt(req.srcW * proxyScale));
-            int proxyH = Mathf.Max(1, Mathf.RoundToInt(req.srcH * proxyScale));
+            // プロキシ寸法の丸めは ComputeFitSize が単一の正(ハーネスのプレビュー段検証と共有)。
+            PixelProcessor.ComputeFitSize(req.srcW, req.srcH, IrocaConsts.Preview.ProxyMaxSize,
+                out int proxyW, out int proxyH, out float proxyScale);
             var proxySelCache = _proxySelectionCache;
 
             _proxyJob.Schedule(

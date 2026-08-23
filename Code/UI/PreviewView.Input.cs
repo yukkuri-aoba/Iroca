@@ -245,13 +245,8 @@ namespace Iroca
                     // シード(任意の上書き=その塊だけ残す)は Shift+クリックでのみ設定する。
                     if (hasFloodFill && e.button == 0 && e.shift && isInRect && !e.control && !e.alt)
                     {
-                        float u = (e.mousePosition.x - previewRect.x) / previewRect.width;
-                        float v = 1f - (e.mousePosition.y - previewRect.y) / previewRect.height;
-                        u = Mathf.Clamp01(u);
-                        v = Mathf.Clamp01(v);
-
                         // 1 つ目の対象ゾーン更新の直前に Undo を登録する（記録されるのは更新前の seedUV）。
-                        var newSeed = new Vector2(u, v);
+                        var newSeed = PreviewCoords.ScreenToUv(e.mousePosition, previewRect);
                         bool changed = false;
                         var zone = zones[targetZoneIndex];
                         if (zone.seedUV != newSeed)
@@ -292,8 +287,8 @@ namespace Iroca
                 if (!z.enabled || z.mode != SelectionMode.ColorPick || !z.useFloodFill) continue;
                 if (z.seedUV.x < 0f) continue;
 
-                float sx = previewRect.x + z.seedUV.x * previewRect.width;
-                float sy = previewRect.y + (1f - z.seedUV.y) * previewRect.height;
+                var sp = PreviewCoords.UvToScreen(z.seedUV, previewRect);
+                float sx = sp.x, sy = sp.y;
 
                 const float armLen = 7f;
                 const float thickness = 2f;
@@ -319,9 +314,8 @@ namespace Iroca
                     // 素のクリックのみ受ける（修飾キー付きは別操作なので拾わない）。
                     if (e.button == 0 && isInRect && !e.shift && !e.control && !e.alt)
                     {
-                        float u = Mathf.Clamp01((e.mousePosition.x - previewRect.x) / previewRect.width);
-                        float v = Mathf.Clamp01(1f - (e.mousePosition.y - previewRect.y) / previewRect.height);
-                        if (SampleTrueSourceColor(u, v, srcW, srcH, out Color picked))
+                        var uv = PreviewCoords.ScreenToUv(e.mousePosition, previewRect);
+                        if (SampleTrueSourceColor(uv.x, uv.y, srcW, srcH, out Color picked))
                         {
                             // 武装ゾーンは id で解決する（並べ替え・削除で index がずれても正しいゾーンに入る）。
                             var zone = _host.FindZoneById(_host.EyedropperZoneId);
@@ -369,8 +363,7 @@ namespace Iroca
             color = Color.white;
             var px = _trueSourcePixels;
             if (px == null || srcW <= 0 || srcH <= 0 || px.Length < srcW * srcH) return false;
-            int x = Mathf.Clamp(Mathf.FloorToInt(u * srcW), 0, srcW - 1);
-            int y = Mathf.Clamp(Mathf.FloorToInt(v * srcH), 0, srcH - 1);
+            PreviewCoords.UvToPixel(u, v, srcW, srcH, out int x, out int y);
             Color32 c = px[y * srcW + x];
             // サンプルカラーはマッチング基準(HSV)に使い α は無関係。スウォッチを不透明にするため a=1。
             color = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
@@ -390,8 +383,8 @@ namespace Iroca
 
             for (int i = 0; i < clicks.Count; i++)
             {
-                float sx = previewRect.x + clicks[i].x * previewRect.width;
-                float sy = previewRect.y + (1f - clicks[i].y) * previewRect.height;
+                var sp = PreviewCoords.UvToScreen(clicks[i], previewRect);
+                float sx = sp.x, sy = sp.y;
                 float alpha = i == 0 ? 0.95f : 0.55f;
                 const float half = 4f;
                 // 明るい生地でも暗い生地でも沈まないよう、暗い縁取りの上に明色ドットを重ねる
@@ -481,13 +474,12 @@ namespace Iroca
         // 2 経路から呼ばれるため切り出してある。
         private void RequestAiSuggestAt(MaskSuggestController ctl, Vector2 screenPos, Rect previewRect)
         {
-            float u = Mathf.Clamp01((screenPos.x - previewRect.x) / previewRect.width);
-            float v = Mathf.Clamp01(1f - (screenPos.y - previewRect.y) / previewRect.height);
+            var uv = PreviewCoords.ScreenToUv(screenPos, previewRect);
             // エクスポートと同一の実フル解像度ソースで推論する(プレビュー縮小の影響を受けない)
             if (_trueSourcePixels == null)
                 EnsureTrueSource(_host.SourceTexture);
             if (_trueSourcePixels != null && _trueSourceW > 0)
-                ctl.OnPreviewClick(u, v, _trueSourcePixels, _trueSourceW, _trueSourceH,
+                ctl.OnPreviewClick(uv.x, uv.y, _trueSourcePixels, _trueSourceW, _trueSourceH,
                                    TrueSourceCacheKey());
         }
 
@@ -508,12 +500,7 @@ namespace Iroca
             // ストローク開始時に1度だけ Unity Undo を登録する。
             maskView.BeginStroke();
 
-            float u = (screenPos.x - previewRect.x) / previewRect.width;
-            float v = 1f - (screenPos.y - previewRect.y) / previewRect.height;
-            u = Mathf.Clamp01(u);
-            v = Mathf.Clamp01(v);
-
-            var currentUV = new Vector2(u, v);
+            var currentUV = PreviewCoords.ScreenToUv(screenPos, previewRect);
 
             // 塗り格子 = 表示プレビューの画素格子。オーバーレイ/プロキシ処理が最近傍で
             // 代表点を読む単位と一致させるため、previewTexture の実寸を渡す(WYSIWYG)。
