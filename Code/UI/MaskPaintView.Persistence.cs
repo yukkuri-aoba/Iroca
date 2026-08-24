@@ -289,6 +289,7 @@ namespace Iroca
             lastPaintUV = -Vector2.one;
             TextureSlot.Release(ref maskOverlayTexture);
             TextureSlot.Release(ref zoneMaskOverlayTexture);
+            overlayBuiltW = overlayBuiltH = 0;
             maskDirty = true;
         }
 

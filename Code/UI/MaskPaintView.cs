@@ -42,6 +42,11 @@ namespace Iroca
         [System.NonSerialized] public Texture2D zoneMaskOverlayTexture;
         [System.NonSerialized] public bool maskDirty = true;
 
+        // 直近に構築を開始したオーバーレイの寸法(スケジュール時に更新)。テクスチャ実寸では
+        // なくこれと比べて再構築要否を判断する: マスクが空だとテクスチャは解放されるので
+        // 実寸比較では毎フレーム不一致になり、適用前に比べると完了までスケジュールし直し続ける。
+        [System.NonSerialized] public int overlayBuiltW, overlayBuiltH;
+
         // ペイント中のオーバーレイ直接書き込み管理。
         // _overlayDirectPendingApply: SetPixels32 済みで Apply 待ち(ドラッグイベント単位でまとめる)。
         // _strokeHadDirectOverlayWrite: このストロークで直接書き込みに成功したか。成功後は
@@ -54,6 +59,18 @@ namespace Iroca
         // 含めるマスクのオーバーレイ色。ゾーンに依らず固定の緑(「緑 = 含める」を一意にする。
         // 除外側のゾーン色は黄金比生成で緑近傍も出るため、彩度と明度で差を付けている)。
         private static readonly Color32 IncludedOverlayColor = new Color32(50, 230, 110, 100);
+
+        // マスクオーバーレイテクスチャの一辺の上限(px)。オーバーレイは「マスクに入っているか /
+        // いないか」の二値表示なので、拡大時に GPU 補間でぼかすのは表示として不正確
+        // (2026-08-24 のユーザー指摘)。Point 補間でくっきり出すには、オーバーレイ自体が拡大
+        // 表示に耐える解像度を持っている必要がある(プレビュー寸法固定のままだと 1 テクセル =
+        // マスク 10px 級の粗いブロックになり、判定は正しいのにマスクがはみ出して見える。
+        // 2570c32 がぼかしで隠していた症状)。表示倍率に応じてプレビュー寸法の整数倍へ
+        // 引き上げ、ここで頭打ちにする(<see cref="OverlayScale"/>)。
+        // 2048 は 4K マスクで 1 テクセル ≒ 2px、2K マスクではほぼ画素一致になり、RGBA32 で
+        // 15MB/枚(共通・ゾーンの最大 2 枚)と、ゾーン別選択キャッシュ(4K で 67MB/ゾーン)に
+        // 対して十分小さい。表示専用なので再着色出力には関与しない。
+        private const int OverlayMaxSize = 2048;
 
         // 編集対象でないマスクのオーバーレイに掛けるアルファ係数。適用中のマスクは
         // すべて表示した上で(「見えないのに効いているマスク」を作らない)、どれを
@@ -664,8 +681,12 @@ namespace Iroca
             // 同時に対応セルを更新して即時フィードバックする(非同期再構築のスロットル待ちと
             // フル解像度 bool[] clone をストローク中に発生させない)。使えないとき
             // (未生成・寸法違い)は従来どおり maskDirty を立てて非同期再構築に任せる。
+            // オーバーレイは塗り格子の整数倍(OverlayScale)の解像度を持つ。1 セル = k×k
+            // テクセルの一様ブロックなので、直接書き込みは k 倍したブロック矩形で行える。
             var overlayTex = ActiveOverlayTexture(out Color32 overlayColor);
-            bool direct = overlayTex != null && overlayTex.width == gridW && overlayTex.height == gridH;
+            int ovScale = overlayTex != null ? overlayTex.width / gridW : 0;
+            bool direct = overlayTex != null && ovScale >= 1
+                && overlayTex.width == gridW * ovScale && overlayTex.height == gridH * ovScale;
 
             // 円ブラシをセル行ごとの span で決め、対応するマスクブロック矩形を塗る。
             // 各行の最大 dx は floor(sqrt(r²-dy²))。Mathf.Sqrt の丸めで境界セルを
@@ -701,13 +722,13 @@ namespace Iroca
 
                 if (direct)
                 {
-                    // オーバーレイの 1 画素 = 1 セル。SetPixels32 の y は行 0 = 下端で、
+                    // オーバーレイの 1 セル = k×k テクセル。SetPixels32 の y は行 0 = 下端で、
                     // gy(v 上向き)とそのまま一致する。消去は default(0,0,0,0) = 透明。
-                    int spanW = gxHi - gxLo + 1;
-                    var row = new Color32[spanW];
+                    int spanW = (gxHi - gxLo + 1) * ovScale;
+                    var block = new Color32[spanW * ovScale];
                     if (value)
-                        for (int k = 0; k < spanW; k++) row[k] = overlayColor;
-                    overlayTex.SetPixels32(gxLo, gy, spanW, 1, row);
+                        for (int k = 0; k < block.Length; k++) block[k] = overlayColor;
+                    overlayTex.SetPixels32(gxLo * ovScale, gy * ovScale, spanW, ovScale, block);
                 }
             }
 
@@ -720,6 +741,45 @@ namespace Iroca
             {
                 maskDirty = true;
             }
+        }
+
+        /// <summary>
+        /// オーバーレイ解像度の倍率 k(オーバーレイ寸法 = プレビュー寸法 × k)。
+        ///
+        /// オーバーレイは二値マスクの表示なので、拡大時は Point 補間でくっきり出す。そのため
+        /// には、表示倍率ぶんの解像度をオーバーレイ自身が持っていなければ「1 テクセル = マスク
+        /// 10px 級の粗いブロック」になり、判定が正しくてもマスクがはみ出して見える。
+        ///
+        /// k は次の 3 つで頭打ちにする:
+        ///   - 表示倍率(floor)。zoom 未満に切り捨てるので画面上は常に等倍以上の拡大になり、
+        ///     Point 補間で間引き(縮小エイリアス)が起きない。
+        ///   - マスク解像度。マスクより細かくしても情報が増えない。
+        ///   - OverlayMaxSize。メモリと SetPixels32/Apply のコストの上限。
+        /// k=1 は従来と同一寸法で、ブロック整列ペイントの直接書き込みもそのまま効く。
+        /// </summary>
+        public int OverlayScale(int prevW, int prevH, float previewZoom)
+        {
+            if (prevW <= 0 || prevH <= 0 || maskWidth <= 0 || maskHeight <= 0) return 1;
+            int byMask = Mathf.Max(1, Mathf.Min(maskWidth / prevW, maskHeight / prevH));
+            int byCap = Mathf.Max(1, OverlayMaxSize / Mathf.Max(prevW, prevH));
+            int byZoom = Mathf.Max(1, Mathf.FloorToInt(previewZoom));
+            return Mathf.Min(byZoom, Mathf.Min(byMask, byCap));
+        }
+
+        /// <summary>
+        /// オーバーレイの補間を表示倍率に合わせる。等倍以上(拡大)では Point:
+        /// マスクは「入っている / いない」の二値なので、中間アルファを作る補間は表示として
+        /// 不正確になる(2026-08-24 のユーザー指摘)。縮小表示では Point だとテクセルの間引きで
+        /// 細いマスクがちらつく/消えるため Bilinear に戻す(縮小なのでぼけは見えない)。
+        /// 倍率は再構築を伴わずに変わり得るので、描画側から毎フレーム呼んで追従させる。
+        /// </summary>
+        public void SyncOverlayFilter(float previewZoom)
+        {
+            var want = previewZoom >= 1f ? FilterMode.Point : FilterMode.Bilinear;
+            if (maskOverlayTexture != null && maskOverlayTexture.filterMode != want)
+                maskOverlayTexture.filterMode = want;
+            if (zoneMaskOverlayTexture != null && zoneMaskOverlayTexture.filterMode != want)
+                zoneMaskOverlayTexture.filterMode = want;
         }
 
         /// <summary>
@@ -789,6 +849,12 @@ namespace Iroca
         public void RebuildMaskOverlay(int width, int height)
         {
             if (width <= 0 || height <= 0) return;
+
+            // 「構築済み寸法」は適用時ではなくスケジュール時に更新する。適用まで不一致の
+            // ままにすると、寸法変更で再構築を促す側(PreviewView)が毎フレーム再スケジュール
+            // してジョブを Cancel し続け、オーバーレイが永久に完成しない。
+            overlayBuiltW = width;
+            overlayBuiltH = height;
 
             int capW = width;
             int capH = height;
@@ -893,15 +959,24 @@ namespace Iroca
             bool[] mask, Color32 color, Color32[] accumulate, int w, int h, int mw, int mh)
         {
             var pixels = accumulate ?? new Color32[w * h];
+            // 列のマスク範囲は行に依らないので前計算する(オーバーレイは表示倍率に応じて
+            // OverlayMaxSize² まで大きくなるため、画素あたりの整数除算が効いてくる)。
+            var cx0 = new int[w];
+            var cx1 = new int[w];
+            for (int x = 0; x < w; x++)
+            {
+                cx0[x] = Mathf.Clamp((int)((long)x * mw / w), 0, mw - 1);
+                cx1[x] = Mathf.Clamp((int)((long)(x + 1) * mw / w), cx0[x] + 1, mw);
+            }
             for (int y = 0; y < h; y++)
             {
-                int my0 = Mathf.Clamp(y * mh / h, 0, mh - 1);
-                int my1 = Mathf.Clamp((y + 1) * mh / h, my0 + 1, mh);
+                int my0 = Mathf.Clamp((int)((long)y * mh / h), 0, mh - 1);
+                int my1 = Mathf.Clamp((int)((long)(y + 1) * mh / h), my0 + 1, mh);
                 int rowBase = y * w;
                 for (int x = 0; x < w; x++)
                 {
-                    int mx0 = Mathf.Clamp(x * mw / w, 0, mw - 1);
-                    int mx1 = Mathf.Clamp((x + 1) * mw / w, mx0 + 1, mw);
+                    int mx0 = cx0[x];
+                    int mx1 = cx1[x];
                     int count = 0;
                     for (int my = my0; my < my1; my++)
                     {
@@ -942,10 +1017,11 @@ namespace Iroca
 
             if (r.hasCommon)
             {
-                // Bilinear: プレビュー本体テクスチャ(previewTexture)と同じ補間で拡大表示する。
-                // Point だと拡大時にオーバーレイだけ格子状にカクつき、実際は正しい判定でも
-                // マスクがはみ出しているように見えてしまう。
-                TextureSlot.Resize(ref maskOverlayTexture, r.width, r.height, FilterMode.Bilinear);
+                // Point: マスクは「入っている / いない」の二値なので、拡大時に中間アルファを
+                // 作る補間は表示として不正確(2026-08-24 のユーザー指摘)。粗いブロックに
+                // 見えないよう、オーバーレイ側の解像度を表示倍率に合わせて上げてある
+                // (OverlayScale)。縮小表示のときだけ SyncOverlayFilter が Bilinear へ戻す。
+                TextureSlot.Resize(ref maskOverlayTexture, r.width, r.height, FilterMode.Point);
                 maskOverlayTexture.SetPixels32(r.commonPixels);
                 maskOverlayTexture.Apply();
             }
@@ -956,7 +1032,7 @@ namespace Iroca
 
             if (r.hasZone)
             {
-                TextureSlot.Resize(ref zoneMaskOverlayTexture, r.width, r.height, FilterMode.Bilinear);
+                TextureSlot.Resize(ref zoneMaskOverlayTexture, r.width, r.height, FilterMode.Point);
                 zoneMaskOverlayTexture.SetPixels32(r.zonePixels);
                 zoneMaskOverlayTexture.Apply();
             }

@@ -257,13 +257,13 @@ namespace Iroca
             ScheduleDiffTexture(raw, processed, w, h);
 
             var maskView = _host._maskView;
-            if (maskView.maskOverlayTexture == null
-                || maskView.maskOverlayTexture.width != w
-                || maskView.maskOverlayTexture.height != h
-                || maskView.maskDirty)
+            // オーバーレイ寸法はプレビュー寸法の整数倍(表示倍率に追従。OverlayScale が正)。
+            int ovScale = maskView.OverlayScale(w, h, previewZoom);
+            int ovW = w * ovScale, ovH = h * ovScale;
+            if (maskView.overlayBuiltW != ovW || maskView.overlayBuiltH != ovH || maskView.maskDirty)
             {
                 // 非同期スケジュール：結果は次フレームの Draw 冒頭で ApplyPendingOverlay により反映
-                maskView.RebuildMaskOverlay(w, h);
+                maskView.RebuildMaskOverlay(ovW, ovH);
                 maskView.maskDirty = false;
             }
 

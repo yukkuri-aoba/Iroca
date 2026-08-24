@@ -422,19 +422,32 @@ namespace Iroca
             // GC 圧と CPU 浪費だけが積み上がってジョブが完了しない。
             // ペイント中だけは PaintOverlayThrottleSeconds 間隔に絞り、
             // 進行中のジョブが Apply まで届くようにする。
-            if (maskView.maskDirty && previewTexture != null)
+            // オーバーレイの目標寸法。表示倍率が上がると Point 補間でも粗く見えないよう
+            // プレビュー寸法の整数倍へ引き上げる(MaskPaintView.OverlayScale が正)。倍率変更でも
+            // 目標が変わるため、maskDirty と同じ経路で再構築する。実寸ではなく最後に構築した
+            // 寸法(overlayBuilt*)と比べるのは、マスクが空でテクスチャが無いときに毎フレーム
+            // 再構築を撃たないため。
+            if (previewTexture != null)
             {
-                bool throttle = maskView.isPainting &&
-                    (EditorApplication.timeSinceStartup - maskView.lastOverlayRebuildTime)
-                        < PaintOverlayThrottleSeconds;
-                if (!throttle)
+                int ovScale = maskView.OverlayScale(previewTexture.width, previewTexture.height, previewZoom);
+                int ovW = previewTexture.width * ovScale;
+                int ovH = previewTexture.height * ovScale;
+                bool sizeStale = maskView.overlayBuiltW != ovW || maskView.overlayBuiltH != ovH;
+                if (maskView.maskDirty || sizeStale)
                 {
-                    maskView.lastOverlayRebuildTime = EditorApplication.timeSinceStartup;
-                    maskView.RebuildMaskOverlay(previewTexture.width, previewTexture.height);
-                    maskView.maskDirty = false;
+                    bool throttle = maskView.isPainting &&
+                        (EditorApplication.timeSinceStartup - maskView.lastOverlayRebuildTime)
+                            < PaintOverlayThrottleSeconds;
+                    if (!throttle)
+                    {
+                        maskView.lastOverlayRebuildTime = EditorApplication.timeSinceStartup;
+                        maskView.RebuildMaskOverlay(ovW, ovH);
+                        maskView.maskDirty = false;
+                    }
+                    // throttle 時は maskDirty を残し、次フレームで再評価する。
+                    // ペイント中は MouseDrag が継続的に Repaint を呼ぶので追加の RequestRepaint は不要。
                 }
-                // throttle 時は maskDirty を残し、次フレームで再評価する。
-                // ペイント中は MouseDrag が継続的に Repaint を呼ぶので追加の RequestRepaint は不要。
+                maskView.SyncOverlayFilter(previewZoom);
             }
 
             // 「生成中…」インジケータの文言。プレビュー確立後は下の操作行（比較/差分・
