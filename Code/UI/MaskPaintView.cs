@@ -55,6 +55,17 @@ namespace Iroca
         // 除外側のゾーン色は黄金比生成で緑近傍も出るため、彩度と明度で差を付けている)。
         private static readonly Color32 IncludedOverlayColor = new Color32(50, 230, 110, 100);
 
+        // 編集対象でないマスクのオーバーレイに掛けるアルファ係数。適用中のマスクは
+        // すべて表示した上で(「見えないのに効いているマスク」を作らない)、どれを
+        // 編集中かは明暗差で示す。0.4 は存在が見えて、かつ編集対象と取り違えない値。
+        private const float InactiveOverlayAlphaScale = 0.4f;
+
+        private static Color32 DimOverlayColor(Color32 c)
+        {
+            c.a = (byte)Mathf.Max(1, Mathf.RoundToInt(c.a * InactiveOverlayAlphaScale));
+            return c;
+        }
+
         [System.NonSerialized] public bool isPainting;
         [System.NonSerialized] public Vector2 lastPaintUV = -Vector2.one;
         // ペイント中の RebuildMaskOverlay 間引き用タイムスタンプ（PreviewView から参照）。
@@ -784,33 +795,58 @@ namespace Iroca
             int capMw = maskWidth;
             int capMh = maskHeight;
 
-            // 編集対象のマスクだけをオーバーレイ表示する。
-            // 全ゾーンのマスクを重ねて出すと、重なり順で「最後のゾーン」が見え続け、
-            // どのマスクを編集しているのか分からなくなるため、対象を切り替えたら表示も切り替える。
+            // 適用中のマスクはすべて表示する(共通の除外=赤 / ゾーン別の除外=ゾーン色 /
+            // 含める=緑)。編集対象×種類の 1 枚だけを出す旧仕様は「表示されていないのに
+            // 効いている」マスクを生み、対象や種類を切り替えた直後・プリセット読込
+            // (編集対象が共通へ戻る)直後に、原因の見えない除外・変換漏れに見えていた
+            // (2026-08-24 のユーザー報告)。どれを編集中かは明暗差で示す: 編集対象は
+            // 従来アルファ、他は減光(InactiveOverlayAlphaScale)。編集対象は最後に
+            // 描いて最前面にする(RenderMaskCoverage は上書き合成のため)。
             var zones = _host.Session.zones;
             bool commonIsActive = activeMaskTarget < 0
                 || zones == null || activeMaskTarget >= zones.Count;
 
-            bool[] commonSnap = (commonIsActive && exclusionMask != null)
-                ? (bool[])exclusionMask.Clone() : null;
+            bool[] commonSnap = null;
+            Color32 commonColor = ExcludedOverlayColor;
+            if (exclusionMask != null && capMw > 0 && capMh > 0)
+            {
+                commonSnap = (bool[])exclusionMask.Clone();
+                if (!commonIsActive) commonColor = DimOverlayColor(ExcludedOverlayColor);
+            }
 
             var zoneInfos = new List<(Color32 color, bool[] mask)>();
-            if (!commonIsActive && capMw > 0 && capMh > 0)
+            if (zones != null && capMw > 0 && capMh > 0)
             {
-                var zone = zones[activeMaskTarget];
-                if (zone != null && !string.IsNullOrEmpty(zone.id))
+                (Color32 color, bool[] mask)? editingEntry = null;
+                for (int i = 0; i < zones.Count; i++)
                 {
-                    // 編集中レイヤーのマスクだけを表示する(除外=ゾーン色 / 含める=緑)。
-                    var dict = editIncludeLayer ? zoneIncludeMasks : zoneMasks;
-                    var color = editIncludeLayer
-                        ? IncludedOverlayColor : OverlayColorForZone(activeMaskTarget);
-                    if (dict.TryGetValue(zone.id, out var zm) && zm != null)
-                        zoneInfos.Add((color, (bool[])zm.Clone()));
+                    var zone = zones[i];
+                    if (zone == null || string.IsNullOrEmpty(zone.id)) continue;
+                    bool zoneIsTarget = i == activeMaskTarget;
+
+                    if (zoneMasks.TryGetValue(zone.id, out var ex) && ex != null)
+                    {
+                        bool isEditing = zoneIsTarget && !editIncludeLayer;
+                        var color = OverlayColorForZone(i);
+                        var entry = (isEditing ? color : DimOverlayColor(color), (bool[])ex.Clone());
+                        if (isEditing) editingEntry = entry;
+                        else zoneInfos.Add(entry);
+                    }
+                    if (zoneIncludeMasks.TryGetValue(zone.id, out var inc) && inc != null)
+                    {
+                        bool isEditing = zoneIsTarget && editIncludeLayer;
+                        var entry = (isEditing ? IncludedOverlayColor
+                                               : DimOverlayColor(IncludedOverlayColor),
+                                     (bool[])inc.Clone());
+                        if (isEditing) editingEntry = entry;
+                        else zoneInfos.Add(entry);
+                    }
                 }
+                if (editingEntry.HasValue) zoneInfos.Add(editingEntry.Value);
             }
 
             _overlayJob.Schedule(
-                work: token => ComputeOverlayPixels(commonSnap, zoneInfos, capW, capH, capMw, capMh, token),
+                work: token => ComputeOverlayPixels(commonSnap, commonColor, zoneInfos, capW, capH, capMw, capMh, token),
                 apply: result =>
                 {
                     _pendingOverlayResult = result;
@@ -819,7 +855,7 @@ namespace Iroca
         }
 
         private static OverlayResult ComputeOverlayPixels(
-            bool[] common, List<(Color32 color, bool[] mask)> zoneInfos,
+            bool[] common, Color32 commonColor, List<(Color32 color, bool[] mask)> zoneInfos,
             int w, int h, int mw, int mh, CancellationToken token)
         {
             var result = new OverlayResult { width = w, height = h };
@@ -827,7 +863,7 @@ namespace Iroca
             if (common != null && mw > 0 && mh > 0)
             {
                 result.hasCommon = true;
-                result.commonPixels = RenderMaskCoverage(common, ExcludedOverlayColor, null, w, h, mw, mh);
+                result.commonPixels = RenderMaskCoverage(common, commonColor, null, w, h, mw, mh);
                 token.ThrowIfCancellationRequested();
             }
 
