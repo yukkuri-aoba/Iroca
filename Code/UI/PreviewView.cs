@@ -739,8 +739,11 @@ namespace Iroca
             bool eyedropperArmed = !string.IsNullOrEmpty(_host.EyedropperZoneId) && !maskView.maskPaintActive;
 
             // AI マスク提案モード(ブラシペイントと排他・スポイトは one-shot なので優先)。
-            bool aiSuggestArmed = maskView.maskFoldout && !maskView.maskPaintActive
-                && maskView.AiSuggestArmed;
+            // メインのマスク foldout の開閉には連動させない(ブラシの「閉じても塗れる」と
+            // 同じ方針)。ツールの ON/OFF と終了導線はマスク編集ウィンドウ側にあり、foldout に
+            // 連動させると、欄を畳んだだけで「AI 提案が選ばれているのに右クリックが効かない」
+            // 状態が黙って生まれる(モードの解除はウィンドウを閉じる操作が担う)。
+            bool aiSuggestArmed = !maskView.maskPaintActive && maskView.AiSuggestArmed;
 
             // スポイト武装中はプレビュークリックを横取りして実画素からサンプル取得に充てる
             // （シード設定・パンより優先。取得すると one-shot で自動解除）。
