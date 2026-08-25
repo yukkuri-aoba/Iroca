@@ -90,6 +90,11 @@ namespace Iroca
             // 基準色で選択・再着色されるようにするため）。詳細は ZoneAutoTuner.Normalize.cs。
             public Color normalizedSample;
             public bool  hasNormalizedSample;
+
+            // 証拠つき導出(AnalyzeWithEvidence)の診断文字列。null=従来経路。
+            // ハーネス/テストが導出の内訳(ツヤ画素数・tolerance の合成内訳等)を観測するためだけの
+            // フィールドで、製品 UI は使わない。
+            public string evidenceDiag;
         }
 
         /// <summary>
