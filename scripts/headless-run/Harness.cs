@@ -83,6 +83,12 @@ namespace Iroca
         // 載らない。再現ケース(repro_cases)とテストが MaskSnapshot.zones(ゾーン別除外)経路を
         // 駆動するための入力。
         public string excludeMask { get; set; } = null;
+        // 自動調整の証拠マスク(raw ファイルパス、形式は includeMask と同じ。1=このゾーンの素材)。
+        // ★ハーネス専用フィールド★ — 製品では AI マスク提案のセグメントが UI 経由で
+        // ZoneAutoTuner.AnalyzeWithEvidence へ渡る想定で、zones JSON には載らない。
+        // --autotune のときだけ解釈され、証拠つき導出(セグメント教師)を駆動する。
+        // 通常実行(選択・再着色)には一切影響しない。
+        public string evidenceMask { get; set; } = null;
     }
 
     internal sealed class SettingsCfg
@@ -310,10 +316,11 @@ namespace Iroca
 
             List<ColorZone> zoneList;
             SettingsCfg st;
+            List<string> evidencePaths = null;
             if (zonesPath != null)
             {
                 List<(string zoneId, string path, bool include)> zoneMasks;
-                (zoneList, st, zoneMasks) = LoadZones(zonesPath);
+                (zoneList, st, zoneMasks, evidencePaths) = LoadZones(zonesPath);
                 AttachZoneMasks(masks, zoneMasks);
             }
             else
@@ -344,11 +351,29 @@ namespace Iroca
                 for (int k = 0; k < common.Length; k++) if (common[k]) exCount++;
                 bool useMask = exCount > 0 && exCount < common.Length;
                 var session = IrocaSessionState.CreateDefault();
-                foreach (var z in zoneList)
+                for (int zi = 0; zi < zoneList.Count; zi++)
                 {
-                    var tune = useMask
-                        ? ZoneAutoTuner.Analyze(pixels, w, h, z, session, common, mw, mh)
-                        : ZoneAutoTuner.Analyze(pixels, w, h, z, session, excluded: null, maskW: 0, maskH: 0);
+                    var z = zoneList[zi];
+                    // 証拠マスク(zones JSON の evidenceMask)があれば証拠つき導出(セグメント教師)。
+                    bool[] evidence = null;
+                    int evW = 0, evH = 0;
+                    string evPath = (evidencePaths != null && zi < evidencePaths.Count)
+                        ? evidencePaths[zi] : null;
+                    if (!string.IsNullOrEmpty(evPath))
+                    {
+                        var (iw, ih, ibytes) = ReadRaw(evPath, 1);
+                        evidence = new bool[iw * ih];
+                        for (int i = 0; i < evidence.Length; i++) evidence[i] = ibytes[i] != 0;
+                        evW = iw; evH = ih;
+                    }
+                    var tune = evidence != null
+                        ? ZoneAutoTuner.AnalyzeWithEvidence(pixels, w, h, z, session,
+                            evidence, evW, evH,
+                            excluded: useMask ? common : null,
+                            maskW: useMask ? mw : 0, maskH: useMask ? mh : 0)
+                        : useMask
+                            ? ZoneAutoTuner.Analyze(pixels, w, h, z, session, common, mw, mh)
+                            : ZoneAutoTuner.Analyze(pixels, w, h, z, session, excluded: null, maskW: 0, maskH: 0);
                     // スポイト位置の正規化（実機 RunAutoTune の apply と同じ順序で適用する）。
                     if (tune.hasNormalizedSample) z.sampleColor = tune.normalizedSample;
                     z.tolerance               = tune.tolerance;
@@ -388,6 +413,9 @@ namespace Iroca
                         autoSamples = z.extraSamples.Count,
                         // スポイト位置の正規化が効いたか（true のとき sample は代表地色へ差し替わっている）。
                         normalized = tune.hasNormalizedSample,
+                        // 証拠つき導出(セグメント教師)が使われたか。診断は evidenceDiag(null=従来)。
+                        evidence = evidence != null,
+                        evidenceDiag = tune.evidenceDiag,
                         sample = new[] { z.sampleColor.r, z.sampleColor.g, z.sampleColor.b },
                         // 診断用: 自動トーン抽出の実色。アブレーション計測(--autotune なしで
                         // 同一パラメータを再現する)に必要。
@@ -499,7 +527,8 @@ namespace Iroca
         // SelectionCache の持ち越しはゾーン id 単位なので、これが無いと毎ステップ全ミスになり
         // ヒット経路を検証できない)。null(単発/--batch)なら従来どおり毎回新規 id。
         private static (List<ColorZone> zones, SettingsCfg settings,
-                        List<(string zoneId, string path, bool include)> zoneMasks) LoadZones(
+                        List<(string zoneId, string path, bool include)> zoneMasks,
+                        List<string> evidencePaths) LoadZones(
             string path, Dictionary<string, string> persistentIds = null)
         {
             var cfg = JsonSerializer.Deserialize<ZonesConfig>(
@@ -507,6 +536,8 @@ namespace Iroca
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
             var list = new List<ColorZone>();
             var zoneMasks = new List<(string zoneId, string path, bool include)>();
+            // 証拠マスク(--autotune 専用入力)はゾーンと同じ並びで返す(未指定は null)。
+            var evidencePaths = new List<string>();
             foreach (var z in cfg.zones)
             {
                 var zone = BuildZone(z);
@@ -518,6 +549,7 @@ namespace Iroca
                         persistentIds[zone.name] = zone.id;
                 }
                 list.Add(zone);
+                evidencePaths.Add(z.evidenceMask);
                 // ゾーン別マスクは MaskSnapshot 側(zone.id キー)に載るため、確定済み id と
                 // ファイルパスの対応をここで確定させる。
                 if (!string.IsNullOrEmpty(z.includeMask))
@@ -525,7 +557,7 @@ namespace Iroca
                 if (!string.IsNullOrEmpty(z.excludeMask))
                     zoneMasks.Add((zone.id, z.excludeMask, false));
             }
-            return (list, cfg.settings ?? new SettingsCfg(), zoneMasks);
+            return (list, cfg.settings ?? new SettingsCfg(), zoneMasks, evidencePaths);
         }
 
         /// <summary>
@@ -574,7 +606,7 @@ namespace Iroca
 
             foreach (var c in cfg.cases)
             {
-                var (zoneList, st, zoneMasks) = LoadZones(c.zones);
+                var (zoneList, st, zoneMasks, _) = LoadZones(c.zones);
                 var pixels = (Color32[])basePixels.Clone();
                 var masks = new MaskSnapshot
                 {
@@ -623,7 +655,7 @@ namespace Iroca
                     height = mh,
                     zones = null,
                 };
-                var (zoneList, st, zoneMasks) = LoadZones(s.zones, ids);
+                var (zoneList, st, zoneMasks, _) = LoadZones(s.zones, ids);
                 AttachZoneMasks(masks, zoneMasks);
                 var pixels = (Color32[])basePixels.Clone();
                 ProcessZones(pixels, w, h, masks, zoneList, st, selCache);

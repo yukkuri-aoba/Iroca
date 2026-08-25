@@ -231,6 +231,16 @@ $env:VACC_AUTOTUNE_GATE_FULL = "1"
   既定は granularity auto × クリック p50 の 15 被写体、採否判断時は `VACC_SAM_E2E_FULL=1`
   で p25/p95 も回す。ONNX モデル / 凍結ロジット不在は skip。再凍結は
   `python dev_safe/scripts/measure_sam_e2e.py --grans auto`。
+- **証拠つき自動調整（セグメント教師）の契約ゲート**（2026-08-25〜）:
+  `ZoneAutoTuner.AnalyzeWithEvidence` は AI 提案のセグメントを「その場の正解データ」にして、
+  従来導出の当て推量だった 3 点（地色の正規化母集団・未被覆トーンの補完・ハイライト補助の
+  発火）だけを補う経路。ハーネスは zones JSON の `evidenceMask`（raw、ハーネス専用）で駆動する。
+  `test_autotune_evidence` が `measure_evidence_autotune.run_case`（従来 `--autotune` と
+  同一クリックの SAM 提案を証拠にした `--autotune` の A/B）を driver に、採用時の勝ち筋
+  （gold の残存島 0 / tops 明部クリック / skirt precision / eye 反射 / 汚染セグメントの
+  フォールバック）と「従来を下回らない」を契約にする。既定は 5 ケース、
+  `VACC_AUTOTUNE_EVIDENCE_FULL=1` で 14 被写体 × 3 位置の非退行。凍結埋め込み不在は skip。
+  全 A/B 表は `python dev_safe/scripts/measure_evidence_autotune.py --clicks p25 p50 p95`。
 - **プレビュー座標変換（スポイト/シード/ペイント/AI クリックの v 反転）**（2026-08-23〜）:
   変換は `Code/Core/PreviewCoords.cs` が単一の正（UI でインライン再実装しない）。
   `test_preview_coords` が Harness `--previewcoords` で実 C# を駆動し、独立リファレンスと
