@@ -146,6 +146,9 @@ namespace Iroca
         private void OnDisable()
         {
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
+            // 証拠待ちの自動調整は EditorApplication.update に張っているので、ドメインリロード・
+            // ウィンドウ無効化で残さない（届いた提案はコントローラが捨てる）。
+            CancelEvidenceWait();
             _previewView?.Suspend();
             _maskView?.SuspendTransientState();
             SavePersistedSessionForCurrentTexture();
@@ -163,6 +166,12 @@ namespace Iroca
                 // 保留中の AI 提案は Undo 前の状態に対する提案なので重ねない
                 _maskView.SuggestControllerIfCreated?.OnUndoRedoPerformed();
             }
+            // スポイト位置（自動調整が AI 提案の証拠を取る位置）は Undo 対象外なので、
+            // 書き戻された sampleColor と食い違わないよう全ゾーンで無効化する
+            // （次のスポイトで付き直す。無効なら自動調整は従来導出になるだけ）。
+            if (_session?.zones != null)
+                foreach (var z in _session.zones)
+                    if (z != null) z.sampleUV = new Vector2(-1f, -1f);
             // ズーム倍率・スクロール位置は「今どこを見ているか」であって編集内容ではない。
             // Undo の書き戻しで一緒に巻き戻るため、直前の視点へ戻して見ている箇所を保つ。
             _previewView?.RestoreViewStateAfterUndo(this);
@@ -217,6 +226,7 @@ namespace Iroca
             // 以降の apply / onError も _disposed フラグで抑止する。
             _previewView?.Dispose();
             _exportView?.Dispose();
+            CancelEvidenceWait();
             _autoTuneJob?.Dispose();
             SavePersistedSessionForCurrentTexture();
             RememberLastEditedTexture();

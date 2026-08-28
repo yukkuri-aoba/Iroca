@@ -180,6 +180,14 @@ namespace Iroca
         // シード点のUV座標（0-1）。負値 = 未設定
         public Vector2 seedUV = new Vector2(-1f, -1f);
 
+        // スポイトでサンプル色を取ったプレビュー上の UV（下原点、0-1）。負値 = 未設定。
+        // 自動調整が AI マスク提案（SAM）のセグメントを「その場の証拠」として取る位置
+        // （ZoneAutoTuner.AnalyzeWithEvidence）。選択・再着色そのものには関与しないので
+        // 選択キーには含めない。テクスチャ固有の位置なのでプリセット・Undo にも載せない
+        // （カラーフィールドで色を変えたら UI 側が無効化する）。
+        [NonSerialized] public Vector2 sampleUV = new Vector2(-1f, -1f);
+        public bool HasSampleUV => sampleUV.x >= 0f;
+
         public Color targetColor = Color.white;
 
         [Range(0f, 1f)]

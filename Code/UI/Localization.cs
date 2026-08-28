@@ -714,6 +714,15 @@ namespace Iroca
         public static string AutoTune => IsJapanese ? "自動調整" : "Auto-tune";
         // 完了通知に使う。ボタン名と同じ「自動調整」だけを出すと、開始・完了・失敗の区別がつかない。
         public static string AutoTuneDone => IsJapanese ? "自動調整が完了しました" : "Auto-tune complete";
+        // 証拠つき自動調整（スポイト位置の AI 提案セグメントを教師にした導出）が使われたとき。
+        // 何が根拠になったかが分かるよう、通常の完了通知と文言を分ける。
+        public static string AutoTuneDoneWithEvidence => IsJapanese
+            ? "自動調整が完了しました（AI 提案を参照）"
+            : "Auto-tune complete (used AI suggestion)";
+        // 証拠（AI 提案セグメント）を待っている間の進捗表示。
+        public static string AutoTuneEvidenceFetching => IsJapanese
+            ? "AI 提案を取得中…"
+            : "Fetching AI suggestion…";
         public static string AnalyzingTexture => IsJapanese ? "テクスチャを解析中…" : "Analyzing texture…";
         public static string AutoTuneTooltip => IsJapanese
             ? "サンプルカラーと変更先カラーから、テクスチャを解析して許容範囲・彩度制限などのパラメータを自動的に決定します。\n上の 2 色（サンプルカラー・変更先カラー）を決めてから押してください。下の項目が結果で上書きされます。"
