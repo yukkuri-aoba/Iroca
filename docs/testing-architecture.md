@@ -208,12 +208,21 @@ $env:VACC_AUTOTUNE_GATE_FULL = "1"
   `run_harness_autotune`（実行キャッシュ + AUTOTUNE パラメータの aux キャッシュ）に一本化して
   あり、DLL 不変なら 2 回目以降の追加コストはほぼゼロ。初回も避けたい場合のみ
   `VACC_FEINA_AUTOTUNE=0` / `VACC_GEN2_FULL=0` で絞れる。
-- **no-mask のアトラス系の低い precision（feina pants 0.21 等）は最悪条件の番兵であって
-  製品品質ではない**。実操作相当（部位マスク/シードで空間的に絞る）の正のゲートは
-  `test_autotune_masked`（partsim 部位マップ: pants/boots IoU 0.997〜0.998）と
-  `test_autotune_seeded`（Shift+クリック相当: 全被写体 precision ≥0.98 のハード契約）で、
-  どちらも既定 ON（`VACC_AUTOTUNE_MASKED=0` / `VACC_AUTOTUNE_SEEDED=0` で opt-out）。
-  過検出の議論はこの 2 つの数字で行う（2026-08-21 の 3 条件比較計測）。
+- **no-mask のアトラス系の低い precision（feina pants 0.21 等）は劣化検知の番兵であって
+  品質目標ではない**。この条件は「実操作で起きない」わけではない — 通常クリックは
+  シードを設定しない（シードは Shift+クリックのみ）ため、アトラスへの「スポイト→自動調整」
+  の**初回プレビューはこの状態を見せる**。ただしユーザーは次の 1 手（シード/マスク/AI 提案）
+  で回復するのが実際の流れで、正のゲートは:
+  - `test_atlas_journey`（初回過検出→シード 1 手の遷移を Harness `--session` で通し検証。
+    apply 写像の byte 一致・seedUV 変更のキャッシュ無効化・1 手後 precision ≥0.98 を契約。
+    既定は feina-pants のみ、`VACC_JOURNEY_FULL=1` で boots/goggles も。`VACC_JOURNEY=0` で opt-out）
+  - `test_autotune_masked`（partsim 部位マップ: pants/boots IoU 0.997〜0.998）
+  - `test_autotune_seeded`（Shift+クリック相当: 全被写体 precision ≥0.98 のハード契約）
+  いずれも既定 ON（`VACC_AUTOTUNE_MASKED=0` / `VACC_AUTOTUNE_SEEDED=0` で opt-out）。
+  過検出の議論はこれらの数字で行う（2026-08-21 の 3 条件比較計測）。
+  初回体験そのものの品質目標は `test_feina_autotune` の xfail target
+  （`test_feina_autotune_precision_target`）が持ち、改善が到達すると XPASS で浮かぶ
+  → ベースラインをラチェットし目標を進める。
 - **プロキシ段（操作中の表示）とフル確定段の表示一致ゲートは既定 ON**（2026-08-23〜）:
   ユーザーが操作中に見るのは長辺 ProxyMaxSize(512) の縮小処理表示で、確定表示とは設計上
   一致しない。`test_proxy_parity` が Harness `--stage proxy` / `--stage full-display`
