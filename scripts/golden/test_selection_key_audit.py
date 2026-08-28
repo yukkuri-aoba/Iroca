@@ -44,6 +44,8 @@ SELECTION_IRRELEVANT = {
     "sampleColorSet",  # 自動調整の可否判定のみ(マッチ経路では未参照)
     "layerIndex",      # 非推奨(優先度はリスト並び順へ移行済み)
     "detailFoldout",   # UI 折りたたみ状態(NonSerialized)
+    "sampleUV",        # 自動調整が AI 提案の証拠を取るスポイト位置のみ(マッチ経路では未参照。
+                       # 導出結果は tolerance 等のキー対象フィールドに反映される)
 }
 
 

@@ -331,6 +331,9 @@ namespace Iroca
                                         zone.extraSamples.Clear();
                                     previewDirty = true;
                                 }
+                                // スポイト位置は自動調整の証拠アンカー（AI 提案をかける位置）。同じ色を
+                                // 拾い直したときも位置は更新する（別の島をクリックしたかもしれない）。
+                                zone.sampleUV = uv;
                             }
                             // one-shot: 取得したら武装解除。
                             _host.EyedropperZoneId = null;
@@ -485,7 +488,9 @@ namespace Iroca
 
         // 埋め込みキャッシュのキー。テクスチャの中身が変わったら別キーになるよう
         // アセットパス + ファイル更新時刻 + 実寸で構成する。
-        private string TrueSourceCacheKey()
+        // internal: 自動調整の証拠要求(IrocaWindow.AutoTune)が AI 提案と同じキーで
+        // SetSource するために使う(別キーだとソース切替扱いになり埋め込みを捨てる)。
+        internal string TrueSourceCacheKey()
         {
             string path = _trueSourceFor != null ? AssetDatabase.GetAssetPath(_trueSourceFor) : null;
             long ticks = 0;

@@ -36,6 +36,17 @@ namespace Iroca
         // 必ず _pendingClicks と同じ箇所で行うこと。
         readonly List<long> _pendingClickTimes = new List<long>();
 
+        // 提案の宛先。サービスは受理順(FIFO)に 1 件ずつ ProposalReady にするので、要求と同じ
+        // 順で宛先を積んでおけば「今取り出せる提案が誰のものか」が決まる。マスク反映
+        // (右クリック)のほかに、自動調整が証拠セグメントを 1 件要求する経路(RequestEvidence)
+        // が同じサービスを共有するため必要になった。サービス側のキュー破棄(Flush/CancelAll/
+        // Error)と同じ箇所で必ず丸ごと空にし、両者を一致させ続ける。
+        enum ProposalOwner { Mask, Evidence }
+        readonly List<ProposalOwner> _owners = new List<ProposalOwner>();
+        // 証拠要求の受け取り先(同時に 1 件)。null = 要求なし、または取消済み
+        // (取消後に届いた提案は宛先だけ消費して捨てる)。
+        System.Action<MaskSuggestProposal> _evidenceCallback;
+
         /// <summary>AI 提案モードが有効か(プレビュークリックを提案に使う)。</summary>
         public bool Active { get; private set; }
 
@@ -117,6 +128,8 @@ namespace Iroca
                 MaskSuggestBridge.Service?.FlushPendingClicks();
                 _pendingClicks.Clear();
                 _pendingClickTimes.Clear();
+                _owners.Clear();
+                FailEvidence();
                 LastClickFloodWarning = false;
                 LastCommitEmpty = false;
                 LastProposalEmpty = false;
@@ -160,6 +173,7 @@ namespace Iroca
             {
                 _pendingClicks.Add(new Vector2(u, v));
                 _pendingClickTimes.Add(MaskSuggestPerf.Now);
+                _owners.Add(ProposalOwner.Mask);
             }
         }
 
@@ -179,17 +193,34 @@ namespace Iroca
             if (svc.Phase == MaskSuggestPhase.ProposalReady &&
                 svc.TryTakeProposal(out var proposal))
             {
-                // サービスは FIFO のため、提案は保留クリックの先頭に対応する。
-                if (_pendingClicks.Count > 0) _pendingClicks.RemoveAt(0);
-                long clickAt = 0;
-                if (_pendingClickTimes.Count > 0)
+                // サービスは FIFO のため、提案は宛先列の先頭に対応する(宛先列が空なら
+                // 従来どおりマスク反映として扱う)。
+                var owner = ProposalOwner.Mask;
+                if (_owners.Count > 0)
                 {
-                    clickAt = _pendingClickTimes[0];
-                    _pendingClickTimes.RemoveAt(0);
+                    owner = _owners[0];
+                    _owners.RemoveAt(0);
                 }
-                // モード解除後に完了した提案はマスクへ反映しない。
-                if (Active && proposal != null)
-                    CommitProposalToMask(proposal, clickAt);
+                if (owner == ProposalOwner.Evidence)
+                {
+                    // 自動調整の証拠。取消済み(callback null)なら宛先だけ消費して捨てる。
+                    var cb = _evidenceCallback;
+                    _evidenceCallback = null;
+                    cb?.Invoke(proposal);
+                }
+                else
+                {
+                    if (_pendingClicks.Count > 0) _pendingClicks.RemoveAt(0);
+                    long clickAt = 0;
+                    if (_pendingClickTimes.Count > 0)
+                    {
+                        clickAt = _pendingClickTimes[0];
+                        _pendingClickTimes.RemoveAt(0);
+                    }
+                    // モード解除後に完了した提案はマスクへ反映しない。
+                    if (Active && proposal != null)
+                        CommitProposalToMask(proposal, clickAt);
+                }
             }
             else if (svc.Phase == MaskSuggestPhase.Error)
             {
@@ -197,6 +228,8 @@ namespace Iroca
                 // マーカーだけ残ると「処理中」に見え続けるため同期して消す。
                 _pendingClicks.Clear();
                 _pendingClickTimes.Clear();
+                _owners.Clear();
+                FailEvidence();
             }
             _host.RequestRepaint();
         }
@@ -337,6 +370,9 @@ namespace Iroca
                 MaskSuggestBridge.Service?.FlushPendingClicks();
                 _pendingClicks.Clear();
                 _pendingClickTimes.Clear();
+                // Flush はサービスのキューを丸ごと捨てる(証拠要求が並んでいても同じ)。
+                _owners.Clear();
+                FailEvidence();
             }
             LastClickFloodWarning = false;
             LastCommitEmpty = false;
@@ -349,9 +385,52 @@ namespace Iroca
             MaskSuggestBridge.Service?.CancelAll();
             _pendingClicks.Clear();
             _pendingClickTimes.Clear();
+            _owners.Clear();
+            FailEvidence();
             LastClickFloodWarning = false;
             LastCommitEmpty = false;
             LastProposalEmpty = false;
+        }
+
+        // ─── 自動調整の証拠(スポイト位置の提案セグメント) ───
+
+        /// <summary>
+        /// 自動調整の証拠用に、UV(下原点)の提案を 1 件要求する。AI が温まっている
+        /// (モデルロード済み・このソースの埋め込み計算済み・待機中)ときだけ受理し true を返す。
+        /// それ以外は false(呼び出し側は従来導出で即進める)。埋め込み未計算なら計算だけ
+        /// 裏で始まるので、次回の要求から受理されるようになる。
+        /// 結果は onResult(提案。取消・破棄時は null)で 1 回だけ返す。同時に 1 件まで。
+        /// AI 提案モード(右クリック)とは独立で、モードの ON/OFF を問わず使える。
+        /// pixels/sourceKey はプレビューの AI 提案と同じ true source を渡すこと
+        /// (別キーだとソース切替扱いになり、進行中の提案が破棄される)。
+        /// </summary>
+        public bool RequestEvidence(float u, float v, Color32[] pixelsBottomUp, int width, int height,
+                                    string sourceKey, System.Action<MaskSuggestProposal> onResult)
+        {
+            var svc = MaskSuggestBridge.Service;
+            if (svc == null || onResult == null || _evidenceCallback != null) return false;
+            if (!svc.TryEnsureModels()) return false;
+            svc.SetSource(sourceKey, pixelsBottomUp, width, height);
+            // Idle 以外(ロード中・埋め込み計算中・マスク提案の処理中・エラー)は待たない。
+            if (svc.Phase != MaskSuggestPhase.Idle) return false;
+            if (!svc.RequestProposal(u, v, MaskSuggestGranularity.Auto)) return false;
+            _owners.Add(ProposalOwner.Evidence);
+            _evidenceCallback = onResult;
+            return true;
+        }
+
+        /// <summary>証拠要求を取り消す(期限切れ・中止)。届いた提案は宛先だけ消費して捨てる。</summary>
+        public void CancelEvidence()
+        {
+            _evidenceCallback = null;
+        }
+
+        // サービスのキューが破棄されたとき、待っている証拠要求に「来ない」を伝える。
+        void FailEvidence()
+        {
+            var cb = _evidenceCallback;
+            _evidenceCallback = null;
+            cb?.Invoke(null);
         }
     }
 }

@@ -39,7 +39,10 @@ namespace Iroca
         /// </summary>
         internal bool IsJobBlockingUI =>
             (_exportView != null && _exportView.IsExporting)
-            || (_autoTuneJob.IsRunning && _autoTuneIsManual);
+            || (_autoTuneJob.IsRunning && _autoTuneIsManual)
+            // 証拠（AI 提案）待ちも手動実行の自動調整の一部（解析はまだ始まっていないが
+            // 途中でゾーンを触られると待ち中の入力と食い違う）。
+            || (_evidenceWaiting && _autoTuneIsManual);
 
         private void OnGUI()
         {
@@ -357,7 +360,21 @@ namespace Iroca
         {
             _exportView?.DrawJobOverlay();
 
-            if (_autoTuneJob.IsRunning)
+            if (_evidenceWaiting)
+            {
+                // 解析開始前の証拠（AI 提案セグメント）待ち。無言だと押しても無反応に見えるので、
+                // 解析中と同じ場所に何を待っているかを出す。中止は解析を始めない。
+                EditorGUILayout.Space(2);
+                var rect = EditorGUILayout.GetControlRect(false, 18f);
+                EditorGUI.ProgressBar(rect, _autoTuneProgress.Value,
+                    $"{Localization.AutoTune}  {Localization.AutoTuneEvidenceFetching}");
+                if (GUILayout.Button(new GUIContent(Localization.Cancel, Localization.CancelActionTooltip), GUILayout.Height(22)))
+                {
+                    CancelEvidenceWait();
+                }
+                EditorGUILayout.Space(2);
+            }
+            else if (_autoTuneJob.IsRunning)
             {
                 EditorGUILayout.Space(2);
                 var rect = EditorGUILayout.GetControlRect(false, 18f);
