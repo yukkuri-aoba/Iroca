@@ -25,6 +25,11 @@ namespace Iroca
     /// </summary>
     internal static class ReproDump
     {
+        // 前回の書き出し先(EditorPrefs)。回帰ケース化の運用は「見つけたその場で書き出す」の
+        // 積み重ねなので、毎回フォルダを辿り直す摩擦を無くす。開発機で一度
+        // dev_safe/Tests/repro_cases を選べば、以後は書き出し=取り込み(移動不要)になる。
+        private const string LastDirPrefKey = "Iroca.ReproDump.LastDir";
+
         [MenuItem(IrocaConsts.MenuPath + "/再現データを書き出す...")]
         private static void ExportMenu()
         {
@@ -36,8 +41,11 @@ namespace Iroca
                     "書き出す対象がありません。いろかウィンドウでテクスチャを開いてから実行してください。", "OK");
                 return;
             }
-            string baseDir = EditorUtility.SaveFolderPanel("再現データの書き出し先", "", "");
+            string remembered = EditorPrefs.GetString(LastDirPrefKey, "");
+            if (!Directory.Exists(remembered)) remembered = "";
+            string baseDir = EditorUtility.SaveFolderPanel("再現データの書き出し先", remembered, "");
             if (string.IsNullOrEmpty(baseDir)) return;
+            EditorPrefs.SetString(LastDirPrefKey, baseDir);
             try
             {
                 string outDir = Export(win, baseDir);
