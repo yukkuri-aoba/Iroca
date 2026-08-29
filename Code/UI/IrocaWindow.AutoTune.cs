@@ -31,6 +31,21 @@ namespace Iroca
         [System.NonSerialized] private Color32[] _evidencePixels;
         [System.NonSerialized] private int _evidenceTexW, _evidenceTexH, _evidenceMw, _evidenceMh;
         [System.NonSerialized] private bool[] _evidenceExcluded;
+
+        // ゾーン id → 最後に適用した自動調整の由来(証拠の有無・正規化の有無・導出診断)。
+        // 再現データ書き出し(ReproDump)が meta.json に載せる。書き出された失敗ケースが
+        // 「証拠経路を通ったのか、AI 未ウォームで従来導出だったのか」を後から判別できないと、
+        // どちらの経路を直せばよいか分からない(2026-08-29: スニーカー明部クリックの再現データで
+        // 証拠なし導出と byte 一致したが、証拠ありでも同じ結果になる位置だったため区別できなかった)。
+        // テクスチャ固有の一時情報なので Undo/プリセットには載せない。
+        [System.NonSerialized]
+        private System.Collections.Generic.Dictionary<string, string> _autoTuneProvenance;
+
+        internal string AutoTuneProvenance(string zoneId)
+        {
+            if (_autoTuneProvenance == null || string.IsNullOrEmpty(zoneId)) return "";
+            return _autoTuneProvenance.TryGetValue(zoneId, out var s) ? s : "";
+        }
         // 温まった AI(埋め込み計算済み)のデコードはズーム再推論込みでも数秒かからない。
         // これを大きく超える待ちは何かが詰まっているので、従来導出で進めて体験を守る。
         private const double EvidenceWaitSeconds = 8.0;
@@ -257,6 +272,11 @@ namespace Iroca
                     // 証拠が実際に導出に使われたか（汚染セグメント等で従来へ戻った場合は "fallback"）。
                     bool usedEvidence = !string.IsNullOrEmpty(result.evidenceDiag)
                         && !result.evidenceDiag.StartsWith("fallback");
+                    _autoTuneProvenance ??= new System.Collections.Generic.Dictionary<string, string>();
+                    _autoTuneProvenance[targetZone.id] =
+                        (evidence != null ? (usedEvidence ? "evidence" : "evidence-fallback") : "conventional")
+                        + $"; normalized={result.hasNormalizedSample}"
+                        + (string.IsNullOrEmpty(result.evidenceDiag) ? "" : "; " + result.evidenceDiag);
                     if (MaskSuggestPerf.Enabled && result.evidenceDiag != null)
                         MaskSuggestPerf.Log($"自動調整の証拠: {result.evidenceDiag}");
                     ShowNotification(new GUIContent(
