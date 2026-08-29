@@ -280,15 +280,22 @@ namespace Iroca
             else
             {
                 float mag = oC * okMagScale;            // |chroma|/sC · osat
-                // 無彩パス: 無彩サンプルでは oC/sC が微小彩度ノイズを増幅(脚色)。uniform target 彩度
-                // (osat, oC 非依存)へ achromaWeight でフェードし増幅を止める。weight=0 で従来式。
-                if (achromaWeight > 1e-4f)
-                    mag = mag * (1f - achromaWeight) + osat * achromaWeight;
-                // 無彩パスの有彩版: tC > sC のとき output chroma = mag*tC が sC*Factor を超えないよう制限。
-                // achromaWeight=1 時は上記で mag=osat 固定済みなのでキャップは no-op。
+                // chroma 増幅キャップ: tC > sC のとき output chroma = mag*tC が sC*Factor を超えないよう制限。
                 // 上限 mag はゾーン定数 okChromaMaxMag に事前算出済み(キャップ非適用時は +∞ で
                 // この比較は no-op)。旧版は per-pixel で tC=sqrt(okTa²+okTb²) と maxMag を再計算していた。
+                // キャップは **サンプル相対項(oC/sC)だけ** に掛ける。旧版は下の無彩ブレンド後に掛けて
+                // いたため、微彩度の白(例: 250,245,254 / sC≈0.01)を有彩ターゲットへ写すと上限
+                // (sC/tC)·Factor≈0.05 が uniform 彩度 osat まで潰し、出力が灰色になった(完全無彩
+                // [1,1,1] は okGray 経路で target 彩度が乗るのに、わずかに色づいた白は灰になる不連続)。
+                // キャップの目的は「oC/sC の増幅による明度コントラスト/ノイズの増幅→バンディング」の
+                // 抑制で、uniform 項(osat)は oC 非依存=増幅しないので対象外。weight=0(有彩×有彩)では
+                // 順序が変わっても同値=出力バイト不変。
                 if (mag > okChromaMaxMag) mag = okChromaMaxMag;
+                // 無彩パス: 無彩サンプルでは oC/sC が微小彩度ノイズを増幅(脚色)。uniform target 彩度
+                // (osat, oC 非依存)へ achromaWeight でフェードし増幅を止める。weight=0 で従来式。
+                // weight=1 で mag=osat = okGray 経路(na=zTa·osat)と一致する。
+                if (achromaWeight > 1e-4f)
+                    mag = mag * (1f - achromaWeight) + osat * achromaWeight;
                 na = mag * okTa;
                 nb = mag * okTb;
             }
