@@ -21,7 +21,9 @@ namespace Iroca
     ///                     IrocaAutomation.ZoneDto/SettingsDto を共有）
     ///   mask_common.png   共通除外マスク（白=除外。マスク解像度のまま）
     ///   zone{i}_exclude.png / zone{i}_include.png   ゾーン別マスク（存在するものだけ）
-    ///   meta.json         アセットパス・寸法・バージョン・ゾーン対応表・extraSamples
+    ///   meta.json         アセットパス・寸法・バージョン・ゾーン対応表・extraSamples・
+    ///                     sampleUV(スポイト位置、下原点 UV)・autoTune(最後の自動調整の由来:
+    ///                     証拠の有無・正規化の有無・導出診断。自動調整していなければ空)
     /// </summary>
     internal static class ReproDump
     {
@@ -102,6 +104,9 @@ namespace Iroca
                     if (zones[i].extraSamples != null)
                         foreach (var c in zones[i].extraSamples)
                             zm.extraSamples.AddRange(new[] { c.r, c.g, c.b });
+                    if (zones[i].HasSampleUV)
+                        zm.sampleUV.AddRange(new[] { zones[i].sampleUV.x, zones[i].sampleUV.y });
+                    zm.autoTune = win.AutoTuneProvenance(zones[i].id);
                     ulong[] packed;
                     if (snap.zones != null && snap.zones.TryGetValue(zones[i].id, out packed) && packed != null)
                     {
@@ -209,6 +214,11 @@ namespace Iroca
             public string includeMask = "";
             // [r,g,b, r,g,b, ...] のフラット列。JsonUtility が float[][] を書けないため。
             public List<float> extraSamples = new List<float>();
+            // スポイト位置 [u, v](下原点、0-1)。未設定なら空。自動調整の証拠(SAM セグメント)は
+            // この位置から取られるので、失敗ケースの再現・調査に要る。
+            public List<float> sampleUV = new List<float>();
+            // 最後に適用した自動調整の由来(IrocaWindow.AutoTuneProvenance)。未実行なら空。
+            public string autoTune = "";
         }
 
         [Serializable]
