@@ -49,6 +49,17 @@ namespace Iroca
         // precision 1.00→0.50)。正規化は「外した位置を救う」ための補正であって、
         // 「当たっている位置を作り直す」ためのものではない。
         private const float NormOutlierFrac = 0.10f;
+        // 証拠つき導出(母集団=セグメント)で、上の門を掛けない「クリックがトーン連結域の端に居る」
+        // 判定。連結域 [loBin, hiBin] の中でクリック V bin の相対位置 t=(click-lo)/(hi-lo) が
+        // [NormEdgeFrac, 1-NormEdgeFrac] の外なら端。地色には両側に陰影が付く(暗部と明部が地色を
+        // 挟む)ので、連結域の端は地色ではなく明端/暗端の塗り。端は人口が多いこともあり
+        // (実測 2026-08-29: スニーカーの明部帯 V≈0.95 が最頻帯の 1/3 の面積)、人口だけで判定する
+        // 上の門はそれを「主要な色帯の中」と誤認して起点のまま残す。起点が明端だと近傍窓の P95 で
+        // 導く tolerance が中間調の地色に対するハイライト(色相が回ってやや脱彩)に届かない
+        // (recall 0.982、見逃し 84k px。最頻 bin へ寄せると tol 0.08→0.12、recall 0.999)。
+        // 門を全面的に外す案は、当たっているクリックまで動かして 5/42 ケースで precision を
+        // 落としたので採らない(実測 2026-08-29: boots/skirt/black/eye で IoU −0.025〜−0.053)。
+        private const float NormEdgeFrac = 0.10f;
 
         // 無彩クリック用の分解能。母集団の彩度が [0, AchromaClusterSatMax] の狭帯に潰れるので、
         // 有彩と同じ「彩度 [0,1] を 16 分割」では tint の有無(白布 S≈0.05 と純白 S=0)が同じ bin に
@@ -67,9 +78,11 @@ namespace Iroca
         /// </summary>
         private static bool TryNormalizeSample(
             Color32[] pixels, int w, int h, ColorZone zone,
-            bool[] excluded, int maskW, int maskH, HsvGrid hsv, out Color normalized)
+            bool[] excluded, int maskW, int maskH, HsvGrid hsv, out Color normalized,
+            out float clickT, bool edgeBypass = false)
         {
             normalized = zone.sampleColor;
+            clickT = -1f;
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
 
             // 中性境界(R≒G≒B)より下のクリックだけを無彩として扱う。無彩 tolerance の分岐点
@@ -94,7 +107,8 @@ namespace Iroca
                 return TryNormalizeFromPopulation(pixels, w, h, zone, excluded, maskW, maskH, hsv,
                     sH, sS, sV, useHueBand: false, satFloor: 0f, satCeil: AchromaClusterSatMax,
                     satBinSpan: AchromaClusterSatMax,
-                    satBins: NormAchromaSatBins, valBins: NormAchromaValBins, out normalized);
+                    satBins: NormAchromaSatBins, valBins: NormAchromaValBins, edgeBypass,
+                    out normalized, out clickT);
             }
 
             if (sS < AchromaSampleSatMax) return false; // 色味の乗ったグレー: 従来どおりクリック色のまま
@@ -104,7 +118,8 @@ namespace Iroca
             float satFloor = Mathf.Max(AchromaSampleSatMax, sS * NormSatFloorFrac);
             return TryNormalizeFromPopulation(pixels, w, h, zone, excluded, maskW, maskH, hsv,
                 sH, sS, sV, useHueBand: true, satFloor: satFloor, satCeil: float.MaxValue,
-                satBinSpan: 1f, satBins: NormSatBins, valBins: NormValBins, out normalized);
+                satBinSpan: 1f, satBins: NormSatBins, valBins: NormValBins, edgeBypass,
+                out normalized, out clickT);
         }
 
         /// <summary>
@@ -115,9 +130,11 @@ namespace Iroca
             Color32[] pixels, int w, int h, ColorZone zone,
             bool[] excluded, int maskW, int maskH, HsvGrid hsv,
             float sH, float sS, float sV, bool useHueBand, float satFloor, float satCeil,
-            float satBinSpan, int satBins, int valBins, out Color normalized)
+            float satBinSpan, int satBins, int valBins, bool edgeBypass, out Color normalized,
+            out float clickT)
         {
             normalized = zone.sampleColor;
+            clickT = -1f;
 
             int SB = satBins, VB = valBins;
             var cnt = new int[SB * VB];
@@ -214,15 +231,20 @@ namespace Iroca
             // 素通りする(実測 2026-08-19: ゴーグルの最暗部クリックで IoU 0.726、地色クリックなら
             // 0.995。黒衣装も最暗部 0.715 対 地色 0.982)。無彩側は上の「連結域の端＝ベタ塗り」門が
             // 暴走を止めるので、地色帯へは常に寄せてよい(既に地色なら下の NormMinShift で止まる)。
+            // edgeBypass(証拠つき導出: 母集団がセグメント)では、クリックがトーン連結域の端に
+            // 居るときだけこの門を掛けない(NormEdgeFrac の説明を参照)。
             if (useHueBand)
             {
                 int clickSb = Mathf.Clamp((int)(sS / satBinSpan * SB), 0, SB - 1);
                 int clickVb = Mathf.Clamp((int)(sV * VB), 0, VB - 1);
+                clickT = hiBin > loBin
+                    ? Mathf.Clamp01((clickVb - loBin) / (float)(hiBin - loBin)) : 0.5f;
+                bool atEdge = clickT < NormEdgeFrac || clickT > 1f - NormEdgeFrac;
                 int clickN = 0;
                 for (int sb = Mathf.Max(0, clickSb - 1); sb <= Mathf.Min(SB - 1, clickSb + 1); sb++)
                     for (int vb = Mathf.Max(0, clickVb - 1); vb <= Mathf.Min(VB - 1, clickVb + 1); vb++)
                         clickN += cnt[sb * VB + vb];
-                if (clickN >= n2 * NormOutlierFrac) return false;
+                if (clickN >= n2 * NormOutlierFrac && !(edgeBypass && atEdge)) return false;
             }
 
             float inv = 1f / n2;

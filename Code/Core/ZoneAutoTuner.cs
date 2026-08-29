@@ -218,7 +218,7 @@ namespace Iroca
                 ct.ThrowIfCancellationRequested();
                 ColorZone aZone = zone;
                 bool hasNorm = TryNormalizeSample(pixels, width, height, zone,
-                    clusterMask, maskW, maskH, hsv, out Color canonicalSample);
+                    clusterMask, maskW, maskH, hsv, out Color canonicalSample, out _);
                 if (hasNorm)
                 {
                     aZone = zone.Clone();
