@@ -140,7 +140,7 @@ html = """<meta charset="utf-8">
     <div class="board light s1">
       <div class="b-eyebrow">いろか ─ IROCA</div>
       <h2>色だけ、変える。</h2>
-      <div class="b-sub">PSDがなくても。スポイトだけで。</div>
+      <div class="b-sub">PSDがなくても。スポイトから。</div>
       <div class="photo"><img src="%%HERO%%" alt="左が元の青、右がレッドに色替えした衣装の比較"></div>
       <div class="b-foot">アバターテクスチャ色改変ツール ・ 無料</div>
     </div>
@@ -182,7 +182,7 @@ html = """<meta charset="utf-8">
     <div class="board light s4">
       <div class="top">
         <h2>よみこむ<span class="comma">、</span>すいとる<span class="drop" aria-hidden="true"></span><span class="comma">、</span><br>かきだす<span class="comma">。</span></h2>
-        <div class="b-sub">覚えることは、この3つだけ。</div>
+        <div class="b-sub">基本の流れは、この3つ。</div>
       </div>
       <div class="steps">
         <div class="step"><div class="n">1</div><div class="v">よみこむ</div><div class="d">PNG / JPG を<br>そのまま開く。</div></div>
