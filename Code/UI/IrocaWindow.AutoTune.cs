@@ -31,6 +31,10 @@ namespace Iroca
         [System.NonSerialized] private Color32[] _evidencePixels;
         [System.NonSerialized] private int _evidenceTexW, _evidenceTexH, _evidenceMw, _evidenceMh;
         [System.NonSerialized] private bool[] _evidenceExcluded;
+        // 証拠要求がまだ受理されていない(AI が準備中で Busy)。Tick で再要求する。
+        [System.NonSerialized] private bool _evidencePending;
+        // 証拠なしで解析するときの理由(由来の記録用。null = 証拠あり/理由なし)。
+        [System.NonSerialized] private string _autoTuneConventionalReason;
 
         // ゾーン id → 最後に適用した自動調整の由来(証拠の有無・正規化の有無・導出診断)。
         // 再現データ書き出し(ReproDump)が meta.json に載せる。書き出された失敗ケースが
@@ -46,9 +50,10 @@ namespace Iroca
             if (_autoTuneProvenance == null || string.IsNullOrEmpty(zoneId)) return "";
             return _autoTuneProvenance.TryGetValue(zoneId, out var s) ? s : "";
         }
-        // 温まった AI(埋め込み計算済み)のデコードはズーム再推論込みでも数秒かからない。
-        // これを大きく超える待ちは何かが詰まっているので、従来導出で進めて体験を守る。
-        private const double EvidenceWaitSeconds = 8.0;
+        // 証拠待ちの上限。埋め込み計算(テクスチャ毎 1 回)は CPU バックエンドの大きな
+        // テクスチャで数十秒かかり得るので、短い期限で諦めて従来導出へ落とさない
+        // (以前の 8 秒は「待たない方針」の名残。期限切れは中止して案内する)。
+        private const double EvidenceWaitSeconds = 180.0;
 
         // 「パーツをユーザーが粗く囲った」情報を tolerance 導出に活用する。
         // マスク未使用なら null。
@@ -133,12 +138,21 @@ namespace Iroca
             }
             bool[] excluded = BuildCombinedExclusionForZone(zone, out int mw, out int mh);
 
-            // 証拠つき導出: スポイト位置の AI 提案セグメントが取れる状況なら、届いてから解析を
-            // 始める。取れない状況（Sentis/モデル不在・埋め込み未計算・カラーフィールド指定で
-            // 位置なし）は従来どおり即開始する。
-            if (TryRequestAutoTuneEvidence(zone, pixels, texW, texH, excluded, mw, mh, trueSource))
-                return;
-            ScheduleAutoTuneJob(zone, pixels, texW, texH, excluded, mw, mh);
+            // 証拠つき導出: スポイト位置の AI 提案セグメントが届いてから解析を始める。
+            // AI が無ければ中止して導入を案内し、準備中なら待つ(従来導出へは落とさない)。
+            // 証拠なしで解析するのは、スポイト位置そのものが無いゾーン(カラーフィールド指定)だけ。
+            switch (BeginAutoTuneEvidence(zone, pixels, texW, texH, excluded, mw, mh, trueSource))
+            {
+                case EvidenceStart.Waiting:
+                    return;
+                case EvidenceStart.NoPosition:
+                    ShowNotification(new GUIContent(Localization.AutoTuneNoSamplePosition));
+                    _autoTuneConventionalReason = "no-sample-position";
+                    ScheduleAutoTuneJob(zone, pixels, texW, texH, excluded, mw, mh);
+                    return;
+                default:
+                    return; // Unavailable: 通知・案内済み。解析は始めない。
+            }
         }
 
         // ─── 上書き確認はジョブ開始“前”に行う（通常/上級モードの手動実行時のみ）───
@@ -273,8 +287,11 @@ namespace Iroca
                     bool usedEvidence = !string.IsNullOrEmpty(result.evidenceDiag)
                         && !result.evidenceDiag.StartsWith("fallback");
                     _autoTuneProvenance ??= new System.Collections.Generic.Dictionary<string, string>();
+                    string reason = _autoTuneConventionalReason;
+                    _autoTuneConventionalReason = null;
                     _autoTuneProvenance[targetZone.id] =
-                        (evidence != null ? (usedEvidence ? "evidence" : "evidence-fallback") : "conventional")
+                        (evidence != null ? (usedEvidence ? "evidence" : "evidence-fallback")
+                                          : "conventional" + (reason != null ? "(" + reason + ")" : ""))
                         + $"; normalized={result.hasNormalizedSample}"
                         + (string.IsNullOrEmpty(result.evidenceDiag) ? "" : "; " + result.evidenceDiag);
                     if (MaskSuggestPerf.Enabled && result.evidenceDiag != null)
@@ -295,18 +312,27 @@ namespace Iroca
         // （明度↑彩度↓の非対称な逸脱）を原理的に取りこぼす。スポイトした位置に AI マスク提案
         // （SAM）を 1 回かけ、そのセグメントを ZoneAutoTuner.AnalyzeWithEvidence の証拠に渡す
         // （実測 42 ケース非退行、明部クリック IoU 0.15→0.82 等。ZoneAutoTuner.Evidence.cs 参照）。
-        // 待たない方針: AI が温まっていない（モデル未ロード・埋め込み未計算・提案処理中）ときは
-        // 要求せず従来導出で即進める。埋め込み計算は裏で始まり、次回の自動調整から効く。
-        private bool TryRequestAutoTuneEvidence(ColorZone zone, Color32[] pixels, int texW, int texH,
+        //
+        // 2026-08-29 まで「AI が温まっていなければ待たず従来導出」だったが、その従来導出が
+        // ハイライトを取りこぼす当の経路で、ユーザーには「自動調整が壊れる」としか見えなかった。
+        // 今は AI が無ければ中止して導入を案内し(MaskSuggestSetupPrompt)、準備中なら届くまで待つ。
+        private enum EvidenceStart { Waiting, NoPosition, Unavailable }
+
+        private EvidenceStart BeginAutoTuneEvidence(ColorZone zone, Color32[] pixels, int texW, int texH,
             bool[] excluded, int mw, int mh, bool trueSource)
         {
-            if (!trueSource || !zone.HasSampleUV) return false;
-            if (_maskView == null || _previewView == null || !MaskSuggestBridge.Available) return false;
-            var ctl = _maskView.SuggestController;
-            if (ctl == null) return false;
-            if (!ctl.RequestEvidence(zone.sampleUV.x, zone.sampleUV.y, pixels, texW, texH,
-                    _previewView.TrueSourceCacheKey(), OnAutoTuneEvidence))
-                return false;
+            if (!zone.HasSampleUV) return EvidenceStart.NoPosition;
+            if (!MaskSuggestSetupPrompt.Ready)
+            {
+                ShowNotification(new GUIContent(Localization.AutoTuneNeedsAi));
+                MaskSuggestSetupPrompt.PromptIfNeeded(force: true);
+                return EvidenceStart.Unavailable;
+            }
+            if (!trueSource || _maskView == null || _previewView == null || _maskView.SuggestController == null)
+            {
+                ShowNotification(new GUIContent(Localization.AutoTuneSourceNotShared));
+                return EvidenceStart.Unavailable;
+            }
 
             _evidenceZoneId = zone.id;
             _evidencePixels = pixels;
@@ -316,16 +342,52 @@ namespace Iroca
             _evidenceMw = mw;
             _evidenceMh = mh;
             _evidenceWaiting = true;
+            _evidencePending = true;
             _evidenceDeadline = EditorApplication.timeSinceStartup + EvidenceWaitSeconds;
             _autoTuneProgress.Reset();
             _autoTuneProgress.Report(0.02f);
             EditorApplication.update -= TickEvidenceWait;
             EditorApplication.update += TickEvidenceWait;
+            if (!TryStartEvidenceRequest()) return EvidenceStart.Unavailable;
             Repaint();
-            return true;
+            return EvidenceStart.Waiting;
         }
 
-        // 提案の到着（null = 取消・破棄）。どちらでも解析へ進む（証拠の有無だけが違う）。
+        // 証拠要求を(再)試行する。Busy なら pending のまま(Tick が再試行)。
+        // 戻り値 false = AI が使えない(待ちを畳んで通知済み)。
+        private bool TryStartEvidenceRequest()
+        {
+            var zone = FindZoneById(_evidenceZoneId);
+            var ctl = _maskView?.SuggestController;
+            if (zone == null || ctl == null || !zone.HasSampleUV)
+            {
+                AbortEvidenceWait(Localization.AutoTuneEvidenceCancelled);
+                return false;
+            }
+            var r = ctl.RequestEvidence(zone.sampleUV.x, zone.sampleUV.y, _evidencePixels, _evidenceTexW, _evidenceTexH,
+                _previewView.TrueSourceCacheKey(), OnAutoTuneEvidence);
+            switch (r)
+            {
+                case MaskSuggestController.EvidenceRequest.Started:
+                    _evidencePending = false;
+                    return true;
+                case MaskSuggestController.EvidenceRequest.Busy:
+                    return true;
+                default:
+                {
+                    var svc = MaskSuggestBridge.Service;
+                    string why = svc != null && svc.Phase == MaskSuggestPhase.Error && !string.IsNullOrEmpty(svc.ErrorMessage)
+                        ? string.Format(Localization.AutoTuneAiError, svc.ErrorMessage)
+                        : Localization.AutoTuneNeedsAi;
+                    AbortEvidenceWait(why);
+                    if (svc == null || svc.Phase == MaskSuggestPhase.NoModel)
+                        MaskSuggestSetupPrompt.PromptIfNeeded(force: true);
+                    return false;
+                }
+            }
+        }
+
+        // 提案の到着（null = 取消・破棄）。null なら中止(従来導出へは落とさない)。
         private void OnAutoTuneEvidence(MaskSuggestProposal proposal)
         {
             if (!_evidenceWaiting) return;
@@ -337,15 +399,23 @@ namespace Iroca
             StopEvidenceWait();
             if (zone == null) return; // 待ち中に削除された
 
-            // 背景まで広がった提案（floodWarning）は素材の証拠にならないので渡さない
-            // （AnalyzeWithEvidence の汚染判定でも弾かれるが、使えないと分かっているものは渡さない）。
-            bool usable = proposal != null && proposal.maskBottomUp != null
-                && proposal.width > 0 && proposal.height > 0 && !proposal.floodWarning;
-            if (usable)
-                ScheduleAutoTuneJob(zone, pixels, texW, texH, excluded, mw, mh,
-                    proposal.maskBottomUp, proposal.width, proposal.height);
-            else
+            if (proposal == null || proposal.maskBottomUp == null || proposal.width <= 0 || proposal.height <= 0)
+            {
+                ShowNotification(new GUIContent(Localization.AutoTuneEvidenceCancelled));
+                Repaint();
+                return;
+            }
+            // 背景まで広がった提案（floodWarning）は素材の証拠にならない。この場合だけは証拠なしで
+            // 解析する(AI は使えたが証拠が取れなかった。理由は通知と由来に残す)。
+            if (proposal.floodWarning)
+            {
+                ShowNotification(new GUIContent(Localization.AutoTuneEvidenceUnusable));
+                _autoTuneConventionalReason = "evidence-flood";
                 ScheduleAutoTuneJob(zone, pixels, texW, texH, excluded, mw, mh);
+                return;
+            }
+            ScheduleAutoTuneJob(zone, pixels, texW, texH, excluded, mw, mh,
+                proposal.maskBottomUp, proposal.width, proposal.height);
         }
 
         private void TickEvidenceWait()
@@ -356,10 +426,27 @@ namespace Iroca
                 EditorApplication.update -= TickEvidenceWait;
                 return;
             }
+            if (_evidencePending)
+            {
+                if (!TryStartEvidenceRequest()) return;
+                // 準備の進み(モデルロード・埋め込み計算)を進捗バーに映す。
+                var svc = MaskSuggestBridge.Service;
+                float prep = svc != null ? Mathf.Clamp01(svc.Progress) : 0f;
+                _autoTuneProgress.Report(0.02f + 0.28f * prep);
+                Repaint();
+            }
             if (EditorApplication.timeSinceStartup < _evidenceDeadline) return;
-            // 期限切れ: 証拠は諦めて従来導出で進める（後から届いた提案はコントローラが捨てる）。
+            // 期限切れ: 中止して案内する（後から届いた提案はコントローラが捨てる）。
+            AbortEvidenceWait(Localization.AutoTuneEvidenceTimeout);
+        }
+
+        // 証拠待ちを畳んで通知する(解析は始めない)。
+        private void AbortEvidenceWait(string message)
+        {
             _maskView?.SuggestControllerIfCreated?.CancelEvidence();
-            OnAutoTuneEvidence(null);
+            StopEvidenceWait();
+            ShowNotification(new GUIContent(message));
+            Repaint();
         }
 
         // 証拠待ちの中止（ユーザーの中止・ウィンドウ無効化/破棄）。解析は始めない。
@@ -373,6 +460,7 @@ namespace Iroca
         private void StopEvidenceWait()
         {
             _evidenceWaiting = false;
+            _evidencePending = false;
             _evidencePixels = null;
             _evidenceExcluded = null;
             _evidenceZoneId = null;

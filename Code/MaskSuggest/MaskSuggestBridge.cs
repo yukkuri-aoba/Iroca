@@ -138,6 +138,25 @@ namespace Iroca
         /// 共有フォルダ化(80d1000)より前は、モデルをこのプロジェクト内パスへ置いていた。
         /// 既存プロジェクトからの「引き継ぎ元」としてのみ参照する(新規配置先ではない)。
         /// </summary>
+        /// <summary>
+        /// 配布モデル(ONNX 2 本)が共有フォルダに揃っているか。Sentis 統合アセンブリの
+        /// ModelsPresent と同じ判定を本体側で行う(Sentis 不在でも「モデルが要る」案内を
+        /// 出せるように)。ロードはしない。
+        /// </summary>
+        public static bool ModelFilesPresent
+        {
+            get
+            {
+                try
+                {
+                    string d = ModelsDirectory;
+                    return System.IO.File.Exists(System.IO.Path.Combine(d, EncoderFileName))
+                        && System.IO.File.Exists(System.IO.Path.Combine(d, DecoderFileName));
+                }
+                catch { return false; }
+            }
+        }
+
         static string LegacyProjectModelsDirectory =>
             System.IO.Path.GetFullPath(System.IO.Path.Combine(
                 Application.dataPath, "..", "UserSettings", "Iroca", "Models"));

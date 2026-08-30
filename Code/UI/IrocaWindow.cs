@@ -141,6 +141,11 @@ namespace Iroca
             // 二重購読を避けるため一度外してから登録する（PreviewJobMainThread.Install と同じ防御）。
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
             Undo.undoRedoPerformed += OnUndoRedoPerformed;
+
+            // AI(Sentis + 配布モデル)が無ければ、開いた時点で導入・ダウンロードを求める。
+            // 自動調整が AI 提案を証拠にする前提なので、無いまま使い始めさせない
+            // (OnEnable 中のモーダルはレイアウト復元と干渉するので次フレームへ)。
+            EditorApplication.delayCall += MaskSuggestSetupPrompt.PromptIfNeeded;
         }
 
         private void OnDisable()

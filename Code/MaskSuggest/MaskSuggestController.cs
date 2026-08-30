@@ -396,27 +396,40 @@ namespace Iroca
 
         /// <summary>
         /// 自動調整の証拠用に、UV(下原点)の提案を 1 件要求する。AI が温まっている
-        /// (モデルロード済み・このソースの埋め込み計算済み・待機中)ときだけ受理し true を返す。
-        /// それ以外は false(呼び出し側は従来導出で即進める)。埋め込み未計算なら計算だけ
-        /// 裏で始まるので、次回の要求から受理されるようになる。
+        /// (モデルロード済み・このソースの埋め込み計算済み・待機中)ときだけ受理する(Started)。
+        /// 準備中なら Busy(埋め込み計算は SetSource で始まるので、呼び出し側は待って再要求する)。
         /// 結果は onResult(提案。取消・破棄時は null)で 1 回だけ返す。同時に 1 件まで。
         /// AI 提案モード(右クリック)とは独立で、モードの ON/OFF を問わず使える。
         /// pixels/sourceKey はプレビューの AI 提案と同じ true source を渡すこと
         /// (別キーだとソース切替扱いになり、進行中の提案が破棄される)。
         /// </summary>
-        public bool RequestEvidence(float u, float v, Color32[] pixelsBottomUp, int width, int height,
-                                    string sourceKey, System.Action<MaskSuggestProposal> onResult)
+        public EvidenceRequest RequestEvidence(float u, float v, Color32[] pixelsBottomUp, int width, int height,
+                                               string sourceKey, System.Action<MaskSuggestProposal> onResult)
         {
             var svc = MaskSuggestBridge.Service;
-            if (svc == null || onResult == null || _evidenceCallback != null) return false;
-            if (!svc.TryEnsureModels()) return false;
+            if (svc == null || onResult == null || _evidenceCallback != null) return EvidenceRequest.Unavailable;
+            if (!svc.TryEnsureModels()) return EvidenceRequest.Unavailable;
+            if (svc.Phase == MaskSuggestPhase.Error) return EvidenceRequest.Unavailable;
             svc.SetSource(sourceKey, pixelsBottomUp, width, height);
-            // Idle 以外(ロード中・埋め込み計算中・マスク提案の処理中・エラー)は待たない。
-            if (svc.Phase != MaskSuggestPhase.Idle) return false;
-            if (!svc.RequestProposal(u, v, MaskSuggestGranularity.Auto)) return false;
+            // Idle 以外(ロード中・埋め込み計算中・マスク提案の処理中)は「準備中」。呼び出し側が
+            // 待って再要求する(従来導出へは落とさない。落とすと、その従来導出がハイライトを
+            // 取りこぼす当の経路なので「自動調整が壊れる」ようにしか見えない)。
+            if (svc.Phase != MaskSuggestPhase.Idle) return EvidenceRequest.Busy;
+            if (!svc.RequestProposal(u, v, MaskSuggestGranularity.Auto)) return EvidenceRequest.Unavailable;
             _owners.Add(ProposalOwner.Evidence);
             _evidenceCallback = onResult;
-            return true;
+            return EvidenceRequest.Started;
+        }
+
+        /// <summary><see cref="RequestEvidence"/> の結果。</summary>
+        public enum EvidenceRequest
+        {
+            /// <summary>受理した。結果は onResult で 1 回だけ返る。</summary>
+            Started,
+            /// <summary>AI が準備中(モデルロード・埋め込み計算・別の提案処理)。後で再要求する。</summary>
+            Busy,
+            /// <summary>AI が使えない(Sentis/モデル不在・エラー・ソース未設定)。</summary>
+            Unavailable,
         }
 
         /// <summary>証拠要求を取り消す(期限切れ・中止)。届いた提案は宛先だけ消費して捨てる。</summary>
