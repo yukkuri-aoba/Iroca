@@ -367,7 +367,7 @@ namespace Iroca
                 EditorGUILayout.Space(2);
                 var rect = EditorGUILayout.GetControlRect(false, 18f);
                 EditorGUI.ProgressBar(rect, _autoTuneProgress.Value,
-                    $"{Localization.AutoTune}  {Localization.AutoTuneEvidenceFetching}");
+                    $"{Localization.AutoTune}  {(_evidencePending ? Localization.AutoTuneEvidencePreparing : Localization.AutoTuneEvidenceFetching)}");
                 if (GUILayout.Button(new GUIContent(Localization.Cancel, Localization.CancelActionTooltip), GUILayout.Height(22)))
                 {
                     CancelEvidenceWait();

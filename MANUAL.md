@@ -78,7 +78,7 @@ Read/Write Enabled が無効なテクスチャを選ぶと、ウィンドウに�
 
 1. ゾーンの「サンプルカラー」欄をクリックします。
 2. 開いたカラーピッカーのスポイトアイコンで、プレビュー上の変えたい色をクリックします。
-3. すぐ下の「自動調整」を押すと、テクスチャを解析して許容範囲などを自動で合わせてくれます。スポイトの直後に押すのが一番効きます。
+3. すぐ下の「自動調整」を押すと、スポイトした位置を AI マスク提案で見て、そのパーツの暗部からハイライトまでを覆う許容範囲などを自動で合わせてくれます（AI モデルが必要です。未導入なら初回起動時に案内が出ます）。スポイトの直後に押すのが一番効きます。
 4. 思ったより範囲が広い・狭いときは「許容範囲」スライダーで微調整します。
 
 色替えしたい部分の中で、いちばん鮮やかな色を選ぶとうまくいきやすいです。
@@ -115,7 +115,11 @@ Read/Write Enabled が無効なテクスチャを選ぶと、ウィンドウに�
 
 **自動調整**
 
-サンプルカラーと変更先カラーをもとにテクスチャを解析し、許容範囲・彩度制限などをまとめて決めます。スポイトで色を取った直後に押すと最も効果的です。元テクスチャが未設定のとき、テクスチャの Read/Write が無効のとき、サンプルカラーが未指定（白のまま）のときは押せません。すでに手動で変えたパラメータがあると、上書き確認のダイアログが出ます。
+サンプルカラーと変更先カラーをもとにテクスチャを解析し、許容範囲・彩度制限などをまとめて決めます。スポイトで色を取った位置に AI マスク提案（MobileSAM）をかけ、そのパーツの範囲を手がかりにして、暗部から明るいハイライトまでを取りこぼさないように導出します。スポイトで色を取った直後に押すと最も効果的です。元テクスチャが未設定のとき、テクスチャの Read/Write が無効のとき、サンプルカラーが未指定（白のまま）のときは押せません。すでに手動で変えたパラメータがあると、上書き確認のダイアログが出ます。
+
+- AI（Unity Sentis と AI モデル）が未導入のときは解析せず、導入・ダウンロードの案内を出します（「AI マスク提案」の「必要なもの」参照）。
+- AI が準備中（モデルのロード・画像の埋め込み計算）のときは、終わるまで待ってから解析します（進捗バーと中止ボタンが出ます）。
+- スポイトではなくカラーフィールドで色を指定したゾーンには位置がないため、AI 提案を参照せずに解析します（その旨の通知が出ます）。
 
 **許容範囲**
 
@@ -328,9 +332,9 @@ Read/Write Enabled が無効なテクスチャを選ぶと、ウィンドウに�
 
 プレビュー上のパーツを**右クリック**すると、AI（MobileSAM）がそのパーツの領域を推定し、その場で編集対象のマスクへ追加します。追加先はマスク編集ウィンドウの「編集対象」と「マスクの種類」に従います（除外＝色替えしない範囲／含める＝必ず色替えする範囲）。手描きでパーツを囲む手間を大幅に減らせます。左ドラッグはこれまでどおりプレビューの移動（パン）なので、AI 提案中でも見たい場所へ寄せながら選べます。
 
-#### 必要なもの（任意インストール）
+#### 必要なもの（自動調整にも必要）
 
-スクリプトを入れただけの素の状態でも、マスク欄に「AI マスク提案」の有効化導線が表示されます。以下の 2 つを Unity 上のボタンでセットアップすると有効になります（セットアップしなければ従来どおりの動作で、ストレージも消費しません）。セットアップが済むと導線は消え、以後は マスク編集ウィンドウのツール「AI 提案」から使います。
+AI マスク提案と「自動調整」は、どちらも以下の 2 つを使います。未導入のまま「いろか」のウィンドウを開くと、導入・ダウンロードを求めるダイアログが出ます（「あとで」を選ぶと、そのセッションでは自動調整が使えません。マスク欄の「AI マスク提案」の導線からいつでも導入できます）。セットアップが済むと導線は消え、以後は マスク編集ウィンドウのツール「AI 提案」から使います。
 
 1. **Unity Sentis パッケージ**: マスク欄の「AI マスク提案」に出る **「AI 機能を有効化（Sentis を導入）」** ボタンを押すと、Package Manager 経由で自動導入されます（導入後 Unity が自動で再コンパイルします）。手動で入れる場合は Package Manager → 左上の「+」→「Add package by name...」→ `com.unity.sentis`（バージョン `2.1.3`）。
 2. **AI モデル（2 ファイル・合計約 45MB）**: マスク欄の「AI マスク提案」→「モデルをダウンロード」を押すと自動で配置されます（sha256 検証つき）。モデルは **プロジェクトごとではなくユーザー共通のフォルダに 1 か所だけ** 保存されるため（Windows は `%LOCALAPPDATA%\Iroca\Models`）、別プロジェクトでも再ダウンロードは不要です。手動の場合はモデル配布リポジトリ [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) から 2 つの `.onnx` をダウンロードし、「モデルフォルダを開く」で開いたフォルダへ置いてください。
@@ -458,7 +462,7 @@ OFF にすると、元のテクスチャファイルを上書きします。上�
 
 **Q: 自動調整は何をしてくれますか？**
 
-サンプルカラーと変更先カラーからテクスチャを解析し、許容範囲や彩度制限などを自動で設定します。スポイトで色を取った直後に押すのが一番効きます。
+サンプルカラーと変更先カラーからテクスチャを解析し、許容範囲や彩度制限などを自動で設定します。スポイトで色を取った位置に AI マスク提案をかけ、そのパーツの範囲を手がかりに暗部からハイライトまで取りこぼさないようにします（AI モデルが必要です）。スポイトで色を取った直後に押すのが一番効きます。
 
 **Q: PSD のレイヤー構造をサポートしていますか？**
 
@@ -544,7 +548,7 @@ Colors are picked with the eyedropper.
 
 1. Click the zone's "Sample Color" field.
 2. In the color picker, use the eyedropper to click the color you want on the preview.
-3. Press "Auto-tune" just below it. It analyzes the texture and sets the tolerance and related values for you. It works best right after sampling.
+3. Press "Auto-tune" just below it. It runs the AI mask suggestion at the sampled position and sets the tolerance and related values so the part is covered from its shadows to its highlights (the AI models are required; you are prompted to download them the first time you open the window). It works best right after sampling.
 4. If the selection is too wide or too narrow, fine-tune it with the "Tolerance" slider.
 
 Pick the most vivid color within the area you want to recolor for the best results.
@@ -581,7 +585,11 @@ The reference color used to find the target. Click the field to open the color p
 
 **Auto-tune**
 
-Analyzes the texture from the sample and target colors and sets the tolerance, saturation strictness, and related values together. It is most effective right after you sample a color. It is disabled when the source texture is not set, when the texture's Read/Write is off, or when the sample color is still unset (white). If you have already changed some parameters by hand, a confirmation dialog asks before overwriting them.
+Analyzes the texture from the sample and target colors and sets the tolerance, saturation strictness, and related values together. It runs the AI mask suggestion (MobileSAM) at the position you sampled and uses that part's extent as evidence so that everything from the shadows to the bright highlights is covered. It is most effective right after you sample a color. It is disabled when the source texture is not set, when the texture's Read/Write is off, or when the sample color is still unset (white). If you have already changed some parameters by hand, a confirmation dialog asks before overwriting them.
+
+- If the AI (Unity Sentis and the AI models) is not installed, nothing is analyzed; instead you are asked to install/download it (see "Requirements" under AI Mask Suggestion).
+- If the AI is still getting ready (loading the model, computing the image embedding), Auto-tune waits for it (a progress bar and a Cancel button are shown).
+- A zone whose color was typed into the color field instead of sampled has no position, so it is analyzed without the AI suggestion (a notice is shown).
 
 **Tolerance**
 
@@ -777,9 +785,9 @@ Brush size ranges from 1 to 64.
 
 Click a part on the preview and the AI (MobileSAM) estimates that part's region and adds it to the exclusion mask right away — a big time-saver over painting parts by hand.
 
-#### Requirements (optional install)
+#### Requirements (also required by Auto-tune)
 
-Even with just the scripts dropped in, the "AI Mask Suggestion" panel appears in the Exclusion Mask section. Set up the two items below with in-Unity buttons to enable it (skip the setup to keep the classic behavior with no extra storage).
+Both AI Mask Suggestion and Auto-tune use the two items below. If they are not installed when you open the Iroca window, a dialog asks you to install/download them (choose "Later" and Auto-tune stays unavailable for that session; you can set it up any time from the "AI Mask Suggestion" panel in the mask section).
 
 1. **Unity Sentis package**: Press the **"Enable AI feature (install Sentis)"** button shown under "AI Mask Suggestion" in the Exclusion Mask panel — it installs the package via the Package Manager (Unity recompiles automatically afterward). To install manually: Package Manager → "+" → "Add package by name..." → enter `com.unity.sentis` (version `2.1.3`).
 2. **AI models (2 files, ~45MB total)**: Open "AI Mask Suggestion" and press "Download models" (with sha256 verification). Models are stored **once in a per-user shared folder, not per project** (`%LOCALAPPDATA%\Iroca\Models` on Windows), so other projects don't need to re-download. To install manually, download the two `.onnx` files from the model repository [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) and place them into the folder opened by "Open model folder".
@@ -901,7 +909,7 @@ It limits recoloring to the connected region that contains a high-confidence cor
 
 **Q: What does Auto-tune do?**
 
-It analyzes the texture from the sample and target colors and sets the tolerance, saturation strictness, and related values for you. It works best right after sampling a color.
+It analyzes the texture from the sample and target colors and sets the tolerance, saturation strictness, and related values for you. It runs the AI mask suggestion at the sampled position and uses that part's extent so that shadows and highlights are not missed (the AI models are required). It works best right after sampling a color.
 
 **Q: Does it support PSD layer structures?**
 

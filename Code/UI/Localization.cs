@@ -509,6 +509,17 @@ namespace Iroca
             ? "この AI 機能には Unity Sentis パッケージが必要です。下のボタンで導入すると有効になります（不要なら導入しなければ従来どおりの動作で、ストレージも消費しません）。"
             : "This AI feature needs the Unity Sentis package. Install it with the button below to enable it (skip it to keep the classic behavior with no extra storage).";
         public static string AiSuggestInstallSentis => IsJapanese ? "AI 機能を有効化（Sentis を導入）" : "Enable AI feature (install Sentis)";
+        // 起動時の準備ダイアログ(MaskSuggestSetupPrompt)。
+        public static string AiSetupTitle => IsJapanese ? "いろか — AI の準備" : "Iroca — AI setup";
+        public static string AiSetupSentisBody => IsJapanese
+            ? "自動調整と AI マスク提案には、Unity Sentis {0} と AI モデル（約 44 MB）が必要です。\n\n今すぐ Sentis を Package Manager から導入しますか？\n導入後に Unity が再コンパイルし、続けて AI モデルのダウンロードを案内します。\n\n「あとで」を選ぶと自動調整は使えません（マスク欄の「AI マスク提案」からいつでも導入できます）。"
+            : "Auto-tune and AI Mask Suggestion require Unity Sentis {0} and the AI models (about 44 MB).\n\nInstall Sentis via the Package Manager now?\nUnity will recompile, then you will be asked to download the models.\n\nIf you choose \u201cLater\u201d, Auto-tune stays unavailable (you can install any time from \u201cAI Mask Suggestion\u201d in the mask section).";
+        public static string AiSetupModelBody => IsJapanese
+            ? "自動調整と AI マスク提案に必要な AI モデル（MobileSAM、約 44 MB）をダウンロードします。\n\n保存先: {0}\n取得元: {1}\n\n「あとで」を選ぶと自動調整は使えません（マスク欄の「AI マスク提案」からいつでもダウンロードできます）。"
+            : "Download the AI models (MobileSAM, about 44 MB) required by Auto-tune and AI Mask Suggestion.\n\nSave to: {0}\nSource: {1}\n\nIf you choose \u201cLater\u201d, Auto-tune stays unavailable (you can download any time from \u201cAI Mask Suggestion\u201d in the mask section).";
+        public static string AiSetupInstall => IsJapanese ? "導入する" : "Install";
+        public static string AiSetupDownload => IsJapanese ? "ダウンロード" : "Download";
+        public static string AiSetupLater => IsJapanese ? "あとで" : "Later";
         public static string AiSuggestInstallSentisTooltip => IsJapanese
             ? "Unity Package Manager 経由で {0}（バージョン {1}）を導入します\n導入後 Unity が自動で再コンパイルし、AI マスク提案が使えるようになります\n（Package Manager から手動で「Add package by name」しても同じです）"
             : "Installs {0} (version {1}) via the Unity Package Manager.\nUnity recompiles automatically afterward and AI mask suggestion becomes available.\n(Equivalent to adding it manually via 'Add package by name'.)";
@@ -723,6 +734,32 @@ namespace Iroca
         public static string AutoTuneEvidenceFetching => IsJapanese
             ? "AI 提案を取得中…"
             : "Fetching AI suggestion…";
+        // AI の準備(モデルロード・埋め込み計算・別の提案処理)が終わるのを待っている間。
+        public static string AutoTuneEvidencePreparing => IsJapanese
+            ? "AI の準備を待っています…"
+            : "Waiting for the AI to get ready…";
+        // 自動調整は AI 提案を証拠にする。AI が無いときは従来導出へ落とさず中止して案内する。
+        public static string AutoTuneNeedsAi => IsJapanese
+            ? "自動調整には AI モデルが必要です。マスク欄の「AI マスク提案」から導入・ダウンロードしてください"
+            : "Auto-tune requires the AI models. Install/download them from \u201cAI Mask Suggestion\u201d in the mask section";
+        public static string AutoTuneAiError => IsJapanese
+            ? "AI を利用できないため自動調整を中止しました: {0}"
+            : "Auto-tune aborted because the AI is unavailable: {0}";
+        public static string AutoTuneSourceNotShared => IsJapanese
+            ? "元画像を AI と共有できないため自動調整できません。テクスチャを開き直してください"
+            : "Auto-tune cannot share the source image with the AI. Reopen the texture";
+        public static string AutoTuneNoSamplePosition => IsJapanese
+            ? "スポイトで取った位置がないため、AI 提案を参照せずに解析します（スポイトで色を取ると AI 提案を参照します）"
+            : "No eyedropper position; analyzing without the AI suggestion (pick the color with the eyedropper to use it)";
+        public static string AutoTuneEvidenceTimeout => IsJapanese
+            ? "AI の準備が終わらなかったため自動調整を中止しました。しばらくしてからもう一度お試しください"
+            : "Auto-tune aborted: the AI did not get ready in time. Please try again later";
+        public static string AutoTuneEvidenceCancelled => IsJapanese
+            ? "AI 提案を取得できなかったため自動調整を中止しました"
+            : "Auto-tune aborted: the AI suggestion could not be obtained";
+        public static string AutoTuneEvidenceUnusable => IsJapanese
+            ? "AI 提案が背景まで広がり証拠に使えなかったため、AI 提案を参照せずに解析しました"
+            : "The AI suggestion spread into the background and was unusable; analyzed without it";
         public static string AnalyzingTexture => IsJapanese ? "テクスチャを解析中…" : "Analyzing texture…";
         public static string AutoTuneTooltip => IsJapanese
             ? "サンプルカラーと変更先カラーから、テクスチャを解析して許容範囲・彩度制限などのパラメータを自動的に決定します。\n上の 2 色（サンプルカラー・変更先カラー）を決めてから押してください。下の項目が結果で上書きされます。"
