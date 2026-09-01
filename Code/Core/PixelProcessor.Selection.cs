@@ -612,53 +612,9 @@ namespace Iroca
                 });
                 if (!anyCandidate) return;
 
-                // 画像端の未選択画素を種に、未選択画素だけを 4 近傍で伝播させる。
-                //
-                // 旧実装は前方/後方のラスタスイープ対を最大 EnclosedNeutralMaxSweeps 回まわして
-                // 到達集合を近似していた(全画素を毎スイープ 2 回、単スレッド)。ここでは明示スタックの
-                // 4 近傍探索へ置き換える。探索が返すのは同じ伝播規則の**不動点そのもの**で、各画素の
-                // 訪問は 1 回きり。スイープが収束(changed=false)して終わった場合の結果と完全に一致し、
-                // 反復上限で打ち切られていた場合だけ「本来到達できるはずの画素」が追加で開領域になる
-                // (= 打ち切りの取りこぼしが無くなる方向。復帰は閉領域限定なので過剰復帰は起きない)。
-                int[] stack = s_intPool.Rent(len);   // パック座標 (y<<16)|x。各画素は 1 回だけ積む
-                try
-                {
-                    int sp = 0;
-                    // 種: 画像端の未選択画素(旧実装の `y==0 || x==0 || y==h-1 || x==w-1` 条件と同じ)
-                    for (int x = 0; x < w; x++)
-                    {
-                        int iTop = x, iBot = (h - 1) * w + x;
-                        if (free[iTop] && !open[iTop]) { open[iTop] = true; stack[sp++] = x; }
-                        if (free[iBot] && !open[iBot]) { open[iBot] = true; stack[sp++] = ((h - 1) << 16) | x; }
-                    }
-                    for (int y = 0; y < h; y++)
-                    {
-                        int iL = y * w, iR = y * w + (w - 1);
-                        if (free[iL] && !open[iL]) { open[iL] = true; stack[sp++] = (y << 16); }
-                        if (free[iR] && !open[iR]) { open[iR] = true; stack[sp++] = (y << 16) | (w - 1); }
-                    }
-
-                    int visited = 0;
-                    while (sp > 0)
-                    {
-                        int packed = stack[--sp];
-                        int x = packed & 0xFFFF, y = packed >> 16;
-                        int i = y * w + x;
-                        if (x > 0 && free[i - 1] && !open[i - 1])
-                        { open[i - 1] = true; stack[sp++] = (y << 16) | (x - 1); }
-                        if (x < w - 1 && free[i + 1] && !open[i + 1])
-                        { open[i + 1] = true; stack[sp++] = (y << 16) | (x + 1); }
-                        if (y > 0 && free[i - w] && !open[i - w])
-                        { open[i - w] = true; stack[sp++] = ((y - 1) << 16) | x; }
-                        if (y < h - 1 && free[i + w] && !open[i + w])
-                        { open[i + w] = true; stack[sp++] = ((y + 1) << 16) | x; }
-                        if ((++visited & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
-                    }
-                }
-                finally
-                {
-                    s_intPool.Return(stack);
-                }
+                // 画像端の未選択画素を種に、未選択画素だけを 4 近傍で伝播させる(開領域 = open)。
+                // 探索本体は閉領域ハイライト復帰(RecoverEnclosedHighlight)と共有する。
+                MarkOpenFromBorder(free, open, w, h, ct);
 
                 // 閉領域(画像端から到達できなかった未選択画素)のうち、ゲートが落としたはずの
                 // 中性画素を full strength で戻す。
@@ -683,6 +639,62 @@ namespace Iroca
             {
                 s_boolPool.Return(free);
                 s_boolPool.Return(open);
+            }
+        }
+
+        /// <summary>
+        /// 画像端の未選択画素(free)を種に、未選択画素だけを 4 近傍で伝播させ、到達できた画素を open に
+        /// 立てる(open = 開領域。free ∧ !open が「選択に囲まれた閉領域」)。open は呼び出し側が全 false に
+        /// 初期化しておく。閉領域復帰(RecoverEnclosedNeutral / RecoverEnclosedHighlight)が共有する。
+        ///
+        /// 旧実装(RecoverEnclosedNeutral 内)は前方/後方のラスタスイープ対を最大 EnclosedNeutralMaxSweeps 回
+        /// まわして到達集合を近似していた(全画素を毎スイープ 2 回、単スレッド)。ここでは明示スタックの
+        /// 4 近傍探索で、各画素の訪問は 1 回きり。探索が返すのは同じ伝播規則の**不動点そのもの**で、
+        /// スイープが収束(changed=false)して終わった場合の結果と完全に一致し、反復上限で打ち切られて
+        /// いた場合だけ「本来到達できるはずの画素」が追加で開領域になる(= 打ち切りの取りこぼしが無くなる
+        /// 方向。復帰は閉領域限定なので過剰復帰は起きない)。
+        /// </summary>
+        private static void MarkOpenFromBorder(bool[] free, bool[] open, int w, int h, CancellationToken ct)
+        {
+            int len = w * h;
+            int[] stack = s_intPool.Rent(len);   // パック座標 (y<<16)|x。各画素は 1 回だけ積む
+            try
+            {
+                int sp = 0;
+                // 種: 画像端の未選択画素(旧実装の `y==0 || x==0 || y==h-1 || x==w-1` 条件と同じ)
+                for (int x = 0; x < w; x++)
+                {
+                    int iTop = x, iBot = (h - 1) * w + x;
+                    if (free[iTop] && !open[iTop]) { open[iTop] = true; stack[sp++] = x; }
+                    if (free[iBot] && !open[iBot]) { open[iBot] = true; stack[sp++] = ((h - 1) << 16) | x; }
+                }
+                for (int y = 0; y < h; y++)
+                {
+                    int iL = y * w, iR = y * w + (w - 1);
+                    if (free[iL] && !open[iL]) { open[iL] = true; stack[sp++] = (y << 16); }
+                    if (free[iR] && !open[iR]) { open[iR] = true; stack[sp++] = (y << 16) | (w - 1); }
+                }
+
+                int visited = 0;
+                while (sp > 0)
+                {
+                    int packed = stack[--sp];
+                    int x = packed & 0xFFFF, y = packed >> 16;
+                    int i = y * w + x;
+                    if (x > 0 && free[i - 1] && !open[i - 1])
+                    { open[i - 1] = true; stack[sp++] = (y << 16) | (x - 1); }
+                    if (x < w - 1 && free[i + 1] && !open[i + 1])
+                    { open[i + 1] = true; stack[sp++] = (y << 16) | (x + 1); }
+                    if (y > 0 && free[i - w] && !open[i - w])
+                    { open[i - w] = true; stack[sp++] = ((y - 1) << 16) | x; }
+                    if (y < h - 1 && free[i + w] && !open[i + w])
+                    { open[i + w] = true; stack[sp++] = ((y + 1) << 16) | x; }
+                    if ((++visited & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
+                }
+            }
+            finally
+            {
+                s_intPool.Return(stack);
             }
         }
 

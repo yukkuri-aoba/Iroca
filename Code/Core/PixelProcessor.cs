@@ -283,13 +283,15 @@ namespace Iroca
                     string selKey = null;
                     float[] cachedStrength = null;
                     ulong[] cachedKeep = null;
+                    ulong[] cachedForced = null;
                     bool selCached = false;
                     if (selectionCache != null && isFullImagePath)
                     {
                         selKey = BuildSelectionKey(zone, edgeFeather, antiAliasCleanup, holeFillPasses,
                             holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp, commonMask, zoneMask,
                             zoneInclude, maskW, maskH);
-                        selCached = selectionCache.TryGet(zone.id, selKey, w, h, out cachedStrength, out cachedKeep);
+                        selCached = selectionCache.TryGet(zone.id, selKey, w, h,
+                            out cachedStrength, out cachedKeep, out cachedForced);
                     }
 
                     // 含めるマスクをテクスチャ解像度の bool[] へ展開する(除外優先を焼き込む)。
@@ -407,6 +409,45 @@ namespace Iroca
                     {
                         GrowHighlightBand(strength, originalPixels, pixH, pixS, pixV, zone, w, h, cancellationToken);
                         debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, strength, w, h);
+                    }
+
+                    // 1.a.3 閉領域ハイライト復帰: 選択に囲まれ、グロー(本体より明るい周囲)に縁取られた
+                    //       「色相の回った有彩の芯」を空間条件で戻す(PixelProcessor.Highlight.cs の
+                    //       RecoverEnclosedHighlight 参照)。連結性は大域演算なのでフル画像で解き、復帰画素の
+                    //       ビット集合を parityCache(詳細プレビューのクロップ転写)と選択キャッシュ(ヒット時の
+                    //       再公開)に持たせる。クロップは色だけでは芯を選べない(それがこの復帰の存在理由)ので、
+                    //       転写が無いとズーム位置で芯の色が変わる。ハイライト補助(highlightRecovery)の一部。
+                    ulong[] forcedBits = null;
+                    if (zone.mode == SelectionMode.ColorPick && zone.highlightRecovery)
+                    {
+                        if (selCached)
+                        {
+                            forcedBits = cachedForced;
+                        }
+                        else if (isFullImagePath)
+                        {
+                            var bits = (parityCache != null || selectionCache != null)
+                                ? new ulong[(len + 63) >> 6] : null;
+                            int nForced = RecoverEnclosedHighlight(strength, originalPixels,
+                                pixH, pixS, pixV, zone, w, h, bits, cancellationToken);
+                            if (nForced > 0)
+                            {
+                                forcedBits = bits;
+                                debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, strength, w, h);
+                            }
+                        }
+                        else if (parityCache != null
+                                 && parityCache.fullW == fullW && parityCache.fullH == fullH)
+                        {
+                            var fb = parityCache.GetForced(zone.id);
+                            if (fb != null)
+                                ApplyCachedForcedMask(strength, w, h, originX, originY, fullW, fb);
+                        }
+                        if (isFullImagePath && parityCache != null)
+                        {
+                            parityCache.SetFullSize(w, h);
+                            parityCache.SetForced(zone.id, forcedBits);   // null=該当なし(旧エントリを消す)
+                        }
                     }
 
                     _phaseTicks[PhHighlight] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
@@ -631,7 +672,7 @@ namespace Iroca
                     // 書き換える。ミス時のみ、この時点の strength(コピー)+ FF keep を選択キャッシュへ保存し、
                     // 次回「再着色のみ変更」した再生成で復元して選択フェーズを丸ごと省く(出力ビット不変)。
                     if (!selCached && selectionCache != null && isFullImagePath)
-                        selectionCache.Store(zone.id, selKey, strength, keepBitsForCache, w, h);
+                        selectionCache.Store(zone.id, selKey, strength, keepBitsForCache, forcedBits, w, h);
 
                     // 3b. AA 境界の α 分解（オプション）：strength が 0 < s < interiorThreshold の
                     //     ピクセルを「α×FG + (1-α)×BG」と見て元テクスチャの合成を逆算し、
