@@ -250,5 +250,25 @@ namespace Iroca
                 }
             }
         }
+
+        // 閉領域ハイライト復帰(フル画像で確定した復帰画素のビット集合)を部分クロップへ転写する(strength=1)。
+        // keep(AND で絞る)の鏡像で OR で足す。フル画像側で復帰画素は FF の前に strength=1 になっているので
+        // keep にも含まれており、この後の keep 転写で落ちない。
+        private static void ApplyCachedForcedMask(
+            float[] strength, int w, int h, int originX, int originY, int fullW, ulong[] forced)
+        {
+            for (int y = 0; y < h; y++)
+            {
+                int rowOff = y * w;
+                int fRow = (y + originY) * fullW + originX;
+                for (int x = 0; x < w; x++)
+                {
+                    int gi = fRow + x;
+                    int word = gi >> 6;
+                    if (word < 0 || word >= forced.Length) continue;
+                    if ((forced[word] & (1UL << (gi & 63))) != 0UL) strength[rowOff + x] = 1f;
+                }
+            }
+        }
     }
 }

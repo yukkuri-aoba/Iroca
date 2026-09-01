@@ -34,6 +34,7 @@ namespace Iroca
             public string Key;
             public float[] Strength;   // マスク再適用直後の strength のコピー(len=w*h)
             public ulong[] Keep;       // flood fill keep(毎回 new されるので参照保持で安全)。FF OFF は null
+            public ulong[] Forced;     // 閉領域ハイライト復帰の画素ビット(parityCache へ再公開する)。該当なしは null
             public int W, H;
         }
 
@@ -42,27 +43,28 @@ namespace Iroca
         // (どちらもバックグラウンドスレッド)。Dictionary はスレッド安全でないので lock で保護する。
         private readonly object _gate = new object();
 
-        public bool TryGet(string zoneId, string key, int w, int h, out float[] strength, out ulong[] keep)
+        public bool TryGet(string zoneId, string key, int w, int h,
+            out float[] strength, out ulong[] keep, out ulong[] forced)
         {
-            strength = null; keep = null;
+            strength = null; keep = null; forced = null;
             if (string.IsNullOrEmpty(zoneId)) return false;
             lock (_gate)
             {
                 if (_byZone.TryGetValue(zoneId, out var e) && e.Key == key && e.W == w && e.H == h)
                 {
-                    strength = e.Strength; keep = e.Keep; return true;
+                    strength = e.Strength; keep = e.Keep; forced = e.Forced; return true;
                 }
             }
             return false;
         }
 
-        public void Store(string zoneId, string key, float[] strength, ulong[] keep, int w, int h)
+        public void Store(string zoneId, string key, float[] strength, ulong[] keep, ulong[] forced, int w, int h)
         {
             if (string.IsNullOrEmpty(zoneId)) return;
             int len = w * h;
             var copy = new float[len];
             Array.Copy(strength, copy, len);
-            lock (_gate) { _byZone[zoneId] = new Entry { Key = key, Strength = copy, Keep = keep, W = w, H = h }; }
+            lock (_gate) { _byZone[zoneId] = new Entry { Key = key, Strength = copy, Keep = keep, Forced = forced, W = w, H = h }; }
         }
 
         public void Clear() { lock (_gate) { _byZone.Clear(); } }

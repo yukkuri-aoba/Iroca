@@ -23,6 +23,8 @@ namespace Iroca
     // クロップ内統計で再計算すると値がズレ、ズーム/スクロールで選択や出力色が変わってしまう。これを防ぐ
     // ため、フル画像で 1 度だけ解いた結果をゾーン別に保持してクロップ処理へ転写する。
     //  ・keep  : 連結成分アンカリング(flood fill)で「残す」と判定された画素ビット(=選択結果)。
+    //  ・forced: 閉領域ハイライト復帰(RecoverEnclosedHighlight)がフル画像で戻した画素ビット。
+    //            クロップは色だけでは芯を選べない(復帰の存在理由)ので、keep(AND)とは別に OR で転写する。
     //  ・stats : 再着色アンカー(autoRecolorAnchor)・wash 実効サンプル・無彩再着色の領域 L 統計。
     //            いずれもマッチ領域全体の統計から導出されるので、クロップ領域だけでは別の色になる。
     internal sealed class PreviewParityCache
@@ -40,6 +42,7 @@ namespace Iroca
         // 検出できなかった（レビュー §4 中）。Dictionary は並行アクセスで無限ループや破損を起こす。
         private readonly object _lock = new object();
         private readonly Dictionary<string, ulong[]> _keep = new Dictionary<string, ulong[]>();
+        private readonly Dictionary<string, ulong[]> _forced = new Dictionary<string, ulong[]>();
         private readonly Dictionary<string, ZoneRecolorStats> _stats = new Dictionary<string, ZoneRecolorStats>();
 
         // フル画像処理が確定した入力寸法。keep / stats のどちらを書く場合も最初に設定する
@@ -56,6 +59,19 @@ namespace Iroca
         {
             if (string.IsNullOrEmpty(zoneId)) return null;
             lock (_lock) return _keep.TryGetValue(zoneId, out var k) ? k : null;
+        }
+
+        /// <summary>閉領域ハイライト復帰の画素ビット(フル画像で確定)。null=該当なし(旧エントリを消す)。</summary>
+        public void SetForced(string zoneId, ulong[] forced)
+        {
+            if (string.IsNullOrEmpty(zoneId)) return;
+            lock (_lock) _forced[zoneId] = forced;
+        }
+
+        public ulong[] GetForced(string zoneId)
+        {
+            if (string.IsNullOrEmpty(zoneId)) return null;
+            lock (_lock) return _forced.TryGetValue(zoneId, out var f) ? f : null;
         }
 
         public void SetStats(string zoneId, in ZoneRecolorStats s)

@@ -120,7 +120,9 @@ namespace Iroca
         private const float ShadowValueThresholdFrac = 0.75f;
         // ハイライト免除を始める明度ヘッドルーム(上方 1-sV に対する比)。ShadowValueThresholdFrac の
         // 鏡像(0.25 = 1 - 0.75)で、明暗対称に免除を始める。
-        private const float HighlightValueHeadroomFrac = 0.25f;
+        // internal: PixelProcessor.RecoverEnclosedHighlight が「本体の典型明度より明るい周囲(グロー)」の
+        // 判定に同じヘッドルーム比を使う(手動同期による定数ドリフトを避ける)。
+        internal const float HighlightValueHeadroomFrac = 0.25f;
         // シャドウ/ハイライト免除ランプの幅(利用可能レンジ比)。免除が 0→1 へ立ち上がる区間長。
         // シャドウは sV×この値、ハイライトは (1-sV)×この値。
         private const float ForgivenessRangeFrac = 0.6f;
