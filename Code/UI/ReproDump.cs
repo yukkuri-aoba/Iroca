@@ -23,7 +23,11 @@ namespace Iroca
     ///   zone{i}_exclude.png / zone{i}_include.png   ゾーン別マスク（存在するものだけ）
     ///   meta.json         アセットパス・寸法・バージョン・ゾーン対応表・extraSamples・
     ///                     sampleUV(スポイト位置、下原点 UV)・autoTune(最後の自動調整の由来:
-    ///                     証拠の有無・正規化の有無・導出診断。自動調整していなければ空)
+    ///                     証拠の有無・正規化の有無・導出診断。自動調整していなければ空)・
+    ///                     自動調整の入力(autoTuneInputSample/Target・autoTuneEvidence・
+    ///                     autoTuneMaskUsed・autoTuneParamsIntact。ワンショットの再現用 =
+    ///                     test_repro_cases::test_repro_case_autotune が --autotune で導出し直す)
+    ///   zone{i}_evidence.png  最後の自動調整で証拠にした AI 提案セグメント(白=素材。テクスチャ解像度)
     /// </summary>
     internal static class ReproDump
     {
@@ -96,17 +100,32 @@ namespace Iroca
                 createdAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
             };
             if (snap != null)
-            {
                 WriteMaskPng(Path.Combine(dir, "mask_common.png"), snap.common, snap.width, snap.height);
-                for (int i = 0; i < zones.Count; i++)
+            for (int i = 0; i < zones.Count; i++)
+            {
+                var zm = new ZoneMetaDto { name = zones[i].name, id = zones[i].id };
+                if (zones[i].extraSamples != null)
+                    foreach (var c in zones[i].extraSamples)
+                        zm.extraSamples.AddRange(new[] { c.r, c.g, c.b });
+                if (zones[i].HasSampleUV)
+                    zm.sampleUV.AddRange(new[] { zones[i].sampleUV.x, zones[i].sampleUV.y });
+                zm.autoTune = win.AutoTuneProvenance(zones[i].id);
+                // 自動調整の入力(ワンショット再現用)。証拠はテクスチャ解像度のときだけ書く
+                // (テクスチャ差し替え後の古い証拠は寸法が合わないので載せない)。
+                if (win.TryGetAutoTuneInput(zones[i].id, out var ati) && ati.texW == w && ati.texH == h)
                 {
-                    var zm = new ZoneMetaDto { name = zones[i].name, id = zones[i].id };
-                    if (zones[i].extraSamples != null)
-                        foreach (var c in zones[i].extraSamples)
-                            zm.extraSamples.AddRange(new[] { c.r, c.g, c.b });
-                    if (zones[i].HasSampleUV)
-                        zm.sampleUV.AddRange(new[] { zones[i].sampleUV.x, zones[i].sampleUV.y });
-                    zm.autoTune = win.AutoTuneProvenance(zones[i].id);
+                    zm.autoTuneInputSample.AddRange(new[] { ati.sample.r, ati.sample.g, ati.sample.b });
+                    zm.autoTuneInputTarget.AddRange(new[] { ati.target.r, ati.target.g, ati.target.b });
+                    zm.autoTuneMaskUsed = ati.maskUsed;
+                    zm.autoTuneParamsIntact = IrocaWindow.AutoTuneParamsIntact(zones[i], ati);
+                    if (ati.evidence != null && ati.evW == w && ati.evH == h && ati.evidence.Length >= w * h)
+                    {
+                        zm.autoTuneEvidence = $"zone{i}_evidence.png";
+                        WriteBoolPng(Path.Combine(dir, zm.autoTuneEvidence), ati.evidence, w, h);
+                    }
+                }
+                if (snap != null)
+                {
                     ulong[] packed;
                     if (snap.zones != null && snap.zones.TryGetValue(zones[i].id, out packed) && packed != null)
                     {
@@ -118,8 +137,8 @@ namespace Iroca
                         zm.includeMask = $"zone{i}_include.png";
                         WriteMaskPng(Path.Combine(dir, zm.includeMask), packed, snap.width, snap.height);
                     }
-                    meta.zones.Add(zm);
                 }
+                meta.zones.Add(zm);
             }
             File.WriteAllText(Path.Combine(dir, "meta.json"), JsonUtility.ToJson(meta, true));
             return dir;
@@ -195,6 +214,17 @@ namespace Iroca
             }
         }
 
+        // bool[](下原点、テクスチャ解像度)を白=真の PNG に書く(証拠マスク用)。
+        private static void WriteBoolPng(string path, bool[] on, int w, int h)
+        {
+            var px = new Color32[w * h];
+            var yes = new Color32(255, 255, 255, 255);
+            var no = new Color32(0, 0, 0, 255);
+            for (int i = 0; i < px.Length; i++)
+                px[i] = on[i] ? yes : no;
+            WritePng(path, px, w, h);
+        }
+
         private static void WriteMaskPng(string path, ulong[] packed, int w, int h)
         {
             var px = new Color32[w * h];
@@ -219,6 +249,14 @@ namespace Iroca
             public List<float> sampleUV = new List<float>();
             // 最後に適用した自動調整の由来(IrocaWindow.AutoTuneProvenance)。未実行なら空。
             public string autoTune = "";
+            // 自動調整の入力(ワンショット再現用。IrocaWindow.AutoTuneInput)。未実行なら空。
+            // sample は正規化「前」のスポイト色(zones.json の sample は正規化後)。
+            public List<float> autoTuneInputSample = new List<float>();
+            public List<float> autoTuneInputTarget = new List<float>();
+            public string autoTuneEvidence = "";     // zone{i}_evidence.png(証拠なし導出なら空)
+            public bool autoTuneMaskUsed;
+            // 書き出し時点でゾーンのパラメータが自動調整の適用値のまま(手で触っていない)か。
+            public bool autoTuneParamsIntact;
         }
 
         [Serializable]

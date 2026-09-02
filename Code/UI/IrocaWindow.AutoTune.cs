@@ -50,6 +50,54 @@ namespace Iroca
             if (_autoTuneProvenance == null || string.IsNullOrEmpty(zoneId)) return "";
             return _autoTuneProvenance.TryGetValue(zoneId, out var s) ? s : "";
         }
+
+        // 最後に適用した自動調整の「入力」(ゾーン id 毎)。再現データ書き出し(ReproDump)が
+        // meta.json / zone{i}_evidence.png に載せ、dev_safe の test_repro_cases が同じ入力から
+        // 導出をやり直す(ワンショットの再現)。書き出しの zones.json は自動調整「後」の値なので、
+        // これが無いと「自動調整がどう導出したか」は後から再現できない(2026-09-02)。
+        // テクスチャ固有の一時情報なので Undo/プリセットには載せない。
+        internal sealed class AutoTuneInput
+        {
+            public Color sample;          // 導出に渡したサンプル色(正規化前のスポイト色)
+            public Color target;
+            public bool[] evidence;       // 証拠マスク(下原点。null=証拠なし導出)
+            public int evW, evH;
+            public int texW, texH;
+            public bool maskUsed;         // 除外マスク(共通∪ゾーン別)を導出に渡したか
+            public ZoneAutoTuner.TuneResult applied;
+        }
+        [System.NonSerialized]
+        private System.Collections.Generic.Dictionary<string, AutoTuneInput> _autoTuneInputs;
+
+        internal bool TryGetAutoTuneInput(string zoneId, out AutoTuneInput input)
+        {
+            input = null;
+            if (_autoTuneInputs == null || string.IsNullOrEmpty(zoneId)) return false;
+            return _autoTuneInputs.TryGetValue(zoneId, out input) && input != null;
+        }
+
+        // ゾーンのパラメータが、その自動調整の適用値のまま(手で触っていない)か。
+        // 再現側はこれが真のときだけ「再導出した値 = 書き出しの値」を契約にできる。
+        internal static bool AutoTuneParamsIntact(ColorZone zone, AutoTuneInput input)
+        {
+            if (zone == null || input == null) return false;
+            var r = input.applied;
+            static bool Eq(float a, float b) => Mathf.Abs(a - b) <= 1e-5f;
+            var expectedSample = r.hasNormalizedSample ? r.normalizedSample : input.sample;
+            int autoCount = r.autoSamples != null ? r.autoSamples.Count : 0;
+            return Eq(zone.tolerance, r.tolerance)
+                && Eq(zone.saturationStrictness, r.saturationStrictness)
+                && Eq(zone.saturationGuard, r.saturationGuard)
+                && Eq(zone.chromaThreshold, r.chromaThreshold)
+                && zone.highlightRecovery == r.highlightRecovery
+                && Eq(zone.valueBlend, r.valueBlend)
+                && Eq(zone.edgeSoftness, r.edgeSoftness)
+                && Eq(zone.shadowDesaturation, r.shadowDesaturation)
+                && Eq(zone.shadowForgivenessSatMin, r.shadowForgivenessSatMin)
+                && Eq(zone.sampleColor.r, expectedSample.r) && Eq(zone.sampleColor.g, expectedSample.g)
+                && Eq(zone.sampleColor.b, expectedSample.b)
+                && (zone.extraSamples != null ? zone.extraSamples.Count : 0) == autoCount;
+        }
         // 証拠待ちの上限。埋め込み計算(テクスチャ毎 1 回)は CPU バックエンドの大きな
         // テクスチャで数十秒かかり得るので、短い期限で諦めて従来導出へ落とさない
         // (以前の 8 秒は「待たない方針」の名残。期限切れは中止して案内する)。
@@ -263,6 +311,13 @@ namespace Iroca
                     // 導出結果 → ゾーン/グローバルの写像は TuneResult.ApplyTo が単一の正
                     // （headless ハーネスの --autotune と共有。ここに項目を並べ直さない）。
                     result.ApplyTo(targetZone, _session);
+                    _autoTuneInputs ??= new System.Collections.Generic.Dictionary<string, AutoTuneInput>();
+                    _autoTuneInputs[targetZone.id] = new AutoTuneInput
+                    {
+                        sample = zoneSnapshot.sampleColor, target = zoneSnapshot.targetColor,
+                        evidence = evidence, evW = evW, evH = evH, texW = texW, texH = texH,
+                        maskUsed = excluded != null, applied = result,
+                    };
                     MarkPreviewDirty();
                     // 証拠が実際に導出に使われたか（汚染セグメント等で従来へ戻った場合は "fallback"）。
                     bool usedEvidence = !string.IsNullOrEmpty(result.evidenceDiag)
