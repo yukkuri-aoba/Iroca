@@ -95,6 +95,43 @@ namespace Iroca
             // ハーネス/テストが導出の内訳(ツヤ画素数・tolerance の合成内訳等)を観測するためだけの
             // フィールドで、製品 UI は使わない。
             public string evidenceDiag;
+
+            /// <summary>
+            /// 導出結果をゾーン（と、applyGlobals ならセッションのグローバル設定）へ適用する。
+            /// 製品 UI（IrocaWindow.AutoTune の apply）と headless ハーネス（--autotune）は必ずここを通す。
+            /// 以前は両者が同じ項目を手書きで並べる二重実装で、片方に項目を足し忘れても UI は
+            /// ハーネスのコンパイル対象外なのでどのゲートにも掛からず、「テストが測る自動調整」と
+            /// 「ユーザーが得る自動調整」が黙って別物になり得た（2026-09-02 レビュー）。
+            /// ここが単一の正で、ハーネスの対象（出荷ゲート対象）に入る。フィールドを増やしたら
+            /// ここにも書く（dev_safe の test_autotune_apply_single_source が機械検査する）。
+            /// </summary>
+            public void ApplyTo(ColorZone zone, IrocaSessionState session)
+            {
+                if (zone == null) return;
+                // スポイト位置の正規化: クリックした 1 texel がツヤや深い影でも、パーツの代表地色を
+                // 基準色に据え直す。以降の選択・再着色がクリック位置に依存しなくなる
+                // （スウォッチの色も代表地色へ変わるので、何が基準かが UI から見て分かる）。
+                if (hasNormalizedSample) zone.sampleColor = normalizedSample;
+                zone.tolerance               = tolerance;
+                zone.saturationStrictness    = saturationStrictness;
+                zone.saturationGuard         = saturationGuard;
+                zone.chromaThreshold         = chromaThreshold;
+                zone.highlightRecovery       = highlightRecovery;
+                zone.valueBlend              = valueBlend;
+                zone.edgeSoftness            = edgeSoftness;
+                zone.shadowDesaturation      = shadowDesaturation;
+                zone.shadowForgivenessSatMin = shadowForgivenessSatMin;
+                // 自動トーン抽出で得た内部サンプル（暗部/中間/明部の代表色）。ユーザーが複数スポイトする
+                // 代わりにアルゴリズムがパーツの濃淡を自動取得した結果で、選択（マッチング）の和集合に
+                // 使われる。出力色は主サンプル基準のまま変わらない。
+                zone.extraSamples = autoSamples ?? new List<Color>();
+                if (applyGlobals && session != null)
+                {
+                    session.antiAliasCleanup   = antiAliasCleanup;
+                    session.useDecontamination = useDecontamination;
+                }
+                zone.UpdateCacheIfNeeded();
+            }
         }
 
         /// <summary>

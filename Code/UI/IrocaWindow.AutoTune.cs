@@ -260,28 +260,9 @@ namespace Iroca
                     if (targetZone == null) return;
 
                     Undo.RegisterCompleteObjectUndo(this, "Auto-tune Zone");
-                    // スポイト位置の正規化: クリックした 1 texel がツヤや深い影でも、パーツの
-                    // 代表地色を基準色に据え直す。以降の選択・再着色がクリック位置に依存しなくなる
-                    // （スウォッチの色も代表地色へ変わるので、何が基準かが UI から見て分かる）。
-                    if (result.hasNormalizedSample)
-                        targetZone.sampleColor         = result.normalizedSample;
-                    targetZone.tolerance               = result.tolerance;
-                    targetZone.saturationStrictness    = result.saturationStrictness;
-                    targetZone.saturationGuard         = result.saturationGuard;
-                    targetZone.chromaThreshold         = result.chromaThreshold;
-                    targetZone.highlightRecovery       = result.highlightRecovery;
-                    targetZone.valueBlend              = result.valueBlend;
-                    targetZone.edgeSoftness            = result.edgeSoftness;
-                    targetZone.shadowDesaturation      = result.shadowDesaturation;
-                    targetZone.shadowForgivenessSatMin = result.shadowForgivenessSatMin;
-                    // ユーザーが複数スポイトする代わりに、アルゴリズムがパーツの濃淡を自動取得した結果。
-                    // 選択（マッチング）の和集合に使われ、出力色は主サンプル基準のまま変わらない。
-                    targetZone.extraSamples = result.autoSamples ?? new System.Collections.Generic.List<Color>();
-                    if (result.applyGlobals)
-                    {
-                        antiAliasCleanup   = result.antiAliasCleanup;
-                        useDecontamination = result.useDecontamination;
-                    }
+                    // 導出結果 → ゾーン/グローバルの写像は TuneResult.ApplyTo が単一の正
+                    // （headless ハーネスの --autotune と共有。ここに項目を並べ直さない）。
+                    result.ApplyTo(targetZone, _session);
                     MarkPreviewDirty();
                     // 証拠が実際に導出に使われたか（汚染セグメント等で従来へ戻った場合は "fallback"）。
                     bool usedEvidence = !string.IsNullOrEmpty(result.evidenceDiag)

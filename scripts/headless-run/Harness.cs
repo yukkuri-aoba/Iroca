@@ -374,27 +374,15 @@ namespace Iroca
                         : useMask
                             ? ZoneAutoTuner.Analyze(pixels, w, h, z, session, common, mw, mh)
                             : ZoneAutoTuner.Analyze(pixels, w, h, z, session, excluded: null, maskW: 0, maskH: 0);
-                    // スポイト位置の正規化（実機 RunAutoTune の apply と同じ順序で適用する）。
-                    if (tune.hasNormalizedSample) z.sampleColor = tune.normalizedSample;
-                    z.tolerance               = tune.tolerance;
-                    z.saturationStrictness    = tune.saturationStrictness;
-                    z.saturationGuard         = tune.saturationGuard;
-                    z.chromaThreshold         = tune.chromaThreshold;
-                    z.highlightRecovery       = tune.highlightRecovery;
-                    z.valueBlend              = tune.valueBlend;
-                    z.edgeSoftness            = tune.edgeSoftness;
-                    z.shadowDesaturation      = tune.shadowDesaturation;
-                    z.shadowForgivenessSatMin = tune.shadowForgivenessSatMin;
-                    // 自動トーン抽出で得た内部サンプル（暗部/中間/明部の代表色）を適用する。
-                    // これにより --autotune は実機 RunAutoTune と同じ「ユーザー操作なしの内部マルチサンプル」
-                    // 挙動を再現する（テストが automatic な選択を直接測れる）。
-                    z.extraSamples = tune.autoSamples ?? new List<Color>();
+                    // 導出結果 → ゾーン/グローバルの写像は製品 UI と同じ TuneResult.ApplyTo
+                    // （正規化サンプル・内部マルチサンプル・globals を含む。ここに項目を並べ直さない）。
+                    // globals は製品と同じくセッションへ書かれるので、ハーネスの設定 DTO へ写し戻す。
+                    tune.ApplyTo(z, session);
                     if (tune.applyGlobals)
                     {
-                        st.antiAliasCleanup   = tune.antiAliasCleanup;
-                        st.useDecontamination = tune.useDecontamination;
+                        st.antiAliasCleanup   = session.antiAliasCleanup;
+                        st.useDecontamination = session.useDecontamination;
                     }
-                    z.UpdateCacheIfNeeded();
                     // 導出値を stderr に JSON で出す（stdout の "OK" を汚さない）。Python が拾って記録する。
                     Console.Error.WriteLine("AUTOTUNE " + JsonSerializer.Serialize(new
                     {
