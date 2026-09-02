@@ -247,9 +247,35 @@ $env:VACC_AUTOTUNE_GATE_FULL = "1"
   `test_autotune_evidence` が `measure_evidence_autotune.run_case`（従来 `--autotune` と
   同一クリックの SAM 提案を証拠にした `--autotune` の A/B）を driver に、採用時の勝ち筋
   （gold の残存島 0 / tops 明部クリック / skirt precision / eye 反射 / 汚染セグメントの
-  フォールバック）と「従来を下回らない」を契約にする。既定は 5 ケース、
+  フォールバック）と「従来を下回らない」を契約にする。既定は 7 ケース、
   `VACC_AUTOTUNE_EVIDENCE_FULL=1` で 14 被写体 × 3 位置の非退行。凍結埋め込み不在は skip。
   全 A/B 表は `python dev_safe/scripts/measure_evidence_autotune.py --clicks p25 p50 p95`。
+  - **証拠は製品と同じ全経路で作る**（2026-09-02〜）: `sam_proposal.proposal_for_click_full`
+    が製品 `RequestEvidence → RequestProposal(Auto)` と同順（クリック成分が小さいときの
+    ズームイン再推論込み）で提案を作る。それまでの `proposal_for_click` は第 1 段のみで、
+    ズームが発火するクリックでは製品と別の証拠で導出を検査していた。floodWarning の提案は
+    製品どおり証拠にせず従来導出（B = A）へ落とす写像も再現している。
+- **ワンショット（スポイト→自動調整）の現在地**（2026-09-02〜。**製品の主経路**）:
+  2026-08-30 の AI 必須化以降、ユーザーの初回体験はほぼ常に証拠つき導出だが、従来 Analyze を
+  測る既定ゲート（autotune_accuracy / feina / quanstella / synth_gen2 / click_position /
+  seeded / masked / atlas_journey とその xfail 目標）は今やフォールバック経路の番兵であり、
+  主経路の絶対品質はスイートに数字として無かった。
+  - `test_autotune_evidence::test_oneshot_floor`: `measure_evidence_autotune.py --baseline` が
+    凍結した `evidence_autotune_baseline.json`（14 被写体 × p25/p50/p95、B のみ）を床に
+    degradation-only。既定は p50 の 14 件、FULL で 42 件。
+  - `test_oneshot_satisfaction_target`（xfail strict=False）: 「満足」
+    （prec≥0.98 ∧ rec≥0.95 ∧ 残存島≤0.5%）に未達のケースが到達すると XPASS で浮かぶ →
+    `--baseline` でラチェット（satisfied=true になり目標から外れる）。
+  - `test_oneshot_vs_preset`: **仕上がりそのものの理想への近さ**。理想 =
+    `dev_safe/preset_samples/` のプリセット（作者が手で追い込んだパラメータ）を実 C# に通した
+    出力、ワンショット = GT 内 p50 クリック → 証拠つき自動調整 → 同じ変更先色。変化領域の
+    OkLab 色差（p95 / 平均）と変化画素集合の IoU を `measure_oneshot_vs_preset.py --baseline`
+    の凍結値を床に守り、併せて自動調整出力に構造品質ゲート（compute_all_metrics）を課す。
+    目標（dE p95 ≤ 0.05 ∧ IoU ≥ 0.95）は xfail。PSD 由来の再着色 GT（gt_*.png）はベタ塗りに
+    近く（元との明度相関 0.2）理想には使わない。4 被写体（bandana / costume / hair / sneakers）。
+  - 導出結果 → ゾーンの適用写像は `ZoneAutoTuner.TuneResult.ApplyTo` が単一の正
+    （UI とハーネスの二重実装を解消）。`test_autotune_apply_single_source` が C# ソースから
+    「両呼び出し元が ApplyTo だけを使う」「TuneResult の全フィールドを写す」を検査する。
 - **プレビュー座標変換（スポイト/シード/ペイント/AI クリックの v 反転）**（2026-08-23〜）:
   変換は `Code/Core/PreviewCoords.cs` が単一の正（UI でインライン再実装しない）。
   `test_preview_coords` が Harness `--previewcoords` で実 C# を駆動し、独立リファレンスと
@@ -261,6 +287,12 @@ $env:VACC_AUTOTUNE_GATE_FULL = "1"
   それを `dev_safe/Tests/repro_cases/<名前>/` に置くと `test_repro_cases` が実 C# で
   再現実行する（expected 未凍結の間は「調査中」skip、凍結後は byte 一致の恒久回帰）。
   ワークフローの正は `dev_safe/Tests/repro_cases/README.md`。
+  - **ワンショットの再現**（2026-09-02〜）: zones.json は自動調整「後」の値なので、それだけでは
+    導出そのものを再現できなかった。ReproDump が自動調整の入力（正規化前のサンプル色・変更先色・
+    証拠マスク `zone{i}_evidence.png`・除外マスク使用の有無・手で触っていないか）も meta.json に
+    書き、`test_repro_case_autotune` が `--autotune` + `evidenceMask` で導出し直して
+    「再導出値 = 書き出し値」（製品 UI ⇔ ハーネスのワンショット同一性）と `expected_autotune.png`
+    の byte 一致を検査する。見本は `make_sample_repro_case.py --oneshot`。
 - Harness は未知の引数を拒否する（exit 2）。過去 `--matchDistance` がパーサ無しのまま
   渡され続けた「死にノブ」事故の再発防止。フラグを増やすときは Harness.Main の検証
   switch にも足すこと。
