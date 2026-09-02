@@ -74,14 +74,16 @@ Read/Write Enabled が無効なテクスチャを選ぶと、ウィンドウに�
 
 #### ステップ 3: 変える色を指定する
 
-色はスポイトで指定します。
+色は、サンプルカラー欄の右にある「スポイト」ボタンで指定します。
 
-1. ゾーンの「サンプルカラー」欄をクリックします。
-2. 開いたカラーピッカーのスポイトアイコンで、プレビュー上の変えたい色をクリックします。
+1. ゾーンの「サンプルカラー」欄の右にある「スポイト」ボタンを押します（表示が「■ クリック取得」に変わります）。
+2. プレビュー上の変えたい色をクリックします。実テクスチャの画素から直接色を取り、クリックした位置も記憶します（1 回取ると自動で解除されます）。
 3. すぐ下の「自動調整」を押すと、スポイトした位置を AI マスク提案で見て、そのパーツの暗部からハイライトまでを覆う許容範囲などを自動で合わせてくれます（AI モデルが必要です。未導入なら初回起動時に案内が出ます）。スポイトの直後に押すのが一番効きます。
 4. 思ったより範囲が広い・狭いときは「許容範囲」スライダーで微調整します。
 
 色替えしたい部分の中で、いちばん鮮やかな色を選ぶとうまくいきやすいです。
+
+サンプルカラー欄をクリックして開くカラーピッカーのスポイトでも色は取れますが、画面に表示されたピクセルを拾うため色がわずかにずれ、クリック位置も記録されません。位置が無いゾーンの「自動調整」は AI 提案を参照せずに解析するので、自動調整を使うときは必ずボタンのスポイトを使ってください。
 
 #### ステップ 4: 変更後の色を決める
 
@@ -111,7 +113,7 @@ Read/Write Enabled が無効なテクスチャを選ぶと、ウィンドウに�
 
 **サンプルカラー**
 
-色替え対象を選ぶ基準色です。欄をクリックして開くカラーピッカーのスポイトで、プレビューや画面上の任意のピクセルから色を取れます。サンプルカラーに近い色のピクセルが、自動的に対象として検出されます。
+色替え対象を選ぶ基準色です。右隣の「スポイト」ボタンを押してからプレビューをクリックすると、実テクスチャの画素から色を取り、その位置を「自動調整」の手がかりとして記憶します。欄をクリックして開くカラーピッカーでも色を指定できますが、位置は記録されません（自動調整は AI 提案を参照せずに解析します）。サンプルカラーに近い色のピクセルが、自動的に対象として検出されます。
 
 **自動調整**
 
@@ -544,14 +546,16 @@ Click "+ Add Zone" to create one recoloring zone. You can rename it freely; the 
 
 #### Step 3: Choose the color to change
 
-Colors are picked with the eyedropper.
+Colors are picked with the "Eyedropper" button next to the Sample Color field.
 
-1. Click the zone's "Sample Color" field.
-2. In the color picker, use the eyedropper to click the color you want on the preview.
+1. Press the "Eyedropper" button to the right of the zone's "Sample Color" field (its label changes to "■ Click to pick").
+2. Click the color you want on the preview. The color is read directly from the texture pixel and the clicked position is remembered (the button disarms itself after one pick).
 3. Press "Auto-tune" just below it. It runs the AI mask suggestion at the sampled position and sets the tolerance and related values so the part is covered from its shadows to its highlights (the AI models are required; you are prompted to download them the first time you open the window). It works best right after sampling.
 4. If the selection is too wide or too narrow, fine-tune it with the "Tolerance" slider.
 
 Pick the most vivid color within the area you want to recolor for the best results.
+
+The color picker that opens when you click the Sample Color field also has an eyedropper, but it reads the pixel as displayed on screen (the color can be slightly off) and does not record the position. A zone without a position is auto-tuned without the AI suggestion, so always use the Eyedropper button when you intend to run Auto-tune.
 
 #### Step 4: Set the target color
 
@@ -581,7 +585,7 @@ A zone splits into the core color controls and the detail controls shown in Norm
 
 **Sample Color**
 
-The reference color used to find the target. Click the field to open the color picker, then use the eyedropper to sample from the preview or any on-screen pixel. Pixels close to the sample color are detected automatically.
+The reference color used to find the target. Press the "Eyedropper" button next to the field and click the preview: the color is read from the actual texture pixel and the position is remembered as the hint for "Auto-tune". You can also set the color from the color picker that opens when you click the field, but no position is recorded then (Auto-tune analyzes without the AI suggestion). Pixels close to the sample color are detected automatically.
 
 **Auto-tune**
 
