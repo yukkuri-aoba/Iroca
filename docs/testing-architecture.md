@@ -276,6 +276,12 @@ $env:VACC_AUTOTUNE_GATE_FULL = "1"
   - 導出結果 → ゾーンの適用写像は `ZoneAutoTuner.TuneResult.ApplyTo` が単一の正
     （UI とハーネスの二重実装を解消）。`test_autotune_apply_single_source` が C# ソースから
     「両呼び出し元が ApplyTo だけを使う」「TuneResult の全フィールドを写す」を検査する。
+  - **画で見る**（2026-09-03〜）: 上の 3 本は数字しか残さない。`dev_safe/scripts/build_oneshot_review.py`
+    が同じ driver（`run_case` / `run_subject`）の出力を「クリック位置+証拠セグメント / 出力 /
+    GT 判定オーバーレイ（+注目範囲クロップ）」の画と `review_data.json` に書き出し、
+    `build_oneshot_review_html.py --junit <junit.xml>` が 42 ケース + プリセット比較 4 件 +
+    テスト結果表を 1 枚の HTML（`dev_safe/Tests/oneshot_review/oneshot_review.html`）に組む。
+    未達ケースの「はみ出しか取りこぼしか、証拠はどこだったか」はここで目視する。
 - **プレビュー座標変換（スポイト/シード/ペイント/AI クリックの v 反転）**（2026-08-23〜）:
   変換は `Code/Core/PreviewCoords.cs` が単一の正（UI でインライン再実装しない）。
   `test_preview_coords` が Harness `--previewcoords` で実 C# を駆動し、独立リファレンスと
