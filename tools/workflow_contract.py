@@ -30,12 +30,20 @@ WORKFLOWS = {
     "fallback": {"label": "従来の自動調整", "mask_role": "none", "mask_source": "none",
                  "settings_source": "legacy_autotune"},
 }
-SELECTION_SLACK = {"iou": 0.02, "precision": 0.02, "recall": 0.03, "island": 0.005}
+# 採点は二本立て(2026-09-05 ユーザー決定「同じ色は部位が違っても一緒に染まる。残りはマスクで」):
+#   strict = PSD 部位 GT どおり(iou / precision)。情報として凍結・併記する。
+#   design = 対象と色で分離できない非対象画素(GT 許容 = dev_safe/Tests/regression/gt_tolerance.py、
+#            尤度比 ≥ 1)を過検出の分母から外した値(iou_design / precision_design)。
+# 満足判定と退行床は design 側。見逃し側(recall)に許容はない(ハイライト復帰は製品機能)。
+# tolerated_frac = 変更画素のうち許容へ落ちた割合。床は置かず、緩みの監視用に凍結する。
+SELECTION_SLACK = {"iou_design": 0.02, "precision_design": 0.02, "recall": 0.03, "island": 0.005}
+STRICT_METRICS = ("iou", "precision")
+SELECTION_METRICS = ("iou", "precision", "recall", "island",
+                     "iou_design", "precision_design", "tolerated_frac")
 BASELINES = {
     "evidence_autotune_baseline.json": ({f"{s}/{c}" for s in SUBJECTS for c in CLICKS},
-                                         ("iou", "precision", "recall", "island")),
-    "assisted_include_baseline.json": ({f"{s}/p50" for s in SUBJECTS},
-                                       ("iou", "precision", "recall", "island")),
+                                         SELECTION_METRICS),
+    "assisted_include_baseline.json": ({f"{s}/p50" for s in SUBJECTS}, SELECTION_METRICS),
     "oneshot_vs_preset_baseline.json": (set(PRESET_SUBJECTS), ("dE_p95", "dE_mean", "sel_iou")),
 }
 
