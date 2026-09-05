@@ -13,7 +13,8 @@ from pathlib import Path
 import sys
 
 from harness_scope import harness_source_files
-from workflow_contract import SUBJECTS, WORKFLOWS, load_baseline, selection_violations, sha256
+from workflow_contract import (SUBJECTS, WORKFLOWS, SELECTION_METRICS, load_baseline,
+                               selection_violations, sha256)
 
 ROOT = Path(__file__).resolve().parents[1]
 REVIEW = ROOT / "dev_safe/Tests/workflow_review"
@@ -36,6 +37,9 @@ def state() -> dict:
         "dev_safe/scripts/measure_sam_e2e.py", "dev_safe/scripts/measure_operating_curve.py",
         "dev_safe/measure_click_position.py", "dev_safe/Tests/regression/fixtures.py",
         "dev_safe/Tests/regression/headless_io.py",
+        # GT 許容(同色の別部位)の規則と理由つき上書き。変われば design 採点が変わる
+        "dev_safe/Tests/regression/gt_tolerance.py", "dev_safe/Tests/regression/colorspace.py",
+        "dev_safe/Tests/Baselines/gt_tolerance_overrides.json",
     ))
     paths.update(BASE / n for n in ("evidence_autotune_baseline.json", "assisted_include_baseline.json"))
     return {p.relative_to(ROOT).as_posix(): sha256(p) for p in sorted(paths)}
@@ -85,14 +89,15 @@ def _backend():
     import measure_evidence_autotune as mea
     import measure_click_position as mcp
     from regression import fixtures as fx
-    return mea, mcp, fx
+    from regression import gt_tolerance as gtt
+    return mea, mcp, fx, gtt
 
 
 def generate(snapshot: bool = False) -> None:
     import numpy as np
     from PIL import Image
     import visual_review as vr
-    mea, mcp, fx = _backend()
+    mea, mcp, fx, gtt = _backend()
     from freeze_sam_fixtures import DECODER, ENCODER, FIXTURE_DIR, texture_key
 
     # 失敗した再生成のあと、以前の比較/承認が残って通ることを防ぐ。
@@ -107,6 +112,9 @@ def generate(snapshot: bool = False) -> None:
     folder = REVIEW / ("snapshot" if snapshot else "compare")
     folder.mkdir(parents=True, exist_ok=True)
     cases, assets = {}, {}
+    overrides = gtt.load_overrides()
+    for o in overrides:   # 上書きマスクの内容も結果に結びつける
+        assets[str(o["mask_path"])] = sha256(o["mask_path"])
     for sid in SUBJECTS:
         subject = registry[sid]
         for path in (subject.texture_path, subject.fixtures_json, subject.gt_mask_path,
@@ -120,6 +128,7 @@ def generate(snapshot: bool = False) -> None:
         inside = gt & (rgba[..., 3] >= 128)
         if region is not None:
             inside &= region
+        tolerated, tol_info = gtt.tolerance_for_subject(subject, rgba, inside, region, overrides)
         for mode, output, metric_key, workflow_key in (
             ("oneshot", r["_out_b"], "evidence", "workflow"),
             ("assisted_include", r["_out_b2"], "evidence_include", "assisted_workflow"),
@@ -149,21 +158,26 @@ def generate(snapshot: bool = False) -> None:
                 changed &= region
             overlay = rgba.copy()
             overlay[changed & inside, :3] = (0, 200, 80)
-            overlay[changed & ~inside, :3] = (255, 40, 40)
+            overlay[changed & ~inside & ~tolerated, :3] = (255, 40, 40)
+            overlay[changed & ~inside & tolerated, :3] = (150, 150, 150)   # 許容(同色の別部位): 設計上の巻き込み
             overlay[~changed & inside, :3] = (40, 100, 255)
             focus = (before != output).any(axis=-1) if before is not None else (changed | inside)
             cy, cx = vr._densest_change_window(focus, vr.CROP_SIZE)
             crop = vr._add_label(vr._crop(output, cy, cx, vr.CROP_SIZE),
                                  f"等倍出力 @({cx},{cy})", (40, 65, 95))
             bottom = vr._hstack_with_sep([tile(evidence, f"AI証拠 / include={mode == 'assisted_include' and r['include_applied']}"),
-                                         tile(overlay, "GT採点: 緑=一致 赤=過検出 青=見逃し"), crop])
+                                         tile(overlay, f"GT採点: 緑=一致 赤=過検出 灰=許容(同色) 青=見逃し  "
+                                                       f"適合 {metrics['precision']:.3f}→設計 {metrics['precision_design']:.3f}"), crop])
             panel = vr._vstack_with_sep([top, bottom])
             Image.fromarray(panel).save(folder / name)
-            cases[cid] = {"workflow": r[workflow_key], "metrics": {k: metrics[k] for k in ("iou", "precision", "recall", "island")},
-                          "satisfied": mea.satisfied(metrics), "regressions": regressions,
+            cases[cid] = {"workflow": r[workflow_key], "metrics": {k: metrics[k] for k in SELECTION_METRICS},
+                          "satisfied": mea.satisfied(metrics), "satisfied_strict": mea.satisfied_strict(metrics),
+                          "tolerance_gt": r["tolerance_gt"], "regressions": regressions,
                           "panel": name, "panel_sha256": sha256(folder / name),
                           "changed_from_snapshot": int((before != output).any(axis=-1).sum()) if before is not None else None}
-            print(f"[workflow] {cid}: regression={regressions} satisfied={mea.satisfied(metrics)}", flush=True)
+            print(f"[workflow] {cid}: regression={regressions} satisfied={mea.satisfied(metrics)} "
+                  f"(strict {mea.satisfied_strict(metrics)}; 適合 {metrics['precision']:.3f}→設計 "
+                  f"{metrics['precision_design']:.3f}, 許容 {metrics['tolerated_frac']*100:.0f}%)", flush=True)
         fx._mem_cache.clear()
         del r, rgba, output
     if not snapshot:

@@ -34,7 +34,35 @@ GTは採点とテスト用クリック位置の選定に使う。`oneshot` / `as
 GTマスクを渡さない。証拠・含める・除外・採点GTは役割を別に記録する。
 プリセット比較も「作者の調整済み出力への近さ」であり、GT精度の代わりにはしない。
 **回帰なし・満足基準達成・未計測(skip)は別の結果。** ワンショットの満足基準は
-precision ≥ 0.98 / recall ≥ 0.95 / 残存島 ≤ 0.5%。既知の未達はxfailで可視化する。
+precision_design ≥ 0.98 / recall ≥ 0.95 / 残存島 ≤ 0.5%。既知の未達はxfailで可視化する。
+
+### GT の 3 値と二本立ての採点（2026-09-05）
+
+製品の契約（ユーザー決定）: **スポイト 1 回は「色」を選ぶ。同じ色は部位が違っても一緒に染まり、
+部位の切り分けはマスク（含める / 除外 / シード）の仕事。** GT は PSD レイヤー（部位）で引かれて
+いるので、同色の別部位（アトラスの同色きょうだい、柄の同色ストライプ）を塗った画素は従来の
+precision で過検出に数えられ、設計どおりの挙動と本当の欠陥（白がクリームを巻き込む）が
+同じ赤になっていた。この曖昧性を採点側で吸収する。
+
+- GT に第 3 値 **「許容」** を足す。許容 = 対象部位の外にあるが、対象と色で分離できない
+  可視画素。導出は `dev_safe/Tests/regression/gt_tolerance.py` が機械的に行う: OkLab を
+  0.01 幅で量子化し、bin の **尤度比 (n_対象/N_対象)/(n_他/N_他) ≥ 1**（その色は対象以外より
+  対象に特徴的）なら許容 bin。製品の tolerance にもキャラ固有の定数にも依存しない。
+  「対象に存在する色なら許容」は GT 縁の混入 91 px が背景 800 万 px を許容にしたので却下、
+  「再現率 r に必要な最小色集合」は同一コピーのきょうだいに (1−r) の残差を必ず残すので却下。
+- 採点は **strict と design の二本立て**。strict（`iou` / `precision`）は PSD 部位 GT どおり、
+  design（`iou_design` / `precision_design`）は許容画素を過検出の分母から外す。
+  `tolerated_frac` は変更画素のうち許容へ落ちた割合（床は置かず、緩みの監視用に凍結）。
+  **満足判定と退行床は design 側**（`tools/workflow_contract.py` の `SELECTION_SLACK`）。
+  strict は情報として凍結・併記する。
+- **見逃し側に許容はない。** ハイライト復帰は製品機能なので、対象内の取りこぼしは欠陥のまま。
+- 規則と設計判断が食い違うケースは `dev_safe/Tests/Baselines/gt_tolerance_overrides.json` で
+  **理由つき**の上書きができる（`tolerate` で許容に足す / `strict` で外す。理由なしは拒否）。
+  適用件数は審査ページと `workflow_review/review.json` に常時出す。上書きマスクの PNG は
+  `Tests/Baselines/**/*.png` が gitignore なので `texture_sample/ground_truth/` 配下に置く。
+- 審査: `python dev_safe/scripts/build_tolerance_gt.py` が被写体ごとの許容を画（緑=GT、
+  濃灰=許容）にする。28 パネルと oneshot_review の GT 採点タイルは灰=許容を赤と分けて描く。
+  規則や定数を変えたら `RULE_VERSION` を上げ、`--baseline` / `--assisted-baseline` で再凍結する。
 
 ### 主経路と追加操作後の必須ゲート
 
