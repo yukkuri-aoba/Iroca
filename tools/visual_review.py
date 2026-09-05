@@ -2,12 +2,12 @@
 
 使い方:
     python tools/visual_review.py snapshot    # 変更前スナップショット保存
-    python tools/visual_review.py compare     # 比較パネル生成(Python 出力)
+    python tools/visual_review.py compare     # 固定設定 + ワンショット/追加操作後の実 C# 比較
     python tools/visual_review.py compare --engine csharp  # 実 C# Harness 出力で比較
     python tools/visual_review.py approve     # 確認完了マーカー書き込み
 
-  --engine csharp は出荷される実 C# 出力を描画する(Python 経路と乖離する gray mode 等を
-  人間レビューでも見られるようにする)。dotnet/Unity DLL が必要。
+  エンジンは csharp のみ。ワンショット/追加操作後には ONNX と凍結埋め込みも必要。
+  固定設定の無マスク出力はワンショットではない。全条件の目視後に approve する。
 
 改善サイクルでの手順:
     1. 変更を加える前に `snapshot` を実行（旧アルゴリズム出力を保存）
@@ -363,6 +363,9 @@ def cmd_snapshot(engine: str = "python") -> None:
         json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     print(f"[snapshot] {len(cases)} ケース完了 → {SNAPSHOT_BEFORE_DIR}")
+    del cases
+    import workflow_review
+    workflow_review.generate(snapshot=True)
 
 
 # ---------------------------------------------------------------------------
@@ -399,13 +402,13 @@ def cmd_compare(engine: str = "python") -> None:
     for case_id, (input_rgba, after_rgba, exclude) in sorted(current.items()):
         before_rgba: np.ndarray | None = before_images.get(case_id)
 
-        after_label = "変更後 (After / New)"
+        after_label = "固定設定 / 変更後 (自動調整なし)"
         if exclude is not None:
             # マスク契約: 除外指定した画素は RGBA が 1 ステップも変わってはならない。
             # 目視(512px サムネイル)では絶対に検出できないので、ここで機械的に数える。
             violated = int(np.any(input_rgba[exclude] != after_rgba[exclude], axis=-1).sum())
             contract[case_id] = violated
-            after_label = (f"変更後 + 除外マスク (守った画素 {int(exclude.sum()):,} / "
+            after_label = (f"固定設定 + 模擬除外 (守った画素 {int(exclude.sum()):,} / "
                            f"違反 {violated:,})")
 
         orig_thumb = _add_label(
@@ -514,6 +517,9 @@ def cmd_compare(engine: str = "python") -> None:
     print()
     print("問題がなければ:")
     print("  python tools/visual_review.py approve")
+    del current, before_images
+    import workflow_review
+    workflow_review.generate()
 
 
 # ---------------------------------------------------------------------------
@@ -538,6 +544,11 @@ def cmd_approve(note: str | None = None) -> None:
     空承認ガード(監査 4-1): compare パネルが存在し、かつ最新の Code/ ソース変更より
     新しいことを検証する。パネルより後にコードを変えた場合は compare からやり直し。
     """
+    import workflow_review
+    # 固定設定だけの承認では自動調整経路を検証できない。別条件の比較も必須。
+    workflow_review.validate_review()
+    if not note or not note.strip():
+        raise ValueError("--note に固定設定とワークフロー28ケースの目視範囲を記録してください")
     panels = sorted(COMPARE_DIR.glob("*_comparison.png"))
     if not panels:
         print("[approve] エラー: 比較パネルがありません。先に compare を実行してください:")
@@ -583,6 +594,7 @@ def cmd_approve(note: str | None = None) -> None:
     APPROVED_JSON.write_text(
         json.dumps(marker, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+    workflow_review.approve(note)
     print(f"[approve] マーカーを書き込みました: {APPROVED_JSON} (panels={len(panels)})")
     print("  コミット可能です。")
 

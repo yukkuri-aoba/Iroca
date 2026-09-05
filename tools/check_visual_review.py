@@ -99,6 +99,15 @@ def main() -> None:
 
     approved_data = json.loads(APPROVED_JSON.read_text(encoding="utf-8"))
     approved_at = datetime.fromisoformat(approved_data["approved_at"])
+    # 固定設定の目視とは別に、主経路と追加操作後の全ケース・回帰床・画像・
+    # C#/測定器/入力資産の内容一致を検査する。旧承認や部分実行では通さない。
+    import workflow_review
+    try:
+        workflow_review.validate_approval()
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        _fail(f"ワンショット/追加操作後のレビュー承認が無効です: {e}\n"
+              "  python tools/workflow_review.py compare\n"
+              "  28枚を目視後: python tools/workflow_review.py approve --note <確認範囲>")
 
     # ステージされたアルゴリズムファイルの中で最新の mtime を取得
     newest_mtime: datetime | None = None

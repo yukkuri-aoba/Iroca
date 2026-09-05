@@ -14,6 +14,56 @@ CLAUDE.md / `.claude/instructions/improvement-cycle.md` が「テスト構成の
 
 ## 構成要素
 
+### 評価条件の境界（2026-09-05）
+
+同じ C# でも入力した補助情報と操作が違えば別の品質を測る。**「マスクなし」という
+だけではワンショットを意味しない。** 機械定義は `tools/workflow_contract.py`。
+条件を合算して「製品品質」と報告しない。
+主な条件は `pytest -m oneshot` / `pytest -m assisted_include` /
+`pytest -m oracle_masked` で個別実行できる（共通のインフラ検査は全体実行で行う）。
+
+| 条件ID | 入力・操作 | 結果の意味 |
+|---|---|---|
+| `oneshot` | GT内p50クリック → SAM証拠付き自動調整。手動マスクなし | 初回出力。証拠は強制包含ではない |
+| `assisted_include` | 同じクリックの自動調整 + SAM提案を含める。flood/汚染提案は不採用 | 明記した追加操作ポリシー後の品質 |
+| `oracle_masked` | PSDレイヤーから合成した部位領域を除外マスクにし、従来自動調整 | 理想部位情報を与えた上限性能。実ユーザー/AIのマスク精度ではない |
+| `fixed` / `fixed_excluded` | fixtureの固定設定、必要ならGTから合成した部分除外 | 再着色・除外契約。自動調整や初回体験ではない |
+| `fallback` | 証拠なしの従来自動調整 | フォールバック経路の回帰 |
+
+GTは採点とテスト用クリック位置の選定に使う。`oneshot` / `assisted_include` の処理入力に
+GTマスクを渡さない。証拠・含める・除外・採点GTは役割を別に記録する。
+プリセット比較も「作者の調整済み出力への近さ」であり、GT精度の代わりにはしない。
+**回帰なし・満足基準達成・未計測(skip)は別の結果。** ワンショットの満足基準は
+precision ≥ 0.98 / recall ≥ 0.95 / 残存島 ≤ 0.5%。既知の未達はxfailで可視化する。
+
+### 主経路と追加操作後の必須ゲート
+
+- `test_autotune_evidence`: ワンショット。既定p50 14件、FULLで42件。
+- `test_assisted_include`: 追加操作後p50 14件。独立した `assisted_include_baseline.json` に
+  対するIoU/precision/recall/残存島の退行と、提案採用がno-opに変わる事故を検出する。
+- `test_baselines_present`: 上記2種とプリセット比較の必須ファイル・全ケース・有限な指標値を
+  検査。欠落はfail（個別実行時もエラー）。ONNX等の環境不備によるskipとは区別する。
+- 追加操作後の基準は `python dev_safe/scripts/measure_evidence_autotune.py --assisted-baseline`
+  で全14件を別ファイルに凍結する。ワンショットの基準は書き換えない。
+
+`visual_review.py snapshot / compare / approve` は固定設定に加え、
+`tools/workflow_review.py` のワンショット14件・追加操作後14件も必須にする。
+追加パネルは `dev_safe/Tests/workflow_review/compare/` に条件ID別に保存する。
+元画像・変更前・変更後、AI証拠、GT採点、等倍クロップを分けて表示する。
+**両方のディレクトリの全パネルを1枚ずつ目視してから**
+`python tools/visual_review.py approve --note "実際の確認範囲と既知の未達"` を実行する。
+
+既存の固定設定レビューが有効なら、ワークフローだけは
+`python tools/workflow_review.py compare` → 28枚の目視 →
+`python tools/workflow_review.py approve --note "確認範囲と既知の未達"` で更新できる。
+pre-commitは**両方の承認**を要求する。部分実行・回帰・古いコード/測定器/ベースライン/
+入力資産・欠落/変更画像は承認不可。再compareすると旧承認は無効になる。
+このゲートもnet8ハーネスの評価であり、Unity Editorの操作E2Eを代替しない。
+
+実行キャッシュは共通除外配列だけでなく、ゾーン別 `includeMask` / `excludeMask` /
+`evidenceMask` のrawヘッダと内容もキーへ含める。同じファイル名・mtime・サイズで
+マスクを更新しても再計測し、欠落時に古い出力で代用しない。
+
 ```
 Iroca 本体リポジトリ（公開）
 ├─ Code/                        製品 C#（唯一の正）
