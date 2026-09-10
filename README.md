@@ -167,12 +167,11 @@ See [MANUAL.md](MANUAL.md) for workarounds and tips.
 | 役割 / Role | 名前 / Name |
 |---|---|
 | 開発 / Developer | **yukkuri__aoba** |
-| AI 補助 / AI Assistance | **Claude** · **Gemini** |
-
+| AI 補助 / AI Assistance | **Claude** · **GPT** ・ **Gemini**|
 Copyright (c) 2026 yukkuri__aoba  
 Licensed under [PolyForm Shield License 1.0.0](LICENSE)
 
-### アルゴリズムの開発に使用したデータ / Data Used for Algorithm Development
+### アルゴリズムの開発に使用したデータ(敬称略) / Data Used for Algorithm Development
 
 かなﾘぁさんち  
 [ハオラン-HAOLAN【オリジナル3Dモデル】](https://booth.pm/ja/items/3818504)
@@ -180,7 +179,18 @@ Licensed under [PolyForm Shield License 1.0.0](LICENSE)
 Senna Studio  
 [オリジナル3Dモデル - フェイナ #Feina3D](https://booth.pm/ja/items/7428637)
 
-アルゴリズムの開発にはこれらのモデルのテクスチャを使用しました。モデルやテクスチャのデータ自体は含まれていません。
+もやしちゃん  
+[【無料】Quanstella - クアンステーラ VRChat用アバター](https://booth.pm/ja/items/5922294)
+
+NOIRVAIL_BOOTH  
+[【14アバター対応】ROUGHCUT【VRChat向け衣装モデル】](https://noirvail029.booth.pm/items/8111161)
+
+C#アルゴリズムの開発にはこれらのモデル・衣装のテクスチャを使用させていただきました。
+モデルやテクスチャのデータ自体はこのコードベースに含まれていません。
+コーディングにAIを使用していますが、
+モデルの学習からオプトアウトされるよう設定して利用しています。
+また、AIマスク提案機能のモデルの学習にも一切使用していません。
+提供されているVN3ライセンスには抵触していない認識ですが、万一問題があればお問い合わせください。
 
 ### 連絡先 / Contact
 
