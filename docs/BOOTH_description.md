@@ -144,6 +144,14 @@ https://polyformproject.org/licenses/shield/1.0.0
 ハオラン-HAOLAN【オリジナル3Dモデル】／かなリぁ
 https://booth.pm/ja/items/3818504
 
+開発(色替えアルゴリズムの検証)に使用させていただいたモデル・衣装(敬称略)
+・ハオラン-HAOLAN ／ かなリぁ
+・オリジナル3Dモデル フェイナ ／ Senna Studio
+・Quanstella - クアンステーラ ／ もやしちゃん
+・ROUGHCUT ／ NOIRVAIL_BOOTH
+
+いずれもテクスチャデータ自体は本ツールに含まれていません。
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 💬 連絡先・更新情報
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
