@@ -11,6 +11,8 @@ SUBJECTS = (
     "feina-tops", "feina-boots", "feina-pants", "feina-red",
     "feina-goggles", "feina-white", "quanstella-skirt", "quanstella-gold",
     "quanstella-black", "quanstella-white", "quanstella-eye",
+    # Yumeka(2026-09-11 登録): 肌 / 2 トーン髪 / 色相回転の瞳 / 格子柄 / 桃ベージュのニット
+    "yumeka-hair", "yumeka-skin", "yumeka-eye", "yumeka-skirt", "yumeka-vest",
 )
 CLICKS = ("p25", "p50", "p95")
 PRESET_SUBJECTS = ("bandana", "haolan-costume", "haolan-hair", "haolan-sneakers")

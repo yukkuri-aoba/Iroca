@@ -1,7 +1,7 @@
 """ワンショット / AI提案を含める適用後の独立した出荷レビュー。
 
 python tools/workflow_review.py snapshot|compare|approve [--note ...]
-通常の visual_review からも呼ぶ。compare は全28ケース必須で、欠落や回帰は承認不可。
+通常の visual_review からも呼ぶ。compare は全ケース(SUBJECTS × 2 条件)必須で、欠落や回帰は承認不可。
 満足基準の未達は回帰と分けて記録する(既知の限界を成功と呼ばない)。
 """
 from __future__ import annotations
@@ -50,7 +50,7 @@ def validate_review() -> dict:
     if doc.get("schema") != 1 or doc.get("state") != state():
         raise ValueError("ワークフローの比較結果が古い: workflow_review.py compare を実行")
     if set(doc.get("cases", {})) != expected_cases():
-        raise ValueError("ワンショット/追加操作後の28ケースが揃っていません")
+        raise ValueError(f"ワンショット/追加操作後の{len(expected_cases())}ケースが揃っていません")
     for cid, row in doc["cases"].items():
         if row["regressions"]:
             raise ValueError(f"{cid}: 回帰 {row['regressions']}")
@@ -80,7 +80,7 @@ def approve(note: str) -> None:
     marker = {"approved_at": datetime.now().isoformat(), "note": note,
               "review_sha256": sha256(REVIEW / "review.json")}
     (REVIEW / "approved.json").write_text(json.dumps(marker, indent=2, ensure_ascii=False), encoding="utf-8")
-    print("[workflow] 28ケースの目視承認を記録しました")
+    print(f"[workflow] {len(expected_cases())}ケースの目視承認を記録しました")
 
 
 def _backend():
@@ -188,7 +188,7 @@ def generate(snapshot: bool = False) -> None:
                "assets": assets, "cases": cases}
         (REVIEW / "review.json").write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
         validate_review()
-        print(f"[workflow] パネル28枚を目視: {folder}")
+        print(f"[workflow] パネル{len(cases)}枚を目視: {folder}")
 
 
 def main():

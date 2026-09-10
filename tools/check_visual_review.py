@@ -107,7 +107,7 @@ def main() -> None:
     except (OSError, ValueError, KeyError, TypeError) as e:
         _fail(f"ワンショット/追加操作後のレビュー承認が無効です: {e}\n"
               "  python tools/workflow_review.py compare\n"
-              "  28枚を目視後: python tools/workflow_review.py approve --note <確認範囲>")
+              "  全パネルを目視後: python tools/workflow_review.py approve --note <確認範囲>")
 
     # ステージされたアルゴリズムファイルの中で最新の mtime を取得
     newest_mtime: datetime | None = None

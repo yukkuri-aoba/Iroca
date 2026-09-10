@@ -548,7 +548,7 @@ def cmd_approve(note: str | None = None) -> None:
     # 固定設定だけの承認では自動調整経路を検証できない。別条件の比較も必須。
     workflow_review.validate_review()
     if not note or not note.strip():
-        raise ValueError("--note に固定設定とワークフロー28ケースの目視範囲を記録してください")
+        raise ValueError("--note に固定設定とワークフロー全ケースの目視範囲を記録してください")
     panels = sorted(COMPARE_DIR.glob("*_comparison.png"))
     if not panels:
         print("[approve] エラー: 比較パネルがありません。先に compare を実行してください:")
