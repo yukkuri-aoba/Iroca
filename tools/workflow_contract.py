@@ -11,6 +11,8 @@ SUBJECTS = (
     "avatar_b-tops", "avatar_b-boots", "avatar_b-pants", "avatar_b-red",
     "avatar_b-goggles", "avatar_b-white", "avatar_c-skirt", "avatar_c-gold",
     "avatar_c-black", "avatar_c-white", "avatar_c-eye",
+    # AvatarD(2026-09-11 登録): 肌 / 2 トーン髪 / 色相回転の瞳 / 格子柄 / 桃ベージュのニット
+    "avatar_d-hair", "avatar_d-skin", "avatar_d-eye", "avatar_d-skirt", "avatar_d-vest",
 )
 CLICKS = ("p25", "p50", "p95")
 PRESET_SUBJECTS = ("bandana", "avatar_a-costume", "avatar_a-hair", "avatar_a-sneakers")
