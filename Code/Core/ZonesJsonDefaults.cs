@@ -41,6 +41,8 @@ namespace Iroca
         public const float ChromaThreshold = 0.05f;
         public const float ShadowDesaturation = 0.35f;
         public const float ShadowForgivenessSatMin = 0.05f;
+        // 陰影の明度下限。0 = 無効(ColorZone の既定と同じ)。証拠つき自動調整だけが導出する。
+        public const float ShadowValueFloor = 0f;
         public const float OutputSaturation = 1.0f;
         // 既定 OFF。**ColorZone.highlightRecovery（= true）と意図的に異なる。**
         //

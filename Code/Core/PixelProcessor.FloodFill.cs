@@ -15,6 +15,12 @@ namespace Iroca
     {
         // 連結成分アンカリングの確信度コア絶対床(matchConf 不在時のフォールバック専用)。
         private const float CoreAbsoluteFloor = 0.6f;
+        // 陰影の明度下限(shadowValueFloor)で成分を残す条件: 成分の画素のうちこの割合以上が下限に
+        // 達していれば「本体+その陰影」とみなす。下限自体がクリック島の陰影レンジより 25% 下に
+        // 置かれる(ZoneAutoTuner.Evidence.cs の EvShadowFloorMarginFrac)ので、同素材の成分は
+        // 大半が下限以上になる。逆に暗い別部位は、同色の明るい縁取り(数%)が付いていても落ちる。
+        // 同じ 1/4 を使い、余白(レンジの 25%)と対になる比率にそろえる。
+        private const float ShadowFloorKeepFrac = 0.25f;
 
         /// <summary>
         /// 連結成分アンカリング: strength&gt;0 の画素を4連結でラベリングし、確信度コアを含む成分のみ残す。
@@ -31,11 +37,18 @@ namespace Iroca
         /// 場合は recall 保護のため絞り込まない(=連結制約 OFF と同挙動)。
         /// seedX&gt;=0 のときはその成分だけを残す上書きモード(無効シード=bleed/背景上 なら自動へフォールバック)。
         /// 連結予測子(strength&gt;0 &amp;&amp; α&gt;=128)・4近傍は BuildComponentMedianLMap と一致させ成分定義を統一する。
+        ///
+        /// 陰影の明度下限(shadowValueFloor &gt; 0 のとき): 成分内の最大明度(pixV)がこの値未満の成分 =
+        /// 「全体がこの素材の陰影レンジより暗い、同色相の離れた別パーツ」を落とす(ColorZone.shadowValueFloor
+        /// のコメント参照)。本体に地続きの深い影は、成分に明るい画素が含まれるので残る。シード上書きモード
+        /// (ユーザーが成分を明示)では適用しない。コアが皆無で絞り込まない場合も下限だけは適用する。
         /// </summary>
         private static void ApplyConnectedComponentMask(
             float[] strength, float[] matchConf, Color32[] px, int w, int h, int seedX, int seedY,
+            float[] pixV = null, float shadowValueFloor = 0f,
             CancellationToken ct = default)
         {
+            bool useFloor = shadowValueFloor > 0f && pixV != null;
             // matched 画素(strength>0 && α>=128)の bbox。ラベリングは bbox 内に限定(全画素確保を回避)。
             if (!TryComputeMatchedBBox(strength, px, w, h, 0f,
                     out int minX, out int minY, out int maxX, out int maxY, ct))
@@ -174,6 +187,35 @@ namespace Iroca
                 }
             }
 
+            // 陰影の明度下限: 成分ごとに「下限に達する画素の割合」を集計する(全 run 走査)。
+            // 「1 画素でも達すれば残す」では、暗い別部位に同色の明るい縁取りが地続きで付いている
+            // だけで成分全体が残る(実測: 桃ベージュ上衣の床 0.52 に対し、暗紫ジャケットは縁取り
+            // Color2 が同色の明色なので生き残った)。割合で判定する。
+            bool[] reachesFloor = null;
+            if (useFloor)
+            {
+                var total = new int[compCount];
+                var reach = new int[compCount];
+                for (int ly = 0; ly < bh; ly++)
+                {
+                    if ((ly & 63) == 0) ct.ThrowIfCancellationRequested();
+                    int grb = (ly + minY) * w + minX;
+                    for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
+                    {
+                        int c = comp[k];
+                        int x1 = runX1[k];
+                        int n = 0;
+                        for (int lx = runX0[k]; lx <= x1; lx++)
+                            if (pixV[grb + lx] >= shadowValueFloor) n++;
+                        total[c] += x1 - runX0[k] + 1;
+                        reach[c] += n;
+                    }
+                }
+                reachesFloor = new bool[compCount];
+                for (int c = 0; c < compCount; c++)
+                    reachesFloor[c] = reach[c] >= total[c] * ShadowFloorKeepFrac;
+            }
+
             // 残す成分を決定。seed 上書き優先、無効/未指定ならコア規則。
             int keepComp = -1; // -1 = コア規則, >=0 = その成分だけ残す
             if (seedX >= minX && seedX <= maxX && seedY >= minY && seedY <= maxY)
@@ -184,15 +226,22 @@ namespace Iroca
                 // シードが候補領域外なら、自動アンカリングへフォールバックする。
             }
 
-            if (keepComp < 0)
+            bool coreRule = keepComp < 0;
+            if (coreRule)
             {
                 bool anyCore = false;
                 for (int c = 0; c < compCount; c++) if (hasCore[c]) { anyCore = true; break; }
-                if (!anyCore) return; // 確信できるコアが皆無 → 絞り込まない(recall 保護)
+                if (!anyCore)
+                {
+                    if (!useFloor) return; // 確信できるコアが皆無 → 絞り込まない(recall 保護)
+                    coreRule = false;      // コア規則は使わず、明度下限だけを適用する
+                }
             }
 
             var keepCompLocal = keepComp;
             var hasCoreArr = hasCore;
+            var coreRuleL = coreRule;
+            var floorArr = reachesFloor;
             var runX0L = runX0; var runX1L = runX1; var compL = comp;
             Parallel.For(0, bh, ccPo, ly =>
             {
@@ -200,7 +249,8 @@ namespace Iroca
                 for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
                 {
                     int c = compL[k];
-                    bool keep = keepCompLocal >= 0 ? (c == keepCompLocal) : hasCoreArr[c];
+                    bool keep = keepCompLocal >= 0 ? (c == keepCompLocal)
+                              : (!coreRuleL || hasCoreArr[c]) && (floorArr == null || floorArr[c]);
                     if (keep) continue;
                     int x1 = runX1L[k];
                     for (int lx = runX0L[k]; lx <= x1; lx++) strength[rb + lx] = 0f;

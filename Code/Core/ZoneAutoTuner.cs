@@ -32,6 +32,7 @@ namespace Iroca
         private static float DefaultEdgeSoftness            => s_zoneDefaults.edgeSoftness;
         private static float DefaultShadowDesaturation      => s_zoneDefaults.shadowDesaturation;
         private static float DefaultShadowForgivenessSatMin => s_zoneDefaults.shadowForgivenessSatMin;
+        private static float DefaultShadowValueFloor        => s_zoneDefaults.shadowValueFloor;
         private static int   DefaultAntiAliasCleanup        => s_sessionDefaults.antiAliasCleanup;
         private static bool  DefaultUseDecontamination      => s_sessionDefaults.useDecontamination;
 
@@ -70,6 +71,8 @@ namespace Iroca
             public float edgeSoftness;
             public float shadowDesaturation;
             public float shadowForgivenessSatMin;
+            // 陰影の明度下限(0=無効)。証拠つき導出だけが値を入れる(従来導出は既定 0 のまま)。
+            public float shadowValueFloor;
 
             // Globals（applyGlobals が true のときのみ適用）
             // edgeFeather は「ごまかし」なので自動調整では一切扱わない（既定の 0 を維持）。
@@ -121,6 +124,7 @@ namespace Iroca
                 zone.edgeSoftness            = edgeSoftness;
                 zone.shadowDesaturation      = shadowDesaturation;
                 zone.shadowForgivenessSatMin = shadowForgivenessSatMin;
+                zone.shadowValueFloor        = shadowValueFloor;
                 // 自動トーン抽出で得た内部サンプル（暗部/中間/明部の代表色）。ユーザーが複数スポイトする
                 // 代わりにアルゴリズムがパーツの濃淡を自動取得した結果で、選択（マッチング）の和集合に
                 // 使われる。出力色は主サンプル基準のまま変わらない。
@@ -389,6 +393,7 @@ namespace Iroca
                 edgeSoftness            = 0.15f,
                 shadowDesaturation      = DefaultShadowDesaturation,
                 shadowForgivenessSatMin = DefaultShadowForgivenessSatMin,
+                shadowValueFloor        = DefaultShadowValueFloor,
                 applyGlobals            = false,
                 antiAliasCleanup        = DefaultAntiAliasCleanup,
                 useDecontamination      = DefaultUseDecontamination,
@@ -583,6 +588,7 @@ namespace Iroca
                 edgeSoftness            = edgeSoftness,
                 shadowDesaturation      = heuristic.shadowDesaturation,
                 shadowForgivenessSatMin = shadowForgivenessSatMin,
+                shadowValueFloor        = DefaultShadowValueFloor,
                 applyGlobals            = false,
                 antiAliasCleanup        = heuristic.antiAliasCleanup,
                 useDecontamination      = heuristic.useDecontamination,
@@ -671,6 +677,8 @@ namespace Iroca
                 labels.Add(Localization.ShadowDesaturation);
             if (!Mathf.Approximately(zone.shadowForgivenessSatMin, DefaultShadowForgivenessSatMin))
                 labels.Add(Localization.ShadowForgivenessSatMin);
+            if (!Mathf.Approximately(zone.shadowValueFloor, DefaultShadowValueFloor))
+                labels.Add(Localization.ShadowValueFloor);
             return labels;
         }
 
@@ -696,6 +704,8 @@ namespace Iroca
                 labels.Add(Localization.ShadowDesaturation);
             if (!Mathf.Approximately(zone.shadowForgivenessSatMin, DefaultShadowForgivenessSatMin))
                 labels.Add(Localization.ShadowForgivenessSatMin);
+            if (!Mathf.Approximately(zone.shadowValueFloor, DefaultShadowValueFloor))
+                labels.Add(Localization.ShadowValueFloor);
 
             if (result.applyGlobals)
             {
@@ -719,7 +729,8 @@ namespace Iroca
                 && Mathf.Approximately(z.valueBlend, DefaultValueBlend)
                 && Mathf.Approximately(z.edgeSoftness, DefaultEdgeSoftness)
                 && Mathf.Approximately(z.shadowDesaturation, DefaultShadowDesaturation)
-                && Mathf.Approximately(z.shadowForgivenessSatMin, DefaultShadowForgivenessSatMin);
+                && Mathf.Approximately(z.shadowForgivenessSatMin, DefaultShadowForgivenessSatMin)
+                && Mathf.Approximately(z.shadowValueFloor, DefaultShadowValueFloor);
         }
 
         private static float HueDistance(float a, float b)

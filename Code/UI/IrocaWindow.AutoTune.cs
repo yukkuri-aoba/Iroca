@@ -94,6 +94,7 @@ namespace Iroca
                 && Eq(zone.edgeSoftness, r.edgeSoftness)
                 && Eq(zone.shadowDesaturation, r.shadowDesaturation)
                 && Eq(zone.shadowForgivenessSatMin, r.shadowForgivenessSatMin)
+                && Eq(zone.shadowValueFloor, r.shadowValueFloor)
                 && Eq(zone.sampleColor.r, expectedSample.r) && Eq(zone.sampleColor.g, expectedSample.g)
                 && Eq(zone.sampleColor.b, expectedSample.b)
                 && (zone.extraSamples != null ? zone.extraSamples.Count : 0) == autoCount;

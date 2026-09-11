@@ -78,6 +78,7 @@ namespace Iroca
             public float chromaThreshold = ZonesJsonDefaults.ChromaThreshold;
             public float shadowDesaturation = ZonesJsonDefaults.ShadowDesaturation;
             public float shadowForgivenessSatMin = ZonesJsonDefaults.ShadowForgivenessSatMin;
+            public float shadowValueFloor = ZonesJsonDefaults.ShadowValueFloor;
             public float outputSaturation = ZonesJsonDefaults.OutputSaturation;
             public bool highlightRecovery = ZonesJsonDefaults.HighlightRecovery;
             public bool highlightBandExpand = ZonesJsonDefaults.HighlightBandExpand;
@@ -525,6 +526,7 @@ namespace Iroca
                 outputSaturation = z.outputSaturation,
                 shadowDesaturation = z.shadowDesaturation,
                 shadowForgivenessSatMin = z.shadowForgivenessSatMin,
+                shadowValueFloor = z.shadowValueFloor,
                 layerIndex = z.layerIndex,
                 useFloodFill = z.useFloodFill,
                 // 未指定/長さ不足 = 負値 = 自動アンカリング（Harness.BuildZone と同一の写像）。

@@ -171,6 +171,7 @@ namespace Iroca
                 chromaThreshold = z.chromaThreshold,
                 shadowDesaturation = z.shadowDesaturation,
                 shadowForgivenessSatMin = z.shadowForgivenessSatMin,
+                shadowValueFloor = z.shadowValueFloor,
                 outputSaturation = z.outputSaturation,
                 highlightRecovery = z.highlightRecovery,
                 highlightBandExpand = z.highlightBandExpand,
