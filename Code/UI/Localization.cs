@@ -223,6 +223,11 @@ namespace Iroca
             ? "グレーや黒のピクセルを同系色の影として巻き込むのを防ぐための最低彩度です。\nデフォルト: 0.05"
             : "Minimum saturation required to include a dark pixel as part of the shadow. Prevents pure greys from being colorized.\nDefault: 0.05";
 
+        public static string ShadowValueFloor => IsJapanese ? "陰影の明度下限" : "Shadow Value Floor";
+        public static string ShadowValueFloorTooltip => IsJapanese
+            ? "この明度より暗いピクセルだけで出来た離れた領域は、同系色でも同じ素材の陰影とみなさず選択から外します。\n同じ色相で暗いだけの別パーツ(上衣に対する暗いジャケット、肌に対する口の中など)の巻き込みを防ぎます。本体に地続きの影は残ります。\n自動調整(AI 提案あり)がクリックした部分に実在する暗さから導きます。連続領域モードでのみ効きます。0 = 無効\nデフォルト: 0"
+            : "Detached regions made only of pixels darker than this value are not treated as shading of the same material, even when the hue matches.\nStops darker parts of the same hue (a dark jacket next to a top, the inside of a mouth next to skin) from being included; shading connected to the body is kept.\nAuto-tune with an AI proposal derives it from the darkness actually present in the clicked part. Only in connected-region mode. 0 = off\nDefault: 0";
+
         public static string ShadowHighlightSection => IsJapanese ? "シャドウ・ハイライト詳細設定" : "Shadow / Highlight Details";
 
         public static string ChromaThreshold => IsJapanese ? "自動しきい値(無彩色判定)" : "Auto Grayscale Threshold";

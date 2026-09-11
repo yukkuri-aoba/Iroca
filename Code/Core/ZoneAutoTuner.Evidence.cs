@@ -95,6 +95,18 @@ namespace Iroca
         // 1 島あたりのツヤは芯の 0.1〜数% しかない(実測: sneakers 1 島でツヤが芯の 0.5% 未満)。
         private const float EvSheenMinFrac   = 0.001f;
 
+        // ── 陰影の明度下限(shadowValueFloor)の導出 ──
+        // 有彩マッチは「彩度がサンプル以上の画素の明度差を見ない」ので、同色相で暗いだけの別部位
+        // (桃ベージュ上衣→暗紫ジャケット、肌→舌/まつ毛/輪郭線)が陰影として無制限に入る。証拠
+        // ドメイン(セグメント芯のうち地色と同じ陰影ランプ = V 連結域)には、この素材の陰影が
+        // 実際にどこまで暗くなるかが実在の統計として在るので、その下端を床にする。
+        // 余白は連結域の幅の 25%: クリックした島より深い陰影を持つ同素材の別の島(髪の別の房など)
+        // への取りこぼしを避けるための頭出しで、シャドウ/ハイライト免除の 25% デッドマージン
+        // (ColorZone.ShadowValueThresholdFrac / HighlightValueHeadroomFrac)と同じ比率にそろえる。
+        // 床は画素でなく連結成分に効く(本体に地続きの深い影は残す)。画素単位は実測で衣装の深い影を
+        // 落とした(haolan-costume recall 0.996→0.942)ので採らない。
+        private const float EvShadowFloorMarginFrac = 0.25f;
+
         /// <summary>
         /// 証拠マスク(true=このゾーンの素材そのもの。AI マスク提案のセグメント)を教師にして
         /// パラメータを導出する。証拠が使えないときは従来の <see cref="Analyze(Color32[],int,int,ColorZone,IrocaSessionState,bool[],int,int,CancellationToken,System.Action{float})"/>
@@ -162,7 +174,7 @@ namespace Iroca
 
             // ── 証拠ドメイン = 芯のうち地色と同じ陰影ランプ(汚染判定と後段の被覆確認に使う) ──
             var domain = BuildEvidenceDomain(hsv, coreList, repH, repS, repV,
-                out int sheenCount, out int hlCandidates);
+                out int sheenCount, out int hlCandidates, out int domLoBin, out int domHiBin);
             float materialFrac = (domain.Count + sheenCount) / (float)coreList.Count;
             if (materialFrac < EvMinMaterialFrac)
             {
@@ -232,6 +244,18 @@ namespace Iroca
                 }
             }
             Progress(0.68f);
+
+            // ── 4. 陰影の明度下限: 証拠ドメインの V 連結域の下端 − 余白 ──
+            // 連結域が確定しない/最下 bin まで続く(=この島の陰影が黒まで達する)ときは置かない。
+            // 適用は連結成分単位(PixelProcessor.ApplyConnectedComponentMask)なので、マッチャーの
+            // 閉ループ検証(BuildSimZone)や被覆確認(DomainCoverage)には影響しない。
+            if (chromatic && domLoBin > 0 && domHiBin >= domLoBin)
+            {
+                float loV = domLoBin / (float)AutoToneValueBins;
+                float hiV = (domHiBin + 1) / (float)AutoToneValueBins;
+                float floor = loV - (hiV - loV) * EvShadowFloorMarginFrac;
+                result.shadowValueFloor = floor >= ColorZone.ShadowValueFloorMin ? floor : 0f;
+            }
 
             // ── 2. 証拠による補完: 導出パラメータでセグメント芯(ドメイン)を覆えないなら、
             //       未被覆部の代表色をサンプルへ足す(tolerance は上げない) ──
@@ -318,7 +342,8 @@ namespace Iroca
                 $"core={coreList.Count} domain={domain.Count} sheen={sheenCount} hlCand={hlCandidates}"
                 + $" clickT={clickT:F2}"
                 + $" hlRec={result.highlightRecovery} samples={result.autoSamples?.Count ?? 0}"
-                + $" added={added} cov={cov:F4} tol={result.tolerance:F4}";
+                + $" added={added} cov={cov:F4} tol={result.tolerance:F4}"
+                + $" vFloor={result.shadowValueFloor:F3}";
             Progress(0.98f);
 
             DecideGlobals(width, height, session, ref result);
@@ -363,11 +388,15 @@ namespace Iroca
         //   - V 連結域の外: 明度の空の谷の向こうは同物体でも別素材(実測: ゴーグル本体に対する
         //     金属フレーム、黒コートに囲まれた白ビスチェ)。従来のトーン抽出と同じ判定
         // hlCandidates は TryAnalyzePixels のハイライト候補と同条件(発火判定用)。
+        // loBin/hiBin: ドメインを確定した V 連結域(AutoToneValueBins 分割)。確定できなかった
+        // (ヒストグラム不能/連結域がキャンバス全域)ときは -1。
         private static List<GridPt> BuildEvidenceDomain(HsvGrid hsv, List<GridPt> core,
-            float repH, float repS, float repV, out int sheenCount, out int hlCandidates)
+            float repH, float repS, float repV, out int sheenCount, out int hlCandidates,
+            out int loBinOut, out int hiBinOut)
         {
             sheenCount = 0;
             hlCandidates = 0;
+            loBinOut = hiBinOut = -1;
             bool chromatic = repS >= AchromaSampleSatMax;
             float sheenSatCap = repS * EvSheenSatFrac;
             float sheenValMin = repV + EvSheenValMargin;
@@ -399,6 +428,8 @@ namespace Iroca
             if (!TryConnectedValueRange(vHist, pass.Count, repV, out int loBin, out int hiBin))
                 return pass;
             if (loBin == 0 && hiBin == VB - 1) return pass;
+            loBinOut = loBin;
+            hiBinOut = hiBin;
             var domain = new List<GridPt>(pass.Count);
             foreach (var p in pass)
             {

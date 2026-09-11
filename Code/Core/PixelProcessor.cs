@@ -82,7 +82,7 @@ namespace Iroca
             F(z.uvRect.x); F(z.uvRect.y); F(z.uvRect.width); F(z.uvRect.height);
             B(z.useFloodFill); F(z.seedUV.x); F(z.seedUV.y);
             F(z.edgeSoftness); F(z.saturationStrictness); F(z.valueWeight); F(z.satDistWeight);
-            F(z.satRampScale); F(z.shadowForgivenessSatMin); F(z.chromaThreshold); F(z.saturationGuard);
+            F(z.satRampScale); F(z.shadowForgivenessSatMin); F(z.shadowValueFloor); F(z.chromaThreshold); F(z.saturationGuard);
             B(z.highlightRecovery); B(z.highlightBandExpand);
             F(edgeFeather); I(aaCleanup); I(holeFillPasses); I(holeFillMinNeighbors);
             F(relaxedSatMin); F(relaxedSatRamp);
@@ -478,7 +478,8 @@ namespace Iroca
                                 seedX = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.x * (w - 1)), 0, w - 1);
                                 seedY = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.y * (h - 1)), 0, h - 1);
                             }
-                            ApplyConnectedComponentMask(strength, matchConf, originalPixels, w, h, seedX, seedY, cancellationToken);
+                            ApplyConnectedComponentMask(strength, matchConf, originalPixels, w, h, seedX, seedY,
+                                pixV, zone.shadowValueFloor, cancellationToken);
                             // フル画像で解いた keep(=残った画素 strength>0)を作り、詳細プレビュー(クロップ)へ
                             // 転写(parityCache)・次回の選択キャッシュ復元(keepBitsForCache)の両方に使う。
                             if (parityCache != null || selectionCache != null)

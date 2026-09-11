@@ -473,6 +473,9 @@ namespace Iroca
             zone.shadowForgivenessSatMin = UndoHelper.Slider(this,
                 new GUIContent(Localization.ShadowForgivenessSatMin, Localization.ShadowForgivenessSatMinTooltip),
                 zone.shadowForgivenessSatMin, 0f, 1f);
+            zone.shadowValueFloor = UndoHelper.Slider(this,
+                new GUIContent(Localization.ShadowValueFloor, Localization.ShadowValueFloorTooltip),
+                zone.shadowValueFloor, 0f, 1f);
             zone.chromaThreshold = UndoHelper.Slider(this,
                 new GUIContent(Localization.ChromaThreshold, Localization.ChromaThresholdTooltip),
                 zone.chromaThreshold, 0f, 1f);

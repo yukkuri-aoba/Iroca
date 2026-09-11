@@ -126,6 +126,10 @@ namespace Iroca
         // シャドウ/ハイライト免除ランプの幅(利用可能レンジ比)。免除が 0→1 へ立ち上がる区間長。
         // シャドウは sV×この値、ハイライトは (1-sV)×この値。
         private const float ForgivenessRangeFrac = 0.6f;
+        // 陰影の明度下限(shadowValueFloor)の最小有効値。下限は自動調整が V ヒストグラム
+        // (ZoneAutoTuner の AutoToneValueBins = 64 分割)の bin 境界で導くので、1 bin 幅未満の
+        // 下限は導出の解像度に無い = 無効(0)として扱う。
+        internal const float ShadowValueFloorMin = 1f / 64f;
         // ハイブリッド距離のハイライト距離免除の下限係数(Lerp(1,この値))。同色相・明部で最大
         // 1-0.3=70% まで距離を短縮する。シャドウ側距離短縮は廃止済み(暗部巻き込み防止)のため明部のみ
         // 非対称に温存している。
@@ -220,6 +224,19 @@ namespace Iroca
 
         [Range(0f, 1f)]
         public float shadowForgivenessSatMin = 0.05f;
+
+        // 陰影の明度下限(0 = 無効)。有彩サンプルのマッチは「画素の彩度がサンプル以上なら明度差を
+        // 見ない」(CalculateHybridDistance の vDist×(1−sRatio))ため、同色相で暗いだけの別部位
+        // (桃ベージュの上衣に対する暗紫のジャケット、肌に対する舌・まつ毛)が陰影として無制限に
+        // 巻き込まれる。**画素単位ではなく連結成分単位**で効く: 選択の連結成分のうち、この明度に
+        // 達する画素を 1 つも持たない(=全体がこの素材の陰影レンジより暗い)成分を落とす
+        // (PixelProcessor.ApplyConnectedComponentMask)。画素単位で切ると、クリックした島より深い
+        // 陰影を持つ同素材(衣装の深い影)まで落として recall が下がった(実測 haolan-costume −5.4pt)。
+        // 本体に地続きの深い影は残り、離れた暗い別パーツだけが落ちる。連続領域モード(useFloodFill)
+        // でのみ効く。証拠つき自動調整がクリックした島(AI 提案セグメント)に実在する明度レンジから
+        // 導く(ZoneAutoTuner.Evidence.cs)。手動でも使える。
+        [Range(0f, 1f)]
+        public float shadowValueFloor = 0f;
 
         [Range(0f, 1f)]
         public float chromaThreshold = 0.05f;
@@ -365,6 +382,7 @@ namespace Iroca
             autoRecolorAnchor       = d.autoRecolorAnchor;
             shadowDesaturation      = d.shadowDesaturation;
             shadowForgivenessSatMin = d.shadowForgivenessSatMin;
+            shadowValueFloor        = d.shadowValueFloor;
             chromaThreshold         = d.chromaThreshold;
             valueWeight             = d.valueWeight;
             satDistWeight           = d.satDistWeight;
