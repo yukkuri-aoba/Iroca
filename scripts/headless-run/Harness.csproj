@@ -21,6 +21,15 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <AssemblyName>IrocaHeadless</AssemblyName>
+    <!-- DLL のバイト列を「ソース + コンパイラ」だけで決める(2026-09-14)。
+         SourceLink は obj/Harness.sourcelink.json に git の HEAD コミット SHA を埋め込み、それが
+         CoreCompile の入力なので、ドキュメントだけのコミットでも次のビルドで DLL が書き換わる。
+         テストの実行キャッシュは DLL のダイジェストをキーに持つため、コミットごとに全エントリが
+         無効化され(ウォーム 3 分 → コールド 7 分半)、コミットが多いほどテストが遅くなっていた。
+         製品パッケージには入らないハーネス専用 DLL なので SourceLink を切る。 -->
+    <EnableSourceLink>false</EnableSourceLink>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Deterministic>true</Deterministic>
   </PropertyGroup>
 
   <PropertyGroup>
