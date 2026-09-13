@@ -281,6 +281,26 @@ $env:VACC_AUTOTUNE_GATE_FULL = "1"
 （キャッシュ + `--batch`）を通るので、直前に回帰スイートを回していれば dotnet を起動せずに
 同じ DLL の出力が返る（以前は 1 件ずつ単発起動で約 15 分かかっていた）。
 
+**DLL のバイト列は「ソース + コンパイラ」だけで決まる**（2026-09-14、`Harness.csproj` の
+`EnableSourceLink=false`）。それまでは SourceLink が `obj/Harness.sourcelink.json` に git の HEAD
+コミット SHA を埋め込み、それが CoreCompile の入力だったので、**ドキュメントだけのコミットでも次の
+ビルドで DLL が書き換わり、実行キャッシュが丸ごと無効化されていた**（コミットごとにコールドラン）。
+空コミットを挟んで再ビルドしても SHA-256 が変わらないことを確認済み。
+
+**`measure_evidence_autotune.run_case` の結果キャッシュ**（2026-09-14、`_harness_cache/rows/`、
+`IROCA_ROW_CACHE=0` で無効化）: 追加操作後 14 件・証拠つき自動調整 14+7 件・プリセット比較・
+ワークフロー審査が同じ被写体 × クリックを別ワーカーで繰り返し計算しており、ハーネス出力が
+キャッシュ済みでも 1 件約 6 秒（SAM 提案の dotnet 5 回起動、採点の HSV/収縮、読み込み）かかっていた。
+row と証拠セグメントを、**関与する Python ソース全部**（measure_evidence_autotune / sam_proposal /
+measure_sam_e2e / freeze_sam_fixtures / measure_residual / measure_click_position / gt_tolerance /
+colorspace / fixtures / headless_io / workflow_contract）と DLL・ONNX・凍結埋め込み・テクスチャ・GT・
+評価領域・fixtures.json・GT 許容上書き（JSON + マスク PNG）の内容ダイジェスト、click / include /
+conventional をキーにして保存する。しきい値や規則を書き換えれば自動で無効化される（DLL ダイジェストと
+同じ考え）。`return_outputs=True` の出力配列は保存せず、ヒット時も同じ zones で
+`fx.run_harness_autotune` を呼び直す（ハーネスの実行キャッシュが返す）。ヒット 0.3〜0.5 秒。
+`measure_residual.island_mask` は erode 済 GT 内部の画素だけを集めて HSV を計算する（全画面版と
+bit 一致、1.2 秒 → 0.3 秒）。
+
 ハーネスのスレッド数は `IROCA_HARNESS_THREADS` で上書きできる。未設定のとき、xdist 並列中は
 fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセスへ渡し、単独実行（`-n 0`）では製品と
 同じ `ProcessorCount-2` のままにする（2026-09-14）。製品既定のまま 4 ワーカーが同時に走ると最大
