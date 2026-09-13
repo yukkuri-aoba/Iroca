@@ -124,63 +124,51 @@ def _run_all_cases_csharp() -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarra
     (project_visual_review_washoff_blind の「視覚レビューが C# に盲目」を解消)。
     dotnet/Unity DLL が無ければ RuntimeError で中断する。
 
+    実行は回帰テストと同じ `fixtures.run_harness_many`(実行キャッシュ + --batch)に一本化する
+    (2026-09-14)。ゾーン JSON・設定・除外マスクの直列化が IoU 回帰(`run_csharp`)と同一なので、
+    直前に回帰スイートを回していれば同じ DLL の出力がキャッシュから返り、79 ケースを 1 件ずつ
+    dotnet 起動していた約 15 分がほぼ消える。キャッシュキーに DLL のダイジェストが入るので、
+    Code/ を変えて再ビルドした時点で古い出力が使われることはない(回帰テストと同じ保証)。
+    --batch の出力が単発実行と byte 一致することは dev_safe/scripts/verify_harness_batch.py と
+    test_harness_batch_parity.py が検証している。
+
     末尾で MASKED_SUBJECT_CASES の被写体について除外マスク付きの変種も回す
     (case_id は `<元の case_id>+masked`)。exclude が None でないケースは、compare が
     「マスク画素が 1 つも変わっていないか」を機械で検査する。
     """
-    from regression import headless_io as hio
+    from regression import fixtures as fx
 
-    csproj = _ROOT / "scripts" / "headless-run" / "Harness.csproj"
-    dll = _ROOT / "scripts" / "headless-run" / "bin" / "Release" / "IrocaHeadless.dll"
-    if hio.run(["dotnet", "--version"]).returncode != 0:
-        raise RuntimeError("dotnet が利用できません(--engine csharp は使えません)")
-    build = hio.run(["dotnet", "build", str(csproj), "-c", "Release", "-nologo"])
-    if build.returncode != 0 or not dll.exists():
-        raise RuntimeError(f"Harness ビルド失敗(Unity DLL 不在?):\n{build.stdout[-800:]}")
-    CSHARP_WORK.mkdir(parents=True, exist_ok=True)
+    try:
+        fx.ensure_harness()
+    except fx.HarnessUnavailable as e:
+        raise RuntimeError(f"dotnet / Unity DLL が利用できません(--engine csharp は使えません): {e}")
+    except fx.HarnessBuildFailed as e:
+        raise RuntimeError(f"Harness ビルド失敗:\n{e}")
 
-    settings = default_settings()
-    settings_cfg = {
-        "edgeFeather": settings.edge_feather,
-        "antiAliasCleanup": settings.anti_alias_cleanup,
-        "holeFillPasses": settings.hole_fill_passes,
-        "holeFillMinNeighbors": settings.hole_fill_min_neighbors,
-        "relaxedSatMin": settings.relaxed_sat_min,
-        "relaxedSatRamp": settings.relaxed_sat_ramp,
-        "useDecontamination": settings.use_decontamination,
-        "decontaminationRadius": settings.decontamination_radius,
-    }
-    def _run(case, tag: str, in_raw: Path, mask_raw: Path) -> np.ndarray:
-        zone = make_zone(case)
-        zones_json = CSHARP_WORK / f"{tag}_zones.json"
-        # ゾーンは fixtures._zone_to_harness で **全フィールド明示** する(IoU 回帰と同一の
-        # 直列化)。以前はケース固有 7 フィールドだけ書き、残りを zones JSON 既定
-        # (ZonesJsonDefaults)へフォールバックさせていたが、highlightRecovery の JSON 既定は
-        # false で **UI の ColorZone 既定(true)と意図的に異なる**(2026-08-07 の GT 実測で
-        # MCP/バッチ向けに false を採った。ZonesJsonDefaults.cs 参照)。その結果、
-        #   UI(true) / IoU 回帰(true 明示) / このパネル(false)
-        # の三者不一致になり、出荷ゲートの目視が製品既定とも回帰テストとも違う設定の絵を
-        # 見ていた(2026-08-21 テストと実操作の乖離調査)。全フィールド明示に揃えることで
-        # 「このパネルと回帰テストの IoU は同一設定を指す」を再び真にする。
-        # ZoneSpec と製品 ColorZone 既定の一致は test_zones_schema_parity.py が機械検査する。
-        hio.write_zones_json(zones_json, [_zone_to_harness(zone, case)], settings_cfg)
-        out_raw = CSHARP_WORK / f"{tag}_out.raw"
-        r = hio.run(["dotnet", str(dll), str(in_raw), str(mask_raw),
-                     str(out_raw), "--zones", str(zones_json)])
-        if r.returncode != 0:
-            raise RuntimeError(f"Harness 実行失敗 {tag}: {r.stderr}\n{r.stdout}")
-        return hio.read_raw_rgba(out_raw)
+    # 設定は fixtures._settings_to_harness(default_settings()) — IoU 回帰と同一の直列化。
+    # ゾーンは fixtures._zone_to_harness で **全フィールド明示** する(IoU 回帰と同一の
+    # 直列化)。以前はケース固有 7 フィールドだけ書き、残りを zones JSON 既定
+    # (ZonesJsonDefaults)へフォールバックさせていたが、highlightRecovery の JSON 既定は
+    # false で **UI の ColorZone 既定(true)と意図的に異なる**(2026-08-07 の GT 実測で
+    # MCP/バッチ向けに false を採った。ZonesJsonDefaults.cs 参照)。その結果、
+    #   UI(true) / IoU 回帰(true 明示) / このパネル(false)
+    # の三者不一致になり、出荷ゲートの目視が製品既定とも回帰テストとも違う設定の絵を
+    # 見ていた(2026-08-21 テストと実操作の乖離調査)。全フィールド明示に揃えることで
+    # 「このパネルと回帰テストの IoU は同一設定を指す」を再び真にする。
+    # ZoneSpec と製品 ColorZone 既定の一致は test_zones_schema_parity.py が機械検査する。
+    settings_cfg = fx._settings_to_harness(default_settings())
+
+    def _batch(rgba, cases, suffix: str, exclude):
+        specs = [([_zone_to_harness(make_zone(c), c)], settings_cfg, f"{c.case_id}{suffix}")
+                 for c in cases]
+        return fx.run_harness_many(rgba, specs, exclude=exclude)
 
     results: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray | None]] = {}
     for subject in SUBJECT_REGISTRY.values():
         rgba, gt_mask = load_subject_inputs(subject)
-        in_raw = CSHARP_WORK / f"{subject.subject_id}_in.raw"
-        mask_raw = CSHARP_WORK / f"{subject.subject_id}_mask.raw"
-        hio.write_raw(in_raw, rgba)
-        hio.write_raw(mask_raw, np.zeros(rgba.shape[:2], np.uint8))  # 全画素処理
         cases = load_cases(subject)
-        for case in cases:
-            results[case.case_id] = (rgba, _run(case, case.case_id, in_raw, mask_raw), None)
+        for case, out in zip(cases, _batch(rgba, cases, "", None)):   # exclude=None → 全画素処理
+            results[case.case_id] = (rgba, out, None)
 
         # ── 除外マスク付きの変種(N-12: ゲートにマスク経路を通す) ──
         n_masked = MASKED_SUBJECT_CASES.get(subject.subject_id, 0)
@@ -190,11 +178,9 @@ def _run_all_cases_csharp() -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarra
             raise RuntimeError(
                 f"{subject.subject_id}: マスクケースには single_mask 戦略の GT が要ります")
         exclude = _build_review_mask(gt_mask)
-        excl_raw = CSHARP_WORK / f"{subject.subject_id}_excl.raw"
-        hio.write_raw(excl_raw, np.ascontiguousarray(exclude))
-        for case in cases[:n_masked]:
-            tag = f"{case.case_id}{MASKED_SUFFIX}"
-            results[tag] = (rgba, _run(case, tag, in_raw, excl_raw), exclude.astype(bool))
+        for case, out in zip(cases[:n_masked],
+                             _batch(rgba, cases[:n_masked], MASKED_SUFFIX, exclude)):
+            results[f"{case.case_id}{MASKED_SUFFIX}"] = (rgba, out, exclude.astype(bool))
     return results
 
 
