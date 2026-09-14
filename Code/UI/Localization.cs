@@ -156,15 +156,6 @@ namespace Iroca
             ? "有効にすると、アルゴリズムの内部パラメータをより細かく調整できます。\n通常はデフォルト値で十分ですが、特殊なテクスチャに対して微調整が必要な場合に使用してください。"
             : "Enables fine-grained control over internal algorithm parameters.\nDefault values work well for most textures, but can be tuned for special cases.";
 
-        public static string EditMode      => IsJapanese ? "編集モード" : "Mode";
-        public static string SimpleMode    => IsJapanese ? "かんたん" : "Simple";
-        public static string NormalMode    => IsJapanese ? "通常" : "Normal";
-        public static string AdvancedShort => IsJapanese ? "上級" : "Advanced";
-        // 「かんたん」モードは UI から隠してある（IrocaWindow.ZoneList.cs の Simple 非表示を参照）。
-        // 再表示するときはこのツールチップにも説明を戻すこと。
-        public static string EditModeTooltip => IsJapanese
-            ? "「通常」: 標準的な調整項目（エッジ・彩度・シャドウ/ハイライト）を手動で調整します。\n「上級」: 通常に加えて、内部マッチング重みなど最も細かいパラメータまで表示します。\nどちらのモードでも自動調整が勝手に走ることはありません（「自動調整」ボタンを押したときだけ実行）。"
-            : "Normal: the standard manual controls (edge, saturation, shadow/highlight).\nAdvanced: Normal plus the finest internal parameters (matching weights, etc.).\nNeither mode runs Auto-tune on its own - it only runs when you press the Auto-tune button.";
         public static string AutoTuningInProgress => IsJapanese ? "自動調整中…" : "Auto-tuning…";
 
         // ゾーンカード内の詳細パラメータ折りたたみ見出し（通常モードで既定畳む）。
@@ -228,7 +219,9 @@ namespace Iroca
             ? "この明度より暗いピクセルだけで出来た離れた領域は、同系色でも同じ素材の陰影とみなさず選択から外します。\n同じ色相で暗いだけの別パーツ(上衣に対する暗いジャケット、肌に対する口の中など)の巻き込みを防ぎます。本体に地続きの影は残ります。\n自動調整(AI 提案あり)がクリックした部分に実在する暗さから導きます。連続領域モードでのみ効きます。0 = 無効\nデフォルト: 0"
             : "Detached regions made only of pixels darker than this value are not treated as shading of the same material, even when the hue matches.\nStops darker parts of the same hue (a dark jacket next to a top, the inside of a mouth next to skin) from being included; shading connected to the body is kept.\nAuto-tune with an AI proposal derives it from the darkness actually present in the clicked part. Only in connected-region mode. 0 = off\nDefault: 0";
 
-        public static string ShadowHighlightSection => IsJapanese ? "シャドウ・ハイライト詳細設定" : "Shadow / Highlight Details";
+        // 「ハイライト」は独立した小見出しへ分けたので、ここは暗部と無彩色の扱いだけを指す
+        // （2026-09-11 の詳細パラメータのグループ化。旧名は「シャドウ・ハイライト詳細設定」）。
+        public static string ShadowHighlightSection => IsJapanese ? "暗部・無彩色" : "Shadows and neutrals";
 
         public static string ChromaThreshold => IsJapanese ? "自動しきい値(無彩色判定)" : "Auto Grayscale Threshold";
         public static string ChromaThresholdTooltip => IsJapanese
@@ -282,12 +275,14 @@ namespace Iroca
         public static string AiSuggestToolTooltip => IsJapanese
             ? "AI 提案モード: プレビューでパーツを右クリックすると、AI が推定した領域を\nいま選んでいる対象・種類のマスク（除外/含める）へ追加します\n同じボタンを再度押すとモードを解除\n塗る/消すとは排他です（選ぶとブラシは解除されます）"
             : "AI Suggest mode: right-click a part on the preview and the AI-estimated region is added\nto the mask currently selected above (target and Exclude/Include)\nClick again to exit\nMutually exclusive with Paint/Erase (selecting this exits the brush)";
+        // 取得の導線はメインウィンドウ上部のバナー（MaskSuggestSection.DrawSetupBanner）に集約した。
+        // 「マスク欄」を指す旧案内のままだと、実際には無い場所へ誘導することになる。
         public static string AiSuggestToolNotReadyTooltip => IsJapanese
-            ? "AI モデルがまだ取得されていないため使えません\nIroca 本体ウィンドウの「マスク」欄にある「AI マスク提案」から取得してください（約 45MB・一度きり）"
-            : "Unavailable until the AI model is downloaded\nGet it from \"AI Mask Suggestion\" in the Masks section of the main Iroca window (about 45MB, one time)";
+            ? "AI モデルがまだ取得されていないため使えません\nIroca 本体ウィンドウ上部の案内から取得してください（約 45MB・一度きり）"
+            : "Unavailable until the AI model is downloaded\nGet it from the notice at the top of the main Iroca window (about 45MB, one time)";
         public static string AiSuggestNoModelInEditor => IsJapanese
-            ? "AI モデルが未取得です。Iroca 本体ウィンドウの「マスク」欄から取得してください。"
-            : "The AI model has not been downloaded yet. Get it from the Masks section of the main Iroca window.";
+            ? "AI モデルが未取得です。Iroca 本体ウィンドウ上部の案内から取得してください。"
+            : "The AI model has not been downloaded yet. Get it from the notice at the top of the main Iroca window.";
         public static string MaskHintAi => IsJapanese
             ? "プレビュー上でパーツを右クリックすると、AI が推定した領域をマスクへ追加します（Ctrl+Z で 1 手ずつ戻せます）"
             : "Right-click a part on the preview to add the AI-estimated region to the mask (Ctrl+Z undoes one step at a time)";
@@ -510,18 +505,15 @@ namespace Iroca
             : "Opens the main Iroca window";
 
         public static string AiSuggest => IsJapanese ? "AI マスク提案（実験的）" : "AI Mask Suggestion (Experimental)";
-        public static string AiSuggestSentisRequired => IsJapanese
-            ? "この AI 機能には Unity Sentis パッケージが必要です。下のボタンで導入すると有効になります（不要なら導入しなければ従来どおりの動作で、ストレージも消費しません）。"
-            : "This AI feature needs the Unity Sentis package. Install it with the button below to enable it (skip it to keep the classic behavior with no extra storage).";
         public static string AiSuggestInstallSentis => IsJapanese ? "AI 機能を有効化（Sentis を導入）" : "Enable AI feature (install Sentis)";
         // 起動時の準備ダイアログ(MaskSuggestSetupPrompt)。
         public static string AiSetupTitle => IsJapanese ? "いろか — AI の準備" : "Iroca — AI setup";
         public static string AiSetupSentisBody => IsJapanese
-            ? "自動調整と AI マスク提案には、Unity Sentis {0} と AI モデル（約 44 MB）が必要です。\n\n今すぐ Sentis を Package Manager から導入しますか？\n導入後に Unity が再コンパイルし、続けて AI モデルのダウンロードを案内します。\n\n「あとで」を選ぶと自動調整は使えません（マスク欄の「AI マスク提案」からいつでも導入できます）。"
-            : "Auto-tune and AI Mask Suggestion require Unity Sentis {0} and the AI models (about 44 MB).\n\nInstall Sentis via the Package Manager now?\nUnity will recompile, then you will be asked to download the models.\n\nIf you choose \u201cLater\u201d, Auto-tune stays unavailable (you can install any time from \u201cAI Mask Suggestion\u201d in the mask section).";
+            ? "自動調整と AI マスク提案には、Unity Sentis {0} と AI モデル（約 44 MB）が必要です。\n\n今すぐ Sentis を Package Manager から導入しますか？\n導入後に Unity が再コンパイルし、続けて AI モデルのダウンロードを案内します。\n\n「あとで」を選ぶと自動調整は使えません（ウィンドウ上部の案内からいつでも導入できます）。"
+            : "Auto-tune and AI Mask Suggestion require Unity Sentis {0} and the AI models (about 44 MB).\n\nInstall Sentis via the Package Manager now?\nUnity will recompile, then you will be asked to download the models.\n\nIf you choose \u201cLater\u201d, Auto-tune stays unavailable (you can install any time from the notice at the top of the window).";
         public static string AiSetupModelBody => IsJapanese
-            ? "自動調整と AI マスク提案に必要な AI モデル（MobileSAM、約 44 MB）をダウンロードします。\n\n保存先: {0}\n取得元: {1}\n\n「あとで」を選ぶと自動調整は使えません（マスク欄の「AI マスク提案」からいつでもダウンロードできます）。"
-            : "Download the AI models (MobileSAM, about 44 MB) required by Auto-tune and AI Mask Suggestion.\n\nSave to: {0}\nSource: {1}\n\nIf you choose \u201cLater\u201d, Auto-tune stays unavailable (you can download any time from \u201cAI Mask Suggestion\u201d in the mask section).";
+            ? "自動調整と AI マスク提案に必要な AI モデル（MobileSAM、約 44 MB）をダウンロードします。\n\n保存先: {0}\n取得元: {1}\n\n「あとで」を選ぶと自動調整は使えません（ウィンドウ上部の案内からいつでもダウンロードできます）。"
+            : "Download the AI models (MobileSAM, about 44 MB) required by Auto-tune and AI Mask Suggestion.\n\nSave to: {0}\nSource: {1}\n\nIf you choose \u201cLater\u201d, Auto-tune stays unavailable (you can download any time from the notice at the top of the window).";
         public static string AiSetupInstall => IsJapanese ? "導入する" : "Install";
         public static string AiSetupDownload => IsJapanese ? "ダウンロード" : "Download";
         public static string AiSetupLater => IsJapanese ? "あとで" : "Later";
@@ -555,9 +547,6 @@ namespace Iroca
         public static string AiSuggestPendingClicksFormat => IsJapanese
             ? "処理待ちクリック {0} 件(順に反映されます)"
             : "{0} click(s) queued (applied in order)";
-        public static string AiSuggestNoModel => IsJapanese
-            ? "AI モデルが未配置です。モデルをダウンロードして下のフォルダへ配置すると使えるようになります。"
-            : "AI model files are not installed. Download the models into the folder below to enable this feature.";
         public static string AiSuggestOpenModelFolder => IsJapanese ? "モデルフォルダを開く" : "Open model folder";
         public static string AiSuggestOpenModelFolderTooltip => IsJapanese
             ? "モデルファイル（.onnx）を配置するフォルダをエクスプローラーで開きます"
@@ -705,9 +694,6 @@ namespace Iroca
         public static string LanguageToolbarTooltip => IsJapanese
             ? "UI の表示言語を切り替えます（自動 / 日本語 / English）"
             : "Switch the UI display language (Auto / Japanese / English)";
-        public static string EditModeToolbarTooltip => IsJapanese
-            ? "通常: よく使う設定のみ表示 / 上級: 詳細パラメータも表示します"
-            : "Normal: show common settings only / Advanced: also reveal detailed parameters";
 
         public static string UseFloodFill => IsJapanese ? "連続領域モード (Flood Fill)" : "Connected Region (Flood Fill)";
         public static string UseFloodFillTooltip => IsJapanese
@@ -745,8 +731,8 @@ namespace Iroca
             : "Waiting for the AI to get ready…";
         // 自動調整は AI 提案を証拠にする。AI が無いときは従来導出へ落とさず中止して案内する。
         public static string AutoTuneNeedsAi => IsJapanese
-            ? "自動調整には AI モデルが必要です。マスク欄の「AI マスク提案」から導入・ダウンロードしてください"
-            : "Auto-tune requires the AI models. Install/download them from \u201cAI Mask Suggestion\u201d in the mask section";
+            ? "自動調整には AI モデルが必要です。ウィンドウ上部の案内から導入・ダウンロードしてください"
+            : "Auto-tune requires the AI models. Install/download them from the notice at the top of the window";
         public static string AutoTuneAiError => IsJapanese
             ? "AI を利用できないため自動調整を中止しました: {0}"
             : "Auto-tune aborted because the AI is unavailable: {0}";
@@ -793,5 +779,141 @@ namespace Iroca
             }
             return sb.ToString();
         }
+
+        // ─────────────────────────────────────────────────────────────
+        // ワークフロー案内（手順の完了マークと「次の一手」）
+        // 見出しの番号だけでは「今どこまで進んだか / 次に何をするか」が伝わらず、
+        // テクスチャを入れた瞬間に導入ヒントが消えて案内が途切れていた。
+        // ─────────────────────────────────────────────────────────────
+        public static string StepDoneMark => " ✓";
+        public static string NextStepAddZone => IsJapanese
+            ? "次の手順: 「+ ゾーン追加」を押してカラーゾーンを作ります。"
+            : "Next: press \"+ Add Zone\" to create a color zone.";
+        public static string NextStepPickColor => IsJapanese
+            ? "次の手順: ゾーンの「スポイト」を押してから、プレビュー上の変えたい色をクリックします。"
+            : "Next: press the zone's \"Eyedropper\", then click the color you want to change on the preview.";
+
+        // ─────────────────────────────────────────────────────────────
+        // AI 準備バナー（メインウィンドウ上部）
+        // 以前はウィンドウを開いた瞬間にモーダルで導入・ダウンロードを求めていた。
+        // Editor 全体をブロックするうえ「あとで」を選ぶと案内ごと消え、自動調整だけが
+        // 黙って使えない状態になっていたため、常に見える非モーダルの帯へ移した。
+        // ─────────────────────────────────────────────────────────────
+        public static string AiBannerSentis => IsJapanese
+            ? "自動調整と AI マスク提案を使うには Unity Sentis の導入が必要です（未導入でも色替えとマスクの手描きは使えます）。"
+            : "Auto-tune and AI Mask Suggestion need the Unity Sentis package (recoloring and hand-painted masks work without it).";
+        public static string AiBannerModel => IsJapanese
+            ? "自動調整と AI マスク提案を使うには AI モデル（約 45MB・一度だけ）のダウンロードが必要です。"
+            : "Auto-tune and AI Mask Suggestion need the AI models (about 45MB, downloaded once).";
+        public static string AiBannerDismiss => IsJapanese ? "閉じる" : "Dismiss";
+        public static string AiBannerDismissTooltip => IsJapanese
+            ? "この案内をこの Unity セッション中は表示しません。次に Unity を開いたときにまた出ます。"
+            : "Hide this notice for this Unity session. It comes back the next time you open Unity.";
+
+        // ─────────────────────────────────────────────────────────────
+        // プレビューの操作モード表示（1 行）
+        // クリックの意味がモードで変わるのに、状態はゾーンカードやマスク編集ウィンドウの
+        // ボタン色にしか出ていなかった。プレビューを別ウィンドウへ切り出しているときや
+        // 設定列をスクロールしているときは、その手掛かりが画面の外へ出る。
+        // ─────────────────────────────────────────────────────────────
+        public static string PreviewModeEyedropper => IsJapanese
+            ? "スポイト: クリックで色を取得"
+            : "Eyedropper: click to pick a color";
+        public static string PreviewModeSeed => IsJapanese
+            ? "シード指定: クリックで残す塊を指定"
+            : "Seed: click the region to keep";
+        public static string PreviewModePaintFormat => IsJapanese
+            ? "マスクを塗る: {0} / {1}"
+            : "Painting mask: {0} / {1}";
+        public static string PreviewModeEraseFormat => IsJapanese
+            ? "マスクを消す: {0} / {1}"
+            : "Erasing mask: {0} / {1}";
+        public static string PreviewModeAi => IsJapanese
+            ? "AI 提案: パーツを右クリックでマスクへ追加"
+            : "AI Suggest: right-click a part to add it to the mask";
+        public static string PreviewModeEscHint => IsJapanese ? "  (Esc で解除)" : "  (Esc to cancel)";
+        public static string PreviewModeTooltip => IsJapanese
+            ? "プレビュー上のクリックがいま何をするかを示します。Esc で解除できます。\nどのモードでも、中ボタンドラッグまたは Alt+ドラッグで表示を移動できます。"
+            : "Shows what a click on the preview does right now. Press Esc to leave the mode.\nIn any mode you can pan the view with a middle-button drag or Alt+drag.";
+        public static string PreviewSoloFormat => IsJapanese
+            ? "ソロ表示中: {0}"
+            : "Solo: {0}";
+        public static string PreviewSoloTooltip => IsJapanese
+            ? "1 つのゾーンだけをプレビューしています。保存される内容は変わりません（有効なゾーンがすべて適用されます）。"
+            : "Only one zone is being previewed. This does not change what gets saved (every enabled zone is applied).";
+
+        // ─────────────────────────────────────────────────────────────
+        // ズームのリセット（ズーム自体は Ctrl+スクロール。拡大後に初期表示へ戻す手段が無かった）
+        // ─────────────────────────────────────────────────────────────
+        public static string ZoomReset => IsJapanese ? "リセット" : "Reset";
+        public static string ZoomResetTooltip => IsJapanese
+            ? "ズームを 100% に戻し、表示位置も先頭に戻します（ズームは Ctrl+スクロールで変えられます）"
+            : "Reset the zoom to 100% and the scroll position to the top-left (zoom with Ctrl+Scroll)";
+
+        public static string PeekOriginal => IsJapanese ? "元を表示" : "Original";
+        public static string PeekOriginalTooltip => IsJapanese
+            ? "押している間だけ変更前のテクスチャを表示します（離すと変更後に戻ります）。\n拡大しているときは変更前をプレビュー解像度で表示します。"
+            : "Shows the original texture while the button is held (releases back to the result).\nAt high zoom the original is shown at preview resolution.";
+
+        // ─────────────────────────────────────────────────────────────
+        // ゾーンのソロ表示
+        // ─────────────────────────────────────────────────────────────
+        public static string ZoneSolo => IsJapanese ? "ソロ" : "Solo";
+        public static string ZoneSoloTooltip => IsJapanese
+            ? "このゾーンだけをプレビューに表示して、どこを拾えているかを確かめます。\n表示だけの機能で、保存される内容は変わりません。もう一度押すと解除します。"
+            : "Preview only this zone to check what it selects.\nThis affects the preview only; what gets saved does not change. Press again to release.";
+        public static string ExportSoloWarning => IsJapanese
+            ? "ソロ表示中です。保存には有効なすべてのゾーンが適用されます。"
+            : "A zone is soloed for preview. Saving still applies every enabled zone.";
+
+        // ─────────────────────────────────────────────────────────────
+        // 連続領域モードのシード指定（Shift+クリックだけでは対象ゾーンが分からなかった）
+        // ─────────────────────────────────────────────────────────────
+        public static string FloodFillSeedPick => IsJapanese ? "指定" : "Set";
+        public static string FloodFillSeedPickActive => IsJapanese ? "■ クリック" : "■ Click";
+        public static string FloodFillSeedPickTooltip => IsJapanese
+            ? "押してからプレビューをクリックすると、このゾーンのシードを置きます（1 回で解除）。\nShift+クリックでも指定できます。"
+            : "Press, then click the preview to place this zone's seed (disarms after one click).\nShift+click also works.";
+
+        // ─────────────────────────────────────────────────────────────
+        // スポイト位置の有無（自動調整が AI 提案を参照できるかが事前に分からなかった）
+        // ─────────────────────────────────────────────────────────────
+        public static string SampleUvPresent => IsJapanese
+            ? "スポイト位置: あり（自動調整が AI 提案を参照します）"
+            : "Sampled position: set (Auto-tune will use the AI suggestion)";
+        public static string SampleUvMissing => IsJapanese
+            ? "スポイト位置: なし（自動調整は AI 提案を参照しません）"
+            : "Sampled position: none (Auto-tune will not use the AI suggestion)";
+        public static string SampleUvTooltip => IsJapanese
+            ? "「スポイト」ボタンでプレビューをクリックすると位置が記録され、自動調整がその位置に AI マスク提案をかけて証拠にします。\nカラーフィールドで色を変えると位置は消えます。"
+            : "Clicking the preview with the Eyedropper button records the position, and Auto-tune runs the AI mask suggestion there as evidence.\nChanging the color from the color field clears the position.";
+
+        // ─────────────────────────────────────────────────────────────
+        // 詳細パラメータの小見出し（同じ「彩度」でも役割の違うものが平坦に並んでいた）
+        // ─────────────────────────────────────────────────────────────
+        public static string ZoneGroupSelection => IsJapanese ? "選択の範囲" : "Selection range";
+        public static string ZoneGroupHighlight => IsJapanese ? "ハイライト（光沢・明部）" : "Highlights";
+        public static string ZoneGroupRecolor => IsJapanese ? "色の写り方" : "Color mapping";
+        public static string ZoneGroupMatching => IsJapanese ? "マッチング距離の重み" : "Matching distance weights";
+
+        public static string ProcessingDetailFoldout => IsJapanese ? "詳細設定" : "Details";
+        public static string ProcessingDetailFoldoutTooltip => IsJapanese
+            ? "穴埋め・境界復元・α分解の近傍半径など、内部の細かいパラメータを開閉します。通常は既定のままで構いません。"
+            : "Show or hide internal parameters such as hole filling, boundary recovery, and the decontamination radius. The defaults are usually fine.";
+
+        // ─────────────────────────────────────────────────────────────
+        // エクスポート
+        // ─────────────────────────────────────────────────────────────
+        public static string RevealInProject => IsJapanese ? "Project で表示" : "Show in Project";
+        public static string RevealInProjectTooltip => IsJapanese
+            ? "直前に保存したテクスチャを Unity の Project ウィンドウで選択して表示します"
+            : "Select and reveal the texture you just saved in Unity's Project window";
+        public static string DismissError => IsJapanese ? "閉じる" : "Dismiss";
+        public static string DismissErrorTooltip => IsJapanese
+            ? "このエラー表示を消します（内容は Console にも残ります）"
+            : "Hide this error message (it is also logged to the Console)";
+
+        // 新規ゾーンの既定名。同名が並ぶとマスク編集ウィンドウの「編集対象」で区別できない。
+        public static string NewZoneNameFormat => IsJapanese ? "ゾーン {0}" : "Zone {0}";
     }
 }

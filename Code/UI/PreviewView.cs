@@ -469,6 +469,18 @@ namespace Iroca
                 return;
             }
 
+            int srcW = _trueSourceW;
+            int srcH = _trueSourceH;
+            float scale = (srcW > IrocaConsts.Preview.MaxSize || srcH > IrocaConsts.Preview.MaxSize)
+                ? IrocaConsts.Preview.MaxSize / (float)Mathf.Max(srcW, srcH)
+                : 1f;
+            float maxZoom = ComputeMaxZoom(scale);
+
+            // テクスチャ切り替えやデシリアライズで残った半端な/上限超過のズーム値を、
+            // 毎フレーム最も近い「きれいな数字」のストップへ丸める（表示倍率の見映え対策）。
+            // ズームのリセットボタンが上限を知る必要があるので、操作行より前で確定させる。
+            previewZoom = SnapToStop(previewZoom, maxZoom);
+
             int zoomPercent = Mathf.RoundToInt(previewZoom * 100f);
             if (zoomPercent != _cachedZoomPercent || _cachedZoomLang != Localization.CurrentLanguage || _cachedZoomLabel == null)
             {
@@ -498,8 +510,32 @@ namespace Iroca
                     _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
                 }
             }
+            // 押している間だけ変更前を表示する。前後比較(横並び)は高ズームで使えず、差分表示は
+            // 「変わった画素」しか示さないため、拡大して細部を見ているときに「元はどうだったか」を
+            // 確かめる手段が無かった。比較モード中は両方が既に並んでいるので無効化する。
+            bool peekOriginal;
+            using (new EditorGUI.DisabledScope(comparisonMode || rawPreviewTexture == null))
+            {
+                peekOriginal = GUILayout.RepeatButton(
+                    new GUIContent(Localization.PeekOriginal, Localization.PeekOriginalTooltip),
+                    EditorStyles.miniButton, GUILayout.ExpandWidth(false));
+            }
+            peekOriginal &= !comparisonMode && rawPreviewTexture != null;
+            // RepeatButton は押されている間 true を返し続けるが、Editor は要求が無いと
+            // 再描画しない。押下中は継続的に再描画を要求しないと 1 フレームで戻って見える。
+            if (peekOriginal) _host.RequestRepaint();
+
             GUILayout.Space(10f);
-            GUILayout.Label(new GUIContent(_cachedZoomLabel, Localization.ZoomHint), GUILayout.ExpandWidth(false));
+
+            // ズームは Ctrl+スクロールのみ。拡大したあと初期表示へ戻す手段がスクロールを
+            // 戻し切ることしか無かったので、リセットボタンだけ置く（−／＋／全体の段階ボタンは
+            // 見た目が煩雑になったため 2026-09-14 に撤去）。
+            GUILayout.Label(new GUIContent(_cachedZoomLabel, Localization.ZoomHint),
+                EditorStyles.miniLabel, GUILayout.ExpandWidth(false));
+            if (GUILayout.Button(new GUIContent(Localization.ZoomReset, Localization.ZoomResetTooltip),
+                    EditorStyles.miniButton, GUILayout.ExpandWidth(false)))
+                ResetZoom(maxZoom);
+
             GUILayout.FlexibleSpace();
             // MinWidth(0): 生成状態ラベルは文字数が多く、既定では「文字幅＝最小幅」として
             // この行の最小幅に丸ごと乗る。狭いカラムではそれがカラム幅を超え、外側 ScrollView が
@@ -508,15 +544,7 @@ namespace Iroca
             GUILayout.Label(generatingLabel, GUILayout.MinWidth(0f));
             EditorGUILayout.EndHorizontal();
 
-            int srcW = _trueSourceW;
-            int srcH = _trueSourceH;
-            float scale = (srcW > IrocaConsts.Preview.MaxSize || srcH > IrocaConsts.Preview.MaxSize)
-                ? IrocaConsts.Preview.MaxSize / (float)Mathf.Max(srcW, srcH)
-                : 1f;
-
-            // テクスチャ切り替えやデシリアライズで残った半端な/上限超過のズーム値を、
-            // 毎フレーム最も近い「きれいな数字」のストップへ丸める（表示倍率の見映え対策）。
-            previewZoom = SnapToStop(previewZoom, ComputeMaxZoom(scale));
+            DrawInteractionModeRow();
 
             // 詳細モード: ソースが縮小されて表示されている(scale<1)テクスチャを拡大したとき、
             // 低解像度プレビューの引き伸ばしではなくソース解像度から作り直したクロップを出す。
@@ -688,7 +716,10 @@ namespace Iroca
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
                 zoomHitRect = activePreviewRect;
 
-                if (detailActive && _detailView.detailPreviewTexture != null)
+                // 「元を表示」で押下中は、詳細クロップ(再着色後のみ保持)を使わず低解像度の
+                // 変更前を出す。クロップの raw をテクスチャ化して持つとズーム中の VRAM が倍に
+                // なるため、押している間だけ解像度が落ちることを許容する(ツールチップに明記)。
+                if (detailActive && _detailView.detailPreviewTexture != null && !peekOriginal)
                 {
                     EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
 
@@ -714,9 +745,12 @@ namespace Iroca
                 }
                 else
                 {
-                    EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
+                    EditorGUI.DrawPreviewTexture(activePreviewRect,
+                        peekOriginal ? rawPreviewTexture : previewTexture);
 
-                    if (diffMode && diffTexture != null)
+                    // 変更前を見せている間は差分ハイライトを重ねない（変更前に「変わった場所」を
+                    // 塗ると、元テクスチャに無い色が乗って見え、確認したい当のものが隠れる）。
+                    if (!peekOriginal && diffMode && diffTexture != null)
                         GUI.DrawTexture(activePreviewRect, diffTexture, ScaleMode.StretchToFill, true);
                     else
                     {
@@ -735,6 +769,8 @@ namespace Iroca
             if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
             {
                 DrawFloodFillSeedOverlay(activePreviewRect);
+                // スポイトで色を取った位置(自動調整が AI 提案をかける位置)の目印
+                DrawSampleUvOverlay(activePreviewRect);
                 // AI 提案の反映待ちクリック位置(受理済み・未反映)の目印
                 DrawAiSuggestPendingOverlay(activePreviewRect);
             }
@@ -750,6 +786,11 @@ namespace Iroca
                 _host.EyedropperZoneId = null;
 
             bool eyedropperArmed = !string.IsNullOrEmpty(_host.EyedropperZoneId) && !maskView.maskPaintActive;
+            // シード指定の武装（ゾーンカードの「指定」ボタン）。スポイトと同じ one-shot で、
+            // 素のクリックを横取りする。両方が武装することはない（互いに解除し合う）が、
+            // 念のためスポイトを優先する。
+            bool seedPickArmed = !string.IsNullOrEmpty(_host.SeedPickZoneId)
+                                 && !maskView.maskPaintActive && !eyedropperArmed;
 
             // AI マスク提案モード(ブラシペイントと排他・スポイトは one-shot なので優先)。
             // メインのマスク foldout の開閉には連動させない(ブラシの「閉じても塗れる」と
@@ -763,9 +804,10 @@ namespace Iroca
             if (eyedropperArmed)
                 HandleEyedropperInput(activePreviewRect, srcW, srcH);
 
-            // 連続領域モードの任意シード入力(Shift+クリック)。マスクペイント中・スポイト中・AI 提案中は無効。
-            if (!maskView.maskPaintActive && !eyedropperArmed && !aiSuggestArmed)
-                HandleFloodFillSeedInput(activePreviewRect);
+            // 連続領域モードのシード入力。ゾーンカードの「指定」で武装しているときは素のクリックを、
+            // それ以外は従来どおり Shift+クリックを受ける。マスクペイント中・スポイト中・AI 提案中は無効。
+            if (!maskView.maskPaintActive && !eyedropperArmed && (seedPickArmed || !aiSuggestArmed))
+                HandleFloodFillSeedInput(activePreviewRect, seedPickArmed);
 
             // ブラシ操作 UI は MaskBrushWindow パレットに分離されたため、メインの
             // マスク foldout の開閉とペイント可否は連動させない（閉じても塗れる）。
@@ -773,28 +815,35 @@ namespace Iroca
             {
                 HandlePreviewPaintInput(activePreviewRect);
             }
-            else
+            else if (aiSuggestArmed && !eyedropperArmed && !seedPickArmed)
             {
                 // AI 提案は右クリックで受けるので、左ドラッグのパンと同居できる。
                 // (以前は AI 提案が左クリックを取り、AI モード中はプレビューを
                 //  動かせなかった。推論を待つ間に次の対象へ寄る操作ができない。)
-                // パンより先に呼ぶ: 同じ枠に両方がカーソル矩形を出すため、後勝ちの
-                // AddCursorRect でパン(=左ドラッグの実際の挙動)を見せる。
-                if (aiSuggestArmed && !eyedropperArmed)
-                    HandleAiSuggestInput(activePreviewRect, srcW, srcH);
+                HandleAiSuggestInput(activePreviewRect, srcW, srcH);
+            }
 
-                // パンはズーム>1 に限らず「画像がビューポートに収まっていない」とき常に許可する。
-                // 動的高さ調整により等倍(100%)以下でも縦がはみ出すことがあり、そのとき
-                // ズーム率だけで判定するとスクロールバー以外に位置を動かす手段がなくなる。
-                // 横の判定は枠幅から縦バー分を引いた「実際に見えている幅」で行う。枠幅そのままだと
-                // 縦バーが出ている間は画像右端の縦バー幅ぶんが隠れているのにパンが無効になり、
-                // その部分へ手が届かない。
-                if (!eyedropperArmed &&
-                    (previewZoom > 1f
-                     || displayH > maxViewH - hBarReserve
-                     || displayW * panelCount + (panelCount - 1) * IrocaConsts.Preview.PanelSpacing
-                         > _detailView.lastViewportW - vBarReserve))
-                    HandlePreviewPanInput(activePreviewRect);
+            // パンはズーム>1 に限らず「画像がビューポートに収まっていない」とき常に許可する。
+            // 動的高さ調整により等倍(100%)以下でも縦がはみ出すことがあり、そのとき
+            // ズーム率だけで判定するとスクロールバー以外に位置を動かす手段がなくなる。
+            // 横の判定は枠幅から縦バー分を引いた「実際に見えている幅」で行う。枠幅そのままだと
+            // 縦バーが出ている間は画像右端の縦バー幅ぶんが隠れているのにパンが無効になり、
+            // その部分へ手が届かない。
+            //
+            // 呼ぶのはツール群より後: 同じ枠にカーソル矩形を出すものがあっても、後勝ちの
+            // AddCursorRect でパンのカーソルが見える。
+            //
+            // 中ボタンドラッグと Alt+左ドラッグはどのツールとも衝突しないので、**どのモードでも**
+            // パンできる。以前は塗る/消す中に左ドラッグがブラシへ取られ、拡大して塗っていると
+            // スクロールバー以外に表示を動かす手段が無かった（2026-09-11 の UX 見直し）。
+            // 素の左ドラッグは、ブラシ・スポイト・シード指定が使っていないときだけパンに充てる。
+            if (previewZoom > 1f
+                || displayH > maxViewH - hBarReserve
+                || displayW * panelCount + (panelCount - 1) * IrocaConsts.Preview.PanelSpacing
+                    > _detailView.lastViewportW - vBarReserve)
+            {
+                bool leftDragPans = !maskView.maskPaintActive && !eyedropperArmed && !seedPickArmed;
+                HandlePreviewPanInput(activePreviewRect, leftDragPans);
             }
 
             EditorGUILayout.EndScrollView();
@@ -822,6 +871,80 @@ namespace Iroca
                 s_viewStateZoom = previewZoom;
                 s_viewStateScroll = _previewScrollPos;
             }
+        }
+
+        /// <summary>
+        /// プレビュー上のクリックがいま何をするか（スポイト／シード指定／マスクのブラシ／
+        /// AI 提案）と、ソロ表示中かどうかを 1 行で示す。
+        ///
+        /// これらのモードは「クリックの意味」を丸ごと変えるのに、状態はゾーンカードや
+        /// マスク編集ウィンドウのボタンの色にしか出ていなかった。設定列をスクロールしていたり、
+        /// プレビューを別ウィンドウへ切り出していると手掛かりが画面の外にあり、
+        /// 「押したのに何も起きない」「意図せず塗ってしまった」の原因になっていた。
+        /// </summary>
+        private void DrawInteractionModeRow()
+        {
+            var maskView = _host._maskView;
+
+            // ★実際にクリックを取る側の優先順位をそのまま写す★（PreviewView.Draw 末尾の
+            // 横取り順）。ここだけ別の順に書くと、表示と実際に効くモードが食い違い、
+            // 「表示どおりに操作したのに違うことが起きる」という最悪の食い違いになる。
+            //   ブラシ中は シード指定・AI 提案 が止まる（maskPaintActive のガード）
+            //   スポイト中は シード指定・AI 提案 が止まる
+            //   シード指定中は AI 提案 が止まる
+            bool paintActive = maskView != null && maskView.maskPaintActive;
+            bool eyedropper = !paintActive && !string.IsNullOrEmpty(_host.EyedropperZoneId);
+            bool seed = !paintActive && !eyedropper && !string.IsNullOrEmpty(_host.SeedPickZoneId);
+            bool ai = !paintActive && !eyedropper && !seed
+                      && maskView != null && maskView.AiSuggestArmed;
+
+            string mode = null;
+            if (eyedropper)
+                mode = Localization.PreviewModeEyedropper;
+            else if (paintActive)
+                mode = string.Format(
+                    maskView.brushEraseMode ? Localization.PreviewModeEraseFormat
+                                            : Localization.PreviewModePaintFormat,
+                    maskView.ActiveTargetName(), maskView.ActiveLayerName());
+            else if (seed)
+                mode = Localization.PreviewModeSeed;
+            else if (ai)
+                mode = Localization.PreviewModeAi;
+
+            var soloZone = _host.SoloZone;
+
+            EditorGUILayout.BeginHorizontal();
+            // モードが無いときも空白 1 文字を同じ場所に描いて行高を固定する。出入りさせると
+            // プレビュー枠が上下に跳ね、chrome 実測（_chromeAboveViewportH）も揺れる。
+            GUILayout.Label(
+                new GUIContent(mode != null ? mode + Localization.PreviewModeEscHint : " ",
+                               Localization.PreviewModeTooltip),
+                EditorStyles.miniLabel, GUILayout.MinWidth(0f));
+            if (soloZone != null)
+            {
+                GUILayout.FlexibleSpace();
+                var prevContent = GUI.contentColor;
+                GUI.contentColor = IrocaColors.ActiveMaskTarget;
+                string zoneName = string.IsNullOrEmpty(soloZone.name)
+                    ? Localization.UnnamedZone : soloZone.name;
+                GUILayout.Label(
+                    new GUIContent(string.Format(Localization.PreviewSoloFormat, zoneName),
+                                   Localization.PreviewSoloTooltip),
+                    EditorStyles.miniLabel, GUILayout.MinWidth(0f));
+                GUI.contentColor = prevContent;
+            }
+            EditorGUILayout.EndHorizontal();
+        }
+
+        /// <summary>ズームを初期表示（100%）へ戻し、表示位置も先頭へ戻す。</summary>
+        private void ResetZoom(float maxZoom)
+        {
+            previewZoom = Mathf.Clamp(1f, MinPreviewZoom, maxZoom);
+            _previewScrollPos = Vector2.zero;
+            _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
+            // ズーム比が変わると古い詳細クロップは整合しない（Ctrl+スクロール経路と同じ）。
+            _detailView.InvalidateDisplay();
+            _host.RequestRepaint();
         }
 
         /// <summary>

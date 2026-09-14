@@ -165,8 +165,11 @@ namespace Iroca
 
             var session = _host.Session;
             // リスト先頭のゾーンほど先に処理され、重なった領域を占有する。
+            // ソロ表示中はメインプレビューと同じ絞り込みを行う。揃えないと、拡大した
+            // 途端に他ゾーンの色が戻って「拡大すると結果が変わる」ように見える。
+            var soloZone = _host.SoloZone;
             var zonesSnapshot = session.zones
-                .Where(z => z.enabled)
+                .Where(z => z.enabled && (soloZone == null || ReferenceEquals(z, soloZone)))
                 .Select(z => z.Clone())
                 .ToList();
             float feather   = session.edgeFeather;

@@ -9,6 +9,9 @@ namespace Iroca
     public partial class IrocaWindow
     {
         [SerializeField] private bool processingFoldout = true;
+        // 加工設定の内部パラメータ（穴埋め・境界復元・α分解半径）の折りたたみ。既定は閉。
+        // 旧「上級モード」で出し分けていた項目をここへ移した（DrawProcessingSection のコメント参照）。
+        [SerializeField] private bool processingDetailFoldout;
 
         private Vector2 scrollPos;
         private Vector2 leftScrollPos;
@@ -53,6 +56,18 @@ namespace Iroca
             if (!string.IsNullOrEmpty(_eyedropperZoneId) &&
                 (sourceTexture == null || FindZoneById(_eyedropperZoneId) == null))
                 _eyedropperZoneId = null;
+            // シード指定の武装も同じ理由で掃除する（武装したまま対象が消えると、プレビュー上の
+            // クリックが行き先の無い状態で待ち続ける）。
+            if (!string.IsNullOrEmpty(_seedPickZoneId) &&
+                (sourceTexture == null || FindZoneById(_seedPickZoneId) == null))
+                _seedPickZoneId = null;
+            // ソロ表示の対象が消えた／テクスチャが外れたら通常表示へ戻す。残すと「ゾーンを
+            // 消したのにプレビューが元に戻らない」ように見える。
+            if (!string.IsNullOrEmpty(_soloZoneId) &&
+                (sourceTexture == null || FindZoneById(_soloZoneId) == null))
+            {
+                SetSoloZone(null);
+            }
             // かんたんモードで予約された自動調整を、デバウンス経過後に裏で実行する。
             // ── 自動調整はまだ実用段階でないため無効化（2026-06 一時対応）。再有効化時にコメントを外す。
             // ProcessPendingAutoTune();
@@ -437,10 +452,54 @@ namespace Iroca
             EditorGUILayout.EndHorizontal();
         }
 
+        /// <summary>
+        /// 元テクスチャが選ばれ、かつ画素を読める状態か（＝手順①が済んでいるか）。
+        /// </summary>
+        private bool StepTextureDone => sourceTexture != null && IsReadable(sourceTexture);
+
+        /// <summary>
+        /// 色替えの指定が始まっているか（＝手順②が済んでいるか）。
+        /// 有効なゾーンが 1 つ以上あり、そのどれかでサンプルカラーが指定済みであること。
+        /// </summary>
+        private bool StepZonesDone
+        {
+            get
+            {
+                var list = _session?.zones;
+                if (list == null) return false;
+                for (int i = 0; i < list.Count; i++)
+                    if (list[i] != null && list[i].enabled && list[i].HasSampleColor) return true;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 「次に何をすればよいか」の 1 行案内。手順が進むにつれ短くなり、色の指定まで
+        /// 済んだら消える（常設の帯でプレビューの高さを奪い続けないため）。
+        /// 空文字なら何も描かない。
+        /// </summary>
+        private string NextStepHint()
+        {
+            if (!StepTextureDone) return null;               // テクスチャ欄の HelpBox が案内済み
+            var list = _session?.zones;
+            bool hasZone = false;
+            if (list != null)
+                for (int i = 0; i < list.Count; i++)
+                    if (list[i] != null && list[i].enabled) { hasZone = true; break; }
+            if (!hasZone) return Localization.NextStepAddZone;
+            if (!StepZonesDone) return Localization.NextStepPickColor;
+            return null;
+        }
+
         private void DrawTextureField()
         {
             EditorGUILayout.Space(4);
-            EditorGUILayout.LabelField(Localization.StepPrefixTexture + Localization.SourceTexture, EditorStyles.boldLabel);
+            // 済んだ手順に ✓ を付ける。番号だけでは「どこまで進んだか」が分からず、
+            // テクスチャを入れた瞬間に導入ヒントが消えて案内が途切れていた。
+            EditorGUILayout.LabelField(
+                Localization.StepPrefixTexture + Localization.SourceTexture
+                + (StepTextureDone ? Localization.StepDoneMark : ""),
+                EditorStyles.boldLabel);
 
             // 開始点が分かりにくいので、テクスチャ未設定時だけ一連の流れを案内する。
             if (sourceTexture == null)
@@ -478,6 +537,16 @@ namespace Iroca
                 }
             }
 
+            // 次の一手（1 行）。HelpBox でなく miniLabel なのは、常設の帯がプレビュー列の
+            // 高さを恒常的に奪わないようにするため。色の指定まで済めば消える。
+            string next = NextStepHint();
+            if (!string.IsNullOrEmpty(next))
+                EditorGUILayout.LabelField(next, EditorStyles.miniLabel);
+
+            // AI(Sentis + モデル)の準備状況。未準備のときだけ非モーダルの帯で案内する
+            // （起動時モーダルの置き換え。導入・ダウンロード・再起動の導線をここへ集約した）。
+            MaskSuggestSection.DrawSetupBanner();
+
             EditorGUILayout.Space(4);
         }
 
@@ -502,9 +571,17 @@ namespace Iroca
                 new GUIContent(Localization.UseDecontamination, Localization.UseDecontaminationTooltip),
                 useDecontamination);
 
-            // 編集モードの切替はゾーンリスト上部の「かんたん / 通常 / 上級」トグルに一本化した
-            // （DrawModeToggle）。穴埋め・境界復元・α分解半径は上級モード時のみ表示する。
-            if (editMode == EditMode.Advanced)
+            // 内部パラメータ（穴埋め・境界復元・α分解半径）は折りたたみの中へ。
+            //
+            // 以前はゾーンリスト上部の「通常 / 上級」トグルで出し分けていたが、ゾーン側にも
+            // 「詳細設定」の折りたたみがあり、同じ「どこまで見せるか」の軸を 2 つの操作で
+            // 制御していた（さらにプリセットの「詳細」もあって三重）。モードトグルを廃し、
+            // 「畳まれた折りたたみを開く」の一段に統一する（2026-09-11 の UX 見直し）。
+            EditorGUILayout.Space(2);
+            processingDetailFoldout = EditorGUILayout.Foldout(processingDetailFoldout,
+                new GUIContent(Localization.ProcessingDetailFoldout, Localization.ProcessingDetailFoldoutTooltip),
+                true);
+            if (processingDetailFoldout)
             {
                 using (new EditorGUI.IndentLevelScope())
                 {

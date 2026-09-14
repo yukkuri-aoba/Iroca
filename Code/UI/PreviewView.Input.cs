@@ -19,6 +19,19 @@ namespace Iroca
             bool isInRect = previewRect.Contains(e.mousePosition);
             int controlId = GUIUtility.GetControlID(FocusType.Passive);
 
+            // Esc でプレビュー上の一時モード（スポイト／シード指定／マスクのブラシ／AI 提案）を
+            // 解除する。以前は各モードのボタンを「もう一度押す」以外に抜ける手段が無く、
+            // そのボタンが設定列のスクロール外や別ウィンドウにあると解除できなかった。
+            //
+            // GetTypeForControl を通さず生の type を見るのは、Passive な controlId では
+            // キーイベントが Ignore に落ちるため。e.Use() 後は下の switch が Used を見て
+            // 何もしない（control ID の消費順は変えないので IMGUI の整合は保たれる）。
+            if (e.type == EventType.KeyDown && e.keyCode == KeyCode.Escape
+                && _host.ClearPreviewInteractionModes())
+            {
+                e.Use();
+            }
+
             switch (e.GetTypeForControl(controlId))
             {
                 case EventType.ScrollWheel:
@@ -89,7 +102,15 @@ namespace Iroca
             }
         }
 
-        private void HandlePreviewPanInput(Rect previewRect)
+        /// <summary>
+        /// プレビューの表示位置を掴んで動かす。
+        /// </summary>
+        /// <param name="leftDragPans">
+        /// 素の左ドラッグをパンに使ってよいか。ブラシ・スポイト・シード指定が左クリックを
+        /// 使っている間は false。false でも中ボタンドラッグと Alt+左ドラッグは常にパンになる
+        /// （塗っている最中でも表示を動かせるように。2026-09-11 の UX 見直し）。
+        /// </param>
+        private void HandlePreviewPanInput(Rect previewRect, bool leftDragPans)
         {
             Event e = Event.current;
             if (e == null) return;
@@ -100,7 +121,7 @@ namespace Iroca
             switch (e.GetTypeForControl(controlId))
             {
                 case EventType.MouseDown:
-                    if (e.button == 0 && isInRect)
+                    if (isInRect && IsPanButton(e, leftDragPans))
                     {
                         GUIUtility.hotControl = controlId;
                         e.Use();
@@ -136,10 +157,24 @@ namespace Iroca
                     break;
 
                 case EventType.Repaint:
-                    if (isInRect)
+                    // 「掴めるカーソル」を出すのは素の左ドラッグがパンのときだけ。中ボタン・
+                    // Alt は補助操作なので、ブラシのカーソル表示を上書きしない。
+                    if (isInRect && leftDragPans)
                         EditorGUIUtility.AddCursorRect(previewRect, MouseCursor.Pan);
                     break;
             }
+        }
+
+        /// <summary>
+        /// このマウス押下をパンの開始として受けるか。
+        /// 中ボタンと Alt+左はどのツールとも衝突しないので常に受ける。
+        /// </summary>
+        private static bool IsPanButton(Event e, bool leftDragPans)
+        {
+            if (e.button == 2) return true;   // 中ボタンドラッグ
+            if (e.button != 0) return false;
+            if (e.alt) return true;           // Alt+左ドラッグ（Unity 慣習に合わせる）
+            return leftDragPans;
         }
 
         private void HandlePreviewPaintInput(Rect previewRect)
@@ -154,7 +189,9 @@ namespace Iroca
             switch (e.GetTypeForControl(controlId))
             {
                 case EventType.MouseDown:
-                    if (e.button == 0 && isInRect)
+                    // Alt+左ドラッグはパンに譲る（塗っている最中でも表示を動かせるように）。
+                    // 譲らないと、後段のパン処理へイベントが届く前にここで塗ってしまう。
+                    if (e.button == 0 && isInRect && !e.alt)
                     {
                         GUIUtility.hotControl = controlId;
                         maskView.isPainting = true;
@@ -195,9 +232,16 @@ namespace Iroca
                         // サイズは previewZoom なので、カーソルも同じ大きさで描いて
                         // 「見えている範囲 = 塗られる範囲」を一致させる(従来は半分だった)。
                         float brushPixels = (maskView.brushSize * 2f + 1f) * previewZoom;
+                        // カーソル色は「いま塗ろうとしているマスクの色」を映す（オーバーレイと
+                        // 同じ 赤=除外 / 緑=含める）。消しゴムはどちらの種類でも「取り除く」操作
+                        // なので中立の白にする。以前は塗る/消すの別を色で表していたため、含める
+                        // マスクを塗っている最中に赤いカーソルが出て意味が食い違っていた
+                        // （2026-09-11 の UX 見直し）。
                         var cursorColor = maskView.brushEraseMode
-                            ? IrocaColors.BrushCursorInclude
-                            : IrocaColors.BrushCursorExclude;
+                            ? IrocaColors.BrushCursorErase
+                            : (maskView.editIncludeLayer
+                                ? IrocaColors.BrushCursorInclude
+                                : IrocaColors.BrushCursorExclude);
                         float r = brushPixels * 0.5f;
                         EditorGUI.DrawRect(
                             new Rect(e.mousePosition.x - r, e.mousePosition.y - r, r * 2f, r * 2f),
@@ -207,7 +251,13 @@ namespace Iroca
             }
         }
 
-        private void HandleFloodFillSeedInput(Rect previewRect)
+        /// <param name="armed">
+        /// ゾーンカードの「指定」ボタンで武装しているか。true なら対象ゾーンが一意に決まり、
+        /// 素のクリックでシードを置いて一発で武装解除する（スポイトと同じ one-shot）。
+        /// false のときは従来どおり Shift+クリックで、対象は「マスク編集対象のゾーン、
+        /// 無ければ先頭の該当ゾーン」という暗黙の選び方になる。
+        /// </param>
+        private void HandleFloodFillSeedInput(Rect previewRect, bool armed)
         {
             Event e = Event.current;
             if (e == null) return;
@@ -216,52 +266,77 @@ namespace Iroca
             int controlId = GUIUtility.GetControlID(FocusType.Passive);
 
             var zones = _host.Session.zones;
-            int targetZoneIndex = -1;
-            int activeZoneIndex = _host._maskView.activeMaskTarget;
-            if (zones != null && activeZoneIndex >= 0 && activeZoneIndex < zones.Count)
-            {
-                var activeZone = zones[activeZoneIndex];
-                if (activeZone.enabled && activeZone.mode == SelectionMode.ColorPick && activeZone.useFloodFill)
-                    targetZoneIndex = activeZoneIndex;
-            }
+            ColorZone targetZone = null;
 
-            if (targetZoneIndex < 0)
+            if (armed)
             {
-                for (int i = 0; i < zones.Count; i++)
+                // 武装したゾーンへ確実に入れる（enabled は問わない。ユーザーがそのゾーンを
+                // 名指ししているので、無効でも値は記録しておき、有効化した時点で効く）。
+                var z = _host.FindZoneById(_host.SeedPickZoneId);
+                if (z != null && z.mode == SelectionMode.ColorPick && z.useFloodFill)
+                    targetZone = z;
+            }
+            else if (zones != null)
+            {
+                int activeZoneIndex = _host._maskView.activeMaskTarget;
+                if (activeZoneIndex >= 0 && activeZoneIndex < zones.Count)
                 {
-                    var zone = zones[i];
-                    if (!zone.enabled || zone.mode != SelectionMode.ColorPick || !zone.useFloodFill) continue;
-                    targetZoneIndex = i;
-                    break;
+                    var activeZone = zones[activeZoneIndex];
+                    if (activeZone.enabled && activeZone.mode == SelectionMode.ColorPick && activeZone.useFloodFill)
+                        targetZone = activeZone;
+                }
+                if (targetZone == null)
+                {
+                    for (int i = 0; i < zones.Count; i++)
+                    {
+                        var zone = zones[i];
+                        if (zone == null || !zone.enabled
+                            || zone.mode != SelectionMode.ColorPick || !zone.useFloodFill) continue;
+                        targetZone = zone;
+                        break;
+                    }
                 }
             }
 
-            bool hasFloodFill = targetZoneIndex >= 0;
+            bool hasFloodFill = targetZone != null;
 
             switch (e.GetTypeForControl(controlId))
             {
                 case EventType.MouseDown:
-                    // 自動アンカリングが既定なので、通常クリックはパン/検分に使えるよう温存し、
-                    // シード(任意の上書き=その塊だけ残す)は Shift+クリックでのみ設定する。
-                    if (hasFloodFill && e.button == 0 && e.shift && isInRect && !e.control && !e.alt)
+                    // 武装中は素のクリック。武装していないときは、自動アンカリングが既定なので
+                    // 通常クリックをパン/検分に温存し、Shift+クリックでのみシードを置く。
+                    bool accept = hasFloodFill && e.button == 0 && isInRect && !e.control && !e.alt
+                                  && (armed ? !e.shift : e.shift);
+                    if (accept)
                     {
-                        // 1 つ目の対象ゾーン更新の直前に Undo を登録する（記録されるのは更新前の seedUV）。
+                        // 更新の直前に Undo を登録する（記録されるのは更新前の seedUV）。
                         var newSeed = PreviewCoords.ScreenToUv(e.mousePosition, previewRect);
-                        bool changed = false;
-                        var zone = zones[targetZoneIndex];
-                        if (zone.seedUV != newSeed)
+                        if (targetZone.seedUV != newSeed)
                         {
                             Undo.RecordObject(_host, "Set Flood Fill Seed");
-                            zone.seedUV = newSeed;
-                            changed = true;
-                        }
-                        if (changed)
-                        {
+                            targetZone.seedUV = newSeed;
                             previewDirty = true;
-                            GUIUtility.hotControl = controlId;
-                            e.Use();
-                            _host.RequestRepaint();
                         }
+                        if (armed)
+                        {
+                            // 一発で武装解除（同じ位置を選び直したときも解除する）。
+                            // ★ここで hotControl を取ってはいけない★ — 武装が解けた次のイベントでは
+                            // このハンドラが呼ばれないことがあり（AI 提案が武装していると呼ばれない）、
+                            // MouseUp で解放できずに残る。残った hotControl は以降のマウス入力を
+                            // すべて Ignore に落とすため、ウィンドウが固まったように見える。
+                            // クリック 1 回で完結する操作なのでマウスを掴み続ける必要もない。
+                            _host.SeedPickZoneId = null;
+                        }
+                        else
+                        {
+                            // Shift+クリック経路は武装が続く＝次のイベントでも必ずここへ来るので、
+                            // 従来どおり掴んで MouseUp で解放する。
+                            GUIUtility.hotControl = controlId;
+                        }
+                        // 値が変わらなくてもイベントは消費する。消さないと後段のパンが
+                        // 掴んでしまい、シードを置いたつもりの操作が表示移動になる。
+                        e.Use();
+                        _host.RequestRepaint();
                     }
                     break;
 
@@ -274,27 +349,87 @@ namespace Iroca
                     break;
 
                 case EventType.Repaint:
-                    if (hasFloodFill && isInRect && e.shift)
+                    if (hasFloodFill && isInRect && (armed || e.shift))
                         EditorGUIUtility.AddCursorRect(previewRect, MouseCursor.Link);
                     break;
             }
         }
 
+        /// <summary>
+        /// 連続領域モードのシード位置を十字で描く。色はゾーン識別色（マスクオーバーレイと
+        /// 同じ黄金比生成）にして、複数ゾーンがシードを持っていても対応が分かるようにする。
+        /// 以前は全ゾーン同じ黄色で、どのシードがどのゾーンのものか読み取れなかった。
+        /// </summary>
         private void DrawFloodFillSeedOverlay(Rect previewRect)
         {
-            foreach (var z in _host.Session.zones)
+            var zones = _host.Session.zones;
+            if (zones == null) return;
+            for (int i = 0; i < zones.Count; i++)
             {
-                if (!z.enabled || z.mode != SelectionMode.ColorPick || !z.useFloodFill) continue;
+                var z = zones[i];
+                if (z == null || !z.enabled || z.mode != SelectionMode.ColorPick || !z.useFloodFill) continue;
                 if (z.seedUV.x < 0f) continue;
 
                 var sp = PreviewCoords.UvToScreen(z.seedUV, previewRect);
-                float sx = sp.x, sy = sp.y;
+                DrawMarkerCross(sp.x, sp.y, ZoneMarkerColor(i));
+            }
+        }
 
-                const float armLen = 7f;
-                const float thickness = 2f;
-                var color = new Color(1f, 0.85f, 0f, 0.9f);
-                EditorGUI.DrawRect(new Rect(sx - armLen, sy - thickness * 0.5f, armLen * 2f, thickness), color);
-                EditorGUI.DrawRect(new Rect(sx - thickness * 0.5f, sy - armLen, thickness, armLen * 2f), color);
+        /// <summary>
+        /// スポイトで色を取った位置を菱形で描く。自動調整はこの位置に AI マスク提案をかけて
+        /// 証拠にするため、「どこを取ったか」が見えないと結果の当たり外れを説明できなかった。
+        /// </summary>
+        private void DrawSampleUvOverlay(Rect previewRect)
+        {
+            var zones = _host.Session.zones;
+            if (zones == null) return;
+            for (int i = 0; i < zones.Count; i++)
+            {
+                var z = zones[i];
+                if (z == null || !z.enabled || !z.HasSampleUV) continue;
+
+                var sp = PreviewCoords.UvToScreen(z.sampleUV, previewRect);
+                DrawMarkerDiamond(sp.x, sp.y, ZoneMarkerColor(i));
+            }
+        }
+
+        /// <summary>ゾーン識別色（マスクオーバーレイと共通）を不透明寄りの Color で返す。</summary>
+        private static Color ZoneMarkerColor(int zoneIndex)
+        {
+            Color32 c = MaskPaintView.OverlayColorForZone(zoneIndex);
+            return new Color(c.r / 255f, c.g / 255f, c.b / 255f, 0.95f);
+        }
+
+        // マーカーは明るい生地でも暗い生地でも沈まないよう、暗い縁取りの上に本体を重ねる
+        // （AI 提案の反映待ちドットと同じ方針）。
+        private static void DrawMarkerCross(float sx, float sy, Color color)
+        {
+            const float armLen = 7f;
+            const float thickness = 2f;
+            var outline = new Color(0f, 0f, 0f, 0.55f);
+            EditorGUI.DrawRect(new Rect(sx - armLen - 1f, sy - thickness * 0.5f - 1f, (armLen + 1f) * 2f, thickness + 2f), outline);
+            EditorGUI.DrawRect(new Rect(sx - thickness * 0.5f - 1f, sy - armLen - 1f, thickness + 2f, (armLen + 1f) * 2f), outline);
+            EditorGUI.DrawRect(new Rect(sx - armLen, sy - thickness * 0.5f, armLen * 2f, thickness), color);
+            EditorGUI.DrawRect(new Rect(sx - thickness * 0.5f, sy - armLen, thickness, armLen * 2f), color);
+        }
+
+        // 菱形は「幅を変えながら積む横線」で描く（IMGUI に多角形塗りが無いため）。
+        // 十字（シード）と形で区別が付けば十分なので 5px 相当の粗さで足りる。
+        private static void DrawMarkerDiamond(float sx, float sy, Color color)
+        {
+            const int half = 5;
+            var outline = new Color(0f, 0f, 0f, 0.55f);
+            for (int dy = -half - 1; dy <= half + 1; dy++)
+            {
+                int w = (half + 1) - Mathf.Abs(dy);
+                if (w <= 0) continue;
+                EditorGUI.DrawRect(new Rect(sx - w, sy + dy, w * 2f, 1f), outline);
+            }
+            for (int dy = -half + 1; dy <= half - 1; dy++)
+            {
+                int w = (half - 1) - Mathf.Abs(dy);
+                if (w <= 0) continue;
+                EditorGUI.DrawRect(new Rect(sx - w, sy + dy, w * 2f, 1f), color);
             }
         }
 
@@ -336,8 +471,13 @@ namespace Iroca
                                 zone.sampleUV = uv;
                             }
                             // one-shot: 取得したら武装解除。
+                            // ★hotControl は取らない★ — 武装解除後は次のイベントでこのハンドラが
+                            // 呼ばれないため、MouseUp で解放できずに残る。残った hotControl は以降の
+                            // マウス入力を Ignore に落とす。これまでは、呼ばれなくなったぶん後続の
+                            // ハンドラへ同じ ID が回り、そちらの MouseUp が偶然解放していただけで、
+                            // 呼び出し順を変えると壊れる作りだった（2026-09-11）。
+                            // クリック 1 回で完結する操作なのでマウスを掴む必要もない。
                             _host.EyedropperZoneId = null;
-                            GUIUtility.hotControl = controlId;
                             e.Use();
                             _host.RequestRepaint();
                         }

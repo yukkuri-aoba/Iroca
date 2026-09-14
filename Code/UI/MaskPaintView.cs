@@ -164,9 +164,9 @@ namespace Iroca
             }
             GUI.backgroundColor = prevBg;
 
-            // AI 提案は「一度きりの有効化」だけをここに置く(Sentis 導入・モデル取得)。
-            // 素のプロジェクトでも機能の存在に気づけるようにするため。
-            MaskSuggestSection.DrawSetup(_host);
+            // AI の「一度きりの有効化」(Sentis 導入・モデル取得)はウィンドウ上部のバナーへ移した
+            // (MaskSuggestSection.DrawSetupBanner)。ここに置くと、マスク欄を畳んでいる間は
+            // 見えず、機能の存在にも準備が要ることにも気づけなかった(2026-09-11 の UX 見直し)。
 
             EditorGUILayout.EndFoldoutHeaderGroup();
             EditorGUILayout.Space(4);
@@ -240,7 +240,7 @@ namespace Iroca
 
             // 3. ツール選択: 塗る / 消す / AI 提案(いずれも上で選んだ対象・種類に対して作用する)。
             //    AI 提案は Sentis 統合が載っているときだけ出す(導入・モデル取得は一度きりの
-            //    セットアップなのでメインウィンドウのマスク欄 = MaskSuggestSection.DrawSetup)。
+            //    セットアップなので、メインウィンドウ上部のバナー = MaskSuggestSection.DrawSetupBanner)。
             var ctl = SuggestController;
             bool aiActive = ctl != null && ctl.Active;
             bool paintActive = maskPaintActive && !brushEraseMode;

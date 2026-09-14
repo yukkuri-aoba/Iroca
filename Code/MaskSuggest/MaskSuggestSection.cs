@@ -34,31 +34,51 @@ namespace Iroca
             }
         }
 
+        // バナーを「このセッションでは閉じた」フラグ。SessionState なので Unity 再起動で戻る。
+        // 消えたままにしないのは、自動調整がこの準備に依存しているため（次に Unity を開けば
+        // また案内が出る）。
+        const string BannerDismissedKey = "Iroca.AiSetup.BannerDismissed";
+
         /// <summary>
-        /// メインウィンドウのマスク欄に描く有効化導線。セットアップが済んでいる間は何も描かない
-        /// (常設の説明は編集ウィンドウ側のツールチップが持つ)。
+        /// メインウィンドウ上部（元テクスチャ欄の下）に描く AI の準備バナー。
+        /// 準備が済んでいる間は何も描かない（常設の説明は編集ウィンドウ側のツールチップが持つ）。
+        ///
+        /// 2026-09-11 まで、これはウィンドウを開いた瞬間の **モーダルダイアログ** だった
+        /// （MaskSuggestSetupPrompt を delayCall で起動）。Editor 全体をブロックするうえ、
+        /// 「あとで」を選ぶと案内ごと消えて、自動調整だけが黙って使えない状態が残った。
+        /// マスク欄の中にも導線はあったが、欄を畳んでいると見えず、機能の存在にも気づけない。
+        /// 常に見える非モーダルの帯へ移し、導入・ダウンロード・再起動をここへ集約している。
         /// </summary>
-        public static void DrawSetup(IrocaWindow host)
+        public static void DrawSetupBanner()
         {
             // 導入直後の「Unity 再起動」案内は、サービスが載ったか(Burst 失敗で載らない場合も含む)に
             // かかわらず出したいので、サービス分岐より前に描く。
             DrawPostInstallRestartNoticeIfNeeded();
 
             var svc = MaskSuggestBridge.Service;
-            if (svc == null)
-            {
-                DrawSentisSetup();
-                return;
-            }
-
             // Burst が失敗した世代では推論が空を返すだけで、エラーも出ずに「動かない」ように
             // 見える。クリックを試す前に気づけるよう、モードに入る前から知らせる。
-            DrawBurstFailureNoticeIfNeeded(svc);
+            // ★これと再起動案内は「閉じる」で隠さない★ — AI が動かない状態そのものであり、
+            // 隠すと原因不明の不調として残るため。
+            if (svc != null) DrawBurstFailureNoticeIfNeeded(svc);
 
-            if (svc.Phase != MaskSuggestPhase.NoModel) return;
-            EditorGUILayout.Space(4);
-            EditorGUILayout.LabelField(Localization.AiSuggest, EditorStyles.boldLabel);
-            DrawModelDownload(svc);
+            bool needsSentis = svc == null;
+            bool needsModel = svc != null && svc.Phase == MaskSuggestPhase.NoModel;
+            if (!needsSentis && !needsModel) return;
+            if (SessionState.GetBool(BannerDismissedKey, false)) return;
+
+            EditorGUILayout.Space(2);
+            EditorGUILayout.HelpBox(
+                needsSentis ? Localization.AiBannerSentis : Localization.AiBannerModel,
+                MessageType.Info);
+
+            if (needsSentis)
+                DrawSentisSetup();
+            else
+                DrawModelDownload(svc);
+
+            if (GUILayout.Button(new GUIContent(Localization.AiBannerDismiss, Localization.AiBannerDismissTooltip)))
+                SessionState.SetBool(BannerDismissedKey, true);
         }
 
         /// <summary>
@@ -89,8 +109,8 @@ namespace Iroca
             switch (svc.Phase)
             {
                 case MaskSuggestPhase.NoModel:
-                    // 取得操作そのものはメインウィンドウ側(DrawSetup)が持つ。ここへ複製すると
-                    // 「同じボタンが 2 か所」になり、今回まとめた意味が無くなる。
+                    // 取得操作そのものはメインウィンドウ上部のバナー(DrawSetupBanner)が持つ。
+                    // ここへ複製すると「同じボタンが 2 か所」になり、集約した意味が無くなる。
                     EditorGUILayout.HelpBox(Localization.AiSuggestNoModelInEditor, MessageType.Info);
                     break;
 
@@ -134,7 +154,7 @@ namespace Iroca
         /// </summary>
         static void DrawModelDownload(IMaskSuggestService svc)
         {
-            EditorGUILayout.HelpBox(Localization.AiSuggestNoModel, MessageType.Info);
+            // 何が足りないかの説明は呼び出し元のバナー（AiBannerModel）が出す。ここは操作だけ。
             if (MaskSuggestModelDownload.InProgress)
             {
                 EditorGUILayout.BeginHorizontal();
@@ -242,10 +262,7 @@ namespace Iroca
         /// </summary>
         static void DrawSentisSetup()
         {
-            EditorGUILayout.Space(4);
-            EditorGUILayout.LabelField(Localization.AiSuggest, EditorStyles.boldLabel);
-            EditorGUILayout.HelpBox(Localization.AiSuggestSentisRequired, MessageType.Info);
-
+            // 何が足りないかの説明は呼び出し元のバナー（AiBannerSentis）が出す。ここは操作だけ。
             if (MaskSuggestInstall.InProgress)
             {
                 EditorGUILayout.HelpBox(Localization.AiSuggestInstalling, MessageType.Info);

@@ -39,6 +39,63 @@ namespace Iroca
         [System.NonSerialized] private string _eyedropperZoneId;
         internal string EyedropperZoneId { get => _eyedropperZoneId; set => _eyedropperZoneId = value; }
 
+        // シード指定モードで武装中のゾーン id（null/空 = 解除）。プレビュー上のクリックで
+        // そのゾーンの連続領域シードを置く（一発で自動解除）。スポイトと同じ id 保持なのは
+        // 同じ理由（武装中の並べ替え・削除で別ゾーンへ入らないように）。
+        //
+        // Shift+クリックでもシードは置けるが、その経路は「マスク編集対象のゾーン、無ければ
+        // 先頭の該当ゾーン」という暗黙の選び方で、どのゾーンに入るかが画面から分からなかった。
+        // ゾーンカードから武装すれば対象が一意に決まる。
+        [System.NonSerialized] private string _seedPickZoneId;
+        internal string SeedPickZoneId { get => _seedPickZoneId; set => _seedPickZoneId = value; }
+
+        // ソロ表示中のゾーン id（null/空 = 通常表示）。プレビュー（メイン・詳細とも）を
+        // このゾーンだけで生成し、「そのゾーンが実際にどこを拾っているか」を確かめられるようにする。
+        // ★表示専用★ — エクスポートは常に有効ゾーンすべてを適用する（ExportView が注意を出す）。
+        // 一時状態なのでドメインリロードをまたがない（NonSerialized）。
+        [System.NonSerialized] private string _soloZoneId;
+        internal string SoloZoneId { get => _soloZoneId; set => _soloZoneId = value; }
+
+        /// <summary>
+        /// ソロ表示中のゾーン（解除中・対象が消えた場合は null）。
+        /// プレビュー生成側がゾーンスナップショットを絞り込むのに使う。
+        /// </summary>
+        internal ColorZone SoloZone =>
+            string.IsNullOrEmpty(_soloZoneId) ? null : FindZoneById(_soloZoneId);
+
+        /// <summary>
+        /// ソロ表示の対象を切り替える（null で解除）。
+        /// 整合キャッシュ（フル画像で解いた keep と再着色統計）は「どのゾーン集合を処理したか」に
+        /// 依存するので、必ず捨てる。残すと、切り替え直後に詳細プレビュー（クロップ）が
+        /// 旧ゾーン集合の統計を転写し、拡大した箇所だけ切り替え前の色が出る。
+        /// </summary>
+        internal void SetSoloZone(string zoneId)
+        {
+            _soloZoneId = string.IsNullOrEmpty(zoneId) ? null : zoneId;
+            previewParityCache = null;
+            MarkPreviewDirty();
+        }
+
+        /// <summary>
+        /// プレビュー上のクリックの意味を変える一時モード（スポイト・シード指定・
+        /// マスクブラシ・AI 提案）をすべて解除する。Esc キーの受け口。
+        /// 戻り値 true = 実際に何かを解除した（呼び出し側がイベントを消費してよい）。
+        /// </summary>
+        internal bool ClearPreviewInteractionModes()
+        {
+            bool any = false;
+            if (!string.IsNullOrEmpty(_eyedropperZoneId)) { _eyedropperZoneId = null; any = true; }
+            if (!string.IsNullOrEmpty(_seedPickZoneId)) { _seedPickZoneId = null; any = true; }
+            if (_maskView != null)
+            {
+                if (_maskView.maskPaintActive) { _maskView.DeactivateBrush(); any = true; }
+                var ctl = _maskView.SuggestControllerIfCreated;
+                if (ctl != null && ctl.Active) { ctl.SetActive(false); any = true; }
+            }
+            if (any) RequestRepaint();
+            return any;
+        }
+
         internal void MarkPreviewDirty() { if (_previewView != null) _previewView.previewDirty = true; }
 
         /// <summary>プレビュー再生成(プロキシ段なし)。確定表示がある前提の差分更新用
@@ -142,10 +199,12 @@ namespace Iroca
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
             Undo.undoRedoPerformed += OnUndoRedoPerformed;
 
-            // AI(Sentis + 配布モデル)が無ければ、開いた時点で導入・ダウンロードを求める。
-            // 自動調整が AI 提案を証拠にする前提なので、無いまま使い始めさせない
-            // (OnEnable 中のモーダルはレイアウト復元と干渉するので次フレームへ)。
-            EditorApplication.delayCall += MaskSuggestSetupPrompt.PromptIfNeeded;
+            // AI(Sentis + 配布モデル)の準備は、ウィンドウ上部の非モーダルな帯で案内する
+            // (MaskSuggestSection.DrawSetupBanner)。以前はここで delayCall からモーダルを
+            // 出していたが、開いた瞬間に Editor 全体がブロックされるうえ、「あとで」を選ぶと
+            // 案内ごと消えて「自動調整だけが黙って使えない」状態が残った(2026-09-11 の UX 見直し)。
+            // 自動調整を押した時点で AI が無ければ、そのときは従来どおりダイアログで案内する
+            // (ユーザーの操作に対する直接の応答なので、そこはモーダルでよい)。
         }
 
         private void OnDisable()
