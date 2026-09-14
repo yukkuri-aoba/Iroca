@@ -17,7 +17,38 @@ namespace Iroca
         // 変更を次の Layout イベント開始時まで遅延させる。
         private bool _pendingAddZone;
         private int _pendingRemoveZoneIndex = -1;
-        private EditMode? _pendingEditMode;
+
+        // UI から追加する新規ゾーンの初期許容範囲。
+        //
+        // ColorZone のフィールド既定は 0 で、これは「まだ何も指定していない」状態を表す値
+        // （距離 0 の画素しか一致しない＝プレビューが一切変わらない）。自動調整で埋める前提の
+        // 設計だったが、自動調整には AI モデルが要るため、未導入のユーザーはスポイトで色を
+        // 取っても何も起きず「壊れている」ようにしか見えなかった（2026-09-11 の UX 見直し）。
+        //
+        // 0.2 は zones JSON 経路（MCP・batchmode）の既定 ZonesJsonDefaults.Tolerance と同値で、
+        // 回帰テストのシナリオ既定（fixtures.ZoneSpec.tolerance）とも一致する実績のある動作点。
+        // ★ColorZone.cs 側の既定は変えない★ — あちらは JSON／プリセットから値が入る前提の
+        // データ既定であり、ハーネス（回帰テスト・視覚ゲート）が読む唯一の正でもある。
+        // ここで入れるのは「UI で新しく作ったゾーンの初期値」だけ。
+        private const float NewZoneInitialTolerance = 0.2f;
+
+        /// <summary>
+        /// 新規ゾーンの既定名。既存と重複しない最小の番号を振る。
+        /// 全ゾーンが同名（"Zone"）だと、マスク編集ウィンドウの「編集対象」プルダウンや
+        /// ドラッグ中のゴーストで見分けがつかなかった。
+        /// </summary>
+        private string NextZoneName()
+        {
+            var used = new HashSet<string>();
+            foreach (var z in zones)
+                if (z != null && !string.IsNullOrEmpty(z.name)) used.Add(z.name);
+            for (int n = 1; n <= zones.Count + 1; n++)
+            {
+                string candidate = string.Format(Localization.NewZoneNameFormat, n);
+                if (!used.Contains(candidate)) return candidate;
+            }
+            return string.Format(Localization.NewZoneNameFormat, zones.Count + 1);
+        }
 
         // ゾーン並べ替え（ドラッグ）用。並び順が優先度なので、リスト上のドラッグで優先度を変える。
         // _dragZoneIndex: 現在ドラッグ中のゾーン index（-1 = ドラッグなし）。
@@ -56,6 +87,9 @@ namespace Iroca
                 Undo.RegisterCompleteObjectUndo(this, "Add Zone");
                 var newZone = new ColorZone();
                 newZone.EnsureId();
+                // 「色を選べば何か変わる」状態から始められるようにする（定数のコメント参照）。
+                newZone.tolerance = NewZoneInitialTolerance;
+                newZone.name = NextZoneName();
                 zones.Add(newZone);
                 MarkPreviewDirty();
             }
@@ -79,12 +113,6 @@ namespace Iroca
                     MarkPreviewDirty();
                 }
             }
-            if (_pendingEditMode.HasValue)
-            {
-                Undo.RecordObject(this, "Change Edit Mode");
-                editMode = _pendingEditMode.Value;
-                _pendingEditMode = null;
-            }
         }
 
         // ゾーンリストのヘッダ行は毎フレーム×ゾーン数で描画されるため、GUIStyle/GUIContent を
@@ -94,9 +122,11 @@ namespace Iroca
         private static GUIStyle s_dragHandleStyle;
         private static LanguageMode s_zoneCacheLang = (LanguageMode)(-1);
         private static GUIContent s_dragHandleContent, s_zoneEnabledContent, s_zoneNameContent,
-            s_removeZoneContent,
+            s_removeZoneContent, s_zoneSoloContent,
             s_autoTuneEnabledContent, s_autoTuneDisabledContent,
-            s_eyedropperIdleContent, s_eyedropperActiveContent;
+            s_eyedropperIdleContent, s_eyedropperActiveContent,
+            s_seedPickIdleContent, s_seedPickActiveContent,
+            s_sampleUvPresentContent, s_sampleUvMissingContent;
 
         private static void EnsureZoneListCache()
         {
@@ -119,56 +149,35 @@ namespace Iroca
             s_autoTuneDisabledContent = new GUIContent(Localization.AutoTune, Localization.AutoTuneDisabledTooltip);
             s_eyedropperIdleContent   = new GUIContent(Localization.EyedropperIdle, Localization.EyedropperTooltip);
             s_eyedropperActiveContent = new GUIContent(Localization.EyedropperActive, Localization.EyedropperTooltip);
-        }
-
-        // かんたん / 上級 モード切替。上級でゾーンの詳細パラメータ（エッジ・彩度・
-        // シャドウ/ハイライト等）と加工設定の詳細を表示する。ゾーン foldout の開閉に
-        // 関係なく常に見えるよう、foldout ヘッダの前に描画する。
-        private void DrawModeToggle()
-        {
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField(
-                new GUIContent(Localization.EditMode, Localization.EditModeTooltip),
-                GUILayout.Width(70));
-            // かんたんモード（Simple）はまだ実用段階でないため UI から隠す（2026-06 一時対応）。
-            // Normal/Advanced のみ表示し、Simple のセッションは Normal に正規化する。
-            // 再有効化するときは下の 3 択へ戻し、Auto Tune ボタンと
-            // ScheduleAutoTune/ProcessPendingAutoTune のコメントアウトも併せて解除する。
-            if (editMode == EditMode.Simple) editMode = EditMode.Normal;
-            int cur = (int)editMode - 1; // Normal=0, Advanced=1（Simple を隠したぶん 1 ずらす）
-            int next = GUILayout.Toolbar(cur,
-                new[]
-                {
-                    /* Localization.SimpleMode, */
-                    new GUIContent(Localization.NormalMode, Localization.EditModeToolbarTooltip),
-                    new GUIContent(Localization.AdvancedShort, Localization.EditModeToolbarTooltip),
-                });
-            if (next != cur && next >= 0)
-            {
-                // 制御数が変わるため、ExitGUI 相当の崩れを避けて次の Layout で適用する
-                // （_pendingEditMode 遅延ミューテーション）。Simple を隠したぶん +1 して enum に戻す。
-                _pendingEditMode = (EditMode)(next + 1);
-                Repaint();
-            }
-            // かんたんモードの自動調整は裏で走り、ウィンドウをブロックしない。
-            // 進行中・予約中であることを軽い文言で示す（操作は妨げない）。
-            // ※自動調整を隠している間は発火しないが、再有効化に備えて残す。
-            if ((_autoTuneJob.IsRunning && !_autoTuneIsManual) || _pendingAutoTuneZoneId != null)
-                GUILayout.Label(Localization.AutoTuningInProgress, EditorStyles.miniLabel,
-                    GUILayout.ExpandWidth(false));
-            EditorGUILayout.EndHorizontal();
-            EditorGUILayout.Space(2);
+            s_zoneSoloContent         = new GUIContent(Localization.ZoneSolo, Localization.ZoneSoloTooltip);
+            s_seedPickIdleContent     = new GUIContent(Localization.FloodFillSeedPick, Localization.FloodFillSeedPickTooltip);
+            s_seedPickActiveContent   = new GUIContent(Localization.FloodFillSeedPickActive, Localization.FloodFillSeedPickTooltip);
+            s_sampleUvPresentContent  = new GUIContent(Localization.SampleUvPresent, Localization.SampleUvTooltip);
+            s_sampleUvMissingContent  = new GUIContent(Localization.SampleUvMissing, Localization.SampleUvTooltip);
         }
 
         private void DrawZoneList()
         {
-            DrawModeToggle();
-            zonesFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(zonesFoldout, Localization.StepPrefixZones + Localization.ColorZones);
+            // 「通常 / 上級」モードトグルは廃止した。ゾーンごとの「詳細設定」折りたたみと
+            // 同じ「どこまで見せるか」の軸を二重に制御しており（プリセットの「詳細」を
+            // 含めると三重）、どちらを触ればよいのか分からなかった。表示の深さは
+            // 「畳まれた折りたたみを開く」の一段に統一している（2026-09-11 の UX 見直し）。
+            // 旧・上級限定のパラメータは、ゾーン側は「詳細設定」内の「マッチング距離の重み」、
+            // 加工設定側は「詳細設定」の折りたたみへ移した。
+            zonesFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(zonesFoldout,
+                Localization.StepPrefixZones + Localization.ColorZones
+                + (StepZonesDone ? Localization.StepDoneMark : ""));
             if (!zonesFoldout)
             {
                 EditorGUILayout.EndFoldoutHeaderGroup();
                 return;
             }
+
+            // かんたんモードの自動調整は裏で走り、ウィンドウをブロックしない。
+            // 進行中・予約中であることを軽い文言で示す（操作は妨げない）。
+            // ※自動調整の自動実行を隠している間は発火しないが、再有効化に備えて残す。
+            if ((_autoTuneJob.IsRunning && !_autoTuneIsManual) || _pendingAutoTuneZoneId != null)
+                GUILayout.Label(Localization.AutoTuningInProgress, EditorStyles.miniLabel);
 
             // 並び順＝優先度（重なりは上のゾーンのみ適用）。説明は ☰ ハンドルのツールチップ
             // (ZoneDragHandleTooltip) に集約し、常時表示の HelpBox は置かない。
@@ -242,6 +251,23 @@ namespace Iroca
             zone.name = UndoHelper.TextField(this,
                 s_zoneNameContent,
                 zone.name);
+
+            // ソロ表示: このゾーンだけでプレビューを作り直す。ゾーンが実際にどこを拾って
+            // いるかを確かめる手段が差分表示（全ゾーン混在）しか無かったため追加した。
+            // 表示専用で、保存内容には影響しない（Undo にも載せない＝編集ではない）。
+            {
+                bool soloed = !string.IsNullOrEmpty(zone.id) && SoloZoneId == zone.id;
+                var prevSoloBg = GUI.backgroundColor;
+                if (soloed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
+                if (GUILayout.Button(s_zoneSoloContent, GUILayout.Width(IrocaConsts.Layout.SmallButtonWidth)))
+                {
+                    zone.EnsureId();
+                    SetSoloZone(soloed ? null : zone.id);
+                    Repaint();
+                }
+                GUI.backgroundColor = prevSoloBg;
+            }
+
             if (GUILayout.Button(s_removeZoneContent, GUILayout.Width(IrocaConsts.Layout.RemoveButtonWidth)))
             {
                 removeRequested = true;
@@ -295,6 +321,8 @@ namespace Iroca
                         // （クリックで一発取得→自動解除）。
                         zone.EnsureId();
                         EyedropperZoneId = armed ? null : zone.id;
+                        // シード指定と排他（どちらもプレビューの素のクリックを取る）。
+                        if (!armed) SeedPickZoneId = null;
                         Repaint();
                     }
                     GUI.backgroundColor = prevBg;
@@ -309,6 +337,16 @@ namespace Iroca
             zone.targetColor = UndoHelper.ColorField(this,
                 new GUIContent(Localization.TargetColor, Localization.TargetColorTooltip),
                 zone.targetColor);
+
+            // スポイト位置の有無。自動調整はこの位置に AI マスク提案をかけて証拠にするため、
+            // 位置が無いゾーン（カラーフィールドで色を決めた／Undo で無効化された）では
+            // 導出経路が変わる。押してから通知で知るのでは遅いので、事前に見えるようにする。
+            if (zone.HasSampleColor)
+            {
+                EditorGUILayout.LabelField(
+                    zone.HasSampleUV ? s_sampleUvPresentContent : s_sampleUvMissingContent,
+                    EditorStyles.miniLabel);
+            }
 
             // スポイト1点から、パーツの濃淡（暗部/中間/明部）を内部で自動サンプリングして
             // 許容範囲などを最適化する。ユーザーが濃淡を手で採り直す必要はない。
@@ -355,6 +393,26 @@ namespace Iroca
                         new GUIContent(Localization.FloodFillSeedPoint, Localization.FloodFillSeedHint),
                         new GUIContent(seedLabel),
                         GUILayout.MinWidth(0), GUILayout.ExpandWidth(true));
+
+                    // シードを「このゾーンに」置くための武装ボタン（スポイトと同じ一発取得）。
+                    // Shift+クリック経路は残すが、あちらは対象ゾーンを「マスク編集対象、無ければ
+                    // 先頭の該当ゾーン」と暗黙に選ぶため、どのゾーンへ入るかが画面から読めなかった。
+                    {
+                        bool seedArmed = !string.IsNullOrEmpty(zone.id) && SeedPickZoneId == zone.id;
+                        var prevSeedBg = GUI.backgroundColor;
+                        if (seedArmed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
+                        if (GUILayout.Button(seedArmed ? s_seedPickActiveContent : s_seedPickIdleContent,
+                                GUILayout.Width(IrocaConsts.Layout.SmallButtonWidth)))
+                        {
+                            zone.EnsureId();
+                            SeedPickZoneId = seedArmed ? null : zone.id;
+                            // スポイトと排他（どちらもプレビューの素のクリックを取る）。
+                            if (!seedArmed) EyedropperZoneId = null;
+                            Repaint();
+                        }
+                        GUI.backgroundColor = prevSeedBg;
+                    }
+
                     using (new EditorGUI.DisabledScope(zone.seedUV.x < 0f))
                     {
                         if (GUILayout.Button(
@@ -394,36 +452,32 @@ namespace Iroca
                 new GUIContent(Localization.OutputSaturation, Localization.OutputSaturationTooltip),
                 zone.outputSaturation, 0f, 1f);
 
-            // かんたんモードでは核となる色・許容範囲・模様保持・出力彩度だけを見せ、
-            // エッジ/彩度/シャドウ・ハイライト等の調整は「自動調整」に委ねる。
-            // 通常モードは初見の圧を下げるためゾーンごとに「詳細設定」へ畳む（既定で閉じる）。
-            // 上級モードは「すべて見たい」という明示的な選択なので、畳まず常に展開する。
-            if (editMode == EditMode.Advanced)
-            {
+            // 基本の項目（色・許容範囲・連続領域・模様保持・出力彩度）だけを常時見せ、
+            // 残りは「詳細設定」へ畳む（既定で閉じる）。旧・上級モード限定だった
+            // マッチング距離の重みもこの中に入っている（モードトグル廃止。DrawZoneList 参照）。
+            EditorGUILayout.Space(2);
+            zone.detailFoldout = EditorGUILayout.Foldout(
+                zone.detailFoldout,
+                new GUIContent(Localization.ZoneDetailFoldout, Localization.ZoneDetailFoldoutTooltip),
+                true);
+            if (zone.detailFoldout)
                 DrawZoneAdvancedParams(zone);
-            }
-            else if (editMode == EditMode.Normal)
-            {
-                EditorGUILayout.Space(2);
-                zone.detailFoldout = EditorGUILayout.Foldout(
-                    zone.detailFoldout,
-                    new GUIContent(Localization.ZoneDetailFoldout, Localization.ZoneDetailFoldoutTooltip),
-                    true);
-                if (zone.detailFoldout)
-                    DrawZoneAdvancedParams(zone);
-            }
 
             EditorGUILayout.EndVertical();
             return removeRequested;
         }
 
-        // 通常/上級モードで表示する詳細パラメータ（アンカー正規化・エッジ・彩度・
-        // シャドウ/ハイライト、上級限定のマッチング距離重み、既定へ戻すボタン）。
+        // 「詳細設定」を開いたときに出るパラメータ。
+        //
+        // 役割ごとに小見出しで束ねる。以前は「彩度制限」「彩度ガード」「シャドウ彩度低下」
+        // 「シャドウ巻き込み最低彩度」「自動しきい値(無彩色判定)」が同じ平面に並んでおり、
+        // どれも名前に“彩度”が入るのに効く対象が違うため、どれを触るべきか読み取れなかった
+        // （2026-09-11 の UX 見直し）。並び順は「どの画素を選ぶか → 明部 → 暗部/無彩色 →
+        // 選んだ画素をどう塗るか → 内部の距離重み」で、処理の流れと一致させている。
         private void DrawZoneAdvancedParams(ColorZone zone)
         {
-            zone.autoRecolorAnchor = UndoHelper.Toggle(this,
-                new GUIContent(Localization.AutoRecolorAnchor, Localization.AutoRecolorAnchorTooltip),
-                zone.autoRecolorAnchor);
+            // ── 選択の範囲（どの画素を対象にするか） ──
+            EditorGUILayout.LabelField(Localization.ZoneGroupSelection, EditorStyles.boldLabel);
             zone.edgeSoftness = UndoHelper.Slider(this,
                 new GUIContent(Localization.EdgeSoftness, Localization.EdgeSoftnessTooltip),
                 zone.edgeSoftness, 0f, 1f);
@@ -433,6 +487,10 @@ namespace Iroca
             zone.saturationGuard = UndoHelper.Slider(this,
                 new GUIContent(Localization.SaturationGuard, Localization.SaturationGuardTooltip),
                 zone.saturationGuard, 0f, 1f);
+
+            // ── ハイライト（光沢・明部の拾い方と塗り方） ──
+            EditorGUILayout.Space(2);
+            EditorGUILayout.LabelField(Localization.ZoneGroupHighlight, EditorStyles.boldLabel);
 
             zone.highlightRecovery = UndoHelper.Toggle(this,
                 new GUIContent(Localization.HighlightRecovery, Localization.HighlightRecoveryTooltip),
@@ -480,18 +538,25 @@ namespace Iroca
                 new GUIContent(Localization.ChromaThreshold, Localization.ChromaThresholdTooltip),
                 zone.chromaThreshold, 0f, 1f);
 
-            if (editMode == EditMode.Advanced)
-            {
-                zone.valueWeight = UndoHelper.Slider(this,
-                    new GUIContent(Localization.ValueWeight, Localization.ValueWeightTooltip),
-                    zone.valueWeight, 0f, 1f);
-                zone.satDistWeight = UndoHelper.Slider(this,
-                    new GUIContent(Localization.SatDistWeight, Localization.SatDistWeightTooltip),
-                    zone.satDistWeight, 0f, 1f);
-                zone.satRampScale = UndoHelper.Slider(this,
-                    new GUIContent(Localization.SatRampScale, Localization.SatRampScaleTooltip),
-                    zone.satRampScale, 0.01f, 0.5f);
-            }
+            // ── 色の写り方（選んだ画素をどう塗るか。選択範囲は変えない） ──
+            EditorGUILayout.Space(2);
+            EditorGUILayout.LabelField(Localization.ZoneGroupRecolor, EditorStyles.boldLabel);
+            zone.autoRecolorAnchor = UndoHelper.Toggle(this,
+                new GUIContent(Localization.AutoRecolorAnchor, Localization.AutoRecolorAnchorTooltip),
+                zone.autoRecolorAnchor);
+
+            // ── マッチング距離の重み（旧・上級モード限定。内部の距離式そのもの） ──
+            EditorGUILayout.Space(2);
+            EditorGUILayout.LabelField(Localization.ZoneGroupMatching, EditorStyles.boldLabel);
+            zone.valueWeight = UndoHelper.Slider(this,
+                new GUIContent(Localization.ValueWeight, Localization.ValueWeightTooltip),
+                zone.valueWeight, 0f, 1f);
+            zone.satDistWeight = UndoHelper.Slider(this,
+                new GUIContent(Localization.SatDistWeight, Localization.SatDistWeightTooltip),
+                zone.satDistWeight, 0f, 1f);
+            zone.satRampScale = UndoHelper.Slider(this,
+                new GUIContent(Localization.SatRampScale, Localization.SatRampScaleTooltip),
+                zone.satRampScale, 0.01f, 0.5f);
 
             EditorGUILayout.Space(2);
             if (GUILayout.Button(new GUIContent(Localization.ResetZoneTuning, Localization.ResetZoneTuningTooltip)))

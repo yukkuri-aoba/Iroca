@@ -27,6 +27,14 @@ namespace Iroca
         [System.NonSerialized] private Vector2 _batchScrollPos;
         [System.NonSerialized] private IrocaWindow _host;
 
+        // 直近のエラー。ShowNotification はウィンドウ右下に数秒出て消えるので、席を外していた
+        // ユーザーには「押したのに保存されていない」だけが残っていた。消えない表示を欄内に置き、
+        // 「閉じる」で明示的に消してもらう（内容は Console にも残る）。
+        [SerializeField] private string _lastError;
+        // 直近に書き出したファイルのプロジェクト相対パス（Assets/ 配下でないときは null）。
+        // 保存後に Project ウィンドウで選択・表示する導線に使う。
+        [SerializeField] private string _lastSavedAssetPath;
+
         // メインスレッドで pixels を取得し、PixelProcessor 計算 + PNG エンコード + 書き込みを
         // Task.Run(バックグラウンド)で実行する。完了後、メインスレッドでは AssetDatabase 操作のみ。
         // (旧: エンコード/書き込みもメインスレッドで行い 4K で終了時にフリーズしていた)
@@ -80,19 +88,56 @@ namespace Iroca
                     newFileName);
             }
 
+            // ソロ表示はプレビュー専用。保存すると全ゾーンが適用されるので、
+            // 「見えているもの＝保存されるもの」でないことをここで明示する。
+            if (_host.SoloZone != null)
+                EditorGUILayout.HelpBox(Localization.ExportSoloWarning, MessageType.Info);
+
             if (GUILayout.Button(new GUIContent(Localization.ApplyAndSave, Localization.ApplyAndSaveTooltip), GUILayout.Height(32)))
             {
                 ApplyRecolor();
             }
 
+            EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button(new GUIContent(Localization.OpenFolder, Localization.OpenFolderTooltip)))
             {
                 string path = AssetDatabase.GetAssetPath(_host.SourceTexture);
                 if (!string.IsNullOrEmpty(path))
                     EditorUtility.RevealInFinder(path);
             }
+            // 保存後に Unity 内で書き出し先へ辿り着く導線。「フォルダを開く」は OS の
+            // ファイルマネージャを開くだけで、マテリアルへ差し替える作業には使えなかった。
+            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(_lastSavedAssetPath)))
+            {
+                if (GUILayout.Button(new GUIContent(Localization.RevealInProject, Localization.RevealInProjectTooltip)))
+                    RevealLastSavedInProject();
+            }
+            EditorGUILayout.EndHorizontal();
+
+            // 直近のエラー（消えない表示）。
+            if (!string.IsNullOrEmpty(_lastError))
+            {
+                EditorGUILayout.HelpBox(_lastError, MessageType.Error);
+                if (GUILayout.Button(new GUIContent(Localization.DismissError, Localization.DismissErrorTooltip)))
+                    _lastError = null;
+            }
 
             EditorGUI.EndDisabledGroup();
+        }
+
+        /// <summary>直近に書き出したテクスチャを Project ウィンドウで選択・表示する。</summary>
+        private void RevealLastSavedInProject()
+        {
+            if (string.IsNullOrEmpty(_lastSavedAssetPath)) return;
+            var asset = AssetDatabase.LoadAssetAtPath<Texture2D>(_lastSavedAssetPath);
+            if (asset == null)
+            {
+                // 保存後に消された／移動された。導線を残しておくと押しても無反応になるので畳む。
+                _lastSavedAssetPath = null;
+                return;
+            }
+            Selection.activeObject = asset;
+            EditorGUIUtility.PingObject(asset);
         }
 
         public void SetSourceTextureBaseName(string baseNameWithoutExtension)
@@ -110,20 +155,31 @@ namespace Iroca
             float lineH = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
 
             // 内訳: 見出しラベル + 新規保存トグル + (新規時のみ)ファイル名 +
-            //       インポート設定継承トグル + 適用ボタン(高さ32) + フォルダを開くボタン
+            //       インポート設定継承トグル + (ソロ中のみ)注意 HelpBox + 適用ボタン(高さ32) +
+            //       フォルダ/Project 行 + (エラー時のみ)HelpBox と「閉じる」
             float h = lineH;          // 見出しラベル
             h += lineH;               // saveAsNewFile トグル
             if (saveAsNewFile)
                 h += lineH;           // ファイル名フィールド
             h += lineH;               // inheritImportSettings トグル
+            // HelpBox は内容と幅で高さが変わるため固定では測れない。狭い設定列で 2 行に
+            // 折り返す想定の概算を置く。過小だとエクスポートが画面外へ押し出されるので、
+            // 切り上げ側（安全側）に取る。
+            if (_host != null && _host.SoloZone != null)
+                h += 40f;             // ソロ表示中の注意
             h += 32f + EditorGUIUtility.standardVerticalSpacing; // ApplyAndSave ボタン
-            h += lineH;               // OpenFolder ボタン
+            h += lineH;               // OpenFolder / Project で表示（1 行に横並び）
+            if (!string.IsNullOrEmpty(_lastError))
+                h += 40f + lineH;     // エラー HelpBox +「閉じる」ボタン
             return h;
         }
 
         private void ApplyRecolor()
         {
             if (_exportJob.IsRunning) return;
+
+            // 前回のエラー表示は新しい試行の開始で畳む（成功したのに古い赤が残らないように）。
+            _lastError = null;
 
             // 有効なゾーンが無いと無変更ファイルを書き出して「完了」表示になり誤解を生むため、
             // 処理に入る前に止めてユーザーへ誘導する。
@@ -312,6 +368,9 @@ namespace Iroca
                             }
                             AssetDatabase.ImportAsset(relativePath);
                         }
+                        // 「Project で表示」の対象。Assets/ の外へ書いた場合は null のまま
+                        // （Unity のアセットではないので Project ウィンドウに出せない）。
+                        _lastSavedAssetPath = relativePath;
 
                         // ソース自身を書き換えたなら、プレビューが握っている「ディスク原本の画素」は
                         // もう古い。捨てないと、次のエクスポートが再着色済みファイルを読み直して
@@ -364,6 +423,8 @@ namespace Iroca
         {
             Debug.LogError($"[Iroca] {message}");
             _host?.ShowNotification(new GUIContent($"{Localization.Error}: {message}"));
+            // 通知は数秒で消えるので、欄内にも残す（「閉じる」まで消えない）。
+            _lastError = message;
         }
 
         /// <summary>

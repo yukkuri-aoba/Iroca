@@ -5,6 +5,8 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 [日本語](#日本語) | [English](#english)
 
 > **注：** 日本語版が公式版です。英語版は参考情報としてご利用ください。
+> **Note:** The Japanese version is the official version. The English version is for reference only.
+
 
 ---
 
@@ -45,14 +47,16 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 - エッジぼかし・AA 境界クリーンアップ・境界クリーンアップ（α分解）に対応します
 (元のテクスチャを壊さず、誤った部分を変換しないための仕組みです)
 
-#### 保護マスク
-- プレビュー上でブラシを使って色改変しない領域を指定します
-- 全ゾーン共通と各ゾーン専用の 2 種類を使い分けられます
+#### マスク（除外・含める）
+- プレビュー上でブラシを使って、色改変しない領域（除外）と必ず色改変する領域（含める）を指定します
+- 除外は全ゾーン共通と各ゾーン専用の 2 種類を使い分けられます
 - Unity 標準の Undo（Ctrl+Z）に対応しています
 - AI マスク提案（実験的・任意インストール）：パーツを右クリックすると AI が領域を推定し、その場でマスクへ追加します（左ドラッグはプレビューの移動のまま。Unity Sentis + MobileSAM。導入手順は MANUAL 参照）
 
 #### その他
-- プレビュー：ズーム・前後比較・差分表示
+- プレビュー：ズーム（Ctrl+スクロール・リセット）・前後比較・差分表示・押している間だけ元画像を表示
+- ゾーンのソロ表示：1 つのゾーンだけをプレビューして、どこを拾っているか確かめられます
+- 操作モードの表示：プレビュー上のクリックが何をするかを 1 行で表示し、Esc で解除できます
 - プリセット：設定とマスクの保存・読み込み、JSON での書き出し・読み込み対応
 - 日本語・英語の自動切り替え
 
@@ -121,13 +125,16 @@ See [MANUAL.md](MANUAL.md) for detailed instructions.
 #### Boundary Processing
 - Edge Feather / AA Edge Cleanup / Edge Decontamination for smooth color transitions
 
-#### Exclusion Mask
-- Paint protected areas directly on the preview
-- Supports both a common mask and per-zone masks
+#### Masks (Exclude / Include)
+- Paint the areas to protect (Exclude) and the areas to always recolor (Include) directly on the preview
+- Exclude supports both a common mask and per-zone masks
 - Integrated with Unity's standard Undo (Ctrl+Z)
+- AI Mask Suggestion (experimental, optional install): right-click a part and the AI estimates its region and adds it to the mask (a left drag still pans the preview; Unity Sentis + MobileSAM, see MANUAL for setup)
 
 #### Other
-- Preview: zoom, before/after comparison, diff view
+- Preview: zoom (Ctrl+Scroll and Reset), before/after comparison, diff view, hold a button to see the original
+- Solo a zone: preview a single zone to check what it selects
+- Current mode row: one line showing what a click on the preview does, with Esc to leave the mode
 - Presets: save and load settings with masks, JSON export/import
 - Auto language detection (Japanese / English)
 

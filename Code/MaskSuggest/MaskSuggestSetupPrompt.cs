@@ -6,16 +6,19 @@ using UnityEngine;
 namespace Iroca
 {
     /// <summary>
-    /// いろかを開いた時点で AI(Sentis + 配布モデル)の準備を求めるダイアログ。
+    /// AI(Sentis + 配布モデル)の準備を求めるダイアログ。
     ///
     /// 自動調整は「スポイト位置の AI 提案セグメント」を証拠にして導出する(ZoneAutoTuner.
     /// AnalyzeWithEvidence)。以前は AI が無い/温まっていないとき黙って従来導出へ落としていたが、
     /// その従来導出がハイライトを取りこぼす当の経路で、ユーザーからは「自動調整が壊れる」と
-    /// しか見えなかった(2026-08-29)。落とすのをやめ、AI が無ければここで導入・ダウンロードを
-    /// 求め、自動調整側は AI が使えなければ中止して案内する(IrocaWindow.AutoTune.cs)。
+    /// しか見えなかった(2026-08-29)。落とすのをやめ、AI が無ければ導入・ダウンロードを求め、
+    /// 自動調整側は AI が使えなければ中止して案内する(IrocaWindow.AutoTune.cs)。
     ///
-    /// 「あとで」はセッション中は再表示しない(SessionState。エディタ再起動で消える)。
-    /// 自動調整を押した時点で無ければ、そのときに改めて出す(force)。
+    /// ★出るのは「自動調整を押したのに AI が無い」ときだけ★(force)。
+    /// 2026-09-11 まではウィンドウを開いた時点でも delayCall から出していたが、開いた瞬間に
+    /// Editor 全体がブロックされるうえ、「あとで」を選ぶと案内ごと消えて自動調整だけが黙って
+    /// 使えない状態が残った。開いた時点の案内は非モーダルの帯へ移してある
+    /// (MaskSuggestSection.DrawSetupBanner)。
     /// </summary>
     internal static class MaskSuggestSetupPrompt
     {
@@ -24,9 +27,6 @@ namespace Iroca
 
         /// <summary>AI が今すぐ使える(Sentis あり・モデルファイルあり)か。</summary>
         public static bool Ready => MaskSuggestBridge.Available && MaskSuggestBridge.ModelFilesPresent;
-
-        /// <summary>EditorApplication.delayCall 用(ウィンドウ OnEnable 中のモーダルを避ける)。</summary>
-        public static void PromptIfNeeded() => PromptIfNeeded(force: false);
 
         /// <summary>
         /// 必要なら導入/ダウンロードのダイアログを出す。force=false ならセッション中 1 回だけ。

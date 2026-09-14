@@ -68,8 +68,11 @@ namespace Iroca
             _selectionCache?.RetainOnly(liveZoneIds);
             _proxySelectionCache?.RetainOnly(liveZoneIds);
             // リストの並び順が優先度。先頭(上)ほど優先で先に処理し、重なりを占有する。
+            // ソロ表示中はそのゾーンだけを処理する（★表示専用★。エクスポートは
+            // 常に有効ゾーン全部を適用し、ExportView がソロ中である旨を注意表示する）。
+            var soloZone = _host.SoloZone;
             var zonesSnapshot = session.zones
-                .Where(z => z.enabled)
+                .Where(z => z.enabled && (soloZone == null || ReferenceEquals(z, soloZone)))
                 .Select(z => z.Clone())
                 .ToList();
 
