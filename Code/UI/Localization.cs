@@ -223,6 +223,11 @@ namespace Iroca
         // （2026-09-11 の詳細パラメータのグループ化。旧名は「シャドウ・ハイライト詳細設定」）。
         public static string ShadowHighlightSection => IsJapanese ? "暗部・無彩色" : "Shadows and neutrals";
 
+        public static string ChromaCeiling => IsJapanese ? "無彩色の彩度上限" : "Neutral Chroma Ceiling";
+        public static string ChromaCeilingTooltip => IsJapanese
+            ? "サンプルが無彩色(白/グレー/黒)のとき、この彩度を超える離れた領域は「染められた別素材」とみなして選択から外します。\n0 = 自動(サンプル彩度の 3 倍、最低 0.04)。白い布の青みがかった陰のように、素材自身の陰影が地色より強く色づく場合は上げます。\n自動調整(AI 提案あり)がクリックした部分に実在する彩度から導きます。\nデフォルト: 0"
+            : "When the sample is neutral (white/grey/black), detached regions more saturated than this are treated as a dyed, different material and excluded.\n0 = automatic (3x the sample saturation, at least 0.04). Raise it when the material's own shading is more tinted than its base, such as bluish shadows on white cloth.\nAuto-tune with an AI proposal derives it from the saturation actually present in the clicked part.\nDefault: 0";
+
         public static string ChromaThreshold => IsJapanese ? "自動しきい値(無彩色判定)" : "Auto Grayscale Threshold";
         public static string ChromaThresholdTooltip => IsJapanese
             ? "スポイトで取ったサンプルの彩度がこの値以下の場合は、自動的に【無彩色(黒/グレー)】として認識され、色相を無視して綺麗に抽出します。"

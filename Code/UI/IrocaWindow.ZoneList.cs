@@ -545,6 +545,9 @@ namespace Iroca
             zone.chromaThreshold = UndoHelper.Slider(this,
                 new GUIContent(Localization.ChromaThreshold, Localization.ChromaThresholdTooltip),
                 zone.chromaThreshold, 0f, 1f);
+            zone.chromaCeiling = UndoHelper.Slider(this,
+                new GUIContent(Localization.ChromaCeiling, Localization.ChromaCeilingTooltip),
+                zone.chromaCeiling, 0f, 1f);
 
             // ── 色の写り方（選んだ画素をどう塗るか。選択範囲は変えない） ──
             EditorGUILayout.Space(2);

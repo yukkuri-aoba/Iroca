@@ -43,7 +43,9 @@ namespace Iroca
     // グローバルに別素材を巻き込む(実測 IoU −0.14〜−0.36)。従来導出がシェーディングの物理として
     // 持っているフィルタ — V 連結域(明度の空の谷の向こうは別素材)・相対彩度床(低彩度の暗部は
     // 全素材共通の色なのでシャドウ免除の担当)・色相帯 — は証拠内でも同じ理由で適用する。
-    // それでも芯の 2 割以上がフィルタを通らないセグメントは複数素材と判断し、従来導出へ戻す。
+    // フィルタを通る芯が無彩地色で 8 割未満(母集団を色相で濾せない)/有彩地色で 1 割未満(クリックが
+    // 裾の色)のセグメントと、ドメインが標本として足りないセグメントは従来導出へ戻す
+    // (EvMinMaterialFrac / EvMinMaterialFracChromatic / EvMinDomainPixels)。
     //
     // 証拠が使えないとき(null/空/過少/汚染)は従来の Analyze へフォールバックするので、
     // AI モデル未ダウンロード環境の挙動は変わらない。
@@ -55,10 +57,29 @@ namespace Iroca
         private const int EvErodeR = 2;
         // 収縮後にこれ未満しか残らない証拠は芯が細すぎる(細いストラップ等)ので、収縮なしで使う。
         private const int EvMinErodedPixels = 256;
-        // セグメント芯のうち「地色と同じ素材」(ドメイン ∪ ツヤ署名)の割合がこれ未満なら、
-        // セグメントは複数素材にまたがっており単一ゾーンの教師にできない → 従来導出へ。
+        // 汚染セグメント(複数素材にまたがる提案)の扱い(2026-09-15 変更):
+        // セグメント芯のうち「地色と同じ素材」(ドメイン ∪ ツヤ署名)の割合が EvMinMaterialFrac 未満
+        // なら、以前は地色の有彩/無彩を問わず証拠を丸ごと捨てて従来導出へ戻していた。
+        // 証拠が汚れる経路は「地色の正規化の母集団 = セグメント」だけで(他の証拠由来の量 —
+        // 陰影の明度下限・彩度天井・未被覆代表色 — は色相帯/彩度床/V 連結域で濾したドメインから導く)、
+        // 有彩クリックの母集団は色相帯 + 彩度床で別素材を自己濾過する。無彩クリックには色相が無く、
+        // 母集団(低彩度 ∧ V 連結域)にセグメント内の別素材や同素材の別トーン塊がそのまま入る。
+        // ⇒ 無彩地色は従来どおり 0.80 の門。有彩地色は「クリックの色相帯がセグメントの裾でしかない」
+        //    ときだけ落とす: 地色帯は陰影で広がりセグメントの大半を占めるが、色相の回った明端の縁取りや
+        //    柄は面積の数%しかない(正規化の外れ値判定 NormOutlierFrac と同じ 1/10 の線)。クリックが
+        //    そこに乗ると、色相帯で濾したドメインは同素材の薄片になり、そこから導く陰影の明度下限が
+        //    島の陰影レンジを表さない。実測(2026-09-15):
+        //   - 有彩で門を外す: 汚染判定の 5 ケース(yumeka-skin p25/p50 = 0.28、yumeka-eye ×3 = 0.64〜0.72)
+        //     で悪化 0(最大 −0.002)、肌 p25/p50 は陰影の明度下限が導出されて IoU 0.671→0.779。
+        //   - 有彩の裾: haolan-costume p95(明端の縁取り、色相帯が芯の 0.2%)で下限 0.883 が導かれ
+        //     衣装の他の島を全部落として recall 0.995→0.307 → 1/10 の門で従来へ。
+        //   - 無彩で門を外す: feina-goggles p50(金属フレーム込み 0.63)で母集団の最頻値が小島の暗部
+        //     (45→29)に落ち、tol 0.20→0.285 で IoU 0.995→0.889。門を残す。
         // 実測: 金属フレームを巻き込んだゴーグルのセグメントで 0.63、他の 13 被写体は 0.91 以上。
         private const float EvMinMaterialFrac = 0.80f;
+        private const float EvMinMaterialFracChromatic = NormOutlierFrac;
+        // ドメインが標本として足りない(セグメントに地色と同じ素材がほぼ無い)ときは地色を問わず従来へ。
+        private const int EvMinDomainPixels = MinNearSampleCount;
 
         // ── 証拠による補完(未被覆トーンの追加) ──
         // 導出パラメータで証拠ドメインの被覆率がこれ未満なら、未被覆部の代表色をサンプルへ足す。
@@ -106,6 +127,22 @@ namespace Iroca
         // 床は画素でなく連結成分に効く(本体に地続きの深い影は残す)。画素単位は実測で衣装の深い影を
         // 落とした(haolan-costume recall 0.996→0.942)ので採らない。
         private const float EvShadowFloorMarginFrac = 0.25f;
+
+        // ── 彩度天井(chromaCeiling)の導出(無彩地色のみ) ──
+        // グレーモードの後段ゲート(PixelProcessor.ApplyChromaCeilingGate)は「サンプル彩度の 3 倍
+        // (下限 0.04)」を超える画素を染められた別素材として落とす。白い布の青みがかった陰のように
+        // 素材自身の陰影が地色の何倍もの tint を持つ場合、自動の天井は陰を丸ごと落とす(実測
+        // quanstella-white 明部クリック: 地色 S 0.017 → 天井 0.05、陰 S 0.07〜0.14、再現率 0.60〜0.66)。
+        // 証拠ドメイン(セグメント芯のうち地色と同じ陰影ランプ)の彩度分布には、この素材の陰影が
+        // 実際にどこまで tint を帯びるかが実在の統計として在るので、その高パーセンタイルを天井にする。
+        // パーセンタイルは tolerance 導出と同じ P95、余白は陰影/明部免除と同じ 25% のヘッドルーム
+        // (÷0.75)。クリックした島より深い陰を持つ同素材の別の島を取りこぼさないための頭出し。
+        // 上書きするのは「包絡(P95)そのものが自動の天井を超える」= 自動の天井が素材自身を切って
+        // いると証拠が示すときだけ。包絡が天井の内側なら自動のまま(証拠は補うだけで、絞る方向にも
+        // 余白ぶんだけ緩める方向にも使わない。実測: 純白クリックの feina-white p95 は包絡 0.036 に
+        // 対し天井 0.04 で、余白つきの 0.048 を入れると隣接するクリーム地が増えて precision −0.03)。
+        private const float EvChromaCeilPercentile = 0.95f;
+        private const float EvChromaCeilHeadroomFrac = 0.25f;
 
         /// <summary>
         /// 証拠マスク(true=このゾーンの素材そのもの。AI マスク提案のセグメント)を教師にして
@@ -176,12 +213,16 @@ namespace Iroca
             var domain = BuildEvidenceDomain(hsv, coreList, repH, repS, repV,
                 out int sheenCount, out int hlCandidates, out int domLoBin, out int domHiBin);
             float materialFrac = (domain.Count + sheenCount) / (float)coreList.Count;
-            if (materialFrac < EvMinMaterialFrac)
+            bool repChromatic = repS >= AchromaSampleSatMax;
+            bool contaminated = materialFrac
+                < (repChromatic ? EvMinMaterialFracChromatic : EvMinMaterialFrac);
+            if (domain.Count < EvMinDomainPixels || contaminated)
             {
-                // 汚染セグメント(複数素材)は教師にしない。従来導出へ(証拠は使わない)。
+                // ドメインが標本として足りない / 汚染セグメント(無彩: 0.80、有彩: 裾 1/10) → 従来導出へ。
                 var fallback = Analyze(pixels, width, height, zone, session, excluded, maskW, maskH,
                     ct, report);
-                fallback.evidenceDiag = $"fallback contaminated materialFrac={materialFrac:F3}"
+                fallback.evidenceDiag = (contaminated ? "fallback contaminated" : "fallback no-domain")
+                    + $" materialFrac={materialFrac:F3}"
                     + $" core={coreList.Count} domain={domain.Count} sheen={sheenCount}";
                 return fallback;
             }
@@ -255,6 +296,15 @@ namespace Iroca
                 float hiV = (domHiBin + 1) / (float)AutoToneValueBins;
                 float floor = loV - (hiV - loV) * EvShadowFloorMarginFrac;
                 result.shadowValueFloor = floor >= ColorZone.ShadowValueFloorMin ? floor : 0f;
+            }
+
+            // ── 5. 彩度天井: 証拠ドメインの彩度包絡(P95)が自動の天井を超えるときだけ、余白つきで上書き ──
+            if (!chromatic && domain.Count >= MinNearSampleCount)
+            {
+                float envelope = DomainSaturationPercentile(hsv, domain, EvChromaCeilPercentile);
+                float ceilAuto = ColorZone.EffectiveChromaCeiling(repS, 0f);
+                if (envelope > ceilAuto)
+                    result.chromaCeiling = Mathf.Min(1f, envelope / (1f - EvChromaCeilHeadroomFrac));
             }
 
             // ── 2. 証拠による補完: 導出パラメータでセグメント芯(ドメイン)を覆えないなら、
@@ -340,10 +390,10 @@ namespace Iroca
             result.hasNormalizedSample = ColorDist(rep, zone.sampleColor) >= NormMinShift;
             result.evidenceDiag =
                 $"core={coreList.Count} domain={domain.Count} sheen={sheenCount} hlCand={hlCandidates}"
-                + $" clickT={clickT:F2}"
+                + $" matFrac={materialFrac:F2} clickT={clickT:F2}"
                 + $" hlRec={result.highlightRecovery} samples={result.autoSamples?.Count ?? 0}"
                 + $" added={added} cov={cov:F4} tol={result.tolerance:F4}"
-                + $" vFloor={result.shadowValueFloor:F3}";
+                + $" vFloor={result.shadowValueFloor:F3} ceil={result.chromaCeiling:F3}";
             Progress(0.98f);
 
             DecideGlobals(width, height, session, ref result);
@@ -437,6 +487,22 @@ namespace Iroca
                 if (vb >= loBin && vb <= hiBin) domain.Add(p);
             }
             return domain;
+        }
+
+        // 証拠ドメインの彩度分布の指定パーセンタイル(彩度天井の導出用)。
+        private static float DomainSaturationPercentile(HsvGrid hsv, List<GridPt> domain, float pct)
+        {
+            const int SB = 256;
+            var bins = new int[SB];
+            foreach (var p in domain)
+                bins[Mathf.Clamp((int)(hsv.s[p.gi] * SB), 0, SB - 1)]++;
+            int target = Mathf.CeilToInt(domain.Count * pct), cum = 0;
+            for (int i = 0; i < SB; i++)
+            {
+                cum += bins[i];
+                if (cum >= target) return (i + 1) / (float)SB;
+            }
+            return 1f;
         }
 
         // 導出パラメータ(result)を実マッチャーに通し、証拠ドメインのうち選択される(strength > 0)

@@ -427,14 +427,14 @@ namespace Iroca
         /// </summary>
         private static void ApplyChromaCeilingGate(
             float[] strength, float[] matchConf, float[] pixS,
-            float sS, float sV, float chromaThreshold,
+            float sS, float sV, float chromaThreshold, float chromaCeiling,
             int w, int h, CancellationToken ct = default)
         {
             // グレーモード判定は ColorZone.MatchOneSample / GetRelaxedMatchStrength と共有ヘルパー。
             float effectiveChromaThreshold = ColorZone.GrayModeEffectiveChromaThreshold(sV, chromaThreshold);
             if (sS > effectiveChromaThreshold) return;   // 有彩サンプル=グレーモードではない
 
-            float satCeil = Mathf.Max(sS * ColorZone.ChromaCeilSampleFrac, ColorZone.ChromaCeilAbs);
+            float satCeil = ColorZone.EffectiveChromaCeiling(sS, chromaCeiling);
 
             const float matchThr = ColorZone.MatchStrengthFloor;  // コア判定の strength 床(NeutralReject と同じ)
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
@@ -713,7 +713,7 @@ namespace Iroca
             float relaxedSatMin, float relaxedSatRamp, float shadowForgivenessSatMin, int passes,
             int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1,
             Color32[] originalPixels = null, float chromaConfidence = 1f, float chromaThreshold = 0.05f,
-            CancellationToken ct = default)
+            float chromaCeiling = 0f, CancellationToken ct = default)
         {
             if (passes <= 0) return;
 
@@ -765,7 +765,8 @@ namespace Iroca
                             pixH[idx], pixS[idx], pixV[idx],
                             sH, sS, sV, tolerance, edgeSoftness, valueWeight,
                             satDistWeight, relaxedSatMin, relaxedSatRamp, shadowForgivenessSatMin,
-                            rpR, rpG, rpB, rcSampR, rcSampG, rcSampB, chromaConfidence, chromaThreshold);
+                            rpR, rpG, rpB, rcSampR, rcSampG, rcSampB, chromaConfidence, chromaThreshold,
+                            chromaCeiling);
                         if (relaxed > 0f)
                             write[idx] = relaxed;
                     }
@@ -805,7 +806,7 @@ namespace Iroca
             float satDistWeight, float relaxedSatMin, float relaxedSatRamp, float shadowForgivenessSatMin,
             float pR = 0f, float pG = 0f, float pB = 0f,
             float sR = 0f, float sG = 0f, float sB = 0f, float chromaConfidence = 1f,
-            float chromaThreshold = 0.05f)
+            float chromaThreshold = 0.05f, float chromaCeiling = 0f)
         {
             // ColorZone.MatchOneSample と共有ヘルパーによる動的しきい値（暗いサンプルほど範囲拡大）。
             // 上端は zone.chromaThreshold(ユーザー可変)を使う。以前は既定値 0.05 を焼き込んでいたため、
@@ -843,7 +844,7 @@ namespace Iroca
                 // 穴埋め/境界回復が主経路で弾かれた別素材を復元してしまわないよう同じゲートを課す。
                 {
                     float ceilWeight = Mathf.Clamp01(sV / ColorZone.GrayModeDarkSampleValue);
-                    float satCeil = Mathf.Max(sS * ColorZone.ChromaCeilSampleFrac, ColorZone.ChromaCeilAbs);
+                    float satCeil = ColorZone.EffectiveChromaCeiling(sS, chromaCeiling);
                     float overS = Mathf.Clamp01((pS - satCeil) / Mathf.Max(satCeil, 1e-4f));
                     effectiveDist += overS * ColorZone.ChromaCeilPenalty * tolerance * ceilWeight;
                 }

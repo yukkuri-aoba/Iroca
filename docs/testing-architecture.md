@@ -25,7 +25,7 @@ CLAUDE.md / `.claude/instructions/improvement-cycle.md` が「テスト構成の
 | 条件ID | 入力・操作 | 結果の意味 |
 |---|---|---|
 | `oneshot` | GT内p50クリック → SAM証拠付き自動調整。手動マスクなし | 初回出力。証拠は強制包含ではない |
-| `assisted_include` | 同じクリックの自動調整 + SAM提案を含める。flood/汚染提案は不採用 | 明記した追加操作ポリシー後の品質 |
+| `assisted_include` | 同じクリックの自動調整 + SAM提案を含める。flood/ドメイン過少(証拠不採用)の提案は不採用 | 明記した追加操作ポリシー後の品質 |
 | `oracle_masked` | PSDレイヤーから合成した部位領域を除外マスクにし、従来自動調整 | 理想部位情報を与えた上限性能。実ユーザー/AIのマスク精度ではない |
 | `fixed` / `fixed_excluded` | fixtureの固定設定、必要ならGTから合成した部分除外 | 再着色・除外契約。自動調整や初回体験ではない |
 | `fallback` | 証拠なしの従来自動調整 | フォールバック経路の回帰 |
@@ -360,8 +360,8 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
   発火）だけを補う経路。ハーネスは zones JSON の `evidenceMask`（raw、ハーネス専用）で駆動する。
   `test_autotune_evidence` が `measure_evidence_autotune.run_case`（従来 `--autotune` と
   同一クリックの SAM 提案を証拠にした `--autotune` の A/B）を driver に、採用時の勝ち筋
-  （gold の残存島 0 / tops 明部クリック / skirt precision / eye 反射 / 汚染セグメントの
-  フォールバック）と「従来を下回らない」を契約にする。既定は 7 ケース、
+  （gold の残存島 0 / tops 明部クリック / skirt precision / eye 反射 / 汚染セグメントでも
+  ドメインから導く / 白の色付き陰の彩度天井）と「従来を下回らない」を契約にする。既定は 9 ケース、
   `VACC_AUTOTUNE_EVIDENCE_FULL=1` で 14 被写体 × 3 位置の非退行。凍結埋め込み不在は skip。
   全 A/B 表は `python dev_safe/scripts/measure_evidence_autotune.py --clicks p25 p50 p95`。
   - **証拠は製品と同じ全経路で作る**（2026-09-02〜）: `sam_proposal.proposal_for_click_full`

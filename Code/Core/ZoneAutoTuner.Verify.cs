@@ -323,6 +323,7 @@ namespace Iroca
             sim.edgeSoftness            = result.edgeSoftness;
             sim.shadowForgivenessSatMin = result.shadowForgivenessSatMin;
             sim.shadowValueFloor        = result.shadowValueFloor;
+            sim.chromaCeiling           = result.chromaCeiling;
             sim.extraSamples = result.autoSamples ?? new List<Color>();
             sim.UpdateCacheIfNeeded();
             return sim;

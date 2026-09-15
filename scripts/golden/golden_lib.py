@@ -55,6 +55,7 @@ CANON_ZONE = dict(
     shadowDesaturation=0.0,
     shadowForgivenessSatMin=0.05,
     shadowValueFloor=0.0,
+    chromaCeiling=0.0,
     outputSaturation=1.0,
     highlightRecovery=False,
     highlightBandExpand=True,

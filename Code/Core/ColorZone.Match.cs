@@ -227,6 +227,15 @@ namespace Iroca
             => Mathf.Lerp(GrayModeBaseChromaThreshold, chromaThreshold, Mathf.Clamp01(sV / GrayModeChromaConfidenceRamp));
 
         /// <summary>
+        /// 彩度天井(グレーモード専用)。ゾーンの chromaCeiling が正ならそれを、0(自動)なら
+        /// max(サンプル彩度 × ChromaCeilSampleFrac, ChromaCeilAbs) を返す。主経路の後段ゲート
+        /// (PixelProcessor.ApplyChromaCeilingGate)と緩和マッチ(GetRelaxedMatchStrength)が同じ式を
+        /// 使う(片方だけ上書きが効くと、主経路で落とした別素材を穴埋めが復元してしまう)。
+        /// </summary>
+        internal static float EffectiveChromaCeiling(float sS, float chromaCeiling)
+            => chromaCeiling > 0f ? chromaCeiling : Mathf.Max(sS * ChromaCeilSampleFrac, ChromaCeilAbs);
+
+        /// <summary>
         /// グレーモードの彩度整合ゲート(微 tint サンプルより著しく中性寄りの画素への距離加算)。
         /// 非作動(sS が ActivateSat 以下)なら 0。toleranceScale には主経路が _cTolerance、
         /// 緩和経路が tolerance を渡す。主経路と緩和経路が同ブロックを複製していたため一本化

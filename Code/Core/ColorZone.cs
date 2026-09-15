@@ -238,6 +238,16 @@ namespace Iroca
         [Range(0f, 1f)]
         public float shadowValueFloor = 0f;
 
+        // 彩度天井(グレーモード専用、0 = 自動)。無彩/微 tint サンプルの選択から、サンプル彩度の
+        // ChromaCeilSampleFrac 倍(下限 ChromaCeilAbs)を超える高彩度画素を「染められた別素材」として
+        // 落とす後段ゲート(PixelProcessor.ApplyChromaCeilingGate)の天井を上書きする。白い布の青みが
+        // かった陰のように、素材自身の陰影が地色の何倍もの tint を持つと自動の天井では陰が丸ごと
+        // 落ちる(実測 quanstella-white: 明部クリックで再現率 0.60〜0.66、陰の S 0.07〜0.14 に対し
+        // 天井 0.05)。証拠つき自動調整がクリックした島(AI 提案セグメント)に実在する彩度包絡から導き、
+        // 自動の天井より高いときだけ入れる(ZoneAutoTuner.Evidence.cs)。手動でも使える。
+        [Range(0f, 1f)]
+        public float chromaCeiling = 0f;
+
         [Range(0f, 1f)]
         public float chromaThreshold = 0.05f;
 
@@ -383,6 +393,7 @@ namespace Iroca
             shadowDesaturation      = d.shadowDesaturation;
             shadowForgivenessSatMin = d.shadowForgivenessSatMin;
             shadowValueFloor        = d.shadowValueFloor;
+            chromaCeiling           = d.chromaCeiling;
             chromaThreshold         = d.chromaThreshold;
             valueWeight             = d.valueWeight;
             satDistWeight           = d.satDistWeight;

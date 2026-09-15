@@ -27,6 +27,7 @@ namespace Iroca
         public static string ShadowDesaturation      => "ShadowDesaturation";
         public static string ShadowForgivenessSatMin => "ShadowForgivenessSatMin";
         public static string ShadowValueFloor        => "ShadowValueFloor";
+        public static string ChromaCeiling           => "ChromaCeiling";
         public static string AntiAliasCleanup        => "AntiAliasCleanup";
         public static string UseDecontamination      => "UseDecontamination";
     }
@@ -62,6 +63,7 @@ namespace Iroca
         public float shadowDesaturation { get; set; } = ZonesJsonDefaults.ShadowDesaturation;
         public float shadowForgivenessSatMin { get; set; } = ZonesJsonDefaults.ShadowForgivenessSatMin;
         public float shadowValueFloor { get; set; } = ZonesJsonDefaults.ShadowValueFloor;
+        public float chromaCeiling { get; set; } = ZonesJsonDefaults.ChromaCeiling;
         public float outputSaturation { get; set; } = ZonesJsonDefaults.OutputSaturation;
         public bool highlightRecovery { get; set; } = ZonesJsonDefaults.HighlightRecovery;
         public bool highlightBandExpand { get; set; } = ZonesJsonDefaults.HighlightBandExpand;
@@ -190,6 +192,7 @@ namespace Iroca
                 shadowDesaturation = z.shadowDesaturation,
                 shadowForgivenessSatMin = z.shadowForgivenessSatMin,
                 shadowValueFloor = z.shadowValueFloor,
+                chromaCeiling = z.chromaCeiling,
                 layerIndex = z.layerIndex,
                 useFloodFill = z.useFloodFill,
                 seedUV = (z.seedUV != null && z.seedUV.Length >= 2)
@@ -400,6 +403,7 @@ namespace Iroca
                         shadowDesaturation = z.shadowDesaturation,
                         shadowForgivenessSatMin = z.shadowForgivenessSatMin,
                         shadowValueFloor = z.shadowValueFloor,
+                        chromaCeiling = z.chromaCeiling,
                         applyGlobals = tune.applyGlobals,
                         antiAliasCleanup = st.antiAliasCleanup,
                         autoSamples = z.extraSamples.Count,
