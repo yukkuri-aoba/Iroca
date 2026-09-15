@@ -261,7 +261,7 @@ Read/Write Enabled が無効なテクスチャを選ぶと、ウィンドウに�
 #### ズームとパン
 
 - Ctrl + スクロール: ズームイン・アウト
-- 操作行の「リセット」: ズームを 100% に戻し、表示位置も先頭へ戻します
+- 「③ プレビュー」見出しの右端: いまのズーム率と「リセット」。リセットはズームを 100% に戻し、表示位置も先頭へ戻します
 - ドラッグ: ビューを移動（画像が枠に収まっていないとき）
 - **中ボタンドラッグ / Alt + ドラッグ**: どのモードでもビューを移動できます。マスクを塗っている最中でも使えます
 
@@ -759,7 +759,7 @@ Opening "Details" reveals the internal parameters. The defaults are usually fine
 #### Zoom and pan
 
 - Ctrl + Scroll: zoom in and out
-- "Reset" on the toolbar row: return the zoom to 100% and reset the scroll position
+- Right end of the "③ Preview" heading: the current zoom level and "Reset", which returns the zoom to 100% and resets the scroll position
 - Drag: pan the view (whenever the image does not fit in the frame)
 - **Middle-button drag / Alt + drag**: pans the view in any mode, including while you are painting a mask
 
