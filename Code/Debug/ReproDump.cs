@@ -5,14 +5,20 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
+using Iroca;
 
-namespace Iroca
+namespace Iroca.DebugTools
 {
     /// <summary>
-    /// 再現データ書き出し: 現在のセッション（テクスチャ・ゾーン・マスク・設定）を、
+    /// 再現データ書き出し(開発者向け。Debug 衛星 asmdef に属し、配布 unitypackage / zip には含まれない。
+    /// この asmdef ごと削除すればメニュー項目も機能も消える): 現在のセッション（テクスチャ・ゾーン・マスク・設定）を、現在のセッション（テクスチャ・ゾーン・マスク・設定）を、
     /// headless ハーネス / dev_safe の回帰テストがそのまま読める 1 フォルダに書き出す。
     /// 実際に使っていて「ここが変」と思った瞬間の入力一式は後から復元できないため、
     /// その場でのワンアクション保存が回帰ケース化の取り込み口になる。
+    ///
+    /// 書き出しにはテクスチャ原本(texture.png)がフル解像度で含まれる。有償アバターのテクスチャは
+    /// 再配布できないため、エンドユーザーに不具合報告として送らせる導線には使わない
+    /// (配布物から外している理由)。
     ///
     /// 書式（すべて表示どおりの向きの PNG。ハーネスへの受け渡しと seedUV の v 反転は
     /// dev_safe/Tests/regression/test_repro_cases.py が行う）:
@@ -148,8 +154,9 @@ namespace Iroca
         {
             try
             {
+                // 本体アセンブリの版を書く(この Debug 衛星は配布パッケージの一部ではない)。
                 var info = UnityEditor.PackageManager.PackageInfo
-                    .FindForAssembly(typeof(ReproDump).Assembly);
+                    .FindForAssembly(typeof(IrocaAutomation).Assembly);
                 if (info != null && !string.IsNullOrEmpty(info.version)) return info.version;
             }
             catch { /* 埋め込み配置などで解決できない場合 */ }
