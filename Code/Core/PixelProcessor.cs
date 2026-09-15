@@ -82,7 +82,7 @@ namespace Iroca
             F(z.uvRect.x); F(z.uvRect.y); F(z.uvRect.width); F(z.uvRect.height);
             B(z.useFloodFill); F(z.seedUV.x); F(z.seedUV.y);
             F(z.edgeSoftness); F(z.saturationStrictness); F(z.valueWeight); F(z.satDistWeight);
-            F(z.satRampScale); F(z.shadowForgivenessSatMin); F(z.shadowValueFloor); F(z.chromaThreshold); F(z.saturationGuard);
+            F(z.satRampScale); F(z.shadowForgivenessSatMin); F(z.shadowValueFloor); F(z.chromaCeiling); F(z.chromaThreshold); F(z.saturationGuard);
             B(z.highlightRecovery); B(z.highlightBandExpand);
             F(edgeFeather); I(aaCleanup); I(holeFillPasses); I(holeFillMinNeighbors);
             F(relaxedSatMin); F(relaxedSatRamp);
@@ -380,7 +380,7 @@ namespace Iroca
                         {
                             Color.RGBToHSV(zone.sampleColor, out _, out float cgSS, out float cgSV);
                             ApplyChromaCeilingGate(strength, matchConf, pixS, cgSS, cgSV,
-                                zone.chromaThreshold, w, h, cancellationToken);
+                                zone.chromaThreshold, zone.chromaCeiling, w, h, cancellationToken);
                             // 中性ツヤ復帰(グレーモード以外では内部で no-op): 彩度整合ゲートが純白
                             // パディングと一緒に落とした「素材自身の純白ツヤ」を、選択領域に囲まれた
                             // 閉領域という空間条件だけで戻す。連結性は大域演算なのでフル画像経路限定
@@ -570,7 +570,8 @@ namespace Iroca
                                         zone.satDistWeight, relaxedSatMin, relaxedSatRamp,
                                         zone.shadowForgivenessSatMin,
                                         hop.r / 255f, hop.g / 255f, hop.b / 255f,
-                                        rgSampR, rgSampG, rgSampB, relaxedChromaConf, zone.chromaThreshold) > 0f;
+                                        rgSampR, rgSampG, rgSampB, relaxedChromaConf, zone.chromaThreshold,
+                                        zone.chromaCeiling) > 0f;
                                 }
                             });
                             FillSmallHoles(strength, w, h, holeFillPasses, holeFillMinNeighbors, fillAllowed,
@@ -592,7 +593,8 @@ namespace Iroca
                             zone.sampleColor, zone.tolerance, zone.edgeSoftness, zone.valueWeight,
                             zone.satDistWeight, relaxedSatMin, relaxedSatRamp, zone.shadowForgivenessSatMin, antiAliasCleanup,
                             ppMinX, ppMinY, ppMaxX, ppMaxY,
-                            originalPixels, relaxedChromaConf, zone.chromaThreshold, cancellationToken);
+                            originalPixels, relaxedChromaConf, zone.chromaThreshold, zone.chromaCeiling,
+                            cancellationToken);
                         debug?.RecordStage(zone.id, DebugStages.BoundaryRecover, strength, w, h);
                     }
 

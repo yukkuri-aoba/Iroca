@@ -33,6 +33,7 @@ namespace Iroca
         private static float DefaultShadowDesaturation      => s_zoneDefaults.shadowDesaturation;
         private static float DefaultShadowForgivenessSatMin => s_zoneDefaults.shadowForgivenessSatMin;
         private static float DefaultShadowValueFloor        => s_zoneDefaults.shadowValueFloor;
+        private static float DefaultChromaCeiling           => s_zoneDefaults.chromaCeiling;
         private static int   DefaultAntiAliasCleanup        => s_sessionDefaults.antiAliasCleanup;
         private static bool  DefaultUseDecontamination      => s_sessionDefaults.useDecontamination;
 
@@ -73,6 +74,8 @@ namespace Iroca
             public float shadowForgivenessSatMin;
             // 陰影の明度下限(0=無効)。証拠つき導出だけが値を入れる(従来導出は既定 0 のまま)。
             public float shadowValueFloor;
+            // 彩度天井(グレーモード専用、0=自動)。証拠つき導出だけが値を入れる(従来導出は既定 0 のまま)。
+            public float chromaCeiling;
 
             // Globals（applyGlobals が true のときのみ適用）
             // edgeFeather は「ごまかし」なので自動調整では一切扱わない（既定の 0 を維持）。
@@ -125,6 +128,7 @@ namespace Iroca
                 zone.shadowDesaturation      = shadowDesaturation;
                 zone.shadowForgivenessSatMin = shadowForgivenessSatMin;
                 zone.shadowValueFloor        = shadowValueFloor;
+                zone.chromaCeiling           = chromaCeiling;
                 // 自動トーン抽出で得た内部サンプル（暗部/中間/明部の代表色）。ユーザーが複数スポイトする
                 // 代わりにアルゴリズムがパーツの濃淡を自動取得した結果で、選択（マッチング）の和集合に
                 // 使われる。出力色は主サンプル基準のまま変わらない。
@@ -394,6 +398,7 @@ namespace Iroca
                 shadowDesaturation      = DefaultShadowDesaturation,
                 shadowForgivenessSatMin = DefaultShadowForgivenessSatMin,
                 shadowValueFloor        = DefaultShadowValueFloor,
+                chromaCeiling           = DefaultChromaCeiling,
                 applyGlobals            = false,
                 antiAliasCleanup        = DefaultAntiAliasCleanup,
                 useDecontamination      = DefaultUseDecontamination,
@@ -589,6 +594,7 @@ namespace Iroca
                 shadowDesaturation      = heuristic.shadowDesaturation,
                 shadowForgivenessSatMin = shadowForgivenessSatMin,
                 shadowValueFloor        = DefaultShadowValueFloor,
+                chromaCeiling           = DefaultChromaCeiling,
                 applyGlobals            = false,
                 antiAliasCleanup        = heuristic.antiAliasCleanup,
                 useDecontamination      = heuristic.useDecontamination,
@@ -679,6 +685,8 @@ namespace Iroca
                 labels.Add(Localization.ShadowForgivenessSatMin);
             if (!Mathf.Approximately(zone.shadowValueFloor, DefaultShadowValueFloor))
                 labels.Add(Localization.ShadowValueFloor);
+            if (!Mathf.Approximately(zone.chromaCeiling, DefaultChromaCeiling))
+                labels.Add(Localization.ChromaCeiling);
             return labels;
         }
 
@@ -706,6 +714,8 @@ namespace Iroca
                 labels.Add(Localization.ShadowForgivenessSatMin);
             if (!Mathf.Approximately(zone.shadowValueFloor, DefaultShadowValueFloor))
                 labels.Add(Localization.ShadowValueFloor);
+            if (!Mathf.Approximately(zone.chromaCeiling, DefaultChromaCeiling))
+                labels.Add(Localization.ChromaCeiling);
 
             if (result.applyGlobals)
             {
@@ -730,7 +740,8 @@ namespace Iroca
                 && Mathf.Approximately(z.edgeSoftness, DefaultEdgeSoftness)
                 && Mathf.Approximately(z.shadowDesaturation, DefaultShadowDesaturation)
                 && Mathf.Approximately(z.shadowForgivenessSatMin, DefaultShadowForgivenessSatMin)
-                && Mathf.Approximately(z.shadowValueFloor, DefaultShadowValueFloor);
+                && Mathf.Approximately(z.shadowValueFloor, DefaultShadowValueFloor)
+                && Mathf.Approximately(z.chromaCeiling, DefaultChromaCeiling);
         }
 
         private static float HueDistance(float a, float b)
