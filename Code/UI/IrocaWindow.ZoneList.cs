@@ -248,9 +248,14 @@ namespace Iroca
             zone.enabled = UndoHelper.ToggleLeft(this,
                 s_zoneEnabledContent,
                 zone.enabled, GUILayout.Width(rowH));
+            // MinWidth(0): ラベル無しでも EditorGUILayout.TextField(GUIContent, ...) は
+            // 「labelWidth + fieldWidth + 5」を最小幅として要求する。ソロボタンを足した
+            // この行は設定列で最も幅を要求し、スクロール内容がカラムより広がって全行の右端が
+            // 縦スクロールバーの下に隠れていた。名前欄だけを伸縮させて行をカラム内に収める。
             zone.name = UndoHelper.TextField(this,
                 s_zoneNameContent,
-                zone.name);
+                zone.name,
+                GUILayout.MinWidth(0), GUILayout.ExpandWidth(true));
 
             // ソロ表示: このゾーンだけでプレビューを作り直す。ゾーンが実際にどこを拾って
             // いるかを確かめる手段が差分表示（全ゾーン混在）しか無かったため追加した。
@@ -286,9 +291,12 @@ namespace Iroca
             // どちらも sampleColor を決める手段なので 1 行に統合してカードの行数を抑える。
             EditorGUILayout.BeginHorizontal();
             Color prevSampleColor = zone.sampleColor;
+            // MinWidth(0): 見出し行の名前欄と同じ理由（ラベル付きフィールドの最小幅＋スポイト
+            // ボタン幅が狭いカラムの内容幅を超える）。カラーフィールド側を縮めて行を収める。
             zone.sampleColor = UndoHelper.ColorField(this,
                 new GUIContent(Localization.SampleColor, Localization.SampleColorTooltip),
-                zone.sampleColor);
+                zone.sampleColor,
+                GUILayout.MinWidth(0), GUILayout.ExpandWidth(true));
             if (zone.sampleColor != prevSampleColor)
             {
                 // スポイト/カラーフィールドで色を取った＝サンプル指定済み。意図的な白選択を
