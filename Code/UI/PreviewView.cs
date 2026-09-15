@@ -359,21 +359,23 @@ namespace Iroca
 
         public void Draw()
         {
-            EditorGUILayout.LabelField(Localization.StepPrefixPreview + Localization.Preview, EditorStyles.boldLabel);
-
+            // 見出し行はズーム率を右端に載せるため、ズーム率が確定した後で描く（DrawTitleRow 参照）。
+            // プレビューが確立していない経路は、それぞれの return の直前で見出しだけを描く。
+            // ここからズーム率確定までの間に GUILayout の呼び出しを置かないこと（見出しより上に積まれる）。
             var sourceTexture = _host.SourceTexture;
             if (sourceTexture == null)
             {
+                DrawTitleRow(false, 0f);
                 EditorGUILayout.HelpBox(Localization.SetTexture, MessageType.Info);
                 return;
             }
 
-            if (!IrocaWindow.IsReadable(sourceTexture))
-                return;
-
             // エクスポートと同じフル解像度ソースを確保（プレビュー＝実結果の一致のため）。
-            if (!EnsureTrueSource(sourceTexture))
+            if (!IrocaWindow.IsReadable(sourceTexture) || !EnsureTrueSource(sourceTexture))
+            {
+                DrawTitleRow(false, 0f);
                 return;
+            }
 
             // バックグラウンドプレビュータスクからの結果を適用（Texture2D API: メインスレッドのみ）
             if (_pendingProcessedDisplay != null)
@@ -451,7 +453,7 @@ namespace Iroca
             }
 
             // 「生成中…」インジケータの文言。プレビュー確立後は下の操作行（比較/差分・
-            // ズーム率と同じ行）の右端に出す。非生成時も空白 " " を同じ場所に描き、
+            // 元を表示と同じ行）の右端に出す。非生成時も空白 " " を同じ場所に描き、
             // 出入りで UI が上下にジャンプしないよう行高を固定する。
             // 詳細プレビュー生成も同じ表示に統一する（fix.md 項目3）。
             string generatingLabel;
@@ -465,6 +467,7 @@ namespace Iroca
             if (previewTexture == null)
             {
                 // 初回生成中はまだ操作行が無いので、生成状態だけ単独の 1 行で表示する。
+                DrawTitleRow(false, 0f);
                 EditorGUILayout.LabelField(generatingLabel);
                 return;
             }
@@ -489,10 +492,13 @@ namespace Iroca
                 _cachedZoomLabel = string.Format(Localization.ZoomLabel, zoomPercent);
             }
 
-            // 操作行: 比較/差分トグル・ズーム率・生成状態を 1 行にまとめる。以前は
+            DrawTitleRow(true, maxZoom);
+
+            // 操作行: 比較/差分トグル・元を表示・生成状態を 1 行にまとめる。以前は
             // それぞれ 1 行ずつ計 3 行を使っており、既定ウィンドウ高(IrocaWindow.ShowWindow)
             // ではプレビュー枠の残り高が等倍 512px に届かず、100% でも縦スクロールバーが
             // 常に出ていた。トグルは内容幅に縮め、生成状態は右端に置く。
+            // ズーム率は見出し行にある（この行に並べると既定幅に収まらない。DrawTitleRow 参照）。
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Toggle(comparisonMode, new GUIContent(Localization.ComparisonMode, Localization.ComparisonModeTooltip), EditorStyles.miniButtonLeft, GUILayout.ExpandWidth(false)) != comparisonMode)
             {
@@ -524,17 +530,6 @@ namespace Iroca
             // RepeatButton は押されている間 true を返し続けるが、Editor は要求が無いと
             // 再描画しない。押下中は継続的に再描画を要求しないと 1 フレームで戻って見える。
             if (peekOriginal) _host.RequestRepaint();
-
-            GUILayout.Space(10f);
-
-            // ズームは Ctrl+スクロールのみ。拡大したあと初期表示へ戻す手段がスクロールを
-            // 戻し切ることしか無かったので、リセットボタンだけ置く（−／＋／全体の段階ボタンは
-            // 見た目が煩雑になったため 2026-09-14 に撤去）。
-            GUILayout.Label(new GUIContent(_cachedZoomLabel, Localization.ZoomHint),
-                EditorStyles.miniLabel, GUILayout.ExpandWidth(false));
-            if (GUILayout.Button(new GUIContent(Localization.ZoomReset, Localization.ZoomResetTooltip),
-                    EditorStyles.miniButton, GUILayout.ExpandWidth(false)))
-                ResetZoom(maxZoom);
 
             GUILayout.FlexibleSpace();
             // MinWidth(0): 生成状態ラベルは文字数が多く、既定では「文字幅＝最小幅」として
@@ -932,6 +927,35 @@ namespace Iroca
                                    Localization.PreviewSoloTooltip),
                     EditorStyles.miniLabel, GUILayout.MinWidth(0f));
                 GUI.contentColor = prevContent;
+            }
+            EditorGUILayout.EndHorizontal();
+        }
+
+        /// <summary>
+        /// 「③ プレビュー」見出し行。プレビューが確立していれば、ズーム率とリセットを右端に置く。
+        ///
+        /// ズーム率はもともと比較/差分と同じ操作行にあったが、「元を表示」「リセット」を足した
+        /// 結果その行が既定ウィンドウ幅（右カラム ~408px）に収まらなくなり、ズーム率を miniLabel に
+        /// 落として詰めていた。それでも右端の生成状態ラベルは幅 0 近くまで潰れて読めず、
+        /// miniLabel はボタンの文字より小さく上寄りに描かれて行の中で浮いて見えた。
+        /// 見出し行は題名以外が空いているので、ズーム率は元の文字サイズのままこちらへ置く。
+        /// </summary>
+        private void DrawTitleRow(bool showZoom, float maxZoom)
+        {
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label(Localization.StepPrefixPreview + Localization.Preview,
+                EditorStyles.boldLabel, GUILayout.ExpandWidth(false));
+            if (showZoom)
+            {
+                GUILayout.FlexibleSpace();
+                // ズームは Ctrl+スクロールのみ。拡大したあと初期表示へ戻す手段がスクロールを
+                // 戻し切ることしか無かったので、リセットボタンだけ置く（−／＋／全体の段階ボタンは
+                // 見た目が煩雑になったため 2026-09-14 に撤去）。
+                GUILayout.Label(new GUIContent(_cachedZoomLabel, Localization.ZoomHint),
+                    GUILayout.ExpandWidth(false));
+                if (GUILayout.Button(new GUIContent(Localization.ZoomReset, Localization.ZoomResetTooltip),
+                        EditorStyles.miniButton, GUILayout.ExpandWidth(false)))
+                    ResetZoom(maxZoom);
             }
             EditorGUILayout.EndHorizontal();
         }
