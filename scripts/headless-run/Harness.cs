@@ -1299,6 +1299,20 @@ namespace Iroca
                     return 0;
                 }
 
+                // --samops-rle-decode <encoded.txt> : 文字列をデコードだけする(不正・悪意ある入力の拒否検証)。
+                // 出力: "RLE DECODE NULL"(拒否) / "RLE DECODE OK <w>x<h> count=<真の数>"。
+                case "--samops-rle-decode":
+                {
+                    if (args.Length < 2) { Console.Error.WriteLine("rle-decode: <encoded.txt> required"); return 2; }
+                    string encoded = File.ReadAllText(args[1]).Trim();
+                    bool[] mask = MaskRle.Decode(encoded, out int w, out int h);
+                    if (mask == null) { Console.WriteLine("RLE DECODE NULL"); return 0; }
+                    int count = 0;
+                    for (int i = 0; i < mask.Length; i++) if (mask[i]) count++;
+                    Console.WriteLine($"RLE DECODE OK {w}x{h} count={count}");
+                    return 0;
+                }
+
                 default:
                     Console.Error.WriteLine($"unknown samops mode: {args[0]}");
                     return 2;
