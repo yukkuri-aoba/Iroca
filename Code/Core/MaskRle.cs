@@ -13,6 +13,12 @@ namespace Iroca
     /// </summary>
     internal static class MaskRle
     {
+        // マスク一辺の上限。Unity 2022 のテクスチャ最大辺(16384)に合わせる。マスクはテクスチャ
+        // 解像度以下なのでこれを超えるヘッダは正規の Encode 出力ではあり得ない。
+        // ヘッダの幅×高さだけを信じて bool[] を確保すると、数十バイトのプリセット JSON で
+        // 約 2GB の確保を要求できる(共有プリセットを開いた瞬間に OOM / 長時間フリーズ)。
+        internal const int MaxSide = 16384;
+
         /// <summary>bool 配列を RLE 圧縮 + Base64 文字列にエンコード。</summary>
         public static string Encode(bool[] mask, int w, int h)
         {
@@ -61,12 +67,20 @@ namespace Iroca
                     if (bytes.Length < 9) return null;
                     w = System.BitConverter.ToInt32(bytes, 0);
                     h = System.BitConverter.ToInt32(bytes, 4);
-                    if (w <= 0 || h <= 0) return null;
+                    if (w <= 0 || h <= 0 || w > MaxSide || h > MaxSide) return null;
                     // w * h の int オーバーフローを弾く。w=h=65536 だと len=0 になり、
                     // 破損データに対して「成功・空マスク」を黙って返していた（レビュー §4 中）。
+                    // (MaxSide 上限により実際には到達しないが、上限を緩めたときの安全網として残す)
                     long lenLong = (long)w * h;
                     if (lenLong > int.MaxValue) return null;
                     int len = (int)lenLong;
+                    // 確保前にラン列を走査し、全画素分を埋め切れる(= 切断データでない)ことを確かめる。
+                    // 従来は確保してから埋め、足りなければ null にしていたため、切断データでも
+                    // 上限いっぱいの配列を一度確保していた。検査は確保より桁違いに安い。
+                    long covered = 0;
+                    for (int bi = 9; bi + 4 <= bytes.Length && covered < len; bi += 4)
+                        covered += System.BitConverter.ToUInt32(bytes, bi);
+                    if (covered < len) return null;
                     bool curVal = bytes[8] != 0;
                     bool[] mask = new bool[len];
                     int pos = 0;
@@ -101,7 +115,7 @@ namespace Iroca
                 if (packed.Length < 9) return null;
                 w = System.BitConverter.ToInt32(packed, 0);
                 h = System.BitConverter.ToInt32(packed, 4);
-                if (w <= 0 || h <= 0) return null;
+                if (w <= 0 || h <= 0 || w > MaxSide || h > MaxSide) return null;
                 // RLE 側と同じオーバーフロー判定。w=h=65536 だと len=0 になって長さ検査も
                 // 素通りし、破損データに対して「成功・空マスク」を黙って返してしまう。
                 long lenLong = (long)w * h;
