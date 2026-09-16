@@ -39,6 +39,27 @@ namespace Iroca
         [System.NonSerialized] private string _eyedropperZoneId;
         internal string EyedropperZoneId { get => _eyedropperZoneId; set => _eyedropperZoneId = value; }
 
+        // スポイト位置（ColorZone.sampleUV）を付けた時点の sampleColor。Undo でサンプル色が
+        // 書き戻されたゾーンを見分けるために持つ。sampleUV 自体が NonSerialized なので、
+        // ドメインリロードで両方まとめて消える＝寿命が一致する。
+        [System.NonSerialized] private Dictionary<string, Color> _sampleUvColors;
+
+        /// <summary>スポイトで位置を付けたときに、その時点のサンプル色を控える。</summary>
+        internal void RememberSampleUvColor(ColorZone zone)
+        {
+            if (zone == null) return;
+            zone.EnsureId();
+            _sampleUvColors ??= new Dictionary<string, Color>();
+            _sampleUvColors[zone.id] = zone.sampleColor;
+        }
+
+        /// <summary>スポイト位置を捨てたゾーンの控えを外す。</summary>
+        internal void ForgetSampleUvColor(ColorZone zone)
+        {
+            if (zone == null || string.IsNullOrEmpty(zone.id)) return;
+            _sampleUvColors?.Remove(zone.id);
+        }
+
         // シード指定モードで武装中のゾーン id（null/空 = 解除）。プレビュー上のクリックで
         // そのゾーンの連続領域シードを置く（一発で自動解除）。スポイトと同じ id 保持なのは
         // 同じ理由（武装中の並べ替え・削除で別ゾーンへ入らないように）。
@@ -231,16 +252,36 @@ namespace Iroca
                 _maskView.SuggestControllerIfCreated?.OnUndoRedoPerformed();
             }
             // スポイト位置（自動調整が AI 提案の証拠を取る位置）は Undo 対象外なので、
-            // 書き戻された sampleColor と食い違わないよう全ゾーンで無効化する
-            // （次のスポイトで付き直す。無効なら自動調整は従来導出になるだけ）。
-            if (_session?.zones != null)
-                foreach (var z in _session.zones)
-                    if (z != null) z.sampleUV = new Vector2(-1f, -1f);
+            // 書き戻された sampleColor と食い違ったゾーンだけ無効化する（次のスポイトで付き直す）。
+            // 以前は全ゾーンを一律に捨てていたため、シーン側など無関係な Ctrl+Z でも位置が消え、
+            // 次の自動調整が黙って「スポイト位置なし」の従来導出へ落ちていた。
+            InvalidateStaleSampleUVs();
             // ズーム倍率・スクロール位置は「今どこを見ているか」であって編集内容ではない。
             // Undo の書き戻しで一緒に巻き戻るため、直前の視点へ戻して見ている箇所を保つ。
             _previewView?.RestoreViewStateAfterUndo(this);
             MarkPreviewDirty();
             Repaint();
+        }
+
+        /// <summary>
+        /// Undo/Redo で sampleColor が書き戻されたゾーンのスポイト位置を無効化する。
+        /// 位置を付けた時点の色（<see cref="_sampleUvColors"/>）と今の色が一致していれば、
+        /// その Undo はこのゾーンの色に触れていない＝位置は今も有効。
+        /// </summary>
+        private void InvalidateStaleSampleUVs()
+        {
+            var list = _session?.zones;
+            if (list == null) return;
+            foreach (var z in list)
+            {
+                if (z == null || !z.HasSampleUV) continue;
+                if (_sampleUvColors != null && !string.IsNullOrEmpty(z.id)
+                    && _sampleUvColors.TryGetValue(z.id, out var remembered)
+                    && remembered == z.sampleColor)
+                    continue;
+                z.sampleUV = new Vector2(-1f, -1f);
+                ForgetSampleUvColor(z);
+            }
         }
 
         internal ColorZone FindZoneById(string id)
