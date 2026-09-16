@@ -246,25 +246,50 @@ namespace Iroca
             }
 
             // Texture2D API はメインスレッド必須なのでここで全て済ませ、計算本体だけ Task.Run へ渡す。
+            // 原本を直接デコードできるのは PNG/JPG だけ。PSD/TGA/EXR 等は Unity が取り込み時に
+            // 変換しているので LoadImage が読めず、以前はここで停止していた＝プレビューでは
+            // 色替えできるのに、作り込んだ後の「適用して保存」だけが失敗していた。
+            // プレビューと同じく、読めないときは取り込み済みテクスチャの画素で書き出す。
             Texture2D loadTex = null;
             Color32[] pixels;
             int texW, texH;
+            bool fromImportedTexture = false;
             try
             {
                 byte[] srcBytes = File.ReadAllBytes(srcPath);
                 loadTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                if (!loadTex.LoadImage(srcBytes))
+                if (loadTex.LoadImage(srcBytes))
                 {
-                    NotifyError(Localization.TextureLoadError);
+                    pixels = loadTex.GetPixels32();
+                    texW = loadTex.width;
+                    texH = loadTex.height;
+                }
+                else if (IrocaWindow.IsReadable(sourceTexture))
+                {
+                    pixels = sourceTexture.GetPixels32();
+                    texW = sourceTexture.width;
+                    texH = sourceTexture.height;
+                    fromImportedTexture = true;
+                }
+                else
+                {
+                    // 原本も取り込み側も読めない。Read/Write を有効にすれば後者が使える。
+                    NotifyError(Localization.ExportSourceUnavailable);
                     return;
                 }
-                pixels = loadTex.GetPixels32();
-                texW = loadTex.width;
-                texH = loadTex.height;
             }
             finally
             {
                 if (loadTex != null) Object.DestroyImmediate(loadTex);
+            }
+
+            if (fromImportedTexture)
+            {
+                // 取り込み済みテクスチャは maxTextureSize の縮小・圧縮を受けている。出力が原本と
+                // 同じ解像度・画質になるとは限らないので、書き出す前に知らせる。
+                Debug.LogWarning($"[Iroca] Source file could not be decoded ({Path.GetExtension(srcPath)}); "
+                    + $"exporting from the imported texture ({texW}x{texH}).");
+                _host?.ShowNotification(new GUIContent(Localization.ExportFromImportedTexture(texW, texH)));
             }
 
             var session = _host.Session;
@@ -571,10 +596,30 @@ namespace Iroca
                     {
                         byte[] srcBytes = File.ReadAllBytes(srcPath);
                         fullTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                        if (!fullTex.LoadImage(srcBytes)) continue;
-
-                        Color32[] pixels = fullTex.GetPixels32();
-                        int texW = fullTex.width, texH = fullTex.height;
+                        Color32[] pixels;
+                        int texW, texH;
+                        if (fullTex.LoadImage(srcBytes))
+                        {
+                            pixels = fullTex.GetPixels32();
+                            texW = fullTex.width;
+                            texH = fullTex.height;
+                        }
+                        else
+                        {
+                            // PSD/TGA 等は原本をデコードできない。単体書き出しと同じく取り込み済み
+                            // テクスチャで代替する（縮小・圧縮の影響を受ける）。以前は黙って
+                            // スキップしていたので、完了件数だけを見たユーザーには理由が残らなかった。
+                            if (!IrocaWindow.IsReadable(tex)) continue;
+                            pixels = tex.GetPixels32();
+                            texW = tex.width;
+                            texH = tex.height;
+                            Debug.LogWarning($"[Iroca] Batch: source file could not be decoded for {tex.name}; "
+                                + $"using the imported texture ({texW}x{texH}).");
+                            // 以降の SetPixels32/EncodeToPNG のために、代替画素と同じ寸法へ作り直す
+                            // （LoadImage 失敗時の fullTex は 2x2 のまま）。
+                            Object.DestroyImmediate(fullTex);
+                            fullTex = new Texture2D(texW, texH, TextureFormat.RGBA32, false);
+                        }
                         // リスト先頭のゾーンほど先に処理され、重なった領域を占有する。
             var sorted = session.zones.Where(z => z.enabled).ToList();
 

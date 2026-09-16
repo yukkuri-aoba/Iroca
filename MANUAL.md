@@ -506,7 +506,7 @@ OFF にすると、元のテクスチャファイルを上書きします。上�
 
 **Q: 対応しているファイル形式は？**
 
-入力は PNG / JPG、出力は常に PNG です。TGA・EXR・PSD には対応していません。テクスチャは Unity 上で Read/Write Enabled を有効にしてください。
+入力は PNG / JPG が基本で、出力は常に PNG です。TGA・EXR・PSD も、Unity が取り込んだテクスチャの画素から書き出せます（この場合はインポート設定の縮小・圧縮が反映されるため、原本と同じ解像度・画質になるとは限りません。書き出し時にウィンドウで知らせます）。テクスチャは Unity 上で Read/Write Enabled を有効にしてください。
 
 **Q: 大きなテクスチャでも使えますか？**
 
@@ -1000,7 +1000,7 @@ Yes. Just import the `.unitypackage` into each project. Choosing "Shared (User)"
 
 **Q: What file formats are supported?**
 
-Input is PNG or JPG, and output is always PNG. TGA, EXR, and PSD are not supported. Textures must have Read/Write Enabled turned on in Unity.
+Input is normally PNG or JPG, and output is always PNG. TGA, EXR, and PSD also work: the output is built from the imported texture's pixels (import downscaling and compression apply, so the result may not match the original file's resolution or quality; the window tells you when this happens). Textures must have Read/Write Enabled turned on in Unity.
 
 **Q: Does it work with large textures?**
 
