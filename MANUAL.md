@@ -118,7 +118,7 @@ Read/Write Enabled が無効なテクスチャを選ぶと、ウィンドウに�
 
 **自動調整**
 
-サンプルカラーと変更先カラーをもとにテクスチャを解析し、許容範囲・彩度制限などをまとめて決めます。スポイトで色を取った位置に AI マスク提案（MobileSAM）をかけ、そのパーツの範囲を手がかりにして、暗部から明るいハイライトまでを取りこぼさないように導出します。スポイトで色を取った直後に押すと最も効果的です。元テクスチャが未設定のとき、テクスチャの Read/Write が無効のとき、サンプルカラーが未指定（白のまま）のときは押せません。すでに手動で変えたパラメータがあると、上書き確認のダイアログが出ます。
+サンプルカラーと変更先カラーをもとにテクスチャを解析し、許容範囲・彩度制限などをまとめて決めます。スポイトで色を取った位置に AI マスク提案（MobileSAM）をかけ、そのパーツの範囲を手がかりにして、暗部から明るいハイライトまでを取りこぼさないように導出します。スポイトで色を取った直後に押すと最も効果的です。元テクスチャが未設定のとき、テクスチャの Read/Write が無効のとき、サンプルカラーが未指定（白のまま）のときは押せません。自分でパラメータを変えているときだけ、上書き確認のダイアログが出ます（新規ゾーンの初期値のまま、または前回の自動調整が入れた値のままなら出ません）。
 
 - AI（Unity Sentis と AI モデル）が未導入のときは解析せず、導入・ダウンロードの案内を出します（「AI マスク提案」の「必要なもの」参照）。
 - AI が準備中（モデルのロード・画像の埋め込み計算）のときは、終わるまで待ってから解析します（進捗バーと中止ボタンが出ます）。
@@ -616,7 +616,7 @@ The reference color used to find the target. Press the "Eyedropper" button next 
 
 **Auto-tune**
 
-Analyzes the texture from the sample and target colors and sets the tolerance, saturation strictness, and related values together. It runs the AI mask suggestion (MobileSAM) at the position you sampled and uses that part's extent as evidence so that everything from the shadows to the bright highlights is covered. It is most effective right after you sample a color. It is disabled when the source texture is not set, when the texture's Read/Write is off, or when the sample color is still unset (white). If you have already changed some parameters by hand, a confirmation dialog asks before overwriting them.
+Analyzes the texture from the sample and target colors and sets the tolerance, saturation strictness, and related values together. It runs the AI mask suggestion (MobileSAM) at the position you sampled and uses that part's extent as evidence so that everything from the shadows to the bright highlights is covered. It is most effective right after you sample a color. It is disabled when the source texture is not set, when the texture's Read/Write is off, or when the sample color is still unset (white). A confirmation dialog asks before overwriting only when you have changed parameters by hand; it does not appear while a zone is still at its initial values or at the values the last auto-tune applied.
 
 - If the AI (Unity Sentis and the AI models) is not installed, nothing is analyzed; instead you are asked to install/download it (see "Requirements" under AI Mask Suggestion).
 - If the AI is still getting ready (loading the model, computing the image embedding), Auto-tune waits for it (a progress bar and a Cancel button are shown).
