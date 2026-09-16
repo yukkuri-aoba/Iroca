@@ -83,8 +83,21 @@ namespace Iroca
             if (zone == null || input == null) return false;
             var r = input.applied;
             static bool Eq(float a, float b) => Mathf.Abs(a - b) <= 1e-5f;
+            if (!AutoTuneValuesIntact(zone, r)) return false;
             var expectedSample = r.hasNormalizedSample ? r.normalizedSample : input.sample;
             int autoCount = r.autoSamples != null ? r.autoSamples.Count : 0;
+            return Eq(zone.sampleColor.r, expectedSample.r) && Eq(zone.sampleColor.g, expectedSample.g)
+                && Eq(zone.sampleColor.b, expectedSample.b)
+                && (zone.extraSamples != null ? zone.extraSamples.Count : 0) == autoCount;
+        }
+
+        // 導出パラメータだけが自動調整の適用値のままか（サンプル色・内部サンプルは見ない）。
+        // 上書き確認は「パラメータを手で変えたか」だけを問うので、色を取り直しただけの
+        // ゾーンまで手調整扱いにしないよう、サンプル側の一致とは分けて判定する。
+        internal static bool AutoTuneValuesIntact(ColorZone zone, ZoneAutoTuner.TuneResult r)
+        {
+            if (zone == null) return false;
+            static bool Eq(float a, float b) => Mathf.Abs(a - b) <= 1e-5f;
             return Eq(zone.tolerance, r.tolerance)
                 && Eq(zone.saturationStrictness, r.saturationStrictness)
                 && Eq(zone.saturationGuard, r.saturationGuard)
@@ -95,10 +108,7 @@ namespace Iroca
                 && Eq(zone.shadowDesaturation, r.shadowDesaturation)
                 && Eq(zone.shadowForgivenessSatMin, r.shadowForgivenessSatMin)
                 && Eq(zone.shadowValueFloor, r.shadowValueFloor)
-                && Eq(zone.chromaCeiling, r.chromaCeiling)
-                && Eq(zone.sampleColor.r, expectedSample.r) && Eq(zone.sampleColor.g, expectedSample.g)
-                && Eq(zone.sampleColor.b, expectedSample.b)
-                && (zone.extraSamples != null ? zone.extraSamples.Count : 0) == autoCount;
+                && Eq(zone.chromaCeiling, r.chromaCeiling);
         }
         // 証拠待ちの上限。埋め込み計算(テクスチャ毎 1 回)は CPU バックエンドの大きな
         // テクスチャで数十秒かかり得るので、短い期限で諦めて従来導出へ落とさない
@@ -205,6 +215,31 @@ namespace Iroca
             }
         }
 
+        // ZoneAutoTuner の既定値を読むための参照ゾーン（値を読むだけで書き換えない）。
+        private static readonly ColorZone s_pristineZone = new ColorZone();
+
+        /// <summary>
+        /// 導出パラメータが「ユーザーの手調整を含まない」状態か。
+        /// ・自動調整済みのゾーン: その適用値のままなら手調整なし
+        /// ・未調整のゾーン: UI が新規ゾーンへ入れる初期値（<see cref="NewZoneInitialTolerance"/>）
+        ///   だけが ZoneAutoTuner の既定と違うなら、それは UI が置いた値であって手調整ではない
+        /// 自動調整の入力はドメインリロードで失われるため、リロード直後の 1 回だけは
+        /// 調整済みゾーンでも「手調整あり」と見えるが、安全側（確認を出す側）に倒れる。
+        /// </summary>
+        private bool ZoneParamsUntouchedByUser(ColorZone zone)
+        {
+            if (zone == null) return false;
+            if (TryGetAutoTuneInput(zone.id, out var input))
+                return AutoTuneValuesIntact(zone, input.applied);
+
+            // 未調整ゾーン: 初期 tolerance を既定値に均してから、他に既定と違う項目が
+            // 残らないかを既存の判定（PreviewOverwrittenLabels）で見る。
+            var probe = zone.Clone();
+            if (Mathf.Approximately(probe.tolerance, NewZoneInitialTolerance))
+                probe.tolerance = s_pristineZone.tolerance;
+            return ZoneAutoTuner.PreviewOverwrittenLabels(probe).Count == 0;
+        }
+
         // ─── 上書き確認はジョブ開始“前”に行う（通常/上級モードの手動実行時のみ）───
         // 完了後にモーダルを出すと Editor がブロックされ、ユーザーの
         // 「他の作業がしたい」要望が満たされない。ラベルは pixels 解析に
@@ -216,6 +251,10 @@ namespace Iroca
         private bool ConfirmAutoTuneOverwriteIfNeeded(ColorZone zone, bool auto)
         {
             if (auto || editMode == EditMode.Simple) return true;
+            // 失って困るのは「ユーザーが手で入れた値」だけ。新規ゾーンの初期値のままでも、
+            // 直前の自動調整が入れた値のままでも確認は要らない（どちらも手調整ではないのに
+            // 毎回ダイアログが出て、押すたびに一手増えていた）。
+            if (ZoneParamsUntouchedByUser(zone)) return true;
 
             var previewLabels = ZoneAutoTuner.PreviewOverwrittenLabels(zone);
             if (previewLabels.Count == 0) return true;
