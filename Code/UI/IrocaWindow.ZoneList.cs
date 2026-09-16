@@ -305,6 +305,7 @@ namespace Iroca
                 // カラーフィールドで変えた色はクリック画素の色ではないので、スポイト位置
                 // （自動調整が AI 提案の証拠を取る位置）を無効化する。次のスポイトで付き直す。
                 zone.sampleUV = new UnityEngine.Vector2(-1f, -1f);
+                ForgetSampleUvColor(zone);
                 // サンプルカラーが変わったら、自動トーン抽出で生成済みの内部サンプルは
                 // 古いパーツのものになるためクリアする（次の自動調整で作り直す）。
                 if (zone.extraSamples != null && zone.extraSamples.Count > 0)
