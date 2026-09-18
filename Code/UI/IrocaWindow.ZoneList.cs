@@ -289,6 +289,20 @@ namespace Iroca
 
             // ColorPick UI（常時表示）。カラーフィールドとプレビュー直接スポイトは
             // どちらも sampleColor を決める手段なので 1 行に統合してカードの行数を抑える。
+            // 色の 2 行だけラベル幅を詰める。設定列のラベル幅は最長ラベルに合わせて広がるので
+            // （英語表示で顕著）、スポイトボタン(96px)と並ぶサンプルカラーの色見本が ~20px まで
+            // 潰れていた。色見本に最低 ColorSwatchMinWidth を残し、変更先カラーも同じ幅にして
+            // 2 つの色見本の左端を揃える。どちらのラベルも短いので詰めても欠けない。
+            const float ColorSwatchMinWidth = 56f;
+            const float CardChrome = 16f; // helpBox の余白＋ボタン間隔
+            float prevColorRowsLabelWidth = EditorGUIUtility.labelWidth;
+            if (_settingsContentWidth > 1f)
+            {
+                EditorGUIUtility.labelWidth = Mathf.Min(prevColorRowsLabelWidth, Mathf.Max(95f,
+                    _settingsContentWidth - CardChrome
+                    - IrocaConsts.Layout.EyedropperButtonWidth - ColorSwatchMinWidth));
+            }
+
             EditorGUILayout.BeginHorizontal();
             Color prevSampleColor = zone.sampleColor;
             // MinWidth(0): 見出し行の名前欄と同じ理由（ラベル付きフィールドの最小幅＋スポイト
@@ -346,15 +360,19 @@ namespace Iroca
             zone.targetColor = UndoHelper.ColorField(this,
                 new GUIContent(Localization.TargetColor, Localization.TargetColorTooltip),
                 zone.targetColor);
+            EditorGUIUtility.labelWidth = prevColorRowsLabelWidth;
 
             // スポイト位置の有無。自動調整はこの位置に AI マスク提案をかけて証拠にするため、
             // 位置が無いゾーン（カラーフィールドで色を決めた／Undo で無効化された）では
             // 導出経路が変わる。押してから通知で知るのでは遅いので、事前に見えるようにする。
             if (zone.HasSampleColor)
             {
-                EditorGUILayout.LabelField(
+                // 折り返しあり: 英語文は狭い設定列の 1 行に収まらず、末尾（肝心の
+                // "AI suggestion"）が欠けていた。GUILayout.Label は折り返し後の高さを確保する
+                // （EditorGUILayout.LabelField は 1 行固定高で、折り返した 2 行目が隠れる）。
+                GUILayout.Label(
                     zone.HasSampleUV ? s_sampleUvPresentContent : s_sampleUvMissingContent,
-                    EditorStyles.miniLabel);
+                    EditorStyles.wordWrappedMiniLabel);
             }
 
             // スポイト1点から、パーツの濃淡（暗部/中間/明部）を内部で自動サンプリングして
@@ -391,17 +409,21 @@ namespace Iroca
             {
                 using (new EditorGUI.IndentLevelScope())
                 {
-                    EditorGUILayout.BeginHorizontal();
                     string seedLabel = zone.seedUV.x >= 0f
                         ? $"UV ({zone.seedUV.x:F3}, {zone.seedUV.y:F3})"
                         : Localization.FloodFillSeedNotSet;
-                    // MinWidth(0): 値テキストの実幅を行の最小幅にしない。狭いカラムでは
-                    // この行（ラベル＋値＋クリアボタン）が設定列で最も幅を要求し、
-                    // 超過分が右端で切れて隣のクリアボタンごと隠れていた。
+                    // 値とボタンは 2 行に分ける。1 行（ラベル＋値＋指定＋クリア）だと、設定列の
+                    // 下限幅では値に ~30px しか残らず、「自動 (シードなし)」も UV 座標も
+                    // 途中で切れて読めなかった。MinWidth(0) は値テキストの実幅を行の最小幅に
+                    // しないため（長い UV 文字列で行がカラムより広がり、右端が隠れる）。
                     EditorGUILayout.LabelField(
                         new GUIContent(Localization.FloodFillSeedPoint, Localization.FloodFillSeedHint),
-                        new GUIContent(seedLabel),
+                        new GUIContent(seedLabel, Localization.FloodFillSeedHint),
                         GUILayout.MinWidth(0), GUILayout.ExpandWidth(true));
+
+                    // ボタン行は値と同じ列（ラベル幅ぶん右）から始め、どの項目の操作かを揃えて示す。
+                    EditorGUILayout.BeginHorizontal();
+                    GUILayout.Space(EditorGUIUtility.labelWidth);
 
                     // シードを「このゾーンに」置くための武装ボタン（スポイトと同じ一発取得）。
                     // Shift+クリック経路は残すが、あちらは対象ゾーンを「マスク編集対象、無ければ
@@ -411,7 +433,7 @@ namespace Iroca
                         var prevSeedBg = GUI.backgroundColor;
                         if (seedArmed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
                         if (GUILayout.Button(seedArmed ? s_seedPickActiveContent : s_seedPickIdleContent,
-                                GUILayout.Width(IrocaConsts.Layout.SmallButtonWidth)))
+                                GUILayout.MinWidth(0)))
                         {
                             zone.EnsureId();
                             SeedPickZoneId = seedArmed ? null : zone.id;
@@ -426,7 +448,7 @@ namespace Iroca
                     {
                         if (GUILayout.Button(
                             new GUIContent(Localization.FloodFillClear, Localization.FloodFillClearTooltip),
-                            GUILayout.Width(52)))
+                            GUILayout.MinWidth(0)))
                         {
                             Undo.RecordObject(this, "Clear Flood Fill Seed");
                             zone.seedUV = new UnityEngine.Vector2(-1f, -1f);
