@@ -189,6 +189,8 @@ namespace Iroca
         [System.NonSerialized] private Texture2D _trueSourceFor;
         [System.NonSerialized] private Color32[] _trueSourcePixels;
         [System.NonSerialized] private int _trueSourceW, _trueSourceH;
+        // 直近に画素を取れなかったテクスチャ（毎フレームの可否判定で読み直さないための負のキャッシュ）。
+        [System.NonSerialized] private Texture2D _trueSourceFailedFor;
 
         [System.NonSerialized] private DetailPreviewView _detailView;
 
@@ -252,6 +254,7 @@ namespace Iroca
             _trueSourceFor = null;
             _trueSourcePixels = null;
             _trueSourceW = _trueSourceH = 0;
+            _trueSourceFailedFor = null;
 
             // ソース画素が変わる = キャッシュ済み選択の前提が変わるので選択キャッシュも破棄する。
             _selectionCache?.Clear();
@@ -276,6 +279,11 @@ namespace Iroca
         {
             if (tex == null) return false;
             if (_trueSourceFor == tex && _trueSourcePixels != null) return true;
+            // 失敗もテクスチャ単位で覚える。UI の可否判定（スポイト・自動調整・手順表示）が
+            // OnGUI ごとにここを通るので、覚えないと「読めないテクスチャ」で毎フレーム
+            // ファイル読み込みとデコードを試すことになる。あとで Read/Write を有効にすれば
+            // IsReadable が true へ変わるため、そのときは覚えた失敗を無視して取り直す。
+            if (_trueSourceFailedFor == tex && !IrocaWindow.IsReadable(tex)) return false;
 
             string path = AssetDatabase.GetAssetPath(tex);
             if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
@@ -291,6 +299,7 @@ namespace Iroca
                         _trueSourceW = tmp.width;
                         _trueSourceH = tmp.height;
                         _trueSourceFor = tex;
+                        _trueSourceFailedFor = null;
                         return true;
                     }
                 }
@@ -305,13 +314,27 @@ namespace Iroca
             }
 
             // フォールバック: インポート済みテクスチャ（要 Read/Write）。
-            if (!IrocaWindow.IsReadable(tex)) return false;
+            if (!IrocaWindow.IsReadable(tex))
+            {
+                _trueSourceFailedFor = tex;
+                return false;
+            }
             _trueSourcePixels = tex.GetPixels32();
             _trueSourceW = tex.width;
             _trueSourceH = tex.height;
             _trueSourceFor = tex;
+            _trueSourceFailedFor = null;
             return true;
         }
+
+        /// <summary>
+        /// このテクスチャから処理用の画素を取れるか（原本ファイルのデコード、または
+        /// インポート済みテクスチャの GetPixels32）。UI の可否判定が「Read/Write が
+        /// 有効か」だけを見ていると、PNG/JPG のように原本を直接読める場合でも
+        /// 不要にインポート設定の変更を要求してしまうため、実際に取れるかで判定する。
+        /// 成否はテクスチャ単位でキャッシュする。
+        /// </summary>
+        public bool CanProvideSourcePixels(Texture2D tex) => EnsureTrueSource(tex);
 
         /// <summary>
         /// 自動調整など他ビューが、プレビュー/エクスポートと同一の true source 画素で解析する
@@ -371,7 +394,9 @@ namespace Iroca
             }
 
             // エクスポートと同じフル解像度ソースを確保（プレビュー＝実結果の一致のため）。
-            if (!IrocaWindow.IsReadable(sourceTexture) || !EnsureTrueSource(sourceTexture))
+            // EnsureTrueSource は原本が読めなければインポート済みテクスチャへ落ちるので、
+            // ここで Read/Write を別途要求しない（PNG/JPG は Read/Write なしで表示できる）。
+            if (!EnsureTrueSource(sourceTexture))
             {
                 DrawTitleRow(false, 0f);
                 return;

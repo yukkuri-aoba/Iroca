@@ -27,9 +27,10 @@
 #### 前提条件
 
 - Unity 2022.3 以降
-- 対象テクスチャは Read/Write Enabled が有効になっている必要があります
+- 対象テクスチャが PNG / JPG なら追加の設定は要りません（原本ファイルを直接読みます）
+- PSD・TGA・EXR など、原本を直接読めない形式のときだけ Read/Write Enabled が必要です
 
-無効なテクスチャを選んだときは、ウィンドウに出る警告のボタンから有効化できます。
+画素を取り出せないテクスチャを選んだときは、ウィンドウに出る警告のボタンから Read/Write を有効化できます。
 
 #### 手順
 
@@ -51,7 +52,7 @@
 
 #### Read/Write Enabled の有効化
 
-Read/Write Enabled が無効なテクスチャを選ぶと、ウィンドウに警告と「Read/Write を自動で有効にする」ボタンが出ます。ボタンを押すとインポート設定が書き換わり、有効になります。この操作は Undo できないため、確認ダイアログが出ます。
+原本ファイルからも取り込み済みテクスチャからも画素を取り出せないとき（PSD・TGA・EXR などで Read/Write Enabled が無効なとき）は、ウィンドウに警告と「Read/Write を自動で有効にする」ボタンが出ます。ボタンを押すとインポート設定が書き換わり、有効になります。この操作は Undo できないため、確認ダイアログが出ます。PNG / JPG のテクスチャではこの警告は出ません。
 
 [スクリーンショット: Read/Write 警告と有効化ボタン]
 
@@ -118,7 +119,7 @@ Read/Write Enabled が無効なテクスチャを選ぶと、ウィンドウに�
 
 **自動調整**
 
-サンプルカラーと変更先カラーをもとにテクスチャを解析し、許容範囲・彩度制限などをまとめて決めます。スポイトで色を取った位置に AI マスク提案（MobileSAM）をかけ、そのパーツの範囲を手がかりにして、暗部から明るいハイライトまでを取りこぼさないように導出します。スポイトで色を取った直後に押すと最も効果的です。元テクスチャが未設定のとき、テクスチャの Read/Write が無効のとき、サンプルカラーが未指定（白のまま）のときは押せません。自分でパラメータを変えているときだけ、上書き確認のダイアログが出ます（新規ゾーンの初期値のまま、または前回の自動調整が入れた値のままなら出ません）。
+サンプルカラーと変更先カラーをもとにテクスチャを解析し、許容範囲・彩度制限などをまとめて決めます。スポイトで色を取った位置に AI マスク提案（MobileSAM）をかけ、そのパーツの範囲を手がかりにして、暗部から明るいハイライトまでを取りこぼさないように導出します。スポイトで色を取った直後に押すと最も効果的です。元テクスチャが未設定のとき、テクスチャから画素を取り出せないとき、サンプルカラーが未指定（白のまま）のときは押せません。自分でパラメータを変えているときだけ、上書き確認のダイアログが出ます（新規ゾーンの初期値のまま、または前回の自動調整が入れた値のままなら出ません）。
 
 - AI（Unity Sentis と AI モデル）が未導入のときは解析せず、導入・ダウンロードの案内を出します（「AI マスク提案」の「必要なもの」参照）。
 - AI が準備中（モデルのロード・画像の埋め込み計算）のときは、終わるまで待ってから解析します（進捗バーと中止ボタンが出ます）。
@@ -506,7 +507,7 @@ OFF にすると、元のテクスチャファイルを上書きします。上�
 
 **Q: 対応しているファイル形式は？**
 
-入力は PNG / JPG が基本で、出力は常に PNG です。TGA・EXR・PSD も、Unity が取り込んだテクスチャの画素から書き出せます（この場合はインポート設定の縮小・圧縮が反映されるため、原本と同じ解像度・画質になるとは限りません。書き出し時にウィンドウで知らせます）。テクスチャは Unity 上で Read/Write Enabled を有効にしてください。
+入力は PNG / JPG が基本で、出力は常に PNG です。TGA・EXR・PSD も、Unity が取り込んだテクスチャの画素から書き出せます（この場合はインポート設定の縮小・圧縮が反映されるため、原本と同じ解像度・画質になるとは限りません。書き出し時にウィンドウで知らせます）。PNG / JPG 以外を使うときは、Unity 上で Read/Write Enabled を有効にしてください。
 
 **Q: 大きなテクスチャでも使えますか？**
 
@@ -539,9 +540,10 @@ OFF にすると、元のテクスチャファイルを上書きします。上�
 #### Prerequisites
 
 - Unity 2022.3 or later
-- Target textures must have Read/Write Enabled turned on
+- PNG and JPG textures need no extra setup (Iroca reads the source file directly)
+- Read/Write Enabled is required only for formats whose source file cannot be read directly, such as PSD, TGA and EXR
 
-If you pick a texture that does not, you can enable it from the warning button shown in the window.
+If Iroca cannot get pixels from the texture you picked, you can enable Read/Write from the warning button shown in the window.
 
 #### Steps
 
@@ -553,7 +555,7 @@ If you pick a texture that does not, you can enable it from the warning button s
 
 #### Enabling Read/Write
 
-If a texture does not have Read/Write Enabled, the window shows a warning and an "Enable Read/Write automatically" button. Clicking it changes the import settings to turn it on. This cannot be undone, so a confirmation dialog appears first.
+When pixels can be obtained neither from the source file nor from the imported texture (for example a PSD, TGA or EXR with Read/Write Enabled off), the window shows a warning and an "Enable Read/Write automatically" button. Clicking it changes the import settings to turn it on. This cannot be undone, so a confirmation dialog appears first. PNG and JPG textures never show this warning.
 
 ---
 
@@ -616,7 +618,7 @@ The reference color used to find the target. Press the "Eyedropper" button next 
 
 **Auto-tune**
 
-Analyzes the texture from the sample and target colors and sets the tolerance, saturation strictness, and related values together. It runs the AI mask suggestion (MobileSAM) at the position you sampled and uses that part's extent as evidence so that everything from the shadows to the bright highlights is covered. It is most effective right after you sample a color. It is disabled when the source texture is not set, when the texture's Read/Write is off, or when the sample color is still unset (white). A confirmation dialog asks before overwriting only when you have changed parameters by hand; it does not appear while a zone is still at its initial values or at the values the last auto-tune applied.
+Analyzes the texture from the sample and target colors and sets the tolerance, saturation strictness, and related values together. It runs the AI mask suggestion (MobileSAM) at the position you sampled and uses that part's extent as evidence so that everything from the shadows to the bright highlights is covered. It is most effective right after you sample a color. It is disabled when the source texture is not set, when no pixels can be obtained from the texture, or when the sample color is still unset (white). A confirmation dialog asks before overwriting only when you have changed parameters by hand; it does not appear while a zone is still at its initial values or at the values the last auto-tune applied.
 
 - If the AI (Unity Sentis and the AI models) is not installed, nothing is analyzed; instead you are asked to install/download it (see "Requirements" under AI Mask Suggestion).
 - If the AI is still getting ready (loading the model, computing the image embedding), Auto-tune waits for it (a progress bar and a Cancel button are shown).
@@ -1000,7 +1002,7 @@ Yes. Just import the `.unitypackage` into each project. Choosing "Shared (User)"
 
 **Q: What file formats are supported?**
 
-Input is normally PNG or JPG, and output is always PNG. TGA, EXR, and PSD also work: the output is built from the imported texture's pixels (import downscaling and compression apply, so the result may not match the original file's resolution or quality; the window tells you when this happens). Textures must have Read/Write Enabled turned on in Unity.
+Input is normally PNG or JPG, and output is always PNG. TGA, EXR, and PSD also work: the output is built from the imported texture's pixels (import downscaling and compression apply, so the result may not match the original file's resolution or quality; the window tells you when this happens). For formats other than PNG and JPG, turn on Read/Write Enabled in Unity.
 
 **Q: Does it work with large textures?**
 

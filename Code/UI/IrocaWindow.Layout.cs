@@ -515,7 +515,7 @@ namespace Iroca
         /// <summary>
         /// 元テクスチャが選ばれ、かつ画素を読める状態か（＝手順①が済んでいるか）。
         /// </summary>
-        private bool StepTextureDone => sourceTexture != null && IsReadable(sourceTexture);
+        private bool StepTextureDone => CanReadSource(sourceTexture);
 
         /// <summary>
         /// 色替えの指定が始まっているか（＝手順②が済んでいるか）。
@@ -591,7 +591,9 @@ namespace Iroca
                 RememberLastEditedTexture();
             }
 
-            if (sourceTexture != null && !IsReadable(sourceTexture))
+            // Read/Write を求めるのは、原本ファイルからも画素を取れないときだけ（PSD/TGA 等）。
+            // PNG/JPG は原本を直接読めるので、インポート設定を書き換える必要はない。
+            if (sourceTexture != null && !CanReadSource(sourceTexture))
             {
                 EditorGUILayout.HelpBox(Localization.ReadWriteError, MessageType.Error);
 

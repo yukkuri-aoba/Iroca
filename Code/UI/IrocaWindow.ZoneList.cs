@@ -328,9 +328,9 @@ namespace Iroca
             }
 
             // カラーピッカーを経由せず、プレビュー上のクリックでこのゾーンのサンプルカラーを
-            // 実テクスチャ画素から直接取得する（PreviewView 側が実画素を読む）。読み取り不可では押せない。
+            // 実テクスチャ画素から直接取得する（PreviewView 側が実画素を読む）。画素を取れないときだけ押せない。
             {
-                bool canSample = sourceTexture != null && IsReadable(sourceTexture)
+                bool canSample = CanReadSource(sourceTexture)
                     && zone.mode == SelectionMode.ColorPick;
                 bool armed = !string.IsNullOrEmpty(zone.id) && EyedropperZoneId == zone.id;
                 using (new EditorGUI.DisabledScope(!canSample))
@@ -379,8 +379,7 @@ namespace Iroca
             // 許容範囲などを最適化する。ユーザーが濃淡を手で採り直す必要はない。
             {
                 bool canTune =
-                    sourceTexture != null
-                    && IsReadable(sourceTexture)
+                    CanReadSource(sourceTexture)
                     && zone.mode == SelectionMode.ColorPick
                     && zone.HasSampleColor;
                 using (new EditorGUI.DisabledScope(!canTune))

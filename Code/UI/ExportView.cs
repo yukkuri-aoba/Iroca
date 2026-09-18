@@ -189,8 +189,10 @@ namespace Iroca
                 return;
             }
 
+            // Read/Write は事前条件にしない。原本が PNG/JPG なら直接読めるし、読めない形式は
+            // 下のフォールバックが取り込み済みテクスチャを使う（そこで初めて Read/Write が要る）。
             var sourceTexture = _host.SourceTexture;
-            if (sourceTexture == null || !IrocaWindow.IsReadable(sourceTexture))
+            if (sourceTexture == null)
             {
                 NotifyError(Localization.TextureReadError);
                 return;
@@ -586,9 +588,9 @@ namespace Iroca
                         break;
                     }
 
-                    if (!IrocaWindow.IsReadable(tex)) IrocaWindow.EnableReadWrite(tex);
-                    if (!IrocaWindow.IsReadable(tex)) continue;
-
+                    // Read/Write は事前に要求しない。原本が PNG/JPG なら直接読めるので、
+                    // 1 枚ごとに「Undo できません」のモーダルを出す必要はなかった
+                    // （読めない形式は下のフォールバックが取り込み済みテクスチャを使う）。
                     string srcPath = AssetDatabase.GetAssetPath(tex);
                     if (string.IsNullOrEmpty(srcPath)) continue;
 
