@@ -567,7 +567,11 @@ namespace Iroca
 
             var newTex = (Texture2D)EditorGUILayout.ObjectField(
                 new GUIContent(Localization.Texture, Localization.TextureTooltip),
-                sourceTexture, typeof(Texture2D), false);
+                sourceTexture, typeof(Texture2D), false,
+                // 1 行高に固定する。Texture2D の ObjectField は既定で 64px のサムネイル枠になり、
+                // 右端の小さな枠のために行の左側が 3 行ぶん空いて、下の設定列とプレビューの
+                // 高さを恒常的に奪っていた。絵はプレビューで見えるのでここでは名前だけで足りる。
+                GUILayout.Height(EditorGUIUtility.singleLineHeight));
             if (newTex != sourceTexture)
             {
                 // マスク保存失敗時はユーザーに通知（黙って消えないように）。
