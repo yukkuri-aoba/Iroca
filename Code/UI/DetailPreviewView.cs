@@ -115,8 +115,10 @@ namespace Iroca
         public void GenerateDetailPreviewAsync(int srcW, int srcH, Color32[] srcPixels,
             float scale, float previewZoom, Vector2 previewScrollPos, float viewportW, float viewportH)
         {
+            // 画素は呼び出し元（メインプレビュー）が確保した true source をそのまま受け取るので、
+            // ここで Read/Write を要求しない（要求すると PNG/JPG でも詳細プレビューが出ない）。
             var sourceTexture = _host.SourceTexture;
-            if (sourceTexture == null || !IrocaWindow.IsReadable(sourceTexture)) return;
+            if (sourceTexture == null) return;
             if (scale >= 1f) return;
 
             if (previewZoom <= DetailMinZoom) return;

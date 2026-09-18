@@ -284,6 +284,15 @@ namespace Iroca
             }
         }
 
+        /// <summary>
+        /// このテクスチャから処理用の画素を取れるか。Read/Write が無効でも、原本が
+        /// PNG/JPG ならファイルを直接読めるので作業できる（プレビュー・自動調整・
+        /// 書き出しはいずれも同じ true source 経路を使う）。UI の可否判定はこれを見る。
+        /// </summary>
+        internal bool CanReadSource(Texture2D tex) =>
+            tex != null && (IsReadable(tex)
+                || (_previewView != null && _previewView.CanProvideSourcePixels(tex)));
+
         internal ColorZone FindZoneById(string id)
         {
             if (string.IsNullOrEmpty(id) || _session?.zones == null) return null;

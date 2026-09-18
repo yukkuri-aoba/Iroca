@@ -167,7 +167,7 @@ namespace Iroca
             if (editMode != EditMode.Simple) return;
             var zone = FindZoneById(id);
             if (zone == null) return;
-            if (sourceTexture == null || !IsReadable(sourceTexture)
+            if (!CanReadSource(sourceTexture)
                 || zone.mode != SelectionMode.ColorPick || !zone.HasSampleColor)
                 return;
 
