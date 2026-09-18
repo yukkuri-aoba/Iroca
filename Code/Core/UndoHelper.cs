@@ -20,17 +20,18 @@ namespace Iroca
 
         public static float Slider(Object host, GUIContent content, float value, float min, float max, string undoName = DefaultUndoName)
         {
-            float n = EditorGUILayout.Slider(content, value, min, max);
-            if (!Mathf.Approximately(n, value)) Undo.RecordObject(host, undoName);
+            // 数値欄には小数 3 桁へ丸めた値を見せる。自動調整が書く値は 0.80859375 のように
+            // 桁が長く、既定幅(50px)の数値欄では末尾が欠けて読めなかった。丸めるのは表示だけで、
+            // ユーザーが触らない限り保存値（＝処理結果）は 1 ビットも変えない。
+            float shown = Mathf.Clamp(Mathf.Round(value * 1000f) / 1000f, min, max);
+            float n = EditorGUILayout.Slider(content, shown, min, max);
+            if (n == shown) return value;
+            Undo.RecordObject(host, undoName);
             return n;
         }
 
         public static float Slider(Object host, string label, float value, float min, float max, string undoName = DefaultUndoName)
-        {
-            float n = EditorGUILayout.Slider(label, value, min, max);
-            if (!Mathf.Approximately(n, value)) Undo.RecordObject(host, undoName);
-            return n;
-        }
+            => Slider(host, new GUIContent(label), value, min, max, undoName);
 
         public static int IntSlider(Object host, GUIContent content, int value, int min, int max, string undoName = DefaultUndoName)
         {

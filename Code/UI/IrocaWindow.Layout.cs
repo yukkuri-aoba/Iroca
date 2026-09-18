@@ -149,8 +149,68 @@ namespace Iroca
         // 横スクロールバーを無効化している設定列では超過分が右端で切れて
         // プレビューの下に隠れて見える。カラム幅に比例させ、行がカラム内に収まるようにする。
         // 下限 95 はラベルが読める最低限、上限 150 は Unity 既定（広いカラムでは従来どおり）。
+        //
+        // ただし比率だけで決めると、狭いカラムでは最長ラベルが入りきらず末尾が欠ける
+        // （実キャプチャで JA「サンプル自動補正（再着色）」が閉じ括弧ごと切れ、EN は
+        // "Shadow Forgiveness Sat Min" など複数が欠けていた）。設定行のラベルを実測し、
+        // その幅までは広げる。広げすぎるとスライダーが潰れるので、スライダー＋数値欄に
+        // 最低限（SettingsFieldReserve）を残す範囲に限る。
         private static float SettingsLabelWidth(float contentWidth)
-            => Mathf.Clamp(contentWidth * 0.45f, 95f, 150f);
+        {
+            float byRatio = Mathf.Clamp(contentWidth * 0.45f, 95f, 150f);
+            float fit = Mathf.Min(MeasuredSettingsLabelWidth(), contentWidth - SettingsFieldReserve);
+            return Mathf.Max(byRatio, fit);
+        }
+
+        // ラベルを広げてもスライダー(~60)＋数値欄(50)＋カード余白が残るようにする幅。
+        private const float SettingsFieldReserve = 125f;
+
+        // 設定列の実内容幅（カラム幅 − 縦スクロールバー）。行ごとにラベル幅を詰める判断に使う。
+        [System.NonSerialized] private float _settingsContentWidth;
+
+        private static LanguageMode s_labelWidthLang = (LanguageMode)(-1);
+        private static float s_measuredLabelWidth;
+
+        // 設定列（ゾーンカード・加工設定）のプレフィックスラベルの最大実測幅。
+        // 文字列は Localization 由来なので言語切替時だけ測り直す。
+        private static float MeasuredSettingsLabelWidth()
+        {
+            if (s_labelWidthLang == Localization.CurrentLanguage && s_measuredLabelWidth > 0f)
+                return s_measuredLabelWidth;
+            s_labelWidthLang = Localization.CurrentLanguage;
+
+            var style = EditorStyles.label;
+            var tmp = new GUIContent();
+            float max = 0f;
+            void Measure(float indent, params string[] labels)
+            {
+                foreach (var s in labels)
+                {
+                    tmp.text = s;
+                    max = Mathf.Max(max, style.CalcSize(tmp).x + indent);
+                }
+            }
+            Measure(0f,
+                Localization.SampleColor, Localization.TargetColor, Localization.Tolerance,
+                Localization.UseFloodFill, Localization.PatternPreserve, Localization.OutputSaturation,
+                Localization.EdgeSoftness, Localization.SaturationStrictness, Localization.SaturationGuard,
+                Localization.HighlightRecovery, Localization.ApplyHighlightWash,
+                Localization.ShadowDesaturation, Localization.ShadowForgivenessSatMin,
+                Localization.ShadowValueFloor, Localization.ChromaThreshold, Localization.ChromaCeiling,
+                Localization.AutoRecolorAnchor, Localization.ValueWeight, Localization.SatDistWeight,
+                Localization.SatRampScale, Localization.EdgeFeather, Localization.AntiAliasCleanup,
+                Localization.UseDecontamination);
+            // IndentLevelScope 内の行は、インデント 1 段（15px）ぶんラベル領域が狭い。
+            Measure(15f,
+                Localization.FloodFillSeedPoint, Localization.HighlightBandExpand,
+                Localization.AutoHighlightSample, Localization.HoleFillPasses,
+                Localization.HoleFillMinNeighbors, Localization.RelaxedSatMin,
+                Localization.RelaxedSatRamp, Localization.DecontaminationRadius);
+
+            // +4: ラベルとフィールドの間に詰まって見えない程度の余白。
+            s_measuredLabelWidth = max + 4f;
+            return s_measuredLabelWidth;
+        }
 
         // 左カラム（横並び）/ 上部スクロール（縦並び）共通の設定スタック。
         // 横並び・縦並び双方から呼ぶことで描画の重複を避ける。
@@ -223,8 +283,8 @@ namespace Iroca
             // 設定列の実内容幅（カラム幅 − 常時表示の縦スクロールバー）に合わせて
             // ラベル幅を縮め、行の右端（数値フィールド・ボタン）が切れないようにする。
             float prevLabelWidth = EditorGUIUtility.labelWidth;
-            EditorGUIUtility.labelWidth = SettingsLabelWidth(
-                leftWidth - GUI.skin.verticalScrollbar.fixedWidth);
+            _settingsContentWidth = leftWidth - GUI.skin.verticalScrollbar.fixedWidth;
+            EditorGUIUtility.labelWidth = SettingsLabelWidth(_settingsContentWidth);
 
             DrawLeftColumnSettings();
 
@@ -303,8 +363,8 @@ namespace Iroca
             // 縦並び＝狭いウィンドウなので、設定行が右端で切れないよう
             // ラベル幅を内容幅（ウィンドウ幅 − 縦スクロールバー）に追従させる。
             float prevLabelWidth = EditorGUIUtility.labelWidth;
-            EditorGUIUtility.labelWidth = SettingsLabelWidth(
-                position.width - GUI.skin.verticalScrollbar.fixedWidth);
+            _settingsContentWidth = position.width - GUI.skin.verticalScrollbar.fixedWidth;
+            EditorGUIUtility.labelWidth = SettingsLabelWidth(_settingsContentWidth);
 
             EditorGUI.BeginChangeCheck();
 
