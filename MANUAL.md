@@ -2,6 +2,9 @@
 
 *[日本語](#日本語) | [English](#english)*
 
+> 設定の効き方をその場で試せる **[オンライン版マニュアル](https://yukkuri-aoba.github.io/Iroca/manual/)** もあります。
+> An [online version](https://yukkuri-aoba.github.io/Iroca/manual/) with interactive demos is also available.
+
 ---
 
 ## 日本語

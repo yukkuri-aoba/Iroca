@@ -34,7 +34,8 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 5. テクスチャを選択し、カラーゾーンを追加して色を設定します
 6. 「適用して保存」ボタンで保存します
 
-詳しい使い方は [MANUAL.md](MANUAL.md) をご覧ください。
+詳しい使い方は **[オンラインマニュアル](https://yukkuri-aoba.github.io/Iroca/manual/)** をご覧ください
+（設定の効き方をスライダーで試せます）。テキスト版は [MANUAL.md](MANUAL.md) です。
 
 ### 主な機能
 
@@ -113,7 +114,8 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 3. Select a texture, add a color zone, and set the target color
 4. Click `Apply & Save`
 
-See [MANUAL.md](MANUAL.md) for detailed instructions.
+See the **[online manual](https://yukkuri-aoba.github.io/Iroca/manual/)** for detailed instructions
+(sliders let you try how each setting behaves). A plain-text version lives in [MANUAL.md](MANUAL.md).
 
 ### Main Features
 
