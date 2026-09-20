@@ -8,9 +8,11 @@
 `scripts/headless-run` の実ハーネス経由で作る（CLAUDE.md / docs/testing-architecture.md）。
 
 被写体・サンプル色・パレットは **販促素材と同じ**（`dev_safe/scripts/build_promo_textures.py`）:
-HAOLAN スニーカーの青 (32,0,144) を伝統色へ。色見本は実機の「自動調整」と同じ
-`--autotune` 経路で作るので、ユーザーがスポイト 1 クリック → 自動調整を押した結果と一致する。
-パラメータ実演（許容範囲・模様保持・出力彩度）だけは効果を単独で見せるため tolerance を固定する。
+HAOLAN スニーカーの青を伝統色へ。色見本は製品のワンショット経路
+（スポイト位置の AI マスク提案を証拠にした自動調整）で作るので、ユーザーがスポイト 1 クリック →
+自動調整を押した結果と一致する。**証拠なしの `--autotune` では作らない** — ハイライトの芯が
+青く取り残される（2026-09-20 に一度それで出荷しかけた）。
+模様保持・出力彩度の実演は自動調整の導出値を土台に 1 項目だけ動かす。許容範囲だけは素のゾーンで振る。
 
 前提:
   - dev_safe/（プライベート側）の素材と `Tests/regression/fixtures.py`
@@ -27,6 +29,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "dev_safe"))
 sys.path.insert(0, str(ROOT / "dev_safe" / "Tests"))
+sys.path.insert(0, str(ROOT / "dev_safe" / "scripts"))
+sys.path.insert(0, str(ROOT / "tools"))
 
 import numpy as np
 from PIL import Image
@@ -36,8 +40,10 @@ from regression import headless_io as hio
 
 TEXTURE = ROOT / "dev_safe" / "texture_sample" / "HAOLAN" / "Texture" / "HAOLAN_Sneakers.png"
 OUT = ROOT / "docs" / "manual" / "img" / "demo"
+SUBJECT_ID = "haolan-sneakers"
 
-SAMPLE = (32, 0, 144)          # 青。販促・GT 検証と同じスポイト色
+# スポイト位置（テクスチャ画素座標）。マニュアルのスクリーンショットで菱形が出ている場所と同じ。
+CLICK_XY = (500, 420)
 SHU = (220, 75, 46)            # 朱。実演の既定の変更先
 
 # 販促と同じ伝統色パレット（元が青なので青系は入れない）。
@@ -52,66 +58,63 @@ PALETTE = [
     ("sakura", "桜", (238, 169, 186)),
 ]
 
-# 青いトゲ・白い靴本体・黒いアッパーが同時に入る左上の正方形。
-CROP = (0, 0, 2200, 2200)
+# 青いトゲと、変わらない黒いアッパーが入る左上の正方形。
+# 右隣の UV にじみ（淡いラベンダーのグラデーション。GT 審査 2026-09-14 で放置と決めた既知の残り）は
+# 枠に入れない。
+CROP = (0, 0, 1240, 1240)
 PX = 560
-WEBP = dict(format="WEBP", quality=86, method=5)
+WEBP = dict(format="WEBP", quality=88, method=5)
 
-BASE_TOLERANCE = 0.25
-TOLERANCES = [0.08, 0.16, 0.25, 0.40, 0.60]
-BLENDS = [0.0, 0.25, 0.50, 0.75, 1.0]
+# 許容範囲の実演だけは「自動調整を押していない素のゾーン」で振る。自動調整後は彩度ガードと
+# 陰影の明度下限が入り、許容範囲を上げてもほぼはみ出さない（製品として正しいが、スライダーの
+# 効き方は見えなくなる）。素のゾーンだと 0.30 でもハイライトの芯が残り、芯が消える 0.45 では
+# 黒いアッパーまで染まる — 自動調整が要る理由がそのまま画になる。
+TOLERANCES = [0.05, 0.20, 0.30, 0.45, 0.60]
+# 模様保持は 0.5 未満を出さない。0 に近づけると明度だけが平らになり、ハイライトの芯が灰色に
+# 沈んで見える（製品の実出力だが、設定の説明図としては誤解を招く）。
+BLENDS = [0.50, 0.75, 1.0]
 SATURATIONS = [0.50, 0.70, 0.85, 1.00]
 
 
-def zone(target_rgb, tolerance=BASE_TOLERANCE, **over) -> dict:
-    """販促スクリプトと同一の zone 設定（tolerance だけ呼び出し側で決める）。"""
+def evidence_mask(rgba: np.ndarray) -> Path:
+    """製品の「自動調整」と同じく、スポイト位置の AI マスク提案（MobileSAM）を証拠にする。"""
+    import measure_evidence_autotune as mea
+    import sam_proposal as sp
+    subject = next(v for v in vars(F).values()
+                   if isinstance(v, F.RecolorSubject) and v.subject_id == SUBJECT_ID)
+    seg, info = sp.proposal_for_click_full(
+        F.ensure_harness(), subject, rgba, CLICK_XY[0], CLICK_XY[1],
+        emb=sp.load_embedding(subject), work_dir=F._CSHARP_WORK / "manual_sam")
+    if info["flood_warning"]:
+        raise SystemExit("AI 提案が背景まで広がった（製品は証拠にしない）。スポイト位置を見直す")
+    return mea._evidence_raw(seg, "manual_demo")
+
+
+def autotuned(rgba, sample, target_rgb, ev: Path):
+    zone = {"name": "manual-demo", "sample": list(sample),
+            "target": [c / 255.0 for c in target_rgb], "evidenceMask": str(ev)}
+    return F.run_harness_autotune(rgba, [zone], {}, tag="manual_demo_ev")
+
+
+def explicit_zone(params: dict, target_rgb, **over) -> dict:
+    """自動調整の導出値を、自動調整なしで再現するゾーン（1 項目だけ動かす実演の土台）。"""
     z = {
         "name": "manual-demo",
-        "sample": [c / 255.0 for c in SAMPLE],
+        "sample": list(params["sample"]),
+        "samples": params.get("autoSampleColors") or None,
         "target": [c / 255.0 for c in target_rgb],
-        "tolerance": tolerance,
-        "valueBlend": 1.0,
-        "edgeSoftness": 0.30,
-        "saturationStrictness": 0.50,
-        "saturationGuard": 0.0,
-        "chromaThreshold": 0.05,
-        "shadowDesaturation": 0.0,
-        "shadowForgivenessSatMin": 0.05,
-        "outputSaturation": 1.0,
-        "highlightRecovery": True,
-        "highlightBandExpand": True,
-        "applyHighlightWash": False,
-        "autoRecolorAnchor": True,
-        "useFloodFill": True,
-        "layerIndex": 0,
+        "valueBlend": 1.0, "outputSaturation": 1.0,
     }
+    for k in ("tolerance", "saturationStrictness", "saturationGuard", "chromaThreshold",
+              "highlightRecovery", "edgeSoftness", "shadowDesaturation",
+              "shadowForgivenessSatMin", "shadowValueFloor", "chromaCeiling"):
+        z[k] = params[k]
     z.update(over)
     return z
 
 
-def autotune(rgba: np.ndarray, target_rgb, tag: str) -> np.ndarray:
-    """実機の「自動調整」と同じ --autotune 経路で走らせる（販促と同一）。"""
-    dll = F.ensure_harness()
-    work = F._CSHARP_WORK
-    work.mkdir(parents=True, exist_ok=True)
-    in_raw, mask_raw = work / f"{tag}_in.raw", work / f"{tag}_mask.raw"
-    out_raw, zones_json = work / f"{tag}_out.raw", work / f"{tag}_zones.json"
-    hio.write_raw(in_raw, rgba)
-    hio.write_raw(mask_raw, np.zeros(rgba.shape[:2], np.uint8))
-    hio.write_zones_json(zones_json, [zone(target_rgb)], F._settings_to_harness(F.default_settings()))
-    r = hio.run(["dotnet", str(dll), str(in_raw), str(mask_raw), str(out_raw),
-                 "--zones", str(zones_json), "--autotune"])
-    if r.returncode != 0:
-        raise RuntimeError(f"harness failed ({tag}):\n{r.stderr}")
-    if r.stdout.strip():
-        print("   ", r.stdout.strip().replace("\n", " / "))
-    return hio.read_raw_rgba(out_raw)
-
-
-def save(rgb: np.ndarray, name: str, crop: bool = True) -> None:
-    im = Image.fromarray(rgb)
-    im = im.crop(CROP) if crop else im
-    im.resize((PX, PX), Image.LANCZOS).save(OUT / f"{name}.webp", **WEBP)
+def save(rgb: np.ndarray, name: str) -> None:
+    Image.fromarray(rgb).crop(CROP).resize((PX, PX), Image.LANCZOS).save(OUT / f"{name}.webp", **WEBP)
 
 
 # ── Unity Editor のスクリーンショット ──────────────────────────────
@@ -129,7 +132,8 @@ SHOTS = [
     ("processing", "processing-presets.png", (6, 437, 402, 692)),
     ("mask-section", "processing-presets.png", (6, 697, 402, 778)),
     ("presets", "processing-presets.png", (6, 778, 402, 962)),
-    ("preview-compare", "preview-compare.png", (400, 112, 1012, 682)),
+    # 前後比較は 2 面並ぶので、窓を 1320pt 幅に広げて撮った原板から切り出す（800pt だと「変更後」が切れる）
+    ("preview-compare", "preview-compare.png", (562, 112, 1660, 700)),
     ("preview-diff", "preview-diff.png", (400, 112, 1012, 682)),
     ("mask-window", "mask-window.png", None),
 ]
@@ -156,41 +160,54 @@ def build_shots() -> None:
 def main() -> None:
     build_shots()
     OUT.mkdir(parents=True, exist_ok=True)
+    for old in OUT.glob("*.webp"):
+        old.unlink()
     rgba = np.array(Image.open(TEXTURE).convert("RGBA"))
-    settings = F._settings_to_harness(F.default_settings())
     print(f"{TEXTURE.name} {rgba.shape[1]}x{rgba.shape[0]}")
+    x, y = CLICK_XY
+    sample = tuple(float(c) / 255.0 for c in rgba[y, x, :3])
+    ev = evidence_mask(rgba)
 
     save(rgba[:, :, :3], "src")
-    save(rgba[:, :, :3], "src-full", crop=False)
 
-    print("色見本（自動調整経路 = 販促と同一）")
+    print("色見本（スポイト 1 回 → 自動調整。製品のワンショット経路）")
+    base = None
     for slug, jp, target in PALETTE:
-        out = autotune(rgba, target, tag=f"manual_color_{slug}")
+        out, params = autotuned(rgba, sample, target, ev)
+        if not params.get("evidence"):
+            raise SystemExit(f"{slug}: 証拠が使われていない: {params.get('evidenceDiag')}")
         save(out[:, :, :3], f"color-{slug}")
-        print(f"  {jp:<3} {slug}")
+        print(f"   {jp} tol={params['tolerance']:.2f}")
+        if slug == "shu":
+            base, base_out = params, out
 
-    print("パラメータ実演（tolerance 固定）")
-    jobs: list[tuple[str, dict, bool]] = []
+    settings = F._settings_to_harness(F.default_settings())
+    if base.get("applyGlobals"):
+        settings["antiAliasCleanup"] = base["antiAliasCleanup"]
+
+    # 導出値の再現が自動調整の出力と一致することを確かめてから、1 項目ずつ動かす
+    ref = F.run_harness_many(rgba, [([explicit_zone(base, SHU)], settings, "manual-ref")])[0]
+    diff = int(np.any(ref[..., :3] != base_out[..., :3], axis=-1).sum())
+    print(f"パラメータ実演の土台: tol={base['tolerance']:.2f} / 自動調整の出力との差 {diff:,} px")
+    if diff > rgba.shape[0] * rgba.shape[1] * 0.001:
+        raise SystemExit("導出値の再現が自動調整の出力と合わない（スキーマの写し漏れを疑う）")
+
+    jobs: list[tuple[str, dict]] = []
     for t in TOLERANCES:
-        tag = f"tol-{int(round(t * 100)):03d}"
-        jobs.append((tag, zone(SHU, tolerance=t), True))
-        jobs.append((tag + "-full", zone(SHU, tolerance=t), False))
+        plain = {"name": "manual-demo", "sample": list(sample),
+                 "target": [c / 255.0 for c in SHU], "tolerance": t}
+        jobs.append((f"tol-{int(round(t * 100)):03d}", plain))
     for b in BLENDS:
-        jobs.append((f"blend-{int(round(b * 100)):03d}", zone(SHU, valueBlend=b), True))
-    for s in SATURATIONS:
-        jobs.append((f"sat-{int(round(s * 100)):03d}", zone(SHU, outputSaturation=s), True))
+        jobs.append((f"blend-{int(round(b * 100)):03d}", explicit_zone(base, SHU, valueBlend=b)))
+    for sv in SATURATIONS:
+        jobs.append((f"sat-{int(round(sv * 100)):03d}", explicit_zone(base, SHU, outputSaturation=sv)))
 
-    uniq: dict[str, dict] = {}
-    for _, z, _crop in jobs:
-        uniq.setdefault(hio.zones_json_text([z], settings), z)
-    keys = list(uniq)
-    outs = F.run_harness_many(rgba, [([uniq[k]], settings, f"manual-{i}") for i, k in enumerate(keys)])
-    by_key = dict(zip(keys, outs))
-
-    for name, z, crop in jobs:
-        save(by_key[hio.zones_json_text([z], settings)][:, :, :3], name, crop=crop)
+    plain_settings = F._settings_to_harness(F.default_settings())
+    outs = F.run_harness_many(rgba, [([z], plain_settings if n.startswith("tol-") else settings,
+                                      f"manual-{n}") for n, z in jobs])
+    for (name, _), out in zip(jobs, outs):
+        save(out[:, :, :3], name)
         print("  ", name)
-
     print(f"done -> {OUT}")
 
 
