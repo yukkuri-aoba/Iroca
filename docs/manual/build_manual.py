@@ -130,6 +130,7 @@ DEMOS = {
                "note": "Each is one eyedropper click plus Auto-tune — no per-color tuning"},
         "control": "swatch",
         "frames": [
+            {"v": "red", "img": "color-red", "ja": "赤", "en": "Red", "hex": "#ff0000"},
             {"v": "shu", "img": "color-shu", "ja": "朱", "en": "Shu", "hex": "#dc4b2e"},
             {"v": "akane", "img": "color-akane", "ja": "茜", "en": "Akane", "hex": "#a62a37"},
             {"v": "yamabuki", "img": "color-yamabuki", "ja": "山吹", "en": "Yamabuki", "hex": "#f2a33c"},
@@ -143,20 +144,17 @@ DEMOS = {
     },
     "tolerance": {
         "ja": {"title": "許容範囲を動かす（自動調整を使わない場合）", "label": "許容範囲",
-               "note": "ハイライトの芯が消えるまで上げると、先に隣の黒い素材が染まります。"
-                       "自動調整はここを上げずに、ハイライトだけを拾います"},
+               "note": "狭いとハイライトの芯が残り、広げすぎると隣の黒い素材へ回ります"},
         "en": {"title": "Move the tolerance (without Auto-tune)", "label": "Tolerance",
-               "note": "Raise it until the highlight cores go, and the black material next door "
-                       "gets tinted first. Auto-tune picks up the highlights without raising it"},
+               "note": "Too narrow leaves the highlight cores; too wide spills into the black material next door"},
         "control": "range",
         "frames": [
             {"v": "0.05", "img": "tol-005", "ja": "芯が大きく残る", "en": "Large cores left"},
             {"v": "0.20", "img": "tol-020", "ja": "ハイライトの芯が残る（新規ゾーンの初期値）",
              "en": "Highlight cores left (new-zone default)"},
-            {"v": "0.30", "img": "tol-030", "ja": "まだ芯が残る", "en": "Cores still left"},
-            {"v": "0.45", "img": "tol-045", "ja": "芯は消えたが、黒いアッパーが染まった",
-             "en": "Cores gone, but the black upper is tinted"},
-            {"v": "0.60", "img": "tol-060", "ja": "はみ出す", "en": "Spills over"},
+            {"v": "0.30", "img": "tol-030", "ja": "ちょうどよい", "en": "About right"},
+            {"v": "0.45", "img": "tol-045", "ja": "広め", "en": "Wide"},
+            {"v": "0.60", "img": "tol-060", "ja": "黒いアッパーへはみ出す", "en": "Spills into the black upper"},
         ],
         "start": 1,
     },
@@ -167,11 +165,11 @@ DEMOS = {
                "note": "The lower it goes, the shallower the shading — closer to a flat fill (default 1.0)"},
         "control": "range",
         "frames": [
-            {"v": "0.50", "img": "blend-050", "ja": "陰影が浅い", "en": "Shallow shading"},
-            {"v": "0.75", "img": "blend-075", "ja": "", "en": ""},
+            {"v": "0.75", "img": "blend-075", "ja": "陰影が浅い", "en": "Shallow shading"},
+            {"v": "0.90", "img": "blend-090", "ja": "純赤で自動調整が選ぶ値", "en": "What Auto-tune picks for pure red"},
             {"v": "1.00", "img": "blend-100", "ja": "元の陰影のまま（既定）", "en": "Original shading (default)"},
         ],
-        "start": 2,
+        "start": 1,
     },
     "saturation": {
         "ja": {"title": "出力彩度を動かす", "label": "出力彩度",
@@ -413,7 +411,7 @@ def render_before_after(lang: str) -> str:
             if lang == "ja" else "Drag the handle to compare before and after")
     return ('<figure class="ba">'
             '<div class="ba-stage">'
-            '<img class="ba-after" src="img/demo/color-shu.webp" alt="">'
+            '<img class="ba-after" src="img/demo/color-red.webp" alt="">'
             '<img class="ba-before" src="img/demo/src.webp" alt="">'
             '<div class="ba-handle" role="slider" aria-valuemin="0" aria-valuemax="100"'
             ' aria-valuenow="50" tabindex="0"><span></span></div>'

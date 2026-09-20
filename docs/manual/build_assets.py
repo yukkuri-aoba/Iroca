@@ -42,13 +42,16 @@ TEXTURE = ROOT / "dev_safe" / "texture_sample" / "HAOLAN" / "Texture" / "HAOLAN_
 OUT = ROOT / "docs" / "manual" / "img" / "demo"
 SUBJECT_ID = "haolan-sneakers"
 
-# スポイト位置（テクスチャ画素座標）。マニュアルのスクリーンショットで菱形が出ている場所と同じ。
-CLICK_XY = (500, 420)
-SHU = (220, 75, 46)            # 朱。実演の既定の変更先
+# スポイト位置（テクスチャ画素座標）。作者プリセット HAOLAN_Sneakers_Red のサンプル色
+# (63,0,242) と同じ、トゲの明るい青。スクリーンショットの菱形もここに出す。
+CLICK_XY = (700, 230)
+# 実演の既定の変更先 = 作者プリセットと同じ純赤。ここは固定（販促の赤と食い違わせない）。
+RED = (255, 0, 0)
 
 # 販促と同じ伝統色パレット（元が青なので青系は入れない）。
 PALETTE = [
-    ("shu", "朱", SHU),
+    ("red", "赤", RED),
+    ("shu", "朱", (220, 75, 46)),
     ("akane", "茜", (166, 42, 55)),
     ("yamabuki", "山吹", (242, 163, 60)),
     ("wakakusa", "若草", (111, 191, 91)),
@@ -67,12 +70,11 @@ WEBP = dict(format="WEBP", quality=88, method=5)
 
 # 許容範囲の実演だけは「自動調整を押していない素のゾーン」で振る。自動調整後は彩度ガードと
 # 陰影の明度下限が入り、許容範囲を上げてもほぼはみ出さない（製品として正しいが、スライダーの
-# 効き方は見えなくなる）。素のゾーンだと 0.30 でもハイライトの芯が残り、芯が消える 0.45 では
-# 黒いアッパーまで染まる — 自動調整が要る理由がそのまま画になる。
+# 効き方は見えなくなる）。素のゾーンだと狭い側でハイライトの芯が残り、0.60 で黒いアッパーへ回る。
 TOLERANCES = [0.05, 0.20, 0.30, 0.45, 0.60]
 # 模様保持は 0.5 未満を出さない。0 に近づけると明度だけが平らになり、ハイライトの芯が灰色に
 # 沈んで見える（製品の実出力だが、設定の説明図としては誤解を招く）。
-BLENDS = [0.50, 0.75, 1.0]
+BLENDS = [0.75, 0.90, 1.0]   # 0.90 = 純赤で自動調整が選ぶ値。0.5 以下は純赤だとハイライトが灰色がかる
 SATURATIONS = [0.50, 0.70, 0.85, 1.00]
 
 
@@ -103,9 +105,10 @@ def explicit_zone(params: dict, target_rgb, **over) -> dict:
         "sample": list(params["sample"]),
         "samples": params.get("autoSampleColors") or None,
         "target": [c / 255.0 for c in target_rgb],
-        "valueBlend": 1.0, "outputSaturation": 1.0,
+        "outputSaturation": 1.0,
     }
-    for k in ("tolerance", "saturationStrictness", "saturationGuard", "chromaThreshold",
+    # valueBlend も導出値を使う（純色の変更先では自動調整が 0.9 へ下げる。1.0 固定だと再現がずれる）
+    for k in ("tolerance", "valueBlend", "saturationStrictness", "saturationGuard", "chromaThreshold",
               "highlightRecovery", "edgeSoftness", "shadowDesaturation",
               "shadowForgivenessSatMin", "shadowValueFloor", "chromaCeiling"):
         z[k] = params[k]
@@ -127,7 +130,6 @@ SHOTS = [
     # (出力名, 原板, クロップ or None=全体)
     ("window", "window.png", None),
     ("zone-card", "window.png", (6, 112, 402, 500)),
-    ("preview", "window.png", (400, 112, 1012, 682)),
     ("zone-detail", "zone-detail.png", (6, 215, 402, 815)),
     ("processing", "processing-presets.png", (6, 437, 402, 692)),
     ("mask-section", "processing-presets.png", (6, 697, 402, 778)),
@@ -178,7 +180,7 @@ def main() -> None:
             raise SystemExit(f"{slug}: 証拠が使われていない: {params.get('evidenceDiag')}")
         save(out[:, :, :3], f"color-{slug}")
         print(f"   {jp} tol={params['tolerance']:.2f}")
-        if slug == "shu":
+        if slug == "red":
             base, base_out = params, out
 
     settings = F._settings_to_harness(F.default_settings())
@@ -186,7 +188,7 @@ def main() -> None:
         settings["antiAliasCleanup"] = base["antiAliasCleanup"]
 
     # 導出値の再現が自動調整の出力と一致することを確かめてから、1 項目ずつ動かす
-    ref = F.run_harness_many(rgba, [([explicit_zone(base, SHU)], settings, "manual-ref")])[0]
+    ref = F.run_harness_many(rgba, [([explicit_zone(base, RED)], settings, "manual-ref")])[0]
     diff = int(np.any(ref[..., :3] != base_out[..., :3], axis=-1).sum())
     print(f"パラメータ実演の土台: tol={base['tolerance']:.2f} / 自動調整の出力との差 {diff:,} px")
     if diff > rgba.shape[0] * rgba.shape[1] * 0.001:
@@ -195,12 +197,12 @@ def main() -> None:
     jobs: list[tuple[str, dict]] = []
     for t in TOLERANCES:
         plain = {"name": "manual-demo", "sample": list(sample),
-                 "target": [c / 255.0 for c in SHU], "tolerance": t}
+                 "target": [c / 255.0 for c in RED], "tolerance": t}
         jobs.append((f"tol-{int(round(t * 100)):03d}", plain))
     for b in BLENDS:
-        jobs.append((f"blend-{int(round(b * 100)):03d}", explicit_zone(base, SHU, valueBlend=b)))
+        jobs.append((f"blend-{int(round(b * 100)):03d}", explicit_zone(base, RED, valueBlend=b)))
     for sv in SATURATIONS:
-        jobs.append((f"sat-{int(round(sv * 100)):03d}", explicit_zone(base, SHU, outputSaturation=sv)))
+        jobs.append((f"sat-{int(round(sv * 100)):03d}", explicit_zone(base, RED, outputSaturation=sv)))
 
     plain_settings = F._settings_to_harness(F.default_settings())
     outs = F.run_harness_many(rgba, [([z], plain_settings if n.startswith("tol-") else settings,
