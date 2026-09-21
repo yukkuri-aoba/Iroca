@@ -112,10 +112,6 @@ INSERTS: dict[tuple[str, str], list[dict]] = {
 # 原稿の [スクリーンショット: …] プレースホルダーの置換先。None は「画像なし」（行を落とす）。
 PLACEHOLDERS: dict[str, dict | None] = {
     "テクスチャ選択後のウィンドウ全体": W_MAIN,
-    "エクスプローラと Unity Editor": None,
-    "Import ダイアログ": None,
-    "Tools メニュー": None,
-    "Read/Write 警告と有効化ボタン": None,
     "除外マスクを描いた状態のプレビュー": shot(
         "mask-section", "メインウィンドウのマスク欄。いま編集中の対象が出ます",
         "The mask row in the main window shows the current edit target"),
@@ -525,7 +521,7 @@ def render_section(sid: str, title: str, lines: list[str], lang: str,
         buf = []
         while i < n:
             cur = lines[i].strip()
-            if (not cur or cur.startswith(("#", "|", "- ", "> ", "---", "["))
+            if (not cur or cur.startswith(("#", "|", "- ", "> ", "---", "[スクリーンショット"))
                     or re.match(r"^\d+\. ", cur) or re.match(r"^\*\*[^*]+\*\*$", cur)):
                 break
             buf.append(cur)

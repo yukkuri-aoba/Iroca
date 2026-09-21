@@ -30,200 +30,161 @@
 #### 前提条件
 
 - Unity 2022.3 以降
-- 対象テクスチャが PNG / JPG なら追加の設定は要りません（原本ファイルを直接読みます）
-- PSD・TGA・EXR など、原本を直接読めない形式のときだけ Read/Write Enabled が必要です
-
-画素を取り出せないテクスチャを選んだときは、ウィンドウに出る警告のボタンから Read/Write を有効化できます。
+- PNG / JPG のテクスチャはそのまま使えます
+- PSD・TGA・EXR などは Read/Write Enabled が必要です。無効のときはウィンドウに警告が出て、「Read/Write を自動で有効にする」ボタンで有効にできます（Undo できないため確認が出ます）
 
 #### 手順
 
 1. [GitHub Releases](https://github.com/yukkuri-aoba/Iroca/releases) から最新の zip をダウンロードして展開します。
-
-2. 中の `.unitypackage` を Unity Editor のプロジェクトウィンドウへドラッグ＆ドロップします。
-
-   [スクリーンショット: エクスプローラと Unity Editor]
-
-3. ダイアログで「Import」をクリックします。
-
-   [スクリーンショット: Import ダイアログ]
-
-4. 読み込みが終わると `Assets/Iroca` フォルダができます。
-
-5. メニューの `Tools > いろか` を選ぶとウィンドウが開きます。
-
-   [スクリーンショット: Tools メニュー]
-
-#### Read/Write Enabled の有効化
-
-原本ファイルからも取り込み済みテクスチャからも画素を取り出せないとき（PSD・TGA・EXR などで Read/Write Enabled が無効なとき）は、ウィンドウに警告と「Read/Write を自動で有効にする」ボタンが出ます。ボタンを押すとインポート設定が書き換わり、有効になります。この操作は Undo できないため、確認ダイアログが出ます。PNG / JPG のテクスチャではこの警告は出ません。
-
-[スクリーンショット: Read/Write 警告と有効化ボタン]
+2. 中の `.unitypackage` を Unity のプロジェクトウィンドウへドラッグ＆ドロップし、「Import」を押します。
+3. `Assets/Iroca` フォルダができたら、メニューの `Tools > いろか` でウィンドウを開きます。
 
 ---
 
 ### 基本的な使い方
 
-ウィンドウは ① 元テクスチャ → ② カラーゾーン → ③ プレビュー → ④ エクスポート の流れで上から並んでいます。番号どおりに進めれば一通り色替えできます。
+ウィンドウは ① 元テクスチャ → ② カラーゾーン → ③ プレビュー → ④ エクスポート の順に上から並んでいます。番号どおりに進めれば色替えできます。
 
 #### ステップ 1: 元テクスチャを選ぶ
 
-「① 元テクスチャ」の「テクスチャ」欄に、色を変えたいテクスチャをドラッグするか、欄をクリックして選びます。選ぶとプレビューに表示されます。
+「① 元テクスチャ」の「テクスチャ」欄へ、色を変えたいテクスチャをドラッグします。
 
 [スクリーンショット: テクスチャ選択後のウィンドウ全体]
 
 #### ステップ 2: カラーゾーンを追加する
 
-「+ ゾーン追加」を押すと、色替え 1 つぶんの「カラーゾーン」ができます。ゾーン名は自由に変えられます（処理には影響しません）。
+「+ ゾーン追加」を押します。色替え 1 つぶんが「カラーゾーン」1 つです。
 
 #### ステップ 3: 変える色を指定する
 
-色は、サンプルカラー欄の右にある「スポイト」ボタンで指定します。
+1. 「サンプルカラー」欄の右の「スポイト」を押し、プレビュー上の変えたい色をクリックします。いちばん鮮やかな部分を選ぶとうまくいきます。
+2. すぐ下の「自動調整」を押します。そのパーツの暗部からハイライトまでを覆うように、許容範囲などを自動で合わせます（AI モデルが必要です。未導入ならウィンドウ上部に案内が出ます）。
+3. 範囲が広い・狭いときは「許容範囲」で微調整します。
 
-1. ゾーンの「サンプルカラー」欄の右にある「スポイト」ボタンを押します（表示が「■ クリック取得」に変わります）。
-2. プレビュー上の変えたい色をクリックします。実テクスチャの画素から直接色を取り、クリックした位置も記憶します（1 回取ると自動で解除されます）。
-3. すぐ下の「自動調整」を押すと、スポイトした位置を AI マスク提案で見て、そのパーツの暗部からハイライトまでを覆う許容範囲などを自動で合わせてくれます（AI モデルが必要です。未導入ならウィンドウ上部に導入の案内が出ます）。スポイトの直後に押すのが一番効きます。
+自動調整を使わなくても、新しいゾーンは許容範囲 0.20 で始まるので、色を指定すればプレビューはすぐ変わります。
 
-   自動調整を使わなくても、新しく作ったゾーンには最初から許容範囲 0.20 が入っているので、色を指定すればプレビューはすぐ変わります。
-4. 思ったより範囲が広い・狭いときは「許容範囲」スライダーで微調整します。
-
-色替えしたい部分の中で、いちばん鮮やかな色を選ぶとうまくいきやすいです。
-
-サンプルカラー欄をクリックして開くカラーピッカーのスポイトでも色は取れますが、画面に表示されたピクセルを拾うため色がわずかにずれ、クリック位置も記録されません。位置が無いゾーンの「自動調整」は AI 提案を参照せずに解析するので、自動調整を使うときは必ずボタンのスポイトを使ってください。
+> 色は必ず「スポイト」ボタンで取ってください。欄をクリックして開くカラーピッカーのスポイトは、色がわずかにずれるうえクリック位置が残らず、自動調整が AI 提案を使えません。
 
 #### ステップ 4: 変更後の色を決める
 
-ゾーンの「変更先カラー」をクリックして、変えたい色を選びます。プレビューにすぐ反映されます。
+「変更先カラー」をクリックして色を選びます。プレビューにすぐ反映されます。
 
 #### ステップ 5: 仕上がりを調整する（必要なら）
 
 | 設定 | 内容 |
 |---|---|
 | 模様保持 | 元の柄をどれだけ残すか（0 = ベタ塗り、1 = 柄を残す。既定 1.0） |
-| 出力彩度 | 出力の鮮やかさ。純色がベタ塗りに見えるとき 0.7〜0.9 に下げると陰影が戻る（既定 1.0） |
+| 出力彩度 | 純色がベタ塗りに見えるとき 0.7〜0.9 に下げると陰影が戻る（既定 1.0） |
 | 連続領域モード | つながった塊だけに変換を絞り、離れた同色や背景への色移りを防ぐ（既定 ON） |
 
-エッジや彩度のさらに細かい調整は「[カラーゾーンの設定](#カラーゾーンの設定)」を参照してください。
+さらに細かい調整は「[カラーゾーンの設定](#カラーゾーンの設定)」を参照してください。
 
 #### ステップ 6: 保存する
 
-仕上がりが良ければ「④ エクスポート」で保存します。手順は「[エクスポート](#エクスポート)」を参照してください。
+「④ エクスポート」で保存します（→「[エクスポート](#エクスポート)」）。
 
 ---
 
 ### カラーゾーンの設定
 
-ゾーンは「常に見えている基本の項目」と、「詳細設定」を開くと出る調整項目に分かれます。複数ゾーンを並べたときの優先度は、リストの並び順で決まります。
-
 #### 基本の項目（常に表示）
 
 **サンプルカラー**
 
-色替え対象を選ぶ基準色です。右隣の「スポイト」ボタンを押してからプレビューをクリックすると、実テクスチャの画素から色を取り、その位置を「自動調整」の手がかりとして記憶します。欄をクリックして開くカラーピッカーでも色を指定できますが、位置は記録されません（自動調整は AI 提案を参照せずに解析します）。サンプルカラーに近い色のピクセルが、自動的に対象として検出されます。
+色替え対象の基準色です。この色に近いピクセルが対象になります。右の「スポイト」ボタンで取ると、クリック位置も「自動調整」の手がかりとして記憶します。
 
 **自動調整**
 
-サンプルカラーと変更先カラーをもとにテクスチャを解析し、許容範囲・彩度制限などをまとめて決めます。スポイトで色を取った位置に AI マスク提案（MobileSAM）をかけ、そのパーツの範囲を手がかりにして、暗部から明るいハイライトまでを取りこぼさないように導出します。スポイトで色を取った直後に押すと最も効果的です。元テクスチャが未設定のとき、テクスチャから画素を取り出せないとき、サンプルカラーが未指定（白のまま）のときは押せません。自分でパラメータを変えているときだけ、上書き確認のダイアログが出ます（新規ゾーンの初期値のまま、または前回の自動調整が入れた値のままなら出ません）。
+テクスチャを解析して、許容範囲・彩度制限などをまとめて決めます。スポイトした位置に AI マスク提案（MobileSAM）をかけ、そのパーツの暗部からハイライトまでを取りこぼさないように導出します。スポイトの直後に押すのが最も効果的です。
 
-- AI（Unity Sentis と AI モデル）が未導入のときは解析せず、導入・ダウンロードの案内を出します（「AI マスク提案」の「必要なもの」参照）。
-- AI が準備中（モデルのロード・画像の埋め込み計算）のときは、終わるまで待ってから解析します（進捗バーと中止ボタンが出ます）。
-- スポイトではなくカラーフィールドで色を指定したゾーンには位置がないため、AI 提案を参照せずに解析します（その旨の通知が出ます）。
+- 元テクスチャが未設定、画素を取り出せない、サンプルカラーが未指定（白のまま）のときは押せません。
+- AI が未導入のときは導入の案内が出ます（→「[AI マスク提案](#ai-マスク提案実験的機能)」の「必要なもの」）。準備中のときは終わるまで待ちます（進捗バーと中止ボタンが出ます）。
+- カラーピッカーで色を指定したゾーンは位置がないため、AI 提案なしで解析します（通知が出ます）。
+- 自分で値を変えているときだけ、上書きの確認が出ます。
 
 **許容範囲**
 
-色の一致をどこまで許すかです（0.0〜1.0）。だいたい 0.15〜0.40 で調整します。
-
-| 値 | 効果 |
-|---|---|
-| 低い | 厳密に判定する（選択が狭い） |
-| 高い | 広く判定する（選択が広い、ノイズも増える） |
+色の一致をどこまで許すかです（0.0〜1.0）。低いほど厳密（選択が狭い）、高いほど広く拾います（ノイズも増えます）。目安は 0.15〜0.40 です。
 
 **連続領域モード（Flood Fill）**
 
-色が一致した領域のうち、確信度の高い芯を含む「つながった塊」だけに変換を絞り込みます。離れた場所にある同じ色のパーツや、背景へのにじみを自動で取り除きます。既定は自動（シード不要）です。
+色が一致した領域のうち、確信度の高い芯を含む「つながった塊」だけに変換を絞ります。離れた同色パーツや背景へのにじみが自動で外れます。既定は自動で、シードは要りません。
 
-塊が複数あって特定の 1 つだけ残したいときは、シードを置きます。ゾーンの「シード (任意)」行にある「指定」を押してからプレビューをクリックすると、そのゾーンにシードが入ります（1 回で解除）。プレビュー上で Shift+クリックしても置けます。「自動へ」を押すとシードを解除して自動に戻ります。
+特定の塊だけ残したいときはシードを置きます。「シード (任意)」行の「指定」を押してからプレビューをクリックするか、プレビューを Shift+クリックします。「自動へ」で解除します。
 
 **変更先カラー**
 
-変えたあとの色です。対象のピクセルがこの色になります。
+変えたあとの色です。
 
 **模様保持**
 
-変更後に元の明度をどれだけ残すかです。
-
-- 0 に近い: 変更先の明度に合わせます（ベタ塗り風）
-- 0.5: 元の明度を半分ほど残します
-- 1 に近い: 元の柄をほぼそのまま残します（既定 1.0）
+元の明度をどれだけ残すかです。0 に近いほどベタ塗り風、1 に近いほど元の柄をそのまま残します（既定 1.0）。
 
 **出力彩度**
 
-再着色後の鮮やかさです（既定 1.0）。彩度 100% の純色（純赤など）は明暗のグラデーションが潰れてベタ塗りに見えがちです。0.7〜0.9 あたりに下げると、色相は保ったまま陰影が戻ります。
+再着色後の鮮やかさです（既定 1.0）。純赤など彩度 100% の色は明暗が潰れてベタ塗りに見えがちです。0.7〜0.9 に下げると、色相は保ったまま陰影が戻ります。
 
 #### 詳細の項目（「詳細設定」を開くと表示）
 
-ゾーンの下にある「詳細設定」を開くと、上の基本項目に加えて次の調整が出ます。役割ごとに小見出しでまとまっており、上から「選択の範囲 → ハイライト → 暗部・無彩色 → 色の写り方 → マッチング距離の重み」の順です。これは処理が走る順番でもあります。
-
-値を触りすぎたときは、各ゾーン末尾の「詳細を既定値に戻す」で詳細だけ初期化できます（色・許容範囲・名前は残ります）。
+上から処理の走る順（選択の範囲 → ハイライト → 暗部・無彩色 → 色の写り方 → マッチング距離の重み）に並んでいます。触りすぎたときは、ゾーン末尾の「詳細を既定値に戻す」で詳細だけ初期化できます（色・許容範囲・名前は残ります）。
 
 **サンプル自動補正（再着色）**（既定 ON）
 
-スポイトした位置の明るさに関わらず、パーツの明るい面が変更先の色に合うよう、再着色の基準を自動補正します。影をスポイトしても出力が過度に明るく・ベタ塗りになるのを防ぎます。クリックした画素そのものを厳密に変更先の色へ当てたいとき、または意図的に明るく塗りたいときは OFF にします。選択範囲は変わらず、色の写り方だけが変わります。
+影をスポイトしても、パーツの明るい面が変更先の色に合うよう基準を補正します。クリックした画素そのものを変更先の色にしたいとき、意図的に明るく塗りたいときは OFF にします。選択範囲は変わりません。
 
 **エッジ柔らかさ**（既定 0）
 
-選択エッジの硬さです。0 で硬いエッジ、上げるとアンチエイリアス境界をなめらかに拾います。ぼかしのあるテクスチャで上げると効きます。
+0 で硬いエッジ、上げるとアンチエイリアス境界をなめらかに拾います。ぼかしのあるテクスチャ向けです。
 
 **彩度制限（影の厳しさ）**（既定 0.50）
 
-選んだ色の薄い影や AO（暗い陰り）を、どこまで仲間として拾うかの厳しさです。上げるとはみ出しが減りますが、境界に色のドットが残りやすくなります。下げるとドットは減りますが、まわりへはみ出しやすくなります。
+薄い影や AO（暗い陰り）をどこまで拾うかです。上げるとはみ出しが減り、境界に色のドットが残りやすくなります。下げるとその逆です。
 
 **彩度ガード（無彩色よけ）**（既定 0）
 
-鮮やかな色を選んだとき、白・黒・灰色など色味のない部分が結果に混ざるのを防ぐ安全装置です。許容範囲を大きく上げて色の芯まで拾うときに、無関係な黒や白の巻き込みを抑えます。選んだ色がもともと灰色寄りなら自動で無効になります。彩度制限が「薄い影の拾い方」を調整するのに対し、こちらは「無彩色そのものの除外」です。
+鮮やかな色を選んだとき、白・黒・灰色が混ざるのを防ぎます。許容範囲を大きく上げるときに使います。選んだ色が灰色寄りなら自動で無効になります。
 
 **ハイライト補助**（既定 ON）
 
-高明度・低彩度のハイライト（鏡面反射や光沢部分）も補助的にマッチします。光沢素材の変換漏れを防ぎます。ON のときは、すぐ下に「ハイライト帯の拡張」（既定 ON）が出ます。これは本体につながった描き込みハイライトへ変換範囲を広げ、許容範囲を上げずに薄いハイライトの取りこぼしを防ぎます。
+高明度・低彩度のハイライト（鏡面反射・光沢）もマッチさせ、光沢素材の変換漏れを防ぎます。ON のときに出る「ハイライト帯の拡張」（既定 ON）は、本体につながった描き込みハイライトまで範囲を広げます。
 
 **ハイライト白寄せ合成**（既定 OFF）
 
-明部を白方向へ寄せて、鏡面ハイライトの白い反射を表現します。光沢・プラスチックなど、ハイライトが白く飛ぶ素材で効果的です。ON にすると、すぐ下に「ハイライト自動補正」（既定 OFF）が出ます。パーツの地色を自動で見つけて白寄せをドーム全体に効かせ、立体感を出します。髪など細い房の多いテクスチャでは広がりすぎることがあるので、その場合は OFF にします。
+明部を白へ寄せて、鏡面ハイライトの白い反射を表現します。光沢・プラスチック向けです。ON のときに出る「ハイライト自動補正」（既定 OFF）は、パーツの地色を自動で見つけて白寄せを全体に効かせます。髪など細い房の多いテクスチャでは広がりすぎることがあるので、その場合は OFF にします。
 
 **暗部・無彩色**
 
-暗部やグレーの扱いを細かく決めます。
-
 | 設定 | 説明 | 既定 |
 |---|---|---|
-| シャドウ彩度低下 | この明度より暗いピクセルの彩度を落とす閾値。下げると暗い色も鮮やかに染まる | 0.35 |
-| シャドウ巻き込み最低彩度 | 暗いピクセルを影として巻き込むのに必要な最低彩度。純粋なグレー・黒の色付けを防ぐ | 0.05 |
+| シャドウ彩度低下 | この明度より暗いピクセルの彩度を落とす。下げると暗い色も鮮やかに染まる | 0.35 |
+| シャドウ巻き込み最低彩度 | 暗いピクセルを影として拾うのに必要な最低彩度。純粋なグレー・黒の色付けを防ぐ | 0.05 |
 | 自動しきい値(無彩色判定) | サンプルの彩度がこの値以下なら、色相を無視して無彩色（黒・グレー）として抽出する | 0.05 |
 
 **マッチング距離の重み**
 
-色の一致を測る距離式そのものの係数です。ふつうは触りません。
+色の距離式そのものの係数です。ふつうは触りません。
 
 | 設定 | 説明 | 既定 |
 |---|---|---|
-| 明度重み | 距離計算での明度の重み。高いほど明度差に敏感（別素材を分離しやすい）。低いほど同じ素材の影・ハイライトを吸収する | 1.0 |
-| 彩度距離重み | 彩度距離の重み。高いほど彩度差に敏感 | 0.15 |
-| 彩度ランプスケール | 動的彩度ランプのスケール。大きいほど彩度閾値付近でなだらかにフェードする | 0.10 |
+| 明度重み | 高いほど明度差に敏感（別素材を分離しやすい）。低いほど同じ素材の影・ハイライトを吸収する | 1.0 |
+| 彩度距離重み | 高いほど彩度差に敏感 | 0.15 |
+| 彩度ランプスケール | 大きいほど彩度閾値付近でなだらかにフェードする | 0.10 |
 
-うまくいく組み合わせが見つかったら、プリセットとして保存しておくと便利です。これらの値もプリセットに含まれます。
+これらの値もプリセットに保存されます。
 
 #### ゾーンの優先度（並び順）
 
-複数のゾーンが重なる部分は、上にあるゾーンだけが適用され、下のゾーンに対してはマスクのように働きます。優先度はリストの並び順で決まります。各ゾーン左の `☰` ハンドルを掴んでドラッグすると、並べ替え（＝優先度の変更）ができます。
+ゾーンが重なる部分には、リストで上にあるゾーンだけが適用されます。各ゾーン左の `☰` をドラッグして並べ替えます。
 
 ---
 
 ### 加工設定
 
-エッジやノイズの処理をまとめて調整します。変更はプレビューに自動で反映され、最後に「適用して保存」で確定します。
+全ゾーン共通の、エッジとノイズの処理です。
 
 #### エッジぼかし
 
-選択境界をぼかして、エッジの色を自然になじませます（0〜5）。
+選択境界をぼかして、エッジの色をなじませます（0〜5）。
 
 | 値 | 効果 |
 |---|---|
@@ -233,22 +194,15 @@
 
 #### AA境界クリーンアップ
 
-アンチエイリアス境界に残るドットを回収するパス数です。
-
-| 値 | 効果 |
-|---|---|
-| 0 | オフ |
-| 1〜2 | 弱い |
-| 3 | 標準（推奨・既定） |
-| 4〜5 | 強い |
+アンチエイリアス境界に残るドットを回収するパス数です。0 でオフ、3 が標準（既定）、4〜5 で強めです。
 
 #### 境界クリーンアップ（α分解）
 
-アンチエイリアス境界で α 分解と再合成を行い、境界に出る薄汚れた中間色（ハロー）を防ぎます。既定は ON で、通常はそのままで構いません。
+境界に出る薄汚れた中間色（ハロー）を防ぎます。既定は ON で、通常はそのままで構いません。
 
 #### 詳細設定（折りたたみ）
 
-「詳細設定」を開くと、内部の細かいパラメータが出ます。通常は既定のままで構いません。
+通常は既定のままで構いません。
 
 | 設定 | 説明 | 既定 |
 |---|---|---|
@@ -256,57 +210,47 @@
 | 穴埋め最小隣接数 | 穴を埋めるのに必要な一致隣接ピクセル数。低いほど積極的に埋める | 4 |
 | 境界復元 彩度最小 | 境界復元時の彩度最小閾値 | 0.02 |
 | 境界復元 彩度ランプ | 境界復元時の彩度ランプ幅 | 0.08 |
-| α分解 近傍半径 | 境界クリーンアップ（α分解）で背景色を推定する近傍の半径 | 4 |
+| α分解 近傍半径 | α分解で背景色を推定する近傍の半径 | 4 |
 
 ---
 
 ### プレビュー機能
 
+設定を変えると、約 0.2 秒後に自動で更新されます。
+
 #### ズームとパン
 
-- Ctrl + スクロール: ズームイン・アウト
-- 「③ プレビュー」見出しの右端: いまのズーム率と「リセット」。リセットはズームを 100% に戻し、表示位置も先頭へ戻します
-- ドラッグ: ビューを移動（画像が枠に収まっていないとき）
-- **中ボタンドラッグ / Alt + ドラッグ**: どのモードでもビューを移動できます。マスクを塗っている最中でも使えます
-
-高解像度プレビューはピクセル単位まで拡大できます（上限はテクスチャ解像度に応じて自動調整）。
+- Ctrl + スクロール: ズーム（ピクセル単位まで拡大できます）
+- ドラッグ: ビューの移動
+- 中ボタンドラッグ / Alt + ドラッグ: マスクを塗っている最中でも移動できます
+- 「③ プレビュー」見出し右端の「リセット」: ズームを 100% に、表示位置を先頭に戻します
 
 #### 表示モード
 
-- 通常: 現在の処理結果を表示します（どちらのトグルも OFF）
-- 前後比較: 変更前後を左右に並べて表示します（高ズーム時は使えません）
-- 差分表示: 変わったピクセルだけを強調表示します
-- 「元を表示」ボタン: **押している間だけ**変更前を表示します。拡大したまま「元はどうだったか」を確かめるのに使います（拡大中はプレビュー解像度で表示されます）
+- 前後比較: 変更前後を左右に並べます（高ズーム時は使えません）
+- 差分表示: 変わったピクセルだけを強調します
+- 「元を表示」ボタン: **押している間だけ**変更前を表示します
+- 「ソロ」（ゾーンの行）: そのゾーンだけをプレビューします。表示だけの機能で、保存される内容は変わりません
 
 #### いまのモード表示
 
-プレビューの操作行のすぐ下に、プレビュー上のクリックがいま何をするかが 1 行で出ます（スポイト／シード指定／マスクを塗る・消す／AI 提案）。**Esc キーでどのモードも解除できます。**
-
-ゾーンを「ソロ」表示しているときも、この行の右端に出ます。
-
-#### ソロ表示
-
-ゾーンの行にある「ソロ」を押すと、そのゾーンだけをプレビューします。ゾーンが実際にどこを拾っているかを確かめるのに使います。表示だけの機能で、保存される内容は変わりません（保存時は有効なゾーンがすべて適用されます）。もう一度押すと解除します。
+操作行のすぐ下に、プレビュー上のクリックがいま何をするか（スポイト／シード指定／マスクを塗る・消す／AI 提案）が 1 行で出ます。**Esc でどのモードも解除できます。**
 
 #### プレビュー上の目印
 
 - 十字: 連続領域モードのシード位置
-- 菱形: スポイトで色を取った位置（自動調整はこの位置に AI マスク提案をかけます）
+- 菱形: スポイトで色を取った位置
 
-どちらもゾーンごとに色が違い、マスクのオーバーレイと同じ色です。
-
-#### 自動更新
-
-設定を変えると、短い遅延（約 0.2 秒）のあと自動で更新されます。
+どちらもゾーンごとの色（マスクの重ね表示と同じ色）で出ます。
 
 ---
 
 ### マスク（除外・含める）
 
-プレビュー上にブラシで塗って、色替えの範囲を手動で調整します。マスクは 2 種類あります。
+プレビューにブラシで塗って、色替えの範囲を手で直します。
 
-- **除外マスク**: 塗った領域を色替えから外します（色が合っていても変更されません）。全ゾーンに効く共通マスクと、特定ゾーンだけに効くゾーン別マスクを使い分けられます。
-- **含めるマスク**: 塗った領域を必ず色替えに含めます（色が合わなくても変更されます）。色の判定では拾いきれなかった部分 — たとえば強い光沢や、離れた場所にある同じパーツの取りこぼし — を追加するのに使います。ゾーン別のみです（どのゾーンの色にするかを決める必要があるため、共通マスクには「含める」はありません）。
+- **除外マスク**: 塗った領域を色替えから外します。全ゾーンに効く共通マスクと、ゾーン別マスクがあります。
+- **含めるマスク**: 塗った領域を必ず色替えします。強い光沢や、離れた場所の同じパーツなど、色の判定で拾えなかった部分を足すのに使います。ゾーン別のみです。
 
 両方に塗られた画素は**除外が優先**されます。
 
@@ -314,134 +258,97 @@
 
 #### 使い方
 
-マスクの操作は **「Iroca マスク編集」ウィンドウ** にまとまっています。プレビューの隣に置いたまま、対象・種類・ツールをすべてそこで切り替えられます。
+操作は「Iroca マスク編集」ウィンドウにまとまっています。
 
-1. マスク欄の「マスクを編集...」を押すと、マスク編集ウィンドウが開いてペイントモードになります。
-2. ウィンドウ上部の「編集対象」プルダウンで、共通マスクか各ゾーンを選びます。
-3. 「マスクの種類」で除外／含めるを選びます（含めるはゾーン選択時のみ）。
-4. ツールで「塗る」「消す」「AI 提案」を切り替えます（AI 提案は Sentis 導入済みのときのみ表示。モデル未取得のうちは押せません。同じボタンをもう一度押すとそのモードを抜けます）。
-5. 「塗る」「消す」ではプレビュー上をドラッグしてマスクを塗り／消しします（赤い重ね表示が共通の除外、色付きがゾーン別の除外、緑が含める）。「AI 提案」ではパーツを右クリックすると AI が推定した領域が追加されます。
+1. マスク欄の「マスクを編集...」を押してウィンドウを開きます。
+2. 「編集対象」で共通マスクか各ゾーンを、「マスクの種類」で除外／含めるを選びます（含めるはゾーン選択時のみ）。
+3. ツールの「塗る」「消す」を選び、プレビュー上をドラッグします。ブラシサイズは 1〜64 です。同じボタンをもう一度押すか Esc で抜けます。
+4. 「AI 提案」ツールでは、パーツを右クリックすると AI が推定した領域が足されます（→「[AI マスク提案](#ai-マスク提案実験的機能)」）。
 
-プレビューの重ね表示には、いま編集している 1 枚だけでなく**塗ってあるマスクすべて**が表示されます（編集対象は明るく、それ以外は薄く）。薄く表示されているマスクも色替えにはそのまま効いています。
+重ね表示は、赤が共通の除外、ゾーンの色がゾーン別の除外、緑が含めるです。編集中の 1 枚は明るく、ほかは薄く出ますが、薄いマスクも色替えには効いています。
 
-ウィンドウを閉じるとマスク編集モード（ブラシ・AI 提案とも）が解除されます。メインウィンドウのマスク欄には「編集中のマスク: ◯◯ / ◯◯」の表示が残るので、閉じていても対象は確認できます。
-
-#### 編集対象
-
-- 共通マスク（全ゾーン）: すべてのゾーンで除外される領域
-- ゾーン別マスク: 選んだゾーンだけの除外／含める領域
-
-処理時は共通マスクとゾーン別マスクが合わせて適用されます。
+ウィンドウを閉じるとマスク編集モードは解除されます。
 
 #### 含めるマスクの色の写り方
 
-含めるマスクで追加した領域は、そのゾーンの色マッチした部分から推定した「素材の基準」を使って、同素材として色替えされます。追加した領域の色や明るさは、ゾーン全体の色の写り方には影響しません（別素材を含めてもゾーンの他の部分の仕上がりは変わりません）。
-
-#### ブラシ設定
-
-ブラシサイズは 1〜64 で指定します。
-
-#### 描画モード
-
-- 塗る: ペイントモードに入り、選んだ種類のマスクを塗ります。再度押すと抜けます。
-- 消す: 消しゴムモードに入り、選んだ種類のマスクを消します。再度押すと抜けます。
-
-ドラッグ中に出るブラシカーソルは、いま塗ろうとしているマスクの色（赤＝除外／緑＝含める）です。消しゴムのときは白になります。
-
-塗っている最中でも、中ボタンドラッグまたは Alt+ドラッグで表示を移動できます。Esc でペイントモードを抜けられます。
+含めるマスクで足した領域は、そのゾーンの色マッチした部分と同じ素材として色替えされます。足した領域の色や明るさは、ゾーンのほかの部分の仕上がりに影響しません。
 
 #### 取り消しとリセット
 
-- Ctrl+Z: 直前のストロークを取り消します（Unity 標準の Undo に対応。マスク編集ウィンドウの「直前の操作を元に戻す」ボタンでも同じ操作ができます）。
-- このマスクをクリア: いま選んでいる対象・種類のマスク 1 枚だけを消します（ボタンに対象名が出ます）。ほかのマスクは残ります。
+- Ctrl+Z（または「直前の操作を元に戻す」ボタン）: 直前のストロークを取り消します。
+- このマスクをクリア: いま選んでいる対象・種類のマスク 1 枚だけを消します。
 
 ---
 
 ### AI マスク提案（実験的機能）
 
-プレビュー上のパーツを**右クリック**すると、AI（MobileSAM）がそのパーツの領域を推定し、その場で編集対象のマスクへ追加します。追加先はマスク編集ウィンドウの「編集対象」と「マスクの種類」に従います（除外＝色替えしない範囲／含める＝必ず色替えする範囲）。手描きでパーツを囲む手間を大幅に減らせます。左ドラッグはこれまでどおりプレビューの移動（パン）なので、AI 提案中でも見たい場所へ寄せながら選べます。
+プレビュー上のパーツを**右クリック**すると、AI（MobileSAM）がそのパーツの領域を推定し、編集対象のマスクへその場で足します。手描きで囲む手間を減らせます。
 
 #### 必要なもの（自動調整にも必要）
 
-AI マスク提案と「自動調整」は、どちらも以下の 2 つを使います。未導入のときは「いろか」のウィンドウ上部に案内の帯が出るので、そこから導入・ダウンロードできます（帯は「閉じる」で畳めますが、次に Unity を開くとまた出ます）。セットアップが済むと帯は消え、以後は マスク編集ウィンドウのツール「AI 提案」から使います。
+未導入のときは、いろかのウィンドウ上部に案内の帯が出ます。そこから 2 つとも導入できます。
 
-1. **Unity Sentis パッケージ**: ウィンドウ上部の案内に出る **「AI 機能を有効化（Sentis を導入）」** ボタンを押すと、Package Manager 経由で自動導入されます（導入後 Unity が自動で再コンパイルします）。手動で入れる場合は Package Manager → 左上の「+」→「Add package by name...」→ `com.unity.sentis`（バージョン `2.1.3`）。
-2. **AI モデル（2 ファイル・合計約 45MB）**: ウィンドウ上部の案内の「モデルをダウンロード」を押すと自動で配置されます（sha256 検証つき）。モデルは **プロジェクトごとではなくユーザー共通のフォルダに 1 か所だけ** 保存されるため（Windows は `%LOCALAPPDATA%\Iroca\Models`）、別プロジェクトでも再ダウンロードは不要です。手動の場合はモデル配布リポジトリ [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) から 2 つの `.onnx` をダウンロードし、「モデルフォルダを開く」で開いたフォルダへ置いてください。
+1. **Unity Sentis パッケージ**: 帯の「AI 機能を有効化（Sentis を導入）」を押します。手動の場合は Package Manager →「+」→「Add package by name...」→ `com.unity.sentis`（バージョン `2.1.3`）。
+2. **AI モデル（2 ファイル・合計約 45MB）**: 帯の「モデルをダウンロード」を押します。保存先はユーザー共通のフォルダ（Windows は `%LOCALAPPDATA%\Iroca\Models`）なので、別プロジェクトでの再ダウンロードは不要です。手動の場合は [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) から 2 つの `.onnx` を取得し、「モデルフォルダを開く」で開いたフォルダへ置きます。
 
 #### 使い方
 
-1. マスク欄の「マスクを編集...」でマスク編集ウィンドウを開き、ツールの「AI 提案」を押します（ブラシペイントとは排他で、押すとブラシは解除されます）。
-2. プレビュー上で、選びたいパーツの内側を **右クリック**（mac は Control+クリック）します。画像の解析は AI 提案に入った時点で先に始まるので、進捗表示が消えてから押すと待たずに済みます。小さいパーツ（模様・ワンポイントなど）を選んだ場合は、その周辺を自動で拡大して推定し直すため、待ち時間が少し延びることがあります。
-   - **左ドラッグはプレビューの移動（パン）のまま**です。推定を待っている間もスクロール・拡大縮小・移動ができるので、次に選ぶパーツへ寄せながら進められます。
-3. 推定された領域は **その場で編集対象のマスクへ追加され**（既定は除外＝色替えしない範囲）、マスクの色で表示されます。追加先のゾーンと種類は、同じウィンドウの上にある「編集対象」「マスクの種類」でいつでも切り替えられます。確定ボタンはありません。パーツが複数の島に分かれている場合は、島を順に右クリックすればそれぞれが足されていきます。
-4. 外した提案が足されてしまったら **Ctrl+Z** で 1 つずつ戻せます（手描きブラシと同じ操作です）。
-5. 足した領域は通常のマスクなので、ブラシでの微修正・ファイル保存はいつも通りです。仕上げに全体をブラシで整えられます。
-
-> 右クリックした瞬間にマスクへ反映されるため、間違いは Ctrl+Z で戻す運用です。足される先は、同じウィンドウの「編集対象」と「マスクの種類」がそのまま示しています。
+1. マスク編集ウィンドウでツールの「AI 提案」を押します。画像の解析がここで始まるので、進捗表示が消えるのを待ちます。
+2. 選びたいパーツの内側を**右クリック**（mac は Control+クリック）します。左ドラッグはプレビューの移動のままです。
+3. 推定された領域が、「編集対象」「マスクの種類」で選んでいるマスクへすぐ足されます（確定ボタンはありません）。パーツが複数の島に分かれているときは、島を順に右クリックします。
+4. 間違えたら Ctrl+Z で 1 つずつ戻します。足した領域は通常のマスクなので、ブラシで整えられます。
 
 #### 苦手なケース
 
-- 白背景に白いパーツなど、見た目の境界が無い場合は正しく提案できません。手描きマスクを使ってください。
-- 数十個の小さなピースに分かれたパーツはクリック回数が多くなります。大きな塊だけ AI で選び、残りをブラシで足すのが早道です。
-- 「直前のクリックが背景まで広がった可能性があります」と警告が出たら、Ctrl+Z で戻し、粒度を「細かい」にするかパーツのより内側を右クリックし直すのがおすすめです。
+- 白背景に白いパーツなど、見た目の境界が無いもの。手描きマスクを使ってください。
+- 数十個の小さなピースに分かれたパーツ。大きな塊だけ AI で選び、残りはブラシで足すのが早道です。
+- 「背景まで広がった可能性があります」と警告が出たら、Ctrl+Z で戻し、粒度を「細かい」にするか、パーツのより内側を右クリックし直します。
 
 #### うまく動かないとき
 
-- **左クリックしても何も起きない**: AI 提案の指定は **右クリック**（mac は Control+クリック）です。左クリック／左ドラッグはプレビューの移動に割り当てています。
-- **Unity を起動して最初の 1 回だけ時間がかかる**: AI エンジン（Burst）のコンパイルが入るためで、異常ではありません。「AI 提案を開始」を押した時点で解析と暖機を先に済ませるので、進捗表示が消えてから右クリックすれば待ち時間はほぼありません。2 回目以降はすぐ返ります。
-- **右クリックしてもマスクが何も変わらない**: 「AI が領域を返しませんでした」または「内部コンパイル（Burst）が失敗しています」と表示された場合、Unity 起動時に Burst の初期化に失敗しています。この状態は同じセッションでは直らないので、**Unity を再起動**してください（欄に出る「Unity を再起動」ボタンでプロジェクトを開き直せます）。再起動しても再発するときは、プロジェクトの `Library\BurstCache` と `Library\Bee` フォルダを削除してから起動し直すと直ることがあります（`Library` 配下は自動で再生成されるため削除して問題ありません）。
-- **「マスクが変わりませんでした（すでに追加済み）」と出る**: 異常ではありません。クリックした領域はすでにマスクへ入っています。
+- **左クリックしても何も起きない**: 指定は右クリックです。
+- **Unity 起動後の最初の 1 回だけ遅い**: AI エンジン（Burst）のコンパイルが入るためで、異常ではありません。
+- **小さいパーツで少し待つ**: 周辺を自動で拡大して推定し直すためです。
+- **右クリックしてもマスクが変わらない**（「AI が領域を返しませんでした」「内部コンパイル（Burst）が失敗しています」）: Burst の初期化失敗です。同じセッションでは直らないので、欄の「Unity を再起動」を押します。再発するときは、プロジェクトの `Library\BurstCache` と `Library\Bee` を削除してから起動し直します（自動で再生成されます）。
+- **「マスクが変わりませんでした（すでに追加済み）」**: クリックした領域はすでにマスクに入っています。
 
 #### クレジット / ライセンス
 
-この機能は [MobileSAM](https://github.com/ChaoningZhang/MobileSAM)（Apache License 2.0）を ONNX 形式に変換して使用しています。モデルの著作権は原作者に帰属します。変換済みモデルは [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) リポジトリで Apache License 2.0 のもと配布しています。詳細は同リポジトリの NOTICE ファイルを参照してください。
+この機能は [MobileSAM](https://github.com/ChaoningZhang/MobileSAM)（Apache License 2.0）を ONNX 形式に変換して使用しています。モデルの著作権は原作者に帰属します。変換済みモデルは [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) で Apache License 2.0 のもと配布しています（詳細は同リポジトリの NOTICE）。
 
 ---
 
 ### プリセット
 
-カラーゾーンと加工設定をプリセットとして保存・読み込みできます。
+カラーゾーンと加工設定を保存・読み込みできます。
 
 #### 保存と読み込み
 
-1. 「プリセット」セクションを開きます。
-2. 保存先を選びます。
-3. プリセット名を入れて「保存」を押します。
-4. 一覧の「読込」で読み込み、「×」で削除します。
+「プリセット」セクションで保存先を選び、名前を入れて「保存」を押します。一覧の「読込」で読み込み、「×」で削除します。
 
-保存先は 2 種類あります。
-
-- プロジェクト内: プロジェクトの `Assets` フォルダ内に保存します。Git などでチームと共有できます。
-- ユーザー共通: OS のユーザーフォルダに保存します。この端末のすべてのプロジェクトで共有されます。
+- プロジェクト内: `Assets` フォルダ内に保存します。Git などでチームと共有できます。
+- ユーザー共通: OS のユーザーフォルダに保存します。この端末のすべてのプロジェクトで使えます。
 
 #### マスクの保存・読み込み
 
-- マスクも保存する: ON にすると、いま塗っている共通・ゾーン別マスクもプリセットに同梱します。
-- マスクも読み込む: ON にすると、プリセット内のマスクを読み込み時に復元します。OFF ならマスクは無視して他のパラメータだけ読みます。
+「マスクも保存する」を ON にすると、塗ってあるマスクもプリセットに入ります。「マスクも読み込む」を OFF にすると、読み込み時にマスクだけ無視します。
 
 #### JSON の書き出し・読み込み
 
-「JSONエクスポート」「JSONインポート」で、設定を外部ファイルとしてやり取りできます。
+「JSONエクスポート」「JSONインポート」で、設定をファイルとしてやり取りできます。
 
 ---
 
 ### エクスポート
 
-「新規ファイルとして保存」で保存方法を選んでから、「適用して保存」を押します。
+「適用して保存」で保存します。出力は常に PNG です。
 
-#### 保存方法
+- 新規ファイルとして保存: ON なら元のテクスチャを残し、「ファイル名」の別ファイルに保存します。OFF なら元のファイルを上書きします（確認が出ます。元に戻せないのでバックアップをお勧めします）。
+- インポート設定を引き継ぐ（既定 ON）: 元テクスチャのインポート設定（タイプ・圧縮・ミップマップなど）を引き継ぎます。
+- フォルダを開く: 保存先のフォルダを開きます。
+- Project で表示: 保存したテクスチャを Project ウィンドウで選択します（マテリアルへの差し替え用）。
 
-新規ファイルとして保存を ON にすると、元のテクスチャを残したまま別ファイルに保存します。「ファイル名」を指定できます。
-
-OFF にすると、元のテクスチャファイルを上書きします。上書き前に確認ダイアログが出ますが、バックアップを取っておくと安心です。
-
-#### その他のオプション
-
-- インポート設定を引き継ぐ: ON（既定）にすると、出力テクスチャが元テクスチャのインポート設定（テクスチャタイプ・圧縮・ミップマップなど）を引き継ぎます。OFF なら Unity の既定設定を使います。
-- フォルダを開く: 保存先のフォルダをファイルマネージャーで開きます。
-- Project で表示: 直前に保存したテクスチャを Unity の Project ウィンドウで選択・表示します（マテリアルへ差し替えるときに使います）。
-
-保存に失敗したときは、エクスポート欄にエラーが残ります（「閉じる」を押すまで消えません）。詳細は Console にも出ます。
+保存に失敗したときは、エクスポート欄にエラーが残ります。詳細は Console にも出ます。
 
 ---
 
@@ -449,72 +356,60 @@ OFF にすると、元のテクスチャファイルを上書きします。上�
 
 #### 図形の周りに薄い色やドットが残る
 
-アンチエイリアスやぼかしのかかった周辺は薄い色になり、変換から漏れて残ることがあります。次の順に試してください。
+アンチエイリアスやぼかしで薄くなった縁が、変換から漏れています。次の順に試してください。
 
-1. 彩度制限（影の厳しさ）を 0.7〜0.9 あたりまで上げる。薄い色を選択から外せます。
-2. 許容範囲を狭める。
-3. 連続領域モードを使い、離れた残りを自動で切り離す。
-4. それでも残る部分は除外マスクで保護する。
+1. 彩度制限（影の厳しさ）を 0.7〜0.9 に上げる
+2. 許容範囲を狭める
+3. 連続領域モードで離れた残りを切り離す
+4. 残った部分を除外マスクで保護する
 
 #### 色がはみ出す
 
-彩度制限が低すぎるか、許容範囲が広すぎます。まず彩度制限（影の厳しさ）を 0.8〜0.95 あたりまで上げ、許容範囲を狭めます。鮮やかな色を選んでいて白・黒・灰を巻き込んでいる場合は、彩度ガード（無彩色よけ）を上げると効きます。エッジ柔らかさを 0.0〜0.5 で調整するのも有効です。
+彩度制限を 0.8〜0.95 に上げ、許容範囲を狭めます。白・黒・灰を巻き込んでいるなら彩度ガードを上げます。エッジ柔らかさを 0.0〜0.5 で調整するのも有効です。
 
 #### 境界に細かいノイズが残る
 
-彩度制限が高すぎるか、境界処理が足りていません。彩度制限を 0.1〜0.4 あたりまで下げると境界のピクセルを拾いやすくなります（そのぶんはみ出しやすくはなります）。あわせて AA境界クリーンアップを 3〜5 に上げる、エッジぼかしを 0.5〜1.5 から入れる、エッジ柔らかさを 0.3〜0.7 にする、のいずれかを試します。
+彩度制限を 0.1〜0.4 に下げます（そのぶんはみ出しやすくなります）。あわせて AA境界クリーンアップを 3〜5、エッジぼかしを 0.5〜1.5、エッジ柔らかさを 0.3〜0.7 のいずれかで試します。
 
 #### 境界がギザギザしている・硬い
 
-エッジ処理が足りていません。エッジぼかしを 0.5〜1.5 から入れるのが基本です。あわせてエッジ柔らかさを 0.3〜0.7 に上げ、必要なら彩度制限を 0.3〜0.45 まで少し下げると境界を拾いやすくなります。
+エッジぼかしを 0.5〜1.5 から入れます。足りなければエッジ柔らかさを 0.3〜0.7 に上げ、彩度制限を 0.3〜0.45 まで少し下げます。
 
 #### 仕上がりがベタ塗りになる
 
-彩度 100% の純色は明暗が潰れてベタ塗りに見えます。出力彩度を 0.7〜0.9 に下げると、色相は保ったまま陰影が戻ります。模様を残したい場合は模様保持を上げます。
+出力彩度を 0.7〜0.9 に下げます。模様を残したいときは模様保持を上げます。
 
 #### テクスチャ全体が変わってしまう
 
-許容範囲が広すぎます。許容範囲を 0.05〜0.15 あたりまで大きく下げ、サンプルカラーをより限定的な色で取り直します。離れた領域まで変わってしまう場合は、連続領域モードで塊を絞り込みます。
+許容範囲を 0.05〜0.15 まで下げ、サンプルカラーをより限定的な色で取り直します。離れた領域まで変わるときは連続領域モードで絞ります。
 
 #### 黒い色に変更できない
 
-黒は明度の情報がほとんどないため、模様保持が効きにくくなります。模様保持を 0〜0.3 に下げ、エッジ柔らかさを 0 にします。保護したい部分は先に除外マスクで囲っておきます。
+黒は明度の情報がほとんどなく、模様保持が効きにくくなります。模様保持を 0〜0.3、エッジ柔らかさを 0 にします。保護したい部分は先に除外マスクで囲っておきます。
 
 ---
 
 ### よくある質問
 
-**Q: 複数のカラーゾーンを組み合わせられますか？**
-
-はい。「+ ゾーン追加」で複数のゾーンを追加できます。名前は「ゾーン 1」「ゾーン 2」…と自動で振られ、自由に変えられます。重なった部分の優先度は、リストの並び順（`☰` ハンドルのドラッグ）で決まります。
-
-**Q: 連続領域モードは何をするものですか？**
-
-色が一致した領域のうち、確信度の高い芯を含むつながった塊だけに変換を絞ります。離れた場所の同色パーツや背景への色移りを自動で防ぎます。塊が複数あるときは、プレビューを Shift+クリックして残したい塊を 1 つ指定できます。
-
-**Q: 自動調整は何をしてくれますか？**
-
-サンプルカラーと変更先カラーからテクスチャを解析し、許容範囲や彩度制限などを自動で設定します。スポイトで色を取った位置に AI マスク提案をかけ、そのパーツの範囲を手がかりに暗部からハイライトまで取りこぼさないようにします（AI モデルが必要です）。スポイトで色を取った直後に押すのが一番効きます。
-
 **Q: PSD のレイヤー構造をサポートしていますか？**
 
-いいえ。本ツールは PNG などの統合済みテクスチャを対象としています。PSD があるなら、そちらを直接編集する方が確実です。
+いいえ。統合済みのテクスチャが対象です。PSD があるなら、そちらを直接編集する方が確実です。
 
 **Q: Undo は使えますか？**
 
-除外マスクの描画は Ctrl+Z で取り消せます（Unity 標準の Undo に統合）。テクスチャへの色適用そのものは元に戻せないので、上書き保存の前にバックアップをお勧めします。
+マスクの描画は Ctrl+Z で取り消せます。テクスチャへの色適用は元に戻せないので、上書き保存の前にバックアップをお勧めします。
 
 **Q: 複数のプロジェクトで使えますか？**
 
-はい。`.unitypackage` を各プロジェクトに読み込むだけです。プリセットの保存先で「ユーザー共通」を選ぶと、プロジェクト間で設定を共有できます。
+はい。`.unitypackage` を各プロジェクトに読み込むだけです。プリセットの保存先を「ユーザー共通」にすると、プロジェクト間で設定を共有できます。
 
 **Q: 対応しているファイル形式は？**
 
-入力は PNG / JPG が基本で、出力は常に PNG です。TGA・EXR・PSD も、Unity が取り込んだテクスチャの画素から書き出せます（この場合はインポート設定の縮小・圧縮が反映されるため、原本と同じ解像度・画質になるとは限りません。書き出し時にウィンドウで知らせます）。PNG / JPG 以外を使うときは、Unity 上で Read/Write Enabled を有効にしてください。
+入力は PNG / JPG が基本で、出力は常に PNG です。TGA・EXR・PSD は、Unity が取り込んだ画素から書き出します（インポート設定の縮小・圧縮が反映されるため、原本と同じ解像度・画質とは限りません。書き出し時に知らせます）。
 
 **Q: 大きなテクスチャでも使えますか？**
 
-使えます。処理はメモリ上で行うため、大きなテクスチャでは一時的にメモリ使用量が増えます。
+使えます。処理はメモリ上で行うため、一時的にメモリ使用量が増えます。
 
 ---
 
@@ -543,159 +438,132 @@ OFF にすると、元のテクスチャファイルを上書きします。上�
 #### Prerequisites
 
 - Unity 2022.3 or later
-- PNG and JPG textures need no extra setup (Iroca reads the source file directly)
-- Read/Write Enabled is required only for formats whose source file cannot be read directly, such as PSD, TGA and EXR
-
-If Iroca cannot get pixels from the texture you picked, you can enable Read/Write from the warning button shown in the window.
+- PNG and JPG textures work as they are
+- PSD, TGA, EXR and similar formats need Read/Write Enabled. When it is off, the window shows a warning with an "Enable Read/Write automatically" button (it cannot be undone, so a confirmation appears first)
 
 #### Steps
 
 1. Download the latest zip from [GitHub Releases](https://github.com/yukkuri-aoba/Iroca/releases) and extract it.
-2. Drag the `.unitypackage` into the Unity Editor project window.
-3. Click "Import" in the dialog.
-4. After importing, an `Assets/Iroca` folder is created.
-5. Open the window from `Tools > いろか`.
-
-#### Enabling Read/Write
-
-When pixels can be obtained neither from the source file nor from the imported texture (for example a PSD, TGA or EXR with Read/Write Enabled off), the window shows a warning and an "Enable Read/Write automatically" button. Clicking it changes the import settings to turn it on. This cannot be undone, so a confirmation dialog appears first. PNG and JPG textures never show this warning.
+2. Drag the `.unitypackage` into the Unity project window and click "Import".
+3. Once the `Assets/Iroca` folder appears, open the window from `Tools > いろか`.
 
 ---
 
 ### Basic Usage
 
-The window is laid out top to bottom: 1. Source Texture, 2. Color Zones, 3. Preview, 4. Export. Follow the numbers and you can recolor a texture end to end.
+The window runs top to bottom: 1. Source Texture, 2. Color Zones, 3. Preview, 4. Export. Follow the numbers to recolor a texture.
 
 #### Step 1: Pick a source texture
 
-Drag a texture onto the "Texture" field under "Source Texture", or click the field to choose one. It appears in the preview.
+Drag the texture you want to recolor onto the "Texture" field under "Source Texture".
 
 #### Step 2: Add a color zone
 
-Click "+ Add Zone" to create one recoloring zone. Zones are named "Zone 1", "Zone 2" and so on; you can rename them freely and the name does not affect processing.
+Click "+ Add Zone". One color zone is one recoloring.
 
 #### Step 3: Choose the color to change
 
-Colors are picked with the "Eyedropper" button next to the Sample Color field.
+1. Press "Eyedropper" to the right of the "Sample Color" field, then click the color you want on the preview. The most vivid spot of the area works best.
+2. Press "Auto-tune" just below it. It sets the tolerance and related values so the part is covered from its shadows to its highlights (the AI models are required; a notice at the top of the window offers to install them).
+3. If the selection is too wide or too narrow, fine-tune it with "Tolerance".
 
-1. Press the "Eyedropper" button to the right of the zone's "Sample Color" field (its label changes to "■ Click to pick").
-2. Click the color you want on the preview. The color is read directly from the texture pixel and the clicked position is remembered (the button disarms itself after one pick).
-3. Press "Auto-tune" just below it. It runs the AI mask suggestion at the sampled position and sets the tolerance and related values so the part is covered from its shadows to its highlights (the AI models are required; a notice at the top of the window offers to install them). It works best right after sampling.
+You do not have to use Auto-tune: a new zone starts with a Tolerance of 0.20, so the preview changes as soon as you set the colors.
 
-   You do not have to use Auto-tune: a newly added zone starts with a Tolerance of 0.20, so the preview changes as soon as you set the two colors.
-4. If the selection is too wide or too narrow, fine-tune it with the "Tolerance" slider.
-
-Pick the most vivid color within the area you want to recolor for the best results.
-
-The color picker that opens when you click the Sample Color field also has an eyedropper, but it reads the pixel as displayed on screen (the color can be slightly off) and does not record the position. A zone without a position is auto-tuned without the AI suggestion, so always use the Eyedropper button when you intend to run Auto-tune.
+> Always sample with the "Eyedropper" button. The eyedropper inside the color picker (opened by clicking the field) reads a slightly different color and records no position, so Auto-tune cannot use the AI suggestion.
 
 #### Step 4: Set the target color
 
-Click the zone's "Target Color" and choose the new color. The preview updates right away.
+Click "Target Color" and choose the new color. The preview updates right away.
 
 #### Step 5: Adjust the result (optional)
 
 | Setting | What it does |
 |---|---|
 | Pattern Preserve | How much of the original pattern to keep (0 = flat recolor, 1 = keep pattern; default 1.0) |
-| Output Saturation | Output vividness. Lower it to 0.7-0.9 when a pure color looks flat (default 1.0) |
+| Output Saturation | Lower it to 0.7-0.9 when a pure color looks flat, and the shading comes back (default 1.0) |
 | Connected Region (Flood Fill) | Restricts recoloring to one connected region and avoids bleed into separate parts or the background (default ON) |
 
-For finer edge and saturation controls, see [Color Zone Settings](#color-zone-settings).
+For finer controls, see [Color Zone Settings](#color-zone-settings).
 
 #### Step 6: Save
 
-When you are happy with the result, save it under "Export". See [Export](#export) for details.
+Save under "Export" (see [Export](#export)).
 
 ---
 
 ### Color Zone Settings
 
-A zone splits into the core controls that are always visible and the controls revealed by opening "Details". When several zones overlap, priority is decided by their order in the list.
-
 #### Core controls (always shown)
 
 **Sample Color**
 
-The reference color used to find the target. Press the "Eyedropper" button next to the field and click the preview: the color is read from the actual texture pixel and the position is remembered as the hint for "Auto-tune". You can also set the color from the color picker that opens when you click the field, but no position is recorded then (Auto-tune analyzes without the AI suggestion). Pixels close to the sample color are detected automatically.
+The reference color for the target. Pixels close to it are selected. When you take it with the "Eyedropper" button, the clicked position is also remembered as the hint for "Auto-tune".
 
 **Auto-tune**
 
-Analyzes the texture from the sample and target colors and sets the tolerance, saturation strictness, and related values together. It runs the AI mask suggestion (MobileSAM) at the position you sampled and uses that part's extent as evidence so that everything from the shadows to the bright highlights is covered. It is most effective right after you sample a color. It is disabled when the source texture is not set, when no pixels can be obtained from the texture, or when the sample color is still unset (white). A confirmation dialog asks before overwriting only when you have changed parameters by hand; it does not appear while a zone is still at its initial values or at the values the last auto-tune applied.
+Analyzes the texture and sets the tolerance, saturation strictness, and related values together. It runs the AI mask suggestion (MobileSAM) at the sampled position so that the part is covered from its shadows to its bright highlights. It is most effective right after sampling.
 
-- If the AI (Unity Sentis and the AI models) is not installed, nothing is analyzed; instead you are asked to install/download it (see "Requirements" under AI Mask Suggestion).
-- If the AI is still getting ready (loading the model, computing the image embedding), Auto-tune waits for it (a progress bar and a Cancel button are shown).
-- A zone whose color was typed into the color field instead of sampled has no position, so it is analyzed without the AI suggestion (a notice is shown).
+- It is disabled when the source texture is not set, when no pixels can be obtained, or when the sample color is still unset (white).
+- If the AI is not installed, you are asked to install it (see "Requirements" under [AI Mask Suggestion](#ai-mask-suggestion-experimental)). If it is still getting ready, Auto-tune waits (a progress bar and a Cancel button are shown).
+- A zone whose color came from the color picker has no position, so it is analyzed without the AI suggestion (a notice is shown).
+- A confirmation before overwriting appears only when you have changed values by hand.
 
 **Tolerance**
 
-How far a color can be from the sample and still match (0.0-1.0). A range of about 0.15-0.40 works for most cases.
-
-| Value | Effect |
-|---|---|
-| Low | Stricter matching (narrower selection) |
-| High | Looser matching (wider selection, more noise) |
+How far a color can be from the sample and still match (0.0-1.0). Lower is stricter (narrower selection); higher is looser (wider, with more noise). About 0.15-0.40 works for most cases.
 
 **Connected Region (Flood Fill)**
 
-Restricts recoloring to the connected region that contains a high-confidence core, and removes bleed into same-color parts elsewhere or into the background. It runs automatically by default, with no seed needed.
+Restricts recoloring to the connected region that contains a high-confidence core. Same-color parts elsewhere and bleed into the background drop out automatically. It is automatic by default, with no seed needed.
 
-When several regions exist and you want to keep only one, set a seed. Press "Set" on the zone's "Seed (optional)" row and then click the preview, and the seed goes to that zone (it disarms after one click). Shift+click on the preview also works. Press "Auto" to clear the seed and return to automatic behavior.
+To keep one particular region, set a seed: press "Set" on the "Seed (optional)" row and click the preview, or Shift+click the preview. "Auto" clears it.
 
 **Target Color**
 
-The color applied after recoloring. Matched pixels become this color.
+The color applied after recoloring.
 
 **Pattern Preserve**
 
-How much of the original brightness to keep after recoloring.
-
-- Near 0: matches the target brightness (flat recolor)
-- 0.5: keeps about half of the original brightness
-- Near 1: keeps the original pattern almost as is (default 1.0)
+How much of the original brightness to keep. Near 0 gives a flat recolor; near 1 keeps the original pattern as is (default 1.0).
 
 **Output Saturation**
 
-The vividness after recoloring (default 1.0). Fully saturated colors such as pure red tend to flatten the brightness gradient and look solid-filled. Lowering it to around 0.7-0.9 keeps the hue while bringing the shading back.
+The vividness after recoloring (default 1.0). Fully saturated colors such as pure red flatten the shading and look solid-filled. Lowering it to 0.7-0.9 keeps the hue while bringing the shading back.
 
 #### Detail controls (open "Details" to show them)
 
-Opening "Details" below a zone reveals these in addition to the core controls. They are grouped by role, top to bottom: Selection range, Highlights, Shadows and neutrals, Color mapping, Matching distance weights. That is also the order in which the processing runs.
-
-If you over-tweak them, the "Reset details to default" button at the end of each zone restores only the detail values; the color, tolerance, and name are kept.
+They are laid out in the order the processing runs: Selection range, Highlights, Shadows and neutrals, Color mapping, Matching distance weights. If you over-tweak them, "Reset details to default" at the end of the zone restores only the detail values (color, tolerance, and name are kept).
 
 **Auto Sample Anchor** (default ON)
 
-Regardless of how bright the sampled spot was, this adjusts the recoloring reference so the lit side of the part matches the target color. It keeps the output from coming out too bright or flat when you sample in a shadow. Turn it OFF when you want the clicked pixel mapped exactly to the target, or when you intentionally want a brighter result. It changes how colors map, not which pixels are selected.
+Adjusts the reference so the lit side of the part matches the target color even when you sampled in a shadow. Turn it OFF to map the clicked pixel exactly to the target, or for an intentionally brighter result. The selection does not change.
 
 **Edge Softness** (default 0)
 
-How hard the selection edge is. 0 is a hard edge; raising it picks up anti-aliased boundaries more smoothly. Useful for blurred textures.
+0 is a hard edge; raising it picks up anti-aliased boundaries more smoothly. For blurred textures.
 
 **Saturation Strictness** (default 0.50)
 
-How strictly the faint shadows and AO of the picked color are kept in the selection. Raising it reduces bleed but can leave color dots at edges. Lowering it removes dots but bleeds into surroundings more.
+How far faint shadows and AO are picked up. Raising it reduces bleed but tends to leave color dots at edges; lowering it does the opposite.
 
 **Saturation Guard** (default 0)
 
-A safety guard that keeps colorless areas (white, black, gray) out of the result when you pick a vivid color. Use it when you raise the tolerance to recover the core but want to avoid pulling in unrelated black or white. It disables itself automatically if the picked color is already grayish. Where Saturation Strictness tunes how shadows are handled, this one excludes achromatic pixels outright.
+Keeps white, black, and gray out of the result when you pick a vivid color. Use it when you raise the tolerance a lot. It disables itself if the picked color is already grayish.
 
 **Highlight Recovery** (default ON)
 
-Also matches high-brightness, low-saturation highlights such as specular reflections and gloss, so glossy materials are not left unrecolored. When it is ON, "Highlight Band Expansion" (default ON) appears below it. That expands recoloring into drawn-in highlights connected to the body, preventing thin highlights from being missed without raising the tolerance.
+Also matches high-brightness, low-saturation highlights (specular, gloss) so glossy materials are not left unrecolored. "Highlight Band Expansion" (default ON), shown while it is ON, extends the range into drawn-in highlights connected to the body.
 
 **Highlight White Blend** (default OFF)
 
-Pushes bright areas toward white to reproduce the white reflection of specular highlights. Useful for glossy or plastic materials where highlights blow out to white. When it is ON, "Auto Highlight Sample" (default OFF) appears below it. That finds the part's base tone automatically so the white blend covers the whole highlight dome and gives a sense of depth. On hair-like textures with many thin strands it can spread too much, so turn it OFF there.
+Pushes bright areas toward white to reproduce the white reflection of specular highlights. For glossy or plastic materials. "Auto Highlight Sample" (default OFF), shown while it is ON, finds the part's base tone so the white blend covers the whole part. On hair-like textures with many thin strands it can spread too much; turn it OFF there.
 
 **Shadows and neutrals**
 
-Fine control over dark and gray pixels.
-
 | Setting | Description | Default |
 |---|---|---|
-| Shadow Desaturation | Brightness threshold below which dark pixels lose saturation. Lower it to let dark colors recolor more vividly | 0.35 |
-| Shadow Forgiveness Sat Min | Minimum saturation to include a dark pixel as shadow. Prevents pure gray or black from being colorized | 0.05 |
+| Shadow Desaturation | Pixels darker than this lose saturation. Lower it to let dark colors recolor more vividly | 0.35 |
+| Shadow Forgiveness Sat Min | Minimum saturation to pick up a dark pixel as shadow. Prevents pure gray or black from being colorized | 0.05 |
 | Auto Grayscale Threshold | If the sample's saturation is at or below this, hue is ignored and the area is treated as grayscale (black/gray) | 0.05 |
 
 **Matching distance weights**
@@ -704,25 +572,25 @@ The coefficients of the color-distance formula itself. You normally leave these 
 
 | Setting | Description | Default |
 |---|---|---|
-| Value Weight | Weight of brightness in the distance formula. Higher is more sensitive to brightness (separates different materials); lower absorbs shadow and highlight of the same material | 1.0 |
-| Sat Distance Weight | Weight of saturation distance. Higher is more sensitive to saturation differences | 0.15 |
-| Sat Ramp Scale | Scale of the dynamic saturation ramp. Larger fades more gradually near the threshold | 0.10 |
+| Value Weight | Higher is more sensitive to brightness (separates different materials); lower absorbs shadow and highlight of the same material | 1.0 |
+| Sat Distance Weight | Higher is more sensitive to saturation differences | 0.15 |
+| Sat Ramp Scale | Larger fades more gradually near the saturation threshold | 0.10 |
 
-Once you find a combination that works, save it as a preset; these values are included.
+These values are saved in presets too.
 
 #### Zone priority (list order)
 
-Where zones overlap, only the upper zone is applied, acting like a mask for the ones below. Priority follows the list order. Grab the `☰` handle on the left of a zone and drag to reorder, which changes its priority.
+Where zones overlap, only the zone higher in the list is applied. Drag the `☰` handle on the left of a zone to reorder.
 
 ---
 
 ### Processing Settings
 
-These adjust edge and noise handling for all zones. Changes show in the preview automatically and are committed when you press "Apply & Save".
+Edge and noise handling, shared by all zones.
 
 #### Edge Feather
 
-Blurs the selection boundary so edge colors blend in naturally (0-5).
+Blurs the selection boundary so edge colors blend in (0-5).
 
 | Value | Effect |
 |---|---|
@@ -732,22 +600,15 @@ Blurs the selection boundary so edge colors blend in naturally (0-5).
 
 #### AA Edge Cleanup
 
-Number of passes that recover dots left at anti-aliased boundaries.
-
-| Value | Effect |
-|---|---|
-| 0 | Off |
-| 1-2 | Weak |
-| 3 | Standard (recommended, default) |
-| 4-5 | Strong |
+Number of passes that recover dots left at anti-aliased boundaries. 0 is off, 3 is standard (default), 4-5 is strong.
 
 #### Edge Decontamination
 
-Reconstructs anti-aliased boundary pixels through alpha decomposition and recomposition, preventing the muddy mid-color (halo) that appears at edges. It is ON by default and usually fine to leave that way.
+Prevents the muddy mid-color (halo) that appears at edges. It is ON by default and usually fine to leave that way.
 
 #### Details (collapsed)
 
-Opening "Details" reveals the internal parameters. The defaults are usually fine.
+The defaults are usually fine.
 
 | Setting | Description | Default |
 |---|---|---|
@@ -755,188 +616,143 @@ Opening "Details" reveals the internal parameters. The defaults are usually fine
 | Hole Fill Min Neighbors | Matched neighbors needed to fill a hole. Lower fills more aggressively | 4 |
 | Boundary Sat Min | Minimum saturation threshold for boundary recovery | 0.02 |
 | Boundary Sat Ramp | Saturation ramp width for boundary recovery | 0.08 |
-| Decontamination Radius | Neighborhood radius used to estimate background color for Edge Decontamination | 4 |
+| Decontamination Radius | Neighborhood radius used to estimate the background color | 4 |
 
 ---
 
 ### Preview
 
+After you change a setting, the preview updates automatically in about 0.2 seconds.
+
 #### Zoom and pan
 
-- Ctrl + Scroll: zoom in and out
-- Right end of the "③ Preview" heading: the current zoom level and "Reset", which returns the zoom to 100% and resets the scroll position
-- Drag: pan the view (whenever the image does not fit in the frame)
-- **Middle-button drag / Alt + drag**: pans the view in any mode, including while you are painting a mask
-
-The high-res preview can be magnified down to pixel level. The maximum zoom scales with the texture resolution.
+- Ctrl + Scroll: zoom (down to pixel level)
+- Drag: pan the view
+- Middle-button drag / Alt + drag: pans even while you are painting a mask
+- "Reset" at the right end of the "③ Preview" heading: returns the zoom to 100% and the view to the top
 
 #### View modes
 
-- Normal: shows the current result (both toggles off)
 - Compare: shows before and after side by side (not available at high zoom)
 - Diff: highlights the pixels that changed
-- "Original" button: shows the texture before recoloring **while you hold it down**. Use it to check what the original looked like without leaving your zoom (at high zoom the original is shown at preview resolution)
+- "Original" button: shows the texture before recoloring **while you hold it down**
+- "Solo" (on a zone's row): previews only that zone. It affects the preview only; what gets saved does not change
 
 #### Current mode row
 
 Just below the toolbar row, a single line shows what a click on the preview does right now (Eyedropper / Seed / Painting or Erasing a mask / AI Suggest). **Press Esc to leave any of these modes.**
 
-When a zone is soloed, that is shown at the right end of the same row.
-
-#### Solo
-
-Press "Solo" on a zone's row to preview only that zone, so you can see what it actually selects. It affects the preview only; what gets saved does not change (every enabled zone is applied on save). Press it again to release.
-
 #### Markers on the preview
 
 - Cross: the Connected Region seed position
-- Diamond: the position you sampled with the Eyedropper (Auto-tune runs the AI mask suggestion there)
+- Diamond: the position you sampled with the Eyedropper
 
-Both are drawn in the zone's own color, the same color used for its mask overlay.
-
-#### Auto-update
-
-After you change a setting, the preview updates automatically following a short delay of about 0.2 seconds.
+Both are drawn in the zone's own color, the same color as its mask overlay.
 
 ---
 
 ### Masks (Exclude / Include)
 
-Paint on the preview to adjust the recolored area by hand. There are two kinds of mask.
+Paint on the preview to fix the recolored area by hand.
 
-- **Exclude mask**: the painted area is kept out of recoloring (it is not changed even where the color matches). A common mask applies to every zone, and per-zone masks apply to one zone only.
-- **Include mask**: the painted area is always recolored (even where the color does not match). Use it to add what color matching could not reach, such as strong gloss, or a piece of the same part that sits somewhere else. Per-zone only, because the zone decides which color it becomes.
+- **Exclude mask**: keeps the painted area out of recoloring. There is a common mask for every zone, and per-zone masks.
+- **Include mask**: always recolors the painted area. Use it to add what color matching could not reach, such as strong gloss or a piece of the same part that sits somewhere else. Per-zone only.
 
 Where both are painted, **Exclude wins**.
 
 #### How to use
 
-Mask editing lives in the **"Iroca Masks" window**. You can keep it next to the preview and switch the target, the kind, and the tool all in one place.
+Mask editing lives in the "Iroca Masks" window.
 
-1. Press "Edit Masks..." in the mask section to open the window and enter paint mode.
-2. Choose the common mask or a zone in the "Edit Target" dropdown at the top.
-3. Choose Exclude or Include under "Mask Type" (Include is only available when a zone is selected).
-4. Pick a tool: Paint, Erase, or AI Suggest (AI Suggest appears only when Sentis is installed, and stays disabled until the models are downloaded; pressing the same button again leaves that mode).
-5. With Paint or Erase, drag on the preview to paint or erase (a red overlay is the common exclude mask, a colored overlay is a per-zone exclude mask, green is include). With AI Suggest, right-click a part and the AI-estimated region is added.
+1. Press "Edit Masks..." in the mask section to open it.
+2. Choose the common mask or a zone under "Edit Target", and Exclude or Include under "Mask Type" (Include needs a zone).
+3. Pick the Paint or Erase tool and drag on the preview. Brush size ranges from 1 to 64. Press the same button again, or Esc, to leave.
+4. With the AI Suggest tool, right-click a part and the AI-estimated region is added (see [AI Mask Suggestion](#ai-mask-suggestion-experimental)).
 
-The overlay shows **every painted mask**, not only the one being edited (the edit target is bright, the rest are dim). The dim ones are still in effect.
+In the overlay, red is the common exclude mask, the zone's color is a per-zone exclude mask, and green is include. The mask being edited is bright and the rest are dim, but the dim ones are still in effect.
 
-Closing the window leaves mask editing (both the brush and AI Suggest). The mask section of the main window keeps showing "Edit target: ◯◯ / ◯◯", so you can check the target even when the window is closed.
-
-#### Edit target
-
-- Common Mask (all zones): excluded from every zone
-- Per-zone mask: the exclude / include area of the selected zone only
-
-During processing, the common and per-zone masks are combined.
+Closing the window leaves mask editing.
 
 #### How include-mask areas are colored
 
-Regions added with the include mask are recolored as the same material, using a material reference estimated from the color-matched part of that zone. Their own color and brightness do not affect how the rest of the zone is recolored.
-
-#### Brush settings
-
-Brush size ranges from 1 to 64. The brush cursor shown while you drag is the color of the mask you are painting (red = exclude, green = include); it turns white while erasing.
-
-You can pan with a middle-button drag or Alt+drag while painting, and press Esc to leave paint mode.
-
-#### Brush modes
-
-- Paint: enters paint mode and paints the selected kind of mask. Press again to leave.
-- Erase: enters erase mode and erases the selected kind of mask. Press again to leave.
+Regions added with the include mask are recolored as the same material as the color-matched part of that zone. Their own color and brightness do not affect how the rest of the zone comes out.
 
 #### Undo and reset
 
-- Ctrl+Z: undoes the last stroke (integrated with Unity's standard Undo; the "Undo Last Action" button in the mask window does the same).
-- Clear this mask: clears only the currently selected target and kind (the button shows which). Other masks are kept.
+- Ctrl+Z (or the "Undo Last Action" button): undoes the last stroke.
+- Clear this mask: clears only the currently selected target and kind.
 
 ---
 
 ### AI Mask Suggestion (Experimental)
 
-Click a part on the preview and the AI (MobileSAM) estimates that part's region and adds it to the exclusion mask right away — a big time-saver over painting parts by hand.
+**Right-click** a part on the preview and the AI (MobileSAM) estimates that part's region and adds it to the mask being edited right away. It saves you from outlining parts by hand.
 
 #### Requirements (also required by Auto-tune)
 
-Both AI Mask Suggestion and Auto-tune use the two items below. When they are missing, a notice appears at the top of the Iroca window with the buttons to set them up (you can dismiss it, but it comes back the next time you open Unity).
+When they are missing, a notice appears at the top of the Iroca window. Both items can be set up from there.
 
-1. **Unity Sentis package**: Press the **"Enable AI feature (install Sentis)"** button in that notice — it installs the package via the Package Manager (Unity recompiles automatically afterward). To install manually: Package Manager → "+" → "Add package by name..." → enter `com.unity.sentis` (version `2.1.3`).
-2. **AI models (2 files, ~45MB total)**: Press "Download models" in the same notice (with sha256 verification). Models are stored **once in a per-user shared folder, not per project** (`%LOCALAPPDATA%\Iroca\Models` on Windows), so other projects don't need to re-download. To install manually, download the two `.onnx` files from the model repository [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) and place them into the folder opened by "Open model folder".
+1. **Unity Sentis package**: press "Enable AI feature (install Sentis)" in the notice. To install manually: Package Manager → "+" → "Add package by name..." → `com.unity.sentis` (version `2.1.3`).
+2. **AI models (2 files, ~45MB total)**: press "Download models" in the notice. They are stored in a per-user shared folder (`%LOCALAPPDATA%\Iroca\Models` on Windows), so other projects do not need to download them again. To install manually, get the two `.onnx` files from [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) and place them into the folder opened by "Open model folder".
 
 #### How to use
 
-1. Open the mask window with "Edit Masks..." and press the "AI Suggest" tool (mutually exclusive with brush painting).
-2. **Right-click** inside the part you want to select on the preview (Control+click on macOS). Image analysis starts as soon as you enter AI Suggest mode, so right-clicking after the progress indicator disappears avoids the wait. Clicking a small part (a pattern, a small accent) may take slightly longer, because the area around the click is automatically zoomed and re-estimated.
-   - **A left drag still pans the preview**, so you can scroll, zoom and move toward the next part while an estimate is running.
-3. The estimated region is **added to the current mask on the spot** (Exclude by default) and drawn in the mask color. There is no confirm button. The target zone and the kind can be switched any time with "Edit Target" and "Mask Type" in the same window. If the part is split into multiple islands, right-click them one by one and each is added.
-4. If a bad proposal got added, press **Ctrl+Z** to undo them one at a time (the same as with the hand brush).
-5. Added regions are ordinary mask data, so brush touch-ups and file persistence work as usual. Finish up with the brush if needed.
-
-> Because a click commits immediately, mistakes are undone with Ctrl+Z. The "Edit Target" and "Mask Type" controls in the same window show exactly where a region is added.
+1. Press the "AI Suggest" tool in the mask window. Image analysis starts here, so wait for the progress indicator to disappear.
+2. **Right-click** inside the part you want (Control+click on macOS). A left drag still pans the preview.
+3. The estimated region is added at once to the mask chosen by "Edit Target" and "Mask Type" (there is no confirm button). If the part is split into several islands, right-click them one by one.
+4. Undo mistakes one at a time with Ctrl+Z. Added regions are ordinary mask data, so you can touch them up with the brush.
 
 #### Known limitations
 
-- Parts with no visible boundary (e.g. white pieces on a white background) cannot be proposed correctly — use hand-painted masks there.
-- Parts split into dozens of tiny pieces need many right-clicks; select the large chunks with AI and fill the rest with the brush.
-- If you see the "may have spread into the background" warning, press Ctrl+Z to undo it, then set the granularity to "Fine" or right-click again further inside the part.
+- Parts with no visible boundary, such as white pieces on a white background. Use hand-painted masks there.
+- Parts split into dozens of tiny pieces. Select the large chunks with AI and fill the rest with the brush.
+- If you see the "may have spread into the background" warning, undo with Ctrl+Z, then set the granularity to "Fine" or right-click further inside the part.
 
 #### If it does not work
 
-- **Nothing happens on a left click**: AI Suggest is driven by a **right-click** (Control+click on macOS). Left click and left drag are reserved for panning the preview.
-- **The very first use after starting Unity is slow**: the AI engine (Burst) compiles once — this is expected. Entering AI Suggest mode starts the analysis and warm-up ahead of time, so right-clicking after the progress indicator disappears costs almost no wait.
-- **Right-clicking never changes the mask** ("The AI returned no region" / "the internal compiler (Burst) failed"): Burst failed to initialize in this Unity session. It cannot recover within the same session: restart Unity with the "Restart Unity" button shown with the message. If it keeps happening, delete the project's `Library\BurstCache` and `Library\Bee` folders and start Unity again (everything under `Library` is regenerated automatically).
-- **"The mask did not change (already added)"**: this is not a fault. The region you clicked is already in the mask.
+- **Nothing happens on a left click**: AI Suggest is driven by a right-click.
+- **The very first use after starting Unity is slow**: the AI engine (Burst) compiles once. This is expected.
+- **Small parts take a little longer**: the area around the click is automatically zoomed and re-estimated.
+- **Right-clicking never changes the mask** ("The AI returned no region" / "the internal compiler (Burst) failed"): Burst failed to initialize. It cannot recover within the same session, so press the "Restart Unity" button shown with the message. If it keeps happening, delete the project's `Library\BurstCache` and `Library\Bee` folders and start Unity again (they are regenerated automatically).
+- **"The mask did not change (already added)"**: the region you clicked is already in the mask.
 
 #### Credits / License
 
-This feature uses [MobileSAM](https://github.com/ChaoningZhang/MobileSAM) (Apache License 2.0) converted to ONNX. The model is copyrighted by its original authors. The converted models are distributed under the Apache License 2.0 in the [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) repository; see its NOTICE file for details.
+This feature uses [MobileSAM](https://github.com/ChaoningZhang/MobileSAM) (Apache License 2.0) converted to ONNX. The model is copyrighted by its original authors. The converted models are distributed under the Apache License 2.0 in [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) (see its NOTICE file).
 
 ---
 
 ### Presets
 
-Save and load color zones and processing settings as presets.
+Save and load color zones and processing settings.
 
 #### Save and load
 
-1. Open the "Presets" section.
-2. Choose a storage location.
-3. Enter a preset name and click "Save".
-4. Use "Load" in the list to load one, or "×" to delete it.
-
-There are two storage locations.
+In the "Presets" section, choose a storage location, enter a name, and click "Save". Use "Load" in the list to load one, or "×" to delete it.
 
 - In Project: saved inside the project's `Assets` folder. Shareable via Git.
-- Shared (User): saved in the OS user folder. Shared across every project on this machine.
+- Shared (User): saved in the OS user folder. Available to every project on this machine.
 
 #### Saving and loading masks
 
-- Include masks when saving: when ON, the currently painted common and per-zone masks are saved into the preset.
-- Apply masks when loading: when ON, masks stored in the preset are restored on load. When OFF, masks are ignored and only other parameters are loaded.
+Turn "Include masks when saving" ON to store the painted masks in the preset. Turn "Apply masks when loading" OFF to ignore the masks when loading.
 
 #### JSON export and import
 
-Use "Export JSON" and "Import JSON" to exchange settings as external files.
+Use "Export JSON" and "Import JSON" to exchange settings as files.
 
 ---
 
 ### Export
 
-Choose the save method with "Save as new file", then press "Apply & Save".
+Press "Apply & Save" to save. The output is always PNG.
 
-#### Save method
+- Save as new file: when ON, the original texture is kept and the result goes to a separate file named by "File Name". When OFF, the original file is overwritten (a confirmation appears first; it cannot be undone, so keep a backup).
+- Inherit Import Settings (default ON): the output inherits the source texture's import settings (texture type, compression, mipmaps, and so on).
+- Open Folder: opens the save folder.
+- Show in Project: selects the saved texture in the Project window (handy when assigning it to a material).
 
-With "Save as new file" ON, the original texture is kept and the result is saved to a separate file. You can set the "File Name".
-
-With it OFF, the original texture file is overwritten. A confirmation dialog appears first, but keeping a backup is recommended.
-
-#### Other options
-
-- Inherit Import Settings: when ON (default), the output inherits the source texture's import settings (texture type, compression, mipmaps, and so on). When OFF, Unity's default import settings are used.
-- Open Folder: opens the save folder in the file manager.
-- Show in Project: selects and reveals the texture you just saved in Unity's Project window (handy when you are about to assign it to a material).
-
-If saving fails, the error stays in the Export section until you press "Dismiss". The details are also written to the Console.
+If saving fails, the error stays in the Export section. The details are also written to the Console.
 
 ---
 
@@ -944,60 +760,48 @@ If saving fails, the error stays in the Export section until you press "Dismiss"
 
 #### Faint colors or dots remain around shapes
 
-Edges touched by anti-aliasing or blur become light-colored and can be left unrecolored. Try these in order.
+Edges lightened by anti-aliasing or blur are being left unrecolored. Try these in order.
 
-1. Raise Saturation Strictness to around 0.7-0.9 to drop light colors from the selection.
-2. Narrow the Tolerance.
-3. Use Connected Region (Flood Fill) to cut off separated leftovers automatically.
-4. Mask anything that still remains with the exclusion mask.
+1. Raise Saturation Strictness to 0.7-0.9
+2. Narrow the Tolerance
+3. Use Connected Region (Flood Fill) to cut off separated leftovers
+4. Protect what remains with the exclude mask
 
 #### Color bleeds outside the intended area
 
-Saturation Strictness is too low or Tolerance is too high. First raise Saturation Strictness to about 0.8-0.95 and narrow the Tolerance. If you picked a vivid color and it is pulling in white, black, or gray, raise Saturation Guard. Adjusting Edge Softness in the 0.0-0.5 range can also help.
+Raise Saturation Strictness to 0.8-0.95 and narrow the Tolerance. If white, black, or gray is being pulled in, raise Saturation Guard. Adjusting Edge Softness within 0.0-0.5 can also help.
 
 #### Fine noise remains at boundaries
 
-Saturation Strictness is too high or boundary processing is insufficient. Lowering Saturation Strictness to around 0.1-0.4 picks up more boundary pixels (with a bit more bleed). Along with that, raise AA Edge Cleanup to 3-5, add Edge Feather from 0.5-1.5, or set Edge Softness to 0.3-0.7.
+Lower Saturation Strictness to 0.1-0.4 (with a bit more bleed). Along with that, try AA Edge Cleanup at 3-5, Edge Feather at 0.5-1.5, or Edge Softness at 0.3-0.7.
 
 #### Boundaries look jagged or hard
 
-Edge processing is insufficient. Adding Edge Feather from 0.5-1.5 is the basic fix. You can also raise Edge Softness to 0.3-0.7 and, if needed, lower Saturation Strictness slightly to 0.3-0.45 to pick up boundary pixels.
+Add Edge Feather from 0.5-1.5. If that is not enough, raise Edge Softness to 0.3-0.7 and lower Saturation Strictness slightly to 0.3-0.45.
 
 #### The result looks flat (solid fill)
 
-Fully saturated colors flatten the shading and look solid. Lowering Output Saturation to 0.7-0.9 keeps the hue while bringing the shading back. Raise Pattern Preserve if you want to keep the pattern.
+Lower Output Saturation to 0.7-0.9. Raise Pattern Preserve if you want to keep the pattern.
 
 #### The whole texture changes
 
-Tolerance is too high. Lower it well, to around 0.05-0.15, and re-sample a more specific color. If separate areas still change, use Connected Region (Flood Fill) to narrow it to one region.
+Lower the Tolerance to 0.05-0.15 and re-sample a more specific color. If separate areas still change, narrow it down with Connected Region (Flood Fill).
 
 #### Cannot change to black
 
-Black has almost no brightness information, so Pattern Preserve has little to work with. Lower Pattern Preserve to 0-0.3 and set Edge Softness to 0. Protect anything you want to keep with the exclusion mask first.
+Black has almost no brightness information, so Pattern Preserve has little to work with. Set Pattern Preserve to 0-0.3 and Edge Softness to 0. Protect anything you want to keep with the exclude mask first.
 
 ---
 
 ### FAQ
 
-**Q: Can I combine multiple color zones?**
-
-Yes. Add zones with "+ Add Zone"; they are named "Zone 1", "Zone 2" and so on, and can be renamed. Where they overlap, priority follows the list order (drag the `☰` handle).
-
-**Q: What does Connected Region (Flood Fill) do?**
-
-It limits recoloring to the connected region that contains a high-confidence core, automatically preventing color from spreading to same-color parts elsewhere or to the background. When several regions exist, Shift+click the preview to keep just the one you want.
-
-**Q: What does Auto-tune do?**
-
-It analyzes the texture from the sample and target colors and sets the tolerance, saturation strictness, and related values for you. It runs the AI mask suggestion at the sampled position and uses that part's extent so that shadows and highlights are not missed (the AI models are required). It works best right after sampling a color.
-
 **Q: Does it support PSD layer structures?**
 
-No. The tool works on flattened textures such as PNG files. If you have a PSD, editing it directly is more reliable.
+No. The tool works on flattened textures. If you have a PSD, editing it directly is more reliable.
 
 **Q: Is Undo supported?**
 
-Mask painting can be undone with Ctrl+Z (integrated with Unity's standard Undo). Applying the recolor to a texture cannot be undone, so back up the original before overwriting.
+Mask painting can be undone with Ctrl+Z. Applying the recolor to a texture cannot be undone, so back up the original before overwriting.
 
 **Q: Can I use it across multiple projects?**
 
@@ -1005,8 +809,8 @@ Yes. Just import the `.unitypackage` into each project. Choosing "Shared (User)"
 
 **Q: What file formats are supported?**
 
-Input is normally PNG or JPG, and output is always PNG. TGA, EXR, and PSD also work: the output is built from the imported texture's pixels (import downscaling and compression apply, so the result may not match the original file's resolution or quality; the window tells you when this happens). For formats other than PNG and JPG, turn on Read/Write Enabled in Unity.
+Input is normally PNG or JPG, and output is always PNG. TGA, EXR, and PSD are written out from the pixels Unity imported (import downscaling and compression apply, so the result may not match the original file's resolution or quality; the window tells you when this happens).
 
 **Q: Does it work with large textures?**
 
-Yes. Processing happens in memory, so large textures temporarily increase memory usage.
+Yes. Processing happens in memory, so memory usage rises temporarily.
