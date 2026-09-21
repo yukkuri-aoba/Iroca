@@ -10,6 +10,9 @@
 
 上記モジュールの内容がこのファイルや他の指示と矛盾する場合は、モジュール側を優先する。
 
+`.claude/instructions/notify.md` は個人の通知先を含むため公開リポジトリに入っていない。
+無い場合は `dev_safe/setup/claude-notify.md` からコピーする（`docs/development-setup.md`）。
+
 ## 要約
 
 - ユーザーへの応答は日本語で行う。

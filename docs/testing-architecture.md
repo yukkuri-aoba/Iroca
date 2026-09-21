@@ -1,6 +1,7 @@
 # テスト構成（testing-architecture）
 
 CLAUDE.md / `.claude/instructions/improvement-cycle.md` が「テスト構成の正」として参照する文書。
+**clone から全テスト緑までの手順は `docs/development-setup.md` が正**（本ファイルは構成の説明）。
 2026-08-03 に環境ごと再構築した際、旧版（ローカルのみ・git 非追跡）が失われていたため書き直した。
 **再発防止のため本ファイルは git 追跡する**（テスト構成の説明であり秘匿情報は含まない）。
 
@@ -125,7 +126,7 @@ dev_safe/（別リポジトリ・プライベート: yukkuri-aoba/Iroca_dev_safe
 | .NET SDK | 8.0+（`dotnet --version`） | ハーネス・build-check のビルドに必要 |
 | Unity CoreModule DLL | ハーネスのビルドに必要 | 既定: `C:\Program Files\Unity\Hub\Editor\2022.3.22f1\Editor\Data\Managed`。無い場合は `UnityManaged` 環境変数で上書き（下記） |
 | Unity Editor 一式 | build-check のみ必要 | `UnityEngine.dll`+`UnityEditor.dll` を参照。`UNITY_EDITOR_PATH` で上書き可 |
-| ホスト Unity プロジェクト | Editor UI の実機確認・`#if UNITY_EDITOR` 内の検証に必要 | `scripts/Link-HostPackage.ps1` でリンクする（下記「ホスト Unity プロジェクト」） |
+| ホスト Unity プロジェクト | Editor UI の実機確認・`#if UNITY_EDITOR` 内の検証に必要 | `yukkuri-aoba/Iroca_Unity`（private）。`scripts/Link-HostPackage.ps1` でリンクする（下記「ホスト Unity プロジェクト」） |
 | ML ホスト（Sentis 入り） | `IrocaSentisCheck` と `Code/SentisIntegration/` の検証に必要 | `yukkuri-aoba/Iroca_MLDev`（下記「ML ホスト」） |
 
 ### Unity 導入済み環境（推奨。2026-08-04 に本機で復旧）
@@ -171,6 +172,9 @@ DLL の出所は Unity 2022.3.22f1 の `Editor\Data\Managed\UnityEngine\`（過�
 build-check は Unity を起動しないので、この構成が無くても pytest は緑になる。だが
 Editor UI の実機確認と `#if UNITY_EDITOR` 内のコンパイル検証は Unity 経由でしかできない。
 
+- 実体は **`yukkuri-aoba/Iroca_Unity`（private）** で git 管理する。撮影台シーン
+  (`Assets/_Promo/PromoStage.unity`) と Editor スクリプトはここにしか無い自作物。
+  有料アバター資産を含むため public にしない。
 - 本機のホスト: `C:\Users\k6803\Documents\Avatar_Projects\Iroca_Dev`（2022.3.22f1 / VRC SDK 3.10.4 / lilToon）
 - リンクは **`scripts/Link-HostPackage.ps1`** で行う:
   ```powershell
