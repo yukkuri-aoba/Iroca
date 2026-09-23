@@ -109,7 +109,10 @@ INSERTS: dict[tuple[str, str], list[dict]] = {
              "Presets. Two destinations: in-project and per-user")],
 }
 
-# 原稿の [スクリーンショット: …] プレースホルダーの置換先。None は「画像なし」（行を落とす）。
+# 原稿の <!-- スクリーンショット: … --> プレースホルダー（テキスト版では見えない HTML コメント。
+# 旧形式の [スクリーンショット: …] も受け付ける）。
+SHOT_RE = r"^(?:\[スクリーンショット[:：]\s*(.+?)\]|<!--\s*スクリーンショット[:：]\s*(.+?)\s*-->)$"
+# その置換先。None は「画像なし」（行を落とす）。
 PLACEHOLDERS: dict[str, dict | None] = {
     "テクスチャ選択後のウィンドウ全体": W_MAIN,
     "除外マスクを描いた状態のプレビュー": shot(
@@ -481,9 +484,9 @@ def render_section(sid: str, title: str, lines: list[str], lang: str,
             queue_inserts(text)
             continue
 
-        m = re.match(r"^\[スクリーンショット[:：]\s*(.+?)\]$", s)
+        m = re.match(SHOT_RE, s)
         if m:
-            spec = PLACEHOLDERS.get(m.group(1).strip(), None)
+            spec = PLACEHOLDERS.get((m.group(1) or m.group(2)).strip(), None)
             if spec:
                 out.append(render_figure(spec, lang))
             i += 1
@@ -521,7 +524,7 @@ def render_section(sid: str, title: str, lines: list[str], lang: str,
         buf = []
         while i < n:
             cur = lines[i].strip()
-            if (not cur or cur.startswith(("#", "|", "- ", "> ", "---", "[スクリーンショット"))
+            if (not cur or cur.startswith(("#", "|", "- ", "> ", "---", "[スクリーンショット", "<!-- スクリーンショット"))
                     or re.match(r"^\d+\. ", cur) or re.match(r"^\*\*[^*]+\*\*$", cur)):
                 break
             buf.append(cur)
@@ -598,9 +601,9 @@ def read_list(lines: list[str], i: int, anchors: dict[str, str],
         texts.extend(plain(b) for b in body)
         inner = f"<p>{inline(body[0], anchors)}</p>" if len(body) > 1 else inline(body[0], anchors)
         for cont in body[1:]:
-            m = re.match(r"^\[スクリーンショット[:：]\s*(.+?)\]$", cont)
+            m = re.match(SHOT_RE, cont)
             if m:
-                spec = PLACEHOLDERS.get(m.group(1).strip(), None)
+                spec = PLACEHOLDERS.get((m.group(1) or m.group(2)).strip(), None)
                 if spec:
                     inner += render_figure(spec, lang)
                 continue

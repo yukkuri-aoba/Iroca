@@ -29,7 +29,7 @@
 
 #### 前提条件
 
-- Unity 2022.3 以降
+- Unity 2022.3（2022.3.22f1・Windows で検証しています。自動調整と AI マスク提案に使う Unity Sentis 2.1.3 は 2022.3.11f1 以降が必要です）
 - PNG / JPG のテクスチャはそのまま使えます
 - PSD・TGA・EXR などは Read/Write Enabled が必要です。無効のときはウィンドウに警告が出て、「Read/Write を自動で有効にする」ボタンで有効にできます（Undo できないため確認が出ます）
 
@@ -42,6 +42,8 @@
 
 VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.github.io/Iroca/index.json` を追加して、プロジェクトの管理画面から「いろか」を追加する方法でも導入できます。新しい版が出たら、VCC / ALCOM から更新するか、インストーラをもう一度読み込みます。
 
+> 旧版（0.1.0、旧名 VRC Avatar Color Changer）を使っていた場合は、`Assets/VACC` フォルダを削除してください。いろかとは別物として入るため、残すと旧版も動いたままになります。プロジェクト内に保存したプリセットが必要なら、削除の前にバックアップしてください。
+
 ---
 
 ### 基本的な使い方
@@ -52,7 +54,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 「① 元テクスチャ」の「テクスチャ」欄へ、色を変えたいテクスチャをドラッグします。
 
-[スクリーンショット: テクスチャ選択後のウィンドウ全体]
+<!-- スクリーンショット: テクスチャ選択後のウィンドウ全体 -->
 
 #### ステップ 2: カラーゾーンを追加する
 
@@ -257,7 +259,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 両方に塗られた画素は**除外が優先**されます。
 
-[スクリーンショット: 除外マスクを描いた状態のプレビュー]
+<!-- スクリーンショット: 除外マスクを描いた状態のプレビュー -->
 
 #### 使い方
 
@@ -292,7 +294,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 未導入のときは、いろかのウィンドウ上部に案内の帯が出ます。そこから 2 つとも導入できます。
 
 1. **Unity Sentis パッケージ**: 帯の「AI 機能を有効化（Sentis を導入）」を押します。手動の場合は Package Manager →「+」→「Add package by name...」→ `com.unity.sentis`（バージョン `2.1.3`）。
-2. **AI モデル（2 ファイル・合計約 45MB）**: 帯の「モデルをダウンロード」を押します。保存先はユーザー共通のフォルダ（Windows は `%LOCALAPPDATA%\Iroca\Models`）なので、別プロジェクトでの再ダウンロードは不要です。手動の場合は [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) から 2 つの `.onnx` を取得し、「モデルフォルダを開く」で開いたフォルダへ置きます。
+2. **AI モデル（2 ファイル・合計約 44 MB）**: 帯の「モデルをダウンロード」を押します。保存先はユーザー共通のフォルダ（Windows は `%LOCALAPPDATA%\Iroca\Models`）なので、別プロジェクトでの再ダウンロードは不要です。手動の場合は [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) から 2 つの `.onnx` を取得し、「モデルフォルダを開く」で開いたフォルダへ置きます。
 
 #### 使い方
 
@@ -300,6 +302,8 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 2. 選びたいパーツの内側を**右クリック**（mac は Control+クリック）します。左ドラッグはプレビューの移動のままです。
 3. 推定された領域が、「編集対象」「マスクの種類」で選んでいるマスクへすぐ足されます（確定ボタンはありません）。パーツが複数の島に分かれているときは、島を順に右クリックします。
 4. 間違えたら Ctrl+Z で 1 つずつ戻します。足した領域は通常のマスクなので、ブラシで整えられます。
+
+1 回の右クリックで取れるのは、つながった 1 つの領域（UV アイランド）です。テクスチャ上でいくつにも分かれたパーツ（衣装 1 着ぶんなど）を全部選ぶには、数回〜十数回のクリックが要ります。取った領域がまれに隣のパーツへはみ出すこともあるので、重ね表示で確かめてください。
 
 #### 苦手なケース
 
@@ -412,7 +416,11 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 **Q: 大きなテクスチャでも使えますか？**
 
-使えます。処理はメモリ上で行うため、一時的にメモリ使用量が増えます。
+4096×4096 まで検証しています。処理はメモリ上で行うため、一時的にメモリ使用量が増えます。それより大きいテクスチャは未検証です。
+
+**Q: マニュアルの画像のテクスチャは？**
+
+画面写真と実演画像には、かなﾘぁさんち「[ハオラン-HAOLAN](https://booth.pm/ja/items/3818504)」のテクスチャ（一部は色替え後）を、作者の規約に基づき掲載しています。
 
 ---
 
@@ -440,7 +448,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 #### Prerequisites
 
-- Unity 2022.3 or later
+- Unity 2022.3 (tested on 2022.3.22f1 on Windows; Unity Sentis 2.1.3, used by Auto-tune and AI Mask Suggestion, needs 2022.3.11f1 or later)
 - PNG and JPG textures work as they are
 - PSD, TGA, EXR and similar formats need Read/Write Enabled. When it is off, the window shows a warning with an "Enable Read/Write automatically" button (it cannot be undone, so a confirmation appears first)
 
@@ -452,6 +460,8 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 4. Open the window from `Tools > いろか`.
 
 If you use VCC / ALCOM, you can instead add the repository `https://yukkuri-aoba.github.io/Iroca/index.json` and add "いろか" from your project's management screen. To update, use VCC / ALCOM or import the installer again.
+
+> If you used the old version (0.1.0, formerly VRC Avatar Color Changer), delete the `Assets/VACC` folder. It installs separately from Iroca, so leaving it keeps the old version running too. Back up any presets saved inside the project before deleting it.
 
 ---
 
@@ -699,7 +709,7 @@ Regions added with the include mask are recolored as the same material as the co
 When they are missing, a notice appears at the top of the Iroca window. Both items can be set up from there.
 
 1. **Unity Sentis package**: press "Enable AI feature (install Sentis)" in the notice. To install manually: Package Manager → "+" → "Add package by name..." → `com.unity.sentis` (version `2.1.3`).
-2. **AI models (2 files, ~45MB total)**: press "Download models" in the notice. They are stored in a per-user shared folder (`%LOCALAPPDATA%\Iroca\Models` on Windows), so other projects do not need to download them again. To install manually, get the two `.onnx` files from [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) and place them into the folder opened by "Open model folder".
+2. **AI models (2 files, ~44 MB total)**: press "Download models" in the notice. They are stored in a per-user shared folder (`%LOCALAPPDATA%\Iroca\Models` on Windows), so other projects do not need to download them again. To install manually, get the two `.onnx` files from [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models) and place them into the folder opened by "Open model folder".
 
 #### How to use
 
@@ -707,6 +717,8 @@ When they are missing, a notice appears at the top of the Iroca window. Both ite
 2. **Right-click** inside the part you want (Control+click on macOS). A left drag still pans the preview.
 3. The estimated region is added at once to the mask chosen by "Edit Target" and "Mask Type" (there is no confirm button). If the part is split into several islands, right-click them one by one.
 4. Undo mistakes one at a time with Ctrl+Z. Added regions are ordinary mask data, so you can touch them up with the brush.
+
+One right-click picks one connected region (UV island). Selecting a part that is split into many pieces on the texture (such as a whole outfit) takes several to a dozen or more clicks. A picked region occasionally spills into a neighboring part, so check the overlay.
 
 #### Known limitations
 
@@ -819,4 +831,8 @@ Input is normally PNG or JPG, and output is always PNG. TGA, EXR, and PSD are wr
 
 **Q: Does it work with large textures?**
 
-Yes. Processing happens in memory, so memory usage rises temporarily.
+It is tested up to 4096×4096. Processing happens in memory, so memory usage rises temporarily. Larger textures are untested.
+
+**Q: Whose texture is shown in the manual images?**
+
+The screenshots and demo images use the texture of "[HAOLAN](https://booth.pm/ja/items/3818504)" by かなﾘぁさんち (some recolored), shown under the creator's terms.

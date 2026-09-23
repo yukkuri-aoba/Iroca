@@ -22,8 +22,10 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 
 ### 動作環境（検証済み）
 
-- **Unity 2022.3.22f1**
-- VCC などとの依存関係はありません（Unity Editor 単体で動作します）
+- **Unity 2022.3.22f1**（Windows で検証しています）
+- VCC や VRChat SDK は不要です（Unity Editor 単体で動作します）
+- 自動調整と AI マスク提案には、Unity Sentis 2.1.3（Unity 2022.3.11f1 以降）と AI モデル（約 44 MB）が必要です。ウィンドウ上部の案内から導入できます
+- 4096×4096 までのテクスチャで検証しています
 
 ### クイックスタート
 
@@ -41,6 +43,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 #### 色改変
 - テクスチャの特定部分を指定して色を変更します（カラーゾーン）
 - 色替え対象は、プレビュー上の変えたい色をスポイトでクリックして指定します（カラーピック）
+- 自動調整：スポイトしたパーツを AI 提案で解析し、暗部からハイライトまで覆うように許容範囲などを自動で合わせます
 - 複数ゾーンが重なる部分の優先度は、ゾーンリストの並び順（`☰` ハンドルをドラッグ）で制御します
 
 #### 境界処理
@@ -51,7 +54,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 - プレビュー上でブラシを使って、色改変しない領域（除外）と必ず色改変する領域（含める）を指定します
 - 除外は全ゾーン共通と各ゾーン専用の 2 種類を使い分けられます
 - Unity 標準の Undo（Ctrl+Z）に対応しています
-- AI マスク提案（実験的・任意インストール）：パーツを右クリックすると AI が領域を推定し、その場でマスクへ追加します（左ドラッグはプレビューの移動のまま。Unity Sentis + MobileSAM。導入手順は MANUAL 参照）
+- AI マスク提案（実験的）：パーツを右クリックすると AI が領域を推定し、その場でマスクへ追加します。1 回で取れるのはつながった 1 領域なので、分かれたパーツは島ごとにクリックします（左ドラッグはプレビューの移動のまま。Unity Sentis + MobileSAM）
 
 #### その他
 - プレビュー：ズーム（Ctrl+スクロール・リセット）・前後比較・差分表示・押している間だけ元画像を表示
@@ -113,8 +116,10 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 
 ### Requirements
 
-- **Unity 2022.3.22f1**
+- **Unity 2022.3.22f1** (tested on Windows)
 - No VCC / VRCSDK required (works standalone in Unity Editor)
+- Auto-tune and AI Mask Suggestion need Unity Sentis 2.1.3 (Unity 2022.3.11f1 or later) and the AI models (about 44 MB). You can install them from the notice at the top of the window
+- Tested with textures up to 4096×4096
 
 ### Quick Start
 
@@ -131,6 +136,7 @@ See the **[online manual](https://yukkuri-aoba.github.io/Iroca/manual/)** for de
 #### Recoloring
 - Target specific texture areas and change their color (Color Zones)
 - Select the color to replace by picking it directly on the preview (Color Pick)
+- Auto-tune: analyzes the picked part with the AI suggestion and sets the tolerance and related settings to cover it from shadows to highlights
 - Control priority across overlapping zones by their order in the zone list (drag the `☰` handle to reorder)
 
 #### Boundary Processing
@@ -140,7 +146,7 @@ See the **[online manual](https://yukkuri-aoba.github.io/Iroca/manual/)** for de
 - Paint the areas to protect (Exclude) and the areas to always recolor (Include) directly on the preview
 - Exclude supports both a common mask and per-zone masks
 - Integrated with Unity's standard Undo (Ctrl+Z)
-- AI Mask Suggestion (experimental, optional install): right-click a part and the AI estimates its region and adds it to the mask (a left drag still pans the preview; Unity Sentis + MobileSAM, see MANUAL for setup)
+- AI Mask Suggestion (experimental): right-click a part and the AI estimates its region and adds it to the mask. One click picks one connected region, so click each island of a split part (a left drag still pans the preview; Unity Sentis + MobileSAM)
 
 #### Other
 - Preview: zoom (Ctrl+Scroll and Reset), before/after comparison, diff view, hold a button to see the original
@@ -213,12 +219,21 @@ Senna Studio
 NOIRVAIL_BOOTH  
 [【14アバター対応】ROUGHCUT【VRChat向け衣装モデル】](https://noirvail029.booth.pm/items/8111161)
 
+Arka_X  
+[ゆめか / Yumeka](https://arkax.booth.pm/)
+
 C#アルゴリズムの開発にはこれらのモデル・衣装のテクスチャを使用させていただきました。
-モデルやテクスチャのデータ自体はこのコードベースに含まれていません。
+配布パッケージ（zip・インストーラ）にはモデルやテクスチャのデータは含まれていません。
+オンラインマニュアルの画面写真と実演画像には、かなﾘぁさんち「ハオラン-HAOLAN」のテクスチャ（一部は色替え後）を、作者の規約に基づき掲載しています。
 コーディングにAIを使用していますが、
 モデルの学習からオプトアウトされるよう設定して利用しています。
 また、AIマスク提案機能のモデルの学習にも一切使用していません。
 提供されているVN3ライセンスには抵触していない認識ですが、万一問題があればお問い合わせください。
+
+### サードパーティ / Third-party
+
+- **VPMPackageAutoInstaller**（`Iroca_Installer.unitypackage` に同梱）: Copyright (c) 2022 anatawa12 — MIT License（[全文](https://github.com/anatawa12/VPMPackageAutoInstaller/blob/master/LICENSE)）
+- **MobileSAM**（AI マスク提案のモデル。いろか本体には含まれず、初回にダウンロード）: Apache License 2.0 — 変換済みモデルと NOTICE は [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models)
 
 ### 連絡先 / Contact
 
