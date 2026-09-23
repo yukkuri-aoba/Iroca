@@ -183,7 +183,7 @@ namespace Iroca
             // original > 0 を float マスクに変換して BoxFilterSum に流すことで
             // 近傍チェックを O(N·r²) から O(N) に削減。
             int len = w * h;
-            float[]? mask = null, neighborSum = null;
+            float[] mask = null, neighborSum = null;
             try
             {
                 mask = s_floatPool.Rent(len);

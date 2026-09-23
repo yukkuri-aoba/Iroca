@@ -80,8 +80,8 @@ namespace Iroca
             // 局所 BG 推定: strength=0 のピクセルだけを使った近傍和とその密度
             // 0..255 のスケールで計算（後で divide で平均化）
             // null 初期化してから try 内で Rent することでリークを防ぐ。
-            float[]? wR = null, wG = null, wB = null, wD = null;
-            float[]? bgRSum = null, bgGSum = null, bgBSum = null, bgDensity = null;
+            float[] wR = null, wG = null, wB = null, wD = null;
+            float[] bgRSum = null, bgGSum = null, bgBSum = null, bgDensity = null;
             try
             {
             wR = s_floatPool.Rent(len);
