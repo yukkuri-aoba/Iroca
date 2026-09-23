@@ -18,7 +18,9 @@
     <RootNamespace>Iroca.DebugTools</RootNamespace>
     <OutputType>Library</OutputType>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-    <NoWarn>0414;0649;CS0219;CS8632;CS0169</NoWarn>
+    <NoWarn>0414;0649;CS0219;CS0169</NoWarn>
+    <!-- 利用者の Unity は nullable 文脈なしでコンパイルするので CS8632 が Console に出る。CI で止める -->
+    <WarningsAsErrors>CS8632</WarningsAsErrors>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>

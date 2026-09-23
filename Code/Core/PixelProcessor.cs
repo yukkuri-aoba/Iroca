@@ -195,12 +195,12 @@ namespace Iroca
             // 全ピクセルの HSV を zone ループに入る前に一括計算（zone 数に関わらず1回）
             // null 初期化してから try 内で Rent することで、
             // 2番目以降の Rent が例外を投げた場合に先行の配列をリークしない。
-            float[]? pixH = null, pixS = null, pixV = null;
+            float[] pixH = null, pixS = null, pixV = null;
             // 占有率バッファ: 優先度の高い(リスト上位の)ゾーンが書き込んだカバレッジを
             // ピクセル単位で累積する。下位ゾーンは残り(1-claimed)の範囲だけ適用され、
             // 「重なった部分は上位ゾーンのみ適用」というレイヤー排他を実現する。
             // 単一ゾーン/非重複ピクセルでは常に 0 のままで、従来挙動は不変。
-            float[]? claimed = null;
+            float[] claimed = null;
             try
             {
             pixH = s_floatPool.Rent(len);
