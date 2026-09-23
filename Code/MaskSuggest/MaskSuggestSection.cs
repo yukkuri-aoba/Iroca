@@ -137,6 +137,7 @@ namespace Iroca
                     // 何度クリックしても直らない。再起動導線をエラーと同じ場所に出す。
                     EditorGUILayout.HelpBox(Localization.AiSuggestErrorRestartHint, MessageType.Info);
                     DrawRestartButton();
+                    DrawModelRecheck();
                     break;
 
                 default:
@@ -242,6 +243,48 @@ namespace Iroca
         }
 
         /// <summary>Unity を再起動する(現在のプロジェクトを開き直す)ボタン。</summary>
+        // 「モデルを確認して取り直す」の結果。照合は 44 MB を読むので押したときだけ行い、
+        // 結果はエラーが変わるまで出し続ける(エラー文字列が変われば別の失敗なので捨てる)。
+        static string _recheckForError;
+        static bool _recheckFoundOk;
+
+        /// <summary>
+        /// エラー時の「モデルを取り直す」導線。モデルの存在しか見ない帯(NoModel 時のみ)では、
+        /// 壊れたファイルや別物を手動配置した場合に取り直す手段が UI から消えていた。
+        /// 配布物と一致しなければダウンロードし直す(完了時に TryEnsureModels が再ロードする)。
+        /// </summary>
+        static void DrawModelRecheck()
+        {
+            if (MaskSuggestModelDownload.InProgress)
+            {
+                EditorGUILayout.BeginHorizontal();
+                var pr = EditorGUILayout.GetControlRect(false, 18f);
+                EditorGUI.ProgressBar(pr, MaskSuggestModelDownload.Progress, Localization.AiSuggestDownloading);
+                if (GUILayout.Button(new GUIContent(Localization.AiSuggestDownloadCancel,
+                                                    Localization.AiSuggestDownloadCancelTooltip),
+                                     GUILayout.Width(48f)))
+                    MaskSuggestModelDownload.Cancel();
+                EditorGUILayout.EndHorizontal();
+                return;
+            }
+
+            if (MaskSuggestModelDownload.Error != null)
+                EditorGUILayout.HelpBox(
+                    string.Format(Localization.AiSuggestDownloadFailed, MaskSuggestModelDownload.Error),
+                    MessageType.Warning);
+
+            string currentError = MaskSuggestBridge.Service?.ErrorMessage;
+            if (_recheckForError != null && _recheckForError == currentError && _recheckFoundOk)
+                EditorGUILayout.HelpBox(Localization.AiSuggestModelsVerifiedOk, MessageType.Info);
+
+            if (!GUILayout.Button(new GUIContent(Localization.AiSuggestRecheckModels,
+                                                 Localization.AiSuggestRecheckModelsTooltip)))
+                return;
+            _recheckForError = currentError;
+            _recheckFoundOk = MaskSuggestModelDownload.LocalModelsMatchRelease();
+            if (!_recheckFoundOk) MaskSuggestModelDownload.Start();
+        }
+
         static void DrawRestartButton()
         {
             if (!GUILayout.Button(new GUIContent(Localization.AiSuggestRestartNow,
