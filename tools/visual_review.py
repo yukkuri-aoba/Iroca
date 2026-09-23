@@ -4,7 +4,7 @@
     python tools/visual_review.py snapshot    # 変更前スナップショット保存
     python tools/visual_review.py compare     # 固定設定 + ワンショット/追加操作後の実 C# 比較
     python tools/visual_review.py compare --engine csharp  # 実 C# Harness 出力で比較
-    python tools/visual_review.py approve     # 確認完了マーカー書き込み
+    python tools/visual_review.py approve --note "<目視した範囲と根拠>"  # 確認完了マーカー書き込み
 
   エンジンは csharp のみ。ワンショット/追加操作後には ONNX と凍結埋め込みも必要。
   固定設定の無マスク出力はワンショットではない。全条件の目視後に approve する。
@@ -502,7 +502,7 @@ def cmd_compare(engine: str = "python") -> None:
     print("  [v] 全体サムネイルで切り出し範囲外のエリアも確認したか")
     print()
     print("問題がなければ:")
-    print("  python tools/visual_review.py approve")
+    print('  python tools/visual_review.py approve --note "<目視した範囲と根拠>"')
     del current, before_images
     import workflow_review
     workflow_review.generate()
