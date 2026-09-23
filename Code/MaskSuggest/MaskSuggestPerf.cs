@@ -11,11 +11,13 @@ namespace Iroca
     ///
     /// 時刻取得(Stopwatch)は常時行い(数十 ns)、文字列整形とログ出力はオン時のみ。
     /// Now/MsSince は任意スレッド可。Log はメインスレッドから呼ぶこと。
+    ///
+    /// オン/オフのメニューは配布物に入らない Debug アセンブリ(Code/Debug/MaskSuggestPerfMenu.cs)
+    /// にある。以前は本体にあり、全利用者の Window メニューに開発者向け項目が出ていた。
     /// </summary>
     internal static class MaskSuggestPerf
     {
         const string PrefKey = "Iroca.AiSuggestPerfLog";
-        const string MenuPath = "Window/Iroca/AI 提案の計測ログ";
 
         static bool? _enabled;
 
@@ -29,18 +31,11 @@ namespace Iroca
             }
         }
 
-        [MenuItem(MenuPath, priority = 201)]
-        static void Toggle()
+        /// <summary>計測ログのオン/オフを切り替えて永続化する(Debug のメニューから呼ぶ)。</summary>
+        internal static void SetEnabled(bool enabled)
         {
-            _enabled = !Enabled;
-            EditorPrefs.SetBool(PrefKey, _enabled.Value);
-        }
-
-        [MenuItem(MenuPath, true)]
-        static bool ToggleValidate()
-        {
-            Menu.SetChecked(MenuPath, Enabled);
-            return true;
+            _enabled = enabled;
+            EditorPrefs.SetBool(PrefKey, enabled);
         }
 
         /// <summary>現在時刻(Stopwatch タイムスタンプ)。</summary>
