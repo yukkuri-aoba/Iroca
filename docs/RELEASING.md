@@ -57,6 +57,20 @@ zip生成 + SHA256 + listing更新  →  整合検証 + draft作成  →  資産
 
 > 0.1.0 は listing から削除済み（公開資産が旧名 `vrc-avatar-color-changer` のみで、zip 内 package.json も旧 ID のため現行 URL では修復不能）。復活させたい場合は旧 zip を新 ID で作り直して v0.1.0 リリースへ追加アップロードする必要があるが、旧版を配布し直す価値は乏しい。
 
+## インストーラ unitypackage（VPAI）
+
+[VPMPackageAutoInstaller](https://github.com/anatawa12/VPMPackageAutoInstaller)（MIT）で、インポートすると VPM listing から Iroca の最新版を `Packages/` へ導入する unitypackage を作れる。unitypackage 配布でも実体は VPM 管理になるので、`Assets/` と `Packages/` への二重導入を避けられ、以後の更新は VCC / ALCOM から行える。
+
+```powershell
+.\scripts\Build-Installer.ps1   # → Iroca_Installer.unitypackage
+```
+
+- 設定は `scripts/installer/vpai-config.json`（listing URL + `com.yukkuri-aoba.iroca: >=0.2.0`）。中身は設定と VPAI 本体 DLL だけで Iroca のコードを含まないため、**範囲指定を変えない限りリリースごとに作り直す必要はない**。
+- creator はバージョンと SHA256 をスクリプト内で固定。同じ設定なら出力はバイト単位で同一。
+- **listing（GitHub Pages）が公開されていないと動かない。** 取得先は `https://yukkuri-aoba.github.io/Iroca/index.json`。
+- AI マスク提案用の Unity Sentis は Unity 公式レジストリのパッケージで任意機能のため、VPAI では入らない（従来どおり MANUAL の手順）。
+- 2026-09-23 検証: 素の Unity 2022.3.22f1 プロジェクト（VRChat SDK・VCC なし）で、ローカル配信した listing から取得 → `Packages/com.yukkuri-aoba.iroca` 導入・`vpm-manifest.json` 生成・コンパイル成功・インストーラ自己削除まで確認。バッチモードでは確認ダイアログが自動キャンセルされて何も入らないので、検証は GUI で行う。
+
 ## 補足
 
 - 配布 zip・unitypackage とも `Code/` を収集するが、**`Code/Debug/`（開発専用の Debug ウィンドウ）は両方とも同梱しない**。zip は `Build-VpmPackage.ps1` が、unitypackage は `BuildHelper.cs` が明示的に Code/Debug を除外する。IrocaEditor.Debug.asmdef は defineConstraints 無しのため、同梱すると全ユーザーで常時コンパイルされ Debug ウィンドウが見えてしまうのを避けるため。
