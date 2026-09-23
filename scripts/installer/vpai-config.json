@@ -1,0 +1,11 @@
+{
+  "vpmRepositories": [
+    "https://yukkuri-aoba.github.io/Iroca/index.json"
+  ],
+  "vpmDependencies": {
+    "com.yukkuri-aoba.iroca": ">=0.2.0"
+  },
+  "includePrerelease": false,
+  "silentIfInstalled": false,
+  "minimumUnity": "2022.3"
+}

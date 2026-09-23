@@ -85,3 +85,6 @@ docs/booth/out/
 # 古いスクリプトを実行した場合にここへ出ても追跡しないための保険。
 docs/booth_new/promo/out/
 docs/booth_new/promo/booth-promo-comps.html
+# リリース生成物（scripts/Build-VpmPackage.ps1 / Build-Installer.ps1 の出力。リリース資産として配る）
+/com.yukkuri-aoba.iroca-*.zip
+/Iroca_Installer.unitypackage
