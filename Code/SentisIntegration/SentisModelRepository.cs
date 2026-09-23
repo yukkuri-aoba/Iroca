@@ -58,7 +58,7 @@ namespace Iroca.SentisIntegration
             {
                 if (!File.Exists(onnxPath))
                 {
-                    error = $"モデルファイルがありません: {onnxPath}";
+                    error = string.Format(Localization.AiErrModelMissingFormat, onnxPath);
                     return null;
                 }
                 string cachePath = CachePathFor(onnxPath);
@@ -93,7 +93,7 @@ namespace Iroca.SentisIntegration
             }
             catch (Exception e)
             {
-                error = $"モデルのロードに失敗しました: {e.Message}";
+                error = string.Format(Localization.AiErrModelLoadFormat, e.Message);
                 return null;
             }
         }
@@ -136,7 +136,7 @@ namespace Iroca.SentisIntegration
                 if (Directory.Exists(tempDir))
                 {
                     // GUID 衝突は現実には起きないが、起きたなら他人のフォルダなので触らない。
-                    error = "一時フォルダ名が衝突しました: " + tempDir;
+                    error = string.Format(Localization.AiErrTempDirCollisionFormat, tempDir);
                     return null;
                 }
                 Directory.CreateDirectory(tempDir);
@@ -147,7 +147,7 @@ namespace Iroca.SentisIntegration
                 var asset = AssetDatabase.LoadAssetAtPath<ModelAsset>(assetPath);
                 if (asset == null)
                 {
-                    error = "ONNX のインポートに失敗しました(Console のログを確認してください): " + onnxPath;
+                    error = string.Format(Localization.AiErrOnnxImportFormat, onnxPath);
                     return null;
                 }
                 return ModelLoader.Load(asset);

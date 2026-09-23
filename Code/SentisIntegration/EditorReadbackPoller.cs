@@ -73,7 +73,7 @@ namespace Iroca.SentisIntegration
                 if (!_tensor.IsReadbackRequestDone())
                 {
                     if (MaskSuggestPerf.MsSince(_startedAt) > TimeoutMs)
-                        throw new TimeoutException("GPU からの読出がタイムアウトしました");
+                        throw new TimeoutException(Localization.AiErrReadbackTimeout);
                     return;
                 }
                 float[] data;

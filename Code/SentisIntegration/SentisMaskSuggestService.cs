@@ -207,7 +207,7 @@ namespace Iroca.SentisIntegration
             }
             catch (Exception e)
             {
-                error = $"推論ワーカーの作成に失敗しました({_backend}): {e.Message}";
+                error = string.Format(Localization.AiErrWorkerCreateFormat, _backend, e.Message);
                 return false;
             }
         }
@@ -260,7 +260,7 @@ namespace Iroca.SentisIntegration
                     _encodePrepMs = prepMs;
                     StartEncoderPump(chw);
                 },
-                e => SetPhase(MaskSuggestPhase.Error, error: $"前処理に失敗しました: {e.Message}"));
+                e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrPreprocessFormat, e.Message)));
         }
 
         void StartEncoderPump(float[] chw)
@@ -320,14 +320,14 @@ namespace Iroca.SentisIntegration
                 DisposeEncInput();
                 if (_embedding == null || _embedding.Length != EmbeddingLength)
                     throw new InvalidOperationException(
-                        $"埋め込みサイズが不正です: {_embedding?.Length ?? 0}");
+                        string.Format(Localization.AiErrEmbeddingSizeFormat, _embedding?.Length ?? 0));
                 // 形は正しいのに中身が定数/NaN = 推論カーネルが実行されていない。下流では
                 // 「提案は返るのにマスクへ 1 画素も足されない」という分かりにくい失敗になるため、
                 // ここで異常として扱いフォールバック/報告へ回す。
                 if (IsDegenerate(_embedding))
                 {
                     throw new InvalidOperationException(
-                        "推論結果が空です(バックエンドがカーネルを実行できていません)");
+                        Localization.AiErrEmptyResult);
                 }
                 CacheEmbedding(_sourceKey, _embedding);
                 _triedCpuFallback = false;
@@ -422,7 +422,7 @@ namespace Iroca.SentisIntegration
                 SetPhase(MaskSuggestPhase.Error, error: werr);
                 return;
             }
-            SetPhase(MaskSuggestPhase.Error, error: $"画像の解析に失敗しました: {e.Message}");
+            SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrEncodeFormat, e.Message));
         }
 
         public int PendingClickCount => _clickQueue.Count + (_clickInFlight ? 1 : 0);
@@ -506,7 +506,7 @@ namespace Iroca.SentisIntegration
             if (!TryRunDecoderCore(u, v, cropRect: null, out float[] logits, out float[] scores,
                                    out Exception decErr))
             {
-                SetPhase(MaskSuggestPhase.Error, error: $"提案の推論に失敗しました: {decErr.Message}");
+                SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrDecodeFormat, decErr.Message));
                 return;
             }
             _clickDecodeMs = MaskSuggestPerf.MsSince(tDec);
@@ -567,7 +567,7 @@ namespace Iroca.SentisIntegration
                     if (o.hasCrop) StartZoomStage(o, u, v, granularity);
                     else DeliverProposal(o);
                 },
-                e => SetPhase(MaskSuggestPhase.Error, error: $"提案の生成に失敗しました: {e.Message}"));
+                e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, e.Message)));
         }
 
         /// <summary>デコーダ同期実行(数十 ms)。cropRect が null なら全体埋め込み+全体座標系、
@@ -739,7 +739,7 @@ namespace Iroca.SentisIntegration
                 DisposeEncInput();
                 if (emb == null || emb.Length != EmbeddingLength)
                     throw new InvalidOperationException(
-                        $"クロップ埋め込みサイズが不正です: {emb?.Length ?? 0}");
+                        string.Format(Localization.AiErrCropEmbeddingSizeFormat, emb?.Length ?? 0));
             }
             catch (Exception e)
             {
@@ -790,7 +790,7 @@ namespace Iroca.SentisIntegration
                     _clickZoomPostMs = o.postMs;
                     DeliverProposal(o);
                 },
-                e => SetPhase(MaskSuggestPhase.Error, error: $"提案の生成に失敗しました: {e.Message}"));
+                e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, e.Message)));
         }
 
         void FallbackToStage1(PostOutcome plan, Exception e)
@@ -822,7 +822,7 @@ namespace Iroca.SentisIntegration
                     _clickRefineMs = o.refineMs;
                     DeliverProposal(o);
                 },
-                err => SetPhase(MaskSuggestPhase.Error, error: $"提案の生成に失敗しました: {err.Message}"));
+                err => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, err.Message)));
         }
 
         void CacheCropEmbedding(string key, float[] embedding)
