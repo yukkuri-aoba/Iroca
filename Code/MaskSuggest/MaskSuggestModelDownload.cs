@@ -75,7 +75,7 @@ namespace Iroca
             {
                 // ここで例外を投げると UI のボタンハンドラへ素通しになり、Error にも載らないため
                 // 画面には何も出ない（押しても無反応に見える）。Error に載せて表示させる。
-                Error = $"モデル置き場を作成できません: {e.Message}";
+                Error = string.Format(Localization.AiErrModelDirFormat, e.Message);
                 return;
             }
             _fileIndex = 0;
@@ -155,8 +155,7 @@ namespace Iroca
                     var (oversized, _, _) = Files[_fileIndex];
                     string oversizedTmp = TempPath(oversized);
                     AbortRequest();
-                    Fail($"{oversized}: 配布サイズ({expected:N0} バイト)を超えたため中止しました"
-                         + "(配布元が想定と異なります。時間をおいて再試行してください)", oversizedTmp);
+                    Fail(string.Format(Localization.AiErrDownloadOversizedFormat, oversized, expected), oversizedTmp);
                     return;
                 }
                 if (got != _lastProgressBytes)
@@ -169,7 +168,7 @@ namespace Iroca
                     var (stalled, _, _) = Files[_fileIndex];
                     string stalledTmp = TempPath(stalled);
                     AbortRequest();
-                    Fail($"{stalled}: {StallTimeoutSeconds:F0} 秒間応答がありません(接続を確認して再試行してください)", stalledTmp);
+                    Fail(string.Format(Localization.AiErrDownloadStalledFormat, stalled, StallTimeoutSeconds), stalledTmp);
                 }
                 return;
             }
@@ -194,7 +193,7 @@ namespace Iroca
                 string actual = Sha256Of(tmp);
                 if (!string.Equals(actual, sha, System.StringComparison.OrdinalIgnoreCase))
                 {
-                    Fail($"{file}: sha256 が一致しません({actual})", tmp);
+                    Fail(string.Format(Localization.AiErrDownloadHashFormat, file, actual), tmp);
                     return;
                 }
                 string dst = Path.Combine(MaskSuggestBridge.ModelsDirectory, file);

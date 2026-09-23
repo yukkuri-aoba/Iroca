@@ -612,6 +612,62 @@ namespace Iroca
             ? "色ゾーンがありません。マスクは色ゾーンの色替え範囲を制限する機能なので、足してもプレビュー／エクスポートの見た目は変わりません。まず色替えする色ゾーンを追加してください。"
             : "No color zone exists. A mask only limits where color zones recolor, so adding to it will not change the preview/export. Add a color zone to recolor first.";
 
+        // ─────────────────────────────────────────────────────────────
+        // AI まわりのエラー文。帯・マスク編集ウィンドウの HelpBox にそのまま出るので、
+        // 以前の日本語直書きだと英語 UI でも日本語が表示されていた。
+        // ─────────────────────────────────────────────────────────────
+        public static string AiErrModelDirFormat => IsJapanese
+            ? "モデル置き場を作成できません: {0}"
+            : "Cannot create the model folder: {0}";
+        public static string AiErrDownloadOversizedFormat => IsJapanese
+            ? "{0}: 配布サイズ({1:N0} バイト)を超えたため中止しました(配布元が想定と異なります。時間をおいて再試行してください)"
+            : "{0}: stopped because it exceeded the expected size ({1:N0} bytes). The download source is not as expected; try again later.";
+        public static string AiErrDownloadStalledFormat => IsJapanese
+            ? "{0}: {1:F0} 秒間応答がありません(接続を確認して再試行してください)"
+            : "{0}: no response for {1:F0} seconds. Check your connection and try again.";
+        public static string AiErrDownloadHashFormat => IsJapanese
+            ? "{0}: sha256 が一致しません({1})"
+            : "{0}: sha256 does not match ({1})";
+        public static string AiErrWorkerCreateFormat => IsJapanese
+            ? "推論ワーカーの作成に失敗しました({0}): {1}"
+            : "Failed to create the inference worker ({0}): {1}";
+        public static string AiErrPreprocessFormat => IsJapanese
+            ? "前処理に失敗しました: {0}"
+            : "Preprocessing failed: {0}";
+        public static string AiErrEmbeddingSizeFormat => IsJapanese
+            ? "埋め込みサイズが不正です: {0}"
+            : "Unexpected embedding size: {0}";
+        public static string AiErrCropEmbeddingSizeFormat => IsJapanese
+            ? "クロップ埋め込みサイズが不正です: {0}"
+            : "Unexpected crop embedding size: {0}";
+        public static string AiErrEmptyResult => IsJapanese
+            ? "推論結果が空です(バックエンドがカーネルを実行できていません)"
+            : "The inference result is empty (the backend did not run its kernels).";
+        public static string AiErrEncodeFormat => IsJapanese
+            ? "画像の解析に失敗しました: {0}"
+            : "Image analysis failed: {0}";
+        public static string AiErrDecodeFormat => IsJapanese
+            ? "提案の推論に失敗しました: {0}"
+            : "Suggestion inference failed: {0}";
+        public static string AiErrProposalFormat => IsJapanese
+            ? "提案の生成に失敗しました: {0}"
+            : "Failed to generate the suggestion: {0}";
+        public static string AiErrModelMissingFormat => IsJapanese
+            ? "モデルファイルがありません: {0}"
+            : "Model file not found: {0}";
+        public static string AiErrModelLoadFormat => IsJapanese
+            ? "モデルのロードに失敗しました: {0}"
+            : "Failed to load the model: {0}";
+        public static string AiErrTempDirCollisionFormat => IsJapanese
+            ? "一時フォルダ名が衝突しました: {0}"
+            : "Temporary folder name collision: {0}";
+        public static string AiErrOnnxImportFormat => IsJapanese
+            ? "ONNX のインポートに失敗しました(Console のログを確認してください): {0}"
+            : "Failed to import the ONNX model (see the Console log): {0}";
+        public static string AiErrReadbackTimeout => IsJapanese
+            ? "GPU からの読出がタイムアウトしました"
+            : "Reading back from the GPU timed out";
+
         public static string MaskTarget => IsJapanese ? "編集対象" : "Edit Target";
         public static string MaskTargetCommon => IsJapanese ? "共通マスク（全ゾーン）" : "Common Mask (all zones)";
         public static string MaskTargetTooltip => IsJapanese
