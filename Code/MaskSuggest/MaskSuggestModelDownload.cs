@@ -62,6 +62,31 @@ namespace Iroca
             }
         }
 
+        /// <summary>
+        /// 置いてあるモデルが配布物そのもの(サイズ + sha256)か。モデルの読み込みに失敗したとき、
+        /// 取り直すべきかを判定するのに使う。存在だけを見る <see cref="MaskSuggestBridge.ModelFilesPresent"/>
+        /// では、壊れたファイルや別物を手動配置した場合も「揃っている」扱いになり、取り直しの
+        /// 導線が出なかった。44 MB を読むので、描画のたびではなくボタン操作時だけ呼ぶこと。
+        /// </summary>
+        public static bool LocalModelsMatchRelease()
+        {
+            try
+            {
+                foreach (var (file, sha256, size) in Files)
+                {
+                    string path = Path.Combine(MaskSuggestBridge.ModelsDirectory, file);
+                    if (!File.Exists(path) || new FileInfo(path).Length != size) return false;
+                    if (!string.Equals(Sha256Of(path), sha256, System.StringComparison.OrdinalIgnoreCase))
+                        return false;
+                }
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         /// <summary>ダウンロードを開始する(進行中なら no-op)。完了/失敗は状態プロパティで観測する。</summary>
         public static void Start()
         {

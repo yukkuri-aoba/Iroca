@@ -592,6 +592,13 @@ namespace Iroca
         public static string AiSuggestErrorRestartHint => IsJapanese
             ? "推論エンジンの初期化に失敗している可能性があります（Unity 起動時の Burst コンパイル失敗など）。Unity を再起動すると直ることが多いです。AI 提案を一度終了してから開始し直すと再試行します。"
             : "The inference engine may have failed to initialize (e.g. a Burst compile failure at Unity startup). Restarting Unity usually fixes it. Stopping and restarting AI suggestion retries the setup.";
+        public static string AiSuggestRecheckModels => IsJapanese ? "モデルを確認して取り直す" : "Check and re-download models";
+        public static string AiSuggestRecheckModelsTooltip => IsJapanese
+            ? "置いてあるモデル 2 ファイルを配布物と照合し（sha256）、壊れていたり別物だったりしたら取り直します\n一致していれば取り直さず、その旨を表示します"
+            : "Compare the two model files with the released ones (sha256) and re-download them if they are broken or different\nIf they match, nothing is downloaded and a note is shown";
+        public static string AiSuggestModelsVerifiedOk => IsJapanese
+            ? "モデルファイルは配布物と一致しています。原因はモデル以外です（多くは Unity の再起動で直ります）。"
+            : "The model files match the released ones, so the cause is elsewhere (restarting Unity usually fixes it).";
         public static string AiSuggestGranularity => IsJapanese ? "提案の粒度" : "Granularity";
         public static string AiSuggestGranularityTooltip => IsJapanese
             ? "AI はクリック 1 点に対して粒度の違う候補(模様・パーツ・全体)を同時に推定します\nどの候補を提案として表示するかを選びます(次のクリックから適用)"
