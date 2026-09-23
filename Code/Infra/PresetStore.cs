@@ -14,8 +14,8 @@ namespace Iroca
     /// </summary>
     internal static class PresetStore
     {
-        // Assets/Iroca/Editor 配置を前提とした固定パス。
-        // 自己探索を廃止して挙動の予測可能性を上げる。
+        // プロジェクト保存先の固定パス(本体は Packages/ に入るが、プリセットは利用者のデータなので
+        // Assets 配下に置く。無ければ保存時に作る)。自己探索を廃止して挙動の予測可能性を上げる。
         private const string ProjectPresetFolderRelative = "Assets/Iroca/Presets";
 
         public static string ProjectPresetFolder
