@@ -101,11 +101,12 @@ PSD がない統合済みテクスチャでも、スポイトで色を選ぶと�
 📦 インストール
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. zip を展開 → .unitypackage を Unity にドラッグ＆ドロップ → Import
-2. Tools > いろか でウィンドウを開けば準備完了
+1. Iroca_Installer.unitypackage を Unity にドラッグ＆ドロップ → Import
+2. 確認ダイアログで「Install」→ 最新版が自動でダウンロードされます（インターネット接続が必要）
+3. Tools > いろか でウィンドウを開けば準備完了
 
+VCC / ALCOM からも導入できます（リポジトリ：https://yukkuri-aoba.github.io/Iroca/index.json）。
 詳しい使い方はツール同梱の MANUAL.md をご覧ください。
-※将来的に VPM 対応予定
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📝 ライセンス・利用規約
