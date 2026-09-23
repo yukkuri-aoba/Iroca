@@ -5,26 +5,20 @@
 .PARAMETER Version
     Version number (e.g. 0.2.0). Defaults to the value in package.json.
 
-.PARAMETER UnityPackagePath
-    Path to the .unitypackage file to include in the zip.
-    REQUIRED unless -AllowNoUnityPackage is given: omitting it produces a zip whose
-    SHA256 differs from the final release asset (past incident source).
-
-.PARAMETER AllowNoUnityPackage
-    Explicitly build a zip WITHOUT the unitypackage (SHA256 will not match the
-    final release asset — docs/index.json must be regenerated before publishing).
+.DESCRIPTION
+    zip の中身は git 追跡ファイルだけ（unitypackage は同梱しない）。unitypackage で配る
+    利用者向けには VPAI インストーラ（scripts/Build-Installer.ps1）を別資産として配り、
+    インストーラが listing からこの zip を取得する。最後にインストーラも生成する。
 
 .PARAMETER AllowDirtyTree
     Build even when Code/ has uncommitted changes. The zip then no longer
     corresponds to the HEAD commit and is not reproducible from a clean clone.
 
 .EXAMPLE
-    .\scripts\Build-VpmPackage.ps1 -UnityPackagePath "C:\path\to\Iroca_Ver0.2.0.unitypackage"
+    .\scripts\Build-VpmPackage.ps1 -Version 0.3.0
 #>
 param(
     [string]$Version = "",
-    [string]$UnityPackagePath = "",
-    [switch]$AllowNoUnityPackage,
     [switch]$AllowDirtyTree
 )
 
@@ -109,36 +103,11 @@ try {
     Write-Host "Version : $Version"
     Write-Host "Output  : $ZipName"
 
-    # Validate unitypackage path if specified
-    if ($UnityPackagePath -ne "" -and -not (Test-Path $UnityPackagePath)) {
-        throw "unitypackage not found: $UnityPackagePath"
-    }
-
-    # release-verify.yml は資産名を Iroca_Ver<VERSION>.unitypackage で照合する。
-    # ここで弾かないと、publish 後に「添付されていません」warning で初めて気づくことになる。
-    if ($UnityPackagePath -ne "") {
-        $expectedUpkg = "Iroca_Ver$Version.unitypackage"
-        $actualUpkg   = Split-Path $UnityPackagePath -Leaf
-        if ($actualUpkg -ne $expectedUpkg) {
-            throw ("unitypackage のファイル名が release-verify の期待形式と違います。`n" +
-                   "  actual:   $actualUpkg`n" +
-                   "  expected: $expectedUpkg")
-        }
-    }
-
     # CHANGELOG の節が無いと release.yml が draft 作成前に落ちる。zip を作る前に気づけるよう
     # 同じ条件をここでも見る（release.yml 側の検証が正で、こちらは前倒しの早期失敗）。
     $changelogPath = Join-Path $Root "CHANGELOG.md"
     if (-not (Select-String -Path $changelogPath -Pattern "^## \[$([regex]::Escape($Version))\]" -Quiet)) {
         throw "CHANGELOG.md に '## [$Version]' 節がありません（release.yml が draft 作成前に落ちます）"
-    }
-
-    # -UnityPackagePath 省略はドキュメント警告だけでは防げなかった既知の事故経路
-    # （非同梱 zip の SHA256 で docs/index.json を上書き→listing 不一致）。明示スイッチを要求する。
-    if ($UnityPackagePath -eq "" -and -not $AllowNoUnityPackage) {
-        throw ("-UnityPackagePath が指定されていません。最終 zip と SHA256 が一致しなくなります。`n" +
-               "  unitypackage を同梱する:   -UnityPackagePath <path>`n" +
-               "  意図的に省略する(検証用):  -AllowNoUnityPackage")
     }
 
     # --- Collect packaged files from git, not from the working tree ---
@@ -240,11 +209,10 @@ try {
         return ,($utf8Strict.GetBytes($text.Replace("`r`n", "`n")))
     }
 
-    function Add-ZipEntry([string]$AbsPath, [string]$EntryName, [switch]$Binary) {
+    function Add-ZipEntry([string]$AbsPath, [string]$EntryName) {
         $entry = $zip.CreateEntry($EntryName, [System.IO.Compression.CompressionLevel]::Optimal)
         $entry.LastWriteTime = $entryTime   # 実行時刻を焼かない（同一 commit → 同一 SHA256）
-        $bytes = [System.IO.File]::ReadAllBytes($AbsPath)
-        if (-not $Binary) { $bytes = ConvertTo-LfBytes $bytes }
+        $bytes = ConvertTo-LfBytes ([System.IO.File]::ReadAllBytes($AbsPath))
         $entryStream = $entry.Open()
         $entryStream.Write($bytes, 0, $bytes.Length)
         $entryStream.Dispose()
@@ -256,16 +224,6 @@ try {
         $abs = Join-Path $Root ($rel -replace '/', '\')
         if (-not (Test-Path $abs)) { throw "追跡されているのに実体がありません: $rel" }
         Add-ZipEntry $abs $rel
-    }
-
-    # unitypackage（Unity のエクスポート出力なので、これを同梱した zip はバイト単位では再現しない）
-    if ($UnityPackagePath -ne "") {
-        $upkgAbs  = (Resolve-Path $UnityPackagePath).Path
-        $upkgName = Split-Path $upkgAbs -Leaf
-        Add-ZipEntry $upkgAbs $upkgName -Binary
-    } else {
-        Write-Host "  (no .unitypackage specified; re-run with -UnityPackagePath to include it)"
-        Write-Host "  NOTE: SHA256 in docs/index.json will be updated again when you add the unitypackage."
     }
 
     $zip.Dispose()
@@ -295,17 +253,19 @@ try {
     Write-StableJsonFile $IndexPath $index
     Write-Host "[OK] docs/index.json updated"
 
+    # --- VPAI installer（listing を範囲指定で引くので zip の SHA256 とは独立）---
+    & (Join-Path $PSScriptRoot "Build-Installer.ps1")
+
     # --- Next steps ---
     Write-Host ""
     Write-Host "=== Next Steps ==="
-    Write-Host "1. (If not done) Re-run with -UnityPackagePath to finalize the zip + SHA256"
-    Write-Host "2. git add package.json docs/index.json CHANGELOG.md"
-    Write-Host "3. git commit"
-    Write-Host "4. Merge develop -> main (PR or local merge)"
-    Write-Host "5. git push origin main"
-    Write-Host "6. git tag v$Version && git push origin v$Version"
+    Write-Host "1. git add package.json README.md docs/index.json CHANGELOG.md"
+    Write-Host "2. git commit"
+    Write-Host "3. Merge develop -> main (PR or local merge)"
+    Write-Host "4. git push origin main"
+    Write-Host "5. git tag v$Version && git push origin v$Version"
     Write-Host "   -> CI will create a DRAFT release on GitHub"
-    Write-Host "7. Upload $ZipName to the draft release, then publish"
+    Write-Host "6. Upload $ZipName and Iroca_Installer.unitypackage to the draft release, then publish"
     Write-Host "   $RepoUrl/releases"
     Write-Host ""
     Write-Host "zip location:"

@@ -2,7 +2,7 @@ name: Release VPM Package
 
 # フロー: scripts/Build-VpmPackage.ps1 で zip + SHA256 + docs/index.json を更新
 #   → main へコミット → v<VERSION> タグ push → 本ワークフローが整合検証 + draft 作成
-#   → 人間が zip / unitypackage を draft へアップロードして publish
+#   → 人間が zip / VPAI インストーラ unitypackage を draft へアップロードして publish
 #   → release-verify.yml が公開資産の SHA256 を docs/index.json と照合
 # 手順の全体像は docs/RELEASING.md を参照。
 
@@ -124,7 +124,7 @@ jobs:
             echo "---"
             echo "### 公開前チェックリスト（draft のまま実施 → 完了後にこの節を削除して publish）"
             echo "- [ ] \`$PACKAGE_ID-$VERSION.zip\` をこのリリースへアップロード（SHA256 = \`$SHA\`）"
-            echo "- [ ] \`Iroca_Ver$VERSION.unitypackage\` をこのリリースへアップロード"
+            echo "- [ ] \`Iroca_Installer.unitypackage\`（VPAI インストーラ）をこのリリースへアップロード"
             echo "- [ ] publish 後、release-verify ワークフローが成功することを確認"
           } > "$RUNNER_TEMP/release-body.md"
 

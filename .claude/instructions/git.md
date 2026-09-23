@@ -48,7 +48,7 @@ chore(ci): release.yml に SHA256 検証ステップを追加
 ## リリース手順
 **`docs/RELEASING.md` が正。** リリース作業のときはそちらを読むこと。ここには忘れやすい前提だけ残す。
 
-- `scripts/Build-VpmPackage.ps1` の **`-UnityPackagePath` を省略しない**（省略した zip は SHA256 が最終版と一致しない）。
+- 配布資産は **VPM zip と VPAI インストーラ（`Iroca_Installer.unitypackage`）の 2 つ**。どちらも `scripts/Build-VpmPackage.ps1` が作る（zip に unitypackage は同梱しない）。
 - タグは必ず `v` プレフィックス（例: `v0.2.0`）。これが `release.yml` の起動条件。
 - CI が作るのは **draft まで**。資産のアップロードと publish は手動ステップ。
 
