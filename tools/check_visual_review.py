@@ -94,7 +94,7 @@ def main() -> None:
             "  1. python tools/visual_review.py snapshot   # 変更前（すでに変更済みなら不要）\n"
             "  2. python tools/visual_review.py compare    # 比較パネル生成\n"
             "  3. 生成された PNG を Read ツールで 1 枚ずつ確認\n"
-            "  4. python tools/visual_review.py approve    # 確認完了マーカー"
+            "  4. python tools/visual_review.py approve --note \"<目視した範囲と根拠>\"  # 確認完了マーカー"
         )
 
     approved_data = json.loads(APPROVED_JSON.read_text(encoding="utf-8"))
