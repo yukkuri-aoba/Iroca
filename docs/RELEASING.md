@@ -1,30 +1,31 @@
-# リリース手順（Iroca / VPM + unitypackage）
+# リリース手順（Iroca / VPM + VPAI インストーラ）
 
 本書がリリース手順の正。`.claude/instructions/git.md` の「リリース手順」は本書の要約。
 
 ## 全体像
 
 ```
-Build-VpmPackage.ps1（ローカル）      release.yml（CI）           手動                release-verify.yml（CI）
-zip生成 + SHA256 + listing更新  →  整合検証 + draft作成  →  資産アップロード+publish  →  公開zipのSHA256照合
+Build-VpmPackage.ps1（ローカル）                 release.yml（CI）           手動                release-verify.yml（CI）
+zip + SHA256 + listing更新 + インストーラ生成  →  整合検証 + draft作成  →  資産アップロード+publish  →  公開zipのSHA256照合
 ```
 
-- **zip はローカル生成**（unitypackage を同梱するため CI では完結できない）。
+- 配布資産は 2 つ。
+  - **VPM zip**（`com.yukkuri-aoba.iroca-<VERSION>.zip`）: git 追跡ファイルだけから作る。unitypackage は同梱しない。VCC / ALCOM と VPAI インストーラがこれを取得する。
+  - **VPAI インストーラ**（`Iroca_Installer.unitypackage`）: unitypackage で導入したい利用者（BOOTH など）向け。後述。
 - **CI が作るのは draft まで**。資産アップロードと publish は手動。
 - publish すると `release-verify.yml` が公開 zip の SHA256 を `docs/index.json`（VPM listing）と照合し、不一致なら fail する。
 
 ## 手順
 
 1. **CHANGELOG**: `CHANGELOG.md` に `## [<VERSION>]` 節を書く（空だと CI が fail する）。
-2. **unitypackage**: Unity の開発プロジェクトで `BuildHelper` からエクスポートし `Iroca_Ver<VERSION>.unitypackage` を得る。
-3. **zip 生成**:
+2. **zip + インストーラ生成**:
    ```powershell
-   .\scripts\Build-VpmPackage.ps1 -Version <VERSION> -UnityPackagePath <unitypackageのパス>
+   .\scripts\Build-VpmPackage.ps1 -Version <VERSION>
    ```
-   - package.json（version / url）、`docs/index.json`（エントリ + zipSHA256）、zip が更新される。
-   - **`-UnityPackagePath` を省略しない。** 省略した zip は unitypackage 非同梱で SHA256 が最終版と一致せず、listing が壊れる。
-4. **コミット**: `package.json` / `docs/index.json` / `CHANGELOG.md` をコミット。
-5. **main へマージ + タグ**（要ユーザー確認の操作）:
+   - package.json（version / url）、README 見出しのバージョン、`docs/index.json`（エントリ + zipSHA256）、zip、`Iroca_Installer.unitypackage` が更新される。
+   - Code/ に未コミットの変更があると止まる（zip を HEAD と 1:1 にするため）。
+3. **コミット**: `package.json` / `README.md` / `docs/index.json` / `CHANGELOG.md` をコミット。
+4. **main へマージ + タグ**（要ユーザー確認の操作）:
    ```
    git checkout main && git merge develop
    git push origin main
@@ -34,8 +35,8 @@ zip生成 + SHA256 + listing更新  →  整合検証 + draft作成  →  資産
    - tag ↔ package.json の version / url
    - CHANGELOG に非空の `## [<VERSION>]` 節
    - `docs/index.json` に該当バージョンのエントリ + zipSHA256
-6. **資産アップロード + publish**: draft に手順 3 の zip と手順 2 の unitypackage をアップロードし、本文のチェックリスト節を削除して publish。
-7. **検証確認**: `release-verify.yml`（publish/edit で起動）が green になることを確認。fail した場合は zip の差し替え、または `Build-VpmPackage.ps1` 再実行 → listing 再コミットで解消する。
+5. **資産アップロード + publish**: draft に zip と `Iroca_Installer.unitypackage` をアップロードし、本文のチェックリスト節を削除して publish。
+6. **検証確認**: `release-verify.yml`（publish/edit で起動）が green になることを確認。fail した場合は zip の差し替え、または `Build-VpmPackage.ps1` 再実行 → listing 再コミットで解消する。
 
 ## 公開前の一度きり復旧タスク（2026-07-02 時点の残件）
 
@@ -44,34 +45,36 @@ zip生成 + SHA256 + listing更新  →  整合検証 + draft作成  →  資産
 > **機械ゲート化（2026-08-03）**: この節が残っている間、`release.yml` はタグを push しても
 > fail する。完了したら本節を丸ごと削除すること（それでゲートが解除される）。
 >
-> **2026-08-03 時点の実測**: 公開済みリリースは 0 件（draft の有無は要認証のため未確認）、
-> Pages は 404（未有効化）＝ 実害はまだ出ていない。ただし `docs/index.json` の 0.2.0 は
-> 「存在しない資産の URL + リネーム前 zip の SHA256」のまま。zip 再生成には unitypackage
-> （リポジトリ外の Unity 開発プロジェクトでエクスポート）が必要。
+> **2026-09-23 時点の実測**: 公開済みリリースは 0 件、Pages は 404（未有効化）＝ 実害はまだ出ていない。
+> `docs/index.json` の 0.2.0 は「存在しない資産の URL + リネーム前 zip の SHA256」のまま。
+> main の 0.2.0 は develop から 500 コミット以上遅れているため、最初の公開を 0.2.0 のやり直しにするか
+> develop の新バージョンにするかは未決（2026-09-23 ユーザー判断で公開は保留）。
 
-- [ ] `v0.2.0` の draft リリース（旧 release.yml が作った不完全な draft が 2 つ存在しうる）を整理し、1 つに統一する。
-- [ ] `com.yukkuri-aoba.iroca-0.2.0.zip` を `Build-VpmPackage.ps1 -UnityPackagePath ...` で再生成し、`docs/index.json` の zipSHA256 更新を main へ反映する。
-- [ ] zip / unitypackage を v0.2.0 リリースへアップロードして publish、release-verify green を確認する。
+- [ ] 最初に公開するバージョンを決める（0.2.0 のやり直し / develop の新バージョン）。新バージョンにするなら listing から 0.2.0 のエントリを外す。
+- [ ] 旧 release.yml が作った不完全な `v0.2.0` draft が残っていれば整理する。
+- [ ] 手順 1〜5 で zip / インストーラを作ってリリースへアップロードし、publish して release-verify green を確認する。
 - [ ] GitHub Pages（`docs/` 公開）を有効化し、`https://yukkuri-aoba.github.io/Iroca/index.json` の到達性を確認する。
-- [ ] VCC にリポジトリ URL を追加して 0.2.0 がインストールできることを実機確認する。
+- [ ] VCC にリポジトリ URL を追加してインストールできることを実機確認する。
+- [ ] 公開版の `Iroca_Installer.unitypackage` を素の Unity 2022.3 プロジェクトと VRChat プロジェクトへインポートし、導入できることを実機確認する。
 
 > 0.1.0 は listing から削除済み（公開資産が旧名 `vrc-avatar-color-changer` のみで、zip 内 package.json も旧 ID のため現行 URL では修復不能）。復活させたい場合は旧 zip を新 ID で作り直して v0.1.0 リリースへ追加アップロードする必要があるが、旧版を配布し直す価値は乏しい。
 
 ## インストーラ unitypackage（VPAI）
 
-[VPMPackageAutoInstaller](https://github.com/anatawa12/VPMPackageAutoInstaller)（MIT）で、インポートすると VPM listing から Iroca の最新版を `Packages/` へ導入する unitypackage を作れる。unitypackage 配布でも実体は VPM 管理になるので、`Assets/` と `Packages/` への二重導入を避けられ、以後の更新は VCC / ALCOM から行える。
+[VPMPackageAutoInstaller](https://github.com/anatawa12/VPMPackageAutoInstaller)（MIT）で、インポートすると VPM listing から Iroca の最新版を `Packages/` へ導入する unitypackage を作る。unitypackage 配布でも実体は VPM 管理になるので、`Assets/` と `Packages/` への二重導入を避けられ、以後の更新は VCC / ALCOM から行える。
 
 ```powershell
-.\scripts\Build-Installer.ps1   # → Iroca_Installer.unitypackage
+.\scripts\Build-Installer.ps1   # → Iroca_Installer.unitypackage（Build-VpmPackage.ps1 からも呼ばれる）
 ```
 
-- 設定は `scripts/installer/vpai-config.json`（listing URL + `com.yukkuri-aoba.iroca: >=0.2.0`）。中身は設定と VPAI 本体 DLL だけで Iroca のコードを含まないため、**範囲指定を変えない限りリリースごとに作り直す必要はない**。
+- 設定は `scripts/installer/vpai-config.json`（listing URL + `com.yukkuri-aoba.iroca: >=0.2.0`、コメント不可）。中身は設定と VPAI 本体 DLL だけで Iroca のコードを含まないため、**範囲指定を変えない限り出力は毎回同じ**（リリースごとに中身が変わるのは zip の方）。
 - creator はバージョンと SHA256 をスクリプト内で固定。同じ設定なら出力はバイト単位で同一。
-- **listing（GitHub Pages）が公開されていないと動かない。** 取得先は `https://yukkuri-aoba.github.io/Iroca/index.json`。
+- **listing（GitHub Pages）が公開されていないと動かない。** 取得先は `https://yukkuri-aoba.github.io/Iroca/index.json`。利用者側はネット接続が必要。
+- インポートすると「Confirm」ダイアログに導入するパッケージと追加されるリポジトリが出て、**Install** で導入、Cancel で何もせずインストーラだけ消える。
 - AI マスク提案用の Unity Sentis は Unity 公式レジストリのパッケージで任意機能のため、VPAI では入らない（従来どおり MANUAL の手順）。
-- 2026-09-23 検証: 素の Unity 2022.3.22f1 プロジェクト（VRChat SDK・VCC なし）で、ローカル配信した listing から取得 → `Packages/com.yukkuri-aoba.iroca` 導入・`vpm-manifest.json` 生成・コンパイル成功・インストーラ自己削除まで確認。バッチモードでは確認ダイアログが自動キャンセルされて何も入らないので、検証は GUI で行う。
+- 2026-09-23 検証: 素の Unity 2022.3.22f1 プロジェクト（VRChat SDK・VCC なし）で、ローカル配信した listing から取得 → `Packages/com.yukkuri-aoba.iroca` 導入・`vpm-manifest.json` 生成・コンパイル成功・インストーラ自己削除まで確認。導入済み（0.2.0）のプロジェクトへ再インポートすると、listing 上の新しい版（架空の 0.2.1）への更新を提案することも確認。バッチモードでは確認ダイアログが自動キャンセルされて何も入らないので、実際の導入の検証は GUI で行う（DLL 内の `VPM_PACKAGE_AUTO_INSTALLER_NO_PROMPT` は環境変数としては効かなかった）。
 
 ## 補足
 
-- 配布 zip・unitypackage とも `Code/` を収集するが、**`Code/Debug/`（開発専用の Debug ウィンドウ）は両方とも同梱しない**。zip は `Build-VpmPackage.ps1` が、unitypackage は `BuildHelper.cs` が明示的に Code/Debug を除外する。IrocaEditor.Debug.asmdef は defineConstraints 無しのため、同梱すると全ユーザーで常時コンパイルされ Debug ウィンドウが見えてしまうのを避けるため。
-- `BuildHelper.cs` が参照する Unity 開発プロジェクトはこのリポジトリの外にある。エクスポート前に `Assets/Iroca` 配下へ旧コード（`Code_Archive/` 等）が紛れていないか確認すること。
+- 配布 zip は `Code/` を収集するが、**`Code/Debug/`（開発専用の Debug ウィンドウ）は同梱しない**（`Build-VpmPackage.ps1` が明示的に除外）。IrocaEditor.Debug.asmdef は defineConstraints 無しのため、同梱すると全ユーザーで常時コンパイルされ Debug ウィンドウが見えてしまうのを避けるため。
+- `Code/Infra/BuildHelper.cs`（`Assets/Iroca` を unitypackage へ書き出すヘルパー）は、VPAI インストーラへ切り替えた 2026-09-23 以降のリリース手順では使わない。
