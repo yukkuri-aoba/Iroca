@@ -60,8 +60,8 @@ namespace Iroca
 
         public static string CreditTitle => IsJapanese ? "クレジット" : "Credits";
         public static string CreditBody  => IsJapanese
-            ? "いろか\n\n制作: yukkuri__aoba\nAI補助: Claude (Anthropic)\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0"
-            : "いろか\n\nDeveloper: yukkuri__aoba\nAI Assistance: Claude (Anthropic)\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0";
+            ? "いろか\n\n制作: yukkuri__aoba\nAI補助: Claude (Anthropic)\n\nAI マスク提案: MobileSAM (Apache License 2.0) を ONNX に変換して使用\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0"
+            : "いろか\n\nDeveloper: yukkuri__aoba\nAI Assistance: Claude (Anthropic)\n\nAI Mask Suggestion: MobileSAM (Apache License 2.0), converted to ONNX\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0";
 
         // セクションが等価に並んで開始点が分かりにくいので、主要 4 ステップに番号を振り、
         // テクスチャ未設定時はこの導入ヒントで一連の流れを示す。
@@ -278,13 +278,13 @@ namespace Iroca
             : "Eraser mode: drag on the preview to erase the currently selected mask type\nClick again to exit paint mode";
         public static string AiSuggestTool => IsJapanese ? "AI 提案" : "AI Suggest";
         public static string AiSuggestToolTooltip => IsJapanese
-            ? "AI 提案モード: プレビューでパーツを右クリックすると、AI が推定した領域を\nいま選んでいる対象・種類のマスク（除外/含める）へ追加します\n同じボタンを再度押すとモードを解除\n塗る/消すとは排他です（選ぶとブラシは解除されます）"
-            : "AI Suggest mode: right-click a part on the preview and the AI-estimated region is added\nto the mask currently selected above (target and Exclude/Include)\nClick again to exit\nMutually exclusive with Paint/Erase (selecting this exits the brush)";
+            ? "AI 提案モード（実験的）: プレビューでパーツを右クリックすると、AI が推定した領域を\nいま選んでいる対象・種類のマスク（除外/含める）へ追加します\n同じボタンを再度押すとモードを解除\n塗る/消すとは排他です（選ぶとブラシは解除されます）"
+            : "AI Suggest mode (experimental): right-click a part on the preview and the AI-estimated region is added\nto the mask currently selected above (target and Exclude/Include)\nClick again to exit\nMutually exclusive with Paint/Erase (selecting this exits the brush)";
         // 取得の導線はメインウィンドウ上部のバナー（MaskSuggestSection.DrawSetupBanner）に集約した。
         // 「マスク欄」を指す旧案内のままだと、実際には無い場所へ誘導することになる。
         public static string AiSuggestToolNotReadyTooltip => IsJapanese
-            ? "AI モデルがまだ取得されていないため使えません\nIroca 本体ウィンドウ上部の案内から取得してください（約 45MB・一度きり）"
-            : "Unavailable until the AI model is downloaded\nGet it from the notice at the top of the main Iroca window (about 45MB, one time)";
+            ? "AI モデルがまだ取得されていないため使えません\nIroca 本体ウィンドウ上部の案内から取得してください（約 44 MB・一度きり）"
+            : "Unavailable until the AI model is downloaded\nGet it from the notice at the top of the main Iroca window (about 44 MB, one time)";
         public static string AiSuggestNoModelInEditor => IsJapanese
             ? "AI モデルが未取得です。Iroca 本体ウィンドウ上部の案内から取得してください。"
             : "The AI model has not been downloaded yet. Get it from the notice at the top of the main Iroca window.";
@@ -567,8 +567,8 @@ namespace Iroca
             : "Open the folder where the model files (.onnx) should be placed.";
         public static string AiSuggestDownload => IsJapanese ? "モデルをダウンロード" : "Download models";
         public static string AiSuggestDownloadTooltip => IsJapanese
-            ? "MobileSAM の AI モデル 2 ファイル（合計約 45MB、Apache-2.0 ライセンス）を\n{0}\nからダウンロードし、モデルフォルダへ自動配置します（sha256 検証つき）"
-            : "Download the two MobileSAM model files (about 45MB total, Apache-2.0 license) from\n{0}\nand place them into the model folder automatically (with sha256 verification).";
+            ? "MobileSAM の AI モデル 2 ファイル（合計約 44 MB、Apache-2.0 ライセンス）を\n{0}\nからダウンロードし、モデルフォルダへ自動配置します（sha256 検証つき）"
+            : "Download the two MobileSAM model files (about 44 MB total, Apache-2.0 license) from\n{0}\nand place them into the model folder automatically (with sha256 verification).";
         public static string AiSuggestDownloading => IsJapanese ? "モデルをダウンロード中..." : "Downloading models...";
         public static string AiSuggestDownloadCancel => IsJapanese ? "中止" : "Cancel";
         public static string AiSuggestDownloadCancelTooltip => IsJapanese
@@ -877,11 +877,11 @@ namespace Iroca
         // 黙って使えない状態になっていたため、常に見える非モーダルの帯へ移した。
         // ─────────────────────────────────────────────────────────────
         public static string AiBannerSentis => IsJapanese
-            ? "自動調整と AI マスク提案を使うには Unity Sentis の導入が必要です（未導入でも色替えとマスクの手描きは使えます）。"
-            : "Auto-tune and AI Mask Suggestion need the Unity Sentis package (recoloring and hand-painted masks work without it).";
+            ? "自動調整と AI マスク提案（実験的）を使うには Unity Sentis の導入が必要です（未導入でも色替えとマスクの手描きは使えます）。"
+            : "Auto-tune and AI Mask Suggestion (experimental) need the Unity Sentis package (recoloring and hand-painted masks work without it).";
         public static string AiBannerModel => IsJapanese
-            ? "自動調整と AI マスク提案を使うには AI モデル（約 45MB・一度だけ）のダウンロードが必要です。"
-            : "Auto-tune and AI Mask Suggestion need the AI models (about 45MB, downloaded once).";
+            ? "自動調整と AI マスク提案を使うには AI モデル（約 44 MB・一度だけ）のダウンロードが必要です。"
+            : "Auto-tune and AI Mask Suggestion need the AI models (about 44 MB, downloaded once).";
         public static string AiBannerDismiss => IsJapanese ? "閉じる" : "Dismiss";
         public static string AiBannerDismissTooltip => IsJapanese
             ? "この案内をこの Unity セッション中は表示しません。次に Unity を開いたときにまた出ます。"
