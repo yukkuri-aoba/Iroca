@@ -35,9 +35,12 @@
 
 #### 手順
 
-1. [GitHub Releases](https://github.com/yukkuri-aoba/Iroca/releases) から最新の zip をダウンロードして展開します。
-2. 中の `.unitypackage` を Unity のプロジェクトウィンドウへドラッグ＆ドロップし、「Import」を押します。
-3. `Assets/Iroca` フォルダができたら、メニューの `Tools > いろか` でウィンドウを開きます。
+1. [GitHub Releases](https://github.com/yukkuri-aoba/Iroca/releases) から `Iroca_Installer.unitypackage` をダウンロードします。
+2. Unity のプロジェクトウィンドウへドラッグ＆ドロップし、「Import」を押します。
+3. 確認ダイアログで「Install」を押すと、いろかの最新版がダウンロードされ、プロジェクトの `Packages` に入ります（インターネット接続が必要です。インストーラ自体は自動で消えます）。
+4. メニューの `Tools > いろか` でウィンドウを開きます。
+
+VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.github.io/Iroca/index.json` を追加して、プロジェクトの管理画面から「いろか」を追加する方法でも導入できます。新しい版が出たら、VCC / ALCOM から更新するか、インストーラをもう一度読み込みます。
 
 ---
 
@@ -401,7 +404,7 @@
 
 **Q: 複数のプロジェクトで使えますか？**
 
-はい。`.unitypackage` を各プロジェクトに読み込むだけです。プリセットの保存先を「ユーザー共通」にすると、プロジェクト間で設定を共有できます。
+はい。各プロジェクトでインストーラを読み込むか、VCC / ALCOM から追加するだけです。プリセットの保存先を「ユーザー共通」にすると、プロジェクト間で設定を共有できます。
 
 **Q: 対応しているファイル形式は？**
 
@@ -443,9 +446,12 @@
 
 #### Steps
 
-1. Download the latest zip from [GitHub Releases](https://github.com/yukkuri-aoba/Iroca/releases) and extract it.
-2. Drag the `.unitypackage` into the Unity project window and click "Import".
-3. Once the `Assets/Iroca` folder appears, open the window from `Tools > いろか`.
+1. Download `Iroca_Installer.unitypackage` from [GitHub Releases](https://github.com/yukkuri-aoba/Iroca/releases).
+2. Drag it into the Unity project window and click "Import".
+3. Click "Install" in the confirmation dialog. The latest version of Iroca is downloaded into your project's `Packages` (requires an internet connection; the installer removes itself).
+4. Open the window from `Tools > いろか`.
+
+If you use VCC / ALCOM, you can instead add the repository `https://yukkuri-aoba.github.io/Iroca/index.json` and add "いろか" from your project's management screen. To update, use VCC / ALCOM or import the installer again.
 
 ---
 
@@ -805,7 +811,7 @@ Mask painting can be undone with Ctrl+Z. Applying the recolor to a texture canno
 
 **Q: Can I use it across multiple projects?**
 
-Yes. Just import the `.unitypackage` into each project. Choosing "Shared (User)" as the preset location lets you share settings between projects.
+Yes. Just import the installer, or add it via VCC / ALCOM, in each project. Choosing "Shared (User)" as the preset location lets you share settings between projects.
 
 **Q: What file formats are supported?**
 

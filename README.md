@@ -27,12 +27,11 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 
 ### クイックスタート
 
-1. [Releases](https://github.com/yukkuri-aoba/Iroca/releases) から最新の `.unitypackage` をダウンロードします
-2. Unity Editor のプロジェクトウィンドウ（Assets フォルダ）にドラッグ＆ドロップします
-3. インポートダイアログで「Import」をクリックします
-4. `Tools > いろか` からウィンドウを開きます
-5. テクスチャを選択し、カラーゾーンを追加して色を設定します
-6. 「適用して保存」ボタンで保存します
+1. [Releases](https://github.com/yukkuri-aoba/Iroca/releases) から `Iroca_Installer.unitypackage` をダウンロードし、Unity Editor のプロジェクトウィンドウにドラッグ＆ドロップして「Import」をクリックします
+2. 確認ダイアログで「Install」をクリックすると、最新版がダウンロードされて入ります（VCC / ALCOM からも導入できます。[インストール手順](#インストール手順)）
+3. `Tools > いろか` からウィンドウを開きます
+4. テクスチャを選択し、カラーゾーンを追加して色を設定します
+5. 「適用して保存」ボタンで保存します
 
 詳しい使い方は **[オンラインマニュアル](https://yukkuri-aoba.github.io/Iroca/manual/)** をご覧ください
 （設定の効き方をスライダーで試せます）。テキスト版は [MANUAL.md](MANUAL.md) です。
@@ -76,10 +75,20 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 
 ### インストール手順
 
-1. [Releases](https://github.com/yukkuri-aoba/Iroca/releases) から最新の `.unitypackage` をダウンロードします
-2. Unity Editor にドラッグ＆ドロップして読み込みます
-3. ダイアログで「Import」をクリックします
-4. `Tools > いろか` からウィンドウを開きます
+次のどちらかで導入します。どちらも、いろかは Unity の `Packages` に入ります。
+
+**インストーラ（unitypackage）から**
+
+1. [Releases](https://github.com/yukkuri-aoba/Iroca/releases) から `Iroca_Installer.unitypackage` をダウンロードします
+2. Unity Editor にドラッグ＆ドロップし、ダイアログで「Import」をクリックします
+3. 確認ダイアログで「Install」をクリックすると、最新版がダウンロードされて入ります（インターネット接続が必要です。インストーラ自体は自動で消えます）
+
+**VCC / ALCOM から**
+
+1. VCC（または ALCOM）の設定で、リポジトリ `https://yukkuri-aoba.github.io/Iroca/index.json` を追加します
+2. プロジェクトの管理画面で「いろか」を追加します
+
+入ったら `Tools > いろか` からウィンドウを開きます。
 
 ### ライセンス
 
@@ -109,7 +118,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 
 ### Quick Start
 
-1. Import `.unitypackage` into Unity Editor
+1. Import `Iroca_Installer.unitypackage` into Unity Editor and click "Install" in the confirmation dialog (or add it via VCC / ALCOM; see [Installation](#installation))
 2. Open the window: `Tools > いろか`
 3. Select a texture, add a color zone, and set the target color
 4. Click `Apply & Save`
@@ -155,10 +164,20 @@ See [MANUAL.md](MANUAL.md) for workarounds and tips.
 
 ### Installation
 
-1. Download the latest `.unitypackage` from [Releases](https://github.com/yukkuri-aoba/Iroca/releases)
-2. In Unity Editor, select `Assets > Import Package > Custom Package...`
-3. Choose the downloaded file, then click "Import" in the dialog
-4. Open the window via `Tools > いろか`
+Use either method. Both install Iroca into your project's `Packages`.
+
+**From the installer (unitypackage)**
+
+1. Download `Iroca_Installer.unitypackage` from [Releases](https://github.com/yukkuri-aoba/Iroca/releases)
+2. In Unity Editor, select `Assets > Import Package > Custom Package...`, choose the file, and click "Import"
+3. Click "Install" in the confirmation dialog. The latest version is downloaded and installed (requires an internet connection; the installer removes itself)
+
+**From VCC / ALCOM**
+
+1. In VCC (or ALCOM) settings, add the repository `https://yukkuri-aoba.github.io/Iroca/index.json`
+2. Add "いろか" from your project's management screen
+
+Then open the window via `Tools > いろか`.
 
 ### License
 
