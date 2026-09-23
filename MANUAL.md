@@ -420,7 +420,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 **Q: マニュアルの画像のテクスチャは？**
 
-画面写真と実演画像には、かなﾘぁさんち「[ハオラン-HAOLAN](https://booth.pm/ja/items/3818504)」のテクスチャ（一部は色替え後）を、作者の規約に基づき掲載しています。
+画面写真と実演画像には、かなリぁ「[ハオラン-HAOLAN](https://booth.pm/ja/items/3818504)」のテクスチャ（一部は色替え後）を、作者の規約に基づき掲載しています。
 
 ---
 
@@ -835,4 +835,4 @@ It is tested up to 4096×4096. Processing happens in memory, so memory usage ris
 
 **Q: Whose texture is shown in the manual images?**
 
-The screenshots and demo images use the texture of "[HAOLAN](https://booth.pm/ja/items/3818504)" by かなﾘぁさんち (some recolored), shown under the creator's terms.
+The screenshots and demo images use the texture of "[HAOLAN](https://booth.pm/ja/items/3818504)" by かなリぁ (some recolored), shown under the creator's terms.
