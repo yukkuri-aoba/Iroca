@@ -24,11 +24,16 @@ namespace Iroca
         //     （C:/ と c:/）で Assets 配下なのに null を返すことがあった
         // 大小無視の Ordinal 比較は IrocaAutomation.IsWithinProjectRoot と同じ基準に揃えたもの。
         internal static string ToAssetsRelativeOrNull(string path)
-        {
-            if (string.IsNullOrEmpty(path)) return null;
+            => ToAssetsRelativeOrNull(path, Application.dataPath);
 
-            string dataPath = Application.dataPath.Replace('\\', '/').TrimEnd('/');
-            string projectRoot = Path.GetDirectoryName(Application.dataPath);
+        // 判定本体。Assets フォルダの絶対パスを引数で受け取るので Unity なしで検証できる
+        // （scripts/unit-run が実行する）。
+        internal static string ToAssetsRelativeOrNull(string path, string assetsFolder)
+        {
+            if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(assetsFolder)) return null;
+
+            string dataPath = assetsFolder.Replace('\\', '/').TrimEnd('/');
+            string projectRoot = Path.GetDirectoryName(dataPath);
 
             string abs;
             try
