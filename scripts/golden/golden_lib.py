@@ -339,6 +339,30 @@ def build_cases() -> list[tuple[str, np.ndarray, dict, dict]]:
                   zone(sample=n((200, 190, 180)), target=n((40, 160, 60)), tolerance=0.35,
                        chromaThreshold=0.15), settings()))
 
+    # ─── 端ケース（α・極端な寸法）。落ちない・黙って変わらないことを固定する ───
+    red, blue = n((200, 50, 50)), n((40, 70, 200))
+    red_zone = dict(sample=red, target=blue, tolerance=0.35)
+    # 1 画素・1 行・1 列。連結成分・近傍処理・縮小の境界条件
+    cases.append(("edge_1x1", S.solid((200, 50, 50), 1, 1), zone(**red_zone), settings()))
+    cases.append(("edge_row_1x64", S.two_color_aa((200, 50, 50), (50, 180, 70), 1, 64),
+                  zone(**red_zone), settings()))
+    cases.append(("edge_col_64x1", S.vertical_gradient((230, 60, 60), (70, 20, 20), 64, 1),
+                  zone(sample=n((150, 40, 40)), target=blue, tolerance=0.45), settings()))
+    # 奇数・非正方の寸法でハイライト復元（中心・半径の丸め）
+    cases.append(("edge_odd_23x37_highlight", S.shaded_with_highlight((200, 40, 40), 23, 37),
+                  zone(sample=n((150, 30, 30)), target=n((230, 210, 40)), tolerance=0.50,
+                       highlightRecovery=True), settings()))
+    # α: 全透明 / 列ごとの半透明 / 透明黒背景の円
+    cases.append(("edge_alpha_all_transparent", S.transparent(S.solid((200, 50, 50))),
+                  zone(**red_zone), settings()))
+    cases.append(("edge_alpha_columns", S.with_alpha_columns(S.solid((200, 50, 50))),
+                  zone(**red_zone), settings()))
+    cases.append(("edge_alpha_disc_on_clear_black", S.disc_on_clear_black((210, 50, 50)),
+                  zone(sample=n((210, 50, 50)), target=blue, tolerance=0.30), settings()))
+    # 無彩だけのテクスチャに有彩スポイト（何も選ばれないのが正）
+    cases.append(("edge_gray_texture_red_sample", S.vertical_gradient((235, 235, 235), (40, 40, 40)),
+                  zone(**red_zone), settings()))
+
     return cases
 
 
