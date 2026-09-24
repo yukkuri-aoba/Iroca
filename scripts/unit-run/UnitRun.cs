@@ -73,6 +73,53 @@ namespace Iroca.UnitRun
     /// <summary>テスト本体。1 メソッド = 1 件。</summary>
     public static class Tests
     {
+        // ─── PathUtils.SanitizeFileName（プリセット保存・エクスポートの新規ファイル名） ───
+
+        private static string San(string s) => PathUtils.SanitizeFileName(s, "fallback");
+
+        public static void Sanitize_KeepsOrdinaryName() => Check.Equal("my_preset 01", San("my_preset 01"), "ordinary");
+        public static void Sanitize_KeepsJapanese() => Check.Equal("青い服", San("青い服"), "japanese");
+        public static void Sanitize_EmptyUsesFallback()
+        {
+            Check.Equal("fallback", San(null), "null");
+            Check.Equal("fallback", San(""), "empty");
+            Check.Equal("fallback", San("   "), "spaces");
+        }
+
+        public static void Sanitize_CannotEscapeFolder()
+        {
+            // 区切りを置換するので、どう書いても同じフォルダの 1 ファイル名にしかならない。
+            foreach (var s in new[] { "../evil", "..\\evil", "a/b", "a\\b", "/abs", "C:\\x\\y" })
+            {
+                string r = San(s);
+                Check.True(r.IndexOf('/') < 0 && r.IndexOf('\\') < 0, $"separator left in <{r}> from <{s}>");
+                Check.True(r != ".." && r != ".", $"dot name <{r}> from <{s}>");
+            }
+            Check.Equal("fallback", San(".."), "dotdot alone");
+        }
+
+        public static void Sanitize_TrimsTrailingDotsAndSpaces()
+        {
+            // Windows は末尾の '.' / ' ' を無言で落とすので、残すと保存名と参照名がずれる。
+            Check.Equal("name", San("name. . "), "trailing");
+            Check.Equal("a.b", San("a.b"), "inner dot kept");
+        }
+
+        public static void Sanitize_EscapesWindowsReservedNames()
+        {
+            Check.Equal("_CON", San("CON"), "CON");
+            Check.Equal("_con", San("con"), "lowercase");
+            Check.Equal("_LPT1.backup", San("LPT1.backup"), "with extension");
+            Check.Equal("CONSOLE", San("CONSOLE"), "prefix only is not reserved");
+        }
+
+        public static void Sanitize_ReplacesInvalidChars()
+        {
+            string r = San("a:b*c?d\"e<f>g|h");
+            foreach (char c in Path.GetInvalidFileNameChars())
+                Check.True(r.IndexOf(c) < 0, $"invalid char U+{(int)c:X4} left in <{r}>");
+        }
+
         // ─── PathUtils.ToAssetsRelativeOrNull（出力先が Assets 配下かの判定） ───
 
         private static readonly string ProjectRoot =

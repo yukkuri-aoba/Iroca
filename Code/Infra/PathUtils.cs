@@ -55,5 +55,37 @@ namespace Iroca
                 return "Assets" + abs.Substring(dataPath.Length);
             return null;
         }
+
+        // Windows の予約デバイス名(拡張子有無・大小無視で衝突する)。これらの名前のファイルは
+        // そのままでは作成に失敗するため、前置 '_' で退避する。
+        private static readonly string[] s_reservedNames =
+        {
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        };
+
+        /// <summary>
+        /// ユーザーが入力した名前を、同じフォルダに作れる 1 つのファイル名（拡張子なし）へ直す。
+        /// 区切り文字も不正文字として置換するので、".." や "a/b" でフォルダの外へ出られない。
+        /// 空になったら <paramref name="fallback"/> を使う。プリセット保存とエクスポートの共通規則。
+        /// </summary>
+        internal static string SanitizeFileName(string name, string fallback)
+        {
+            if (string.IsNullOrWhiteSpace(name)) name = fallback;
+            foreach (char c in Path.GetInvalidFileNameChars())
+                name = name.Replace(c.ToString(), "_");
+            // Windows 以外では '\' が不正文字に入らないが、Windows で開くと区切りになる。
+            name = name.Replace('\\', '_');
+            // Windows は末尾の '.' / ' ' を無言で除去するため、そのままだと保存名と参照名がずれる。
+            name = name.TrimEnd('.', ' ');
+            if (name.Length == 0) name = fallback;
+            // 予約名判定は拡張子より前の基底名で行う(例: "CON.foo" も予約)。
+            int dot = name.IndexOf('.');
+            string baseName = dot >= 0 ? name.Substring(0, dot) : name;
+            if (Array.IndexOf(s_reservedNames, baseName.ToUpperInvariant()) >= 0)
+                name = "_" + name;
+            return name;
+        }
     }
 }
