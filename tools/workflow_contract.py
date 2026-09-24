@@ -14,6 +14,13 @@ SUBJECTS = (
     # Yumeka(2026-09-11 登録): 肌 / 2 トーン髪 / 色相回転の瞳 / 格子柄 / 桃ベージュのニット
     "yumeka-hair", "yumeka-skin", "yumeka-eye", "yumeka-skirt", "yumeka-vest",
 )
+# 汎化を測るために調整から外しておく被写体（ホールドアウト）。2026-09-24 に枠だけ作った
+# （ユーザー決定: 既存の被写体は動かさず、次に GT を足すときからここへ入れる）。
+# SUBJECTS（回帰の床・審査ページ・視覚レビュー）とは交わらせない。交わると改善サイクル中に
+# 個別の数字や画を見てしまい、ホールドアウトにならない。
+# 見てよいのは採否判断のときだけで、dev_safe/scripts/holdout_eval.py が集計値だけを出し、
+# 見た回数を dev_safe/Tests/Baselines/holdout_log.jsonl に残す（見るほど効かなくなるため）。
+HOLDOUT_SUBJECTS: tuple[str, ...] = ()
 CLICKS = ("p25", "p50", "p95")
 PRESET_SUBJECTS = ("bandana", "haolan-costume", "haolan-hair", "haolan-sneakers")
 WORKFLOWS = {
@@ -48,6 +55,15 @@ BASELINES = {
     "assisted_include_baseline.json": ({f"{s}/p50" for s in SUBJECTS}, SELECTION_METRICS),
     "oneshot_vs_preset_baseline.json": (set(PRESET_SUBJECTS), ("dE_p95", "dE_mean", "sel_iou")),
 }
+
+
+def validate_subject_split() -> None:
+    """ホールドアウトが調整用の被写体と交わっていないこと。"""
+    overlap = set(HOLDOUT_SUBJECTS) & set(SUBJECTS)
+    if overlap:
+        raise ValueError(f"ホールドアウトが SUBJECTS と重なっています: {sorted(overlap)}")
+    if len(set(HOLDOUT_SUBJECTS)) != len(HOLDOUT_SUBJECTS):
+        raise ValueError("HOLDOUT_SUBJECTS に重複があります")
 
 
 def load_baseline(path: Path) -> dict:
