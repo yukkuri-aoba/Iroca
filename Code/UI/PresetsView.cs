@@ -196,7 +196,6 @@ namespace Iroca
             _host.EnsureAllZoneIds();
             // 編集モードはプリセットで上書きしない（現在の表示モードを維持）。
             RecolorSettings.From(data).CopyTo(session);
-            session.decontaminationRadius = Mathf.Clamp(data.decontaminationRadius, 1, 12);
 
             if (presetApplyMasks && data.maskWidth > 0 && data.maskHeight > 0)
             {

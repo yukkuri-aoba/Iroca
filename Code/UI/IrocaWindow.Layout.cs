@@ -667,7 +667,8 @@ namespace Iroca
                     {
                         decontaminationRadius = UndoHelper.IntSlider(this,
                             new GUIContent(Localization.DecontaminationRadius, Localization.DecontaminationRadiusTooltip),
-                            decontaminationRadius, 1, 12);
+                            decontaminationRadius,
+                            RecolorSettings.MinDecontaminationRadius, RecolorSettings.MaxDecontaminationRadius);
                     }
                 }
             }

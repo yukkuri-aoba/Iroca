@@ -207,3 +207,14 @@ def test_repro_dump_writes_every_setting():
                         r"static\s+IrocaAutomation\.SettingsDto\s+ToSettingsDto\s*\(\s*IrocaSessionState\s+s\s*\)")
     missing = [f for f in _settings_fields() if not re.search(rf"\b{f}\s*=\s*s\.{f}\b", body)]
     assert not missing, f"ReproDump.ToSettingsDto が書いていない設定: {missing}"
+
+
+def test_preset_radius_is_clamped_in_one_place():
+    """プリセットは手で書かれ得る。UI だけが範囲へ丸めていた頃は、同じプリセットでも
+    MCP（Automation）経由だと範囲外の半径で処理され、UI と出力が食い違った。"""
+    body = _method_body(_src(SETTINGS_CS), r"static\s+RecolorSettings\s+From\s*\(\s*IrocaPresetData\s+p\s*\)")
+    assert re.search(r"Clamp\s*\(\s*p\.decontaminationRadius\s*,\s*MinDecontaminationRadius\s*,"
+                     r"\s*MaxDecontaminationRadius\s*\)", body), "From(IrocaPresetData) が半径を丸めていません"
+    presets_view = _src(REPO_ROOT / "Code" / "UI" / "PresetsView.cs")
+    assert "decontaminationRadius" not in presets_view, (
+        "PresetsView が設定を個別に触っています。丸めや変換は RecolorSettings.From に寄せること")

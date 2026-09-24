@@ -1,5 +1,7 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using UnityEngine;
+
 namespace Iroca
 {
     /// <summary>
@@ -26,6 +28,11 @@ namespace Iroca
         public const float DefaultRelaxedSatRamp = 0.08f;
         public const bool DefaultUseDecontamination = true;
         public const int DefaultDecontaminationRadius = 4;
+
+        // デコンタミ半径の UI 範囲（IrocaWindow.Layout のスライダー）。プリセット JSON は手で書かれ得るので、
+        // 読み込み時にこの範囲へ丸める（UI と MCP のどちらから読んでも同じ値になるよう From で行う）。
+        public const int MinDecontaminationRadius = 1;
+        public const int MaxDecontaminationRadius = 12;
 
         public readonly float edgeFeather;
         public readonly int antiAliasCleanup;
@@ -67,7 +74,8 @@ namespace Iroca
             p.edgeFeather, p.antiAliasCleanup,
             p.holeFillPasses, p.holeFillMinNeighbors,
             p.relaxedSatMin, p.relaxedSatRamp,
-            p.useDecontamination, p.decontaminationRadius);
+            p.useDecontamination,
+            Mathf.Clamp(p.decontaminationRadius, MinDecontaminationRadius, MaxDecontaminationRadius));
 
         public void CopyTo(IrocaSessionState s)
         {
