@@ -15,25 +15,24 @@ namespace Iroca
     /// 編集状態の永続表現。ゾーン定義・処理パラメータ・マスク状態をまとめて保持し、
     /// EditorWindow に [SerializeField] で持たせることで Unity 標準の SerializedObject /
     /// Undo に乗せる。GUI・ファイル I/O・AssetDatabase に依存しない純粋データ。
-    /// 既定値は現行 IrocaWindow にハードコードされていた値を 1:1 で移管したもので、
-    /// プリセット未読込時の唯一の基準値となる。
+    /// 処理パラメータの既定値は RecolorSettings の定数を参照する（プリセット・zones JSON と同じ値）。
     /// </summary>
     [Serializable]
     internal class IrocaSessionState
     {
         public List<ColorZone> zones = new List<ColorZone>();
-        public float edgeFeather = 0f;
-        public int antiAliasCleanup = 3;
-        public bool useDecontamination = true;
-        public int decontaminationRadius = 4;
+        public float edgeFeather = RecolorSettings.DefaultEdgeFeather;
+        public int antiAliasCleanup = RecolorSettings.DefaultAntiAliasCleanup;
+        public bool useDecontamination = RecolorSettings.DefaultUseDecontamination;
+        public int decontaminationRadius = RecolorSettings.DefaultDecontaminationRadius;
         // かんたんモード（Simple）と自動調整はまだ実用段階でないため UI から隠している（2026-06 一時対応）。
         // 既定を通常モードにする。再有効化するときは Simple に戻し、IrocaWindow 側のコメントアウト
         // （DrawModeToggle のモード選択・Auto Tune ボタン・ScheduleAutoTune/ProcessPendingAutoTune）も解除する。
         public EditMode editMode = EditMode.Normal;
-        public int holeFillPasses = 5;
-        public int holeFillMinNeighbors = 4;
-        public float relaxedSatMin = 0.02f;
-        public float relaxedSatRamp = 0.08f;
+        public int holeFillPasses = RecolorSettings.DefaultHoleFillPasses;
+        public int holeFillMinNeighbors = RecolorSettings.DefaultHoleFillMinNeighbors;
+        public float relaxedSatMin = RecolorSettings.DefaultRelaxedSatMin;
+        public float relaxedSatRamp = RecolorSettings.DefaultRelaxedSatRamp;
         public MaskState maskState = new MaskState();
 
         public static IrocaSessionState CreateDefault() => new IrocaSessionState();

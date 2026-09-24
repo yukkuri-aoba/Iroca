@@ -17,16 +17,16 @@ namespace Iroca
 
         public string name = "";
         public List<ColorZone> zones = new List<ColorZone>();
-        public float edgeFeather;
+        public float edgeFeather = RecolorSettings.DefaultEdgeFeather;
 
         public bool advancedMode;
-        public int antiAliasCleanup = 3;
-        public int holeFillPasses = 5;
-        public int holeFillMinNeighbors = 4;
-        public float relaxedSatMin = 0.02f;
-        public float relaxedSatRamp = 0.08f;
-        public bool useDecontamination = true;
-        public int decontaminationRadius = 4;
+        public int antiAliasCleanup = RecolorSettings.DefaultAntiAliasCleanup;
+        public int holeFillPasses = RecolorSettings.DefaultHoleFillPasses;
+        public int holeFillMinNeighbors = RecolorSettings.DefaultHoleFillMinNeighbors;
+        public float relaxedSatMin = RecolorSettings.DefaultRelaxedSatMin;
+        public float relaxedSatRamp = RecolorSettings.DefaultRelaxedSatRamp;
+        public bool useDecontamination = RecolorSettings.DefaultUseDecontamination;
+        public int decontaminationRadius = RecolorSettings.DefaultDecontaminationRadius;
 
         // マスク配列の解像度。0 の場合はマスク情報なし。
         public int maskWidth;

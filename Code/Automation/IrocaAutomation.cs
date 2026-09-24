@@ -14,7 +14,7 @@ namespace Iroca
     ///
     /// UI（IrocaWindow / ExportView）を介さず、テクスチャ読込 → 再着色 → PNG 出力までを
     /// 静的メソッド一発で実行できる。<see cref="ExportView"/> の実出力経路（ディスクの PNG を
-    /// 直接読み、<see cref="PixelProcessor.ProcessPixelsArray(Color32[],int,int,MaskSnapshot,System.Collections.Generic.IList{ColorZone},float,int,int,int,float,float,int,int,int,int,bool,int,float,IDebugCapture)"/>
+    /// 直接読み、<see cref="PixelProcessor.ProcessPixelsArray"/>
     /// に通す）をそのまま同期で再現するので、製品の出力と一致する。
     ///
     /// 呼び出し経路は 3 つ。いずれも同じ中核（<see cref="RunRecolorCore"/>）を通る:
@@ -343,7 +343,7 @@ namespace Iroca
         /// 全経路がここを通る。<see cref="ExportView.ApplyRecolor"/> のメインスレッド前処理と同じ手順。
         /// </summary>
         private static RecolorResult RunRecolorCore(
-            string sourceAssetPath, List<ColorZone> zones, IrocaSessionState s,
+            string sourceAssetPath, List<ColorZone> zones, RecolorSettings settings,
             string outputAssetPath, List<string> warnings)
         {
             var result = new RecolorResult { warnings = warnings ?? new List<string>() };
@@ -383,12 +383,7 @@ namespace Iroca
             var originalPixels = (Color32[])pixels.Clone();
 
             // v1: マスクはヘッドレス適用しない（masks=null は ProcessPixelsArray で安全に扱われる）。
-            PixelProcessor.ProcessPixelsArray(
-                pixels, w, h, null, sorted,
-                s.edgeFeather, s.antiAliasCleanup,
-                s.holeFillPasses, s.holeFillMinNeighbors, s.relaxedSatMin, s.relaxedSatRamp,
-                0, 0, 0, 0,
-                useDecontamination: s.useDecontamination, decontaminationRadius: s.decontaminationRadius);
+            PixelProcessor.ProcessPixelsArray(pixels, w, h, null, sorted, settings);
 
             string outAbs = ResolveOutputPath(outputAssetPath);
             if (outAbs == null)
@@ -546,34 +541,14 @@ namespace Iroca
                 c != null && c.Length > 1 ? c[1] : 0f,
                 c != null && c.Length > 2 ? c[2] : 0f, 1f);
 
-        private static IrocaSessionState SettingsFromPreset(IrocaPresetData p)
-        {
-            var s = IrocaSessionState.CreateDefault();
-            s.edgeFeather = p.edgeFeather;
-            // advancedMode は UI 表示レベルのみで処理結果に影響しないため移送しない。
-            s.antiAliasCleanup = p.antiAliasCleanup;
-            s.holeFillPasses = p.holeFillPasses;
-            s.holeFillMinNeighbors = p.holeFillMinNeighbors;
-            s.relaxedSatMin = p.relaxedSatMin;
-            s.relaxedSatRamp = p.relaxedSatRamp;
-            s.useDecontamination = p.useDecontamination;
-            s.decontaminationRadius = p.decontaminationRadius;
-            return s;
-        }
+        // advancedMode は UI 表示レベルのみで処理結果に影響しないため移送しない。
+        private static RecolorSettings SettingsFromPreset(IrocaPresetData p) => RecolorSettings.From(p);
 
-        private static IrocaSessionState SettingsFromDto(SettingsDto d)
-        {
-            var s = IrocaSessionState.CreateDefault();
-            s.edgeFeather = d.edgeFeather;
-            s.antiAliasCleanup = d.antiAliasCleanup;
-            s.holeFillPasses = d.holeFillPasses;
-            s.holeFillMinNeighbors = d.holeFillMinNeighbors;
-            s.relaxedSatMin = d.relaxedSatMin;
-            s.relaxedSatRamp = d.relaxedSatRamp;
-            s.useDecontamination = d.useDecontamination;
-            s.decontaminationRadius = d.decontaminationRadius;
-            return s;
-        }
+        private static RecolorSettings SettingsFromDto(SettingsDto d) => new RecolorSettings(
+            d.edgeFeather, d.antiAliasCleanup,
+            d.holeFillPasses, d.holeFillMinNeighbors,
+            d.relaxedSatMin, d.relaxedSatRamp,
+            d.useDecontamination, d.decontaminationRadius);
 
         /// <summary>
         /// プリセット指定（ファイルパス / プリセット名 / インライン JSON）を <see cref="IrocaPresetData"/> へ解決する。
