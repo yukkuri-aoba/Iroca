@@ -32,6 +32,11 @@
     リンクを解除する。ジャンクションはリパースポイントだけを外すので、リポジトリ側の
     Code は削除されない。
 
+.PARAMETER WithEditorTests
+    EditMode テスト（リポジトリの scripts/editor-tests）もホストの Assets/IrocaEditorTests へ
+    ジャンクションで繋ぐ。テストは配布パッケージ（Code/）の外に置いてあるので、ユーザーの
+    プロジェクトには入らない。実行は scripts/Run-EditorTests.ps1。
+
 .EXAMPLE
     pwsh scripts/Link-HostPackage.ps1 -HostProject "C:\Users\me\Documents\Avatar_Projects\Iroca_Dev"
 
@@ -43,7 +48,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$HostProject,
 
-    [switch]$Unlink
+    [switch]$Unlink,
+
+    [switch]$WithEditorTests
 )
 
 $ErrorActionPreference = 'Stop'
@@ -64,6 +71,7 @@ if (-not (Test-Path (Join-Path $HostProject 'Assets')) -or -not (Test-Path $Pack
 
 $Target = Join-Path $PackagesDir $PackageName
 $CodeLink = Join-Path $Target 'Code'
+$TestsLink = Join-Path (Join-Path $HostProject 'Assets') 'IrocaEditorTests'
 
 function Test-IsJunction([string]$Path) {
     if (-not (Test-Path $Path)) { return $false }
@@ -78,6 +86,12 @@ function Remove-JunctionOnly([string]$Path) {
 }
 
 if ($Unlink) {
+    if (Test-IsJunction $TestsLink) {
+        Remove-JunctionOnly $TestsLink
+        $meta = "$TestsLink.meta"
+        if (Test-Path $meta) { Remove-Item $meta -Force }
+        Write-Host "テストのリンクを解除しました: $TestsLink"
+    }
     if (-not (Test-Path $Target)) {
         Write-Host "リンクはありません: $Target"
         return
@@ -110,6 +124,16 @@ New-Item -ItemType Junction -Path $CodeLink -Target (Join-Path $RepoRoot 'Code')
 foreach ($name in $CopyItems) {
     $src = Join-Path $RepoRoot $name
     if (Test-Path $src) { Copy-Item $src (Join-Path $Target $name) -Force }
+}
+
+if ($WithEditorTests) {
+    if (Test-IsJunction $TestsLink) { Remove-JunctionOnly $TestsLink }
+    elseif (Test-Path $TestsLink) {
+        throw "IrocaEditorTests がジャンクションではありません。手動で確認してください: $TestsLink"
+    }
+    New-Item -ItemType Junction -Path $TestsLink -Target (Join-Path $RepoRoot 'scripts\editor-tests') | Out-Null
+    Write-Host "テストをリンクしました: $TestsLink -> $(Join-Path $RepoRoot 'scripts\editor-tests')  (junction)"
+    Write-Host "  実行: .\scripts\Run-EditorTests.ps1 -HostProject `"$HostProject`""
 }
 
 Write-Host "リンクしました: $Target"

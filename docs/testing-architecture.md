@@ -108,6 +108,8 @@ Iroca 本体リポジトリ（公開）
 ├─ scripts/source_checks/       C# ソースを読むだけの構造検査（ハーネス・資産不要）
 ├─ scripts/unit-run/            Unity 不要の部品（Infra のパス・書き込み等）のユニットテスト
 │                               （ハーネスと分けてあるので視覚レビューゲートの対象外）
+├─ scripts/editor-tests/        Unity 実機の EditMode テスト（保存/復元・書き出し・Mono とハーネスの一致）。
+│                               配布物(Code/)の外。scripts/Run-EditorTests.ps1 で batchmode 実行
 ├─ scripts/hooks/pre-commit     出荷ゲート（下記）
 └─ tools/visual_review.py       視覚レビュー（snapshot / compare / approve）
     tools/check_visual_review.py  pre-commit から呼ばれる承認鮮度・較正チェック
@@ -438,6 +440,27 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
   渡され続けた「死にノブ」事故の再発防止。フラグを増やすときは Harness.Main の検証
   switch にも足すこと。
 
+## Unity 実機の EditMode テスト（2026-09-24〜）
+
+ハーネスも golden も Unity を起動しないので、AssetDatabase を使う保存・復元や PNG の読み書き、
+Mono 上の出力は検証できない。`scripts/editor-tests/`（`Iroca.EditorTests` アセンブリ）がそこを受け持つ。
+
+| テスト | 検査すること |
+|---|---|
+| `PersistenceTests` | セッション・マスク・プリセットの往復、読めないファイルを空保存で消さない（.bak 退避）、GUID 未解決ファイルの .orphan 退避・復元・期限切れ削除、プリセット半径の丸め |
+| `ExportPipelineTests` | 原本を import 設定（maxTextureSize）に左右されず読む、TGA は取り込み済みで代替・Read/Write 無しは不可、PNG 往復、import 設定の引き継ぎ、上書きで GUID を保つ |
+| `RuntimeParityTests` | 上記「既知の限界」の Mono とハーネスの一致 |
+
+```powershell
+.\scripts\Link-HostPackage.ps1 -HostProject <ホスト> -WithEditorTests   # 1 回だけ
+.\scripts\Run-EditorTests.ps1                                          # ホストを Editor で開いていないこと
+```
+
+テストは配布物（`Code/`）の外にあり、`Link-HostPackage.ps1 -WithEditorTests` がホストの
+`Assets/IrocaEditorTests` へジャンクションで繋ぐ（ホスト側は .gitignore 済み）。CI では走らない
+（Unity のライセンスが要る）。所要は取り込み済みのホストで 1 分弱。
+UI の操作そのもの（OnGUI・ダイアログ）はここでも検証しない。
+
 ## skip と fail の区別（fixtures.require_harness）
 
 - dotnet が無い・Unity DLL が無い＝**環境不備 → skip**。
@@ -495,6 +518,9 @@ python tools/visual_review.py approve --note "確認した範囲と根拠"   # �
 - build-check は `#if UNITY_EDITOR` 内を検査できない（Define 未解決のため常に除外）。
 - ハーネスは net8.0 + JIT で、製品の Unity 2022.3（Mono）と実行環境が異なる。
   golden ハッシュは toolchain 固定であり環境間比較には使えない。
+  その差は `scripts/editor-tests/RuntimeParityTests` が測る: golden の入力（`scripts/golden/cases/`）を
+  Unity 実機の製品経路（`IrocaAutomation.RecolorWithZones`）に通してハーネスの出力と比べる。
+  2026-09-24 時点で 25 件すべてバイト一致。`Code/Core` を大きく変えたら `Run-EditorTests.ps1` で再確認する。
 - baseline 完全一致方式のテスト（bandana/costume/sneakers の IoU 系）は「現状出力の凍結」で
   あり、正当な改善でも fail する。改善採用時はベースライン再生成の理由をコミットに残すこと。
 - `Tests/visual_review/` の approve は compare パネルの存在と鮮度しか機械検証できない。

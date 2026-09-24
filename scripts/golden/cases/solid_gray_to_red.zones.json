@@ -1,0 +1,43 @@
+{
+ "zones": [
+  {
+   "name": "Z",
+   "sample": [
+    0.5098039215686274,
+    0.5098039215686274,
+    0.5098039215686274
+   ],
+   "target": [
+    0.7843137254901961,
+    0.1568627450980392,
+    0.1568627450980392
+   ],
+   "tolerance": 0.3,
+   "valueBlend": 1.0,
+   "edgeSoftness": 0.0,
+   "saturationStrictness": 0.5,
+   "saturationGuard": 0.0,
+   "chromaThreshold": 0.05,
+   "shadowDesaturation": 0.0,
+   "shadowForgivenessSatMin": 0.05,
+   "shadowValueFloor": 0.0,
+   "chromaCeiling": 0.0,
+   "outputSaturation": 1.0,
+   "highlightRecovery": false,
+   "highlightBandExpand": true,
+   "applyHighlightWash": false,
+   "autoRecolorAnchor": false,
+   "layerIndex": 0
+  }
+ ],
+ "settings": {
+  "edgeFeather": 0.0,
+  "antiAliasCleanup": 3,
+  "holeFillPasses": 5,
+  "holeFillMinNeighbors": 4,
+  "relaxedSatMin": 0.02,
+  "relaxedSatRamp": 0.08,
+  "useDecontamination": true,
+  "decontaminationRadius": 4
+ }
+}

@@ -22,6 +22,7 @@ Python は使い捨てなので「C#≡Python」を強制はしない（複数�
 | `golden_lib.py` | C# Harness 実行・raw I/O・正準パラメータ・ケース定義・ハッシュ化・ゴールデン再生成 |
 | `golden_hashes.json` | コミット済みゴールデン（各ケースの出力 SHA-256 と shape） |
 | `expected/*.png` | 各ケースの期待出力そのもの。別 toolchain（CI の Linux）での画素比較に使う |
+| `cases/*.png` / `*.zones.json` | 各ケースの入力と zones JSON。Unity 実機のテスト（`scripts/editor-tests/RuntimeParityTests`）が製品経路へ通して `expected/` と比べる |
 | `test_golden_csharp.py` | pytest ゲート（C# を走らせ golden と照合） |
 
 合成入力は C# の主要経路（基底再着色 / 無彩ターゲット / グレーモード / OkLab L リマップ /
