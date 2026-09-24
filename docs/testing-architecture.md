@@ -106,6 +106,8 @@ Iroca 本体リポジトリ（公開）
 │   │                           ※ UnityEngine.dll + UnityEditor.dll が必要（下記「前提」参照）
 ├─ scripts/golden/              golden（出力ハッシュ固定）テスト。expected/ に期待出力 PNG
 ├─ scripts/source_checks/       C# ソースを読むだけの構造検査（ハーネス・資産不要）
+├─ scripts/unit-run/            Unity 不要の部品（Infra のパス・書き込み等）のユニットテスト
+│                               （ハーネスと分けてあるので視覚レビューゲートの対象外）
 ├─ scripts/hooks/pre-commit     出荷ゲート（下記）
 └─ tools/visual_review.py       視覚レビュー（snapshot / compare / approve）
     tools/check_visual_review.py  pre-commit から呼ばれる承認鮮度・較正チェック
@@ -248,11 +250,11 @@ $env:VACC_CSHARP_GATE_FULL = "1"
 # 自動調整の品質ゲート(compute_all_metrics)を全被写体へ広げる（採否判断時に必須）
 $env:VACC_AUTOTUNE_GATE_FULL = "1"
 
-# golden（C# 出力ハッシュの固定）とソース構造検査 — dev_safe を必要としない自己完結テスト
-.\.venv\Scripts\python.exe -m pytest scripts/golden scripts/source_checks -q
+# golden（C# 出力ハッシュの固定）・ソース構造検査・ユニットテスト — dev_safe を必要としない自己完結テスト
+.\.venv\Scripts\python.exe -m pytest scripts/golden scripts/source_checks scripts/unit-run -q
 ```
 
-**CI（`ci.yml` の build-check）が回すのはこの 2 つだけ**（2026-09-24〜）。テクスチャ資産は
+**CI（`ci.yml` の build-check）が回すのはこの 3 つだけ**（2026-09-24〜）。テクスチャ資産は
 プライベートの dev_safe にあるので、IoU などの回帰は CI では走らない。CI は Linux なので、
 golden は `IROCA_GOLDEN_TOLERANT=1` でハッシュ不一致を `scripts/golden/expected/*.png` との
 画素比較（最大差 2・差のある画素 1% まで）で判定し、`IROCA_REQUIRE_HARNESS=1` で

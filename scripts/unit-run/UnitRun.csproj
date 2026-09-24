@@ -1,0 +1,53 @@
+<!--
+  Code/ のうち Unity を起動しなくても動く小さな部品(ファイル名・パス・書き込み)を
+  dotnet だけで検査するユニットテスト。headless ハーネス(scripts/headless-run)とは分けてある:
+  ハーネスが取り込むファイルは視覚レビューゲートの対象になる(tools/harness_scope.py)ので、
+  再着色の出力に関係しない部品をそちらへ足すと、無関係な修正で compare を要求されてしまう。
+
+    dotnet run (project scripts/unit-run/UnitRun.csproj)   全件実行。失敗件数が終了コード
+
+  pytest からは scripts/unit-run/test_unit_run.py が呼ぶ。CI(ci.yml)でも回る。
+  テストの書き方は UnitRun.cs の先頭コメントを参照。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Iroca</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AssemblyName>IrocaUnitRun</AssemblyName>
+    <EnableSourceLink>false</EnableSourceLink>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <UnityVersion Condition="'$(UnityVersion)' == ''">2022.3.22f1</UnityVersion>
+    <UnityManaged Condition="'$(UnityManaged)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityManaged>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\Code\Infra\AtomicFile.cs" />
+    <!-- PathUtils は Application.dataPath を参照するが、テストは assetsFolder を引数で渡す
+         オーバーロードだけを呼ぶので、実行時に Unity のネイティブ側へは入らない。 -->
+    <Compile Include="..\..\Code\Infra\PathUtils.cs" />
+    <Compile Include="UnitRun.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(UnityManaged)\UnityEngine\UnityEngine.CoreModule.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="CheckUnityDlls" BeforeTargets="CoreCompile">
+    <Error Condition="!Exists('$(UnityManaged)\UnityEngine\UnityEngine.CoreModule.dll')"
+           Text="Unity CoreModule DLL が見つかりません: $(UnityManaged)。UnityVersion / UnityManaged プロパティ(または環境変数)で上書きしてください。" />
+  </Target>
+
+</Project>
