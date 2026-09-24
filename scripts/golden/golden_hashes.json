@@ -29,6 +29,70 @@
         4
       ]
     },
+    "edge_1x1": {
+      "sha256": "ecd1286ddec431e6bcd0806ee1948372ff7b330230f8c8169b8d5ddbcf61a9a4",
+      "shape": [
+        1,
+        1,
+        4
+      ]
+    },
+    "edge_alpha_all_transparent": {
+      "sha256": "bb53d98464e683cc2cfd62f207d817dc8e0d7da1fba0efebefa92a387989afd1",
+      "shape": [
+        40,
+        40,
+        4
+      ]
+    },
+    "edge_alpha_columns": {
+      "sha256": "f6469c4bde7d43145e7a8b2228c8307402ffaf84b843dc02c65ddb64176102e4",
+      "shape": [
+        40,
+        40,
+        4
+      ]
+    },
+    "edge_alpha_disc_on_clear_black": {
+      "sha256": "cf7b6cabd590d0c0ae20d094bb904e5f0da139270e46a59ab57986576837e641",
+      "shape": [
+        48,
+        48,
+        4
+      ]
+    },
+    "edge_col_64x1": {
+      "sha256": "376940a15ea6648a8bfebbe6fe5e93e8dfc6682fbfc620ab3c2246b1b6404af2",
+      "shape": [
+        64,
+        1,
+        4
+      ]
+    },
+    "edge_gray_texture_red_sample": {
+      "sha256": "e5e97b1ceb0800eee5dd85eca72b43e3e37e19a5ea6b251df3dbef5bc2e03a9e",
+      "shape": [
+        48,
+        48,
+        4
+      ]
+    },
+    "edge_odd_23x37_highlight": {
+      "sha256": "d90e7f6b5149b08c30a99ac4b5ecf46cd58b4aab03b181f4ad670af3fd3b5fc0",
+      "shape": [
+        23,
+        37,
+        4
+      ]
+    },
+    "edge_row_1x64": {
+      "sha256": "8df99841ed27c63890a4022faac68aff1bdb2ab71152f1b24a4f6c08bda1004d",
+      "shape": [
+        1,
+        64,
+        4
+      ]
+    },
     "grad_blue_to_white": {
       "sha256": "3b3b22e7d09a031466c190b57d441c49ddb154ffc12cb9a3cb87279054507deb",
       "shape": [

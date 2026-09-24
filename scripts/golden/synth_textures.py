@@ -82,3 +82,30 @@ def chromatic_on_neutral(fg_rgb, bg_gray: int = 235, h: int = 48, w: int = 48) -
         ch = img[..., c]
         ch[inside] = fg_rgb[c]
     return img
+
+
+# ─── 端ケース（α・極端な寸法） ───
+# 上の関数は α=255 固定・40〜48 px の正方形しか作らない。実テクスチャには透明部（UV の隙間）や
+# 半透明の縁があり、ハーネスには 1 px 幅や奇数寸法も来うる。ここではそれらを作る。
+
+def with_alpha_columns(img: np.ndarray) -> np.ndarray:
+    """左端 α=0 から右端 α=255 まで、列ごとに α を線形に上げる（半透明の縁の代わり）。"""
+    out = img.copy()
+    w = out.shape[1]
+    out[..., 3] = np.round(np.linspace(0, 255, w))[None, :].astype(np.uint8)
+    return out
+
+
+def transparent(img: np.ndarray) -> np.ndarray:
+    """RGB はそのままで全画素 α=0（UV の隙間を色付きで塗ったテクスチャ相当）。"""
+    out = img.copy()
+    out[..., 3] = 0
+    return out
+
+
+def disc_on_clear_black(fg_rgb, h: int = 48, w: int = 48) -> np.ndarray:
+    """(0,0,0,0) の透明背景に有彩の不透明円（背景を透明で抜いたテクスチャの典型）。"""
+    img = chromatic_on_neutral(fg_rgb, 0, h, w)
+    inside = (img[..., 0] == fg_rgb[0]) & (img[..., 1] == fg_rgb[1]) & (img[..., 2] == fg_rgb[2])
+    img[..., 3] = np.where(inside, 255, 0).astype(np.uint8)
+    return img

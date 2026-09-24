@@ -49,10 +49,22 @@ def harness():
     return True
 
 
+@pytest.fixture(scope="module")
+def outputs(harness, tmp_path_factory):
+    """各ケースの C# 出力を 1 回だけ計算して共有する（照合と性質検査で同じ出力を見る）。"""
+    cache: dict[str, object] = {}
+
+    def get(label, rgba, zone, settings):
+        if label not in cache:
+            cache[label] = G.run_csharp(rgba, zone, settings, tmp_path_factory.mktemp(label))
+        return cache[label]
+    return get
+
+
 @pytest.mark.parametrize("label,rgba,zone,settings",
                          [pytest.param(*c, id=c[0]) for c in _CASES])
-def test_golden_matches(label, rgba, zone, settings, harness, tmp_path):
-    out = G.run_csharp(rgba, zone, settings, tmp_path)
+def test_golden_matches(label, rgba, zone, settings, outputs):
+    out = outputs(label, rgba, zone, settings)
     cur = G.output_hash(out)
     assert label in _GOLDEN, (
         f"{label}: golden 未登録。新規ケースなら `python scripts/golden/golden_lib.py` で再生成してください")
@@ -86,3 +98,29 @@ def test_output_is_deterministic(harness, tmp_path):
     a = G.run_csharp(rgba, zone, settings, tmp_path / "a")
     b = G.run_csharp(rgba, zone, settings, tmp_path / "b")
     assert G.output_hash(a) == G.output_hash(b), f"{label}: C# 出力が非決定的（並列処理の順序依存?）"
+
+
+@pytest.mark.parametrize("label,rgba,zone,settings",
+                         [pytest.param(*c, id=c[0]) for c in _CASES])
+def test_alpha_is_preserved(label, rgba, zone, settings, outputs):
+    """再着色は色だけを変える。α（透明部・半透明の縁）を書き換えると描画結果そのものが壊れる。"""
+    out = outputs(label, rgba, zone, settings)
+    changed = int((out[..., 3] != rgba[..., 3]).sum())
+    assert changed == 0, f"{label}: α が {changed} 画素で変化しました"
+
+
+_NEUTRAL = [c for c in _CASES if c[0] == "edge_gray_texture_red_sample"]
+
+
+@pytest.mark.xfail(strict=False, reason=(
+    "既知の未達（2026-09-24 発見）: 有彩スポイトに無関係な明るい無彩画素が動く。"
+    "デコンタミ(AA 縁の除去)が 222 前後の灰を最大 16 段階暗くし、それ以外の段も 235 の白を"
+    "最大 4 段階動かす。既存 golden の chroma_on_white_to_blue でも白背景が最大 5 段階動いている。"
+    "直すと XPASS で浮かぶので、そのとき xfail を外すこと"))
+@pytest.mark.parametrize("label,rgba,zone,settings", [pytest.param(*c, id=c[0]) for c in _NEUTRAL])
+def test_neutral_texture_untouched_by_chromatic_sample(label, rgba, zone, settings, outputs):
+    """無彩だけのテクスチャに有彩スポイトを当てても、何も変わらないのが正。"""
+    out = outputs(label, rgba, zone, settings)
+    diff = abs(out[..., :3].astype(int) - rgba[..., :3].astype(int)).max(axis=-1)
+    assert int(diff.max()) == 0, (
+        f"{label}: 選ばれるはずのない無彩画素が {int((diff > 0).sum())} 画素変化（最大 {int(diff.max())}）")
