@@ -211,12 +211,9 @@ namespace Iroca
             if (saveAsNewFile)
             {
                 string dir = Path.GetDirectoryName(srcPath);
-                string safeName = string.IsNullOrWhiteSpace(newFileName) ? "recolored" : newFileName;
-                // セキュリティ: ファイル名部分のみを取得してパストラバーサルを防ぐ
-                safeName = Path.GetFileName(safeName);
-                foreach (char c in Path.GetInvalidFileNameChars())
-                    safeName = safeName.Replace(c.ToString(), "_");
-                if (string.IsNullOrWhiteSpace(safeName)) safeName = "recolored";
+                // 区切り文字も置換するのでパストラバーサルはできない。予約名("CON" 等)や
+                // 末尾の '.' / ' ' もプリセット保存と同じ規則で直す（以前は予約名で保存に失敗した）。
+                string safeName = PathUtils.SanitizeFileName(newFileName, "recolored");
                 outputPath = Path.Combine(dir, safeName + ".png");
 
                 if (File.Exists(outputPath))
