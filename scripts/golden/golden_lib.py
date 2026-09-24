@@ -43,6 +43,9 @@ GOLDEN_FILE = HERE / "golden_hashes.json"
 # 別 OS（CI の Linux）では libm の最下位ビット差だけで全滅しうる。そこでは画素で比べて
 # 「丸め誤差の範囲か、挙動の変化か」を分ける（compare_tolerant）。
 EXPECTED_DIR = HERE / "expected"
+# 各ケースの入力（PNG, RGBA）と zones JSON。Unity 実機（scripts/editor-tests の RuntimeParityTests）が
+# 同じ入力を製品経路へ通し、expected/ と突き合わせるために使う。
+CASES_DIR = HERE / "cases"
 
 # 別 toolchain での許容差。libm の ulp 差が uint8 への丸めを跨いだ画素だけが ±1 で動く想定。
 # 段の欠落や定数ずれは多数の画素を大きく動かすので、この範囲には収まらない。
@@ -222,6 +225,15 @@ def load_expected(label: str) -> np.ndarray | None:
     return np.array(Image.open(p).convert("RGBA"))
 
 
+def save_case_input(label: str, rgba: np.ndarray, z: dict, s: dict) -> None:
+    from PIL import Image
+    CASES_DIR.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(np.ascontiguousarray(rgba), "RGBA").save(CASES_DIR / f"{label}.png", optimize=True)
+    (CASES_DIR / f"{label}.zones.json").write_text(
+        json.dumps({"zones": [_zone_json(z)], "settings": s}, ensure_ascii=False, indent=1) + "\n",
+        encoding="utf-8")
+
+
 def save_expected(label: str, arr: np.ndarray) -> None:
     from PIL import Image
     EXPECTED_DIR.mkdir(parents=True, exist_ok=True)
@@ -392,9 +404,11 @@ def regenerate(force: bool = False) -> int:
 
     out_cases: dict = {}
     out_arrays: dict[str, np.ndarray] = {}
+    inputs: list[tuple[str, np.ndarray, dict, dict]] = []
     with tempfile.TemporaryDirectory() as td:
         work = Path(td)
         for label, rgba, z, s in build_cases():
+            inputs.append((label, rgba, z, s))
             arr = run_csharp(rgba, z, s, work)
             out_arrays[label] = arr
             out_cases[label] = {"sha256": output_hash(arr), "shape": list(arr.shape)}
@@ -431,12 +445,15 @@ def regenerate(force: bool = False) -> int:
         "cases": dict(sorted(out_cases.items())),
     }
     GOLDEN_FILE.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    for old in EXPECTED_DIR.glob("*.png") if EXPECTED_DIR.exists() else []:
-        if old.stem not in out_arrays:
-            old.unlink()
+    for d in (EXPECTED_DIR, CASES_DIR):
+        for old in d.glob("*") if d.exists() else []:
+            if old.name.split(".")[0] not in out_arrays:
+                old.unlink()
     for label, arr in out_arrays.items():
         save_expected(label, arr)
-    print(f"\n{len(out_cases)} 件を {GOLDEN_FILE} と {EXPECTED_DIR} に書き出しました。")
+    for label, rgba, z, s in inputs:
+        save_case_input(label, rgba, z, s)
+    print(f"\n{len(out_cases)} 件を {GOLDEN_FILE}・{EXPECTED_DIR}・{CASES_DIR} に書き出しました。")
     return 0
 
 
