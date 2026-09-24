@@ -3,10 +3,8 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
-using UnityEngine.Experimental.Rendering;
 
 namespace Iroca
 {
@@ -207,15 +205,9 @@ namespace Iroca
 
             // 重い処理のあとでキャンセルされると計算が全て無駄になるので、
             // 確認はユーザー入力の時点（＝処理前）に行う。
-            string outputPath;
+            string outputPath = ExportPipeline.SingleOutputPath(srcPath, saveAsNewFile, newFileName);
             if (saveAsNewFile)
             {
-                string dir = Path.GetDirectoryName(srcPath);
-                // 区切り文字も置換するのでパストラバーサルはできない。予約名("CON" 等)や
-                // 末尾の '.' / ' ' もプリセット保存と同じ規則で直す（以前は予約名で保存に失敗した）。
-                string safeName = PathUtils.SanitizeFileName(newFileName, "recolored");
-                outputPath = Path.Combine(dir, safeName + ".png");
-
                 if (File.Exists(outputPath))
                 {
                     if (!EditorUtility.DisplayDialog(Localization.Confirm,
@@ -227,7 +219,6 @@ namespace Iroca
             }
             else
             {
-                outputPath = Path.ChangeExtension(srcPath, ".png");
                 // ソースが PNG なら真の上書き。非 PNG（.jpg/.tga 等）だと ChangeExtension は
                 // 元ファイルを上書きせず隣に .png を新規作成するだけで、マテリアルは旧ファイル参照の
                 // まま＝「色が変わらない」ように見える。ダイアログ文言も「上書き」で矛盾するので、
@@ -249,40 +240,16 @@ namespace Iroca
             // 変換しているので LoadImage が読めず、以前はここで停止していた＝プレビューでは
             // 色替えできるのに、作り込んだ後の「適用して保存」だけが失敗していた。
             // プレビューと同じく、読めないときは取り込み済みテクスチャの画素で書き出す。
-            Texture2D loadTex = null;
-            Color32[] pixels;
-            int texW, texH;
-            bool fromImportedTexture = false;
-            try
+            var source = ExportPipeline.ReadSourcePixels(srcPath, sourceTexture,
+                out Color32[] pixels, out int texW, out int texH);
+            if (source == ExportPipeline.SourceKind.Unavailable)
             {
-                byte[] srcBytes = File.ReadAllBytes(srcPath);
-                loadTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                if (loadTex.LoadImage(srcBytes))
-                {
-                    pixels = loadTex.GetPixels32();
-                    texW = loadTex.width;
-                    texH = loadTex.height;
-                }
-                else if (IrocaWindow.IsReadable(sourceTexture))
-                {
-                    pixels = sourceTexture.GetPixels32();
-                    texW = sourceTexture.width;
-                    texH = sourceTexture.height;
-                    fromImportedTexture = true;
-                }
-                else
-                {
-                    // 原本も取り込み側も読めない。Read/Write を有効にすれば後者が使える。
-                    NotifyError(Localization.ExportSourceUnavailable);
-                    return;
-                }
-            }
-            finally
-            {
-                if (loadTex != null) Object.DestroyImmediate(loadTex);
+                // 原本も取り込み側も読めない。Read/Write を有効にすれば後者が使える。
+                NotifyError(Localization.ExportSourceUnavailable);
+                return;
             }
 
-            if (fromImportedTexture)
+            if (source == ExportPipeline.SourceKind.ImportedTexture)
             {
                 // 取り込み済みテクスチャは maxTextureSize の縮小・圧縮を受けている。出力が原本と
                 // 同じ解像度・画質になるとは限らないので、書き出す前に知らせる。
@@ -319,27 +286,10 @@ namespace Iroca
                     ct.ThrowIfCancellationRequested();
                     _exportProgress.Report(0.80f);
 
-                    // PNG エンコード + ファイル書き込みもバックグラウンドで行う(メインスレッドの
-                    // 終了時フリーズを解消。旧版は Texture2D + EncodeToPNG をメインスレッドで実行し
-                    // 4K で秒単位ブロックしていた)。Texture2D を介さない ImageConversion.EncodeArrayToPNG
-                    // は Unity 2022.3(本プロジェクト/VRChat の対象)ではスレッドセーフ。Color32[] は
-                    // sRGB バイト値なので R8G8B8A8_SRGB を指定し、旧 Texture2D(RGBA32).EncodeToPNG と
-                    // 同じ画素を書き出す。
-                    // ※ Unity 6+ では EncodeArrayToPNG がメインスレッド必須に変わったため、将来 Unity 6
-                    //    以降へ移行する場合はこのエンコードをメインスレッド(apply 側)へ戻すこと。
-                    byte[] rgba = new byte[pixels.Length * 4];
-                    for (int i = 0; i < pixels.Length; i++)
-                    {
-                        int o = i * 4;
-                        rgba[o]     = pixels[i].r;
-                        rgba[o + 1] = pixels[i].g;
-                        rgba[o + 2] = pixels[i].b;
-                        rgba[o + 3] = pixels[i].a;
-                    }
-                    byte[] pngData = ImageConversion.EncodeArrayToPNG(
-                        rgba, GraphicsFormat.R8G8B8A8_SRGB, (uint)texW, (uint)texH);
-                    if (pngData == null || pngData.Length == 0)
-                        throw new System.Exception("EncodeArrayToPNG が空のデータを返しました");
+                    // PNG エンコードもバックグラウンドで行う(メインスレッドの終了時フリーズを解消。
+                    // 旧版は Texture2D + EncodeToPNG をメインスレッドで実行し 4K で秒単位ブロックしていた)。
+                    // スレッド安全性と Unity 6 移行時の注意は ExportPipeline.EncodePng を参照。
+                    byte[] pngData = ExportPipeline.EncodePng(pixels, texW, texH);
                     _exportProgress.Report(0.95f);
 
                     // ★ここでディスクへ書かない★ — 書いてしまうと、この直後〜apply までの間に
@@ -365,22 +315,9 @@ namespace Iroca
                     // BG 失敗時と同じ経路へ流す。放置すると失敗が UI に一切出ない。
                     try
                     {
-                        // 書き込み自体はアトミック(一時ファイル→rename)にする。書き潰す相手が
-                        // 元テクスチャそのものであり得るため、途中で落ちた書き込みで原本を失わない。
-                        AtomicFile.WriteAllBytes(payload.outputPath, payload.pngData);
-                        _exportProgress.Report(0.97f);
-
-                        string relativePath = PathUtils.ToAssetsRelativeOrNull(payload.outputPath);
-                        if (relativePath != null)
-                        {
-                            if (payload.inheritImportSettings)
-                            {
-                                string srcRel = PathUtils.ToAssetsRelativeOrNull(payload.srcPath);
-                                if (srcRel != null)
-                                    PreApplyImportSettings(srcRel, relativePath);
-                            }
-                            AssetDatabase.ImportAsset(relativePath);
-                        }
+                        // 書き込みはアトミック(書き潰す相手が元テクスチャそのものであり得るため)。
+                        string relativePath = ExportPipeline.WriteAndImport(
+                            payload.outputPath, payload.pngData, payload.srcPath, payload.inheritImportSettings);
                         // 「Project で表示」の対象。Assets/ の外へ書いた場合は null のまま
                         // （Unity のアセットではないので Project ウィンドウに出せない）。
                         _lastSavedAssetPath = relativePath;
@@ -388,7 +325,7 @@ namespace Iroca
                         // ソース自身を書き換えたなら、プレビューが握っている「ディスク原本の画素」は
                         // もう古い。捨てないと、次のエクスポートが再着色済みファイルを読み直して
                         // 二重適用になる（プレビューは旧画素を表示し続けるので画面では気づけない）。
-                        if (IsSameFile(payload.outputPath, payload.srcPath))
+                        if (ExportPipeline.IsSameFile(payload.outputPath, payload.srcPath))
                             _host?.InvalidateSourceAndRepaint();
 
                         _exportProgress.Report(1.0f);
@@ -409,23 +346,6 @@ namespace Iroca
         {
             Debug.LogError($"[Iroca] Export failed: {ex.Message}\n{ex.StackTrace}");
             NotifyError(ex.Message);
-        }
-
-        /// <summary>
-        /// 2 つのパスが同一ファイルを指すか。書き出し先がプレビューのソース自身かの判定に使う。
-        /// AssetDatabase のパスは '/' 区切り、Path.Combine は '\' を混ぜるため、素の文字列比較では
-        /// 取りこぼす。フルパスへ正規化してから比較する。判定に迷ったら「同一」と答える側が安全
-        /// （余分なキャッシュ破棄で済み、逆は二重適用を見逃す）。
-        /// </summary>
-        private static bool IsSameFile(string a, string b)
-        {
-            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
-            try
-            {
-                return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b),
-                    System.StringComparison.OrdinalIgnoreCase);
-            }
-            catch { return false; }
         }
 
         /// <summary>
@@ -502,28 +422,6 @@ namespace Iroca
             EditorGUILayout.Space(4);
         }
 
-        // .meta ファイルをインポート前に書き込んでおくことで、
-        // ImportAsset の 1 回の圧縮パスで正しい設定が適用される（SaveAndReimport 不要）。
-        private static void PreApplyImportSettings(string srcRelPath, string dstRelPath)
-        {
-            string root = Path.GetDirectoryName(Application.dataPath);
-            string sep  = Path.DirectorySeparatorChar.ToString();
-            string srcMeta = Path.Combine(root, srcRelPath.Replace("/", sep)) + ".meta";
-            string dstMeta = Path.Combine(root, dstRelPath.Replace("/", sep)) + ".meta";
-
-            if (!File.Exists(srcMeta)) return;
-
-            string content = File.ReadAllText(srcMeta, System.Text.Encoding.UTF8);
-
-            // 上書きなら既存 GUID を維持、新規ファイルなら新 GUID を生成
-            string guid = AssetDatabase.AssetPathToGUID(dstRelPath);
-            if (string.IsNullOrEmpty(guid))
-                guid = System.Guid.NewGuid().ToString("N");
-
-            content = Regex.Replace(content, @"(?m)^guid: [0-9a-f]+$", $"guid: {guid}");
-            File.WriteAllText(dstMeta, content, System.Text.Encoding.UTF8);
-        }
-
         private void RunBatchApply()
         {
             var session = _host.Session;
@@ -533,9 +431,7 @@ namespace Iroca
                 if (tex == null) continue;
                 string srcPath = AssetDatabase.GetAssetPath(tex);
                 if (string.IsNullOrEmpty(srcPath)) continue;
-                string dir      = Path.GetDirectoryName(srcPath);
-                string baseName = Path.GetFileNameWithoutExtension(srcPath) + "_recolored";
-                plannedOutputs.Add(Path.Combine(dir, baseName + ".png"));
+                plannedOutputs.Add(ExportPipeline.BatchOutputPath(srcPath));
             }
 
             bool anyExists = plannedOutputs.Any(File.Exists);
@@ -564,7 +460,6 @@ namespace Iroca
                 {
                     var tex = batchTextures[i];
                     if (tex == null) continue;
-                    Texture2D fullTex = null;
 
                     if (EditorUtility.DisplayCancelableProgressBar(
                             Localization.BatchProgress,
@@ -582,35 +477,22 @@ namespace Iroca
 
                     try
                     {
-                        byte[] srcBytes = File.ReadAllBytes(srcPath);
-                        fullTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                        Color32[] pixels;
-                        int texW, texH;
-                        if (fullTex.LoadImage(srcBytes))
+                        // 読み込み・PNG 化・書き込みは単体書き出しと同じ ExportPipeline を通す
+                        // （以前は一括だけ書き込みがアトミックでなかった）。
+                        var source = ExportPipeline.ReadSourcePixels(srcPath, tex,
+                            out Color32[] pixels, out int texW, out int texH);
+                        // 原本も取り込み側も読めない（PSD/TGA 等で Read/Write 無効）。
+                        if (source == ExportPipeline.SourceKind.Unavailable) continue;
+                        if (source == ExportPipeline.SourceKind.ImportedTexture)
                         {
-                            pixels = fullTex.GetPixels32();
-                            texW = fullTex.width;
-                            texH = fullTex.height;
-                        }
-                        else
-                        {
-                            // PSD/TGA 等は原本をデコードできない。単体書き出しと同じく取り込み済み
-                            // テクスチャで代替する（縮小・圧縮の影響を受ける）。以前は黙って
+                            // 取り込み済みテクスチャで代替する（縮小・圧縮の影響を受ける）。以前は黙って
                             // スキップしていたので、完了件数だけを見たユーザーには理由が残らなかった。
-                            if (!IrocaWindow.IsReadable(tex)) continue;
-                            pixels = tex.GetPixels32();
-                            texW = tex.width;
-                            texH = tex.height;
                             Debug.LogWarning($"[Iroca] Batch: source file could not be decoded for {tex.name}; "
                                 + $"using the imported texture ({texW}x{texH}).");
-                            // 以降の SetPixels32/EncodeToPNG のために、代替画素と同じ寸法へ作り直す
-                            // （LoadImage 失敗時の fullTex は 2x2 のまま）。
-                            Object.DestroyImmediate(fullTex);
-                            fullTex = new Texture2D(texW, texH, TextureFormat.RGBA32, false);
                         }
-                        // リスト先頭のゾーンほど先に処理され、重なった領域を占有する。
-            var sorted = session.zones.Where(z => z.enabled).ToList();
 
+                        // リスト先頭のゾーンほど先に処理され、重なった領域を占有する。
+                        var sorted = session.zones.Where(z => z.enabled).ToList();
                         if (sorted.Count > 0)
                         {
                             var maskSnap = _host.BuildMaskSnapshot();
@@ -618,32 +500,15 @@ namespace Iroca
                                 maskSnap, sorted, RecolorSettings.From(session));
                         }
 
-                        fullTex.SetPixels32(pixels);
-                        // Apply()(CPU→GPU アップロード)は CPU 側を読む EncodeToPNG には不要。
-                        byte[] pngData = fullTex.EncodeToPNG();
-
-                        string dir      = Path.GetDirectoryName(srcPath);
-                        string baseName = Path.GetFileNameWithoutExtension(srcPath) + "_recolored";
-                        string outPath  = Path.Combine(dir, baseName + ".png");
-                        File.WriteAllBytes(outPath, pngData);
-                        if (IsSameFile(outPath, previewSrcPath)) previewSourceOverwritten = true;
-                        string relOutPath = PathUtils.ToAssetsRelativeOrNull(outPath);
-                        if (relOutPath != null)
-                        {
-                            if (inheritImportSettings)
-                                PreApplyImportSettings(srcPath, relOutPath);
-                            AssetDatabase.ImportAsset(relOutPath);
-                        }
+                        string outPath = ExportPipeline.BatchOutputPath(srcPath);
+                        ExportPipeline.WriteAndImport(outPath, ExportPipeline.EncodePng(pixels, texW, texH),
+                            srcPath, inheritImportSettings);
+                        if (ExportPipeline.IsSameFile(outPath, previewSrcPath)) previewSourceOverwritten = true;
                         success++;
                     }
                     catch (System.Exception ex)
                     {
                         Debug.LogWarning($"[Iroca] Batch apply failed for {tex.name}: {ex.Message}");
-                    }
-                    finally
-                    {
-                        if (fullTex != null)
-                            Object.DestroyImmediate(fullTex);
                     }
                 }
             }
