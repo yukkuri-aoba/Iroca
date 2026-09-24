@@ -403,6 +403,11 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
   - 導出結果 → ゾーンの適用写像は `ZoneAutoTuner.TuneResult.ApplyTo` が単一の正
     （UI とハーネスの二重実装を解消）。`scripts/source_checks/test_autotune_apply_single_source` が C# ソースから
     「両呼び出し元が ApplyTo だけを使う」「TuneResult の全フィールドを写す」を検査する。
+  - 同じ考えで、再着色の全体設定（edgeFeather〜decontaminationRadius）は `RecolorSettings` が単一の正
+    （2026-09-24〜）。`PixelProcessor.ProcessPixelsArray` の入口はこれを受け取る 1 つだけで、プレビュー 2 段・
+    詳細・単体/一括エクスポート・Automation・ハーネスの全呼び出し元が同じ型を渡す（以前は各所で 8 個の値を
+    位置引数に並べ直していた）。セッション・プリセット・zones JSON とのフィールド対応と既定値の参照は
+    `scripts/source_checks/test_recolor_settings.py` が検査する。
   - **画で見る**（2026-09-03〜）: 上の 3 本は数字しか残さない。`dev_safe/scripts/build_oneshot_review.py`
     が同じ driver（`run_case` / `run_subject`）の出力を「クリック位置+証拠セグメント / 出力 /
     GT 判定オーバーレイ（+注目範囲クロップ）」の画と `review_data.json` に書き出し、

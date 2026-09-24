@@ -303,14 +303,7 @@ namespace Iroca
             var maskSnap = (sorted.Count > 0) ? _host.BuildMaskSnapshot() : null;
 
             // 計算に必要な値を全てローカル変数に退避（Task.Run の中から session を直接触らない）
-            float edgeFeather = session.edgeFeather;
-            int antiAliasCleanup = session.antiAliasCleanup;
-            int holeFillPasses = session.holeFillPasses;
-            int holeFillMinNeighbors = session.holeFillMinNeighbors;
-            float relaxedSatMin = session.relaxedSatMin;
-            float relaxedSatRamp = session.relaxedSatRamp;
-            bool useDecontamination = session.useDecontamination;
-            int decontaminationRadius = session.decontaminationRadius;
+            var settings = RecolorSettings.From(session);
             bool inheritFlag = inheritImportSettings;
 
             _exportProgress.Reset();
@@ -324,11 +317,7 @@ namespace Iroca
                     {
                         // CancellationToken 対応オーバーロード: 内部で ThrowIfCancellationRequested を呼ぶ
                         PixelProcessor.ProcessPixelsArray(pixels, texW, texH,
-                            maskSnap, sorted, edgeFeather, antiAliasCleanup,
-                            holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
-                            0, 0, 0, 0, ct,
-                            useDecontamination: useDecontamination,
-                            decontaminationRadius: decontaminationRadius);
+                            maskSnap, sorted, settings, ct);
                     }
                     ct.ThrowIfCancellationRequested();
                     _exportProgress.Report(0.80f);
@@ -629,10 +618,7 @@ namespace Iroca
                         {
                             var maskSnap = _host.BuildMaskSnapshot();
                             PixelProcessor.ProcessPixelsArray(pixels, texW, texH,
-                                maskSnap, sorted, session.edgeFeather, session.antiAliasCleanup,
-                                session.holeFillPasses, session.holeFillMinNeighbors, session.relaxedSatMin, session.relaxedSatRamp,
-                                useDecontamination: session.useDecontamination,
-                                decontaminationRadius: session.decontaminationRadius);
+                                maskSnap, sorted, RecolorSettings.From(session));
                         }
 
                         fullTex.SetPixels32(pixels);

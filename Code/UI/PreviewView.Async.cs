@@ -88,10 +88,7 @@ namespace Iroca
                 srcPixels = srcPixels, rawDisplay = rawDisplay,
                 scale = scale, prevW = prevW, prevH = prevH,
                 maskSnap = maskSnap, zonesSnapshot = zonesSnapshot,
-                feather = session.edgeFeather, aaCleanup = session.antiAliasCleanup,
-                hfPasses = session.holeFillPasses, hfMinNeighbors = session.holeFillMinNeighbors,
-                rSatMin = session.relaxedSatMin, rSatRamp = session.relaxedSatRamp,
-                useDecontam = session.useDecontamination, decontamRadius = session.decontaminationRadius,
+                settings = RecolorSettings.From(session),
                 debugCap = debugCap,
                 // 連続領域モードの keep と再着色アンカー/wash/領域L統計をフル画像で解いて公開する
                 // (詳細プレビューが転写して出力色まで一致させる)。プロキシ段は公開しない。
@@ -123,10 +120,7 @@ namespace Iroca
             public int prevW, prevH;
             public MaskSnapshot maskSnap;
             public System.Collections.Generic.List<ColorZone> zonesSnapshot;
-            public float feather; public int aaCleanup;
-            public int hfPasses, hfMinNeighbors;
-            public float rSatMin, rSatRamp;
-            public bool useDecontam; public int decontamRadius;
+            public RecolorSettings settings;
             public IDebugCapture debugCap;
             public PreviewParityCache parityCache;
         }
@@ -154,9 +148,7 @@ namespace Iroca
                     // (実テクスチャで表示画素の ~17%)。処理前のプロキシを控えて同じ鎖へ流す。
                     Color32[] proxyRaw = (Color32[])proxyPixels.Clone();
                     PixelProcessor.ProcessPixelsArray(proxyPixels, proxyW, proxyH, req.maskSnap, req.zonesSnapshot,
-                        req.feather, req.aaCleanup, req.hfPasses, req.hfMinNeighbors, req.rSatMin, req.rSatRamp,
-                        0, 0, 0, 0, token,
-                        req.useDecontam, req.decontamRadius,
+                        req.settings, token,
                         debug: null, parityCache: null, selectionCache: proxySelCache);
 
                     // 表示寸法へ。ProxyMaxSize==MaxSize なら proxy==表示で再縮小なし(最頻ケース)。
@@ -195,9 +187,7 @@ namespace Iroca
                 {
                     Color32[] pixels = (Color32[])req.srcPixels.Clone();
                     PixelProcessor.ProcessPixelsArray(pixels, req.srcW, req.srcH, req.maskSnap, req.zonesSnapshot,
-                        req.feather, req.aaCleanup, req.hfPasses, req.hfMinNeighbors, req.rSatMin, req.rSatRamp,
-                        0, 0, 0, 0, token,
-                        req.useDecontam, req.decontamRadius,
+                        req.settings, token,
                         debug: req.debugCap, parityCache: req.parityCache, selectionCache: selCache);
 
                     Color32[] processedDisplay = req.scale < 1f

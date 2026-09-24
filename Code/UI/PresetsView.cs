@@ -157,17 +157,10 @@ namespace Iroca
             {
                 name = presetName,
                 zones = zonesCopy,
-                edgeFeather = session.edgeFeather,
-                // 編集モード(かんたん/通常/上級)は UI 表示の好みであり色設定ではないため、
-                // プリセットには保存しない（読込で表示モードが勝手に変わらないように）。
-                antiAliasCleanup = session.antiAliasCleanup,
-                holeFillPasses = session.holeFillPasses,
-                holeFillMinNeighbors = session.holeFillMinNeighbors,
-                relaxedSatMin = session.relaxedSatMin,
-                relaxedSatRamp = session.relaxedSatRamp,
-                useDecontamination = session.useDecontamination,
-                decontaminationRadius = session.decontaminationRadius,
             };
+            // 編集モード(かんたん/通常/上級)は UI 表示の好みであり色設定ではないため、
+            // プリセットには保存しない（読込で表示モードが勝手に変わらないように）。
+            RecolorSettings.From(session).CopyTo(data);
 
             if (presetIncludeMasks)
             {
@@ -201,14 +194,8 @@ namespace Iroca
             session.zones = data.zones ?? new List<ColorZone>();
             MigrateLegacyLayerPriority(session.zones);
             _host.EnsureAllZoneIds();
-            session.edgeFeather          = data.edgeFeather;
             // 編集モードはプリセットで上書きしない（現在の表示モードを維持）。
-            session.antiAliasCleanup     = data.antiAliasCleanup;
-            session.holeFillPasses       = data.holeFillPasses;
-            session.holeFillMinNeighbors = data.holeFillMinNeighbors;
-            session.relaxedSatMin        = data.relaxedSatMin;
-            session.relaxedSatRamp       = data.relaxedSatRamp;
-            session.useDecontamination   = data.useDecontamination;
+            RecolorSettings.From(data).CopyTo(session);
             session.decontaminationRadius = Mathf.Clamp(data.decontaminationRadius, 1, 12);
 
             if (presetApplyMasks && data.maskWidth > 0 && data.maskHeight > 0)

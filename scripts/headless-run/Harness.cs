@@ -105,6 +105,13 @@ namespace Iroca
         public float relaxedSatRamp { get; set; } = ZonesJsonDefaults.RelaxedSatRamp;
         public bool useDecontamination { get; set; } = ZonesJsonDefaults.UseDecontamination;
         public int decontaminationRadius { get; set; } = ZonesJsonDefaults.DecontaminationRadius;
+
+        // 製品と同じ RecolorSettings へ写す（ProcessPixelsArray の入口はこれだけ）。
+        public RecolorSettings ToRecolorSettings() => new RecolorSettings(
+            edgeFeather, antiAliasCleanup,
+            holeFillPasses, holeFillMinNeighbors,
+            relaxedSatMin, relaxedSatRamp,
+            useDecontamination, decontaminationRadius);
     }
 
     // ─── --batch <json> 用 DTO ───
@@ -493,12 +500,7 @@ namespace Iroca
         {
             var sw = Stopwatch.StartNew();
             PixelProcessor.ProcessPixelsArray(
-                pixels, w, h, masks, zoneList,
-                edgeFeather: st.edgeFeather, antiAliasCleanup: st.antiAliasCleanup,
-                holeFillPasses: st.holeFillPasses, holeFillMinNeighbors: st.holeFillMinNeighbors,
-                relaxedSatMin: st.relaxedSatMin, relaxedSatRamp: st.relaxedSatRamp,
-                originX: 0, originY: 0, fullW: 0, fullH: 0,
-                useDecontamination: st.useDecontamination, decontaminationRadius: st.decontaminationRadius,
+                pixels, w, h, masks, zoneList, st.ToRecolorSettings(),
                 selectionCache: selectionCache);
             sw.Stop();
             Console.Error.WriteLine($"PROCESS_MS {sw.Elapsed.TotalMilliseconds:F2}");
@@ -835,13 +837,8 @@ namespace Iroca
         {
             void Process(Color32[] px, int pw, int ph, int ox, int oy, int fw, int fh, PreviewParityCache keep)
             {
-                PixelProcessor.ProcessPixelsArray(px, pw, ph, masks, zones,
-                    edgeFeather: st.edgeFeather, antiAliasCleanup: st.antiAliasCleanup,
-                    holeFillPasses: st.holeFillPasses, holeFillMinNeighbors: st.holeFillMinNeighbors,
-                    relaxedSatMin: st.relaxedSatMin, relaxedSatRamp: st.relaxedSatRamp,
+                PixelProcessor.ProcessPixelsArray(px, pw, ph, masks, zones, st.ToRecolorSettings(),
                     originX: ox, originY: oy, fullW: fw, fullH: fh,
-                    cancellationToken: System.Threading.CancellationToken.None,
-                    useDecontamination: st.useDecontamination, decontaminationRadius: st.decontaminationRadius,
                     parityCache: keep);
             }
 
@@ -937,13 +934,7 @@ namespace Iroca
 
             void Run(Color32[] px, SelectionCache cache)
             {
-                PixelProcessor.ProcessPixelsArray(px, w, h, masks, zones,
-                    edgeFeather: st.edgeFeather, antiAliasCleanup: st.antiAliasCleanup,
-                    holeFillPasses: st.holeFillPasses, holeFillMinNeighbors: st.holeFillMinNeighbors,
-                    relaxedSatMin: st.relaxedSatMin, relaxedSatRamp: st.relaxedSatRamp,
-                    originX: 0, originY: 0, fullW: 0, fullH: 0,
-                    cancellationToken: System.Threading.CancellationToken.None,
-                    useDecontamination: st.useDecontamination, decontaminationRadius: st.decontaminationRadius,
+                PixelProcessor.ProcessPixelsArray(px, w, h, masks, zones, st.ToRecolorSettings(),
                     selectionCache: cache);
             }
             int Diff(Color32[] a, Color32[] b)

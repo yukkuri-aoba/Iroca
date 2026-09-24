@@ -123,29 +123,33 @@ namespace Iroca
         // Texture2Dなし、UnityEngine.Object APIなし、Mathfとカラー計算のみ（いずれもスレッドセーフ）
         // originX/Y: フル解像度テクスチャでのクロップオフセット（0で全テクスチャ処理）
         // fullW/H: フル解像度テクスチャの寸法（0 = w/hと同じ、つまりクロップなし）
-        // useDecontamination: AA境界でα分解＋再合成を行い halo を除去
+        // 全体設定は RecolorSettings で受け取る（呼び出し元ごとに位置引数を並べ直させない）。
+        // cancellationToken: バックグラウンドのプレビュー/エクスポートが渡す
         public static void ProcessPixelsArray(
             Color32[] pixels, int w, int h,
             MaskSnapshot masks,
-            IList<ColorZone> sortedZones, float edgeFeather, int antiAliasCleanup,
-            int holeFillPasses = 5, int holeFillMinNeighbors = 4,
-            float relaxedSatMin = 0.02f, float relaxedSatRamp = 0.08f,
+            IList<ColorZone> sortedZones,
+            in RecolorSettings settings,
+            CancellationToken cancellationToken = default,
             int originX = 0, int originY = 0, int fullW = 0, int fullH = 0,
-            bool useDecontamination = true, int decontaminationRadius = 4,
-            float decontaminationInteriorThreshold = 0.97f,
             IDebugCapture debug = null,
             PreviewParityCache parityCache = null,
             SelectionCache selectionCache = null)
         {
-            ProcessPixelsArray(pixels, w, h, masks, sortedZones, edgeFeather, antiAliasCleanup,
-                holeFillPasses, holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp,
-                originX, originY, fullW, fullH, CancellationToken.None,
-                useDecontamination, decontaminationRadius, decontaminationInteriorThreshold,
+            ProcessPixelsArrayCore(pixels, w, h, masks, sortedZones,
+                settings.edgeFeather, settings.antiAliasCleanup,
+                settings.holeFillPasses, settings.holeFillMinNeighbors,
+                settings.relaxedSatMin, settings.relaxedSatRamp,
+                originX, originY, fullW, fullH, cancellationToken,
+                settings.useDecontamination, settings.decontaminationRadius,
+                DecontaminationInteriorThreshold,
                 debug, parityCache, selectionCache);
         }
 
-        // キャンセルトークン対応バージョン — バックグラウンドプレビューから使用
-        public static void ProcessPixelsArray(
+        // デコンタミの「内部」判定しきい値。ユーザー設定ではない固定値。
+        private const float DecontaminationInteriorThreshold = 0.97f;
+
+        private static void ProcessPixelsArrayCore(
             Color32[] pixels, int w, int h,
             MaskSnapshot masks,
             IList<ColorZone> sortedZones, float edgeFeather, int antiAliasCleanup,
@@ -153,11 +157,11 @@ namespace Iroca
             float relaxedSatMin, float relaxedSatRamp,
             int originX, int originY, int fullW, int fullH,
             CancellationToken cancellationToken,
-            bool useDecontamination = true, int decontaminationRadius = 4,
-            float decontaminationInteriorThreshold = 0.97f,
-            IDebugCapture debug = null,
-            PreviewParityCache parityCache = null,
-            SelectionCache selectionCache = null)
+            bool useDecontamination, int decontaminationRadius,
+            float decontaminationInteriorThreshold,
+            IDebugCapture debug,
+            PreviewParityCache parityCache,
+            SelectionCache selectionCache)
         {
             // 引数検証。ここが無いと、不正な引数（null / 長さ不足）で Array.Copy が投げたとき
             // 直前に Rent したプール配列（4K で 64MB）が返却されずリークする。Rent は

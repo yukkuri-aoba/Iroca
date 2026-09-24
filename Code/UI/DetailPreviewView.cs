@@ -174,14 +174,7 @@ namespace Iroca
                 .Where(z => z.enabled && (soloZone == null || ReferenceEquals(z, soloZone)))
                 .Select(z => z.Clone())
                 .ToList();
-            float feather   = session.edgeFeather;
-            int aaCleanup   = session.antiAliasCleanup;
-            int hfPasses = session.holeFillPasses;
-            int hfMinNeighbors = session.holeFillMinNeighbors;
-            float rSatMin = session.relaxedSatMin;
-            float rSatRamp = session.relaxedSatRamp;
-            bool useDecontam = session.useDecontamination;
-            int decontamRadius = session.decontaminationRadius;
+            var settings = RecolorSettings.From(session);
             int capX0 = x0, capY0 = y0, capSrcW = srcW, capSrcH = srcH;
             var srcPixelsForTask = srcPixels;
 
@@ -216,10 +209,8 @@ namespace Iroca
                     System.Array.Copy(rawCrop, processedCrop, rawCrop.Length);
 
                     PixelProcessor.ProcessPixelsArray(processedCrop, cropW, cropH,
-                        maskSnap, zonesSnapshot, feather, aaCleanup,
-                        hfPasses, hfMinNeighbors, rSatMin, rSatRamp,
-                        capX0, capY0, capSrcW, capSrcH, token,
-                        useDecontam, decontamRadius,
+                        maskSnap, zonesSnapshot, settings, token,
+                        capX0, capY0, capSrcW, capSrcH,
                         debug: null, parityCache: parityForTask);
 
                     // 縮小表示のときだけ表示解像度へ落とす。BoxDownsample の scale は

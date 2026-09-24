@@ -76,14 +76,14 @@ namespace Iroca
         // 従来どおり絞り込みたくない場合は JSON で false を明示する。
         public const bool UseFloodFill = true;
 
-        public const float EdgeFeather = 0.0f;
-        public const int AntiAliasCleanup = 3;
-        public const int HoleFillPasses = 5;
-        public const int HoleFillMinNeighbors = 4;
-        public const float RelaxedSatMin = 0.02f;
-        public const float RelaxedSatRamp = 0.08f;
-        public const bool UseDecontamination = true;
-        public const int DecontaminationRadius = 4;
+        public const float EdgeFeather = RecolorSettings.DefaultEdgeFeather;
+        public const int AntiAliasCleanup = RecolorSettings.DefaultAntiAliasCleanup;
+        public const int HoleFillPasses = RecolorSettings.DefaultHoleFillPasses;
+        public const int HoleFillMinNeighbors = RecolorSettings.DefaultHoleFillMinNeighbors;
+        public const float RelaxedSatMin = RecolorSettings.DefaultRelaxedSatMin;
+        public const float RelaxedSatRamp = RecolorSettings.DefaultRelaxedSatRamp;
+        public const bool UseDecontamination = RecolorSettings.DefaultUseDecontamination;
+        public const int DecontaminationRadius = RecolorSettings.DefaultDecontaminationRadius;
 
         /// <summary>既定のサンプル色 [r,g,b]。呼び出しごとに新しい配列を返す。</summary>
         public static float[] NewSample() { return new float[] { SampleR, SampleG, SampleB }; }
