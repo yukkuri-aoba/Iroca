@@ -52,10 +52,10 @@ SELECTION_IRRELEVANT = {
 @pytest.fixture(scope="module")
 def audit_lines() -> list[str]:
     if not G.dotnet_available():
-        pytest.skip("dotnet が利用できません")
+        G.env_missing("dotnet が利用できません")
     missing = G.unity_dll_missing()
     if missing:
-        pytest.skip(f"Unity CoreModule DLL がありません: {missing}")
+        G.env_missing(f"Unity CoreModule DLL がありません: {missing}")
     ok, r = G.build_harness()
     if not ok:
         pytest.fail(

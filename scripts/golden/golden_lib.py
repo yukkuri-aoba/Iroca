@@ -39,6 +39,15 @@ REPO = HERE.parents[1]
 HARNESS_CSPROJ = REPO / "scripts" / "headless-run" / "Harness.csproj"
 HARNESS_DLL = REPO / "scripts" / "headless-run" / "bin" / "Release" / "IrocaHeadless.dll"
 GOLDEN_FILE = HERE / "golden_hashes.json"
+# 各ケースの期待出力そのもの（PNG, RGBA）。ハッシュは 1 ビットの差でも一致しないので、
+# 別 OS（CI の Linux）では libm の最下位ビット差だけで全滅しうる。そこでは画素で比べて
+# 「丸め誤差の範囲か、挙動の変化か」を分ける（compare_tolerant）。
+EXPECTED_DIR = HERE / "expected"
+
+# 別 toolchain での許容差。libm の ulp 差が uint8 への丸めを跨いだ画素だけが ±1 で動く想定。
+# 段の欠落や定数ずれは多数の画素を大きく動かすので、この範囲には収まらない。
+TOLERANT_MAX_ABS_DIFF = 2
+TOLERANT_MAX_DIFF_FRAC = 0.01
 
 # ── 正準 zone パラメータ（Harness の JSON スキーマ ZoneCfg と同名フィールド） ──
 # 全フィールドを明示し、ケースごとに必要分だけ上書きする（既定値依存を避ける）。
@@ -152,6 +161,18 @@ def unity_dll_missing() -> str | None:
     return None if dll.exists() else str(dll)
 
 
+def env_missing(message: str) -> None:
+    """環境不備（dotnet / Unity DLL / golden 未生成）を pytest に伝える。
+
+    ローカルでは skip。CI（IROCA_REQUIRE_HARNESS=1）は環境を揃えてから回すので、ここに来るのは
+    設定の破損であり、skip のままだと「実 C# を一度も走らせずに緑」になる。fail に倒す。
+    """
+    import pytest
+    if os.environ.get("IROCA_REQUIRE_HARNESS") == "1":
+        pytest.fail(message)
+    pytest.skip(message)
+
+
 def build_harness() -> tuple[bool, subprocess.CompletedProcess]:
     r = subprocess.run(
         ["dotnet", "build", str(HARNESS_CSPROJ), "-c", "Release", "-nologo", "-v", "quiet"],
@@ -187,6 +208,31 @@ def run_csharp(rgba: np.ndarray, z: dict, s: dict, work: Path) -> np.ndarray:
 
 def output_hash(arr: np.ndarray) -> str:
     return hashlib.sha256(np.ascontiguousarray(arr).tobytes()).hexdigest()
+
+
+def expected_path(label: str) -> Path:
+    return EXPECTED_DIR / f"{label}.png"
+
+
+def load_expected(label: str) -> np.ndarray | None:
+    p = expected_path(label)
+    if not p.exists():
+        return None
+    from PIL import Image
+    return np.array(Image.open(p).convert("RGBA"))
+
+
+def save_expected(label: str, arr: np.ndarray) -> None:
+    from PIL import Image
+    EXPECTED_DIR.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(np.ascontiguousarray(arr), "RGBA").save(expected_path(label), optimize=True)
+
+
+def compare_tolerant(out: np.ndarray, expected: np.ndarray) -> tuple[int, float]:
+    """(最大の画素値差, 差のある画素の割合) を返す。shape 不一致は呼び出し側で先に弾くこと。"""
+    diff = np.abs(out.astype(np.int16) - expected.astype(np.int16))
+    per_px = diff.max(axis=-1)
+    return int(per_px.max()), float((per_px > 0).mean())
 
 
 # ─────────────────────────── テストケース定義 ───────────────────────────
@@ -321,10 +367,12 @@ def regenerate(force: bool = False) -> int:
         return 1
 
     out_cases: dict = {}
+    out_arrays: dict[str, np.ndarray] = {}
     with tempfile.TemporaryDirectory() as td:
         work = Path(td)
         for label, rgba, z, s in build_cases():
             arr = run_csharp(rgba, z, s, work)
+            out_arrays[label] = arr
             out_cases[label] = {"sha256": output_hash(arr), "shape": list(arr.shape)}
             print(f"  {label:32s} {out_cases[label]['sha256'][:16]} shape={out_cases[label]['shape']}")
 
@@ -359,7 +407,12 @@ def regenerate(force: bool = False) -> int:
         "cases": dict(sorted(out_cases.items())),
     }
     GOLDEN_FILE.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"\n{len(out_cases)} 件を {GOLDEN_FILE} に書き出しました。")
+    for old in EXPECTED_DIR.glob("*.png") if EXPECTED_DIR.exists() else []:
+        if old.stem not in out_arrays:
+            old.unlink()
+    for label, arr in out_arrays.items():
+        save_expected(label, arr)
+    print(f"\n{len(out_cases)} 件を {GOLDEN_FILE} と {EXPECTED_DIR} に書き出しました。")
     return 0
 
 

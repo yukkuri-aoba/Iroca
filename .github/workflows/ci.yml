@@ -9,8 +9,10 @@
 #                本体 + Debug 衛星の両方を検証できる。
 #                headless ハーネス（Harness.csproj）のビルドも検証し、
 #                Code/Core の取り込みリスト切れ（新規ファイル追加漏れ）を検知する。
+#                続けて資産不要のテストを回す: scripts/golden（合成入力に対する実 C# 出力の
+#                固定）と scripts/source_checks（C# ソースの構造検査）。
 #
-# 回帰テスト(pytest)はテスト資産がプライベートリポジトリ(Iroca_dev_safe)のため未実施。
+# テクスチャ資産を使う回帰テスト(IoU など)はプライベートリポジトリ(Iroca_dev_safe)のため未実施。
 # 追加する場合は deploy key を Secrets に登録して checkout を足すこと。
 name: ci
 
@@ -78,3 +80,19 @@ jobs:
         run: dotnet build scripts/build-check/IrocaEditor.Debug.csproj -c Release -nologo
       - name: headless ハーネスのビルド検証
         run: dotnet build scripts/headless-run/Harness.csproj -c Release -nologo
+      # ここから下は「コンパイルが通る」より一歩進んで、実 C# の出力と C# ソースの構造を検査する。
+      # どちらもテクスチャ資産（プライベートの dev_safe）を必要としない。
+      - name: Python（golden / ソース静的検査用）
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq python3 python3-venv python3-pip > /dev/null
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/pip install -q -r scripts/ci-requirements.txt
+      - name: golden（実 C# 出力の固定）とソース静的検査
+        env:
+          # Linux と Windows では libm の最下位ビットが違い得るので、ハッシュ不一致は
+          # 期待出力 PNG との画素比較（丸め誤差の許容つき）で判定する。
+          IROCA_GOLDEN_TOLERANT: "1"
+          # CI ではハーネスが無いことによる skip を許さない（走っていないのに緑を防ぐ）。
+          IROCA_REQUIRE_HARNESS: "1"
+        run: /tmp/venv/bin/python -m pytest scripts/golden scripts/source_checks -q -n 0 -rs
