@@ -21,6 +21,7 @@ Python は使い捨てなので「C#≡Python」を強制はしない（複数�
 | `synth_textures.py` | 決定論的な合成入力（ベタ/グラデ/AA/ハイライト/無彩背景）。画像バイナリは置かず再現生成 |
 | `golden_lib.py` | C# Harness 実行・raw I/O・正準パラメータ・ケース定義・ハッシュ化・ゴールデン再生成 |
 | `golden_hashes.json` | コミット済みゴールデン（各ケースの出力 SHA-256 と shape） |
+| `expected/*.png` | 各ケースの期待出力そのもの。別 toolchain（CI の Linux）での画素比較に使う |
 | `test_golden_csharp.py` | pytest ゲート（C# を走らせ golden と照合） |
 
 合成入力は C# の主要経路（基底再着色 / 無彩ターゲット / グレーモード / OkLab L リマップ /
@@ -50,6 +51,10 @@ python scripts/golden/golden_lib.py --force
 ## 注意
 
 - ゴールデンは toolchain（Unity 2022.3.22f1 / dotnet ランタイム）に紐づく。別環境では浮動小数の
-  最下位ビット差でハッシュが変わりうるため、主用途はローカル/開発者環境でのリグレッション検出。
+  最下位ビット差でハッシュが変わりうる。CI（Linux）は `IROCA_GOLDEN_TOLERANT=1` を立て、
+  ハッシュが合わないケースだけ `expected/*.png` と画素で比べる（最大差 2・差のある画素 1% まで許容。
+  段の欠落や定数ずれは多数の画素を大きく動かすので、この範囲には収まらない）。
+- `IROCA_REQUIRE_HARNESS=1` のときは dotnet / Unity DLL / golden 不在を skip ではなく fail にする
+  （CI で「実 C# を一度も走らせずに緑」になるのを防ぐ）。
 - 出力は決定論的（同一入力で 2 回走らせてバイト一致することを `test_output_is_deterministic` で確認）。
 - 作業用の一時ファイルは pytest の `tmp_path` に出すので、リポジトリは汚さない。

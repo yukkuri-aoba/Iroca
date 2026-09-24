@@ -9,10 +9,12 @@ CoreModule DLL のみで、無ければ skip する。
 
 ゴールデンは toolchain（Unity 2022.3.22f1 / dotnet ランタイム）に紐づくため、別環境ではハッシュが
 変わりうる。主用途はローカル/開発者環境でのリグレッション検出（C# が改善サイクルの reset 等で
-段を黙って失うのを防ぐ）。
+段を黙って失うのを防ぐ）。別 toolchain（CI の Linux）では IROCA_GOLDEN_TOLERANT=1 を立て、
+ハッシュが合わないケースを expected/*.png との画素比較（丸め誤差の許容つき）で判定する。
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -32,10 +34,10 @@ def harness():
     # skip は「環境不備」だけに限定する。環境が揃っているのにビルドが失敗するのは
     # Code/ のコンパイルエラー（＝製品退行そのもの）なので fail で顕在化させる。
     if not G.dotnet_available():
-        pytest.skip("dotnet が利用できません")
+        G.env_missing("dotnet が利用できません")
     missing = G.unity_dll_missing()
     if missing:
-        pytest.skip(f"Unity CoreModule DLL がありません: {missing}")
+        G.env_missing(f"Unity CoreModule DLL がありません: {missing}")
     ok, r = G.build_harness()
     if not ok:
         pytest.fail(
@@ -43,7 +45,7 @@ def harness():
             "コンパイルエラーの可能性が高い（サイレント skip にしない）:\n"
             f"{((r.stdout or '') + (r.stderr or ''))[-1500:]}")
     if not _GOLDEN:
-        pytest.skip("golden_hashes.json が未生成です。`python scripts/golden/golden_lib.py` で生成してください")
+        G.env_missing("golden_hashes.json が未生成です。`python scripts/golden/golden_lib.py` で生成してください")
     return True
 
 
@@ -57,6 +59,20 @@ def test_golden_matches(label, rgba, zone, settings, harness, tmp_path):
     g = _GOLDEN[label]
     assert list(out.shape) == g["shape"], (
         f"{label}: 出力 shape が変化 golden={g['shape']} current={list(out.shape)}")
+    if cur != g["sha256"] and os.environ.get("IROCA_GOLDEN_TOLERANT") == "1":
+        # 別 toolchain（CI の Linux）。ハッシュは libm の最下位ビット差でも変わるので、
+        # 期待出力の画素と比べて丸め誤差の範囲なら通す。範囲外は挙動の変化として落とす。
+        expected = G.load_expected(label)
+        assert expected is not None, (
+            f"{label}: 期待出力 PNG がありません（{G.expected_path(label)}）。"
+            "`python scripts/golden/golden_lib.py` で生成してください")
+        max_diff, frac = G.compare_tolerant(out, expected)
+        print(f"{label}: hash 不一致・許容比較 max_diff={max_diff} diff_frac={frac:.4%}")
+        assert max_diff <= G.TOLERANT_MAX_ABS_DIFF and frac <= G.TOLERANT_MAX_DIFF_FRAC, (
+            f"{label}: 期待出力との差が丸め誤差の範囲を超えています "
+            f"(max_diff={max_diff} > {G.TOLERANT_MAX_ABS_DIFF} または "
+            f"diff_frac={frac:.4%} > {G.TOLERANT_MAX_DIFF_FRAC:.2%})。C# の挙動が変化しています。")
+        return
     assert cur == g["sha256"], (
         f"{label}: C# 出力が golden と不一致（C# の挙動が変化しています）。\n"
         f"  golden ={g['sha256'][:16]}…\n  current={cur[:16]}… shape={list(out.shape)}\n"

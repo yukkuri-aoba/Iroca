@@ -109,7 +109,7 @@ namespace Iroca
             /// ハーネスのコンパイル対象外なのでどのゲートにも掛からず、「テストが測る自動調整」と
             /// 「ユーザーが得る自動調整」が黙って別物になり得た（2026-09-02 レビュー）。
             /// ここが単一の正で、ハーネスの対象（出荷ゲート対象）に入る。フィールドを増やしたら
-            /// ここにも書く（dev_safe の test_autotune_apply_single_source が機械検査する）。
+            /// ここにも書く（scripts/source_checks/test_autotune_apply_single_source が機械検査する）。
             /// </summary>
             public void ApplyTo(ColorZone zone, IrocaSessionState session)
             {

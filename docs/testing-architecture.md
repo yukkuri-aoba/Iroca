@@ -104,7 +104,8 @@ Iroca 本体リポジトリ（公開）
 ├─ scripts/build-check/         dotnet 単体での型チェック用 csproj 3 本
 │   │                           （IrocaEditor / IrocaEditor.Debug / IrocaSentisCheck）
 │   │                           ※ UnityEngine.dll + UnityEditor.dll が必要（下記「前提」参照）
-├─ scripts/golden/              golden（出力ハッシュ固定）テスト
+├─ scripts/golden/              golden（出力ハッシュ固定）テスト。expected/ に期待出力 PNG
+├─ scripts/source_checks/       C# ソースを読むだけの構造検査（ハーネス・資産不要）
 ├─ scripts/hooks/pre-commit     出荷ゲート（下記）
 └─ tools/visual_review.py       視覚レビュー（snapshot / compare / approve）
     tools/check_visual_review.py  pre-commit から呼ばれる承認鮮度・較正チェック
@@ -247,9 +248,17 @@ $env:VACC_CSHARP_GATE_FULL = "1"
 # 自動調整の品質ゲート(compute_all_metrics)を全被写体へ広げる（採否判断時に必須）
 $env:VACC_AUTOTUNE_GATE_FULL = "1"
 
-# golden（C# 出力ハッシュの固定）— dev_safe を必要としない自己完結テスト
-.\.venv\Scripts\python.exe -m pytest scripts/golden -q
+# golden（C# 出力ハッシュの固定）とソース構造検査 — dev_safe を必要としない自己完結テスト
+.\.venv\Scripts\python.exe -m pytest scripts/golden scripts/source_checks -q
 ```
+
+**CI（`ci.yml` の build-check）が回すのはこの 2 つだけ**（2026-09-24〜）。テクスチャ資産は
+プライベートの dev_safe にあるので、IoU などの回帰は CI では走らない。CI は Linux なので、
+golden は `IROCA_GOLDEN_TOLERANT=1` でハッシュ不一致を `scripts/golden/expected/*.png` との
+画素比較（最大差 2・差のある画素 1% まで）で判定し、`IROCA_REQUIRE_HARNESS=1` で
+「ハーネスが無いので skip」を fail にしている。ソース構造検査（`test_autotune_apply_single_source` /
+`test_event_subscription_symmetry` / `test_zone_cache_invalidation` など）は資産を使わないので
+dev_safe から `scripts/source_checks/` へ移した。資産を要らない検査はこちらに置くこと。
 
 - マーカー: `perf`（性能計測・品質検査なし）/ `slow`（メモリ・時間コスト大）。
   マーカー登録とルート rootdir はリポジトリルートの `pytest.ini` が持つ。
@@ -392,7 +401,7 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
     目標（dE p95 ≤ 0.05 ∧ IoU ≥ 0.95）は xfail。PSD 由来の再着色 GT（gt_*.png）はベタ塗りに
     近く（元との明度相関 0.2）理想には使わない。4 被写体（bandana / costume / hair / sneakers）。
   - 導出結果 → ゾーンの適用写像は `ZoneAutoTuner.TuneResult.ApplyTo` が単一の正
-    （UI とハーネスの二重実装を解消）。`test_autotune_apply_single_source` が C# ソースから
+    （UI とハーネスの二重実装を解消）。`scripts/source_checks/test_autotune_apply_single_source` が C# ソースから
     「両呼び出し元が ApplyTo だけを使う」「TuneResult の全フィールドを写す」を検査する。
   - **画で見る**（2026-09-03〜）: 上の 3 本は数字しか残さない。`dev_safe/scripts/build_oneshot_review.py`
     が同じ driver（`run_case` / `run_subject`）の出力を「クリック位置+証拠セグメント / 出力 /

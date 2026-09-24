@@ -1,0 +1,11 @@
+# CI（.github/workflows/ci.yml の build-check ジョブ）で golden とソース静的検査を回すための依存。
+#
+# ローカルの完全固定（dev_safe/Tests/requirements.txt）と違い下限指定にしている。CI コンテナの
+# python3 は OS 同梱の版で、ローカルの固定版（numpy 2.5 など）が入らないことがあるため。
+# CI の golden は IROCA_GOLDEN_TOLERANT=1 で画素比較（丸め誤差の許容つき）にしているので、
+# 合成入力の最下位ビット差程度はそこで吸収される。
+numpy>=1.24
+Pillow>=10.0
+pytest>=8.0
+# pytest.ini の addopts が -n を指定しているので、無いと pytest が起動しない。
+pytest-xdist>=3.6
