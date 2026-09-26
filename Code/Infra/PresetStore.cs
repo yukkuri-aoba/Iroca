@@ -76,7 +76,9 @@ namespace Iroca
             try
             {
                 string json = File.ReadAllText(filePath);
-                return JsonUtility.FromJson<IrocaPresetData>(json);
+                var data = JsonUtility.FromJson<IrocaPresetData>(json);
+                data?.DropSamplePositions();
+                return data;
             }
             catch (Exception ex)
             {

@@ -433,6 +433,30 @@ namespace Iroca
             }
         }
 
+        /// <summary>
+        /// スポイトで取った色と位置をゾーンへ書く。色か位置のどちらかが変わるなら、書く前に
+        /// Undo へ記録する（sampleUV もシリアライズ対象なので、Undo/Redo で色と位置が対で戻る）。
+        /// 同じ色を別の場所で拾い直したときも位置は更新する（別の島をクリックしたかもしれない。
+        /// 位置は自動調整が AI 提案の証拠を取るアンカー）。
+        /// 戻り値 true = 色が変わった（プレビューの再生成が要る）。位置だけの変更は出力に影響しない。
+        /// </summary>
+        internal static bool ApplyEyedropperSample(UnityEngine.Object undoHost, ColorZone zone, Color picked, Vector2 uv)
+        {
+            bool colorChanged = zone.sampleColor != picked || !zone.sampleColorSet;
+            if (!colorChanged && zone.sampleUV == uv) return false;
+            Undo.RecordObject(undoHost, "Sample Color");
+            if (colorChanged)
+            {
+                zone.sampleColor = picked;
+                zone.sampleColorSet = true;
+                // 主サンプル変更で陳腐化する内部サンプルを破棄（ColorField と同じ挙動）。
+                if (zone.extraSamples != null && zone.extraSamples.Count > 0)
+                    zone.extraSamples.Clear();
+            }
+            zone.sampleUV = uv;
+            return colorChanged;
+        }
+
         // プレビュー上のクリックで、武装中ゾーンのサンプルカラーを実テクスチャ画素から取得する。
         // 一発取得したら自動で武装解除する（one-shot）。マスクペイント中は呼ばれない。
         private void HandleEyedropperInput(Rect previewRect, int srcW, int srcH)
@@ -454,25 +478,8 @@ namespace Iroca
                         {
                             // 武装ゾーンは id で解決する（並べ替え・削除で index がずれても正しいゾーンに入る）。
                             var zone = _host.FindZoneById(_host.EyedropperZoneId);
-                            if (zone != null)
-                            {
-                                if (zone.sampleColor != picked || !zone.sampleColorSet)
-                                {
-                                    Undo.RecordObject(_host, "Sample Color");
-                                    zone.sampleColor = picked;
-                                    zone.sampleColorSet = true;
-                                    // 主サンプル変更で陳腐化する内部サンプルを破棄（ColorField と同じ挙動）。
-                                    if (zone.extraSamples != null && zone.extraSamples.Count > 0)
-                                        zone.extraSamples.Clear();
-                                    previewDirty = true;
-                                }
-                                // スポイト位置は自動調整の証拠アンカー（AI 提案をかける位置）。同じ色を
-                                // 拾い直したときも位置は更新する（別の島をクリックしたかもしれない）。
-                                zone.sampleUV = uv;
-                                // Undo で色が巻き戻ったときに「この位置はもう古い」と判定するため、
-                                // 位置と対になる色を控える。
-                                _host.RememberSampleUvColor(zone);
-                            }
+                            if (zone != null && ApplyEyedropperSample(_host, zone, picked, uv))
+                                previewDirty = true;
                             // one-shot: 取得したら武装解除。
                             // ★hotControl は取らない★ — 武装解除後は次のイベントでこのハンドラが
                             // 呼ばれないため、MouseUp で解放できずに残る。残った hotControl は以降の

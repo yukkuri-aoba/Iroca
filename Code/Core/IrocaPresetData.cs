@@ -37,6 +37,35 @@ namespace Iroca
         public List<ZoneMaskEntry> zoneMasks = new List<ZoneMaskEntry>();
         // ゾーン別「含める」マスク(強制的に色替えへ含める領域)。全 false のゾーンは省略。
         public List<ZoneMaskEntry> zoneIncludeMasks = new List<ZoneMaskEntry>();
+
+        /// <summary>
+        /// プリセットへ書くゾーンの複製を返す。スポイト位置（<see cref="ColorZone.sampleUV"/>）は
+        /// そのテクスチャ上の位置で、別のテクスチャへ読み込むと無関係な場所を指すので外す。
+        /// 編集中のゾーンの位置は消さないよう、複製にだけ手を入れる。
+        /// </summary>
+        internal static List<ColorZone> WithoutSamplePositions(IEnumerable<ColorZone> source)
+        {
+            var copies = new List<ColorZone>();
+            if (source == null) return copies;
+            foreach (var z in source)
+            {
+                if (z == null) { copies.Add(null); continue; }
+                var c = z.Clone();
+                c.ClearSampleUV();
+                copies.Add(c);
+            }
+            return copies;
+        }
+
+        /// <summary>
+        /// 読み込んだゾーンからスポイト位置を外す。位置を外さずに書かれたプリセット
+        /// （手書き・他ツール）でも、別のテクスチャの位置を引き継がないようにする。
+        /// </summary>
+        internal void DropSamplePositions()
+        {
+            if (zones == null) return;
+            foreach (var z in zones) z?.ClearSampleUV();
+        }
     }
 
     [Serializable]
