@@ -131,3 +131,4 @@ dotnet build scripts\build-check\IrocaSentisCheck.csproj
 | SAM エンコーダ埋め込み・ハーネス実行キャッシュ | 上記 (5) と初回テスト実行で再生成 |
 | `mobile_sam.pt`（モデル再エクスポート元） | 上流 MobileSAM から取得（`dev_safe/ml/README.md`） |
 | `.claude/instructions/notify.md` | `dev_safe/setup/claude-notify.md` からコピー |
+| Claude Code のメモリ（`~\.claude\projects\<パス>\memory\`） | private の `claude-memory` リポジトリで同期（手順はその README）。ディレクトリ名は本体の絶対パスから決まるので、**新しい PC でも同じパス（`C:\Users\<同じユーザー名>\Documents\Iroca`）に clone する**。パスが違うとメモリが紐付かない |
