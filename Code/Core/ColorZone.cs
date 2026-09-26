@@ -189,10 +189,16 @@ namespace Iroca
         // スポイトでサンプル色を取ったプレビュー上の UV（下原点、0-1）。負値 = 未設定。
         // 自動調整が AI マスク提案（SAM）のセグメントを「その場の証拠」として取る位置
         // （ZoneAutoTuner.AnalyzeWithEvidence）。選択・再着色そのものには関与しないので
-        // 選択キーには含めない。テクスチャ固有の位置なのでプリセット・Undo にも載せない
-        // （カラーフィールドで色を変えたら UI 側が無効化する）。
-        [NonSerialized] public Vector2 sampleUV = new Vector2(-1f, -1f);
+        // 選択キーには含めない。
+        // シリアライズして Undo とセッション（テクスチャ単位）に載せる: sampleColor と必ず対で
+        // 書き戻るので、Undo/Redo・ゾーン削除の Undo で位置だけが消えたり古い色と食い違ったり
+        // しない（以前は NonSerialized で Undo 後に色の食い違いから無効化していたが、Redo で
+        // 色だけ戻って位置が失われた）。テクスチャ固有の位置なのでプリセットには載せない
+        // （IrocaPresetData.WithoutSamplePositions / DropSamplePositions）。
+        // カラーフィールドで色を変えたら UI 側が無効化する。
+        public Vector2 sampleUV = new Vector2(-1f, -1f);
         public bool HasSampleUV => sampleUV.x >= 0f;
+        public void ClearSampleUV() => sampleUV = new Vector2(-1f, -1f);
 
         public Color targetColor = Color.white;
 

@@ -149,9 +149,8 @@ namespace Iroca
             _host.EnsureAllZoneIds();
             var session = _host.Session;
 
-            // ColorZone は public フィールドのみなのでシャローコピーでよいが、
-            // id は必ず引き継ぐため変わらない
-            var zonesCopy = new List<ColorZone>(session.zones);
+            // 複製して書く（id は引き継ぐ）。スポイト位置はテクスチャ固有なので複製からだけ外す。
+            var zonesCopy = IrocaPresetData.WithoutSamplePositions(session.zones);
 
             var data = new IrocaPresetData
             {
