@@ -783,6 +783,8 @@ namespace Iroca
             // 連続領域モードのシード(任意上書き)を十字オーバーレイで描画。
             if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
             {
+                // メッシュの UV の島の輪郭(表示を ON にしているときだけ)。目印より下に敷く。
+                DrawMeshIslandOverlay(activePreviewRect);
                 DrawFloodFillSeedOverlay(activePreviewRect);
                 // スポイトで色を取った位置(自動調整が AI 提案をかける位置)の目印
                 DrawSampleUvOverlay(activePreviewRect);

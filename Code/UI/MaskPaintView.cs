@@ -176,6 +176,11 @@ namespace Iroca
             }
             GUI.backgroundColor = prevBg;
 
+            // 右クリックの「パーツ」操作と UV の島の表示に使うメッシュ。パレットを開かなくても
+            // 見つかったか・どれを使っているかが分かり、ここで差し替えられる(2026-09-30)。
+            EditorGUILayout.Space(2);
+            MeshPartSection.Draw(_host, this);
+
             // AI の「一度きりの有効化」(Sentis 導入・モデル取得)はウィンドウ上部のバナーへ移した
             // (MaskSuggestSection.DrawSetupBanner)。ここに置くと、マスク欄を畳んでいる間は
             // 見えず、機能の存在にも準備が要ることにも気づけなかった(2026-09-11 の UX 見直し)。

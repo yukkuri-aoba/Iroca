@@ -301,9 +301,17 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 - **パーツ: この島を除外 / 含める**: クリックした場所の UV の島（とその周りのにじみ代）を足します。
 - **パーツ: ○○ 以外のメッシュを除外**: クリックしたメッシュ以外をすべて除外します。「このゾーンはパンツだけ」にしたいときに 1 回で済みます。部位が複数のメッシュにまたがるときは使わず、島ごとに足してください。
 
-メッシュは、開いているシーンの中、なければテクスチャと同じ素材フォルダの Prefab から自動で探します（テクスチャを以前いろかで書き出した `_recolored.png` をマテリアルが使っている場合も見つかります）。見つからないときは、Hierarchy か Project で FBX・Prefab を選んでから右クリックし、「選択中の○○のメッシュを使う」を選びます。メッシュが無くても、色の処理はこれまで通り動きます。
+メッシュは、開いているシーンの中、なければテクスチャと同じ素材フォルダの Prefab から自動で探します（テクスチャを以前いろかで書き出した `_recolored.png` をマテリアルが使っている場合も見つかります）。メッシュが無くても、色の処理はこれまで通り動きます。
 
-- 「メッシュを読めません」と出たら、FBX のインポート設定で Read/Write を有効にして「メッシュを探し直す」を押してください。
+使っているメッシュは、本体ウィンドウのマスク欄の「メッシュ」に出ます。
+
+- **メッシュ**: 見つけた FBX・Prefab と、使っているメッシュの数です（名前にカーソルを置くと、メッシュの一覧が出ます）。見つからないときや違うものを拾ったときは、Project か Hierarchy から FBX・Prefab をこの欄へドラッグするか、◎ で選びます。欄を空にする（選んで Delete）と自動に戻ります。
+- **探し直す**: シーンを開き直したときや、FBX の Read/Write を変えたあとに押します。
+- **UV の島をプレビューに表示**: メッシュの UV の島の輪郭を、黄色い線でプレビューに重ねます。「パーツ: この島を…」で足される範囲が、この線で囲まれた島（と線のすぐ外のにじみ）です。表示だけで、色替えの結果は変わりません。
+
+右クリックメニューの「選択中の○○のメッシュを使う」でも、Hierarchy か Project で選んでいる FBX・Prefab を指定できます。
+
+- 「メッシュを読めません」と出たら、FBX のインポート設定で Read/Write を有効にして「探し直す」を押してください。
 
 ### AI マスク提案（実験的機能）
 
@@ -736,9 +744,17 @@ When a mesh that uses the texture is found, you can add regions by the mesh's sh
 - **Part: exclude / include this island**: adds the clicked UV island (plus its padding around it).
 - **Part: exclude every mesh except ...**: excludes every mesh except the clicked one. Use it when a zone should cover only, say, the pants. When a part spans several meshes, add islands one by one instead.
 
-Meshes are searched automatically in the open scenes, then in prefabs in the texture's asset folder (it also works when the material uses a `_recolored.png` previously exported by Iroca). If none are found, select an FBX or prefab in the Hierarchy or Project, then right-click and choose "use the meshes of the selected ...". Without a mesh, color processing works as before.
+Meshes are searched automatically in the open scenes, then in prefabs in the texture's asset folder (it also works when the material uses a `_recolored.png` previously exported by Iroca). Without a mesh, color processing works as before.
 
-- If you see "cannot read the meshes", enable Read/Write in the FBX import settings and choose "search for meshes again".
+The meshes in use are shown in the "Mesh" field of the mask section in the main window.
+
+- **Mesh**: the FBX or prefab that was found and how many meshes are in use (hover over it for the list of meshes). If nothing is found or the wrong one is picked, drag an FBX or prefab onto this field from the Project or Hierarchy, or pick one with ◎. Clearing the field (select it and press Delete) goes back to automatic.
+- **Search again**: use it after reopening the scene or changing Read/Write on the FBX.
+- **Show UV islands on the preview**: overlays the outlines of the mesh's UV islands on the preview as yellow lines. The "Part: … this island" items add the island enclosed by these lines (plus the bleed just outside them). Display only; the recolor result does not change.
+
+The right-click item "use the meshes of the selected ..." also takes the FBX or prefab selected in the Hierarchy or Project.
+
+- If you see "cannot read the meshes", enable Read/Write in the FBX import settings and press "Search again".
 
 ### AI Mask Suggestion (Experimental)
 

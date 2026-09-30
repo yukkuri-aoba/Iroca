@@ -30,5 +30,10 @@ namespace Iroca
         public static Color BrushCursorInclude => new Color(0f, 1f, 0f, 0.5f);
         // 消しゴムはどちらの種類でも「取り除く」操作なので、種類の色を出さず中立の白にする。
         public static Color BrushCursorErase => new Color(1f, 1f, 1f, 0.45f);
+
+        // UV の島の輪郭。マスクの塗り(赤=除外 / 緑=含める / ゾーン色)と取り違えないよう線だけで出し、
+        // どんな生地の上でも見えるよう、暗い影を 1px ずらして下に敷く。
+        public static Color MeshIslandLine => new Color(1f, 0.9f, 0.2f, 0.9f);
+        public static Color MeshIslandLineShadow => new Color(0f, 0f, 0f, 0.6f);
     }
 }
