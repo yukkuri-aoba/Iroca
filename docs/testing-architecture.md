@@ -113,7 +113,7 @@ Iroca 本体リポジトリ（公開）
 ├─ scripts/source_checks/       C# ソースを読むだけの構造検査（ハーネス・資産不要）
 ├─ scripts/unit-run/            Unity 不要の部品（Infra のパス・書き込み等）のユニットテスト
 │                               （ハーネスと分けてあるので視覚レビューゲートの対象外）
-├─ scripts/editor-tests/        Unity 実機の EditMode テスト（保存/復元・書き出し・Mono とハーネスの一致）。
+├─ scripts/editor-tests/        Unity 実機の EditMode テスト（保存/復元・書き出し・Mono とハーネスの一致・メッシュ探索）。
 │                               配布物(Code/)の外。scripts/Run-EditorTests.ps1 で batchmode 実行
 ├─ scripts/hooks/pre-commit     出荷ゲート（下記）
 └─ tools/visual_review.py       視覚レビュー（snapshot / compare / approve）
@@ -441,6 +441,16 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
     書き、`test_repro_case_autotune` が `--autotune` + `evidenceMask` で導出し直して
     「再導出値 = 書き出し値」（製品 UI ⇔ ハーネスのワンショット同一性）と `expected_autotune.png`
     の byte 一致を検査する。見本は `make_sample_repro_case.py --oneshot`。
+- **UV チャート地図（メッシュのパーツ操作）**（2026-09-30〜）: `Code/Core/UvChartMap.cs` は
+  テクスチャを使うメッシュの UV からチャート（UV の辺を共有する三角形のまとまり）を求め、
+  島の外のにじみ代を L1 最近傍のチャートへ割り当てる。再着色の経路からは呼ばれず、右クリックの
+  「パーツ」操作が除外・含めるマスクを作るのにだけ使う。`test_uv_chart_map` が Harness `--uvcharts`
+  （UV ダンプ + テクスチャのキー + 寸法。入力画像は不要）で、チャートの分け方・行 0 = 下端の向き・
+  にじみ代の割り当てが総当たりの L1 最近傍と一致すること・AvatarB の実メッシュで GT がほぼ全部持ち主を
+  得ること、クリックしたメッシュの外を除外すると pants / boots が分かれることを検査する。
+  UV ダンプは `dev_safe/texture_sample/uv_dumps/`（作り方は `dev_safe/scripts/unity_uv_dump/`）。
+  メッシュを探す側（`Code/Infra/MeshUvLocator.cs`）と、プレビューに重ねる島の輪郭は
+  Unity 依存なので EditMode テスト（下記）で見る。
 - Harness は未知の引数を拒否する（exit 2）。過去 `--matchDistance` がパーサ無しのまま
   渡され続けた「死にノブ」事故の再発防止。フラグを増やすときは Harness.Main の検証
   switch にも足すこと。
@@ -454,6 +464,9 @@ Mono 上の出力は検証できない。`scripts/editor-tests/`（`Iroca.Editor
 |---|---|
 | `PersistenceTests` | セッション・マスク・プリセットの往復、読めないファイルを空保存で消さない（.bak 退避）、GUID 未解決ファイルの .orphan 退避・復元・期限切れ削除、プリセット半径の丸め |
 | `ExportPipelineTests` | 原本を import 設定（maxTextureSize）に左右されず読む、TGA は取り込み済みで代替・Read/Write 無しは不可、PNG 往復、import 設定の引き継ぎ、上書きで GUID を保つ |
+| `SampleUvUndoTests` | スポイト位置が Undo/Redo・ゾーン削除の Undo で色と対で戻る、プリセットには載らずセッションには残る |
+| `MeshUvLocatorTests` | テクスチャを使うメッシュの探索（シーン → 同じ素材フォルダの Prefab、書き出し名 `_recolored` の追跡、手動指定、Read/Write 無効のメッシュで落ちない） |
+| `MeshIslandOutlineTests` | プレビューに重ねる UV の島の輪郭（内側の対角線を描かない、UV を重ねた左右対称のパーツでも輪郭が残る、Tiling / Offset） |
 | `RuntimeParityTests` | 上記「既知の限界」の Mono とハーネスの一致 |
 
 ```powershell

@@ -246,8 +246,9 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 - 十字: 連続領域モードのシード位置
 - 菱形: スポイトで色を取った位置
+- 黄色い線: メッシュの UV の島の輪郭（マスク欄の「UV の島をプレビューに表示」がオンのとき）
 
-どちらもゾーンごとの色（マスクの重ね表示と同じ色）で出ます。
+十字と菱形は、ゾーンごとの色（マスクの重ね表示と同じ色）で出ます。
 
 ---
 
@@ -401,6 +402,8 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 #### 色がはみ出す
 
 彩度制限を 0.8〜0.95 に上げ、許容範囲を狭めます。白・黒・灰を巻き込んでいるなら彩度ガードを上げます。エッジ柔らかさを 0.0〜0.5 で調整するのも有効です。
+
+アトラスに並んだ同じ色の別パーツ（パンツとブーツなど）は、色では分けられません。マスクで分けます。テクスチャを使うメッシュが見つかっていれば、右クリックの「パーツ: この島を除外」で島ごとに外せます（→「[右クリックメニュー](#右クリックメニューai-提案パーツ)」）。
 
 #### 境界に細かいノイズが残る
 
@@ -691,8 +694,9 @@ Just below the toolbar row, a single line shows what a click on the preview does
 
 - Cross: the Connected Region seed position
 - Diamond: the position you sampled with the Eyedropper
+- Yellow lines: the outlines of the mesh's UV islands (when "Show UV islands on the preview" is on in the mask section)
 
-Both are drawn in the zone's own color, the same color as its mask overlay.
+The cross and diamond are drawn in the zone's own color, the same color as its mask overlay.
 
 ---
 
@@ -844,6 +848,8 @@ Edges lightened by anti-aliasing or blur are being left unrecolored. Try these i
 #### Color bleeds outside the intended area
 
 Raise Saturation Strictness to 0.8-0.95 and narrow the Tolerance. If white, black, or gray is being pulled in, raise Saturation Guard. Adjusting Edge Softness within 0.0-0.5 can also help.
+
+Separate parts that share the same color on an atlas (such as pants and boots) cannot be split by color; split them with a mask. When a mesh using the texture is found, the right-click item "Part: exclude this island" removes them island by island (see [Right-click menu](#right-click-menu-ai-suggest-and-parts)).
 
 #### Fine noise remains at boundaries
 
