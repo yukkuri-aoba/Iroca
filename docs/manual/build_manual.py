@@ -23,7 +23,7 @@ OUT = ROOT / "docs" / "manual" / "index.html"
 # 日英で共通の安定 ID（言語を切り替えても同じ位置に留まるため）。原稿の ### の並び順。
 SECTION_IDS = [
     "install", "basics", "zones", "processing", "preview",
-    "masks", "ai", "presets", "export", "troubleshooting", "faq",
+    "masks", "context-menu", "ai", "presets", "export", "troubleshooting", "faq",
 ]
 
 LANGS = ("ja", "en")

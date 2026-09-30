@@ -127,8 +127,22 @@ namespace Iroca
         /// <summary>生成済みのときだけ返す(参照しても生成しない)。</summary>
         public MaskSuggestController SuggestControllerIfCreated => _suggestController;
 
-        /// <summary>AI 提案モードがプレビューの右クリックを受け取るべきか。</summary>
-        public bool AiSuggestArmed => _suggestController != null && _suggestController.Active;
+        // 右クリックメニューの「パーツ」(メッシュの UV の島)操作(遅延生成)。
+        [System.NonSerialized] private MeshPartController _meshParts;
+
+        /// <summary>メッシュの UV の島を使う操作のコントローラ(遅延生成)。</summary>
+        public MeshPartController MeshParts
+        {
+            get
+            {
+                if (_meshParts == null && _host != null)
+                {
+                    _meshParts = new MeshPartController();
+                    _meshParts.Initialize(_host, this);
+                }
+                return _meshParts;
+            }
+        }
 
         public void Draw()
         {
@@ -153,13 +167,11 @@ namespace Iroca
                 EditorStyles.miniLabel);
 
             var prevBg = GUI.backgroundColor;
-            if (maskPaintActive || AiSuggestArmed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
+            if (maskPaintActive) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
             if (GUILayout.Button(new GUIContent(Localization.MaskEditOpen, Localization.MaskEditOpenTooltip)))
             {
-                // 初回は「押せば塗れる」ようブラシを ON にする。すでにどちらかのツールを
-                // 使っている最中なら触らない(AI 提案中に押しただけでブラシへ切り替わると、
-                // ウィンドウを前面に出したかっただけのユーザーがモードを失う)。
-                if (!maskPaintActive && !AiSuggestArmed) ActivateBrush(erase: false);
+                // 初回は「押せば塗れる」ようブラシを ON にする。
+                if (!maskPaintActive) ActivateBrush(erase: false);
                 MaskBrushWindow.Open(_host);
             }
             GUI.backgroundColor = prevBg;
@@ -186,12 +198,11 @@ namespace Iroca
         public string ActiveLayerName()
             => editIncludeLayer ? Localization.Include : Localization.Exclude;
 
-        /// <summary>ブラシペイントモードを ON にする（AI 提案とは排他）。</summary>
+        /// <summary>ブラシペイントモードを ON にする。</summary>
         public void ActivateBrush(bool erase)
         {
             maskPaintActive = true;
             brushEraseMode = erase;
-            _suggestController?.SetActive(false);
         }
 
         /// <summary>ブラシペイントモードを OFF にする。</summary>
@@ -238,11 +249,11 @@ namespace Iroca
             // 2. マスクの種類(除外/含める)。
             DrawLayerKindSelector();
 
-            // 3. ツール選択: 塗る / 消す / AI 提案(いずれも上で選んだ対象・種類に対して作用する)。
-            //    AI 提案は Sentis 統合が載っているときだけ出す(導入・モデル取得は一度きりの
-            //    セットアップなので、メインウィンドウ上部のバナー = MaskSuggestSection.DrawSetupBanner)。
+            // 3. ツール選択: 塗る / 消す(上で選んだ対象・種類に対して作用する)。
+            //    AI 提案とメッシュのパーツ操作はモードを持たず、プレビューの右クリックメニューから
+            //    その場で選ぶ(2026-09-30。以前はここに「AI 提案」ツールがあり、よく使う操作が
+            //    このパレットを開いてモードに入らないと使えなかった)。
             var ctl = SuggestController;
-            bool aiActive = ctl != null && ctl.Active;
             bool paintActive = maskPaintActive && !brushEraseMode;
             bool eraseActive = maskPaintActive && brushEraseMode;
             EditorGUILayout.BeginHorizontal();
@@ -256,55 +267,33 @@ namespace Iroca
             }
             GUI.backgroundColor = eraseActive ? IrocaColors.IncludeButton : Color.white;
             if (GUILayout.Button(new GUIContent(Localization.BrushErase, Localization.BrushEraseTooltip),
-                    ctl != null ? EditorStyles.miniButtonMid : EditorStyles.miniButtonRight))
+                    EditorStyles.miniButtonRight))
             {
                 if (eraseActive) DeactivateBrush();
                 else ActivateBrush(erase: true);
                 stateChanged = true;
             }
-            if (ctl != null)
-            {
-                // モデル未取得のうちは押しても何も起きないので、押せない理由ごと見せる
-                // (取得ボタンをここへ複製すると、集約した意味が無くなる)。
-                bool ready = MaskSuggestSection.ToolReady;
-                GUI.backgroundColor = aiActive ? IrocaColors.IncludeButton : Color.white;
-                using (new EditorGUI.DisabledScope(!ready))
-                {
-                    if (GUILayout.Button(new GUIContent(Localization.AiSuggestTool,
-                            ready ? Localization.AiSuggestToolTooltip
-                                  : Localization.AiSuggestToolNotReadyTooltip),
-                            EditorStyles.miniButtonRight))
-                    {
-                        if (aiActive) ctl.SetActive(false);
-                        else
-                        {
-                            DeactivateBrush();
-                            ctl.SetActive(true);
-                        }
-                        stateChanged = true;
-                    }
-                }
-            }
             GUI.backgroundColor = prevBg;
             EditorGUILayout.EndHorizontal();
 
-            // 4. ツール別の設定。塗る/消すならブラシサイズ、AI 提案なら粒度と推論の状態。
-            //    使わない側を無効表示で残すより、選んだツールのものだけを出すほうが
-            //    「いま何を調整できるのか」が一目で分かる。
-            if (aiActive)
+            // 4. ブラシサイズ。
+            brushSize = EditorGUILayout.IntSlider(
+                new GUIContent(Localization.BrushSize, Localization.BrushSizeTooltip),
+                brushSize, 1, 64);
+
+            // 5. AI 提案(右クリックメニューから使う)の粒度と推論の状態。Sentis が載っているときだけ。
+            if (ctl != null)
             {
+                EditorGUILayout.Space(2);
+                EditorGUILayout.LabelField(
+                    new GUIContent(Localization.AiSuggestSectionHeader, Localization.AiSuggestSectionHeaderTooltip),
+                    EditorStyles.boldLabel);
                 MaskSuggestSection.DrawToolControls(_host, this);
-            }
-            else
-            {
-                brushSize = EditorGUILayout.IntSlider(
-                    new GUIContent(Localization.BrushSize, Localization.BrushSizeTooltip),
-                    brushSize, 1, 64);
             }
 
             EditorGUILayout.Space(2);
 
-            // 5. 取り消し / クリア。
+            // 6. 取り消し / クリア。
             // Unity 標準 Undo に統合済みのため、専用ボタンは PerformUndo の薄いショートカットとして残す。
             // ★ラベルは「マスクを元に戻す」にしないこと★ — PerformUndo の対象は直前の操作であり、
             // マスク編集とは限らない。マスク限定の Undo を名乗ると、スライダー変更やシーン編集が
@@ -332,9 +321,8 @@ namespace Iroca
             }
 
             EditorGUILayout.HelpBox(
-                aiActive ? Localization.MaskHintAi
-                : maskPaintActive ? Localization.MaskHint
-                : Localization.MaskHintPaintOff,
+                (maskPaintActive ? Localization.MaskHint : Localization.MaskHintPaintOff)
+                + "\n" + Localization.MaskHintContextMenu,
                 MessageType.Info);
 
             if (stateChanged)
@@ -577,6 +565,73 @@ namespace Iroca
             var zone = zones[activeMaskTarget];
             zone.EnsureId();
             return editIncludeLayer ? EnsureZoneIncludeMask(zone.id) : EnsureZoneMask(zone.id);
+        }
+
+        /// <summary>
+        /// 右クリックメニューからの追加先。zoneId = null は共通マスク(共通に「含める」は無い)。
+        /// ゾーンは番号でなく ID で持つ(AI の推論待ちの間に並び替え・削除があっても取り違えない)。
+        /// </summary>
+        internal readonly struct MaskDestination
+        {
+            public readonly string zoneId;
+            public readonly bool include;
+            public MaskDestination(string zoneId, bool include)
+            {
+                this.zoneId = zoneId;
+                this.include = include && zoneId != null;
+            }
+        }
+
+        /// <summary>いまの編集対象(パレットで選んだゾーン。未選択は共通)。null = 共通。</summary>
+        public string ActiveTargetZoneId()
+        {
+            var zones = _host.Session?.zones;
+            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count) return null;
+            var zone = zones[activeMaskTarget];
+            zone.EnsureId();
+            return zone.id;
+        }
+
+        /// <summary>
+        /// 宛先のマスク配列(必要なら確保)。宛先のゾーンが削除済み・共通×含めるなら null。
+        /// </summary>
+        public bool[] GetMaskArray(MaskDestination d)
+        {
+            if (d.zoneId == null) return d.include ? null : EnsureCommonMask();
+            var zones = _host.Session?.zones;
+            if (zones == null || !zones.Exists(z => z != null && z.id == d.zoneId)) return null;
+            return d.include ? EnsureZoneIncludeMask(d.zoneId) : EnsureZoneMask(d.zoneId);
+        }
+
+        /// <summary>宛先の表示名(ゾーン名 or 共通)と種類(除外/含める)。</summary>
+        public string DestinationName(MaskDestination d)
+        {
+            string target = Localization.MaskTargetCommon;
+            var zone = d.zoneId == null ? null : _host.Session?.zones?.Find(z => z != null && z.id == d.zoneId);
+            if (zone != null) target = string.IsNullOrEmpty(zone.name) ? Localization.UnnamedZone : zone.name;
+            return target + " / " + (d.include ? Localization.Include : Localization.Exclude);
+        }
+
+        /// <summary>
+        /// 領域(マスクと同じ寸法・下原点)を宛先のマスクへ OR 合成し、1 つの Undo ストロークにする。
+        /// 戻り値は新たに足した画素数(宛先が無い・寸法違いは -1)。AI 提案と右クリックメニューの共通の出口。
+        /// </summary>
+        public int AddRegionToMask(bool[] region, MaskDestination d)
+        {
+            EnsureMasks();
+            var mask = GetMaskArray(d);
+            if (mask == null || region == null || region.Length != mask.Length) return -1;
+            int added = 0;
+            BeginStroke();
+            for (int i = 0; i < mask.Length; i++)
+            {
+                if (region[i] && !mask[i]) { mask[i] = true; added++; }
+            }
+            EndStroke();
+            maskDirty = true;
+            _host.MarkPreviewDirtyFullRefine();
+            _host.RequestRepaint();
+            return added;
         }
 
         /// <summary>
@@ -1145,6 +1200,8 @@ namespace Iroca
             // 参照も落として、万一この後に触られても新しいインスタンスが作り直されるようにする。
             _suggestController?.Shutdown();
             _suggestController = null;
+            // メッシュの探索結果とチャート地図(4K で数十 MB)も手放す。次の右クリックで作り直す。
+            _meshParts = null;
         }
 
         public void SuspendTransientState()

@@ -89,16 +89,12 @@ namespace Iroca
 
         private void OnDestroy()
         {
-            // このウィンドウを閉じる = マスク編集を終える、と一対一にする。
-            // ブラシだけでなく AI 提案も解除するのは、状態表示と終了導線がこのウィンドウにしか
-            // 無くなったため（以前はメインウィンドウのマスク欄に AI の終了導線があったので
-            // ブラシだけ解除していた）。見えない操作モードが残ると、プレビューの右クリックが
-            // 黙ってマスクへ反映され続けることになる。
+            // このウィンドウを閉じる = ブラシでの編集を終える、と一対一にする。
+            // AI 提案はモードを持たない(プレビューの右クリックメニューから都度選ぶ)ので触らない。
             var host = ResolveHost();
             if (host != null && host._maskView != null)
             {
                 host._maskView.DeactivateBrush();
-                host._maskView.SuggestControllerIfCreated?.SetActive(false);
                 host.RequestRepaint();
             }
         }

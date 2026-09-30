@@ -12,8 +12,8 @@ namespace Iroca
     ///                                    (Sentis 導入・モデル取得・要再起動の案内)だけを持つ。
     ///                                    ここに無いと、Sentis を手動導入した環境でしか AI 機能に
     ///                                    到達できず、機能の存在にも気づけない。
-    ///   <see cref="DrawToolControls"/> … マスク編集ウィンドウ。AI 提案ツールを選んでいる間の
-    ///                                    **操作と状態**(粒度・進捗・警告)。
+    ///   <see cref="DrawToolControls"/> … マスク編集ウィンドウ。AI 提案(プレビューの右クリック
+    ///                                    メニューから使う)の**設定と状態**(粒度・進捗・警告)。
     ///
     /// 分け方の基準は「編集中に触るものか」。編集中に触るものはすべてマスク編集ウィンドウへ寄せる
     /// (対象ゾーン・マスクの種類・ツール・粒度が別ウィンドウに散っていると取り違えが起きる。
@@ -22,8 +22,8 @@ namespace Iroca
     internal static class MaskSuggestSection
     {
         /// <summary>
-        /// AI 提案ツールが今すぐ使えるか。false ならマスク編集ウィンドウ側でツールボタンを
-        /// 無効表示にし、有効化はメインウィンドウのマスク欄(<see cref="DrawSetup"/>)へ誘導する。
+        /// AI 提案が今すぐ使えるか(エラー中は true = 選べば再試行する)。false なら右クリックメニューの
+        /// 項目を無効表示にし、有効化はメインウィンドウ上部のバナー(<see cref="DrawSetupBanner"/>)へ誘導する。
         /// </summary>
         public static bool ToolReady
         {
@@ -82,8 +82,8 @@ namespace Iroca
         }
 
         /// <summary>
-        /// マスク編集ウィンドウで AI 提案ツールを選んでいる間の操作・状態表示。
-        /// 「マスクの種類」と対象ゾーンは呼び出し側(パレット上部)が既に描いているのでここには置かない。
+        /// マスク編集ウィンドウに常に出す AI 提案の設定・状態表示(提案そのものは右クリックメニューから)。
+        /// 追加先はメニューで選ぶ時点で決まるので、ここには置かない。
         /// </summary>
         public static void DrawToolControls(IrocaWindow host, MaskPaintView maskView)
         {
@@ -142,7 +142,7 @@ namespace Iroca
 
                 default:
                     // 待機中の操作説明は出さない。同じウィンドウの最下部に
-                    // ツール共通のヒント(Localization.MaskHintAi)が出ており、二重になる。
+                    // 右クリックメニューのヒント(Localization.MaskHintContextMenu)が出ており、二重になる。
                     break;
             }
 
