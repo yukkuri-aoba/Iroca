@@ -313,8 +313,8 @@ namespace Iroca
         public static string CtxPartUseSelectionFormat => IsJapanese
             ? "パーツ: 選択中の「{0}」のメッシュを使う" : "Part: use the meshes of the selected \"{0}\"";
         public static string CtxPartUseSelectionNone => IsJapanese
-            ? "パーツ: メッシュを指定するには、FBX・Prefab を選択してから右クリック"
-            : "Part: to choose meshes, select an FBX or prefab, then right-click";
+            ? "パーツ: メッシュはマスク欄の「メッシュ」で指定できます（FBX・Prefab をドラッグ）"
+            : "Part: choose meshes in the \"Mesh\" field of the mask section (drag an FBX or prefab)";
         public static string CtxPartResearch => IsJapanese ? "パーツ: メッシュを探し直す" : "Part: search for meshes again";
         public static string NotifyMaskAddedFormat => IsJapanese ? "{0} に追加しました（Ctrl+Z で戻せます）" : "Added to {0} (Ctrl+Z to undo)";
         public static string NotifyMaskAlreadyCovered => IsJapanese ? "すでにマスクに入っています" : "Already in the mask";
@@ -327,6 +327,39 @@ namespace Iroca
             : "No mesh using this texture was found (color processing works as before)";
         public static string NotifyMeshNotUsableFormat => IsJapanese
             ? "「{0}」に使えるメッシュがありませんでした" : "\"{0}\" has no usable mesh";
+
+        // ─── マスク欄の「メッシュ」行(パーツ操作と UV の島の表示に使うメッシュ) ───
+        public static string MeshSource => IsJapanese ? "メッシュ" : "Mesh";
+        public static string MeshSourceTooltip => IsJapanese
+            ? "このテクスチャを使っているメッシュ（FBX・Prefab）。右クリックメニューの「パーツ」操作と、UV の島の表示に使います。\n"
+              + "開いているシーン → テクスチャと同じ素材フォルダの Prefab の順に自動で探します。\n"
+              + "見つからないときや違うものを拾ったときは、Project か Hierarchy から FBX・Prefab をここへドラッグするか、◎ で選びます。\n"
+              + "欄を空にする（選んで Delete）と自動に戻ります"
+            : "The meshes (FBX or prefab) that use this texture. Used by the \"Part\" items of the right-click menu and to show the UV islands.\n"
+              + "Searched automatically in the open scene, then in prefabs in the texture's asset folder.\n"
+              + "If nothing is found or the wrong one is picked, drag an FBX or prefab here from the Project or Hierarchy, or pick one with ◎.\n"
+              + "Clearing the field (select it and press Delete) goes back to automatic";
+        public static string MeshResearch => IsJapanese ? "探し直す" : "Search again";
+        public static string MeshResearchTooltip => IsJapanese
+            ? "メッシュを自動で探し直します（シーンを開き直した・FBX の Read/Write を変えたあと）。手動の指定は外れます"
+            : "Search for meshes again (after reopening the scene or changing Read/Write on the FBX). Clears a manual choice";
+        public static string MeshStatusSceneFormat => IsJapanese
+            ? "自動（シーンから）: メッシュ {0} 個" : "Automatic (from the scene): {0} mesh(es)";
+        public static string MeshStatusProjectFormat => IsJapanese
+            ? "自動（素材フォルダの Prefab から）: メッシュ {0} 個" : "Automatic (from a prefab in the asset folder): {0} mesh(es)";
+        public static string MeshStatusManualFormat => IsJapanese
+            ? "指定: メッシュ {0} 個" : "Chosen: {0} mesh(es)";
+        public static string MeshStatusNone => IsJapanese
+            ? "見つかりません（色の処理は今まで通り）。FBX・Prefab をドラッグして指定できます"
+            : "Not found (color processing works as before). Drag an FBX or prefab here to choose one";
+        public static string MeshStatusUnreadableFormat => IsJapanese
+            ? "メッシュを読めません（{0} 個）。FBX の Read/Write を有効にして「探し直す」"
+            : "Cannot read the meshes ({0}). Enable Read/Write on the FBX, then \"Search again\"";
+        public static string MeshListTooltipHeader => IsJapanese ? "使っているメッシュ:" : "Meshes in use:";
+        public static string MeshShowIslands => IsJapanese ? "UV の島をプレビューに表示" : "Show UV islands on the preview";
+        public static string MeshShowIslandsTooltip => IsJapanese
+            ? "メッシュの UV の島の輪郭をプレビューに重ねます。右クリックの「パーツ: この島を…」で足される範囲が、この線で囲まれた島（と線のすぐ外のにじみ）です。表示だけで、色替えの結果は変わりません"
+            : "Overlay the outlines of the mesh's UV islands on the preview. The \"Part: … this island\" right-click items add the island enclosed by these lines (plus the bleed just outside them). Display only; the recolor result does not change";
         public static string NotifyAiNotStarted => IsJapanese
             ? "AI 提案を開始できませんでした（マスク編集ウィンドウの AI 提案欄を確認してください）"
             : "Could not start AI suggest (see the AI section of the mask edit window)";

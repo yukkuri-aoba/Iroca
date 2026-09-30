@@ -393,6 +393,35 @@ namespace Iroca
             }
         }
 
+        // UV の島の輪郭の描画用バッファ(線分の端点をスクリーン座標へ直したもの。毎回確保しない)。
+        [System.NonSerialized] private Vector3[] _islandLineBuffer;
+
+        /// <summary>
+        /// メッシュの UV の島の輪郭を線で重ねる(マスク欄の「UV の島をプレビューに表示」)。
+        /// 右クリックの「パーツ: この島を…」で足される範囲がどこまでかを、選ぶ前に見せるため。
+        /// テクスチャに焼くとズームで太ったり縮小で途切れたりするので、毎回スクリーン座標の線で描く
+        /// (Handles の線は IMGUI のクリップに従うので、プレビュー枠の外へははみ出さない)。
+        /// </summary>
+        private void DrawMeshIslandOverlay(Rect previewRect)
+        {
+            if (!MeshPartSection.ShowIslands) return;
+            var parts = _host._maskView?.MeshParts;
+            var segments = parts != null && parts.HasMesh ? parts.IslandOutline() : null;
+            if (segments == null || segments.Length < 2) return;
+
+            if (_islandLineBuffer == null || _islandLineBuffer.Length != segments.Length)
+                _islandLineBuffer = new Vector3[segments.Length];
+            GUI.BeginClip(previewRect);
+            var local = new Rect(0f, 0f, previewRect.width, previewRect.height);
+            for (int i = 0; i < segments.Length; i++)
+                _islandLineBuffer[i] = PreviewCoords.UvToScreen(segments[i], local);
+            using (new Handles.DrawingScope(IrocaColors.MeshIslandLineShadow, Matrix4x4.Translate(new Vector3(1f, 1f, 0f))))
+                Handles.DrawLines(_islandLineBuffer);
+            using (new Handles.DrawingScope(IrocaColors.MeshIslandLine))
+                Handles.DrawLines(_islandLineBuffer);
+            GUI.EndClip();
+        }
+
         /// <summary>ゾーン識別色（マスクオーバーレイと共通）を不透明寄りの Color で返す。</summary>
         private static Color ZoneMarkerColor(int zoneIndex)
         {
