@@ -276,21 +276,60 @@ namespace Iroca
         public static string BrushEraseTooltip => IsJapanese
             ? "消しゴムモード: プレビューをドラッグして、いま選んでいる種類のマスクを消します\n同じボタンを再度押すとモードを解除"
             : "Eraser mode: drag on the preview to erase the currently selected mask type\nClick again to exit paint mode";
-        public static string AiSuggestTool => IsJapanese ? "AI 提案" : "AI Suggest";
-        public static string AiSuggestToolTooltip => IsJapanese
-            ? "AI 提案モード（実験的）: プレビューでパーツを右クリックすると、AI が推定した領域を\nいま選んでいる対象・種類のマスク（除外/含める）へ追加します\n同じボタンを再度押すとモードを解除\n塗る/消すとは排他です（選ぶとブラシは解除されます）"
-            : "AI Suggest mode (experimental): right-click a part on the preview and the AI-estimated region is added\nto the mask currently selected above (target and Exclude/Include)\nClick again to exit\nMutually exclusive with Paint/Erase (selecting this exits the brush)";
-        // 取得の導線はメインウィンドウ上部のバナー（MaskSuggestSection.DrawSetupBanner）に集約した。
-        // 「マスク欄」を指す旧案内のままだと、実際には無い場所へ誘導することになる。
-        public static string AiSuggestToolNotReadyTooltip => IsJapanese
-            ? "AI モデルがまだ取得されていないため使えません\nIroca 本体ウィンドウ上部の案内から取得してください（約 44 MB・一度きり）"
-            : "Unavailable until the AI model is downloaded\nGet it from the notice at the top of the main Iroca window (about 44 MB, one time)";
+        public static string AiSuggestSectionHeader => IsJapanese ? "AI 提案（プレビューを右クリック）" : "AI Suggest (right-click the preview)";
+        public static string AiSuggestSectionHeaderTooltip => IsJapanese
+            ? "AI 提案（実験的）: プレビューを右クリックして「AI 提案: この領域を除外 / 含める」を選ぶと、\nAI が推定した領域を、メニュー上部に出ている対象のマスクへ追加します\nここでは提案の粒度と、推論の進み具合を確認できます"
+            : "AI Suggest (experimental): right-click the preview and choose \"AI suggest: exclude / include this region\"\nto add the AI-estimated region to the mask of the target shown at the top of the menu\nHere you can set the granularity and see the inference status";
         public static string AiSuggestNoModelInEditor => IsJapanese
             ? "AI モデルが未取得です。Iroca 本体ウィンドウ上部の案内から取得してください。"
             : "The AI model has not been downloaded yet. Get it from the notice at the top of the main Iroca window.";
-        public static string MaskHintAi => IsJapanese
-            ? "プレビュー上でパーツを右クリックすると、AI が推定した領域をマスクへ追加します（Ctrl+Z で 1 手ずつ戻せます）"
-            : "Right-click a part on the preview to add the AI-estimated region to the mask (Ctrl+Z undoes one step at a time)";
+        public static string MaskHintContextMenu => IsJapanese
+            ? "プレビューを右クリックすると、AI 提案やパーツ（メッシュの島）単位でマスクへ追加できます（Ctrl+Z で 1 手ずつ戻せます）"
+            : "Right-click the preview to add an AI-suggested region or a mesh part (UV island) to the mask (Ctrl+Z undoes one step at a time)";
+
+        // ─── プレビューの右クリックメニュー(項目にツールチップを付けられないので、文言だけで分かるようにする) ───
+        public static string CtxTargetFormat => IsJapanese ? "追加先: {0}" : "Add to: {0}";
+        public static string CtxChangeTarget => IsJapanese ? "追加先を変える" : "Change target";
+        public static string CtxIncludeNeedsZone => IsJapanese ? "（含めるはゾーンが追加先のときだけ）" : " (Include needs a zone as the target)";
+        public static string CtxAiExclude => IsJapanese ? "AI 提案: この領域を除外" : "AI suggest: exclude this region";
+        public static string CtxAiInclude => IsJapanese ? "AI 提案: この領域を含める" : "AI suggest: include this region";
+        public static string CtxAiNoSentis => IsJapanese
+            ? "AI 提案: 使えません（本体ウィンドウ上部の案内から導入）"
+            : "AI suggest: unavailable (set up from the notice at the top of the main window)";
+        public static string CtxAiNoModel => IsJapanese
+            ? "AI 提案: モデル未取得（本体ウィンドウ上部の案内から取得）"
+            : "AI suggest: model not downloaded (get it from the notice at the top of the main window)";
+        public static string CtxPartExcludeFormat => IsJapanese ? "パーツ: この島を除外（{0}）" : "Part: exclude this island ({0})";
+        public static string CtxPartIncludeFormat => IsJapanese ? "パーツ: この島を含める（{0}）" : "Part: include this island ({0})";
+        public static string CtxPartOnlyThisMeshFormat => IsJapanese
+            ? "パーツ: {0} 以外のメッシュを除外" : "Part: exclude every mesh except {0}";
+        public static string CtxPartNoIsland => IsJapanese
+            ? "パーツ: この場所はどのメッシュの島にも乗っていません" : "Part: no mesh island at this spot";
+        public static string CtxPartNoMesh => IsJapanese
+            ? "パーツ: このテクスチャを使うメッシュが見つかりません" : "Part: no mesh using this texture was found";
+        public static string CtxPartUnreadableFormat => IsJapanese
+            ? "パーツ: メッシュを読めません（{0} 個。FBX の Read/Write を有効にして探し直してください）"
+            : "Part: cannot read the meshes ({0}; enable Read/Write on the FBX and search again)";
+        public static string CtxPartUseSelectionFormat => IsJapanese
+            ? "パーツ: 選択中の「{0}」のメッシュを使う" : "Part: use the meshes of the selected \"{0}\"";
+        public static string CtxPartUseSelectionNone => IsJapanese
+            ? "パーツ: メッシュを指定するには、FBX・Prefab を選択してから右クリック"
+            : "Part: to choose meshes, select an FBX or prefab, then right-click";
+        public static string CtxPartResearch => IsJapanese ? "パーツ: メッシュを探し直す" : "Part: search for meshes again";
+        public static string NotifyMaskAddedFormat => IsJapanese ? "{0} に追加しました（Ctrl+Z で戻せます）" : "Added to {0} (Ctrl+Z to undo)";
+        public static string NotifyMaskAlreadyCovered => IsJapanese ? "すでにマスクに入っています" : "Already in the mask";
+        public static string NotifyMaskNotAdded => IsJapanese
+            ? "追加できませんでした（追加先のゾーンが無いか、この場所に島がありません）"
+            : "Could not add (the target zone is gone, or there is no island here)";
+        public static string NotifyMeshFoundFormat => IsJapanese ? "メッシュを {0} 個見つけました" : "Found {0} mesh(es)";
+        public static string NotifyMeshNotFound => IsJapanese
+            ? "このテクスチャを使うメッシュは見つかりませんでした（色の処理は今まで通り動きます）"
+            : "No mesh using this texture was found (color processing works as before)";
+        public static string NotifyMeshNotUsableFormat => IsJapanese
+            ? "「{0}」に使えるメッシュがありませんでした" : "\"{0}\" has no usable mesh";
+        public static string NotifyAiNotStarted => IsJapanese
+            ? "AI 提案を開始できませんでした（マスク編集ウィンドウの AI 提案欄を確認してください）"
+            : "Could not start AI suggest (see the AI section of the mask edit window)";
         public static string ClearMask => IsJapanese ? "マスクをクリア" : "Clear Mask";
         public static string MaskHint => IsJapanese
             ? "プレビュー上でドラッグしてマスクを塗り/消しできます"
@@ -906,8 +945,8 @@ namespace Iroca
             ? "マスクを消す: {0} / {1}"
             : "Erasing mask: {0} / {1}";
         public static string PreviewModeAi => IsJapanese
-            ? "AI 提案: パーツを右クリックでマスクへ追加"
-            : "AI Suggest: right-click a part to add it to the mask";
+            ? "AI 提案を計算中（結果はマスクへ自動で入ります）"
+            : "AI suggest is working (the result goes into the mask automatically)";
         public static string PreviewModeEscHint => IsJapanese ? "  (Esc で解除)" : "  (Esc to cancel)";
         public static string PreviewModeTooltip => IsJapanese
             ? "プレビュー上のクリックがいま何をするかを示します。Esc で解除できます。\nどのモードでも、中ボタンドラッグまたは Alt+ドラッグで表示を移動できます。"

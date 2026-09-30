@@ -54,7 +54,9 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 - プレビュー上でブラシを使って、色改変しない領域（除外）と必ず色改変する領域（含める）を指定します
 - 除外は全ゾーン共通と各ゾーン専用の 2 種類を使い分けられます
 - Unity 標準の Undo（Ctrl+Z）に対応しています
-- AI マスク提案（実験的）：パーツを右クリックすると AI が領域を推定し、その場でマスクへ追加します。1 回で取れるのはつながった 1 領域なので、分かれたパーツは島ごとにクリックします（左ドラッグはプレビューの移動のまま。Unity Sentis + MobileSAM）
+- 右クリックメニュー：プレビューを右クリックして、AI 提案やパーツ（メッシュの UV の島）単位でマスクへ追加します
+  - AI マスク提案（実験的）：AI が領域を推定してマスクへ追加します。1 回で取れるのはつながった 1 領域なので、分かれたパーツは島ごとに繰り返します（Unity Sentis + MobileSAM）
+  - パーツ：テクスチャを使うメッシュが見つかると、UV の島やメッシュ単位で追加できます。色では分けられない同じ色の別パーツを分けられます（メッシュが無ければ従来どおり）
 
 #### その他
 - プレビュー：ズーム（Ctrl+スクロール・リセット）・前後比較・差分表示・押している間だけ元画像を表示
@@ -146,7 +148,9 @@ See the **[online manual](https://yukkuri-aoba.github.io/Iroca/manual/)** for de
 - Paint the areas to protect (Exclude) and the areas to always recolor (Include) directly on the preview
 - Exclude supports both a common mask and per-zone masks
 - Integrated with Unity's standard Undo (Ctrl+Z)
-- AI Mask Suggestion (experimental): right-click a part and the AI estimates its region and adds it to the mask. One click picks one connected region, so click each island of a split part (a left drag still pans the preview; Unity Sentis + MobileSAM)
+- Right-click menu: right-click the preview to add an AI-suggested region or a mesh part (UV island) to a mask
+  - AI Mask Suggestion (experimental): the AI estimates the region and adds it to the mask. One use picks one connected region, so repeat for each island of a split part (Unity Sentis + MobileSAM)
+  - Parts: when a mesh using the texture is found, add whole UV islands or meshes. This separates same-colored parts that color alone cannot split (without a mesh, everything works as before)
 
 #### Other
 - Preview: zoom (Ctrl+Scroll and Reset), before/after comparison, diff view, hold a button to see the original

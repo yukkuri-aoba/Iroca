@@ -99,7 +99,7 @@ namespace Iroca
 
         /// <summary>
         /// プレビュー上のクリックの意味を変える一時モード（スポイト・シード指定・
-        /// マスクブラシ・AI 提案）をすべて解除する。Esc キーの受け口。
+        /// マスクブラシ）と、AI 提案の推論待ちをすべて解除する。Esc キーの受け口。
         /// 戻り値 true = 実際に何かを解除した（呼び出し側がイベントを消費してよい）。
         /// </summary>
         internal bool ClearPreviewInteractionModes()
@@ -111,7 +111,7 @@ namespace Iroca
             {
                 if (_maskView.maskPaintActive) { _maskView.DeactivateBrush(); any = true; }
                 var ctl = _maskView.SuggestControllerIfCreated;
-                if (ctl != null && ctl.Active) { ctl.SetActive(false); any = true; }
+                if (ctl != null && ctl.CancelPending()) any = true;
             }
             if (any) RequestRepaint();
             return any;
