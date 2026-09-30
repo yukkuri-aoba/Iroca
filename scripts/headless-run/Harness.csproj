@@ -71,6 +71,7 @@
          samops 検証モードで pytest の NumPy リファレンスと突き合わせる。 -->
     <Compile Include="..\..\Code\MaskSuggest\Ops\*.cs" />
     <Compile Include="..\..\Code\Core\MaskRle.cs" />
+    <Compile Include="..\..\Code\Core\UvChartMap.cs" />
     <Compile Include="Harness.cs" />
   </ItemGroup>
 

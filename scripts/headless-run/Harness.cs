@@ -160,6 +160,68 @@ namespace Iroca
             return (w, h, payload);
         }
 
+        private static int RunUvCharts(string dumpPath, string textureKey, int w, int h, string outPrefix)
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(dumpPath));
+            if (!doc.RootElement.TryGetProperty(textureKey, out var entry))
+            {
+                Console.Error.WriteLine("uvcharts: texture key not found: " + textureKey);
+                return 2;
+            }
+            var sources = new List<UvChartSource>();
+            foreach (var s in entry.GetProperty("slots").EnumerateArray())
+            {
+                if (!s.GetProperty("isMain").GetBoolean() || !s.TryGetProperty("tris", out var tris)) continue;
+                var uvFlat = new List<float>();
+                foreach (var v in s.GetProperty("uv").EnumerateArray()) uvFlat.Add(v.GetSingle());
+                var uv = new Vector2[uvFlat.Count / 2];
+                for (int i = 0; i < uv.Length; i++) uv[i] = new Vector2(uvFlat[i * 2], uvFlat[i * 2 + 1]);
+                var triList = new List<int>();
+                foreach (var t in tris.EnumerateArray()) triList.Add(t.GetInt32());
+                var sc = s.GetProperty("scale");
+                var of = s.GetProperty("offset");
+                sources.Add(new UvChartSource
+                {
+                    name = s.GetProperty("renderer").GetString(),
+                    uv = uv,
+                    triangles = triList.ToArray(),
+                    scale = new Vector2(sc[0].GetSingle(), sc[1].GetSingle()),
+                    offset = new Vector2(of[0].GetSingle(), of[1].GetSingle()),
+                });
+            }
+            var sw = Stopwatch.StartNew();
+            var map = UvChartMap.Build(w, h, sources);
+            long buildMs = sw.ElapsedMilliseconds;
+            sw.Restart();
+            map.AssignPadding();
+            long padMs = sw.ElapsedMilliseconds;
+
+            void WriteInts(string path, int[] data)
+            {
+                using var fs = new FileStream(path, FileMode.Create, FileAccess.Write);
+                using var bw = new BinaryWriter(fs);
+                bw.Write(w); bw.Write(h);
+                var bytes = new byte[data.Length * 4];
+                Buffer.BlockCopy(data, 0, bytes, 0, bytes.Length);
+                bw.Write(bytes);
+            }
+            WriteInts(outPrefix + "_raster.raw", map.Raster);
+            WriteInts(outPrefix + "_owner.raw", map.Owner);
+            WriteInts(outPrefix + "_dist.raw", map.OwnerDistance);
+            var names = new List<string>();
+            foreach (var s in sources) names.Add(s.name);
+            Console.WriteLine("UVCHARTS " + JsonSerializer.Serialize(new
+            {
+                charts = map.ChartCount,
+                chartSource = map.ChartSource,
+                sources = names,
+                paddingRadius = map.DefaultPaddingRadius,
+                buildMs,
+                padMs,
+            }));
+            return 0;
+        }
+
         private static Color Col(float[] c) =>
             new Color(c != null && c.Length > 0 ? c[0] : 0f,
                       c != null && c.Length > 1 ? c[1] : 0f,
@@ -245,6 +307,12 @@ namespace Iroca
                     uv.x, uv.y, px, py, back.x, back.y));
                 return 0;
             }
+
+            // --uvcharts <dump.json> <textureKey> <w> <h> <outPrefix>: 入力画像不要。UV ダンプ
+            // (dev_safe の IrocaUvDump 形式)から UvChartMap を実 C# で作り、にじみ代を割り当てて
+            // <outPrefix>_raster.raw / _owner.raw / _dist.raw(int32、行 0 = 下端)と要約 JSON を出す。
+            if (args.Length >= 6 && args[0] == "--uvcharts")
+                return RunUvCharts(args[1], args[2], int.Parse(args[3]), int.Parse(args[4]), args[5]);
 
             // 並列テスト実行時にスレッド数を絞れるようにする(既定=未設定=製品と同じ
             // ProcessorCount-2)。設定したときだけ効くので、通常実行の挙動は変わらない。

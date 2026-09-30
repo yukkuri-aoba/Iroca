@@ -17,6 +17,7 @@
 - [加工設定](#加工設定)
 - [プレビュー機能](#プレビュー機能)
 - [マスク（除外・含める）](#マスク除外含める)
+- [右クリックメニュー（AI 提案・パーツ）](#右クリックメニューai-提案パーツ)
 - [AI マスク提案（実験的機能）](#ai-マスク提案実験的機能)
 - [プリセット](#プリセット)
 - [エクスポート](#エクスポート)
@@ -239,7 +240,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 #### いまのモード表示
 
-操作行のすぐ下に、プレビュー上のクリックがいま何をするか（スポイト／シード指定／マスクを塗る・消す／AI 提案）が 1 行で出ます。**Esc でどのモードも解除できます。**
+操作行のすぐ下に、プレビュー上のクリックがいま何をするか（スポイト／シード指定／マスクを塗る・消す）と、AI 提案の計算中かどうかが 1 行で出ます。**Esc でどのモードも解除できます**（AI 提案の計算待ちも取り消せます）。
 
 #### プレビュー上の目印
 
@@ -268,11 +269,11 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 1. マスク欄の「マスクを編集...」を押してウィンドウを開きます。
 2. 「編集対象」で共通マスクか各ゾーンを、「マスクの種類」で除外／含めるを選びます（含めるはゾーン選択時のみ）。
 3. ツールの「塗る」「消す」を選び、プレビュー上をドラッグします。ブラシサイズは 1〜64 です。同じボタンをもう一度押すか Esc で抜けます。
-4. 「AI 提案」ツールでは、パーツを右クリックすると AI が推定した領域が足されます（→「[AI マスク提案](#ai-マスク提案実験的機能)」）。
+4. プレビューを**右クリック**すると、AI 提案やパーツ（メッシュの島）単位でマスクへ足せます（→「[右クリックメニュー](#右クリックメニューai-提案パーツ)」）。
 
 重ね表示は、赤が共通の除外、ゾーンの色がゾーン別の除外、緑が含めるです。編集中の 1 枚は明るく、ほかは薄く出ますが、薄いマスクも色替えには効いています。
 
-ウィンドウを閉じるとマスク編集モードは解除されます。
+ウィンドウを閉じるとブラシのモードは解除されます（右クリックメニューはウィンドウを閉じていても使えます）。
 
 #### 含めるマスクの色の写り方
 
@@ -285,9 +286,28 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 ---
 
+### 右クリックメニュー（AI 提案・パーツ）
+
+プレビューを**右クリック**（mac は Control+クリック）すると、クリックした場所をマスクへ足すメニューが出ます。左ドラッグはプレビューの移動のままです。
+
+- 一番上の「追加先」が、足す先のマスク（共通 or ゾーン）です。「追加先を変える」で切り替えられます（マスク編集ウィンドウの「編集対象」と同じ設定です）。
+- 「除外」「含める」はメニューの項目で選びます。含めるはゾーンが追加先のときだけ選べます。
+- 足した領域は通常のマスクなので、Ctrl+Z で 1 つずつ戻せ、ブラシで整えられます。
+
+#### パーツ（メッシュの島）
+
+テクスチャを使っているメッシュが見つかると、メッシュの形（UV の島）でマスクへ足せます。色では分けられない、同じ色の別パーツ（アトラスに並んだ同色のパンツとブーツなど）を 1 回で分けられます。
+
+- **パーツ: この島を除外 / 含める**: クリックした場所の UV の島（とその周りのにじみ代）を足します。
+- **パーツ: ○○ 以外のメッシュを除外**: クリックしたメッシュ以外をすべて除外します。「このゾーンはパンツだけ」にしたいときに 1 回で済みます。部位が複数のメッシュにまたがるときは使わず、島ごとに足してください。
+
+メッシュは、開いているシーンの中、なければテクスチャと同じ素材フォルダの Prefab から自動で探します（テクスチャを以前いろかで書き出した `_recolored.png` をマテリアルが使っている場合も見つかります）。見つからないときは、Hierarchy か Project で FBX・Prefab を選んでから右クリックし、「選択中の○○のメッシュを使う」を選びます。メッシュが無くても、色の処理はこれまで通り動きます。
+
+- 「メッシュを読めません」と出たら、FBX のインポート設定で Read/Write を有効にして「メッシュを探し直す」を押してください。
+
 ### AI マスク提案（実験的機能）
 
-プレビュー上のパーツを**右クリック**すると、AI（MobileSAM）がそのパーツの領域を推定し、編集対象のマスクへその場で足します。手描きで囲む手間を減らせます。
+右クリックメニューの「AI 提案: この領域を除外 / 含める」を選ぶと、AI（MobileSAM）がクリックしたパーツの領域を推定し、追加先のマスクへその場で足します。手描きで囲む手間を減らせます。
 
 #### 必要なもの（自動調整にも必要）
 
@@ -298,10 +318,9 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 #### 使い方
 
-1. マスク編集ウィンドウでツールの「AI 提案」を押します。画像の解析がここで始まるので、進捗表示が消えるのを待ちます。
-2. 選びたいパーツの内側を**右クリック**（mac は Control+クリック）します。左ドラッグはプレビューの移動のままです。
-3. 推定された領域が、「編集対象」「マスクの種類」で選んでいるマスクへすぐ足されます（確定ボタンはありません）。パーツが複数の島に分かれているときは、島を順に右クリックします。
-4. 間違えたら Ctrl+Z で 1 つずつ戻します。足した領域は通常のマスクなので、ブラシで整えられます。
+1. 選びたいパーツの内側を**右クリック**し、「AI 提案: この領域を除外」か「含める」を選びます。初回は画像の解析とモデルの準備で少し待ちます（進み具合はマスク編集ウィンドウの「AI 提案」欄に出ます）。
+2. 推定された領域が、メニュー上部の追加先へすぐ足されます（確定ボタンはありません）。計算中の場所にはプレビュー上に目印が出ます。パーツが複数の島に分かれているときは、島ごとに繰り返します。
+3. 間違えたら Ctrl+Z で 1 つずつ戻します。粒度（自動・細かい・大きい）はマスク編集ウィンドウの「AI 提案」欄で変えられます。
 
 1 回の右クリックで取れるのは、つながった 1 つの領域（UV アイランド）です。テクスチャ上でいくつにも分かれたパーツ（衣装 1 着ぶんなど）を全部選ぶには、数回〜十数回のクリックが要ります。取った領域がまれに隣のパーツへはみ出すこともあるので、重ね表示で確かめてください。
 
@@ -313,7 +332,8 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 #### うまく動かないとき
 
-- **左クリックしても何も起きない**: 指定は右クリックです。
+- **左クリックしても何も起きない**: 右クリックでメニューを開いて選びます。
+- **メニューの AI 提案が選べない**: Sentis かモデルが未導入です。ウィンドウ上部の案内から導入してください。
 - **Unity 起動後の最初の 1 回だけ遅い**: AI エンジン（Burst）のコンパイルが入るためで、異常ではありません。
 - **小さいパーツで少し待つ**: 周辺を自動で拡大して推定し直すためです。
 - **右クリックしてもマスクが変わらない**（「AI が領域を返しませんでした」「内部コンパイル（Burst）が失敗しています」）: Burst の初期化失敗です。同じセッションでは直らないので、欄の「Unity を再起動」を押します。再発するときは、プロジェクトの `Library\BurstCache` と `Library\Bee` を削除してから起動し直します（自動で再生成されます）。
@@ -436,6 +456,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 - [Processing Settings](#processing-settings)
 - [Preview](#preview)
 - [Masks (Exclude / Include)](#masks-exclude--include)
+- [Right-click menu (AI Suggest and Parts)](#right-click-menu-ai-suggest-and-parts)
 - [AI Mask Suggestion (Experimental)](#ai-mask-suggestion-experimental)
 - [Presets](#presets)
 - [Export](#export)
@@ -656,7 +677,7 @@ After you change a setting, the preview updates automatically in about 0.2 secon
 
 #### Current mode row
 
-Just below the toolbar row, a single line shows what a click on the preview does right now (Eyedropper / Seed / Painting or Erasing a mask / AI Suggest). **Press Esc to leave any of these modes.**
+Just below the toolbar row, a single line shows what a click on the preview does right now (Eyedropper / Seed / Painting or Erasing a mask) and whether AI Suggest is still working. **Press Esc to leave any of these modes** (it also cancels pending AI suggestions).
 
 #### Markers on the preview
 
@@ -683,11 +704,11 @@ Mask editing lives in the "Iroca Masks" window.
 1. Press "Edit Masks..." in the mask section to open it.
 2. Choose the common mask or a zone under "Edit Target", and Exclude or Include under "Mask Type" (Include needs a zone).
 3. Pick the Paint or Erase tool and drag on the preview. Brush size ranges from 1 to 64. Press the same button again, or Esc, to leave.
-4. With the AI Suggest tool, right-click a part and the AI-estimated region is added (see [AI Mask Suggestion](#ai-mask-suggestion-experimental)).
+4. **Right-click** the preview to add an AI-suggested region or a mesh part (UV island) to a mask (see [Right-click menu](#right-click-menu-ai-suggest-and-parts)).
 
 In the overlay, red is the common exclude mask, the zone's color is a per-zone exclude mask, and green is include. The mask being edited is bright and the rest are dim, but the dim ones are still in effect.
 
-Closing the window leaves mask editing.
+Closing the window leaves brush mode (the right-click menu works even while the window is closed).
 
 #### How include-mask areas are colored
 
@@ -700,9 +721,28 @@ Regions added with the include mask are recolored as the same material as the co
 
 ---
 
+### Right-click menu (AI Suggest and Parts)
+
+**Right-click** the preview (Control+click on macOS) to open a menu that adds the clicked spot to a mask. A left drag still pans the preview.
+
+- "Add to" at the top is the mask that receives the region (common or a zone). Switch it with "Change target" (the same setting as "Edit Target" in the mask window).
+- Choose Exclude or Include with the menu item. Include is available only when a zone is the target.
+- Added regions are ordinary mask data: Ctrl+Z undoes them one at a time and you can touch them up with the brush.
+
+#### Parts (mesh UV islands)
+
+When a mesh that uses the texture is found, you can add regions by the mesh's shape (UV islands). This separates parts that share the same color and cannot be split by color (such as same-colored pants and boots side by side on an atlas) in one step.
+
+- **Part: exclude / include this island**: adds the clicked UV island (plus its padding around it).
+- **Part: exclude every mesh except ...**: excludes every mesh except the clicked one. Use it when a zone should cover only, say, the pants. When a part spans several meshes, add islands one by one instead.
+
+Meshes are searched automatically in the open scenes, then in prefabs in the texture's asset folder (it also works when the material uses a `_recolored.png` previously exported by Iroca). If none are found, select an FBX or prefab in the Hierarchy or Project, then right-click and choose "use the meshes of the selected ...". Without a mesh, color processing works as before.
+
+- If you see "cannot read the meshes", enable Read/Write in the FBX import settings and choose "search for meshes again".
+
 ### AI Mask Suggestion (Experimental)
 
-**Right-click** a part on the preview and the AI (MobileSAM) estimates that part's region and adds it to the mask being edited right away. It saves you from outlining parts by hand.
+Choose "AI suggest: exclude / include this region" in the right-click menu and the AI (MobileSAM) estimates the clicked part's region and adds it to the target mask right away. It saves you from outlining parts by hand.
 
 #### Requirements (also required by Auto-tune)
 
@@ -713,10 +753,9 @@ When they are missing, a notice appears at the top of the Iroca window. Both ite
 
 #### How to use
 
-1. Press the "AI Suggest" tool in the mask window. Image analysis starts here, so wait for the progress indicator to disappear.
-2. **Right-click** inside the part you want (Control+click on macOS). A left drag still pans the preview.
-3. The estimated region is added at once to the mask chosen by "Edit Target" and "Mask Type" (there is no confirm button). If the part is split into several islands, right-click them one by one.
-4. Undo mistakes one at a time with Ctrl+Z. Added regions are ordinary mask data, so you can touch them up with the brush.
+1. **Right-click** inside the part you want and choose "AI suggest: exclude this region" or "include". The first time, wait a moment for image analysis and model loading (progress is shown in the "AI Suggest" section of the mask window).
+2. The estimated region is added at once to the target shown at the top of the menu (there is no confirm button). A marker shows spots still being computed. If the part is split into several islands, repeat for each.
+3. Undo mistakes one at a time with Ctrl+Z. Change the granularity (Auto / Fine / Coarse) in the "AI Suggest" section of the mask window.
 
 One right-click picks one connected region (UV island). Selecting a part that is split into many pieces on the texture (such as a whole outfit) takes several to a dozen or more clicks. A picked region occasionally spills into a neighboring part, so check the overlay.
 
@@ -728,7 +767,8 @@ One right-click picks one connected region (UV island). Selecting a part that is
 
 #### If it does not work
 
-- **Nothing happens on a left click**: AI Suggest is driven by a right-click.
+- **Nothing happens on a left click**: open the menu with a right-click and choose an item.
+- **AI Suggest is greyed out in the menu**: Sentis or the models are not installed. Set them up from the notice at the top of the window.
 - **The very first use after starting Unity is slow**: the AI engine (Burst) compiles once. This is expected.
 - **Small parts take a little longer**: the area around the click is automatically zoomed and re-estimated.
 - **Right-clicking never changes the mask** ("The AI returned no region" / "the internal compiler (Burst) failed"): Burst failed to initialize. It cannot recover within the same session, so press the "Restart Unity" button shown with the message. If it keeps happening, delete the project's `Library\BurstCache` and `Library\Bee` folders and start Unity again (they are regenerated automatically).
