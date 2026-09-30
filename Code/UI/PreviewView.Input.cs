@@ -523,7 +523,7 @@ namespace Iroca
         {
             var maskView = _host._maskView;
             var ctl = maskView != null ? maskView.SuggestControllerIfCreated : null;
-            if (ctl == null || !ctl.Active) return;
+            if (ctl == null) return;
             var clicks = ctl.PendingClicks;
             if (clicks == null || clicks.Count == 0) return;
 
@@ -543,90 +543,171 @@ namespace Iroca
             }
         }
 
-        // クリック位置を UV(下原点)に変換してコントローラへ渡す。実際の推論・提案表示は
-        // MaskSuggestController + Sentis サービス側が担い、ここは入力の横取りだけを行う。
+        // プレビューの右クリックメニュー。AI 提案とメッシュのパーツ操作をここへ集める
+        // (2026-09-30。以前は AI 提案がマスク編集パレットの「モード」で、よく使う操作が奥に隠れていた)。
         //
-        // 受けるのは**右クリック**(mac は Control+クリックでも可)。左ボタンを取ると
-        // AI モード中はパンが完全に止まり、推論の待ち時間に画像を動かして次の対象を
-        // 探すことすらできなくなる。右へ寄せることで、左ドラッグのパンを AI モード中も
-        // そのまま残せる。
-        private void HandleAiSuggestInput(Rect previewRect, int srcW, int srcH)
+        // 開くのは ContextClick だけ。Windows は右ボタンの MouseUp の後に、mac は Control+クリックで
+        // ContextClick が届く。MouseDown では開かない(両方で開くと 1 回の右クリックで 2 回出る)。
+        // 右ボタンは他のどの操作も使っていないので、左ドラッグのパン・ブラシとは干渉しない。
+        private void HandlePreviewContextMenu(Rect previewRect)
+        {
+            var e = Event.current;
+            if (e.type != EventType.ContextClick || !previewRect.Contains(e.mousePosition)) return;
+            ShowPreviewContextMenu(e.mousePosition, previewRect);
+            e.Use();
+        }
+
+        private void ShowPreviewContextMenu(Vector2 screenPos, Rect previewRect)
         {
             var maskView = _host._maskView;
-            var ctl = maskView != null ? maskView.SuggestControllerIfCreated : null;
-            if (ctl == null || !ctl.Active) return;
+            if (maskView == null || _host.SourceTexture == null) return;
+            var uv = PreviewCoords.ScreenToUv(screenPos, previewRect);
+            string zoneId = maskView.ActiveTargetZoneId();
+            var exclude = new MaskPaintView.MaskDestination(zoneId, include: false);
+            var include = new MaskPaintView.MaskDestination(zoneId, include: true);
+            var menu = new GenericMenu();
 
-            var e = Event.current;
-            int controlId = GUIUtility.GetControlID(FocusType.Passive);
-            bool isInRect = previewRect.Contains(e.mousePosition);
+            // 追加先。パレットの「対象」と同じ状態を共有する(ここで切り替えるとパレットにも反映される)。
+            string targetName = maskView.ActiveTargetName();
+            menu.AddDisabledItem(new GUIContent(string.Format(Localization.CtxTargetFormat, targetName)));
+            AddTargetSwitchItems(menu, maskView);
+            menu.AddSeparator("");
 
-            switch (e.type)
+            // AI 提案。推論は非同期で、結果は選んだ時点の宛先へ入る。
+            var ai = maskView.SuggestController;
+            if (ai == null)
             {
-                case EventType.MouseDown:
-                    if (e.button == 1 && isInRect && !e.alt)
-                    {
-                        RequestAiSuggestAt(ctl, e.mousePosition, previewRect);
-                        _aiSuggestRightPressHandled = true;
-                        GUIUtility.hotControl = controlId;
-                        e.Use();
-                        _host.RequestRepaint();
-                    }
-                    else if (e.button != 1)
-                    {
-                        // 右ボタン以外の押下が入った = 前の右クリックの ContextClick は
-                        // もう来ない。ここで下ろしておかないと、mac の Control+クリック
-                        // (MouseDown は左 → ContextClick)が抑止側と誤認されて 1 回空振る。
-                        _aiSuggestRightPressHandled = false;
-                    }
-                    break;
+                menu.AddDisabledItem(new GUIContent(Localization.CtxAiNoSentis));
+            }
+            else if (!MaskSuggestSection.ToolReady)
+            {
+                menu.AddDisabledItem(new GUIContent(Localization.CtxAiNoModel));
+            }
+            else
+            {
+                // メニューを読んでいる間に画像の解析を先行させる(準備済みなら no-op)。
+                if (EnsureTrueSource(_host.SourceTexture) && _trueSourceW > 0)
+                    ai.PrepareSource(_trueSourcePixels, _trueSourceW, _trueSourceH, TrueSourceCacheKey());
+                menu.AddItem(new GUIContent(Localization.CtxAiExclude), false,
+                             () => RequestAiSuggest(ai, uv, exclude));
+                if (zoneId != null)
+                    menu.AddItem(new GUIContent(Localization.CtxAiInclude), false,
+                                 () => RequestAiSuggest(ai, uv, include));
+                else
+                    menu.AddDisabledItem(new GUIContent(Localization.CtxAiInclude + Localization.CtxIncludeNeedsZone));
+            }
+            menu.AddSeparator("");
 
-                case EventType.MouseUp:
-                    if (GUIUtility.hotControl == controlId)
-                    {
-                        GUIUtility.hotControl = 0;
-                        e.Use();
-                    }
-                    break;
+            // メッシュのパーツ操作。初回はここでメッシュを探す(テクスチャ単位でキャッシュ)。
+            var parts = maskView.MeshParts;
+            var found = parts?.Found;
+            if (parts != null && parts.HasMesh)
+            {
+                string mesh = parts.MeshNameAt(uv.x, uv.y);
+                if (mesh == null)
+                {
+                    menu.AddDisabledItem(new GUIContent(Localization.CtxPartNoIsland));
+                }
+                else
+                {
+                    menu.AddItem(new GUIContent(string.Format(Localization.CtxPartExcludeFormat, mesh)), false,
+                                 () => AddMeshPart(parts, uv, MeshPartController.Region.Island, exclude));
+                    if (zoneId != null)
+                        menu.AddItem(new GUIContent(string.Format(Localization.CtxPartIncludeFormat, mesh)), false,
+                                     () => AddMeshPart(parts, uv, MeshPartController.Region.Island, include));
+                    else
+                        menu.AddDisabledItem(new GUIContent(
+                            string.Format(Localization.CtxPartIncludeFormat, mesh) + Localization.CtxIncludeNeedsZone));
+                    if (found.found.Count > 1)
+                        menu.AddItem(new GUIContent(string.Format(Localization.CtxPartOnlyThisMeshFormat, mesh)), false,
+                                     () => AddMeshPart(parts, uv, MeshPartController.Region.OtherMeshes, exclude));
+                }
+            }
+            else if (found != null && found.unreadable > 0)
+            {
+                menu.AddDisabledItem(new GUIContent(string.Format(Localization.CtxPartUnreadableFormat, found.unreadable)));
+            }
+            else
+            {
+                menu.AddDisabledItem(new GUIContent(Localization.CtxPartNoMesh));
+            }
 
-                case EventType.ContextClick:
-                    // 右クリックは MouseDown で受け済みなので、ここは menu 抑止のためだけに
-                    // 消費する。逆に MouseDown を伴わず ContextClick だけが来る環境
-                    // (mac の Control+クリック)では、これが唯一の受け口になる。
-                    if (isInRect)
-                    {
-                        if (!_aiSuggestRightPressHandled)
-                        {
-                            RequestAiSuggestAt(ctl, e.mousePosition, previewRect);
-                            _host.RequestRepaint();
-                        }
-                        _aiSuggestRightPressHandled = false;
-                        e.Use();
-                    }
-                    break;
+            // メッシュの指定・探し直し(自動で見つからないとき・違うメッシュを拾ったとき)。
+            var sel = Selection.activeObject;
+            bool selUsable = sel is GameObject;
+            if (selUsable)
+                menu.AddItem(new GUIContent(string.Format(Localization.CtxPartUseSelectionFormat, sel.name)), false,
+                             () => UseSelectedMesh(parts, sel));
+            else
+                menu.AddDisabledItem(new GUIContent(Localization.CtxPartUseSelectionNone));
+            menu.AddItem(new GUIContent(Localization.CtxPartResearch), false, () =>
+            {
+                parts?.Research();
+                _host.ShowNotification(new GUIContent(parts != null && parts.HasMesh
+                    ? string.Format(Localization.NotifyMeshFoundFormat, parts.Found.found.Count)
+                    : Localization.NotifyMeshNotFound));
+            });
 
-                case EventType.Layout:
-                    // クリックを待たず、AI モードでいる間にソース画像の解析を先行させる。
-                    // 初回はモデルのロードと推論カーネルのコンパイルで時間がかかるため、
-                    // クリック後に始めると押しても無反応な時間が生まれる(同一ソースなら no-op)。
-                    // EnsureTrueSource はテクスチャが変わったときだけ読み直す(通常はキャッシュ)。
-                    if (EnsureTrueSource(_host.SourceTexture) && _trueSourceW > 0)
-                        ctl.PrepareSource(_trueSourcePixels, _trueSourceW, _trueSourceH,
-                                          TrueSourceCacheKey());
-                    break;
+            menu.ShowAsContext();
+        }
+
+        // 追加先の切り替え(共通 / 各ゾーン)。パレットの対象プルダウンと同じ activeMaskTarget を書き換える。
+        private void AddTargetSwitchItems(GenericMenu menu, MaskPaintView maskView)
+        {
+            var zones = _host.Session?.zones;
+            string root = Localization.CtxChangeTarget + "/";
+            menu.AddItem(new GUIContent(root + Localization.MaskTargetCommon), maskView.activeMaskTarget < 0, () =>
+            {
+                maskView.activeMaskTarget = -1;
+                maskView.maskDirty = true;
+                _host.RequestRepaint();
+            });
+            if (zones == null) return;
+            for (int i = 0; i < zones.Count; i++)
+            {
+                int index = i;
+                string name = string.IsNullOrEmpty(zones[i]?.name) ? Localization.UnnamedZone : zones[i].name;
+                // 同名ゾーンがあってもメニュー項目が潰れないよう番号を付ける
+                menu.AddItem(new GUIContent(root + (i + 1) + ". " + name), maskView.activeMaskTarget == i, () =>
+                {
+                    maskView.activeMaskTarget = index;
+                    maskView.maskDirty = true;
+                    _host.RequestRepaint();
+                });
             }
         }
 
-        // 画面座標を UV(下原点)へ直して提案を要求する。MouseDown / ContextClick の
-        // 2 経路から呼ばれるため切り出してある。
-        private void RequestAiSuggestAt(MaskSuggestController ctl, Vector2 screenPos, Rect previewRect)
+        // AI 提案の要求。エクスポートと同一の実フル解像度ソースで推論する(プレビュー縮小の影響を受けない)。
+        private void RequestAiSuggest(MaskSuggestController ctl, Vector2 uv, MaskPaintView.MaskDestination dest)
         {
-            var uv = PreviewCoords.ScreenToUv(screenPos, previewRect);
-            // エクスポートと同一の実フル解像度ソースで推論する(プレビュー縮小の影響を受けない)
             if (_trueSourcePixels == null)
                 EnsureTrueSource(_host.SourceTexture);
-            if (_trueSourcePixels != null && _trueSourceW > 0)
-                ctl.OnPreviewClick(uv.x, uv.y, _trueSourcePixels, _trueSourceW, _trueSourceH,
-                                   TrueSourceCacheKey());
+            if (_trueSourcePixels == null || _trueSourceW <= 0) return;
+            if (!ctl.RequestProposal(uv.x, uv.y, dest, _trueSourcePixels, _trueSourceW, _trueSourceH,
+                                     TrueSourceCacheKey()))
+                _host.ShowNotification(new GUIContent(Localization.NotifyAiNotStarted));
+            _host.RequestRepaint();
+        }
+
+        // メッシュの島(またはクリックしたメッシュ以外)を宛先のマスクへ足す。1 回の Undo で戻る。
+        private void AddMeshPart(MeshPartController parts, Vector2 uv, MeshPartController.Region kind,
+                                 MaskPaintView.MaskDestination dest)
+        {
+            var maskView = _host._maskView;
+            var region = parts.RegionAt(uv.x, uv.y, kind);
+            int added = region == null ? -1 : maskView.AddRegionToMask(region, dest);
+            _host.ShowNotification(new GUIContent(
+                added > 0 ? string.Format(Localization.NotifyMaskAddedFormat, maskView.DestinationName(dest))
+                : added == 0 ? Localization.NotifyMaskAlreadyCovered
+                : Localization.NotifyMaskNotAdded));
+        }
+
+        private void UseSelectedMesh(MeshPartController parts, Object obj)
+        {
+            bool ok = parts != null && parts.UseObject(obj);
+            _host.ShowNotification(new GUIContent(ok
+                ? string.Format(Localization.NotifyMeshFoundFormat, parts.Found.found.Count)
+                : string.Format(Localization.NotifyMeshNotUsableFormat, obj != null ? obj.name : "")));
         }
 
         // 埋め込みキャッシュのキー。テクスチャの中身が変わったら別キーになるよう

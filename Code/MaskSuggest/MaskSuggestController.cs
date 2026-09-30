@@ -8,15 +8,15 @@ namespace Iroca
     /// <summary>
     /// AI マスク提案の入力→反映を仲介するコントローラ。
     ///
-    /// UX は「クリック 1 回 = 1 反映」に一本化している:
-    ///   プレビューでパーツを右クリック → SAM が領域を推定 → その領域を即、編集対象のマスク
-    ///   (除外 or 含める。MaskPaintView の「マスクの種類」に従う)へ追加する(= 1 つの Undo
-    ///   ストローク)。積み上げ・確定ボタンは無く、間違えたら Ctrl+Z で 1 手ずつ戻す
-    ///   (手描きブラシと同じ操作感)。複数の島に分かれたパーツは、島を順に右クリックすれば
-    ///   それぞれが別ストロークとしてマスクへ足される。
+    /// UX は「メニューで選ぶ 1 回 = 1 反映」:
+    ///   プレビューを右クリック → メニューの「AI 提案: この領域を除外 / 含める」→ SAM が領域を推定 →
+    ///   その領域を即、選んだ時点の宛先マスク(対象ゾーン × 除外/含める)へ追加する(= 1 つの Undo
+    ///   ストローク)。積み上げ・確定ボタンは無く、間違えたら Ctrl+Z で 1 手ずつ戻す。
+    ///   複数の島に分かれたパーツは、島ごとに右クリックすればそれぞれ別ストロークで足される。
     ///
-    /// 受け口を右ボタンにしているのは、左ドラッグのパンを AI モード中も残すため
-    /// (入力の横取りは PreviewView.HandleAiSuggestInput 側)。
+    /// 2026-09-30 まではマスク編集パレットの「AI 提案」ツール(モード)を ON にして右クリックする
+    /// 方式だった。よく使う操作がパレットの奥に隠れるので、モードを廃して右クリックメニューへ移した
+    /// (メニューは PreviewView.ShowPreviewContextMenu)。
     ///
     /// サービス(Sentis 側)とは MaskSuggestBridge 経由で結合し、Sentis 不在時はインスタンスも
     /// 作られない(MaskSuggestSection 参照)。
@@ -47,8 +47,8 @@ namespace Iroca
         // (取消後に届いた提案は宛先だけ消費して捨てる)。
         System.Action<MaskSuggestProposal> _evidenceCallback;
 
-        /// <summary>AI 提案モードが有効か(プレビュークリックを提案に使う)。</summary>
-        public bool Active { get; private set; }
+        // _pendingClicks と同期して保つ宛先(メニューで選んだ時点の対象ゾーン × 除外/含める)。
+        readonly List<MaskPaintView.MaskDestination> _pendingDestinations = new List<MaskPaintView.MaskDestination>();
 
         /// <summary>反映待ちクリックの UV(古い順・先頭が処理中)。プレビューの待機マーカー用。</summary>
         public IReadOnlyList<Vector2> PendingClicks => _pendingClicks;
@@ -106,35 +106,29 @@ namespace Iroca
         {
             Unsubscribe();
             OnSourceChangedOrClosing();
-            Active = false;
         }
 
-        public void SetActive(bool active)
+        /// <summary>
+        /// 処理待ちの提案を取り消す(Esc)。進行中の 1 件はサービス側が完走後に捨てる。
+        /// 戻り値 true = 取り消すものがあった。
+        /// </summary>
+        public bool CancelPending()
         {
-            if (Active == active) return;
-            Active = active;
-            if (active)
-            {
-                var svc = MaskSuggestBridge.Service;
-                // エラー表示のまま入り直したときは、ここが唯一の再試行導線になる
-                // (自動再試行は原因が直らないまま毎レイアウト走るので入れない)。
-                if (svc != null && svc.Phase == MaskSuggestPhase.Error) svc.CancelAll();
-                svc?.TryEnsureModels();
-            }
-            else
-            {
-                // モードを抜けたら処理待ちクリックは破棄する(進行中の 1 件はサービス側が
-                // 完走後に捨てる)。残すと再入時に古いクリックが突然反映されて見える。
-                MaskSuggestBridge.Service?.FlushPendingClicks();
-                _pendingClicks.Clear();
-                _pendingClickTimes.Clear();
-                _owners.Clear();
-                FailEvidence();
-                LastClickFloodWarning = false;
-                LastCommitEmpty = false;
-                LastProposalEmpty = false;
-            }
+            if (_pendingClicks.Count == 0) return false;
+            MaskSuggestBridge.Service?.FlushPendingClicks();
+            ClearQueues();
             _host?.RequestRepaint();
+            return true;
+        }
+
+        // サービスのキューと対になっている手元の列を丸ごと空にする(Flush/CancelAll/Error と同じ箇所で呼ぶ)。
+        void ClearQueues()
+        {
+            _pendingClicks.Clear();
+            _pendingClickTimes.Clear();
+            _pendingDestinations.Clear();
+            _owners.Clear();
+            FailEvidence();
         }
 
         /// <summary>
@@ -148,7 +142,7 @@ namespace Iroca
         public void PrepareSource(Color32[] pixelsBottomUp, int width, int height, string sourceKey)
         {
             var svc = MaskSuggestBridge.Service;
-            if (svc == null || !Active) return;
+            if (svc == null) return;
             // 待機中だけ先行させる。モデルのロードは同期で重いのでレイアウト中には開始せず
             // (それは AI 提案を開始したときの仕事)、エラー中も再試行しない(原因が直らない
             // まま毎レイアウト走ってエディタが重くなる。復帰は AI 提案の入り直し)。
@@ -157,24 +151,29 @@ namespace Iroca
         }
 
         /// <summary>
-        /// プレビュークリック。pixels は実フル解像度ソース(下原点)。
-        /// 推論は非同期で、結果は <see cref="OnServiceStateChanged"/> がマスクへ直接反映する。
-        /// 推論中のクリックも FIFO で受理され順に反映される(受理された分だけマーカーを積む)。
+        /// 右クリックメニューからの提案要求。pixels は実フル解像度ソース(下原点)。
+        /// 推論は非同期で、結果は <see cref="OnServiceStateChanged"/> が dest のマスクへ直接反映する。
+        /// 推論中の要求も FIFO で受理され順に反映される(受理された分だけマーカーを積む)。
+        /// 戻り値 false = 受理できなかった(モデルのロード失敗など)。
         /// </summary>
-        public void OnPreviewClick(float u, float v, Color32[] pixelsBottomUp,
-                                   int width, int height, string sourceKey)
+        public bool RequestProposal(float u, float v, MaskPaintView.MaskDestination dest,
+                                    Color32[] pixelsBottomUp, int width, int height, string sourceKey)
         {
             var svc = MaskSuggestBridge.Service;
-            if (svc == null || !Active) return;
-            if (!svc.TryEnsureModels()) return;
+            if (svc == null) return false;
+            // エラー表示のまま選び直したときは、ここが再試行の導線になる
+            // (自動再試行は原因が直らないまま走り続けるので入れない)。
+            if (svc.Phase == MaskSuggestPhase.Error) svc.CancelAll();
+            if (!svc.TryEnsureModels()) return false;
 
             svc.SetSource(sourceKey, pixelsBottomUp, width, height);
-            if (svc.RequestProposal(u, v, Granularity))
-            {
-                _pendingClicks.Add(new Vector2(u, v));
-                _pendingClickTimes.Add(MaskSuggestPerf.Now);
-                _owners.Add(ProposalOwner.Mask);
-            }
+            if (!svc.RequestProposal(u, v, Granularity)) return false;
+            _pendingClicks.Add(new Vector2(u, v));
+            _pendingClickTimes.Add(MaskSuggestPerf.Now);
+            _pendingDestinations.Add(dest);
+            _owners.Add(ProposalOwner.Mask);
+            _host?.RequestRepaint();
+            return true;
         }
 
         void OnServiceStateChanged()
@@ -217,30 +216,32 @@ namespace Iroca
                         clickAt = _pendingClickTimes[0];
                         _pendingClickTimes.RemoveAt(0);
                     }
-                    // モード解除後に完了した提案はマスクへ反映しない。
-                    if (Active && proposal != null)
-                        CommitProposalToMask(proposal, clickAt);
+                    // 宛先が無い(取り消し後に届いた)提案はマスクへ反映しない。
+                    if (_pendingDestinations.Count > 0)
+                    {
+                        var dest = _pendingDestinations[0];
+                        _pendingDestinations.RemoveAt(0);
+                        if (proposal != null) CommitProposalToMask(proposal, dest, clickAt);
+                    }
                 }
             }
             else if (svc.Phase == MaskSuggestPhase.Error)
             {
-                // Error では処理待ちがサービス側で破棄される(復帰は AI モード入り直し)。
+                // Error では処理待ちがサービス側で破棄される(復帰はメニューから選び直す)。
                 // マーカーだけ残ると「処理中」に見え続けるため同期して消す。
-                _pendingClicks.Clear();
-                _pendingClickTimes.Clear();
-                _owners.Clear();
-                FailEvidence();
+                ClearQueues();
             }
             _host.RequestRepaint();
         }
 
         /// <summary>
-        /// 提案領域を編集対象のマスク(共通 or ゾーン × 除外 or 含める)へ OR 合成し、
-        /// 1 つの Undo ストロークとして反映する。除外レイヤーなら「色替えしない範囲」へ、
-        /// 含めるレイヤーなら「必ず色替えする範囲」へ加える(GetActiveMaskArray が振り分ける)。
+        /// 提案領域を宛先のマスク(共通 or ゾーン × 除外 or 含める)へ OR 合成し、
+        /// 1 つの Undo ストロークとして反映する。除外なら「色替えしない範囲」へ、
+        /// 含めるなら「必ず色替えする範囲」へ加える(MaskPaintView.GetMaskArray が振り分ける)。
         /// 反映後は通常のマスクとしてブラシ修正・Ctrl+Z(1 ストローク扱い)が効く。
         /// </summary>
-        void CommitProposalToMask(MaskSuggestProposal proposal, long clickStartedAt = 0)
+        void CommitProposalToMask(MaskSuggestProposal proposal, MaskPaintView.MaskDestination dest,
+                                  long clickStartedAt = 0)
         {
             // 反映できなかったときは黙って戻らず「空だった」と UI に出す。画面上は
             // どのルートも「クリックしたのに何も起きない」に見えてしまうため。
@@ -252,7 +253,7 @@ namespace Iroca
             if (src == null || sw <= 0 || sh <= 0) return;
 
             _maskView.EnsureMasks();
-            var mask = _maskView.GetActiveMaskArray();
+            var mask = _maskView.GetMaskArray(dest);
             int mw = _maskView.maskWidth, mh = _maskView.maskHeight;
             if (mask == null || mw <= 0 || mh <= 0) return;
 
@@ -367,12 +368,9 @@ namespace Iroca
         {
             if (_pendingClicks.Count > 0)
             {
-                MaskSuggestBridge.Service?.FlushPendingClicks();
-                _pendingClicks.Clear();
-                _pendingClickTimes.Clear();
                 // Flush はサービスのキューを丸ごと捨てる(証拠要求が並んでいても同じ)。
-                _owners.Clear();
-                FailEvidence();
+                MaskSuggestBridge.Service?.FlushPendingClicks();
+                ClearQueues();
             }
             LastClickFloodWarning = false;
             LastCommitEmpty = false;
@@ -383,10 +381,7 @@ namespace Iroca
         public void OnSourceChangedOrClosing()
         {
             MaskSuggestBridge.Service?.CancelAll();
-            _pendingClicks.Clear();
-            _pendingClickTimes.Clear();
-            _owners.Clear();
-            FailEvidence();
+            ClearQueues();
             LastClickFloodWarning = false;
             LastCommitEmpty = false;
             LastProposalEmpty = false;
@@ -399,7 +394,7 @@ namespace Iroca
         /// (モデルロード済み・このソースの埋め込み計算済み・待機中)ときだけ受理する(Started)。
         /// 準備中なら Busy(埋め込み計算は SetSource で始まるので、呼び出し側は待って再要求する)。
         /// 結果は onResult(提案。取消・破棄時は null)で 1 回だけ返す。同時に 1 件まで。
-        /// AI 提案モード(右クリック)とは独立で、モードの ON/OFF を問わず使える。
+        /// 右クリックメニューからの提案とは独立に使える(同じサービスを FIFO で共有する)。
         /// pixels/sourceKey はプレビューの AI 提案と同じ true source を渡すこと
         /// (別キーだとソース切替扱いになり、進行中の提案が破棄される)。
         /// </summary>

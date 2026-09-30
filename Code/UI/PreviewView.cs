@@ -113,11 +113,6 @@ namespace Iroca
         // Ctrl+スクロールズームで未消化のスクロール量。ZoomScrollStepThreshold を
         // 超えたぶんだけストップを進め、端数は次イベントへ繰り越す（感度を下げるため）。
         [System.NonSerialized] private float _zoomScrollAccum;
-        // AI 提案の右クリックを MouseDown で処理済みか。Windows/Linux は右ボタンの
-        // MouseDown の後に ContextClick も届くため、これが無いと 1 回の右クリックで
-        // 2 回提案してしまう。ContextClick 単独で来る経路(mac の Control+クリック)は
-        // このフラグが false のままなので、そちらでは提案として受ける。
-        [System.NonSerialized] private bool _aiSuggestRightPressHandled;
         // プレビュー用 ScrollView の実測ビューポート幅。詳細クロップの可視範囲算出に使う。
         // テクスチャ実寸基準ではカラム/ウィンドウ幅と食い違うため、毎フレーム実測する。
         [System.NonSerialized] private float _viewportWidth;
@@ -812,21 +807,14 @@ namespace Iroca
             bool seedPickArmed = !string.IsNullOrEmpty(_host.SeedPickZoneId)
                                  && !maskView.maskPaintActive && !eyedropperArmed;
 
-            // AI マスク提案モード(ブラシペイントと排他・スポイトは one-shot なので優先)。
-            // メインのマスク foldout の開閉には連動させない(ブラシの「閉じても塗れる」と
-            // 同じ方針)。ツールの ON/OFF と終了導線はマスク編集ウィンドウ側にあり、foldout に
-            // 連動させると、欄を畳んだだけで「AI 提案が選ばれているのに右クリックが効かない」
-            // 状態が黙って生まれる(モードの解除はウィンドウを閉じる操作が担う)。
-            bool aiSuggestArmed = !maskView.maskPaintActive && maskView.AiSuggestArmed;
-
             // スポイト武装中はプレビュークリックを横取りして実画素からサンプル取得に充てる
             // （シード設定・パンより優先。取得すると one-shot で自動解除）。
             if (eyedropperArmed)
                 HandleEyedropperInput(activePreviewRect, srcW, srcH);
 
             // 連続領域モードのシード入力。ゾーンカードの「指定」で武装しているときは素のクリックを、
-            // それ以外は従来どおり Shift+クリックを受ける。マスクペイント中・スポイト中・AI 提案中は無効。
-            if (!maskView.maskPaintActive && !eyedropperArmed && (seedPickArmed || !aiSuggestArmed))
+            // それ以外は従来どおり Shift+クリックを受ける。マスクペイント中・スポイト中は無効。
+            if (!maskView.maskPaintActive && !eyedropperArmed)
                 HandleFloodFillSeedInput(activePreviewRect, seedPickArmed);
 
             // ブラシ操作 UI は MaskBrushWindow パレットに分離されたため、メインの
@@ -835,13 +823,12 @@ namespace Iroca
             {
                 HandlePreviewPaintInput(activePreviewRect);
             }
-            else if (aiSuggestArmed && !eyedropperArmed && !seedPickArmed)
-            {
-                // AI 提案は右クリックで受けるので、左ドラッグのパンと同居できる。
-                // (以前は AI 提案が左クリックを取り、AI モード中はプレビューを
-                //  動かせなかった。推論を待つ間に次の対象へ寄る操作ができない。)
-                HandleAiSuggestInput(activePreviewRect, srcW, srcH);
-            }
+
+            // 右クリックメニュー(AI 提案・メッシュのパーツ操作)。どのモードでも左ボタンしか使わないので、
+            // ブラシ中でも開ける。スポイト・シード指定は one-shot の左クリック待ちなので、その間は出さない
+            // (待ちの最中に別の操作が割り込むと、どちらが効いたのか分からなくなる)。
+            if (!eyedropperArmed && !seedPickArmed)
+                HandlePreviewContextMenu(activePreviewRect);
 
             // パンはズーム>1 に限らず「画像がビューポートに収まっていない」とき常に許可する。
             // 動的高さ調整により等倍(100%)以下でも縦がはみ出すことがあり、そのとき
@@ -909,14 +896,17 @@ namespace Iroca
             // ★実際にクリックを取る側の優先順位をそのまま写す★（PreviewView.Draw 末尾の
             // 横取り順）。ここだけ別の順に書くと、表示と実際に効くモードが食い違い、
             // 「表示どおりに操作したのに違うことが起きる」という最悪の食い違いになる。
-            //   ブラシ中は シード指定・AI 提案 が止まる（maskPaintActive のガード）
-            //   スポイト中は シード指定・AI 提案 が止まる
-            //   シード指定中は AI 提案 が止まる
+            //   ブラシ中は シード指定 が止まる（maskPaintActive のガード。右クリックメニューは開ける）
+            //   スポイト中は シード指定・右クリックメニュー が止まる
+            //   シード指定中は 右クリックメニュー が止まる
+            //   AI 提案はモードではなく、推論待ちの間だけ状態として出す
             bool paintActive = maskView != null && maskView.maskPaintActive;
             bool eyedropper = !paintActive && !string.IsNullOrEmpty(_host.EyedropperZoneId);
             bool seed = !paintActive && !eyedropper && !string.IsNullOrEmpty(_host.SeedPickZoneId);
+            // AI 提案はモードを持たないので、推論待ちがある間だけ状態として出す。
+            var aiCtl = maskView != null ? maskView.SuggestControllerIfCreated : null;
             bool ai = !paintActive && !eyedropper && !seed
-                      && maskView != null && maskView.AiSuggestArmed;
+                      && aiCtl != null && aiCtl.PendingClicks.Count > 0;
 
             string mode = null;
             if (eyedropper)
