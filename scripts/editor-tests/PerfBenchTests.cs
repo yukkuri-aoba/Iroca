@@ -64,12 +64,14 @@ namespace Iroca.EditorTests
                 {
                     string src = _assets.WriteBytes(c.name + ".png", File.ReadAllBytes(c.png));
                     string zones = File.ReadAllText(c.zones);
-                    string outPath = _assets.Folder + "/" + c.name + "_out.png";
                     foreach (int threads in cfg.threads)
                     {
                         DebugCaptureHooks.ParallelismOverride = threads;
                         for (int k = 0; k < Math.Max(2, cfg.repeats); k++)
                         {
+                            // 出力は呼び出しごとに別名にする。同じファイルへ続けて書くと、直前の書き出しの
+                            // 取り込みがファイルを掴んでいて置き換え(File.Replace)が IOException になる。
+                            string outPath = $"{_assets.Folder}/{c.name}_t{threads}_{k}_out.png";
                             last = null;
                             string json = IrocaAutomation.RecolorWithZones(src, zones, outPath);
                             var result = JsonUtility.FromJson<IrocaAutomation.RecolorResult>(json);
