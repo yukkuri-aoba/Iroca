@@ -3,6 +3,9 @@
     "rootNamespace": "Iroca.EditorTests",
     "references": [
         "com.yukkuri-aoba.iroca.Editor",
+        "com.yukkuri-aoba.iroca.Runtime",
+        "nadena.dev.ndmf",
+        "nadena.dev.ndmf.runtime",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],
@@ -19,6 +22,12 @@
     "defineConstraints": [
         "UNITY_INCLUDE_TESTS"
     ],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "nadena.dev.ndmf",
+            "expression": "[1.8.0,2.0.0)",
+            "define": "IROCA_NDMF_PRESENT"
+        }
+    ],
     "noEngineReferences": false
 }

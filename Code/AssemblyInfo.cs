@@ -8,5 +8,7 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("com.yukkuri-aoba.iroca.Editor.Debug")]
 // AI マスク提案の Sentis 統合 asmdef(com.unity.sentis 導入時のみコンパイル)にも公開する。
 [assembly: InternalsVisibleTo("Iroca.SentisIntegration")]
+// NDMF 連携 asmdef(nadena.dev.ndmf 導入時のみコンパイル)。非破壊ビルドの本体を呼ぶ。
+[assembly: InternalsVisibleTo("Iroca.NdmfIntegration")]
 // EditMode テスト（リポジトリの scripts/editor-tests。配布物には含まれない）。
 [assembly: InternalsVisibleTo("Iroca.EditorTests")]

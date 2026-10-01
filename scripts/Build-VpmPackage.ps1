@@ -115,8 +115,10 @@ try {
     # 手元の一時ファイルがそのまま配布物に入る。zip の内容がこの 1 台の作業ツリーに
     # 依存し、クリーン clone から同一 zip を再生成できない（＝listing の SHA256 を
     # 誰も再検証できない）。追跡ファイルだけを対象にして commit と 1:1 にする。
-    # .meta を同梱しないのは .gitignore の方針どおり。asmdef の参照は全て名前ベースで
-    # パッケージ内に GUID 参照される資産も無いため、Unity 側の再生成で問題ない。
+    # .meta は .gitignore の方針どおり原則同梱しない(asmdef の参照は全て名前ベースで、Unity 側の再生成で困らない)。
+    # 例外は Code/Runtime/*.meta: シーン・prefab・アセットが GUID で参照する IrocaRecolor / IrocaRecipe の
+    # スクリプトで、GUID が変わると利用者のアバターが Missing Script になるため追跡して固定している。
+    # 追跡ファイルだけを集めるので、ここで特別扱いしなくても zip に入る。
     function Get-TrackedFiles([string[]]$Paths) {
         $out = & git -c core.quotepath=false ls-files -- $Paths
         if ($LASTEXITCODE -ne 0) { throw "git ls-files に失敗しました: $($Paths -join ', ')" }

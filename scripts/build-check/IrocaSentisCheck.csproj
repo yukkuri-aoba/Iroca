@@ -52,7 +52,7 @@
   <!-- Debug / McpIntegration は IrocaEditor.csproj と同じ理由で除外。SentisIntegration は含める。 -->
   <ItemGroup>
     <Compile Include="..\..\Code\**\*.cs"
-             Exclude="..\..\Code\Debug\**\*.cs;..\..\Code\McpIntegration\**\*.cs" />
+             Exclude="..\..\Code\Debug\**\*.cs;..\..\Code\McpIntegration\**\*.cs;..\..\Code\NdmfIntegration\**\*.cs" />
   </ItemGroup>
 
   <!-- UnityEngine.dll / UnityEditor.dll は型フォワードだけの facade。Sentis の公開 API は

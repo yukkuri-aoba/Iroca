@@ -1,6 +1,7 @@
 {
   "vpmRepositories": [
-    "https://yukkuri-aoba.github.io/Iroca/index.json"
+    "https://yukkuri-aoba.github.io/Iroca/index.json",
+    "https://vpm.nadena.dev/vpm.json"
   ],
   "vpmDependencies": {
     "com.yukkuri-aoba.iroca": ">=0.2.0"

@@ -1,12 +1,10 @@
 {
-    "name": "com.yukkuri-aoba.iroca.Editor",
+    "name": "com.yukkuri-aoba.iroca.Runtime",
     "rootNamespace": "Iroca",
     "references": [
-        "com.yukkuri-aoba.iroca.Runtime"
+        "nadena.dev.ndmf.runtime"
     ],
-    "includePlatforms": [
-        "Editor"
-    ],
+    "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,

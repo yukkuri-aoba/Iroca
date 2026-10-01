@@ -135,6 +135,19 @@ namespace Iroca
         }
 
         /// <summary>
+        /// レシピから読んだ編集状態(<c>_session.maskState</c> にマスクが入っている)を作業用バッファへ展開する。
+        /// MaskCache(UserSettings)は読まない(レシピが正。次の保存で MaskCache も同じ内容に揃う)。
+        /// </summary>
+        public void RestoreFromRecipeState()
+        {
+            if (MaskTexturePath() == null) return;
+            _suggestController?.OnSourceChangedOrClosing();
+            _maskLoadFailed = false;
+            SyncBuffersFromState();
+            maskDirty = true;
+        }
+
+        /// <summary>
         /// 旧 SessionState 形式（Phase 6 以前）のマスクデータを MaskCache ファイルへ移行する。
         /// 一度移行が完了したら SessionState 側のキーは消去する。
         /// 戻り値: マイグレーションによりバッファが復元できたら true。

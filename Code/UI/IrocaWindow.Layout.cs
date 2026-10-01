@@ -573,23 +573,7 @@ namespace Iroca
                 // 高さを恒常的に奪っていた。絵はプレビューで見えるのでここでは名前だけで足りる。
                 GUILayout.Height(EditorGUIUtility.singleLineHeight));
             if (newTex != sourceTexture)
-            {
-                // マスク保存失敗時はユーザーに通知（黙って消えないように）。
-                if (!SavePersistedSessionForCurrentTexture())
-                    ShowNotification(new GUIContent($"{Localization.Error}: {Localization.MaskSaveFailed}"));
-                // _session をまるごと差し替えるため、深い Undo (RegisterCompleteObjectUndo) を使う。
-                Undo.RegisterCompleteObjectUndo(this, "Change Source Texture");
-                sourceTexture = newTex;
-                _previewView.InvalidateSourceCache();
-                _maskView.ClearBuffersOnTextureChange();
-                if (sourceTexture != null)
-                {
-                    var path = AssetDatabase.GetAssetPath(sourceTexture);
-                    _exportView.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(path));
-                }
-                LoadPersistedSessionForCurrentTexture();
-                RememberLastEditedTexture();
-            }
+                SwitchSourceTexture(newTex);
 
             // Read/Write を求めるのは、原本ファイルからも画素を取れないときだけ（PSD/TGA 等）。
             // PNG/JPG は原本を直接読めるので、インポート設定を書き換える必要はない。
