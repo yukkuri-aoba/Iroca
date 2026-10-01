@@ -263,7 +263,8 @@ namespace Iroca
             // ゾーンは Clone してから BG へ渡す(プレビュー系と同じ防御コピー)。かんたんモードの
             // 自動調整はエクスポート中も裏で走るため、生参照だと apply や Undo でゾーンが変異し
             // 一部ゾーンだけ新旧混在の出力になり得る。Clone は値等価コピーで出力ビット不変。
-            var sorted = session.zones.Where(z => z.enabled).Select(z => z.Clone()).ToList();
+            // 非破壊ビルド(SessionRecolor.Apply)と同じ選び方を通す。
+            var sorted = SessionRecolor.EnabledZoneCopies(session.zones);
             var maskSnap = (sorted.Count > 0) ? _host.BuildMaskSnapshot() : null;
 
             // 計算に必要な値を全てローカル変数に退避（Task.Run の中から session を直接触らない）

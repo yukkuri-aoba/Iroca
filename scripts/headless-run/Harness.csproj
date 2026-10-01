@@ -72,6 +72,10 @@
     <Compile Include="..\..\Code\MaskSuggest\Ops\*.cs" />
     <Compile Include="..\..\Code\Core\MaskRle.cs" />
     <Compile Include="..\..\Code\Core\UvChartMap.cs" />
+    <!-- 保存済みマスク → 処理用スナップショット、保存済み編集状態 → 再着色(非破壊ビルドの入口)。
+         viastate モードで raw マスク経路とのバイト一致を検証する。 -->
+    <Compile Include="..\..\Code\Core\MaskStateCodec.cs" />
+    <Compile Include="..\..\Code\Core\SessionRecolor.cs" />
     <Compile Include="Harness.cs" />
   </ItemGroup>
 

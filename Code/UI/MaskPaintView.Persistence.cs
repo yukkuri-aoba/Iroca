@@ -67,35 +67,8 @@ namespace Iroca
             var session = _host.Session;
             if (session == null) return;
             var ms = session.maskState ?? (session.maskState = new MaskState());
-            ms.width = maskWidth;
-            ms.height = maskHeight;
-
-            ms.commonMaskBase64 = (exclusionMask != null && AnyTrue(exclusionMask))
-                ? EncodeMask(exclusionMask, maskWidth, maskHeight)
-                : "";
-
-            ms.zones.Clear();
-            foreach (var kv in zoneMasks)
-            {
-                if (string.IsNullOrEmpty(kv.Key) || kv.Value == null || !AnyTrue(kv.Value)) continue;
-                ms.zones.Add(new MaskZoneEntry
-                {
-                    zoneId = kv.Key,
-                    maskBase64 = EncodeMask(kv.Value, maskWidth, maskHeight),
-                });
-            }
-
-            if (ms.zoneIncludes == null) ms.zoneIncludes = new List<MaskZoneEntry>();
-            ms.zoneIncludes.Clear();
-            foreach (var kv in zoneIncludeMasks)
-            {
-                if (string.IsNullOrEmpty(kv.Key) || kv.Value == null || !AnyTrue(kv.Value)) continue;
-                ms.zoneIncludes.Add(new MaskZoneEntry
-                {
-                    zoneId = kv.Key,
-                    maskBase64 = EncodeMask(kv.Value, maskWidth, maskHeight),
-                });
-            }
+            // 書き込み規則(全 false は書かない)は Core の MaskStateCodec が唯一の正。
+            MaskStateCodec.Encode(ms, maskWidth, maskHeight, exclusionMask, zoneMasks, zoneIncludeMasks);
         }
 
         /// <summary>
@@ -111,39 +84,14 @@ namespace Iroca
             zoneMasks.Clear();
             zoneIncludeMasks.Clear();
 
-            if (ms.width <= 0 || ms.height <= 0) return;
-            maskWidth = ms.width;
-            maskHeight = ms.height;
-
-            if (!string.IsNullOrEmpty(ms.commonMaskBase64))
-            {
-                var arr = DecodeMask(ms.commonMaskBase64, out int w, out int h);
-                if (arr != null && w == maskWidth && h == maskHeight)
-                    exclusionMask = arr;
-            }
-
-            if (ms.zones != null)
-            {
-                foreach (var entry in ms.zones)
-                {
-                    if (entry == null || string.IsNullOrEmpty(entry.zoneId)) continue;
-                    var arr = DecodeMask(entry.maskBase64, out int w, out int h);
-                    if (arr != null && w == maskWidth && h == maskHeight)
-                        zoneMasks[entry.zoneId] = arr;
-                }
-            }
-
-            // 含めるマスク(v2)。旧 JSON では欠落フィールド=空リストなので単に何も入らない。
-            if (ms.zoneIncludes != null)
-            {
-                foreach (var entry in ms.zoneIncludes)
-                {
-                    if (entry == null || string.IsNullOrEmpty(entry.zoneId)) continue;
-                    var arr = DecodeMask(entry.maskBase64, out int w, out int h);
-                    if (arr != null && w == maskWidth && h == maskHeight)
-                        zoneIncludeMasks[entry.zoneId] = arr;
-                }
-            }
+            // 展開規則(寸法不一致・壊れた項目は捨てる)は Core の MaskStateCodec が唯一の正。
+            // 寸法が無効なら maskWidth/maskHeight は前の値のまま(従来どおり)。
+            if (!MaskStateCodec.Decode(ms, out int w, out int h, out bool[] common,
+                    zoneMasks, zoneIncludeMasks))
+                return;
+            maskWidth = w;
+            maskHeight = h;
+            exclusionMask = common;
         }
 
         /// <summary>

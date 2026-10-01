@@ -345,7 +345,7 @@ namespace Iroca
                 switch (args[i])
                 {
                     case "--zones": case "--stage": i++; break;   // 値を 1 つ消費
-                    case "--autotune": case "--ffcheck": case "--selcache": break;
+                    case "--autotune": case "--ffcheck": case "--selcache": case "--viastate": break;
                     default:
                         // 後方互換の位置引数(sample/target/tolerance の数値 7 個)だけ許す。
                         if (i <= 9 && args.Length >= 10 && double.TryParse(
@@ -380,6 +380,16 @@ namespace Iroca
             if (stage != null && stage != "proxy" && stage != "full-display")
             {
                 Console.Error.WriteLine($"unknown --stage: {stage} (proxy|full-display)");
+                return 2;
+            }
+
+            // --viastate: 非破壊ビルドと同じ入口(SessionRecolor.Apply)で処理する。ゾーン・設定・マスクを
+            // 保存形式(IrocaSessionState + MaskState の RLE)へ詰め直してから流すので、raw マスク経路との
+            // バイト一致で「保存形式を経由しても出力が変わらない」ことを検査できる。出力はフル解像度のみ。
+            bool viaState = System.Array.IndexOf(args, "--viastate") >= 0;
+            if (viaState && stage != null)
+            {
+                Console.Error.WriteLine("--viastate と --stage は併用できません");
                 return 2;
             }
 
@@ -553,10 +563,51 @@ namespace Iroca
                     foreach (var ph in rep.Phases)
                         Console.Error.WriteLine($"PHASE {ph.Name} {ph.TotalMs:F2}");
             };
-            ProcessZones(pixels, w, h, masks, zoneList, st);
+            if (viaState)
+            {
+                var sw = Stopwatch.StartNew();
+                SessionRecolor.Apply(pixels, w, h, BuildSessionState(zoneList, st, masks));
+                sw.Stop();
+                Console.Error.WriteLine($"PROCESS_MS {sw.Elapsed.TotalMilliseconds:F2}");
+            }
+            else
+            {
+                ProcessZones(pixels, w, h, masks, zoneList, st);
+            }
             WriteRawRgba(outPath, w, h, pixels);
             Console.WriteLine($"OK {w}x{h} -> {outPath} (zones={zoneList.Count})");
             return 0;
+        }
+
+        /// <summary>
+        /// --viastate 用: ハーネスの入力(ゾーン・設定・raw 由来のマスク)を、編集画面が保存する形
+        /// (<see cref="IrocaSessionState"/>。マスクは <see cref="MaskStateCodec.Encode"/> で RLE 化)へ詰め直す。
+        /// </summary>
+        private static IrocaSessionState BuildSessionState(
+            List<ColorZone> zones, SettingsCfg st, MaskSnapshot masks)
+        {
+            var state = new IrocaSessionState { zones = zones };
+            st.ToRecolorSettings().CopyTo(state);
+            int n = masks.width * masks.height;
+            MaskStateCodec.Encode(state.maskState, masks.width, masks.height,
+                UnpackMask(masks.common, n), UnpackMasks(masks.zones, n), UnpackMasks(masks.zoneIncludes, n));
+            return state;
+        }
+
+        private static bool[] UnpackMask(ulong[] packed, int n)
+        {
+            if (packed == null) return null;
+            var arr = new bool[n];
+            for (int i = 0; i < n; i++) arr[i] = MaskSnapshot.GetBit(packed, i);
+            return arr;
+        }
+
+        private static Dictionary<string, bool[]> UnpackMasks(Dictionary<string, ulong[]> packed, int n)
+        {
+            if (packed == null) return null;
+            var dict = new Dictionary<string, bool[]>();
+            foreach (var kv in packed) dict[kv.Key] = UnpackMask(kv.Value, n);
+            return dict;
         }
 
         // ─── 単発実行・--batch・--session が共有する処理本体 ───
