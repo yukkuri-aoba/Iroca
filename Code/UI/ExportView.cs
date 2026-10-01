@@ -112,6 +112,22 @@ namespace Iroca
             }
             EditorGUILayout.EndHorizontal();
 
+            // 非破壊(NDMF): 元のテクスチャを書き換えず、アバターのビルド時にだけ差し替える。
+            EditorGUILayout.Space(4);
+#if !IROCA_NDMF_PRESENT
+            EditorGUILayout.HelpBox(Localization.NdmfMissing, MessageType.Warning);
+#endif
+            if (GUILayout.Button(new GUIContent(Localization.RegisterNonDestructive, Localization.RegisterNonDestructiveTooltip)))
+                _host.RegisterToAvatar();
+            var bound = _host.BoundRecipe;
+            if (bound != null)
+            {
+                // 表示だけ(差し替えは「いろかで開く」で行う。ここでドロップされても結び付けない)。
+                using (new EditorGUI.DisabledScope(true))
+                    EditorGUILayout.ObjectField(new GUIContent(Localization.BoundRecipe, Localization.BoundRecipeTooltip),
+                        bound, typeof(IrocaRecipe), false);
+            }
+
             // 直近のエラー（消えない表示）。
             if (!string.IsNullOrEmpty(_lastError))
             {

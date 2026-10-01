@@ -198,6 +198,9 @@ namespace Iroca
             // 二重購読を避けるため一度外してから登録する（PreviewJobMainThread.Install と同じ防御）。
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
             Undo.undoRedoPerformed += OnUndoRedoPerformed;
+            // 非破壊ビルドの直前に、編集中の内容を結び付いたレシピへ書き出す。
+            NonDestructiveApplier.BeforeApply -= FlushToBoundRecipe;
+            NonDestructiveApplier.BeforeApply += FlushToBoundRecipe;
 
             // AI(Sentis + 配布モデル)の準備は、ウィンドウ上部の非モーダルな帯で案内する
             // (MaskSuggestSection.DrawSetupBanner)。以前はここで delayCall からモーダルを
@@ -210,6 +213,7 @@ namespace Iroca
         private void OnDisable()
         {
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
+            NonDestructiveApplier.BeforeApply -= FlushToBoundRecipe;
             // 証拠待ちの自動調整は EditorApplication.update に張っているので、ドメインリロード・
             // ウィンドウ無効化で残さない（届いた提案はコントローラが捨てる）。
             CancelEvidenceWait();
@@ -366,6 +370,8 @@ namespace Iroca
             string path = CurrentTexturePath(sourceTexture);
             if (path != null && _session != null)
                 SessionFileStore.SaveSession(path, _session, _sessionLoadFailed);
+            // 非破壊のレシピが結び付いていればそちらにも書く(SaveToSession でマスクは state へ同期済み)。
+            SaveSessionToBoundRecipe();
             return maskOk;
         }
 
@@ -376,9 +382,12 @@ namespace Iroca
         /// </summary>
         private void LoadPersistedSessionForCurrentTexture()
         {
+            _sessionLoadFailed = false;
+            // 非破壊のレシピがあればそれが正(マスクも含めてレシピから読む)。
+            if (TryLoadSessionFromRecipe()) return;
+
             string path = CurrentTexturePath(sourceTexture);
             IrocaSessionState loaded = null;
-            _sessionLoadFailed = false;
             if (path != null)
             {
                 loaded = SessionFileStore.LoadSession(path, out bool unreadable);

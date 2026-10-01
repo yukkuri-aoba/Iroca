@@ -1,0 +1,88 @@
+<!--
+  NDMF 連携（Code/NdmfIntegration/）と、NDMF があるときだけ有効になる Runtime 側
+  （IrocaRecolor の INDMFEditorOnly）まで含めた型チェック。
+
+  IrocaEditor.csproj は nadena.dev.ndmf の型を解決できないため Code/NdmfIntegration/ を
+  除外している。こちらは NDMF（と VRChat SDK）が入った Unity プロジェクトの
+  Library/ScriptAssemblies と Packages から DLL を借りてコンパイルする。
+
+    dotnet build scripts/build-check/IrocaNdmfCheck.csproj
+
+  NDMF を導入した Unity プロジェクトが手元にある環境でだけ動く（CI では走らせない）。
+  別のプロジェクトを使う場合はプロジェクトのルートを渡す:
+
+    dotnet build scripts/build-check/IrocaNdmfCheck.csproj -p:NdmfHostProject="D:\path\to\Project"
+    # または
+    $env:IROCA_NDMF_HOST = "D:\path\to\Project"
+
+  制約: asmdef 境界（本体 / Runtime / Iroca.NdmfIntegration）は再現せず 1 アセンブリとして
+  コンパイルする。internal の見え方など境界の確認は Unity 側のコンパイルが最終確認になる。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>IrocaNdmfCheck</AssemblyName>
+    <RootNamespace>Iroca</RootNamespace>
+    <OutputType>Library</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>0414;0649;CS0219;CS0169</NoWarn>
+    <!-- 利用者の Unity は nullable 文脈なしでコンパイルするので CS8632 が Console に出る。CI で止める -->
+    <WarningsAsErrors>CS8632</WarningsAsErrors>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- IrocaEditor.csproj と出力を混ぜない（bin/ は .gitignore 済み） -->
+    <BaseOutputPath>bin\ndmf\</BaseOutputPath>
+    <!-- Runtime と Iroca.NdmfIntegration の asmdef が持つ define。これが無いと中身が丸ごと消える。 -->
+    <DefineConstants>$(DefineConstants);IROCA_NDMF_PRESENT</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <UnityVersion Condition="'$(UnityVersion)' == ''">2022.3.22f1</UnityVersion>
+    <UnityEditorPath Condition="'$(UnityEditorPath)' == '' and '$(UNITY_EDITOR_PATH)' != ''">$(UNITY_EDITOR_PATH)</UnityEditorPath>
+    <UnityEditorPath Condition="'$(UnityEditorPath)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityEditorPath>
+    <NdmfHostProject Condition="'$(NdmfHostProject)' == '' and '$(IROCA_NDMF_HOST)' != ''">$(IROCA_NDMF_HOST)</NdmfHostProject>
+    <NdmfHostProject Condition="'$(NdmfHostProject)' == ''">$(MSBuildThisFileDirectory)..\..\..\Avatar_Projects\Iroca_Dev</NdmfHostProject>
+    <NdmfAssembliesPath>$(NdmfHostProject)\Library\ScriptAssemblies</NdmfAssembliesPath>
+  </PropertyGroup>
+
+  <!-- Debug / McpIntegration / SentisIntegration は IrocaEditor.csproj と同じ理由で除外。NdmfIntegration は含める。 -->
+  <ItemGroup>
+    <Compile Include="..\..\Code\**\*.cs"
+             Exclude="..\..\Code\Debug\**\*.cs;..\..\Code\McpIntegration\**\*.cs;..\..\Code\SentisIntegration\**\*.cs" />
+  </ItemGroup>
+
+  <!-- NDMF の公開 API は UnityEngine.CoreModule の型を直接露出するので、facade ではなくモジュール実体を参照する
+       (Managed\UnityEngine\ には UnityEditor.*Module.dll も入っている。UnityEditor.dll を足すと型が二重定義になる)。 -->
+  <ItemGroup>
+    <Reference Include="$(UnityEditorPath)\UnityEngine\*.dll">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="nadena.dev.ndmf">
+      <HintPath>$(NdmfAssembliesPath)\nadena.dev.ndmf.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="nadena.dev.ndmf.runtime">
+      <HintPath>$(NdmfAssembliesPath)\nadena.dev.ndmf.runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- VRChat SDK があるホストでは INDMFEditorOnly が VRC の IEditorOnly を継ぐので、その定義も要る。 -->
+    <Reference Include="VRCSDKBase" Condition="Exists('$(NdmfHostProject)\Packages\com.vrchat.base\Runtime\VRCSDK\Plugins\VRCSDKBase.dll')">
+      <HintPath>$(NdmfHostProject)\Packages\com.vrchat.base\Runtime\VRCSDK\Plugins\VRCSDKBase.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="CheckNdmfPath" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(UnityEditorPath)\UnityEngine\UnityEngine.CoreModule.dll')"
+           Text="UnityEngine のモジュール DLL が見つかりません: $(UnityEditorPath)\UnityEngine\&#xA;`-p:UnityVersion=` か `-p:UnityEditorPath=` で正しいパスを指定してください。" />
+    <Error Condition="!Exists('$(NdmfAssembliesPath)\nadena.dev.ndmf.dll')"
+           Text="nadena.dev.ndmf.dll が見つかりません: $(NdmfAssembliesPath)&#xA;NDMF を導入した Unity プロジェクトを一度開いてから、`-p:NdmfHostProject=` か環境変数 IROCA_NDMF_HOST でそのルートを指定してください。" />
+  </Target>
+
+</Project>

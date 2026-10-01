@@ -11,6 +11,9 @@ UserSettings/
 # .meta はリポジトリでは追跡しない(ローカルパッケージ参照したホスト Unity が生成する。
 # 配布物の .meta は unitypackage エクスポート側で付与される)
 *.meta
+# 例外: シーン・prefab・アセットから GUID で参照される Runtime のスクリプト(IrocaRecolor/IrocaRecipe)は
+# GUID を固定して配布する。Unity に再生成させると、パッケージ更新のたびに Missing Script になる
+!Code/Runtime/*.meta
 
 # IDE
 .vscode/
@@ -67,6 +70,7 @@ docs/unity-mcp-automation.md
 !scripts/build-check/IrocaEditor.csproj
 !scripts/build-check/IrocaEditor.Debug.csproj
 !scripts/build-check/IrocaSentisCheck.csproj
+!scripts/build-check/IrocaNdmfCheck.csproj
 scripts/build-check/bin/
 scripts/build-check/obj/
 

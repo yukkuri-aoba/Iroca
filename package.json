@@ -18,6 +18,9 @@
     "editor"
   ],
   "dependencies": {},
+  "vpmDependencies": {
+    "nadena.dev.ndmf": ">=1.8.0 <2.0.0"
+  },
   "url": "https://github.com/yukkuri-aoba/Iroca/releases/download/v0.2.0/com.yukkuri-aoba.iroca-0.2.0.zip",
   "changelogUrl": "https://github.com/yukkuri-aoba/Iroca/blob/main/CHANGELOG.md",
   "documentationUrl": "https://github.com/yukkuri-aoba/Iroca/blob/main/README.md",

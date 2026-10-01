@@ -1064,5 +1064,66 @@ namespace Iroca
 
         // 新規ゾーンの既定名。同名が並ぶとマスク編集ウィンドウの「編集対象」で区別できない。
         public static string NewZoneNameFormat => IsJapanese ? "ゾーン {0}" : "Zone {0}";
+
+        // ─────────────────────────────────────────────────────────────
+        // 非破壊(NDMF)
+        // ─────────────────────────────────────────────────────────────
+        public static string RegisterNonDestructive => IsJapanese ? "アバターに非破壊で登録" : "Register to avatar (non-destructive)";
+        public static string RegisterNonDestructiveTooltip => IsJapanese
+            ? "元のテクスチャとマテリアルを書き換えずに色替えします。Hierarchy で選んだ衣装やアバター(未選択なら、このテクスチャを使っている所の共通の親)に「Iroca Recolor」を付け、再生・アップロード時だけ色替え済みのテクスチャへ差し替えます。外せば元に戻ります。NDMF が必要です。"
+            : "Recolor without changing the original texture or materials. Adds \"Iroca Recolor\" to the outfit or avatar selected in the Hierarchy (or, if nothing is selected, the common parent of the objects using this texture), and swaps in the recolored texture only when entering Play mode or uploading. Remove it to go back. Requires NDMF.";
+        public static string RegisterNoTarget => IsJapanese
+            ? "登録先が決まりません。Hierarchy で衣装かアバターを選んでから押してください(このテクスチャを使っているオブジェクトがシーンに無いか、複数のアバターにまたがっています)。"
+            : "Could not decide where to register. Select the outfit or avatar in the Hierarchy and try again (no object in the scene uses this texture, or several avatars do).";
+        public static string RegisterNoZones => IsJapanese
+            ? "有効なゾーンがありません。色替えするゾーンを作ってから登録してください。"
+            : "There is no enabled zone. Create a zone to recolor before registering.";
+        public static string RegisterNotInScene => IsJapanese
+            ? "選んでいるのはシーン上のオブジェクトではありません。Hierarchy で選び直してください。"
+            : "The selection is not an object in the scene. Select one in the Hierarchy.";
+        public static string RegisterConfirmFormat => IsJapanese
+            ? "「{0}」とその子のマテリアルのうち「{1}」を使っている所を、再生・アップロード時に色替えします。元のテクスチャとマテリアルは変わりません。\n\nレシピ: {2}"
+            : "Materials under \"{0}\" that use \"{1}\" will be recolored when entering Play mode or uploading. The original texture and materials are not changed.\n\nRecipe: {2}";
+        public static string RegisterRecipeNew => IsJapanese ? "{0}(新しく作ります)" : "{0} (new)";
+        public static string RegisterDoneFormat => IsJapanese ? "「{0}」に登録しました" : "Registered to \"{0}\"";
+        public static string RegisterOk => IsJapanese ? "登録" : "Register";
+        public static string NdmfMissing => IsJapanese
+            ? "NDMF(Non-Destructive Modular Framework)が入っていないので、非破壊の色替えは動きません。VCC / ALCOM で NDMF を追加してください。"
+            : "NDMF (Non-Destructive Modular Framework) is not installed, so non-destructive recoloring will not run. Add NDMF with VCC / ALCOM.";
+        public static string BoundRecipe => IsJapanese ? "保存先のレシピ" : "Recipe";
+        public static string BoundRecipeTooltip => IsJapanese
+            ? "このテクスチャの編集内容は、このレシピにも保存されます(アバターの「Iroca Recolor」がビルド時に使う内容)。"
+            : "Edits to this texture are also saved to this recipe (what \"Iroca Recolor\" on the avatar uses at build time).";
+        public static string OpenInIroca => IsJapanese ? "いろかで開く" : "Open in Iroca";
+        public static string OpenInIrocaTooltip => IsJapanese
+            ? "このレシピをいろかウィンドウで開いて編集します。編集内容はこのレシピに保存されます。"
+            : "Open this recipe in the Iroca window to edit it. Edits are saved to this recipe.";
+        public static string RecolorInspectorHelp => IsJapanese
+            ? "このオブジェクトとその子のマテリアルのうち、レシピの元テクスチャを使っている所を、再生・アップロード時だけ色替えします。元のアセットは変わりません。"
+            : "Materials on this object and its children that use the recipe's source texture are recolored only when entering Play mode or uploading. The original assets are not changed.";
+        public static string RecolorNoRecipe => IsJapanese
+            ? "レシピが設定されていません。いろかウィンドウの「アバターに非破壊で登録」で作れます。"
+            : "No recipe is set. Create one with \"Register to avatar (non-destructive)\" in the Iroca window.";
+        public static string RecolorNoSource => IsJapanese
+            ? "レシピに元テクスチャが設定されていません。"
+            : "The recipe has no source texture.";
+        public static string RecolorUnreadable => IsJapanese
+            ? "レシピの中身を読めません(空か、壊れているか、新しい版のいろかで作られています)。"
+            : "Cannot read the recipe (empty, broken, or made with a newer version of Iroca).";
+        public static string RecolorNotUsedFormat => IsJapanese
+            ? "この範囲に「{0}」を使っているマテリアルがありません。コンポーネントを衣装やアバターの親に置いてください。"
+            : "No material in this scope uses \"{0}\". Place the component on the outfit or avatar root.";
+        public static string RecolorScopeFormat => IsJapanese
+            ? "対象のマテリアル: {0} 個(Renderer {1} 個)"
+            : "Target materials: {0} ({1} renderers)";
+        public static string RecipeInspectorZonesFormat => IsJapanese ? "ゾーン: {0} 個(有効 {1} 個)" : "Zones: {0} ({1} enabled)";
+        public static string RecipeField => IsJapanese ? "レシピ" : "Recipe";
+        public static string RecipeFieldTooltip => IsJapanese
+            ? "色替えの内容(元テクスチャ・色・マスク)。いろかウィンドウの「アバターに非破壊で登録」で作られます。"
+            : "What to recolor (source texture, colors, masks). Created by \"Register to avatar (non-destructive)\" in the Iroca window.";
+        public static string RecipeSourceField => IsJapanese ? "元テクスチャ" : "Source Texture";
+        public static string RecipeSourceFieldTooltip => IsJapanese
+            ? "色替えの元になるテクスチャ。マテリアルがこのテクスチャを参照している所だけが差し替わります。"
+            : "The texture to recolor. Only materials that reference this texture are swapped.";
     }
 }
