@@ -41,6 +41,53 @@ namespace Iroca
             return packed;
         }
 
+        /// <summary>
+        /// 作業用の bool[] マスク一式からスナップショットを組み立てる。編集画面(MaskPaintView)と、
+        /// 保存済みマスクから作り直す経路(<see cref="MaskStateCodec.ToSnapshot"/>)が同じ規則を
+        /// 通るよう、組み立てはここにだけ書く。
+        /// 全 false の含めるマスクは載せない。載せると処理側が空の includedPx 展開(全画素ループ)を
+        /// 毎回行い、選択キャッシュキーも「含めるなし」と別になってしまう(出力は同じなのにミスが増える)。
+        /// </summary>
+        public static MaskSnapshot FromBuffers(int width, int height, bool[] common,
+            IEnumerable<KeyValuePair<string, bool[]>> zones,
+            IEnumerable<KeyValuePair<string, bool[]>> includes)
+        {
+            var snap = new MaskSnapshot
+            {
+                width = width,
+                height = height,
+                zones = new Dictionary<string, ulong[]>()
+            };
+            snap.common = Pack(common);   // Pack(null) は null
+            if (zones != null)
+            {
+                foreach (var kv in zones)
+                {
+                    if (kv.Value == null) continue;
+                    snap.zones[kv.Key] = Pack(kv.Value);
+                }
+            }
+            if (includes != null)
+            {
+                foreach (var kv in includes)
+                {
+                    if (kv.Value == null || !AnyTrue(kv.Value)) continue;
+                    if (snap.zoneIncludes == null)
+                        snap.zoneIncludes = new Dictionary<string, ulong[]>();
+                    snap.zoneIncludes[kv.Key] = Pack(kv.Value);
+                }
+            }
+            return snap;
+        }
+
+        /// <summary>true の画素が 1 つでもあるか(null は false)。</summary>
+        public static bool AnyTrue(bool[] mask)
+        {
+            if (mask == null) return false;
+            for (int i = 0; i < mask.Length; i++) if (mask[i]) return true;
+            return false;
+        }
+
         /// <summary>パック済みマスクの idx 番目ビットを読む(null・範囲外は false)。</summary>
         public static bool GetBit(ulong[] packed, int idx)
         {

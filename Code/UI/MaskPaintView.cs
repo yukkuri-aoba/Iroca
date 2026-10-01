@@ -1155,32 +1155,10 @@ namespace Iroca
             // bool[] を 1bit/画素の ulong[] にパックする(従来の deep clone は 4K で 16.7MB/枚、
             // プレビュー再生成・ペイントのたびに発生し GC を圧迫していた)。パックは clone と同じ
             // O(N) だがアロケーションが 1/8 になる。作業用マスク(exclusionMask/zoneMasks)は bool[] のまま。
-            var snap = new MaskSnapshot
-            {
-                width = maskWidth,
-                height = maskHeight,
-                zones = new Dictionary<string, ulong[]>()
-            };
-            snap.common = MaskSnapshot.Pack(exclusionMask);   // Pack(null) は null
-            foreach (var kv in zoneMasks)
-            {
-                if (kv.Value == null) continue;
-                snap.zones[kv.Key] = MaskSnapshot.Pack(kv.Value);
-            }
-            if (zoneIncludeMasks.Count > 0)
-            {
-                foreach (var kv in zoneIncludeMasks)
-                {
-                    // 全 false の含めるマスクはスナップショットに載せない。載せると処理側が
-                    // 空の includedPx 展開(全画素ループ)を毎回行い、選択キャッシュキーも
-                    // 「含めるなし」と別になってしまう(出力は同じなのにミスが増える)。
-                    if (kv.Value == null || !AnyTrue(kv.Value)) continue;
-                    if (snap.zoneIncludes == null)
-                        snap.zoneIncludes = new Dictionary<string, ulong[]>();
-                    snap.zoneIncludes[kv.Key] = MaskSnapshot.Pack(kv.Value);
-                }
-            }
-            return snap;
+            // 組み立て規則は Core の MaskSnapshot.FromBuffers が唯一の正(保存済みマスクから
+            // 作り直す非破壊ビルドと同じ規則を通す)。
+            return MaskSnapshot.FromBuffers(maskWidth, maskHeight,
+                exclusionMask, zoneMasks, zoneIncludeMasks);
         }
 
         /// <summary>
