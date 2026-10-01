@@ -557,12 +557,7 @@ namespace Iroca
             // stdout の "OK" を汚さない。Python 側が "PROCESS_MS " 行を拾って前後比較に使う。
             // フェーズ別内訳(HSV/Match/FloodFill/...)も stderr へ。--ffcheck の余分な実行を
             // 拾わないよう、本計測の直前で購読する(全ゾーン合算の 1 レポートだけが出る)。
-            DebugCaptureHooks.OnPerfReport += rep =>
-            {
-                if (rep.Phases != null)
-                    foreach (var ph in rep.Phases)
-                        Console.Error.WriteLine($"PHASE {ph.Name} {ph.TotalMs:F2}");
-            };
+            DebugCaptureHooks.OnPerfReport += WritePerfPhases;
             if (viaState)
             {
                 var sw = Stopwatch.StartNew();
@@ -577,6 +572,18 @@ namespace Iroca
             WriteRawRgba(outPath, w, h, pixels);
             Console.WriteLine($"OK {w}x{h} -> {outPath} (zones={zoneList.Count})");
             return 0;
+        }
+
+        // PerfReport のフェーズ別(PHASE)とサブ段(SUBPHASE)の内訳を stderr へ出す。
+        // 1 回の ProcessPixelsArray につき 1 組で、その呼び出しの PROCESS_MS 行より前に出る。
+        private static void WritePerfPhases(PerfReport rep)
+        {
+            if (rep.Phases != null)
+                foreach (var ph in rep.Phases)
+                    Console.Error.WriteLine($"PHASE {ph.Name} {ph.TotalMs:F2}");
+            if (rep.SubPhases != null)
+                foreach (var ph in rep.SubPhases)
+                    Console.Error.WriteLine($"SUBPHASE {ph.Name} {ph.TotalMs:F2}");
         }
 
         /// <summary>
@@ -758,6 +765,9 @@ namespace Iroca
                 basePixels[i] = new Color32(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2], rgba[i * 4 + 3]);
 
             var selCache = new SelectionCache();
+            // 手ごとの内訳(PHASE/SUBPHASE)を出す。2 手目以降は JIT・初回確保を含まない暖機後の
+            // 値になるので、性能計測(dev_safe/scripts/perf_bench.py)はこの経路を使う。
+            DebugCaptureHooks.OnPerfReport += WritePerfPhases;
             var ids = new Dictionary<string, string>();
             int step = 0;
             foreach (var s in cfg.steps)

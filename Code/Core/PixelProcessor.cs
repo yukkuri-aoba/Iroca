@@ -48,6 +48,23 @@ namespace Iroca
             "HSV", "Match", "Highlight", "FloodFill", "HoleFill",
             "BoundaryRecover", "Blur", "Decontaminate", "RegionStats", "Recolor",
         };
+        // フェーズの内訳(サブ段)。ゾーンループ内の主要な呼び出しごとに区切る(区切り間の時間を
+        // 次の区切りに計上する。SubPhaseClock 参照)。キャッシュ命中で省いた段は 0 のまま。計測専用。
+        private const int SpAlloc = 0, SpMatchLoop = 1, SpChromaCeiling = 2, SpEnclosedNeutral = 3,
+            SpHlPropagate = 4, SpHlBand = 5, SpHlEnclosed = 6, SpFfComponents = 7, SpFfKeepBits = 8,
+            SpPostBBox = 9, SpHoleFillGate = 10, SpHoleFill = 11, SpBoundary = 12, SpBlurReapply = 13,
+            SpSelCacheStore = 14, SpRejectNeutral = 15, SpSolidify = 16, SpDecontamExcl = 17,
+            SpDecontam = 18, SpWashSample = 19, SpAnchor = 20, SpRegionLRange = 21, SpMedianLMap = 22,
+            SpRecolorBBox = 23, SpRecolorLoop = 24, SpAchromaFringe = 25, SubPhaseCount = 26;
+        private static readonly string[] s_perfSubPhaseNames =
+        {
+            "Alloc", "MatchLoop", "ChromaCeiling", "EnclosedNeutral",
+            "HlPropagate", "HlBand", "HlEnclosed", "FfComponents", "FfKeepBits",
+            "PostBBox", "HoleFillGate", "HoleFill", "Boundary", "BlurReapply",
+            "SelCacheStore", "RejectNeutral", "Solidify", "DecontamExcl",
+            "Decontam", "WashSample", "Anchor", "RegionLRange", "MedianLMap",
+            "RecolorBBox", "RecolorLoop", "AchromaFringe",
+        };
 
         // packed mask の内容ハッシュ(FNV-1a 64bit)。マスク編集を選択キーに反映するため。
         private static ulong MaskHash(ulong[] m)
@@ -194,6 +211,7 @@ namespace Iroca
             var _perfZones = new ZonePerfEntry[sortedZones.Count];
             int _perfIdx = 0;
             var _phaseTicks = new long[PhaseCount];
+            var _sub = new SubPhaseClock(SubPhaseCount);
             long _tp = _t0;
 
             // 全ピクセルの HSV を zone ループに入る前に一括計算（zone 数に関わらず1回）
@@ -264,6 +282,7 @@ namespace Iroca
                 zone.UpdateCacheIfNeeded();
                 long _tZone = Stopwatch.GetTimestamp();
                 _tp = _tZone;
+                _sub.Restart();
 
                 // ArrayPool 借用は per-zone の try/finally で必ず返却する。
                 // Parallel.For は po.CancellationToken でキャンセル時に OperationCanceledException を投げる。
@@ -354,6 +373,7 @@ namespace Iroca
                         var strengthLocal = strength;
                         var highlightPotLocal = highlightPot;
                         var matchConfLocal = matchConf;
+                        _sub.Mark(SpAlloc);
                         Parallel.For(0, h, po, y =>
                         {
                             int yf = y + originY;
@@ -371,6 +391,7 @@ namespace Iroca
                                 if (matchConfLocal != null) matchConfLocal[i] = mc;
                             }
                         });
+                        _sub.Mark(SpMatchLoop);
                         // 彩度天井ゲート(グレーモード以外では内部で no-op): 無彩素材の彩度包絡を
                         // 超える独立した高彩度の別素材(クリーム布等)を選択から除去する。素材自身の
                         // 高彩度装飾は低彩度コア近接で保護される。ハイライト伝播・FF・穴埋めより前に
@@ -385,6 +406,7 @@ namespace Iroca
                             Color.RGBToHSV(zone.sampleColor, out _, out float cgSS, out float cgSV);
                             ApplyChromaCeilingGate(strength, matchConf, pixS, cgSS, cgSV,
                                 zone.chromaThreshold, zone.chromaCeiling, w, h, cancellationToken);
+                                _sub.Mark(SpChromaCeiling);
                             // 中性ツヤ復帰(グレーモード以外では内部で no-op): 彩度整合ゲートが純白
                             // パディングと一緒に落とした「素材自身の純白ツヤ」を、選択領域に囲まれた
                             // 閉領域という空間条件だけで戻す。連結性は大域演算なのでフル画像経路限定
@@ -394,6 +416,7 @@ namespace Iroca
                                     zone.sampleColor, zone.tolerance, cgSS, cgSV,
                                     zone.chromaThreshold, w, h, cancellationToken);
                         }
+                        _sub.Mark(SpEnclosedNeutral);
                         debug?.RecordStage(zone.id, DebugStages.Match, strength, w, h);
                     }
                     _phaseTicks[PhMatch] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
@@ -402,6 +425,7 @@ namespace Iroca
                     if (highlightPot != null)
                     {
                         PropagateHighlights(strength, highlightPot, w, h, cancellationToken);
+                        _sub.Mark(SpHlPropagate);
                         s_floatPool.Return(highlightPot);
                         highlightPot = null;
                         debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, strength, w, h);
@@ -412,6 +436,7 @@ namespace Iroca
                     if (!selCached && zone.highlightBandExpand && zone.highlightRecovery)
                     {
                         GrowHighlightBand(strength, originalPixels, pixH, pixS, pixV, zone, w, h, cancellationToken);
+                        _sub.Mark(SpHlBand);
                         debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, strength, w, h);
                     }
 
@@ -434,6 +459,7 @@ namespace Iroca
                                 ? new ulong[(len + 63) >> 6] : null;
                             int nForced = RecoverEnclosedHighlight(strength, originalPixels,
                                 pixH, pixS, pixV, zone, w, h, bits, cancellationToken);
+                            _sub.Mark(SpHlEnclosed);
                             if (nForced > 0)
                             {
                                 forcedBits = bits;
@@ -484,6 +510,7 @@ namespace Iroca
                             }
                             ApplyConnectedComponentMask(strength, matchConf, originalPixels, w, h, seedX, seedY,
                                 pixV, zone.shadowValueFloor, cancellationToken);
+                                _sub.Mark(SpFfComponents);
                             // フル画像で解いた keep(=残った画素 strength>0)を作り、詳細プレビュー(クロップ)へ
                             // 転写(parityCache)・次回の選択キャッシュ復元(keepBitsForCache)の両方に使う。
                             if (parityCache != null || selectionCache != null)
@@ -491,6 +518,7 @@ namespace Iroca
                                 var keepBits = new ulong[(len + 63) >> 6];
                                 for (int i = 0; i < len; i++)
                                     if (strength[i] > 0f) keepBits[i >> 6] |= 1UL << (i & 63);
+                                _sub.Mark(SpFfKeepBits);
                                 keepBitsForCache = keepBits;
                                 if (parityCache != null)
                                 {
@@ -528,6 +556,7 @@ namespace Iroca
                     int ppMinX, ppMinY, ppMaxX, ppMaxY;
                     bool hasPostBox = TryComputeStrengthBBox(strength, w, h, 0f,
                         out ppMinX, out ppMinY, out ppMaxX, out ppMaxY, cancellationToken);
+                        _sub.Mark(SpPostBBox);
                     if (hasPostBox)
                     {
                         ppMinX = Mathf.Max(0, ppMinX - ppMargin);
@@ -578,6 +607,7 @@ namespace Iroca
                                         zone.chromaCeiling) > 0f;
                                 }
                             });
+                            _sub.Mark(SpHoleFillGate);
                             FillSmallHoles(strength, w, h, holeFillPasses, holeFillMinNeighbors, fillAllowed,
                                 ppMinX, ppMinY, ppMaxX, ppMaxY, cancellationToken);
                         }
@@ -586,6 +616,7 @@ namespace Iroca
                             s_boolPool.Return(fillAllowed);
                         }
                     }
+                    _sub.Mark(SpHoleFill);
                     debug?.RecordStage(zone.id, DebugStages.HoleFill, strength, w, h);
                     _phaseTicks[PhHoleFill] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
@@ -599,6 +630,7 @@ namespace Iroca
                             ppMinX, ppMinY, ppMaxX, ppMaxY,
                             originalPixels, relaxedChromaConf, zone.chromaThreshold, zone.chromaCeiling,
                             cancellationToken);
+                        _sub.Mark(SpBoundary);
                         debug?.RecordStage(zone.id, DebugStages.BoundaryRecover, strength, w, h);
                     }
 
@@ -678,6 +710,7 @@ namespace Iroca
                     // RejectNeutral/SolidifyAchromaInterior/decontam は target 依存で strength を破壊的に
                     // 書き換える。ミス時のみ、この時点の strength(コピー)+ FF keep を選択キャッシュへ保存し、
                     // 次回「再着色のみ変更」した再生成で復元して選択フェーズを丸ごと省く(出力ビット不変)。
+                    _sub.Mark(SpBlurReapply);
                     if (!selCached && selectionCache != null && isFullImagePath)
                         selectionCache.Store(zone.id, selKey, strength, keepBitsForCache, forcedBits, w, h);
 
@@ -685,6 +718,7 @@ namespace Iroca
                     //     ピクセルを「α×FG + (1-α)×BG」と見て元テクスチャの合成を逆算し、
                     //     新色で再合成する。halo（薄汚れた中間色）を構造的に除去する。
                     // 無彩サンプル/極端無彩ターゲットの重み(無彩パスと AA フィデリティ修正で共用)。
+                    _sub.Mark(SpSelCacheStore);
                     float zAchromaWeight = ComputeAchromaWeight(zone.sampleColor, zone.targetColor);
                     // sample の S/V (wash ゲート・デバッグ分岐・下の中性リジェクトで共用)。
                     Color.RGBToHSV(zone.sampleColor, out _, out float zSS, out float zSV);
@@ -722,6 +756,7 @@ namespace Iroca
                         }
                     }
 
+                    _sub.Mark(SpRejectNeutral);
                     // 無彩パスの内部固め: 極端な無彩ターゲット(白↔黒)では、マッチ強度が色のばらつきで内部まで
                     // フルにならず、明るい画素ほど弱く塗られて元色が残り「中央の段差」になる。陰影は塗り
                     // 強度でなく recolor の achroma レンジリマップ(gain≤1)で表現すべきなので、マッチ領域の
@@ -730,6 +765,7 @@ namespace Iroca
                     if (zAchromaWeight > 1e-4f)
                         SolidifyAchromaInterior(strength, w, h, zAchromaWeight, cancellationToken);
 
+                    _sub.Mark(SpSolidify);
                     bool[] aaMask = null;
                     Color32[] decontaminatedPixels = null;
                     if (useDecontamination)
@@ -768,11 +804,13 @@ namespace Iroca
                         }
                         // 後段 bbox(ppMin/Max)を渡してデコンタミを実マッチ範囲に限定する。α 分解が
                         // 触るのは 0<strength<threshold の画素だけ=定義上この bbox 内なので出力ビット不変。
+                        _sub.Mark(SpDecontamExcl);
                         DecontaminateAaBoundary(originalPixels, strength, w, h,
                             zone.sampleColor, zone.targetColor,
                             decontaminationRadius, effInteriorThreshold,
                             aaMask, decontaminatedPixels, hasPostBox, cancellationToken,
                             deconExcluded, ppMinX, ppMinY, ppMaxX, ppMaxY);
+                        _sub.Mark(SpDecontam);
                         debug?.RecordDecontamination(zone.id, aaMask, w, h);
                     }
 
@@ -817,6 +855,7 @@ namespace Iroca
                         Color.RGBToHSV(zWash, out _, out _, out zWV);
                     }
 
+                    _sub.Mark(SpWashSample);
                     // OkLab 明度保持リカラーのゾーン定数を事前計算 (per-pixel コスト削減)。
                     // sample/target を OkLab に変換。彩度(a,b)は「大きさを |chroma|/sC で正規化し、
                     // 向きは target 色相(zTa,zTb)に均一化」する。旧版は source の色相を回転保持していたが、
@@ -866,6 +905,7 @@ namespace Iroca
                             zEffShadowDesat *= repV;
                         }
                     }
+                    _sub.Mark(SpAnchor);
                     float zOkMagScale = 0f, zOkGa = 0f, zOkGb = 0f;
                     if (zOkGray)
                     {
@@ -912,11 +952,13 @@ namespace Iroca
                             zHasRegL = TryComputeRegionLRange(originalPixels, strength, w,
                                 ppMinX, ppMinY, ppMaxX, ppMaxY,
                                 out zRegLlo, out zRegLhi, out zRegLmid, includedPx, cancellationToken);
+                                _sub.Mark(SpRegionLRange);
                             if (zHasRegL)
                                 zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, 0.05f, cancellationToken);
                         }
                     }
 
+                    _sub.Mark(SpMedianLMap);
                     // フル画像で確定した領域統計をキャッシュへ書き、詳細プレビュー(クロップ)へ転写する。
                     // flood fill の有無と独立に書く(アンカー/wash 転写は FF OFF でも必要)。zRegMidMap は
                     // フル画像 per-pixel(w==fullW)なのでそのまま保持し、クロップ側で該当領域を切り出す。
@@ -949,6 +991,7 @@ namespace Iroca
                     // 走査自体は共通の並列 bbox ヘルパへ寄せる(同条件の逐次コピーだった)。
                     TryComputeStrengthBBox(strengthForRecolor, w, h, 0.001f,
                         out int rcMinX, out int rcMinY, out int rcMaxX, out int rcMaxY, cancellationToken);
+                    _sub.Mark(SpRecolorBBox);
                     // ゾーン不変の再着色パラメータをループ前に 1 回だけ構築(in 渡しで per-pixel コピー回避)。
                     var rcParams = new RecolorParams(
                         zOkMagScale, zTa, zTb, zOkGray, zOkGa, zOkGb,
@@ -1009,6 +1052,7 @@ namespace Iroca
                             claimedLocal[i] = es >= 1f ? 1f : Mathf.Min(1f, claimedLocal[i] + es);
                         }
                     });
+                    _sub.Mark(SpRecolorLoop);
                     debug?.RecordStage(zone.id, DebugStages.Recolor, strength, w, h);
 
                     // 無彩(白↔黒)再着色のエッジに残る「地色の残り」フチ消し。マッチ境界の外側 2px に残る
@@ -1046,6 +1090,7 @@ namespace Iroca
                             cancellationToken, fringeExcluded);
                     }
 
+                    _sub.Mark(SpAchromaFringe);
                     _phaseTicks[PhRecolor] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
                     // Recolor 段で各ピクセルに適用されたサブブランチを記録する。
@@ -1115,7 +1160,8 @@ namespace Iroca
             for (int p = 0; p < PhaseCount; p++)
                 _perfPhases[p] = new PhasePerfEntry(s_perfPhaseNames[p], TicksToMs(_phaseTicks[p]));
             DebugCaptureHooks.RaisePerfReport(
-                new PerfReport(TicksToMs(Stopwatch.GetTimestamp() - _t0), w, h, _perfZones, _perfPhases));
+                new PerfReport(TicksToMs(Stopwatch.GetTimestamp() - _t0), w, h, _perfZones, _perfPhases,
+                    _sub.ToEntries(s_perfSubPhaseNames)));
         }
 
         // 集計対象が [from,to) の連続レンジ 1 本を処理するデリゲート。戻り値は集計した画素数。
