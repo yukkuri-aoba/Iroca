@@ -338,12 +338,19 @@ namespace Iroca
             // weight=0(有彩×有彩)では完全 no-op=バイト不変。
             if (achromaWeight > 1e-4f && hasRegL)
             {
-                // 形(立体感)維持: 領域中央値を target 側の控えめ offset(center)に置き、中央値からの
+                // 形(立体感)維持: 領域の地色基準を target の明度(center)に置き、基準からの
                 // 偏差を AchromaFormGain 倍して陰影を知覚可能な大きさへ拡張する。暗部は 0 へ、明部は
-                // center 近辺の暗灰に収め、白残り(段差)は clamp で防ぐ。単調・領域統計由来で特定座標
+                // center 近辺に収め、白残り(段差)は clamp で防ぐ。単調・領域統計由来で特定座標
                 // 非依存。元の微小陰影をそのまま写すと暗部/明部で知覚的に平坦化(ベタ黒/ベタ白)するため、
                 // 控えめに増幅する(知覚補償)。
-                float center = okTL < 0.5f ? AchromaFormOffset : (1f - AchromaFormOffset);
+                // center は target 明度そのもの。ただし黒/白に近い target では陰影を描く余白が無くなる
+                // (ベタ黒/ベタ白)ので、端から AchromaFormOffset だけ内側へ寄せる(黒=0.16, 白=0.84)。
+                // 以前は「tL<0.5 なら 0.16、以上なら 0.84」の二択で、有彩の中間明度 target でも地色が
+                // 黒寄り/白寄りの固定位置に置かれていた(白い布→青緑が黒に近い紺、濃い灰→赤が薄い
+                // サーモンピンク。tL 0.496 と 0.502 で仕上がりが反転する崖もあった)。target 明度に
+                // 連続で従わせることで、無彩の素材でも指定色どおりの明るさに仕上がる。黒/白 target
+                // (tL が端から Offset 以内)は従来と同値。
+                float center = Mathf.Clamp(okTL, AchromaFormOffset, 1f - AchromaFormOffset);
                 float rangeRemap = Mathf.Clamp(center + (oL - regLmid) * AchromaFormGain, 0f, 1f);
                 float nLAchroma = okTL * (1f - valueBlend) + rangeRemap * valueBlend;
                 nL = nL * (1f - achromaWeight) + nLAchroma * achromaWeight;

@@ -34,7 +34,7 @@ namespace Iroca
         // gain=1.5 では pointwise 線形が保たれるので陰影相関は不変(相関はスケール不変で gain に依らない)、
         // 陰影の P90 コントラストも維持したまま、局所分散比が約 1.4 倍まで下がり視認域を下回る。
         private const float AchromaFormGain = 1.5f;    // 基準からの偏差の増幅率(知覚補償。ノイズ増幅を抑えるため 2.5→1.5)
-        private const float AchromaFormOffset = 0.16f; // 地色基準を置く target 側 offset(黒=0+, 白=1-)
+        private const float AchromaFormOffset = 0.16f; // 地色基準(=target 明度)を端から離す余白(黒 target=0.16, 白 target=0.84)
         // 成分の地色基準に使う L パーセンタイル。中央値(0.5)だと、ゆるい/広いマスクで対象より暗い
         // 隣接色の縁が成分に混入したとき基準が下振れし、同じ素材のはずの模様が 1 つずつ違う明るさに
         // 仕上がる。高め(0.8)にすると暗い混入に頑健で「素材本来の地色レベル」に揃い、並んだ同型の
