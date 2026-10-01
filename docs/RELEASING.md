@@ -82,7 +82,7 @@ git checkout --theirs docs/index.json && git add docs/index.json && git commit
 .\scripts\Build-Installer.ps1   # → Iroca_Installer.unitypackage（Build-VpmPackage.ps1 からも呼ばれる）
 ```
 
-- 設定は `scripts/installer/vpai-config.json`（listing URL + `com.yukkuri-aoba.iroca: >=0.2.0`、コメント不可）。中身は設定と VPAI 本体 DLL だけで Iroca のコードを含まないため、**範囲指定を変えない限り出力は毎回同じ**（リリースごとに中身が変わるのは zip の方）。
+- 設定は `scripts/installer/vpai-config.json`（listing URL + `com.yukkuri-aoba.iroca: >=0.2.0`、コメント不可）。Iroca は非破壊の色替えのため NDMF（`nadena.dev.ndmf`）を VPM 依存に持つので、NDMF の listing（`https://vpm.nadena.dev/vpm.json`）も並べている（無いと依存を解決できない）。中身は設定と VPAI 本体 DLL だけで Iroca のコードを含まないため、**範囲指定を変えない限り出力は毎回同じ**（リリースごとに中身が変わるのは zip の方）。
 - creator はバージョンと SHA256 をスクリプト内で固定。同じ設定なら出力はバイト単位で同一。
 - **listing（GitHub Pages）が公開されていないと動かない。** 取得先は `https://yukkuri-aoba.github.io/Iroca/index.json`。利用者側はネット接続が必要。
 - インポートすると「Confirm」ダイアログに導入するパッケージと追加されるリポジトリが出て、**Install** で導入、Cancel で何もせずインストーラだけ消える。
