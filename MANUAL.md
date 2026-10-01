@@ -21,6 +21,7 @@
 - [AI マスク提案（実験的機能）](#ai-マスク提案実験的機能)
 - [プリセット](#プリセット)
 - [エクスポート](#エクスポート)
+- [非破壊で色替え（NDMF）](#非破壊で色替えndmf)
 - [トラブルシューティング](#トラブルシューティング)
 - [よくある質問](#よくある質問)
 
@@ -388,6 +389,39 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 ---
 
+### 非破壊で色替え（NDMF）
+
+元のテクスチャとマテリアルを書き換えずに色替えできます。アバターに「Iroca Recolor」コンポーネントを付けておくと、再生（Play）・アップロードのときだけ色替え済みのテクスチャに差し替わります。コンポーネントを外せば元に戻ります。
+
+#### 必要なもの
+
+- NDMF（Non-Destructive Modular Framework）1.8 以上。VCC / ALCOM でいろかを入れると一緒に入ります。Modular Avatar や Avatar Optimizer を使っているプロジェクトには、たいてい入っています。
+
+#### 使い方
+
+1. いつもどおりゾーンを作って色を決めます。
+2. Hierarchy で、色替えしたい衣装（またはアバター）を選びます。選ばなければ、そのテクスチャを使っているオブジェクトの共通の親に付きます。
+3. エクスポート欄の「アバターに非破壊で登録」を押し、確認画面で「登録」を押します。選んだオブジェクトに「Iroca Recolor」が付き、色替えの内容（レシピ）が `Assets/Iroca/Recipes` に保存されます。
+4. 再生すると色替え後の姿になります。アップロードも同じです。
+
+登録したあとも、いろかウィンドウで編集を続けられます。編集内容はレシピにも保存され、次の再生・アップロードに反映されます（エクスポート欄の「保存先のレシピ」に保存先が出ます）。同じテクスチャのレシピが複数あるときは、「Iroca Recolor」かレシピのインスペクタの「いろかで開く」で、編集するレシピを選びます。
+
+#### 色替えされる範囲
+
+- 「Iroca Recolor」を付けたオブジェクトとその子のうち、レシピの元テクスチャを使っているマテリアルだけが差し替わります。範囲の外で同じマテリアルを使っている所は元のままです。
+- 範囲が入れ子になっているときは、近い（深い）方のコンポーネントが優先されます。
+- 差し替え後のテクスチャは、元テクスチャのインポート設定（最大サイズ・圧縮形式・ミップマップ）に合わせます。PC と Android（Quest）で圧縮形式が違っても、それぞれに合わせます。
+- 「Iroca Recolor」のインスペクタに、対象になるマテリアルの数が出ます。0 個のときやレシピに問題があるときは警告が出ます。
+
+#### 注意
+
+- マテリアルを切り替えるアニメーション（衣装や表情の切り替えなど）で後から使われるマテリアルは、まだ色替えされません。
+- マテリアルが以前いろかで書き出した `_recolored.png` を指していると、元テクスチャが見つからず色替えされません。元のテクスチャに戻してから登録してください。
+- 最初の再生・アップロードは色替えの計算で数秒かかります。2 回目以降は `Library/Iroca` のキャッシュを使います。
+- 問題があると NDMF のエラー画面に「いろか: …」と出ます。元テクスチャが読めないなど、色替えできなかったときはアップロードが止まります（元の色のまま上がるのを防ぐため）。
+
+---
+
 ### トラブルシューティング
 
 #### 図形の周りに薄い色やドットが残る
@@ -471,6 +505,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 - [AI Mask Suggestion (Experimental)](#ai-mask-suggestion-experimental)
 - [Presets](#presets)
 - [Export](#export)
+- [Non-destructive recoloring (NDMF)](#non-destructive-recoloring-ndmf)
 - [Troubleshooting](#troubleshooting)
 - [FAQ](#faq)
 
@@ -831,6 +866,39 @@ Press "Apply & Save" to save. The output is always PNG.
 - Show in Project: selects the saved texture in the Project window (handy when assigning it to a material).
 
 If saving fails, the error stays in the Export section. The details are also written to the Console.
+
+---
+
+### Non-destructive recoloring (NDMF)
+
+You can recolor without changing the original texture or materials. With the "Iroca Recolor" component on the avatar, the recolored texture is swapped in only when entering Play mode or uploading. Remove the component to go back.
+
+#### Requirements
+
+- NDMF (Non-Destructive Modular Framework) 1.8 or later. It is installed together with Iroca when you add Iroca with VCC / ALCOM. Projects that use Modular Avatar or Avatar Optimizer usually have it already.
+
+#### How to use
+
+1. Create zones and pick colors as usual.
+2. In the Hierarchy, select the outfit (or avatar) to recolor. If nothing is selected, the component goes on the common parent of the objects that use the texture.
+3. Press "Register to avatar (non-destructive)" in the Export section, then "Register" in the confirmation. "Iroca Recolor" is added to the selected object, and the recoloring settings (the recipe) are saved under `Assets/Iroca/Recipes`.
+4. Enter Play mode to see the recolored avatar. Uploading works the same way.
+
+You can keep editing in the Iroca window after registering. Edits are also saved to the recipe and used by the next Play mode or upload (the "Recipe" field in the Export section shows where). When a texture has several recipes, choose the one to edit with "Open in Iroca" in the inspector of "Iroca Recolor" or of the recipe.
+
+#### What gets recolored
+
+- Only materials that use the recipe's source texture, on the object with "Iroca Recolor" and its children, are swapped. Objects outside that scope keep the original even if they use the same material.
+- When scopes are nested, the closer (deeper) component wins.
+- The recolored texture follows the source texture's import settings (max size, compression format, mipmaps), for PC and Android (Quest) alike.
+- The inspector of "Iroca Recolor" shows how many materials are targeted, and warns when there are none or the recipe has a problem.
+
+#### Notes
+
+- Materials that animations switch to later (outfit or expression toggles) are not recolored yet.
+- If a material points to an `_recolored.png` exported by Iroca earlier, the source texture is not found and nothing is recolored. Switch the material back to the original texture before registering.
+- The first Play mode or upload takes a few seconds to compute the colors. Later runs use the cache in `Library/Iroca`.
+- Problems are shown in the NDMF error window as "Iroca: ...". If recoloring fails (for example, the source texture cannot be read), the upload is stopped so that the avatar does not go up in its original colors by mistake.
 
 ---
 

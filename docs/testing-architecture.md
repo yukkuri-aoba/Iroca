@@ -451,6 +451,13 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
   UV ダンプは `dev_safe/texture_sample/uv_dumps/`（作り方は `dev_safe/scripts/unity_uv_dump/`）。
   メッシュを探す側（`Code/Infra/MeshUvLocator.cs`）と、プレビューに重ねる島の輪郭は
   Unity 依存なので EditMode テスト（下記）で見る。
+- **保存形式を経由した再着色（非破壊ビルドの入口）**（2026-10-01〜）: 非破壊ビルド（NDMF）は
+  編集画面を通さず、保存済みの編集状態（`IrocaSessionState`。マスクは RLE の `MaskState`）から
+  `Code/Core/SessionRecolor.Apply` で再着色する。マスクは `MaskStateCodec.ToSnapshot` で作り直す
+  （編集画面の `MaskSnapshot.FromBuffers` と同じ組み立て規則）。`test_session_recolor_parity` が
+  Harness `--viastate`（入力を保存形式へ詰め直して `SessionRecolor.Apply` に流す）と通常実行の
+  byte 一致を、合成 4 種・低解像度マスク・実テクスチャで検査する。全 false マスクの省略や RLE の往復で
+  出力が変わると「エディタで見た色とアップロードした色が違う」になるため。
 - Harness は未知の引数を拒否する（exit 2）。過去 `--matchDistance` がパーサ無しのまま
   渡され続けた「死にノブ」事故の再発防止。フラグを増やすときは Harness.Main の検証
   switch にも足すこと。
@@ -468,6 +475,8 @@ Mono 上の出力は検証できない。`scripts/editor-tests/`（`Iroca.Editor
 | `MeshUvLocatorTests` | テクスチャを使うメッシュの探索（シーン → 同じ素材フォルダの Prefab、書き出し名 `_recolored` の追跡、手動指定、Read/Write 無効のメッシュで落ちない） |
 | `MeshIslandOutlineTests` | プレビューに重ねる UV の島の輪郭（内側の対角線を描かない、UV を重ねた左右対称のパーツでも輪郭が残る、Tiling / Offset） |
 | `RuntimeParityTests` | 上記「既知の限界」の Mono とハーネスの一致 |
+| `NonDestructiveTests` | 非破壊の色替え: レシピ（JSON）を往復しても編集状態の直接適用と画素が一致、取り込み設定（最大サイズ・圧縮形式・ミップ・sRGB）にそろう、キャッシュの再利用、マテリアル差し替えの規則（範囲内で元テクスチャを使うものだけ・複製の共有・範囲外と元アセットは無傷・入れ子は深い方が勝つ・失敗してもコンポーネントを消す） |
+| `NdmfProcessAvatarTests` | NDMF を通した結合（`AvatarProcessor.ProcessAvatar` でプラグインが走り、元のマテリアル・テクスチャのファイルを変えずに差し替わる）。NDMF があるホストでだけコンパイルされる |
 
 ```powershell
 .\scripts\Link-HostPackage.ps1 -HostProject <ホスト> -WithEditorTests   # 1 回だけ

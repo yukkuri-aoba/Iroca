@@ -34,6 +34,19 @@ $env:UNITY_EDITOR_PATH = "D:\Unity\2022.3.22f1\Editor\Data\Managed"
 dotnet build scripts/build-check/IrocaEditor.csproj
 ```
 
+## NDMF 連携の型チェック（IrocaNdmfCheck.csproj）
+
+`Code/NdmfIntegration/`（NDMF が入ったときだけコンパイルされる別 asmdef）は、本体の csproj では
+除外している。NDMF を入れた Unity プロジェクト（既定は `..\Avatar_Projects\Iroca_Dev`）の
+`Library/ScriptAssemblies` から NDMF の DLL を借りて型チェックする:
+
+```powershell
+dotnet build scripts/build-check/IrocaNdmfCheck.csproj
+dotnet build scripts/build-check/IrocaNdmfCheck.csproj -p:NdmfHostProject="D:\path\to\Project"
+```
+
+ホストを一度 Unity で開いて ScriptAssemblies ができていることが前提（CI では走らせない）。
+
 ## 既知の限界
 
 - **Unity の Define シンボル**（`UNITY_EDITOR`, `UNITY_2022_3_OR_NEWER` 等）は
