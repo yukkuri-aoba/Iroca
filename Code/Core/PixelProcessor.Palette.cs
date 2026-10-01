@@ -45,7 +45,8 @@ namespace Iroca
         /// 元画素から色の表を作る。種類が上限を超えた・キャンセルされたときは null(呼び出し側は
         /// 画素ごとの計算に戻る)。
         /// </summary>
-        private static ColorPalette TryBuildPalette(Color32[] pixels, int w, int h, ParallelOptions po)
+        private static ColorPalette TryBuildPalette(Color32[] pixels, int w, int h, ParallelOptions po,
+            SubPhaseClock sub = null)
         {
             int len = w * h;
             int maxColors = Math.Min(PaletteMaxColorsCap, Math.Max(256, len / PaletteMaxColorsDivisor));
@@ -102,6 +103,7 @@ namespace Iroca
                     lastSlot = slot;
                 }
             });
+            sub?.Mark(SpPaletteHash);   // 種類が多すぎて作るのをやめた分もここに計上する
             if (overflow != 0 || po.CancellationToken.IsCancellationRequested)
             {
                 s_intPool.Return(index);
@@ -131,6 +133,7 @@ namespace Iroca
                     Color.RGBToHSV((Color)colors[k], out hh[k], out ss[k], out vv[k]);
             });
 
+            sub?.Mark(SpPaletteIds);
             // 3) スロット番号を色番号へ置き換える。
             Parallel.For(0, h, po, y =>
             {
@@ -138,6 +141,7 @@ namespace Iroca
                 for (int x = 0; x < w; x++) index[row + x] = slotToId[index[row + x]];
             });
 
+            sub?.Mark(SpPaletteRemap);
             return new ColorPalette { Count = count, Colors = colors, Index = index, H = hh, S = ss, V = vv };
         }
 

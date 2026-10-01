@@ -55,7 +55,8 @@ namespace Iroca
             SpPostBBox = 9, SpHoleFillGate = 10, SpHoleFill = 11, SpBoundary = 12, SpBlurReapply = 13,
             SpSelCacheStore = 14, SpRejectNeutral = 15, SpSolidify = 16, SpDecontamExcl = 17,
             SpDecontam = 18, SpWashSample = 19, SpAnchor = 20, SpRegionLRange = 21, SpMedianLMap = 22,
-            SpRecolorBBox = 23, SpRecolorLoop = 24, SpAchromaFringe = 25, SpPalette = 26, SubPhaseCount = 27;
+            SpRecolorBBox = 23, SpRecolorLoop = 24, SpAchromaFringe = 25, SpPaletteHash = 26,
+            SpPaletteIds = 27, SpPaletteRemap = 28, SubPhaseCount = 29;
         private static readonly string[] s_perfSubPhaseNames =
         {
             "Alloc", "MatchLoop", "ChromaCeiling", "EnclosedNeutral",
@@ -63,7 +64,7 @@ namespace Iroca
             "PostBBox", "HoleFillGate", "HoleFill", "Boundary", "BlurReapply",
             "SelCacheStore", "RejectNeutral", "Solidify", "DecontamExcl",
             "Decontam", "WashSample", "Anchor", "RegionLRange", "MedianLMap",
-            "RecolorBBox", "RecolorLoop", "AchromaFringe", "Palette",
+            "RecolorBBox", "RecolorLoop", "AchromaFringe", "PaletteHash", "PaletteIds", "PaletteRemap",
         };
 
         // packed mask の内容ハッシュ(FNV-1a 64bit)。マスク編集を選択キーに反映するため。
@@ -242,8 +243,7 @@ namespace Iroca
                 MaxDegreeOfParallelism = GetMaxParallelism(),
             };
             _sub.Restart();
-            palette = TryBuildPalette(originalPixels, w, h, po);
-            _sub.Mark(SpPalette);
+            palette = TryBuildPalette(originalPixels, w, h, po, _sub);
             // 行並列(per-index デリゲートは 4K で 1670 万回の呼び出しになるため行単位に集約)。
             // 各画素は独立・書き込みは自 index のみなので出力は逐次版とビット不変。
             if (palette != null)
