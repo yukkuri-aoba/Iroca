@@ -22,13 +22,20 @@
     Unity.exe のパス。既定は UNITY_EDITOR_PATH（...\Editor\Data\Managed）から導出し、
     無ければ Unity Hub の既定インストール先（2022.3.22f1）。
 
+.PARAMETER PerfCases
+    性能計測（PerfBenchTests、Category "Perf"）だけを回す。値は計測ケースの JSON
+    （python dev_safe/scripts/perf_bench.py unity-cases が作る）。結果は出力フォルダの perf.jsonl。
+
 .EXAMPLE
     .\scripts\Run-EditorTests.ps1
+.EXAMPLE
+    .\scripts\Run-EditorTests.ps1 -HostProject <ホスト> -PerfCases $env:TEMP\iroca-perf\unity_cases.json
 #>
 [CmdletBinding()]
 param(
     [string]$HostProject = (Join-Path $env:USERPROFILE 'Documents\Avatar_Projects\Iroca_Dev'),
-    [string]$UnityExe
+    [string]$UnityExe,
+    [string]$PerfCases
 )
 
 $ErrorActionPreference = 'Stop'
@@ -76,6 +83,16 @@ $unityArgs = @(
     '-testResults', "`"$results`"",
     '-logFile', "`"$log`""
 )
+# 性能計測は Perf カテゴリだけを回す（普段のテストでは IROCA_PERF_CASES が無いので Ignore になる）。
+$perfReport = Join-Path $outDir 'perf.jsonl'
+if ($PerfCases) {
+    if (-not (Test-Path $PerfCases)) { throw "計測ケースの JSON がありません: $PerfCases" }
+    $env:IROCA_PERF_CASES = (Resolve-Path $PerfCases).Path
+    $env:IROCA_PERF_REPORT = $perfReport
+    $unityArgs += @('-testCategory', 'Perf')
+} else {
+    Remove-Item Env:IROCA_PERF_CASES -ErrorAction SilentlyContinue
+}
 Write-Host "Unity を batchmode で起動します（結果: $outDir）…"
 $p = Start-Process -FilePath $UnityExe -ArgumentList $unityArgs -PassThru
 try { $p.PriorityClass = 'BelowNormal' } catch { }
@@ -93,6 +110,9 @@ foreach ($tc in $xml.SelectNodes("//test-case[@result='Failed']")) {
     Write-Host "  FAIL $($tc.fullname)" -ForegroundColor Red
     $msg = $tc.failure.message.'#cdata-section'
     if ($msg) { Write-Host "       $($msg.Trim())" }
+}
+if ($PerfCases -and (Test-Path $perfReport)) {
+    Write-Host "性能計測の結果: $perfReport（python dev_safe/scripts/perf_bench.py unity-report で集計）"
 }
 if (Test-Path $parity) {
     $lines = Get-Content $parity
