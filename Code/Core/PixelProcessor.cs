@@ -55,7 +55,7 @@ namespace Iroca
             SpPostBBox = 9, SpHoleFillGate = 10, SpHoleFill = 11, SpBoundary = 12, SpBlurReapply = 13,
             SpSelCacheStore = 14, SpRejectNeutral = 15, SpSolidify = 16, SpDecontamExcl = 17,
             SpDecontam = 18, SpWashSample = 19, SpAnchor = 20, SpRegionLRange = 21, SpMedianLMap = 22,
-            SpRecolorBBox = 23, SpRecolorLoop = 24, SpAchromaFringe = 25, SubPhaseCount = 26;
+            SpRecolorBBox = 23, SpRecolorLoop = 24, SpAchromaFringe = 25, SpPalette = 26, SubPhaseCount = 27;
         private static readonly string[] s_perfSubPhaseNames =
         {
             "Alloc", "MatchLoop", "ChromaCeiling", "EnclosedNeutral",
@@ -63,7 +63,7 @@ namespace Iroca
             "PostBBox", "HoleFillGate", "HoleFill", "Boundary", "BlurReapply",
             "SelCacheStore", "RejectNeutral", "Solidify", "DecontamExcl",
             "Decontam", "WashSample", "Anchor", "RegionLRange", "MedianLMap",
-            "RecolorBBox", "RecolorLoop", "AchromaFringe",
+            "RecolorBBox", "RecolorLoop", "AchromaFringe", "Palette",
         };
 
         // packed mask の内容ハッシュ(FNV-1a 64bit)。マスク編集を選択キーに反映するため。
@@ -223,6 +223,9 @@ namespace Iroca
             // 「重なった部分は上位ゾーンのみ適用」というレイヤー排他を実現する。
             // 単一ゾーン/非重複ピクセルでは常に 0 のままで、従来挙動は不変。
             float[] claimed = null;
+            // 色の種類の表(PixelProcessor.Palette.cs)。色だけで決まる計算を色ごとに 1 回で済ませる。
+            // 種類が多い画像では null(画素ごとに計算する)。どちらでも出力はビット単位で同じ。
+            ColorPalette palette = null;
             try
             {
             pixH = s_floatPool.Rent(len);
@@ -238,17 +241,39 @@ namespace Iroca
                 CancellationToken      = cancellationToken,
                 MaxDegreeOfParallelism = GetMaxParallelism(),
             };
+            _sub.Restart();
+            palette = TryBuildPalette(originalPixels, w, h, po);
+            _sub.Mark(SpPalette);
             // 行並列(per-index デリゲートは 4K で 1670 万回の呼び出しになるため行単位に集約)。
             // 各画素は独立・書き込みは自 index のみなので出力は逐次版とビット不変。
-            Parallel.For(0, h, po, y =>
+            if (palette != null)
             {
-                int rowOff = y * w;
-                for (int x = 0; x < w; x++)
+                // 色ごとに求めた HSV を配る(同じ色に同じ RGBToHSV を当てた値なのでビット単位で同じ)。
+                int[] pIdx = palette.Index;
+                float[] pH = palette.H, pS = palette.S, pV = palette.V;
+                Parallel.For(0, h, po, y =>
                 {
-                    int i = rowOff + x;
-                    Color.RGBToHSV((Color)originalPixels[i], out pixH[i], out pixS[i], out pixV[i]);
-                }
-            });
+                    int rowOff = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        int k = pIdx[i];
+                        pixH[i] = pH[k]; pixS[i] = pS[k]; pixV[i] = pV[k];
+                    }
+                });
+            }
+            else
+            {
+                Parallel.For(0, h, po, y =>
+                {
+                    int rowOff = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        Color.RGBToHSV((Color)originalPixels[i], out pixH[i], out pixS[i], out pixV[i]);
+                    }
+                });
+            }
             _phaseTicks[PhHsv] += Stopwatch.GetTimestamp() - _tp;
 
             debug?.BeginCapture(w, h);
@@ -374,6 +399,26 @@ namespace Iroca
                         var highlightPotLocal = highlightPot;
                         var matchConfLocal = matchConf;
                         _sub.Mark(SpAlloc);
+                        // ColorPick のマッチは画素の色(と色から求めた HSV)だけで決まる(位置を見るのは
+                        // Rect モードだけ)ので、色の表があれば色ごとに 1 回だけ求めて配る。
+                        float[] palStrength = null, palPot = null, palConf = null;
+                        if (palette != null && zone.mode == SelectionMode.ColorPick)
+                        {
+                            int pc = palette.Count;
+                            palStrength = new float[pc];
+                            palPot = new float[pc];
+                            palConf = new float[pc];
+                            Color32[] pCol = palette.Colors;
+                            float[] pH = palette.H, pS = palette.S, pV = palette.V;
+                            float[] outS = palStrength, outPot = palPot, outConf = palConf;
+                            ForEachPaletteChunk(pc, po, (k0, k1) =>
+                            {
+                                for (int k = k0; k < k1; k++)
+                                    zone.GetMatchScoresPrecomputedHSV(pH[k], pS[k], pV[k], (Color)pCol[k],
+                                        0, 0, fullW, fullH, out outS[k], out outPot[k], out outConf[k]);
+                            });
+                        }
+                        int[] palIdxMatch = palette?.Index;
                         Parallel.For(0, h, po, y =>
                         {
                             int yf = y + originY;
@@ -385,7 +430,15 @@ namespace Iroca
                                 if (IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH)) continue;
 
                                 float s, hPot, mc;
-                                zone.GetMatchScoresPrecomputedHSV(pixH[i], pixS[i], pixV[i], (Color)originalPixels[i], xf, yf, fullW, fullH, out s, out hPot, out mc);
+                                if (palStrength != null)
+                                {
+                                    int k = palIdxMatch[i];
+                                    s = palStrength[k]; hPot = palPot[k]; mc = palConf[k];
+                                }
+                                else
+                                {
+                                    zone.GetMatchScoresPrecomputedHSV(pixH[i], pixS[i], pixV[i], (Color)originalPixels[i], xf, yf, fullW, fullH, out s, out hPot, out mc);
+                                }
                                 strengthLocal[i] = s;
                                 if (highlightPotLocal != null) highlightPotLocal[i] = hPot;
                                 if (matchConfLocal != null) matchConfLocal[i] = mc;
@@ -998,6 +1051,30 @@ namespace Iroca
                         zSL, zTL, zSC, zOkChromaMaxMag, zValueBlend, zEffShadowDesat,
                         zSS, zTR, zTG, zTB, zWR, zWG, zWB, zWV,
                         zApplyWash, zAchromaWeight, zOsat, zHasRegL, zRegLlo, zRegLhi);
+                    // 再着色色は画素の色(RGBA と色から求めた V)とゾーン定数だけで決まる。成分別 L マップ
+                    // (無彩パス)を使わないゾーンでは色ごとに 1 回だけ求めて配る。表の大きさが再着色の
+                    // 範囲より大きい(小さなロゴ等)ときは画素ごとに求めたほうが安いので使わない。
+                    Color32[] palRecolored = null;
+                    if (palette != null && zRegMidMap == null && rcMaxX >= 0
+                        && (long)palette.Count * 2 <= (long)(rcMaxX - rcMinX + 1) * (rcMaxY - rcMinY + 1))
+                    {
+                        int pc = palette.Count;
+                        var outRc = new Color32[pc];
+                        Color32[] pCol = palette.Colors;
+                        float[] pV = palette.V;
+                        var rcParamsLocal = rcParams;
+                        float lmid = zRegLmid;
+                        ForEachPaletteChunk(pc, po, (k0, k1) =>
+                        {
+                            for (int k = k0; k < k1; k++)
+                            {
+                                Color32 c = pCol[k];
+                                outRc[k] = RecolorPixel(c.r, c.g, c.b, pV[k], c.a / 255f, in rcParamsLocal, lmid);
+                            }
+                        });
+                        palRecolored = outRc;
+                    }
+                    int[] palIdxRecolor = palette?.Index;
                     // rcMaxX<0 はマッチ画素なし → 全画素 continue で何もしないのと同じ(出力不変)。
                     if (rcMaxX >= 0)
                     Parallel.For(rcMinY, rcMaxY + 1, po, y =>
@@ -1027,11 +1104,13 @@ namespace Iroca
                             }
                             Color32 op = originalPixels[i];
                             float alpha = op.a / 255f;
-                            Color32 recolored = RecolorPixel(
-                                op.r, op.g, op.b,
-                                pixV[i], alpha,
-                                in rcParams,
-                                (zRegMidMap != null && zRegMidMap[i] > 0f) ? zRegMidMap[i] : zRegLmid);
+                            Color32 recolored = palRecolored != null
+                                ? palRecolored[palIdxRecolor[i]]
+                                : RecolorPixel(
+                                    op.r, op.g, op.b,
+                                    pixV[i], alpha,
+                                    in rcParams,
+                                    (zRegMidMap != null && zRegMidMap[i] > 0f) ? zRegMidMap[i] : zRegLmid);
                             if (topMost)
                             {
                                 // 最上位の寄与(claimed≈0)。es=s なので従来挙動と完全一致し、
@@ -1150,6 +1229,7 @@ namespace Iroca
             }
             finally
             {
+                palette?.Release();
                 if (claimed != null) s_floatPool.Return(claimed);
                 if (pixV != null) s_floatPool.Return(pixV);
                 if (pixS != null) s_floatPool.Return(pixS);
