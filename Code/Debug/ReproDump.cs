@@ -192,6 +192,7 @@ namespace Iroca.DebugTools
                 useFloodFill = z.useFloodFill,
                 // 下原点 UV のまま書く(表示向き PNG に合わせた v 反転は取り込み側が行う)。
                 seedUV = z.seedUV.x >= 0f ? new[] { z.seedUV.x, z.seedUV.y } : null,
+                sampleUV = z.HasSampleUV ? new[] { z.sampleUV.x, z.sampleUV.y } : null,
             };
         }
 

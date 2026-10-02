@@ -51,12 +51,18 @@ namespace Iroca
         /// 成分の ShadowFloorKeepFrac に満たない成分を落とす。彩度が hueMinSat 未満の画素は色相が不安定
         /// なので帯の内側として数える(ColorZone.partHueBand のコメント参照)。グレーモードかどうかの判定は
         /// 呼び出し側が行い、無彩サンプルでは 0 を渡す。
+        ///
+        /// スポイト位置(anchorX/anchorY &gt;= 0 のとき): その画素を含む成分は、上の 3 つの包絡ゲートでは
+        /// 落とさない。包絡はスポイト位置の島から導いた値なので、その成分が包絡の外になるのは「クリックした
+        /// 部位が、地続きの別パーツより小さい(成分の ShadowFloorKeepFrac 未満)」ときだけで、成分ごと落とすと
+        /// クリックした場所が何も変わらなくなる。巻き込みへ戻すほうが、原因が見えて直せる。コア規則は変えない。
         /// </summary>
         private static void ApplyConnectedComponentMask(
             float[] strength, float[] matchConf, Color32[] px, int w, int h, int seedX, int seedY,
             float[] pixV = null, float shadowValueFloor = 0f,
             float[] pixS = null, float partSatCeiling = 0f,
             float[] pixH = null, float partHueBand = 0f, float sampleH = 0f, float hueMinSat = 0f,
+            int anchorX = -1, int anchorY = -1,
             CancellationToken ct = default)
         {
             bool useValueFloor = shadowValueFloor > 0f && pixV != null;
@@ -257,6 +263,13 @@ namespace Iroca
                     reachesFloor[c] = (!useValueFloor || reach[c] >= total[c] * ShadowFloorKeepFrac)
                                    && (!useSatCeil || within[c] >= total[c] * ShadowFloorKeepFrac)
                                    && (!useHueBand || inBand[c] >= total[c] * ShadowFloorKeepFrac);
+                // スポイト位置を含む成分は包絡ゲートで落とさない(上の summary 参照)。
+                if (anchorX >= minX && anchorX <= maxX && anchorY >= minY && anchorY <= maxY)
+                {
+                    int aly = anchorY - minY, alx = anchorX - minX;
+                    for (int k = rowOff[aly]; k < rowOff[aly + 1]; k++)
+                        if (alx >= runX0[k] && alx <= runX1[k]) { reachesFloor[comp[k]] = true; break; }
+                }
             }
 
             // 残す成分を決定。seed 上書き優先、無効/未指定ならコア規則。

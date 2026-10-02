@@ -79,6 +79,9 @@ namespace Iroca
         // (未指定=null=自動アンカリング)。
         public bool useFloodFill { get; set; } = ZonesJsonDefaults.UseFloodFill;
         public float[] seedUV { get; set; } = null;
+        // スポイト位置 [u,v](未指定=null=位置なし)。自動調整の証拠はハーネスでは evidenceMask で
+        // 渡すので、ここでは「この位置を含む連結成分は包絡ゲートで落とさない」ためにだけ効く。
+        public float[] sampleUV { get; set; } = null;
         // ゾーン別の含めるマスク(raw ファイルパス, [int32 w][int32 h][w*h bytes], 1=含める)。
         // 寸法は mask.raw と一致必須。未指定=null=含めるマスクなし。
         // ★ハーネス専用フィールド★ — 製品の含めるマスクは MaskFileStore / プリセット経由で、
@@ -272,6 +275,8 @@ namespace Iroca
                 useFloodFill = z.useFloodFill,
                 seedUV = (z.seedUV != null && z.seedUV.Length >= 2)
                     ? new Vector2(z.seedUV[0], z.seedUV[1]) : new Vector2(-1f, -1f),
+                sampleUV = (z.sampleUV != null && z.sampleUV.Length >= 2)
+                    ? new Vector2(z.sampleUV[0], z.sampleUV[1]) : new Vector2(-1f, -1f),
             };
             zone.EnsureId();
             zone.UpdateCacheIfNeeded();

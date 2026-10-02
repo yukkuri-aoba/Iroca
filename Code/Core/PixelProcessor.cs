@@ -98,7 +98,7 @@ namespace Iroca
             for (int i = 0; i < extraN; i++) C(z.extraSamples[i]);
             F(z.tolerance);
             F(z.uvRect.x); F(z.uvRect.y); F(z.uvRect.width); F(z.uvRect.height);
-            B(z.useFloodFill); F(z.seedUV.x); F(z.seedUV.y);
+            B(z.useFloodFill); F(z.seedUV.x); F(z.seedUV.y); F(z.sampleUV.x); F(z.sampleUV.y);
             F(z.edgeSoftness); F(z.saturationStrictness); F(z.valueWeight); F(z.satDistWeight);
             F(z.satRampScale); F(z.shadowForgivenessSatMin); F(z.shadowValueFloor); F(z.partSatCeiling); F(z.partHueBand); F(z.chromaCeiling); F(z.chromaThreshold); F(z.saturationGuard);
             B(z.highlightRecovery); B(z.highlightBandExpand);
@@ -566,9 +566,15 @@ namespace Iroca
                             float ffHueBand =
                                 ffSS > ColorZone.GrayModeEffectiveChromaThreshold(ffSV, zone.chromaThreshold)
                                     ? zone.partHueBand : 0f;
+                            // スポイト位置を含む成分は、色の包絡ゲートで落とさない(クリックした場所を残す)。
+                            int anchorX = -1, anchorY = -1;
+                            if (zone.HasSampleUV)
+                                PreviewCoords.UvToPixel(zone.sampleUV.x, zone.sampleUV.y, w, h,
+                                    out anchorX, out anchorY);
                             ApplyConnectedComponentMask(strength, matchConf, originalPixels, w, h, seedX, seedY,
                                 pixV, zone.shadowValueFloor, pixS, zone.partSatCeiling,
-                                pixH, ffHueBand, ffSH, ffSS * ColorZone.HueReliableSatFrac, cancellationToken);
+                                pixH, ffHueBand, ffSH, ffSS * ColorZone.HueReliableSatFrac,
+                                anchorX, anchorY, cancellationToken);
                                 _sub.Mark(SpFfComponents);
                             // フル画像で解いた keep(=残った画素 strength>0)を作り、詳細プレビュー(クロップ)へ
                             // 転写(parityCache)・次回の選択キャッシュ復元(keepBitsForCache)の両方に使う。
