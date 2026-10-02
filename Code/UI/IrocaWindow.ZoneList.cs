@@ -564,6 +564,9 @@ namespace Iroca
             zone.shadowValueFloor = UndoHelper.Slider(this,
                 new GUIContent(Localization.ShadowValueFloor, Localization.ShadowValueFloorTooltip),
                 zone.shadowValueFloor, 0f, 1f);
+            zone.partSatCeiling = UndoHelper.Slider(this,
+                new GUIContent(Localization.PartSatCeiling, Localization.PartSatCeilingTooltip),
+                zone.partSatCeiling, 0f, 1f);
             zone.chromaThreshold = UndoHelper.Slider(this,
                 new GUIContent(Localization.ChromaThreshold, Localization.ChromaThresholdTooltip),
                 zone.chromaThreshold, 0f, 1f);

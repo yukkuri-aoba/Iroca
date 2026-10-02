@@ -42,13 +42,20 @@ namespace Iroca
         /// 「全体がこの素材の陰影レンジより暗い、同色相の離れた別パーツ」を落とす(ColorZone.shadowValueFloor
         /// のコメント参照)。本体に地続きの深い影は、成分に明るい画素が含まれるので残る。シード上書きモード
         /// (ユーザーが成分を明示)では適用しない。コアが皆無で絞り込まない場合も下限だけは適用する。
+        ///
+        /// 別パーツの彩度上限(partSatCeiling &gt; 0 のとき): 明度下限の対。彩度(pixS)がこの値以下の画素が
+        /// 成分の ShadowFloorKeepFrac に満たない成分 = 「全体がこの素材の彩度の広がりより鮮やかな別パーツ」を
+        /// 落とす(ColorZone.partSatCeiling のコメント参照)。適用条件は明度下限と同じ。
         /// </summary>
         private static void ApplyConnectedComponentMask(
             float[] strength, float[] matchConf, Color32[] px, int w, int h, int seedX, int seedY,
             float[] pixV = null, float shadowValueFloor = 0f,
+            float[] pixS = null, float partSatCeiling = 0f,
             CancellationToken ct = default)
         {
-            bool useFloor = shadowValueFloor > 0f && pixV != null;
+            bool useValueFloor = shadowValueFloor > 0f && pixV != null;
+            bool useSatCeil = partSatCeiling > 0f && pixS != null;
+            bool useFloor = useValueFloor || useSatCeil;   // 色の包絡ゲート(明度下限 / 彩度上限)のどちらかが有効
             // matched 画素(strength>0 && α>=128)の bbox。ラベリングは bbox 内に限定(全画素確保を回避)。
             if (!TryComputeMatchedBBox(strength, px, w, h, 0f,
                     out int minX, out int minY, out int maxX, out int maxY, ct))
@@ -191,11 +198,14 @@ namespace Iroca
             // 「1 画素でも達すれば残す」では、暗い別部位に同色の明るい縁取りが地続きで付いている
             // だけで成分全体が残る(実測: 桃ベージュ上衣の床 0.52 に対し、暗紫ジャケットは縁取り
             // Color2 が同色の明色なので生き残った)。割合で判定する。
+            // 別パーツの彩度上限も同じ形で数える(上限以下の画素の割合)。2 つは独立に判定し、両方を
+            // 満たす成分だけを残す(暗すぎる別パーツと鮮やかすぎる別パーツは別々の証拠)。
             bool[] reachesFloor = null;
             if (useFloor)
             {
                 var total = new int[compCount];
-                var reach = new int[compCount];
+                var reach = useValueFloor ? new int[compCount] : null;
+                var within = useSatCeil ? new int[compCount] : null;
                 for (int ly = 0; ly < bh; ly++)
                 {
                     if ((ly & 63) == 0) ct.ThrowIfCancellationRequested();
@@ -204,16 +214,27 @@ namespace Iroca
                     {
                         int c = comp[k];
                         int x1 = runX1[k];
-                        int n = 0;
-                        for (int lx = runX0[k]; lx <= x1; lx++)
-                            if (pixV[grb + lx] >= shadowValueFloor) n++;
                         total[c] += x1 - runX0[k] + 1;
-                        reach[c] += n;
+                        if (useValueFloor)
+                        {
+                            int n = 0;
+                            for (int lx = runX0[k]; lx <= x1; lx++)
+                                if (pixV[grb + lx] >= shadowValueFloor) n++;
+                            reach[c] += n;
+                        }
+                        if (useSatCeil)
+                        {
+                            int n = 0;
+                            for (int lx = runX0[k]; lx <= x1; lx++)
+                                if (pixS[grb + lx] <= partSatCeiling) n++;
+                            within[c] += n;
+                        }
                     }
                 }
                 reachesFloor = new bool[compCount];
                 for (int c = 0; c < compCount; c++)
-                    reachesFloor[c] = reach[c] >= total[c] * ShadowFloorKeepFrac;
+                    reachesFloor[c] = (!useValueFloor || reach[c] >= total[c] * ShadowFloorKeepFrac)
+                                   && (!useSatCeil || within[c] >= total[c] * ShadowFloorKeepFrac);
             }
 
             // 残す成分を決定。seed 上書き優先、無効/未指定ならコア規則。

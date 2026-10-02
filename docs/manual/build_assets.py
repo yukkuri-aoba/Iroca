@@ -109,7 +109,7 @@ def explicit_zone(params: dict, target_rgb, **over) -> dict:
     # valueBlend も導出値を使う（純色の変更先では自動調整が 0.9 へ下げる。1.0 固定だと再現がずれる）
     for k in ("tolerance", "valueBlend", "saturationStrictness", "saturationGuard", "chromaThreshold",
               "highlightRecovery", "edgeSoftness", "shadowDesaturation",
-              "shadowForgivenessSatMin", "shadowValueFloor", "chromaCeiling"):
+              "shadowForgivenessSatMin", "shadowValueFloor", "partSatCeiling", "chromaCeiling"):
         z[k] = params[k]
     z.update(over)
     return z

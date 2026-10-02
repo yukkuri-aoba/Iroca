@@ -383,7 +383,9 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
   `test_autotune_evidence` が `measure_evidence_autotune.run_case`（従来 `--autotune` と
   同一クリックの SAM 提案を証拠にした `--autotune` の A/B）を driver に、採用時の勝ち筋
   （gold の残存島 0 / tops 明部クリック / skirt precision / eye 反射 / 汚染セグメントでも
-  ドメインから導く / 白の色付き陰の彩度天井）と「従来を下回らない」を契約にする。既定は 9 ケース、
+  ドメインから導く / 白の色付き陰の彩度天井 / tolerance の上限 / 別パーツの彩度上限）と
+  「従来を下回らない」を契約にする。成分単位のゲート（別パーツの彩度上限）そのものは合成テクスチャの
+  `test_part_sat_ceiling` が固定設定で検査する。既定は 9 ケース、
   `VACC_AUTOTUNE_EVIDENCE_FULL=1` で 14 被写体 × 3 位置の非退行。凍結埋め込み不在は skip。
   全 A/B 表は `python dev_safe/scripts/measure_evidence_autotune.py --clicks p25 p50 p95`。
   - **証拠は製品と同じ全経路で作る**（2026-09-02〜）: `sam_proposal.proposal_for_click_full`

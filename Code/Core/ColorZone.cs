@@ -244,6 +244,17 @@ namespace Iroca
         [Range(0f, 1f)]
         public float shadowValueFloor = 0f;
 
+        // 別パーツの彩度上限(0 = 無効)。陰影の明度下限の対になる連結成分単位のゲート: 選択の連結成分の
+        // うち、彩度がこの値以下の画素が 1/4 に満たない(=全体がこの素材の彩度の広がりより鮮やかな)成分を
+        // 落とす(PixelProcessor.ApplyConnectedComponentMask)。色の近い、より鮮やかな別パーツ(濃い灰の
+        // パンツに対するこげ茶のブーツ、こげ茶のブーツに対する赤いバンダナ)は、明部免除や広めの tolerance を
+        // 通って成分ごと入る。画素単位で切ると素材自身の鮮やかな陰影・装飾まで落とす(彩度天井を証拠の包絡へ
+        // 下げる案は feina-tops の再現率 −0.04)ので、成分の大半が上限を超えるときだけ落とす。
+        // 連続領域モード(useFloodFill)でのみ効く。証拠つき自動調整がクリックした島(AI 提案セグメント)に
+        // 実在する彩度包絡から導く(ZoneAutoTuner.Evidence.cs)。手動でも使える。
+        [Range(0f, 1f)]
+        public float partSatCeiling = 0f;
+
         // 彩度天井(グレーモード専用、0 = 自動)。無彩/微 tint サンプルの選択から、サンプル彩度の
         // ChromaCeilSampleFrac 倍(下限 ChromaCeilAbs)を超える高彩度画素を「染められた別素材」として
         // 落とす後段ゲート(PixelProcessor.ApplyChromaCeilingGate)の天井を上書きする。白い布の青みが
@@ -399,6 +410,7 @@ namespace Iroca
             shadowDesaturation      = d.shadowDesaturation;
             shadowForgivenessSatMin = d.shadowForgivenessSatMin;
             shadowValueFloor        = d.shadowValueFloor;
+            partSatCeiling          = d.partSatCeiling;
             chromaCeiling           = d.chromaCeiling;
             chromaThreshold         = d.chromaThreshold;
             valueWeight             = d.valueWeight;

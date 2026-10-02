@@ -219,6 +219,11 @@ namespace Iroca
             ? "この明度より暗いピクセルだけで出来た離れた領域は、同系色でも同じ素材の陰影とみなさず選択から外します。\n同じ色相で暗いだけの別パーツ(上衣に対する暗いジャケット、肌に対する口の中など)の巻き込みを防ぎます。本体に地続きの影は残ります。\n自動調整(AI 提案あり)がクリックした部分に実在する暗さから導きます。連続領域モードでのみ効きます。0 = 無効\nデフォルト: 0"
             : "Detached regions made only of pixels darker than this value are not treated as shading of the same material, even when the hue matches.\nStops darker parts of the same hue (a dark jacket next to a top, the inside of a mouth next to skin) from being included; shading connected to the body is kept.\nAuto-tune with an AI proposal derives it from the darkness actually present in the clicked part. Only in connected-region mode. 0 = off\nDefault: 0";
 
+        public static string PartSatCeiling => IsJapanese ? "別パーツの彩度上限" : "Part Saturation Ceiling";
+        public static string PartSatCeilingTooltip => IsJapanese
+            ? "彩度がこの値以下のピクセルが 4 分の 1 に満たない離れた領域は、同系色でも別のパーツとみなして選択から外します。\n色の近い、より鮮やかな別パーツ(濃いグレーのパンツに対する焦げ茶のブーツなど)の巻き込みを防ぎます。本体に地続きの鮮やかな陰影や装飾は残ります。\n自動調整(AI 提案あり)がクリックした部分に実在する彩度の広がりから導きます。連続領域モードでのみ効きます。0 = 無効\nデフォルト: 0"
+            : "Detached regions where fewer than a quarter of the pixels are at or below this saturation are treated as a different part, even when the color is close.\nStops more vivid parts of a similar color (dark brown boots next to dark gray trousers) from being included; vivid shading and trim connected to the body are kept.\nAuto-tune with an AI proposal derives it from the saturation range actually present in the clicked part. Only in connected-region mode. 0 = off\nDefault: 0";
+
         // 「ハイライト」は独立した小見出しへ分けたので、ここは暗部と無彩色の扱いだけを指す
         // （2026-09-11 の詳細パラメータのグループ化。旧名は「シャドウ・ハイライト詳細設定」）。
         public static string ShadowHighlightSection => IsJapanese ? "暗部・無彩色" : "Shadows and neutrals";

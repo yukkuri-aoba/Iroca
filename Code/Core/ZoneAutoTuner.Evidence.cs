@@ -144,6 +144,17 @@ namespace Iroca
         private const float EvChromaCeilPercentile = 0.95f;
         private const float EvChromaCeilHeadroomFrac = 0.25f;
 
+        // ── 別パーツの彩度上限(partSatCeiling)の導出(有彩・無彩とも) ──
+        // 陰影の明度下限の対。色の近い、より鮮やかな別パーツ(濃い灰のパンツ S 0.11 に対するこげ茶の
+        // ブーツ S 0.23〜0.30、こげ茶のブーツに対する赤いバンダナ S 0.52)は、広めの tolerance や明部免除を
+        // 通って成分ごと入る。証拠ドメインの彩度包絡(上と同じ P95 ÷ 0.75)を上限にし、成分の画素の
+        // 1/4 以上が上限以下でなければ落とす(PixelProcessor.ApplyConnectedComponentMask)。
+        // 画素単位で切らない理由は明度下限と同じ: 素材自身の鮮やかな陰影・装飾は本体に地続きなので残したい
+        // (画素単位の天井を包絡へ下げる試算では feina-tops の再現率 −0.04)。
+        // 余白と割合の感度(2026-10-02、57 ケースの試算): 余白 0.20〜0.40・割合 0.10〜0.50 で悪化 0。
+        // 余白 0.15 以下で quanstella-black の本体が欠け始める。下限側(彩度が低すぎる成分を落とす)は
+        // feina-tops の白っぽい島を落として IoU −0.15 だったので置かない。
+
         // ── tolerance の上限(証拠ドメインを覆える最小値 × 余白) ──
         // tolerance は全画面の「クリック色の近傍窓」の距離分布(P95)から導くので、窓に入る別素材
         // (同色相で彩度・明度が少し違うだけの隣の部位)が分布を押し広げる。証拠ドメイン(クリックした島の
@@ -316,12 +327,16 @@ namespace Iroca
             }
 
             // ── 5. 彩度天井: 証拠ドメインの彩度包絡(P95)が自動の天井を超えるときだけ、余白つきで上書き ──
-            if (!chromatic && domain.Count >= MinNearSampleCount)
+            if (domain.Count >= MinNearSampleCount)
             {
                 float envelope = DomainSaturationPercentile(hsv, domain, EvChromaCeilPercentile);
-                float ceilAuto = ColorZone.EffectiveChromaCeiling(repS, 0f);
-                if (envelope > ceilAuto)
-                    result.chromaCeiling = Mathf.Min(1f, envelope / (1f - EvChromaCeilHeadroomFrac));
+                float envelopeCeil = envelope / (1f - EvChromaCeilHeadroomFrac);
+                if (!chromatic && envelope > ColorZone.EffectiveChromaCeiling(repS, 0f))
+                    result.chromaCeiling = Mathf.Min(1f, envelopeCeil);
+
+                // ── 5b. 別パーツの彩度上限: 同じ包絡 ÷ 余白を、連結成分単位の上限にする(有彩・無彩とも) ──
+                // 上限が 1 以上(包絡が飽和域に届く素材)なら落とせる成分が無いので置かない。
+                result.partSatCeiling = envelopeCeil < 1f ? envelopeCeil : 0f;
             }
 
             // ── 2. 証拠による補完: 導出パラメータでセグメント芯(ドメイン)を覆えないなら、
@@ -416,7 +431,7 @@ namespace Iroca
                 + $" hlRec={result.highlightRecovery} samples={result.autoSamples?.Count ?? 0}"
                 + $" added={added} cov={cov:F4} tol={result.tolerance:F4}"
                 + $" vFloor={result.shadowValueFloor:F3} ceil={result.chromaCeiling:F3}"
-                + $" tolDerived={tolDerived:F4}";
+                + $" tolDerived={tolDerived:F4} partSat={result.partSatCeiling:F3}";
             Progress(0.98f);
 
             DecideGlobals(width, height, session, ref result);
