@@ -144,6 +144,23 @@ namespace Iroca
         private const float EvChromaCeilPercentile = 0.95f;
         private const float EvChromaCeilHeadroomFrac = 0.25f;
 
+        // ── tolerance の上限(証拠ドメインを覆える最小値 × 余白) ──
+        // tolerance は全画面の「クリック色の近傍窓」の距離分布(P95)から導くので、窓に入る別素材
+        // (同色相で彩度・明度が少し違うだけの隣の部位)が分布を押し広げる。証拠ドメイン(クリックした島の
+        // 地色と同じ陰影ランプ)には「この素材を覆うのに実際どれだけ要るか」が実在の量として在るので、
+        // 実マッチャーで被覆を保てる最小の tolerance を二分探索し、その余白つきの値を上限にする。
+        // 上げる方向には使わない(下限として使う案は別素材へ溢れた。上の【試して捨てたもの】参照)。
+        // 余白は 2 倍: クリックした島より色の幅が広い同素材の別の島を取りこぼさないための頭出し。
+        // 「島 1 つぶんの必要量の倍までは同じ素材の揺らぎ」とみなす。実測(2026-10-02、57 ケース):
+        //   - 1.5 倍: 肌で同素材の明るい島が削れて再現率 1.000→0.967、金の縁取り 0.967→0.958。
+        //     削れるのは「残る成分の一部」で、成分ごと消える別部位とは構造で見分けられない。
+        //   - 2 倍: 上の取りこぼしが出ない幅。
+        // 床は各経路の通常の最小値(有彩 ChromaTolMin / 無彩 AchromaTolMin)。有彩を ForeignLowFloor(0.04)
+        // まで下げると、床 0.08 に張り付いていた桃ベージュの上衣が 0.077 になっただけで明部が外れた
+        // (再現率 0.943→0.848)。床より下は、隣接別パーツ検出のような積極的な根拠があるときだけにする。
+        private const float EvTolHeadroom = 2f;
+        private const int   EvTolBisectSteps = 6;
+
         /// <summary>
         /// 証拠マスク(true=このゾーンの素材そのもの。AI マスク提案のセグメント)を教師にして
         /// パラメータを導出する。証拠が使えないときは従来の <see cref="Analyze(Color32[],int,int,ColorZone,IrocaSessionState,bool[],int,int,CancellationToken,System.Action{float})"/>
@@ -362,6 +379,11 @@ namespace Iroca
             }
             Progress(0.78f);
 
+            // ── 6. tolerance の上限: 証拠ドメインを覆える最小値 × 余白 ──
+            float tolDerived = result.tolerance;
+            result.tolerance = BoundToleranceByEvidence(aZone, result, hsv, pixels, width, height,
+                domain, chromatic ? ChromaTolMin : AchromaTolMin);
+
             // ── 閉ループ検証(従来と同じ全画面視点・同じ順序・同じ封印条件) ──
             // 明部ツヤ救済(VerifyBrightSheenRecall)も従来どおり残す: 「やや脱彩・やや明るい」ツヤ
             // (実測: 虹彩の反射 S≈0.3、V≈0.75)はハイライト補助の条件(V>0.80・彩度上限)にも
@@ -393,7 +415,8 @@ namespace Iroca
                 + $" matFrac={materialFrac:F2} clickT={clickT:F2}"
                 + $" hlRec={result.highlightRecovery} samples={result.autoSamples?.Count ?? 0}"
                 + $" added={added} cov={cov:F4} tol={result.tolerance:F4}"
-                + $" vFloor={result.shadowValueFloor:F3} ceil={result.chromaCeiling:F3}";
+                + $" vFloor={result.shadowValueFloor:F3} ceil={result.chromaCeiling:F3}"
+                + $" tolDerived={tolDerived:F4}";
             Progress(0.98f);
 
             DecideGlobals(width, height, session, ref result);
@@ -524,6 +547,27 @@ namespace Iroca
                 if (strength > 0f) sel++;
             }
             return sel / (float)domain.Count;
+        }
+
+        // 証拠ドメインの被覆(DomainCoverage)を導出値と同じに保てる最小の tolerance を二分探索し、
+        // その EvTolHeadroom 倍(下限 floor)と導出値の小さい方を返す。導出値は上げない。
+        // 被覆の「同じ」は EvCoverGainMin(追加サンプルの採否と同じ、意味のある被覆差の最小幅)まで許す。
+        private static float BoundToleranceByEvidence(ColorZone aZone, in TuneResult result, HsvGrid hsv,
+            Color32[] pixels, int w, int h, List<GridPt> domain, float floor)
+        {
+            float derived = result.tolerance;
+            if (domain.Count == 0 || derived <= floor) return derived;
+            float need = DomainCoverage(aZone, result, hsv, pixels, w, h, domain) - EvCoverGainMin;
+            var trial = result;
+            float lo = 0f, hi = derived;
+            for (int i = 0; i < EvTolBisectSteps; i++)
+            {
+                float mid = 0.5f * (lo + hi);
+                trial.tolerance = mid;
+                if (DomainCoverage(aZone, trial, hsv, pixels, w, h, domain) >= need) hi = mid;
+                else lo = mid;
+            }
+            return Mathf.Min(derived, Mathf.Max(floor, hi * EvTolHeadroom));
         }
 
         // sim で覆えていない証拠ドメイン画素のうち、最も多い V 帯の平均色を新サンプルとして返す。
