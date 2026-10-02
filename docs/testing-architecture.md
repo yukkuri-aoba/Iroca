@@ -385,7 +385,9 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
   （gold の残存島 0 / tops 明部クリック / skirt precision / eye 反射 / 汚染セグメントでも
   ドメインから導く / 白の色付き陰の彩度天井 / tolerance の上限 / 別パーツの彩度上限・色相幅）と
   「従来を下回らない」を契約にする。成分単位のゲート（別パーツの彩度上限・色相幅）そのものは
-  合成テクスチャの `test_part_sat_ceiling` / `test_part_hue_band` が固定設定で検査する。既定は 9 ケース、
+  合成テクスチャの `test_part_sat_ceiling` / `test_part_hue_band` が固定設定で検査する。
+  「スポイト位置を含む連結成分はゲートで落とさない」は `test_envelope_gate_anchor`（zones JSON の
+  `sampleUV`。ワンショットの driver はクリック位置を必ず `sampleUV` として渡す）。既定は 9 ケース、
   `VACC_AUTOTUNE_EVIDENCE_FULL=1` で 14 被写体 × 3 位置の非退行。凍結埋め込み不在は skip。
   全 A/B 表は `python dev_safe/scripts/measure_evidence_autotune.py --clicks p25 p50 p95`。
   - **証拠は製品と同じ全経路で作る**（2026-09-02〜）: `sam_proposal.proposal_for_click_full`

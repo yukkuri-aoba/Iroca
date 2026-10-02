@@ -192,8 +192,10 @@ namespace Iroca
 
         // スポイトでサンプル色を取ったプレビュー上の UV（下原点、0-1）。負値 = 未設定。
         // 自動調整が AI マスク提案（SAM）のセグメントを「その場の証拠」として取る位置
-        // （ZoneAutoTuner.AnalyzeWithEvidence）。選択・再着色そのものには関与しないので
-        // 選択キーには含めない。
+        // （ZoneAutoTuner.AnalyzeWithEvidence）。選択では、連続領域モードの包絡ゲート
+        // （shadowValueFloor / partSatCeiling / partHueBand）が「この位置を含む連結成分は落とさない」
+        // ためにだけ使う（PixelProcessor.ApplyConnectedComponentMask）。ゲートの値はこの位置の島から
+        // 導いたものなので、クリックした場所そのものが外れるのを防ぐ。選択キーに含める。
         // シリアライズして Undo とセッション（テクスチャ単位）に載せる: sampleColor と必ず対で
         // 書き戻るので、Undo/Redo・ゾーン削除の Undo で位置だけが消えたり古い色と食い違ったり
         // しない（以前は NonSerialized で Undo 後に色の食い違いから無効化していたが、Redo で
@@ -203,6 +205,10 @@ namespace Iroca
         public Vector2 sampleUV = new Vector2(-1f, -1f);
         public bool HasSampleUV => sampleUV.x >= 0f;
         public void ClearSampleUV() => sampleUV = new Vector2(-1f, -1f);
+        // スポイト位置が選択結果に効く状態か（包絡ゲートのどれかが有効な連続領域モード）。
+        // 位置だけを変えたときにプレビューを作り直すかどうかの判定に使う。
+        internal bool SelectionUsesSampleUV =>
+            useFloodFill && (shadowValueFloor > 0f || partSatCeiling > 0f || partHueBand > 0f);
 
         public Color targetColor = Color.white;
 

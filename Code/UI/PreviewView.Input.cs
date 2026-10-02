@@ -467,7 +467,8 @@ namespace Iroca
         /// Undo へ記録する（sampleUV もシリアライズ対象なので、Undo/Redo で色と位置が対で戻る）。
         /// 同じ色を別の場所で拾い直したときも位置は更新する（別の島をクリックしたかもしれない。
         /// 位置は自動調整が AI 提案の証拠を取るアンカー）。
-        /// 戻り値 true = 色が変わった（プレビューの再生成が要る）。位置だけの変更は出力に影響しない。
+        /// 戻り値 true = プレビューの再生成が要る。色が変わったとき、または位置だけが変わって、その位置が
+        /// 選択に効く状態のとき（ColorZone.SelectionUsesSampleUV: 位置を含む連結成分は包絡ゲートで落とさない）。
         /// </summary>
         internal static bool ApplyEyedropperSample(UnityEngine.Object undoHost, ColorZone zone, Color picked, Vector2 uv)
         {
@@ -483,7 +484,7 @@ namespace Iroca
                     zone.extraSamples.Clear();
             }
             zone.sampleUV = uv;
-            return colorChanged;
+            return colorChanged || zone.SelectionUsesSampleUV;
         }
 
         // プレビュー上のクリックで、武装中ゾーンのサンプルカラーを実テクスチャ画素から取得する。

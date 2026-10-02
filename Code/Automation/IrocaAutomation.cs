@@ -94,6 +94,9 @@ namespace Iroca
             // JsonUtility は未知フィールドを無言で捨てるため、ハーネス側だけが持っていた頃は
             // seedUV 付き zones JSON を製品へ渡しても黙って無視されていた。
             public float[] seedUV = null;
+            // スポイト位置 [u,v]（0-1）。未指定/長さ不足 = 位置なし。この位置を含む連結成分は、
+            // 連続領域モードの包絡ゲート（陰影の明度下限など）で落とさない。
+            public float[] sampleUV = null;
         }
 
         [Serializable]
@@ -533,6 +536,8 @@ namespace Iroca
                 // 未指定/長さ不足 = 負値 = 自動アンカリング（Harness.BuildZone と同一の写像）。
                 seedUV = (z.seedUV != null && z.seedUV.Length >= 2)
                     ? new Vector2(z.seedUV[0], z.seedUV[1]) : new Vector2(-1f, -1f),
+                sampleUV = (z.sampleUV != null && z.sampleUV.Length >= 2)
+                    ? new Vector2(z.sampleUV[0], z.sampleUV[1]) : new Vector2(-1f, -1f),
             };
             zone.EnsureId();
             zone.UpdateCacheIfNeeded();
