@@ -95,7 +95,7 @@ def test_apply_to_covers_every_tune_result_field(tuner_src):
 
 _DIRECT_ASSIGN = re.compile(
     r"\.(?:tolerance|saturationStrictness|saturationGuard|chromaThreshold|highlightRecovery"
-    r"|valueBlend|edgeSoftness|shadowDesaturation|shadowForgivenessSatMin|shadowValueFloor|partSatCeiling|chromaCeiling|extraSamples"
+    r"|valueBlend|edgeSoftness|shadowDesaturation|shadowForgivenessSatMin|shadowValueFloor|partSatCeiling|partHueBand|chromaCeiling|extraSamples"
     r"|sampleColor|antiAliasCleanup|useDecontamination)\s*=\s*(?:result|tune|r)\.")
 
 

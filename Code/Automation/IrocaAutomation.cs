@@ -80,6 +80,7 @@ namespace Iroca
             public float shadowForgivenessSatMin = ZonesJsonDefaults.ShadowForgivenessSatMin;
             public float shadowValueFloor = ZonesJsonDefaults.ShadowValueFloor;
             public float partSatCeiling = ZonesJsonDefaults.PartSatCeiling;
+            public float partHueBand = ZonesJsonDefaults.PartHueBand;
             public float chromaCeiling = ZonesJsonDefaults.ChromaCeiling;
             public float outputSaturation = ZonesJsonDefaults.OutputSaturation;
             public bool highlightRecovery = ZonesJsonDefaults.HighlightRecovery;
@@ -525,6 +526,7 @@ namespace Iroca
                 shadowForgivenessSatMin = z.shadowForgivenessSatMin,
                 shadowValueFloor = z.shadowValueFloor,
                 partSatCeiling = z.partSatCeiling,
+                partHueBand = z.partHueBand,
                 chromaCeiling = z.chromaCeiling,
                 layerIndex = z.layerIndex,
                 useFloodFill = z.useFloodFill,

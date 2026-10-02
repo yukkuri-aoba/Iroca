@@ -196,7 +196,7 @@ namespace Iroca
                 Localization.EdgeSoftness, Localization.SaturationStrictness, Localization.SaturationGuard,
                 Localization.HighlightRecovery, Localization.ApplyHighlightWash,
                 Localization.ShadowDesaturation, Localization.ShadowForgivenessSatMin,
-                Localization.ShadowValueFloor, Localization.PartSatCeiling, Localization.ChromaThreshold, Localization.ChromaCeiling,
+                Localization.ShadowValueFloor, Localization.PartSatCeiling, Localization.PartHueBand, Localization.ChromaThreshold, Localization.ChromaCeiling,
                 Localization.AutoRecolorAnchor, Localization.ValueWeight, Localization.SatDistWeight,
                 Localization.SatRampScale, Localization.EdgeFeather, Localization.AntiAliasCleanup,
                 Localization.UseDecontamination);

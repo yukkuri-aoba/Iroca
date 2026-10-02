@@ -34,6 +34,7 @@ namespace Iroca
         private static float DefaultShadowForgivenessSatMin => s_zoneDefaults.shadowForgivenessSatMin;
         private static float DefaultShadowValueFloor        => s_zoneDefaults.shadowValueFloor;
         private static float DefaultPartSatCeiling          => s_zoneDefaults.partSatCeiling;
+        private static float DefaultPartHueBand             => s_zoneDefaults.partHueBand;
         private static float DefaultChromaCeiling           => s_zoneDefaults.chromaCeiling;
         private static int   DefaultAntiAliasCleanup        => s_sessionDefaults.antiAliasCleanup;
         private static bool  DefaultUseDecontamination      => s_sessionDefaults.useDecontamination;
@@ -77,6 +78,8 @@ namespace Iroca
             public float shadowValueFloor;
             // 別パーツの彩度上限(0=無効)。証拠つき導出だけが値を入れる(従来導出は既定 0 のまま)。
             public float partSatCeiling;
+            // 別パーツの色相幅(0=無効)。証拠つき導出(有彩地色)だけが値を入れる(従来導出は既定 0 のまま)。
+            public float partHueBand;
             // 彩度天井(グレーモード専用、0=自動)。証拠つき導出だけが値を入れる(従来導出は既定 0 のまま)。
             public float chromaCeiling;
 
@@ -132,6 +135,7 @@ namespace Iroca
                 zone.shadowForgivenessSatMin = shadowForgivenessSatMin;
                 zone.shadowValueFloor        = shadowValueFloor;
                 zone.partSatCeiling          = partSatCeiling;
+                zone.partHueBand             = partHueBand;
                 zone.chromaCeiling           = chromaCeiling;
                 // 自動トーン抽出で得た内部サンプル（暗部/中間/明部の代表色）。ユーザーが複数スポイトする
                 // 代わりにアルゴリズムがパーツの濃淡を自動取得した結果で、選択（マッチング）の和集合に
@@ -403,6 +407,7 @@ namespace Iroca
                 shadowForgivenessSatMin = DefaultShadowForgivenessSatMin,
                 shadowValueFloor        = DefaultShadowValueFloor,
                 partSatCeiling          = DefaultPartSatCeiling,
+                partHueBand             = DefaultPartHueBand,
                 chromaCeiling           = DefaultChromaCeiling,
                 applyGlobals            = false,
                 antiAliasCleanup        = DefaultAntiAliasCleanup,
@@ -600,6 +605,7 @@ namespace Iroca
                 shadowForgivenessSatMin = shadowForgivenessSatMin,
                 shadowValueFloor        = DefaultShadowValueFloor,
                 partSatCeiling          = DefaultPartSatCeiling,
+                partHueBand             = DefaultPartHueBand,
                 chromaCeiling           = DefaultChromaCeiling,
                 applyGlobals            = false,
                 antiAliasCleanup        = heuristic.antiAliasCleanup,
@@ -693,6 +699,8 @@ namespace Iroca
                 labels.Add(Localization.ShadowValueFloor);
             if (!Mathf.Approximately(zone.partSatCeiling, DefaultPartSatCeiling))
                 labels.Add(Localization.PartSatCeiling);
+            if (!Mathf.Approximately(zone.partHueBand, DefaultPartHueBand))
+                labels.Add(Localization.PartHueBand);
             if (!Mathf.Approximately(zone.chromaCeiling, DefaultChromaCeiling))
                 labels.Add(Localization.ChromaCeiling);
             return labels;
@@ -724,6 +732,8 @@ namespace Iroca
                 labels.Add(Localization.ShadowValueFloor);
             if (!Mathf.Approximately(zone.partSatCeiling, DefaultPartSatCeiling))
                 labels.Add(Localization.PartSatCeiling);
+            if (!Mathf.Approximately(zone.partHueBand, DefaultPartHueBand))
+                labels.Add(Localization.PartHueBand);
             if (!Mathf.Approximately(zone.chromaCeiling, DefaultChromaCeiling))
                 labels.Add(Localization.ChromaCeiling);
 
@@ -752,6 +762,7 @@ namespace Iroca
                 && Mathf.Approximately(z.shadowForgivenessSatMin, DefaultShadowForgivenessSatMin)
                 && Mathf.Approximately(z.shadowValueFloor, DefaultShadowValueFloor)
                 && Mathf.Approximately(z.partSatCeiling, DefaultPartSatCeiling)
+                && Mathf.Approximately(z.partHueBand, DefaultPartHueBand)
                 && Mathf.Approximately(z.chromaCeiling, DefaultChromaCeiling);
         }
 

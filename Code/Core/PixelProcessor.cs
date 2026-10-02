@@ -100,7 +100,7 @@ namespace Iroca
             F(z.uvRect.x); F(z.uvRect.y); F(z.uvRect.width); F(z.uvRect.height);
             B(z.useFloodFill); F(z.seedUV.x); F(z.seedUV.y);
             F(z.edgeSoftness); F(z.saturationStrictness); F(z.valueWeight); F(z.satDistWeight);
-            F(z.satRampScale); F(z.shadowForgivenessSatMin); F(z.shadowValueFloor); F(z.partSatCeiling); F(z.chromaCeiling); F(z.chromaThreshold); F(z.saturationGuard);
+            F(z.satRampScale); F(z.shadowForgivenessSatMin); F(z.shadowValueFloor); F(z.partSatCeiling); F(z.partHueBand); F(z.chromaCeiling); F(z.chromaThreshold); F(z.saturationGuard);
             B(z.highlightRecovery); B(z.highlightBandExpand);
             F(edgeFeather); I(aaCleanup); I(holeFillPasses); I(holeFillMinNeighbors);
             F(relaxedSatMin); F(relaxedSatRamp);
@@ -561,8 +561,14 @@ namespace Iroca
                                 seedX = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.x * (w - 1)), 0, w - 1);
                                 seedY = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.y * (h - 1)), 0, h - 1);
                             }
+                            // 別パーツの色相幅は有彩サンプルでだけ意味を持つ(グレーモードの色相は不定)。
+                            Color.RGBToHSV(zone.sampleColor, out float ffSH, out float ffSS, out float ffSV);
+                            float ffHueBand =
+                                ffSS > ColorZone.GrayModeEffectiveChromaThreshold(ffSV, zone.chromaThreshold)
+                                    ? zone.partHueBand : 0f;
                             ApplyConnectedComponentMask(strength, matchConf, originalPixels, w, h, seedX, seedY,
-                                pixV, zone.shadowValueFloor, pixS, zone.partSatCeiling, cancellationToken);
+                                pixV, zone.shadowValueFloor, pixS, zone.partSatCeiling,
+                                pixH, ffHueBand, ffSH, ffSS * ColorZone.HueReliableSatFrac, cancellationToken);
                                 _sub.Mark(SpFfComponents);
                             // フル画像で解いた keep(=残った画素 strength>0)を作り、詳細プレビュー(クロップ)へ
                             // 転写(parityCache)・次回の選択キャッシュ復元(keepBitsForCache)の両方に使う。

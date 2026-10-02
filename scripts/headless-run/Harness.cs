@@ -28,6 +28,7 @@ namespace Iroca
         public static string ShadowForgivenessSatMin => "ShadowForgivenessSatMin";
         public static string ShadowValueFloor        => "ShadowValueFloor";
         public static string PartSatCeiling          => "PartSatCeiling";
+        public static string PartHueBand             => "PartHueBand";
         public static string ChromaCeiling           => "ChromaCeiling";
         public static string AntiAliasCleanup        => "AntiAliasCleanup";
         public static string UseDecontamination      => "UseDecontamination";
@@ -65,6 +66,7 @@ namespace Iroca
         public float shadowForgivenessSatMin { get; set; } = ZonesJsonDefaults.ShadowForgivenessSatMin;
         public float shadowValueFloor { get; set; } = ZonesJsonDefaults.ShadowValueFloor;
         public float partSatCeiling { get; set; } = ZonesJsonDefaults.PartSatCeiling;
+        public float partHueBand { get; set; } = ZonesJsonDefaults.PartHueBand;
         public float chromaCeiling { get; set; } = ZonesJsonDefaults.ChromaCeiling;
         public float outputSaturation { get; set; } = ZonesJsonDefaults.OutputSaturation;
         public bool highlightRecovery { get; set; } = ZonesJsonDefaults.HighlightRecovery;
@@ -264,6 +266,7 @@ namespace Iroca
                 shadowForgivenessSatMin = z.shadowForgivenessSatMin,
                 shadowValueFloor = z.shadowValueFloor,
                 partSatCeiling = z.partSatCeiling,
+                partHueBand = z.partHueBand,
                 chromaCeiling = z.chromaCeiling,
                 layerIndex = z.layerIndex,
                 useFloodFill = z.useFloodFill,
@@ -492,6 +495,7 @@ namespace Iroca
                         shadowForgivenessSatMin = z.shadowForgivenessSatMin,
                         shadowValueFloor = z.shadowValueFloor,
                         partSatCeiling = z.partSatCeiling,
+                        partHueBand = z.partHueBand,
                         chromaCeiling = z.chromaCeiling,
                         applyGlobals = tune.applyGlobals,
                         antiAliasCleanup = st.antiAliasCleanup,
