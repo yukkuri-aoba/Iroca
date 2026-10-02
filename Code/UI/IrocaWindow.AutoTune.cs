@@ -108,6 +108,7 @@ namespace Iroca
                 && Eq(zone.shadowDesaturation, r.shadowDesaturation)
                 && Eq(zone.shadowForgivenessSatMin, r.shadowForgivenessSatMin)
                 && Eq(zone.shadowValueFloor, r.shadowValueFloor)
+                && Eq(zone.partSatCeiling, r.partSatCeiling)
                 && Eq(zone.chromaCeiling, r.chromaCeiling);
         }
         // 証拠待ちの上限。埋め込み計算(テクスチャ毎 1 回)は CPU バックエンドの大きな

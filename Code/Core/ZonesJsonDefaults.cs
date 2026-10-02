@@ -43,6 +43,7 @@ namespace Iroca
         public const float ShadowForgivenessSatMin = 0.05f;
         // 陰影の明度下限。0 = 無効(ColorZone の既定と同じ)。証拠つき自動調整だけが導出する。
         public const float ShadowValueFloor = 0f;
+        public const float PartSatCeiling = 0f;
         // 彩度天井(グレーモード専用)。0 = 自動(ColorZone の既定と同じ)。証拠つき自動調整だけが導出する。
         public const float ChromaCeiling = 0f;
         public const float OutputSaturation = 1.0f;
