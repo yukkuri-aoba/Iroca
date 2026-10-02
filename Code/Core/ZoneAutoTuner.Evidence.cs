@@ -155,6 +155,15 @@ namespace Iroca
         // 余白 0.15 以下で quanstella-black の本体が欠け始める。下限側(彩度が低すぎる成分を落とす)は
         // feina-tops の白っぽい島を落として IoU −0.15 だったので置かない。
 
+        // ── 別パーツの色相幅(partHueBand)の導出(有彩地色のみ) ──
+        // 同じ成分単位のゲートの色相版。証拠ドメインの「サンプル色相からのずれ」の包絡(同じ P95 ÷ 0.75)を
+        // 幅にする。ドメイン自体が色相帯 AutoToneHueBand(0.06)で濾してあるので、幅は最大でも 0.08。
+        // 下限は隣接別パーツ検出と同じ ForeignGateMin(0.03、「締まった地色でもこの幅は同パーツ扱い」):
+        // ベタ塗りの島(包絡 0.006 など)でも、陰影で色相が数度回る同素材の別の島を落とさないため。
+        // 試算(2026-10-02、57 ケース): 下限 0.03 で改善 10 / 悪化 0、下限 0.02 で改善 13 / 悪化 0
+        // (赤いバンダナに対する刺繍の赤い糸 = ずれ 0.024 まで外れる)、下限なしでも悪化 0。
+        // 既存の定数に合わせて 0.03 を採る(未知のテクスチャで同素材を落とす側の失敗を避ける)。
+
         // ── tolerance の上限(証拠ドメインを覆える最小値 × 余白) ──
         // tolerance は全画面の「クリック色の近傍窓」の距離分布(P95)から導くので、窓に入る別素材
         // (同色相で彩度・明度が少し違うだけの隣の部位)が分布を押し広げる。証拠ドメイン(クリックした島の
@@ -337,6 +346,17 @@ namespace Iroca
                 // ── 5b. 別パーツの彩度上限: 同じ包絡 ÷ 余白を、連結成分単位の上限にする(有彩・無彩とも) ──
                 // 上限が 1 以上(包絡が飽和域に届く素材)なら落とせる成分が無いので置かない。
                 result.partSatCeiling = envelopeCeil < 1f ? envelopeCeil : 0f;
+
+                // ── 5c. 別パーツの色相幅(有彩のみ): 証拠ドメインの色相のずれの包絡 ÷ 余白、下限 ForeignGateMin ──
+                // 色相の基準は、適用後にゾーンのサンプルになる色(正規化が採用されれば地色、されなければクリック色)。
+                if (chromatic)
+                {
+                    bool repApplied = ColorDist(rep, zone.sampleColor) >= NormMinShift;
+                    Color.RGBToHSV(repApplied ? rep : zone.sampleColor, out float gateH, out _, out _);
+                    float hueEnvelope = DomainHueDistancePercentile(hsv, domain, gateH, EvChromaCeilPercentile);
+                    result.partHueBand = Mathf.Max(ForeignGateMin,
+                        hueEnvelope / (1f - EvChromaCeilHeadroomFrac));
+                }
             }
 
             // ── 2. 証拠による補完: 導出パラメータでセグメント芯(ドメイン)を覆えないなら、
@@ -431,7 +451,7 @@ namespace Iroca
                 + $" hlRec={result.highlightRecovery} samples={result.autoSamples?.Count ?? 0}"
                 + $" added={added} cov={cov:F4} tol={result.tolerance:F4}"
                 + $" vFloor={result.shadowValueFloor:F3} ceil={result.chromaCeiling:F3}"
-                + $" tolDerived={tolDerived:F4} partSat={result.partSatCeiling:F3}";
+                + $" tolDerived={tolDerived:F4} partSat={result.partSatCeiling:F3} partHue={result.partHueBand:F3}";
             Progress(0.98f);
 
             DecideGlobals(width, height, session, ref result);
@@ -541,6 +561,22 @@ namespace Iroca
                 if (cum >= target) return (i + 1) / (float)SB;
             }
             return 1f;
+        }
+
+        // 証拠ドメインの「基準の色相からのずれ」の指定パーセンタイル(別パーツの色相幅の導出用)。
+        private static float DomainHueDistancePercentile(HsvGrid hsv, List<GridPt> domain, float refH, float pct)
+        {
+            const int HB = 512;   // 色相距離 0..0.5 を 512 分割(1 bin ≈ 0.35°)
+            var bins = new int[HB];
+            foreach (var p in domain)
+                bins[Mathf.Clamp((int)(HueDistance(hsv.h[p.gi], refH) * 2f * HB), 0, HB - 1)]++;
+            int target = Mathf.CeilToInt(domain.Count * pct), cum = 0;
+            for (int i = 0; i < HB; i++)
+            {
+                cum += bins[i];
+                if (cum >= target) return (i + 1) / (2f * HB);
+            }
+            return 0.5f;
         }
 
         // 導出パラメータ(result)を実マッチャーに通し、証拠ドメインのうち選択される(strength > 0)

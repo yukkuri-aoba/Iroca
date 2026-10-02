@@ -180,6 +180,7 @@ namespace Iroca.DebugTools
                 shadowForgivenessSatMin = z.shadowForgivenessSatMin,
                 shadowValueFloor = z.shadowValueFloor,
                 partSatCeiling = z.partSatCeiling,
+                partHueBand = z.partHueBand,
                 chromaCeiling = z.chromaCeiling,
                 outputSaturation = z.outputSaturation,
                 highlightRecovery = z.highlightRecovery,

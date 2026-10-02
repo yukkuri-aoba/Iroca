@@ -299,7 +299,7 @@ namespace Iroca
         // 別マテリアルを除外でき、暗部代表がパーツ本来の暗い影になる。色だけでパーツ分離できない領域での
         // 過検出を防ぐ安全弁(汎化のため特定色・座標に依存せず、テクスチャ統計のみから決める)。
         private const float AutoToneHueBand   = 0.06f;  // 同パーツとみなす hue 近傍
-        private const float AutoToneSatFrac   = 0.35f;  // satFloor の下限 = sS*frac
+        private const float AutoToneSatFrac   = ColorZone.HueReliableSatFrac;  // satFloor の下限 = sS*frac
         private const float AutoTonePartSatRelax = 0.85f; // satFloor = max(sS*frac, nearClusterSatP10*relax)
         private const float AutoToneDarkPct   = 0.12f;  // 暗部代表のパーセンタイル
         private const float AutoToneMidPct    = 0.50f;  // 中間代表のパーセンタイル

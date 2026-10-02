@@ -130,6 +130,10 @@ namespace Iroca
         // (ZoneAutoTuner の AutoToneValueBins = 64 分割)の bin 境界で導くので、1 bin 幅未満の
         // 下限は導出の解像度に無い = 無効(0)として扱う。
         internal const float ShadowValueFloorMin = 1f / 64f;
+        // サンプル彩度に対してこの割合未満の画素は無彩寄りで、色相が信用できない(8bit の量子化で大きく振れる)。
+        // 自動調整のトーン抽出・証拠ドメインの彩度床(ZoneAutoTuner.AutoToneSatFrac)と、別パーツの色相幅
+        // (partHueBand)の「反証にしない画素」の判定で共有する。
+        internal const float HueReliableSatFrac = 0.35f;
         // ハイブリッド距離のハイライト距離免除の下限係数(Lerp(1,この値))。同色相・明部で最大
         // 1-0.3=70% まで距離を短縮する。シャドウ側距離短縮は廃止済み(暗部巻き込み防止)のため明部のみ
         // 非対称に温存している。
@@ -254,6 +258,17 @@ namespace Iroca
         // 実在する彩度包絡から導く(ZoneAutoTuner.Evidence.cs)。手動でも使える。
         [Range(0f, 1f)]
         public float partSatCeiling = 0f;
+
+        // 別パーツの色相幅(0 = 無効、有彩サンプルのみ)。明度下限・彩度上限と同じ連結成分単位のゲート:
+        // 選択の連結成分のうち、色相がサンプル色相から ±この幅に入る画素が 1/4 に満たない成分を落とす。
+        // マッチ距離は色相・彩度・明度の合算なので、tolerance の範囲で色相だけが少しずれた別パーツ
+        // (こげ茶のブーツに対する灰色がかったパンツ、紺の瞳に対する紫の影、格子柄のスカートに対する
+        // 別の布)が成分ごと入る。彩度が低く色相が不安定な画素(サンプル彩度 × HueReliableSatFrac 未満)は
+        // 反証にしない(帯の内側として数える)ので、素材自身の脱彩したツヤや深い影の成分は落ちない。
+        // 連続領域モード(useFloodFill)・有彩サンプルでのみ効く(グレーモードの色相は不定)。
+        // 証拠つき自動調整がクリックした島に実在する色相の広がりから導く(ZoneAutoTuner.Evidence.cs)。
+        [Range(0f, 0.5f)]
+        public float partHueBand = 0f;
 
         // 彩度天井(グレーモード専用、0 = 自動)。無彩/微 tint サンプルの選択から、サンプル彩度の
         // ChromaCeilSampleFrac 倍(下限 ChromaCeilAbs)を超える高彩度画素を「染められた別素材」として
@@ -411,6 +426,7 @@ namespace Iroca
             shadowForgivenessSatMin = d.shadowForgivenessSatMin;
             shadowValueFloor        = d.shadowValueFloor;
             partSatCeiling          = d.partSatCeiling;
+            partHueBand             = d.partHueBand;
             chromaCeiling           = d.chromaCeiling;
             chromaThreshold         = d.chromaThreshold;
             valueWeight             = d.valueWeight;

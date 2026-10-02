@@ -324,6 +324,7 @@ namespace Iroca
             sim.shadowForgivenessSatMin = result.shadowForgivenessSatMin;
             sim.shadowValueFloor        = result.shadowValueFloor;
             sim.partSatCeiling          = result.partSatCeiling;
+            sim.partHueBand             = result.partHueBand;
             sim.chromaCeiling           = result.chromaCeiling;
             sim.extraSamples = result.autoSamples ?? new List<Color>();
             sim.UpdateCacheIfNeeded();

@@ -224,6 +224,11 @@ namespace Iroca
             ? "彩度がこの値以下のピクセルが 4 分の 1 に満たない離れた領域は、同系色でも別のパーツとみなして選択から外します。\n色の近い、より鮮やかな別パーツ(濃いグレーのパンツに対する焦げ茶のブーツなど)の巻き込みを防ぎます。本体に地続きの鮮やかな陰影や装飾は残ります。\n自動調整(AI 提案あり)がクリックした部分に実在する彩度の広がりから導きます。連続領域モードでのみ効きます。0 = 無効\nデフォルト: 0"
             : "Detached regions where fewer than a quarter of the pixels are at or below this saturation are treated as a different part, even when the color is close.\nStops more vivid parts of a similar color (dark brown boots next to dark gray trousers) from being included; vivid shading and trim connected to the body are kept.\nAuto-tune with an AI proposal derives it from the saturation range actually present in the clicked part. Only in connected-region mode. 0 = off\nDefault: 0";
 
+        public static string PartHueBand => IsJapanese ? "別パーツの色相幅" : "Part Hue Band";
+        public static string PartHueBandTooltip => IsJapanese
+            ? "色相がスポイト色からこの幅に入るピクセルが 4 分の 1 に満たない離れた領域は、色が近くても別のパーツとみなして選択から外します。\n色相が少しずれた別パーツ(焦げ茶のブーツに対するグレーがかったパンツ、紺の瞳に対する紫の影など)の巻き込みを防ぎます。彩度の低いピクセルは色相が不安定なので判定に使いません。\n自動調整(AI 提案あり)がクリックした部分に実在する色相の広がりから導きます。連続領域モード・色のあるスポイトでのみ効きます。0 = 無効\nデフォルト: 0"
+            : "Detached regions where fewer than a quarter of the pixels fall within this hue distance from the sampled color are treated as a different part, even when the color is close.\nStops parts whose hue is slightly off (grayish trousers next to dark brown boots, a purple shadow next to a navy iris) from being included. Low-saturation pixels are not used because their hue is unstable.\nAuto-tune with an AI proposal derives it from the hue range actually present in the clicked part. Only in connected-region mode with a chromatic sample. 0 = off\nDefault: 0";
+
         // 「ハイライト」は独立した小見出しへ分けたので、ここは暗部と無彩色の扱いだけを指す
         // （2026-09-11 の詳細パラメータのグループ化。旧名は「シャドウ・ハイライト詳細設定」）。
         public static string ShadowHighlightSection => IsJapanese ? "暗部・無彩色" : "Shadows and neutrals";
