@@ -577,6 +577,57 @@ namespace Iroca
         /// maskExcluded: 除外マスク画素(null=マスクなし)。呼び出し側は矩形 ± (2·近傍半径+1) まで埋めること。
         /// 除外画素には書かず、背景の参照にも使わない(strength=0 だが背景ではない保護パーツでありうる)。
         /// </summary>
+        /// <summary>
+        /// 0/1 の値(src &gt; 0.5 を 1 と数える)の累積和を、範囲 [x0..x1]×[y0..y1] について作る。
+        /// sat[(y−y0)·satW + (x−x0)] = (x0,y0) からその画素までの矩形の個数(satW = x1−x0+1)。
+        /// 余白の行・列を持たないので、4K 全面でも配列プールの上限(4096²)に収まる。
+        /// 行ごとの累積は行並列、列方向の累積は列の帯ごとに並列(どちらも整数加算なので順序に依存しない)。
+        /// </summary>
+        private static void BuildCountSat(float[] src, int[] sat, int w, int x0, int y0, int x1, int y1,
+            ParallelOptions po)
+        {
+            int satW = x1 - x0 + 1, rows = y1 - y0 + 1;
+            Parallel.For(0, rows, po, r =>
+            {
+                int srcRow = (y0 + r) * w;
+                int o = r * satW;
+                int acc = 0;
+                for (int x = x0; x <= x1; x++)
+                {
+                    if (src[srcRow + x] > 0.5f) acc++;
+                    sat[o + (x - x0)] = acc;
+                }
+            });
+            const int Band = 64;
+            int bands = (satW + Band - 1) / Band;
+            Parallel.For(0, bands, po, b =>
+            {
+                int c0 = b * Band, c1 = Mathf.Min(satW, c0 + Band);
+                for (int r = 1; r < rows; r++)
+                {
+                    int o = r * satW, prev = o - satW;
+                    for (int c = c0; c < c1; c++) sat[o + c] += sat[prev + c];
+                }
+            });
+        }
+
+        /// <summary>(x, y) を中心とする ±r の窓のうち範囲 [x0..x1]×[y0..y1] に入る部分の個数(BuildCountSat の表から)。</summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static int CountInWindow(int[] sat, int satW, int x0, int y0, int x1, int y1, int x, int y, int r)
+        {
+            int xa = Mathf.Max(x0, x - r) - x0, xb = Mathf.Min(x1, x + r) - x0;
+            int ya = Mathf.Max(y0, y - r) - y0, yb = Mathf.Min(y1, y + r) - y0;
+            int s = sat[yb * satW + xb];
+            if (xa > 0) s -= sat[yb * satW + xa - 1];
+            if (ya > 0)
+            {
+                int up = (ya - 1) * satW;
+                s -= sat[up + xb];
+                if (xa > 0) s += sat[up + xa - 1];
+            }
+            return s;
+        }
+
         private static void AnalyzeMixtureBand(
             Color32[] originalPixels, float[] strength, int w, int h, int radius,
             in RecolorParams rc, float[] regMidMap, float regLmid,
@@ -598,17 +649,20 @@ namespace Iroca
             int sy0 = Mathf.Max(0, gy0 - B), sy1 = Mathf.Min(h - 1, gy1 + B);
 
             int len = w * h;
-            float[] sel = null, any = null, n3 = null, n5 = null, nB = null, nA = null;
+            // 窓和(近傍の選択数)は、範囲 S の整数の累積和から窓ごとに 4 回の読み出しで引く。sel / any は 0/1
+            // なので、以前の BoxFilterSum(浮動小数の窓和)は常に正確な整数で、ここで引く値と同じ。
+            // 累積和は範囲 S と同じ寸法 (satW × satH)。
+            int satW = sx1 - sx0 + 1, satH = sy1 - sy0 + 1;
+            float[] sel = null, any = null;
+            int[] satSel = null, satAny = null;
             try
             {
                 sel = s_floatPool.Rent(len);
                 any = s_floatPool.Rent(len);
-                n3 = s_floatPool.Rent(len);
-                n5 = s_floatPool.Rent(len);
-                nB = s_floatPool.Rent(len);
-                nA = s_floatPool.Rent(len);
+                satSel = s_intPool.Rent(satW * satH);
+                satAny = s_intPool.Rent(satW * satH);
                 var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-                var selL = sel; var anyL = any; var n3L = n3; var n5L = n5; var nBL = nB; var nAL = nA;
+                var selL = sel; var anyL = any;
                 Parallel.For(sy0, sy1 + 1, po, y =>
                 {
                     int rowOff = y * w;
@@ -621,10 +675,11 @@ namespace Iroca
                         anyL[i] = s > 0f ? 1f : 0f;
                     }
                 });
-                BoxFilterSum(sel, n3, w, h, 1, ct, gx0, gy0, gx1, gy1);
-                BoxFilterSum(sel, n5, w, h, R, ct, ex0, ey0, ex1, ey1);
-                BoxFilterSum(sel, nB, w, h, B, ct, ex0, ey0, ex1, ey1);
-                BoxFilterSum(any, nA, w, h, R, ct, ex0, ey0, ex1, ey1);
+                BuildCountSat(sel, satSel, w, sx0, sy0, sx1, sy1, po);
+                BuildCountSat(any, satAny, w, sx0, sy0, sx1, sy1, po);
+                var satSelL = satSel; var satAnyL = satAny;
+                // 窓(画像の内側に切った範囲)は常に S の内側か、S と同じく画像の端で切られる
+                // (S = 調べる範囲 ± 2B、窓は最大 ±B を G = 調べる範囲 ± B から取る)ので、S で切ってよい。
                 // ここから any は「面か」の覚え書きに使う(窓和を取り終えたので不要)。値 0/1 = まだ調べていない、
                 // FlatYes / FlatNo = 調べた結果。背景の候補を探す範囲(G)は any を埋めた範囲(S)の内側にある。
                 // 同じ画素を別の行のスレッドが同時に調べても、書く値は同じなので競合しない。
@@ -662,11 +717,13 @@ namespace Iroca
                             // 窓 ±R が全部選択済み = 内側。境界の帯ではない。
                             int cnt = (Mathf.Min(w - 1, x + R) - Mathf.Max(0, x - R) + 1)
                                     * (Mathf.Min(h - 1, y + R) - Mathf.Max(0, y - R) + 1);
-                            if (n5L[i] >= cnt) continue;
+                            if (CountInWindow(satSelL, satW, sx0, sy0, sx1, sy1, x, y, R) >= cnt) continue;
                         }
                         // 未選択・弱い選択の画素: 近く(±B)にまとまった選択があるか、選択(強さを問わず)から
                         // ±R 以内にあるものだけを調べる。
-                        else if (nBL[i] < minSolidNear && nAL[i] <= 0f) continue;
+                        int nBi = CountInWindow(satSelL, satW, sx0, sy0, sx1, sy1, x, y, B);
+                        if (!isSolid && nBi < minSolidNear
+                            && CountInWindow(satAnyL, satW, sx0, sy0, sx1, sy1, x, y, R) <= 0) continue;
                         if (includedPx != null && includedPx[i]) continue;
                         Color32 op = originalPixels[i];
                         if (op.a == 0) continue;
@@ -677,7 +734,7 @@ namespace Iroca
                         // 広げ、最初に見つかった輪で止める。それでも無ければ、未選択・弱い選択の画素に限り、
                         // 選択済み画素すべて(細い素材の線)で同じことをする。
                         int setN = 0;
-                        if (nBL[i] > 0f)
+                        if (nBi > 0)
                         {
                             for (int pass = 0; pass < 2 && setN == 0; pass++)
                             {
@@ -696,7 +753,7 @@ namespace Iroca
                                             if (d > R && ady < d && (xx > x ? xx - x : x - xx) < d) continue;
                                             int j = r2 + xx;
                                             if (j == i || selL[j] <= 0f) continue;
-                                            if (pass == 0 && n3L[j] < 9f) continue;
+                                            if (pass == 0 && CountInWindow(satSelL, satW, sx0, sy0, sx1, sy1, xx, yy, 1) < 9) continue;
                                             setIdx[setN++] = j;
                                         }
                                     }
@@ -881,10 +938,8 @@ namespace Iroca
             }
             finally
             {
-                if (nA != null) s_floatPool.Return(nA);
-                if (nB != null) s_floatPool.Return(nB);
-                if (n5 != null) s_floatPool.Return(n5);
-                if (n3 != null) s_floatPool.Return(n3);
+                if (satAny != null) s_intPool.Return(satAny);
+                if (satSel != null) s_intPool.Return(satSel);
                 if (any != null) s_floatPool.Return(any);
                 if (sel != null) s_floatPool.Return(sel);
             }
