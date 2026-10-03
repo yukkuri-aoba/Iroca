@@ -279,6 +279,28 @@ namespace Iroca.UnitRun
             Check.True(r.Segments.All(s => s.Lane != PreviewLatencyReport.LaneProxy), "no proxy lane");
         }
 
+        public static void Latency_DragFinish_ShowsWaitBeforeFull()
+        {
+            // ドラッグの追従: プロキシが 152 に出たあと、手を止めて 0.2 秒後にフル段を投入した。
+            var c = new PreviewLatencyCycle { Input = 100, FirstInput = 100, PrepStart = 110, PrepEnd = 112 };
+            SetStage(c.Proxy, 112, 113, 115, 135, 136, 140, 150, 152);
+            SetStage(c.Full, 340, 341, 345, 545, 550, 555, 560, 563);
+            var r = PreviewLatencyReport.Build(c, Hz);
+            Check.True(Near(52, r.FirstShownMs), "first shown is the drag proxy");
+            Check.True(Near(463, r.FinalShownMs), "final shown");
+            var wait = r.Segments.Single(s => s.Lane == PreviewLatencyReport.LaneFull && s.Kind == LatencyKind.Wait
+                                              && s.Name.StartsWith("待ち"));
+            Check.True(Near(40, wait.StartMs) && Near(240, wait.EndMs), $"wait 40..240, was {wait.StartMs}..{wait.EndMs}");
+        }
+
+        public static void Latency_ChainedFull_HasNoStartWait()
+        {
+            // 通常の直列ではプロキシの受け取りと同時にフル段を投入するので、待ちの区間は出さない。
+            var r = PreviewLatencyReport.Build(ProxyAndFullCycle(), Hz);
+            Check.True(!r.Segments.Any(s => s.Lane == PreviewLatencyReport.LaneFull && s.Name.StartsWith("待ち")),
+                "no start wait in the chained case");
+        }
+
         public static void Latency_Detail_WaitStartsAtFinalShown()
         {
             var c = ProxyAndFullCycle();

@@ -164,7 +164,15 @@ namespace Iroca
         [System.NonSerialized] private PreviewLatencyCycle _pendingLatency;
         [System.NonSerialized] private LatencyStageMarks _pendingLatencyStage;
         [System.NonSerialized] private double _lastDirtyTime;
+        // 手を止めてからフル解像度で確定するまでの待ち。ドラッグ中はこの間、プロキシだけを回して
+        // 追従する(大きいテクスチャのフル段は数百 ms かかり、毎フレーム回すと取り消しの繰り返しになる)。
         private const double PreviewDebounceSeconds = 0.2;
+        // ドラッグ中の追従プレビュー。_dragReq は直近の追従の入力、_dragReqStale はそれより後に
+        // 操作があったか。_dragRunning は走っているジョブが追従のもの(新しい操作で取り消さない)か。
+        [System.NonSerialized] private PreviewRequest _dragReq;
+        [System.NonSerialized] private bool _dragReqStale = true;
+        [System.NonSerialized] private bool _dragRunning;
+        private bool IsDragPreviewRunning => _dragRunning && (_proxyJob.IsRunning || _previewJob.IsRunning);
         // ペイント中のオーバーレイ再構築の最小間隔（10Hz）。
         // bool[] の clone とジョブ再スケジュールがメインスレッドで頻発すると
         // GC でフレームが詰まるため、ペイント中だけ意図的に間引く。
@@ -256,6 +264,10 @@ namespace Iroca
             _pendingProcessedDisplay = null;
             _pendingRawDisplay = null;
             _pendingDiffPixels = null;
+            // 追従プレビューの入力も旧画素のもの。フル段の確定に使い回さない。
+            _dragReq = null;
+            _dragReqStale = true;
+            _dragRunning = false;
 
             _cachedSourceTexture = null;
             _cachedSrcPixels = null;
@@ -428,10 +440,16 @@ namespace Iroca
             if (previewDirty)
             {
                 _lastDirtyTime = EditorApplication.timeSinceStartup;
+                _dragReqStale = true;
                 // プロキシ・フル両段をキャンセル。プロキシ進行中の再ダーティでは、プロキシの
                 // キャンセル(世代ぶつけ)で apply が抑止されフルが起動しない。
-                _proxyJob.Cancel();
-                _previewJob.Cancel();
+                // ただしドラッグ中の追従プレビューは取り消さない。ドラッグ中は値がほぼ毎フレーム
+                // 変わるので、取り消すと一度も画面に出ない。終わってから最新の値で回し直す。
+                if (!IsDragPreviewRunning)
+                {
+                    _proxyJob.Cancel();
+                    _previewJob.Cancel();
+                }
                 _host.RequestRepaint();
                 previewDirty = false;
             }
@@ -442,7 +460,17 @@ namespace Iroca
                           >= PreviewDebounceSeconds))
             {
                 _lastDirtyTime = 0;
-                GeneratePreviewAsync();
+                // 最後の追従プレビュー以降に操作が無ければ、その入力のままフル段だけで確定する
+                // (同じ入力のプロキシをやり直すと、確定がその分遅れるだけ)。
+                if (_dragReq != null && !_dragReqStale) FinishDragPreview();
+                else GeneratePreviewAsync(dragOnly: false);
+            }
+            else if (!_proxyJob.IsRunning && !_previewJob.IsRunning &&
+                     _lastDirtyTime > 0 && _dragReqStale)
+            {
+                // ドラッグ中(手を止めて PreviewDebounceSeconds 経つまで): プロキシだけを回して
+                // 絵を操作に追従させる。フル段は手を止めるか離してから。
+                GeneratePreviewAsync(dragOnly: true);
             }
             else if (_lastDirtyTime > 0 || _proxyJob.IsRunning || _previewJob.IsRunning)
             {

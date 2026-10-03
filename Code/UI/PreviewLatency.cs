@@ -156,6 +156,10 @@ namespace Iroca
             Add(LaneRequest, LatencyKind.Main, "準備(入力のスナップショット)", c.PrepStart, c.PrepEnd);
 
             AddStage(Add, LaneProxy, c.Proxy);
+            // ドラッグの追従では、プロキシを出したあと手を止める(0.2 秒)か離すまでフル段を始めない。
+            // 通常の直列(プロキシの受け取りで即フル段を投入)ではほぼ 0 なので、1 ms 未満は出さない。
+            if (c.Proxy.Shown && c.Full.Scheduled - c.Proxy.Applied >= frequency / 1000)
+                Add(LaneFull, LatencyKind.Wait, "待ち(確定の開始待ち)", c.Proxy.Applied, c.Full.Scheduled);
             AddStage(Add, LaneFull, c.Full);
             if (c.Detail.Shown)
             {

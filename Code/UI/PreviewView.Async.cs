@@ -12,7 +12,9 @@ namespace Iroca
     internal partial class PreviewView
     {
 
-        private void GeneratePreviewAsync()
+        // dragOnly: ドラッグ中の追従。プロキシ段だけを回し(縮小しないテクスチャはフル段がそのまま
+        // 軽いのでフル段)、入力を _dragReq に控える。確定は FinishDragPreview が同じ入力で行う。
+        private void GeneratePreviewAsync(bool dragOnly = false)
         {
             long prepStart = PreviewLatencyCycle.Now;
             var sourceTexture = _host.SourceTexture;
@@ -107,13 +109,42 @@ namespace Iroca
             // 無いので従来どおりフルのみ走らせる。
             // MarkDirtyFullRefine 経由(AI 提案コミット等)はプロキシを飛ばし、確定表示を保った
             // ままフルで差し替える(プロキシへ一瞬戻る「ちらつき」の防止)。
+            latency.PrepEnd = PreviewLatencyCycle.Now;
+            _dragRunning = dragOnly;
+            if (dragOnly)
+            {
+                // _skipProxyOnce はここでは消費しない(確定側で消える)。
+                _dragReq = req;
+                _dragReqStale = false;
+                if (scale < 1f)
+                    ScheduleProxyPreview(req, chainFull: false);
+                else
+                    ScheduleFullPreview(req);
+                return;
+            }
+            _dragReq = null;
             bool skipProxy = _skipProxyOnce;
             _skipProxyOnce = false;
-            latency.PrepEnd = PreviewLatencyCycle.Now;
             if (scale < 1f && !skipProxy)
-                ScheduleProxyPreview(req);
+                ScheduleProxyPreview(req, chainFull: true);
             else
                 ScheduleFullPreview(req);
+        }
+
+        /// <summary>
+        /// ドラッグの追従を確定する。最後の追従と同じ入力(スナップショット)でフル段だけを走らせるので、
+        /// 体感の計測も同じ周期のまま続く(初回表示 = 追従のプロキシ、確定 = このフル段)。
+        /// 呼び出し側は、その追従より後に操作が無いことを確かめてから呼ぶ。
+        /// </summary>
+        private void FinishDragPreview()
+        {
+            var req = _dragReq;
+            _dragReq = null;
+            _dragRunning = false;
+            _skipProxyOnce = false;
+            // 縮小しないテクスチャは、追従のときにフル段まで済んでいる。
+            if (req == null || req.latency.Full.Scheduled != 0) return;
+            ScheduleFullPreview(req);
         }
 
         // 段階的リファインの入力スナップショット。GeneratePreviewAsync が 1 回構築し、プロキシ段と
@@ -134,9 +165,10 @@ namespace Iroca
         }
 
         // 段階的リファイン第1段。ソースを ProxyMaxSize へ縮小してから処理し、概要を即表示する。
-        // 完了 apply でフル段(ScheduleFullPreview)を同一スナップショットでスケジュールする(直列)。
+        // chainFull なら完了 apply でフル段(ScheduleFullPreview)を同一スナップショットでスケジュールする(直列)。
+        // ドラッグ中の追従(chainFull=false)はプロキシで止め、確定は FinishDragPreview に任せる。
         // parityCache は公開しない(詳細プレビューはフル解像度の正確な統計を使い続ける)。
-        private void ScheduleProxyPreview(PreviewRequest req)
+        private void ScheduleProxyPreview(PreviewRequest req, bool chainFull)
         {
             // プロキシ寸法の丸めは ComputeFitSize が単一の正(ハーネスのプレビュー段検証と共有)。
             PixelProcessor.ComputeFitSize(req.srcW, req.srcH, IrocaConsts.Preview.ProxyMaxSize,
@@ -189,7 +221,7 @@ namespace Iroca
                     // (詳細プレビューの正確さを死守し、二重管理を避ける)。
                     _host.RequestRepaint();
                     // 続けてフル解像度で確定(同一スナップショット)。
-                    ScheduleFullPreview(req);
+                    if (chainFull) ScheduleFullPreview(req);
                 });
         }
 
