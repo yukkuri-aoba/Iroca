@@ -170,7 +170,7 @@ namespace Iroca
 
             // 内訳: 見出しラベル + 新規保存トグル + (新規時のみ)ファイル名 +
             //       インポート設定継承トグル + (ソロ中のみ)注意 HelpBox + 適用ボタン(高さ32) +
-            //       フォルダ/Project 行 + (エラー時のみ)HelpBox と「閉じる」
+            //       フォルダ/Project 行 + 非破壊の登録一式 + (エラー時のみ)HelpBox と「閉じる」
             float h = lineH;          // 見出しラベル
             h += lineH;               // saveAsNewFile トグル
             if (saveAsNewFile)
@@ -183,10 +183,28 @@ namespace Iroca
                 h += 40f;             // ソロ表示中の注意
             h += 32f + EditorGUIUtility.standardVerticalSpacing; // ApplyAndSave ボタン
             h += lineH;               // OpenFolder / Project で表示（1 行に横並び）
+            h += 4f;                  // 非破壊の前の Space(4)
+#if !IROCA_NDMF_PRESENT
+            h += NdmfMissingHelpBoxHeight();
+#endif
+            h += lineH;               // アバターに非破壊で登録
+            if (_host != null && _host.BoundRecipe != null)
+                h += lineH;           // 保存先のレシピ
             if (!string.IsNullOrEmpty(_lastError))
                 h += 40f + lineH;     // エラー HelpBox +「閉じる」ボタン
             return h;
         }
+
+#if !IROCA_NDMF_PRESENT
+        // NDMF 未導入の警告は文が長く、縦並び(狭幅)では 3 行以上に折り返すので固定の 40 では
+        // 足りない。ウィンドウ幅からアイコンと余白ぶんを引いた幅で実測し、40 を下限にする。
+        private static float NdmfMissingHelpBoxHeight()
+        {
+            float textW = Mathf.Max(100f, EditorGUIUtility.currentViewWidth - 60f);
+            float measured = EditorStyles.helpBox.CalcHeight(new GUIContent(Localization.NdmfMissing), textW);
+            return Mathf.Max(40f, measured) + EditorGUIUtility.standardVerticalSpacing;
+        }
+#endif
 
         private void ApplyRecolor()
         {
