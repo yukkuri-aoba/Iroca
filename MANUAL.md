@@ -393,7 +393,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 ### 非破壊で色替え（NDMF）
 
-元のテクスチャとマテリアルを書き換えずに色替えできます。アバターに「Iroca Recolor」コンポーネントを付けておくと、再生（Play）・アップロードのときだけ色替え済みのテクスチャに差し替わります。コンポーネントを外せば元に戻ります。
+元のテクスチャとマテリアルを書き換えずに色替えできます。アバターに「Iroca Recolor」コンポーネントを付けておくと、再生（Play）・アップロードのときだけ色替え済みのテクスチャに差し替わります。コンポーネントを外せば元に戻ります。編集中は、再生しなくてもシーンのアバターに同じ色替えが映ります（下の「シーンでのプレビュー」）。
 
 #### 必要なもの
 
@@ -415,11 +415,22 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 - 差し替え後のテクスチャは、元テクスチャのインポート設定（最大サイズ・圧縮形式・ミップマップ）に合わせます。PC と Android（Quest）で圧縮形式が違っても、それぞれに合わせます。
 - 「Iroca Recolor」のインスペクタに、対象になるマテリアルの数が出ます。0 個のときやレシピに問題があるときは警告が出ます。
 
+#### シーンでのプレビュー
+
+再生しなくても、シーンのアバターで色替え後の見た目を確かめられます。NDMF のプレビュー機能を使うので、元のテクスチャ・マテリアルは書き換えません。
+
+- いろかウィンドウで開いているテクスチャは、ウィンドウのプレビューと同じ内容がアバターに映ります。スライダーを動かしている間は粗い版が追従し、手を止めると細かい版に切り替わります。
+- 登録する前でも映ります。「Iroca Recolor」がまだ無いテクスチャは、それを使っているシーン上のすべての物に映るので、登録前に試せます。
+- 登録したテクスチャは、「Iroca Recolor」の範囲（再生・アップロードで色替えされる範囲）にだけ映ります。いろかウィンドウで編集していないときは、レシピの内容が映ります。
+- 有効なゾーンが 1 つも無いときは何も映しません。
+- このプレビューのオン/オフは `Tools > NDM Framework > Configure Previews` の「Iroca」の「色替え」で切り替えます。NDMF のプレビュー全体のオン/オフは `Tools > NDM Framework > Enable Previews` です。
+
 #### 注意
 
 - マテリアルを切り替えるアニメーション（衣装や表情の切り替えなど）で後から使われるマテリアルは、まだ色替えされません。
 - マテリアルが以前いろかで書き出した `_recolored.png` を指していると、元テクスチャが見つからず色替えされません。元のテクスチャに戻してから登録してください。
-- 最初の再生・アップロードは色替えの計算で数秒かかります。2 回目以降は `Library/Iroca` のキャッシュを使います。
+- 最初の再生・アップロードは色替えの計算で数秒かかります。2 回目以降は `Library/Iroca` のキャッシュを使います。シーンでのプレビューも同じキャッシュを使うので、登録済みのテクスチャを初めて映すときだけ数秒かかります。
+- 編集中のシーンでのプレビューは圧縮前のテクスチャで映すので、アップロード後の見た目とは圧縮のぶんだけわずかに違うことがあります。
 - 問題があると NDMF のエラー画面に「いろか: …」と出ます。元テクスチャが読めないなど、色替えできなかったときはアップロードが止まります（元の色のまま上がるのを防ぐため）。
 
 ---
@@ -877,7 +888,7 @@ If saving fails, the error stays in the Export section. The details are also wri
 
 ### Non-destructive recoloring (NDMF)
 
-You can recolor without changing the original texture or materials. With the "Iroca Recolor" component on the avatar, the recolored texture is swapped in only when entering Play mode or uploading. Remove the component to go back.
+You can recolor without changing the original texture or materials. With the "Iroca Recolor" component on the avatar, the recolored texture is swapped in only when entering Play mode or uploading. Remove the component to go back. While you edit, the same recoloring is also shown on the avatar in the Scene without entering Play mode (see "Preview in the Scene" below).
 
 #### Requirements
 
@@ -899,11 +910,22 @@ You can keep editing in the Iroca window after registering. Edits are also saved
 - The recolored texture follows the source texture's import settings (max size, compression format, mipmaps), for PC and Android (Quest) alike.
 - The inspector of "Iroca Recolor" shows how many materials are targeted, and warns when there are none or the recipe has a problem.
 
+#### Preview in the Scene
+
+You can check the recolored look on the avatar in the Scene without entering Play mode. It uses NDMF's preview, so the original textures and materials are not changed.
+
+- The texture open in the Iroca window is shown on the avatar exactly as in the window's preview. While you drag a slider, a coarse version follows; when you stop, it switches to the detailed one.
+- It works even before registering. A texture that has no "Iroca Recolor" yet is shown on everything in the scene that uses it, so you can try it out first.
+- A registered texture is shown only within the scope of "Iroca Recolor" (the part that is recolored on Play or upload). When the Iroca window is not editing it, the recipe is shown.
+- Nothing is shown while there is no enabled zone.
+- Turn this preview on or off with "Recolor" under "Iroca" in `Tools > NDM Framework > Configure Previews`. `Tools > NDM Framework > Enable Previews` turns all NDMF previews on or off.
+
 #### Notes
 
 - Materials that animations switch to later (outfit or expression toggles) are not recolored yet.
 - If a material points to an `_recolored.png` exported by Iroca earlier, the source texture is not found and nothing is recolored. Switch the material back to the original texture before registering.
-- The first Play mode or upload takes a few seconds to compute the colors. Later runs use the cache in `Library/Iroca`.
+- The first Play mode or upload takes a few seconds to compute the colors. Later runs use the cache in `Library/Iroca`. The Scene preview shares this cache, so only the first time a registered texture is shown takes a few seconds.
+- While you edit, the Scene preview shows the uncompressed texture, so it can differ very slightly from the uploaded avatar (by the compression).
 - Problems are shown in the NDMF error window as "Iroca: ...". If recoloring fails (for example, the source texture cannot be read), the upload is stopped so that the avatar does not go up in its original colors by mistake.
 
 ---

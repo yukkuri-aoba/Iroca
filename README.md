@@ -61,6 +61,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 
 #### 非破壊で色替え（NDMF）
 - 元のテクスチャとマテリアルを書き換えずに色替えできます。「アバターに非破壊で登録」でアバターや衣装に「Iroca Recolor」が付き、再生・アップロードのときだけ色替え済みのテクスチャに差し替わります。外せば元に戻ります
+- 再生しなくても、シーンのアバターに色替えが映ります（NDMF のプレビュー）。いろかで設定を動かすとアバターも追従し、登録前のテクスチャでも試せます
 
 #### その他
 - プレビュー：ズーム（Ctrl+スクロール・リセット）・前後比較・差分表示・押している間だけ元画像を表示
@@ -159,6 +160,7 @@ See the **[online manual](https://yukkuri-aoba.github.io/Iroca/manual/)** for de
 
 #### Non-destructive recoloring (NDMF)
 - Recolor without changing the original texture or materials. "Register to avatar (non-destructive)" adds "Iroca Recolor" to the avatar or outfit, and the recolored texture is swapped in only when entering Play mode or uploading. Remove it to go back
+- See the recoloring on the avatar in the Scene without entering Play mode (NDMF preview). The avatar follows as you change settings in Iroca, even for textures not registered yet
 
 #### Other
 - Preview: zoom (Ctrl+Scroll and Reset), before/after comparison, diff view, hold a button to see the original
