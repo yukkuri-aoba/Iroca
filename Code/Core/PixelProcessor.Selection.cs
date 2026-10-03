@@ -656,45 +656,90 @@ namespace Iroca
         /// </summary>
         private static void MarkOpenFromBorder(bool[] free, bool[] open, int w, int h, CancellationToken ct)
         {
-            int len = w * h;
-            int[] stack = s_intPool.Rent(len);   // パック座標 (y<<16)|x。各画素は 1 回だけ積む
+            // 画像端の free 画素から 4 近傍で辿れる free 画素の集合は、辿る順序に依存しない。行 run +
+            // union-find の連結成分で「画像端に触れる成分」を求め、その run を塗る(旧: 単一スレッドの
+            // 深さ優先探索で背景全体=数百万画素を辿っていた)。
+            // run は行内の左右連結そのもの、上下に x 範囲が重なる run の結合は縦の 4 近傍連結そのもの
+            // なので、成分の分割は探索と厳密に同じ=open の集合はビット単位で同じ。
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            var runCount = new int[h];
+            Parallel.For(0, h, po, y =>
+            {
+                int rb = y * w, n = 0, x = 0;
+                while (x < w)
+                {
+                    if (!free[rb + x]) { x++; continue; }
+                    n++;
+                    while (x < w && free[rb + x]) x++;
+                }
+                runCount[y] = n;
+            });
+            var rowOff = new int[h + 1];
+            for (int y = 0; y < h; y++) rowOff[y + 1] = rowOff[y] + runCount[y];
+            int R = rowOff[h];
+            if (R == 0) return;
+            int[] runX0 = s_intPool.Rent(R), runX1 = s_intPool.Rent(R), parent = s_intPool.Rent(R);
             try
             {
-                int sp = 0;
-                // 種: 画像端の未選択画素(旧実装の `y==0 || x==0 || y==h-1 || x==w-1` 条件と同じ)
-                for (int x = 0; x < w; x++)
+                Parallel.For(0, h, po, y =>
                 {
-                    int iTop = x, iBot = (h - 1) * w + x;
-                    if (free[iTop] && !open[iTop]) { open[iTop] = true; stack[sp++] = x; }
-                    if (free[iBot] && !open[iBot]) { open[iBot] = true; stack[sp++] = ((h - 1) << 16) | x; }
+                    int rb = y * w, k = rowOff[y], x = 0;
+                    while (x < w)
+                    {
+                        if (!free[rb + x]) { x++; continue; }
+                        int s0 = x;
+                        while (x < w && free[rb + x]) x++;
+                        runX0[k] = s0; runX1[k] = x - 1; k++;
+                    }
+                });
+                for (int r = 0; r < R; r++) parent[r] = r;
+                int Find(int a)
+                {
+                    while (parent[a] != a) { parent[a] = parent[parent[a]]; a = parent[a]; }
+                    return a;
                 }
+                for (int y = 0; y + 1 < h; y++)
+                {
+                    if ((y & 255) == 0) ct.ThrowIfCancellationRequested();
+                    int i = rowOff[y], iEnd = rowOff[y + 1];
+                    int j = rowOff[y + 1], jEnd = rowOff[y + 2];
+                    while (i < iEnd && j < jEnd)
+                    {
+                        if (runX0[i] <= runX1[j] && runX0[j] <= runX1[i])
+                        {
+                            int a = Find(i), b = Find(j);
+                            if (a != b) parent[a] = b;
+                        }
+                        if (runX1[i] < runX1[j]) i++; else j++;
+                    }
+                }
+                // 全 run の根を確定させ(以降は読むだけ)、画像端に触れる run の根に印を付ける。
+                var touches = new bool[R];
                 for (int y = 0; y < h; y++)
                 {
-                    int iL = y * w, iR = y * w + (w - 1);
-                    if (free[iL] && !open[iL]) { open[iL] = true; stack[sp++] = (y << 16); }
-                    if (free[iR] && !open[iR]) { open[iR] = true; stack[sp++] = (y << 16) | (w - 1); }
+                    bool edgeRow = y == 0 || y == h - 1;
+                    for (int k = rowOff[y]; k < rowOff[y + 1]; k++)
+                    {
+                        int root = Find(k);
+                        parent[k] = root;
+                        if (edgeRow || runX0[k] == 0 || runX1[k] == w - 1) touches[root] = true;
+                    }
                 }
-
-                int visited = 0;
-                while (sp > 0)
+                Parallel.For(0, h, po, y =>
                 {
-                    int packed = stack[--sp];
-                    int x = packed & 0xFFFF, y = packed >> 16;
-                    int i = y * w + x;
-                    if (x > 0 && free[i - 1] && !open[i - 1])
-                    { open[i - 1] = true; stack[sp++] = (y << 16) | (x - 1); }
-                    if (x < w - 1 && free[i + 1] && !open[i + 1])
-                    { open[i + 1] = true; stack[sp++] = (y << 16) | (x + 1); }
-                    if (y > 0 && free[i - w] && !open[i - w])
-                    { open[i - w] = true; stack[sp++] = ((y - 1) << 16) | x; }
-                    if (y < h - 1 && free[i + w] && !open[i + w])
-                    { open[i + w] = true; stack[sp++] = ((y + 1) << 16) | x; }
-                    if ((++visited & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
-                }
+                    int rb = y * w;
+                    for (int k = rowOff[y]; k < rowOff[y + 1]; k++)
+                    {
+                        if (!touches[parent[k]]) continue;
+                        for (int x = runX0[k]; x <= runX1[k]; x++) open[rb + x] = true;
+                    }
+                });
             }
             finally
             {
-                s_intPool.Return(stack);
+                s_intPool.Return(runX0);
+                s_intPool.Return(runX1);
+                s_intPool.Return(parent);
             }
         }
 
