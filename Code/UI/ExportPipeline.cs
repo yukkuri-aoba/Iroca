@@ -80,8 +80,9 @@ namespace Iroca
 
         /// <summary>
         /// 画素を PNG にする。Texture2D を介さない ImageConversion.EncodeArrayToPNG は
-        /// Unity 2022.3 ではスレッドセーフなので、バックグラウンドから呼んでよい。
-        /// ※ Unity 6+ ではメインスレッド必須に変わったため、移行時は呼び出し側をメインスレッドへ戻すこと。
+        /// スレッドセーフなので、バックグラウンドから呼んでよい。
+        /// Unity 2022.3.22f1 と 6000.0.67f1 の実機で、バックグラウンド実行がメインスレッドとバイト一致することを
+        /// EditMode テスト（EncodePng_RunsOnBackgroundThreadAndMatchesMainThread）で確認している。
         /// Color32[] は sRGB バイト値なので R8G8B8A8_SRGB を指定する（Texture2D(RGBA32).EncodeToPNG と同じ画素）。
         /// </summary>
         public static byte[] EncodePng(Color32[] pixels, int width, int height)

@@ -131,6 +131,25 @@ namespace Iroca.EditorTests
             finally { UnityEngine.Object.DestroyImmediate(tex); }
         }
 
+        [Test]
+        public void EncodePng_RunsOnBackgroundThreadAndMatchesMainThread()
+        {
+            // 書き出しは PNG 化をバックグラウンドで行う（ExportView）。その前提が実機で成り立つこと。
+            var px = Pattern(64, 48);
+            byte[] onMain = ExportPipeline.EncodePng(px, 64, 48);
+            byte[] onWorker = null;
+            Exception error = null;
+            var worker = new System.Threading.Thread(() =>
+            {
+                try { onWorker = ExportPipeline.EncodePng(px, 64, 48); }
+                catch (Exception e) { error = e; }
+            });
+            worker.Start();
+            Assert.IsTrue(worker.Join(30000), "バックグラウンドの PNG 化が終わらない");
+            Assert.IsNull(error, error?.ToString());
+            CollectionAssert.AreEqual(onMain, onWorker);
+        }
+
         // ─── 書き込みと取り込み ───
 
         [Test]

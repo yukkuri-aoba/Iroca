@@ -305,7 +305,7 @@ namespace Iroca
 
                     // PNG エンコードもバックグラウンドで行う(メインスレッドの終了時フリーズを解消。
                     // 旧版は Texture2D + EncodeToPNG をメインスレッドで実行し 4K で秒単位ブロックしていた)。
-                    // スレッド安全性と Unity 6 移行時の注意は ExportPipeline.EncodePng を参照。
+                    // スレッド安全性の根拠は ExportPipeline.EncodePng を参照。
                     byte[] pngData = ExportPipeline.EncodePng(pixels, texW, texH);
                     _exportProgress.Report(0.95f);
 
