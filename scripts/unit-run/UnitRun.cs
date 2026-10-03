@@ -405,6 +405,28 @@ namespace Iroca.UnitRun
             Check.True(PreviewLatencyReport.Build(c, Hz) == null, "view change with nothing on screen -> no report");
         }
 
+        public static void Latency_CoreReports_FollowShownStages()
+        {
+            var c = ProxyAndFullCycle();
+            c.Proxy.CoreReport = new PerfReport(20, 512, 512, new ZonePerfEntry[0]);
+            c.Full.CoreReport = new PerfReport(200, 4096, 4096, new ZonePerfEntry[0]);
+            var r = PreviewLatencyReport.Build(c, Hz);
+            Check.True(ReferenceEquals(c.Proxy.CoreReport, r.ProxyCore), "proxy core of this operation");
+            Check.True(ReferenceEquals(c.Full.CoreReport, r.FullCore), "full core of this operation");
+
+            // 確定前(ドラッグの追従): フル段の計測はワーカーが書き終えていても、画面に出るまで載せない。
+            c.Full.Applied = c.Full.UploadStart = c.Full.UploadEnd = 0;
+            r = PreviewLatencyReport.Build(c, Hz);
+            Check.True(ReferenceEquals(c.Proxy.CoreReport, r.ProxyCore) && r.FullCore == null,
+                "full core is not shown before the final");
+        }
+
+        public static void Latency_ViewChange_HasNoCoreReport()
+        {
+            var r = PreviewLatencyReport.Build(ViewChangeCycle(), Hz);
+            Check.True(r.ProxyCore == null && r.FullCore == null, "scroll / zoom runs no core");
+        }
+
         public static void InputClock_CarriesUnshownInputsAcrossCancelledCycles()
         {
             var clock = new PreviewInputClock();

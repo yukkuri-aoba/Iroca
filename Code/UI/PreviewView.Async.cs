@@ -192,6 +192,7 @@ namespace Iroca
                         req.settings, token,
                         debug: null, parityCache: null, selectionCache: proxySelCache);
                     marks.CoreEnd = PreviewLatencyCycle.Now;
+                    marks.CoreReport = DebugCaptureHooks.TakeThreadPerfReport();
 
                     // 表示寸法へ。ProxyMaxSize==MaxSize なら proxy==表示で再縮小なし(最頻ケース)。
                     bool needsResample = proxyW != req.prevW || proxyH != req.prevH;
@@ -244,6 +245,7 @@ namespace Iroca
                         req.settings, token,
                         debug: req.debugCap, selectionCache: selCache);
                     marks.CoreEnd = PreviewLatencyCycle.Now;
+                    marks.CoreReport = DebugCaptureHooks.TakeThreadPerfReport();
 
                     Color32[] processedDisplay = req.scale < 1f
                         ? PixelProcessor.BoxDownsample(pixels, req.srcW, req.srcH, req.prevW, req.prevH, req.scale)

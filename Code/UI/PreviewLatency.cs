@@ -28,6 +28,7 @@ namespace Iroca
         internal long Applied;     // メインスレッドで結果を受け取った(apply)
         internal long UploadStart; // テクスチャ転送の開始(次の OnGUI)
         internal long UploadEnd;   // テクスチャ転送の終了 = 画面に出た
+        internal PerfReport CoreReport; // この段の ProcessPixelsArray の計測(フェーズ・ゾーン別)。コアの無い段は null
 
         internal bool Shown => UploadEnd != 0;
     }
@@ -134,6 +135,8 @@ namespace Iroca
         internal double CoreMs;        // コア処理の合計
         internal int SourceW, SourceH;
         internal LatencySegment[] Segments;
+        // 画面に出た段のコア処理の計測(デバッグ表示のフェーズ・ゾーン別内訳)。走っていない・まだ出ていない段は null。
+        internal PerfReport ProxyCore, FullCore;
 
         /// <summary>確定表示(フル段)まで出たか。</summary>
         internal bool IsFinal => !double.IsNaN(FinalShownMs);
@@ -190,6 +193,9 @@ namespace Iroca
                 SourceW = c.SourceW,
                 SourceH = c.SourceH,
                 Segments = segs.ToArray(),
+                // 計測はワーカーが書くので、画面に出た(apply 以降の)段のものだけを読む。
+                ProxyCore = c.Proxy.Shown ? c.Proxy.CoreReport : null,
+                FullCore = c.Full.Shown ? c.Full.CoreReport : null,
             };
             r.FirstShownMs = !c.Proxy.Shown ? r.FinalShownMs
                 : r.IsFinal ? Math.Min(Ms(c.Proxy.UploadEnd), r.FinalShownMs)

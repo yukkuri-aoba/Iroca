@@ -15,9 +15,7 @@ namespace Iroca.DebugTools
         private const string PrefKeyThreads = "Iroca.Perf.ThreadOverride";
 
         private static bool s_prefsLoaded;
-        private static volatile bool s_hasReport;
-        private static PerfReport s_lastReport;
-        // 体感速度(操作 → 画面)。メインスレッドで届くので同期は要らない。
+        // 体感速度(操作 → 画面)と、同じ操作のコア処理の計測。メインスレッドで届くので同期は要らない。
         private static PreviewLatencyReport s_lastLatency;
         private static PreviewLatencyReport s_shownLatency;
 
@@ -31,14 +29,7 @@ namespace Iroca.DebugTools
         internal static void Register()
         {
             EnsurePrefsLoaded();
-            DebugCaptureHooks.OnPerfReport += HandleReport;
             PreviewLatency.OnReport += HandleLatency;
-        }
-
-        private static void HandleReport(PerfReport report)
-        {
-            s_lastReport = report;
-            s_hasReport = true;
         }
 
         private static void HandleLatency(PreviewLatencyReport report) => s_lastLatency = report;
@@ -46,6 +37,11 @@ namespace Iroca.DebugTools
         internal static void Draw(IrocaWindow host)
         {
             EnsurePrefsLoaded();
+            // 表示するレポートは Layout のときに固定する。レポートはプレビューの転送(同じ OnGUI の中)で
+            // 差し替わるので、Layout と Repaint で別のものを描くと行数が食い違って IMGUI が例外を出す。
+            if (Event.current.type == EventType.Layout) s_shownLatency = s_lastLatency;
+            var shown = s_shownLatency;
+
             EditorGUILayout.Space(4);
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
@@ -60,10 +56,10 @@ namespace Iroca.DebugTools
                     EditorStyles.boldLabel);
 
                 // 体感(操作 → 画面)。コア処理の時間とは別の見方で、待ち・受け渡し・転送・段の直列を含む。
-                DrawLatency(debug);
+                DrawLatency(shown, debug);
 
-                // 計測結果: 簡略時は合計だけ、デバッグモード時はフェーズ別/ゾーン別も表示。
-                DrawPerfReport(debug);
+                // 同じ操作のコア処理: 簡略時は段ごとの合計だけ、デバッグモード時はフェーズ別/ゾーン別も表示。
+                DrawPerfReport(shown, debug);
 
                 EditorGUILayout.Space(4);
                 DrawDebugModeToggle(host);
@@ -138,9 +134,11 @@ namespace Iroca.DebugTools
             }
         }
 
-        private static void DrawPerfReport(bool detailed)
+        // コア処理(ProcessPixelsArray)の実行時間。上の「体感」と同じ操作の、画面に出た段のものを出すので、
+        // 操作のたびに体感と一緒に差し替わる(エクスポートなどプレビュー以外の処理のものは混ぜない)。
+        private static void DrawPerfReport(PreviewLatencyReport r, bool detailed)
         {
-            if (!s_hasReport)
+            if (r == null)
             {
                 EditorGUILayout.LabelField(
                     "(プレビューを生成すると実行時間が表示されます)",
@@ -148,26 +146,37 @@ namespace Iroca.DebugTools
                 return;
             }
 
-            var rep = s_lastReport;
-            if (rep == null) return;
-
             EditorGUILayout.LabelField(
-                new GUIContent(
-                    $"コア処理(直近 1 回): {rep.TotalMs:F1} ms  ({rep.Width}×{rep.Height})",
-                    "ProcessPixelsArray 1 回分の実行時間と、処理した寸法。\n" +
-                    "プロキシ・フル・拡大表示のうち最後に走ったものです(寸法で見分けられます)。\n" +
+                new GUIContent("コア処理",
+                    "上の「体感」と同じ操作で走った ProcessPixelsArray の実行時間と、処理した寸法。\n" +
+                    "プロキシ: 縮小した概要の段。フル: 確定の段(書き出しと同じ解像度)。\n" +
+                    "拡大表示はフル段の出力を切り出すだけなので走りません(スクロール・ズームでは「なし」)。\n" +
                     "ゾーン数が多いほど比例して増加します。\n" +
                     "操作から画面に出るまでの待ち・受け渡し・転送は含みません(上の「体感」を参照)。"),
                 EditorStyles.boldLabel);
 
-            // 簡略表示（デバッグモード OFF）は合計だけで打ち切り。
+            var rep = r.FullCore ?? r.ProxyCore;
+            if (rep == null)
+            {
+                EditorGUILayout.LabelField(
+                    r.ViewChange ? "なし(拡大表示は確定結果の切り出しだけ)" : "なし",
+                    EditorStyles.miniLabel);
+                return;
+            }
+            if (r.ProxyCore != null) DrawCoreRow("プロキシ", r.ProxyCore);
+            if (r.FullCore != null) DrawCoreRow("フル", r.FullCore);
+
+            // 簡略表示（デバッグモード OFF）は段ごとの合計だけで打ち切り。
             if (!detailed) return;
+
+            // 内訳は最後に画面に出た段のもの(確定前のドラッグの追従ならプロキシ、確定したらフル)。
+            string stage = r.FullCore != null ? "フル" : "プロキシ";
 
             // フェーズ別内訳(全ゾーン合算)。どの段が重いかを把握して最適化対象を絞るための表示。
             if (rep.Phases != null && rep.Phases.Length > 0)
             {
                 EditorGUILayout.LabelField(
-                    new GUIContent("フェーズ別内訳",
+                    new GUIContent($"フェーズ別内訳({stage})",
                         "ProcessPixelsArray の各段(HSV/Match/FloodFill/穴埋め/境界/ブラー/デコンタミ/領域統計/再着色)\n" +
                         "の所要時間を全ゾーン合算で表示します。最も重い段が最適化の第一候補です。"),
                     EditorStyles.miniBoldLabel);
@@ -185,7 +194,7 @@ namespace Iroca.DebugTools
             if (rep.Zones == null || rep.Zones.Length == 0) return;
 
             EditorGUILayout.LabelField(
-                new GUIContent("ゾーン別内訳", "各ゾーンの処理時間。ゾーン数に比例して総時間が増えます。"),
+                new GUIContent($"ゾーン別内訳({stage})", "各ゾーンの処理時間。ゾーン数に比例して総時間が増えます。"),
                 EditorStyles.miniBoldLabel);
 
             float maxMs = 0f;
@@ -200,20 +209,15 @@ namespace Iroca.DebugTools
             }
         }
 
-        private static void DrawLatency(bool detailed)
+        private static void DrawLatency(PreviewLatencyReport r, bool detailed)
         {
-            // 表示するレポートは Layout のときに固定する。レポートはプレビューの転送(同じ OnGUI の中)で
-            // 差し替わるので、Layout と Repaint で別のものを描くと行数が食い違って IMGUI が例外を出す。
-            if (Event.current.type == EventType.Layout) s_shownLatency = s_lastLatency;
-            var r = s_shownLatency;
             if (r == null) return;
 
             EditorGUILayout.LabelField(
                 new GUIContent("体感(操作 → 画面)",
                     "プレビューの再生成を起こした最後の操作(スライダー・クリックなど)から、結果が画面に出るまでの時間。\n" +
                     "拡大表示中のスクロール・ズームは、拡大表示が作り直されて画面に出るまでを測ります。\n" +
-                    "下の「コア処理」は ProcessPixelsArray 1 回分で、待ち・受け渡し・転送や、" +
-                    "プロキシ → フル → 拡大表示の段が順に走ることは含みません。"),
+                    "下の「コア処理」は同じ操作で走った ProcessPixelsArray の時間だけで、待ち・受け渡し・転送は含みません。"),
                 EditorStyles.boldLabel);
 
             string line;
@@ -251,10 +255,16 @@ namespace Iroca.DebugTools
             DrawLatencyValueRow("UI が止まった時間", r.MainThreadMs,
                 "メインスレッドの処理(入力のスナップショット・テクスチャ転送)の合計。\n" +
                 "この間は Editor の操作・再描画が止まります。");
-            DrawLatencyValueRow("コア処理の合計", r.CoreMs,
-                "この 1 回の操作で走った ProcessPixelsArray(プロキシ・フル)の合計。\n" +
-                "拡大表示はフル段の出力を切り出すだけなので含みません(スクロール・ズームでは 0)。");
             EditorGUILayout.Space(4);
+        }
+
+        private static void DrawCoreRow(string label, PerfReport rep)
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField(label, GUILayout.Width(150));
+                EditorGUILayout.LabelField($"{rep.TotalMs:F1} ms  ({rep.Width}×{rep.Height})", EditorStyles.miniLabel);
+            }
         }
 
         // 起点(最後の操作)からの時間軸に、段ごとの区間を 1 行ずつ並べる。区間にカーソルを

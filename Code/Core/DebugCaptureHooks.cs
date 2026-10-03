@@ -43,9 +43,25 @@ namespace Iroca
         /// </summary>
         internal static event Action<PerfReport> OnPerfReport;
 
+        // このスレッドで最後に出たレポート(TakeThreadPerfReport で取り出す)。
+        [ThreadStatic] private static PerfReport t_lastPerfReport;
+
         internal static void RaisePerfReport(PerfReport report)
         {
+            t_lastPerfReport = report;
             OnPerfReport?.Invoke(report);
+        }
+
+        /// <summary>
+        /// 呼び出したスレッドで最後に出たレポートを取り出す(取り出したら空にする)。ProcessPixelsArray は
+        /// 呼び出したスレッドでレポートを出すので、呼んだ直後に取ればその呼び出しのものになる
+        /// (エクスポートなど別のスレッドの処理と重なっても取り違えない)。
+        /// </summary>
+        internal static PerfReport TakeThreadPerfReport()
+        {
+            var report = t_lastPerfReport;
+            t_lastPerfReport = null;
+            return report;
         }
 
         /// <summary>
