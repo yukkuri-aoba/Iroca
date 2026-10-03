@@ -167,6 +167,14 @@ namespace Iroca
         [System.NonSerialized] private Color32[] _fullOutputSource;
         // 保留中の結果が確定(フル段)か。確定なら拡大表示をすぐ作り直す(ApplyPendingPreview)。
         [System.NonSerialized] private bool _pendingIsFinal;
+        // 保留中の結果がドラッグの追従(プロキシだけ)か。
+        [System.NonSerialized] private bool _pendingIsDrag;
+        // 拡大中のドラッグでは、古い拡大表示(前の確定から切り出したもの)を隠して、追従しているプロキシを
+        // 見せる(古いくっきりした絵の下に新しい絵が隠れて、ドラッグ中に画面が止まって見えないように)。
+        // _fullOutputFreshSinceHide: 隠したあとにフル段が確定した(切り出し元が新しくなった)。
+        // 隠している間は古いフル段の出力から切り出し直さない(古い色の拡大表示が戻ってしまう)。
+        [System.NonSerialized] private bool _detailHiddenForDrag;
+        [System.NonSerialized] private bool _fullOutputFreshSinceHide;
         // 保留中の結果がどの再生成のどの段か(体感速度の計測用。転送が済んだ時刻を打つ)。
         [System.NonSerialized] private PreviewLatencyCycle _pendingLatency;
         [System.NonSerialized] private LatencyStageMarks _pendingLatencyStage;
@@ -282,6 +290,8 @@ namespace Iroca
             _pendingDiffPixels = null;
             // 追従プレビューの入力とフル段の出力も旧画素のもの。使い回さない。
             InvalidateFullOutput();
+            _detailHiddenForDrag = false;
+            _fullOutputFreshSinceHide = false;
             _dragReq = null;
             _dragReqStale = true;
             _dragRunning = false;
@@ -449,7 +459,11 @@ namespace Iroca
 
             // バックグラウンド詳細プレビュータスクからの結果を適用
             if (_detailView.HasPendingResult)
+            {
                 _detailView.ApplyPendingResult();
+                // 隠している間は新しい切り出ししか作らない(下の条件)ので、届いたら見せてよい。
+                _detailHiddenForDrag = false;
+            }
             _detailView.ApplyPendingDiff();
 
             if (previewDirty)
@@ -629,6 +643,7 @@ namespace Iroca
             if (detailActive)
             {
                 if (!_detailView.detailJob.IsRunning &&
+                    (!_detailHiddenForDrag || _fullOutputFreshSinceHide) &&
                     _detailView.lastDetailDirtyTime > 0 &&
                     (EditorApplication.timeSinceStartup - _detailView.lastDetailDirtyTime)
                         >= DetailPreviewView.DetailDebounceSeconds &&
@@ -795,7 +810,7 @@ namespace Iroca
                 // 「元を表示」で押下中は、詳細クロップ(再着色後のみ保持)を使わず低解像度の
                 // 変更前を出す。クロップの raw をテクスチャ化して持つとズーム中の VRAM が倍に
                 // なるため、押している間だけ解像度が落ちることを許容する(ツールチップに明記)。
-                if (detailActive && _detailView.detailPreviewTexture != null && !peekOriginal)
+                if (detailActive && _detailView.detailPreviewTexture != null && !peekOriginal && !_detailHiddenForDrag)
                 {
                     EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
 

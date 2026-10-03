@@ -209,6 +209,7 @@ namespace Iroca
                 {
                     marks.Applied = PreviewLatencyCycle.Now;
                     _pendingIsFinal          = false;
+                    _pendingIsDrag           = !chainFull;
                     _pendingLatency          = req.latency;
                     _pendingLatencyStage     = marks;
                     _pendingRawDisplay       = result.raw;
@@ -261,6 +262,7 @@ namespace Iroca
                     // 次フレームの ApplyPendingPreview だが、差は 1 フレームなので近似で計上。
                     MaskSuggestPerf.NotifyFullPreviewApplied();
                     _pendingIsFinal          = true;
+                    _pendingIsDrag           = false;
                     _pendingLatency          = req.latency;
                     _pendingLatencyStage     = marks;
                     _pendingRawDisplay       = result.raw;
@@ -271,6 +273,7 @@ namespace Iroca
                     // 書き出しと同じ計算結果そのものになる(切り出しを計算し直さない)。
                     _fullOutput       = result.full;
                     _fullOutputSource = req.srcPixels;
+                    _fullOutputFreshSinceHide = true;
                     // ジョブ側で生成した raw をキャッシュへ確定する(まだ未確定で、対象テクスチャと
                     // 寸法が変わっていない場合のみ。新しいミスで上書きされていれば触らない)。
                     if (_cachedRawDisplay == null && _cachedSrcPixels == req.srcPixels &&
@@ -297,6 +300,7 @@ namespace Iroca
             int w = _pendingPrevW;
             int h = _pendingPrevH;
             bool isFinal = _pendingIsFinal;
+            bool isDrag = _pendingIsDrag;
             var latency = _pendingLatency;
             var stage   = _pendingLatencyStage;
             _pendingProcessedDisplay = null;
@@ -332,6 +336,14 @@ namespace Iroca
             // 拡大表示(詳細クロップ)は確定(フル段)の出力から切り出すので、確定を出したときだけ
             // 作り直させる。待たない: 詳細の 0.3 秒の待ちはスクロール・ズーム中の作り直しを間引く
             // ためのもの。プロキシの直後は何もしない(切り出し元のフル段の出力がまだ前の状態のまま)。
+            if (isDrag)
+            {
+                // ドラッグの追従: 古い拡大表示を隠してこのプロキシを見せる。走っている拡大表示のジョブは
+                // 古い切り出し元のものなので取り消す(確定の後で作り直す)。
+                _detailHiddenForDrag = true;
+                _fullOutputFreshSinceHide = false;
+                _detailView.detailJob.Cancel();
+            }
             if (isFinal)
             {
                 double now = EditorApplication.timeSinceStartup;
