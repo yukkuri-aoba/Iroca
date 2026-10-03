@@ -6,7 +6,7 @@
   },
   "cases": {
     "aa_red_green_to_blue": {
-      "sha256": "dc9ffd34f576917b491c8e7a2e0e8d88595e023f1fe1481e2ea45f5ade14bc0c",
+      "sha256": "9cb1b26294478a9b9df22c9d2f562ee4c47813846bf666ee09c250cde0887063",
       "shape": [
         48,
         48,
@@ -70,7 +70,7 @@
       ]
     },
     "edge_gray_texture_red_sample": {
-      "sha256": "e5e97b1ceb0800eee5dd85eca72b43e3e37e19a5ea6b251df3dbef5bc2e03a9e",
+      "sha256": "3217db4c5a88f5c3ab195be78ad77679ddc5d405b44b0871da677f709cdb0dd1",
       "shape": [
         48,
         48,
@@ -86,7 +86,7 @@
       ]
     },
     "edge_row_1x64": {
-      "sha256": "8df99841ed27c63890a4022faac68aff1bdb2ab71152f1b24a4f6c08bda1004d",
+      "sha256": "2e517430c1e564eb01bda5ee832ae69bfe0133538830c219bbd7c366918de78a",
       "shape": [
         1,
         64,

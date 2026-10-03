@@ -366,6 +366,14 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
   再現し、表示解像度で出力）の乖離（選択 IoU・色差）を degradation-only で凍結する。
   opt-out は `VACC_PROXY_PARITY=0`、再凍結は `python dev_safe/measure_proxy_parity.py
   --baseline`（乖離を意図して受け入れる変更のときのみ。理由をコミットに残す）。
+- **縁の混色の契約**（2026-10-03〜）: 選択の境目の画素（素材と隣の混色）は、混色帯モード（境界クリーンアップ
+  ON・エッジぼかし 0・有彩サンプルのゾーン。`PixelProcessor.AnalyzeMixtureBand`）が p' = p + α·(F'−F) で塗り、
+  このモードでは穴埋め・境界回復（緩和マッチ）を行わない。`test_edge_mixture` が正解つきの合成シーン
+  （`dev_safe/Tests/regression/edge_scenes.py`: 層をスーパーサンプル合成して縮小し、正解 = 入力 + α·(M'−F)。
+  M' は素材だけの参照帯をパイプライン自身が塗った色 = 再着色の設計には依らず、縁の扱いだけを測る）を、ワンショット
+  （証拠つき自動調整）の設定・tolerance を上げた設定・0.81 で実 C# に通し、縁の平均誤差の上限・素材の外を変えない
+  （輪が出ない）・内側の取りこぼし無しを契約にする。別の DLL と並べるときは
+  `python dev_safe/scripts/edge_bench.py --dll <dll> --ref-dll <基準 dll> --hi-tol --tol 0.81`。
 - **連続適用セッションの状態持ち越し契約**（2026-08-23〜）: `test_session_state` が
   Harness `--session`（SelectionCache をステップ間で持ち越し、ゾーンは name で同定）で
   マスク塗り→設定変更→ゾーン追加の往復を再現し、各ステップ出力が新規単発実行と
