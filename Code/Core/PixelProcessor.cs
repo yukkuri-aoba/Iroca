@@ -56,7 +56,7 @@ namespace Iroca
             SpSelCacheStore = 14, SpRejectNeutral = 15, SpSolidify = 16, SpDecontamExcl = 17,
             SpDecontam = 18, SpWashSample = 19, SpAnchor = 20, SpRegionLRange = 21, SpMedianLMap = 22,
             SpRecolorBBox = 23, SpRecolorLoop = 24, SpAchromaFringe = 25, SpPaletteHash = 26,
-            SpPaletteIds = 27, SpPaletteRemap = 28, SubPhaseCount = 29;
+            SpPaletteIds = 27, SpPaletteRemap = 28, SpMixBand = 29, SubPhaseCount = 30;
         private static readonly string[] s_perfSubPhaseNames =
         {
             "Alloc", "MatchLoop", "ChromaCeiling", "EnclosedNeutral",
@@ -65,6 +65,7 @@ namespace Iroca
             "SelCacheStore", "RejectNeutral", "Solidify", "DecontamExcl",
             "Decontam", "WashSample", "Anchor", "RegionLRange", "MedianLMap",
             "RecolorBBox", "RecolorLoop", "AchromaFringe", "PaletteHash", "PaletteIds", "PaletteRemap",
+            "MixBand",
         };
 
         // packed mask の内容ハッシュ(FNV-1a 64bit)。マスク編集を選択キーに反映するため。
@@ -83,7 +84,7 @@ namespace Iroca
         private static string BuildSelectionKey(
             ColorZone z, float edgeFeather, int aaCleanup, int holeFillPasses, int holeFillMinNeighbors,
             float relaxedSatMin, float relaxedSatRamp, ulong[] commonMask, ulong[] zoneMask,
-            ulong[] zoneInclude, int maskW, int maskH)
+            ulong[] zoneInclude, int maskW, int maskH, bool mixtureBand)
         {
             var sb = new StringBuilder(320);
             void F(float v) { sb.Append(BitConverter.SingleToInt32Bits(v)); sb.Append(','); }
@@ -104,6 +105,9 @@ namespace Iroca
             B(z.highlightRecovery); B(z.highlightBandExpand);
             F(edgeFeather); I(aaCleanup); I(holeFillPasses); I(holeFillMinNeighbors);
             F(relaxedSatMin); F(relaxedSatRamp);
+            // 混色帯モード(IsMixtureBandZone)では穴埋め・境界回復を行わない = 選択そのものが変わる。
+            // 境界クリーンアップの ON/OFF で切り替わるので、キーに入れる。
+            B(mixtureBand);
             // マスク内容(common + zone)。ビット列のハッシュだけでは、同じビット列を別の寸法で
             // 解釈したケースを区別できない（マスクは packed ulong[] で寸法が別持ちのため、
             // 寸法が変われば同じビット列でも指す画素が変わる）。寸法もキーに入れる
@@ -224,6 +228,8 @@ namespace Iroca
             // 「重なった部分は上位ゾーンのみ適用」というレイヤー排他を実現する。
             // 単一ゾーン/非重複ピクセルでは常に 0 のままで、従来挙動は不変。
             float[] claimed = null;
+            // 混色帯の被覆率(AnalyzeMixtureBand の出力)。初めて要るゾーンで借り、末尾の finally で返す。
+            float[] mixAlpha = null;
             // 色の種類の表(PixelProcessor.Palette.cs)。色だけで決まる計算を色ごとに 1 回で済ませる。
             // 種類が多い画像では null(画素ごとに計算する)。どちらでも出力はビット単位で同じ。
             ColorPalette palette = null;
@@ -305,6 +311,11 @@ namespace Iroca
 
                 // Parallel.For に入る前にキャッシュを確定させてホットループ内の条件分岐を排除
                 zone.UpdateCacheIfNeeded();
+                // 混色帯モード(境界クリーンアップ ON かつ有彩サンプル): 選択は主マッチの結果だけにして(緩和マッチの
+                // 穴埋め・境界回復は行わない)、境界の混色は再着色の直前に被覆率で塗る(PixelProcessor.Decontam.cs の
+                // AnalyzeMixtureBand)。緩和マッチは選択を縁から一定の幅だけ広げるので、素材でない地まで拾うと
+                // パーツの周りに輪が出る。
+                bool zMixMode = IsMixtureBandZone(zone, useDecontamination, edgeFeather);
                 long _tZone = Stopwatch.GetTimestamp();
                 _tp = _tZone;
                 _sub.Restart();
@@ -337,7 +348,7 @@ namespace Iroca
                     {
                         selKey = BuildSelectionKey(zone, edgeFeather, antiAliasCleanup, holeFillPasses,
                             holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp, commonMask, zoneMask,
-                            zoneInclude, maskW, maskH);
+                            zoneInclude, maskW, maskH, zMixMode);
                         selCached = selectionCache.TryGet(zone.id, selKey, w, h,
                             out cachedStrength, out cachedKeep, out cachedForced);
                     }
@@ -647,7 +658,7 @@ namespace Iroca
                         Mathf.Clamp01((gsS - zone.chromaThreshold) / 0.10f),
                         Mathf.Clamp01((gsV - 0.05f) / 0.15f));
                     float rgSampR = zone.sampleColor.r, rgSampG = zone.sampleColor.g, rgSampB = zone.sampleColor.b;
-                    if (!selCached && hasPostBox)
+                    if (!selCached && hasPostBox && !zMixMode)
                     {
                         bool[] fillAllowed = s_boolPool.Rent(len);
                         try
@@ -687,7 +698,7 @@ namespace Iroca
 
                     // 1c. 境界復元：マッチしたピクセルに隣接するマッチしないピクセルを再評価
                     //     古い固定低彩度閾値を使用して、正しい段階的な強度を与える
-                    if (!selCached && antiAliasCleanup > 0 && hasPostBox)
+                    if (!selCached && antiAliasCleanup > 0 && hasPostBox && !zMixMode)
                     {
                         RecoverBoundaryEdges(strength, w, h, pixH, pixS, pixV,
                             zone.sampleColor, zone.tolerance, zone.edgeSoftness, zone.valueWeight,
@@ -874,7 +885,8 @@ namespace Iroca
                             zone.sampleColor, zone.targetColor,
                             decontaminationRadius, effInteriorThreshold,
                             aaMask, decontaminatedPixels, hasPostBox, cancellationToken,
-                            deconExcluded, ppMinX, ppMinY, ppMaxX, ppMaxY);
+                            deconExcluded, ppMinX, ppMinY, ppMaxX, ppMaxY,
+                            solidifyOnly: zMixMode);
                         _sub.Mark(SpDecontam);
                         debug?.RecordDecontamination(zone.id, aaMask, w, h);
                     }
@@ -1063,6 +1075,45 @@ namespace Iroca
                         zSL, zTL, zSC, zOkChromaMaxMag, zValueBlend, zEffShadowDesat,
                         zSS, zTR, zTG, zTB, zWR, zWG, zWB, zWV,
                         zApplyWash, zAchromaWeight, zOsat, zHasRegL, zRegLlo, zRegLhi);
+                    // 混色帯(選択境界の AA・にじみ)の解析。境界クリーンアップ ON かつ有彩サンプルのゾーンでは、
+                    // 境界の画素を「被覆率ぶんだけ隣の素材の変化を足す」合成の式で塗る(PixelProcessor.Decontam.cs
+                    // の AnalyzeMixtureBand)。対象の画素は mixAlpha ≥ 0、色は decontaminatedPixels に入り、
+                    // 下のループが読む。無彩サンプル(グレーモード相当)は色度で被覆率を測れないので従来の経路。
+                    float[] mixAlphaLocal = null;
+                    if (zMixMode && rcMaxX >= 0)
+                    {
+                        if (mixAlpha == null) mixAlpha = s_floatPool.Rent(len);
+                        bool[] mixExcluded = null;
+                        if (commonMask != null || zoneMask != null)
+                        {
+                            // 解析が読むのは bbox ± (2·探索半径 + 1)。その範囲の除外フラグを埋める。
+                            if (decontamMaskExcluded == null) decontamMaskExcluded = new bool[len];
+                            mixExcluded = decontamMaskExcluded;
+                            var mex = mixExcluded;
+                            int mm = 2 * Mathf.Max(MixBandRadius + 1, decontaminationRadius) + 1;
+                            int my0 = Mathf.Max(0, rcMinY - mm), my1 = Mathf.Min(h - 1, rcMaxY + mm);
+                            int mx0 = Mathf.Max(0, rcMinX - mm), mx1 = Mathf.Min(w - 1, rcMaxX + mm);
+                            Parallel.For(my0, my1 + 1, po, y =>
+                            {
+                                int yf = y + originY;
+                                int rowOff = y * w;
+                                for (int x = mx0; x <= mx1; x++)
+                                    mex[rowOff + x] = IsExcludedCombined(x + originX, yf, fullW, fullH,
+                                        commonMask, zoneMask, maskW, maskH);
+                            });
+                        }
+                        AnalyzeMixtureBand(originalPixels, strengthForRecolor, w, h, decontaminationRadius,
+                            in rcParams, zRegMidMap, zRegLmid,
+                            MostChromaticSample(zone), includedPx,
+                            decontaminatedPixels, mixAlpha,
+                            rcMinX, rcMinY, rcMaxX, rcMaxY,
+                            out int mixMinX, out int mixMinY, out int mixMaxX, out int mixMaxY,
+                            mixExcluded, cancellationToken);
+                        // 帯は選択の外側にも伸びるので、ループの範囲を広げる。
+                        rcMinX = mixMinX; rcMinY = mixMinY; rcMaxX = mixMaxX; rcMaxY = mixMaxY;
+                        mixAlphaLocal = mixAlpha;
+                    }
+                    _sub.Mark(SpMixBand);
                     // 再着色色は画素の色(RGBA と色から求めた V)とゾーン定数だけで決まる。成分別 L マップ
                     // (無彩パス)を使わないゾーンでは色ごとに 1 回だけ求めて配る。表の大きさが再着色の
                     // 範囲より大きい(小さなロゴ等)ときは画素ごとに求めたほうが安いので使わない。
@@ -1096,11 +1147,40 @@ namespace Iroca
                         {
                             int i = rowOff + x;
                             float s = strengthForRecolor[i];
-                            if (s <= 0.001f) continue;
+                            float maRaw = mixAlphaLocal != null ? mixAlphaLocal[i] : -1f;
+                            // 解析が「素材そのもの」と判定した弱い選択の画素: 全強度で再着色する。
+                            if (maRaw >= MixAsMaterial) { s = 1f; maRaw = -1f; }
+                            bool mix = maRaw >= 0f;
+                            if (s <= 0.001f && !mix) continue;
                             // 上位(リスト上位)ゾーンが既に占有した分を差し引いた実効強度 es。
                             // 残り(room)が無ければこのゾーンは適用しない(= 上位が排他)。
                             float room = 1f - claimedLocal[i];
                             if (room <= 0.001f) continue;
+                            if (mix)
+                            {
+                                // 混色帯: 被覆率 α のぶんだけ、隣の素材の変化(decontaminatedLocal − 元)を足す。
+                                // 占有も α だけ。残り(1−α)は背景のぶんで、下位ゾーンが自分の被覆率ぶんを重ねられる。
+                                float ma = maRaw;
+                                float a = ma < room ? ma : room;
+                                if (a > 0f)
+                                {
+                                    Color32 mo = originalPixels[i], mt = decontaminatedLocal[i];
+                                    if (a >= ma && claimedLocal[i] <= 0.0001f)
+                                        pixels[i] = mt;
+                                    else
+                                    {
+                                        float k = a / ma;
+                                        Color32 cur = pixels[i];
+                                        pixels[i] = new Color32(
+                                            (byte)Mathf.Clamp(Mathf.RoundToInt(cur.r + (mt.r - mo.r) * k), 0, 255),
+                                            (byte)Mathf.Clamp(Mathf.RoundToInt(cur.g + (mt.g - mo.g) * k), 0, 255),
+                                            (byte)Mathf.Clamp(Mathf.RoundToInt(cur.b + (mt.b - mo.b) * k), 0, 255),
+                                            cur.a);
+                                    }
+                                    claimedLocal[i] = Mathf.Min(1f, claimedLocal[i] + a);
+                                }
+                                continue;
+                            }
                             float es = s < room ? s : room;
                             bool topMost = claimedLocal[i] <= 0.0001f;
                             if (aaMaskLocal != null && aaMaskLocal[i])
@@ -1149,7 +1229,8 @@ namespace Iroca
                     // 無彩(白↔黒)再着色のエッジに残る「地色の残り」フチ消し。マッチ境界の外側 2px に残る
                     // 背景より明るい混色画素を α 分解で背景へ寄せ、暗い再着色色に対する明るいフチを消す。
                     // 有彩(zAchromaWeight≈0)では呼ばれず完全 no-op。共有のマッチ/合成経路は変更しない。
-                    if (zAchromaWeight > 1e-4f && rcMaxX >= 0)
+                    // 混色帯の解析が走ったゾーン(有彩サンプル)では、外側の縁もそちらが合成の式で塗り終えている。
+                    if (zAchromaWeight > 1e-4f && rcMaxX >= 0 && mixAlphaLocal == null)
                     {
                         // 除外マスク画素の位置をフチ消しへ渡す。渡さないとフチ消しは
                         //   (a) 除外画素を BG ドナーに数えて BG 推定をサンプル色で汚染し
@@ -1200,8 +1281,22 @@ namespace Iroca
                         float zoneSS = zSS;
                         bool zoneApplyWash = zone.applyHighlightWash;
                         var aaMaskForBranch = aaMask;
+                        var mixForBranch = mixAlphaLocal;
+                        int bx0 = rcMinX, by0 = rcMinY, bx1 = rcMaxX, by1 = rcMaxY;
                         Parallel.For(0, len, po, i =>
                         {
+                            // 混色帯で塗った画素(選択の外側も含む)は、合成で塗る分岐として記録する。
+                            // mixAlpha が有効なのは解析した矩形の中だけ。
+                            if (mixForBranch != null)
+                            {
+                                int bx = i % w, by = i / w;
+                                if (bx >= bx0 && bx <= bx1 && by >= by0 && by <= by1 && mixForBranch[i] >= 0f
+                                    && mixForBranch[i] < MixAsMaterial)
+                                {
+                                    branchMap[i] = (byte)(mixForBranch[i] > 0f ? DebugBranch.Decontaminate : DebugBranch.None);
+                                    return;
+                                }
+                            }
                             if (strengthForRecolor[i] <= 0.001f)
                             {
                                 branchMap[i] = (byte)DebugBranch.None;
@@ -1242,6 +1337,7 @@ namespace Iroca
             finally
             {
                 palette?.Release();
+                if (mixAlpha != null) s_floatPool.Return(mixAlpha);
                 if (claimed != null) s_floatPool.Return(claimed);
                 if (pixV != null) s_floatPool.Return(pixV);
                 if (pixS != null) s_floatPool.Return(pixS);

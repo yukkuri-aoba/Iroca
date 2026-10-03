@@ -201,11 +201,11 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 #### AA境界クリーンアップ
 
-アンチエイリアス境界に残るドットを回収するパス数です。0 でオフ、3 が標準（既定）、4〜5 で強めです。
+アンチエイリアス境界に残るドットを回収するパス数です。0 でオフ、3 が標準（既定）、4〜5 で強めです。色のついたパーツを境界クリーンアップ（下）ON・エッジぼかし 0 で変えるときは使いません（縁は境界クリーンアップが塗ります）。白・黒・灰のパーツと、境界クリーンアップ OFF またはエッジぼかしを使うときに効きます。
 
 #### 境界クリーンアップ（α分解）
 
-境界に出る薄汚れた中間色（ハロー）を防ぎます。既定は ON で、通常はそのままで構いません。
+境界の混ざった色（アンチエイリアス・にじみ）を、パーツの色が混ざっている割合だけ色替えします。縁に元の色が点々と残る、許容範囲を上げるとパーツの周りに輪（ゴースト）が出る、境界が薄汚れた中間色（ハロー）になる、を防ぎます。既定は ON で、通常はそのままで構いません。
 
 #### 詳細設定（折りたたみ）
 
@@ -217,7 +217,9 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 | 穴埋め最小隣接数 | 穴を埋めるのに必要な一致隣接ピクセル数。低いほど積極的に埋める | 4 |
 | 境界復元 彩度最小 | 境界復元時の彩度最小閾値 | 0.02 |
 | 境界復元 彩度ランプ | 境界復元時の彩度ランプ幅 | 0.08 |
-| α分解 近傍半径 | α分解で背景色を推定する近傍の半径 | 4 |
+| α分解 近傍半径 | 境界の画素について、パーツの色と背景の色を探す近傍の半径 | 4 |
+
+穴埋め・境界復元の 4 つは、AA境界クリーンアップと同じく、色のついたパーツを境界クリーンアップ ON・エッジぼかし 0 で変えるときは使いません。
 
 ---
 
@@ -441,7 +443,9 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 #### 境界に細かいノイズが残る
 
-彩度制限を 0.1〜0.4 に下げます（そのぶんはみ出しやすくなります）。あわせて AA境界クリーンアップを 3〜5、エッジぼかしを 0.5〜1.5、エッジ柔らかさを 0.3〜0.7 のいずれかで試します。
+まず加工設定の境界クリーンアップ（α分解）が ON か確かめます。それでも残るなら、彩度制限を 0.1〜0.4 に下げます（そのぶんはみ出しやすくなります）。あわせてエッジぼかしを 0.5〜1.5、エッジ柔らかさを 0.3〜0.7 のいずれかで試します。白・黒・灰のパーツでは AA境界クリーンアップを 3〜5 にするのも効きます。
+
+パーツの中の淡い部分（金属の反射・淡い縁取りなど）が元の色のまま残るときは、許容範囲ではなく彩度制限を下げます。許容範囲を上げても、色の薄い部分は選ばれません。
 
 #### 境界がギザギザしている・硬い
 
@@ -683,11 +687,11 @@ Blurs the selection boundary so edge colors blend in (0-5).
 
 #### AA Edge Cleanup
 
-Number of passes that recover dots left at anti-aliased boundaries. 0 is off, 3 is standard (default), 4-5 is strong.
+Number of passes that recover dots left at anti-aliased boundaries. 0 is off, 3 is standard (default), 4-5 is strong. It is not used when a colored part is recolored with Edge Decontamination (below) ON and Edge Feather at 0, which handles the edges instead. It applies to white, black, and gray parts, and when Edge Decontamination is OFF or Edge Feather is used.
 
 #### Edge Decontamination
 
-Prevents the muddy mid-color (halo) that appears at edges. It is ON by default and usually fine to leave that way.
+Recolors the mixed colors at the boundary (anti-aliasing, bleeding) only by the share of the part's color in them. This prevents dots of the original color along edges, rings (ghosts) around the part when you raise the Tolerance, and a muddy mid-color (halo) at edges. It is ON by default and usually fine to leave that way.
 
 #### Details (collapsed)
 
@@ -699,7 +703,9 @@ The defaults are usually fine.
 | Hole Fill Min Neighbors | Matched neighbors needed to fill a hole. Lower fills more aggressively | 4 |
 | Boundary Sat Min | Minimum saturation threshold for boundary recovery | 0.02 |
 | Boundary Sat Ramp | Saturation ramp width for boundary recovery | 0.08 |
-| Decontamination Radius | Neighborhood radius used to estimate the background color | 4 |
+| Decontamination Radius | Radius searched around a boundary pixel for the part's color and the background color | 4 |
+
+Like AA Edge Cleanup, the four hole-fill and boundary-recovery settings are not used when a colored part is recolored with Edge Decontamination ON and Edge Feather at 0.
 
 ---
 
@@ -921,7 +927,9 @@ Separate parts that share the same color on an atlas (such as pants and boots) c
 
 #### Fine noise remains at boundaries
 
-Lower Saturation Strictness to 0.1-0.4 (with a bit more bleed). Along with that, try AA Edge Cleanup at 3-5, Edge Feather at 0.5-1.5, or Edge Softness at 0.3-0.7.
+First check that Edge Decontamination is ON in the Processing settings. If noise still remains, lower Saturation Strictness to 0.1-0.4 (with a bit more bleed). Along with that, try Edge Feather at 0.5-1.5 or Edge Softness at 0.3-0.7. For white, black, and gray parts, AA Edge Cleanup at 3-5 also helps.
+
+If pale areas inside the part (metal reflections, pale trims, and so on) keep their original color, lower Saturation Strictness instead of raising the Tolerance. Raising the Tolerance does not select faintly colored areas.
 
 #### Boundaries look jagged or hard
 

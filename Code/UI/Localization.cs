@@ -138,18 +138,18 @@ namespace Iroca
 
         public static string AntiAliasCleanup => IsJapanese ? "AA境界クリーンアップ" : "AA Edge Cleanup";
         public static string AntiAliasCleanupTooltip => IsJapanese
-            ? "アンチエイリアス境界の残りドットを除去するパス数。\n0 = オフ、3 = 標準（推奨）、5 = 最大\n値を大きくすると境界の回収範囲が広がります。"
-            : "Number of passes to recover anti-alias boundary pixels.\n0 = off, 3 = normal (recommended), 5 = max\nHigher values recover more edge pixels.";
+            ? "アンチエイリアス境界の残りドットを除去するパス数。\n0 = オフ、3 = 標準（推奨）、5 = 最大\n値を大きくすると境界の回収範囲が広がります。\n色のついたパーツを境界クリーンアップ ON・エッジぼかし 0 で変えるときは使いません（縁は境界クリーンアップが塗ります）。"
+            : "Number of passes to recover anti-alias boundary pixels.\n0 = off, 3 = normal (recommended), 5 = max\nHigher values recover more edge pixels.\nNot used when a colored part is recolored with Edge Decontamination ON and Edge Feather at 0 (that handles the edges).";
 
         public static string UseDecontamination => IsJapanese ? "境界クリーンアップ（α分解）" : "Edge Decontamination";
         public static string UseDecontaminationTooltip => IsJapanese
-            ? "AA境界で α 分解＋再合成を行い、薄汚れた中間色（halo）の発生を防ぎます。\n推奨: ON"
-            : "Reconstruct AA boundary via alpha decomposition to prevent muddy halo at edges.\nRecommended: ON";
+            ? "境界の混ざった色（アンチエイリアス・にじみ）を、パーツの色が混ざっている割合だけ色替えします。\n縁に元の色が残る、パーツの周りに輪が出る、境界が薄汚れた中間色になる、を防ぎます。\n推奨: ON"
+            : "Recolors the mixed colors at the boundary (anti-aliasing, bleeding) only by the share of the part's color in them.\nPrevents leftover original color along edges, rings around parts, and a muddy halo.\nRecommended: ON";
 
         public static string DecontaminationRadius => IsJapanese ? "α分解 近傍半径" : "Decontamination Radius";
         public static string DecontaminationRadiusTooltip => IsJapanese
-            ? "α分解で背景色を推定する近傍ピクセルの半径。\n小さい = シャープな境界に対応、大きい = ノイズの多い背景に対応\n標準: 4"
-            : "Radius of neighborhood used to estimate background color for decontamination.\nSmaller = sharper boundaries, larger = noisier backgrounds\nDefault: 4";
+            ? "境界の画素について、パーツの色と背景の色を探す近傍の半径。\n小さい = シャープな境界に対応、大きい = ノイズの多い背景に対応\n標準: 4"
+            : "Radius searched around a boundary pixel for the part's color and the background color.\nSmaller = sharper boundaries, larger = noisier backgrounds\nDefault: 4";
 
         public static string AdvancedMode => IsJapanese ? "アドバンスモード" : "Advanced Mode";
         public static string AdvancedModeTooltip => IsJapanese
@@ -171,23 +171,23 @@ namespace Iroca
 
         public static string HoleFillPasses => IsJapanese ? "穴埋めパス数" : "Hole Fill Passes";
         public static string HoleFillPassesTooltip => IsJapanese
-            ? "アンチエイリアス端の孤立ドットを除去するパス数。\n多いほど大きなギャップを埋めますが、過剰に埋める可能性があります。\nデフォルト: 3"
-            : "Passes to fill isolated dots at anti-aliased edges.\nMore passes fill larger gaps but may over-fill.\nDefault: 3";
+            ? "アンチエイリアス端の孤立ドットを除去するパス数。\n多いほど大きなギャップを埋めますが、過剰に埋める可能性があります。\nデフォルト: 5\n色のついたパーツを境界クリーンアップ ON・エッジぼかし 0 で変えるときは使いません（縁は境界クリーンアップが塗ります）。"
+            : "Passes to fill isolated dots at anti-aliased edges.\nMore passes fill larger gaps but may over-fill.\nDefault: 5\nNot used when a colored part is recolored with Edge Decontamination ON and Edge Feather at 0 (that handles the edges).";
 
         public static string HoleFillMinNeighbors => IsJapanese ? "穴埋め最小隣接数" : "Hole Fill Min Neighbors";
         public static string HoleFillMinNeighborsTooltip => IsJapanese
-            ? "穴を埋めるために必要なマッチした隣接ピクセルの最小数。\n低い値 = より積極的に穴を埋める\n高い値 = より保守的\nデフォルト: 4"
-            : "Minimum matched neighbors required to fill a hole.\nLower = more aggressive filling\nHigher = more conservative\nDefault: 4";
+            ? "穴を埋めるために必要なマッチした隣接ピクセルの最小数。\n低い値 = より積極的に穴を埋める\n高い値 = より保守的\nデフォルト: 4\n色のついたパーツを境界クリーンアップ ON・エッジぼかし 0 で変えるときは使いません（縁は境界クリーンアップが塗ります）。"
+            : "Minimum matched neighbors required to fill a hole.\nLower = more aggressive filling\nHigher = more conservative\nDefault: 4\nNot used when a colored part is recolored with Edge Decontamination ON and Edge Feather at 0 (that handles the edges).";
 
         public static string RelaxedSatMin => IsJapanese ? "境界復元 彩度最小" : "Boundary Sat Min";
         public static string RelaxedSatMinTooltip => IsJapanese
-            ? "境界復元時の彩度最小閾値。\n低い値 = より多くの境界ピクセルを回収\n高い値 = より厳格な回収\nデフォルト: 0.02"
-            : "Minimum saturation threshold for boundary recovery.\nLower = recover more boundary pixels\nHigher = stricter recovery\nDefault: 0.02";
+            ? "境界復元時の彩度最小閾値。\n低い値 = より多くの境界ピクセルを回収\n高い値 = より厳格な回収\nデフォルト: 0.02\n色のついたパーツを境界クリーンアップ ON・エッジぼかし 0 で変えるときは使いません（縁は境界クリーンアップが塗ります）。"
+            : "Minimum saturation threshold for boundary recovery.\nLower = recover more boundary pixels\nHigher = stricter recovery\nDefault: 0.02\nNot used when a colored part is recolored with Edge Decontamination ON and Edge Feather at 0 (that handles the edges).";
 
         public static string RelaxedSatRamp => IsJapanese ? "境界復元 彩度ランプ" : "Boundary Sat Ramp";
         public static string RelaxedSatRampTooltip => IsJapanese
-            ? "境界復元時の彩度ランプ幅。\n大きい値 = より段階的な遷移\n小さい値 = よりシャープな境界\nデフォルト: 0.08"
-            : "Saturation ramp width for boundary recovery.\nLarger = more gradual transition\nSmaller = sharper boundary\nDefault: 0.08";
+            ? "境界復元時の彩度ランプ幅。\n大きい値 = より段階的な遷移\n小さい値 = よりシャープな境界\nデフォルト: 0.08\n色のついたパーツを境界クリーンアップ ON・エッジぼかし 0 で変えるときは使いません（縁は境界クリーンアップが塗ります）。"
+            : "Saturation ramp width for boundary recovery.\nLarger = more gradual transition\nSmaller = sharper boundary\nDefault: 0.08\nNot used when a colored part is recolored with Edge Decontamination ON and Edge Feather at 0 (that handles the edges).";
 
         public static string ValueWeight => IsJapanese ? "明度重み" : "Value Weight";
         public static string ValueWeightTooltip => IsJapanese

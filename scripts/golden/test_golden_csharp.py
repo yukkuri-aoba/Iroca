@@ -112,14 +112,15 @@ def test_alpha_is_preserved(label, rgba, zone, settings, outputs):
 _NEUTRAL = [c for c in _CASES if c[0] == "edge_gray_texture_red_sample"]
 
 
-@pytest.mark.xfail(strict=False, reason=(
-    "既知の未達（2026-09-24 発見）: 有彩スポイトに無関係な明るい無彩画素が動く。"
-    "デコンタミ(AA 縁の除去)が 222 前後の灰を最大 16 段階暗くし、それ以外の段も 235 の白を"
-    "最大 4 段階動かす。既存 golden の chroma_on_white_to_blue でも白背景が最大 5 段階動いている。"
-    "直すと XPASS で浮かぶので、そのとき xfail を外すこと"))
 @pytest.mark.parametrize("label,rgba,zone,settings", [pytest.param(*c, id=c[0]) for c in _NEUTRAL])
 def test_neutral_texture_untouched_by_chromatic_sample(label, rgba, zone, settings, outputs):
-    """無彩だけのテクスチャに有彩スポイトを当てても、何も変わらないのが正。"""
+    """無彩だけのテクスチャに有彩スポイトを当てても、何も変わらないのが正。
+
+    2026-09-24 に見つけた未達(デコンタミが 222 前後の灰を最大 16 段階暗くし、235 の白も最大 4 段階動かす)は、
+    2026-10-03 の混色帯(境界の画素を被覆率で塗る。旧デコンタミは内部の固めだけ)で解消し、xfail を外した。
+    同じ時に記録した chroma_on_white_to_blue の白地の動き(最大 5 段階)は、彩度ガード OFF で主マッチが白を
+    選ぶもの(縁の処理の外)で、今も残る。
+    """
     out = outputs(label, rgba, zone, settings)
     diff = abs(out[..., :3].astype(int) - rgba[..., :3].astype(int)).max(axis=-1)
     assert int(diff.max()) == 0, (
