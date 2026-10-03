@@ -161,6 +161,10 @@ namespace Iroca
         [System.NonSerialized] private Color32[] _pendingProcessedDisplay;
         [System.NonSerialized] private Color32[] _pendingRawDisplay;
         [System.NonSerialized] private int _pendingPrevW, _pendingPrevH;
+        // 直近に確定したフル段のフル解像度の出力と、その元画素。拡大表示(詳細クロップ)はここから
+        // 切り出す。元画素が変わったら使わない(InvalidateSourceCache / InvalidateFullOutput)。
+        [System.NonSerialized] private Color32[] _fullOutput;
+        [System.NonSerialized] private Color32[] _fullOutputSource;
         // 保留中の結果が確定(フル段)か。確定なら拡大表示をすぐ作り直す(ApplyPendingPreview)。
         [System.NonSerialized] private bool _pendingIsFinal;
         // 保留中の結果がどの再生成のどの段か(体感速度の計測用。転送が済んだ時刻を打つ)。
@@ -232,6 +236,16 @@ namespace Iroca
 
         public void MarkDirty() => previewDirty = true;
 
+        /// <summary>
+        /// 保持しているフル段の出力を捨てる(拡大表示の切り出し元にしない)。処理したゾーンの集合が
+        /// 変わったとき(ソロ表示の切り替え)に呼ぶ。次のフル段の確定までは拡大表示を作り直さない。
+        /// </summary>
+        public void InvalidateFullOutput()
+        {
+            _fullOutput = null;
+            _fullOutputSource = null;
+        }
+
         // 次回の再生成でプロキシ段(低解像度の概要表示)を使わない 1 回限りのフラグ。
         // GeneratePreviewAsync が消費してリセットする。
         [System.NonSerialized] private bool _skipProxyOnce;
@@ -254,9 +268,8 @@ namespace Iroca
         /// ソース画素が変わったとき（テクスチャ差し替え・セッションリセット・エクスポートで
         /// 元ファイルを上書き）に、その画素から導かれた状態を漏れなく捨てる。
         /// ここで捨て損ねた状態は「プレビュー＝実出力」の一致を破る:
-        /// 走行中ジョブは旧画素の結果を新テクスチャの表示へ apply し、フル段は旧 parityCache を
-        /// 公開する。詳細プレビューはその parityCache を寸法一致だけで採用するため、同寸法の
-        /// 別テクスチャへ切り替えると旧テクスチャの選択・色をズーム画面に転写する。
+        /// 走行中ジョブは旧画素の結果を新テクスチャの表示へ apply し、保持しているフル段の出力を
+        /// 残すと、拡大表示(詳細クロップ)が旧テクスチャの色替え結果を切り出して見せる。
         /// </summary>
         public void InvalidateSourceCache()
         {
@@ -267,7 +280,8 @@ namespace Iroca
             _pendingProcessedDisplay = null;
             _pendingRawDisplay = null;
             _pendingDiffPixels = null;
-            // 追従プレビューの入力も旧画素のもの。フル段の確定に使い回さない。
+            // 追従プレビューの入力とフル段の出力も旧画素のもの。使い回さない。
+            InvalidateFullOutput();
             _dragReq = null;
             _dragReqStale = true;
             _dragRunning = false;
@@ -286,8 +300,6 @@ namespace Iroca
             _selectionCache?.Clear();
             _proxySelectionCache?.Clear();
 
-            // フル画像で解いた keep / 再着色統計も旧画素由来。
-            if (_host != null) _host.previewParityCache = null;
 
             // 旧テクスチャのクロップが新テクスチャ上に重なって見えるのを防ぐ
             // （詳細ジョブのキャンセルと表示テクスチャの解放を含む）。
@@ -616,8 +628,7 @@ namespace Iroca
 
             if (detailActive)
             {
-                // フル段の処理中は始めない(詳細は確定の選択・統計を使うので、確定で取り消される)。
-                if (!_detailView.detailJob.IsRunning && !_previewJob.IsRunning &&
+                if (!_detailView.detailJob.IsRunning &&
                     _detailView.lastDetailDirtyTime > 0 &&
                     (EditorApplication.timeSinceStartup - _detailView.lastDetailDirtyTime)
                         >= DetailPreviewView.DetailDebounceSeconds &&
@@ -625,7 +636,8 @@ namespace Iroca
                 {
                     var latency = _detailView.TakeLatencyFor(_detailView.lastDetailDirtyTime);
                     _detailView.lastDetailDirtyTime = 0;
-                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, _trueSourcePixels, scale, previewZoom, _previewScrollPos, _detailView.lastViewportW, _detailView.lastViewportH, latency);
+                    var processedFull = ReferenceEquals(_fullOutputSource, _trueSourcePixels) ? _fullOutput : null;
+                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, _trueSourcePixels, processedFull, scale, previewZoom, _previewScrollPos, _detailView.lastViewportW, _detailView.lastViewportH, latency);
                 }
                 else if (_detailView.lastDetailDirtyTime > 0 || _detailView.detailJob.IsRunning)
                 {

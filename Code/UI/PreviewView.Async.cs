@@ -98,10 +98,6 @@ namespace Iroca
                 maskSnap = maskSnap, zonesSnapshot = zonesSnapshot,
                 settings = RecolorSettings.From(session),
                 debugCap = debugCap,
-                // 連続領域モードの keep と再着色アンカー/wash/領域L統計をフル画像で解いて公開する
-                // (詳細プレビューが転写して出力色まで一致させる)。プロキシ段は公開しない。
-                // sourceId を刻んでおき、詳細側が「同寸法の別テクスチャ」を取り違えないようにする。
-                parityCache = new PreviewParityCache { sourceId = sourceTexture.GetInstanceID() },
                 latency = latency,
             };
 
@@ -162,7 +158,6 @@ namespace Iroca
             public System.Collections.Generic.List<ColorZone> zonesSnapshot;
             public RecolorSettings settings;
             public IDebugCapture debugCap;
-            public PreviewParityCache parityCache;
             public PreviewLatencyCycle latency;
         }
 
@@ -246,7 +241,7 @@ namespace Iroca
                     marks.CoreStart = PreviewLatencyCycle.Now;
                     PixelProcessor.ProcessPixelsArray(pixels, req.srcW, req.srcH, req.maskSnap, req.zonesSnapshot,
                         req.settings, token,
-                        debug: req.debugCap, parityCache: req.parityCache, selectionCache: selCache);
+                        debug: req.debugCap, selectionCache: selCache);
                     marks.CoreEnd = PreviewLatencyCycle.Now;
 
                     Color32[] processedDisplay = req.scale < 1f
@@ -272,8 +267,10 @@ namespace Iroca
                     _pendingProcessedDisplay = result.processed;
                     _pendingPrevW            = req.prevW;
                     _pendingPrevH            = req.prevH;
-                    // フル画像で解いた keep と領域統計を公開(以降は不変として詳細プレビューが参照)。
-                    _host.previewParityCache = req.parityCache;
+                    // フル解像度の結果を保持する。拡大表示(詳細クロップ)はここから切り出すだけなので、
+                    // 書き出しと同じ計算結果そのものになる(切り出しを計算し直さない)。
+                    _fullOutput       = result.full;
+                    _fullOutputSource = req.srcPixels;
                     // ジョブ側で生成した raw をキャッシュへ確定する(まだ未確定で、対象テクスチャと
                     // 寸法が変わっていない場合のみ。新しいミスで上書きされていれば触らない)。
                     if (_cachedRawDisplay == null && _cachedSrcPixels == req.srcPixels &&
@@ -332,15 +329,16 @@ namespace Iroca
                 maskView.maskDirty = false;
             }
 
-            // 拡大表示(詳細クロップ)を作り直させる。確定(フル)の直後は待たない: 詳細の 0.3 秒の待ちは
-            // スクロール・ズーム中の作り直しを間引くためのもので、確定のあとは入力がもう揃っている。
-            // プロキシの直後は待ちを打ち直すだけで、確定が来るまで始めない(Draw 側の条件)。詳細は
-            // フル画像で解いた選択・統計を転写するので、先に作っても確定で取り消されて捨てられる。
-            double now = EditorApplication.timeSinceStartup;
-            _detailView.lastDetailDirtyTime = isFinal
-                ? System.Math.Max(double.Epsilon, now - DetailPreviewView.DetailDebounceSeconds)
-                : now;
-            _detailView.detailJob.Cancel();
+            // 拡大表示(詳細クロップ)は確定(フル段)の出力から切り出すので、確定を出したときだけ
+            // 作り直させる。待たない: 詳細の 0.3 秒の待ちはスクロール・ズーム中の作り直しを間引く
+            // ためのもの。プロキシの直後は何もしない(切り出し元のフル段の出力がまだ前の状態のまま)。
+            if (isFinal)
+            {
+                double now = EditorApplication.timeSinceStartup;
+                _detailView.lastDetailDirtyTime =
+                    System.Math.Max(double.Epsilon, now - DetailPreviewView.DetailDebounceSeconds);
+                _detailView.detailJob.Cancel();
+            }
 
             // 体感速度: ここで描いたものがこの OnGUI の終わりに画面へ出る。画面に出るたびに
             // (ドラッグの追従のプロキシも含めて)ここまでのレポートを出す。確定表示(フル)なら

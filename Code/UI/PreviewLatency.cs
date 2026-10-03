@@ -169,7 +169,7 @@ namespace Iroca
             if (c.Detail.Shown)
             {
                 Add(LaneDetail, LatencyKind.Wait, "待ち(拡大表示の再生成待ち)", c.Full.UploadEnd, c.Detail.PrepStart);
-                Add(LaneDetail, LatencyKind.Main, "準備(入力のスナップショット)", c.Detail.PrepStart, c.Detail.Scheduled);
+                Add(LaneDetail, LatencyKind.Main, "準備(切り出し範囲の計算)", c.Detail.PrepStart, c.Detail.Scheduled);
                 AddStage(Add, LaneDetail, c.Detail);
             }
 
@@ -200,9 +200,17 @@ namespace Iroca
         {
             if (!m.Shown) return;
             add(lane, LatencyKind.Wait, "起動待ち(スレッドプール)", m.Scheduled, m.WorkStart);
-            add(lane, LatencyKind.Job, "複製・縮小", m.WorkStart, m.CoreStart);
-            add(lane, LatencyKind.Core, "コア処理", m.CoreStart, m.CoreEnd);
-            add(lane, LatencyKind.Job, "表示寸法へ縮小", m.CoreEnd, m.WorkEnd);
+            if (m.CoreStart == 0 && m.CoreEnd == 0)
+            {
+                // コア処理の無い段(拡大表示はフル段の出力を切り出すだけ)。
+                add(lane, LatencyKind.Job, "切り出し・縮小", m.WorkStart, m.WorkEnd);
+            }
+            else
+            {
+                add(lane, LatencyKind.Job, "複製・縮小", m.WorkStart, m.CoreStart);
+                add(lane, LatencyKind.Core, "コア処理", m.CoreStart, m.CoreEnd);
+                add(lane, LatencyKind.Job, "表示寸法へ縮小", m.CoreEnd, m.WorkEnd);
+            }
             add(lane, LatencyKind.Wait, "受け渡し(update 待ち)", m.WorkEnd, m.Applied);
             add(lane, LatencyKind.Wait, "再描画待ち", m.Applied, m.UploadStart);
             add(lane, LatencyKind.Main, "反映(テクスチャ転送など)", m.UploadStart, m.UploadEnd);

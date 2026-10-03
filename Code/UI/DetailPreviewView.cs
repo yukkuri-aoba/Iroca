@@ -1,7 +1,5 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using UnityEditor;
 using UnityEngine;
@@ -132,10 +130,15 @@ namespace Iroca
 
         /// <summary>
         /// 現在のスクロール位置、ズーム、プレビュースケールからソーステクスチャ座標で見える
-        /// クロップリージョンを計算してから、フルソース解像度でそのクロップのみを処理する
+        /// クロップリージョンを計算し、フル段の出力(processedFull)からその範囲を切り出す
         /// バックグラウンドタスクを開始します。
+        /// 以前はクロップだけを ProcessPixelsArray で計算し直し、フル画像で解いた選択・統計を転写して
+        /// 合わせていたが、転写していない段(グレーモードの中性ツヤ復帰、帯成長)やクロップ端の近傍処理で
+        /// 書き出しと食い違っていた(dev_safe/docs/zoom_roi_study_2026-10-03.md §3)。フル段は書き出しと
+        /// 同じ入力・同じ関数でフル解像度を計算しているので、その出力の切り出しは書き出しと一致する。
+        /// processedFull が無い(まだ確定していない・元画素が変わった)ときは何もしない。
         /// </summary>
-        public void GenerateDetailPreviewAsync(int srcW, int srcH, Color32[] srcPixels,
+        public void GenerateDetailPreviewAsync(int srcW, int srcH, Color32[] srcPixels, Color32[] processedFull,
             float scale, float previewZoom, Vector2 previewScrollPos, float viewportW, float viewportH,
             PreviewLatencyCycle latency = null)
         {
@@ -148,6 +151,8 @@ namespace Iroca
 
             if (previewZoom <= DetailMinZoom) return;
             if (viewportW <= 0f || viewportH <= 0f) return;
+            if (processedFull == null || srcPixels == null ||
+                processedFull.Length != srcW * srcH || srcPixels.Length != srcW * srcH) return;
 
             // クロップは「画面に見えている範囲」だけに限定する。以前は画像全幅(previewRect.width
             // ＝displayW)を使っていたため x1 が常に srcW までクランプされ、ズーム時に
@@ -188,36 +193,9 @@ namespace Iroca
                 outH = Mathf.Clamp(Mathf.RoundToInt(cropH * pxPerSrc), 1, cropH);
             }
 
-            var maskSnap = _host._maskView.BuildSnapshot();
-
-            var session = _host.Session;
-            // リスト先頭のゾーンほど先に処理され、重なった領域を占有する。
-            // ソロ表示中はメインプレビューと同じ絞り込みを行う。揃えないと、拡大した
-            // 途端に他ゾーンの色が戻って「拡大すると結果が変わる」ように見える。
-            var soloZone = _host.SoloZone;
-            var zonesSnapshot = session.zones
-                .Where(z => z.enabled && (soloZone == null || ReferenceEquals(z, soloZone)))
-                .Select(z => z.Clone())
-                .ToList();
-            var settings = RecolorSettings.From(session);
-            int capX0 = x0, capY0 = y0, capSrcW = srcW, capSrcH = srcH;
+            int capX0 = x0, capY0 = y0, capSrcW = srcW;
             var srcPixelsForTask = srcPixels;
-
-            // メインプレビュー(フル画像)で解いた keep と再着色アンカー/wash/領域L統計を転写して、
-            // 詳細クロップの選択・出力色を一致させる。採否は「同じテクスチャ・同じ寸法」で決める。
-            // 世代の厳密一致まで条件にすると、メインプレビュー再生成中(許容値スライダー操作中など)に
-            // 容易に外れて「絞り込まれない上位集合」や「クロップ統計で再計算した別の色」を見せてしまう。
-            // 最新キャッシュは直近で完了したフル画像処理の結果であり、メイン完了時に詳細は再走するため
-            // 最終へ収束する(過渡的に1世代古くてもクロップ内再計算よりは正確)。
-            // 一方 sourceId は「どのテクスチャを解いた結果か」であって世代ではないため、切替時にしか
-            // 変わらない = 上記の過渡的な取りこぼしを起こさずに、寸法が偶然一致する別テクスチャの
-            // keep/統計を転写する事故だけを弾ける。
-            int sourceId = sourceTexture.GetInstanceID();
-            var parityCache = _host.previewParityCache;
-            PreviewParityCache parityForTask =
-                (parityCache != null && parityCache.sourceId == sourceId &&
-                 parityCache.fullW == capSrcW && parityCache.fullH == capSrcH)
-                ? parityCache : null;
+            var processedForTask = processedFull;
 
             // 体感速度の計測(確定表示から引き渡されたときだけ)。値・分岐は変えない。
             var marks = latency?.Detail;
@@ -234,20 +212,14 @@ namespace Iroca
                     Color32[] rawCrop       = new Color32[cropW * cropH];
                     Color32[] processedCrop = new Color32[cropW * cropH];
                     // クロップは各行が連続領域なので行単位 Array.Copy(画素単位 2 配列書き込みを回避)。
-                    // processed は raw のクローンで十分(直後に ProcessPixelsArray が上書きする)。
+                    // 両配列はジョブの間ほかから書き換えられない(フル段の出力は確定後は不変として扱う)。
                     for (int cy = 0; cy < cropH; cy++)
                     {
                         int srcRow = (capY0 + cy) * capSrcW + capX0;
                         System.Array.Copy(srcPixelsForTask, srcRow, rawCrop, cy * cropW, cropW);
+                        System.Array.Copy(processedForTask, srcRow, processedCrop, cy * cropW, cropW);
                     }
-                    System.Array.Copy(rawCrop, processedCrop, rawCrop.Length);
-
-                    if (marks != null) marks.CoreStart = PreviewLatencyCycle.Now;
-                    PixelProcessor.ProcessPixelsArray(processedCrop, cropW, cropH,
-                        maskSnap, zonesSnapshot, settings, token,
-                        capX0, capY0, capSrcW, capSrcH,
-                        debug: null, parityCache: parityForTask);
-                    if (marks != null) marks.CoreEnd = PreviewLatencyCycle.Now;
+                    token.ThrowIfCancellationRequested();
 
                     // 縮小表示のときだけ表示解像度へ落とす。BoxDownsample の scale は
                     // dst/src 比なので pxPerSrc をそのまま渡す(端は内部でクランプされる)。

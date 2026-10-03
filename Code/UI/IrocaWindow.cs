@@ -25,12 +25,6 @@ namespace Iroca
         // DebugView が後から読み出す。Debug 機能未導入なら常に null。
         internal IDebugCapture LatestDebugCapture { get; set; }
 
-        // ── プレビューパリティキャッシュ(メインプレビューがフル画像で解いた連結成分 keep と
-        //    再着色アンカー/wash/領域L統計を、詳細プレビュー(クロップ)へ転写して出力を一致させる)。
-        //    公開後は不変として扱い、メインプレビュージョブは未公開の新規インスタンスにだけ書く。
-        //    詳細側は最新の公開キャッシュを寸法一致で参照する。
-        [System.NonSerialized] internal PreviewParityCache previewParityCache;
-
         // スポイトモードで武装中のゾーン id（null/空 = 解除）。プレビュー上のクリックで
         // そのゾーンのサンプルカラーを実テクスチャ画素から取得する（一発で自動解除）。
         // index でなく id で保持するのは、武装中にゾーンを並べ替え・削除しても別ゾーンに
@@ -65,14 +59,13 @@ namespace Iroca
 
         /// <summary>
         /// ソロ表示の対象を切り替える（null で解除）。
-        /// 整合キャッシュ（フル画像で解いた keep と再着色統計）は「どのゾーン集合を処理したか」に
-        /// 依存するので、必ず捨てる。残すと、切り替え直後に詳細プレビュー（クロップ）が
-        /// 旧ゾーン集合の統計を転写し、拡大した箇所だけ切り替え前の色が出る。
+        /// 拡大表示（詳細クロップ）の切り出し元になるフル段の出力は「どのゾーン集合を処理したか」に
+        /// 依存するので、必ず捨てる。残すと、切り替え直後にスクロールした箇所だけ切り替え前の色が出る。
         /// </summary>
         internal void SetSoloZone(string zoneId)
         {
             _soloZoneId = string.IsNullOrEmpty(zoneId) ? null : zoneId;
-            previewParityCache = null;
+            _previewView?.InvalidateFullOutput();
             MarkPreviewDirty();
         }
 
