@@ -342,15 +342,16 @@ namespace Iroca
                 : now;
             _detailView.detailJob.Cancel();
 
-            // 体感速度: ここで描いたものがこの OnGUI の終わりに画面へ出る。確定表示(フル)なら
-            // 続く拡大表示の再生成も同じ起点で測れるよう引き渡し、ここまでのレポートを出す。
+            // 体感速度: ここで描いたものがこの OnGUI の終わりに画面へ出る。画面に出るたびに
+            // (ドラッグの追従のプロキシも含めて)ここまでのレポートを出す。確定表示(フル)なら
+            // 続く拡大表示の再生成も同じ起点で測れるよう引き渡す。
             if (stage != null)
             {
                 stage.UploadEnd = PreviewLatencyCycle.Now;
                 InputClock.NoteShown();
-                if (latency != null && ReferenceEquals(stage, latency.Full))
+                if (latency != null)
                 {
-                    _detailView.AttachLatency(latency);
+                    if (ReferenceEquals(stage, latency.Full)) _detailView.AttachLatency(latency);
                     if (PreviewLatency.Publish(latency)) _host.RequestRepaint();
                 }
             }

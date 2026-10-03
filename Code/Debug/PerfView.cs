@@ -215,13 +215,15 @@ namespace Iroca.DebugTools
                     "プロキシ → フル → 拡大表示の段が順に走ることは含みません。"),
                 EditorStyles.boldLabel);
 
-            string line = $"初回 {r.FirstShownMs:F0} ms ・ 確定 {r.FinalShownMs:F0} ms";
+            string line = r.IsFinal
+                ? $"初回 {r.FirstShownMs:F0} ms ・ 確定 {r.FinalShownMs:F0} ms"
+                : $"初回 {r.FirstShownMs:F0} ms ・ 確定 待ち";
             if (!double.IsNaN(r.DetailShownMs)) line += $" ・ 拡大 {r.DetailShownMs:F0} ms";
             if (!r.HasInput) line += "  (操作なし: 起点は生成開始)";
             EditorGUILayout.LabelField(
                 new GUIContent(line,
                     "初回: 縮小プロキシの概要が出るまで(プロキシを使わないときは確定と同じ)。\n" +
-                    "確定: 表示解像度の確定結果が出るまで。\n" +
+                    "確定: 表示解像度の確定結果が出るまで。ドラッグの追従中や確定前は「待ち」。\n" +
                     "拡大: 拡大表示中だけ。フル解像度の詳細クロップが出るまで。\n" +
                     $"元画像 {r.SourceW}×{r.SourceH}"));
 

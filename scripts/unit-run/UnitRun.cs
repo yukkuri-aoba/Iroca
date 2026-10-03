@@ -336,11 +336,25 @@ namespace Iroca.UnitRun
             Check.True(Near(52, r.FirstShownMs), "milestones stay relative to the last input");
         }
 
-        public static void Latency_FullNotShown_ReturnsNull()
+        public static void Latency_ProxyOnly_ReportsFirstWithoutFinal()
+        {
+            // ドラッグの追従・確定前: プロキシだけ画面に出た段階でもレポートを出し、確定は未(NaN)。
+            var c = ProxyAndFullCycle();
+            c.Full.Applied = c.Full.UploadStart = c.Full.UploadEnd = 0;
+            var r = PreviewLatencyReport.Build(c, Hz);
+            Check.True(r != null, "proxy-only cycle has a report");
+            Check.True(!r.IsFinal && double.IsNaN(r.FinalShownMs), "final is pending");
+            Check.True(Near(52, r.FirstShownMs), $"first shown = proxy (52), was {r.FirstShownMs}");
+            Check.True(Near(52, r.LastShownMs), "last shown = proxy");
+            Check.True(r.Segments.All(s => s.Lane != PreviewLatencyReport.LaneFull), "no full lane yet");
+        }
+
+        public static void Latency_NothingShown_ReturnsNull()
         {
             var c = ProxyAndFullCycle();
+            c.Proxy.UploadEnd = 0;
             c.Full.UploadEnd = 0;
-            Check.True(PreviewLatencyReport.Build(c, Hz) == null, "cancelled cycle has no report");
+            Check.True(PreviewLatencyReport.Build(c, Hz) == null, "nothing on screen yet -> no report");
         }
 
         public static void Latency_NoInput_OriginIsGenerationStart()

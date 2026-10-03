@@ -122,7 +122,7 @@ namespace Iroca
 
         internal bool HasInput;        // false = 操作を起点にできない再生成(起点は生成開始)
         internal double FirstShownMs;  // 初回表示(プロキシ。無ければフル)
-        internal double FinalShownMs;  // 確定表示(フル)
+        internal double FinalShownMs;  // 確定表示(フル)。NaN = まだ(ドラッグの追従中・確定前に取り消し)
         internal double DetailShownMs = double.NaN; // 拡大表示(詳細クロップ)。NaN = なし
         internal double StaleMs;       // 画面が止まってから最初の操作 → 初回表示
         internal double MainThreadMs;  // メインスレッドの処理の合計(UI が止まった時間)
@@ -130,16 +130,21 @@ namespace Iroca
         internal int SourceW, SourceH;
         internal LatencySegment[] Segments;
 
-        /// <summary>最後に画面へ出た時刻(拡大表示があればそれ)。</summary>
-        internal double LastShownMs => double.IsNaN(DetailShownMs) ? FinalShownMs : DetailShownMs;
+        /// <summary>確定表示(フル段)まで出たか。</summary>
+        internal bool IsFinal => !double.IsNaN(FinalShownMs);
+
+        /// <summary>最後に画面へ出た時刻(拡大表示 → 確定 → 初回の順に、出ているもの)。</summary>
+        internal double LastShownMs =>
+            !double.IsNaN(DetailShownMs) ? DetailShownMs : IsFinal ? FinalShownMs : FirstShownMs;
 
         /// <summary>
-        /// 時刻から区間を組み立てる。フルが画面に出ていなければ null(取り消された再生成)。
+        /// 時刻から区間を組み立てる。画面にまだ何も出ていなければ null。
+        /// プロキシだけ出た段階(ドラッグの追従・確定前)でも組み立て、確定は NaN にする。
         /// frequency は 1 秒あたりのタイムスタンプ数(Stopwatch.Frequency。テストでは任意の値)。
         /// </summary>
         internal static PreviewLatencyReport Build(PreviewLatencyCycle c, long frequency)
         {
-            if (c == null || !c.Full.Shown) return null;
+            if (c == null || !(c.Full.Shown || c.Proxy.Shown)) return null;
 
             long origin = c.Input != 0 ? c.Input : c.PrepStart;
             double Ms(long t) => (t - origin) * 1000.0 / frequency;
@@ -171,12 +176,14 @@ namespace Iroca
             var r = new PreviewLatencyReport
             {
                 HasInput = c.Input != 0,
-                FinalShownMs = Ms(c.Full.UploadEnd),
+                FinalShownMs = c.Full.Shown ? Ms(c.Full.UploadEnd) : double.NaN,
                 SourceW = c.SourceW,
                 SourceH = c.SourceH,
                 Segments = segs.ToArray(),
             };
-            r.FirstShownMs = c.Proxy.Shown ? Math.Min(Ms(c.Proxy.UploadEnd), r.FinalShownMs) : r.FinalShownMs;
+            r.FirstShownMs = !c.Proxy.Shown ? r.FinalShownMs
+                : r.IsFinal ? Math.Min(Ms(c.Proxy.UploadEnd), r.FinalShownMs)
+                : Ms(c.Proxy.UploadEnd);
             if (c.Detail.Shown) r.DetailShownMs = Ms(c.Detail.UploadEnd);
             r.StaleMs = c.Input != 0 && c.FirstInput != 0 && c.FirstInput <= c.Input
                 ? r.FirstShownMs + (c.Input - c.FirstInput) * 1000.0 / frequency
@@ -203,7 +210,8 @@ namespace Iroca
     }
 
     /// <summary>
-    /// 完成したレポートの受け渡し口。受け手(Debug アセンブリの PerfView)がいないときは
+    /// レポートの受け渡し口。画面に絵が出るたび(プロキシ・確定・拡大表示)に呼ばれ、同じ再生成の
+    /// レポートを段が進むごとに差し替える。受け手(Debug アセンブリの PerfView)がいないときは
     /// 組み立てもしない。メインスレッドからのみ呼ぶ。
     /// </summary>
     internal static class PreviewLatency
