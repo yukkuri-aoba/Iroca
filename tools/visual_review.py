@@ -120,6 +120,15 @@ def _build_review_mask(gt_mask: np.ndarray) -> np.ndarray:
 def _run_all_cases_csharp() -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray | None]]:
     """全ケースを **実 C# Harness** で実行。{case_id: (input_rgba, output_rgba, exclude_or_None)}
 
+    全ケースの出力(4K で 1 件 64MB)を同時に抱えるので、メモリを気にする呼び出しは
+    被写体ごとに返す `_iter_cases_csharp` を使う。
+    """
+    return {cid: (i, o, e) for cid, i, o, e in _iter_cases_csharp()}
+
+
+def _iter_cases_csharp():
+    """全ケースを **実 C# Harness** で実行し、(case_id, input_rgba, output_rgba, exclude_or_None) を返す。
+
     視覚レビューが Python ではなく実際に出荷される C# 出力を見られるようにする
     (project_visual_review_washoff_blind の「視覚レビューが C# に盲目」を解消)。
     dotnet/Unity DLL が無ければ RuntimeError で中断する。
@@ -163,12 +172,12 @@ def _run_all_cases_csharp() -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarra
                  for c in cases]
         return fx.run_harness_many(rgba, specs, exclude=exclude)
 
-    results: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray | None]] = {}
+    # 被写体ごとに実行して返す(呼び出し側が使い終えた出力は次の被写体の前に手放せる)。
     for subject in SUBJECT_REGISTRY.values():
         rgba, gt_mask = load_subject_inputs(subject)
         cases = load_cases(subject)
         for case, out in zip(cases, _batch(rgba, cases, "", None)):   # exclude=None → 全画素処理
-            results[case.case_id] = (rgba, out, None)
+            yield case.case_id, rgba, out, None
 
         # ── 除外マスク付きの変種(N-12: ゲートにマスク経路を通す) ──
         n_masked = MASKED_SUBJECT_CASES.get(subject.subject_id, 0)
@@ -180,14 +189,22 @@ def _run_all_cases_csharp() -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarra
         exclude = _build_review_mask(gt_mask)
         for case, out in zip(cases[:n_masked],
                              _batch(rgba, cases[:n_masked], MASKED_SUFFIX, exclude)):
-            results[f"{case.case_id}{MASKED_SUFFIX}"] = (rgba, out, exclude.astype(bool))
-    return results
+            yield f"{case.case_id}{MASKED_SUFFIX}", rgba, out, exclude.astype(bool)
 
 
 def _run_engine(engine: str) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray | None]]:
     if engine == "csharp":
         return _run_all_cases_csharp()
     return _run_all_cases()
+
+
+def _iter_engine(engine: str):
+    """(case_id, input_rgba, output_rgba, exclude_or_None) を順に返す。C# は被写体ごとに実行する。"""
+    if engine == "csharp":
+        yield from _iter_cases_csharp()
+        return
+    for cid, (i, o, e) in sorted(_run_all_cases().items()):
+        yield cid, i, o, e
 
 
 # ---------------------------------------------------------------------------
@@ -337,19 +354,20 @@ def cmd_snapshot(engine: str = "python") -> None:
     """現在のアルゴリズム出力を全ケース分 snapshot_before に保存する。"""
     SNAPSHOT_BEFORE_DIR.mkdir(parents=True, exist_ok=True)
     print(f"[snapshot] 全ケースをスナップショット中 (engine={engine}) …")
-    cases = _run_engine(engine)
-    for case_id, (_, output_rgba, _exclude) in cases.items():
+    # 1 件ずつ保存して手放す(全ケースの出力を同時に抱えるとメモリが尽きる。compare と同じ)。
+    saved: list[str] = []
+    for case_id, _input, output_rgba, _exclude in _iter_engine(engine):
         Image.fromarray(output_rgba).save(SNAPSHOT_BEFORE_DIR / f"{case_id}.png")
+        saved.append(case_id)
         print(f"  保存: {case_id}.png")
     meta = {
         "timestamp": datetime.now().isoformat(),
-        "cases": sorted(cases.keys()),
+        "cases": sorted(saved),
     }
     (SNAPSHOT_BEFORE_DIR / "meta.json").write_text(
         json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    print(f"[snapshot] {len(cases)} ケース完了 → {SNAPSHOT_BEFORE_DIR}")
-    del cases
+    print(f"[snapshot] {len(saved)} ケース完了 → {SNAPSHOT_BEFORE_DIR}")
     import workflow_review
     workflow_review.generate(snapshot=True)
 
@@ -364,29 +382,29 @@ def cmd_compare(engine: str = "python") -> None:
     """
     COMPARE_DIR.mkdir(parents=True, exist_ok=True)
 
-    # snapshot_before を読み込む
-    before_images: dict[str, np.ndarray] = {}
+    # snapshot_before は、そのケースを描くときに 1 枚ずつ読む。4K の全ケース(1 件 64MB × 100 超)と
+    # 変更後の全出力を同時に抱えると 10GB を超え、Unity などと並べるとメモリが尽きた(2026-10-04)。
+    before_paths: dict[str, Path] = {}
     meta_path = SNAPSHOT_BEFORE_DIR / "meta.json"
     if meta_path.exists():
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         for cid in meta["cases"]:
             p = SNAPSHOT_BEFORE_DIR / f"{cid}.png"
             if p.exists():
-                before_images[cid] = np.array(Image.open(p).convert("RGBA"))
-        print(f"[compare] 変更前スナップショット: {len(before_images)} ケース読み込み完了")
+                before_paths[cid] = p
+        print(f"[compare] 変更前スナップショット: {len(before_paths)} ケース")
     else:
         print("[compare] 警告: snapshot_before が見つかりません（変更前との比較なし）。")
 
-    # 現在のアルゴリズムで全ケース実行
+    # 現在のアルゴリズムで全ケース実行(被写体ごとに受け取り、描いたら手放す)
     print(f"[compare] 現在のアルゴリズムで全ケースを実行中 (engine={engine}) …")
-    current = _run_engine(engine)
-    print(f"[compare] {len(current)} ケース完了")
 
     generated: list[Path] = []
     contract: dict[str, int] = {}          # マスク付きケース -> 契約違反画素数
     change_summary: dict[str, dict] = {}   # ケース -> 変化画素の内訳
-    for case_id, (input_rgba, after_rgba, exclude) in sorted(current.items()):
-        before_rgba: np.ndarray | None = before_images.get(case_id)
+    for case_id, input_rgba, after_rgba, exclude in _iter_engine(engine):
+        bp = before_paths.get(case_id)
+        before_rgba: np.ndarray | None = np.array(Image.open(bp).convert("RGBA")) if bp else None
 
         after_label = "固定設定 / 変更後 (自動調整なし)"
         if exclude is not None:
@@ -461,6 +479,7 @@ def cmd_compare(engine: str = "python") -> None:
         json.dumps({"generated_at": datetime.now().isoformat(), "cases": change_summary},
                    indent=2, ensure_ascii=False), encoding="utf-8")
 
+    print(f"[compare] {len(generated)} ケース完了")
     print(f"\n[compare] {len(generated)} 枚の比較パネルを生成しました。")
     print(f"保存先: {COMPARE_DIR}\n")
 
@@ -503,7 +522,6 @@ def cmd_compare(engine: str = "python") -> None:
     print()
     print("問題がなければ:")
     print('  python tools/visual_review.py approve --note "<目視した範囲と根拠>"')
-    del current, before_images
     import workflow_review
     workflow_review.generate()
 
