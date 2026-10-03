@@ -634,7 +634,7 @@ namespace Iroca
                         >= DetailPreviewView.DetailDebounceSeconds &&
                     _detailView.lastPreviewRect.width > 0)
                 {
-                    var latency = _detailView.TakeLatencyFor(_detailView.lastDetailDirtyTime);
+                    var latency = _detailView.TakeLatencyFor(_detailView.lastDetailDirtyTime, srcW, srcH);
                     _detailView.lastDetailDirtyTime = 0;
                     var processedFull = ReferenceEquals(_fullOutputSource, _trueSourcePixels) ? _fullOutput : null;
                     _detailView.GenerateDetailPreviewAsync(srcW, srcH, _trueSourcePixels, processedFull, scale, previewZoom, _previewScrollPos, _detailView.lastViewportW, _detailView.lastViewportH, latency);
@@ -743,7 +743,7 @@ namespace Iroca
                 frameW > 1f ? GUILayout.Width(frameW) : GUILayout.ExpandWidth(true));
             if (_previewScrollPos != prevScroll)
             {
-                _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
+                _detailView.MarkViewChanged();
                 // 古い詳細プレビューは新しいスクロール位置と整合しないため、
                 // 一旦表示を破棄して低解像度プレビューに統一する（fix.md 項目1）。
                 _detailView.InvalidateDisplay();
@@ -1043,7 +1043,7 @@ namespace Iroca
         {
             previewZoom = Mathf.Clamp(1f, MinPreviewZoom, maxZoom);
             _previewScrollPos = Vector2.zero;
-            _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
+            _detailView.MarkViewChanged();
             // ズーム比が変わると古い詳細クロップは整合しない（Ctrl+スクロール経路と同じ）。
             _detailView.InvalidateDisplay();
             _host.RequestRepaint();

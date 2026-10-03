@@ -369,6 +369,42 @@ namespace Iroca.UnitRun
                 "no input wait segment");
         }
 
+        // スクロール・ズーム: 最後の操作 100 → 手を止めて 0.3 秒後に拡大表示の準備 400..402 →
+        // 切り出し(コア無し) → 430 に表示。プロキシ・フル段は無い。
+        private static PreviewLatencyCycle ViewChangeCycle()
+        {
+            var c = new PreviewLatencyCycle { ViewChange = true, Input = 100 };
+            c.Detail.PrepStart = 400;
+            SetStage(c.Detail, 402, 403, 0, 0, 415, 420, 426, 430);
+            return c;
+        }
+
+        public static void Latency_ViewChange_MeasuresDetailFromLastViewChange()
+        {
+            var r = PreviewLatencyReport.Build(ViewChangeCycle(), Hz);
+            Check.True(r != null && r.ViewChange && r.HasInput, "view-change cycle has a report");
+            Check.True(Near(330, r.DetailShownMs), $"detail shown 330, was {r.DetailShownMs}");
+            Check.True(Near(330, r.LastShownMs), "last shown = detail");
+            Check.True(double.IsNaN(r.FirstShownMs) && double.IsNaN(r.FinalShownMs) && double.IsNaN(r.StaleMs),
+                "no first / final / stale for a view change");
+            var wait = r.Segments.Single(s => s.Lane == PreviewLatencyReport.LaneRequest);
+            Check.True(wait.Kind == LatencyKind.Wait && Near(0, wait.StartMs) && Near(300, wait.EndMs),
+                $"request wait 0..300 (the debounce), was {wait.StartMs}..{wait.EndMs}");
+            Check.True(r.Segments.All(s => s.Lane == PreviewLatencyReport.LaneRequest
+                                           || s.Lane == PreviewLatencyReport.LaneDetail),
+                "only the request and detail lanes");
+            // メインスレッド = 切り出し範囲の計算 2 + 転送 4。コア処理は無い(フル段の出力の切り出しだけ)。
+            Check.True(Near(6, r.MainThreadMs), $"main thread 6, was {r.MainThreadMs}");
+            Check.True(Near(0, r.CoreMs), $"no core, was {r.CoreMs}");
+        }
+
+        public static void Latency_ViewChange_DetailNotShown_ReturnsNull()
+        {
+            var c = ViewChangeCycle();
+            c.Detail.UploadStart = c.Detail.UploadEnd = 0; // 次のスクロールで取り消された
+            Check.True(PreviewLatencyReport.Build(c, Hz) == null, "view change with nothing on screen -> no report");
+        }
+
         public static void InputClock_CarriesUnshownInputsAcrossCancelledCycles()
         {
             var clock = new PreviewInputClock();

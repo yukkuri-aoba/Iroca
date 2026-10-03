@@ -33,11 +33,15 @@ namespace Iroca
     }
 
     /// <summary>
-    /// 再生成 1 回(GeneratePreviewAsync 1 回)ぶんの時刻。ジョブ内の時刻はワーカーが書き、
+    /// 再生成 1 回(GeneratePreviewAsync 1 回)ぶんの時刻。拡大表示中のスクロール・ズームで拡大表示
+    /// だけを作り直したときも 1 周期として測る(<see cref="ViewChange"/>)。ジョブ内の時刻はワーカーが書き、
     /// メインスレッドは apply 以降にだけ読む(PreviewJobMainThread のキューが前後関係を保証する)。
     /// </summary>
     internal sealed class PreviewLatencyCycle
     {
+        // true = スクロール・ズームを起点に拡大表示だけを作り直した周期。プロキシ・フル段と準備は無く、
+        // Input は表示範囲(位置・倍率)が最後に変わった時刻。
+        internal bool ViewChange;
         internal long Input;       // この再生成が反映する最後の操作。0 = 操作なし(初回表示など)
         internal long FirstInput;  // 前回画面が更新されてから最初の操作(ドラッグ中に止まっていた時間の起点)
         internal long PrepStart;   // GeneratePreviewAsync 開始
@@ -120,6 +124,7 @@ namespace Iroca
         internal const int LaneDetail = 3;
         internal const int LaneCount = 4;
 
+        internal bool ViewChange;      // スクロール・ズームで拡大表示だけを作り直した(初回・確定・止まっていた時間は NaN)
         internal bool HasInput;        // false = 操作を起点にできない再生成(起点は生成開始)
         internal double FirstShownMs;  // 初回表示(プロキシ。無ければフル)
         internal double FinalShownMs;  // 確定表示(フル)。NaN = まだ(ドラッグの追従中・確定前に取り消し)
@@ -140,11 +145,13 @@ namespace Iroca
         /// <summary>
         /// 時刻から区間を組み立てる。画面にまだ何も出ていなければ null。
         /// プロキシだけ出た段階(ドラッグの追従・確定前)でも組み立て、確定は NaN にする。
+        /// スクロール・ズームの周期は拡大表示が出たときだけ組み立てる。
         /// frequency は 1 秒あたりのタイムスタンプ数(Stopwatch.Frequency。テストでは任意の値)。
         /// </summary>
         internal static PreviewLatencyReport Build(PreviewLatencyCycle c, long frequency)
         {
-            if (c == null || !(c.Full.Shown || c.Proxy.Shown)) return null;
+            if (c == null) return null;
+            if (c.ViewChange ? !c.Detail.Shown : !(c.Full.Shown || c.Proxy.Shown)) return null;
 
             long origin = c.Input != 0 ? c.Input : c.PrepStart;
             double Ms(long t) => (t - origin) * 1000.0 / frequency;
@@ -156,8 +163,10 @@ namespace Iroca
                 segs.Add(new LatencySegment(lane, kind, name, Ms(from), Ms(to)));
             }
 
+            // スクロール・ズームでは、手を止めて拡大表示の作り直しを始めるまで(0.3 秒の間引き)が待ち。
             if (c.Input != 0)
-                Add(LaneRequest, LatencyKind.Wait, "待ち(操作→生成開始)", c.Input, c.PrepStart);
+                Add(LaneRequest, LatencyKind.Wait, "待ち(操作→生成開始)", c.Input,
+                    c.ViewChange ? c.Detail.PrepStart : c.PrepStart);
             Add(LaneRequest, LatencyKind.Main, "準備(入力のスナップショット)", c.PrepStart, c.PrepEnd);
 
             AddStage(Add, LaneProxy, c.Proxy);
@@ -175,6 +184,7 @@ namespace Iroca
 
             var r = new PreviewLatencyReport
             {
+                ViewChange = c.ViewChange,
                 HasInput = c.Input != 0,
                 FinalShownMs = c.Full.Shown ? Ms(c.Full.UploadEnd) : double.NaN,
                 SourceW = c.SourceW,

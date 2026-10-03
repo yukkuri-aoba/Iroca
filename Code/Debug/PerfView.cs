@@ -211,20 +211,31 @@ namespace Iroca.DebugTools
             EditorGUILayout.LabelField(
                 new GUIContent("体感(操作 → 画面)",
                     "プレビューの再生成を起こした最後の操作(スライダー・クリックなど)から、結果が画面に出るまでの時間。\n" +
+                    "拡大表示中のスクロール・ズームは、拡大表示が作り直されて画面に出るまでを測ります。\n" +
                     "下の「コア処理」は ProcessPixelsArray 1 回分で、待ち・受け渡し・転送や、" +
                     "プロキシ → フル → 拡大表示の段が順に走ることは含みません。"),
                 EditorStyles.boldLabel);
 
-            string line = r.IsFinal
-                ? $"初回 {r.FirstShownMs:F0} ms ・ 確定 {r.FinalShownMs:F0} ms"
-                : $"初回 {r.FirstShownMs:F0} ms ・ 確定 待ち";
-            if (!double.IsNaN(r.DetailShownMs)) line += $" ・ 拡大 {r.DetailShownMs:F0} ms";
+            string line;
+            if (r.ViewChange)
+            {
+                line = $"スクロール・ズーム → 拡大 {r.DetailShownMs:F0} ms";
+            }
+            else
+            {
+                line = r.IsFinal
+                    ? $"初回 {r.FirstShownMs:F0} ms ・ 確定 {r.FinalShownMs:F0} ms"
+                    : $"初回 {r.FirstShownMs:F0} ms ・ 確定 待ち";
+                if (!double.IsNaN(r.DetailShownMs)) line += $" ・ 拡大 {r.DetailShownMs:F0} ms";
+            }
             if (!r.HasInput) line += "  (操作なし: 起点は生成開始)";
             EditorGUILayout.LabelField(
                 new GUIContent(line,
                     "初回: 縮小プロキシの概要が出るまで(プロキシを使わないときは確定と同じ)。\n" +
                     "確定: 表示解像度の確定結果が出るまで。ドラッグの追従中や確定前は「待ち」。\n" +
                     "拡大: 拡大表示中だけ。フル解像度の詳細クロップが出るまで。\n" +
+                    "スクロール・ズーム: 拡大表示中に表示位置・倍率を最後に変えてから、拡大表示が出るまで" +
+                    "(手を止めて 0.3 秒待ってから作り直すので、その待ちを含みます)。\n" +
                     $"元画像 {r.SourceW}×{r.SourceH}"));
 
             // 簡略表示(デバッグモード OFF)は要約の 1 行だけ。
@@ -232,14 +243,17 @@ namespace Iroca.DebugTools
 
             DrawLatencyTimeline(r);
 
-            DrawLatencyValueRow("操作中に止まっていた時間", r.StaleMs,
-                "前回画面が更新されてから最初の操作 → 初回表示。\n" +
-                "ドラッグ中はプロキシだけを回して追従するので、追従 1 回ぶん(数十 ms)程度に収まるのが正常です。");
+            // スクロール・ズームの間は縮小表示の引き伸ばしがすぐ追従するので、止まっていた時間は出さない。
+            if (!r.ViewChange)
+                DrawLatencyValueRow("操作中に止まっていた時間", r.StaleMs,
+                    "前回画面が更新されてから最初の操作 → 初回表示。\n" +
+                    "ドラッグ中はプロキシだけを回して追従するので、追従 1 回ぶん(数十 ms)程度に収まるのが正常です。");
             DrawLatencyValueRow("UI が止まった時間", r.MainThreadMs,
                 "メインスレッドの処理(入力のスナップショット・テクスチャ転送)の合計。\n" +
                 "この間は Editor の操作・再描画が止まります。");
             DrawLatencyValueRow("コア処理の合計", r.CoreMs,
-                "この 1 回の操作で走った ProcessPixelsArray(プロキシ・フル・拡大表示)の合計。");
+                "この 1 回の操作で走った ProcessPixelsArray(プロキシ・フル)の合計。\n" +
+                "拡大表示はフル段の出力を切り出すだけなので含みません(スクロール・ズームでは 0)。");
             EditorGUILayout.Space(4);
         }
 
@@ -297,7 +311,8 @@ namespace Iroca.DebugTools
             switch (lane)
             {
                 case PreviewLatencyReport.LaneRequest:
-                    return "最後の操作から再生成を始めるまでの待ちと、入力(マスク・ゾーン設定)のスナップショット。";
+                    return "最後の操作から再生成を始めるまでの待ちと、入力(マスク・ゾーン設定)のスナップショット。\n" +
+                           "スクロール・ズームでは、手を止めて拡大表示の作り直しを始めるまで(0.3 秒の間引き)の待ち。";
                 case PreviewLatencyReport.LaneProxy:
                     return "縮小プロキシで概要を先に出す段(大きいテクスチャのときだけ)。";
                 case PreviewLatencyReport.LaneFull:
@@ -305,8 +320,8 @@ namespace Iroca.DebugTools
                            "ドラッグ中はプロキシだけで追従し、手を止めて 0.2 秒経つか離してからこの段を始めます" +
                            "(その間は「確定の開始待ち」)。";
                 default:
-                    return "拡大表示中だけ。確定表示の直後に、見えている範囲をフル解像度で作り直す段\n" +
-                           "(スクロール・ズームの直後は 0.3 秒待ってから)。";
+                    return "拡大表示中だけ。確定表示の直後と、スクロール・ズームのあとに、見えている範囲を\n" +
+                           "フル段の出力から切り出して作り直す段(スクロール・ズームの直後は 0.3 秒待ってから)。";
             }
         }
 

@@ -31,6 +31,10 @@ namespace Iroca
         // スクロール・ズームなど別の契機で lastDetailDirtyTime が打ち直されたら引き渡さない。
         [System.NonSerialized] private PreviewLatencyCycle _latencyCycle;
         [System.NonSerialized] private double _latencyDirtyTime;
+        // スクロール・ズーム(MarkViewChanged)が lastDetailDirtyTime を打った時刻と、その操作の時刻。
+        // 作り直しがこの打刻から始まったら、拡大表示だけの周期として測る。
+        [System.NonSerialized] private long _viewInput;
+        [System.NonSerialized] private double _viewDirtyTime;
         [System.NonSerialized] public Rect lastPreviewRect;
         // スクロールビューの可視領域サイズ（ディスプレイピクセル）。クロップ範囲を
         // 画像全幅ではなく「実際に見えている範囲」だけに絞るために使う。
@@ -75,14 +79,31 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 再生成を起こした lastDetailDirtyTime が確定表示の打ったものなら、その計測を返す
-        /// (それ以外の契機なら null)。引き渡しは 1 回きり。
+        /// スクロール・ズームで表示範囲(位置・倍率)が変わったときに呼ぶ。拡大表示を作り直させ
+        /// (手を止めて <see cref="DetailDebounceSeconds"/> 後)、体感速度の起点としてこの時刻を控える。
         /// </summary>
-        internal PreviewLatencyCycle TakeLatencyFor(double dirtyTime)
+        internal void MarkViewChanged()
+        {
+            lastDetailDirtyTime = EditorApplication.timeSinceStartup;
+            _viewDirtyTime = lastDetailDirtyTime;
+            _viewInput = PreviewLatencyCycle.Now;
+        }
+
+        /// <summary>
+        /// 再生成を起こした lastDetailDirtyTime の計測を返す。確定表示の打ったものならその再生成の計測、
+        /// スクロール・ズームの打ったものならその操作を起点にした拡大表示だけの計測(新しく作る)。
+        /// それ以外の契機(差分表示の切り替えなど)なら null。引き渡しは 1 回きり。
+        /// </summary>
+        internal PreviewLatencyCycle TakeLatencyFor(double dirtyTime, int srcW, int srcH)
         {
             var c = _latencyCycle;
+            long viewInput = _viewInput;
             _latencyCycle = null;
-            return c != null && dirtyTime == _latencyDirtyTime ? c : null;
+            _viewInput = 0;
+            if (c != null && dirtyTime == _latencyDirtyTime) return c;
+            if (viewInput != 0 && dirtyTime == _viewDirtyTime)
+                return new PreviewLatencyCycle { ViewChange = true, Input = viewInput, SourceW = srcW, SourceH = srcH };
+            return null;
         }
 
         public struct DetailPreviewResult
