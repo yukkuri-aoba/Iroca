@@ -279,9 +279,9 @@ namespace Iroca.DebugTools
                 }
             }
 
+            // 凡例は行頭から並べる(段名の列に合わせて字下げすると、狭い設定列で末尾が切れる)。
             using (new EditorGUILayout.HorizontalScope())
             {
-                GUILayout.Space(150);
                 DrawLegend(CoreColor, "コア処理", "ProcessPixelsArray。上の「コア処理」が測っている部分。");
                 DrawLegend(JobColor, "複製・縮小", "ジョブ内のコア以外(入力の複製、表示寸法への縮小)。");
                 DrawLegend(WaitColor, "待ち", "誰も計算していない時間(デバウンス・スレッドプールの起動・update/再描画待ち)。");
