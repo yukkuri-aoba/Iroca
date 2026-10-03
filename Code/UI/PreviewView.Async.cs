@@ -211,6 +211,7 @@ namespace Iroca
                 apply: result =>
                 {
                     marks.Applied = PreviewLatencyCycle.Now;
+                    _pendingIsFinal          = false;
                     _pendingLatency          = req.latency;
                     _pendingLatencyStage     = marks;
                     _pendingRawDisplay       = result.raw;
@@ -260,6 +261,7 @@ namespace Iroca
                     // AI 提案コミットの E2E 計測(アーム中のみ 1 回ログ)。実際の画面反映は
                     // 次フレームの ApplyPendingPreview だが、差は 1 フレームなので近似で計上。
                     MaskSuggestPerf.NotifyFullPreviewApplied();
+                    _pendingIsFinal          = true;
                     _pendingLatency          = req.latency;
                     _pendingLatencyStage     = marks;
                     _pendingRawDisplay       = result.raw;
@@ -291,6 +293,7 @@ namespace Iroca
             var raw       = _pendingRawDisplay;
             int w = _pendingPrevW;
             int h = _pendingPrevH;
+            bool isFinal = _pendingIsFinal;
             var latency = _pendingLatency;
             var stage   = _pendingLatencyStage;
             _pendingProcessedDisplay = null;
@@ -323,8 +326,14 @@ namespace Iroca
                 maskView.maskDirty = false;
             }
 
-            // Invalidate detail preview so it regenerates at the new crop
-            _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
+            // 拡大表示(詳細クロップ)を作り直させる。確定(フル)の直後は待たない: 詳細の 0.3 秒の待ちは
+            // スクロール・ズーム中の作り直しを間引くためのもので、確定のあとは入力がもう揃っている。
+            // プロキシの直後は待ちを打ち直すだけで、確定が来るまで始めない(Draw 側の条件)。詳細は
+            // フル画像で解いた選択・統計を転写するので、先に作っても確定で取り消されて捨てられる。
+            double now = EditorApplication.timeSinceStartup;
+            _detailView.lastDetailDirtyTime = isFinal
+                ? System.Math.Max(double.Epsilon, now - DetailPreviewView.DetailDebounceSeconds)
+                : now;
             _detailView.detailJob.Cancel();
 
             // 体感速度: ここで描いたものがこの OnGUI の終わりに画面へ出る。確定表示(フル)なら

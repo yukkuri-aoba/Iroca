@@ -160,6 +160,8 @@ namespace Iroca
         [System.NonSerialized] private Color32[] _pendingProcessedDisplay;
         [System.NonSerialized] private Color32[] _pendingRawDisplay;
         [System.NonSerialized] private int _pendingPrevW, _pendingPrevH;
+        // 保留中の結果が確定(フル段)か。確定なら拡大表示をすぐ作り直す(ApplyPendingPreview)。
+        [System.NonSerialized] private bool _pendingIsFinal;
         // 保留中の結果がどの再生成のどの段か(体感速度の計測用。転送が済んだ時刻を打つ)。
         [System.NonSerialized] private PreviewLatencyCycle _pendingLatency;
         [System.NonSerialized] private LatencyStageMarks _pendingLatencyStage;
@@ -613,7 +615,8 @@ namespace Iroca
 
             if (detailActive)
             {
-                if (!_detailView.detailJob.IsRunning &&
+                // フル段の処理中は始めない(詳細は確定の選択・統計を使うので、確定で取り消される)。
+                if (!_detailView.detailJob.IsRunning && !_previewJob.IsRunning &&
                     _detailView.lastDetailDirtyTime > 0 &&
                     (EditorApplication.timeSinceStartup - _detailView.lastDetailDirtyTime)
                         >= DetailPreviewView.DetailDebounceSeconds &&
