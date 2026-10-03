@@ -29,6 +29,28 @@ namespace Iroca
             internal Color32[] Colors;   // 番号 → 色
             internal int[] Index;        // 画素 → 番号(長さ len。s_intPool から借りる。Release で返す)
             internal float[] H, S, V;    // 番号 → Color.RGBToHSV((Color)色) の結果
+            // 番号 → RgbToOklab(byte 版) の L と、C = sqrt(a²+b²)。EnsureOklab で初めて要るときに作る。
+            internal float[] OkL, OkC;
+
+            /// <summary>OkLab の表を作る(呼び出し側スレッドから、並列ループの外で呼ぶこと)。</summary>
+            internal void EnsureOklab(ParallelOptions po)
+            {
+                if (OkL != null) return;
+                var l = new float[Count];
+                var c = new float[Count];
+                var colors = Colors;
+                ForEachPaletteChunk(Count, po, (k0, k1) =>
+                {
+                    for (int k = k0; k < k1; k++)
+                    {
+                        RgbToOklab(colors[k].r, colors[k].g, colors[k].b, out float L, out float a, out float b);
+                        l[k] = L;
+                        c[k] = Mathf.Sqrt(a * a + b * b);
+                    }
+                });
+                OkL = l;
+                OkC = c;
+            }
 
             internal void Release()
             {

@@ -499,7 +499,8 @@ namespace Iroca
                     //       strength を空間連結で伸ばし、薄いハイライトのベタ塗り化・取りこぼしを防ぐ。
                     if (!selCached && zone.highlightBandExpand && zone.highlightRecovery)
                     {
-                        GrowHighlightBand(strength, originalPixels, pixH, pixS, pixV, zone, w, h, cancellationToken);
+                        GrowHighlightBand(strength, originalPixels, pixH, pixS, pixV, zone, w, h, cancellationToken,
+                            palette);
                         _sub.Mark(SpHlBand);
                         debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, strength, w, h);
                     }
@@ -658,6 +659,33 @@ namespace Iroca
                         Mathf.Clamp01((gsS - zone.chromaThreshold) / 0.10f),
                         Mathf.Clamp01((gsV - 0.05f) / 0.15f));
                     float rgSampR = zone.sampleColor.r, rgSampG = zone.sampleColor.g, rgSampB = zone.sampleColor.b;
+                    // 緩和マッチ(穴埋めの許可判定と境界回復が同じ引数で呼ぶ)は色だけで決まるので、
+                    // 色の表があれば色ごとに 1 回だけ求めて両方で使う(ビット単位で同じ)。
+                    float[] palRelaxed = null;
+                    if (palette != null && !selCached && hasPostBox
+                        && (long)palette.Count * 2 <= (long)(ppMaxX - ppMinX + 1) * (ppMaxY - ppMinY + 1))
+                    {
+                        palRelaxed = new float[palette.Count];
+                        Color32[] rCol = palette.Colors;
+                        float[] rH = palette.H, rS = palette.S, rV = palette.V;
+                        float[] outRel = palRelaxed;
+                        ForEachPaletteChunk(palette.Count, po, (k0, k1) =>
+                        {
+                            for (int k = k0; k < k1; k++)
+                            {
+                                Color32 hop = rCol[k];
+                                outRel[k] = GetRelaxedMatchStrength(
+                                    rH[k], rS[k], rV[k], gsH, gsS, gsV,
+                                    zone.tolerance, zone.edgeSoftness, zone.valueWeight,
+                                    zone.satDistWeight, relaxedSatMin, relaxedSatRamp,
+                                    zone.shadowForgivenessSatMin,
+                                    hop.r / 255f, hop.g / 255f, hop.b / 255f,
+                                    rgSampR, rgSampG, rgSampB, relaxedChromaConf, zone.chromaThreshold,
+                                    zone.chromaCeiling);
+                            }
+                        });
+                    }
+                    int[] palIdxRelaxed = palette?.Index;
                     if (!selCached && hasPostBox && !zMixMode)
                     {
                         bool[] fillAllowed = s_boolPool.Rent(len);
@@ -669,6 +697,15 @@ namespace Iroca
                             Parallel.For(ppMinY, ppMaxY + 1, po, y =>
                             {
                                 int rowOff = y * w;
+                                if (palRelaxed != null)
+                                {
+                                    for (int x = ppMinX; x <= ppMaxX; x++)
+                                    {
+                                        int i = rowOff + x;
+                                        fillAllowedLocal[i] = palRelaxed[palIdxRelaxed[i]] > 0f;
+                                    }
+                                    return;
+                                }
                                 for (int x = ppMinX; x <= ppMaxX; x++)
                                 {
                                     int i = rowOff + x;
@@ -705,7 +742,7 @@ namespace Iroca
                             zone.satDistWeight, relaxedSatMin, relaxedSatRamp, zone.shadowForgivenessSatMin, antiAliasCleanup,
                             ppMinX, ppMinY, ppMaxX, ppMaxY,
                             originalPixels, relaxedChromaConf, zone.chromaThreshold, zone.chromaCeiling,
-                            cancellationToken);
+                            cancellationToken, palRelaxed, palIdxRelaxed);
                         _sub.Mark(SpBoundary);
                         debug?.RecordStage(zone.id, DebugStages.BoundaryRecover, strength, w, h);
                     }
@@ -960,7 +997,7 @@ namespace Iroca
                     else if (zone.autoRecolorAnchor && !zOkGray &&
                         TryComputeRecolorAnchor(originalPixels, strength, w,
                             ppMinX, ppMinY, ppMaxX, ppMaxY, out float anchorL, out float anchorC,
-                            includedPx, cancellationToken))
+                            includedPx, cancellationToken, palette))
                     {
                         float zSC0 = zSC;
                         zSL = anchorL;
@@ -1028,10 +1065,11 @@ namespace Iroca
                         {
                             zHasRegL = TryComputeRegionLRange(originalPixels, strength, w,
                                 ppMinX, ppMinY, ppMaxX, ppMaxY,
-                                out zRegLlo, out zRegLhi, out zRegLmid, includedPx, cancellationToken);
+                                out zRegLlo, out zRegLhi, out zRegLmid, includedPx, cancellationToken, palette);
                                 _sub.Mark(SpRegionLRange);
                             if (zHasRegL)
-                                zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, 0.05f, cancellationToken);
+                                zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, 0.05f, cancellationToken,
+                                    palette);
                         }
                     }
 

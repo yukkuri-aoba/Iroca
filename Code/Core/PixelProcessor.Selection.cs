@@ -758,8 +758,12 @@ namespace Iroca
             float relaxedSatMin, float relaxedSatRamp, float shadowForgivenessSatMin, int passes,
             int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1,
             Color32[] originalPixels = null, float chromaConfidence = 1f, float chromaThreshold = 0.05f,
-            float chromaCeiling = 0f, CancellationToken ct = default)
+            float chromaCeiling = 0f, CancellationToken ct = default,
+            float[] relaxedByColor = null, int[] colorIndex = null)
         {
+            // relaxedByColor / colorIndex: 色の表(ColorPalette)の番号ごとに、この関数と同じ引数で
+            // GetRelaxedMatchStrength を求めた値と、画素 → 番号。渡されたら画素ごとの計算の代わりに読む
+            // (同じ関数に同じ入力を与えた値なのでビット単位で同じ)。
             if (passes <= 0) return;
 
             // bbox 未指定(boxMaxX<0)なら全画素。指定時はその矩形内だけ走査する(P2-7、出力ビット不変)。
@@ -800,6 +804,12 @@ namespace Iroca
 
                         if (!hasMatchedNeighbor) continue;
 
+                        if (relaxedByColor != null)
+                        {
+                            float rel = relaxedByColor[colorIndex[idx]];
+                            if (rel > 0f) write[idx] = rel;
+                            continue;
+                        }
                         float rpR = 0f, rpG = 0f, rpB = 0f;
                         if (originalPixels != null)
                         {

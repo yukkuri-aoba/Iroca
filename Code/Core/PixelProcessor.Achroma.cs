@@ -252,7 +252,8 @@ namespace Iroca
         /// strength>thr の画素のみ連結対象。マッチ無しは null。
         /// </summary>
         private static float[] BuildComponentMedianLMap(
-            Color32[] px, float[] strength, int w, int h, float thr, CancellationToken ct = default)
+            Color32[] px, float[] strength, int w, int h, float thr, CancellationToken ct = default,
+            ColorPalette palette = null)
         {
             int len = w * h;
             var bboxPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
@@ -271,10 +272,23 @@ namespace Iroca
             int[] runX0 = null, runX1 = null, parent = null, comp = null;
             try
             {
+            // 色の表があれば L は色ごとの表から配る(同じ色に同じ変換を当てた値なのでビット単位で同じ)。
+            int[] pIdx = null;
+            float[] pL = null;
+            if (palette != null)
+            {
+                palette.EnsureOklab(bboxPo);
+                pIdx = palette.Index; pL = palette.OkL;
+            }
             Parallel.For(0, bh, bboxPo, ly =>
             {
                 int lrb = ly * bw;
                 int grb = (ly + minY) * w + minX;
+                if (pIdx != null)
+                {
+                    for (int lx = 0; lx < bw; lx++) okL[lrb + lx] = pL[pIdx[grb + lx]];
+                    return;
+                }
                 for (int lx = 0; lx < bw; lx++)
                 {
                     var p = px[grb + lx];
@@ -431,9 +445,18 @@ namespace Iroca
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out float lo, out float hi, out float mid,
             bool[] statsExclude = null,
-            CancellationToken ct = default)
+            CancellationToken ct = default,
+            ColorPalette palette = null)
         {
             lo = 0f; hi = 1f; mid = 0.5f;
+            // 色の表があれば L は色ごとの表から読む(ビット単位で同じ)。
+            int[] pIdx = null;
+            float[] pL = null;
+            if (palette != null)
+            {
+                palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct });
+                pIdx = palette.Index; pL = palette.OkL;
+            }
             var hist = new int[256];
             int count = 0;
             float thr = AchromaRegionCoreThr;
@@ -452,7 +475,9 @@ namespace Iroca
                             int i = rowOff + x;
                             if (strength[i] < passThr || px[i].a < 128) continue;
                             if (statsExclude != null && statsExclude[i]) continue;
-                            RgbToOklab(px[i].r, px[i].g, px[i].b, out float L, out _, out _);
+                            float L;
+                            if (pIdx != null) L = pL[pIdx[i]];
+                            else RgbToOklab(px[i].r, px[i].g, px[i].b, out L, out _, out _);
                             localHist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
                             n++;
                         }

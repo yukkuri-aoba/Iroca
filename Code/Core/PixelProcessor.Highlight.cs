@@ -161,7 +161,7 @@ namespace Iroca
         private static void GrowHighlightBand(
             float[] strength, Color32[] originalPixels,
             float[] pixH, float[] pixS, float[] pixV, ColorZone zone, int w, int h,
-            CancellationToken ct = default)
+            CancellationToken ct = default, ColorPalette palette = null)
         {
             float sH, sS, sV;
             Color.RGBToHSV(zone.sampleColor, out sH, out sS, out sV);
@@ -197,9 +197,34 @@ namespace Iroca
             // 走査順に依存せず、書き込みは distinct index のため出力は逐次版とビット不変。
             // 行並列(per-index デリゲートの 1670 万回呼び出しを避ける)。
             var hlbPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            // 候補判定は画素の色(と色から求めた HSV)だけで決まるので、色の表があれば色ごとに 1 回だけ
+            // 判定して配る(同じ式に同じ入力を与えた結果なのでビット単位で同じ)。
+            bool[] candByColor = null;
+            int[] pIdx = palette?.Index;
+            if (palette != null)
+            {
+                candByColor = new bool[palette.Count];
+                var cols = palette.Colors;
+                float[] qH = palette.H, qS = palette.S, qV = palette.V;
+                ForEachPaletteChunk(palette.Count, hlbPo, (k0, k1) =>
+                {
+                    for (int k = k0; k < k1; k++)
+                        candByColor[k] = IsHighlightBandCandidate(qH[k], qS[k], qV[k], cols[k],
+                            sH, sS, sV, sR, sG, sB, dR, dG, dB, dsq, hueCap, satFloor);
+                });
+            }
             Parallel.For(0, h, hlbPo, y =>
             {
                 int rowOff = y * w;
+                if (candByColor != null)
+                {
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        if (candByColor[pIdx[i]]) candidate[i] = true;
+                    }
+                    return;
+                }
                 for (int x = 0; x < w; x++)
                 {
                     int i = rowOff + x;
@@ -284,6 +309,29 @@ namespace Iroca
                 s_boolPool.Return(candidate);
                 s_boolPool.Return(visited);
             }
+        }
+
+        /// <summary>
+        /// 帯成長の候補判定(GrowHighlightBand の画素ループと同じ式)。色の表で色ごとに判定するときに使う。
+        /// 画素ループ側の式を変えたらここも同じに変えること(bitcheck が不一致で検出する)。
+        /// </summary>
+        private static bool IsHighlightBandCandidate(float pH, float pS, float pV, Color32 op,
+            float sH, float sS, float sV, float sR, float sG, float sB,
+            float dR, float dG, float dB, float dsq, float hueCap, float satFloor)
+        {
+            if (pV <= sV) return false;
+            if (!(pS < sS && pS >= satFloor)) return false;
+            float hd = Mathf.Abs(pH - sH);
+            if (hd > 0.5f) hd = 1f - hd;
+            if (!(hd < hueCap)) return false;
+            float pr = op.r / 255f, pg = op.g / 255f, pb = op.b / 255f;
+            float ox = pr - sR, oy = pg - sG, oz = pb - sB;
+            float wv = (ox * dR + oy * dG + oz * dB) / dsq;
+            if (wv < 0f) wv = 0f; else if (wv > 1f) wv = 1f;
+            float rr = pr - (sR + wv * dR);
+            float rg = pg - (sG + wv * dG);
+            float rb = pb - (sB + wv * dB);
+            return rr * rr + rg * rg + rb * rb < HlBandAxisEps * HlBandAxisEps;
         }
 
         // ─────────────────── 閉領域ハイライト復帰(有彩サンプル専用) ───────────────────
