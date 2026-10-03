@@ -166,7 +166,7 @@ namespace Iroca
                 segs.Add(new LatencySegment(lane, kind, name, Ms(from), Ms(to)));
             }
 
-            // スクロール・ズームでは、手を止めて拡大表示の作り直しを始めるまで(0.3 秒の間引き)が待ち。
+            // スクロール・ズームでは、手を止めて拡大表示の作り直しを始めるまで(DetailDebounceSeconds の間引き)が待ち。
             if (c.Input != 0)
                 Add(LaneRequest, LatencyKind.Wait, "待ち(操作→生成開始)", c.Input,
                     c.ViewChange ? c.Detail.PrepStart : c.PrepStart);

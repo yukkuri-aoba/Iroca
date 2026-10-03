@@ -369,7 +369,7 @@ namespace Iroca.UnitRun
                 "no input wait segment");
         }
 
-        // スクロール・ズーム: 最後の操作 100 → 手を止めて 0.3 秒後に拡大表示の準備 400..402 →
+        // スクロール・ズーム: 最後の操作 100 → 手を止めて間引きの待ち(ここでは 300)のあと拡大表示の準備 400..402 →
         // 切り出し(コア無し) → 430 に表示。プロキシ・フル段は無い。
         private static PreviewLatencyCycle ViewChangeCycle()
         {

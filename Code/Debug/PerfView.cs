@@ -239,7 +239,7 @@ namespace Iroca.DebugTools
                     "確定: 表示解像度の確定結果が出るまで。ドラッグの追従中や確定前は「待ち」。\n" +
                     "拡大: 拡大表示中だけ。フル解像度の詳細クロップが出るまで。\n" +
                     "スクロール・ズーム: 拡大表示中に表示位置・倍率を最後に変えてから、拡大表示が出るまで" +
-                    "(手を止めて 0.3 秒待ってから作り直すので、その待ちを含みます)。\n" +
+                    $"(手を止めて {DebounceText} 待ってから作り直すので、その待ちを含みます)。\n" +
                     $"元画像 {r.SourceW}×{r.SourceH}"));
 
             // 簡略表示(デバッグモード OFF)は要約の 1 行だけ。
@@ -322,7 +322,7 @@ namespace Iroca.DebugTools
             {
                 case PreviewLatencyReport.LaneRequest:
                     return "最後の操作から再生成を始めるまでの待ちと、入力(マスク・ゾーン設定)のスナップショット。\n" +
-                           "スクロール・ズームでは、手を止めて拡大表示の作り直しを始めるまで(0.3 秒の間引き)の待ち。";
+                           $"スクロール・ズームでは、手を止めて拡大表示の作り直しを始めるまで({DebounceText}の間引き)の待ち。";
                 case PreviewLatencyReport.LaneProxy:
                     return "縮小プロキシで概要を先に出す段(大きいテクスチャのときだけ)。";
                 case PreviewLatencyReport.LaneFull:
@@ -331,9 +331,12 @@ namespace Iroca.DebugTools
                            "(その間は「確定の開始待ち」)。";
                 default:
                     return "拡大表示中だけ。確定表示の直後と、スクロール・ズームのあとに、見えている範囲を\n" +
-                           "フル段の出力から切り出して作り直す段(スクロール・ズームの直後は 0.3 秒待ってから)。";
+                           $"フル段の出力から切り出して作り直す段(スクロール・ズームの直後は {DebounceText} 待ってから)。";
             }
         }
+
+        // スクロール・ズームのあと拡大表示を作り直すまでの待ち(ツールチップ用。値は DetailPreviewView が正)。
+        private static string DebounceText => $"{DetailPreviewView.DetailDebounceSeconds:0.0#} 秒";
 
         private static Color KindColor(LatencyKind kind)
         {

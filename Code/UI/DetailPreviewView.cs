@@ -40,7 +40,10 @@ namespace Iroca
         // 画像全幅ではなく「実際に見えている範囲」だけに絞るために使う。
         [System.NonSerialized] public float lastViewportW, lastViewportH;
 
-        public const double DetailDebounceSeconds = 0.3;
+        // スクロール・ズームのあと、手を止めてからこれだけ待って拡大表示を作り直す(連続したスクロール中の
+        // 作り直しを間引く)。作り直しは確定(フル段)の出力の切り出しだけで軽い(数〜数十 ms)ので短くしている。
+        // 短すぎると、ホイールを 1 段ずつ回したときに段の合間で拡大表示が出入りしてちらつく。
+        public const double DetailDebounceSeconds = 0.1;
         // 詳細モード: 表示倍率がこの値を超えたら、低解像度プレビューの引き伸ばしをやめて
         // ソース解像度から作り直したクロップへ切り替える。
         // 旧実装は「ディスプレイ/ソース比 >= 1」を条件にしていたが、ソースが
