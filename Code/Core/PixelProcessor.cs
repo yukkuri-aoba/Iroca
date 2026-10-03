@@ -1176,6 +1176,9 @@ namespace Iroca
                         palRecolored = outRc;
                     }
                     int[] palIdxRecolor = palette?.Index;
+                    // 色ごとの表を作れないゾーン(成分別 L マップあり)は、スレッドごとのメモで使い回す。
+                    int recolorMemoEpoch = palette != null && palRecolored == null && rcMaxX >= 0
+                        ? NextRecolorMemoEpoch() : 0;
                     // rcMaxX<0 はマッチ画素なし → 全画素 continue で何もしないのと同じ(出力不変)。
                     if (rcMaxX >= 0)
                     Parallel.For(rcMinY, rcMaxY + 1, po, y =>
@@ -1234,13 +1237,17 @@ namespace Iroca
                             }
                             Color32 op = originalPixels[i];
                             float alpha = op.a / 255f;
+                            float regMid = (zRegMidMap != null && zRegMidMap[i] > 0f) ? zRegMidMap[i] : zRegLmid;
                             Color32 recolored = palRecolored != null
                                 ? palRecolored[palIdxRecolor[i]]
-                                : RecolorPixel(
-                                    op.r, op.g, op.b,
-                                    pixV[i], alpha,
-                                    in rcParams,
-                                    (zRegMidMap != null && zRegMidMap[i] > 0f) ? zRegMidMap[i] : zRegLmid);
+                                : recolorMemoEpoch != 0
+                                    ? RecolorPixelMemo(recolorMemoEpoch, palIdxRecolor[i], regMid,
+                                        op, pixV[i], alpha, in rcParams)
+                                    : RecolorPixel(
+                                        op.r, op.g, op.b,
+                                        pixV[i], alpha,
+                                        in rcParams,
+                                        regMid);
                             if (topMost)
                             {
                                 // 最上位の寄与(claimed≈0)。es=s なので従来挙動と完全一致し、
