@@ -2,7 +2,11 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 #if IROCA_SENTIS_PRESENT
 using System;
+#if IROCA_INFERENCE_ENGINE
+using Unity.InferenceEngine;
+#else
 using Unity.Sentis;
+#endif
 using UnityEditor;
 
 namespace Iroca.SentisIntegration

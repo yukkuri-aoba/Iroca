@@ -19,16 +19,27 @@ namespace Iroca
     /// </summary>
     internal static class MaskSuggestInstall
     {
+#if UNITY_6000_0_OR_NEWER
+        // Unity 6 では com.unity.sentis は中継だけのパッケージ(type: shim)で、実体は com.unity.ai.inference
+        // (Inference Engine, 名前空間 Unity.InferenceEngine)。中継を指定しても 2.1.x は入らない。
+        public const string SentisPackageId = "com.unity.ai.inference";
+#else
         public const string SentisPackageId = "com.unity.sentis";
+#endif
 
         /// <summary>Sentis 導入直後に「再起動推奨」を出すためのフラグ(SessionState キー)。
         /// SessionState はドメインリロードを跨いで残り、エディタ再起動で消える = 再起動するまで表示。</summary>
         public const string RestartRecommendedKey = "Iroca.Sentis.RestartRecommended";
 
-        // asmdef の versionDefine 範囲 [2.0.0,3.0.0) に収まる検証済みバージョンを固定導入する。
+        // asmdef の versionDefine 範囲に収まる検証済みバージョンを固定導入する。
+        // 2022.3 は Sentis [2.0.0,2.2.0)、Unity 6 は Inference Engine [2.2.0,3.0.0)。
         // (配布モデルの ONNX もこの版でエクスポート・検証している。版を上げるときはここと
         //  Iroca.SentisIntegration.asmdef の versionDefines、MANUAL の記載を揃える)
+#if UNITY_6000_0_OR_NEWER
+        public const string SentisPackageVersion = "2.4.1";
+#else
         public const string SentisPackageVersion = "2.1.3";
+#endif
 
         static AddRequest _request;
 

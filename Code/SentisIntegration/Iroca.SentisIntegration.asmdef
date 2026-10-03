@@ -3,7 +3,8 @@
     "rootNamespace": "Iroca.SentisIntegration",
     "references": [
         "com.yukkuri-aoba.iroca.Editor",
-        "Unity.Sentis"
+        "Unity.Sentis",
+        "Unity.InferenceEngine"
     ],
     "includePlatforms": [
         "Editor"
@@ -19,8 +20,18 @@
     "versionDefines": [
         {
             "name": "com.unity.sentis",
-            "expression": "[2.0.0,3.0.0)",
+            "expression": "[2.0.0,2.2.0)",
             "define": "IROCA_SENTIS_PRESENT"
+        },
+        {
+            "name": "com.unity.ai.inference",
+            "expression": "[2.2.0,3.0.0)",
+            "define": "IROCA_SENTIS_PRESENT"
+        },
+        {
+            "name": "com.unity.ai.inference",
+            "expression": "[2.2.0,3.0.0)",
+            "define": "IROCA_INFERENCE_ENGINE"
         }
     ],
     "noEngineReferences": false

@@ -3,7 +3,11 @@
 #if IROCA_SENTIS_PRESENT
 using System;
 using System.Collections.Generic;
+#if IROCA_INFERENCE_ENGINE
+using Unity.InferenceEngine;
+#else
 using Unity.Sentis;
+#endif
 using UnityEditor;
 using UnityEngine;
 
