@@ -27,7 +27,12 @@ namespace Iroca
         [System.NonSerialized] private int _pendingDetailTexW, _pendingDetailTexH;
         [System.NonSerialized] private int _pendingDetailCropW, _pendingDetailCropH;
         [System.NonSerialized] private int _pendingDetailOriginX, _pendingDetailOriginY;
+        [System.NonSerialized] private PreviewLatencyCycle _pendingDetailLatency;
         [System.NonSerialized] public double lastDetailDirtyTime;
+        // 体感速度の計測: 確定表示(フル)の直後に始まる再生成を、その操作を起点に測るための引き渡し。
+        // スクロール・ズームなど別の契機で lastDetailDirtyTime が打ち直されたら引き渡さない。
+        [System.NonSerialized] private PreviewLatencyCycle _latencyCycle;
+        [System.NonSerialized] private double _latencyDirtyTime;
         [System.NonSerialized] public Rect lastPreviewRect;
         // スクロールビューの可視領域サイズ（ディスプレイピクセル）。クロップ範囲を
         // 画像全幅ではなく「実際に見えている範囲」だけに絞るために使う。
@@ -63,6 +68,24 @@ namespace Iroca
         }
 
         public bool HasPendingResult => _pendingDetailProcessed != null;
+
+        /// <summary>確定表示が lastDetailDirtyTime を打った直後に呼ぶ(体感速度の計測)。</summary>
+        internal void AttachLatency(PreviewLatencyCycle cycle)
+        {
+            _latencyCycle = cycle;
+            _latencyDirtyTime = lastDetailDirtyTime;
+        }
+
+        /// <summary>
+        /// 再生成を起こした lastDetailDirtyTime が確定表示の打ったものなら、その計測を返す
+        /// (それ以外の契機なら null)。引き渡しは 1 回きり。
+        /// </summary>
+        internal PreviewLatencyCycle TakeLatencyFor(double dirtyTime)
+        {
+            var c = _latencyCycle;
+            _latencyCycle = null;
+            return c != null && dirtyTime == _latencyDirtyTime ? c : null;
+        }
 
         public struct DetailPreviewResult
         {
@@ -113,8 +136,10 @@ namespace Iroca
         /// バックグラウンドタスクを開始します。
         /// </summary>
         public void GenerateDetailPreviewAsync(int srcW, int srcH, Color32[] srcPixels,
-            float scale, float previewZoom, Vector2 previewScrollPos, float viewportW, float viewportH)
+            float scale, float previewZoom, Vector2 previewScrollPos, float viewportW, float viewportH,
+            PreviewLatencyCycle latency = null)
         {
+            long prepStart = PreviewLatencyCycle.Now;
             // 画素は呼び出し元（メインプレビュー）が確保した true source をそのまま受け取るので、
             // ここで Read/Write を要求しない（要求すると PNG/JPG でも詳細プレビューが出ない）。
             var sourceTexture = _host.SourceTexture;
@@ -194,9 +219,18 @@ namespace Iroca
                  parityCache.fullW == capSrcW && parityCache.fullH == capSrcH)
                 ? parityCache : null;
 
+            // 体感速度の計測(確定表示から引き渡されたときだけ)。値・分岐は変えない。
+            var marks = latency?.Detail;
+            if (marks != null)
+            {
+                marks.PrepStart = prepStart;
+                marks.Scheduled = PreviewLatencyCycle.Now;
+            }
+
             detailJob.Schedule(
                 work: token =>
                 {
+                    if (marks != null) marks.WorkStart = PreviewLatencyCycle.Now;
                     Color32[] rawCrop       = new Color32[cropW * cropH];
                     Color32[] processedCrop = new Color32[cropW * cropH];
                     // クロップは各行が連続領域なので行単位 Array.Copy(画素単位 2 配列書き込みを回避)。
@@ -208,10 +242,12 @@ namespace Iroca
                     }
                     System.Array.Copy(rawCrop, processedCrop, rawCrop.Length);
 
+                    if (marks != null) marks.CoreStart = PreviewLatencyCycle.Now;
                     PixelProcessor.ProcessPixelsArray(processedCrop, cropW, cropH,
                         maskSnap, zonesSnapshot, settings, token,
                         capX0, capY0, capSrcW, capSrcH,
                         debug: null, parityCache: parityForTask);
+                    if (marks != null) marks.CoreEnd = PreviewLatencyCycle.Now;
 
                     // 縮小表示のときだけ表示解像度へ落とす。BoxDownsample の scale は
                     // dst/src 比なので pxPerSrc をそのまま渡す(端は内部でクランプされる)。
@@ -225,6 +261,7 @@ namespace Iroca
                             rawCrop, cropW, cropH, outW, outH, pxPerSrc);
                     }
 
+                    if (marks != null) marks.WorkEnd = PreviewLatencyCycle.Now;
                     return new DetailPreviewResult
                     {
                         Raw = outRaw,
@@ -239,6 +276,8 @@ namespace Iroca
                 },
                 apply: result =>
                 {
+                    if (marks != null) marks.Applied = PreviewLatencyCycle.Now;
+                    _pendingDetailLatency   = latency;
                     _pendingDetailRaw       = result.Raw;
                     _pendingDetailProcessed = result.Processed;
                     _pendingDetailTexW      = result.TexW;
@@ -261,10 +300,13 @@ namespace Iroca
             int ch = _pendingDetailCropH;
             int ox = _pendingDetailOriginX;
             int oy = _pendingDetailOriginY;
+            var latency = _pendingDetailLatency;
             _pendingDetailProcessed = null;
             _pendingDetailRaw       = null;
+            _pendingDetailLatency   = null;
 
             if (processed == null || raw == null) return;
+            if (latency != null) latency.Detail.UploadStart = PreviewLatencyCycle.Now;
 
             detailOriginX = ox;
             detailOriginY = oy;
@@ -284,6 +326,13 @@ namespace Iroca
             // Color32[] が手元にあるのでそのままバックグラウンド diff へ。GetPixels32 を再度呼ばない。
             if (_host.Preview.diffMode)
                 ScheduleDetailDiffTexture(raw, processed, w, h);
+
+            // 体感速度: 拡大表示まで含めたレポートで、確定表示時点のものを差し替える。
+            if (latency != null)
+            {
+                latency.Detail.UploadEnd = PreviewLatencyCycle.Now;
+                if (PreviewLatency.Publish(latency)) _host.RequestRepaint();
+            }
         }
 
         /// <summary>

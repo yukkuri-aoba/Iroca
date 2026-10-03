@@ -222,5 +222,146 @@ namespace Iroca.UnitRun
             }
             finally { Directory.Delete(d, true); }
         }
+
+        // ─── PreviewLatency（プレビューの体感時間: 操作 → 画面） ───
+        // 周波数 1000 = 1 タイムスタンプ 1 ms として時刻を直接書く。
+
+        private const long Hz = 1000;
+
+        private static void SetStage(LatencyStageMarks m, long scheduled, long workStart, long coreStart,
+            long coreEnd, long workEnd, long applied, long uploadStart, long uploadEnd)
+        {
+            m.Scheduled = scheduled; m.WorkStart = workStart; m.CoreStart = coreStart; m.CoreEnd = coreEnd;
+            m.WorkEnd = workEnd; m.Applied = applied; m.UploadStart = uploadStart; m.UploadEnd = uploadEnd;
+        }
+
+        // 操作 100 → 準備 110..112 → プロキシ(コア 20ms) が 152 に表示 → フル(コア 200ms) が 363 に表示。
+        private static PreviewLatencyCycle ProxyAndFullCycle()
+        {
+            var c = new PreviewLatencyCycle { Input = 100, FirstInput = 100, PrepStart = 110, PrepEnd = 112 };
+            SetStage(c.Proxy, 112, 113, 115, 135, 136, 140, 150, 152);
+            SetStage(c.Full, 140, 141, 145, 345, 350, 355, 360, 363);
+            return c;
+        }
+
+        private static bool Near(double a, double b) => Math.Abs(a - b) < 1e-9;
+
+        public static void Latency_ProxyAndFull_MilestonesAndSums()
+        {
+            var r = PreviewLatencyReport.Build(ProxyAndFullCycle(), Hz);
+            Check.True(r.HasInput, "has input");
+            Check.True(Near(52, r.FirstShownMs), $"first shown = proxy upload end (52), was {r.FirstShownMs}");
+            Check.True(Near(263, r.FinalShownMs), $"final shown = full upload end (263), was {r.FinalShownMs}");
+            Check.True(double.IsNaN(r.DetailShownMs), "no detail");
+            Check.True(Near(263, r.LastShownMs), "last shown = final without detail");
+            Check.True(Near(52, r.StaleMs), "stale = first shown when the first input is the last");
+            // メインスレッド = 準備 2 + プロキシ転送 2 + フル転送 3。コア = 20 + 200。
+            Check.True(Near(7, r.MainThreadMs), $"main thread 7, was {r.MainThreadMs}");
+            Check.True(Near(220, r.CoreMs), $"core 220, was {r.CoreMs}");
+            Check.Equal(16, r.Segments.Length, "2 request + 7 proxy + 7 full segments");
+            Check.True(r.Segments.All(s => s.EndMs >= s.StartMs), "segments are not reversed");
+        }
+
+        public static void Latency_WaitIsInputToGenerationStart()
+        {
+            var r = PreviewLatencyReport.Build(ProxyAndFullCycle(), Hz);
+            var wait = r.Segments.Single(s => s.Lane == PreviewLatencyReport.LaneRequest && s.Kind == LatencyKind.Wait);
+            Check.True(Near(0, wait.StartMs) && Near(10, wait.EndMs), $"wait 0..10, was {wait.StartMs}..{wait.EndMs}");
+        }
+
+        public static void Latency_NoProxy_FirstEqualsFinal()
+        {
+            var c = new PreviewLatencyCycle { Input = 100, FirstInput = 100, PrepStart = 101, PrepEnd = 102 };
+            SetStage(c.Full, 102, 103, 104, 204, 205, 210, 220, 222);
+            var r = PreviewLatencyReport.Build(c, Hz);
+            Check.True(Near(122, r.FinalShownMs), "final");
+            Check.True(Near(r.FinalShownMs, r.FirstShownMs), "first == final without proxy");
+            Check.True(r.Segments.All(s => s.Lane != PreviewLatencyReport.LaneProxy), "no proxy lane");
+        }
+
+        public static void Latency_Detail_WaitStartsAtFinalShown()
+        {
+            var c = ProxyAndFullCycle();
+            c.Detail.PrepStart = 663;
+            SetStage(c.Detail, 665, 666, 667, 707, 710, 712, 720, 722);
+            var r = PreviewLatencyReport.Build(c, Hz);
+            Check.True(Near(622, r.DetailShownMs), $"detail shown 622, was {r.DetailShownMs}");
+            Check.True(Near(622, r.LastShownMs), "last shown = detail");
+            var wait = r.Segments.First(s => s.Lane == PreviewLatencyReport.LaneDetail);
+            Check.True(wait.Kind == LatencyKind.Wait && Near(263, wait.StartMs) && Near(563, wait.EndMs),
+                $"detail wait 263..563 (the debounce after the final), was {wait.StartMs}..{wait.EndMs}");
+            Check.True(Near(7 + 2 + 2, r.MainThreadMs), $"main thread adds detail prep/upload, was {r.MainThreadMs}");
+            Check.True(Near(260, r.CoreMs), $"core adds detail 40, was {r.CoreMs}");
+        }
+
+        public static void Latency_DetailNotShown_IsIgnored()
+        {
+            var c = ProxyAndFullCycle();
+            c.Detail.PrepStart = 663;
+            c.Detail.Scheduled = 665;
+            c.Detail.WorkStart = 666; // 取り消されて画面に出なかった
+            var r = PreviewLatencyReport.Build(c, Hz);
+            Check.True(double.IsNaN(r.DetailShownMs), "no detail");
+            Check.True(r.Segments.All(s => s.Lane != PreviewLatencyReport.LaneDetail), "no detail lane");
+        }
+
+        public static void Latency_Stale_CountsFromFirstUnshownInput()
+        {
+            var c = ProxyAndFullCycle();
+            c.FirstInput = 40; // ドラッグの開始。最後の操作(100)の 60ms 前
+            var r = PreviewLatencyReport.Build(c, Hz);
+            Check.True(Near(112, r.StaleMs), $"stale = 60 + first shown 52, was {r.StaleMs}");
+            Check.True(Near(52, r.FirstShownMs), "milestones stay relative to the last input");
+        }
+
+        public static void Latency_FullNotShown_ReturnsNull()
+        {
+            var c = ProxyAndFullCycle();
+            c.Full.UploadEnd = 0;
+            Check.True(PreviewLatencyReport.Build(c, Hz) == null, "cancelled cycle has no report");
+        }
+
+        public static void Latency_NoInput_OriginIsGenerationStart()
+        {
+            var c = ProxyAndFullCycle();
+            c.Input = 0;
+            c.FirstInput = 0;
+            var r = PreviewLatencyReport.Build(c, Hz);
+            Check.True(!r.HasInput, "no input");
+            Check.True(Near(253, r.FinalShownMs), $"final from prep start (110), was {r.FinalShownMs}");
+            Check.True(r.Segments.All(s => s.Kind != LatencyKind.Wait || s.Lane != PreviewLatencyReport.LaneRequest),
+                "no input wait segment");
+        }
+
+        public static void InputClock_CarriesUnshownInputsAcrossCancelledCycles()
+        {
+            var clock = new PreviewInputClock();
+            clock.NoteInput(10);
+            clock.NoteInput(20);
+            var c1 = new PreviewLatencyCycle();
+            clock.Snapshot(c1);
+            Check.Equal(20L, c1.Input, "c1 last input");
+            Check.Equal(10L, c1.FirstInput, "c1 first input");
+
+            // c1 は新しい操作で取り消された。画面はまだ止まったまま。
+            clock.NoteInput(30);
+            var c2 = new PreviewLatencyCycle();
+            clock.Snapshot(c2);
+            Check.Equal(30L, c2.Input, "c2 last input");
+            Check.Equal(10L, c2.FirstInput, "c2 keeps the first unshown input");
+
+            // c2 のスナップショット後の操作は、c2 が画面に出てもまだ反映されていない。
+            clock.NoteInput(35);
+            clock.NoteShown();
+            var c3 = new PreviewLatencyCycle();
+            clock.Snapshot(c3);
+            Check.Equal(35L, c3.FirstInput, "input after the shown snapshot carries over");
+
+            clock.NoteShown();
+            clock.NoteInput(50);
+            var c4 = new PreviewLatencyCycle();
+            clock.Snapshot(c4);
+            Check.Equal(50L, c4.FirstInput, "fresh start after everything was shown");
+        }
     }
 }

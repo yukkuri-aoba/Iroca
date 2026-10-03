@@ -14,6 +14,7 @@ namespace Iroca
 
         private void GeneratePreviewAsync()
         {
+            long prepStart = PreviewLatencyCycle.Now;
             var sourceTexture = _host.SourceTexture;
             if (sourceTexture == null || !EnsureTrueSource(sourceTexture)) return;
 
@@ -80,6 +81,10 @@ namespace Iroca
             // Factory が非 null インスタンスを返す。それ以外は null で、本体は何もキャプチャしない。
             IDebugCapture debugCap = DebugCaptureHooks.Factory?.Invoke();
 
+            // 体感速度の計測(値・分岐は変えない)。起点はこの再生成が反映する最後の操作。
+            var latency = new PreviewLatencyCycle { PrepStart = prepStart, SourceW = srcW, SourceH = srcH };
+            InputClock.Snapshot(latency);
+
             // 入力スナップショットを 1 回だけ構築し、プロキシ(概要)とフル(確定)の両段へ渡す。
             // 両段が同一入力を処理することを保証する(プロキシとフルで選択がズレないように)。
             var req = new PreviewRequest
@@ -94,6 +99,7 @@ namespace Iroca
                 // (詳細プレビューが転写して出力色まで一致させる)。プロキシ段は公開しない。
                 // sourceId を刻んでおき、詳細側が「同寸法の別テクスチャ」を取り違えないようにする。
                 parityCache = new PreviewParityCache { sourceId = sourceTexture.GetInstanceID() },
+                latency = latency,
             };
 
             // 段階的リファイン: ソースが縮小される(scale<1)ときだけ、まず低解像度プロキシで概要を
@@ -103,6 +109,7 @@ namespace Iroca
             // ままフルで差し替える(プロキシへ一瞬戻る「ちらつき」の防止)。
             bool skipProxy = _skipProxyOnce;
             _skipProxyOnce = false;
+            latency.PrepEnd = PreviewLatencyCycle.Now;
             if (scale < 1f && !skipProxy)
                 ScheduleProxyPreview(req);
             else
@@ -123,6 +130,7 @@ namespace Iroca
             public RecolorSettings settings;
             public IDebugCapture debugCap;
             public PreviewParityCache parityCache;
+            public PreviewLatencyCycle latency;
         }
 
         // 段階的リファイン第1段。ソースを ProxyMaxSize へ縮小してから処理し、概要を即表示する。
@@ -134,10 +142,13 @@ namespace Iroca
             PixelProcessor.ComputeFitSize(req.srcW, req.srcH, IrocaConsts.Preview.ProxyMaxSize,
                 out int proxyW, out int proxyH, out float proxyScale);
             var proxySelCache = _proxySelectionCache;
+            var marks = req.latency.Proxy;
+            marks.Scheduled = PreviewLatencyCycle.Now;
 
             _proxyJob.Schedule(
                 work: token =>
                 {
+                    marks.WorkStart = PreviewLatencyCycle.Now;
                     // ソースをプロキシ解像度へ縮小してから処理する(全フェーズが画素数に比例して軽くなる)。
                     // BoxDownsample は新規配列を返すので ProcessPixelsArray の破壊書き換えで clone 不要。
                     Color32[] proxyPixels = PixelProcessor.BoxDownsample(
@@ -147,9 +158,11 @@ namespace Iroca
                     // 揃わず、再着色していない画素まで差分閾値を超えて誤点灯するため
                     // (実テクスチャで表示画素の ~17%)。処理前のプロキシを控えて同じ鎖へ流す。
                     Color32[] proxyRaw = (Color32[])proxyPixels.Clone();
+                    marks.CoreStart = PreviewLatencyCycle.Now;
                     PixelProcessor.ProcessPixelsArray(proxyPixels, proxyW, proxyH, req.maskSnap, req.zonesSnapshot,
                         req.settings, token,
                         debug: null, parityCache: null, selectionCache: proxySelCache);
+                    marks.CoreEnd = PreviewLatencyCycle.Now;
 
                     // 表示寸法へ。ProxyMaxSize==MaxSize なら proxy==表示で再縮小なし(最頻ケース)。
                     bool needsResample = proxyW != req.prevW || proxyH != req.prevH;
@@ -160,10 +173,14 @@ namespace Iroca
                     Color32[] rawForJob = needsResample
                         ? PixelProcessor.BoxDownsample(proxyRaw, proxyW, proxyH, req.prevW, req.prevH, toDisplay)
                         : proxyRaw;
+                    marks.WorkEnd = PreviewLatencyCycle.Now;
                     return (processedDisplay, rawForJob);
                 },
                 apply: result =>
                 {
+                    marks.Applied = PreviewLatencyCycle.Now;
+                    _pendingLatency          = req.latency;
+                    _pendingLatencyStage     = marks;
                     _pendingRawDisplay       = result.raw;
                     _pendingProcessedDisplay = result.processed;
                     _pendingPrevW            = req.prevW;
@@ -182,13 +199,18 @@ namespace Iroca
         private void ScheduleFullPreview(PreviewRequest req)
         {
             var selCache = _selectionCache;
+            var marks = req.latency.Full;
+            marks.Scheduled = PreviewLatencyCycle.Now;
             _previewJob.Schedule(
                 work: token =>
                 {
+                    marks.WorkStart = PreviewLatencyCycle.Now;
                     Color32[] pixels = (Color32[])req.srcPixels.Clone();
+                    marks.CoreStart = PreviewLatencyCycle.Now;
                     PixelProcessor.ProcessPixelsArray(pixels, req.srcW, req.srcH, req.maskSnap, req.zonesSnapshot,
                         req.settings, token,
                         debug: req.debugCap, parityCache: req.parityCache, selectionCache: selCache);
+                    marks.CoreEnd = PreviewLatencyCycle.Now;
 
                     Color32[] processedDisplay = req.scale < 1f
                         ? PixelProcessor.BoxDownsample(pixels, req.srcW, req.srcH, req.prevW, req.prevH, req.scale)
@@ -197,13 +219,17 @@ namespace Iroca
                     // それ以外(キャッシュヒット or scale>=1)は確定済みをそのまま使う。
                     Color32[] rawForJob = req.rawDisplay ?? PixelProcessor.BoxDownsample(
                         req.srcPixels, req.srcW, req.srcH, req.prevW, req.prevH, req.scale);
+                    marks.WorkEnd = PreviewLatencyCycle.Now;
                     return (processedDisplay, rawForJob);
                 },
                 apply: result =>
                 {
+                    marks.Applied = PreviewLatencyCycle.Now;
                     // AI 提案コミットの E2E 計測(アーム中のみ 1 回ログ)。実際の画面反映は
                     // 次フレームの ApplyPendingPreview だが、差は 1 フレームなので近似で計上。
                     MaskSuggestPerf.NotifyFullPreviewApplied();
+                    _pendingLatency          = req.latency;
+                    _pendingLatencyStage     = marks;
                     _pendingRawDisplay       = result.raw;
                     _pendingProcessedDisplay = result.processed;
                     _pendingPrevW            = req.prevW;
@@ -233,10 +259,15 @@ namespace Iroca
             var raw       = _pendingRawDisplay;
             int w = _pendingPrevW;
             int h = _pendingPrevH;
+            var latency = _pendingLatency;
+            var stage   = _pendingLatencyStage;
             _pendingProcessedDisplay = null;
             _pendingRawDisplay       = null;
+            _pendingLatency          = null;
+            _pendingLatencyStage     = null;
 
             if (processed == null || raw == null) return;
+            if (stage != null) stage.UploadStart = PreviewLatencyCycle.Now;
 
             TextureSlot.Resize(ref previewTexture, w, h);
             previewTexture.SetPixels32(processed);
@@ -263,6 +294,19 @@ namespace Iroca
             // Invalidate detail preview so it regenerates at the new crop
             _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
             _detailView.detailJob.Cancel();
+
+            // 体感速度: ここで描いたものがこの OnGUI の終わりに画面へ出る。確定表示(フル)なら
+            // 続く拡大表示の再生成も同じ起点で測れるよう引き渡し、ここまでのレポートを出す。
+            if (stage != null)
+            {
+                stage.UploadEnd = PreviewLatencyCycle.Now;
+                InputClock.NoteShown();
+                if (latency != null && ReferenceEquals(stage, latency.Full))
+                {
+                    _detailView.AttachLatency(latency);
+                    if (PreviewLatency.Publish(latency)) _host.RequestRepaint();
+                }
+            }
         }
 
         /// <summary>

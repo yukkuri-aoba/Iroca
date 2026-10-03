@@ -92,7 +92,20 @@ namespace Iroca
         [System.NonSerialized] public Texture2D previewTexture;
         [System.NonSerialized] public Texture2D rawPreviewTexture;
         [System.NonSerialized] public Texture2D diffTexture;
-        [System.NonSerialized] public bool previewDirty = true;
+        // 立てた時刻を体感速度の起点(操作の時刻)として控える(PreviewLatency)。初期値の true は
+        // 操作ではないので、プロパティを通さずに入れる。
+        [System.NonSerialized] private bool _previewDirty = true;
+        public bool previewDirty
+        {
+            get => _previewDirty;
+            set
+            {
+                _previewDirty = value;
+                if (value) InputClock.NoteInput(PreviewLatencyCycle.Now);
+            }
+        }
+        [System.NonSerialized] private PreviewInputClock _inputClock;
+        private PreviewInputClock InputClock => _inputClock ??= new PreviewInputClock();
         [System.NonSerialized] private Vector2 _previewScrollPos;
 
         // ── Undo/Redo で巻き戻さないビュー状態 ───────────────────────
@@ -147,6 +160,9 @@ namespace Iroca
         [System.NonSerialized] private Color32[] _pendingProcessedDisplay;
         [System.NonSerialized] private Color32[] _pendingRawDisplay;
         [System.NonSerialized] private int _pendingPrevW, _pendingPrevH;
+        // 保留中の結果がどの再生成のどの段か(体感速度の計測用。転送が済んだ時刻を打つ)。
+        [System.NonSerialized] private PreviewLatencyCycle _pendingLatency;
+        [System.NonSerialized] private LatencyStageMarks _pendingLatencyStage;
         [System.NonSerialized] private double _lastDirtyTime;
         private const double PreviewDebounceSeconds = 0.2;
         // ペイント中のオーバーレイ再構築の最小間隔（10Hz）。
@@ -575,8 +591,9 @@ namespace Iroca
                         >= DetailPreviewView.DetailDebounceSeconds &&
                     _detailView.lastPreviewRect.width > 0)
                 {
+                    var latency = _detailView.TakeLatencyFor(_detailView.lastDetailDirtyTime);
                     _detailView.lastDetailDirtyTime = 0;
-                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, _trueSourcePixels, scale, previewZoom, _previewScrollPos, _detailView.lastViewportW, _detailView.lastViewportH);
+                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, _trueSourcePixels, scale, previewZoom, _previewScrollPos, _detailView.lastViewportW, _detailView.lastViewportH, latency);
                 }
                 else if (_detailView.lastDetailDirtyTime > 0 || _detailView.detailJob.IsRunning)
                 {

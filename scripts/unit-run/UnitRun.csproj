@@ -35,6 +35,8 @@
     <!-- PathUtils は Application.dataPath を参照するが、テストは assetsFolder を引数で渡す
          オーバーロードだけを呼ぶので、実行時に Unity のネイティブ側へは入らない。 -->
     <Compile Include="..\..\Code\Infra\PathUtils.cs" />
+    <!-- プレビューの体感時間(操作 → 画面)の区間計算。時刻を受け取るだけの純粋な部品。 -->
+    <Compile Include="..\..\Code\UI\PreviewLatency.cs" />
     <Compile Include="UnitRun.cs" />
   </ItemGroup>
 
