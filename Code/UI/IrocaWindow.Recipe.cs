@@ -108,6 +108,21 @@ namespace Iroca
             SaveSessionToBoundRecipe();
         }
 
+        /// <summary>
+        /// シーンのアバターへのプレビュー(NDMF)に、いま編集しているものを知らせる(毎フレーム呼ぶ。変化が
+        /// 無ければ何もしない)。有効なゾーンが無ければ何も映さない(色が変わらないのに、アバターを
+        /// プレビュー表示へ切り替えない)。画素は PreviewView がプレビューを作るたびに渡す。
+        /// </summary>
+        private void PublishLivePreviewTarget()
+        {
+            bool anyEnabled = false;
+            if (sourceTexture != null && _session?.zones != null)
+                foreach (var z in _session.zones)
+                    if (z != null && z.enabled) { anyEnabled = true; break; }
+            if (anyEnabled) LivePreview.SetTarget(sourceTexture, BoundRecipe);
+            else LivePreview.SetTarget(null, null);
+        }
+
         // ───────────── 登録 ─────────────
 
         /// <summary>「アバターに非破壊で登録」。登録先を決め、レシピを作るか更新し、コンポーネントを付ける。</summary>

@@ -11,6 +11,7 @@ namespace Iroca.NdmfIntegration
     /// いろかの NDMF プラグイン。アバターのビルド(再生・アップロード)時に <see cref="IrocaRecolor"/> を処理し、
     /// 範囲内のマテリアルを複製して元テクスチャの参照を色替え済みテクスチャへ差し替える。
     /// 本体は <see cref="NonDestructiveApplier"/>(NDMF 非依存)で、ここはビルド環境への橋渡しだけ。
+    /// 編集中のシーン上の表示は <see cref="IrocaPreviewFilter"/>。
     /// <para>
     /// 順番: Transforming 段で、Modular Avatar の後(衣装の統合やマテリアルの差し替えが済んだ状態の
     /// マテリアルを見る)、TexTransTool の前(デカール・アトラス化は色替え後のテクスチャに対して行う)。
@@ -33,7 +34,9 @@ namespace Iroca.NdmfIntegration
                 .AfterPlugin("nadena.dev.modular-avatar")
                 .BeforePlugin("net.rs64.tex-trans-tool")
                 .Run("Recolor textures", ctx =>
-                    NonDestructiveApplier.Apply(ctx.AvatarRootObject, new BuildHost(ctx)));
+                    NonDestructiveApplier.Apply(ctx.AvatarRootObject, new BuildHost(ctx)))
+                // 編集中(再生していないとき)は、シーン上のアバターに同じ色替えを映す。
+                .PreviewingWith(new IrocaPreviewFilter());
         }
 
         private sealed class BuildHost : NonDestructiveApplier.IHost

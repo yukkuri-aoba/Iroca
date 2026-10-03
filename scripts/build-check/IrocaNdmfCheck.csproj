@@ -76,6 +76,16 @@
       <HintPath>$(NdmfHostProject)\Packages\com.vrchat.base\Runtime\VRCSDK\Plugins\VRCSDKBase.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- NDMF のプレビュー API(IRenderFilter)は ImmutableList を露出する。Unity では VRChat SDK か NDMF が
+         同梱する DLL が自動参照されるので、ここでも同じものを借りる(SDK のものを優先)。 -->
+    <Reference Include="System.Collections.Immutable" Condition="Exists('$(NdmfHostProject)\Packages\com.vrchat.base\Runtime\VRCSDK\Dependencies\Managed\System.Collections.Immutable.dll')">
+      <HintPath>$(NdmfHostProject)\Packages\com.vrchat.base\Runtime\VRCSDK\Dependencies\Managed\System.Collections.Immutable.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="System.Collections.Immutable" Condition="!Exists('$(NdmfHostProject)\Packages\com.vrchat.base\Runtime\VRCSDK\Dependencies\Managed\System.Collections.Immutable.dll') and Exists('$(NdmfHostProject)\Packages\nadena.dev.ndmf\Dependencies~\System.Collections.Immutable.dll')">
+      <HintPath>$(NdmfHostProject)\Packages\nadena.dev.ndmf\Dependencies~\System.Collections.Immutable.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <Target Name="CheckNdmfPath" BeforeTargets="ResolveAssemblyReferences">

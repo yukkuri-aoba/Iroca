@@ -91,6 +91,7 @@ namespace Iroca
             // 両段が同一入力を処理することを保証する(プロキシとフルで選択がズレないように)。
             var req = new PreviewRequest
             {
+                source = sourceTexture,
                 srcW = srcW, srcH = srcH,
                 srcPixels = srcPixels, rawDisplay = rawDisplay,
                 scale = scale, prevW = prevW, prevH = prevH,
@@ -151,6 +152,7 @@ namespace Iroca
         // フル段が同一の値を処理する。フィールドはバックグラウンドジョブからの読み取り専用(不変)。
         private sealed class PreviewRequest
         {
+            public Texture2D source;           // 結果をシーンのアバターへ渡すときの宛先(LivePreview)
             public int srcW, srcH;
             public Color32[] srcPixels;
             public Color32[] rawDisplay;       // null=ジョブ側で BoxDownsample して確定
@@ -220,6 +222,8 @@ namespace Iroca
                     _pendingPrevH            = req.prevH;
                     // プロキシは近似。parityCache 公開・raw キャッシュ確定・debug 公開はフル段に委ねる
                     // (詳細プレビューの正確さを死守し、二重管理を避ける)。
+                    // シーンのアバターにも概要を映す(ドラッグ中の追従。手を止めるとフル段が置き換える)。
+                    LivePreview.Push(req.source, result.processed, req.prevW, req.prevH);
                     _host.RequestRepaint();
                     // 続けてフル解像度で確定(同一スナップショット)。
                     if (chainFull) ScheduleFullPreview(req);
@@ -253,7 +257,7 @@ namespace Iroca
                     Color32[] rawForJob = req.rawDisplay ?? PixelProcessor.BoxDownsample(
                         req.srcPixels, req.srcW, req.srcH, req.prevW, req.prevH, req.scale);
                     marks.WorkEnd = PreviewLatencyCycle.Now;
-                    return (processedDisplay, rawForJob);
+                    return (processedDisplay, rawForJob, pixels);
                 },
                 apply: result =>
                 {
@@ -278,6 +282,8 @@ namespace Iroca
                     {
                         _cachedRawDisplay = result.raw;
                     }
+                    // シーンのアバターにはフル解像度の結果を映す(取り込み済みテクスチャの寸法へは LivePreview が合わせる)。
+                    LivePreview.Push(req.source, result.full, req.srcW, req.srcH);
                     _host.LatestDebugCapture = req.debugCap;
                     // 充填完了したキャプチャを（メインスレッドの）ここで初めて公開する。
                     // 生成時に公開すると、DebugWindow が Add 中のリストを foreach して競合する。

@@ -214,6 +214,8 @@ namespace Iroca
         {
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
             NonDestructiveApplier.BeforeApply -= FlushToBoundRecipe;
+            // ウィンドウを閉じたら、シーンのアバターへの編集中の表示もやめる(登録済みならレシピの表示に戻る)。
+            LivePreview.SetTarget(null, null);
             // 証拠待ちの自動調整は EditorApplication.update に張っているので、ドメインリロード・
             // ウィンドウ無効化で残さない（届いた提案はコントローラが捨てる）。
             CancelEvidenceWait();

@@ -151,8 +151,9 @@ namespace Iroca
         // 戻り値は (processed, raw) のタプル。raw(ダウンサンプル済み元表示)もジョブ側で
         // 生成することで、テクスチャ切替直後のキャッシュミス時にメインスレッドで走っていた
         // BoxDownsample のヒッチをバックグラウンドへ追い出す。
-        [System.NonSerialized] private readonly PreviewJob<(Color32[] processed, Color32[] raw)> _previewJob =
-            new PreviewJob<(Color32[] processed, Color32[] raw)>();
+        // full はフル解像度の処理結果(シーンのアバターへのプレビュー LivePreview へ渡す)。
+        [System.NonSerialized] private readonly PreviewJob<(Color32[] processed, Color32[] raw, Color32[] full)> _previewJob =
+            new PreviewJob<(Color32[] processed, Color32[] raw, Color32[] full)>();
         // 段階的リファインの第1段。ソースが大きい(scale<1)とき、まず縮小プロキシで概要を即表示する
         // 専用ジョブ。完了 apply で _previewjob(フル解像度)を同一スナップショットでスケジュールする。
         [System.NonSerialized] private readonly PreviewJob<(Color32[] processed, Color32[] raw)> _proxyJob =

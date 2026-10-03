@@ -51,6 +51,7 @@ namespace Iroca
         {
             // Ctrl+Z / Ctrl+Y は Unity 標準 Undo に統合済みのため、独自処理は不要。
             ProcessPendingZoneChanges();
+            PublishLivePreviewTarget();
 
             // スポイト武装中にテクスチャが外れた／対象ゾーンが消えたら解除（クリックで解けなくなるのを防ぐ）。
             if (!string.IsNullOrEmpty(_eyedropperZoneId) &&
