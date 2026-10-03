@@ -62,8 +62,34 @@ namespace Iroca
         {
             if (string.IsNullOrEmpty(zoneId)) return;
             int len = w * h;
-            var copy = new float[len];
-            Array.Copy(strength, copy, len);
+            // 同じゾーンの前のエントリの配列を使い回す。毎回 new float[len](4K で 67MB)を確保すると、
+            // Mono では大配列の確保が全スレッド停止の GC を誘発し、ときどき数百 ms の引っかかりになった。
+            // 上書きの前にエントリを外すので、以後の TryGet がこの配列を返すことはない(TryGet の呼び出し側は
+            // 内容を自分の作業配列へコピーするだけ。外す前に受け取った呼び出しは、新しい Store が来た時点で
+            // 取り消し済みの旧ジョブで、その結果は捨てられる)。
+            float[] copy = null;
+            lock (_gate)
+            {
+                if (_byZone.TryGetValue(zoneId, out var old) && old.Strength != null
+                    && old.Strength.Length == len && !ReferenceEquals(old.Strength, strength))
+                {
+                    copy = old.Strength;
+                    _byZone.Remove(zoneId);
+                }
+            }
+            copy ??= new float[len];
+            // 67MB の逐次コピーを行の帯ごとに並列に(内容は同じ)。
+            const int Chunk = 1 << 18;
+            int chunks = (len + Chunk - 1) / Chunk;
+            var src = strength;
+            var dst = copy;
+            System.Threading.Tasks.Parallel.For(0, chunks,
+                new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism() },
+                c =>
+                {
+                    int s0 = c * Chunk;
+                    Array.Copy(src, s0, dst, s0, Math.Min(Chunk, len - s0));
+                });
             lock (_gate) { _byZone[zoneId] = new Entry { Key = key, Strength = copy, Keep = keep, Forced = forced, W = w, H = h }; }
         }
 
