@@ -31,32 +31,119 @@ namespace Iroca
             internal float[] H, S, V;    // 番号 → Color.RGBToHSV((Color)色) の結果
             // 番号 → RgbToOklab(byte 版) の L と、C = sqrt(a²+b²)。EnsureOklab で初めて要るときに作る。
             internal float[] OkL, OkC;
+            // 色の表のキャッシュ(GetOrBuildPalette)が持つ表。複数の処理から同時に読まれるので、
+            // Release で Index をプールへ返さない(キャッシュから外れたら GC に任せる)。
+            internal bool Shared;
+            private readonly object _oklabLock = new object();
 
-            /// <summary>OkLab の表を作る(呼び出し側スレッドから、並列ループの外で呼ぶこと)。</summary>
+            /// <summary>
+            /// OkLab の表を作る(呼び出し側スレッドから、並列ループの外で呼ぶこと)。表は複数の処理から
+            /// 同時に使われうるので、作るのは 1 回だけにし、L → C の順に置いて C が見えたら両方揃っているとする。
+            /// </summary>
             internal void EnsureOklab(ParallelOptions po)
             {
-                if (OkL != null) return;
-                var l = new float[Count];
-                var c = new float[Count];
-                var colors = Colors;
-                ForEachPaletteChunk(Count, po, (k0, k1) =>
+                if (Volatile.Read(ref OkC) != null) return;
+                lock (_oklabLock)
                 {
-                    for (int k = k0; k < k1; k++)
+                    if (OkC != null) return;
+                    var l = new float[Count];
+                    var c = new float[Count];
+                    var colors = Colors;
+                    ForEachPaletteChunk(Count, po, (k0, k1) =>
                     {
-                        RgbToOklab(colors[k].r, colors[k].g, colors[k].b, out float L, out float a, out float b);
-                        l[k] = L;
-                        c[k] = Mathf.Sqrt(a * a + b * b);
-                    }
-                });
-                OkL = l;
-                OkC = c;
+                        for (int k = k0; k < k1; k++)
+                        {
+                            RgbToOklab(colors[k].r, colors[k].g, colors[k].b, out float L, out float a, out float b);
+                            l[k] = L;
+                            c[k] = Mathf.Sqrt(a * a + b * b);
+                        }
+                    });
+                    OkL = l;
+                    Volatile.Write(ref OkC, c);
+                }
             }
 
             internal void Release()
             {
+                if (Shared) return;
                 if (Index != null) s_intPool.Return(Index);
                 Index = null;
             }
+        }
+
+        // 色の表を元画素の中身ごとに使い回す(プレビューは同じ元画像を編集のたびに処理するので、毎回
+        // 作り直さない)。鍵は寸法と全画素の 64bit ハッシュ。種類が多すぎて作らなかった結果(null)も覚える。
+        // 表は色だけで決まり、番号は出力に影響しない(上の注意)ので、使い回しても出力はビット単位で同じ。
+        // 2 枠 = プレビューの縮小段とフル解像度段が交互に来ても互いを追い出さない。
+        private const int PaletteCacheSize = 2;
+        private sealed class PaletteCacheEntry
+        {
+            internal int W, H;
+            internal ulong Hash;
+            internal ColorPalette Palette;
+        }
+        private static readonly PaletteCacheEntry[] s_paletteCache = new PaletteCacheEntry[PaletteCacheSize];
+        private static readonly object s_paletteCacheLock = new object();
+
+        /// <summary>色の表をキャッシュから取り出す。無ければ作って入れる(TryBuildPalette と同じく null もありうる)。</summary>
+        private static ColorPalette GetOrBuildPalette(Color32[] pixels, int w, int h, ParallelOptions po,
+            SubPhaseClock sub = null)
+        {
+            ulong hash = HashPixels(pixels, w * h, po);
+            lock (s_paletteCacheLock)
+            {
+                for (int k = 0; k < PaletteCacheSize; k++)
+                {
+                    var e = s_paletteCache[k];
+                    if (e == null || e.W != w || e.H != h || e.Hash != hash) continue;
+                    for (int m = k; m > 0; m--) s_paletteCache[m] = s_paletteCache[m - 1];
+                    s_paletteCache[0] = e;
+                    sub?.Mark(SpPaletteHash);   // 当たったときはハッシュを取った時間だけ
+                    return e.Palette;
+                }
+            }
+            var built = TryBuildPalette(pixels, w, h, po, sub);
+            if (built != null) built.Shared = true;
+            lock (s_paletteCacheLock)
+            {
+                for (int m = PaletteCacheSize - 1; m > 0; m--) s_paletteCache[m] = s_paletteCache[m - 1];
+                s_paletteCache[0] = new PaletteCacheEntry { W = w, H = h, Hash = hash, Palette = built };
+            }
+            return built;
+        }
+
+        /// <summary>
+        /// 画素(RGBA)全体の 64bit ハッシュ。塊ごとに並列に混ぜ、塊のハッシュを順に畳む(実行ごとに同じ値)。
+        /// 1 画素の違いでも塊のハッシュは必ず変わる(各段が全単射)。
+        /// </summary>
+        private static ulong HashPixels(Color32[] px, int len, ParallelOptions po)
+        {
+            const int Chunk = 1 << 16;
+            int n = (len + Chunk - 1) / Chunk;
+            var part = new ulong[n];
+            Parallel.For(0, n, po, c =>
+            {
+                int i0 = c * Chunk, i1 = Math.Min(len, i0 + Chunk);
+                ulong acc = 0x9E3779B97F4A7C15UL * (ulong)(c + 1);
+                for (int i = i0; i < i1; i++)
+                {
+                    Color32 p = px[i];
+                    ulong key = (uint)p.r | ((uint)p.g << 8) | ((uint)p.b << 16) | ((uint)p.a << 24);
+                    acc ^= key * 0xC2B2AE3D27D4EB4FUL;
+                    acc = ((acc << 31) | (acc >> 33)) * 0x9E3779B97F4A7C15UL;
+                }
+                part[c] = acc;
+            });
+            ulong hsh = (ulong)len * 0x165667B19E3779F9UL;
+            for (int c = 0; c < n; c++)
+            {
+                hsh ^= part[c] * 0xC2B2AE3D27D4EB4FUL;
+                hsh = ((hsh << 27) | (hsh >> 37)) * 0x9E3779B97F4A7C15UL + 0x85EBCA77C2B2AE63UL;
+            }
+            hsh ^= hsh >> 33; hsh *= 0xFF51AFD7ED558CCDUL;
+            hsh ^= hsh >> 33; hsh *= 0xC4CEB9FE1A85EC53UL;
+            hsh ^= hsh >> 33;
+            return hsh;
         }
 
         // 色の種類の上限 = min(画素数 / これ, PaletteMaxColorsCap)。超えたら表を作らない。

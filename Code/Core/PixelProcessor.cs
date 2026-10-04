@@ -260,7 +260,7 @@ namespace Iroca
                 MaxDegreeOfParallelism = GetMaxParallelism(),
             };
             _sub.Restart();
-            palette = TryBuildPalette(originalPixels, w, h, po, _sub);
+            palette = GetOrBuildPalette(originalPixels, w, h, po, _sub);
             // 行並列(per-index デリゲートは 4K で 1670 万回の呼び出しになるため行単位に集約)。
             // 各画素は独立・書き込みは自 index のみなので出力は逐次版とビット不変。
             if (palette != null)
