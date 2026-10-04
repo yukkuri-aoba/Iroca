@@ -239,6 +239,11 @@ namespace Iroca
             // 色の種類の表(PixelProcessor.Palette.cs)。色だけで決まる計算を色ごとに 1 回で済ませる。
             // 種類が多い画像では null(画素ごとに計算する)。どちらでも出力はビット単位で同じ。
             ColorPalette palette = null;
+            // decontamination 用バッファ(下で借りる。末尾の finally で返す)。
+            bool[] decontamAaMask = null;
+            Color32[] decontamPixels = null;
+            // 除外マスク画素の位置(BG ドナー隠蔽用)。マスクがあるゾーンで初回に借り、ゾーン間で再利用。
+            bool[] decontamMaskExcluded = null;
             try
             {
             pixH = s_floatPool.Rent(len);
@@ -290,17 +295,16 @@ namespace Iroca
 
             debug?.BeginCapture(w, h);
 
-            // decontamination 用バッファはゾーン間で再利用する(ゾーンごとの new bool[len]+
-            // new Color32[len] 確保=4K で 17MB+67MB/ゾーンを回避)。aaMask は全画素で読まれるため
-            // 各ゾーン頭でクリアし、decontaminatedPixels は aaMask=true の位置だけ上書き・参照される。
-            bool[] decontamAaMask = null;
-            Color32[] decontamPixels = null;
-            // 除外マスク画素の位置(BG ドナー隠蔽用)。マスクがあるゾーンで初回に確保し再利用。
-            bool[] decontamMaskExcluded = null;
+            // decontamination 用バッファはゾーン間で再利用し、プールから借りる(旧: 処理ごとに new bool[len]+
+            // new Color32[len]=4K で 17MB+67MB。Mono では大きな new が GC の停止を招く)。借りた配列は
+            // ゼロ初期化されないが、どれも書いた位置しか読まない: aaMask は各ゾーン頭(DecontaminateAaBoundary)
+            // で全域クリア、decontaminatedPixels は aaMask=true / 混色帯の対象の位置だけ書いて読む、
+            // 除外フラグは各ゾーンが自分の読む範囲を埋める(ゾーン間で使い回すので、もともと前のゾーンの
+            // 値が残っていても壊れない作り)。
             if (useDecontamination)
             {
-                decontamAaMask = new bool[len];
-                decontamPixels = new Color32[len];
+                decontamAaMask = s_boolPool.Rent(len);
+                decontamPixels = s_color32Pool.Rent(len);
             }
 
             foreach (var zone in sortedZones)
@@ -911,7 +915,7 @@ namespace Iroca
                         bool[] deconExcluded = null;
                         if (commonMask != null || zoneMask != null)
                         {
-                            if (decontamMaskExcluded == null) decontamMaskExcluded = new bool[len];
+                            if (decontamMaskExcluded == null) decontamMaskExcluded = s_boolPool.Rent(len);
                             deconExcluded = decontamMaskExcluded;
                             var excl = deconExcluded;
                             // デコンタミが除外フラグを読むのは BG ドナー範囲(後段 bbox ± radius)だけ
@@ -1140,7 +1144,7 @@ namespace Iroca
                         if (commonMask != null || zoneMask != null)
                         {
                             // 解析が読むのは bbox ± (2·探索半径 + 1)。その範囲の除外フラグを埋める。
-                            if (decontamMaskExcluded == null) decontamMaskExcluded = new bool[len];
+                            if (decontamMaskExcluded == null) decontamMaskExcluded = s_boolPool.Rent(len);
                             mixExcluded = decontamMaskExcluded;
                             var mex = mixExcluded;
                             int mm = 2 * Mathf.Max(MixBandRadius + 1, decontaminationRadius) + 1;
@@ -1301,7 +1305,7 @@ namespace Iroca
                         bool[] fringeExcluded = null;
                         if (commonMask != null || zoneMask != null)
                         {
-                            if (decontamMaskExcluded == null) decontamMaskExcluded = new bool[len];
+                            if (decontamMaskExcluded == null) decontamMaskExcluded = s_boolPool.Rent(len);
                             fringeExcluded = decontamMaskExcluded;
                             var fex = fringeExcluded;
                             const int fm = AchromaFringeExclusionMargin;
@@ -1395,6 +1399,9 @@ namespace Iroca
             finally
             {
                 palette?.Release();
+                if (decontamMaskExcluded != null) s_boolPool.Return(decontamMaskExcluded);
+                if (decontamPixels != null) s_color32Pool.Return(decontamPixels);
+                if (decontamAaMask != null) s_boolPool.Return(decontamAaMask);
                 if (mixAlpha != null) s_floatPool.Return(mixAlpha);
                 if (claimed != null) s_floatPool.Return(claimed);
                 if (pixV != null) s_floatPool.Return(pixV);
