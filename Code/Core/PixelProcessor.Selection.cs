@@ -315,6 +315,17 @@ namespace Iroca
         }
 
         /// <summary>
+        /// src の矩形 [x0,x1]×[y0,y1] を dst へ行並列で写す(穴埋め・境界回復のダブルバッファ用)。
+        /// </summary>
+        private static void CopyRect(float[] src, float[] dst, int w, int x0, int y0, int x1, int y1,
+            ParallelOptions po)
+        {
+            if (x1 < x0 || y1 < y0) return;
+            int span = x1 - x0 + 1;
+            Parallel.For(y0, y1 + 1, po, y => Array.Copy(src, y * w + x0, dst, y * w + x0, span));
+        }
+
+        /// <summary>
         /// 形態学的フィル：ゼロ強度のピクセルがマッチした隣接ピクセルの多数派に囲まれていれば
         /// 最小隣接強度で埋める。
         /// これにより、satConfidenceゲートを通過するに低い彩度を持つアンチエイリアス処理された
@@ -348,10 +359,16 @@ namespace Iroca
             {
             float[] read = strength;
             float[] write = buffer;
+            // 書き換わりうるのは bbox 内だけで、近傍読みは bbox±1 まで。初回は bbox±1 を写し、以後は
+            // bbox だけを写せば、2 つのバッファは読まれる範囲で常に一致する(旧: 毎パス全画素コピー =
+            // 4K で 67MB の逐次コピー × パス数)。bbox±1 の外は読みも書き戻しもしない=出力ビット不変。
+            int rx0 = Math.Max(0, boxMinX - 1), ry0 = Math.Max(0, boxMinY - 1);
+            int rx1 = Math.Min(w - 1, boxMaxX + 1), ry1 = Math.Min(h - 1, boxMaxY + 1);
 
             for (int pass = 0; pass < passes; pass++)
             {
-                System.Array.Copy(read, write, len);
+                if (pass == 0) CopyRect(read, write, w, rx0, ry0, rx1, ry1, fillPo);
+                else CopyRect(read, write, w, boxMinX, boxMinY, boxMaxX, boxMaxY, fillPo);
 
                 Parallel.For(boxMinY, boxMaxY + 1, fillPo, y =>
                 {
@@ -395,9 +412,9 @@ namespace Iroca
                 write = tmp;
             }
 
-            // 最新結果が呼び出し元の strength 配列に入るように調整
+            // 最新結果が呼び出し元の strength 配列に入るように調整(書き換わりうる bbox だけ)
             if (!ReferenceEquals(read, strength))
-                System.Array.Copy(read, strength, len);
+                CopyRect(read, strength, w, boxMinX, boxMinY, boxMaxX, boxMaxY, fillPo);
             }
             finally
             {
@@ -780,10 +797,14 @@ namespace Iroca
             {
             float[] read = strength;
             float[] write = buffer;
+            // FillSmallHoles と同じく、読む範囲(bbox±1)と書く範囲(bbox)だけをバッファ間で写す。
+            int rx0 = Math.Max(0, boxMinX - 1), ry0 = Math.Max(0, boxMinY - 1);
+            int rx1 = Math.Min(w - 1, boxMaxX + 1), ry1 = Math.Min(h - 1, boxMaxY + 1);
 
             for (int pass = 0; pass < passes; pass++)
             {
-                System.Array.Copy(read, write, len);
+                if (pass == 0) CopyRect(read, write, w, rx0, ry0, rx1, ry1, recoverPo);
+                else CopyRect(read, write, w, boxMinX, boxMinY, boxMaxX, boxMaxY, recoverPo);
 
                 Parallel.For(boxMinY, boxMaxY + 1, recoverPo, y =>
                 {
@@ -833,7 +854,7 @@ namespace Iroca
             }
 
             if (!ReferenceEquals(read, strength))
-                System.Array.Copy(read, strength, len);
+                CopyRect(read, strength, w, boxMinX, boxMinY, boxMaxX, boxMaxY, recoverPo);
             }
             finally
             {
