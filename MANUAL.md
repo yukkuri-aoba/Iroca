@@ -82,7 +82,6 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 |---|---|
 | 模様保持 | 元の柄をどれだけ残すか（0 = ベタ塗り、1 = 柄を残す。既定 1.0） |
 | 出力彩度 | 純色がベタ塗りに見えるとき 0.7〜0.9 に下げると陰影が戻る（既定 1.0） |
-| 連続領域モード | つながった塊だけに変換を絞り、離れた同色や背景への色移りを防ぐ（既定 ON） |
 
 さらに細かい調整は「[カラーゾーンの設定](#カラーゾーンの設定)」を参照してください。
 
@@ -108,18 +107,12 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 - 元テクスチャが未設定、画素を取り出せない、サンプルカラーが未指定（白のまま）のときは押せません。
 - AI が未導入のときは導入の案内が出ます（→「[AI マスク提案](#ai-マスク提案実験的機能)」の「必要なもの」）。準備中のときは終わるまで待ちます（進捗バーと中止ボタンが出ます）。
-- カラーピッカーで色を指定したゾーンは位置がないため、AI 提案なしで解析します（通知が出ます）。
+- カラーピッカーで色を指定したゾーンは位置がないため、AI 提案なしで解析します（ゾーンに「スポイト位置がありません」と出ます）。
 - 自分で値を変えているときだけ、上書きの確認が出ます。
 
 **許容範囲**
 
 色の一致をどこまで許すかです（0.0〜1.0）。低いほど厳密（選択が狭い）、高いほど広く拾います（ノイズも増えます）。目安は 0.15〜0.40 です。
-
-**連続領域モード（Flood Fill）**
-
-色が一致した領域のうち、確信度の高い芯を含む「つながった塊」だけに変換を絞ります。離れた同色パーツや背景へのにじみが自動で外れます。既定は自動で、シードは要りません。
-
-特定の塊だけ残したいときはシードを置きます。「シード (任意)」行の「指定」を押してからプレビューをクリックするか、プレビューを Shift+クリックします。「自動へ」で解除します。
 
 **変更先カラー**
 
@@ -136,6 +129,12 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 #### 詳細の項目（「詳細設定」を開くと表示）
 
 上から処理の走る順（選択の範囲 → ハイライト → 暗部・無彩色 → 色の写り方 → マッチング距離の重み）に並んでいます。触りすぎたときは、ゾーン末尾の「詳細を既定値に戻す」で詳細だけ初期化できます（色・許容範囲・名前は残ります）。
+
+**連続領域モード（Flood Fill）**（既定 ON）
+
+色が一致した領域のうち、確信度の高い芯を含む「つながった塊」だけに変換を絞ります。離れた同色パーツや背景へのにじみが自動で外れます。既定は自動で、シードは要りません。
+
+特定の塊だけ残したいときはシードを置きます。「シード (任意)」行の「指定」を押してからプレビューをクリックするか、プレビューを Shift+クリックします（詳細設定を閉じていても使えます。置いた位置はプレビューに十字で出ます）。「自動へ」で解除します。
 
 **サンプル自動補正（再着色）**（既定 ON）
 
@@ -480,7 +479,7 @@ NDMF が入っているときは「④ アバターに反映」の下の「テ�
 
 1. 彩度制限（影の厳しさ）を 0.7〜0.9 に上げる
 2. 許容範囲を狭める
-3. 連続領域モードで離れた残りを切り離す
+3. 詳細設定の連続領域モードで離れた残りを切り離す
 4. 残った部分を除外マスクで保護する
 
 #### 色がはみ出す
@@ -505,7 +504,7 @@ NDMF が入っているときは「④ アバターに反映」の下の「テ�
 
 #### テクスチャ全体が変わってしまう
 
-許容範囲を 0.05〜0.15 まで下げ、サンプルカラーをより限定的な色で取り直します。離れた領域まで変わるときは連続領域モードで絞ります。
+許容範囲を 0.05〜0.15 まで下げ、サンプルカラーをより限定的な色で取り直します。離れた領域まで変わるときは詳細設定の連続領域モードで絞ります。
 
 #### 黒い色に変更できない
 
@@ -622,7 +621,6 @@ Click "Target Color" and choose the new color. The preview updates right away.
 |---|---|
 | Pattern Preserve | How much of the original pattern to keep (0 = flat recolor, 1 = keep pattern; default 1.0) |
 | Output Saturation | Lower it to 0.7-0.9 when a pure color looks flat, and the shading comes back (default 1.0) |
-| Connected Region (Flood Fill) | Restricts recoloring to one connected region and avoids bleed into separate parts or the background (default ON) |
 
 For finer controls, see [Color Zone Settings](#color-zone-settings).
 
@@ -648,18 +646,12 @@ Analyzes the texture and sets the tolerance, saturation strictness, and related 
 
 - It is disabled when the source texture is not set, when no pixels can be obtained, or when the sample color is still unset (white).
 - If the AI is not installed, you are asked to install it (see "Requirements" under [AI Mask Suggestion](#ai-mask-suggestion-experimental)). If it is still getting ready, Auto-tune waits (a progress bar and a Cancel button are shown).
-- A zone whose color came from the color picker has no position, so it is analyzed without the AI suggestion (a notice is shown).
+- A zone whose color came from the color picker has no position, so it is analyzed without the AI suggestion (the zone shows "No sampled position").
 - A confirmation before overwriting appears only when you have changed values by hand.
 
 **Tolerance**
 
 How far a color can be from the sample and still match (0.0-1.0). Lower is stricter (narrower selection); higher is looser (wider, with more noise). About 0.15-0.40 works for most cases.
-
-**Connected Region (Flood Fill)**
-
-Restricts recoloring to the connected region that contains a high-confidence core. Same-color parts elsewhere and bleed into the background drop out automatically. It is automatic by default, with no seed needed.
-
-To keep one particular region, set a seed: press "Set" on the "Seed (optional)" row and click the preview, or Shift+click the preview. "Auto" clears it.
 
 **Target Color**
 
@@ -676,6 +668,12 @@ The vividness after recoloring (default 1.0). Fully saturated colors such as pur
 #### Detail controls (open "Details" to show them)
 
 They are laid out in the order the processing runs: Selection range, Highlights, Shadows and neutrals, Color mapping, Matching distance weights. If you over-tweak them, "Reset details to default" at the end of the zone restores only the detail values (color, tolerance, and name are kept).
+
+**Connected Region (Flood Fill)** (default ON)
+
+Restricts recoloring to the connected region that contains a high-confidence core. Same-color parts elsewhere and bleed into the background drop out automatically. It is automatic by default, with no seed needed.
+
+To keep one particular region, set a seed: press "Set" on the "Seed (optional)" row and click the preview, or Shift+click the preview (this works with Details closed; the seed shows as a cross on the preview). "Auto" clears it.
 
 **Auto Sample Anchor** (default ON)
 
@@ -1018,7 +1016,7 @@ Edges lightened by anti-aliasing or blur are being left unrecolored. Try these i
 
 1. Raise Saturation Strictness to 0.7-0.9
 2. Narrow the Tolerance
-3. Use Connected Region (Flood Fill) to cut off separated leftovers
+3. Use Connected Region (Flood Fill) in Details to cut off separated leftovers
 4. Protect what remains with the exclude mask
 
 #### Color bleeds outside the intended area
@@ -1043,7 +1041,7 @@ Lower Output Saturation to 0.7-0.9. Raise Pattern Preserve if you want to keep t
 
 #### The whole texture changes
 
-Lower the Tolerance to 0.05-0.15 and re-sample a more specific color. If separate areas still change, narrow it down with Connected Region (Flood Fill).
+Lower the Tolerance to 0.05-0.15 and re-sample a more specific color. If separate areas still change, narrow it down with Connected Region (Flood Fill) in Details.
 
 #### Cannot change to black
 

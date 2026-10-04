@@ -168,8 +168,8 @@ namespace Iroca
         // ゾーンカード内の詳細パラメータ折りたたみ見出し（通常モードで既定畳む）。
         public static string ZoneDetailFoldout => IsJapanese ? "詳細設定" : "Details";
         public static string ZoneDetailFoldoutTooltip => IsJapanese
-            ? "許容範囲・彩度制限・エッジなどの詳細パラメータを開閉します。通常は自動調整に任せて閉じたままで構いません。"
-            : "Show/hide advanced parameters (tolerance, saturation limits, edges). Usually you can leave this closed and rely on auto-tune.";
+            ? "連続領域モード・彩度制限・ハイライト・暗部などの詳細パラメータを開閉します。通常は自動調整に任せて閉じたままで構いません。"
+            : "Show/hide advanced parameters (connected regions, saturation limits, highlights, shadows). Usually you can leave this closed and rely on auto-tune.";
 
         public static string ResetZoneTuning => IsJapanese ? "詳細を既定値に戻す" : "Reset details to default";
         public static string ResetZoneTuningTooltip => IsJapanese
@@ -1079,14 +1079,12 @@ namespace Iroca
             : "Press, then click the preview to place this zone's seed (disarms after one click).\nShift+click also works.";
 
         // ─────────────────────────────────────────────────────────────
-        // スポイト位置の有無（自動調整が AI 提案を参照できるかが事前に分からなかった）
+        // スポイト位置が無いことの警告（自動調整が AI 提案を参照できるかが事前に分からなかった）。
+        // 位置があるのは普通の状態なので、無いときだけ出す。
         // ─────────────────────────────────────────────────────────────
-        public static string SampleUvPresent => IsJapanese
-            ? "スポイト位置: あり（自動調整が AI 提案を参照します）"
-            : "Sampled position: set (Auto-tune will use the AI suggestion)";
         public static string SampleUvMissing => IsJapanese
-            ? "スポイト位置: なし（自動調整は AI 提案を参照しません）"
-            : "Sampled position: none (Auto-tune will not use the AI suggestion)";
+            ? "スポイト位置がありません。自動調整に AI 提案を使うには「スポイト」で色を取り直してください。"
+            : "No sampled position. To let Auto-tune use the AI suggestion, sample the color again with \"Eyedropper\".";
         public static string SampleUvTooltip => IsJapanese
             ? "「スポイト」ボタンでプレビューをクリックすると位置が記録され、自動調整がその位置に AI マスク提案をかけて証拠にします。\nカラーフィールドで色を変えると位置は消えます。"
             : "Clicking the preview with the Eyedropper button records the position, and Auto-tune runs the AI mask suggestion there as evidence.\nChanging the color from the color field clears the position.";

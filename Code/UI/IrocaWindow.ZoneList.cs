@@ -159,7 +159,7 @@ namespace Iroca
             s_autoTuneEnabledContent, s_autoTuneDisabledContent,
             s_eyedropperIdleContent, s_eyedropperActiveContent,
             s_seedPickIdleContent, s_seedPickActiveContent,
-            s_sampleUvPresentContent, s_sampleUvMissingContent;
+            s_sampleUvMissingContent;
 
         private static void EnsureZoneListCache()
         {
@@ -185,7 +185,6 @@ namespace Iroca
             s_zoneSoloContent         = new GUIContent(Localization.ZoneSolo, Localization.ZoneSoloTooltip);
             s_seedPickIdleContent     = new GUIContent(Localization.FloodFillSeedPick, Localization.FloodFillSeedPickTooltip);
             s_seedPickActiveContent   = new GUIContent(Localization.FloodFillSeedPickActive, Localization.FloodFillSeedPickTooltip);
-            s_sampleUvPresentContent  = new GUIContent(Localization.SampleUvPresent, Localization.SampleUvTooltip);
             s_sampleUvMissingContent  = new GUIContent(Localization.SampleUvMissing, Localization.SampleUvTooltip);
         }
 
@@ -279,8 +278,8 @@ namespace Iroca
             EditorGUILayout.Space(2);
         }
 
-        // 1 ゾーン分のカード（ヘッダ行＋マスク編集＋採色/変更先＋自動調整＋許容範囲＋連続領域＋
-        // 模様保持/出力彩度＋通常以上の詳細）を描画する。
+        // 1 ゾーン分のカード（ヘッダ行＋採色/変更先＋自動調整＋許容範囲＋模様保持/出力彩度＋
+        // 畳んだ詳細設定）を描画する。
         // 戻り値 true = このカードの削除(×)ボタンが押された。
         private bool DrawZoneCard(ColorZone zone, int index)
         {
@@ -424,17 +423,16 @@ namespace Iroca
                 zone.targetColor);
             EditorGUIUtility.labelWidth = prevColorRowsLabelWidth;
 
-            // スポイト位置の有無。自動調整はこの位置に AI マスク提案をかけて証拠にするため、
+            // スポイト位置が無いときだけ知らせる。自動調整はこの位置に AI マスク提案をかけて証拠にするため、
             // 位置が無いゾーン（カラーフィールドで色を決めた／Undo で無効化された）では
             // 導出経路が変わる。押してから通知で知るのでは遅いので、事前に見えるようにする。
-            if (zone.HasSampleColor)
+            // 位置があるのは普通の状態なので、常時の 1 行は出さない（2026-10-04、カードの常時表示を減らした）。
+            if (zone.HasSampleColor && !zone.HasSampleUV)
             {
                 // 折り返しあり: 英語文は狭い設定列の 1 行に収まらず、末尾（肝心の
                 // "AI suggestion"）が欠けていた。GUILayout.Label は折り返し後の高さを確保する
                 // （EditorGUILayout.LabelField は 1 行固定高で、折り返した 2 行目が隠れる）。
-                GUILayout.Label(
-                    zone.HasSampleUV ? s_sampleUvPresentContent : s_sampleUvMissingContent,
-                    EditorStyles.wordWrappedMiniLabel);
+                GUILayout.Label(s_sampleUvMissingContent, EditorStyles.wordWrappedMiniLabel);
             }
 
             // スポイト1点から、パーツの濃淡（暗部/中間/明部）を内部で自動サンプリングして
@@ -457,9 +455,52 @@ namespace Iroca
                 new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
                 zone.tolerance, 0f, 1f);
 
+            // UV矩形モードは実装継続中のため当面 UI から非表示。
+            // else
+            // {
+            //     EditorGUILayout.LabelField(
+            //         new GUIContent(Localization.UVRect, Localization.UVRectTooltip));
+            //     using (new EditorGUI.IndentLevelScope())
+            //     {
+            //         float x = UndoHelper.Slider(this, "X", zone.uvRect.x, 0f, 1f);
+            //         float y = UndoHelper.Slider(this, "Y", zone.uvRect.y, 0f, 1f);
+            //         float w = UndoHelper.Slider(this, "W", zone.uvRect.width, 0f, 1f);
+            //         float h = UndoHelper.Slider(this, "H", zone.uvRect.height, 0f, 1f);
+            //         zone.uvRect = new Rect(x, y, w, h);
+            //     }
+            // }
+
+            // 変更先カラーは自動調整の入力なのでボタンの上（採色の直下）へ移した。
+            // ここには自動調整が書き換える出力系スライダーだけを残す。
+            zone.valueBlend = UndoHelper.Slider(this,
+                new GUIContent(Localization.PatternPreserve, Localization.PatternPreserveTooltip),
+                zone.valueBlend, 0f, 1f);
+            zone.outputSaturation = UndoHelper.Slider(this,
+                new GUIContent(Localization.OutputSaturation, Localization.OutputSaturationTooltip),
+                zone.outputSaturation, 0f, 1f);
+
+            // 基本の項目（色・自動調整・許容範囲・模様保持・出力彩度）だけを常時見せ、
+            // 残り（連続領域モードを含む）は「詳細設定」へ畳む（既定で閉じる）。旧・上級モード限定だった
+            // マッチング距離の重みもこの中に入っている（モードトグル廃止。DrawZoneList 参照）。
+            EditorGUILayout.Space(2);
+            zone.detailFoldout = EditorGUILayout.Foldout(
+                zone.detailFoldout,
+                new GUIContent(Localization.ZoneDetailFoldout, Localization.ZoneDetailFoldoutTooltip),
+                true);
+            if (zone.detailFoldout)
+                DrawZoneAdvancedParams(zone);
+
+            EditorGUILayout.EndVertical();
+            return removeRequested;
+        }
+
+        // 連続領域モード（つながった塊だけに絞る）とシード。既定（自動アンカリング・シードなし）のまま
+        // 使う人がほとんどなので、ゾーンカードの常時表示から詳細設定の「選択の範囲」へ移した（2026-10-04）。
+        // シードはプレビューの Shift+クリックでも置け、置いた位置はプレビューに目印が出る。
+        private void DrawZoneFloodFillParams(ColorZone zone)
+        {
             // 既定は自動アンカリング(シード不要)。確信度の高い芯を含む連結領域だけ残し、
             // 物理的に離れた同色パーツや背景へのにじみを自動除去する。シードは任意の上書き。
-            EditorGUILayout.Space(2);
             bool prevUseFloodFill = zone.useFloodFill;
             zone.useFloodFill = UndoHelper.Toggle(this,
                 new GUIContent(Localization.UseFloodFill, Localization.UseFloodFillTooltip),
@@ -520,43 +561,6 @@ namespace Iroca
                 }
             }
 
-            // UV矩形モードは実装継続中のため当面 UI から非表示。
-            // else
-            // {
-            //     EditorGUILayout.LabelField(
-            //         new GUIContent(Localization.UVRect, Localization.UVRectTooltip));
-            //     using (new EditorGUI.IndentLevelScope())
-            //     {
-            //         float x = UndoHelper.Slider(this, "X", zone.uvRect.x, 0f, 1f);
-            //         float y = UndoHelper.Slider(this, "Y", zone.uvRect.y, 0f, 1f);
-            //         float w = UndoHelper.Slider(this, "W", zone.uvRect.width, 0f, 1f);
-            //         float h = UndoHelper.Slider(this, "H", zone.uvRect.height, 0f, 1f);
-            //         zone.uvRect = new Rect(x, y, w, h);
-            //     }
-            // }
-
-            // 変更先カラーは自動調整の入力なのでボタンの上（採色の直下）へ移した。
-            // ここには自動調整が書き換える出力系スライダーだけを残す。
-            zone.valueBlend = UndoHelper.Slider(this,
-                new GUIContent(Localization.PatternPreserve, Localization.PatternPreserveTooltip),
-                zone.valueBlend, 0f, 1f);
-            zone.outputSaturation = UndoHelper.Slider(this,
-                new GUIContent(Localization.OutputSaturation, Localization.OutputSaturationTooltip),
-                zone.outputSaturation, 0f, 1f);
-
-            // 基本の項目（色・許容範囲・連続領域・模様保持・出力彩度）だけを常時見せ、
-            // 残りは「詳細設定」へ畳む（既定で閉じる）。旧・上級モード限定だった
-            // マッチング距離の重みもこの中に入っている（モードトグル廃止。DrawZoneList 参照）。
-            EditorGUILayout.Space(2);
-            zone.detailFoldout = EditorGUILayout.Foldout(
-                zone.detailFoldout,
-                new GUIContent(Localization.ZoneDetailFoldout, Localization.ZoneDetailFoldoutTooltip),
-                true);
-            if (zone.detailFoldout)
-                DrawZoneAdvancedParams(zone);
-
-            EditorGUILayout.EndVertical();
-            return removeRequested;
         }
 
         // 「詳細設定」を開いたときに出るパラメータ。
@@ -570,6 +574,7 @@ namespace Iroca
         {
             // ── 選択の範囲（どの画素を対象にするか） ──
             EditorGUILayout.LabelField(Localization.ZoneGroupSelection, EditorStyles.boldLabel);
+            DrawZoneFloodFillParams(zone);
             zone.edgeSoftness = UndoHelper.Slider(this,
                 new GUIContent(Localization.EdgeSoftness, Localization.EdgeSoftnessTooltip),
                 zone.edgeSoftness, 0f, 1f);
