@@ -250,75 +250,65 @@ namespace Iroca
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY, CancellationToken ct = default,
             bool[] maskExcluded = null)
         {
-            int len = w * h;
-            float[] wR = null, wG = null, wB = null, wD = null;
-            float[] bgRSum = null, bgGSum = null, bgBSum = null, bgD = null;
-            float[] wM = null, mNear = null;
+            float sR = sampleColor.r * 255f, sG = sampleColor.g * 255f, sB = sampleColor.b * 255f;
+            float tR = targetColor.r * 255f, tG = targetColor.g * 255f, tB = targetColor.b * 255f;
+            int x0 = Mathf.Max(0, bbMinX - AchromaFringeMatchRadius);
+            int x1 = Mathf.Min(w - 1, bbMaxX + AchromaFringeMatchRadius);
+            int y0 = Mathf.Max(0, bbMinY - AchromaFringeMatchRadius);
+            int y1 = Mathf.Min(h - 1, bbMaxY + AchromaFringeMatchRadius);
+            if (x1 < x0 || y1 < y0) return;   // 対象矩形が空(マッチ皆無) → 何もしない
+            // フチ消しが触るのは矩形 [x0..x1]×[y0..y1] のうち、マッチ境界の外側(マッチから
+            // AchromaFringeMatchRadius 以内の未マッチ画素)の細い帯だけ。
+            //   ・「マッチが近くにあるか」は、範囲 F(矩形 ± 背景の窓の半径)の整数の累積和から引く
+            //   ・背景(ドナー)の窓和は、帯の画素についてだけ窓を直接足す
+            // 以前は窓和(半径 4)を作業配列 10 本と BoxFilterSum ×5 で矩形全体に作っていた。足す値は
+            // 0..255 の整数(と個数)で、窓和は最大 (2·4+1)²·255 < 2^24 なので浮動小数でも常に正確な整数。
+            // ここで直接足した値と同じになり、出力はビット単位で同じ。
+            const int FringeBgRadius = AchromaFringeBgRadius;
+            int fx0 = Mathf.Max(0, x0 - FringeBgRadius), fx1 = Mathf.Min(w - 1, x1 + FringeBgRadius);
+            int fy0 = Mathf.Max(0, y0 - FringeBgRadius), fy1 = Mathf.Min(h - 1, y1 + FringeBgRadius);
+            int fw = fx1 - fx0 + 1, fh = fy1 - fy0 + 1;
+            int[] satM = null;
             try
             {
-                wR = s_floatPool.Rent(len); wG = s_floatPool.Rent(len);
-                wB = s_floatPool.Rent(len); wD = s_floatPool.Rent(len);
-                bgRSum = s_floatPool.Rent(len); bgGSum = s_floatPool.Rent(len);
-                bgBSum = s_floatPool.Rent(len); bgD = s_floatPool.Rent(len);
-                wM = s_floatPool.Rent(len); mNear = s_floatPool.Rent(len);
+                satM = s_intPool.Rent(fw * fh);
                 var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-
-                float sR = sampleColor.r * 255f, sG = sampleColor.g * 255f, sB = sampleColor.b * 255f;
-                float tR = targetColor.r * 255f, tG = targetColor.g * 255f, tB = targetColor.b * 255f;
-                int x0 = Mathf.Max(0, bbMinX - AchromaFringeMatchRadius);
-                int x1 = Mathf.Min(w - 1, bbMaxX + AchromaFringeMatchRadius);
-                int y0 = Mathf.Max(0, bbMinY - AchromaFringeMatchRadius);
-                int y1 = Mathf.Min(h - 1, bbMaxY + AchromaFringeMatchRadius);
-                if (x1 < x0 || y1 < y0) return;   // 対象矩形が空(マッチ皆無) → 何もしない
-                // フチ消しが触るのは矩形 [x0..x1]×[y0..y1] だけ。窓和(半径 4)の入力はその ±4 まで
-                // あれば足りるので、ドナー/マッチ指標の準備も窓和もこの範囲に限定する
-                // (従来は全画素で Array.Clear ×5 と窓和 ×5 = 4K で無彩ゾーンごとに固定コストだった)。
-                const int FringeBgRadius = AchromaFringeBgRadius;
-                int fx0 = Mathf.Max(0, x0 - FringeBgRadius), fx1 = Mathf.Min(w - 1, x1 + FringeBgRadius);
-                int fy0 = Mathf.Max(0, y0 - FringeBgRadius), fy1 = Mathf.Min(h - 1, y1 + FringeBgRadius);
-                // 背景候補(非マッチ かつ α>0)と、マッチ指標を準備(行ごとにゼロ化 → 該当画素だけ充填)
-                int fspan = fx1 - fx0 + 1;
-                Parallel.For(fy0, fy1 + 1, po, y =>
-                {
-                    int rowOff = y * w;
-                    int beg = rowOff + fx0;
-                    Array.Clear(wR, beg, fspan); Array.Clear(wG, beg, fspan);
-                    Array.Clear(wB, beg, fspan); Array.Clear(wD, beg, fspan);
-                    Array.Clear(wM, beg, fspan);
-                    for (int x = fx0; x <= fx1; x++)
-                    {
-                        int i = rowOff + x;
-                        float s = strength[i];
-                        // 除外マスク画素はドナーから隠す(マスク中立化)。DecontaminateAaBoundary
-                        // (:109)と同じ扱い。入れると BG 推定がサンプル色で汚染され、マスク境界の
-                        // 外側に誤色を塗る。
-                        if (s <= 0f && originalPixels[i].a > 0
-                            && (maskExcluded == null || !maskExcluded[i]))
-                        {
-                            wR[i] = originalPixels[i].r; wG[i] = originalPixels[i].g;
-                            wB[i] = originalPixels[i].b; wD[i] = 1f;
-                        }
-                        if (s > 0.05f) wM[i] = 1f;
-                    }
-                });
-                BoxFilterSum(wR, bgRSum, w, h, FringeBgRadius, ct, x0, y0, x1, y1);
-                BoxFilterSum(wG, bgGSum, w, h, FringeBgRadius, ct, x0, y0, x1, y1);
-                BoxFilterSum(wB, bgBSum, w, h, FringeBgRadius, ct, x0, y0, x1, y1);
-                BoxFilterSum(wD, bgD,    w, h, FringeBgRadius, ct, x0, y0, x1, y1);
-                BoxFilterSum(wM, mNear,  w, h, AchromaFringeMatchRadius, ct, x0, y0, x1, y1);
+                // マッチ指標(strength > 0.05)の累積和。近傍の窓(±AchromaFringeMatchRadius)は F の内側か、
+                // F と同じく画像の端で切られる(F = 矩形 ± 背景の窓の半径 ⊇ 矩形 ± マッチの窓の半径)。
+                BuildCountSat(strength, satM, w, fx0, fy0, fx1, fy1, po, 0.05f);
+                var satML = satM;
                 Parallel.For(y0, y1 + 1, po, y =>
                 {
                     int row = y * w;
+                    int wy0 = Mathf.Max(0, y - FringeBgRadius), wy1 = Mathf.Min(h - 1, y + FringeBgRadius);
                     for (int x = x0; x <= x1; x++)
                     {
                         int i = row + x;
                         if (strength[i] > 1e-4f) continue;            // マッチ済みは既存処理が担当
                         if (maskExcluded != null && maskExcluded[i]) continue; // 除外マスクは不可侵
                         if (claimed != null && claimed[i] > 0.001f) continue; // 上位ゾーン占有は不可侵
-                        if (mNear[i] < 1f) continue;                  // マッチ境界の近傍のみ
-                        float density = bgD[i];
+                        if (CountInWindow(satML, fw, fx0, fy0, fx1, fy1, x, y, AchromaFringeMatchRadius) < 1)
+                            continue;                                 // マッチ境界の近傍のみ
+                        // 背景候補(非マッチ かつ α>0。除外マスク画素はドナーから隠す=マスク中立化。
+                        // DecontaminateAaBoundary と同じ扱い)の窓和。
+                        int sumR = 0, sumG = 0, sumB = 0, cnt = 0;
+                        int wx0 = Mathf.Max(0, x - FringeBgRadius), wx1 = Mathf.Min(w - 1, x + FringeBgRadius);
+                        for (int yy = wy0; yy <= wy1; yy++)
+                        {
+                            int r2 = yy * w;
+                            for (int xx = wx0; xx <= wx1; xx++)
+                            {
+                                int j = r2 + xx;
+                                if (strength[j] > 0f) continue;
+                                Color32 o = originalPixels[j];
+                                if (o.a == 0) continue;
+                                if (maskExcluded != null && maskExcluded[j]) continue;
+                                sumR += o.r; sumG += o.g; sumB += o.b; cnt++;
+                            }
+                        }
+                        float density = cnt;
                         if (density < 1f) continue;
-                        float bR = bgRSum[i] / density, bG = bgGSum[i] / density, bB = bgBSum[i] / density;
+                        float bR = sumR / density, bG = sumG / density, bB = sumB / density;
                         float dirR = sR - bR, dirG = sG - bG, dirB = sB - bB;
                         float dirSq = dirR * dirR + dirG * dirG + dirB * dirB;
                         if (dirSq < 1f) continue;                     // sample≈BG → α 未定義
@@ -341,16 +331,7 @@ namespace Iroca
             }
             finally
             {
-                if (mNear != null) s_floatPool.Return(mNear);
-                if (wM != null) s_floatPool.Return(wM);
-                if (bgD != null) s_floatPool.Return(bgD);
-                if (bgBSum != null) s_floatPool.Return(bgBSum);
-                if (bgGSum != null) s_floatPool.Return(bgGSum);
-                if (bgRSum != null) s_floatPool.Return(bgRSum);
-                if (wD != null) s_floatPool.Return(wD);
-                if (wB != null) s_floatPool.Return(wB);
-                if (wG != null) s_floatPool.Return(wG);
-                if (wR != null) s_floatPool.Return(wR);
+                if (satM != null) s_intPool.Return(satM);
             }
         }
 
@@ -578,13 +559,13 @@ namespace Iroca
         /// 除外画素には書かず、背景の参照にも使わない(strength=0 だが背景ではない保護パーツでありうる)。
         /// </summary>
         /// <summary>
-        /// 0/1 の値(src &gt; 0.5 を 1 と数える)の累積和を、範囲 [x0..x1]×[y0..y1] について作る。
+        /// src &gt; minExclusive を 1 と数えた個数の累積和を、範囲 [x0..x1]×[y0..y1] について作る。
         /// sat[(y−y0)·satW + (x−x0)] = (x0,y0) からその画素までの矩形の個数(satW = x1−x0+1)。
         /// 余白の行・列を持たないので、4K 全面でも配列プールの上限(4096²)に収まる。
         /// 行ごとの累積は行並列、列方向の累積は列の帯ごとに並列(どちらも整数加算なので順序に依存しない)。
         /// </summary>
         private static void BuildCountSat(float[] src, int[] sat, int w, int x0, int y0, int x1, int y1,
-            ParallelOptions po)
+            ParallelOptions po, float minExclusive = 0.5f)
         {
             int satW = x1 - x0 + 1, rows = y1 - y0 + 1;
             Parallel.For(0, rows, po, r =>
@@ -594,7 +575,7 @@ namespace Iroca
                 int acc = 0;
                 for (int x = x0; x <= x1; x++)
                 {
-                    if (src[srcRow + x] > 0.5f) acc++;
+                    if (src[srcRow + x] > minExclusive) acc++;
                     sat[o + (x - x0)] = acc;
                 }
             });
