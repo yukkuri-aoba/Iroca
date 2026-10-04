@@ -66,75 +66,157 @@ namespace Iroca
                         if (highlightPot[rb + x] > 0f) cand[k++] = (y << 16) | x;
                 });
 
-                int passes = 3;
-                for (int p = 0; p < passes; p++)
+                // 伝播スイープを、タイル(HlPropTile 角)の斜めの列ごとに並列に回す(出力ビット不変)。
+                // 前方スイープで画素が読む 4 近傍は、左・上 = 更新済み、右・下 = 未更新(このスイープでは
+                // まだ触っていない)の値。タイル (tx,ty) を斜め D = tx+ty の順に処理すると、
+                //   ・左/上のタイル(D-1)は先に終わっている、右/下のタイル(D+1)はまだ触っていない
+                //   ・同じ D のタイル同士は 4 近傍で接しない(斜めにしか隣り合わない)
+                // ので、タイルの中をラスタ順に辿れば、各画素が読む値はラスタ順の逐次スイープと同じになる。
+                // 後方スイープはその逆(D の降順、タイルの中は逆ラスタ順)。候補でない画素(pot=0)は
+                // このスイープで書かれないので、どこから読んでも同じ。変化の有無は OR なので順序に依存しない。
+                int ntx = (maxX - minX) / HlPropTile + 1, nty = (maxY - minY) / HlPropTile + 1;
+                int nTiles = ntx * nty;
+                // 候補をタイルごとに分ける(タイルの中はラスタ順のまま)。タイル行ごとに並列。
+                var tileCount = new int[nTiles];
+                Parallel.For(0, nty, po, ty =>
                 {
-                    bool changed = false;
-
-                    for (int k = 0; k < nCand; k++)
+                    int ly0 = ty * HlPropTile, ly1 = Math.Min(bh, ly0 + HlPropTile);
+                    for (int k = rowOff[ly0]; k < rowOff[ly1]; k++)
+                        tileCount[ty * ntx + ((cand[k] & 0xFFFF) - minX) / HlPropTile]++;
+                });
+                var tileStart = new int[nTiles + 1];
+                for (int t = 0; t < nTiles; t++) tileStart[t + 1] = tileStart[t] + tileCount[t];
+                int[] tiled = s_intPool.Rent(nCand);
+                try
+                {
+                    Parallel.For(0, nty, po, ty =>
                     {
-                        // 伝播スイープは逐次(順序依存)なので、一定間隔でキャンセルだけ見る。
-                        if ((k & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
-                        int packed = cand[k];
-                        int x = packed & 0xFFFF, y = packed >> 16;
-                        int i = y * w + x;
-                        float pot = highlightPot[i];
-                        if (strength[i] < pot)
+                        var fill = new int[ntx];
+                        for (int t = 0; t < ntx; t++) fill[t] = tileStart[ty * ntx + t];
+                        int ly0 = ty * HlPropTile, ly1 = Math.Min(bh, ly0 + HlPropTile);
+                        for (int k = rowOff[ly0]; k < rowOff[ly1]; k++)
                         {
-                            float maxNeighbor = 0f;
-                            if (x > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - 1]);
-                            if (y > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - w]);
-
-                            if (x < w - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + 1]);
-                            if (y < h - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + w]);
-
-                            if (maxNeighbor > 0.1f)
-                            {
-                                float newS = Mathf.Min(pot, maxNeighbor * 0.95f);
-                                if (newS > strength[i])
-                                {
-                                    strength[i] = newS;
-                                    changed = true;
-                                }
-                            }
+                            int c = cand[k];
+                            tiled[fill[((c & 0xFFFF) - minX) / HlPropTile]++] = c;
                         }
-                    }
+                    });
 
-                    for (int k = nCand - 1; k >= 0; k--)
+                    int passes = 3;
+                    int nDiag = ntx + nty - 1;
+                    for (int p = 0; p < passes; p++)
                     {
-                        if ((k & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
-                        int packed = cand[k];
-                        int x = packed & 0xFFFF, y = packed >> 16;
-                        int i = y * w + x;
-                        float pot = highlightPot[i];
-                        if (strength[i] < pot)
+                        int changedFlag = 0;
+
+                        for (int d = 0; d < nDiag; d++)
                         {
-                            float maxNeighbor = 0f;
-                            if (x < w - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + 1]);
-                            if (y < h - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + w]);
-
-                            if (x > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - 1]);
-                            if (y > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - w]);
-
-                            if (maxNeighbor > 0.1f)
+                            ct.ThrowIfCancellationRequested();
+                            int tx0 = Math.Max(0, d - (nty - 1)), tx1 = Math.Min(d, ntx - 1);
+                            Parallel.For(tx0, tx1 + 1, po, tx =>
                             {
-                                float newS = Mathf.Min(pot, maxNeighbor * 0.95f);
-                                if (newS > strength[i])
-                                {
-                                    strength[i] = newS;
-                                    changed = true;
-                                }
-                            }
+                                int t = (d - tx) * ntx + tx;
+                                if (PropagateHighlightRange(strength, highlightPot, tiled,
+                                        tileStart[t], tileStart[t + 1], w, h, forward: true))
+                                    Volatile.Write(ref changedFlag, 1);
+                            });
                         }
-                    }
 
-                    if (!changed) break;
+                        for (int d = nDiag - 1; d >= 0; d--)
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            int tx0 = Math.Max(0, d - (nty - 1)), tx1 = Math.Min(d, ntx - 1);
+                            Parallel.For(tx0, tx1 + 1, po, tx =>
+                            {
+                                int t = (d - tx) * ntx + tx;
+                                if (PropagateHighlightRange(strength, highlightPot, tiled,
+                                        tileStart[t], tileStart[t + 1], w, h, forward: false))
+                                    Volatile.Write(ref changedFlag, 1);
+                            });
+                        }
+
+                        if (Volatile.Read(ref changedFlag) == 0) break;
+                    }
+                }
+                finally
+                {
+                    s_intPool.Return(tiled);
                 }
             }
             finally
             {
                 s_intPool.Return(cand);
             }
+        }
+
+        // ハイライト伝播の並列化のタイルの一辺(px)。斜めの列の数(=並列の段数)とタイル内の逐次量の兼ね合い。
+        private const int HlPropTile = 64;
+
+        /// <summary>
+        /// 候補 tiled[k0..k1) を前方(forward=true: 並び順)または後方(逆順)に 1 回辿り、伝播で strength を上げる。
+        /// 1 画素の更新規則は従来の逐次スイープと同じ(近傍の読む順序も同じ)。変化があれば true。
+        /// </summary>
+        private static bool PropagateHighlightRange(float[] strength, float[] highlightPot, int[] tiled,
+            int k0, int k1, int w, int h, bool forward)
+        {
+            bool changed = false;
+            if (forward)
+            {
+                for (int k = k0; k < k1; k++)
+                {
+                    int packed = tiled[k];
+                    int x = packed & 0xFFFF, y = packed >> 16;
+                    int i = y * w + x;
+                    float pot = highlightPot[i];
+                    if (strength[i] < pot)
+                    {
+                        float maxNeighbor = 0f;
+                        if (x > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - 1]);
+                        if (y > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - w]);
+
+                        if (x < w - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + 1]);
+                        if (y < h - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + w]);
+
+                        if (maxNeighbor > 0.1f)
+                        {
+                            float newS = Mathf.Min(pot, maxNeighbor * 0.95f);
+                            if (newS > strength[i])
+                            {
+                                strength[i] = newS;
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                for (int k = k1 - 1; k >= k0; k--)
+                {
+                    int packed = tiled[k];
+                    int x = packed & 0xFFFF, y = packed >> 16;
+                    int i = y * w + x;
+                    float pot = highlightPot[i];
+                    if (strength[i] < pot)
+                    {
+                        float maxNeighbor = 0f;
+                        if (x < w - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + 1]);
+                        if (y < h - 1) maxNeighbor = Mathf.Max(maxNeighbor, strength[i + w]);
+
+                        if (x > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - 1]);
+                        if (y > 0) maxNeighbor = Mathf.Max(maxNeighbor, strength[i - w]);
+
+                        if (maxNeighbor > 0.1f)
+                        {
+                            float newS = Mathf.Min(pot, maxNeighbor * 0.95f);
+                            if (newS > strength[i])
+                            {
+                                strength[i] = newS;
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+            return changed;
         }
 
         // ハイライト帯成長で使用する定数。
