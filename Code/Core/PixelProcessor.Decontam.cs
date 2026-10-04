@@ -78,6 +78,26 @@ namespace Iroca
             int donorY0 = Mathf.Max(0, boxMinY - radius);
             int donorY1 = Mathf.Min(h - 1, boxMaxY + radius);
 
+            var decontamPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            int winSide = 2 * radius + 1;
+            float interiorBgDensityMin = Mathf.Max(1f, winSide * winSide * DecontamInteriorBgFrac);
+            // α 分解の対象(0<strength<しきい)は選択の縁の細い帯であることが多い。その数を先に数え、
+            // 候補の窓を直接足す方が安ければそうする(矩形全体の窓和 ×4 と作業配列 8 本を払わない)。
+            // 足す値は 0..255 の整数(と個数)で、窓和は最大 (2·12+1)²·255 < 2^24 なので、浮動小数の
+            // 窓和(BoxFilterSum)も常に正確な整数=どちらで求めても同じ値で、出力はビット単位で同じ。
+            long candCount = CountDecontamCandidates(strength, w, boxMinX, boxMinY, boxMaxX, boxMaxY,
+                interiorThreshold, decontamPo);
+            if (candCount == 0) return;
+            long boxArea = (long)(boxMaxX - boxMinX + 1) * (boxMaxY - boxMinY + 1);
+            int costRatio = solidifyOnly ? DecontamDirectCostRatioSolid : DecontamDirectCostRatioFull;
+            if (candCount * winSide * winSide <= costRatio * boxArea)
+            {
+                DecontaminateAaDirect(originalPixels, strength, w, h, sampleColor, targetColor, radius,
+                    interiorThreshold, interiorBgDensityMin, aaMask, decontaminatedPixels, maskExcluded,
+                    boxMinX, boxMinY, boxMaxX, boxMaxY, solidifyOnly, decontamPo);
+                return;
+            }
+
             // 局所 BG 推定: strength=0 のピクセルだけを使った近傍和とその密度
             // 0..255 のスケールで計算（後で divide で平均化）
             // null 初期化してから try 内で Rent することでリークを防ぐ。
@@ -97,7 +117,6 @@ namespace Iroca
             }
             wD = s_floatPool.Rent(len);
             bgDensity = s_floatPool.Rent(len);
-            var decontamPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             // ドナー範囲だけを「行ごとにゼロ化 → ドナー画素だけ充填」する(Rent はゼロ初期化を
             // 保証しない)。範囲外は BoxFilterSum から読まれないので未初期化のままでよい。
             int donorSpan = donorX1 - donorX0 + 1;
@@ -148,10 +167,8 @@ namespace Iroca
             float tR = targetColor.r * 255f;
             float tG = targetColor.g * 255f;
             float tB = targetColor.b * 255f;
-            const float DegenEps = 1f; // ‖sample - BG‖² 下限（≈1 階調）
+            const float DegenEps = DecontamDegenEps;
 
-            int winSide = 2 * radius + 1;
-            float interiorBgDensityMin = Mathf.Max(1f, winSide * winSide * DecontamInteriorBgFrac);
             Parallel.For(boxMinY, boxMaxY + 1, decontamPo, y =>
             {
             int rowOff = y * w;
@@ -228,6 +245,125 @@ namespace Iroca
             }
         }
 
+        // ‖sample - BG‖² の下限(≈1 階調)。これ未満は sample≈BG で α が定義できない。
+        private const float DecontamDegenEps = 1f;
+
+        // 候補の窓を直接足す方を選ぶ目安: 候補数 × 窓の面積 ≤ この値 × 矩形の面積。
+        // 矩形全体の窓和は窓の半径に依らず 1 画素あたり一定(作業配列の充填 + 窓和の 2 パス)で、
+        // 色の和も要る経路(4 ch)は密度だけの経路(1 ch)の約 3.5 倍かかる。.NET 8 の実測
+        // (4K、半径 4)で損益分岐はおよそ 45 と 13。読み比べの誤差を見込んで少し手前に置く。
+        private const int DecontamDirectCostRatioFull = 32;
+        private const int DecontamDirectCostRatioSolid = 8;
+
+        /// <summary>矩形内の α 分解の対象(0 &lt; strength &lt; interiorThreshold)の数。</summary>
+        private static long CountDecontamCandidates(float[] strength, int w,
+            int boxMinX, int boxMinY, int boxMaxX, int boxMaxY, float interiorThreshold, ParallelOptions po)
+        {
+            long total = 0;
+            Parallel.For(boxMinY, boxMaxY + 1, po, () => 0L, (y, _, acc) =>
+            {
+                int rowOff = y * w;
+                for (int x = boxMinX; x <= boxMaxX; x++)
+                {
+                    float s = strength[rowOff + x];
+                    if (!(s <= 0f || s >= interiorThreshold)) acc++;   // 本体の候補判定と同じ形(NaN も同じ側)
+                }
+                return acc;
+            }, acc => Interlocked.Add(ref total, acc));
+            return total;
+        }
+
+        /// <summary>
+        /// DecontaminateAaBoundary の候補がまばらなときの経路。背景(ドナー)の窓和を、候補の画素に
+        /// ついてだけ窓を直接足して求める。ドナーの条件・判定・再合成は矩形全体の経路と同じ。
+        /// 候補を固める(strength=1)書き込みは並行して読まれるが、ドナーの条件(strength ≤ 0)は
+        /// 候補(strength &gt; 0)の書き換えで変わらないので、読む順序に依存しない。
+        /// </summary>
+        private static void DecontaminateAaDirect(
+            Color32[] originalPixels, float[] strength, int w, int h,
+            Color sampleColor, Color targetColor, int radius,
+            float interiorThreshold, float interiorBgDensityMin,
+            bool[] aaMask, Color32[] decontaminatedPixels, bool[] maskExcluded,
+            int boxMinX, int boxMinY, int boxMaxX, int boxMaxY, bool solidifyOnly, ParallelOptions po)
+        {
+            float sR = sampleColor.r * 255f;
+            float sG = sampleColor.g * 255f;
+            float sB = sampleColor.b * 255f;
+            float tR = targetColor.r * 255f;
+            float tG = targetColor.g * 255f;
+            float tB = targetColor.b * 255f;
+            Parallel.For(boxMinY, boxMaxY + 1, po, y =>
+            {
+                int rowOff = y * w;
+                int wy0 = Mathf.Max(0, y - radius), wy1 = Mathf.Min(h - 1, y + radius);
+                for (int x = boxMinX; x <= boxMaxX; x++)
+                {
+                    int i = rowOff + x;
+                    float s = strength[i];
+                    if (s <= 0f || s >= interiorThreshold) continue;
+                    int wx0 = Mathf.Max(0, x - radius), wx1 = Mathf.Min(w - 1, x + radius);
+                    int sumR = 0, sumG = 0, sumB = 0, cnt = 0;
+                    for (int yy = wy0; yy <= wy1; yy++)
+                    {
+                        int r2 = yy * w;
+                        for (int xx = wx0; xx <= wx1; xx++)
+                        {
+                            int j = r2 + xx;
+                            if (!(strength[j] <= 0f)) continue;   // ドナーの条件は矩形全体の経路と同じ形
+                            Color32 o = originalPixels[j];
+                            if (o.a == 0) continue;
+                            if (maskExcluded != null && maskExcluded[j]) continue;
+                            sumR += o.r; sumG += o.g; sumB += o.b; cnt++;
+                        }
+                    }
+                    float density = cnt;
+                    if (density < interiorBgDensityMin)
+                    {
+                        strength[i] = 1f;   // 背景が実質無い=選択の内部(矩形全体の経路と同じ)
+                        continue;
+                    }
+                    if (solidifyOnly) continue;
+
+                    float bR = sumR / density;
+                    float bG = sumG / density;
+                    float bB = sumB / density;
+
+                    float dirR = sR - bR;
+                    float dirG = sG - bG;
+                    float dirB = sB - bB;
+                    float dirSq = dirR * dirR + dirG * dirG + dirB * dirB;
+                    if (dirSq < DecontamDegenEps) continue;
+
+                    float pR = originalPixels[i].r;
+                    float pG = originalPixels[i].g;
+                    float pB = originalPixels[i].b;
+
+                    float dot = (pR - bR) * dirR + (pG - bG) * dirG + (pB - bB) * dirB;
+                    float alpha = dot / dirSq;
+                    if (alpha < 0f) alpha = 0f;
+                    else if (alpha > 1f) alpha = 1f;
+
+                    float projR = bR + alpha * dirR;
+                    float projG = bG + alpha * dirG;
+                    float projB = bB + alpha * dirB;
+                    float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
+                    if (distSq > 3000f) continue;
+
+                    float oneMinusAlpha = 1f - alpha;
+                    float resR = alpha * tR + oneMinusAlpha * bR;
+                    float resG = alpha * tG + oneMinusAlpha * bG;
+                    float resB = alpha * tB + oneMinusAlpha * bB;
+
+                    aaMask[i] = true;
+                    decontaminatedPixels[i] = new Color32(
+                        (byte)Mathf.Clamp(Mathf.RoundToInt(resR), 0, 255),
+                        (byte)Mathf.Clamp(Mathf.RoundToInt(resG), 0, 255),
+                        (byte)Mathf.Clamp(Mathf.RoundToInt(resB), 0, 255),
+                        originalPixels[i].a);
+                }
+            });
+        }
+
         /// <summary>
         /// 無彩(白↔黒)再着色のエッジに残る「地色の残り」フチ消し(無彩ゾーンのみ呼ばれる)。
         /// 二値マッチ+デコンタミは選択 tolerance ちょうどで止まるため、その外側 1〜2px に
@@ -299,7 +435,7 @@ namespace Iroca
                             for (int xx = wx0; xx <= wx1; xx++)
                             {
                                 int j = r2 + xx;
-                                if (strength[j] > 0f) continue;
+                                if (!(strength[j] <= 0f)) continue;   // 以前のドナー充填と同じ形(NaN も同じ側)
                                 Color32 o = originalPixels[j];
                                 if (o.a == 0) continue;
                                 if (maskExcluded != null && maskExcluded[j]) continue;
