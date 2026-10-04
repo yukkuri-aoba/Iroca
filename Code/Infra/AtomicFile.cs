@@ -1,6 +1,8 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System;
 using System.IO;
+using System.Threading;
 
 namespace Iroca
 {
@@ -48,25 +50,53 @@ namespace Iroca
             }
         }
 
-        private static void Write(string path, System.Action<string> writeTemp)
+        // 置換先をほかのプロセス(ウイルス対策・検索インデクサ・Unity の取り込みなど)が一瞬つかんでいると、
+        // File.Replace は「置換されるファイルを削除できません」(IOException)で失敗する。2026-10 に実機で
+        // セッション保存とテストがこれで失敗した。一時的なものなので、少し待って繰り返す(合計 1 秒弱)。
+        private static readonly int[] RetryDelaysMs = { 15, 30, 60, 120, 250, 500 };
+
+        private static void Write(string path, Action<string> writeTemp)
         {
             // 一時ファイルは必ず同一フォルダに置く（File.Replace/Move が同一ボリューム内で完結し
             // rename が原子的になる）。
             string tmp = path + ".tmp";
+            bool existed = File.Exists(path);
             try
             {
                 writeTemp(tmp);
-                if (File.Exists(path))
-                    File.Replace(tmp, path, null);
-                else
-                    File.Move(tmp, path);
+                for (int attempt = 0; ; attempt++)
+                {
+                    try
+                    {
+                        // 試すたびに置換先の有無を確かめ直す。Replace が途中で失敗すると置換先が消えて
+                        // いることがある(ERROR_UNABLE_TO_MOVE_REPLACEMENT)ので、そのときは Move で書き切る。
+                        if (File.Exists(path))
+                            File.Replace(tmp, path, null);
+                        else
+                            File.Move(tmp, path);
+                        return;
+                    }
+                    catch (Exception e) when (attempt < RetryDelaysMs.Length && IsTransient(e))
+                    {
+                        Thread.Sleep(RetryDelaysMs[attempt]);
+                    }
+                }
             }
             catch
             {
-                try { if (File.Exists(tmp)) File.Delete(tmp); }
+                // 置換の途中で元のファイルが消えたときは、新しい中身を持つ一時ファイルを残す(消すと両方失う)。
+                bool lostOriginal = existed && !File.Exists(path);
+                try { if (!lostOriginal && File.Exists(tmp)) File.Delete(tmp); }
                 catch { /* 一時ファイルの掃除失敗は本エラーを隠さない */ }
                 throw;
             }
         }
+
+        // 共有違反・アクセス拒否は一時的なことがある。フォルダが無い・パスが長すぎるなどは待っても直らない。
+        private static bool IsTransient(Exception e)
+            => e is UnauthorizedAccessException
+               || (e is IOException
+                   && !(e is FileNotFoundException || e is DirectoryNotFoundException
+                        || e is PathTooLongException || e is DriveNotFoundException));
     }
 }

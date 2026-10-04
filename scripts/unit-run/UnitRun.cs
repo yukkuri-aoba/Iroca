@@ -193,7 +193,7 @@ namespace Iroca.UnitRun
 
         public static void Atomic_LockedTargetKeepsOriginal()
         {
-            // 置換先が他プロセスに開かれている（Unity が読み込み中など）と置換は失敗する。
+            // 置換先が他プロセスに開かれたまま（Unity が読み込み中など）だと、しばらく繰り返したあと失敗する。
             // そのとき原本は元のまま残り、書きかけの一時ファイルも残らないこと。
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return; // Linux は開いたままでも置換できる
             string d = TempDir();
@@ -206,6 +206,30 @@ namespace Iroca.UnitRun
                     Check.Throws<IOException>(() => AtomicFile.WriteAllBytes(p, new byte[] { 7 }), "locked");
                 }
                 Check.Equal("1,2,3", string.Join(",", File.ReadAllBytes(p)), "original intact");
+                Check.True(!File.Exists(p + ".tmp"), "tmp removed");
+            }
+            finally { Directory.Delete(d, true); }
+        }
+
+        public static void Atomic_RetriesWhileTargetIsBrieflyLocked()
+        {
+            // ウイルス対策・検索インデクサなどが置換先を一瞬つかんでいる間は、待って繰り返して書き切る
+            // （以前はここで「置換されるファイルを削除できません」になり、セッション保存が失敗していた）。
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+            string d = TempDir();
+            try
+            {
+                string p = Path.Combine(d, "busy.json");
+                File.WriteAllBytes(p, new byte[] { 1 });
+                var holder = new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.None);
+                var release = System.Threading.Tasks.Task.Run(() =>
+                {
+                    System.Threading.Thread.Sleep(100);
+                    holder.Dispose();
+                });
+                AtomicFile.WriteAllBytes(p, new byte[] { 2, 3 });
+                release.Wait();
+                Check.Equal("2,3", string.Join(",", File.ReadAllBytes(p)), "content after the lock was released");
                 Check.True(!File.Exists(p + ".tmp"), "tmp removed");
             }
             finally { Directory.Delete(d, true); }
