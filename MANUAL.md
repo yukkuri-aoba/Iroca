@@ -412,7 +412,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 #### 色替えされる範囲
 
 - 「Iroca Recolor」を付けたオブジェクトとその子のうち、レシピの元テクスチャを使っているマテリアルだけが差し替わります。範囲の外で同じマテリアルを使っている所は元のままです。
-- 衣装や表情のトグルなど、アニメーションで後から切り替わるマテリアルも、切り替える先のオブジェクトが範囲内なら同じように色替えされます。元のアニメーションファイルは変わりません。
+- 衣装や表情のトグルなど、アニメーションで後から切り替わるマテリアルも、切り替える先のオブジェクトが範囲内なら同じように色替えされます。元のアニメーションファイルは変わりません。Modular Avatar や VRCFury のトグルで切り替わるマテリアルも対象です。
 - 1 つの「Iroca Recolor」は、テクスチャごとのレシピを一覧で持ちます。同じテクスチャのレシピが重なったときは、一覧の上のものが使われます。
 - 範囲が入れ子になっているときは、近い（深い）方のコンポーネントが優先されます。
 - 以前の版で同じオブジェクトに「Iroca Recolor」を複数付けていた場合は、インスペクタの「1 つにまとめる」で 1 つにできます（色替えの結果は変わりません）。いろかウィンドウからそのオブジェクトへ登録したときも、自動でまとめます。
@@ -910,7 +910,7 @@ You can keep editing in the Iroca window after registering. Edits are also saved
 #### What gets recolored
 
 - Only materials that use the recipe's source texture, on the object with "Iroca Recolor" and its children, are swapped. Objects outside that scope keep the original even if they use the same material.
-- Materials that an animation switches to later (outfit or expression toggles) are recolored the same way, as long as the switched object is in the scope. The original animation files are not changed.
+- Materials that an animation switches to later (outfit or expression toggles) are recolored the same way, as long as the switched object is in the scope. The original animation files are not changed. This includes materials switched by Modular Avatar or VRCFury toggles.
 - One "Iroca Recolor" holds a list of recipes, one per texture. If two recipes use the same texture, the upper one in the list is used.
 - When scopes are nested, the closer (deeper) component wins.
 - If an earlier version added several "Iroca Recolor" components to the same object, "Merge into one" in the inspector combines them (the result does not change). Registering to that object from the Iroca window merges them automatically too.
