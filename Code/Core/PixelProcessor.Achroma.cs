@@ -269,7 +269,7 @@ namespace Iroca
             // だった。同一入力に同一関数を適用した値を配列経由で読むだけなので出力ビット不変。
             float[] okL = s_floatPool.Rent(bwh);
             // 行 run 方式の連結成分ラベリングで使う配列(確保は run 数 R が確定してから)。
-            int[] runX0 = null, runX1 = null, parent = null, comp = null;
+            int[] runX0 = null, runX1 = null, runY = null, parent = null, comp = null, rootComp = null, order = null;
             try
             {
             // 色の表があれば L は色ごとの表から配る(同じ色に同じ変換を当てた値なのでビット単位で同じ)。
@@ -330,6 +330,7 @@ namespace Iroca
 
             runX0 = s_intPool.Rent(R);
             runX1 = s_intPool.Rent(R);
+            runY = s_intPool.Rent(R);
             Parallel.For(0, bh, bboxPo, ly =>
             {
                 int grb = (ly + minY) * w + minX;
@@ -341,7 +342,7 @@ namespace Iroca
                     if (!(strength[gi] > thr && px[gi].a >= 128)) { lx++; continue; }
                     int s0 = lx;
                     while (lx < bw && strength[grb + lx] > thr && px[grb + lx].a >= 128) lx++;
-                    runX0[k] = s0; runX1[k] = lx - 1; k++;
+                    runX0[k] = s0; runX1[k] = lx - 1; runY[k] = ly; k++;
                 }
             });
 
@@ -369,36 +370,47 @@ namespace Iroca
                 }
             }
 
+            // 根(run 番号)→ 成分番号。番号の付き方は出力に影響しない(成分ごとの値を配るだけ)。
             comp = s_intPool.Rent(R);
-            var rootToComp = new Dictionary<int, int>();
+            rootComp = s_intPool.Rent(R);
+            for (int r = 0; r < R; r++) rootComp[r] = -1;
             int compCount = 0;
             for (int r = 0; r < R; r++)
             {
                 int root = Find(r);
-                if (!rootToComp.TryGetValue(root, out int c)) { c = compCount++; rootToComp[root] = c; }
+                int c = rootComp[root];
+                if (c < 0) { c = compCount++; rootComp[root] = c; }
                 comp[r] = c;
             }
 
-            var hists = new int[compCount][];
-            for (int c = 0; c < compCount; c++) hists[c] = new int[256];
-            var sizes = new int[compCount];
-            for (int ly = 0; ly < bh; ly++)
-            {
-                if ((ly & 63) == 0) ct.ThrowIfCancellationRequested();
-                int lrb = ly * bw;
-                for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
-                {
-                    var hist = hists[comp[k]];
-                    int x0 = runX0[k], x1 = runX1[k];
-                    for (int lx = x0; lx <= x1; lx++)
-                        hist[Mathf.Clamp((int)(okL[lrb + lx] * 255f), 0, 255)]++;
-                    sizes[comp[k]] += x1 - x0 + 1;
-                }
-            }
+            // run を成分ごとに並べ(計数ソート)、成分ごとに並列でヒストグラムを取って代表 L を出す。
+            // ヒストグラムは整数加算なので、run を辿る順序に依存しない(旧: 全画素の逐次ループ)。
+            var compStart = new int[compCount + 1];
+            for (int r = 0; r < R; r++) compStart[comp[r] + 1]++;
+            for (int c = 0; c < compCount; c++) compStart[c + 1] += compStart[c];
+            order = s_intPool.Rent(R);
+            var fillPos = new int[compCount];
+            Array.Copy(compStart, fillPos, compCount);
+            for (int r = 0; r < R; r++) order[fillPos[comp[r]]++] = r;
 
             var med = new float[compCount];
-            for (int c = 0; c < compCount; c++)
-                med[c] = HistValueAtPercentile(hists[c], sizes[c], AchromaRefPercentile, 1f);
+            var orderL = order; var runX0L = runX0; var runX1L = runX1; var runYL = runY;
+            Parallel.For(0, compCount, bboxPo, () => new int[256], (c, _, hist) =>
+            {
+                Array.Clear(hist, 0, 256);
+                int size = 0;
+                for (int q = compStart[c]; q < compStart[c + 1]; q++)
+                {
+                    int r = orderL[q];
+                    int lrb = runYL[r] * bw;
+                    int x0 = runX0L[r], x1 = runX1L[r];
+                    for (int lx = x0; lx <= x1; lx++)
+                        hist[Mathf.Clamp((int)(okL[lrb + lx] * 255f), 0, 255)]++;
+                    size += x1 - x0 + 1;
+                }
+                med[c] = HistValueAtPercentile(hist, size, AchromaRefPercentile, 1f);
+                return hist;
+            }, _ => { });
 
             // 成分 → 代表 L の配り直し。行ごとに書き込み先が独立なので並列化しても同一結果。
             var map = new float[len];
@@ -416,8 +428,11 @@ namespace Iroca
             }
             finally
             {
+                if (order != null) s_intPool.Return(order);
+                if (rootComp != null) s_intPool.Return(rootComp);
                 if (comp != null) s_intPool.Return(comp);
                 if (parent != null) s_intPool.Return(parent);
+                if (runY != null) s_intPool.Return(runY);
                 if (runX1 != null) s_intPool.Return(runX1);
                 if (runX0 != null) s_intPool.Return(runX0);
                 s_floatPool.Return(okL);
