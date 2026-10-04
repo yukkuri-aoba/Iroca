@@ -258,22 +258,13 @@ namespace Iroca
             float satFloor = sS * HlBandMinSatFrac;
 
             int len = w * h;
-            // 従来はゾーンごとに bool[len]×2(4K で 16.7MB×2)を GC 確保していた。プールから
-            // Rent(Create プールはゼロ初期化しないので Array.Clear で全 false に戻す)し、
+            // 候補はプールから Rent(ゼロ初期化されないので Array.Clear で全 false に戻す)し、
             // 早期 return / キャンセル例外を含む全経路で finally から Return する。
             bool[] candidate = s_boolPool.Rent(len);
-            bool[] visited = s_boolPool.Rent(len);
-            // 探索キューは (y<<16)|x のパック座標を持つ int[]。旧実装は Queue<int> に画素 index を
-            // 積み、デキューごとに idx%w と idx/w を計算していた(コアが数百万画素あるので除算だけで
-            // 数千万回)。座標を持ち回れば除算はゼロになる(w/h は Unity の最大テクスチャ 16384 でも
-            // 16bit に収まる)。各画素は visited を立ててから 1 回だけ積むので容量は len で足りる。
-            // 到達集合は探索順に依存しないので出力は不変。
-            int[] queue = s_intPool.Rent(len);
-            int qHead = 0, qTail = 0;
+            int[] runX0 = null, runX1 = null, parent = null;
             try
             {
             Array.Clear(candidate, 0, len);
-            Array.Clear(visited, 0, len);
 
             // 候補判定: 各画素は独立(他画素を参照しない)なので並列化する。candidate[] は
             // 走査順に依存せず、書き込みは distinct index のため出力は逐次版とビット不変。
@@ -334,62 +325,112 @@ namespace Iroca
                 }
             });
 
-            // core をシードとして収集する。行ごとの本数を数えてから行並列で詰めることで、
-            // 全画素の逐次走査(4K で 1670 万回)を排除する。書き込み位置は行オフセットで
-            // 決まるので enqueue 順は従来と同一の i 昇順のまま、visited も同じ集合に立つ。
-            // BFS 到達集合はもともと探索順に依存しないので出力は不変。
-            var seedRowCount = new int[h];
+            // core(strength ≥ HlBandCoreThreshold)から、core でない候補だけを 4 近傍で辿って届く画素を
+            // strength=1 にする。core は全部が出発点なので、core を経由する道はその core から始まる道と
+            // 同じ。よって届く集合は「core でない候補の 4 連結成分のうち、core に 4 近傍で接する成分」
+            // そのもので、辿る順序に依存しない。行 run + union-find で成分を求め、core に接する成分を
+            // 塗る(旧: core の全画素=数百万を種にした単一スレッドの幅優先探索)。集合は探索と同じなので
+            // 出力はビット単位で同じ。core の判定は書き換える前の strength で行う(探索も同じ)。
+            // 条件の形(!(s >= THR)、s < 1 のときだけ 1 にする)も探索と同じにしてある。
+            var runCount = new int[h];
             Parallel.For(0, h, hlbPo, y =>
             {
-                int rb = y * w;
-                int n = 0;
-                for (int x = 0; x < w; x++) if (strength[rb + x] >= HlBandCoreThreshold) n++;
-                seedRowCount[y] = n;
-            });
-            var seedRowOff = new int[h + 1];
-            for (int y = 0; y < h; y++) seedRowOff[y + 1] = seedRowOff[y] + seedRowCount[y];
-            qTail = seedRowOff[h];
-            if (qTail == 0) return;
-            Parallel.For(0, h, hlbPo, y =>
-            {
-                int rb = y * w;
-                int k = seedRowOff[y];
-                for (int x = 0; x < w; x++)
+                int rb = y * w, n = 0, x = 0;
+                while (x < w)
                 {
                     int i = rb + x;
-                    if (strength[i] >= HlBandCoreThreshold)
+                    if (!candidate[i] || strength[i] >= HlBandCoreThreshold) { x++; continue; }
+                    n++;
+                    while (x < w && candidate[rb + x] && !(strength[rb + x] >= HlBandCoreThreshold)) x++;
+                }
+                runCount[y] = n;
+            });
+            var rowOff = new int[h + 1];
+            for (int y = 0; y < h; y++) rowOff[y + 1] = rowOff[y] + runCount[y];
+            int R = rowOff[h];
+            if (R == 0) return;
+            runX0 = s_intPool.Rent(R);
+            runX1 = s_intPool.Rent(R);
+            parent = s_intPool.Rent(R);
+            var touchesCore = new bool[R];
+            var rx0 = runX0; var rx1 = runX1;
+            Parallel.For(0, h, hlbPo, y =>
+            {
+                int rb = y * w, k = rowOff[y], x = 0;
+                while (x < w)
+                {
+                    int i = rb + x;
+                    if (!candidate[i] || strength[i] >= HlBandCoreThreshold) { x++; continue; }
+                    int s0 = x;
+                    while (x < w && candidate[rb + x] && !(strength[rb + x] >= HlBandCoreThreshold)) x++;
+                    int s1 = x - 1;
+                    rx0[k] = s0; rx1[k] = s1;
+                    // この run が core に 4 近傍で接するか(左右の隣、上下の行の同じ x 範囲)。
+                    bool t = (s0 > 0 && strength[rb + s0 - 1] >= HlBandCoreThreshold)
+                          || (s1 < w - 1 && strength[rb + s1 + 1] >= HlBandCoreThreshold);
+                    if (!t && y > 0)
                     {
-                        visited[i] = true;
-                        queue[k++] = (y << 16) | x;
+                        int ub = rb - w;
+                        for (int xx = s0; xx <= s1; xx++)
+                            if (strength[ub + xx] >= HlBandCoreThreshold) { t = true; break; }
                     }
+                    if (!t && y < h - 1)
+                    {
+                        int db = rb + w;
+                        for (int xx = s0; xx <= s1; xx++)
+                            if (strength[db + xx] >= HlBandCoreThreshold) { t = true; break; }
+                    }
+                    touchesCore[k] = t;
+                    k++;
                 }
             });
-
-            while (qHead < qTail)
+            for (int r = 0; r < R; r++) parent[r] = r;
+            var par = parent;
+            int Find(int a)
             {
-                int packed = queue[qHead++];
-                int x = packed & 0xFFFF, y = packed >> 16;
-                int idx = y * w + x;
-                if (x > 0)     TryVisit(idx - 1, (y << 16) | (x - 1));
-                if (x < w - 1) TryVisit(idx + 1, (y << 16) | (x + 1));
-                if (y > 0)     TryVisit(idx - w, ((y - 1) << 16) | x);
-                if (y < h - 1) TryVisit(idx + w, ((y + 1) << 16) | x);
-                if ((qHead & 0xFFFF) == 0) ct.ThrowIfCancellationRequested();
+                while (par[a] != a) { par[a] = par[par[a]]; a = par[a]; }
+                return a;
             }
-
-            void TryVisit(int ni, int npacked)
+            for (int y = 0; y + 1 < h; y++)
             {
-                if (visited[ni] || !candidate[ni]) return;
-                visited[ni] = true;
-                if (strength[ni] < 1f) strength[ni] = 1f;
-                queue[qTail++] = npacked;
+                if ((y & 255) == 0) ct.ThrowIfCancellationRequested();
+                int i = rowOff[y], iEnd = rowOff[y + 1];
+                int j = rowOff[y + 1], jEnd = rowOff[y + 2];
+                while (i < iEnd && j < jEnd)
+                {
+                    if (rx0[i] <= rx1[j] && rx0[j] <= rx1[i])
+                    {
+                        int a = Find(i), b = Find(j);
+                        if (a != b) par[a] = b;
+                    }
+                    if (rx1[i] < rx1[j]) i++; else j++;
+                }
             }
+            // 全 run の根を確定させ(以降は読むだけ)、core に接する run の根に印を付ける。
+            var reach = new bool[R];
+            for (int r = 0; r < R; r++)
+            {
+                int root = Find(r);
+                par[r] = root;
+                if (touchesCore[r]) reach[root] = true;
+            }
+            Parallel.For(0, h, hlbPo, y =>
+            {
+                int rb = y * w;
+                for (int k = rowOff[y]; k < rowOff[y + 1]; k++)
+                {
+                    if (!reach[par[k]]) continue;
+                    for (int x = rx0[k]; x <= rx1[k]; x++)
+                        if (strength[rb + x] < 1f) strength[rb + x] = 1f;
+                }
+            });
             }
             finally
             {
-                if (queue != null) s_intPool.Return(queue);
+                if (parent != null) s_intPool.Return(parent);
+                if (runX1 != null) s_intPool.Return(runX1);
+                if (runX0 != null) s_intPool.Return(runX0);
                 s_boolPool.Return(candidate);
-                s_boolPool.Return(visited);
             }
         }
 
