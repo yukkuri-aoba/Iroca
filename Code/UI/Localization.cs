@@ -1107,6 +1107,15 @@ namespace Iroca
         public static string RegisterReplaceFormat => IsJapanese
             ? "このオブジェクトにある「{0}」の別のレシピ({1})は、このレシピに置き換えます。"
             : "The other recipe for \"{0}\" on this object ({1}) is replaced with this one.";
+        public static string RegisterSwitchExportsFormat => IsJapanese
+            ? "「適用して保存」で書き出した画像を使っているマテリアル {0} 個を、元のテクスチャ「{1}」に戻します(非破壊の色替えは元のテクスチャを探すため。Ctrl+Z で戻せます)。"
+            : "{0} materials that use an image exported with \"Apply and save\" are switched back to the original texture \"{1}\" (non-destructive recoloring looks for the original texture. Ctrl+Z restores them).";
+        public static string RegisterLockedExportsFormat => IsJapanese
+            ? "書き出した画像を使っているマテリアルのうち {0} 個は、書き換えられない場所(FBX の中・パッケージ)にあるのでそのままです。"
+            : "{0} materials that use an exported image are in places that cannot be changed (inside an FBX or a package), so they are left as they are.";
+        public static string ExportUsersHintFormat => IsJapanese
+            ? "シーンに、このテクスチャを書き出した画像を使っているマテリアルが {0} 個あります。非破壊で色替えするには、「アバターに非破壊で登録」で元のテクスチャに戻してください(登録のときにまとめて戻せます)。"
+            : "{0} materials in the scene use an image exported from this texture. To recolor non-destructively, switch them back to the original texture with \"Register to avatar (non-destructive)\" (it does this for you when registering).";
         public static string RegisterRecipeNew => IsJapanese ? "{0}(新しく作ります)" : "{0} (new)";
         public static string RegisterDoneFormat => IsJapanese ? "「{0}」に登録しました" : "Registered to \"{0}\"";
         public static string RegisterOk => IsJapanese ? "登録" : "Register";

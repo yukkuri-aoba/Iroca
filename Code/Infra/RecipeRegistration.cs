@@ -13,21 +13,22 @@ namespace Iroca
     {
         /// <summary>
         /// 登録先の候補。シーン上の GameObject が選ばれていればそれ。無ければ、開いているシーンで
-        /// <paramref name="texture"/> を使っている Renderer の共通の親(複数のアバター = ルートが
-        /// 複数にまたがるときは決めない)。決まらなければ null。
+        /// <paramref name="texture"/>(か、それをいろかで書き出した画像)を使っている Renderer の共通の親
+        /// (複数のアバター = ルートが複数にまたがるときは決めない)。決まらなければ null。
         /// </summary>
         public static GameObject SuggestTarget(Texture2D texture, GameObject selected)
         {
             if (selected != null) return IsSceneObject(selected) ? selected : null;
             if (texture == null) return null;
 
+            var exports = ExportsOf(texture);
             var users = new List<Transform>();
             foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
                 if (!IsSceneObject(r.gameObject)) continue;
                 foreach (var m in r.sharedMaterials)
                 {
-                    if (m != null && NonDestructiveApplier.References(m, texture))
+                    if (m != null && (NonDestructiveApplier.References(m, texture) || UsesAny(m, exports)))
                     {
                         users.Add(r.transform);
                         break;
@@ -128,6 +129,87 @@ namespace Iroca
             foreach (var c in components)
                 if (c.recipes != null)
                     foreach (var r in c.recipes) yield return r;
+        }
+
+        // ───────────── 書き出し済みの画像から非破壊へ移る ─────────────
+        // 「適用して保存」で書き出した画像(元の名前_recolored*.png)をマテリアルに差していると、非破壊の色替えは
+        // 元のテクスチャを探すので効かない。登録のときに、範囲内のマテリアルを元のテクスチャへ戻す。
+
+        /// <summary><paramref name="source"/> をいろかで書き出した画像(同じフォルダの「名前_recolored*」)。</summary>
+        internal static HashSet<Texture> ExportsOf(Texture2D source)
+        {
+            if (source == null) return new HashSet<Texture>();
+            var set = MeshUvLocator.TargetTextures(source);
+            set.Remove(source);
+            return set;
+        }
+
+        /// <summary><paramref name="scope"/> とその子のマテリアルのうち、<paramref name="exports"/> のどれかを使っているもの。</summary>
+        internal static List<Material> MaterialsUsing(GameObject scope, HashSet<Texture> exports)
+        {
+            var found = new List<Material>();
+            if (scope == null || exports == null || exports.Count == 0) return found;
+            foreach (var r in scope.GetComponentsInChildren<Renderer>(true))
+                foreach (var m in r.sharedMaterials)
+                    if (m != null && !found.Contains(m) && UsesAny(m, exports)) found.Add(m);
+            return found;
+        }
+
+        /// <summary>開いているシーン全体で、<paramref name="exports"/> のどれかを使っているマテリアルの数。</summary>
+        internal static int CountSceneMaterialsUsing(HashSet<Texture> exports)
+        {
+            if (exports == null || exports.Count == 0) return 0;
+            var found = new HashSet<Material>();
+            foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (!IsSceneObject(r.gameObject)) continue;
+                foreach (var m in r.sharedMaterials)
+                    if (m != null && UsesAny(m, exports)) found.Add(m);
+            }
+            return found.Count;
+        }
+
+        /// <summary>
+        /// 書き換えてよいマテリアルか。Assets 配下の .mat かシーンの中のもの。FBX の中のマテリアル・
+        /// パッケージのものは書き換えても保存されない(か、書き換えるべきでない)。
+        /// </summary>
+        internal static bool IsEditableMaterial(Material m)
+        {
+            if (m == null) return false;
+            string path = AssetDatabase.GetAssetPath(m);
+            if (string.IsNullOrEmpty(path)) return true;
+            return path.StartsWith("Assets/", System.StringComparison.Ordinal)
+                   && path.EndsWith(".mat", System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// 書き出した画像の参照を元のテクスチャへ戻す(Undo 可。呼び出し側の Undo グループに入る)。
+        /// 書き換えられないマテリアルは飛ばす。戻したマテリアルの数を返す。
+        /// </summary>
+        internal static int SwitchToSource(IEnumerable<Material> materials, Texture2D source, HashSet<Texture> exports)
+        {
+            int switched = 0;
+            foreach (var m in materials)
+            {
+                if (!IsEditableMaterial(m)) continue;
+                Undo.RecordObject(m, "Iroca: Switch To Source Texture");
+                foreach (int id in m.GetTexturePropertyNameIDs())
+                    if (exports.Contains(m.GetTexture(id))) m.SetTexture(id, source);
+                EditorUtility.SetDirty(m);
+                switched++;
+            }
+            return switched;
+        }
+
+        private static bool UsesAny(Material m, HashSet<Texture> textures)
+        {
+            if (textures.Count == 0) return false;
+            foreach (int id in m.GetTexturePropertyNameIDs())
+            {
+                var t = m.GetTexture(id);
+                if (t != null && textures.Contains(t)) return true;
+            }
+            return false;
         }
 
         internal static bool IsSceneObject(GameObject go)

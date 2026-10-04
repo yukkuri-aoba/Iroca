@@ -129,6 +129,53 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void ExportedImage_IsFound_SuggestsTheTarget_AndSwitchesBackUndoably()
+        {
+            // 以前「適用して保存」で書き出した画像(元の名前_recolored.png)をマテリアルに差していた場合。
+            var assets = TestAssets.Create();
+            try
+            {
+                var px = TestAssets.Solid(4, 4, new Color32(200, 40, 40, 255));
+                var src = AssetDatabase.LoadAssetAtPath<Texture2D>(assets.WritePng("costume", px, 4, 4));
+                var exported = AssetDatabase.LoadAssetAtPath<Texture2D>(assets.WritePng("costume_recolored", px, 4, 4));
+                var other = AssetDatabase.LoadAssetAtPath<Texture2D>(assets.WritePng("other", px, 4, 4));
+                var mat = new Material(Shader.Find("Standard")) { mainTexture = exported };
+                AssetDatabase.CreateAsset(mat, assets.Folder + "/costume.mat");
+                var untouched = new Material(Shader.Find("Standard")) { mainTexture = other };
+                AssetDatabase.CreateAsset(untouched, assets.Folder + "/other.mat");
+
+                var avatar = Avatar();
+                var outfit = Track(new GameObject("outfit"));
+                outfit.transform.SetParent(avatar.transform, false);
+                var mesh = Track(new GameObject("mesh"));
+                mesh.transform.SetParent(outfit.transform, false);
+                mesh.AddComponent<MeshRenderer>().sharedMaterials = new[] { mat, untouched };
+
+                var exports = RecipeRegistration.ExportsOf(src);
+                CollectionAssert.AreEquivalent(new Texture[] { exported }, exports, "書き出した画像を見つけられない");
+                Assert.AreSame(mesh, RecipeRegistration.SuggestTarget(src, null),
+                    "書き出した画像だけを使っている物を登録先の候補にしない");
+                var users = RecipeRegistration.MaterialsUsing(avatar, exports);
+                CollectionAssert.AreEqual(new[] { mat }, users);
+                Assert.IsTrue(RecipeRegistration.IsEditableMaterial(mat));
+                Assert.AreEqual(1, RecipeRegistration.CountSceneMaterialsUsing(exports));
+
+                Undo.IncrementCurrentGroup();
+                Assert.AreEqual(1, RecipeRegistration.SwitchToSource(users, src, exports));
+                Assert.AreSame(src, mat.mainTexture, "元のテクスチャに戻っていない");
+                Assert.AreSame(other, untouched.mainTexture, "関係ないマテリアルまで書き換えた");
+
+                Undo.PerformUndo();
+                Assert.AreSame(exported, mat.mainTexture, "Undo で書き出した画像に戻らない");
+                Undo.ClearUndo(mat);
+            }
+            finally
+            {
+                assets.Dispose();
+            }
+        }
+
+        [Test]
         public void OldSaveFormat_SingleRecipeMovesIntoTheList()
         {
             var go = Avatar();

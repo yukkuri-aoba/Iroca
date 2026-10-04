@@ -162,7 +162,17 @@ namespace Iroca
 
             // コンポーネントは登録先に 1 つ(既にあればそこへ足す)。置き換え・まとめが起きるなら先に知らせる。
             RecipeRegistration.Describe(target, sourceTexture, recipe, out var replaced, out int components);
+            // 以前「適用して保存」で書き出した画像を差しているマテリアルは、元のテクスチャへ戻す
+            // (戻さないと非破壊の色替えが効かない)。書き換えられない場所のものは知らせるだけ。
+            var exports = RecipeRegistration.ExportsOf(sourceTexture);
+            var exportUsers = RecipeRegistration.MaterialsUsing(target, exports);
+            int switchable = 0;
+            foreach (var m in exportUsers) if (RecipeRegistration.IsEditableMaterial(m)) switchable++;
             var message = string.Format(Localization.RegisterConfirmFormat, target.name, sourceTexture.name, recipeLabel);
+            if (switchable > 0)
+                message += "\n\n" + string.Format(Localization.RegisterSwitchExportsFormat, switchable, sourceTexture.name);
+            if (exportUsers.Count > switchable)
+                message += "\n\n" + string.Format(Localization.RegisterLockedExportsFormat, exportUsers.Count - switchable);
             if (components >= 2)
                 message += "\n\n" + string.Format(Localization.RegisterMergeFormat, components);
             else if (components == 1)
@@ -182,7 +192,13 @@ namespace Iroca
                 RecipeStore.Save(recipe, _session);
             _boundRecipe = recipe;
 
+            // マテリアルを戻すのとコンポーネントの登録を 1 回の Undo にまとめる。
+            Undo.IncrementCurrentGroup();
+            int undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName(Localization.RegisterNonDestructive);
+            RecipeRegistration.SwitchToSource(exportUsers, sourceTexture, exports);
             var component = RecipeRegistration.Attach(target, recipe);
+            Undo.CollapseUndoOperations(undoGroup);
             EditorGUIUtility.PingObject(component);
             ShowNotification(new GUIContent(string.Format(Localization.RegisterDoneFormat, target.name)));
         }

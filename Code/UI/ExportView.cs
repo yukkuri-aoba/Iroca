@@ -25,6 +25,13 @@ namespace Iroca
         [System.NonSerialized] private Vector2 _batchScrollPos;
         [System.NonSerialized] private IrocaWindow _host;
 
+        // シーンで「このテクスチャを書き出した画像」を使っているマテリアルの数(非破壊へ移る案内に使う)。
+        // シーン全体を毎フレーム探すと重いので、テクスチャが変わったときと 2 秒ごとに数え直す。
+        // 数え直すのは Layout のときだけ(同じ描画の Layout と Repaint で表示が食い違うと GUILayout が崩れる)。
+        [System.NonSerialized] private Texture2D _exportUsersFor;
+        [System.NonSerialized] private double _exportUsersAt;
+        [System.NonSerialized] private int _exportUsersCount;
+
         // 直近のエラー。ShowNotification はウィンドウ右下に数秒出て消えるので、席を外していた
         // ユーザーには「押したのに保存されていない」だけが残っていた。消えない表示を欄内に置き、
         // 「閉じる」で明示的に消してもらう（内容は Console にも残る）。
@@ -127,6 +134,10 @@ namespace Iroca
                     EditorGUILayout.ObjectField(new GUIContent(Localization.BoundRecipe, Localization.BoundRecipeTooltip),
                         bound, typeof(IrocaRecipe), false);
             }
+            // 以前書き出した画像をマテリアルに差していると非破壊が効かないので、登録で戻せることを知らせる。
+            int exportUsers = ExportUsersCount();
+            if (exportUsers > 0)
+                EditorGUILayout.HelpBox(string.Format(Localization.ExportUsersHintFormat, exportUsers), MessageType.Info);
 
             // 直近のエラー（消えない表示）。
             if (!string.IsNullOrEmpty(_lastError))
@@ -190,21 +201,43 @@ namespace Iroca
             h += lineH;               // アバターに非破壊で登録
             if (_host != null && _host.BoundRecipe != null)
                 h += lineH;           // 保存先のレシピ
+            int exportUsers = ExportUsersCount();
+            if (exportUsers > 0)      // 書き出した画像を使うマテリアルの案内
+                h += HelpBoxHeight(string.Format(Localization.ExportUsersHintFormat, exportUsers));
             if (!string.IsNullOrEmpty(_lastError))
                 h += 40f + lineH;     // エラー HelpBox +「閉じる」ボタン
             return h;
         }
 
 #if !IROCA_NDMF_PRESENT
-        // NDMF 未導入の警告は文が長く、縦並び(狭幅)では 3 行以上に折り返すので固定の 40 では
-        // 足りない。ウィンドウ幅からアイコンと余白ぶんを引いた幅で実測し、40 を下限にする。
-        private static float NdmfMissingHelpBoxHeight()
+        private static float NdmfMissingHelpBoxHeight() => HelpBoxHeight(Localization.NdmfMissing);
+#endif
+
+        // 長い HelpBox は縦並び(狭幅)では 3 行以上に折り返すので固定の 40 では足りない。
+        // ウィンドウ幅からアイコンと余白ぶんを引いた幅で実測し、40 を下限にする。
+        private static float HelpBoxHeight(string text)
         {
             float textW = Mathf.Max(100f, EditorGUIUtility.currentViewWidth - 60f);
-            float measured = EditorStyles.helpBox.CalcHeight(new GUIContent(Localization.NdmfMissing), textW);
+            float measured = EditorStyles.helpBox.CalcHeight(new GUIContent(text), textW);
             return Mathf.Max(40f, measured) + EditorGUIUtility.standardVerticalSpacing;
         }
-#endif
+
+        private int ExportUsersCount()
+        {
+            var source = _host != null ? _host.SourceTexture : null;
+            var e = Event.current;
+            bool layout = e == null || e.type == EventType.Layout;
+            double now = EditorApplication.timeSinceStartup;
+            if (layout && (source != _exportUsersFor || now - _exportUsersAt > 2.0))
+            {
+                _exportUsersFor = source;
+                _exportUsersAt = now;
+                _exportUsersCount = source != null
+                    ? RecipeRegistration.CountSceneMaterialsUsing(RecipeRegistration.ExportsOf(source))
+                    : 0;
+            }
+            return _exportUsersFor == source ? _exportUsersCount : 0;
+        }
 
         private void ApplyRecolor()
         {
