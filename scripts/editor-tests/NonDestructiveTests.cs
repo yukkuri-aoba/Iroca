@@ -352,6 +352,31 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void Applier_SameRecipeOnSeparateObjects_SharesOneClone()
+        {
+            // 同じレシピを衣装の部位ごとに登録しても、同じマテリアルの複製は 1 つ(別物になると AAO などが
+            // 同じマテリアルのスロットをまとめられず、スロットが増える)。
+            var src = Tex("src");
+            var shared = Mat("shared", src);
+            var root = Node("avatar", null);
+            var outer = Node("outerwear", root.transform, shared);
+            var pants = Node("pants", root.transform, shared);
+            var recipe = Recipe("r", src);
+            AddRecolor(outer, recipe);
+            AddRecolor(pants, recipe);
+
+            var host = new FakeHost();
+            int replaced = NonDestructiveApplier.Apply(root, host);
+
+            var outerMat = outer.GetComponent<Renderer>().sharedMaterial;
+            Assert.AreNotSame(shared, outerMat, "差し替わっていない");
+            Assert.AreSame(outerMat, pants.GetComponent<Renderer>().sharedMaterial, "部位ごとに別の複製になった");
+            Assert.AreEqual(1, replaced);
+            Assert.AreEqual(1, host.Builds);
+            Assert.IsEmpty(host.Reports, "複製を共有した側を「使っていない」と報告した");
+        }
+
+        [Test]
         public void Applier_DeeperComponentWinsWhereScopesOverlap()
         {
             var src = Tex("src");

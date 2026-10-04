@@ -82,9 +82,13 @@ namespace Iroca
             internal readonly Dictionary<IrocaRecipe, Texture2D> built = new Dictionary<IrocaRecipe, Texture2D>();
             /// <summary>作れなかったレシピ(2 段目は試さず、報告もしない)。</summary>
             internal readonly HashSet<IrocaRecipe> failed = new HashSet<IrocaRecipe>();
-            /// <summary>(コンポーネント, レシピ) ごとの 元マテリアル → 複製(null = 元テクスチャを使わないので触らない)。</summary>
-            internal readonly Dictionary<(IrocaRecolor, IrocaRecipe), Dictionary<Material, Material>> clones =
-                new Dictionary<(IrocaRecolor, IrocaRecipe), Dictionary<Material, Material>>();
+            /// <summary>
+            /// レシピごとの 元マテリアル → 複製(null = 元テクスチャを使わないので触らない)。複製の中身は
+            /// 元マテリアルとレシピだけで決まるので、同じレシピを別々のオブジェクトに登録していても 1 つを共有する
+            /// (別物にすると AAO などが同じマテリアルのスロットをまとめられず、スロットが増える)。
+            /// </summary>
+            internal readonly Dictionary<IrocaRecipe, Dictionary<Material, Material>> clones =
+                new Dictionary<IrocaRecipe, Dictionary<Material, Material>>();
             /// <summary>範囲内で元テクスチャが使われた (コンポーネント, レシピ)。</summary>
             internal readonly HashSet<(IrocaRecolor, IrocaRecipe)> used = new HashSet<(IrocaRecolor, IrocaRecipe)>();
         }
@@ -152,10 +156,11 @@ namespace Iroca
             }
             if (state.failed.Contains(recipe)) return 0;
 
-            // 元マテリアル → 複製(null = 元テクスチャを参照していないので触らない)。2 段目も同じ表を使う。
+            // 元マテリアル → 複製(null = 元テクスチャを参照していないので触らない)。2 段目も、同じレシピの
+            // ほかのコンポーネントも同じ表を使う。
             var key = (component, recipe);
-            if (!state.clones.TryGetValue(key, out var clones))
-                state.clones[key] = clones = new Dictionary<Material, Material>();
+            if (!state.clones.TryGetValue(recipe, out var clones))
+                state.clones[recipe] = clones = new Dictionary<Material, Material>();
             state.built.TryGetValue(recipe, out var recolored);
             bool failed = false;
             int replaced = 0;
@@ -165,7 +170,11 @@ namespace Iroca
             Material Swap(Material original)
             {
                 if (original == null || failed) return null;
-                if (clones.TryGetValue(original, out var known)) return known;
+                if (clones.TryGetValue(original, out var known))
+                {
+                    if (known != null) state.used.Add(key);   // 先に作られた複製を使った(このコンポーネントの範囲でも使われている)
+                    return known;
+                }
                 Material clone = null;
                 if (References(original, source))
                 {
