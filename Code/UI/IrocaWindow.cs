@@ -196,6 +196,8 @@ namespace Iroca
             NonDestructiveApplier.BeforeApply += FlushToBoundRecipe;
             // 編集が止まって少ししたら保存する(Unity が落ちても直前の編集が残るように)。
             StartAutosave();
+            // Scene でモデルをクリックした場所をプレビューで示す(クリックは横から見るだけで消費しない)。
+            InstallSceneClick();
 
             // AI(Sentis + 配布モデル)の準備は、ウィンドウ上部の非モーダルな帯で案内する
             // (MaskSuggestSection.DrawSetupBanner)。以前はここで delayCall からモーダルを
@@ -210,6 +212,7 @@ namespace Iroca
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
             NonDestructiveApplier.BeforeApply -= FlushToBoundRecipe;
             StopAutosave();   // ここで保存するので予定は消す
+            UninstallSceneClick();
             // ウィンドウを閉じたら、シーンのアバターへの編集中の表示もやめる(登録済みならレシピの表示に戻る)。
             LivePreview.SetTarget(null, null);
             // 証拠待ちの自動調整は EditorApplication.update に張っているので、ドメインリロード・

@@ -39,6 +39,8 @@
          同じ操作のコア処理の計測(PerfReport)を載せるので、その型も取り込む。 -->
     <Compile Include="..\..\Code\UI\PreviewLatency.cs" />
     <Compile Include="..\..\Code\Core\PerfReport.cs" />
+    <!-- Scene でモデルをクリックした場所を求める当たり判定(光線と三角形・UV の補間)。 -->
+    <Compile Include="..\..\Code\Core\MeshRaycast.cs" />
     <Compile Include="UnitRun.cs" />
   </ItemGroup>
 

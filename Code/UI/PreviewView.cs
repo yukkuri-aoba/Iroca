@@ -496,6 +496,7 @@ namespace Iroca
             TextureSlot.Release(ref previewTexture);
             TextureSlot.Release(ref rawPreviewTexture);
             TextureSlot.Release(ref diffTexture);
+            ClearSceneHighlight();
         }
 
         public void Draw()
@@ -834,6 +835,9 @@ namespace Iroca
                 }
             }
 
+            // Scene でモデルをクリックした直後は、拡大中ならその場所が見えるところまでスクロールする。
+            ApplyPendingSceneFocus(overflowsFrame, frameW > 1f ? frameW : _detailView.lastViewportW, maxViewH);
+
             Vector2 prevScroll = _previewScrollPos;
             _previewScrollPos = EditorGUILayout.BeginScrollView(
                 _previewScrollPos,
@@ -954,6 +958,8 @@ namespace Iroca
             {
                 // メッシュの UV の島の輪郭(表示を ON にしているときだけ)。目印より下に敷く。
                 DrawMeshIslandOverlay(activePreviewRect);
+                // Scene でモデルをクリックした場所(その UV の島とクリック位置)
+                DrawSceneHighlightOverlay(activePreviewRect);
                 DrawFloodFillSeedOverlay(activePreviewRect);
                 // スポイトで色を取った位置(自動調整が AI 提案をかける位置)の目印
                 DrawSampleUvOverlay(activePreviewRect);
@@ -1091,12 +1097,18 @@ namespace Iroca
             var soloZone = _host.SoloZone;
 
             EditorGUILayout.BeginHorizontal();
-            // モードが無いときも空白 1 文字を同じ場所に描いて行高を固定する。出入りさせると
-            // プレビュー枠が上下に跳ね、chrome 実測（_chromeAboveViewportH）も揺れる。
-            GUILayout.Label(
-                new GUIContent(mode != null ? mode + Localization.PreviewModeEscHint : " ",
-                               Localization.PreviewModeTooltip),
-                EditorStyles.miniLabel, GUILayout.MinWidth(0f));
+            if (mode != null)
+            {
+                GUILayout.Label(new GUIContent(mode + Localization.PreviewModeEscHint, Localization.PreviewModeTooltip),
+                                EditorStyles.miniLabel, GUILayout.MinWidth(0f));
+            }
+            else
+            {
+                // モードが無いときは、Scene でモデルをクリックした結果の案内か使い方を出す
+                // (何も無ければ空白 1 文字)。どれも miniLabel の高さに揃える。行を出入りさせたり高さを
+                // 変えたりするとプレビュー枠が上下に跳ね、chrome 実測（_chromeAboveViewportH）も揺れる。
+                DrawSceneClickRow();
+            }
             if (soloZone != null)
             {
                 GUILayout.FlexibleSpace();

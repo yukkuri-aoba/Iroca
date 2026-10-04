@@ -481,5 +481,129 @@ namespace Iroca.UnitRun
             clock.Snapshot(c4);
             Check.Equal(50L, c4.FirstInput, "fresh start after everything was shown");
         }
+
+        // ─── MeshRaycast（Scene でモデルをクリックした場所をプレビューで示す） ───
+
+        // z = 0 の平面に置いた 1×1 の四角(2 枚の三角形)。UV は位置の xy と同じ。
+        private static readonly UnityEngine.Vector3[] QuadVerts =
+        {
+            new UnityEngine.Vector3(0, 0, 0), new UnityEngine.Vector3(1, 0, 0),
+            new UnityEngine.Vector3(1, 1, 0), new UnityEngine.Vector3(0, 1, 0),
+        };
+        private static readonly UnityEngine.Vector2[] QuadUv =
+        {
+            new UnityEngine.Vector2(0, 0), new UnityEngine.Vector2(1, 0),
+            new UnityEngine.Vector2(1, 1), new UnityEngine.Vector2(0, 1),
+        };
+        private static readonly int[] QuadTris = { 0, 1, 2, 0, 2, 3 };
+
+        private static void Near(float expected, float actual, string what)
+        {
+            if (Math.Abs(expected - actual) > 1e-4f)
+                throw new Exception($"{what}: expected <{expected}> but was <{actual}>");
+        }
+
+        public static void Raycast_HitsQuadAndInterpolatesUv()
+        {
+            bool hit = MeshRaycast.Intersect(new UnityEngine.Vector3(0.25f, 0.75f, -1f), new UnityEngine.Vector3(0, 0, 1),
+                                             QuadVerts, QuadTris, float.PositiveInfinity, MeshRaycast.Faces.Both, out var h);
+            Check.True(hit, "hit");
+            Check.Equal(1, h.triangle, "upper-left triangle");
+            Near(1f, h.t, "distance");
+            var uv = MeshRaycast.InterpolateUv(QuadUv, QuadTris, h);
+            Near(0.25f, uv.x, "u");
+            Near(0.75f, uv.y, "v");
+        }
+
+        public static void Raycast_HitsBackFace()
+        {
+            // 両面を描くマテリアル(Faces.Both)では、服の内側の裏面もクリックで拾う。
+            bool hit = MeshRaycast.Intersect(new UnityEngine.Vector3(0.6f, 0.2f, 2f), new UnityEngine.Vector3(0, 0, -1),
+                                             QuadVerts, QuadTris, float.PositiveInfinity, MeshRaycast.Faces.Both, out var h);
+            Check.True(hit, "hit from behind");
+            Near(2f, h.t, "distance");
+            var uv = MeshRaycast.InterpolateUv(QuadUv, QuadTris, h);
+            Near(0.6f, uv.x, "u");
+            Near(0.2f, uv.y, "v");
+        }
+
+        public static void Raycast_RespectsCulledFaces()
+        {
+            // QuadTris の並びは cross(b − a, c − a) が +z を向く = 表は +z 側。
+            var fromFront = new UnityEngine.Vector3(0.5f, 0.4f, 1f);
+            var fromBack = new UnityEngine.Vector3(0.5f, 0.4f, -1f);
+            var toMinusZ = new UnityEngine.Vector3(0, 0, -1);
+            var toPlusZ = new UnityEngine.Vector3(0, 0, 1);
+            Check.True(MeshRaycast.Intersect(fromFront, toMinusZ, QuadVerts, QuadTris, float.PositiveInfinity,
+                                             MeshRaycast.Faces.Front, out _), "front face, front only");
+            Check.True(!MeshRaycast.Intersect(fromBack, toPlusZ, QuadVerts, QuadTris, float.PositiveInfinity,
+                                              MeshRaycast.Faces.Front, out _), "back face is culled");
+            Check.True(MeshRaycast.Intersect(fromBack, toPlusZ, QuadVerts, QuadTris, float.PositiveInfinity,
+                                             MeshRaycast.Faces.Back, out _), "back face, back only");
+            Check.True(!MeshRaycast.Intersect(fromFront, toMinusZ, QuadVerts, QuadTris, float.PositiveInfinity,
+                                              MeshRaycast.Faces.Back, out _), "front face is culled");
+
+            // 手前の面が消える向きなら、奥で表を向いている面に当たる(カメラが服の内側にあるとき)。
+            // 手前 z = 0 は表が +z(光線から見て裏)、奥 z = 1 は並びを逆にして表が −z(光線から見て表)。
+            var verts = new UnityEngine.Vector3[8];
+            for (int i = 0; i < 4; i++)
+            {
+                verts[i] = QuadVerts[i];
+                verts[i + 4] = QuadVerts[i] + new UnityEngine.Vector3(0, 0, 1);
+            }
+            int[] tris = { 0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6 };
+            Check.True(MeshRaycast.Intersect(fromBack, toPlusZ, verts, tris, float.PositiveInfinity,
+                                             MeshRaycast.Faces.Front, out var h), "far front face");
+            Check.True(h.triangle >= 2, $"far quad expected, got triangle {h.triangle}");
+            Near(2f, h.t, "distance to the far quad");
+            Check.True(MeshRaycast.Intersect(fromBack, toPlusZ, verts, tris, float.PositiveInfinity,
+                                             MeshRaycast.Faces.Both, out h) && h.triangle < 2, "both faces: the near quad");
+        }
+
+        public static void Raycast_PicksNearestTriangle()
+        {
+            // 奥(z = 1)の四角を先に並べても、手前(z = 0)が選ばれる。
+            var verts = new UnityEngine.Vector3[8];
+            for (int i = 0; i < 4; i++)
+            {
+                verts[i] = QuadVerts[i] + new UnityEngine.Vector3(0, 0, 1);
+                verts[i + 4] = QuadVerts[i];
+            }
+            int[] tris = { 0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7 };
+            bool hit = MeshRaycast.Intersect(new UnityEngine.Vector3(0.5f, 0.4f, -1f), new UnityEngine.Vector3(0, 0, 1),
+                                             verts, tris, float.PositiveInfinity, MeshRaycast.Faces.Both, out var h);
+            Check.True(hit, "hit");
+            Check.True(h.triangle >= 2, $"front quad expected, got triangle {h.triangle}");
+            Near(1f, h.t, "distance to the front quad");
+        }
+
+        public static void Raycast_Misses()
+        {
+            var origin = new UnityEngine.Vector3(0.5f, 0.5f, -1f);
+            Check.True(!MeshRaycast.Intersect(new UnityEngine.Vector3(1.5f, 0.5f, -1f), new UnityEngine.Vector3(0, 0, 1),
+                                              QuadVerts, QuadTris, float.PositiveInfinity, MeshRaycast.Faces.Both, out _), "outside the quad");
+            Check.True(!MeshRaycast.Intersect(origin, new UnityEngine.Vector3(0, 0, -1),
+                                              QuadVerts, QuadTris, float.PositiveInfinity, MeshRaycast.Faces.Both, out _), "pointing away");
+            Check.True(!MeshRaycast.Intersect(origin, new UnityEngine.Vector3(1, 0, 0),
+                                              QuadVerts, QuadTris, float.PositiveInfinity, MeshRaycast.Faces.Both, out _), "parallel");
+            Check.True(!MeshRaycast.Intersect(origin, new UnityEngine.Vector3(0, 0, 1),
+                                              QuadVerts, QuadTris, 0.5f, MeshRaycast.Faces.Both, out _), "farther than maxT");
+            Check.True(!MeshRaycast.Intersect(origin, new UnityEngine.Vector3(0, 0, 1),
+                                              QuadVerts, new[] { 0, 1, 9 }, float.PositiveInfinity, MeshRaycast.Faces.Both, out _), "bad index is skipped");
+        }
+
+        public static void Raycast_WrapToTexture()
+        {
+            var w = MeshRaycast.WrapToTexture(new UnityEngine.Vector2(1.25f, -0.5f), out var shift);
+            Near(0.25f, w.x, "u wrapped");
+            Near(0.5f, w.y, "v wrapped");
+            Near(1f, shift.x, "u shift");
+            Near(-1f, shift.y, "v shift");
+            // 0..1 の内側(端の 1 を含む)はそのまま。1.0 を 0 へ畳むと端の画素が反対側へ飛ぶ。
+            w = MeshRaycast.WrapToTexture(new UnityEngine.Vector2(1f, 0f), out shift);
+            Near(1f, w.x, "u = 1 kept");
+            Near(0f, w.y, "v = 0 kept");
+            Near(0f, shift.x + shift.y, "no shift");
+        }
     }
 }

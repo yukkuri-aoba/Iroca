@@ -72,12 +72,12 @@ namespace Iroca
         // ④ は NDMF があれば非破壊の登録、無ければテクスチャへの書き出し(エクスポート欄の主ボタンと揃える)。
 #if IROCA_NDMF_PRESENT
         public static string WorkflowHint => IsJapanese
-            ? "手順: ① 元テクスチャを選ぶ → ② カラーゾーンで色を指定（スポイトで色を取り「自動調整」が簡単）→ ③ プレビューで確認 → ④ アバターに非破壊で登録"
-            : "Steps: 1. Pick a source texture  2. Set colors in Color Zones (sample a color and use Auto-tune)  3. Check the Preview  4. Register to avatar (non-destructive)";
+            ? "手順: ① 元テクスチャを選ぶ（Scene でモデルの変えたい所をクリックしても開けます）→ ② カラーゾーンで色を指定（スポイトで色を取り「自動調整」が簡単）→ ③ プレビューで確認 → ④ アバターに非破壊で登録"
+            : "Steps: 1. Pick a source texture (or click the part of the model you want to change in the Scene view)  2. Set colors in Color Zones (sample a color and use Auto-tune)  3. Check the Preview  4. Register to avatar (non-destructive)";
 #else
         public static string WorkflowHint => IsJapanese
-            ? "手順: ① 元テクスチャを選ぶ → ② カラーゾーンで色を指定（スポイトで色を取り「自動調整」が簡単）→ ③ プレビューで確認 → ④ 適用して保存"
-            : "Steps: 1. Pick a source texture  2. Set colors in Color Zones (sample a color and use Auto-tune)  3. Check the Preview  4. Apply & Save";
+            ? "手順: ① 元テクスチャを選ぶ（Scene でモデルの変えたい所をクリックしても開けます）→ ② カラーゾーンで色を指定（スポイトで色を取り「自動調整」が簡単）→ ③ プレビューで確認 → ④ 適用して保存"
+            : "Steps: 1. Pick a source texture (or click the part of the model you want to change in the Scene view)  2. Set colors in Color Zones (sample a color and use Auto-tune)  3. Check the Preview  4. Apply & Save";
 #endif
 
         public static string SourceTexture => IsJapanese ? "元テクスチャ" : "Source Texture";
@@ -1005,6 +1005,29 @@ namespace Iroca
         public static string PreviewModeTooltip => IsJapanese
             ? "プレビュー上のクリックがいま何をするかを示します。Esc で解除できます。\nどのモードでも、中ボタンドラッグまたは Alt+ドラッグで表示を移動できます。"
             : "Shows what a click on the preview does right now. Press Esc to leave the mode.\nIn any mode you can pan the view with a middle-button drag or Alt+drag.";
+        // ─── Scene でモデルをクリックした場所の表示(操作モード行が空いているときに出す) ───
+        public static string SceneClickHint => IsJapanese
+            ? "ヒント: Scene でモデルをクリックすると、その場所をここに表示します"
+            : "Tip: click the model in the Scene view to show that spot here";
+        public static string SceneClickHintTooltip => IsJapanese
+            ? "Scene ビューでモデルをクリックすると、その部分がテクスチャのどこにあるかをプレビューに表示します（その UV の島を塗り、クリックした点に輪を付けます）。\n"
+              + "Unity のふつうの選択はそのまま行われ、いろかの設定は何も変わりません。\n"
+              + "いろかで何も開いていないときは、クリックした部分のテクスチャを開きます。"
+            : "Click the model in the Scene view to see where that part is on the texture (its UV island is filled and the clicked point gets a ring).\n"
+              + "Unity selects the object as usual, and none of the いろか settings change.\n"
+              + "If no texture is open in いろか, the texture of the clicked part is opened.";
+        public static string SceneClickOtherTextureFormat => IsJapanese
+            ? "ここは「{0}」のテクスチャです"
+            : "This part uses \"{0}\"";
+        public static string SceneClickOtherTextureTooltip => IsJapanese
+            ? "Scene でクリックした部分は、いま開いているのとは別のテクスチャを使っています。"
+            : "The part you clicked in the Scene view uses a different texture from the one open now.";
+        public static string SceneClickOpen => IsJapanese ? "開く" : "Open";
+        public static string SceneClickOpenTooltip => IsJapanese
+            ? "このテクスチャをいろかで開き、クリックした場所を表示します（今のテクスチャの編集内容は保存されます）"
+            : "Open this texture in いろか and show the clicked spot (your edits to the current texture are saved)";
+        public static string NotifySceneClickOpenedFormat => IsJapanese ? "「{0}」を開きました" : "Opened \"{0}\"";
+
         public static string PreviewSoloFormat => IsJapanese
             ? "ソロ表示中: {0}"
             : "Solo: {0}";

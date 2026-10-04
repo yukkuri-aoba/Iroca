@@ -35,5 +35,8 @@ namespace Iroca
         // どんな生地の上でも見えるよう、暗い影を 1px ずらして下に敷く。
         public static Color MeshIslandLine => new Color(1f, 0.9f, 0.2f, 0.9f);
         public static Color MeshIslandLineShadow => new Color(0f, 0f, 0f, 0.6f);
+
+        // Scene でモデルをクリックした場所。マスクの赤・緑、ゾーン色の塗り、島の輪郭の黄と別の色にする。
+        public static Color SceneHighlight => new Color(0.25f, 0.9f, 1f, 0.95f);
     }
 }

@@ -182,6 +182,51 @@ namespace Iroca
             }
         }
 
+        /// <summary>マテリアルのメインテクスチャが targets のどれかなら true(そのプロパティ名も返す)。</summary>
+        internal static bool UsesTexture(Material mat, HashSet<Texture> targets, out string property)
+            => MainTextureOf(mat, targets, null, out property);
+
+        /// <summary>マテリアルのメインテクスチャ(<see cref="MainTextureProperties"/> の最初に見つかったもの)。無ければ null。</summary>
+        internal static Texture MainTexture(Material mat)
+        {
+            if (mat == null) return null;
+            foreach (var p in MainTextureProperties)
+            {
+                if (!mat.HasProperty(p)) continue;
+                var t = mat.GetTexture(p);
+                if (t != null) return t;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// いろかで開くテクスチャ。Iroca の書き出し物(&lt;名前&gt;_recolored*、同じフォルダ)なら元の &lt;名前&gt; を返す
+        /// (書き出し物を開いて色を変えると二重に塗ることになる。<see cref="TargetTextures"/> の逆向き)。
+        /// 画像のアセットでなければ null。
+        /// </summary>
+        internal static Texture2D EditableSourceOf(Texture tex)
+        {
+            var tex2d = tex as Texture2D;
+            if (tex2d == null) return null;
+            string path = AssetDatabase.GetAssetPath(tex2d);
+            if (string.IsNullOrEmpty(path)) return null;
+            string name = Path.GetFileNameWithoutExtension(path);
+            int cut = name.IndexOf("_recolored", System.StringComparison.Ordinal);
+            if (cut <= 0) return tex2d;
+            string stem = name.Substring(0, cut);
+            string dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
+            if (string.IsNullOrEmpty(dir)) return tex2d;
+            foreach (var guid in AssetDatabase.FindAssets(stem + " t:Texture2D", new[] { dir }))
+            {
+                string p = AssetDatabase.GUIDToAssetPath(guid);
+                if (Path.GetDirectoryName(p)?.Replace('\\', '/') != dir) continue;
+                if (Path.GetFileNameWithoutExtension(p) != stem) continue;
+                var original = AssetDatabase.LoadAssetAtPath<Texture2D>(p);
+                if (original != null) return original;
+            }
+            return tex2d;
+        }
+
         /// <summary>
         /// メインテクスチャが targets のどれかなら true。nameStem を渡すと、名前が同じ
         /// (か &lt;名前&gt;_recolored で始まる)テクスチャも対応とみなす(手動指定の 2 段目だけで使う)。
