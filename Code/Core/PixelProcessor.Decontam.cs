@@ -417,7 +417,16 @@ namespace Iroca
                 {
                     int row = y * w;
                     int wy0 = Mathf.Max(0, y - FringeBgRadius), wy1 = Mathf.Min(h - 1, y + FringeBgRadius);
-                    for (int x = x0; x <= x1; x++)
+                    for (int xs = x0; xs <= x1; xs += MixSegment)
+                    {
+                    int xe = Mathf.Min(x1, xs + MixSegment - 1);
+                    // 行の区間の ±AchromaFringeMatchRadius にマッチが無ければ、区間のどの画素も「マッチ境界の
+                    // 近傍」でない(画素の窓は区間の窓の内側)。画素ごとの判定と同じ結論なのでまとめて飛ばす。
+                    if (CountInRect(satML, fw, fx0, fy0, fx1, fy1,
+                            xs - AchromaFringeMatchRadius, y - AchromaFringeMatchRadius,
+                            xe + AchromaFringeMatchRadius, y + AchromaFringeMatchRadius) < 1)
+                        continue;
+                    for (int x = xs; x <= xe; x++)
                     {
                         int i = row + x;
                         if (strength[i] > 1e-4f) continue;            // マッチ済みは既存処理が担当
@@ -462,6 +471,7 @@ namespace Iroca
                             (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tB + om * bB), 0, 255),
                             originalPixels[i].a);
                         if (claimed != null) claimed[i] = 1f;
+                    }
                     }
                 });
             }
