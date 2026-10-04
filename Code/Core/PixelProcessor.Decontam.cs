@@ -728,6 +728,27 @@ namespace Iroca
             });
         }
 
+        // 混色帯の解析で、早い打ち切りをまとめて判定する行の区間の長さ(px)。
+        private const int MixSegment = 32;
+
+        /// <summary>矩形 [rx0..rx1]×[ry0..ry1] のうち範囲 [x0..x1]×[y0..y1] に入る部分の個数(BuildCountSat の表から)。</summary>
+        private static int CountInRect(int[] sat, int satW, int x0, int y0, int x1, int y1,
+            int rx0, int ry0, int rx1, int ry1)
+        {
+            int xa = Mathf.Max(x0, rx0) - x0, xb = Mathf.Min(x1, rx1) - x0;
+            int ya = Mathf.Max(y0, ry0) - y0, yb = Mathf.Min(y1, ry1) - y0;
+            if (xb < xa || yb < ya) return 0;
+            int s = sat[yb * satW + xb];
+            if (xa > 0) s -= sat[yb * satW + xa - 1];
+            if (ya > 0)
+            {
+                int up = (ya - 1) * satW;
+                s -= sat[up + xb];
+                if (xa > 0) s += sat[up + xa - 1];
+            }
+            return s;
+        }
+
         /// <summary>(x, y) を中心とする ±r の窓のうち範囲 [x0..x1]×[y0..y1] に入る部分の個数(BuildCountSat の表から)。</summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private static int CountInWindow(int[] sat, int satW, int x0, int y0, int x1, int y1, int x, int y, int r)
@@ -824,7 +845,30 @@ namespace Iroca
                     // 素材の画素の候補(窓 ±B の中)の位置。行ごとに 1 回だけ確保する。
                     var setIdx = new int[(2 * B + 1) * (2 * B + 1)];
                     int row = y * w;
-                    for (int x = ex0; x <= ex1; x++)
+                    int ry0 = Mathf.Max(0, y - R), ry1 = Mathf.Min(h - 1, y + R);
+                    int by0 = Mathf.Max(0, y - B), by1 = Mathf.Min(h - 1, y + B);
+                    for (int xs = ex0; xs <= ex1; xs += MixSegment)
+                    {
+                    int xe = Mathf.Min(ex1, xs + MixSegment - 1);
+                    // 行の区間ごとに、下の画素ごとの早い打ち切りをまとめて判定する(どちらも区間の全画素で
+                    // 画素ごとの判定と同じ結論になる。画素の窓は区間の窓の内側にあるので):
+                    //  ・区間の ±R がすべて確かな選択 → どの画素も確かな選択で、窓 ±R が全部選択済み(内側)
+                    //  ・区間の ±B に確かな選択が無く、±R に選択が無い → どの画素も未選択で、近くに選択が無い
+                    // 大半の画素(選択の内部と遠くの地)はここで済み、画素ごとの窓和の読み出しが要らない。
+                    {
+                        int rx0 = Mathf.Max(0, xs - R), rx1 = Mathf.Min(w - 1, xe + R);
+                        int areaR = (rx1 - rx0 + 1) * (ry1 - ry0 + 1);
+                        bool skipSeg = CountInRect(satSelL, satW, sx0, sy0, sx1, sy1, rx0, ry0, rx1, ry1) >= areaR
+                            || (CountInRect(satSelL, satW, sx0, sy0, sx1, sy1,
+                                    Mathf.Max(0, xs - B), by0, Mathf.Min(w - 1, xe + B), by1) <= 0
+                                && CountInRect(satAnyL, satW, sx0, sy0, sx1, sy1, rx0, ry0, rx1, ry1) <= 0);
+                        if (skipSeg)
+                        {
+                            for (int x = xs; x <= xe; x++) mixAlpha[row + x] = -1f;
+                            continue;
+                        }
+                    }
+                    for (int x = xs; x <= xe; x++)
                     {
                         int i = row + x;
                         mixAlpha[i] = -1f;
@@ -1050,6 +1094,7 @@ namespace Iroca
                             (byte)Mathf.Clamp(Mathf.RoundToInt(op.b + alpha * (fTo.b - fBb)), 0, 255),
                             op.a);
                         mixAlpha[i] = alpha;
+                    }
                     }
                 });
             }
