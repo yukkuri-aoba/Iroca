@@ -18,6 +18,20 @@ namespace Iroca
         private bool _pendingAddZone;
         private int _pendingRemoveZoneIndex = -1;
 
+        // 「スポイトで変えたい色を選ぶ」のクリックで作るゾーン（NewZoneEyedropperId 参照）。
+        // プレビューの MouseDown で受け、ゾーンの追加と色の設定を次の Layout イベントで一緒に行う。
+        private bool _pendingNewZoneFromSample;
+        private Color _pendingNewZoneColor;
+        private Vector2 _pendingNewZoneUV;
+
+        internal void RequestNewZoneFromSample(Color picked, Vector2 uv)
+        {
+            _pendingNewZoneFromSample = true;
+            _pendingNewZoneColor = picked;
+            _pendingNewZoneUV = uv;
+            Repaint();
+        }
+
         // UI から追加する新規ゾーンの初期許容範囲。
         //
         // ColorZone のフィールド既定は 0 で、これは「まだ何も指定していない」状態を表す値
@@ -48,6 +62,16 @@ namespace Iroca
                 if (!used.Contains(candidate)) return candidate;
             }
             return string.Format(Localization.NewZoneNameFormat, zones.Count + 1);
+        }
+
+        private ColorZone CreateNewZone()
+        {
+            var newZone = new ColorZone();
+            newZone.EnsureId();
+            // 「色を選べば何か変わる」状態から始められるようにする（定数のコメント参照）。
+            newZone.tolerance = NewZoneInitialTolerance;
+            newZone.name = NextZoneName();
+            return newZone;
         }
 
         // ゾーン並べ替え（ドラッグ）用。並び順が優先度なので、リスト上のドラッグで優先度を変える。
@@ -85,12 +109,21 @@ namespace Iroca
             {
                 _pendingAddZone = false;
                 Undo.RegisterCompleteObjectUndo(this, "Add Zone");
-                var newZone = new ColorZone();
-                newZone.EnsureId();
-                // 「色を選べば何か変わる」状態から始められるようにする（定数のコメント参照）。
-                newZone.tolerance = NewZoneInitialTolerance;
-                newZone.name = NextZoneName();
+                zones.Add(CreateNewZone());
+                MarkPreviewDirty();
+            }
+            if (_pendingNewZoneFromSample)
+            {
+                _pendingNewZoneFromSample = false;
+                // ゾーンの追加と色の設定を Undo 1 ステップにまとめる（戻すとゾーンごと消える）。
+                Undo.RegisterCompleteObjectUndo(this, "Add Zone");
+                var newZone = CreateNewZone();
+                newZone.sampleColor = _pendingNewZoneColor;
+                newZone.sampleColorSet = true;
+                // スポイトで取ったので位置も持つ（自動調整が AI 提案の証拠に使う。ApplyEyedropperSample と同じ）。
+                newZone.sampleUV = _pendingNewZoneUV;
                 zones.Add(newZone);
+                zonesFoldout = true;
                 MarkPreviewDirty();
             }
             if (_pendingReorderFrom >= 0 && _pendingReorderTo >= 0)
@@ -207,6 +240,12 @@ namespace Iroca
                 Repaint();
             }
 
+            // 有効なゾーンが無いときは、スポイトから始められる大きいボタンを出す（NewZoneEyedropperId 参照）。
+            // 条件は手順の案内（NextStepHint の NextStepAddZone）と揃える。
+            // 「+ ゾーン追加」は空のゾーンを作る従来の入口として下に残す。
+            if (!HasEnabledZone)
+                DrawStartWithEyedropperButton();
+
             if (GUILayout.Button(new GUIContent(Localization.AddZone, Localization.AddZoneTooltip)))
             {
                 _pendingAddZone = true;
@@ -215,6 +254,29 @@ namespace Iroca
 
             EditorGUILayout.EndFoldoutHeaderGroup();
             EditorGUILayout.Space(4);
+        }
+
+        private void DrawStartWithEyedropperButton()
+        {
+            bool canSample = CanReadSource(sourceTexture);
+            bool armed = EyedropperZoneId == NewZoneEyedropperId;
+            using (new EditorGUI.DisabledScope(!canSample))
+            {
+                var prevBg = GUI.backgroundColor;
+                if (armed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
+                var content = new GUIContent(
+                    armed ? Localization.StartWithEyedropperActive : Localization.StartWithEyedropper,
+                    Localization.StartWithEyedropperTooltip);
+                if (GUILayout.Button(content, GUILayout.Height(EditorGUIUtility.singleLineHeight * 1.8f)))
+                {
+                    // トグル: 武装↔解除。シード指定と排他（どちらもプレビューの素のクリックを取る）。
+                    EyedropperZoneId = armed ? null : NewZoneEyedropperId;
+                    if (!armed) SeedPickZoneId = null;
+                    Repaint();
+                }
+                GUI.backgroundColor = prevBg;
+            }
+            EditorGUILayout.Space(2);
         }
 
         // 1 ゾーン分のカード（ヘッダ行＋マスク編集＋採色/変更先＋自動調整＋許容範囲＋連続領域＋

@@ -855,6 +855,16 @@ namespace Iroca
         public static string AddZoneTooltip => IsJapanese
             ? "色替え対象を指定する新しいゾーンを追加します"
             : "Add a new zone to define a recolor target";
+        // ゾーンが無いときだけ出る開始ボタン（押す → プレビューをクリック でゾーンができる）。
+        public static string StartWithEyedropper => IsJapanese
+            ? "スポイトで変えたい色を選ぶ"
+            : "Pick the color to change";
+        public static string StartWithEyedropperActive => IsJapanese
+            ? "■ プレビューで変えたい色をクリック"
+            : "■ Click the color to change on the preview";
+        public static string StartWithEyedropperTooltip => IsJapanese
+            ? "押してからプレビュー上の変えたい色をクリックすると、カラーゾーンを作ってその色をサンプルカラーに入れます。\nもう一度押すか Esc で解除します。"
+            : "Press, then click the color you want to change on the preview: a color zone is created with that color as its Sample Color.\nPress again or hit Esc to cancel.";
         public static string CancelActionTooltip => IsJapanese
             ? "実行中の処理を中止します"
             : "Cancel the running operation";
@@ -957,8 +967,8 @@ namespace Iroca
         // ─────────────────────────────────────────────────────────────
         public static string StepDoneMark => " ✓";
         public static string NextStepAddZone => IsJapanese
-            ? "次の手順: 「+ ゾーン追加」を押してカラーゾーンを作ります。"
-            : "Next: press \"+ Add Zone\" to create a color zone.";
+            ? "次の手順: 「スポイトで変えたい色を選ぶ」を押して、プレビュー上の変えたい色をクリックします。"
+            : "Next: press \"Pick the color to change\", then click that color on the preview.";
         public static string NextStepPickColor => IsJapanese
             ? "次の手順: ゾーンの「スポイト」を押してから、プレビュー上の変えたい色をクリックします。"
             : "Next: press the zone's \"Eyedropper\", then click the color you want to change on the preview.";

@@ -33,6 +33,12 @@ namespace Iroca
         [System.NonSerialized] private string _eyedropperZoneId;
         internal string EyedropperZoneId { get => _eyedropperZoneId; set => _eyedropperZoneId = value; }
 
+        // ゾーンがまだ無いときの「スポイトで変えたい色を選ぶ」の武装。EyedropperZoneId にこの値を入れると、
+        // プレビューのクリックでゾーンを作り、その画素の色をサンプルカラーに入れる（Undo 1 回で戻る）。
+        // 以前は「+ ゾーン追加」→「スポイト」→ クリックの 3 手で、最初の 1 手が何のためか分かりにくかった。
+        // ゾーン id は GUID なので、制御文字で始まるこの値とは衝突しない。
+        internal const string NewZoneEyedropperId = "\u0001new-zone";
+
         // シード指定モードで武装中のゾーン id（null/空 = 解除）。プレビュー上のクリックで
         // そのゾーンの連続領域シードを置く（一発で自動解除）。スポイトと同じ id 保持なのは
         // 同じ理由（武装中の並べ替え・削除で別ゾーンへ入らないように）。

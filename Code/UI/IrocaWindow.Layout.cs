@@ -525,6 +525,19 @@ namespace Iroca
         /// </summary>
         private bool StepTextureDone => CanReadSource(sourceTexture);
 
+        /// <summary>有効なゾーンが 1 つ以上あるか（無ければ「スポイトで変えたい色を選ぶ」から始める）。</summary>
+        private bool HasEnabledZone
+        {
+            get
+            {
+                var list = _session?.zones;
+                if (list == null) return false;
+                for (int i = 0; i < list.Count; i++)
+                    if (list[i] != null && list[i].enabled) return true;
+                return false;
+            }
+        }
+
         /// <summary>
         /// 色替えの指定が始まっているか（＝手順②が済んでいるか）。
         /// 有効なゾーンが 1 つ以上あり、そのどれかでサンプルカラーが指定済みであること。
@@ -549,12 +562,7 @@ namespace Iroca
         private string NextStepHint()
         {
             if (!StepTextureDone) return null;               // テクスチャ欄の HelpBox が案内済み
-            var list = _session?.zones;
-            bool hasZone = false;
-            if (list != null)
-                for (int i = 0; i < list.Count; i++)
-                    if (list[i] != null && list[i].enabled) { hasZone = true; break; }
-            if (!hasZone) return Localization.NextStepAddZone;
+            if (!HasEnabledZone) return Localization.NextStepAddZone;
             if (!StepZonesDone) return Localization.NextStepPickColor;
             return null;
         }

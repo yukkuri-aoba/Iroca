@@ -60,25 +60,23 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 <!-- スクリーンショット: テクスチャ選択後のウィンドウ全体 -->
 
-#### ステップ 2: カラーゾーンを追加する
+#### ステップ 2: 変える色を選ぶ
 
-「+ ゾーン追加」を押します。色替え 1 つぶんが「カラーゾーン」1 つです。
-
-#### ステップ 3: 変える色を指定する
-
-1. 「サンプルカラー」欄の右の「スポイト」を押し、プレビュー上の変えたい色をクリックします。いちばん鮮やかな部分を選ぶとうまくいきます。
-2. すぐ下の「自動調整」を押します。そのパーツの暗部からハイライトまでを覆うように、許容範囲などを自動で合わせます（AI モデルが必要です。未導入ならウィンドウ上部に案内が出ます）。
+1. 「② カラーゾーン」の「スポイトで変えたい色を選ぶ」を押し、プレビュー上の変えたい色をクリックします。色替え 1 つぶんの「カラーゾーン」ができ、クリックした色が「サンプルカラー」に入ります。いちばん鮮やかな部分を選ぶとうまくいきます。
+2. ゾーンの「自動調整」を押します。そのパーツの暗部からハイライトまでを覆うように、許容範囲などを自動で合わせます（AI モデルが必要です。未導入ならウィンドウ上部に案内が出ます）。
 3. 範囲が広い・狭いときは「許容範囲」で微調整します。
 
 自動調整を使わなくても、新しいゾーンは許容範囲 0.20 で始まるので、色を指定すればプレビューはすぐ変わります。
 
+2 色目からは「+ ゾーン追加」でゾーンを足し、そのゾーンの「サンプルカラー」の右の「スポイト」を押してから、プレビュー上の色をクリックします。
+
 > 色は必ず「スポイト」ボタンで取ってください。欄をクリックして開くカラーピッカーのスポイトは、色がわずかにずれるうえクリック位置が残らず、自動調整が AI 提案を使えません。
 
-#### ステップ 4: 変更後の色を決める
+#### ステップ 3: 変更後の色を決める
 
 「変更先カラー」をクリックして色を選びます。プレビューにすぐ反映されます。
 
-#### ステップ 5: 仕上がりを調整する（必要なら）
+#### ステップ 4: 仕上がりを調整する（必要なら）
 
 | 設定 | 内容 |
 |---|---|
@@ -88,7 +86,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 さらに細かい調整は「[カラーゾーンの設定](#カラーゾーンの設定)」を参照してください。
 
-#### ステップ 6: アバターに反映する
+#### ステップ 5: アバターに反映する
 
 「④ アバターに反映」の「アバターに非破壊で登録」を押します（→「[非破壊で色替え（NDMF）](#非破壊で色替えndmf)」）。元のテクスチャは書き換えず、再生・アップロードのときだけ色替えされるので、あとから何度でも色を直せます。
 
@@ -602,25 +600,23 @@ Drag the texture you want to recolor onto the "Texture" field under "Source Text
 
 If you are not sure which texture it is, keep the いろか window open and click the part of the model you want to change in the Scene view (only while no texture is open; see "Show the spot you click in the Scene" under [Preview](#preview)).
 
-#### Step 2: Add a color zone
+#### Step 2: Choose the color to change
 
-Click "+ Add Zone". One color zone is one recoloring.
-
-#### Step 3: Choose the color to change
-
-1. Press "Eyedropper" to the right of the "Sample Color" field, then click the color you want on the preview. The most vivid spot of the area works best.
-2. Press "Auto-tune" just below it. It sets the tolerance and related values so the part is covered from its shadows to its highlights (the AI models are required; a notice at the top of the window offers to install them).
+1. Under "2. Color Zones", press "Pick the color to change", then click the color you want on the preview. A color zone (one recoloring) is created with the clicked color as its "Sample Color". The most vivid spot of the area works best.
+2. Press the zone's "Auto-tune". It sets the tolerance and related values so the part is covered from its shadows to its highlights (the AI models are required; a notice at the top of the window offers to install them).
 3. If the selection is too wide or too narrow, fine-tune it with "Tolerance".
 
 You do not have to use Auto-tune: a new zone starts with a Tolerance of 0.20, so the preview changes as soon as you set the colors.
 
+For a second color, add a zone with "+ Add Zone", press "Eyedropper" to the right of that zone's "Sample Color", then click the color on the preview.
+
 > Always sample with the "Eyedropper" button. The eyedropper inside the color picker (opened by clicking the field) reads a slightly different color and records no position, so Auto-tune cannot use the AI suggestion.
 
-#### Step 4: Set the target color
+#### Step 3: Set the target color
 
 Click "Target Color" and choose the new color. The preview updates right away.
 
-#### Step 5: Adjust the result (optional)
+#### Step 4: Adjust the result (optional)
 
 | Setting | What it does |
 |---|---|
@@ -630,7 +626,7 @@ Click "Target Color" and choose the new color. The preview updates right away.
 
 For finer controls, see [Color Zone Settings](#color-zone-settings).
 
-#### Step 6: Apply to the avatar
+#### Step 5: Apply to the avatar
 
 Press "Register to avatar (non-destructive)" under "Apply to Avatar" (see [Non-destructive recoloring (NDMF)](#non-destructive-recoloring-ndmf)). The original texture is not changed; the recoloring happens only when entering Play mode or uploading, so you can change the colors again at any time.
 

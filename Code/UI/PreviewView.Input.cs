@@ -515,10 +515,20 @@ namespace Iroca
                         var uv = PreviewCoords.ScreenToUv(e.mousePosition, previewRect);
                         if (SampleTrueSourceColor(uv.x, uv.y, srcW, srcH, out Color picked))
                         {
-                            // 武装ゾーンは id で解決する（並べ替え・削除で index がずれても正しいゾーンに入る）。
-                            var zone = _host.FindZoneById(_host.EyedropperZoneId);
-                            if (zone != null && ApplyEyedropperSample(_host, zone, picked, uv))
+                            if (_host.EyedropperZoneId == IrocaWindow.NewZoneEyedropperId)
+                            {
+                                // ゾーンがまだ無いときの開始操作: ゾーンを作ってこの色を入れる。
+                                // ゾーンリストの変更は次の Layout イベントで適用する（遅延ミューテーション）。
+                                _host.RequestNewZoneFromSample(picked, uv);
                                 previewDirty = true;
+                            }
+                            else
+                            {
+                                // 武装ゾーンは id で解決する（並べ替え・削除で index がずれても正しいゾーンに入る）。
+                                var zone = _host.FindZoneById(_host.EyedropperZoneId);
+                                if (zone != null && ApplyEyedropperSample(_host, zone, picked, uv))
+                                    previewDirty = true;
+                            }
                             // one-shot: 取得したら武装解除。
                             // ★hotControl は取らない★ — 武装解除後は次のイベントでこのハンドラが
                             // 呼ばれないため、MouseUp で解放できずに残る。残った hotControl は以降の
