@@ -204,6 +204,47 @@ namespace Iroca.EditorTests
             }
         }
 
+        private static (bool on, int priority) StreamingOf(Texture2D tex)
+        {
+            using (var so = new SerializedObject(tex))
+                return (so.FindProperty("m_StreamingMipmaps").boolValue,
+                        so.FindProperty("m_StreamingMipmapsPriority").intValue);
+        }
+
+        // VRChat はミップ付きテクスチャに mip streaming を必須にしている。ビルド中に作るテクスチャは
+        // SDK の「Fix」が届かないので、元の取り込み設定がオフでも立てる(NDMF の CheckMipStreamingPass が見る値)。
+        [TestCase(false, 0)]
+        [TestCase(true, 3)]
+        public void Build_AlwaysEnablesMipStreamingAndKeepsPriority(bool sourceStreaming, int sourcePriority)
+        {
+            string path = _assets.WritePng("src", Bands(), W, H);
+            var imp = (TextureImporter)AssetImporter.GetAtPath(path);
+            imp.streamingMipmaps = sourceStreaming;
+            imp.streamingMipmapsPriority = sourcePriority;
+            imp.SaveAndReimport();
+            var src = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            Assert.Greater(src.mipmapCount, 1, "元にミップが無い(テストの前提)");
+            Assert.AreEqual(sourceStreaming, StreamingOf(src).on, "取り込み設定が効いていない(テストの前提)");
+
+            var recipe = RecipeStore.Create(src, RedToGreenWithInclude(), _assets.Folder);
+            string cacheFile = Path.Combine(RecipeTextureBuilder.CacheDir,
+                RecipeTextureBuilder.CacheKey(recipe, src) + ".tex");
+            try
+            {
+                // 1 回目 = 作りたて、2 回目 = キャッシュから。どちらも同じ設定になる。
+                for (int i = 0; i < 2; i++)
+                {
+                    var tex = Track(RecipeTextureBuilder.Build(recipe, out var failure));
+                    Assert.IsNotNull(tex, failure.ToString());
+                    Assert.AreEqual((true, sourcePriority), StreamingOf(tex), i == 0 ? "作りたて" : "キャッシュから");
+                }
+            }
+            finally
+            {
+                if (File.Exists(cacheFile)) File.Delete(cacheFile);
+            }
+        }
+
         // ───────────── マテリアルの差し替え ─────────────
 
         private sealed class FakeHost : NonDestructiveApplier.IHost
