@@ -400,17 +400,10 @@ namespace Iroca
                     }
                     else
                     {
-                        Array.Clear(strength, 0, len);
-                        if (zone.highlightRecovery)
-                        {
-                            highlightPot = s_floatPool.Rent(len);
-                            Array.Clear(highlightPot, 0, len);
-                        }
-                        if (needMatchConf)
-                        {
-                            matchConf = s_floatPool.Rent(len);
-                            Array.Clear(matchConf, 0, len);
-                        }
+                        // strength / highlightPot / matchConf は下のマッチのループが全画素に書く(除外マスクの
+                        // 画素には 0)ので、先にゼロで埋めない(旧: 3 本とも単一スレッドの Array.Clear)。
+                        if (zone.highlightRecovery) highlightPot = s_floatPool.Rent(len);
+                        if (needMatchConf) matchConf = s_floatPool.Rent(len);
 
                         var strengthLocal = strength;
                         var highlightPotLocal = highlightPot;
@@ -444,7 +437,13 @@ namespace Iroca
                             {
                                 int xf = x + originX;
                                 int i = rowOff + x;
-                                if (IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask)) continue;
+                                if (IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask))
+                                {
+                                    strengthLocal[i] = 0f;
+                                    if (highlightPotLocal != null) highlightPotLocal[i] = 0f;
+                                    if (matchConfLocal != null) matchConfLocal[i] = 0f;
+                                    continue;
+                                }
 
                                 float s, hPot, mc;
                                 if (palStrength != null)
