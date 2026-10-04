@@ -269,6 +269,19 @@ namespace Iroca.EditorTests
             public void RegisterReplaced(Object original, Object replacement) { }
             public void Report(NonDestructiveApplier.Problem p, IrocaRecolor c, IrocaRecipe r, RecipeTextureBuilder.Failure f)
                 => Reports.Add((p, c, r, f));
+
+            // アニメーションのマテリアル切り替え(切り替える先の GameObject と、キーフレームのマテリアル)。
+            public readonly List<(GameObject target, Material[] keys)> Animated = new List<(GameObject, Material[])>();
+
+            public void RewriteAnimatedMaterials(Transform scope, System.Func<Material, Material> mapping)
+            {
+                foreach (var (target, keys) in Animated)
+                {
+                    if (!target.transform.IsChildOf(scope)) continue;
+                    for (int i = 0; i < keys.Length; i++)
+                        if (keys[i] != null) keys[i] = mapping(keys[i]);
+                }
+            }
         }
 
         private Texture2D Tex(string name) => Track(new Texture2D(2, 2) { name = name });
@@ -418,6 +431,66 @@ namespace Iroca.EditorTests
             Assert.AreSame(texA, both.mainTexture, "元のマテリアルを書き換えた");
             Assert.IsEmpty(host.Reports);
             Assert.IsEmpty(root.GetComponentsInChildren<IrocaRecolor>(true));
+        }
+
+        [Test]
+        public void Applier_MaterialsSwitchedByAnimationAreRecoloredInScope()
+        {
+            var src = Tex("src");
+            var plain = Mat("plain", Tex("plain"));
+            var alt = Mat("alt", src);           // トグルで切り替える先(既定では使っていない)
+            var shared = Mat("shared", src);     // 既定でもアニメーションでも使う
+            var root = Node("avatar", null);
+            var outfit = Node("outfit", root.transform);
+            var mesh = Node("mesh", outfit.transform, plain);
+            var other = Node("other", outfit.transform, shared);
+            var body = Node("body", root.transform, plain);   // 範囲外
+            var recipe = Recipe("r", src);
+            AddRecolor(outfit, recipe);
+
+            var host = new FakeHost();
+            var meshKeys = new[] { plain, alt, shared };
+            var bodyKeys = new[] { alt };
+            host.Animated.Add((mesh, meshKeys));
+            host.Animated.Add((body, bodyKeys));
+            NonDestructiveApplier.Apply(root, host);
+
+            var recolored = host.Textures[recipe];
+            Assert.AreSame(plain, meshKeys[0], "元テクスチャを使わないマテリアルまで差し替えた");
+            Assert.AreNotSame(alt, meshKeys[1], "アニメーションで切り替わるマテリアルが差し替わっていない");
+            Assert.AreSame(recolored, meshKeys[1].mainTexture);
+            Assert.AreSame(other.GetComponent<Renderer>().sharedMaterial, meshKeys[2],
+                "既定とアニメーションで同じマテリアルなら同じ複製を使う");
+            Assert.AreSame(alt, bodyKeys[0], "範囲外の Renderer へのアニメーションまで差し替えた");
+            Assert.AreSame(src, alt.mainTexture, "元のマテリアルを書き換えた");
+            Assert.AreEqual(1, host.Builds);
+            Assert.IsEmpty(host.Reports);
+        }
+
+        [Test]
+        public void Applier_TextureUsedOnlyByAnimation_IsNotReportedAsUnused_AndDeeperWins()
+        {
+            var src = Tex("src");
+            var alt = Mat("alt", src);
+            var root = Node("avatar", null);
+            var inner = Node("inner", root.transform);
+            var mesh = Node("mesh", inner.transform, Mat("plain", Tex("plain")));
+            var outerRecipe = Recipe("outer", src);
+            var innerRecipe = Recipe("inner", src);
+            AddRecolor(root, outerRecipe);
+            AddRecolor(inner, innerRecipe);
+
+            var host = new FakeHost();
+            var keys = new[] { alt };
+            host.Animated.Add((mesh, keys));
+            NonDestructiveApplier.Apply(root, host);
+
+            Assert.AreSame(host.Textures[innerRecipe], keys[0].mainTexture, "アニメーションでも近い(深い)コンポーネントが勝つ");
+            CollectionAssert.AreEquivalent(new[]
+            {
+                (NonDestructiveApplier.Problem.TextureNotUsedInScope, outerRecipe),   // 内側が差し替え済み
+            }, host.Reports.ConvertAll(x => (x.Item1, x.Item3)),
+                "アニメーションでだけ使うテクスチャを「使っていない」と報告した");
         }
 
         [Test]

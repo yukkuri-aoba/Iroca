@@ -1134,8 +1134,8 @@ namespace Iroca
             ? "レシピの中身を読めません(空か、壊れているか、新しい版のいろかで作られています)。"
             : "Cannot read the recipe (empty, broken, or made with a newer version of Iroca).";
         public static string RecolorNotUsedFormat => IsJapanese
-            ? "この範囲に「{0}」を使っているマテリアルがありません。コンポーネントを衣装やアバターの親に置いてください。"
-            : "No material in this scope uses \"{0}\". Place the component on the outfit or avatar root.";
+            ? "この範囲の Renderer に「{0}」を使っているマテリアルがありません。衣装のトグルなどアニメーションで切り替えた先でだけ使うならこのままで構いません。そうでなければ、コンポーネントを衣装やアバターの親に置いてください。"
+            : "No renderer in this scope uses \"{0}\". That is fine if it is only used by a material that an animation (such as an outfit toggle) switches to. Otherwise, place the component on the outfit or avatar root.";
         public static string RecolorScopeFormat => IsJapanese
             ? "対象のマテリアル: {0} 個(Renderer {1} 個)"
             : "Target materials: {0} ({1} renderers)";

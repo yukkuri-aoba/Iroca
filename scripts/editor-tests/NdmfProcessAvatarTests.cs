@@ -108,6 +108,84 @@ namespace Iroca.EditorTests
                 Object.DestroyImmediate(fresh);
             }
         }
+
+        [Test]
+        public void ProcessAvatar_RecolorsMaterialsSwitchedByAnimation()
+        {
+            string texPath = _assets.WritePng("src", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);
+            var importer = (TextureImporter)AssetImporter.GetAtPath(texPath);
+            importer.streamingMipmaps = true;   // 上のテストと同じ理由(VRChat 向けの取り込み設定にそろえる)
+            importer.SaveAndReimport();
+            var src = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
+
+            // 既定は色替え対象外のマテリアル。トグルのアニメーションで src を使うマテリアルへ切り替える。
+            var plain = new Material(Shader.Find("Standard"));
+            AssetDatabase.CreateAsset(plain, _assets.Folder + "/plain.mat");
+            var alt = new Material(Shader.Find("Standard")) { mainTexture = src };
+            AssetDatabase.CreateAsset(alt, _assets.Folder + "/alt.mat");
+
+            var zone = new ColorZone
+            {
+                sampleColor = new Color(200 / 255f, 40 / 255f, 40 / 255f),
+                sampleColorSet = true,
+                targetColor = new Color(0.1f, 0.6f, 0.2f),
+                tolerance = 0.2f,
+            };
+            zone.EnsureId();
+            var state = new IrocaSessionState();
+            state.zones.Add(zone);
+            var recipe = RecipeStore.Create(src, state, _assets.Folder);
+            _cacheFile = System.IO.Path.Combine(RecipeTextureBuilder.CacheDir,
+                RecipeTextureBuilder.CacheKey(recipe, src) + ".tex");
+
+            var root = new GameObject("avatar");
+            _created.Add(root);
+            var outfit = new GameObject("outfit");
+            outfit.transform.SetParent(root.transform, false);
+            var mesh = new GameObject("mesh");
+            mesh.transform.SetParent(outfit.transform, false);
+            mesh.AddComponent<MeshRenderer>().sharedMaterial = plain;
+            var body = new GameObject("body");                 // 範囲外(同じマテリアルへ切り替える)
+            body.transform.SetParent(root.transform, false);
+            body.AddComponent<MeshRenderer>().sharedMaterial = plain;
+            outfit.AddComponent<IrocaRecolor>().recipes.Add(recipe);
+
+            var meshSlot = EditorCurveBinding.PPtrCurve("outfit/mesh", typeof(MeshRenderer), "m_Materials.Array.data[0]");
+            var bodySlot = EditorCurveBinding.PPtrCurve("body", typeof(MeshRenderer), "m_Materials.Array.data[0]");
+            var clip = new AnimationClip();
+            AnimationUtility.SetObjectReferenceCurve(clip, meshSlot,
+                new[] { new ObjectReferenceKeyframe { time = 0, value = alt } });
+            AnimationUtility.SetObjectReferenceCurve(clip, bodySlot,
+                new[] { new ObjectReferenceKeyframe { time = 0, value = alt } });
+            AssetDatabase.CreateAsset(clip, _assets.Folder + "/toggle.anim");
+            var controller = UnityEditor.Animations.AnimatorController.CreateAnimatorControllerAtPathWithClip(
+                _assets.Folder + "/toggle.controller", clip);
+            root.AddComponent<Animator>().runtimeAnimatorController = controller;
+
+            nadena.dev.ndmf.AvatarProcessor.ProcessAvatar(root);
+
+            var built = root.GetComponent<Animator>().runtimeAnimatorController;
+            Assert.IsNotNull(built);
+            var builtClip = built.animationClips[0];
+            var meshKey = AnimationUtility.GetObjectReferenceCurve(builtClip, meshSlot)[0].value as Material;
+            Assert.IsNotNull(meshKey);
+            Assert.AreNotSame(alt, meshKey, "アニメーションで切り替わるマテリアルが差し替わっていない");
+            Assert.IsTrue(meshKey.mainTexture.name.EndsWith("(Iroca)"), meshKey.mainTexture.name);
+            // 範囲外・既定のマテリアルは「色替えされていない」で見る(後続のツールがマテリアルを複製したり、
+            // ビルド中にアセットが読み直されて手元の C# の参照と別のインスタンスになったりするので、
+            // 同じオブジェクトかどうかでは見ない)。
+            var bodyKey = AnimationUtility.GetObjectReferenceCurve(builtClip, bodySlot)[0].value as Material;
+            Assert.AreEqual(texPath, AssetDatabase.GetAssetPath(bodyKey.mainTexture),
+                "範囲外の Renderer へのアニメーションまで色替えした");
+            Assert.IsNull(mesh.GetComponent<Renderer>().sharedMaterial.mainTexture, "既定のマテリアルまで差し替えた");
+            // 元のアセットも同じ理由でパスで見る。
+            string altPath = _assets.Folder + "/alt.mat";
+            var origKey = AnimationUtility.GetObjectReferenceCurve(
+                AssetDatabase.LoadAssetAtPath<AnimationClip>(_assets.Folder + "/toggle.anim"), meshSlot)[0].value as Material;
+            Assert.AreEqual(altPath, AssetDatabase.GetAssetPath(origKey), "元のアニメーションを書き換えた");
+            Assert.AreEqual(texPath, AssetDatabase.GetAssetPath(
+                AssetDatabase.LoadAssetAtPath<Material>(altPath).mainTexture), "元のマテリアルを書き換えた");
+        }
     }
 }
 #endif

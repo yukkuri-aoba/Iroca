@@ -16,6 +16,8 @@ namespace Iroca
     /// <item>範囲内の Renderer のマテリアルのうち、レシピの元テクスチャをどこかのテクスチャ枠で参照している
     ///   ものだけを複製し、その参照を色替え済みテクスチャへ差し替える。同じマテリアルを複数の Renderer が
     ///   使っていれば複製も共有する。範囲外の Renderer は元のマテリアルのまま。</item>
+    /// <item>アニメーションで切り替わるマテリアル(衣装・表情のトグルなどのキーフレーム)も、切り替える先の
+    ///   Renderer が範囲内なら同じ規則で差し替える(Renderer と同じマテリアルなら同じ複製を使う)。</item>
     /// <item>入れ子で範囲が重なったら、深い(近い)コンポーネントが勝つ。先に深い方を処理すると、
     ///   差し替え済みのマテリアルは元テクスチャを参照しなくなるので、浅い方は自然に手を出さない。
     ///   同じコンポーネントに同じテクスチャのレシピが複数あれば、同じ理由で先のものが勝つ。</item>
@@ -47,6 +49,12 @@ namespace Iroca
             void RegisterReplaced(Object original, Object replacement);
             /// <summary><paramref name="recipe"/> はどのレシピの問題か(レシピが無い・空の欄なら null)。</summary>
             void Report(Problem problem, IrocaRecolor component, IrocaRecipe recipe, RecipeTextureBuilder.Failure failure);
+            /// <summary>
+            /// アニメーションで切り替わるマテリアルのうち、切り替える先の Renderer が <paramref name="scope"/> か
+            /// その子にあるものを <paramref name="mapping"/> で書き換える(同じものが返れば触らない)。
+            /// アニメーションを扱えない環境では何もしない。
+            /// </summary>
+            void RewriteAnimatedMaterials(Transform scope, System.Func<Material, Material> mapping);
         }
 
         /// <summary>ビルドの直前に呼ばれる(いろかウィンドウが購読し、編集中の内容をレシピへ書き出す)。</summary>
@@ -111,7 +119,41 @@ namespace Iroca
             var clones = new Dictionary<Material, Material>();
             Texture2D recolored = null;
             bool usedInScope = false;
+            bool failed = false;
             int replaced = 0;
+
+            // 元テクスチャを参照していれば複製して差し替えたものを返す(参照していなければ null)。
+            // Renderer の欄とアニメーションのキーフレームの両方から呼ぶ(同じマテリアルは同じ複製になる)。
+            Material Swap(Material original)
+            {
+                if (original == null || failed) return null;
+                if (clones.TryGetValue(original, out var known)) return known;
+                Material clone = null;
+                if (References(original, source))
+                {
+                    usedInScope = true;
+                    if (recolored == null && !built.TryGetValue(recipe, out recolored))
+                    {
+                        recolored = host.BuildTexture(recipe, out var failure);
+                        if (recolored == null)
+                        {
+                            failed = true;
+                            host.Report(Problem.BuildFailed, component, recipe, failure);
+                            return null;
+                        }
+                        host.SaveAsset(recolored);
+                        built[recipe] = recolored;
+                    }
+                    clone = Object.Instantiate(original);
+                    clone.name = original.name;
+                    ReplaceTexture(clone, source, recolored);
+                    host.SaveAsset(clone);
+                    host.RegisterReplaced(original, clone);
+                    replaced++;
+                }
+                clones[original] = clone;
+                return clone;
+            }
 
             foreach (var renderer in component.GetComponentsInChildren<Renderer>(true))
             {
@@ -119,42 +161,18 @@ namespace Iroca
                 bool changed = false;
                 for (int i = 0; i < mats.Length; i++)
                 {
-                    var original = mats[i];
-                    if (original == null) continue;
-                    if (!clones.TryGetValue(original, out var clone))
-                    {
-                        clone = null;
-                        if (References(original, source))
-                        {
-                            usedInScope = true;
-                            if (recolored == null && !built.TryGetValue(recipe, out recolored))
-                            {
-                                recolored = host.BuildTexture(recipe, out var failure);
-                                if (recolored == null)
-                                {
-                                    host.Report(Problem.BuildFailed, component, recipe, failure);
-                                    return replaced;
-                                }
-                                host.SaveAsset(recolored);
-                                built[recipe] = recolored;
-                            }
-                            clone = Object.Instantiate(original);
-                            clone.name = original.name;
-                            ReplaceTexture(clone, source, recolored);
-                            host.SaveAsset(clone);
-                            host.RegisterReplaced(original, clone);
-                            replaced++;
-                        }
-                        clones[original] = clone;
-                    }
-                    if (clone != null)
-                    {
-                        mats[i] = clone;
-                        changed = true;
-                    }
+                    var clone = Swap(mats[i]);
+                    if (clone == null) continue;
+                    mats[i] = clone;
+                    changed = true;
                 }
+                if (failed) return replaced;
                 if (changed) renderer.sharedMaterials = mats;
             }
+
+            // 衣装・表情のトグルなど、アニメーションで後から切り替わるマテリアルも同じ規則で差し替える。
+            host.RewriteAnimatedMaterials(component.transform, m => Swap(m) ?? m);
+            if (failed) return replaced;
 
             if (!usedInScope)
                 host.Report(Problem.TextureNotUsedInScope, component, recipe, RecipeTextureBuilder.Failure.None);
