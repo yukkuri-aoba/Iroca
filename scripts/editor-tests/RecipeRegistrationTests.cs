@@ -20,7 +20,16 @@ namespace Iroca.EditorTests
         public void TearDown()
         {
             foreach (var o in _created)
-                if (o != null) Object.DestroyImmediate(o);
+            {
+                if (o == null) continue;
+                // 登録は Undo に記録する。記録を残したまま消すと、あとで Undo を巻き戻したとき
+                // (テストランナーの後始末を含む)に空の GameObject として復活し、開いているシーンに残る。
+                if (o is GameObject go)
+                    foreach (var c in go.GetComponents<Component>())
+                        Undo.ClearUndo(c);
+                Undo.ClearUndo(o);
+                Object.DestroyImmediate(o);
+            }
             _created.Clear();
         }
 
