@@ -106,9 +106,18 @@ namespace Iroca
                     // 同じ行の左(後方なら右)のタイルは同じ担当が先に済ませ、右(後方なら左)と次の行はまだ
                     // 触っていない(次の行はこのタイルの完了を待つ)ので、4 近傍の読みは斜めの列の順と同じ。
                     // 行は番号順に取るので、待つ相手の行は必ず誰かが処理中か処理済み(待ちが循環しない)。
+                    // 変化の無かったタイルは飛ばす。スイープ s でタイル T が読むのは、T 自身と、s で T より先に
+                    // 処理する隣(前方なら左と上、後方なら右と下)の s での値と、後に処理する隣の s-1 での値。
+                    // 1 つ前のスイープ s-1(逆向き)で T が読んだのは、後者が同じ値、前者は s-2 での値。
+                    // よって「T が s-1 で変化せず、先に処理する隣が s-1 でも s でも変化していない」なら、T が
+                    // 読む値は s-1 と全部同じで、s-1 と同じく何も変わらない(画素を辿る順が逆でも、何も
+                    // 変わらないなら各画素の判定は同じ値を読む)。飛ばしても出力はビット単位で同じ。
                     int passes = 3;
                     var progress = new int[nty];
                     int workers = Math.Max(1, Math.Min(GetMaxParallelism(), nty));
+                    var changedPrev = new bool[nTiles];   // 1 つ前のスイープで変化したタイル
+                    var changedCur = new bool[nTiles];    // このスイープで変化したタイル
+                    int sweep = 0;
                     for (int p = 0; p < passes; p++)
                     {
                         int changedFlag = 0;
@@ -117,6 +126,9 @@ namespace Iroca
                             ct.ThrowIfCancellationRequested();
                             bool forward = dir == 0;
                             Array.Clear(progress, 0, nty);
+                            Array.Clear(changedCur, 0, nTiles);
+                            bool canSkip = sweep > 0;
+                            var prevL = changedPrev; var curL = changedCur;
                             int nextRow = 0;
                             Parallel.For(0, workers, po, _ =>
                             {
@@ -139,14 +151,28 @@ namespace Iroca
                                         }
                                         int tx = forward ? c : ntx - 1 - c;
                                         int t = ty * ntx + tx;
-                                        if (PropagateHighlightRange(strength, highlightPot, tiled,
+                                        bool skip = false;
+                                        if (canSkip && !prevL[t])
+                                        {
+                                            // 先に処理する隣(同じ行の手前のタイルと、1 つ前の行のタイル)。
+                                            int ta = c > 0 ? (forward ? t - 1 : t + 1) : -1;
+                                            int tb = r > 0 ? prevTy * ntx + tx : -1;
+                                            skip = (ta < 0 || (!prevL[ta] && !curL[ta]))
+                                                && (tb < 0 || (!prevL[tb] && !curL[tb]));
+                                        }
+                                        if (!skip && PropagateHighlightRange(strength, highlightPot, tiled,
                                                 tileStart[t], tileStart[t + 1], w, h, forward))
+                                        {
+                                            curL[t] = true;
                                             changedLocal = true;
+                                        }
                                         Volatile.Write(ref progress[ty], c + 1);
                                     }
                                 }
                                 if (changedLocal) Volatile.Write(ref changedFlag, 1);
                             });
+                            var tmpChanged = changedPrev; changedPrev = changedCur; changedCur = tmpChanged;
+                            sweep++;
                         }
 
                         if (Volatile.Read(ref changedFlag) == 0) break;
