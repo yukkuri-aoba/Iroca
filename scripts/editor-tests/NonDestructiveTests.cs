@@ -211,11 +211,11 @@ namespace Iroca.EditorTests
                         so.FindProperty("m_StreamingMipmapsPriority").intValue);
         }
 
-        // VRChat はミップ付きテクスチャに mip streaming を必須にしている。ビルド中に作るテクスチャは
-        // SDK の「Fix」が届かないので、元の取り込み設定がオフでも立てる(NDMF の CheckMipStreamingPass が見る値)。
+        // mip streaming は元の取り込み設定をそのまま引き継ぐ(NDMF の CheckMipStreamingPass が見る値)。
+        // 元がオフなら元のアバターでも VRChat SDK が止めるので、そこで元を直せば引き継いでオンになる。
         [TestCase(false, 0)]
         [TestCase(true, 3)]
-        public void Build_AlwaysEnablesMipStreamingAndKeepsPriority(bool sourceStreaming, int sourcePriority)
+        public void Build_InheritsMipStreamingFromSource(bool sourceStreaming, int sourcePriority)
         {
             string path = _assets.WritePng("src", Bands(), W, H);
             var imp = (TextureImporter)AssetImporter.GetAtPath(path);
@@ -236,7 +236,7 @@ namespace Iroca.EditorTests
                 {
                     var tex = Track(RecipeTextureBuilder.Build(recipe, out var failure));
                     Assert.IsNotNull(tex, failure.ToString());
-                    Assert.AreEqual((true, sourcePriority), StreamingOf(tex), i == 0 ? "作りたて" : "キャッシュから");
+                    Assert.AreEqual((sourceStreaming, sourcePriority), StreamingOf(tex), i == 0 ? "作りたて" : "キャッシュから");
                 }
             }
             finally

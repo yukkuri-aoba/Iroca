@@ -135,7 +135,7 @@ namespace Iroca
         }
 
         /// <summary>
-        /// サンプリング設定・読み書き可否を元テクスチャにそろえ、mip streaming を立て、名前を付ける。
+        /// サンプリング設定・mip streaming・読み書き可否を元テクスチャにそろえ、名前を付ける。
         /// 読み書き不可にするとそれ以降 GetPixels できないので最後に呼ぶ。
         /// </summary>
         internal static void FinishLike(Texture2D tex, Texture2D like)
@@ -147,19 +147,15 @@ namespace Iroca
             tex.wrapModeW = like.wrapModeW;
             tex.anisoLevel = like.anisoLevel;
             tex.mipMapBias = like.mipMapBias;
-            if (tex.mipmapCount > 1)
+            if (AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(like)) is TextureImporter importer
+                && importer.streamingMipmaps)
             {
-                // VRChat はミップ付きテクスチャに mip streaming を必須にしている。元のアセットなら SDK の
-                // 「Fix」で直せるが、ビルド中に作ったこのテクスチャは誰も直せない(NDMF が生成元のバグとして警告する)ので、
-                // 元の取り込み設定がオフでも常に立てる。優先度だけは元に合わせる。
                 // 実行時に作った Texture2D には mip streaming の公開 API が無いのでシリアライズ値を直接立てる。
-                int priorityValue = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(like)) is TextureImporter importer
-                    ? importer.streamingMipmapsPriority : 0;
                 var so = new SerializedObject(tex);
                 var streaming = so.FindProperty("m_StreamingMipmaps");
                 var priority = so.FindProperty("m_StreamingMipmapsPriority");
                 if (streaming != null) streaming.boolValue = true;
-                if (priority != null) priority.intValue = priorityValue;
+                if (priority != null) priority.intValue = importer.streamingMipmapsPriority;
                 so.ApplyModifiedPropertiesWithoutUndo();
             }
             if (!like.isReadable) tex.Apply(updateMipmaps: false, makeNoLongerReadable: true);
