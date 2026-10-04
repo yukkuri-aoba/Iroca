@@ -333,8 +333,7 @@ namespace Iroca
         /// パス数と最小隣接数はアドバンスモードで調整可能。
         /// </summary>
         /// <remarks>
-        /// ダブルバッファリング方式: パスごとの配列クローンを避け、事前確保した
-        /// バッファを読み書きで swap することで大テクスチャでのメモリコピーを削減。
+        /// 各パスはパス開始時の状態を読み、書き込みはパスの終わりにまとめる(旧: 二重バッファ)。
         /// </remarks>
         private static void FillSmallHoles(float[] strength, int w, int h,
             int passes = 3, int minNeighbors = 4, bool[] allowedMask = null,
@@ -349,76 +348,121 @@ namespace Iroca
 
             // bbox 未指定(boxMaxX<0)なら全画素。指定時はその矩形内だけ近傍走査する(P2-7)。
             // 矩形外は呼び出し側が「処理前後とも 0」を保証するので走査を省いても出力ビット不変。
-            // Array.Copy(全画素)は安価なので残し、近傍を読む重いループだけを矩形に絞る。
             if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
 
-            int len = w * h;
-            float[] buffer = s_floatPool.Rent(len);
             var fillPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-            try
-            {
-            float[] read = strength;
-            float[] write = buffer;
-            // 書き換わりうるのは bbox 内だけで、近傍読みは bbox±1 まで。初回は bbox±1 を写し、以後は
-            // bbox だけを写せば、2 つのバッファは読まれる範囲で常に一致する(旧: 毎パス全画素コピー =
-            // 4K で 67MB の逐次コピー × パス数)。bbox±1 の外は読みも書き戻しもしない=出力ビット不変。
-            int rx0 = Math.Max(0, boxMinX - 1), ry0 = Math.Max(0, boxMinY - 1);
-            int rx1 = Math.Min(w - 1, boxMaxX + 1), ry1 = Math.Min(h - 1, boxMaxY + 1);
 
-            for (int pass = 0; pass < passes; pass++)
+            // 1 パス = 「未選択(!(s > 0))で許可された画素のうち、8 近傍の選択済み(s > 0)が minNeighbors 以上
+            // (かつ画像内の近傍数も minNeighbors 以上)の画素」を、選択済みの近傍の最小値(上限 1)で埋める。
+            // 読むのはパス開始時の状態。パス 2 以降に新しく埋まり得るのは、直前のパスで埋まった画素の隣だけ
+            // (それ以外の画素は読む近傍が前のパスと同じなので、前のパスと同じく埋まらない)。そこで最初の
+            // パスだけ矩形を走査し、以降は直前のパスで埋めた画素の隣だけを調べる。書き込みはパスの終わりに
+            // まとめるので、旧実装(二重バッファで矩形全体を毎パス走査)と同じ値になる。
+            bool TryFill(int x, int y, out float value)
             {
-                if (pass == 0) CopyRect(read, write, w, rx0, ry0, rx1, ry1, fillPo);
-                else CopyRect(read, write, w, boxMinX, boxMinY, boxMaxX, boxMaxY, fillPo);
-
-                Parallel.For(boxMinY, boxMaxY + 1, fillPo, y =>
+                int matched = 0;
+                int total = 0;
+                float minNeighbour = 1f;
+                for (int dy = -1; dy <= 1; dy++)
                 {
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        if (dx == 0 && dy == 0) continue;
+                        int nx = x + dx, ny = y + dy;
+                        if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+                        total++;
+                        float ns = strength[ny * w + nx];
+                        if (ns > 0f)
+                        {
+                            matched++;
+                            if (ns < minNeighbour) minNeighbour = ns;
+                        }
+                    }
+                }
+                value = minNeighbour;
+                return matched >= minNeighbors && total >= minNeighbors;
+            }
+
+            // パス 1: 矩形を走査。選択済みの近傍の数は、列ごとの上下 3 画素の個数を左右 3 列で足して数える
+            // (中央の画素自身は未選択なので含めても同じ)。足りる画素だけ近傍を読んで最小値を求める。
+            var found = new List<(int idx, float v)[]>();
+            var foundLock = new object();
+            Parallel.For(boxMinY, boxMaxY + 1, fillPo,
+                () => (col: new int[boxMaxX - boxMinX + 3], hits: new List<(int, float)>()),
+                (y, _, local) =>
+                {
+                    int[] col = local.col;
+                    int rb = y * w;
+                    int cx0 = Math.Max(0, boxMinX - 1), cx1 = Math.Min(w - 1, boxMaxX + 1);
+                    Array.Clear(col, 0, col.Length);
+                    for (int x = cx0; x <= cx1; x++)
+                    {
+                        int n = strength[rb + x] > 0f ? 1 : 0;
+                        if (y > 0 && strength[rb - w + x] > 0f) n++;
+                        if (y < h - 1 && strength[rb + w + x] > 0f) n++;
+                        col[x - boxMinX + 1] = n;
+                    }
                     for (int x = boxMinX; x <= boxMaxX; x++)
                     {
-                        int idx = y * w + x;
-                        if (read[idx] > 0f) continue;
+                        int idx = rb + x;
+                        if (strength[idx] > 0f) continue;
                         // relaxed ゲート: 画素自身が relaxed マッチを通る色でなければ埋めない。
                         // マッチ領域に囲まれただけの背景グレー/白を full strength に塗らないことで、
                         // 薄いロゴ周辺のフリンジ(白/灰ノイズ)を構造的に防ぐ。
                         if (allowedMask != null && !allowedMask[idx]) continue;
-
-                        int matched = 0;
-                        int total = 0;
-                        float minNeighbour = 1f;
-
-                        for (int dy = -1; dy <= 1; dy++)
-                        {
-                            for (int dx = -1; dx <= 1; dx++)
-                            {
-                                if (dx == 0 && dy == 0) continue;
-                                int nx = x + dx, ny = y + dy;
-                                if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
-                                total++;
-                                float ns = read[ny * w + nx];
-                                if (ns > 0f)
-                                {
-                                    matched++;
-                                    if (ns < minNeighbour) minNeighbour = ns;
-                                }
-                            }
-                        }
-
-                        if (matched >= minNeighbors && total >= minNeighbors)
-                            write[idx] = minNeighbour;
+                        int c = x - boxMinX + 1;
+                        if (col[c - 1] + col[c] + col[c + 1] < minNeighbors) continue;
+                        if (TryFill(x, y, out float v)) local.hits.Add((idx, v));
                     }
-                });
+                    return local;
+                },
+                local => { if (local.hits.Count > 0) lock (foundLock) found.Add(local.hits.ToArray()); });
 
-                var tmp = read;
-                read = write;
-                write = tmp;
-            }
-
-            // 最新結果が呼び出し元の strength 配列に入るように調整(書き換わりうる bbox だけ)
-            if (!ReferenceEquals(read, strength))
-                CopyRect(read, strength, w, boxMinX, boxMinY, boxMaxX, boxMaxY, fillPo);
-            }
-            finally
+            // パスの書き込みをまとめて行い、埋めた画素を次のパスの起点にする。同じ画素が複数の起点から
+            // 見つかっても値は同じ(パス開始時の近傍だけで決まる)なので、最初の 1 回だけ書く。
+            var frontier = new List<int>();
+            void Apply()
             {
-                s_floatPool.Return(buffer);
+                frontier.Clear();
+                foreach (var arr in found)
+                    foreach (var (idx, v) in arr)
+                    {
+                        if (strength[idx] > 0f) continue;
+                        strength[idx] = v;
+                        frontier.Add(idx);
+                    }
+                found.Clear();
+            }
+            Apply();
+
+            for (int pass = 1; pass < passes && frontier.Count > 0; pass++)
+            {
+                ct.ThrowIfCancellationRequested();
+                int[] fr = frontier.ToArray();
+                const int Chunk = 4096;
+                int nChunks = (fr.Length + Chunk - 1) / Chunk;
+                Parallel.For(0, nChunks, fillPo, () => new List<(int, float)>(), (ci, _, hits) =>
+                {
+                    int k1 = Math.Min(fr.Length, (ci + 1) * Chunk);
+                    for (int k = ci * Chunk; k < k1; k++)
+                    {
+                        int q = fr[k];
+                        int qy = q / w, qx = q - qy * w;
+                        int ny0 = Math.Max(boxMinY, qy - 1), ny1 = Math.Min(boxMaxY, qy + 1);
+                        int nx0 = Math.Max(boxMinX, qx - 1), nx1 = Math.Min(boxMaxX, qx + 1);
+                        for (int ny = ny0; ny <= ny1; ny++)
+                            for (int nx = nx0; nx <= nx1; nx++)
+                            {
+                                int idx = ny * w + nx;
+                                if (strength[idx] > 0f) continue;   // q 自身も(埋まったので)ここで外れる
+                                if (allowedMask != null && !allowedMask[idx]) continue;
+                                if (TryFill(nx, ny, out float v)) hits.Add((idx, v));
+                            }
+                    }
+                    return hits;
+                },
+                hits => { if (hits.Count > 0) lock (foundLock) found.Add(hits.ToArray()); });
+                Apply();
             }
         }
 
@@ -790,75 +834,109 @@ namespace Iroca
             Color.RGBToHSV(sampleColor, out sH, out sS, out sV);
             float rcSampR = sampleColor.r, rcSampG = sampleColor.g, rcSampB = sampleColor.b;
 
-            int len = w * h;
-            float[] buffer = s_floatPool.Rent(len);
             var recoverPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-            try
-            {
-            float[] read = strength;
-            float[] write = buffer;
-            // FillSmallHoles と同じく、読む範囲(bbox±1)と書く範囲(bbox)だけをバッファ間で写す。
-            int rx0 = Math.Max(0, boxMinX - 1), ry0 = Math.Max(0, boxMinY - 1);
-            int rx1 = Math.Min(w - 1, boxMaxX + 1), ry1 = Math.Min(h - 1, boxMaxY + 1);
 
-            for (int pass = 0; pass < passes; pass++)
+            // 1 パス = 「未選択(!(s > 0))で、8 近傍のどれかが選択済み(s > 0)の画素」に緩和マッチの値を
+            // 書く(値 > 0 のときだけ)。読むのはパス開始時の状態。緩和マッチの値は画素の色だけで決まる。
+            // そのためパス 2 以降に新しく書かれ得るのは、直前のパスで書かれた画素の隣だけ(それより前から
+            // 選択済みの画素の隣なら、値 > 0 である限り前のパスで書かれている)。そこで最初のパスだけ矩形を
+            // 走査し、以降は直前のパスで書いた画素の隣だけを調べる。どのパスも書き込みは終わりにまとめて
+            // 行うので、読むのはパス開始時の状態=旧実装(二重バッファで矩形全体を毎パス走査)と同じ値。
+            float RelaxedAt(int idx)
             {
-                if (pass == 0) CopyRect(read, write, w, rx0, ry0, rx1, ry1, recoverPo);
-                else CopyRect(read, write, w, boxMinX, boxMinY, boxMaxX, boxMaxY, recoverPo);
-
-                Parallel.For(boxMinY, boxMaxY + 1, recoverPo, y =>
+                if (relaxedByColor != null) return relaxedByColor[colorIndex[idx]];
+                float rpR = 0f, rpG = 0f, rpB = 0f;
+                if (originalPixels != null)
                 {
+                    Color32 rop = originalPixels[idx];
+                    rpR = rop.r / 255f; rpG = rop.g / 255f; rpB = rop.b / 255f;
+                }
+                return GetRelaxedMatchStrength(
+                    pixH[idx], pixS[idx], pixV[idx],
+                    sH, sS, sV, tolerance, edgeSoftness, valueWeight,
+                    satDistWeight, relaxedSatMin, relaxedSatRamp, shadowForgivenessSatMin,
+                    rpR, rpG, rpB, rcSampR, rcSampG, rcSampB, chromaConfidence, chromaThreshold,
+                    chromaCeiling);
+            }
+
+            // パス 1: 矩形を走査。8 近傍に選択済みがあるかは、列ごとの上下 3 画素の OR を左右 3 列で OR して
+            // 求める(中央の画素自身は未選択なので含めても同じ)。
+            var found = new List<(int idx, float v)[]>();
+            var foundLock = new object();
+            Parallel.For(boxMinY, boxMaxY + 1, recoverPo,
+                () => (col: new bool[boxMaxX - boxMinX + 3], hits: new List<(int, float)>()),
+                (y, _, local) =>
+                {
+                    bool[] col = local.col;
+                    int rb = y * w;
+                    int cx0 = Math.Max(0, boxMinX - 1), cx1 = Math.Min(w - 1, boxMaxX + 1);
+                    // col[x - boxMinX + 1] = (x, y-1..y+1) のどれかが選択済み。画像外の列は false のまま。
+                    Array.Clear(col, 0, col.Length);
+                    for (int x = cx0; x <= cx1; x++)
+                    {
+                        bool any = strength[rb + x] > 0f;
+                        if (y > 0 && strength[rb - w + x] > 0f) any = true;
+                        if (y < h - 1 && strength[rb + w + x] > 0f) any = true;
+                        col[x - boxMinX + 1] = any;
+                    }
                     for (int x = boxMinX; x <= boxMaxX; x++)
                     {
-                        int idx = y * w + x;
-                        if (read[idx] > 0f) continue;
-
-                        bool hasMatchedNeighbor = false;
-                        for (int dy = -1; dy <= 1 && !hasMatchedNeighbor; dy++)
-                            for (int dx = -1; dx <= 1 && !hasMatchedNeighbor; dx++)
-                            {
-                                if (dx == 0 && dy == 0) continue;
-                                int nx = x + dx, ny = y + dy;
-                                if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
-                                if (read[ny * w + nx] > 0f) hasMatchedNeighbor = true;
-                            }
-
-                        if (!hasMatchedNeighbor) continue;
-
-                        if (relaxedByColor != null)
-                        {
-                            float rel = relaxedByColor[colorIndex[idx]];
-                            if (rel > 0f) write[idx] = rel;
-                            continue;
-                        }
-                        float rpR = 0f, rpG = 0f, rpB = 0f;
-                        if (originalPixels != null)
-                        {
-                            Color32 rop = originalPixels[idx];
-                            rpR = rop.r / 255f; rpG = rop.g / 255f; rpB = rop.b / 255f;
-                        }
-                        float relaxed = GetRelaxedMatchStrength(
-                            pixH[idx], pixS[idx], pixV[idx],
-                            sH, sS, sV, tolerance, edgeSoftness, valueWeight,
-                            satDistWeight, relaxedSatMin, relaxedSatRamp, shadowForgivenessSatMin,
-                            rpR, rpG, rpB, rcSampR, rcSampG, rcSampB, chromaConfidence, chromaThreshold,
-                            chromaCeiling);
-                        if (relaxed > 0f)
-                            write[idx] = relaxed;
+                        int idx = rb + x;
+                        if (strength[idx] > 0f) continue;
+                        int c = x - boxMinX + 1;
+                        if (!(col[c - 1] || col[c] || col[c + 1])) continue;
+                        float rel = RelaxedAt(idx);
+                        if (rel > 0f) local.hits.Add((idx, rel));
                     }
-                });
+                    return local;
+                },
+                local => { if (local.hits.Count > 0) lock (foundLock) found.Add(local.hits.ToArray()); });
 
-                var tmp = read;
-                read = write;
-                write = tmp;
-            }
-
-            if (!ReferenceEquals(read, strength))
-                CopyRect(read, strength, w, boxMinX, boxMinY, boxMaxX, boxMaxY, recoverPo);
-            }
-            finally
+            // パスの書き込みをまとめて行い、書いた画素を次のパスの起点にする。同じ画素が複数の起点から
+            // 見つかっても値は同じ(色だけで決まる)なので、最初の 1 回だけ書いて残りは捨てる。
+            var frontier = new List<int>();
+            void Apply()
             {
-                s_floatPool.Return(buffer);
+                frontier.Clear();
+                foreach (var arr in found)
+                    foreach (var (idx, v) in arr)
+                    {
+                        if (strength[idx] > 0f) continue;
+                        strength[idx] = v;
+                        frontier.Add(idx);
+                    }
+                found.Clear();
+            }
+            Apply();
+
+            for (int pass = 1; pass < passes && frontier.Count > 0; pass++)
+            {
+                ct.ThrowIfCancellationRequested();
+                int[] fr = frontier.ToArray();
+                const int Chunk = 4096;
+                int nChunks = (fr.Length + Chunk - 1) / Chunk;
+                Parallel.For(0, nChunks, recoverPo, () => new List<(int, float)>(), (ci, _, hits) =>
+                {
+                    int k1 = Math.Min(fr.Length, (ci + 1) * Chunk);
+                    for (int k = ci * Chunk; k < k1; k++)
+                    {
+                        int q = fr[k];
+                        int qy = q / w, qx = q - qy * w;
+                        int ny0 = Math.Max(boxMinY, qy - 1), ny1 = Math.Min(boxMaxY, qy + 1);
+                        int nx0 = Math.Max(boxMinX, qx - 1), nx1 = Math.Min(boxMaxX, qx + 1);
+                        for (int ny = ny0; ny <= ny1; ny++)
+                            for (int nx = nx0; nx <= nx1; nx++)
+                            {
+                                int idx = ny * w + nx;
+                                if (strength[idx] > 0f) continue;   // q 自身も(選択済みなので)ここで外れる
+                                float rel = RelaxedAt(idx);
+                                if (rel > 0f) hits.Add((idx, rel));
+                            }
+                    }
+                    return hits;
+                },
+                hits => { if (hits.Count > 0) lock (foundLock) found.Add(hits.ToArray()); });
+                Apply();
             }
         }
 
