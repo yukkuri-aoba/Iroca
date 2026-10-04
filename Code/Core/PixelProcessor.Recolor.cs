@@ -105,13 +105,13 @@ namespace Iroca
             anchorC = 0f;
             int len = px.Length;
             // 色の表があれば (L, C) は色ごとの表から読む(同じ色に同じ変換を当てた値なのでビット単位で
-            // 同じ)。このときは画素ごとの保存配列 candL/candC を使わない。
-            int[] pIdx = null;
-            float[] pL = null, pC = null;
+            // 同じ)。その経路は TryComputeRecolorAnchorByColor(画素の走査は 1 回)。
             if (palette != null)
             {
                 palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct });
-                pIdx = palette.Index; pL = palette.OkL; pC = palette.OkC;
+                return TryComputeRecolorAnchorByColor(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
+                    out anchorL, out anchorC, statsExclude, ct,
+                    palette.Index, palette.OkL, palette.OkC, palette.Count);
             }
 
             // コア画素(strength>=AnchorStrengthMin & a>=128)の OkLab (L, C) を pass1 で一度だけ
@@ -121,8 +121,8 @@ namespace Iroca
             // 保存は **元画素インデックスのまま**(旧: 先頭詰めの圧縮配列)。pass2/3 は pass1 と同じ
             // コア判定で候補を選び直して読むだけになり、各パスが画素位置だけで完結する=チャンク
             // 並列化できる。集計はヒストグラム(整数加算)なので順序非依存で、逐次版とビット不変。
-            float[] candL = pIdx == null ? s_floatPool.Rent(len) : null;
-            float[] candC = pIdx == null ? s_floatPool.Rent(len) : null;
+            float[] candL = s_floatPool.Rent(len);
+            float[] candC = s_floatPool.Rent(len);
             try
             {
                 // pass 1: (L, C) を保存しつつ飽和度(C/L)ヒストグラム → 中央値から地色下限を決める
@@ -138,20 +138,11 @@ namespace Iroca
                             int i = rowOff + x;
                             if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
                             if (statsExclude != null && statsExclude[i]) continue;
-                            float L, C;
-                            if (pIdx != null)
-                            {
-                                int k = pIdx[i];
-                                L = pL[k]; C = pC[k];
-                            }
-                            else
-                            {
-                                RgbToOklab(px[i].r, px[i].g, px[i].b,
-                                    out L, out float a, out float b);
-                                C = Mathf.Sqrt(a * a + b * b);
-                                candL[i] = L;
-                                candC[i] = C;
-                            }
+                            RgbToOklab(px[i].r, px[i].g, px[i].b,
+                                out float L, out float a, out float b);
+                            float C = Mathf.Sqrt(a * a + b * b);
+                            candL[i] = L;
+                            candC[i] = C;
                             n++;
                             float satr = C / Mathf.Max(L, 1e-4f);
                             int bin = Mathf.Clamp((int)(satr / AnchorSatrHistMax * 255f), 0, 255);
@@ -177,9 +168,7 @@ namespace Iroca
                             int i = rowOff + x;
                             if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
                             if (statsExclude != null && statsExclude[i]) continue;
-                            float L, C;
-                            if (pIdx != null) { int k = pIdx[i]; L = pL[k]; C = pC[k]; }
-                            else { L = candL[i]; C = candC[i]; }
+                            float L = candL[i], C = candC[i];
                             if (C / Mathf.Max(L, 1e-4f) < satrFloor) continue;
                             hist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
                             n++;
@@ -208,9 +197,7 @@ namespace Iroca
                             int i = rowOff + x;
                             if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
                             if (statsExclude != null && statsExclude[i]) continue;
-                            float L, c;
-                            if (pIdx != null) { int k = pIdx[i]; L = pL[k]; c = pC[k]; }
-                            else { L = candL[i]; c = candC[i]; }
+                            float L = candL[i], c = candC[i];
                             if (c / Mathf.Max(L, 1e-4f) < satrFloor) continue;
                             if (L < bandLo || L > bandHi) continue;
                             hist[Mathf.Clamp((int)(c / AnchorChromaHistMax * 255f), 0, 255)]++;
@@ -228,6 +215,91 @@ namespace Iroca
                 if (candL != null) s_floatPool.Return(candL);
                 if (candC != null) s_floatPool.Return(candC);
             }
+        }
+
+        /// <summary>
+        /// TryComputeRecolorAnchor の色の表がある場合。(L, C) は色の番号だけで決まるので、コア画素を
+        /// 色ごとに 1 回の走査で数え、3 つのヒストグラム(飽和度・L・帯内の chroma)は色ごとの (L, C) と
+        /// 個数から作る(旧: 画素を 3 回走査)。各ビンへの加算は画素ごとに 1 ずつ足すのと同じ整数加算で、
+        /// ビンの式も画素ごとの経路と同じなので、ヒストグラムと戻り値はビット単位で同じ。
+        /// </summary>
+        private static bool TryComputeRecolorAnchorByColor(
+            Color32[] px, float[] strength, int w,
+            int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
+            out float anchorL, out float anchorC,
+            bool[] statsExclude, CancellationToken ct,
+            int[] pIdx, float[] pL, float[] pC, int colorCount)
+        {
+            anchorL = 0f;
+            anchorC = 0f;
+            var cnt = new int[colorCount];
+            int candCount = AccumulateHistParallelRows(bbMinY, bbMaxY + 1, cnt, (y0, y1, local) =>
+            {
+                int n = 0;
+                for (int y = y0; y < y1; y++)
+                {
+                    int rowOff = y * w;
+                    for (int x = bbMinX; x <= bbMaxX; x++)
+                    {
+                        int i = rowOff + x;
+                        if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
+                        if (statsExclude != null && statsExclude[i]) continue;
+                        local[pIdx[i]]++;
+                        n++;
+                    }
+                }
+                return n;
+            }, ct);
+            if (candCount < AnchorMinPixels) return false;
+
+            // 1: 飽和度(C/L)ヒストグラム → 中央値から地色下限
+            var satrHist = new int[256];
+            for (int k = 0; k < colorCount; k++)
+            {
+                int c = cnt[k];
+                if (c == 0) continue;
+                float satr = pC[k] / Mathf.Max(pL[k], 1e-4f);
+                satrHist[Mathf.Clamp((int)(satr / AnchorSatrHistMax * 255f), 0, 255)] += c;
+            }
+            float satrFloor = AnchorBodySatrFrac *
+                HistValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax);
+
+            // 2: 地色(飽和度 ≥ 下限)の L ヒストグラム → 代表 L と L 帯
+            var lHist = new int[256];
+            int bodyCount = 0;
+            for (int k = 0; k < colorCount; k++)
+            {
+                int c = cnt[k];
+                if (c == 0) continue;
+                float L = pL[k], C = pC[k];
+                if (C / Mathf.Max(L, 1e-4f) < satrFloor) continue;
+                lHist[Mathf.Clamp((int)(L * 255f), 0, 255)] += c;
+                bodyCount += c;
+            }
+            if (bodyCount < AnchorMinPixels) return false;
+            float l05 = HistValueAtPercentile(lHist, bodyCount, 0.05f, 1f);
+            float l95 = HistValueAtPercentile(lHist, bodyCount, 0.95f, 1f);
+            if (l95 - l05 < AnchorMinLSpread) return false;  // フラット領域: どこを取っても同じ
+            anchorL = HistValueAtPercentile(lHist, bodyCount, AnchorLPct, 1f);
+            float bandLo = HistValueAtPercentile(lHist, bodyCount, AnchorLBandLoPct, 1f);
+            float bandHi = HistValueAtPercentile(lHist, bodyCount, AnchorLBandHiPct, 1f);
+
+            // 3: L 帯内の地色の chroma 中央値 → 代表 C
+            var cHist = new int[256];
+            int bandCount = 0;
+            for (int k = 0; k < colorCount; k++)
+            {
+                int c = cnt[k];
+                if (c == 0) continue;
+                float L = pL[k], ch = pC[k];
+                if (ch / Mathf.Max(L, 1e-4f) < satrFloor) continue;
+                if (L < bandLo || L > bandHi) continue;
+                cHist[Mathf.Clamp((int)(ch / AnchorChromaHistMax * 255f), 0, 255)] += c;
+                bandCount += c;
+            }
+            if (bandCount < 1) return false;
+            anchorC = HistValueAtPercentile(cHist, bandCount, 0.5f, AnchorChromaHistMax);
+            return anchorC > 1e-4f;
         }
 
         // RecolorPixel のゾーン不変パラメータ(再着色ホットループの前に 1 回だけ確定する値)をまとめた
