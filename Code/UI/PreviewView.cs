@@ -166,7 +166,10 @@ namespace Iroca
             set
             {
                 _previewDirty = value;
-                if (value) InputClock.NoteInput(PreviewLatencyCycle.Now);
+                if (!value) return;
+                InputClock.NoteInput(PreviewLatencyCycle.Now);
+                // 編集はどれもここを通るので、自動保存の合図にもする(IrocaWindow.Autosave)。
+                _host?.NoteSessionEdited();
             }
         }
         [System.NonSerialized] private PreviewInputClock _inputClock;
