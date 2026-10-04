@@ -229,6 +229,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 #### ズームとパン
 
+- ズーム 100% は、テクスチャ全体がプレビュー枠にちょうど収まる大きさです。ウィンドウを広げるとプレビューも大きくなります
 - Ctrl + スクロール: ズーム（ピクセル単位まで拡大できます）
 - ドラッグ: ビューの移動
 - 中ボタンドラッグ / Alt + ドラッグ: マスクを塗っている最中でも移動できます
@@ -726,6 +727,7 @@ After you change a setting, the preview updates automatically in about 0.2 secon
 
 #### Zoom and pan
 
+- At 100% zoom the whole texture just fits in the preview frame. Widening the window makes the preview larger
 - Ctrl + Scroll: zoom (down to pixel level)
 - Drag: pan the view
 - Middle-button drag / Alt + drag: pans even while you are painting a mask

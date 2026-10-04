@@ -56,8 +56,8 @@ namespace Iroca
             var win = GetWindow<IrocaPreviewWindow>(
                 utility: false, title: Localization.PreviewWindowTitle, focus: true);
             win._host = host;
-            // 等倍(100%)の MaxSize プレビューが極端に潰れない下限。これ未満でも
-            // PreviewView 側が枠を MinViewportHeight まで縮めてスクロールへ逃がす。
+            // 全体表示(100%)の画像が小さくなりすぎない下限。プレビューは窓の大きさに合わせて
+            // 拡大縮小するので、これより小さくても崩れはしない(枠は MinViewportHeight で止まる)。
             win.minSize = new Vector2(320, 320);
             win.Show();
         }

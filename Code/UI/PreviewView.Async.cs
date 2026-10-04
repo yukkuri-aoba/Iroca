@@ -326,7 +326,7 @@ namespace Iroca
 
             var maskView = _host._maskView;
             // オーバーレイ寸法はプレビュー寸法の整数倍(表示倍率に追従。OverlayScale が正)。
-            int ovScale = maskView.OverlayScale(w, h, previewZoom);
+            int ovScale = maskView.OverlayScale(w, h, EffectiveZoom);
             int ovW = w * ovScale, ovH = h * ovScale;
             if (maskView.overlayBuiltW != ovW || maskView.overlayBuiltH != ovH || maskView.maskDirty)
             {

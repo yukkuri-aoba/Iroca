@@ -44,15 +44,19 @@ namespace Iroca
         // 作り直しを間引く)。作り直しは確定(フル段)の出力の切り出しだけで軽い(数〜数十 ms)ので短くしている。
         // 短すぎると、ホイールを 1 段ずつ回したときに段の合間で拡大表示が出入りしてちらつく。
         public const double DetailDebounceSeconds = 0.1;
-        // 詳細モード: 表示倍率がこの値を超えたら、低解像度プレビューの引き伸ばしをやめて
+        // 詳細モード: 表示倍率(PreviewView.EffectiveZoom＝プレビューテクスチャ 1 画素が何 pt か。
+        // 全体表示の倍率込み)がこの値を超えたら、低解像度プレビューの引き伸ばしをやめて
         // ソース解像度から作り直したクロップへ切り替える。
         // 旧実装は「ディスプレイ/ソース比 >= 1」を条件にしていたが、ソースが
         // 大きいほど閾値が previewZoom の上限(4x)を超えてしまい、2K超のテクスチャで
         // 詳細プレビューが一切起動しなくなっていた。
-        // なお previewZoom > 1 は「ソース画素より大きく表示されている」ことを意味しない
-        // (画面倍率は scale * previewZoom で、4K なら 125% でも 1/8.5 の縮小)。クロップは
+        // なお表示倍率 > 1 は「ソース画素より大きく表示されている」ことを意味しない
+        // (画面倍率は scale * 表示倍率で、4K なら 125% でも 1/8.5 の縮小)。クロップは
         // 表示ピクセル数へ面平均してからアップロードする(GenerateDetailPreviewAsync 参照)。
-        public const float DetailMinZoom = 1.0f;
+        // 1.0 ちょうどでなく少し上にするのは、全体表示の倍率が 1 をわずかに超えるだけのウィンドウで
+        // (見た目が変わらないのに)確定のたびに全面のクロップを作り直さないため。ズームのストップは
+        // 1 の次が 1.25 なので、全体表示が 1 のときの切り替わりは以前と同じ。
+        public const float DetailMinZoom = 1.1f;
 
         // 永続的な詳細クロップ原点（詳細プレビュー適用時に設定、レンダラーで読み取られます）
         [System.NonSerialized] public int detailOriginX, detailOriginY;
@@ -125,14 +129,14 @@ namespace Iroca
 
         /// <summary>
         /// スクロールされたプレビューの対応するリージョンと正確に整列する詳細クロップをレンダリングする
-        /// スクリーン空間矩形を返します。
+        /// スクリーン空間矩形を返します。displayZoom は画面上の表示倍率(PreviewView.EffectiveZoom)。
         /// </summary>
-        public Rect ComputeDetailScreenRect(Rect activePreviewRect, float scale, float previewZoom, Vector2 previewScrollPos, int srcW, int srcH)
+        public Rect ComputeDetailScreenRect(Rect activePreviewRect, float scale, float displayZoom, Vector2 previewScrollPos, int srcW, int srcH)
         {
             if (detailPreviewTexture == null) return activePreviewRect;
 
             // ソースピクセルあたりのディスプレイピクセル
-            float pxPerSrc = scale * previewZoom;
+            float pxPerSrc = scale * displayZoom;
 
             // activePreviewRect は ScrollView 内のレイアウト座標（＝コンテンツ座標）で渡される。
             // この空間ではスクロール量はグループ変換側で吸収済みのため、ここで previewScrollPos を
@@ -161,9 +165,10 @@ namespace Iroca
         /// 書き出しと食い違っていた(dev_safe/docs/zoom_roi_study_2026-10-03.md §3)。フル段は書き出しと
         /// 同じ入力・同じ関数でフル解像度を計算しているので、その出力の切り出しは書き出しと一致する。
         /// processedFull が無い(まだ確定していない・元画素が変わった)ときは何もしない。
+        /// displayZoom は画面上の表示倍率(PreviewView.EffectiveZoom。全体表示の倍率込み)。
         /// </summary>
         public void GenerateDetailPreviewAsync(int srcW, int srcH, Color32[] srcPixels, Color32[] processedFull,
-            float scale, float previewZoom, Vector2 previewScrollPos, float viewportW, float viewportH,
+            float scale, float displayZoom, Vector2 previewScrollPos, float viewportW, float viewportH,
             PreviewLatencyCycle latency = null)
         {
             long prepStart = PreviewLatencyCycle.Now;
@@ -173,7 +178,7 @@ namespace Iroca
             if (sourceTexture == null) return;
             if (scale >= 1f) return;
 
-            if (previewZoom <= DetailMinZoom) return;
+            if (displayZoom <= DetailMinZoom) return;
             if (viewportW <= 0f || viewportH <= 0f) return;
             if (processedFull == null || srcPixels == null ||
                 processedFull.Length != srcW * srcH || srcPixels.Length != srcW * srcH) return;
@@ -182,7 +187,7 @@ namespace Iroca
             // ＝displayW)を使っていたため x1 が常に srcW までクランプされ、ズーム時に
             // 可視範囲をはるかに超える全幅をフル解像度で処理していた。viewportW/H は
             // スクロールビューの可視サイズなので、ここから可視ソース範囲を求める。
-            float invZoomScale = 1f / (previewZoom * scale);
+            float invZoomScale = 1f / (displayZoom * scale);
             int x0 = Mathf.FloorToInt(previewScrollPos.x * invZoomScale);
             int x1 = Mathf.CeilToInt((previewScrollPos.x + viewportW) * invZoomScale);
 
@@ -203,13 +208,13 @@ namespace Iroca
             if (cropW <= 0 || cropH <= 0) return;
 
             // クロップをアップロードする解像度。ソース 1 画素が占めるディスプレイ画素数
-            // (pxPerSrc = scale * previewZoom) が 1 未満なら、画面上は縮小表示されている。
+            // (pxPerSrc = scale * displayZoom) が 1 未満なら、画面上は縮小表示されている。
             // その状態でフル解像度のままテクスチャ化すると、GPU の Point サンプリングが
             // 数画素に 1 つを拾う最近傍間引きになり、細かい模様がモアレ＝ブロック状の
             // ノイズとして出る(4K テクスチャの 125% は 8.5:1 の間引き)。表示ピクセル数まで
             // 面平均(BoxDownsample)してから渡せば、メインプレビューと同じ縮小品質になる。
             // 拡大表示(pxPerSrc>=1)ではソース画素をそのまま見せたいので縮小しない。
-            float pxPerSrc = scale * previewZoom;
+            float pxPerSrc = scale * displayZoom;
             int outW = cropW, outH = cropH;
             if (pxPerSrc < 1f)
             {

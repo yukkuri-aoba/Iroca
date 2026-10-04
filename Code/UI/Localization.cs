@@ -462,11 +462,15 @@ namespace Iroca
             ? "ドラッグして並べ替え＝優先度の変更。上にあるゾーンほど優先され、重なった部分は上のゾーンだけが適用されます（下のゾーンのマスクとして機能します）。"
             : "Drag to reorder = change priority. Upper zones take precedence; in overlapping areas only the upper zone is applied (it acts as a mask for lower zones).";
         public static string ZoomHint => IsJapanese
-            ? "Ctrl+スクロールでズーム。高解像度プレビューはピクセル単位まで拡大できます（上限はテクスチャ解像度に応じて自動調整）"
-            : "Ctrl+scroll to zoom. The high-res preview can be magnified down to pixel level (max zoom auto-scales with texture resolution).";
+            ? "Ctrl+スクロールでズーム。100% はテクスチャ全体がプレビュー枠に収まる大きさです。高解像度プレビューはピクセル単位まで拡大できます（上限はテクスチャ解像度に応じて自動調整）"
+            : "Ctrl+scroll to zoom. 100% fits the whole texture in the preview frame. The high-res preview can be magnified down to pixel level (max zoom auto-scales with texture resolution).";
         public static string ZoomLabel => IsJapanese
             ? "ズーム: {0}%  (Ctrl+スクロール)"
             : "Zoom: {0}%  (Ctrl+Scroll)";
+        // 見出し行に収まらない狭いプレビュー列で使う短い表記（操作方法はツールチップ ZoomHint にある）。
+        public static string ZoomLabelShort => IsJapanese
+            ? "ズーム: {0}%"
+            : "Zoom: {0}%";
         public static string PanHint => IsJapanese
             ? "ドラッグでパン"
             : "Drag to pan";
@@ -1006,8 +1010,8 @@ namespace Iroca
         // ─────────────────────────────────────────────────────────────
         public static string ZoomReset => IsJapanese ? "リセット" : "Reset";
         public static string ZoomResetTooltip => IsJapanese
-            ? "ズームを 100% に戻し、表示位置も先頭に戻します（ズームは Ctrl+スクロールで変えられます）"
-            : "Reset the zoom to 100% and the scroll position to the top-left (zoom with Ctrl+Scroll)";
+            ? "ズームを 100%（テクスチャ全体が収まる大きさ）に戻し、表示位置も先頭に戻します（ズームは Ctrl+スクロールで変えられます）"
+            : "Reset the zoom to 100% (the whole texture fits) and the scroll position to the top-left (zoom with Ctrl+Scroll)";
 
         public static string PeekOriginal => IsJapanese ? "元を表示" : "Original";
         public static string PeekOriginalTooltip => IsJapanese

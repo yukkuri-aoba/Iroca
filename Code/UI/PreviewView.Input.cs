@@ -11,7 +11,8 @@ namespace Iroca
     internal partial class PreviewView
     {
 
-        private void HandlePreviewGlobalInput(Rect previewRect, float scale)
+        /// <param name="maxZoom">ズーム(previewZoom)の上限。全体表示の倍率込みで Draw が決めたもの。</param>
+        private void HandlePreviewGlobalInput(Rect previewRect, float maxZoom)
         {
             Event e = Event.current;
             if (e == null) return;
@@ -56,19 +57,19 @@ namespace Iroca
                             int count = Mathf.Abs(steps);
                             float newZoom = oldZoom;
                             for (int i = 0; i < count; i++)
-                                newZoom = StepZoom(newZoom, zoomIn, ComputeMaxZoom(scale));
+                                newZoom = StepZoom(newZoom, zoomIn, maxZoom);
 
                             if (previewTexture != null && Mathf.Abs(newZoom - oldZoom) > 0.0001f)
                             {
-                                // 等倍(100%)以下でも、動的高さ調整でビューポートが画像より
-                                // 小さいことがある。画像が収まるときだけスクロールを原点へ戻す
-                                // (アンカー補正の残差が残ると枠からずれたまま直せない)。
-                                // 収まらないときはスクロール位置が正当なのでアンカー補正で
-                                // 追従させる(その間はパンも等倍以下で有効になる)。
-                                int panels = (comparisonMode && rawPreviewTexture != null) ? 2 : 1;
-                                float dispW = previewTexture.width * newZoom * panels
+                                // 全体表示(100%)以下でも、枠の下限高で止まる低いウィンドウでは
+                                // ビューポートが画像より小さいことがある。画像が収まるときだけ
+                                // スクロールを原点へ戻す(アンカー補正の残差が残ると枠からずれたまま
+                                // 直せない)。収まらないときはスクロール位置が正当なのでアンカー補正で
+                                // 追従させる(その間はパンも 100% 以下で有効になる)。
+                                int panels = PanelCount;
+                                float dispW = previewTexture.width * newZoom * _fitScale * panels
                                     + (panels - 1) * IrocaConsts.Preview.PanelSpacing;
-                                float dispH = previewTexture.height * newZoom;
+                                float dispH = previewTexture.height * newZoom * _fitScale;
                                 bool fitsViewport = newZoom <= 1f + ZoomEpsilon &&
                                     dispW <= _detailView.lastViewportW + 1f &&
                                     dispH <= _detailView.lastViewportH + 1f;
@@ -78,8 +79,16 @@ namespace Iroca
                                 }
                                 else
                                 {
+                                    // カーソルの下の点を動かさない。画像は枠の左右中央に置くので
+                                    // (Draw 参照)、枠より狭いあいだは左の余白もズームで変わる。
+                                    // その差も足さないと、全体表示から拡大した瞬間に余白の分だけ横へ飛ぶ。
+                                    var pad = GUI.skin.scrollView.padding;
+                                    float oldOffsetX = previewRect.x - pad.left;
+                                    float newOffsetX = Mathf.Max(0f,
+                                        (_detailView.lastViewportW - pad.horizontal - dispW) * 0.5f);
                                     Vector2 mouseInImage = e.mousePosition - new Vector2(previewRect.x, previewRect.y);
                                     _previewScrollPos += mouseInImage * (newZoom / oldZoom - 1f);
+                                    _previewScrollPos.x += newOffsetX - oldOffsetX;
                                     _previewScrollPos.x = Mathf.Max(0f, _previewScrollPos.x);
                                     _previewScrollPos.y = Mathf.Max(0f, _previewScrollPos.y);
                                 }
@@ -229,9 +238,9 @@ namespace Iroca
                     if (maskView.isPainting && isInRect)
                     {
                         // 実際に塗られる円は直径 (2*brushSize+1) 格子セル。1 セルの画面上の
-                        // サイズは previewZoom なので、カーソルも同じ大きさで描いて
+                        // サイズは表示倍率(EffectiveZoom)なので、カーソルも同じ大きさで描いて
                         // 「見えている範囲 = 塗られる範囲」を一致させる(従来は半分だった)。
-                        float brushPixels = (maskView.brushSize * 2f + 1f) * previewZoom;
+                        float brushPixels = (maskView.brushSize * 2f + 1f) * EffectiveZoom;
                         // カーソル色は「いま塗ろうとしているマスクの色」を映す（オーバーレイと
                         // 同じ 赤=除外 / 緑=含める）。消しゴムはどちらの種類でも「取り除く」操作
                         // なので中立の白にする。以前は塗る/消すの別を色で表していたため、含める

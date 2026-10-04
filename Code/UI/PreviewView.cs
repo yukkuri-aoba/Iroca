@@ -21,16 +21,17 @@ namespace Iroca
         private const float MinPreviewZoom = 0.25f;
         // ピクセル単位で確認できるよう、最大ズーム時に「ソース 1px が画面上で最低
         // PixelInspectTargetPx ピクセルになる」ところまで拡大を許可する。高解像度
-        // プレビューが映すのはソース画素で、画面倍率は scale*zoom なので zoom = target/scale。
+        // プレビューが映すのはソース画素で、画面倍率は scale*表示倍率なので 表示倍率 = target/scale。
         // 大きいテクスチャ(scale 小)ほど高ズームを許す。小さいテクスチャでも最低 16x。
         private const float PixelInspectTargetPx = 16f;
-        // 倍率そのものの上限。プレビュー枠(内側 ScrollView)の内容幅は
-        // previewTexture.width * zoom まで広がり、ここでは最大 MaxSize(384) * 64 ≒ 24.6k px。
+        // 表示倍率そのものの上限。プレビュー枠(内側 ScrollView)の内容幅は
+        // previewTexture.width * 表示倍率 まで広がり、ここでは最大 MaxSize(384) * 64 ≒ 24.6k px。
         // これ以上は IMGUI のレイアウト/スクロール可動域とパン操作量が現実的でなくなるため
         // 頭打ちにする(4K テクスチャなら 64x でソース 1px ≒ 画面 6px 相当)。
         private const float AbsoluteMaxPreviewZoom = 64f;
 
-        // テクスチャの縮小率 scale に応じたズーム上限。
+        // テクスチャの縮小率 scale に応じた表示倍率(EffectiveZoom)の上限。
+        // ズーム(previewZoom)の上限はこれを全体表示の倍率で割ったもの(Draw 参照)。
         private static float ComputeMaxZoom(float scale)
         {
             if (scale <= 0f) return AbsoluteMaxPreviewZoom;
@@ -38,12 +39,76 @@ namespace Iroca
         }
 
         // 表示倍率が 104% のような半端な値にならないよう、ズームは「きれいな数字」の
-        // 固定ストップにスナップさせる。1 ノッチ＝隣のストップ。25%〜6400% を網羅。
+        // 固定ストップにスナップさせる。1 ノッチ＝隣のストップ。25%〜12800% を網羅
+        // (全体表示が小さい狭いウィンドウでは、同じ表示倍率に届くのにズームの数字が大きくなる)。
         private static readonly float[] ZoomStops =
         {
             0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f, 4f, 5f, 6f,
-            8f, 10f, 12f, 16f, 20f, 24f, 32f, 40f, 48f, 64f
+            8f, 10f, 12f, 16f, 20f, 24f, 32f, 40f, 48f, 64f, 96f, 128f
         };
+
+        // ── 全体表示(100%)の倍率 ──────────────────────────────────
+        // ズーム 100% は「画像全体がプレビュー枠にちょうど収まる大きさ」。以前は 100% =
+        // プレビューテクスチャ(長辺 MaxSize=384)1 画素 = 1pt の固定で、ウィンドウを広げると
+        // 画像が左上に小さく残って右と下が大きく空き、狭めると 100% でも画像の一部しか
+        // 見えずにスクロールバーが出ていた。枠の大きさから倍率を決め、previewZoom はそれに
+        // 掛ける相対値にする(100%/リセットで常に全体が見える)。
+        // 画面上の大きさ(プレビューテクスチャ 1 画素あたりの pt)は EffectiveZoom が正。
+        // テクスチャより大きく引き伸ばす分は、詳細プレビュー(フル解像度の切り出し)がくっきり描き直す。
+        [System.NonSerialized] private float _fitScale = 1f;
+        // 全体表示の倍率の下限(枠が異常に小さい実測値で 0 や負にならないための保険)。
+        private const float MinFitScale = 0.05f;
+        // 全体表示の画像と枠の間に残す丸めの逃げ(px)。これが無いと浮動小数の端数で
+        // 100% でもスクロールバーが出ることがある。
+        private const float FitSlack = 2f;
+
+        /// <summary>画面上の表示倍率(プレビューテクスチャ 1 画素が何 pt か)。全体表示の倍率 × ズーム。</summary>
+        internal float EffectiveZoom => previewZoom * _fitScale;
+
+        private int PanelCount => (comparisonMode && rawPreviewTexture != null) ? 2 : 1;
+
+        // 比較モードの Before/After 見出し行の高さ。
+        private static float ComparisonLabelHeight =>
+            EditorGUIUtility.singleLineHeight + EditorStyles.label.margin.vertical;
+
+        // プレビュー枠に使える高さが分かっているか(カラム高はホストが渡し、枠より上の UI の
+        // 高さは前フレームの Repaint で実測する。どちらも無い初回フレームは従来の 1:1 表示)。
+        private bool HasFrameHeightBudget => availableColumnHeight > 0f && _chromeAboveViewportH > 0f;
+
+        // プレビュー枠に使える高さ(カラム高 − 枠より上の UI − 枠下の余白)。低いウィンドウでも
+        // 下限(MinViewportHeight)は確保し、あふれた分は外側の ScrollView のスクロールに任せる。
+        private float FrameHeightBudget => Mathf.Max(IrocaConsts.Preview.MinViewportHeight,
+            availableColumnHeight - _chromeAboveViewportH - ViewportBottomPadding);
+
+        /// <summary>
+        /// 全体表示(ズーム 100%)の倍率。枠の内側(スクロールビューの余白と比較モードの見出し・
+        /// パネル間隔を除く)に、画像全体がスクロールバー無しで収まる最大の倍率。
+        /// </summary>
+        private float ComputeFitScale(int texW, int texH, int panelCount, float frameW)
+        {
+            if (texW <= 0 || texH <= 0 || frameW <= 1f || !HasFrameHeightBudget) return 1f;
+            var pad = GUI.skin.scrollView.padding;
+            float innerW = frameW - pad.horizontal - (panelCount - 1) * IrocaConsts.Preview.PanelSpacing - FitSlack;
+            float innerH = FrameHeightBudget - pad.vertical - FitSlack
+                           - (panelCount == 2 ? ComparisonLabelHeight : 0f);
+            float fit = Mathf.Min(innerW / (texW * (float)panelCount), innerH / texH);
+            return Mathf.Max(MinFitScale, fit);
+        }
+
+        /// <summary>
+        /// 全体表示の倍率を枠の大きさに合わせて更新する。倍率が変わったとき(ウィンドウのリサイズ・
+        /// 比較モードの切替・枠より上の UI の増減)は、見ていた位置を保つようにスクロール量
+        /// (表示 pt 単位)を同じ比で伸縮し、拡大表示を新しい倍率で作り直させる。
+        /// </summary>
+        private void UpdateFitScale(int panelCount, float frameW)
+        {
+            if (previewTexture == null) return;
+            float fit = ComputeFitScale(previewTexture.width, previewTexture.height, panelCount, frameW);
+            if (Mathf.Abs(fit - _fitScale) <= 1e-4f) return;
+            _previewScrollPos *= fit / _fitScale;
+            _fitScale = fit;
+            _detailView.MarkViewChanged();
+        }
         private const float ZoomEpsilon = 1e-4f;
 
         // Ctrl+スクロールズームの感度。マウスホイールやトラックパッドは機種によって
@@ -145,6 +210,8 @@ namespace Iroca
         // ズーム率ラベルは毎フレーム描画されるため、ズーム値か言語が変わったときだけ
         // 文字列を再生成してアロケーションを避ける（IrocaWindow.EnsureZoneListCache と同方針）。
         [System.NonSerialized] private string _cachedZoomLabel;
+        // 見出し行に収まらない狭いカラム用(操作方法の括弧書きを省く。ツールチップには残る)。
+        [System.NonSerialized] private string _cachedZoomLabelShort;
         [System.NonSerialized] private int _cachedZoomPercent = -1;
         [System.NonSerialized] private LanguageMode _cachedZoomLang = (LanguageMode)(-1);
 
@@ -521,10 +588,11 @@ namespace Iroca
             // プレビュー寸法の整数倍へ引き上げる(MaskPaintView.OverlayScale が正)。倍率変更でも
             // 目標が変わるため、maskDirty と同じ経路で再構築する。実寸ではなく最後に構築した
             // 寸法(overlayBuilt*)と比べるのは、マスクが空でテクスチャが無いときに毎フレーム
-            // 再構築を撃たないため。
+            // 再構築を撃たないため。倍率は画面上の表示倍率(全体表示の倍率込み。値は前フレームで
+            // 確定したもの)。
             if (previewTexture != null)
             {
-                int ovScale = maskView.OverlayScale(previewTexture.width, previewTexture.height, previewZoom);
+                int ovScale = maskView.OverlayScale(previewTexture.width, previewTexture.height, EffectiveZoom);
                 int ovW = previewTexture.width * ovScale;
                 int ovH = previewTexture.height * ovScale;
                 bool sizeStale = maskView.overlayBuiltW != ovW || maskView.overlayBuiltH != ovH;
@@ -542,7 +610,7 @@ namespace Iroca
                     // throttle 時は maskDirty を残し、次フレームで再評価する。
                     // ペイント中は MouseDrag が継続的に Repaint を呼ぶので追加の RequestRepaint は不要。
                 }
-                maskView.SyncOverlayFilter(previewZoom);
+                maskView.SyncOverlayFilter(EffectiveZoom);
             }
 
             // 「生成中…」インジケータの文言。プレビュー確立後は下の操作行（比較/差分・
@@ -570,7 +638,30 @@ namespace Iroca
             float scale = (srcW > IrocaConsts.Preview.MaxSize || srcH > IrocaConsts.Preview.MaxSize)
                 ? IrocaConsts.Preview.MaxSize / (float)Mathf.Max(srcW, srcH)
                 : 1f;
-            float maxZoom = ComputeMaxZoom(scale);
+
+            // プレビュー枠の幅は「カラムの見えている幅」に固定する。ExpandWidth(true) だと
+            // GUILayout は外側 ScrollView の clientWidth をそのまま配るが、GUIScrollGroup は
+            // 「子の最小幅がカラム幅を超えたら clientWidth をその最小幅まで広げ、子をその幅で
+            // 並べる」仕様で、横バーの style を GUIStyle.none にしてもレイアウト上の横スクロールは
+            // 生きている(none は"描かない・幅0"であって"許可しない"ではない)。
+            // その結果、操作行(比較/差分・ズーム率・生成状態)の最小幅がカラム幅を超えるほど
+            // 狭い横並びでは、生成状態ラベルが出入りするだけで枠幅が数十 px 動き、
+            //   ・枠幅がカラム可視幅を超えた分、画像右端がカラムのクリップ外に出る
+            //     (内側の横スクロールでも届かない＝右端が外側スクロールバーの位置で隠れる)
+            //   ・横スクロールの可動域(内容幅 − 枠幅)が縮み、右端まで送った表示が左へ戻る
+            // が同時に起きていた。カラム幅から外側縦バー分を引いた固定値にすれば、枠は常に
+            // カラムの可視範囲へ収まり、chrome の都合で幅が動かない。縦バーは出入りするので
+            // 常に引いておく(左カラムで縦バーを常時確保しているのと同じ「幅を動かさない」方針)。
+            var vBarStyle = GUI.skin.verticalScrollbar;
+            float vBarReserve = vBarStyle.fixedWidth + vBarStyle.margin.left;
+            float frameW = availableColumnWidth > 1f
+                ? Mathf.Max(IrocaConsts.Preview.MinViewportWidth, availableColumnWidth - vBarReserve)
+                : 0f;
+
+            // 全体表示(100%)の倍率は枠の大きさで決まり、ズームの上限はそれに依存する
+            // (上限は画面上の表示倍率で決まっているので、全体表示が大きいほどズームの数字は小さく済む)。
+            UpdateFitScale(PanelCount, frameW);
+            float maxZoom = ComputeMaxZoom(scale) / _fitScale;
 
             // テクスチャ切り替えやデシリアライズで残った半端な/上限超過のズーム値を、
             // 毎フレーム最も近い「きれいな数字」のストップへ丸める（表示倍率の見映え対策）。
@@ -583,6 +674,7 @@ namespace Iroca
                 _cachedZoomPercent = zoomPercent;
                 _cachedZoomLang = Localization.CurrentLanguage;
                 _cachedZoomLabel = string.Format(Localization.ZoomLabel, zoomPercent);
+                _cachedZoomLabelShort = string.Format(Localization.ZoomLabelShort, zoomPercent);
             }
 
             DrawTitleRow(true, maxZoom);
@@ -634,10 +726,16 @@ namespace Iroca
 
             DrawInteractionModeRow();
 
-            // 詳細モード: ソースが縮小されて表示されている(scale<1)テクスチャを拡大したとき、
-            // 低解像度プレビューの引き伸ばしではなくソース解像度から作り直したクロップを出す。
+            // 比較/差分トグルを押したイベントではパネル数が変わり得るので、全体表示の倍率をここで揃え直す。
+            int panelCount = PanelCount;
+            UpdateFitScale(panelCount, frameW);
+            float effZoom = EffectiveZoom;
+
+            // 詳細モード: ソースが縮小されて表示されている(scale<1)テクスチャを、プレビューテクスチャより
+            // 大きく表示しているとき(拡大したとき・広いウィンドウの全体表示)、低解像度プレビューの
+            // 引き伸ばしではなくソース解像度から作り直したクロップを出す。
             bool detailActive = scale < 1f &&
-                                previewZoom > DetailPreviewView.DetailMinZoom &&
+                                effZoom > DetailPreviewView.DetailMinZoom &&
                                 !comparisonMode;
 
             if (detailActive)
@@ -652,7 +750,7 @@ namespace Iroca
                     var latency = _detailView.TakeLatencyFor(_detailView.lastDetailDirtyTime, srcW, srcH);
                     _detailView.lastDetailDirtyTime = 0;
                     var processedFull = ReferenceEquals(_fullOutputSource, _trueSourcePixels) ? _fullOutput : null;
-                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, _trueSourcePixels, processedFull, scale, previewZoom, _previewScrollPos, _detailView.lastViewportW, _detailView.lastViewportH, latency);
+                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, _trueSourcePixels, processedFull, scale, effZoom, _previewScrollPos, _detailView.lastViewportW, _detailView.lastViewportH, latency);
                 }
                 else if (_detailView.lastDetailDirtyTime > 0 || _detailView.detailJob.IsRunning)
                 {
@@ -660,77 +758,59 @@ namespace Iroca
                 }
             }
 
-            float displayW = previewTexture.width  * previewZoom;
-            float displayH = previewTexture.height * previewZoom;
+            float displayW = previewTexture.width  * effZoom;
+            float displayH = previewTexture.height * effZoom;
+            // 枠内に並べる画像の総幅(比較モードは 2 枚＋間隔)。
+            float imagesW = displayW * panelCount + (panelCount - 1) * IrocaConsts.Preview.PanelSpacing;
 
-            int panelCount = (comparisonMode && rawPreviewTexture != null) ? 2 : 1;
-
-            // プレビュー枠の幅は「カラムの見えている幅」に固定する。ExpandWidth(true) だと
-            // GUILayout は外側 ScrollView の clientWidth をそのまま配るが、GUIScrollGroup は
-            // 「子の最小幅がカラム幅を超えたら clientWidth をその最小幅まで広げ、子をその幅で
-            // 並べる」仕様で、横バーの style を GUIStyle.none にしてもレイアウト上の横スクロールは
-            // 生きている(none は"描かない・幅0"であって"許可しない"ではない)。
-            // その結果、操作行(比較/差分・ズーム率・生成状態)の最小幅がカラム幅を超えるほど
-            // 狭い横並びでは、生成状態ラベルが出入りするだけで枠幅が数十 px 動き、
-            //   ・枠幅がカラム可視幅を超えた分、画像右端がカラムのクリップ外に出る
-            //     (内側の横スクロールでも届かない＝右端が外側スクロールバーの位置で隠れる)
-            //   ・横スクロールの可動域(内容幅 − 枠幅)が縮み、右端まで送った表示が左へ戻る
-            // が同時に起きていた。カラム幅から外側縦バー分を引いた固定値にすれば、枠は常に
-            // カラムの可視範囲へ収まり、chrome の都合で幅が動かない。縦バーは出入りするので
-            // 常に引いておく(左カラムで縦バーを常時確保しているのと同じ「幅を動かさない」方針)。
-            var vBarStyle = GUI.skin.verticalScrollbar;
-            float vBarReserve = vBarStyle.fixedWidth + vBarStyle.margin.left;
-            float frameW = availableColumnWidth > 1f
-                ? Mathf.Max(IrocaConsts.Preview.MinViewportWidth, availableColumnWidth - vBarReserve)
-                : 0f;
-
-            // 縦ビューポート高。以前は固定 16px(ViewportMargin)を足すだけだったが、横スクロール
-            // バー表示時に IMGUI がクライアント高から差し引くのは skin 実寸
-            // (horizontalScrollbar.fixedHeight + margin)で、16px で足りる保証がない。不足すると
-            // 画像がカラムより横に広い(=横バーが出る)とき、等倍(100%)でもクライアント高が
-            // 内容高を数 px 下回り、縦スクロールバーが消えない。skin から実寸を導出して常時
-            // 確保する(+2 は丸めの保険)。比較モードは Before/After ラベル行も内容高に含める
-            // (これも縦バー残留の原因だった)。
+            // 横スクロールバーが出たときに IMGUI がクライアント高から差し引く高さ。固定 16px
+            // (ViewportMargin)では足りる保証がないので skin の実寸から導出する(+2 は丸めの保険)。
+            // 不足すると画像が枠より横に広いとき、縦も収まるはずなのに縦バーが消えない。
             var hBarStyle = GUI.skin.horizontalScrollbar;
             float hBarReserve = hBarStyle.fixedHeight + hBarStyle.margin.vertical + 2f;
-            float contentH = Mathf.Min(displayH, previewTexture.height) + GUI.skin.scrollView.padding.vertical;
-            if (panelCount == 2)
-                contentH += EditorGUIUtility.singleLineHeight + EditorStyles.label.margin.vertical;
-            float maxViewH = contentH + Mathf.Max(IrocaConsts.Preview.ViewportMargin, hBarReserve);
-
-            // プレビュー枠をカラムの残り空間に収める(動的高さ調整)。従来はテクスチャ実寸基準の
-            // 固定高(等倍 512px なら ~530px)で、ウィンドウが低いとプレビュー枠自体が外側
-            // ScrollView(縦オーバーフロー用)をあふれさせ、「③プレビュー」セクション全体が常時
-            // スクロール範囲になっていた。カラム高からプレビュー枠より上の実測高を引いた残りへ
-            // 縮め、収まらない分は内側 ScrollView のスクロール/パンに任せる。
-            //
-            // ただし枠を画像の自然サイズ(バー無しで収まる maxViewH)より小さくは潰さない。
-            // 潰すと等倍(100%)でも枠内に縦バーが恒常的に出て、縦バーが幅を奪う分だけ横バーも
-            // 連鎖しやすい(「100% に戻してもスクロールバーが残る」の主因)。chrome ごと収まる
-            // ときだけそこへ縮め、収まらないときは枠にカラムビューポート高まで使わせ、あふれた
-            // chrome は外側 ScrollView(縦オーバーフロー用)に任せる。カラム自体が下限未満の
-            // 低ウィンドウでは下限で止め、従来どおり外側スクロールへ逃がす。
-            if (availableColumnHeight > 0f && _chromeAboveViewportH > 0f)
-            {
-                float availWithChrome = availableColumnHeight - _chromeAboveViewportH - ViewportBottomPadding;
-                float cap = availWithChrome >= maxViewH
-                    ? availWithChrome
-                    : availableColumnHeight - ViewportBottomPadding;
-                maxViewH = Mathf.Min(maxViewH, Mathf.Max(cap, IrocaConsts.Preview.MinViewportHeight));
-            }
+            var scrollPad = GUI.skin.scrollView.padding;
+            // 枠の内容高。比較モードは Before/After の見出し行も含める(含めないと縦バーが残る)。
+            float contentH = displayH + scrollPad.vertical + (panelCount == 2 ? ComparisonLabelHeight : 0f);
 
             // 詳細クロップの「見えている範囲」は上で確定させた枠幅(frameW)を使う。テクスチャ
             // 実寸基準だと、広いウィンドウで可視幅を過小評価して右側の高解像度クロップを
             // 取りこぼす。カラム幅が未設定のホストでは実測値(_viewportWidth)、それも未計測の
             // 初回フレームだけテクスチャ基準を暫定値にする(過大評価＝安全側)。
-            // 高さは GUILayout.Height で固定なので maxViewH が実値。
-            float fallbackViewW = Mathf.Min(
-                displayW * panelCount + (panelCount - 1) * IrocaConsts.Preview.PanelSpacing,
+            float fallbackViewW = Mathf.Min(imagesW,
                 previewTexture.width * panelCount + (panelCount - 1) * IrocaConsts.Preview.PanelSpacing)
                 + IrocaConsts.Preview.ViewportMargin;
             _detailView.lastViewportW = frameW > 1f
                 ? frameW
                 : (_viewportWidth > 1f ? _viewportWidth : fallbackViewW);
+
+            // プレビュー枠の高さ。
+            float maxViewH;
+            // 画像が枠からはみ出してスクロール(パン)が要るか。
+            bool overflowsFrame;
+            if (frameW > 1f && HasFrameHeightBudget)
+            {
+                // 枠はカラムの残り(FrameHeightBudget)を上限に、内容の高さまで縮める。全体表示(100%)では
+                // 画像がちょうど収まるので枠＝画像で、スクロールバーは出ない。拡大中は残りいっぱいまで
+                // 使い、縮小中は画像の高さまで縮む(枠の下に余白を作らない)。
+                // 横バーの分の高さは、画像が枠より横に広いときだけ足す。縦にもはみ出すときは縦バーが
+                // 幅を奪うので、その分を引いた幅で横のはみ出しを判定する。
+                float budget = FrameHeightBudget;
+                bool vOverflow = contentH + FitSlack > budget;
+                float clientW = frameW - (vOverflow ? vBarReserve : 0f);
+                bool hOverflow = imagesW + scrollPad.horizontal > clientW + 0.5f;
+                maxViewH = Mathf.Min(contentH + (hOverflow ? hBarReserve : FitSlack), budget);
+                overflowsFrame = hOverflow || contentH > maxViewH - (hOverflow ? hBarReserve : 0f) + 0.5f;
+            }
+            else
+            {
+                // 枠の大きさが分からない初回フレーム・カラム寸法を渡さないホスト: 等倍の自然サイズ。
+                contentH = Mathf.Min(displayH, previewTexture.height) + scrollPad.vertical
+                           + (panelCount == 2 ? ComparisonLabelHeight : 0f);
+                maxViewH = contentH + Mathf.Max(IrocaConsts.Preview.ViewportMargin, hBarReserve);
+                overflowsFrame = displayH > maxViewH - hBarReserve
+                                 || imagesW > _detailView.lastViewportW - vBarReserve;
+            }
+            // 高さは GUILayout.Height で固定なので maxViewH が実値。
             _detailView.lastViewportH = maxViewH;
 
             // プレビュー枠より上に積まれた UI の実測高(外側 ScrollView の内容座標系なので
@@ -769,12 +849,21 @@ namespace Iroca
             // またぐ矩形にし、どちらのパネル上でもズームできるようにする。
             Rect zoomHitRect = default;
 
+            // 画像を枠の左右中央に置く。全体表示は枠の縦横比と画像の縦横比が合わないと片方に余白が
+            // 残り、左寄せだと広いウィンドウで右側だけが大きく空く。画像が枠より広いときは
+            // 両側の FlexibleSpace が 0 になり、従来どおり左端からスクロールする。
+            // 座標を使う側(スポイト・ペイント・目印・詳細クロップ)はどれも画像の矩形
+            // (activePreviewRect)基準なので、置き場所が動いても食い違わない。
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+
             if (comparisonMode && rawPreviewTexture != null)
             {
-                EditorGUILayout.BeginHorizontal();
-
+                // 見出しの幅はラベルの左右マージンぶん詰める。画像と同じ幅にすると、マージンが
+                // パネル幅へ上乗せされて 2 枚で枠をわずかに超え、全体表示でもスクロールバーが出る。
+                float captionW = Mathf.Max(1f, displayW - EditorStyles.label.margin.horizontal);
                 EditorGUILayout.BeginVertical(GUILayout.Width(displayW));
-                EditorGUILayout.LabelField(Localization.Before, GUILayout.Width(displayW));
+                EditorGUILayout.LabelField(Localization.Before, GUILayout.Width(captionW));
                 var rawRect = GUILayoutUtility.GetRect(displayW, displayH,
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
                 EditorGUI.DrawPreviewTexture(rawRect, rawPreviewTexture);
@@ -783,7 +872,7 @@ namespace Iroca
                 GUILayout.Space(IrocaConsts.Preview.PanelSpacing);
 
                 EditorGUILayout.BeginVertical(GUILayout.Width(displayW));
-                EditorGUILayout.LabelField(Localization.After, GUILayout.Width(displayW));
+                EditorGUILayout.LabelField(Localization.After, GUILayout.Width(captionW));
                 activePreviewRect = GUILayoutUtility.GetRect(displayW, displayH,
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
                 EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
@@ -792,8 +881,6 @@ namespace Iroca
                 if (maskView.zoneMaskOverlayTexture != null)
                     GUI.DrawTexture(activePreviewRect, maskView.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
                 EditorGUILayout.EndVertical();
-
-                EditorGUILayout.EndHorizontal();
 
                 zoomHitRect = Rect.MinMaxRect(
                     Mathf.Min(rawRect.x, activePreviewRect.x),
@@ -814,7 +901,7 @@ namespace Iroca
                 {
                     EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
 
-                    Rect detailScreenRect = _detailView.ComputeDetailScreenRect(activePreviewRect, scale, previewZoom, _previewScrollPos, srcW, srcH);
+                    Rect detailScreenRect = _detailView.ComputeDetailScreenRect(activePreviewRect, scale, effZoom, _previewScrollPos, srcW, srcH);
                     GUI.DrawTexture(detailScreenRect, _detailView.detailPreviewTexture,
                         ScaleMode.StretchToFill, false);
 
@@ -856,6 +943,9 @@ namespace Iroca
                 // 枠外の単一行に統合する（fix.md 項目3）。
             }
 
+            GUILayout.FlexibleSpace();
+            EditorGUILayout.EndHorizontal();
+
             // 連続領域モードのシード(任意上書き)を十字オーバーレイで描画。
             if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
             {
@@ -872,7 +962,7 @@ namespace Iroca
             if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
                 _detailView.lastPreviewRect = activePreviewRect;
 
-            HandlePreviewGlobalInput(zoomHitRect, scale);
+            HandlePreviewGlobalInput(zoomHitRect, maxZoom);
 
             // スポイトとマスクペイントは排他。ペイントに入ったらスポイトを解除する。
             if (maskView.maskPaintActive && !string.IsNullOrEmpty(_host.EyedropperZoneId))
@@ -908,12 +998,11 @@ namespace Iroca
             if (!eyedropperArmed && !seedPickArmed)
                 HandlePreviewContextMenu(activePreviewRect);
 
-            // パンはズーム>1 に限らず「画像がビューポートに収まっていない」とき常に許可する。
-            // 動的高さ調整により等倍(100%)以下でも縦がはみ出すことがあり、そのとき
-            // ズーム率だけで判定するとスクロールバー以外に位置を動かす手段がなくなる。
-            // 横の判定は枠幅から縦バー分を引いた「実際に見えている幅」で行う。枠幅そのままだと
-            // 縦バーが出ている間は画像右端の縦バー幅ぶんが隠れているのにパンが無効になり、
-            // その部分へ手が届かない。
+            // パンはズーム>1 に限らず「画像がビューポートに収まっていない」とき常に許可する
+            // (枠の下限高で止まる低いウィンドウでは、全体表示でも縦がはみ出すことがある。
+            // ズーム率だけで判定するとスクロールバー以外に位置を動かす手段がなくなる)。
+            // はみ出しの判定(overflowsFrame)は枠の高さを決めたところで、縦バーが幅を奪う分も
+            // 含めて済ませてある。
             //
             // 呼ぶのはツール群より後: 同じ枠にカーソル矩形を出すものがあっても、後勝ちの
             // AddCursorRect でパンのカーソルが見える。
@@ -922,10 +1011,7 @@ namespace Iroca
             // パンできる。以前は塗る/消す中に左ドラッグがブラシへ取られ、拡大して塗っていると
             // スクロールバー以外に表示を動かす手段が無かった（2026-09-11 の UX 見直し）。
             // 素の左ドラッグは、ブラシ・スポイト・シード指定が使っていないときだけパンに充てる。
-            if (previewZoom > 1f
-                || displayH > maxViewH - hBarReserve
-                || displayW * panelCount + (panelCount - 1) * IrocaConsts.Preview.PanelSpacing
-                    > _detailView.lastViewportW - vBarReserve)
+            if (previewZoom > 1f || overflowsFrame)
             {
                 bool leftDragPans = !maskView.maskPaintActive && !eyedropperArmed && !seedPickArmed;
                 HandlePreviewPanInput(activePreviewRect, leftDragPans);
@@ -1036,21 +1122,43 @@ namespace Iroca
         private void DrawTitleRow(bool showZoom, float maxZoom)
         {
             EditorGUILayout.BeginHorizontal();
-            GUILayout.Label(Localization.StepPrefixPreview + Localization.Preview,
-                EditorStyles.boldLabel, GUILayout.ExpandWidth(false));
+            var title = new GUIContent(Localization.StepPrefixPreview + Localization.Preview);
+            GUILayout.Label(title, EditorStyles.boldLabel, GUILayout.ExpandWidth(false));
             if (showZoom)
             {
                 GUILayout.FlexibleSpace();
                 // ズームは Ctrl+スクロールのみ。拡大したあと初期表示へ戻す手段がスクロールを
                 // 戻し切ることしか無かったので、リセットボタンだけ置く（−／＋／全体の段階ボタンは
                 // 見た目が煩雑になったため 2026-09-14 に撤去）。
-                GUILayout.Label(new GUIContent(_cachedZoomLabel, Localization.ZoomHint),
-                    GUILayout.ExpandWidth(false));
-                if (GUILayout.Button(new GUIContent(Localization.ZoomReset, Localization.ZoomResetTooltip),
-                        EditorStyles.miniButton, GUILayout.ExpandWidth(false)))
+                var reset = new GUIContent(Localization.ZoomReset, Localization.ZoomResetTooltip);
+                var zoom = new GUIContent(_cachedZoomLabel, Localization.ZoomHint);
+                // 狭いカラムでは「(Ctrl+スクロール)」を省く。省かないと行がカラムより広くなり、
+                // 右端のリセットボタンが見えない位置へ押し出される(外側 ScrollView はカラムより広い
+                // 内容を黙って切る。frameW のコメント参照)。判定はカラム幅だけで決まるので、
+                // 同一フレームの Layout と Repaint で同じ文言になる。
+                if (!TitleRowFits(title, zoom, reset))
+                    zoom.text = _cachedZoomLabelShort;
+                GUILayout.Label(zoom, GUILayout.ExpandWidth(false));
+                if (GUILayout.Button(reset, EditorStyles.miniButton, GUILayout.ExpandWidth(false)))
                     ResetZoom(maxZoom);
             }
             EditorGUILayout.EndHorizontal();
+        }
+
+        // 見出し行(題名・ズーム率・リセット)がカラムの見えている幅に収まるか。
+        // カラム幅を渡さないホストでは従来どおり省略しない。
+        private bool TitleRowFits(GUIContent title, GUIContent zoom, GUIContent reset)
+        {
+            if (availableColumnWidth <= 1f) return true;
+            var vBar = GUI.skin.verticalScrollbar;
+            float avail = availableColumnWidth - vBar.fixedWidth - vBar.margin.left;
+            var bold = EditorStyles.boldLabel;
+            var label = GUI.skin.label;
+            var button = EditorStyles.miniButton;
+            float need = bold.CalcSize(title).x + bold.margin.horizontal
+                         + label.CalcSize(zoom).x + label.margin.horizontal
+                         + button.CalcSize(reset).x + button.margin.horizontal;
+            return need <= avail;
         }
 
         /// <summary>ズームを初期表示（100%）へ戻し、表示位置も先頭へ戻す。</summary>
