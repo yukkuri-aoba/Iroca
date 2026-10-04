@@ -404,7 +404,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 1. いつもどおりゾーンを作って色を決めます。
 2. Hierarchy で、色替えしたい衣装（またはアバター）を選びます。選ばなければ、そのテクスチャを使っているオブジェクトの共通の親に付きます。
-3. エクスポート欄の「アバターに非破壊で登録」を押し、確認画面で「登録」を押します。選んだオブジェクトに「Iroca Recolor」が付き、色替えの内容（レシピ）が `Assets/Iroca/Recipes` に保存されます。
+3. エクスポート欄の「アバターに非破壊で登録」を押し、確認画面で「登録」を押します。選んだオブジェクトに「Iroca Recolor」が付き、色替えの内容（レシピ）が `Assets/Iroca/Recipes` に保存されます。そのオブジェクトに「Iroca Recolor」が既にあれば、新しく付けずにそこへレシピを足します（衣装や髪など、テクスチャをいくつ登録してもコンポーネントは 1 つです）。同じテクスチャのレシピが既にあれば置き換えます。
 4. 再生すると色替え後の姿になります。アップロードも同じです。
 
 登録したあとも、いろかウィンドウで編集を続けられます。編集内容はレシピにも保存され、次の再生・アップロードに反映されます（エクスポート欄の「保存先のレシピ」に保存先が出ます）。同じテクスチャのレシピが複数あるときは、「Iroca Recolor」かレシピのインスペクタの「いろかで開く」で、編集するレシピを選びます。
@@ -412,7 +412,9 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 #### 色替えされる範囲
 
 - 「Iroca Recolor」を付けたオブジェクトとその子のうち、レシピの元テクスチャを使っているマテリアルだけが差し替わります。範囲の外で同じマテリアルを使っている所は元のままです。
+- 1 つの「Iroca Recolor」は、テクスチャごとのレシピを一覧で持ちます。同じテクスチャのレシピが重なったときは、一覧の上のものが使われます。
 - 範囲が入れ子になっているときは、近い（深い）方のコンポーネントが優先されます。
+- 以前の版で同じオブジェクトに「Iroca Recolor」を複数付けていた場合は、インスペクタの「1 つにまとめる」で 1 つにできます（色替えの結果は変わりません）。いろかウィンドウからそのオブジェクトへ登録したときも、自動でまとめます。
 - 差し替え後のテクスチャは、元テクスチャのインポート設定（最大サイズ・圧縮形式・ミップマップ）に合わせます。PC と Android（Quest）で圧縮形式が違っても、それぞれに合わせます。
 - 「Iroca Recolor」のインスペクタに、対象になるマテリアルの数が出ます。0 個のときやレシピに問題があるときは警告が出ます。
 
@@ -900,7 +902,7 @@ You can recolor without changing the original texture or materials. With the "Ir
 
 1. Create zones and pick colors as usual.
 2. In the Hierarchy, select the outfit (or avatar) to recolor. If nothing is selected, the component goes on the common parent of the objects that use the texture.
-3. Press "Register to avatar (non-destructive)" in the Export section, then "Register" in the confirmation. "Iroca Recolor" is added to the selected object, and the recoloring settings (the recipe) are saved under `Assets/Iroca/Recipes`.
+3. Press "Register to avatar (non-destructive)" in the Export section, then "Register" in the confirmation. "Iroca Recolor" is added to the selected object, and the recoloring settings (the recipe) are saved under `Assets/Iroca/Recipes`. If the object already has "Iroca Recolor", the recipe is added to it instead of adding another component (one component no matter how many textures, such as the outfit and hair, you register). A recipe for the same texture is replaced.
 4. Enter Play mode to see the recolored avatar. Uploading works the same way.
 
 You can keep editing in the Iroca window after registering. Edits are also saved to the recipe and used by the next Play mode or upload (the "Recipe" field in the Export section shows where). When a texture has several recipes, choose the one to edit with "Open in Iroca" in the inspector of "Iroca Recolor" or of the recipe.
@@ -908,7 +910,9 @@ You can keep editing in the Iroca window after registering. Edits are also saved
 #### What gets recolored
 
 - Only materials that use the recipe's source texture, on the object with "Iroca Recolor" and its children, are swapped. Objects outside that scope keep the original even if they use the same material.
+- One "Iroca Recolor" holds a list of recipes, one per texture. If two recipes use the same texture, the upper one in the list is used.
 - When scopes are nested, the closer (deeper) component wins.
+- If an earlier version added several "Iroca Recolor" components to the same object, "Merge into one" in the inspector combines them (the result does not change). Registering to that object from the Iroca window merges them automatically too.
 - The recolored texture follows the source texture's import settings (max size, compression format, mipmaps), for PC and Android (Quest) alike.
 - The inspector of "Iroca Recolor" shows how many materials are targeted, and warns when there are none or the recipe has a problem.
 
