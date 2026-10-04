@@ -40,6 +40,11 @@ namespace Iroca.EditorTests
             var px = TestAssets.Solid(W, H, new Color32(200, 40, 40, 255));
             // 読み書き可能にしておく(差し込まれたテクスチャも元にそろって読めるので、生データを比べられる)。
             string texPath = _assets.WritePng("src", px, W, H, readable: true);
+            // VRChat 向けのアバターと同じく mip streaming をオンにしておく(取り込みの既定はオフ)。
+            // オフのままだと、引き継いだ差し込みテクスチャを NDMF が「他のツールが生成した」として警告する。
+            var importer = (TextureImporter)AssetImporter.GetAtPath(texPath);
+            importer.streamingMipmaps = true;
+            importer.SaveAndReimport();
             var src = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
 
             var mat = new Material(Shader.Find("Standard")) { mainTexture = src };
