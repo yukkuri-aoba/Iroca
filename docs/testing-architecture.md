@@ -491,8 +491,8 @@ Mono 上の出力は検証できない。`scripts/editor-tests/`（`Iroca.Editor
 | `RecipeRegistrationTests` | 登録でコンポーネントが増えない: 同じオブジェクトへの登録は 1 つの `IrocaRecolor` にレシピを足す、同じテクスチャは置き換え（確認画面用の `Describe` も）、旧版の重複コンポーネントは付いていた順・同じテクスチャは先のものだけ残して 1 つにまとめ 1 回の Undo で戻る、旧保存形式（単一の `recipe`）は一覧の先頭へ移る |
 | `NdmfProcessAvatarTests` | NDMF を通した結合（`AvatarProcessor.ProcessAvatar` でプラグインが走り、元のマテリアル・テクスチャのファイルを変えずに差し替わる。Animator のトグルで切り替わるマテリアルも範囲内だけ差し替わり、元のアニメーションは変わらない）。NDMF があるホストでだけコンパイルされる |
 | `LivePreviewTests` | シーンでのプレビューのうち NDMF 非依存の部分: どこに何を映すかの規則（登録前はそのテクスチャを使う全 Renderer にライブ、登録後は範囲内だけ・結び付いたレシピならライブ・それ以外はレシピ、入れ子は深い方）、受け渡し口（編集対象の変化を 1 回だけ知らせる、取り込み済みの寸法の RenderTexture を共有して貸す、編集していないテクスチャの結果は書かない、縮小版も同じ RenderTexture に書く）。画素の読み戻しは `-nographics` では効かないので、GPU があるときだけ見る |
-| `RecipePreviewTexturesTests` | 登録済みレシピの出来上がり（ビルドと同じテクスチャ）を同じ中身なら共有し、編集で別物になり、最後の借り手が返したら捨てる。壊れたレシピは貸さない |
-| `NdmfPreviewFilterTests` | `IrocaPreviewFilter` を NDMF の API どおりに呼ぶ: 対象の選び方、プロキシだけの差し替え（元の Renderer・マテリアルは無傷）、毎フレームの差し替え直し（NDMF は描画のたびに描画用プロキシを元のマテリアルへ戻す）、後片付け、編集対象の変化で無効化。NDMF があるホストでだけコンパイルされる |
+| `RecipePreviewTexturesTests` | 登録済みレシピの出来上がり（ビルドと同じテクスチャ）を同じ中身なら共有し（作りかけも共有）、編集で別物になり、最後の借り手が返したら捨てる。初回は作りかけで返し（色替えの計算でエディタを止めない）、キャッシュがあればその場で貸す。作っている間に返されたら出来上がりは捨てる。壊れたレシピは貸さない |
+| `NdmfPreviewFilterTests` | `IrocaPreviewFilter` を NDMF の API どおりに呼ぶ: 対象の選び方、プロキシだけの差し替え（元の Renderer・マテリアルは無傷）、毎フレームの差し替え直し（NDMF は描画のたびに描画用プロキシを元のマテリアルへ戻す）、後片付け、編集対象の変化で無効化、初めて映すレシピは出来上がるまでノードを完了させずプロキシにも触らない（ライブは待たせない）。NDMF があるホストでだけコンパイルされる |
 
 ```powershell
 .\scripts\Link-HostPackage.ps1 -HostProject <ホスト> -WithEditorTests   # 1 回だけ

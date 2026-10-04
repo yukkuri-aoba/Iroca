@@ -427,7 +427,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 #### 注意
 
 - 以前「適用して保存」で書き出した `_recolored.png` をマテリアルが使っていても、そのまま登録できます。登録のときに、範囲内でその画像を使っているマテリアルを元のテクスチャへ戻します（確認画面に出ます。Ctrl+Z で戻せます）。FBX の中やパッケージのマテリアルは書き換えられないので、元のテクスチャに差し替えた自分のマテリアルを使ってください。「④ アバターに反映」にも、書き出した画像を使っているマテリアルがあると案内が出ます。
-- 最初の再生・アップロードは色替えの計算で数秒かかります。2 回目以降は `Library/Iroca` のキャッシュを使います。シーンでのプレビューも同じキャッシュを使うので、登録済みのテクスチャを初めて映すときだけ数秒かかります。
+- 最初の再生・アップロードは色替えの計算で数秒かかります。2 回目以降は `Library/Iroca` のキャッシュを使います。シーンでのプレビューも同じキャッシュを使います。登録済みのテクスチャを初めて映すときは、色替えができるまでの数秒は元の色のまま映ります（その間もエディタは止まりません）。
 - 編集中のシーンでのプレビューは圧縮前のテクスチャで映すので、アップロード後の見た目とは圧縮のぶんだけわずかに違うことがあります。
 - 問題があると NDMF のエラー画面に「いろか: …」と出ます。元テクスチャが読めないなど、色替えできなかったときはアップロードが止まります（元の色のまま上がるのを防ぐため）。
 
@@ -940,7 +940,7 @@ An avatar you upload yourself appears recolored inside VRChat (the uploaded data
 #### Notes
 
 - Even if a material uses a `_recolored.png` exported earlier with "Apply and save", you can register as is. When registering, materials in the scope that use that image are switched back to the original texture (shown in the confirmation; Ctrl+Z restores them). Materials inside an FBX or a package cannot be changed, so use your own material that points to the original texture. "Apply to Avatar" also tells you when materials use an exported image.
-- The first Play mode or upload takes a few seconds to compute the colors. Later runs use the cache in `Library/Iroca`. The Scene preview shares this cache, so only the first time a registered texture is shown takes a few seconds.
+- The first Play mode or upload takes a few seconds to compute the colors. Later runs use the cache in `Library/Iroca`. The Scene preview shares this cache. The first time a registered texture is shown, it stays in its original colors for a few seconds until the recoloring is ready (the Editor keeps responding meanwhile).
 - While you edit, the Scene preview shows the uncompressed texture, so it can differ very slightly from the uploaded avatar (by the compression).
 - Problems are shown in the NDMF error window as "Iroca: ...". If recoloring fails (for example, the source texture cannot be read), the upload is stopped so that the avatar does not go up in its original colors by mistake.
 
