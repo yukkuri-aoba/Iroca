@@ -22,6 +22,10 @@ namespace Iroca
     ///   差し替え済みのマテリアルは元テクスチャを参照しなくなるので、浅い方は自然に手を出さない。
     ///   同じコンポーネントに同じテクスチャのレシピが複数あれば、同じ理由で先のものが勝つ。</item>
     /// <item>最後にコンポーネントをすべて取り除く(エラーがあっても)。</item>
+    /// <item>ビルドでは 2 段で当てる(<see cref="Stage"/>)。1 段目(NDMF の Transforming 段)の後に動くツール
+    ///   (VRCFury は NDMF の前半と最適化段の間に動く)がトグルなどで元のマテリアルを入れ直すので、2 段目
+    ///   (最適化段)で同じ規則をもう一度当てる。複製と色替え済みテクスチャは <see cref="BuildState"/> で
+    ///   使い回し、同じテクスチャを 2 枚入れない。</item>
     /// </list>
     /// 元のアセット(テクスチャ・マテリアル)には一切書き込まない。
     /// </para>
@@ -60,14 +64,41 @@ namespace Iroca
         /// <summary>ビルドの直前に呼ばれる(いろかウィンドウが購読し、編集中の内容をレシピへ書き出す)。</summary>
         internal static event System.Action BeforeApply;
 
+        /// <summary>どの段で当てるか。</summary>
+        internal enum Stage
+        {
+            /// <summary>1 回で全部(テスト・NDMF を通さない呼び出し)。</summary>
+            Single,
+            /// <summary>1 段目: 設定の問題を報告し、コンポーネントは残す。</summary>
+            First,
+            /// <summary>2 段目: 後から入ったマテリアルも差し替え、使われなかったレシピを報告し、コンポーネントを外す。</summary>
+            Late,
+        }
+
+        /// <summary>段をまたいで持ち越す状態(NDMF では BuildContext.GetState で 1 ビルドに 1 つ)。</summary>
+        internal sealed class BuildState
+        {
+            /// <summary>レシピ → 色替え済みテクスチャ(2 段目も同じものを使う)。</summary>
+            internal readonly Dictionary<IrocaRecipe, Texture2D> built = new Dictionary<IrocaRecipe, Texture2D>();
+            /// <summary>作れなかったレシピ(2 段目は試さず、報告もしない)。</summary>
+            internal readonly HashSet<IrocaRecipe> failed = new HashSet<IrocaRecipe>();
+            /// <summary>(コンポーネント, レシピ) ごとの 元マテリアル → 複製(null = 元テクスチャを使わないので触らない)。</summary>
+            internal readonly Dictionary<(IrocaRecolor, IrocaRecipe), Dictionary<Material, Material>> clones =
+                new Dictionary<(IrocaRecolor, IrocaRecipe), Dictionary<Material, Material>>();
+            /// <summary>範囲内で元テクスチャが使われた (コンポーネント, レシピ)。</summary>
+            internal readonly HashSet<(IrocaRecolor, IrocaRecipe)> used = new HashSet<(IrocaRecolor, IrocaRecipe)>();
+        }
+
         /// <summary>
         /// <paramref name="root"/>(ビルド用に複製されたアバター)配下の <see cref="IrocaRecolor"/> をすべて処理する。
         /// 差し替えたマテリアルの数を返す。
         /// </summary>
-        public static int Apply(GameObject root, IHost host)
+        public static int Apply(GameObject root, IHost host) => Apply(root, host, new BuildState(), Stage.Single);
+
+        public static int Apply(GameObject root, IHost host, BuildState state, Stage stage)
         {
             // 開いているいろかウィンドウの編集中の内容をレシピへ書き出させる(直前の編集をビルドに乗せる)。
-            BeforeApply?.Invoke();
+            if (stage != Stage.Late) BeforeApply?.Invoke();
 
             var components = new List<IrocaRecolor>(root.GetComponentsInChildren<IrocaRecolor>(true));
             int replaced = 0;
@@ -79,46 +110,53 @@ namespace Iroca
                     order.Add((Depth(components[i].transform, root.transform), i, components[i]));
                 order.Sort((a, b) => a.depth != b.depth ? b.depth.CompareTo(a.depth) : a.index.CompareTo(b.index));
 
-                var built = new Dictionary<IrocaRecipe, Texture2D>();
                 foreach (var (_, _, component) in order)
                 {
                     var recipes = component.recipes;
                     if (recipes == null || recipes.Count == 0)
                     {
-                        host.Report(Problem.MissingRecipe, component, null, RecipeTextureBuilder.Failure.None);
+                        if (stage != Stage.Late)
+                            host.Report(Problem.MissingRecipe, component, null, RecipeTextureBuilder.Failure.None);
                         continue;
                     }
                     foreach (var recipe in recipes)
-                        replaced += ApplyOne(component, recipe, host, built);
+                        replaced += ApplyOne(component, recipe, host, state, stage);
                 }
             }
             finally
             {
-                foreach (var c in components)
-                    if (c != null) Object.DestroyImmediate(c);
+                // 1 段目はコンポーネントを残す(2 段目が範囲を知るため)。残っても VRChat SDK が
+                // EditorOnly として外すので、2 段目が走らない経路でもアバターには残らない。
+                if (stage != Stage.First)
+                    foreach (var c in components)
+                        if (c != null) Object.DestroyImmediate(c);
             }
             return replaced;
         }
 
-        private static int ApplyOne(IrocaRecolor component, IrocaRecipe recipe, IHost host,
-            Dictionary<IrocaRecipe, Texture2D> built)
+        private static int ApplyOne(IrocaRecolor component, IrocaRecipe recipe, IHost host, BuildState state,
+            Stage stage)
         {
+            // 設定の問題は 1 回だけ報告する(2 段目では黙って飛ばす)。
+            bool reportSetup = stage != Stage.Late;
             if (recipe == null)
             {
-                host.Report(Problem.MissingRecipe, component, null, RecipeTextureBuilder.Failure.None);
+                if (reportSetup) host.Report(Problem.MissingRecipe, component, null, RecipeTextureBuilder.Failure.None);
                 return 0;
             }
             var source = recipe.sourceTexture;
             if (source == null)
             {
-                host.Report(Problem.BuildFailed, component, recipe, RecipeTextureBuilder.Failure.NoSourceTexture);
+                if (reportSetup) host.Report(Problem.BuildFailed, component, recipe, RecipeTextureBuilder.Failure.NoSourceTexture);
                 return 0;
             }
+            if (state.failed.Contains(recipe)) return 0;
 
-            // 元マテリアル → 複製(null = 元テクスチャを参照していないので触らない)。
-            var clones = new Dictionary<Material, Material>();
-            Texture2D recolored = null;
-            bool usedInScope = false;
+            // 元マテリアル → 複製(null = 元テクスチャを参照していないので触らない)。2 段目も同じ表を使う。
+            var key = (component, recipe);
+            if (!state.clones.TryGetValue(key, out var clones))
+                state.clones[key] = clones = new Dictionary<Material, Material>();
+            state.built.TryGetValue(recipe, out var recolored);
             bool failed = false;
             int replaced = 0;
 
@@ -131,18 +169,19 @@ namespace Iroca
                 Material clone = null;
                 if (References(original, source))
                 {
-                    usedInScope = true;
-                    if (recolored == null && !built.TryGetValue(recipe, out recolored))
+                    state.used.Add(key);
+                    if (recolored == null)
                     {
                         recolored = host.BuildTexture(recipe, out var failure);
                         if (recolored == null)
                         {
                             failed = true;
+                            state.failed.Add(recipe);
                             host.Report(Problem.BuildFailed, component, recipe, failure);
                             return null;
                         }
                         host.SaveAsset(recolored);
-                        built[recipe] = recolored;
+                        state.built[recipe] = recolored;
                     }
                     clone = Object.Instantiate(original);
                     clone.name = original.name;
@@ -174,7 +213,8 @@ namespace Iroca
             host.RewriteAnimatedMaterials(component.transform, m => Swap(m) ?? m);
             if (failed) return replaced;
 
-            if (!usedInScope)
+            // 「使っていない」は最後の段で判断する(2 段目で入ったマテリアルで使われることがある)。
+            if (stage != Stage.First && !state.used.Contains(key))
                 host.Report(Problem.TextureNotUsedInScope, component, recipe, RecipeTextureBuilder.Failure.None);
             return replaced;
         }

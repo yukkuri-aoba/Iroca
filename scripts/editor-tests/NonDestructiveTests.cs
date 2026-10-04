@@ -494,6 +494,68 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void Applier_TwoStages_RecolorMaterialsAddedInBetween_WithOneTexture()
+        {
+            // VRCFury のように 1 段目(NDMF の Transforming)と 2 段目(最適化段)の間に動くツールが、
+            // トグルなどで元のマテリアルを入れ直す場合。
+            var src = Tex("src");
+            var shared = Mat("shared", src);
+            var root = Node("avatar", null);
+            var outfit = Node("outfit", root.transform);
+            var mesh = Node("mesh", outfit.transform, shared);
+            var later = Node("later", outfit.transform, Mat("plain", Tex("plain")));
+            var recipe = Recipe("r", src);
+            AddRecolor(outfit, recipe);
+            var empty = Node("empty", root.transform);
+            empty.AddComponent<IrocaRecolor>();
+
+            var host = new FakeHost();
+            var state = new NonDestructiveApplier.BuildState();
+            NonDestructiveApplier.Apply(root, host, state, NonDestructiveApplier.Stage.First);
+            var first = mesh.GetComponent<Renderer>().sharedMaterial;
+            Assert.AreSame(host.Textures[recipe], first.mainTexture);
+            Assert.IsNotEmpty(root.GetComponentsInChildren<IrocaRecolor>(true), "1 段目でコンポーネントを外した(2 段目が範囲を知れない)");
+
+            // 間に動くツールが、元のマテリアルを既定とアニメーションで入れ直す。
+            later.GetComponent<Renderer>().sharedMaterial = shared;
+            var keys = new[] { shared };
+            host.Animated.Add((later, keys));
+            NonDestructiveApplier.Apply(root, host, state, NonDestructiveApplier.Stage.Late);
+
+            Assert.AreSame(first, later.GetComponent<Renderer>().sharedMaterial, "2 段目で入った元のマテリアルが 1 段目と同じ複製にならない");
+            Assert.AreSame(first, keys[0], "2 段目で入ったアニメーションのマテリアルが差し替わっていない");
+            Assert.AreEqual(1, host.Builds, "色替え済みテクスチャを 2 段目で作り直した(同じテクスチャが 2 枚入る)");
+            Assert.IsEmpty(root.GetComponentsInChildren<IrocaRecolor>(true), "2 段目でコンポーネントが外れていない");
+            CollectionAssert.AreEquivalent(new[] { NonDestructiveApplier.Problem.MissingRecipe },
+                host.Reports.ConvertAll(x => x.Item1), "設定の問題は 1 回だけ報告する");
+        }
+
+        [Test]
+        public void Applier_TwoStages_UnusedIsDecidedAtTheEnd()
+        {
+            // 1 段目では使われず、間に動くツールが入れたマテリアルでだけ使われるテクスチャ。
+            var src = Tex("src");
+            var root = Node("avatar", null);
+            var mesh = Node("mesh", root.transform, Mat("plain", Tex("plain")));
+            var used = Recipe("used", src);
+            var unused = Recipe("unused", Tex("never"));
+            var c = root.AddComponent<IrocaRecolor>();
+            c.recipes.Add(used);
+            c.recipes.Add(unused);
+
+            var host = new FakeHost();
+            var state = new NonDestructiveApplier.BuildState();
+            NonDestructiveApplier.Apply(root, host, state, NonDestructiveApplier.Stage.First);
+            Assert.IsEmpty(host.Reports, "1 段目で「使っていない」と決めつけた");
+
+            mesh.GetComponent<Renderer>().sharedMaterial = Mat("toggled", src);
+            NonDestructiveApplier.Apply(root, host, state, NonDestructiveApplier.Stage.Late);
+            Assert.AreSame(host.Textures[used], mesh.GetComponent<Renderer>().sharedMaterial.mainTexture);
+            CollectionAssert.AreEquivalent(new[] { (NonDestructiveApplier.Problem.TextureNotUsedInScope, unused) },
+                host.Reports.ConvertAll(x => (x.Item1, x.Item3)));
+        }
+
+        [Test]
         public void Applier_SameTextureTwiceInOneComponent_FirstWins_AndEmptyListIsReported()
         {
             var src = Tex("src");
