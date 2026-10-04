@@ -592,9 +592,22 @@ namespace Iroca
                             // 転写(parityCache)・次回の選択キャッシュ復元(keepBitsForCache)の両方に使う。
                             if (parityCache != null || selectionCache != null)
                             {
-                                var keepBits = new ulong[(len + 63) >> 6];
-                                for (int i = 0; i < len; i++)
-                                    if (strength[i] > 0f) keepBits[i >> 6] |= 1UL << (i & 63);
+                                // 64 画素ごとの語は互いに独立なので、語のまとまりごとに並列で作る(出力ビット不変)。
+                                int nWords = (len + 63) >> 6;
+                                var keepBits = new ulong[nWords];
+                                var keepSrc = strength;
+                                Parallel.For(0, (nWords + 1023) >> 10, po, c =>
+                                {
+                                    int w0 = c << 10, w1 = Math.Min(nWords, w0 + 1024);
+                                    for (int wi = w0; wi < w1; wi++)
+                                    {
+                                        int b = wi << 6, e = Math.Min(len, b + 64);
+                                        ulong bits = 0UL;
+                                        for (int i = b; i < e; i++)
+                                            if (keepSrc[i] > 0f) bits |= 1UL << (i - b);
+                                        keepBits[wi] = bits;
+                                    }
+                                });
                                 _sub.Mark(SpFfKeepBits);
                                 keepBitsForCache = keepBits;
                                 if (parityCache != null)
