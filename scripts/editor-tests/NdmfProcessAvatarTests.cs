@@ -75,7 +75,7 @@ namespace Iroca.EditorTests
             mesh.transform.SetParent(outfit.transform, false);
             var renderer = mesh.AddComponent<MeshRenderer>();
             renderer.sharedMaterial = mat;
-            outfit.AddComponent<IrocaRecolor>().recipe = recipe;
+            outfit.AddComponent<IrocaRecolor>().recipes.Add(recipe);
 
             nadena.dev.ndmf.AvatarProcessor.ProcessAvatar(root);
 

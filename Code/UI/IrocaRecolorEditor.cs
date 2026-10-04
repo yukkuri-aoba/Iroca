@@ -7,13 +7,16 @@ using UnityEngine;
 namespace Iroca
 {
     /// <summary>
-    /// 「Iroca Recolor」のインスペクタ。何が起きるか(範囲内の対象マテリアル数)と、
-    /// 色替えされない理由(レシピ未設定・元テクスチャ無し・範囲に無い・NDMF 無し)をビルド前に見せる。
+    /// 「Iroca Recolor」のインスペクタ。レシピ(テクスチャごとに 1 つ)の一覧と、レシピごとに何が起きるか
+    /// (範囲内の対象マテリアル数)・色替えされない理由(元テクスチャ無し・同じテクスチャの重複・範囲に無い・
+    /// NDMF 無し)をビルド前に見せる。旧版で同じオブジェクトに複数付いていれば 1 つにまとめる導線を出す。
     /// </summary>
     [CustomEditor(typeof(IrocaRecolor))]
     internal sealed class IrocaRecolorEditor : Editor
     {
-        private readonly RecipeSummaryCache _summary = new RecipeSummaryCache();
+        // レシピの JSON の読み直しはレシピごとに覚える(並べ替えても取り違えないよう、レシピで引く)。
+        private readonly Dictionary<IrocaRecipe, RecipeSummaryCache> _summaries =
+            new Dictionary<IrocaRecipe, RecipeSummaryCache>();
 
         public override void OnInspectorGUI()
         {
@@ -22,21 +25,41 @@ namespace Iroca
 #if !IROCA_NDMF_PRESENT
             EditorGUILayout.HelpBox(Localization.NdmfMissing, MessageType.Warning);
 #endif
+            DrawMerge(component);
+
             serializedObject.Update();
-            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(IrocaRecolor.recipe)),
-                new GUIContent(Localization.RecipeField, Localization.RecipeFieldTooltip));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(IrocaRecolor.recipes)),
+                new GUIContent(Localization.RecipeField, Localization.RecipeFieldTooltip), true);
             serializedObject.ApplyModifiedProperties();
 
-            var recipe = component.recipe;
-            if (recipe == null)
+            var recipes = component.recipes;
+            if (recipes == null || recipes.Count == 0)
             {
                 EditorGUILayout.HelpBox(Localization.RecolorNoRecipe, MessageType.Info);
                 return;
             }
+            var seen = new HashSet<Texture2D>();
+            bool empty = false;
+            foreach (var recipe in recipes)
+            {
+                if (recipe == null) { empty = true; continue; }
+                DrawRecipe(component, recipe, seen);
+            }
+            if (empty) EditorGUILayout.HelpBox(Localization.RecolorEmptyEntry, MessageType.Warning);
+        }
+
+        private void DrawRecipe(IrocaRecolor component, IrocaRecipe recipe, HashSet<Texture2D> seen)
+        {
+            EditorGUILayout.Space(2);
+            EditorGUILayout.LabelField(recipe.name, EditorStyles.boldLabel);
             var source = recipe.sourceTexture;
             if (source == null)
                 EditorGUILayout.HelpBox(Localization.RecolorNoSource, MessageType.Warning);
-            else if (!_summary.Readable(recipe))
+            else if (!seen.Add(source))
+                // 同じテクスチャは先のレシピしか効かない(ビルドと同じ)。
+                EditorGUILayout.HelpBox(string.Format(Localization.RecolorDuplicateSourceFormat, source.name),
+                    MessageType.Warning);
+            else if (!Summary(recipe).Readable(recipe))
                 EditorGUILayout.HelpBox(Localization.RecolorUnreadable, MessageType.Warning);
             else
                 DrawScope(component, source);
@@ -45,6 +68,27 @@ namespace Iroca
             {
                 if (GUILayout.Button(new GUIContent(Localization.OpenInIroca, Localization.OpenInIrocaTooltip)))
                     IrocaWindow.OpenRecipe(recipe);
+            }
+        }
+
+        private RecipeSummaryCache Summary(IrocaRecipe recipe)
+        {
+            if (!_summaries.TryGetValue(recipe, out var cache))
+                _summaries[recipe] = cache = new RecipeSummaryCache();
+            return cache;
+        }
+
+        // 旧版(1 コンポーネント = 1 レシピ)で同じオブジェクトに複数付いているとき、1 つにまとめる導線。
+        private static void DrawMerge(IrocaRecolor component)
+        {
+            var all = component.GetComponents<IrocaRecolor>();
+            if (all.Length < 2) return;
+            EditorGUILayout.HelpBox(string.Format(Localization.RecolorMergeFormat, all.Length), MessageType.Info);
+            if (GUILayout.Button(new GUIContent(Localization.RecolorMergeButton, Localization.RecolorMergeButtonTooltip)))
+            {
+                RecipeRegistration.MergeComponents(component.gameObject);
+                // 表示中のコンポーネントが消えることがあるので、この回の描画はここで打ち切る。
+                GUIUtility.ExitGUI();
             }
         }
 

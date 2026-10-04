@@ -143,7 +143,7 @@ namespace Iroca.EditorTests
             var inside = Mesh("inside", mat, avatar);
             var outside = Mesh("outside", mat);
             var recipe = RedToGreen(src);
-            avatar.AddComponent<IrocaRecolor>().recipe = recipe;
+            avatar.AddComponent<IrocaRecolor>().recipes.Add(recipe);
 
             var filter = new IrocaPreviewFilter();
             var groups = filter.FindTargets(new ComputeContext("test"));
@@ -178,6 +178,41 @@ namespace Iroca.EditorTests
             finally
             {
                 liveNode.Dispose();
+            }
+        }
+
+        [Test]
+        public void OneComponentWithSeveralRecipes_ShowsEachTexture()
+        {
+            string pathA = _assets.WritePng("a", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);
+            string pathB = _assets.WritePng("b", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);
+            var texA = AssetDatabase.LoadAssetAtPath<Texture2D>(pathA);
+            var texB = AssetDatabase.LoadAssetAtPath<Texture2D>(pathB);
+            var avatar = Track(new GameObject("avatar"));
+            var a = Mesh("a", Track(new Material(Shader.Find("Standard")) { mainTexture = texA }), avatar);
+            var b = Mesh("b", Track(new Material(Shader.Find("Standard")) { mainTexture = texB }), avatar);
+            var c = avatar.AddComponent<IrocaRecolor>();
+            c.recipes.Add(RedToGreen(texA));
+            c.recipes.Add(RedToGreen(texB));
+
+            var filter = new IrocaPreviewFilter();
+            var groups = filter.FindTargets(new ComputeContext("test"));
+            foreach (var r in new[] { a, b })
+            {
+                var group = GroupOf(groups, r);
+                Assert.IsNotNull(group, $"{r.name}: 2 つ目以降のレシピのテクスチャが対象にならない");
+                var proxy = ProxyOf(r);
+                var node = filter.Instantiate(group, new List<(Renderer, Renderer)> { (r, proxy) },
+                    new ComputeContext("node")).Result;
+                try
+                {
+                    var tex = proxy.sharedMaterial.mainTexture;
+                    Assert.IsTrue(tex != null && tex.name.EndsWith("(Iroca)"), $"{r.name}: {tex}");
+                }
+                finally
+                {
+                    node.Dispose();
+                }
             }
         }
 

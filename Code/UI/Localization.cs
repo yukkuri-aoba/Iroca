@@ -1084,8 +1084,8 @@ namespace Iroca
         // ─────────────────────────────────────────────────────────────
         public static string RegisterNonDestructive => IsJapanese ? "アバターに非破壊で登録" : "Register to avatar (non-destructive)";
         public static string RegisterNonDestructiveTooltip => IsJapanese
-            ? "元のテクスチャとマテリアルを書き換えずに色替えします。Hierarchy で選んだ衣装やアバター(未選択なら、このテクスチャを使っている所の共通の親)に「Iroca Recolor」を付け、再生・アップロード時だけ色替え済みのテクスチャへ差し替えます。外せば元に戻ります。NDMF が必要です。"
-            : "Recolor without changing the original texture or materials. Adds \"Iroca Recolor\" to the outfit or avatar selected in the Hierarchy (or, if nothing is selected, the common parent of the objects using this texture), and swaps in the recolored texture only when entering Play mode or uploading. Remove it to go back. Requires NDMF.";
+            ? "元のテクスチャとマテリアルを書き換えずに色替えします。Hierarchy で選んだ衣装やアバター(未選択なら、このテクスチャを使っている所の共通の親)に「Iroca Recolor」を付け、再生・アップロード時だけ色替え済みのテクスチャへ差し替えます。既に付いていれば、そこへこのテクスチャのレシピを足します(コンポーネントは増えません)。外せば元に戻ります。NDMF が必要です。"
+            : "Recolor without changing the original texture or materials. Adds \"Iroca Recolor\" to the outfit or avatar selected in the Hierarchy (or, if nothing is selected, the common parent of the objects using this texture), and swaps in the recolored texture only when entering Play mode or uploading. If it is already there, this texture's recipe is added to it (no new component). Remove it to go back. Requires NDMF.";
         public static string RegisterNoTarget => IsJapanese
             ? "登録先が決まりません。Hierarchy で衣装かアバターを選んでから押してください(このテクスチャを使っているオブジェクトがシーンに無いか、複数のアバターにまたがっています)。"
             : "Could not decide where to register. Select the outfit or avatar in the Hierarchy and try again (no object in the scene uses this texture, or several avatars do).";
@@ -1098,6 +1098,15 @@ namespace Iroca
         public static string RegisterConfirmFormat => IsJapanese
             ? "「{0}」とその子のマテリアルのうち「{1}」を使っている所を、再生・アップロード時に色替えします。元のテクスチャとマテリアルは変わりません。\n\nレシピ: {2}"
             : "Materials under \"{0}\" that use \"{1}\" will be recolored when entering Play mode or uploading. The original texture and materials are not changed.\n\nRecipe: {2}";
+        public static string RegisterAddToExisting => IsJapanese
+            ? "このオブジェクトにある「Iroca Recolor」にレシピを足します(コンポーネントは増えません)。"
+            : "The recipe is added to the \"Iroca Recolor\" already on this object (no new component).";
+        public static string RegisterMergeFormat => IsJapanese
+            ? "このオブジェクトに付いている「Iroca Recolor」{0} 個を 1 つにまとめます。"
+            : "The {0} \"Iroca Recolor\" components on this object are merged into one.";
+        public static string RegisterReplaceFormat => IsJapanese
+            ? "このオブジェクトにある「{0}」の別のレシピ({1})は、このレシピに置き換えます。"
+            : "The other recipe for \"{0}\" on this object ({1}) is replaced with this one.";
         public static string RegisterRecipeNew => IsJapanese ? "{0}(新しく作ります)" : "{0} (new)";
         public static string RegisterDoneFormat => IsJapanese ? "「{0}」に登録しました" : "Registered to \"{0}\"";
         public static string RegisterOk => IsJapanese ? "登録" : "Register";
@@ -1113,8 +1122,8 @@ namespace Iroca
             ? "このレシピをいろかウィンドウで開いて編集します。編集内容はこのレシピに保存されます。"
             : "Open this recipe in the Iroca window to edit it. Edits are saved to this recipe.";
         public static string RecolorInspectorHelp => IsJapanese
-            ? "このオブジェクトとその子のマテリアルのうち、レシピの元テクスチャを使っている所を、再生・アップロード時だけ色替えします。元のアセットは変わりません。"
-            : "Materials on this object and its children that use the recipe's source texture are recolored only when entering Play mode or uploading. The original assets are not changed.";
+            ? "このオブジェクトとその子のマテリアルのうち、各レシピの元テクスチャを使っている所を、再生・アップロード時だけ色替えします。レシピはテクスチャごとに 1 つです。元のアセットは変わりません。"
+            : "Materials on this object and its children that use each recipe's source texture are recolored only when entering Play mode or uploading. There is one recipe per texture. The original assets are not changed.";
         public static string RecolorNoRecipe => IsJapanese
             ? "レシピが設定されていません。いろかウィンドウの「アバターに非破壊で登録」で作れます。"
             : "No recipe is set. Create one with \"Register to avatar (non-destructive)\" in the Iroca window.";
@@ -1131,10 +1140,23 @@ namespace Iroca
             ? "対象のマテリアル: {0} 個(Renderer {1} 個)"
             : "Target materials: {0} ({1} renderers)";
         public static string RecipeInspectorZonesFormat => IsJapanese ? "ゾーン: {0} 個(有効 {1} 個)" : "Zones: {0} ({1} enabled)";
-        public static string RecipeField => IsJapanese ? "レシピ" : "Recipe";
+        public static string RecipeField => IsJapanese ? "レシピ" : "Recipes";
         public static string RecipeFieldTooltip => IsJapanese
-            ? "色替えの内容(元テクスチャ・色・マスク)。いろかウィンドウの「アバターに非破壊で登録」で作られます。"
-            : "What to recolor (source texture, colors, masks). Created by \"Register to avatar (non-destructive)\" in the Iroca window.";
+            ? "色替えの内容(元テクスチャ・色・マスク)。テクスチャごとに 1 つ。いろかウィンドウの「アバターに非破壊で登録」で足されます。同じテクスチャのレシピが重なったら上のものが使われます。"
+            : "What to recolor (source texture, colors, masks), one per texture. Added by \"Register to avatar (non-destructive)\" in the Iroca window. If two recipes use the same texture, the upper one is used.";
+        public static string RecolorEmptyEntry => IsJapanese
+            ? "空の欄があります。レシピを設定するか、欄を消してください。"
+            : "There is an empty entry. Set a recipe or remove the entry.";
+        public static string RecolorDuplicateSourceFormat => IsJapanese
+            ? "「{0}」のレシピが複数あります。使われるのは上のものだけです。"
+            : "There are several recipes for \"{0}\". Only the upper one is used.";
+        public static string RecolorMergeFormat => IsJapanese
+            ? "このオブジェクトに「Iroca Recolor」が {0} 個付いています。1 つにまとめられます。"
+            : "This object has {0} \"Iroca Recolor\" components. They can be merged into one.";
+        public static string RecolorMergeButton => IsJapanese ? "1 つにまとめる" : "Merge into one";
+        public static string RecolorMergeButtonTooltip => IsJapanese
+            ? "このオブジェクトの「Iroca Recolor」を先頭の 1 つにまとめます。レシピは付いていた順に並べ、同じテクスチャのレシピは先のもの(ビルドで使われていた方)だけ残すので、色替えの結果は変わりません。Undo で戻せます。"
+            : "Merges the \"Iroca Recolor\" components on this object into the first one. Recipes keep their order, and for the same texture only the earlier one (the one the build used) is kept, so the result does not change. Undo restores it.";
         public static string RecipeSourceField => IsJapanese ? "元テクスチャ" : "Source Texture";
         public static string RecipeSourceFieldTooltip => IsJapanese
             ? "色替えの元になるテクスチャ。マテリアルがこのテクスチャを参照している所だけが差し替わります。"

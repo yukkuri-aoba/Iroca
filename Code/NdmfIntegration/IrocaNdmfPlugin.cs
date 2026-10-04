@@ -54,9 +54,9 @@ namespace Iroca.NdmfIntegration
             public void RegisterReplaced(Object original, Object replacement)
                 => ObjectRegistry.RegisterReplacedObject(original, replacement);
 
-            public void Report(NonDestructiveApplier.Problem problem, IrocaRecolor component,
+            public void Report(NonDestructiveApplier.Problem problem, IrocaRecolor component, IrocaRecipe recipe,
                 RecipeTextureBuilder.Failure failure)
-                => NdmfMessages.Report(problem, component, failure);
+                => NdmfMessages.Report(problem, component, recipe, failure);
         }
     }
 }

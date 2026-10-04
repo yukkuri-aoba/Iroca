@@ -147,8 +147,10 @@ namespace Iroca
                 return;
             }
 
-            // 使うレシピ: 結び付いているもの → このテクスチャのレシピがちょうど 1 つならそれ → 新しく作る。
+            // 使うレシピ: 結び付いているもの → 登録先に既にあるこのテクスチャのレシピ(登録し直し = 更新)
+            // → このテクスチャのレシピがプロジェクトにちょうど 1 つならそれ → 新しく作る。
             var recipe = BoundRecipe;
+            if (recipe == null) recipe = RecipeRegistration.ExistingFor(target, sourceTexture);
             if (recipe == null)
             {
                 var found = RecipeStore.FindForTexture(sourceTexture);
@@ -157,8 +159,18 @@ namespace Iroca
             string recipeLabel = recipe != null
                 ? AssetDatabase.GetAssetPath(recipe)
                 : string.Format(Localization.RegisterRecipeNew, RecipeStore.DefaultFolder + "/" + sourceTexture.name + ".asset");
-            if (!EditorUtility.DisplayDialog(Localization.RegisterNonDestructive,
-                    string.Format(Localization.RegisterConfirmFormat, target.name, sourceTexture.name, recipeLabel),
+
+            // コンポーネントは登録先に 1 つ(既にあればそこへ足す)。置き換え・まとめが起きるなら先に知らせる。
+            RecipeRegistration.Describe(target, sourceTexture, recipe, out var replaced, out int components);
+            var message = string.Format(Localization.RegisterConfirmFormat, target.name, sourceTexture.name, recipeLabel);
+            if (components >= 2)
+                message += "\n\n" + string.Format(Localization.RegisterMergeFormat, components);
+            else if (components == 1)
+                message += "\n\n" + Localization.RegisterAddToExisting;
+            if (replaced != null)
+                message += "\n\n" + string.Format(Localization.RegisterReplaceFormat, sourceTexture.name,
+                    AssetDatabase.GetAssetPath(replaced));
+            if (!EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, message,
                     Localization.RegisterOk, Localization.Cancel))
                 return;
 

@@ -41,21 +41,93 @@ namespace Iroca
             return CommonAncestor(users).gameObject;
         }
 
+        /// <summary><paramref name="target"/> に既に登録されている、<paramref name="source"/> のレシピ(無ければ null)。</summary>
+        public static IrocaRecipe ExistingFor(GameObject target, Texture2D source)
+        {
+            if (target == null || source == null) return null;
+            foreach (var r in Recipes(target.GetComponents<IrocaRecolor>()))
+                if (r != null && r.sourceTexture == source) return r;
+            return null;
+        }
+
         /// <summary>
-        /// <paramref name="target"/> に <see cref="IrocaRecolor"/> を付けて <paramref name="recipe"/> を設定する
-        /// (Undo 可)。同じレシピのコンポーネントが既にあればそれを返す。
+        /// 登録で <paramref name="target"/> に何が起きるか(確認画面に出す)。
+        /// <paramref name="replaced"/> = 置き換えられる、同じ元テクスチャの別のレシピ(無ければ null)。
+        /// <paramref name="components"/> = いま付いている <see cref="IrocaRecolor"/> の数(2 以上なら 1 つにまとめる)。
+        /// </summary>
+        public static void Describe(GameObject target, Texture2D source, IrocaRecipe recipe,
+            out IrocaRecipe replaced, out int components)
+        {
+            replaced = null;
+            var existing = target.GetComponents<IrocaRecolor>();
+            components = existing.Length;
+            foreach (var r in Recipes(existing))
+            {
+                if (recipe != null && r == recipe) { replaced = null; return; }   // 登録済み(何も置き換えない)
+                if (replaced == null && r != null && source != null && r.sourceTexture == source) replaced = r;
+            }
+        }
+
+        /// <summary>
+        /// <paramref name="target"/> の <see cref="IrocaRecolor"/> に <paramref name="recipe"/> を足す(Undo 可。
+        /// 1 回の Undo で戻る)。コンポーネントは 1 つにまとめる: 無ければ付け、旧版で複数付いていれば
+        /// 先頭へまとめる。同じ元テクスチャの別のレシピがあればその場所で置き換える(同じテクスチャを
+        /// 1 つのコンポーネントで 2 回色替えしても、先のものしか効かないため)。
         /// </summary>
         public static IrocaRecolor Attach(GameObject target, IrocaRecipe recipe)
         {
-            foreach (var existing in target.GetComponents<IrocaRecolor>())
-                if (existing.recipe == recipe) return existing;
             int group = Undo.GetCurrentGroup();
-            var c = Undo.AddComponent<IrocaRecolor>(target);
+            Undo.SetCurrentGroupName("Iroca: Register Recolor");
+            var c = MergeComponents(target);
+            if (c == null) c = Undo.AddComponent<IrocaRecolor>(target);
             Undo.RecordObject(c, "Iroca: Register Recolor");
-            c.recipe = recipe;
-            Undo.CollapseUndoOperations(group);   // 付与とレシピ設定を 1 回の Undo にまとめる
+            c.recipes ??= new List<IrocaRecipe>();
+            if (!c.recipes.Contains(recipe))
+            {
+                var source = recipe != null ? recipe.sourceTexture : null;
+                int same = c.recipes.FindIndex(r => r != null && source != null && r.sourceTexture == source);
+                if (same >= 0) c.recipes[same] = recipe;
+                else c.recipes.Add(recipe);
+            }
+            Undo.CollapseUndoOperations(group);
             EditorUtility.SetDirty(c);
             return c;
+        }
+
+        /// <summary>
+        /// <paramref name="target"/> に付いている <see cref="IrocaRecolor"/> を先頭の 1 つへまとめる(Undo 可)。
+        /// レシピは付いていた順に並べ、同じ元テクスチャのレシピは先のものだけ残す(ビルドでも先のものしか
+        /// 効かないので、結果は変わらない)。空の欄は落とす。1 つも無ければ null。
+        /// </summary>
+        public static IrocaRecolor MergeComponents(GameObject target)
+        {
+            var components = target.GetComponents<IrocaRecolor>();
+            if (components.Length == 0) return null;
+            var keep = components[0];
+            if (components.Length == 1) return keep;
+
+            Undo.RecordObject(keep, "Iroca: Merge Recolor");
+            var merged = new List<IrocaRecipe>();
+            var sources = new HashSet<Texture2D>();
+            foreach (var r in Recipes(components))
+            {
+                if (r == null || merged.Contains(r)) continue;
+                var source = r.sourceTexture;
+                if (source != null && !sources.Add(source)) continue;
+                merged.Add(r);
+            }
+            keep.recipes = merged;
+            for (int i = 1; i < components.Length; i++)
+                Undo.DestroyObjectImmediate(components[i]);
+            EditorUtility.SetDirty(keep);
+            return keep;
+        }
+
+        private static IEnumerable<IrocaRecipe> Recipes(IrocaRecolor[] components)
+        {
+            foreach (var c in components)
+                if (c.recipes != null)
+                    foreach (var r in c.recipes) yield return r;
         }
 
         internal static bool IsSceneObject(GameObject go)

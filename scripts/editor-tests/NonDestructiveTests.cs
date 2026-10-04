@@ -249,8 +249,8 @@ namespace Iroca.EditorTests
 
         private sealed class FakeHost : NonDestructiveApplier.IHost
         {
-            public readonly List<(NonDestructiveApplier.Problem, IrocaRecolor, RecipeTextureBuilder.Failure)> Reports
-                = new List<(NonDestructiveApplier.Problem, IrocaRecolor, RecipeTextureBuilder.Failure)>();
+            public readonly List<(NonDestructiveApplier.Problem, IrocaRecolor, IrocaRecipe, RecipeTextureBuilder.Failure)> Reports
+                = new List<(NonDestructiveApplier.Problem, IrocaRecolor, IrocaRecipe, RecipeTextureBuilder.Failure)>();
             public readonly List<Object> Saved = new List<Object>();
             public readonly Dictionary<IrocaRecipe, Texture2D> Textures = new Dictionary<IrocaRecipe, Texture2D>();
             public int Builds;
@@ -267,8 +267,8 @@ namespace Iroca.EditorTests
             }
             public void SaveAsset(Object generated) => Saved.Add(generated);
             public void RegisterReplaced(Object original, Object replacement) { }
-            public void Report(NonDestructiveApplier.Problem p, IrocaRecolor c, RecipeTextureBuilder.Failure f)
-                => Reports.Add((p, c, f));
+            public void Report(NonDestructiveApplier.Problem p, IrocaRecolor c, IrocaRecipe r, RecipeTextureBuilder.Failure f)
+                => Reports.Add((p, c, r, f));
         }
 
         private Texture2D Tex(string name) => Track(new Texture2D(2, 2) { name = name });
@@ -299,7 +299,7 @@ namespace Iroca.EditorTests
         private static IrocaRecolor AddRecolor(GameObject go, IrocaRecipe recipe)
         {
             var c = go.AddComponent<IrocaRecolor>();
-            c.recipe = recipe;
+            c.recipes.Add(recipe);
             return c;
         }
 
@@ -389,6 +389,61 @@ namespace Iroca.EditorTests
             }, kinds);
             Assert.AreSame(m, r.GetComponent<Renderer>().sharedMaterial, "失敗したのにマテリアルを差し替えた");
             Assert.IsEmpty(root.GetComponentsInChildren<IrocaRecolor>(true), "失敗時にコンポーネントが残っている");
+        }
+
+        [Test]
+        public void Applier_OneComponentRecolorsSeveralTextures()
+        {
+            var texA = Tex("a");
+            var texB = Tex("b");
+            var both = Mat("both", texA);
+            both.SetTexture("_EmissionMap", texB);
+            var onlyB = Mat("onlyB", texB);
+            var root = Node("avatar", null);
+            var x = Node("x", root.transform, both);
+            var y = Node("y", root.transform, onlyB);
+            var rA = Recipe("rA", texA);
+            var rB = Recipe("rB", texB);
+            var c = root.AddComponent<IrocaRecolor>();
+            c.recipes.Add(rA);
+            c.recipes.Add(rB);
+
+            var host = new FakeHost();
+            NonDestructiveApplier.Apply(root, host);
+
+            var xMat = x.GetComponent<Renderer>().sharedMaterial;
+            Assert.AreSame(host.Textures[rA], xMat.mainTexture, "1 つ目のレシピが効いていない");
+            Assert.AreSame(host.Textures[rB], xMat.GetTexture("_EmissionMap"), "同じマテリアルの 2 つ目のテクスチャが効いていない");
+            Assert.AreSame(host.Textures[rB], y.GetComponent<Renderer>().sharedMaterial.mainTexture);
+            Assert.AreSame(texA, both.mainTexture, "元のマテリアルを書き換えた");
+            Assert.IsEmpty(host.Reports);
+            Assert.IsEmpty(root.GetComponentsInChildren<IrocaRecolor>(true));
+        }
+
+        [Test]
+        public void Applier_SameTextureTwiceInOneComponent_FirstWins_AndEmptyListIsReported()
+        {
+            var src = Tex("src");
+            var root = Node("avatar", null);
+            var r = Node("r", root.transform, Mat("m", src));
+            var first = Recipe("first", src);
+            var second = Recipe("second", src);
+            var c = root.AddComponent<IrocaRecolor>();
+            c.recipes.Add(first);
+            c.recipes.Add(second);
+            var empty = Node("empty", root.transform);
+            empty.AddComponent<IrocaRecolor>();
+
+            var host = new FakeHost();
+            NonDestructiveApplier.Apply(root, host);
+
+            Assert.AreSame(host.Textures[first], r.GetComponent<Renderer>().sharedMaterial.mainTexture,
+                "同じテクスチャは先のレシピが勝つ(並び順が優先順)");
+            CollectionAssert.AreEquivalent(new[]
+            {
+                (NonDestructiveApplier.Problem.TextureNotUsedInScope, second),   // 先のレシピが差し替え済み
+                (NonDestructiveApplier.Problem.MissingRecipe, (IrocaRecipe)null), // レシピの無いコンポーネント
+            }, host.Reports.ConvertAll(x => (x.Item1, x.Item3)));
         }
     }
 }

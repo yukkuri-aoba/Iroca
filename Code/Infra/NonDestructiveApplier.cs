@@ -11,12 +11,14 @@ namespace Iroca
     /// <para>
     /// 規則:
     /// <list type="bullet">
-    /// <item>範囲は <see cref="IrocaRecolor"/> を置いた GameObject とその子。</item>
+    /// <item>範囲は <see cref="IrocaRecolor"/> を置いた GameObject とその子。コンポーネントはレシピを
+    ///   複数持てる(テクスチャごとに 1 つ)。</item>
     /// <item>範囲内の Renderer のマテリアルのうち、レシピの元テクスチャをどこかのテクスチャ枠で参照している
     ///   ものだけを複製し、その参照を色替え済みテクスチャへ差し替える。同じマテリアルを複数の Renderer が
     ///   使っていれば複製も共有する。範囲外の Renderer は元のマテリアルのまま。</item>
     /// <item>入れ子で範囲が重なったら、深い(近い)コンポーネントが勝つ。先に深い方を処理すると、
-    ///   差し替え済みのマテリアルは元テクスチャを参照しなくなるので、浅い方は自然に手を出さない。</item>
+    ///   差し替え済みのマテリアルは元テクスチャを参照しなくなるので、浅い方は自然に手を出さない。
+    ///   同じコンポーネントに同じテクスチャのレシピが複数あれば、同じ理由で先のものが勝つ。</item>
     /// <item>最後にコンポーネントをすべて取り除く(エラーがあっても)。</item>
     /// </list>
     /// 元のアセット(テクスチャ・マテリアル)には一切書き込まない。
@@ -43,7 +45,8 @@ namespace Iroca
             void SaveAsset(Object generated);
             /// <summary>元のオブジェクトが複製に置き換わったことを知らせる。</summary>
             void RegisterReplaced(Object original, Object replacement);
-            void Report(Problem problem, IrocaRecolor component, RecipeTextureBuilder.Failure failure);
+            /// <summary><paramref name="recipe"/> はどのレシピの問題か(レシピが無い・空の欄なら null)。</summary>
+            void Report(Problem problem, IrocaRecolor component, IrocaRecipe recipe, RecipeTextureBuilder.Failure failure);
         }
 
         /// <summary>ビルドの直前に呼ばれる(いろかウィンドウが購読し、編集中の内容をレシピへ書き出す)。</summary>
@@ -62,7 +65,7 @@ namespace Iroca
             int replaced = 0;
             try
             {
-                // 深い順(同じ深さは見つかった順)。
+                // 深い順(同じ深さは見つかった順)。1 つのコンポーネントのレシピは並び順。
                 var order = new List<(int depth, int index, IrocaRecolor c)>();
                 for (int i = 0; i < components.Count; i++)
                     order.Add((Depth(components[i].transform, root.transform), i, components[i]));
@@ -70,7 +73,16 @@ namespace Iroca
 
                 var built = new Dictionary<IrocaRecipe, Texture2D>();
                 foreach (var (_, _, component) in order)
-                    replaced += ApplyOne(component, host, built);
+                {
+                    var recipes = component.recipes;
+                    if (recipes == null || recipes.Count == 0)
+                    {
+                        host.Report(Problem.MissingRecipe, component, null, RecipeTextureBuilder.Failure.None);
+                        continue;
+                    }
+                    foreach (var recipe in recipes)
+                        replaced += ApplyOne(component, recipe, host, built);
+                }
             }
             finally
             {
@@ -80,18 +92,18 @@ namespace Iroca
             return replaced;
         }
 
-        private static int ApplyOne(IrocaRecolor component, IHost host, Dictionary<IrocaRecipe, Texture2D> built)
+        private static int ApplyOne(IrocaRecolor component, IrocaRecipe recipe, IHost host,
+            Dictionary<IrocaRecipe, Texture2D> built)
         {
-            var recipe = component.recipe;
             if (recipe == null)
             {
-                host.Report(Problem.MissingRecipe, component, RecipeTextureBuilder.Failure.None);
+                host.Report(Problem.MissingRecipe, component, null, RecipeTextureBuilder.Failure.None);
                 return 0;
             }
             var source = recipe.sourceTexture;
             if (source == null)
             {
-                host.Report(Problem.BuildFailed, component, RecipeTextureBuilder.Failure.NoSourceTexture);
+                host.Report(Problem.BuildFailed, component, recipe, RecipeTextureBuilder.Failure.NoSourceTexture);
                 return 0;
             }
 
@@ -120,7 +132,7 @@ namespace Iroca
                                 recolored = host.BuildTexture(recipe, out var failure);
                                 if (recolored == null)
                                 {
-                                    host.Report(Problem.BuildFailed, component, failure);
+                                    host.Report(Problem.BuildFailed, component, recipe, failure);
                                     return replaced;
                                 }
                                 host.SaveAsset(recolored);
@@ -145,7 +157,7 @@ namespace Iroca
             }
 
             if (!usedInScope)
-                host.Report(Problem.TextureNotUsedInScope, component, RecipeTextureBuilder.Failure.None);
+                host.Report(Problem.TextureNotUsedInScope, component, recipe, RecipeTextureBuilder.Failure.None);
             return replaced;
         }
 

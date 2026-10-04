@@ -103,13 +103,19 @@ namespace Iroca.NdmfIntegration
             foreach (var component in context.GetComponentsByType<IrocaRecolor>())
             {
                 if (component == null) continue;
-                var recipe = context.Observe(component, c => c.recipe);
-                if (recipe == null) continue;
-                var source = context.Observe(recipe, r => r.sourceTexture);
-                if (source == null) continue;
+                var recipes = context.Observe(component,
+                    c => c.recipes != null ? c.recipes.ToArray() : System.Array.Empty<IrocaRecipe>(),
+                    (a, b) => a.SequenceEqual(b));
                 // 付け替えると範囲が変わる(ObservePath は呼んだ時点で監視を始める)。
                 context.ObservePath(component.transform);
-                registered.Add(new PreviewTargeting.Registered(component.gameObject, recipe, source));
+                // 並び順のまま渡す(同じテクスチャのレシピが重なったら先が勝つ。ビルドと同じ)。
+                foreach (var recipe in recipes)
+                {
+                    if (recipe == null) continue;
+                    var source = context.Observe(recipe, r => r.sourceTexture);
+                    if (source == null) continue;
+                    registered.Add(new PreviewTargeting.Registered(component.gameObject, recipe, source));
+                }
             }
             return new PreviewTargeting.Plan(registered, live);
         }
