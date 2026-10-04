@@ -33,7 +33,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 2. 確認ダイアログで「Install」をクリックすると、最新版がダウンロードされて入ります（VCC / ALCOM からも導入できます。[インストール手順](#インストール手順)）
 3. `Tools > いろか` からウィンドウを開きます
 4. テクスチャを選択し、カラーゾーンを追加して色を設定します
-5. 「適用して保存」ボタンで保存します
+5. 「アバターに非破壊で登録」で、アバターに色替えを登録します（元のテクスチャは書き換えず、再生・アップロードのときだけ色替えされます）。画像ファイルとして保存したいときは「テクスチャとして書き出す」を開いて「適用して保存」を押します
 
 詳しい使い方は **[オンラインマニュアル](https://yukkuri-aoba.github.io/Iroca/manual/)** をご覧ください
 （設定の効き方をスライダーで試せます）。テキスト版は [MANUAL.md](MANUAL.md) です。
@@ -133,7 +133,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 1. Import `Iroca_Installer.unitypackage` into Unity Editor and click "Install" in the confirmation dialog (or add it via VCC / ALCOM; see [Installation](#installation))
 2. Open the window: `Tools > いろか`
 3. Select a texture, add a color zone, and set the target color
-4. Click `Apply & Save`
+4. Click `Register to avatar (non-destructive)` (the original texture is kept; the recoloring happens only when entering Play mode or uploading). To save an image file instead, open `Export as a texture` and click `Apply & Save`
 
 See the **[online manual](https://yukkuri-aoba.github.io/Iroca/manual/)** for detailed instructions
 (sliders let you try how each setting behaves). A plain-text version lives in [MANUAL.md](MANUAL.md).
