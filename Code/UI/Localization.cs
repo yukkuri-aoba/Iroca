@@ -1096,6 +1096,8 @@ namespace Iroca
         public static string ZoneGroupHighlight => IsJapanese ? "ハイライト（光沢・明部）" : "Highlights";
         public static string ZoneGroupRecolor => IsJapanese ? "色の写り方" : "Color mapping";
         public static string ZoneGroupMatching => IsJapanese ? "マッチング距離の重み" : "Matching distance weights";
+        // ウィンドウのタブの「⋮」メニュー。白寄せ合成とマッチング距離の重みを詳細設定に出す。
+        public static string ShowDeveloperSettings => IsJapanese ? "開発者向けの設定を表示" : "Show developer settings";
 
         public static string ProcessingDetailFoldout => IsJapanese ? "詳細設定" : "Details";
         public static string ProcessingDetailFoldoutTooltip => IsJapanese

@@ -158,6 +158,8 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 **ハイライト白寄せ合成**（既定 OFF）
 
+開発者向けの項目です。ふだんは表示されず、ウィンドウのタブの「⋮」メニューの「開発者向けの設定を表示」で出ます（プリセットなどで既定から変わっているゾーンでは、常に表示されます）。
+
 明部を白へ寄せて、鏡面ハイライトの白い反射を表現します。光沢・プラスチック向けです。ON のときに出る「ハイライト自動補正」（既定 OFF）は、パーツの地色を自動で見つけて白寄せを全体に効かせます。髪など細い房の多いテクスチャでは広がりすぎることがあるので、その場合は OFF にします。
 
 **暗部・無彩色**
@@ -170,7 +172,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 **マッチング距離の重み**
 
-色の距離式そのものの係数です。ふつうは触りません。
+色の距離式そのものの係数です。ふつうは触りません。開発者向けの項目です。ふだんは表示されず、ウィンドウのタブの「⋮」メニューの「開発者向けの設定を表示」で出ます（プリセットなどで既定から変わっているゾーンでは、常に表示されます）。
 
 | 設定 | 説明 | 既定 |
 |---|---|---|
@@ -188,7 +190,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 ### 加工設定
 
-全ゾーン共通の、エッジとノイズの処理です。
+全ゾーン共通の、エッジとノイズの処理です。既定値のままで使えるので、最初は畳まれています。
 
 #### エッジぼかし
 
@@ -697,6 +699,8 @@ Also matches high-brightness, low-saturation highlights (specular, gloss) so glo
 
 **Highlight White Blend** (default OFF)
 
+A developer setting: hidden by default, shown with "Show developer settings" in the window tab's "⋮" menu (always shown for a zone where it differs from the default, for example after loading a preset).
+
 Pushes bright areas toward white to reproduce the white reflection of specular highlights. For glossy or plastic materials. "Auto Highlight Sample" (default OFF), shown while it is ON, finds the part's base tone so the white blend covers the whole part. On hair-like textures with many thin strands it can spread too much; turn it OFF there.
 
 **Shadows and neutrals**
@@ -709,7 +713,7 @@ Pushes bright areas toward white to reproduce the white reflection of specular h
 
 **Matching distance weights**
 
-The coefficients of the color-distance formula itself. You normally leave these alone.
+The coefficients of the color-distance formula itself. You normally leave these alone. A developer setting: hidden by default, shown with "Show developer settings" in the window tab's "⋮" menu (always shown for a zone where it differs from the default, for example after loading a preset).
 
 | Setting | Description | Default |
 |---|---|---|
@@ -727,7 +731,7 @@ Where zones overlap, only the zone higher in the list is applied. Drag the `☰`
 
 ### Processing Settings
 
-Edge and noise handling, shared by all zones.
+Edge and noise handling, shared by all zones. The defaults work as is, so the section starts collapsed.
 
 #### Edge Feather
 

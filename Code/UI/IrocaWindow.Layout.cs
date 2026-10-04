@@ -8,7 +8,9 @@ namespace Iroca
 {
     public partial class IrocaWindow
     {
-        [SerializeField] private bool processingFoldout = true;
+        // 加工設定（エッジぼかし・AA クリーンアップ・境界クリーンアップ）は既定値のまま使う項目なので、
+        // 既定で畳む（2026-10-04）。開いた/閉じた状態はウィンドウごとに保存される。
+        [SerializeField] private bool processingFoldout = false;
         // 加工設定の内部パラメータ（穴埋め・境界復元・α分解半径）の折りたたみ。既定は閉。
         // 旧「上級モード」で出し分けていた項目をここへ移した（DrawProcessingSection のコメント参照）。
         [SerializeField] private bool processingDetailFoldout;

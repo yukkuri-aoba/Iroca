@@ -563,6 +563,57 @@ namespace Iroca
 
         }
 
+        // 開発者向けの設定（ハイライト白寄せ合成とその自動補正・マッチング距離の重み）を出すか。
+        // どれも既定 OFF／内部の距離式そのもので、普段の色替えで触る必要が無いのに詳細設定の項目数を
+        // 増やし、どれを触ればよいかを分かりにくくしていたので既定では隠す（2026-10-04）。
+        // 切り替えはウィンドウのタブの「⋮」メニュー（AddItemsToMenu）。自動調整はこれらを書き換えないが、
+        // プリセットで既定から変わっているゾーンでは効いている値が見えなくならないよう、設定に関係なく出す。
+        private const string ShowDeveloperSettingsPrefKey = "Iroca.ShowDeveloperSettings";
+        private static bool? s_showDeveloperSettings;
+        private static bool ShowDeveloperSettings
+        {
+            get => s_showDeveloperSettings ??= EditorPrefs.GetBool(ShowDeveloperSettingsPrefKey, false);
+            set
+            {
+                s_showDeveloperSettings = value;
+                EditorPrefs.SetBool(ShowDeveloperSettingsPrefKey, value);
+            }
+        }
+
+        public void AddItemsToMenu(GenericMenu menu)
+        {
+            menu.AddItem(new GUIContent(Localization.ShowDeveloperSettings), ShowDeveloperSettings, () =>
+            {
+                ShowDeveloperSettings = !ShowDeveloperSettings;
+                Repaint();
+            });
+        }
+
+        private static ColorZone s_zoneDefaults;
+        private static ColorZone ZoneDefaults => s_zoneDefaults ??= new ColorZone();
+
+        // 既定から変わっていたので出したゾーン（id）。一度出したらウィンドウを開いている間は出し続ける。
+        // 値を既定へ戻した瞬間に項目ごと消えると、ドラッグ中のスライダーが途中で無くなる。
+        [System.NonSerialized] private HashSet<string> _devParamsRevealed;
+
+        private bool ShowDevParams(ColorZone zone, string group, bool isDefault)
+        {
+            if (ShowDeveloperSettings) return true;
+            _devParamsRevealed ??= new HashSet<string>();
+            string key = (zone.id ?? "") + "/" + group;
+            if (!isDefault) _devParamsRevealed.Add(key);
+            return _devParamsRevealed.Contains(key);
+        }
+
+        private static bool HighlightWashIsDefault(ColorZone z) =>
+            z.applyHighlightWash == ZoneDefaults.applyHighlightWash
+            && z.autoHighlightSample == ZoneDefaults.autoHighlightSample;
+
+        private static bool MatchingWeightsAreDefault(ColorZone z) =>
+            Mathf.Approximately(z.valueWeight, ZoneDefaults.valueWeight)
+            && Mathf.Approximately(z.satDistWeight, ZoneDefaults.satDistWeight)
+            && Mathf.Approximately(z.satRampScale, ZoneDefaults.satRampScale);
+
         // 「詳細設定」を開いたときに出るパラメータ。
         //
         // 役割ごとに小見出しで束ねる。以前は「彩度制限」「彩度ガード」「シャドウ彩度低下」
@@ -604,19 +655,23 @@ namespace Iroca
                 EditorGUI.indentLevel--;
             }
 
-            zone.applyHighlightWash = UndoHelper.Toggle(this,
-                new GUIContent(Localization.ApplyHighlightWash, Localization.ApplyHighlightWashTooltip),
-                zone.applyHighlightWash);
-
-            // 俯瞰スポイト補正(wash サンプル自動導出)は「ハイライト白寄せ合成」が ON の
-            // ときのみ意味を持つので、OFF のときはグレーアウトして関係を明示する。
-            using (new EditorGUI.DisabledScope(!zone.applyHighlightWash))
+            // 白寄せ合成とその自動補正は開発者向け（ShowDeveloperSettings 参照）。
+            if (ShowDevParams(zone, "wash", HighlightWashIsDefault(zone)))
             {
-                EditorGUI.indentLevel++;
-                zone.autoHighlightSample = UndoHelper.Toggle(this,
-                    new GUIContent(Localization.AutoHighlightSample, Localization.AutoHighlightSampleTooltip),
-                    zone.autoHighlightSample);
-                EditorGUI.indentLevel--;
+                zone.applyHighlightWash = UndoHelper.Toggle(this,
+                    new GUIContent(Localization.ApplyHighlightWash, Localization.ApplyHighlightWashTooltip),
+                    zone.applyHighlightWash);
+
+                // 俯瞰スポイト補正(wash サンプル自動導出)は「ハイライト白寄せ合成」が ON の
+                // ときのみ意味を持つので、OFF のときはグレーアウトして関係を明示する。
+                using (new EditorGUI.DisabledScope(!zone.applyHighlightWash))
+                {
+                    EditorGUI.indentLevel++;
+                    zone.autoHighlightSample = UndoHelper.Toggle(this,
+                        new GUIContent(Localization.AutoHighlightSample, Localization.AutoHighlightSampleTooltip),
+                        zone.autoHighlightSample);
+                    EditorGUI.indentLevel--;
+                }
             }
 
             EditorGUILayout.Space(2);
@@ -651,18 +706,21 @@ namespace Iroca
                 new GUIContent(Localization.AutoRecolorAnchor, Localization.AutoRecolorAnchorTooltip),
                 zone.autoRecolorAnchor);
 
-            // ── マッチング距離の重み（旧・上級モード限定。内部の距離式そのもの） ──
-            EditorGUILayout.Space(2);
-            EditorGUILayout.LabelField(Localization.ZoneGroupMatching, EditorStyles.boldLabel);
-            zone.valueWeight = UndoHelper.Slider(this,
-                new GUIContent(Localization.ValueWeight, Localization.ValueWeightTooltip),
-                zone.valueWeight, 0f, 1f);
-            zone.satDistWeight = UndoHelper.Slider(this,
-                new GUIContent(Localization.SatDistWeight, Localization.SatDistWeightTooltip),
-                zone.satDistWeight, 0f, 1f);
-            zone.satRampScale = UndoHelper.Slider(this,
-                new GUIContent(Localization.SatRampScale, Localization.SatRampScaleTooltip),
-                zone.satRampScale, 0.01f, 0.5f);
+            // ── マッチング距離の重み（内部の距離式そのもの。開発者向け、ShowDeveloperSettings 参照） ──
+            if (ShowDevParams(zone, "weights", MatchingWeightsAreDefault(zone)))
+            {
+                EditorGUILayout.Space(2);
+                EditorGUILayout.LabelField(Localization.ZoneGroupMatching, EditorStyles.boldLabel);
+                zone.valueWeight = UndoHelper.Slider(this,
+                    new GUIContent(Localization.ValueWeight, Localization.ValueWeightTooltip),
+                    zone.valueWeight, 0f, 1f);
+                zone.satDistWeight = UndoHelper.Slider(this,
+                    new GUIContent(Localization.SatDistWeight, Localization.SatDistWeightTooltip),
+                    zone.satDistWeight, 0f, 1f);
+                zone.satRampScale = UndoHelper.Slider(this,
+                    new GUIContent(Localization.SatRampScale, Localization.SatRampScaleTooltip),
+                    zone.satRampScale, 0.01f, 0.5f);
+            }
 
             EditorGUILayout.Space(2);
             if (GUILayout.Button(new GUIContent(Localization.ResetZoneTuning, Localization.ResetZoneTuningTooltip)))

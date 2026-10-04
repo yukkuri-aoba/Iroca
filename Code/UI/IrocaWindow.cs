@@ -12,7 +12,7 @@ namespace Iroca
     //   IrocaWindow.Layout.cs   … OnGUI とレイアウト/セクション描画
     //   IrocaWindow.ZoneList.cs … ゾーンリストの描画・並べ替え・遅延ミューテーション
     //   IrocaWindow.AutoTune.cs … 自動調整(ZoneAutoTuner)連携
-    public partial class IrocaWindow : EditorWindow
+    public partial class IrocaWindow : EditorWindow, IHasCustomMenu
     {
         // [SerializeField] を付けることで、スクリプト再コンパイル時に Unity が
         // EditorWindow の状態をシリアライズ/復元し、入力内容が失われにくくなる。
