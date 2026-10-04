@@ -20,8 +20,8 @@
 - [右クリックメニュー（AI 提案・パーツ）](#右クリックメニューai-提案パーツ)
 - [AI マスク提案（実験的機能）](#ai-マスク提案実験的機能)
 - [プリセット](#プリセット)
-- [エクスポート](#エクスポート)
 - [非破壊で色替え（NDMF）](#非破壊で色替えndmf)
+- [エクスポート](#エクスポート)
 - [トラブルシューティング](#トラブルシューティング)
 - [よくある質問](#よくある質問)
 
@@ -50,7 +50,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 ### 基本的な使い方
 
-ウィンドウは ① 元テクスチャ → ② カラーゾーン → ③ プレビュー → ④ エクスポート の順に上から並んでいます。番号どおりに進めれば色替えできます。
+ウィンドウは ① 元テクスチャ → ② カラーゾーン → ③ プレビュー → ④ アバターに反映 の順に上から並んでいます。番号どおりに進めれば色替えできます。
 
 #### ステップ 1: 元テクスチャを選ぶ
 
@@ -86,9 +86,11 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 さらに細かい調整は「[カラーゾーンの設定](#カラーゾーンの設定)」を参照してください。
 
-#### ステップ 6: 保存する
+#### ステップ 6: アバターに反映する
 
-「④ エクスポート」で保存します（→「[エクスポート](#エクスポート)」）。
+「④ アバターに反映」の「アバターに非破壊で登録」を押します（→「[非破壊で色替え（NDMF）](#非破壊で色替えndmf)」）。元のテクスチャは書き換えず、再生・アップロードのときだけ色替えされるので、あとから何度でも色を直せます。
+
+色替えした画像ファイルが要るとき（衣装を配布・販売するときなど）は、その下の「テクスチャとして書き出す」を開いて保存します（→「[エクスポート](#エクスポート)」）。NDMF が入っていないプロジェクトでは、この欄は「④ エクスポート」になり、書き出しだけが使えます。
 
 ---
 
@@ -379,19 +381,6 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 ---
 
-### エクスポート
-
-「適用して保存」で保存します。出力は常に PNG です。
-
-- 新規ファイルとして保存: ON なら元のテクスチャを残し、「ファイル名」の別ファイルに保存します。OFF なら元のファイルを上書きします（確認が出ます。元に戻せないのでバックアップをお勧めします）。
-- インポート設定を引き継ぐ（既定 ON）: 元テクスチャのインポート設定（タイプ・圧縮・ミップマップなど）を引き継ぎます。
-- フォルダを開く: 保存先のフォルダを開きます。
-- Project で表示: 保存したテクスチャを Project ウィンドウで選択します（マテリアルへの差し替え用）。
-
-保存に失敗したときは、エクスポート欄にエラーが残ります。詳細は Console にも出ます。
-
----
-
 ### 非破壊で色替え（NDMF）
 
 元のテクスチャとマテリアルを書き換えずに色替えできます。アバターに「Iroca Recolor」コンポーネントを付けておくと、再生（Play）・アップロードのときだけ色替え済みのテクスチャに差し替わります。コンポーネントを外せば元に戻ります。編集中は、再生しなくてもシーンのアバターに同じ色替えが映ります（下の「シーンでのプレビュー」）。
@@ -404,10 +393,10 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 1. いつもどおりゾーンを作って色を決めます。
 2. Hierarchy で、色替えしたい衣装（またはアバター）を選びます。選ばなければ、そのテクスチャを使っているオブジェクトの共通の親に付きます。
-3. エクスポート欄の「アバターに非破壊で登録」を押し、確認画面で「登録」を押します。選んだオブジェクトに「Iroca Recolor」が付き、色替えの内容（レシピ）が `Assets/Iroca/Recipes` に保存されます。そのオブジェクトに「Iroca Recolor」が既にあれば、新しく付けずにそこへレシピを足します（衣装や髪など、テクスチャをいくつ登録してもコンポーネントは 1 つです）。同じテクスチャのレシピが既にあれば置き換えます。
+3. 「④ アバターに反映」の「アバターに非破壊で登録」を押し、確認画面で「登録」を押します。選んだオブジェクトに「Iroca Recolor」が付き、色替えの内容（レシピ）が `Assets/Iroca/Recipes` に保存されます。そのオブジェクトに「Iroca Recolor」が既にあれば、新しく付けずにそこへレシピを足します（衣装や髪など、テクスチャをいくつ登録してもコンポーネントは 1 つです）。同じテクスチャのレシピが既にあれば置き換えます。
 4. 再生すると色替え後の姿になります。アップロードも同じです。
 
-登録したあとも、いろかウィンドウで編集を続けられます。編集内容はレシピにも保存され、次の再生・アップロードに反映されます（エクスポート欄の「保存先のレシピ」に保存先が出ます）。同じテクスチャのレシピが複数あるときは、「Iroca Recolor」かレシピのインスペクタの「いろかで開く」で、編集するレシピを選びます。
+登録したあとも、いろかウィンドウで編集を続けられます。編集内容はレシピにも保存され、次の再生・アップロードに反映されます（「④ アバターに反映」の「保存先のレシピ」に保存先が出ます）。同じテクスチャのレシピが複数あるときは、「Iroca Recolor」かレシピのインスペクタの「いろかで開く」で、編集するレシピを選びます。
 
 #### 色替えされる範囲
 
@@ -429,12 +418,38 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 - 有効なゾーンが 1 つも無いときは何も映しません。
 - このプレビューのオン/オフは `Tools > NDM Framework > Configure Previews` の「Iroca」の「色替え」で切り替えます。NDMF のプレビュー全体のオン/オフは `Tools > NDM Framework > Enable Previews` です。
 
+#### 配布・販売するとき
+
+非破壊の色替えは、いろかと NDMF が入ったプロジェクトでビルドするときに行われます。色替えした衣装やアバターを unitypackage などで配布・販売すると、受け取る人のプロジェクトにいろかと NDMF が無い場合は元の色のままです。配るときは「[エクスポート](#エクスポート)」で画像に書き出し、その画像を使うマテリアルを同梱してください。
+
+自分でアップロードしたアバターは、VRChat の中では色替え後の姿で見えます（アップロードしたデータに色替え済みのテクスチャが入るため）。
+
 #### 注意
 
-- 以前「適用して保存」で書き出した `_recolored.png` をマテリアルが使っていても、そのまま登録できます。登録のときに、範囲内でその画像を使っているマテリアルを元のテクスチャへ戻します（確認画面に出ます。Ctrl+Z で戻せます）。FBX の中やパッケージのマテリアルは書き換えられないので、元のテクスチャに差し替えた自分のマテリアルを使ってください。エクスポート欄にも、書き出した画像を使っているマテリアルがあると案内が出ます。
+- 以前「適用して保存」で書き出した `_recolored.png` をマテリアルが使っていても、そのまま登録できます。登録のときに、範囲内でその画像を使っているマテリアルを元のテクスチャへ戻します（確認画面に出ます。Ctrl+Z で戻せます）。FBX の中やパッケージのマテリアルは書き換えられないので、元のテクスチャに差し替えた自分のマテリアルを使ってください。「④ アバターに反映」にも、書き出した画像を使っているマテリアルがあると案内が出ます。
 - 最初の再生・アップロードは色替えの計算で数秒かかります。2 回目以降は `Library/Iroca` のキャッシュを使います。シーンでのプレビューも同じキャッシュを使うので、登録済みのテクスチャを初めて映すときだけ数秒かかります。
 - 編集中のシーンでのプレビューは圧縮前のテクスチャで映すので、アップロード後の見た目とは圧縮のぶんだけわずかに違うことがあります。
 - 問題があると NDMF のエラー画面に「いろか: …」と出ます。元テクスチャが読めないなど、色替えできなかったときはアップロードが止まります（元の色のまま上がるのを防ぐため）。
+
+---
+
+### エクスポート
+
+色替えを書き込んだ画像ファイル（PNG）を作ります。自分のアバターには「[非破壊で色替え（NDMF）](#非破壊で色替えndmf)」をお勧めします。書き出しが向いているのは次のようなときです。
+
+- 色替えした衣装やアバターを配布・販売する（受け取る人のプロジェクトにいろかが無くても、その色で見えます）
+- NDMF を使わないプロジェクトで色替えする
+
+NDMF が入っているときは「④ アバターに反映」の下の「テクスチャとして書き出す」を開くと出ます。NDMF が無いときは「④ エクスポート」として最初から出ています。
+
+「適用して保存」で保存します。出力は常に PNG です。
+
+- 新規ファイルとして保存: ON なら元のテクスチャを残し、「ファイル名」の別ファイルに保存します。OFF なら元のファイルを上書きします（確認が出ます。元に戻せないのでバックアップをお勧めします）。
+- インポート設定を引き継ぐ（既定 ON）: 元テクスチャのインポート設定（タイプ・圧縮・ミップマップなど）を引き継ぎます。
+- フォルダを開く: 保存先のフォルダを開きます。
+- Project で表示: 保存したテクスチャを Project ウィンドウで選択します（マテリアルへの差し替え用）。
+
+保存に失敗したときは、④ の欄の下にエラーが残ります。詳細は Console にも出ます。
 
 ---
 
@@ -522,8 +537,8 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 - [Right-click menu (AI Suggest and Parts)](#right-click-menu-ai-suggest-and-parts)
 - [AI Mask Suggestion (Experimental)](#ai-mask-suggestion-experimental)
 - [Presets](#presets)
-- [Export](#export)
 - [Non-destructive recoloring (NDMF)](#non-destructive-recoloring-ndmf)
+- [Export](#export)
 - [Troubleshooting](#troubleshooting)
 - [FAQ](#faq)
 
@@ -552,7 +567,7 @@ If you use VCC / ALCOM, you can instead add the repository `https://yukkuri-aoba
 
 ### Basic Usage
 
-The window runs top to bottom: 1. Source Texture, 2. Color Zones, 3. Preview, 4. Export. Follow the numbers to recolor a texture.
+The window runs top to bottom: 1. Source Texture, 2. Color Zones, 3. Preview, 4. Apply to Avatar. Follow the numbers to recolor a texture.
 
 #### Step 1: Pick a source texture
 
@@ -586,9 +601,11 @@ Click "Target Color" and choose the new color. The preview updates right away.
 
 For finer controls, see [Color Zone Settings](#color-zone-settings).
 
-#### Step 6: Save
+#### Step 6: Apply to the avatar
 
-Save under "Export" (see [Export](#export)).
+Press "Register to avatar (non-destructive)" under "Apply to Avatar" (see [Non-destructive recoloring (NDMF)](#non-destructive-recoloring-ndmf)). The original texture is not changed; the recoloring happens only when entering Play mode or uploading, so you can change the colors again at any time.
+
+When you need an image file with the recolor (for example, for an outfit you distribute or sell), open "Export as a texture" below it and save (see [Export](#export)). In a project without NDMF, this section is "4. Export" and only exporting is available.
 
 ---
 
@@ -877,19 +894,6 @@ Use "Export JSON" and "Import JSON" to exchange settings as files.
 
 ---
 
-### Export
-
-Press "Apply & Save" to save. The output is always PNG.
-
-- Save as new file: when ON, the original texture is kept and the result goes to a separate file named by "File Name". When OFF, the original file is overwritten (a confirmation appears first; it cannot be undone, so keep a backup).
-- Inherit Import Settings (default ON): the output inherits the source texture's import settings (texture type, compression, mipmaps, and so on).
-- Open Folder: opens the save folder.
-- Show in Project: selects the saved texture in the Project window (handy when assigning it to a material).
-
-If saving fails, the error stays in the Export section. The details are also written to the Console.
-
----
-
 ### Non-destructive recoloring (NDMF)
 
 You can recolor without changing the original texture or materials. With the "Iroca Recolor" component on the avatar, the recolored texture is swapped in only when entering Play mode or uploading. Remove the component to go back. While you edit, the same recoloring is also shown on the avatar in the Scene without entering Play mode (see "Preview in the Scene" below).
@@ -902,10 +906,10 @@ You can recolor without changing the original texture or materials. With the "Ir
 
 1. Create zones and pick colors as usual.
 2. In the Hierarchy, select the outfit (or avatar) to recolor. If nothing is selected, the component goes on the common parent of the objects that use the texture.
-3. Press "Register to avatar (non-destructive)" in the Export section, then "Register" in the confirmation. "Iroca Recolor" is added to the selected object, and the recoloring settings (the recipe) are saved under `Assets/Iroca/Recipes`. If the object already has "Iroca Recolor", the recipe is added to it instead of adding another component (one component no matter how many textures, such as the outfit and hair, you register). A recipe for the same texture is replaced.
+3. Press "Register to avatar (non-destructive)" under "Apply to Avatar", then "Register" in the confirmation. "Iroca Recolor" is added to the selected object, and the recoloring settings (the recipe) are saved under `Assets/Iroca/Recipes`. If the object already has "Iroca Recolor", the recipe is added to it instead of adding another component (one component no matter how many textures, such as the outfit and hair, you register). A recipe for the same texture is replaced.
 4. Enter Play mode to see the recolored avatar. Uploading works the same way.
 
-You can keep editing in the Iroca window after registering. Edits are also saved to the recipe and used by the next Play mode or upload (the "Recipe" field in the Export section shows where). When a texture has several recipes, choose the one to edit with "Open in Iroca" in the inspector of "Iroca Recolor" or of the recipe.
+You can keep editing in the Iroca window after registering. Edits are also saved to the recipe and used by the next Play mode or upload (the "Recipe" field under "Apply to Avatar" shows where). When a texture has several recipes, choose the one to edit with "Open in Iroca" in the inspector of "Iroca Recolor" or of the recipe.
 
 #### What gets recolored
 
@@ -927,12 +931,38 @@ You can check the recolored look on the avatar in the Scene without entering Pla
 - Nothing is shown while there is no enabled zone.
 - Turn this preview on or off with "Recolor" under "Iroca" in `Tools > NDM Framework > Configure Previews`. `Tools > NDM Framework > Enable Previews` turns all NDMF previews on or off.
 
+#### Distributing or selling
+
+Non-destructive recoloring runs when a project with Iroca and NDMF builds the avatar. If you distribute or sell the recolored outfit or avatar as a unitypackage or similar, it stays in its original colors in a recipient's project that does not have Iroca and NDMF. To distribute it, export an image with [Export](#export) and include materials that use that image.
+
+An avatar you upload yourself appears recolored inside VRChat (the uploaded data contains the recolored texture).
+
 #### Notes
 
-- Even if a material uses a `_recolored.png` exported earlier with "Apply and save", you can register as is. When registering, materials in the scope that use that image are switched back to the original texture (shown in the confirmation; Ctrl+Z restores them). Materials inside an FBX or a package cannot be changed, so use your own material that points to the original texture. The Export section also tells you when materials use an exported image.
+- Even if a material uses a `_recolored.png` exported earlier with "Apply and save", you can register as is. When registering, materials in the scope that use that image are switched back to the original texture (shown in the confirmation; Ctrl+Z restores them). Materials inside an FBX or a package cannot be changed, so use your own material that points to the original texture. "Apply to Avatar" also tells you when materials use an exported image.
 - The first Play mode or upload takes a few seconds to compute the colors. Later runs use the cache in `Library/Iroca`. The Scene preview shares this cache, so only the first time a registered texture is shown takes a few seconds.
 - While you edit, the Scene preview shows the uncompressed texture, so it can differ very slightly from the uploaded avatar (by the compression).
 - Problems are shown in the NDMF error window as "Iroca: ...". If recoloring fails (for example, the source texture cannot be read), the upload is stopped so that the avatar does not go up in its original colors by mistake.
+
+---
+
+### Export
+
+Creates an image file (PNG) with the recolor written into it. For your own avatar, [Non-destructive recoloring (NDMF)](#non-destructive-recoloring-ndmf) is recommended. Exporting suits cases like these:
+
+- You distribute or sell the recolored outfit or avatar (it shows in those colors even if the recipient's project has no Iroca)
+- You recolor in a project that does not use NDMF
+
+When NDMF is installed, open "Export as a texture" under "Apply to Avatar". Without NDMF, it is shown from the start as "4. Export".
+
+Press "Apply & Save" to save. The output is always PNG.
+
+- Save as new file: when ON, the original texture is kept and the result goes to a separate file named by "File Name". When OFF, the original file is overwritten (a confirmation appears first; it cannot be undone, so keep a backup).
+- Inherit Import Settings (default ON): the output inherits the source texture's import settings (texture type, compression, mipmaps, and so on).
+- Open Folder: opens the save folder.
+- Show in Project: selects the saved texture in the Project window (handy when assigning it to a material).
+
+If saving fails, the error stays at the bottom of section 4. The details are also written to the Console.
 
 ---
 
