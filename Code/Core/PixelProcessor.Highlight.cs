@@ -101,35 +101,51 @@ namespace Iroca
                         }
                     });
 
+                    // 斜めの列ごとに全員を待ち合わせる代わりに、タイルの行を流れ作業で回す。行 ty のタイル tx は
+                    // 「1 つ前の行(前方なら上、後方なら下)が tx まで終わった」のを待ってから処理する。
+                    // 同じ行の左(後方なら右)のタイルは同じ担当が先に済ませ、右(後方なら左)と次の行はまだ
+                    // 触っていない(次の行はこのタイルの完了を待つ)ので、4 近傍の読みは斜めの列の順と同じ。
+                    // 行は番号順に取るので、待つ相手の行は必ず誰かが処理中か処理済み(待ちが循環しない)。
                     int passes = 3;
-                    int nDiag = ntx + nty - 1;
+                    var progress = new int[nty];
+                    int workers = Math.Max(1, Math.Min(GetMaxParallelism(), nty));
                     for (int p = 0; p < passes; p++)
                     {
                         int changedFlag = 0;
-
-                        for (int d = 0; d < nDiag; d++)
+                        for (int dir = 0; dir < 2; dir++)
                         {
                             ct.ThrowIfCancellationRequested();
-                            int tx0 = Math.Max(0, d - (nty - 1)), tx1 = Math.Min(d, ntx - 1);
-                            Parallel.For(tx0, tx1 + 1, po, tx =>
+                            bool forward = dir == 0;
+                            Array.Clear(progress, 0, nty);
+                            int nextRow = 0;
+                            Parallel.For(0, workers, po, _ =>
                             {
-                                int t = (d - tx) * ntx + tx;
-                                if (PropagateHighlightRange(strength, highlightPot, tiled,
-                                        tileStart[t], tileStart[t + 1], w, h, forward: true))
-                                    Volatile.Write(ref changedFlag, 1);
-                            });
-                        }
-
-                        for (int d = nDiag - 1; d >= 0; d--)
-                        {
-                            ct.ThrowIfCancellationRequested();
-                            int tx0 = Math.Max(0, d - (nty - 1)), tx1 = Math.Min(d, ntx - 1);
-                            Parallel.For(tx0, tx1 + 1, po, tx =>
-                            {
-                                int t = (d - tx) * ntx + tx;
-                                if (PropagateHighlightRange(strength, highlightPot, tiled,
-                                        tileStart[t], tileStart[t + 1], w, h, forward: false))
-                                    Volatile.Write(ref changedFlag, 1);
+                                bool changedLocal = false;
+                                while (true)
+                                {
+                                    int r = Interlocked.Increment(ref nextRow) - 1;
+                                    if (r >= nty) break;
+                                    int ty = forward ? r : nty - 1 - r;
+                                    int prevTy = forward ? ty - 1 : ty + 1;
+                                    for (int c = 0; c < ntx; c++)
+                                    {
+                                        if (r > 0)
+                                        {
+                                            int spins = 0;
+                                            while (Volatile.Read(ref progress[prevTy]) <= c)
+                                            {
+                                                if (++spins < 64) Thread.SpinWait(16); else Thread.Yield();
+                                            }
+                                        }
+                                        int tx = forward ? c : ntx - 1 - c;
+                                        int t = ty * ntx + tx;
+                                        if (PropagateHighlightRange(strength, highlightPot, tiled,
+                                                tileStart[t], tileStart[t + 1], w, h, forward))
+                                            changedLocal = true;
+                                        Volatile.Write(ref progress[ty], c + 1);
+                                    }
+                                }
+                                if (changedLocal) Volatile.Write(ref changedFlag, 1);
                             });
                         }
 
