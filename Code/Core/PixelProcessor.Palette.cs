@@ -63,6 +63,12 @@ namespace Iroca
         private const int PaletteMaxColorsDivisor = 4;
         private const int PaletteMaxColorsCap = 1 << 20;
 
+        // 色の表のハッシュ表とスロット → 番号の対応(4K で long 2^21 + int 2^21 = 24MB)を処理ごとに new せず
+        // 使い回す(Mono では大きな new が GC の停止を招く)。同時に 2 つの処理が走ったときは、先に取った
+        // 方だけが使い回し、もう片方は新しく作る。容量より長い配列は先頭 capacity 要素だけ使う。
+        private static long[] s_paletteSlots;
+        private static int[] s_paletteSlotToId;
+
         /// <summary>
         /// 元画素から色の表を作る。種類が上限を超えた・キャンセルされたときは null(呼び出し側は
         /// 画素ごとの計算に戻る)。
@@ -78,8 +84,22 @@ namespace Iroca
             int capacity = 1 << bits;
             int mask = capacity - 1;
             int shift = 32 - bits;
-            // 0 = 空き、それ以外 = RGBA の 32bit 値 + 1。
-            var slots = new long[capacity];
+            // 0 = 空き、それ以外 = RGBA の 32bit 値 + 1。先頭 capacity 要素を 0 にしてから使う。
+            long[] slots = Interlocked.Exchange(ref s_paletteSlots, null);
+            if (slots == null || slots.Length < capacity) slots = new long[capacity];
+            else
+            {
+                var clearSlots = slots;
+                const int ClearChunk = 1 << 18;
+                Parallel.For(0, (capacity + ClearChunk - 1) / ClearChunk, po, c =>
+                {
+                    int c0 = c * ClearChunk;
+                    Array.Clear(clearSlots, c0, Math.Min(ClearChunk, capacity - c0));
+                });
+            }
+            int[] slotToId = null;
+            try
+            {
             int[] index = s_intPool.Rent(len);
             int inserted = 0;
             int overflow = 0;
@@ -134,8 +154,10 @@ namespace Iroca
             }
 
             // 2) 使われたスロットに番号を振り、色と HSV を求める(種類数ぶんだけ)。
+            //    slotToId は使われたスロットの位置だけ書いて読むので、0 で埋めなくてよい。
             int count = inserted;
-            var slotToId = new int[capacity];
+            slotToId = Interlocked.Exchange(ref s_paletteSlotToId, null);
+            if (slotToId == null || slotToId.Length < capacity) slotToId = new int[capacity];
             var colors = new Color32[count];
             int n = 0;
             for (int s = 0; s < capacity; s++)
@@ -157,14 +179,21 @@ namespace Iroca
 
             sub?.Mark(SpPaletteIds);
             // 3) スロット番号を色番号へ置き換える。
+            var slotToIdL = slotToId;
             Parallel.For(0, h, po, y =>
             {
                 int row = y * w;
-                for (int x = 0; x < w; x++) index[row + x] = slotToId[index[row + x]];
+                for (int x = 0; x < w; x++) index[row + x] = slotToIdL[index[row + x]];
             });
 
             sub?.Mark(SpPaletteRemap);
             return new ColorPalette { Count = count, Colors = colors, Index = index, H = hh, S = ss, V = vv };
+            }
+            finally
+            {
+                Volatile.Write(ref s_paletteSlots, slots);
+                if (slotToId != null) Volatile.Write(ref s_paletteSlotToId, slotToId);
+            }
         }
 
         // ───────── 無彩パスの再着色メモ ─────────
