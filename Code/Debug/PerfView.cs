@@ -233,6 +233,7 @@ namespace Iroca.DebugTools
                 if (!double.IsNaN(r.DetailShownMs)) line += $" ・ 拡大 {r.DetailShownMs:F0} ms";
             }
             if (!r.HasInput) line += "  (操作なし: 起点は生成開始)";
+            // 折り返す(既定幅の設定列では 1 行に収まらず、末尾が切れて読めなかった)。
             EditorGUILayout.LabelField(
                 new GUIContent(line,
                     "初回: 縮小プロキシの概要が出るまで(プロキシを使わないときは確定と同じ)。\n" +
@@ -240,7 +241,8 @@ namespace Iroca.DebugTools
                     "拡大: 拡大表示中だけ。フル解像度の詳細クロップが出るまで。\n" +
                     "スクロール・ズーム: 拡大表示中に表示位置・倍率を最後に変えてから、拡大表示が出るまで" +
                     $"(手を止めて {DebounceText} 待ってから作り直すので、その待ちを含みます)。\n" +
-                    $"元画像 {r.SourceW}×{r.SourceH}"));
+                    $"元画像 {r.SourceW}×{r.SourceH}"),
+                EditorStyles.wordWrappedLabel);
 
             // 簡略表示(デバッグモード OFF)は要約の 1 行だけ。
             if (!detailed) return;
@@ -263,7 +265,11 @@ namespace Iroca.DebugTools
             using (new EditorGUILayout.HorizontalScope())
             {
                 EditorGUILayout.LabelField(label, GUILayout.Width(150));
-                EditorGUILayout.LabelField($"{rep.TotalMs:F1} ms  ({rep.Width}×{rep.Height})", EditorStyles.miniLabel);
+                // MinWidth(0): 値の LabelField は既定で「ラベル幅＋フィールド幅」(~200px)を最小幅に
+                // 要求し、150px の段名と並ぶとこの行だけで ~360px になる。設定列(下限 320px)より広い行が
+                // 1 つでもあると、列全体がその幅で並べられて全行の右端(数値欄・ボタン)が切れる。
+                EditorGUILayout.LabelField($"{rep.TotalMs:F1} ms  ({rep.Width}×{rep.Height})", EditorStyles.miniLabel,
+                    GUILayout.MinWidth(0f));
             }
         }
 
@@ -363,7 +369,8 @@ namespace Iroca.DebugTools
             using (new EditorGUILayout.HorizontalScope())
             {
                 EditorGUILayout.LabelField(new GUIContent(label, tooltip), GUILayout.Width(150));
-                EditorGUILayout.LabelField($"{ms:F0} ms", EditorStyles.miniLabel);
+                // MinWidth(0) の理由は DrawCoreRow と同じ(設定列を押し広げない)。
+                EditorGUILayout.LabelField($"{ms:F0} ms", EditorStyles.miniLabel, GUILayout.MinWidth(0f));
             }
         }
 

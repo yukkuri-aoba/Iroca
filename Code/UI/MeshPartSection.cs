@@ -19,6 +19,8 @@ namespace Iroca
         private const string ShowIslandsPrefKey = "Iroca.ShowMeshIslands";
         // ツールチップに並べるメッシュ名の上限(多いアバターでツールチップが画面を覆わないように)
         private const int MaxListedMeshes = 20;
+        // メッシュ欄(ラベルを除く)の最小幅。ピッカーのボタンと名前の頭が見える程度。
+        private const float MinObjectFieldWidth = 30f;
 
         /// <summary>プレビューに UV の島の輪郭を重ねるか(ユーザーごとの表示設定)。</summary>
         public static bool ShowIslands
@@ -36,9 +38,14 @@ namespace Iroca
             // 初回はここでメッシュを探す(テクスチャ単位でキャッシュ。欄を畳んでいる間は探さない)。
             var current = parts.SourceObject;
             EditorGUI.BeginChangeCheck();
+            // MinWidth: ObjectField は既定で「ラベル幅＋約 55px」を最小幅に要求する。設定列のラベル幅は
+            // 最長ラベルに合わせて広がる(英語では ~176px)ので、右の「探し直す」と合わせてこの行だけが
+            // 設定列(下限 320px)より広くなり、列全体がその幅で並べられて全行の右端(数値欄・ボタン)が
+            // 切れていた。欄は狭くてもアイコンと名前の頭・ピッカーが見えれば使えるので、最小幅を詰める。
             var picked = EditorGUILayout.ObjectField(
                 new GUIContent(Localization.MeshSource, Localization.MeshSourceTooltip),
-                current, typeof(GameObject), true);
+                current, typeof(GameObject), true,
+                GUILayout.MinWidth(EditorGUIUtility.labelWidth + MinObjectFieldWidth));
             if (EditorGUI.EndChangeCheck() && picked != current)
             {
                 if (picked == null)
