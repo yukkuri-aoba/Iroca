@@ -69,9 +69,16 @@ namespace Iroca
         public static string StepPrefixZones   => IsJapanese ? "② " : "2. ";
         public static string StepPrefixPreview => IsJapanese ? "③ " : "3. ";
         public static string StepPrefixExport  => IsJapanese ? "④ " : "4. ";
+        // ④ は NDMF があれば非破壊の登録、無ければテクスチャへの書き出し(エクスポート欄の主ボタンと揃える)。
+#if IROCA_NDMF_PRESENT
+        public static string WorkflowHint => IsJapanese
+            ? "手順: ① 元テクスチャを選ぶ → ② カラーゾーンで色を指定（スポイトで色を取り「自動調整」が簡単）→ ③ プレビューで確認 → ④ アバターに非破壊で登録"
+            : "Steps: 1. Pick a source texture  2. Set colors in Color Zones (sample a color and use Auto-tune)  3. Check the Preview  4. Register to avatar (non-destructive)";
+#else
         public static string WorkflowHint => IsJapanese
             ? "手順: ① 元テクスチャを選ぶ → ② カラーゾーンで色を指定（スポイトで色を取り「自動調整」が簡単）→ ③ プレビューで確認 → ④ 適用して保存"
             : "Steps: 1. Pick a source texture  2. Set colors in Color Zones (sample a color and use Auto-tune)  3. Check the Preview  4. Apply & Save";
+#endif
 
         public static string SourceTexture => IsJapanese ? "元テクスチャ" : "Source Texture";
         public static string Texture => IsJapanese ? "テクスチャ" : "Texture";
@@ -1083,6 +1090,11 @@ namespace Iroca
         // 非破壊(NDMF)
         // ─────────────────────────────────────────────────────────────
         public static string RegisterNonDestructive => IsJapanese ? "アバターに非破壊で登録" : "Register to avatar (non-destructive)";
+        public static string ApplyToAvatar => IsJapanese ? "アバターに反映" : "Apply to Avatar";
+        public static string ExportAsTexture => IsJapanese ? "テクスチャとして書き出す" : "Export as a texture";
+        public static string ExportAsTextureTooltip => IsJapanese
+            ? "色替えを書き込んだ画像ファイル(PNG)を作ります(以前からの方法)。配布・販売する衣装のように、受け取る側にいろかや NDMF が無い場合に使います。自分のアバターには「アバターに非破壊で登録」がおすすめです(元のテクスチャを残したまま、何度でも直せます)。"
+            : "Creates an image file (PNG) with the recolor written into it (the original way). Use it when the people who receive the result may not have Iroca or NDMF, such as outfits you distribute or sell. For your own avatar, \"Register to avatar (non-destructive)\" is recommended (the original texture stays as is and you can change it any time).";
         public static string RegisterNonDestructiveTooltip => IsJapanese
             ? "元のテクスチャとマテリアルを書き換えずに色替えします。Hierarchy で選んだ衣装やアバター(未選択なら、このテクスチャを使っている所の共通の親)に「Iroca Recolor」を付け、再生・アップロード時だけ色替え済みのテクスチャへ差し替えます。既に付いていれば、そこへこのテクスチャのレシピを足します(コンポーネントは増えません)。外せば元に戻ります。NDMF が必要です。"
             : "Recolor without changing the original texture or materials. Adds \"Iroca Recolor\" to the outfit or avatar selected in the Hierarchy (or, if nothing is selected, the common parent of the objects using this texture), and swaps in the recolored texture only when entering Play mode or uploading. If it is already there, this texture's recipe is added to it (no new component). Remove it to go back. Requires NDMF.";

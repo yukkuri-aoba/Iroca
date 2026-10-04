@@ -21,6 +21,8 @@ namespace Iroca
         public bool saveAsNewFile = true;
         public string newFileName = "";
         public bool inheritImportSettings = true;
+        // NDMF があるときの「テクスチャとして書き出す」の開閉。主は非破壊の登録なので既定は閉じる。
+        public bool textureExportFoldout;
 
         [System.NonSerialized] private Vector2 _batchScrollPos;
         [System.NonSerialized] private IrocaWindow _host;
@@ -70,14 +72,45 @@ namespace Iroca
             _exportJob.Dispose();
         }
 
+        // 並びと高さは GetSectionHeight と対で保つ(食い違うとエクスポート欄が画面外へ押し出される)。
         public void DrawExportSection()
         {
+#if IROCA_NDMF_PRESENT
+            // 非破壊(NDMF)が主: 元のテクスチャを書き換えず、アバターのビルド時にだけ差し替える。
+            // テクスチャへの書き出しは、配布する衣装や NDMF を使わない場面のために畳んで残す。
+            EditorGUILayout.LabelField(Localization.StepPrefixExport + Localization.ApplyToAvatar, EditorStyles.boldLabel);
+            EditorGUI.BeginDisabledGroup(_host.SourceTexture == null);
+            DrawRegister(primary: true);
+            EditorGUILayout.Space(4);
+            textureExportFoldout = EditorGUILayout.Foldout(textureExportFoldout,
+                new GUIContent(Localization.ExportAsTexture, Localization.ExportAsTextureTooltip), true);
+            if (textureExportFoldout)
+                DrawTextureExport(primary: false);
+#else
             EditorGUILayout.LabelField(Localization.StepPrefixExport + Localization.Export, EditorStyles.boldLabel);
-
             // 外側の DisabledScope（IrocaWindow.OnGUI で囲まれる）を壊さないよう、
             // GUI.enabled の直接代入ではなく BeginDisabledGroup を使う。
             EditorGUI.BeginDisabledGroup(_host.SourceTexture == null);
+            DrawTextureExport(primary: true);
+            EditorGUILayout.Space(4);
+            EditorGUILayout.HelpBox(Localization.NdmfMissing, MessageType.Warning);
+            DrawRegister(primary: false);
+#endif
 
+            // 直近のエラー（消えない表示）。書き出し欄を畳んでも見えるよう外に置く。
+            if (!string.IsNullOrEmpty(_lastError))
+            {
+                EditorGUILayout.HelpBox(_lastError, MessageType.Error);
+                if (GUILayout.Button(new GUIContent(Localization.DismissError, Localization.DismissErrorTooltip)))
+                    _lastError = null;
+            }
+
+            EditorGUI.EndDisabledGroup();
+        }
+
+        /// <summary>テクスチャへの書き出し(PNG)。primary のときだけ実行ボタンを大きくする。</summary>
+        private void DrawTextureExport(bool primary)
+        {
             saveAsNewFile = EditorGUILayout.Toggle(
                 new GUIContent(Localization.SaveAsNewFile, Localization.SaveAsNewFileTooltip),
                 saveAsNewFile);
@@ -98,7 +131,8 @@ namespace Iroca
             if (_host.SoloZone != null)
                 EditorGUILayout.HelpBox(Localization.ExportSoloWarning, MessageType.Info);
 
-            if (GUILayout.Button(new GUIContent(Localization.ApplyAndSave, Localization.ApplyAndSaveTooltip), GUILayout.Height(32)))
+            var applyContent = new GUIContent(Localization.ApplyAndSave, Localization.ApplyAndSaveTooltip);
+            if (primary ? GUILayout.Button(applyContent, GUILayout.Height(PrimaryButtonHeight)) : GUILayout.Button(applyContent))
             {
                 ApplyRecolor();
             }
@@ -118,13 +152,13 @@ namespace Iroca
                     RevealLastSavedInProject();
             }
             EditorGUILayout.EndHorizontal();
+        }
 
-            // 非破壊(NDMF): 元のテクスチャを書き換えず、アバターのビルド時にだけ差し替える。
-            EditorGUILayout.Space(4);
-#if !IROCA_NDMF_PRESENT
-            EditorGUILayout.HelpBox(Localization.NdmfMissing, MessageType.Warning);
-#endif
-            if (GUILayout.Button(new GUIContent(Localization.RegisterNonDestructive, Localization.RegisterNonDestructiveTooltip)))
+        /// <summary>非破壊(NDMF)の登録。primary のときだけボタンを大きくする。</summary>
+        private void DrawRegister(bool primary)
+        {
+            var registerContent = new GUIContent(Localization.RegisterNonDestructive, Localization.RegisterNonDestructiveTooltip);
+            if (primary ? GUILayout.Button(registerContent, GUILayout.Height(PrimaryButtonHeight)) : GUILayout.Button(registerContent))
                 _host.RegisterToAvatar();
             var bound = _host.BoundRecipe;
             if (bound != null)
@@ -138,16 +172,6 @@ namespace Iroca
             int exportUsers = ExportUsersCount();
             if (exportUsers > 0)
                 EditorGUILayout.HelpBox(string.Format(Localization.ExportUsersHintFormat, exportUsers), MessageType.Info);
-
-            // 直近のエラー（消えない表示）。
-            if (!string.IsNullOrEmpty(_lastError))
-            {
-                EditorGUILayout.HelpBox(_lastError, MessageType.Error);
-                if (GUILayout.Button(new GUIContent(Localization.DismissError, Localization.DismissErrorTooltip)))
-                    _lastError = null;
-            }
-
-            EditorGUI.EndDisabledGroup();
         }
 
         /// <summary>直近に書き出したテクスチャを Project ウィンドウで選択・表示する。</summary>
@@ -170,20 +194,39 @@ namespace Iroca
             newFileName = baseNameWithoutExtension + "_recolored";
         }
 
+        private const float PrimaryButtonHeight = 32f;
+
         /// <summary>
         /// エクスポートセクションの描画想定高さを返す。
         /// IrocaWindow の横並びレイアウトで「上部 + プレビュー領域」の高さ計算に使う。
-        /// 折りたたみは廃止したので常に内部コントロールの合計を返す。
+        /// DrawExportSection と同じ並び・同じ条件で足し合わせる。
         /// </summary>
         public float GetSectionHeight()
         {
             float lineH = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
 
-            // 内訳: 見出しラベル + 新規保存トグル + (新規時のみ)ファイル名 +
-            //       インポート設定継承トグル + (ソロ中のみ)注意 HelpBox + 適用ボタン(高さ32) +
-            //       フォルダ/Project 行 + 非破壊の登録一式 + (エラー時のみ)HelpBox と「閉じる」
             float h = lineH;          // 見出しラベル
-            h += lineH;               // saveAsNewFile トグル
+#if IROCA_NDMF_PRESENT
+            h += RegisterHeight(primary: true);
+            h += 4f;                  // Space(4)
+            h += lineH;               // 「テクスチャとして書き出す」の折りたたみ
+            if (textureExportFoldout)
+                h += TextureExportHeight(primary: false);
+#else
+            h += TextureExportHeight(primary: true);
+            h += 4f;                  // Space(4)
+            h += NdmfMissingHelpBoxHeight();
+            h += RegisterHeight(primary: false);
+#endif
+            if (!string.IsNullOrEmpty(_lastError))
+                h += 40f + lineH;     // エラー HelpBox +「閉じる」ボタン
+            return h;
+        }
+
+        private float TextureExportHeight(bool primary)
+        {
+            float lineH = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
+            float h = lineH;          // saveAsNewFile トグル
             if (saveAsNewFile)
                 h += lineH;           // ファイル名フィールド
             h += lineH;               // inheritImportSettings トグル
@@ -192,20 +235,20 @@ namespace Iroca
             // 切り上げ側（安全側）に取る。
             if (_host != null && _host.SoloZone != null)
                 h += 40f;             // ソロ表示中の注意
-            h += 32f + EditorGUIUtility.standardVerticalSpacing; // ApplyAndSave ボタン
+            h += primary ? PrimaryButtonHeight + EditorGUIUtility.standardVerticalSpacing : lineH; // ApplyAndSave ボタン
             h += lineH;               // OpenFolder / Project で表示（1 行に横並び）
-            h += 4f;                  // 非破壊の前の Space(4)
-#if !IROCA_NDMF_PRESENT
-            h += NdmfMissingHelpBoxHeight();
-#endif
-            h += lineH;               // アバターに非破壊で登録
+            return h;
+        }
+
+        private float RegisterHeight(bool primary)
+        {
+            float lineH = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
+            float h = primary ? PrimaryButtonHeight + EditorGUIUtility.standardVerticalSpacing : lineH; // アバターに非破壊で登録
             if (_host != null && _host.BoundRecipe != null)
                 h += lineH;           // 保存先のレシピ
             int exportUsers = ExportUsersCount();
             if (exportUsers > 0)      // 書き出した画像を使うマテリアルの案内
                 h += HelpBoxHeight(string.Format(Localization.ExportUsersHintFormat, exportUsers));
-            if (!string.IsNullOrEmpty(_lastError))
-                h += 40f + lineH;     // エラー HelpBox +「閉じる」ボタン
             return h;
         }
 
