@@ -266,6 +266,9 @@ namespace Iroca
                 var content = new GUIContent(
                     armed ? Localization.StartWithEyedropperActive : Localization.StartWithEyedropper,
                     Localization.StartWithEyedropperTooltip);
+                // 武装は出力を変えないので、ボタンが立てる GUI.changed を押す前の値へ戻す。
+                // 設定列は ChangeCheck で囲まれており、立ったままだと押すたびにプレビューを再生成していた。
+                bool prevChanged = GUI.changed;
                 if (GUILayout.Button(content, GUILayout.Height(EditorGUIUtility.singleLineHeight * 1.8f)))
                 {
                     // トグル: 武装↔解除。シード指定と排他（どちらもプレビューの素のクリックを取る）。
@@ -273,6 +276,7 @@ namespace Iroca
                     if (!armed) SeedPickZoneId = null;
                     Repaint();
                 }
+                GUI.changed = prevChanged;
                 GUI.backgroundColor = prevBg;
             }
             EditorGUILayout.Space(2);
@@ -398,6 +402,8 @@ namespace Iroca
                 {
                     var prevBg = GUI.backgroundColor;
                     if (armed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
+                    // 武装は出力を変えないので GUI.changed を戻す（DrawStartWithEyedropperButton と同じ）。
+                    bool prevChanged = GUI.changed;
                     if (GUILayout.Button(armed ? s_eyedropperActiveContent : s_eyedropperIdleContent,
                         GUILayout.Width(IrocaConsts.Layout.EyedropperButtonWidth)))
                     {
@@ -409,6 +415,7 @@ namespace Iroca
                         if (!armed) SeedPickZoneId = null;
                         Repaint();
                     }
+                    GUI.changed = prevChanged;
                     GUI.backgroundColor = prevBg;
                 }
             }
@@ -534,6 +541,8 @@ namespace Iroca
                         bool seedArmed = !string.IsNullOrEmpty(zone.id) && SeedPickZoneId == zone.id;
                         var prevSeedBg = GUI.backgroundColor;
                         if (seedArmed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
+                        // 武装は出力を変えないので GUI.changed を戻す（DrawStartWithEyedropperButton と同じ）。
+                        bool prevChanged = GUI.changed;
                         if (GUILayout.Button(seedArmed ? s_seedPickActiveContent : s_seedPickIdleContent,
                                 GUILayout.MinWidth(0)))
                         {
@@ -543,6 +552,7 @@ namespace Iroca
                             if (!seedArmed) EyedropperZoneId = null;
                             Repaint();
                         }
+                        GUI.changed = prevChanged;
                         GUI.backgroundColor = prevSeedBg;
                     }
 

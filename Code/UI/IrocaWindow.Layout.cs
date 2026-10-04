@@ -56,8 +56,11 @@ namespace Iroca
             PublishLivePreviewTarget();
 
             // スポイト武装中にテクスチャが外れた／対象ゾーンが消えたら解除（クリックで解けなくなるのを防ぐ）。
+            // 「スポイトで変えたい色を選ぶ」の武装（NewZoneEyedropperId）はまだ無いゾーンを指すので、
+            // ゾーンの有無では解除しない（解除すると押した次の描画で武装が消え、トグルにならなかった）。
             if (!string.IsNullOrEmpty(_eyedropperZoneId) &&
-                (sourceTexture == null || FindZoneById(_eyedropperZoneId) == null))
+                (sourceTexture == null
+                 || (_eyedropperZoneId != NewZoneEyedropperId && FindZoneById(_eyedropperZoneId) == null)))
                 _eyedropperZoneId = null;
             // シード指定の武装も同じ理由で掃除する（武装したまま対象が消えると、プレビュー上の
             // クリックが行き先の無い状態で待ち続ける）。
