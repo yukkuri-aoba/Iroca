@@ -573,7 +573,7 @@ namespace Iroca
         // MixAsMaterial = 弱く選択された画素だが素材そのもの・素材の濃淡(全強度で再着色する)。
         private const float MixAsMaterial      = 2f;
         // AnalyzeMixtureBand の「面か」の覚え書きの値(0/1 = まだ調べていない)。
-        private const float FlatYes = 3f, FlatNo = 4f;
+        private const byte FlatYesB = 1, FlatNoB = 2;
 
         // ClassifyMixture の判定。
         private const int MixOther = 0, MixMixture = 1, MixMaterial = 2, MixBackground = 3, MixOver = 4;
@@ -741,6 +741,44 @@ namespace Iroca
         // 混色帯の解析で、早い打ち切りをまとめて判定する行の区間の長さ(px)。
         private const int MixSegment = 32;
 
+        /// <summary>
+        /// 行ごとのビット列(1 画素 1 bit、1 行 wpr 語)で、矩形 [rx0..rx1]×[ry0..ry1] のうち範囲 [x0..x1]×[y0..y1] に
+        /// 入る部分の立っているビットの数。
+        /// </summary>
+        private static int CountBitsInRect(ulong[] bits, int wpr, int x0, int y0, int x1, int y1,
+            int rx0, int ry0, int rx1, int ry1)
+        {
+            int xa = Mathf.Max(x0, rx0), xb = Mathf.Min(x1, rx1);
+            int ya = Mathf.Max(y0, ry0), yb = Mathf.Min(y1, ry1);
+            if (xb < xa || yb < ya) return 0;
+            int wa = xa >> 6, wb = xb >> 6;
+            ulong ma = ~0UL << (xa & 63);
+            ulong mb = ~0UL >> (63 - (xb & 63));
+            int n = 0;
+            for (int y = ya; y <= yb; y++)
+            {
+                int o = y * wpr;
+                if (wa == wb) { n += PopCount64(bits[o + wa] & ma & mb); continue; }
+                n += PopCount64(bits[o + wa] & ma);
+                for (int k = wa + 1; k < wb; k++) n += PopCount64(bits[o + k]);
+                n += PopCount64(bits[o + wb] & mb);
+            }
+            return n;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static int PopCount64(ulong v)
+        {
+#if NETCOREAPP3_0_OR_GREATER
+            return System.Numerics.BitOperations.PopCount(v);
+#else
+            v -= (v >> 1) & 0x5555555555555555UL;
+            v = (v & 0x3333333333333333UL) + ((v >> 2) & 0x3333333333333333UL);
+            v = (v + (v >> 4)) & 0x0F0F0F0F0F0F0F0FUL;
+            return (int)((v * 0x0101010101010101UL) >> 56);
+#endif
+        }
+
         /// <summary>矩形 [rx0..rx1]×[ry0..ry1] のうち範囲 [x0..x1]×[y0..y1] に入る部分の個数(BuildCountSat の表から)。</summary>
         private static int CountInRect(int[] sat, int satW, int x0, int y0, int x1, int y1,
             int rx0, int ry0, int rx1, int ry1)
@@ -797,41 +835,45 @@ namespace Iroca
             int sy0 = Mathf.Max(0, gy0 - B), sy1 = Mathf.Min(h - 1, gy1 + B);
 
             int len = w * h;
-            // 窓和(近傍の選択数)は、範囲 S の整数の累積和から窓ごとに 4 回の読み出しで引く。sel / any は 0/1
-            // なので、以前の BoxFilterSum(浮動小数の窓和)は常に正確な整数で、ここで引く値と同じ。
-            // 累積和は範囲 S と同じ寸法 (satW × satH)。
-            int satW = sx1 - sx0 + 1, satH = sy1 - sy0 + 1;
-            float[] sel = null, any = null;
-            int[] satSel = null, satAny = null;
+            // 「確かな選択」sel と「選択(強さを問わず)」any を 1 画素 1 bit の行ごとのビット列に持ち、窓の中の
+            // 個数は窓の各行のビットを数えて求める(旧: float の 0/1 配列 2 本と、その累積和 2 本を全域に作って
+            // いた=4K で 256MB を何度も読み書き)。数は整数なので、どちらで数えても同じ値。
+            // ビットは範囲 S だけ立て、窓は S で切って数える(窓は常に S の内側か、S と同じく画像の端で切られる。
+            // S = 調べる範囲 ± 2B、窓は最大 ±B を G = 調べる範囲 ± B から取る)。
+            int wpr = (w + 63) >> 6;
+            var selBits = new ulong[h * wpr];
+            var anyBits = new ulong[h * wpr];
+            // 「面か」の覚え書き(0 = まだ調べていない、FlatYesB / FlatNoB = 調べた結果)。背景の候補を探す
+            // 範囲 G だけ 0 にしてから使う。同じ画素を別の行のスレッドが同時に調べても、書く値は同じ(1 バイトの
+            // 書き込みなので、途中の値が見えることもない)。
+            byte[] flatMemo = null;
             try
             {
-                sel = s_floatPool.Rent(len);
-                any = s_floatPool.Rent(len);
-                satSel = s_intPool.Rent(satW * satH);
-                satAny = s_intPool.Rent(satW * satH);
+                flatMemo = s_bytePool.Rent(len);
                 var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-                var selL = sel; var anyL = any;
                 Parallel.For(sy0, sy1 + 1, po, y =>
                 {
                     int rowOff = y * w;
+                    int wb = y * wpr;
+                    ulong ws = 0, wa = 0;
                     for (int x = sx0; x <= sx1; x++)
                     {
                         int i = rowOff + x;
                         float s = originalPixels[i].a > 0 ? strength[i] : 0f;
+                        ulong bit = 1UL << (x & 63);
                         // 含める画素は選択には数えるが、素材色の推定(確かな選択)には使わない。
-                        selL[i] = s >= MixSolidStrength && (includedPx == null || !includedPx[i]) ? 1f : 0f;
-                        anyL[i] = s > 0f ? 1f : 0f;
+                        if (s >= MixSolidStrength && (includedPx == null || !includedPx[i])) ws |= bit;
+                        if (s > 0f) wa |= bit;
+                        if ((x & 63) == 63 || x == sx1)
+                        {
+                            selBits[wb + (x >> 6)] = ws;
+                            anyBits[wb + (x >> 6)] = wa;
+                            ws = 0; wa = 0;
+                        }
                     }
                 });
-                BuildCountSat(sel, satSel, w, sx0, sy0, sx1, sy1, po);
-                BuildCountSat(any, satAny, w, sx0, sy0, sx1, sy1, po);
-                var satSelL = satSel; var satAnyL = satAny;
-                // 窓(画像の内側に切った範囲)は常に S の内側か、S と同じく画像の端で切られる
-                // (S = 調べる範囲 ± 2B、窓は最大 ±B を G = 調べる範囲 ± B から取る)ので、S で切ってよい。
-                // ここから any は「面か」の覚え書きに使う(窓和を取り終えたので不要)。値 0/1 = まだ調べていない、
-                // FlatYes / FlatNo = 調べた結果。背景の候補を探す範囲(G)は any を埋めた範囲(S)の内側にある。
-                // 同じ画素を別の行のスレッドが同時に調べても、書く値は同じなので競合しない。
-                var flatL = any;
+                var flatL = flatMemo;
+                Parallel.For(gy0, gy1 + 1, po, y => Array.Clear(flatL, y * w + gx0, gx1 - gx0 + 1));
 
                 var rcL = rc;
                 float minChromaSq = MixMinChroma * MixMinChroma;
@@ -868,10 +910,10 @@ namespace Iroca
                     {
                         int rx0 = Mathf.Max(0, xs - R), rx1 = Mathf.Min(w - 1, xe + R);
                         int areaR = (rx1 - rx0 + 1) * (ry1 - ry0 + 1);
-                        bool skipSeg = CountInRect(satSelL, satW, sx0, sy0, sx1, sy1, rx0, ry0, rx1, ry1) >= areaR
-                            || (CountInRect(satSelL, satW, sx0, sy0, sx1, sy1,
+                        bool skipSeg = CountBitsInRect(selBits, wpr, sx0, sy0, sx1, sy1, rx0, ry0, rx1, ry1) >= areaR
+                            || (CountBitsInRect(selBits, wpr, sx0, sy0, sx1, sy1,
                                     Mathf.Max(0, xs - B), by0, Mathf.Min(w - 1, xe + B), by1) <= 0
-                                && CountInRect(satAnyL, satW, sx0, sy0, sx1, sy1, rx0, ry0, rx1, ry1) <= 0);
+                                && CountBitsInRect(anyBits, wpr, sx0, sy0, sx1, sy1, rx0, ry0, rx1, ry1) <= 0);
                         if (skipSeg)
                         {
                             for (int x = xs; x <= xe; x++) mixAlpha[row + x] = -1f;
@@ -882,19 +924,19 @@ namespace Iroca
                     {
                         int i = row + x;
                         mixAlpha[i] = -1f;
-                        bool isSolid = selL[i] > 0f;
+                        bool isSolid = (selBits[y * wpr + (x >> 6)] & (1UL << (x & 63))) != 0;
                         if (isSolid)
                         {
                             // 窓 ±R が全部選択済み = 内側。境界の帯ではない。
                             int cnt = (Mathf.Min(w - 1, x + R) - Mathf.Max(0, x - R) + 1)
                                     * (Mathf.Min(h - 1, y + R) - Mathf.Max(0, y - R) + 1);
-                            if (CountInWindow(satSelL, satW, sx0, sy0, sx1, sy1, x, y, R) >= cnt) continue;
+                            if (CountBitsInRect(selBits, wpr, sx0, sy0, sx1, sy1, x - R, y - R, x + R, y + R) >= cnt) continue;
                         }
                         // 未選択・弱い選択の画素: 近く(±B)にまとまった選択があるか、選択(強さを問わず)から
                         // ±R 以内にあるものだけを調べる。
-                        int nBi = CountInWindow(satSelL, satW, sx0, sy0, sx1, sy1, x, y, B);
+                        int nBi = CountBitsInRect(selBits, wpr, sx0, sy0, sx1, sy1, x - B, y - B, x + B, y + B);
                         if (!isSolid && nBi < minSolidNear
-                            && CountInWindow(satAnyL, satW, sx0, sy0, sx1, sy1, x, y, R) <= 0) continue;
+                            && CountBitsInRect(anyBits, wpr, sx0, sy0, sx1, sy1, x - R, y - R, x + R, y + R) <= 0) continue;
                         if (includedPx != null && includedPx[i]) continue;
                         Color32 op = originalPixels[i];
                         if (op.a == 0) continue;
@@ -923,8 +965,9 @@ namespace Iroca
                                             // d > R のときは輪(チェビシェフ距離 = d)だけを見る。
                                             if (d > R && ady < d && (xx > x ? xx - x : x - xx) < d) continue;
                                             int j = r2 + xx;
-                                            if (j == i || selL[j] <= 0f) continue;
-                                            if (pass == 0 && CountInWindow(satSelL, satW, sx0, sy0, sx1, sy1, xx, yy, 1) < 9) continue;
+                                            if (j == i || (selBits[yy * wpr + (xx >> 6)] & (1UL << (xx & 63))) == 0) continue;
+                                            if (pass == 0 && CountBitsInRect(selBits, wpr, sx0, sy0, sx1, sy1,
+                                                    xx - 1, yy - 1, xx + 1, yy + 1) < 9) continue;
                                             setIdx[setN++] = j;
                                         }
                                     }
@@ -1006,8 +1049,8 @@ namespace Iroca
                                     if (strength[j] > 0f) continue;
                                     Color32 o = originalPixels[j];
                                     if (o.a == 0 || (maskExcluded != null && maskExcluded[j])) continue;
-                                    float fc = flatL[j];
-                                    if (fc < FlatYes)
+                                    byte fc = flatL[j];
+                                    if (fc == 0)
                                     {
                                         // 面の判定: 3×3 の隣が全部未選択で、色度が揃っていて、±R に透明が無い。
                                         float oM = (o.r + o.g + o.b) * (1f / 3f);
@@ -1036,10 +1079,10 @@ namespace Iroca
                                                 if (eR0 * eR0 + eG0 * eG0 + eB0 * eB0 > flatSq) { flat = false; break; }
                                             }
                                         }
-                                        fc = flat ? FlatYes : FlatNo;
+                                        fc = flat ? FlatYesB : FlatNoB;
                                         flatL[j] = fc;
                                     }
-                                    if (fc != FlatYes) continue;
+                                    if (fc != FlatYesB) continue;
                                     bR += o.r; bG += o.g; bB += o.b; bN++;
                                 }
                             }
@@ -1110,10 +1153,7 @@ namespace Iroca
             }
             finally
             {
-                if (satAny != null) s_intPool.Return(satAny);
-                if (satSel != null) s_intPool.Return(satSel);
-                if (any != null) s_floatPool.Return(any);
-                if (sel != null) s_floatPool.Return(sel);
+                if (flatMemo != null) s_bytePool.Return(flatMemo);
             }
         }
     }
