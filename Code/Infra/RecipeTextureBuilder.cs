@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
@@ -65,23 +66,115 @@ namespace Iroca
         }
 
         /// <summary>
+        /// <see cref="Build"/> の非同期版(シーンのプレビュー用。初めて映すときにエディタを止めないため)。
+        /// 重い色替えの計算と縮小はバックグラウンドで回す。原本の読み込み・テクスチャ作り・圧縮(Unity の API)は
+        /// メインスレッドで、1 つずつ別の tick に分けて行う(4K では読み込み 0.2 秒・画素の確定 0.15 秒・
+        /// BC7 圧縮 0.3 秒ほど)。出来上がりとキャッシュは <see cref="Build"/> と同じ。
+        /// <paramref name="done"/> は必ずメインスレッドで 1 回呼ぶ(作れなければ null)。キャッシュがあるときや
+        /// 作れないと分かっているとき(レシピが空・壊れている)は、この呼び出しの中で呼ぶ。
+        /// </summary>
+        internal static void BuildAsync(IrocaRecipe recipe, Action<Texture2D> done)
+        {
+            var like = recipe != null ? recipe.sourceTexture : null;
+            if (like == null) { done(null); return; }
+
+            string key = CacheKey(recipe, like);
+            var cached = TryLoadCache(key, like);
+            if (cached != null) { done(cached); return; }
+
+            if (!TryLoadState(recipe, out var state, out _)) { done(null); return; }
+            PreviewJobMainThread.Post(() =>
+            {
+                if (like == null || !TryReadPixels(like, out var pixels, out int w, out int h, out _)) { done(null); return; }
+                int dw = like.width, dh = like.height;
+                Task.Run(() =>
+                {
+                    SessionRecolor.Apply(pixels, w, h, state);
+                    return (dw == w && dh == h) ? pixels : ResizeArea(pixels, w, h, dw, dh);
+                }).ContinueWith(t => PreviewJobMainThread.Post(() => FinishAsync(t, like, dw, dh, key, done)),
+                    TaskScheduler.Default);
+            });
+        }
+
+        // 計算が終わったあとのメインスレッドの仕事(画素の確定、次の tick で圧縮とキャッシュ)。
+        private static void FinishAsync(Task<Color32[]> t, Texture2D like, int dw, int dh, string key,
+            Action<Texture2D> done)
+        {
+            // 計算している間に元テクスチャが消えたら作らない(取り込み直しで寸法が変わったなら合わせて縮める)。
+            var tex = Step(() => t.IsFaulted || like == null ? null : CreateUncompressed(t.Result, dw, dh, like), null);
+            if (tex == null)
+            {
+                if (t.IsFaulted) Debug.LogException(t.Exception.GetBaseException());
+                done(null);
+                return;
+            }
+            PreviewJobMainThread.Post(() =>
+            {
+                if (like == null)
+                {
+                    UnityEngine.Object.DestroyImmediate(tex);
+                    done(null);
+                    return;
+                }
+                done(Step(() =>
+                {
+                    Compress(tex, like);
+                    TryStoreCache(key, tex);
+                    FinishLike(tex, like);
+                    return tex;
+                }, tex));
+            });
+        }
+
+        // 失敗したら記録して、作りかけを捨てて null を返す。
+        private static Texture2D Step(Func<Texture2D> work, Texture2D partial)
+        {
+            try
+            {
+                return work();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                if (partial != null) UnityEngine.Object.DestroyImmediate(partial);
+                return null;
+            }
+        }
+
+        /// <summary>
         /// 原本を読み、レシピの編集状態を当てた画素(原本の解像度)を返す。
         /// 「適用して保存」と同じ読み方・同じ処理なので、同じ編集状態なら書き出しとバイト単位で一致する。
         /// </summary>
         internal static bool TryRecolor(IrocaRecipe recipe, out Color32[] pixels, out int width, out int height,
             out Failure failure)
         {
-            pixels = null; width = height = 0; failure = Failure.None;
+            pixels = null; width = height = 0;
+            if (!TryLoadState(recipe, out var state, out failure)) return false;
+            if (!TryReadPixels(recipe.sourceTexture, out pixels, out width, out height, out failure)) return false;
+            SessionRecolor.Apply(pixels, width, height, state);
+            return true;
+        }
+
+        // レシピの編集状態を読み、色替えするものがあるか確かめる(軽い)。
+        private static bool TryLoadState(IrocaRecipe recipe, out IrocaSessionState state, out Failure failure)
+        {
+            state = null; failure = Failure.None;
             var src = recipe != null ? recipe.sourceTexture : null;
             if (src == null) { failure = Failure.NoSourceTexture; return false; }
-            var state = RecipeStore.Load(recipe);
+            state = RecipeStore.Load(recipe);
             if (state == null) { failure = Failure.UnreadableRecipe; return false; }
             if (SessionRecolor.EnabledZoneCopies(state.zones).Count == 0) { failure = Failure.NoEnabledZones; return false; }
+            return true;
+        }
 
+        // 原本の画素を読む(4K で 0.2 秒ほど)。Unity の API を使うのでメインスレッドで呼ぶ。
+        private static bool TryReadPixels(Texture2D src, out Color32[] pixels, out int width, out int height,
+            out Failure failure)
+        {
+            failure = Failure.None;
             string srcPath = AssetDatabase.GetAssetPath(src);
             var kind = ExportPipeline.ReadSourcePixels(srcPath, src, out pixels, out width, out height);
             if (kind == ExportPipeline.SourceKind.Unavailable) { failure = Failure.SourceUnreadable; return false; }
-            SessionRecolor.Apply(pixels, width, height, state);
             return true;
         }
 
@@ -91,6 +184,14 @@ namespace Iroca
         /// </summary>
         internal static Texture2D CreateMatching(Color32[] pixels, int width, int height, Texture2D like)
         {
+            var tex = CreateUncompressed(pixels, width, height, like);
+            Compress(tex, like);
+            return tex;
+        }
+
+        // 圧縮の前まで(寸法・ミップ有無・色空間を like にそろえた RGBA32)。
+        private static Texture2D CreateUncompressed(Color32[] pixels, int width, int height, Texture2D like)
+        {
             int dw = like.width, dh = like.height;
             var px = (dw == width && dh == height) ? pixels : ResizeArea(pixels, width, height, dw, dh);
             bool linear = !GraphicsFormatUtility.IsSRGBFormat(like.graphicsFormat);
@@ -98,7 +199,6 @@ namespace Iroca
             var tex = new Texture2D(dw, dh, TextureFormat.RGBA32, mips, linear);
             tex.SetPixels32(px);
             tex.Apply(updateMipmaps: mips, makeNoLongerReadable: false);
-            Compress(tex, like);
             return tex;
         }
 

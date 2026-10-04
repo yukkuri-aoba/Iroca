@@ -110,8 +110,10 @@ namespace Iroca.EditorTests
             Assert.IsNotNull(group, "編集中のテクスチャを使う Renderer が対象にならない");
 
             var proxy = ProxyOf(renderer);
-            var node = filter.Instantiate(group, new List<(Renderer, Renderer)> { (renderer, proxy) },
-                new ComputeContext("node")).Result;
+            var instantiating = filter.Instantiate(group, new List<(Renderer, Renderer)> { (renderer, proxy) },
+                new ComputeContext("node"));
+            Assert.IsTrue(instantiating.IsCompleted, "ライブ(作り済みの RenderTexture)を待たせた");
+            var node = instantiating.Result;
             Material swapped;
             try
             {
@@ -152,8 +154,12 @@ namespace Iroca.EditorTests
             Assert.IsNotNull(group);
 
             var proxy = ProxyOf(inside);
-            var node = filter.Instantiate(group, new List<(Renderer, Renderer)> { (inside, proxy) },
-                new ComputeContext("node")).Result;
+            var instantiating = filter.Instantiate(group, new List<(Renderer, Renderer)> { (inside, proxy) },
+                new ComputeContext("node"));
+            // 初めて映すレシピは作りかけ。出来上がるまでプロキシに触らない(NDMF は前の表示を出し続ける)。
+            Assert.IsFalse(instantiating.IsCompleted, "レシピを作り終えるまでエディタを止めた");
+            Assert.AreSame(mat, proxy.sharedMaterial, "出来上がる前に差し替えた");
+            var node = TestAssets.Wait(instantiating);
             try
             {
                 var tex = proxy.sharedMaterial.mainTexture as Texture2D;
@@ -169,8 +175,8 @@ namespace Iroca.EditorTests
 
             // ウィンドウがこのレシピを編集し始めたら、同じ範囲にライブを映す。
             LivePreview.SetTarget(src, recipe);
-            var liveNode = filter.Instantiate(group, new List<(Renderer, Renderer)> { (inside, ProxyOf(inside)) },
-                new ComputeContext("node")).Result;
+            var liveNode = TestAssets.Wait(filter.Instantiate(group,
+                new List<(Renderer, Renderer)> { (inside, ProxyOf(inside)) }, new ComputeContext("node")));
             try
             {
                 Assert.AreEqual(1, LivePreview.RefCount(src), "編集中のレシピの範囲にライブを映していない");
@@ -202,8 +208,8 @@ namespace Iroca.EditorTests
                 var group = GroupOf(groups, r);
                 Assert.IsNotNull(group, $"{r.name}: 2 つ目以降のレシピのテクスチャが対象にならない");
                 var proxy = ProxyOf(r);
-                var node = filter.Instantiate(group, new List<(Renderer, Renderer)> { (r, proxy) },
-                    new ComputeContext("node")).Result;
+                var node = TestAssets.Wait(filter.Instantiate(group, new List<(Renderer, Renderer)> { (r, proxy) },
+                    new ComputeContext("node")));
                 try
                 {
                     var tex = proxy.sharedMaterial.mainTexture;

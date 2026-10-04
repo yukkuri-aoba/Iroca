@@ -313,8 +313,12 @@ namespace Iroca.EditorTests
             var recipe = RedToGreen(src, 0.2f);
             int before = RecipePreviewTextures.Count;
 
-            var a = RecipePreviewTextures.Acquire(recipe, out var keyA);
-            var b = RecipePreviewTextures.Acquire(recipe, out var keyB);
+            var pendingA = RecipePreviewTextures.Acquire(recipe, out var keyA);
+            Assert.IsFalse(pendingA.IsCompleted, "初めて映すときは作りかけで返す(色替えの計算でエディタを止めない)");
+            var pendingB = RecipePreviewTextures.Acquire(recipe, out var keyB);
+            Assert.AreSame(pendingA, pendingB, "作りかけも共有する(同じものを 2 回作らない)");
+            var a = TestAssets.Wait(pendingA);
+            var b = TestAssets.Wait(pendingB);
             Assert.IsNotNull(a);
             Assert.AreSame(a, b, "同じ中身のレシピは 1 枚を共有する");
             Assert.AreEqual(keyA, keyB);
@@ -328,7 +332,7 @@ namespace Iroca.EditorTests
             RecipeStore.Save(recipe, state);
             _cacheFiles.Add(System.IO.Path.Combine(RecipeTextureBuilder.CacheDir,
                 RecipeTextureBuilder.CacheKey(recipe, src) + ".tex"));
-            var c = RecipePreviewTextures.Acquire(recipe, out var keyC);
+            var c = TestAssets.Wait(RecipePreviewTextures.Acquire(recipe, out var keyC));
             Assert.AreNotEqual(keyA, keyC);
             Assert.AreNotSame(a, c);
 
@@ -337,6 +341,26 @@ namespace Iroca.EditorTests
             RecipePreviewTextures.Release(keyB);
             Assert.IsTrue(a == null, "最後の借り手が返したら捨てる");
             RecipePreviewTextures.Release(keyC);
+            Assert.AreEqual(before, RecipePreviewTextures.Count);
+
+            // 2 回目からはディスクのキャッシュがあるので、その場で貸す。
+            var again = RecipePreviewTextures.Acquire(recipe, out var keyD);
+            Assert.IsTrue(again.IsCompleted && again.Result != null, "キャッシュがあるのに作りかけで返した");
+            RecipePreviewTextures.Release(keyD);
+        }
+
+        [Test]
+        public void ReleasedWhileBuilding_TheResultIsDiscarded()
+        {
+            string path = _assets.WritePng("src", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);
+            var recipe = RedToGreen(AssetDatabase.LoadAssetAtPath<Texture2D>(path), 0.2f);
+            int before = RecipePreviewTextures.Count;
+
+            var pending = RecipePreviewTextures.Acquire(recipe, out var key);
+            Assert.IsFalse(pending.IsCompleted);
+            RecipePreviewTextures.Release(key);   // 出来上がる前にプレビューが作り直された
+            Assert.AreEqual(before, RecipePreviewTextures.Count);
+            Assert.IsNull(TestAssets.Wait(pending), "返したあとに出来上がったものを貸し出した(誰も捨てない)");
             Assert.AreEqual(before, RecipePreviewTextures.Count);
         }
 
@@ -348,7 +372,8 @@ namespace Iroca.EditorTests
             try
             {
                 empty.sourceTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-                Assert.IsNull(RecipePreviewTextures.Acquire(empty, out var key));
+                var lent = RecipePreviewTextures.Acquire(empty, out var key);
+                Assert.IsTrue(lent.IsCompleted && lent.Result == null);
                 Assert.IsNull(key);
             }
             finally

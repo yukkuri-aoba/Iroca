@@ -2,10 +2,12 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 
 namespace Iroca
 {
@@ -17,6 +19,9 @@ namespace Iroca
     internal static class PreviewJobMainThread
     {
         private static readonly ConcurrentQueue<Action> Queue = new ConcurrentQueue<Action>();
+
+        // 1 回の tick で捌く時間の目安。超えたら残りは次の tick へ回す。
+        private const long TickBudgetMs = 20;
 
         [InitializeOnLoadMethod]
         private static void Install()
@@ -30,12 +35,18 @@ namespace Iroca
             EditorApplication.update += Drain;
         }
 
-        private static void Drain()
+        // テスト(EditMode の同期テストでは EditorApplication.update が回らない)からも呼ぶ。
+        // 回し始めた時点で積まれていた分だけを、目安の時間まで捌く。残りと、捌いている間に積まれた分は
+        // 次の tick へ回すので、重いメインスレッドの仕事(シーンのプレビュー用のテクスチャ作りなど)を
+        // 分けて積めば、1 フレームにまとめて止めずに少しずつ進む。
+        internal static void Drain()
         {
-            while (Queue.TryDequeue(out var action))
+            var sw = Stopwatch.StartNew();
+            for (int n = Queue.Count; n > 0 && Queue.TryDequeue(out var action); n--)
             {
                 try { action(); }
                 catch (Exception ex) { Debug.LogException(ex); }
+                if (sw.ElapsedMilliseconds > TickBudgetMs) break;
             }
         }
 

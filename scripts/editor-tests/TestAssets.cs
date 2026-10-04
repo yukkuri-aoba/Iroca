@@ -1,7 +1,10 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
+using System.Diagnostics;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 
@@ -64,6 +67,22 @@ namespace Iroca.EditorTests
                 imp.isReadable = readable;
                 imp.SaveAndReimport();
             }
+        }
+
+        /// <summary>
+        /// メインスレッドへ戻ってくる非同期処理を待つ。同期のテストの間は EditorApplication.update が回らないので、
+        /// 戻り先(<see cref="PreviewJobMainThread"/>)をここで回す。
+        /// </summary>
+        public static T Wait<T>(Task<T> task, int timeoutMs = 30000)
+        {
+            var sw = Stopwatch.StartNew();
+            while (!task.IsCompleted)
+            {
+                if (sw.ElapsedMilliseconds > timeoutMs) throw new TimeoutException("非同期処理が終わらない");
+                PreviewJobMainThread.Drain();
+                Thread.Sleep(2);
+            }
+            return task.Result;
         }
 
         public static Color32[] Solid(int w, int h, Color32 c)

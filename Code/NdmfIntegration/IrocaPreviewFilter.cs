@@ -16,7 +16,9 @@ namespace Iroca.NdmfIntegration
     /// <item>いろかウィンドウで編集中のテクスチャは、ウィンドウのプレビューの結果をそのまま映す
     ///   (<see cref="LivePreview"/>。設定を動かすとアバターも追従する)。</item>
     /// <item>登録済み(<see cref="IrocaRecolor"/>)でウィンドウが編集していないものは、レシピの出来上がりを映す
-    ///   (<see cref="RecipePreviewTextures"/>。非破壊ビルドと同じテクスチャ)。</item>
+    ///   (<see cref="RecipePreviewTextures"/>。非破壊ビルドと同じテクスチャ)。初めて映すときは作るのに数秒
+    ///   かかるので、出来上がるまで <see cref="Instantiate"/> を完了させない。NDMF はその間、前の表示
+    ///   (初回は元のまま)を出し続け、エディタは止まらない。</item>
     /// </list>
     /// どこに何を映すかの規則は <see cref="PreviewTargeting"/>(NDMF 非依存)。ここは NDMF への橋渡しと、
     /// 規則が依存する値の監視(変わったら NDMF が作り直す)だけ。
@@ -75,24 +77,25 @@ namespace Iroca.NdmfIntegration
         {
             var plan = ObservePlan(context);
             var node = new Node();
+            var proxies = new List<Renderer>();
             foreach (var (original, proxy) in proxyPairs)
             {
                 if (original == null || proxy == null) continue;
                 // 元の Renderer の素材と親子関係が変わったら作り直す(上流の差し替えは NDMF が Refresh で知らせる)。
                 HasReplacement(context, plan, original);
-                var mats = proxy.sharedMaterials;
-                bool changed = false;
-                for (int i = 0; i < mats.Length; i++)
-                {
-                    if (mats[i] == null) continue;
-                    var clone = node.CloneFor(context, plan, original.transform, mats[i]);
-                    if (clone == null) continue;
-                    mats[i] = clone;
-                    changed = true;
-                }
-                if (changed) proxy.sharedMaterials = mats;
+                foreach (var m in proxy.sharedMaterials)
+                    if (m != null) node.Borrow(context, plan, original.transform, m);
+                proxies.Add(proxy);
             }
-            return Task.FromResult<IRenderFilterNode>(node);
+
+            var ready = node.Ready;
+            if (ready.IsCompleted) return Task.FromResult<IRenderFilterNode>(node.Swap(proxies));
+            // 作りかけのレシピを待つ。完了はメインスレッドだが、待ち合わせ(WhenAll)の続きはどこで走るか
+            // 決まらないので、差し替えはメインスレッドへ戻してから行う。
+            var result = new TaskCompletionSource<IRenderFilterNode>();
+            ready.ContinueWith(_ => PreviewJobMainThread.Post(() => result.SetResult(node.Swap(proxies))),
+                TaskScheduler.Default);
+            return result.Task;
         }
 
         /// <summary>規則の入力(ウィンドウの編集対象・シーンのコンポーネント・レシピ・親子関係)を監視しつつ読む。</summary>
@@ -153,17 +156,91 @@ namespace Iroca.NdmfIntegration
 
         private sealed class Node : IRenderFilterNode
         {
+            // 差し替え 1 つぶん: マテリアルのテクスチャ欄と、入れるテクスチャ(ライブは即時、レシピは作りかけのことがある)。
+            private struct Slot
+            {
+                public Material material;
+                public int property;
+                public Texture live;
+                public Task<Texture2D> recipe;
+            }
+
+            private readonly List<Slot> _slots = new List<Slot>();
+            private readonly HashSet<Material> _borrowed = new HashSet<Material>();
             private readonly Dictionary<Material, Material> _clones = new Dictionary<Material, Material>();
             private readonly List<Texture2D> _live = new List<Texture2D>();
             private readonly List<string> _recipeKeys = new List<string>();
 
             public RenderAspects WhatChanged => RenderAspects.Material | RenderAspects.Texture;
 
+            /// <summary>借りたテクスチャがすべて出来上がったら完了する。</summary>
+            public Task Ready
+            {
+                get
+                {
+                    var pending = new List<Task>();
+                    foreach (var s in _slots)
+                        if (s.recipe != null && !s.recipe.IsCompleted) pending.Add(s.recipe);
+                    return pending.Count == 0 ? Task.CompletedTask : Task.WhenAll(pending);
+                }
+            }
+
+            /// <summary>このマテリアルの差し替え先テクスチャを借りる(複製はまだ作らない)。</summary>
+            public void Borrow(ComputeContext context, PreviewTargeting.Plan plan, Transform owner, Material material)
+            {
+                if (!_borrowed.Add(material)) return;
+                foreach (int id in material.GetTexturePropertyNameIDs())
+                {
+                    if (!plan.TryResolve(owner, material.GetTexture(id), out var replacement)) continue;
+                    var slot = new Slot { material = material, property = id };
+                    if (replacement.IsLive)
+                    {
+                        slot.live = LivePreview.Acquire(replacement.source);
+                        if (slot.live == null) continue;
+                        _live.Add(replacement.source);
+                    }
+                    else
+                    {
+                        // レシピの中身が変わったら作り直す(ウィンドウがレシピへ保存したとき)。
+                        context.Observe(replacement.recipe, r => r.sessionJson);
+                        slot.recipe = RecipePreviewTextures.Acquire(replacement.recipe, out var key);
+                        if (key != null) _recipeKeys.Add(key);
+                    }
+                    _slots.Add(slot);
+                }
+            }
+
+            /// <summary>
+            /// 借りたテクスチャを入れたマテリアルの複製を作り、組み立て用のプロキシへ差し替える
+            /// (<see cref="Ready"/> の完了後に、メインスレッドで呼ぶ)。
+            /// </summary>
+            public Node Swap(List<Renderer> proxies)
+            {
+                foreach (var s in _slots)
+                {
+                    var texture = s.recipe != null ? s.recipe.Result : s.live;
+                    if (texture == null) continue;
+                    if (!_clones.TryGetValue(s.material, out var clone))
+                    {
+                        // hideFlags は既定のまま(DontSave にすると、ノードが片付けられずに残ったとき
+                        // 未使用アセットの掃除でも消えなくなる)。プロキシは保存されないので複製も保存されない。
+                        clone = Object.Instantiate(s.material);
+                        clone.name = s.material.name + " (Iroca)";
+                        _clones[s.material] = clone;
+                    }
+                    clone.SetTexture(s.property, texture);
+                }
+                foreach (var proxy in proxies) Replace(proxy);
+                return this;
+            }
+
             // NDMF は毎フレーム、描画用のプロキシのマテリアルを元の Renderer のものへ戻してから各ノードを呼ぶ
             // (Instantiate で触るのは組み立て用のプロキシで、下流のノードに差し替えを見せるためのもの)。
             // なので描画のたびに、組み立て時に作った複製へ差し替え直す。上流のノードが差し替えたマテリアルも
             // 組み立て時と同じものなので、同じ対応表で引ける。
-            public void OnFrame(Renderer original, Renderer proxy)
+            public void OnFrame(Renderer original, Renderer proxy) => Replace(proxy);
+
+            private void Replace(Renderer proxy)
             {
                 if (_clones.Count == 0 || proxy == null) return;
                 var mats = proxy.sharedMaterials;
@@ -177,49 +254,12 @@ namespace Iroca.NdmfIntegration
                 if (changed) proxy.sharedMaterials = mats;
             }
 
-            /// <summary>差し替えるテクスチャがあればマテリアルを複製して差し替えたものを、無ければ null を返す。</summary>
-            public Material CloneFor(ComputeContext context, PreviewTargeting.Plan plan, Transform owner, Material material)
-            {
-                if (_clones.TryGetValue(material, out var existing)) return existing;
-                Material clone = null;
-                foreach (int id in material.GetTexturePropertyNameIDs())
-                {
-                    if (!plan.TryResolve(owner, material.GetTexture(id), out var replacement)) continue;
-                    var texture = Borrow(context, replacement);
-                    if (texture == null) continue;
-                    if (clone == null)
-                    {
-                        // hideFlags は既定のまま(DontSave にすると、ノードが片付けられずに残ったとき
-                        // 未使用アセットの掃除でも消えなくなる)。プロキシは保存されないので複製も保存されない。
-                        clone = Object.Instantiate(material);
-                        clone.name = material.name + " (Iroca)";
-                    }
-                    clone.SetTexture(id, texture);
-                }
-                _clones[material] = clone;
-                return clone;
-            }
-
-            private Texture Borrow(ComputeContext context, PreviewTargeting.Replacement replacement)
-            {
-                if (replacement.IsLive)
-                {
-                    var rt = LivePreview.Acquire(replacement.source);
-                    if (rt != null) _live.Add(replacement.source);
-                    return rt;
-                }
-                // レシピの中身が変わったら作り直す(ウィンドウがレシピへ保存したとき)。
-                context.Observe(replacement.recipe, r => r.sessionJson);
-                var texture = RecipePreviewTextures.Acquire(replacement.recipe, out var key);
-                if (texture != null) _recipeKeys.Add(key);
-                return texture;
-            }
-
             public void Dispose()
             {
                 foreach (var clone in _clones.Values)
                     if (clone != null) Object.DestroyImmediate(clone);
                 _clones.Clear();
+                _slots.Clear();
                 foreach (var source in _live) LivePreview.Release(source);
                 _live.Clear();
                 foreach (var key in _recipeKeys) RecipePreviewTextures.Release(key);
