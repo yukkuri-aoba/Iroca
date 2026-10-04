@@ -228,8 +228,14 @@ namespace Iroca
 
         private void DrawSideBySideLayout(float availableContentH, float exportH)
         {
+            // 変更の検出はテクスチャ欄と設定群だけを囲み、間にある設定列の BeginScrollView は外す。
+            // スクロールバーは BeginScrollView の中で描かれ、つまんで動かすと GUI.changed が立つ。
+            // 1 つの ChangeCheck で通して囲んでいた頃は、設定列をスクロールするだけでプレビューの
+            // 再生成(ドラッグ中はプロキシの追従)が走り続けていた。縦並びレイアウトは
+            // BeginScrollView の後で ChangeCheck を始めているので元から起きない。
             EditorGUI.BeginChangeCheck();
             DrawTextureField();
+            bool textureFieldChanged = EditorGUI.EndChangeCheck();
 
             // エクスポートセクションを常にウィンドウ下部に表示するため、
             // 横並び領域の高さを「描画領域高 - ヘッダー/テクスチャフィールド - エクスポート高」に制限する。
@@ -287,9 +293,10 @@ namespace Iroca
             _settingsContentWidth = leftWidth - GUI.skin.verticalScrollbar.fixedWidth;
             EditorGUIUtility.labelWidth = SettingsLabelWidth(_settingsContentWidth);
 
+            EditorGUI.BeginChangeCheck();
             DrawLeftColumnSettings();
 
-            if (EditorGUI.EndChangeCheck())
+            if (EditorGUI.EndChangeCheck() || textureFieldChanged)
             {
                 MarkPreviewDirty();
             }
