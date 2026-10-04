@@ -412,6 +412,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 #### 色替えされる範囲
 
 - 「Iroca Recolor」を付けたオブジェクトとその子のうち、レシピの元テクスチャを使っているマテリアルだけが差し替わります。範囲の外で同じマテリアルを使っている所は元のままです。
+- 衣装や表情のトグルなど、アニメーションで後から切り替わるマテリアルも、切り替える先のオブジェクトが範囲内なら同じように色替えされます。元のアニメーションファイルは変わりません。
 - 1 つの「Iroca Recolor」は、テクスチャごとのレシピを一覧で持ちます。同じテクスチャのレシピが重なったときは、一覧の上のものが使われます。
 - 範囲が入れ子になっているときは、近い（深い）方のコンポーネントが優先されます。
 - 以前の版で同じオブジェクトに「Iroca Recolor」を複数付けていた場合は、インスペクタの「1 つにまとめる」で 1 つにできます（色替えの結果は変わりません）。いろかウィンドウからそのオブジェクトへ登録したときも、自動でまとめます。
@@ -430,7 +431,6 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 #### 注意
 
-- マテリアルを切り替えるアニメーション（衣装や表情の切り替えなど）で後から使われるマテリアルは、まだ色替えされません。
 - マテリアルが以前いろかで書き出した `_recolored.png` を指していると、元テクスチャが見つからず色替えされません。元のテクスチャに戻してから登録してください。
 - 最初の再生・アップロードは色替えの計算で数秒かかります。2 回目以降は `Library/Iroca` のキャッシュを使います。シーンでのプレビューも同じキャッシュを使うので、登録済みのテクスチャを初めて映すときだけ数秒かかります。
 - 編集中のシーンでのプレビューは圧縮前のテクスチャで映すので、アップロード後の見た目とは圧縮のぶんだけわずかに違うことがあります。
@@ -910,6 +910,7 @@ You can keep editing in the Iroca window after registering. Edits are also saved
 #### What gets recolored
 
 - Only materials that use the recipe's source texture, on the object with "Iroca Recolor" and its children, are swapped. Objects outside that scope keep the original even if they use the same material.
+- Materials that an animation switches to later (outfit or expression toggles) are recolored the same way, as long as the switched object is in the scope. The original animation files are not changed.
 - One "Iroca Recolor" holds a list of recipes, one per texture. If two recipes use the same texture, the upper one in the list is used.
 - When scopes are nested, the closer (deeper) component wins.
 - If an earlier version added several "Iroca Recolor" components to the same object, "Merge into one" in the inspector combines them (the result does not change). Registering to that object from the Iroca window merges them automatically too.
@@ -928,7 +929,6 @@ You can check the recolored look on the avatar in the Scene without entering Pla
 
 #### Notes
 
-- Materials that animations switch to later (outfit or expression toggles) are not recolored yet.
 - If a material points to an `_recolored.png` exported by Iroca earlier, the source texture is not found and nothing is recolored. Switch the material back to the original texture before registering.
 - The first Play mode or upload takes a few seconds to compute the colors. Later runs use the cache in `Library/Iroca`. The Scene preview shares this cache, so only the first time a registered texture is shown takes a few seconds.
 - While you edit, the Scene preview shows the uncompressed texture, so it can differ very slightly from the uploaded avatar (by the compression).
