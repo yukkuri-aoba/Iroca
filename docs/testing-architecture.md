@@ -111,7 +111,7 @@ Iroca 本体リポジトリ（公開）
 │   │                           ※ UnityEngine.dll + UnityEditor.dll が必要（下記「前提」参照）
 ├─ scripts/golden/              golden（出力ハッシュ固定）テスト。expected/ に期待出力 PNG
 ├─ scripts/source_checks/       C# ソースを読むだけの構造検査（ハーネス・資産不要）
-├─ scripts/unit-run/            Unity 不要の部品（Infra のパス・書き込み等）のユニットテスト
+├─ scripts/unit-run/            Unity 不要の部品（Infra のパス・書き込み、Scene クリックの当たり判定等）のユニットテスト
 │                               （ハーネスと分けてあるので視覚レビューゲートの対象外）
 ├─ scripts/editor-tests/        Unity 実機の EditMode テスト（保存/復元・書き出し・Mono とハーネスの一致・メッシュ探索）。
 │                               配布物(Code/)の外。scripts/Run-EditorTests.ps1 で batchmode 実行
@@ -463,6 +463,11 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
   UV ダンプは `dev_safe/texture_sample/uv_dumps/`（作り方は `dev_safe/scripts/unity_uv_dump/`）。
   メッシュを探す側（`Code/Infra/MeshUvLocator.cs`）と、プレビューに重ねる島の輪郭は
   Unity 依存なので EditMode テスト（下記）で見る。
+- **Scene でクリックした場所の表示**（2026-10-04〜）: 光線と三角形の当たり判定・UV の補間・
+  Tiling の畳み込み・カリング（`Code/Core/MeshRaycast.cs`）は Unity 不要なので `scripts/unit-run` が見る。
+  シーンの Renderer を集めて当てる側（`Code/Infra/SceneMeshPicker.cs`。スキンメッシュはポーズ込みの形、
+  NDMF のプレビュー用の複製は除く）とプレビューに重ねる島の組み立ては EditMode の `SceneMeshPickerTests`。
+  再着色の経路には入らないので、ハーネス・視覚レビューの対象外。
 - **保存形式を経由した再着色（非破壊ビルドの入口）**（2026-10-01〜）: 非破壊ビルド（NDMF）は
   編集画面を通さず、保存済みの編集状態（`IrocaSessionState`。マスクは RLE の `MaskState`）から
   `Code/Core/SessionRecolor.Apply` で再着色する。マスクは `MaskStateCodec.ToSnapshot` で作り直す
@@ -486,6 +491,7 @@ Mono 上の出力は検証できない。`scripts/editor-tests/`（`Iroca.Editor
 | `SampleUvUndoTests` | スポイト位置が Undo/Redo・ゾーン削除の Undo で色と対で戻る、プリセットには載らずセッションには残る |
 | `MeshUvLocatorTests` | テクスチャを使うメッシュの探索（シーン → 同じ素材フォルダの Prefab、書き出し名 `_recolored` の追跡、手動指定、Read/Write 無効のメッシュで落ちない） |
 | `MeshIslandOutlineTests` | プレビューに重ねる UV の島の輪郭（内側の対角線を描かない、UV を重ねた左右対称のパーツでも輪郭が残る、Tiling / Offset） |
+| `SceneMeshPickerTests` | Scene でクリックした場所: 手前の Renderer・三角形・UV、マテリアルのカリングどおりの面、非表示・無効・保存されない複製に当たらない、スキンメッシュはボーンを動かした直後でも描かれている形に当たる、プレビューに重ねる島はクリックした島だけ・Tiling を繰り返しで畳む |
 | `RuntimeParityTests` | 上記「既知の限界」の Mono とハーネスの一致 |
 | `NonDestructiveTests` | 非破壊の色替え: レシピ（JSON）を往復しても編集状態の直接適用と画素が一致、取り込み設定（最大サイズ・圧縮形式・ミップ・sRGB）にそろう、キャッシュの再利用、マテリアル差し替えの規則（範囲内で元テクスチャを使うものだけ・複製の共有（同じレシピを別々のオブジェクトに登録しても 1 つ）・範囲外と元アセットは無傷・入れ子は深い方が勝つ・失敗してもコンポーネントを消す・1 つのコンポーネントの複数レシピ・同じテクスチャは先が勝つ・アニメーションで切り替わるマテリアルも範囲内なら同じ複製で差し替え、アニメーションでだけ使うテクスチャは「使っていない」と報告しない・2 段（Transforming と最適化段）に分けたとき間に入った元のマテリアルも同じ複製とテクスチャ 1 枚で差し替え、設定の問題は 1 回だけ・「使っていない」は最後の段で判断） |
 | `RecipeRegistrationTests` | 登録でコンポーネントが増えない: 同じオブジェクトへの登録は 1 つの `IrocaRecolor` にレシピを足す、同じテクスチャは置き換え（確認画面用の `Describe` も）、旧版の重複コンポーネントは付いていた順・同じテクスチャは先のものだけ残して 1 つにまとめ 1 回の Undo で戻る、旧保存形式（単一の `recipe`）は一覧の先頭へ移る |

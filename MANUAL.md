@@ -56,6 +56,8 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 「① 元テクスチャ」の「テクスチャ」欄へ、色を変えたいテクスチャをドラッグします。
 
+どのテクスチャか分からないときは、いろかのウィンドウを開いたまま Scene でモデルの変えたい所をクリックしても開けます（テクスチャを何も開いていないときだけ。→「[プレビュー機能](#プレビュー機能)」の「Scene でクリックした場所を表示」）。
+
 <!-- スクリーンショット: テクスチャ選択後のウィンドウ全体 -->
 
 #### ステップ 2: カラーゾーンを追加する
@@ -248,13 +250,32 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 操作行のすぐ下に、プレビュー上のクリックがいま何をするか（スポイト／シード指定／マスクを塗る・消す）と、AI 提案の計算中かどうかが 1 行で出ます。**Esc でどのモードも解除できます**（AI 提案の計算待ちも取り消せます）。
 
+モードが無いときは、同じ行に Scene でクリックした結果の案内（「ここは『○○』のテクスチャです」）が出ます。
+
 #### プレビュー上の目印
 
 - 十字: 連続領域モードのシード位置
 - 菱形: スポイトで色を取った位置
 - 黄色い線: メッシュの UV の島の輪郭（マスク欄の「UV の島をプレビューに表示」がオンのとき）
+- 水色の輪と線: Scene でクリックした場所とその UV の島（下の「Scene でクリックした場所を表示」）
 
 十字と菱形は、ゾーンごとの色（マスクの重ね表示と同じ色）で出ます。
+
+#### Scene でクリックした場所を表示
+
+いろかのウィンドウを開いたまま **Scene でモデルをクリック**すると、その部分がテクスチャのどこにあるかをプレビューに示します。モデルの作り（UV）を知らなくても、「袖はテクスチャのどこか」が分かります。ボタンやモードの切り替えはありません。
+
+- クリックした部分の UV の島を水色で塗り（2 秒ほどで消えます）、島の輪郭と、クリックした点の輪を残します。島は右クリックの「パーツ: この島を…」で足される範囲と同じまとまりです
+- 拡大表示中は、その場所が見えるところまでスクロールします
+- テクスチャを何も開いていないときは、クリックした部分のテクスチャを開きます
+- 別のテクスチャを使う部分をクリックしたときは、プレビューの上に「ここは『○○』のテクスチャです」と出ます。「開く」を押すとそのテクスチャに切り替わり、場所を示します（今のテクスチャの編集内容は保存されます）
+- 何もない所をクリックすると表示が消えます
+
+表示だけの機能です。Unity のふつうの選択もそのまま行われ、色替えの設定やマスクは変わりません。
+
+- 左右で UV を共有しているパーツ（左右の袖など）は、どちらをクリックしても同じ場所が光ります。そこを変えると両方の色が変わります
+- 当たるのは Scene に見えているメッシュです（非表示のオブジェクトや、Hierarchy の目のアイコンで隠したものには当たりません）。ポーズやシェイプキーを付けた形のままクリックできます
+- 透過で抜けている部分（レースの隙間など）も、メッシュがあればその面に当たります
 
 ---
 
@@ -492,6 +513,12 @@ NDMF が入っているときは「④ アバターに反映」の下の「テ�
 
 黒は明度の情報がほとんどなく、模様保持が効きにくくなります。模様保持を 0〜0.3、エッジ柔らかさを 0 にします。保護したい部分は先に除外マスクで囲っておきます。
 
+#### Scene でモデルをクリックしても場所が出ない
+
+- いろかのウィンドウを閉じていると反応しません（タブの裏に隠れているだけなら反応します）
+- プレビューの上に「ここは『○○』のテクスチャです」と出ていれば、クリックした部分は別のテクスチャを使っています。「開く」で切り替えます
+- 何も出ないときは、マテリアルのメインテクスチャ（`_MainTex` など）が開いているテクスチャではない可能性があります。Iroca で書き出した `_recolored` のテクスチャを使っているマテリアルは、元のテクスチャと同じものとして扱います
+
 ---
 
 ### よくある質問
@@ -572,6 +599,8 @@ The window runs top to bottom: 1. Source Texture, 2. Color Zones, 3. Preview, 4.
 #### Step 1: Pick a source texture
 
 Drag the texture you want to recolor onto the "Texture" field under "Source Texture".
+
+If you are not sure which texture it is, keep the いろか window open and click the part of the model you want to change in the Scene view (only while no texture is open; see "Show the spot you click in the Scene" under [Preview](#preview)).
 
 #### Step 2: Add a color zone
 
@@ -763,13 +792,32 @@ After you change a setting, the preview updates automatically in about 0.2 secon
 
 Just below the toolbar row, a single line shows what a click on the preview does right now (Eyedropper / Seed / Painting or Erasing a mask) and whether AI Suggest is still working. **Press Esc to leave any of these modes** (it also cancels pending AI suggestions).
 
+When no mode is active, the same line shows the result of a click in the Scene view ("This part uses '…'").
+
 #### Markers on the preview
 
 - Cross: the Connected Region seed position
 - Diamond: the position you sampled with the Eyedropper
 - Yellow lines: the outlines of the mesh's UV islands (when "Show UV islands on the preview" is on in the mask section)
+- Light-blue ring and lines: the spot you clicked in the Scene view and its UV island (see "Show the spot you click in the Scene" below)
 
 The cross and diamond are drawn in the zone's own color, the same color as its mask overlay.
+
+#### Show the spot you click in the Scene
+
+With the いろか window open, **click the model in the Scene view** and the preview shows where that part is on the texture. You can find "where the sleeve is on the texture" without knowing how the model's UVs are laid out. There is no button or mode to switch on.
+
+- The UV island of the clicked part is filled light blue (the fill fades after about 2 seconds), and its outline and a ring at the clicked point stay. The island is the same unit that the "Part: … this island" right-click items add
+- When the preview is zoomed in, it scrolls so the spot is visible
+- If no texture is open, the texture of the clicked part is opened
+- If you click a part that uses another texture, the line above the preview says "This part uses '…'". Press "Open" to switch to that texture and show the spot (your edits to the current texture are saved)
+- Clicking empty space clears the display
+
+It is display only. Unity still selects the object as usual, and none of your recolor settings or masks change.
+
+- Parts that share UVs between left and right (both sleeves, for example) light up the same spot whichever side you click. Changing that spot changes both
+- Clicks hit the meshes you can see in the Scene (not hidden objects, and not objects hidden with the eye icon in the Hierarchy). You can click the model as posed, with its shape keys applied
+- See-through areas (gaps in lace and the like) still count as the surface if there is mesh there
 
 ---
 
@@ -1004,6 +1052,12 @@ Lower the Tolerance to 0.05-0.15 and re-sample a more specific color. If separat
 #### Cannot change to black
 
 Black has almost no brightness information, so Pattern Preserve has little to work with. Set Pattern Preserve to 0-0.3 and Edge Softness to 0. Protect anything you want to keep with the exclude mask first.
+
+#### Clicking the model in the Scene shows nothing
+
+- Nothing happens while the いろか window is closed (it still works if the window is just behind another tab)
+- If the line above the preview says "This part uses '…'", the clicked part uses another texture. Press "Open" to switch
+- If nothing appears at all, the material's main texture (`_MainTex` and the like) may not be the open texture. Materials that use a `_recolored` texture exported by Iroca count as the original texture
 
 ---
 

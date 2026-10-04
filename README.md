@@ -58,6 +58,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
   - AI マスク提案（実験的）：AI が領域を推定してマスクへ追加します。1 回で取れるのはつながった 1 領域なので、分かれたパーツは島ごとに繰り返します（Unity Sentis + MobileSAM）
   - パーツ：テクスチャを使うメッシュが見つかると、UV の島やメッシュ単位で追加できます。色では分けられない同じ色の別パーツを分けられます（メッシュが無ければ従来どおり）
   - 使っているメッシュはマスク欄の「メッシュ」に出ます。FBX・Prefab をドラッグして指定でき、UV の島の輪郭をプレビューに重ねて表示できます
+- Scene でクリックした場所の表示：Scene でモデルをクリックすると、その部分がテクスチャのどこにあるかをプレビューに示します（テクスチャを開いていなければ、そのテクスチャを開きます）
 
 #### 非破壊で色替え（NDMF）
 - 元のテクスチャとマテリアルを書き換えずに色替えできます。「アバターに非破壊で登録」でアバターや衣装に「Iroca Recolor」が付き、再生・アップロードのときだけ色替え済みのテクスチャに差し替わります。外せば元に戻ります
@@ -157,6 +158,7 @@ See the **[online manual](https://yukkuri-aoba.github.io/Iroca/manual/)** for de
   - AI Mask Suggestion (experimental): the AI estimates the region and adds it to the mask. One use picks one connected region, so repeat for each island of a split part (Unity Sentis + MobileSAM)
   - Parts: when a mesh using the texture is found, add whole UV islands or meshes. This separates same-colored parts that color alone cannot split (without a mesh, everything works as before)
   - The meshes in use are shown in the "Mesh" field of the mask section. Drag an FBX or prefab there to choose one, and overlay the UV island outlines on the preview
+- Show the spot you click in the Scene: click the model in the Scene view to see where that part is on the texture (if no texture is open, the texture of that part is opened)
 
 #### Non-destructive recoloring (NDMF)
 - Recolor without changing the original texture or materials. "Register to avatar (non-destructive)" adds "Iroca Recolor" to the avatar or outfit, and the recolored texture is swapped in only when entering Play mode or uploading. Remove it to go back
