@@ -148,61 +148,46 @@ namespace Iroca
         private static void SolidifyAchromaInterior(float[] strength, int w, int h, float achromaWeight, CancellationToken ct = default)
         {
             const float matchThr = ColorZone.MatchStrengthFloor;
-            const int erodePx = 2;
             int len = w * h;
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-            bool[] cur = s_boolPool.Rent(len);
-            bool[] nxt = s_boolPool.Rent(len);
+            bool[] m = s_boolPool.Rent(len);
             try
             {
-                // 行並列(要素独立=ビット不変)。
-                var curInit = cur;
+                // マッチの印(書き換える前の strength で決める)。行並列(要素独立=ビット不変)。
+                var mInit = m;
                 Parallel.For(0, h, po, y =>
                 {
                     int rowOff = y * w;
                     for (int x = 0; x < w; x++)
                     {
                         int i = rowOff + x;
-                        curInit[i] = strength[i] > matchThr;
+                        mInit[i] = strength[i] > matchThr;
                     }
                 });
-                // 4 近傍 erosion を erodePx 回。画像端の外は「非マッチ」とみなす(scipy 既定と同じ)。
-                for (int it = 0; it < erodePx; it++)
-                {
-                    var curL = cur; var nxtL = nxt;
-                    Parallel.For(0, h, po, y =>
-                    {
-                        int rowOff = y * w;
-                        for (int x = 0; x < w; x++)
-                        {
-                            int i = rowOff + x;
-                            bool keep = curL[i]
-                                && x > 0 && curL[i - 1]
-                                && x < w - 1 && curL[i + 1]
-                                && y > 0 && curL[i - w]
-                                && y < h - 1 && curL[i + w];
-                            nxtL[i] = keep;
-                        }
-                    });
-                    var tmp = cur; cur = nxt; nxt = tmp;
-                }
-                var interior = cur;
+                // 4 近傍の erosion を 2 回(画像端の外は「非マッチ」、scipy 既定と同じ)した結果は、
+                // 「マンハッタン距離 2 以内の 13 画素が全部画像の内側でマッチ」と同じ(1 回目の 4 近傍の
+                // 4 近傍の和集合がその菱形)。旧: 作業配列 2 本で全画素を 2 回 erosion してから当てていた。
+                // 判定は印 m だけを読むので、同じパスで strength を書き換えてよい。
+                var mL = m;
                 var strengthL = strength;
-                // 行並列(要素独立・自 index 書き込みのみ=ビット不変)。
-                Parallel.For(0, h, po, y =>
+                Parallel.For(2, h - 2, po, y =>
                 {
                     int rowOff = y * w;
-                    for (int x = 0; x < w; x++)
+                    for (int x = 2; x < w - 2; x++)
                     {
                         int i = rowOff + x;
-                        if (interior[i]) strengthL[i] = strengthL[i] + (1f - strengthL[i]) * achromaWeight;
+                        if (!mL[i]) continue;
+                        bool interior =
+                            mL[i - 1] && mL[i + 1] && mL[i - w] && mL[i + w]
+                            && mL[i - 2] && mL[i + 2] && mL[i - 2 * w] && mL[i + 2 * w]
+                            && mL[i - w - 1] && mL[i - w + 1] && mL[i + w - 1] && mL[i + w + 1];
+                        if (interior) strengthL[i] = strengthL[i] + (1f - strengthL[i]) * achromaWeight;
                     }
                 });
             }
             finally
             {
-                s_boolPool.Return(cur);
-                s_boolPool.Return(nxt);
+                s_boolPool.Return(m);
             }
         }
 
