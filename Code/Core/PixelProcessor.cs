@@ -207,6 +207,12 @@ namespace Iroca
             ulong[] commonMask = masks?.common;
             int maskW = masks?.width ?? 0;
             int maskH = masks?.height ?? 0;
+            // 除外マスクの判定表(作業座標の列・行 → マスクの画素)。拡縮の割り算を画素ごとでなく
+            // 列と行ごとに 1 回だけにする。マスクが無ければ null(=除外なし)。
+            int[] maskColOf = null, maskRowBase = null;
+            if (masks != null && maskW > 0 && maskH > 0)
+                BuildMaskIndexMap(w, h, originX, originY, fullW, fullH, maskW, maskH,
+                    out maskColOf, out maskRowBase);
 
             int len = (int)lenLong;
             Color32[] originalPixels = s_color32Pool.Rent(len);   // 末尾の finally で Return
@@ -373,7 +379,7 @@ namespace Iroca
                                 int xf = x + originX;
                                 incLocal[rowOff + x] =
                                     IsIncludedZone(xf, yf, fullW, fullH, zoneInclude, maskW, maskH)
-                                    && !IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH);
+                                    && !IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask);
                             }
                         });
                     }
@@ -438,7 +444,7 @@ namespace Iroca
                             {
                                 int xf = x + originX;
                                 int i = rowOff + x;
-                                if (IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH)) continue;
+                                if (IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask)) continue;
 
                                 float s, hPot, mc;
                                 if (palStrength != null)
@@ -799,13 +805,11 @@ namespace Iroca
                         var strengthForReapply = strength;
                         Parallel.For(0, h, po, y =>
                         {
-                            int yf = y + originY;
                             int rowOff = y * w;
                             for (int x = 0; x < w; x++)
                             {
-                                int xf = x + originX;
                                 int i = rowOff + x;
-                                if (IsExcludedCombined(xf, yf, fullW, fullH, commonMask, zoneMask, maskW, maskH)) strengthForReapply[i] = 0f;
+                                if (IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask)) strengthForReapply[i] = 0f;
                             }
                         });
                         debug?.RecordStage(zone.id, DebugStages.MaskReapply, strength, w, h);
@@ -921,11 +925,10 @@ namespace Iroca
                             if (hasPostBox)
                                 Parallel.For(exY0, exY1 + 1, po, y =>
                                 {
-                                    int yf = y + originY;
                                     int rowOff = y * w;
                                     for (int x = exX0; x <= exX1; x++)
-                                        excl[rowOff + x] = IsExcludedCombined(x + originX, yf, fullW, fullH,
-                                            commonMask, zoneMask, maskW, maskH);
+                                        excl[rowOff + x] = IsExcludedAt(maskColOf, maskRowBase, x, y,
+                                            commonMask, zoneMask);
                                 });
                         }
                         // 後段 bbox(ppMin/Max)を渡してデコンタミを実マッチ範囲に限定する。α 分解が
@@ -1146,11 +1149,10 @@ namespace Iroca
                             int mx0 = Mathf.Max(0, rcMinX - mm), mx1 = Mathf.Min(w - 1, rcMaxX + mm);
                             Parallel.For(my0, my1 + 1, po, y =>
                             {
-                                int yf = y + originY;
                                 int rowOff = y * w;
                                 for (int x = mx0; x <= mx1; x++)
-                                    mex[rowOff + x] = IsExcludedCombined(x + originX, yf, fullW, fullH,
-                                        commonMask, zoneMask, maskW, maskH);
+                                    mex[rowOff + x] = IsExcludedAt(maskColOf, maskRowBase, x, y,
+                                        commonMask, zoneMask);
                             });
                         }
                         AnalyzeMixtureBand(originalPixels, strengthForRecolor, w, h, decontaminationRadius,
@@ -1308,11 +1310,10 @@ namespace Iroca
                             int fx0 = Mathf.Max(0, rcMinX - fm), fx1 = Mathf.Min(w - 1, rcMaxX + fm);
                             Parallel.For(fy0, fy1 + 1, po, y =>
                             {
-                                int yf = y + originY;
                                 int rowOff = y * w;
                                 for (int x = fx0; x <= fx1; x++)
-                                    fex[rowOff + x] = IsExcludedCombined(x + originX, yf, fullW, fullH,
-                                        commonMask, zoneMask, maskW, maskH);
+                                    fex[rowOff + x] = IsExcludedAt(maskColOf, maskRowBase, x, y,
+                                        commonMask, zoneMask);
                             });
                         }
                         CleanAchromaFringe(pixels, originalPixels, strengthForRecolor, claimedLocal,
@@ -1503,17 +1504,29 @@ namespace Iroca
             return MaskSnapshot.GetBit(includeMask, my * maskW + mx);
         }
 
-        private static bool IsExcludedCombined(int x, int y, int texW, int texH,
-            ulong[] commonMask, ulong[] zoneMask, int maskW, int maskH)
+        /// <summary>
+        /// 除外マスクの判定表を作る。作業座標の列 x → マスクの列(mx)と、行 y → マスクの行の先頭(my·maskW)。
+        /// 作業画像はテクスチャ(texW×texH)の (originX, originY) からの切り出しで、マスクの解像度は
+        /// テクスチャと違ってよい(整数の拡縮で対応するマスク画素へ、端は切り詰め)。
+        /// 以前は画素ごとにこの割り算をしていた(同じ式なので判定は同じ)。
+        /// </summary>
+        private static void BuildMaskIndexMap(int w, int h, int originX, int originY, int texW, int texH,
+            int maskW, int maskH, out int[] colOf, out int[] rowBase)
         {
-            if (commonMask == null && zoneMask == null) return false;
-            if (maskW <= 0 || maskH <= 0) return false;
-            int mx = Mathf.Clamp(x * maskW / texW, 0, maskW - 1);
-            int my = Mathf.Clamp(y * maskH / texH, 0, maskH - 1);
-            int idx = my * maskW + mx;
-            if (MaskSnapshot.GetBit(commonMask, idx)) return true;
-            if (MaskSnapshot.GetBit(zoneMask, idx)) return true;
-            return false;
+            colOf = new int[w];
+            for (int x = 0; x < w; x++) colOf[x] = Mathf.Clamp((x + originX) * maskW / texW, 0, maskW - 1);
+            rowBase = new int[h];
+            for (int y = 0; y < h; y++) rowBase[y] = Mathf.Clamp((y + originY) * maskH / texH, 0, maskH - 1) * maskW;
+        }
+
+        /// <summary>作業座標 (x, y) が除外(共通 ∪ ゾーン)か。表は BuildMaskIndexMap(無ければ除外なし)。</summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static bool IsExcludedAt(int[] colOf, int[] rowBase, int x, int y,
+            ulong[] commonMask, ulong[] zoneMask)
+        {
+            if (colOf == null) return false;
+            int idx = rowBase[y] + colOf[x];
+            return MaskSnapshot.GetBit(commonMask, idx) || MaskSnapshot.GetBit(zoneMask, idx);
         }
 
         /// <summary>
