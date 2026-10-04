@@ -251,9 +251,10 @@ namespace Iroca
         /// 背景と対象の模様はそれぞれ自分の陰影を保ったまま target 側へ写る。
         /// strength>thr の画素のみ連結対象。マッチ無しは null。
         /// </summary>
+        // rentMap: 返す地図を s_floatPool から借りる(呼び出し側がゾーンの終わりに返す)。false なら new。
         private static float[] BuildComponentMedianLMap(
             Color32[] px, float[] strength, int w, int h, float thr, CancellationToken ct = default,
-            ColorPalette palette = null)
+            ColorPalette palette = null, bool rentMap = false)
         {
             int len = w * h;
             var bboxPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
@@ -264,38 +265,43 @@ namespace Iroca
 
             int bw = maxX - minX + 1, bh = maxY - minY + 1;
             int bwh = bw * bh;
-            // OkLab L を bbox 全画素ぶん並列で前計算する。従来は逐次 DFS の内側で
-            // RgbToOklab(Cbrt×3=最重量の per-pixel 変換)を呼んでおり、シリアル区間の支配項
-            // だった。同一入力に同一関数を適用した値を配列経由で読むだけなので出力ビット不変。
-            float[] okL = s_floatPool.Rent(bwh);
+            // ヒストグラムのビン(OkLab L の 255 段)。色の表があれば色ごとに 1 回だけ求め、画素へは番号で
+            // 引く(同じ色に同じ変換を当てた値なのでビット単位で同じ。bbox 全画素の L の配列も要らない)。
+            // 無ければ L を bbox 全画素ぶん並列で前計算する(旧: 逐次 DFS の内側で RgbToOklab)。
+            float[] okL = null;
+            int[] pIdx = null, binOf = null;
             // 行 run 方式の連結成分ラベリングで使う配列(確保は run 数 R が確定してから)。
             int[] runX0 = null, runX1 = null, runY = null, parent = null, comp = null, rootComp = null, order = null;
             try
             {
-            // 色の表があれば L は色ごとの表から配る(同じ色に同じ変換を当てた値なのでビット単位で同じ)。
-            int[] pIdx = null;
-            float[] pL = null;
             if (palette != null)
             {
                 palette.EnsureOklab(bboxPo);
-                pIdx = palette.Index; pL = palette.OkL;
+                pIdx = palette.Index;
+                float[] pL = palette.OkL;
+                var bins = new int[palette.Count];
+                ForEachPaletteChunk(palette.Count, bboxPo, (k0, k1) =>
+                {
+                    for (int k = k0; k < k1; k++) bins[k] = Mathf.Clamp((int)(pL[k] * 255f), 0, 255);
+                });
+                binOf = bins;
             }
-            Parallel.For(0, bh, bboxPo, ly =>
+            else
             {
-                int lrb = ly * bw;
-                int grb = (ly + minY) * w + minX;
-                if (pIdx != null)
+                okL = s_floatPool.Rent(bwh);
+                var okLL = okL;
+                Parallel.For(0, bh, bboxPo, ly =>
                 {
-                    for (int lx = 0; lx < bw; lx++) okL[lrb + lx] = pL[pIdx[grb + lx]];
-                    return;
-                }
-                for (int lx = 0; lx < bw; lx++)
-                {
-                    var p = px[grb + lx];
-                    RgbToOklab(p.r, p.g, p.b, out float L, out _, out _);
-                    okL[lrb + lx] = L;
-                }
-            });
+                    int lrb = ly * bw;
+                    int grb = (ly + minY) * w + minX;
+                    for (int lx = 0; lx < bw; lx++)
+                    {
+                        var p = px[grb + lx];
+                        RgbToOklab(p.r, p.g, p.b, out float L, out _, out _);
+                        okLL[lrb + lx] = L;
+                    }
+                });
+            }
 
             // ───────── 連結成分ラベリング: 行 run + union-find ─────────
             // 旧実装は画素単位の逐次 DFS で、bbox 全画素 × 4 近傍を単スレッドで舐めていた
@@ -402,10 +408,18 @@ namespace Iroca
                 for (int q = compStart[c]; q < compStart[c + 1]; q++)
                 {
                     int r = orderL[q];
-                    int lrb = runYL[r] * bw;
                     int x0 = runX0L[r], x1 = runX1L[r];
-                    for (int lx = x0; lx <= x1; lx++)
-                        hist[Mathf.Clamp((int)(okL[lrb + lx] * 255f), 0, 255)]++;
+                    if (binOf != null)
+                    {
+                        int grb = (runYL[r] + minY) * w + minX;
+                        for (int lx = x0; lx <= x1; lx++) hist[binOf[pIdx[grb + lx]]]++;
+                    }
+                    else
+                    {
+                        int lrb = runYL[r] * bw;
+                        for (int lx = x0; lx <= x1; lx++)
+                            hist[Mathf.Clamp((int)(okL[lrb + lx] * 255f), 0, 255)]++;
+                    }
                     size += x1 - x0 + 1;
                 }
                 med[c] = HistValueAtPercentile(hist, size, AchromaRefPercentile, 1f);
@@ -413,7 +427,20 @@ namespace Iroca
             }, _ => { });
 
             // 成分 → 代表 L の配り直し。行ごとに書き込み先が独立なので並列化しても同一結果。
-            var map = new float[len];
+            // run の外は 0(読む側は 0 を「地図なし」として全体の中央値へ戻す)。借りた配列は 0 で埋めてから。
+            float[] map;
+            if (rentMap)
+            {
+                map = s_floatPool.Rent(len);
+                var clearMap = map;
+                const int ClearChunk = 1 << 18;
+                Parallel.For(0, (len + ClearChunk - 1) / ClearChunk, bboxPo, c =>
+                {
+                    int c0 = c * ClearChunk;
+                    Array.Clear(clearMap, c0, Math.Min(ClearChunk, len - c0));
+                });
+            }
+            else map = new float[len];
             Parallel.For(0, bh, bboxPo, ly =>
             {
                 int rb = (ly + minY) * w + minX;
@@ -435,7 +462,7 @@ namespace Iroca
                 if (runY != null) s_intPool.Return(runY);
                 if (runX1 != null) s_intPool.Return(runX1);
                 if (runX0 != null) s_intPool.Return(runX0);
-                s_floatPool.Return(okL);
+                if (okL != null) s_floatPool.Return(okL);
             }
         }
 

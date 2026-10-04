@@ -339,6 +339,7 @@ namespace Iroca
                 float[] highlightPot = null;
                 float[] matchConf = null;
                 bool[] includedPx = null;
+                float[] regMidMapRented = null;   // 成分中央値の地図をプールから借りたとき(ゾーンの終わりに返す)
                 try
                 {
                     // フル画像経路(メインプレビュー/Apply/Export)か部分クロップ(詳細プレビュー)か。
@@ -1087,8 +1088,13 @@ namespace Iroca
                                 out zRegLlo, out zRegLhi, out zRegLmid, includedPx, cancellationToken, palette);
                                 _sub.Mark(SpRegionLRange);
                             if (zHasRegL)
+                            {
+                                // 地図をキャッシュへ渡す(下)ときだけ新しく確保し、それ以外はプールから借りる。
+                                bool keepMap = isFullImagePath && parityCache != null;
                                 zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, 0.05f, cancellationToken,
-                                    palette);
+                                    palette, rentMap: !keepMap);
+                                if (!keepMap) regMidMapRented = zRegMidMap;
+                            }
                         }
                     }
 
@@ -1388,6 +1394,7 @@ namespace Iroca
                 }
                 finally
                 {
+                    if (regMidMapRented != null) s_floatPool.Return(regMidMapRented);
                     if (highlightPot != null) s_floatPool.Return(highlightPot);
                     if (strength != null) s_floatPool.Return(strength);
                     if (matchConf != null) s_floatPool.Return(matchConf);
