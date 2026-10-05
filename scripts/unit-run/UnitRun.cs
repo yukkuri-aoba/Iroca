@@ -605,5 +605,96 @@ namespace Iroca.UnitRun
             Near(0f, w.y, "v = 0 kept");
             Near(0f, shift.x + shift.y, "no shift");
         }
+
+        // ─── MaskRegionEdit(右クリックの「ここも塗る / ここは塗らない / この部分だけ塗る」) ───
+        // 画素は 6 つ: 範囲 = [0..2]、範囲の外 = [3..5]。
+
+        private static bool[] Mask(params int[] on)
+        {
+            var m = new bool[6];
+            foreach (int i in on) m[i] = true;
+            return m;
+        }
+
+        private static string Bits(bool[] m)
+        {
+            var c = new char[m.Length];
+            for (int i = 0; i < m.Length; i++) c[i] = m[i] ? '1' : '0';
+            return new string(c);
+        }
+
+        private static readonly bool[] Region = Mask(0, 1, 2);
+
+        public static void MaskEdit_PaintHere_IncludesAndClearsZoneExclusion()
+        {
+            var ex = Mask(1, 4);           // 範囲の中 1 と外 4 を外していた
+            var inc = Mask(5);
+            var common = Mask(2, 3);
+            var r = MaskRegionEdit.Apply(MaskRegionOp.PaintHere, Region, ex, inc, common);
+            Check.Equal("111001", Bits(inc), "include = 範囲 + 既存");
+            Check.Equal("000010", Bits(ex), "範囲の中の除外だけ消える");
+            Check.Equal("001100", Bits(common), "共通の除外は触らない");
+            Check.Equal(1, r.commonOverlap, "範囲の中の共通の重なり");
+            Check.Equal(4, r.changed, "含める 3 + 除外を消す 1");
+        }
+
+        public static void MaskEdit_PaintHere_AllowsMissingExclusion()
+        {
+            var inc = Mask();
+            var r = MaskRegionEdit.Apply(MaskRegionOp.PaintHere, Region, null, inc, null);
+            Check.Equal("111000", Bits(inc), "include");
+            Check.Equal(0, r.commonOverlap, "no common");
+        }
+
+        public static void MaskEdit_DontPaintHere_ExcludesAndClearsInclude()
+        {
+            var ex = Mask(4);
+            var inc = Mask(0, 5);
+            var r = MaskRegionEdit.Apply(MaskRegionOp.DontPaintHere, Region, ex, inc, null);
+            Check.Equal("111010", Bits(ex), "exclude = 範囲 + 既存");
+            Check.Equal("000001", Bits(inc), "範囲の中の含めるだけ消える");
+            Check.Equal(4, r.changed, "除外 3 + 含めるを消す 1");
+        }
+
+        public static void MaskEdit_DontPaintHere_CommonWithoutInclude()
+        {
+            var common = Mask(5);
+            MaskRegionEdit.Apply(MaskRegionOp.DontPaintHere, Region, common, null, null);
+            Check.Equal("111001", Bits(common), "共通の除外へ足す");
+        }
+
+        public static void MaskEdit_OnlyThisPart_ExcludesOutsideOnly()
+        {
+            var ex = Mask(1);              // 範囲の中で外していた所は、この部分を塗るので消す
+            var inc = Mask(2, 4);          // 範囲の外の含めるは消し、中は残す
+            var common = Mask(0);
+            var r = MaskRegionEdit.Apply(MaskRegionOp.OnlyThisPart, Region, ex, inc, common);
+            Check.Equal("000111", Bits(ex), "範囲の外だけ除外");
+            Check.Equal("001000", Bits(inc), "範囲の中の含めるは残る(足しもしない)");
+            Check.Equal(1, r.commonOverlap, "範囲の中の共通の重なり");
+            Check.Equal(5, r.changed, "外 3 + 中の除外 1 + 外の含める 1");
+        }
+
+        public static void MaskEdit_LaterInstructionWins()
+        {
+            // 塗る → 塗らない: 除外だけが残る(含めるが残っていても除外が勝つが、見た目と食い違わないよう消す)。
+            var ex = Mask();
+            var inc = Mask();
+            MaskRegionEdit.Apply(MaskRegionOp.PaintHere, Region, ex, inc, null);
+            MaskRegionEdit.Apply(MaskRegionOp.DontPaintHere, Region, ex, inc, null);
+            Check.Equal("111000", Bits(ex), "paint→dont: excluded");
+            Check.Equal("000000", Bits(inc), "paint→dont: not included");
+            // 塗らない → 塗る: 含めるだけが残る(除外が残ると合成で含めるが無効になる)。
+            MaskRegionEdit.Apply(MaskRegionOp.PaintHere, Region, ex, inc, null);
+            Check.Equal("000000", Bits(ex), "dont→paint: not excluded");
+            Check.Equal("111000", Bits(inc), "dont→paint: included");
+        }
+
+        public static void MaskEdit_NoChangeReportsZero()
+        {
+            var ex = Mask(3, 4, 5);
+            var r = MaskRegionEdit.Apply(MaskRegionOp.OnlyThisPart, Region, ex, null, null);
+            Check.Equal(0, r.changed, "already only this part");
+        }
     }
 }

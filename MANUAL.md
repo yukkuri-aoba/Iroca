@@ -17,7 +17,7 @@
 - [加工設定](#加工設定)
 - [プレビュー機能](#プレビュー機能)
 - [マスク（除外・含める）](#マスク除外含める)
-- [右クリックメニュー（AI 提案・パーツ）](#右クリックメニューai-提案パーツ)
+- [右クリックで直す](#右クリックで直す)
 - [AI マスク提案（実験的機能）](#ai-マスク提案実験的機能)
 - [プリセット](#プリセット)
 - [非破壊で色替え（NDMF）](#非破壊で色替えndmf)
@@ -88,6 +88,8 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 |---|---|
 | 模様保持 | 元の柄をどれだけ残すか（0 = ベタ塗り、1 = 柄を残す。既定 1.0） |
 | 出力彩度 | 純色がベタ塗りに見えるとき 0.7〜0.9 に下げると陰影が戻る（既定 1.0） |
+
+同じ色がほかの場所にもあって一か所だけ変えたいときは、その場所を右クリックして「この部分だけ塗る」を選びます。はみ出した所は「ここは塗らない」、塗れていない所は「ここも塗る」で直せます（→「[右クリックで直す](#右クリックで直す)」）。
 
 さらに細かい調整は「[カラーゾーンの設定](#カラーゾーンの設定)」を参照してください。
 
@@ -300,9 +302,9 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 操作は「Iroca マスク編集」ウィンドウにまとまっています。
 
 1. マスク欄の「マスクを編集...」を押してウィンドウを開きます。
-2. 「編集対象」で共通マスクか各ゾーンを、「マスクの種類」で除外／含めるを選びます（含めるはゾーン選択時のみ）。
+2. 「編集対象」で各ゾーンか共通マスクを、「マスクの種類」で除外／含めるを選びます（含めるはゾーン選択時のみ）。編集対象には、いま直しているゾーン（最後に触ったゾーン）が最初から選ばれています。
 3. ツールの「塗る」「消す」を選び、プレビュー上をドラッグします。ブラシサイズは 1〜64 です。同じボタンをもう一度押すか Esc で抜けます。
-4. プレビューを**右クリック**すると、AI 提案やパーツ（メッシュの島）単位でマスクへ足せます（→「[右クリックメニュー](#右クリックメニューai-提案パーツ)」）。
+4. プレビューを**右クリック**すると、「ここも塗る / ここは塗らない / この部分だけ塗る」を、AI が見分けた部分やメッシュの形に当てられます（→「[右クリックで直す](#右クリックで直す)」）。
 
 重ね表示は、赤が共通の除外、ゾーンの色がゾーン別の除外、緑が含めるです。編集中の 1 枚は明るく、ほかは薄く出ますが、薄いマスクも色替えには効いています。
 
@@ -319,20 +321,31 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 ---
 
-### 右クリックメニュー（AI 提案・パーツ）
+### 右クリックで直す
 
-プレビューを**右クリック**（mac は Control+クリック）すると、クリックした場所をマスクへ足すメニューが出ます。左ドラッグはプレビューの移動のままです。
+プレビューを**右クリック**（mac は Control+クリック）すると、クリックした場所の部分に次の操作を当てるメニューが出ます。左ドラッグはプレビューの移動のままです。
 
-- 一番上の「追加先」が、足す先のマスク（共通 or ゾーン）です。「追加先を変える」で切り替えられます（マスク編集ウィンドウの「編集対象」と同じ設定です）。
-- 「除外」「含める」はメニューの項目で選びます。含めるはゾーンが追加先のときだけ選べます。
-- 足した領域は通常のマスクなので、Ctrl+Z で 1 つずつ戻せ、ブラシで整えられます。
+| 項目 | すること | 使う場面 |
+|---|---|---|
+| ここも塗る | その部分も塗ります | 色の判定で拾えなかった光沢や、離れた場所にある同じパーツを足す |
+| ここは塗らない | その部分を塗らないようにします | 同じ色の別のパーツまで変わったとき |
+| この部分だけ塗る | その部分の外を塗らないようにします。部分の中は今まで通り色で選ぶので、中にある別の色（ロゴの文字など）は変わりません | 同じ色がほかの場所にもあるのに、一か所だけ変えたいとき |
 
-#### パーツ（メッシュの島）
+- メニューの見出しが、直す相手のゾーン（いま直しているゾーン）です。最後に触ったゾーン（作った・カードを押した）が選ばれます。ゾーンが 2 つ以上あるときは、そのカードを枠で示します。「直すゾーンを変える」でも切り替えられます。
+- 後から選んだ操作が勝ちます。「ここは塗らない」にした所で「ここも塗る」を選ぶと塗られます（逆も同じです）。
+- 「この部分だけ塗る」のあとで別の場所も変えたいときは「ここも塗る」を足します。もう一度「この部分だけ塗る」を選ぶと、その部分だけに置き換わります。
+- 「この部分だけ塗る」のあとで「自動調整」を押すと、その部分の中だけを見て範囲を合わせ直します。自動調整の前に使うと、部分の中を取りこぼすことがあります（そのときは知らせが出ます）。白い服などで部分の中に塗られない所が残るときは、そこに「ここも塗る」を当てます。
+- 「直すゾーンを変える」で「全部のゾーンに共通」を選ぶと、「ここはどのゾーンでも塗らない」だけが使えます（顔など、どの色替えでも守りたい場所に）。全部のゾーンに共通の「塗らない」が重なる所は、「ここも塗る」でも塗られません（そのときは知らせが出ます。マスク編集で消せます）。
+- 当てた結果は通常のマスクです。「ここも塗る」は含めるマスク、「ここは塗らない」と「この部分だけ塗る」は除外マスクとして入るので、Ctrl+Z で 1 つずつ戻せ、ブラシで整えられます。
 
-テクスチャを使っているメッシュが見つかると、メッシュの形（UV の島）でマスクへ足せます。色では分けられない、同じ色の別パーツ（アトラスに並んだ同色のパンツとブーツなど）を 1 回で分けられます。
+#### 部分の見分け方
 
-- **パーツ: この島を除外 / 含める**: クリックした場所の UV の島（とその周りのにじみ代）を足します。
-- **パーツ: ○○ 以外のメッシュを除外**: クリックしたメッシュ以外をすべて除外します。「このゾーンはパンツだけ」にしたいときに 1 回で済みます。部位が複数のメッシュにまたがるときは使わず、島ごとに足してください。
+ふつうは AI（MobileSAM）がクリックした場所の部分を見分けます（→「[AI マスク提案](#ai-マスク提案実験的機能)」）。AI が使えないときは、メニューにそう出ます。
+
+テクスチャを使っているメッシュが見つかっていれば、サブメニューの「メッシュの形で」から、メッシュの形（UV の島）にも同じ操作を当てられます。色では分けられない、同じ色の別パーツ（アトラスに並んだ同色のパンツとブーツなど）を 1 回で分けられます。
+
+- **メッシュの形で → ここも塗る / ここは塗らない / この部分だけ塗る（○○ のこの島）**: クリックした場所の UV の島（とその周りのにじみ代）に当てます。
+- **メッシュの形で → ○○ 以外のメッシュは塗らない**: クリックしたメッシュ以外をすべて塗らないようにします。「このゾーンはパンツだけ」にしたいときに 1 回で済みます。部位が複数のメッシュにまたがるときは使わず、島ごとに当ててください。
 
 メッシュは、開いているシーンの中、なければテクスチャと同じ素材フォルダの Prefab から自動で探します（テクスチャを以前いろかで書き出した `_recolored.png` をマテリアルが使っている場合も見つかります）。メッシュが無くても、色の処理はこれまで通り動きます。
 
@@ -340,15 +353,15 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 - **メッシュ**: 見つけた FBX・Prefab と、使っているメッシュの数です（名前にカーソルを置くと、メッシュの一覧が出ます）。見つからないときや違うものを拾ったときは、Project か Hierarchy から FBX・Prefab をこの欄へドラッグするか、◎ で選びます。欄を空にする（選んで Delete）と自動に戻ります。
 - **探し直す**: シーンを開き直したときや、FBX の Read/Write を変えたあとに押します。
-- **UV の島をプレビューに表示**: メッシュの UV の島の輪郭を、黄色い線でプレビューに重ねます。「パーツ: この島を…」で足される範囲が、この線で囲まれた島（と線のすぐ外のにじみ）です。表示だけで、色替えの結果は変わりません。
+- **UV の島をプレビューに表示**: メッシュの UV の島の輪郭を、黄色い線でプレビューに重ねます。「メッシュの形で」で当てる範囲が、この線で囲まれた島（と線のすぐ外のにじみ）です。表示だけで、色替えの結果は変わりません。
 
-右クリックメニューの「選択中の○○のメッシュを使う」でも、Hierarchy か Project で選んでいる FBX・Prefab を指定できます。
+右クリックメニューの「メッシュの形で」→「選択中の○○のメッシュを使う」でも、Hierarchy か Project で選んでいる FBX・Prefab を指定できます。
 
 - 「メッシュを読めません」と出たら、FBX のインポート設定で Read/Write を有効にして「探し直す」を押してください。
 
 ### AI マスク提案（実験的機能）
 
-右クリックメニューの「AI 提案: この領域を除外 / 含める」を選ぶと、AI（MobileSAM）がクリックしたパーツの領域を推定し、追加先のマスクへその場で足します。手描きで囲む手間を減らせます。
+右クリックメニューの「ここも塗る / ここは塗らない / この部分だけ塗る」を選ぶと、AI（MobileSAM）がクリックしたパーツの領域を推定し、その部分に操作をその場で当てます。手描きで囲む手間を減らせます。
 
 #### 必要なもの（自動調整にも必要）
 
@@ -359,8 +372,8 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 #### 使い方
 
-1. 選びたいパーツの内側を**右クリック**し、「AI 提案: この領域を除外」か「含める」を選びます。初回は画像の解析とモデルの準備で少し待ちます（進み具合はマスク編集ウィンドウの「AI 提案」欄に出ます）。
-2. 推定された領域が、メニュー上部の追加先へすぐ足されます（確定ボタンはありません）。計算中の場所にはプレビュー上に目印が出ます。パーツが複数の島に分かれているときは、島ごとに繰り返します。
+1. 選びたいパーツの内側を**右クリック**し、「ここも塗る」「ここは塗らない」「この部分だけ塗る」のどれかを選びます。初回は画像の解析とモデルの準備で少し待ちます（進み具合はマスク編集ウィンドウの「AI 提案」欄に出ます）。
+2. 推定された部分に、メニューの見出しのゾーンへすぐ当たります（確定ボタンはありません）。計算中の場所にはプレビュー上に目印が出ます。パーツが複数の島に分かれているときは、島ごとに繰り返します。
 3. 間違えたら Ctrl+Z で 1 つずつ戻します。粒度（自動・細かい・大きい）はマスク編集ウィンドウの「AI 提案」欄で変えられます。
 
 1 回の右クリックで取れるのは、つながった 1 つの領域（UV アイランド）です。テクスチャ上でいくつにも分かれたパーツ（衣装 1 着ぶんなど）を全部選ぶには、数回〜十数回のクリックが要ります。取った領域がまれに隣のパーツへはみ出すこともあるので、重ね表示で確かめてください。
@@ -374,7 +387,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 #### うまく動かないとき
 
 - **左クリックしても何も起きない**: 右クリックでメニューを開いて選びます。
-- **メニューの AI 提案が選べない**: Sentis かモデルが未導入です。ウィンドウ上部の案内から導入してください。
+- **メニューに「AI が使えません」「AI モデルが未取得です」と出る**: Sentis かモデルが未導入です。ウィンドウ上部の案内から導入してください（それまでもメッシュの形では使えます）。
 - **Unity 起動後の最初の 1 回だけ遅い**: AI エンジン（Burst）のコンパイルが入るためで、異常ではありません。
 - **小さいパーツで少し待つ**: 周辺を自動で拡大して推定し直すためです。
 - **右クリックしてもマスクが変わらない**（「AI が領域を返しませんでした」「内部コンパイル（Burst）が失敗しています」）: Burst の初期化失敗です。同じセッションでは直らないので、欄の「Unity を再起動」を押します。再発するときは、プロジェクトの `Library\BurstCache` と `Library\Bee` を削除してから起動し直します（自動で再生成されます）。
@@ -494,7 +507,7 @@ NDMF が入っているときは「④ アバターに反映」の下の「テ�
 
 彩度制限を 0.8〜0.95 に上げ、許容範囲を狭めます。白・黒・灰を巻き込んでいるなら彩度ガードを上げます。エッジ柔らかさを 0.0〜0.5 で調整するのも有効です。
 
-アトラスに並んだ同じ色の別パーツ（パンツとブーツなど）は、色では分けられません。マスクで分けます。テクスチャを使うメッシュが見つかっていれば、右クリックの「パーツ: この島を除外」で島ごとに外せます（→「[右クリックメニュー](#右クリックメニューai-提案パーツ)」）。
+アトラスに並んだ同じ色の別パーツ（パンツとブーツなど）は、色では分けられません。マスクで分けます。テクスチャを使うメッシュが見つかっていれば、右クリックの「メッシュの形で」→「ここは塗らない」で島ごとに外せます（→「[右クリックで直す](#右クリックで直す)」）。
 
 #### 境界に細かいノイズが残る
 
@@ -512,7 +525,9 @@ NDMF が入っているときは「④ アバターに反映」の下の「テ�
 
 #### テクスチャ全体が変わってしまう
 
-許容範囲を 0.05〜0.15 まで下げ、サンプルカラーをより限定的な色で取り直します。離れた領域まで変わるときは詳細設定の連続領域モードで絞ります。
+一か所だけ変えたいときは、その場所を右クリックして「この部分だけ塗る」を選びます（→「[右クリックで直す](#右クリックで直す)」）。
+
+色の範囲が広すぎるときは、許容範囲を 0.05〜0.15 まで下げ、サンプルカラーをより限定的な色で取り直します。離れた領域まで変わるときは詳細設定の連続領域モードで絞ります。
 
 #### 黒い色に変更できない
 
@@ -566,7 +581,7 @@ NDMF が入っているときは「④ アバターに反映」の下の「テ�
 - [Processing Settings](#processing-settings)
 - [Preview](#preview)
 - [Masks (Exclude / Include)](#masks-exclude--include)
-- [Right-click menu (AI Suggest and Parts)](#right-click-menu-ai-suggest-and-parts)
+- [Fixing with right-click](#fixing-with-right-click)
 - [AI Mask Suggestion (Experimental)](#ai-mask-suggestion-experimental)
 - [Presets](#presets)
 - [Non-destructive recoloring (NDMF)](#non-destructive-recoloring-ndmf)
@@ -635,6 +650,8 @@ Below the texture field, a one-line "Next" hint tells you what to do now, in the
 |---|---|
 | Pattern Preserve | How much of the original pattern to keep (0 = flat recolor, 1 = keep pattern; default 1.0) |
 | Output Saturation | Lower it to 0.7-0.9 when a pure color looks flat, and the shading comes back (default 1.0) |
+
+If the same color appears elsewhere and you want to change only one spot, right-click it and choose "Paint only this part". Fix spills with "Don't paint here" and missed spots with "Paint here too" (see [Fixing with right-click](#fixing-with-right-click)).
 
 For finer controls, see [Color Zone Settings](#color-zone-settings).
 
@@ -845,9 +862,9 @@ Where both are painted, **Exclude wins**.
 Mask editing lives in the "Iroca Masks" window.
 
 1. Press "Edit Masks..." in the mask section to open it.
-2. Choose the common mask or a zone under "Edit Target", and Exclude or Include under "Mask Type" (Include needs a zone).
+2. Choose a zone or the common mask under "Edit Target", and Exclude or Include under "Mask Type" (Include needs a zone). "Edit Target" starts at the zone you are working on (the zone you touched last).
 3. Pick the Paint or Erase tool and drag on the preview. Brush size ranges from 1 to 64. Press the same button again, or Esc, to leave.
-4. **Right-click** the preview to add an AI-suggested region or a mesh part (UV island) to a mask (see [Right-click menu](#right-click-menu-ai-suggest-and-parts)).
+4. **Right-click** the preview to apply "Paint here too / Don't paint here / Paint only this part" to the part the AI finds or to a mesh shape (see [Fixing with right-click](#fixing-with-right-click)).
 
 In the overlay, red is the common exclude mask, the zone's color is a per-zone exclude mask, and green is include. The mask being edited is bright and the rest are dim, but the dim ones are still in effect.
 
@@ -864,20 +881,31 @@ Regions added with the include mask are recolored as the same material as the co
 
 ---
 
-### Right-click menu (AI Suggest and Parts)
+### Fixing with right-click
 
-**Right-click** the preview (Control+click on macOS) to open a menu that adds the clicked spot to a mask. A left drag still pans the preview.
+**Right-click** the preview (Control+click on macOS) to open a menu that applies one of the following to the part you clicked. A left drag still pans the preview.
 
-- "Add to" at the top is the mask that receives the region (common or a zone). Switch it with "Change target" (the same setting as "Edit Target" in the mask window).
-- Choose Exclude or Include with the menu item. Include is available only when a zone is the target.
-- Added regions are ordinary mask data: Ctrl+Z undoes them one at a time and you can touch them up with the brush.
+| Item | What it does | When to use it |
+|---|---|---|
+| Paint here too | Paints that part as well | To add gloss the color matching missed, or the same part sitting somewhere else |
+| Don't paint here | Stops painting that part | When another part with the same color changed too |
+| Paint only this part | Stops painting everything outside that part. Inside the part, colors are still picked as before, so other colors inside it (such as logo lettering) stay unchanged | When the same color appears elsewhere but you want to change only one spot |
 
-#### Parts (mesh UV islands)
+- The menu heading is the zone being fixed (the zone you are working on): the zone you touched last (created it or clicked its card). With two or more zones, its card is outlined. You can also switch it with "Change the zone to fix".
+- The later choice wins. Choosing "Paint here too" where you chose "Don't paint here" paints it (and the other way around).
+- To change another spot after "Paint only this part", add it with "Paint here too". Choosing "Paint only this part" again replaces the part.
+- Pressing "Auto-tune" after "Paint only this part" refits the range by looking only inside that part. Used before Auto-tune, it can miss areas inside the part (a notice tells you so). If unpainted spots remain inside the part, as can happen with white clothes, apply "Paint here too" there.
+- Choosing "All zones" under "Change the zone to fix" offers only "Don't paint here in any zone" (for places such as the face that no recolor should touch). Where an all-zones "don't paint" overlaps, "Paint here too" does not paint it (a notice tells you so; clear it in the mask editor).
+- The results are ordinary masks: "Paint here too" goes into the include mask, and "Don't paint here" and "Paint only this part" go into the exclude mask. Ctrl+Z undoes them one at a time and you can touch them up with the brush.
 
-When a mesh that uses the texture is found, you can add regions by the mesh's shape (UV islands). This separates parts that share the same color and cannot be split by color (such as same-colored pants and boots side by side on an atlas) in one step.
+#### How the part is found
 
-- **Part: exclude / include this island**: adds the clicked UV island (plus its padding around it).
-- **Part: exclude every mesh except ...**: excludes every mesh except the clicked one. Use it when a zone should cover only, say, the pants. When a part spans several meshes, add islands one by one instead.
+Normally the AI (MobileSAM) finds the part at the clicked spot (see [AI Mask Suggestion](#ai-mask-suggestion-experimental)). If the AI is unavailable, the menu says so.
+
+When a mesh that uses the texture is found, the "By mesh shape" submenu applies the same operations by the mesh's shape (UV islands). This separates parts that share the same color and cannot be split by color (such as same-colored pants and boots side by side on an atlas) in one step.
+
+- **By mesh shape → Paint here too / Don't paint here / Paint only this part (this island of ...)**: applies to the clicked UV island (plus its padding around it).
+- **By mesh shape → Don't paint meshes other than ...**: stops painting every mesh except the clicked one. Use it when a zone should cover only, say, the pants. When a part spans several meshes, apply it island by island instead.
 
 Meshes are searched automatically in the open scenes, then in prefabs in the texture's asset folder (it also works when the material uses a `_recolored.png` previously exported by Iroca). Without a mesh, color processing works as before.
 
@@ -885,15 +913,15 @@ The meshes in use are shown in the "Mesh" field of the mask section in the main 
 
 - **Mesh**: the FBX or prefab that was found and how many meshes are in use (hover over it for the list of meshes). If nothing is found or the wrong one is picked, drag an FBX or prefab onto this field from the Project or Hierarchy, or pick one with ◎. Clearing the field (select it and press Delete) goes back to automatic.
 - **Search again**: use it after reopening the scene or changing Read/Write on the FBX.
-- **Show UV islands on the preview**: overlays the outlines of the mesh's UV islands on the preview as yellow lines. The "Part: … this island" items add the island enclosed by these lines (plus the bleed just outside them). Display only; the recolor result does not change.
+- **Show UV islands on the preview**: overlays the outlines of the mesh's UV islands on the preview as yellow lines. The "By mesh shape" items apply to the island enclosed by these lines (plus the bleed just outside them). Display only; the recolor result does not change.
 
-The right-click item "use the meshes of the selected ..." also takes the FBX or prefab selected in the Hierarchy or Project.
+"By mesh shape" → "Use the meshes of the selected ..." in the right-click menu also takes the FBX or prefab selected in the Hierarchy or Project.
 
 - If you see "cannot read the meshes", enable Read/Write in the FBX import settings and press "Search again".
 
 ### AI Mask Suggestion (Experimental)
 
-Choose "AI suggest: exclude / include this region" in the right-click menu and the AI (MobileSAM) estimates the clicked part's region and adds it to the target mask right away. It saves you from outlining parts by hand.
+Choose "Paint here too / Don't paint here / Paint only this part" in the right-click menu and the AI (MobileSAM) estimates the clicked part's region and applies the operation to it right away. It saves you from outlining parts by hand.
 
 #### Requirements (also required by Auto-tune)
 
@@ -904,8 +932,8 @@ When they are missing, a notice appears at the top of the Iroca window. Both ite
 
 #### How to use
 
-1. **Right-click** inside the part you want and choose "AI suggest: exclude this region" or "include". The first time, wait a moment for image analysis and model loading (progress is shown in the "AI Suggest" section of the mask window).
-2. The estimated region is added at once to the target shown at the top of the menu (there is no confirm button). A marker shows spots still being computed. If the part is split into several islands, repeat for each.
+1. **Right-click** inside the part you want and choose "Paint here too", "Don't paint here", or "Paint only this part". The first time, wait a moment for image analysis and model loading (progress is shown in the "AI Suggest" section of the mask window).
+2. The operation is applied at once to the estimated part, for the zone shown in the menu heading (there is no confirm button). A marker shows spots still being computed. If the part is split into several islands, repeat for each.
 3. Undo mistakes one at a time with Ctrl+Z. Change the granularity (Auto / Fine / Coarse) in the "AI Suggest" section of the mask window.
 
 One right-click picks one connected region (UV island). Selecting a part that is split into many pieces on the texture (such as a whole outfit) takes several to a dozen or more clicks. A picked region occasionally spills into a neighboring part, so check the overlay.
@@ -919,7 +947,7 @@ One right-click picks one connected region (UV island). Selecting a part that is
 #### If it does not work
 
 - **Nothing happens on a left click**: open the menu with a right-click and choose an item.
-- **AI Suggest is greyed out in the menu**: Sentis or the models are not installed. Set them up from the notice at the top of the window.
+- **The menu says "AI unavailable" or "AI model not downloaded"**: Sentis or the models are not installed. Set them up from the notice at the top of the window (mesh shapes work in the meantime).
 - **The very first use after starting Unity is slow**: the AI engine (Burst) compiles once. This is expected.
 - **Small parts take a little longer**: the area around the click is automatically zoomed and re-estimated.
 - **Right-clicking never changes the mask** ("The AI returned no region" / "the internal compiler (Burst) failed"): Burst failed to initialize. It cannot recover within the same session, so press the "Restart Unity" button shown with the message. If it keeps happening, delete the project's `Library\BurstCache` and `Library\Bee` folders and start Unity again (they are regenerated automatically).
@@ -1039,7 +1067,7 @@ Edges lightened by anti-aliasing or blur are being left unrecolored. Try these i
 
 Raise Saturation Strictness to 0.8-0.95 and narrow the Tolerance. If white, black, or gray is being pulled in, raise Saturation Guard. Adjusting Edge Softness within 0.0-0.5 can also help.
 
-Separate parts that share the same color on an atlas (such as pants and boots) cannot be split by color; split them with a mask. When a mesh using the texture is found, the right-click item "Part: exclude this island" removes them island by island (see [Right-click menu](#right-click-menu-ai-suggest-and-parts)).
+Separate parts that share the same color on an atlas (such as pants and boots) cannot be split by color; split them with a mask. When a mesh using the texture is found, the right-click item "By mesh shape" → "Don't paint here" removes them island by island (see [Fixing with right-click](#fixing-with-right-click)).
 
 #### Fine noise remains at boundaries
 
@@ -1057,7 +1085,9 @@ Lower Output Saturation to 0.7-0.9. Raise Pattern Preserve if you want to keep t
 
 #### The whole texture changes
 
-Lower the Tolerance to 0.05-0.15 and re-sample a more specific color. If separate areas still change, narrow it down with Connected Region (Flood Fill) in Details.
+To change only one spot, right-click it and choose "Paint only this part" (see [Fixing with right-click](#fixing-with-right-click)).
+
+If the color range is too wide, lower the Tolerance to 0.05-0.15 and re-sample a more specific color. If separate areas still change, narrow it down with Connected Region (Flood Fill) in Details.
 
 #### Cannot change to black
 

@@ -573,17 +573,18 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 右クリックメニューからの追加先。zoneId = null は共通マスク(共通に「含める」は無い)。
+        /// 右クリックメニューの宛先(どのゾーンに × 何をするか)。zoneId = null は全ゾーン共通で、
+        /// 共通にできるのは「ここは塗らない」だけ(含めるはゾーン単位のみ)。
         /// ゾーンは番号でなく ID で持つ(AI の推論待ちの間に並び替え・削除があっても取り違えない)。
         /// </summary>
         internal readonly struct MaskDestination
         {
             public readonly string zoneId;
-            public readonly bool include;
-            public MaskDestination(string zoneId, bool include)
+            public readonly MaskRegionOp op;
+            public MaskDestination(string zoneId, MaskRegionOp op)
             {
                 this.zoneId = zoneId;
-                this.include = include && zoneId != null;
+                this.op = op;
             }
         }
 
@@ -597,46 +598,82 @@ namespace Iroca
             return zone.id;
         }
 
-        /// <summary>
-        /// 宛先のマスク配列(必要なら確保)。宛先のゾーンが削除済み・共通×含めるなら null。
-        /// </summary>
-        public bool[] GetMaskArray(MaskDestination d)
-        {
-            if (d.zoneId == null) return d.include ? null : EnsureCommonMask();
-            var zones = _host.Session?.zones;
-            if (zones == null || !zones.Exists(z => z != null && z.id == d.zoneId)) return null;
-            return d.include ? EnsureZoneIncludeMask(d.zoneId) : EnsureZoneMask(d.zoneId);
-        }
-
-        /// <summary>宛先の表示名(ゾーン名 or 共通)と種類(除外/含める)。</summary>
-        public string DestinationName(MaskDestination d)
-        {
-            string target = Localization.MaskTargetCommon;
-            var zone = d.zoneId == null ? null : _host.Session?.zones?.Find(z => z != null && z.id == d.zoneId);
-            if (zone != null) target = string.IsNullOrEmpty(zone.name) ? Localization.UnnamedZone : zone.name;
-            return target + " / " + (d.include ? Localization.Include : Localization.Exclude);
-        }
+        private ColorZone FindZone(string zoneId)
+            => zoneId == null ? null : _host.Session?.zones?.Find(z => z != null && z.id == zoneId);
 
         /// <summary>
-        /// 領域(マスクと同じ寸法・下原点)を宛先のマスクへ OR 合成し、1 つの Undo ストロークにする。
-        /// 戻り値は新たに足した画素数(宛先が無い・寸法違いは -1)。AI 提案と右クリックメニューの共通の出口。
+        /// 範囲(マスクと同じ寸法・下原点)に宛先の操作を当て、1 つの Undo ストロークにする
+        /// (規則は <see cref="MaskRegionEdit"/>)。AI 提案と右クリックメニューの共通の出口。
+        /// 宛先のゾーンが消えた・共通に塗らない以外を当てようとした・寸法違いなら false。
         /// </summary>
-        public int AddRegionToMask(bool[] region, MaskDestination d)
+        public bool ApplyRegion(bool[] region, MaskDestination d, out MaskRegionEditResult result)
         {
+            result = default;
             EnsureMasks();
-            var mask = GetMaskArray(d);
-            if (mask == null || region == null || region.Length != mask.Length) return -1;
-            int added = 0;
-            BeginStroke();
-            for (int i = 0; i < mask.Length; i++)
+            int len = maskWidth * maskHeight;
+            if (region == null || len <= 0 || region.Length != len) return false;
+
+            bool[] exclude, include = null, common = null;
+            if (d.zoneId == null)
             {
-                if (region[i] && !mask[i]) { mask[i] = true; added++; }
+                if (d.op != MaskRegionOp.DontPaintHere) return false;
+                exclude = EnsureCommonMask();
             }
+            else
+            {
+                if (FindZone(d.zoneId) == null) return false;
+                common = exclusionMask;
+                if (d.op == MaskRegionOp.PaintHere)
+                {
+                    include = EnsureZoneIncludeMask(d.zoneId);
+                    zoneMasks.TryGetValue(d.zoneId, out exclude);
+                }
+                else
+                {
+                    exclude = EnsureZoneMask(d.zoneId);
+                    zoneIncludeMasks.TryGetValue(d.zoneId, out include);
+                }
+            }
+            if (exclude != null && exclude.Length != len) return false;
+            if (include != null && include.Length != len) return false;
+            if (common != null && common.Length != len) common = null;
+
+            BeginStroke();
+            result = MaskRegionEdit.Apply(d.op, region, exclude, include, common);
             EndStroke();
             maskDirty = true;
             _host.MarkPreviewDirtyFullRefine();
             _host.RequestRepaint();
-            return added;
+            return true;
+        }
+
+        /// <summary>
+        /// <see cref="ApplyRegion"/> の結果を知らせる文。何をしたか(Ctrl+Z で戻せる)に加えて、
+        /// 指示どおりに塗られない理由(共通の「塗らない」との重なり・許容範囲 0)があれば添える。
+        /// </summary>
+        public string DescribeRegionEdit(MaskDestination d, bool ok, MaskRegionEditResult r)
+        {
+            if (!ok) return Localization.NotifyMaskNotAdded;
+            if (r.changed == 0) return Localization.NotifyMaskNoChange;
+            var zone = FindZone(d.zoneId);
+            string name = zone == null ? null : (string.IsNullOrEmpty(zone.name) ? Localization.UnnamedZone : zone.name);
+            string msg = d.op switch
+            {
+                MaskRegionOp.PaintHere => string.Format(Localization.NotifyPaintHereFormat, name),
+                MaskRegionOp.OnlyThisPart => string.Format(Localization.NotifyOnlyThisPartFormat, name),
+                _ => zone == null ? Localization.NotifyDontPaintHereCommon
+                                  : string.Format(Localization.NotifyDontPaintHereFormat, name),
+            };
+            if (r.commonOverlap > 0) msg += "\n" + Localization.NotifyCommonOverlap;
+            // この部分だけ: 範囲の中は色で選ぶので、許容範囲 0 では中も塗られない(旧来の「許容 0 → 含める」の手順の名残)。
+            if (d.op == MaskRegionOp.OnlyThisPart && zone != null && zone.tolerance <= 0f)
+                msg += "\n" + Localization.NotifyOnlyThisZeroTolerance;
+            // 自動調整の前は、明るい所で取った色だと許容 0.20 では部分の中を取りこぼすことがある
+            // (2026-10-06 の計測で範囲内 IoU 0.14、自動調整後は 1.00)。自動調整は除外を見るので、
+            // 押すと部分の中だけを見て合わせ直す。
+            else if (d.op == MaskRegionOp.OnlyThisPart && zone != null && _host.IsUntunedNewZone(zone))
+                msg += "\n" + Localization.NotifyOnlyThisAutoTuneHint;
+            return msg;
         }
 
         /// <summary>
@@ -683,7 +720,10 @@ namespace Iroca
                 zoneIncludeMasks.Remove(id);
             }
 
-            if (activeMaskTarget == index) activeMaskTarget = -1;
+            // 編集対象(=いま直しているゾーン)を消したら、残ったゾーンのうち同じ位置(末尾なら 1 つ上)へ移す。
+            // 共通へ戻すと、右クリックの「ここも塗る」などがゾーン無しの扱いになってしまう。
+            int remaining = zones.Count - 1;
+            if (activeMaskTarget == index) activeMaskTarget = remaining > 0 ? Mathf.Min(index, remaining - 1) : -1;
             else if (activeMaskTarget > index) activeMaskTarget--;
 
             maskDirty = true;
@@ -1162,11 +1202,16 @@ namespace Iroca
         }
 
         /// <summary>
-        /// アクティブなマスク編集対象を共通マスクへリセットする。
+        /// 編集対象(=いま直しているゾーン)を既定へ戻す。ゾーンがあれば先頭のゾーン、無ければ共通。
+        /// 既定をゾーンにするのは、右クリックの「ここも塗る / この部分だけ塗る」とブラシの「含める」が
+        /// ゾーン単位でしか使えず、共通のままだと作った直後に選べない項目が出るため(2026-10-06)。
+        /// 共通はブラシのパレットや右クリックの「直すゾーンを変える」で明示的に選べる。
         /// </summary>
         public void ResetActiveTarget()
         {
-            activeMaskTarget = -1;
+            var zones = _host?.Session?.zones;
+            activeMaskTarget = zones != null && zones.Count > 0 ? 0 : -1;
+            EnforceLayerConsistency();
             maskDirty = true;
         }
 

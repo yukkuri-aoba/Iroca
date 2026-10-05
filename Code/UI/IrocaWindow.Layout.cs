@@ -595,7 +595,7 @@ namespace Iroca
         /// 自動調整はこのウィンドウで走らせれば由来が残る。ウィンドウを開き直した後は由来が無いので、
         /// 自動調整が書くもの（内部サンプル・初期値以外の許容範囲）で見分ける。
         /// </summary>
-        private bool IsUntunedNewZone(ColorZone z)
+        internal bool IsUntunedNewZone(ColorZone z)
         {
             if (!string.IsNullOrEmpty(AutoTuneProvenance(z.id))) return false;
             if (z.extraSamples != null && z.extraSamples.Count > 0) return false;

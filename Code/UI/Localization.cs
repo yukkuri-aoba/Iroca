@@ -297,49 +297,73 @@ namespace Iroca
             : "Eraser mode: drag on the preview to erase the currently selected mask type\nClick again to exit paint mode";
         public static string AiSuggestSectionHeader => IsJapanese ? "AI 提案（プレビューを右クリック）" : "AI Suggest (right-click the preview)";
         public static string AiSuggestSectionHeaderTooltip => IsJapanese
-            ? "AI 提案（実験的）: プレビューを右クリックして「AI 提案: この領域を除外 / 含める」を選ぶと、\nAI が推定した領域を、メニュー上部に出ている対象のマスクへ追加します\nここでは提案の粒度と、推論の進み具合を確認できます"
-            : "AI Suggest (experimental): right-click the preview and choose \"AI suggest: exclude / include this region\"\nto add the AI-estimated region to the mask of the target shown at the top of the menu\nHere you can set the granularity and see the inference status";
+            ? "AI 提案（実験的）: プレビューを右クリックして「ここも塗る / ここは塗らない / この部分だけ塗る」を選ぶと、\nクリックした場所の部分を AI が見分けて、メニューの見出しのゾーンに当てます\nここでは見分ける粒度と、推論の進み具合を確認できます"
+            : "AI Suggest (experimental): right-click the preview and choose \"Paint here too / Don't paint here / Paint only this part\";\nthe AI finds the part you clicked and applies it to the zone shown at the top of the menu\nHere you can set the granularity and see the inference status";
         public static string AiSuggestNoModelInEditor => IsJapanese
             ? "AI モデルが未取得です。Iroca 本体ウィンドウ上部の案内から取得してください。"
             : "The AI model has not been downloaded yet. Get it from the notice at the top of the main Iroca window.";
         public static string MaskHintContextMenu => IsJapanese
-            ? "プレビューを右クリックすると、AI 提案やパーツ（メッシュの島）単位でマスクへ追加できます（Ctrl+Z で 1 手ずつ戻せます）"
-            : "Right-click the preview to add an AI-suggested region or a mesh part (UV island) to the mask (Ctrl+Z undoes one step at a time)";
+            ? "プレビューを右クリックすると「ここも塗る / ここは塗らない / この部分だけ塗る」を、AI が見分けた部分やメッシュの形で当てられます（Ctrl+Z で 1 手ずつ戻せます）"
+            : "Right-click the preview to apply \"Paint here too / Don't paint here / Paint only this part\" to the part the AI finds or to a mesh shape (Ctrl+Z undoes one step at a time)";
 
         // ─── プレビューの右クリックメニュー(項目にツールチップを付けられないので、文言だけで分かるようにする) ───
-        public static string CtxTargetFormat => IsJapanese ? "追加先: {0}" : "Add to: {0}";
-        public static string CtxChangeTarget => IsJapanese ? "追加先を変える" : "Change target";
-        public static string CtxIncludeNeedsZone => IsJapanese ? "（含めるはゾーンが追加先のときだけ）" : " (Include needs a zone as the target)";
-        public static string CtxAiExclude => IsJapanese ? "AI 提案: この領域を除外" : "AI suggest: exclude this region";
-        public static string CtxAiInclude => IsJapanese ? "AI 提案: この領域を含める" : "AI suggest: include this region";
+        // 「追加先」「除外」「含める」はマスクの仕組みを知らないと選べないので、メニューでは使わない(2026-10-06)。
+        public static string CtxHeaderZoneFormat => IsJapanese ? "「{0}」を直す" : "Fix \"{0}\"";
+        public static string CtxHeaderCommon => IsJapanese ? "全部のゾーンに共通で直す" : "Fix for all zones";
+        public static string CtxHeaderNoZone => IsJapanese
+            ? "先に「スポイトで変えたい色を選ぶ」で色を選んでください"
+            : "Pick a color first with \"Pick the color to change\"";
+        public static string CtxPaintHere => IsJapanese ? "ここも塗る" : "Paint here too";
+        public static string CtxDontPaintHere => IsJapanese ? "ここは塗らない" : "Don't paint here";
+        public static string CtxOnlyThisPart => IsJapanese ? "この部分だけ塗る" : "Paint only this part";
+        public static string CtxDontPaintHereCommon => IsJapanese ? "ここはどのゾーンでも塗らない" : "Don't paint here in any zone";
+        public static string CtxChangeZone => IsJapanese ? "直すゾーンを変える" : "Change the zone to fix";
+        public static string CtxCommonTargetItem => IsJapanese ? "全部のゾーンに共通（塗らないだけ）" : "All zones (don't-paint only)";
         public static string CtxAiNoSentis => IsJapanese
-            ? "AI 提案: 使えません（本体ウィンドウ上部の案内から導入）"
-            : "AI suggest: unavailable (set up from the notice at the top of the main window)";
+            ? "AI が使えません（本体ウィンドウ上部の案内から導入。メッシュの形では使えます）"
+            : "AI unavailable (set up from the notice at the top of the main window; mesh shapes still work)";
         public static string CtxAiNoModel => IsJapanese
-            ? "AI 提案: モデル未取得（本体ウィンドウ上部の案内から取得）"
-            : "AI suggest: model not downloaded (get it from the notice at the top of the main window)";
-        public static string CtxPartExcludeFormat => IsJapanese ? "パーツ: この島を除外（{0}）" : "Part: exclude this island ({0})";
-        public static string CtxPartIncludeFormat => IsJapanese ? "パーツ: この島を含める（{0}）" : "Part: include this island ({0})";
-        public static string CtxPartOnlyThisMeshFormat => IsJapanese
-            ? "パーツ: {0} 以外のメッシュを除外" : "Part: exclude every mesh except {0}";
+            ? "AI モデルが未取得です（本体ウィンドウ上部の案内から取得。メッシュの形では使えます）"
+            : "AI model not downloaded (get it from the notice at the top of the main window; mesh shapes still work)";
+        // メッシュの形(UV の島)で当てるサブメニュー。{0} = ここも塗る 等、{1} = メッシュ名。
+        public static string CtxMeshRoot => IsJapanese ? "メッシュの形で" : "By mesh shape";
+        public static string CtxMeshIslandFormat => IsJapanese ? "{0}（{1} のこの島）" : "{0} (this island of {1})";
+        public static string CtxMeshOthersFormat => IsJapanese ? "{0} 以外のメッシュは塗らない" : "Don't paint meshes other than {0}";
         public static string CtxPartNoIsland => IsJapanese
-            ? "パーツ: この場所はどのメッシュの島にも乗っていません" : "Part: no mesh island at this spot";
+            ? "メッシュの形で: この場所はどのメッシュの島にも乗っていません" : "By mesh shape: no mesh island at this spot";
         public static string CtxPartNoMesh => IsJapanese
-            ? "パーツ: このテクスチャを使うメッシュが見つかりません" : "Part: no mesh using this texture was found";
+            ? "メッシュの形で: このテクスチャを使うメッシュが見つかりません" : "By mesh shape: no mesh using this texture was found";
         public static string CtxPartUnreadableFormat => IsJapanese
-            ? "パーツ: メッシュを読めません（{0} 個。FBX の Read/Write を有効にして探し直してください）"
-            : "Part: cannot read the meshes ({0}; enable Read/Write on the FBX and search again)";
+            ? "メッシュの形で: メッシュを読めません（{0} 個。FBX の Read/Write を有効にして探し直してください）"
+            : "By mesh shape: cannot read the meshes ({0}; enable Read/Write on the FBX and search again)";
         public static string CtxPartUseSelectionFormat => IsJapanese
-            ? "パーツ: 選択中の「{0}」のメッシュを使う" : "Part: use the meshes of the selected \"{0}\"";
+            ? "選択中の「{0}」のメッシュを使う" : "Use the meshes of the selected \"{0}\"";
         public static string CtxPartUseSelectionNone => IsJapanese
-            ? "パーツ: メッシュはマスク欄の「メッシュ」で指定できます（FBX・Prefab をドラッグ）"
-            : "Part: choose meshes in the \"Mesh\" field of the mask section (drag an FBX or prefab)";
-        public static string CtxPartResearch => IsJapanese ? "パーツ: メッシュを探し直す" : "Part: search for meshes again";
-        public static string NotifyMaskAddedFormat => IsJapanese ? "{0} に追加しました（Ctrl+Z で戻せます）" : "Added to {0} (Ctrl+Z to undo)";
-        public static string NotifyMaskAlreadyCovered => IsJapanese ? "すでにマスクに入っています" : "Already in the mask";
+            ? "メッシュはマスク欄の「メッシュ」で指定できます（FBX・Prefab をドラッグ）"
+            : "Choose meshes in the \"Mesh\" field of the mask section (drag an FBX or prefab)";
+        public static string CtxPartResearch => IsJapanese ? "メッシュを探し直す" : "Search for meshes again";
+        // 右クリックの操作の結果(MaskPaintView.DescribeRegionEdit)。{0} = ゾーン名。
+        public static string NotifyPaintHereFormat => IsJapanese
+            ? "「{0}」で、ここも塗るようにしました（Ctrl+Z で戻せます）" : "\"{0}\" now paints here too (Ctrl+Z to undo)";
+        public static string NotifyDontPaintHereFormat => IsJapanese
+            ? "「{0}」で、ここは塗らないようにしました（Ctrl+Z で戻せます）" : "\"{0}\" no longer paints here (Ctrl+Z to undo)";
+        public static string NotifyDontPaintHereCommon => IsJapanese
+            ? "どのゾーンでも、ここは塗らないようにしました（Ctrl+Z で戻せます）" : "No zone paints here now (Ctrl+Z to undo)";
+        public static string NotifyOnlyThisPartFormat => IsJapanese
+            ? "「{0}」は、この部分だけを塗るようにしました（Ctrl+Z で戻せます）" : "\"{0}\" now paints only this part (Ctrl+Z to undo)";
+        public static string NotifyCommonOverlap => IsJapanese
+            ? "全部のゾーンに共通の「塗らない」が重なる所は塗られません（マスク編集で消せます）"
+            : "Where an all-zones \"don't paint\" overlaps, it stays unpainted (clear it in the mask editor)";
+        public static string NotifyOnlyThisZeroTolerance => IsJapanese
+            ? "許容範囲が 0 なので、この部分の中も色では選ばれません。許容範囲を上げるか「自動調整」を押してください"
+            : "Tolerance is 0, so nothing inside this part is selected by color. Raise Tolerance or press Auto-tune";
+        public static string NotifyOnlyThisAutoTuneHint => IsJapanese
+            ? "「自動調整」を押すと、この部分の中だけを見て範囲を合わせます"
+            : "Press Auto-tune to fit the range by looking only inside this part";
+        public static string NotifyMaskNoChange =>IsJapanese ? "変わりませんでした（すでにそうなっています）" : "Nothing changed (already like this)";
         public static string NotifyMaskNotAdded => IsJapanese
-            ? "追加できませんでした（追加先のゾーンが無いか、この場所に島がありません）"
-            : "Could not add (the target zone is gone, or there is no island here)";
+            ? "当てられませんでした（直すゾーンが無いか、この場所に島がありません）"
+            : "Could not apply (the zone is gone, or there is no island here)";
         public static string NotifyMeshFoundFormat => IsJapanese ? "メッシュを {0} 個見つけました" : "Found {0} mesh(es)";
         public static string NotifyMeshNotFound => IsJapanese
             ? "このテクスチャを使うメッシュは見つかりませんでした（色の処理は今まで通り動きます）"
@@ -377,8 +401,8 @@ namespace Iroca
         public static string MeshListTooltipHeader => IsJapanese ? "使っているメッシュ:" : "Meshes in use:";
         public static string MeshShowIslands => IsJapanese ? "UV の島をプレビューに表示" : "Show UV islands on the preview";
         public static string MeshShowIslandsTooltip => IsJapanese
-            ? "メッシュの UV の島の輪郭をプレビューに重ねます。右クリックの「パーツ: この島を…」で足される範囲が、この線で囲まれた島（と線のすぐ外のにじみ）です。表示だけで、色替えの結果は変わりません"
-            : "Overlay the outlines of the mesh's UV islands on the preview. The \"Part: … this island\" right-click items add the island enclosed by these lines (plus the bleed just outside them). Display only; the recolor result does not change";
+            ? "メッシュの UV の島の輪郭をプレビューに重ねます。右クリックの「メッシュの形で」で当てる範囲が、この線で囲まれた島（と線のすぐ外のにじみ）です。表示だけで、色替えの結果は変わりません"
+            : "Overlay the outlines of the mesh's UV islands on the preview. The right-click \"By mesh shape\" items apply to the island enclosed by these lines (plus the bleed just outside them). Display only; the recolor result does not change";
         public static string NotifyAiNotStarted => IsJapanese
             ? "AI 提案を開始できませんでした（マスク編集ウィンドウの AI 提案欄を確認してください）"
             : "Could not start AI suggest (see the AI section of the mask edit window)";
@@ -676,8 +700,8 @@ namespace Iroca
             ? "直前のクリックが背景まで広がった可能性があります。Ctrl+Z で戻して、粒度を「細かい」にするか、パーツのより内側を右クリックし直してください。"
             : "The last click may have spread into the background. Undo with Ctrl+Z, then set granularity to 'Fine' or right-click again further inside the part.";
         public static string AiSuggestEmptyCommit => IsJapanese
-            ? "直前のクリックではマスクが変わりませんでした（その領域はすでに追加済みです）。"
-            : "The last click did not change the mask (that region was already added).";
+            ? "直前のクリックではマスクが変わりませんでした（その部分はすでにそうなっています）。"
+            : "The last click did not change the mask (that part was already like this).";
         public static string AiSuggestEmptyProposal => IsJapanese
             ? "AI が領域を返しませんでした。別の場所を右クリックするか、粒度を変えてみてください。\nどこを右クリックしても同じ場合は、内部コンパイル（Burst）の初期化に失敗している可能性があります。Unity を再起動すると直ります。"
             : "The AI returned no region. Try right-clicking elsewhere or changing the granularity.\nIf every click behaves this way, the internal compiler (Burst) may have failed to initialize — restarting Unity fixes it.";

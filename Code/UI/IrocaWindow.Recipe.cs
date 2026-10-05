@@ -58,6 +58,8 @@ namespace Iroca
                 _exportView.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(path));
             }
             LoadPersistedSessionForCurrentTexture();
+            // 前のテクスチャのゾーン番号を引き継がない(別のゾーンを指してしまう)。先頭のゾーンを直す対象にする。
+            _maskView.ResetActiveTarget();
             RememberLastEditedTexture();
             Repaint();
         }

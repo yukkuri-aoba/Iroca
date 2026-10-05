@@ -24,6 +24,21 @@ namespace Iroca
         private Color _pendingNewZoneColor;
         private Vector2 _pendingNewZoneUV;
 
+        // 「いま直しているゾーン」= マスクの編集対象(_maskView.activeMaskTarget)。右クリックの
+        // 「ここも塗る / ここは塗らない / この部分だけ塗る」とブラシは、ここに当たる。専用の選択操作は
+        // 足さず(手数を増やさない)、最後に触ったゾーン(作った・カードのどこかを押した。スポイトや自動調整も
+        // カードのボタンから始まる)へ追従させる。どれかはカードの枠で示す(ゾーンが 2 つ以上のとき。DrawZoneCard)。
+        private void SetCurrentZoneIndex(int index)
+        {
+            if (_maskView == null || index < 0 || index >= zones.Count || _maskView.activeMaskTarget == index) return;
+            _maskView.activeMaskTarget = index;
+            _maskView.maskDirty = true;     // 明るく出すマスク(編集中)が変わる
+            Repaint();
+        }
+
+        // 前の描画で記録したゾーンカードの矩形(カードを押したらそのゾーンを直す対象にする判定用)。
+        [System.NonSerialized] private List<Rect> _zoneCardRects;
+
         internal void RequestNewZoneFromSample(Color picked, Vector2 uv)
         {
             _pendingNewZoneFromSample = true;
@@ -110,6 +125,7 @@ namespace Iroca
                 _pendingAddZone = false;
                 Undo.RegisterCompleteObjectUndo(this, "Add Zone");
                 zones.Add(CreateNewZone());
+                SetCurrentZoneIndex(zones.Count - 1);
                 MarkPreviewDirty();
             }
             if (_pendingNewZoneFromSample)
@@ -123,6 +139,7 @@ namespace Iroca
                 // スポイトで取ったので位置も持つ（自動調整が AI 提案の証拠に使う。ApplyEyedropperSample と同じ）。
                 newZone.sampleUV = _pendingNewZoneUV;
                 zones.Add(newZone);
+                SetCurrentZoneIndex(zones.Count - 1);
                 zonesFoldout = true;
                 MarkPreviewDirty();
             }
@@ -221,6 +238,17 @@ namespace Iroca
             EnsureZoneListCache();
             var zoneRects = new List<Rect>(zones.Count);
 
+            // カードのどこかを押したら、そのゾーンを「いま直しているゾーン」にする。カードの中の操作より
+            // 先に見るので、前の描画で記録した矩形で判定する(イベントは消費しない＝押した操作はそのまま効く)。
+            var ev = Event.current;
+            if (ev.type == EventType.MouseDown && _zoneCardRects != null)
+            {
+                for (int i = 0; i < _zoneCardRects.Count && i < zones.Count; i++)
+                {
+                    if (_zoneCardRects[i].Contains(ev.mousePosition)) { SetCurrentZoneIndex(i); break; }
+                }
+            }
+
             int removeIndex = -1;
             for (int i = 0; i < zones.Count; i++)
             {
@@ -230,6 +258,8 @@ namespace Iroca
                 zoneRects.Add(GUILayoutUtility.GetLastRect());
                 EditorGUILayout.Space(2);
             }
+
+            if (ev.type == EventType.Repaint) _zoneCardRects = zoneRects;
 
             HandleZoneReorderDrag(zoneRects);
 
@@ -412,7 +442,7 @@ namespace Iroca
                 {
                     var prevBg = GUI.backgroundColor;
                     if (armed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
-                    // 武装は出力を変えないので GUI.changed を戻す（DrawStartWithEyedropperButton と同じ）。
+                    // 武装は出力を変えないので GUI.changed を戻す（DrawAddColorRow と同じ）。
                     bool prevChanged = GUI.changed;
                     if (GUILayout.Button(armed ? s_eyedropperActiveContent : s_eyedropperIdleContent,
                         GUILayout.Width(IrocaConsts.Layout.EyedropperButtonWidth)))
@@ -512,6 +542,13 @@ namespace Iroca
                 DrawZoneAdvancedParams(zone);
 
             EditorGUILayout.EndVertical();
+
+            // いま直しているゾーン(右クリックとブラシの宛先)を枠で示す。ゾーンが 1 つなら自明なので出さない。
+            if (Event.current.type == EventType.Repaint && zones.Count >= 2
+                && _maskView != null && _maskView.activeMaskTarget == index)
+            {
+                DrawRectOutline(GUILayoutUtility.GetLastRect(), IrocaColors.ActiveMaskTarget, 2f);
+            }
             return removeRequested;
         }
 
@@ -555,7 +592,7 @@ namespace Iroca
                         bool seedArmed = !string.IsNullOrEmpty(zone.id) && SeedPickZoneId == zone.id;
                         var prevSeedBg = GUI.backgroundColor;
                         if (seedArmed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
-                        // 武装は出力を変えないので GUI.changed を戻す（DrawStartWithEyedropperButton と同じ）。
+                        // 武装は出力を変えないので GUI.changed を戻す（DrawAddColorRow と同じ）。
                         bool prevChanged = GUI.changed;
                         if (GUILayout.Button(seedArmed ? s_seedPickActiveContent : s_seedPickIdleContent,
                                 GUILayout.MinWidth(0)))
