@@ -544,8 +544,10 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 色替えの指定が始まっているか（＝手順②が済んでいるか）。
-        /// 有効なゾーンが 1 つ以上あり、そのどれかでサンプルカラーが指定済みであること。
+        /// 色替えの指定が済んでいるか（＝手順②が済んでいるか）。
+        /// 有効なゾーンのどれかで、サンプルカラーと変更先カラーの両方が指定済みであること。
+        /// 変更先が既定の白のままだと、選んだ所が白っぽくなるだけで色替えは済んでいない
+        /// （以前はサンプルカラーだけで ✓ を付け、案内もそこで終わっていた）。
         /// </summary>
         private bool StepZonesDone
         {
@@ -554,22 +556,50 @@ namespace Iroca
                 var list = _session?.zones;
                 if (list == null) return false;
                 for (int i = 0; i < list.Count; i++)
-                    if (list[i] != null && list[i].enabled && list[i].HasSampleColor) return true;
+                {
+                    var z = list[i];
+                    if (z != null && z.enabled && z.HasSampleColor && z.HasTargetColor) return true;
+                }
                 return false;
             }
         }
 
         /// <summary>
-        /// 「次に何をすればよいか」の 1 行案内。手順が進むにつれ短くなり、色の指定まで
+        /// 「次に何をすればよいか」の 1 行案内。色を選ぶ → 変更先カラーを選ぶ → 自動調整（任意）の順に進み、
         /// 済んだら消える（常設の帯でプレビューの高さを奪い続けないため）。
-        /// 空文字なら何も描かない。
+        /// 自動調整は変更先の明るさも入力に取る（模様保持の導出）ので、変更先の後に案内する。
+        /// null なら何も描かない。
         /// </summary>
         private string NextStepHint()
         {
             if (!StepTextureDone) return null;               // テクスチャ欄の HelpBox が案内済み
             if (!HasEnabledZone) return Localization.NextStepAddZone;
-            if (!StepZonesDone) return Localization.NextStepPickColor;
+
+            // 手順の途中のゾーンを、最後に足したもの（リストの下）から探す。2 色目を足したときに、
+            // そのゾーンの次の一手を案内するため。
+            var list = _session.zones;
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                var z = list[i];
+                if (z == null || !z.enabled) continue;
+                string name = string.IsNullOrEmpty(z.name) ? Localization.UnnamedZone : z.name;
+                if (!z.HasSampleColor) return string.Format(Localization.NextStepPickColorFormat, name);
+                if (!z.HasTargetColor) return string.Format(Localization.NextStepPickTargetFormat, name);
+                if (IsUntunedNewZone(z)) return string.Format(Localization.NextStepAutoTuneFormat, name);
+            }
             return null;
+        }
+
+        /// <summary>
+        /// UI で作ったままの範囲設定か（自動調整も許容範囲の手直しもしていない）。
+        /// 自動調整はこのウィンドウで走らせれば由来が残る。ウィンドウを開き直した後は由来が無いので、
+        /// 自動調整が書くもの（内部サンプル・初期値以外の許容範囲）で見分ける。
+        /// </summary>
+        private bool IsUntunedNewZone(ColorZone z)
+        {
+            if (!string.IsNullOrEmpty(AutoTuneProvenance(z.id))) return false;
+            if (z.extraSamples != null && z.extraSamples.Count > 0) return false;
+            return Mathf.Approximately(z.tolerance, NewZoneInitialTolerance);
         }
 
         private void DrawTextureField()
@@ -608,11 +638,14 @@ namespace Iroca
                 }
             }
 
-            // 次の一手（1 行）。HelpBox でなく miniLabel なのは、常設の帯がプレビュー列の
-            // 高さを恒常的に奪わないようにするため。色の指定まで済めば消える。
+            // 次の一手。HelpBox でなく miniLabel なのは、常設の帯がプレビュー列の
+            // 高さを恒常的に奪わないようにするため。手順が済めば消える。
+            // 折り返しあり: ゾーン名が入って長くなり、狭いウィンドウや英語表示では 1 行に収まらない
+            // （EditorGUILayout.LabelField は 1 行固定高で、折り返した 2 行目が隠れる）。
+            // 上部の高さは実測しているので（_sideBySideTopHeight）、行数が変わってもレイアウトは崩れない。
             string next = NextStepHint();
             if (!string.IsNullOrEmpty(next))
-                EditorGUILayout.LabelField(next, EditorStyles.miniLabel);
+                GUILayout.Label(next, EditorStyles.wordWrappedMiniLabel);
 
             // AI(Sentis + モデル)の準備状況。未準備のときだけ非モーダルの帯で案内する
             // （起動時モーダルの置き換え。導入・ダウンロード・再起動の導線をここへ集約した）。

@@ -62,11 +62,9 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 #### ステップ 2: 変える色を選ぶ
 
-1. 「② カラーゾーン」の「スポイトで変えたい色を選ぶ」を押し、プレビュー上の変えたい色をクリックします。色替え 1 つぶんの「カラーゾーン」ができ、クリックした色が「サンプルカラー」に入ります。いちばん鮮やかな部分を選ぶとうまくいきます。
-2. ゾーンの「自動調整」を押します。そのパーツの暗部からハイライトまでを覆うように、許容範囲などを自動で合わせます（AI モデルが必要です。未導入ならウィンドウ上部に案内が出ます）。
-3. 範囲が広い・狭いときは「許容範囲」で微調整します。
+「② カラーゾーン」の「スポイトで変えたい色を選ぶ」を押し、プレビュー上の変えたい色をクリックします。色替え 1 つぶんの「カラーゾーン」ができ、クリックした色が「サンプルカラー」に入ります。いちばん鮮やかな部分を選ぶとうまくいきます。
 
-自動調整を使わなくても、新しいゾーンは許容範囲 0.20 で始まるので、色を指定すればプレビューはすぐ変わります。
+この時点では、選んだ色の部分が白っぽくなります（変更先カラーの初期値が白のため）。次のステップで色を決めます。
 
 2 色目からは「+ ゾーン追加」でゾーンを足し、そのゾーンの「サンプルカラー」の右の「スポイト」を押してから、プレビュー上の色をクリックします。
 
@@ -74,9 +72,17 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 #### ステップ 3: 変更後の色を決める
 
-「変更先カラー」をクリックして色を選びます。プレビューにすぐ反映されます。
+ゾーンの「変更先カラー」をクリックして色を選びます。プレビューにすぐ反映されます。
 
-#### ステップ 4: 仕上がりを調整する（必要なら）
+#### ステップ 4: 範囲と仕上がりを整える
+
+1. ゾーンの「自動調整」を押します。そのパーツの暗部からハイライトまでを覆うように、許容範囲などを自動で合わせます（AI モデルが必要です。未導入ならウィンドウ上部に案内が出ます）。模様保持は元の色と変更先の明るさの差から決めるので、変更先カラーを決めてから押してください。
+2. 範囲が広い・狭いときは「許容範囲」で微調整します。
+3. 仕上がりは次の 2 つで整えます（必要なときだけ）。
+
+自動調整を使わなくても、新しいゾーンは許容範囲 0.20 で始まるので、色を指定すればプレビューはすぐ変わります。
+
+テクスチャ欄の下には「次の手順」が 1 行で出て、色を選ぶ → 変更先カラー → 自動調整の順に、いま何をすればよいかを示します（自動調整を押すか、許容範囲を動かすと消えます）。
 
 | 設定 | 内容 |
 |---|---|
@@ -103,7 +109,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 **自動調整**
 
-テクスチャを解析して、許容範囲・彩度制限などをまとめて決めます。スポイトした位置に AI マスク提案（MobileSAM）をかけ、そのパーツの暗部からハイライトまでを取りこぼさないように導出します。スポイトの直後に押すのが最も効果的です。
+テクスチャを解析して、許容範囲・彩度制限などをまとめて決めます。スポイトした位置に AI マスク提案（MobileSAM）をかけ、そのパーツの暗部からハイライトまでを取りこぼさないように導出します。スポイトで色を取り、変更先カラーを決めてから押すのが最も効果的です（模様保持は、元の色と変更先の明るさの差から決めます）。
 
 - 元テクスチャが未設定、画素を取り出せない、サンプルカラーが未指定（白のまま）のときは押せません。
 - AI が未導入のときは導入の案内が出ます（→「[AI マスク提案](#ai-マスク提案実験的機能)」の「必要なもの」）。準備中のときは終わるまで待ちます（進捗バーと中止ボタンが出ます）。
@@ -603,11 +609,9 @@ If you are not sure which texture it is, keep the いろか window open and clic
 
 #### Step 2: Choose the color to change
 
-1. Under "2. Color Zones", press "Pick the color to change", then click the color you want on the preview. A color zone (one recoloring) is created with the clicked color as its "Sample Color". The most vivid spot of the area works best.
-2. Press the zone's "Auto-tune". It sets the tolerance and related values so the part is covered from its shadows to its highlights (the AI models are required; a notice at the top of the window offers to install them).
-3. If the selection is too wide or too narrow, fine-tune it with "Tolerance".
+Under "2. Color Zones", press "Pick the color to change", then click the color you want on the preview. A color zone (one recoloring) is created with the clicked color as its "Sample Color". The most vivid spot of the area works best.
 
-You do not have to use Auto-tune: a new zone starts with a Tolerance of 0.20, so the preview changes as soon as you set the colors.
+At this point the picked area turns whitish (the Target Color starts as white). You choose the new color in the next step.
 
 For a second color, add a zone with "+ Add Zone", press "Eyedropper" to the right of that zone's "Sample Color", then click the color on the preview.
 
@@ -615,9 +619,17 @@ For a second color, add a zone with "+ Add Zone", press "Eyedropper" to the righ
 
 #### Step 3: Set the target color
 
-Click "Target Color" and choose the new color. The preview updates right away.
+Click the zone's "Target Color" and choose the new color. The preview updates right away.
 
-#### Step 4: Adjust the result (optional)
+#### Step 4: Fit the range and finish
+
+1. Press the zone's "Auto-tune". It sets the tolerance and related values so the part is covered from its shadows to its highlights (the AI models are required; a notice at the top of the window offers to install them). Pattern Preserve is derived from the brightness difference between the original and target colors, so press it after choosing the Target Color.
+2. If the selection is too wide or too narrow, fine-tune it with "Tolerance".
+3. Finish the look with the two settings below (only when needed).
+
+You do not have to use Auto-tune: a new zone starts with a Tolerance of 0.20, so the preview changes as soon as you set the colors.
+
+Below the texture field, a one-line "Next" hint tells you what to do now, in the order: pick the color, choose the Target Color, Auto-tune (it disappears once you press Auto-tune or move Tolerance).
 
 | Setting | What it does |
 |---|---|
@@ -644,7 +656,7 @@ The reference color for the target. Pixels close to it are selected. When you ta
 
 **Auto-tune**
 
-Analyzes the texture and sets the tolerance, saturation strictness, and related values together. It runs the AI mask suggestion (MobileSAM) at the sampled position so that the part is covered from its shadows to its bright highlights. It is most effective right after sampling.
+Analyzes the texture and sets the tolerance, saturation strictness, and related values together. It runs the AI mask suggestion (MobileSAM) at the sampled position so that the part is covered from its shadows to its bright highlights. It works best after you sample the color with the eyedropper and choose the Target Color (Pattern Preserve is derived from the brightness difference between the two).
 
 - It is disabled when the source texture is not set, when no pixels can be obtained, or when the sample color is still unset (white).
 - If the AI is not installed, you are asked to install it (see "Requirements" under [AI Mask Suggestion](#ai-mask-suggestion-experimental)). If it is still getting ready, Auto-tune waits (a progress bar and a Cancel button are shown).

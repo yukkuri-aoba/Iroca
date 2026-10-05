@@ -72,12 +72,12 @@ namespace Iroca
         // ④ は NDMF があれば非破壊の登録、無ければテクスチャへの書き出し(エクスポート欄の主ボタンと揃える)。
 #if IROCA_NDMF_PRESENT
         public static string WorkflowHint => IsJapanese
-            ? "手順: ① 元テクスチャを選ぶ（Scene でモデルの変えたい所をクリックしても開けます）→ ② カラーゾーンで色を指定（スポイトで色を取り「自動調整」が簡単）→ ③ プレビューで確認 → ④ アバターに非破壊で登録"
-            : "Steps: 1. Pick a source texture (or click the part of the model you want to change in the Scene view)  2. Set colors in Color Zones (sample a color and use Auto-tune)  3. Check the Preview  4. Register to avatar (non-destructive)";
+            ? "手順: ① 元テクスチャを選ぶ（Scene でモデルの変えたい所をクリックしても開けます）→ ② スポイトで変えたい色を選び、変更先カラーを決める（そのあと「自動調整」で範囲を合わせると簡単）→ ③ プレビューで確認 → ④ アバターに非破壊で登録"
+            : "Steps: 1. Pick a source texture (or click the part of the model you want to change in the Scene view)  2. Pick the color to change with the eyedropper and choose the Target Color (then Auto-tune fits the range)  3. Check the Preview  4. Register to avatar (non-destructive)";
 #else
         public static string WorkflowHint => IsJapanese
-            ? "手順: ① 元テクスチャを選ぶ（Scene でモデルの変えたい所をクリックしても開けます）→ ② カラーゾーンで色を指定（スポイトで色を取り「自動調整」が簡単）→ ③ プレビューで確認 → ④ 適用して保存"
-            : "Steps: 1. Pick a source texture (or click the part of the model you want to change in the Scene view)  2. Set colors in Color Zones (sample a color and use Auto-tune)  3. Check the Preview  4. Apply & Save";
+            ? "手順: ① 元テクスチャを選ぶ（Scene でモデルの変えたい所をクリックしても開けます）→ ② スポイトで変えたい色を選び、変更先カラーを決める（そのあと「自動調整」で範囲を合わせると簡単）→ ③ プレビューで確認 → ④ 適用して保存"
+            : "Steps: 1. Pick a source texture (or click the part of the model you want to change in the Scene view)  2. Pick the color to change with the eyedropper and choose the Target Color (then Auto-tune fits the range)  3. Check the Preview  4. Apply & Save";
 #endif
 
         public static string SourceTexture => IsJapanese ? "元テクスチャ" : "Source Texture";
@@ -969,9 +969,18 @@ namespace Iroca
         public static string NextStepAddZone => IsJapanese
             ? "次の手順: 「スポイトで変えたい色を選ぶ」を押して、プレビュー上の変えたい色をクリックします。"
             : "Next: press \"Pick the color to change\", then click that color on the preview.";
-        public static string NextStepPickColor => IsJapanese
-            ? "次の手順: ゾーンの「スポイト」を押してから、プレビュー上の変えたい色をクリックします。"
-            : "Next: press the zone's \"Eyedropper\", then click the color you want to change on the preview.";
+        // 以下 3 つの {0} はゾーン名。2 色目を足したときに、どのゾーンの話かが分かるようにする。
+        public static string NextStepPickColorFormat => IsJapanese
+            ? "次の手順: 「{0}」の「スポイト」を押してから、プレビュー上の変えたい色をクリックします。"
+            : "Next: press \"Eyedropper\" on \"{0}\", then click the color you want to change on the preview.";
+        // 色を選んだ直後は変更先が既定の白なので、選んだ所が白っぽくなるだけで色替えは終わっていない。
+        public static string NextStepPickTargetFormat => IsJapanese
+            ? "次の手順: 「{0}」の「変更先カラー」をクリックして、新しい色を選びます。"
+            : "Next: click \"Target Color\" on \"{0}\" and choose the new color.";
+        // 自動調整は変更先の明るさも使う（模様保持の導出）ので、変更先を決めた後に案内する。
+        public static string NextStepAutoTuneFormat => IsJapanese
+            ? "次の手順（任意）: 「{0}」の「自動調整」を押すと、そのパーツの暗い所から明るい所までに範囲を合わせます。"
+            : "Next (optional): press \"Auto-tune\" on \"{0}\" to fit the range to the part from its shadows to its highlights.";
 
         // ─────────────────────────────────────────────────────────────
         // AI 準備バナー（メインウィンドウ上部）

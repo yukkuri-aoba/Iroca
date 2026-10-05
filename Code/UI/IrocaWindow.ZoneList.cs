@@ -425,9 +425,13 @@ namespace Iroca
             // 入力に取り（両者の明度差から模様保持 valueBlend を決める）、変更先が未決のまま
             // 押すと既定色を前提とした結果になる。「元の色 → 変更先の色 → 自動調整」の順に
             // 並べることで、入力が全てボタンの上・書き換わる項目が全て下に揃う。
+            Color prevTargetColor = zone.targetColor;
             zone.targetColor = UndoHelper.ColorField(this,
                 new GUIContent(Localization.TargetColor, Localization.TargetColorTooltip),
                 zone.targetColor);
+            // 変更先を選んだ＝手順案内を「自動調整」へ進める（白を選んだ場合も既定の白と区別する）。
+            // UndoHelper.ColorField が代入前に記録済みなので、Undo で色とフラグが対で戻る。
+            if (zone.targetColor != prevTargetColor) zone.targetColorSet = true;
             EditorGUIUtility.labelWidth = prevColorRowsLabelWidth;
 
             // スポイト位置が無いときだけ知らせる。自動調整はこの位置に AI マスク提案をかけて証拠にするため、

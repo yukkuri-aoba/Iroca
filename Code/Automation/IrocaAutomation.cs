@@ -513,6 +513,7 @@ namespace Iroca
                 sampleColor = ToColor(z.sample),
                 sampleColorSet = true,
                 targetColor = ToColor(z.target),
+                targetColorSet = true,
                 tolerance = z.tolerance,
                 valueBlend = z.valueBlend,
                 edgeSoftness = z.edgeSoftness,

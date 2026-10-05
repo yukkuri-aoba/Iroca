@@ -211,6 +211,9 @@ namespace Iroca
             useFloodFill && (shadowValueFloor > 0f || partSatCeiling > 0f || partHueBand > 0f);
 
         public Color targetColor = Color.white;
+        // ユーザーが変更先カラーを実際に指定したか（sampleColorSet と同じく、既定の白と「白を選んだ」を
+        // 区別する）。UI の手順案内（変更先を選ぶ → 自動調整）にだけ使い、選択・再着色は参照しない。
+        public bool targetColorSet = false;
 
         [Range(0f, 1f)]
         public float valueBlend = 1f;
@@ -333,6 +336,11 @@ namespace Iroca
         /// フラグを持たない旧データとの後方互換のため、非白なら指定済みとみなす。
         /// </summary>
         public bool HasSampleColor => sampleColorSet || sampleColor != Color.white;
+
+        /// <summary>
+        /// ユーザーが変更先カラーを指定したか。旧データ（フラグなし）は非白なら指定済みとみなす。
+        /// </summary>
+        public bool HasTargetColor => targetColorSet || targetColor != Color.white;
 
         [NonSerialized] private bool _cacheInitiated = false;
         [NonSerialized] private Color _cSampleColor;

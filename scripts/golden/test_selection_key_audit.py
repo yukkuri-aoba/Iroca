@@ -42,6 +42,7 @@ SELECTION_IRRELEVANT = {
     "autoHighlightSample",  # wash 用サンプル補正のみ(match/base 不変)
     "autoRecolorAnchor",   # 再着色アンカー正規化のみ(マッチはスポイト色のまま)
     "sampleColorSet",  # 自動調整の可否判定のみ(マッチ経路では未参照)
+    "targetColorSet",  # UI の手順案内のみ(選択・再着色では未参照)
     "layerIndex",      # 非推奨(優先度はリスト並び順へ移行済み)
     "detailFoldout",   # UI 折りたたみ状態(NonSerialized)
 }
