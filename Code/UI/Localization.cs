@@ -98,7 +98,9 @@ namespace Iroca
         public static string ColorZones => IsJapanese ? "カラーゾーン" : "Color Zones";
         // 名前未設定ゾーンの表示名（マスク対象プルダウン・ドラッグゴースト等で使用）。
         public static string UnnamedZone => IsJapanese ? "ゾーン" : "Zone";
-        public static string AddZone => IsJapanese ? "+ ゾーン追加" : "+ Add Zone";
+        // 色を足す入口は「スポイトで…」のボタン（StartWithEyedropper / AddColorWithEyedropper）。
+        // こちらは色を決めていない空のゾーンを作る脇の入口なので、その旨が分かる名前にしている。
+        public static string AddZone => IsJapanese ? "+ 空のゾーン" : "+ Empty zone";
         public static string SelectionMode => IsJapanese ? "選択モード" : "Selection Mode";
         public static string SampleColor => IsJapanese ? "サンプルカラー" : "Sample Color";
 
@@ -853,12 +855,16 @@ namespace Iroca
             ? "元テクスチャのインポート設定で Read/Write を有効化します。プレビューと色替えに必要です"
             : "Enable Read/Write in the source texture's import settings. Required for preview and recoloring";
         public static string AddZoneTooltip => IsJapanese
-            ? "色替え対象を指定する新しいゾーンを追加します"
-            : "Add a new zone to define a recolor target";
-        // ゾーンが無いときだけ出る開始ボタン（押す → プレビューをクリック でゾーンができる）。
+            ? "色を決めていない空のカラーゾーンを追加します（色はあとからゾーンの「スポイト」か色の欄で入れます）。\nふつうは左の「スポイトで…」ボタンで、色を選びながらゾーンを作るほうが手早くできます。"
+            : "Add an empty color zone with no colors yet (set them later with the zone's \"Eyedropper\" or color fields).\nUsually the button on the left is quicker: it creates the zone as you pick the color.";
+        // ゾーンが無いときの開始ボタン（押す → プレビューをクリック でゾーンができる）。
         public static string StartWithEyedropper => IsJapanese
             ? "スポイトで変えたい色を選ぶ"
             : "Pick the color to change";
+        // ゾーンがあるときの同じボタン（2 色目以降も 1 色目と同じ「押す → クリック」で足す）。
+        public static string AddColorWithEyedropper => IsJapanese
+            ? "スポイトで別の色を追加"
+            : "Add another color with the eyedropper";
         public static string StartWithEyedropperActive => IsJapanese
             ? "■ プレビューで変えたい色をクリック"
             : "■ Click the color to change on the preview";

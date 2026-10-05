@@ -66,9 +66,9 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 この時点では、選んだ色の部分が白っぽくなります（変更先カラーの初期値が白のため）。次のステップで色を決めます。
 
-2 色目からは「+ ゾーン追加」でゾーンを足し、そのゾーンの「サンプルカラー」の右の「スポイト」を押してから、プレビュー上の色をクリックします。
+2 色目からは、ゾーンの下の「スポイトで別の色を追加」を押して、同じようにプレビュー上の色をクリックします（右の「+ 空のゾーン」は、色を決めずにゾーンだけを作ります）。
 
-> 色は必ず「スポイト」ボタンで取ってください。欄をクリックして開くカラーピッカーのスポイトは、色がわずかにずれるうえクリック位置が残らず、自動調整が AI 提案を使えません。
+> 色は必ずスポイトのボタンで取ってください。欄をクリックして開くカラーピッカーのスポイトは、色がわずかにずれるうえクリック位置が残らず、自動調整が AI 提案を使えません。
 
 #### ステップ 3: 変更後の色を決める
 
@@ -613,9 +613,9 @@ Under "2. Color Zones", press "Pick the color to change", then click the color y
 
 At this point the picked area turns whitish (the Target Color starts as white). You choose the new color in the next step.
 
-For a second color, add a zone with "+ Add Zone", press "Eyedropper" to the right of that zone's "Sample Color", then click the color on the preview.
+For a second color, press "Add another color with the eyedropper" below the zones and click the color on the preview in the same way ("+ Empty zone" on the right creates a zone without any colors).
 
-> Always sample with the "Eyedropper" button. The eyedropper inside the color picker (opened by clicking the field) reads a slightly different color and records no position, so Auto-tune cannot use the AI suggestion.
+> Always sample with the eyedropper buttons. The eyedropper inside the color picker (opened by clicking the field) reads a slightly different color and records no position, so Auto-tune cannot use the AI suggestion.
 
 #### Step 3: Set the target color
 

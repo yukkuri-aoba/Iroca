@@ -18,7 +18,7 @@ namespace Iroca
         private bool _pendingAddZone;
         private int _pendingRemoveZoneIndex = -1;
 
-        // 「スポイトで変えたい色を選ぶ」のクリックで作るゾーン（NewZoneEyedropperId 参照）。
+        // 「スポイトで変えたい色を選ぶ / 別の色を追加」のクリックで作るゾーン（NewZoneEyedropperId 参照）。
         // プレビューの MouseDown で受け、ゾーンの追加と色の設定を次の Layout イベントで一緒に行う。
         private bool _pendingNewZoneFromSample;
         private Color _pendingNewZoneColor;
@@ -239,37 +239,40 @@ namespace Iroca
                 Repaint();
             }
 
-            // 有効なゾーンが無いときは、スポイトから始められる大きいボタンを出す（NewZoneEyedropperId 参照）。
-            // 条件は手順の案内（NextStepHint の NextStepAddZone）と揃える。
-            // 「+ ゾーン追加」は空のゾーンを作る従来の入口として下に残す。
-            if (!HasEnabledZone)
-                DrawStartWithEyedropperButton();
-
-            if (GUILayout.Button(new GUIContent(Localization.AddZone, Localization.AddZoneTooltip)))
-            {
-                _pendingAddZone = true;
-                Repaint();
-            }
+            DrawAddColorRow();
 
             EditorGUILayout.EndFoldoutHeaderGroup();
             EditorGUILayout.Space(4);
         }
 
-        private void DrawStartWithEyedropperButton()
+        // 色を足す入口は「スポイトで色を選ぶ → プレビューをクリック」に一本化する（NewZoneEyedropperId 参照）。
+        // 有効なゾーンが無いときは大きく出して開始点にし（条件は NextStepHint の NextStepAddZone と揃える）、
+        // あるときは「別の色を追加」として 2 色目以降も同じ操作で足す。以前は 2 色目から
+        // 「+ ゾーン追加」→「スポイト」→ クリックの 3 手で、1 色目と操作が違っていた（2026-10-05）。
+        // 空のゾーンを作る従来の入口は、色を数値で入れたいとき用に横へ小さく残す。
+        private void DrawAddColorRow()
         {
+            bool first = !HasEnabledZone;
             bool canSample = CanReadSource(sourceTexture);
             bool armed = EyedropperZoneId == NewZoneEyedropperId;
+            var height = GUILayout.Height(first
+                ? EditorGUIUtility.singleLineHeight * 1.8f
+                : EditorGUIUtility.singleLineHeight + 2f);
+
+            EditorGUILayout.BeginHorizontal();
             using (new EditorGUI.DisabledScope(!canSample))
             {
                 var prevBg = GUI.backgroundColor;
                 if (armed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
                 var content = new GUIContent(
-                    armed ? Localization.StartWithEyedropperActive : Localization.StartWithEyedropper,
+                    armed ? Localization.StartWithEyedropperActive
+                          : first ? Localization.StartWithEyedropper : Localization.AddColorWithEyedropper,
                     Localization.StartWithEyedropperTooltip);
                 // 武装は出力を変えないので、ボタンが立てる GUI.changed を押す前の値へ戻す。
                 // 設定列は ChangeCheck で囲まれており、立ったままだと押すたびにプレビューを再生成していた。
                 bool prevChanged = GUI.changed;
-                if (GUILayout.Button(content, GUILayout.Height(EditorGUIUtility.singleLineHeight * 1.8f)))
+                // MinWidth(0): 狭い設定列でも右の「+ 空のゾーン」を押し出さず、こちらが縮む。
+                if (GUILayout.Button(content, height, GUILayout.MinWidth(0), GUILayout.ExpandWidth(true)))
                 {
                     // トグル: 武装↔解除。シード指定と排他（どちらもプレビューの素のクリックを取る）。
                     EyedropperZoneId = armed ? null : NewZoneEyedropperId;
@@ -279,7 +282,14 @@ namespace Iroca
                 GUI.changed = prevChanged;
                 GUI.backgroundColor = prevBg;
             }
-            EditorGUILayout.Space(2);
+
+            if (GUILayout.Button(new GUIContent(Localization.AddZone, Localization.AddZoneTooltip),
+                    height, GUILayout.ExpandWidth(false)))
+            {
+                _pendingAddZone = true;
+                Repaint();
+            }
+            EditorGUILayout.EndHorizontal();
         }
 
         // 1 ゾーン分のカード（ヘッダ行＋採色/変更先＋自動調整＋許容範囲＋模様保持/出力彩度＋
