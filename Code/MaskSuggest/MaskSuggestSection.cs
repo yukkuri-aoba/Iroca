@@ -158,23 +158,11 @@ namespace Iroca
             // 何が足りないかの説明は呼び出し元のバナー（AiBannerModel）が出す。ここは操作だけ。
             if (MaskSuggestModelDownload.InProgress)
             {
-                EditorGUILayout.BeginHorizontal();
-                var pr = EditorGUILayout.GetControlRect(false, 18f);
-                EditorGUI.ProgressBar(pr, MaskSuggestModelDownload.Progress,
-                                      Localization.AiSuggestDownloading);
-                if (GUILayout.Button(new GUIContent(Localization.AiSuggestDownloadCancel,
-                                                    Localization.AiSuggestDownloadCancelTooltip),
-                                     GUILayout.Width(48f)))
-                    MaskSuggestModelDownload.Cancel();
-                EditorGUILayout.EndHorizontal();
+                DrawDownloadProgressRow();
             }
             else
             {
-                if (MaskSuggestModelDownload.Error != null)
-                    EditorGUILayout.HelpBox(
-                        string.Format(Localization.AiSuggestDownloadFailed,
-                                      MaskSuggestModelDownload.Error),
-                        MessageType.Warning);
+                DrawDownloadErrorIfAny();
                 EditorGUILayout.BeginHorizontal();
                 if (GUILayout.Button(new GUIContent(Localization.AiSuggestDownload,
                         string.Format(Localization.AiSuggestDownloadTooltip,
@@ -189,6 +177,33 @@ namespace Iroca
                 EditorGUILayout.EndHorizontal();
             }
             if (Event.current.type == EventType.Layout) svc.TryEnsureModels();
+        }
+
+        /// <summary>
+        /// モデルのダウンロード中の行(進捗バーと中止ボタン)。バナー(<see cref="DrawModelDownload"/>)と
+        /// エラー時の取り直し欄(<see cref="DrawModelRecheck"/>)で同じ見た目にするため 1 か所に置く。
+        /// </summary>
+        static void DrawDownloadProgressRow()
+        {
+            EditorGUILayout.BeginHorizontal();
+            var pr = EditorGUILayout.GetControlRect(false, 18f);
+            EditorGUI.ProgressBar(pr, MaskSuggestModelDownload.Progress,
+                                  Localization.AiSuggestDownloading);
+            if (GUILayout.Button(new GUIContent(Localization.AiSuggestDownloadCancel,
+                                                Localization.AiSuggestDownloadCancelTooltip),
+                                 GUILayout.Width(48f)))
+                MaskSuggestModelDownload.Cancel();
+            EditorGUILayout.EndHorizontal();
+        }
+
+        /// <summary>直前のダウンロードが失敗していれば、その理由を警告で出す。</summary>
+        static void DrawDownloadErrorIfAny()
+        {
+            if (MaskSuggestModelDownload.Error != null)
+                EditorGUILayout.HelpBox(
+                    string.Format(Localization.AiSuggestDownloadFailed,
+                                  MaskSuggestModelDownload.Error),
+                    MessageType.Warning);
         }
 
         /// <summary>
@@ -257,21 +272,11 @@ namespace Iroca
         {
             if (MaskSuggestModelDownload.InProgress)
             {
-                EditorGUILayout.BeginHorizontal();
-                var pr = EditorGUILayout.GetControlRect(false, 18f);
-                EditorGUI.ProgressBar(pr, MaskSuggestModelDownload.Progress, Localization.AiSuggestDownloading);
-                if (GUILayout.Button(new GUIContent(Localization.AiSuggestDownloadCancel,
-                                                    Localization.AiSuggestDownloadCancelTooltip),
-                                     GUILayout.Width(48f)))
-                    MaskSuggestModelDownload.Cancel();
-                EditorGUILayout.EndHorizontal();
+                DrawDownloadProgressRow();
                 return;
             }
 
-            if (MaskSuggestModelDownload.Error != null)
-                EditorGUILayout.HelpBox(
-                    string.Format(Localization.AiSuggestDownloadFailed, MaskSuggestModelDownload.Error),
-                    MessageType.Warning);
+            DrawDownloadErrorIfAny();
 
             string currentError = MaskSuggestBridge.Service?.ErrorMessage;
             if (_recheckForError != null && _recheckForError == currentError && _recheckFoundOk)
