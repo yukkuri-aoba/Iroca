@@ -235,10 +235,9 @@ namespace Iroca
         /// マスク編集ウィンドウ（MaskBrushWindow）の中身。**マスク編集の操作と状態はここに全部ある**
         /// のが設計上の約束で、メインウィンドウ側には入口と読み取り専用サマリしか置かない。
         ///
-        /// 上から「対象(どのゾーンの) → 種類(除外/含める) → ツール(塗る/消す/AI 提案) →
-        /// ツール別の設定 → 取り消し/クリア」の順。ユーザーが決める順序どおりに並べてある。
-        /// 状態はすべて本クラスに集約されたままなので、メインウィンドウ側のハイライトや
-        /// AI 提案との排他は従来ロジックがそのまま機能する。
+        /// 上から「対象(どのゾーンの) → 種類(除外/含める) → ツール(塗る/消す) → ブラシサイズ →
+        /// AI 提案(プレビューの右クリックメニューで使う)の粒度と推論の状態 → 取り消し/クリア」の順。
+        /// ユーザーが決める順序どおりに並べてある。
         /// </summary>
         public void DrawBrushPalette()
         {
@@ -335,9 +334,8 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 「マスクの種類」(除外/含める)の切り替え行。ブラシパレットと AI 提案セクションの
-        /// 両方から呼ぶ(種類はツールに依らない共通の軸なので、どちらの UI からも同じ状態を
-        /// 切り替える)。含めるはゾーン単位のみなので、共通マスクが編集対象のときは無効化する。
+        /// 「マスクの種類」(除外/含める)の切り替え行。ブラシパレット(DrawBrushPalette)から呼ぶ。
+        /// 含めるはゾーン単位のみなので、共通マスクが編集対象のときは無効化する。
         /// </summary>
         public void DrawLayerKindSelector()
         {
@@ -744,12 +742,12 @@ namespace Iroca
         /// (previewTexture の実寸)で、brushSize はこの格子セル単位の半径。
         ///
         /// 塗りは格子セル単位で行い、セルに対応するマスクブロック
-        /// [gx*maskW/gridW, (gx+1)*maskW/gridW) を丸ごと塗る。オーバーレイ表示
-        /// (ComputeOverlayPixels)とプロキシ処理(IsExcludedCombined)は各セルにつき
-        /// ブロック先頭の 1 画素だけを最近傍で読むため、セル内部に塗り残しがあると
-        /// 「縮小表示では塗れて見えるのにフル解像度適用(詳細プレビュー/エクスポート)
-        /// では穴」という不一致が起きていた。ブロック単位で塗ることでマスクが常に
-        /// セル内一様になり、この不一致を構造的に排除する(WYSIWYG)。
+        /// [gx*maskW/gridW, (gx+1)*maskW/gridW) を丸ごと塗る。オーバーレイ表示は
+        /// 被覆率(RenderMaskCoverage)で描くが、処理側(PixelProcessor.BuildMaskIndexMap /
+        /// IsExcludedAt)は各作業画素につきブロック先頭の 1 画素だけを最近傍で読むため、
+        /// セル内部に塗り残しがあると「縮小表示では塗れて見えるのにフル解像度適用
+        /// (詳細プレビュー/エクスポート)では穴」という不一致が起きていた。ブロック単位で
+        /// 塗ることでマスクが常にセル内一様になり、この不一致を構造的に排除する(WYSIWYG)。
         /// </summary>
         public void PaintMask(Vector2 uvPos, int gridW, int gridH)
         {
@@ -794,7 +792,7 @@ namespace Iroca
                 int gxHi = cx + dxMax; if (gxHi >= gridW) gxHi = gridW - 1;
 
                 // セル範囲 → マスクブロック矩形 [mx0, mx1) × [my0, my1)。
-                // 除算は処理側(IsExcludedCombined の x*maskW/texW)と同じ整数切り捨て。
+                // 除算は処理側(BuildMaskIndexMap の x*maskW/texW)と同じ整数切り捨て。
                 // grid が mask より細かい方向ではブロックが空になり得るため 1 画素を保証する。
                 int my0 = (int)((long)gy * maskHeight / gridH);
                 int my1 = (int)((long)(gy + 1) * maskHeight / gridH);
@@ -872,10 +870,6 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 現在の編集対象マスクに対応するオーバーレイテクスチャと塗り色を返す。
-        /// (共通=maskOverlayTexture/赤、ゾーン=zoneMaskOverlayTexture/ゾーン色)
-        /// </summary>
-        /// <summary>
         /// ブラシで塗るとき、ブラシの下で消す反対側の層(編集中のゾーンの、含めるなら除外・除外なら含める)。
         /// 無ければ null(確保はしない)。共通マスクを塗るときも null: 共通の除外は「どのゾーンでも塗らない」
         /// 指定で合成でもゾーンの含めるに勝つので、ゾーンの含めるは消さずに残す。
@@ -893,6 +887,10 @@ namespace Iroca
                 ? m : null;
         }
 
+        /// <summary>
+        /// 現在の編集対象マスクに対応するオーバーレイテクスチャと塗り色を返す。
+        /// (共通=maskOverlayTexture/赤、ゾーン=zoneMaskOverlayTexture/ゾーン色)
+        /// </summary>
         private Texture2D ActiveOverlayTexture(out Color32 paintColor)
         {
             var zones = _host.Session.zones;

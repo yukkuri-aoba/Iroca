@@ -223,7 +223,7 @@ namespace Iroca
         [System.NonSerialized] private readonly PreviewJob<(Color32[] processed, Color32[] raw, Color32[] full)> _previewJob =
             new PreviewJob<(Color32[] processed, Color32[] raw, Color32[] full)>();
         // 段階的リファインの第1段。ソースが大きい(scale<1)とき、まず縮小プロキシで概要を即表示する
-        // 専用ジョブ。完了 apply で _previewjob(フル解像度)を同一スナップショットでスケジュールする。
+        // 専用ジョブ。完了 apply で _previewJob(フル解像度)を同一スナップショットでスケジュールする。
         [System.NonSerialized] private readonly PreviewJob<(Color32[] processed, Color32[] raw)> _proxyJob =
             new PreviewJob<(Color32[] processed, Color32[] raw)>();
         [System.NonSerialized] private Color32[] _pendingProcessedDisplay;
@@ -613,7 +613,7 @@ namespace Iroca
             // 「生成中…」インジケータの文言。プレビュー確立後は下の操作行（比較/差分・
             // 元を表示と同じ行）の右端に出す。非生成時も空白 " " を同じ場所に描き、
             // 出入りで UI が上下にジャンプしないよう行高を固定する。
-            // 詳細プレビュー生成も同じ表示に統一する（fix.md 項目3）。
+            // 詳細プレビュー生成も同じ表示に統一する（c107e85）。
             string generatingLabel;
             if (_proxyJob.IsRunning || _previewJob.IsRunning)
                 generatingLabel = Localization.GeneratingPreview;
@@ -840,7 +840,7 @@ namespace Iroca
             {
                 _detailView.MarkViewChanged();
                 // 古い詳細プレビューは新しいスクロール位置と整合しないため、
-                // 一旦表示を破棄して低解像度プレビューに統一する（fix.md 項目1）。
+                // 一旦表示を破棄して低解像度プレビューに統一する（c107e85）。
                 _detailView.InvalidateDisplay();
             }
 
@@ -940,7 +940,7 @@ namespace Iroca
                 }
 
                 // 詳細プレビュー生成中の表示は、枠内のラベルを廃止し
-                // 枠外の単一行に統合する（fix.md 項目3）。
+                // 枠外の単一行に統合する（c107e85）。
             }
 
             GUILayout.FlexibleSpace();
