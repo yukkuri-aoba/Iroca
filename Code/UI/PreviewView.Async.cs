@@ -391,7 +391,14 @@ namespace Iroca
                 });
         }
 
-        private static Color32[] BuildDiffPixels(Color32[] a, Color32[] b, int w, int h, CancellationToken token)
+        /// <summary>差分ハイライトとみなす RGB 差の合計の閾値（これを超えた画素を塗る）。</summary>
+        private const int DiffHighlightThreshold = 10;
+
+        /// <summary>
+        /// Before/After の画素ごとの RGB 差の合計が閾値を超えた画素だけを塗った差分ハイライトを作る。
+        /// メイン表示と拡大表示(<see cref="DetailPreviewView"/>)の両方の差分ハイライトの唯一の実装。
+        /// </summary>
+        internal static Color32[] BuildDiffPixels(Color32[] a, Color32[] b, int w, int h, CancellationToken token)
         {
             var d = new Color32[w * h];
             var highlight = new Color32(255, 220, 0, 160);
@@ -400,7 +407,7 @@ namespace Iroca
                 int diff = Mathf.Abs(a[i].r - b[i].r)
                          + Mathf.Abs(a[i].g - b[i].g)
                          + Mathf.Abs(a[i].b - b[i].b);
-                if (diff > 10) d[i] = highlight;
+                if (diff > DiffHighlightThreshold) d[i] = highlight;
                 if ((i & 0x7FFF) == 0) token.ThrowIfCancellationRequested();
             }
             return d;

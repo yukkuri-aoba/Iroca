@@ -1,6 +1,5 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
@@ -349,7 +348,7 @@ namespace Iroca
             if (before == null || after == null || before.Length != w * h || after.Length != w * h) return;
             int capW = w, capH = h;
             _diffJob.Schedule(
-                work: token => BuildDetailDiffPixels(before, after, capW, capH, token),
+                work: token => PreviewView.BuildDiffPixels(before, after, capW, capH, token),
                 apply: result =>
                 {
                     _pendingDetailDiffPixels = result;
@@ -357,21 +356,6 @@ namespace Iroca
                     _pendingDetailDiffH = capH;
                     _host.RequestRepaint();
                 });
-        }
-
-        private static Color32[] BuildDetailDiffPixels(Color32[] a, Color32[] b, int w, int h, CancellationToken token)
-        {
-            var d = new Color32[w * h];
-            var highlight = new Color32(255, 220, 0, 160);
-            for (int i = 0; i < d.Length; i++)
-            {
-                int diff = Mathf.Abs(a[i].r - b[i].r)
-                         + Mathf.Abs(a[i].g - b[i].g)
-                         + Mathf.Abs(a[i].b - b[i].b);
-                if (diff > 10) d[i] = highlight;
-                if ((i & 0x7FFF) == 0) token.ThrowIfCancellationRequested();
-            }
-            return d;
         }
 
         public void ApplyPendingDiff()
