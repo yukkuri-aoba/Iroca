@@ -34,9 +34,8 @@ namespace Iroca
         public static bool SaveToProject(string name, IrocaPresetData data)
         {
             if (data == null) return false;
-            string sanitized = SanitizeFileName(name);
             if (!EnsureDirectory(ProjectPresetFolder)) return false;
-            string path = Path.Combine(ProjectPresetFolder, sanitized + ".json");
+            string path = PresetFilePath(ProjectPresetFolder, name);
             if (!WriteJson(path, data)) return false;
 
             string rel = PathUtils.ToAssetsRelativeOrNull(path);
@@ -51,9 +50,8 @@ namespace Iroca
         public static bool SaveToUser(string name, IrocaPresetData data)
         {
             if (data == null) return false;
-            string sanitized = SanitizeFileName(name);
             if (!EnsureDirectory(UserPresetFolder)) return false;
-            string path = Path.Combine(UserPresetFolder, sanitized + ".json");
+            string path = PresetFilePath(UserPresetFolder, name);
             return WriteJson(path, data);
         }
 
