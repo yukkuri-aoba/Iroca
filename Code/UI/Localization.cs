@@ -285,8 +285,8 @@ namespace Iroca
         public static string Include => IsJapanese ? "含める" : "Include";
         public static string MaskLayerKind => IsJapanese ? "マスクの種類" : "Mask Type";
         public static string MaskLayerKindTooltip => IsJapanese
-            ? "編集するマスクの種類を切り替えます\n・除外: 塗った領域を色替えから外す（色が合っていても変更しない）\n・含める: 塗った領域を必ず色替えに含める（色が合わなくても変更する）\n両方に塗られた画素は「除外」が優先されます"
-            : "Switch which kind of mask you edit\n- Exclude: painted areas are never recolored (even if the color matches)\n- Include: painted areas are always recolored (even if the color does not match)\nWhere both overlap, Exclude wins";
+            ? "編集するマスクの種類を切り替えます\n・除外: 塗った領域を色替えから外す（色が合っていても変更しない）\n・含める: 塗った領域を必ず色替えに含める（色が合わなくても変更する）\n同じゾーンでは後から塗ったほうが勝ちます（含めるを塗るとその場所の除外が消え、除外を塗ると含めるが消えます）\n共通マスクの除外は、ゾーンの含めるより優先されます"
+            : "Switch which kind of mask you edit\n- Exclude: painted areas are never recolored (even if the color matches)\n- Include: painted areas are always recolored (even if the color does not match)\nWithin a zone, the later paint wins (painting Include removes Exclude there, and painting Exclude removes Include)\nThe common mask's Exclude wins over a zone's Include";
         public static string BrushPaint => IsJapanese ? "塗る" : "Paint";
         public static string BrushPaintTooltip => IsJapanese
             ? "ペイントモード: プレビューをドラッグして、いま選んでいる種類のマスクを塗ります\n同じボタンを再度押すとモードを解除"
@@ -606,8 +606,8 @@ namespace Iroca
             ? "除外マスクを編集対象にします（赤系の表示）\n塗った領域は色が合っていても色替えされません"
             : "Edit the exclusion mask (shown in red)\nPainted areas are never recolored, even if their color matches";
         public static string IncludeLayerTooltip => IsJapanese
-            ? "含めるマスクを編集対象にします（緑の表示）\n塗った領域は色が合わなくても必ず色替えに含まれます（色で拾えなかった部分の追加用）\nゾーン別のみ編集できます（共通マスクには「含める」はありません — どのゾーンの色にするかが決まらないため）\n除外マスクと重なった画素は除外が優先されます"
-            : "Edit the include mask (shown in green)\nPainted areas are always recolored, even if their color does not match (use it to add areas the color match missed)\nPer-zone only (the common mask has no include layer — there would be no way to know which zone's color to apply)\nWhere it overlaps the exclusion mask, exclusion wins";
+            ? "含めるマスクを編集対象にします（緑の表示）\n塗った領域は色が合わなくても必ず色替えに含まれます（色で拾えなかった部分の追加用）\nゾーン別のみ編集できます（共通マスクには「含める」はありません — どのゾーンの色にするかが決まらないため）\n塗った所にあった同じゾーンの除外は消えます（後から塗ったほうが勝ちます）。共通マスクの除外とは、重なると除外が優先されます"
+            : "Edit the include mask (shown in green)\nPainted areas are always recolored, even if their color does not match (use it to add areas the color match missed)\nPer-zone only (the common mask has no include layer — there would be no way to know which zone's color to apply)\nPainting removes the same zone's exclusion under the brush (the later paint wins). Where it overlaps the common mask's exclusion, exclusion wins";
         public static string ClearMaskTooltip => IsJapanese
             ? "いま「編集対象」と「マスクの種類」に選ばれているマスク 1 枚だけを消去します。\nほかのマスクはそのまま残ります。"
             : "Erases only the mask currently selected by \"Edit Target\" and \"Mask Type\".\nOther masks are left untouched.";

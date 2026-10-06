@@ -91,5 +91,18 @@ namespace Iroca
             }
             return r;
         }
+
+        /// <summary>
+        /// ブラシ 1 区間(配列の [start, end))を塗る / 消す。塗るときは反対側の層(opposite: 同じゾーンの
+        /// 含めるを塗るなら除外、除外を塗るなら含める)を同じ区間で消す。右クリックと同じ「後から塗ったほうが
+        /// 勝つ」で、消さないと合成の「除外が勝つ」により含めるを塗っても効かない。消すときは塗っている層だけを消す。
+        /// opposite は null 可(反対側の層が無い・共通マスクを塗っている)。
+        /// </summary>
+        public static void BrushSpan(bool[] target, bool[] opposite, int start, int end, bool paint)
+        {
+            for (int i = start; i < end; i++) target[i] = paint;
+            if (paint && opposite != null)
+                for (int i = start; i < end; i++) opposite[i] = false;
+        }
     }
 }

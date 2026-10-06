@@ -293,7 +293,9 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 - **除外マスク**: 塗った領域を色替えから外します。全ゾーンに効く共通マスクと、ゾーン別マスクがあります。
 - **含めるマスク**: 塗った領域を必ず色替えします。強い光沢や、離れた場所の同じパーツなど、色の判定で拾えなかった部分を足すのに使います。ゾーン別のみです。
 
-両方に塗られた画素は**除外が優先**されます。
+同じゾーンでは**後から塗ったほうが勝ちます**。含めるを塗るとその場所の除外が消え、除外を塗るとその場所の含めるが消えます（右クリックの「ここも塗る / ここは塗らない」も同じです）。消しゴムは、いま選んでいる種類のマスクだけを消します。全部のゾーンに共通の除外マスクは、ゾーンの含めるより優先されます。
+
+以前の版で含めると除外を重ねて塗った所は、除外が優先されたままです。その場所を塗り直すと解消します。
 
 <!-- スクリーンショット: 除外マスクを描いた状態のプレビュー -->
 
@@ -855,7 +857,9 @@ Paint on the preview to fix the recolored area by hand.
 - **Exclude mask**: keeps the painted area out of recoloring. There is a common mask for every zone, and per-zone masks.
 - **Include mask**: always recolors the painted area. Use it to add what color matching could not reach, such as strong gloss or a piece of the same part that sits somewhere else. Per-zone only.
 
-Where both are painted, **Exclude wins**.
+Within a zone, **the later paint wins**. Painting Include removes Exclude at that spot, and painting Exclude removes Include (the right-click "Paint here too / Don't paint here" work the same way). The eraser removes only the mask type you have selected. The common exclude mask for all zones wins over a zone's Include.
+
+Spots where an earlier version left Include and Exclude painted on top of each other still give Exclude priority. Paint over the spot again to resolve it.
 
 #### How to use
 

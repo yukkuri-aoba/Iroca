@@ -776,6 +776,9 @@ namespace Iroca
             int cy = Mathf.Min(gridH - 1, Mathf.FloorToInt(uvPos.y * gridH));
             int r = Mathf.Max(1, brushSize);
             bool value = !brushEraseMode;
+            // 後から塗ったほうが勝つ: ゾーンの「含める」を塗ったら、ブラシの下の同じゾーンの「除外」を消す(逆も同じ)。
+            // 合成は「除外が勝つ」ので、消さないと含めるを塗っても効かず、重ね表示も 2 色が混ざる(2026-10-06)。
+            bool[] opposite = value ? OppositeZoneLayer() : null;
 
             // オーバーレイ直接書き込み: テクスチャが塗り格子と同寸のときは、ブロック塗りと
             // 同時に対応セルを更新して即時フィードバックする(非同期再構築のスロットル待ちと
@@ -816,8 +819,7 @@ namespace Iroca
                 for (int my = my0; my < my1; my++)
                 {
                     int rowBase = my * maskWidth;
-                    for (int px = mx0; px < mx1; px++)
-                        target[rowBase + px] = value;
+                    MaskRegionEdit.BrushSpan(target, opposite, rowBase + mx0, rowBase + mx1, value);
                 }
 
                 if (direct)
@@ -899,6 +901,24 @@ namespace Iroca
         /// 現在の編集対象マスクに対応するオーバーレイテクスチャと塗り色を返す。
         /// (共通=maskOverlayTexture/赤、ゾーン=zoneMaskOverlayTexture/ゾーン色)
         /// </summary>
+        /// <summary>
+        /// ブラシで塗るとき、ブラシの下で消す反対側の層(編集中のゾーンの、含めるなら除外・除外なら含める)。
+        /// 無ければ null(確保はしない)。共通マスクを塗るときも null: 共通の除外は「どのゾーンでも塗らない」
+        /// 指定で合成でもゾーンの含めるに勝つので、ゾーンの含めるは消さずに残す。
+        /// 反対側を消したセルの表示は、同じゾーン用オーバーレイへの直接書き込み(新しい層の色で上書き)と、
+        /// ストローク終了時の再構築(EndStroke の maskDirty)で揃う。
+        /// </summary>
+        private bool[] OppositeZoneLayer()
+        {
+            var zones = _host.Session.zones;
+            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count) return null;
+            var zone = zones[activeMaskTarget];
+            zone.EnsureId();
+            var layers = editIncludeLayer ? zoneMasks : zoneIncludeMasks;
+            return layers.TryGetValue(zone.id, out var m) && m != null && m.Length == maskWidth * maskHeight
+                ? m : null;
+        }
+
         private Texture2D ActiveOverlayTexture(out Color32 paintColor)
         {
             var zones = _host.Session.zones;

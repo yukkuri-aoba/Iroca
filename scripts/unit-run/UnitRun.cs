@@ -690,6 +690,29 @@ namespace Iroca.UnitRun
             Check.Equal("111000", Bits(inc), "dont→paint: included");
         }
 
+        public static void MaskEdit_BrushPaintClearsOppositeLayerInSpanOnly()
+        {
+            // 含めるを [1, 4) に塗る: 同じゾーンの除外はその区間だけ消え、区間の外(0, 4, 5)は残る。
+            var inc = Mask();
+            var ex = Mask(0, 1, 2, 3, 4, 5);
+            MaskRegionEdit.BrushSpan(inc, ex, 1, 4, paint: true);
+            Check.Equal("011100", Bits(inc), "painted span");
+            Check.Equal("100011", Bits(ex), "opposite cleared in span only");
+        }
+
+        public static void MaskEdit_BrushEraseKeepsOppositeLayer()
+        {
+            // 消しゴムは塗っている層だけを消す(反対側の層まで消すと、消しただけで別の指定が消える)。
+            var inc = Mask(0, 1, 2);
+            var ex = Mask(1, 2, 3);
+            MaskRegionEdit.BrushSpan(inc, ex, 0, 6, paint: false);
+            Check.Equal("000000", Bits(inc), "erased");
+            Check.Equal("011100", Bits(ex), "opposite untouched");
+            // 反対側の層が無い(null)ときも塗れる。
+            MaskRegionEdit.BrushSpan(inc, null, 2, 3, paint: true);
+            Check.Equal("001000", Bits(inc), "no opposite layer");
+        }
+
         public static void MaskEdit_NoChangeReportsZero()
         {
             var ex = Mask(3, 4, 5);
