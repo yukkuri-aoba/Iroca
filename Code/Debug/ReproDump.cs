@@ -82,7 +82,7 @@ namespace Iroca.DebugTools
             string dir = Path.Combine(baseDir, $"iroca_repro_{DateTime.Now:yyyyMMdd_HHmmss}");
             Directory.CreateDirectory(dir);
 
-            WritePng(Path.Combine(dir, "texture.png"), px, w, h);
+            DebugImaging.WritePng(Path.Combine(dir, "texture.png"), px, w, h);
 
             var zones = new List<ColorZone>();
             foreach (var z in win.Session.zones)
@@ -211,21 +211,6 @@ namespace Iroca.DebugTools
             };
         }
 
-        private static void WritePng(string path, Color32[] pixels, int w, int h)
-        {
-            var tmp = new Texture2D(w, h, TextureFormat.RGBA32, false);
-            try
-            {
-                tmp.SetPixels32(pixels);
-                tmp.Apply(false);
-                File.WriteAllBytes(path, tmp.EncodeToPNG());
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(tmp);
-            }
-        }
-
         // bool[](下原点、テクスチャ解像度)を白=真の PNG に書く(証拠マスク用)。
         private static void WriteBoolPng(string path, bool[] on, int w, int h)
         {
@@ -234,7 +219,7 @@ namespace Iroca.DebugTools
             var no = new Color32(0, 0, 0, 255);
             for (int i = 0; i < px.Length; i++)
                 px[i] = on[i] ? yes : no;
-            WritePng(path, px, w, h);
+            DebugImaging.WritePng(path, px, w, h);
         }
 
         private static void WriteMaskPng(string path, ulong[] packed, int w, int h)
@@ -244,7 +229,7 @@ namespace Iroca.DebugTools
             var off = new Color32(0, 0, 0, 255);
             for (int i = 0; i < px.Length; i++)
                 px[i] = MaskSnapshot.GetBit(packed, i) ? on : off;
-            WritePng(path, px, w, h);
+            DebugImaging.WritePng(path, px, w, h);
         }
 
         [Serializable]

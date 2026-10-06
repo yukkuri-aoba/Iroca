@@ -86,100 +86,22 @@ namespace Iroca.DebugTools
         private static void SaveGrayscalePng(byte[] quantized, int w, int h, string path)
         {
             if (quantized == null || quantized.Length != w * h) return;
-            var tex = new Texture2D(w, h, TextureFormat.RGBA32, mipChain: false);
-            try
-            {
-                var pixels = new Color32[w * h];
-                for (int i = 0; i < pixels.Length; i++)
-                {
-                    byte v = quantized[i];
-                    pixels[i] = new Color32(v, v, v, 255);
-                }
-                tex.SetPixels32(pixels);
-                tex.Apply(false);
-                File.WriteAllBytes(path, tex.EncodeToPNG());
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(tex);
-            }
+            DebugImaging.WritePng(path, DebugImaging.Grayscale(quantized, w * h), w, h);
         }
 
         private static void SaveDeltaPng(byte[] delta, int w, int h, string path)
         {
-            var tex = new Texture2D(w, h, TextureFormat.RGBA32, mipChain: false);
-            try
-            {
-                var pixels = new Color32[w * h];
-                for (int i = 0; i < pixels.Length; i++)
-                {
-                    int signed = delta[i] - 128;
-                    if (signed > 0)
-                    {
-                        byte mag = (byte)Mathf.Min(255, signed * 4);
-                        pixels[i] = new Color32(0, mag, 0, 255);
-                    }
-                    else if (signed < 0)
-                    {
-                        byte mag = (byte)Mathf.Min(255, -signed * 4);
-                        pixels[i] = new Color32(mag, 0, 0, 255);
-                    }
-                    else
-                    {
-                        pixels[i] = new Color32(0, 0, 0, 255);
-                    }
-                }
-                tex.SetPixels32(pixels);
-                tex.Apply(false);
-                File.WriteAllBytes(path, tex.EncodeToPNG());
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(tex);
-            }
+            DebugImaging.WritePng(path, DebugImaging.Delta(delta, w * h), w, h);
         }
 
         private static string BuildAndSaveOwnership(DebugCaptureContext ctx, string zoneId, string outDir)
         {
-            var snaps = new List<StageSnapshot>();
-            foreach (var s in ctx.Snapshots)
-                if (s.zoneId == zoneId) snaps.Add(s);
-            if (snaps.Count == 0) return null;
+            if (!DebugImaging.TryBuildOwnership(ctx, zoneId, out var pixels, out int w, out int h)) return null;
 
-            int w = snaps[0].width, h = snaps[0].height;
-            int len = w * h;
-            byte[] owner = new byte[len];
-            for (int i = 0; i < len; i++) owner[i] = 255;
-            for (int sIdx = 0; sIdx < snaps.Count; sIdx++)
-            {
-                var s = snaps[sIdx];
-                if (s.strengthQuantized == null || s.strengthQuantized.Length != len) continue;
-                for (int i = 0; i < len; i++)
-                    if (owner[i] == 255 && s.strengthQuantized[i] >= 128) owner[i] = (byte)sIdx;
-            }
-
-            var tex = new Texture2D(w, h, TextureFormat.RGBA32, mipChain: false);
-            try
-            {
-                var pixels = new Color32[len];
-                for (int i = 0; i < len; i++)
-                {
-                    if (owner[i] == 255) { pixels[i] = new Color32(0, 0, 0, 0); continue; }
-                    float hue = (owner[i] / (float)Mathf.Max(1, snaps.Count)) % 1f;
-                    Color c = Color.HSVToRGB(hue, 0.8f, 0.95f);
-                    pixels[i] = new Color32((byte)(c.r * 255), (byte)(c.g * 255), (byte)(c.b * 255), 255);
-                }
-                tex.SetPixels32(pixels);
-                tex.Apply(false);
-                string fileName = $"{SanitizeFileName(zoneId)}_ownership.png";
-                string path = Path.Combine(outDir, fileName);
-                File.WriteAllBytes(path, tex.EncodeToPNG());
-                return fileName;
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(tex);
-            }
+            string fileName = $"{SanitizeFileName(zoneId)}_ownership.png";
+            string path = Path.Combine(outDir, fileName);
+            DebugImaging.WritePng(path, pixels, w, h);
+            return fileName;
         }
 
         private static string BuildAndSaveRecolorBranch(DebugCaptureContext ctx, string zoneId, string outDir)
@@ -190,32 +112,10 @@ namespace Iroca.DebugTools
             int w = snap.width, h = snap.height;
             int len = w * h;
 
-            var tex = new Texture2D(w, h, TextureFormat.RGBA32, mipChain: false);
-            try
-            {
-                var pixels = new Color32[len];
-                for (int i = 0; i < len; i++)
-                {
-                    switch ((DebugBranch)branchMap[i])
-                    {
-                        case DebugBranch.Base:          pixels[i] = new Color32(0, 200, 200, 255); break;
-                        case DebugBranch.Highlight:     pixels[i] = new Color32(255, 160, 0, 255); break;
-                        case DebugBranch.Shadow:        pixels[i] = new Color32(160, 60, 200, 255); break;
-                        case DebugBranch.Decontaminate: pixels[i] = new Color32(255, 230, 0, 255); break;
-                        default:                        pixels[i] = new Color32(0, 0, 0, 0); break;
-                    }
-                }
-                tex.SetPixels32(pixels);
-                tex.Apply(false);
-                string fileName = $"{SanitizeFileName(zoneId)}_recolorBranch.png";
-                string path = Path.Combine(outDir, fileName);
-                File.WriteAllBytes(path, tex.EncodeToPNG());
-                return fileName;
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(tex);
-            }
+            string fileName = $"{SanitizeFileName(zoneId)}_recolorBranch.png";
+            string path = Path.Combine(outDir, fileName);
+            DebugImaging.WritePng(path, DebugImaging.RecolorBranch(branchMap, len), w, h);
+            return fileName;
         }
 
         private static void WriteManifest(string outDir, DebugCaptureContext ctx, string sourceName, string timestamp, List<string> files)
