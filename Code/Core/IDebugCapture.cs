@@ -4,8 +4,9 @@ namespace Iroca
 {
     /// <summary>
     /// パイプライン透明化（診断/デバッグ）機能の本体側インターフェース。
-    /// 実装は独立 asmdef (IrocaEditor.Debug) 側にあり、本体は型として存在を知らない。
-    /// <see cref="DebugCaptureHooks.Factory"/> が null（= Code.Debug/ 未導入 or トグル OFF）の
+    /// 実装は独立 asmdef（Code/Debug/、asmdef 名 com.yukkuri-aoba.iroca.Editor.Debug）側にあり、
+    /// 本体は型として存在を知らない。
+    /// <see cref="DebugCaptureHooks.Factory"/> が null（= Code/Debug/ 未導入 or トグル OFF）の
     /// とき、本体パイプラインは何もキャプチャしないし、何も呼び出さない。
     /// </summary>
     internal interface IDebugCapture
@@ -17,7 +18,7 @@ namespace Iroca
 
         /// <summary>
         /// 各ステップ完了直後の strength マップを記録する。
-        /// 呼び出し側は内部でクローン化するため、配列は引き続き利用してよい。
+        /// 実装は受け取った strength の量子化コピーを取るので、呼び出し側は配列を引き続き利用してよい。
         /// </summary>
         void RecordStage(string zoneId, string stageName, float[] strength, int width, int height);
 
@@ -35,7 +36,7 @@ namespace Iroca
 
     /// <summary>
     /// パイプラインの段階識別子。マジック文字列散在を防ぐ。
-    /// 表示順は <see cref="DebugStages.OrderedAll"/> を参照。
+    /// Debug ウィンドウの表示順は記録順（PixelProcessor が RecordStage を呼んだ順）。
     /// </summary>
     internal static class DebugStages
     {
@@ -48,19 +49,6 @@ namespace Iroca
         public const string MaskReapply = "MaskReapply";
         public const string Decontaminate = "Decontaminate";
         public const string Recolor = "Recolor";
-
-        public static readonly string[] OrderedAll =
-        {
-            Match,
-            HighlightPropagate,
-            FloodFill,
-            HoleFill,
-            BoundaryRecover,
-            Blur,
-            MaskReapply,
-            Decontaminate,
-            Recolor,
-        };
     }
 
     /// <summary>

@@ -5,7 +5,8 @@
 
 実際 `chromaThreshold` が抜けていた(レビュー 2026-08-06 の §4 高)。これは
 `BuildSampleCache` が `SampleCache.chromaConfidence` を導出する入力であり、
-`chromaConfidence` は `GetMatchScores` の RGB/HSV 距離ブレンドと彩度ゲートを直接支配する。
+`chromaConfidence` は `MatchOneSample`(`GetColorMatchScores` 経由)の RGB/HSV 距離ブレンドと
+彩度ゲートを直接支配する。
 発覚時点では実害が出ていなかったが、それは照合経路が全て `Clone()` か新規生成で、
 `Clone()` が `_cacheInitiated=false` にする(= 毎回作り直す)ためにすぎない。
 `ResetTuningToDefault()` のようにライブインスタンスを in-place で書き換える経路は既にあり、

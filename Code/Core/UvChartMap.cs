@@ -52,15 +52,13 @@ namespace Iroca
         /// <summary>チャート番号 → 元の <see cref="UvChartSource"/> の番号。</summary>
         public int[] ChartSource { get; }
         public int ChartCount => ChartSource.Length;
-        public int SourceCount { get; }
 
-        private UvChartMap(int w, int h, int[] raster, int[] chartSource, int sourceCount)
+        private UvChartMap(int w, int h, int[] raster, int[] chartSource)
         {
             Width = w;
             Height = h;
             Raster = raster;
             ChartSource = chartSource;
-            SourceCount = sourceCount;
             Owner = raster;
             var dist = new int[raster.Length];
             for (int i = 0; i < dist.Length; i++) dist[i] = raster[i] >= 0 ? 0 : int.MaxValue;
@@ -96,7 +94,7 @@ namespace Iroca
                                       baseId + local[t]);
                 }
             }
-            return new UvChartMap(w, h, raster, chartSource.ToArray(), sources.Count);
+            return new UvChartMap(w, h, raster, chartSource.ToArray());
         }
 
         private static Vector2 Map(UvChartSource s, int i, int w, int h)

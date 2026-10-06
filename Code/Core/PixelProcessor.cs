@@ -1426,17 +1426,16 @@ namespace Iroca
                     _sub.ToEntries(s_perfSubPhaseNames)));
         }
 
-        // 集計対象が [from,to) の連続レンジ 1 本を処理するデリゲート。戻り値は集計した画素数。
-        private delegate int HistChunk(int from, int to, int[] localHist);
-
         /// <summary>集計対象が行レンジ [yFrom,yTo) のデリゲート。戻り値は集計した画素数。</summary>
         internal delegate int HistRowChunk(int yFrom, int yTo, int[] localHist);
 
         /// <summary>
-        /// <see cref="AccumulateHistParallel"/> の行レンジ版。全画素 [0,len) でなく bbox の行だけを
-        /// 分割したいとき(領域統計を実マッチ範囲に限定するとき)に使う。ヒストグラムは整数加算
-        /// だけで集計順に依存しないので、結果は単スレッド逐次版と完全に同値。
+        /// 行レンジ [yFrom,yTo) をチャンク分割し、チャンクごとにスレッドローカルのヒストグラムへ
+        /// 集計してからマージする。bbox の行だけを分割したいとき(領域統計を実マッチ範囲に限定する
+        /// とき)に使う。ヒストグラムは整数カウントの加算だけで**集計順に依存しない**ので、結果は
+        /// 単スレッド逐次版と完全に同値(=percentile もビット不変)。
         /// </summary>
+        /// <returns>全チャンクの集計画素数の合計。</returns>
         internal static int AccumulateHistParallelRows(int yFrom, int yTo, int[] hist,
             HistRowChunk chunk, CancellationToken ct = default)
         {
@@ -1445,35 +1444,6 @@ namespace Iroca
             int total = 0;
             object gate = new object();
             Parallel.ForEach(Partitioner.Create(yFrom, yTo), po,
-                () => new int[hist.Length],
-                (range, _, local) =>
-                {
-                    int c = chunk(range.Item1, range.Item2, local);
-                    if (c != 0) Interlocked.Add(ref total, c);
-                    return local;
-                },
-                local =>
-                {
-                    lock (gate)
-                        for (int b = 0; b < local.Length; b++) hist[b] += local[b];
-                });
-            return total;
-        }
-
-        /// <summary>
-        /// [0,len) をチャンク分割し、チャンクごとにスレッドローカルのヒストグラムへ集計してから
-        /// マージする。ヒストグラムは整数カウントの加算だけで**集計順に依存しない**ので、結果は
-        /// 単スレッド逐次版と完全に同値(=percentile もビット不変)。領域統計の各パスは全画素走査
-        /// なのに単スレッドで、無彩寄りサンプルでは処理全体の最大コストになっていた。
-        /// </summary>
-        /// <returns>全チャンクの集計画素数の合計。</returns>
-        private static int AccumulateHistParallel(int len, int[] hist, HistChunk chunk,
-            CancellationToken ct = default)
-        {
-            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-            int total = 0;
-            object gate = new object();
-            Parallel.ForEach(Partitioner.Create(0, len), po,
                 () => new int[hist.Length],
                 (range, _, local) =>
                 {

@@ -95,13 +95,6 @@ namespace Iroca
 
         public void Clear() { lock (_gate) { _byZone.Clear(); } }
 
-        /// <summary>指定した zoneId のキャッシュを破棄する(ゾーン削除時など)。</summary>
-        public void Remove(string zoneId)
-        {
-            if (string.IsNullOrEmpty(zoneId)) return;
-            lock (_gate) { _byZone.Remove(zoneId); }
-        }
-
         /// <summary>liveZoneIds に含まれない zoneId のエントリを一括破棄する。
         /// ゾーン削除後もエントリ(4K で float[w*h]≈67MB)が恒久残留するのを防ぐ。
         /// プレビュー生成のたびにセッションの全ゾーン id を渡して呼ぶ。</summary>

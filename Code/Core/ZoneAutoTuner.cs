@@ -151,29 +151,6 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 既存呼び出し互換 API。Texture2D を受け取り、内部でメインスレッド前提の
-        /// GetPixels32 を呼んでからピクセル受け取り版へ委譲する。
-        /// バックグラウンドスレッドから呼ぶ場合は、メインスレッドで取得した
-        /// Color32[] を渡せる <see cref="Analyze(Color32[], int, int, ColorZone, IrocaSessionState, bool[], int, int)"/>
-        /// オーバーロードを使用すること。
-        /// </summary>
-        public static TuneResult Analyze(Texture2D tex, ColorZone zone, IrocaSessionState session,
-            bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
-            Action<float> report = null)
-        {
-            Color32[] pixels = null;
-            int w = 0, h = 0;
-            if (tex != null)
-            {
-                w = tex.width;
-                h = tex.height;
-                try { pixels = tex.GetPixels32(); }
-                catch (UnityEngine.UnityException) { pixels = null; }
-            }
-            return Analyze(pixels, w, h, zone, session, excluded, maskW, maskH, ct, report);
-        }
-
-        /// <summary>
         /// pixels, zone, session から推奨値と上書き対象ラベルを返す。
         /// 副作用なし。失敗時もデフォルト相当の TuneResult を返す。
         /// pixels が null / 寸法が極端に小さい場合はヒューリスティック既定のみで返す。
@@ -197,9 +174,6 @@ namespace Iroca
         {
             public int stride, gw, gh;
             public float[] h, s, v;
-
-            /// <summary>格子座標 (gx,gy) → 配列 index。</summary>
-            public int Index(int gx, int gy) => gy * gw + gx;
         }
 
         private static HsvGrid BuildHsvGrid(Color32[] pixels, int w, int h, CancellationToken ct)

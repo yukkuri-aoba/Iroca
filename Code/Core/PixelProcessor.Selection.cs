@@ -315,17 +315,6 @@ namespace Iroca
         }
 
         /// <summary>
-        /// src の矩形 [x0,x1]×[y0,y1] を dst へ行並列で写す(穴埋め・境界回復のダブルバッファ用)。
-        /// </summary>
-        private static void CopyRect(float[] src, float[] dst, int w, int x0, int y0, int x1, int y1,
-            ParallelOptions po)
-        {
-            if (x1 < x0 || y1 < y0) return;
-            int span = x1 - x0 + 1;
-            Parallel.For(y0, y1 + 1, po, y => Array.Copy(src, y * w + x0, dst, y * w + x0, span));
-        }
-
-        /// <summary>
         /// 形態学的フィル：ゼロ強度のピクセルがマッチした隣接ピクセルの多数派に囲まれていれば
         /// 最小隣接強度で埋める。
         /// これにより、satConfidenceゲートを通過するに低い彩度を持つアンチエイリアス処理された
@@ -600,12 +589,6 @@ namespace Iroca
             }
         }
 
-        // 中性ツヤ復帰(グレーモード専用)の開領域伝播の収束上限。前方/後方ラスタ走査の対で
-        // 伝播させるため、素直な UV レイアウトなら数回で収束する(細い渦巻き状の通路だけが
-        // 多くの反復を要するが、テクスチャのパディングはそうならない)。到達しきらなかった
-        // 場合は「開領域が未確定=復帰しない」側に倒れるので安全。
-        private const int EnclosedNeutralMaxSweeps = 24;
-
         /// <summary>
         /// 彩度整合ゲートが落とした「素材自身の純白ツヤ」を空間的に復帰させる(グレーモード専用)。
         ///
@@ -708,7 +691,7 @@ namespace Iroca
         /// 立てる(open = 開領域。free ∧ !open が「選択に囲まれた閉領域」)。open は呼び出し側が全 false に
         /// 初期化しておく。閉領域復帰(RecoverEnclosedNeutral / RecoverEnclosedHighlight)が共有する。
         ///
-        /// 旧実装(RecoverEnclosedNeutral 内)は前方/後方のラスタスイープ対を最大 EnclosedNeutralMaxSweeps 回
+        /// 旧実装(RecoverEnclosedNeutral 内)は前方/後方のラスタスイープ対を最大 24 回
         /// まわして到達集合を近似していた(全画素を毎スイープ 2 回、単スレッド)。ここでは明示スタックの
         /// 4 近傍探索で、各画素の訪問は 1 回きり。探索が返すのは同じ伝播規則の**不動点そのもの**で、
         /// スイープが収束(changed=false)して終わった場合の結果と完全に一致し、反復上限で打ち切られて

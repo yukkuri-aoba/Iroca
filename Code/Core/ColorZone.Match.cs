@@ -1,7 +1,5 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-using System;
-using System.Collections.Generic;
 using UnityEngine;
 
 namespace Iroca
@@ -11,7 +9,8 @@ namespace Iroca
     {
         /// <summary>
         /// セッション開始時などに明示的にキャッシュを更新する場合に呼び出します。
-        /// 呼ばれない場合は各ピクセルの評価時に暗黙的に更新されます。
+        /// GetMatchScoresPrecomputedHSV を呼ぶ前に必ず呼ぶこと。キャッシュ未構築のときだけ
+        /// GetColorMatchScores の安全網(ロック付き)が構築するが、構築後のパラメータ変更は検知しない。
         /// </summary>
         public void UpdateCacheIfNeeded()
         {
@@ -124,32 +123,6 @@ namespace Iroca
             return sc;
         }
 
-        public float GetMatchStrength(Color pixelColor, int x, int y, int texWidth, int texHeight)
-        {
-            GetMatchScores(pixelColor, x, y, texWidth, texHeight, out float strength, out float highlightPot);
-            return Mathf.Max(strength, highlightPot);
-        }
-
-        public void GetMatchScores(Color pixelColor, int x, int y, int texWidth, int texHeight, out float strength, out float highlightPot)
-        {
-            strength = 0f;
-            highlightPot = 0f;
-            if (!enabled) return;
-
-            switch (mode)
-            {
-                case SelectionMode.ColorPick:
-                    UpdateCacheIfNeeded();
-                    Color.RGBToHSV(pixelColor, out float pH, out float pS, out float pV);
-                    GetColorMatchScores(pixelColor, pH, pS, pV, out strength, out highlightPot, out _);
-                    break;
-                case SelectionMode.Rect:
-                    if (IsInRect(x, y, texWidth, texHeight))
-                        strength = 1f;
-                    break;
-            }
-        }
-
         /// <summary>
         /// HSV が事前計算済みの場合に使うバリアント。ColorPick モード専用。
         /// キャッシュは呼び出し前に UpdateCacheIfNeeded() で更新しておくこと。
@@ -177,11 +150,6 @@ namespace Iroca
                     }
                     break;
             }
-        }
-
-        public bool ContainsPixel(Color pixelColor, int x, int y, int texWidth, int texHeight)
-        {
-            return GetMatchStrength(pixelColor, x, y, texWidth, texHeight) > 0f;
         }
 
         // マルチサンプルの和集合マッチング。全サンプル（主＋追加スポイト）に対して
