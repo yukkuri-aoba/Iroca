@@ -118,9 +118,6 @@ namespace Iroca
             return _outline ??= ComputeIslandOutline(_found.Sources());
         }
 
-        /// <summary>UV を辺の同一判定に使うときの量子化。<see cref="UvChartMap"/> のチャート分けと同じ 1e-5。</summary>
-        const float OutlineUvQuant = 100000f;
-
         /// <summary>
         /// UV の島の輪郭 = ほかの三角形と共有していない UV の辺(チャート分けと同じく、頂点番号でなく
         /// UV 座標で比べる)。左右対称のパーツが UV を重ねて使っていると同じ三角形が 2 回現れ、輪郭の辺まで
@@ -142,7 +139,7 @@ namespace Iroca
                 {
                     int a = src.triangles[t * 3], b = src.triangles[t * 3 + 1], c = src.triangles[t * 3 + 2];
                     if ((uint)a >= (uint)uv.Length || (uint)b >= (uint)uv.Length || (uint)c >= (uint)uv.Length) continue;
-                    long ka = OutlineKey(uv[a]), kb = OutlineKey(uv[b]), kc = OutlineKey(uv[c]);
+                    long ka = UvChartMap.UvKey(uv[a]), kb = UvChartMap.UvKey(uv[b]), kc = UvChartMap.UvKey(uv[c]);
                     if (ka == kb || kb == kc || kc == ka) continue; // UV 上でつぶれた三角形
                     if (!seenTriangles.Add(Sorted(ka, kb, kc))) continue;
                     CountEdge(edges, ka, kb, a, b);
@@ -163,12 +160,6 @@ namespace Iroca
         {
             var key = ka < kb ? (ka, kb) : (kb, ka);
             edges[key] = edges.TryGetValue(key, out var e) ? (e.count + 1, e.a, e.b) : (1, a, b);
-        }
-
-        static long OutlineKey(Vector2 p)
-        {
-            long x = (long)Mathf.Round(p.x * OutlineUvQuant), y = (long)Mathf.Round(p.y * OutlineUvQuant);
-            return x * 4_000_037L + y;
         }
 
         static (long, long, long) Sorted(long a, long b, long c)

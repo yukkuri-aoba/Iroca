@@ -40,6 +40,12 @@ namespace Iroca
     {
         /// <summary>UV を辺の同一判定に使うときの量子化(1e-5)。</summary>
         private const float UvQuant = 100000f;
+        /// <summary>
+        /// 量子化した (x, y) を 1 つの long に詰めるときの x の係数(素数)。量子化後の |y| がこの半分
+        /// (約 2.0e6。UvQuant = 1e5 で生の UV0 の |v| 約 20)未満なら (x, y) ごとに一意。それを超える UV0 では
+        /// 別の点と同じキーになり得て、辺の同一判定が別のチャートを誤って結合する。
+        /// </summary>
+        private const long UvKeyStride = 4_000_037L;
 
         public int Width { get; }
         public int Height { get; }
@@ -120,7 +126,7 @@ namespace Iroca
                 {
                     int ia = triangles[t * 3 + e], ib = triangles[t * 3 + (e + 1) % 3];
                     if ((uint)ia >= (uint)uv.Length || (uint)ib >= (uint)uv.Length) continue;
-                    long ka = Key(uv[ia]), kb = Key(uv[ib]);
+                    long ka = UvKey(uv[ia]), kb = UvKey(uv[ib]);
                     var edge = ka < kb ? (ka, kb) : (kb, ka);
                     if (firstTriOfEdge.TryGetValue(edge, out int other)) Union(parent, t, other);
                     else firstTriOfEdge.Add(edge, t);
@@ -139,10 +145,14 @@ namespace Iroca
             return ids;
         }
 
-        private static long Key(Vector2 p)
+        /// <summary>
+        /// UV0(Tiling / Offset 前)を辺の同一判定に使うキー。チャート分け(<see cref="ComputeCharts"/>)と
+        /// 島の輪郭(MeshPartController.ComputeIslandOutline)が共有する。
+        /// </summary>
+        internal static long UvKey(Vector2 p)
         {
             long x = (long)Mathf.Round(p.x * UvQuant), y = (long)Mathf.Round(p.y * UvQuant);
-            return x * 4_000_037L + y;
+            return x * UvKeyStride + y;
         }
 
         private static int Find(int[] parent, int a)
