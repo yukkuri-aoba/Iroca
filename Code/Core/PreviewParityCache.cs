@@ -96,7 +96,7 @@ namespace Iroca
         public float effShadowDesat;     // アンカー補正後の実効シャドウ脱彩
         public float washR, washG, washB, washV; // wash(ハイライト白射影)の実効サンプル
         public bool hasRegL;             // 無彩再着色の領域 L レンジが有効か
-        public float regLlo, regLhi, regLmid;
+        public float regLmid;
         public float[] regMidMapFull;    // 無彩再着色の成分別中央値 L マップ(フル画像 per-pixel)。null=不要
     }
 }

@@ -1065,8 +1065,8 @@ namespace Iroca
                         if (zTC > 1e-4f) zOkChromaMaxMag = (zSC / zTC) * ChromaAmpMaxFactor;
                     }
 
-                    // 無彩パスの領域 L レンジを事前計算(zAchromaWeight は上で算出済み)。
-                    float zRegLlo = 0f, zRegLhi = 1f, zRegLmid = 0.5f;
+                    // 無彩パスの領域 L 中央値を事前計算(zAchromaWeight は上で算出済み)。
+                    float zRegLmid = 0.5f;
                     bool zHasRegL = false;
                     // 形維持リマップの center 基準(中央値)を連結成分ごとに局所化する per-pixel マップ。
                     // ゆるいマスクで明るい背景を巻き込んでも、各成分が自分の地色基準で再着色されるので、
@@ -1079,7 +1079,7 @@ namespace Iroca
                         {
                             // クロップ: フル画像の領域 L 統計と成分中央値マップ(該当クロップ領域)を転写。
                             zHasRegL = cachedStats.hasRegL;
-                            zRegLlo = cachedStats.regLlo; zRegLhi = cachedStats.regLhi; zRegLmid = cachedStats.regLmid;
+                            zRegLmid = cachedStats.regLmid;
                             if (zHasRegL && cachedStats.regMidMapFull != null)
                                 zRegMidMap = CropFullMidMap(cachedStats.regMidMapFull, w, h, originX, originY, fullW);
                         }
@@ -1087,7 +1087,7 @@ namespace Iroca
                         {
                             zHasRegL = TryComputeRegionLRange(originalPixels, strength, w,
                                 ppMinX, ppMinY, ppMaxX, ppMaxY,
-                                out zRegLlo, out zRegLhi, out zRegLmid, includedPx, cancellationToken, palette);
+                                out zRegLmid, includedPx, cancellationToken, palette);
                                 _sub.Mark(SpRegionLRange);
                             if (zHasRegL)
                             {
@@ -1115,7 +1115,7 @@ namespace Iroca
                             effShadowDesat = zEffShadowDesat,
                             washR = zWR, washG = zWG, washB = zWB, washV = zWV,
                             hasRegL = zHasRegL,
-                            regLlo = zRegLlo, regLhi = zRegLhi, regLmid = zRegLmid,
+                            regLmid = zRegLmid,
                             regMidMapFull = zRegMidMap,
                         });
                     }

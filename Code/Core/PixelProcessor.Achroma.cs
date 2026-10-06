@@ -451,7 +451,7 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 無彩パスのレンジリマップ用: マッチ領域の OkLab L の (P05, P95, 中央値) を求める。
+        /// 無彩パスのレンジリマップ用: マッチ領域の OkLab L の中央値(成分別マップが無い画素の地色基準)を求める。
         /// core 画素(strength>=AchromaRegionCoreThr かつ α>=128)が少なすぎる場合は strength>0 へ
         /// フォールバック。マッチ画素が無ければ false(呼び出し側は achroma パスをスキップ)。
         /// 特定色/座標非依存の領域統計のみ(脚色しない不変条件)。percentile はヒストグラム離散化のため
@@ -461,20 +461,20 @@ namespace Iroca
         // 集計対象はこの矩形の外に 1 画素も無いので、走査を絞ってもヒストグラム(整数加算・
         // 順序非依存)は全画素走査と完全に一致する = 出力ビット不変。
         // statsExclude: 統計から除外する画素(null=除外なし)。含めるマスクの強制追加画素が
-        // 領域 L レンジ(P05/P95/中央値)を汚し、無彩リマップがゾーン全体で遠隔に変わるのを防ぐ。
-        // 除外された画素の再着色は、色マッチ画素から求めたレンジで「同素材として」写像される。
+        // 領域 L 中央値を汚し、無彩リマップがゾーン全体で遠隔に変わるのを防ぐ。
+        // 除外された画素の再着色は、色マッチ画素から求めた中央値で「同素材として」写像される。
         // なお成分別の地色基準(BuildComponentMedianLMap)は意図的に除外しない — あちらは
         // 成分ローカルな統計で遠隔作用が無く、同素材の島を含めた場合はその島自身の地色基準を
         // 使うのが正しいため。
         private static bool TryComputeRegionLRange(
             Color32[] px, float[] strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
-            out float lo, out float hi, out float mid,
+            out float mid,
             bool[] statsExclude = null,
             CancellationToken ct = default,
             ColorPalette palette = null)
         {
-            lo = 0f; hi = 1f; mid = 0.5f;
+            mid = 0.5f;
             // 色の表があれば L は色ごとの表から読む(ビット単位で同じ)。
             int[] pIdx = null;
             float[] pL = null;
@@ -514,8 +514,6 @@ namespace Iroca
                 thr = 1e-4f;   // フォールバック: strength>0 の全マッチ画素
             }
             if (count < 1) return false;
-            lo  = HistValueAtPercentile(hist, count, 0.05f, 1f);
-            hi  = HistValueAtPercentile(hist, count, 0.95f, 1f);
             mid = HistValueAtPercentile(hist, count, 0.50f, 1f);
             return true;
         }
