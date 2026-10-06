@@ -180,6 +180,41 @@ namespace Iroca.EditorTests
             Assert.IsTrue(File.Exists(MaskPath), "読めなかったマスクを空保存で消さない");
         }
 
+        [Test]
+        public void Mask_OrphanLifecycle()
+        {
+            // Session_OrphanLifecycle と同じ規則。MaskFileStore は退避・復元・期限削除を自前で持つので別に固定する。
+            Directory.CreateDirectory(MaskFileStore.CacheDir);
+            string unknown = Guid.NewGuid().ToString("N");
+            string unknownPath = Path.Combine(MaskFileStore.CacheDir, unknown + ".iroca-mask.json");
+            string expiredOrphan = Path.Combine(MaskFileStore.CacheDir, Guid.NewGuid().ToString("N") + ".iroca-mask.json.orphan");
+            string ownOrphan = MaskPath + ".orphan";
+            try
+            {
+                File.WriteAllText(unknownPath, "{}");
+                File.WriteAllText(expiredOrphan, "{}");
+                File.SetLastWriteTimeUtc(expiredOrphan, DateTime.UtcNow.AddDays(-31));
+                File.WriteAllText(ownOrphan, "{\"zones\":[]}");
+
+                MaskFileStore.CleanupOrphans();
+
+                Assert.IsFalse(File.Exists(unknownPath), "GUID が引けない現用ファイルは退避される");
+                Assert.IsTrue(File.Exists(unknownPath + ".orphan"), "即削除ではなく .orphan へ退避");
+                Assert.IsFalse(File.Exists(expiredOrphan), "猶予を過ぎた退避ファイルは削除");
+                Assert.IsTrue(File.Exists(MaskPath), "GUID が再び引けた退避ファイルは元名へ復元");
+                Assert.IsFalse(File.Exists(ownOrphan));
+
+                // 退避直後（猶予内）はもう一度掃除しても消えない。
+                MaskFileStore.CleanupOrphans();
+                Assert.IsTrue(File.Exists(unknownPath + ".orphan"));
+            }
+            finally
+            {
+                foreach (var f in new[] { unknownPath, unknownPath + ".orphan", expiredOrphan })
+                    if (File.Exists(f)) File.Delete(f);
+            }
+        }
+
         // ─── プリセット ───
 
         [Test]
