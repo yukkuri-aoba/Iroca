@@ -828,17 +828,7 @@ namespace Iroca
                     //     前に置くことで、キー(含めるマスク内容ハッシュ)と保存内容が常に対応する。
                     if (!selCached && includedPx != null)
                     {
-                        var strengthForInclude = strength;
-                        var incApply = includedPx;
-                        Parallel.For(0, h, po, y =>
-                        {
-                            int rowOff = y * w;
-                            for (int x = 0; x < w; x++)
-                            {
-                                int i = rowOff + x;
-                                if (incApply[i]) strengthForInclude[i] = 1f;
-                            }
-                        });
+                        ForceIncluded(strength, includedPx, w, h, po);
                         debug?.RecordStage(zone.id, DebugStages.MaskReapply, strength, w, h);
                     }
 
@@ -875,19 +865,7 @@ namespace Iroca
                         // 「含める」は明示指示なのでヒューリスティックより優先する。
                         // 本段は選択キャッシュのヒット経路でも毎回走るため、selCached と無関係に適用する。
                         if (includedPx != null)
-                        {
-                            var strengthReassert = strength;
-                            var incReassert = includedPx;
-                            Parallel.For(0, h, po, y =>
-                            {
-                                int rowOff = y * w;
-                                for (int x = 0; x < w; x++)
-                                {
-                                    int i = rowOff + x;
-                                    if (incReassert[i]) strengthReassert[i] = 1f;
-                                }
-                            });
-                        }
+                            ForceIncluded(strength, includedPx, w, h, po);
                     }
 
                     _sub.Mark(SpRejectNeutral);
@@ -918,7 +896,6 @@ namespace Iroca
                         {
                             if (decontamMaskExcluded == null) decontamMaskExcluded = s_boolPool.Rent(len);
                             deconExcluded = decontamMaskExcluded;
-                            var excl = deconExcluded;
                             // デコンタミが除外フラグを読むのは BG ドナー範囲(後段 bbox ± radius)だけ
                             // なので、そこだけ埋める。範囲外は読まれない=出力ビット不変
                             // (バッファはゾーン間で使い回すが、各ゾーンが自分の読む範囲を必ず埋める)。
@@ -927,13 +904,8 @@ namespace Iroca
                             int exX0 = Mathf.Max(0, ppMinX - decontaminationRadius);
                             int exX1 = Mathf.Min(w - 1, ppMaxX + decontaminationRadius);
                             if (hasPostBox)
-                                Parallel.For(exY0, exY1 + 1, po, y =>
-                                {
-                                    int rowOff = y * w;
-                                    for (int x = exX0; x <= exX1; x++)
-                                        excl[rowOff + x] = IsExcludedAt(maskColOf, maskRowBase, x, y,
-                                            commonMask, zoneMask);
-                                });
+                                FillExcludedRect(deconExcluded, w, exX0, exY0, exX1, exY1,
+                                    maskColOf, maskRowBase, commonMask, zoneMask, po);
                         }
                         // 後段 bbox(ppMin/Max)を渡してデコンタミを実マッチ範囲に限定する。α 分解が
                         // 触るのは 0<strength<threshold の画素だけ=定義上この bbox 内なので出力ビット不変。
@@ -1152,17 +1124,11 @@ namespace Iroca
                             // 解析が読むのは bbox ± (2·探索半径 + 1)。その範囲の除外フラグを埋める。
                             if (decontamMaskExcluded == null) decontamMaskExcluded = s_boolPool.Rent(len);
                             mixExcluded = decontamMaskExcluded;
-                            var mex = mixExcluded;
                             int mm = 2 * Mathf.Max(MixBandRadius + 1, decontaminationRadius) + 1;
                             int my0 = Mathf.Max(0, rcMinY - mm), my1 = Mathf.Min(h - 1, rcMaxY + mm);
                             int mx0 = Mathf.Max(0, rcMinX - mm), mx1 = Mathf.Min(w - 1, rcMaxX + mm);
-                            Parallel.For(my0, my1 + 1, po, y =>
-                            {
-                                int rowOff = y * w;
-                                for (int x = mx0; x <= mx1; x++)
-                                    mex[rowOff + x] = IsExcludedAt(maskColOf, maskRowBase, x, y,
-                                        commonMask, zoneMask);
-                            });
+                            FillExcludedRect(mixExcluded, w, mx0, my0, mx1, my1,
+                                maskColOf, maskRowBase, commonMask, zoneMask, po);
                         }
                         AnalyzeMixtureBand(originalPixels, strengthForRecolor, w, h, decontaminationRadius,
                             in rcParams, zRegMidMap, zRegLmid,
@@ -1313,17 +1279,11 @@ namespace Iroca
                         {
                             if (decontamMaskExcluded == null) decontamMaskExcluded = s_boolPool.Rent(len);
                             fringeExcluded = decontamMaskExcluded;
-                            var fex = fringeExcluded;
                             const int fm = AchromaFringeExclusionMargin;
                             int fy0 = Mathf.Max(0, rcMinY - fm), fy1 = Mathf.Min(h - 1, rcMaxY + fm);
                             int fx0 = Mathf.Max(0, rcMinX - fm), fx1 = Mathf.Min(w - 1, rcMaxX + fm);
-                            Parallel.For(fy0, fy1 + 1, po, y =>
-                            {
-                                int rowOff = y * w;
-                                for (int x = fx0; x <= fx1; x++)
-                                    fex[rowOff + x] = IsExcludedAt(maskColOf, maskRowBase, x, y,
-                                        commonMask, zoneMask);
-                            });
+                            FillExcludedRect(fringeExcluded, w, fx0, fy0, fx1, fy1,
+                                maskColOf, maskRowBase, commonMask, zoneMask, po);
                         }
                         CleanAchromaFringe(pixels, originalPixels, strengthForRecolor, claimedLocal,
                             w, h, zone.sampleColor, zone.targetColor, rcMinX, rcMinY, rcMaxX, rcMaxY,
@@ -1504,6 +1464,35 @@ namespace Iroca
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private static bool IsIncludedAt(int[] colOf, int[] rowBase, int x, int y, ulong[] includeMask)
             => colOf != null && MaskSnapshot.GetBit(includeMask, rowBase[y] + colOf[x]);
+
+        /// <summary>
+        /// 矩形 [x0, x1] × [y0, y1](両端含む)の除外フラグ(IsExcludedAt)を dst に書く。範囲外は触らない。
+        /// デコンタミ・混色帯・無彩フチ消しの 3 か所が、それぞれ自分の読む範囲だけをこれで埋める。
+        /// </summary>
+        private static void FillExcludedRect(bool[] dst, int w, int x0, int y0, int x1, int y1,
+            int[] colOf, int[] rowBase, ulong[] commonMask, ulong[] zoneMask, ParallelOptions po)
+        {
+            Parallel.For(y0, y1 + 1, po, y =>
+            {
+                int rowOff = y * w;
+                for (int x = x0; x <= x1; x++)
+                    dst[rowOff + x] = IsExcludedAt(colOf, rowBase, x, y, commonMask, zoneMask);
+            });
+        }
+
+        /// <summary>含める画素(included[i] が true)の strength を 1(full strength)にする。他の画素は触らない。</summary>
+        private static void ForceIncluded(float[] strength, bool[] included, int w, int h, ParallelOptions po)
+        {
+            Parallel.For(0, h, po, y =>
+            {
+                int rowOff = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    int i = rowOff + x;
+                    if (included[i]) strength[i] = 1f;
+                }
+            });
+        }
 
         /// <summary>
         /// 長辺を maxSize に収める等比縮小の寸法規約（単一の正）。長辺が maxSize 以下なら
