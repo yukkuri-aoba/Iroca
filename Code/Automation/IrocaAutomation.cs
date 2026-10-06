@@ -13,9 +13,10 @@ namespace Iroca
     /// Unity MCP / AI エージェントから Iroca をヘッドレス駆動するための自動化 API。
     ///
     /// UI（IrocaWindow / ExportView）を介さず、テクスチャ読込 → 再着色 → PNG 出力までを
-    /// 静的メソッド一発で実行できる。<see cref="ExportView"/> の実出力経路（ディスクの PNG を
-    /// 直接読み、<see cref="PixelProcessor.ProcessPixelsArray"/>
+    /// 静的メソッド一発で実行できる。<see cref="ExportView"/> の実出力経路（原本を
+    /// <see cref="ExportPipeline.ReadSourcePixels"/> で読み、<see cref="PixelProcessor.ProcessPixelsArray"/>
     /// に通す）をそのまま同期で再現するので、製品の出力と一致する。
+    /// ただし ReadSourcePixels を imported=null で呼ぶので、取り込み済みテクスチャへのフォールバックはしない（PNG/JPG のみ）。
     ///
     /// 呼び出し経路は 3 つ。いずれも同じ中核（<see cref="RunRecolorCore"/>）を通る:
     ///   1. 静的 API: <see cref="RecolorByPreset"/> / <see cref="RecolorWithZones"/> 等。戻り値は JSON 文字列。
@@ -340,7 +341,8 @@ namespace Iroca
 
         /// <summary>
         /// テクスチャ読込 → <see cref="PixelProcessor.ProcessPixelsArray"/>（同期）→ PNG 書き出し。
-        /// 全経路がここを通る。<see cref="ExportView.ApplyRecolor"/> のメインスレッド前処理と同じ手順。
+        /// 全経路がここを通る。原本は製品の書き出しと共有の <see cref="ExportPipeline.ReadSourcePixels"/> を
+        /// imported=null で呼んで読む（取り込み済みテクスチャへのフォールバックはしない。PNG/JPG のみ）。
         /// </summary>
         private static RecolorResult RunRecolorCore(
             string sourceAssetPath, List<ColorZone> zones, RecolorSettings settings,
@@ -361,23 +363,10 @@ namespace Iroca
             foreach (var z in sorted) { z.EnsureId(); z.UpdateCacheIfNeeded(); }
 
             // ── ディスクの PNG を直接読む（import 設定/readable に依存せず製品経路と一致させる） ──
-            Color32[] pixels;
-            int w, h;
-            Texture2D loadTex = null;
-            try
-            {
-                byte[] srcBytes = File.ReadAllBytes(srcAbs);
-                loadTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                if (!loadTex.LoadImage(srcBytes))
-                { result.error = "failed to decode source image."; return result; }
-                pixels = loadTex.GetPixels32();
-                w = loadTex.width;
-                h = loadTex.height;
-            }
-            finally
-            {
-                if (loadTex != null) UnityEngine.Object.DestroyImmediate(loadTex);
-            }
+            // 取り込み済みテクスチャを渡さない(null)ので、ExportPipeline のフォールバックは起きず PNG/JPG のみを受け付ける。
+            if (ExportPipeline.ReadSourcePixels(srcAbs, null, out Color32[] pixels, out int w, out int h)
+                    == ExportPipeline.SourceKind.Unavailable)
+            { result.error = "failed to decode source image."; return result; }
 
             // 比較パネル/メトリクス用に、再着色前の画素を退避する(ProcessPixelsArray は in-place 変換)。
             var originalPixels = (Color32[])pixels.Clone();

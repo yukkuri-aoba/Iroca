@@ -93,6 +93,42 @@ namespace Iroca.EditorTests
                 ExportPipeline.ReadSourcePixels(path, imported, out _, out _, out _));
         }
 
+        // 自動化（IrocaAutomation）も原本を同じ手順で読むが、取り込み済みテクスチャは渡さない（PNG/JPG のみ）。
+        // 読めない原本では取り込み済みへ逃げず、デコード失敗のエラーを返すこと。
+        private const string AutomationZones = "{\"zones\":[{\"name\":\"z\"}]}";
+
+        [Test]
+        public void ReadSource_AutomationReportsUndecodableSource()
+        {
+            // 取り込むと Unity が読み込みエラーを出すので、AssetDatabase に載らないプロジェクト内（Temp/）に置く。
+            string dir = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Temp",
+                                      "iroca_export_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                string src = Path.Combine(dir, "broken.png");
+                File.WriteAllBytes(src, System.Text.Encoding.ASCII.GetBytes("this is not a png"));
+                string outAsset = _assets.Folder + "/out.png";
+                var result = JsonUtility.FromJson<IrocaAutomation.RecolorResult>(
+                    IrocaAutomation.RecolorWithZones(src, AutomationZones, outAsset));
+                Assert.IsFalse(result.ok);
+                Assert.AreEqual("failed to decode source image.", result.error);
+                Assert.IsFalse(File.Exists(TestAssets.Abs(outAsset)), "出力を書かないこと");
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Test]
+        public void ReadSource_AutomationDoesNotFallBackToImportedTexture()
+        {
+            // 書き出しなら取り込み済みで代替できる（Read/Write 有効の）TGA でも、自動化は受け付けない。
+            string src = _assets.WriteBytes("src.tga", Tga(8, 4, new Color32(10, 200, 30, 255)), readable: true);
+            var result = JsonUtility.FromJson<IrocaAutomation.RecolorResult>(
+                IrocaAutomation.RecolorWithZones(src, AutomationZones, _assets.Folder + "/out.png"));
+            Assert.IsFalse(result.ok);
+            Assert.AreEqual("failed to decode source image.", result.error);
+        }
+
         /// <summary>無圧縮 32bit TGA（左下原点）。</summary>
         private static byte[] Tga(int w, int h, Color32 c)
         {
