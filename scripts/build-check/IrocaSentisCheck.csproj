@@ -41,10 +41,8 @@
   </PropertyGroup>
 
   <!-- Unity Editor と Sentis アセンブリのパス解決 -->
+  <Import Project="UnityEditorPath.props" />
   <PropertyGroup>
-    <UnityVersion Condition="'$(UnityVersion)' == ''">2022.3.22f1</UnityVersion>
-    <UnityEditorPath Condition="'$(UnityEditorPath)' == '' and '$(UNITY_EDITOR_PATH)' != ''">$(UNITY_EDITOR_PATH)</UnityEditorPath>
-    <UnityEditorPath Condition="'$(UnityEditorPath)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityEditorPath>
     <SentisAssembliesPath Condition="'$(SentisAssembliesPath)' == '' and '$(IROCA_SENTIS_ASSEMBLIES)' != ''">$(IROCA_SENTIS_ASSEMBLIES)</SentisAssembliesPath>
     <SentisAssembliesPath Condition="'$(SentisAssembliesPath)' == ''">$(MSBuildThisFileDirectory)..\..\..\Avatar_Projects\Iroca_MLDev\Library\ScriptAssemblies</SentisAssembliesPath>
   </PropertyGroup>

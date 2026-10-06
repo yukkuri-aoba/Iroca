@@ -34,6 +34,8 @@ $env:UNITY_EDITOR_PATH = "D:\Unity\2022.3.22f1\Editor\Data\Managed"
 dotnet build scripts/build-check/IrocaEditor.csproj
 ```
 
+既定パスの解決（`UnityVersion` の既定・`UNITY_EDITOR_PATH`・Hub の既定パス）は `UnityEditorPath.props` の 1 箇所にあり、build-check の 4 本の csproj が Import する（`scripts/headless-run/Harness.csproj` と `scripts/unit-run/UnitRun.csproj` は別管理）。
+
 ## NDMF 連携の型チェック（IrocaNdmfCheck.csproj）
 
 `Code/NdmfIntegration/`（NDMF が入ったときだけコンパイルされる別 asmdef）は、本体の csproj では

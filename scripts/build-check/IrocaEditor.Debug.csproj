@@ -25,12 +25,8 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
-  <!-- Unity Editor のインストールパス解決（メインと同じロジック） -->
-  <PropertyGroup>
-    <UnityVersion Condition="'$(UnityVersion)' == ''">2022.3.22f1</UnityVersion>
-    <UnityEditorPath Condition="'$(UnityEditorPath)' == '' and '$(UNITY_EDITOR_PATH)' != ''">$(UNITY_EDITOR_PATH)</UnityEditorPath>
-    <UnityEditorPath Condition="'$(UnityEditorPath)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityEditorPath>
-  </PropertyGroup>
+  <!-- Unity Editor のインストールパス解決（メインと同じ props） -->
+  <Import Project="UnityEditorPath.props" />
 
   <!-- ソースコード: Code/Debug/ 配下のみ。 -->
   <ItemGroup>

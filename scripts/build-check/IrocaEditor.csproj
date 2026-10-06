@@ -34,11 +34,7 @@
   </PropertyGroup>
 
   <!-- Unity Editor のインストールパス解決 -->
-  <PropertyGroup>
-    <UnityVersion Condition="'$(UnityVersion)' == ''">2022.3.22f1</UnityVersion>
-    <UnityEditorPath Condition="'$(UnityEditorPath)' == '' and '$(UNITY_EDITOR_PATH)' != ''">$(UNITY_EDITOR_PATH)</UnityEditorPath>
-    <UnityEditorPath Condition="'$(UnityEditorPath)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityEditorPath>
-  </PropertyGroup>
+  <Import Project="UnityEditorPath.props" />
 
   <!-- ソースコード: Code/ 以下のみ。Code_Archive/ は除外。
        Code/Debug/ は別 asmdef (IrocaEditor.Debug) 配下なので Unity の挙動に合わせて除外する。

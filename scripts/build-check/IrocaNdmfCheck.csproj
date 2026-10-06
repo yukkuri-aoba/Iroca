@@ -39,10 +39,8 @@
     <DefineConstants>$(DefineConstants);IROCA_NDMF_PRESENT</DefineConstants>
   </PropertyGroup>
 
+  <Import Project="UnityEditorPath.props" />
   <PropertyGroup>
-    <UnityVersion Condition="'$(UnityVersion)' == ''">2022.3.22f1</UnityVersion>
-    <UnityEditorPath Condition="'$(UnityEditorPath)' == '' and '$(UNITY_EDITOR_PATH)' != ''">$(UNITY_EDITOR_PATH)</UnityEditorPath>
-    <UnityEditorPath Condition="'$(UnityEditorPath)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityEditorPath>
     <NdmfHostProject Condition="'$(NdmfHostProject)' == '' and '$(IROCA_NDMF_HOST)' != ''">$(IROCA_NDMF_HOST)</NdmfHostProject>
     <NdmfHostProject Condition="'$(NdmfHostProject)' == ''">$(MSBuildThisFileDirectory)..\..\..\Avatar_Projects\Iroca_Dev</NdmfHostProject>
     <NdmfAssembliesPath>$(NdmfHostProject)\Library\ScriptAssemblies</NdmfAssembliesPath>

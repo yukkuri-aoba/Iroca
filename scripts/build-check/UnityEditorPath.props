@@ -1,0 +1,19 @@
+<!--
+  build-check の Unity Editor インストールパス解決。
+  IrocaEditor / IrocaEditor.Debug / IrocaNdmfCheck / IrocaSentisCheck の 4 本が、
+  それぞれ自分の PropertyGroup の後で明示的に Import する（文面を差し込むのと同じ評価順）。
+  暗黙に取り込まれる Directory.Build.props にはしない（SDK の props より前に入り、評価順が変わるため）。
+  既定の Unity バージョンを変えるときは、build-check ではここ 1 箇所を直す。
+
+  scripts/headless-run/Harness.csproj と scripts/unit-run/UnitRun.csproj は対象外
+  （golden_lib が Harness.csproj の文面を読むので、そちらは別管理のまま）。
+-->
+<Project>
+
+  <PropertyGroup>
+    <UnityVersion Condition="'$(UnityVersion)' == ''">2022.3.22f1</UnityVersion>
+    <UnityEditorPath Condition="'$(UnityEditorPath)' == '' and '$(UNITY_EDITOR_PATH)' != ''">$(UNITY_EDITOR_PATH)</UnityEditorPath>
+    <UnityEditorPath Condition="'$(UnityEditorPath)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityEditorPath>
+  </PropertyGroup>
+
+</Project>
