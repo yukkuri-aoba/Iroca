@@ -345,12 +345,7 @@ namespace Iroca
         public void InvalidateSourceCache()
         {
             // 走行中のジョブは旧画素を処理中。世代をぶつけて apply ごと無効化する。
-            _proxyJob.Cancel();
-            _previewJob.Cancel();
-            _diffJob.Cancel();
-            _pendingProcessedDisplay = null;
-            _pendingRawDisplay = null;
-            _pendingDiffPixels = null;
+            CancelJobsAndDropPending();
             // 追従プレビューの入力とフル段の出力も旧画素のもの。使い回さない。
             InvalidateFullOutput();
             _detailHiddenForDrag = false;
@@ -478,18 +473,28 @@ namespace Iroca
 
         public void Suspend()
         {
-            _proxyJob.Cancel();
-            _previewJob.Cancel();
-            _diffJob.Cancel();
+            CancelJobsAndDropPending();
             _detailView?.Suspend();
-            _pendingProcessedDisplay = null;
-            _pendingRawDisplay = null;
-            _pendingDiffPixels = null;
             _lastDirtyTime = 0;
             TextureSlot.Release(ref previewTexture);
             TextureSlot.Release(ref rawPreviewTexture);
             TextureSlot.Release(ref diffTexture);
             ClearSceneHighlight();
+        }
+
+        /// <summary>
+        /// 3 つのジョブ(追従・確定・差分)を止め、まだ表示へ渡していない結果を捨てる。
+        /// ソースの差し替え(<see cref="InvalidateSourceCache"/>)と停止(<see cref="Suspend"/>)の共通部分。
+        /// 新しい pending を足したら、ここで捨てる。
+        /// </summary>
+        private void CancelJobsAndDropPending()
+        {
+            _proxyJob.Cancel();
+            _previewJob.Cancel();
+            _diffJob.Cancel();
+            _pendingProcessedDisplay = null;
+            _pendingRawDisplay = null;
+            _pendingDiffPixels = null;
         }
 
         public void Draw()

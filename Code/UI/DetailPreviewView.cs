@@ -390,15 +390,9 @@ namespace Iroca
 
         public void Suspend()
         {
-            detailJob.Cancel();
-            _diffJob.Cancel();
-            _pendingDetailProcessed = null;
-            _pendingDetailRaw = null;
-            _pendingDetailDiffPixels = null;
+            // 表示の破棄(InvalidateDisplay)に加えて、作り直し待ちの打刻も消す。
+            InvalidateDisplay();
             lastDetailDirtyTime = 0;
-            detailCropW = detailCropH = 0;
-            TextureSlot.Release(ref detailPreviewTexture);
-            TextureSlot.Release(ref detailDiffTexture);
         }
 
         /// <summary>
