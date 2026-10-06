@@ -117,15 +117,6 @@ def _build_review_mask(gt_mask: np.ndarray) -> np.ndarray:
     return excl.astype(np.uint8)
 
 
-def _run_all_cases_csharp() -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray | None]]:
-    """全ケースを **実 C# Harness** で実行。{case_id: (input_rgba, output_rgba, exclude_or_None)}
-
-    全ケースの出力(4K で 1 件 64MB)を同時に抱えるので、メモリを気にする呼び出しは
-    被写体ごとに返す `_iter_cases_csharp` を使う。
-    """
-    return {cid: (i, o, e) for cid, i, o, e in _iter_cases_csharp()}
-
-
 def _iter_cases_csharp():
     """全ケースを **実 C# Harness** で実行し、(case_id, input_rgba, output_rgba, exclude_or_None) を返す。
 
@@ -190,12 +181,6 @@ def _iter_cases_csharp():
         for case, out in zip(cases[:n_masked],
                              _batch(rgba, cases[:n_masked], MASKED_SUFFIX, exclude)):
             yield f"{case.case_id}{MASKED_SUFFIX}", rgba, out, exclude.astype(bool)
-
-
-def _run_engine(engine: str) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray | None]]:
-    if engine == "csharp":
-        return _run_all_cases_csharp()
-    return _run_all_cases()
 
 
 def _iter_engine(engine: str):
@@ -350,7 +335,7 @@ def _hstack_with_sep(cols: list[np.ndarray], sep_px: int = 4) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # snapshot
 # ---------------------------------------------------------------------------
-def cmd_snapshot(engine: str = "python") -> None:
+def cmd_snapshot(engine: str = "csharp") -> None:
     """現在のアルゴリズム出力を全ケース分 snapshot_before に保存する。"""
     SNAPSHOT_BEFORE_DIR.mkdir(parents=True, exist_ok=True)
     print(f"[snapshot] 全ケースをスナップショット中 (engine={engine}) …")
@@ -375,7 +360,7 @@ def cmd_snapshot(engine: str = "python") -> None:
 # ---------------------------------------------------------------------------
 # compare
 # ---------------------------------------------------------------------------
-def cmd_compare(engine: str = "python") -> None:
+def cmd_compare(engine: str = "csharp") -> None:
     """3列比較パネル（元テクスチャ | 変更前 | 変更後）を全ケース分生成する。
 
     engine="csharp" のとき「変更後」を実 C# Harness の出力で描画する(出荷物を忠実に確認)。
@@ -590,7 +575,7 @@ def cmd_approve(note: str | None = None) -> None:
     # 実際に見た範囲と根拠を --note で残せるようにしてある。
     marker = {
         "approved_at": datetime.now().isoformat(),
-        "note": note or "(注記なし: --note で確認範囲と根拠を記録すること)",
+        "note": note,
         "panels": len(panels),
         "mask_contract_cases": len(cases),
         "mask_contract_violations": 0,
