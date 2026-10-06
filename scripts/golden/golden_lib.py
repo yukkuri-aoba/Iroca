@@ -187,6 +187,19 @@ def env_missing(message: str) -> None:
     pytest.skip(message)
 
 
+def require_toolchain() -> None:
+    """dotnet と Unity CoreModule DLL を確かめ、無ければ env_missing に渡す（環境不備 = skip 対象）。
+
+    ハーネスや UnitRun を pytest から回すテストの共通の前段。確かめる順（dotnet → Unity DLL）と
+    文言はテスト間で揃える。
+    """
+    if not dotnet_available():
+        env_missing("dotnet が利用できません")
+    missing = unity_dll_missing()
+    if missing:
+        env_missing(f"Unity CoreModule DLL がありません: {missing}")
+
+
 def build_harness() -> tuple[bool, subprocess.CompletedProcess]:
     """dotnet build をプロセス跨ぎのロック下で行う（並列実行時の同時ビルド回避）。
 
@@ -215,6 +228,21 @@ def build_harness() -> tuple[bool, subprocess.CompletedProcess]:
             except OSError:
                 pass
     return (r.returncode == 0 and HARNESS_DLL.exists()), r
+
+
+def build_harness_or_fail() -> None:
+    """Harness をビルドし、失敗したら pytest を fail させる（require_toolchain の後に呼ぶ）。
+
+    環境が揃っているのにビルドが失敗するのは Code/ のコンパイルエラー（＝製品退行そのもの）なので、
+    skip でなく fail で顕在化させる。
+    """
+    import pytest
+    ok, r = build_harness()
+    if not ok:
+        pytest.fail(
+            "Harness ビルド失敗。dotnet と Unity DLL は存在するため、Code/ の"
+            "コンパイルエラーの可能性が高い（サイレント skip にしない）:\n"
+            f"{((r.stdout or '') + (r.stderr or ''))[-1500:]}")
 
 
 def _zone_json(z: dict) -> dict:

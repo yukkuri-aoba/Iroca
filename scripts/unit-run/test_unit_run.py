@@ -23,11 +23,7 @@ DLL = HERE / "bin" / "Release" / "IrocaUnitRun.dll"
 
 @pytest.fixture(scope="module")
 def results() -> dict[str, str]:
-    if not G.dotnet_available():
-        G.env_missing("dotnet が利用できません")
-    missing = G.unity_dll_missing()
-    if missing:
-        G.env_missing(f"Unity CoreModule DLL がありません: {missing}")
+    G.require_toolchain()
     b = subprocess.run(["dotnet", "build", str(CSPROJ), "-c", "Release", "-nologo", "-v", "quiet"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace",
                        timeout=G.BUILD_TIMEOUT_S)

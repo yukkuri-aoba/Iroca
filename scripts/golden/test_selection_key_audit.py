@@ -50,17 +50,8 @@ SELECTION_IRRELEVANT = {
 
 @pytest.fixture(scope="module")
 def audit_lines() -> list[str]:
-    if not G.dotnet_available():
-        G.env_missing("dotnet が利用できません")
-    missing = G.unity_dll_missing()
-    if missing:
-        G.env_missing(f"Unity CoreModule DLL がありません: {missing}")
-    ok, r = G.build_harness()
-    if not ok:
-        pytest.fail(
-            "Harness ビルド失敗。dotnet と Unity DLL は存在するため、Code/ の"
-            "コンパイルエラーの可能性が高い（サイレント skip にしない）:\n"
-            f"{((r.stdout or '') + (r.stderr or ''))[-1500:]}")
+    G.require_toolchain()
+    G.build_harness_or_fail()
 
     res = subprocess.run(
         ["dotnet", str(G.HARNESS_DLL), "--selkey-audit"],
