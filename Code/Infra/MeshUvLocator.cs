@@ -131,15 +131,27 @@ namespace Iroca
             string dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
             string stem = Path.GetFileNameWithoutExtension(path) + PathUtils.RecoloredSuffix;
             if (string.IsNullOrEmpty(dir)) return set;
-            foreach (var guid in AssetDatabase.FindAssets(stem + " t:Texture2D", new[] { dir }))
+            foreach (var p in SiblingTexturePaths(dir, stem))
             {
-                string p = AssetDatabase.GUIDToAssetPath(guid);
-                if (Path.GetDirectoryName(p)?.Replace('\\', '/') != dir) continue;
                 if (!Path.GetFileNameWithoutExtension(p).StartsWith(stem, System.StringComparison.Ordinal)) continue;
                 var t = AssetDatabase.LoadAssetAtPath<Texture2D>(p);
                 if (t != null) set.Add(t);
             }
             return set;
+        }
+
+        /// <summary>
+        /// dir 直下にあって名前検索(stem)に掛かったテクスチャのパス。遅延列挙なので、名前の条件での絞り込みと
+        /// 見つけた時点での打ち切りは呼び出し側(<see cref="TargetTextures"/> / <see cref="EditableSourceOf"/>)が行う。
+        /// </summary>
+        private static IEnumerable<string> SiblingTexturePaths(string dir, string stem)
+        {
+            foreach (var guid in AssetDatabase.FindAssets(stem + " t:Texture2D", new[] { dir }))
+            {
+                string p = AssetDatabase.GUIDToAssetPath(guid);
+                if (Path.GetDirectoryName(p)?.Replace('\\', '/') != dir) continue;
+                yield return p;
+            }
         }
 
         /// <summary>
@@ -157,8 +169,7 @@ namespace Iroca
         private static void Collect(Renderer r, HashSet<Texture> targets, Result result, bool requireMatch, string originPrefix,
                                     string nameStem = null)
         {
-            Mesh mesh = r is SkinnedMeshRenderer smr ? smr.sharedMesh
-                : r.TryGetComponent(out MeshFilter mf) ? mf.sharedMesh : null;
+            Mesh mesh = SharedMeshOf(r);
             if (mesh == null) return;
             var mats = r.sharedMaterials;
             int n = Mathf.Min(mats.Length, mesh.subMeshCount);
@@ -216,10 +227,8 @@ namespace Iroca
             string stem = name.Substring(0, cut);
             string dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
             if (string.IsNullOrEmpty(dir)) return tex2d;
-            foreach (var guid in AssetDatabase.FindAssets(stem + " t:Texture2D", new[] { dir }))
+            foreach (var p in SiblingTexturePaths(dir, stem))
             {
-                string p = AssetDatabase.GUIDToAssetPath(guid);
-                if (Path.GetDirectoryName(p)?.Replace('\\', '/') != dir) continue;
                 if (Path.GetFileNameWithoutExtension(p) != stem) continue;
                 var original = AssetDatabase.LoadAssetAtPath<Texture2D>(p);
                 if (original != null) return original;
@@ -273,12 +282,16 @@ namespace Iroca
             var outR = new Result { via = r.via, unreadable = r.unreadable };
             foreach (var f in r.found)
             {
-                Mesh mesh = f.renderer is SkinnedMeshRenderer smr ? smr.sharedMesh
-                    : f.renderer.TryGetComponent(out MeshFilter mf) ? mf.sharedMesh : null;
+                Mesh mesh = SharedMeshOf(f.renderer);
                 if (mesh == null || seen.Add((mesh.GetInstanceID(), f.submesh))) outR.found.Add(f);
             }
             return outR;
         }
+
+        /// <summary>Renderer が描くメッシュ(SkinnedMeshRenderer か MeshFilter の sharedMesh)。無ければ null。</summary>
+        private static Mesh SharedMeshOf(Renderer r)
+            => r is SkinnedMeshRenderer smr ? smr.sharedMesh
+                : r.TryGetComponent(out MeshFilter mf) ? mf.sharedMesh : null;
 
         private static string ScenePath(Transform t)
         {
