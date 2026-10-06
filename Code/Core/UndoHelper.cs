@@ -40,13 +40,6 @@ namespace Iroca
             return n;
         }
 
-        public static int IntField(Object host, int value, params GUILayoutOption[] options)
-        {
-            int n = EditorGUILayout.IntField(value, options);
-            if (n != value) Undo.RecordObject(host, DefaultUndoName);
-            return n;
-        }
-
         public static bool Toggle(Object host, GUIContent content, bool value)
         {
             bool n = EditorGUILayout.Toggle(content, value);
@@ -82,13 +75,6 @@ namespace Iroca
         {
             var n = (T)EditorGUILayout.EnumPopup(content, value);
             if (!System.Object.Equals(n, value)) Undo.RecordObject(host, DefaultUndoName);
-            return n;
-        }
-
-        public static T ObjectField<T>(Object host, GUIContent content, T value, bool allowSceneObjects) where T : Object
-        {
-            T n = (T)EditorGUILayout.ObjectField(content, value, typeof(T), allowSceneObjects);
-            if (n != value) Undo.RecordObject(host, DefaultUndoName);
             return n;
         }
     }

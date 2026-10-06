@@ -327,7 +327,6 @@ namespace Iroca
         internal void ApplyMaskFromPreset(IrocaPresetData data) => _maskView?.ApplyFromPreset(data);
         internal void WriteMaskToPreset(IrocaPresetData data) => _maskView?.WriteToPreset(data);
         internal void ResetActiveMaskTarget() => _maskView?.ResetActiveTarget();
-        internal float ExportSectionHeight => _exportView.GetSectionHeight();
 
         internal MaskSnapshot BuildMaskSnapshot() => _maskView?.BuildSnapshot();
 

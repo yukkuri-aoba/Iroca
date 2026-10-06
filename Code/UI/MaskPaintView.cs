@@ -676,19 +676,6 @@ namespace Iroca
             return msg;
         }
 
-        /// <summary>
-        /// 現在アクティブなターゲットのキー（"__common__" or zone.id）を返す。
-        /// </summary>
-        private string GetActiveTargetKey()
-        {
-            var zones = _host.Session.zones;
-            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
-                return CommonMaskKey;
-            var zone = zones[activeMaskTarget];
-            zone.EnsureId();
-            return zone.id;
-        }
-
         private void ClearActiveMask()
         {
             var zones = _host.Session.zones;
@@ -882,19 +869,6 @@ namespace Iroca
                 maskOverlayTexture.filterMode = want;
             if (zoneMaskOverlayTexture != null && zoneMaskOverlayTexture.filterMode != want)
                 zoneMaskOverlayTexture.filterMode = want;
-        }
-
-        /// <summary>
-        /// 現在の編集対象マスク(共通=赤 / ゾーン=ゾーン色)のオーバーレイ色を返す。
-        /// AI 提案のオーバーレイを実マスクと同色に揃えるために公開する
-        /// (提案→確定でマスクの見た目が変わらず「同じマスクになる」ことを示すため)。
-        /// </summary>
-        public Color32 ActiveMaskOverlayColor()
-        {
-            var zones = _host.Session.zones;
-            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
-                return ExcludedOverlayColor;
-            return editIncludeLayer ? IncludedOverlayColor : OverlayColorForZone(activeMaskTarget);
         }
 
         /// <summary>

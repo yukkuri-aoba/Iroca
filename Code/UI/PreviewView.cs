@@ -1,7 +1,5 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-using System.Linq;
-using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
@@ -309,11 +307,6 @@ namespace Iroca
             _detailView.Initialize(host);
         }
 
-        public DetailPreviewView Detail => _detailView;
-        public bool IsPreviewJobRunning => _proxyJob.IsRunning || _previewJob.IsRunning;
-
-        public void MarkDirty() => previewDirty = true;
-
         /// <summary>
         /// 保持しているフル段の出力を捨てる(拡大表示の切り出し元にしない)。処理したゾーンの集合が
         /// 変わったとき(ソロ表示の切り替え)に呼ぶ。次のフル段の確定までは拡大表示を作り直さない。
@@ -333,7 +326,7 @@ namespace Iroca
         /// 確定表示が既にある状態での差分的な更新(AI 提案のマスク反映など)でプロキシを挟むと、
         /// 鮮明な表示が一瞬低解像度へ戻る「ちらつき」になる(クリックキュー化でコミットが
         /// 連続すると特に目立つ)。フル段のみで、旧表示を保ったまま静かに差し替える。
-        /// 通常の <see cref="MarkDirty"/> が直後に重なった場合もフラグは 1 回で消費され、
+        /// 通常の <see cref="previewDirty"/> が直後に重なった場合もフラグは 1 回で消費され、
         /// その再生成のプロキシが 1 度飛ぶだけ(結果は同じ・フィードバックが少し遅れるのみ)。
         /// </summary>
         public void MarkDirtyFullRefine()

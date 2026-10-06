@@ -23,7 +23,6 @@ namespace Iroca
         // マスクオプションと JSON 入出力をまとめる低頻度操作の折りたたみ（既定で閉じる）。
         public bool presetAdvancedFoldout;
 
-        [System.NonSerialized] private Vector2 _presetScrollPos;
         [System.NonSerialized] private IrocaWindow _host;
 
         private string ActivePresetFolder

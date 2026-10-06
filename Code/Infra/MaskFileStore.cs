@@ -126,18 +126,6 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 指定テクスチャに対応するマスクファイルを削除する。
-        /// </summary>
-        public static void DeleteMask(string texturePath)
-        {
-            string path = MaskFilePath(texturePath);
-            if (string.IsNullOrEmpty(path)) return;
-            if (!File.Exists(path)) return;
-            try { File.Delete(path); }
-            catch (Exception ex) { Debug.LogWarning($"[Iroca] Mask delete failed: {ex.Message}"); }
-        }
-
-        /// <summary>
         /// GUID 直接指定でマスクファイルを削除する。
         /// テクスチャ削除フックなど、AssetPath が既に解決できないタイミングから呼ぶ用途。
         /// </summary>
