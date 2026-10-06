@@ -160,11 +160,6 @@ namespace Iroca
             ? "境界の画素について、パーツの色と背景の色を探す近傍の半径。\n小さい = シャープな境界に対応、大きい = ノイズの多い背景に対応\n標準: 4"
             : "Radius searched around a boundary pixel for the part's color and the background color.\nSmaller = sharper boundaries, larger = noisier backgrounds\nDefault: 4";
 
-        public static string AdvancedMode => IsJapanese ? "アドバンスモード" : "Advanced Mode";
-        public static string AdvancedModeTooltip => IsJapanese
-            ? "有効にすると、アルゴリズムの内部パラメータをより細かく調整できます。\n通常はデフォルト値で十分ですが、特殊なテクスチャに対して微調整が必要な場合に使用してください。"
-            : "Enables fine-grained control over internal algorithm parameters.\nDefault values work well for most textures, but can be tuned for special cases.";
-
         public static string AutoTuningInProgress => IsJapanese ? "自動調整中…" : "Auto-tuning…";
 
         // ゾーンカード内の詳細パラメータ折りたたみ見出し（通常モードで既定畳む）。
@@ -280,7 +275,6 @@ namespace Iroca
         // 含めるマスク追加(2026-08)以降、このセクションは除外/含めるの両マスクを扱う。
         public static string ExclusionMask => IsJapanese ? "マスク" : "Masks";
         public static string BrushSize => IsJapanese ? "ブラシサイズ" : "Brush Size";
-        public static string BrushMode => IsJapanese ? "ブラシモード" : "Brush Mode";
         public static string Exclude => IsJapanese ? "除外" : "Exclude";
         public static string Include => IsJapanese ? "含める" : "Include";
         public static string MaskLayerKind => IsJapanese ? "マスクの種類" : "Mask Type";
@@ -406,14 +400,12 @@ namespace Iroca
         public static string NotifyAiNotStarted => IsJapanese
             ? "AI 提案を開始できませんでした（マスク編集ウィンドウの AI 提案欄を確認してください）"
             : "Could not start AI suggest (see the AI section of the mask edit window)";
-        public static string ClearMask => IsJapanese ? "マスクをクリア" : "Clear Mask";
         public static string MaskHint => IsJapanese
             ? "プレビュー上でドラッグしてマスクを塗り/消しできます"
             : "Drag on the preview to paint or erase the mask";
 
         public static string Preview => IsJapanese ? "プレビュー" : "Preview";
         public static string GeneratingPreview => IsJapanese ? "⟳ プレビュー生成中..." : "⟳ Generating preview...";
-        public static string Zoom => IsJapanese ? "ズーム" : "Zoom";
         public static string SetTexture => IsJapanese
             ? "テクスチャを設定してください。"
             : "Please set a texture.";
@@ -468,9 +460,6 @@ namespace Iroca
         public static string TextureReadError => IsJapanese
             ? "テクスチャが読み込めません。Read/Write Enabled を確認してください。"
             : "Cannot read texture. Please check Read/Write Enabled.";
-        public static string TextureLoadError => IsJapanese
-            ? "テクスチャファイルの読み込みに失敗しました。PNG または JPG 形式のファイルを使用してください。"
-            : "Failed to load texture file. Please use a PNG or JPG file.";
         public static string PathNotFound => IsJapanese
             ? "テクスチャのパスが見つかりません。"
             : "Texture path not found.";
@@ -485,11 +474,6 @@ namespace Iroca
         public static string OverwriteNonPngConfirm(string newFileName) => IsJapanese
             ? $"元のテクスチャは PNG ではないため上書きできません。\n代わりに同じ場所へ「{newFileName}」を新規作成します。\nマテリアルの参照は自動で切り替わりません（手動で差し替えてください）。続けますか？"
             : $"The source texture is not a PNG, so it cannot be overwritten.\nInstead, a new file \"{newFileName}\" will be created in the same folder.\nThe material reference will NOT switch automatically (re-assign it manually). Proceed?";
-        public static string Saved(string path) => IsJapanese
-            ? $"保存しました:\n{path}"
-            : $"Saved:\n{path}";
-
-        public static string LayerIndex => IsJapanese ? "L" : "L";
 
         public static string ZoneDragHandleTooltip => IsJapanese
             ? "ドラッグして並べ替え＝優先度の変更。上にあるゾーンほど優先され、重なった部分は上のゾーンだけが適用されます（下のゾーンのマスクとして機能します）。"
@@ -504,9 +488,6 @@ namespace Iroca
         public static string ZoomLabelShort => IsJapanese
             ? "ズーム: {0}%"
             : "Zoom: {0}%";
-        public static string PanHint => IsJapanese
-            ? "ドラッグでパン"
-            : "Drag to pan";
 
         public static string ComparisonMode => IsJapanese ? "前後比較" : "Compare";
         public static string DiffMode       => IsJapanese ? "差分表示" : "Diff";
@@ -577,9 +558,6 @@ namespace Iroca
         public static string ZoneNameTooltip => IsJapanese
             ? "ゾーンの識別名（処理には影響しません）"
             : "Zone name for identification (does not affect processing)";
-        public static string LayerIndexTooltip => IsJapanese
-            ? "処理の適用順序。数値が小さいゾーンほど先に処理されます（デフォルト: 0）"
-            : "Processing order. Zones with smaller values are applied first (default: 0)";
         public static string RemoveZoneTooltip => IsJapanese
             ? "このゾーンを削除します"
             : "Remove this zone";
@@ -918,10 +896,6 @@ namespace Iroca
         public static string FloodFillClearTooltip => IsJapanese
             ? "シードを解除して自動アンカリングに戻します"
             : "Clear the seed and return to automatic anchoring";
-        public static string EdgeStopThreshold => IsJapanese ? "エッジストッパー強度" : "Edge Stop Threshold";
-        public static string EdgeStopThresholdTooltip => IsJapanese
-            ? "輝度・彩度の急激な変化をパーツの境界とみなして Flood Fill を止める強度。\n0 = エッジストッパー無効（色の一致のみで拡張）\n大きいほど敏感に止まります（デフォルト: 0.15）"
-            : "Sensitivity for stopping Flood Fill at edge (sudden brightness/saturation change).\n0 = disabled (expand by color match only)\nHigher = more sensitive stop (default: 0.15)";
 
         public static string AutoTune => IsJapanese ? "自動調整" : "Auto-tune";
         // 完了通知に使う。ボタン名と同じ「自動調整」だけを出すと、開始・完了・失敗の区別がつかない。
