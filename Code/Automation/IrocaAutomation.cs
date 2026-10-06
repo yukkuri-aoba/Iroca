@@ -398,27 +398,7 @@ namespace Iroca
                              + $"(recoloring in place would destroy the original irreversibly): {outputAssetPath}";
                 return result;
             }
-            Texture2D outTex = null;
-            try
-            {
-                outTex = new Texture2D(w, h, TextureFormat.RGBA32, false);
-                outTex.SetPixels32(pixels);
-                byte[] png = outTex.EncodeToPNG();
-                if (png == null) { result.error = "PNG encode failed."; return result; }
-
-                string dir = Path.GetDirectoryName(outAbs);
-                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                // 出力先に既存 PNG があると、書き込み途中で落ちたときその既存物を壊す。
-                // AtomicFile は一時ファイルへ書き切ってから置換する。
-                AtomicFile.WriteAllBytes(outAbs, png);
-
-                string rel = PathUtils.ToAssetsRelativeOrNull(outAbs);
-                if (rel != null) AssetDatabase.ImportAsset(rel);
-            }
-            finally
-            {
-                if (outTex != null) UnityEngine.Object.DestroyImmediate(outTex);
-            }
+            if (!TryWritePng(pixels, w, h, outAbs)) { result.error = "PNG encode failed."; return result; }
 
             var metrics = RecolorPreview.ComputeMetrics(originalPixels, pixels, w, h);
             result.changedPixels = metrics.changedPixels;
@@ -458,22 +438,11 @@ namespace Iroca
                 return;
             }
 
-            Texture2D panelTex = null;
             try
             {
                 var panel = RecolorPreview.BuildComparisonPanel(
                     before, after, w, h, RecolorPreview.DefaultMaxTile, out int pw, out int ph);
-                panelTex = new Texture2D(pw, ph, TextureFormat.RGBA32, false);
-                panelTex.SetPixels32(panel);
-                byte[] png = panelTex.EncodeToPNG();
-                if (png == null) { result.warnings.Add("preview panel PNG encode failed."); return; }
-
-                string dir = Path.GetDirectoryName(previewAbs);
-                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                AtomicFile.WriteAllBytes(previewAbs, png);
-
-                string rel = PathUtils.ToAssetsRelativeOrNull(previewAbs);
-                if (rel != null) AssetDatabase.ImportAsset(rel);
+                if (!TryWritePng(panel, pw, ph, previewAbs)) { result.warnings.Add("preview panel PNG encode failed."); return; }
 
                 result.preview = previewAbs;
                 result.note = "Open 'preview' to visually verify the result: left=before, middle=after, "
@@ -485,9 +454,35 @@ namespace Iroca
             {
                 result.warnings.Add($"preview generation failed: {ex.GetType().Name}: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 画素を PNG にエンコードして <paramref name="abs"/> へ書き出し、Assets 配下なら取り込む。
+        /// エンコードに失敗したら何も書かずに false を返す。I/O 等の例外は捕まえず呼び出し側へ伝える。
+        /// </summary>
+        private static bool TryWritePng(Color32[] pixels, int w, int h, string abs)
+        {
+            Texture2D tex = null;
+            try
+            {
+                tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+                tex.SetPixels32(pixels);
+                byte[] png = tex.EncodeToPNG();
+                if (png == null) return false;
+
+                string dir = Path.GetDirectoryName(abs);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                // 出力先に既存 PNG があると、書き込み途中で落ちたときその既存物を壊す。
+                // AtomicFile は一時ファイルへ書き切ってから置換する。
+                AtomicFile.WriteAllBytes(abs, png);
+
+                string rel = PathUtils.ToAssetsRelativeOrNull(abs);
+                if (rel != null) AssetDatabase.ImportAsset(rel);
+                return true;
+            }
             finally
             {
-                if (panelTex != null) UnityEngine.Object.DestroyImmediate(panelTex);
+                if (tex != null) UnityEngine.Object.DestroyImmediate(tex);
             }
         }
 
