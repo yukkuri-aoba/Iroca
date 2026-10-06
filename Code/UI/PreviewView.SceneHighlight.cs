@@ -267,16 +267,7 @@ namespace Iroca
             }
 
             if (h.outline != null && h.outline.Length >= 2)
-            {
-                if (_sceneLineBuffer == null || _sceneLineBuffer.Length != h.outline.Length)
-                    _sceneLineBuffer = new Vector3[h.outline.Length];
-                for (int i = 0; i < h.outline.Length; i++)
-                    _sceneLineBuffer[i] = PreviewCoords.UvToScreen(h.outline[i], local);
-                using (new Handles.DrawingScope(IrocaColors.MeshIslandLineShadow, Matrix4x4.Translate(new Vector3(1f, 1f, 0f))))
-                    Handles.DrawLines(_sceneLineBuffer);
-                using (new Handles.DrawingScope(IrocaColors.SceneHighlight))
-                    Handles.DrawLines(_sceneLineBuffer);
-            }
+                DrawUvSegments(h.outline, local, ref _sceneLineBuffer, IrocaColors.SceneHighlight);
 
             // 目印は明るい生地でも暗い生地でも沈まないよう、暗い縁取りの上に本体を重ねる(ほかの目印と同じ方針)。
             // 輪は折れ線で描く(Handles.DrawWireDisc の太さ指定は 3D 用で、GUI の座標では崩れる)。

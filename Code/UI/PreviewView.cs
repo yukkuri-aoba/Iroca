@@ -876,10 +876,7 @@ namespace Iroca
                 activePreviewRect = GUILayoutUtility.GetRect(displayW, displayH,
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
                 EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
-                if (maskView.maskOverlayTexture != null)
-                    GUI.DrawTexture(activePreviewRect, maskView.maskOverlayTexture, ScaleMode.StretchToFill, true);
-                if (maskView.zoneMaskOverlayTexture != null)
-                    GUI.DrawTexture(activePreviewRect, maskView.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
+                DrawMaskOverlays(activePreviewRect, maskView);
                 EditorGUILayout.EndVertical();
 
                 zoomHitRect = Rect.MinMaxRect(
@@ -915,10 +912,7 @@ namespace Iroca
                         // 拡大でも正確で、クロップ専用オーバーレイ(詳細再生成まで更新されず
                         // ペイントが見えなかった)を廃止できる。ペイント中の直接書き込み
                         // (PaintMask)も即このテクスチャに反映される。
-                        if (maskView.maskOverlayTexture != null)
-                            GUI.DrawTexture(activePreviewRect, maskView.maskOverlayTexture, ScaleMode.StretchToFill, true);
-                        if (maskView.zoneMaskOverlayTexture != null)
-                            GUI.DrawTexture(activePreviewRect, maskView.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
+                        DrawMaskOverlays(activePreviewRect, maskView);
                     }
                 }
                 else
@@ -932,10 +926,7 @@ namespace Iroca
                         GUI.DrawTexture(activePreviewRect, diffTexture, ScaleMode.StretchToFill, true);
                     else
                     {
-                        if (maskView.maskOverlayTexture != null)
-                            GUI.DrawTexture(activePreviewRect, maskView.maskOverlayTexture, ScaleMode.StretchToFill, true);
-                        if (maskView.zoneMaskOverlayTexture != null)
-                            GUI.DrawTexture(activePreviewRect, maskView.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
+                        DrawMaskOverlays(activePreviewRect, maskView);
                     }
                 }
 
@@ -1044,6 +1035,18 @@ namespace Iroca
                 s_viewStateZoom = previewZoom;
                 s_viewStateScroll = _previewScrollPos;
             }
+        }
+
+        /// <summary>
+        /// マスクのオーバーレイを、共通 → ゾーンの順にプレビュー画像の矩形へ重ねる
+        /// (通常表示・比較モードの変更後・拡大中の詳細クロップの上で共通)。
+        /// </summary>
+        private static void DrawMaskOverlays(Rect r, MaskPaintView mv)
+        {
+            if (mv.maskOverlayTexture != null)
+                GUI.DrawTexture(r, mv.maskOverlayTexture, ScaleMode.StretchToFill, true);
+            if (mv.zoneMaskOverlayTexture != null)
+                GUI.DrawTexture(r, mv.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
         }
 
         /// <summary>

@@ -416,17 +416,27 @@ namespace Iroca
             var segments = parts != null && parts.HasMesh ? parts.IslandOutline() : null;
             if (segments == null || segments.Length < 2) return;
 
-            if (_islandLineBuffer == null || _islandLineBuffer.Length != segments.Length)
-                _islandLineBuffer = new Vector3[segments.Length];
             GUI.BeginClip(previewRect);
             var local = new Rect(0f, 0f, previewRect.width, previewRect.height);
-            for (int i = 0; i < segments.Length; i++)
-                _islandLineBuffer[i] = PreviewCoords.UvToScreen(segments[i], local);
-            using (new Handles.DrawingScope(IrocaColors.MeshIslandLineShadow, Matrix4x4.Translate(new Vector3(1f, 1f, 0f))))
-                Handles.DrawLines(_islandLineBuffer);
-            using (new Handles.DrawingScope(IrocaColors.MeshIslandLine))
-                Handles.DrawLines(_islandLineBuffer);
+            DrawUvSegments(segments, local, ref _islandLineBuffer, IrocaColors.MeshIslandLine);
             GUI.EndClip();
+        }
+
+        /// <summary>
+        /// UV の線分(端点の組)をスクリーン座標へ直し、影(右下へ 1px ずらした暗色) → 本体色の順に線で描く。
+        /// UV の島の輪郭と Scene の強調の輪郭で共通。local は枠内座標の矩形なので、
+        /// 必ず GUI.BeginClip と GUI.EndClip の間で呼ぶ。buffer は呼び出し側ごとに別のものを渡す(毎回確保しない)。
+        /// </summary>
+        private static void DrawUvSegments(Vector2[] segs, Rect local, ref Vector3[] buffer, Color lineColor)
+        {
+            if (buffer == null || buffer.Length != segs.Length)
+                buffer = new Vector3[segs.Length];
+            for (int i = 0; i < segs.Length; i++)
+                buffer[i] = PreviewCoords.UvToScreen(segs[i], local);
+            using (new Handles.DrawingScope(IrocaColors.MeshIslandLineShadow, Matrix4x4.Translate(new Vector3(1f, 1f, 0f))))
+                Handles.DrawLines(buffer);
+            using (new Handles.DrawingScope(lineColor))
+                Handles.DrawLines(buffer);
         }
 
         /// <summary>ゾーン識別色（マスクオーバーレイと共通）を不透明寄りの Color で返す。</summary>
