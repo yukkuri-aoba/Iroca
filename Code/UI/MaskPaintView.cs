@@ -453,20 +453,8 @@ namespace Iroca
                 if (hadData && oldW > 0 && oldH > 0)
                 {
                     exclusionMask = RescaleMask(exclusionMask, oldW, oldH, w, h);
-                    var keys = new List<string>(zoneMasks.Keys);
-                    foreach (var key in keys)
-                    {
-                        var scaled = RescaleMask(zoneMasks[key], oldW, oldH, w, h);
-                        if (scaled != null) zoneMasks[key] = scaled;
-                        else zoneMasks.Remove(key); // 不変条件: null 値のエントリは持たない
-                    }
-                    var incKeys = new List<string>(zoneIncludeMasks.Keys);
-                    foreach (var key in incKeys)
-                    {
-                        var scaled = RescaleMask(zoneIncludeMasks[key], oldW, oldH, w, h);
-                        if (scaled != null) zoneIncludeMasks[key] = scaled;
-                        else zoneIncludeMasks.Remove(key);
-                    }
+                    RescaleLayer(zoneMasks, oldW, oldH, w, h);
+                    RescaleLayer(zoneIncludeMasks, oldW, oldH, w, h);
                     Debug.Log($"[Iroca] テクスチャ解像度の変更 ({oldW}x{oldH} → {w}x{h}) に合わせてマスクをリスケールしました。");
                 }
                 else
@@ -505,6 +493,21 @@ namespace Iroca
         }
 
         /// <summary>
+        /// ゾーン別マスクの辞書（<see cref="zoneMasks"/> = 除外 / <see cref="zoneIncludeMasks"/> = 含める）の
+        /// 全エントリを <see cref="RescaleMask"/> で新解像度へ揃える。リスケールできないエントリは削除する。
+        /// </summary>
+        private static void RescaleLayer(Dictionary<string, bool[]> layer, int oldW, int oldH, int w, int h)
+        {
+            var keys = new List<string>(layer.Keys);
+            foreach (var key in keys)
+            {
+                var scaled = RescaleMask(layer[key], oldW, oldH, w, h);
+                if (scaled != null) layer[key] = scaled;
+                else layer.Remove(key); // 不変条件: null 値のエントリは持たない
+            }
+        }
+
+        /// <summary>
         /// 共通マスク bool[] を遅延確保する。<see cref="EnsureMasks"/> は座標系のみを扱い、
         /// このメソッドは「実際に共通マスクへ書き込む直前」にだけ呼ぶ。
         /// </summary>
@@ -519,35 +522,19 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 指定ゾーンのマスクを確保（存在しなければ新規作成）して返す。
+        /// 指定ゾーンの、<paramref name="layer"/>（<see cref="zoneMasks"/> = 除外 /
+        /// <see cref="zoneIncludeMasks"/> = 含める）のマスクを確保（存在しなければ新規作成）して返す。
         /// </summary>
-        private bool[] EnsureZoneMask(string zoneId)
+        private bool[] EnsureZoneLayer(Dictionary<string, bool[]> layer, string zoneId)
         {
             EnsureMasks();
             if (string.IsNullOrEmpty(zoneId)) return null;
             if (maskWidth <= 0 || maskHeight <= 0) return null;
             int len = maskWidth * maskHeight;
-            if (!zoneMasks.TryGetValue(zoneId, out var m) || m == null || m.Length != len)
+            if (!layer.TryGetValue(zoneId, out var m) || m == null || m.Length != len)
             {
                 m = new bool[len];
-                zoneMasks[zoneId] = m;
-            }
-            return m;
-        }
-
-        /// <summary>
-        /// 指定ゾーンの「含める」マスクを確保（存在しなければ新規作成）して返す。
-        /// </summary>
-        private bool[] EnsureZoneIncludeMask(string zoneId)
-        {
-            EnsureMasks();
-            if (string.IsNullOrEmpty(zoneId)) return null;
-            if (maskWidth <= 0 || maskHeight <= 0) return null;
-            int len = maskWidth * maskHeight;
-            if (!zoneIncludeMasks.TryGetValue(zoneId, out var m) || m == null || m.Length != len)
-            {
-                m = new bool[len];
-                zoneIncludeMasks[zoneId] = m;
+                layer[zoneId] = m;
             }
             return m;
         }
@@ -567,7 +554,7 @@ namespace Iroca
 
             var zone = zones[activeMaskTarget];
             zone.EnsureId();
-            return editIncludeLayer ? EnsureZoneIncludeMask(zone.id) : EnsureZoneMask(zone.id);
+            return editIncludeLayer ? EnsureZoneLayer(zoneIncludeMasks, zone.id) : EnsureZoneLayer(zoneMasks, zone.id);
         }
 
         /// <summary>
@@ -623,12 +610,12 @@ namespace Iroca
                 common = exclusionMask;
                 if (d.op == MaskRegionOp.PaintHere)
                 {
-                    include = EnsureZoneIncludeMask(d.zoneId);
+                    include = EnsureZoneLayer(zoneIncludeMasks, d.zoneId);
                     zoneMasks.TryGetValue(d.zoneId, out exclude);
                 }
                 else
                 {
-                    exclude = EnsureZoneMask(d.zoneId);
+                    exclude = EnsureZoneLayer(zoneMasks, d.zoneId);
                     zoneIncludeMasks.TryGetValue(d.zoneId, out include);
                 }
             }
