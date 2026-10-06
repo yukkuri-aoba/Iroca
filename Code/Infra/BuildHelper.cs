@@ -1,8 +1,8 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-// unitypackage エクスポート用ビルドヘルパー。
-// PowerShell スクリプト (build/ExportUnityPackage.ps1) から
-// Unity バッチモード (-executeMethod) 経由で呼び出される。
+// Assets/Iroca（Code/Debug を除く）を unitypackage へ書き出すビルドヘルパー。
+// 現行のリリース手順（docs/RELEASING.md）では使わない（配布物は scripts/Build-VpmPackage.ps1 が作る）。
+// 手動で使う場合は Unity -batchmode -quit -executeMethod Iroca.BuildHelper.Export [-outputPath <出力先>]。
 
 using System;
 using System.Collections.Generic;
