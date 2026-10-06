@@ -9,9 +9,6 @@ using UnityEngine;
 
 namespace Iroca
 {
-    // DebugCaptureHooks が UI イベントで参照するだけのスタブ(headless では未使用)。
-    internal class IrocaWindow { }
-
     // ZoneAutoTuner がラベル収集で参照する Localization のスタブ。
     // 実 Localization は UnityEditor.EditorPrefs に依存するため headless では使えない。
     // 自動調整の数値計算には影響しない（overwrittenLabels の文字列に使われるだけ）。
