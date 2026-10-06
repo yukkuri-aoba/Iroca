@@ -150,18 +150,8 @@ namespace Iroca.DebugTools
             return dir;
         }
 
-        private static string PackageVersion()
-        {
-            try
-            {
-                // 本体アセンブリの版を書く(この Debug 衛星は配布パッケージの一部ではない)。
-                var info = UnityEditor.PackageManager.PackageInfo
-                    .FindForAssembly(typeof(IrocaAutomation).Assembly);
-                if (info != null && !string.IsNullOrEmpty(info.version)) return info.version;
-            }
-            catch { /* 埋め込み配置などで解決できない場合 */ }
-            return "unknown";
-        }
+        // 本体アセンブリの版を書く(この Debug 衛星は配布パッケージの一部ではない)。
+        private static string PackageVersion() => IrocaAutomation.ExtractVersion();
 
         private static IrocaAutomation.ZoneDto ToDto(ColorZone z)
         {

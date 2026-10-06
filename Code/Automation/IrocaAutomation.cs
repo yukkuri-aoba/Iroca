@@ -31,6 +31,10 @@ namespace Iroca
     /// </summary>
     public static class IrocaAutomation
     {
+        // package.json の name。NDMF の識別子(IrocaNdmfPlugin.QualifiedName・IrocaPreviewFilter のトグルキー)とは
+        // 意図的に共有しない(あちらはパッケージ名が変わっても変えてはいけない)。
+        private const string PackageName = "com.yukkuri-aoba.iroca";
+
         // ジョブ/結果ファイルの置き場。git 非追跡の UserSettings 配下に置き、Assets の import 揺れを避ける。
         private static string McpDir =>
             Path.GetFullPath(Path.Combine(Application.dataPath, "..", "UserSettings/Iroca/mcp"));
@@ -141,7 +145,7 @@ namespace Iroca
         [Serializable]
         private class SchemaDoc
         {
-            public string name = "com.yukkuri-aoba.iroca";
+            public string name = PackageName;
             public string version = "";
             public string[] methods;
             public string[] notes;
@@ -153,16 +157,7 @@ namespace Iroca
 
         /// <summary>パッケージ名とバージョンを JSON で返す。</summary>
         public static string GetVersion()
-        {
-            string version = "unknown";
-            try
-            {
-                var info = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(IrocaAutomation).Assembly);
-                if (info != null && !string.IsNullOrEmpty(info.version)) version = info.version;
-            }
-            catch { /* 埋め込み配置などで解決できない場合は unknown のまま */ }
-            return $"{{\"ok\":true,\"name\":\"com.yukkuri-aoba.iroca\",\"version\":\"{version}\"}}";
-        }
+            => $"{{\"ok\":true,\"name\":\"{PackageName}\",\"version\":\"{ExtractVersion()}\"}}";
 
         /// <summary>
         /// リクエスト/プリセットの JSON スキーマ・既定値・フィールド説明を JSON で返す。
@@ -678,7 +673,11 @@ namespace Iroca
             }
         }
 
-        private static string ExtractVersion()
+        /// <summary>
+        /// 本体アセンブリのパッケージ版。埋め込み配置などで解決できなければ "unknown"。
+        /// GetVersion / DescribeSchema と ReproDump(Debug アセンブリ)が共有する唯一の解決経路。
+        /// </summary>
+        internal static string ExtractVersion()
         {
             try
             {
