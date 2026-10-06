@@ -6,7 +6,6 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEditor;
-using UnityEngine;
 using Debug = UnityEngine.Debug;
 
 namespace Iroca
@@ -91,30 +90,32 @@ namespace Iroca
                     token.ThrowIfCancellationRequested();
                     PreviewJobMainThread.Post(() =>
                     {
-                        // 古い世代の完了通知で、現世代の実行状態を上書きしない。
-                        if (_disposed || myGen != _generation) return;
-                        _isRunning = false;
-                        apply(result);
+                        if (TryComplete(myGen)) apply(result);
                     });
                 }
                 catch (OperationCanceledException)
                 {
-                    PreviewJobMainThread.Post(() =>
-                    {
-                        if (_disposed || myGen != _generation) return;
-                        _isRunning = false;
-                    });
+                    PreviewJobMainThread.Post(() => TryComplete(myGen));
                 }
                 catch (Exception ex)
                 {
                     PreviewJobMainThread.Post(() =>
                     {
-                        if (_disposed || myGen != _generation) return;
-                        _isRunning = false;
-                        onError?.Invoke(ex);
+                        if (TryComplete(myGen)) onError?.Invoke(ex);
                     });
                 }
             }, token);
+        }
+
+        /// <summary>
+        /// 現世代の完了なら実行中フラグを下ろして true。古い世代・破棄後は何もしない
+        /// （古い世代の完了通知で、現世代の実行状態を上書きしない）。
+        /// </summary>
+        private bool TryComplete(int gen)
+        {
+            if (_disposed || gen != _generation) return false;
+            _isRunning = false;
+            return true;
         }
 
         public void Cancel()
