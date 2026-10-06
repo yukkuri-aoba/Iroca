@@ -284,30 +284,28 @@ namespace Iroca
                     exclusionMask = m;
             }
 
-            if (data.zoneMasks != null)
-            {
-                foreach (var e in data.zoneMasks)
-                {
-                    if (e == null || string.IsNullOrEmpty(e.zoneId)) continue;
-                    var m = DecodeMask(e.maskBase64, out int w, out int h);
-                    if (m == null || w != maskWidth || h != maskHeight) continue;
-                    zoneMasks[e.zoneId] = m;
-                }
-            }
+            DecodePresetEntries(data.zoneMasks, zoneMasks);
 
             // 含めるマスク(v2)。旧プリセットでは欠落フィールド=空リスト。
-            if (data.zoneIncludeMasks != null)
-            {
-                foreach (var e in data.zoneIncludeMasks)
-                {
-                    if (e == null || string.IsNullOrEmpty(e.zoneId)) continue;
-                    var m = DecodeMask(e.maskBase64, out int w, out int h);
-                    if (m == null || w != maskWidth || h != maskHeight) continue;
-                    zoneIncludeMasks[e.zoneId] = m;
-                }
-            }
+            DecodePresetEntries(data.zoneIncludeMasks, zoneIncludeMasks);
 
             SaveToSession();
+        }
+
+        /// <summary>
+        /// プリセットのエントリ列を dst へ展開する(除外・含めるで共通)。
+        /// zoneId が空・デコード失敗・寸法不一致の項目は捨てる。src が null なら何もしない。
+        /// </summary>
+        private void DecodePresetEntries(List<ZoneMaskEntry> src, Dictionary<string, bool[]> dst)
+        {
+            if (src == null) return;
+            foreach (var e in src)
+            {
+                if (e == null || string.IsNullOrEmpty(e.zoneId)) continue;
+                var m = DecodeMask(e.maskBase64, out int w, out int h);
+                if (m == null || w != maskWidth || h != maskHeight) continue;
+                dst[e.zoneId] = m;
+            }
         }
 
         /// <summary>
@@ -325,33 +323,34 @@ namespace Iroca
                 includedAnything = true;
             }
 
-            foreach (var kv in zoneMasks)
-            {
-                if (kv.Value == null || !MaskSnapshot.AnyTrue(kv.Value)) continue;
-                data.zoneMasks.Add(new ZoneMaskEntry
-                {
-                    zoneId = kv.Key,
-                    maskBase64 = EncodeMask(kv.Value, maskWidth, maskHeight),
-                });
-                includedAnything = true;
-            }
-
-            foreach (var kv in zoneIncludeMasks)
-            {
-                if (kv.Value == null || !MaskSnapshot.AnyTrue(kv.Value)) continue;
-                data.zoneIncludeMasks.Add(new ZoneMaskEntry
-                {
-                    zoneId = kv.Key,
-                    maskBase64 = EncodeMask(kv.Value, maskWidth, maskHeight),
-                });
-                includedAnything = true;
-            }
+            // |= は短絡しないので、除外が書けても含めるマスクも必ず書く(|| にしない)。
+            includedAnything |= EncodePresetEntries(zoneMasks, data.zoneMasks);
+            includedAnything |= EncodePresetEntries(zoneIncludeMasks, data.zoneIncludeMasks);
 
             if (includedAnything)
             {
                 data.maskWidth = maskWidth;
                 data.maskHeight = maskHeight;
             }
+        }
+
+        /// <summary>
+        /// 全 false でないマスクを dst へ書き足す(除外・含めるで共通)。何か足したら true。
+        /// </summary>
+        private bool EncodePresetEntries(Dictionary<string, bool[]> src, List<ZoneMaskEntry> dst)
+        {
+            bool added = false;
+            foreach (var kv in src)
+            {
+                if (kv.Value == null || !MaskSnapshot.AnyTrue(kv.Value)) continue;
+                dst.Add(new ZoneMaskEntry
+                {
+                    zoneId = kv.Key,
+                    maskBase64 = EncodeMask(kv.Value, maskWidth, maskHeight),
+                });
+                added = true;
+            }
+            return added;
         }
     }
 }
