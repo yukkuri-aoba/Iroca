@@ -67,18 +67,20 @@ namespace Iroca
             return _autoTuneInputs.TryGetValue(zoneId, out input) && input != null;
         }
 
+        // 自動調整の適用値と同じとみなす許容差（AutoTuneParamsIntact / AutoTuneValuesIntact で共用）。
+        private static bool ParamEq(float a, float b) => Mathf.Abs(a - b) <= 1e-5f;
+
         // ゾーンのパラメータが、その自動調整の適用値のまま(手で触っていない)か。
         // 再現側はこれが真のときだけ「再導出した値 = 書き出しの値」を契約にできる。
         internal static bool AutoTuneParamsIntact(ColorZone zone, AutoTuneInput input)
         {
             if (zone == null || input == null) return false;
             var r = input.applied;
-            static bool Eq(float a, float b) => Mathf.Abs(a - b) <= 1e-5f;
             if (!AutoTuneValuesIntact(zone, r)) return false;
             var expectedSample = r.hasNormalizedSample ? r.normalizedSample : input.sample;
             int autoCount = r.autoSamples != null ? r.autoSamples.Count : 0;
-            return Eq(zone.sampleColor.r, expectedSample.r) && Eq(zone.sampleColor.g, expectedSample.g)
-                && Eq(zone.sampleColor.b, expectedSample.b)
+            return ParamEq(zone.sampleColor.r, expectedSample.r) && ParamEq(zone.sampleColor.g, expectedSample.g)
+                && ParamEq(zone.sampleColor.b, expectedSample.b)
                 && (zone.extraSamples != null ? zone.extraSamples.Count : 0) == autoCount;
         }
 
@@ -88,20 +90,19 @@ namespace Iroca
         internal static bool AutoTuneValuesIntact(ColorZone zone, ZoneAutoTuner.TuneResult r)
         {
             if (zone == null) return false;
-            static bool Eq(float a, float b) => Mathf.Abs(a - b) <= 1e-5f;
-            return Eq(zone.tolerance, r.tolerance)
-                && Eq(zone.saturationStrictness, r.saturationStrictness)
-                && Eq(zone.saturationGuard, r.saturationGuard)
-                && Eq(zone.chromaThreshold, r.chromaThreshold)
+            return ParamEq(zone.tolerance, r.tolerance)
+                && ParamEq(zone.saturationStrictness, r.saturationStrictness)
+                && ParamEq(zone.saturationGuard, r.saturationGuard)
+                && ParamEq(zone.chromaThreshold, r.chromaThreshold)
                 && zone.highlightRecovery == r.highlightRecovery
-                && Eq(zone.valueBlend, r.valueBlend)
-                && Eq(zone.edgeSoftness, r.edgeSoftness)
-                && Eq(zone.shadowDesaturation, r.shadowDesaturation)
-                && Eq(zone.shadowForgivenessSatMin, r.shadowForgivenessSatMin)
-                && Eq(zone.shadowValueFloor, r.shadowValueFloor)
-                && Eq(zone.partSatCeiling, r.partSatCeiling)
-                && Eq(zone.partHueBand, r.partHueBand)
-                && Eq(zone.chromaCeiling, r.chromaCeiling);
+                && ParamEq(zone.valueBlend, r.valueBlend)
+                && ParamEq(zone.edgeSoftness, r.edgeSoftness)
+                && ParamEq(zone.shadowDesaturation, r.shadowDesaturation)
+                && ParamEq(zone.shadowForgivenessSatMin, r.shadowForgivenessSatMin)
+                && ParamEq(zone.shadowValueFloor, r.shadowValueFloor)
+                && ParamEq(zone.partSatCeiling, r.partSatCeiling)
+                && ParamEq(zone.partHueBand, r.partHueBand)
+                && ParamEq(zone.chromaCeiling, r.chromaCeiling);
         }
         // 証拠待ちの上限。埋め込み計算(テクスチャ毎 1 回)は CPU バックエンドの大きな
         // テクスチャで数十秒かかり得るので、短い期限で諦めて従来導出へ落とさない
@@ -171,9 +172,6 @@ namespace Iroca
             }
         }
 
-        // ZoneAutoTuner の既定値を読むための参照ゾーン（値を読むだけで書き換えない）。
-        private static readonly ColorZone s_pristineZone = new ColorZone();
-
         /// <summary>
         /// 導出パラメータが「ユーザーの手調整を含まない」状態か。
         /// ・自動調整済みのゾーン: その適用値のままなら手調整なし
@@ -192,7 +190,7 @@ namespace Iroca
             // 残らないかを既存の判定（PreviewOverwrittenLabels）で見る。
             var probe = zone.Clone();
             if (Mathf.Approximately(probe.tolerance, NewZoneInitialTolerance))
-                probe.tolerance = s_pristineZone.tolerance;
+                probe.tolerance = ZoneDefaults.tolerance;
             return ZoneAutoTuner.PreviewOverwrittenLabels(probe).Count == 0;
         }
 

@@ -117,10 +117,7 @@ namespace Iroca
         /// </summary>
         private void PublishLivePreviewTarget()
         {
-            bool anyEnabled = false;
-            if (sourceTexture != null && _session?.zones != null)
-                foreach (var z in _session.zones)
-                    if (z != null && z.enabled) { anyEnabled = true; break; }
+            bool anyEnabled = sourceTexture != null && HasEnabledZone;
             if (anyEnabled) LivePreview.SetTarget(sourceTexture, BoundRecipe);
             else LivePreview.SetTarget(null, null);
         }

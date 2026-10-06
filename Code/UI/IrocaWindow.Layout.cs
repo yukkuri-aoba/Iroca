@@ -537,7 +537,11 @@ namespace Iroca
         /// </summary>
         private bool StepTextureDone => CanReadSource(sourceTexture);
 
-        /// <summary>有効なゾーンが 1 つ以上あるか（無ければ「スポイトで変えたい色を選ぶ」から始める）。</summary>
+        /// <summary>
+        /// 有効なゾーンが 1 つ以上あるか（無ければ「スポイトで変えたい色を選ぶ」から始める）。
+        /// シーンへのライブプレビュー（PublishLivePreviewTarget）の可否にも使う。案内の都合で条件を
+        /// 変えるときは、そちらへの影響も確認すること。
+        /// </summary>
         private bool HasEnabledZone
         {
             get
