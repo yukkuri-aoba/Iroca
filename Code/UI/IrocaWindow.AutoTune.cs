@@ -14,15 +14,6 @@ namespace Iroca
         // ユーザーが zone を削除/追加した場合に備えて id で再ルックアップする。
         [System.NonSerialized] private string _autoTuneTargetZoneId;
 
-        // 自動調整の実行種別。手動実行（ボタン）のときだけウィンドウ全体をブロックし
-        // モーダル進捗を出す。かんたんモードの自動実行ではブロックせず裏で走らせる。
-        [System.NonSerialized] private bool _autoTuneIsManual = true;
-        // かんたんモードの自動調整デバウンス。サンプルカラーが変わってから一定時間
-        // 落ち着いたら自動調整を 1 回だけ走らせる（カラーピッカーのドラッグ連発を間引く）。
-        [System.NonSerialized] private string _pendingAutoTuneZoneId;
-        [System.NonSerialized] private double _pendingAutoTuneTime;
-        private const double AutoTuneDebounceSeconds = 0.4;
-
         // 証拠つき自動調整: スポイト位置の AI 提案セグメントを待っている状態。提案が届くか、
         // 期限切れ・取消で従来導出へ進む。待ち中の入力はジョブ開始時にそのまま渡す。
         [System.NonSerialized] private bool _evidenceWaiting;
@@ -141,56 +132,19 @@ namespace Iroca
             return combined;
         }
 
-        // 進行中の（古い色の）自動実行は破棄して、最新の色で取り直す。
-        private void ScheduleAutoTune(ColorZone zone)
-        {
-            if (zone == null) return;
-            zone.EnsureId();
-            _pendingAutoTuneZoneId = zone.id;
-            _pendingAutoTuneTime = EditorApplication.timeSinceStartup;
-            if (_autoTuneJob.IsRunning && !_autoTuneIsManual)
-                _autoTuneJob.Cancel();
-            Repaint();
-        }
-
-        private void ProcessPendingAutoTune()
-        {
-            if (_pendingAutoTuneZoneId == null) return;
-            if (_autoTuneJob.IsRunning) { Repaint(); return; }
-            if (EditorApplication.timeSinceStartup - _pendingAutoTuneTime < AutoTuneDebounceSeconds)
-            {
-                Repaint();
-                return;
-            }
-
-            string id = _pendingAutoTuneZoneId;
-            _pendingAutoTuneZoneId = null;
-
-            if (editMode != EditMode.Simple) return;
-            var zone = FindZoneById(id);
-            if (zone == null) return;
-            if (!CanReadSource(sourceTexture)
-                || zone.mode != SelectionMode.ColorPick || !zone.HasSampleColor)
-                return;
-
-            RunAutoTune(zone, auto: true);
-        }
-
-        private void RunAutoTune(ColorZone zone, bool auto = false)
+        private void RunAutoTune(ColorZone zone)
         {
             if (_autoTuneJob.IsRunning || _evidenceWaiting) return;
             if (zone == null) return;
 
-            _autoTuneIsManual = !auto;
-
-            if (!ConfirmAutoTuneOverwriteIfNeeded(zone, auto))
+            if (!ConfirmAutoTuneOverwriteIfNeeded(zone))
                 return;
 
             zone.EnsureId();
 
             // メインスレッド前処理: Texture2D.GetPixels32 と除外マスク構築は
             // バックグラウンドへ持ち込めないので、ここで配列化しておく。
-            PrepareAutoTunePixels(auto, out Color32[] pixels, out int texW, out int texH, out bool trueSource);
+            PrepareAutoTunePixels(out Color32[] pixels, out int texW, out int texH, out bool trueSource);
             if (pixels == null)
             {
                 // GetPixels32 が失敗（非 Readable / 一時例外）。null を背景ジョブへ渡すと
@@ -242,17 +196,17 @@ namespace Iroca
             return ZoneAutoTuner.PreviewOverwrittenLabels(probe).Count == 0;
         }
 
-        // ─── 上書き確認はジョブ開始“前”に行う（通常/上級モードの手動実行時のみ）───
+        // ─── 上書き確認はジョブ開始“前”に行う ───
         // 完了後にモーダルを出すと Editor がブロックされ、ユーザーの
         // 「他の作業がしたい」要望が満たされない。ラベルは pixels 解析に
         // 依存しない per-zone 判定なのでメインスレッドで先に確定できる。
-        // かんたんモードでは詳細パラメータは自動管理（手で変更しない）なので、
-        // 自動実行・手動実行ともに上書き確認は出さない。確認が要るのは通常/上級モードで
-        // ユーザーが手調整した値を上書きする手動実行のときだけ。
+        // 確認が要るのは、ユーザーが手調整した値を上書きするときだけ。
+        // 旧かんたんモード（Simple）は詳細パラメータを自動管理する前提なので確認を出さない
+        // （モード切替 UI は廃止したが、古いセッションファイルに Simple が残り得るので判定は残す）。
         // 戻り値 false = ユーザーがキャンセル（呼び出し側は実行を中止する）。
-        private bool ConfirmAutoTuneOverwriteIfNeeded(ColorZone zone, bool auto)
+        private bool ConfirmAutoTuneOverwriteIfNeeded(ColorZone zone)
         {
-            if (auto || editMode == EditMode.Simple) return true;
+            if (editMode == EditMode.Simple) return true;
             // 失って困るのは「ユーザーが手で入れた値」だけ。新規ゾーンの初期値のままでも、
             // 直前の自動調整が入れた値のままでも確認は要らない（どちらも手調整ではないのに
             // 毎回ダイアログが出て、押すたびに一手増えていた）。
@@ -270,10 +224,9 @@ namespace Iroca
         }
 
         // 画素取得はメインスレッド必須で、大きいテクスチャでは一瞬フリーズする。
-        // 完全な非同期化はできないため、手動実行のときだけモーダル進捗バーで「解析中」を
-        // 明示し、無言の固まりに見えないようにする（バックグラウンド解析本体は別途
-        // ウィンドウ内進捗バー＋キャンセルで表示される）。かんたんモードの自動実行では
-        // 色を変えるたびにモーダルが点滅すると煩いので出さず、裏で静かに走らせる。
+        // 完全な非同期化はできないため、モーダル進捗バーで「解析中」を明示し、
+        // 無言の固まりに見えないようにする（バックグラウンド解析本体は別途
+        // ウィンドウ内進捗バー＋キャンセルで表示される）。
         //
         // 解析対象は選択・プレビュー・エクスポートと同じ true source（ディスク原本）を使う。
         // インポート済みテクスチャ（maxTextureSize 縮小・圧縮）を解析すると、彩度/距離分布が
@@ -281,7 +234,7 @@ namespace Iroca
         // いるため追加コストはない。true source が取れないときのみ GetPixels32 へフォールバック。
         // trueSource: 画素がプレビュー/AI 提案と同じ true source キャッシュ（同一配列）か。
         // 証拠要求はこの配列とキーで SetSource するので、フォールバック画素では要求しない。
-        private void PrepareAutoTunePixels(bool auto, out Color32[] pixels, out int texW, out int texH,
+        private void PrepareAutoTunePixels(out Color32[] pixels, out int texW, out int texH,
             out bool trueSource)
         {
             pixels = null;
@@ -293,8 +246,7 @@ namespace Iroca
 
             try
             {
-                if (!auto)
-                    EditorUtility.DisplayProgressBar(Localization.AutoTune, Localization.AnalyzingTexture, 0.1f);
+                EditorUtility.DisplayProgressBar(Localization.AutoTune, Localization.AnalyzingTexture, 0.1f);
                 if (_previewView != null &&
                     _previewView.TryGetTrueSourcePixels(tex, out pixels, out texW, out texH))
                 {
@@ -307,7 +259,7 @@ namespace Iroca
                 pixels = tex.GetPixels32();
             }
             catch (UnityEngine.UnityException) { pixels = null; }
-            finally { if (!auto) EditorUtility.ClearProgressBar(); }
+            finally { EditorUtility.ClearProgressBar(); }
         }
 
         // evidence: 証拠マスク（true=このゾーンの素材そのもの。スポイト位置の AI 提案セグメント。
@@ -319,9 +271,9 @@ namespace Iroca
             _autoTuneTargetZoneId = zone.id;
 
             // 背景解析には live の zone / session を直接渡さず、値等価コピーを渡す。
-            // かんたんモードの非ブロック実行では解析中も編集可能で、live を渡すと sampleColor 変異で
-            // 混成サンプルから無意味な tolerance を導出したり、session.zones 列挙中の add/remove で
-            // InvalidOperationException になり得る（プレビュー/エクスポート経路は既に Clone 済み）。
+            // 解析中も Undo などでゾーンや session が変異し得るため、live を渡すと
+            // sampleColor 変異で混成サンプルから無意味な tolerance を導出したり、session.zones 列挙中の
+            // add/remove で InvalidOperationException になり得る（プレビュー/エクスポート経路は既に Clone 済み）。
             var zoneSnapshot = zone.Clone();
             var sessionSnapshot = SnapshotSessionForAutoTune();
 

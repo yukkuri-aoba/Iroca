@@ -36,17 +36,17 @@ namespace Iroca
         [System.NonSerialized] private float _jobOverlayHeight;
 
         /// <summary>
-        /// ジョブ実行中で UI 操作を止めるべきか。エクスポート中と、手動実行の自動調整中は
-        /// 操作を受け付けない（かんたんモードの裏実行は妨げない）。
+        /// ジョブ実行中で UI 操作を止めるべきか。エクスポート中と自動調整中（証拠待ちを含む）は
+        /// 操作を受け付けない。
         /// 別ウィンドウへ切り出したプレビュー(IrocaPreviewWindow)も同じ条件で無効化し、
         /// 本体が止まっている間にプレビュー上のペイント/スポイトだけ通ってしまうのを防ぐ。
         /// </summary>
         internal bool IsJobBlockingUI =>
             (_exportView != null && _exportView.IsExporting)
-            || (_autoTuneJob.IsRunning && _autoTuneIsManual)
-            // 証拠（AI 提案）待ちも手動実行の自動調整の一部（解析はまだ始まっていないが
+            || _autoTuneJob.IsRunning
+            // 証拠（AI 提案）待ちも自動調整の一部（解析はまだ始まっていないが
             // 途中でゾーンを触られると待ち中の入力と食い違う）。
-            || (_evidenceWaiting && _autoTuneIsManual);
+            || _evidenceWaiting;
 
         private void OnGUI()
         {
@@ -73,9 +73,6 @@ namespace Iroca
             {
                 SetSoloZone(null);
             }
-            // かんたんモードで予約された自動調整を、デバウンス経過後に裏で実行する。
-            // ── 自動調整はまだ実用段階でないため無効化（2026-06 一時対応）。再有効化時にコメントを外す。
-            // ProcessPendingAutoTune();
 
             // 英語表示が初めて使われたときに AI 機械翻訳である旨を一度だけ告知する。
             // Layout イベント時のみ実行し、描画途中のモーダル表示を避ける。
@@ -85,8 +82,7 @@ namespace Iroca
             // ジョブ実行中はウィンドウ内 UI を全て無効化する。
             // ただしジョブのオーバーレイ（進捗バー＋キャンセル）は DisabledScope の外で
             // 描画し、キャンセルだけは押せるようにする。
-            // 自動調整は「手動実行（ボタン）」のときだけウィンドウ全体をブロックする。
-            // かんたんモードの自動実行は裏で走らせ、操作を妨げない。
+            // 対象のジョブはエクスポートと自動調整（証拠待ちを含む）。
             bool blocking = IsJobBlockingUI;
 
             // ヘッダーは DisabledScope の外に置く（言語切替・クレジットはジョブ中でも安全）。

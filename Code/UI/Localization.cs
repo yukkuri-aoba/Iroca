@@ -160,8 +160,6 @@ namespace Iroca
             ? "境界の画素について、パーツの色と背景の色を探す近傍の半径。\n小さい = シャープな境界に対応、大きい = ノイズの多い背景に対応\n標準: 4"
             : "Radius searched around a boundary pixel for the part's color and the background color.\nSmaller = sharper boundaries, larger = noisier backgrounds\nDefault: 4";
 
-        public static string AutoTuningInProgress => IsJapanese ? "自動調整中…" : "Auto-tuning…";
-
         // ゾーンカード内の詳細パラメータ折りたたみ見出し（通常モードで既定畳む）。
         public static string ZoneDetailFoldout => IsJapanese ? "詳細設定" : "Details";
         public static string ZoneDetailFoldoutTooltip => IsJapanese

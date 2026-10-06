@@ -222,12 +222,6 @@ namespace Iroca
                 return;
             }
 
-            // かんたんモードの自動調整は裏で走り、ウィンドウをブロックしない。
-            // 進行中・予約中であることを軽い文言で示す（操作は妨げない）。
-            // ※自動調整の自動実行を隠している間は発火しないが、再有効化に備えて残す。
-            if ((_autoTuneJob.IsRunning && !_autoTuneIsManual) || _pendingAutoTuneZoneId != null)
-                GUILayout.Label(Localization.AutoTuningInProgress, EditorStyles.miniLabel);
-
             // 並び順＝優先度（重なりは上のゾーンのみ適用）。説明は ☰ ハンドルのツールチップ
             // (ZoneDragHandleTooltip) に集約し、常時表示の HelpBox は置かない。
 
