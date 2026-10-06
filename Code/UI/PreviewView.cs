@@ -519,113 +519,13 @@ namespace Iroca
                 return;
             }
 
-            // バックグラウンドプレビュータスクからの結果を適用（Texture2D API: メインスレッドのみ）
-            if (_pendingProcessedDisplay != null)
-                ApplyPendingPreview();
-
-            // バックグラウンドで仕上がった diff ピクセルをテクスチャへ反映
-            ApplyPendingDiff();
-
-            // バックグラウンド詳細プレビュータスクからの結果を適用
-            if (_detailView.HasPendingResult)
-            {
-                _detailView.ApplyPendingResult();
-                // 隠している間は新しい切り出ししか作らない(下の条件)ので、届いたら見せてよい。
-                _detailHiddenForDrag = false;
-            }
-            _detailView.ApplyPendingDiff();
-
-            if (previewDirty)
-            {
-                _lastDirtyTime = EditorApplication.timeSinceStartup;
-                _dragReqStale = true;
-                // プロキシ・フル両段をキャンセル。プロキシ進行中の再ダーティでは、プロキシの
-                // キャンセル(世代ぶつけ)で apply が抑止されフルが起動しない。
-                // ただしドラッグ中の追従プレビューは取り消さない。ドラッグ中は値がほぼ毎フレーム
-                // 変わるので、取り消すと一度も画面に出ない。終わってから最新の値で回し直す。
-                if (!IsDragPreviewRunning)
-                {
-                    _proxyJob.Cancel();
-                    _previewJob.Cancel();
-                }
-                _host.RequestRepaint();
-                previewDirty = false;
-            }
-            else if (!_proxyJob.IsRunning && !_previewJob.IsRunning &&
-                     _lastDirtyTime > 0 &&
-                     (GUIUtility.hotControl == 0 ||
-                      (EditorApplication.timeSinceStartup - _lastDirtyTime)
-                          >= PreviewDebounceSeconds))
-            {
-                _lastDirtyTime = 0;
-                // 最後の追従プレビュー以降に操作が無ければ、その入力のままフル段だけで確定する
-                // (同じ入力のプロキシをやり直すと、確定がその分遅れるだけ)。
-                if (_dragReq != null && !_dragReqStale) FinishDragPreview();
-                else GeneratePreviewAsync(dragOnly: false);
-            }
-            else if (!_proxyJob.IsRunning && !_previewJob.IsRunning &&
-                     _lastDirtyTime > 0 && _dragReqStale)
-            {
-                // ドラッグ中(手を止めて PreviewDebounceSeconds 経つまで): プロキシだけを回して
-                // 絵を操作に追従させる。フル段は手を止めるか離してから。
-                GeneratePreviewAsync(dragOnly: true);
-            }
-            else if (_lastDirtyTime > 0 || _proxyJob.IsRunning || _previewJob.IsRunning)
-            {
-                _host.RequestRepaint();
-            }
+            ApplyPendingResults();
+            TickPreviewRegeneration();
 
             var maskView = _host._maskView;
+            TickMaskOverlay(maskView);
 
-            // バックグラウンドで完了したオーバーレイ Color32[] を先に Texture2D へ適用する。
-            maskView.ApplyPendingOverlay();
-
-            // マスクオーバーレイ再構築をスケジュール（バックグラウンド計算）。
-            // ペイント中は MouseDrag が毎フレーム maskDirty を立てるため、
-            // 毎回フル解像度 bool[] を clone してジョブを Cancel→再 Schedule すると
-            // GC 圧と CPU 浪費だけが積み上がってジョブが完了しない。
-            // ペイント中だけは PaintOverlayThrottleSeconds 間隔に絞り、
-            // 進行中のジョブが Apply まで届くようにする。
-            // オーバーレイの目標寸法。表示倍率が上がると Point 補間でも粗く見えないよう
-            // プレビュー寸法の整数倍へ引き上げる(MaskPaintView.OverlayScale が正)。倍率変更でも
-            // 目標が変わるため、maskDirty と同じ経路で再構築する。実寸ではなく最後に構築した
-            // 寸法(overlayBuilt*)と比べるのは、マスクが空でテクスチャが無いときに毎フレーム
-            // 再構築を撃たないため。倍率は画面上の表示倍率(全体表示の倍率込み。値は前フレームで
-            // 確定したもの)。
-            if (previewTexture != null)
-            {
-                int ovScale = maskView.OverlayScale(previewTexture.width, previewTexture.height, EffectiveZoom);
-                int ovW = previewTexture.width * ovScale;
-                int ovH = previewTexture.height * ovScale;
-                bool sizeStale = maskView.overlayBuiltW != ovW || maskView.overlayBuiltH != ovH;
-                if (maskView.maskDirty || sizeStale)
-                {
-                    bool throttle = maskView.isPainting &&
-                        (EditorApplication.timeSinceStartup - maskView.lastOverlayRebuildTime)
-                            < PaintOverlayThrottleSeconds;
-                    if (!throttle)
-                    {
-                        maskView.lastOverlayRebuildTime = EditorApplication.timeSinceStartup;
-                        maskView.RebuildMaskOverlay(ovW, ovH);
-                        maskView.maskDirty = false;
-                    }
-                    // throttle 時は maskDirty を残し、次フレームで再評価する。
-                    // ペイント中は MouseDrag が継続的に Repaint を呼ぶので追加の RequestRepaint は不要。
-                }
-                maskView.SyncOverlayFilter(EffectiveZoom);
-            }
-
-            // 「生成中…」インジケータの文言。プレビュー確立後は下の操作行（比較/差分・
-            // 元を表示と同じ行）の右端に出す。非生成時も空白 " " を同じ場所に描き、
-            // 出入りで UI が上下にジャンプしないよう行高を固定する。
-            // 詳細プレビュー生成も同じ表示に統一する（c107e85）。
-            string generatingLabel;
-            if (_proxyJob.IsRunning || _previewJob.IsRunning)
-                generatingLabel = Localization.GeneratingPreview;
-            else if (_detailView.detailJob.IsRunning)
-                generatingLabel = Localization.GeneratingDetailPreview;
-            else
-                generatingLabel = " ";
+            string generatingLabel = CurrentGeneratingLabel();
 
             if (previewTexture == null)
             {
@@ -1039,6 +939,141 @@ namespace Iroca
                 s_viewStateZoom = previewZoom;
                 s_viewStateScroll = _previewScrollPos;
             }
+        }
+
+        /// <summary>
+        /// バックグラウンドのジョブ(プレビュー・差分・詳細)が仕上げた結果をテクスチャへ反映する。
+        /// <see cref="Draw"/> が毎フレーム、再生成の判断より前に呼ぶ。GUILayout は呼ばない。
+        /// </summary>
+        private void ApplyPendingResults()
+        {
+            // バックグラウンドプレビュータスクからの結果を適用（Texture2D API: メインスレッドのみ）
+            if (_pendingProcessedDisplay != null)
+                ApplyPendingPreview();
+
+            // バックグラウンドで仕上がった diff ピクセルをテクスチャへ反映
+            ApplyPendingDiff();
+
+            // バックグラウンド詳細プレビュータスクからの結果を適用
+            if (_detailView.HasPendingResult)
+            {
+                _detailView.ApplyPendingResult();
+                // 隠している間は新しい切り出ししか作らない(Draw の詳細生成の条件)ので、届いたら見せてよい。
+                _detailHiddenForDrag = false;
+            }
+            _detailView.ApplyPendingDiff();
+        }
+
+        /// <summary>
+        /// プレビュー再生成の状態機械。previewDirty を受けて打刻し、ドラッグ中はプロキシだけで追従、
+        /// 手を止めて PreviewDebounceSeconds 経つか離したらフル段で確定する。
+        /// <see cref="Draw"/> が毎フレーム呼ぶ。GUILayout は呼ばない。
+        /// </summary>
+        private void TickPreviewRegeneration()
+        {
+            if (previewDirty)
+            {
+                _lastDirtyTime = EditorApplication.timeSinceStartup;
+                _dragReqStale = true;
+                // プロキシ・フル両段をキャンセル。プロキシ進行中の再ダーティでは、プロキシの
+                // キャンセル(世代ぶつけ)で apply が抑止されフルが起動しない。
+                // ただしドラッグ中の追従プレビューは取り消さない。ドラッグ中は値がほぼ毎フレーム
+                // 変わるので、取り消すと一度も画面に出ない。終わってから最新の値で回し直す。
+                if (!IsDragPreviewRunning)
+                {
+                    _proxyJob.Cancel();
+                    _previewJob.Cancel();
+                }
+                _host.RequestRepaint();
+                previewDirty = false;
+            }
+            else if (!_proxyJob.IsRunning && !_previewJob.IsRunning &&
+                     _lastDirtyTime > 0 &&
+                     (GUIUtility.hotControl == 0 ||
+                      (EditorApplication.timeSinceStartup - _lastDirtyTime)
+                          >= PreviewDebounceSeconds))
+            {
+                _lastDirtyTime = 0;
+                // 最後の追従プレビュー以降に操作が無ければ、その入力のままフル段だけで確定する
+                // (同じ入力のプロキシをやり直すと、確定がその分遅れるだけ)。
+                if (_dragReq != null && !_dragReqStale) FinishDragPreview();
+                else GeneratePreviewAsync(dragOnly: false);
+            }
+            else if (!_proxyJob.IsRunning && !_previewJob.IsRunning &&
+                     _lastDirtyTime > 0 && _dragReqStale)
+            {
+                // ドラッグ中(手を止めて PreviewDebounceSeconds 経つまで): プロキシだけを回して
+                // 絵を操作に追従させる。フル段は手を止めるか離してから。
+                GeneratePreviewAsync(dragOnly: true);
+            }
+            else if (_lastDirtyTime > 0 || _proxyJob.IsRunning || _previewJob.IsRunning)
+            {
+                _host.RequestRepaint();
+            }
+        }
+
+        /// <summary>
+        /// マスクオーバーレイの反映と、再構築のスケジュール(ペイント中は間引く)。
+        /// <see cref="Draw"/> が毎フレーム、再生成の判断の後に呼ぶ。GUILayout は呼ばない。
+        /// </summary>
+        private void TickMaskOverlay(MaskPaintView maskView)
+        {
+            // バックグラウンドで完了したオーバーレイ Color32[] を先に Texture2D へ適用する。
+            maskView.ApplyPendingOverlay();
+
+            // マスクオーバーレイ再構築をスケジュール（バックグラウンド計算）。
+            // ペイント中は MouseDrag が毎フレーム maskDirty を立てるため、
+            // 毎回フル解像度 bool[] を clone してジョブを Cancel→再 Schedule すると
+            // GC 圧と CPU 浪費だけが積み上がってジョブが完了しない。
+            // ペイント中だけは PaintOverlayThrottleSeconds 間隔に絞り、
+            // 進行中のジョブが Apply まで届くようにする。
+            // オーバーレイの目標寸法。表示倍率が上がると Point 補間でも粗く見えないよう
+            // プレビュー寸法の整数倍へ引き上げる(MaskPaintView.OverlayScale が正)。倍率変更でも
+            // 目標が変わるため、maskDirty と同じ経路で再構築する。実寸ではなく最後に構築した
+            // 寸法(overlayBuilt*)と比べるのは、マスクが空でテクスチャが無いときに毎フレーム
+            // 再構築を撃たないため。倍率は画面上の表示倍率(全体表示の倍率込み。値は前フレームで
+            // 確定したもの)。
+            if (previewTexture != null)
+            {
+                int ovScale = maskView.OverlayScale(previewTexture.width, previewTexture.height, EffectiveZoom);
+                int ovW = previewTexture.width * ovScale;
+                int ovH = previewTexture.height * ovScale;
+                bool sizeStale = maskView.overlayBuiltW != ovW || maskView.overlayBuiltH != ovH;
+                if (maskView.maskDirty || sizeStale)
+                {
+                    bool throttle = maskView.isPainting &&
+                        (EditorApplication.timeSinceStartup - maskView.lastOverlayRebuildTime)
+                            < PaintOverlayThrottleSeconds;
+                    if (!throttle)
+                    {
+                        maskView.lastOverlayRebuildTime = EditorApplication.timeSinceStartup;
+                        maskView.RebuildMaskOverlay(ovW, ovH);
+                        maskView.maskDirty = false;
+                    }
+                    // throttle 時は maskDirty を残し、次フレームで再評価する。
+                    // ペイント中は MouseDrag が継続的に Repaint を呼ぶので追加の RequestRepaint は不要。
+                }
+                maskView.SyncOverlayFilter(EffectiveZoom);
+            }
+        }
+
+        /// <summary>
+        /// 操作行の右端(初回生成中は単独の 1 行)に出す生成状態の文言。GUILayout は呼ばない。
+        /// </summary>
+        private string CurrentGeneratingLabel()
+        {
+            // 「生成中…」インジケータの文言。プレビュー確立後は下の操作行（比較/差分・
+            // 元を表示と同じ行）の右端に出す。非生成時も空白 " " を同じ場所に描き、
+            // 出入りで UI が上下にジャンプしないよう行高を固定する。
+            // 詳細プレビュー生成も同じ表示に統一する（c107e85）。
+            string generatingLabel;
+            if (_proxyJob.IsRunning || _previewJob.IsRunning)
+                generatingLabel = Localization.GeneratingPreview;
+            else if (_detailView.detailJob.IsRunning)
+                generatingLabel = Localization.GeneratingDetailPreview;
+            else
+                generatingLabel = " ";
+            return generatingLabel;
         }
 
         /// <summary>
