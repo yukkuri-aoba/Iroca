@@ -167,6 +167,50 @@ namespace Iroca
             return (w, h, payload);
         }
 
+        // ─── raw 規約([int32 w][int32 h][payload]、行 0 = 下端)の読み書き ───
+        // 画像は RGBA 4 バイト/画素、マスクは 1 バイト/画素(非 0 = true)。
+        // 寸法の検査が要る呼び出し元は ReadRaw で読んで検査してから ToColor32 / ToBoolMask へ渡す。
+        private static Color32[] ToColor32(byte[] rgba, int len)
+        {
+            var pixels = new Color32[len];
+            for (int i = 0; i < len; i++)
+                pixels[i] = new Color32(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2], rgba[i * 4 + 3]);
+            return pixels;
+        }
+
+        private static (int w, int h, Color32[] pixels) ReadRgbaRaw(string path)
+        {
+            var (w, h, rgba) = ReadRaw(path, 4);
+            return (w, h, ToColor32(rgba, w * h));
+        }
+
+        private static bool[] ToBoolMask(byte[] bytes, int len)
+        {
+            var mask = new bool[len];
+            for (int i = 0; i < mask.Length; i++) mask[i] = bytes[i] != 0;
+            return mask;
+        }
+
+        private static (int w, int h, bool[] mask) ReadMaskRaw(string path)
+        {
+            var (w, h, bytes) = ReadRaw(path, 1);
+            return (w, h, ToBoolMask(bytes, w * h));
+        }
+
+        private static void WriteMaskRaw(string path, int w, int h, bool[] mask)
+        {
+            using var fs = new FileStream(path, FileMode.Create, FileAccess.Write);
+            using var bw = new BinaryWriter(fs);
+            bw.Write(w); bw.Write(h);
+            var bytes = new byte[w * h];
+            for (int i = 0; i < bytes.Length; i++) bytes[i] = mask[i] ? (byte)1 : (byte)0;
+            bw.Write(bytes);
+        }
+
+        // --zones / --batch / --session の JSON はキーの大文字小文字を区別せずに読む。
+        private static readonly JsonSerializerOptions CaseInsensitiveJson =
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
         private static int RunUvCharts(string dumpPath, string textureKey, int w, int h, string outPrefix)
         {
             using var doc = JsonDocument.Parse(File.ReadAllText(dumpPath));
@@ -404,15 +448,9 @@ namespace Iroca
                 return 2;
             }
 
-            var (w, h, rgba) = ReadRaw(inPath, 4);
-            int len = w * h;
-            var pixels = new Color32[len];
-            for (int i = 0; i < len; i++)
-                pixels[i] = new Color32(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2], rgba[i * 4 + 3]);
+            var (w, h, pixels) = ReadRgbaRaw(inPath);
 
-            var (mw, mh, mbytes) = ReadRaw(maskPath, 1);
-            var common = new bool[mw * mh];
-            for (int i = 0; i < common.Length; i++) common[i] = mbytes[i] != 0;
+            var (mw, mh, common) = ReadMaskRaw(maskPath);
             // MaskSnapshot は packed ulong[]。autotune/exCount は下で bool[] common を使うので両方保持する。
             var masks = new MaskSnapshot { common = MaskSnapshot.Pack(common), width = mw, height = mh, zones = null };
 
@@ -462,12 +500,7 @@ namespace Iroca
                     string evPath = (evidencePaths != null && zi < evidencePaths.Count)
                         ? evidencePaths[zi] : null;
                     if (!string.IsNullOrEmpty(evPath))
-                    {
-                        var (iw, ih, ibytes) = ReadRaw(evPath, 1);
-                        evidence = new bool[iw * ih];
-                        for (int i = 0; i < evidence.Length; i++) evidence[i] = ibytes[i] != 0;
-                        evW = iw; evH = ih;
-                    }
+                        (evW, evH, evidence) = ReadMaskRaw(evPath);
                     var tune = evidence != null
                         ? ZoneAutoTuner.AnalyzeWithEvidence(pixels, w, h, z, session,
                             evidence, evW, evH,
@@ -668,9 +701,7 @@ namespace Iroca
                         List<string> evidencePaths) LoadZones(
             string path, Dictionary<string, string> persistentIds = null)
         {
-            var cfg = JsonSerializer.Deserialize<ZonesConfig>(
-                File.ReadAllText(path),
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var cfg = JsonSerializer.Deserialize<ZonesConfig>(File.ReadAllText(path), CaseInsensitiveJson);
             var list = new List<ColorZone>();
             var zoneMasks = new List<(string zoneId, string path, bool include)>();
             // 証拠マスク(--autotune 専用入力)はゾーンと同じ並びで返す(未指定は null)。
@@ -712,8 +743,7 @@ namespace Iroca
                 if (iw != masks.width || ih != masks.height)
                     throw new InvalidOperationException(
                         $"ゾーン別マスク寸法 {iw}x{ih} が mask.raw 寸法 {masks.width}x{masks.height} と不一致: {path}");
-                var arr = new bool[iw * ih];
-                for (int i = 0; i < arr.Length; i++) arr[i] = ibytes[i] != 0;
+                var arr = ToBoolMask(ibytes, iw * ih);
                 var dict = include
                     ? (masks.zoneIncludes ??= new Dictionary<string, ulong[]>())
                     : (masks.zones ??= new Dictionary<string, ulong[]>());
@@ -726,19 +756,11 @@ namespace Iroca
         // ケースを跨いだ状態の持ち越しは無い(単発実行と byte 一致することをテストで検証している)。
         private static int RunBatch(string batchPath)
         {
-            var cfg = JsonSerializer.Deserialize<BatchConfig>(
-                File.ReadAllText(batchPath),
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var cfg = JsonSerializer.Deserialize<BatchConfig>(File.ReadAllText(batchPath), CaseInsensitiveJson);
 
-            var (w, h, rgba) = ReadRaw(cfg.input, 4);
-            int len = w * h;
-            var basePixels = new Color32[len];
-            for (int i = 0; i < len; i++)
-                basePixels[i] = new Color32(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2], rgba[i * 4 + 3]);
+            var (w, h, basePixels) = ReadRgbaRaw(cfg.input);
 
-            var (mw, mh, mbytes) = ReadRaw(cfg.mask, 1);
-            var common = new bool[mw * mh];
-            for (int i = 0; i < common.Length; i++) common[i] = mbytes[i] != 0;
+            var (mw, mh, common) = ReadMaskRaw(cfg.mask);
             var packed = MaskSnapshot.Pack(common);
 
             foreach (var c in cfg.cases)
@@ -767,15 +789,9 @@ namespace Iroca
         // (test_session_state.py)が検証する。キーの取りこぼし=誤ヒットはここで露見する。
         private static int RunSession(string sessionPath)
         {
-            var cfg = JsonSerializer.Deserialize<SessionConfig>(
-                File.ReadAllText(sessionPath),
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var cfg = JsonSerializer.Deserialize<SessionConfig>(File.ReadAllText(sessionPath), CaseInsensitiveJson);
 
-            var (w, h, rgba) = ReadRaw(cfg.input, 4);
-            int len = w * h;
-            var basePixels = new Color32[len];
-            for (int i = 0; i < len; i++)
-                basePixels[i] = new Color32(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2], rgba[i * 4 + 3]);
+            var (w, h, basePixels) = ReadRgbaRaw(cfg.input);
 
             var selCache = new SelectionCache();
             // 手ごとの内訳(PHASE/SUBPHASE)を出す。2 手目以降は JIT・初回確保を含まない暖機後の
@@ -785,9 +801,7 @@ namespace Iroca
             int step = 0;
             foreach (var s in cfg.steps)
             {
-                var (mw, mh, mbytes) = ReadRaw(s.mask, 1);
-                var common = new bool[mw * mh];
-                for (int i = 0; i < common.Length; i++) common[i] = mbytes[i] != 0;
+                var (mw, mh, common) = ReadMaskRaw(s.mask);
                 var masks = new MaskSnapshot
                 {
                     common = MaskSnapshot.Pack(common),
@@ -1128,10 +1142,7 @@ namespace Iroca
                 // 出力: [int32 newW][int32 newH] + float32[3*1024*1024] CHW(正規化・パディング済み)
                 case "--samops-encinput":
                 {
-                    var (w, h, rgba) = ReadRaw(args[1], 4);
-                    var pixels = new Color32[w * h];
-                    for (int i = 0; i < pixels.Length; i++)
-                        pixels[i] = new Color32(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2], rgba[i * 4 + 3]);
+                    var (w, h, pixels) = ReadRgbaRaw(args[1]);
                     float[] chw = SamImageOps.BuildEncoderInput(pixels, w, h);
                     SamImageOps.GetResizedSize(w, h, out int newW, out int newH);
                     using (var fs = new FileStream(args[2], FileMode.Create, FileAccess.Write))
@@ -1169,14 +1180,7 @@ namespace Iroca
                         : MaskSuggestGranularity.Auto;
                     var res = SamMaskPostprocess.SelectAndUpscale(logits, scores, w, h, frac,
                                                                   granularity: gran);
-                    using (var fs = new FileStream(args[6], FileMode.Create, FileAccess.Write))
-                    using (var bw = new BinaryWriter(fs))
-                    {
-                        bw.Write(w); bw.Write(h);
-                        var bytes = new byte[w * h];
-                        for (int i = 0; i < bytes.Length; i++) bytes[i] = res.maskBottomUp[i] ? (byte)1 : (byte)0;
-                        bw.Write(bytes);
-                    }
+                    WriteMaskRaw(args[6], w, h, res.maskBottomUp);
                     Console.WriteLine(string.Format(inv,
                         "POST channel={0} score={1:R} area={2:R} warn={3}",
                         res.channel, res.score, res.areaFrac, res.floodWarning ? 1 : 0));
@@ -1186,27 +1190,16 @@ namespace Iroca
                 // --samops-refine <mask.raw> <image.raw RGBA> <out.raw> : 境界色スナップ単体
                 case "--samops-refine":
                 {
-                    var (mw2, mh2, mbytes2) = ReadRaw(args[1], 1);
-                    var mask2 = new bool[mw2 * mh2];
-                    for (int i = 0; i < mask2.Length; i++) mask2[i] = mbytes2[i] != 0;
+                    var (mw2, mh2, mask2) = ReadMaskRaw(args[1]);
                     var (iw, ih, rgba2) = ReadRaw(args[2], 4);
                     if (iw != mw2 || ih != mh2)
                     {
                         Console.Error.WriteLine("refine: mask/image size mismatch");
                         return 2;
                     }
-                    var px2 = new Color32[iw * ih];
-                    for (int i = 0; i < px2.Length; i++)
-                        px2[i] = new Color32(rgba2[i * 4], rgba2[i * 4 + 1], rgba2[i * 4 + 2], rgba2[i * 4 + 3]);
+                    var px2 = ToColor32(rgba2, iw * ih);
                     SamMaskRefine.SnapBoundary(mask2, px2, iw, ih);
-                    using (var fs = new FileStream(args[3], FileMode.Create, FileAccess.Write))
-                    using (var bw = new BinaryWriter(fs))
-                    {
-                        bw.Write(iw); bw.Write(ih);
-                        var bytes = new byte[iw * ih];
-                        for (int i = 0; i < bytes.Length; i++) bytes[i] = mask2[i] ? (byte)1 : (byte)0;
-                        bw.Write(bytes);
-                    }
+                    WriteMaskRaw(args[3], iw, ih, mask2);
                     Console.WriteLine($"REFINE OK {iw}x{ih}");
                     return 0;
                 }
@@ -1214,27 +1207,16 @@ namespace Iroca
                 // --samops-fringe <mask.raw> <image.raw RGBA> <out.raw> : 房外郭への境界拡張単体
                 case "--samops-fringe":
                 {
-                    var (mw2, mh2, mbytes2) = ReadRaw(args[1], 1);
-                    var mask2 = new bool[mw2 * mh2];
-                    for (int i = 0; i < mask2.Length; i++) mask2[i] = mbytes2[i] != 0;
+                    var (mw2, mh2, mask2) = ReadMaskRaw(args[1]);
                     var (iw, ih, rgba2) = ReadRaw(args[2], 4);
                     if (iw != mw2 || ih != mh2)
                     {
                         Console.Error.WriteLine("fringe: mask/image size mismatch");
                         return 2;
                     }
-                    var px2 = new Color32[iw * ih];
-                    for (int i = 0; i < px2.Length; i++)
-                        px2[i] = new Color32(rgba2[i * 4], rgba2[i * 4 + 1], rgba2[i * 4 + 2], rgba2[i * 4 + 3]);
+                    var px2 = ToColor32(rgba2, iw * ih);
                     SamMaskRefine.ExtendFringe(mask2, px2, iw, ih);
-                    using (var fs = new FileStream(args[3], FileMode.Create, FileAccess.Write))
-                    using (var bw = new BinaryWriter(fs))
-                    {
-                        bw.Write(iw); bw.Write(ih);
-                        var bytes = new byte[iw * ih];
-                        for (int i = 0; i < bytes.Length; i++) bytes[i] = mask2[i] ? (byte)1 : (byte)0;
-                        bw.Write(bytes);
-                    }
+                    WriteMaskRaw(args[3], iw, ih, mask2);
                     Console.WriteLine($"FRINGE OK {iw}x{ih}");
                     return 0;
                 }
@@ -1242,27 +1224,16 @@ namespace Iroca
                 // --samops-aainclude <mask.raw> <image.raw RGBA> <out.raw> : AA 遷移帯の包含単体
                 case "--samops-aainclude":
                 {
-                    var (mw2, mh2, mbytes2) = ReadRaw(args[1], 1);
-                    var mask2 = new bool[mw2 * mh2];
-                    for (int i = 0; i < mask2.Length; i++) mask2[i] = mbytes2[i] != 0;
+                    var (mw2, mh2, mask2) = ReadMaskRaw(args[1]);
                     var (iw, ih, rgba2) = ReadRaw(args[2], 4);
                     if (iw != mw2 || ih != mh2)
                     {
                         Console.Error.WriteLine("aainclude: mask/image size mismatch");
                         return 2;
                     }
-                    var px2 = new Color32[iw * ih];
-                    for (int i = 0; i < px2.Length; i++)
-                        px2[i] = new Color32(rgba2[i * 4], rgba2[i * 4 + 1], rgba2[i * 4 + 2], rgba2[i * 4 + 3]);
+                    var px2 = ToColor32(rgba2, iw * ih);
                     SamMaskRefine.IncludeAaTransition(mask2, px2, iw, ih);
-                    using (var fs = new FileStream(args[3], FileMode.Create, FileAccess.Write))
-                    using (var bw = new BinaryWriter(fs))
-                    {
-                        bw.Write(iw); bw.Write(ih);
-                        var bytes = new byte[iw * ih];
-                        for (int i = 0; i < bytes.Length; i++) bytes[i] = mask2[i] ? (byte)1 : (byte)0;
-                        bw.Write(bytes);
-                    }
+                    WriteMaskRaw(args[3], iw, ih, mask2);
                     Console.WriteLine($"AAINCLUDE OK {iw}x{ih}");
                     return 0;
                 }
@@ -1272,9 +1243,7 @@ namespace Iroca
                 // 出力ビット同一であることの機械検証に使う。
                 case "--samops-aainclude-crop":
                 {
-                    var (mw2, mh2, mbytes2) = ReadRaw(args[1], 1);
-                    var mask2 = new bool[mw2 * mh2];
-                    for (int i = 0; i < mask2.Length; i++) mask2[i] = mbytes2[i] != 0;
+                    var (mw2, mh2, mask2) = ReadMaskRaw(args[1]);
                     var (iw, ih, rgba2) = ReadRaw(args[2], 4);
                     if (iw != mw2 || ih != mh2)
                     {
@@ -1297,14 +1266,7 @@ namespace Iroca
                         SamMaskRefine.IncludeAaTransitionCropped(mask2, iw, ih, cropPx, rx0, ry0, rw, rh, aaD);
                         Console.Error.WriteLine($"AACROP rect=({rx0},{ry0}) {rw}x{rh} d={aaD}");
                     }
-                    using (var fs = new FileStream(args[3], FileMode.Create, FileAccess.Write))
-                    using (var bw = new BinaryWriter(fs))
-                    {
-                        bw.Write(iw); bw.Write(ih);
-                        var bytes = new byte[iw * ih];
-                        for (int i = 0; i < bytes.Length; i++) bytes[i] = mask2[i] ? (byte)1 : (byte)0;
-                        bw.Write(bytes);
-                    }
+                    WriteMaskRaw(args[3], iw, ih, mask2);
                     Console.WriteLine($"AAINCLUDE-CROP OK {iw}x{ih}");
                     return 0;
                 }
@@ -1312,9 +1274,7 @@ namespace Iroca
                 // --samops-covertransfer <mask.raw> <dw> <dh> <out.raw> : 被覆保存の解像度転写
                 case "--samops-covertransfer":
                 {
-                    var (sw2, sh2, mbytes2) = ReadRaw(args[1], 1);
-                    var src2 = new bool[sw2 * sh2];
-                    for (int i = 0; i < src2.Length; i++) src2[i] = mbytes2[i] != 0;
+                    var (sw2, sh2, src2) = ReadMaskRaw(args[1]);
                     int dw = int.Parse(args[2]), dh = int.Parse(args[3]);
                     var dst2 = SamMaskRefine.TransferCoverage(src2, sw2, sh2, dw, dh);
                     if (dst2 == null)
@@ -1322,14 +1282,7 @@ namespace Iroca
                         Console.Error.WriteLine("covertransfer: invalid input");
                         return 2;
                     }
-                    using (var fs = new FileStream(args[4], FileMode.Create, FileAccess.Write))
-                    using (var bw = new BinaryWriter(fs))
-                    {
-                        bw.Write(dw); bw.Write(dh);
-                        var bytes = new byte[dw * dh];
-                        for (int i = 0; i < bytes.Length; i++) bytes[i] = dst2[i] ? (byte)1 : (byte)0;
-                        bw.Write(bytes);
-                    }
+                    WriteMaskRaw(args[4], dw, dh, dst2);
                     Console.WriteLine($"COVERTRANSFER OK {sw2}x{sh2} -> {dw}x{dh}");
                     return 0;
                 }
@@ -1338,9 +1291,7 @@ namespace Iroca
                 // (クリック成分 bbox 長辺 + クロップ矩形導出。座標は下原点)
                 case "--samops-zoomrect":
                 {
-                    var (w, h, mbytes) = ReadRaw(args[1], 1);
-                    var mask = new bool[w * h];
-                    for (int i = 0; i < mask.Length; i++) mask[i] = mbytes[i] != 0;
+                    var (w, h, mask) = ReadMaskRaw(args[1]);
                     int cx = int.Parse(args[2], inv), cy = int.Parse(args[3], inv);
                     int bb = SamZoomOps.ClickComponentBBoxLong(mask, w, h, cx, cy);
                     if (SamZoomOps.TryDeriveCropRect(bb, cx, cy, w, h,
@@ -1367,25 +1318,12 @@ namespace Iroca
                 // --samops-crop <image.raw RGBA> <x0> <y0> <side> <out.raw> : クロップ切り出し
                 case "--samops-crop":
                 {
-                    var (w, h, rgba) = ReadRaw(args[1], 4);
-                    var pixels = new Color32[w * h];
-                    for (int i = 0; i < pixels.Length; i++)
-                        pixels[i] = new Color32(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2], rgba[i * 4 + 3]);
+                    var (w, h, pixels) = ReadRgbaRaw(args[1]);
                     int zx0 = int.Parse(args[2], inv), zy0 = int.Parse(args[3], inv);
                     int zside = int.Parse(args[4], inv);
                     Color32[] crop = SamZoomOps.ExtractCrop(pixels, w, h, zx0, zy0, zside);
-                    using (var fs = new FileStream(args[5], FileMode.Create, FileAccess.Write))
-                    using (var bw = new BinaryWriter(fs))
-                    {
-                        bw.Write(zside); bw.Write(zside);
-                        var bytes = new byte[crop.Length * 4];
-                        for (int i = 0; i < crop.Length; i++)
-                        {
-                            bytes[i * 4] = crop[i].r; bytes[i * 4 + 1] = crop[i].g;
-                            bytes[i * 4 + 2] = crop[i].b; bytes[i * 4 + 3] = crop[i].a;
-                        }
-                        bw.Write(bytes);
-                    }
+                    // ExtractCrop は zside*zside の配列を返すので、WriteRawRgba が書く w*h 画素と長さが一致する。
+                    WriteRawRgba(args[5], zside, zside, crop);
                     Console.WriteLine($"CROP OK {zside}x{zside}");
                     return 0;
                 }
@@ -1399,19 +1337,11 @@ namespace Iroca
                         Console.Error.WriteLine("paste: crop mask must be square");
                         return 2;
                     }
-                    var cmask = new bool[cw * ch];
-                    for (int i = 0; i < cmask.Length; i++) cmask[i] = mbytes[i] != 0;
+                    var cmask = ToBoolMask(mbytes, cw * ch);
                     int w = int.Parse(args[2], inv), h = int.Parse(args[3], inv);
                     int zx0 = int.Parse(args[4], inv), zy0 = int.Parse(args[5], inv);
                     bool[] full = SamZoomOps.PasteCrop(cmask, cw, w, h, zx0, zy0, out int trueCount);
-                    using (var fs = new FileStream(args[6], FileMode.Create, FileAccess.Write))
-                    using (var bw = new BinaryWriter(fs))
-                    {
-                        bw.Write(w); bw.Write(h);
-                        var bytes = new byte[w * h];
-                        for (int i = 0; i < bytes.Length; i++) bytes[i] = full[i] ? (byte)1 : (byte)0;
-                        bw.Write(bytes);
-                    }
+                    WriteMaskRaw(args[6], w, h, full);
                     Console.WriteLine($"PASTE OK {w}x{h} count={trueCount}");
                     return 0;
                 }
@@ -1419,9 +1349,7 @@ namespace Iroca
                 // --samops-rle <mask.raw> <encoded.txt> : エンコード文字列を書き出し、往復一致を自己検証
                 case "--samops-rle":
                 {
-                    var (w, h, mbytes) = ReadRaw(args[1], 1);
-                    var mask = new bool[w * h];
-                    for (int i = 0; i < mask.Length; i++) mask[i] = mbytes[i] != 0;
+                    var (w, h, mask) = ReadMaskRaw(args[1]);
                     string encoded = MaskRle.Encode(mask, w, h);
                     File.WriteAllText(args[2], encoded);
                     bool[] back = MaskRle.Decode(encoded, out int dw, out int dh);
