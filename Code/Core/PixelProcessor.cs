@@ -212,8 +212,8 @@ namespace Iroca
             ulong[] commonMask = masks?.common;
             int maskW = masks?.width ?? 0;
             int maskH = masks?.height ?? 0;
-            // 除外マスクの判定表(作業座標の列・行 → マスクの画素)。拡縮の割り算を画素ごとでなく
-            // 列と行ごとに 1 回だけにする。マスクが無ければ null(=除外なし)。
+            // マスク(除外・含める)の判定表(作業座標の列・行 → マスクの画素)。拡縮の割り算を画素ごとでなく
+            // 列と行ごとに 1 回だけにする。マスクが無ければ null(=除外なし・含めるなし)。
             int[] maskColOf = null, maskRowBase = null;
             if (masks != null && maskW > 0 && maskH > 0)
                 BuildMaskIndexMap(w, h, originX, originY, fullW, fullH, maskW, maskH,
@@ -386,13 +386,11 @@ namespace Iroca
                         var incLocal = includedPx;
                         Parallel.For(0, h, po, y =>
                         {
-                            int yf = y + originY;
                             int rowOff = y * w;
                             for (int x = 0; x < w; x++)
                             {
-                                int xf = x + originX;
                                 incLocal[rowOff + x] =
-                                    IsIncludedZone(xf, yf, fullW, fullH, zoneInclude, maskW, maskH)
+                                    IsIncludedAt(maskColOf, maskRowBase, x, y, zoneInclude)
                                     && !IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask);
                             }
                         });
@@ -1475,22 +1473,7 @@ namespace Iroca
         }
 
         /// <summary>
-        /// ゾーンの含めるマスク(1=強制的に選択へ含める)の判定。座標スケーリングは
-        /// <see cref="IsExcludedCombined"/> と同一(整数切り捨て)で、マスク解像度と
-        /// テクスチャ解像度の対応関係を除外側と揃える。除外優先は呼び出し側が組む。
-        /// </summary>
-        private static bool IsIncludedZone(int x, int y, int texW, int texH,
-            ulong[] includeMask, int maskW, int maskH)
-        {
-            if (includeMask == null) return false;
-            if (maskW <= 0 || maskH <= 0) return false;
-            int mx = Mathf.Clamp(x * maskW / texW, 0, maskW - 1);
-            int my = Mathf.Clamp(y * maskH / texH, 0, maskH - 1);
-            return MaskSnapshot.GetBit(includeMask, my * maskW + mx);
-        }
-
-        /// <summary>
-        /// 除外マスクの判定表を作る。作業座標の列 x → マスクの列(mx)と、行 y → マスクの行の先頭(my·maskW)。
+        /// マスク(除外・含める)の判定表を作る。作業座標の列 x → マスクの列(mx)と、行 y → マスクの行の先頭(my·maskW)。
         /// 作業画像はテクスチャ(texW×texH)の (originX, originY) からの切り出しで、マスクの解像度は
         /// テクスチャと違ってよい(整数の拡縮で対応するマスク画素へ、端は切り詰め)。
         /// 以前は画素ごとにこの割り算をしていた(同じ式なので判定は同じ)。
@@ -1513,6 +1496,14 @@ namespace Iroca
             int idx = rowBase[y] + colOf[x];
             return MaskSnapshot.GetBit(commonMask, idx) || MaskSnapshot.GetBit(zoneMask, idx);
         }
+
+        /// <summary>
+        /// 作業座標 (x, y) がゾーンの含めるマスク(1=強制的に選択へ含める)に入るか。座標の対応は
+        /// 除外と同じ表(BuildMaskIndexMap。無ければ含めるなし)。除外優先は呼び出し側が組む。
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static bool IsIncludedAt(int[] colOf, int[] rowBase, int x, int y, ulong[] includeMask)
+            => colOf != null && MaskSnapshot.GetBit(includeMask, rowBase[y] + colOf[x]);
 
         /// <summary>
         /// 長辺を maxSize に収める等比縮小の寸法規約（単一の正）。長辺が maxSize 以下なら
