@@ -317,13 +317,12 @@ namespace Iroca
             public readonly bool applyHighlightWash;
             public readonly float achromaWeight, osat;
             public readonly bool hasRegL;
-            public readonly float regLlo, regLhi;
             public RecolorParams(
                 float okMagScale, float okTa, float okTb, bool okGray, float okGa, float okGb,
                 float okSL, float okTL, float okSC, float okChromaMaxMag,
                 float valueBlend, float shadowDesaturation, float sS, float tR, float tG, float tB,
                 float washR, float washG, float washB, float washV, bool applyHighlightWash,
-                float achromaWeight, float osat, bool hasRegL, float regLlo, float regLhi)
+                float achromaWeight, float osat, bool hasRegL)
             {
                 this.okMagScale = okMagScale; this.okTa = okTa; this.okTb = okTb;
                 this.okGray = okGray; this.okGa = okGa; this.okGb = okGb;
@@ -333,7 +332,7 @@ namespace Iroca
                 this.washR = washR; this.washG = washG; this.washB = washB; this.washV = washV;
                 this.applyHighlightWash = applyHighlightWash;
                 this.achromaWeight = achromaWeight; this.osat = osat;
-                this.hasRegL = hasRegL; this.regLlo = regLlo; this.regLhi = regLhi;
+                this.hasRegL = hasRegL;
             }
         }
 
@@ -354,7 +353,6 @@ namespace Iroca
             bool applyHighlightWash = p.applyHighlightWash;
             float achromaWeight = p.achromaWeight, osat = p.osat;
             bool hasRegL = p.hasRegL;
-            float regLlo = p.regLlo, regLhi = p.regLhi;
             // L: 2区間線形リマップ (0→0, sL→tL, 1→1)。base を target 明度へ寄せる。単調維持
             //    (リング無し)・ガンマット内(クリップ無し)・白→白/黒→黒。明度を完全保持すると
             //    暗い色→黄色が brown 化するため base は target 明度に合わせる。

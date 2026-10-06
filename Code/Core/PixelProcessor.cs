@@ -1139,7 +1139,7 @@ namespace Iroca
                         zOkMagScale, zTa, zTb, zOkGray, zOkGa, zOkGb,
                         zSL, zTL, zSC, zOkChromaMaxMag, zValueBlend, zEffShadowDesat,
                         zSS, zTR, zTG, zTB, zWR, zWG, zWB, zWV,
-                        zApplyWash, zAchromaWeight, zOsat, zHasRegL, zRegLlo, zRegLhi);
+                        zApplyWash, zAchromaWeight, zOsat, zHasRegL);
                     // 混色帯(選択境界の AA・にじみ)の解析。境界クリーンアップ ON かつ有彩サンプルのゾーンでは、
                     // 境界の画素を「被覆率ぶんだけ隣の素材の変化を足す」合成の式で塗る(PixelProcessor.Decontam.cs
                     // の AnalyzeMixtureBand)。対象の画素は mixAlpha ≥ 0、色は decontaminatedPixels に入り、

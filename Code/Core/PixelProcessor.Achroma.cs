@@ -23,7 +23,6 @@ namespace Iroca
         // 従来式とバイト不変。不変条件: 単調・順序保存・gain≤1(増幅禁止)。
         private const float AchromaSampleC  = 0.06f;  // sample OkLab chroma がこれ未満で無彩扱い(→1)
         private const float AchromaTargetC  = 0.06f;  // target OkLab chroma がこれ未満で無彩扱い
-        private const float AchromaRangeGain = 1.0f;  // [旧] レンジリマップ出力幅 = 元幅 × min(gain,1)。form 版へ移行。
         // 形(立体感)維持版: 成分の地色基準を target 側 offset に置き、偏差を gain 倍して陰影を知覚可能に拡張。
         // rangeRemap = center + (oL−regLmid)·gain。gain は per-pixel 偏差 (oL−regLmid) を一律に倍すため、
         // 入力 L の**高周波(質感/圧縮ノイズ)まで gain 倍**されブロックノイズになる。害が最大化するのは
