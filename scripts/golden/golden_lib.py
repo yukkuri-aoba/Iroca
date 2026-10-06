@@ -21,6 +21,8 @@ import os
 import re
 import struct
 import subprocess
+import tempfile
+import time
 from pathlib import Path
 
 import numpy as np
@@ -33,6 +35,13 @@ import synth_textures as S
 BUILD_TIMEOUT_S = int(os.environ.get("VACC_HARNESS_BUILD_TIMEOUT", "600"))
 RUN_TIMEOUT_S = int(os.environ.get("VACC_HARNESS_RUN_TIMEOUT", "600"))
 PROBE_TIMEOUT_S = int(os.environ.get("VACC_HARNESS_PROBE_TIMEOUT", "60"))
+
+# ハーネスのビルドはプロセス跨ぎで排他する。pytest の既定（-n 4）では golden の各モジュールと
+# dev_safe の回帰が別ワーカーで同じ csproj を同時にビルドし得て、中間ファイルや出力へコピーする
+# Unity DLL を奪い合うと偽のビルド失敗になる。ロックファイル・待ち上限・「取れなければ進む」規則は
+# dev_safe/Tests/regression/fixtures.py と同じにして、同じロックを共有する。
+_BUILD_LOCK = Path(tempfile.gettempdir()) / "iroca_harness_build.lock"
+_BUILD_LOCK_WAIT_S = 900
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -179,10 +188,32 @@ def env_missing(message: str) -> None:
 
 
 def build_harness() -> tuple[bool, subprocess.CompletedProcess]:
-    r = subprocess.run(
-        ["dotnet", "build", str(HARNESS_CSPROJ), "-c", "Release", "-nologo", "-v", "quiet"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=BUILD_TIMEOUT_S)
+    """dotnet build をプロセス跨ぎのロック下で行う（並列実行時の同時ビルド回避）。
+
+    ロックが取れないまま上限を過ぎたら、取り残しとみなして進む（異常終了したプロセスの
+    ロックでスイート全体が止まる方が害が大きい）。
+    """
+    deadline = time.time() + _BUILD_LOCK_WAIT_S
+    acquired = False
+    while time.time() < deadline:
+        try:
+            fd = os.open(str(_BUILD_LOCK), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+            acquired = True
+            break
+        except FileExistsError:
+            time.sleep(0.5)
+    try:
+        r = subprocess.run(
+            ["dotnet", "build", str(HARNESS_CSPROJ), "-c", "Release", "-nologo", "-v", "quiet"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=BUILD_TIMEOUT_S)
+    finally:
+        if acquired:
+            try:
+                _BUILD_LOCK.unlink()
+            except OSError:
+                pass
     return (r.returncode == 0 and HARNESS_DLL.exists()), r
 
 

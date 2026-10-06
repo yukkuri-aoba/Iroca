@@ -64,7 +64,8 @@ def audit_lines() -> list[str]:
 
     res = subprocess.run(
         ["dotnet", str(G.HARNESS_DLL), "--selkey-audit"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace")
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=G.RUN_TIMEOUT_S)
     if res.returncode != 0:
         pytest.fail(f"--selkey-audit 実行失敗 (exit={res.returncode}):\n{res.stderr}")
     return [ln for ln in res.stdout.splitlines() if ln.startswith("SELKEY ")]
