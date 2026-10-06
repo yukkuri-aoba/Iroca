@@ -193,7 +193,7 @@ namespace Iroca
         public string ActiveTargetName()
         {
             var zones = _host.Session?.zones;
-            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
+            if (IsCommonTarget(zones))
                 return Localization.MaskTargetCommon;
             string raw = zones[activeMaskTarget].name;
             return string.IsNullOrEmpty(raw) ? Localization.UnnamedZone : raw;
@@ -217,6 +217,13 @@ namespace Iroca
         }
 
         /// <summary>
+        /// 編集対象が共通マスクか。-1 と、ゾーン削除などで範囲外になった番号はどちらも共通として扱う。
+        /// zones は呼び出し側で渡す(Session が null のとき共通扱いにするか例外にするかは呼び出し側で決まる)。
+        /// </summary>
+        private bool IsCommonTarget(List<ColorZone> zones)
+            => activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count;
+
+        /// <summary>
         /// レイヤー選択の整合を保つ: 含めるレイヤーはゾーン単位のみなので、編集対象が
         /// 共通マスクのときは除外レイヤーへ戻す(ゾーン削除・対象切替の過渡で不整合になり得る)。
         /// </summary>
@@ -224,7 +231,7 @@ namespace Iroca
         {
             if (!editIncludeLayer) return;
             var zones = _host.Session?.zones;
-            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
+            if (IsCommonTarget(zones))
             {
                 editIncludeLayer = false;
                 maskDirty = true;
@@ -340,7 +347,7 @@ namespace Iroca
         public void DrawLayerKindSelector()
         {
             var zones = _host.Session?.zones;
-            bool commonTarget = activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count;
+            bool commonTarget = IsCommonTarget(zones);
             EnforceLayerConsistency();
             var prevBg = GUI.backgroundColor;
             EditorGUILayout.LabelField(
@@ -549,7 +556,7 @@ namespace Iroca
         public bool[] GetActiveMaskArray()
         {
             var zones = _host.Session.zones;
-            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
+            if (IsCommonTarget(zones))
                 return editIncludeLayer ? null : EnsureCommonMask();
 
             var zone = zones[activeMaskTarget];
@@ -577,7 +584,7 @@ namespace Iroca
         public string ActiveTargetZoneId()
         {
             var zones = _host.Session?.zones;
-            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count) return null;
+            if (IsCommonTarget(zones)) return null;
             var zone = zones[activeMaskTarget];
             zone.EnsureId();
             return zone.id;
@@ -866,7 +873,7 @@ namespace Iroca
         private bool[] OppositeZoneLayer()
         {
             var zones = _host.Session.zones;
-            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count) return null;
+            if (IsCommonTarget(zones)) return null;
             var zone = zones[activeMaskTarget];
             zone.EnsureId();
             var layers = editIncludeLayer ? zoneMasks : zoneIncludeMasks;
@@ -881,7 +888,7 @@ namespace Iroca
         private Texture2D ActiveOverlayTexture(out Color32 paintColor)
         {
             var zones = _host.Session.zones;
-            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
+            if (IsCommonTarget(zones))
             {
                 paintColor = ExcludedOverlayColor;
                 return maskOverlayTexture;
@@ -948,8 +955,7 @@ namespace Iroca
             // 従来アルファ、他は減光(InactiveOverlayAlphaScale)。編集対象は最後に
             // 描いて最前面にする(RenderMaskCoverage は上書き合成のため)。
             var zones = _host.Session.zones;
-            bool commonIsActive = activeMaskTarget < 0
-                || zones == null || activeMaskTarget >= zones.Count;
+            bool commonIsActive = IsCommonTarget(zones);
 
             bool[] commonSnap = null;
             Color32 commonColor = ExcludedOverlayColor;
