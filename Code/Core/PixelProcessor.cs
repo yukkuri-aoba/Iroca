@@ -160,13 +160,8 @@ namespace Iroca
             PreviewParityCache parityCache = null,
             SelectionCache selectionCache = null)
         {
-            ProcessPixelsArrayCore(pixels, w, h, masks, sortedZones,
-                settings.edgeFeather, settings.antiAliasCleanup,
-                settings.holeFillPasses, settings.holeFillMinNeighbors,
-                settings.relaxedSatMin, settings.relaxedSatRamp,
+            ProcessPixelsArrayCore(pixels, w, h, masks, sortedZones, in settings,
                 originX, originY, fullW, fullH, cancellationToken,
-                settings.useDecontamination, settings.decontaminationRadius,
-                DecontaminationInteriorThreshold,
                 debug, parityCache, selectionCache);
         }
 
@@ -176,17 +171,25 @@ namespace Iroca
         private static void ProcessPixelsArrayCore(
             Color32[] pixels, int w, int h,
             MaskSnapshot masks,
-            IList<ColorZone> sortedZones, float edgeFeather, int antiAliasCleanup,
-            int holeFillPasses, int holeFillMinNeighbors,
-            float relaxedSatMin, float relaxedSatRamp,
+            IList<ColorZone> sortedZones,
+            in RecolorSettings settings,
             int originX, int originY, int fullW, int fullH,
             CancellationToken cancellationToken,
-            bool useDecontamination, int decontaminationRadius,
-            float decontaminationInteriorThreshold,
             IDebugCapture debug,
             PreviewParityCache parityCache,
             SelectionCache selectionCache)
         {
+            // 全体設定を同じ名前のローカルへ展開する。in 引数はラムダから参照できないので、
+            // 本体(ラムダを含む)はこのローカルだけを読み、settings は以降参照しない。
+            float edgeFeather = settings.edgeFeather;
+            int antiAliasCleanup = settings.antiAliasCleanup;
+            int holeFillPasses = settings.holeFillPasses;
+            int holeFillMinNeighbors = settings.holeFillMinNeighbors;
+            float relaxedSatMin = settings.relaxedSatMin;
+            float relaxedSatRamp = settings.relaxedSatRamp;
+            bool useDecontamination = settings.useDecontamination;
+            int decontaminationRadius = settings.decontaminationRadius;
+
             // 引数検証。ここが無いと、不正な引数（null / 長さ不足）で Array.Copy が投げたとき
             // 直前に Rent したプール配列（4K で 64MB）が返却されずリークする。Rent は
             // finally が守る try の外にあるため、例外が出るなら Rent の前に出さないといけない
@@ -908,7 +911,7 @@ namespace Iroca
                         // 内部固め(上)が無彩ターゲットの内部を均一化したので、旧 AA フィデリティ修正の
                         // interior_threshold=1.01(全画素 α 再合成)は不要(むしろ内部を背景色で再合成して
                         // 段差を復活させる)。常に通常閾値で AA 縁だけをデコンタミする。
-                        float effInteriorThreshold = decontaminationInteriorThreshold;
+                        float effInteriorThreshold = DecontaminationInteriorThreshold;
                         // 除外マスク画素は strength=0 だが「背景」ではない(サンプル同色の保護パーツで
                         // あり得る)。BG ドナーに入れると推定色がサンプル色で汚染され、マスク境界の外側に
                         // 誤色の点ノイズを塗るため、位置を渡してドナーから隠す(マスク中立化)。
