@@ -219,8 +219,11 @@ namespace Iroca
                     _pendingPrevH            = req.prevH;
                     // プロキシは近似。parityCache 公開・raw キャッシュ確定・debug 公開はフル段に委ねる
                     // (詳細プレビューの正確さを死守し、二重管理を避ける)。
-                    // シーンのアバターにも概要を映す(ドラッグ中の追従。手を止めるとフル段が置き換える)。
-                    LivePreview.Push(req.source, result.processed, req.prevW, req.prevH);
+                    // シーンのアバターに概要を映すのはドラッグ中の追従だけ(手を止めるとフル段が置き換える)。
+                    // 続けてフル段が来るとき(ブラシのストローク・Ctrl+Z などの 1 回きりの操作)は映さない:
+                    // 概要は表示解像度なので、アバターのテクスチャ寸法へ引き伸ばすとフル段が届くまでの
+                    // 一瞬だけ粗く崩れて見える。アバターは前の確定表示のまま、フル段で一度に差し替える。
+                    if (!chainFull) LivePreview.Push(req.source, result.processed, req.prevW, req.prevH);
                     _host.RequestRepaint();
                     // 続けてフル解像度で確定(同一スナップショット)。
                     if (chainFull) ScheduleFullPreview(req);
