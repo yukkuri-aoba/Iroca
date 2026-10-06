@@ -262,6 +262,66 @@ namespace Iroca.EditorTests
             Assert.IsNull(PresetStore.Load(path));
         }
 
+        [Test]
+        public void Preset_MaskViewWritesExcludeAndIncludeEntries()
+        {
+            // マスク画面からプリセットへの書き出し。除外（zoneMasks）と含める（zoneIncludeMasks）を
+            // 取り違えないこと、全 false のマスクは書かないこと。_host は使わない経路なのでホスト無しで呼べる。
+            var exclude = new bool[8]; exclude[1] = true;
+            var include = new bool[8]; include[6] = true; include[7] = true;
+            var view = new MaskPaintView { maskWidth = 4, maskHeight = 2 };
+            view.zoneMasks["z1"] = exclude;
+            view.zoneMasks["z2"] = new bool[8];
+            view.zoneIncludeMasks["z3"] = include;
+
+            var data = new IrocaPresetData();
+            view.WriteToPreset(data);
+
+            Assert.AreEqual("", data.commonMaskBase64, "共通マスクが無ければ書かない");
+            Assert.AreEqual(1, data.zoneMasks.Count, "全 false の z2 は書かない");
+            Assert.AreEqual("z1", data.zoneMasks[0].zoneId);
+            Assert.AreEqual(MaskPaintView.EncodeMask(exclude, 4, 2), data.zoneMasks[0].maskBase64);
+            Assert.AreEqual(1, data.zoneIncludeMasks.Count);
+            Assert.AreEqual("z3", data.zoneIncludeMasks[0].zoneId);
+            Assert.AreEqual(MaskPaintView.EncodeMask(include, 4, 2), data.zoneIncludeMasks[0].maskBase64);
+            Assert.AreEqual(4, data.maskWidth);
+            Assert.AreEqual(2, data.maskHeight);
+
+            // 書いた文字列が元のマスクと寸法に戻ること。
+            CollectionAssert.AreEqual(exclude, MaskPaintView.DecodeMask(data.zoneMasks[0].maskBase64, out int w, out int h));
+            Assert.AreEqual(4, w);
+            Assert.AreEqual(2, h);
+            CollectionAssert.AreEqual(include, MaskPaintView.DecodeMask(data.zoneIncludeMasks[0].maskBase64, out w, out h));
+            Assert.AreEqual(4, w);
+            Assert.AreEqual(2, h);
+        }
+
+        [Test]
+        public void Preset_MaskViewWritesSizeOnlyWithSomeMask()
+        {
+            // 含めるマスクだけでも寸法は載る。何も書かなければ寸法も書かない（0 のまま）。
+            var includeOnly = new MaskPaintView { maskWidth = 4, maskHeight = 2 };
+            var include = new bool[8]; include[0] = true;
+            includeOnly.zoneIncludeMasks["z1"] = include;
+            var data = new IrocaPresetData();
+            includeOnly.WriteToPreset(data);
+            Assert.AreEqual(0, data.zoneMasks.Count);
+            Assert.AreEqual(1, data.zoneIncludeMasks.Count);
+            Assert.AreEqual(4, data.maskWidth);
+            Assert.AreEqual(2, data.maskHeight);
+
+            var allFalse = new MaskPaintView { maskWidth = 4, maskHeight = 2 };
+            allFalse.zoneMasks["z1"] = new bool[8];
+            allFalse.zoneIncludeMasks["z1"] = new bool[8];
+            var none = new IrocaPresetData();
+            allFalse.WriteToPreset(none);
+            Assert.AreEqual("", none.commonMaskBase64);
+            Assert.AreEqual(0, none.zoneMasks.Count);
+            Assert.AreEqual(0, none.zoneIncludeMasks.Count);
+            Assert.AreEqual(0, none.maskWidth);
+            Assert.AreEqual(0, none.maskHeight);
+        }
+
         // 失敗経路は Debug.LogWarning を出す（Unity Test Framework は Warning では落とさないが、
         // 将来 Error に変えたときにテストの意図が「ログを出すこと」ではないと分かるよう明示する）。
         private static void LogAssertIgnore() => UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
