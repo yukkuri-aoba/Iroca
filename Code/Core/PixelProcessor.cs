@@ -168,6 +168,22 @@ namespace Iroca
         // デコンタミの「内部」判定しきい値。ユーザー設定ではない固定値。
         private const float DecontaminationInteriorThreshold = 0.97f;
 
+        // 以下は「複数の箇所で同じ値でなければならない」しきい値。片側だけ変えると bbox 限定のビット不変や
+        // 排他条件が崩れるので、名前で束ねておく。
+        // ガウシアンブラーの半径 = ceil(sigma × これ)。GaussianBlur 本体・後段 bbox の余白・ConstrainBlur の
+        // 半径が同じでないと、bbox の外へ広がったブラーを取りこぼす。
+        private const float GaussianRadiusPerSigma = 2.5f;
+        // edgeFeather がこれを超えたら境界ぼかしを走らせる。後段 bbox の余白・ぼかしの実行条件・
+        // 混色帯モードとの排他(IsMixtureBandZone)が同じ境目でないと、余白にぼかし半径が入らない設定や
+        // ぼかしと混色帯が同時に走る設定が生まれる。
+        private const float EdgeFeatherBlurMin = 0.01f;
+        // 再着色を適用する最小の強度。これ以下の画素は再着色ループが読み飛ばすので、再着色 bbox の
+        // しきい値とデバッグの分岐の写しも同じ値にする(bbox の外を飛ばしてもビット不変になる前提)。
+        private const float RecolorMinStrength = 0.001f;
+        // 無彩パス(achromaWeight)を有効とみなす下限。有彩 × 有彩(weight≈0)では完全 no-op にする境目で、
+        // 内部固め・領域 L の算出・無彩フチ消し・RecolorPixel 内の使用条件が同じ境目でそろう。
+        private const float AchromaWeightActiveMin = 1e-4f;
+
         private static void ProcessPixelsArrayCore(
             Color32[] pixels, int w, int h,
             MaskSnapshot masks,
@@ -656,7 +672,7 @@ namespace Iroca
                     // 出力ビット不変。bbox 内だけを走査することで、小マッチ(ロゴ等)で全 16.8M 画素の
                     // 近傍走査を避ける。Array.Copy/Clear は全画素のまま(memcpy で安価)残し、重い近傍
                     // 走査・relaxed 判定だけを bbox に絞る。マッチ皆無(hasPostBox=false)なら後段は全て no-op。
-                    int ppBlurRadius = edgeFeather > 0.01f ? Mathf.CeilToInt(edgeFeather * 2.5f) : 0;
+                    int ppBlurRadius = edgeFeather > EdgeFeatherBlurMin ? Mathf.CeilToInt(edgeFeather * GaussianRadiusPerSigma) : 0;
                     int ppMargin = holeFillPasses + Mathf.Max(0, antiAliasCleanup) + ppBlurRadius + 2;
                     int ppMinX, ppMinY, ppMaxX, ppMaxY;
                     bool hasPostBox = TryComputeStrengthBBox(strength, w, h, 0f,
@@ -774,7 +790,7 @@ namespace Iroca
 
                     _phaseTicks[PhBoundary] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
-                    if (!selCached && edgeFeather > 0.01f && hasPostBox)
+                    if (!selCached && edgeFeather > EdgeFeatherBlurMin && hasPostBox)
                     {
                         // ガウシアンブラー用の一時バッファ。GaussianBlur 内部の Parallel.For
                         // でキャンセルが入っても preBlur/blurOut が漏れないよう try/finally で囲む。
@@ -792,7 +808,7 @@ namespace Iroca
                                 s_floatPool.Return(strength);
                                 strength = blurOut;
                                 blurOut = null; // 二重返却防止
-                                ConstrainBlur(strength, preBlur, w, h, Mathf.CeilToInt(edgeFeather * 2.5f), cancellationToken);
+                                ConstrainBlur(strength, preBlur, w, h, Mathf.CeilToInt(edgeFeather * GaussianRadiusPerSigma), cancellationToken);
                             }
                         }
                         finally
@@ -874,7 +890,7 @@ namespace Iroca
                     // 強度でなく recolor の achroma レンジリマップ(gain≤1)で表現すべきなので、マッチ領域の
                     // 内部を full strength に固め、AA 縁(侵食で除いた帯)の taper だけ残す。有彩ターゲット
                     // (achromaWeight≈0)では no-op = byte 不変。
-                    if (zAchromaWeight > 1e-4f)
+                    if (zAchromaWeight > AchromaWeightActiveMin)
                         SolidifyAchromaInterior(strength, w, h, zAchromaWeight, cancellationToken);
 
                     _sub.Mark(SpSolidify);
@@ -1043,7 +1059,7 @@ namespace Iroca
                     // 背景よりわずかに暗いだけの明るい対象がベタ黒へ潰れない。null のときは
                     // zRegLmid(全体中央値)へフォールバック。
                     float[] zRegMidMap = null;
-                    if (zAchromaWeight > 1e-4f)
+                    if (zAchromaWeight > AchromaWeightActiveMin)
                     {
                         if (useCachedStats)
                         {
@@ -1101,7 +1117,7 @@ namespace Iroca
                     // (ロゴ等)で OkLab 再着色の per-pixel コストを実マッチ範囲に限定する。bbox 走査は
                     // 軽い比較 1 パスで、recolor の重い per-pixel コスト削減が上回る。
                     // 走査自体は共通の並列 bbox ヘルパへ寄せる(同条件の逐次コピーだった)。
-                    TryComputeStrengthBBox(strengthForRecolor, w, h, 0.001f,
+                    TryComputeStrengthBBox(strengthForRecolor, w, h, RecolorMinStrength,
                         out int rcMinX, out int rcMinY, out int rcMaxX, out int rcMaxY, cancellationToken);
                     _sub.Mark(SpRecolorBBox);
                     // ゾーン不変の再着色パラメータをループ前に 1 回だけ構築(in 渡しで per-pixel コピー回避)。
@@ -1182,7 +1198,7 @@ namespace Iroca
                             // 解析が「素材そのもの」と判定した弱い選択の画素: 全強度で再着色する。
                             if (maRaw >= MixAsMaterial) { s = 1f; maRaw = -1f; }
                             bool mix = maRaw >= 0f;
-                            if (s <= 0.001f && !mix) continue;
+                            if (s <= RecolorMinStrength && !mix) continue;
                             // 上位(リスト上位)ゾーンが既に占有した分を差し引いた実効強度 es。
                             // 残り(room)が無ければこのゾーンは適用しない(= 上位が排他)。
                             float room = 1f - claimedLocal[i];
@@ -1265,7 +1281,7 @@ namespace Iroca
                     // 背景より明るい混色画素を α 分解で背景へ寄せ、暗い再着色色に対する明るいフチを消す。
                     // 有彩(zAchromaWeight≈0)では呼ばれず完全 no-op。共有のマッチ/合成経路は変更しない。
                     // 混色帯の解析が走ったゾーン(有彩サンプル)では、外側の縁もそちらが合成の式で塗り終えている。
-                    if (zAchromaWeight > 1e-4f && rcMaxX >= 0 && mixAlphaLocal == null)
+                    if (zAchromaWeight > AchromaWeightActiveMin && rcMaxX >= 0 && mixAlphaLocal == null)
                     {
                         // 除外マスク画素の位置をフチ消しへ渡す。渡さないとフチ消しは
                         //   (a) 除外画素を BG ドナーに数えて BG 推定をサンプル色で汚染し
@@ -1325,7 +1341,7 @@ namespace Iroca
                                     return;
                                 }
                             }
-                            if (strengthForRecolor[i] <= 0.001f)
+                            if (strengthForRecolor[i] <= RecolorMinStrength)
                             {
                                 branchMap[i] = (byte)DebugBranch.None;
                                 return;

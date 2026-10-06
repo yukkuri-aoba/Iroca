@@ -112,7 +112,7 @@ namespace Iroca
             int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1,
             CancellationToken ct = default)
         {
-            int radius = Mathf.CeilToInt(sigma * 2.5f);
+            int radius = Mathf.CeilToInt(sigma * GaussianRadiusPerSigma);
             if (radius < 1) return false;
 
             float[] kernel = new float[radius * 2 + 1];

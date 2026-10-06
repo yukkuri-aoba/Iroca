@@ -386,7 +386,7 @@ namespace Iroca
                 // 無彩パス: 無彩サンプルでは oC/sC が微小彩度ノイズを増幅(脚色)。uniform target 彩度
                 // (osat, oC 非依存)へ achromaWeight でフェードし増幅を止める。weight=0 で従来式。
                 // weight=1 で mag=osat = okGray 経路(na=zTa·osat)と一致する。
-                if (achromaWeight > 1e-4f)
+                if (achromaWeight > AchromaWeightActiveMin)
                     mag = mag * (1f - achromaWeight) + osat * achromaWeight;
                 na = mag * okTa;
                 nb = mag * okTb;
@@ -428,7 +428,7 @@ namespace Iroca
             // (2区間リマップ・彩度ゲートを迂回)。白い地色→黒のような無彩変換で、彩度ゲートが白を明るく
             // 残して起きる「まだら」と、2区間リマップの明度崩壊を直す。
             // weight=0(有彩×有彩)では完全 no-op=バイト不変。
-            if (achromaWeight > 1e-4f && hasRegL)
+            if (achromaWeight > AchromaWeightActiveMin && hasRegL)
             {
                 // 形(立体感)維持: 領域の地色基準を target の明度(center)に置き、基準からの
                 // 偏差を AchromaFormGain 倍して陰影を知覚可能な大きさへ拡張する。暗部は 0 へ、明部は

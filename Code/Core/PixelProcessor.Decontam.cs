@@ -589,7 +589,7 @@ namespace Iroca
         /// </summary>
         private static bool IsMixtureBandZone(ColorZone zone, bool useDecontamination, float edgeFeather)
         {
-            if (!useDecontamination || zone.mode != SelectionMode.ColorPick || edgeFeather > 0.01f) return false;
+            if (!useDecontamination || zone.mode != SelectionMode.ColorPick || edgeFeather > EdgeFeatherBlurMin) return false;
             Color.RGBToHSV(zone.sampleColor, out _, out float sS, out float sV);
             if (sS <= ColorZone.GrayModeEffectiveChromaThreshold(sV, zone.chromaThreshold)) return false;
             return ChromaSq(MostChromaticSample(zone)) * (255f * 255f) >= MixMinChroma * MixMinChroma;
