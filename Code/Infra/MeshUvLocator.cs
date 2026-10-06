@@ -129,7 +129,7 @@ namespace Iroca
             string path = AssetDatabase.GetAssetPath(texture);
             if (string.IsNullOrEmpty(path)) return set;
             string dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
-            string stem = Path.GetFileNameWithoutExtension(path) + "_recolored";
+            string stem = Path.GetFileNameWithoutExtension(path) + PathUtils.RecoloredSuffix;
             if (string.IsNullOrEmpty(dir)) return set;
             foreach (var guid in AssetDatabase.FindAssets(stem + " t:Texture2D", new[] { dir }))
             {
@@ -211,7 +211,7 @@ namespace Iroca
             string path = AssetDatabase.GetAssetPath(tex2d);
             if (string.IsNullOrEmpty(path)) return null;
             string name = Path.GetFileNameWithoutExtension(path);
-            int cut = name.IndexOf("_recolored", System.StringComparison.Ordinal);
+            int cut = name.IndexOf(PathUtils.RecoloredSuffix, System.StringComparison.Ordinal);
             if (cut <= 0) return tex2d;
             string stem = name.Substring(0, cut);
             string dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
@@ -242,7 +242,7 @@ namespace Iroca
                 if (t == null) continue;
                 bool hit = targets.Contains(t)
                     || (nameStem != null && (t.name == nameStem
-                        || t.name.StartsWith(nameStem + "_recolored", System.StringComparison.Ordinal)));
+                        || t.name.StartsWith(nameStem + PathUtils.RecoloredSuffix, System.StringComparison.Ordinal)));
                 if (hit) { property = p; return true; }
             }
             return false;

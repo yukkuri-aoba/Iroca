@@ -87,5 +87,12 @@ namespace Iroca
                 name = "_" + name;
             return name;
         }
+
+        /// <summary>
+        /// いろかの書き出し名の接尾辞（&lt;元の名前&gt;_recolored.png）。書き出し（ExportPipeline / ExportView）と、
+        /// 書き出し物から元へ辿る探索（MeshUvLocator）が共有する。片側だけ変えると非破壊登録やメッシュ探索が
+        /// 黙って外れるため 1 か所に置く。表示文言（Localization・NdmfMessages）にも同じ綴りがある。
+        /// </summary>
+        internal const string RecoloredSuffix = "_recolored";
     }
 }

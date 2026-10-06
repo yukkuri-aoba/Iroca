@@ -43,7 +43,7 @@ namespace Iroca
         /// <summary>一括書き出しの出力先（元と同じフォルダの &lt;元の名前&gt;_recolored.png）。</summary>
         public static string BatchOutputPath(string srcPath)
             => Path.Combine(Path.GetDirectoryName(srcPath),
-                            Path.GetFileNameWithoutExtension(srcPath) + "_recolored.png");
+                            Path.GetFileNameWithoutExtension(srcPath) + PathUtils.RecoloredSuffix + ".png");
 
         /// <summary>
         /// 原本の画素を読む（メインスレッド専用）。PNG/JPG はファイルを直接デコードするので

@@ -191,7 +191,7 @@ namespace Iroca
 
         public void SetSourceTextureBaseName(string baseNameWithoutExtension)
         {
-            newFileName = baseNameWithoutExtension + "_recolored";
+            newFileName = baseNameWithoutExtension + PathUtils.RecoloredSuffix;
         }
 
         private const float PrimaryButtonHeight = 32f;
