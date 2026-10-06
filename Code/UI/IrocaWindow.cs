@@ -149,6 +149,10 @@ namespace Iroca
         private float relaxedSatMin { get => _session.relaxedSatMin; set => _session.relaxedSatMin = value; }
         private float relaxedSatRamp { get => _session.relaxedSatRamp; set => _session.relaxedSatRamp = value; }
 
+        // ShowWindow が確保する既定サイズ（内訳は ShowWindow 内のコメント参照）。
+        private const float DefaultWindowWidth = IrocaConsts.Layout.LeftColumnMin + IrocaConsts.Layout.PreviewColumnReserve; // 320 + 408 = 728
+        private const float DefaultWindowHeight = 786f; // 実測値
+
         [MenuItem(IrocaConsts.MenuPath, priority = 100)]
         public static void ShowWindow()
         {
@@ -168,8 +172,8 @@ namespace Iroca
             //          (新規保存 ON のファイル名行込み)を積んでも、等倍(100%)の
             //          MaxSize(384)px プレビューが縦スクロールバーなしで収まる高さ
             //          (実測で数十 px の余裕。設定列を見渡せるぶんとして残す)。
-            if (window.position.width < 728 || window.position.height < 786)
-                window.position = new Rect(window.position.x, window.position.y, 728, 786);
+            if (window.position.width < DefaultWindowWidth || window.position.height < DefaultWindowHeight)
+                window.position = new Rect(window.position.x, window.position.y, DefaultWindowWidth, DefaultWindowHeight);
         }
 
         /// <summary>
