@@ -286,25 +286,18 @@ namespace Iroca
             EditorGUILayout.BeginHorizontal();
             using (new EditorGUI.DisabledScope(!canSample))
             {
-                var prevBg = GUI.backgroundColor;
-                if (armed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
                 var content = new GUIContent(
                     armed ? Localization.StartWithEyedropperActive
                           : first ? Localization.StartWithEyedropper : Localization.AddColorWithEyedropper,
                     Localization.StartWithEyedropperTooltip);
-                // 武装は出力を変えないので、ボタンが立てる GUI.changed を押す前の値へ戻す。
-                // 設定列は ChangeCheck で囲まれており、立ったままだと押すたびにプレビューを再生成していた。
-                bool prevChanged = GUI.changed;
                 // MinWidth(0): 狭い設定列でも右の「+ 空のゾーン」を押し出さず、こちらが縮む。
-                if (GUILayout.Button(content, height, GUILayout.MinWidth(0), GUILayout.ExpandWidth(true)))
+                if (ArmedToggleButton(content, armed, height, GUILayout.MinWidth(0), GUILayout.ExpandWidth(true)))
                 {
                     // トグル: 武装↔解除。シード指定と排他（どちらもプレビューの素のクリックを取る）。
                     EyedropperZoneId = armed ? null : NewZoneEyedropperId;
                     if (!armed) SeedPickZoneId = null;
                     Repaint();
                 }
-                GUI.changed = prevChanged;
-                GUI.backgroundColor = prevBg;
             }
 
             if (GUILayout.Button(new GUIContent(Localization.AddZone, Localization.AddZoneTooltip),
@@ -314,6 +307,24 @@ namespace Iroca
                 Repaint();
             }
             EditorGUILayout.EndHorizontal();
+        }
+
+        /// <summary>
+        /// 武装トグルボタン（色の追加・ゾーンのスポイト・シード指定）。武装中は背景を強調色にし、押されたら true を返す。
+        /// 武装は出力を変えないので、ボタンが立てる GUI.changed を押す前の値へ戻す。
+        /// 設定列は ChangeCheck で囲まれており、立ったままだと押すたびにプレビューを再生成していた。
+        /// 押されたときの処理（武装 id の付け替え・Repaint）は GUI.changed にも背景色にも触れないので、
+        /// 戻した後に呼び出し側で行う。DisabledScope は呼び出し側に置く。
+        /// </summary>
+        private static bool ArmedToggleButton(GUIContent content, bool armed, params GUILayoutOption[] options)
+        {
+            var prevBg = GUI.backgroundColor;
+            if (armed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
+            bool prevChanged = GUI.changed;
+            bool clicked = GUILayout.Button(content, options);
+            GUI.changed = prevChanged;
+            GUI.backgroundColor = prevBg;
+            return clicked;
         }
 
         // 1 ゾーン分のカード（ヘッダ行＋採色/変更先＋自動調整＋許容範囲＋模様保持/出力彩度＋
@@ -434,11 +445,7 @@ namespace Iroca
                 bool armed = !string.IsNullOrEmpty(zone.id) && EyedropperZoneId == zone.id;
                 using (new EditorGUI.DisabledScope(!canSample))
                 {
-                    var prevBg = GUI.backgroundColor;
-                    if (armed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
-                    // 武装は出力を変えないので GUI.changed を戻す（DrawAddColorRow と同じ）。
-                    bool prevChanged = GUI.changed;
-                    if (GUILayout.Button(armed ? s_eyedropperActiveContent : s_eyedropperIdleContent,
+                    if (ArmedToggleButton(armed ? s_eyedropperActiveContent : s_eyedropperIdleContent, armed,
                         GUILayout.Width(IrocaConsts.Layout.EyedropperButtonWidth)))
                     {
                         // トグル：武装↔解除。武装は id で保持し、並べ替え・削除で別ゾーンを指さないようにする
@@ -449,8 +456,6 @@ namespace Iroca
                         if (!armed) SeedPickZoneId = null;
                         Repaint();
                     }
-                    GUI.changed = prevChanged;
-                    GUI.backgroundColor = prevBg;
                 }
             }
             EditorGUILayout.EndHorizontal();
@@ -584,11 +589,7 @@ namespace Iroca
                     // 先頭の該当ゾーン」と暗黙に選ぶため、どのゾーンへ入るかが画面から読めなかった。
                     {
                         bool seedArmed = !string.IsNullOrEmpty(zone.id) && SeedPickZoneId == zone.id;
-                        var prevSeedBg = GUI.backgroundColor;
-                        if (seedArmed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
-                        // 武装は出力を変えないので GUI.changed を戻す（DrawAddColorRow と同じ）。
-                        bool prevChanged = GUI.changed;
-                        if (GUILayout.Button(seedArmed ? s_seedPickActiveContent : s_seedPickIdleContent,
+                        if (ArmedToggleButton(seedArmed ? s_seedPickActiveContent : s_seedPickIdleContent, seedArmed,
                                 GUILayout.MinWidth(0)))
                         {
                             zone.EnsureId();
@@ -597,8 +598,6 @@ namespace Iroca
                             if (!seedArmed) EyedropperZoneId = null;
                             Repaint();
                         }
-                        GUI.changed = prevChanged;
-                        GUI.backgroundColor = prevSeedBg;
                     }
 
                     using (new EditorGUI.DisabledScope(zone.seedUV.x < 0f))
