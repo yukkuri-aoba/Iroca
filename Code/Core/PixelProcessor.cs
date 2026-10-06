@@ -1419,9 +1419,9 @@ namespace Iroca
         }
 
         /// <summary>256bin ヒストグラムの percentile(0..1) を実値で返す(値域 [0, scale])。
-        /// HighlightSampleCorrector.PercentileFromHist の値域一般化版。線形補間の percentile に対し
+        /// bin→値は b/(Length-1)·scale(256bin なら b/255·scale)。線形補間の percentile に対し
         /// 最大 1bin(scale/255)の離散化差を許容する(auto_wash_sample の前例に従う)。</summary>
-        private static float HistValueAtPercentile(int[] hist, int total, float pct, float scale)
+        internal static float HistValueAtPercentile(int[] hist, int total, float pct, float scale)
         {
             int target = Mathf.Clamp(Mathf.CeilToInt(total * pct), 1, total);
             int cum = 0;

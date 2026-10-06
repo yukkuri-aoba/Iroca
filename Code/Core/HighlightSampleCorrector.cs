@@ -23,6 +23,7 @@ namespace Iroca
         private const float HueBand        = 0.15f;  // 同色相とみなす色相帯(許容値非依存の緩め)
         private const float HighlightGatePct = 0.75f; // スポイトVが地色Vのこのpercentileより上のときだけ補正
         private const float TargetPct        = 0.60f; // 補正時の washV = 地色Vのこのpercentile(上位~40%だけ白寄せ)
+        private const int   MinBodyPixels    = 100;   // 地色画素がこれ未満なら補正しない(PixelProcessor.AnchorMinPixels と同基準)
 
         /// <summary>
         /// wash 用サンプル色を返す。autoHighlightSample=false / 低彩度源色 / 地色画素が少ない場合は
@@ -63,33 +64,18 @@ namespace Iroca
                 }
                 return n;
             });
-            if (body < 100) return sample;
+            if (body < MinBodyPixels) return sample;
 
             // スポイトが地色帯の高 percentile より上＝明らかにハイライトを取った時だけ補正する。
             // 地色帯内のスポイト(ハイライトでない)は補正しない＝房の多いテクスチャ等での過剰白寄せを防ぐ。
-            float gateV = PercentileFromHist(vHist, body, HighlightGatePct);
+            float gateV = PixelProcessor.HistValueAtPercentile(vHist, body, HighlightGatePct, 1f);
             if (sV <= gateV) return sample;
 
             // 補正時の wash しきい(washV)= 地色帯上部(TargetPct)。中央値まで下げない(=上位~40%だけ白寄せ)。
-            float targetV = PercentileFromHist(vHist, body, TargetPct);
+            float targetV = PixelProcessor.HistValueAtPercentile(vHist, body, TargetPct, 1f);
             float effV = Mathf.Min(sV, targetV);
             float scale = effV / Mathf.Max(sV, 1e-6f);
             return new Color(sample.r * scale, sample.g * scale, sample.b * scale, 1f);
-        }
-
-        /// <summary>V ヒストグラムの percentile(0..1) を 0..1 の V で返す。
-        /// bin→値マッピングは HistValueAtPercentile と同一規約(b/(Length-1))。
-        /// 256bin では従来の b/255f と一致し、将来 bin 数を変えても両者が揃う。</summary>
-        private static float PercentileFromHist(int[] hist, int total, float pct)
-        {
-            int target = Mathf.Clamp(Mathf.CeilToInt(total * pct), 1, total);
-            int cum = 0;
-            for (int b = 0; b < hist.Length; b++)
-            {
-                cum += hist[b];
-                if (cum >= target) return b / (float)(hist.Length - 1);
-            }
-            return 1f;
         }
     }
 }
