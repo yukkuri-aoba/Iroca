@@ -356,7 +356,7 @@ namespace Iroca
             if (!MaskSuggestSetupPrompt.Ready)
             {
                 ShowNotification(new GUIContent(Localization.AutoTuneNeedsAi));
-                MaskSuggestSetupPrompt.PromptIfNeeded(force: true);
+                MaskSuggestSetupPrompt.PromptIfNeeded();
                 return EvidenceStart.Unavailable;
             }
             if (!trueSource || _maskView == null || _previewView == null || _maskView.SuggestController == null)
@@ -412,7 +412,7 @@ namespace Iroca
                         : Localization.AutoTuneNeedsAi;
                     AbortEvidenceWait(why);
                     if (svc == null || svc.Phase == MaskSuggestPhase.NoModel)
-                        MaskSuggestSetupPrompt.PromptIfNeeded(force: true);
+                        MaskSuggestSetupPrompt.PromptIfNeeded();
                     return false;
                 }
             }
