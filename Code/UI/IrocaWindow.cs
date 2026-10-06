@@ -8,10 +8,14 @@ using UnityEngine;
 namespace Iroca
 {
     // いろか メインウィンドウ。責務別に partial ファイルへ分割している:
-    //   IrocaWindow.cs          … 本体(横断フィールド・ライフサイクル・共通ヘルパー)
-    //   IrocaWindow.Layout.cs   … OnGUI とレイアウト/セクション描画
-    //   IrocaWindow.ZoneList.cs … ゾーンリストの描画・並べ替え・遅延ミューテーション
-    //   IrocaWindow.AutoTune.cs … 自動調整(ZoneAutoTuner)連携
+    //   IrocaWindow.cs            … 本体(横断フィールド・ライフサイクル・共通ヘルパー)
+    //   IrocaWindow.Layout.cs     … OnGUI とレイアウト/セクション描画
+    //   IrocaWindow.ZoneList.cs   … ゾーンリストの描画・並べ替え・遅延ミューテーション
+    //   IrocaWindow.AutoTune.cs   … 自動調整(ZoneAutoTuner)連携
+    //   IrocaWindow.Recipe.cs     … 非破壊(NDMF)レシピとの結び付け・アバターへの登録・
+    //                               シーンのライブプレビューへの通知
+    //   IrocaWindow.SceneClick.cs … Scene でモデルをクリックした場所をプレビューで示す
+    //   IrocaWindow.Autosave.cs   … 編集内容の自動保存
     public partial class IrocaWindow : EditorWindow, IHasCustomMenu
     {
         // [SerializeField] を付けることで、スクリプト再コンパイル時に Unity が

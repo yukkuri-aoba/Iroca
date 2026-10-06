@@ -272,10 +272,11 @@ namespace Iroca
                 position.width * IrocaConsts.Layout.LeftColumnRatio,
                 IrocaConsts.Layout.LeftColumnMin,
                 IrocaConsts.Layout.LeftColumnMax);
-            // 等倍(100%)プレビューがバー無しで収まる幅を右カラムへ優先確保する。
-            // 比率どおりだと既定ウィンドウ幅(800)で右カラムが 512px 画像に ~32px 届かず
-            // 横スクロールバーが常時出るため、左カラムが下限(LeftColumnMin)までの範囲で譲る。
-            // 下限は既に狭いウィンドウで常用される幅なので設定 UI は崩れない。
+            // 等倍(100%)プレビューがバー無しで収まる幅(PreviewColumnReserve)を右カラムへ優先確保し、
+            // 左カラムは下限(LeftColumnMin)までの範囲で譲る。現行の定数(比率 0.4・下限 320・
+            // 上限 450・予約 408)では補正の前後で幅は変わらない(幅 728 未満は下限 320 が勝ち、
+            // 728 以上は Clamp 済みの幅のままで予約が残る)。Preview.MaxSize や比率を変えたときの
+            // 保険として残す。下限は既に狭いウィンドウで常用される幅なので設定 UI は崩れない。
             leftWidth = Mathf.Max(IrocaConsts.Layout.LeftColumnMin,
                 Mathf.Min(leftWidth, position.width - IrocaConsts.Layout.PreviewColumnReserve));
             EditorGUILayout.BeginVertical(GUILayout.Width(leftWidth));

@@ -160,7 +160,7 @@ namespace Iroca
             ? "境界の画素について、パーツの色と背景の色を探す近傍の半径。\n小さい = シャープな境界に対応、大きい = ノイズの多い背景に対応\n標準: 4"
             : "Radius searched around a boundary pixel for the part's color and the background color.\nSmaller = sharper boundaries, larger = noisier backgrounds\nDefault: 4";
 
-        // ゾーンカード内の詳細パラメータ折りたたみ見出し（通常モードで既定畳む）。
+        // ゾーンカード内の詳細パラメータ折りたたみ見出し（既定で畳む）。
         public static string ZoneDetailFoldout => IsJapanese ? "詳細設定" : "Details";
         public static string ZoneDetailFoldoutTooltip => IsJapanese
             ? "連続領域モード・彩度制限・ハイライト・暗部などの詳細パラメータを開閉します。通常は自動調整に任せて閉じたままで構いません。"
@@ -615,7 +615,7 @@ namespace Iroca
 
         public static string AiSuggest => IsJapanese ? "AI マスク提案（実験的）" : "AI Mask Suggestion (Experimental)";
         public static string AiSuggestInstallSentis => IsJapanese ? "AI 機能を有効化（Sentis を導入）" : "Enable AI feature (install Sentis)";
-        // 起動時の準備ダイアログ(MaskSuggestSetupPrompt)。
+        // AI の準備を求めるダイアログ(MaskSuggestSetupPrompt。自動調整を押したのに AI が無いときに出る)。
         public static string AiSetupTitle => IsJapanese ? "いろか — AI の準備" : "Iroca — AI setup";
         public static string AiSetupSentisBody => IsJapanese
             ? "自動調整と AI マスク提案には、Unity Sentis {0} と AI モデル（約 44 MB）が必要です。\n\n今すぐ Sentis を Package Manager から導入しますか？\n導入後に Unity が再コンパイルし、続けて AI モデルのダウンロードを案内します。\n\n「あとで」を選ぶと自動調整は使えません（ウィンドウ上部の案内からいつでも導入できます）。"
