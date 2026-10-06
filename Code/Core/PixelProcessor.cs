@@ -623,22 +623,7 @@ namespace Iroca
                             // 転写(parityCache)・次回の選択キャッシュ復元(keepBitsForCache)の両方に使う。
                             if (parityCache != null || selectionCache != null)
                             {
-                                // 64 画素ごとの語は互いに独立なので、語のまとまりごとに並列で作る(出力ビット不変)。
-                                int nWords = (len + 63) >> 6;
-                                var keepBits = new ulong[nWords];
-                                var keepSrc = strength;
-                                Parallel.For(0, (nWords + 1023) >> 10, po, c =>
-                                {
-                                    int w0 = c << 10, w1 = Math.Min(nWords, w0 + 1024);
-                                    for (int wi = w0; wi < w1; wi++)
-                                    {
-                                        int b = wi << 6, e = Math.Min(len, b + 64);
-                                        ulong bits = 0UL;
-                                        for (int i = b; i < e; i++)
-                                            if (keepSrc[i] > 0f) bits |= 1UL << (i - b);
-                                        keepBits[wi] = bits;
-                                    }
-                                });
+                                var keepBits = PackPositiveBits(strength, len, po);
                                 _sub.Mark(SpFfKeepBits);
                                 keepBitsForCache = keepBits;
                                 if (parityCache != null)
@@ -1508,6 +1493,31 @@ namespace Iroca
                     if (included[i]) strength[i] = 1f;
                 }
             });
+        }
+
+        /// <summary>
+        /// src[0..len) のうち値が正(&gt; 0)の画素のビットを立てた ulong 配列(64 画素で 1 語、
+        /// 画素 i は語 i &gt;&gt; 6 のビット i &amp; 63)を返す。フル画像で解いた keep(strength&gt;0)を
+        /// パリティキャッシュ・選択キャッシュへ渡すときに使う。
+        /// </summary>
+        private static ulong[] PackPositiveBits(float[] src, int len, ParallelOptions po)
+        {
+            // 64 画素ごとの語は互いに独立なので、語のまとまりごとに並列で作る(出力ビット不変)。
+            int nWords = (len + 63) >> 6;
+            var keepBits = new ulong[nWords];
+            Parallel.For(0, (nWords + 1023) >> 10, po, c =>
+            {
+                int w0 = c << 10, w1 = Math.Min(nWords, w0 + 1024);
+                for (int wi = w0; wi < w1; wi++)
+                {
+                    int b = wi << 6, e = Math.Min(len, b + 64);
+                    ulong bits = 0UL;
+                    for (int i = b; i < e; i++)
+                        if (src[i] > 0f) bits |= 1UL << (i - b);
+                    keepBits[wi] = bits;
+                }
+            });
+            return keepBits;
         }
 
         /// <summary>
