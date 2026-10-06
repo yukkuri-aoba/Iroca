@@ -253,13 +253,6 @@ namespace Iroca
             maskDirty = true;
         }
 
-        private static bool AnyTrue(bool[] arr)
-        {
-            if (arr == null) return false;
-            for (int i = 0; i < arr.Length; i++) if (arr[i]) return true;
-            return false;
-        }
-
         /// <summary>
         /// bool 配列を RLE 圧縮 + Base64 文字列にエンコード(実体は Core の MaskRle)。
         /// </summary>
@@ -326,7 +319,7 @@ namespace Iroca
 
             bool includedAnything = false;
 
-            if (exclusionMask != null && AnyTrue(exclusionMask))
+            if (exclusionMask != null && MaskSnapshot.AnyTrue(exclusionMask))
             {
                 data.commonMaskBase64 = EncodeMask(exclusionMask, maskWidth, maskHeight);
                 includedAnything = true;
@@ -334,7 +327,7 @@ namespace Iroca
 
             foreach (var kv in zoneMasks)
             {
-                if (kv.Value == null || !AnyTrue(kv.Value)) continue;
+                if (kv.Value == null || !MaskSnapshot.AnyTrue(kv.Value)) continue;
                 data.zoneMasks.Add(new ZoneMaskEntry
                 {
                     zoneId = kv.Key,
@@ -345,7 +338,7 @@ namespace Iroca
 
             foreach (var kv in zoneIncludeMasks)
             {
-                if (kv.Value == null || !AnyTrue(kv.Value)) continue;
+                if (kv.Value == null || !MaskSnapshot.AnyTrue(kv.Value)) continue;
                 data.zoneIncludeMasks.Add(new ZoneMaskEntry
                 {
                     zoneId = kv.Key,
