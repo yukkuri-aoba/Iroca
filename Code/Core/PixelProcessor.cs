@@ -344,6 +344,10 @@ namespace Iroca
                 float[] regMidMapRented = null;   // 成分中央値の地図をプールから借りたとき(ゾーンの終わりに返す)
                 try
                 {
+                    // サンプル色の HSV(ゾーン内で不変。彩度天井ゲート・別パーツの色相幅・緩和マッチ・
+                    // 中性リジェクト・再着色パラメータが同じ値を使う)。
+                    Color.RGBToHSV(zone.sampleColor, out float sampH, out float sampS, out float sampV);
+
                     // フル画像経路(メインプレビュー/Apply/Export)か部分クロップ(詳細プレビュー)か。
                     // 大域統計(連結成分/再着色アンカー/wash/領域L)はフル画像でしか正しく解けないので、
                     // フル画像では解いてキャッシュへ書き、クロップではキャッシュを転写する。
@@ -479,8 +483,7 @@ namespace Iroca
                         // 設定できないが、enum は public でシリアライズ対象＝旧プリセット JSON から到達し得る。
                         if (zone.mode == SelectionMode.ColorPick)
                         {
-                            Color.RGBToHSV(zone.sampleColor, out _, out float cgSS, out float cgSV);
-                            ApplyChromaCeilingGate(strength, matchConf, pixS, cgSS, cgSV,
+                            ApplyChromaCeilingGate(strength, matchConf, pixS, sampS, sampV,
                                 zone.chromaThreshold, zone.chromaCeiling, w, h, cancellationToken);
                                 _sub.Mark(SpChromaCeiling);
                             // 中性ツヤ復帰(グレーモード以外では内部で no-op): 彩度整合ゲートが純白
@@ -489,7 +492,7 @@ namespace Iroca
                             // (部分クロップではクロップ境界に接した閉領域を開領域と誤判定するため)。
                             if (isFullImagePath)
                                 RecoverEnclosedNeutral(strength, matchConf, pixS, originalPixels,
-                                    zone.sampleColor, zone.tolerance, cgSS, cgSV,
+                                    zone.sampleColor, zone.tolerance, sampS, sampV,
                                     zone.chromaThreshold, w, h, cancellationToken);
                         }
                         _sub.Mark(SpEnclosedNeutral);
@@ -586,9 +589,8 @@ namespace Iroca
                                 seedY = Mathf.Clamp(Mathf.RoundToInt(zone.seedUV.y * (h - 1)), 0, h - 1);
                             }
                             // 別パーツの色相幅は有彩サンプルでだけ意味を持つ(グレーモードの色相は不定)。
-                            Color.RGBToHSV(zone.sampleColor, out float ffSH, out float ffSS, out float ffSV);
                             float ffHueBand =
-                                ffSS > ColorZone.GrayModeEffectiveChromaThreshold(ffSV, zone.chromaThreshold)
+                                sampS > ColorZone.GrayModeEffectiveChromaThreshold(sampV, zone.chromaThreshold)
                                     ? zone.partHueBand : 0f;
                             // スポイト位置を含む成分は、色の包絡ゲートで落とさない(クリックした場所を残す)。
                             int anchorX = -1, anchorY = -1;
@@ -597,7 +599,7 @@ namespace Iroca
                                     out anchorX, out anchorY);
                             ApplyConnectedComponentMask(strength, matchConf, originalPixels, w, h, seedX, seedY,
                                 pixV, zone.shadowValueFloor, pixS, zone.partSatCeiling,
-                                pixH, ffHueBand, ffSH, ffSS * ColorZone.HueReliableSatFrac,
+                                pixH, ffHueBand, sampH, sampS * ColorZone.HueReliableSatFrac,
                                 anchorX, anchorY, cancellationToken);
                                 _sub.Mark(SpFfComponents);
                             // フル画像で解いた keep(=残った画素 strength>0)を作り、詳細プレビュー(クロップ)へ
@@ -679,10 +681,9 @@ namespace Iroca
                     // chromaConfidence と sample RGB。低彩度サンプル(白/灰)で同色相の高彩度色を弾き、
                     // 境界回復が無関係な色を周囲へスピルさせる(対象の縁に別色のハローが出る)のを防ぐ。
                     // 有彩は cc≈1 で従来式。
-                    Color.RGBToHSV(zone.sampleColor, out float gsH, out float gsS, out float gsV);
                     float relaxedChromaConf = Mathf.Min(
-                        Mathf.Clamp01((gsS - zone.chromaThreshold) / 0.10f),
-                        Mathf.Clamp01((gsV - 0.05f) / 0.15f));
+                        Mathf.Clamp01((sampS - zone.chromaThreshold) / 0.10f),
+                        Mathf.Clamp01((sampV - 0.05f) / 0.15f));
                     float rgSampR = zone.sampleColor.r, rgSampG = zone.sampleColor.g, rgSampB = zone.sampleColor.b;
                     // 緩和マッチ(穴埋めの許可判定と境界回復が同じ引数で呼ぶ)は色だけで決まるので、
                     // 色の表があれば色ごとに 1 回だけ求めて両方で使う(ビット単位で同じ)。
@@ -700,7 +701,7 @@ namespace Iroca
                             {
                                 Color32 hop = rCol[k];
                                 outRel[k] = GetRelaxedMatchStrength(
-                                    rH[k], rS[k], rV[k], gsH, gsS, gsV,
+                                    rH[k], rS[k], rV[k], sampH, sampS, sampV,
                                     zone.tolerance, zone.edgeSoftness, zone.valueWeight,
                                     zone.satDistWeight, relaxedSatMin,
                                     hop.r / 255f, hop.g / 255f, hop.b / 255f,
@@ -735,7 +736,7 @@ namespace Iroca
                                     int i = rowOff + x;
                                     Color32 hop = originalPixels[i];
                                     fillAllowedLocal[i] = GetRelaxedMatchStrength(
-                                        pixH[i], pixS[i], pixV[i], gsH, gsS, gsV,
+                                        pixH[i], pixS[i], pixV[i], sampH, sampS, sampV,
                                         zone.tolerance, zone.edgeSoftness, zone.valueWeight,
                                         zone.satDistWeight, relaxedSatMin,
                                         hop.r / 255f, hop.g / 255f, hop.b / 255f,
@@ -854,8 +855,6 @@ namespace Iroca
                     // 無彩サンプル/極端無彩ターゲットの重み(無彩パスと AA フィデリティ修正で共用)。
                     _sub.Mark(SpSelCacheStore);
                     float zAchromaWeight = ComputeAchromaWeight(zone.sampleColor, zone.targetColor);
-                    // sample の S/V (wash ゲート・デバッグ分岐・下の中性リジェクトで共用)。
-                    Color.RGBToHSV(zone.sampleColor, out _, out float zSS, out float zSV);
 
                     // 有彩サンプル→無彩ターゲット(有彩色→白/黒/灰)の過選択除去。有彩サンプルはマッチ距離が
                     // hue 支配になり彩度差を過小評価するため、明るい中性画素(白UV背景等)を巻き込む
@@ -867,9 +866,9 @@ namespace Iroca
                     // 発動させる。ComputeAchromaWeight の extremeness では中明度グレーで重みが落ち白背景が
                     // 灰色化する)。有彩→有彩(weight≈0)・低彩度サンプル(sS<床)では作動しない=従来挙動を完全維持。
                     float zAchromaSelectWeight = ComputeAchromaSelectWeight(zone.sampleColor, zone.targetColor);
-                    if (zAchromaSelectWeight > AchromaNeutralRejectWeightMin && zSS >= NeutralRejectActiveSourceSat)
+                    if (zAchromaSelectWeight > AchromaNeutralRejectWeightMin && sampS >= NeutralRejectActiveSourceSat)
                     {
-                        RejectNeutralForAchromaTarget(strength, pixS, w, h, zSS, cancellationToken);
+                        RejectNeutralForAchromaTarget(strength, pixS, w, h, sampS, cancellationToken);
                         // 含める画素の再主張: 中性リジェクトは target 依存で strength を破壊的に
                         // 書き換え、ユーザーが明示的に含めた画素(例: 白ツヤ)まで落とし得る。
                         // 「含める」は明示指示なのでヒューリスティックより優先する。
@@ -951,7 +950,7 @@ namespace Iroca
                     _phaseTicks[PhDecontam] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
                     // 4. 強度でブレンドした再色付けを適用
-                    // (zSS/zSV は上の中性リジェクト前に算出済み)
+                    // (サンプルの S/V は sampS/sampV としてゾーン先頭で算出済み)
                     // ハイライト白方向射影(wash)・OkLab リカラーに必要な sample / target RGB を事前取得
                     float zSR = zone.sampleColor.r;
                     float zSG = zone.sampleColor.g;
@@ -1136,7 +1135,7 @@ namespace Iroca
                     var rcParams = new RecolorParams(
                         zOkMagScale, zTa, zTb, zOkGray, zOkGa, zOkGb,
                         zSL, zTL, zSC, zOkChromaMaxMag, zValueBlend, zEffShadowDesat,
-                        zSS, zTR, zTG, zTB, zWR, zWG, zWB, zWV,
+                        sampS, zTR, zTG, zTB, zWR, zWG, zWB, zWV,
                         zApplyWash, zAchromaWeight, zOsat, zHasRegL);
                     // 混色帯(選択境界の AA・にじみ)の解析。境界クリーンアップ ON かつ有彩サンプルのゾーンでは、
                     // 境界の画素を「被覆率ぶんだけ隣の素材の変化を足す」合成の式で塗る(PixelProcessor.Decontam.cs
@@ -1340,13 +1339,13 @@ namespace Iroca
                     // shadow と highlight は条件上ほぼ排他（oV<thr と oV>sV）だが念のため shadow を優先。
                     // NOTE: 実際の RecolorPixel に渡した値を使うこと。
                     //   Shadow: zone.shadowDesaturation でなく zEffShadowDesat (autoRecolorAnchor 時に補正済み)
-                    //   Highlight: zSV でなく zWV (HighlightSampleCorrector で補正した実効 wash サンプルの V)
+                    //   Highlight: sampV でなく zWV (HighlightSampleCorrector で補正した実効 wash サンプルの V)
                     if (debug != null)
                     {
                         byte[] branchMap = new byte[len];
                         float zoneShadowDesat = zEffShadowDesat;
                         float zoneSV = zWV;
-                        float zoneSS = zSS;
+                        float zoneSS = sampS;
                         bool zoneApplyWash = zone.applyHighlightWash;
                         var aaMaskForBranch = aaMask;
                         var mixForBranch = mixAlphaLocal;
