@@ -14,11 +14,12 @@ git config core.hooksPath scripts/hooks
 
 | フック | 役割 |
 |--------|------|
-| `pre-commit` | `Code/` 変更コミット時に視覚レビュー承認の鮮度と品質ゲート較正を検査（`tools/check_visual_review.py`） |
+| `pre-commit` | ハーネスがコンパイルする製品ソース（`tools/harness_scope.py`）を含むコミット時に、固定設定の承認・ワークフロー承認・承認の鮮度・品質ゲート較正を検査（`tools/check_visual_review.py`） |
 
 ## バイパス
 
 - `SKIP_VISUAL_REVIEW=1 git commit ...` — 視覚レビューチェックを回避。**出力に影響しない変更（IO・プレビュー・コメントのみ）に限る**。
+  ワークフロー承認と品質ゲート較正も含めて、フックの検査を全部飛ばす。
 - `SKIP_QUALITY_GATE=1` — 品質ゲート較正検証のみ回避。
 
 ## 注意

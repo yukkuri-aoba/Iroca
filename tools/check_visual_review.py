@@ -3,9 +3,12 @@
 フックの実体は scripts/hooks/pre-commit（有効化: git config core.hooksPath scripts/hooks）。
 
 アルゴリズムファイル（headless ハーネスがコンパイルする製品ソース。範囲は
-Harness.csproj から導出 = tools/harness_scope.py）がステージされているとき:
-  1. approved.json が全ステージファイルより新しいか（視覚レビュー実施の確認）。
-  2. 出力品質ゲートのしきい値較正が健全か（quality_report.py --validate が
+Harness.csproj から導出 = tools/harness_scope.py）がステージされているとき、次の順で検査する:
+  1. 固定設定の視覚レビュー承認 approved.json があるか。
+  2. ワンショット/追加操作後のワークフロー承認が有効か（workflow_review.validate_approval:
+     比較結果が現在の C#・測定器・入力の内容と一致し、目視承認があるか）。
+  3. approved.json が全ステージファイルより新しいか（視覚レビュー実施の確認）。
+  4. 出力品質ゲートのしきい値較正が健全か（quality_report.py --validate が
      good/bad ラベルを分離できているか）。SKIP_QUALITY_GATE=1 でスキップ可。
 
 【設計メモ】品質ゲート本体(test_recolor_quality_gate.py)はフル計測に数分かかるため

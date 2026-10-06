@@ -4,10 +4,14 @@
 # 有効化（clone 直後に 1 回、リポジトリルートで実行）:
 #   git config core.hooksPath scripts/hooks
 #
-# 内容: Code/ 配下（Debug/Tests 除く）がステージされているとき、
-#   1. 視覚レビュー承認 (approved.json) がステージファイルより新しいこと
-#   2. 出力品質ゲートのしきい値較正 (--validate) が健全なこと
-# を tools/check_visual_review.py で検査する。
+# 内容: ハーネスがコンパイルする製品ソース（範囲は tools/harness_scope.py が Harness.csproj の
+# Compile Include から導出。UI/Infra 等は対象外で、ci.yml の型チェックが受け持つ）が
+# ステージされているとき、tools/check_visual_review.py が次の順で検査する。
+#   1. 固定設定の視覚レビュー承認 (dev_safe/Tests/visual_review/approved.json) があること
+#   2. ワンショット/追加操作後のワークフロー承認が有効なこと（tools/workflow_review.py の
+#      validate_approval: 比較結果が現在の C#・測定器・入力の内容と一致し、目視承認があること）
+#   3. approved.json がステージファイルより新しいこと
+#   4. 出力品質ゲートのしきい値較正 (quality_report.py --validate) が健全なこと
 # 回避: SKIP_VISUAL_REVIEW=1（出力に影響しない変更＝IO/プレビュー/コメントのみに限る）
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
