@@ -702,8 +702,7 @@ namespace Iroca
                                 outRel[k] = GetRelaxedMatchStrength(
                                     rH[k], rS[k], rV[k], gsH, gsS, gsV,
                                     zone.tolerance, zone.edgeSoftness, zone.valueWeight,
-                                    zone.satDistWeight, relaxedSatMin, relaxedSatRamp,
-                                    zone.shadowForgivenessSatMin,
+                                    zone.satDistWeight, relaxedSatMin,
                                     hop.r / 255f, hop.g / 255f, hop.b / 255f,
                                     rgSampR, rgSampG, rgSampB, relaxedChromaConf, zone.chromaThreshold,
                                     zone.chromaCeiling);
@@ -738,8 +737,7 @@ namespace Iroca
                                     fillAllowedLocal[i] = GetRelaxedMatchStrength(
                                         pixH[i], pixS[i], pixV[i], gsH, gsS, gsV,
                                         zone.tolerance, zone.edgeSoftness, zone.valueWeight,
-                                        zone.satDistWeight, relaxedSatMin, relaxedSatRamp,
-                                        zone.shadowForgivenessSatMin,
+                                        zone.satDistWeight, relaxedSatMin,
                                         hop.r / 255f, hop.g / 255f, hop.b / 255f,
                                         rgSampR, rgSampG, rgSampB, relaxedChromaConf, zone.chromaThreshold,
                                         zone.chromaCeiling) > 0f;
@@ -764,7 +762,7 @@ namespace Iroca
                     {
                         RecoverBoundaryEdges(strength, w, h, pixH, pixS, pixV,
                             zone.sampleColor, zone.tolerance, zone.edgeSoftness, zone.valueWeight,
-                            zone.satDistWeight, relaxedSatMin, relaxedSatRamp, zone.shadowForgivenessSatMin, antiAliasCleanup,
+                            zone.satDistWeight, relaxedSatMin, antiAliasCleanup,
                             ppMinX, ppMinY, ppMaxX, ppMaxY,
                             originalPixels, relaxedChromaConf, zone.chromaThreshold, zone.chromaCeiling,
                             cancellationToken, palRelaxed, palIdxRelaxed);

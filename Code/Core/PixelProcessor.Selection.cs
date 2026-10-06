@@ -325,9 +325,9 @@ namespace Iroca
         /// 各パスはパス開始時の状態を読み、書き込みはパスの終わりにまとめる(旧: 二重バッファ)。
         /// </remarks>
         private static void FillSmallHoles(float[] strength, int w, int h,
-            int passes = 3, int minNeighbors = 4, bool[] allowedMask = null,
-            int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1,
-            CancellationToken ct = default)
+            int passes, int minNeighbors, bool[] allowedMask,
+            int boxMinX, int boxMinY, int boxMaxX, int boxMaxY,
+            CancellationToken ct)
         {
             if (passes <= 0) return;
             // minNeighbors<=0 だと「matched>=0 かつ total>=0」が常に真になり、relaxed 許可領域
@@ -799,11 +799,11 @@ namespace Iroca
             float[] pixH, float[] pixS, float[] pixV,
             Color sampleColor, float tolerance,
             float edgeSoftness, float valueWeight, float satDistWeight,
-            float relaxedSatMin, float relaxedSatRamp, float shadowForgivenessSatMin, int passes,
-            int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1,
-            Color32[] originalPixels = null, float chromaConfidence = 1f, float chromaThreshold = 0.05f,
-            float chromaCeiling = 0f, CancellationToken ct = default,
-            float[] relaxedByColor = null, int[] colorIndex = null)
+            float relaxedSatMin, int passes,
+            int boxMinX, int boxMinY, int boxMaxX, int boxMaxY,
+            Color32[] originalPixels, float chromaConfidence, float chromaThreshold,
+            float chromaCeiling, CancellationToken ct,
+            float[] relaxedByColor, int[] colorIndex)
         {
             // relaxedByColor / colorIndex: 色の表(ColorPalette)の番号ごとに、この関数と同じ引数で
             // GetRelaxedMatchStrength を求めた値と、画素 → 番号。渡されたら画素ごとの計算の代わりに読む
@@ -837,7 +837,7 @@ namespace Iroca
                 return GetRelaxedMatchStrength(
                     pixH[idx], pixS[idx], pixV[idx],
                     sH, sS, sV, tolerance, edgeSoftness, valueWeight,
-                    satDistWeight, relaxedSatMin, relaxedSatRamp, shadowForgivenessSatMin,
+                    satDistWeight, relaxedSatMin,
                     rpR, rpG, rpB, rcSampR, rcSampG, rcSampB, chromaConfidence, chromaThreshold,
                     chromaCeiling);
             }
@@ -926,7 +926,7 @@ namespace Iroca
         /// <summary>
         /// 緩和された彩度閾値を使用したカラーマッチ。
         /// すでにマッチした領域に隣接する境界ピクセルにのみ使用されます。
-        /// アドバンスモードでrelaxedSatMin/relaxedSatRamp/satDistWeightを調整可能。
+        /// アドバンスモードでrelaxedSatMin/satDistWeightを調整可能。
         /// </summary>
         /// <remarks>
         /// FIX: satConfidence による強度ダンピングを廃止。境界復元はすでにマッチ済みピクセルに
@@ -934,16 +934,16 @@ namespace Iroca
         /// の方が見た目が綺麗。低 satConfidence (例: 0.3) を掛けると AA 縁が部分的に元色を残し、
         /// 白装飾の周囲などにピンク/赤の残留ピクセルが見える原因になっていた。
         /// 純白装飾はそのまま残すため、relaxedSatMin による「最低彩度ゲート」だけは保持する。
-        /// relaxedSatRamp は引数互換のため残置（未使用）。
+        /// 全体設定の relaxedSatRamp は緩和マッチでは使わない（BuildSelectionKey と保存形式の互換のためだけに残る）。
         /// </remarks>
         private static float GetRelaxedMatchStrength(
             float pH, float pS, float pV,
             float sH, float sS, float sV,
             float tolerance, float edgeSoftness, float valueWeight,
-            float satDistWeight, float relaxedSatMin, float relaxedSatRamp, float shadowForgivenessSatMin,
-            float pR = 0f, float pG = 0f, float pB = 0f,
-            float sR = 0f, float sG = 0f, float sB = 0f, float chromaConfidence = 1f,
-            float chromaThreshold = 0.05f, float chromaCeiling = 0f)
+            float satDistWeight, float relaxedSatMin,
+            float pR, float pG, float pB,
+            float sR, float sG, float sB, float chromaConfidence,
+            float chromaThreshold, float chromaCeiling)
         {
             // ColorZone.MatchOneSample と共有ヘルパーによる動的しきい値（暗いサンプルほど範囲拡大）。
             // 上端は zone.chromaThreshold(ユーザー可変)を使う。以前は既定値 0.05 を焼き込んでいたため、
