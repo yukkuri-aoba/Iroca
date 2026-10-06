@@ -6,8 +6,11 @@ using System.Collections.Generic;
 namespace Iroca
 {
     /// <summary>
-    /// 編集 UI の表示レベル。Simple=色＋おおまかな調整のみ（色変更で自動調整）、
-    /// Normal=従来の標準的な調整項目（自動実行なし）、Advanced=内部パラメータまで全表示。
+    /// 旧・編集 UI の表示レベル（Simple=かんたん / Normal=通常 / Advanced=上級）。
+    /// モード切替 UI は 2026-09 に廃止し、既定は Normal。値はセッションとレシピの JSON に
+    /// JsonUtility（enum は整数）で残るので、並び順と値を変えない。
+    /// 現在 Simple を見るのは IrocaWindow.ConfirmAutoTuneOverwriteIfNeeded（上書き確認の省略）だけで、
+    /// Advanced は参照なし。
     /// </summary>
     internal enum EditMode { Simple, Normal, Advanced }
 
@@ -25,9 +28,8 @@ namespace Iroca
         public int antiAliasCleanup = RecolorSettings.DefaultAntiAliasCleanup;
         public bool useDecontamination = RecolorSettings.DefaultUseDecontamination;
         public int decontaminationRadius = RecolorSettings.DefaultDecontaminationRadius;
-        // かんたんモード（Simple）と自動調整はまだ実用段階でないため UI から隠している（2026-06 一時対応）。
-        // 既定を通常モードにする。再有効化するときは Simple に戻し、IrocaWindow 側のコメントアウト
-        // （DrawModeToggle のモード選択・Auto Tune ボタン・ScheduleAutoTune/ProcessPendingAutoTune）も解除する。
+        // モード切替 UI は廃止済み（EditMode の doc 参照）。既定は通常モード（Normal）。
+        // 古いセッション・レシピの値を読めるよう、フィールドは保存形式の互換のために残す。
         public EditMode editMode = EditMode.Normal;
         public int holeFillPasses = RecolorSettings.DefaultHoleFillPasses;
         public int holeFillMinNeighbors = RecolorSettings.DefaultHoleFillMinNeighbors;
