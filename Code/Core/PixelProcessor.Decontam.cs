@@ -167,7 +167,6 @@ namespace Iroca
             float tR = targetColor.r * 255f;
             float tG = targetColor.g * 255f;
             float tB = targetColor.b * 255f;
-            const float DegenEps = DecontamDegenEps;
 
             Parallel.For(boxMinY, boxMaxY + 1, decontamPo, y =>
             {
@@ -200,7 +199,7 @@ namespace Iroca
                 float dirG = sG - bG;
                 float dirB = sB - bB;
                 float dirSq = dirR * dirR + dirG * dirG + dirB * dirB;
-                if (dirSq < DegenEps) continue; // sample ≈ BG → α が定義できない
+                if (dirSq < DecontamDegenEps) continue; // sample ≈ BG → α が定義できない
 
                 float pR = originalPixels[i].r;
                 float pG = originalPixels[i].g;
@@ -216,7 +215,7 @@ namespace Iroca
                 float projG = bG + alpha * dirG;
                 float projB = bB + alpha * dirB;
                 float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
-                if (distSq > 3000f) continue; // 許容誤差。各チャンネル約31のズレまで許容
+                if (distSq > DecontamLineDistSqMax) continue; // 許容誤差。各チャンネル約31のズレまで許容
 
                 float oneMinusAlpha = 1f - alpha;
                 float resR = alpha * tR + oneMinusAlpha * bR;
@@ -247,6 +246,10 @@ namespace Iroca
 
         // ‖sample - BG‖² の下限(≈1 階調)。これ未満は sample≈BG で α が定義できない。
         private const float DecontamDegenEps = 1f;
+
+        // BG–sample 線分からの距離² の上限(各 ch 約 31 階調)。これを超える色は α 分解の前提
+        // (2 色の混色)が成り立たない。AA デコンタミの両経路と無彩フチ消しで共通。
+        private const float DecontamLineDistSqMax = 3000f;
 
         // 候補の窓を直接足す方を選ぶ目安: 候補数 × 窓の面積 ≤ この値 × 矩形の面積。
         // 矩形全体の窓和は窓の半径に依らず 1 画素あたり一定(作業配列の充填 + 窓和の 2 パス)で、
@@ -347,7 +350,7 @@ namespace Iroca
                     float projG = bG + alpha * dirG;
                     float projB = bB + alpha * dirB;
                     float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
-                    if (distSq > 3000f) continue;
+                    if (distSq > DecontamLineDistSqMax) continue;
 
                     float oneMinusAlpha = 1f - alpha;
                     float resR = alpha * tR + oneMinusAlpha * bR;
@@ -456,14 +459,14 @@ namespace Iroca
                         float bR = sumR / density, bG = sumG / density, bB = sumB / density;
                         float dirR = sR - bR, dirG = sG - bG, dirB = sB - bB;
                         float dirSq = dirR * dirR + dirG * dirG + dirB * dirB;
-                        if (dirSq < 1f) continue;                     // sample≈BG → α 未定義
+                        if (dirSq < DecontamDegenEps) continue;       // sample≈BG → α 未定義
                         float pR = originalPixels[i].r, pG = originalPixels[i].g, pB = originalPixels[i].b;
                         float alpha = ((pR - bR) * dirR + (pG - bG) * dirG + (pB - bB) * dirB) / dirSq;
                         // 地色の残りがある背景優勢画素のみ。地色寄り(α≈1)は除外=白拒否を維持。
                         if (alpha < AchromaFringeMinAlpha || alpha > AchromaFringeMaxAlpha) continue;
                         float projR = bR + alpha * dirR, projG = bG + alpha * dirG, projB = bB + alpha * dirB;
                         float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
-                        if (distSq > 3000f) continue;                 // 線から外れる=別色 → 触らない
+                        if (distSq > DecontamLineDistSqMax) continue; // 線から外れる=別色 → 触らない
                         float om = 1f - alpha;
                         pixels[i] = new Color32(
                             (byte)Mathf.Clamp(Mathf.RoundToInt(alpha * tR + om * bR), 0, 255),
