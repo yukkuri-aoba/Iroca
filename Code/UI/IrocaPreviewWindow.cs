@@ -99,11 +99,7 @@ namespace Iroca
         /// </summary>
         private IrocaWindow ResolveHost()
         {
-            if (_host == null)
-            {
-                var hosts = Resources.FindObjectsOfTypeAll<IrocaWindow>();
-                if (hosts.Length > 0) _host = hosts[0];
-            }
+            if (_host == null) _host = IrocaWindow.FindAnyInstance();
             return _host;
         }
 
@@ -112,9 +108,7 @@ namespace Iroca
             var host = ResolveHost();
             if (host == null)
             {
-                EditorGUILayout.HelpBox(Localization.BrushPaletteNoHost, MessageType.Info);
-                if (GUILayout.Button(new GUIContent(Localization.OpenIrocaWindow, Localization.OpenIrocaWindowTooltip)))
-                    IrocaWindow.ShowWindow();
+                IrocaWindow.DrawMissingHostNotice();
                 return;
             }
 

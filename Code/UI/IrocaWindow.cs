@@ -172,6 +172,26 @@ namespace Iroca
                 window.position = new Rect(window.position.x, window.position.y, 728, 786);
         }
 
+        /// <summary>
+        /// 開いている IrocaWindow を 1 つ返す（無ければ null）。別ウィンドウ（プレビュー / マスク編集）が
+        /// ドメインリロード後などに本体へ再接続するときの規則で、複数ある場合は先頭。
+        /// </summary>
+        internal static IrocaWindow FindAnyInstance()
+        {
+            var hosts = Resources.FindObjectsOfTypeAll<IrocaWindow>();
+            return hosts.Length > 0 ? hosts[0] : null;
+        }
+
+        /// <summary>
+        /// 別ウィンドウ（プレビュー / マスク編集）で本体が見つからないときの案内と「Iroca を開く」ボタン。
+        /// </summary>
+        internal static void DrawMissingHostNotice()
+        {
+            EditorGUILayout.HelpBox(Localization.BrushPaletteNoHost, MessageType.Info);
+            if (GUILayout.Button(new GUIContent(Localization.OpenIrocaWindow, Localization.OpenIrocaWindowTooltip)))
+                ShowWindow();
+        }
+
         private void OnEnable()
         {
             _session ??= IrocaSessionState.CreateDefault();
