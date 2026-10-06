@@ -480,17 +480,12 @@ namespace Iroca
         {
             if (!_exportJob.IsRunning) return;
 
-            EditorGUILayout.Space(2);
-            var rect = EditorGUILayout.GetControlRect(false, 18f);
             float pct = _exportProgress.Value;
             string label = $"{Localization.ApplyAndSave}  {Mathf.RoundToInt(pct * 100f)}%";
-            EditorGUI.ProgressBar(rect, pct, label);
-
-            if (GUILayout.Button(new GUIContent(Localization.Cancel, Localization.CancelActionTooltip), GUILayout.Height(22)))
+            if (IrocaWindow.DrawJobProgressRow(pct, label))
             {
                 _exportJob.Cancel();
             }
-            EditorGUILayout.Space(2);
         }
 
         public void DrawBatchSection()

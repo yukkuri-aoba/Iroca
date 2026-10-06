@@ -134,6 +134,10 @@ namespace Iroca
             }
         }
 
+        // ジョブオーバーレイ 1 行（DrawJobProgressRow）の進捗バーとキャンセルボタンの高さ。
+        internal const float JobProgressBarHeight = 18f;
+        internal const float JobCancelButtonHeight = 22f;
+
         /// <summary>
         /// ジョブオーバーレイのために本体レイアウトから引いておく高さ。
         /// 実測値があればそれを、未計測の初回フレームだけ決定論フォールバックを返す。
@@ -141,8 +145,8 @@ namespace Iroca
         private float JobOverlayReserve()
         {
             if (_jobOverlayHeight > 1f) return _jobOverlayHeight;
-            // 初回フレーム用の見積もり: Space(2) + 進捗バー 18 + キャンセル 22 + Space(2) + 行間。
-            return 2f + 18f + 22f + 2f + EditorGUIUtility.standardVerticalSpacing * 3f;
+            // 初回フレーム用の見積もり: DrawJobProgressRow 1 行ぶん（Space + 進捗バー + キャンセル + Space）＋行間。
+            return 2f + JobProgressBarHeight + JobCancelButtonHeight + 2f + EditorGUIUtility.standardVerticalSpacing * 3f;
         }
 
         // 設定列のプレフィックスラベル幅。既定(150)のままだと狭いカラムでは
@@ -448,28 +452,35 @@ namespace Iroca
             {
                 // 解析開始前の証拠（AI 提案セグメント）待ち。無言だと押しても無反応に見えるので、
                 // 解析中と同じ場所に何を待っているかを出す。中止は解析を始めない。
-                EditorGUILayout.Space(2);
-                var rect = EditorGUILayout.GetControlRect(false, 18f);
-                EditorGUI.ProgressBar(rect, _autoTuneProgress.Value,
-                    $"{Localization.AutoTune}  {(_evidencePending ? Localization.AutoTuneEvidencePreparing : Localization.AutoTuneEvidenceFetching)}");
-                if (GUILayout.Button(new GUIContent(Localization.Cancel, Localization.CancelActionTooltip), GUILayout.Height(22)))
+                if (DrawJobProgressRow(_autoTuneProgress.Value,
+                    $"{Localization.AutoTune}  {(_evidencePending ? Localization.AutoTuneEvidencePreparing : Localization.AutoTuneEvidenceFetching)}"))
                 {
                     CancelEvidenceWait();
                 }
-                EditorGUILayout.Space(2);
             }
             else if (_autoTuneJob.IsRunning)
             {
-                EditorGUILayout.Space(2);
-                var rect = EditorGUILayout.GetControlRect(false, 18f);
                 float pct = _autoTuneProgress.Value;
-                EditorGUI.ProgressBar(rect, pct, $"{Localization.AutoTune}  {Mathf.RoundToInt(pct * 100f)}%");
-                if (GUILayout.Button(new GUIContent(Localization.Cancel, Localization.CancelActionTooltip), GUILayout.Height(22)))
+                if (DrawJobProgressRow(pct, $"{Localization.AutoTune}  {Mathf.RoundToInt(pct * 100f)}%"))
                 {
                     _autoTuneJob.Cancel();
                 }
-                EditorGUILayout.Space(2);
             }
+        }
+
+        /// <summary>
+        /// ジョブオーバーレイの 1 行（進捗バー＋キャンセルボタン）を描画し、キャンセルが押されたら true を返す。
+        /// 書き出し・自動調整の解析中・証拠待ちで共通。キャンセル処理は呼び出し側が行う
+        /// （どの処理も GUILayout を呼ばないので、後ろの Space の後で行ってもコントロール列は変わらない）。
+        /// </summary>
+        internal static bool DrawJobProgressRow(float progress, string label)
+        {
+            EditorGUILayout.Space(2);
+            var rect = EditorGUILayout.GetControlRect(false, JobProgressBarHeight);
+            EditorGUI.ProgressBar(rect, progress, label);
+            bool cancel = GUILayout.Button(new GUIContent(Localization.Cancel, Localization.CancelActionTooltip), GUILayout.Height(JobCancelButtonHeight));
+            EditorGUILayout.Space(2);
+            return cancel;
         }
 
         /// <param name="jobBlocking">
