@@ -106,9 +106,10 @@ Iroca 本体リポジトリ（公開）
 │   │                           取り込み（internal アクセス可）、実 UnityEngine.CoreModule.dll を
 │   │                           参照して net8.0 でビルド
 │   └─ Harness.cs               raw 形式 I/O（[int32 w][int32 h][payload]）+ 各種検証モード
-├─ scripts/build-check/         dotnet 単体での型チェック用 csproj 3 本
-│   │                           （IrocaEditor / IrocaEditor.Debug / IrocaSentisCheck）
+├─ scripts/build-check/         dotnet 単体での型チェック用 csproj 4 本
+│   │                           （IrocaEditor / IrocaEditor.Debug / IrocaNdmfCheck / IrocaSentisCheck）
 │   │                           ※ UnityEngine.dll + UnityEditor.dll が必要（下記「前提」参照）
+│   │                           ※ IrocaNdmfCheck は NDMF 入りのホスト、IrocaSentisCheck は ML ホストが前提
 ├─ scripts/golden/              golden（出力ハッシュ固定）テスト。expected/ に期待出力 PNG
 ├─ scripts/source_checks/       C# ソースを読むだけの構造検査（ハーネス・資産不要）
 ├─ scripts/unit-run/            Unity 不要の部品（Infra のパス・書き込み、Scene クリックの当たり判定等）のユニットテスト

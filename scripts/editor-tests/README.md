@@ -15,6 +15,8 @@ headless ハーネスと golden は net8 で製品 C# を動かすので、Unity
 | `RecipeRegistrationTests.cs` | 登録で `Iroca Recolor` が増えない（同じオブジェクトは 1 つにまとめる・同じテクスチャは置き換え・Undo）、旧保存形式の読み込み |
 | `LivePreviewTests.cs` / `NdmfPreviewFilterTests.cs` | シーンでのプレビュー（どこに何を映すかの規則、ウィンドウの結果を RenderTexture に書く受け渡し口、レシピの出来上がりの貸し借り、NDMF のフィルタの呼び出し口）。後者は NDMF があるホストでだけコンパイルされる |
 | `RuntimeParityTests.cs` | 製品の実行環境（Unity の Mono）とテストの実行環境（ハーネスの net8）で再着色の出力が一致するか。golden の入力（`scripts/golden/cases/`）を製品経路（`IrocaAutomation.RecolorWithZones`）に通し、ハーネスの出力（`scripts/golden/expected/`）と比べる |
+| `MaskSuggestInferenceTests.cs` | AI マスク提案の実推論（パッケージの読み込み・モデルの変換とロード・推論）が Unity 2022.3（Sentis）と Unity 6（Inference Engine）で通るか。灰地の赤い円の中心をクリックし、円と提案マスクの IoU を測る。パッケージ未導入・モデル未配置なら Ignore。`IROCA_AI_REPORT` にパスがあれば結果を 1 行追記する |
+| `PerfBenchTests.cs` | 製品の実行環境（Unity の Mono）での再着色の速さ（`Perf` カテゴリ。品質は見ない）。`IROCA_PERF_CASES` が無ければ Ignore で、`Run-EditorTests.ps1 -PerfCases <json>` のときだけ回る（結果は出力フォルダの `perf.jsonl`） |
 
 テストは配布パッケージ（`Code/`）の外に置いてあるので、ユーザーのプロジェクトには入らない。
 

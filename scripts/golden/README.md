@@ -1,18 +1,19 @@
 # golden — C# 自己ゴールデン回帰テスト
 
 製品の唯一の正である **C# 実装（`Code/Core/PixelProcessor.cs` ほか）の出力が、黙って変化していないか**
-を検出する回帰テスト。Python 参照実装（`dev_safe/vacc_python`、アルゴリズム試作用の使い捨て
-スキャフォールド）には依存しない。
+を検出する回帰テスト。かつてアルゴリズム試作に使っていた Python 参照実装（`dev_safe/vacc_python`、
+使い捨てのスキャフォールド）は削除済みで、本テストも Python には依存しない。
 
 ## なぜ必要か
 
-このプロジェクトは「Python で素早く試作 → C# へ手動移植」という運用のため、移植時に
-**C# 側が段や定数を黙って失う**事故が実際に起きてきた（例: `FillSmallHoles` 段が reset で消失、
-OkLab ハイライト L キャップが C# に未移植）。アーキテクチャレビュー §4.2(D) が指摘する
+このプロジェクトはかつて「Python で素早く試作 → C# へ手動移植」という運用だったため、移植時に
+**C# 側が段や定数を黙って失う**事故が実際に起きた（例: `FillSmallHoles` 段が reset で消失、
+OkLab ハイライト L キャップが C# に未移植）。アーキテクチャレビュー §4.2(D) が指摘した
 「二重実装のドリフト」のうち、**製品である C# の退行**をこのテストで機械的に捕捉する。
 
-Python は使い捨てなので「C#≡Python」を強制はしない（複数経路で意図的に乖離している:
-グレーモード・ハイライト等）。本テストはあくまで **C# 自身の出力の固定（スナップショット）** である。
+Python 再実装はもう存在せず、**C# が唯一の正**である（当時も Python は使い捨てで、グレーモード・
+ハイライト等で意図的に乖離していたので「C#≡Python」は強制していなかった）。本テストはあくまで
+**C# 自身の出力の固定（スナップショット）** である。
 
 ## 構成
 
@@ -24,6 +25,8 @@ Python は使い捨てなので「C#≡Python」を強制はしない（複数�
 | `expected/*.png` | 各ケースの期待出力そのもの。別 toolchain（CI の Linux）での画素比較に使う |
 | `cases/*.png` / `*.zones.json` | 各ケースの入力と zones JSON。Unity 実機のテスト（`scripts/editor-tests/RuntimeParityTests`）が製品経路へ通して `expected/` と比べる |
 | `test_golden_csharp.py` | pytest ゲート（C# を走らせ golden と照合） |
+| `test_selection_key_audit.py` | 選択キャッシュキーの網羅性監査。Harness の `--selkey-audit` で `ColorZone` の public フィールドを 1 つずつ摂動し、`BuildSelectionKey` への反映漏れ（選択キャッシュの誤ヒット）を分類台帳 `SELECTION_IRRELEVANT` と突き合わせる |
+| `test_harness_selfchecks.py` | Harness の自己検査モードを回す。`--previewselftest`（RecolorPreview の既知の不変量）と `--samops-aainclude-crop`（クロップ実行が全画像の `--samops-aainclude` とビット同一） |
 
 合成入力は C# の主要経路（基底再着色 / 無彩ターゲット / グレーモード / OkLab L リマップ /
 ハイライト復元・wash / AA 境界デコンタミ / 彩度整合ゲート / 暗部脱彩 / 出力彩度 / アンカー正規化 /
@@ -34,8 +37,10 @@ Python は使い捨てなので「C#≡Python」を強制はしない（複数�
 
 - `test_alpha_is_preserved`: 出力の α が入力と一致する（再着色は色だけを変える）
 - `test_neutral_texture_untouched_by_chromatic_sample`: 無彩だけのテクスチャに有彩スポイトを
-  当てても何も変わらない。**2026-09-24 時点で未達（xfail）**: デコンタミが明るい灰を最大 16 段階、
-  それ以外の段が 235 の白を最大 4 段階動かす。直ると XPASS で浮かぶ
+  当てても何も変わらない。2026-09-24 に見つけた未達（デコンタミが 222 前後の灰を最大 16 段階暗くし、
+  235 の白も最大 4 段階動かす）は、2026-10-03 の混色帯（境界の画素を被覆率で塗る）で解消し、
+  xfail を外して通常の assert で固定している。同じ時に記録した `chroma_on_white_to_blue` の白地の動き
+  （最大 5 段階）は、彩度ガード OFF で主マッチが白を選ぶもの（縁の処理の外）で、今も残る
 
 ## 実行
 
