@@ -320,7 +320,8 @@ namespace Iroca
             }
         }
 
-        private static string CachePath(string key) => Path.Combine(CacheDir, key + ".tex");
+        // テストもこれでキャッシュファイルを特定する(ファイル名の規則を 1 か所に保つ)。
+        internal static string CachePath(string key) => Path.Combine(CacheDir, key + ".tex");
 
         private static Texture2D TryLoadCache(string key, Texture2D like)
         {

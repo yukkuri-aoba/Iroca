@@ -64,8 +64,7 @@ namespace Iroca.EditorTests
             var state = new IrocaSessionState();
             state.zones.Add(zone);
             var recipe = RecipeStore.Create(src, state, _assets.Folder);
-            _cacheFile = System.IO.Path.Combine(RecipeTextureBuilder.CacheDir,
-                RecipeTextureBuilder.CacheKey(recipe, src) + ".tex");
+            _cacheFile = RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src));
 
             var root = new GameObject("avatar");
             _created.Add(root);
@@ -135,8 +134,7 @@ namespace Iroca.EditorTests
             var state = new IrocaSessionState();
             state.zones.Add(zone);
             var recipe = RecipeStore.Create(src, state, _assets.Folder);
-            _cacheFile = System.IO.Path.Combine(RecipeTextureBuilder.CacheDir,
-                RecipeTextureBuilder.CacheKey(recipe, src) + ".tex");
+            _cacheFile = RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src));
 
             var root = new GameObject("avatar");
             _created.Add(root);

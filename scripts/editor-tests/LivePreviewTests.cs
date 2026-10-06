@@ -300,8 +300,7 @@ namespace Iroca.EditorTests
             var state = new IrocaSessionState();
             state.zones.Add(zone);
             var recipe = RecipeStore.Create(src, state, _assets.Folder);
-            _cacheFiles.Add(System.IO.Path.Combine(RecipeTextureBuilder.CacheDir,
-                RecipeTextureBuilder.CacheKey(recipe, src) + ".tex"));
+            _cacheFiles.Add(RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src)));
             return recipe;
         }
 
@@ -330,8 +329,7 @@ namespace Iroca.EditorTests
             var state = RecipeStore.Load(recipe);
             state.zones[0].targetColor = new Color(0.2f, 0.2f, 0.9f);
             RecipeStore.Save(recipe, state);
-            _cacheFiles.Add(System.IO.Path.Combine(RecipeTextureBuilder.CacheDir,
-                RecipeTextureBuilder.CacheKey(recipe, src) + ".tex"));
+            _cacheFiles.Add(RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src)));
             var c = TestAssets.Wait(RecipePreviewTextures.Acquire(recipe, out var keyC));
             Assert.AreNotEqual(keyA, keyC);
             Assert.AreNotSame(a, c);

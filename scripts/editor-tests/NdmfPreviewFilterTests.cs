@@ -93,8 +93,7 @@ namespace Iroca.EditorTests
             var state = new IrocaSessionState();
             state.zones.Add(zone);
             var recipe = RecipeStore.Create(src, state, _assets.Folder);
-            _cacheFiles.Add(System.IO.Path.Combine(RecipeTextureBuilder.CacheDir,
-                RecipeTextureBuilder.CacheKey(recipe, src) + ".tex"));
+            _cacheFiles.Add(RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src)));
             return recipe;
         }
 

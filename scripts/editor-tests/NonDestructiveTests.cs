@@ -178,8 +178,7 @@ namespace Iroca.EditorTests
         {
             var src = ImportSource(readable: true);
             var recipe = RecipeStore.Create(src, RedToGreenWithInclude(), _assets.Folder);
-            string cacheFile = Path.Combine(RecipeTextureBuilder.CacheDir,
-                RecipeTextureBuilder.CacheKey(recipe, src) + ".tex");
+            string cacheFile = RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src));
             try
             {
                 var first = Track(RecipeTextureBuilder.Build(recipe, out var f1));
@@ -195,8 +194,7 @@ namespace Iroca.EditorTests
                 var changed = RedToGreenWithInclude();
                 changed.zones[0].targetColor = Color.yellow;
                 RecipeStore.Save(recipe, changed);
-                Assert.AreNotEqual(cacheFile, Path.Combine(RecipeTextureBuilder.CacheDir,
-                    RecipeTextureBuilder.CacheKey(recipe, src) + ".tex"));
+                Assert.AreNotEqual(cacheFile, RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src)));
             }
             finally
             {
@@ -227,8 +225,7 @@ namespace Iroca.EditorTests
             Assert.AreEqual(sourceStreaming, StreamingOf(src).on, "取り込み設定が効いていない(テストの前提)");
 
             var recipe = RecipeStore.Create(src, RedToGreenWithInclude(), _assets.Folder);
-            string cacheFile = Path.Combine(RecipeTextureBuilder.CacheDir,
-                RecipeTextureBuilder.CacheKey(recipe, src) + ".tex");
+            string cacheFile = RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src));
             try
             {
                 // 1 回目 = 作りたて、2 回目 = キャッシュから。どちらも同じ設定になる。
