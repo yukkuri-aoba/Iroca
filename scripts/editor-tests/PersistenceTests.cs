@@ -183,7 +183,7 @@ namespace Iroca.EditorTests
         [Test]
         public void Mask_OrphanLifecycle()
         {
-            // Session_OrphanLifecycle と同じ規則。MaskFileStore は退避・復元・期限削除を自前で持つので別に固定する。
+            // Session_OrphanLifecycle と同じ規則。処理は GuidFileCache を共有するが、フォルダと拡張子の配線はストアごとなので別に固定する。
             Directory.CreateDirectory(MaskFileStore.CacheDir);
             string unknown = Guid.NewGuid().ToString("N");
             string unknownPath = Path.Combine(MaskFileStore.CacheDir, unknown + ".iroca-mask.json");
