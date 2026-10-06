@@ -162,8 +162,7 @@ namespace Iroca
             if (visible) return;
             _previewScrollPos = new Vector2(Mathf.Max(0f, p.x - viewW * 0.5f), Mathf.Max(0f, p.y - viewH * 0.5f));
             // スクロールで古い詳細クロップは整合しなくなる(パン・ズームと同じ扱い)。
-            _detailView.MarkViewChanged();
-            _detailView.InvalidateDisplay();
+            _detailView.OnViewMoved();
         }
 
         // 案内の「開く」。ボタン枠を付けると行が miniLabel より高くなりプレビュー枠が跳ねるので、

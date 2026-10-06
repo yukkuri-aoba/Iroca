@@ -96,6 +96,16 @@ namespace Iroca
         }
 
         /// <summary>
+        /// パン・ズーム・スクロールなどで表示範囲が動いたときに呼ぶ。打刻(<see cref="MarkViewChanged"/>)してから
+        /// 古い拡大表示を捨てる(<see cref="InvalidateDisplay"/>)。
+        /// </summary>
+        internal void OnViewMoved()
+        {
+            MarkViewChanged();
+            InvalidateDisplay();
+        }
+
+        /// <summary>
         /// 再生成を起こした lastDetailDirtyTime の計測を返す。確定表示の打ったものならその再生成の計測、
         /// スクロール・ズームの打ったものならその操作を起点にした拡大表示だけの計測(新しく作る)。
         /// それ以外の契機(差分表示の切り替えなど)なら null。引き渡しは 1 回きり。

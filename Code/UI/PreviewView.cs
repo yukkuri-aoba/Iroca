@@ -838,10 +838,9 @@ namespace Iroca
                 frameW > 1f ? GUILayout.Width(frameW) : GUILayout.ExpandWidth(true));
             if (_previewScrollPos != prevScroll)
             {
-                _detailView.MarkViewChanged();
                 // 古い詳細プレビューは新しいスクロール位置と整合しないため、
                 // 一旦表示を破棄して低解像度プレビューに統一する（c107e85）。
-                _detailView.InvalidateDisplay();
+                _detailView.OnViewMoved();
             }
 
             Rect activePreviewRect = default;
@@ -1177,9 +1176,8 @@ namespace Iroca
         {
             previewZoom = Mathf.Clamp(1f, MinPreviewZoom, maxZoom);
             _previewScrollPos = Vector2.zero;
-            _detailView.MarkViewChanged();
             // ズーム比が変わると古い詳細クロップは整合しない（Ctrl+スクロール経路と同じ）。
-            _detailView.InvalidateDisplay();
+            _detailView.OnViewMoved();
             _host.RequestRepaint();
         }
 

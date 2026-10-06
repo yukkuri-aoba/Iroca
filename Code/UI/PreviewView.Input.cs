@@ -93,10 +93,9 @@ namespace Iroca
                             }
 
                             previewZoom = newZoom;
-                            _detailView.MarkViewChanged();
                             // ズーム比が変わるとピクセル/ソース比も変わるため、
                             // 古い詳細プレビューは整合しなくなる。破棄して再生成を待つ。
-                            _detailView.InvalidateDisplay();
+                            _detailView.OnViewMoved();
                             _host.RequestRepaint();
                         }
 
@@ -147,9 +146,8 @@ namespace Iroca
                         _previewScrollPos -= e.delta;
                         _previewScrollPos.x = Mathf.Max(0f, _previewScrollPos.x);
                         _previewScrollPos.y = Mathf.Max(0f, _previewScrollPos.y);
-                        _detailView.MarkViewChanged();
                         // パンで詳細クロップ位置が変わるので古い詳細プレビューを破棄。
-                        _detailView.InvalidateDisplay();
+                        _detailView.OnViewMoved();
                         e.Use();
                         _host.RequestRepaint();
                     }
