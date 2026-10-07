@@ -233,6 +233,11 @@ namespace Iroca
         // 切り出す。元画素が変わったら使わない(InvalidateSourceCache / InvalidateFullOutput)。
         [System.NonSerialized] private Color32[] _fullOutput;
         [System.NonSerialized] private Color32[] _fullOutputSource;
+        // _fullOutput が使い回しの対象か(縮小表示のテクスチャのフル段の出力だけ。縮小しないテクスチャでは
+        // 同じ配列が表示用・差分ジョブにも渡るので使い回さない)。
+        [System.NonSerialized] private bool _fullOutputRecyclable;
+        // フル段の出力バッファの使い回し(PreviewOutputBuffers)。置き換えられた前の出力を次のフル段で再利用する。
+        [System.NonSerialized] private PreviewOutputBuffers _outputBuffers;
         // 保留中の結果が確定(フル段)か。確定なら拡大表示をすぐ作り直す(ApplyPendingPreview)。
         [System.NonSerialized] private bool _pendingIsFinal;
         // 保留中の結果がドラッグの追従(プロキシだけ)か。
@@ -303,6 +308,7 @@ namespace Iroca
             _host = host;
             _selectionCache ??= new SelectionCache();
             _proxySelectionCache ??= new SelectionCache();
+            _outputBuffers ??= new PreviewOutputBuffers();
             _detailView ??= new DetailPreviewView();
             _detailView.Initialize(host);
         }
@@ -313,8 +319,17 @@ namespace Iroca
         /// </summary>
         public void InvalidateFullOutput()
         {
+            RetireFullOutput();
             _fullOutput = null;
             _fullOutputSource = null;
+        }
+
+        // いまのフル段の出力を使い回しへ回す(置き換える・捨てる直前に呼ぶ)。拡大表示のジョブが切り出し中なら
+        // 印が付いているので、外れるまでは渡されない。
+        private void RetireFullOutput()
+        {
+            if (_fullOutput != null && _fullOutputRecyclable) _outputBuffers?.Retire(_fullOutput);
+            _fullOutputRecyclable = false;
         }
 
         // 次回の再生成でプロキシ段(低解像度の概要表示)を使わない 1 回限りのフラグ。
@@ -348,6 +363,8 @@ namespace Iroca
             CancelJobsAndDropPending();
             // 追従プレビューの入力とフル段の出力も旧画素のもの。使い回さない。
             InvalidateFullOutput();
+            // 寸法の違うテクスチャへ移ると使えないので、置いてある出力バッファも手放す。
+            _outputBuffers?.Clear();
             _detailHiddenForDrag = false;
             _fullOutputFreshSinceHide = false;
             _dragReq = null;
@@ -652,7 +669,8 @@ namespace Iroca
                     var latency = _detailView.TakeLatencyFor(_detailView.lastDetailDirtyTime, srcW, srcH);
                     _detailView.lastDetailDirtyTime = 0;
                     var processedFull = ReferenceEquals(_fullOutputSource, _trueSourcePixels) ? _fullOutput : null;
-                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, _trueSourcePixels, processedFull, scale, effZoom, _previewScrollPos, _detailView.lastViewportW, _detailView.lastViewportH, latency);
+                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, _trueSourcePixels, processedFull, scale, effZoom, _previewScrollPos, _detailView.lastViewportW, _detailView.lastViewportH, latency,
+                        _outputBuffers);
                 }
                 else if (_detailView.lastDetailDirtyTime > 0 || _detailView.detailJob.IsRunning)
                 {

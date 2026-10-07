@@ -178,7 +178,7 @@ namespace Iroca
         /// </summary>
         public void GenerateDetailPreviewAsync(int srcW, int srcH, Color32[] srcPixels, Color32[] processedFull,
             float scale, float displayZoom, Vector2 previewScrollPos, float viewportW, float viewportH,
-            PreviewLatencyCycle latency = null)
+            PreviewLatencyCycle latency = null, PreviewOutputBuffers outputBuffers = null)
         {
             long prepStart = PreviewLatencyCycle.Now;
             // 画素は呼び出し元（メインプレビュー）が確保した true source をそのまま受け取るので、
@@ -234,6 +234,8 @@ namespace Iroca
             int capX0 = x0, capY0 = y0, capSrcW = srcW;
             var srcPixelsForTask = srcPixels;
             var processedForTask = processedFull;
+            // 切り出しが終わるまで、このフル段の出力を使い回しに渡さない(作業の最後で外す)。
+            outputBuffers?.AddLease(processedForTask);
 
             // 体感速度の計測(確定表示から引き渡されたときだけ)。値・分岐は変えない。
             var marks = latency?.Detail;
@@ -250,13 +252,17 @@ namespace Iroca
                     Color32[] rawCrop       = new Color32[cropW * cropH];
                     Color32[] processedCrop = new Color32[cropW * cropH];
                     // クロップは各行が連続領域なので行単位 Array.Copy(画素単位 2 配列書き込みを回避)。
-                    // 両配列はジョブの間ほかから書き換えられない(フル段の出力は確定後は不変として扱う)。
-                    for (int cy = 0; cy < cropH; cy++)
+                    // 両配列はジョブの間ほかから書き換えられない(フル段の出力は印を付けてある間は使い回されない)。
+                    try
                     {
-                        int srcRow = (capY0 + cy) * capSrcW + capX0;
-                        System.Array.Copy(srcPixelsForTask, srcRow, rawCrop, cy * cropW, cropW);
-                        System.Array.Copy(processedForTask, srcRow, processedCrop, cy * cropW, cropW);
+                        for (int cy = 0; cy < cropH; cy++)
+                        {
+                            int srcRow = (capY0 + cy) * capSrcW + capX0;
+                            System.Array.Copy(srcPixelsForTask, srcRow, rawCrop, cy * cropW, cropW);
+                            System.Array.Copy(processedForTask, srcRow, processedCrop, cy * cropW, cropW);
+                        }
                     }
+                    finally { outputBuffers?.ReleaseLease(processedForTask); }
                     token.ThrowIfCancellationRequested();
 
                     // 縮小表示のときだけ表示解像度へ落とす。BoxDownsample の scale は

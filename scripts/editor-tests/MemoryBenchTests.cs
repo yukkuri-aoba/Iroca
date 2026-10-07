@@ -19,11 +19,12 @@ namespace Iroca.EditorTests
     /// ヒープの最大値(=処理中のピーク＋断片化)。headless ハーネス(net8)は GC が別物なのでこれを測れない。
     ///
     /// 入力は IROCA_MEM_CASES が指す JSON:
-    ///   { "steps": 12, "releaseWaitSeconds": 60, "gcEachStep": false,
+    ///   { "steps": 12, "releaseWaitSeconds": 60, "gcEachStep": false, "reuseOutput": false,
     ///     "cases": [ { "name": "...", "png": "<絶対パス>", "zones": "<zones JSON の絶対パス>" } ] }
     /// 1 手ごとに、フル段のプレビュー(PreviewView.ScheduleFullPreview)と同じく原本を複製して
     /// <see cref="PixelProcessor.ProcessPixelsArray"/> を選択キャッシュ付きで呼び、出力を 1 枚だけ保持する。
     /// 偶数手は許容度を変える(選択キャッシュのミス)、奇数手はターゲット色だけ変える(ヒット)。
+    /// reuseOutput なら出力バッファを製品のフル段と同じく PreviewOutputBuffers で使い回す(false は毎回複製)。
     /// gcEachStep なら各手の後に GC.Collect をかけ、その所要時間を gcMs に記録する(ヒープの膨らみを抑えられるかの比較)。
     /// 最後に作業配列のプールと選択キャッシュを手放して GC し、ヒープとプロセスのメモリが OS へ返るかを見る。
     /// 結果は IROCA_MEM_REPORT が指すファイルへ 1 行 1 計測の JSON で書く。
@@ -36,7 +37,7 @@ namespace Iroca.EditorTests
     public class MemoryBenchTests
     {
         [Serializable] private class CaseDto { public string name = ""; public string png = ""; public string zones = ""; }
-        [Serializable] private class CasesDto { public int steps = 12; public int releaseWaitSeconds = 60; public bool gcEachStep; public List<CaseDto> cases = new List<CaseDto>(); }
+        [Serializable] private class CasesDto { public int steps = 12; public int releaseWaitSeconds = 60; public bool gcEachStep; public bool reuseOutput; public List<CaseDto> cases = new List<CaseDto>(); }
 
         [StructLayout(LayoutKind.Sequential)]
         private struct ProcessMemoryCounters
@@ -131,6 +132,7 @@ namespace Iroca.EditorTests
                     sb.Append(Sample(c.name, "start", 0, 0)).Append('\n');
 
                     var selectionCache = new SelectionCache();
+                    var outputBuffers = new PreviewOutputBuffers();
                     Color32[] heldOutput = null;   // PreviewView._fullOutput 相当(最新の 1 枚だけ保持)
                     for (int k = 0; k < cfg.steps; k++)
                     {
@@ -145,9 +147,16 @@ namespace Iroca.EditorTests
                             zones[i].UpdateCacheIfNeeded();
                         }
                         var sw = System.Diagnostics.Stopwatch.StartNew();
-                        var pixels = (Color32[])src.Clone();
+                        Color32[] pixels;
+                        if (cfg.reuseOutput)
+                        {
+                            pixels = outputBuffers.Take(src.Length, null) ?? new Color32[src.Length];
+                            Array.Copy(src, pixels, src.Length);
+                        }
+                        else pixels = (Color32[])src.Clone();
                         PixelProcessor.ProcessPixelsArray(pixels, w, h, null, zones, settings,
                             CancellationToken.None, selectionCache: selectionCache);
+                        if (cfg.reuseOutput && heldOutput != null) outputBuffers.Retire(heldOutput);
                         heldOutput = pixels;
                         double ms = sw.Elapsed.TotalMilliseconds, gcMs = 0;
                         if (cfg.gcEachStep)
@@ -162,6 +171,7 @@ namespace Iroca.EditorTests
                     // 手放す: 出力・選択キャッシュ・プール。その後 GC をかけながら待ち、OS へ返るかを見る。
                     heldOutput = null;
                     selectionCache.Clear();
+                    outputBuffers.Clear();
                     ReleasePools();
                     var wait = System.Diagnostics.Stopwatch.StartNew();
                     for (int s = 0; s <= cfg.releaseWaitSeconds; s += 5)

@@ -139,6 +139,18 @@ namespace Iroca
             DropIfUnused(source);
         }
 
+        /// <summary>
+        /// <paramref name="pixels"/> をシーンへの反映用に持っているか(再アップロードで読むので、持っている間は
+        /// 書き換えてはいけない)。メインスレッドから呼ぶ。
+        /// </summary>
+        internal static bool HoldsPixels(Color32[] pixels)
+        {
+            if (pixels == null) return false;
+            foreach (var slot in Slots.Values)
+                if (ReferenceEquals(slot.pixels, pixels)) return true;
+            return false;
+        }
+
         /// <summary>テスト用: 借りられている数。</summary>
         internal static int RefCount(Texture2D source) =>
             source != null && Slots.TryGetValue(source, out var slot) ? slot.refs : 0;

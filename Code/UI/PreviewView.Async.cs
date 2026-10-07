@@ -238,27 +238,43 @@ namespace Iroca
             var selCache = _selectionCache;
             var marks = req.latency.Full;
             marks.Scheduled = PreviewLatencyCycle.Now;
+            // 縮小表示のテクスチャでは、出力バッファ(フル解像度)を前のフル段から使い回す。縮小しない
+            // テクスチャは出力の配列がそのまま表示用・差分ジョブにも渡るので使い回さない(毎回 new)。
+            bool recyclable = req.scale < 1f;
+            var buffers = _outputBuffers;
+            Color32[] reused = recyclable ? buffers?.Take(req.srcPixels.Length, LivePreview.HoldsPixels) : null;
             _previewJob.Schedule(
                 work: token =>
                 {
                     marks.WorkStart = PreviewLatencyCycle.Now;
-                    Color32[] pixels = (Color32[])req.srcPixels.Clone();
-                    marks.CoreStart = PreviewLatencyCycle.Now;
-                    PixelProcessor.ProcessPixelsArray(pixels, req.srcW, req.srcH, req.maskSnap, req.zonesSnapshot,
-                        req.settings, token,
-                        debug: req.debugCap, selectionCache: selCache);
-                    marks.CoreEnd = PreviewLatencyCycle.Now;
-                    marks.CoreReport = DebugCaptureHooks.TakeThreadPerfReport();
+                    Color32[] pixels = reused ?? new Color32[req.srcPixels.Length];
+                    bool handedOff = false;
+                    try
+                    {
+                        System.Array.Copy(req.srcPixels, pixels, pixels.Length);
+                        marks.CoreStart = PreviewLatencyCycle.Now;
+                        PixelProcessor.ProcessPixelsArray(pixels, req.srcW, req.srcH, req.maskSnap, req.zonesSnapshot,
+                            req.settings, token,
+                            debug: req.debugCap, selectionCache: selCache);
+                        marks.CoreEnd = PreviewLatencyCycle.Now;
+                        marks.CoreReport = DebugCaptureHooks.TakeThreadPerfReport();
 
-                    Color32[] processedDisplay = req.scale < 1f
-                        ? PixelProcessor.BoxDownsample(pixels, req.srcW, req.srcH, req.prevW, req.prevH, req.scale)
-                        : pixels;
-                    // raw が未確定(キャッシュミス & scale<1)ならバックグラウンドで生成する。
-                    // それ以外(キャッシュヒット or scale>=1)は確定済みをそのまま使う。
-                    Color32[] rawForJob = req.rawDisplay ?? PixelProcessor.BoxDownsample(
-                        req.srcPixels, req.srcW, req.srcH, req.prevW, req.prevH, req.scale);
-                    marks.WorkEnd = PreviewLatencyCycle.Now;
-                    return (processedDisplay, rawForJob, pixels);
+                        Color32[] processedDisplay = req.scale < 1f
+                            ? PixelProcessor.BoxDownsample(pixels, req.srcW, req.srcH, req.prevW, req.prevH, req.scale)
+                            : pixels;
+                        // raw が未確定(キャッシュミス & scale<1)ならバックグラウンドで生成する。
+                        // それ以外(キャッシュヒット or scale>=1)は確定済みをそのまま使う。
+                        Color32[] rawForJob = req.rawDisplay ?? PixelProcessor.BoxDownsample(
+                            req.srcPixels, req.srcW, req.srcH, req.prevW, req.prevH, req.scale);
+                        marks.WorkEnd = PreviewLatencyCycle.Now;
+                        handedOff = true;
+                        return (processedDisplay, rawForJob, pixels);
+                    }
+                    finally
+                    {
+                        // 取り消し・例外で結果を渡さなかった作業バッファは、もう書かないので使い回しへ戻す。
+                        if (!handedOff && recyclable) buffers?.Retire(pixels);
+                    }
                 },
                 apply: result =>
                 {
@@ -276,8 +292,10 @@ namespace Iroca
                     _pendingPrevH            = req.prevH;
                     // フル解像度の結果を保持する。拡大表示(詳細クロップ)はここから切り出すだけなので、
                     // 書き出しと同じ計算結果そのものになる(切り出しを計算し直さない)。
+                    if (!ReferenceEquals(_fullOutput, result.full)) RetireFullOutput();
                     _fullOutput       = result.full;
                     _fullOutputSource = req.srcPixels;
+                    _fullOutputRecyclable = recyclable;
                     _fullOutputFreshSinceHide = true;
                     // ジョブ側で生成した raw をキャッシュへ確定する(まだ未確定で、対象テクスチャと
                     // 寸法が変わっていない場合のみ。新しいミスで上書きされていれば触らない)。
