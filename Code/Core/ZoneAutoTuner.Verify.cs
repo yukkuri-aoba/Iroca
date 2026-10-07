@@ -285,7 +285,7 @@ namespace Iroca
             if (accepted > derived) result.tolerance = accepted;
         }
 
-        // 証拠判定用: 各サンプルの HSV と near 窓下限彩度を前計算する。
+        // 証拠判定用: 主サンプルと内部サンプルの HSV を前計算する(near 窓の判定は InAnyNearWindow)。
         private static SampleHSV[] SampleWindows(ColorZone sim)
         {
             var extras = sim.extraSamples ?? new List<Color>();

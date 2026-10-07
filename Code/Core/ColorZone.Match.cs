@@ -36,7 +36,7 @@ namespace Iroca
             _cChromaThreshold = chromaThreshold;
             _cacheInitiated = true;
 
-            // サンプルごとの派生値を構築（主サンプル + 追加スポイト）。
+            // サンプルごとの派生値を構築（主サンプル + 内部サンプル(extraSamples)）。
             int extraN = extraSamples?.Count ?? 0;
             _sampleCaches = new SampleCache[1 + extraN];
             _sampleCaches[0] = BuildSampleCache(sampleColor);
@@ -151,9 +151,9 @@ namespace Iroca
             }
         }
 
-        // マルチサンプルの和集合マッチング。全サンプル（主＋追加スポイト）に対して
+        // マルチサンプルの和集合マッチング。全サンプル（主＋内部サンプル(extraSamples)）に対して
         // 1 サンプル分のマッチを計算し、最大強度を採る。サンプルが 1 個なら従来の
-        // 単一サンプル計算と完全に一致する（追加スポイトが無い限り出力はビット不変）。
+        // 単一サンプル計算と完全に一致する（内部サンプル(extraSamples)が無い限り出力はビット不変）。
         private void GetColorMatchScores(Color pixelColor, float pH, float pS, float pV, out float strength, out float highlightPotential, out float matchConf)
         {
             strength = 0f;

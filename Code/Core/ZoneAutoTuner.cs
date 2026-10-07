@@ -151,16 +151,6 @@ namespace Iroca
         }
 
         /// <summary>
-        /// pixels, zone, session から推奨値と上書き対象ラベルを返す。
-        /// 副作用なし。失敗時もデフォルト相当の TuneResult を返す。
-        /// pixels が null / 寸法が極端に小さい場合はヒューリスティック既定のみで返す。
-        /// </summary>
-        /// <param name="excluded">
-        /// 除外マスク(共通∪ゾーン別の OR 結合, true=除外)。サイズ maskW*maskH。
-        /// null または全 false の場合はマスク無しパス。マスクがある場合は
-        /// 「含有(非除外)領域全体をパーツとみなし、その距離分布から tolerance を導出」する。
-        /// </param>
-        /// <summary>
         /// 解析の全走査が共有する HSV 前計算格子。
         ///
         /// 自動調整は最大 15 回前後の全画面走査を行うが、走査対象の格子(ストライド)と
@@ -206,6 +196,16 @@ namespace Iroca
             return grid;
         }
 
+        /// <summary>
+        /// pixels, zone, session から推奨値と上書き対象ラベルを返す。
+        /// 副作用なし。失敗時もデフォルト相当の TuneResult を返す。
+        /// pixels が null / 寸法が極端に小さい場合はヒューリスティック既定のみで返す。
+        /// </summary>
+        /// <param name="excluded">
+        /// 除外マスク(共通∪ゾーン別の OR 結合, true=除外)。サイズ maskW*maskH。
+        /// null または全 false の場合はマスク無しパス。マスクがある場合は
+        /// 「含有(非除外)領域全体をパーツとみなし、その距離分布から tolerance を導出」する。
+        /// </param>
         public static TuneResult Analyze(Color32[] pixels, int width, int height,
             ColorZone zone, IrocaSessionState session,
             bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
@@ -512,7 +512,6 @@ namespace Iroca
             return stats.nearSampleCount >= MinNearSampleCount;
         }
 
-        // 無彩マルチサンプル: 各画素から全サンプルへの最小 RGB 距離（グレーモード距離式）の P95。
         private static TuneResult MergeAnalyzed(TuneResult heuristic, AnalysisStats s)
         {
             float hSpread = HueSpreadFromHistogram(s.hBins, s.sH, s.nearSampleCount);
@@ -549,7 +548,8 @@ namespace Iroca
                 saturationStrictness = 0.50f;
             }
 
-            // chromaThreshold: サンプル彩度がしきい値以下のときグレースケールモードに入る仕様（ColorZone.GetColorMatchScores 参照）。
+            // chromaThreshold: サンプル彩度がしきい値以下のときグレースケールモードに入る仕様
+            // （ColorZone.BuildSampleCache の isGrayMode = GrayModeEffectiveChromaThreshold 参照）。
             // 低彩度サンプル(sS < 0.15)はしきい値を sS + 0.05 に引き上げて確実にグレーモード化、
             // 有彩色サンプルは既定値 0.05 を維持して通常の HSV マッチに任せる。
             float chromaThreshold = (s.sS < 0.15f)

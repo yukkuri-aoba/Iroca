@@ -236,12 +236,12 @@ namespace Iroca
             // 範囲を広げ、グローバルに別素材を巻き込む(実測 IoU −0.06〜−0.11)。従来の正規化は
             // この罠(ベタ塗り端ゲート・クリックが地色帯なら動かさない)を実測で塞いであるので、
             // 母集団をセグメントに限定してそのまま使う。正規化しない(=既に地色)ならクリック色。
-            ct.ThrowIfCancellationRequested();
             //
             // 外れ値ゲート(クリックの (S,V) 帯が最頻帯の 1/10 以上あれば動かさない)は、クリックが
             // トーン連結域の端に居るときだけ外す(edgeBypass。判定と実測は Normalize.cs の
             // NormEdgeFrac を参照)。母集団がセグメント(=クリックしたパーツそのもの)なら最頻 (S,V)
             // bin はそのパーツの地色で、端を踏んだクリックを寄せる相手として信頼できる。
+            ct.ThrowIfCancellationRequested();
             Color rep = zone.sampleColor;
             if (TryNormalizeSample(pixels, width, height, zone, notEvidence, evW, evH, hsv,
                     out Color normalized, out float clickT, edgeBypass: true))
@@ -591,7 +591,7 @@ namespace Iroca
         }
 
         // sim で覆えていない証拠ドメイン画素のうち、最も多い V 帯の平均色を新サンプルとして返す。
-        // 既存サンプルと重複(AutoToneMinSep 未満)するなら false(=これ以上足しても増えない)。
+        // 既存サンプルと重複(EvDupSep 未満)するなら false(=これ以上足しても増えない)。
         private static bool TryUncoveredRepresentative(ColorZone sim, HsvGrid hsv, Color32[] pixels,
             int w, int h, List<GridPt> domain, Color primary, List<Color> existing, out Color rep)
         {
