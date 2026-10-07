@@ -574,7 +574,7 @@ namespace Iroca
                     for (int x = 0; x < w; x++)
                     {
                         int i = rowOff + x;
-                        if (pixels[i].a < 128) continue;
+                        if (pixels[i].a < OpaqueAlphaMin) continue;
                         if (strength[i] > matchThr)
                         {
                             local.hist[Mathf.Clamp((int)(pixV[i] * 256f), 0, 255)]++;
@@ -650,7 +650,7 @@ namespace Iroca
                             int packed = queue[qHead++];
                             int x = packed & 0xFFFF, y = packed >> 16;
                             int i = y * w + x;
-                            if (pixels[i].a >= 128)
+                            if (pixels[i].a >= OpaqueAlphaMin)
                             {
                                 nOpaque++;
                                 hV[Mathf.Clamp((int)(pixV[i] * 256f), 0, 255)]++;
@@ -699,7 +699,7 @@ namespace Iroca
                                     int sj = stamp[j];
                                     if (sj == compId || sj == -compId) continue;
                                     stamp[j] = -compId;   // この成分については判定済み
-                                    if (strength[j] <= matchThr || pixels[j].a < 128) continue;
+                                    if (strength[j] <= matchThr || pixels[j].a < OpaqueAlphaMin) continue;
                                     if (IsAdjacent8ToStamp(stamp, compId, xx, yy, w, h)) continue;
                                     sumV += pixV[j]; sumS += pixS[j]; ringN++;
                                 }
@@ -716,7 +716,7 @@ namespace Iroca
                         {
                             int packed = queue[k];
                             int i = (packed >> 16) * w + (packed & 0xFFFF);
-                            if (pixels[i].a < 128) continue;
+                            if (pixels[i].a < OpaqueAlphaMin) continue;
                             strength[i] = 1f;
                             if (recoveredBits != null) recoveredBits[i >> 6] |= 1UL << (i & 63);
                             recovered++;

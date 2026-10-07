@@ -78,7 +78,7 @@ namespace Iroca
                 for (int x = 0, gx = 0; x < w; x += stride, gx++)
                 {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < 128) continue;
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
                     if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue; // マスク除外領域は対象外
                     float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                     float pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
@@ -166,7 +166,7 @@ namespace Iroca
                 for (int x = 0, gx = 0; x < w; x += stride, gx++)
                 {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < 128) continue;
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
                     if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
                     float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
                     if (pS < sS * ChromaClusterSatFrac) continue;
@@ -253,7 +253,7 @@ namespace Iroca
                 for (int x = 0, gx = 0; x < w; x += stride, gx++)
                 {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < 128) continue;
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
                     if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue; // マスク除外領域は対象外
                     float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
                     float hd = Mathf.Abs(pH - sH);
@@ -360,7 +360,7 @@ namespace Iroca
                 for (int x = 0, gx = 0; x < w; x += stride, gx++)
                 {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < 128) continue;
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
                     if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
                     float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
                     float hd0 = Mathf.Abs(pH - sH); if (hd0 > 0.5f) hd0 = 1f - hd0;
@@ -413,7 +413,7 @@ namespace Iroca
                 for (int x = 0, gx = 0; x < w; x += stride, gx++)
                 {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < 128) continue;
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
                     if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
                     float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                     float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
@@ -522,7 +522,7 @@ namespace Iroca
                 for (int x = 0, gx = 0; x < w; x += stride, gx++)
                 {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < 128) continue;
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
                     if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
                     float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
 

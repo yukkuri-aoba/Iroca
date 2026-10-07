@@ -307,7 +307,7 @@ namespace Iroca
                 for (int lx = 0; lx < bw; lx++)
                 {
                     int gi = grb + lx;
-                    bool m = strength[gi] > thr && px[gi].a >= 128;
+                    bool m = strength[gi] > thr && px[gi].a >= OpaqueAlphaMin;
                     if (m && !prev) n++;
                     prev = m;
                 }
@@ -329,9 +329,9 @@ namespace Iroca
                 while (lx < bw)
                 {
                     int gi = grb + lx;
-                    if (!(strength[gi] > thr && px[gi].a >= 128)) { lx++; continue; }
+                    if (!(strength[gi] > thr && px[gi].a >= OpaqueAlphaMin)) { lx++; continue; }
                     int s0 = lx;
-                    while (lx < bw && strength[grb + lx] > thr && px[grb + lx].a >= 128) lx++;
+                    while (lx < bw && strength[grb + lx] > thr && px[grb + lx].a >= OpaqueAlphaMin) lx++;
                     runX0[k] = s0; runX1[k] = lx - 1; runY[k] = ly; k++;
                 }
             });
@@ -499,7 +499,7 @@ namespace Iroca
                         for (int x = bbMinX; x <= bbMaxX; x++)
                         {
                             int i = rowOff + x;
-                            if (strength[i] < passThr || px[i].a < 128) continue;
+                            if (strength[i] < passThr || px[i].a < OpaqueAlphaMin) continue;
                             if (statsExclude != null && statsExclude[i]) continue;
                             float L;
                             if (pIdx != null) L = pL[pIdx[i]];

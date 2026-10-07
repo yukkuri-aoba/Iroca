@@ -59,7 +59,7 @@ namespace Iroca
                 for (int x = 0, gx = 0; x < w; x += stride, gx++)
                 {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < 128) continue;
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
                     if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
                     float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                     var col = new Color(r, g, b, 1f);
@@ -125,7 +125,7 @@ namespace Iroca
                     for (int x = 0, gx = 0; x < w; x += stride, gx++)
                     {
                         Color32 c = pixels[rowStart + x];
-                        if (c.a < 128) continue;
+                        if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
                         if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
                         float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                         var col = new Color(r, g, b, 1f);
@@ -231,7 +231,7 @@ namespace Iroca
                 for (int x = 0, gx = 0; x < w; x += stride, gx++)
                 {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < 128) continue;
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
                     if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
                     float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                     var col = new Color(r, g, b, 1f);
@@ -260,7 +260,7 @@ namespace Iroca
                     {
                         if (baseSel[grow + gx]) continue;
                         Color32 c = pixels[rowStart + x];
-                        if (c.a < 128) continue;
+                        if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
                         if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
                         float r = c.r / 255f, g = c.g / 255f, b = c.b / 255f;
                         var col = new Color(r, g, b, 1f);

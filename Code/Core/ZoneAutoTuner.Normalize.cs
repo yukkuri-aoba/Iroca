@@ -152,7 +152,7 @@ namespace Iroca
                 for (int x = 0, gx = 0; x < w; x += stride, gx++)
                 {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < 128) continue;
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
                     if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
                     float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
                     if (pS < satFloor) continue;         // クリックより淡い側（＝別素材/脱彩の裾）を除外

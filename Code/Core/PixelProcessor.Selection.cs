@@ -241,7 +241,7 @@ namespace Iroca
                 {
                     int rb = y * w;
                     for (int x = 0; x < w; x++)
-                        if (strength[rb + x] > thr && px[rb + x].a >= 128)
+                        if (strength[rb + x] > thr && px[rb + x].a >= OpaqueAlphaMin)
                         {
                             if (x < loc.minX) loc.minX = x;
                             if (x > loc.maxX) loc.maxX = x;

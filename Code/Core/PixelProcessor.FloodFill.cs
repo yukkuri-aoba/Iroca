@@ -87,7 +87,7 @@ namespace Iroca
                     for (int x = minX; x <= maxX; x++)
                     {
                         int gi = rb + x;
-                        if (strength[gi] > 0f && px[gi].a >= 128)
+                        if (strength[gi] > 0f && px[gi].a >= OpaqueAlphaMin)
                         {
                             sHist[Mathf.Clamp((int)(strength[gi] * 255f), 0, 255)]++;
                             posCount++;
@@ -126,7 +126,7 @@ namespace Iroca
                 for (int lx = 0; lx < bw; lx++)
                 {
                     int gi = grb + lx;
-                    bool m = strength[gi] > 0f && px[gi].a >= 128;
+                    bool m = strength[gi] > 0f && px[gi].a >= OpaqueAlphaMin;
                     if (m && !prev) n++;
                     prev = m;
                 }
@@ -147,9 +147,9 @@ namespace Iroca
                 while (lx < bw)
                 {
                     int gi = grb + lx;
-                    if (!(strength[gi] > 0f && px[gi].a >= 128)) { lx++; continue; }
+                    if (!(strength[gi] > 0f && px[gi].a >= OpaqueAlphaMin)) { lx++; continue; }
                     int s0 = lx;
-                    while (lx < bw && strength[grb + lx] > 0f && px[grb + lx].a >= 128) lx++;
+                    while (lx < bw && strength[grb + lx] > 0f && px[grb + lx].a >= OpaqueAlphaMin) lx++;
                     runX0[k] = s0; runX1[k] = lx - 1; k++;
                 }
             });

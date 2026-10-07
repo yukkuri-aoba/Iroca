@@ -53,7 +53,7 @@ namespace Iroca
                     for (int x = 0; x < w; x++)
                     {
                         int i = rowOff + x;
-                        if (px[i].a < 128) continue;
+                        if (px[i].a < PixelProcessor.OpaqueAlphaMin) continue;
                         if (pixS[i] < satFloor) continue;
                         float hd = Mathf.Abs(pixH[i] - sH);
                         if (hd > 0.5f) hd = 1f - hd;

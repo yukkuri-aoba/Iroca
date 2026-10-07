@@ -35,6 +35,10 @@ namespace Iroca
             return ov > 0 ? Math.Min(ov, Environment.ProcessorCount) : s_defaultParallelism;
         }
 
+        // 不透明とみなす α の下限。統計・連結成分・閉領域・自動調整のサンプリングの対象画素はこれ以上。
+        // HighlightSampleCorrector と ZoneAutoTuner も同じ規約で数えるので internal。
+        internal const int OpaqueAlphaMin = 128;
+
         private static double TicksToMs(long ticks) =>
             ticks * 1000.0 / Stopwatch.Frequency;
 

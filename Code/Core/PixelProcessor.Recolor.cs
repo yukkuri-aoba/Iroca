@@ -136,7 +136,7 @@ namespace Iroca
                         for (int x = bbMinX; x <= bbMaxX; x++)
                         {
                             int i = rowOff + x;
-                            if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
+                            if (strength[i] < AnchorStrengthMin || px[i].a < OpaqueAlphaMin) continue;
                             if (statsExclude != null && statsExclude[i]) continue;
                             RgbToOklab(px[i].r, px[i].g, px[i].b,
                                 out float L, out float a, out float b);
@@ -166,7 +166,7 @@ namespace Iroca
                         for (int x = bbMinX; x <= bbMaxX; x++)
                         {
                             int i = rowOff + x;
-                            if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
+                            if (strength[i] < AnchorStrengthMin || px[i].a < OpaqueAlphaMin) continue;
                             if (statsExclude != null && statsExclude[i]) continue;
                             float L = candL[i], C = candC[i];
                             if (C / Mathf.Max(L, 1e-4f) < satrFloor) continue;
@@ -195,7 +195,7 @@ namespace Iroca
                         for (int x = bbMinX; x <= bbMaxX; x++)
                         {
                             int i = rowOff + x;
-                            if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
+                            if (strength[i] < AnchorStrengthMin || px[i].a < OpaqueAlphaMin) continue;
                             if (statsExclude != null && statsExclude[i]) continue;
                             float L = candL[i], c = candC[i];
                             if (c / Mathf.Max(L, 1e-4f) < satrFloor) continue;
@@ -242,7 +242,7 @@ namespace Iroca
                     for (int x = bbMinX; x <= bbMaxX; x++)
                     {
                         int i = rowOff + x;
-                        if (strength[i] < AnchorStrengthMin || px[i].a < 128) continue;
+                        if (strength[i] < AnchorStrengthMin || px[i].a < OpaqueAlphaMin) continue;
                         if (statsExclude != null && statsExclude[i]) continue;
                         local[pIdx[i]]++;
                         n++;

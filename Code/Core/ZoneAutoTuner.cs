@@ -476,7 +476,7 @@ namespace Iroca
                 for (int x = 0, gx = 0; x < w; x += stride, gx++)
                 {
                     Color32 c32 = pixels[rowStart + x];
-                    if (c32.a < 128) continue;
+                    if (c32.a < PixelProcessor.OpaqueAlphaMin) continue;
                     if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue; // マスク除外領域は対象外
 
                     int gi = grow + gx;

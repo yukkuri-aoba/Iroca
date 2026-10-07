@@ -444,7 +444,7 @@ namespace Iroca
                 int grow = gy * hsv.gw;
                 for (int x = 0, gx = 0; x < w; x += stride, gx++)
                 {
-                    if (pixels[rowStart + x].a < 128) continue;
+                    if (pixels[rowStart + x].a < PixelProcessor.OpaqueAlphaMin) continue;
                     int mx = Mathf.Clamp(x * mW / w, 0, mW - 1);
                     int my = Mathf.Clamp(y * mH / h, 0, mH - 1);
                     if (!mask[my * mW + mx]) continue;
@@ -641,7 +641,7 @@ namespace Iroca
                 for (int x = 0, gx = 0; x < w; x += stride, gx++)
                 {
                     Color32 c = pixels[rowStart + x];
-                    if (c.a < 128) continue;
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
                     if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
                     int gi = grow + gx;
                     var col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
