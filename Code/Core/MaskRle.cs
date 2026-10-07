@@ -19,6 +19,9 @@ namespace Iroca
         // 約 2GB の確保を要求できる(共有プリセットを開いた瞬間に OOM / 長時間フリーズ)。
         internal const int MaxSide = 16384;
 
+        // RLE フォーマットのプレフィックス。これが無い文字列は旧 bitpack として読む。
+        private const string RlePrefix = "R:";
+
         /// <summary>bool 配列を RLE 圧縮 + Base64 文字列にエンコード。</summary>
         public static string Encode(bool[] mask, int w, int h)
         {
@@ -50,7 +53,26 @@ namespace Iroca
             for (int i = 0; i < runs.Count; i++)
                 System.Buffer.BlockCopy(System.BitConverter.GetBytes(runs[i]), 0, bytes, 9 + i * 4, 4);
 
-            return "R:" + System.Convert.ToBase64String(bytes);
+            return RlePrefix + System.Convert.ToBase64String(bytes);
+        }
+
+        /// <summary>
+        /// RLE / 旧 bitpack 共通のヘッダ(4byte W + 4byte H)を読み、寸法を検証して画素数を返す。
+        /// w / h は検証の前に代入する(失敗時も読めた値が残る)。呼び出し側で bytes.Length >= 9 を確認済みであること。
+        /// </summary>
+        private static bool TryReadHeader(byte[] bytes, out int w, out int h, out int len)
+        {
+            len = 0;
+            w = System.BitConverter.ToInt32(bytes, 0);
+            h = System.BitConverter.ToInt32(bytes, 4);
+            if (w <= 0 || h <= 0 || w > MaxSide || h > MaxSide) return false;
+            // w * h の int オーバーフローを弾く。w=h=65536 だと len=0 になり(旧 bitpack では長さ検査も素通りし)、
+            // 破損データに対して「成功・空マスク」を黙って返していた（レビュー §4 中）。
+            // (MaxSide 上限により実際には到達しないが、上限を緩めたときの安全網として残す)
+            long lenLong = (long)w * h;
+            if (lenLong > int.MaxValue) return false;
+            len = (int)lenLong;
+            return true;
         }
 
         /// <summary>Encode の逆。デコード失敗時は null を返す。</summary>
@@ -59,21 +81,13 @@ namespace Iroca
             w = 0; h = 0;
             if (string.IsNullOrEmpty(encoded)) return null;
 
-            if (encoded.StartsWith("R:", System.StringComparison.Ordinal))
+            if (encoded.StartsWith(RlePrefix, System.StringComparison.Ordinal))
             {
                 try
                 {
-                    byte[] bytes = System.Convert.FromBase64String(encoded.Substring(2));
+                    byte[] bytes = System.Convert.FromBase64String(encoded.Substring(RlePrefix.Length));
                     if (bytes.Length < 9) return null;
-                    w = System.BitConverter.ToInt32(bytes, 0);
-                    h = System.BitConverter.ToInt32(bytes, 4);
-                    if (w <= 0 || h <= 0 || w > MaxSide || h > MaxSide) return null;
-                    // w * h の int オーバーフローを弾く。w=h=65536 だと len=0 になり、
-                    // 破損データに対して「成功・空マスク」を黙って返していた（レビュー §4 中）。
-                    // (MaxSide 上限により実際には到達しないが、上限を緩めたときの安全網として残す)
-                    long lenLong = (long)w * h;
-                    if (lenLong > int.MaxValue) return null;
-                    int len = (int)lenLong;
+                    if (!TryReadHeader(bytes, out w, out h, out int len)) return null;
                     // 確保前にラン列を走査し、全画素分を埋め切れる(= 切断データでない)ことを確かめる。
                     // 従来は確保してから埋め、足りなければ null にしていたため、切断データでも
                     // 上限いっぱいの配列を一度確保していた。検査は確保より桁違いに安い。
@@ -113,14 +127,7 @@ namespace Iroca
             {
                 byte[] packed = System.Convert.FromBase64String(encoded);
                 if (packed.Length < 9) return null;
-                w = System.BitConverter.ToInt32(packed, 0);
-                h = System.BitConverter.ToInt32(packed, 4);
-                if (w <= 0 || h <= 0 || w > MaxSide || h > MaxSide) return null;
-                // RLE 側と同じオーバーフロー判定。w=h=65536 だと len=0 になって長さ検査も
-                // 素通りし、破損データに対して「成功・空マスク」を黙って返してしまう。
-                long lenLong = (long)w * h;
-                if (lenLong > int.MaxValue) return null;
-                int len = (int)lenLong;
+                if (!TryReadHeader(packed, out w, out h, out int len)) return null;
                 if (packed.Length < 8 + (len + 7) / 8) return null;
                 bool[] mask = new bool[len];
                 for (int i = 0; i < len; i++)
