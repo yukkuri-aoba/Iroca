@@ -269,7 +269,7 @@ namespace Iroca
                 // ── 閉ループ検証: 導出パラメータを実マッチャーに通し、有害な設定を安全側へ倒す ──
                 RunClosedLoopVerification(pixels, width, height, aZone, excluded, maskW, maskH, hsv,
                     sampleS >= AchromaSampleSatMax, foreignCapped, vConnHiBin, ct, report,
-                    0.85f, 0.92f, ref result);
+                    0.85f, 0.92f, null, 0, 0, ref result);
 
                 Progress(0.98f);
 
@@ -377,17 +377,20 @@ namespace Iroca
         /// <param name="vConnHiBin">トーン連結域の V 上端 bin。-1=未確定。</param>
         /// <param name="progressAfterGrowth">ハイライト成長テストの後に報告する進捗。<see cref="NoProgress"/> なら報告しない。</param>
         /// <param name="progressAfterOvershoot">免除過剰の判定の後に報告する進捗(有彩のみ)。<see cref="NoProgress"/> なら報告しない。</param>
+        /// <param name="evidence">証拠マスク(AI 提案のセグメント = クリックしたパーツ)。null = 証拠なし。
+        /// ハイライト成長テストだけが使う(<see cref="VerifyHighlightRecoveryGrowth"/>)。</param>
         private static void RunClosedLoopVerification(Color32[] pixels, int width, int height,
             ColorZone aZone, bool[] excluded, int maskW, int maskH, HsvGrid hsv,
             bool chromatic, bool foreignCapped, int vConnHiBin, CancellationToken ct,
             Action<float> report, float progressAfterGrowth, float progressAfterOvershoot,
+            bool[] evidence, int evW, int evH,
             ref TuneResult result)
         {
             ct.ThrowIfCancellationRequested();
             bool hlRecBeforeVerify = result.highlightRecovery;
             if (result.highlightRecovery)
                 VerifyHighlightRecoveryGrowth(pixels, width, height, aZone,
-                    excluded, maskW, maskH, hsv, ref result);
+                    excluded, maskW, maskH, hsv, evidence, evW, evH, ref result);
             // 成長テストが highlightRecovery を落とした=「明るい同色相の別素材」が既に検出された
             // 状況なので、同じ方向へ広げる明部ツヤ救済も封印する。
             bool hlRecVetoed = hlRecBeforeVerify && !result.highlightRecovery;

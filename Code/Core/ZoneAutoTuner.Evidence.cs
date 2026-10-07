@@ -368,7 +368,8 @@ namespace Iroca
             // (実測: 虹彩の反射 S≈0.3、V≈0.75)はハイライト補助の条件(V>0.80・彩度上限)にも
             // 証拠ドメイン(ツヤ署名は除外)にも入らず、この救済だけが拾う。
             RunClosedLoopVerification(pixels, width, height, aZone, excluded, maskW, maskH, hsv,
-                chromatic, foreignCapped, vConnHiBin, ct, report, 0.88f, NoProgress, ref result);
+                chromatic, foreignCapped, vConnHiBin, ct, report, 0.88f, NoProgress,
+                evidence, evW, evH, ref result);
 
             result.normalizedSample = rep;
             result.hasNormalizedSample = repApplied;

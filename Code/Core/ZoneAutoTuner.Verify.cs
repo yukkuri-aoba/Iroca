@@ -29,11 +29,18 @@ namespace Iroca
         // 本物のスペキュラはパーツ面積の数%(実測例: 手描きの光沢で +1.0%、合成スペキュラで +2〜3%)、
         // 別素材の巻き込みは数十%以上(実測例: 服の隣の肌を丸ごと拾って +80%)なので明確に分離できる。
         // 面積比というテクスチャ統計のみで決まり、特定色・キャラへの依存は無い。
+        //
+        // 証拠(AI 提案のセグメント = クリックしたパーツ)があるときは、セグメントの内側で増える画素を数えない。
+        // 守りたいのは「別素材への巻き込み」で、それはセグメントの外で起きる。内側の増加はそのパーツ自身の
+        // ツヤ・白へ抜けるグラデーションで、ハイライト回復が拾うべきもの。全画面で数えると、毛先が白へ抜ける
+        // 髪(パーツの 4 割がツヤ)のような大きなツヤを巻き込みと区別できず、ハイライト回復を切って
+        // 白へ抜ける途中に硬い継ぎ目を作っていた(2026-10-08 合成シーン tips_white)。
         private const float HighlightGrowthMaxFrac = 0.15f;
         private const int   VerifyMinBaseSelected  = 64;
 
         private static void VerifyHighlightRecoveryGrowth(Color32[] pixels, int w, int h,
-            ColorZone zone, bool[] excluded, int maskW, int maskH, HsvGrid hsv, ref TuneResult result)
+            ColorZone zone, bool[] excluded, int maskW, int maskH, HsvGrid hsv,
+            bool[] evidence, int evW, int evH, ref TuneResult result)
         {
             var sim = BuildSimZone(zone, result);
 
@@ -69,6 +76,9 @@ namespace Iroca
                     sim.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
                         out float strength, out float hlPot, out _);
                     if (strength > 0f) { baseSel++; continue; }
+                    // セグメントの内側の増加はパーツ自身のツヤなので数えない(上の説明)。
+                    // IsMaskExcluded はマスクの値を最近傍で引くだけの関数で、ここでは「証拠の内側か」を引く。
+                    if (evidence != null && IsMaskExcluded(evidence, evW, evH, x, y, w, h)) continue;
                     if (hlPot > 0f) { hlOnly++; continue; }
                     // 帯拡張の候補条件(GrowHighlightBand と同一)
                     if (bandActive && pV > bSV && pS < bSS && pS >= bandSatFloor)
