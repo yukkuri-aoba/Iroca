@@ -75,7 +75,11 @@ namespace Iroca
         // 作り直さない)。鍵は寸法と全画素の 64bit ハッシュ。種類が多すぎて作らなかった結果(null)も覚える。
         // 表は色だけで決まり、番号は出力に影響しない(上の注意)ので、使い回しても出力はビット単位で同じ。
         // 2 枠 = プレビューの縮小段とフル解像度段が交互に来ても互いを追い出さない。
+        // ただし大きい画像の表(画素 → 番号だけで 4K なら 64MB)は 1 枚までにする。別のテクスチャやシーン反映の
+        // 処理が走ると大きい表が 2 枚残り、Unity の Mono はヒープを縮めないので、その分がずっとエディタの
+        // メモリになっていた。大きい表を作り直すのは別の画像に切り替わったときだけ。
         private const int PaletteCacheSize = 2;
+        private const int PaletteLargeLen = 1 << 20;   // これを超える画素数の表は 1 枚まで(縮小段 512² は小さい側)
         private sealed class PaletteCacheEntry
         {
             internal int W, H;
@@ -106,8 +110,20 @@ namespace Iroca
             if (built != null) built.Shared = true;
             lock (s_paletteCacheLock)
             {
-                for (int m = PaletteCacheSize - 1; m > 0; m--) s_paletteCache[m] = s_paletteCache[m - 1];
-                s_paletteCache[0] = new PaletteCacheEntry { W = w, H = h, Hash = hash, Palette = built };
+                // 新しい表を先頭に置き、残りを古い順に詰める。大きい表どうしは新しい方だけ残す
+                // (追い出した表を使用中の処理があっても、Shared なので Index はプールへ返らず壊れない)。
+                bool newLarge = w * h > PaletteLargeLen;
+                var next = new PaletteCacheEntry[PaletteCacheSize];
+                next[0] = new PaletteCacheEntry { W = w, H = h, Hash = hash, Palette = built };
+                int filled = 1;
+                for (int k = 0; k < PaletteCacheSize && filled < PaletteCacheSize; k++)
+                {
+                    var e = s_paletteCache[k];
+                    if (e == null) continue;
+                    if (newLarge && e.W * e.H > PaletteLargeLen && e.Palette != null) continue;
+                    next[filled++] = e;
+                }
+                Array.Copy(next, s_paletteCache, PaletteCacheSize);
             }
             return built;
         }
@@ -150,12 +166,6 @@ namespace Iroca
         private const int PaletteMaxColorsDivisor = 4;
         private const int PaletteMaxColorsCap = 1 << 20;
 
-        // 色の表のハッシュ表とスロット → 番号の対応(4K で long 2^21 + int 2^21 = 24MB)を処理ごとに new せず
-        // 使い回す(Mono では大きな new が GC の停止を招く)。同時に 2 つの処理が走ったときは、先に取った
-        // 方だけが使い回し、もう片方は新しく作る。容量より長い配列は先頭 capacity 要素だけ使う。
-        private static long[] s_paletteSlots;
-        private static int[] s_paletteSlotToId;
-
         /// <summary>
         /// 元画素から色の表を作る。種類が上限を超えた・キャンセルされたときは null(呼び出し側は
         /// 画素ごとの計算に戻る)。
@@ -171,22 +181,11 @@ namespace Iroca
             int capacity = 1 << bits;
             int mask = capacity - 1;
             int shift = 32 - bits;
-            // 0 = 空き、それ以外 = RGBA の 32bit 値 + 1。先頭 capacity 要素を 0 にしてから使う。
-            long[] slots = Interlocked.Exchange(ref s_paletteSlots, null);
-            if (slots == null || slots.Length < capacity) slots = new long[capacity];
-            else
-            {
-                var clearSlots = slots;
-                const int ClearChunk = 1 << 18;
-                Parallel.For(0, (capacity + ClearChunk - 1) / ClearChunk, po, c =>
-                {
-                    int c0 = c * ClearChunk;
-                    Array.Clear(clearSlots, c0, Math.Min(ClearChunk, capacity - c0));
-                });
-            }
-            int[] slotToId = null;
-            try
-            {
+            // 0 = 空き、それ以外 = RGBA の 32bit 値 + 1。
+            // ハッシュ表とスロット → 番号の対応(4K で long 2^21 + int 2^21 = 24MB)は作るたびに確保する。
+            // 表はキャッシュから引くので作り直すのは新しい画像のときだけで、使い回しのために常駐させると、
+            // Mono では縮まないヒープにその分が残り続ける。
+            long[] slots = new long[capacity];
             int[] index = s_intPool.Rent(len);
             int inserted = 0;
             int overflow = 0;
@@ -243,8 +242,7 @@ namespace Iroca
             // 2) 使われたスロットに番号を振り、色と HSV を求める(種類数ぶんだけ)。
             //    slotToId は使われたスロットの位置だけ書いて読むので、0 で埋めなくてよい。
             int count = inserted;
-            slotToId = Interlocked.Exchange(ref s_paletteSlotToId, null);
-            if (slotToId == null || slotToId.Length < capacity) slotToId = new int[capacity];
+            int[] slotToId = new int[capacity];
             var colors = new Color32[count];
             int n = 0;
             for (int s = 0; s < capacity; s++)
@@ -275,12 +273,6 @@ namespace Iroca
 
             sub?.Mark(SpPaletteRemap);
             return new ColorPalette { Count = count, Colors = colors, Index = index, H = hh, S = ss, V = vv };
-            }
-            finally
-            {
-                Volatile.Write(ref s_paletteSlots, slots);
-                if (slotToId != null) Volatile.Write(ref s_paletteSlotToId, slotToId);
-            }
         }
 
         // ───────── 無彩パスの再着色メモ ─────────
