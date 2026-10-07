@@ -476,10 +476,11 @@ namespace Iroca
         /// 保護はコアからの 4 近傍 dilation を 1 回限りで行い、保護の連鎖はしない。
         /// </summary>
         private static void ApplyChromaCeilingGate(
-            float[] strength, float[] matchConf, float[] pixS,
+            float[] strength, float[] matchConf, PixelHsv hsv,
             float sS, float sV, float chromaThreshold, float chromaCeiling,
             int w, int h, CancellationToken ct = default)
         {
+            float[] pixS = hsv.S; int[] pixIdx = hsv.Index;
             // グレーモード判定は ColorZone.MatchOneSample / GetRelaxedMatchStrength と共有ヘルパー。
             float effectiveChromaThreshold = ColorZone.GrayModeEffectiveChromaThreshold(sV, chromaThreshold);
             if (sS > effectiveChromaThreshold) return;   // 有彩サンプル=グレーモードではない
@@ -522,7 +523,7 @@ namespace Iroca
                     for (int lx = 0; lx < bw; lx++)
                     {
                         int gi = grb + lx;
-                        float ps = pixS[gi];
+                        float ps = pixS[HsvSlot(pixIdx, gi)];
                         if (ps >= satCeil) localHigh = true;
                         if (strength[gi] > matchThr && ps < satCeil) { run = 0; dist[lrb + lx] = 0; }
                         else { if (run < Inf) run++; dist[lrb + lx] = run; }
@@ -575,7 +576,7 @@ namespace Iroca
                     for (int lx = 0; lx < bw; lx++)
                     {
                         int gi = grb + lx;
-                        if (dist[lrb + lx] > R && pixS[gi] >= satCeil && strength[gi] > 0f)
+                        if (dist[lrb + lx] > R && pixS[HsvSlot(pixIdx, gi)] >= satCeil && strength[gi] > 0f)
                         {
                             strength[gi] = 0f;
                             if (matchConf != null) matchConf[gi] = 0f;
@@ -616,10 +617,11 @@ namespace Iroca
         /// 走らせるとクロップ境界に接した閉領域が開領域と誤判定される。
         /// </summary>
         private static void RecoverEnclosedNeutral(
-            float[] strength, float[] matchConf, float[] pixS, Color32[] pixels,
+            float[] strength, float[] matchConf, PixelHsv hsv, Color32[] pixels,
             Color sampleColor, float tolerance, float sS, float sV, float chromaThreshold,
             int w, int h, CancellationToken ct = default)
         {
+            float[] pixS = hsv.S; int[] pixIdx = hsv.Index;
             // グレーモード判定は ColorZone.MatchOneSample / ApplyChromaCeilingGate と共有ヘルパー。
             float effectiveChromaThreshold = ColorZone.GrayModeEffectiveChromaThreshold(sV, chromaThreshold);
             if (sS > effectiveChromaThreshold) return;   // 有彩サンプル=グレーモードではない
@@ -650,7 +652,7 @@ namespace Iroca
                         bool f = strength[i] <= matchThr;
                         free[i] = f;
                         open[i] = false;
-                        if (f && pixS[i] < satFloor) local = true;
+                        if (f && pixS[HsvSlot(pixIdx, i)] < satFloor) local = true;
                     }
                     if (local) anyCandidate = true;
                 });
@@ -669,7 +671,7 @@ namespace Iroca
                     {
                         int i = rowOff + x;
                         if (!free[i] || open[i]) continue;
-                        if (pixS[i] >= satFloor) continue;
+                        if (pixS[HsvSlot(pixIdx, i)] >= satFloor) continue;
                         Color32 c = pixels[i];
                         float dr = c.r / 255f - sr, dg = c.g / 255f - sg, db = c.b / 255f - sb;
                         float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * ColorZone.InvSqrt3;
@@ -796,7 +798,7 @@ namespace Iroca
         /// </summary>
         private static void RecoverBoundaryEdges(
             float[] strength, int w, int h,
-            float[] pixH, float[] pixS, float[] pixV,
+            PixelHsv hsv,
             Color sampleColor, float tolerance,
             float edgeSoftness, float valueWeight, float satDistWeight,
             float relaxedSatMin, int passes,
@@ -809,6 +811,7 @@ namespace Iroca
             // GetRelaxedMatchStrength を求めた値と、画素 → 番号。渡されたら画素ごとの計算の代わりに読む
             // (同じ関数に同じ入力を与えた値なのでビット単位で同じ)。
             if (passes <= 0) return;
+            float[] pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int[] pixIdx = hsv.Index;
 
             // bbox 未指定(boxMaxX<0)なら全画素。指定時はその矩形内だけ走査する(P2-7、出力ビット不変)。
             if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
@@ -835,7 +838,7 @@ namespace Iroca
                     rpR = rop.r / 255f; rpG = rop.g / 255f; rpB = rop.b / 255f;
                 }
                 return GetRelaxedMatchStrength(
-                    pixH[idx], pixS[idx], pixV[idx],
+                    pixH[HsvSlot(pixIdx, idx)], pixS[HsvSlot(pixIdx, idx)], pixV[HsvSlot(pixIdx, idx)],
                     sH, sS, sV, tolerance, edgeSoftness, valueWeight,
                     satDistWeight, relaxedSatMin,
                     rpR, rpG, rpB, rcSampR, rcSampG, rcSampB, chromaConfidence, chromaThreshold,

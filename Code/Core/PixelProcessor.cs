@@ -253,7 +253,11 @@ namespace Iroca
             // 全ピクセルの HSV を zone ループに入る前に一括計算（zone 数に関わらず1回）
             // null 初期化してから try 内で Rent することで、
             // 2番目以降の Rent が例外を投げた場合に先行の配列をリークしない。
+            // 色の表があれば表の H/S/V と画素 → 番号(pixIdx)を指す(フル解像度の配列は持たない)。
+            // 表が無いときだけ画素ごとの配列を借りる(hsvRented)。読むときは HsvSlot(pixIdx, i) で引く。
             float[] pixH = null, pixS = null, pixV = null;
+            int[] pixIdx = null;
+            bool hsvRented = false;
             // 占有率バッファ: 優先度の高い(リスト上位の)ゾーンが書き込んだカバレッジを
             // ピクセル単位で累積する。下位ゾーンは残り(1-claimed)の範囲だけ適用され、
             // 「重なった部分は上位ゾーンのみ適用」というレイヤー排他を実現する。
@@ -271,9 +275,6 @@ namespace Iroca
             bool[] decontamMaskExcluded = null;
             try
             {
-            pixH = s_floatPool.Rent(len);
-            pixS = s_floatPool.Rent(len);
-            pixV = s_floatPool.Rent(len);
             claimed = s_floatPool.Rent(len);
             Array.Clear(claimed, 0, len);
 
@@ -290,22 +291,16 @@ namespace Iroca
             // 各画素は独立・書き込みは自 index のみなので出力は逐次版とビット不変。
             if (palette != null)
             {
-                // 色ごとに求めた HSV を配る(同じ色に同じ RGBToHSV を当てた値なのでビット単位で同じ)。
-                int[] pIdx = palette.Index;
-                float[] pH = palette.H, pS = palette.S, pV = palette.V;
-                Parallel.For(0, h, po, y =>
-                {
-                    int rowOff = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
-                        int i = rowOff + x;
-                        int k = pIdx[i];
-                        pixH[i] = pH[k]; pixS[i] = pS[k]; pixV[i] = pV[k];
-                    }
-                });
+                // 色ごとに求めた HSV を番号で引く(同じ色に同じ RGBToHSV を当てた値なのでビット単位で同じ)。
+                pixH = palette.H; pixS = palette.S; pixV = palette.V;
+                pixIdx = palette.Index;
             }
             else
             {
+                pixH = s_floatPool.Rent(len);
+                pixS = s_floatPool.Rent(len);
+                pixV = s_floatPool.Rent(len);
+                hsvRented = true;
                 Parallel.For(0, h, po, y =>
                 {
                     int rowOff = y * w;
@@ -316,6 +311,7 @@ namespace Iroca
                     }
                 });
             }
+            var hsv = new PixelHsv(pixH, pixS, pixV, pixIdx);
             _phaseTicks[PhHsv] += Stopwatch.GetTimestamp() - _tp;
 
             debug?.BeginCapture(w, h);
@@ -486,7 +482,7 @@ namespace Iroca
                                 }
                                 else
                                 {
-                                    zone.GetMatchScoresPrecomputedHSV(pixH[i], pixS[i], pixV[i], (Color)originalPixels[i], xf, yf, fullW, fullH, out s, out hPot, out mc);
+                                    zone.GetMatchScoresPrecomputedHSV(pixH[HsvSlot(pixIdx, i)], pixS[HsvSlot(pixIdx, i)], pixV[HsvSlot(pixIdx, i)], (Color)originalPixels[i], xf, yf, fullW, fullH, out s, out hPot, out mc);
                                 }
                                 strengthLocal[i] = s;
                                 if (highlightPotLocal != null) highlightPotLocal[i] = hPot;
@@ -505,7 +501,7 @@ namespace Iroca
                         // 設定できないが、enum は public でシリアライズ対象＝旧プリセット JSON から到達し得る。
                         if (zone.mode == SelectionMode.ColorPick)
                         {
-                            ApplyChromaCeilingGate(strength, matchConf, pixS, sampS, sampV,
+                            ApplyChromaCeilingGate(strength, matchConf, hsv, sampS, sampV,
                                 zone.chromaThreshold, zone.chromaCeiling, w, h, cancellationToken);
                                 _sub.Mark(SpChromaCeiling);
                             // 中性ツヤ復帰(グレーモード以外では内部で no-op): 彩度整合ゲートが純白
@@ -513,7 +509,7 @@ namespace Iroca
                             // 閉領域という空間条件だけで戻す。連結性は大域演算なのでフル画像経路限定
                             // (部分クロップではクロップ境界に接した閉領域を開領域と誤判定するため)。
                             if (isFullImagePath)
-                                RecoverEnclosedNeutral(strength, matchConf, pixS, originalPixels,
+                                RecoverEnclosedNeutral(strength, matchConf, hsv, originalPixels,
                                     zone.sampleColor, zone.tolerance, sampS, sampV,
                                     zone.chromaThreshold, w, h, cancellationToken);
                         }
@@ -536,7 +532,7 @@ namespace Iroca
                     //       strength を空間連結で伸ばし、薄いハイライトのベタ塗り化・取りこぼしを防ぐ。
                     if (!selCached && zone.highlightBandExpand && zone.highlightRecovery)
                     {
-                        GrowHighlightBand(strength, originalPixels, pixH, pixS, pixV, zone, w, h, cancellationToken,
+                        GrowHighlightBand(strength, originalPixels, hsv, zone, w, h, cancellationToken,
                             palette);
                         _sub.Mark(SpHlBand);
                         debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, strength, w, h);
@@ -560,7 +556,7 @@ namespace Iroca
                             var bits = (parityCache != null || selectionCache != null)
                                 ? new ulong[(len + 63) >> 6] : null;
                             int nForced = RecoverEnclosedHighlight(strength, originalPixels,
-                                pixH, pixS, pixV, zone, w, h, bits, cancellationToken);
+                                hsv, zone, w, h, bits, cancellationToken);
                             _sub.Mark(SpHlEnclosed);
                             if (nForced > 0)
                             {
@@ -620,8 +616,8 @@ namespace Iroca
                                 PreviewCoords.UvToPixel(zone.sampleUV.x, zone.sampleUV.y, w, h,
                                     out anchorX, out anchorY);
                             ApplyConnectedComponentMask(strength, matchConf, originalPixels, w, h, seedX, seedY,
-                                pixV, zone.shadowValueFloor, pixS, zone.partSatCeiling,
-                                pixH, ffHueBand, sampH, sampS * ColorZone.HueReliableSatFrac,
+                                hsv, zone.shadowValueFloor, zone.partSatCeiling,
+                                ffHueBand, sampH, sampS * ColorZone.HueReliableSatFrac,
                                 anchorX, anchorY, cancellationToken);
                                 _sub.Mark(SpFfComponents);
                             // フル画像で解いた keep(=残った画素 strength>0)を作り、詳細プレビュー(クロップ)へ
@@ -743,7 +739,7 @@ namespace Iroca
                                     int i = rowOff + x;
                                     Color32 hop = originalPixels[i];
                                     fillAllowedLocal[i] = GetRelaxedMatchStrength(
-                                        pixH[i], pixS[i], pixV[i], sampH, sampS, sampV,
+                                        pixH[HsvSlot(pixIdx, i)], pixS[HsvSlot(pixIdx, i)], pixV[HsvSlot(pixIdx, i)], sampH, sampS, sampV,
                                         zone.tolerance, zone.edgeSoftness, zone.valueWeight,
                                         zone.satDistWeight, relaxedSatMin,
                                         hop.r / 255f, hop.g / 255f, hop.b / 255f,
@@ -768,7 +764,7 @@ namespace Iroca
                     //     緩和マッチ(relaxedSatMin)で、正しい段階的な強度を与える
                     if (!selCached && antiAliasCleanup > 0 && hasPostBox && !zMixMode)
                     {
-                        RecoverBoundaryEdges(strength, w, h, pixH, pixS, pixV,
+                        RecoverBoundaryEdges(strength, w, h, hsv,
                             zone.sampleColor, zone.tolerance, zone.edgeSoftness, zone.valueWeight,
                             zone.satDistWeight, relaxedSatMin, antiAliasCleanup,
                             ppMinX, ppMinY, ppMaxX, ppMaxY,
@@ -862,7 +858,7 @@ namespace Iroca
                     float zAchromaSelectWeight = ComputeAchromaSelectWeight(zone.sampleColor, zone.targetColor);
                     if (zAchromaSelectWeight > AchromaNeutralRejectWeightMin && sampS >= NeutralRejectActiveSourceSat)
                     {
-                        RejectNeutralForAchromaTarget(strength, pixS, w, h, sampS, cancellationToken);
+                        RejectNeutralForAchromaTarget(strength, hsv, w, h, sampS, cancellationToken);
                         // 含める画素の再主張: 中性リジェクトは target 依存で strength を破壊的に
                         // 書き換え、ユーザーが明示的に含めた画素(例: 白ツヤ)まで落とし得る。
                         // 「含める」は明示指示なのでヒューリスティックより優先する。
@@ -963,7 +959,7 @@ namespace Iroca
                     else
                     {
                         Color zWash = HighlightSampleCorrector.ComputeWashSample(
-                            originalPixels, pixH, pixS, pixV, w, h, zone);
+                            originalPixels, hsv, w, h, zone);
                         zWR = zWash.r; zWG = zWash.g; zWB = zWash.b;
                         Color.RGBToHSV(zWash, out _, out _, out zWV);
                     }
@@ -1239,10 +1235,10 @@ namespace Iroca
                                 ? palRecolored[palIdxRecolor[i]]
                                 : recolorMemoEpoch != 0
                                     ? RecolorPixelMemo(recolorMemoEpoch, palIdxRecolor[i], regMid,
-                                        op, pixV[i], alpha, in rcParams)
+                                        op, pixV[HsvSlot(pixIdx, i)], alpha, in rcParams)
                                     : RecolorPixel(
                                         op.r, op.g, op.b,
-                                        pixV[i], alpha,
+                                        pixV[HsvSlot(pixIdx, i)], alpha,
                                         in rcParams,
                                         regMid);
                             if (topMost)
@@ -1342,7 +1338,7 @@ namespace Iroca
                                 branchMap[i] = (byte)DebugBranch.Decontaminate;
                                 return;
                             }
-                            float oV = pixV[i];
+                            float oV = pixV[HsvSlot(pixIdx, i)];
                             if (zoneShadowDesat > 0f && oV < zoneShadowDesat)
                             {
                                 branchMap[i] = (byte)DebugBranch.Shadow;
@@ -1378,9 +1374,12 @@ namespace Iroca
                 if (decontamAaMask != null) s_boolPool.Return(decontamAaMask);
                 if (mixAlpha != null) s_floatPool.Return(mixAlpha);
                 if (claimed != null) s_floatPool.Return(claimed);
-                if (pixV != null) s_floatPool.Return(pixV);
-                if (pixS != null) s_floatPool.Return(pixS);
-                if (pixH != null) s_floatPool.Return(pixH);
+                if (hsvRented)
+                {
+                    if (pixV != null) s_floatPool.Return(pixV);
+                    if (pixS != null) s_floatPool.Return(pixS);
+                    if (pixH != null) s_floatPool.Return(pixH);
+                }
                 s_color32Pool.Return(originalPixels);
             }
             var _perfPhases = new PhasePerfEntry[PhaseCount];

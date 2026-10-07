@@ -30,8 +30,9 @@ namespace Iroca
         /// zone.sampleColor をそのまま返す(= 従来挙動)。
         /// </summary>
         public static Color ComputeWashSample(
-            Color32[] px, float[] pixH, float[] pixS, float[] pixV, int w, int h, ColorZone zone)
+            Color32[] px, PixelProcessor.PixelHsv hsv, int w, int h, ColorZone zone)
         {
+            float[] pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int[] pixIdx = hsv.Index;
             Color sample = zone.sampleColor;
             if (!zone.applyHighlightWash || !zone.autoHighlightSample) return sample;
 
@@ -54,12 +55,12 @@ namespace Iroca
                     {
                         int i = rowOff + x;
                         if (px[i].a < PixelProcessor.OpaqueAlphaMin) continue;
-                        if (pixS[i] < satFloor) continue;
-                        float hd = Mathf.Abs(pixH[i] - sH);
+                        if (pixS[PixelProcessor.HsvSlot(pixIdx, i)] < satFloor) continue;
+                        float hd = Mathf.Abs(pixH[PixelProcessor.HsvSlot(pixIdx, i)] - sH);
                         if (hd > 0.5f) hd = 1f - hd;
                         if (hd >= HueBand) continue;
                         n++;
-                        hist[Mathf.Clamp((int)(pixV[i] * 255f), 0, 255)]++;
+                        hist[Mathf.Clamp((int)(pixV[PixelProcessor.HsvSlot(pixIdx, i)] * 255f), 0, 255)]++;
                     }
                 }
                 return n;

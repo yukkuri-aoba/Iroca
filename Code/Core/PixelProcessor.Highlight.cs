@@ -284,9 +284,10 @@ namespace Iroca
         /// </summary>
         private static void GrowHighlightBand(
             float[] strength, Color32[] originalPixels,
-            float[] pixH, float[] pixS, float[] pixV, ColorZone zone, int w, int h,
+            PixelHsv hsv, ColorZone zone, int w, int h,
             CancellationToken ct = default, ColorPalette palette = null)
         {
+            float[] pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int[] pixIdx = hsv.Index;
             float sH, sS, sV;
             Color.RGBToHSV(zone.sampleColor, out sH, out sS, out sV);
             if (sS < HlBandMinSampleSat) return;
@@ -343,12 +344,12 @@ namespace Iroca
                 for (int x = 0; x < w; x++)
                 {
                     int i = rowOff + x;
-                    float pV = pixV[i];
+                    float pV = pixV[HsvSlot(pixIdx, i)];
                     if (pV <= sV) continue;
-                    float pS = pixS[i];
+                    float pS = pixS[HsvSlot(pixIdx, i)];
                     if (pS < sS && pS >= satFloor)
                     {
-                        float hd = Mathf.Abs(pixH[i] - sH);
+                        float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, i)] - sH);
                         if (hd > 0.5f) hd = 1f - hd;
                         if (hd < hueCap)
                         {
@@ -547,9 +548,10 @@ namespace Iroca
         /// </summary>
         private static int RecoverEnclosedHighlight(
             float[] strength, Color32[] pixels,
-            float[] pixH, float[] pixS, float[] pixV, ColorZone zone, int w, int h,
+            PixelHsv hsv, ColorZone zone, int w, int h,
             ulong[] recoveredBits, CancellationToken ct = default)
         {
+            float[] pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int[] pixIdx = hsv.Index;
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out _);
             if (sS < HlBandMinSampleSat) return 0;   // 灰色寄りのサンプルでは色相が信用できない(帯成長と同じ床)
             // 彩度床: 色相が完全に信用できる彩度(chromaConfidence が 1 に達する chromaThreshold+0.10)と
@@ -580,14 +582,14 @@ namespace Iroca
                         if (pixels[i].a < OpaqueAlphaMin) continue;
                         if (strength[i] > matchThr)
                         {
-                            local.hist[Mathf.Clamp((int)(pixV[i] * 256f), 0, 255)]++;
+                            local.hist[Mathf.Clamp((int)(pixV[HsvSlot(pixIdx, i)] * 256f), 0, 255)]++;
                             local.sel++;
                             continue;
                         }
                         if (local.cand) continue;
-                        float pS = pixS[i];
+                        float pS = pixS[HsvSlot(pixIdx, i)];
                         if (pS < satFloor || pS >= satCap) continue;
-                        float hd = Mathf.Abs(pixH[i] - sH); if (hd > 0.5f) hd = 1f - hd;
+                        float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, i)] - sH); if (hd > 0.5f) hd = 1f - hd;
                         if (hd < hueGate) local.cand = true;
                     }
                     return local;
@@ -656,9 +658,9 @@ namespace Iroca
                             if (pixels[i].a >= OpaqueAlphaMin)
                             {
                                 nOpaque++;
-                                hV[Mathf.Clamp((int)(pixV[i] * 256f), 0, 255)]++;
-                                hS[Mathf.Clamp((int)(pixS[i] * 256f), 0, 255)]++;
-                                float hd = Mathf.Abs(pixH[i] - sH); if (hd > 0.5f) hd = 1f - hd;
+                                hV[Mathf.Clamp((int)(pixV[HsvSlot(pixIdx, i)] * 256f), 0, 255)]++;
+                                hS[Mathf.Clamp((int)(pixS[HsvSlot(pixIdx, i)] * 256f), 0, 255)]++;
+                                float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, i)] - sH); if (hd > 0.5f) hd = 1f - hd;
                                 hHd[Mathf.Clamp((int)(hd * 512f), 0, 255)]++;
                             }
                             if (x > 0 && free[i - 1] && !open[i - 1])
@@ -704,7 +706,7 @@ namespace Iroca
                                     stamp[j] = -compId;   // この成分については判定済み
                                     if (strength[j] <= matchThr || pixels[j].a < OpaqueAlphaMin) continue;
                                     if (IsAdjacent8ToStamp(stamp, compId, xx, yy, w, h)) continue;
-                                    sumV += pixV[j]; sumS += pixS[j]; ringN++;
+                                    sumV += pixV[HsvSlot(pixIdx, j)]; sumS += pixS[HsvSlot(pixIdx, j)]; ringN++;
                                 }
                             }
                         }

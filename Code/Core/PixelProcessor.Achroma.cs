@@ -69,8 +69,9 @@ namespace Iroca
         /// 落としつつ、コア近傍の脱彩した陰影/AA縁は保護する(彩度だけでは両者を区別できないため空間距離で
         /// 分離する)。呼び出し側で achromaWeight/サンプル彩度を gate。
         /// </summary>
-        private static void RejectNeutralForAchromaTarget(float[] strength, float[] pixS, int w, int h, float sS, CancellationToken ct = default)
+        private static void RejectNeutralForAchromaTarget(float[] strength, PixelHsv hsv, int w, int h, float sS, CancellationToken ct = default)
         {
+            float[] pixS = hsv.S; int[] pixIdx = hsv.Index;
             const float matchThr = ColorZone.MatchStrengthFloor;
             float floor = sS * NeutralRejectFloorFrac;
             int len = w * h;
@@ -87,7 +88,7 @@ namespace Iroca
                     for (int x = 0; x < w; x++)
                     {
                         int i = rowOff + x;
-                        curInit[i] = strength[i] > matchThr && pixS[i] >= floor;
+                        curInit[i] = strength[i] > matchThr && pixS[HsvSlot(pixIdx, i)] >= floor;
                     }
                 });
                 // 4 近傍 dilation を ProtectRadius 回(コア近傍を保護領域に広げる)。画像端外は false。
@@ -113,6 +114,7 @@ namespace Iroca
                 var protectedCore = cur;
                 var strengthL = strength;
                 var pixSL = pixS;
+                var pixIdxL = pixIdx;
                 // ソフトな床: floor で二値カットすると、対象色が淡く抜けていく階調(彩度が床付近で
                 // 揺らぐ帯)で再着色/非再着色が斑に混在しジャギーノイズになる。floorLo..floor を連続
                 // フェードにして境界を滑らかにする。中性の背景(彩度<=floorLo)は w=0 で完全に弾く。
@@ -126,7 +128,7 @@ namespace Iroca
                     {
                         int i = rowOff + x;
                         if (protectedCore[i]) continue;
-                        float wgt = Mathf.Clamp01((pixSL[i] - floorLo) / rampSpan);
+                        float wgt = Mathf.Clamp01((pixSL[HsvSlot(pixIdxL, i)] - floorLo) / rampSpan);
                         if (wgt < 1f) strengthL[i] *= wgt;
                     }
                 });

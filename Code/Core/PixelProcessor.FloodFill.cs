@@ -59,12 +59,12 @@ namespace Iroca
         /// </summary>
         private static void ApplyConnectedComponentMask(
             float[] strength, float[] matchConf, Color32[] px, int w, int h, int seedX, int seedY,
-            float[] pixV = null, float shadowValueFloor = 0f,
-            float[] pixS = null, float partSatCeiling = 0f,
-            float[] pixH = null, float partHueBand = 0f, float sampleH = 0f, float hueMinSat = 0f,
+            PixelHsv hsv = default, float shadowValueFloor = 0f, float partSatCeiling = 0f,
+            float partHueBand = 0f, float sampleH = 0f, float hueMinSat = 0f,
             int anchorX = -1, int anchorY = -1,
             CancellationToken ct = default)
         {
+            float[] pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int[] pixIdx = hsv.Index;
             bool useValueFloor = shadowValueFloor > 0f && pixV != null;
             bool useSatCeil = partSatCeiling > 0f && pixS != null;
             bool useHueBand = partHueBand > 0f && pixH != null && pixS != null;
@@ -233,14 +233,14 @@ namespace Iroca
                         {
                             int n = 0;
                             for (int lx = runX0[k]; lx <= x1; lx++)
-                                if (pixV[grb + lx] >= shadowValueFloor) n++;
+                                if (pixV[HsvSlot(pixIdx, grb + lx)] >= shadowValueFloor) n++;
                             reach[c] += n;
                         }
                         if (useSatCeil)
                         {
                             int n = 0;
                             for (int lx = runX0[k]; lx <= x1; lx++)
-                                if (pixS[grb + lx] <= partSatCeiling) n++;
+                                if (pixS[HsvSlot(pixIdx, grb + lx)] <= partSatCeiling) n++;
                             within[c] += n;
                         }
                         if (useHueBand)
@@ -249,8 +249,8 @@ namespace Iroca
                             for (int lx = runX0[k]; lx <= x1; lx++)
                             {
                                 int gi = grb + lx;
-                                if (pixS[gi] < hueMinSat) { n++; continue; }   // 色相が不安定 = 反証にしない
-                                float hd = Mathf.Abs(pixH[gi] - sampleH);
+                                if (pixS[HsvSlot(pixIdx, gi)] < hueMinSat) { n++; continue; }   // 色相が不安定 = 反証にしない
+                                float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, gi)] - sampleH);
                                 if (hd > 0.5f) hd = 1f - hd;
                                 if (hd < partHueBand) n++;
                             }
