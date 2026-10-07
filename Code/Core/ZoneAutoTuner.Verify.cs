@@ -46,7 +46,7 @@ namespace Iroca
             float dR = 1f - sR, dG = 1f - sG, dB = 1f - sB;   // sample → 白 方向
             float dsq = dR * dR + dG * dG + dB * dB;
             if (dsq < 1e-6f) bandActive = false;
-            float hueCap = Mathf.Max(0.05f, result.tolerance * 0.3f);
+            float hueCap = Mathf.Max(ColorZone.HighlightHueCapFloor, result.tolerance * ColorZone.HighlightHueCapTolFrac);
             float bandSatFloor = bSS * PixelProcessor.HlBandMinSatFrac;
             float axisEpsSq = PixelProcessor.HlBandAxisEps * PixelProcessor.HlBandAxisEps;
 

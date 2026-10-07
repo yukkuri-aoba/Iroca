@@ -296,7 +296,7 @@ namespace Iroca
             float dsq = dR * dR + dG * dG + dB * dB;
             if (dsq < 1e-6f) return;
 
-            float hueCap = Mathf.Max(0.05f, zone.tolerance * 0.3f);
+            float hueCap = Mathf.Max(ColorZone.HighlightHueCapFloor, zone.tolerance * ColorZone.HighlightHueCapTolFrac);
             float satFloor = sS * HlBandMinSatFrac;
 
             int len = w * h;
@@ -551,7 +551,7 @@ namespace Iroca
             if (sS < HlBandMinSampleSat) return 0;   // 灰色寄りのサンプルでは色相が信用できない(帯成長と同じ床)
             // 彩度床: 色相が完全に信用できる彩度(chromaConfidence が 1 に達する chromaThreshold+0.10)と
             // 帯成長の相対床の大きい方。上限はサンプル比の脱彩。窓が空なら対象外。
-            float satFloor = Mathf.Max(sS * HlBandMinSatFrac, zone.chromaThreshold + 0.10f);
+            float satFloor = Mathf.Max(sS * HlBandMinSatFrac, zone.chromaThreshold + ColorZone.ChromaConfidenceSpan);
             float satCap = sS * EnclosedHlSatFrac;
             if (satFloor >= satCap) return 0;
 

@@ -50,7 +50,7 @@ namespace Iroca
             softRange = tolerance * edgeSoftness;
             hardRange = tolerance - softRange;
 
-            hlHueCap = Mathf.Max(0.05f, tolerance * 0.3f);
+            hlHueCap = Mathf.Max(HighlightHueCapFloor, tolerance * HighlightHueCapTolFrac);
             hlSoftRange = tolerance * edgeSoftness;
             hlHardRange = tolerance - hlSoftRange;
 
@@ -102,7 +102,7 @@ namespace Iroca
             sc.satMin = Mathf.Max(0.02f, sc.sS * saturationStrictness);
             sc.satRamp = Mathf.Max(0.08f, sc.sS * satRampScale);
 
-            float currentChromaHi = chromaThreshold + 0.10f;
+            float currentChromaHi = chromaThreshold + ChromaConfidenceSpan;
             float baseChromaConf = Mathf.Clamp01((sc.sS - chromaThreshold) / ((currentChromaHi) - chromaThreshold));
             // 暗すぎる色（黒）は彩度データが高くても色相（Hue）の計算がノイズで暴れるため信用しない
             float valueConf = Mathf.Clamp01((sc.sV - 0.05f) / 0.15f); // Vが0.05(非常に暗い)〜0.20の範囲で減衰

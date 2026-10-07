@@ -123,6 +123,15 @@ namespace Iroca
         // internal: PixelProcessor.RecoverEnclosedHighlight が「本体の典型明度より明るい周囲(グロー)」の
         // 判定に同じヘッドルーム比を使う(手動同期による定数ドリフトを避ける)。
         internal const float HighlightValueHeadroomFrac = 0.25f;
+        // ハイライト経路の同色相帯 = max(Floor, tolerance×TolFrac)。復元マッチの hlHueCap・帯成長
+        // (PixelProcessor.GrowHighlightBand)・自動調整の閉ループ模擬(ZoneAutoTuner.VerifyHighlightRecoveryGrowth)
+        // が同じ帯を使う前提なので、式の係数を 1 か所で持つ(手動同期による定数ドリフトを避ける)。
+        internal const float HighlightHueCapFloor = 0.05f;
+        internal const float HighlightHueCapTolFrac = 0.3f;
+        // サンプルの chromaConfidence が 0→1 に立ち上がる彩度の幅(chromaThreshold から)。
+        // internal: PixelProcessor.RecoverEnclosedHighlight が「色相が完全に信用できる彩度」
+        // (chromaThreshold+この値)を彩度床に使う。
+        internal const float ChromaConfidenceSpan = 0.10f;
         // シャドウ/ハイライト免除ランプの幅(利用可能レンジ比)。免除が 0→1 へ立ち上がる区間長。
         // シャドウは sV×この値、ハイライトは (1-sV)×この値。
         private const float ForgivenessRangeFrac = 0.6f;
