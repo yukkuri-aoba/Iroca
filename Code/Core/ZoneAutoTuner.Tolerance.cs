@@ -13,6 +13,19 @@ namespace Iroca
         private const int DistBins = 600;          // 距離 [0,1.5] を 600 分割（分解能 0.0025）
         private const float DistMax = 1.5f;
 
+        // 距離ヒストグラム(DistBins 分割)の累積が total*pct に届いた bin の上端の距離。届かなければ DistMax。
+        private static float DistUpperEdgeAtPercentile(int[] bins, int total, float pct)
+        {
+            int target = Mathf.CeilToInt(total * pct);
+            int cum = 0;
+            for (int i = 0; i < DistBins; i++)
+            {
+                cum += bins[i];
+                if (cum >= target) return (i + 1) / (float)DistBins * DistMax;
+            }
+            return DistMax;
+        }
+
         private static bool HasUsableMask(bool[] excluded, int maskW, int maskH)
         {
             if (excluded == null || maskW <= 0 || maskH <= 0) return false;
@@ -80,14 +93,7 @@ namespace Iroca
             }
             if (count < MinNearSampleCount) return false;
 
-            int target = Mathf.CeilToInt(count * AchromaPercentile);
-            int cum = 0;
-            float pctDist = DistMax;
-            for (int i = 0; i < DistBins; i++)
-            {
-                cum += bins[i];
-                if (cum >= target) { pctDist = (i + 1) / (float)DistBins * DistMax; break; }
-            }
+            float pctDist = DistUpperEdgeAtPercentile(bins, count, AchromaPercentile);
             tolerance = Mathf.Clamp(pctDist + AchromaMargin, AchromaTolMin, AchromaTolMax);
             return true;
         }
@@ -142,21 +148,15 @@ namespace Iroca
         private const int   ForeignMinCount    = 30;     // foreign 画素数の下限(ノイズ無視)
         private const float ForeignLowFloor    = 0.04f;  // 打ち切り時に許す tolerance 下限(通常床 0.08 より低い)
         private const float ForeignCapEps      = 0.005f; // foreign 最小距離(P10)からのマージン
+        private const float CoreSpreadDefault  = 0.02f;  // core が少なく P90 を取れないときの hue 広がり
 
-        private static bool TryDeriveChromaticTolerance(Color32[] pixels, int w, int h, ColorZone zone,
-            bool[] excluded, int maskW, int maskH, HsvGrid hsv, out float tolerance, out bool foreignCapped)
+        // 自パーツ core の hue 広がり(P90)から foreign 判定の hue ゲートを導出する。
+        // core = サンプルにごく近い(hue/彩度/明度の窓内)有彩画素。その hue 広がりの数倍までを
+        // 「同パーツの色相」とみなし、それを超える画素を foreign(別パーツ)候補にする。
+        private static float CoreHueGate(Color32[] pixels, int w, int h, bool[] excluded, int maskW, int maskH,
+            HsvGrid hsv, float sH, float sS, float sV)
         {
-            tolerance = 0f;
-            foreignCapped = false;
-            Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
-            float satDistW = zone.satDistWeight;
-            float valueW = zone.valueWeight;
-
             int stride = hsv.stride;
-
-            // ── 事前パス: 自パーツ core の hue 広がり(P90)から foreign 判定の hue ゲートを導出 ──
-            // core = サンプルにごく近い(hue/彩度/明度の窓内)有彩画素。その hue 広がりの数倍までを
-            // 「同パーツの色相」とみなし、それを超える画素を foreign(別パーツ)候補にする。
             var coreHueBins = new int[ForeignHueBins];
             int coreHueCount = 0;
             for (int y = 0, gy = 0; y < h; y += stride, gy++)
@@ -179,7 +179,14 @@ namespace Iroca
                     coreHueCount++;
                 }
             }
-            float coreSpread = 0.02f;
+            return HueGateFromCoreHist(coreHueBins, coreHueCount);
+        }
+
+        // core の hue ヒストグラム([0,NearHueDist] を ForeignHueBins 分割)の P90 を core の広がりとし、
+        // 許容 hue ゲート K*coreSpread+floor を返す(自動トーン抽出の hue 純度ゲートも同じ式を使う)。
+        private static float HueGateFromCoreHist(int[] coreHueBins, int coreHueCount)
+        {
+            float coreSpread = CoreSpreadDefault;
             if (coreHueCount >= MinNearSampleCount)
             {
                 int ctgt = Mathf.CeilToInt(coreHueCount * 0.90f), ccum = 0;
@@ -189,8 +196,50 @@ namespace Iroca
                     if (ccum >= ctgt) { coreSpread = (i + 1) / (float)ForeignHueBins * NearHueDist; break; }
                 }
             }
-            float effHueGate = Mathf.Clamp(ForeignGateK * coreSpread + ForeignGateFloor,
-                                           ForeignGateMin, NearHueDist);
+            return Mathf.Clamp(ForeignGateK * coreSpread + ForeignGateFloor,
+                               ForeignGateMin, NearHueDist);
+        }
+
+        // 単一経路とマルチ経路で共通の後処理: near クラスタ距離の P95 + margin を tolerance とし、
+        // foreign 打ち切りの条件を満たせば foreign 距離の P10 の直下まで下げる。
+        private static bool FinishChromaticTolerance(int[] bins, int count, int[] fgnBins, int fgnCount, int coreCount,
+            out float tolerance, out bool foreignCapped)
+        {
+            tolerance = 0f;
+            foreignCapped = false;
+            if (count < MinNearSampleCount) return false;
+
+            float pctDist = DistUpperEdgeAtPercentile(bins, count, ChromaPercentile);
+            tolerance = Mathf.Clamp(pctDist + ChromaMargin, ChromaTolMin, ChromaTolMax);
+
+            // ── foreign 打ち切り: 色相の近い隣接別パーツを検出したら、その手前で tolerance を止める ──
+            // foreign 画素が core に対して十分多い(=隣に別パーツがある)ときのみ発火。foreign の最小側
+            // 距離(P10)の直下まで下げ、別パーツの巻き込みを防ぐ。暗部の取りこぼしは本番のシャドウ免除が拾う。
+            if (coreCount > 0 && fgnCount >= ForeignMinCount
+                && fgnCount > coreCount * ForeignRatioThresh)
+            {
+                float fgnP10 = DistUpperEdgeAtPercentile(fgnBins, fgnCount, 0.10f);
+                float capped = Mathf.Clamp(Mathf.Min(tolerance, fgnP10 - ForeignCapEps),
+                                           ForeignLowFloor, ChromaTolMax);
+                foreignCapped = capped < tolerance; // 実際に打ち切りが効いたときのみ報告
+                tolerance = capped;
+            }
+            return true;
+        }
+
+        private static bool TryDeriveChromaticTolerance(Color32[] pixels, int w, int h, ColorZone zone,
+            bool[] excluded, int maskW, int maskH, HsvGrid hsv, out float tolerance, out bool foreignCapped)
+        {
+            tolerance = 0f;
+            foreignCapped = false;
+            Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
+            float satDistW = zone.satDistWeight;
+            float valueW = zone.valueWeight;
+
+            int stride = hsv.stride;
+
+            // ── 事前パス: 自パーツ core の hue 広がり(P90)から foreign 判定の hue ゲートを導出 ──
+            float effHueGate = CoreHueGate(pixels, w, h, excluded, maskW, maskH, hsv, sH, sS, sV);
 
             // ── 主パス: 既存の near-sample クラスタ距離 P95 + foreign 距離分布/個数を同時に集計 ──
             var bins = new int[DistBins];
@@ -227,37 +276,8 @@ namespace Iroca
                     else { fgnBins[bi]++; fgnCount++; }
                 }
             }
-            if (count < MinNearSampleCount) return false;
-
-            int target = Mathf.CeilToInt(count * ChromaPercentile);
-            int cum = 0;
-            float pctDist = DistMax;
-            for (int i = 0; i < DistBins; i++)
-            {
-                cum += bins[i];
-                if (cum >= target) { pctDist = (i + 1) / (float)DistBins * DistMax; break; }
-            }
-            tolerance = Mathf.Clamp(pctDist + ChromaMargin, ChromaTolMin, ChromaTolMax);
-
-            // ── foreign 打ち切り: 色相の近い隣接別パーツを検出したら、その手前で tolerance を止める ──
-            // foreign 画素が core に対して十分多い(=隣に別パーツがある)ときのみ発火。foreign の最小側
-            // 距離(P10)の直下まで下げ、別パーツの巻き込みを防ぐ。暗部の取りこぼしは本番のシャドウ免除が拾う。
-            if (coreCount > 0 && fgnCount >= ForeignMinCount
-                && fgnCount > coreCount * ForeignRatioThresh)
-            {
-                int ftgt = Mathf.CeilToInt(fgnCount * 0.10f), fcum = 0;
-                float fgnP10 = DistMax;
-                for (int i = 0; i < DistBins; i++)
-                {
-                    fcum += fgnBins[i];
-                    if (fcum >= ftgt) { fgnP10 = (i + 1) / (float)DistBins * DistMax; break; }
-                }
-                float capped = Mathf.Clamp(Mathf.Min(tolerance, fgnP10 - ForeignCapEps),
-                                           ForeignLowFloor, ChromaTolMax);
-                foreignCapped = capped < tolerance; // 実際に打ち切りが効いたときのみ報告
-                tolerance = capped;
-            }
-            return true;
+            return FinishChromaticTolerance(bins, count, fgnBins, fgnCount, coreCount,
+                                            out tolerance, out foreignCapped);
         }
 
         // ─────────────────── マルチサンプル tolerance 導出 ───────────────────
@@ -373,18 +393,7 @@ namespace Iroca
             // core hue 広がり(P90)→ 代表色に許す hue ずれの上限。foreign 打ち切りの effHueGate と
             // 同じ導出式(K*coreSpread+floor)。色相が一定のパーツではタイトに、陰影で色相が回る
             // パーツでは core 自体の広がりが大きくなるため自動的に緩む。
-            float repCoreSpread = 0.02f;
-            if (coreHueCount >= MinNearSampleCount)
-            {
-                int ctgt = Mathf.CeilToInt(coreHueCount * 0.90f), ccum = 0;
-                for (int i = 0; i < ForeignHueBins; i++)
-                {
-                    ccum += coreHueBins[i];
-                    if (ccum >= ctgt) { repCoreSpread = (i + 1) / (float)ForeignHueBins * NearHueDist; break; }
-                }
-            }
-            float repHueGate = Mathf.Clamp(ForeignGateK * repCoreSpread + ForeignGateFloor,
-                                           ForeignGateMin, NearHueDist);
+            float repHueGate = HueGateFromCoreHist(coreHueBins, coreHueCount);
             // パーツの彩度バンド下限: sS*frac と「near-cluster の彩度 P10*relax」の大きい方。
             // 高彩度均一パーツでは P10≈0.85 が効いて低彩度の別マテリアルを弾く。脱彩する素材では
             // P10 が低く出るので下限も下がり、自パーツの中程度の影は残る。
@@ -498,40 +507,7 @@ namespace Iroca
             {
                 var sm = samples[si];
                 if (sm.s < AchromaSampleSatMax) { samples[si].effHueGate = ForeignGateMin; continue; }
-                var coreHueBins = new int[ForeignHueBins];
-                int coreHueCount = 0;
-                for (int y = 0, gy = 0; y < h; y += stride, gy++)
-                {
-                    int rowStart = y * w;
-                    int grow = gy * hsv.gw;
-                    for (int x = 0, gx = 0; x < w; x += stride, gx++)
-                    {
-                        Color32 c = pixels[rowStart + x];
-                        if (c.a < 128) continue;
-                        if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
-                        float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
-                        if (pS < sm.s * ChromaClusterSatFrac) continue;
-                        float hdc = Mathf.Abs(pH - sm.h); if (hdc > 0.5f) hdc = 1f - hdc;
-                        if (hdc >= CoreHueWindow) continue;
-                        if (Mathf.Abs(pS - sm.s) >= CoreSatWindow) continue;
-                        if (Mathf.Abs(pV - sm.v) >= CoreValWindow) continue;
-                        int cb = Mathf.Clamp((int)(hdc / NearHueDist * ForeignHueBins), 0, ForeignHueBins - 1);
-                        coreHueBins[cb]++;
-                        coreHueCount++;
-                    }
-                }
-                float coreSpread = 0.02f;
-                if (coreHueCount >= MinNearSampleCount)
-                {
-                    int ctgt = Mathf.CeilToInt(coreHueCount * 0.90f), ccum = 0;
-                    for (int i = 0; i < ForeignHueBins; i++)
-                    {
-                        ccum += coreHueBins[i];
-                        if (ccum >= ctgt) { coreSpread = (i + 1) / (float)ForeignHueBins * NearHueDist; break; }
-                    }
-                }
-                samples[si].effHueGate = Mathf.Clamp(ForeignGateK * coreSpread + ForeignGateFloor,
-                                                     ForeignGateMin, NearHueDist);
+                samples[si].effHueGate = CoreHueGate(pixels, w, h, excluded, maskW, maskH, hsv, sm.h, sm.s, sm.v);
             }
 
             // ── 主パス: 最小距離分布 + foreign 集計 ──
@@ -576,35 +552,9 @@ namespace Iroca
                     else { fgnBins[bi]++; fgnCount++; }
                 }
             }
-            if (count < MinNearSampleCount) return false;
-
-            int target = Mathf.CeilToInt(count * ChromaPercentile);
-            int cum = 0;
-            float pctDist = DistMax;
-            for (int i = 0; i < DistBins; i++)
-            {
-                cum += bins[i];
-                if (cum >= target) { pctDist = (i + 1) / (float)DistBins * DistMax; break; }
-            }
-            tolerance = Mathf.Clamp(pctDist + ChromaMargin, ChromaTolMin, ChromaTolMax);
-
-            // foreign 打ち切り（単一経路と同形）
-            if (coreCount > 0 && fgnCount >= ForeignMinCount
-                && fgnCount > coreCount * ForeignRatioThresh)
-            {
-                int ftgt = Mathf.CeilToInt(fgnCount * 0.10f), fcum = 0;
-                float fgnP10 = DistMax;
-                for (int i = 0; i < DistBins; i++)
-                {
-                    fcum += fgnBins[i];
-                    if (fcum >= ftgt) { fgnP10 = (i + 1) / (float)DistBins * DistMax; break; }
-                }
-                float capped = Mathf.Clamp(Mathf.Min(tolerance, fgnP10 - ForeignCapEps),
-                                           ForeignLowFloor, ChromaTolMax);
-                foreignCapped = capped < tolerance; // 実際に打ち切りが効いたときのみ報告
-                tolerance = capped;
-            }
-            return true;
+            // P95 + margin と foreign 打ち切りは単一経路と共通
+            return FinishChromaticTolerance(bins, count, fgnBins, fgnCount, coreCount,
+                                            out tolerance, out foreignCapped);
         }
     }
 }
