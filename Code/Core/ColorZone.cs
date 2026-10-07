@@ -307,7 +307,7 @@ namespace Iroca
         // ために使う。製品 UI からは変更されず常に false(=免除有効)。シリアライズ対象外。
         [System.NonSerialized] internal bool simDisableBrightForgiveness = false;
         // ハイライト白寄せ合成: 明部(明度>サンプル)を「wash→白 軸」へ射影し、鏡面ハイライトを
-        // 表現する。既定 OFF（オプトイン）。OFF のときは色相転送(HSV transfer)のみで、明部の
+        // 表現する。既定 OFF（オプトイン）。OFF のときは OkLab 再着色のみで、明部の
         // 明度・彩度構造はそのまま温存される。ON でも有彩の模様は軸残差フェードで保護され、
         // 軸上の真の鏡面のみが白寄せされる。
         public bool applyHighlightWash = false;

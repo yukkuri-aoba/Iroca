@@ -15,12 +15,13 @@ namespace Iroca
     {
         // ───────── 無彩(achroma)パス: 無彩サンプル / 極端無彩ターゲットの再着色破綻対策 ─────────
         // 通常の再着色は sample 彩度 sC を「分母・基準」に使う前提(mag=oC/sC, 彩度ゲート
-        // chroma_frac=oC/(sC·FULL_FRAC))。サンプルが無彩(白/黒/灰)だと前提が崩れ、白い地色→黒のような変換で
-        // (1) 彩度ゲートが白を明るく残す＝まだら (2) 2区間リマップが sL より明るい画素を 1.0 へ拡張
+        // chromaFrac=oC/(sC·OklabRemapFullChromaFrac))。サンプルが無彩(白/黒/灰)だと前提が崩れ、白い地色→黒の
+        // ような変換で (1) 彩度ゲートが白を明るく残す＝まだら (2) 2区間リマップが sL より明るい画素を 1.0 へ拡張
         // (3) mag=oC/sC が微小彩度ノイズを増幅＝脚色 が起きる。サンプルが無彩 or ターゲットが極端
-        // 無彩(白/黒)のとき、L=マッチ領域 L レンジを target ヘッドルームへ収める順序保存リマップ /
-        // 彩度=uniform target chroma へ achroma_weight で連続ブレンドする。有彩×有彩では weight=0 で
-        // 従来式とバイト不変。不変条件: 単調・順序保存・gain≤1(増幅禁止)。
+        // 無彩(白/黒)のとき、L=成分の地色基準 regLmid を target 明度寄りの center に置き、偏差を AchromaFormGain
+        // 倍する形維持リマップ / 彩度=uniform target chroma へ achromaWeight(ComputeAchromaWeight)で連続
+        // ブレンドする。有彩×有彩では weight=0 で従来式とバイト不変。不変条件: 成分内で単調・順序保存。
+        // 偏差の増幅は AchromaFormGain(知覚補償、下の定数コメント参照)だけ。
         private const float AchromaSampleC  = 0.06f;  // sample OkLab chroma がこれ未満で無彩扱い(→1)
         private const float AchromaTargetC  = 0.06f;  // target OkLab chroma がこれ未満で無彩扱い
         // 形(立体感)維持版: 成分の地色基準を target 側 offset に置き、偏差を gain 倍して陰影を知覚可能に拡張。
@@ -141,8 +142,8 @@ namespace Iroca
         /// 無彩パスの内部固め: マッチ領域(strength&gt;matchThr)を erodePx だけ侵食した「内部」の
         /// strength を full(=strength→1 へ achromaWeight 比でフェード)に固める。AA 縁(侵食で
         /// 除いた帯)は元の taper を保つ。極端な無彩ターゲット(白↔黒)で、明るい画素ほど弱く
-        /// マッチして元色が残る「中央の段差」を消すための前処理。陰影は後段 recolor の achroma
-        /// レンジリマップ(gain≤1)が担う。
+        /// マッチして元色が残る「中央の段差」を消すための前処理。陰影は後段 recolor の無彩パスの
+        /// 形維持リマップ(AchromaFormGain)が担う。
         /// </summary>
         private static void SolidifyAchromaInterior(float[] strength, int w, int h, float achromaWeight, CancellationToken ct = default)
         {
@@ -208,7 +209,7 @@ namespace Iroca
 
         /// <summary>
         /// 中性背景リジェクト(選択保護)用の無彩重み。**明度に依存しない**。
-        /// ComputeAchromaWeight は collapse_blend に targetExtremeness=(1-4tL(1-tL)) を掛けるため、
+        /// ComputeAchromaWeight は戻り値の target 側の項に targetExtremeness=(1-4tL(1-tL)) を掛けるため、
         /// 中明度グレー(tL≈0.5)で重みが≈0 に落ち、灰色ターゲットでは中性背景リジェクトが発動せず
         /// 「白い背景が灰色になる」破綻が出る(黒/白は extremeness≈1 で発動)。選択保護に必要なのは
         /// 『ターゲットが無彩か』だけで明度は無関係なので、extremeness を外し彩度のみで判定する。
@@ -252,6 +253,7 @@ namespace Iroca
             // ヒストグラムのビン(OkLab L の 255 段)。色の表があれば色ごとに 1 回だけ求め、画素へは番号で
             // 引く(同じ色に同じ変換を当てた値なのでビット単位で同じ。bbox 全画素の L の配列も要らない)。
             // 無ければ L を bbox 全画素ぶん並列で前計算する(旧: 逐次 DFS の内側で RgbToOklab)。
+            // 意図した変更では両経路を同時に直すこと(色の表あり・なしのパリティを直接比べるテストは無い)。
             float[] okL = null;
             int[] pIdx = null, binOf = null;
             // 行 run 方式の連結成分ラベリングで使う配列(確保は run 数 R が確定してから)。

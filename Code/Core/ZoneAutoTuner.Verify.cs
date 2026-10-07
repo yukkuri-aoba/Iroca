@@ -40,6 +40,8 @@ namespace Iroca
             // 帯拡張(GrowHighlightBand)の候補条件を同一定数でミラーする。
             // 連結性(コア連結 BFS)は模擬しない=候補は全て加算される上界。境界 AA が常に
             // 橋になるため実運用でもほぼ全候補へ到達し、上界と実際の差は小さい。
+            // 式は PixelProcessor.IsHighlightBandCandidate と同じ。画素ループの中なので性能のため
+            // 呼び出しにせずインラインで写している。どちらかを変えたら両方を同じに変えること。
             Color.RGBToHSV(zone.sampleColor, out float bSH, out float bSS, out float bSV);
             bool bandActive = zone.highlightBandExpand && bSS >= PixelProcessor.HlBandMinSampleSat;
             float sR = zone.sampleColor.r, sG = zone.sampleColor.g, sB = zone.sampleColor.b;

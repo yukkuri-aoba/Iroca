@@ -222,6 +222,7 @@ namespace Iroca
         /// 色ごとに 1 回の走査で数え、3 つのヒストグラム(飽和度・L・帯内の chroma)は色ごとの (L, C) と
         /// 個数から作る(旧: 画素を 3 回走査)。各ビンへの加算は画素ごとに 1 ずつ足すのと同じ整数加算で、
         /// ビンの式も画素ごとの経路と同じなので、ヒストグラムと戻り値はビット単位で同じ。
+        /// 意図した変更では両経路を同時に直すこと(色の表あり・なしのパリティを直接比べるテストは無い)。
         /// </summary>
         private static bool TryComputeRecolorAnchorByColor(
             Color32[] px, float[] strength, int w,
@@ -403,8 +404,9 @@ namespace Iroca
             // 元の L(暗さ)を保持する。リング/brown 化は「本来のベース色」=高彩度画素で起きる現象なので
             // remap が必要なのは高彩度画素だけ。一方、ベース×暗部/白の混色や AA 縁(低彩度)に remap を
             // かけると、target が sample より知覚的に明るいとき暗部が持ち上がり「明るい灰スペック」
-            // =ロゴ周辺の白/灰ノイズになる。chroma_frac=oC/(sC·FULL_FRAC) で彩度が sample の FULL_FRAC 割に
-            // 達したらフル remap、それ未満は元 L を保持。sample 彩度に対する相対量なので色非依存。
+            // =ロゴ周辺の白/灰ノイズになる。chromaFrac=oC/(sC·OklabRemapFullChromaFrac) で彩度が sample の
+            // OklabRemapFullChromaFrac 割に達したらフル remap、それ未満は元 L を保持。sample 彩度に対する
+            // 相対量なので色非依存。
             // sample 無彩(okGray)時は従来どおり一律 remap。
             float effRemapL = remapL;
             if (!okGray && okSC > 1e-4f)
@@ -424,9 +426,9 @@ namespace Iroca
             // topL=1 で完全 no-op。
             nL = Mathf.Min(nL, topL);
 
-            // 無彩パスの L。マッチ領域の L レンジ[lo,hi]を target 側ヘッドルームへ順序保存で収める
-            // (2区間リマップ・彩度ゲートを迂回)。白い地色→黒のような無彩変換で、彩度ゲートが白を明るく
-            // 残して起きる「まだら」と、2区間リマップの明度崩壊を直す。
+            // 無彩パスの L。成分の地色基準 regLmid(BuildComponentMedianLMap、無ければ領域中央値)を center に
+            // 置き、偏差を AchromaFormGain 倍する(2区間リマップ・彩度ゲートを迂回)。白い地色→黒のような
+            // 無彩変換で、彩度ゲートが白を明るく残して起きる「まだら」と、2区間リマップの明度崩壊を直す。
             // weight=0(有彩×有彩)では完全 no-op=バイト不変。
             if (achromaWeight > AchromaWeightActiveMin && hasRegL)
             {
@@ -467,20 +469,20 @@ namespace Iroca
             // P5 純正版の副作用を構造的に除去する。
             //
             //   proj_t = target + w * (white - target)
-            //   result = Lerp(hsv_result, proj_t, valRise)
+            //   result = Lerp(result(OkLab 再着色), proj_t, valRise)
             //
             // 直感: pixel が sample から白に向けて 0.99 進んでいるなら (ハイライト中心)、
             //       target からも白に向けて 0.99 進んだ点が出力色。中心は完全な白では
             //       なく「target に向けて 1% 染まった白」(= わずかに赤い白)。
             //       周辺 (w=0.5) は target と white の中間 (例: 赤と白で薄い赤)。
             //
-            // 境界 (oV ≤ sV) は valRise=0 で hsv_result に切り戻すため不連続なし。
+            // 境界 (oV ≤ sV) は valRise=0 で OkLab 再着色の結果に切り戻すため不連続なし。
             // wash 用サンプル(washR/G/B/V): 既定は match と同じ sample。俯瞰スポイト補正では
             // パーツ地色(同色相・低V)が渡され、ハイライト合成 (oV>washV) がドーム全体に効く。
             // match/base は sample のままなので再着色範囲は不変(新規 FP なし)。
             //
             // applyHighlightWash ゲート (2026-06-04): この白寄せ射影は既定 OFF のオプトイン。
-            // OFF のときは HSV transfer のみで明部の明度・彩度構造を温存する。
+            // OFF のときは OkLab 再着色のみで明部の明度・彩度構造を温存する。
             if (applyHighlightWash && sS > 0.01f && oV > washV)
             {
                 float dR = 1f - washR;
@@ -546,7 +548,7 @@ namespace Iroca
                     float whiteKeep = Mathf.Clamp01(
                         (HlWashKeepWhiteHi - dEwhite) / (HlWashKeepWhiteHi - HlWashKeepWhiteLo));
 
-                    // 境界連続性のため valRise でフェード (oV=washV で valRise=0、hsv_result に戻る)
+                    // 境界連続性のため valRise でフェード (oV=washV で valRise=0、OkLab 再着色の結果に戻る)
                     float valRise = Mathf.Clamp01((oV - washV) / Mathf.Max(0.05f, 1f - washV)) * patternFade;
                     float washMix = valRise * (1f - tintness);      // target→白への射影
                     float keepMix = valRise * tintness * whiteKeep; // 色相ずれした光点の芯を保持

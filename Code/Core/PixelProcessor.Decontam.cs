@@ -38,13 +38,13 @@ namespace Iroca
         /// <summary>
         /// AA 境界での α 分解 + 再合成（color decontamination / alpha matting）。
         /// 元テクスチャは「pixel = α × FG + (1-α) × BG」で合成されているため、
-        /// HSV transfer を直接適用すると AA ピクセル（混色）が薄汚れた中間色になる（halo）。
+        /// 通常の再着色(RecolorPixel)を直接適用すると AA ピクセル（混色）が薄汚れた中間色になる（halo）。
         /// このメソッドは BG を局所近傍の strength=0 ピクセルから推定し、
         /// α を RGB 空間の射影で計算して、新色 target で再合成する。
         ///
         /// 出力:
         ///   aaMask[i] = true なら pixels[i] を decontaminatedPixels[i] で上書きすべき
-        ///   それ以外は通常の HSV transfer にフォールバック
+        ///   それ以外は通常の再着色にフォールバック
         /// </summary>
         private static void DecontaminateAaBoundary(
             Color32[] originalPixels, float[] strength, int w, int h,
@@ -696,18 +696,6 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 混色帯を解析し、合成の式で塗る画素について mixAlpha[i] = α (0..1) と mixedPixels[i] = p + α·(F'−F) を
-        /// 書く(上のコメント参照)。対象外の画素は mixAlpha[i] = −1 のまま(呼び出し側の従来経路で塗る)。
-        /// 読むのは originalPixels / strength だけ、書くのは自分の画素の mixAlpha / mixedPixels だけなので
-        /// 行並列でも読み書きが交わらない。再着色ループが mixAlpha ≥ 0 の画素をこの結果で塗る。
-        /// radius: 素材・背景を探す近傍半径(境界クリーンアップの近傍半径)。
-        /// zoneMaterial: 近くの素材色で説明できない画素で、素材色に使う色(MostChromaticSample)。
-        /// includedPx: 含めるマスクの画素(null = なし)。利用者が素材と指定したので解析せず、素材色の推定にも使わない。
-        /// exMin/exMax: 書き込んだ可能性のある矩形(strength の bbox ± 近傍半径)。ループはここまで回す。
-        /// maskExcluded: 除外マスク画素(null=マスクなし)。呼び出し側は矩形 ± (2·近傍半径+1) まで埋めること。
-        /// 除外画素には書かず、背景の参照にも使わない(strength=0 だが背景ではない保護パーツでありうる)。
-        /// </summary>
-        /// <summary>
         /// src &gt; minExclusive を 1 と数えた個数の累積和を、範囲 [x0..x1]×[y0..y1] について作る。
         /// sat[(y−y0)·satW + (x−x0)] = (x0,y0) からその画素までの矩形の個数(satW = x1−x0+1)。
         /// 余白の行・列を持たないので、4K 全面でも配列プールの上限(4096²)に収まる。
@@ -741,7 +729,7 @@ namespace Iroca
             });
         }
 
-        // 混色帯の解析で、早い打ち切りをまとめて判定する行の区間の長さ(px)。
+        // 混色帯の解析と無彩フチ消し(CleanAchromaFringe)で、早い打ち切りをまとめて判定する行の区間の長さ(px)。
         private const int MixSegment = 32;
 
         /// <summary>
@@ -817,6 +805,18 @@ namespace Iroca
             return s;
         }
 
+        /// <summary>
+        /// 混色帯を解析し、合成の式で塗る画素について mixAlpha[i] = α (0..1) と mixedPixels[i] = p + α·(F'−F) を
+        /// 書く(上のコメント参照)。対象外の画素は mixAlpha[i] = −1 のまま(呼び出し側の従来経路で塗る)。
+        /// 読むのは originalPixels / strength だけ、書くのは自分の画素の mixAlpha / mixedPixels だけなので
+        /// 行並列でも読み書きが交わらない。再着色ループが mixAlpha ≥ 0 の画素をこの結果で塗る。
+        /// radius: 素材・背景を探す近傍半径(境界クリーンアップの近傍半径)。
+        /// zoneMaterial: 近くの素材色で説明できない画素で、素材色に使う色(MostChromaticSample)。
+        /// includedPx: 含めるマスクの画素(null = なし)。利用者が素材と指定したので解析せず、素材色の推定にも使わない。
+        /// exMin/exMax: 書き込んだ可能性のある矩形(strength の bbox ± 近傍半径)。ループはここまで回す。
+        /// maskExcluded: 除外マスク画素(null=マスクなし)。呼び出し側は矩形 ± (2·近傍半径+1) まで埋めること。
+        /// 除外画素には書かず、背景の参照にも使わない(strength=0 だが背景ではない保護パーツでありうる)。
+        /// </summary>
         private static void AnalyzeMixtureBand(
             Color32[] originalPixels, float[] strength, int w, int h, int radius,
             in RecolorParams rc, float[] regMidMap, float regLmid,
