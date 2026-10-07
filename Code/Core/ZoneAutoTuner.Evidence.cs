@@ -250,9 +250,9 @@ namespace Iroca
             var domain = BuildEvidenceDomain(hsv, coreList, repH, repS, repV,
                 out int sheenCount, out int hlCandidates, out int domLoBin, out int domHiBin);
             float materialFrac = (domain.Count + sheenCount) / (float)coreList.Count;
-            bool repChromatic = repS >= AchromaSampleSatMax;
+            bool chromatic = repS >= AchromaSampleSatMax;
             bool contaminated = materialFrac
-                < (repChromatic ? EvMinMaterialFracChromatic : EvMinMaterialFrac);
+                < (chromatic ? EvMinMaterialFracChromatic : EvMinMaterialFrac);
             if (domain.Count < EvMinDomainPixels || contaminated)
             {
                 // ドメインが標本として足りない / 汚染セグメント(無彩: 0.80、有彩: 裾 1/10) → 従来導出へ。
@@ -264,6 +264,10 @@ namespace Iroca
                 return fallback;
             }
             Progress(0.50f);
+
+            // 地色(rep)がゾーンのサンプルとして採用されるか(ApplyTo で sampleColor が rep に置き換わる)。
+            // 別パーツの色相幅の基準と hasNormalizedSample は、どちらもこの判定で決まる。
+            bool repApplied = ColorDist(rep, zone.sampleColor) >= NormMinShift;
 
             // ── 以下、Analyze と同一の導出(母集団はクリック近傍窓)。違いは地色(aZone)だけ ──
             bool useMask = HasUsableMask(excluded, maskW, maskH);
@@ -279,53 +283,21 @@ namespace Iroca
             // 見落としを補うためのもの)。有害な場合は下の成長テストが従来どおり落とす。
             int hlFloor = Mathf.Max(EvSheenMinCount,
                 Mathf.RoundToInt(coreList.Count * EvSheenMinFrac));
-            if (repS >= AchromaSampleSatMax && (sheenCount >= hlFloor || hlCandidates >= hlFloor))
+            if (chromatic && (sheenCount >= hlFloor || hlCandidates >= hlFloor))
                 result.highlightRecovery = true;
             Progress(0.58f);
 
             // ── tolerance とトーン代表色: Analyze と同一の経路(DeriveToleranceAndTones) ──
             // foreignCapped は下の補完ループで書き換わるので、閉ループ検証へはその後の値を渡す。
-            bool chromatic = repS >= AchromaSampleSatMax;
             DeriveToleranceAndTones(pixels, width, height, aZone, clusterMask, maskW, maskH, hsv,
                 !chromatic, ct, report, NoProgress, ref result,
                 out bool foreignCapped, out int vConnHiBin);
             Progress(0.68f);
 
-            // ── 4. 陰影の明度下限: 証拠ドメインの V 連結域の下端 − 余白 ──
-            // 連結域が確定しない/最下 bin まで続く(=この島の陰影が黒まで達する)ときは置かない。
-            // 適用は連結成分単位(PixelProcessor.ApplyConnectedComponentMask)なので、マッチャーの
-            // 閉ループ検証(BuildSimZone)や被覆確認(DomainCoverage)には影響しない。
-            if (chromatic && domLoBin > 0 && domHiBin >= domLoBin)
-            {
-                float loV = domLoBin / (float)AutoToneValueBins;
-                float hiV = (domHiBin + 1) / (float)AutoToneValueBins;
-                float floor = loV - (hiV - loV) * EvShadowFloorMarginFrac;
-                result.shadowValueFloor = floor >= ColorZone.ShadowValueFloorMin ? floor : 0f;
-            }
-
-            // ── 5. 彩度天井: 証拠ドメインの彩度包絡(P95)が自動の天井を超えるときだけ、余白つきで上書き ──
-            if (domain.Count >= MinNearSampleCount)
-            {
-                float envelope = DomainSaturationPercentile(hsv, domain, EvChromaCeilPercentile);
-                float envelopeCeil = envelope / (1f - EvChromaCeilHeadroomFrac);
-                if (!chromatic && envelope > ColorZone.EffectiveChromaCeiling(repS, 0f))
-                    result.chromaCeiling = Mathf.Min(1f, envelopeCeil);
-
-                // ── 5b. 別パーツの彩度上限: 同じ包絡 ÷ 余白を、連結成分単位の上限にする(有彩・無彩とも) ──
-                // 上限が 1 以上(包絡が飽和域に届く素材)なら落とせる成分が無いので置かない。
-                result.partSatCeiling = envelopeCeil < 1f ? envelopeCeil : 0f;
-
-                // ── 5c. 別パーツの色相幅(有彩のみ): 証拠ドメインの色相のずれの包絡 ÷ 余白、下限 ForeignGateMin ──
-                // 色相の基準は、適用後にゾーンのサンプルになる色(正規化が採用されれば地色、されなければクリック色)。
-                if (chromatic)
-                {
-                    bool repApplied = ColorDist(rep, zone.sampleColor) >= NormMinShift;
-                    Color.RGBToHSV(repApplied ? rep : zone.sampleColor, out float gateH, out _, out _);
-                    float hueEnvelope = DomainHueDistancePercentile(hsv, domain, gateH, EvChromaCeilPercentile);
-                    result.partHueBand = Mathf.Max(ForeignGateMin,
-                        hueEnvelope / (1f - EvChromaCeilHeadroomFrac));
-                }
-            }
+            // ── 4〜5c. 証拠ドメインからのゲート(陰影の明度下限・彩度天井・別パーツの彩度上限と色相幅) ──
+            // 下の補完ループ(BuildSimZone)がこの 4 つを読むので、ここ(補完の前)で導出する。
+            ApplyEvidenceGates(hsv, domain, domLoBin, domHiBin, chromatic, repS,
+                repApplied ? rep : zone.sampleColor, ref result);
 
             // ── 2. 証拠による補完: 導出パラメータでセグメント芯(ドメイン)を覆えないなら、
             //       未被覆部の代表色をサンプルへ足す(tolerance は上げない) ──
@@ -395,7 +367,7 @@ namespace Iroca
                 chromatic, foreignCapped, vConnHiBin, ct, report, 0.88f, NoProgress, ref result);
 
             result.normalizedSample = rep;
-            result.hasNormalizedSample = ColorDist(rep, zone.sampleColor) >= NormMinShift;
+            result.hasNormalizedSample = repApplied;
             result.evidenceDiag =
                 $"core={coreList.Count} domain={domain.Count} sheen={sheenCount} hlCand={hlCandidates}"
                 + $" matFrac={materialFrac:F2} clickT={clickT:F2}"
@@ -408,6 +380,48 @@ namespace Iroca
             DecideGlobals(width, height, session, ref result);
             CollectOverwrittenLabels(zone, session, ref result);
             return result;
+        }
+
+        // 証拠ドメインの統計から後段のゲートを導出する(AnalyzeWithEvidence の手順 4〜5c)。
+        // result のうち shadowValueFloor / chromaCeiling / partSatCeiling / partHueBand だけを書く。
+        // hueRef: 別パーツの色相幅の基準(適用後にゾーンのサンプルになる色)。
+        private static void ApplyEvidenceGates(HsvGrid hsv, List<GridPt> domain, int domLoBin, int domHiBin,
+            bool chromatic, float repS, Color hueRef, ref TuneResult result)
+        {
+            // ── 4. 陰影の明度下限: 証拠ドメインの V 連結域の下端 − 余白 ──
+            // 連結域が確定しない/最下 bin まで続く(=この島の陰影が黒まで達する)ときは置かない。
+            // 適用は連結成分単位(PixelProcessor.ApplyConnectedComponentMask)なので、マッチャーの
+            // 閉ループ検証(BuildSimZone)や被覆確認(DomainCoverage)には影響しない。
+            if (chromatic && domLoBin > 0 && domHiBin >= domLoBin)
+            {
+                float loV = domLoBin / (float)AutoToneValueBins;
+                float hiV = (domHiBin + 1) / (float)AutoToneValueBins;
+                float floor = loV - (hiV - loV) * EvShadowFloorMarginFrac;
+                result.shadowValueFloor = floor >= ColorZone.ShadowValueFloorMin ? floor : 0f;
+            }
+
+            // ── 5. 彩度天井: 証拠ドメインの彩度包絡(P95)が自動の天井を超えるときだけ、余白つきで上書き ──
+            if (domain.Count >= MinNearSampleCount)
+            {
+                float envelope = DomainSaturationPercentile(hsv, domain, EvChromaCeilPercentile);
+                float envelopeCeil = envelope / (1f - EvChromaCeilHeadroomFrac);
+                if (!chromatic && envelope > ColorZone.EffectiveChromaCeiling(repS, 0f))
+                    result.chromaCeiling = Mathf.Min(1f, envelopeCeil);
+
+                // ── 5b. 別パーツの彩度上限: 同じ包絡 ÷ 余白を、連結成分単位の上限にする(有彩・無彩とも) ──
+                // 上限が 1 以上(包絡が飽和域に届く素材)なら落とせる成分が無いので置かない。
+                result.partSatCeiling = envelopeCeil < 1f ? envelopeCeil : 0f;
+
+                // ── 5c. 別パーツの色相幅(有彩のみ): 証拠ドメインの色相のずれの包絡 ÷ 余白、下限 ForeignGateMin ──
+                // 色相の基準(hueRef)は、適用後にゾーンのサンプルになる色(正規化が採用されれば地色、されなければクリック色)。
+                if (chromatic)
+                {
+                    Color.RGBToHSV(hueRef, out float gateH, out _, out _);
+                    float hueEnvelope = DomainHueDistancePercentile(hsv, domain, gateH, EvChromaCeilPercentile);
+                    result.partHueBand = Mathf.Max(ForeignGateMin,
+                        hueEnvelope / (1f - EvChromaCeilHeadroomFrac));
+                }
+            }
         }
 
         // ─────────────────── 証拠画素の収集/ドメイン/代表色 ───────────────────
