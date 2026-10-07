@@ -397,7 +397,6 @@ namespace Iroca
 
         [NonSerialized] private float softRange, hardRange;
         [NonSerialized] private float hlHueCap;
-        [NonSerialized] private float hlSoftRange, hlHardRange;
         // グレーモードの AA 縁レンジと hueRelevance の分母。どちらも tolerance/edgeSoftness/
         // chromaThreshold だけに依存する(いずれも UpdateCacheIfNeeded の無効化条件に入っている)。
         [NonSerialized] private float aaSoftRange, aaHardRange;

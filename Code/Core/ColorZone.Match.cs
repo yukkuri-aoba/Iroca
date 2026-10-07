@@ -47,12 +47,11 @@ namespace Iroca
                 _cExtraSamples = new Color[extraN];
             for (int i = 0; i < extraN; i++) _cExtraSamples[i] = extraSamples[i];
 
+            // ハイライト復元(グレーモードの highlightPotential と CalculateHighlightRecovery)も同じレンジを使う。
             softRange = tolerance * edgeSoftness;
             hardRange = tolerance - softRange;
 
             hlHueCap = Mathf.Max(HighlightHueCapFloor, tolerance * HighlightHueCapTolFrac);
-            hlSoftRange = tolerance * edgeSoftness;
-            hlHardRange = tolerance - hlSoftRange;
 
             // ホットループから追い出したゾーン定数(式は MatchOneSample のインライン計算と同一)。
             // softRange 確定後に計算する必要があるのでここに置く。
@@ -304,7 +303,7 @@ namespace Iroca
                 if (highlightRecovery && pV > HighlightValueMin && pS < HighlightSaturationMax)
                 {
                     float vDist = Mathf.Abs(pV - sc.sV);
-                    highlightPotential = CalculateEdgeStrength(vDist, hlHardRange, hlSoftRange);
+                    highlightPotential = CalculateEdgeStrength(vDist, hardRange, softRange);
                 }
                 return;
             }
@@ -430,7 +429,7 @@ namespace Iroca
             if (highlightDist >= _cTolerance)
                 return 0f;
 
-            float hlStrength = CalculateEdgeStrength(highlightDist, hlHardRange, hlSoftRange);
+            float hlStrength = CalculateEdgeStrength(highlightDist, hardRange, softRange);
             return hlStrength * relaxedSatConf;
         }
 
