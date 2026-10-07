@@ -53,6 +53,15 @@ namespace Iroca
         /// </summary>
         const int MaxWindowRadius = 8;
 
+        /// <summary>
+        /// 境界の不確実帯の半幅 d(= 粗グリッドのストライド): SAM 低解像度セルの 3/4
+        /// (±半セルの理論誤差+マージン。4096² で 12)。SnapBoundary / ExtendFringe /
+        /// IncludeAaTransition と TryDeriveAaCropRect が共有する。クロップ実行が全画像実行と
+        /// ビット同一である根拠は両者の d の一致なので、式はここ 1 か所にだけ置く。
+        /// </summary>
+        static int BandHalfWidth(int w, int h) =>
+            Mathf.Max(2, Mathf.CeilToInt(Mathf.Max(w, h) / (float)SamMaskPostprocess.LowRes * 0.75f));
+
         // SnapBoundary は境界を「内側/外側の等距離点」(混合率 ≈50%)に置き、多数決平滑が
         // 階段の角を ±1px 削る。除外(保護)マスクとしては、パーツ色が目に見えて混ざる画素が
         // 外側に取り残されると、そこだけ再着色されて点ノイズになる(実測: 実 SAM 提案で
@@ -102,7 +111,7 @@ namespace Iroca
             int maxDim = Mathf.Max(w, h);
             // グリッド幅 d は SnapBoundary と同一(低解像度セルの 3/4)。reach/strand 幅は解像度比例
             // (4096² で d=12 / reach=50 / strandHalf=10)。
-            int d = Mathf.Max(2, Mathf.CeilToInt(maxDim / (float)SamMaskPostprocess.LowRes * 0.75f));
+            int d = BandHalfWidth(w, h);
             int reach = Mathf.Max(d, Mathf.RoundToInt(maxDim / 82f));
             int strandHalf = Mathf.Max(2, Mathf.RoundToInt(maxDim / 410f));
             float thr2 = FringeColorThresh * FringeColorThresh;
@@ -338,8 +347,7 @@ namespace Iroca
                 pixelsBottomUp.Length < w * h) return;
 
             // 不確実帯の半幅: SAM 低解像度セルの 3/4(±半セルの理論誤差+マージン)。
-            int d = Mathf.Max(2, Mathf.CeilToInt(
-                Mathf.Max(w, h) / (float)SamMaskPostprocess.LowRes * 0.75f));
+            int d = BandHalfWidth(w, h);
 
             // 境界からの深さはセパラブルな L1 距離変換で求める。
             var distIn = DistanceToOpposite(mask, w, h, inside: true, token);   // mask 内→外境界までの距離
@@ -505,8 +513,7 @@ namespace Iroca
 
             // dOverride: クロップ実行(IncludeAaTransitionCropped)が全画像実行と同じ帯幅を使う
             // ための上書き。0 なら従来どおり自寸法から導出(既存呼び出しは全て 0 = 挙動不変)。
-            int d = dOverride > 0 ? dOverride : Mathf.Max(2, Mathf.CeilToInt(
-                Mathf.Max(w, h) / (float)SamMaskPostprocess.LowRes * 0.75f));
+            int d = dOverride > 0 ? dOverride : BandHalfWidth(w, h);
 
             // soft skirt が帯幅を超える場合に境界を進めながら吸収する(追加ゼロで早期終了)。
             for (int pass = 0; pass < AaMaxPasses; pass++)
@@ -543,8 +550,7 @@ namespace Iroca
                                                out int d)
         {
             rx0 = ry0 = rw = rh = 0;
-            d = Mathf.Max(2, Mathf.CeilToInt(
-                Mathf.Max(w, h) / (float)SamMaskPostprocess.LowRes * 0.75f));
+            d = BandHalfWidth(w, h);
             if (mask == null || mask.Length != w * h) return false;
 
             int bx0 = int.MaxValue, by0 = int.MaxValue, bx1 = -1, by1 = -1;
