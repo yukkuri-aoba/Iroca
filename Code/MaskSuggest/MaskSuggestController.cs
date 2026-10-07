@@ -136,16 +136,16 @@ namespace Iroca
         ///
         /// Unity 起動後の初回はモデルのロードと推論カーネル(Burst / コンピュートシェーダ)の
         /// コンパイルで時間がかかる。クリック後にそれを始めると「押しても無反応」に見えるため、
-        /// AI モードに入った時点で走らせて進捗を出す。AI モード中は毎レイアウトで呼ばれるが、
-        /// 同一ソースならサービス側で no-op になる。
+        /// 右クリックメニューを開いた時点(PreviewView.ShowPreviewContextMenu)で走らせて進捗を出す。
+        /// メニューを開くたびに呼ばれるが、同一ソースならサービス側で no-op になる。
         /// </summary>
         public void PrepareSource(Color32[] pixelsBottomUp, int width, int height, string sourceKey)
         {
             var svc = MaskSuggestBridge.Service;
             if (svc == null) return;
-            // 待機中だけ先行させる。モデルのロードは同期で重いのでレイアウト中には開始せず
-            // (それは AI 提案を開始したときの仕事)、エラー中も再試行しない(原因が直らない
-            // まま毎レイアウト走ってエディタが重くなる。復帰は AI 提案の入り直し)。
+            // 待機中だけ先行させる。モデルのロードは同期で重いのでここでは開始せず(それはメニュー
+            // 項目を選んだときの RequestProposal の仕事)、エラー中も再試行しない(原因が直らないまま
+            // メニューを開くたびに走る。復帰はメニューから選び直す = RequestProposal が CancelAll する)。
             if (svc.Phase != MaskSuggestPhase.Idle) return;
             svc.SetSource(sourceKey, pixelsBottomUp, width, height);
         }

@@ -566,7 +566,7 @@ namespace Iroca
         /// <summary>
         /// fullMask のうち TryDeriveAaCropRect で導出した矩形だけを切り出して
         /// IncludeAaTransition(d は全画像値で上書き)を実行し、追加画素を fullMask へ書き戻す。
-        /// cropPixels は同矩形の下原点画素列(呼び出し側が GetPixels(rect) 等で用意する)。
+        /// cropPixels は同矩形の下原点画素列(呼び出し側が全体画素から行コピーで切り出す。GetPixels(rect) は使わない)。
         /// 出力は全画像実行とビット同一(根拠は TryDeriveAaCropRect のコメント)。
         /// </summary>
         public static void IncludeAaTransitionCropped(bool[] fullMask, int w, int h,

@@ -82,7 +82,7 @@ namespace Iroca
         int PendingClickCount { get; }
 
         /// <summary>
-        /// 処理待ちクリックを破棄する(Undo 割り込み・AI モード離脱時)。進行中の推論は
+        /// 処理待ちクリックを破棄する(Undo 割り込み・Esc での取り消し時)。進行中の推論は
         /// 中断せず完走させるが、その提案は ProposalReady にせず捨てる。
         /// ソース・埋め込みは保持する(<see cref="CancelAll"/> との違い)。
         /// </summary>
@@ -135,10 +135,6 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 共有フォルダ化(80d1000)より前は、モデルをこのプロジェクト内パスへ置いていた。
-        /// 既存プロジェクトからの「引き継ぎ元」としてのみ参照する(新規配置先ではない)。
-        /// </summary>
-        /// <summary>
         /// 配布モデル(ONNX 2 本)が共有フォルダに揃っているか。Sentis 統合アセンブリの
         /// ModelsPresent と同じ判定を本体側で行う(Sentis 不在でも「モデルが要る」案内を
         /// 出せるように)。ロードはしない。
@@ -157,6 +153,10 @@ namespace Iroca
             }
         }
 
+        /// <summary>
+        /// 共有フォルダ化(80d1000)より前は、モデルをこのプロジェクト内パスへ置いていた。
+        /// 既存プロジェクトからの「引き継ぎ元」としてのみ参照する(新規配置先ではない)。
+        /// </summary>
         static string LegacyProjectModelsDirectory =>
             System.IO.Path.GetFullPath(System.IO.Path.Combine(
                 Application.dataPath, "..", "UserSettings", "Iroca", "Models"));

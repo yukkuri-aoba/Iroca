@@ -36,7 +36,7 @@ namespace Iroca.DebugTools
     internal sealed class DebugCaptureContext : IDebugCapture
     {
         public readonly List<StageSnapshot> Snapshots = new List<StageSnapshot>();
-        // zone.id → (stageName → 直前 strength)。差分を取るための前ステージキャッシュ。
+        // zone.id → 直前ステージの量子化 strength。差分を取るための前ステージキャッシュ。
         private readonly Dictionary<string, byte[]> _previousStrengthPerZone = new Dictionary<string, byte[]>();
         // zone.id → aaMask（decontamination）。
         public readonly Dictionary<string, bool[]> AaMasks = new Dictionary<string, bool[]>();
@@ -97,8 +97,8 @@ namespace Iroca.DebugTools
 
         public void RecordDecontamination(string zoneId, bool[] aaMask, int width, int height)
         {
-            // aaMask は decontamination 完了直後に渡されるので呼び出し側がそのまま再利用しない。
-            // 念のため clone はせず参照を保持する（呼び出し側が以後上書きしない契約）。
+            // 呼び出し側は aaMask の配列をゾーン間で使い回し(プールから借りて返す)上書きするので、
+            // 影響を受けないよう clone して保持する。
             AaMasks[zoneId] = (bool[])aaMask.Clone();
         }
 

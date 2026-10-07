@@ -133,7 +133,8 @@ namespace Iroca.SentisIntegration
 
         void SetPhase(MaskSuggestPhase phase, float progress = 0f, string error = null)
         {
-            // Error は手動復帰(AI モード入り直し)まで続き、処理待ちクリックが実行される
+            // Error は手動復帰(右クリックメニューからの選び直し。MaskSuggestController.RequestProposal が
+            // CancelAll する)まで続き、処理待ちクリックが実行される
             // ことはない。残すと復帰後に古いクリックが突然走ったように見えるため破棄する。
             if (phase == MaskSuggestPhase.Error)
             {
@@ -864,7 +865,7 @@ namespace Iroca.SentisIntegration
             _sourcePixels = null;
             _embedding = null;
             // Error を持ち越すと以降のクリックが全部無視されるので、モデルが載っているなら
-            // Idle に戻す(UI からはテクスチャ切替・AI モードの入り直しが再試行導線になる)。
+            // Idle に戻す(UI からはテクスチャ切替・右クリックメニューからの選び直しが再試行導線になる)。
             if (_modelsLoaded)
                 SetPhase(MaskSuggestPhase.Idle);
         }

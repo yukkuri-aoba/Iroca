@@ -57,7 +57,7 @@ namespace Iroca
 
             var svc = MaskSuggestBridge.Service;
             // Burst が失敗した世代では推論が空を返すだけで、エラーも出ずに「動かない」ように
-            // 見える。クリックを試す前に気づけるよう、モードに入る前から知らせる。
+            // 見える。クリックを試す前に気づけるよう、右クリックメニューを使う前から知らせる。
             // ★これと再起動案内は「閉じる」で隠さない★ — AI が動かない状態そのものであり、
             // 隠すと原因不明の不調として残るため。
             if (svc != null) DrawBurstFailureNoticeIfNeeded(svc);
@@ -257,7 +257,6 @@ namespace Iroca
             DrawRestartButton();
         }
 
-        /// <summary>Unity を再起動する(現在のプロジェクトを開き直す)ボタン。</summary>
         // 「モデルを確認して取り直す」の結果。照合は 44 MB を読むので押したときだけ行い、
         // 結果はエラーが変わるまで出し続ける(エラー文字列が変われば別の失敗なので捨てる)。
         static string _recheckForError;
@@ -290,6 +289,7 @@ namespace Iroca
             if (!_recheckFoundOk) MaskSuggestModelDownload.Start();
         }
 
+        /// <summary>Unity を再起動する(現在のプロジェクトを開き直す)ボタン。</summary>
         static void DrawRestartButton()
         {
             if (!GUILayout.Button(new GUIContent(Localization.AiSuggestRestartNow,
