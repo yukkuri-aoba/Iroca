@@ -34,7 +34,7 @@
 ```
 perf(mask): フラッドフィル後の連結成分フィルタ閾値を動的計算に変更
 fix(color): HSV 変換時の Hue 折り返し処理が負値で誤判定する問題を修正
-test(mask): AvatarB 衣装テクスチャの IoU テストケースを追加
+test(mask): 衣装テクスチャの IoU テストケースを追加
 chore(ci): release.yml に SHA256 検証ステップを追加
 ```
 

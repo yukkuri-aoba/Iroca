@@ -340,25 +340,25 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
   必ず立てる**（品質ゲートの既定は bandana のみで、残り被写体の実 C# 品質を測らずに
   「全パス」と誤認するため）。
 - **自動調整（スポイト→自動調整＝ユーザーの主経路）の選択ゲートは既定 ON**（2026-08-21〜）:
-  `test_autotune_accuracy` は 4 被写体の選択床を常時、`test_avatar_b_autotune`（アトラス 6 被写体）と
+  `test_autotune_accuracy` は 4 被写体の選択床を常時、アトラス被写体の自動調整テスト（6 被写体）と
   `test_synth_gen2` の 3 クリック位置も既定で回る。ハーネス実行は fixtures の
   `run_harness_autotune`（実行キャッシュ + AUTOTUNE パラメータの aux キャッシュ）に一本化して
   あり、DLL 不変なら 2 回目以降の追加コストはほぼゼロ。初回も避けたい場合のみ
-  `VACC_AVATAR_B_AUTOTUNE=0` / `VACC_GEN2_FULL=0` で絞れる。
-- **no-mask のアトラス系の低い precision（avatar_b pants 0.21 等）は劣化検知の番兵であって
+  アトラス側と gen2（`VACC_GEN2_FULL=0`）の環境変数で絞れる（名前は dev_safe のテスト冒頭）。
+- **no-mask のアトラス系の低い precision（パンツ 0.21 等）は劣化検知の番兵であって
   品質目標ではない**。この条件は「実操作で起きない」わけではない — 通常クリックは
   シードを設定しない（シードは Shift+クリックのみ）ため、アトラスへの「スポイト→自動調整」
   の**初回プレビューはこの状態を見せる**。ただしユーザーは次の 1 手（シード/マスク/AI 提案）
   で回復するのが実際の流れで、正のゲートは:
   - `test_atlas_journey`（初回過検出→シード 1 手の遷移を Harness `--session` で通し検証。
     apply 写像の byte 一致・seedUV 変更のキャッシュ無効化・1 手後 precision ≥0.98 を契約。
-    既定は avatar_b-pants のみ、`VACC_JOURNEY_FULL=1` で boots/goggles も。`VACC_JOURNEY=0` で opt-out）
+    既定はパンツのみ、`VACC_JOURNEY_FULL=1` で boots/goggles も。`VACC_JOURNEY=0` で opt-out）
   - `test_autotune_masked`（partsim 部位マップ: pants/boots IoU 0.997〜0.998）
   - `test_autotune_seeded`（Shift+クリック相当: 全被写体 precision ≥0.98 のハード契約）
   いずれも既定 ON（`VACC_AUTOTUNE_MASKED=0` / `VACC_AUTOTUNE_SEEDED=0` で opt-out）。
   過検出の議論はこれらの数字で行う（2026-08-21 の 3 条件比較計測）。
-  初回体験そのものの品質目標は `test_avatar_b_autotune` の xfail target
-  （`test_avatar_b_autotune_precision_target`）が持ち、改善が到達すると XPASS で浮かぶ
+  初回体験そのものの品質目標はアトラス自動調整テストの xfail target
+  （precision の目標値）が持ち、改善が到達すると XPASS で浮かぶ
   → ベースラインをラチェットし目標を進める。
 - **プロキシ段（操作中の表示）とフル確定段の表示一致ゲートは既定 ON**（2026-08-23〜）:
   ユーザーが操作中に見るのは長辺 ProxyMaxSize(512) の縮小処理表示で、確定表示とは設計上
@@ -406,7 +406,7 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
     製品どおり証拠にせず従来導出（B = A）へ落とす写像も再現している。
 - **ワンショット（スポイト→自動調整）の現在地**（2026-09-02〜。**製品の主経路**）:
   2026-08-30 の AI 必須化以降、ユーザーの初回体験はほぼ常に証拠つき導出だが、従来 Analyze を
-  測る既定ゲート（autotune_accuracy / avatar_b / avatar_c / synth_gen2 / click_position /
+  測る既定ゲート（autotune_accuracy / アトラス被写体 / 布の被写体 / synth_gen2 / click_position /
   seeded / masked / atlas_journey とその xfail 目標）は今やフォールバック経路の番兵であり、
   主経路の絶対品質はスイートに数字として無かった。
   - `test_autotune_evidence::test_oneshot_floor`: `measure_evidence_autotune.py --baseline` が
@@ -459,7 +459,7 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
   島の外のにじみ代を L1 最近傍のチャートへ割り当てる。再着色の経路からは呼ばれず、右クリックの
   「パーツ」操作が除外・含めるマスクを作るのにだけ使う。`test_uv_chart_map` が Harness `--uvcharts`
   （UV ダンプ + テクスチャのキー + 寸法。入力画像は不要）で、チャートの分け方・行 0 = 下端の向き・
-  にじみ代の割り当てが総当たりの L1 最近傍と一致すること・AvatarB の実メッシュで GT がほぼ全部持ち主を
+  にじみ代の割り当てが総当たりの L1 最近傍と一致すること・アトラス被写体の実メッシュで GT がほぼ全部持ち主を
   得ること、クリックしたメッシュの外を除外すると pants / boots が分かれることを検査する。
   UV ダンプは `dev_safe/texture_sample/uv_dumps/`（作り方は `dev_safe/scripts/unity_uv_dump/`）。
   メッシュを探す側（`Code/Infra/MeshUvLocator.cs`）と、プレビューに重ねる島の輪郭は

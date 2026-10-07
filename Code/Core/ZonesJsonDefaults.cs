@@ -58,8 +58,8 @@ namespace Iroca
         //
         // 2026-08-07 に true へ揃えて GT で実測したところ、70 ケース平均で
         // IoU 0.6150→0.6060 / Precision 0.6315→0.6200 / Recall 0.9520→0.9724 となり、
-        // 悪化が 2 被写体に集中した（avatar_c-black は Recall 1.000 のまま
-        // IoU 0.718→0.654 の純粋な過検出、avatar_b-white は IoU 0.199→0.144）。
+        // 悪化が 2 被写体に集中した（黒い布は Recall 1.000 のまま
+        // IoU 0.718→0.654 の純粋な過検出、白い服は IoU 0.199→0.144）。
         // テクスチャ適応のない固定既定としては、再現率より過検出耐性を取る false が妥当。
         // 明部の回復が要るバッチ呼び出しは JSON で true を明示すること。
         public const bool HighlightRecovery = false;

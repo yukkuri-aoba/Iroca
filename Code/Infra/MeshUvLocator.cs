@@ -155,7 +155,7 @@ namespace Iroca
         }
 
         /// <summary>
-        /// テクスチャの「素材フォルダ」= Assets/ 直下の 1 階層目(Assets/AVATAR_A/Materials/... なら Assets/AVATAR_A)。
+        /// テクスチャの「素材フォルダ」= Assets/ 直下の 1 階層目(Assets/MyAvatar/Materials/... なら Assets/MyAvatar)。
         /// アバター素材は普通この単位で入っているので、プロジェクト全体を走査せずに済む。
         /// </summary>
         internal static string AssetRoot(string assetPath)

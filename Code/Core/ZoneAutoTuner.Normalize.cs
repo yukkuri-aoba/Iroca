@@ -45,7 +45,7 @@ namespace Iroca
         //
         // この門を付ける理由: 正規化を無条件に効かせると、既に地色を踏んでいる良いクリックまで
         // 動かしてしまい、代表色推定のわずかな偏りがそのまま品質低下になった(実測: 正解サンプルで
-        // avatar_c-skirt precision 0.95→0.54、合成 adjacent_similar が隣接パーツへ滲んで
+        // スカート precision 0.95→0.54、合成 adjacent_similar が隣接パーツへ滲んで
         // precision 1.00→0.50)。正規化は「外した位置を救う」ための補正であって、
         // 「当たっている位置を作り直す」ためのものではない。
         private const float NormOutlierFrac = 0.10f;
@@ -101,8 +101,8 @@ namespace Iroca
                 // これが無いと、無彩クリックだけがクリック 1 texel の HSV を起点にしたままになり、
                 // トーンの端（白布の純白部分・黒布の最暗部）を踏んだときに導出がパーツ本体を覆えない。
                 // 実測 2026-08-19（実 C# ハーネス --autotune、GT 内の V パーセンタイル 6 位置）:
-                // avatar_c-white は明部クリックで recall 0.92→0.60、avatar_c-black は IoU が
-                // 位置で 0.72〜0.98、avatar_b-goggles は 0.73〜1.00 に振れていた（有彩は正規化済みで
+                // 白い布は明部クリックで recall 0.92→0.60、黒い布は IoU が
+                // 位置で 0.72〜0.98、ゴーグルは 0.73〜1.00 に振れていた（有彩は正規化済みで
                 // ブレ 0.001〜0.017）。
                 return TryNormalizeFromPopulation(pixels, w, h, zone, excluded, maskW, maskH, hsv,
                     sH, sS, sV, useHueBand: false, satFloor: 0f, satCeil: AchromaClusterSatMax,
