@@ -651,32 +651,7 @@ namespace Iroca
             var labels = new List<string>();
             if (zone == null) return labels;
 
-            if (!Mathf.Approximately(zone.tolerance, DefaultTolerance))
-                labels.Add(Localization.Tolerance);
-            if (!Mathf.Approximately(zone.saturationStrictness, DefaultSaturationStrictness))
-                labels.Add(Localization.SaturationStrictness);
-            if (!Mathf.Approximately(zone.saturationGuard, DefaultSaturationGuard))
-                labels.Add(Localization.SaturationGuard);
-            if (!Mathf.Approximately(zone.chromaThreshold, DefaultChromaThreshold))
-                labels.Add(Localization.ChromaThreshold);
-            if (zone.highlightRecovery != DefaultHighlightRecovery)
-                labels.Add(Localization.HighlightRecovery);
-            if (!Mathf.Approximately(zone.valueBlend, DefaultValueBlend))
-                labels.Add(Localization.PatternPreserve);
-            if (!Mathf.Approximately(zone.edgeSoftness, DefaultEdgeSoftness))
-                labels.Add(Localization.EdgeSoftness);
-            if (!Mathf.Approximately(zone.shadowDesaturation, DefaultShadowDesaturation))
-                labels.Add(Localization.ShadowDesaturation);
-            if (!Mathf.Approximately(zone.shadowForgivenessSatMin, DefaultShadowForgivenessSatMin))
-                labels.Add(Localization.ShadowForgivenessSatMin);
-            if (!Mathf.Approximately(zone.shadowValueFloor, DefaultShadowValueFloor))
-                labels.Add(Localization.ShadowValueFloor);
-            if (!Mathf.Approximately(zone.partSatCeiling, DefaultPartSatCeiling))
-                labels.Add(Localization.PartSatCeiling);
-            if (!Mathf.Approximately(zone.partHueBand, DefaultPartHueBand))
-                labels.Add(Localization.PartHueBand);
-            if (!Mathf.Approximately(zone.chromaCeiling, DefaultChromaCeiling))
-                labels.Add(Localization.ChromaCeiling);
+            AddZoneOverwrittenLabels(zone, labels);
             return labels;
         }
 
@@ -684,32 +659,7 @@ namespace Iroca
         {
             var labels = result.overwrittenLabels;
 
-            if (!Mathf.Approximately(zone.tolerance, DefaultTolerance))
-                labels.Add(Localization.Tolerance);
-            if (!Mathf.Approximately(zone.saturationStrictness, DefaultSaturationStrictness))
-                labels.Add(Localization.SaturationStrictness);
-            if (!Mathf.Approximately(zone.saturationGuard, DefaultSaturationGuard))
-                labels.Add(Localization.SaturationGuard);
-            if (!Mathf.Approximately(zone.chromaThreshold, DefaultChromaThreshold))
-                labels.Add(Localization.ChromaThreshold);
-            if (zone.highlightRecovery != DefaultHighlightRecovery)
-                labels.Add(Localization.HighlightRecovery);
-            if (!Mathf.Approximately(zone.valueBlend, DefaultValueBlend))
-                labels.Add(Localization.PatternPreserve);
-            if (!Mathf.Approximately(zone.edgeSoftness, DefaultEdgeSoftness))
-                labels.Add(Localization.EdgeSoftness);
-            if (!Mathf.Approximately(zone.shadowDesaturation, DefaultShadowDesaturation))
-                labels.Add(Localization.ShadowDesaturation);
-            if (!Mathf.Approximately(zone.shadowForgivenessSatMin, DefaultShadowForgivenessSatMin))
-                labels.Add(Localization.ShadowForgivenessSatMin);
-            if (!Mathf.Approximately(zone.shadowValueFloor, DefaultShadowValueFloor))
-                labels.Add(Localization.ShadowValueFloor);
-            if (!Mathf.Approximately(zone.partSatCeiling, DefaultPartSatCeiling))
-                labels.Add(Localization.PartSatCeiling);
-            if (!Mathf.Approximately(zone.partHueBand, DefaultPartHueBand))
-                labels.Add(Localization.PartHueBand);
-            if (!Mathf.Approximately(zone.chromaCeiling, DefaultChromaCeiling))
-                labels.Add(Localization.ChromaCeiling);
+            AddZoneOverwrittenLabels(zone, labels);
 
             if (result.applyGlobals)
             {
@@ -718,6 +668,39 @@ namespace Iroca
                 if (session.useDecontamination != DefaultUseDecontamination)
                     labels.Add(Localization.UseDecontamination);
             }
+        }
+
+        // ゾーン単位の項目のうち既定値と異なるもののラベルを、決まった順で labels へ足す。
+        // PreviewOverwrittenLabels(Analyze 前の事前確認)と CollectOverwrittenLabels(TuneResult)で
+        // 項目と順序をそろえるための共通部分。
+        private static void AddZoneOverwrittenLabels(ColorZone zone, List<string> labels)
+        {
+            if (!Mathf.Approximately(zone.tolerance, DefaultTolerance))
+                labels.Add(Localization.Tolerance);
+            if (!Mathf.Approximately(zone.saturationStrictness, DefaultSaturationStrictness))
+                labels.Add(Localization.SaturationStrictness);
+            if (!Mathf.Approximately(zone.saturationGuard, DefaultSaturationGuard))
+                labels.Add(Localization.SaturationGuard);
+            if (!Mathf.Approximately(zone.chromaThreshold, DefaultChromaThreshold))
+                labels.Add(Localization.ChromaThreshold);
+            if (zone.highlightRecovery != DefaultHighlightRecovery)
+                labels.Add(Localization.HighlightRecovery);
+            if (!Mathf.Approximately(zone.valueBlend, DefaultValueBlend))
+                labels.Add(Localization.PatternPreserve);
+            if (!Mathf.Approximately(zone.edgeSoftness, DefaultEdgeSoftness))
+                labels.Add(Localization.EdgeSoftness);
+            if (!Mathf.Approximately(zone.shadowDesaturation, DefaultShadowDesaturation))
+                labels.Add(Localization.ShadowDesaturation);
+            if (!Mathf.Approximately(zone.shadowForgivenessSatMin, DefaultShadowForgivenessSatMin))
+                labels.Add(Localization.ShadowForgivenessSatMin);
+            if (!Mathf.Approximately(zone.shadowValueFloor, DefaultShadowValueFloor))
+                labels.Add(Localization.ShadowValueFloor);
+            if (!Mathf.Approximately(zone.partSatCeiling, DefaultPartSatCeiling))
+                labels.Add(Localization.PartSatCeiling);
+            if (!Mathf.Approximately(zone.partHueBand, DefaultPartHueBand))
+                labels.Add(Localization.PartHueBand);
+            if (!Mathf.Approximately(zone.chromaCeiling, DefaultChromaCeiling))
+                labels.Add(Localization.ChromaCeiling);
         }
 
         // ─────────────────── ユーティリティ ───────────────────
