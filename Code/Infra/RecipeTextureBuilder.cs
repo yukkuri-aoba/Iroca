@@ -163,7 +163,7 @@ namespace Iroca
             if (src == null) { failure = Failure.NoSourceTexture; return false; }
             state = RecipeStore.Load(recipe);
             if (state == null) { failure = Failure.UnreadableRecipe; return false; }
-            if (SessionRecolor.EnabledZoneCopies(state.zones).Count == 0) { failure = Failure.NoEnabledZones; return false; }
+            if (SessionRecolor.CountEnabled(state.zones) == 0) { failure = Failure.NoEnabledZones; return false; }
             return true;
         }
 

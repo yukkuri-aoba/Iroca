@@ -128,7 +128,7 @@ namespace Iroca
         internal void RegisterToAvatar()
         {
             if (sourceTexture == null) return;
-            if (SessionRecolor.EnabledZoneCopies(_session?.zones).Count == 0)
+            if (SessionRecolor.CountEnabled(_session?.zones) == 0)
             {
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterNoZones, Localization.OK);
                 return;

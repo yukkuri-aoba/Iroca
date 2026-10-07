@@ -16,6 +16,9 @@ namespace Iroca
     /// </summary>
     internal static class SessionRecolor
     {
+        // 適用対象の選び方(EnabledZoneCopies と CountEnabled で共有する)。
+        private static bool IsApplied(ColorZone z) => z != null && z.enabled;
+
         /// <summary>
         /// 有効なゾーンを並び順のまま複製して返す。先頭ほど先に処理され、重なった領域を占有する。
         /// 複製するのは、処理中に元のゾーンが編集(自動調整・Undo)されても新旧が混ざらないようにするため
@@ -26,8 +29,18 @@ namespace Iroca
             var list = new List<ColorZone>();
             if (zones == null) return list;
             foreach (var z in zones)
-                if (z != null && z.enabled) list.Add(z.Clone());
+                if (IsApplied(z)) list.Add(z.Clone());
             return list;
+        }
+
+        /// <summary>適用対象(<see cref="EnabledZoneCopies"/> が返すのと同じゾーン)の数。複製しない。</summary>
+        public static int CountEnabled(IEnumerable<ColorZone> zones)
+        {
+            if (zones == null) return 0;
+            int n = 0;
+            foreach (var z in zones)
+                if (IsApplied(z)) n++;
+            return n;
         }
 
         /// <summary>
