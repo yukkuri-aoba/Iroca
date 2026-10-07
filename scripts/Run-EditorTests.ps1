@@ -26,6 +26,10 @@
     性能計測（PerfBenchTests、Category "Perf"）だけを回す。値は計測ケースの JSON
     （python dev_safe/scripts/perf_bench.py unity-cases が作る）。結果は出力フォルダの perf.jsonl。
 
+.PARAMETER MemCases
+    メモリ計測（MemoryBenchTests、Category "Memory"）だけを回す。値は計測ケースの JSON。
+    結果は出力フォルダの mem.jsonl。ヒープの最大値は前のケースを引きずるので、1 回の起動に 1 ケースが基本。
+
 .EXAMPLE
     .\scripts\Run-EditorTests.ps1
 .EXAMPLE
@@ -35,7 +39,8 @@
 param(
     [string]$HostProject = (Join-Path $env:USERPROFILE 'Documents\Avatar_Projects\Iroca_Dev'),
     [string]$UnityExe,
-    [string]$PerfCases
+    [string]$PerfCases,
+    [string]$MemCases
 )
 
 $ErrorActionPreference = 'Stop'
@@ -93,6 +98,17 @@ if ($PerfCases) {
 } else {
     Remove-Item Env:IROCA_PERF_CASES -ErrorAction SilentlyContinue
 }
+# メモリ計測は Memory カテゴリだけを回す（普段のテストでは IROCA_MEM_CASES が無いので Ignore になる）。
+$memReport = Join-Path $outDir 'mem.jsonl'
+if ($MemCases) {
+    if ($PerfCases) { throw "-PerfCases と -MemCases は同時に指定できません（Unity を別々に起動して測る）" }
+    if (-not (Test-Path $MemCases)) { throw "計測ケースの JSON がありません: $MemCases" }
+    $env:IROCA_MEM_CASES = (Resolve-Path $MemCases).Path
+    $env:IROCA_MEM_REPORT = $memReport
+    $unityArgs += @('-testCategory', 'Memory')
+} else {
+    Remove-Item Env:IROCA_MEM_CASES -ErrorAction SilentlyContinue
+}
 Write-Host "Unity を batchmode で起動します（結果: $outDir）…"
 $p = Start-Process -FilePath $UnityExe -ArgumentList $unityArgs -PassThru
 try { $p.PriorityClass = 'BelowNormal' } catch { }
@@ -113,6 +129,9 @@ foreach ($tc in $xml.SelectNodes("//test-case[@result='Failed']")) {
 }
 if ($PerfCases -and (Test-Path $perfReport)) {
     Write-Host "性能計測の結果: $perfReport（python dev_safe/scripts/perf_bench.py unity-report で集計）"
+}
+if ($MemCases -and (Test-Path $memReport)) {
+    Write-Host "メモリ計測の結果: $memReport"
 }
 if (Test-Path $parity) {
     $lines = Get-Content $parity

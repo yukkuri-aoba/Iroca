@@ -17,6 +17,7 @@ headless ハーネスと golden は net8 で製品 C# を動かすので、Unity
 | `RuntimeParityTests.cs` | 製品の実行環境（Unity の Mono）とテストの実行環境（ハーネスの net8）で再着色の出力が一致するか。golden の入力（`scripts/golden/cases/`）を製品経路（`IrocaAutomation.RecolorWithZones`）に通し、ハーネスの出力（`scripts/golden/expected/`）と比べる |
 | `MaskSuggestInferenceTests.cs` | AI マスク提案の実推論（パッケージの読み込み・モデルの変換とロード・推論）が Unity 2022.3（Sentis）と Unity 6（Inference Engine）で通るか。灰地の赤い円の中心をクリックし、円と提案マスクの IoU を測る。パッケージ未導入・モデル未配置なら Ignore。`IROCA_AI_REPORT` にパスがあれば結果を 1 行追記する |
 | `PerfBenchTests.cs` | 製品の実行環境（Unity の Mono）での再着色の速さ（`Perf` カテゴリ。品質は見ない）。`IROCA_PERF_CASES` が無ければ Ignore で、`Run-EditorTests.ps1 -PerfCases <json>` のときだけ回る（結果は出力フォルダの `perf.jsonl`） |
+| `MemoryBenchTests.cs` | 製品の実行環境（Unity の Mono）でプレビュー相当の処理を繰り返したときの Mono ヒープとプロセスのメモリ（`Memory` カテゴリ）。Mono のヒープは縮まないので、見た目のメモリを決めるのはヒープの最大値。最後にプール・キャッシュを手放して GC し、OS へ返るかも記録する。`IROCA_MEM_CASES` が無ければ Ignore で、`Run-EditorTests.ps1 -MemCases <json>` のときだけ回る（結果は `mem.jsonl`。1 回の起動に 1 ケース） |
 
 テストは配布パッケージ（`Code/`）の外に置いてあるので、ユーザーのプロジェクトには入らない。
 
