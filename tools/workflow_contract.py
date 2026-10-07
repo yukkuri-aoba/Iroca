@@ -6,14 +6,12 @@ import json
 import math
 from pathlib import Path
 
-SUBJECTS = (
-    "avatar_a-sneakers", "avatar_a-costume", "bandana",
-    "avatar_b-tops", "avatar_b-boots", "avatar_b-pants", "avatar_b-red",
-    "avatar_b-goggles", "avatar_b-white", "avatar_c-skirt", "avatar_c-gold",
-    "avatar_c-black", "avatar_c-white", "avatar_c-eye",
-    # AvatarD(2026-09-11 登録): 肌 / 2 トーン髪 / 色相回転の瞳 / 格子柄 / 桃ベージュのニット
-    "avatar_d-hair", "avatar_d-skin", "avatar_d-eye", "avatar_d-skirt", "avatar_d-vest",
-)
+# 被写体の名前は評価資産と一緒に非公開の dev_safe に置く。dev_safe の無い環境(公開 CI)では
+# 空になり、被写体に依存しない整合検査だけが走る。
+SUBJECTS_JSON = Path(__file__).resolve().parents[1] / "dev_safe" / "Tests" / "subjects.json"
+_SUBJECT_DOC = (json.loads(SUBJECTS_JSON.read_text(encoding="utf-8"))
+                if SUBJECTS_JSON.is_file() else {})
+SUBJECTS: tuple[str, ...] = tuple(_SUBJECT_DOC.get("subjects", ()))
 # 汎化を測るために調整から外しておく被写体（ホールドアウト）。2026-09-24 に枠だけ作った
 # （ユーザー決定: 既存の被写体は動かさず、次に GT を足すときからここへ入れる）。
 # SUBJECTS（回帰の床・審査ページ・視覚レビュー）とは交わらせない。交わると改善サイクル中に
@@ -22,7 +20,9 @@ SUBJECTS = (
 # 見た回数を dev_safe/Tests/Baselines/holdout_log.jsonl に残す（見るほど効かなくなるため）。
 HOLDOUT_SUBJECTS: tuple[str, ...] = ()
 CLICKS = ("p25", "p50", "p95")
-PRESET_SUBJECTS = ("bandana", "avatar_a-costume", "avatar_a-hair", "avatar_a-sneakers")
+PRESET_SUBJECTS: tuple[str, ...] = tuple(_SUBJECT_DOC.get("preset_subjects", ()))
+# 除外マスク付きの視覚レビューケース(subject_id -> 使うケース数)。選び方は visual_review.py。
+MASKED_REVIEW_CASES: dict[str, int] = dict(_SUBJECT_DOC.get("masked_review_cases", {}))
 WORKFLOWS = {
     "oneshot": {"label": "ワンショット", "mask_role": "evidence_only",
                 "mask_source": "sam", "settings_source": "autotune",

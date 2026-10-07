@@ -40,6 +40,7 @@ def state() -> dict:
         # GT 許容(同色の別部位)の規則と理由つき上書き。変われば design 採点が変わる
         "dev_safe/Tests/regression/gt_tolerance.py", "dev_safe/Tests/regression/colorspace.py",
         "dev_safe/Tests/Baselines/gt_tolerance_overrides.json",
+        "dev_safe/Tests/subjects.json",
     ))
     paths.update(BASE / n for n in ("evidence_autotune_baseline.json", "assisted_include_baseline.json"))
     return {p.relative_to(ROOT).as_posix(): sha256(p) for p in sorted(paths)}

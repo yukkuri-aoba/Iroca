@@ -37,6 +37,7 @@ _ROOT = Path(__file__).resolve().parent.parent          # リポジトリルー�
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness_scope import harness_source_files          # noqa: E402
+from workflow_contract import MASKED_REVIEW_CASES        # noqa: E402
 _DEV_SAFE = _ROOT / "dev_safe"
 _TESTS = _DEV_SAFE / "Tests"
 for _p in [str(_DEV_SAFE), str(_TESTS)]:
@@ -69,14 +70,10 @@ THUMB_HEIGHT = 512  # 比較パネルの列高さ（px）
 # 参照せず保護画素を上書きする契約違反)はこのゲートを素通りし、修正後も全ケースがビット一致で
 # 「何も検証できていない」状態だった(レビュー 2026-08-06 の N-12)。
 #
-# 被写体は経路の違いで選ぶ:
-#   bandana       — 有彩サンプルの通常マッチ経路
-#   avatar_b-goggles — 暗い無彩サンプル = グレーモード + 無彩フチ消し(N-1 の現場)
+# 被写体は経路の違いで選ぶ: 有彩サンプルの通常マッチ経路と、暗い無彩サンプル(グレーモード +
+# 無彩フチ消し = N-1 の現場)を 1 被写体ずつ。具体名は dev_safe/Tests/subjects.json。
 # 色数は実行コスト(1 ケース = dotnet 1 プロセス × フル解像度)とのバランスで先頭 2 色に絞る。
-MASKED_SUBJECT_CASES = {
-    "bandana": 2,
-    "avatar_b-goggles": 2,
-}
+MASKED_SUBJECT_CASES = MASKED_REVIEW_CASES
 
 # マスク付きケースの case_id 接尾辞。compare 側の契約検査もこれで判定する。
 MASKED_SUFFIX = "+masked"
