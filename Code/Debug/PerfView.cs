@@ -1,13 +1,16 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
+using System.Runtime.InteropServices;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Profiling;
 
 namespace Iroca.DebugTools
 {
     /// <summary>
     /// IrocaWindow に組み込まれる「スレッド数調整 + パフォーマンス表示」セクション。
+    /// デバッグモード OFF は体感とコア処理の要約 2 行だけ、ON は区間・フェーズ・ゾーン別の内訳とメモリも出す。
     /// Debug asmdef ごと削除すれば <see cref="DebugBootstrap"/> の登録も消え、本体に影響なし。
     /// </summary>
     internal static class PerfView
@@ -39,52 +42,76 @@ namespace Iroca.DebugTools
             EnsurePrefsLoaded();
             // 表示するレポートは Layout のときに固定する。レポートはプレビューの転送(同じ OnGUI の中)で
             // 差し替わるので、Layout と Repaint で別のものを描くと行数が食い違って IMGUI が例外を出す。
-            if (Event.current.type == EventType.Layout) s_shownLatency = s_lastLatency;
+            // メモリも同じく Layout で読んだ値を Repaint でも描く。
+            bool debug = DebugMode.IsEnabled;
+            if (Event.current.type == EventType.Layout)
+            {
+                s_shownLatency = s_lastLatency;
+                if (debug) SampleMemory();
+            }
             var shown = s_shownLatency;
 
             EditorGUILayout.Space(4);
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
-                bool debug = DebugMode.IsEnabled;
+                // トグルは見出しの行に置く(オン/オフで中身の行数が変わっても位置が動かない)。
+                DrawHeader(host);
 
-                EditorGUILayout.LabelField(
-                    new GUIContent("パフォーマンス",
-                        "プレビューの体感時間(操作から画面に出るまで)と、コア処理の実行時間を表示します。\n" +
-                        "デバッグモードをオンにすると、体感時間の区間別タイムライン・フェーズ別/ゾーン別の詳細内訳・" +
-                        "スレッド数調整・段階ごとのキャプチャが使えます。\n" +
-                        "このセクションは Debug asmdef ごと削除することで本体から切り離せます。"),
-                    EditorStyles.boldLabel);
+                // 簡略表示(デバッグモード OFF)は体感とコア処理の要約を 1 行ずつだけ。
+                if (!debug)
+                {
+                    DrawSummary(shown);
+                    return;
+                }
 
                 // 体感(操作 → 画面)。コア処理の時間とは別の見方で、待ち・受け渡し・転送・段の直列を含む。
-                DrawLatency(shown, debug);
+                DrawLatency(shown);
 
-                // 同じ操作のコア処理: 簡略時は段ごとの合計だけ、デバッグモード時はフェーズ別/ゾーン別も表示。
-                DrawPerfReport(shown, debug);
+                // 同じ操作のコア処理: 段ごとの合計と、フェーズ別/ゾーン別の内訳。
+                DrawPerfReport(shown);
 
                 EditorGUILayout.Space(4);
-                DrawDebugModeToggle(host);
+                DrawMemory();
 
-                // デバッグモード時のみ: スレッド調整と段階キャプチャの制御を展開。
-                if (debug)
-                {
-                    EditorGUILayout.Space(4);
-                    DrawThreadControl(host);
-                    EditorGUILayout.Space(4);
-                    DebugView.DrawCaptureControls(host);
-                }
+                EditorGUILayout.Space(4);
+                DrawThreadControl(host);
+                EditorGUILayout.Space(4);
+                DebugView.DrawCaptureControls(host);
+            }
+        }
+
+        private static void DrawHeader(IrocaWindow host)
+        {
+            var title = new GUIContent("パフォーマンス",
+                "プレビューの体感時間(操作から画面に出るまで)と、コア処理の実行時間を表示します。\n" +
+                "デバッグモードをオンにすると、体感時間の区間別タイムライン・フェーズ別/ゾーン別の詳細内訳・" +
+                "メモリ・スレッド数調整・段階ごとのキャプチャが使えます。\n" +
+                "このセクションは Debug asmdef ごと削除することで本体から切り離せます。");
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                // 見出しもトグルも中身の幅だけを取り、左に寄せる。既定の最小幅(ラベル幅＋フィールド幅)を
+                // 要求させると設定列より広い行になり、列全体の右端が切れる(DrawCoreRow を参照)。右寄せにすると、
+                // 列の右端が切れているときにトグルの文字が欠ける。
+                EditorGUILayout.LabelField(title, EditorStyles.boldLabel,
+                    GUILayout.Width(EditorStyles.boldLabel.CalcSize(title).x));
+                GUILayout.Space(12f);
+                DrawDebugModeToggle(host);
+                GUILayout.FlexibleSpace();
             }
         }
 
         private static void DrawDebugModeToggle(IrocaWindow host)
         {
+            var content = new GUIContent(
+                "デバッグモード",
+                "オフ: 体感時間とコア処理の合計だけを 2 行で表示します。\n" +
+                "オン: 体感時間の区間別タイムライン・フェーズ別/ゾーン別の詳細内訳・メモリ・スレッド数調整・" +
+                "段階ごとのキャプチャ（パイプライン透明化）を表示します。");
+            // チェックボックスの分(~16px)と余白を足した幅だけを取る。
+            float width = EditorStyles.label.CalcSize(content).x + 20f;
             EditorGUI.BeginChangeCheck();
             bool prev = DebugMode.IsEnabled;
-            bool now = EditorGUILayout.ToggleLeft(
-                new GUIContent(
-                    "デバッグモード",
-                    "オフ: 実行時間の合計のみを簡潔に表示します。\n" +
-                    "オン: フェーズ別/ゾーン別の詳細内訳・スレッド数調整・段階ごとのキャプチャ（パイプライン透明化）を表示します。"),
-                prev, EditorStyles.boldLabel);
+            bool now = EditorGUILayout.ToggleLeft(content, prev, GUILayout.Width(width));
             if (EditorGUI.EndChangeCheck() && now != prev)
             {
                 DebugMode.IsEnabled = now;
@@ -134,9 +161,71 @@ namespace Iroca.DebugTools
             }
         }
 
+        // 簡略表示: 体感(操作 → 画面)とコア処理を 1 行ずつ。寸法や用語の説明はツールチップへ寄せる。
+        private static void DrawSummary(PreviewLatencyReport r)
+        {
+            if (r == null)
+            {
+                EditorGUILayout.LabelField(
+                    "(プレビューを生成すると実行時間が表示されます)",
+                    EditorStyles.miniLabel);
+                return;
+            }
+
+            string latency;
+            if (r.ViewChange)
+            {
+                latency = $"体感  スクロール・ズーム → 拡大 {r.DetailShownMs:F0} ms";
+            }
+            else
+            {
+                latency = r.IsFinal
+                    ? $"体感  初回 {r.FirstShownMs:F0} ・ 確定 {r.FinalShownMs:F0}"
+                    : $"体感  初回 {r.FirstShownMs:F0} ・ 確定 待ち";
+                if (!double.IsNaN(r.DetailShownMs)) latency += $" ・ 拡大 {r.DetailShownMs:F0}";
+                latency += " ms";
+            }
+            if (!r.HasInput) latency += " (操作なし)";
+            // 折り返す(狭い設定列で末尾が切れて読めなくならないように)。
+            EditorGUILayout.LabelField(
+                new GUIContent(latency,
+                    "操作(スライダー・クリックなど)から、結果が画面に出るまでの時間。\n" +
+                    "初回: 縮小プロキシの概要が出るまで(プロキシを使わないときは確定と同じ)。\n" +
+                    "確定: 表示解像度の確定結果が出るまで。ドラッグの追従中や確定前は「待ち」。\n" +
+                    "拡大: 拡大表示中だけ。フル解像度の詳細クロップが出るまで。\n" +
+                    "スクロール・ズーム: 拡大表示中に表示位置・倍率を最後に変えてから、拡大表示が出るまで" +
+                    $"(手を止めて {DebounceText} 待ってから作り直すので、その待ちを含みます)。\n" +
+                    "(操作なし): 操作を起点にできない再生成(初回表示など)で、起点は生成開始。\n" +
+                    $"元画像 {r.SourceW}×{r.SourceH}。区間ごとの内訳はデバッグモードで表示します。"),
+                EditorStyles.wordWrappedMiniLabel);
+
+            string core;
+            if (r.ProxyCore == null && r.FullCore == null)
+            {
+                core = r.ViewChange ? "コア  なし(拡大表示は確定結果の切り出しだけ)" : "コア  なし";
+            }
+            else
+            {
+                core = "コア  ";
+                if (r.ProxyCore != null) core += $"プロキシ {r.ProxyCore.TotalMs:F0}";
+                if (r.ProxyCore != null && r.FullCore != null) core += " ・ ";
+                if (r.FullCore != null) core += $"フル {r.FullCore.TotalMs:F0}";
+                core += " ms";
+            }
+            string dims = string.Empty;
+            if (r.ProxyCore != null) dims += $"\nプロキシ: {r.ProxyCore.Width}×{r.ProxyCore.Height}";
+            if (r.FullCore != null) dims += $"\nフル: {r.FullCore.Width}×{r.FullCore.Height}";
+            EditorGUILayout.LabelField(
+                new GUIContent(core,
+                    "同じ操作で走った ProcessPixelsArray の実行時間。待ち・受け渡し・転送は含みません。\n" +
+                    "プロキシ: 縮小した概要の段。フル: 確定の段(書き出しと同じ解像度)。\n" +
+                    "拡大表示はフル段の出力を切り出すだけなので走りません。" + dims),
+                EditorStyles.wordWrappedMiniLabel);
+        }
+
         // コア処理(ProcessPixelsArray)の実行時間。上の「体感」と同じ操作の、画面に出た段のものを出すので、
         // 操作のたびに体感と一緒に差し替わる(エクスポートなどプレビュー以外の処理のものは混ぜない)。
-        private static void DrawPerfReport(PreviewLatencyReport r, bool detailed)
+        private static void DrawPerfReport(PreviewLatencyReport r)
         {
             if (r == null)
             {
@@ -165,9 +254,6 @@ namespace Iroca.DebugTools
             }
             if (r.ProxyCore != null) DrawCoreRow("プロキシ", r.ProxyCore);
             if (r.FullCore != null) DrawCoreRow("フル", r.FullCore);
-
-            // 簡略表示（デバッグモード OFF）は段ごとの合計だけで打ち切り。
-            if (!detailed) return;
 
             // 内訳は最後に画面に出た段のもの(確定前のドラッグの追従ならプロキシ、確定したらフル)。
             string stage = r.FullCore != null ? "フル" : "プロキシ";
@@ -209,7 +295,7 @@ namespace Iroca.DebugTools
             }
         }
 
-        private static void DrawLatency(PreviewLatencyReport r, bool detailed)
+        private static void DrawLatency(PreviewLatencyReport r)
         {
             if (r == null) return;
 
@@ -243,9 +329,6 @@ namespace Iroca.DebugTools
                     $"(手を止めて {DebounceText} 待ってから作り直すので、その待ちを含みます)。\n" +
                     $"元画像 {r.SourceW}×{r.SourceH}"),
                 EditorStyles.wordWrappedLabel);
-
-            // 簡略表示(デバッグモード OFF)は要約の 1 行だけ。
-            if (!detailed) return;
 
             DrawLatencyTimeline(r);
 
@@ -364,14 +447,124 @@ namespace Iroca.DebugTools
                 GUILayout.Width(EditorStyles.miniLabel.CalcSize(content).x + 4));
         }
 
-        private static void DrawLatencyValueRow(string label, double ms, string tooltip)
+        private static void DrawLatencyValueRow(string label, double ms, string tooltip) =>
+            DrawValueRow(label, $"{ms:F0} ms", tooltip, 150f);
+
+        private static void DrawValueRow(string label, string value, string tooltip, float labelWidth)
         {
             using (new EditorGUILayout.HorizontalScope())
             {
-                EditorGUILayout.LabelField(new GUIContent(label, tooltip), GUILayout.Width(150));
+                EditorGUILayout.LabelField(new GUIContent(label, tooltip), GUILayout.Width(labelWidth));
                 // MinWidth(0) の理由は DrawCoreRow と同じ(設定列を押し広げない)。
-                EditorGUILayout.LabelField($"{ms:F0} ms", EditorStyles.miniLabel, GUILayout.MinWidth(0f));
+                EditorGUILayout.LabelField(value, EditorStyles.miniLabel, GUILayout.MinWidth(0f));
             }
+        }
+
+        // ---- メモリ(デバッグモード時のみ) ----
+
+        private struct MemorySample
+        {
+            internal long MonoUsed, MonoHeap;             // Mono(マネージド)ヒープ
+            internal long NativeUsed, NativeReserved;     // Unity の内部アロケータ
+            internal bool HasProcess;                     // false = プロセスの値が取れない(Windows 以外など)
+            internal long Private, PeakPrivate, WorkingSet;
+            internal int GcCount;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct ProcessMemoryCounters
+        {
+            public uint cb, PageFaultCount;
+            public UIntPtr PeakWorkingSetSize, WorkingSetSize, QuotaPeakPagedPoolUsage, QuotaPagedPoolUsage,
+                QuotaPeakNonPagedPoolUsage, QuotaNonPagedPoolUsage, PagefileUsage, PeakPagefileUsage;
+        }
+        [DllImport("kernel32.dll")] private static extern IntPtr GetCurrentProcess();
+        [DllImport("psapi.dll")] private static extern bool GetProcessMemoryInfo(IntPtr p, out ProcessMemoryCounters c, uint cb);
+
+        // 描き直しのたびに読み直すと数字が揺れて読めないので間引く(秒)。
+        private const double MemorySampleInterval = 0.5;
+        private const float MemoryLabelWidth = 110f;
+
+        private static MemorySample s_memory;
+        private static double s_memorySampledAt = double.NegativeInfinity;
+        private static bool s_processMemoryUnavailable;
+
+        private static void SampleMemory()
+        {
+            double now = EditorApplication.timeSinceStartup;
+            if (now - s_memorySampledAt < MemorySampleInterval) return;
+            s_memorySampledAt = now;
+
+            var m = new MemorySample
+            {
+                MonoUsed = Profiler.GetMonoUsedSizeLong(),
+                MonoHeap = Profiler.GetMonoHeapSizeLong(),
+                NativeUsed = Profiler.GetTotalAllocatedMemoryLong(),
+                NativeReserved = Profiler.GetTotalReservedMemoryLong(),
+                GcCount = GC.CollectionCount(0),
+            };
+            m.HasProcess = TryGetProcessMemory(out m.Private, out m.PeakPrivate, out m.WorkingSet);
+            s_memory = m;
+        }
+
+        // プロセスのメモリ(Windows の GetProcessMemoryInfo)。MemoryBenchTests と同じ値を読む。
+        private static bool TryGetProcessMemory(out long privateBytes, out long peakPrivate, out long workingSet)
+        {
+            privateBytes = peakPrivate = workingSet = 0;
+            if (s_processMemoryUnavailable || Application.platform != RuntimePlatform.WindowsEditor) return false;
+            try
+            {
+                if (!GetProcessMemoryInfo(GetCurrentProcess(), out var c, (uint)Marshal.SizeOf<ProcessMemoryCounters>()))
+                    return false;
+                privateBytes = (long)c.PagefileUsage.ToUInt64();
+                peakPrivate = (long)c.PeakPagefileUsage.ToUInt64();
+                workingSet = (long)c.WorkingSetSize.ToUInt64();
+                return true;
+            }
+            catch (Exception)
+            {
+                // DLL・関数が無い環境では以後読まない(行ごと出さない)。
+                s_processMemoryUnavailable = true;
+                return false;
+            }
+        }
+
+        private static string Mb(long bytes) => (bytes / (1024.0 * 1024.0)).ToString("N0");
+
+        private static void DrawMemory()
+        {
+            EditorGUILayout.LabelField(
+                new GUIContent("メモリ",
+                    "Unity エディタのプロセス全体の値です(いろか以外のウィンドウやアセットも含みます)。\n" +
+                    $"このウィンドウを描き直したときに読み直します({MemorySampleInterval:0.0#} 秒おき。放置中は止まります)。"),
+                EditorStyles.boldLabel);
+
+            var m = s_memory;
+            DrawValueRow("Mono ヒープ", $"使用 {Mb(m.MonoUsed)} / 確保 {Mb(m.MonoHeap)} MB",
+                "C# のマネージドメモリ。いろかの画素配列・作業配列・選択キャッシュなどはここに入ります。\n" +
+                "使用: 生きているオブジェクトと、まだ回収されていないゴミの合計。\n" +
+                "確保: ヒープ全体の大きさ。Unity の Mono は一度広げたヒープを OS に返さないので、" +
+                "処理中のピークに引きずられて増え、編集をやめても減りません。",
+                MemoryLabelWidth);
+            DrawValueRow("Unity ネイティブ", $"使用 {Mb(m.NativeUsed)} / 確保 {Mb(m.NativeReserved)} MB",
+                "Unity エンジン側のメモリ(テクスチャ・メッシュなどのアセットとエディタ本体)。\n" +
+                "プレビューやシーンに映すテクスチャはここに入ります。\n" +
+                "使用: Unity の内部アロケータが使っている量。確保: 予約している量。",
+                MemoryLabelWidth);
+            if (m.HasProcess)
+            {
+                DrawValueRow("プロセス", $"{Mb(m.Private)} MB (最大 {Mb(m.PeakPrivate)} MB)",
+                    "Unity エディタのプロセスがコミットしているメモリ(Private Bytes)。Mono ヒープとネイティブの両方を含みます。\n" +
+                    "最大: プロセスを起動してからの最大値。",
+                    MemoryLabelWidth);
+                DrawValueRow("物理メモリ", $"{Mb(m.WorkingSet)} MB",
+                    "そのうち実際に物理メモリ(RAM)に載っている量(ワーキングセット。共有メモリを含みます)。",
+                    MemoryLabelWidth);
+            }
+            DrawValueRow("GC 回数", $"{m.GcCount} 回",
+                "起動してからのガベージコレクションの回数。操作のあとに増えていれば、その操作で回収が走っています" +
+                "(回収の間はエディタが止まります)。",
+                MemoryLabelWidth);
         }
 
         private static void DrawBarRow(string label, double ms, double maxMs, Color barColor, string tooltip)
