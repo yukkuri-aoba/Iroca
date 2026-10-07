@@ -300,7 +300,7 @@ namespace Iroca
             else
             {
                 var tones = DeriveAutoTonalSamples(pixels, width, height, aZone,
-                    clusterMask, maskW, maskH, hsv, out _, out vConnHiBin);
+                    clusterMask, maskW, maskH, hsv, out vConnHiBin);
                 bool derivedMulti = false;
                 if (tones.Count > 0)
                 {

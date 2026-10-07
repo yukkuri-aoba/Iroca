@@ -310,14 +310,13 @@ namespace Iroca
         private const int   AutoToneSatBins   = 64;
         private const float AutoToneGapFloorFrac = 0.0005f; // V ヒストグラムの「空の谷」判定床(総数比)
 
-        // vConnLoBin/vConnHiBin: V 連結領域ゲートで確定した「サンプルのトーン連結域」の V bin 範囲
+        // vConnHiBin: V 連結領域ゲートで確定した「サンプルのトーン連結域」の V bin 範囲の上端
         // (AutoToneValueBins 分割)。明部ツヤ救済(VerifyBrightSheenRecall)が「連結域のすぐ上まで」を
         // ツヤとみなす上限に使う。ヒストグラムが作れず範囲を確定できなかったときは -1(無効)。
         private static List<Color> DeriveAutoTonalSamples(Color32[] pixels, int w, int h,
             ColorZone zone, bool[] excluded, int maskW, int maskH,
-            HsvGrid hsv, out int vConnLoBin, out int vConnHiBin)
+            HsvGrid hsv, out int vConnHiBin)
         {
-            vConnLoBin = -1;
             vConnHiBin = -1;
             var samples = new List<Color>();
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out float sV);
@@ -432,7 +431,6 @@ namespace Iroca
                 for (int i = hiBin + 1; i < VB; i++) cnt[i] = 0;
                 total = regionTotal;
             }
-            vConnLoBin = loBin;
             vConnHiBin = hiBin;
 
             // 指定パーセンタイルの V バンドの平均色を代表色として取る。

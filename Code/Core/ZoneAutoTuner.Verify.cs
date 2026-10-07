@@ -220,11 +220,9 @@ namespace Iroca
             float sheenVMax = (vConnHiBin + 1 + SheenVConnMarginBins) / (float)AutoToneValueBins;
 
             int stride = hsv.stride;
-            int gw = (w + stride - 1) / stride;
-            int gh = (h + stride - 1) / stride;
 
             // ── 基礎選択(導出 tolerance)のビットマスク ──
-            var baseSel = new bool[gw * gh];
+            var baseSel = new bool[hsv.gw * hsv.gh];
             int baseCount = 0;
             for (int y = 0, gy = 0; y < h; y += stride, gy++)
             {
@@ -240,7 +238,7 @@ namespace Iroca
                     float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
                     sim.GetMatchScoresPrecomputedHSV(pH, pS, pV, col, x, y, w, h,
                         out float s0, out _, out _);
-                    if (s0 > 0f) { baseSel[gy * gw + gx] = true; baseCount++; }
+                    if (s0 > 0f) { baseSel[grow + gx] = true; baseCount++; }
                 }
             }
             if (baseCount < VerifyMinBaseSelected) return;
@@ -260,7 +258,7 @@ namespace Iroca
                     int grow = gy * hsv.gw;
                     for (int x = 0, gx = 0; x < w; x += stride, gx++)
                     {
-                        if (baseSel[gy * gw + gx]) continue;
+                        if (baseSel[grow + gx]) continue;
                         Color32 c = pixels[rowStart + x];
                         if (c.a < 128) continue;
                         if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;

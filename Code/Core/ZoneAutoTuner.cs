@@ -298,7 +298,7 @@ namespace Iroca
                     // 内部サンプルとして、各画素の最近サンプルまでの距離 P95 から tolerance を導出する。
                     // スポイト位置が明部でも暗部でも、トーン全域を覆うので取りこぼし/はみ出しを抑えられる。
                     var autoSamples = DeriveAutoTonalSamples(pixels, width, height, aZone,
-                        clusterMask, maskW, maskH, hsv, out _, out vConnHiBin);
+                        clusterMask, maskW, maskH, hsv, out vConnHiBin);
                     Progress(0.62f);
                     bool derivedMulti = false;
                     if (autoSamples.Count > 0)
