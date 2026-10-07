@@ -48,6 +48,25 @@ namespace Iroca
         const int MinCellSamples = 4;
 
         /// <summary>
+        /// 粗グリッドのセル単位モード(平均色)。cnt が MinCellSamples 以上のセルだけ valid にし、
+        /// mean[g*channels+k] = sum/cnt(double 除算)。SnapBoundary / ExtendFringe /
+        /// IncludeAaTransition の各段が共有する(配列の確保と後段の無効化は呼び出し側)。
+        /// </summary>
+        static void ComputeCellModes(long[] sum, int[] cnt, int channels, double[] mean, bool[] valid)
+        {
+            for (int g = 0; g < cnt.Length; g++)
+            {
+                if (cnt[g] >= MinCellSamples)
+                {
+                    valid[g] = true;
+                    int o = g * channels;
+                    for (int k = 0; k < channels; k++)
+                        mean[o + k] = sum[o + k] / (double)cnt[g];
+                }
+            }
+        }
+
+        /// <summary>
         /// 統計不足時に広げる近傍グリッド半径の上限(セル単位)。d はテクスチャ解像度に
         /// 比例するため、この上限もテクスチャサイズに応じて実 px 幅が自動的にスケールする。
         /// </summary>
@@ -166,24 +185,8 @@ namespace Iroca
             var cellValid = new bool[gw * gh];
             var inMean = new double[gw * gh * 3];
             var inValid = new bool[gw * gh];
-            for (int g = 0; g < gw * gh; g++)
-            {
-                int o = g * 3;
-                if (cnt[g] >= MinCellSamples)
-                {
-                    cellValid[g] = true;
-                    cellMean[o] = sum[o] / (double)cnt[g];
-                    cellMean[o + 1] = sum[o + 1] / (double)cnt[g];
-                    cellMean[o + 2] = sum[o + 2] / (double)cnt[g];
-                }
-                if (cntIn[g] >= MinCellSamples)
-                {
-                    inValid[g] = true;
-                    inMean[o] = sumIn[o] / (double)cntIn[g];
-                    inMean[o + 1] = sumIn[o + 1] / (double)cntIn[g];
-                    inMean[o + 2] = sumIn[o + 2] / (double)cntIn[g];
-                }
-            }
+            ComputeCellModes(sum, cnt, 3, cellMean, cellValid);
+            ComputeCellModes(sumIn, cntIn, 3, inMean, inValid);
 
             // 生地類似の外側モードを無効化: マスク直外の確信領域には SAM が切り落とした
             // 生地(房 strands)自体が含まれ得る。その色クラスタを背景モードとして信用すると
@@ -404,26 +407,8 @@ namespace Iroca
             var meanOut = new double[gw * gh * 4];
             var validIn = new bool[gw * gh];
             var validOut = new bool[gw * gh];
-            for (int g = 0; g < gw * gh; g++)
-            {
-                int o = g * 4;
-                if (cntIn[g] >= MinCellSamples)
-                {
-                    validIn[g] = true;
-                    meanIn[o] = sumIn[o] / (double)cntIn[g];
-                    meanIn[o + 1] = sumIn[o + 1] / (double)cntIn[g];
-                    meanIn[o + 2] = sumIn[o + 2] / (double)cntIn[g];
-                    meanIn[o + 3] = sumIn[o + 3] / (double)cntIn[g];
-                }
-                if (cntOut[g] >= MinCellSamples)
-                {
-                    validOut[g] = true;
-                    meanOut[o] = sumOut[o] / (double)cntOut[g];
-                    meanOut[o + 1] = sumOut[o + 1] / (double)cntOut[g];
-                    meanOut[o + 2] = sumOut[o + 2] / (double)cntOut[g];
-                    meanOut[o + 3] = sumOut[o + 3] / (double)cntOut[g];
-                }
-            }
+            ComputeCellModes(sumIn, cntIn, 4, meanIn, validIn);
+            ComputeCellModes(sumOut, cntOut, 4, meanOut, validOut);
 
             // 帯画素の再分類。元の mask を読みながら書き換えると統計自体は粗グリッド由来なので
             // 影響しない(確信領域は帯外で不変)。判定入力は mask0/統計(読み取り専用)、
@@ -730,26 +715,8 @@ namespace Iroca
             var meanFar = new double[gw * gh * 4];
             var validNear = new bool[gw * gh];
             var validFar = new bool[gw * gh];
-            for (int g = 0; g < gw * gh; g++)
-            {
-                int o = g * 4;
-                if (cntOutNear[g] >= MinCellSamples)
-                {
-                    validNear[g] = true;
-                    meanNear[o] = sumOutNear[o] / (double)cntOutNear[g];
-                    meanNear[o + 1] = sumOutNear[o + 1] / (double)cntOutNear[g];
-                    meanNear[o + 2] = sumOutNear[o + 2] / (double)cntOutNear[g];
-                    meanNear[o + 3] = sumOutNear[o + 3] / (double)cntOutNear[g];
-                }
-                if (cntOutFar[g] >= MinCellSamples)
-                {
-                    validFar[g] = true;
-                    meanFar[o] = sumOutFar[o] / (double)cntOutFar[g];
-                    meanFar[o + 1] = sumOutFar[o + 1] / (double)cntOutFar[g];
-                    meanFar[o + 2] = sumOutFar[o + 2] / (double)cntOutFar[g];
-                    meanFar[o + 3] = sumOutFar[o + 3] / (double)cntOutFar[g];
-                }
-            }
+            ComputeCellModes(sumOutNear, cntOutNear, 4, meanNear, validNear);
+            ComputeCellModes(sumOutFar, cntOutFar, 4, meanFar, validFar);
 
             // 判定はパス開始時のマスク由来の distOut に対して行い、書き込みは追加のみ
             // (決定的・順序非依存。統計は確信領域=帯外なので追加書き込みの影響を受けない)。
