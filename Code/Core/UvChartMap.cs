@@ -216,9 +216,7 @@ namespace Iroca
             var po = new ParallelOptions
             {
                 CancellationToken = token,
-                MaxDegreeOfParallelism = DebugCaptureHooks.ParallelismOverride > 0
-                    ? System.Math.Min(DebugCaptureHooks.ParallelismOverride, System.Environment.ProcessorCount)
-                    : System.Math.Max(1, System.Environment.ProcessorCount - 2),
+                MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(),
             };
             var raster = Raster;
 
