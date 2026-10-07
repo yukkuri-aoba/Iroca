@@ -1,0 +1,616 @@
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
+// Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using UnityEngine;
+
+namespace Iroca
+{
+    internal static partial class PixelProcessor
+    {
+        // ───────── 混色帯(選択境界の AA・にじみ)の再着色 ─────────
+        // 選択境界の画素は「素材と隣のものが混ざった色」で出来ている: p = α·F + (1−α)·B
+        // (F = その場の素材色、B = 隣のもの、α = 素材の被覆率)。正しい色替えは素材のぶんだけを差し替えること:
+        //     p' = α·F' + (1−α)·B = p + α·(F' − F)        F' = 素材色 F を再着色した色
+        // 以前は混色の画素を
+        //   ・マッチが落とす(元の色のまま残る = 縁に元の色の点・線)
+        //   ・緩和マッチ(穴埋め・境界回復)が拾って「素材の色の一種」として全強度で再着色する(暗い灰との
+        //     混色が明るく濁る。tolerance を上げると、ほぼ無彩の地まで縁から数 px 入り、輪のように残る)
+        //   ・部分 strength で元の色と再着色をブレンドする / α·target + (1−α)·背景へ置き換える(α は主サンプル
+        //     色への射影、色は生の target なので、陰影のある素材では素材色も塗り色も合わない)
+        // のどれかで扱っていて、どれも上の式にならなかった。有彩サンプルのゾーンで境界クリーンアップが ON の
+        // とき(混色帯モード)は、選択は主マッチの結果だけにして(緩和マッチは行わない)、境界の帯をここで
+        // 上の式で塗る。
+        //
+        // α の求め方: 色度(RGB から平均を引いた成分 = 無彩軸に直交する 2 次元)で測る。
+        //   c(p) = α·c(F) + (1−α)·c(B)
+        // 無彩の背景は白でも灰でも黒でも c(B)=0 になるので、白い文字と暗い灰の地が同じ窓にあっても
+        // (三者の境でも)α が背景の明るさに依らず決まる。RGB 3 成分の射影では背景を 1 色に決める必要が
+        // あり、白と暗い灰の中間の灰を「素材が混ざった」と誤認する。
+        // c(B) は、近くの「面になっている未選択画素」(3×3 が全部未選択で色度が揃っている = 混色でない)の
+        // うち最も近いものから取る(仮説 1)。それで説明できない、または近くに面が無い(幅 2px 以下の線・文字)
+        // ときは無彩の背景とみなす(仮説 2)。細い線は全画素が混色なので、面を作れない。透明(α = 0)から
+        // ±MixBandRadius 以内も面にしない。UV 島の外周は素材と未知の下地の AA・余白(髪束の縁の幅 3px の
+        // 淡い帯など)で、そこを面とみなすと帯が「背景」として元の色のまま縁取りに残る。
+        // 色度だけでは決めきれないので、次の整合も見る(ClassifyMixture):
+        //   ・素材と近くの面の色度が近く α が決まらないときは、画素が面と同じ色なら面の一部、そうでなければ
+        //     無彩の背景の仮説で見る。
+        //   ・無彩との混色は素材の色相をそのまま保つので、無彩の背景の仮説では向きのずれを約 6° までしか
+        //     許さない(色相の近い別の色の縁取り・飾りを「素材 + 無彩」と取り違えない)。
+        //   ・無彩の背景の仮説では、ほぼ無彩の画素(色度 ≤ MixFlatChroma)を混色とみなさない。わずかに色のある地
+        //     (生成り・暖かい白、色度 10 前後)は、色のついた地そのものとしても説明でき、素材の寄与と区別できない。
+        //   ・明るさも合成の式で説明できること(仮説 1: 面の明るさで、仮説 2: 暗黙の無彩 (p − αF)/(1 − α) が
+        //     0..255 に収まること)。補色どうしの境の灰の線は、色度だけなら両者の混色に見える。
+        //   ・色度は素材の向きなのに明るさが説明できない画素は、混色ではなく素材の濃淡(ハイライト・陰)。
+        //   ・α が 1 を明らかに超える(素材色 F より鮮やか)なら、その F はこの画素の出所ではない。
+        //   ・ほぼ無彩の画素は、有彩の面との混色(仮説 1)としては見ない(無彩の面となら見る)。補色に近い 2 面の境の灰の線は、
+        //     色度でも明るさでも両者の混色と区別できないことがあり、素材の色へ寄せると区切り線が消える。
+        // F は近くの「内側の選択画素」(3×3 が全部選択済み)の平均。まず窓 ±MixBandRadius、無ければ
+        // 近傍半径まで輪を広げる(素材の細い線は、太い本体が数 px 離れている)。近くに確かな選択が無い
+        // (素材そのものが細い線・点で、どの画素も混色)とき、または近くの F では説明できないときは、
+        // ゾーンのサンプルのうち最も鮮やかな色を F にする。陰影が線形(暗い所 = 同じ色を暗くしたもの)なら、
+        // どの明るさの素材色を F にしても α·(F'−F) は同じ値になるので、最も鮮やかな色で測れば α が 1 を
+        // 超えない。F' は F を RecolorPixel に通した色(= パイプラインが素材の内側を塗る色そのもの)。
+        //
+        // 選択済み(strength ≥ MixSolidStrength)の画素を上書きするのは、色度の射影が近くの内側画素の
+        // どれよりも低い(= 近くの素材の色のばらつきでは説明できない)ときだけ。素材自身の模様・陰影は
+        // 今までどおり RecolorPixel が塗る。含めるマスクの画素は、利用者が素材と指定したので解析しない。
+        //
+        // 近くに内側画素(芯)はあるがその色度が MixMinChroma 未満(暗い陰・淡い明部)の所は、どの画素も解析
+        // しない(従来の経路 = 主マッチの strength で塗る)。素材の色度が小さいと α を色度で測れず、測れない
+        // α で主マッチを上書きすると、確かな選択が元の色へ戻る(未選択の点の周りが四角い穴になる)、わずかに
+        // 色のある地が色づく、縁のぼけた所が元の色の帯になる、のどれかになる。
+        private const int   MixBandRadius      = 2;      // 境界の帯の幅: 選択の境からこの px 以内
+        // 「素材として確かに選択された」とみなす strength 下限(デコンタミの内部判定と同じ 0.97)。これ未満の
+        // 弱い選択(ハイライト伝播、彩度の確信度で割り引かれた画素)は、未選択と同じく「混色かもしれない
+        // 画素」として調べる。
+        private const float MixSolidStrength   = DecontaminationInteriorThreshold;
+        // 素材の色度の最小の大きさと、素材と背景の色度の最小の差(0..255 の RGB)。これ未満では 8bit の
+        // 1 階調が α の 4% 以上に当たり、α が雑音で決まる。
+        private const float MixMinChroma       = 24f;
+        private const float MixMinSeparation   = 24f;
+        // 色度が線分 c(B)–c(F) から外れてよい量。絶対値(8bit の量子化と雑音のぶん)と、その画素の色度が
+        // 背景から離れた距離に対する比(約 14° の向きのずれ)の大きいほう。比を線分の長さで取ると、α の
+        // 低い所で許容が広すぎて、素材の色度と斜めに少し重なるだけの別の色(赤い糸の隣の生成りの布)を
+        // 「素材が 1〜2 割混ざった」と誤認する。
+        private const float MixResidAbs        = 8f;
+        private const float MixResidFrac       = 0.25f;
+        // 背景が無彩(仮説 2、または無彩の面)のときの向きのずれの比(約 6°)。無彩と混ぜても色相は変わらないので、
+        // ずれは素材色 F の推定誤差と量子化だけ。有彩の面のときは面の色度の推定誤差が乗るので MixResidFrac。
+        private const float MixHueFrac         = 0.10f;
+        // 上の許容に足す、素材色を推定した画素の色度のばらつき(標準偏差)の倍率。ノイズ・質感のある素材では、
+        // 混色の画素の色度も同じだけ揺れる。
+        private const float MixNoiseK          = 2f;
+        // 明るさ(RGB の平均)が合成の式から外れてよい量。素材色 F は近くの内側画素の平均なので、陰影の
+        // 勾配のぶん(数 px で 20 階調前後)はずれる。仮説 1 では、素材と面の明るさの差に対する比も許す。
+        private const float MixLightAbs        = 24f;
+        private const float MixLightFrac       = 0.25f;
+        // 「面」とみなす色度の揃い方(3×3 の隣との色度の差の上限、0..255)。明るさの違い(陰影・織り目)は
+        // 色度に出ないので数えない。
+        private const float MixFlatChroma      = 12f;
+        // これ未満は素材がほぼ乗っていない(変えない)。無彩フチ消しの下限(AchromaFringeMinAlpha)と同じ 5%:
+        // 残る色みは最大でも 13 階調ほどで見えず、背景の画素を数階調だけ動かす無駄な変化を作らない。
+        private const float MixAlphaMin        = AchromaFringeMinAlpha;
+        // これ以上は素材そのもの。未選択なら、マッチが意図して落とした画素(包絡ゲート・彩度ガード等)とみて
+        // 触らない。1 + MixAlphaOver を超える(素材色 F より明らかに鮮やか)なら、その F は出所ではない。
+        private const float MixAlphaPure       = 0.90f;
+        private const float MixAlphaOver       = 0.15f;
+        private const float MixCoreRangeMargin = 0.03f;  // 「内側画素のどれよりも低い」の余白
+        // mixAlpha の値: 負 = 対象外(従来の経路で塗る)、0..1 = 被覆率(合成の式で塗る)、
+        // MixAsMaterial = 弱く選択された画素だが素材そのもの・素材の濃淡(全強度で再着色する)。
+        private const float MixAsMaterial      = 2f;
+        // AnalyzeMixtureBand の「面か」の覚え書きの値(0/1 = まだ調べていない)。
+        private const byte FlatYesB = 1, FlatNoB = 2;
+
+        // ClassifyMixture の判定。
+        private const int MixOther = 0, MixMixture = 1, MixMaterial = 2, MixBackground = 3, MixOver = 4;
+
+        /// <summary>
+        /// 混色帯モードのゾーンか。境界クリーンアップ ON、境界ぼかし無し、主マッチがグレーモードでなく、ゾーンの
+        /// サンプル(主 + 内部)のうち最も鮮やかな色の色度が MixMinChroma 以上(= 素材の色度で被覆率を測れる)のとき。
+        /// 境界ぼかしは strength を空間に広げて「未選択の面」(背景の手がかり)を消すので、被覆率の推定と両立しない。
+        /// そのときは従来の経路で塗る(ぼかしを意図して使う設定なので、従来どおりの見た目を保つ)。
+        /// 主サンプル 1 色だけで決めると、同じ素材でもクリックした濃淡で判定が割れる(自動調整は内部サンプルに
+        /// 素材の濃淡を足すので、最も鮮やかな色はクリック位置に依らない)。無彩のサンプルは色度で被覆率を
+        /// 測れないので従来の経路(緩和マッチ + α 再合成 + 無彩フチ消し)のまま。
+        /// </summary>
+        private static bool IsMixtureBandZone(ColorZone zone, bool useDecontamination, float edgeFeather)
+        {
+            if (!useDecontamination || zone.mode != SelectionMode.ColorPick || edgeFeather > EdgeFeatherBlurMin) return false;
+            Color.RGBToHSV(zone.sampleColor, out _, out float sS, out float sV);
+            if (sS <= ColorZone.GrayModeEffectiveChromaThreshold(sV, zone.chromaThreshold)) return false;
+            return ChromaSq(MostChromaticSample(zone)) * (255f * 255f) >= MixMinChroma * MixMinChroma;
+        }
+
+        /// <summary>ゾーンのサンプル(主 + 内部)のうち、色度(RGB − 平均)が最も大きい色。</summary>
+        private static Color MostChromaticSample(ColorZone zone)
+        {
+            Color best = zone.sampleColor;
+            float bestC = ChromaSq(best);
+            var extra = zone.extraSamples;
+            if (extra != null)
+                for (int i = 0; i < extra.Count; i++)
+                {
+                    float c2 = ChromaSq(extra[i]);
+                    if (c2 > bestC) { bestC = c2; best = extra[i]; }
+                }
+            return best;
+        }
+
+        private static float ChromaSq(Color c)
+        {
+            float m = (c.r + c.g + c.b) * (1f / 3f);
+            float r = c.r - m, g = c.g - m, b = c.b - m;
+            return r * r + g * g + b * b;
+        }
+
+        /// <summary>
+        /// 画素 p を「素材 F と背景の混色」として説明できるかを判定する(上のコメント参照)。色度 c と明るさ m
+        /// (RGB の平均)はどれも 0..255。hasB = 近くの面(仮説 1 の背景)があるか。
+        /// 戻り値: MixMixture(alpha = 被覆率)/ MixMaterial(素材そのもの・素材の濃淡)/ MixBackground(素材が
+        /// 乗っていない)/ MixOver(F より鮮やか = この F は出所でない)/ MixOther(説明できない)。
+        /// </summary>
+        private static int ClassifyMixture(
+            float cpR, float cpG, float cpB, float pm,
+            float cfR, float cfG, float cfB, float cf2, float fm,
+            bool hasB, float cbR, float cbG, float cbB, float bm, float noise,
+            out float alpha)
+        {
+            alpha = 0f;
+            float residAbs2 = MixResidAbs * MixResidAbs;
+            float flat2 = MixFlatChroma * MixFlatChroma;
+            float noiseTol = MixNoiseK * noise;
+            float cp2 = cpR * cpR + cpG * cpG + cpB * cpB;
+            float cb2 = cbR * cbR + cbG * cbG + cbB * cbB;
+            // ほぼ無彩の画素は、有彩の面との混色としては見ない(仮説 2 だけで見る)。
+            if (hasB && (cp2 > flat2 || cb2 <= flat2))
+            {
+                float qR = cpR - cbR, qG = cpG - cbG, qB = cpB - cbB;
+                float q2 = qR * qR + qG * qG + qB * qB;
+                float dR = cfR - cbR, dG = cfG - cbG, dB = cfB - cbB;
+                float d2 = dR * dR + dG * dG + dB * dB;
+                if (d2 < MixMinSeparation * MixMinSeparation)
+                {
+                    // 素材と面の色度が近く α が決まらない。面と同じ色なら面の一部、そうでなければ仮説 2 で見る。
+                    if (q2 <= residAbs2 && Mathf.Abs(pm - bm) <= MixLightAbs) return MixBackground;
+                }
+                else
+                {
+                    float a = (qR * dR + qG * dG + qB * dB) / d2;
+                    float eR = qR - a * dR, eG = qG - a * dG, eB = qB - a * dB;
+                    float res2 = eR * eR + eG * eG + eB * eB;
+                    float frac = cb2 <= flat2 ? MixHueFrac : MixResidFrac;
+                    float tol = Mathf.Max(MixResidAbs, frac * Mathf.Sqrt(q2)) + noiseTol;
+                    float lightRes = Mathf.Abs(pm - (a * fm + (1f - a) * bm));
+                    float lightTol = Mathf.Max(MixLightAbs, MixLightFrac * Mathf.Abs(fm - bm));
+                    if (res2 <= tol * tol && lightRes <= lightTol)
+                    {
+                        int k = ClassifyAlpha(a);
+                        if (k == MixMixture) alpha = a;
+                        return k;
+                    }
+                }
+            }
+            // 仮説 2: 背景は無彩(明るさは未知)。無彩と混ぜても色相は変わらない。
+            float a1 = (cpR * cfR + cpG * cfG + cpB * cfB) / cf2;
+            float e1R = cpR - a1 * cfR, e1G = cpG - a1 * cfG, e1B = cpB - a1 * cfB;
+            float r1 = e1R * e1R + e1G * e1G + e1B * e1B;
+            float tol1 = Mathf.Max(MixResidAbs, MixHueFrac * Mathf.Sqrt(cp2)) + noiseTol;
+            if (r1 > tol1 * tol1) return MixOther;
+            int k1 = ClassifyAlpha(a1);
+            if (k1 != MixMixture) return k1;
+            // ほぼ無彩の画素: わずかに色のある地そのものとしても説明でき、素材の寄与と区別できない。
+            if (cp2 <= flat2) return MixBackground;
+            // 暗黙の無彩の背景 (p − αF)/(1 − α) の明るさが 0..255 に収まるか。収まらない = 素材の濃淡。
+            float rem = pm - a1 * fm;
+            float bn = Mathf.Clamp(rem / (1f - a1), 0f, 255f);
+            if (Mathf.Abs(rem - (1f - a1) * bn) > MixLightAbs) return MixMaterial;
+            alpha = a1;
+            return MixMixture;
+        }
+
+        // 被覆率 α の範囲による判定。負(画素が背景より素材から遠い)は合成では説明できない。
+        private static int ClassifyAlpha(float a)
+        {
+            if (a > 1f + MixAlphaOver) return MixOver;
+            if (a >= MixAlphaPure) return MixMaterial;
+            if (a < -MixAlphaMin) return MixOther;
+            if (a < MixAlphaMin) return MixBackground;
+            return MixMixture;
+        }
+
+        /// <summary>
+        /// 行ごとのビット列(1 画素 1 bit、1 行 wpr 語)で、矩形 [rx0..rx1]×[ry0..ry1] のうち範囲 [x0..x1]×[y0..y1] に
+        /// 入る部分の立っているビットの数。
+        /// </summary>
+        private static int CountBitsInRect(ulong[] bits, int wpr, int x0, int y0, int x1, int y1,
+            int rx0, int ry0, int rx1, int ry1)
+        {
+            int xa = Mathf.Max(x0, rx0), xb = Mathf.Min(x1, rx1);
+            int ya = Mathf.Max(y0, ry0), yb = Mathf.Min(y1, ry1);
+            if (xb < xa || yb < ya) return 0;
+            int wa = xa >> 6, wb = xb >> 6;
+            ulong ma = ~0UL << (xa & 63);
+            ulong mb = ~0UL >> (63 - (xb & 63));
+            int n = 0;
+            for (int y = ya; y <= yb; y++)
+            {
+                int o = y * wpr;
+                if (wa == wb) { n += PopCount64(bits[o + wa] & ma & mb); continue; }
+                n += PopCount64(bits[o + wa] & ma);
+                for (int k = wa + 1; k < wb; k++) n += PopCount64(bits[o + k]);
+                n += PopCount64(bits[o + wb] & mb);
+            }
+            return n;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static int PopCount64(ulong v)
+        {
+#if NETCOREAPP3_0_OR_GREATER
+            return System.Numerics.BitOperations.PopCount(v);
+#else
+            v -= (v >> 1) & 0x5555555555555555UL;
+            v = (v & 0x3333333333333333UL) + ((v >> 2) & 0x3333333333333333UL);
+            v = (v + (v >> 4)) & 0x0F0F0F0F0F0F0F0FUL;
+            return (int)((v * 0x0101010101010101UL) >> 56);
+#endif
+        }
+
+        /// <summary>
+        /// 混色帯を解析し、合成の式で塗る画素について mixAlpha[i] = α (0..1) と mixedPixels[i] = p + α·(F'−F) を
+        /// 書く(上のコメント参照)。対象外の画素は mixAlpha[i] = −1 のまま(呼び出し側の従来経路で塗る)。
+        /// 読むのは originalPixels / strength だけ、書くのは自分の画素の mixAlpha / mixedPixels だけなので
+        /// 行並列でも読み書きが交わらない。再着色ループが mixAlpha ≥ 0 の画素をこの結果で塗る。
+        /// radius: 素材・背景を探す近傍半径(境界クリーンアップの近傍半径)。
+        /// zoneMaterial: 近くの素材色で説明できない画素で、素材色に使う色(MostChromaticSample)。
+        /// includedPx: 含めるマスクの画素(null = なし)。利用者が素材と指定したので解析せず、素材色の推定にも使わない。
+        /// exMin/exMax: 書き込んだ可能性のある矩形(strength の bbox ± 近傍半径)。ループはここまで回す。
+        /// maskExcluded: 除外マスク画素(null=マスクなし)。呼び出し側は矩形 ± (2·近傍半径+1) まで埋めること。
+        /// 除外画素には書かず、背景の参照にも使わない(strength=0 だが背景ではない保護パーツでありうる)。
+        /// </summary>
+        private static void AnalyzeMixtureBand(
+            Color32[] originalPixels, float[] strength, int w, int h, int radius,
+            in RecolorParams rc, float[] regMidMap, float regLmid,
+            Color zoneMaterial, bool[] includedPx,
+            Color32[] mixedPixels, float[] mixAlpha,
+            int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
+            out int exMinX, out int exMinY, out int exMaxX, out int exMaxY,
+            bool[] maskExcluded, CancellationToken ct = default)
+        {
+            const int R = MixBandRadius;
+            int B = Mathf.Max(radius, R + 1);
+            int ex0 = Mathf.Max(0, bbMinX - B), ex1 = Mathf.Min(w - 1, bbMaxX + B);
+            int ey0 = Mathf.Max(0, bbMinY - B), ey1 = Mathf.Min(h - 1, bbMaxY + B);
+            exMinX = ex0; exMinY = ey0; exMaxX = ex1; exMaxY = ey1;
+            // 素材を探す窓(±B)が読む範囲 G(その画素の 3×3 の選択数 n3 を使う)と、窓和の入力に要る範囲。
+            int gx0 = Mathf.Max(0, ex0 - B), gx1 = Mathf.Min(w - 1, ex1 + B);
+            int gy0 = Mathf.Max(0, ey0 - B), gy1 = Mathf.Min(h - 1, ey1 + B);
+            int sx0 = Mathf.Max(0, gx0 - B), sx1 = Mathf.Min(w - 1, gx1 + B);
+            int sy0 = Mathf.Max(0, gy0 - B), sy1 = Mathf.Min(h - 1, gy1 + B);
+
+            int len = w * h;
+            // 「確かな選択」sel と「選択(強さを問わず)」any を 1 画素 1 bit の行ごとのビット列に持ち、窓の中の
+            // 個数は窓の各行のビットを数えて求める(旧: float の 0/1 配列 2 本と、その累積和 2 本を全域に作って
+            // いた=4K で 256MB を何度も読み書き)。数は整数なので、どちらで数えても同じ値。
+            // ビットは範囲 S だけ立て、窓は S で切って数える(窓は常に S の内側か、S と同じく画像の端で切られる。
+            // S = 調べる範囲 ± 2B、窓は最大 ±B を G = 調べる範囲 ± B から取る)。
+            int wpr = (w + 63) >> 6;
+            var selBits = new ulong[h * wpr];
+            var anyBits = new ulong[h * wpr];
+            // 「面か」の覚え書き(0 = まだ調べていない、FlatYesB / FlatNoB = 調べた結果)。背景の候補を探す
+            // 範囲 G だけ 0 にしてから使う。同じ画素を別の行のスレッドが同時に調べても、書く値は同じ(1 バイトの
+            // 書き込みなので、途中の値が見えることもない)。
+            byte[] flatMemo = null;
+            try
+            {
+                flatMemo = s_bytePool.Rent(len);
+                var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+                Parallel.For(sy0, sy1 + 1, po, y =>
+                {
+                    int rowOff = y * w;
+                    int wb = y * wpr;
+                    ulong ws = 0, wa = 0;
+                    for (int x = sx0; x <= sx1; x++)
+                    {
+                        int i = rowOff + x;
+                        float s = originalPixels[i].a > 0 ? strength[i] : 0f;
+                        ulong bit = 1UL << (x & 63);
+                        // 含める画素は選択には数えるが、素材色の推定(確かな選択)には使わない。
+                        if (s >= MixSolidStrength && (includedPx == null || !includedPx[i])) ws |= bit;
+                        if (s > 0f) wa |= bit;
+                        if ((x & 63) == 63 || x == sx1)
+                        {
+                            selBits[wb + (x >> 6)] = ws;
+                            anyBits[wb + (x >> 6)] = wa;
+                            ws = 0; wa = 0;
+                        }
+                    }
+                });
+                var flatL = flatMemo;
+                Parallel.For(gy0, gy1 + 1, po, y => Array.Clear(flatL, y * w + gx0, gx1 - gx0 + 1));
+
+                var rcL = rc;
+                float minChromaSq = MixMinChroma * MixMinChroma;
+                float flatSq = MixFlatChroma * MixFlatChroma;
+                int minSolidNear = 2 * B + 1;      // 未選択側: 窓 ±B を横切る 1 本の線ぶんの選択済み画素
+
+                // 近くの素材色で説明できない画素で使う素材色(ゾーンの最も鮮やかなサンプル)と、その再着色後の色。
+                byte zRb = (byte)Mathf.Clamp(Mathf.RoundToInt(zoneMaterial.r * 255f), 0, 255);
+                byte zGb = (byte)Mathf.Clamp(Mathf.RoundToInt(zoneMaterial.g * 255f), 0, 255);
+                byte zBb = (byte)Mathf.Clamp(Mathf.RoundToInt(zoneMaterial.b * 255f), 0, 255);
+                float zM = (zRb + zGb + zBb) * (1f / 3f);
+                float zcR = zRb - zM, zcG = zGb - zM, zcB = zBb - zM;
+                float zc2 = zcR * zcR + zcG * zcG + zcB * zcB;
+                bool hasZoneMaterial = zc2 >= minChromaSq;
+                Color32 zTo = hasZoneMaterial
+                    ? RecolorPixel(zRb, zGb, zBb, Mathf.Max(zRb, Mathf.Max(zGb, zBb)) / 255f, 1f, in rcL, regLmid)
+                    : default;
+
+                Parallel.For(ey0, ey1 + 1, po, y =>
+                {
+                    // 素材の画素の候補(窓 ±B の中)の位置。行ごとに 1 回だけ確保する。
+                    var setIdx = new int[(2 * B + 1) * (2 * B + 1)];
+                    int row = y * w;
+                    int ry0 = Mathf.Max(0, y - R), ry1 = Mathf.Min(h - 1, y + R);
+                    int by0 = Mathf.Max(0, y - B), by1 = Mathf.Min(h - 1, y + B);
+                    for (int xs = ex0; xs <= ex1; xs += MixSegment)
+                    {
+                    int xe = Mathf.Min(ex1, xs + MixSegment - 1);
+                    // 行の区間ごとに、下の画素ごとの早い打ち切りをまとめて判定する(どちらも区間の全画素で
+                    // 画素ごとの判定と同じ結論になる。画素の窓は区間の窓の内側にあるので):
+                    //  ・区間の ±R がすべて確かな選択 → どの画素も確かな選択で、窓 ±R が全部選択済み(内側)
+                    //  ・区間の ±B に確かな選択が無く、±R に選択が無い → どの画素も未選択で、近くに選択が無い
+                    // 大半の画素(選択の内部と遠くの地)はここで済み、画素ごとの窓和の読み出しが要らない。
+                    {
+                        int rx0 = Mathf.Max(0, xs - R), rx1 = Mathf.Min(w - 1, xe + R);
+                        int areaR = (rx1 - rx0 + 1) * (ry1 - ry0 + 1);
+                        bool skipSeg = CountBitsInRect(selBits, wpr, sx0, sy0, sx1, sy1, rx0, ry0, rx1, ry1) >= areaR
+                            || (CountBitsInRect(selBits, wpr, sx0, sy0, sx1, sy1,
+                                    Mathf.Max(0, xs - B), by0, Mathf.Min(w - 1, xe + B), by1) <= 0
+                                && CountBitsInRect(anyBits, wpr, sx0, sy0, sx1, sy1, rx0, ry0, rx1, ry1) <= 0);
+                        if (skipSeg)
+                        {
+                            for (int x = xs; x <= xe; x++) mixAlpha[row + x] = -1f;
+                            continue;
+                        }
+                    }
+                    for (int x = xs; x <= xe; x++)
+                    {
+                        int i = row + x;
+                        mixAlpha[i] = -1f;
+                        bool isSolid = (selBits[y * wpr + (x >> 6)] & (1UL << (x & 63))) != 0;
+                        if (isSolid)
+                        {
+                            // 窓 ±R が全部選択済み = 内側。境界の帯ではない。
+                            int cnt = (Mathf.Min(w - 1, x + R) - Mathf.Max(0, x - R) + 1)
+                                    * (Mathf.Min(h - 1, y + R) - Mathf.Max(0, y - R) + 1);
+                            if (CountBitsInRect(selBits, wpr, sx0, sy0, sx1, sy1, x - R, y - R, x + R, y + R) >= cnt) continue;
+                        }
+                        // 未選択・弱い選択の画素: 近く(±B)にまとまった選択があるか、選択(強さを問わず)から
+                        // ±R 以内にあるものだけを調べる。
+                        int nBi = CountBitsInRect(selBits, wpr, sx0, sy0, sx1, sy1, x - B, y - B, x + B, y + B);
+                        if (!isSolid && nBi < minSolidNear
+                            && CountBitsInRect(anyBits, wpr, sx0, sy0, sx1, sy1, x - R, y - R, x + R, y + R) <= 0) continue;
+                        if (includedPx != null && includedPx[i]) continue;
+                        Color32 op = originalPixels[i];
+                        if (op.a == 0) continue;
+                        if (maskExcluded != null && maskExcluded[i]) continue;
+                        float st = strength[i];
+
+                        // F: 近くの「内側の選択画素」(3×3 が全部選択済み)の平均。窓 ±R に無ければ輪を 1px ずつ
+                        // 広げ、最初に見つかった輪で止める。それでも無ければ、未選択・弱い選択の画素に限り、
+                        // 選択済み画素すべて(細い素材の線)で同じことをする。
+                        int setN = 0;
+                        if (nBi > 0)
+                        {
+                            for (int pass = 0; pass < 2 && setN == 0; pass++)
+                            {
+                                if (pass == 1 && isSolid) break;
+                                for (int d = R; d <= B && setN == 0; d++)
+                                {
+                                    int y0w = Mathf.Max(0, y - d), y1w = Mathf.Min(h - 1, y + d);
+                                    int x0w = Mathf.Max(0, x - d), x1w = Mathf.Min(w - 1, x + d);
+                                    for (int yy = y0w; yy <= y1w; yy++)
+                                    {
+                                        int r2 = yy * w;
+                                        int ady = yy > y ? yy - y : y - yy;
+                                        for (int xx = x0w; xx <= x1w; xx++)
+                                        {
+                                            // d > R のときは輪(チェビシェフ距離 = d)だけを見る。
+                                            if (d > R && ady < d && (xx > x ? xx - x : x - xx) < d) continue;
+                                            int j = r2 + xx;
+                                            if (j == i || (selBits[yy * wpr + (xx >> 6)] & (1UL << (xx & 63))) == 0) continue;
+                                            if (pass == 0 && CountBitsInRect(selBits, wpr, sx0, sy0, sx1, sy1,
+                                                    xx - 1, yy - 1, xx + 1, yy + 1) < 9) continue;
+                                            setIdx[setN++] = j;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        float lfR = 0f, lfG = 0f, lfB = 0f, lcR = 0f, lcG = 0f, lcB = 0f, lc2 = 0f, lfM = 0f, lNoise = 0f;
+                        bool local = setN > 0;
+                        if (local)
+                        {
+                            for (int k = 0; k < setN; k++)
+                            {
+                                Color32 o = originalPixels[setIdx[k]];
+                                lfR += o.r; lfG += o.g; lfB += o.b;
+                            }
+                            float inv = 1f / setN;
+                            lfR *= inv; lfG *= inv; lfB *= inv;
+                            lfM = (lfR + lfG + lfB) * (1f / 3f);
+                            lcR = lfR - lfM; lcG = lfG - lfM; lcB = lfB - lfM;
+                            lc2 = lcR * lcR + lcG * lcG + lcB * lcB;
+                            // 素材色を推定した画素の色度のばらつき(ノイズ・質感の大きさ)。
+                            float v = 0f;
+                            for (int k = 0; k < setN; k++)
+                            {
+                                Color32 o = originalPixels[setIdx[k]];
+                                float oM = (o.r + o.g + o.b) * (1f / 3f);
+                                float dr = o.r - oM - lcR, dg = o.g - oM - lcG, db = o.b - oM - lcB;
+                                v += dr * dr + dg * dg + db * db;
+                            }
+                            lNoise = Mathf.Sqrt(v * inv);
+                            // 無彩に近い素材(ごく暗い陰・淡い明部): α を色度で測れないので解析しない(上のコメント参照)。
+                            if (lc2 < minChromaSq) continue;
+                        }
+                        if (!local && !hasZoneMaterial) continue;
+
+                        float pM = (op.r + op.g + op.b) * (1f / 3f);
+                        float cpR = op.r - pM, cpG = op.g - pM, cpB = op.b - pM;
+                        if (isSolid)
+                        {
+                            // 色度の射影が、素材色の推定に使った画素(無ければゾーンの素材色)のどれよりも低いときだけ
+                            // 調べる。それ以上なら素材自身の模様・陰影の範囲(RecolorPixel が塗る)。
+                            float piMin;
+                            float piP;
+                            if (local)
+                            {
+                                piP = (cpR * lcR + cpG * lcG + cpB * lcB) / lc2;
+                                piMin = float.MaxValue;
+                                for (int k = 0; k < setN; k++)
+                                {
+                                    Color32 o = originalPixels[setIdx[k]];
+                                    float oM = (o.r + o.g + o.b) * (1f / 3f);
+                                    float pi = ((o.r - oM) * lcR + (o.g - oM) * lcG + (o.b - oM) * lcB) / lc2;
+                                    if (pi < piMin) piMin = pi;
+                                }
+                            }
+                            else
+                            {
+                                piP = (cpR * zcR + cpG * zcG + cpB * zcB) / zc2;
+                                piMin = 1f;
+                            }
+                            if (piP >= piMin - MixCoreRangeMargin) continue;
+                        }
+
+                        // c(B) の候補: 近くの「面になっている未選択画素」。輪を 1px ずつ広げ、最初に見つかった輪の平均。
+                        float bR = 0f, bG = 0f, bB = 0f;
+                        int bN = 0;
+                        for (int d = 1; d <= B && bN == 0; d++)
+                        {
+                            int y0w = Mathf.Max(0, y - d), y1w = Mathf.Min(h - 1, y + d);
+                            int x0w = Mathf.Max(0, x - d), x1w = Mathf.Min(w - 1, x + d);
+                            for (int yy = y0w; yy <= y1w; yy++)
+                            {
+                                int r2 = yy * w;
+                                int ady = yy > y ? yy - y : y - yy;
+                                for (int xx = x0w; xx <= x1w; xx++)
+                                {
+                                    if (ady < d && (xx > x ? xx - x : x - xx) < d) continue;
+                                    int j = r2 + xx;
+                                    if (strength[j] > 0f) continue;
+                                    Color32 o = originalPixels[j];
+                                    if (o.a == 0 || (maskExcluded != null && maskExcluded[j])) continue;
+                                    byte fc = flatL[j];
+                                    if (fc == 0)
+                                    {
+                                        // 面の判定: 3×3 の隣が全部未選択で、色度が揃っていて、±R に透明が無い。
+                                        float oM = (o.r + o.g + o.b) * (1f / 3f);
+                                        float ocR = o.r - oM, ocG = o.g - oM, ocB = o.b - oM;
+                                        bool flat = true;
+                                        int ty1 = Mathf.Min(h - 1, yy + R), tx0 = Mathf.Max(0, xx - R), tx1 = Mathf.Min(w - 1, xx + R);
+                                        for (int ny = Mathf.Max(0, yy - R); ny <= ty1 && flat; ny++)
+                                        {
+                                            int r3 = ny * w;
+                                            for (int nx = tx0; nx <= tx1; nx++)
+                                                if (originalPixels[r3 + nx].a == 0) { flat = false; break; }
+                                        }
+                                        for (int ny = yy - 1; ny <= yy + 1 && flat; ny++)
+                                        {
+                                            if (ny < 0 || ny >= h) continue;
+                                            int r3 = ny * w;
+                                            for (int nx = xx - 1; nx <= xx + 1; nx++)
+                                            {
+                                                if (nx < 0 || nx >= w) continue;
+                                                int k = r3 + nx;
+                                                if (k == j) continue;
+                                                if (strength[k] > 0f) { flat = false; break; }
+                                                Color32 q = originalPixels[k];
+                                                float qM = (q.r + q.g + q.b) * (1f / 3f);
+                                                float eR0 = q.r - qM - ocR, eG0 = q.g - qM - ocG, eB0 = q.b - qM - ocB;
+                                                if (eR0 * eR0 + eG0 * eG0 + eB0 * eB0 > flatSq) { flat = false; break; }
+                                            }
+                                        }
+                                        fc = flat ? FlatYesB : FlatNoB;
+                                        flatL[j] = fc;
+                                    }
+                                    if (fc != FlatYesB) continue;
+                                    bR += o.r; bG += o.g; bB += o.b; bN++;
+                                }
+                            }
+                        }
+                        float cbR = 0f, cbG = 0f, cbB = 0f, bM = 0f;
+                        if (bN > 0)
+                        {
+                            float inv = 1f / bN;
+                            float mR = bR * inv, mG = bG * inv, mB = bB * inv;
+                            bM = (mR + mG + mB) * (1f / 3f);
+                            cbR = mR - bM; cbG = mG - bM; cbB = mB - bM;
+                        }
+
+                        // 近くの素材色で判定し、それで説明できない(より鮮やか / そもそも無い)ときはゾーンの素材色で。
+                        float alpha = 0f;
+                        int kind = MixOther;
+                        bool useLocal = local;
+                        if (local)
+                            kind = ClassifyMixture(cpR, cpG, cpB, pM, lcR, lcG, lcB, lc2, lfM,
+                                bN > 0, cbR, cbG, cbB, bM, lNoise, out alpha);
+                        if ((!local || kind == MixOver) && hasZoneMaterial)
+                        {
+                            useLocal = false;
+                            kind = ClassifyMixture(cpR, cpG, cpB, pM, zcR, zcG, zcB, zc2, zM,
+                                bN > 0, cbR, cbG, cbB, bM, lNoise, out alpha);
+                        }
+
+                        if (kind == MixMaterial)
+                        {
+                            // 素材そのもの・素材の濃淡。弱く選択されているなら全強度で塗る(確かな選択と未選択は従来どおり)。
+                            if (!isSolid && st > 0f) mixAlpha[i] = MixAsMaterial;
+                            continue;
+                        }
+                        if (kind == MixBackground)
+                        {
+                            if (st > 0f) { mixAlpha[i] = 0f; mixedPixels[i] = op; }   // 選択されているが素材が乗っていない → 変えない
+                            continue;
+                        }
+                        if (kind != MixMixture) continue;   // 説明できない画素は従来の経路(strength どおり)
+
+                        // F' − F: 素材色を、パイプラインが内側を塗るのと同じ関数に通す。
+                        byte fRb, fGb, fBb;
+                        Color32 fTo;
+                        if (useLocal)
+                        {
+                            fRb = (byte)Mathf.Clamp(Mathf.RoundToInt(lfR), 0, 255);
+                            fGb = (byte)Mathf.Clamp(Mathf.RoundToInt(lfG), 0, 255);
+                            fBb = (byte)Mathf.Clamp(Mathf.RoundToInt(lfB), 0, 255);
+                            float fV = Mathf.Max(fRb, Mathf.Max(fGb, fBb)) / 255f;
+                            int fAt = setIdx[0];
+                            float regL = (regMidMap != null && regMidMap[fAt] > 0f) ? regMidMap[fAt] : regLmid;
+                            fTo = RecolorPixel(fRb, fGb, fBb, fV, 1f, in rcL, regL);
+                        }
+                        else
+                        {
+                            fRb = zRb; fGb = zGb; fBb = zBb;
+                            fTo = zTo;
+                        }
+                        mixedPixels[i] = new Color32(
+                            (byte)Mathf.Clamp(Mathf.RoundToInt(op.r + alpha * (fTo.r - fRb)), 0, 255),
+                            (byte)Mathf.Clamp(Mathf.RoundToInt(op.g + alpha * (fTo.g - fGb)), 0, 255),
+                            (byte)Mathf.Clamp(Mathf.RoundToInt(op.b + alpha * (fTo.b - fBb)), 0, 255),
+                            op.a);
+                        mixAlpha[i] = alpha;
+                    }
+                    }
+                });
+            }
+            finally
+            {
+                if (flatMemo != null) s_bytePool.Return(flatMemo);
+            }
+        }
+    }
+}
