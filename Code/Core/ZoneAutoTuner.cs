@@ -258,99 +258,18 @@ namespace Iroca
                     result = MergeAnalyzed(result, analyzed);
                 Progress(0.50f);
 
-                // tolerance は常に「サンプル近傍クラスタの実マッチ距離分布」から導出する。
-                // 無彩(グレーモード=純 RGB 距離)と有彩(HSV マッチ)で距離式が違うため経路を分けるが、
-                // いずれも MergeAnalyzed の hSpread/vSpread 由来ヒューリスティック(実距離と切り離され
-                // 過大選択を招く)を実距離分布へ置き換える。
-                //
-                // 旧「マスク認識経路(含有領域全画素の P99.9, 上限0.40)」は、ゆるい/残存マスクや
-                // 明暗の広いパーツ(例: 明るいサンプルの髪)で上限 0.40 に張り付いていた(ユーザー報告)
-                // ため廃止。パーツ内の暗部・薄い装飾は本番のシャドウ免除/ハイライト復元が tolerance
-                // とは独立に拾うので、tolerance を膨らませない。
+                // tolerance とトーン代表色(導出の中身と理由は DeriveToleranceAndTones)。
                 Color.RGBToHSV(aZone.sampleColor, out _, out float sampleS, out _);
-
-                ct.ThrowIfCancellationRequested();
-                // foreign 打ち切り(隣接同色相パーツの検出)が効いた場合は覚えておき、
-                // 明部ツヤ救済(VerifyBrightSheenRecall)の拡張を封印する(打ち切りと拡張が相殺し
-                // 隣接パーツを再び巻き込むのを防ぐ)。
-                bool foreignCapped = false;
-                // トーン連結域の V 上端 bin(明部ツヤ救済の上限に使う)。-1=未確定。
-                int vConnHiBin = -1;
-                if (sampleS < AchromaSampleSatMax)
-                {
-                    // 無彩色サンプル: グレーモードの純 RGB 距離分布から(V 広がりの過大評価を回避)。
-                    // 自動トーン抽出は無彩では背景の白/黒と色で分離できず危険なので行わない（単一経路）。
-                    if (TryDeriveAchromaticTolerance(pixels, width, height, aZone,
-                            clusterMask, maskW, maskH, hsv, out float achTol))
-                    {
-                        result.tolerance = achTol;
-                        // 無彩色サンプルではハイライト復元を切る。グレーモードのハイライト経路は
-                        // 「明度だけ」で判定し色相/彩度を見ないため、明るい有彩画素(別素材)まで
-                        // 巻き込んでしまう。グレー本体のハイライトは RGB 距離 tolerance で拾える。
-                        result.highlightRecovery = false;
-                    }
-                }
-                else
-                {
-                    // ── 有彩サンプル: 自動トーン抽出（内部マルチサンプル）─────────────────
-                    // スポイト1点から、同色相のパーツ全体のトーン分布を内部で走査し、暗部・中間・
-                    // 明部の代表色を自動生成する（ユーザーの追加スポイト操作は不要）。これらを和集合の
-                    // 内部サンプルとして、各画素の最近サンプルまでの距離 P95 から tolerance を導出する。
-                    // スポイト位置が明部でも暗部でも、トーン全域を覆うので取りこぼし/はみ出しを抑えられる。
-                    var autoSamples = DeriveAutoTonalSamples(pixels, width, height, aZone,
-                        clusterMask, maskW, maskH, hsv, out vConnHiBin);
-                    Progress(0.62f);
-                    bool derivedMulti = false;
-                    if (autoSamples.Count > 0)
-                    {
-                        var samples = BuildSampleHSVs(aZone.sampleColor, autoSamples);
-                        if (TryDeriveChromaticToleranceMulti(pixels, width, height, aZone, samples,
-                                clusterMask, maskW, maskH, hsv, out float chromTolM, out bool fCapM))
-                        {
-                            result.autoSamples = autoSamples;
-                            result.tolerance = chromTolM;
-                            foreignCapped = fCapM;
-                            derivedMulti = true;
-                        }
-                    }
-                    if (!derivedMulti && TryDeriveChromaticTolerance(pixels, width, height, aZone,
-                            clusterMask, maskW, maskH, hsv, out float chromTol, out bool fCap))
-                    {
-                        // 単一サンプルへフォールバック(トーン抽出が不発/クラスタ過少)。
-                        result.tolerance = chromTol;
-                        foreignCapped = fCap;
-                    }
-                }
+                DeriveToleranceAndTones(pixels, width, height, aZone, clusterMask, maskW, maskH, hsv,
+                    sampleS < AchromaSampleSatMax, ct, report, 0.62f, ref result,
+                    out bool foreignCapped, out int vConnHiBin);
 
                 Progress(0.75f);
 
                 // ── 閉ループ検証: 導出パラメータを実マッチャーに通し、有害な設定を安全側へ倒す ──
-                ct.ThrowIfCancellationRequested();
-                bool hlRecBeforeVerify = result.highlightRecovery;
-                if (result.highlightRecovery)
-                    VerifyHighlightRecoveryGrowth(pixels, width, height, aZone,
-                        excluded, maskW, maskH, hsv, ref result);
-                // 成長テストが highlightRecovery を落とした=「明るい同色相の別素材」が既に検出された
-                // 状況なので、同じ方向へ広げる明部ツヤ救済も封印する。
-                bool hlRecVetoed = hlRecBeforeVerify && !result.highlightRecovery;
-                Progress(0.85f);
-                ct.ThrowIfCancellationRequested();
-                if (sampleS >= AchromaSampleSatMax)
-                {
-                    float tolBeforeOvershoot = result.tolerance;
-                    VerifyBrightForgivenessOvershoot(pixels, width, height, aZone,
-                        excluded, maskW, maskH, hsv, ref result);
-                    // 免除過剰で tolerance を縮めた直後に拡張するのは矛盾するのでスキップする。
-                    bool overshootShrunk = result.tolerance < tolBeforeOvershoot;
-                    Progress(0.92f);
-
-                    ct.ThrowIfCancellationRequested();
-                    // vConnHiBin < 0(トーン構造を確定できなかった)ときは拡張しない(構造未知のまま
-                    // 広げるのは危険。素直なパーツならヒストグラムは常に作れる)。
-                    if (!foreignCapped && !overshootShrunk && !hlRecVetoed && vConnHiBin >= 0)
-                        VerifyBrightSheenRecall(pixels, width, height, aZone,
-                            excluded, maskW, maskH, hsv, vConnHiBin, ref result);
-                }
+                RunClosedLoopVerification(pixels, width, height, aZone, excluded, maskW, maskH, hsv,
+                    sampleS >= AchromaSampleSatMax, foreignCapped, vConnHiBin, ct, report,
+                    0.85f, 0.92f, ref result);
 
                 Progress(0.98f);
 
@@ -362,6 +281,134 @@ namespace Iroca
             DecideGlobals(width, height, session, ref result);
             CollectOverwrittenLabels(zone, session, ref result);
             return result;
+        }
+
+        // ─────────────────── tolerance 導出と閉ループ検証(Analyze / AnalyzeWithEvidence 共通) ───────────────────
+        // 2 つの入口が同じ導出・同じ検証を通ることを、コードを 1 か所に置くことで保つ。
+        // 入口ごとに違うのは地色(aZone)と進捗の値だけ。
+
+        // 進捗の番兵: この値を渡した通過点では進捗を報告しない。
+        private const float NoProgress = -1f;
+
+        /// <summary>
+        /// tolerance とトーン代表色(result.autoSamples)を導出する。母集団はクリック近傍窓(clusterMask)。
+        ///
+        /// tolerance は常に「サンプル近傍クラスタの実マッチ距離分布」から導出する。
+        /// 無彩(グレーモード=純 RGB 距離)と有彩(HSV マッチ)で距離式が違うため経路を分けるが、
+        /// いずれも MergeAnalyzed の hSpread/vSpread 由来ヒューリスティック(実距離と切り離され
+        /// 過大選択を招く)を実距離分布へ置き換える。
+        ///
+        /// 旧「マスク認識経路(含有領域全画素の P99.9, 上限0.40)」は、ゆるい/残存マスクや
+        /// 明暗の広いパーツ(例: 明るいサンプルの髪)で上限 0.40 に張り付いていた(ユーザー報告)
+        /// ため廃止。パーツ内の暗部・薄い装飾は本番のシャドウ免除/ハイライト復元が tolerance
+        /// とは独立に拾うので、tolerance を膨らませない。
+        /// </summary>
+        /// <param name="achromatic">
+        /// true=無彩サンプル。判定式(サンプル S と AchromaSampleSatMax の比較)は呼び出し側に置き、
+        /// 各入口の比較の向きをそのまま渡す(向きを変えると S が NaN のときの分岐が変わる)。
+        /// </param>
+        /// <param name="progressAfterTones">トーン抽出の直後に報告する進捗(有彩のみ)。<see cref="NoProgress"/> なら報告しない。</param>
+        /// <param name="foreignCapped">
+        /// foreign 打ち切り(隣接同色相パーツの検出)が効いたか。効いた場合は明部ツヤ救済
+        /// (VerifyBrightSheenRecall)の拡張を封印する(打ち切りと拡張が相殺し隣接パーツを再び巻き込むのを防ぐ)。
+        /// </param>
+        /// <param name="vConnHiBin">トーン連結域の V 上端 bin(明部ツヤ救済の上限に使う)。-1=未確定。</param>
+        private static void DeriveToleranceAndTones(Color32[] pixels, int width, int height,
+            ColorZone aZone, bool[] clusterMask, int maskW, int maskH, HsvGrid hsv,
+            bool achromatic, CancellationToken ct, Action<float> report, float progressAfterTones,
+            ref TuneResult result, out bool foreignCapped, out int vConnHiBin)
+        {
+            ct.ThrowIfCancellationRequested();
+            foreignCapped = false;
+            vConnHiBin = -1;
+            if (achromatic)
+            {
+                // 無彩色サンプル: グレーモードの純 RGB 距離分布から(V 広がりの過大評価を回避)。
+                // 自動トーン抽出は無彩では背景の白/黒と色で分離できず危険なので行わない（単一経路）。
+                if (TryDeriveAchromaticTolerance(pixels, width, height, aZone,
+                        clusterMask, maskW, maskH, hsv, out float achTol))
+                {
+                    result.tolerance = achTol;
+                    // 無彩色サンプルではハイライト復元を切る。グレーモードのハイライト経路は
+                    // 「明度だけ」で判定し色相/彩度を見ないため、明るい有彩画素(別素材)まで
+                    // 巻き込んでしまう。グレー本体のハイライトは RGB 距離 tolerance で拾える。
+                    result.highlightRecovery = false;
+                }
+            }
+            else
+            {
+                // ── 有彩サンプル: 自動トーン抽出（内部マルチサンプル）─────────────────
+                // スポイト1点から、同色相のパーツ全体のトーン分布を内部で走査し、暗部・中間・
+                // 明部の代表色を自動生成する（ユーザーの追加スポイト操作は不要）。これらを和集合の
+                // 内部サンプルとして、各画素の最近サンプルまでの距離 P95 から tolerance を導出する。
+                // スポイト位置が明部でも暗部でも、トーン全域を覆うので取りこぼし/はみ出しを抑えられる。
+                var autoSamples = DeriveAutoTonalSamples(pixels, width, height, aZone,
+                    clusterMask, maskW, maskH, hsv, out vConnHiBin);
+                if (progressAfterTones >= 0f) report?.Invoke(progressAfterTones);
+                bool derivedMulti = false;
+                if (autoSamples.Count > 0)
+                {
+                    var samples = BuildSampleHSVs(aZone.sampleColor, autoSamples);
+                    if (TryDeriveChromaticToleranceMulti(pixels, width, height, aZone, samples,
+                            clusterMask, maskW, maskH, hsv, out float chromTolM, out bool fCapM))
+                    {
+                        result.autoSamples = autoSamples;
+                        result.tolerance = chromTolM;
+                        foreignCapped = fCapM;
+                        derivedMulti = true;
+                    }
+                }
+                if (!derivedMulti && TryDeriveChromaticTolerance(pixels, width, height, aZone,
+                        clusterMask, maskW, maskH, hsv, out float chromTol, out bool fCap))
+                {
+                    // 単一サンプルへフォールバック(トーン抽出が不発/クラスタ過少)。
+                    result.tolerance = chromTol;
+                    foreignCapped = fCap;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 閉ループ検証: 導出パラメータを実マッチャーに通し、有害な設定を安全側へ倒す。
+        /// 全画面視点で、母集団は除外マスク excluded(導出側の clusterMask ではない)。
+        /// </summary>
+        /// <param name="chromatic">true=有彩サンプル(免除過剰の判定と明部ツヤ救済を行う)。</param>
+        /// <param name="foreignCapped">導出で foreign 打ち切りが効いたか(<see cref="DeriveToleranceAndTones"/>)。</param>
+        /// <param name="vConnHiBin">トーン連結域の V 上端 bin。-1=未確定。</param>
+        /// <param name="progressAfterGrowth">ハイライト成長テストの後に報告する進捗。<see cref="NoProgress"/> なら報告しない。</param>
+        /// <param name="progressAfterOvershoot">免除過剰の判定の後に報告する進捗(有彩のみ)。<see cref="NoProgress"/> なら報告しない。</param>
+        private static void RunClosedLoopVerification(Color32[] pixels, int width, int height,
+            ColorZone aZone, bool[] excluded, int maskW, int maskH, HsvGrid hsv,
+            bool chromatic, bool foreignCapped, int vConnHiBin, CancellationToken ct,
+            Action<float> report, float progressAfterGrowth, float progressAfterOvershoot,
+            ref TuneResult result)
+        {
+            ct.ThrowIfCancellationRequested();
+            bool hlRecBeforeVerify = result.highlightRecovery;
+            if (result.highlightRecovery)
+                VerifyHighlightRecoveryGrowth(pixels, width, height, aZone,
+                    excluded, maskW, maskH, hsv, ref result);
+            // 成長テストが highlightRecovery を落とした=「明るい同色相の別素材」が既に検出された
+            // 状況なので、同じ方向へ広げる明部ツヤ救済も封印する。
+            bool hlRecVetoed = hlRecBeforeVerify && !result.highlightRecovery;
+            if (progressAfterGrowth >= 0f) report?.Invoke(progressAfterGrowth);
+            ct.ThrowIfCancellationRequested();
+            if (chromatic)
+            {
+                float tolBeforeOvershoot = result.tolerance;
+                VerifyBrightForgivenessOvershoot(pixels, width, height, aZone,
+                    excluded, maskW, maskH, hsv, ref result);
+                // 免除過剰で tolerance を縮めた直後に拡張するのは矛盾するのでスキップする。
+                bool overshootShrunk = result.tolerance < tolBeforeOvershoot;
+                if (progressAfterOvershoot >= 0f) report?.Invoke(progressAfterOvershoot);
+
+                ct.ThrowIfCancellationRequested();
+                // vConnHiBin < 0(トーン構造を確定できなかった)ときは拡張しない(構造未知のまま
+                // 広げるのは危険。素直なパーツならヒストグラムは常に作れる)。
+                if (!foreignCapped && !overshootShrunk && !hlRecVetoed && vConnHiBin >= 0)
+                    VerifyBrightSheenRecall(pixels, width, height, aZone,
+                        excluded, maskW, maskH, hsv, vConnHiBin, ref result);
+            }
         }
 
         // ─────────────────── 既定値ベース ───────────────────

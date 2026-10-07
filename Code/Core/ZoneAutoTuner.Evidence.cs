@@ -283,44 +283,12 @@ namespace Iroca
                 result.highlightRecovery = true;
             Progress(0.58f);
 
-            // ── tolerance とトーン代表色: Analyze と同一の経路 ──
-            ct.ThrowIfCancellationRequested();
-            bool foreignCapped = false;
-            int vConnHiBin = -1;
+            // ── tolerance とトーン代表色: Analyze と同一の経路(DeriveToleranceAndTones) ──
+            // foreignCapped は下の補完ループで書き換わるので、閉ループ検証へはその後の値を渡す。
             bool chromatic = repS >= AchromaSampleSatMax;
-            if (!chromatic)
-            {
-                if (TryDeriveAchromaticTolerance(pixels, width, height, aZone,
-                        clusterMask, maskW, maskH, hsv, out float achTol))
-                {
-                    result.tolerance = achTol;
-                    result.highlightRecovery = false; // 無彩: グレーモードのハイライト経路は危険
-                }
-            }
-            else
-            {
-                var tones = DeriveAutoTonalSamples(pixels, width, height, aZone,
-                    clusterMask, maskW, maskH, hsv, out vConnHiBin);
-                bool derivedMulti = false;
-                if (tones.Count > 0)
-                {
-                    var samples = BuildSampleHSVs(aZone.sampleColor, tones);
-                    if (TryDeriveChromaticToleranceMulti(pixels, width, height, aZone, samples,
-                            clusterMask, maskW, maskH, hsv, out float tolM, out bool fCapM))
-                    {
-                        result.autoSamples = tones;
-                        result.tolerance = tolM;
-                        foreignCapped = fCapM;
-                        derivedMulti = true;
-                    }
-                }
-                if (!derivedMulti && TryDeriveChromaticTolerance(pixels, width, height, aZone,
-                        clusterMask, maskW, maskH, hsv, out float tol1, out bool fCap1))
-                {
-                    result.tolerance = tol1;
-                    foreignCapped = fCap1;
-                }
-            }
+            DeriveToleranceAndTones(pixels, width, height, aZone, clusterMask, maskW, maskH, hsv,
+                !chromatic, ct, report, NoProgress, ref result,
+                out bool foreignCapped, out int vConnHiBin);
             Progress(0.68f);
 
             // ── 4. 陰影の明度下限: 証拠ドメインの V 連結域の下端 − 余白 ──
@@ -423,25 +391,8 @@ namespace Iroca
             // 明部ツヤ救済(VerifyBrightSheenRecall)も従来どおり残す: 「やや脱彩・やや明るい」ツヤ
             // (実測: 虹彩の反射 S≈0.3、V≈0.75)はハイライト補助の条件(V>0.80・彩度上限)にも
             // 証拠ドメイン(ツヤ署名は除外)にも入らず、この救済だけが拾う。
-            ct.ThrowIfCancellationRequested();
-            bool hlRecBeforeVerify = result.highlightRecovery;
-            if (result.highlightRecovery)
-                VerifyHighlightRecoveryGrowth(pixels, width, height, aZone,
-                    excluded, maskW, maskH, hsv, ref result);
-            bool hlRecVetoed = hlRecBeforeVerify && !result.highlightRecovery;
-            Progress(0.88f);
-            ct.ThrowIfCancellationRequested();
-            if (repS >= AchromaSampleSatMax)
-            {
-                float tolBeforeOvershoot = result.tolerance;
-                VerifyBrightForgivenessOvershoot(pixels, width, height, aZone,
-                    excluded, maskW, maskH, hsv, ref result);
-                bool overshootShrunk = result.tolerance < tolBeforeOvershoot;
-                ct.ThrowIfCancellationRequested();
-                if (!foreignCapped && !overshootShrunk && !hlRecVetoed && vConnHiBin >= 0)
-                    VerifyBrightSheenRecall(pixels, width, height, aZone,
-                        excluded, maskW, maskH, hsv, vConnHiBin, ref result);
-            }
+            RunClosedLoopVerification(pixels, width, height, aZone, excluded, maskW, maskH, hsv,
+                chromatic, foreignCapped, vConnHiBin, ct, report, 0.88f, NoProgress, ref result);
 
             result.normalizedSample = rep;
             result.hasNormalizedSample = ColorDist(rep, zone.sampleColor) >= NormMinShift;
