@@ -374,6 +374,7 @@ namespace Iroca
                     // フル画像経路(メインプレビュー/Apply/Export)か部分クロップ(詳細プレビュー)か。
                     // 大域統計(連結成分/再着色アンカー/wash/領域L)はフル画像でしか正しく解けないので、
                     // フル画像では解いてキャッシュへ書き、クロップではキャッシュを転写する。
+                    // 部分クロップ経路は現在は検証用(製品 UI の詳細プレビューはフル段出力の切り出し)。
                     bool isFullImagePath = originX == 0 && originY == 0 && fullW == w && fullH == h;
 
                     // 選択キャッシュ: ターゲット色など「再着色のみ」の変更では、マスク再適用直後の
@@ -585,8 +586,8 @@ namespace Iroca
 
                     // 1.a.2 連結成分アンカリング: 確信度コアを含む連結成分のみに strength を絞り込む。
                     // 連結性は大域演算のため、フル画像経路(メインプレビュー/Apply/Export)でのみ実行する。
-                    // 部分クロップ(詳細プレビュー)はここでは絞り込まず色のみ=最終の上位集合になる
-                    // (M4 でフル画像の keep マスクをキャッシュ転写して完全一致させる予定)。
+                    // 部分クロップは、parityCache にフル画像で解いた keep があれば転写して一致させ(下の
+                    // else if)、無ければ絞り込まず色のみ=最終の上位集合(安全側)になる。
                     if (IrocaConsts.ExperimentalFeatures.EnableFloodFill
                         && zone.mode == SelectionMode.ColorPick
                         && zone.useFloodFill)
@@ -764,7 +765,7 @@ namespace Iroca
                     _phaseTicks[PhHoleFill] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
                     // 1c. 境界復元：マッチしたピクセルに隣接するマッチしないピクセルを再評価
-                    //     古い固定低彩度閾値を使用して、正しい段階的な強度を与える
+                    //     緩和マッチ(relaxedSatMin)で、正しい段階的な強度を与える
                     if (!selCached && antiAliasCleanup > 0 && hasPostBox && !zMixMode)
                     {
                         RecoverBoundaryEdges(strength, w, h, pixH, pixS, pixV,
@@ -845,9 +846,6 @@ namespace Iroca
                     if (!selCached && selectionCache != null && isFullImagePath)
                         selectionCache.Store(zone.id, selKey, strength, keepBitsForCache, forcedBits, w, h);
 
-                    // 3b. AA 境界の α 分解（オプション）：strength が 0 < s < interiorThreshold の
-                    //     ピクセルを「α×FG + (1-α)×BG」と見て元テクスチャの合成を逆算し、
-                    //     新色で再合成する。halo（薄汚れた中間色）を構造的に除去する。
                     // 無彩サンプル/極端無彩ターゲットの重み(無彩パスと AA フィデリティ修正で共用)。
                     _sub.Mark(SpSelCacheStore);
                     float zAchromaWeight = ComputeAchromaWeight(zone.sampleColor, zone.targetColor);
@@ -883,6 +881,9 @@ namespace Iroca
                         SolidifyAchromaInterior(strength, w, h, zAchromaWeight, cancellationToken);
 
                     _sub.Mark(SpSolidify);
+                    // 3b. AA 境界の α 分解（オプション）：strength が 0 < s < interiorThreshold の
+                    //     ピクセルを「α×FG + (1-α)×BG」と見て元テクスチャの合成を逆算し、
+                    //     新色で再合成する。halo（薄汚れた中間色）を構造的に除去する。
                     bool[] aaMask = null;
                     Color32[] decontaminatedPixels = null;
                     if (useDecontamination)
@@ -944,6 +945,7 @@ namespace Iroca
                     // 再着色アンカー・領域 L をクロップ内統計から再計算すると値がズレ、ズーム/スクロールで
                     // 出力色が変わってしまう。フル画像で解いた値をキャッシュから転写して完全一致させる。
                     // キャッシュが無い/寸法不一致のとき(キャッシュ生成前の過渡状態)のみ従来どおり計算する。
+                    // (部分クロップ経路は現在は検証用。製品 UI の詳細プレビューはフル段出力の切り出し)。
                     ZoneRecolorStats cachedStats = default;
                     bool useCachedStats = !isFullImagePath && parityCache != null
                         && parityCache.fullW == fullW && parityCache.fullH == fullH

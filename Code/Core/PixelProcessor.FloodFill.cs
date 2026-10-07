@@ -322,11 +322,6 @@ namespace Iroca
             }
         }
 
-        /// <summary>
-        /// 連結成分アンカリングの keep(フル画像で解いた「残す画素」1bit/画素)を部分クロップへ転写する。
-        /// クロップの各画素をフル座標(originX/Y オフセット)で keep 参照し、残さない画素の strength を 0 化。
-        /// これにより詳細プレビュー(クロップ)が大域演算を再実行せずにメイン/最終と完全一致する。
-        /// </summary>
         // フル画像 per-pixel マップ(成分別中央値 L 等)から、クロップ(originX/Y, w×h)に対応する
         // 矩形を切り出してクロップ座標の新しい配列に詰める。詳細プレビューがフル画像と同じ成分基準で
         // 再着色できるようにするための転写。行ごとに連続コピーするだけ(全画素 1 回読み)。
@@ -338,6 +333,11 @@ namespace Iroca
             return map;
         }
 
+        /// <summary>
+        /// 連結成分アンカリングの keep(フル画像で解いた「残す画素」1bit/画素)を部分クロップへ転写する。
+        /// クロップの各画素をフル座標(originX/Y オフセット)で keep 参照し、残さない画素の strength を 0 化。
+        /// これにより詳細プレビュー(クロップ)が大域演算を再実行せずにメイン/最終と完全一致する。
+        /// </summary>
         private static void ApplyCachedKeepMask(
             float[] strength, int w, int h, int originX, int originY, int fullW, ulong[] keep)
         {

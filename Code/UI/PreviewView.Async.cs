@@ -164,7 +164,7 @@ namespace Iroca
         // 段階的リファイン第1段。ソースを ProxyMaxSize へ縮小してから処理し、概要を即表示する。
         // chainFull なら完了 apply でフル段(ScheduleFullPreview)を同一スナップショットでスケジュールする(直列)。
         // ドラッグ中の追従(chainFull=false)はプロキシで止め、確定は FinishDragPreview に任せる。
-        // parityCache は公開しない(詳細プレビューはフル解像度の正確な統計を使い続ける)。
+        // 出力は保持しない(詳細プレビューの切り出し元はフル段の出力だけ)。
         private void ScheduleProxyPreview(PreviewRequest req, bool chainFull)
         {
             // プロキシ寸法の丸めは ComputeFitSize が単一の正(ハーネスのプレビュー段検証と共有)。
@@ -217,8 +217,8 @@ namespace Iroca
                     _pendingProcessedDisplay = result.processed;
                     _pendingPrevW            = req.prevW;
                     _pendingPrevH            = req.prevH;
-                    // プロキシは近似。parityCache 公開・raw キャッシュ確定・debug 公開はフル段に委ねる
-                    // (詳細プレビューの正確さを死守し、二重管理を避ける)。
+                    // プロキシは近似。フル解像度出力の保持(詳細プレビューの切り出し元)・raw キャッシュ確定・
+                    // debug 公開はフル段に委ねる(詳細プレビューの正確さを死守し、二重管理を避ける)。
                     // シーンのアバターに概要を映すのはドラッグ中の追従だけ(手を止めるとフル段が置き換える)。
                     // 続けてフル段が来るとき(ブラシのストローク・Ctrl+Z などの 1 回きりの操作)は映さない:
                     // 概要は表示解像度なので、アバターのテクスチャ寸法へ引き伸ばすとフル段が届くまでの
@@ -231,7 +231,7 @@ namespace Iroca
         }
 
         // 段階的リファイン第2段(=従来のフル解像度処理)。フル解像度で処理→表示解像度へ縮小し、
-        // プロキシ表示を確定結果へ差し替える。parityCache を公開して詳細プレビューを一致させる。
+        // プロキシ表示を確定結果へ差し替える。フル解像度の出力を保持し、詳細プレビューはそこから切り出す。
         // この経路はフル解像度処理そのままなので出力は段階的リファイン導入前とバイト不変。
         private void ScheduleFullPreview(PreviewRequest req)
         {

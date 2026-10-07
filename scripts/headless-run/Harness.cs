@@ -997,8 +997,8 @@ namespace Iroca
 
             // 1) フル画像で処理し keep/領域統計をキャッシュ。
             var full = (Color32[])input.Clone();
-            // sourceId は UI 側(詳細プレビューの採否)専用。ハーネスは採否判定を通さず
-            // parityCache を直接渡すので未設定(0)のままでよい。
+            // sourceId は Core が読まない識別子(書くのは locality probe だけ)。ハーネスは parityCache を
+            // 直接渡すので未設定(0)のままでよい。
             var cache = new PreviewParityCache();
             Process(full, w, h, 0, 0, 0, 0, cache);
 
