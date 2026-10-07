@@ -135,10 +135,6 @@ namespace Iroca
         // シャドウ/ハイライト免除ランプの幅(利用可能レンジ比)。免除が 0→1 へ立ち上がる区間長。
         // シャドウは sV×この値、ハイライトは (1-sV)×この値。
         private const float ForgivenessRangeFrac = 0.6f;
-        // 陰影の明度下限(shadowValueFloor)の最小有効値。下限は自動調整が V ヒストグラム
-        // (ZoneAutoTuner の AutoToneValueBins = 64 分割)の bin 境界で導くので、1 bin 幅未満の
-        // 下限は導出の解像度に無い = 無効(0)として扱う。
-        internal const float ShadowValueFloorMin = 1f / 64f;
         // サンプル彩度に対してこの割合未満の画素は無彩寄りで、色相が信用できない(8bit の量子化で大きく振れる)。
         // 自動調整のトーン抽出・証拠ドメインの彩度床(ZoneAutoTuner.AutoToneSatFrac)と、別パーツの色相幅
         // (partHueBand)の「反証にしない画素」の判定で共有する。

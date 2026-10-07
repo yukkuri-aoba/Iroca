@@ -127,6 +127,10 @@ namespace Iroca
         // 床は画素でなく連結成分に効く(本体に地続きの深い影は残す)。画素単位は実測で衣装の深い影を
         // 落とした(avatar_a-costume recall 0.996→0.942)ので採らない。
         private const float EvShadowFloorMarginFrac = 0.25f;
+        // 陰影の明度下限の最小有効値。下限は V ヒストグラム(AutoToneValueBins 分割)の bin 境界で
+        // 導くので、1 bin 幅未満の下限は導出の解像度に無い = 無効(0)として扱う。ビン数から導くので
+        // 分割を変えても食い違わない。
+        private const float ShadowValueFloorMin = 1f / AutoToneValueBins;
 
         // ── 彩度天井(chromaCeiling)の導出(無彩地色のみ) ──
         // グレーモードの後段ゲート(PixelProcessor.ApplyChromaCeilingGate)は「サンプル彩度の 3 倍
@@ -397,7 +401,7 @@ namespace Iroca
                 float loV = domLoBin / (float)AutoToneValueBins;
                 float hiV = (domHiBin + 1) / (float)AutoToneValueBins;
                 float floor = loV - (hiV - loV) * EvShadowFloorMarginFrac;
-                result.shadowValueFloor = floor >= ColorZone.ShadowValueFloorMin ? floor : 0f;
+                result.shadowValueFloor = floor >= ShadowValueFloorMin ? floor : 0f;
             }
 
             // ── 5. 彩度天井: 証拠ドメインの彩度包絡(P95)が自動の天井を超えるときだけ、余白つきで上書き ──
