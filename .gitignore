@@ -95,3 +95,6 @@ docs/booth_new/promo/booth-promo-comps.html
 # リリース生成物（scripts/Build-VpmPackage.ps1 / Build-Installer.ps1 の出力。リリース資産として配る）
 /com.yukkuri-aoba.iroca-*.zip
 /Iroca_Installer.unitypackage
+
+# scripts/pages/build_site.py の出力（Pages へは Actions が配信する）
+_site/

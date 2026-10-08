@@ -1,0 +1,55 @@
+# GitHub Pages（VPM listing とオンラインマニュアル）を main から配信する。
+#
+# 配信のたびに scripts/pages/build_site.py が、NDMF の公式 listing から、いろかが対応する
+# 範囲の安定版を index.json に写して足す（VCC / ALCOM で、いろかのリポジトリだけを追加した
+# 人でも NDMF を選べるようにするため）。いろかのリリースは頻繁ではないので、NDMF の新しい版を
+# 拾えるよう毎日配信し直す。写した項目はリポジトリの docs/index.json へは書き戻さない
+# （release-verify.yml は docs/index.json の、いろかの項目だけを照合するので影響しない）。
+#
+# 公式 listing を読めなかった日は組み立てが失敗して配信されず、前回の配信がそのまま残る。
+# Pages の設定で Source を「GitHub Actions」にしておくこと（docs/RELEASING.md）。
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/index.json'
+      - 'docs/manual/**'
+      - 'Code/NdmfIntegration/Iroca.NdmfIntegration.asmdef'
+      - 'scripts/pages/**'
+      - '.github/workflows/pages.yml'
+  schedule:
+    # NDMF の新しい版を拾う（毎日 04:43 UTC）
+    - cron: '43 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 配信は 1 本ずつ。走っている配信は止めない（途中で切ると公開が中途半端になる）
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          # schedule と手動実行も、公開の基準である main を配信する
+          ref: main
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b  # v5.0.0
+      - name: Build site (docs + NDMF mirror)
+        run: python3 scripts/pages/build_site.py --out _site
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa  # v3.0.1
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346  # v5.0.1

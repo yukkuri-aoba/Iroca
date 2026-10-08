@@ -67,8 +67,8 @@ git checkout --theirs docs/index.json && git add docs/index.json && git commit
 ## 初回公開の後に確認すること
 
 - [ ] release-verify が green。
-- [ ] GitHub Pages（`docs/` 公開）を有効化し、`https://yukkuri-aoba.github.io/Iroca/index.json` とオンラインマニュアル `https://yukkuri-aoba.github.io/Iroca/manual/` に届く。
-- [ ] VCC / ALCOM にリポジトリ URL を追加してインストールできる。
+- [ ] GitHub Pages を有効化する（Settings → Pages → Source を **GitHub Actions** にする）。`pages.yml` を手動実行して、`https://yukkuri-aoba.github.io/Iroca/index.json`（NDMF の項目も載っている）とオンラインマニュアル `https://yukkuri-aoba.github.io/Iroca/manual/` に届くことを確かめる（→「GitHub Pages の配信」）。
+- [ ] VCC / ALCOM にリポジトリ URL を追加してインストールできる。いろかのリポジトリだけで NDMF も選べる。
 - [ ] 公開版の `Iroca_Installer.unitypackage` を素の Unity 2022.3 プロジェクトと VRChat プロジェクトへインポートして導入できる。
 - [ ] 済んだらこの節を削除する。
 
@@ -88,6 +88,16 @@ git checkout --theirs docs/index.json && git add docs/index.json && git commit
 - インポートすると「Confirm」ダイアログに導入するパッケージと追加されるリポジトリが出て、**Install** で導入、Cancel で何もせずインストーラだけ消える。
 - AI マスク提案用の Unity Sentis は Unity 公式レジストリのパッケージで任意機能のため、VPAI では入らない（従来どおり MANUAL の手順）。
 - 2026-09-23 検証: 素の Unity 2022.3.22f1 プロジェクト（VRChat SDK・VCC なし）で、ローカル配信した listing から取得 → `Packages/com.yukkuri-aoba.iroca` 導入・`vpm-manifest.json` 生成・コンパイル成功・インストーラ自己削除まで確認。導入済み（0.2.0）のプロジェクトへ再インポートすると、listing 上の新しい版（架空の 0.2.1）への更新を提案することも確認。バッチモードでは確認ダイアログが自動キャンセルされて何も入らないので、実際の導入の検証は GUI で行う（DLL 内の `VPM_PACKAGE_AUTO_INSTALLER_NO_PROMPT` は環境変数としては効かなかった）。
+
+## GitHub Pages の配信
+
+`.github/workflows/pages.yml` が main から配信する（Pages の Source は GitHub Actions）。載せるのは `docs/index.json` と `docs/manual/`（表示に要るものだけ）。
+
+- 配信のたびに `scripts/pages/build_site.py` が、NDMF の公式 listing（`https://vpm.nadena.dev/vpm.json`）から、いろかが対応する範囲の安定版を index.json に写す。VCC / ALCOM で、いろかのリポジトリだけを追加した人でも NDMF を選べるようにするため。写す項目は公式とまったく同じ（URL・zipSHA256 とも）なので、NDMF の公式リポジトリも追加している環境でもぶつからない（Avatar Optimizer の listing も同じやり方で NDMF を載せている）。
+- 対応する範囲は `Code/NdmfIntegration/Iroca.NdmfIntegration.asmdef` の versionDefines（`nadena.dev.ndmf` の式）から読む。NDMF 2.0 が出て対応を広げるときは、asmdef の範囲を変えれば写す範囲も変わる。
+- いろかのリリースは頻繁でないので、写した項目はリポジトリへ書き戻さず、毎日配信し直して新しい NDMF を拾う（main への push と手動実行でも配信する）。公式 listing を読めなかった日は組み立てが失敗して配信されず、前回の配信が残る。
+- release-verify.yml は `docs/index.json` の、いろかの項目だけを照合するので、写した項目の影響を受けない。
+- 手元で確かめるときは `python scripts/pages/build_site.py --out _site`（`_site/` は git 管理外）。
 
 ## 補足
 
