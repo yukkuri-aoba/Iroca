@@ -1176,8 +1176,8 @@ namespace Iroca
         public static string RegisterDoneFormat => IsJapanese ? "「{0}」に登録しました" : "Registered to \"{0}\"";
         public static string RegisterOk => IsJapanese ? "登録" : "Register";
         public static string NdmfMissing => IsJapanese
-            ? "NDMF(Non-Destructive Modular Framework)が入っていないので、非破壊の色替えは動きません。VCC / ALCOM で NDMF を追加してください。"
-            : "NDMF (Non-Destructive Modular Framework) is not installed, so non-destructive recoloring will not run. Add NDMF with VCC / ALCOM.";
+            ? "NDMF(Non-Destructive Modular Framework)が入っていないか、対応していない版なので、非破壊の色替えは使えません。画像の書き出しは使えます。VCC / ALCOM で、いろかと同じリポジトリから「Non-Destructive Modular Framework」を追加してください。"
+            : "NDMF (Non-Destructive Modular Framework) is not installed or its version is not supported, so non-destructive recoloring is not available. Exporting images still works. Add \"Non-Destructive Modular Framework\" in VCC / ALCOM from the same repository as Iroca.";
         public static string BoundRecipe => IsJapanese ? "保存先のレシピ" : "Recipe";
         public static string BoundRecipeTooltip => IsJapanese
             ? "このテクスチャの編集内容は、このレシピにも保存されます(アバターの「Iroca Recolor」がビルド時に使う内容)。"
