@@ -24,6 +24,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 
 - **Unity 2022.3.22f1**（Windows で検証しています）
 - VCC や VRChat SDK は不要です（Unity Editor 単体で動作します）
+- 非破壊の色替えには NDMF 1.8 以上を使います。インストーラで入れると一緒に入ります（VCC / ALCOM の場合は[インストール手順](#インストール手順)を参照）
 - 自動調整と AI マスク提案には、Unity Sentis 2.1.3（Unity 2022.3.11f1 以降）と AI モデル（約 44 MB）が必要です。ウィンドウ上部の案内から導入できます
 - 4096×4096 までのテクスチャで検証しています
 
@@ -97,7 +98,8 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 **VCC / ALCOM から**
 
 1. VCC（または ALCOM）の設定で、リポジトリ `https://yukkuri-aoba.github.io/Iroca/index.json` を追加します
-2. プロジェクトの管理画面で「いろか」を追加します
+2. NDMF のリポジトリ `https://vpm.nadena.dev/vpm.json` も追加します（Modular Avatar などを使っていれば追加済みです）。いろかが使う NDMF はこちらにあるので、無いといろかを追加できません
+3. プロジェクトの管理画面で「いろか」を追加します。NDMF も一緒に入ります
 
 入ったら `Tools > いろか` からウィンドウを開きます。
 
@@ -126,6 +128,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 
 - **Unity 2022.3.22f1** (tested on Windows)
 - No VCC / VRCSDK required (works standalone in Unity Editor)
+- Non-destructive recoloring uses NDMF 1.8 or later. The installer installs it together with Iroca (for VCC / ALCOM, see [Installation](#installation))
 - Auto-tune and AI Mask Suggestion need Unity Sentis 2.1.3 (Unity 2022.3.11f1 or later) and the AI models (about 44 MB). You can install them from the notice at the top of the window
 - Tested with textures up to 4096×4096
 
@@ -197,7 +200,8 @@ Use either method. Both install Iroca into your project's `Packages`.
 **From VCC / ALCOM**
 
 1. In VCC (or ALCOM) settings, add the repository `https://yukkuri-aoba.github.io/Iroca/index.json`
-2. Add "いろか" from your project's management screen
+2. Also add the NDMF repository `https://vpm.nadena.dev/vpm.json` (it is already there if you use Modular Avatar or similar tools). Iroca depends on NDMF, which is listed there, so Iroca cannot be added without it
+3. Add "いろか" from your project's management screen. NDMF is installed with it
 
 Then open the window via `Tools > いろか`.
 
