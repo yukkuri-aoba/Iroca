@@ -78,7 +78,7 @@ https://yukkuri-aoba.github.io/Iroca/manual/
 ・出力：PNG
 ・4096×4096までのテクスチャで確認しています
 ・AIを使う機能（自動調整と、右クリックでの範囲の見分け）には、Unity Sentis 2.1.3（Unity 2022.3.11f1以降）とAIモデル（約44MB）が必要です。どちらもウィンドウ上部の案内から導入できます
-・アバターへの登録にはNDMF 1.8以上を使います。インストーラで導入した場合は一緒に入ります
+・アバターへの登録にはNDMF 1.8以上を使います。インストーラで導入した場合は一緒に入ります。NDMFがなくても、画像（PNG）の書き出しは使えます
 ```
 
 ### 段落：導入方法
@@ -88,9 +88,8 @@ https://yukkuri-aoba.github.io/Iroca/manual/
 2. 確認画面で「Install」を押すと、最新版がダウンロードされて入ります（インターネット接続が必要です）
 3. メニューの「Tools > いろか」からウィンドウを開きます
 
-VCC・ALCOMをお使いの場合は、次の2つのリポジトリを追加して、プロジェクトに「いろか」を追加することもできます（2つ目はNDMFのリポジトリです）。
+VCC・ALCOMをお使いの場合は、次のリポジトリを追加して、プロジェクトに「いろか」と「Non-Destructive Modular Framework」（NDMF）を追加することもできます（NDMFもこのリポジトリに載っています）。
 https://yukkuri-aoba.github.io/Iroca/index.json
-https://vpm.nadena.dev/vpm.json
 
 旧版（v0.1.0、旧名「VRC Avatar Color Changer」）をお使いだった場合は、Assets/VACCフォルダを削除してください。
 ```

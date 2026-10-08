@@ -69,7 +69,7 @@ git checkout --theirs docs/index.json && git add docs/index.json && git commit
 - [ ] release-verify が green。
 - [ ] GitHub Pages を有効化する（Settings → Pages → Source を **GitHub Actions** にする）。`pages.yml` を手動実行して、`https://yukkuri-aoba.github.io/Iroca/index.json`（NDMF の項目も載っている）とオンラインマニュアル `https://yukkuri-aoba.github.io/Iroca/manual/` に届くことを確かめる（→「GitHub Pages の配信」）。
 - [ ] VCC / ALCOM にリポジトリ URL を追加してインストールできる。いろかのリポジトリだけで NDMF も選べる。
-- [ ] 公開版の `Iroca_Installer.unitypackage` を素の Unity 2022.3 プロジェクトと VRChat プロジェクトへインポートして導入できる。
+- [ ] 公開版の `Iroca_Installer.unitypackage` を素の Unity 2022.3 プロジェクトと VRChat プロジェクトへインポートして導入できる（NDMF も入る）。
 - [ ] 済んだらこの節を削除する。
 
 > 0.1.0 は listing から削除済み（公開資産が旧名 `vrc-avatar-color-changer` のみで、zip 内 package.json も旧 ID のため現行 URL では修復不能）。復活させたい場合は旧 zip を新 ID で作り直して v0.1.0 リリースへ追加アップロードする必要があるが、旧版を配布し直す価値は乏しい。
@@ -82,7 +82,7 @@ git checkout --theirs docs/index.json && git add docs/index.json && git commit
 .\scripts\Build-Installer.ps1   # → Iroca_Installer.unitypackage（Build-VpmPackage.ps1 からも呼ばれる）
 ```
 
-- 設定は `scripts/installer/vpai-config.json`（listing URL + `com.yukkuri-aoba.iroca: >=0.2.0`、コメント不可）。Iroca は非破壊の色替えのため NDMF（`nadena.dev.ndmf`）を VPM 依存に持つので、NDMF の listing（`https://vpm.nadena.dev/vpm.json`）も並べている（無いと依存を解決できない）。中身は設定と VPAI 本体 DLL だけで Iroca のコードを含まないため、**範囲指定を変えない限り出力は毎回同じ**（リリースごとに中身が変わるのは zip の方）。
+- 設定は `scripts/installer/vpai-config.json`（listing URL と、入れるパッケージの範囲。コメント不可）。いろか（`com.yukkuri-aoba.iroca: >=0.2.0`）と一緒に NDMF（`nadena.dev.ndmf: >=1.8.0`）も入れる。いろかのパッケージは NDMF を必須の依存にしていない（無ければ書き出しだけで動く）ので、インストーラで入れた人には非破壊の色替えまで届くようにするため。上限を付けないのは、ほかのツールのために新しい NDMF が入っているプロジェクトで、版を下げにいかないため。NDMF の listing（`https://vpm.nadena.dev/vpm.json`）も並べている。中身は設定と VPAI 本体 DLL だけで Iroca のコードを含まないため、**範囲指定を変えない限り出力は毎回同じ**（リリースごとに中身が変わるのは zip の方）。
 - creator はバージョンと SHA256 をスクリプト内で固定。同じ設定なら出力はバイト単位で同一。
 - **listing（GitHub Pages）が公開されていないと動かない。** 取得先は `https://yukkuri-aoba.github.io/Iroca/index.json`。利用者側はネット接続が必要。
 - インポートすると「Confirm」ダイアログに導入するパッケージと追加されるリポジトリが出て、**Install** で導入、Cancel で何もせずインストーラだけ消える。

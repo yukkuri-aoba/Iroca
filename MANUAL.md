@@ -42,7 +42,7 @@
 3. 確認ダイアログで「Install」を押すと、いろかの最新版がダウンロードされ、プロジェクトの `Packages` に入ります（インターネット接続が必要です。インストーラ自体は自動で消えます）。
 4. メニューの `Tools > いろか` でウィンドウを開きます。
 
-VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.github.io/Iroca/index.json` と NDMF のリポジトリ `https://vpm.nadena.dev/vpm.json` を追加して、プロジェクトの管理画面から「いろか」を追加する方法でも導入できます。いろかが使う NDMF は後者にあり、一緒に入ります（Modular Avatar などを使っていれば追加済みです）。新しい版が出たら、VCC / ALCOM から更新するか、インストーラをもう一度読み込みます。
+VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.github.io/Iroca/index.json` を追加して、プロジェクトの管理画面から「いろか」と「Non-Destructive Modular Framework」（NDMF）を追加する方法でも導入できます。NDMF もこのリポジトリに載っています。新しい版が出たら、VCC / ALCOM から更新するか、インストーラをもう一度読み込みます。
 
 > 旧版（0.1.0、旧名 VRC Avatar Color Changer）を使っていた場合は、`Assets/VACC` フォルダを削除してください。いろかとは別物として入るため、残すと旧版も動いたままになります。プロジェクト内に保存したプリセットが必要なら、削除の前にバックアップしてください。
 
@@ -428,7 +428,7 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 #### 必要なもの
 
-- NDMF（Non-Destructive Modular Framework）1.8 以上。インストーラで入れたときは一緒に入ります。VCC / ALCOM では、「[インストール](#インストール)」のとおり NDMF のリポジトリを追加してあれば一緒に入ります。Modular Avatar や Avatar Optimizer を使っているプロジェクトには、たいてい入っています。
+- NDMF（Non-Destructive Modular Framework）1.8 以上。インストーラで入れたときは一緒に入ります。VCC / ALCOM では、いろかと同じリポジトリから追加できます（→「[インストール](#インストール)」）。Modular Avatar や Avatar Optimizer を使っているプロジェクトには、たいてい入っています。NDMF が無いときは、書き出しだけが使えます（→「[エクスポート](#エクスポート)」）。
 
 #### 使い方
 
@@ -608,7 +608,7 @@ NDMF が入っているときは「④ アバターに反映」の下の「テ�
 3. Click "Install" in the confirmation dialog. The latest version of Iroca is downloaded into your project's `Packages` (requires an internet connection; the installer removes itself).
 4. Open the window from `Tools > いろか`.
 
-If you use VCC / ALCOM, you can instead add the repository `https://yukkuri-aoba.github.io/Iroca/index.json` and the NDMF repository `https://vpm.nadena.dev/vpm.json`, then add "いろか" from your project's management screen. NDMF, which Iroca uses, comes from the latter and is installed with it (if you use Modular Avatar or similar tools, it is already added). To update, use VCC / ALCOM or import the installer again.
+If you use VCC / ALCOM, you can instead add the repository `https://yukkuri-aoba.github.io/Iroca/index.json` and add "いろか" and "Non-Destructive Modular Framework" (NDMF) from your project's management screen. NDMF is also listed in this repository. To update, use VCC / ALCOM or import the installer again.
 
 > If you used the old version (0.1.0, formerly VRC Avatar Color Changer), delete the `Assets/VACC` folder. It installs separately from Iroca, so leaving it keeps the old version running too. Back up any presets saved inside the project before deleting it.
 
@@ -990,7 +990,7 @@ You can recolor without changing the original texture or materials. With the "Ir
 
 #### Requirements
 
-- NDMF (Non-Destructive Modular Framework) 1.8 or later. The installer installs it together with Iroca. With VCC / ALCOM, it is installed together if you have added the NDMF repository as described in [Installation](#installation). Projects that use Modular Avatar or Avatar Optimizer usually have it already.
+- NDMF (Non-Destructive Modular Framework) 1.8 or later. The installer installs it together with Iroca. With VCC / ALCOM, you can add it from the same repository as Iroca (see [Installation](#installation)). Projects that use Modular Avatar or Avatar Optimizer usually have it already. Without NDMF, only exporting is available (see [Export](#export)).
 
 #### How to use
 

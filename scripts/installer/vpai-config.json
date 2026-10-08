@@ -4,7 +4,8 @@
     "https://vpm.nadena.dev/vpm.json"
   ],
   "vpmDependencies": {
-    "com.yukkuri-aoba.iroca": ">=0.2.0"
+    "com.yukkuri-aoba.iroca": ">=0.2.0",
+    "nadena.dev.ndmf": ">=1.8.0"
   },
   "includePrerelease": false,
   "silentIfInstalled": false,
