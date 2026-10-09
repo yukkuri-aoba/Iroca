@@ -292,10 +292,19 @@ namespace Iroca
                 false, true, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
                 GUILayout.ExpandHeight(true));
 
-            // 設定列の実内容幅（カラム幅 − 常時表示の縦スクロールバー）に合わせて
-            // ラベル幅を縮め、行の右端（数値フィールド・ボタン）が切れないようにする。
+            // ただし「常時表示」はバーを描くだけで、レイアウト上の幅は確保しない(2022.3 で
+            // Layout 中の GUIScrollGroup.needsVerticalScrollbar が false のままなのを実測)。
+            // Unity が内容幅からバー幅を引くのは内容が列からあふれたときだけで、収まっている
+            // ときは列の全幅で並べ、その右端 13px に縦バーが重なって数値欄・ボタンの文字が
+            // 隠れていた。内容をバーの手前までの幅に固定し、あふれの有無に関わらず同じ幅にする。
+            // 幅は切り捨てる: 列の矩形は整数に丸められるので、端数ぶん内容が広いと横あふれ扱いになる。
+            var vScrollbar = GUI.skin.verticalScrollbar;
+            _settingsContentWidth = Mathf.Floor(leftWidth) - vScrollbar.fixedWidth - vScrollbar.margin.left;
+            EditorGUILayout.BeginVertical(GUILayout.Width(_settingsContentWidth));
+
+            // 設定列の実内容幅に合わせてラベル幅を縮め、行の右端（数値フィールド・ボタン）が
+            // 切れないようにする。
             float prevLabelWidth = EditorGUIUtility.labelWidth;
-            _settingsContentWidth = leftWidth - GUI.skin.verticalScrollbar.fixedWidth;
             EditorGUIUtility.labelWidth = SettingsLabelWidth(_settingsContentWidth);
 
             EditorGUI.BeginChangeCheck();
@@ -318,6 +327,7 @@ namespace Iroca
             DebugCaptureHooks.RaiseDrawFoldout(this);
 
             EditorGUIUtility.labelWidth = prevLabelWidth;
+            EditorGUILayout.EndVertical();
             EditorGUILayout.EndScrollView();
             EditorGUILayout.EndVertical();
 
