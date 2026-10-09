@@ -213,12 +213,22 @@ namespace Iroca
             MaskFileStore.CleanupOrphans();
             SessionFileStore.CleanupOrphans();
 
-            // 初回オープン（sourceTexture 未設定）時のみ、前回編集していたテクスチャを自動ロードし、
-            // そのテクスチャのセッション（ゾーン/色/処理設定）＋マスクをまるごと復元する。
-            // ドメインリロード/レイアウト復元では sourceTexture と _session が既にメモリ上にあるので、
-            // ディスクから読み直さず（未保存の変更を潰さないため）、マスクバッファの再展開だけ行う。
-            if (sourceTexture == null && TryAutoLoadLastEditedTexture())
-                LoadPersistedSessionForCurrentTexture();
+            // 新しく開いたとき（sourceTexture 未設定）と、Unity を起動して最初の有効化（レイアウトからの復元）では、
+            // 前回編集していたテクスチャを自動ロードし、そのテクスチャのセッション（ゾーン/色/処理設定）＋
+            // マスクをディスクからまるごと復元する。
+            // レイアウト復元では sourceTexture と _session もメモリ上に戻るが、Unity がレイアウトを書くのは
+            // 正常終了のときだけなので、落ちた後の起動では最後に正常終了したときの古い編集内容が戻る。それを
+            // 使うと、次の保存（ドメインリロード・閉じる）で自動保存済みの新しい編集とレシピを上書きしていた。
+            // ディスクは編集のたびの自動保存と終了時の保存があるので、レイアウトより古くならない。
+            // ドメインリロードでは直前の OnDisable で保存したメモリ上の状態をそのまま使い、マスクバッファの
+            // 再展開だけ行う。
+            bool firstSinceEditorStart = MarkEnabledSinceEditorStart();
+            if (sourceTexture == null || firstSinceEditorStart)
+            {
+                // 前回のテクスチャを解決できなければ、今のテクスチャ（レイアウトのもの）のまま読む。
+                TryAutoLoadLastEditedTexture();
+                if (sourceTexture != null) LoadPersistedSessionForCurrentTexture();
+            }
             else
                 _maskView.RestoreFromSession();
 
@@ -382,6 +392,19 @@ namespace Iroca
             if (s != null)
                 foreach (char c in s) { h ^= c; h *= 16777619u; }
             return h.ToString("X8");
+        }
+
+        // このウィンドウが Unity の起動後に有効化されたかの印。SessionState は Unity を閉じると消え、
+        // ドメインリロードでは残る。ウィンドウの instanceID はドメインリロードで変わらない。
+        private string EnabledSinceEditorStartKey => "Iroca.WindowEnabled." + GetInstanceID();
+
+        /// <summary>Unity を起動してからこのウィンドウの最初の有効化なら true（印を付ける）。ドメインリロード後は false。</summary>
+        private bool MarkEnabledSinceEditorStart()
+        {
+            string key = EnabledSinceEditorStartKey;
+            bool first = !SessionState.GetBool(key, false);
+            SessionState.SetBool(key, true);
+            return first;
         }
 
         // SessionCache ファイルが「存在するのに読めなかった」フラグ。true の間は空保存での
