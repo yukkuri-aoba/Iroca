@@ -475,7 +475,14 @@ namespace Iroca
                                 }
 
                                 float s, hPot, mc;
-                                if (palStrength != null)
+                                if (zone.mode == SelectionMode.ColorPick
+                                    && TryQuantSmoothedColor(originalPixels, x, y, w, h, zone.tolerance, out Color qc))
+                                {
+                                    Color.RGBToHSV(qc, out float qh, out float qs, out float qv);
+                                    zone.GetMatchScoresPrecomputedHSV(qh, qs, qv, qc, xf, yf, fullW, fullH,
+                                        out s, out hPot, out mc);
+                                }
+                                else if (palStrength != null)
                                 {
                                     int k = palIdxMatch[i];
                                     s = palStrength[k]; hPot = palPot[k]; mc = palConf[k];

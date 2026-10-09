@@ -324,6 +324,53 @@ namespace Iroca
         /// <remarks>
         /// 各パスはパス開始時の状態を読み、書き込みはパスの終わりにまとめる(旧: 二重バッファ)。
         /// </remarks>
+        private const int QuantSmoothLevels = 1;
+
+        /// <summary>
+        /// 色の照合に使う、量子化をならした色: 自分と 8 近傍のうち RGBA の各チャネルが QuantSmoothLevels 階調以内の
+        /// 画素の平均。ごく暗い・色の薄い画素は 1 階調で HSV の色相・彩度が大きく動き、同じ布の中で照合が画素ごとに
+        /// ばらつく(元の色の点が残る・別部位に点々と入る)。量子化の誤差でしか違わない隣と平均してから HSV を求める。
+        /// 違う色の隣は混ぜないので境界はぼけない。近傍がどれも自分と同じ色なら false(元の色のまま)。
+        /// </summary>
+        private static bool TryQuantSmoothedColor(Color32[] px, int x, int y, int w, int h, float tolerance,
+            out Color color)
+        {
+            Color32 c = px[y * w + x];
+            // 1 階調で HSV の彩度が許容幅以上に動く(彩度の刻み 1/(255·V) > tolerance)ほど暗い画素だけ
+            int vmax = Math.Max(c.r, Math.Max(c.g, c.b));
+            if (vmax * tolerance >= 1f)
+            {
+                color = default;
+                return false;
+            }
+            int sr = 0, sg = 0, sb = 0, n = 0;
+            bool differs = false;
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                int ny = y + dy;
+                if (ny < 0 || ny >= h) continue;
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    int nx = x + dx;
+                    if (nx < 0 || nx >= w) continue;
+                    Color32 q = px[ny * w + nx];
+                    if (Math.Abs(q.r - c.r) > QuantSmoothLevels || Math.Abs(q.g - c.g) > QuantSmoothLevels
+                        || Math.Abs(q.b - c.b) > QuantSmoothLevels || Math.Abs(q.a - c.a) > QuantSmoothLevels)
+                        continue;
+                    sr += q.r; sg += q.g; sb += q.b; n++;
+                    if (q.r != c.r || q.g != c.g || q.b != c.b) differs = true;
+                }
+            }
+            if (!differs)
+            {
+                color = default;
+                return false;
+            }
+            float inv = 1f / (255f * n);
+            color = new Color(sr * inv, sg * inv, sb * inv, c.a / 255f);
+            return true;
+        }
+
         private static void FillSmallHoles(float[] strength, int w, int h,
             int passes, int minNeighbors, bool[] allowedMask,
             int boxMinX, int boxMinY, int boxMaxX, int boxMaxY,
