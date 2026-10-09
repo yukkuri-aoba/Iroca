@@ -93,7 +93,9 @@ namespace Iroca
         // 残る色みは最大でも 13 階調ほどで見えず、背景の画素を数階調だけ動かす無駄な変化を作らない。
         private const float MixAlphaMin        = AchromaFringeMinAlpha;
         // これ以上は素材そのもの。未選択なら、マッチが意図して落とした画素(包絡ゲート・彩度ガード等)とみて
-        // 触らない。1 + MixAlphaOver を超える(素材色 F より明らかに鮮やか)なら、その F は出所ではない。
+        // 触らない。ただし選択に囲まれた小さな穴(IsEnclosedBySelection)は、色のばらつきで主マッチから漏れた
+        // 素材の点・列なので全強度で塗る(ゲートが落とすのは成分・領域の単位で、囲まれた数 px の穴ではない)。
+        // 1 + MixAlphaOver を超える(素材色 F より明らかに鮮やか)なら、その F は出所ではない。
         private const float MixAlphaPure       = 0.90f;
         private const float MixAlphaOver       = 0.15f;
         private const float MixCoreRangeMargin = 0.03f;  // 「内側画素のどれよりも低い」の余白
@@ -218,6 +220,30 @@ namespace Iroca
             if (a < -MixAlphaMin) return MixOther;
             if (a < MixAlphaMin) return MixBackground;
             return MixMixture;
+        }
+
+        private static readonly int[] EnclDx = { 1, -1, 0, 0, 1, 1, -1, -1 };
+        private static readonly int[] EnclDy = { 0, 0, 1, -1, 1, -1, 1, -1 };
+
+        /// <summary>
+        /// (x, y) から 8 方向それぞれ、距離 1..reach のどこかに確かな選択(selBits)があるか。= 選択に囲まれた
+        /// 小さな穴。画像の端で切れる方向は「無い」とみなす。
+        /// </summary>
+        private static bool IsEnclosedBySelection(ulong[] selBits, int wpr, int x, int y, int w, int h, int reach)
+        {
+            for (int d = 0; d < 8; d++)
+            {
+                int dx = EnclDx[d], dy = EnclDy[d];
+                bool hit = false;
+                for (int k = 1; k <= reach && !hit; k++)
+                {
+                    int xx = x + dx * k, yy = y + dy * k;
+                    if (xx < 0 || xx >= w || yy < 0 || yy >= h) break;
+                    hit = (selBits[yy * wpr + (xx >> 6)] & (1UL << (xx & 63))) != 0;
+                }
+                if (!hit) return false;
+            }
+            return true;
         }
 
         /// <summary>
@@ -568,8 +594,12 @@ namespace Iroca
 
                         if (kind == MixMaterial)
                         {
-                            // 素材そのもの・素材の濃淡。弱く選択されているなら全強度で塗る(確かな選択と未選択は従来どおり)。
-                            if (!isSolid && st > 0f) mixAlpha[i] = MixAsMaterial;
+                            // 素材そのもの・素材の濃淡。弱く選択されているなら全強度で塗る(確かな選択は従来どおり)。
+                            // 未選択でも、選択に囲まれた小さな穴(8 方向それぞれ B 以内に確かな選択がある)なら同じく
+                            // 全強度で塗る。色のばらつきで主マッチから漏れた素材の点・列を残さないため。囲まれている
+                            // ことを条件にするので選択の外側へは広がらない(境界の外の画素は外向きの方向に選択が無い)。
+                            if (!isSolid && (st > 0f || IsEnclosedBySelection(selBits, wpr, x, y, w, h, B)))
+                                mixAlpha[i] = MixAsMaterial;
                             continue;
                         }
                         if (kind == MixBackground)
