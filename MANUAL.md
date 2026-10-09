@@ -541,6 +541,14 @@ NDMF が入っているときは「④ アバターに反映」の下の「テ�
 - プレビューの上に「ここは『○○』のテクスチャです」と出ていれば、クリックした部分は別のテクスチャを使っています。「開く」で切り替えます
 - 何も出ないときは、マテリアルのメインテクスチャ（`_MainTex` など）が開いているテクスチャではない可能性があります。Iroca で書き出した `_recolored` のテクスチャを使っているマテリアルは、元のテクスチャと同じものとして扱います
 
+#### ウィンドウの大きさを変えると Unity が落ちる
+
+ウィンドウの端をドラッグしている途中で Unity が終了し、ログ（`%LOCALAPPDATA%\Unity\Editor\Editor.log`。落ちた後に Unity を開き直したなら `Editor-prev.log`）に `0x887a0005` や `Failed to present D3D11 swapchain due to device reset/removed` が出ていれば、Unity（Direct3D 11）と GPU ドライバの組み合わせの問題です。いろか以外のウィンドウでも起きますが、いろかのプレビューは描画が多いので、開いているときに起きやすくなります。Intel の内蔵 GPU（Arc B390）で確認しています。
+
+Unity Hub のプロジェクト一覧で、そのプロジェクトの行の右端のメニューから「コマンドライン引数を追加」を選び、`-force-d3d12` と入れて開き直すと、Unity が Direct3D 12 で動きます。確認した環境では、これで落ちなくなりました（タイトルバーに `<DX12>` と出ます。戻すときは引数を消します）。GPU ドライバの更新で直ることもあります。
+
+いろかの編集内容は手を止めて 2 秒ほどで自動保存しているので、落ちても失うのは直前の数秒ぶんだけです。
+
 ---
 
 ### よくある質問
@@ -1102,6 +1110,14 @@ Black has almost no brightness information, so Pattern Preserve has little to wo
 - Nothing happens while the いろか window is closed (it still works if the window is just behind another tab)
 - If the line above the preview says "This part uses '…'", the clicked part uses another texture. Press "Open" to switch
 - If nothing appears at all, the material's main texture (`_MainTex` and the like) may not be the open texture. Materials that use a `_recolored` texture exported by Iroca count as the original texture
+
+#### Unity closes while resizing a window
+
+If Unity shuts down while you drag a window edge, and the log (`%LOCALAPPDATA%\Unity\Editor\Editor.log`, or `Editor-prev.log` if you have reopened Unity since) shows `0x887a0005` or `Failed to present D3D11 swapchain due to device reset/removed`, the cause is the combination of Unity (Direct3D 11) and the GPU driver. It also happens with other windows, but the いろか preview draws a lot, so it is more likely while the window is open. It has been confirmed on an Intel integrated GPU (Arc B390).
+
+In the Unity Hub project list, open the menu at the right end of the project's row, choose "Add command line arguments", enter `-force-d3d12`, and reopen the project. Unity then runs on Direct3D 12, which stopped the crashes in our tests (the title bar shows `<DX12>`; remove the argument to go back). Updating the GPU driver may also fix it.
+
+いろか saves your edits automatically about 2 seconds after you stop, so a crash loses only the last few seconds of work.
 
 ---
 
