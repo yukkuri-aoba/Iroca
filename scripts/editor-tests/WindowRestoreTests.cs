@@ -4,6 +4,7 @@ using System.IO;
 using System.Reflection;
 using NUnit.Framework;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 
 namespace Iroca.EditorTests
@@ -11,6 +12,8 @@ namespace Iroca.EditorTests
     /// <summary>
     /// いろかのウィンドウが Unity の都合で状態を失ったり、古い状態に戻ったりしないこと。
     /// <list type="bullet">
+    /// <item>プレビュー・オーバーレイの一時テクスチャがシーンを開いても破棄されない
+    /// (破棄されると、次に編集するまでプレビューが空になっていた)。</item>
     /// <item>Unity が落ちた後の起動では、レイアウトから戻った古い編集内容ではなく、自動保存したディスクの
     /// 内容を読む(Unity はレイアウトを正常終了のときにしか書かないので、レイアウトには最後に正常終了した
     /// ときの内容が入っている)。ドメインリロードではメモリ上の内容をそのまま使う。</item>
@@ -59,6 +62,21 @@ namespace Iroca.EditorTests
                 foreach (var f in Directory.GetFiles(dir, _guid + "*")) File.Delete(f);
             }
             _assets.Dispose();
+        }
+
+        [Test]
+        public void PreviewTexture_SurvivesOpeningAScene()
+        {
+            Texture2D tex = null;
+            try
+            {
+                TextureSlot.Resize(ref tex, 4, 4);
+                // 開いているシーンはテストランナーが実行後に開き直す。
+                EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+                Assert.IsTrue(tex != null, "シーンを開いたら一時テクスチャが破棄された");
+            }
+            finally { TextureSlot.Release(ref tex); }
+            Assert.IsTrue(ReferenceEquals(tex, null), "Release で手放していない");
         }
 
         [Test]

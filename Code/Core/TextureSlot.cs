@@ -7,6 +7,12 @@ namespace Iroca
     /// <summary>
     /// 一時 Texture2D の確保・解放補助。メインスレッドからのみ呼ぶ前提。
     /// 再確保時は同サイズなら再利用し、サイズ違いまたは未確保時に作り直す。
+    /// <para>
+    /// 作るテクスチャは HideAndDontSave。印が無いと、シーンを開いたとき(Single)に Unity が
+    /// シーンの持ち物として破棄し、ウィンドウには破棄済みの参照だけが残ってプレビューが空になっていた
+    /// (次に何か編集するまで作り直されない)。この印は「使われていなくても回収しない」も含むので、
+    /// 持ち主は必ず <see cref="Release"/> で手放すこと(いろかのウィンドウは無効化・破棄のたびに全部手放す)。
+    /// </para>
     /// </summary>
     internal static class TextureSlot
     {
@@ -28,6 +34,7 @@ namespace Iroca
             DestroyNow(ref tex);
             tex = new Texture2D(w, h, TextureFormat.RGBA32, false)
             {
+                hideFlags = HideFlags.HideAndDontSave,
                 filterMode = filter,
                 wrapMode = TextureWrapMode.Clamp,
             };

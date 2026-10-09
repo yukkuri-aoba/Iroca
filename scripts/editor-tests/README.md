@@ -6,7 +6,7 @@ headless ハーネスと golden は net8 で製品 C# を動かすので、Unity
 | ファイル | 検査すること |
 |---|---|
 | `PersistenceTests.cs` | セッション・マスク・プリセットの保存と復元。読めないファイルを空保存で消さない、GUID が一時的に引けないだけのファイルを消さない（.orphan 退避と復元） |
-| `WindowRestoreTests.cs` | ウィンドウが状態を失わない・古い状態に戻らない。Unity が落ちた後の起動ではレイアウトの古い編集内容でなく自動保存を読む（ドメインリロードではメモリ上の内容を使う） |
+| `WindowRestoreTests.cs` | ウィンドウが状態を失わない・古い状態に戻らない。プレビューの一時テクスチャがシーンを開いても破棄されない、Unity が落ちた後の起動ではレイアウトの古い編集内容でなく自動保存を読む（ドメインリロードではメモリ上の内容を使う） |
 | `SampleUvUndoTests.cs` | スポイト位置（`ColorZone.sampleUV`）が Undo/Redo・ゾーン削除の Undo で色と対で戻る、プリセットには載らずセッションには残る（Undo の書き戻しは Unity のシリアライザなので実機で検査。対象は `SampleUvUndoHost.cs`） |
 | `ExportPipelineTests.cs` | 書き出しの手順（原本の読み込み・PNG 化・書き込み・import 設定の引き継ぎ・出力先の決定）。単体書き出しと一括書き出しが共有する `ExportPipeline` を直接呼ぶ |
 | `MeshUvLocatorTests.cs` | 編集中のテクスチャを使うメッシュの探索（シーン → 同じ素材フォルダの Prefab、書き出し名 `_recolored` の追跡、手動指定、Read/Write 無効のメッシュで落ちない） |
