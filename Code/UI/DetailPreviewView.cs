@@ -124,6 +124,7 @@ namespace Iroca
 
         public struct DetailPreviewResult
         {
+            // 変更前のクロップ。差分表示中に作り始めたときだけ(それ以外は null)。
             public Color32[] Raw;
             public Color32[] Processed;
             // テクスチャ解像度（＝表示ピクセル数。拡大表示ではクロップ寸法と同じ）
@@ -234,6 +235,9 @@ namespace Iroca
             int capX0 = x0, capY0 = y0, capSrcW = srcW;
             var srcPixelsForTask = srcPixels;
             var processedForTask = processedFull;
+            // 変更前のクロップは差分表示の diff にしか使わない(「元を表示」は低解像度の変更前を出す)。
+            // 差分表示を ON にしたときは PreviewView が詳細を作り直させる。
+            bool needRaw = _host.Preview.diffMode;
             // 切り出しが終わるまで、このフル段の出力を使い回しに渡さない(作業の最後で外す)。
             outputBuffers?.AddLease(processedForTask);
 
@@ -249,33 +253,38 @@ namespace Iroca
                 work: token =>
                 {
                     if (marks != null) marks.WorkStart = PreviewLatencyCycle.Now;
-                    Color32[] rawCrop       = new Color32[cropW * cropH];
-                    Color32[] processedCrop = new Color32[cropW * cropH];
-                    // クロップは各行が連続領域なので行単位 Array.Copy(画素単位 2 配列書き込みを回避)。
+                    Color32[] outProcessed, outRaw = null;
                     // 両配列はジョブの間ほかから書き換えられない(フル段の出力は印を付けてある間は使い回されない)。
                     try
                     {
-                        for (int cy = 0; cy < cropH; cy++)
+                        if (outW != cropW || outH != cropH)
                         {
-                            int srcRow = (capY0 + cy) * capSrcW + capX0;
-                            System.Array.Copy(srcPixelsForTask, srcRow, rawCrop, cy * cropW, cropW);
-                            System.Array.Copy(processedForTask, srcRow, processedCrop, cy * cropW, cropW);
+                            // 縮小表示のときは、フル解像度の配列から見えている範囲を直接表示解像度へ落とす
+                            // (クロップの複製を作らない。切り出してから縮小したのとビット単位で同じ)。
+                            // BoxDownsample の scale は dst/src 比なので pxPerSrc をそのまま渡す。
+                            outProcessed = PixelProcessor.BoxDownsampleRegion(processedForTask, capSrcW,
+                                capX0, capY0, cropW, cropH, outW, outH, pxPerSrc);
+                            if (needRaw)
+                                outRaw = PixelProcessor.BoxDownsampleRegion(srcPixelsForTask, capSrcW,
+                                    capX0, capY0, cropW, cropH, outW, outH, pxPerSrc);
+                        }
+                        else
+                        {
+                            // 等倍以上ではクロップがそのままテクスチャになる(見えている画素数ぶんなので小さい)。
+                            // 各行が連続領域なので行単位 Array.Copy。
+                            outProcessed = new Color32[cropW * cropH];
+                            if (needRaw) outRaw = new Color32[cropW * cropH];
+                            for (int cy = 0; cy < cropH; cy++)
+                            {
+                                int srcRow = (capY0 + cy) * capSrcW + capX0;
+                                System.Array.Copy(processedForTask, srcRow, outProcessed, cy * cropW, cropW);
+                                if (needRaw)
+                                    System.Array.Copy(srcPixelsForTask, srcRow, outRaw, cy * cropW, cropW);
+                            }
                         }
                     }
                     finally { outputBuffers?.ReleaseLease(processedForTask); }
                     token.ThrowIfCancellationRequested();
-
-                    // 縮小表示のときだけ表示解像度へ落とす。BoxDownsample の scale は
-                    // dst/src 比なので pxPerSrc をそのまま渡す(端は内部でクランプされる)。
-                    Color32[] outProcessed = processedCrop;
-                    Color32[] outRaw       = rawCrop;
-                    if (outW != cropW || outH != cropH)
-                    {
-                        outProcessed = PixelProcessor.BoxDownsample(
-                            processedCrop, cropW, cropH, outW, outH, pxPerSrc);
-                        outRaw = PixelProcessor.BoxDownsample(
-                            rawCrop, cropW, cropH, outW, outH, pxPerSrc);
-                    }
 
                     if (marks != null) marks.WorkEnd = PreviewLatencyCycle.Now;
                     return new DetailPreviewResult
@@ -321,7 +330,7 @@ namespace Iroca
             _pendingDetailRaw       = null;
             _pendingDetailLatency   = null;
 
-            if (processed == null || raw == null) return;
+            if (processed == null) return;
             if (latency != null) latency.Detail.UploadStart = PreviewLatencyCycle.Now;
 
             detailOriginX = ox;
@@ -340,8 +349,13 @@ namespace Iroca
             // OFF 中の生成+アップロードは描画されず捨てられるだけだった)。ON へ切り替えた
             // ときは PreviewView 側が詳細を dirty にして再生成する。
             // Color32[] が手元にあるのでそのままバックグラウンド diff へ。GetPixels32 を再度呼ばない。
+            // 変更前のクロップは差分表示中に作り始めたジョブにしか無い。切り出し中に ON へ切り替わったときは
+            // 作り直させる(古い diff を新しいクロップの位置に重ねない)。
             if (_host.Preview.diffMode)
-                ScheduleDetailDiffTexture(raw, processed, w, h);
+            {
+                if (raw != null) ScheduleDetailDiffTexture(raw, processed, w, h);
+                else lastDetailDirtyTime = EditorApplication.timeSinceStartup;
+            }
 
             // 体感速度: 拡大表示まで含めたレポートで、確定表示時点のものを差し替える。
             if (latency != null)
