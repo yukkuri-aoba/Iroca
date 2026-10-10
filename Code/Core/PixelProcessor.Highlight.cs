@@ -37,6 +37,9 @@ namespace Iroca
             // 同じ画素集合を同じ順序(前方=ラスタ順・後方=その逆順)で辿るので、近傍読みが
             // 見る途中経過まで含めて逐次スイープと完全に一致する。ハイライト候補は
             // テクスチャ中で疎なため、bbox 内でもさらに大きく実効走査量が減る。
+            // 始めから strength >= pot の画素(マッチ済みのコアなど)も畳まない。strength は伝播で上がるだけ
+            // なので、その画素は `strength < pot` を最後まで満たさず、どのスイープでも書かれない(近傍として
+            // 読まれる値も変わらない)。候補は「まだ上がる余地のある画素」(IsHlPropCandidate)。
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             int bh = maxY - minY + 1;
             var rowCount = new int[bh];
@@ -44,7 +47,7 @@ namespace Iroca
             {
                 int rb = (ly + minY) * w;
                 int n = 0;
-                for (int x = minX; x <= maxX; x++) if (highlightPot[rb + x] > 0f) n++;
+                for (int x = minX; x <= maxX; x++) if (IsHlPropCandidate(highlightPot[rb + x], strength[rb + x])) n++;
                 rowCount[ly] = n;
             });
             var rowOff = new int[bh + 1];
@@ -63,7 +66,7 @@ namespace Iroca
                     int rb = y * w;
                     int k = rowOff[ly];
                     for (int x = minX; x <= maxX; x++)
-                        if (highlightPot[rb + x] > 0f) cand[k++] = (y << 16) | x;
+                        if (IsHlPropCandidate(highlightPot[rb + x], strength[rb + x])) cand[k++] = (y << 16) | x;
                 });
 
                 // 伝播スイープを、タイル(HlPropTile 角)の斜めの列ごとに並列に回す(出力ビット不変)。
@@ -191,6 +194,10 @@ namespace Iroca
 
         // ハイライト伝播の並列化のタイルの一辺(px)。斜めの列の数(=並列の段数)とタイル内の逐次量の兼ね合い。
         private const int HlPropTile = 64;
+
+        // 伝播で strength が上がり得る画素か。pot > 0 は従来の候補の条件(bbox もこれで取る)で、
+        // pot > strength はスイープの更新条件そのもの(strength は上がるだけなので、始めに満たさなければ以後も満たさない)。
+        private static bool IsHlPropCandidate(float pot, float strength) => pot > 0f && strength < pot;
 
         /// <summary>
         /// 候補 tiled[k0..k1) を前方(forward=true: 並び順)または後方(逆順)に 1 回辿り、伝播で strength を上げる。
