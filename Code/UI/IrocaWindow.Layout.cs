@@ -537,7 +537,9 @@ namespace Iroca
 
             if (GUILayout.Button(new GUIContent(Localization.Credit, Localization.CreditTooltip), EditorStyles.toolbarButton, GUILayout.ExpandWidth(false)))
             {
-                EditorUtility.DisplayDialog(Localization.CreditTitle, Localization.CreditBody, Localization.OK);
+                if (EditorUtility.DisplayDialog(Localization.CreditTitle, Localization.CreditBody,
+                        Localization.CreditOpenList, Localization.CreditClose))
+                    Application.OpenURL(Localization.CreditsUrl);
             }
 
             EditorGUILayout.EndHorizontal();

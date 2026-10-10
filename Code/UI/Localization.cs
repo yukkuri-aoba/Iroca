@@ -59,9 +59,13 @@ namespace Iroca
         public static string Credit       => IsJapanese ? "クレジット" : "Credit";
 
         public static string CreditTitle => IsJapanese ? "クレジット" : "Credits";
+        public static string CreditOpenList => IsJapanese ? "一覧を開く" : "Open full list";
+        public static string CreditClose => IsJapanese ? "閉じる" : "Close";
+        // 開発に使わせていただいたモデル・テクスチャを含む全クレジットの公開ページ(リポジトリの CREDITS.md)。
+        public const string CreditsUrl = "https://github.com/yukkuri-aoba/Iroca/blob/main/CREDITS.md";
         public static string CreditBody  => IsJapanese
-            ? "いろか\n\n制作: yukkuri__aoba\nAI補助: Claude (Anthropic)\n\nAI マスク提案: MobileSAM (Apache License 2.0) を ONNX に変換して使用\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0"
-            : "いろか\n\nDeveloper: yukkuri__aoba\nAI Assistance: Claude (Anthropic)\n\nAI Mask Suggestion: MobileSAM (Apache License 2.0), converted to ONNX\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0";
+            ? "いろか\n\n制作: yukkuri__aoba\nAI補助: Claude (Anthropic)\n\nAI マスク提案: MobileSAM (Apache License 2.0) を ONNX に変換して使用\n\n開発に使わせていただいたモデル・テクスチャの一覧は「一覧を開く」から\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0"
+            : "いろか\n\nDeveloper: yukkuri__aoba\nAI Assistance: Claude (Anthropic)\n\nAI Mask Suggestion: MobileSAM (Apache License 2.0), converted to ONNX\n\nModels and textures used in development: see \"Open full list\"\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0";
 
         // セクションが等価に並んで開始点が分かりにくいので、主要 4 ステップに番号を振り、
         // テクスチャ未設定時はこの導入ヒントで一連の流れを示す。
@@ -880,8 +884,8 @@ namespace Iroca
             ? "実行中の処理を中止します"
             : "Cancel the running operation";
         public static string CreditTooltip => IsJapanese
-            ? "このツールのクレジット（作者・ライセンス）を表示します"
-            : "Show credits (author and license) for this tool";
+            ? "このツールのクレジット（作者・ライセンス）を表示します。開発に使わせていただいたモデルの一覧は、表示から公開ページで開けます"
+            : "Show credits (author and license) for this tool. The full list of models used in development opens from there as a public page";
         public static string LanguageToolbarTooltip => IsJapanese
             ? "UI の表示言語を切り替えます（自動 / 日本語 / English）"
             : "Switch the UI display language (Auto / Japanese / English)";
