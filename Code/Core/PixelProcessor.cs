@@ -683,6 +683,13 @@ namespace Iroca
                             }
                         }
                     }
+                    // matchConf を読むのは連結成分アンカリングまで。後段(穴埋め・ブラー・デコンタミ等)が
+                    // 借りる配列に回せるよう、ゾーンの終わりを待たずにプールへ返す(4K で 64MB)。
+                    if (matchConf != null)
+                    {
+                        s_floatPool.Return(matchConf);
+                        matchConf = null;
+                    }
 
                     _phaseTicks[PhFloodFill] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
