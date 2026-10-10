@@ -131,9 +131,6 @@ SHOTS = [
     # 原板は 2026-10-10 に Iroca_Dev で撮影（窓 820pt 幅・pixelsPerPoint 1.25。被写体は HAOLAN スニーカー、
     # スポイトはトゲの明るい青、変更先は純赤）。qs* は「はじめての色替え」の手順ごとの状態。
     ("qs-1", "qs1_empty.png", (0, 0, 1026, 430), None),
-    ("qs-2", "qs2_picked.png", (0, 0, 1026, 430), None),
-    ("qs-3", "qs3_target.png", (0, 0, 1026, 430), None),
-    ("qs-4", "qs4_autotuned_note.png", None, None),
     ("window", "window.png", None, None),
     ("zone-card", "window.png", (0, 117, 392, 392), None),
     ("nd-section", "window.png", (0, 872, 1026, 1000), None),
@@ -146,6 +143,8 @@ SHOTS = [
     ("preview-compare", "preview_compare.png", (556, 112, 1645, 745), None),
     ("preview-diff", "preview_diff.png", (404, 118, 1012, 790), None),
     ("mask-window", "mask_window.png", None, None),
+    # 右クリックメニュー（動画の録画から切り出したコマ。メニューは別窓なので背面のままでは撮れない）
+    ("context-menu", "context_menu.png", None, None),
     # シーンのアバター（いろかで開いているテクスチャが NDMF のプレビューで映った状態）
     ("avatar-feet", "avatar_feet.png", (150, 0, 1050, 900), 420),
 ]

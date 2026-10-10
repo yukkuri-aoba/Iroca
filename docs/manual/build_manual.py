@@ -187,8 +187,6 @@ class Renderer:
     def __init__(self, demos: dict, lang: str):
         self.demos = demos
         self.lang = lang
-        self.clips: list[tuple[str, str]] = []   # (要素 ID, base64)
-        self.clip_ids: dict[str, str] = {}
 
     def shot(self, a: dict[str, str], caption: str) -> str:
         src = a["src"]
@@ -257,17 +255,20 @@ class Renderer:
         wh = video_size(src)
         if not wh:
             raise SystemExit(f"動画の寸法を読めません（MP4 の映像トラックが要ります）: {src}")
-        # 同じ動画を日英で使い回すので、埋め込みは 1 回だけ（言語をまたいで共有）
-        key = self.clip_ids.get(src)
+        # 同じ動画を日英や複数の章で使い回すので、埋め込みは 1 回だけ
+        key = SHARED_CLIPS.get(src)
         if key is None:
             key = f"clip-{len(SHARED_CLIPS) + 1}"
             SHARED_CLIPS[src] = key
-        self.clip_ids[src] = key
         mime = MIME[Path(src).suffix.lower()]
         poster = f' poster="{data_uri(a["poster"])}"' if a.get("poster") else ""
         cap = f"<figcaption>{caption.strip()}</figcaption>" if caption.strip() else ""
-        cls = "clip wide" if "wide" in a else "clip"
-        return (f'<figure class="{cls}" style="max-width:{wh[0]}px">'
+        # wide は本文の幅を越えて元の大きさまで広げる（UI の文字を縮めて潰さないため。CSS の .clip.wide）
+        if "wide" in a:
+            cls, style = "clip wide", f"--clip-w:{wh[0]}px"
+        else:
+            cls, style = "clip", f"max-width:{wh[0]}px"
+        return (f'<figure class="{cls}" style="{style}">'
                 f'<div class="clip-stage" style="aspect-ratio:{wh[0]}/{wh[1]}">'
                 f'<video muted loop playsinline controls preload="none" data-clip="{key}"'
                 f' data-mime="{mime}" width="{wh[0]}" height="{wh[1]}"{poster}></video>'
