@@ -79,6 +79,7 @@ CANON_ZONE = dict(
     partSatCeiling=0.0,
     partHueBand=0.0,
     chromaCeiling=0.0,
+    holeFillMargin=0.0,
     outputSaturation=1.0,
     highlightRecovery=False,
     highlightBandExpand=True,

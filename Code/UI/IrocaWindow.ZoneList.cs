@@ -707,6 +707,9 @@ namespace Iroca
             zone.saturationGuard = UndoHelper.Slider(this,
                 new GUIContent(Localization.SaturationGuard, Localization.SaturationGuardTooltip),
                 zone.saturationGuard, 0f, 1f);
+            zone.holeFillMargin = UndoHelper.Slider(this,
+                new GUIContent(Localization.HoleFillMargin, Localization.HoleFillMarginTooltip),
+                zone.holeFillMargin, 0f, 1f);
 
             // ── ハイライト（光沢・明部の拾い方と塗り方） ──
             EditorGUILayout.Space(2);

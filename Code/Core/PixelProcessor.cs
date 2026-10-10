@@ -106,6 +106,7 @@ namespace Iroca
             B(z.useFloodFill); F(z.seedUV.x); F(z.seedUV.y); F(z.sampleUV.x); F(z.sampleUV.y);
             F(z.edgeSoftness); F(z.saturationStrictness); F(z.valueWeight); F(z.satDistWeight);
             F(z.satRampScale); F(z.shadowForgivenessSatMin); F(z.shadowValueFloor); F(z.partSatCeiling); F(z.partHueBand); F(z.chromaCeiling); F(z.chromaThreshold); F(z.saturationGuard);
+            F(z.holeFillMargin);
             B(z.highlightRecovery); B(z.highlightBandExpand);
             F(edgeFeather); I(aaCleanup); I(holeFillPasses); I(holeFillMinNeighbors);
             F(relaxedSatMin); F(relaxedSatRamp);
@@ -697,14 +698,11 @@ namespace Iroca
                     float rgSampR = zone.sampleColor.r, rgSampG = zone.sampleColor.g, rgSampB = zone.sampleColor.b;
                     // 緩和マッチ(穴埋めの許可判定と境界回復が同じ引数で呼ぶ)は色だけで決まるので、
                     // 色の表があれば色ごとに 1 回だけ求めて両方で使う(ビット単位で同じ)。
-                    float[] palRelaxed = null;
-                    if (palette != null && !selCached && hasPostBox
-                        && (long)palette.Count * 2 <= (long)(ppMaxX - ppMinX + 1) * (ppMaxY - ppMinY + 1))
+                    float[] RelaxedPalette(float tol)
                     {
-                        palRelaxed = new float[palette.Count];
+                        var outRel = new float[palette.Count];
                         Color32[] rCol = palette.Colors;
                         float[] rH = palette.H, rS = palette.S, rV = palette.V;
-                        float[] outRel = palRelaxed;
                         ForEachPaletteChunk(palette.Count, po, (k0, k1) =>
                         {
                             for (int k = k0; k < k1; k++)
@@ -712,17 +710,29 @@ namespace Iroca
                                 Color32 hop = rCol[k];
                                 outRel[k] = GetRelaxedMatchStrength(
                                     rH[k], rS[k], rV[k], sampH, sampS, sampV,
-                                    zone.tolerance, zone.edgeSoftness, zone.valueWeight,
+                                    tol, zone.edgeSoftness, zone.valueWeight,
                                     zone.satDistWeight, relaxedSatMin,
                                     hop.r / 255f, hop.g / 255f, hop.b / 255f,
                                     rgSampR, rgSampG, rgSampB, relaxedChromaConf, zone.chromaThreshold,
                                     zone.chromaCeiling);
                             }
                         });
+                        return outRel;
                     }
+                    float[] palRelaxed = null;
+                    if (palette != null && !selCached && hasPostBox
+                        && (long)palette.Count * 2 <= (long)(ppMaxX - ppMinX + 1) * (ppMaxY - ppMinY + 1))
+                        palRelaxed = RelaxedPalette(zone.tolerance);
                     int[] palIdxRelaxed = palette?.Index;
                     if (!selCached && hasPostBox && !zMixMode)
                     {
+                        // 穴埋めの許可だけ許容範囲に余白をつける(zone.holeFillMargin、証拠つき自動調整が入れる)。
+                        // 素材の色が境目をまたぐ所でノイズで落ちた穴を埋めるため。境界回復は余白なしのまま
+                        // (囲まれていない画素は広げない)。余白 0 なら許可は境界回復と同じ表を使う。
+                        float fillTol = zone.holeFillMargin > 0f
+                            ? zone.tolerance * (1f + zone.holeFillMargin) : zone.tolerance;
+                        float[] palFill = palRelaxed != null && fillTol != zone.tolerance
+                            ? RelaxedPalette(fillTol) : palRelaxed;
                         bool[] fillAllowed = s_boolPool.Rent(len);
                         try
                         {
@@ -732,12 +742,12 @@ namespace Iroca
                             Parallel.For(ppMinY, ppMaxY + 1, po, y =>
                             {
                                 int rowOff = y * w;
-                                if (palRelaxed != null)
+                                if (palFill != null)
                                 {
                                     for (int x = ppMinX; x <= ppMaxX; x++)
                                     {
                                         int i = rowOff + x;
-                                        fillAllowedLocal[i] = palRelaxed[palIdxRelaxed[i]] > 0f;
+                                        fillAllowedLocal[i] = palFill[palIdxRelaxed[i]] > 0f;
                                     }
                                     return;
                                 }
@@ -747,7 +757,7 @@ namespace Iroca
                                     Color32 hop = originalPixels[i];
                                     fillAllowedLocal[i] = GetRelaxedMatchStrength(
                                         pixH[HsvSlot(pixIdx, i)], pixS[HsvSlot(pixIdx, i)], pixV[HsvSlot(pixIdx, i)], sampH, sampS, sampV,
-                                        zone.tolerance, zone.edgeSoftness, zone.valueWeight,
+                                        fillTol, zone.edgeSoftness, zone.valueWeight,
                                         zone.satDistWeight, relaxedSatMin,
                                         hop.r / 255f, hop.g / 255f, hop.b / 255f,
                                         rgSampR, rgSampG, rgSampB, relaxedChromaConf, zone.chromaThreshold,

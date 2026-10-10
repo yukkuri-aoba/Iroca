@@ -47,6 +47,8 @@ namespace Iroca
         public const float PartHueBand = 0f;
         // 彩度天井(グレーモード専用)。0 = 自動(ColorZone の既定と同じ)。証拠つき自動調整だけが導出する。
         public const float ChromaCeiling = 0f;
+        // 穴埋めの余白。0 = 余白なし(ColorZone の既定と同じ)。証拠つき自動調整だけが入れる。
+        public const float HoleFillMargin = 0f;
         public const float OutputSaturation = 1.0f;
         // 既定 OFF。**ColorZone.highlightRecovery（= true）と意図的に異なる。**
         //

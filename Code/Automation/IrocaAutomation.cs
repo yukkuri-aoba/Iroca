@@ -87,6 +87,7 @@ namespace Iroca
             public float partSatCeiling = ZonesJsonDefaults.PartSatCeiling;
             public float partHueBand = ZonesJsonDefaults.PartHueBand;
             public float chromaCeiling = ZonesJsonDefaults.ChromaCeiling;
+            public float holeFillMargin = ZonesJsonDefaults.HoleFillMargin;
             public float outputSaturation = ZonesJsonDefaults.OutputSaturation;
             public bool highlightRecovery = ZonesJsonDefaults.HighlightRecovery;
             public bool highlightBandExpand = ZonesJsonDefaults.HighlightBandExpand;
@@ -511,6 +512,7 @@ namespace Iroca
                 partSatCeiling = z.partSatCeiling,
                 partHueBand = z.partHueBand,
                 chromaCeiling = z.chromaCeiling,
+                holeFillMargin = z.holeFillMargin,
                 layerIndex = z.layerIndex,
                 useFloodFill = z.useFloodFill,
                 // 未指定/長さ不足 = 負値 = 自動アンカリング（Harness.BuildZone と同一の写像）。

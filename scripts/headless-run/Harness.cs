@@ -27,6 +27,7 @@ namespace Iroca
         public static string PartSatCeiling          => "PartSatCeiling";
         public static string PartHueBand             => "PartHueBand";
         public static string ChromaCeiling           => "ChromaCeiling";
+        public static string HoleFillMargin          => "HoleFillMargin";
         public static string AntiAliasCleanup        => "AntiAliasCleanup";
         public static string UseDecontamination      => "UseDecontamination";
     }
@@ -65,6 +66,7 @@ namespace Iroca
         public float partSatCeiling { get; set; } = ZonesJsonDefaults.PartSatCeiling;
         public float partHueBand { get; set; } = ZonesJsonDefaults.PartHueBand;
         public float chromaCeiling { get; set; } = ZonesJsonDefaults.ChromaCeiling;
+        public float holeFillMargin { get; set; } = ZonesJsonDefaults.HoleFillMargin;
         public float outputSaturation { get; set; } = ZonesJsonDefaults.OutputSaturation;
         public bool highlightRecovery { get; set; } = ZonesJsonDefaults.HighlightRecovery;
         public bool highlightBandExpand { get; set; } = ZonesJsonDefaults.HighlightBandExpand;
@@ -312,6 +314,7 @@ namespace Iroca
                 partSatCeiling = z.partSatCeiling,
                 partHueBand = z.partHueBand,
                 chromaCeiling = z.chromaCeiling,
+                holeFillMargin = z.holeFillMargin,
                 layerIndex = z.layerIndex,
                 useFloodFill = z.useFloodFill,
                 seedUV = (z.seedUV != null && z.seedUV.Length >= 2)
@@ -532,6 +535,7 @@ namespace Iroca
                         partSatCeiling = z.partSatCeiling,
                         partHueBand = z.partHueBand,
                         chromaCeiling = z.chromaCeiling,
+                        holeFillMargin = z.holeFillMargin,
                         applyGlobals = tune.applyGlobals,
                         antiAliasCleanup = st.antiAliasCleanup,
                         autoSamples = z.extraSamples.Count,

@@ -294,6 +294,16 @@ namespace Iroca
         [Range(0f, 1f)]
         public float chromaCeiling = 0f;
 
+        // 穴埋めの余白(tolerance に対する比、0 = 余白なし)。選択に囲まれた小さな穴を埋めてよいかの
+        // 判定(穴埋めの緩和マッチ)だけを tolerance × (1 + この値) で行う。布の明るい所や柄の光の周りの
+        // ように、素材の色が許容範囲の境目をまたぐ所では、画素ごとのノイズで選ぶ・選ばないが交互になり、
+        // 元の色の点が点々と残る(穴埋めも主マッチと同じ境目で弾いていた)。境界回復と主マッチは変えない
+        // ので、囲まれていない画素は広がらない。証拠つき自動調整が入れる(ZoneAutoTuner.Evidence.cs)。
+        // 手動の許容範囲では 0 のまま: 許容範囲を広く取ると別の部位が穴だらけに選ばれ、デコンタミが
+        // 縁として元の色へ戻すので目立たない。穴を埋めるとそれが塊として表に出る(実測: 生成りの布)。
+        [Range(0f, 1f)]
+        public float holeFillMargin = 0f;
+
         [Range(0f, 1f)]
         public float chromaThreshold = 0.05f;
 
@@ -446,6 +456,7 @@ namespace Iroca
             partSatCeiling          = d.partSatCeiling;
             partHueBand             = d.partHueBand;
             chromaCeiling           = d.chromaCeiling;
+            holeFillMargin          = d.holeFillMargin;
             chromaThreshold         = d.chromaThreshold;
             valueWeight             = d.valueWeight;
             satDistWeight           = d.satDistWeight;

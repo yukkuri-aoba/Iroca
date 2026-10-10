@@ -102,7 +102,8 @@ namespace Iroca
                 && ParamEq(zone.shadowValueFloor, r.shadowValueFloor)
                 && ParamEq(zone.partSatCeiling, r.partSatCeiling)
                 && ParamEq(zone.partHueBand, r.partHueBand)
-                && ParamEq(zone.chromaCeiling, r.chromaCeiling);
+                && ParamEq(zone.chromaCeiling, r.chromaCeiling)
+                && ParamEq(zone.holeFillMargin, r.holeFillMargin);
         }
         // 証拠待ちの上限。埋め込み計算(テクスチャ毎 1 回)は CPU バックエンドの大きな
         // テクスチャで数十秒かかり得るので、短い期限で諦めて従来導出へ落とさない

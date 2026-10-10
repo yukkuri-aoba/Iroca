@@ -240,6 +240,11 @@ namespace Iroca
             ? "サンプルが無彩色(白/グレー/黒)のとき、この彩度を超える離れた領域は「染められた別素材」とみなして選択から外します。\n0 = 自動(サンプル彩度の 3 倍、最低 0.04)。白い布の青みがかった陰のように、素材自身の陰影が地色より強く色づく場合は上げます。\n自動調整(AI 提案あり)がクリックした部分に実在する彩度から導きます。\nデフォルト: 0"
             : "When the sample is neutral (white/grey/black), detached regions more saturated than this are treated as a dyed, different material and excluded.\n0 = automatic (3x the sample saturation, at least 0.04). Raise it when the material's own shading is more tinted than its base, such as bluish shadows on white cloth.\nAuto-tune with an AI proposal derives it from the saturation actually present in the clicked part.\nDefault: 0";
 
+        public static string HoleFillMargin => IsJapanese ? "穴埋めの余白" : "Hole Fill Margin";
+        public static string HoleFillMarginTooltip => IsJapanese
+            ? "選択に囲まれた小さな穴を埋めるとき、許容範囲をこの割合だけ広げて判定します。\n布の明るい面のように色が許容範囲の境目をまたぐ所で、元の色の点が点々と残るのを防ぎます。囲まれていない画素は広がりません。\n自動調整(AI 提案あり)が設定します。許容範囲を手で広く取ったときに上げると、別の部位が塊で塗られることがあります。0 = 余白なし\nデフォルト: 0"
+            : "When filling small holes surrounded by the selection, the tolerance is widened by this fraction.\nStops dots of the original color from being left where the color straddles the tolerance edge, such as the lit side of cloth. Pixels that are not surrounded are not added.\nAuto-tune with an AI proposal sets it. Raising it with a wide manual tolerance can paint other parts in blocks. 0 = no margin\nDefault: 0";
+
         public static string ChromaThreshold => IsJapanese ? "自動しきい値(無彩色判定)" : "Auto Grayscale Threshold";
         public static string ChromaThresholdTooltip => IsJapanese
             ? "スポイトで取ったサンプルの彩度がこの値以下の場合は、自動的に【無彩色(黒/グレー)】として認識され、色相を無視して綺麗に抽出します。"

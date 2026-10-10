@@ -148,6 +148,17 @@ namespace Iroca
         private const float EvChromaCeilPercentile = 0.95f;
         private const float EvChromaCeilHeadroomFrac = 0.25f;
 
+        // ── 穴埋めの余白(holeFillMargin) ──
+        // 導出した tolerance は「クリックした島を覆える最小値 × 余白」の見積もりなので、同じ素材の別の所
+        // (布の明るい面・柄の光の周り)の色が境目をまたぐことがある。そこでは画素ごとのノイズで選ぶ・選ばないが
+        // 交互になり、元の色の点が点々と残る(穴埋めも同じ境目で弾く)。選択に囲まれた穴の判定にだけ、
+        // 陰影/明部の免除・彩度天井と同じ 25% の余白をつける。主マッチと境界回復は変えないので選択の外側へは
+        // 広がらない。実測(2026-10-10、主経路 57 件): 見える塗り残し 32,905→10,029、平均 IoU +0.0007、
+        // 黒い布の明るい面 IoU +0.010。余白 50% は点がほぼ同じで正解の外の塗りが 1.4 倍(64,750→92,931)。
+        // 悪化は既に穴だらけに選ばれていた別部位が塊になる所で、最悪はブーツの暗い側クリックの −0.0017。
+        // 手動の許容範囲には入れない(ColorZone.holeFillMargin のコメント参照)。
+        private const float EvHoleFillMarginFrac = 0.25f;
+
         // ── 別パーツの彩度上限(partSatCeiling)の導出(有彩・無彩とも) ──
         // 陰影の明度下限の対。色の近い、より鮮やかな別パーツ(濃い灰のパンツ S 0.11 に対するこげ茶の
         // ブーツ S 0.23〜0.30、こげ茶のブーツに対する赤いバンダナ S 0.52)は、広めの tolerance や明部免除を
@@ -379,7 +390,8 @@ namespace Iroca
                 + $" hlRec={result.highlightRecovery} samples={result.autoSamples?.Count ?? 0}"
                 + $" added={added} cov={cov:F4} tol={result.tolerance:F4}"
                 + $" vFloor={result.shadowValueFloor:F3} ceil={result.chromaCeiling:F3}"
-                + $" tolDerived={tolDerived:F4} partSat={result.partSatCeiling:F3} partHue={result.partHueBand:F3}";
+                + $" tolDerived={tolDerived:F4} partSat={result.partSatCeiling:F3} partHue={result.partHueBand:F3}"
+                + $" holeMargin={result.holeFillMargin:F2}";
             Progress(0.98f);
 
             DecideGlobals(width, height, session, ref result);
@@ -388,7 +400,7 @@ namespace Iroca
         }
 
         // 証拠ドメインの統計から後段のゲートを導出する(AnalyzeWithEvidence の手順 4〜5c)。
-        // result のうち shadowValueFloor / chromaCeiling / partSatCeiling / partHueBand だけを書く。
+        // result のうち shadowValueFloor / chromaCeiling / partSatCeiling / partHueBand / holeFillMargin だけを書く。
         // hueRef: 別パーツの色相幅の基準(適用後にゾーンのサンプルになる色)。
         private static void ApplyEvidenceGates(HsvGrid hsv, List<GridPt> domain, int domLoBin, int domHiBin,
             bool chromatic, float repS, Color hueRef, ref TuneResult result)
@@ -412,6 +424,9 @@ namespace Iroca
                 float envelopeCeil = envelope / (1f - EvChromaCeilHeadroomFrac);
                 if (!chromatic && envelope > ColorZone.EffectiveChromaCeiling(repS, 0f))
                     result.chromaCeiling = Mathf.Min(1f, envelopeCeil);
+
+                // ── 5a. 穴埋めの余白: 証拠ドメインがあるときだけ(上の EvHoleFillMarginFrac 参照) ──
+                result.holeFillMargin = EvHoleFillMarginFrac;
 
                 // ── 5b. 別パーツの彩度上限: 同じ包絡 ÷ 余白を、連結成分単位の上限にする(有彩・無彩とも) ──
                 // 上限が 1 以上(包絡が飽和域に届く素材)なら落とせる成分が無いので置かない。

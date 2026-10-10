@@ -160,6 +160,10 @@ VCC / ALCOM を使っているなら、リポジトリ `https://yukkuri-aoba.git
 
 鮮やかな色を選んだとき、白・黒・灰色が混ざるのを防ぎます。許容範囲を大きく上げるときに使います。選んだ色が灰色寄りなら自動で無効になります。
 
+**穴埋めの余白**（既定 0）
+
+選択に囲まれた小さな穴を埋めるとき、許容範囲をこの割合だけ広げて判定します。布の明るい面のように、色が許容範囲の境目をまたぐ所で元の色の点が点々と残るのを防ぎます。囲まれていない画素には広がりません。AI 提案ありの自動調整が 0.25 を入れます。許容範囲を手で広く取ったときに上げると、別の部位が塊で塗られることがあります。
+
 **ハイライト補助**（既定 ON）
 
 高明度・低彩度のハイライト（鏡面反射・光沢）もマッチさせ、光沢素材の変換漏れを防ぎます。ON のときに出る「ハイライト帯の拡張」（既定 ON）は、本体につながった描き込みハイライトまで範囲を広げます。
@@ -731,6 +735,10 @@ How far faint shadows and AO are picked up. Raising it reduces bleed but tends t
 **Saturation Guard** (default 0)
 
 Keeps white, black, and gray out of the result when you pick a vivid color. Use it when you raise the tolerance a lot. It disables itself if the picked color is already grayish.
+
+**Hole Fill Margin** (default 0)
+
+When filling small holes surrounded by the selection, the tolerance is widened by this fraction. It stops dots of the original color from being left where the color straddles the tolerance edge, such as the lit side of cloth. Pixels that are not surrounded are not added. Auto-tune with an AI proposal sets it to 0.25. Raising it with a wide manual tolerance can paint other parts in blocks.
 
 **Highlight Recovery** (default ON)
 

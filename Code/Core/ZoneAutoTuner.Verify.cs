@@ -336,6 +336,7 @@ namespace Iroca
             sim.partSatCeiling          = result.partSatCeiling;
             sim.partHueBand             = result.partHueBand;
             sim.chromaCeiling           = result.chromaCeiling;
+            sim.holeFillMargin          = result.holeFillMargin;
             sim.extraSamples = result.autoSamples ?? new List<Color>();
             sim.UpdateCacheIfNeeded();
             return sim;
