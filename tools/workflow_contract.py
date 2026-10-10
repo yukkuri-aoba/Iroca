@@ -12,13 +12,14 @@ SUBJECTS_JSON = Path(__file__).resolve().parents[1] / "dev_safe" / "Tests" / "su
 _SUBJECT_DOC = (json.loads(SUBJECTS_JSON.read_text(encoding="utf-8"))
                 if SUBJECTS_JSON.is_file() else {})
 SUBJECTS: tuple[str, ...] = tuple(_SUBJECT_DOC.get("subjects", ()))
-# 汎化を測るために調整から外しておく被写体（ホールドアウト）。2026-09-24 に枠だけ作った
-# （ユーザー決定: 既存の被写体は動かさず、次に GT を足すときからここへ入れる）。
+# 汎化を測るために調整から外しておく被写体（ホールドアウト）。2026-09-24 に枠を作り
+# （ユーザー決定: 既存の被写体は動かさず、次に GT を足すときからここへ入れる）、2026-10-10 から
+# subjects.json の holdout_subjects を読む（被写体名は SUBJECTS と同じく非公開側に置く）。
 # SUBJECTS（回帰の床・審査ページ・視覚レビュー）とは交わらせない。交わると改善サイクル中に
 # 個別の数字や画を見てしまい、ホールドアウトにならない。
 # 見てよいのは採否判断のときだけで、dev_safe/scripts/holdout_eval.py が集計値だけを出し、
 # 見た回数を dev_safe/Tests/Baselines/holdout_log.jsonl に残す（見るほど効かなくなるため）。
-HOLDOUT_SUBJECTS: tuple[str, ...] = ()
+HOLDOUT_SUBJECTS: tuple[str, ...] = tuple(_SUBJECT_DOC.get("holdout_subjects", ()))
 CLICKS = ("p25", "p50", "p95")
 PRESET_SUBJECTS: tuple[str, ...] = tuple(_SUBJECT_DOC.get("preset_subjects", ()))
 # 除外マスク付きの視覚レビューケース(subject_id -> 使うケース数)。選び方は visual_review.py。
