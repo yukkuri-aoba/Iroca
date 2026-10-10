@@ -535,6 +535,9 @@ namespace Iroca
                 }
             }
 
+            if (GUILayout.Button(new GUIContent(Localization.Manual, Localization.ManualTooltip), EditorStyles.toolbarButton, GUILayout.ExpandWidth(false)))
+                IrocaManual.Open();
+
             if (GUILayout.Button(new GUIContent(Localization.Credit, Localization.CreditTooltip), EditorStyles.toolbarButton, GUILayout.ExpandWidth(false)))
             {
                 if (EditorUtility.DisplayDialog(Localization.CreditTitle, Localization.CreditBody,

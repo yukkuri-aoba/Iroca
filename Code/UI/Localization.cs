@@ -57,6 +57,7 @@ namespace Iroca
         public static string LangJapanese => "日本語";
         public static string LangEnglish  => "English";
         public static string Credit       => IsJapanese ? "クレジット" : "Credit";
+        public static string Manual       => IsJapanese ? "マニュアル" : "Manual";
 
         public static string CreditTitle => IsJapanese ? "クレジット" : "Credits";
         public static string CreditOpenList => IsJapanese ? "一覧を開く" : "Open full list";
@@ -883,6 +884,9 @@ namespace Iroca
         public static string CancelActionTooltip => IsJapanese
             ? "実行中の処理を中止します"
             : "Cancel the running operation";
+        public static string ManualTooltip => IsJapanese
+            ? "使い方のマニュアルをブラウザで開きます（いま入っている版の説明です）"
+            : "Open the user manual in your browser (it describes the installed version)";
         public static string CreditTooltip => IsJapanese
             ? "このツールのクレジット（作者・ライセンス）を表示します。開発に使わせていただいたモデルの一覧は、表示から公開ページで開けます"
             : "Show credits (author and license) for this tool. The full list of models used in development opens from there as a public page";

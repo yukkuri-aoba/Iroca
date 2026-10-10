@@ -22,7 +22,7 @@ namespace Iroca
     /// </para>
     /// </summary>
     [AddComponentMenu("Iroca/Iroca Recolor")]
-    [HelpURL("https://github.com/yukkuri-aoba/Iroca/blob/main/MANUAL.md")]
+    [HelpURL("https://yukkuri-aoba.github.io/Iroca/manual/#nondestructive")]
     public sealed class IrocaRecolor : MonoBehaviour, ISerializationCallbackReceiver
 #if IROCA_NDMF_PRESENT
         // VRChat SDK があれば IEditorOnly になり、SDK の「使えないコンポーネント」扱いを受けない。
