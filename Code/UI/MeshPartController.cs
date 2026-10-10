@@ -183,7 +183,8 @@ namespace Iroca
             if (_map == null || _map.Width != w || _map.Height != h)
             {
                 _map = UvChartMap.Build(w, h, _found.Sources());
-                _map.AssignPadding();
+                // 引くのは既定の半径だけなので、半径の外を落とした持ち主だけを持つ(4K で 192MB → 64MB)。
+                _map.AssignPaddingBaked(_map.DefaultPaddingRadius);
             }
             return _map;
         }

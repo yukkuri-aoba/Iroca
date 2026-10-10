@@ -35,6 +35,8 @@ namespace Iroca
     /// 島の外のにじみ代(テクスチャ作成時に島の色を外へ延ばした余白)は <see cref="AssignPadding"/> で
     /// 一番近いチャートに割り当てる。メッシュには乗らない画素だが、色の選択はそこまで及ぶので、
     /// 割り当てないと除外から漏れる(実測: パンツの除外で適合率 0.485 止まり → 割り当てて 1.000)。
+    /// 引くにじみ代の半径が決まっているときは <see cref="AssignPaddingBaked"/> で、半径の外を落とした
+    /// 持ち主の配列だけを持つ(4K で Raster・Owner・OwnerDistance の 192MB → 64MB)。
     /// </summary>
     internal sealed class UvChartMap
     {
@@ -49,15 +51,43 @@ namespace Iroca
 
         public int Width { get; }
         public int Height { get; }
-        /// <summary>画素ごとのチャート番号(ラスタライズした内側だけ。-1 = どのチャートにも乗らない)。</summary>
-        public int[] Raster { get; }
-        /// <summary>画素ごとの持ち主チャート(にじみ代を割り当てた後。-1 = 未割り当て)。AssignPadding 前は Raster と同じ。</summary>
+        /// <summary>
+        /// 画素ごとのチャート番号(ラスタライズした内側だけ。-1 = どのチャートにも乗らない)。
+        /// <see cref="AssignPaddingBaked"/> の後は null(同じ配列を持ち主の配列に作り替えるので)。
+        /// </summary>
+        public int[] Raster { get; private set; }
+        /// <summary>
+        /// 画素ごとの持ち主チャート(にじみ代を割り当てた後。-1 = 未割り当て)。AssignPadding 前は Raster と同じ。
+        /// AssignPaddingBaked の後は、焼き込んだ半径より遠い画素も -1。
+        /// </summary>
         public int[] Owner { get; private set; }
-        /// <summary>画素から持ち主チャートの内側までの L1 距離(内側は 0)。AssignPadding 前は内側 0・外側 int.MaxValue。</summary>
-        public int[] OwnerDistance { get; private set; }
+        /// <summary>
+        /// 画素から持ち主チャートの内側までの L1 距離(内側は 0)。AssignPadding 前は内側 0・外側 int.MaxValue
+        /// (読んだときに作る。地図を引くだけなら作らない)。AssignPaddingBaked の後は null。
+        /// </summary>
+        public int[] OwnerDistance
+        {
+            get
+            {
+                if (_ownerDistance == null && !_baked)
+                {
+                    var owner = Owner;
+                    var dist = new int[owner.Length];
+                    for (int i = 0; i < dist.Length; i++) dist[i] = owner[i] >= 0 ? 0 : int.MaxValue;
+                    _ownerDistance = dist;
+                }
+                return _ownerDistance;
+            }
+        }
         /// <summary>チャート番号 → 元の <see cref="UvChartSource"/> の番号。</summary>
         public int[] ChartSource { get; }
         public int ChartCount => ChartSource.Length;
+
+        // null = にじみ代を割り当てていない(内側 0・外側 int.MaxValue と同じ。OwnerDistance を読むと作る)か、焼き込み済み。
+        private int[] _ownerDistance;
+        // AssignPaddingBaked 済みか。済みなら Owner は半径 _bakedRadius の外を -1 にしたもので、距離は持たない。
+        private bool _baked;
+        private int _bakedRadius;
 
         private UvChartMap(int w, int h, int[] raster, int[] chartSource)
         {
@@ -66,9 +96,6 @@ namespace Iroca
             Raster = raster;
             ChartSource = chartSource;
             Owner = raster;
-            var dist = new int[raster.Length];
-            for (int i = 0; i < dist.Length; i++) dist[i] = raster[i] >= 0 ? 0 : int.MaxValue;
-            OwnerDistance = dist;
         }
 
         /// <summary>
@@ -209,16 +236,52 @@ namespace Iroca
         /// </summary>
         public void AssignPadding(CancellationToken token = default)
         {
-            int w = Width, h = Height;
-            const int Inf = int.MaxValue / 2;
-            var dist = new int[w * h];
-            var owner = new int[w * h];
+            if (_baked) throw new System.InvalidOperationException("padding is already baked");
+            var dist = new int[Width * Height];
+            var owner = new int[Width * Height];
+            ComputePadding(Raster, owner, dist, Width, Height, token);
+            for (int i = 0; i < dist.Length; i++)
+                if (dist[i] >= PaddingInf) dist[i] = int.MaxValue;
+            Owner = owner;
+            _ownerDistance = dist;
+        }
+
+        /// <summary>
+        /// <see cref="AssignPadding"/> と同じ割り当てをして、maxPadding より遠い画素の持ち主を -1 にした
+        /// <see cref="Owner"/> だけを残す。持ち主の配列は Raster を作り替えて使い、距離も捨てるので、
+        /// 以降 Raster と OwnerDistance は null で、引けるのはこの半径だけになる(<see cref="ChartAt"/> /
+        /// <see cref="MaskOf"/> に別の半径を渡すと例外)。結果は AssignPadding してから同じ半径で引いたのと同じ。
+        /// </summary>
+        public void AssignPaddingBaked(int maxPadding)
+        {
+            if (_baked) throw new System.InvalidOperationException("padding is already baked");
+            if (maxPadding < 0) throw new System.ArgumentOutOfRangeException(nameof(maxPadding));
+            var raster = Raster;
+            var dist = new int[raster.Length];
+            ComputePadding(raster, raster, dist, Width, Height, default);
+            for (int i = 0; i < dist.Length; i++)
+                if (dist[i] > maxPadding) raster[i] = -1;
+            Owner = raster;
+            Raster = null;
+            _ownerDistance = null;
+            _baked = true;
+            _bakedRadius = maxPadding;
+        }
+
+        private const int PaddingInf = int.MaxValue / 2;
+
+        /// <summary>
+        /// にじみ代の距離変換。dist に距離(届かない画素は <see cref="PaddingInf"/>)、owner に持ち主を書く。
+        /// owner は raster と同じ配列でもよい(チャート画素の値は変わらず、読むのはチャート画素の値だけ)。
+        /// </summary>
+        private static void ComputePadding(int[] raster, int[] owner, int[] dist, int w, int h, CancellationToken token)
+        {
+            const int Inf = PaddingInf;
             var po = new ParallelOptions
             {
                 CancellationToken = token,
                 MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(),
             };
-            var raster = Raster;
 
             // 行パス: 同じ行の中で一番近いチャート画素(左からの走査 → 右からの走査で近い方)
             Parallel.For(0, h, po, y =>
@@ -232,11 +295,13 @@ namespace Iroca
                     else if (lastX >= 0) { dist[i] = x - lastX; owner[i] = raster[row + lastX]; }
                     else { dist[i] = Inf; owner[i] = -1; }
                 }
+                // 右からの走査では、チャート画素を距離 0 で見分ける(owner が raster と同じ配列だと、
+                // 外側の画素は左からの走査で持ち主の番号に書き換わっている)。
                 lastX = -1;
                 for (int x = w - 1; x >= 0; x--)
                 {
                     int i = row + x;
-                    if (raster[i] >= 0) { lastX = x; continue; }
+                    if (dist[i] == 0) { lastX = x; continue; }
                     if (lastX >= 0 && lastX - x < dist[i]) { dist[i] = lastX - x; owner[i] = raster[row + lastX]; }
                 }
             });
@@ -269,11 +334,6 @@ namespace Iroca
                     }
                 }
             });
-
-            for (int i = 0; i < dist.Length; i++)
-                if (dist[i] >= Inf) dist[i] = int.MaxValue;
-            Owner = owner;
-            OwnerDistance = dist;
         }
 
         /// <summary>
@@ -285,9 +345,14 @@ namespace Iroca
         /// <summary>画素 (x, y)(行 0 = 下端)の持ち主チャート。maxPadding より遠いにじみ代・範囲外は -1。</summary>
         public int ChartAt(int x, int y, int maxPadding)
         {
+            RequireRadius(maxPadding);
             if ((uint)x >= (uint)Width || (uint)y >= (uint)Height) return -1;
             int i = y * Width + x;
-            return OwnerDistance[i] <= maxPadding ? Owner[i] : -1;
+            int c = Owner[i];
+            if (_baked) return c;   // 半径の外はもう -1
+            // にじみ代を割り当てる前(距離を作っていない)は、持ち主のある画素 = チャートの内側(距離 0)。
+            int d = _ownerDistance != null ? _ownerDistance[i] : (c >= 0 ? 0 : int.MaxValue);
+            return d <= maxPadding ? c : -1;
         }
 
         /// <summary>
@@ -296,15 +361,27 @@ namespace Iroca
         /// </summary>
         public bool[] MaskOf(System.Func<int, bool> select, int maxPadding)
         {
-            var mask = new bool[Owner.Length];
+            RequireRadius(maxPadding);
+            var owner = Owner;
+            var dist = _ownerDistance;
+            // 距離を持たないとき、持ち主のある画素は半径の内側(焼き込み済み)かチャートの内側(距離 0)。
+            bool ownedWithin = _baked || maxPadding >= 0;
+            var mask = new bool[owner.Length];
             var chosen = new bool[ChartCount];
             for (int c = 0; c < chosen.Length; c++) chosen[c] = select(c);
             for (int i = 0; i < mask.Length; i++)
             {
-                int c = Owner[i];
-                mask[i] = c >= 0 && OwnerDistance[i] <= maxPadding && chosen[c];
+                int c = owner[i];
+                mask[i] = c >= 0 && (dist != null ? dist[i] <= maxPadding : ownedWithin) && chosen[c];
             }
             return mask;
+        }
+
+        private void RequireRadius(int maxPadding)
+        {
+            if (_baked && maxPadding != _bakedRadius)
+                throw new System.InvalidOperationException(
+                    $"padding is baked for radius {_bakedRadius}, but {maxPadding} was requested");
         }
 
         /// <summary>
