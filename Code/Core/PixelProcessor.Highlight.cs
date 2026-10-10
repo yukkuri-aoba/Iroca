@@ -638,12 +638,25 @@ namespace Iroca
                 });
                 MarkOpenFromBorder(free, open, w, h, ct);
 
-                var hV = new int[256];
+                // 閉領域の画素(free ∧ !open)を含む行。下の成分の走査はラスタ順の逐次なので、閉領域の無い行
+                // (普通はほとんどの行)を読み飛ばす。行の中の辿る順は変わらない。
+                var rowHasEnclosed = new bool[h];
+                Parallel.For(0, h, po, y =>
+                {
+                    int rowOff = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        if (free[i] && !open[i]) { rowHasEnclosed[y] = true; return; }
+                    }
+                });
+
                 var hS = new int[256];
                 var hHd = new int[256];   // 色相距離 0..0.5 を 256 bin
                 int compId = 0;
                 for (int y0 = 0; y0 < h; y0++)
                 {
+                    if (!rowHasEnclosed[y0]) continue;
                     int row0 = y0 * w;
                     for (int x0 = 0; x0 < w; x0++)
                     {
@@ -656,20 +669,12 @@ namespace Iroca
                         int qHead = 0, qTail = 0;
                         open[i0] = true; stamp[i0] = compId; queue[qTail++] = (y0 << 16) | x0;
                         int nOpaque = 0;
-                        Array.Clear(hV, 0, 256); Array.Clear(hS, 0, 256); Array.Clear(hHd, 0, 256);
                         while (qHead < qTail)
                         {
                             int packed = queue[qHead++];
                             int x = packed & 0xFFFF, y = packed >> 16;
                             int i = y * w + x;
-                            if (pixels[i].a >= OpaqueAlphaMin)
-                            {
-                                nOpaque++;
-                                hV[Mathf.Clamp((int)(pixV[HsvSlot(pixIdx, i)] * 256f), 0, 255)]++;
-                                hS[Mathf.Clamp((int)(pixS[HsvSlot(pixIdx, i)] * 256f), 0, 255)]++;
-                                float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, i)] - sH); if (hd > 0.5f) hd = 1f - hd;
-                                hHd[Mathf.Clamp((int)(hd * 512f), 0, 255)]++;
-                            }
+                            if (pixels[i].a >= OpaqueAlphaMin) nOpaque++;
                             if (x > 0 && free[i - 1] && !open[i - 1])
                             { open[i - 1] = true; stamp[i - 1] = compId; queue[qTail++] = (y << 16) | (x - 1); }
                             if (x < w - 1 && free[i + 1] && !open[i + 1])
@@ -681,7 +686,18 @@ namespace Iroca
                         }
                         if (nOpaque < EnclosedHlMinPixels || nOpaque > maxPixels) continue;
 
-                        // 3) 成分の色ゲート(中央値): 同色相帯・脱彩した有彩。
+                        // 3) 成分の色ゲート(中央値): 同色相帯・脱彩した有彩。ヒストグラムは大きさの条件を
+                        //    通った成分でだけ作る(1px の穴など、ほとんどの成分はここまで来ない)。
+                        Array.Clear(hS, 0, 256); Array.Clear(hHd, 0, 256);
+                        for (int k = 0; k < qTail; k++)
+                        {
+                            int packed = queue[k];
+                            int i = (packed >> 16) * w + (packed & 0xFFFF);
+                            if (pixels[i].a < OpaqueAlphaMin) continue;
+                            hS[Mathf.Clamp((int)(pixS[HsvSlot(pixIdx, i)] * 256f), 0, 255)]++;
+                            float hd = Mathf.Abs(pixH[HsvSlot(pixIdx, i)] - sH); if (hd > 0.5f) hd = 1f - hd;
+                            hHd[Mathf.Clamp((int)(hd * 512f), 0, 255)]++;
+                        }
                         float medHd = HistogramMedian(hHd, nOpaque, 512f);
                         if (medHd >= hueGate) continue;
                         float medS = HistogramMedian(hS, nOpaque, 256f);
