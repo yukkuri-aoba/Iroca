@@ -35,10 +35,10 @@ CLAUDE.md / `.claude/instructions/improvement-cycle.md` が「テスト構成の
 `SUBJECTS` と交わらない（`scripts/source_checks/test_workflow_contract.py` が検査）。採否判断のときだけ
 `dev_safe/scripts/holdout_eval.py` がワンショット p50 の集計値を出し、`Tests/Baselines/holdout_log.jsonl` に
 見た回数ごと記録する。次に GT を足すときからここへ入れる（ユーザー決定）。一覧は `SUBJECTS` と同じく
-`dev_safe/Tests/subjects.json`（`holdout_subjects`）にあり、2026-10-10 に回帰の被写体と別の作者のアバター 3 体から
-7 被写体を入れた。部位レイヤーの無い PSD なので、GT は PSD の島（作者の島マスク / UV 線の塗りつぶし）と
-同じ塗りの島から作る素材単位（`dev_safe/scripts/build_holdout_gt.py`）。テスト側の定義は
-`fixtures.HOLDOUT_REGISTRY` で、`SUBJECT_REGISTRY` には入れない。
+`dev_safe/Tests/subjects.json`（`holdout_subjects`）にあり、2026-10-10 に回帰の被写体と別の作者のアバター 5 体から
+12 被写体を入れた。GT は `dev_safe/scripts/build_holdout_gt.py` が作る。部位レイヤーの無い PSD は、PSD の島
+（作者の島マスク / UV 線の塗りつぶし）と同じ塗りの島から作る素材単位、部位レイヤーのある PSD は
+部位レイヤー ∩ 島。テスト側の定義は `fixtures.HOLDOUT_REGISTRY` で、`SUBJECT_REGISTRY` には入れない。
 
 GTは採点とテスト用クリック位置の選定に使う。`oneshot` / `assisted_include` の処理入力に
 GTマスクを渡さない。証拠・含める・除外・採点GTは役割を別に記録する。
