@@ -19,7 +19,8 @@ HAOLAN スニーカーの青を別の色へ。色見本は製品のワンショ�
   - .NET SDK 8 と Unity CoreModule DLL（ハーネスのビルドに必要）
 
 実行:
-  .venv\\Scripts\\python.exe docs/manual/build_assets.py
+  .venv\\Scripts\\python.exe docs/manual/build_assets.py               # スクリーンショットと実演コマ
+  .venv\\Scripts\\python.exe docs/manual/build_assets.py --shots-only  # スクリーンショットだけ
 """
 from __future__ import annotations
 
@@ -126,17 +127,27 @@ def save(rgb: np.ndarray, name: str) -> None:
 SHOTS_SRC = ROOT / "dev_safe" / "manual_shots"
 SHOTS_OUT = ROOT / "docs" / "manual" / "img" / "ui"
 SHOTS = [
-    # (出力名, 原板, クロップ or None=全体)
-    ("window", "window.png", None),
-    ("zone-card", "window.png", (6, 112, 402, 500)),
-    ("zone-detail", "zone-detail.png", (6, 215, 402, 815)),
-    ("processing", "processing-presets.png", (6, 437, 402, 692)),
-    ("mask-section", "processing-presets.png", (6, 697, 402, 778)),
-    ("presets", "processing-presets.png", (6, 778, 402, 962)),
-    # 前後比較は 2 面並ぶので、窓を 1320pt 幅に広げて撮った原板から切り出す（800pt だと「変更後」が切れる）
-    ("preview-compare", "preview-compare.png", (562, 112, 1660, 700)),
-    ("preview-diff", "preview-diff.png", (400, 112, 1012, 682)),
-    ("mask-window", "mask-window.png", None),
+    # (出力名, 原板, クロップ or None=全体, 出力幅 or None=原寸)
+    # 原板は 2026-10-10 に Iroca_Dev で撮影（窓 820pt 幅・pixelsPerPoint 1.25。被写体は HAOLAN スニーカー、
+    # スポイトはトゲの明るい青、変更先は純赤）。qs* は「はじめての色替え」の手順ごとの状態。
+    ("qs-1", "qs1_empty.png", (0, 0, 1026, 430), None),
+    ("qs-2", "qs2_picked.png", (0, 0, 1026, 430), None),
+    ("qs-3", "qs3_target.png", (0, 0, 1026, 430), None),
+    ("qs-4", "qs4_autotuned_note.png", None, None),
+    ("window", "window.png", None, None),
+    ("zone-card", "window.png", (0, 117, 392, 392), None),
+    ("nd-section", "window.png", (0, 872, 1026, 1000), None),
+    ("export-section", "tall_open.png", (0, 913, 1026, 1165), None),
+    ("zone-detail", "zone_detail.png", (0, 140, 392, 950), None),
+    ("processing", "tall_open.png", (0, 397, 392, 648), None),
+    ("mask-section", "tall_open.png", (0, 655, 392, 810), None),
+    ("presets", "presets_open.png", (0, 585, 392, 790), None),
+    # 前後比較は 2 面並ぶので、窓を 1320pt 幅に広げて撮った原板から切り出す（820pt だと小さい）
+    ("preview-compare", "preview_compare.png", (556, 112, 1645, 745), None),
+    ("preview-diff", "preview_diff.png", (404, 118, 1012, 790), None),
+    ("mask-window", "mask_window.png", None, None),
+    # シーンのアバター（いろかで開いているテクスチャが NDMF のプレビューで映った状態）
+    ("avatar-feet", "avatar_feet.png", (150, 0, 1050, 900), 420),
 ]
 
 
@@ -146,7 +157,9 @@ def build_shots() -> None:
         return
     SHOTS_OUT.mkdir(parents=True, exist_ok=True)
     print("スクリーンショット")
-    for name, src, crop in SHOTS:
+    for old in SHOTS_OUT.glob("*.webp"):
+        old.unlink()
+    for name, src, crop, width in SHOTS:
         path = SHOTS_SRC / src
         if not path.exists():
             print(f"   !! 原板なし: {src}")
@@ -154,12 +167,16 @@ def build_shots() -> None:
         im = Image.open(path).convert("RGB")
         if crop:
             im = im.crop(crop)
+        if width and im.width > width:
+            im = im.resize((width, round(im.height * width / im.width)), Image.LANCZOS)
         im.save(SHOTS_OUT / f"{name}.webp", format="WEBP", quality=90, method=5)
         print(f"   {name} {im.size[0]}x{im.size[1]}")
 
 
 def main() -> None:
     build_shots()
+    if "--shots-only" in sys.argv:
+        return
     OUT.mkdir(parents=True, exist_ok=True)
     for old in OUT.glob("*.webp"):
         old.unlink()
