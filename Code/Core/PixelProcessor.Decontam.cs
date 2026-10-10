@@ -82,7 +82,7 @@ namespace Iroca
             int winSide = 2 * radius + 1;
             float interiorBgDensityMin = Mathf.Max(1f, winSide * winSide * DecontamInteriorBgFrac);
             // α 分解の対象(0<strength<しきい)は選択の縁の細い帯であることが多い。その数を先に数え、
-            // 候補の窓を直接足す方が安ければそうする(矩形全体の窓和 ×4 と作業配列 8 本を払わない)。
+            // 候補の窓を直接足す方が安ければそうする(矩形全体の窓和 ×4 と作業配列 5 本を払わない)。
             // 足す値は 0..255 の整数(と個数)で、窓和は最大 (2·12+1)²·255 < 2^24 なので、浮動小数の
             // 窓和(BoxFilterSum)も常に正確な整数=どちらで求めても同じ値で、出力はビット単位で同じ。
             long candCount = CountDecontamCandidates(strength, w, boxMinX, boxMinY, boxMaxX, boxMaxY,
@@ -106,14 +106,12 @@ namespace Iroca
             try
             {
             // 内部の固めだけ(solidifyOnly)なら、要るのは背景の密度だけ。
+            // 色の窓和(bg*Sum)は新しく借りず、窓和を出し終えた作業配列を回す(下の BoxFilterSum の並び)。
             if (!solidifyOnly)
             {
                 wR = s_floatPool.Rent(len);
                 wG = s_floatPool.Rent(len);
                 wB = s_floatPool.Rent(len);
-                bgRSum = s_floatPool.Rent(len);
-                bgGSum = s_floatPool.Rent(len);
-                bgBSum = s_floatPool.Rent(len);
             }
             wD = s_floatPool.Rent(len);
             bgDensity = s_floatPool.Rent(len);
@@ -151,15 +149,22 @@ namespace Iroca
                     }
                 }
             });
-            // BG 推定(R/G/B/density)。各 ch を順に処理する(融合版は temp ストリームが 4 本同時に
+            // BG 推定(density/R/G/B)。各 ch を順に処理する(融合版は temp ストリームが 4 本同時に
             // なりメモリ帯域律速のこの処理ではキャッシュスラッシングで遅くなったため単一版に戻した)。
+            // 窓和を出し終えた作業配列は、次の ch の窓和の出力先に回す(同時に持つ配列は BoxFilterSum の
+            // 作業 1 本を入れて 9 本 → 6 本。4K で 1 本 64MB)。BoxFilterSum が出力に書くのは処理矩形の中だけで、
+            // 下の再合成が読むのもそこだけなので、回した配列の矩形の外に残る値は読まれない。
+            BoxFilterSum(wD, bgDensity, w, h, radius, ct, boxMinX, boxMinY, boxMaxX, boxMaxY);
             if (!solidifyOnly)
             {
+                bgRSum = wD; wD = null;
                 BoxFilterSum(wR, bgRSum, w, h, radius, ct, boxMinX, boxMinY, boxMaxX, boxMaxY);
+                bgGSum = wR; wR = null;
                 BoxFilterSum(wG, bgGSum, w, h, radius, ct, boxMinX, boxMinY, boxMaxX, boxMaxY);
+                bgBSum = wG; wG = null;
                 BoxFilterSum(wB, bgBSum, w, h, radius, ct, boxMinX, boxMinY, boxMaxX, boxMaxY);
+                s_floatPool.Return(wB); wB = null;
             }
-            BoxFilterSum(wD, bgDensity, w, h, radius, ct, boxMinX, boxMinY, boxMaxX, boxMaxY);
 
             float sR = sampleColor.r * 255f;
             float sG = sampleColor.g * 255f;
