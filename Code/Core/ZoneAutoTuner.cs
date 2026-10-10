@@ -391,10 +391,11 @@ namespace Iroca
             ref TuneResult result)
         {
             ct.ThrowIfCancellationRequested();
+            var baseSel = new BaseSelection();   // 導出 tolerance の基礎選択(最初に数えた検証が埋める)
             bool hlRecBeforeVerify = result.highlightRecovery;
             if (result.highlightRecovery)
                 VerifyHighlightRecoveryGrowth(pixels, width, height, aZone,
-                    excluded, maskW, maskH, hsv, evidence, evW, evH, ref result);
+                    excluded, maskW, maskH, hsv, evidence, evW, evH, baseSel, ref result);
             // 成長テストが highlightRecovery を落とした=「明るい同色相の別素材」が既に検出された
             // 状況なので、同じ方向へ広げる明部ツヤ救済も封印する。
             bool hlRecVetoed = hlRecBeforeVerify && !result.highlightRecovery;
@@ -404,7 +405,7 @@ namespace Iroca
             {
                 float tolBeforeOvershoot = result.tolerance;
                 VerifyBrightForgivenessOvershoot(pixels, width, height, aZone,
-                    excluded, maskW, maskH, hsv, ref result);
+                    excluded, maskW, maskH, hsv, baseSel, ref result);
                 // 免除過剰で tolerance を縮めた直後に拡張するのは矛盾するのでスキップする。
                 bool overshootShrunk = result.tolerance < tolBeforeOvershoot;
                 if (progressAfterOvershoot >= 0f) report?.Invoke(progressAfterOvershoot);
@@ -414,7 +415,7 @@ namespace Iroca
                 // 広げるのは危険。素直なパーツならヒストグラムは常に作れる)。
                 if (!foreignCapped && !overshootShrunk && !hlRecVetoed && vConnHiBin >= 0)
                     VerifyBrightSheenRecall(pixels, width, height, aZone,
-                        excluded, maskW, maskH, hsv, vConnHiBin, ref result);
+                        excluded, maskW, maskH, hsv, vConnHiBin, baseSel, ref result);
             }
         }
 
