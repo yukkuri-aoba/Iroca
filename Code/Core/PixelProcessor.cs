@@ -753,8 +753,9 @@ namespace Iroca
                         });
                         return outRel;
                     }
+                    // 使うのは下の穴埋めと境界回復だけで、どちらも混色帯モードでは走らない。
                     float[] palRelaxed = null;
-                    if (palette != null && !selCached && hasPostBox
+                    if (palette != null && !selCached && hasPostBox && !zMixMode
                         && (long)palette.Count * 2 <= (long)(ppMaxX - ppMinX + 1) * (ppMaxY - ppMinY + 1))
                         palRelaxed = RelaxedPalette(zone.tolerance);
                     int[] palIdxRelaxed = palette?.Index;
