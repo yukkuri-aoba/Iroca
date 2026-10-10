@@ -70,6 +70,7 @@ namespace Iroca
         private const float AnchorMinLSpread    = 0.02f;  // L の P95-P05 がこれ未満=フラット領域は補正不要
         private const float AnchorSatrHistMax   = 4f;     // 飽和度(C/L)ヒストグラムの値域上限
         private const float AnchorChromaHistMax = 0.5f;   // chroma ヒストグラムの値域上限(OkLab C は ~0.33 まで)
+        private const int   AnchorCountBudget   = 1 << 21; // 色の表の経路で、色ごとの個数を数える配列の合計(int 数、8MB)
 
         /// <summary>
         /// サンプル自動補正: OkLab 再着色のアンカー (sL, sC) をマッチ領域の統計から推定する。
@@ -234,6 +235,10 @@ namespace Iroca
             anchorL = 0f;
             anchorC = 0f;
             var cnt = new int[colorCount];
+            // 色ごとの個数は、ワーカーごとに色数ぶんの配列へ数えてから足し合わせる。色が多い表(最大 2^20 色)で
+            // ワーカー全員が持つと 1 回で 50MB を超えるので、配列の合計が AnchorCountBudget に収まる人数で数える
+            // (普通のテクスチャは数千〜数万色で、人数は変わらない)。整数の加算なので人数によらず結果は同じ。
+            int workers = Math.Max(1, AnchorCountBudget / Math.Max(1, colorCount));
             int candCount = AccumulateHistParallelRows(bbMinY, bbMaxY + 1, cnt, (y0, y1, local) =>
             {
                 int n = 0;
@@ -250,7 +255,7 @@ namespace Iroca
                     }
                 }
                 return n;
-            }, ct);
+            }, ct, workers);
             if (candCount < AnchorMinPixels) return false;
 
             // 1: 飽和度(C/L)ヒストグラム → 中央値から地色下限

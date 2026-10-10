@@ -1452,11 +1452,15 @@ namespace Iroca
         /// 単スレッド逐次版と完全に同値(=percentile もビット不変)。
         /// </summary>
         /// <returns>全チャンクの集計画素数の合計。</returns>
+        /// <param name="maxWorkers">並列度の上限(0 = 既定の <see cref="GetMaxParallelism"/>)。スレッドローカルの
+        /// ヒストグラムはワーカーごとに 1 本なので、ビンが多いときに確保量を抑えるのに使う。</param>
         internal static int AccumulateHistParallelRows(int yFrom, int yTo, int[] hist,
-            HistRowChunk chunk, CancellationToken ct = default)
+            HistRowChunk chunk, CancellationToken ct = default, int maxWorkers = 0)
         {
             if (yTo <= yFrom) return 0;
-            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            int dop = GetMaxParallelism();
+            if (maxWorkers > 0 && maxWorkers < dop) dop = maxWorkers;
+            var po = new ParallelOptions { MaxDegreeOfParallelism = dop, CancellationToken = ct };
             int total = 0;
             object gate = new object();
             Parallel.ForEach(Partitioner.Create(yFrom, yTo), po,
