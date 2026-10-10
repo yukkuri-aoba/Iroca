@@ -224,8 +224,9 @@ namespace Iroca
             new PreviewJob<(Color32[] processed, Color32[] raw, Color32[] full)>();
         // 段階的リファインの第1段。ソースが大きい(scale<1)とき、まず縮小プロキシで概要を即表示する
         // 専用ジョブ。完了 apply で _previewJob(フル解像度)を同一スナップショットでスケジュールする。
-        [System.NonSerialized] private readonly PreviewJob<(Color32[] processed, Color32[] raw)> _proxyJob =
-            new PreviewJob<(Color32[] processed, Color32[] raw)>();
+        // proxy はソースをプロキシ寸法へ縮小した処理前の画素(_proxySource へ確定する)。
+        [System.NonSerialized] private readonly PreviewJob<(Color32[] processed, Color32[] raw, Color32[] proxy)> _proxyJob =
+            new PreviewJob<(Color32[] processed, Color32[] raw, Color32[] proxy)>();
         [System.NonSerialized] private Color32[] _pendingProcessedDisplay;
         [System.NonSerialized] private Color32[] _pendingRawDisplay;
         [System.NonSerialized] private int _pendingPrevW, _pendingPrevH;
@@ -276,6 +277,18 @@ namespace Iroca
         [System.NonSerialized] private Color32[] _cachedRawDisplay;
         [System.NonSerialized] private int _cachedSrcW, _cachedSrcH;
         [System.NonSerialized] private int _cachedPrevW, _cachedPrevH;
+
+        // プロキシ段の入力(ソースをプロキシ寸法へ縮小したもの)と、その表示寸法の before。ソース画素と寸法だけで
+        // 決まるので、同じソースの間は使い回す(操作のたびに 4K から縮小し直さない)。ジョブは読むだけで、
+        // このフィールドを触るのはメインスレッド(スケジュール時に読み、apply で確定)だけ。
+        private sealed class ProxySourceCache
+        {
+            public Color32[] src;        // 縮小元のソース画素(参照で照合する)
+            public int w, h, prevW, prevH;
+            public Color32[] proxy;      // プロキシ寸法(処理前)
+            public Color32[] display;    // proxy を表示寸法へ縮小したもの(寸法が同じなら proxy と同じ配列)
+        }
+        [System.NonSerialized] private ProxySourceCache _proxySource;
 
         // 選択結果キャッシュ: 「ターゲット色など再着色のみ」を変えたプレビュー再生成で、選択フェーズ
         // (Match/FloodFill/穴埋め/境界/ブラー/マスク再適用)を再計算せず復元して高速化する。
@@ -374,6 +387,7 @@ namespace Iroca
             _cachedSourceTexture = null;
             _cachedSrcPixels = null;
             _cachedRawDisplay = null;
+            _proxySource = null;
             _cachedSrcW = _cachedSrcH = 0;
             _cachedPrevW = _cachedPrevH = 0;
             _trueSourceFor = null;

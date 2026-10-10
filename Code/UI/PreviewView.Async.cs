@@ -175,20 +175,26 @@ namespace Iroca
             var proxySelCache = _proxySelectionCache;
             var marks = req.latency.Proxy;
             marks.Scheduled = PreviewLatencyCycle.Now;
+            // 同じソース・同じ寸法で縮小済みなら使い回す(ジョブは読むだけ)。
+            var cached = _proxySource;
+            if (cached != null && !(ReferenceEquals(cached.src, req.srcPixels) && cached.w == proxyW
+                    && cached.h == proxyH && cached.prevW == req.prevW && cached.prevH == req.prevH))
+                cached = null;
 
             _proxyJob.Schedule(
                 work: token =>
                 {
                     marks.WorkStart = PreviewLatencyCycle.Now;
                     // ソースをプロキシ解像度へ縮小してから処理する(全フェーズが画素数に比例して軽くなる)。
-                    // BoxDownsample は新規配列を返すので ProcessPixelsArray の破壊書き換えで clone 不要。
-                    Color32[] proxyPixels = PixelProcessor.BoxDownsample(
-                        req.srcPixels, req.srcW, req.srcH, proxyW, proxyH, proxyScale);
                     // raw(比較/差分表示の before)は processed と同じリサンプル鎖を通す。
                     // src→表示 の 1 段縮小と src→proxy→表示 の 2 段縮小では箱平均の境界が
                     // 揃わず、再着色していない画素まで差分閾値を超えて誤点灯するため
                     // (実テクスチャで表示画素の ~17%)。処理前のプロキシを控えて同じ鎖へ流す。
-                    Color32[] proxyRaw = (Color32[])proxyPixels.Clone();
+                    // 控え(proxyRaw)はソースと寸法だけで決まるので、前の回のものがあればそれを使う。
+                    // 処理は ProcessPixelsArray が書き換えるので、その複製に対して行う。
+                    Color32[] proxyRaw = cached?.proxy ?? PixelProcessor.BoxDownsample(
+                        req.srcPixels, req.srcW, req.srcH, proxyW, proxyH, proxyScale);
+                    Color32[] proxyPixels = (Color32[])proxyRaw.Clone();
                     marks.CoreStart = PreviewLatencyCycle.Now;
                     // 控えた proxyRaw は処理前と同じ中身なので、Core の入力スナップショットにも使う(複製しない)。
                     PixelProcessor.ProcessPixelsArray(proxyPixels, proxyW, proxyH, req.maskSnap, req.zonesSnapshot,
@@ -204,15 +210,22 @@ namespace Iroca
                     Color32[] processedDisplay = needsResample
                         ? PixelProcessor.BoxDownsample(proxyPixels, proxyW, proxyH, req.prevW, req.prevH, toDisplay)
                         : proxyPixels;
-                    Color32[] rawForJob = needsResample
+                    Color32[] rawForJob = cached?.display ?? (needsResample
                         ? PixelProcessor.BoxDownsample(proxyRaw, proxyW, proxyH, req.prevW, req.prevH, toDisplay)
-                        : proxyRaw;
+                        : proxyRaw);
                     marks.WorkEnd = PreviewLatencyCycle.Now;
-                    return (processedDisplay, rawForJob);
+                    return (processedDisplay, rawForJob, proxyRaw);
                 },
                 apply: result =>
                 {
                     marks.Applied = PreviewLatencyCycle.Now;
+                    // 縮小した控えを確定する(ソースが替わっていなければ。表示側も before を読むだけ)。
+                    if (cached == null && ReferenceEquals(req.srcPixels, _cachedSrcPixels))
+                        _proxySource = new ProxySourceCache
+                        {
+                            src = req.srcPixels, w = proxyW, h = proxyH, prevW = req.prevW, prevH = req.prevH,
+                            proxy = result.proxy, display = result.raw,
+                        };
                     _pendingIsFinal          = false;
                     _pendingIsDrag           = !chainFull;
                     _pendingLatency          = req.latency;
