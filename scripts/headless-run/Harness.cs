@@ -578,7 +578,9 @@ namespace Iroca
                         out int proxyW, out int proxyH, out float proxyScale);
                     var proxyPixels = PixelProcessor.BoxDownsample(
                         pixels, w, h, proxyW, proxyH, proxyScale);
-                    ProcessZones(proxyPixels, proxyW, proxyH, masks, zoneList, st);
+                    // ScheduleProxyPreview と同じく、処理前のプロキシの控えを Core の入力として渡す。
+                    var proxyRaw = (Color32[])proxyPixels.Clone();
+                    ProcessZones(proxyPixels, proxyW, proxyH, masks, zoneList, st, source: proxyRaw);
                     // ScheduleProxyPreview と同じ: プロキシ寸法≠表示寸法のときだけ再縮小。
                     bool needsResample = proxyW != prevW || proxyH != prevH;
                     float toDisplay = prevW / (float)proxyW;
@@ -589,7 +591,9 @@ namespace Iroca
                 }
                 else
                 {
-                    ProcessZones(pixels, w, h, masks, zoneList, st);
+                    // ScheduleFullPreview と同じく、写し元のソース画素を Core の入力として渡す。
+                    var srcPixels = (Color32[])pixels.Clone();
+                    ProcessZones(pixels, w, h, masks, zoneList, st, source: srcPixels);
                     display = dispScale < 1f
                         ? PixelProcessor.BoxDownsample(pixels, w, h, prevW, prevH, dispScale)
                         : pixels;
@@ -667,14 +671,16 @@ namespace Iroca
         // ─── 単発実行・--batch・--session が共有する処理本体 ───
         // ここを経由しない処理経路を足さないこと(テストが製品と違う設定を測る事故になる)。
         // selectionCache は --session だけが渡す(製品 PreviewView の持ち越しを再現)。
+        // source は処理前の pixels と同じ中身の配列。プレビューと同じく写し元を渡す経路(--batch・--session・
+        // --stage)はこれを渡し、書き出しと同じく Core に複製させる経路(単発実行)は null のまま。
         private static void ProcessZones(Color32[] pixels, int w, int h,
                                          MaskSnapshot masks, List<ColorZone> zoneList, SettingsCfg st,
-                                         SelectionCache selectionCache = null)
+                                         SelectionCache selectionCache = null, Color32[] source = null)
         {
             var sw = Stopwatch.StartNew();
             PixelProcessor.ProcessPixelsArray(
                 pixels, w, h, masks, zoneList, st.ToRecolorSettings(),
-                selectionCache: selectionCache);
+                selectionCache: selectionCache, sourcePixels: source);
             sw.Stop();
             Console.Error.WriteLine($"PROCESS_MS {sw.Elapsed.TotalMilliseconds:F2}");
         }
@@ -776,7 +782,7 @@ namespace Iroca
                     zones = null,
                 };
                 AttachZoneMasks(masks, zoneMasks);
-                ProcessZones(pixels, w, h, masks, zoneList, st);
+                ProcessZones(pixels, w, h, masks, zoneList, st, source: basePixels);
                 WriteRawRgba(c.@out, w, h, pixels);
                 Console.WriteLine($"OK {w}x{h} -> {c.@out} (zones={zoneList.Count})");
             }
@@ -813,7 +819,7 @@ namespace Iroca
                 var (zoneList, st, zoneMasks, _) = LoadZones(s.zones, ids);
                 AttachZoneMasks(masks, zoneMasks);
                 var pixels = (Color32[])basePixels.Clone();
-                ProcessZones(pixels, w, h, masks, zoneList, st, selCache);
+                ProcessZones(pixels, w, h, masks, zoneList, st, selCache, source: basePixels);
                 WriteRawRgba(s.@out, w, h, pixels);
                 Console.WriteLine($"OK-SESSION step={step} {w}x{h} -> {s.@out} (zones={zoneList.Count})");
                 step++;

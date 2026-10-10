@@ -165,6 +165,9 @@ namespace Iroca
         // fullW/H: フル解像度テクスチャの寸法（0 = w/hと同じ、つまりクロップなし）
         // 全体設定は RecolorSettings で受け取る（呼び出し元ごとに位置引数を並べ直させない）。
         // cancellationToken: バックグラウンドのプレビュー/エクスポートが渡す
+        // sourcePixels: 呼び出した時点の pixels と同じ中身の配列(長さ w*h 以上)。処理中は読むだけで、
+        //   呼び出し側も書き換えないこと。渡すと入力のスナップショット(4K で 64MB の複製)を作らずにこれを読む。
+        //   プレビューはソース画素を pixels へ写してから呼ぶので、写し元をそのまま渡せる。null なら内部で複製する。
         public static void ProcessPixelsArray(
             Color32[] pixels, int w, int h,
             MaskSnapshot masks,
@@ -174,11 +177,12 @@ namespace Iroca
             int originX = 0, int originY = 0, int fullW = 0, int fullH = 0,
             IDebugCapture debug = null,
             PreviewParityCache parityCache = null,
-            SelectionCache selectionCache = null)
+            SelectionCache selectionCache = null,
+            Color32[] sourcePixels = null)
         {
             ProcessPixelsArrayCore(pixels, w, h, masks, sortedZones, in settings,
                 originX, originY, fullW, fullH, cancellationToken,
-                debug, parityCache, selectionCache);
+                debug, parityCache, selectionCache, sourcePixels);
         }
 
         // デコンタミの「内部」判定しきい値。ユーザー設定ではない固定値。
@@ -209,7 +213,8 @@ namespace Iroca
             CancellationToken cancellationToken,
             IDebugCapture debug,
             PreviewParityCache parityCache,
-            SelectionCache selectionCache)
+            SelectionCache selectionCache,
+            Color32[] sourcePixels)
         {
             // 全体設定を同じ名前のローカルへ展開する。in 引数はラムダから参照できないので、
             // 本体(ラムダを含む)はこのローカルだけを読み、settings は以降参照しない。
@@ -236,6 +241,15 @@ namespace Iroca
                 throw new System.ArgumentException(
                     $"pixels.Length({pixels.Length}) < w*h({lenLong})", nameof(pixels));
             if (sortedZones == null) throw new System.ArgumentNullException(nameof(sortedZones));
+            if (sourcePixels != null)
+            {
+                // pixels そのものは処理中に書き換わるので、入力の控えにはならない。
+                if (ReferenceEquals(sourcePixels, pixels))
+                    throw new System.ArgumentException("sourcePixels must not be the pixels array itself", nameof(sourcePixels));
+                if (sourcePixels.Length < lenLong)
+                    throw new System.ArgumentException(
+                        $"sourcePixels.Length({sourcePixels.Length}) < w*h({lenLong})", nameof(sourcePixels));
+            }
 
             if (fullW <= 0) fullW = w;
             if (fullH <= 0) fullH = h;
@@ -252,8 +266,10 @@ namespace Iroca
                     out maskColOf, out maskRowBase);
 
             int len = (int)lenLong;
-            Color32[] originalPixels = s_color32Pool.Rent(len);   // 末尾の finally で Return
-            System.Array.Copy(pixels, originalPixels, len);
+            // 入力のスナップショット。以降は読むだけなので、呼び出し側が同じ中身を持っていればそれを使う。
+            bool ownsOriginal = sourcePixels == null;
+            Color32[] originalPixels = sourcePixels ?? s_color32Pool.Rent(len);   // 借りたものは末尾の finally で Return
+            if (ownsOriginal) System.Array.Copy(pixels, originalPixels, len);
 
             long _t0 = Stopwatch.GetTimestamp();
             var _perfZones = new ZonePerfEntry[sortedZones.Count];
@@ -1408,7 +1424,7 @@ namespace Iroca
                     if (pixS != null) s_floatPool.Return(pixS);
                     if (pixH != null) s_floatPool.Return(pixH);
                 }
-                s_color32Pool.Return(originalPixels);
+                if (ownsOriginal) s_color32Pool.Return(originalPixels);
             }
             var _perfPhases = new PhasePerfEntry[PhaseCount];
             for (int p = 0; p < PhaseCount; p++)

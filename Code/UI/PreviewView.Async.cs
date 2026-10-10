@@ -188,9 +188,11 @@ namespace Iroca
                     // (実テクスチャで表示画素の ~17%)。処理前のプロキシを控えて同じ鎖へ流す。
                     Color32[] proxyRaw = (Color32[])proxyPixels.Clone();
                     marks.CoreStart = PreviewLatencyCycle.Now;
+                    // 控えた proxyRaw は処理前と同じ中身なので、Core の入力スナップショットにも使う(複製しない)。
                     PixelProcessor.ProcessPixelsArray(proxyPixels, proxyW, proxyH, req.maskSnap, req.zonesSnapshot,
                         req.settings, token,
-                        debug: null, parityCache: null, selectionCache: proxySelCache);
+                        debug: null, parityCache: null, selectionCache: proxySelCache,
+                        sourcePixels: proxyRaw);
                     marks.CoreEnd = PreviewLatencyCycle.Now;
                     marks.CoreReport = DebugCaptureHooks.TakeThreadPerfReport();
 
@@ -253,9 +255,12 @@ namespace Iroca
                     {
                         System.Array.Copy(req.srcPixels, pixels, pixels.Length);
                         marks.CoreStart = PreviewLatencyCycle.Now;
+                        // 写し元のソース画素は誰も書き換えない(テクスチャが変われば別の配列になる)ので、
+                        // Core の入力スナップショットにそのまま使う(4K で 64MB の複製を作らない)。
                         PixelProcessor.ProcessPixelsArray(pixels, req.srcW, req.srcH, req.maskSnap, req.zonesSnapshot,
                             req.settings, token,
-                            debug: req.debugCap, selectionCache: selCache);
+                            debug: req.debugCap, selectionCache: selCache,
+                            sourcePixels: req.srcPixels);
                         marks.CoreEnd = PreviewLatencyCycle.Now;
                         marks.CoreReport = DebugCaptureHooks.TakeThreadPerfReport();
 

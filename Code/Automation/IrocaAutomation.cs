@@ -373,7 +373,8 @@ namespace Iroca
             var originalPixels = (Color32[])pixels.Clone();
 
             // v1: マスクはヘッドレス適用しない（masks=null は ProcessPixelsArray で安全に扱われる）。
-            PixelProcessor.ProcessPixelsArray(pixels, w, h, null, sorted, settings);
+            PixelProcessor.ProcessPixelsArray(pixels, w, h, null, sorted, settings,
+                sourcePixels: originalPixels);
 
             string outAbs = ResolveOutputPath(outputAssetPath);
             if (outAbs == null)
