@@ -124,7 +124,7 @@ namespace Iroca.DebugTools
         private static void DrawThreadControl(IrocaWindow host)
         {
             int cpuCount = Environment.ProcessorCount;
-            int defaultCount = Math.Max(1, cpuCount - 2);
+            int defaultCount = PixelProcessor.DefaultParallelism;
             bool isAuto = DebugCaptureHooks.ParallelismOverride <= 0;
             int displayCount = isAuto ? defaultCount : DebugCaptureHooks.ParallelismOverride;
 
@@ -132,7 +132,7 @@ namespace Iroca.DebugTools
             bool newAuto = EditorGUILayout.ToggleLeft(
                 new GUIContent(
                     $"スレッド数を自動設定  (現在: {displayCount} / {cpuCount} コア使用)",
-                    $"ON: CPU コア数 - 2 = {defaultCount} スレッドを自動使用。\n" +
+                    $"ON: CPU コア数 - 2 (8 コア未満は - 1) = {defaultCount} スレッドを自動使用。\n" +
                     "Unity Editor のスレッドプール圧迫を防ぐデフォルト設定です。\n" +
                     "OFF にするとスライダーで手動設定できます。"),
                 isAuto);

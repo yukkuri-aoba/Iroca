@@ -370,7 +370,7 @@ namespace Iroca
                 return RunUvCharts(args[1], args[2], int.Parse(args[3]), int.Parse(args[4]), args[5]);
 
             // 並列テスト実行時にスレッド数を絞れるようにする(既定=未設定=製品と同じ
-            // ProcessorCount-2)。設定したときだけ効くので、通常実行の挙動は変わらない。
+            // PixelProcessor.DefaultParallelism)。設定したときだけ効くので、通常実行の挙動は変わらない。
             var threadsEnv = Environment.GetEnvironmentVariable("IROCA_HARNESS_THREADS");
             if (!string.IsNullOrEmpty(threadsEnv)
                 && int.TryParse(threadsEnv, out int threads) && threads > 0)

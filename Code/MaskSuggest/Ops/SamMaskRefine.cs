@@ -29,9 +29,9 @@ namespace Iroca
 
         /// <summary>
         /// Ops 共通の並列設定。並列度は PixelProcessor.GetMaxParallelism() と同じ規則
-        /// (直書きしない。既定の全コア−2 と DebugCaptureHooks.ParallelismOverride は向こうで決める)。
+        /// (直書きしない。既定のスレッド数と DebugCaptureHooks.ParallelismOverride は向こうで決める)。
         /// token を渡すと Parallel.For がパーティション境界でキャンセルを観測する
-        /// (破棄確定の後処理が全コア−2 を占有し続け、次クリックの計算と奪い合うのを防ぐ)。
+        /// (破棄確定の後処理が計算用のスレッドを占有し続け、次クリックの計算と奪い合うのを防ぐ)。
         /// </summary>
         internal static ParallelOptions MakeParallelOptions(System.Threading.CancellationToken token = default) => new ParallelOptions
         {

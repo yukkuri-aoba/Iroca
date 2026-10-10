@@ -20,14 +20,25 @@ namespace Iroca
     internal static partial class PixelProcessor
     {
         // Parallel.For で使用する既定の CPU コア数制限。
-        // Unity Editor は多数のスレッドを使用するため、全コア並列で
-        // スレッドプールを圧迫するのを防ぐため 2 コア分をあけておく。
+        // 計算はバックグラウンドで走り、その間もメインスレッドが UI を描くので、全コア並列にせず
+        // コアをあけておく。あける数は割合でなく固定: 要るのは Unity のメインスレッドと描画などの
+        // 分で、コア数に比例しない。8 論理コア以上は 2、それ未満は 1(4 コア 4 スレッドで 2 本しか
+        // 使わず半分遊ばせていた)。最低 1 はあける(全コアにすると操作中の UI が引っかかる)。
         // オーバーライドは DebugCaptureHooks.ParallelismOverride で設定可能。
         private static readonly int s_defaultParallelism =
-            Math.Max(1, Environment.ProcessorCount - 2);
+            ComputeDefaultParallelism(Environment.ProcessorCount);
+
+        internal static int ComputeDefaultParallelism(int processorCount)
+        {
+            int reserve = processorCount >= 8 ? 2 : 1;
+            return Math.Max(1, processorCount - reserve);
+        }
+
+        // デバッグ画面の「自動」の表示が実際の既定値と食い違わないよう、計算式はここだけに置く。
+        internal static int DefaultParallelism => s_defaultParallelism;
 
         // ZoneAutoTuner など Core の他クラスからも同じ規則で並列度を決められるよう internal。
-        // 各所で Environment.ProcessorCount - 2 を直書きすると、デバッグ時のスレッド数指定が
+        // 各所で Environment.ProcessorCount から直に計算すると、デバッグ時のスレッド数指定が
         // 一部の処理にだけ効かず、計測が食い違う。
         internal static int GetMaxParallelism()
         {
