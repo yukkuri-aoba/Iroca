@@ -16,7 +16,7 @@ namespace Iroca
     //                               シーンのライブプレビューへの通知
     //   IrocaWindow.SceneClick.cs … Scene でモデルをクリックした場所をプレビューで示す
     //   IrocaWindow.Autosave.cs   … 編集内容の自動保存
-    public partial class IrocaWindow : EditorWindow, IHasCustomMenu
+    public partial class IrocaWindow : EditorWindow, IHasCustomMenu, ISerializationCallbackReceiver
     {
         // [SerializeField] を付けることで、スクリプト再コンパイル時に Unity が
         // EditorWindow の状態をシリアライズ/復元し、入力内容が失われにくくなる。
@@ -198,6 +198,8 @@ namespace Iroca
 
         private void OnEnable()
         {
+            // ドメインリロードの書き戻しはここで取り込むので、次の Undo の印として残さない。
+            _stateRestoredByUnity = false;
             _session ??= IrocaSessionState.CreateDefault();
             _exportView ??= new ExportView();
             _exportView.Initialize(this);
@@ -269,8 +271,24 @@ namespace Iroca
             RememberLastEditedTexture();
         }
 
+        // Unity がこのウィンドウの状態を書き戻した(Undo/Redo・ドメインリロード)印。
+        // Undo.undoRedoPerformed はエディタ全体の Undo で呼ばれるので、シーンや別ウィンドウの
+        // Ctrl+Z でも、これが立っていなければウィンドウの状態は変わっていない。Undo の書き戻しは
+        // シリアライザ経由で OnAfterDeserialize を通る(UndoRestoreSignalTests が実機で確かめている)。
+        [System.NonSerialized] private bool _stateRestoredByUnity;
+
+        void ISerializationCallbackReceiver.OnBeforeSerialize() { }
+
+        // 読み込みスレッドから呼ばれることがあるので、印を立てる以外のことはしない。
+        void ISerializationCallbackReceiver.OnAfterDeserialize() => _stateRestoredByUnity = true;
+
         private void OnUndoRedoPerformed()
         {
+            // 関係ない Undo(シーンのオブジェクトの移動など)で、全マスクの再展開とフル解像度の
+            // 再生成を走らせない。
+            if (!_stateRestoredByUnity) return;
+            _stateRestoredByUnity = false;
+
             // _session.maskState の RLE 文字列が Undo で書き戻されたので、
             // bool[] バッファを再展開してオーバーレイ・プレビューを更新させる。
             if (_maskView != null)
