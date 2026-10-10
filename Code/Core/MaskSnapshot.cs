@@ -36,9 +36,48 @@ namespace Iroca
         {
             if (mask == null) return null;
             var packed = new ulong[(mask.Length + 63) >> 6];
-            for (int i = 0; i < mask.Length; i++)
-                if (mask[i]) packed[i >> 6] |= 1UL << (i & 63);
+            int words = packed.Length;
+            // 64 画素 = 1 語ごとに独立なので、大きいマスクは語の範囲に分けて並列に詰める(どの語も同じ値になる)。
+            // プレビューは生成のたびにメインスレッドで全マスクを詰める(BuildSnapshot)ので、ここで待つ時間が
+            // そのまま操作の遅れになる(4K で 1 枚 1677 万画素)。
+            int dop = mask.Length >= PackParallelMinPixels ? PixelProcessor.GetMaxParallelism() : 1;
+            if (dop <= 1)
+            {
+                PackWords(mask, packed, 0, words);
+                return packed;
+            }
+            int chunk = (words + dop - 1) / dop;
+            Parallel.For(0, dop, new ParallelOptions { MaxDegreeOfParallelism = dop }, p =>
+            {
+                int w0 = p * chunk, w1 = Math.Min(words, w0 + chunk);
+                if (w0 < w1) PackWords(mask, packed, w0, w1);
+            });
             return packed;
+        }
+
+        // これ未満の画素数のマスクは並列にしない(スレッドの起動の方が高い)。
+        private const int PackParallelMinPixels = 1 << 18;
+
+        // 語 [w0, w1) を詰める。語 wi は画素 wi*64 .. wi*64+63 で、画素 i は語の (i & 63) ビット目。
+        private static void PackWords(bool[] mask, ulong[] packed, int w0, int w1)
+        {
+            int n = mask.Length;
+            for (int wi = w0; wi < w1; wi++)
+            {
+                int i0 = wi << 6, i1 = Math.Min(n, i0 + 64);
+                ulong v = 0UL;
+                for (int i = i0; i < i1; i++)
+                    if (mask[i]) v |= 1UL << (i - i0);
+                packed[wi] = v;
+            }
+        }
+
+        // 詰めたマスクに立っているビットがあるか(null は false)。
+        private static bool AnyBitSet(ulong[] packed)
+        {
+            if (packed == null) return false;
+            for (int i = 0; i < packed.Length; i++) if (packed[i] != 0UL) return true;
+            return false;
         }
 
         /// <summary>
@@ -71,10 +110,13 @@ namespace Iroca
             {
                 foreach (var kv in includes)
                 {
-                    if (kv.Value == null || !AnyTrue(kv.Value)) continue;
+                    if (kv.Value == null) continue;
+                    // 全 false かは詰めた後の語で見る(bool[] を先頭から 1 つずつ読み直さない)。
+                    var packed = Pack(kv.Value);
+                    if (!AnyBitSet(packed)) continue;
                     if (snap.zoneIncludes == null)
                         snap.zoneIncludes = new Dictionary<string, ulong[]>();
-                    snap.zoneIncludes[kv.Key] = Pack(kv.Value);
+                    snap.zoneIncludes[kv.Key] = packed;
                 }
             }
             return snap;
