@@ -124,10 +124,11 @@ namespace Iroca.DebugTools
                     zm.autoTuneInputTarget.AddRange(new[] { ati.target.r, ati.target.g, ati.target.b });
                     zm.autoTuneMaskUsed = ati.maskUsed;
                     zm.autoTuneParamsIntact = IrocaWindow.AutoTuneParamsIntact(zones[i], ati);
-                    if (ati.evidence != null && ati.evW == w && ati.evH == h && ati.evidence.Length >= w * h)
+                    if (ati.evidence != null && ati.evW == w && ati.evH == h
+                        && ati.evidence.Length >= ((long)w * h + 63) >> 6)
                     {
                         zm.autoTuneEvidence = $"zone{i}_evidence.png";
-                        WriteBoolPng(Path.Combine(dir, zm.autoTuneEvidence), ati.evidence, w, h);
+                        WriteMaskPng(Path.Combine(dir, zm.autoTuneEvidence), ati.evidence, w, h);
                     }
                 }
                 if (snap != null)
@@ -200,17 +201,6 @@ namespace Iroca.DebugTools
                 useDecontamination = s.useDecontamination,
                 decontaminationRadius = s.decontaminationRadius,
             };
-        }
-
-        // bool[](下原点、テクスチャ解像度)を白=真の PNG に書く(証拠マスク用)。
-        private static void WriteBoolPng(string path, bool[] on, int w, int h)
-        {
-            var px = new Color32[w * h];
-            var yes = new Color32(255, 255, 255, 255);
-            var no = new Color32(0, 0, 0, 255);
-            for (int i = 0; i < px.Length; i++)
-                px[i] = on[i] ? yes : no;
-            DebugImaging.WritePng(path, px, w, h);
         }
 
         private static void WriteMaskPng(string path, ulong[] packed, int w, int h)

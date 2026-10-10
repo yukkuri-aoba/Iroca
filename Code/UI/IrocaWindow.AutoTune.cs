@@ -51,7 +51,9 @@ namespace Iroca
         {
             public Color sample;          // 導出に渡したサンプル色(正規化前のスポイト色)
             public Color target;
-            public bool[] evidence;       // 証拠マスク(下原点。null=証拠なし導出)
+            // 証拠マスク(下原点、1bit/画素に MaskSnapshot.Pack したもの。null=証拠なし導出)。
+            // bool[] のままだと 4K で 1 ゾーン 16MB を持ち続ける(詰めると 2MB)。
+            public ulong[] evidence;
             public int evW, evH;
             public int texW, texH;
             public bool maskUsed;         // 除外マスク(共通∪ゾーン別)を導出に渡したか
@@ -65,6 +67,19 @@ namespace Iroca
             input = null;
             if (_autoTuneInputs == null || string.IsNullOrEmpty(zoneId)) return false;
             return _autoTuneInputs.TryGetValue(zoneId, out input) && input != null;
+        }
+
+        // セッションに無いゾーン(削除した・別のテクスチャに切り替えた)の入力を捨てる。プレビュー生成ごとに
+        // 選択キャッシュと同じ id の集合で刈る。削除を Undo で戻したゾーンは入力が無い状態になり、
+        // ドメインリロードの後と同じく、再現データに載らず次の自動調整では上書きの確認が出る(安全側)。
+        internal void RetainAutoTuneInputs(System.Collections.Generic.ICollection<string> liveZoneIds)
+        {
+            if (_autoTuneInputs == null || _autoTuneInputs.Count == 0) return;
+            System.Collections.Generic.List<string> gone = null;
+            foreach (var id in _autoTuneInputs.Keys)
+                if (!liveZoneIds.Contains(id)) (gone ??= new System.Collections.Generic.List<string>()).Add(id);
+            if (gone == null) return;
+            foreach (var id in gone) _autoTuneInputs.Remove(id);
         }
 
         // 自動調整の適用値と同じとみなす許容差（AutoTuneParamsIntact / AutoTuneValuesIntact で共用）。
@@ -279,6 +294,8 @@ namespace Iroca
             _autoTuneProgress.Reset();
             _autoTuneProgress.Report(0.05f);
 
+            // 適用後も持つ証拠(再現データ用)は 1bit/画素に詰めたもの。詰めるのは解析と同じバックグラウンドで。
+            ulong[] evidencePacked = null;
             _autoTuneJob.Schedule(
                 work: ct =>
                 {
@@ -292,6 +309,7 @@ namespace Iroca
                             evidence, evW, evH, excluded, mw, mh, ct, p => _autoTuneProgress.Report(p))
                         : ZoneAutoTuner.Analyze(pixels, texW, texH, zoneSnapshot, sessionSnapshot, excluded, mw, mh, ct,
                             p => _autoTuneProgress.Report(p));
+                    evidencePacked = MaskSnapshot.Pack(evidence);   // null は null
                     _autoTuneProgress.Report(1.0f);
                     return result;
                 },
@@ -309,7 +327,7 @@ namespace Iroca
                     _autoTuneInputs[targetZone.id] = new AutoTuneInput
                     {
                         sample = zoneSnapshot.sampleColor, target = zoneSnapshot.targetColor,
-                        evidence = evidence, evW = evW, evH = evH, texW = texW, texH = texH,
+                        evidence = evidencePacked, evW = evW, evH = evH, texW = texW, texH = texH,
                         maskUsed = excluded != null, applied = result,
                     };
                     MarkPreviewDirty();

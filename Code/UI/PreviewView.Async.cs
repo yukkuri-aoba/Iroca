@@ -68,6 +68,8 @@ namespace Iroca
             // 削除されたゾーンの選択キャッシュ(4K で 67MB/ゾーン)が恒久残留しないよう、セッションに
             // 現存するゾーン id 以外のエントリを毎回刈る(無効ゾーンは残す=再有効化で再計算を避ける)。
             var liveZoneIds = new HashSet<string>(session.zones.Select(z => z.id));
+            // 自動調整の入力(証拠マスク)も同じ集合で刈る。
+            _host.RetainAutoTuneInputs(liveZoneIds);
             _selectionCache?.RetainOnly(liveZoneIds);
             _proxySelectionCache?.RetainOnly(liveZoneIds);
             // リストの並び順が優先度。先頭(上)ほど優先で先に処理し、重なりを占有する。
