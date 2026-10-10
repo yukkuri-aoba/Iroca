@@ -36,8 +36,8 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 4. テクスチャを選び、「スポイトで変えたい色を選ぶ」を押してプレビュー上の色をクリックし、「変更先カラー」で新しい色を決めます
 5. 「アバターに非破壊で登録」で、アバターに色替えを登録します（元のテクスチャは書き換えず、再生・アップロードのときだけ色替えされます）。画像ファイルとして保存したいときは「テクスチャとして書き出す」を開いて「適用して保存」を押します
 
-詳しい使い方は **[オンラインマニュアル](https://yukkuri-aoba.github.io/Iroca/manual/)** をご覧ください
-（設定の効き方をスライダーで試せます）。テキスト版は [MANUAL.md](MANUAL.md) です。
+詳しい使い方は、いろかウィンドウ上部の「マニュアル」で開けます（インストールした版のマニュアルが、
+ブラウザで開きます）。最新版は **[オンラインマニュアル](https://yukkuri-aoba.github.io/Iroca/manual/)** です。
 
 ### 主な機能
 
@@ -83,7 +83,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 - 色のグラデーションが複雑なテクスチャ
 - 反射や光沢の強いテクスチャ
 
-これらのケースでも、[MANUAL.md](MANUAL.md) の「トラブルシューティング」で対策を紹介しています。
+これらのケースでも、マニュアルの「トラブルシューティング」で対策を紹介しています。
 
 ### インストール手順
 
@@ -139,7 +139,8 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 4. Click `Register to avatar (non-destructive)` (the original texture is kept; the recoloring happens only when entering Play mode or uploading). To save an image file instead, open `Export as a texture` and click `Apply & Save`
 
 See the **[online manual](https://yukkuri-aoba.github.io/Iroca/manual/)** for detailed instructions
-(sliders let you try how each setting behaves). A plain-text version lives in [MANUAL.md](MANUAL.md).
+(the `Manual` button at the top of the Iroca window opens the copy for your installed version).
+The manual is in Japanese for now; an English version will follow.
 
 ### Main Features
 
@@ -184,7 +185,7 @@ See the **[online manual](https://yukkuri-aoba.github.io/Iroca/manual/)** for de
 - Textures with complex color gradients
 - Textures with reflections or specular highlights
 
-See [MANUAL.md](MANUAL.md) for workarounds and tips.
+The manual's troubleshooting chapter covers workarounds and tips.
 
 ### Installation
 

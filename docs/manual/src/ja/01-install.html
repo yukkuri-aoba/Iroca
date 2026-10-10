@@ -1,0 +1,22 @@
+<h2>インストール</h2>
+
+<h3 id="install--前提条件">前提条件</h3>
+
+<ul>
+  <li>Unity 2022.3（2022.3.22f1・Windows で検証しています。自動調整と AI マスク提案に使う Unity Sentis 2.1.3 は 2022.3.11f1 以降が必要です）</li>
+  <li>PNG / JPG のテクスチャはそのまま使えます</li>
+  <li>PSD・TGA・EXR などは Read/Write Enabled が必要です。無効のときはウィンドウに警告が出て、「Read/Write を自動で有効にする」ボタンで有効にできます（Undo できないため確認が出ます）</li>
+</ul>
+
+<h3 id="install--手順">手順</h3>
+
+<ol>
+  <li><a href="https://github.com/yukkuri-aoba/Iroca/releases" target="_blank" rel="noopener">GitHub Releases</a> から <code>Iroca_Installer.unitypackage</code> をダウンロードします。</li>
+  <li>Unity のプロジェクトウィンドウへドラッグ＆ドロップし、「Import」を押します。</li>
+  <li>確認ダイアログで「Install」を押すと、いろかの最新版がダウンロードされ、プロジェクトの <code>Packages</code> に入ります（インターネット接続が必要です。インストーラ自体は自動で消えます）。</li>
+  <li>メニューの <code>Tools &gt; いろか</code> でウィンドウを開きます。</li>
+</ol>
+
+<p>VCC / ALCOM を使っているなら、リポジトリ <code>https://yukkuri-aoba.github.io/Iroca/index.json</code> を追加して、プロジェクトの管理画面から「いろか」と「Non-Destructive Modular Framework」（NDMF）を追加する方法でも導入できます。NDMF もこのリポジトリに載っています。新しい版が出たら、VCC / ALCOM から更新するか、インストーラをもう一度読み込みます。</p>
+
+<blockquote>旧版（0.1.0、旧名 VRC Avatar Color Changer）を使っていた場合は、<code>Assets/VACC</code> フォルダを削除してください。いろかとは別物として入るため、残すと旧版も動いたままになります。プロジェクト内に保存したプリセットが必要なら、削除の前にバックアップしてください。</blockquote>

@@ -125,19 +125,20 @@ try {
         return @($out | Where-Object { $_ -ne "" })
     }
 
-    # 作業ツリーが汚れていれば zip は HEAD の内容ではない。Code/ は リリース手順の中で
-    # 編集しない場所なので、汚れていたら止める（package.json / CHANGELOG.md / docs/index.json は
-    # この手順自体が書き換えるため対象外）。
-    $dirty = @((& git status --porcelain -- Code) | Where-Object { $_ -ne "" })
+    # 作業ツリーが汚れていれば zip は HEAD の内容ではない。Code/ とマニュアルの原稿（docs/manual。
+    # zip に入れる HTML をここから作る）はリリース手順の中で編集しない場所なので、汚れていたら止める
+    # （package.json / CHANGELOG.md / docs/index.json はこの手順自体が書き換えるため対象外。
+    # マニュアルの生成物 docs/manual/dist/ は追跡しないので数えない）。
+    $dirty = @((& git status --porcelain -- Code docs/manual) | Where-Object { $_ -ne "" })
     if ($LASTEXITCODE -ne 0) { throw "git status に失敗しました" }
     if ($dirty.Count -gt 0) {
         $listing = ($dirty -join "`n  ")
         if (-not $AllowDirtyTree) {
-            throw ("Code/ に未コミットの変更があります。この zip は HEAD の内容と一致せず、" +
+            throw ("Code/ か docs/manual/ に未コミットの変更があります。この zip は HEAD の内容と一致せず、" +
                    "クリーン clone から再生成できません。`n  $listing`n" +
                    "  コミットしてから再実行するか、意図的なら -AllowDirtyTree を付けてください。")
         }
-        Write-Host "[WARN] -AllowDirtyTree: Code/ が未コミットのまま梱包します（再現不能）"
+        Write-Host "[WARN] -AllowDirtyTree: Code/ か docs/manual/ が未コミットのまま梱包します（再現不能）"
         Write-Host "  $listing"
     }
 
@@ -149,7 +150,7 @@ try {
         (& git log -1 --format=%cI HEAD).Trim()).ToUniversalTime()
 
     $packedFiles = @()
-    $packedFiles += Get-TrackedFiles @("package.json","README.md","MANUAL.md","CHANGELOG.md","LICENSE")
+    $packedFiles += Get-TrackedFiles @("package.json","README.md","CHANGELOG.md","LICENSE")
     # Debug 衛星(Code/Debug/)は配布対象外。IrocaEditor.Debug.asmdef は defineConstraints 無し
     # ・autoReferenced=true で、同梱すると全ユーザーで常時コンパイルされ Debug ウィンドウが見えてしまう。
     # AssemblyInfo.cs の「Code/Debug が無ければ Debug ターゲットは単に存在しない」という非同梱運用想定と一致させる。
@@ -190,6 +191,17 @@ try {
         Write-Host "[OK] README.md heading already $Version"
     }
 
+    # --- マニュアル（1 枚の HTML）。版を表示するので package.json を更新した後に作る ---
+    # 原稿（docs/manual/src）と素材から docs/manual/build_manual.py が作る。同じ commit からは同じ
+    # バイト列になる。zip では Documentation~/ に置く（末尾の ~ で Unity が取り込まないので .meta が要らない。
+    # いろかウィンドウの「マニュアル」ボタンがここを開く = Code/UI/IrocaManual.cs）。
+    $python = Join-Path $Root ".venv\Scripts\python.exe"
+    if (-not (Test-Path $python)) { $python = "python" }
+    $ManualPath = Join-Path ([System.IO.Path]::GetTempPath()) ("iroca-manual-" + [guid]::NewGuid().ToString("N") + ".html")
+    & $python (Join-Path $Root "docs\manual\build_manual.py") --out $ManualPath
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ManualPath)) { throw "マニュアルの生成に失敗しました（docs/manual/build_manual.py）" }
+    Write-Host "[OK] manual built"
+
     # --- Remove old zip ---
     if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 
@@ -221,15 +233,17 @@ try {
         Write-Host "  + $EntryName"
     }
 
-    # 追跡ファイル（package.json / README / MANUAL / CHANGELOG / LICENSE / Code、Debug 除く）
+    # 追跡ファイル（package.json / README / CHANGELOG / LICENSE / Code、Debug 除く）
     foreach ($rel in $packedFiles) {
         $abs = Join-Path $Root ($rel -replace '/', '\')
         if (-not (Test-Path $abs)) { throw "追跡されているのに実体がありません: $rel" }
         Add-ZipEntry $abs $rel
     }
+    Add-ZipEntry $ManualPath "Documentation~/manual.html"
 
     $zip.Dispose()
     $stream.Dispose()
+    Remove-Item $ManualPath -Force -ErrorAction SilentlyContinue
     Write-Host "[OK] zip created: $ZipName"
 
     # --- SHA256 ---

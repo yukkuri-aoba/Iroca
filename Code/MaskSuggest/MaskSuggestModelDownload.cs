@@ -11,7 +11,7 @@ namespace Iroca
     /// ユーザーの明示ボタン操作でのみ開始し、sha256 検証後に
     /// <see cref="MaskSuggestBridge.ModelsDirectory"/> へ配置する。
     /// ネットワーク不可・検証失敗時は部分ファイルを残さない(手動配置のフォールバックは
-    /// フォルダを開くボタンと MANUAL の手順で案内する)。
+    /// フォルダを開くボタンと マニュアルの手順で案内する)。
     /// </summary>
     internal static class MaskSuggestModelDownload
     {

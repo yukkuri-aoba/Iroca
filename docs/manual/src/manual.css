@@ -1,4 +1,4 @@
-/* いろか マニュアル — 生成物は index.html（docs/manual/build_manual.py） */
+/* いろか マニュアル — docs/manual/build_manual.py が 1 枚の HTML に埋め込む */
 
 :root {
   --bg: #14151a;
@@ -429,3 +429,16 @@ mark { background: var(--accent-soft); color: var(--accent-ink); border-radius: 
   .demo { padding: .7rem; }
   td:first-child { white-space: normal; }
 }
+
+/* ── 動画 ───────────────────────────────────────── */
+.clip { margin: 1.5rem auto 1.9rem; }
+.clip.wide { max-width: min(var(--w-read), 100%) !important; }
+.clip-stage {
+  width: 100%; border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; background: var(--panel-2); box-shadow: var(--shadow);
+}
+.clip video { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.clip figcaption { text-align: left; }
+
+/* 版の表示（ローカルに置いたマニュアルが、どの版のものか分かるように） */
+.brand .ver { color: var(--fg-dim); font-size: .74rem; font-variant-numeric: tabular-nums; }

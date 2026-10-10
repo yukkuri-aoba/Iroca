@@ -1,34 +1,71 @@
-# インタラクティブ・マニュアル
+# マニュアル
 
-`MANUAL.md`（原稿の正）から生成する HTML 版。GitHub Pages の `docs/` 配下にあるので、
-公開 URL は <https://yukkuri-aoba.github.io/Iroca/manual/>。`index.html` をそのまま
-ダブルクリックしてもローカルで開ける（外部 CDN もフォントの取得もしない）。
+いろかのマニュアルは、**画像・動画・CSS・JS をすべて埋め込んだ 1 枚の HTML** で配る。
+ダブルクリックで開け、どこへ置いても壊れない（外部 CDN もフォントの取得もしない）。
+
+- パッケージに同梱する: `Documentation~/manual.html`（`scripts/Build-VpmPackage.ps1` が作って zip に入れる）。
+  いろかウィンドウ上部の「マニュアル」がこれを開く（無ければオンライン版。`Code/UI/IrocaManual.cs`）。
+- オンライン版: <https://yukkuri-aoba.github.io/Iroca/manual/>（`scripts/pages/build_site.py` が同じものを作って Pages へ）。
+
+生成物はリポジトリに入れない（動画を埋め込むと大きくなり、作り直すたびに履歴が膨らむため）。
+原稿と素材だけを追跡する。
 
 ## 中身
 
-| ファイル | 役割 |
+| パス | 役割 |
 |---|---|
-| `index.html` | 生成物。日英の本文・目次・検索インデックスを埋め込んだ 1 枚 |
-| `assets/manual.css` `assets/manual.js` | 見た目と、目次・検索・言語切替・実演デモ |
+| `src/ja/NN-<章ID>.html` | 原稿。章ごとの HTML 断片（日本語） |
+| `src/en/` | 英語版の原稿（日本語版が仕上がってから足す。フォルダに章があれば自動で言語切替が出る） |
+| `src/page.html` | ページの外枠（ヘッダー・目次・フッター） |
+| `src/manual.css` `src/manual.js` | 見た目と、目次・検索・言語切替・実演・動画 |
+| `src/demos.json` | スライダー実演の定義（コマ画像と日英の文言） |
 | `img/ui/*.webp` | Unity Editor の実ウィンドウのスクリーンショット |
-| `img/demo/*.webp` | 実 C# エンジンの出力（パラメータ実演のコマ） |
-| `build_manual.py` | `MANUAL.md` → `index.html` |
+| `img/demo/*.webp` | 実 C# エンジンの出力（実演のコマ） |
+| `clips/*.mp4` | 操作の短い動画 |
+| `build_manual.py` | 原稿 → 1 枚の HTML（標準ライブラリだけで動く） |
 | `build_assets.py` | スクリーンショットの切り出しと、実演コマの再着色 |
 
 ## 作り直す
 
 ```powershell
-# 文章を直した（MANUAL.md を編集した）とき
+# 原稿を直したとき（docs/manual/dist/manual.html ができる。ダブルクリックで確認）
 .venv\Scripts\python.exe docs/manual/build_manual.py
 
-# 画像も作り直すとき（dev_safe と .NET SDK が要る）
+# 実演のコマも作り直すとき（dev_safe と .NET SDK が要る）
 .venv\Scripts\python.exe docs/manual/build_assets.py
 ```
 
-`build_manual.py` は原稿を書き換えない。スクリーンショットと実演を差し込む位置は
-`build_manual.py` の `INSERTS` / `PLACEHOLDERS` / `DEMOS` に定義してある。
-原稿の見出し文言を変えたら、そこのキーも合わせること（`### ` の数が日英で食い違うと
-ビルドが止まるので、落ちたらメッセージを見る）。
+同じ原稿からは毎回同じバイト列が出る（パッケージ zip の SHA256 を commit で決めるため）。
+出力が 30 MB を超えると止まる（パッケージに同梱するので、動画は短く・軽く保つ）。
+
+## 原稿の書き方
+
+- 1 ファイル = 1 章。ファイル名 `NN-<章ID>.html` の `NN` が並び順、`<章ID>` がアンカー
+  （`#install` など）。先頭に `<h2>章の見出し</h2>` を置く。
+- `<h3>` には必ず `id` を付ける（目次に出る）。`<h4>` は任意。id は日英で共有するので、
+  英語版でも同じ id にする（違うとビルドが止まる）。リンク `href="#…"` の先が無くても止まる。
+- 本文はふつうの HTML（`p` `ul` `ol` `table` `blockquote` `code` `strong`）。`ol` は丸数字の手順になる。
+- 図版と動画はカスタムタグで書く。ビルドが中身を埋め込み、寸法を入れる。
+
+```html
+<x-shot src="img/ui/window.webp" wide>キャプション</x-shot>      <!-- スクリーンショット（クリックで拡大） -->
+<x-demo id="tolerance"></x-demo>                                  <!-- src/demos.json の実演 -->
+<x-before-after before="img/demo/src.webp" after="img/demo/color-red.webp">案内</x-before-after>
+<x-clip src="clips/eyedropper.mp4" poster="clips/eyedropper.webp">キャプション</x-clip>  <!-- 動画 -->
+```
+
+- 同じ説明は 1 か所だけに書き、ほかの章からはリンクする（2026-09-21 に文字数を 36% 減らした方針）。
+- 英語版は、日本語版が仕上がってから `src/en/` に同じファイル名・同じ id で足す。
+
+## 動画
+
+画面に入ったときだけ再生し（音なし・ループ）、外れたら止まる。HTML の中では base64 で持ち、
+再生の直前に Blob へ戻す。
+
+- 1 本 5〜15 秒、操作 1 つ。長い通しの動画は作らない（UI が変わったら撮り直すのは 1 本で済むように）。
+- 字幕は動画に焼き込まず、キャプション（HTML の文）に書く。日英で同じ動画を使え、言い回しを
+  直すたびに撮り直さずに済む。
+- 形式は MP4（H.264・yuv420p）。GIF は 256 色で陰影が縞になるので使わない。
 
 ## 実演コマの作り方
 

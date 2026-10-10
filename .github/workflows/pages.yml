@@ -16,6 +16,7 @@ on:
     paths:
       - 'docs/index.json'
       - 'docs/manual/**'
+      - 'package.json'
       - 'Code/NdmfIntegration/Iroca.NdmfIntegration.asmdef'
       - 'scripts/pages/**'
       - '.github/workflows/pages.yml'

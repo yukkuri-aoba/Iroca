@@ -34,7 +34,7 @@ namespace Iroca
         // asmdef の versionDefine 範囲に収まる検証済みバージョンを固定導入する。
         // 2022.3 は Sentis [2.0.0,2.2.0)、Unity 6 は Inference Engine [2.2.0,3.0.0)。
         // (配布モデルの ONNX もこの版でエクスポート・検証している。版を上げるときはここと
-        //  Iroca.SentisIntegration.asmdef の versionDefines、MANUAL の記載を揃える)
+        //  Iroca.SentisIntegration.asmdef の versionDefines、マニュアルの記載を揃える)
 #if UNITY_6000_0_OR_NEWER
         public const string SentisPackageVersion = "2.4.1";
 #else

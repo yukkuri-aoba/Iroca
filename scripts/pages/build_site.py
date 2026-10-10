@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import importlib.util
 import json
 import re
 import shutil
@@ -28,7 +29,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 LISTING = ROOT / "docs" / "index.json"
-MANUAL_DIR = ROOT / "docs" / "manual"
+MANUAL_BUILD = ROOT / "docs" / "manual" / "build_manual.py"
 ASMDEF = ROOT / "Code" / "NdmfIntegration" / "Iroca.NdmfIntegration.asmdef"
 
 NDMF_ID = "nadena.dev.ndmf"
@@ -106,6 +107,15 @@ def pick_ndmf_versions(listing: dict, rng) -> dict:
     return dict(sorted(picked.items(), key=lambda kv: parse_version(kv[0])[0]))
 
 
+def build_manual() -> bytes:
+    """docs/manual/build_manual.py で 1 枚の HTML を作る（標準ライブラリだけで動く）。"""
+    spec = importlib.util.spec_from_file_location("build_manual", MANUAL_BUILD)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["build_manual"] = mod
+    spec.loader.exec_module(mod)
+    return mod.build()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", type=Path, default=ROOT / "_site", help="出力先（中身は作り直す）")
@@ -125,9 +135,9 @@ def main() -> None:
         shutil.rmtree(out)
     out.mkdir(parents=True)
     (out / "index.json").write_text(json.dumps(listing, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    # マニュアルは表示に要るものだけ（生成スクリプトと説明は載せない）
-    shutil.copytree(MANUAL_DIR, out / "manual",
-                    ignore=shutil.ignore_patterns("*.py", "README.md", "__pycache__"))
+    # マニュアルは原稿から作った 1 枚の HTML だけを載せる（パッケージに同梱するものと同じ）
+    (out / "manual").mkdir()
+    (out / "manual" / "index.html").write_bytes(build_manual())
 
     keys = list(ndmf)
     print(f"NDMF {expr}: {len(keys)} 版を載せました（{keys[0]} 〜 {keys[-1]}）")

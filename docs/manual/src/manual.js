@@ -1,22 +1,23 @@
-/* いろか マニュアル — 目次・検索・言語切替・実演デモ */
+/* いろか マニュアル — 目次・検索・言語切替・実演デモ・動画 */
 (() => {
   'use strict';
 
   const DATA = JSON.parse(document.getElementById('manual-data').textContent);
-  const LANGS = ['ja', 'en'];
+  // 原稿がある言語だけが載る（docs/manual/build_manual.py）。先頭が既定。
+  const LANGS = DATA.langs;
 
   const T = {
     ja: {
       manual: 'マニュアル', search: '検索', toc: '目次', other: 'EN',
       noHit: '「%s」に当てはまる項目はありません',
-      footNote: 'この内容はリポジトリの MANUAL.md から生成しています。',
-      releases: 'リリース', changelog: '変更履歴',
+      footNote: 'いろか %s のマニュアルです。',
+      online: '最新版（オンライン）', changelog: '変更履歴',
     },
     en: {
       manual: 'User Manual', search: 'Search', toc: 'Contents', other: '日本語',
       noHit: 'Nothing matches “%s”',
-      footNote: 'Generated from MANUAL.md in the repository.',
-      releases: 'Releases', changelog: 'Changelog',
+      footNote: 'Manual for Iroca %s.',
+      online: 'Latest (online)', changelog: 'Changelog',
     },
   };
 
@@ -41,7 +42,8 @@
   function pickLang() {
     const saved = store.get('iroca.manual.lang', null);
     if (LANGS.includes(saved)) return saved;
-    return (navigator.language || 'ja').toLowerCase().startsWith('ja') ? 'ja' : 'en';
+    const nav = (navigator.language || 'ja').toLowerCase().startsWith('ja') ? 'ja' : 'en';
+    return LANGS.includes(nav) ? nav : LANGS[0];
   }
 
   /* ── テーマ ─────────────────────────────── */
@@ -69,7 +71,10 @@
         else el.removeAttribute('id');
       });
     });
-    $$('[data-t]').forEach(el => { el.textContent = T[next][el.dataset.t] ?? el.textContent; });
+    $$('[data-t]').forEach(el => {
+      const t = T[next][el.dataset.t];
+      if (t != null) el.textContent = t.replace('%s', DATA.version);
+    });
     $('#lang').textContent = T[next].other;
     qInput.placeholder = T[next].search;
     toc.setAttribute('aria-label', T[next].toc);
@@ -77,7 +82,7 @@
     applyFilter();
     observeHeadings();
   }
-  $('#lang').addEventListener('click', () => applyLang(lang === 'ja' ? 'en' : 'ja'));
+  $('#lang').addEventListener('click', () => applyLang(LANGS[(LANGS.indexOf(lang) + 1) % LANGS.length]));
 
   /* ── 目次 ───────────────────────────────── */
   function buildToc() {
@@ -332,13 +337,68 @@
     });
   }
 
+  /* ── 動画 ───────────────────────────────── */
+  // 動画は base64 で HTML に埋め込んである（<script type="text/plain" id="clip-N">）。
+  // 画面に入ったときだけ Blob に戻して再生し、外れたら止める（全部を一度に復号しない）。
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const clipUrls = new Map();
+
+  function clipUrl(key, mime) {
+    if (clipUrls.has(key)) return clipUrls.get(key);
+    const holder = document.getElementById(key);
+    if (!holder) return null;
+    const bin = atob(holder.textContent.trim());
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+    clipUrls.set(key, url);
+    return url;
+  }
+
+  function loadClip(v) {
+    if (v.dataset.loaded) return;
+    const url = clipUrl(v.dataset.clip, v.dataset.mime || 'video/mp4');
+    if (!url) return;
+    v.dataset.loaded = '1';
+    v.src = url;
+  }
+
+  const clipWatcher = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      const v = e.target;
+      if (e.isIntersecting) {
+        loadClip(v);
+        if (!reduceMotion && !v.dataset.userPaused) v.play().catch(() => {});
+      } else if (!v.paused) {
+        v.dataset.autoPaused = '1';
+        v.pause();
+      }
+    });
+  }, { threshold: 0.35 });
+
+  function bindClips() {
+    $$('video[data-clip]').forEach(v => {
+      if (v.dataset.bound) return;
+      v.dataset.bound = '1';
+      // 自分で止めた動画は、スクロールで戻ってきても勝手に再生しない
+      v.addEventListener('pause', () => {
+        if (v.dataset.autoPaused) delete v.dataset.autoPaused;
+        else v.dataset.userPaused = '1';
+      });
+      v.addEventListener('play', () => { delete v.dataset.userPaused; });
+      v.addEventListener('click', () => loadClip(v));
+      clipWatcher.observe(v);
+    });
+  }
+
   /* ── 画像ズーム ─────────────────────────── */
   document.addEventListener('click', e => {
     const shot = e.target.closest('.shot');
     if (shot) {
       const img = $('img', zoom);
-      img.src = shot.dataset.zoom;
-      img.alt = $('img', shot)?.alt || '';
+      const src = $('img', shot);
+      img.src = src?.currentSrc || src?.src || '';
+      img.alt = src?.alt || '';
       zoom.hidden = false;
       return;
     }
@@ -355,6 +415,7 @@
   applyLang(lang);
   bindDemos();
   bindBeforeAfter();
+  bindClips();
   if (location.hash) {
     const id = decodeURIComponent(location.hash.slice(1));
     const go = () => {
