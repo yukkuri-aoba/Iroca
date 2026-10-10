@@ -81,6 +81,27 @@ namespace Iroca
         // ドメインが標本として足りない(セグメントに地色と同じ素材がほぼ無い)ときは地色を問わず従来へ。
         private const int EvMinDomainPixels = MinNearSampleCount;
 
+        // ── 縁クリック(境界帯の混色)の救済 ──
+        // 地色の正規化の起点はクリック 1 texel の色。クリックがセグメントの縁(芯の外 = 上で統計から外した
+        // 境界帯)に乗ると、その色はパーツの色と外側(UV の余白の白・輪郭線の黒など)の混色で、パーツの
+        // どこにも無い。地色帯の母集団が空になってドメインが芯の数 % 以下に縮み、汚染判定で従来導出へ
+        // 落ちるが、従来導出も同じ混色を起点にするので別の素材を塗る。統計を芯で取るのと同じ理由で、
+        // 縁のクリック色も起点にしない: 証拠が使えず、クリックの素材がセグメントの裾(ドメイン + ツヤが芯の
+        // 1/10 未満。有彩の汚染門・正規化の外れ値判定と同じ線)で、クリックが境界帯にあり、その色が
+        // 「最寄りの芯の画素の色と無彩色(白・灰・黒)の混色」で説明できるなら、最寄りの芯の画素を
+        // クリックしたものとして 1 回だけやり直す。やり直しても使えなければ、元のクリックで従来導出へ。
+        // 混色の判定: 無彩色を混ぜても灰色軸からのずれ(彩り)は向きを変えずに 0〜1 倍へ縮むだけなので、
+        // クリックの彩りを芯の色の彩りの 0〜1 倍で近似した残差が実質同色の線(NormMinShift)の内側かを見る。
+        // 外側の色の彩りが混ざったクリック(白いセグメントの縁で青い面を踏んだ等)は説明できないので
+        // 寄せない(その青を塗りたいのかもしれず、セグメントの方が外れている)。
+        // 裾の門を置く理由: 素材が芯の 1 割以上あるのに使えない(無彩の 0.80 門)のは、クリック色は素材に
+        // 在ってセグメントに柄などの別素材が混ざっている場合なので、寄せても直らず、最寄りの芯が柄の画素
+        // だと柄の色から導いてしまう(実測: 生成りの上衣の柄の縁で IoU 0.812→0.603)。
+        // 実測(2026-10-10、19 被写体 × 3 クリック): テクスチャを 1/2・1/4 に縮小した 228 件で改善 10・悪化 0
+        // (こげ茶のブーツ 0.013→0.814、黒い布 0.008→0.990、灰のゴーグル 0.097→0.995、金の縁取り 0.055→0.955、
+        // 虹彩 0.010→0.925 など)。4096 では既存の 57 件が不変、部位の端の 57 件(V の 5/75/99 パーセンタイル)で
+        // 改善 2(ブーツ 0.458→0.932、虹彩 0.012→0.925)・悪化 0。
+
         // ── 証拠による補完(未被覆トーンの追加) ──
         // 導出パラメータで証拠ドメインの被覆率がこれ未満なら、未被覆部の代表色をサンプルへ足す。
         // 足した色はグローバルに効くので、明らかな取りこぼし(2% 以上)があるときだけ発火させる
@@ -230,6 +251,7 @@ namespace Iroca
                 // 芯が細すぎる(細ベルト等) → 収縮なしの生セグメントで再試行
                 coreList = CollectGridIndices(pixels, width, height, hsv, evidence, evW, evH,
                     excluded, maskW, maskH);
+                core = evidence;
             }
             if (coreList.Count < MinNearSampleCount)
                 return Analyze(pixels, width, height, zone, session, excluded, maskW, maskH, ct, report);
@@ -253,21 +275,45 @@ namespace Iroca
             // NormEdgeFrac を参照)。母集団がセグメント(=クリックしたパーツそのもの)なら最頻 (S,V)
             // bin はそのパーツの地色で、端を踏んだクリックを寄せる相手として信頼できる。
             ct.ThrowIfCancellationRequested();
-            Color rep = zone.sampleColor;
-            if (TryNormalizeSample(pixels, width, height, zone, notEvidence, evW, evH, hsv,
-                    out Color normalized, out float clickT, edgeBypass: true))
-                rep = normalized;
-            Color.RGBToHSV(rep, out float repH, out float repS, out float repV);
+            var click = zone;            // 正規化の起点。縁クリックの救済で最寄りの芯の画素に替わる
+            bool snapped = false;
+            string snapDiag = "";
+            Color rep;
+            float clickT, repH, repS, repV, materialFrac;
+            List<GridPt> domain;
+            int sheenCount, hlCandidates, domLoBin, domHiBin;
+            bool chromatic, contaminated;
+            while (true)
+            {
+                rep = click.sampleColor;
+                if (TryNormalizeSample(pixels, width, height, click, notEvidence, evW, evH, hsv,
+                        out Color normalized, out clickT, edgeBypass: true))
+                    rep = normalized;
+                Color.RGBToHSV(rep, out repH, out repS, out repV);
+
+                // ── 証拠ドメイン = 芯のうち地色と同じ陰影ランプ(汚染判定と後段の被覆確認に使う) ──
+                domain = BuildEvidenceDomain(hsv, coreList, repH, repS, repV,
+                    out sheenCount, out hlCandidates, out domLoBin, out domHiBin);
+                materialFrac = (domain.Count + sheenCount) / (float)coreList.Count;
+                chromatic = repS >= AchromaSampleSatMax;
+                contaminated = materialFrac
+                    < (chromatic ? EvMinMaterialFracChromatic : EvMinMaterialFrac);
+                bool usable = domain.Count >= EvMinDomainPixels && !contaminated;
+                // クリックの素材がセグメントの裾(1/10 未満)のときだけ、縁の混色なら最寄りの芯の画素で
+                // 1 回だけやり直す(定数の説明参照)。
+                bool clickOnFringe = domain.Count < EvMinDomainPixels || materialFrac < NormOutlierFrac;
+                if (usable || snapped || !clickOnFringe
+                    || !TrySnapBoundaryClick(pixels, width, height, zone, evidence, core, evW, evH,
+                        excluded, maskW, maskH, out Color coreColor, out int snapX, out int snapY))
+                    break;
+                click = zone.Clone();
+                click.sampleColor = coreColor;
+                snapped = true;
+                snapDiag = $" snap={snapX},{snapY}";
+            }
             var aZone = zone.Clone();
             aZone.sampleColor = rep;
 
-            // ── 証拠ドメイン = 芯のうち地色と同じ陰影ランプ(汚染判定と後段の被覆確認に使う) ──
-            var domain = BuildEvidenceDomain(hsv, coreList, repH, repS, repV,
-                out int sheenCount, out int hlCandidates, out int domLoBin, out int domHiBin);
-            float materialFrac = (domain.Count + sheenCount) / (float)coreList.Count;
-            bool chromatic = repS >= AchromaSampleSatMax;
-            bool contaminated = materialFrac
-                < (chromatic ? EvMinMaterialFracChromatic : EvMinMaterialFrac);
             if (domain.Count < EvMinDomainPixels || contaminated)
             {
                 // ドメインが標本として足りない / 汚染セグメント(無彩: 0.80、有彩: 裾 1/10) → 従来導出へ。
@@ -275,7 +321,7 @@ namespace Iroca
                     ct, report);
                 fallback.evidenceDiag = (contaminated ? "fallback contaminated" : "fallback no-domain")
                     + $" materialFrac={materialFrac:F3}"
-                    + $" core={coreList.Count} domain={domain.Count} sheen={sheenCount}";
+                    + $" core={coreList.Count} domain={domain.Count} sheen={sheenCount}" + snapDiag;
                 return fallback;
             }
             Progress(0.50f);
@@ -391,7 +437,7 @@ namespace Iroca
                 + $" added={added} cov={cov:F4} tol={result.tolerance:F4}"
                 + $" vFloor={result.shadowValueFloor:F3} ceil={result.chromaCeiling:F3}"
                 + $" tolDerived={tolDerived:F4} partSat={result.partSatCeiling:F3} partHue={result.partHueBand:F3}"
-                + $" holeMargin={result.holeFillMargin:F2}";
+                + $" holeMargin={result.holeFillMargin:F2}" + snapDiag;
             Progress(0.98f);
 
             DecideGlobals(width, height, session, ref result);
@@ -530,6 +576,64 @@ namespace Iroca
                 if (vb >= loBin && vb <= hiBin) domain.Add(p);
             }
             return domain;
+        }
+
+        // 縁クリックの救済(定数「縁クリック(境界帯の混色)の救済」の説明を参照)。クリック(zone.sampleUV)が
+        // 証拠の中・芯の外(境界帯)にあり、その色が最寄りの芯の画素の色と無彩色の混色で説明できるとき、
+        // その芯の画素の色と位置を返す。core は統計に使った芯(細いセグメントで収縮しなかったときは証拠そのもの)。
+        private static bool TrySnapBoundaryClick(Color32[] pixels, int w, int h, ColorZone zone,
+            bool[] evidence, bool[] core, int evW, int evH, bool[] excluded, int maskW, int maskH,
+            out Color coreColor, out int coreX, out int coreY)
+        {
+            coreColor = zone.sampleColor;
+            coreX = coreY = -1;
+            if (!zone.HasSampleUV) return false;
+            PreviewCoords.UvToPixel(zone.sampleUV.x, zone.sampleUV.y, w, h, out int x, out int y);
+            int mx = Mathf.Clamp(x * evW / w, 0, evW - 1);
+            int my = Mathf.Clamp(y * evH / h, 0, evH - 1);
+            if (!evidence[my * evW + mx] || core[my * evW + mx]) return false;
+
+            // 境界帯の幅は収縮量 EvErodeR なので、最寄りの芯はこの範囲にある(無ければ寄せない)。
+            const int R = EvErodeR + 1;
+            int best = int.MaxValue, bx = -1, by = -1;
+            for (int dy = -R; dy <= R; dy++)
+            {
+                int qy = my + dy;
+                if (qy < 0 || qy >= evH) continue;
+                for (int dx = -R; dx <= R; dx++)
+                {
+                    int qx = mx + dx;
+                    if (qx < 0 || qx >= evW || !core[qy * evW + qx]) continue;
+                    int d2 = dx * dx + dy * dy;
+                    if (d2 < best) { best = d2; bx = qx; by = qy; }
+                }
+            }
+            if (bx < 0) return false;
+            int px = Mathf.Clamp(bx * w / evW, 0, w - 1);
+            int py = Mathf.Clamp(by * h / evH, 0, h - 1);
+            Color32 pc = pixels[py * w + px];
+            if (pc.a < PixelProcessor.OpaqueAlphaMin
+                || IsMaskExcluded(excluded, maskW, maskH, px, py, w, h)) return false;
+            var p = new Color(pc.r / 255f, pc.g / 255f, pc.b / 255f, 1f);
+            if (ColorDist(p, zone.sampleColor) < NormMinShift) return false; // 寄せても同じ色
+            if (!IsNeutralMixOf(zone.sampleColor, p)) return false;
+            coreColor = p;
+            coreX = px;
+            coreY = py;
+            return true;
+        }
+
+        // c が「p と無彩色(白・灰・黒)の混色」で説明できるか。無彩色を混ぜても灰色軸からのずれ(彩り)は
+        // 向きを変えずに 0〜1 倍へ縮むだけなので、c の彩りを p の彩りの 0〜1 倍で近似した残差を見る。
+        private static bool IsNeutralMixOf(Color c, Color p)
+        {
+            float cm = (c.r + c.g + c.b) / 3f, pm = (p.r + p.g + p.b) / 3f;
+            float cr = c.r - cm, cg = c.g - cm, cb = c.b - cm;
+            float pr = p.r - pm, pg = p.g - pm, pb = p.b - pm;
+            float pp = pr * pr + pg * pg + pb * pb;
+            float a = pp > 0f ? Mathf.Clamp01((cr * pr + cg * pg + cb * pb) / pp) : 0f;
+            float er = cr - a * pr, eg = cg - a * pg, eb = cb - a * pb;
+            return Mathf.Sqrt(er * er + eg * eg + eb * eb) * ColorZone.InvSqrt3 < NormMinShift;
         }
 
         // 証拠ドメインの彩度分布の指定パーセンタイル(彩度天井の導出用)。
