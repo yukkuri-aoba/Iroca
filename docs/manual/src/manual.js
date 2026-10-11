@@ -28,6 +28,7 @@
   const store = {
     get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
+    remove(k) { try { localStorage.removeItem(k); } catch { /* private mode */ } },
   };
 
   const root = document.documentElement;
@@ -49,12 +50,20 @@
   }
 
   /* ── テーマ ─────────────────────────────── */
-  // 既定は明るい紙の色（宣伝画像・紹介動画と同じ見た目）。暗い方は切り替えたときだけ覚える。
-  // 保存済みのテーマは、ちらつかないよう page.html の <head> で先に当てている。
+  // 既定は OS の明暗の設定に従い、途中で変わっても追従する。切り替えボタンで OS と逆にしたときだけ
+  // 覚え、OS と同じ側へ戻したら消す（また OS に従う）。最初の明暗は、ちらつかないよう page.html の
+  // <head> で先に当てている。
+  const THEME_KEY = 'iroca.manual.theme';
+  const darkOs = matchMedia('(prefers-color-scheme: dark)');
+  const osTheme = () => (darkOs.matches ? 'dark' : 'light');
+  darkOs.addEventListener('change', () => {
+    if (!['light', 'dark'].includes(store.get(THEME_KEY, null))) root.dataset.theme = osTheme();
+  });
   $('#theme').addEventListener('click', () => {
     const t = root.dataset.theme === 'dark' ? 'light' : 'dark';
     root.dataset.theme = t;
-    store.set('iroca.manual.theme', t);
+    if (t === osTheme()) store.remove(THEME_KEY);
+    else store.set(THEME_KEY, t);
   });
 
   /* ── 言語 ───────────────────────────────── */

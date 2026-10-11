@@ -1,8 +1,9 @@
 /* いろか マニュアル — docs/manual/build_manual.py が書体の指定を頭に足して manual.css として出す
    見た目は宣伝画像・紹介動画に揃える: 明るい紙の地・墨の文字・丸ゴシック・細い罫。差し色は使わない
-   （色は図版の中のものだけにする）。 */
+   （色は図版の中のものだけにする）。明暗は OS の設定に従う（data-theme は page.html と manual.js が当てる）。 */
 
 :root {
+  color-scheme: light;
   --bg: #f7f6f4;
   --panel: #fcfbfa;
   --panel-2: #efede9;
@@ -27,6 +28,7 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;      /* スクロールバーや入力欄も暗い側に揃える */
   --bg: #111114;
   --panel: #17171a;
   --panel-2: #202024;
