@@ -30,6 +30,13 @@
     メモリ計測（MemoryBenchTests、Category "Memory"）だけを回す。値は計測ケースの JSON。
     結果は出力フォルダの mem.jsonl。ヒープの最大値は前のケースを引きずるので、1 回の起動に 1 ケースが基本。
 
+.PARAMETER HiResCases
+    大きなテクスチャ(8K・16K)の通し確認（HiResSmokeTests、Category "HiRes"）だけを回す。値はケースの JSON。
+    結果は出力フォルダの hires.jsonl。16K はメモリを 20GB 前後使うので、1 回の起動に 1 ケースにする。
+
+.PARAMETER Graphics
+    -nographics を付けずに起動する（GPU を使う段も実機で通す。HiRes のシーンプレビューの段や AI 推論の GPU 経路）。
+
 .EXAMPLE
     .\scripts\Run-EditorTests.ps1
 .EXAMPLE
@@ -40,7 +47,9 @@ param(
     [string]$HostProject = (Join-Path $env:USERPROFILE 'Documents\Avatar_Projects\Iroca_Dev'),
     [string]$UnityExe,
     [string]$PerfCases,
-    [string]$MemCases
+    [string]$MemCases,
+    [string]$HiResCases,
+    [switch]$Graphics
 )
 
 $ErrorActionPreference = 'Stop'
@@ -80,8 +89,9 @@ $parity = Join-Path $outDir 'parity.tsv'
 $env:IROCA_REPO = $RepoRoot
 $env:IROCA_PARITY_REPORT = $parity
 
-$unityArgs = @(
-    '-batchmode', '-nographics',
+$unityArgs = @('-batchmode')
+if (-not $Graphics) { $unityArgs += '-nographics' }
+$unityArgs += @(
     '-projectPath', "`"$HostProject`"",
     '-runTests', '-testPlatform', 'EditMode',
     '-assemblyNames', 'Iroca.EditorTests',
@@ -109,6 +119,17 @@ if ($MemCases) {
 } else {
     Remove-Item Env:IROCA_MEM_CASES -ErrorAction SilentlyContinue
 }
+# 大きなテクスチャの通し確認は HiRes カテゴリだけを回す（普段のテストでは IROCA_HIRES_CASES が無いので Ignore になる）。
+$hiresReport = Join-Path $outDir 'hires.jsonl'
+if ($HiResCases) {
+    if ($PerfCases -or $MemCases) { throw "-HiResCases は -PerfCases / -MemCases と同時に指定できません（Unity を別々に起動して測る）" }
+    if (-not (Test-Path $HiResCases)) { throw "ケースの JSON がありません: $HiResCases" }
+    $env:IROCA_HIRES_CASES = (Resolve-Path $HiResCases).Path
+    $env:IROCA_HIRES_REPORT = $hiresReport
+    $unityArgs += @('-testCategory', 'HiRes')
+} else {
+    Remove-Item Env:IROCA_HIRES_CASES -ErrorAction SilentlyContinue
+}
 Write-Host "Unity を batchmode で起動します（結果: $outDir）…"
 $p = Start-Process -FilePath $UnityExe -ArgumentList $unityArgs -PassThru
 try { $p.PriorityClass = 'BelowNormal' } catch { }
@@ -132,6 +153,9 @@ if ($PerfCases -and (Test-Path $perfReport)) {
 }
 if ($MemCases -and (Test-Path $memReport)) {
     Write-Host "メモリ計測の結果: $memReport"
+}
+if ($HiResCases -and (Test-Path $hiresReport)) {
+    Write-Host "大きなテクスチャの通し確認の結果: $hiresReport"
 }
 if (Test-Path $parity) {
     $lines = Get-Content $parity
