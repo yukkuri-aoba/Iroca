@@ -141,7 +141,7 @@ code {
 .pill.icon { padding: .3rem; width: 2rem; height: 1.95rem; display: grid; place-items: center; }
 #theme::before { content: "◑"; font-size: .95rem; }
 #menu::before { content: "☰"; font-size: .9rem; }
-.only-narrow { display: none; }
+.pill.only-narrow { display: none; }
 
 /* ── レイアウト ─────────────────────────────────── */
 .layout {
@@ -177,7 +177,12 @@ code {
 .toc .subs a.cur { color: var(--accent-ink); background: none; }
 .toc .num { color: var(--fg-dim); font-variant-numeric: tabular-nums; margin-right: .45rem; font-size: .78em; }
 
-main { padding: 2.2rem 2rem 6rem; min-width: 0; }
+main {
+  /* 幅の広い動画は、この箱の幅（cqw）から大きさを決める */
+  container-type: inline-size;
+  padding: 2.2rem 2rem 6rem;
+  min-width: 0;
+}
 .doc { max-width: var(--w-read); margin: 0 auto; }
 .doc[hidden] { display: none; }
 
@@ -405,7 +410,7 @@ mark { background: var(--accent-soft); color: var(--accent-ink); border-radius: 
 /* ── 狭い画面 ───────────────────────────────────── */
 @media (max-width: 900px) {
   :root { --w-toc: 0px; }
-  .only-narrow { display: grid; }
+  .pill.only-narrow { display: grid; }
   .layout { grid-template-columns: minmax(0, 1fr); }
   .toc {
     position: fixed; top: var(--head); bottom: 0; width: min(19rem, 84vw);
@@ -432,9 +437,12 @@ mark { background: var(--accent-soft); color: var(--accent-ink); border-radius: 
 
 /* ── 動画 ───────────────────────────────────────── */
 .clip { margin: 1.5rem auto 1.9rem; }
-/* 操作の動画は UI の文字が小さいので、本文の幅を越えて元の大きさまで広げる（画面の幅まで） */
+/* 操作の動画は UI の文字が小さいので、本文の幅を越えて元の大きさまで広げる。
+   広げる先は本文の箱（main）の中だけ。画面の幅（100vw）から決めると、広い画面で本文の列が
+   中央に寄ったときに左の目次へかぶる。 */
 .clip.wide {
-  width: min(var(--clip-w), calc(100vw - var(--w-toc) - 4rem));
+  width: min(var(--clip-w), 100%);
+  width: min(var(--clip-w), calc(100cqw + 2rem));
   position: relative; left: 50%; transform: translateX(-50%);
   margin-left: 0; margin-right: 0;
 }
