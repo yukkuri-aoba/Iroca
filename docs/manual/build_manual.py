@@ -1,6 +1,6 @@
 """docs/manual/src の原稿から、1 枚で完結する HTML マニュアルを作る。
 
-原稿は章ごとの HTML 断片（src/<言語>/NN-<章ID>.html）。CSS・JS・画像・動画はすべて
+原稿は章ごとの HTML 断片（src/<言語>/NN-<章ID>.html）。CSS・JS・書体・画像・動画はすべて
 1 枚の HTML に埋め込むので、出力はダブルクリックで開け、どこへ置いても壊れない。
 配るのは GitHub Pages のオンライン版だけ（scripts/pages/build_site.py が同じ 1 枚を載せる）。
 
@@ -38,6 +38,42 @@ SIZE_LIMIT = 30 * 1024 * 1024
 
 MIME = {".webp": "image/webp", ".png": "image/png", ".jpg": "image/jpeg",
         ".jpeg": "image/jpeg", ".mp4": "video/mp4", ".webm": "video/webm"}
+
+# 書体は宣伝画像・紹介動画と同じ Zen Maru Gothic。原稿に出る字だけに絞った WOFF2 を build_fonts.py が作る。
+FONTS = MANUAL / "fonts"
+FONT_WEIGHTS = {500: "Medium", 700: "Bold"}     # 本文 / 見出しと強調
+
+
+# ── 書体 ─────────────────────────────────────────────────────────
+
+def manual_chars() -> set[str]:
+    """マニュアルに出うる字（原稿・外枠・JS の文言・実演の文言）。フォントの部分集合はこれを覆う。"""
+    text = "".join(html.unescape(p.read_text(encoding="utf-8"))
+                   for p in [*sorted(SRC.glob("*/*.html")), SRC / "page.html", SRC / "manual.js"])
+    text += json.dumps(json.loads((SRC / "demos.json").read_text(encoding="utf-8")), ensure_ascii=False)
+    return {c for c in text if not c.isspace()}
+
+
+def font_chars() -> set[str]:
+    p = FONTS / "chars.txt"
+    return set(p.read_text(encoding="utf-8")) - {"\n"} if p.is_file() else set()
+
+
+def font_css() -> str:
+    missing = "".join(sorted(manual_chars() - font_chars()))
+    if missing:
+        raise SystemExit(f"マニュアルの字がフォントの部分集合にありません: {missing}\n"
+                         "  .venv\\Scripts\\python.exe docs/manual/build_fonts.py で作り直してください")
+    rules = []
+    for weight in FONT_WEIGHTS:
+        b64 = base64.b64encode((FONTS / f"zen-maru-gothic-{weight}.woff2").read_bytes()).decode("ascii")
+        rules.append('@font-face { font-family: "Zen Maru Gothic"; font-style: normal; '
+                     f'font-weight: {weight}; font-display: swap; '
+                     f'src: url(data:font/woff2;base64,{b64}) format("woff2"); }}')
+    return ("/* Zen Maru Gothic — Copyright 2021 The Zen Maru Gothic Project Authors"
+            " (https://github.com/googlefonts/zen-marugothic). SIL Open Font License 1.1"
+            " (https://openfontlicense.org). マニュアルに出る字だけに絞って埋め込んでいる。 */\n"
+            + "\n".join(rules))
 
 
 # ── 素材の埋め込み ───────────────────────────────────────────────
@@ -320,11 +356,12 @@ def build() -> bytes:
     for lang, chs in langs.items():
         r = Renderer(demos, lang)
         secs = []
-        for c in chs:
+        for n, c in enumerate(chs, 1):
             body = ids_for_lang(r.render(c.body), lang, default)
             sid = (f'id="{c.cid}" data-id="{c.cid}"' if lang == default else f'data-id="{c.cid}"')
+            # 章番号は目次と同じ 2 桁（検索で章が隠れても番号が詰まらないよう、CSS の counter にしない）
             secs.append(f'<section {sid} class="sec" data-sid="{c.cid}">'
-                        f"<h2>{esc(c.title)}</h2>\n{body}</section>")
+                        f'<h2 data-num="{n:02d}">{esc(c.title)}</h2>\n{body}</section>')
         hidden = "" if lang == default else " hidden"
         articles.append(f'<article class="doc" data-lang="{lang}" lang="{lang}"{hidden}>\n'
                         + "\n".join(secs) + "\n</article>")
@@ -344,6 +381,7 @@ def build() -> bytes:
 
     page = (SRC / "page.html").read_text(encoding="utf-8")
     parts = {
+        "fonts": font_css(),
         "style": (SRC / "manual.css").read_text(encoding="utf-8").strip(),
         "script": script_safe((SRC / "manual.js").read_text(encoding="utf-8").strip()),
         "data": script_safe(json.dumps(data, ensure_ascii=False, separators=(",", ":"))),

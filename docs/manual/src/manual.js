@@ -11,13 +11,15 @@
       manual: 'マニュアル', search: '検索', toc: '目次', other: 'EN',
       noHit: '「%s」に当てはまる項目はありません',
       footNote: 'いろか %s のマニュアルです。いつも最新の版の説明なので、古い版では画面や項目が違うことがあります。',
-      changelog: '変更履歴',
+      changelog: '変更履歴', fontNote: '書体: Zen Maru Gothic（SIL Open Font License 1.1）',
+      lead: 'はじめて使うときは「<a href="#quickstart">はじめての色替え</a>」から。',
     },
     en: {
       manual: 'User Manual', search: 'Search', toc: 'Contents', other: '日本語',
       noHit: 'Nothing matches “%s”',
       footNote: 'Manual for Iroca %s. It always describes the latest version, so older versions may look different.',
-      changelog: 'Changelog',
+      changelog: 'Changelog', fontNote: 'Typeface: Zen Maru Gothic (SIL Open Font License 1.1)',
+      lead: 'New to Iroca? Start with <a href="#quickstart">the quick start</a>.',
     },
   };
 
@@ -47,14 +49,12 @@
   }
 
   /* ── テーマ ─────────────────────────────── */
-  function applyTheme(t) {
+  // 既定は明るい紙の色（宣伝画像・紹介動画と同じ見た目）。暗い方は切り替えたときだけ覚える。
+  // 保存済みのテーマは、ちらつかないよう page.html の <head> で先に当てている。
+  $('#theme').addEventListener('click', () => {
+    const t = root.dataset.theme === 'dark' ? 'light' : 'dark';
     root.dataset.theme = t;
     store.set('iroca.manual.theme', t);
-  }
-  applyTheme(store.get('iroca.manual.theme',
-    matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'));
-  $('#theme').addEventListener('click', () => {
-    applyTheme(root.dataset.theme === 'dark' ? 'light' : 'dark');
   });
 
   /* ── 言語 ───────────────────────────────── */
@@ -74,6 +74,10 @@
     $$('[data-t]').forEach(el => {
       const t = T[next][el.dataset.t];
       if (t != null) el.textContent = t.replace('%s', DATA.version);
+    });
+    $$('[data-t-html]').forEach(el => {
+      const t = T[next][el.dataset.tHtml];
+      if (t != null) el.innerHTML = t;
     });
     $('#lang').textContent = T[next].other;
     qInput.placeholder = T[next].search;
@@ -224,6 +228,7 @@
       a.closest('li').hidden = !hit;
     });
 
+    $('#cover').hidden = !!needle;
     noHit.hidden = shown > 0;
     if (!noHit.hidden) noHit.textContent = T[lang].noHit.replace('%s', query.trim());
     qClear.hidden = !query;
