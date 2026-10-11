@@ -65,7 +65,7 @@ jobs:
       # 原稿のリンク切れ・id の食い違い・フォントに無い字で組み立てが止まると、main へ入ってから
       # 配信が失敗して古い版が残るので、develop の時点で組み立てられることを確かめる（標準ライブラリだけで動く）。
       - name: マニュアルの組み立て
-        run: python3 docs/manual/build_manual.py --out "$RUNNER_TEMP/manual.html"
+        run: python3 docs/manual/build_manual.py --out "$RUNNER_TEMP/manual"
 
   build-check:
     name: build-check (dotnet type check)

@@ -1,24 +1,26 @@
-"""docs/manual/src の原稿から、1 枚で完結する HTML マニュアルを作る。
+"""docs/manual/src の原稿から、HTML マニュアル（ページと、そこから読む CSS・JS・書体・画像・動画）を作る。
 
-原稿は章ごとの HTML 断片（src/<言語>/NN-<章ID>.html）。CSS・JS・書体・画像・動画はすべて
-1 枚の HTML に埋め込むので、出力はダブルクリックで開け、どこへ置いても壊れない。
-配るのは GitHub Pages のオンライン版だけ（scripts/pages/build_site.py が同じ 1 枚を載せる）。
+原稿は章ごとの HTML 断片（src/<言語>/NN-<章ID>.html）。出力はフォルダ 1 つで、index.html と
+manual.css・manual.js、原稿が参照する素材の写し（fonts/・img/・clips/）が入る。
+配るのは GitHub Pages のオンライン版だけ（scripts/pages/build_site.py が同じものを manual/ に載せる）。
 
-    .venv\\Scripts\\python.exe docs/manual/build_manual.py                 # -> docs/manual/dist/manual.html
-    .venv\\Scripts\\python.exe docs/manual/build_manual.py --out x.html    # 出力先を指定
+    .venv\\Scripts\\python.exe docs/manual/build_manual.py              # -> docs/manual/dist/（index.html をダブルクリックで確認）
+    .venv\\Scripts\\python.exe docs/manual/build_manual.py --out x      # 出力先のフォルダを指定
 
 標準ライブラリだけで動く（Pages の CI でも手元と同じ出力になるように）。
-同じ原稿からは毎回同じバイト列を出す（作り直しても差分が出ないように）。
+同じ原稿からは毎回同じバイト列を出す（作り直しても差分が出ないように）。CSS・JS・素材の URL には
+中身のハッシュを付ける（?v=…）ので、作り直した版を開いたときにブラウザの古い写しが混ざらない。
 
 原稿の書き方は docs/manual/README.md。画像素材は build_assets.py が作る。
 """
 from __future__ import annotations
 
 import argparse
-import base64
+import hashlib
 import html
 import json
 import re
+import shutil
 import struct
 import sys
 from dataclasses import dataclass, field
@@ -27,17 +29,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 MANUAL = ROOT / "docs" / "manual"
 SRC = MANUAL / "src"
-DEFAULT_OUT = MANUAL / "dist" / "manual.html"
+DEFAULT_OUT = MANUAL / "dist"
 
 # 言語の並び。先頭が既定（id を実際に持つ側）。原稿フォルダがある言語だけを載せる。
 LANG_ORDER = ("ja", "en")
 
-# 出力の大きさ。動画を足していくと膨らむので、超えたら止める（ブラウザで 1 度に読み込むため）。
-SIZE_WARN = 15 * 1024 * 1024
-SIZE_LIMIT = 30 * 1024 * 1024
+# 載せてよい素材の形式
+ASSET_SUFFIXES = (".webp", ".png", ".jpg", ".jpeg", ".mp4", ".webm", ".woff2")
 
-MIME = {".webp": "image/webp", ".png": "image/png", ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg", ".mp4": "video/mp4", ".webm": "video/webm"}
+# 出力のページに入れる印。出力先にこの印の無い index.html があれば、別物とみて消さずに止める。
+GENERATOR = "Iroca docs/manual/build_manual.py"
 
 # 書体は宣伝画像・紹介動画と同じ Zen Maru Gothic。原稿に出る字だけに絞った WOFF2 を build_fonts.py が作る。
 FONTS = MANUAL / "fonts"
@@ -59,26 +60,29 @@ def font_chars() -> set[str]:
     return set(p.read_text(encoding="utf-8")) - {"\n"} if p.is_file() else set()
 
 
-def font_css() -> str:
+def font_urls() -> list[str]:
+    """書体の URL（FONT_WEIGHTS の順）。原稿の字がすべて部分集合にあることを確かめてから載せる。"""
     missing = "".join(sorted(manual_chars() - font_chars()))
     if missing:
         raise SystemExit(f"マニュアルの字がフォントの部分集合にありません: {missing}\n"
                          "  .venv\\Scripts\\python.exe docs/manual/build_fonts.py で作り直してください")
-    rules = []
-    for weight in FONT_WEIGHTS:
-        b64 = base64.b64encode((FONTS / f"zen-maru-gothic-{weight}.woff2").read_bytes()).decode("ascii")
-        rules.append('@font-face { font-family: "Zen Maru Gothic"; font-style: normal; '
-                     f'font-weight: {weight}; font-display: swap; '
-                     f'src: url(data:font/woff2;base64,{b64}) format("woff2"); }}')
+    return [asset_url(f"fonts/zen-maru-gothic-{weight}.woff2") for weight in FONT_WEIGHTS]
+
+
+def font_css(urls: list[str]) -> str:
+    rules = [('@font-face { font-family: "Zen Maru Gothic"; font-style: normal; '
+              f'font-weight: {weight}; font-display: swap; src: url({url}) format("woff2"); }}')
+             for weight, url in zip(FONT_WEIGHTS, urls)]
     return ("/* Zen Maru Gothic — Copyright 2021 The Zen Maru Gothic Project Authors"
             " (https://github.com/googlefonts/zen-marugothic). SIL Open Font License 1.1"
-            " (https://openfontlicense.org). マニュアルに出る字だけに絞って埋め込んでいる。 */\n"
+            " (https://openfontlicense.org). マニュアルに出る字だけに絞っている。 */\n"
             + "\n".join(rules))
 
 
-# ── 素材の埋め込み ───────────────────────────────────────────────
+# ── 素材 ─────────────────────────────────────────────────────────
 
-_uri_cache: dict[str, str] = {}
+# 参照された素材（docs/manual からの相対パス -> 中身）。出力にはこれだけを写す。
+ASSETS: dict[str, bytes] = {}
 
 
 def asset_path(rel: str) -> Path:
@@ -90,14 +94,19 @@ def asset_path(rel: str) -> Path:
     return p
 
 
-def data_uri(rel: str) -> str:
-    if rel not in _uri_cache:
+def versioned(rel: str, data: bytes) -> str:
+    """中身のハッシュを付けた URL。中身が変われば URL も変わる。"""
+    return f"{rel}?v={hashlib.sha256(data).hexdigest()[:10]}"
+
+
+def asset_url(rel: str) -> str:
+    """素材を出力に載せ、ページから参照する URL を返す。"""
+    if rel not in ASSETS:
         p = asset_path(rel)
-        mime = MIME.get(p.suffix.lower())
-        if not mime:
-            raise SystemExit(f"埋め込めない形式です: {rel}")
-        _uri_cache[rel] = f"data:{mime};base64," + base64.b64encode(p.read_bytes()).decode("ascii")
-    return _uri_cache[rel]
+        if p.suffix.lower() not in ASSET_SUFFIXES:
+            raise SystemExit(f"載せられない形式です: {rel}")
+        ASSETS[rel] = p.read_bytes()
+    return versioned(rel, ASSETS[rel])
 
 
 def image_size(rel: str) -> tuple[int, int] | None:
@@ -234,7 +243,7 @@ class Renderer:
         alt = esc(strip_tags(caption).strip())
         cap = f"<figcaption>{caption.strip()}</figcaption>" if caption.strip() else ""
         return (f'<figure class="{cls}"{cap_w}><button class="shot" type="button">'
-                f'<img src="{data_uri(src)}" alt="{alt}"{size} loading="lazy"></button>{cap}</figure>')
+                f'<img src="{asset_url(src)}" alt="{alt}"{size} loading="lazy"></button>{cap}</figure>')
 
     def demo(self, a: dict[str, str], _inner: str) -> str:
         demo_id = a["id"]
@@ -244,7 +253,7 @@ class Renderer:
         t = d.get(self.lang) or d[LANG_ORDER[0]]
         frames = d["frames"]
         start = d["start"]
-        srcs = [data_uri(f'img/demo/{f["img"]}.webp') for f in frames]
+        srcs = [asset_url(f'img/demo/{f["img"]}.webp') for f in frames]
         wh = image_size(f'img/demo/{frames[start]["img"]}.webp')
         size = f' width="{wh[0]}" height="{wh[1]}"' if wh else ""
 
@@ -271,7 +280,7 @@ class Renderer:
         return (f'<figure class="demo" data-demo="{demo_id}" data-values="{values}"'
                 f' data-frames="{esc(json.dumps(srcs))}" data-start="{start}">'
                 f'<figcaption class="demo-head"><span class="demo-title">{esc(t["title"])}</span></figcaption>'
-                f'<div class="stage"><img class="fr on" src="{srcs[start]}" alt=""{size}></div>'
+                f'<div class="stage"><img class="fr on" src="{srcs[start]}" alt=""{size} loading="lazy"></div>'
                 f"{ctl}"
                 f'<p class="demo-note"><span class="frame-tag">{tags}</span>{esc(t["note"])}</p>'
                 f"</figure>")
@@ -279,8 +288,8 @@ class Renderer:
     def before_after(self, a: dict[str, str], hint: str) -> str:
         left, right = ("変更前", "変更後") if self.lang == "ja" else ("Before", "After")
         return ('<figure class="ba"><div class="ba-stage">'
-                f'<img class="ba-after" src="{data_uri(a["after"])}" alt="">'
-                f'<img class="ba-before" src="{data_uri(a["before"])}" alt="">'
+                f'<img class="ba-after" src="{asset_url(a["after"])}" alt="" loading="lazy">'
+                f'<img class="ba-before" src="{asset_url(a["before"])}" alt="" loading="lazy">'
                 '<div class="ba-handle" role="slider" aria-valuemin="0" aria-valuemax="100"'
                 ' aria-valuenow="50" tabindex="0"><span></span></div>'
                 f'<span class="ba-tag left">{left}</span><span class="ba-tag right">{right}</span>'
@@ -291,13 +300,7 @@ class Renderer:
         wh = video_size(src)
         if not wh:
             raise SystemExit(f"動画の寸法を読めません（MP4 の映像トラックが要ります）: {src}")
-        # 同じ動画を日英や複数の章で使い回すので、埋め込みは 1 回だけ
-        key = SHARED_CLIPS.get(src)
-        if key is None:
-            key = f"clip-{len(SHARED_CLIPS) + 1}"
-            SHARED_CLIPS[src] = key
-        mime = MIME[Path(src).suffix.lower()]
-        poster = f' poster="{data_uri(a["poster"])}"' if a.get("poster") else ""
+        poster = f' poster="{asset_url(a["poster"])}"' if a.get("poster") else ""
         cap = f"<figcaption>{caption.strip()}</figcaption>" if caption.strip() else ""
         # wide は本文の幅を越えて元の大きさまで広げる（UI の文字を縮めて潰さないため。CSS の .clip.wide）
         if "wide" in a:
@@ -306,8 +309,9 @@ class Renderer:
             cls, style = "clip", f"max-width:{wh[0]}px"
         return (f'<figure class="{cls}" style="{style}">'
                 f'<div class="clip-stage" style="aspect-ratio:{wh[0]}/{wh[1]}">'
-                f'<video muted loop playsinline controls preload="none" data-clip="{key}"'
-                f' data-mime="{mime}" width="{wh[0]}" height="{wh[1]}"{poster}></video>'
+                # 画面に入るまで読み込まない（再生は manual.js が画面に入ったときに始める）
+                f'<video src="{asset_url(src)}" muted loop playsinline controls preload="none"'
+                f' width="{wh[0]}" height="{wh[1]}"{poster}></video>'
                 f"</div>{cap}</figure>")
 
     TAGS = {"x-shot": "shot", "x-demo": "demo", "x-before-after": "before_after", "x-clip": "clip"}
@@ -321,9 +325,6 @@ class Renderer:
         if "<x-" in out:
             raise SystemExit("閉じていないカスタムタグがあります: " + out[out.index("<x-"):][:80])
         return out
-
-
-SHARED_CLIPS: dict[str, str] = {}   # 動画の相対パス -> 要素 ID
 
 
 def ids_for_lang(body: str, lang: str, default: str) -> str:
@@ -342,8 +343,9 @@ def script_safe(s: str) -> str:
     return s.replace("</", "<\\/")
 
 
-def build() -> bytes:
-    langs = {lang: load_language(lang) for lang in LANG_ORDER if any((SRC / lang).glob("*.html"))}
+def build() -> dict[str, bytes]:
+    """出力するファイル（出力フォルダからの相対パス -> 中身）。"""
+    langs ={lang: load_language(lang) for lang in LANG_ORDER if any((SRC / lang).glob("*.html"))}
     if not langs:
         raise SystemExit("原稿がありません: docs/manual/src/<言語>/*.html")
     check(langs)
@@ -351,7 +353,7 @@ def build() -> bytes:
     demos = json.loads((SRC / "demos.json").read_text(encoding="utf-8"))
     version = json.loads((ROOT / "package.json").read_text(encoding="utf-8-sig"))["version"]
 
-    SHARED_CLIPS.clear()
+    ASSETS.clear()
     articles = []
     for lang, chs in langs.items():
         r = Renderer(demos, lang)
@@ -374,44 +376,57 @@ def build() -> bytes:
         "index": {lang: [{"id": c.cid, "title": c.title, "text": c.text} for c in chs]
                   for lang, chs in langs.items()},
     }
-    clips = "\n".join(
-        f'<script type="text/plain" id="{key}">'
-        + base64.b64encode(asset_path(src).read_bytes()).decode("ascii") + "</script>"
-        for src, key in SHARED_CLIPS.items())
+    def text_file(s: str) -> bytes:
+        return (s.strip().replace("\r\n", "\n") + "\n").encode("utf-8")
 
+    css = text_file(font_css(font_urls()) + "\n\n" + (SRC / "manual.css").read_text(encoding="utf-8"))
+    js = text_file((SRC / "manual.js").read_text(encoding="utf-8"))
     page = (SRC / "page.html").read_text(encoding="utf-8")
     parts = {
-        "fonts": font_css(),
-        "style": (SRC / "manual.css").read_text(encoding="utf-8").strip(),
-        "script": script_safe((SRC / "manual.js").read_text(encoding="utf-8").strip()),
+        "generator": esc(GENERATOR),
+        "css": esc(versioned("manual.css", css)),
+        "js": esc(versioned("manual.js", js)),
         "data": script_safe(json.dumps(data, ensure_ascii=False, separators=(",", ":"))),
         "articles": "\n".join(articles),
-        "clips": clips,
         "version": esc(version),
         "lang_hidden": "" if len(langs) > 1 else " hidden",
     }
-    # 埋め込む中身に {{…}} が含まれても再置換しないよう、テンプレートを 1 回だけ走査する
-    out = re.sub(r"\{\{(\w+)\}\}", lambda m: parts[m.group(1)], page)
-    return out.replace("\r\n", "\n").encode("utf-8")
+    # 差し込む中身に {{…}} が含まれても再置換しないよう、テンプレートを 1 回だけ走査する
+    page = re.sub(r"\{\{(\w+)\}\}", lambda m: parts[m.group(1)], page)
+    return {"index.html": page.replace("\r\n", "\n").encode("utf-8"),
+            "manual.css": css, "manual.js": js, **dict(sorted(ASSETS.items()))}
+
+
+def write(files: dict[str, bytes], out: Path) -> None:
+    """出力フォルダを作り直す（前の版の素材が残らないよう、中身を消してから書く）。"""
+    out = out.resolve()
+    src = SRC.resolve()
+    if out == src or out in src.parents:
+        raise SystemExit(f"原稿を含むフォルダには出力できません: {out}")
+    if out.exists() and any(out.iterdir()):
+        page = out / "index.html"
+        if not (page.is_file() and GENERATOR in page.read_text(encoding="utf-8", errors="replace")):
+            raise SystemExit(f"{out} はこのスクリプトの出力ではないので消せません"
+                             "（空のフォルダか、前に出力したフォルダを指定してください）")
+        shutil.rmtree(out)
+    for rel, data in files.items():
+        p = out / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(data)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--out", type=Path, default=DEFAULT_OUT, help="出力する HTML のパス")
+    ap.add_argument("--out", type=Path, default=DEFAULT_OUT, help="出力するフォルダ（中身は作り直す）")
     a = ap.parse_args()
-    data = build()
-    if len(data) > SIZE_LIMIT:
-        raise SystemExit(f"出力が {len(data) / 1048576:.1f} MB あり、上限 {SIZE_LIMIT / 1048576:.0f} MB を超えます"
-                         "（動画を短くするか、画質を下げてください）")
-    a.out.parent.mkdir(parents=True, exist_ok=True)
-    a.out.write_bytes(data)
-    mb = len(data) / 1048576
-    note = f"（目安の {SIZE_WARN / 1048576:.0f} MB を超えています）" if len(data) > SIZE_WARN else ""
+    files = build()
+    write(files, a.out)
+    total = sum(len(d) for d in files.values()) / 1048576
     try:
         shown = a.out.resolve().relative_to(ROOT)
     except ValueError:
         shown = a.out
-    print(f"done -> {shown} ({mb:.2f} MB){note}")
+    print(f"done -> {shown} ({len(files)} files, {total:.2f} MB; index.html {len(files['index.html']) / 1024:.0f} KB)")
     return 0
 
 

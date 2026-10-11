@@ -107,13 +107,13 @@ def pick_ndmf_versions(listing: dict, rng) -> dict:
     return dict(sorted(picked.items(), key=lambda kv: parse_version(kv[0])[0]))
 
 
-def build_manual() -> bytes:
-    """docs/manual/build_manual.py で 1 枚の HTML を作る（標準ライブラリだけで動く）。"""
+def build_manual(out: Path) -> None:
+    """docs/manual/build_manual.py でマニュアル（ページと CSS・JS・素材）を out に作る（標準ライブラリだけで動く）。"""
     spec = importlib.util.spec_from_file_location("build_manual", MANUAL_BUILD)
     mod = importlib.util.module_from_spec(spec)
     sys.modules["build_manual"] = mod
     spec.loader.exec_module(mod)
-    return mod.build()
+    mod.write(mod.build(), out)
 
 
 def main() -> None:
@@ -135,9 +135,8 @@ def main() -> None:
         shutil.rmtree(out)
     out.mkdir(parents=True)
     (out / "index.json").write_text(json.dumps(listing, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    # マニュアルは原稿から作った 1 枚の HTML だけを載せる（パッケージには入れず、ここだけで配る）
-    (out / "manual").mkdir()
-    (out / "manual" / "index.html").write_bytes(build_manual())
+    # マニュアルは原稿から作って manual/ に載せる（パッケージには入れず、ここだけで配る）
+    build_manual(out / "manual")
 
     keys = list(ndmf)
     print(f"NDMF {expr}: {len(keys)} 版を載せました（{keys[0]} 〜 {keys[-1]}）")

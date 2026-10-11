@@ -13,7 +13,7 @@ CSS の font-feature-settings: "palt" で効く。
 
 fontTools と brotli が要る（.venv\\Scripts\\python.exe -m pip install fonttools brotli）。
 出力（docs/manual/fonts/）は追跡する。Pages の CI は標準ライブラリだけで build_manual.py を流し、
-ここで作った WOFF2 をそのまま埋め込む。元の TTF は Google Fonts のリポジトリから取って一時フォルダに置く。
+ここで作った WOFF2 をそのまま載せる。元の TTF は Google Fonts のリポジトリから取って一時フォルダに置く。
 """
 from __future__ import annotations
 

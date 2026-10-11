@@ -99,6 +99,5 @@ docs/booth_new/promo/booth-promo-comps.html
 # scripts/pages/build_site.py の出力（Pages へは Actions が配信する）
 _site/
 
-# docs/manual/build_manual.py の出力（1 枚の HTML。画像・動画を埋め込むので大きい。
-# パッケージには Build-VpmPackage.ps1 が、Pages には build_site.py が、その場で作って入れる）
+# docs/manual/build_manual.py の出力（ページと、追跡している素材の写し。Pages には build_site.py がその場で作って入れる）
 docs/manual/dist/

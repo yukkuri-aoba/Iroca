@@ -343,36 +343,13 @@
   }
 
   /* ── 動画 ───────────────────────────────── */
-  // 動画は base64 で HTML に埋め込んである（<script type="text/plain" id="clip-N">）。
-  // 画面に入ったときだけ Blob に戻して再生し、外れたら止める（全部を一度に復号しない）。
+  // 画面に入ったときだけ再生し、外れたら止める。<video preload="none"> なので、再生するまで読み込まない。
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const clipUrls = new Map();
-
-  function clipUrl(key, mime) {
-    if (clipUrls.has(key)) return clipUrls.get(key);
-    const holder = document.getElementById(key);
-    if (!holder) return null;
-    const bin = atob(holder.textContent.trim());
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
-    clipUrls.set(key, url);
-    return url;
-  }
-
-  function loadClip(v) {
-    if (v.dataset.loaded) return;
-    const url = clipUrl(v.dataset.clip, v.dataset.mime || 'video/mp4');
-    if (!url) return;
-    v.dataset.loaded = '1';
-    v.src = url;
-  }
 
   const clipWatcher = new IntersectionObserver(entries => {
     entries.forEach(e => {
       const v = e.target;
       if (e.isIntersecting) {
-        loadClip(v);
         if (!reduceMotion && !v.dataset.userPaused) v.play().catch(() => {});
       } else if (!v.paused) {
         v.dataset.autoPaused = '1';
@@ -382,7 +359,7 @@
   }, { threshold: 0.35 });
 
   function bindClips() {
-    $$('video[data-clip]').forEach(v => {
+    $$('.clip video').forEach(v => {
       if (v.dataset.bound) return;
       v.dataset.bound = '1';
       // 自分で止めた動画は、スクロールで戻ってきても勝手に再生しない
@@ -391,7 +368,6 @@
         else v.dataset.userPaused = '1';
       });
       v.addEventListener('play', () => { delete v.dataset.userPaused; });
-      v.addEventListener('click', () => loadClip(v));
       clipWatcher.observe(v);
     });
   }
