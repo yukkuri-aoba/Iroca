@@ -60,7 +60,7 @@ zip + SHA256 + listing更新 + インストーラ生成  →  整合検証 + dra
   ```
   残したままだと手順 4 の `git tag v0.2.0` が「already exists」で止まり、release.yml が新しいコミットで走らない。
 - [ ] 手順 2 の `Build-VpmPackage.ps1 -Version 0.2.0` で `docs/index.json` の 0.2.0 エントリを作り直す（今は「存在しない資産の URL + リネーム前 zip の SHA256」のまま）。
-- [ ] GitHub Pages を有効化する（Settings → Pages → Source を **GitHub Actions** にする）。2026-10-11 時点で Pages は無効で、listing もオンラインマニュアルも 404。マニュアルはパッケージに入れずオンライン版だけで配るので、publish の時点で配信されていないと「マニュアル」ボタンが 404 を開く。有効化しておけば、手順 4 の main への push で `pages.yml` が配信する（main に `pages.yml` が入るのもこのマージから）。
+- [x] GitHub Pages を有効化する（Settings → Pages → Source を **GitHub Actions** にする）。2026-10-11 に済み（API で `build_type: workflow`、`github-pages` 環境は main からだけ配信できる）。マニュアルはパッケージに入れずオンライン版だけで配るので、publish の時点で配信されていないと「マニュアル」ボタンが 404 を開く。手順 4 の main への push で `pages.yml` が初めて配信する（main に `pages.yml` が入るのもこのマージから。それまでは 404 のまま）。
 
 **main へのマージで `docs/index.json` が衝突する。** main 側は旧 ID（`com.yukkuri-aoba.vrc-avatar-color-changer`）の listing のままなので、develop 側を採用して解決する:
 ```
