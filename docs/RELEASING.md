@@ -31,6 +31,9 @@ zip + SHA256 + listing更新 + インストーラ生成  →  整合検証 + dra
    git push origin main
    git tag v<VERSION> && git push origin v<VERSION>
    ```
+   → main への push で `pages.yml` が listing とオンラインマニュアルを配信する。手順 5 の publish より前に、
+   `https://yukkuri-aoba.github.io/Iroca/index.json` と `https://yukkuri-aoba.github.io/Iroca/manual/` が開くことを確かめる
+   （いろかの「マニュアル」ボタン・インストーラ・VCC へのリポジトリ追加は、どれも Pages の配信が前提）。
    → `release.yml` が起動し、以下を検証してから draft を作成する（不一致は fail）:
    - tag ↔ package.json の version / url
    - CHANGELOG に非空の `## [<VERSION>]` 節
@@ -57,6 +60,7 @@ zip + SHA256 + listing更新 + インストーラ生成  →  整合検証 + dra
   ```
   残したままだと手順 4 の `git tag v0.2.0` が「already exists」で止まり、release.yml が新しいコミットで走らない。
 - [ ] 手順 2 の `Build-VpmPackage.ps1 -Version 0.2.0` で `docs/index.json` の 0.2.0 エントリを作り直す（今は「存在しない資産の URL + リネーム前 zip の SHA256」のまま）。
+- [ ] GitHub Pages を有効化する（Settings → Pages → Source を **GitHub Actions** にする）。2026-10-11 時点で Pages は無効で、listing もオンラインマニュアルも 404。マニュアルはパッケージに入れずオンライン版だけで配るので、publish の時点で配信されていないと「マニュアル」ボタンが 404 を開く。有効化しておけば、手順 4 の main への push で `pages.yml` が配信する（main に `pages.yml` が入るのもこのマージから）。
 
 **main へのマージで `docs/index.json` が衝突する。** main 側は旧 ID（`com.yukkuri-aoba.vrc-avatar-color-changer`）の listing のままなので、develop 側を採用して解決する:
 ```
@@ -67,7 +71,7 @@ git checkout --theirs docs/index.json && git add docs/index.json && git commit
 ## 初回公開の後に確認すること
 
 - [ ] release-verify が green。
-- [ ] GitHub Pages を有効化する（Settings → Pages → Source を **GitHub Actions** にする）。`pages.yml` を手動実行して、`https://yukkuri-aoba.github.io/Iroca/index.json`（NDMF の項目も載っている）とオンラインマニュアル `https://yukkuri-aoba.github.io/Iroca/manual/` に届くことを確かめる（→「GitHub Pages の配信」）。
+- [ ] `https://yukkuri-aoba.github.io/Iroca/index.json` に NDMF の項目も載っている（→「GitHub Pages の配信」）。いろかウィンドウの「マニュアル」でオンラインマニュアルが開く。
 - [ ] VCC / ALCOM にリポジトリ URL を追加してインストールできる。いろかのリポジトリだけで NDMF も選べる。
 - [ ] 公開版の `Iroca_Installer.unitypackage` を素の Unity 2022.3 プロジェクトと VRChat プロジェクトへインポートして導入できる（NDMF も入る）。
 - [ ] 済んだらこの節を削除する。

@@ -2,7 +2,7 @@
 # 「コンパイルが通るか」を人間のローカル環境に頼らず機械検証する（2026-08 監査 §CI 不在への対応）。
 #
 # - metadata:    package.json / docs/index.json の JSON 妥当性と BOM 混入チェック
-#                （BOM は release.yml の jq を壊す既知の事故経路）
+#                （BOM は release.yml の jq を壊す既知の事故経路）、マニュアルが原稿から組み立てられるか
 # - build-check: GameCI の Unity イメージから UnityEngine/UnityEditor DLL を借りて
 #                dotnet 型チェック（Unity エディタは起動しない）。
 #                IrocaEditor.Debug.csproj は本体を ProjectReference するため 1 ビルドで
@@ -61,6 +61,11 @@ jobs:
             fi
           done
           exit $fail
+      # マニュアルはパッケージに入れずオンライン版（pages.yml が main から配信）だけで配る。
+      # 原稿のリンク切れ・id の食い違い・フォントに無い字で組み立てが止まると、main へ入ってから
+      # 配信が失敗して古い版が残るので、develop の時点で組み立てられることを確かめる（標準ライブラリだけで動く）。
+      - name: マニュアルの組み立て
+        run: python3 docs/manual/build_manual.py --out "$RUNNER_TEMP/manual.html"
 
   build-check:
     name: build-check (dotnet type check)

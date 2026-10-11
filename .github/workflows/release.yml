@@ -125,6 +125,7 @@ jobs:
             echo "### 公開前チェックリスト（draft のまま実施 → 完了後にこの節を削除して publish）"
             echo "- [ ] \`$PACKAGE_ID-$VERSION.zip\` をこのリリースへアップロード（SHA256 = \`$SHA\`）"
             echo "- [ ] \`Iroca_Installer.unitypackage\`（VPAI インストーラ）をこのリリースへアップロード"
+            echo "- [ ] Pages の配信を確認: https://yukkuri-aoba.github.io/Iroca/index.json と https://yukkuri-aoba.github.io/Iroca/manual/ が開く（「マニュアル」ボタンとインストーラの取得先）"
             echo "- [ ] publish 後、release-verify ワークフローが成功することを確認"
           } > "$RUNNER_TEMP/release-body.md"
 
