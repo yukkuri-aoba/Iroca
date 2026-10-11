@@ -138,11 +138,16 @@ namespace Iroca
         // ArrayPool<T>.Shared は既定でバケット上限 2^20 要素。それを超える Rent は
         // 毎回 new[] を返し Return は捨てるため、2K(4.2M)/4K(16.8M) ではプールが
         // 全く効かず Rent ごとに LOH 新規確保が発生する(プレビュー再生成のたびに数百MB〜1GB)。
-        // 4096²=2^24 までプールする専用プールに差し替えて GC churn を抑える。
+        // Unity の最大テクスチャ 16384²=2^28 までプールする専用プールに差し替えて GC churn を抑える。
+        // 上限が 4096² だった頃は 8K・16K の作業配列が毎回の新規確保になり、縮まない Mono ヒープが
+        // 8K で 8.6GB・16K で 26GB 超まで膨らんでいた(2^28 にして 8K は 5.1GB・16K は 19GB で頭打ち。
+        // 毎手の処理も速くなる)。
+        // 戻した配列はバケットごとに持ち続けるので、大きいテクスチャを一度処理するとそのぶんは
+        // 手放さない(どのみち Mono ヒープは縮まない)。4096² 以下だけなら挙動は変わらない。
         // maxArraysPerBucket は ProcessPixelsArray が 1 ゾーンで同時に Rent する本数(〜20)を
         // 満たす値にする(Create プールは GC 自動トリムされないため上限で保持メモリを抑える)。
         // 注意: Create プールの Rent はゼロ初期化を保証しない。既存の Array.Clear は残すこと。
-        private const int PoolMaxArrayLength = 1 << 24; // 16,777,216 (4096²)
+        private const int PoolMaxArrayLength = 1 << 28; // 268,435,456 (16384²)
         private static readonly ArrayPool<float> s_floatPool =
             ArrayPool<float>.Create(PoolMaxArrayLength, maxArraysPerBucket: 24);
         private static readonly ArrayPool<bool> s_boolPool =

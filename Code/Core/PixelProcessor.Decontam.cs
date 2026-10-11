@@ -492,7 +492,7 @@ namespace Iroca
         /// <summary>
         /// src &gt; minExclusive を 1 と数えた個数の累積和を、範囲 [x0..x1]×[y0..y1] について作る。
         /// sat[(y−y0)·satW + (x−x0)] = (x0,y0) からその画素までの矩形の個数(satW = x1−x0+1)。
-        /// 余白の行・列を持たないので、4K 全面でも配列プールの上限(4096²)に収まる。
+        /// 余白の行・列を持たないので、16K 全面でも配列プールの上限(16384²)に収まる。
         /// 行ごとの累積は行並列、列方向の累積は列の帯ごとに並列(どちらも整数加算なので順序に依存しない)。
         /// </summary>
         private static void BuildCountSat(float[] src, int[] sat, int w, int x0, int y0, int x1, int y1,
