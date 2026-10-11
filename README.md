@@ -83,7 +83,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 - 色のグラデーションが複雑なテクスチャ
 - 反射や光沢の強いテクスチャ
 
-これらのケースでも、マニュアルの「トラブルシューティング」で対策を紹介しています。
+これらのケースでも、マニュアルの「困ったとき」で対策を紹介しています。
 
 ### インストール手順
 
@@ -139,7 +139,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 4. Click `Register to avatar (non-destructive)` (the original texture is kept; the recoloring happens only when entering Play mode or uploading). To save an image file instead, open `Export as a texture` and click `Apply & Save`
 
 See the **[online manual](https://yukkuri-aoba.github.io/Iroca/manual/)** for detailed instructions
-(the `Manual` button at the top of the Iroca window opens the copy for your installed version).
+(the `Manual` button at the top of the Iroca window opens it in your browser).
 The manual is in Japanese for now; an English version will follow.
 
 ### Main Features

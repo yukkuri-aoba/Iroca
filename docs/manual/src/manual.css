@@ -454,5 +454,5 @@ mark { background: var(--accent-soft); color: var(--accent-ink); border-radius: 
 .clip video { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
 .clip figcaption { text-align: left; }
 
-/* 版の表示（ローカルに置いたマニュアルが、どの版のものか分かるように） */
+/* 版の表示（オンライン版はいつも最新の版の説明なので、どの版のものか分かるように） */
 .brand .ver { color: var(--fg-dim); font-size: .74rem; font-variant-numeric: tabular-nums; }

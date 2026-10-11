@@ -10,14 +10,14 @@
     ja: {
       manual: 'マニュアル', search: '検索', toc: '目次', other: 'EN',
       noHit: '「%s」に当てはまる項目はありません',
-      footNote: 'いろか %s のマニュアルです。',
-      online: '最新版（オンライン）', changelog: '変更履歴',
+      footNote: 'いろか %s のマニュアルです。いつも最新の版の説明なので、古い版では画面や項目が違うことがあります。',
+      changelog: '変更履歴',
     },
     en: {
       manual: 'User Manual', search: 'Search', toc: 'Contents', other: '日本語',
       noHit: 'Nothing matches “%s”',
-      footNote: 'Manual for Iroca %s.',
-      online: 'Latest (online)', changelog: 'Changelog',
+      footNote: 'Manual for Iroca %s. It always describes the latest version, so older versions may look different.',
+      changelog: 'Changelog',
     },
   };
 
