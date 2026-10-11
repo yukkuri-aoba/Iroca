@@ -885,8 +885,8 @@ namespace Iroca
             ? "実行中の処理を中止します"
             : "Cancel the running operation";
         public static string ManualTooltip => IsJapanese
-            ? "使い方のマニュアルをブラウザで開きます（いま入っている版の説明です）"
-            : "Open the user manual in your browser (it describes the installed version)";
+            ? "使い方のマニュアル（オンライン版）をブラウザで開きます"
+            : "Open the online user manual in your browser";
         public static string CreditTooltip => IsJapanese
             ? "このツールのクレジット（作者・ライセンス）を表示します。開発に使わせていただいたモデルの一覧は、表示から公開ページで開けます"
             : "Show credits (author and license) for this tool. The full list of models used in development opens from there as a public page";
