@@ -135,7 +135,7 @@ def main() -> None:
         shutil.rmtree(out)
     out.mkdir(parents=True)
     (out / "index.json").write_text(json.dumps(listing, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    # マニュアルは原稿から作った 1 枚の HTML だけを載せる（パッケージに同梱するものと同じ）
+    # マニュアルは原稿から作った 1 枚の HTML だけを載せる（パッケージには入れず、ここだけで配る）
     (out / "manual").mkdir()
     (out / "manual" / "index.html").write_bytes(build_manual())
 

@@ -91,7 +91,7 @@ git checkout --theirs docs/index.json && git add docs/index.json && git commit
 
 ## GitHub Pages の配信
 
-`.github/workflows/pages.yml` が main から配信する（Pages の Source は GitHub Actions）。載せるのは `docs/index.json` と、`docs/manual/build_manual.py` が原稿から作った 1 枚のマニュアル（`manual/index.html`。パッケージの `Documentation~/manual.html` と同じもの）。
+`.github/workflows/pages.yml` が main から配信する（Pages の Source は GitHub Actions）。載せるのは `docs/index.json` と、`docs/manual/build_manual.py` が原稿から作った 1 枚のマニュアル（`manual/index.html`）。マニュアルはパッケージには入れず、ここだけで配る。
 
 - 配信のたびに `scripts/pages/build_site.py` が、NDMF の公式 listing（`https://vpm.nadena.dev/vpm.json`）から、いろかが対応する範囲の安定版を index.json に写す。VCC / ALCOM で、いろかのリポジトリだけを追加した人でも NDMF を選べるようにするため。写す項目は公式とまったく同じ（URL・zipSHA256 とも）なので、NDMF の公式リポジトリも追加している環境でもぶつからない（Avatar Optimizer の listing も同じやり方で NDMF を載せている）。
 - 対応する範囲は `Code/NdmfIntegration/Iroca.NdmfIntegration.asmdef` の versionDefines（`nadena.dev.ndmf` の式）から読む。NDMF 2.0 が出て対応を広げるときは、asmdef の範囲を変えれば写す範囲も変わる。

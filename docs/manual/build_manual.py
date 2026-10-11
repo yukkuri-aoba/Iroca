@@ -1,14 +1,14 @@
 """docs/manual/src の原稿から、1 枚で完結する HTML マニュアルを作る。
 
 原稿は章ごとの HTML 断片（src/<言語>/NN-<章ID>.html）。CSS・JS・画像・動画はすべて
-1 枚の HTML に埋め込むので、出力はダブルクリックで開け、どこへ置いても壊れない
-（パッケージに同梱するローカル版と、GitHub Pages のオンライン版は同じ 1 枚）。
+1 枚の HTML に埋め込むので、出力はダブルクリックで開け、どこへ置いても壊れない。
+配るのは GitHub Pages のオンライン版だけ（scripts/pages/build_site.py が同じ 1 枚を載せる）。
 
     .venv\\Scripts\\python.exe docs/manual/build_manual.py                 # -> docs/manual/dist/manual.html
     .venv\\Scripts\\python.exe docs/manual/build_manual.py --out x.html    # 出力先を指定
 
-標準ライブラリだけで動く（Pages の CI とパッケージ作成でも同じ出力になるように）。
-同じ原稿からは毎回同じバイト列を出す（パッケージ zip の SHA256 を commit で決めるため）。
+標準ライブラリだけで動く（Pages の CI でも手元と同じ出力になるように）。
+同じ原稿からは毎回同じバイト列を出す（作り直しても差分が出ないように）。
 
 原稿の書き方は docs/manual/README.md。画像素材は build_assets.py が作る。
 """
@@ -32,7 +32,7 @@ DEFAULT_OUT = MANUAL / "dist" / "manual.html"
 # 言語の並び。先頭が既定（id を実際に持つ側）。原稿フォルダがある言語だけを載せる。
 LANG_ORDER = ("ja", "en")
 
-# 出力の大きさ。動画を足していくと膨らむので、超えたら止める（パッケージに同梱するため）。
+# 出力の大きさ。動画を足していくと膨らむので、超えたら止める（ブラウザで 1 度に読み込むため）。
 SIZE_WARN = 15 * 1024 * 1024
 SIZE_LIMIT = 30 * 1024 * 1024
 
