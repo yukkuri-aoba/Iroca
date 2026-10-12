@@ -665,6 +665,8 @@ namespace Iroca
                 }
             }
 
+            DrawLargeSourceNotice();
+
             // 次の一手。HelpBox でなく miniLabel なのは、常設の帯がプレビュー列の
             // 高さを恒常的に奪わないようにするため。手順が済めば消える。
             // 折り返しあり: ゾーン名が入って長くなり、狭いウィンドウや英語表示では 1 行に収まらない
@@ -679,6 +681,36 @@ namespace Iroca
             MaskSuggestSection.DrawSetupBanner();
 
             EditorGUILayout.Space(4);
+        }
+
+        // 原本の画素数がこれ(8192²)を超えたら、メモリを多く使うことを案内する。
+        private const long LargeSourcePixels = 8192L * 8192L;
+        // 作業中の Unity が原本 1 画素あたりに使うメモリの目安(バイト)。2026-10-11 の実測で、16K の通し
+        // (取り込み〜色替え〜書き出し〜NDMF)のピークが約 25GB、8K のプレビュー相当の繰り返しが約 6GB だった。
+        private const double SourceBytesPerPixel = 96.0;
+        private const string LargeSourceDismissedKeyPrefix = "Iroca.LargeSource.Dismissed:";
+
+        /// <summary>
+        /// 8K を超える原本を開いたときの案内。Iroca はインポート設定の Max Size に関係なく元ファイルの
+        /// 解像度で処理する(プレビュー・書き出し・NDMF とも)ので、Max Size を下げてもメモリは減らない。
+        /// 16K では PC の搭載量を超え得るため、使う量の目安と搭載量を並べて開いた時点で知らせる。
+        /// 閉じると、そのテクスチャでは Unity を閉じるまで出さない(上部の高さを奪い続けないため)。
+        /// </summary>
+        private void DrawLargeSourceNotice()
+        {
+            if (sourceTexture == null || _previewView == null) return;
+            if (!_previewView.TryGetTrueSourcePixels(sourceTexture, out _, out int w, out int h)) return;
+            if ((long)w * h <= LargeSourcePixels) return;
+            string key = LargeSourceDismissedKeyPrefix + CurrentTexturePath(sourceTexture);
+            if (SessionState.GetBool(key, false)) return;
+
+            double needGB = (double)w * h * SourceBytesPerPixel / (1L << 30);
+            // 搭載量は切り上げる。systemMemorySize は OS が使える量なので、32GB の PC でも 31.5GB 前後になる。
+            double haveGB = System.Math.Ceiling(SystemInfo.systemMemorySize / 1024.0);
+            EditorGUILayout.HelpBox(string.Format(Localization.LargeSourceNoticeFormat, w, h, needGB, haveGB),
+                MessageType.Warning);
+            if (GUILayout.Button(new GUIContent(Localization.LargeSourceDismiss, Localization.LargeSourceDismissTooltip)))
+                SessionState.SetBool(key, true);
         }
 
         private void DrawProcessingSection()
