@@ -10,7 +10,7 @@
 
 ### 重要な変更
 
-- **名前を「いろか（Iroca）」に変えました。** メニューは `Tools > いろか` です。旧版（`Assets/VACC` フォルダ）とは別物として入るため、0.1.0 を使っていた場合は `Assets/VACC` を削除してください（プロジェクト内に保存したプリセットが必要なら、削除の前にバックアップしてください）
+- **名前を「いろか（Iroca）」に変更しました。** メニューは `Tools > いろか` です。旧版（`Assets/VACC` フォルダ）とは別物として入るため、0.1.0 を使っていた場合は `Assets/VACC` を削除してください（プロジェクト内に保存したプリセットが必要なら、削除の前にバックアップしてください）
 - **導入方法が変わりました。** unitypackage で配るのは、インポートすると最新版をダウンロードして入れる `Iroca_Installer.unitypackage`（[VPMPackageAutoInstaller](https://github.com/anatawa12/VPMPackageAutoInstaller) 製）です。いろか本体はプロジェクトの `Packages` に入り、以後は VCC / ALCOM から更新できます。VCC / ALCOM にリポジトリ `https://yukkuri-aoba.github.io/Iroca/index.json` を追加して直接導入することもできます
 - **再着色アルゴリズムを OkLab（知覚的な色空間）へ刷新しました。** 色ムラ・ベタ塗り化・色破壊を解消し、陰影や模様をより自然に保ったまま色を変更できます
 - **ライセンスを「PolyForm Noncommercial License 1.0.0」から [PolyForm Shield License 1.0.0](LICENSE) に変更しました。** 商用利用と、改変・再配布ができるようになりました。本ツールと競合する製品・サービスの提供には使えません
