@@ -717,9 +717,10 @@ namespace Iroca
         {
             const int VB = AutoToneValueBins;
             var cnt = new int[VB];
-            var sumR = new float[VB];
-            var sumG = new float[VB];
-            var sumB = new float[VB];
+            // 和は double で持つ(float だと 8K・16K の大きい単色パーツで平均色が数階調ずれる)。
+            var sumR = new double[VB];
+            var sumG = new double[VB];
+            var sumB = new double[VB];
             sim.UpdateCacheIfNeeded();
             foreach (var p in domain)
             {
@@ -737,8 +738,8 @@ namespace Iroca
             int minCnt = Mathf.Max(EvUncoveredBinMinCount,
                 Mathf.RoundToInt(domain.Count * EvUncoveredBinMinFrac));
             if (best < 0 || bestCnt < minCnt) return false;
-            float inv = 1f / bestCnt;
-            rep = new Color(sumR[best] * inv, sumG[best] * inv, sumB[best] * inv, 1f);
+            double inv = 1.0 / bestCnt;
+            rep = new Color((float)(sumR[best] * inv), (float)(sumG[best] * inv), (float)(sumB[best] * inv), 1f);
             if (ColorDist(rep, primary) < EvDupSep) return false;
             foreach (var s in existing) if (ColorDist(rep, s) < EvDupSep) return false;
             return true;

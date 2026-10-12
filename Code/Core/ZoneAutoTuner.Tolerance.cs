@@ -402,9 +402,10 @@ namespace Iroca
             // ── パス2: 同色相 かつ 彩度バンド内 の画素を V でビン分け ──
             int VB = AutoToneValueBins;
             var cnt = new int[VB];
-            var sumR = new float[VB];
-            var sumG = new float[VB];
-            var sumB = new float[VB];
+            // 和は double で持つ(float だと 8K・16K の大きい単色パーツで平均色が数階調ずれる)。
+            var sumR = new double[VB];
+            var sumG = new double[VB];
+            var sumB = new double[VB];
             int total = 0;
             for (int y = 0, gy = 0; y < h; y += stride, gy++)
             {
@@ -449,8 +450,8 @@ namespace Iroca
                 int cum = 0, bin = VB - 1;
                 for (int i = 0; i < VB; i++) { cum += cnt[i]; if (cum >= targetCount) { bin = i; break; } }
                 // RepAtPct は累積が閾値を越えた bin を返すので cnt[bin] > 0 が保証される。
-                float inv = 1f / cnt[bin];
-                return new Color(sumR[bin] * inv, sumG[bin] * inv, sumB[bin] * inv, 1f);
+                double inv = 1.0 / cnt[bin];
+                return new Color((float)(sumR[bin] * inv), (float)(sumG[bin] * inv), (float)(sumB[bin] * inv), 1f);
             }
             void TryAdd(float pct)
             {

@@ -138,9 +138,11 @@ namespace Iroca
 
             int SB = satBins, VB = valBins;
             var cnt = new int[SB * VB];
-            var sumR = new float[SB * VB];
-            var sumG = new float[SB * VB];
-            var sumB = new float[SB * VB];
+            // 和は double で持つ。float だと 1 bin に数百万画素が入る 8K・16K の大きい単色パーツで
+            // 足し込みの丸めが溜まり、平均色が数階調ずれる。
+            var sumR = new double[SB * VB];
+            var sumG = new double[SB * VB];
+            var sumB = new double[SB * VB];
             var vHist = new int[VB];
             int total = 0;
 
@@ -209,7 +211,7 @@ namespace Iroca
             // 量子化で山が隣の bin へ割れても代表色がぶれないよう ±1 bin まで含めて平均する。
             int sbLo = Mathf.Max(0, bestSb - 1), sbHi = Mathf.Min(SB - 1, bestSb + 1);
             int vbLo = Mathf.Max(loBin, bestVb - 1), vbHi = Mathf.Min(hiBin, bestVb + 1);
-            float r = 0f, g = 0f, b = 0f;
+            double r = 0, g = 0, b = 0;
             int n2 = 0;
             for (int sb = sbLo; sb <= sbHi; sb++)
             {
@@ -247,8 +249,8 @@ namespace Iroca
                 if (clickN >= n2 * NormOutlierFrac && !(edgeBypass && atEdge)) return false;
             }
 
-            float inv = 1f / n2;
-            var rep = new Color(r * inv, g * inv, b * inv, 1f);
+            double inv = 1.0 / n2;
+            var rep = new Color((float)(r * inv), (float)(g * inv), (float)(b * inv), 1f);
             if (ColorDist(rep, zone.sampleColor) < NormMinShift) return false; // 既に地色
             normalized = rep;
             return true;
