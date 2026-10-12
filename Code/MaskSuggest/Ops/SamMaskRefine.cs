@@ -117,6 +117,38 @@ namespace Iroca
         /// <summary>色距離のしきい(局所背景色からこの距離²を超えたら生地/strand とみなす)。</summary>
         const float FringeColorThresh = 26f;
 
+        // SAM の解像度(4096² で 1 セル 16px)より細い構造(ファスナーの歯・縫い目・細い線の描き込み)では、
+        // 提案は「構造 + 周りの地色の滲み」になる。SnapBoundary の帯の再分類は内側の確信領域(境界から d
+        // より深い画素)の色を要るので、幅がおよそ 2d 未満の提案には効かず、SAM の形がそのまま残る。
+        // 保護(ここは塗らない)に使うと、構造の周りの地色が帯や塊になって塗られずに残る。
+        // そこで「画素の大半が帯にある細い連結成分」に限り、外側の地色(確信外側のセルモード)と見分けが
+        // 付かない色で、外側の地色へ 4 近傍でつながる画素を剥がす(PeelThinSpill)。
+
+        /// <summary>成分を「細い」とみなす、帯(境界から d 以内)にある画素の割合の下限
+        /// (帯状の成分なら幅 ≲ 4d。SAM の低解像度セル 3 つぶん)。</summary>
+        const float ThinBandFracMin = 0.5f;
+
+        /// <summary>地色と見分けが付かない色(RGBA 距離 2 乗)。AA 混合軸の下限と同じ
+        /// 「視覚的に継ぎ目が無い」線。</summary>
+        const double PeelSameColorSq = AaMinContrastSq;
+
+        /// <summary>地色とはっきり違う色(RGBA 距離 2 乗。見分けが付かない線の 2 倍の距離)。
+        /// 剥がすのは「地の上にはっきり描かれた細部」の周りの滲みだけ、という門の物差し。</summary>
+        const double PeelDistinctSq = 4.0 * PeelSameColorSq;
+
+        /// <summary>
+        /// 剥がす門: 地色とはっきり違う画素(細部)が、成分のこの割合以上あり、かつ剥がした後に残る画素の
+        /// 半分以上を占めること。
+        /// ・細部がほとんど無い成分は、地と同じ色の部位(同色の細いベルト等)を SAM が形で切り分けたもの
+        ///   なので触らない(色で分けられないものを分けるのがマスクの役目)。
+        /// ・残りの半分以上: 地と色の近い細い部位(暗い紺の帯・布のひだ)の一部を地と取り違えて削らない
+        ///   (実測 2026-10-12: この門が無いと回帰の部位提案 3 件 — 紺のスカートの下端・ピンクのベストの
+        ///   ひだ — で 0.1〜0.2% 欠けた)。
+        /// 剥がす量そのものには上限を置かない: まばらな歯・破線の周りの滲みは成分の半分を超える
+        /// (実測: 黒地の白い線の細い提案で 51%)。
+        /// </summary>
+        const float PeelMinDetailFrac = 0.25f;
+
         /// <summary>
         /// mask(下原点 w*h)の境界を、房 strands を覆うように実テクスチャの信号で外郭まで拡張する(in-place)。
         /// SnapBoundary の後段で呼ぶ。房が無い部位ではほとんど成長しない(precision 影響 &lt;=0.004)。
@@ -481,6 +513,297 @@ namespace Iroca
             // ±1px の点状ノイズになる。帯内のみ 3x3 多数決で平滑化して点滅を除去する
             // (帯外は不変なので形状は保たれる)。
             MajoritySmoothBand(mask, mask0, distIn, distOut, d, w, h, token);
+
+            // 帯の再分類が届かない細い提案から、地色のはみ出しを剥がす(定数の上の説明参照)。
+            PeelThinSpill(mask, pixelsBottomUp, w, h, d, meanOut, validOut, gw, gh, token);
+        }
+
+        /// <summary>
+        /// 細い連結成分(画素の ThinBandFracMin 以上が、スナップ後のマスクの境界から d 以内)から、
+        /// 確信外側のセルモードとの距離² が PeelSameColorSq 以下の画素(地色)のうち、マスク外の地色へ
+        /// 4 近傍でつながるものを外す(in-place)。地の上の描き込みと言えない成分(PeelMinDetailFrac の門)は触らない。
+        /// meanOut / validOut は SnapBoundary が元マスクの帯の外から求めた地色。細さはスナップ後の形で
+        /// 見る(SAM の形が幅広の塊だと、元マスクの奥は「確信の内側」として再分類されずに残るため)。
+        /// 連結成分は行の連(ラン)の union-find で求める(大きな提案でも画素ごとの探索をしない)。
+        /// 剥がす塗りつぶしは逐次だが、対象は細い成分だけで画素数は小さい。
+        /// </summary>
+        static void PeelThinSpill(bool[] mask, Color32[] px, int w, int h, int d,
+                                  double[] meanOut, bool[] validOut, int gw, int gh,
+                                  System.Threading.CancellationToken token)
+        {
+            var po = MakeParallelOptions(token);
+
+            // マスクの外接矩形(+1px)の中だけで扱う。
+            var rowMin = new int[h];
+            var rowMax = new int[h];
+            Parallel.For(0, h, po, y =>
+            {
+                int row = y * w, mn = -1, mx = -1;
+                for (int x = 0; x < w; x++)
+                {
+                    if (!mask[row + x]) continue;
+                    if (mn < 0) mn = x;
+                    mx = x;
+                }
+                rowMin[y] = mn;
+                rowMax[y] = mx;
+            });
+            int x0 = w, y0 = h, x1 = -1, y1 = -1;
+            for (int y = 0; y < h; y++)
+            {
+                if (rowMin[y] < 0) continue;
+                if (rowMin[y] < x0) x0 = rowMin[y];
+                if (rowMax[y] > x1) x1 = rowMax[y];
+                if (y < y0) y0 = y;
+                y1 = y;
+            }
+            if (x1 < 0) return;
+            x0 = Mathf.Max(0, x0 - 1); y0 = Mathf.Max(0, y0 - 1);
+            x1 = Mathf.Min(w - 1, x1 + 1); y1 = Mathf.Min(h - 1, y1 + 1);
+            int bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+            int ox = x0, oy = y0;   // ラムダ用の写し
+
+            // 行ごとの連(マスク画素の横並び。終端は含まない)。
+            var runCount = new int[bh];
+            Parallel.For(0, bh, po, ly =>
+            {
+                int row = (ly + oy) * w + ox, n = 0;
+                bool prev = false;
+                for (int lx = 0; lx < bw; lx++)
+                {
+                    bool m = mask[row + lx];
+                    if (m && !prev) n++;
+                    prev = m;
+                }
+                runCount[ly] = n;
+            });
+            var runFirst = new int[bh + 1];
+            for (int ly = 0; ly < bh; ly++) runFirst[ly + 1] = runFirst[ly] + runCount[ly];
+            int nRuns = runFirst[bh];
+            var runX0 = new int[nRuns];
+            var runX1 = new int[nRuns];
+            Parallel.For(0, bh, po, ly =>
+            {
+                int row = (ly + oy) * w + ox, r = runFirst[ly];
+                for (int lx = 0; lx < bw;)
+                {
+                    if (!mask[row + lx]) { lx++; continue; }
+                    int s = lx;
+                    while (lx < bw && mask[row + lx]) lx++;
+                    runX0[r] = s;
+                    runX1[r] = lx;
+                    r++;
+                }
+            });
+
+            // 上下の行で横の範囲が重なる連を結ぶ(= 縦の 4 近傍連結)。
+            var parent = new int[nRuns];
+            for (int r = 0; r < nRuns; r++) parent[r] = r;
+            for (int ly = 1; ly < bh; ly++)
+            {
+                int a = runFirst[ly - 1], aEnd = runFirst[ly];
+                int b = runFirst[ly], bEnd = runFirst[ly + 1];
+                while (a < aEnd && b < bEnd)
+                {
+                    if (runX0[a] < runX1[b] && runX0[b] < runX1[a])
+                    {
+                        int ra = FindRoot(parent, a), rb = FindRoot(parent, b);
+                        if (ra != rb) parent[System.Math.Max(ra, rb)] = System.Math.Min(ra, rb);
+                    }
+                    if (runX1[a] < runX1[b]) a++; else b++;
+                }
+            }
+            var runComp = new int[nRuns];
+            int nComp = 1;   // 0 = マスク外
+            for (int r = 0; r < nRuns; r++)
+            {
+                int root = FindRoot(parent, r);
+                runComp[r] = root == r ? nComp++ : runComp[root];
+            }
+
+            // 細さ: 境界から d 以内の画素の割合。矩形の外はすべてマスク外なので、距離は矩形の中だけで
+            // 求めれば同じ。
+            var local = new bool[bw * bh];
+            Parallel.For(0, bh, po, ly => System.Array.Copy(mask, (ly + oy) * w + ox, local, ly * bw, bw));
+            var distIn = DistanceToOpposite(local, bw, bh, inside: true, token);
+            var runBand = new int[nRuns];
+            Parallel.For(0, bh, po, ly =>
+            {
+                for (int r = runFirst[ly]; r < runFirst[ly + 1]; r++)
+                {
+                    int n = 0, row = ly * bw;
+                    for (int lx = runX0[r]; lx < runX1[r]; lx++)
+                        if (distIn[row + lx] <= d) n++;
+                    runBand[r] = n;
+                }
+            });
+            var area = new int[nComp];
+            var band = new int[nComp];
+            for (int r = 0; r < nRuns; r++)
+            {
+                area[runComp[r]] += runX1[r] - runX0[r];
+                band[runComp[r]] += runBand[r];
+            }
+            var thin = new bool[nComp];
+            bool anyThin = false;
+            for (int c = 1; c < nComp; c++)
+            {
+                thin[c] = band[c] >= ThinBandFracMin * area[c];
+                anyThin |= thin[c];
+            }
+            if (!anyThin) return;
+            token.ThrowIfCancellationRequested();
+
+            // 成分の番号を画素へ(矩形内の添字。0 = マスク外)。
+            var label = new int[bw * bh];
+            Parallel.For(0, bh, po, ly =>
+            {
+                int row = ly * bw;
+                for (int r = runFirst[ly]; r < runFirst[ly + 1]; r++)
+                {
+                    int c = runComp[r];
+                    for (int lx = runX0[r]; lx < runX1[r]; lx++) label[row + lx] = c;
+                }
+            });
+            var queue = new int[bw * bh];
+
+            // 地色らしさ: 細い成分の画素と、その 4 近傍のマスク外画素について、確信外側セルモードへの
+            // 最短距離²で分ける。0 = 未評価 / 1 = 地色(PeelSameColorSq 以下) / 2 = 地色でない /
+            // 3 = 地色とはっきり違う(PeelDistinctSq 超)。地色かどうかは SnapBoundary と同じく最寄りの
+            // セルが見つかる半径(2〜8 セル)で、はっきり違うかどうかは最大半径の窓のすべての地色で見る
+            // (地色が 2 種類ある所 — 余白の白と隣の部位の紺 — で、近い窓に白しか無い画素を
+            // 「はっきり違う」と数えないため)。
+            var bg = new byte[bw * bh];
+            Parallel.For(0, bh, MakeParallelOptions(token), ly =>
+            {
+                for (int lx = 0; lx < bw; lx++)
+                {
+                    int li = ly * bw + lx;
+                    bool want = label[li] != 0 ? thin[label[li]] : TouchesThin(label, thin, bw, bh, lx, ly);
+                    if (!want) continue;
+                    int x = lx + x0, y = ly + y0;
+                    var c = px[y * w + x];
+                    int gx = x / d, gy = y / d;
+                    double best = double.MaxValue;
+                    for (int radius = 2; radius <= MaxWindowRadius && best == double.MaxValue; radius += 2)
+                    {
+                        int gy0 = Mathf.Max(0, gy - radius), gy1 = Mathf.Min(gh - 1, gy + radius);
+                        int gx0 = Mathf.Max(0, gx - radius), gx1 = Mathf.Min(gw - 1, gx + radius);
+                        for (int yy = gy0; yy <= gy1; yy++)
+                            for (int xx = gx0; xx <= gx1; xx++)
+                            {
+                                int g = yy * gw + xx;
+                                if (!validOut[g]) continue;
+                                double dd = Dist2Mean(c, meanOut, g * 4);
+                                if (dd < best) best = dd;
+                            }
+                    }
+                    if (best <= PeelSameColorSq) { bg[li] = 1; continue; }
+                    bg[li] = 2;
+                    // はっきり違うかは成分の画素だけ数える(マスク外の画素は剥がす起点の判定にしか使わない)。
+                    if (best == double.MaxValue || best <= PeelDistinctSq || label[li] == 0) continue;
+                    int wy0 = Mathf.Max(0, gy - MaxWindowRadius), wy1 = Mathf.Min(gh - 1, gy + MaxWindowRadius);
+                    int wx0 = Mathf.Max(0, gx - MaxWindowRadius), wx1 = Mathf.Min(gw - 1, gx + MaxWindowRadius);
+                    for (int yy = wy0; yy <= wy1 && best > PeelDistinctSq; yy++)
+                        for (int xx = wx0; xx <= wx1; xx++)
+                        {
+                            int g = yy * gw + xx;
+                            if (!validOut[g]) continue;
+                            double dd = Dist2Mean(c, meanOut, g * 4);
+                            if (dd < best) best = dd;
+                        }
+                    if (best > PeelDistinctSq) bg[li] = 3;
+                }
+            });
+            token.ThrowIfCancellationRequested();
+
+            // 剥がす候補: マスク外の地色に接する地色の画素から、成分の中の地色だけを辿る。
+            var peel = new bool[bw * bh];
+            var peeled = new int[nComp];
+            int pHead = 0, pTail = 0;
+            for (int ly = 0; ly < bh; ly++)
+            {
+                for (int lx = 0; lx < bw; lx++)
+                {
+                    int li = ly * bw + lx;
+                    if (label[li] == 0 || bg[li] != 1) continue;
+                    bool seed = false;
+                    for (int k = 0; k < 4 && !seed; k++)
+                    {
+                        int nx = lx + (k == 0 ? 1 : k == 1 ? -1 : 0);
+                        int ny = ly + (k == 2 ? 1 : k == 3 ? -1 : 0);
+                        if (nx < 0 || nx >= bw || ny < 0 || ny >= bh) continue;
+                        int ni = ny * bw + nx;
+                        seed = label[ni] == 0 && bg[ni] == 1;
+                    }
+                    if (!seed) continue;
+                    peel[li] = true;
+                    peeled[label[li]]++;
+                    queue[pTail++] = li;
+                }
+            }
+            while (pHead < pTail)
+            {
+                int q = queue[pHead++];
+                int qx = q % bw, qy = q / bw;
+                for (int k = 0; k < 4; k++)
+                {
+                    int nx = qx + (k == 0 ? 1 : k == 1 ? -1 : 0);
+                    int ny = qy + (k == 2 ? 1 : k == 3 ? -1 : 0);
+                    if (nx < 0 || nx >= bw || ny < 0 || ny >= bh) continue;
+                    int ni = ny * bw + nx;
+                    if (peel[ni] || label[ni] == 0 || bg[ni] != 1) continue;
+                    peel[ni] = true;
+                    peeled[label[ni]]++;
+                    queue[pTail++] = ni;
+                }
+            }
+
+            // 成分ごとの門(PeelMinDetailFrac の説明参照): 地の上の描き込みが成分の一定割合を占め、
+            // 剥がした後の残りの半分以上がそれであること。
+            var distinct = new int[nComp];
+            for (int li = 0; li < bw * bh; li++)
+                if (label[li] != 0 && bg[li] == 3) distinct[label[li]]++;
+            var accept = new bool[nComp];
+            bool anyAccept = false;
+            for (int c = 1; c < nComp; c++)
+            {
+                accept[c] = peeled[c] > 0 && distinct[c] >= PeelMinDetailFrac * area[c]
+                            && distinct[c] >= 0.5f * (area[c] - peeled[c]);
+                anyAccept |= accept[c];
+            }
+            if (!anyAccept) return;
+
+            for (int ly = 0; ly < bh; ly++)
+            {
+                for (int lx = 0; lx < bw; lx++)
+                {
+                    int li = ly * bw + lx;
+                    if (peel[li] && accept[label[li]])
+                        mask[(ly + y0) * w + lx + x0] = false;
+                }
+            }
+        }
+
+        /// <summary>union-find の根(経路を半分に縮める)。</summary>
+        static int FindRoot(int[] parent, int r)
+        {
+            while (parent[r] != r)
+            {
+                parent[r] = parent[parent[r]];
+                r = parent[r];
+            }
+            return r;
+        }
+
+        /// <summary>矩形内の (lx, ly) の 4 近傍に細い成分の画素があるか。</summary>
+        static bool TouchesThin(int[] label, bool[] thin, int bw, int bh, int lx, int ly)
+        {
+            if (lx + 1 < bw && thin[label[ly * bw + lx + 1]]) return true;
+            if (lx > 0 && thin[label[ly * bw + lx - 1]]) return true;
+            if (ly + 1 < bh && thin[label[(ly + 1) * bw + lx]]) return true;
+            if (ly > 0 && thin[label[(ly - 1) * bw + lx]]) return true;
+            return false;
         }
 
         /// <summary>
