@@ -287,6 +287,7 @@ namespace Iroca
         [ThreadStatic] private static int[] t_memoEpoch;
         [ThreadStatic] private static int[] t_memoColor;
         [ThreadStatic] private static float[] t_memoMid;
+        [ThreadStatic] private static float[] t_memoUp;
         [ThreadStatic] private static Color32[] t_memoOut;
         private static int s_recolorMemoEpoch;
 
@@ -297,7 +298,7 @@ namespace Iroca
             return e != 0 ? e : Interlocked.Increment(ref s_recolorMemoEpoch);
         }
 
-        private static Color32 RecolorPixelMemo(int epoch, int colorId, float regLmid,
+        private static Color32 RecolorPixelMemo(int epoch, int colorId, float regLmid, float regUp,
             Color32 op, float oV, float alpha, in RecolorParams p)
         {
             int[] ep = t_memoEpoch;
@@ -306,16 +307,18 @@ namespace Iroca
                 ep = t_memoEpoch = new int[RecolorMemoSize];
                 t_memoColor = new int[RecolorMemoSize];
                 t_memoMid = new float[RecolorMemoSize];
+                t_memoUp = new float[RecolorMemoSize];
                 t_memoOut = new Color32[RecolorMemoSize];
             }
-            int slot = (int)(((uint)colorId * 2654435761u) ^ (uint)(int)(regLmid * 1048576f))
+            int slot = (int)(((uint)colorId * 2654435761u) ^ (uint)(int)(regLmid * 1048576f) ^ ((uint)(int)(regUp * 1048576f) * 40503u))
                        & (RecolorMemoSize - 1);
-            if (ep[slot] == epoch && t_memoColor[slot] == colorId && t_memoMid[slot] == regLmid)
+            if (ep[slot] == epoch && t_memoColor[slot] == colorId && t_memoMid[slot] == regLmid && t_memoUp[slot] == regUp)
                 return t_memoOut[slot];
-            Color32 r = RecolorPixel(op.r, op.g, op.b, oV, alpha, in p, regLmid);
+            Color32 r = RecolorPixel(op.r, op.g, op.b, oV, alpha, in p, regLmid, regUp);
             ep[slot] = epoch;
             t_memoColor[slot] = colorId;
             t_memoMid[slot] = regLmid;
+            t_memoUp[slot] = regUp;
             t_memoOut[slot] = r;
             return r;
         }

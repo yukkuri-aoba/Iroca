@@ -394,6 +394,7 @@ namespace Iroca
                 float[] matchConf = null;
                 bool[] includedPx = null;
                 float[] regMidMapRented = null;   // 成分中央値の地図をプールから借りたとき(ゾーンの終わりに返す)
+                float[] regUpMapRented = null;    // 同、白側の余白の地図
                 try
                 {
                     // サンプル色の HSV(ゾーン内で不変。彩度天井ゲート・別パーツの色相幅・緩和マッチ・
@@ -1103,6 +1104,7 @@ namespace Iroca
                     // 背景よりわずかに暗いだけの明るい対象がベタ黒へ潰れない。null のときは
                     // zRegLmid(全体中央値)へフォールバック。
                     float[] zRegMidMap = null;
+                    float[] zRegUpMap = null;
                     if (zAchromaWeight > AchromaWeightActiveMin)
                     {
                         if (useCachedStats)
@@ -1111,7 +1113,11 @@ namespace Iroca
                             zHasRegL = cachedStats.hasRegL;
                             zRegLmid = cachedStats.regLmid;
                             if (zHasRegL && cachedStats.regMidMapFull != null)
+                            {
                                 zRegMidMap = CropFullMidMap(cachedStats.regMidMapFull, w, h, originX, originY, fullW);
+                                if (cachedStats.regUpMapFull != null)
+                                    zRegUpMap = CropFullMidMap(cachedStats.regUpMapFull, w, h, originX, originY, fullW);
+                            }
                         }
                         else
                         {
@@ -1123,9 +1129,9 @@ namespace Iroca
                             {
                                 // 地図をキャッシュへ渡す(下)ときだけ新しく確保し、それ以外はプールから借りる。
                                 bool keepMap = isFullImagePath && parityCache != null;
-                                zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, 0.05f, cancellationToken,
+                                zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, 0.05f, out zRegUpMap, cancellationToken,
                                     palette, rentMap: !keepMap);
-                                if (!keepMap) regMidMapRented = zRegMidMap;
+                                if (!keepMap) { regMidMapRented = zRegMidMap; regUpMapRented = zRegUpMap; }
                             }
                         }
                     }
@@ -1147,6 +1153,7 @@ namespace Iroca
                             hasRegL = zHasRegL,
                             regLmid = zRegLmid,
                             regMidMapFull = zRegMidMap,
+                            regUpMapFull = zRegUpMap,
                         });
                     }
 
@@ -1191,7 +1198,7 @@ namespace Iroca
                                 maskColOf, maskRowBase, commonMask, zoneMask, po);
                         }
                         AnalyzeMixtureBand(originalPixels, strengthForRecolor, w, h, decontaminationRadius,
-                            in rcParams, zRegMidMap, zRegLmid,
+                            in rcParams, zRegMidMap, zRegUpMap, zRegLmid,
                             MostChromaticSample(zone), includedPx,
                             decontaminatedPixels, mixAlpha,
                             rcMinX, rcMinY, rcMaxX, rcMaxY,
@@ -1220,7 +1227,7 @@ namespace Iroca
                             for (int k = k0; k < k1; k++)
                             {
                                 Color32 c = pCol[k];
-                                outRc[k] = RecolorPixel(c.r, c.g, c.b, pV[k], c.a / 255f, in rcParamsLocal, lmid);
+                                outRc[k] = RecolorPixel(c.r, c.g, c.b, pV[k], c.a / 255f, in rcParamsLocal, lmid, AchromaFormOffset);
                             }
                         });
                         palRecolored = outRc;
@@ -1287,17 +1294,19 @@ namespace Iroca
                             }
                             Color32 op = originalPixels[i];
                             float alpha = op.a / 255f;
-                            float regMid = (zRegMidMap != null && zRegMidMap[i] > 0f) ? zRegMidMap[i] : zRegLmid;
+                            bool hasMapMid = zRegMidMap != null && zRegMidMap[i] > 0f;
+                            float regMid = hasMapMid ? zRegMidMap[i] : zRegLmid;
+                            float regUp = hasMapMid && zRegUpMap != null ? zRegUpMap[i] : AchromaFormOffset;
                             Color32 recolored = palRecolored != null
                                 ? palRecolored[palIdxRecolor[i]]
                                 : recolorMemoEpoch != 0
-                                    ? RecolorPixelMemo(recolorMemoEpoch, palIdxRecolor[i], regMid,
+                                    ? RecolorPixelMemo(recolorMemoEpoch, palIdxRecolor[i], regMid, regUp,
                                         op, pixV[HsvSlot(pixIdx, i)], alpha, in rcParams)
                                     : RecolorPixel(
                                         op.r, op.g, op.b,
                                         pixV[HsvSlot(pixIdx, i)], alpha,
                                         in rcParams,
-                                        regMid);
+                                        regMid, regUp);
                             if (topMost)
                             {
                                 // 最上位の寄与(claimed≈0)。es=s なので従来挙動と完全一致し、
@@ -1415,6 +1424,7 @@ namespace Iroca
                 finally
                 {
                     if (regMidMapRented != null) s_floatPool.Return(regMidMapRented);
+                    if (regUpMapRented != null) s_floatPool.Return(regUpMapRented);
                     if (highlightPot != null) s_floatPool.Return(highlightPot);
                     if (strength != null) s_floatPool.Return(strength);
                     if (matchConf != null) s_floatPool.Return(matchConf);

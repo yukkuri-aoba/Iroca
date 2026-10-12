@@ -346,7 +346,7 @@ namespace Iroca
             byte oRb, byte oGb, byte oBb,
             float oV, float alpha,
             in RecolorParams p,
-            float regLmid)
+            float regLmid, float regUp)   // regUp: 白側の余白(BuildComponentMedianLMap の upMap、地図が無ければ AchromaFormOffset)
         {
             // ゾーン不変パラメータをローカルへ展開する。以降の本体ロジックは従来のまま=出力バイト不変。
             float okMagScale = p.okMagScale, okTa = p.okTa, okTb = p.okTb;
@@ -443,13 +443,14 @@ namespace Iroca
                 // 非依存。元の微小陰影をそのまま写すと暗部/明部で知覚的に平坦化(ベタ黒/ベタ白)するため、
                 // 控えめに増幅する(知覚補償)。
                 // center は target 明度そのもの。ただし黒/白に近い target では陰影を描く余白が無くなる
-                // (ベタ黒/ベタ白)ので、端から AchromaFormOffset だけ内側へ寄せる(黒=0.16, 白=0.84)。
+                // (ベタ黒/ベタ白)ので、端から内側へ寄せる。黒側は AchromaFormOffset(0.16)。白側は regUp
+                // (成分の明部の陰影の幅から決めた余白、最大 AchromaFormOffset)で、べた塗りの成分は白に乗る。
                 // 以前は「tL<0.5 なら 0.16、以上なら 0.84」の二択で、有彩の中間明度 target でも地色が
                 // 黒寄り/白寄りの固定位置に置かれていた(白い布→青緑が黒に近い紺、濃い灰→赤が薄い
                 // サーモンピンク。tL 0.496 と 0.502 で仕上がりが反転する崖もあった)。target 明度に
-                // 連続で従わせることで、無彩の素材でも指定色どおりの明るさに仕上がる。黒/白 target
-                // (tL が端から Offset 以内)は従来と同値。
-                float center = Mathf.Clamp(okTL, AchromaFormOffset, 1f - AchromaFormOffset);
+                // 連続で従わせることで、無彩の素材でも指定色どおりの明るさに仕上がる。黒 target
+                // (tL が 0.16 以下)は従来と同値。
+                float center = Mathf.Clamp(okTL, AchromaFormOffset, 1f - regUp);
                 float rangeRemap = Mathf.Clamp(center + (oL - regLmid) * AchromaFormGain, 0f, 1f);
                 float nLAchroma = okTL * (1f - valueBlend) + rangeRemap * valueBlend;
                 nL = nL * (1f - achromaWeight) + nLAchroma * achromaWeight;

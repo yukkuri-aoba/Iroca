@@ -34,12 +34,22 @@ namespace Iroca
         // gain=1.5 では pointwise 線形が保たれるので陰影相関は不変(相関はスケール不変で gain に依らない)、
         // 陰影の P90 コントラストも維持したまま、局所分散比が約 1.4 倍まで下がり視認域を下回る。
         private const float AchromaFormGain = 1.5f;    // 基準からの偏差の増幅率(知覚補償。ノイズ増幅を抑えるため 2.5→1.5)
-        private const float AchromaFormOffset = 0.16f; // 地色基準(=target 明度)を端から離す余白(黒 target=0.16, 白 target=0.84)
+        private const float AchromaFormOffset = 0.16f; // 地色基準(=target 明度)を端から離す余白(黒 target=0.16。白側はこれが上限で、成分の明部の幅に応じて狭める)
         // 成分の地色基準に使う L パーセンタイル。中央値(0.5)だと、ゆるい/広いマスクで対象より暗い
         // 隣接色の縁が成分に混入したとき基準が下振れし、同じ素材のはずの模様が 1 つずつ違う明るさに
         // 仕上がる。高め(0.8)にすると暗い混入に頑健で「素材本来の地色レベル」に揃い、並んだ同型の
         // 模様が均一になる。
         private const float AchromaRefPercentile = 0.80f;
+        // 白側の余白(成分ごと): 地色基準(P80)より明るい側に、その成分が実際に持つ陰影の幅。
+        // 余白 = min(AchromaFormOffset, AchromaFormGain × (コア画素の P90 − P80))。白側の余白を一律 0.16 にすると、
+        // 陰影の無いべた塗り(UV の中のロゴ文字など)を白にしても地色が 0.84(RGB 約 205)の灰に止まった。
+        // 余白は「明部の陰影を描く場所」なので、描く陰影が無い成分には要らない。陰影のある素材は明部の幅が
+        // 十分あるので従来どおり 0.16 を取り、べた塗りは指定色の明るさに乗る。
+        // 幅はコアマッチ(strength≥AnchorStrengthMin)の画素で測り、上位 10% は外す(P90)。どちらもアンカー推定
+        // (TryComputeRecolorAnchor)と同じ考え方で、AA 縁の混色(隣が明るいと芯より明るい)と光点の芯を陰影と
+        // 取り違えないため。全画素の P95 で測ると、細い文字では縁が上位に入り余白が 0.08 残った(芯 226)。
+        // 黒側の余白(0.16)は、暗部の小さな陰影を見えるようにする知覚補償を兼ねるので変えない。
+        private const float AchromaHeadroomPercentile = 0.90f;
         private const float AchromaRegionCoreThr = 0.5f; // 領域 L レンジを取る strength 下限
 
         // 彩度整合ゲート(緩和マッチのグレーモード分岐用)の定数は ColorZone.ChromaGate* を共有する
@@ -237,12 +247,15 @@ namespace Iroca
         /// 同型の模様が均一に仕上がるため。各成分は自分の地色を基準に再着色されるので、巻き込まれた
         /// 背景と対象の模様はそれぞれ自分の陰影を保ったまま target 側へ写る。
         /// strength>thr の画素のみ連結対象。マッチ無しは null。
+        /// upMap: 同じ成分ごとに、白側の余白(AchromaHeadroomPercentile 参照、AchromaFormOffset 以下)を配る地図。
+        /// 戻り値の地図と同じ画素に値が入る(戻り値が null なら null)。
         /// </summary>
-        // rentMap: 返す地図を s_floatPool から借りる(呼び出し側がゾーンの終わりに返す)。false なら new。
+        // rentMap: 返す地図(upMap も)を s_floatPool から借りる(呼び出し側がゾーンの終わりに返す)。false なら new。
         private static float[] BuildComponentMedianLMap(
-            Color32[] px, float[] strength, int w, int h, float thr, CancellationToken ct = default,
+            Color32[] px, float[] strength, int w, int h, float thr, out float[] upMap, CancellationToken ct = default,
             ColorPalette palette = null, bool rentMap = false)
         {
+            upMap = null;
             int len = w * h;
             var bboxPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             // 対象画素の bbox(連結予測子と同条件)。連結成分アンカリングと同じ共通版を使う。
@@ -388,57 +401,81 @@ namespace Iroca
             for (int r = 0; r < R; r++) order[fillPos[comp[r]]++] = r;
 
             var med = new float[compCount];
+            var up = new float[compCount];
             var orderL = order; var runX0L = runX0; var runX1L = runX1; var runYL = runY;
-            Parallel.For(0, compCount, bboxPo, () => new int[256], (c, _, hist) =>
+            Parallel.For(0, compCount, bboxPo, () => (new int[256], new int[256]), (c, _, hs) =>
             {
+                var (hist, histCore) = hs;
                 Array.Clear(hist, 0, 256);
-                int size = 0;
+                Array.Clear(histCore, 0, 256);
+                int size = 0, coreSize = 0;
                 for (int q = compStart[c]; q < compStart[c + 1]; q++)
                 {
                     int r = orderL[q];
                     int x0 = runX0L[r], x1 = runX1L[r];
+                    int grb = (runYL[r] + minY) * w + minX;
                     if (binOf != null)
                     {
-                        int grb = (runYL[r] + minY) * w + minX;
-                        for (int lx = x0; lx <= x1; lx++) hist[binOf[pIdx[grb + lx]]]++;
+                        for (int lx = x0; lx <= x1; lx++)
+                        {
+                            int bin = binOf[pIdx[grb + lx]];
+                            hist[bin]++;
+                            if (strength[grb + lx] >= AnchorStrengthMin) { histCore[bin]++; coreSize++; }
+                        }
                     }
                     else
                     {
                         int lrb = runYL[r] * bw;
                         for (int lx = x0; lx <= x1; lx++)
-                            hist[Mathf.Clamp((int)(okL[lrb + lx] * 255f), 0, 255)]++;
+                        {
+                            int bin = Mathf.Clamp((int)(okL[lrb + lx] * 255f), 0, 255);
+                            hist[bin]++;
+                            if (strength[grb + lx] >= AnchorStrengthMin) { histCore[bin]++; coreSize++; }
+                        }
                     }
                     size += x1 - x0 + 1;
                 }
                 med[c] = HistValueAtPercentile(hist, size, AchromaRefPercentile, 1f);
-                return hist;
+                // 明部の幅はコアマッチ(strength≥AnchorStrengthMin)の画素だけで測る。AA 縁は素材と隣の色の
+                // 混色で、隣が明るいと芯より明るい画素が並ぶが、それは陰影ではない(アンカー推定と同じ除外)。
+                // コアが無い成分(全体が淡い縁など)は全画素で測る。
+                float hi = coreSize > 0
+                    ? HistValueAtPercentile(histCore, coreSize, AchromaHeadroomPercentile, 1f)
+                    : HistValueAtPercentile(hist, size, AchromaHeadroomPercentile, 1f);
+                up[c] = Mathf.Min(AchromaFormOffset, AchromaFormGain * Mathf.Max(0f, hi - med[c]));
+                return hs;
             }, _ => { });
 
             // 成分 → 代表 L の配り直し。行ごとに書き込み先が独立なので並列化しても同一結果。
             // run の外は 0(読む側は 0 を「地図なし」として全体の中央値へ戻す)。借りた配列は 0 で埋めてから。
-            float[] map;
+            float[] map, umap;
             if (rentMap)
             {
                 map = s_floatPool.Rent(len);
-                var clearMap = map;
+                umap = s_floatPool.Rent(len);
+                var clearMap = map; var clearUp = umap;
                 const int ClearChunk = 1 << 18;
                 Parallel.For(0, (len + ClearChunk - 1) / ClearChunk, bboxPo, c =>
                 {
                     int c0 = c * ClearChunk;
                     Array.Clear(clearMap, c0, Math.Min(ClearChunk, len - c0));
+                    Array.Clear(clearUp, c0, Math.Min(ClearChunk, len - c0));
                 });
             }
-            else map = new float[len];
+            else { map = new float[len]; umap = new float[len]; }
+            var umapL = umap;
             Parallel.For(0, bh, bboxPo, ly =>
             {
                 int rb = (ly + minY) * w + minX;
                 for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
                 {
                     float v = med[comp[k]];
+                    float u = up[comp[k]];
                     int x1 = runX1[k];
-                    for (int lx = runX0[k]; lx <= x1; lx++) map[rb + lx] = v;
+                    for (int lx = runX0[k]; lx <= x1; lx++) { map[rb + lx] = v; umapL[rb + lx] = u; }
                 }
             });
+            upMap = umap;
             return map;
             }
             finally

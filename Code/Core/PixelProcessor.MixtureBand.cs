@@ -298,7 +298,7 @@ namespace Iroca
         /// </summary>
         private static void AnalyzeMixtureBand(
             Color32[] originalPixels, float[] strength, int w, int h, int radius,
-            in RecolorParams rc, float[] regMidMap, float regLmid,
+            in RecolorParams rc, float[] regMidMap, float[] regUpMap, float regLmid,
             Color zoneMaterial, bool[] includedPx,
             Color32[] mixedPixels, float[] mixAlpha,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
@@ -371,7 +371,7 @@ namespace Iroca
                 float zc2 = zcR * zcR + zcG * zcG + zcB * zcB;
                 bool hasZoneMaterial = zc2 >= minChromaSq;
                 Color32 zTo = hasZoneMaterial
-                    ? RecolorPixel(zRb, zGb, zBb, Mathf.Max(zRb, Mathf.Max(zGb, zBb)) / 255f, 1f, in rcL, regLmid)
+                    ? RecolorPixel(zRb, zGb, zBb, Mathf.Max(zRb, Mathf.Max(zGb, zBb)) / 255f, 1f, in rcL, regLmid, AchromaFormOffset)
                     : default;
 
                 Parallel.For(ey0, ey1 + 1, po, y =>
@@ -619,8 +619,10 @@ namespace Iroca
                             fBb = (byte)Mathf.Clamp(Mathf.RoundToInt(lfB), 0, 255);
                             float fV = Mathf.Max(fRb, Mathf.Max(fGb, fBb)) / 255f;
                             int fAt = setIdx[0];
-                            float regL = (regMidMap != null && regMidMap[fAt] > 0f) ? regMidMap[fAt] : regLmid;
-                            fTo = RecolorPixel(fRb, fGb, fBb, fV, 1f, in rcL, regL);
+                            bool hasMapL = regMidMap != null && regMidMap[fAt] > 0f;
+                            float regL = hasMapL ? regMidMap[fAt] : regLmid;
+                            float regU = hasMapL && regUpMap != null ? regUpMap[fAt] : AchromaFormOffset;
+                            fTo = RecolorPixel(fRb, fGb, fBb, fV, 1f, in rcL, regL, regU);
                         }
                         else
                         {

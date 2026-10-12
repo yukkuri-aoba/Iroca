@@ -94,5 +94,6 @@ namespace Iroca
         public bool hasRegL;             // 無彩再着色の領域 L レンジが有効か
         public float regLmid;
         public float[] regMidMapFull;    // 無彩再着色の成分別中央値 L マップ(フル画像 per-pixel)。null=不要
+        public float[] regUpMapFull;     // 同、成分ごとの白側の余白(AchromaFormOffset 以下)。regMidMapFull と対
     }
 }
