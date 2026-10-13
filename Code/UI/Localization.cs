@@ -56,7 +56,7 @@ namespace Iroca
         public static string LangAuto     => IsJapanese ? "自動(Auto)" : "Auto";
         public static string LangJapanese => "日本語";
         public static string LangEnglish  => "English";
-        public static string Credit       => IsJapanese ? "クレジット" : "Credit";
+        public static string Credit       => IsJapanese ? "クレジット" : "Credits";
         public static string Manual       => IsJapanese ? "マニュアル" : "Manual";
 
         public static string CreditTitle => IsJapanese ? "クレジット" : "Credits";
@@ -77,31 +77,31 @@ namespace Iroca
         // ④ は NDMF があれば非破壊の登録、無ければテクスチャへの書き出し(エクスポート欄の主ボタンと揃える)。
 #if IROCA_NDMF_PRESENT
         public static string WorkflowHint => IsJapanese
-            ? "手順: ① 元テクスチャを選ぶ（Scene でモデルの変えたい所をクリックしても開けます）→ ② スポイトで変えたい色を選び、変更先カラーを決める（そのあと「自動調整」で範囲を合わせると簡単）→ ③ プレビューで確認 → ④ アバターに非破壊で登録"
-            : "Steps: 1. Pick a source texture (or click the part of the model you want to change in the Scene view)  2. Pick the color to change with the eyedropper and choose the Target Color (then Auto-tune fits the range)  3. Check the Preview  4. Register to avatar (non-destructive)";
+            ? "① 元テクスチャを選ぶ（Scene でモデルをクリックしても開けます）→ ② 変えたい色をスポイトで選び、変更先カラーを決める → ③ プレビューで確認 → ④ アバターに非破壊で登録"
+            : "1. Pick a source texture (or click the model in the Scene view)  2. Pick the color to change with the eyedropper and choose the Target Color  3. Check the Preview  4. Register to avatar (non-destructive)";
 #else
         public static string WorkflowHint => IsJapanese
-            ? "手順: ① 元テクスチャを選ぶ（Scene でモデルの変えたい所をクリックしても開けます）→ ② スポイトで変えたい色を選び、変更先カラーを決める（そのあと「自動調整」で範囲を合わせると簡単）→ ③ プレビューで確認 → ④ 適用して保存"
-            : "Steps: 1. Pick a source texture (or click the part of the model you want to change in the Scene view)  2. Pick the color to change with the eyedropper and choose the Target Color (then Auto-tune fits the range)  3. Check the Preview  4. Apply & Save";
+            ? "① 元テクスチャを選ぶ（Scene でモデルをクリックしても開けます）→ ② 変えたい色をスポイトで選び、変更先カラーを決める → ③ プレビューで確認 → ④ 適用して保存"
+            : "1. Pick a source texture (or click the model in the Scene view)  2. Pick the color to change with the eyedropper and choose the Target Color  3. Check the Preview  4. Apply & Save";
 #endif
 
         public static string SourceTexture => IsJapanese ? "元テクスチャ" : "Source Texture";
         public static string Texture => IsJapanese ? "テクスチャ" : "Texture";
         public static string TextureTooltip => IsJapanese
-            ? "色を変えたいテクスチャをここにドラッグ＆ドロップ、または右の◎から選びます（作業の開始点）。\nテクスチャごとにゾーン設定とマスクが保存され、切り替えると自動で読み戻されます。"
-            : "Drag & drop the texture you want to recolor here, or pick it with the ◎ button (this is where the workflow starts).\nZones and masks are saved per texture and restored when you switch back.";
+            ? "色を変えたいテクスチャをここにドラッグ＆ドロップするか、右の◎から選びます。\nゾーンとマスクはテクスチャごとに保存され、切り替えると読み戻されます。"
+            : "Drag & drop the texture you want to recolor here, or pick it with the ◎ button.\nZones and masks are saved per texture and restored when you switch back.";
         public static string ReadWriteError => IsJapanese
             ? "Read/Write Enabled がオフです。\nインポート設定で有効にしてください。"
             : "Read/Write Enabled is off.\nPlease enable it in the import settings.";
         public static string EnableReadWrite => IsJapanese
-            ? "Read/Write を自動で有効にする"
-            : "Enable Read/Write automatically";
+            ? "Read/Write を有効にする"
+            : "Enable Read/Write";
         public static string EnableReadWriteConfirm => IsJapanese
-            ? "このテクスチャの Read/Write Enabled を有効化してインポート設定を変更します。\nこの操作は Undo できません。続行しますか？"
-            : "This will enable Read/Write Enabled on the texture and modify its import settings.\nThis action cannot be undone. Continue?";
+            ? "このテクスチャのインポート設定で Read/Write を有効にします。\nこの変更は Undo できません。続けますか？"
+            : "This turns on Read/Write in the texture's import settings.\nThis cannot be undone. Continue?";
         // {0}×{1} = 原本の寸法、{2} = 使うメモリの目安(GB)、{3} = この PC の搭載メモリ(GB)。
         public static string LargeSourceNoticeFormat => IsJapanese
-            ? "大きい画像です（{0}×{1}）。この大きさだとメモリを {2:0}GB ほど使います（この PC は {3:0}GB）。Iroca はインポート設定の Max Size に関係なく元の画像の解像度で処理するためです。足りないと Unity が重くなったり落ちたりするので、そのときはほかのアプリを閉じるか、縮小した画像で作業してください。"
+            ? "大きい画像です（{0}×{1}）。いろかはインポート設定の Max Size に関係なく元の解像度で処理するため、この大きさだとメモリを {2:0}GB ほど使います（この PC は {3:0}GB）。足りないと Unity が重くなったり落ちたりします。そのときはほかのアプリを閉じるか、縮小した画像で作業してください。"
             : "Large image ({0}×{1}). At this size, it uses about {2:0} GB of memory (this PC has {3:0} GB), because Iroca works at the original file's resolution regardless of the import Max Size. If memory runs short, Unity may slow down or crash; close other apps or work on a downscaled copy.";
         public static string LargeSourceDismiss => IsJapanese ? "閉じる" : "Dismiss";
         public static string LargeSourceDismissTooltip => IsJapanese
@@ -122,7 +122,7 @@ namespace Iroca
             ? "スポイト"
             : "Eyedropper";
         public static string EyedropperActive => IsJapanese
-            ? "■ クリック取得"
+            ? "■ クリックで取得"
             : "■ Click to pick";
         public static string EyedropperTooltip => IsJapanese
             ? "押すとスポイトモードになり、プレビュー上をクリックするとそのピクセルの色を\nこのゾーンの「サンプルカラー」に取り込みます。\n実テクスチャの画素から直接取得するため、カラーピッカーのスポイトより正確です。\nもう一度押すと解除します。"
@@ -136,32 +136,32 @@ namespace Iroca
             : "0 = Match target brightness entirely (flat recolor)\n1 = Keep original brightness (preserves patterns)";
         public static string OutputSaturation => IsJapanese ? "出力彩度" : "Output Saturation";
         public static string OutputSaturationTooltip => IsJapanese
-            ? "再着色後の彩度。1.0 = 変更先の鮮やかさをそのまま使う。\n彩度100%の純色（例: 純赤）は明暗のグラデーションが潰れて「ベタ塗り」に見えやすい。\n少し下げると（0.7〜0.9）色相は保ったまま明度の立体感（陰影）が戻る。\nデフォルト: 1.0"
+            ? "色替え後の鮮やかさ。1.0 = 変更先カラーの鮮やかさのまま。\n真っ赤のように鮮やかさが最大の色は陰影がつぶれてベタ塗りに見えやすいので、少し下げる（0.7〜0.9）と立体感が戻ります。\n既定: 1.0"
             : "Saturation after recoloring. 1.0 = use the target color's full vividness.\nFully saturated colors (e.g. pure red) tend to flatten brightness gradients (a solid-fill look).\nLowering it (0.7-0.9) keeps the hue but restores the brightness gradient / shading.\nDefault: 1.0";
         public static string EdgeSoftness => IsJapanese ? "エッジ柔らかさ" : "Edge Softness";
         public static string EdgeSoftnessTooltip => IsJapanese
-            ? "0 = 硬いエッジ（従来通り）\n1 = 柔らかいエッジ（アンチエイリアス境界を滑らかに）"
-            : "0 = Hard edge (legacy)\n1 = Soft edge (smooth anti-aliased boundaries)";
+            ? "0 = くっきりした縁\n1 = 柔らかい縁（アンチエイリアスの境界をなめらかに）"
+            : "0 = Hard edge\n1 = Soft edge (smooth anti-aliased boundaries)";
         public static string SaturationStrictness => IsJapanese ? "彩度制限（影の厳しさ）" : "Saturation Strictness";
         public static string SaturationStrictnessTooltip => IsJapanese
-            ? "【何をする?】選んだ色の“薄い影・AO（暗い陰り）”をどこまで仲間として拾うかの厳しさ。\n上げる → はみ出しが減るが、境界に色のドットが残りやすい\n下げる → ドットが減るが、まわりへはみ出しやすい\n※「彩度ガード」との違い：こちらは“薄い影をどう扱うか”の調整。あちらは“白/黒/灰そのものを弾く”安全装置。\nデフォルト: 0.50"
-            : "[What] How strictly the faint shadows / AO of the picked color are kept as part of the selection.\nHigher → less bleed, but color dots may remain at edges\nLower → fewer dots, but more bleed into surroundings\nNote vs 'Saturation Guard': this tunes how shadows are handled; Guard hard-rejects achromatic (white/black/gray) pixels.\nDefault: 0.50";
+            ? "選んだ色の薄い影や AO（暗い陰り）を、どこまで同じ色として拾うかの厳しさです。\n上げる → はみ出しが減るが、境界に色の点が残りやすい\n下げる → 点は減るが、周りへはみ出しやすい\n「彩度ガード」は白・黒・灰色そのものを外す設定です。\n既定: 0.50"
+            : "How strictly faint shadows / AO of the picked color count as part of the selection.\nHigher → less bleed, but color dots may remain at edges\nLower → fewer dots, but more bleed into surroundings\n'Saturation Guard' is the one that excludes white/black/gray pixels.\nDefault: 0.50";
 
         public static string SaturationGuard => IsJapanese ? "彩度ガード（無彩色よけ）" : "Saturation Guard";
         public static string SaturationGuardTooltip => IsJapanese
-            ? "【何をする?】鮮やかな色を選んだとき、白・黒・灰色など“色味のない”部分が結果に混ざるのを防ぐ安全装置。\n0 = 無効（従来動作）\n1 = 厳格（無彩色を強く弾く）\n選んだ色がもともと灰色寄りなら自動で無効になります。\n許容範囲を大きく上げて色の芯まで拾うとき、関係ない黒/白の巻き込みを抑えるのに使います。\n※「彩度制限」との違い：あちらは“薄い影の拾い方”、こちらは“無彩色そのものの除外”。\nデフォルト: 0"
-            : "[What] A safety guard that keeps colorless areas (white/black/gray) out of the result when you pick a vivid color.\n0 = off (legacy behavior)\n1 = strict (aggressively reject achromatic pixels)\nAutomatically disabled when the picked color is itself grayish.\nUse it when raising tolerance to recover the core while keeping unrelated black/white out.\nNote vs 'Saturation Strictness': that one tunes shadow handling; this one excludes achromatic pixels outright.\nDefault: 0";
+            ? "鮮やかな色を選んだとき、白・黒・灰色のような色味のない部分が混ざるのを防ぎます。\n0 = オフ、1 = 強く外す\n選んだ色が灰色寄りなら自動でオフになります。\n許容範囲を大きく上げたときに、関係ない白や黒の巻き込みを抑えるのに使います。\n既定: 0"
+            : "Keeps colorless areas (white/black/gray) out of the result when you pick a vivid color.\n0 = off, 1 = strict\nTurns itself off when the picked color is grayish.\nUse it after raising Tolerance a lot, to keep unrelated white or black out.\nDefault: 0";
 
         public static string Processing => IsJapanese ? "加工設定" : "Processing";
         public static string EdgeFeather => IsJapanese ? "エッジぼかし" : "Edge Feather";
         public static string EdgeFeatherTooltip => IsJapanese
-            ? "選択境界をガウシアンブラーでぼかし、滑らかな遷移を実現します。\n0 = オフ"
-            : "Gaussian blur on selection boundary for smooth transitions.\n0 = off";
+            ? "選択範囲の縁をぼかして、なめらかにつなぎます。\n0 = オフ"
+            : "Blurs the edge of the selection for a smoother transition.\n0 = off";
 
         public static string AntiAliasCleanup => IsJapanese ? "AA境界クリーンアップ" : "AA Edge Cleanup";
         public static string AntiAliasCleanupTooltip => IsJapanese
-            ? "アンチエイリアス境界の残りドットを除去するパス数。\n0 = オフ、3 = 標準（推奨）、5 = 最大\n値を大きくすると境界の回収範囲が広がります。\n色のついたパーツを境界クリーンアップ ON・エッジぼかし 0 で変えるときは使いません（縁は境界クリーンアップが塗ります）。"
-            : "Number of passes to recover anti-alias boundary pixels.\n0 = off, 3 = normal (recommended), 5 = max\nHigher values recover more edge pixels.\nNot used when a colored part is recolored with Edge Decontamination ON and Edge Feather at 0 (that handles the edges).";
+            ? "アンチエイリアス境界の残りドットを除去するパス数。\n0 = オフ、3 = 標準（推奨）、5 = 最大\n値を大きくすると境界の回収範囲が広がります。\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。縁は境界クリーンアップが塗ります。"
+            : "Number of passes to recover anti-alias boundary pixels.\n0 = off, 3 = normal (recommended), 5 = max\nHigher values recover more edge pixels.\nWith the defaults (Edge Decontamination ON, Edge Feather 0) this has no effect on colored parts; Edge Decontamination paints their edges.";
 
         public static string UseDecontamination => IsJapanese ? "境界クリーンアップ（α分解）" : "Edge Decontamination";
         public static string UseDecontaminationTooltip => IsJapanese
@@ -186,23 +186,23 @@ namespace Iroca
 
         public static string HoleFillPasses => IsJapanese ? "穴埋めパス数" : "Hole Fill Passes";
         public static string HoleFillPassesTooltip => IsJapanese
-            ? "アンチエイリアス端の孤立ドットを除去するパス数。\n多いほど大きなギャップを埋めますが、過剰に埋める可能性があります。\nデフォルト: 5\n色のついたパーツを境界クリーンアップ ON・エッジぼかし 0 で変えるときは使いません（縁は境界クリーンアップが塗ります）。"
-            : "Passes to fill isolated dots at anti-aliased edges.\nMore passes fill larger gaps but may over-fill.\nDefault: 5\nNot used when a colored part is recolored with Edge Decontamination ON and Edge Feather at 0 (that handles the edges).";
+            ? "アンチエイリアス端の孤立ドットを除去するパス数。\n多いほど大きなギャップを埋めますが、過剰に埋める可能性があります。\nデフォルト: 5\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。縁は境界クリーンアップが塗ります。"
+            : "Passes to fill isolated dots at anti-aliased edges.\nMore passes fill larger gaps but may over-fill.\nDefault: 5\nWith the defaults (Edge Decontamination ON, Edge Feather 0) this has no effect on colored parts; Edge Decontamination paints their edges.";
 
         public static string HoleFillMinNeighbors => IsJapanese ? "穴埋め最小隣接数" : "Hole Fill Min Neighbors";
         public static string HoleFillMinNeighborsTooltip => IsJapanese
-            ? "穴を埋めるために必要なマッチした隣接ピクセルの最小数。\n低い値 = より積極的に穴を埋める\n高い値 = より保守的\nデフォルト: 4\n色のついたパーツを境界クリーンアップ ON・エッジぼかし 0 で変えるときは使いません（縁は境界クリーンアップが塗ります）。"
-            : "Minimum matched neighbors required to fill a hole.\nLower = more aggressive filling\nHigher = more conservative\nDefault: 4\nNot used when a colored part is recolored with Edge Decontamination ON and Edge Feather at 0 (that handles the edges).";
+            ? "穴を埋めるために必要なマッチした隣接ピクセルの最小数。\n低い値 = より積極的に穴を埋める\n高い値 = より保守的\nデフォルト: 4\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。縁は境界クリーンアップが塗ります。"
+            : "Minimum matched neighbors required to fill a hole.\nLower = more aggressive filling\nHigher = more conservative\nDefault: 4\nWith the defaults (Edge Decontamination ON, Edge Feather 0) this has no effect on colored parts; Edge Decontamination paints their edges.";
 
         public static string RelaxedSatMin => IsJapanese ? "境界復元 彩度最小" : "Boundary Sat Min";
         public static string RelaxedSatMinTooltip => IsJapanese
-            ? "境界復元時の彩度最小閾値。\n低い値 = より多くの境界ピクセルを回収\n高い値 = より厳格な回収\nデフォルト: 0.02\n色のついたパーツを境界クリーンアップ ON・エッジぼかし 0 で変えるときは使いません（縁は境界クリーンアップが塗ります）。"
-            : "Minimum saturation threshold for boundary recovery.\nLower = recover more boundary pixels\nHigher = stricter recovery\nDefault: 0.02\nNot used when a colored part is recolored with Edge Decontamination ON and Edge Feather at 0 (that handles the edges).";
+            ? "境界復元時の彩度最小閾値。\n低い値 = より多くの境界ピクセルを回収\n高い値 = より厳格な回収\nデフォルト: 0.02\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。縁は境界クリーンアップが塗ります。"
+            : "Minimum saturation threshold for boundary recovery.\nLower = recover more boundary pixels\nHigher = stricter recovery\nDefault: 0.02\nWith the defaults (Edge Decontamination ON, Edge Feather 0) this has no effect on colored parts; Edge Decontamination paints their edges.";
 
         public static string RelaxedSatRamp => IsJapanese ? "境界復元 彩度ランプ" : "Boundary Sat Ramp";
         public static string RelaxedSatRampTooltip => IsJapanese
-            ? "境界復元時の彩度ランプ幅。\n大きい値 = より段階的な遷移\n小さい値 = よりシャープな境界\nデフォルト: 0.08\n色のついたパーツを境界クリーンアップ ON・エッジぼかし 0 で変えるときは使いません（縁は境界クリーンアップが塗ります）。"
-            : "Saturation ramp width for boundary recovery.\nLarger = more gradual transition\nSmaller = sharper boundary\nDefault: 0.08\nNot used when a colored part is recolored with Edge Decontamination ON and Edge Feather at 0 (that handles the edges).";
+            ? "境界復元時の彩度ランプ幅。\n大きい値 = より段階的な遷移\n小さい値 = よりシャープな境界\nデフォルト: 0.08\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。縁は境界クリーンアップが塗ります。"
+            : "Saturation ramp width for boundary recovery.\nLarger = more gradual transition\nSmaller = sharper boundary\nDefault: 0.08\nWith the defaults (Edge Decontamination ON, Edge Feather 0) this has no effect on colored parts; Edge Decontamination paints their edges.";
 
         public static string ValueWeight => IsJapanese ? "明度重み" : "Value Weight";
         public static string ValueWeightTooltip => IsJapanese
@@ -221,8 +221,8 @@ namespace Iroca
 
         public static string ShadowDesaturation => IsJapanese ? "シャドウ彩度低下" : "Shadow Desaturation";
         public static string ShadowDesaturationTooltip => IsJapanese
-            ? "暗いピクセルの彩度をどの程度の明度以下から強制的に落とすかの閾値です。低くすると暗い色でも鮮やかに染まります。\nデフォルト: 0.35"
-            : "Threshold below which dark pixels have their saturation reduced to avoid unnatural colors.\nDefault: 0.35";
+            ? "この明るさより暗い画素は、色替え後の鮮やかさを少し落とします（暗い所が不自然に鮮やかになるのを防ぐため）。下げると暗い所も鮮やかに染まります。0 = オフ\n既定: 0.35"
+            : "Pixels darker than this get slightly less saturation after recoloring, so dark areas don't look unnaturally vivid. Lower it to keep dark areas vivid. 0 = off\nDefault: 0.35";
 
         public static string ShadowForgivenessSatMin => IsJapanese ? "シャドウ巻き込み最低彩度" : "Shadow Forgiveness Sat Min";
         public static string ShadowForgivenessSatMinTooltip => IsJapanese
@@ -265,13 +265,13 @@ namespace Iroca
 
         public static string HighlightRecovery => IsJapanese ? "ハイライト補助" : "Highlight Recovery";
         public static string HighlightRecoveryTooltip => IsJapanese
-            ? "高明度・低彩度のハイライト領域を補助的にマッチします。\n鏡面反射や光沢のある素材の色変換漏れを防ぎます。\n白背景に溶けたアンチエイリアス境界も同じ特徴（明るく低彩度・同色相）を持つため、\n境界の取りこぼし（ドット残り）の低減にも副次的に効きます。\nデフォルト: ON"
-            : "Match high-brightness low-saturation highlight regions.\nPrevents missed recoloring on reflective/glossy materials.\nAnti-aliased edges blended into a light background share the same signature\n(bright, low-saturation, same hue), so this also helps reduce leftover edge dots.\nDefault: ON";
+            ? "明るく色の薄いハイライトも同じ色として拾い、光沢のある素材の塗り残しを防ぎます。\n既定: ON"
+            : "Also picks up bright, pale highlights as the same color, so glossy materials are not left unrecolored.\nDefault: ON";
 
         public static string HighlightBandExpand => IsJapanese ? "ハイライト帯の拡張" : "Highlight Band Expansion";
         public static string HighlightBandExpandTooltip => IsJapanese
-            ? "本体にマッチした領域から、描き込まれたハイライト（同色相で白方向に色が薄くなった明部）へ\n変換範囲を空間的に広げます。許容値を上げずに、薄いハイライトのベタ塗り化・取りこぼしを防ぎます。\n本体に連結した領域のみ広げるため、別パーツや白素材への巻き込みは起きません。\n白背景へのアンチエイリアス境界も同じ「源色→白」軸上に乗るため、\n本体に連結した境界の取りこぼし（ドット残り）の低減にも副次的に効きます。\n「ハイライト補助」が ON のときのみ有効。\nデフォルト: ON"
-            : "Expands recoloring from the matched body into drawn-in highlights (same-hue bright pixels washed toward white).\nKeeps thin highlights from being flattened or missed without raising tolerance.\nOnly grows regions connected to the matched body, so it never bleeds into other parts or white material.\nAnti-aliased edges blended into a light background lie on the same sample-to-white axis,\nso this also helps reduce leftover edge dots on boundaries connected to the body.\nActive only when Highlight Recovery is ON.\nDefault: ON";
+            ? "本体から続くハイライト（同じ色が白っぽく明るくなった所）まで、色替えの範囲を広げます。許容範囲を上げずに、ハイライトの塗り残しを防ぎます。\n本体とつながった所だけ広げるので、別のパーツや白い素材には広がりません。\n「ハイライト補助」が ON のときだけ効きます。\n既定: ON"
+            : "Extends the recolor from the body into connected highlights (the same color washed toward white), without raising Tolerance.\nOnly areas connected to the body are added, so it does not spread into other parts or white material.\nWorks only when Highlight Recovery is ON.\nDefault: ON";
 
         public static string ApplyHighlightWash => IsJapanese ? "ハイライト白寄せ合成" : "Highlight White Blend";
         public static string ApplyHighlightWashTooltip => IsJapanese
@@ -285,8 +285,8 @@ namespace Iroca
 
         public static string AutoRecolorAnchor => IsJapanese ? "サンプル自動補正（再着色）" : "Auto Sample Anchor";
         public static string AutoRecolorAnchorTooltip => IsJapanese
-            ? "スポイトした位置の明るさ・鮮やかさに関わらず、パーツの明るい面の色が「変更先の色」に一致するよう、\n再着色の基準をマッチした領域の統計から自動で補正します。\nこれにより、影の部分をスポイトしても出力が指定より過度に明るく・ベタ塗りになるのを防ぎます。\nOFF にするとスポイトした画素そのものが変更先の色になるため、クリックした画素を厳密に変更先の色へ\n当てたいとき、または意図的に明るく塗りたいときに使います。\n再着色する範囲(マッチング)は変わらず、色の写り方だけが補正されます。\nデフォルト: ON（明るくしたいゾーンだけ OFF）"
-            : "Automatically corrects the recoloring reference from the matched region's statistics so the lit side of the part\nmatches the target color, regardless of how bright or saturated the eyedropped spot was.\nThis prevents the output from looking excessively brighter or flatter than specified when you sample in a shadow.\nWhen OFF, the eyedropped pixel itself maps to the target color — use OFF when you want the clicked pixel mapped\nexactly to the target, or when you intentionally want a brighter result.\nIt does not change which pixels are recolored (matching), only how colors are mapped.\nDefault: ON (turn OFF per zone when you want it brighter)";
+            ? "パーツの明るい面が「変更先カラー」と同じ色になるように、色の合わせ方を自動で補正します。影の所をスポイトしても、仕上がりが明るくなりすぎません。\nOFF にすると、スポイトした画素そのものが変更先カラーになります（わざと明るく塗りたいときなど）。\n色替えする範囲は変わりません。\n既定: ON（明るくしたいゾーンだけ OFF）"
+            : "Adjusts how colors are mapped so the lit side of the part matches the Target Color, even if you sampled a shadow.\nWhen OFF, the sampled pixel itself becomes the Target Color (e.g. when you want a brighter result).\nIt does not change which pixels are recolored.\nDefault: ON (turn OFF per zone when you want it brighter)";
 
         // 含めるマスク追加(2026-08)以降、このセクションは除外/含めるの両マスクを扱う。
         public static string ExclusionMask => IsJapanese ? "マスク" : "Masks";
@@ -370,14 +370,14 @@ namespace Iroca
         public static string NotifyOnlyThisAutoTuneHint => IsJapanese
             ? "「自動調整」を押すと、この部分の中だけを見て範囲を合わせます"
             : "Press Auto-tune to fit the range by looking only inside this part";
-        public static string NotifyMaskNoChange =>IsJapanese ? "変わりませんでした（すでにそうなっています）" : "Nothing changed (already like this)";
+        public static string NotifyMaskNoChange =>IsJapanese ? "変わりませんでした（すでにそうなっています）" : "Nothing changed (it was already that way)";
         public static string NotifyMaskNotAdded => IsJapanese
             ? "当てられませんでした（直すゾーンが無いか、この場所に島がありません）"
             : "Could not apply (the zone is gone, or there is no island here)";
         public static string NotifyMeshFoundFormat => IsJapanese ? "メッシュを {0} 個見つけました" : "Found {0} mesh(es)";
         public static string NotifyMeshNotFound => IsJapanese
-            ? "このテクスチャを使うメッシュは見つかりませんでした（色の処理は今まで通り動きます）"
-            : "No mesh using this texture was found (color processing works as before)";
+            ? "このテクスチャを使うメッシュは見つかりませんでした（色での選択はそのまま使えます）"
+            : "No mesh using this texture was found (color selection still works)";
         public static string NotifyMeshNotUsableFormat => IsJapanese
             ? "「{0}」に使えるメッシュがありませんでした" : "\"{0}\" has no usable mesh";
 
@@ -403,8 +403,8 @@ namespace Iroca
         public static string MeshStatusManualFormat => IsJapanese
             ? "指定: メッシュ {0} 個" : "Chosen: {0} mesh(es)";
         public static string MeshStatusNone => IsJapanese
-            ? "見つかりません（色の処理は今まで通り）。FBX・Prefab をドラッグして指定できます"
-            : "Not found (color processing works as before). Drag an FBX or prefab here to choose one";
+            ? "見つかりません（色での選択はそのまま使えます）。FBX・Prefab をドラッグして指定できます"
+            : "Not found (color selection still works). Drag an FBX or prefab here to choose one";
         public static string MeshStatusUnreadableFormat => IsJapanese
             ? "メッシュを読めません（{0} 個）。FBX の Read/Write を有効にして「探し直す」"
             : "Cannot read the meshes ({0}). Enable Read/Write on the FBX, then \"Search again\"";
@@ -460,8 +460,8 @@ namespace Iroca
             ? $"元ファイルを直接読めないため、取り込み済みテクスチャ（{w}x{h}）から書き出しました。インポート設定の縮小・圧縮が反映されます。"
             : $"The source file could not be read directly, so the output came from the imported texture ({w}x{h}). Import downscaling and compression apply.";
         public static string ExportSourceUnavailable => IsJapanese
-            ? "元ファイルを読めず、テクスチャからも画素を取得できません。Read/Write Enabled を有効にするか、PNG / JPG のテクスチャを使ってください。"
-            : "The source file could not be read, and pixels are not available from the texture either. Enable Read/Write Enabled, or use a PNG/JPG texture.";
+            ? "元ファイルを読めず、テクスチャからも画素を取れません。インポート設定で Read/Write を有効にするか、PNG / JPG のテクスチャを使ってください。"
+            : "The source file could not be read, and pixels are not available from the texture either. Turn on Read/Write in the import settings, or use a PNG/JPG texture.";
         public static string SaveAsNewFile => IsJapanese ? "新規ファイルとして保存" : "Save as new file";
         public static string FileName => IsJapanese ? "ファイル名" : "File Name";
         public static string ApplyAndSave => IsJapanese ? "適用して保存" : "Apply & Save";
@@ -492,11 +492,11 @@ namespace Iroca
             : $"The source texture is not a PNG, so it cannot be overwritten.\nInstead, a new file \"{newFileName}\" will be created in the same folder.\nThe material reference will NOT switch automatically (re-assign it manually). Proceed?";
 
         public static string ZoneDragHandleTooltip => IsJapanese
-            ? "ドラッグして並べ替え＝優先度の変更。上にあるゾーンほど優先され、重なった部分は上のゾーンだけが適用されます（下のゾーンのマスクとして機能します）。"
-            : "Drag to reorder = change priority. Upper zones take precedence; in overlapping areas only the upper zone is applied (it acts as a mask for lower zones).";
+            ? "ドラッグで並べ替えます。重なった所は、上にあるゾーンだけが色替えします。"
+            : "Drag to reorder. Where zones overlap, only the upper one recolors.";
         public static string ZoomHint => IsJapanese
-            ? "Ctrl+スクロールでズーム。100% はテクスチャ全体がプレビュー枠に収まる大きさです。高解像度プレビューはピクセル単位まで拡大できます（上限はテクスチャ解像度に応じて自動調整）"
-            : "Ctrl+scroll to zoom. 100% fits the whole texture in the preview frame. The high-res preview can be magnified down to pixel level (max zoom auto-scales with texture resolution).";
+            ? "Ctrl+スクロールで拡大・縮小します。100% はテクスチャ全体が枠に収まる大きさで、1 画素が見えるところまで拡大できます。"
+            : "Ctrl+scroll to zoom. 100% fits the whole texture in the frame; you can zoom in until single pixels are visible.";
         public static string ZoomLabel => IsJapanese
             ? "ズーム: {0}%  (Ctrl+スクロール)"
             : "Zoom: {0}%  (Ctrl+Scroll)";
@@ -557,7 +557,7 @@ namespace Iroca
         public static string BatchApply        => IsJapanese ? "一括適用" : "Batch Apply";
         public static string BatchHint         => IsJapanese
             ? "現在のゾーン設定を複数のテクスチャに一括適用します。出力は各ファイル名に _recolored を付与します。"
-            : "Apply current zone settings to multiple textures. Output files are named with _recolored suffix.";
+            : "Apply the current zone settings to several textures at once. Output files get a _recolored suffix.";
         public static string AddBatchTexture   => IsJapanese ? "+ テクスチャ追加" : "+ Add Texture";
         public static string RemoveBatchTextureTooltip => IsJapanese
             ? "このテクスチャを一括リストから外します"
@@ -590,18 +590,18 @@ namespace Iroca
             ? "選択するテクスチャ上の矩形範囲をUV座標で指定します（0〜1）\nX/Y: 左下の原点、W/H: 幅と高さ"
             : "UV coordinate rectangle for the selected region (0-1)\nX/Y: bottom-left origin, W/H: width and height";
         public static string TargetColorTooltip => IsJapanese
-            ? "変更後の色。対象の部分がこの色に変更されます"
-            : "Target color. Pixels in this zone will be recolored to this color";
+            ? "色替え後の色。選んだ部分がこの色になります"
+            : "The new color. The selected area is recolored to this color";
 
         public static string BrushSizeTooltip => IsJapanese
-            ? "ペイントブラシの半径（全体表示のときのプレビューの格子セル単位。塗られる円の直径は 2×サイズ+1 セル）。\n画面上のブラシの大きさは拡大しても変わらず、拡大するとそのぶん細かく塗れます（4K の全体表示では 1 セル = 10 テクセル超。拡大して小さなブラシにすれば 1 テクセル単位）。"
-            : "Brush radius in preview grid cells at the fit-to-window zoom (the painted circle is 2 x size + 1 cells across).\nThe brush keeps its size on screen when you zoom in, so zooming in paints finer (over 10 texels per cell for a 4K texture at fit; zoom in with a small brush to paint single texels).";
+            ? "ブラシの半径。画面上の大きさは拡大しても変わらないので、細かく塗るときはプレビューを拡大します（拡大して小さいブラシにすると 1 画素ずつ塗れます）。"
+            : "Brush radius. It keeps its size on screen when you zoom, so zoom in to paint finer detail (zoom in with a small brush to paint single pixels).";
         public static string ExcludeTooltip => IsJapanese
             ? "除外マスクを編集対象にします（赤系の表示）\n塗った領域は色が合っていても色替えされません"
             : "Edit the exclusion mask (shown in red)\nPainted areas are never recolored, even if their color matches";
         public static string IncludeLayerTooltip => IsJapanese
-            ? "含めるマスクを編集対象にします（緑の表示）\n塗った領域は色が合わなくても必ず色替えに含まれます（色で拾えなかった部分の追加用）\nゾーン別のみ編集できます（共通マスクには「含める」はありません — どのゾーンの色にするかが決まらないため）\n塗った所にあった同じゾーンの除外は消えます（後から塗ったほうが勝ちます）。共通マスクの除外とは、重なると除外が優先されます"
-            : "Edit the include mask (shown in green)\nPainted areas are always recolored, even if their color does not match (use it to add areas the color match missed)\nPer-zone only (the common mask has no include layer — there would be no way to know which zone's color to apply)\nPainting removes the same zone's exclusion under the brush (the later paint wins). Where it overlaps the common mask's exclusion, exclusion wins";
+            ? "「含める」マスクを編集します（緑で表示）\n塗った所は、色が合わなくても必ず色替えされます（色で拾えなかった所を足すとき）\n共通マスクには「含める」はありません（どのゾーンの色にするか決まらないため）"
+            : "Edit the Include mask (shown in green)\nPainted areas are always recolored, even if the color does not match (use it to add areas the color match missed)\nThe common mask has no Include (there would be no way to know which zone's color to use)";
         public static string ClearMaskTooltip => IsJapanese
             ? "いま「編集対象」と「マスクの種類」に選ばれているマスク 1 枚だけを消去します。\nほかのマスクはそのまま残ります。"
             : "Erases only the mask currently selected by \"Edit Target\" and \"Mask Type\".\nOther masks are left untouched.";
@@ -658,8 +658,8 @@ namespace Iroca
             ? "Sentis の導入に失敗しました: {0}\nPackage Manager から手動で「com.unity.sentis」を追加することもできます（手順はマニュアル参照）。"
             : "Failed to install Sentis: {0}\nYou can also add 'com.unity.sentis' manually via the Package Manager (see the manual).";
         public static string AiSuggestRestartRecommended => IsJapanese
-            ? "AI 機能を導入しました。確実に有効化するため Unity の再起動を推奨します。\n（再起動しないと、まれに初回だけ内部コンパイル（Burst）の準備が間に合わず AI が動かないことがあります。その場合も再起動で直ります。）"
-            : "The AI feature has been installed. Restarting Unity is recommended to enable it reliably.\n(Without a restart, the internal compiler (Burst) can occasionally fail to warm up on the first load and the AI won't run. A restart fixes it.)";
+            ? "AI 機能を導入しました。Unity を再起動すると確実に使えます（再起動しないと、まれに最初だけ AI が動かないことがあります）。"
+            : "The AI feature is installed. Restart Unity to make sure it works (without a restart, the AI occasionally does not run the first time).";
         public static string AiSuggestRestartNow => IsJapanese ? "Unity を再起動" : "Restart Unity";
         public static string AiSuggestRestartNowTooltip => IsJapanese
             ? "現在のプロジェクトを開き直して Unity を再起動します（未保存の変更は先に保存してください）"
@@ -695,13 +695,13 @@ namespace Iroca
             : "The last click may have spread into the background. Undo with Ctrl+Z, then set granularity to 'Fine' or right-click again further inside the part.";
         public static string AiSuggestEmptyCommit => IsJapanese
             ? "直前のクリックではマスクが変わりませんでした（その部分はすでにそうなっています）。"
-            : "The last click did not change the mask (that part was already like this).";
+            : "The last click did not change the mask (that part was already that way).";
         public static string AiSuggestEmptyProposal => IsJapanese
             ? "AI が領域を返しませんでした。別の場所を右クリックするか、粒度を変えてみてください。\nどこを右クリックしても同じ場合は、内部コンパイル（Burst）の初期化に失敗している可能性があります。Unity を再起動すると直ります。"
             : "The AI returned no region. Try right-clicking elsewhere or changing the granularity.\nIf every click behaves this way, the internal compiler (Burst) may have failed to initialize — restarting Unity fixes it.";
         public static string AiSuggestBurstFailed => IsJapanese
-            ? "この Unity セッションでは内部コンパイル（Burst）が失敗しています。この状態では AI が領域を返せず、右クリックしてもマスクが変わりません。Unity を再起動してください（再起動すれば直ります）。"
-            : "The internal compiler (Burst) failed in this Unity session. The AI cannot produce regions in this state, so clicks won't change the mask. Please restart Unity (a restart fixes it).";
+            ? "この Unity では内部コンパイル（Burst）が失敗しているため、AI が部分を見分けられず、右クリックしてもマスクが変わりません。Unity を再起動すると直ります。"
+            : "The internal compiler (Burst) failed in this Unity session, so the AI cannot find regions and right-clicks won't change the mask. Restarting Unity fixes it.";
         public static string AiSuggestErrorRestartHint => IsJapanese
             ? "推論エンジンの初期化に失敗している可能性があります（Unity 起動時の Burst コンパイル失敗など）。Unity を再起動すると直ることが多いです。AI 提案を一度終了してから開始し直すと再試行します。"
             : "The inference engine may have failed to initialize (e.g. a Burst compile failure at Unity startup). Restarting Unity usually fixes it. Stopping and restarting AI suggestion retries the setup.";
@@ -819,8 +819,8 @@ namespace Iroca
             ? "新規保存するファイルの名前（拡張子なし）"
             : "File name for the new file (without extension)";
         public static string ApplyAndSaveTooltip => IsJapanese
-            ? "現在のゾーン設定をリカラーとして適用し、テクスチャを保存します"
-            : "Apply current zone settings as recolor and save the texture";
+            ? "色替えをテクスチャに書き込んで保存します（新しいファイルにするか上書きするかは上の設定で決まります）"
+            : "Writes the recolor into the texture and saves it (as a new file or over the original, per the setting above)";
         public static string OpenFolderTooltip => IsJapanese
             ? "元テクスチャのあるフォルダをファイルマネージャーで開きます"
             : "Open the folder containing the source texture in the file manager";
@@ -835,7 +835,7 @@ namespace Iroca
             : "Add a texture to the batch apply list";
         public static string BatchApplyAndSaveTooltip => IsJapanese
             ? "リスト内のすべてのテクスチャに現在のゾーン設定を一括適用して保存します\n出力ファイル名は元のファイル名に _recolored を付与"
-            : "Apply current zone settings to all textures in the list and save\nOutput files are named with _recolored suffix";
+            : "Apply current zone settings to all textures in the list and save\nOutput files get a _recolored suffix";
 
         public static string ComparisonModeTooltip => IsJapanese
             ? "変更前と変更後を横並びで比較表示します（高ズーム時は使用不可）"
@@ -896,25 +896,25 @@ namespace Iroca
             ? "使い方のマニュアル（オンライン版）をブラウザで開きます"
             : "Open the online user manual in your browser";
         public static string CreditTooltip => IsJapanese
-            ? "このツールのクレジット（作者・ライセンス）を表示します。開発に使わせていただいたモデルの一覧は、表示から公開ページで開けます"
-            : "Show credits (author and license) for this tool. The full list of models used in development opens from there as a public page";
+            ? "作者とライセンスを表示します。開発に使わせていただいたモデルの一覧も、そこから開けます"
+            : "Shows the author and license. The list of models used in development opens from there too";
         public static string LanguageToolbarTooltip => IsJapanese
             ? "UI の表示言語を切り替えます（自動 / 日本語 / English）"
             : "Switch the UI display language (Auto / Japanese / English)";
 
         public static string UseFloodFill => IsJapanese ? "連続領域モード (Flood Fill)" : "Connected Region (Flood Fill)";
         public static string UseFloodFillTooltip => IsJapanese
-            ? "色が一致した領域のうち、確信度の高い芯を含む『つながった塊』だけに変換を絞り込みます。\n物理的に離れた同色パーツや背景へのにじみ(誤爆)を自動で除去します。\n通常はシード不要(自動)。塊が複数あって特定の1つだけ残したいときは Shift+クリックでシードを指定できます。"
+            ? "色が合った所のうち、確実に合っている芯を含む、つながった塊だけを色替えします。\n離れた所にある同じ色のパーツや、背景へのにじみを自動で外します。\nふだんはシードは要りません。塊がいくつかあって 1 つだけ残したいときは、Shift+クリックでシードを置けます。"
             : "Restrict recoloring to connected regions that contain a high-confidence core.\nAutomatically removes bleed into physically separate same-color parts or the background.\nNo seed needed by default. To keep only one specific region, Shift+click the preview to set a seed.";
         public static string FloodFillSeedPoint => IsJapanese ? "シード (任意)" : "Seed (optional)";
         public static string FloodFillSeedNotSet => IsJapanese ? "自動 (シードなし)" : "Auto (no seed)";
         public static string FloodFillSeedHint => IsJapanese
             ? "Shift+クリックでシードを指定すると、その塊だけを残します(任意)"
             : "Shift+click to set a seed and keep only that region (optional)";
-        public static string FloodFillClear => IsJapanese ? "自動へ" : "Auto";
+        public static string FloodFillClear => IsJapanese ? "自動へ" : "Clear";
         public static string FloodFillClearTooltip => IsJapanese
-            ? "シードを解除して自動アンカリングに戻します"
-            : "Clear the seed and return to automatic anchoring";
+            ? "シードを外して自動に戻します"
+            : "Clear the seed and go back to automatic";
 
         public static string AutoTune => IsJapanese ? "自動調整" : "Auto-tune";
         // 完了通知に使う。ボタン名と同じ「自動調整」だけを出すと、開始・完了・失敗の区別がつかない。
@@ -940,8 +940,8 @@ namespace Iroca
             ? "AI を利用できないため自動調整を中止しました: {0}"
             : "Auto-tune aborted because the AI is unavailable: {0}";
         public static string AutoTuneSourceNotShared => IsJapanese
-            ? "元画像を AI と共有できないため自動調整できません。テクスチャを開き直してください"
-            : "Auto-tune cannot share the source image with the AI. Reopen the texture";
+            ? "元画像を AI に渡せなかったため、自動調整できません。テクスチャを開き直してください"
+            : "Auto-tune could not pass the source image to the AI. Reopen the texture";
         public static string AutoTuneNoSamplePosition => IsJapanese
             ? "スポイトで取った位置がないため、AI 提案を参照せずに解析します（スポイトで色を取ると AI 提案を参照します）"
             : "No eyedropper position; analyzing without the AI suggestion (pick the color with the eyedropper to use it)";
@@ -952,8 +952,8 @@ namespace Iroca
             ? "AI 提案を取得できなかったため自動調整を中止しました"
             : "Auto-tune aborted: the AI suggestion could not be obtained";
         public static string AutoTuneEvidenceUnusable => IsJapanese
-            ? "AI 提案が背景まで広がり証拠に使えなかったため、AI 提案を参照せずに解析しました"
-            : "The AI suggestion spread into the background and was unusable; analyzed without it";
+            ? "AI 提案が背景まで広がっていたため、AI 提案を使わずに調整しました"
+            : "The AI suggestion spread into the background, so Auto-tune ran without it";
         public static string AnalyzingTexture => IsJapanese ? "テクスチャを解析中…" : "Analyzing texture…";
         public static string AutoTuneTooltip => IsJapanese
             ? "サンプルカラーと変更先カラーから、テクスチャを解析して許容範囲・彩度制限などのパラメータを自動的に決定します。\n上の 2 色（サンプルカラー・変更先カラー）を決めてから押してください。下の項目が結果で上書きされます。"
@@ -977,8 +977,8 @@ namespace Iroca
             if (includesGlobals)
             {
                 sb.Append(IsJapanese
-                    ? "\nグローバル加工設定も変更されます。"
-                    : "\nGlobal processing settings will also be modified.");
+                    ? "\n「加工設定」も変わります。"
+                    : "\nThe Processing settings will also change.");
             }
             return sb.ToString();
         }
@@ -1056,8 +1056,8 @@ namespace Iroca
               + "Unity のふつうの選択はそのまま行われ、いろかの設定は何も変わりません。\n"
               + "いろかで何も開いていないときは、クリックした部分のテクスチャを開きます。"
             : "Click the model in the Scene view to see where that part is on the texture (its UV island is filled and the clicked point gets a ring).\n"
-              + "Unity selects the object as usual, and none of the いろか settings change.\n"
-              + "If no texture is open in いろか, the texture of the clicked part is opened.";
+              + "Unity selects the object as usual, and none of the Iroca settings change.\n"
+              + "If no texture is open in Iroca, the texture of the clicked part is opened.";
         public static string SceneClickOtherTextureFormat => IsJapanese
             ? "ここは「{0}」のテクスチャです"
             : "This part uses \"{0}\"";
@@ -1067,7 +1067,7 @@ namespace Iroca
         public static string SceneClickOpen => IsJapanese ? "開く" : "Open";
         public static string SceneClickOpenTooltip => IsJapanese
             ? "このテクスチャをいろかで開き、クリックした場所を表示します（今のテクスチャの編集内容は保存されます）"
-            : "Open this texture in いろか and show the clicked spot (your edits to the current texture are saved)";
+            : "Open this texture in Iroca and show the clicked spot (your edits to the current texture are saved)";
         public static string NotifySceneClickOpenedFormat => IsJapanese ? "「{0}」を開きました" : "Opened \"{0}\"";
 
         public static string PreviewSoloFormat => IsJapanese
@@ -1118,8 +1118,8 @@ namespace Iroca
             ? "スポイト位置がありません。自動調整に AI 提案を使うには「スポイト」で色を取り直してください。"
             : "No sampled position. To let Auto-tune use the AI suggestion, sample the color again with \"Eyedropper\".";
         public static string SampleUvTooltip => IsJapanese
-            ? "「スポイト」ボタンでプレビューをクリックすると位置が記録され、自動調整がその位置に AI マスク提案をかけて証拠にします。\nカラーフィールドで色を変えると位置は消えます。"
-            : "Clicking the preview with the Eyedropper button records the position, and Auto-tune runs the AI mask suggestion there as evidence.\nChanging the color from the color field clears the position.";
+            ? "「スポイト」でプレビューをクリックすると位置が記録され、自動調整はその位置の AI マスク提案を手がかりにします。\nカラーフィールドで色を変えると位置は消えます。"
+            : "Clicking the preview with the Eyedropper records the position, and Auto-tune uses the AI mask suggestion there as a hint.\nChanging the color from the color field clears the position.";
 
         // ─────────────────────────────────────────────────────────────
         // 詳細パラメータの小見出し（同じ「彩度」でも役割の違うものが平坦に並んでいた）
@@ -1158,11 +1158,11 @@ namespace Iroca
         public static string ApplyToAvatar => IsJapanese ? "アバターに反映" : "Apply to Avatar";
         public static string ExportAsTexture => IsJapanese ? "テクスチャとして書き出す" : "Export as a texture";
         public static string ExportAsTextureTooltip => IsJapanese
-            ? "色替えを書き込んだ画像ファイル(PNG)を作ります(以前からの方法)。配布・販売する衣装のように、受け取る側にいろかや NDMF が無い場合に使います。自分のアバターには「アバターに非破壊で登録」がおすすめです(元のテクスチャを残したまま、何度でも直せます)。"
-            : "Creates an image file (PNG) with the recolor written into it (the original way). Use it when the people who receive the result may not have Iroca or NDMF, such as outfits you distribute or sell. For your own avatar, \"Register to avatar (non-destructive)\" is recommended (the original texture stays as is and you can change it any time).";
+            ? "色替えを書き込んだ画像ファイル（PNG）を作ります。配布・販売する衣装のように、受け取る側にいろかや NDMF が無い場合に使います。自分のアバターには「アバターに非破壊で登録」がおすすめです(元のテクスチャを残したまま、何度でも直せます)。"
+            : "Creates an image file (PNG) with the recolor written into it. Use it when the people who receive the result may not have Iroca or NDMF, such as outfits you distribute or sell. For your own avatar, \"Register to avatar (non-destructive)\" is recommended (the original texture stays as is and you can change it any time).";
         public static string RegisterNonDestructiveTooltip => IsJapanese
-            ? "元のテクスチャとマテリアルを書き換えずに色替えします。Hierarchy で選んだ衣装やアバター(未選択なら、このテクスチャを使っている所の共通の親)に「Iroca Recolor」を付け、再生・アップロード時だけ色替え済みのテクスチャへ差し替えます。既に付いていれば、そこへこのテクスチャのレシピを足します(コンポーネントは増えません)。外せば元に戻ります。NDMF が必要です。"
-            : "Recolor without changing the original texture or materials. Adds \"Iroca Recolor\" to the outfit or avatar selected in the Hierarchy (or, if nothing is selected, the common parent of the objects using this texture), and swaps in the recolored texture only when entering Play mode or uploading. If it is already there, this texture's recipe is added to it (no new component). Remove it to go back. Requires NDMF.";
+            ? "元のテクスチャとマテリアルを書き換えずに色替えします。Hierarchy で選んだ衣装やアバター（未選択なら、このテクスチャを使っている所の共通の親）に「Iroca Recolor」を付け、再生・アップロードのときだけ色替えしたテクスチャに差し替えます。コンポーネントを外せば元に戻ります。"
+            : "Recolors without changing the original texture or materials. Adds \"Iroca Recolor\" to the outfit or avatar selected in the Hierarchy (or, if nothing is selected, the common parent of the objects using this texture) and swaps in the recolored texture only when entering Play mode or uploading. Remove the component to go back.";
         public static string RegisterNoTarget => IsJapanese
             ? "登録先が決まりません。Hierarchy で衣装かアバターを選んでから押してください(このテクスチャを使っているオブジェクトがシーンに無いか、複数のアバターにまたがっています)。"
             : "Could not decide where to register. Select the outfit or avatar in the Hierarchy and try again (no object in the scene uses this texture, or several avatars do).";
