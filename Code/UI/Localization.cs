@@ -101,8 +101,8 @@ namespace Iroca
             : "This will enable Read/Write Enabled on the texture and modify its import settings.\nThis action cannot be undone. Continue?";
         // {0}×{1} = 原本の寸法、{2} = 使うメモリの目安(GB)、{3} = この PC の搭載メモリ(GB)。
         public static string LargeSourceNoticeFormat => IsJapanese
-            ? "大きい画像です（{0}×{1}）。Iroca はインポート設定の Max Size に関係なく元の画像の解像度で処理するので、メモリを {2:0}GB ほど使います（この PC は {3:0}GB）。足りないと Unity が重くなったり落ちたりするので、そのときはほかのアプリを閉じるか、縮小した画像で作業してください。"
-            : "Large image ({0}×{1}). Iroca works at the original file's resolution regardless of the import Max Size, so it uses about {2:0} GB of memory (this PC has {3:0} GB). If memory runs short, Unity may slow down or crash; close other apps or work on a downscaled copy.";
+            ? "大きい画像です（{0}×{1}）。この大きさだとメモリを {2:0}GB ほど使います（この PC は {3:0}GB）。Iroca はインポート設定の Max Size に関係なく元の画像の解像度で処理するためです。足りないと Unity が重くなったり落ちたりするので、そのときはほかのアプリを閉じるか、縮小した画像で作業してください。"
+            : "Large image ({0}×{1}). At this size, it uses about {2:0} GB of memory (this PC has {3:0} GB), because Iroca works at the original file's resolution regardless of the import Max Size. If memory runs short, Unity may slow down or crash; close other apps or work on a downscaled copy.";
         public static string LargeSourceDismiss => IsJapanese ? "閉じる" : "Dismiss";
         public static string LargeSourceDismissTooltip => IsJapanese
             ? "このテクスチャではこの案内を表示しません。次に Unity を開いたときにまた出ます。"
