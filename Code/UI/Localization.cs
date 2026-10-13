@@ -1,4 +1,4 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
+﻿// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 namespace Iroca
 {
@@ -53,7 +53,7 @@ namespace Iroca
 
         public static string WindowTitle => "いろか";
 
-        public static string LangAuto     => IsJapanese ? "自動(Auto)" : "Auto";
+        public static string LangAuto     => IsJapanese ? "自動（Auto）" : "Auto";
         public static string LangJapanese => "日本語";
         public static string LangEnglish  => "English";
         public static string Credit       => IsJapanese ? "クレジット" : "Credits";
@@ -65,7 +65,7 @@ namespace Iroca
         // 開発に使わせていただいたモデル・テクスチャを含む全クレジットの公開ページ(リポジトリの CREDITS.md)。
         public const string CreditsUrl = "https://github.com/yukkuri-aoba/Iroca/blob/main/CREDITS.md";
         public static string CreditBody  => IsJapanese
-            ? "いろか\n\n制作: yukkuri__aoba\nAI補助: Claude (Anthropic)\n\nAI マスク提案: MobileSAM (Apache License 2.0) を ONNX に変換して使用\n\n開発に使わせていただいたモデル・テクスチャの一覧は「一覧を開く」から\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0"
+            ? "いろか\n\n制作: yukkuri__aoba\nAI 補助: Claude（Anthropic）\n\nAI マスク提案: MobileSAM（Apache License 2.0）を ONNX に変換して使用\n\n開発に使わせていただいたモデル・テクスチャの一覧は「一覧を開く」から\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0"
             : "いろか\n\nDeveloper: yukkuri__aoba\nAI Assistance: Claude (Anthropic)\n\nAI Mask Suggestion: MobileSAM (Apache License 2.0), converted to ONNX\n\nModels and textures used in development: see \"Open full list\"\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0";
 
         // セクションが等価に並んで開始点が分かりにくいので、主要 4 ステップに番号を振り、
@@ -128,7 +128,7 @@ namespace Iroca
             ? "押すとスポイトモードになり、プレビュー上をクリックするとそのピクセルの色を\nこのゾーンの「サンプルカラー」に取り込みます。\n実テクスチャの画素から直接取得するため、カラーピッカーのスポイトより正確です。\nもう一度押すと解除します。"
             : "Enters eyedropper mode; click the preview to load that pixel's color into this zone's Sample Color.\nIt reads the actual texture pixel directly, so it is more accurate than the color picker's eyedropper.\nClick again to cancel.";
         public static string Tolerance => IsJapanese ? "許容範囲" : "Tolerance";
-        public static string UVRect => IsJapanese ? "UV範囲 (0-1)" : "UV Rect (0-1)";
+        public static string UVRect => IsJapanese ? "UV 範囲（0-1）" : "UV Rect (0-1)";
         public static string TargetColor => IsJapanese ? "変更先カラー" : "Target Color";
         public static string PatternPreserve => IsJapanese ? "模様保持" : "Pattern Preserve";
         public static string PatternPreserveTooltip => IsJapanese
@@ -158,19 +158,19 @@ namespace Iroca
             ? "選択範囲の縁をぼかして、なめらかにつなぎます。\n0 = オフ"
             : "Blurs the edge of the selection for a smoother transition.\n0 = off";
 
-        public static string AntiAliasCleanup => IsJapanese ? "AA境界クリーンアップ" : "AA Edge Cleanup";
+        public static string AntiAliasCleanup => IsJapanese ? "縁のドット回収" : "AA Edge Cleanup";
         public static string AntiAliasCleanupTooltip => IsJapanese
-            ? "アンチエイリアス境界の残りドットを除去するパス数。\n0 = オフ、3 = 標準（推奨）、5 = 最大\n値を大きくすると境界の回収範囲が広がります。\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。縁は境界クリーンアップが塗ります。"
+            ? "アンチエイリアス境界の残りドットを除去するパス数。\n0 = オフ、3 = 既定（推奨）、5 = 最大\n値を大きくすると境界の回収範囲が広がります。\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。縁は境界クリーンアップが塗ります。"
             : "Number of passes to recover anti-alias boundary pixels.\n0 = off, 3 = normal (recommended), 5 = max\nHigher values recover more edge pixels.\nWith the defaults (Edge Decontamination ON, Edge Feather 0) this has no effect on colored parts; Edge Decontamination paints their edges.";
 
-        public static string UseDecontamination => IsJapanese ? "境界クリーンアップ（α分解）" : "Edge Decontamination";
+        public static string UseDecontamination => IsJapanese ? "境界クリーンアップ" : "Edge Decontamination";
         public static string UseDecontaminationTooltip => IsJapanese
             ? "境界の混ざった色（アンチエイリアス・にじみ）を、パーツの色が混ざっている割合だけ色替えします。\n縁に元の色が残る、パーツの周りに輪が出る、境界が薄汚れた中間色になる、を防ぎます。\n推奨: ON"
             : "Recolors the mixed colors at the boundary (anti-aliasing, bleeding) only by the share of the part's color in them.\nPrevents leftover original color along edges, rings around parts, and a muddy halo.\nRecommended: ON";
 
-        public static string DecontaminationRadius => IsJapanese ? "α分解 近傍半径" : "Decontamination Radius";
+        public static string DecontaminationRadius => IsJapanese ? "境界クリーンアップの半径" : "Decontamination Radius";
         public static string DecontaminationRadiusTooltip => IsJapanese
-            ? "境界の画素について、パーツの色と背景の色を探す近傍の半径。\n小さい = シャープな境界に対応、大きい = ノイズの多い背景に対応\n標準: 4"
+            ? "境界の画素について、パーツの色と背景の色を探す近傍の半径。\n小さい = シャープな境界に対応、大きい = ノイズの多い背景に対応\n既定: 4"
             : "Radius searched around a boundary pixel for the part's color and the background color.\nSmaller = sharper boundaries, larger = noisier backgrounds\nDefault: 4";
 
         // ゾーンカード内の詳細パラメータ折りたたみ見出し（既定で畳む）。
@@ -186,62 +186,62 @@ namespace Iroca
 
         public static string HoleFillPasses => IsJapanese ? "穴埋めパス数" : "Hole Fill Passes";
         public static string HoleFillPassesTooltip => IsJapanese
-            ? "アンチエイリアス端の孤立ドットを除去するパス数。\n多いほど大きなギャップを埋めますが、過剰に埋める可能性があります。\nデフォルト: 5\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。縁は境界クリーンアップが塗ります。"
+            ? "アンチエイリアス端の孤立ドットを除去するパス数。\n多いほど大きなギャップを埋めますが、過剰に埋める可能性があります。\n既定: 5\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。縁は境界クリーンアップが塗ります。"
             : "Passes to fill isolated dots at anti-aliased edges.\nMore passes fill larger gaps but may over-fill.\nDefault: 5\nWith the defaults (Edge Decontamination ON, Edge Feather 0) this has no effect on colored parts; Edge Decontamination paints their edges.";
 
         public static string HoleFillMinNeighbors => IsJapanese ? "穴埋め最小隣接数" : "Hole Fill Min Neighbors";
         public static string HoleFillMinNeighborsTooltip => IsJapanese
-            ? "穴を埋めるために必要なマッチした隣接ピクセルの最小数。\n低い値 = より積極的に穴を埋める\n高い値 = より保守的\nデフォルト: 4\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。縁は境界クリーンアップが塗ります。"
+            ? "穴を埋めるために必要なマッチした隣接ピクセルの最小数。\n低い値 = より積極的に穴を埋める\n高い値 = より保守的\n既定: 4\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。縁は境界クリーンアップが塗ります。"
             : "Minimum matched neighbors required to fill a hole.\nLower = more aggressive filling\nHigher = more conservative\nDefault: 4\nWith the defaults (Edge Decontamination ON, Edge Feather 0) this has no effect on colored parts; Edge Decontamination paints their edges.";
 
         public static string RelaxedSatMin => IsJapanese ? "境界復元 彩度最小" : "Boundary Sat Min";
         public static string RelaxedSatMinTooltip => IsJapanese
-            ? "境界復元時の彩度最小閾値。\n低い値 = より多くの境界ピクセルを回収\n高い値 = より厳格な回収\nデフォルト: 0.02\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。縁は境界クリーンアップが塗ります。"
+            ? "境界復元時の彩度最小閾値。\n低い値 = より多くの境界ピクセルを回収\n高い値 = より厳格な回収\n既定: 0.02\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。縁は境界クリーンアップが塗ります。"
             : "Minimum saturation threshold for boundary recovery.\nLower = recover more boundary pixels\nHigher = stricter recovery\nDefault: 0.02\nWith the defaults (Edge Decontamination ON, Edge Feather 0) this has no effect on colored parts; Edge Decontamination paints their edges.";
 
         public static string RelaxedSatRamp => IsJapanese ? "境界復元 彩度ランプ" : "Boundary Sat Ramp";
         public static string RelaxedSatRampTooltip => IsJapanese
-            ? "境界復元時の彩度ランプ幅。\n大きい値 = より段階的な遷移\n小さい値 = よりシャープな境界\nデフォルト: 0.08\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。縁は境界クリーンアップが塗ります。"
+            ? "境界復元時の彩度ランプ幅。\n大きい値 = より段階的な遷移\n小さい値 = よりシャープな境界\n既定: 0.08\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。縁は境界クリーンアップが塗ります。"
             : "Saturation ramp width for boundary recovery.\nLarger = more gradual transition\nSmaller = sharper boundary\nDefault: 0.08\nWith the defaults (Edge Decontamination ON, Edge Feather 0) this has no effect on colored parts; Edge Decontamination paints their edges.";
 
         public static string ValueWeight => IsJapanese ? "明度重み" : "Value Weight";
         public static string ValueWeightTooltip => IsJapanese
-            ? "距離式における明度（V）の重み。\n高い値 = 明度差に敏感（異なる素材を分離しやすい）\n低い値 = 明度差を許容（同じ素材の影/ハイライト変動を吸収）\nデフォルト: 1.0"
+            ? "距離式における明度（V）の重み。\n高い値 = 明度差に敏感（異なる素材を分離しやすい）\n低い値 = 明度差を許容（同じ素材の影/ハイライト変動を吸収）\n既定: 1.0"
             : "Weight of value (brightness) in the distance formula.\nHigher = sensitive to brightness differences (separates different materials)\nLower = tolerates brightness variation (absorbs shadow/highlight of same material)\nDefault: 1.0";
 
         public static string SatDistWeight => IsJapanese ? "彩度距離重み" : "Sat Distance Weight";
         public static string SatDistWeightTooltip => IsJapanese
-            ? "距離式における彩度距離の重み。\n高い値 = 彩度差に敏感\n低い値 = 彩度差を許容\nデフォルト: 0.15"
+            ? "距離式における彩度距離の重み。\n高い値 = 彩度差に敏感\n低い値 = 彩度差を許容\n既定: 0.15"
             : "Weight of saturation distance in the distance formula.\nHigher = sensitive to saturation differences\nLower = tolerates saturation differences\nDefault: 0.15";
 
         public static string SatRampScale => IsJapanese ? "彩度ランプスケール" : "Sat Ramp Scale";
         public static string SatRampScaleTooltip => IsJapanese
-            ? "動的彩度ランプのスケール係数。\nsatRamp = Max(0.08, サンプル彩度 × この値)\n大きい値 = 彩度閾値付近で段階的なフェードイン\n小さい値 = より急激な閾値\nデフォルト: 0.10"
+            ? "動的彩度ランプのスケール係数。\nsatRamp = Max(0.08, サンプル彩度 × この値)\n大きい値 = 彩度閾値付近で段階的なフェードイン\n小さい値 = より急激な閾値\n既定: 0.10"
             : "Scale factor for the dynamic saturation ramp.\nsatRamp = Max(0.08, sampleSat × this)\nLarger = more gradual fade near threshold\nSmaller = sharper threshold\nDefault: 0.10";
 
-        public static string ShadowDesaturation => IsJapanese ? "シャドウ彩度低下" : "Shadow Desaturation";
+        public static string ShadowDesaturation => IsJapanese ? "暗部の彩度低下" : "Shadow Desaturation";
         public static string ShadowDesaturationTooltip => IsJapanese
             ? "この明るさより暗い画素は、色替え後の鮮やかさを少し落とします（暗い所が不自然に鮮やかになるのを防ぐため）。下げると暗い所も鮮やかに染まります。0 = オフ\n既定: 0.35"
             : "Pixels darker than this get slightly less saturation after recoloring, so dark areas don't look unnaturally vivid. Lower it to keep dark areas vivid. 0 = off\nDefault: 0.35";
 
-        public static string ShadowForgivenessSatMin => IsJapanese ? "シャドウ巻き込み最低彩度" : "Shadow Forgiveness Sat Min";
+        public static string ShadowForgivenessSatMin => IsJapanese ? "暗部に含める最低彩度" : "Shadow Min Saturation";
         public static string ShadowForgivenessSatMinTooltip => IsJapanese
-            ? "グレーや黒のピクセルを同系色の影として巻き込むのを防ぐための最低彩度です。\nデフォルト: 0.05"
+            ? "グレーや黒のピクセルを同系色の影として巻き込むのを防ぐための最低彩度です。\n既定: 0.05"
             : "Minimum saturation required to include a dark pixel as part of the shadow. Prevents pure greys from being colorized.\nDefault: 0.05";
 
-        public static string ShadowValueFloor => IsJapanese ? "陰影の明度下限" : "Shadow Value Floor";
+        public static string ShadowValueFloor => IsJapanese ? "暗部の明度下限" : "Shadow Value Floor";
         public static string ShadowValueFloorTooltip => IsJapanese
-            ? "この明度より暗いピクセルだけで出来た離れた領域は、同系色でも同じ素材の陰影とみなさず選択から外します。\n同じ色相で暗いだけの別パーツ(上衣に対する暗いジャケット、肌に対する口の中など)の巻き込みを防ぎます。本体に地続きの影は残ります。\n自動調整(AI 提案あり)がクリックした部分に実在する暗さから導きます。連続領域モードでのみ効きます。0 = 無効\nデフォルト: 0"
+            ? "この明度より暗いピクセルだけで出来た離れた領域は、同系色でも同じ素材の陰影とみなさず選択から外します。\n同じ色相で暗いだけの別パーツ（上衣に対する暗いジャケット、肌に対する口の中など）の巻き込みを防ぎます。本体に地続きの影は残ります。\n自動調整（AI 提案あり）がクリックした部分に実在する暗さから導きます。連続領域モードでのみ効きます。0 = 無効\n既定: 0"
             : "Detached regions made only of pixels darker than this value are not treated as shading of the same material, even when the hue matches.\nStops darker parts of the same hue (a dark jacket next to a top, the inside of a mouth next to skin) from being included; shading connected to the body is kept.\nAuto-tune with an AI proposal derives it from the darkness actually present in the clicked part. Only in connected-region mode. 0 = off\nDefault: 0";
 
         public static string PartSatCeiling => IsJapanese ? "別パーツの彩度上限" : "Part Saturation Ceiling";
         public static string PartSatCeilingTooltip => IsJapanese
-            ? "彩度がこの値以下のピクセルが 4 分の 1 に満たない離れた領域は、同系色でも別のパーツとみなして選択から外します。\n色の近い、より鮮やかな別パーツ(濃いグレーのパンツに対する焦げ茶のブーツなど)の巻き込みを防ぎます。本体に地続きの鮮やかな陰影や装飾は残ります。\n自動調整(AI 提案あり)がクリックした部分に実在する彩度の広がりから導きます。連続領域モードでのみ効きます。0 = 無効\nデフォルト: 0"
+            ? "彩度がこの値以下のピクセルが 4 分の 1 に満たない離れた領域は、同系色でも別のパーツとみなして選択から外します。\n色の近い、より鮮やかな別パーツ（濃いグレーのパンツに対する焦げ茶のブーツなど）の巻き込みを防ぎます。本体に地続きの鮮やかな陰影や装飾は残ります。\n自動調整（AI 提案あり）がクリックした部分に実在する彩度の広がりから導きます。連続領域モードでのみ効きます。0 = 無効\n既定: 0"
             : "Detached regions where fewer than a quarter of the pixels are at or below this saturation are treated as a different part, even when the color is close.\nStops more vivid parts of a similar color (dark brown boots next to dark gray trousers) from being included; vivid shading and trim connected to the body are kept.\nAuto-tune with an AI proposal derives it from the saturation range actually present in the clicked part. Only in connected-region mode. 0 = off\nDefault: 0";
 
         public static string PartHueBand => IsJapanese ? "別パーツの色相幅" : "Part Hue Band";
         public static string PartHueBandTooltip => IsJapanese
-            ? "色相がスポイト色からこの幅に入るピクセルが 4 分の 1 に満たない離れた領域は、色が近くても別のパーツとみなして選択から外します。\n色相が少しずれた別パーツ(焦げ茶のブーツに対するグレーがかったパンツ、紺の瞳に対する紫の影など)の巻き込みを防ぎます。彩度の低いピクセルは色相が不安定なので判定に使いません。\n自動調整(AI 提案あり)がクリックした部分に実在する色相の広がりから導きます。連続領域モード・色のあるスポイトでのみ効きます。0 = 無効\nデフォルト: 0"
+            ? "色相がスポイト色からこの幅に入るピクセルが 4 分の 1 に満たない離れた領域は、色が近くても別のパーツとみなして選択から外します。\n色相が少しずれた別パーツ（焦げ茶のブーツに対するグレーがかったパンツ、紺の瞳に対する紫の影など）の巻き込みを防ぎます。彩度の低いピクセルは色相が不安定なので判定に使いません。\n自動調整（AI 提案あり）がクリックした部分に実在する色相の広がりから導きます。連続領域モード・色のあるスポイトでのみ効きます。0 = 無効\n既定: 0"
             : "Detached regions where fewer than a quarter of the pixels fall within this hue distance from the sampled color are treated as a different part, even when the color is close.\nStops parts whose hue is slightly off (grayish trousers next to dark brown boots, a purple shadow next to a navy iris) from being included. Low-saturation pixels are not used because their hue is unstable.\nAuto-tune with an AI proposal derives it from the hue range actually present in the clicked part. Only in connected-region mode with a chromatic sample. 0 = off\nDefault: 0";
 
         // 「ハイライト」は独立した小見出しへ分けたので、ここは暗部と無彩色の扱いだけを指す
@@ -250,18 +250,18 @@ namespace Iroca
 
         public static string ChromaCeiling => IsJapanese ? "無彩色の彩度上限" : "Neutral Chroma Ceiling";
         public static string ChromaCeilingTooltip => IsJapanese
-            ? "サンプルが無彩色(白/グレー/黒)のとき、この彩度を超える離れた領域は「染められた別素材」とみなして選択から外します。\n0 = 自動(サンプル彩度の 3 倍、最低 0.04)。白い布の青みがかった陰のように、素材自身の陰影が地色より強く色づく場合は上げます。\n自動調整(AI 提案あり)がクリックした部分に実在する彩度から導きます。\nデフォルト: 0"
+            ? "サンプルが無彩色（白/グレー/黒）のとき、この彩度を超える離れた領域は「染められた別素材」とみなして選択から外します。\n0 = 自動（サンプル彩度の 3 倍、最低 0.04）。白い布の青みがかった陰のように、素材自身の陰影が地色より強く色づく場合は上げます。\n自動調整（AI 提案あり）がクリックした部分に実在する彩度から導きます。\n既定: 0"
             : "When the sample is neutral (white/grey/black), detached regions more saturated than this are treated as a dyed, different material and excluded.\n0 = automatic (3x the sample saturation, at least 0.04). Raise it when the material's own shading is more tinted than its base, such as bluish shadows on white cloth.\nAuto-tune with an AI proposal derives it from the saturation actually present in the clicked part.\nDefault: 0";
 
         public static string HoleFillMargin => IsJapanese ? "穴埋めの余白" : "Hole Fill Margin";
         public static string HoleFillMarginTooltip => IsJapanese
-            ? "選択に囲まれた小さな穴を埋めるとき、許容範囲をこの割合だけ広げて判定します。\n布の明るい面のように色が許容範囲の境目をまたぐ所で、元の色の点が点々と残るのを防ぎます。囲まれていない画素は広がりません。\n自動調整(AI 提案あり)が設定します。許容範囲を手で広く取ったときに上げると、別の部位が塊で塗られることがあります。0 = 余白なし\nデフォルト: 0"
+            ? "選択に囲まれた小さな穴を埋めるとき、許容範囲をこの割合だけ広げて判定します。\n布の明るい面のように色が許容範囲の境目をまたぐ所で、元の色の点が点々と残るのを防ぎます。囲まれていない画素は広がりません。\n自動調整（AI 提案あり）が設定します。許容範囲を手で広く取ったときに上げると、別の部位が塊で塗られることがあります。0 = 余白なし\n既定: 0"
             : "When filling small holes surrounded by the selection, the tolerance is widened by this fraction.\nStops dots of the original color from being left where the color straddles the tolerance edge, such as the lit side of cloth. Pixels that are not surrounded are not added.\nAuto-tune with an AI proposal sets it. Raising it with a wide manual tolerance can paint other parts in blocks. 0 = no margin\nDefault: 0";
 
-        public static string ChromaThreshold => IsJapanese ? "自動しきい値(無彩色判定)" : "Auto Grayscale Threshold";
+        public static string ChromaThreshold => IsJapanese ? "無彩色とみなす彩度" : "Neutral Threshold";
         public static string ChromaThresholdTooltip => IsJapanese
-            ? "スポイトで取ったサンプルの彩度がこの値以下の場合は、自動的に【無彩色(黒/グレー)】として認識され、色相を無視して綺麗に抽出します。"
-            : "If the sample saturation is below this value, it automatically ignores hue and extracts pure grayscale nicely.";
+            ? "スポイトで取った色の彩度がこの値以下なら、無彩色（白・灰色・黒）として扱い、色相を見ずに選びます。"
+            : "If the sampled color's saturation is at or below this value, it is treated as neutral (white/gray/black) and hue is ignored.";
 
         public static string HighlightRecovery => IsJapanese ? "ハイライト補助" : "Highlight Recovery";
         public static string HighlightRecoveryTooltip => IsJapanese
@@ -275,15 +275,15 @@ namespace Iroca
 
         public static string ApplyHighlightWash => IsJapanese ? "ハイライト白寄せ合成" : "Highlight White Blend";
         public static string ApplyHighlightWashTooltip => IsJapanese
-            ? "明部（サンプルより明るい部分）を白方向へ寄せて、鏡面ハイライトの白い反射を表現します。\n光沢・プラスチックなど、ハイライトが白く飛ぶ素材で効果的です。\nOFF のときは色相を変えるだけで、明部の明度・彩度はそのまま保たれます。\nON でも、別色の有彩な模様は「軸残差フェード」で保護され、本来の鏡面（地色が白く飛んだ部分）だけが白寄せされます。\nデフォルト: OFF（必要なゾーンだけ ON）"
+            ? "明部（サンプルより明るい部分）を白方向へ寄せて、鏡面ハイライトの白い反射を表現します。\n光沢・プラスチックなど、ハイライトが白く飛ぶ素材で効果的です。\nOFF のときは色相を変えるだけで、明部の明度・彩度はそのまま保たれます。\nON でも、別色の有彩な模様は「軸残差フェード」で保護され、本来の鏡面（地色が白く飛んだ部分）だけが白寄せされます。\n既定: OFF（必要なゾーンだけ ON）"
             : "Pushes bright areas (brighter than the sample) toward white to reproduce the white reflection of specular highlights.\nUseful for glossy/plastic materials where highlights blow out to white.\nWhen OFF, only the hue changes and the brightness/saturation structure of bright areas is preserved.\nEven when ON, off-hue colored patterns are protected by an axis-residual fade, so only genuine specular highlights (the base color washed to white) get the white blend.\nDefault: OFF (enable per zone as needed)";
 
         public static string AutoHighlightSample => IsJapanese ? "ハイライト自動補正" : "Auto Highlight Sample";
         public static string AutoHighlightSampleTooltip => IsJapanese
-            ? "「ハイライト白寄せ合成」の配下オプション。ON のときのみ有効です。\n明るい光沢部をスポイトすると、中央ハイライトのグラデーションが潰れて「ベタ塗り」に見えることがあります。\nこの設定は、パーツの地色(同じ色相の中間トーン)をテクスチャから自動で見つけ、白寄せ合成がドーム全体に\n効くようにして鏡面の立体感を出します。再着色する範囲(マッチング)は変えず、見え方だけを補正します。\n※ 髪など細い房が多いテクスチャでは白寄せが広がりすぎることがあるため、その場合は OFF にしてください。\nデフォルト: OFF（必要なゾーンだけ ON）"
+            ? "「ハイライト白寄せ合成」の配下オプション。ON のときのみ有効です。\n明るい光沢部をスポイトすると、中央ハイライトのグラデーションが潰れて「ベタ塗り」に見えることがあります。\nこの設定は、パーツの地色（同じ色相の中間トーン）をテクスチャから自動で見つけ、白寄せ合成がドーム全体に\n効くようにして鏡面の立体感を出します。色替えする範囲は変えず、見え方だけを補正します。\n※ 髪など細い房が多いテクスチャでは白寄せが広がりすぎることがあるため、その場合は OFF にしてください。\n既定: OFF（必要なゾーンだけ ON）"
             : "A sub-option of \"Highlight White Blend\"; only active when that is ON.\nWhen you eyedrop a bright glossy spot, the central highlight gradient can collapse into a flat look.\nThis finds the part's base tone (same-hue mid tone) from the texture automatically so the white blend covers the\nwhole dome, making specular shading appear. It does not change which pixels are recolored (matching), only how it looks.\nNote: on hair-like textures with many thin strands the white-ward blend can spread too much - turn this OFF there.\nDefault: OFF (enable per zone as needed)";
 
-        public static string AutoRecolorAnchor => IsJapanese ? "サンプル自動補正（再着色）" : "Auto Sample Anchor";
+        public static string AutoRecolorAnchor => IsJapanese ? "基準色の自動補正" : "Auto Sample Anchor";
         public static string AutoRecolorAnchorTooltip => IsJapanese
             ? "パーツの明るい面が「変更先カラー」と同じ色になるように、色の合わせ方を自動で補正します。影の所をスポイトしても、仕上がりが明るくなりすぎません。\nOFF にすると、スポイトした画素そのものが変更先カラーになります（わざと明るく塗りたいときなど）。\n色替えする範囲は変わりません。\n既定: ON（明るくしたいゾーンだけ OFF）"
             : "Adjusts how colors are mapped so the lit side of the part matches the Target Color, even if you sampled a shadow.\nWhen OFF, the sampled pixel itself becomes the Target Color (e.g. when you want a brighter result).\nIt does not change which pixels are recolored.\nDefault: ON (turn OFF per zone when you want it brighter)";
@@ -310,7 +310,7 @@ namespace Iroca
             ? "AI 提案（実験的）: プレビューを右クリックして「ここも塗る / ここは塗らない / この部分だけ塗る」を選ぶと、\nクリックした場所の部分を AI が見分けて、メニューの見出しのゾーンに当てます\nここでは見分ける粒度と、推論の進み具合を確認できます"
             : "AI Suggest (experimental): right-click the preview and choose \"Paint here too / Don't paint here / Paint only this part\";\nthe AI finds the part you clicked and applies it to the zone shown at the top of the menu\nHere you can set the granularity and see the inference status";
         public static string AiSuggestNoModelInEditor => IsJapanese
-            ? "AI モデルが未取得です。Iroca 本体ウィンドウ上部の案内から取得してください。"
+            ? "AI モデルが未取得です。いろか本体ウィンドウ上部の案内から取得してください。"
             : "The AI model has not been downloaded yet. Get it from the notice at the top of the main Iroca window.";
         public static string MaskHintContextMenu => IsJapanese
             ? "プレビューを右クリックすると「ここも塗る / ここは塗らない / この部分だけ塗る」を、AI が見分けた部分やメッシュの形で当てられます（Ctrl+Z で 1 手ずつ戻せます）"
@@ -421,7 +421,7 @@ namespace Iroca
             : "Drag on the preview to paint or erase the mask";
 
         public static string Preview => IsJapanese ? "プレビュー" : "Preview";
-        public static string GeneratingPreview => IsJapanese ? "⟳ プレビュー生成中..." : "⟳ Generating preview...";
+        public static string GeneratingPreview => IsJapanese ? "⟳ プレビュー生成中…" : "⟳ Generating preview...";
         public static string SetTexture => IsJapanese
             ? "テクスチャを設定してください。"
             : "Please set a texture.";
@@ -498,7 +498,7 @@ namespace Iroca
             ? "Ctrl+スクロールで拡大・縮小します。100% はテクスチャ全体が枠に収まる大きさで、1 画素が見えるところまで拡大できます。"
             : "Ctrl+scroll to zoom. 100% fits the whole texture in the frame; you can zoom in until single pixels are visible.";
         public static string ZoomLabel => IsJapanese
-            ? "ズーム: {0}%  (Ctrl+スクロール)"
+            ? "ズーム: {0}%（Ctrl+スクロール）"
             : "Zoom: {0}%  (Ctrl+Scroll)";
         // 見出し行に収まらない狭いプレビュー列で使う短い表記（操作方法はツールチップ ZoomHint にある）。
         public static string ZoomLabelShort => IsJapanese
@@ -514,23 +514,23 @@ namespace Iroca
         // 直前がマスク編集とは限らない（スライダー変更やシーン編集かもしれない）ため、
         // 「マスクを元に戻す」とは名乗らない。名乗ると、マスク以外が巻き戻ったとき破壊的な
         // サプライズになる。
-        public static string UndoMask => IsJapanese ? "直前の操作を元に戻す (Ctrl+Z)" : "Undo Last Action (Ctrl+Z)";
+        public static string UndoMask => IsJapanese ? "直前の操作を元に戻す（Ctrl+Z）" : "Undo Last Action (Ctrl+Z)";
 
         public static string MaskHintPaintOff => IsJapanese
             ? "「塗る」または「消す」を押すとペイントモードになります。同じボタンを押すと解除。"
             : "Click Paint or Erase to enter paint mode. Click the active button again to exit.";
 
-        public static string GeneratingDetailPreview => IsJapanese ? "⟳ 詳細プレビュー生成中..." : "⟳ Generating detail preview...";
+        public static string GeneratingDetailPreview => IsJapanese ? "⟳ 詳細プレビュー生成中…" : "⟳ Generating detail preview...";
 
         public static string Presets              => IsJapanese ? "プリセット" : "Presets";
         public static string PresetName           => IsJapanese ? "プリセット名" : "Preset Name";
         public static string SavePreset           => IsJapanese ? "保存" : "Save";
         public static string LoadPreset           => IsJapanese ? "読込" : "Load";
         public static string NoPresets            => IsJapanese ? "プリセットがありません" : "No presets saved yet";
-        public static string ExportJson           => IsJapanese ? "JSONエクスポート" : "Export JSON";
-        public static string ImportJson           => IsJapanese ? "JSONインポート" : "Import JSON";
+        public static string ExportJson           => IsJapanese ? "JSON エクスポート" : "Export JSON";
+        public static string ImportJson           => IsJapanese ? "JSON インポート" : "Import JSON";
         public static string PresetStorageProject => IsJapanese ? "プロジェクト内" : "In Project";
-        public static string PresetStorageUser    => IsJapanese ? "ユーザー共通" : "Shared (User)";
+        public static string PresetStorageUser    => IsJapanese ? "全プロジェクト共通" : "All Projects";
         public static string DeletePresetConfirm(string name) => IsJapanese
             ? $"プリセット「{name}」を削除しますか？"
             : $"Delete preset '{name}'?";
@@ -548,10 +548,10 @@ namespace Iroca
 
         public static string ResetSession => IsJapanese ? "リセット" : "Reset";
         public static string ResetSessionTooltip => IsJapanese
-            ? "現在のテクスチャのゾーン・色・処理設定・マスクをすべて消して初期状態に戻します（Ctrl+Z の「元に戻す」で復元できます）。"
+            ? "今のテクスチャのゾーン・色・加工設定・マスクをすべて消して、最初の状態に戻します（Ctrl+Z で戻せます）。"
             : "Clear all zones, colors, processing settings and masks for the current texture and return to the initial state (undoable with Ctrl+Z).";
         public static string ResetSessionConfirm => IsJapanese
-            ? "現在のテクスチャのゾーン・色・処理設定・マスクをすべて消して初期状態に戻します。よろしいですか？\n（「元に戻す」で復元できます）"
+            ? "今のテクスチャのゾーン・色・加工設定・マスクをすべて消して、最初の状態に戻します。よろしいですか？\n（Ctrl+Z で戻せます）"
             : "This clears all zones, colors, processing settings and masks for the current texture. Continue?\n(You can undo this.)";
 
         public static string BatchApply        => IsJapanese ? "一括適用" : "Batch Apply";
@@ -563,7 +563,7 @@ namespace Iroca
             ? "このテクスチャを一括リストから外します"
             : "Remove this texture from the batch list";
         public static string BatchApplyAndSave => IsJapanese ? "一括適用して保存" : "Batch Apply & Save";
-        public static string BatchProgress     => IsJapanese ? "一括適用中..." : "Batch processing...";
+        public static string BatchProgress     => IsJapanese ? "一括適用中…" : "Batch processing...";
         public static string BatchComplete(int count) => IsJapanese
             ? $"{count} 件のテクスチャを処理しました"
             : $"Processed {count} texture(s)";
@@ -578,7 +578,7 @@ namespace Iroca
             ? "このゾーンを削除します"
             : "Remove this zone";
         public static string SelectionModeTooltip => IsJapanese
-            ? "ColorPick: サンプルカラーに近い色のピクセルを選択\nUVRect: UV座標の矩形範囲内のピクセルを選択"
+            ? "ColorPick: サンプルカラーに近い色のピクセルを選択\nUVRect: UV 座標の矩形範囲内のピクセルを選択"
             : "ColorPick: Select pixels matching the sampled color\nUVRect: Select pixels within a UV coordinate rectangle";
         public static string SampleColorTooltip => IsJapanese
             ? "選択する基準色。右の「スポイト」を押してプレビューをクリックすると、テクスチャの色を正確に取れます"
@@ -587,7 +587,7 @@ namespace Iroca
             ? "色の許容範囲。値が大きいほど基準色から離れた色も選択されます（0〜1）"
             : "Color matching tolerance. Higher values select colors further from the sample (0-1)";
         public static string UVRectTooltip => IsJapanese
-            ? "選択するテクスチャ上の矩形範囲をUV座標で指定します（0〜1）\nX/Y: 左下の原点、W/H: 幅と高さ"
+            ? "選択するテクスチャ上の矩形範囲を UV 座標で指定します（0〜1）\nX/Y: 左下の原点、W/H: 幅と高さ"
             : "UV coordinate rectangle for the selected region (0-1)\nX/Y: bottom-left origin, W/H: width and height";
         public static string TargetColorTooltip => IsJapanese
             ? "色替え後の色。選んだ部分がこの色になります"
@@ -606,29 +606,29 @@ namespace Iroca
             ? "いま「編集対象」と「マスクの種類」に選ばれているマスク 1 枚だけを消去します。\nほかのマスクはそのまま残ります。"
             : "Erases only the mask currently selected by \"Edit Target\" and \"Mask Type\".\nOther masks are left untouched.";
         public static string UndoMaskTooltip => IsJapanese
-            ? "直前の操作を1ステップ前に戻します（Unity 標準の Ctrl+Z と同じ）。"
+            ? "直前の操作を 1 ステップ前に戻します（Unity 標準の Ctrl+Z と同じ）。"
               + "マスク専用ではないため、直前がマスク以外の操作ならそちらが戻ります"
             : "Undo the last action, same as Unity's Ctrl+Z. This is not mask-specific: "
               + "if your last action was not a mask edit, that action is undone instead";
 
-        public static string MaskEditOpen => IsJapanese ? "マスクを編集..." : "Edit Masks...";
+        public static string MaskEditOpen => IsJapanese ? "マスクを編集…" : "Edit Masks...";
         public static string MaskEditOpenTooltip => IsJapanese
             ? "マスク編集ウィンドウを開いて、塗れる状態にします\n編集するゾーン・マスクの種類（除外/含める）・塗る/消すは、そのウィンドウで切り替えます\nウィンドウを閉じると編集は終わります"
             : "Opens the mask editing window, ready to paint\nSwitch the zone, the mask type (Exclude/Include) and Paint/Erase in that window\nClosing the window ends mask editing";
-        public static string MaskEditWindowTitle => IsJapanese ? "Iroca マスク編集" : "Iroca Masks";
+        public static string MaskEditWindowTitle => IsJapanese ? "いろか マスク編集" : "Iroca Masks";
         public static string MaskCurrentTargetFormat => IsJapanese
             ? "編集対象: {0} / {1}" : "Edit target: {0} / {1}";
         public static string MaskCurrentTargetTooltip => IsJapanese
-            ? "「マスクを編集...」で開くウィンドウが、いまどのマスクを対象にしているかの表示です\n切り替えはそのウィンドウの「編集対象」「マスクの種類」で行います"
+            ? "「マスクを編集…」で開くウィンドウが、いまどのマスクを対象にしているかの表示です\n切り替えはそのウィンドウの「編集対象」「マスクの種類」で行います"
             : "Shows which mask the editing window currently targets\nSwitch it with \"Edit Target\" and \"Mask Type\" in that window";
         public static string ClearMaskTargetFormat => IsJapanese
             ? "このマスクをクリア（{0} / {1}）" : "Clear this mask ({0} / {1})";
         public static string BrushPaletteNoHost => IsJapanese
-            ? "Iroca ウィンドウが開いていません。"
+            ? "いろかウィンドウが開いていません。"
             : "The Iroca window is not open.";
-        public static string OpenIrocaWindow => IsJapanese ? "Iroca を開く" : "Open Iroca";
+        public static string OpenIrocaWindow => IsJapanese ? "いろかを開く" : "Open Iroca";
         public static string OpenIrocaWindowTooltip => IsJapanese
-            ? "Iroca 本体ウィンドウを開きます"
+            ? "いろか本体ウィンドウを開きます"
             : "Opens the main Iroca window";
 
         public static string AiSuggest => IsJapanese ? "AI マスク提案（実験的）" : "AI Mask Suggestion (Experimental)";
@@ -648,7 +648,7 @@ namespace Iroca
             ? "Unity Package Manager 経由で {0}（バージョン {1}）を導入します\n導入後 Unity が自動で再コンパイルし、AI マスク提案が使えるようになります\n（Package Manager から手動で「Add package by name」しても同じです）"
             : "Installs {0} (version {1}) via the Unity Package Manager.\nUnity recompiles automatically afterward and AI mask suggestion becomes available.\n(Equivalent to adding it manually via 'Add package by name'.)";
         public static string AiSuggestInstalling => IsJapanese
-            ? "Sentis を導入中... 完了すると Unity が自動で再コンパイルします。"
+            ? "Sentis を導入中… 完了すると Unity が自動で再コンパイルします。"
             : "Installing Sentis... Unity will recompile automatically when it finishes.";
         public static string AiSuggestSentisVersionReplace => IsJapanese
             ? "このプロジェクトには Sentis {0} が導入済みですが、AI マスク提案は {1} でのみ動作確認しています。\n下のボタンを押すと {1} に差し替わります。他のツールが Sentis {0} を使っている場合は、そちらへの影響をご確認ください。"
@@ -668,11 +668,11 @@ namespace Iroca
         public static string AiSuggestRestartLaterTooltip => IsJapanese
             ? "この案内を閉じます（このまま使えることが多いですが、AI が動かないときは Unity を再起動してください）"
             : "Dismiss this notice (it usually works as-is; if the AI doesn't run, restart Unity).";
-        public static string AiSuggestLoadingModel => IsJapanese ? "モデルを読み込み中..." : "Loading model...";
-        public static string AiSuggestEncoding => IsJapanese ? "画像を解析中..." : "Analyzing image...";
-        public static string AiSuggestDecoding => IsJapanese ? "提案を生成中..." : "Generating proposal...";
+        public static string AiSuggestLoadingModel => IsJapanese ? "モデルを読み込み中…" : "Loading model...";
+        public static string AiSuggestEncoding => IsJapanese ? "画像を解析中…" : "Analyzing image...";
+        public static string AiSuggestDecoding => IsJapanese ? "提案を生成中…" : "Generating proposal...";
         public static string AiSuggestPendingClicksFormat => IsJapanese
-            ? "処理待ちクリック {0} 件(順に反映されます)"
+            ? "処理待ちクリック {0} 件（順に反映されます）"
             : "{0} click(s) queued (applied in order)";
         public static string AiSuggestOpenModelFolder => IsJapanese ? "モデルフォルダを開く" : "Open model folder";
         public static string AiSuggestOpenModelFolderTooltip => IsJapanese
@@ -682,7 +682,7 @@ namespace Iroca
         public static string AiSuggestDownloadTooltip => IsJapanese
             ? "MobileSAM の AI モデル 2 ファイル（合計約 44 MB、Apache-2.0 ライセンス）を\n{0}\nからダウンロードし、モデルフォルダへ自動配置します（sha256 検証つき）"
             : "Download the two MobileSAM model files (about 44 MB total, Apache-2.0 license) from\n{0}\nand place them into the model folder automatically (with sha256 verification).";
-        public static string AiSuggestDownloading => IsJapanese ? "モデルをダウンロード中..." : "Downloading models...";
+        public static string AiSuggestDownloading => IsJapanese ? "モデルをダウンロード中…" : "Downloading models...";
         public static string AiSuggestDownloadCancel => IsJapanese ? "中止" : "Cancel";
         public static string AiSuggestDownloadCancelTooltip => IsJapanese
             ? "ダウンロードを中止します（ダウンロード済みの部分ファイルは削除されます）"
@@ -691,7 +691,7 @@ namespace Iroca
             ? "ダウンロードに失敗しました: {0}\n手動でダウンロードしてモデルフォルダへ配置することもできます（手順はマニュアル参照）"
             : "Download failed: {0}\nYou can also download manually and place the files into the model folder (see the manual).";
         public static string AiSuggestAreaWarning => IsJapanese
-            ? "直前のクリックが背景まで広がった可能性があります。Ctrl+Z で戻して、粒度を「細かい」にするか、パーツのより内側を右クリックし直してください。"
+            ? "直前のクリックが背景まで広がった可能性があります。Ctrl+Z で戻して、粒度を「小さめ」にするか、パーツのより内側を右クリックし直してください。"
             : "The last click may have spread into the background. Undo with Ctrl+Z, then set granularity to 'Fine' or right-click again further inside the part.";
         public static string AiSuggestEmptyCommit => IsJapanese
             ? "直前のクリックではマスクが変わりませんでした（その部分はすでにそうなっています）。"
@@ -714,19 +714,19 @@ namespace Iroca
             : "The model files match the released ones, so the cause is elsewhere (restarting Unity usually fixes it).";
         public static string AiSuggestGranularity => IsJapanese ? "提案の粒度" : "Granularity";
         public static string AiSuggestGranularityTooltip => IsJapanese
-            ? "AI はクリック 1 点に対して粒度の違う候補(模様・パーツ・全体)を同時に推定します\nどの候補を提案として表示するかを選びます(次のクリックから適用)"
+            ? "AI はクリック 1 点に対して粒度の違う候補（模様・パーツ・全体）を同時に推定します\nどの候補を提案として表示するかを選びます（次のクリックから適用）"
             : "The AI estimates candidates of different granularity (pattern / part / whole) for one click.\nChoose which candidate to show as the proposal (applies from the next click).";
         public static string AiSuggestGranularityAuto => IsJapanese ? "自動" : "Auto";
         public static string AiSuggestGranularityAutoTooltip => IsJapanese
-            ? "輪郭がはっきりした候補のうち、最も大きいものを採用します(標準)"
+            ? "輪郭がはっきりした候補のうち、最も大きいものを採用します（既定）"
             : "Use the largest candidate among those with a crisp outline (default).";
-        public static string AiSuggestGranularityFine => IsJapanese ? "細かい" : "Fine";
+        public static string AiSuggestGranularityFine => IsJapanese ? "小さめ" : "Fine";
         public static string AiSuggestGranularityFineTooltip => IsJapanese
-            ? "輪郭がはっきりした候補のうち、最も小さいものを採用します。模様や小さなパーツ(例: バンダナの三角模様)だけを選びたいときに"
+            ? "輪郭がはっきりした候補のうち、最も小さいものを採用します。模様や小さなパーツ（例: バンダナの三角模様）だけを選びたいときに"
             : "Use the smallest candidate among those with a crisp outline. For selecting patterns or small pieces only.";
-        public static string AiSuggestGranularityCoarse => IsJapanese ? "大きい" : "Coarse";
+        public static string AiSuggestGranularityCoarse => IsJapanese ? "大きめ" : "Coarse";
         public static string AiSuggestGranularityCoarseTooltip => IsJapanese
-            ? "輪郭のはっきりさを問わず、最も大きい候補を採用します。「自動」で足りないときに(周囲を巻き込むこともあります)"
+            ? "輪郭のはっきりさを問わず、最も大きい候補を採用します。「自動」で足りないときに（周囲を巻き込むこともあります）"
             : "Use the largest candidate regardless of outline crispness. When Auto is not enough (may spill into surroundings).";
         public static string AiSuggestNoZoneWarning => IsJapanese
             ? "ゾーンがまだありません。マスクはゾーンの色替え範囲を直すものなので、先に「スポイトで変えたい色を選ぶ」で色を選んでください。"
@@ -740,16 +740,16 @@ namespace Iroca
             ? "モデル置き場を作成できません: {0}"
             : "Cannot create the model folder: {0}";
         public static string AiErrDownloadOversizedFormat => IsJapanese
-            ? "{0}: 配布サイズ({1:N0} バイト)を超えたため中止しました(配布元が想定と異なります。時間をおいて再試行してください)"
+            ? "{0}: 配布サイズ（{1:N0} バイト）を超えたため中止しました（配布元が想定と異なります。時間をおいて再試行してください）"
             : "{0}: stopped because it exceeded the expected size ({1:N0} bytes). The download source is not as expected; try again later.";
         public static string AiErrDownloadStalledFormat => IsJapanese
-            ? "{0}: {1:F0} 秒間応答がありません(接続を確認して再試行してください)"
+            ? "{0}: {1:F0} 秒間応答がありません（接続を確認して再試行してください）"
             : "{0}: no response for {1:F0} seconds. Check your connection and try again.";
         public static string AiErrDownloadHashFormat => IsJapanese
-            ? "{0}: sha256 が一致しません({1})"
+            ? "{0}: sha256 が一致しません（{1}）"
             : "{0}: sha256 does not match ({1})";
         public static string AiErrWorkerCreateFormat => IsJapanese
-            ? "推論ワーカーの作成に失敗しました({0}): {1}"
+            ? "推論ワーカーの作成に失敗しました（{0}）: {1}"
             : "Failed to create the inference worker ({0}): {1}";
         public static string AiErrPreprocessFormat => IsJapanese
             ? "前処理に失敗しました: {0}"
@@ -761,7 +761,7 @@ namespace Iroca
             ? "クロップ埋め込みサイズが不正です: {0}"
             : "Unexpected crop embedding size: {0}";
         public static string AiErrEmptyResult => IsJapanese
-            ? "推論結果が空です(バックエンドがカーネルを実行できていません)"
+            ? "推論結果が空です（バックエンドがカーネルを実行できていません）"
             : "The inference result is empty (the backend did not run its kernels).";
         public static string AiErrEncodeFormat => IsJapanese
             ? "画像の解析に失敗しました: {0}"
@@ -782,10 +782,10 @@ namespace Iroca
             ? "一時フォルダ名が衝突しました: {0}"
             : "Temporary folder name collision: {0}";
         public static string AiErrOnnxImportFormat => IsJapanese
-            ? "ONNX のインポートに失敗しました(Console のログを確認してください): {0}"
+            ? "ONNX のインポートに失敗しました（Console のログを確認してください）: {0}"
             : "Failed to import the ONNX model (see the Console log): {0}";
         public static string AiErrReadbackTimeout => IsJapanese
-            ? "GPU からの読出がタイムアウトしました"
+            ? "GPU からの読み出しがタイムアウトしました"
             : "Reading back from the GPU timed out";
 
         public static string MaskTarget => IsJapanese ? "編集対象" : "Edit Target";
@@ -806,7 +806,7 @@ namespace Iroca
             ? "ON にすると、プリセットに同梱されたマスクを読み込み時に適用します\nOFF の場合はマスクを無視して他のパラメータのみ読み込みます"
             : "When ON, masks embedded in the preset are applied on load\nWhen OFF, masks are ignored and only other parameters are loaded";
         public static string PresetAdvanced => IsJapanese
-            ? "詳細（マスク・JSON入出力）"
+            ? "詳細（マスク・JSON 入出力）"
             : "Advanced (masks / JSON)";
         public static string PresetAdvancedTooltip => IsJapanese
             ? "マスクの保存/適用オプションと、設定を JSON ファイルとして書き出し/読み込みする機能です"
@@ -828,7 +828,7 @@ namespace Iroca
             ? "インポート設定を引き継ぐ"
             : "Inherit Import Settings";
         public static string InheritImportSettingsTooltip => IsJapanese
-            ? "ON: 元テクスチャのインポート設定（テクスチャタイプ・圧縮・ミップマップなど）を出力ファイルに引き継ぎます\nOFF: Unity のデフォルトのインポート設定を使用します"
+            ? "ON: 元テクスチャのインポート設定（テクスチャタイプ・圧縮・ミップマップなど）を出力ファイルに引き継ぎます\nOFF: Unity の既定のインポート設定を使います"
             : "ON: Copy import settings (texture type, compression, mipmaps, etc.) from the source texture to the output file\nOFF: Use Unity's default import settings";
         public static string AddBatchTextureTooltip => IsJapanese
             ? "一括適用リストにテクスチャを追加します"
@@ -845,10 +845,10 @@ namespace Iroca
             : "Highlight pixels that changed between before and after";
 
         public static string PresetStorageProjectTooltip => IsJapanese
-            ? "プリセットをProjectのAssetsフォルダ内に保存します。Gitなどでチームと共有できます"
+            ? "プリセットを Project の Assets フォルダ内に保存します。Git などでチームと共有できます"
             : "Save presets inside the project's Assets folder. Can be shared via Git.";
         public static string PresetStorageUserTooltip => IsJapanese
-            ? "プリセットをOSのユーザーフォルダに保存します。この端末の全プロジェクトで共有されます"
+            ? "プリセットを OS のユーザーフォルダに保存します。この端末の全プロジェクトで共有されます"
             : "Save presets in the OS user folder. Shared across all projects on this machine.";
         public static string PresetNameTooltip => IsJapanese
             ? "保存するプリセットの名前を入力してください"
@@ -857,10 +857,10 @@ namespace Iroca
             ? "現在のゾーン設定と加工設定をプリセットとして保存します"
             : "Save current zone and processing settings as a preset";
         public static string ExportJsonTooltip => IsJapanese
-            ? "現在の保存先のプリセットをJSONファイルとしてエクスポートします"
+            ? "現在の保存先のプリセットを JSON ファイルとしてエクスポートします"
             : "Export presets from the current storage location as a JSON file";
         public static string ImportJsonTooltip => IsJapanese
-            ? "JSONファイルからプリセット設定をインポートします"
+            ? "JSON ファイルからプリセット設定をインポートします"
             : "Import preset settings from a JSON file";
         public static string LoadPresetTooltip => IsJapanese
             ? "このプリセットを読み込み、現在のゾーン設定を上書きします"
@@ -902,14 +902,14 @@ namespace Iroca
             ? "UI の表示言語を切り替えます（自動 / 日本語 / English）"
             : "Switch the UI display language (Auto / Japanese / English)";
 
-        public static string UseFloodFill => IsJapanese ? "連続領域モード (Flood Fill)" : "Connected Region (Flood Fill)";
+        public static string UseFloodFill => IsJapanese ? "連続領域モード" : "Connected Region";
         public static string UseFloodFillTooltip => IsJapanese
             ? "色が合った所のうち、確実に合っている芯を含む、つながった塊だけを色替えします。\n離れた所にある同じ色のパーツや、背景へのにじみを自動で外します。\nふだんはシードは要りません。塊がいくつかあって 1 つだけ残したいときは、Shift+クリックでシードを置けます。"
             : "Restrict recoloring to connected regions that contain a high-confidence core.\nAutomatically removes bleed into physically separate same-color parts or the background.\nNo seed needed by default. To keep only one specific region, Shift+click the preview to set a seed.";
-        public static string FloodFillSeedPoint => IsJapanese ? "シード (任意)" : "Seed (optional)";
-        public static string FloodFillSeedNotSet => IsJapanese ? "自動 (シードなし)" : "Auto (no seed)";
+        public static string FloodFillSeedPoint => IsJapanese ? "シード（任意）" : "Seed (optional)";
+        public static string FloodFillSeedNotSet => IsJapanese ? "自動（シードなし）" : "Auto (no seed)";
         public static string FloodFillSeedHint => IsJapanese
-            ? "Shift+クリックでシードを指定すると、その塊だけを残します(任意)"
+            ? "Shift+クリックでシードを指定すると、その塊だけを残します（任意）"
             : "Shift+click to set a seed and keep only that region (optional)";
         public static string FloodFillClear => IsJapanese ? "自動へ" : "Clear";
         public static string FloodFillClearTooltip => IsJapanese
@@ -1043,7 +1043,7 @@ namespace Iroca
         public static string PreviewModeAi => IsJapanese
             ? "AI 提案を計算中（結果はマスクへ自動で入ります）"
             : "AI suggest is working (the result goes into the mask automatically)";
-        public static string PreviewModeEscHint => IsJapanese ? "  (Esc で解除)" : "  (Esc to cancel)";
+        public static string PreviewModeEscHint => IsJapanese ? "（Esc で解除）" : "  (Esc to cancel)";
         public static string PreviewModeTooltip => IsJapanese
             ? "プレビュー上のクリックがいま何をするかを示します。Esc で解除できます。\nどのモードでも、中ボタンドラッグまたは Alt+ドラッグで表示を移動できます。"
             : "Shows what a click on the preview does right now. Press Esc to leave the mode.\nIn any mode you can pan the view with a middle-button drag or Alt+drag.";
@@ -1133,7 +1133,7 @@ namespace Iroca
 
         public static string ProcessingDetailFoldout => IsJapanese ? "詳細設定" : "Details";
         public static string ProcessingDetailFoldoutTooltip => IsJapanese
-            ? "穴埋め・境界復元・α分解の近傍半径など、内部の細かいパラメータを開閉します。通常は既定のままで構いません。"
+            ? "穴埋め・境界復元・境界クリーンアップの半径など、内部の細かいパラメータを開閉します。通常は既定のままで構いません。"
             : "Show or hide internal parameters such as hole filling, boundary recovery, and the decontamination radius. The defaults are usually fine.";
 
         // ─────────────────────────────────────────────────────────────
@@ -1158,13 +1158,13 @@ namespace Iroca
         public static string ApplyToAvatar => IsJapanese ? "アバターに反映" : "Apply to Avatar";
         public static string ExportAsTexture => IsJapanese ? "テクスチャとして書き出す" : "Export as a texture";
         public static string ExportAsTextureTooltip => IsJapanese
-            ? "色替えを書き込んだ画像ファイル（PNG）を作ります。配布・販売する衣装のように、受け取る側にいろかや NDMF が無い場合に使います。自分のアバターには「アバターに非破壊で登録」がおすすめです(元のテクスチャを残したまま、何度でも直せます)。"
+            ? "色替えを書き込んだ画像ファイル（PNG）を作ります。配布・販売する衣装のように、受け取る側にいろかや NDMF が無い場合に使います。自分のアバターには「アバターに非破壊で登録」がおすすめです（元のテクスチャを残したまま、何度でも直せます）。"
             : "Creates an image file (PNG) with the recolor written into it. Use it when the people who receive the result may not have Iroca or NDMF, such as outfits you distribute or sell. For your own avatar, \"Register to avatar (non-destructive)\" is recommended (the original texture stays as is and you can change it any time).";
         public static string RegisterNonDestructiveTooltip => IsJapanese
             ? "元のテクスチャとマテリアルを書き換えずに色替えします。Hierarchy で選んだ衣装やアバター（未選択なら、このテクスチャを使っている所の共通の親）に「Iroca Recolor」を付け、再生・アップロードのときだけ色替えしたテクスチャに差し替えます。コンポーネントを外せば元に戻ります。"
             : "Recolors without changing the original texture or materials. Adds \"Iroca Recolor\" to the outfit or avatar selected in the Hierarchy (or, if nothing is selected, the common parent of the objects using this texture) and swaps in the recolored texture only when entering Play mode or uploading. Remove the component to go back.";
         public static string RegisterNoTarget => IsJapanese
-            ? "登録先が決まりません。Hierarchy で衣装かアバターを選んでから押してください(このテクスチャを使っているオブジェクトがシーンに無いか、複数のアバターにまたがっています)。"
+            ? "登録先が決まりません。Hierarchy で衣装かアバターを選んでから押してください（このテクスチャを使っているオブジェクトがシーンに無いか、複数のアバターにまたがっています）。"
             : "Could not decide where to register. Select the outfit or avatar in the Hierarchy and try again (no object in the scene uses this texture, or several avatars do).";
         public static string RegisterNoZones => IsJapanese
             ? "有効なゾーンがありません。色替えするゾーンを作ってから登録してください。"
@@ -1176,32 +1176,32 @@ namespace Iroca
             ? "「{0}」とその子のマテリアルのうち「{1}」を使っている所を、再生・アップロード時に色替えします。元のテクスチャとマテリアルは変わりません。\n\nレシピ: {2}"
             : "Materials under \"{0}\" that use \"{1}\" will be recolored when entering Play mode or uploading. The original texture and materials are not changed.\n\nRecipe: {2}";
         public static string RegisterAddToExisting => IsJapanese
-            ? "このオブジェクトにある「Iroca Recolor」にレシピを足します(コンポーネントは増えません)。"
+            ? "このオブジェクトにある「Iroca Recolor」にレシピを足します（コンポーネントは増えません）。"
             : "The recipe is added to the \"Iroca Recolor\" already on this object (no new component).";
         public static string RegisterMergeFormat => IsJapanese
             ? "このオブジェクトに付いている「Iroca Recolor」{0} 個を 1 つにまとめます。"
             : "The {0} \"Iroca Recolor\" components on this object are merged into one.";
         public static string RegisterReplaceFormat => IsJapanese
-            ? "このオブジェクトにある「{0}」の別のレシピ({1})は、このレシピに置き換えます。"
+            ? "このオブジェクトにある「{0}」の別のレシピ（{1}）は、このレシピに置き換えます。"
             : "The other recipe for \"{0}\" on this object ({1}) is replaced with this one.";
         public static string RegisterSwitchExportsFormat => IsJapanese
-            ? "「適用して保存」で書き出した画像を使っているマテリアル {0} 個を、元のテクスチャ「{1}」に戻します(非破壊の色替えは元のテクスチャを探すため。Ctrl+Z で戻せます)。"
+            ? "「適用して保存」で書き出した画像を使っているマテリアル {0} 個を、元のテクスチャ「{1}」に戻します（非破壊の色替えは元のテクスチャを探すため。Ctrl+Z で戻せます）。"
             : "{0} materials that use an image exported with \"Apply & Save\" are switched back to the original texture \"{1}\" (non-destructive recoloring looks for the original texture. Ctrl+Z restores them).";
         public static string RegisterLockedExportsFormat => IsJapanese
-            ? "書き出した画像を使っているマテリアルのうち {0} 個は、書き換えられない場所(FBX の中・パッケージ)にあるのでそのままです。"
+            ? "書き出した画像を使っているマテリアルのうち {0} 個は、書き換えられない場所（FBX の中・パッケージ）にあるのでそのままです。"
             : "{0} materials that use an exported image are in places that cannot be changed (inside an FBX or a package), so they are left as they are.";
         public static string ExportUsersHintFormat => IsJapanese
-            ? "シーンに、このテクスチャを書き出した画像を使っているマテリアルが {0} 個あります。非破壊で色替えするには、「アバターに非破壊で登録」で元のテクスチャに戻してください(登録のときにまとめて戻せます)。"
+            ? "シーンに、このテクスチャを書き出した画像を使っているマテリアルが {0} 個あります。非破壊で色替えするには、「アバターに非破壊で登録」で元のテクスチャに戻してください（登録のときにまとめて戻せます）。"
             : "{0} materials in the scene use an image exported from this texture. To recolor non-destructively, switch them back to the original texture with \"Register to avatar (non-destructive)\" (it does this for you when registering).";
-        public static string RegisterRecipeNew => IsJapanese ? "{0}(新しく作ります)" : "{0} (new)";
+        public static string RegisterRecipeNew => IsJapanese ? "{0}（新しく作ります）" : "{0} (new)";
         public static string RegisterDoneFormat => IsJapanese ? "「{0}」に登録しました" : "Registered to \"{0}\"";
         public static string RegisterOk => IsJapanese ? "登録" : "Register";
         public static string NdmfMissing => IsJapanese
-            ? "NDMF(Non-Destructive Modular Framework)が入っていないか、対応していない版なので、非破壊の色替えは使えません。画像の書き出しは使えます。VCC / ALCOM で、いろかと同じリポジトリから「Non-Destructive Modular Framework」を追加してください。"
+            ? "NDMF（Non-Destructive Modular Framework）が入っていないか、対応していない版なので、非破壊の色替えは使えません。画像の書き出しは使えます。VCC / ALCOM で、いろかと同じリポジトリから「Non-Destructive Modular Framework」を追加してください。"
             : "NDMF (Non-Destructive Modular Framework) is not installed or its version is not supported, so non-destructive recoloring is not available. Exporting images still works. Add \"Non-Destructive Modular Framework\" in VCC / ALCOM from the same repository as Iroca.";
         public static string BoundRecipe => IsJapanese ? "保存先のレシピ" : "Recipe";
         public static string BoundRecipeTooltip => IsJapanese
-            ? "このテクスチャの編集内容は、このレシピにも保存されます(アバターの「Iroca Recolor」がビルド時に使う内容)。"
+            ? "このテクスチャの編集内容は、このレシピにも保存されます（アバターの「Iroca Recolor」がビルド時に使う内容）。"
             : "Edits to this texture are also saved to this recipe (what \"Iroca Recolor\" on the avatar uses at build time).";
         public static string OpenInIroca => IsJapanese ? "いろかで開く" : "Open in Iroca";
         public static string OpenInIrocaTooltip => IsJapanese
@@ -1217,18 +1217,18 @@ namespace Iroca
             ? "レシピに元テクスチャが設定されていません。"
             : "The recipe has no source texture.";
         public static string RecolorUnreadable => IsJapanese
-            ? "レシピの中身を読めません(空か、壊れているか、新しい版のいろかで作られています)。"
+            ? "レシピの中身を読めません（空か、壊れているか、新しい版のいろかで作られています）。"
             : "Cannot read the recipe (empty, broken, or made with a newer version of Iroca).";
         public static string RecolorNotUsedFormat => IsJapanese
             ? "この範囲の Renderer に「{0}」を使っているマテリアルがありません。衣装のトグルなどアニメーションで切り替えた先でだけ使うならこのままで構いません。そうでなければ、コンポーネントを衣装やアバターの親に置いてください。"
             : "No renderer in this scope uses \"{0}\". That is fine if it is only used by a material that an animation (such as an outfit toggle) switches to. Otherwise, place the component on the outfit or avatar root.";
         public static string RecolorScopeFormat => IsJapanese
-            ? "対象のマテリアル: {0} 個(Renderer {1} 個)"
+            ? "対象のマテリアル: {0} 個（Renderer {1} 個）"
             : "Target materials: {0} ({1} renderers)";
-        public static string RecipeInspectorZonesFormat => IsJapanese ? "ゾーン: {0} 個(有効 {1} 個)" : "Zones: {0} ({1} enabled)";
+        public static string RecipeInspectorZonesFormat => IsJapanese ? "ゾーン: {0} 個（有効 {1} 個）" : "Zones: {0} ({1} enabled)";
         public static string RecipeField => IsJapanese ? "レシピ" : "Recipes";
         public static string RecipeFieldTooltip => IsJapanese
-            ? "色替えの内容(元テクスチャ・色・マスク)。テクスチャごとに 1 つ。いろかウィンドウの「アバターに非破壊で登録」で足されます。同じテクスチャのレシピが重なったら上のものが使われます。"
+            ? "色替えの内容（元テクスチャ・色・マスク）。テクスチャごとに 1 つ。いろかウィンドウの「アバターに非破壊で登録」で足されます。同じテクスチャのレシピが重なったら上のものが使われます。"
             : "What to recolor (source texture, colors, masks), one per texture. Added by \"Register to avatar (non-destructive)\" in the Iroca window. If two recipes use the same texture, the upper one is used.";
         public static string RecolorEmptyEntry => IsJapanese
             ? "空の欄があります。レシピを設定するか、欄を消してください。"
@@ -1241,7 +1241,7 @@ namespace Iroca
             : "This object has {0} \"Iroca Recolor\" components. They can be merged into one.";
         public static string RecolorMergeButton => IsJapanese ? "1 つにまとめる" : "Merge into one";
         public static string RecolorMergeButtonTooltip => IsJapanese
-            ? "このオブジェクトの「Iroca Recolor」を先頭の 1 つにまとめます。レシピは付いていた順に並べ、同じテクスチャのレシピは先のもの(ビルドで使われていた方)だけ残すので、色替えの結果は変わりません。Undo で戻せます。"
+            ? "このオブジェクトの「Iroca Recolor」を先頭の 1 つにまとめます。レシピは付いていた順に並べ、同じテクスチャのレシピは先のもの（ビルドで使われていた方）だけ残すので、色替えの結果は変わりません。Undo で戻せます。"
             : "Merges the \"Iroca Recolor\" components on this object into the first one. Recipes keep their order, and for the same texture only the earlier one (the one the build used) is kept, so the result does not change. Undo restores it.";
         public static string RecipeSourceField => IsJapanese ? "元テクスチャ" : "Source Texture";
         public static string RecipeSourceFieldTooltip => IsJapanese

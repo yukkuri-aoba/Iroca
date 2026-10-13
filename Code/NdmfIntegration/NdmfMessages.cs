@@ -37,7 +37,7 @@ namespace Iroca.NdmfIntegration
 
             ["iroca.build_failed.source_unreadable"] = "いろか: 元テクスチャを読めません",
             ["iroca.build_failed.source_unreadable:description"] = "{0} のレシピ {1} の元テクスチャを読めなかったので、色替えできませんでした。",
-            ["iroca.build_failed.source_unreadable:hint"] = "PNG/JPG 以外の形式なら、テクスチャの Import Settings で Read/Write を有効にしてください。",
+            ["iroca.build_failed.source_unreadable:hint"] = "PNG/JPG 以外の形式なら、テクスチャのインポート設定で Read/Write を有効にしてください。",
         };
 
         private static readonly Dictionary<string, string> En = new Dictionary<string, string>
