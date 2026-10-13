@@ -234,10 +234,10 @@ namespace Iroca
                 case EventType.Repaint:
                     if (maskView.isPainting && isInRect)
                     {
-                        // 実際に塗られる円は直径 (2*brushSize+1) 格子セル。1 セルの画面上の
-                        // サイズは表示倍率(EffectiveZoom)なので、カーソルも同じ大きさで描いて
-                        // 「見えている範囲 = 塗られる範囲」を一致させる(従来は半分だった)。
-                        float brushPixels = (maskView.brushSize * 2f + 1f) * EffectiveZoom;
+                        // 実際に塗られる円の直径は、全体表示で (2*brushSize+1) 格子セル。拡大するとその倍率だけ
+                        // 小さく塗る(MaskPaintView.BrushRadiusPx)ので、画面上の大きさは拡大率に関係なく一定:
+                        // 1 セルの画面上のサイズ(EffectiveZoom)÷ 拡大率(previewZoom)。
+                        float brushPixels = (maskView.brushSize * 2f + 1f) * EffectiveZoom / Mathf.Max(1f, previewZoom);
                         // カーソル色は「いま塗ろうとしているマスクの色」を映す（オーバーレイと
                         // 同じ 赤=除外 / 緑=含める）。消しゴムはどちらの種類でも「取り除く」操作
                         // なので中立の白にする。以前は塗る/消すの別を色で表していたため、含める
@@ -483,31 +483,31 @@ namespace Iroca
 
             var currentUV = PreviewCoords.ScreenToUv(screenPos, previewRect);
 
-            // 塗り格子 = 表示プレビューの画素格子。オーバーレイ/プロキシ処理が最近傍で
-            // 代表点を読む単位と一致させるため、previewTexture の実寸を渡す(WYSIWYG)。
+            // ブラシの半径(マスクの画素単位)。ブラシサイズは全体表示のプレビュー格子セル単位で、拡大すると
+            // その倍率だけ小さく塗る(画面上の大きさは変わらない。MaskPaintView.BrushRadiusPx)。
             maskView.EnsureMasks();
             int gridW = previewTexture != null ? previewTexture.width : maskView.maskWidth;
-            int gridH = previewTexture != null ? previewTexture.height : maskView.maskHeight;
+            float radiusPx = maskView.BrushRadiusPx(gridW, previewZoom);
 
             if (maskView.lastPaintUV.x >= 0f)
             {
+                // 補間ステップは半径の半分(最小 0.5 画素)。UV 距離は正規化空間なので、長辺の画素数で割る
+                // (短辺基準だと縦長/横長テクスチャで長辺方向のスタンプ間隔が空いて点線になる)。
                 float dist = Vector2.Distance(maskView.lastPaintUV, currentUV);
-                // 補間ステップは格子の長辺基準。UV 距離は正規化空間なので、短辺基準だと
-                // 縦長/横長テクスチャで長辺方向のスタンプ間隔がセルを跨いで点線になる。
-                int gridLong = Mathf.Max(1, Mathf.Max(gridW, gridH));
-                float step = 1f / gridLong;
+                int maskLong = Mathf.Max(1, Mathf.Max(maskView.maskWidth, maskView.maskHeight));
+                float step = Mathf.Max(0.5f, radiusPx * 0.5f) / maskLong;
                 if (dist > step)
                 {
                     int steps = Mathf.CeilToInt(dist / step);
                     for (int i = 1; i < steps; i++)
                     {
                         Vector2 lerped = Vector2.Lerp(maskView.lastPaintUV, currentUV, (float)i / steps);
-                        maskView.PaintMask(lerped, gridW, gridH);
+                        maskView.PaintMask(lerped, radiusPx);
                     }
                 }
             }
 
-            maskView.PaintMask(currentUV, gridW, gridH);
+            maskView.PaintMask(currentUV, radiusPx);
             maskView.lastPaintUV = currentUV;
             // 直接書き込みしたオーバーレイセルを、イベント 1 回分まとめて GPU へ反映。
             maskView.FlushOverlayDirect();

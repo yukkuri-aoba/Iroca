@@ -690,6 +690,59 @@ namespace Iroca.UnitRun
             Check.Equal("111000", Bits(inc), "dont→paint: included");
         }
 
+        public static void MaskEdit_CanvasSizeFollowsSourceFile()
+        {
+            // 4K の元画像を 2048 で取り込んでも、マスクは元画像(書き出しの解像度)に合わせる。
+            MaskRegionEdit.CanvasSize(4096, 4096, 2048, 2048, out int w, out int h);
+            Check.Equal(4096, w, "file width"); Check.Equal(4096, h, "file height");
+            // 元画像の寸法が分からない(生成テクスチャ等)なら取り込み後の寸法。
+            MaskRegionEdit.CanvasSize(0, 0, 1024, 512, out w, out h);
+            Check.Equal(1024, w, "import width"); Check.Equal(512, h, "import height");
+            // 長辺 8192 を超える元画像は縦横比を保って縮める。
+            MaskRegionEdit.CanvasSize(16384, 8192, 2048, 1024, out w, out h);
+            Check.Equal(8192, w, "capped width"); Check.Equal(4096, h, "capped height");
+            // 取り込み後の寸法より小さくはしない。
+            MaskRegionEdit.CanvasSize(16384, 16384, 16384, 16384, out w, out h);
+            Check.Equal(16384, w, "not below import");
+        }
+
+        public static void MaskEdit_StampDiskPaintsPixelsInsideCircle()
+        {
+            const int W = 11, H = 11;
+            var target = new bool[W * H];
+            var opposite = new bool[W * H];
+            for (int i = 0; i < opposite.Length; i++) opposite[i] = true;
+            // 中心が画素 (5,5) の中心、半径 1.5: 中心からの距離が 1.5 以下の画素(3x3 の 9 画素)。
+            MaskRegionEdit.StampDisk(target, opposite, W, H, 5.5f, 5.5f, 1.5f, true,
+                                     out int x0, out int y0, out int x1, out int y1);
+            int n = 0;
+            for (int i = 0; i < target.Length; i++) if (target[i]) n++;
+            Check.Equal(9, n, "painted pixels");
+            Check.True(target[5 * W + 5] && target[4 * W + 4] && target[6 * W + 6], "3x3 painted");
+            Check.True(!opposite[5 * W + 5] && opposite[5 * W + 8], "opposite cleared under the brush only");
+            Check.Equal(4, x0, "bbox x0"); Check.Equal(4, y0, "bbox y0");
+            Check.Equal(7, x1, "bbox x1"); Check.Equal(7, y1, "bbox y1");
+            // 消す: 塗った円の中だけ消え、反対側の層には触らない。
+            MaskRegionEdit.StampDisk(target, opposite, W, H, 5.5f, 5.5f, 0.5f, false, out _, out _, out _, out _);
+            Check.True(!target[5 * W + 5] && target[4 * W + 4], "erase center only");
+        }
+
+        public static void MaskEdit_StampDiskTinyBrushPaintsCenterPixel()
+        {
+            const int W = 8, H = 8;
+            var target = new bool[W * H];
+            // 半径 0(拡大して最小のブラシ): 中心が画素の中心から外れていても、その画素は塗る。
+            MaskRegionEdit.StampDisk(target, null, W, H, 3.9f, 2.1f, 0f, true, out int x0, out int y0, out int x1, out int y1);
+            int n = 0;
+            for (int i = 0; i < target.Length; i++) if (target[i]) n++;
+            Check.Equal(1, n, "one pixel");
+            Check.True(target[2 * W + 3], "the pixel under the center");
+            Check.Equal(3, x0, "bbox x0"); Check.Equal(4, x1, "bbox x1");
+            // 画像の外にかかる円は切る(落ちない)。
+            MaskRegionEdit.StampDisk(target, null, W, H, -1f, -1f, 2.2f, true, out x0, out y0, out x1, out y1);
+            Check.True(target[0] && x0 == 0 && y0 == 0, "clipped at the corner");
+        }
+
         public static void MaskEdit_BrushPaintClearsOppositeLayerInSpanOnly()
         {
             // 含めるを [1, 4) に塗る: 同じゾーンの除外はその区間だけ消え、区間の外(0, 4, 5)は残る。

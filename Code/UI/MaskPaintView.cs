@@ -420,8 +420,7 @@ namespace Iroca
         {
             var sourceTexture = _host.SourceTexture;
             if (sourceTexture == null) return;
-            int w = sourceTexture.width;
-            int h = sourceTexture.height;
+            CanvasSizeFor(sourceTexture, out int w, out int h);
 
             if (maskWidth != w || maskHeight != h)
             {
@@ -444,6 +443,38 @@ namespace Iroca
                 maskHeight = h;
                 maskDirty = true;
             }
+        }
+
+        // マスクの土台の寸法の覚え(EnsureMasks はブラシの 1 スタンプごとにも呼ばれるので、取り込み設定を
+        // 引くのはテクスチャか中身(再インポート)か取り込み後の寸法が変わったときだけにする)。
+        [System.NonSerialized] private Texture2D _canvasFor;
+        [System.NonSerialized] private Hash128 _canvasHash;
+        [System.NonSerialized] private int _canvasImportW, _canvasImportH, _canvasW, _canvasH;
+
+        /// <summary>
+        /// マスクの土台の寸法 = 元画像(ファイル)の寸法(<see cref="MaskRegionEdit.CanvasSize"/>)。処理と書き出しは
+        /// 元画像の解像度で行うので、取り込みの最大サイズで縮んだ寸法(既定 2048)に合わせると、4K の元画像では
+        /// 塗った境目が書き出しで 2×2 画素単位に粗くなっていた。元画像の寸法が取れないテクスチャ(生成物など)は
+        /// 取り込み後の寸法。
+        /// </summary>
+        private void CanvasSizeFor(Texture2D tex, out int w, out int h)
+        {
+            var hash = tex.imageContentsHash;
+            if (_canvasFor != tex || _canvasHash != hash
+                || _canvasImportW != tex.width || _canvasImportH != tex.height)
+            {
+                int fileW = 0, fileH = 0;
+                string path = AssetDatabase.GetAssetPath(tex);
+                if (!string.IsNullOrEmpty(path) && AssetImporter.GetAtPath(path) is TextureImporter ti)
+                    ti.GetSourceTextureWidthAndHeight(out fileW, out fileH);
+                MaskRegionEdit.CanvasSize(fileW, fileH, tex.width, tex.height, out _canvasW, out _canvasH);
+                _canvasFor = tex;
+                _canvasHash = hash;
+                _canvasImportW = tex.width;
+                _canvasImportH = tex.height;
+            }
+            w = _canvasW;
+            h = _canvasH;
         }
 
         /// <summary>
@@ -702,86 +733,55 @@ namespace Iroca
         }
 
         /// <summary>
-        /// ブラシ 1 スタンプ分を塗る。gridW/gridH は表示プレビューの画素格子
-        /// (previewTexture の実寸)で、brushSize はこの格子セル単位の半径。
-        ///
-        /// 塗りは格子セル単位で行い、セルに対応するマスクブロック
-        /// [gx*maskW/gridW, (gx+1)*maskW/gridW) を丸ごと塗る。オーバーレイ表示は
-        /// 被覆率(RenderMaskCoverage)で描くが、処理側(PixelProcessor.BuildMaskIndexMap /
-        /// IsExcludedAt)は各作業画素につきブロック先頭の 1 画素だけを最近傍で読むため、
-        /// セル内部に塗り残しがあると「縮小表示では塗れて見えるのにフル解像度適用
-        /// (詳細プレビュー/エクスポート)では穴」という不一致が起きていた。ブロック単位で
-        /// 塗ることでマスクが常にセル内一様になり、この不一致を構造的に排除する(WYSIWYG)。
+        /// ブラシの半径(マスクの画素単位)。brushSize は全体表示のときのプレビューの格子セル単位の半径
+        /// (塗られる円の直径は 2×サイズ+1 セル)で、拡大するとその倍率だけ小さく塗る: 画面上のブラシの
+        /// 大きさは拡大しても変わらず、拡大すれば細かく塗れる(4K の元画像でも、拡大して最小のブラシなら 1 画素)。
+        /// gridW は表示プレビューの画素格子の幅(previewTexture の実寸)、previewZoom は全体表示を 1 とする拡大率。
         /// </summary>
-        public void PaintMask(Vector2 uvPos, int gridW, int gridH)
+        public float BrushRadiusPx(int gridW, float previewZoom)
+        {
+            if (maskWidth <= 0) return 0f;
+            float cellPx = gridW > 0 ? maskWidth / (float)gridW : 1f;
+            return (Mathf.Max(1, brushSize) + 0.5f) * cellPx / Mathf.Max(1f, previewZoom);
+        }
+
+        /// <summary>
+        /// ブラシ 1 スタンプ分を塗る。uvPos はテクスチャの UV、radiusPx はマスクの画素単位の半径
+        /// (<see cref="BrushRadiusPx"/>)。円の中のマスク画素を塗る(<see cref="MaskRegionEdit.StampDisk"/>)。
+        ///
+        /// 以前は表示プレビューの格子セル(4K で約 11 画素四方)単位で塗っていた(縮小表示と書き出しの見た目を
+        /// 一致させるため)。マスクは元画像の解像度で持ち、拡大表示ではその範囲を等倍で重ねて見せるので、
+        /// 画素単位で塗っても拡大して見れば塗ったとおりに見える。全体表示のプレビュー(縮小)は、ブロック先頭の
+        /// 1 画素を読むので、円の縁が 1 セル程度ずれて見えることがある。
+        /// </summary>
+        public void PaintMask(Vector2 uvPos, float radiusPx)
         {
             bool[] target = GetActiveMaskArray();
             if (target == null) return;
             if (maskWidth <= 0 || maskHeight <= 0) return;
-            if (gridW <= 0) gridW = maskWidth;
-            if (gridH <= 0) gridH = maskHeight;
 
-            int cx = Mathf.Min(gridW - 1, Mathf.FloorToInt(uvPos.x * gridW));
-            int cy = Mathf.Min(gridH - 1, Mathf.FloorToInt(uvPos.y * gridH));
-            int r = Mathf.Max(1, brushSize);
+            float cx = uvPos.x * maskWidth, cy = uvPos.y * maskHeight;
             bool value = !brushEraseMode;
             // 後から塗ったほうが勝つ: ゾーンの「含める」を塗ったら、ブラシの下の同じゾーンの「除外」を消す(逆も同じ)。
             // 合成は「除外が勝つ」ので、消さないと含めるを塗っても効かず、重ね表示も 2 色が混ざる(2026-10-06)。
             bool[] opposite = value ? OppositeZoneLayer() : null;
+            MaskRegionEdit.StampDisk(target, opposite, maskWidth, maskHeight, cx, cy, radiusPx, value,
+                                     out int x0, out int y0, out int x1, out int y1);
+            if (x1 <= x0) return;
 
-            // オーバーレイ直接書き込み: テクスチャが塗り格子と同寸のときは、ブロック塗りと
-            // 同時に対応セルを更新して即時フィードバックする(非同期再構築のスロットル待ちと
-            // フル解像度 bool[] clone をストローク中に発生させない)。使えないとき
-            // (未生成・寸法違い)は従来どおり maskDirty を立てて非同期再構築に任せる。
-            // オーバーレイは塗り格子の整数倍(OverlayScale)の解像度を持つ。1 セル = k×k
-            // テクセルの一様ブロックなので、直接書き込みは k 倍したブロック矩形で行える。
+            // オーバーレイ直接書き込み: 非同期再構築のスロットル待ちとフル解像度 bool[] clone をストローク中に
+            // 発生させず、塗った所をすぐ見せる。全体用のオーバーレイ(表示格子の整数倍)と、拡大表示用の
+            // 等倍オーバーレイ(見えている範囲)の両方へ、同じ円を各自の解像度で書く。書けないとき(未生成)は
+            // 従来どおり maskDirty を立てて非同期再構築に任せる。ストロークの終わりに正規の再構築で揃う。
             var overlayTex = ActiveOverlayTexture(out Color32 overlayColor);
-            int ovScale = overlayTex != null ? overlayTex.width / gridW : 0;
-            bool direct = overlayTex != null && ovScale >= 1
-                && overlayTex.width == gridW * ovScale && overlayTex.height == gridH * ovScale;
-
-            // 円ブラシをセル行ごとの span で決め、対応するマスクブロック矩形を塗る。
-            // 各行の最大 dx は floor(sqrt(r²-dy²))。Mathf.Sqrt の丸めで境界セルを
-            // 取りこぼさないよう整数で補正する。
-            int rr = r * r;
-            for (int dy = -r; dy <= r; dy++)
+            Color32 c = value ? overlayColor : default;
+            bool direct = false;
+            if (overlayTex != null)
             {
-                int gy = cy + dy;
-                if (gy < 0 || gy >= gridH) continue;
-                int rowRemain = rr - dy * dy;
-                int dxMax = (int)Mathf.Sqrt(rowRemain);
-                while ((dxMax + 1) * (dxMax + 1) <= rowRemain) dxMax++;
-                while (dxMax > 0 && dxMax * dxMax > rowRemain) dxMax--;
-                int gxLo = cx - dxMax; if (gxLo < 0) gxLo = 0;
-                int gxHi = cx + dxMax; if (gxHi >= gridW) gxHi = gridW - 1;
-
-                // セル範囲 → マスクブロック矩形 [mx0, mx1) × [my0, my1)。
-                // 除算は処理側(BuildMaskIndexMap の x*maskW/texW)と同じ整数切り捨て。
-                // grid が mask より細かい方向ではブロックが空になり得るため 1 画素を保証する。
-                int my0 = (int)((long)gy * maskHeight / gridH);
-                int my1 = (int)((long)(gy + 1) * maskHeight / gridH);
-                if (my1 <= my0) my1 = Mathf.Min(maskHeight, my0 + 1);
-                int mx0 = (int)((long)gxLo * maskWidth / gridW);
-                int mx1 = (int)((long)(gxHi + 1) * maskWidth / gridW);
-                if (mx1 <= mx0) mx1 = Mathf.Min(maskWidth, mx0 + 1);
-
-                for (int my = my0; my < my1; my++)
-                {
-                    int rowBase = my * maskWidth;
-                    MaskRegionEdit.BrushSpan(target, opposite, rowBase + mx0, rowBase + mx1, value);
-                }
-
-                if (direct)
-                {
-                    // オーバーレイの 1 セル = k×k テクセル。SetPixels32 の y は行 0 = 下端で、
-                    // gy(v 上向き)とそのまま一致する。消去は default(0,0,0,0) = 透明。
-                    int spanW = (gxHi - gxLo + 1) * ovScale;
-                    var block = new Color32[spanW * ovScale];
-                    if (value)
-                        for (int k = 0; k < block.Length; k++) block[k] = overlayColor;
-                    overlayTex.SetPixels32(gxLo * ovScale, gy * ovScale, spanW, ovScale, block);
-                }
+                float sx = overlayTex.width / (float)maskWidth, sy = overlayTex.height / (float)maskHeight;
+                direct = StampOverlayDisk(overlayTex, cx * sx, cy * sy, radiusPx * sx, c);
             }
+            StampDetailOverlay(cx, cy, radiusPx, c);
 
             if (direct)
             {
@@ -792,6 +792,43 @@ namespace Iroca
             {
                 maskDirty = true;
             }
+        }
+
+        /// <summary>
+        /// オーバーレイのテクスチャへ円(中心・半径はテクセル単位)を直接書く。円の中にテクセルの中心が入る所
+        /// (円が小さければ中心のテクセル)を color にする。行ごとに SetPixels32。書いたら true。
+        /// </summary>
+        private static bool StampOverlayDisk(Texture2D tex, float cx, float cy, float r, Color32 color)
+        {
+            int w = tex.width, h = tex.height;
+            if (w <= 0 || h <= 0) return false;
+            float r2 = r * r;
+            int ccx = Mathf.FloorToInt(cx), ccy = Mathf.FloorToInt(cy);
+            int ry0 = Mathf.Max(0, Mathf.FloorToInt(cy - r - 0.5f));
+            int ry1 = Mathf.Min(h - 1, Mathf.CeilToInt(cy + r - 0.5f));
+            bool wrote = false;
+            for (int y = ry0; y <= ry1; y++)
+            {
+                float dy = y + 0.5f - cy;
+                float rem = r2 - dy * dy;
+                int sx0 = int.MaxValue, sx1 = int.MinValue;
+                if (rem >= 0f)
+                {
+                    float half = Mathf.Sqrt(rem);
+                    sx0 = Mathf.CeilToInt(cx - half - 0.5f);
+                    sx1 = Mathf.FloorToInt(cx + half - 0.5f);
+                }
+                if (y == ccy) { sx0 = Mathf.Min(sx0, ccx); sx1 = Mathf.Max(sx1, ccx); }
+                sx0 = Mathf.Max(0, sx0);
+                sx1 = Mathf.Min(w - 1, sx1);
+                if (sx1 < sx0) continue;
+                int n = sx1 - sx0 + 1;
+                var row = new Color32[n];
+                for (int k = 0; k < n; k++) row[k] = color;
+                tex.SetPixels32(sx0, y, n, 1, row);
+                wrote = true;
+            }
+            return wrote;
         }
 
         /// <summary>
@@ -876,6 +913,7 @@ namespace Iroca
         {
             SuspendTransientState();
             _overlayJob.Dispose();
+            _detailOverlayJob.Dispose();
             // AI 提案の進行中推論を破棄し、**静的サービスへの購読も解除する**(ウィンドウ破棄時)。
             // 解除しないと閉じたウィンドウのコントローラがイベント経由で生き残り、再オープン後に
             // 新しいコントローラから提案を横取りする(MaskSuggestController.Shutdown 参照)。
@@ -890,6 +928,12 @@ namespace Iroca
         {
             _overlayJob.Cancel();
             _pendingOverlayResult = null;
+            _detailOverlayJob.Cancel();
+            _pendingDetailOverlay = null;
+            _detailOverlayDirectPending = false;
+            _detailApplied = default;
+            TextureSlot.Release(ref detailMaskOverlayTexture);
+            TextureSlot.Release(ref detailZoneOverlayTexture);
             isPainting = false;
             _maskStrokeStarted = false;
             _overlayDirectPendingApply = false;

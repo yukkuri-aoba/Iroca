@@ -594,8 +594,8 @@ namespace Iroca
             : "Target color. Pixels in this zone will be recolored to this color";
 
         public static string BrushSizeTooltip => IsJapanese
-            ? "ペイントブラシの半径（プレビューの格子セル単位。塗られる円の直径は 2×サイズ+1 セル）。\n1 セルが何テクセルに当たるかは表示倍率で変わります（4K を全体表示すると 1 セル = 10 テクセル超）。"
-            : "Brush radius in preview grid cells (the painted circle is 2 x size + 1 cells across).\nHow many texels one cell covers depends on the zoom (over 10 texels per cell when a 4K texture is fully zoomed out).";
+            ? "ペイントブラシの半径（全体表示のときのプレビューの格子セル単位。塗られる円の直径は 2×サイズ+1 セル）。\n画面上のブラシの大きさは拡大しても変わらず、拡大するとそのぶん細かく塗れます（4K の全体表示では 1 セル = 10 テクセル超。拡大して小さなブラシにすれば 1 テクセル単位）。"
+            : "Brush radius in preview grid cells at the fit-to-window zoom (the painted circle is 2 x size + 1 cells across).\nThe brush keeps its size on screen when you zoom in, so zooming in paints finer (over 10 texels per cell for a 4K texture at fit; zoom in with a small brush to paint single texels).";
         public static string ExcludeTooltip => IsJapanese
             ? "除外マスクを編集対象にします（赤系の表示）\n塗った領域は色が合っていても色替えされません"
             : "Edit the exclusion mask (shown in red)\nPainted areas are never recolored, even if their color matches";

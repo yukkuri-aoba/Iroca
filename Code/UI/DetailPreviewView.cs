@@ -11,10 +11,9 @@ namespace Iroca
     /// </summary>
     internal class DetailPreviewView
     {
-        // マスクオーバーレイ専用テクスチャは持たない: ブロック整列ペイント後は等倍用の
-        // 低解像度オーバーレイ(1 画素 = マスクブロック一様)を Point 拡大するだけで
-        // 情報損失なく表示でき、クロップ再生成までペイントが見えない問題と
-        // メインスレッドの全画素ループを両方排除できる(PreviewView.Draw 側で描画)。
+        // マスクの重ね表示はここでは持たない: 詳細と同じ範囲・寸法の等倍の重ね表示は
+        // MaskPaintView(RebuildDetailOverlay)が作り、PreviewView.Draw が詳細の上に描く。
+        // ブラシは両方の重ね表示へ直接書くので、詳細の再生成を待たずに塗った所が見える。
         [System.NonSerialized] public Texture2D detailPreviewTexture;
         [System.NonSerialized] public Texture2D detailDiffTexture;
 

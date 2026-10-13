@@ -102,6 +102,11 @@ namespace Iroca
         /// </summary>
         public void FlushOverlayDirect()
         {
+            if (_detailOverlayDirectPending)
+            {
+                _detailOverlayDirectPending = false;
+                ActiveDetailOverlayTexture()?.Apply();
+            }
             if (!_overlayDirectPendingApply) return;
             _overlayDirectPendingApply = false;
             var tex = ActiveOverlayTexture(out _);
@@ -144,6 +149,24 @@ namespace Iroca
             int capMw = maskWidth;
             int capMh = maskHeight;
 
+            CollectOverlayLayers(m => (bool[])m.Clone(), out var commonSnap, out var commonColor, out var zoneInfos);
+
+            _overlayJob.Schedule(
+                work: token => ComputeOverlayPixels(commonSnap, commonColor, zoneInfos, capW, capH, capMw, capMh, token),
+                apply: result =>
+                {
+                    _pendingOverlayResult = result;
+                    _host.RequestRepaint();
+                });
+        }
+
+        /// <summary>
+        /// オーバーレイに描く層を集める(全体用・拡大表示用で共通)。snap は各マスクの写しを作る関数(全体なら複製、
+        /// 拡大表示なら見えている範囲の切り出し)。バックグラウンドへ渡すので、ペイント中の変更とデータレースしない。
+        /// </summary>
+        private void CollectOverlayLayers(System.Func<bool[], bool[]> snap, out bool[] commonSnap,
+                                          out Color32 commonColor, out List<(Color32 color, bool[] mask)> zoneInfos)
+        {
             // 適用中のマスクはすべて表示する(共通の除外=赤 / ゾーン別の除外=ゾーン色 /
             // 含める=緑)。編集対象×種類の 1 枚だけを出す旧仕様は「表示されていないのに
             // 効いている」マスクを生み、対象や種類を切り替えた直後・プリセット読込
@@ -154,16 +177,16 @@ namespace Iroca
             var zones = _host.Session.zones;
             bool commonIsActive = IsCommonTarget(zones);
 
-            bool[] commonSnap = null;
-            Color32 commonColor = ExcludedOverlayColor;
-            if (exclusionMask != null && capMw > 0 && capMh > 0)
+            commonSnap = null;
+            commonColor = ExcludedOverlayColor;
+            if (exclusionMask != null && maskWidth > 0 && maskHeight > 0)
             {
-                commonSnap = (bool[])exclusionMask.Clone();
+                commonSnap = snap(exclusionMask);
                 if (!commonIsActive) commonColor = DimOverlayColor(ExcludedOverlayColor);
             }
 
-            var zoneInfos = new List<(Color32 color, bool[] mask)>();
-            if (zones != null && capMw > 0 && capMh > 0)
+            zoneInfos = new List<(Color32 color, bool[] mask)>();
+            if (zones != null && maskWidth > 0 && maskHeight > 0)
             {
                 (Color32 color, bool[] mask)? editingEntry = null;
                 for (int i = 0; i < zones.Count; i++)
@@ -176,7 +199,7 @@ namespace Iroca
                     {
                         bool isEditing = zoneIsTarget && !editIncludeLayer;
                         var color = OverlayColorForZone(i);
-                        var entry = (isEditing ? color : DimOverlayColor(color), (bool[])ex.Clone());
+                        var entry = (isEditing ? color : DimOverlayColor(color), snap(ex));
                         if (isEditing) editingEntry = entry;
                         else zoneInfos.Add(entry);
                     }
@@ -185,21 +208,13 @@ namespace Iroca
                         bool isEditing = zoneIsTarget && editIncludeLayer;
                         var entry = (isEditing ? IncludedOverlayColor
                                                : DimOverlayColor(IncludedOverlayColor),
-                                     (bool[])inc.Clone());
+                                     snap(inc));
                         if (isEditing) editingEntry = entry;
                         else zoneInfos.Add(entry);
                     }
                 }
                 if (editingEntry.HasValue) zoneInfos.Add(editingEntry.Value);
             }
-
-            _overlayJob.Schedule(
-                work: token => ComputeOverlayPixels(commonSnap, commonColor, zoneInfos, capW, capH, capMw, capMh, token),
-                apply: result =>
-                {
-                    _pendingOverlayResult = result;
-                    _host.RequestRepaint();
-                });
         }
 
         private static OverlayResult ComputeOverlayPixels(
@@ -322,6 +337,221 @@ namespace Iroca
             {
                 TextureSlot.Release(ref zoneMaskOverlayTexture);
             }
+        }
+
+        // ─── 拡大表示用の等倍オーバーレイ ───
+        // 拡大表示(詳細プレビュー)は見えている範囲の再着色結果を元画像の解像度で描き直すが、全体用の
+        // オーバーレイは表示格子の整数倍(上限 OverlayMaxSize)なので、4K では 1 テクセル ≒ 2 画素の粗い
+        // ブロックに見え、画素単位のマスク(AI 提案・拡大して塗ったブラシ)の形が分からなかった。詳細プレビューと
+        // 同じ範囲・同じ寸法でマスクを描き、その範囲では全体用の代わりに重ねる(PreviewView.DrawMaskOverlays)。
+        // 以前あったクロップ専用オーバーレイは詳細の再生成まで更新されずペイントが見えなかったので廃止したが、
+        // こちらはペイントを直接書き込む(PaintMask)ので塗ったそばから見える。表示専用で、再着色には関与しない。
+        [System.NonSerialized] public Texture2D detailMaskOverlayTexture;
+        [System.NonSerialized] public Texture2D detailZoneOverlayTexture;
+
+        /// <summary>拡大表示用オーバーレイの範囲: 元画像 srcW×srcH のうち [x0, x0+cw) × [y0, y0+ch)(行 0 = 下端)を
+        /// outW×outH で描いたもの。詳細プレビューのテクスチャと同じ。</summary>
+        private struct DetailRange
+        {
+            public int srcW, srcH, x0, y0, cw, ch, outW, outH;
+            public bool Same(DetailRange o) => srcW == o.srcW && srcH == o.srcH && x0 == o.x0 && y0 == o.y0
+                                               && cw == o.cw && ch == o.ch && outW == o.outW && outH == o.outH;
+        }
+
+        private struct DetailOverlayResult
+        {
+            public OverlayResult overlay;
+            public DetailRange range;
+        }
+
+        // _detailApplied = いまのテクスチャの中身の範囲(直接書き込みと描画の照合に使う)。
+        [System.NonSerialized] private DetailRange _detailApplied;
+        [System.NonSerialized] private bool _detailOverlayDirectPending;
+        [System.NonSerialized] private readonly PreviewJob<DetailOverlayResult> _detailOverlayJob = new PreviewJob<DetailOverlayResult>();
+        [System.NonSerialized] private DetailOverlayResult? _pendingDetailOverlay;
+
+        /// <summary>
+        /// 拡大表示用オーバーレイの再構築をバックグラウンドにスケジュールする。マスクは見えている範囲だけを
+        /// 切り出して渡す(全体の複製は 4K で 1 枚 16MB)。範囲は詳細プレビューと同じ(<see cref="DetailRange"/>)。
+        /// </summary>
+        public void RebuildDetailOverlay(int srcW, int srcH, int x0, int y0, int cw, int ch, int outW, int outH)
+        {
+            if (srcW <= 0 || srcH <= 0 || cw <= 0 || ch <= 0 || outW <= 0 || outH <= 0) return;
+            if (maskWidth <= 0 || maskHeight <= 0) return;
+            var range = new DetailRange { srcW = srcW, srcH = srcH, x0 = x0, y0 = y0, cw = cw, ch = ch, outW = outW, outH = outH };
+
+            // 元画像の範囲をマスクの範囲へ(始まりは切り捨て・終わりは切り上げ)。
+            int mw = maskWidth, mh = maskHeight;
+            int mx0 = Mathf.Clamp((int)((long)x0 * mw / srcW), 0, mw - 1);
+            int mx1 = Mathf.Clamp((int)(((long)(x0 + cw) * mw + srcW - 1) / srcW), mx0 + 1, mw);
+            int my0 = Mathf.Clamp((int)((long)y0 * mh / srcH), 0, mh - 1);
+            int my1 = Mathf.Clamp((int)(((long)(y0 + ch) * mh + srcH - 1) / srcH), my0 + 1, mh);
+            int cmw = mx1 - mx0, cmh = my1 - my0;
+            CollectOverlayLayers(m => CropMask(m, mw, mx0, my0, cmw, cmh),
+                                 out var commonSnap, out var commonColor, out var zoneInfos);
+
+            // 出力の各列・行が覆うマスクの範囲(切り出しの中の座標)。
+            var cx0 = new int[outW]; var cx1 = new int[outW];
+            var cy0 = new int[outH]; var cy1 = new int[outH];
+            DetailAxisRanges(outW, x0, cw, srcW, mw, mx0, cmw, cx0, cx1);
+            DetailAxisRanges(outH, y0, ch, srcH, mh, my0, cmh, cy0, cy1);
+
+            _detailOverlayJob.Schedule(
+                work: token =>
+                {
+                    var r = new OverlayResult { width = outW, height = outH };
+                    if (commonSnap != null)
+                    {
+                        r.hasCommon = true;
+                        r.commonPixels = RenderCoverageRanges(commonSnap, cmw, cx0, cx1, cy0, cy1, outW, outH, commonColor, null);
+                        token.ThrowIfCancellationRequested();
+                    }
+                    if (zoneInfos.Count > 0)
+                    {
+                        r.hasZone = true;
+                        Color32[] pixels = null;
+                        foreach (var (color, zm) in zoneInfos)
+                        {
+                            pixels = RenderCoverageRanges(zm, cmw, cx0, cx1, cy0, cy1, outW, outH, color, pixels);
+                            token.ThrowIfCancellationRequested();
+                        }
+                        r.zonePixels = pixels;
+                    }
+                    return new DetailOverlayResult { overlay = r, range = range };
+                },
+                apply: result =>
+                {
+                    _pendingDetailOverlay = result;
+                    _host.RequestRepaint();
+                });
+        }
+
+        /// <summary>マスク m(幅 mw)の矩形 [x0, x0+w) × [y0, y0+h) を切り出す。</summary>
+        private static bool[] CropMask(bool[] m, int mw, int x0, int y0, int w, int h)
+        {
+            var dst = new bool[w * h];
+            for (int y = 0; y < h; y++)
+                System.Array.Copy(m, (y0 + y) * mw + x0, dst, y * w, w);
+            return dst;
+        }
+
+        /// <summary>
+        /// 出力の 1 軸(n 個)の各画素が覆う元画像の範囲 [from + i*count/n, from + (i+1)*count/n) を、マスクの範囲
+        /// (×maskTotal/srcTotal、終わりは切り上げ)へ写し、切り出しの始まり maskFrom からの座標で r0/r1 に入れる。
+        /// </summary>
+        private static void DetailAxisRanges(int n, int from, int count, int srcTotal, int maskTotal,
+                                             int maskFrom, int maskCount, int[] r0, int[] r1)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                long s0 = from + (long)i * count / n;
+                long s1 = from + (long)(i + 1) * count / n;
+                if (s1 <= s0) s1 = s0 + 1;
+                int a = (int)(s0 * maskTotal / srcTotal) - maskFrom;
+                int b = (int)((s1 * maskTotal + srcTotal - 1) / srcTotal) - maskFrom;
+                a = Mathf.Clamp(a, 0, maskCount - 1);
+                b = Mathf.Clamp(b, a + 1, maskCount);
+                r0[i] = a;
+                r1[i] = b;
+            }
+        }
+
+        /// <summary><see cref="RenderMaskCoverage"/> と同じ被覆率アルファの描画を、前計算した列・行の範囲で行う。</summary>
+        private static Color32[] RenderCoverageRanges(bool[] mask, int stride, int[] cx0, int[] cx1, int[] cy0, int[] cy1,
+                                                      int w, int h, Color32 color, Color32[] accumulate)
+        {
+            var pixels = accumulate ?? new Color32[w * h];
+            for (int y = 0; y < h; y++)
+            {
+                int my0 = cy0[y], my1 = cy1[y];
+                int rowBase = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    int mx0 = cx0[x], mx1 = cx1[x];
+                    int count = 0;
+                    for (int my = my0; my < my1; my++)
+                    {
+                        int myBase = my * stride;
+                        for (int mx = mx0; mx < mx1; mx++)
+                            if (mask[myBase + mx]) count++;
+                    }
+                    if (count == 0) continue;
+                    int total = (my1 - my0) * (mx1 - mx0);
+                    if (count == total)
+                    {
+                        pixels[rowBase + x] = color;
+                    }
+                    else
+                    {
+                        var c = color;
+                        c.a = (byte)Mathf.Clamp(Mathf.RoundToInt(color.a * count / (float)total), 1, color.a);
+                        pixels[rowBase + x] = c;
+                    }
+                }
+            }
+            return pixels;
+        }
+
+        /// <summary>
+        /// バックグラウンドで作った拡大表示用オーバーレイをテクスチャへ反映する(メインスレッド)。ペイント中に
+        /// 直接書き込みへ移行済みなら保留する(全体用と同じ理由)。
+        /// </summary>
+        public void ApplyPendingDetailOverlay()
+        {
+            if (!_pendingDetailOverlay.HasValue) return;
+            if (isPainting && _strokeHadDirectOverlayWrite) return;
+            var p = _pendingDetailOverlay.Value;
+            _pendingDetailOverlay = null;
+            var r = p.overlay;
+            // 縮小して描いた(出力が元画像の範囲より小さい)ときは Bilinear、等倍以上は Point(詳細プレビューと同じ)。
+            var filter = r.width < p.range.cw ? FilterMode.Bilinear : FilterMode.Point;
+            if (r.hasCommon)
+            {
+                TextureSlot.Resize(ref detailMaskOverlayTexture, r.width, r.height, filter);
+                detailMaskOverlayTexture.filterMode = filter;
+                detailMaskOverlayTexture.SetPixels32(r.commonPixels);
+                detailMaskOverlayTexture.Apply();
+            }
+            else TextureSlot.Release(ref detailMaskOverlayTexture);
+            if (r.hasZone)
+            {
+                TextureSlot.Resize(ref detailZoneOverlayTexture, r.width, r.height, filter);
+                detailZoneOverlayTexture.filterMode = filter;
+                detailZoneOverlayTexture.SetPixels32(r.zonePixels);
+                detailZoneOverlayTexture.Apply();
+            }
+            else TextureSlot.Release(ref detailZoneOverlayTexture);
+            _detailApplied = p.range;
+        }
+
+        /// <summary>拡大表示用オーバーレイが、この範囲(詳細プレビューのいまの範囲)で描かれているか。</summary>
+        public bool DetailOverlayMatches(int srcW, int srcH, int x0, int y0, int cw, int ch, int outW, int outH)
+            => _detailApplied.Same(new DetailRange { srcW = srcW, srcH = srcH, x0 = x0, y0 = y0, cw = cw, ch = ch, outW = outW, outH = outH });
+
+        /// <summary>編集対象の層を描いている拡大表示用オーバーレイ(共通=detailMaskOverlayTexture、ゾーン=detailZone…)。</summary>
+        private Texture2D ActiveDetailOverlayTexture()
+        {
+            if (_detailApplied.cw <= 0) return null;
+            return IsCommonTarget(_host.Session.zones) ? detailMaskOverlayTexture : detailZoneOverlayTexture;
+        }
+
+        /// <summary>
+        /// ブラシの円を拡大表示用オーバーレイへ直接書く(中心 cx, cy・半径 r はマスクの画素単位)。
+        /// 範囲の外の円や、テクスチャがまだ無いときは何もしない。
+        /// </summary>
+        private void StampDetailOverlay(float cx, float cy, float r, Color32 color)
+        {
+            var tex = ActiveDetailOverlayTexture();
+            var a = _detailApplied;
+            if (tex == null || a.cw <= 0 || a.ch <= 0) return;
+            // マスクの画素 → 元画像の画素 → 出力テクセル。
+            float toSrcX = a.srcW / (float)maskWidth, toSrcY = a.srcH / (float)maskHeight;
+            float toOutX = tex.width / (float)a.cw, toOutY = tex.height / (float)a.ch;
+            float ox = (cx * toSrcX - a.x0) * toOutX;
+            float oy = (cy * toSrcY - a.y0) * toOutY;
+            float orad = r * toSrcX * toOutX;
+            if (ox + orad < 0f || oy + orad < 0f || ox - orad > tex.width || oy - orad > tex.height) return;
+            if (StampOverlayDisk(tex, ox, oy, orad, color)) _detailOverlayDirectPending = true;
         }
 
         /// <summary>

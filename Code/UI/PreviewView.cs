@@ -843,12 +843,16 @@ namespace Iroca
                             ScaleMode.StretchToFill, true);
                     else
                     {
-                        // マスクオーバーレイは等倍用の低解像度テクスチャを画像全体へ引き伸ばして
-                        // 描く。ブロック整列ペイント後は 1 画素 = マスクブロック一様なので Point
-                        // 拡大でも正確で、クロップ専用オーバーレイ(詳細再生成まで更新されず
-                        // ペイントが見えなかった)を廃止できる。ペイント中の直接書き込み
-                        // (PaintMask)も即このテクスチャに反映される。
-                        DrawMaskOverlays(activePreviewRect, maskView);
+                        // マスクの重ね表示: 詳細の範囲は、詳細と同じ範囲・寸法で描いた等倍のもの
+                        // (MaskPaintView.RebuildDetailOverlay)を重ね、その外は全体用を引き伸ばす。等倍のものが
+                        // まだ無い・範囲が古いときは全体用だけ(以前と同じ)。ペイント中の直接書き込み(PaintMask)は
+                        // 両方へ入るので、塗ったそばから見える。
+                        var dt = _detailView.detailPreviewTexture;
+                        if (maskView.DetailOverlayMatches(srcW, srcH, _detailView.detailOriginX, _detailView.detailOriginY,
+                                                          _detailView.detailCropW, _detailView.detailCropH, dt.width, dt.height))
+                            DrawMaskOverlaysWithDetail(activePreviewRect, detailScreenRect, maskView);
+                        else
+                            DrawMaskOverlays(activePreviewRect, maskView);
                     }
                 }
                 else
@@ -990,6 +994,8 @@ namespace Iroca
             if (_detailView.HasPendingResult)
             {
                 _detailView.ApplyPendingResult();
+                // 拡大表示用のマスクの重ね表示も、新しい範囲で作り直す(MaskPaintView.RebuildDetailOverlay)。
+                RebuildDetailMaskOverlay();
                 // 隠している間は新しい切り出ししか作らない(Draw の詳細生成の条件)ので、届いたら見せてよい。
                 _detailHiddenForDrag = false;
             }
@@ -1052,6 +1058,7 @@ namespace Iroca
         {
             // バックグラウンドで完了したオーバーレイ Color32[] を先に Texture2D へ適用する。
             maskView.ApplyPendingOverlay();
+            maskView.ApplyPendingDetailOverlay();
 
             // マスクオーバーレイ再構築をスケジュール（バックグラウンド計算）。
             // ペイント中は MouseDrag が毎フレーム maskDirty を立てるため、
@@ -1080,6 +1087,8 @@ namespace Iroca
                     {
                         maskView.lastOverlayRebuildTime = EditorApplication.timeSinceStartup;
                         maskView.RebuildMaskOverlay(ovW, ovH);
+                        // マスクが変わったら拡大表示用も作り直す(寸法の変化だけなら範囲は同じなので要らない)。
+                        if (maskView.maskDirty) RebuildDetailMaskOverlay();
                         maskView.maskDirty = false;
                     }
                     // throttle 時は maskDirty を残し、次フレームで再評価する。
@@ -1118,6 +1127,60 @@ namespace Iroca
                 GUI.DrawTexture(r, mv.maskOverlayTexture, ScaleMode.StretchToFill, true);
             if (mv.zoneMaskOverlayTexture != null)
                 GUI.DrawTexture(r, mv.zoneMaskOverlayTexture, ScaleMode.StretchToFill, true);
+        }
+
+        /// <summary>
+        /// 拡大表示中のマスクの重ね表示: detail(詳細プレビューの画面上の矩形)には等倍のもの、その外には全体用を
+        /// 描く(全体用を detail の上にも重ねると、半透明が二重になって濃く見える)。
+        /// </summary>
+        private static void DrawMaskOverlaysWithDetail(Rect full, Rect detail, MaskPaintView mv)
+        {
+            DrawOutside(full, detail, mv.maskOverlayTexture);
+            DrawOutside(full, detail, mv.zoneMaskOverlayTexture);
+            if (mv.detailMaskOverlayTexture != null)
+                GUI.DrawTexture(detail, mv.detailMaskOverlayTexture, ScaleMode.StretchToFill, true);
+            if (mv.detailZoneOverlayTexture != null)
+                GUI.DrawTexture(detail, mv.detailZoneOverlayTexture, ScaleMode.StretchToFill, true);
+        }
+
+        /// <summary>tex を full へ引き伸ばして描くときの、hole の外の部分だけを描く(上下左右の帯に分けて、
+        /// それぞれ対応するテクスチャ座標で)。</summary>
+        private static void DrawOutside(Rect full, Rect hole, Texture tex)
+        {
+            if (tex == null || full.width <= 0f || full.height <= 0f) return;
+            var h = Rect.MinMaxRect(Mathf.Max(full.xMin, hole.xMin), Mathf.Max(full.yMin, hole.yMin),
+                                    Mathf.Min(full.xMax, hole.xMax), Mathf.Min(full.yMax, hole.yMax));
+            if (h.width <= 0f || h.height <= 0f)
+            {
+                GUI.DrawTexture(full, tex, ScaleMode.StretchToFill, true);
+                return;
+            }
+            Strip(full, Rect.MinMaxRect(full.xMin, full.yMin, full.xMax, h.yMin), tex);      // 上
+            Strip(full, Rect.MinMaxRect(full.xMin, h.yMax, full.xMax, full.yMax), tex);      // 下
+            Strip(full, Rect.MinMaxRect(full.xMin, h.yMin, h.xMin, h.yMax), tex);            // 左
+            Strip(full, Rect.MinMaxRect(h.xMax, h.yMin, full.xMax, h.yMax), tex);            // 右
+        }
+
+        private static void Strip(Rect full, Rect part, Texture tex)
+        {
+            if (part.width <= 0f || part.height <= 0f) return;
+            // テクスチャ座標は下原点(画面の y は下向き)。
+            float u0 = (part.xMin - full.xMin) / full.width, u1 = (part.xMax - full.xMin) / full.width;
+            float v1 = 1f - (part.yMin - full.yMin) / full.height, v0 = 1f - (part.yMax - full.yMin) / full.height;
+            GUI.DrawTextureWithTexCoords(part, tex, new Rect(u0, v0, u1 - u0, v1 - v0), true);
+        }
+
+        /// <summary>
+        /// 拡大表示用のマスクの重ね表示を、詳細プレビューのいまの範囲で作り直す(詳細が無ければ何もしない)。
+        /// </summary>
+        private void RebuildDetailMaskOverlay()
+        {
+            var mv = _host._maskView;
+            var t = _detailView.detailPreviewTexture;
+            if (mv == null || t == null || _trueSourceW <= 0 || _trueSourceH <= 0) return;
+            if (_detailView.detailCropW <= 0 || _detailView.detailCropH <= 0) return;
+            mv.RebuildDetailOverlay(_trueSourceW, _trueSourceH, _detailView.detailOriginX, _detailView.detailOriginY,
+                                    _detailView.detailCropW, _detailView.detailCropH, t.width, t.height);
         }
 
         /// <summary>
