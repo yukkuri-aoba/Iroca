@@ -304,6 +304,9 @@ namespace Iroca
                         t = MaskSuggestPerf.Now;
                         SamMaskRefine.IncludeAaTransitionCropped(region, mw, mh,
                             cropPx, rx0, ry0, rw, rh, aaD);
+                        // 細い描き込みの提案は、やり直した AA 包含が落ち影を「混色」として足し直すので、
+                        // 精密化と同じく最後に地を外す(細い成分が無ければ外接矩形の距離変換 1 回で戻る)。
+                        SamMaskRefine.PeelThinSpill(region, texPx, mw, mh);
                         aaMs = MaskSuggestPerf.MsSince(t);
                     }
                     catch (System.Exception)

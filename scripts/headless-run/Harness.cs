@@ -1228,6 +1228,24 @@ namespace Iroca
                     return 0;
                 }
 
+                // --samops-peel <mask.raw> <image.raw RGBA> <out.raw> : 細い描き込みの合わせ直し単体
+                // (SamMaskPostprocess.RefineInPlace では最後。--samops-aainclude の後)
+                case "--samops-peel":
+                {
+                    var (mw2, mh2, mask2) = ReadMaskRaw(args[1]);
+                    var (iw, ih, rgba2) = ReadRaw(args[2], 4);
+                    if (iw != mw2 || ih != mh2)
+                    {
+                        Console.Error.WriteLine("peel: mask/image size mismatch");
+                        return 2;
+                    }
+                    var px2 = ToColor32(rgba2, iw * ih);
+                    SamMaskRefine.PeelThinSpill(mask2, px2, iw, ih);
+                    WriteMaskRaw(args[3], iw, ih, mask2);
+                    Console.WriteLine($"PEEL OK {iw}x{ih}");
+                    return 0;
+                }
+
                 // --samops-aainclude <mask.raw> <image.raw RGBA> <out.raw> : AA 遷移帯の包含単体
                 case "--samops-aainclude":
                 {

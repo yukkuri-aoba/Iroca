@@ -202,7 +202,7 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 拡大済みマスクへの精密化 3 段(境界色スナップ → 房外郭拡張 → AA 遷移包含)を
+        /// 拡大済みマスクへの精密化 4 段(境界色スナップ → 房外郭拡張 → AA 遷移包含 → 細い描き込みの合わせ直し)を
         /// この順で適用する。SelectAndUpscale(pixelsBottomUp 付き) と同値になる唯一の
         /// 実行順の単一ソース。粗マスクを後から精密化する遅延実行(ズーム不発時)もここを通す。
         /// </summary>
@@ -219,6 +219,11 @@ namespace Iroca
             // 境界外側の AA 遷移(パーツ色の実混合)を包含する最終仕上げ。スナップ境界は
             // 混合率 ≈50% 点に乗るため、外側に残る混合画素が再着色で点ノイズになるのを防ぐ。
             SamMaskRefine.IncludeAaTransition(maskBottomUp, pixelsBottomUp, texW, texH, token);
+            token.ThrowIfCancellationRequested();
+            // SAM の解像度より細い描き込み(ファスナーの歯・細い線)の提案を、地(陰影を含む)を外して描き込み
+            // そのものへ合わせ、SAM が端で切った続きを足す。最後に置くのは、房の拡張は地色より暗い落ち影を
+            // 「地色から遠い外側」として、AA 遷移包含は暗い縁取りと落ち影の間を「混色」として足すため。
+            SamMaskRefine.PeelThinSpill(maskBottomUp, pixelsBottomUp, texW, texH, token);
         }
 
         /// <summary>

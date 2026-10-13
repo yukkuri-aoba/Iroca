@@ -118,18 +118,18 @@ namespace Iroca
         const float FringeColorThresh = 26f;
 
         // SAM の解像度(4096² で 1 セル 16px)より細い構造(ファスナーの歯・縫い目・細い線の描き込み)では、
-        // 提案は「構造 + 周りの地色の滲み」になる。SnapBoundary の帯の再分類は内側の確信領域(境界から d
-        // より深い画素)の色を要るので、幅がおよそ 2d 未満の提案には効かず、SAM の形がそのまま残る。
-        // 保護(ここは塗らない)に使うと、構造の周りの地色が帯や塊になって塗られずに残る。
-        // そこで「画素の大半が帯にある細い連結成分」に限り、外側の地色(確信外側のセルモード)と見分けが
-        // 付かない色で、外側の地色へ 4 近傍でつながる画素を剥がす(PeelThinSpill)。
+        // 提案は「構造 + 周りの地色の滲み」になり、構造の端では途中で切れる。SnapBoundary の帯の再分類は
+        // 内側の確信領域(境界から d より深い画素)の色を要るので、幅がおよそ 2d 未満の提案には効かず、
+        // SAM の形がそのまま残る。保護(ここは塗らない)に使うと、構造の周りの地色が帯や塊になって塗られずに
+        // 残り、切れた先の構造は塗られる。そこで「画素の大半が帯にある細い連結成分」に限り、地(陰影を含む)
+        // を外し、近くで切れた描き込みの続きを足す(PeelThinSpill。精密化の最後の段)。
 
         /// <summary>成分を「細い」とみなす、帯(境界から d 以内)にある画素の割合の下限
         /// (帯状の成分なら幅 ≲ 4d。SAM の低解像度セル 3 つぶん)。</summary>
         const float ThinBandFracMin = 0.5f;
 
-        /// <summary>地色と見分けが付かない色(RGBA 距離 2 乗)。AA 混合軸の下限と同じ
-        /// 「視覚的に継ぎ目が無い」線。</summary>
+        /// <summary>地色と見分けが付かない色の差(RGBA 距離 2 乗)。AA 混合軸の下限と同じ「視覚的に継ぎ目が無い」線。
+        /// PeelThinSpill の色の物差しはすべてこれから決める。</summary>
         const double PeelSameColorSq = AaMinContrastSq;
 
         /// <summary>地色とはっきり違う色(RGBA 距離 2 乗。見分けが付かない線の 2 倍の距離)。
@@ -148,6 +148,24 @@ namespace Iroca
         /// (実測: 黒地の白い線の細い提案で 51%)。
         /// </summary>
         const float PeelMinDetailFrac = 0.25f;
+
+        /// <summary>地が滑らかに続くとみなす隣同士の色の差(RGBA 距離 2 乗。見分けが付かない線の半分の距離)。
+        /// 陰影(落ち影・布の明暗)は 1px あたり数階調で変わるので地として辿れ、描き込みの縁(1px で数十階調)
+        /// で止まる(実測 2026-10-12: スライダーの下の落ち影は 1px あたり 2〜4 階調、歯の縁は 60 階調以上)。</summary>
+        const double PeelStepSq = PeelSameColorSq / 4.0;
+
+        /// <summary>最も近い地の画素と同じ色とみなす差(RGBA 距離 2 乗。滑らかに続く隣同士の差の 2 倍)。見分けが
+        /// 付かない線(PeelSameColorSq)より締める: 比べる相手が実在の近くの地なので、許すのは地自身の粒状の色むら
+        /// (生成りの布で隣同士の差は 99.9% が距離 11 以内)とわずかな陰影だけでよい。末端の歯は本体が周りの地より
+        /// わずかに明るいだけ(実測: 本体 50・周りの地 35〜37、距離 22〜26)なので、見分けが付かない線では地に入る。</summary>
+        const double PeelLocalSameSq = 2.0 * PeelStepSq;
+
+        /// <summary>描き込みの続きを足す範囲(細い成分からの距離、d 単位)。SAM が細い構造を端で切る長さは
+        /// 実測で低解像度セル 4 つ前後(ファスナーの末端で 66px = 5.5d)。</summary>
+        const int GrowReachCells = 6;
+
+        /// <summary>描き込みの続きとして連ねる隙間(px)。縁取り 1px と AA 1px を挟んだ隣の要素(歯)まで。</summary>
+        const int GrowGap = 2;
 
         /// <summary>
         /// mask(下原点 w*h)の境界を、房 strands を覆うように実テクスチャの信号で外郭まで拡張する(in-place)。
@@ -513,27 +531,41 @@ namespace Iroca
             // ±1px の点状ノイズになる。帯内のみ 3x3 多数決で平滑化して点滅を除去する
             // (帯外は不変なので形状は保たれる)。
             MajoritySmoothBand(mask, mask0, distIn, distOut, d, w, h, token);
-
-            // 帯の再分類が届かない細い提案から、地色のはみ出しを剥がす(定数の上の説明参照)。
-            PeelThinSpill(mask, pixelsBottomUp, w, h, d, meanOut, validOut, gw, gh, token);
         }
 
         /// <summary>
-        /// 細い連結成分(画素の ThinBandFracMin 以上が、スナップ後のマスクの境界から d 以内)から、
-        /// 確信外側のセルモードとの距離² が PeelSameColorSq 以下の画素(地色)のうち、マスク外の地色へ
-        /// 4 近傍でつながるものを外す(in-place)。地の上の描き込みと言えない成分(PeelMinDetailFrac の門)は触らない。
-        /// meanOut / validOut は SnapBoundary が元マスクの帯の外から求めた地色。細さはスナップ後の形で
-        /// 見る(SAM の形が幅広の塊だと、元マスクの奥は「確信の内側」として再分類されずに残るため)。
-        /// 連結成分は行の連(ラン)の union-find で求める(大きな提案でも画素ごとの探索をしない)。
-        /// 剥がす塗りつぶしは逐次だが、対象は細い成分だけで画素数は小さい。
+        /// mask(下原点 w*h)の細い連結成分(画素の ThinBandFracMin 以上が境界から d 以内)を、地の上の描き込み
+        /// そのものへ合わせ直す(in-place)。精密化の最後(SnapBoundary → ExtendFringe → IncludeAaTransition の後)に
+        /// 呼ぶ: ExtendFringe は地色より暗い落ち影を「地色から遠い外側」として、IncludeAaTransition は暗い縁取りと
+        /// 落ち影の間を「混色」として足すので、その後で地を外す。マスク解像度で AA 遷移包含をやり直したときも、
+        /// その後に呼ぶ(MaskSuggestController のコミット)。
+        /// 地色(下の「地色」)は、この時点のマスクから d より離れた画素(確信外側)のセル単位モード。
+        ///   1. 地: 細い成分から GrowReachCells × d 離れた外周から、隣同士の色の差が PeelStepSq 以下の画素を
+        ///      辿った領域。陰影(スライダーの下の落ち影など)は滑らかに続くので地に入り、描き込みの縁(1px で大きく
+        ///      色が変わる)で止まる。
+        ///      外周から辿れなくても、最も近い地の画素と同じ色(PeelLocalSameSq 以下)の画素は地とする(描き込みに
+        ///      囲まれた地の袋)。
+        ///   2. 成分から地を外す。地の上の描き込みと言えない成分(PeelMinDetailFrac の門)は触らない。
+        ///   3. 外した成分の近く(GrowReachCells × d 以内)で地に届かない画素(描き込み)のうち、成分から
+        ///      GrowGap px 以内の隙間で連なるものを足す。SAM が構造の端で切った続き(ファスナーの末端の歯)と、
+        ///      帯の再分類が近くの別の明るい線を外側の色と取り違えて落とした画素を拾う。
+        /// 細さはスナップ後の形で見る(SAM の形が幅広の塊だと、元マスクの奥は「確信の内側」として再分類され
+        /// ずに残るため)。連結成分は行の連(ラン)の union-find で求める(大きな提案でも画素ごとの探索をしない)。
+        /// 細い成分が無ければ、外接矩形の距離変換 1 回だけで戻る。
+        /// 地の塗りつぶしと足す探索は逐次だが、対象は細い成分の周りだけで画素数は小さい。
         /// </summary>
-        static void PeelThinSpill(bool[] mask, Color32[] px, int w, int h, int d,
-                                  double[] meanOut, bool[] validOut, int gw, int gh,
-                                  System.Threading.CancellationToken token)
+        public static void PeelThinSpill(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
+                                         System.Threading.CancellationToken token = default)
         {
+            if (mask == null || pixelsBottomUp == null || mask.Length != w * h ||
+                pixelsBottomUp.Length < w * h) return;
+            var px = pixelsBottomUp;
             var po = MakeParallelOptions(token);
+            int d = BandHalfWidth(w, h);
+            int reach = GrowReachCells * d;
+            int gw = (w + d - 1) / d, gh = (h + d - 1) / d;
 
-            // マスクの外接矩形(+1px)の中だけで扱う。
+            // マスクの外接矩形を、足す探索の届く距離と地色の窓(最大半径のセル)の分だけ広げた矩形の中で扱う。
             var rowMin = new int[h];
             var rowMax = new int[h];
             Parallel.For(0, h, po, y =>
@@ -558,8 +590,9 @@ namespace Iroca
                 y1 = y;
             }
             if (x1 < 0) return;
-            x0 = Mathf.Max(0, x0 - 1); y0 = Mathf.Max(0, y0 - 1);
-            x1 = Mathf.Min(w - 1, x1 + 1); y1 = Mathf.Min(h - 1, y1 + 1);
+            int margin = reach + (MaxWindowRadius + 1) * d + 1;
+            x0 = Mathf.Max(0, x0 - margin); y0 = Mathf.Max(0, y0 - margin);
+            x1 = Mathf.Min(w - 1, x1 + margin); y1 = Mathf.Min(h - 1, y1 + margin);
             int bw = x1 - x0 + 1, bh = y1 - y0 + 1;
             int ox = x0, oy = y0;   // ラムダ用の写し
 
@@ -665,43 +698,66 @@ namespace Iroca
                     for (int lx = runX0[r]; lx < runX1[r]; lx++) label[row + lx] = c;
                 }
             });
-            var queue = new int[bw * bh];
 
-            // 地色らしさ: 細い成分の画素と、その 4 近傍のマスク外画素について、確信外側セルモードへの
-            // 最短距離²で分ける。0 = 未評価 / 1 = 地色(PeelSameColorSq 以下) / 2 = 地色でない /
-            // 3 = 地色とはっきり違う(PeelDistinctSq 超)。地色かどうかは SnapBoundary と同じく最寄りの
-            // セルが見つかる半径(2〜8 セル)で、はっきり違うかどうかは最大半径の窓のすべての地色で見る
-            // (地色が 2 種類ある所 — 余白の白と隣の部位の紺 — で、近い窓に白しか無い画素を
-            // 「はっきり違う」と数えないため)。
-            var bg = new byte[bw * bh];
-            Parallel.For(0, bh, MakeParallelOptions(token), ly =>
+            // 地色: マスクから d より離れた画素(確信外側)のセル単位モード(SnapBoundary と同じ粗グリッド・同じ
+            // セルの位置)。矩形の外にマスク画素は無いので、マスクからの距離は矩形の中だけで求めれば同じ。
+            var distOut = DistanceToOpposite(local, bw, bh, inside: false, token);
+            var sumOut = new long[gw * gh * 4];
+            var cntOut = new int[gw * gh];
+            int gy0r = oy / d, gy1r = (oy + bh - 1) / d;
+            Parallel.For(gy0r, gy1r + 1, po, gy =>
+            {
+                int yStart = Mathf.Max(oy, gy * d), yEnd = Mathf.Min(oy + bh, (gy + 1) * d);
+                for (int y = yStart; y < yEnd; y++)
+                {
+                    int lrow = (y - oy) * bw;
+                    for (int lx = 0; lx < bw; lx++)
+                    {
+                        if (distOut[lrow + lx] <= d) continue;
+                        int x = lx + ox;
+                        int g = gy * gw + x / d, o = g * 4;
+                        var c = px[y * w + x];
+                        sumOut[o] += c.r; sumOut[o + 1] += c.g; sumOut[o + 2] += c.b; sumOut[o + 3] += c.a;
+                        cntOut[g]++;
+                    }
+                }
+            });
+            var meanOut = new double[gw * gh * 4];
+            var validOut = new bool[gw * gh];
+            ComputeCellModes(sumOut, cntOut, 4, meanOut, validOut);
+
+            // 扱う範囲(near): 細い成分から reach 以内(太い成分の画素は除く)。
+            Parallel.For(0, bh, po, ly =>
+            {
+                int row = ly * bw;
+                for (int lx = 0; lx < bw; lx++) local[row + lx] = thin[label[row + lx]];
+            });
+            var distThin = DistanceToOpposite(local, bw, bh, inside: false, token);
+            var near = new bool[bw * bh];
+            Parallel.For(0, bh, po, ly =>
+            {
+                int row = ly * bw;
+                for (int lx = 0; lx < bw; lx++)
+                {
+                    int li = row + lx;
+                    near[li] = distThin[li] <= reach && (label[li] == 0 || thin[label[li]]);
+                }
+            });
+
+            // はっきり違う(描き込み): 細い成分の画素のうち、最大半径(MaxWindowRadius セル)の窓のすべての地色
+            // (確信外側のセルモード)との距離² が PeelDistinctSq を超えるもの。窓を広く取るのは、地色が 2 種類ある所
+            // — 余白の白と隣の部位の紺 — で、近くに白しか無い画素を「はっきり違う」と数えないため。
+            var distinctPx = new bool[bw * bh];
+            Parallel.For(0, bh, po, ly =>
             {
                 for (int lx = 0; lx < bw; lx++)
                 {
                     int li = ly * bw + lx;
-                    bool want = label[li] != 0 ? thin[label[li]] : TouchesThin(label, thin, bw, bh, lx, ly);
-                    if (!want) continue;
-                    int x = lx + x0, y = ly + y0;
+                    if (label[li] == 0 || !thin[label[li]]) continue;
+                    int x = lx + ox, y = ly + oy;
                     var c = px[y * w + x];
                     int gx = x / d, gy = y / d;
                     double best = double.MaxValue;
-                    for (int radius = 2; radius <= MaxWindowRadius && best == double.MaxValue; radius += 2)
-                    {
-                        int gy0 = Mathf.Max(0, gy - radius), gy1 = Mathf.Min(gh - 1, gy + radius);
-                        int gx0 = Mathf.Max(0, gx - radius), gx1 = Mathf.Min(gw - 1, gx + radius);
-                        for (int yy = gy0; yy <= gy1; yy++)
-                            for (int xx = gx0; xx <= gx1; xx++)
-                            {
-                                int g = yy * gw + xx;
-                                if (!validOut[g]) continue;
-                                double dd = Dist2Mean(c, meanOut, g * 4);
-                                if (dd < best) best = dd;
-                            }
-                    }
-                    if (best <= PeelSameColorSq) { bg[li] = 1; continue; }
-                    bg[li] = 2;
-                    // はっきり違うかは成分の画素だけ数える(マスク外の画素は剥がす起点の判定にしか使わない)。
-                    if (best == double.MaxValue || best <= PeelDistinctSq || label[li] == 0) continue;
                     int wy0 = Mathf.Max(0, gy - MaxWindowRadius), wy1 = Mathf.Min(gh - 1, gy + MaxWindowRadius);
                     int wx0 = Mathf.Max(0, gx - MaxWindowRadius), wx1 = Mathf.Min(gw - 1, gx + MaxWindowRadius);
                     for (int yy = wy0; yy <= wy1 && best > PeelDistinctSq; yy++)
@@ -712,39 +768,55 @@ namespace Iroca
                             double dd = Dist2Mean(c, meanOut, g * 4);
                             if (dd < best) best = dd;
                         }
-                    if (best > PeelDistinctSq) bg[li] = 3;
+                    distinctPx[li] = best != double.MaxValue && best > PeelDistinctSq;
                 }
             });
             token.ThrowIfCancellationRequested();
 
-            // 剥がす候補: マスク外の地色に接する地色の画素から、成分の中の地色だけを辿る。
-            var peel = new bool[bw * bh];
-            var peeled = new int[nComp];
-            int pHead = 0, pTail = 0;
-            for (int ly = 0; ly < bh; ly++)
+            // 地: 範囲の外周(細い成分から reach 離れた画素 = 描き込みから十分離れた地)から、範囲の中を
+            // 隣同士の色の差が PeelStepSq 以下の画素へ辿る(4 近傍)。地色の画素を起点にしたり、地色どうしの
+            // 差を緩めたりはしない: 陰影の濃淡がある所では、描き込み(裾の暗い帯の中の灰色の歯)が別の場所の
+            // 地色(帯の明るい縁)と同じ色になり、末端の歯は本体が布の地色とほぼ同じ明るさになる(実測: 本体 50・
+            // 周りの地 35)。滑らかさだけで辿れば、縁で地と切れている描き込みは地に入らない。
+            var ground = new bool[bw * bh];
+            var queue = new int[bw * bh];
+            int head = 0, tail = 0;
+            for (int li = 0; li < bw * bh; li++)
             {
-                for (int lx = 0; lx < bw; lx++)
+                if (!near[li] || distThin[li] < reach) continue;
+                ground[li] = true;
+                queue[tail++] = li;
+            }
+            while (head < tail)
+            {
+                int q = queue[head++];
+                int qx = q % bw, qy = q / bw;
+                var cq = px[(qy + oy) * w + qx + ox];
+                for (int k = 0; k < 4; k++)
                 {
-                    int li = ly * bw + lx;
-                    if (label[li] == 0 || bg[li] != 1) continue;
-                    bool seed = false;
-                    for (int k = 0; k < 4 && !seed; k++)
-                    {
-                        int nx = lx + (k == 0 ? 1 : k == 1 ? -1 : 0);
-                        int ny = ly + (k == 2 ? 1 : k == 3 ? -1 : 0);
-                        if (nx < 0 || nx >= bw || ny < 0 || ny >= bh) continue;
-                        int ni = ny * bw + nx;
-                        seed = label[ni] == 0 && bg[ni] == 1;
-                    }
-                    if (!seed) continue;
-                    peel[li] = true;
-                    peeled[label[li]]++;
-                    queue[pTail++] = li;
+                    int nx = qx + (k == 0 ? 1 : k == 1 ? -1 : 0);
+                    int ny = qy + (k == 2 ? 1 : k == 3 ? -1 : 0);
+                    if (nx < 0 || nx >= bw || ny < 0 || ny >= bh) continue;
+                    int ni = ny * bw + nx;
+                    if (ground[ni] || !near[ni]) continue;
+                    if (Dist2Px(px[(ny + oy) * w + nx + ox], cq) > PeelStepSq) continue;
+                    ground[ni] = true;
+                    queue[tail++] = ni;
                 }
             }
-            while (pHead < pTail)
+            token.ThrowIfCancellationRequested();
+
+            // 地には、外周から辿れない「近くの地と同じ色」の画素も足す: 各画素に、外周から辿れた地のうち最も近い
+            // (4 近傍の歩数で)画素の色を割り当て、それとの差が PeelLocalSameSq 以下なら地とする。
+            // 描き込みに囲まれた地の袋(柄の帯の中の生成り)は外周から滑らかには辿れないが、すぐ外の地と同じ色
+            // なので地になる。末端の歯は本体が布の地色に近くても、すぐ周りの地(裾の暗い帯)より明るいので残る。
+            var nearestGround = new int[bw * bh];
+            for (int li = 0; li < bw * bh; li++) nearestGround[li] = ground[li] ? li : -1;
+            head = 0; tail = 0;
+            for (int li = 0; li < bw * bh; li++) if (ground[li]) queue[tail++] = li;
+            while (head < tail)
             {
-                int q = queue[pHead++];
+                int q = queue[head++];
                 int qx = q % bw, qy = q / bw;
                 for (int k = 0; k < 4; k++)
                 {
@@ -752,37 +824,116 @@ namespace Iroca
                     int ny = qy + (k == 2 ? 1 : k == 3 ? -1 : 0);
                     if (nx < 0 || nx >= bw || ny < 0 || ny >= bh) continue;
                     int ni = ny * bw + nx;
-                    if (peel[ni] || label[ni] == 0 || bg[ni] != 1) continue;
-                    peel[ni] = true;
-                    peeled[label[ni]]++;
-                    queue[pTail++] = ni;
+                    if (nearestGround[ni] >= 0 || !near[ni]) continue;
+                    nearestGround[ni] = nearestGround[q];
+                    queue[tail++] = ni;
                 }
             }
-
-            // 成分ごとの門(PeelMinDetailFrac の説明参照): 地の上の描き込みが成分の一定割合を占め、
-            // 剥がした後の残りの半分以上がそれであること。
-            var distinct = new int[nComp];
-            for (int li = 0; li < bw * bh; li++)
-                if (label[li] != 0 && bg[li] == 3) distinct[label[li]]++;
-            var accept = new bool[nComp];
-            bool anyAccept = false;
-            for (int c = 1; c < nComp; c++)
-            {
-                accept[c] = peeled[c] > 0 && distinct[c] >= PeelMinDetailFrac * area[c]
-                            && distinct[c] >= 0.5f * (area[c] - peeled[c]);
-                anyAccept |= accept[c];
-            }
-            if (!anyAccept) return;
-
-            for (int ly = 0; ly < bh; ly++)
+            Parallel.For(0, bh, po, ly =>
             {
                 for (int lx = 0; lx < bw; lx++)
                 {
-                    int li = ly * bw + lx;
-                    if (peel[li] && accept[label[li]])
-                        mask[(ly + y0) * w + lx + x0] = false;
+                    int li = ly * bw + lx, g = nearestGround[li];
+                    if (ground[li] || g < 0) continue;
+                    ground[li] = Dist2Px(px[(ly + oy) * w + lx + ox], px[(g / bw + oy) * w + g % bw + ox])
+                                 <= PeelLocalSameSq;
+                }
+            });
+
+            // 成分ごとの門(PeelMinDetailFrac の説明参照): 地の上の描き込みが成分の一定割合を占め、
+            // 地を外した後の残りの半分以上がそれであること。
+            var peeled = new int[nComp];
+            var distinct = new int[nComp];
+            for (int li = 0; li < bw * bh; li++)
+            {
+                int c = label[li];
+                if (c == 0 || !thin[c]) continue;
+                if (ground[li]) peeled[c]++;
+                else if (distinctPx[li]) distinct[c]++;
+            }
+            var accept = new bool[nComp];
+            bool anyAccept = false;
+            int largest = 1;
+            for (int c = 1; c < nComp; c++)
+            {
+                accept[c] = thin[c] && peeled[c] > 0 && distinct[c] >= PeelMinDetailFrac * area[c]
+                            && distinct[c] >= 0.5f * (area[c] - peeled[c]);
+                anyAccept |= accept[c];
+                if (area[c] > area[largest]) largest = c;
+            }
+            if (!anyAccept) return;
+            // 提案のいちばん大きな成分が地の上の描き込みなら、提案全体が描き込みの提案。ほかの細い成分(SAM が
+            // 離れた所に飛ばした小さな塊)は門を通さずに地を外す: 飛び地は落ち影だけの欠片や、提案の外にある
+            // 同じ描き込み(もう 1 本のファスナー)の一部で、後者は地色のモードに数えられて「はっきり違う」画素が
+            // 0 になる(実測: 右のファスナーの提案が左の上端に飛ばした 412px の塊)。部位の提案(いちばん大きな
+            // 成分が太い)には効かない。
+            if (accept[largest])
+                for (int c = 1; c < nComp; c++)
+                    if (thin[c] && peeled[c] > 0) accept[c] = true;
+
+            // 地を外し、残った描き込みから GrowGap px 以内の隙間で連なる「範囲の中の地でない画素」を足す。
+            head = tail = 0;
+            for (int li = 0; li < bw * bh; li++)
+            {
+                int c = label[li];
+                if (c == 0 || !accept[c]) continue;
+                if (ground[li]) { mask[(li / bw + oy) * w + li % bw + ox] = false; continue; }
+                queue[tail++] = li;
+            }
+            var added = local;   // 細い成分の印はもう使わないので、足した画素の印に使い回す
+            System.Array.Clear(added, 0, added.Length);
+            while (head < tail)
+            {
+                int q = queue[head++];
+                int qx = q % bw, qy = q / bw;
+                for (int dy = -GrowGap; dy <= GrowGap; dy++)
+                {
+                    int ny = qy + dy;
+                    if (ny < 0 || ny >= bh) continue;
+                    for (int dx = -GrowGap; dx <= GrowGap; dx++)
+                    {
+                        int nx = qx + dx;
+                        if (nx < 0 || nx >= bw) continue;
+                        int ni = ny * bw + nx;
+                        if (label[ni] != 0 || added[ni] || !near[ni] || ground[ni]) continue;
+                        if (!InStructure(ground, near, bw, bh, nx, ny)) continue;
+                        added[ni] = true;
+                        mask[(ny + oy) * w + nx + ox] = true;
+                        queue[tail++] = ni;
+                    }
                 }
             }
+        }
+
+        /// <summary>
+        /// (lx, ly) の 3x3 に、範囲の中の地でない画素が自分を含めて 3 つ以上あるか(描き込みの続きとして足す画素の条件)。
+        /// 地の中の孤立した粒(生成りの布の粒状の色むら。隣と少し色が離れていて地として辿れない 1〜2 画素)を
+        /// 描き込みとして連ねないため。歯のような塊や 1px の線は満たす(実測 2026-10-12: この条件が無いと
+        /// 民族柄の細い提案が粒を伝って周りの生成りへ広がり、地の滲みが 10,780 → 24,105 に増えた)。
+        /// </summary>
+        static bool InStructure(bool[] ground, bool[] near, int bw, int bh, int lx, int ly)
+        {
+            int n = 0;
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                int y = ly + dy;
+                if (y < 0 || y >= bh) continue;
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    int x = lx + dx;
+                    if (x < 0 || x >= bw) continue;
+                    int i = y * bw + x;
+                    if (near[i] && !ground[i] && ++n >= 3) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>2 画素の RGBA 距離 2 乗。</summary>
+        static double Dist2Px(Color32 a, Color32 b)
+        {
+            double dr = a.r - b.r, dg = a.g - b.g, db = a.b - b.b, da = a.a - b.a;
+            return dr * dr + dg * dg + db * db + da * da;
         }
 
         /// <summary>union-find の根(経路を半分に縮める)。</summary>
@@ -794,16 +945,6 @@ namespace Iroca
                 r = parent[r];
             }
             return r;
-        }
-
-        /// <summary>矩形内の (lx, ly) の 4 近傍に細い成分の画素があるか。</summary>
-        static bool TouchesThin(int[] label, bool[] thin, int bw, int bh, int lx, int ly)
-        {
-            if (lx + 1 < bw && thin[label[ly * bw + lx + 1]]) return true;
-            if (lx > 0 && thin[label[ly * bw + lx - 1]]) return true;
-            if (ly + 1 < bh && thin[label[(ly + 1) * bw + lx]]) return true;
-            if (ly > 0 && thin[label[(ly - 1) * bw + lx]]) return true;
-            return false;
         }
 
         /// <summary>

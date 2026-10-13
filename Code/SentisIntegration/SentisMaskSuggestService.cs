@@ -111,7 +111,7 @@ namespace Iroca.SentisIntegration
             public int cropX0, cropY0, cropSide;
             public Color32[] cropPixels;
             public double postMs;
-            public double refineMs; // 精密化 3 段(走ったときのみ非 0)
+            public double refineMs; // 精密化 4 段(走ったときのみ非 0)
         }
 
         public SentisMaskSuggestService()
