@@ -384,11 +384,11 @@ namespace Iroca
         // ─── マスク欄の「メッシュ」行(パーツ操作と UV の島の表示に使うメッシュ) ───
         public static string MeshSource => IsJapanese ? "メッシュ" : "Mesh";
         public static string MeshSourceTooltip => IsJapanese
-            ? "このテクスチャを使っているメッシュ（FBX・Prefab）。右クリックメニューの「パーツ」操作と、UV の島の表示に使います。\n"
+            ? "このテクスチャを使っているメッシュ（FBX・Prefab）。右クリックメニューの「メッシュの形で」と、UV の島の表示に使います。\n"
               + "開いているシーン → テクスチャと同じ素材フォルダの Prefab の順に自動で探します。\n"
               + "見つからないときや違うものを拾ったときは、Project か Hierarchy から FBX・Prefab をここへドラッグするか、◎ で選びます。\n"
               + "欄を空にする（選んで Delete）と自動に戻ります"
-            : "The meshes (FBX or prefab) that use this texture. Used by the \"Part\" items of the right-click menu and to show the UV islands.\n"
+            : "The meshes (FBX or prefab) that use this texture. Used by the \"By mesh shape\" items of the right-click menu and to show the UV islands.\n"
               + "Searched automatically in the open scene, then in prefabs in the texture's asset folder.\n"
               + "If nothing is found or the wrong one is picked, drag an FBX or prefab here from the Project or Hierarchy, or pick one with ◎.\n"
               + "Clearing the field (select it and press Delete) goes back to automatic";
@@ -581,8 +581,8 @@ namespace Iroca
             ? "ColorPick: サンプルカラーに近い色のピクセルを選択\nUVRect: UV座標の矩形範囲内のピクセルを選択"
             : "ColorPick: Select pixels matching the sampled color\nUVRect: Select pixels within a UV coordinate rectangle";
         public static string SampleColorTooltip => IsJapanese
-            ? "選択する基準色。下の「スポイト」ボタンを押してプレビューを直接クリックすると、実テクスチャの色を正確に取得できます"
-            : "Reference color for selection. Press the Eyedropper button below and click the preview to sample the exact texture color";
+            ? "選択する基準色。右の「スポイト」を押してプレビューをクリックすると、テクスチャの色を正確に取れます"
+            : "Reference color for selection. Press Eyedropper next to it and click the preview to sample the exact texture color";
         public static string ToleranceTooltip => IsJapanese
             ? "色の許容範囲。値が大きいほど基準色から離れた色も選択されます（0〜1）"
             : "Color matching tolerance. Higher values select colors further from the sample (0-1)";
@@ -613,8 +613,8 @@ namespace Iroca
 
         public static string MaskEditOpen => IsJapanese ? "マスクを編集..." : "Edit Masks...";
         public static string MaskEditOpenTooltip => IsJapanese
-            ? "マスク編集ウィンドウを開き、ペイントモードを ON にします\n編集対象のゾーン・マスクの種類（除外/含める）・ツール（塗る/消す/AI 提案）は\nすべてそのウィンドウで切り替えます（プレビューのすぐ横に置いて使えます）\nウィンドウを閉じるとマスク編集モードは解除されます"
-            : "Opens the mask editing window and arms the paint brush\nThe target zone, mask type (Exclude/Include) and tool (Paint/Erase/AI Suggest)\nare all switched in that window, so you can keep it next to the preview\nClosing the window exits mask editing";
+            ? "マスク編集ウィンドウを開いて、塗れる状態にします\n編集するゾーン・マスクの種類（除外/含める）・塗る/消すは、そのウィンドウで切り替えます\nウィンドウを閉じると編集は終わります"
+            : "Opens the mask editing window, ready to paint\nSwitch the zone, the mask type (Exclude/Include) and Paint/Erase in that window\nClosing the window ends mask editing";
         public static string MaskEditWindowTitle => IsJapanese ? "Iroca マスク編集" : "Iroca Masks";
         public static string MaskCurrentTargetFormat => IsJapanese
             ? "編集対象: {0} / {1}" : "Edit target: {0} / {1}";
@@ -729,8 +729,8 @@ namespace Iroca
             ? "輪郭のはっきりさを問わず、最も大きい候補を採用します。「自動」で足りないときに(周囲を巻き込むこともあります)"
             : "Use the largest candidate regardless of outline crispness. When Auto is not enough (may spill into surroundings).";
         public static string AiSuggestNoZoneWarning => IsJapanese
-            ? "色ゾーンがありません。マスクは色ゾーンの色替え範囲を制限する機能なので、足してもプレビュー／エクスポートの見た目は変わりません。まず色替えする色ゾーンを追加してください。"
-            : "No color zone exists. A mask only limits where color zones recolor, so adding to it will not change the preview/export. Add a color zone to recolor first.";
+            ? "ゾーンがまだありません。マスクはゾーンの色替え範囲を直すものなので、先に「スポイトで変えたい色を選ぶ」で色を選んでください。"
+            : "There is no zone yet. Masks adjust where a zone recolors, so first pick a color with \"Pick the color to change\".";
 
         // ─────────────────────────────────────────────────────────────
         // AI まわりのエラー文。帯・マスク編集ウィンドウの HelpBox にそのまま出るので、
@@ -791,8 +791,8 @@ namespace Iroca
         public static string MaskTarget => IsJapanese ? "編集対象" : "Edit Target";
         public static string MaskTargetCommon => IsJapanese ? "共通マスク（全ゾーン）" : "Common Mask (all zones)";
         public static string MaskTargetTooltip => IsJapanese
-            ? "マスクの編集対象を切り替えます\n・共通マスク: 全ゾーンで共通して除外される領域\n・各ゾーン: そのゾーンだけの除外／含める領域\n除外は共通とゾーンが OR 結合されて適用されます\n「含める」マスクはゾーン選択時のみ編集できます\n下の「塗る／消す／AI 提案」は、ここで選んだマスクに対して働きます"
-            : "Switch which mask is being edited\n- Common: area excluded from every zone\n- Per-zone: that zone's exclude / include areas\nExclusions are OR-combined (common + zone) when processing\nThe Include mask can only be edited when a zone is selected\nThe Paint / Erase / AI Suggest tools below act on the mask selected here";
+            ? "編集するマスクを選びます\n・共通マスク: どのゾーンでも塗らない所\n・各ゾーン: そのゾーンだけの「除外」と「含める」\n「含める」はゾーンを選んだときだけ編集できます\n「塗る／消す」とプレビューの右クリック操作は、ここで選んだマスクに働きます"
+            : "Choose which mask to edit\n- Common: areas no zone paints\n- Per-zone: that zone's Exclude and Include areas\nInclude can only be edited when a zone is selected\nPaint / Erase and the preview's right-click actions apply to the mask selected here";
         public static string PresetIncludeMasks => IsJapanese
             ? "マスクも保存する"
             : "Include masks when saving";
@@ -959,8 +959,8 @@ namespace Iroca
             ? "サンプルカラーと変更先カラーから、テクスチャを解析して許容範囲・彩度制限などのパラメータを自動的に決定します。\n上の 2 色（サンプルカラー・変更先カラー）を決めてから押してください。下の項目が結果で上書きされます。"
             : "Analyzes the texture using the sample and target colors and automatically sets tolerance, saturation strictness, and related parameters.\nSet both colors above (sample and target) before pressing; the settings below are overwritten with the result.";
         public static string AutoTuneDisabledTooltip => IsJapanese
-            ? "次のいずれかの条件で使用できません:\n・元テクスチャが未設定\n・テクスチャの Read/Write が無効\n・サンプルカラーが未指定（スポイト等でまだ色を取っていない）\n・選択モードが Rect"
-            : "Disabled when:\n- Source texture is not set\n- Texture's Read/Write is off\n- Sample color has not been picked yet\n- Selection mode is Rect";
+            ? "次のときは使えません:\n・元テクスチャを選んでいない\n・テクスチャを読めない（Read/Write の警告が出ているとき）\n・サンプルカラーをまだ選んでいない"
+            : "Disabled when:\n- No source texture is selected\n- The texture cannot be read (the Read/Write warning is shown)\n- No sample color has been picked yet";
         public static string AutoTuneConfirmTitle => IsJapanese ? "自動調整の確認" : "Confirm Auto-tune";
         public static string AutoTuneOverwriteBody(System.Collections.Generic.IList<string> labels, bool includesGlobals)
         {
@@ -1186,7 +1186,7 @@ namespace Iroca
             : "The other recipe for \"{0}\" on this object ({1}) is replaced with this one.";
         public static string RegisterSwitchExportsFormat => IsJapanese
             ? "「適用して保存」で書き出した画像を使っているマテリアル {0} 個を、元のテクスチャ「{1}」に戻します(非破壊の色替えは元のテクスチャを探すため。Ctrl+Z で戻せます)。"
-            : "{0} materials that use an image exported with \"Apply and save\" are switched back to the original texture \"{1}\" (non-destructive recoloring looks for the original texture. Ctrl+Z restores them).";
+            : "{0} materials that use an image exported with \"Apply & Save\" are switched back to the original texture \"{1}\" (non-destructive recoloring looks for the original texture. Ctrl+Z restores them).";
         public static string RegisterLockedExportsFormat => IsJapanese
             ? "書き出した画像を使っているマテリアルのうち {0} 個は、書き換えられない場所(FBX の中・パッケージ)にあるのでそのままです。"
             : "{0} materials that use an exported image are in places that cannot be changed (inside an FBX or a package), so they are left as they are.";

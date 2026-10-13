@@ -25,7 +25,7 @@ namespace Iroca.NdmfIntegration
 
             ["iroca.build_failed.no_source"] = "いろか: レシピに元テクスチャがありません",
             ["iroca.build_failed.no_source:description"] = "{0} のレシピ {1} に元テクスチャが設定されていないので、色替えできませんでした。",
-            ["iroca.build_failed.no_source:hint"] = "レシピの「Source Texture」に色替え前のテクスチャを設定してください。",
+            ["iroca.build_failed.no_source:hint"] = "レシピの「元テクスチャ」に色替え前のテクスチャを設定してください。",
 
             ["iroca.build_failed.unreadable_recipe"] = "いろか: レシピを読めません",
             ["iroca.build_failed.unreadable_recipe:description"] = "{0} のレシピ {1} の中身が空か壊れているか、この版のいろかより新しい形式です。",
