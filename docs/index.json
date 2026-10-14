@@ -26,12 +26,13 @@
             "editor"
           ],
           "dependencies": {},
+          "vpmDependencies": {},
           "url": "https://github.com/yukkuri-aoba/Iroca/releases/download/v0.2.0/com.yukkuri-aoba.iroca-0.2.0.zip",
           "changelogUrl": "https://github.com/yukkuri-aoba/Iroca/blob/main/CHANGELOG.md",
           "documentationUrl": "https://github.com/yukkuri-aoba/Iroca/blob/main/README.md",
           "samples": [],
           "type": "tool",
-          "zipSHA256": "17e628b8673efce9fd025a5b44afc65fc7d63507d19b2a8f0297605ff03a4ce2"
+          "zipSHA256": "acf94e61a1ce3fafec685a0b89cd6adef505660955412959c9995afdc8b75f0d"
         }
       }
     }
