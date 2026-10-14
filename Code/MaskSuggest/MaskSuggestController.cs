@@ -155,9 +155,11 @@ namespace Iroca
         /// 推論は非同期で、結果は <see cref="OnServiceStateChanged"/> が dest のマスクへ直接反映する。
         /// 推論中の要求も FIFO で受理され順に反映される(受理された分だけマーカーを積む)。
         /// 戻り値 false = 受理できなかった(モデルのロード失敗など)。
+        /// granularity = この 1 回だけの粒度(右クリックの「小さめの部分で」など)。null = <see cref="Granularity"/>。
         /// </summary>
         public bool RequestProposal(float u, float v, MaskPaintView.MaskDestination dest,
-                                    Color32[] pixelsBottomUp, int width, int height, string sourceKey)
+                                    Color32[] pixelsBottomUp, int width, int height, string sourceKey,
+                                    MaskSuggestGranularity? granularity = null)
         {
             var svc = MaskSuggestBridge.Service;
             if (svc == null) return false;
@@ -167,7 +169,7 @@ namespace Iroca
             if (!svc.TryEnsureModels()) return false;
 
             svc.SetSource(sourceKey, pixelsBottomUp, width, height);
-            if (!svc.RequestProposal(u, v, Granularity)) return false;
+            if (!svc.RequestProposal(u, v, granularity ?? Granularity)) return false;
             _pendingClicks.Add(new Vector2(u, v));
             _pendingClickTimes.Add(MaskSuggestPerf.Now);
             _pendingDestinations.Add(dest);

@@ -32,6 +32,13 @@ namespace Iroca
             }
             : new[] { (MaskRegionOp.DontPaintHere, Localization.CtxDontPaintHereCommon) };
 
+        // AI の部分の大きさを、その 1 回だけ変えるサブメニュー。直下の項目はマスク編集の「提案の粒度」(既定: 自動)。
+        private static (MaskSuggestGranularity gran, string root)[] GranularitySubmenus() => new[]
+        {
+            (MaskSuggestGranularity.Fine, Localization.CtxAiFineRoot),
+            (MaskSuggestGranularity.Coarse, Localization.CtxAiCoarseRoot),
+        };
+
         // GenericMenu は "/" をサブメニューの区切りとして読むので、名前の "/" は全角に置き換える。
         private static string MenuSafe(string s) => string.IsNullOrEmpty(s) ? s : s.Replace('/', '／');
 
@@ -74,7 +81,17 @@ namespace Iroca
                 foreach (var (op, label) in ops)
                 {
                     var dest = new MaskPaintView.MaskDestination(zoneId, op);
-                    menu.AddItem(new GUIContent(label), false, () => RequestAiSuggest(ai, uv, dest));
+                    menu.AddItem(new GUIContent(label), false, () => RequestAiSuggest(ai, uv, dest, null));
+                }
+                // この 1 回だけ大きさを変える。黒い服の上のファスナーのような描き込みは「自動」だと
+                // 服全体が取れるので、マスク編集の粒度を切り替えに行かずにここから選べるようにする(2026-10-15)。
+                foreach (var (gran, root) in GranularitySubmenus())
+                {
+                    foreach (var (op, label) in ops)
+                    {
+                        var dest = new MaskPaintView.MaskDestination(zoneId, op);
+                        menu.AddItem(new GUIContent(root + "/" + label), false, () => RequestAiSuggest(ai, uv, dest, gran));
+                    }
                 }
             }
             menu.AddSeparator("");
@@ -170,13 +187,15 @@ namespace Iroca
         }
 
         // AI 提案の要求。エクスポートと同一の実フル解像度ソースで推論する(プレビュー縮小の影響を受けない)。
-        private void RequestAiSuggest(MaskSuggestController ctl, Vector2 uv, MaskPaintView.MaskDestination dest)
+        // granularity = null ならマスク編集の「提案の粒度」に従う。
+        private void RequestAiSuggest(MaskSuggestController ctl, Vector2 uv, MaskPaintView.MaskDestination dest,
+                                      MaskSuggestGranularity? granularity)
         {
             if (_trueSourcePixels == null)
                 EnsureTrueSource(_host.SourceTexture);
             if (_trueSourcePixels == null || _trueSourceW <= 0) return;
             if (!ctl.RequestProposal(uv.x, uv.y, dest, _trueSourcePixels, _trueSourceW, _trueSourceH,
-                                     TrueSourceCacheKey()))
+                                     TrueSourceCacheKey(), granularity))
                 _host.ShowNotification(new GUIContent(Localization.NotifyAiNotStarted));
             _host.RequestRepaint();
         }

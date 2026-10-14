@@ -329,6 +329,9 @@ namespace Iroca
         public static string CtxDontPaintHereCommon => IsJapanese ? "ここはどのゾーンでも塗らない" : "Don't paint here in any zone";
         public static string CtxChangeZone => IsJapanese ? "直すゾーンを変える" : "Change the zone to fix";
         public static string CtxCommonTargetItem => IsJapanese ? "全部のゾーンに共通（塗らないだけ）" : "All zones (don't-paint only)";
+        // AI の部分の大きさを、その 1 回だけ変えるサブメニュー(中身は「ここも塗る」などと同じ)。
+        public static string CtxAiFineRoot => IsJapanese ? "小さめの部分で" : "As a smaller part";
+        public static string CtxAiCoarseRoot => IsJapanese ? "大きめの部分で" : "As a larger part";
         public static string CtxAiNoSentis => IsJapanese
             ? "AI が使えません（本体ウィンドウ上部の案内から導入。メッシュの形では使えます）"
             : "AI unavailable (set up from the notice at the top of the main window; mesh shapes still work)";
@@ -691,14 +694,14 @@ namespace Iroca
             ? "ダウンロードに失敗しました: {0}\n手動でダウンロードしてモデルフォルダへ配置することもできます（手順はマニュアル参照）"
             : "Download failed: {0}\nYou can also download manually and place the files into the model folder (see the manual).";
         public static string AiSuggestAreaWarning => IsJapanese
-            ? "直前のクリックが背景まで広がった可能性があります。Ctrl+Z で戻して、粒度を「小さめ」にするか、パーツのより内側を右クリックし直してください。"
-            : "The last click may have spread into the background. Undo with Ctrl+Z, then set granularity to 'Fine' or right-click again further inside the part.";
+            ? "直前のクリックが背景まで広がった可能性があります。Ctrl+Z で戻して、右クリックの「小さめの部分で」から選び直すか、パーツのより内側を右クリックし直してください。"
+            : "The last click may have spread into the background. Undo with Ctrl+Z, then choose from \"As a smaller part\" in the right-click menu, or right-click again further inside the part.";
         public static string AiSuggestEmptyCommit => IsJapanese
             ? "直前のクリックではマスクが変わりませんでした（その部分はすでにそうなっています）。"
             : "The last click did not change the mask (that part was already that way).";
         public static string AiSuggestEmptyProposal => IsJapanese
-            ? "AI が領域を返しませんでした。別の場所を右クリックするか、粒度を変えてみてください。\nどこを右クリックしても同じ場合は、内部コンパイル（Burst）の初期化に失敗している可能性があります。Unity を再起動すると直ります。"
-            : "The AI returned no region. Try right-clicking elsewhere or changing the granularity.\nIf every click behaves this way, the internal compiler (Burst) may have failed to initialize — restarting Unity fixes it.";
+            ? "AI が領域を返しませんでした。別の場所を右クリックするか、右クリックの「小さめの部分で」「大きめの部分で」も試してください。\nどこを右クリックしても同じ場合は、内部コンパイル（Burst）の初期化に失敗している可能性があります。Unity を再起動すると直ります。"
+            : "The AI returned no region. Try right-clicking elsewhere, or try \"As a smaller part\" / \"As a larger part\" in the right-click menu.\nIf every click behaves this way, the internal compiler (Burst) may have failed to initialize — restarting Unity fixes it.";
         public static string AiSuggestBurstFailed => IsJapanese
             ? "この Unity では内部コンパイル（Burst）が失敗しているため、AI が部分を見分けられず、右クリックしてもマスクが変わりません。Unity を再起動すると直ります。"
             : "The internal compiler (Burst) failed in this Unity session, so the AI cannot find regions and right-clicks won't change the mask. Restarting Unity fixes it.";
@@ -714,8 +717,8 @@ namespace Iroca
             : "The model files match the released ones, so the cause is elsewhere (restarting Unity usually fixes it).";
         public static string AiSuggestGranularity => IsJapanese ? "提案の粒度" : "Granularity";
         public static string AiSuggestGranularityTooltip => IsJapanese
-            ? "AI はクリック 1 点に対して粒度の違う候補（模様・パーツ・全体）を同時に推定します\nどの候補を提案として表示するかを選びます（次のクリックから適用）"
-            : "The AI estimates candidates of different granularity (pattern / part / whole) for one click.\nChoose which candidate to show as the proposal (applies from the next click).";
+            ? "AI はクリック 1 点に対して粒度の違う候補（模様・パーツ・全体）を同時に推定します\n右クリックの「ここも塗る」などで、どの候補を使うかを選びます（次のクリックから適用）\n1 回だけ変えるときは、右クリックの「小さめの部分で」「大きめの部分で」から選べます"
+            : "The AI estimates candidates of different granularity (pattern / part / whole) for one click.\nChoose which candidate \"Paint here too\" and the other right-click items use (applies from the next click).\nTo change it for one click only, use \"As a smaller part\" / \"As a larger part\" in the right-click menu.";
         public static string AiSuggestGranularityAuto => IsJapanese ? "自動" : "Auto";
         public static string AiSuggestGranularityAutoTooltip => IsJapanese
             ? "輪郭がはっきりした候補のうち、最も大きいものを採用します（既定）"
