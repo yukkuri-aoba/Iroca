@@ -45,21 +45,23 @@ jobs:
       # 併せて、2026-06-28 レビューの displayName 文字化けと同型の事故（不正な UTF-8 が
       # そのまま公開される）を機械検出する。.ps1 は Windows PowerShell 5.1 が
       # BOM 無しを cp932 として読むため BOM が必要で、BOM 検査の対象外。
+      # ファイル名は -z で NUL 区切りに受け取る。既定の ls-files は日本語のファイル名を
+      # "docs/\345..." と引用符つきで出すので、存在しないパスを iconv に渡して偽の失敗になっていた。
       - name: UTF-8 BOM / エンコーディング検査
         run: |
           fail=0
-          for f in $(git ls-files '*.json'); do
+          while IFS= read -r -d '' f; do
             if [ "$(head -c 3 "$f" | od -An -tx1 | tr -d ' \n')" = "efbbbf" ]; then
               echo "::error file=$f::UTF-8 BOM が混入しています（jq が parse に失敗します）"
               fail=1
             fi
-          done
-          for f in $(git ls-files '*.json' '*.md' '*.cs' '*.asmdef' '*.yml' '*.ps1'); do
+          done < <(git ls-files -z '*.json')
+          while IFS= read -r -d '' f; do
             if ! iconv -f UTF-8 -t UTF-8 "$f" > /dev/null 2>&1; then
               echo "::error file=$f::UTF-8 として不正なバイト列です（文字化けの原因）"
               fail=1
             fi
-          done
+          done < <(git ls-files -z '*.json' '*.md' '*.cs' '*.asmdef' '*.yml' '*.ps1')
           exit $fail
       # マニュアルはパッケージに入れずオンライン版（pages.yml が main から配信）だけで配る。
       # 原稿のリンク切れ・id の食い違い・フォントに無い字で組み立てが止まると、main へ入ってから
