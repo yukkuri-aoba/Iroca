@@ -13,6 +13,7 @@ headless ハーネスと golden は net8 で製品 C# を動かすので、Unity
 | `UvChartMapPaddingTests.cs` | メッシュ右クリックの UV チャート地図が、半径の外を落とした持ち主だけを持つ形(`AssignPaddingBaked`)でも、`AssignPadding` してから同じ半径で引いたのとどの画素・マスクも同じになる |
 | `ExportPipelineTests.cs` | 書き出しの手順（原本の読み込み・PNG 化・書き込み・import 設定の引き継ぎ・出力先の決定）。単体書き出しと一括書き出しが共有する `ExportPipeline` を直接呼ぶ |
 | `MeshUvLocatorTests.cs` | 編集中のテクスチャを使うメッシュの探索（シーン → 同じ素材フォルダの Prefab、書き出し名 `_recolored` の追跡、手動指定、Read/Write 無効のメッシュで落ちない） |
+| `MeshPartCacheTests.cs` | メッシュの探索結果を捨てて探し直す条件（使っていた Renderer が消えた・自動の結果でシーンが替わった。手動の指定は残っている限りそのまま）。シーンを替えて同じテクスチャを開くと「メッシュ」欄が None になっていた不具合の再発防止 |
 | `MeshIslandOutlineTests.cs` | プレビューに重ねる UV の島の輪郭（内側の対角線を描かない、UV を重ねた左右対称のパーツでも輪郭が残る、Tiling / Offset） |
 | `SceneMeshPickerTests.cs` | Scene でクリックした場所を求める（`SceneMeshPicker`）とプレビューに重ねる島の組み立て。手前の Renderer・UV、マテリアルのカリング、非表示のものを除く、スキンメッシュはポーズ込みの形。テスト用の物は開いているシーンの遠く（座標 1000）に置いて片付ける |
 | `NonDestructiveTests.cs` / `NdmfProcessAvatarTests.cs` | 非破壊の色替え（レシピ → テクスチャ → マテリアル差し替え）。後者は NDMF を通した結合で、NDMF があるホストでだけコンパイルされる |

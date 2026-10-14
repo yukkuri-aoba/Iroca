@@ -2,6 +2,7 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Iroca
 {
@@ -12,7 +13,7 @@ namespace Iroca
     /// マスクと同じ寸法の <see cref="UvChartMap"/> を作って持つ。見つからなければ何もしない
     /// (メニューは項目を無効表示にし、手動指定の導線だけを出す。色の処理は今まで通り)。
     /// 探索とチャート地図は重いので、テクスチャ単位でキャッシュする(マスク欄の「メッシュ」行か
-    /// 初回の右クリックで作る)。
+    /// 初回の右クリックで作る)。開いているシーンが替わったり、使っていた Renderer が消えたりしたら探し直す。
     /// </summary>
     internal sealed class MeshPartController
     {
@@ -27,6 +28,8 @@ namespace Iroca
         Object _manualObject;
         // UV の島の輪郭(プレビューの重ね表示用)。_found と同じ寿命。
         Vector2[] _outline;
+        // 探したときに開いていたシーンの組(SceneStamp)。自動の探索結果は、これが替わったら探し直す。
+        int _sceneStamp;
 
         public void Initialize(IrocaWindow host, MaskPaintView maskView)
         {
@@ -40,7 +43,9 @@ namespace Iroca
             get
             {
                 var tex = _host != null ? _host.SourceTexture : null;
-                if (tex != _searchedFor)
+                // テクスチャだけで見分けていた頃は、シーンを替えてから同じテクスチャを開くと、消えたアバターを
+                // 指したまま「メッシュ」欄が None になり(個数は前のまま)、右クリックの「メッシュの形で」も効かなかった。
+                if (tex != _searchedFor || (_searched && IsStale(_found, _manualObject, _sceneStamp, SceneStamp())))
                 {
                     Reset();
                     _searchedFor = tex;
@@ -48,9 +53,38 @@ namespace Iroca
                 if (!_searched && tex != null)
                 {
                     _found = MeshUvLocator.FindForTexture(tex);
+                    _sceneStamp = SceneStamp();
                     _searched = true;
                 }
                 return _found;
+            }
+        }
+
+        /// <summary>
+        /// 覚えている探索結果を捨てて探し直すべきか。使っていた Renderer が 1 つでも消えていたら(シーンを
+        /// 閉じた・アバターを消した)捨てる。手動で指定した物は、残っている限りシーンが替わってもそのまま使う。
+        /// 自動で探した結果(見つからなかった場合も含む)は、開いているシーンが替わったら捨てる。
+        /// </summary>
+        internal static bool IsStale(MeshUvLocator.Result found, Object manualObject, int stampAtSearch, int stampNow)
+        {
+            if (found != null)
+            {
+                foreach (var f in found.found)
+                    if (f.renderer == null) return true;
+            }
+            if (manualObject != null) return false;
+            return stampAtSearch != stampNow;
+        }
+
+        /// <summary>開いているシーンの組。シーンを開き直す・足す・閉じると変わる(同じシーンでもハンドルが替わる)。</summary>
+        internal static int SceneStamp()
+        {
+            unchecked
+            {
+                int stamp = SceneManager.sceneCount;
+                for (int i = 0; i < SceneManager.sceneCount; i++)
+                    stamp = stamp * 31 + SceneManager.GetSceneAt(i).handle;
+                return stamp;
             }
         }
 
@@ -75,7 +109,7 @@ namespace Iroca
             }
         }
 
-        /// <summary>探し直す(シーンを開き直した・FBX の Read/Write を変えたあと)。手動の指定も外す。</summary>
+        /// <summary>探し直す(アバターをシーンに置いた・FBX の Read/Write を変えたあと)。手動の指定も外す。</summary>
         public void Research()
         {
             Reset();
@@ -96,6 +130,7 @@ namespace Iroca
             _found = r;
             _searched = true;
             _manualObject = obj;
+            _sceneStamp = SceneStamp();
             return true;
         }
 

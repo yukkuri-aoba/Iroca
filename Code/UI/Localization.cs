@@ -394,8 +394,8 @@ namespace Iroca
               + "Clearing the field (select it and press Delete) goes back to automatic";
         public static string MeshResearch => IsJapanese ? "探し直す" : "Search again";
         public static string MeshResearchTooltip => IsJapanese
-            ? "メッシュを自動で探し直します（シーンを開き直した・FBX の Read/Write を変えたあと）。手動の指定は外れます"
-            : "Search for meshes again (after reopening the scene or changing Read/Write on the FBX). Clears a manual choice";
+            ? "メッシュを自動で探し直します（アバターをシーンに置いた・FBX の Read/Write を変えたあと。シーンを開き直したときは自動で探し直します）。手動の指定は外れます"
+            : "Search for meshes again (after placing the avatar in the scene or changing Read/Write on the FBX; reopening a scene searches again automatically). Clears a manual choice";
         public static string MeshStatusSceneFormat => IsJapanese
             ? "自動（シーンから）: メッシュ {0} 個" : "Automatic (from the scene): {0} mesh(es)";
         public static string MeshStatusProjectFormat => IsJapanese
