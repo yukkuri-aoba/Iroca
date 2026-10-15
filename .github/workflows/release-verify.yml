@@ -124,10 +124,7 @@ jobs:
               fail=1
             fi
 
-            if ! gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name' \
-              | grep -q "^Iroca_Installer\.unitypackage$"; then
-              echo "::warning::Iroca_Installer.unitypackage が $TAG に添付されていません（unitypackage で導入する利用者向けの VPAI インストーラ）"
-            fi
+            # VPAI インストーラは配布 zip に入れて配る（単体では添付しない）
             if ! gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name' \
               | grep -qFx "Iroca_$TAG.zip"; then
               echo "::warning::Iroca_$TAG.zip が $TAG に添付されていません（利用者がダウンロードする配布 zip）"

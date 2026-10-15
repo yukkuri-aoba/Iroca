@@ -9,10 +9,10 @@ Build-VpmPackage.ps1（ローカル）                          release.yml（CI
 zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合検証 + draft作成  →  資産アップロード+publish  →  公開zipのSHA256照合
 ```
 
-- 配布資産は 3 つ。
+- 配布資産は 2 つ。
   - **配布 zip**（`Iroca_v<VERSION>.zip`）: 利用者がダウンロードするもの（リリースページ・BOOTH）。中身は VPAI インストーラ・`README.txt`（導入方法・動作環境・利用規約の要約・連絡先。原稿は `scripts/download/README.txt`）・`LICENSE.txt`。`scripts/Build-DownloadZip.ps1` が作る。
   - **VPM zip**（`com.yukkuri-aoba.iroca-<VERSION>.zip`）: git 追跡ファイルだけから作るパッケージ本体。VCC / ALCOM と VPAI インストーラがこれを取得する。VPM の決まりで `package.json` を頂点に置く形なので、利用者が開くものではなく、unitypackage も入れない。
-  - **VPAI インストーラ**（`Iroca_Installer.unitypackage`）: 配布 zip の中身と同じもの。インストーラだけを取りたい人と、0.2.0 時点の文書（「Releases から `Iroca_Installer.unitypackage` をダウンロード」）のために単体でも添付する。後述。
+  - VPAI インストーラ（`Iroca_Installer.unitypackage`、後述）は配布 zip に入れて配り、単体ではリリースに添付しない（資産の欄に並ぶものを減らして、利用者が取るものを迷わないように。2026-10-15 ユーザー決定）。
 - **CI が作るのは draft まで**。資産アップロードと publish は手動。
 - publish すると `release-verify.yml` が公開 zip の SHA256 を `docs/index.json`（VPM listing）と照合し、不一致なら fail する。
 
@@ -40,7 +40,7 @@ zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合
    - tag ↔ package.json の version / url
    - CHANGELOG に非空の `## [<VERSION>]` 節
    - `docs/index.json` に該当バージョンのエントリ + zipSHA256
-5. **資産アップロード + publish**: draft に配布 zip・VPM zip・`Iroca_Installer.unitypackage` をアップロードし、本文のチェックリスト節を削除して publish。BOOTH には配布 zip を上げる。
+5. **資産アップロード + publish**: draft に配布 zip と VPM zip をアップロードし、本文のチェックリスト節を削除して publish。BOOTH には配布 zip を上げる。
 6. **検証確認**: `release-verify.yml`（publish/edit で起動）が green になることを確認。fail した場合は zip の差し替え、または `Build-VpmPackage.ps1` 再実行 → listing 再コミットで解消する。
 
 ## 初回公開の後に確認すること

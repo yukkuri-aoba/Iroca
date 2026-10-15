@@ -271,7 +271,7 @@ try {
     Write-Host "4. git push origin main"
     Write-Host "5. git tag v$Version && git push origin v$Version"
     Write-Host "   -> CI will create a DRAFT release on GitHub"
-    Write-Host "6. Upload Iroca_v$Version.zip, $ZipName and Iroca_Installer.unitypackage to the draft release, then publish"
+    Write-Host "6. Upload Iroca_v$Version.zip and $ZipName to the draft release, then publish"
     Write-Host "   $RepoUrl/releases"
     Write-Host ""
     Write-Host "zip location:"
