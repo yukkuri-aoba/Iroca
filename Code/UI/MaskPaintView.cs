@@ -1,26 +1,29 @@
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
+// Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
-using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
-namespace VRCAvatarColorChanger
+namespace Iroca
 {
     /// <summary>
-    /// マスク対象選択・ブラシ入力・オーバーレイ生成・bool[] バッファと
+    /// マスク対象選択・ブラシ入力・オーバーレイ生成(MaskPaintView.Overlay.cs)・bool[] バッファと
     /// _session.maskState の同期を担当する。
     /// ゾーン本体の編集 UI、プレビュー生成本体、プリセット一覧、エクスポートは扱わない。
     /// </summary>
     [System.Serializable]
-    internal class MaskPaintView
+    internal partial class MaskPaintView
     {
-        // ─── シリアライズ対象（UI 状態） ─────────────────────────────
         // どのマスクを編集対象にするか。-1 = 共通マスク、0 以上 = zones[index]。
         public int activeMaskTarget = -1;
         public int brushSize = 8;
-        public bool brushEraseMode; // false = 除外ペイント、true = 除外消去
+        public bool brushEraseMode; // false = ペイント、true = 消去(いずれも編集中レイヤーに対して)
+        // 編集対象レイヤー。false = 除外マスク、true = 含めるマスク。
+        // 含めるはゾーン単位のみ(共通マスクには存在しない)。共通ターゲット選択時は
+        // Draw 側で false へ強制リセットされる。
+        public bool editIncludeLayer;
         public bool maskFoldout = true;
 
-        // ─── 実行時バッファ（NonSerialized） ──────────────────────────
         // 共通マスク（フル解像度、true = 除外）。全ゾーンに適用される。
         [System.NonSerialized] public bool[] exclusionMask;
         [System.NonSerialized] public int maskWidth, maskHeight;
@@ -29,31 +32,87 @@ namespace VRCAvatarColorChanger
         // 値が null のエントリは持たない（存在しない = 全ピクセル非除外扱い）。
         [System.NonSerialized] public Dictionary<string, bool[]> zoneMasks = new Dictionary<string, bool[]>();
 
+        // ゾーン別「含める」マスク: key = ColorZone.id、true = 強制的に色替えへ含める。
+        // 除外と同じキャンバス寸法(maskWidth × maskHeight)。null 値のエントリは持たない。
+        [System.NonSerialized] public Dictionary<string, bool[]> zoneIncludeMasks = new Dictionary<string, bool[]>();
+
         // マスクオーバーレイ（テクスチャは都度再構築するのでシリアライズ不要）
         [System.NonSerialized] public Texture2D maskOverlayTexture;
         [System.NonSerialized] public Texture2D zoneMaskOverlayTexture;
         [System.NonSerialized] public bool maskDirty = true;
 
+        // 直近に構築を開始したオーバーレイの寸法(スケジュール時に更新)。テクスチャ実寸では
+        // なくこれと比べて再構築要否を判断する: マスクが空だとテクスチャは解放されるので
+        // 実寸比較では毎フレーム不一致になり、適用前に比べると完了までスケジュールし直し続ける。
+        [System.NonSerialized] public int overlayBuiltW, overlayBuiltH;
+
+        // ペイント中のオーバーレイ直接書き込み管理。
+        // _overlayDirectPendingApply: SetPixels32 済みで Apply 待ち(ドラッグイベント単位でまとめる)。
+        // _strokeHadDirectOverlayWrite: このストロークで直接書き込みに成功したか。成功後は
+        // 進行中の非同期再構築結果を適用しない(clone 時点より新しいスタンプが一瞬消えるため)。
+        [System.NonSerialized] private bool _overlayDirectPendingApply;
+        [System.NonSerialized] private bool _strokeHadDirectOverlayWrite;
+
         [System.NonSerialized] public bool isPainting;
         [System.NonSerialized] public Vector2 lastPaintUV = -Vector2.one;
+        // ペイント中の RebuildMaskOverlay 間引き用タイムスタンプ（PreviewView から参照）。
+        [System.NonSerialized] public double lastOverlayRebuildTime;
 
         // ストローク中フラグ（同一ストロークで二重 Undo 登録しないため）
         [System.NonSerialized] public bool _maskStrokeStarted;
 
-        // 共通マスク用のターゲットキー（SessionState キーにも使う）
+        // 現在のテクスチャの MaskCache ファイルが「存在するのに読めなかった」フラグ。
+        // true の間は空保存での削除・無退避の上書きを抑止する（一時的な読込失敗が
+        // データ恒久消失に化けるのを防ぐ）。有効な内容を保存できたら解除。
+        [System.NonSerialized] private bool _maskLoadFailed;
+
         public const string CommonMaskKey = "__common__";
 
-        // マスクペイントモード: ブラシストロークが機能する前に明示的にアクティベートされる必要があります
         [System.NonSerialized] public bool maskPaintActive;
 
-        [System.NonSerialized] private VACCWindow _host;
+        [System.NonSerialized] private IrocaWindow _host;
 
-        public void Initialize(VACCWindow host)
+        // AI マスク提案(Sentis 統合が存在するときのみ生成される。不在なら常に null = 機能 OFF)
+        [System.NonSerialized] private MaskSuggestController _suggestController;
+
+        public void Initialize(IrocaWindow host)
         {
             _host = host;
         }
 
-        // ─────────────────────── 除外マスク UI ───────────────────────
+        /// <summary>AI マスク提案コントローラ(遅延生成)。Sentis 不在時は null。</summary>
+        public MaskSuggestController SuggestController
+        {
+            get
+            {
+                if (_suggestController == null && MaskSuggestBridge.Available && _host != null)
+                {
+                    _suggestController = new MaskSuggestController();
+                    _suggestController.Initialize(_host, this);
+                }
+                return _suggestController;
+            }
+        }
+
+        /// <summary>生成済みのときだけ返す(参照しても生成しない)。</summary>
+        public MaskSuggestController SuggestControllerIfCreated => _suggestController;
+
+        // 右クリックメニューの「パーツ」(メッシュの UV の島)操作(遅延生成)。
+        [System.NonSerialized] private MeshPartController _meshParts;
+
+        /// <summary>メッシュの UV の島を使う操作のコントローラ(遅延生成)。</summary>
+        public MeshPartController MeshParts
+        {
+            get
+            {
+                if (_meshParts == null && _host != null)
+                {
+                    _meshParts = new MeshPartController();
+                    _meshParts.Initialize(_host, this);
+                }
+                return _meshParts;
+            }
+        }
 
         public void Draw()
         {
@@ -64,41 +123,174 @@ namespace VRCAvatarColorChanger
                 return;
             }
 
+            EnforceLayerConsistency();
+
+            // マスク編集の操作と状態(対象ゾーン・種類・ツール・ブラシ・AI 提案)は
+            // すべて MaskBrushWindow へ集約した。編集中に見ているのは「編集ウィンドウ +
+            // プレビュー」であり、対象ゾーンだけがここ(左カラム・要スクロール)に残っていると、
+            // 塗る前に別ウィンドウへ視線を往復することになる(2026-08-22 のユーザー指摘)。
+            // ここに残すのは入口と、いま何を編集する状態かの読み取り専用サマリだけ。
+            EditorGUILayout.LabelField(
+                new GUIContent(string.Format(Localization.MaskCurrentTargetFormat,
+                                             ActiveTargetName(), ActiveLayerName()),
+                               Localization.MaskCurrentTargetTooltip),
+                EditorStyles.miniLabel);
+
+            var prevBg = GUI.backgroundColor;
+            if (maskPaintActive) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
+            if (GUILayout.Button(new GUIContent(Localization.MaskEditOpen, Localization.MaskEditOpenTooltip)))
+            {
+                // 初回は「押せば塗れる」ようブラシを ON にする。
+                if (!maskPaintActive) ActivateBrush(erase: false);
+                MaskBrushWindow.Open(_host);
+            }
+            GUI.backgroundColor = prevBg;
+
+            // 右クリックの「パーツ」操作と UV の島の表示に使うメッシュ。パレットを開かなくても
+            // 見つかったか・どれを使っているかが分かり、ここで差し替えられる(2026-09-30)。
+            EditorGUILayout.Space(2);
+            MeshPartSection.Draw(_host, this);
+
+            // AI の「一度きりの有効化」(Sentis 導入・モデル取得)はウィンドウ上部のバナーへ移した
+            // (MaskSuggestSection.DrawSetupBanner)。ここに置くと、マスク欄を畳んでいる間は
+            // 見えず、機能の存在にも準備が要ることにも気づけなかった(2026-09-11 の UX 見直し)。
+
+            EditorGUILayout.EndFoldoutHeaderGroup();
+            EditorGUILayout.Space(4);
+        }
+
+        /// <summary>いま編集対象になっているマスクのゾーン名(共通マスクなら共通の表示名)。</summary>
+        public string ActiveTargetName()
+        {
+            var zones = _host.Session?.zones;
+            if (IsCommonTarget(zones))
+                return Localization.MaskTargetCommon;
+            string raw = zones[activeMaskTarget].name;
+            return string.IsNullOrEmpty(raw) ? Localization.UnnamedZone : raw;
+        }
+
+        /// <summary>いま編集対象になっているマスクの種類の表示名(除外 / 含める)。</summary>
+        public string ActiveLayerName()
+            => editIncludeLayer ? Localization.Include : Localization.Exclude;
+
+        /// <summary>ブラシペイントモードを ON にする。</summary>
+        public void ActivateBrush(bool erase)
+        {
+            maskPaintActive = true;
+            brushEraseMode = erase;
+        }
+
+        /// <summary>ブラシペイントモードを OFF にする。</summary>
+        public void DeactivateBrush()
+        {
+            maskPaintActive = false;
+        }
+
+        /// <summary>
+        /// 編集対象が共通マスクか。-1 と、ゾーン削除などで範囲外になった番号はどちらも共通として扱う。
+        /// zones は呼び出し側で渡す(Session が null のとき共通扱いにするか例外にするかは呼び出し側で決まる)。
+        /// </summary>
+        private bool IsCommonTarget(List<ColorZone> zones)
+            => activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count;
+
+        /// <summary>
+        /// レイヤー選択の整合を保つ: 含めるレイヤーはゾーン単位のみなので、編集対象が
+        /// 共通マスクのときは除外レイヤーへ戻す(ゾーン削除・対象切替の過渡で不整合になり得る)。
+        /// </summary>
+        private void EnforceLayerConsistency()
+        {
+            if (!editIncludeLayer) return;
+            var zones = _host.Session?.zones;
+            if (IsCommonTarget(zones))
+            {
+                editIncludeLayer = false;
+                maskDirty = true;
+            }
+        }
+
+        /// <summary>
+        /// マスク編集ウィンドウ（MaskBrushWindow）の中身。**マスク編集の操作と状態はここに全部ある**
+        /// のが設計上の約束で、メインウィンドウ側には入口と読み取り専用サマリしか置かない。
+        ///
+        /// 上から「対象(どのゾーンの) → 種類(除外/含める) → ツール(塗る/消す) → ブラシサイズ →
+        /// AI 提案(プレビューの右クリックメニューで使う)の粒度と推論の状態 → 取り消し/クリア」の順。
+        /// ユーザーが決める順序どおりに並べてある。
+        /// </summary>
+        public void DrawBrushPalette()
+        {
+            EnforceLayerConsistency();
+
+            // 1. 対象ゾーン。ここに無いと「塗る直前にメインウィンドウへ視線を往復する」ことになる
+            //    (元はメインの左カラムにあり、スクロールしないと見えなかった)。
             DrawMaskTargetSelector();
 
+            bool stateChanged = false;
+            var prevBg = GUI.backgroundColor;
+
+            // 2. マスクの種類(除外/含める)。
+            DrawLayerKindSelector();
+
+            // 3. ツール選択: 塗る / 消す(上で選んだ対象・種類に対して作用する)。
+            //    AI 提案とメッシュのパーツ操作はモードを持たず、プレビューの右クリックメニューから
+            //    その場で選ぶ(2026-09-30。以前はここに「AI 提案」ツールがあり、よく使う操作が
+            //    このパレットを開いてモードに入らないと使えなかった)。
+            var ctl = SuggestController;
+            bool paintActive = maskPaintActive && !brushEraseMode;
+            bool eraseActive = maskPaintActive && brushEraseMode;
+            EditorGUILayout.BeginHorizontal();
+            GUI.backgroundColor = paintActive ? IrocaColors.ExcludeButton : Color.white;
+            if (GUILayout.Button(new GUIContent(Localization.BrushPaint, Localization.BrushPaintTooltip),
+                    EditorStyles.miniButtonLeft))
+            {
+                if (paintActive) DeactivateBrush();
+                else ActivateBrush(erase: false);
+                stateChanged = true;
+            }
+            GUI.backgroundColor = eraseActive ? IrocaColors.IncludeButton : Color.white;
+            if (GUILayout.Button(new GUIContent(Localization.BrushErase, Localization.BrushEraseTooltip),
+                    EditorStyles.miniButtonRight))
+            {
+                if (eraseActive) DeactivateBrush();
+                else ActivateBrush(erase: true);
+                stateChanged = true;
+            }
+            GUI.backgroundColor = prevBg;
+            EditorGUILayout.EndHorizontal();
+
+            // 4. ブラシサイズ。
             brushSize = EditorGUILayout.IntSlider(
                 new GUIContent(Localization.BrushSize, Localization.BrushSizeTooltip),
                 brushSize, 1, 64);
 
-            // Exclude / Include ボタン: 押すとペイントモードON+モード選択、同じボタン再押しでOFF
-            bool excludeActive = maskPaintActive && !brushEraseMode;
-            bool includeActive = maskPaintActive && brushEraseMode;
-
-            EditorGUILayout.BeginHorizontal();
-            var prevBg = GUI.backgroundColor;
-
-            GUI.backgroundColor = excludeActive ? VACCColors.ExcludeButton : Color.white;
-            if (GUILayout.Button(new GUIContent(Localization.Exclude, Localization.ExcludeTooltip), EditorStyles.miniButtonLeft))
+            // 5. AI 提案(右クリックメニューから使う)の粒度と推論の状態。Sentis が載っているときだけ。
+            if (ctl != null)
             {
-                if (excludeActive)
-                    maskPaintActive = false;
-                else
-                { maskPaintActive = true; brushEraseMode = false; }
+                EditorGUILayout.Space(2);
+                EditorGUILayout.LabelField(
+                    new GUIContent(Localization.AiSuggestSectionHeader, Localization.AiSuggestSectionHeaderTooltip),
+                    EditorStyles.boldLabel);
+                MaskSuggestSection.DrawToolControls(_host, this);
             }
 
-            GUI.backgroundColor = includeActive ? VACCColors.IncludeButton : Color.white;
-            if (GUILayout.Button(new GUIContent(Localization.Include, Localization.IncludeTooltip), EditorStyles.miniButtonRight))
+            EditorGUILayout.Space(2);
+
+            // 6. 取り消し / クリア。
+            // Unity 標準 Undo に統合済みのため、専用ボタンは PerformUndo の薄いショートカットとして残す。
+            // ★ラベルは「マスクを元に戻す」にしないこと★ — PerformUndo の対象は直前の操作であり、
+            // マスク編集とは限らない。マスク限定の Undo を名乗ると、スライダー変更やシーン編集が
+            // 巻き戻ったときに破壊的なサプライズになる（Localization.UndoMask のコメント参照）。
+            if (GUILayout.Button(new GUIContent(Localization.UndoMask, Localization.UndoMaskTooltip)))
             {
-                if (includeActive)
-                    maskPaintActive = false;
-                else
-                { maskPaintActive = true; brushEraseMode = true; }
+                Undo.PerformUndo();
             }
 
-            GUI.backgroundColor = prevBg;
-            EditorGUILayout.EndHorizontal();
-
-            if (GUILayout.Button(new GUIContent(Localization.ClearMask, Localization.ClearMaskTooltip)))
+            // クリアは「対象 × 種類」で決まる 1 枚だけを消す操作なので、その 2 つを選ぶ
+            // プルダウン/ボタンと同じウィンドウに置く(元はメインウィンドウ側にあり、
+            // 何を消すのかがその場で確認できなかった)。
+            if (GUILayout.Button(new GUIContent(
+                    string.Format(Localization.ClearMaskTargetFormat,
+                                  ActiveTargetName(), ActiveLayerName()),
+                    Localization.ClearMaskTooltip)))
             {
                 // bool[] バッファを _session.maskState に同期してから Undo 登録、クリア後に再同期。
                 SyncBuffersToState();
@@ -109,18 +301,88 @@ namespace VRCAvatarColorChanger
                 _host.MarkPreviewDirty();
             }
 
-            // Unity 標準 Undo に統合済みのため、専用ボタンは PerformUndo の薄いショートカットとして残す。
-            if (GUILayout.Button(new GUIContent(Localization.UndoMask, Localization.UndoMaskTooltip)))
-            {
-                Undo.PerformUndo();
-            }
-
             EditorGUILayout.HelpBox(
-                maskPaintActive ? Localization.MaskHint : Localization.MaskHintPaintOff,
+                (maskPaintActive ? Localization.MaskHint : Localization.MaskHintPaintOff)
+                + "\n" + Localization.MaskHintContextMenu,
                 MessageType.Info);
 
-            EditorGUILayout.EndFoldoutHeaderGroup();
-            EditorGUILayout.Space(4);
+            if (stateChanged)
+                _host.RequestRepaint();
+        }
+
+        /// <summary>
+        /// 「マスクの種類」(除外/含める)の切り替え行。ブラシパレット(DrawBrushPalette)から呼ぶ。
+        /// 含めるはゾーン単位のみなので、共通マスクが編集対象のときは無効化する。
+        /// </summary>
+        public void DrawLayerKindSelector()
+        {
+            var zones = _host.Session?.zones;
+            bool commonTarget = IsCommonTarget(zones);
+            EnforceLayerConsistency();
+            var prevBg = GUI.backgroundColor;
+            EditorGUILayout.LabelField(
+                new GUIContent(Localization.MaskLayerKind, Localization.MaskLayerKindTooltip),
+                EditorStyles.miniLabel);
+            EditorGUILayout.BeginHorizontal();
+            GUI.backgroundColor = !editIncludeLayer ? IrocaColors.ExcludeButton : Color.white;
+            if (GUILayout.Button(new GUIContent(Localization.Exclude, Localization.ExcludeTooltip),
+                    EditorStyles.miniButtonLeft)
+                && editIncludeLayer)
+            {
+                editIncludeLayer = false;
+                maskDirty = true;
+                _host.RequestRepaint();
+            }
+            using (new EditorGUI.DisabledScope(commonTarget))
+            {
+                GUI.backgroundColor = editIncludeLayer ? IrocaColors.IncludeButton : Color.white;
+                if (GUILayout.Button(
+                        new GUIContent(Localization.Include, Localization.IncludeLayerTooltip),
+                        EditorStyles.miniButtonRight)
+                    && !editIncludeLayer)
+                {
+                    editIncludeLayer = true;
+                    maskDirty = true;
+                    _host.RequestRepaint();
+                }
+            }
+            GUI.backgroundColor = prevBg;
+            EditorGUILayout.EndHorizontal();
+        }
+
+        // マスク対象プルダウンの GUIContent[] は毎フレーム再生成されアロケーションを生むため、
+        // ゾーン数・各ゾーン名・言語が変わったときだけ作り直してキャッシュする。
+        [System.NonSerialized] private GUIContent[] _targetOptionsCache;
+        [System.NonSerialized] private string[] _targetOptionsNames;
+        [System.NonSerialized] private LanguageMode _targetOptionsLang = (LanguageMode)(-1);
+
+        private GUIContent[] GetMaskTargetOptions(List<ColorZone> zones, int zoneCount)
+        {
+            bool rebuild = _targetOptionsCache == null
+                || _targetOptionsCache.Length != zoneCount + 1
+                || _targetOptionsNames == null
+                || _targetOptionsLang != Localization.CurrentLanguage;
+            if (!rebuild)
+            {
+                for (int i = 0; i < zoneCount; i++)
+                {
+                    if (_targetOptionsNames[i] != (zones[i].name ?? "")) { rebuild = true; break; }
+                }
+            }
+            if (rebuild)
+            {
+                _targetOptionsCache = new GUIContent[zoneCount + 1];
+                _targetOptionsNames = new string[zoneCount];
+                _targetOptionsLang = Localization.CurrentLanguage;
+                _targetOptionsCache[0] = new GUIContent(Localization.MaskTargetCommon);
+                for (int i = 0; i < zoneCount; i++)
+                {
+                    string raw = zones[i].name ?? "";
+                    _targetOptionsNames[i] = raw;
+                    _targetOptionsCache[i + 1] = new GUIContent(string.IsNullOrEmpty(raw) ? Localization.UnnamedZone : raw);
+                }
+            }
+            return _targetOptionsCache;
         }
 
         /// <summary>
@@ -132,13 +394,7 @@ namespace VRCAvatarColorChanger
             var zones = _host.Session.zones;
 
             int zoneCount = zones != null ? zones.Count : 0;
-            var options = new GUIContent[zoneCount + 1];
-            options[0] = new GUIContent(Localization.MaskTargetCommon);
-            for (int i = 0; i < zoneCount; i++)
-            {
-                string label = string.IsNullOrEmpty(zones[i].name) ? "Zone" : zones[i].name;
-                options[i + 1] = new GUIContent(label);
-            }
+            var options = GetMaskTargetOptions(zones, zoneCount);
 
             int selectedIdx = Mathf.Clamp(activeMaskTarget + 1, 0, options.Length - 1);
             int next = EditorGUILayout.Popup(
@@ -152,11 +408,11 @@ namespace VRCAvatarColorChanger
             }
         }
 
-        // ─────────────────────── マスク確保 ─────────────────────────
-
         /// <summary>
         /// マスクの座標系（maskWidth/maskHeight）を sourceTexture に揃える。
-        /// 解像度が変わったときにのみ既存マスクを破棄する。
+        /// 解像度が変わったときは既存マスクを新しい座標系へ最近傍でリスケールする
+        /// （破棄すると import Max Size を変えただけで描いたマスクが消え、
+        /// その状態が次回保存で永続化されてしまう）。
         /// 共通マスク <see cref="exclusionMask"/> の確保は行わない（アクティブターゲットが
         /// ゾーンだけの場合に zone-only mask を巻き込んで消さないため）。
         /// </summary>
@@ -164,16 +420,98 @@ namespace VRCAvatarColorChanger
         {
             var sourceTexture = _host.SourceTexture;
             if (sourceTexture == null) return;
-            int w = sourceTexture.width;
-            int h = sourceTexture.height;
+            CanvasSizeFor(sourceTexture, out int w, out int h);
 
             if (maskWidth != w || maskHeight != h)
             {
-                // 解像度が変わったのでマスク座標系が合わない。共通もゾーンも全破棄。
+                int oldW = maskWidth, oldH = maskHeight;
+                bool hadData = exclusionMask != null || zoneMasks.Count > 0 || zoneIncludeMasks.Count > 0;
+                if (hadData && oldW > 0 && oldH > 0)
+                {
+                    exclusionMask = RescaleMask(exclusionMask, oldW, oldH, w, h);
+                    RescaleLayer(zoneMasks, oldW, oldH, w, h);
+                    RescaleLayer(zoneIncludeMasks, oldW, oldH, w, h);
+                    Debug.Log($"[Iroca] テクスチャ解像度の変更 ({oldW}x{oldH} → {w}x{h}) に合わせてマスクをリスケールしました。");
+                }
+                else
+                {
+                    exclusionMask = null;
+                    zoneMasks.Clear();
+                    zoneIncludeMasks.Clear();
+                }
                 maskWidth = w;
                 maskHeight = h;
-                exclusionMask = null;
-                zoneMasks.Clear();
+                maskDirty = true;
+            }
+        }
+
+        // マスクの土台の寸法の覚え(EnsureMasks はブラシの 1 スタンプごとにも呼ばれるので、取り込み設定を
+        // 引くのはテクスチャか中身(再インポート)か取り込み後の寸法が変わったときだけにする)。
+        [System.NonSerialized] private Texture2D _canvasFor;
+        [System.NonSerialized] private Hash128 _canvasHash;
+        [System.NonSerialized] private int _canvasImportW, _canvasImportH, _canvasW, _canvasH;
+
+        /// <summary>
+        /// マスクの土台の寸法 = 元画像(ファイル)の寸法(<see cref="MaskRegionEdit.CanvasSize"/>)。処理と書き出しは
+        /// 元画像の解像度で行うので、取り込みの最大サイズで縮んだ寸法(既定 2048)に合わせると、4K の元画像では
+        /// 塗った境目が書き出しで 2×2 画素単位に粗くなっていた。元画像の寸法が取れないテクスチャ(生成物など)は
+        /// 取り込み後の寸法。
+        /// </summary>
+        private void CanvasSizeFor(Texture2D tex, out int w, out int h)
+        {
+            var hash = tex.imageContentsHash;
+            if (_canvasFor != tex || _canvasHash != hash
+                || _canvasImportW != tex.width || _canvasImportH != tex.height)
+            {
+                int fileW = 0, fileH = 0;
+                string path = AssetDatabase.GetAssetPath(tex);
+                if (!string.IsNullOrEmpty(path) && AssetImporter.GetAtPath(path) is TextureImporter ti)
+                    ti.GetSourceTextureWidthAndHeight(out fileW, out fileH);
+                MaskRegionEdit.CanvasSize(fileW, fileH, tex.width, tex.height, out _canvasW, out _canvasH);
+                _canvasFor = tex;
+                _canvasHash = hash;
+                _canvasImportW = tex.width;
+                _canvasImportH = tex.height;
+            }
+            w = _canvasW;
+            h = _canvasH;
+        }
+
+        /// <summary>
+        /// 旧解像度の bool マスクを新解像度へ最近傍でリスケールする。
+        /// サンプリング式は処理側（PixelProcessor の <c>mx = x * maskW / texW</c>）と同じ
+        /// 整数切り捨てで、適用結果の対応関係を保つ。<c>null</c> や不整合サイズは <c>null</c> を返す。
+        /// </summary>
+        private static bool[] RescaleMask(bool[] src, int oldW, int oldH, int newW, int newH)
+        {
+            if (src == null || src.Length != oldW * oldH || newW <= 0 || newH <= 0) return null;
+            var dst = new bool[newW * newH];
+            for (int y = 0; y < newH; y++)
+            {
+                int oy = (int)((long)y * oldH / newH);
+                int rowOld = oy * oldW;
+                int rowNew = y * newW;
+                for (int x = 0; x < newW; x++)
+                {
+                    int ox = (int)((long)x * oldW / newW);
+                    dst[rowNew + x] = src[rowOld + ox];
+                }
+            }
+            return dst;
+        }
+
+        /// <summary>
+        /// ゾーン別マスクの辞書（<see cref="zoneMasks"/> = 除外 / <see cref="zoneIncludeMasks"/> = 含める）の
+        /// 全エントリを <see cref="RescaleMask"/> で新解像度へ揃える。リスケールできないエントリは削除する。
+        /// </summary>
+        private static void RescaleLayer(Dictionary<string, bool[]> layer, int oldW, int oldH, int w, int h)
+        {
+            var keys = new List<string>(layer.Keys);
+            foreach (var key in keys)
+            {
+                var scaled = RescaleMask(layer[key], oldW, oldH, w, h);
+                if (scaled != null) layer[key] = scaled;
+                else layer.Remove(key); // 不変条件: null 値のエントリは持たない
             }
         }
 
@@ -192,48 +530,143 @@ namespace VRCAvatarColorChanger
         }
 
         /// <summary>
-        /// 指定ゾーンのマスクを確保（存在しなければ新規作成）して返す。
+        /// 指定ゾーンの、<paramref name="layer"/>（<see cref="zoneMasks"/> = 除外 /
+        /// <see cref="zoneIncludeMasks"/> = 含める）のマスクを確保（存在しなければ新規作成）して返す。
         /// </summary>
-        private bool[] EnsureZoneMask(string zoneId)
+        private bool[] EnsureZoneLayer(Dictionary<string, bool[]> layer, string zoneId)
         {
             EnsureMasks();
             if (string.IsNullOrEmpty(zoneId)) return null;
             if (maskWidth <= 0 || maskHeight <= 0) return null;
             int len = maskWidth * maskHeight;
-            if (!zoneMasks.TryGetValue(zoneId, out var m) || m == null || m.Length != len)
+            if (!layer.TryGetValue(zoneId, out var m) || m == null || m.Length != len)
             {
                 m = new bool[len];
-                zoneMasks[zoneId] = m;
+                layer[zoneId] = m;
             }
             return m;
         }
 
         /// <summary>
-        /// 現在のアクティブターゲット（共通 or ゾーン）のマスク配列を返す。必要なら確保する。
+        /// 現在のアクティブターゲット（共通 or ゾーン）× レイヤー(除外 or 含める)の
+        /// マスク配列を返す。必要なら確保する。
         /// 共通マスクは実際にペイント先になった時だけ確保される（zone-only mask の保全のため）。
+        /// 共通ターゲット × 含めるレイヤーは存在しない組み合わせで null を返す
+        /// (UI 側は EnforceLayerConsistency がこの状態を解消する。データ経路の防御)。
         /// </summary>
         public bool[] GetActiveMaskArray()
         {
             var zones = _host.Session.zones;
-            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
-                return EnsureCommonMask();
+            if (IsCommonTarget(zones))
+                return editIncludeLayer ? null : EnsureCommonMask();
 
             var zone = zones[activeMaskTarget];
             zone.EnsureId();
-            return EnsureZoneMask(zone.id);
+            return editIncludeLayer ? EnsureZoneLayer(zoneIncludeMasks, zone.id) : EnsureZoneLayer(zoneMasks, zone.id);
         }
 
         /// <summary>
-        /// 現在アクティブなターゲットのキー（"__common__" or zone.id）を返す。
+        /// 右クリックメニューの宛先(どのゾーンに × 何をするか)。zoneId = null は全ゾーン共通で、
+        /// 共通にできるのは「ここは塗らない」だけ(含めるはゾーン単位のみ)。
+        /// ゾーンは番号でなく ID で持つ(AI の推論待ちの間に並び替え・削除があっても取り違えない)。
         /// </summary>
-        private string GetActiveTargetKey()
+        internal readonly struct MaskDestination
         {
-            var zones = _host.Session.zones;
-            if (activeMaskTarget < 0 || zones == null || activeMaskTarget >= zones.Count)
-                return CommonMaskKey;
+            public readonly string zoneId;
+            public readonly MaskRegionOp op;
+            public MaskDestination(string zoneId, MaskRegionOp op)
+            {
+                this.zoneId = zoneId;
+                this.op = op;
+            }
+        }
+
+        /// <summary>いまの編集対象(パレットで選んだゾーン。未選択は共通)。null = 共通。</summary>
+        public string ActiveTargetZoneId()
+        {
+            var zones = _host.Session?.zones;
+            if (IsCommonTarget(zones)) return null;
             var zone = zones[activeMaskTarget];
             zone.EnsureId();
             return zone.id;
+        }
+
+        private ColorZone FindZone(string zoneId)
+            => zoneId == null ? null : _host.Session?.zones?.Find(z => z != null && z.id == zoneId);
+
+        /// <summary>
+        /// 範囲(マスクと同じ寸法・下原点)に宛先の操作を当て、1 つの Undo ストロークにする
+        /// (規則は <see cref="MaskRegionEdit"/>)。AI 提案と右クリックメニューの共通の出口。
+        /// 宛先のゾーンが消えた・共通に塗らない以外を当てようとした・寸法違いなら false。
+        /// </summary>
+        public bool ApplyRegion(bool[] region, MaskDestination d, out MaskRegionEditResult result)
+        {
+            result = default;
+            EnsureMasks();
+            int len = maskWidth * maskHeight;
+            if (region == null || len <= 0 || region.Length != len) return false;
+
+            bool[] exclude, include = null, common = null;
+            if (d.zoneId == null)
+            {
+                if (d.op != MaskRegionOp.DontPaintHere) return false;
+                exclude = EnsureCommonMask();
+            }
+            else
+            {
+                if (FindZone(d.zoneId) == null) return false;
+                common = exclusionMask;
+                if (d.op == MaskRegionOp.PaintHere)
+                {
+                    include = EnsureZoneLayer(zoneIncludeMasks, d.zoneId);
+                    zoneMasks.TryGetValue(d.zoneId, out exclude);
+                }
+                else
+                {
+                    exclude = EnsureZoneLayer(zoneMasks, d.zoneId);
+                    zoneIncludeMasks.TryGetValue(d.zoneId, out include);
+                }
+            }
+            if (exclude != null && exclude.Length != len) return false;
+            if (include != null && include.Length != len) return false;
+            if (common != null && common.Length != len) common = null;
+
+            BeginStroke();
+            result = MaskRegionEdit.Apply(d.op, region, exclude, include, common);
+            EndStroke();
+            maskDirty = true;
+            _host.MarkPreviewDirtyFullRefine();
+            _host.RequestRepaint();
+            return true;
+        }
+
+        /// <summary>
+        /// <see cref="ApplyRegion"/> の結果を知らせる文。何をしたか(Ctrl+Z で戻せる)に加えて、
+        /// 指示どおりに塗られない理由(共通の「塗らない」との重なり・許容範囲 0)があれば添える。
+        /// </summary>
+        public string DescribeRegionEdit(MaskDestination d, bool ok, MaskRegionEditResult r)
+        {
+            if (!ok) return Localization.NotifyMaskNotAdded;
+            if (r.changed == 0) return Localization.NotifyMaskNoChange;
+            var zone = FindZone(d.zoneId);
+            string name = zone == null ? null : (string.IsNullOrEmpty(zone.name) ? Localization.UnnamedZone : zone.name);
+            string msg = d.op switch
+            {
+                MaskRegionOp.PaintHere => string.Format(Localization.NotifyPaintHereFormat, name),
+                MaskRegionOp.OnlyThisPart => string.Format(Localization.NotifyOnlyThisPartFormat, name),
+                _ => zone == null ? Localization.NotifyDontPaintHereCommon
+                                  : string.Format(Localization.NotifyDontPaintHereFormat, name),
+            };
+            if (r.commonOverlap > 0) msg += "\n" + Localization.NotifyCommonOverlap;
+            // この部分だけ: 範囲の中は色で選ぶので、許容範囲 0 では中も塗られない(旧来の「許容 0 → 含める」の手順の名残)。
+            if (d.op == MaskRegionOp.OnlyThisPart && zone != null && zone.tolerance <= 0f)
+                msg += "\n" + Localization.NotifyOnlyThisZeroTolerance;
+            // 自動調整の前は、明るい所で取った色だと許容 0.20 では部分の中を取りこぼすことがある
+            // (2026-10-06 の計測で範囲内 IoU 0.14、自動調整後は 1.00)。自動調整は除外を見るので、
+            // 押すと部分の中だけを見て合わせ直す。
+            else if (d.op == MaskRegionOp.OnlyThisPart && zone != null && _host.IsUntunedNewZone(zone))
+                msg += "\n" + Localization.NotifyOnlyThisAutoTuneHint;
+            return msg;
         }
 
         private void ClearActiveMask()
@@ -241,13 +674,15 @@ namespace VRCAvatarColorChanger
             var zones = _host.Session.zones;
             if (activeMaskTarget < 0)
             {
-                exclusionMask = null;
+                // 共通ターゲットに含めるレイヤーは存在しない(EnforceLayerConsistency 済み)。
+                if (!editIncludeLayer) exclusionMask = null;
             }
             else if (zones != null && activeMaskTarget < zones.Count)
             {
                 var zone = zones[activeMaskTarget];
                 zone.EnsureId();
-                zoneMasks.Remove(zone.id);
+                if (editIncludeLayer) zoneIncludeMasks.Remove(zone.id);
+                else zoneMasks.Remove(zone.id);
             }
         }
 
@@ -260,200 +695,159 @@ namespace VRCAvatarColorChanger
             if (zones == null || index < 0 || index >= zones.Count) return;
             string id = zones[index].id;
             if (!string.IsNullOrEmpty(id))
+            {
                 zoneMasks.Remove(id);
+                zoneIncludeMasks.Remove(id);
+            }
 
-            // アクティブターゲットの調整
-            if (activeMaskTarget == index) activeMaskTarget = -1;
+            // 編集対象(=いま直しているゾーン)を消したら、残ったゾーンのうち同じ位置(末尾なら 1 つ上)へ移す。
+            // 共通へ戻すと、右クリックの「ここも塗る」などがゾーン無しの扱いになってしまう。
+            int remaining = zones.Count - 1;
+            if (activeMaskTarget == index) activeMaskTarget = remaining > 0 ? Mathf.Min(index, remaining - 1) : -1;
             else if (activeMaskTarget > index) activeMaskTarget--;
 
             maskDirty = true;
         }
 
-        // ─────────────────────── ペイント ─────────────────────────
-
-        public void PaintMask(Vector2 uvPos)
+        /// <summary>
+        /// ゾーンを from から to(remove 後の挿入 index)へ移動した際に、編集中マスクターゲット
+        /// (index 参照)を追従させる。マスク本体は zone.id キーで管理されるため移動は不要。
+        /// </summary>
+        public void OnZoneReordered(int from, int to)
         {
-            bool[] target = GetActiveMaskArray();
-            if (target == null) return;
-
-            int cx = Mathf.RoundToInt(uvPos.x * maskWidth);
-            int cy = Mathf.RoundToInt(uvPos.y * maskHeight);
-
-            // ブラシサイズは「プレビュー画像上のピクセル数」で設定されるため、
-            // マスク座標系（フル解像度）に合わせてスケーリングする必要がある。
-            float maskScale = maskWidth / (float)Mathf.Min(maskWidth, VACCConsts.Preview.MaxSize);
-            int r = Mathf.Max(1, Mathf.RoundToInt(brushSize * maskScale));
-
-            bool value = !brushEraseMode;
-
-            for (int dy = -r; dy <= r; dy++)
+            if (activeMaskTarget >= 0)
             {
-                for (int dx = -r; dx <= r; dx++)
+                int a = activeMaskTarget;
+                if (a == from)
                 {
-                    if (dx * dx + dy * dy > r * r) continue;
-                    int px = cx + dx;
-                    int py = cy + dy;
-                    if (px < 0 || px >= maskWidth || py < 0 || py >= maskHeight) continue;
-                    target[py * maskWidth + px] = value;
+                    a = to;
                 }
+                else
+                {
+                    if (a > from) a--;
+                    if (a >= to) a++;
+                }
+                activeMaskTarget = a;
             }
-
             maskDirty = true;
         }
 
-        // ─────────────────────── マスクオーバーレイ（非同期） ─────────────────────────
-
-        // バックグラウンドで生成したオーバーレイ Color32[] をメインスレッドで Texture2D に
-        // 書き戻すまでの中継。SetPixels32 / Apply は Unity API なので必ずメインスレッド。
-        private struct OverlayResult
+        /// <summary>
+        /// ブラシの半径(マスクの画素単位)。brushSize は全体表示のときのプレビューの格子セル単位の半径
+        /// (塗られる円の直径は 2×サイズ+1 セル)で、拡大するとその倍率だけ小さく塗る: 画面上のブラシの
+        /// 大きさは拡大しても変わらず、拡大すれば細かく塗れる(4K の元画像でも、拡大して最小のブラシなら 1 画素)。
+        /// gridW は表示プレビューの画素格子の幅(previewTexture の実寸)、previewZoom は全体表示を 1 とする拡大率。
+        /// </summary>
+        public float BrushRadiusPx(int gridW, float previewZoom)
         {
-            public bool hasCommon;
-            public Color32[] commonPixels;
-            public bool hasZone;
-            public Color32[] zonePixels;
-            public int width;
-            public int height;
+            if (maskWidth <= 0) return 0f;
+            float cellPx = gridW > 0 ? maskWidth / (float)gridW : 1f;
+            return (Mathf.Max(1, brushSize) + 0.5f) * cellPx / Mathf.Max(1f, previewZoom);
         }
 
-        [System.NonSerialized] private readonly PreviewJob<OverlayResult> _overlayJob = new PreviewJob<OverlayResult>();
-        [System.NonSerialized] private OverlayResult? _pendingOverlayResult;
+        /// <summary>
+        /// ブラシ 1 スタンプ分を塗る。uvPos はテクスチャの UV、radiusPx はマスクの画素単位の半径
+        /// (<see cref="BrushRadiusPx"/>)。円の中のマスク画素を塗る(<see cref="MaskRegionEdit.StampDisk"/>)。
+        ///
+        /// 以前は表示プレビューの格子セル(4K で約 11 画素四方)単位で塗っていた(縮小表示と書き出しの見た目を
+        /// 一致させるため)。マスクは元画像の解像度で持ち、拡大表示ではその範囲を等倍で重ねて見せるので、
+        /// 画素単位で塗っても拡大して見れば塗ったとおりに見える。全体表示のプレビュー(縮小)は、ブロック先頭の
+        /// 1 画素を読むので、円の縁が 1 セル程度ずれて見えることがある。
+        /// </summary>
+        public void PaintMask(Vector2 uvPos, float radiusPx)
+        {
+            bool[] target = GetActiveMaskArray();
+            if (target == null) return;
+            if (maskWidth <= 0 || maskHeight <= 0) return;
+
+            float cx = uvPos.x * maskWidth, cy = uvPos.y * maskHeight;
+            bool value = !brushEraseMode;
+            // 後から塗ったほうが勝つ: ゾーンの「含める」を塗ったら、ブラシの下の同じゾーンの「除外」を消す(逆も同じ)。
+            // 合成は「除外が勝つ」ので、消さないと含めるを塗っても効かず、重ね表示も 2 色が混ざる(2026-10-06)。
+            bool[] opposite = value ? OppositeZoneLayer() : null;
+            MaskRegionEdit.StampDisk(target, opposite, maskWidth, maskHeight, cx, cy, radiusPx, value,
+                                     out int x0, out int y0, out int x1, out int y1);
+            if (x1 <= x0) return;
+
+            // オーバーレイ直接書き込み: 非同期再構築のスロットル待ちとフル解像度 bool[] clone をストローク中に
+            // 発生させず、塗った所をすぐ見せる。全体用のオーバーレイ(表示格子の整数倍)と、拡大表示用の
+            // 等倍オーバーレイ(見えている範囲)の両方へ、同じ円を各自の解像度で書く。書けないとき(未生成)は
+            // 従来どおり maskDirty を立てて非同期再構築に任せる。ストロークの終わりに正規の再構築で揃う。
+            var overlayTex = ActiveOverlayTexture(out Color32 overlayColor);
+            Color32 c = value ? overlayColor : default;
+            bool direct = false;
+            if (overlayTex != null)
+            {
+                float sx = overlayTex.width / (float)maskWidth, sy = overlayTex.height / (float)maskHeight;
+                direct = StampOverlayDisk(overlayTex, cx * sx, cy * sy, radiusPx * sx, c);
+            }
+            StampDetailOverlay(cx, cy, radiusPx, c);
+
+            if (direct)
+            {
+                _overlayDirectPendingApply = true;
+                _strokeHadDirectOverlayWrite = true;
+            }
+            else
+            {
+                maskDirty = true;
+            }
+        }
 
         /// <summary>
-        /// 共通マスクとゾーン別マスクのオーバーレイテクスチャの再構築をバックグラウンドに
-        /// スケジュールする。bool[] バッファを Clone してワーカに渡すため、ペイント中の
-        /// 変更とデータレースしない。SetPixels32 / Apply は次フレーム以降に
-        /// <see cref="ApplyPendingOverlay"/> で適用される。
+        /// オーバーレイのテクスチャへ円(中心・半径はテクセル単位)を直接書く。円の中にテクセルの中心が入る所
+        /// (円が小さければ中心のテクセル)を color にする。行ごとに SetPixels32。書いたら true。
         /// </summary>
-        public void RebuildMaskOverlay(int width, int height)
+        private static bool StampOverlayDisk(Texture2D tex, float cx, float cy, float r, Color32 color)
         {
-            if (width <= 0 || height <= 0) return;
+            int w = tex.width, h = tex.height;
+            if (w <= 0 || h <= 0) return false;
+            float r2 = r * r;
+            int ccx = Mathf.FloorToInt(cx), ccy = Mathf.FloorToInt(cy);
+            int ry0 = Mathf.Max(0, Mathf.FloorToInt(cy - r - 0.5f));
+            int ry1 = Mathf.Min(h - 1, Mathf.CeilToInt(cy + r - 0.5f));
+            bool wrote = false;
+            for (int y = ry0; y <= ry1; y++)
+            {
+                float dy = y + 0.5f - cy;
+                float rem = r2 - dy * dy;
+                int sx0 = int.MaxValue, sx1 = int.MinValue;
+                if (rem >= 0f)
+                {
+                    float half = Mathf.Sqrt(rem);
+                    sx0 = Mathf.CeilToInt(cx - half - 0.5f);
+                    sx1 = Mathf.FloorToInt(cx + half - 0.5f);
+                }
+                if (y == ccy) { sx0 = Mathf.Min(sx0, ccx); sx1 = Mathf.Max(sx1, ccx); }
+                sx0 = Mathf.Max(0, sx0);
+                sx1 = Mathf.Min(w - 1, sx1);
+                if (sx1 < sx0) continue;
+                int n = sx1 - sx0 + 1;
+                var row = new Color32[n];
+                for (int k = 0; k < n; k++) row[k] = color;
+                tex.SetPixels32(sx0, y, n, 1, row);
+                wrote = true;
+            }
+            return wrote;
+        }
 
-            int capW = width;
-            int capH = height;
-            int capMw = maskWidth;
-            int capMh = maskHeight;
-
-            // 共通マスク bool[] のスナップショット
-            bool[] commonSnap = exclusionMask != null ? (bool[])exclusionMask.Clone() : null;
-
-            // ゾーン別マスクのスナップショット（idx, color, mask[]）
+        /// <summary>
+        /// ブラシで塗るとき、ブラシの下で消す反対側の層(編集中のゾーンの、含めるなら除外・除外なら含める)。
+        /// 無ければ null(確保はしない)。共通マスクを塗るときも null: 共通の除外は「どのゾーンでも塗らない」
+        /// 指定で合成でもゾーンの含めるに勝つので、ゾーンの含めるは消さずに残す。
+        /// 反対側を消したセルの表示は、同じゾーン用オーバーレイへの直接書き込み(新しい層の色で上書き)と、
+        /// ストローク終了時の再構築(EndStroke の maskDirty)で揃う。
+        /// </summary>
+        private bool[] OppositeZoneLayer()
+        {
             var zones = _host.Session.zones;
-            var zoneInfos = new List<(Color32 color, bool[] mask)>();
-            if (zones != null && capMw > 0 && capMh > 0)
-            {
-                for (int zi = 0; zi < zones.Count; zi++)
-                {
-                    var zone = zones[zi];
-                    if (zone == null || string.IsNullOrEmpty(zone.id)) continue;
-                    if (!zoneMasks.TryGetValue(zone.id, out var zm) || zm == null) continue;
-                    zoneInfos.Add((OverlayColorForZone(zi), (bool[])zm.Clone()));
-                }
-            }
-
-            _overlayJob.Schedule(
-                work: token => ComputeOverlayPixels(commonSnap, zoneInfos, capW, capH, capMw, capMh, token),
-                apply: result =>
-                {
-                    _pendingOverlayResult = result;
-                    _host.RequestRepaint();
-                });
+            if (IsCommonTarget(zones)) return null;
+            var zone = zones[activeMaskTarget];
+            zone.EnsureId();
+            var layers = editIncludeLayer ? zoneMasks : zoneIncludeMasks;
+            return layers.TryGetValue(zone.id, out var m) && m != null && m.Length == maskWidth * maskHeight
+                ? m : null;
         }
-
-        private static OverlayResult ComputeOverlayPixels(
-            bool[] common, List<(Color32 color, bool[] mask)> zoneInfos,
-            int w, int h, int mw, int mh, CancellationToken token)
-        {
-            var result = new OverlayResult { width = w, height = h };
-
-            if (common != null && mw > 0 && mh > 0)
-            {
-                result.hasCommon = true;
-                var pixels = new Color32[w * h];
-                var excluded = new Color32(255, 60, 60, 80);
-                for (int i = 0; i < pixels.Length; i++)
-                {
-                    int x = i % w;
-                    int y = i / w;
-                    int mx = Mathf.Clamp(x * mw / w, 0, mw - 1);
-                    int my = Mathf.Clamp(y * mh / h, 0, mh - 1);
-                    if (common[my * mw + mx]) pixels[i] = excluded;
-                }
-                token.ThrowIfCancellationRequested();
-                result.commonPixels = pixels;
-            }
-
-            if (zoneInfos != null && zoneInfos.Count > 0 && mw > 0 && mh > 0)
-            {
-                result.hasZone = true;
-                var pixels = new Color32[w * h];
-                foreach (var (color, zm) in zoneInfos)
-                {
-                    for (int i = 0; i < pixels.Length; i++)
-                    {
-                        int x = i % w;
-                        int y = i / w;
-                        int mx = Mathf.Clamp(x * mw / w, 0, mw - 1);
-                        int my = Mathf.Clamp(y * mh / h, 0, mh - 1);
-                        if (zm[my * mw + mx]) pixels[i] = color;
-                    }
-                    token.ThrowIfCancellationRequested();
-                }
-                result.zonePixels = pixels;
-            }
-
-            return result;
-        }
-
-        /// <summary>
-        /// バックグラウンドで生成された Color32[] をオーバーレイテクスチャに適用する。
-        /// PreviewView.Draw の冒頭から呼ばれる。
-        /// </summary>
-        public void ApplyPendingOverlay()
-        {
-            if (!_pendingOverlayResult.HasValue) return;
-            var r = _pendingOverlayResult.Value;
-            _pendingOverlayResult = null;
-
-            if (r.hasCommon)
-            {
-                TextureSlot.Resize(ref maskOverlayTexture, r.width, r.height, FilterMode.Point);
-                maskOverlayTexture.SetPixels32(r.commonPixels);
-                maskOverlayTexture.Apply();
-            }
-            else
-            {
-                TextureSlot.Release(ref maskOverlayTexture);
-            }
-
-            if (r.hasZone)
-            {
-                TextureSlot.Resize(ref zoneMaskOverlayTexture, r.width, r.height, FilterMode.Point);
-                zoneMaskOverlayTexture.SetPixels32(r.zonePixels);
-                zoneMaskOverlayTexture.Apply();
-            }
-            else
-            {
-                TextureSlot.Release(ref zoneMaskOverlayTexture);
-            }
-        }
-
-        /// <summary>
-        /// ゾーンインデックスから黄金比ベースのオーバーレイ色を決定する。
-        /// </summary>
-        public static Color32 OverlayColorForZone(int zoneIndex)
-        {
-            const float golden = 0.61803398875f;
-            float h = (zoneIndex * golden) % 1f;
-            if (h < 0) h += 1f;
-            Color rgb = Color.HSVToRGB(h, 0.8f, 1f);
-            return new Color32(
-                (byte)Mathf.RoundToInt(rgb.r * 255f),
-                (byte)Mathf.RoundToInt(rgb.g * 255f),
-                (byte)Mathf.RoundToInt(rgb.b * 255f),
-                100);
-        }
-
-        // ───────────────────────── Mask Stroke Undo ────────────────────────────
 
         /// <summary>
         /// ペイントストローク開始時に呼び、ストローク前の状態を Unity Undo に登録する。
@@ -462,6 +856,7 @@ namespace VRCAvatarColorChanger
         public void BeginStroke()
         {
             if (_maskStrokeStarted) return;
+            _strokeHadDirectOverlayWrite = false;
             // bool[] バッファの内容を _session.maskState に書き戻してから Undo 登録すれば、
             // 戻し操作でストローク開始前の状態に確実に復元できる。
             SyncBuffersToState();
@@ -478,453 +873,36 @@ namespace VRCAvatarColorChanger
             if (!_maskStrokeStarted) return;
             SyncBuffersToState();
             _maskStrokeStarted = false;
-        }
-
-        // ───────────────────────── Mask Persistence ────────────────────
-
-        private string MaskTexturePath()
-        {
-            var sourceTexture = _host.SourceTexture;
-            if (sourceTexture == null) return null;
-            string path = AssetDatabase.GetAssetPath(sourceTexture);
-            return string.IsNullOrEmpty(path) ? null : path;
-        }
-
-        // 旧 SessionState キー（Phase 6 で MaskFileStore に移行済み）。
-        // 残存データをマイグレートするためのみ残し、新規書き込みには使わない。
-        private static string LegacyMaskIndexSessionKey(string path) => "VACC_MaskIndex_" + path;
-        private static string LegacyMaskArraySessionKey(string path, string targetKey) => "VACC_Mask_" + path + ":" + targetKey;
-        private static string LegacySingleMaskSessionKey(string path) => "VACC_Mask_" + path;
-
-        [System.Serializable]
-        private class LegacyMaskIndex
-        {
-            public bool hasCommon;
-            public List<string> zoneIds = new List<string>();
-            public int width;
-            public int height;
-        }
-
-        /// <summary>
-        /// 現在の全マスク（共通 + 各ゾーン）をプロジェクト下の MaskCache ファイルへ
-        /// 永続化する。同時に _session.maskState を bool[] バッファの内容で更新する。
-        /// </summary>
-        public void SaveToSession()
-        {
-            // bool[] バッファを _session.maskState（RLE 文字列）に書き戻す。
-            SyncBuffersToState();
-
-            string path = MaskTexturePath();
-            if (path == null) return;
-
-            MaskFileStore.SaveMask(path, _host.Session?.maskState);
-        }
-
-        /// <summary>
-        /// 現在の bool[] バッファの内容を RLE エンコードして _session.maskState に書き戻す。
-        /// </summary>
-        public void SyncBuffersToState()
-        {
-            var session = _host.Session;
-            if (session == null) return;
-            var ms = session.maskState ?? (session.maskState = new MaskState());
-            ms.width = maskWidth;
-            ms.height = maskHeight;
-
-            ms.commonMaskBase64 = (exclusionMask != null && AnyTrue(exclusionMask))
-                ? EncodeMask(exclusionMask, maskWidth, maskHeight)
-                : "";
-
-            ms.zones.Clear();
-            foreach (var kv in zoneMasks)
-            {
-                if (string.IsNullOrEmpty(kv.Key) || kv.Value == null || !AnyTrue(kv.Value)) continue;
-                ms.zones.Add(new MaskZoneEntry
-                {
-                    zoneId = kv.Key,
-                    maskBase64 = EncodeMask(kv.Value, maskWidth, maskHeight),
-                });
-            }
-        }
-
-        /// <summary>
-        /// _session.maskState（RLE 文字列）を bool[] バッファに展開する。
-        /// </summary>
-        public void SyncBuffersFromState()
-        {
-            var session = _host.Session;
-            if (session == null || session.maskState == null) return;
-            var ms = session.maskState;
-
-            exclusionMask = null;
-            zoneMasks.Clear();
-
-            if (ms.width <= 0 || ms.height <= 0) return;
-            maskWidth = ms.width;
-            maskHeight = ms.height;
-
-            if (!string.IsNullOrEmpty(ms.commonMaskBase64))
-            {
-                var arr = DecodeMask(ms.commonMaskBase64, out int w, out int h);
-                if (arr != null && w == maskWidth && h == maskHeight)
-                    exclusionMask = arr;
-            }
-
-            if (ms.zones != null)
-            {
-                foreach (var entry in ms.zones)
-                {
-                    if (entry == null || string.IsNullOrEmpty(entry.zoneId)) continue;
-                    var arr = DecodeMask(entry.maskBase64, out int w, out int h);
-                    if (arr != null && w == maskWidth && h == maskHeight)
-                        zoneMasks[entry.zoneId] = arr;
-                }
-            }
-        }
-
-        /// <summary>
-        /// MaskCache ファイルから全マスクを復元する。
-        /// ファイルが見つからない場合は、旧 SessionState 形式の残存データを
-        /// 一度だけマイグレートして MaskCache へ書き出し、SessionState 側を消去する。
-        /// </summary>
-        public void RestoreFromSession()
-        {
-            string path = MaskTexturePath();
-            if (path == null) return;
-
-            exclusionMask = null;
-            zoneMasks.Clear();
-
-            // 1) MaskCache ファイルからの読み込みを最優先する（Editor 再起動を跨ぐ正規ストア）。
-            var fileState = MaskFileStore.LoadMask(path);
-            if (fileState != null && fileState.width > 0 && fileState.height > 0)
-            {
-                _host.Session.maskState = fileState;
-                SyncBuffersFromState();
-                maskDirty = true;
-                return;
-            }
-
-            // 2) ファイルが無ければ、旧 SessionState 形式（Phase 6 以前のデータ）からマイグレート。
-            if (TryMigrateFromLegacySessionState(path))
-            {
-                maskDirty = true;
-                return;
-            }
-        }
-
-        /// <summary>
-        /// 旧 SessionState 形式（Phase 6 以前）のマスクデータを MaskCache ファイルへ移行する。
-        /// 一度移行が完了したら SessionState 側のキーは消去する。
-        /// 戻り値: マイグレーションによりバッファが復元できたら true。
-        /// </summary>
-        private bool TryMigrateFromLegacySessionState(string path)
-        {
-            // 2a) インデックス形式（共通 + ゾーン別）。
-            string indexJson = SessionState.GetString(LegacyMaskIndexSessionKey(path), null);
-            if (!string.IsNullOrEmpty(indexJson))
-            {
-                LegacyMaskIndex idx = null;
-                try
-                {
-                    idx = JsonUtility.FromJson<LegacyMaskIndex>(indexJson);
-                }
-                catch (System.Exception ex)
-                {
-                    Debug.LogWarning($"[VACC] Legacy mask index decode failed: {ex.Message}");
-                }
-                if (idx == null || idx.width <= 0 || idx.height <= 0)
-                {
-                    SessionState.EraseString(LegacyMaskIndexSessionKey(path));
-                    return false;
-                }
-
-                maskWidth = idx.width;
-                maskHeight = idx.height;
-
-                if (idx.hasCommon)
-                {
-                    string enc = SessionState.GetString(LegacyMaskArraySessionKey(path, CommonMaskKey), null);
-                    if (!string.IsNullOrEmpty(enc))
-                        exclusionMask = DecodeMask(enc, out _, out _);
-                }
-
-                if (idx.zoneIds != null)
-                {
-                    foreach (var zid in idx.zoneIds)
-                    {
-                        if (string.IsNullOrEmpty(zid)) continue;
-                        string enc = SessionState.GetString(LegacyMaskArraySessionKey(path, zid), null);
-                        if (string.IsNullOrEmpty(enc)) continue;
-                        var arr = DecodeMask(enc, out _, out _);
-                        if (arr != null) zoneMasks[zid] = arr;
-                    }
-                }
-
-                EraseLegacySessionEntries(path, idx);
-                // bool[] → MaskState → File へ確定保存
-                SaveToSession();
-                return true;
-            }
-
-            // 2b) 旧々形式: 単一マスクのみ。共通マスクへ昇格。
-            string legacyEncoded = SessionState.GetString(LegacySingleMaskSessionKey(path), null);
-            if (string.IsNullOrEmpty(legacyEncoded)) return false;
-
-            var legacy = DecodeMask(legacyEncoded, out int lw, out int lh);
-            if (legacy == null)
-            {
-                SessionState.EraseString(LegacySingleMaskSessionKey(path));
-                return false;
-            }
-
-            maskWidth = lw;
-            maskHeight = lh;
-            exclusionMask = legacy;
-
-            SessionState.EraseString(LegacySingleMaskSessionKey(path));
-            SaveToSession();
-            return true;
-        }
-
-        private static void EraseLegacySessionEntries(string path, LegacyMaskIndex idx)
-        {
-            SessionState.EraseString(LegacyMaskIndexSessionKey(path));
-            SessionState.EraseString(LegacyMaskArraySessionKey(path, CommonMaskKey));
-            if (idx.zoneIds != null)
-            {
-                foreach (var zid in idx.zoneIds)
-                {
-                    if (string.IsNullOrEmpty(zid)) continue;
-                    SessionState.EraseString(LegacyMaskArraySessionKey(path, zid));
-                }
-            }
-            SessionState.EraseString(LegacySingleMaskSessionKey(path));
-        }
-
-        /// <summary>
-        /// テクスチャ切り替え時にバッファを破棄する。
-        /// </summary>
-        public void ClearBuffersOnTextureChange()
-        {
-            _overlayJob.Cancel();
-            _pendingOverlayResult = null;
-            exclusionMask = null;
-            zoneMasks.Clear();
-            isPainting = false;
-            _maskStrokeStarted = false;
-            lastPaintUV = -Vector2.one;
-            TextureSlot.Release(ref maskOverlayTexture);
-            TextureSlot.Release(ref zoneMaskOverlayTexture);
+            // ストローク中の直接書き込みは表示テクスチャのみの更新なので、確定時に一度だけ
+            // 正規の再構築を予約して収束させる(保留した非同期結果や対象切替の過渡も含む)。
             maskDirty = true;
         }
-
-        // ─────────────────────── Encode / Decode ────────────────────
-
-        private static bool AnyTrue(bool[] arr)
-        {
-            if (arr == null) return false;
-            for (int i = 0; i < arr.Length; i++) if (arr[i]) return true;
-            return false;
-        }
-
-        /// <summary>
-        /// bool 配列を RLE 圧縮 + Base64 文字列にエンコード。
-        /// フォーマット: "R:" プレフィックス + Base64(4byte W + 4byte H + 1byte 開始値 + uint32[] ランレングス列)
-        /// </summary>
-        public static string EncodeMask(bool[] mask, int w, int h)
-        {
-            if (mask == null || mask.Length == 0) return "";
-            int len = mask.Length;
-
-            var runs = new List<uint>();
-            bool curVal = mask[0];
-            uint count = 0;
-            for (int i = 0; i < len; i++)
-            {
-                if (mask[i] == curVal)
-                {
-                    count++;
-                }
-                else
-                {
-                    runs.Add(count);
-                    curVal = mask[i];
-                    count = 1;
-                }
-            }
-            runs.Add(count);
-
-            byte[] bytes = new byte[9 + runs.Count * 4];
-            System.Buffer.BlockCopy(System.BitConverter.GetBytes(w), 0, bytes, 0, 4);
-            System.Buffer.BlockCopy(System.BitConverter.GetBytes(h), 0, bytes, 4, 4);
-            bytes[8] = mask[0] ? (byte)1 : (byte)0;
-            for (int i = 0; i < runs.Count; i++)
-                System.Buffer.BlockCopy(System.BitConverter.GetBytes(runs[i]), 0, bytes, 9 + i * 4, 4);
-
-            return "R:" + System.Convert.ToBase64String(bytes);
-        }
-
-        /// <summary>
-        /// EncodeMask の逆。デコード失敗時は null を返す。
-        /// "R:" プレフィックスがある場合は RLE フォーマット、ない場合は旧 bitpack フォーマットとして処理。
-        /// </summary>
-        public static bool[] DecodeMask(string encoded, out int w, out int h)
-        {
-            w = 0; h = 0;
-            if (string.IsNullOrEmpty(encoded)) return null;
-
-            if (encoded.StartsWith("R:", System.StringComparison.Ordinal))
-            {
-                try
-                {
-                    byte[] bytes = System.Convert.FromBase64String(encoded.Substring(2));
-                    if (bytes.Length < 9) return null;
-                    w = System.BitConverter.ToInt32(bytes, 0);
-                    h = System.BitConverter.ToInt32(bytes, 4);
-                    if (w <= 0 || h <= 0) return null;
-                    int len = w * h;
-                    bool curVal = bytes[8] != 0;
-                    bool[] mask = new bool[len];
-                    int pos = 0;
-                    int byteIdx = 9;
-                    while (pos < len && byteIdx + 4 <= bytes.Length)
-                    {
-                        uint run = System.BitConverter.ToUInt32(bytes, byteIdx);
-                        byteIdx += 4;
-                        bool fillVal = curVal;
-                        uint end = (uint)System.Math.Min((long)pos + run, len);
-                        while (pos < (int)end)
-                            mask[pos++] = fillVal;
-                        curVal = !curVal;
-                    }
-                    return mask;
-                }
-                catch (System.Exception ex)
-                {
-                    Debug.LogWarning($"[VACC] Mask decode failed: {ex.Message}");
-                    return null;
-                }
-            }
-
-            // 旧 bitpack フォーマット（後方互換）
-            try
-            {
-                byte[] packed = System.Convert.FromBase64String(encoded);
-                if (packed.Length < 9) return null;
-                w = System.BitConverter.ToInt32(packed, 0);
-                h = System.BitConverter.ToInt32(packed, 4);
-                if (w <= 0 || h <= 0) return null;
-                int len = w * h;
-                if (packed.Length < 8 + (len + 7) / 8) return null;
-                bool[] mask = new bool[len];
-                for (int i = 0; i < len; i++)
-                    mask[i] = (packed[8 + i / 8] & (1 << (i % 8))) != 0;
-                return mask;
-            }
-            catch (System.Exception ex)
-            {
-                Debug.LogWarning($"[VACC] Mask decode (legacy bitpack) failed: {ex.Message}");
-                return null;
-            }
-        }
-
-        // ───────────────────────── Processing 用スナップショット ────────────────────
 
         /// <summary>
         /// 現在のマスク状態をスナップショット化する（deep clone）。
         /// </summary>
         public MaskSnapshot BuildSnapshot()
         {
-            var snap = new MaskSnapshot
-            {
-                width = maskWidth,
-                height = maskHeight,
-                zones = new Dictionary<string, bool[]>()
-            };
-            if (exclusionMask != null) snap.common = (bool[])exclusionMask.Clone();
-            foreach (var kv in zoneMasks)
-            {
-                if (kv.Value == null) continue;
-                snap.zones[kv.Key] = (bool[])kv.Value.Clone();
-            }
-            return snap;
-        }
-
-        // ───────────────────────── プリセット連携 ────────────────────
-
-        /// <summary>
-        /// プリセット内のマスクデータで現在のマスク状態を置き換える。
-        /// </summary>
-        public void ApplyFromPreset(VACCPresetData data)
-        {
-            if (data == null || data.maskWidth <= 0 || data.maskHeight <= 0) return;
-
-            maskWidth = data.maskWidth;
-            maskHeight = data.maskHeight;
-            exclusionMask = null;
-            zoneMasks.Clear();
-
-            if (!string.IsNullOrEmpty(data.commonMaskBase64))
-            {
-                var m = DecodeMask(data.commonMaskBase64, out int w, out int h);
-                if (m != null && w == maskWidth && h == maskHeight)
-                    exclusionMask = m;
-            }
-
-            if (data.zoneMasks != null)
-            {
-                foreach (var e in data.zoneMasks)
-                {
-                    if (e == null || string.IsNullOrEmpty(e.zoneId)) continue;
-                    var m = DecodeMask(e.maskBase64, out int w, out int h);
-                    if (m == null || w != maskWidth || h != maskHeight) continue;
-                    zoneMasks[e.zoneId] = m;
-                }
-            }
-
-            SaveToSession();
+            // bool[] を 1bit/画素の ulong[] にパックする(従来の deep clone は 4K で 16.7MB/枚、
+            // プレビュー再生成・ペイントのたびに発生し GC を圧迫していた)。パックは clone と同じ
+            // O(N) だがアロケーションが 1/8 になる。作業用マスク(exclusionMask/zoneMasks)は bool[] のまま。
+            // 組み立て規則は Core の MaskSnapshot.FromBuffers が唯一の正(保存済みマスクから
+            // 作り直す非破壊ビルドと同じ規則を通す)。
+            return MaskSnapshot.FromBuffers(maskWidth, maskHeight,
+                exclusionMask, zoneMasks, zoneIncludeMasks);
         }
 
         /// <summary>
-        /// 現在のマスク状態を VACCPresetData の commonMaskBase64 / zoneMasks フィールドに書き出す。
-        /// </summary>
-        public void WriteToPreset(VACCPresetData data)
-        {
-            if (data == null || maskWidth <= 0 || maskHeight <= 0) return;
-
-            bool includedAnything = false;
-
-            if (exclusionMask != null && AnyTrue(exclusionMask))
-            {
-                data.commonMaskBase64 = EncodeMask(exclusionMask, maskWidth, maskHeight);
-                includedAnything = true;
-            }
-
-            foreach (var kv in zoneMasks)
-            {
-                if (kv.Value == null || !AnyTrue(kv.Value)) continue;
-                data.zoneMasks.Add(new ZoneMaskEntry
-                {
-                    zoneId = kv.Key,
-                    maskBase64 = EncodeMask(kv.Value, maskWidth, maskHeight),
-                });
-                includedAnything = true;
-            }
-
-            if (includedAnything)
-            {
-                data.maskWidth = maskWidth;
-                data.maskHeight = maskHeight;
-            }
-        }
-
-        /// <summary>
-        /// アクティブなマスク編集対象を共通マスクへリセットする。
+        /// 編集対象(=いま直しているゾーン)を既定へ戻す。ゾーンがあれば先頭のゾーン、無ければ共通。
+        /// 既定をゾーンにするのは、右クリックの「ここも塗る / この部分だけ塗る」とブラシの「含める」が
+        /// ゾーン単位でしか使えず、共通のままだと作った直後に選べない項目が出るため(2026-10-06)。
+        /// 共通はブラシのパレットや右クリックの「直すゾーンを変える」で明示的に選べる。
         /// </summary>
         public void ResetActiveTarget()
         {
-            activeMaskTarget = -1;
+            var zones = _host?.Session?.zones;
+            activeMaskTarget = zones != null && zones.Count > 0 ? 0 : -1;
+            EnforceLayerConsistency();
             maskDirty = true;
         }
 
@@ -935,17 +913,35 @@ namespace VRCAvatarColorChanger
         {
             SuspendTransientState();
             _overlayJob.Dispose();
+            _detailOverlayJob.Dispose();
+            // AI 提案の進行中推論を破棄し、**静的サービスへの購読も解除する**(ウィンドウ破棄時)。
+            // 解除しないと閉じたウィンドウのコントローラがイベント経由で生き残り、再オープン後に
+            // 新しいコントローラから提案を横取りする(MaskSuggestController.Shutdown 参照)。
+            // 参照も落として、万一この後に触られても新しいインスタンスが作り直されるようにする。
+            _suggestController?.Shutdown();
+            _suggestController = null;
+            // メッシュの探索結果とチャート地図(4K で数十 MB)も手放す。次の右クリックで作り直す。
+            _meshParts = null;
         }
 
         public void SuspendTransientState()
         {
             _overlayJob.Cancel();
             _pendingOverlayResult = null;
+            _detailOverlayJob.Cancel();
+            _pendingDetailOverlay = null;
+            _detailOverlayDirectPending = false;
+            _detailApplied = default;
+            TextureSlot.Release(ref detailMaskOverlayTexture);
+            TextureSlot.Release(ref detailZoneOverlayTexture);
             isPainting = false;
             _maskStrokeStarted = false;
+            _overlayDirectPendingApply = false;
+            _strokeHadDirectOverlayWrite = false;
             lastPaintUV = -Vector2.one;
             TextureSlot.Release(ref maskOverlayTexture);
             TextureSlot.Release(ref zoneMaskOverlayTexture);
         }
+
     }
 }

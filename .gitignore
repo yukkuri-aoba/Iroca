@@ -8,6 +8,12 @@
 [Ll]ogs/
 [Mm]emoryCaptures/
 UserSettings/
+# .meta はリポジトリでは追跡しない(ローカルパッケージ参照したホスト Unity が生成する。
+# 配布物の .meta は unitypackage エクスポート側で付与される)
+*.meta
+# 例外: シーン・prefab・アセットから GUID で参照される Runtime のスクリプト(IrocaRecolor/IrocaRecipe)は
+# GUID を固定して配布する。Unity に再生成させると、パッケージ更新のたびに Missing Script になる
+!Code/Runtime/*.meta
 
 # IDE
 .vscode/
@@ -27,10 +33,71 @@ UserSettings/
 Thumbs.db
 .DS_Store
 
-Tests
-texture_sample
+# Python (scripts/ 配下のテスト補助の生成物)
+__pycache__/
+*.pyc
+
+# 先頭 / でルート直下に限定する。スラッシュを含まないパターンは任意階層にマッチするため、
+# 素の "Tests" は将来 Code/Tests/ を作っても git が黙って無視してしまう
+# (check_visual_review.py は Code/Tests/ を視覚レビュー除外対象として既に想定している)。
+/Tests
+/texture_sample
 archive/
-dev_safe
-.venv
-.github/instructions/
+/dev_safe
+/.venv
+.claude/instructions/notify.md
 Code_Archive/
+.claude/settings.local.json
+
+# 内部向けドキュメント（設計レビュー・監査・計画）は公開リポに置かない。
+# docs/ は GitHub Pages がそのまま配信するため、置いた時点で公開される
+# （未修正の弱点を列挙した監査文書がそのまま読める状態になっていた）。
+# 実体は dev_safe/docs/（プライベート側）に置くこと。
+#
+# 以前はここにファイル名を列挙していたが、新しい文書が増えるたびに追記が漏れ、
+# 宣言と実態が食い違っていた（レビュー 2026-08-06 §7）。列挙をやめ「場所で分ける」方針にし、
+# 下のパターンは公開側へ置き戻す事故を防ぐ保険（網羅が目的ではない）。
+docs/*_review_*.md
+docs/*-review-*.md
+docs/*_audit_*.md
+docs/*roadmap*.md
+# testing-architecture.md は 2026-08-03 の環境全損で「ローカルのみ運用」の脆さが実証されたため
+# git 追跡へ昇格（CLAUDE.md が正として参照する文書。秘匿情報なし）
+docs/unity-mcp-automation.md
+
+# build-check (dotnet 単体での型チェック専用、Unity 非依存)
+# csproj 本体だけはコミット、bin/obj は無視
+!scripts/build-check/IrocaEditor.csproj
+!scripts/build-check/IrocaEditor.Debug.csproj
+!scripts/build-check/IrocaSentisCheck.csproj
+!scripts/build-check/IrocaNdmfCheck.csproj
+scripts/build-check/bin/
+scripts/build-check/obj/
+
+# headless-run (実 Unity DLL を参照して PixelProcessor を Unity なしで実行する検証ハーネス)
+# csproj/cs 本体だけコミット、bin/obj は無視
+!scripts/headless-run/Harness.csproj
+!scripts/headless-run/Harness.cs
+scripts/headless-run/bin/
+scripts/headless-run/obj/
+!scripts/unit-run/UnitRun.csproj
+scripts/unit-run/bin/
+scripts/unit-run/obj/
+.playwright-mcp
+
+# 一時作業ファイル・生成物（コミット対象外）
+tmp/
+docs/booth/out/
+# 販促の生成物は dev_safe/promo/ へ出力する（スクリプトの出力先もそちら）。
+# 古いスクリプトを実行した場合にここへ出ても追跡しないための保険。
+docs/booth_new/promo/out/
+docs/booth_new/promo/booth-promo-comps.html
+# リリース生成物（scripts/Build-VpmPackage.ps1 / Build-Installer.ps1 の出力。リリース資産として配る）
+/com.yukkuri-aoba.iroca-*.zip
+/Iroca_Installer.unitypackage
+
+# scripts/pages/build_site.py の出力（Pages へは Actions が配信する）
+_site/
+
+# docs/manual/build_manual.py の出力（ページと、追跡している素材の写し。Pages には build_site.py がその場で作って入れる）
+docs/manual/dist/

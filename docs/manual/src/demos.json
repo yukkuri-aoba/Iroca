@@ -1,0 +1,187 @@
+{
+  "palette": {
+    "ja": {
+      "title": "変更先カラーを変える",
+      "label": "変更先カラー",
+      "note": "どれもスポイト 1 回 → 自動調整の結果。色ごとに設定を変えてはいません"
+    },
+    "en": {
+      "title": "Change the target color",
+      "label": "Target color",
+      "note": "Each is one eyedropper click plus Auto-tune — no per-color tuning"
+    },
+    "control": "swatch",
+    "frames": [
+      {
+        "v": "red",
+        "img": "color-red",
+        "ja": "赤",
+        "en": "Red",
+        "hex": "#ff0000"
+      },
+      {
+        "v": "orange",
+        "img": "color-orange",
+        "ja": "オレンジ",
+        "en": "Orange",
+        "hex": "#ff8000"
+      },
+      {
+        "v": "yellow",
+        "img": "color-yellow",
+        "ja": "黄",
+        "en": "Yellow",
+        "hex": "#ffd200"
+      },
+      {
+        "v": "green",
+        "img": "color-green",
+        "ja": "緑",
+        "en": "Green",
+        "hex": "#28aa46"
+      },
+      {
+        "v": "cyan",
+        "img": "color-cyan",
+        "ja": "水色",
+        "en": "Light blue",
+        "hex": "#3cbedc"
+      },
+      {
+        "v": "purple",
+        "img": "color-purple",
+        "ja": "紫",
+        "en": "Purple",
+        "hex": "#8c46c8"
+      },
+      {
+        "v": "pink",
+        "img": "color-pink",
+        "ja": "ピンク",
+        "en": "Pink",
+        "hex": "#ff82aa"
+      }
+    ],
+    "start": 0
+  },
+  "tolerance": {
+    "ja": {
+      "title": "許容範囲を動かす（自動調整を使わない場合）",
+      "label": "許容範囲",
+      "note": "狭いとハイライトの芯が残り、広げすぎると隣の黒い素材へ回ります"
+    },
+    "en": {
+      "title": "Move the tolerance (without Auto-tune)",
+      "label": "Tolerance",
+      "note": "Too narrow leaves the highlight cores; too wide spills into the black material next door"
+    },
+    "control": "range",
+    "frames": [
+      {
+        "v": "0.05",
+        "img": "tol-005",
+        "ja": "芯が大きく残る",
+        "en": "Large cores left"
+      },
+      {
+        "v": "0.20",
+        "img": "tol-020",
+        "ja": "ハイライトの芯が残る（新規ゾーンの初期値）",
+        "en": "Highlight cores left (new-zone default)"
+      },
+      {
+        "v": "0.30",
+        "img": "tol-030",
+        "ja": "ちょうどよい",
+        "en": "About right"
+      },
+      {
+        "v": "0.45",
+        "img": "tol-045",
+        "ja": "広め",
+        "en": "Wide"
+      },
+      {
+        "v": "0.60",
+        "img": "tol-060",
+        "ja": "黒いアッパーへはみ出す",
+        "en": "Spills into the black upper"
+      }
+    ],
+    "start": 1
+  },
+  "blend": {
+    "ja": {
+      "title": "模様保持を動かす",
+      "label": "模様保持",
+      "note": "下げるほど陰影が浅くなり、ベタ塗りに近づきます（既定 1.0）"
+    },
+    "en": {
+      "title": "Move Pattern Preserve",
+      "label": "Pattern Preserve",
+      "note": "The lower it goes, the shallower the shading — closer to a flat fill (default 1.0)"
+    },
+    "control": "range",
+    "frames": [
+      {
+        "v": "0.75",
+        "img": "blend-075",
+        "ja": "陰影が浅い",
+        "en": "Shallow shading"
+      },
+      {
+        "v": "0.90",
+        "img": "blend-090",
+        "ja": "純赤で自動調整が選ぶ値",
+        "en": "What Auto-tune picks for pure red"
+      },
+      {
+        "v": "1.00",
+        "img": "blend-100",
+        "ja": "元の陰影のまま（既定）",
+        "en": "Original shading (default)"
+      }
+    ],
+    "start": 1
+  },
+  "saturation": {
+    "ja": {
+      "title": "出力彩度を動かす",
+      "label": "出力彩度",
+      "note": "純色がベタに見えるときは下げると陰影が戻ります"
+    },
+    "en": {
+      "title": "Move Output Saturation",
+      "label": "Output Saturation",
+      "note": "Lower it when a pure color looks flat — the shading comes back"
+    },
+    "control": "range",
+    "frames": [
+      {
+        "v": "0.50",
+        "img": "sat-050",
+        "ja": "淡い",
+        "en": "Muted"
+      },
+      {
+        "v": "0.70",
+        "img": "sat-070",
+        "ja": "",
+        "en": ""
+      },
+      {
+        "v": "0.85",
+        "img": "sat-085",
+        "ja": "",
+        "en": ""
+      },
+      {
+        "v": "1.00",
+        "img": "sat-100",
+        "ja": "そのまま（既定）",
+        "en": "As-is (default)"
+      }
+    ],
+    "start": 3
+  }
+}

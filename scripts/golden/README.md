@@ -1,0 +1,74 @@
+# golden — C# 自己ゴールデン回帰テスト
+
+製品の唯一の正である **C# 実装（`Code/Core/PixelProcessor.cs` ほか）の出力が、黙って変化していないか**
+を検出する回帰テスト。かつてアルゴリズム試作に使っていた Python 参照実装（`dev_safe/vacc_python`、
+使い捨てのスキャフォールド）は削除済みで、本テストも Python には依存しない。
+
+## なぜ必要か
+
+このプロジェクトはかつて「Python で素早く試作 → C# へ手動移植」という運用だったため、移植時に
+**C# 側が段や定数を黙って失う**事故が実際に起きた（例: `FillSmallHoles` 段が reset で消失、
+OkLab ハイライト L キャップが C# に未移植）。アーキテクチャレビュー §4.2(D) が指摘した
+「二重実装のドリフト」のうち、**製品である C# の退行**をこのテストで機械的に捕捉する。
+
+Python 再実装はもう存在せず、**C# が唯一の正**である（当時も Python は使い捨てで、グレーモード・
+ハイライト等で意図的に乖離していたので「C#≡Python」は強制していなかった）。本テストはあくまで
+**C# 自身の出力の固定（スナップショット）** である。
+
+## 構成
+
+| ファイル | 役割 |
+|---------|------|
+| `synth_textures.py` | 決定論的な合成入力（ベタ/グラデ/AA/ハイライト/無彩背景）。画像バイナリは置かず再現生成 |
+| `golden_lib.py` | C# Harness 実行・raw I/O・正準パラメータ・ケース定義・ハッシュ化・ゴールデン再生成 |
+| `golden_hashes.json` | コミット済みゴールデン（各ケースの出力 SHA-256 と shape） |
+| `expected/*.png` | 各ケースの期待出力そのもの。別 toolchain（CI の Linux）での画素比較に使う |
+| `cases/*.png` / `*.zones.json` | 各ケースの入力と zones JSON。Unity 実機のテスト（`scripts/editor-tests/RuntimeParityTests`）が製品経路へ通して `expected/` と比べる |
+| `test_golden_csharp.py` | pytest ゲート（C# を走らせ golden と照合） |
+| `test_selection_key_audit.py` | 選択キャッシュキーの網羅性監査。Harness の `--selkey-audit` で `ColorZone` の public フィールドを 1 つずつ摂動し、`BuildSelectionKey` への反映漏れ（選択キャッシュの誤ヒット）を分類台帳 `SELECTION_IRRELEVANT` と突き合わせる |
+| `test_harness_selfchecks.py` | Harness の自己検査モードを回す。`--previewselftest`（RecolorPreview の既知の不変量）と `--samops-aainclude-crop`（クロップ実行が全画像の `--samops-aainclude` とビット同一） |
+
+合成入力は C# の主要経路（基底再着色 / 無彩ターゲット / グレーモード / OkLab L リマップ /
+ハイライト復元・wash / AA 境界デコンタミ / 彩度整合ゲート / 暗部脱彩 / 出力彩度 / アンカー正規化 /
+彩度ガード）を個別に踏ませるよう選んである。
+
+加えて端ケース（`edge_*`: 1×1・1 行・1 列・奇数寸法、全透明・列ごとの半透明・透明黒背景、
+無彩だけのテクスチャ）を持つ。ハッシュ固定のほかに、全ケースで次の性質を検査する:
+
+- `test_alpha_is_preserved`: 出力の α が入力と一致する（再着色は色だけを変える）
+- `test_neutral_texture_untouched_by_chromatic_sample`: 無彩だけのテクスチャに有彩スポイトを
+  当てても何も変わらない。2026-09-24 に見つけた未達（デコンタミが 222 前後の灰を最大 16 段階暗くし、
+  235 の白も最大 4 段階動かす）は、2026-10-03 の混色帯（境界の画素を被覆率で塗る）で解消し、
+  xfail を外して通常の assert で固定している。同じ時に記録した `chroma_on_white_to_blue` の白地の動き
+  （最大 5 段階）は、彩度ガード OFF で主マッチが白を選ぶもの（縁の処理の外）で、今も残る
+
+## 実行
+
+```bash
+pytest scripts/golden/test_golden_csharp.py -q
+```
+
+- `dotnet` と Unity CoreModule DLL（`Harness.csproj` がビルドできる環境）が必要。無ければ **skip**。
+- C# の出力がゴールデンと 1 バイトでも異なれば **FAIL**（= C# の挙動が変わった）。
+
+## ゴールデンの再生成
+
+意図的にアルゴリズムを変更した、または toolchain（Unity / dotnet）を更新したときのみ:
+
+```bash
+python scripts/golden/golden_lib.py --force
+```
+
+`golden_hashes.json` が上書きされる。**再生成前に、その出力変化が意図通りかを必ず確認すること**
+（このテストの存在意義は「意図しない変化を止める」ことなので、安易な再生成は無意味化させる）。
+
+## 注意
+
+- ゴールデンは toolchain（Unity 2022.3.22f1 / dotnet ランタイム）に紐づく。別環境では浮動小数の
+  最下位ビット差でハッシュが変わりうる。CI（Linux）は `IROCA_GOLDEN_TOLERANT=1` を立て、
+  ハッシュが合わないケースだけ `expected/*.png` と画素で比べる（最大差 2・差のある画素 1% まで許容。
+  段の欠落や定数ずれは多数の画素を大きく動かすので、この範囲には収まらない）。
+- `IROCA_REQUIRE_HARNESS=1` のときは dotnet / Unity DLL / golden 不在を skip ではなく fail にする
+  （CI で「実 C# を一度も走らせずに緑」になるのを防ぐ）。
+- 出力は決定論的（同一入力で 2 回走らせてバイト一致することを `test_output_is_deterministic` で確認）。
+- 作業用の一時ファイルは pytest の `tmp_path` に出すので、リポジトリは汚さない。

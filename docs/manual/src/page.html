@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>いろか マニュアル</title>
+<meta name="description" content="VRChat アバター用テクスチャを色替えする Unity Editor 拡張「いろか」のユーザーマニュアル。">
+<meta name="generator" content="{{generator}}">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='%231d1d1f'/><circle cx='16' cy='16' r='5' fill='%23f7f6f4'/></svg>">
+<!-- 明暗は OS の設定に従う（右上で切り替えて OS と逆にしたときだけ覚える）。描く前に当てて、ちらつかせない -->
+<script>
+  var t = null;
+  try { t = localStorage.getItem('iroca.manual.theme'); } catch (e) {}
+  document.documentElement.dataset.theme = t === 'light' || t === 'dark' ? t
+    : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+</script>
+<link rel="stylesheet" href="{{css}}">
+</head>
+<body>
+<a class="skip" href="#main">本文へスキップ</a>
+<header class="top">
+  <div class="brand">
+    <span class="name">いろか</span>
+    <span class="sub" data-t="manual">マニュアル</span>
+    <span class="ver">{{version}}</span>
+  </div>
+  <div class="tools">
+    <div class="search">
+      <input id="q" type="search" autocomplete="off" spellcheck="false" placeholder="検索">
+      <button id="q-clear" type="button" aria-label="クリア" hidden>&times;</button>
+    </div>
+    <button id="lang" type="button" class="pill" aria-label="Switch language"{{lang_hidden}}>EN</button>
+    <button id="theme" type="button" class="pill icon" aria-label="Toggle theme"></button>
+    <button id="menu" type="button" class="pill icon only-narrow" aria-label="Menu"></button>
+  </div>
+</header>
+<div class="layout">
+  <nav id="toc" class="toc" aria-label="目次"></nav>
+  <main id="main">
+    <header id="cover" class="cover">
+      <p class="eyebrow">いろか — IROCA</p>
+      <h1 data-t="manual">マニュアル</h1>
+      <p class="lead" data-t-html="lead">はじめて使うときは「<a href="#quickstart">はじめての色替え</a>」から。</p>
+    </header>
+    <div id="no-hit" class="no-hit" hidden></div>
+{{articles}}
+    <footer class="foot">
+      <p class="foot-note" data-t="footNote"></p>
+      <p class="foot-links">
+        <a href="https://github.com/yukkuri-aoba/Iroca" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/yukkuri-aoba/Iroca/blob/main/CHANGELOG.md" target="_blank" rel="noopener" data-t="changelog">変更履歴</a>
+      </p>
+      <p class="foot-font" data-t="fontNote">書体: Zen Maru Gothic（SIL Open Font License 1.1）</p>
+    </footer>
+  </main>
+</div>
+<div id="zoom" class="zoom" hidden><img alt=""></div>
+<script id="manual-data" type="application/json">{{data}}</script>
+<script src="{{js}}"></script>
+</body>
+</html>

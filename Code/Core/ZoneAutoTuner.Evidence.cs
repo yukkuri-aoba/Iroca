@@ -1,0 +1,806 @@
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
+// Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using UnityEngine;
+
+namespace Iroca
+{
+    // ZoneAutoTuner: 証拠マスク(AI マスク提案のセグメント)を教師にした導出。
+    //
+    // 【解決する問題】従来の導出は「クリック 1 texel + 対称な近傍窓(|ΔS|<0.20, |ΔV|<0.30)」を
+    // 証拠にするため、V が上がり S が下がる非対称な逸脱であるハイライト/ツヤは統計に入る前に
+    // 除外され、原理的に届かない(ZoneAutoTuner.Verify.cs の明部ツヤ救済コメント参照)。実測でも
+    // 45 ケース中 27 で「どの tolerance でも 適合率 0.98 ∧ 再現率 0.95 ∧ 残存島 0.5% を同時に
+    // 満たせない」(dev_safe operating_curve 2026-08-21)。
+    //
+    // 【アプローチ】AI マスク提案のセグメントは「クリックした島をツヤ込みで完全に取る」
+    // (製品 E2E 実測: precision 中央値 0.99)。従来導出が「クリック色の近傍窓」という当て推量で
+    // 作っていた母集団を、このセグメントに置き換える。証拠が変えるのは次の 3 つだけで、
+    // tolerance・彩度厳密度などの他パラメータは従来と同じ全画面統計から導く:
+    //   1. 地色 = スポイト位置の正規化を「母集団 = セグメント」で行う
+    //      (近白のツヤを踏んだクリックでも地色に落ちる。実測: tops の明部クリックで IoU 0.15→0.82)
+    //   2. 従来のトーン代表色でセグメント芯を覆えないとき、未被覆部の代表色を足す
+    //      (明度レンジの広い素材の明端まで届く。実測: gold の残存島 2.4〜4.0% → 0)
+    //   3. ハイライト補助(highlightRecovery)の発火 = 従来判定 OR セグメント内のツヤ署名の実在
+    // 事前実測(dev_safe/_spike/segment_color_coverage.json, 2026-08-25): 従来導出の取りこぼし
+    // (見逃し+残存島)の加重 86.5% がセグメント内またはセグメント実在色の中にある。
+    //
+    // 【試して捨てたもの(dev_safe/_spike/evidence_autotune_*.json)】
+    //   - ツヤ色をサンプル化: 淡い色は汎用的で別の明色素材を色だけで巻き込む(precision 0.99→0.86)。
+    //     回収は空間錨つきの本番経路(highlightRecovery / GrowHighlightBand)に任せる。
+    //   - 「セグメント芯を実マッチャーで覆う tolerance 下限」: 彩度ゲート等で弾かれる画素まで
+    //     tolerance で覆おうとして従来の導出値を押し上げ、別素材へ溢れた(skirt IoU −0.27、eye −0.07)。
+    //     勝ちに寄与したケースは無かった。
+    //   - 副パラメータ(彩度厳密度・シャドウ免除下限等)やトーン代表色そのものを証拠限定の統計から
+    //     導く: 従来の値との僅かな差が非線形なゲート群を通って別素材の巻き込みになる被写体があった
+    //     (eye IoU −0.07)。従来の導出を土台にし、証拠は「補う」だけにする。
+    //
+    // 【セグメント内でも残す従来のフィルタ】セグメントは「同じ物体」を保証するが「同じ素材の
+    // 同じ陰影ランプ」までは保証しない(実測: ゴーグル本体+金属フレーム、黒コート+囲まれた
+    // 白ビスチェ、白衣装+金トリム、暗いスカートの低彩度暗部)。代表色をそこから取ると
+    // グローバルに別素材を巻き込む(実測 IoU −0.14〜−0.36)。従来導出がシェーディングの物理として
+    // 持っているフィルタ — V 連結域(明度の空の谷の向こうは別素材)・相対彩度床(低彩度の暗部は
+    // 全素材共通の色なのでシャドウ免除の担当)・色相帯 — は証拠内でも同じ理由で適用する。
+    // フィルタを通る芯が無彩地色で 8 割未満(母集団を色相で濾せない)/有彩地色で 1 割未満(クリックが
+    // 裾の色)のセグメントと、ドメインが標本として足りないセグメントは従来導出へ戻す
+    // (EvMinMaterialFrac / EvMinMaterialFracChromatic / EvMinDomainPixels)。
+    //
+    // 証拠が使えないとき(null/空/過少/汚染)は従来の Analyze へフォールバックするので、
+    // AI モデル未ダウンロード環境の挙動は変わらない。
+    internal static partial class ZoneAutoTuner
+    {
+        // ── 証拠の前処理 ──
+        // セグメント境界の AA/にじみ画素が統計を汚さないよう、統計は収縮した芯で取る。
+        // 収縮量は残存島計測(dev_safe measure_residual ERODE_R)と同じ「境界 2px は視覚的に無害」の線。
+        private const int EvErodeR = 2;
+        // 収縮後にこれ未満しか残らない証拠は芯が細すぎる(細いストラップ等)ので、収縮なしで使う。
+        private const int EvMinErodedPixels = 256;
+        // 汚染セグメント(複数素材にまたがる提案)の扱い(2026-09-15 変更):
+        // セグメント芯のうち「地色と同じ素材」(ドメイン ∪ ツヤ署名)の割合が EvMinMaterialFrac 未満
+        // なら、以前は地色の有彩/無彩を問わず証拠を丸ごと捨てて従来導出へ戻していた。
+        // 証拠が汚れる経路は「地色の正規化の母集団 = セグメント」だけで(他の証拠由来の量 —
+        // 陰影の明度下限・彩度天井・未被覆代表色 — は色相帯/彩度床/V 連結域で濾したドメインから導く)、
+        // 有彩クリックの母集団は色相帯 + 彩度床で別素材を自己濾過する。無彩クリックには色相が無く、
+        // 母集団(低彩度 ∧ V 連結域)にセグメント内の別素材や同素材の別トーン塊がそのまま入る。
+        // ⇒ 無彩地色は従来どおり 0.80 の門。有彩地色は「クリックの色相帯がセグメントの裾でしかない」
+        //    ときだけ落とす: 地色帯は陰影で広がりセグメントの大半を占めるが、色相の回った明端の縁取りや
+        //    柄は面積の数%しかない(正規化の外れ値判定 NormOutlierFrac と同じ 1/10 の線)。クリックが
+        //    そこに乗ると、色相帯で濾したドメインは同素材の薄片になり、そこから導く陰影の明度下限が
+        //    島の陰影レンジを表さない。実測(2026-09-15):
+        //   - 有彩で門を外す: 汚染判定の 5 ケース(肌 p25/p50 = 0.28、瞳 ×3 = 0.64〜0.72)
+        //     で悪化 0(最大 −0.002)、肌 p25/p50 は陰影の明度下限が導出されて IoU 0.671→0.779。
+        //   - 有彩の裾: 衣装 p95(明端の縁取り、色相帯が芯の 0.2%)で下限 0.883 が導かれ
+        //     衣装の他の島を全部落として recall 0.995→0.307 → 1/10 の門で従来へ。
+        //   - 無彩で門を外す: ゴーグル p50(金属フレーム込み 0.63)で母集団の最頻値が小島の暗部
+        //     (45→29)に落ち、tol 0.20→0.285 で IoU 0.995→0.889。門を残す。
+        // 実測: 金属フレームを巻き込んだゴーグルのセグメントで 0.63、他の 13 被写体は 0.91 以上。
+        private const float EvMinMaterialFrac = 0.80f;
+        private const float EvMinMaterialFracChromatic = NormOutlierFrac;
+        // ドメインが標本として足りない(セグメントに地色と同じ素材がほぼ無い)ときは地色を問わず従来へ。
+        private const int EvMinDomainPixels = MinNearSampleCount;
+
+        // ── 縁クリック(境界帯の混色)の救済 ──
+        // 地色の正規化の起点はクリック 1 texel の色。クリックがセグメントの縁(芯の外 = 上で統計から外した
+        // 境界帯)に乗ると、その色はパーツの色と外側(UV の余白の白・輪郭線の黒など)の混色で、パーツの
+        // どこにも無い。地色帯の母集団が空になってドメインが芯の数 % 以下に縮み、汚染判定で従来導出へ
+        // 落ちるが、従来導出も同じ混色を起点にするので別の素材を塗る。統計を芯で取るのと同じ理由で、
+        // 縁のクリック色も起点にしない: 証拠が使えず、クリックの素材がセグメントの裾(ドメイン + ツヤが芯の
+        // 1/10 未満。有彩の汚染門・正規化の外れ値判定と同じ線)で、クリックが境界帯にあり、その色が
+        // 「最寄りの芯の画素の色と無彩色(白・灰・黒)の混色」で説明できるなら、最寄りの芯の画素を
+        // クリックしたものとして 1 回だけやり直す。やり直しても使えなければ、元のクリックで従来導出へ。
+        // 混色の判定: 無彩色を混ぜても灰色軸からのずれ(彩り)は向きを変えずに 0〜1 倍へ縮むだけなので、
+        // クリックの彩りを芯の色の彩りの 0〜1 倍で近似した残差が実質同色の線(NormMinShift)の内側かを見る。
+        // 外側の色の彩りが混ざったクリック(白いセグメントの縁で青い面を踏んだ等)は説明できないので
+        // 寄せない(その青を塗りたいのかもしれず、セグメントの方が外れている)。
+        // 裾の門を置く理由: 素材が芯の 1 割以上あるのに使えない(無彩の 0.80 門)のは、クリック色は素材に
+        // 在ってセグメントに柄などの別素材が混ざっている場合なので、寄せても直らず、最寄りの芯が柄の画素
+        // だと柄の色から導いてしまう(実測: 生成りの上衣の柄の縁で IoU 0.812→0.603)。
+        // 実測(2026-10-10、19 被写体 × 3 クリック): テクスチャを 1/2・1/4 に縮小した 228 件で改善 10・悪化 0
+        // (こげ茶のブーツ 0.013→0.814、黒い布 0.008→0.990、灰のゴーグル 0.097→0.995、金の縁取り 0.055→0.955、
+        // 虹彩 0.010→0.925 など)。4096 では既存の 57 件が不変、部位の端の 57 件(V の 5/75/99 パーセンタイル)で
+        // 改善 2(ブーツ 0.458→0.932、虹彩 0.012→0.925)・悪化 0。
+
+        // ── 証拠による補完(未被覆トーンの追加) ──
+        // 導出パラメータで証拠ドメインの被覆率がこれ未満なら、未被覆部の代表色をサンプルへ足す。
+        // 足した色はグローバルに効くので、明らかな取りこぼし(2% 以上)があるときだけ発火させる
+        // (実測: 0.2% の取り残しを埋めるために足した色が別素材と衝突し skirt precision 0.70→0.63。
+        // 一方 gold トリムの明端は 8% 未被覆で、足せば残存島 2.4% → 0)。
+        private const float EvCoverTarget = 0.98f;
+        // 1 色足しても被覆がこれしか増えないなら、残りは tolerance/ゲートで届かない画素なので止める。
+        private const float EvCoverGainMin = 0.002f;
+        private const int   EvMaxExtraSamples = 3;
+        // 未被覆代表の V 帯に最低限必要な画素数(ドメイン比)。絶対数 64 では小さなトリム島
+        // (芯 1.3 万点)の 8% の取り残しが 64 bin に散って拾えなかった。
+        private const float EvUncoveredBinMinFrac = 0.002f;
+        private const int   EvUncoveredBinMinCount = 8;
+        // 追加サンプルの溢れ判定。追加で増える全画面の選択量は、クリック島で新たに覆えた量 ×
+        // パーツ多重度(全画面の基礎選択 / クリック島の基礎選択 = 同素材の島が幾つ分あるか)で
+        // 説明できるはず。それを K 倍超えるなら別素材へ溢れている(実測: gold トリムは多重度 ≈4 で
+        // 比 2〜5、暗いスカートの星柄色は多重度 ≈1 で比 ≈50 → precision 0.70→0.63)。
+        private const float EvBleedK = 3f;
+        // 追加候補が既存サンプルと実質同色(RGB 距離)なら足さない。マッチャーは彩度差を見るので
+        // 従来の AutoToneMinSep(0.10)より細かく取る(実測: 脱彩した明端が既存明部と 0.08 で棄却され、
+        // gold の残存島が残った)。
+        private const float EvDupSep = 0.03f;
+
+        // ── 脱彩ツヤの署名 ──
+        // ツヤ = 地色より彩度が明確に落ち(S < 地色 S × frac)、明度が上がった(V > 地色 V + margin)
+        // 画素。セグメント芯にこれが一定量あれば highlightRecovery(空間錨つきの回収経路)を
+        // 発火させる。代表色の統計からは外す。
+        private const float EvSheenSatFrac   = 0.60f;
+        private const float EvSheenValMargin = 0.05f;
+        private const int   EvSheenMinCount  = 50;
+        // セグメント芯に対する最小面積比。芯は収縮済み(境界 AA を含まない)なので、
+        // 全画面統計の highlightRecovery 閾値(近傍数の 2%)のような大きな相対床は不要。
+        // 1 島あたりのツヤは芯の 0.1〜数% しかない(実測: sneakers 1 島でツヤが芯の 0.5% 未満)。
+        private const float EvSheenMinFrac   = 0.001f;
+
+        // ── 陰影の明度下限(shadowValueFloor)の導出 ──
+        // 有彩マッチは「彩度がサンプル以上の画素の明度差を見ない」ので、同色相で暗いだけの別部位
+        // (桃ベージュ上衣→暗紫ジャケット、肌→舌/まつ毛/輪郭線)が陰影として無制限に入る。証拠
+        // ドメイン(セグメント芯のうち地色と同じ陰影ランプ = V 連結域)には、この素材の陰影が
+        // 実際にどこまで暗くなるかが実在の統計として在るので、その下端を床にする。
+        // 余白は連結域の幅の 25%: クリックした島より深い陰影を持つ同素材の別の島(髪の別の房など)
+        // への取りこぼしを避けるための頭出しで、シャドウ/ハイライト免除の 25% デッドマージン
+        // (ColorZone.ShadowValueThresholdFrac / HighlightValueHeadroomFrac)と同じ比率にそろえる。
+        // 床は画素でなく連結成分に効く(本体に地続きの深い影は残す)。画素単位は実測で衣装の深い影を
+        // 落とした(衣装 recall 0.996→0.942)ので採らない。
+        private const float EvShadowFloorMarginFrac = 0.25f;
+        // 陰影の明度下限の最小有効値。下限は V ヒストグラム(AutoToneValueBins 分割)の bin 境界で
+        // 導くので、1 bin 幅未満の下限は導出の解像度に無い = 無効(0)として扱う。ビン数から導くので
+        // 分割を変えても食い違わない。
+        private const float ShadowValueFloorMin = 1f / AutoToneValueBins;
+
+        // ── 彩度天井(chromaCeiling)の導出(無彩地色のみ) ──
+        // グレーモードの後段ゲート(PixelProcessor.ApplyChromaCeilingGate)は「サンプル彩度の 3 倍
+        // (下限 0.04)」を超える画素を染められた別素材として落とす。白い布の青みがかった陰のように
+        // 素材自身の陰影が地色の何倍もの tint を持つ場合、自動の天井は陰を丸ごと落とす(実測
+        // 白い布の明部クリック: 地色 S 0.017 → 天井 0.05、陰 S 0.07〜0.14、再現率 0.60〜0.66)。
+        // 証拠ドメイン(セグメント芯のうち地色と同じ陰影ランプ)の彩度分布には、この素材の陰影が
+        // 実際にどこまで tint を帯びるかが実在の統計として在るので、その高パーセンタイルを天井にする。
+        // パーセンタイルは tolerance 導出と同じ P95、余白は陰影/明部免除と同じ 25% のヘッドルーム
+        // (÷0.75)。クリックした島より深い陰を持つ同素材の別の島を取りこぼさないための頭出し。
+        // 上書きするのは「包絡(P95)そのものが自動の天井を超える」= 自動の天井が素材自身を切って
+        // いると証拠が示すときだけ。包絡が天井の内側なら自動のまま(証拠は補うだけで、絞る方向にも
+        // 余白ぶんだけ緩める方向にも使わない。実測: 純白クリックの白い服 p95 は包絡 0.036 に
+        // 対し天井 0.04 で、余白つきの 0.048 を入れると隣接するクリーム地が増えて precision −0.03)。
+        private const float EvChromaCeilPercentile = 0.95f;
+        private const float EvChromaCeilHeadroomFrac = 0.25f;
+
+        // ── 穴埋めの余白(holeFillMargin) ──
+        // 導出した tolerance は「クリックした島を覆える最小値 × 余白」の見積もりなので、同じ素材の別の所
+        // (布の明るい面・柄の光の周り)の色が境目をまたぐことがある。そこでは画素ごとのノイズで選ぶ・選ばないが
+        // 交互になり、元の色の点が点々と残る(穴埋めも同じ境目で弾く)。選択に囲まれた穴の判定にだけ、
+        // 陰影/明部の免除・彩度天井と同じ 25% の余白をつける。主マッチと境界回復は変えないので選択の外側へは
+        // 広がらない。実測(2026-10-10、主経路 57 件): 見える塗り残し 32,905→10,029、平均 IoU +0.0007、
+        // 黒い布の明るい面 IoU +0.010。余白 50% は点がほぼ同じで正解の外の塗りが 1.4 倍(64,750→92,931)。
+        // 悪化は既に穴だらけに選ばれていた別部位が塊になる所で、最悪はブーツの暗い側クリックの −0.0017。
+        // 手動の許容範囲には入れない(ColorZone.holeFillMargin のコメント参照)。
+        private const float EvHoleFillMarginFrac = 0.25f;
+
+        // ── 別パーツの彩度上限(partSatCeiling)の導出(有彩・無彩とも) ──
+        // 陰影の明度下限の対。色の近い、より鮮やかな別パーツ(濃い灰のパンツ S 0.11 に対するこげ茶の
+        // ブーツ S 0.23〜0.30、こげ茶のブーツに対する赤いバンダナ S 0.52)は、広めの tolerance や明部免除を
+        // 通って成分ごと入る。証拠ドメインの彩度包絡(上と同じ P95 ÷ 0.75)を上限にし、成分の画素の
+        // 1/4 以上が上限以下でなければ落とす(PixelProcessor.ApplyConnectedComponentMask)。
+        // 画素単位で切らない理由は明度下限と同じ: 素材自身の鮮やかな陰影・装飾は本体に地続きなので残したい
+        // (画素単位の天井を包絡へ下げる試算では淡色の上衣で再現率 −0.04)。
+        // 余白と割合の感度(2026-10-02、57 ケースの試算): 余白 0.20〜0.40・割合 0.10〜0.50 で悪化 0。
+        // 余白 0.15 以下で 黒い布の本体が欠け始める。下限側(彩度が低すぎる成分を落とす)は
+        // 淡色の上衣の白っぽい島を落として IoU −0.15 だったので置かない。
+
+        // ── 別パーツの色相幅(partHueBand)の導出(有彩地色のみ) ──
+        // 同じ成分単位のゲートの色相版。証拠ドメインの「サンプル色相からのずれ」の包絡(同じ P95 ÷ 0.75)を
+        // 幅にする。ドメイン自体が色相帯 AutoToneHueBand(0.06)で濾してあるので、幅は最大でも 0.08。
+        // 下限は隣接別パーツ検出と同じ ForeignGateMin(0.03、「締まった地色でもこの幅は同パーツ扱い」):
+        // ベタ塗りの島(包絡 0.006 など)でも、陰影で色相が数度回る同素材の別の島を落とさないため。
+        // 試算(2026-10-02、57 ケース): 下限 0.03 で改善 10 / 悪化 0、下限 0.02 で改善 13 / 悪化 0
+        // (赤いバンダナに対する刺繍の赤い糸 = ずれ 0.024 まで外れる)、下限なしでも悪化 0。
+        // 既存の定数に合わせて 0.03 を採る(未知のテクスチャで同素材を落とす側の失敗を避ける)。
+
+        // ── tolerance の上限(証拠ドメインを覆える最小値 × 余白) ──
+        // tolerance は全画面の「クリック色の近傍窓」の距離分布(P95)から導くので、窓に入る別素材
+        // (同色相で彩度・明度が少し違うだけの隣の部位)が分布を押し広げる。証拠ドメイン(クリックした島の
+        // 地色と同じ陰影ランプ)には「この素材を覆うのに実際どれだけ要るか」が実在の量として在るので、
+        // 実マッチャーで被覆を保てる最小の tolerance を二分探索し、その余白つきの値を上限にする。
+        // 上げる方向には使わない(下限として使う案は別素材へ溢れた。上の【試して捨てたもの】参照)。
+        // 余白は 2 倍: クリックした島より色の幅が広い同素材の別の島を取りこぼさないための頭出し。
+        // 「島 1 つぶんの必要量の倍までは同じ素材の揺らぎ」とみなす。実測(2026-10-02、57 ケース):
+        //   - 1.5 倍: 肌で同素材の明るい島が削れて再現率 1.000→0.967、金の縁取り 0.967→0.958。
+        //     削れるのは「残る成分の一部」で、成分ごと消える別部位とは構造で見分けられない。
+        //   - 2 倍: 上の取りこぼしが出ない幅。
+        // 床は各経路の通常の最小値(有彩 ChromaTolMin / 無彩 AchromaTolMin)。有彩を ForeignLowFloor(0.04)
+        // まで下げると、床 0.08 に張り付いていた桃ベージュの上衣が 0.077 になっただけで明部が外れた
+        // (再現率 0.943→0.848)。床より下は、隣接別パーツ検出のような積極的な根拠があるときだけにする。
+        private const float EvTolHeadroom = 2f;
+        private const int   EvTolBisectSteps = 6;
+
+        /// <summary>
+        /// 証拠マスク(true=このゾーンの素材そのもの。AI マスク提案のセグメント)を教師にして
+        /// パラメータを導出する。証拠が使えないときは従来の <see cref="Analyze(Color32[],int,int,ColorZone,IrocaSessionState,bool[],int,int,CancellationToken,System.Action{float})"/>
+        /// へフォールバックする。evidence の寸法はテクスチャと同一想定(異寸は最近傍で対応)。
+        /// </summary>
+        public static TuneResult AnalyzeWithEvidence(Color32[] pixels, int width, int height,
+            ColorZone zone, IrocaSessionState session,
+            bool[] evidence, int evW, int evH,
+            bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
+            System.Action<float> report = null)
+        {
+            bool canAnalyze = pixels != null
+                && width >= MinTextureDim && height >= MinTextureDim
+                && pixels.Length >= width * height
+                && evidence != null && evW > 0 && evH > 0 && evidence.Length >= evW * evH;
+            if (!canAnalyze)
+                return Analyze(pixels, width, height, zone, session, excluded, maskW, maskH, ct, report);
+
+            void Progress(float v) { report?.Invoke(v); }
+
+            var result = BuildHeuristicDefault(zone);
+            var hsv = BuildHsvGrid(pixels, width, height, ct);
+            Progress(0.25f);
+
+            // ── 証拠芯(収縮後)の格子リスト ──
+            ct.ThrowIfCancellationRequested();
+            var core = ErodeMask(evidence, evW, evH, EvErodeR, ct);
+            var coreList = CollectGridIndices(pixels, width, height, hsv, core, evW, evH,
+                excluded, maskW, maskH);
+            if (coreList.Count < EvMinErodedPixels)
+            {
+                // 芯が細すぎる(細ベルト等) → 収縮なしの生セグメントで再試行
+                coreList = CollectGridIndices(pixels, width, height, hsv, evidence, evW, evH,
+                    excluded, maskW, maskH);
+                core = evidence;
+            }
+            if (coreList.Count < MinNearSampleCount)
+                return Analyze(pixels, width, height, zone, session, excluded, maskW, maskH, ct, report);
+            Progress(0.40f);
+
+            // 「証拠の中だけ」を見るための除外マスク(非証拠画素 ∪ 実際の除外)。
+            var notEvidence = new bool[evW * evH];
+            for (int i = 0; i < notEvidence.Length; i++) notEvidence[i] = !evidence[i];
+            if (excluded != null && maskW == evW && maskH == evH)
+                for (int i = 0; i < notEvidence.Length; i++) notEvidence[i] |= excluded[i];
+
+            // ── 1. 地色 = スポイト位置の正規化を「母集団 = セグメント」で行う ──
+            // 面積最頻の色をそのまま地色にすると、面積最大の暗部やベタ塗りに落ちる(実測: ゴーグル
+            // 56→30、虹彩 (50,53,129)→(32,35,71))。暗い地色は「地色より明るい同色相」への明部免除の
+            // 範囲を広げ、グローバルに別素材を巻き込む(実測 IoU −0.06〜−0.11)。従来の正規化は
+            // この罠(ベタ塗り端ゲート・クリックが地色帯なら動かさない)を実測で塞いであるので、
+            // 母集団をセグメントに限定してそのまま使う。正規化しない(=既に地色)ならクリック色。
+            //
+            // 外れ値ゲート(クリックの (S,V) 帯が最頻帯の 1/10 以上あれば動かさない)は、クリックが
+            // トーン連結域の端に居るときだけ外す(edgeBypass。判定と実測は Normalize.cs の
+            // NormEdgeFrac を参照)。母集団がセグメント(=クリックしたパーツそのもの)なら最頻 (S,V)
+            // bin はそのパーツの地色で、端を踏んだクリックを寄せる相手として信頼できる。
+            ct.ThrowIfCancellationRequested();
+            var click = zone;            // 正規化の起点。縁クリックの救済で最寄りの芯の画素に替わる
+            bool snapped = false;
+            string snapDiag = "";
+            Color rep;
+            float clickT, repH, repS, repV, materialFrac;
+            List<GridPt> domain;
+            int sheenCount, hlCandidates, domLoBin, domHiBin;
+            bool chromatic, contaminated;
+            while (true)
+            {
+                rep = click.sampleColor;
+                if (TryNormalizeSample(pixels, width, height, click, notEvidence, evW, evH, hsv,
+                        out Color normalized, out clickT, edgeBypass: true))
+                    rep = normalized;
+                Color.RGBToHSV(rep, out repH, out repS, out repV);
+
+                // ── 証拠ドメイン = 芯のうち地色と同じ陰影ランプ(汚染判定と後段の被覆確認に使う) ──
+                domain = BuildEvidenceDomain(hsv, coreList, repH, repS, repV,
+                    out sheenCount, out hlCandidates, out domLoBin, out domHiBin);
+                materialFrac = (domain.Count + sheenCount) / (float)coreList.Count;
+                chromatic = repS >= AchromaSampleSatMax;
+                contaminated = materialFrac
+                    < (chromatic ? EvMinMaterialFracChromatic : EvMinMaterialFrac);
+                bool usable = domain.Count >= EvMinDomainPixels && !contaminated;
+                // クリックの素材がセグメントの裾(1/10 未満)のときだけ、縁の混色なら最寄りの芯の画素で
+                // 1 回だけやり直す(定数の説明参照)。
+                bool clickOnFringe = domain.Count < EvMinDomainPixels || materialFrac < NormOutlierFrac;
+                if (usable || snapped || !clickOnFringe
+                    || !TrySnapBoundaryClick(pixels, width, height, zone, evidence, core, evW, evH,
+                        excluded, maskW, maskH, out Color coreColor, out int snapX, out int snapY))
+                    break;
+                click = zone.Clone();
+                click.sampleColor = coreColor;
+                snapped = true;
+                snapDiag = $" snap={snapX},{snapY}";
+            }
+            var aZone = zone.Clone();
+            aZone.sampleColor = rep;
+
+            if (domain.Count < EvMinDomainPixels || contaminated)
+            {
+                // ドメインが標本として足りない / 汚染セグメント(無彩: 0.80、有彩: 裾 1/10) → 従来導出へ。
+                var fallback = Analyze(pixels, width, height, zone, session, excluded, maskW, maskH,
+                    ct, report);
+                fallback.evidenceDiag = (contaminated ? "fallback contaminated" : "fallback no-domain")
+                    + $" materialFrac={materialFrac:F3}"
+                    + $" core={coreList.Count} domain={domain.Count} sheen={sheenCount}" + snapDiag;
+                return fallback;
+            }
+            Progress(0.50f);
+
+            // 地色(rep)がゾーンのサンプルとして採用されるか(ApplyTo で sampleColor が rep に置き換わる)。
+            // 別パーツの色相幅の基準と hasNormalizedSample は、どちらもこの判定で決まる。
+            bool repApplied = ColorDist(rep, zone.sampleColor) >= NormMinShift;
+
+            // ── 以下、Analyze と同一の導出(母集団はクリック近傍窓)。違いは地色(aZone)だけ ──
+            bool useMask = HasUsableMask(excluded, maskW, maskH);
+            bool[] clusterMask = useMask ? excluded : null;
+            if (TryAnalyzePixels(pixels, width, height, aZone, clusterMask, maskW, maskH, hsv, out var analyzed))
+                result = MergeAnalyzed(result, analyzed);
+
+            // ── 3. highlightRecovery = 従来判定 OR 証拠署名 ──
+            // MergeAnalyzed の閾値(近傍数の 2%)は「境界 AA をスペキュラと誤認しない」ための
+            // 全画面統計向けの床で、1 島のツヤ(芯の 0.1〜数%)がグローバルには埋もれて OFF に
+            // なることがある。芯の中にハイライト署名(明部・低彩度・同色相)が実在するなら、それは
+            // 空間的に確認された本物の証拠なので ON にする。従来の ON は OFF にしない(証拠は
+            // 見落としを補うためのもの)。有害な場合は下の成長テストが従来どおり落とす。
+            int hlFloor = Mathf.Max(EvSheenMinCount,
+                Mathf.RoundToInt(coreList.Count * EvSheenMinFrac));
+            if (chromatic && (sheenCount >= hlFloor || hlCandidates >= hlFloor))
+                result.highlightRecovery = true;
+            Progress(0.58f);
+
+            // ── tolerance とトーン代表色: Analyze と同一の経路(DeriveToleranceAndTones) ──
+            // foreignCapped は下の補完ループで書き換わるので、閉ループ検証へはその後の値を渡す。
+            DeriveToleranceAndTones(pixels, width, height, aZone, clusterMask, maskW, maskH, hsv,
+                !chromatic, ct, report, NoProgress, ref result,
+                out bool foreignCapped, out int vConnHiBin);
+            Progress(0.68f);
+
+            // ── 4〜5c. 証拠ドメインからのゲート(陰影の明度下限・彩度天井・別パーツの彩度上限と色相幅) ──
+            // 下の補完ループ(BuildSimZone)がこの 4 つを読むので、ここ(補完の前)で導出する。
+            ApplyEvidenceGates(hsv, domain, domLoBin, domHiBin, chromatic, repS,
+                repApplied ? rep : zone.sampleColor, ref result);
+
+            // ── 2. 証拠による補完: 導出パラメータでセグメント芯(ドメイン)を覆えないなら、
+            //       未被覆部の代表色をサンプルへ足す(tolerance は上げない) ──
+            // 明度レンジの広い素材(実測: gold トリム)はクリック近傍窓のトーン抽出が明端の脱彩した
+            // 段を取りこぼし、tolerance でも届かない(残存島 2.4〜4.0%)。セグメント芯の実色を
+            // 足せば tolerance を上げずに覆える(実測: 島 0%)。tolerance の方を上げて覆う案は
+            // 隣接素材へ溢れたので採らない(skirt IoU −0.27)。
+            // 無彩地色では行わない(従来のトーン抽出と同じ理由: 背景の白/黒と色で分離できない。
+            // 実測: クリームの上衣で純白が足され、白パディングを塗って IoU 0.83→0.34)。
+            int added = 0;
+            float cov = chromatic
+                ? DomainCoverage(aZone, result, hsv, pixels, width, height, domain) : 1f;
+            int selGlobal = cov < EvCoverTarget
+                ? GlobalSelected(aZone, result, hsv, pixels, width, height, excluded, maskW, maskH) : 0;
+            while (cov < EvCoverTarget && added < EvMaxExtraSamples)
+            {
+                ct.ThrowIfCancellationRequested();
+                var sim = BuildSimZone(aZone, result);
+                sim.highlightRecovery = false;
+                var existing = result.autoSamples ?? new List<Color>();
+                if (!TryUncoveredRepresentative(sim, hsv, pixels, width, height, domain,
+                        rep, existing, out Color extra))
+                    break;
+                var trial = new List<Color>(existing) { extra };
+                float tolPrev = result.tolerance;
+                var samplesPrev = result.autoSamples;
+                bool fCapPrev = foreignCapped;
+                result.autoSamples = trial;
+                if (TryDeriveChromaticToleranceMulti(pixels, width, height, aZone,
+                        BuildSampleHSVs(aZone.sampleColor, trial), clusterMask, maskW, maskH, hsv,
+                        out float tolT, out bool fCapT))
+                {
+                    result.tolerance = tolT;
+                    foreignCapped = fCapT;
+                }
+                float covN = DomainCoverage(aZone, result, hsv, pixels, width, height, domain);
+                int selGlobalN = GlobalSelected(aZone, result, hsv, pixels, width, height,
+                    excluded, maskW, maskH);
+                // 溢れ判定: 全画面で増えた選択量 vs クリック島で新たに覆えた量 × パーツ多重度
+                float gainDomain = (covN - cov) * domain.Count;
+                float multiplicity = Mathf.Max(1f, selGlobal / Mathf.Max(1f, cov * domain.Count));
+                bool bleeds = (selGlobalN - selGlobal) > EvBleedK * multiplicity * gainDomain;
+                if (covN - cov < EvCoverGainMin || bleeds)
+                {
+                    // 足しても覆えない(ゲート棄却/異物)か、別素材へ溢れる → 元に戻して打ち切り
+                    result.autoSamples = samplesPrev;
+                    result.tolerance = tolPrev;
+                    foreignCapped = fCapPrev;
+                    break;
+                }
+                cov = covN;
+                selGlobal = selGlobalN;
+                added++;
+            }
+            Progress(0.78f);
+
+            // ── 6. tolerance の上限: 証拠ドメインを覆える最小値 × 余白 ──
+            float tolDerived = result.tolerance;
+            result.tolerance = BoundToleranceByEvidence(aZone, result, hsv, pixels, width, height,
+                domain, chromatic ? ChromaTolMin : AchromaTolMin);
+
+            // ── 閉ループ検証(従来と同じ全画面視点・同じ順序・同じ封印条件) ──
+            // 明部ツヤ救済(VerifyBrightSheenRecall)も従来どおり残す: 「やや脱彩・やや明るい」ツヤ
+            // (実測: 虹彩の反射 S≈0.3、V≈0.75)はハイライト補助の条件(V>0.80・彩度上限)にも
+            // 証拠ドメイン(ツヤ署名は除外)にも入らず、この救済だけが拾う。
+            RunClosedLoopVerification(pixels, width, height, aZone, excluded, maskW, maskH, hsv,
+                chromatic, foreignCapped, vConnHiBin, ct, report, 0.88f, NoProgress,
+                evidence, evW, evH, ref result);
+
+            result.normalizedSample = rep;
+            result.hasNormalizedSample = repApplied;
+            result.evidenceDiag =
+                $"core={coreList.Count} domain={domain.Count} sheen={sheenCount} hlCand={hlCandidates}"
+                + $" matFrac={materialFrac:F2} clickT={clickT:F2}"
+                + $" hlRec={result.highlightRecovery} samples={result.autoSamples?.Count ?? 0}"
+                + $" added={added} cov={cov:F4} tol={result.tolerance:F4}"
+                + $" vFloor={result.shadowValueFloor:F3} ceil={result.chromaCeiling:F3}"
+                + $" tolDerived={tolDerived:F4} partSat={result.partSatCeiling:F3} partHue={result.partHueBand:F3}"
+                + $" holeMargin={result.holeFillMargin:F2}" + snapDiag;
+            Progress(0.98f);
+
+            DecideGlobals(width, height, session, ref result);
+            CollectOverwrittenLabels(zone, session, ref result);
+            return result;
+        }
+
+        // 証拠ドメインの統計から後段のゲートを導出する(AnalyzeWithEvidence の手順 4〜5c)。
+        // result のうち shadowValueFloor / chromaCeiling / partSatCeiling / partHueBand / holeFillMargin だけを書く。
+        // hueRef: 別パーツの色相幅の基準(適用後にゾーンのサンプルになる色)。
+        private static void ApplyEvidenceGates(HsvGrid hsv, List<GridPt> domain, int domLoBin, int domHiBin,
+            bool chromatic, float repS, Color hueRef, ref TuneResult result)
+        {
+            // ── 4. 陰影の明度下限: 証拠ドメインの V 連結域の下端 − 余白 ──
+            // 連結域が確定しない/最下 bin まで続く(=この島の陰影が黒まで達する)ときは置かない。
+            // 適用は連結成分単位(PixelProcessor.ApplyConnectedComponentMask)なので、マッチャーの
+            // 閉ループ検証(BuildSimZone)や被覆確認(DomainCoverage)には影響しない。
+            if (chromatic && domLoBin > 0 && domHiBin >= domLoBin)
+            {
+                float loV = domLoBin / (float)AutoToneValueBins;
+                float hiV = (domHiBin + 1) / (float)AutoToneValueBins;
+                float floor = loV - (hiV - loV) * EvShadowFloorMarginFrac;
+                result.shadowValueFloor = floor >= ShadowValueFloorMin ? floor : 0f;
+            }
+
+            // ── 5. 彩度天井: 証拠ドメインの彩度包絡(P95)が自動の天井を超えるときだけ、余白つきで上書き ──
+            if (domain.Count >= MinNearSampleCount)
+            {
+                float envelope = DomainSaturationPercentile(hsv, domain, EvChromaCeilPercentile);
+                float envelopeCeil = envelope / (1f - EvChromaCeilHeadroomFrac);
+                if (!chromatic && envelope > ColorZone.EffectiveChromaCeiling(repS, 0f))
+                    result.chromaCeiling = Mathf.Min(1f, envelopeCeil);
+
+                // ── 5a. 穴埋めの余白: 証拠ドメインがあるときだけ(上の EvHoleFillMarginFrac 参照) ──
+                result.holeFillMargin = EvHoleFillMarginFrac;
+
+                // ── 5b. 別パーツの彩度上限: 同じ包絡 ÷ 余白を、連結成分単位の上限にする(有彩・無彩とも) ──
+                // 上限が 1 以上(包絡が飽和域に届く素材)なら落とせる成分が無いので置かない。
+                result.partSatCeiling = envelopeCeil < 1f ? envelopeCeil : 0f;
+
+                // ── 5c. 別パーツの色相幅(有彩のみ): 証拠ドメインの色相のずれの包絡 ÷ 余白、下限 ForeignGateMin ──
+                // 色相の基準(hueRef)は、適用後にゾーンのサンプルになる色(正規化が採用されれば地色、されなければクリック色)。
+                if (chromatic)
+                {
+                    Color.RGBToHSV(hueRef, out float gateH, out _, out _);
+                    float hueEnvelope = DomainHueDistancePercentile(hsv, domain, gateH, EvChromaCeilPercentile);
+                    result.partHueBand = Mathf.Max(ForeignGateMin,
+                        hueEnvelope / (1f - EvChromaCeilHeadroomFrac));
+                }
+            }
+        }
+
+        // ─────────────────── 証拠画素の収集/ドメイン/代表色 ───────────────────
+
+        // HSV 格子(stride 済み)上の証拠画素 index。gi = HsvGrid index。alpha < 128 と除外マスクは対象外。
+        private struct GridPt { public int x, y, gi; }
+
+        private static List<GridPt> CollectGridIndices(Color32[] pixels, int w, int h, HsvGrid hsv,
+            bool[] mask, int mW, int mH, bool[] excluded, int maskW, int maskH)
+        {
+            var list = new List<GridPt>();
+            int stride = hsv.stride;
+            for (int y = 0, gy = 0; y < h; y += stride, gy++)
+            {
+                int rowStart = y * w;
+                int grow = gy * hsv.gw;
+                for (int x = 0, gx = 0; x < w; x += stride, gx++)
+                {
+                    if (pixels[rowStart + x].a < PixelProcessor.OpaqueAlphaMin) continue;
+                    int mx = Mathf.Clamp(x * mW / w, 0, mW - 1);
+                    int my = Mathf.Clamp(y * mH / h, 0, mH - 1);
+                    if (!mask[my * mW + mx]) continue;
+                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
+                    list.Add(new GridPt { x = x, y = y, gi = grow + gx });
+                }
+            }
+            return list;
+        }
+
+        // 証拠ドメイン = 芯のうち「地色と同じ素材の同じ陰影ランプ」とみなせる画素。
+        // 代表色(トーンサンプル)はこのドメインから取る。落とすもの:
+        //   - ツヤ署名(脱彩+増明): highlightRecovery の担当(sheenCount で発火判定)
+        //   - 相対彩度床未満(有彩地色)/彩度上限超(無彩地色): 従来のクラスタ定義と同じ。
+        //     低彩度の暗部は全素材が共有する色なので代表色にすると別素材へ滲む(実測: 暗い
+        //     スカートの暗紺代表が黒コートを巻き込み precision 0.83→0.47)。深い影はシャドウ免除が拾う
+        //   - 色相帯の外(有彩地色): 同物体でも別素材(実測: 白衣装セグメント内の金トリム)
+        //   - V 連結域の外: 明度の空の谷の向こうは同物体でも別素材(実測: ゴーグル本体に対する
+        //     金属フレーム、黒コートに囲まれた白ビスチェ)。従来のトーン抽出と同じ判定
+        // hlCandidates は TryAnalyzePixels のハイライト候補と同条件(発火判定用)。
+        // loBin/hiBin: ドメインを確定した V 連結域(AutoToneValueBins 分割)。確定できなかった
+        // (ヒストグラム不能/連結域がキャンバス全域)ときは -1。
+        private static List<GridPt> BuildEvidenceDomain(HsvGrid hsv, List<GridPt> core,
+            float repH, float repS, float repV, out int sheenCount, out int hlCandidates,
+            out int loBinOut, out int hiBinOut)
+        {
+            sheenCount = 0;
+            hlCandidates = 0;
+            loBinOut = hiBinOut = -1;
+            bool chromatic = repS >= AchromaSampleSatMax;
+            float sheenSatCap = repS * EvSheenSatFrac;
+            float sheenValMin = repV + EvSheenValMargin;
+            float satFloor = repS * AutoToneSatFrac;
+            const int VB = AutoToneValueBins;
+            var vHist = new int[VB];
+            var pass = new List<GridPt>(core.Count);
+            foreach (var p in core)
+            {
+                float pH = hsv.h[p.gi], pS = hsv.s[p.gi], pV = hsv.v[p.gi];
+                if (pV > ColorZone.HighlightValueMin
+                    && pS < ColorZone.HighlightSaturationCeiling(repS)
+                    && HueDistance(pH, repH) < ColorZone.ForgivenessHueGate)
+                    hlCandidates++;
+                if (chromatic)
+                {
+                    if (pS < sheenSatCap && pV > sheenValMin) { sheenCount++; continue; }
+                    if (pS < satFloor) continue;
+                    if (HueDistance(pH, repH) >= AutoToneHueBand) continue;
+                }
+                else
+                {
+                    if (pS > AchromaClusterSatMax) continue;
+                }
+                vHist[Mathf.Clamp((int)(pV * VB), 0, VB - 1)]++;
+                pass.Add(p);
+            }
+            if (pass.Count == 0) return pass;
+            if (!TryConnectedValueRange(vHist, pass.Count, repV, out int loBin, out int hiBin))
+                return pass;
+            if (loBin == 0 && hiBin == VB - 1) return pass;
+            loBinOut = loBin;
+            hiBinOut = hiBin;
+            var domain = new List<GridPt>(pass.Count);
+            foreach (var p in pass)
+            {
+                int vb = Mathf.Clamp((int)(hsv.v[p.gi] * VB), 0, VB - 1);
+                if (vb >= loBin && vb <= hiBin) domain.Add(p);
+            }
+            return domain;
+        }
+
+        // 縁クリックの救済(定数「縁クリック(境界帯の混色)の救済」の説明を参照)。クリック(zone.sampleUV)が
+        // 証拠の中・芯の外(境界帯)にあり、その色が最寄りの芯の画素の色と無彩色の混色で説明できるとき、
+        // その芯の画素の色と位置を返す。core は統計に使った芯(細いセグメントで収縮しなかったときは証拠そのもの)。
+        private static bool TrySnapBoundaryClick(Color32[] pixels, int w, int h, ColorZone zone,
+            bool[] evidence, bool[] core, int evW, int evH, bool[] excluded, int maskW, int maskH,
+            out Color coreColor, out int coreX, out int coreY)
+        {
+            coreColor = zone.sampleColor;
+            coreX = coreY = -1;
+            if (!zone.HasSampleUV) return false;
+            PreviewCoords.UvToPixel(zone.sampleUV.x, zone.sampleUV.y, w, h, out int x, out int y);
+            int mx = Mathf.Clamp(x * evW / w, 0, evW - 1);
+            int my = Mathf.Clamp(y * evH / h, 0, evH - 1);
+            if (!evidence[my * evW + mx] || core[my * evW + mx]) return false;
+
+            // 境界帯の幅は収縮量 EvErodeR なので、最寄りの芯はこの範囲にある(無ければ寄せない)。
+            const int R = EvErodeR + 1;
+            int best = int.MaxValue, bx = -1, by = -1;
+            for (int dy = -R; dy <= R; dy++)
+            {
+                int qy = my + dy;
+                if (qy < 0 || qy >= evH) continue;
+                for (int dx = -R; dx <= R; dx++)
+                {
+                    int qx = mx + dx;
+                    if (qx < 0 || qx >= evW || !core[qy * evW + qx]) continue;
+                    int d2 = dx * dx + dy * dy;
+                    if (d2 < best) { best = d2; bx = qx; by = qy; }
+                }
+            }
+            if (bx < 0) return false;
+            int px = Mathf.Clamp(bx * w / evW, 0, w - 1);
+            int py = Mathf.Clamp(by * h / evH, 0, h - 1);
+            Color32 pc = pixels[py * w + px];
+            if (pc.a < PixelProcessor.OpaqueAlphaMin
+                || IsMaskExcluded(excluded, maskW, maskH, px, py, w, h)) return false;
+            var p = new Color(pc.r / 255f, pc.g / 255f, pc.b / 255f, 1f);
+            if (ColorDist(p, zone.sampleColor) < NormMinShift) return false; // 寄せても同じ色
+            if (!IsNeutralMixOf(zone.sampleColor, p)) return false;
+            coreColor = p;
+            coreX = px;
+            coreY = py;
+            return true;
+        }
+
+        // c が「p と無彩色(白・灰・黒)の混色」で説明できるか。無彩色を混ぜても灰色軸からのずれ(彩り)は
+        // 向きを変えずに 0〜1 倍へ縮むだけなので、c の彩りを p の彩りの 0〜1 倍で近似した残差を見る。
+        private static bool IsNeutralMixOf(Color c, Color p)
+        {
+            float cm = (c.r + c.g + c.b) / 3f, pm = (p.r + p.g + p.b) / 3f;
+            float cr = c.r - cm, cg = c.g - cm, cb = c.b - cm;
+            float pr = p.r - pm, pg = p.g - pm, pb = p.b - pm;
+            float pp = pr * pr + pg * pg + pb * pb;
+            float a = pp > 0f ? Mathf.Clamp01((cr * pr + cg * pg + cb * pb) / pp) : 0f;
+            float er = cr - a * pr, eg = cg - a * pg, eb = cb - a * pb;
+            return Mathf.Sqrt(er * er + eg * eg + eb * eb) * ColorZone.InvSqrt3 < NormMinShift;
+        }
+
+        // 証拠ドメインの彩度分布の指定パーセンタイル(彩度天井の導出用)。
+        private static float DomainSaturationPercentile(HsvGrid hsv, List<GridPt> domain, float pct)
+        {
+            const int SB = 256;
+            var bins = new int[SB];
+            foreach (var p in domain)
+                bins[Mathf.Clamp((int)(hsv.s[p.gi] * SB), 0, SB - 1)]++;
+            int target = Mathf.CeilToInt(domain.Count * pct), cum = 0;
+            for (int i = 0; i < SB; i++)
+            {
+                cum += bins[i];
+                if (cum >= target) return (i + 1) / (float)SB;
+            }
+            return 1f;
+        }
+
+        // 証拠ドメインの「基準の色相からのずれ」の指定パーセンタイル(別パーツの色相幅の導出用)。
+        private static float DomainHueDistancePercentile(HsvGrid hsv, List<GridPt> domain, float refH, float pct)
+        {
+            const int HB = 512;   // 色相距離 0..0.5 を 512 分割(1 bin ≈ 0.35°)
+            var bins = new int[HB];
+            foreach (var p in domain)
+                bins[Mathf.Clamp((int)(HueDistance(hsv.h[p.gi], refH) * 2f * HB), 0, HB - 1)]++;
+            int target = Mathf.CeilToInt(domain.Count * pct), cum = 0;
+            for (int i = 0; i < HB; i++)
+            {
+                cum += bins[i];
+                if (cum >= target) return (i + 1) / (2f * HB);
+            }
+            return 0.5f;
+        }
+
+        // 導出パラメータ(result)を実マッチャーに通し、証拠ドメインのうち選択される(strength > 0)
+        // 割合を返す。基底マッチのみ(ハイライト系は成長テストの管轄)。
+        private static float DomainCoverage(ColorZone aZone, in TuneResult result, HsvGrid hsv,
+            Color32[] pixels, int w, int h, List<GridPt> domain)
+        {
+            if (domain.Count == 0) return 1f;
+            var sim = BuildSimZone(aZone, result);
+            sim.highlightRecovery = false;
+            sim.UpdateCacheIfNeeded();
+            int sel = 0;
+            foreach (var p in domain)
+            {
+                Color32 c = pixels[p.y * w + p.x];
+                var col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
+                sim.GetMatchScoresPrecomputedHSV(hsv.h[p.gi], hsv.s[p.gi], hsv.v[p.gi], col,
+                    p.x, p.y, w, h, out float strength, out _, out _);
+                if (strength > 0f) sel++;
+            }
+            return sel / (float)domain.Count;
+        }
+
+        // 証拠ドメインの被覆(DomainCoverage)を導出値と同じに保てる最小の tolerance を二分探索し、
+        // その EvTolHeadroom 倍(下限 floor)と導出値の小さい方を返す。導出値は上げない。
+        // 被覆の「同じ」は EvCoverGainMin(追加サンプルの採否と同じ、意味のある被覆差の最小幅)まで許す。
+        private static float BoundToleranceByEvidence(ColorZone aZone, in TuneResult result, HsvGrid hsv,
+            Color32[] pixels, int w, int h, List<GridPt> domain, float floor)
+        {
+            float derived = result.tolerance;
+            if (domain.Count == 0 || derived <= floor) return derived;
+            float need = DomainCoverage(aZone, result, hsv, pixels, w, h, domain) - EvCoverGainMin;
+            var trial = result;
+            float lo = 0f, hi = derived;
+            for (int i = 0; i < EvTolBisectSteps; i++)
+            {
+                float mid = 0.5f * (lo + hi);
+                trial.tolerance = mid;
+                if (DomainCoverage(aZone, trial, hsv, pixels, w, h, domain) >= need) hi = mid;
+                else lo = mid;
+            }
+            return Mathf.Min(derived, Mathf.Max(floor, hi * EvTolHeadroom));
+        }
+
+        // sim で覆えていない証拠ドメイン画素のうち、最も多い V 帯の平均色を新サンプルとして返す。
+        // 既存サンプルと重複(EvDupSep 未満)するなら false(=これ以上足しても増えない)。
+        private static bool TryUncoveredRepresentative(ColorZone sim, HsvGrid hsv, Color32[] pixels,
+            int w, int h, List<GridPt> domain, Color primary, List<Color> existing, out Color rep)
+        {
+            const int VB = AutoToneValueBins;
+            var cnt = new int[VB];
+            // 和は double で持つ(float だと 8K・16K の大きい単色パーツで平均色が数階調ずれる)。
+            var sumR = new double[VB];
+            var sumG = new double[VB];
+            var sumB = new double[VB];
+            sim.UpdateCacheIfNeeded();
+            foreach (var p in domain)
+            {
+                Color32 c = pixels[p.y * w + p.x];
+                var col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
+                sim.GetMatchScoresPrecomputedHSV(hsv.h[p.gi], hsv.s[p.gi], hsv.v[p.gi], col,
+                    p.x, p.y, w, h, out float strength, out _, out _);
+                if (strength > 0f) continue;
+                int vb = Mathf.Clamp((int)(hsv.v[p.gi] * VB), 0, VB - 1);
+                cnt[vb]++; sumR[vb] += col.r; sumG[vb] += col.g; sumB[vb] += col.b;
+            }
+            int best = -1, bestCnt = 0;
+            for (int i = 0; i < VB; i++) if (cnt[i] > bestCnt) { bestCnt = cnt[i]; best = i; }
+            rep = primary;
+            int minCnt = Mathf.Max(EvUncoveredBinMinCount,
+                Mathf.RoundToInt(domain.Count * EvUncoveredBinMinFrac));
+            if (best < 0 || bestCnt < minCnt) return false;
+            double inv = 1.0 / bestCnt;
+            rep = new Color((float)(sumR[best] * inv), (float)(sumG[best] * inv), (float)(sumB[best] * inv), 1f);
+            if (ColorDist(rep, primary) < EvDupSep) return false;
+            foreach (var s in existing) if (ColorDist(rep, s) < EvDupSep) return false;
+            return true;
+        }
+
+        // 導出パラメータ(result)を実マッチャーに通し、全画面(不透明・非除外)で選択される画素数を
+        // 返す(HSV 格子上の数)。追加サンプルの溢れ判定に使う。基底マッチのみ。
+        private static int GlobalSelected(ColorZone aZone, in TuneResult result, HsvGrid hsv,
+            Color32[] pixels, int w, int h, bool[] excluded, int maskW, int maskH)
+        {
+            var sim = BuildSimZone(aZone, result);
+            sim.highlightRecovery = false;
+            sim.UpdateCacheIfNeeded();
+            int stride = hsv.stride;
+            int sel = 0;
+            for (int y = 0, gy = 0; y < h; y += stride, gy++)
+            {
+                int rowStart = y * w;
+                int grow = gy * hsv.gw;
+                for (int x = 0, gx = 0; x < w; x += stride, gx++)
+                {
+                    Color32 c = pixels[rowStart + x];
+                    if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
+                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
+                    int gi = grow + gx;
+                    var col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
+                    sim.GetMatchScoresPrecomputedHSV(hsv.h[gi], hsv.s[gi], hsv.v[gi], col,
+                        x, y, w, h, out float strength, out _, out _);
+                    if (strength > 0f) sel++;
+                }
+            }
+            return sel;
+        }
+
+        // ─────────────────── bool マスクの収縮(4 近傍) ───────────────────
+
+        private static bool[] ErodeMask(bool[] src, int w, int h, int r, CancellationToken ct)
+        {
+            var a = (bool[])src.Clone();
+            var b = new bool[w * h];
+            var po = new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism() };
+            for (int pass = 0; pass < r; pass++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var s = a; var d = b;
+                Parallel.For(0, h, po, y =>
+                {
+                    int row = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        bool c = s[row + x];
+                        bool l = x > 0 ? s[row + x - 1] : c;
+                        bool rr = x < w - 1 ? s[row + x + 1] : c;
+                        bool u = y > 0 ? s[row - w + x] : c;
+                        bool dn = y < h - 1 ? s[row + w + x] : c;
+                        d[row + x] = c && l && rr && u && dn;
+                    }
+                });
+                (a, b) = (b, a);
+            }
+            return a;
+        }
+    }
+}

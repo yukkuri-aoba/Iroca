@@ -1,0 +1,466 @@
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
+// Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace Iroca
+{
+    public enum SelectionMode
+    {
+        ColorPick,
+        Rect
+    }
+
+    [Serializable]
+    public partial class ColorZone
+    {
+        // ハイライト補助マッチで対象ピクセルとみなす「鏡面反射/ハイライトらしさ」の閾値。
+        // internal: ZoneAutoTuner のハイライト候補カウントが同じ条件をリテラルで再掲していたため共有。
+        internal const float HighlightValueMin = 0.80f;
+        internal const float HighlightSaturationMax = 0.20f;
+        // 高彩度サンプル(sS≈1.0 の塗り)ほど、ハイライトの塗り自体が完全な白ではなく
+        // 「本体色をやや脱彩した色」で表現されがち(実測: 高彩度の青い靴 sS=1.0 の
+        // ハイライトは S 0.2〜0.5 に分布し、絶対閾値 0.20 の外側に外れて高確率で取りこぼしていた)。
+        // 固定の絶対閾値だとサンプル自身が高彩度なときに閾値がハイライトの実分布より内側に
+        // 寄ってしまうため、サンプル彩度に比例した床を追加する(サンプル彩度に依存する統計量で、
+        // 特定キャラ・テクスチャへのハードコードではない)。低〜中彩度サンプルでは
+        // sS*Frac が絶対閾値を下回るため従来どおり 0.20 のまま(回帰なし)。
+        internal const float HighlightSaturationMaxSampleFrac = 0.5f;
+        private const float HighlightRelaxedSatMin = 0.02f;
+        private const float HighlightRelaxedSatRamp = 0.08f;
+
+        /// <summary>
+        /// ハイライト判定に使う彩度上限を、サンプル彩度に応じて動的に返す。
+        /// 高彩度サンプルほど「地色をやや脱彩しただけ」のハイライト塗りが遠くまで分布するため、
+        /// 絶対床 <see cref="HighlightSaturationMax"/> とサンプル比例床の大きい方を採る。
+        /// </summary>
+        internal static float HighlightSaturationCeiling(float sampleS)
+            => Mathf.Max(HighlightSaturationMax, sampleS * HighlightSaturationMaxSampleFrac);
+
+        // 選択済み判定の strength 床。PixelProcessor 側の後段ゲート
+        // (ApplyChromaCeilingGate / RecoverEnclosedNeutral / NeutralReject / SolidifyAchromaInterior)が
+        // それぞれローカル const 0.05f を持っていたため一本化(値の意味: これ以下は「未選択」扱い)。
+        internal const float MatchStrengthFloor = 0.05f;
+
+        // 彩度ガード: 源色が高彩度なときだけ作動し、対象ピクセルの彩度が
+        // 「源色 S × FractionScale × saturationGuard」を下回ったら hard reject する。
+        // 源色 S が ActiveSourceSat 未満（灰色寄り）のときは作動しない（自動無効）。
+        private const float SaturationGuardActiveSourceSat = 0.40f;
+        private const float SaturationGuardFractionScale = 0.30f;
+
+        // 彩度整合ゲート(グレー抽出モード専用): サンプルが微小な tint(sS)を持つとき、
+        // それより著しく中性(無彩)寄りの候補ピクセル(=純白 UV 背景など)を別マテリアルと
+        // みなし、サンプル彩度に対する相対床を下回る分だけ距離を加算してソフトに排除する。
+        // 純RGB距離だけでは、わずかに色の付いた地色(生成り・オフホワイトの布地など)と純白の距離が
+        // 極小(~0.03)になり、その素材の暗い側を拾うために tolerance を上げると純白まで巻き込む。
+        // 明度で見ると両者は隣接するが、tint の有無で見れば明確に分離できる。
+        // サンプル自身が真の無彩(sS≈0)なら作動せず=従来の純RGB距離挙動を完全維持。
+        // internal: 緩和マッチ経路(PixelProcessor.GetRelaxedMatchStrength)が同じ値を使うため共有する。
+        // かつては PixelProcessor 側に同名 const を複製していたが、二重管理で乖離の温床になるため一本化。
+        // 床には絶対上限 FloorCap を併置する。中性性は絶対量であり(圧縮ノイズ由来の偽 tint は
+        // S≈0.01 台、視認可能な tint は S≈0.02 以上)、相対床 sS*frac 単独だとサンプル彩度が
+        // 高めの無彩寄り素材(生成り・クリーム sS 0.05〜0.15)で床が 0.03〜0.08 まで上がり、
+        // その素材自身の脱彩部(白プリーツ・ハイライト、S 0.02〜0.05)まで「中性すぎ」と棄却して
+        // recall を壊す。S≥cap の画素は絶対的に tint を持つ=純白 UV 背景(S≲0.012)ではないので
+        // ペナルティ対象にしない。cap は ActivateSat と同じ「絶対中性境界」のスケール。
+        internal const float ChromaGateActivateSat = 0.02f; // この tint 未満のサンプルでは無効
+        internal const float ChromaGateFloorFrac = 0.5f;    // サンプル彩度 sS*frac 未満は「中性すぎ」
+        internal const float ChromaGateFloorCap = 0.02f;    // 床の絶対上限。これ以上の tint は中性扱いしない
+        internal const float ChromaGatePenalty = 1.0f;      // 最大加算距離(tolerance 単位)
+
+        // ── 彩度天井(グレーモード専用、彩度整合ゲートの鏡像) ──
+        // 無彩/微 tint サンプルの「素材彩度包絡」を大きく超える高彩度画素=染められた別素材
+        // (クリーム色の布等)を排除するための天井。無彩素材の濃淡・AA は彩度がサンプル近辺に
+        // 留まるのに対し、染められた別素材はサンプルよりはるかに高彩度になる、という非対称性
+        // で分離する。彩度整合ゲートが「サンプルより中性すぎる画素=UV 背景」を弾くのに対し、
+        // こちらは「サンプルより彩度が高すぎる画素=染めた別素材」を弾く。
+        // 天井は床ゲートと同じくサンプル相対(sS*Frac)と絶対床(Abs)の大きい方。
+        // 適用は 2 経路:
+        //   ・主経路: PixelProcessor.ApplyChromaCeilingGate が post-match の空間ゲートとして
+        //     適用(低彩度コア近傍の高彩度画素=素材自身の装飾は保護し、独立した別素材だけ落とす)。
+        //   ・緩和マッチ(穴埋め/境界回復): GetRelaxedMatchStrength 内で距離加算として適用し、
+        //     主経路で落とした別素材を復元経路から逆送しないようにする。
+        internal const float ChromaCeilSampleFrac = 3.0f; // 天井 = max(サンプル彩度×この倍率, 絶対床)
+        internal const float ChromaCeilAbs = 0.04f;       // 天井の絶対床(真の無彩サンプルでも作動)
+        internal const float ChromaCeilPenalty = 1.0f;    // 緩和マッチ側の最大加算距離(tolerance 単位)
+
+        // グレー抽出モードの AA 縁ソフトランプ床(tolerance 比)。edgeSoftness=0 だとグレーモードは
+        // 二値マッチになり AA 境界(地色↔背景の混色)も full strength に固まる→デコンタミ
+        // (0<s<thr で作動する α 再合成)が走らず、元の滑らかな AA が硬い段差に潰れる。地色コア
+        // (rgbDist が hardRange 未満)は full のまま、外側の混色帯に soft ramp を与えて partial
+        // strength にし、既存デコンタミが α·target+(1-α)·背景 を忠実復元できるようにする。
+        private const float AchromaEdgeSoftness = 0.7f;
+
+        // 連結成分アンカリング(flood fill)の「確信できる地色」の固定半径。matchConf はマッチ距離
+        // dist をこの半径で正規化した値(matchConf>0 ⟺ dist<CoreMatchDistance)で、FF はこの確信コアを
+        // 含む連結成分だけを残す。**tolerance ではなく固定半径**にするのが要点:
+        //   ・tolerance ≤ この半径(タイト) → 全マッチ画素が自動的にコア → FF は何も落とさない
+        //     (=取りこぼしゼロ。低 tolerance で正当画素が消える症状を防ぐ)
+        //   ・tolerance > この半径(ルーズ) → 色が半径より遠い過選択(別素材の滲み)だけが、確信コアを
+        //     持たない別成分として落ちる(=ノイズ除去)。確信コアに連結した陰影/AA は残る。
+        // コア判定が tolerance 非依存=安定になり、「tolerance を動かすと挙動が反転する」感覚を解消する。
+        // 値はテクスチャ非依存の色距離(ハイブリッド HSV/RGB, [0,1])で、複数被写体の sweep で確定。
+        private const float CoreMatchDistance = 0.14f;
+
+        // ── マッチング(MatchOneSample / CalculateHybridDistance)のしきい値定数 ──
+        // すべてテクスチャ非依存の比率/正規化係数。
+        // RGB 3 次元ユークリッド距離を [0,1] へ正規化する係数 1/√3(=単位立方体対角 √3 の逆数)。
+        // グレー抽出モードとハイブリッド距離の RGB 項で共用する。
+        // internal: PixelProcessor.RecoverEnclosedNeutral が「ゲートが無ければグレーモードで
+        // マッチしていたか」を同じ距離式で再現するため共有する(複製すると定数ドリフトの温床)。
+        internal const float InvSqrt3 = 0.57735027f;
+        // 同色相とみなすシャドウ/ハイライト免除の色相距離ゲート上限。これを超える色相差は別色として
+        // 免除しない(無関係色の巻き込み防止)。免除のオン/オフ判定とフェード分母の双方で使う。
+        // internal: ZoneAutoTuner の閉ループ検証(明部ツヤ判定)が同じ「同色相」定義を共有する
+        // (手動同期による定数ドリフトを避ける)。
+        internal const float ForgivenessHueGate = 0.15f;
+        // シャドウ免除を始める明度しきい(源色 V 比)。pV が sV×この値 未満なら「影」とみなす(25%
+        // デッドマージン)。1-この値(=0.25)が明部側ヘッドルーム HighlightValueHeadroomFrac の鏡像。
+        private const float ShadowValueThresholdFrac = 0.75f;
+        // ハイライト免除を始める明度ヘッドルーム(上方 1-sV に対する比)。ShadowValueThresholdFrac の
+        // 鏡像(0.25 = 1 - 0.75)で、明暗対称に免除を始める。
+        // internal: PixelProcessor.RecoverEnclosedHighlight が「本体の典型明度より明るい周囲(グロー)」の
+        // 判定に同じヘッドルーム比を使う(手動同期による定数ドリフトを避ける)。
+        internal const float HighlightValueHeadroomFrac = 0.25f;
+        // ハイライト経路の同色相帯 = max(Floor, tolerance×TolFrac)。復元マッチの hlHueCap・帯成長
+        // (PixelProcessor.GrowHighlightBand)・自動調整の閉ループ模擬(ZoneAutoTuner.VerifyHighlightRecoveryGrowth)
+        // が同じ帯を使う前提なので、式の係数を 1 か所で持つ(手動同期による定数ドリフトを避ける)。
+        internal const float HighlightHueCapFloor = 0.05f;
+        internal const float HighlightHueCapTolFrac = 0.3f;
+        // サンプルの chromaConfidence が 0→1 に立ち上がる彩度の幅(chromaThreshold から)。
+        // internal: PixelProcessor.RecoverEnclosedHighlight が「色相が完全に信用できる彩度」
+        // (chromaThreshold+この値)を彩度床に使う。
+        internal const float ChromaConfidenceSpan = 0.10f;
+        // シャドウ/ハイライト免除ランプの幅(利用可能レンジ比)。免除が 0→1 へ立ち上がる区間長。
+        // シャドウは sV×この値、ハイライトは (1-sV)×この値。
+        private const float ForgivenessRangeFrac = 0.6f;
+        // サンプル彩度に対してこの割合未満の画素は無彩寄りで、色相が信用できない(8bit の量子化で大きく振れる)。
+        // 自動調整のトーン抽出・証拠ドメインの彩度床(ZoneAutoTuner.AutoToneSatFrac)と、別パーツの色相幅
+        // (partHueBand)の「反証にしない画素」の判定で共有する。
+        internal const float HueReliableSatFrac = 0.35f;
+        // ハイブリッド距離のハイライト距離免除の下限係数(Lerp(1,この値))。同色相・明部で最大
+        // 1-0.3=70% まで距離を短縮する。シャドウ側距離短縮は廃止済み(暗部巻き込み防止)のため明部のみ
+        // 非対称に温存している。
+        private const float BrightDistanceForgivenessMin = 0.3f;
+        // グレー抽出モードの有効 chromaThreshold は源色 V で動的に決まる: sV=0 で BaseChromaThreshold、
+        // sV>=ChromaConfidenceRamp で zone.chromaThreshold に収束。暗い源色ほど色相/彩度が不安定なため
+        // グレーモード適用範囲を広げる。
+        // internal: 緩和マッチ経路(PixelProcessor.GetRelaxedMatchStrength)が主経路と同じ動的しきい値を
+        // 使うため共有する(以前は 0.30/0.20 を複製焼き込みしていた)。
+        internal const float GrayModeBaseChromaThreshold = 0.30f;
+        internal const float GrayModeChromaConfidenceRamp = 0.20f;
+        // グレー抽出モードで「暗い源色」とみなす V 上限。これ未満では無彩色の彩度(中立逸脱度)を距離
+        // 指標に混ぜ(輝度差があっても無彩なら同素材)、彩度整合ゲートの明部限定 gateWeight のフェード
+        // 区間 [0,この値] にも使う。
+        internal const float GrayModeDarkSampleValue = 0.3f; // internal: 緩和マッチ経路と共有(暗サンプル判定/gateWeight)
+        // 輝度盲対策: 暗サンプルのグレーモードは距離を彩度 pS へ寄せて輝度差を捨てるため、
+        // 純白(pS=0)まで距離0でマッチしていた。サンプルより「ヘッドルームを超えて明るい」画素へ
+        // 輝度超過ペナルティ (pV-sV-headroom)*weight を距離に加える。黒布の中間グレーハイライト
+        // (V ≲ sV+headroom)は無罰で拾い、純白/白装飾/UV 背景(超過大)だけを距離で弾く。
+        // weight は最暗サンプルでも AchromaTolMax(0.40)を超えて白を弾ける大きさ((1-headroom)*weight>0.40)。
+        internal const float GrayHighlightHeadroom = 0.55f;
+        internal const float GrayLumExcessWeight   = 1.2f;
+
+        public string name = "Zone";
+        public bool enabled = true;
+        public SelectionMode mode = SelectionMode.ColorPick;
+
+        public Color sampleColor = Color.white;
+        // ユーザーがサンプルカラーを実際に指定したか。既定の白を「未指定センチネル」として
+        // 扱うと、白い服・白髪など「色替え対象が白」という正当なケースまで自動調整不可になる。
+        // スポイトやカラーフィールドで色を取った瞬間に true にし、明示的な白選択を未指定と区別する。
+        public bool sampleColorSet = false;
+        public float tolerance = 0f;
+
+        // マルチサンプル選択用の内部サンプル（暗部／中間／明部の代表色）。空＝単一サンプルと等価。
+        // ★ユーザーが手で追加するものではない★ — 自動調整（ZoneAutoTuner.DeriveAutoTonalSamples）が
+        // スポイト1点から「同色相パーツのトーン分布」を走査して自動生成し、TuneResult.ApplyTo が設定する。
+        // 単一サンプル＋大きな許容範囲は濃淡を覆おうとして隣接パーツまで巻き込みやすい（誤爆の主因）。
+        // 代わりにパーツの濃い所・薄い所の代表色を中心とした小さな許容範囲の「和集合」でパーツ全体を
+        // 捉えることで、precision（はみ出し低減）と recall（取りこぼし低減）を同時に高める。
+        //   sampleColor   … 主サンプル（スポイト点）。再着色アンカー（＝出力色マッピング）に使う。
+        //   extraSamples  … 自動生成の内部サンプル。選択（マッチング）だけを広げ、出力色には影響しない。
+        // 出力を主サンプル基準に固定するのは autoRecolorAnchor と同じ「選択と出力の分離」方針に沿う。
+        public List<Color> extraSamples = new List<Color>();
+
+        public Rect uvRect = new Rect(0, 0, 1, 1);
+
+        // Flood Fill（連続領域モード／連結成分アンカリング）: ColorPick モードで有効。
+        // 既定 ON＝標準挙動。確信度の高い芯を含む連結領域だけに変換を絞り込み、物理的に離れた
+        // 同色パーツや背景へのにじみ（誤爆）を自動除去する。シード不要の自動アンカリングが既定で、
+        // クリーンな tolerance では OFF と出力ビット等価（効くのは tolerance を盛りすぎた時）。
+        // 通常モードのトグルで OFF に戻せる。
+        public bool useFloodFill = true;
+        // シード点のUV座標（0-1）。負値 = 未設定
+        public Vector2 seedUV = new Vector2(-1f, -1f);
+
+        // スポイトでサンプル色を取ったプレビュー上の UV（下原点、0-1）。負値 = 未設定。
+        // 自動調整が AI マスク提案（SAM）のセグメントを「その場の証拠」として取る位置
+        // （ZoneAutoTuner.AnalyzeWithEvidence）。選択では、連続領域モードの包絡ゲート
+        // （shadowValueFloor / partSatCeiling / partHueBand）が「この位置を含む連結成分は落とさない」
+        // ためにだけ使う（PixelProcessor.ApplyConnectedComponentMask）。ゲートの値はこの位置の島から
+        // 導いたものなので、クリックした場所そのものが外れるのを防ぐ。選択キーに含める。
+        // シリアライズして Undo とセッション（テクスチャ単位）に載せる: sampleColor と必ず対で
+        // 書き戻るので、Undo/Redo・ゾーン削除の Undo で位置だけが消えたり古い色と食い違ったり
+        // しない（以前は NonSerialized で Undo 後に色の食い違いから無効化していたが、Redo で
+        // 色だけ戻って位置が失われた）。テクスチャ固有の位置なのでプリセットには載せない
+        // （IrocaPresetData.WithoutSamplePositions / DropSamplePositions）。
+        // カラーフィールドで色を変えたら UI 側が無効化する。
+        public Vector2 sampleUV = new Vector2(-1f, -1f);
+        public bool HasSampleUV => sampleUV.x >= 0f;
+        public void ClearSampleUV() => sampleUV = new Vector2(-1f, -1f);
+        // スポイト位置が選択結果に効く状態か（包絡ゲートのどれかが有効な連続領域モード）。
+        // 位置だけを変えたときにプレビューを作り直すかどうかの判定に使う。
+        internal bool SelectionUsesSampleUV =>
+            useFloodFill && (shadowValueFloor > 0f || partSatCeiling > 0f || partHueBand > 0f);
+
+        public Color targetColor = Color.white;
+        // ユーザーが変更先カラーを実際に指定したか（sampleColorSet と同じく、既定の白と「白を選んだ」を
+        // 区別する）。UI の手順案内（変更先を選ぶ → 自動調整）にだけ使い、選択・再着色は参照しない。
+        public bool targetColorSet = false;
+
+        [Range(0f, 1f)]
+        public float valueBlend = 1f;
+
+        // 出力彩度スケール（1.0=従来の鮮やかさ維持）。1.0未満で再着色後の彩度を比例的に下げ、
+        // 純色 target でも明度グラデーション（立体感）が出るようにする。
+        [Range(0f, 1f)]
+        public float outputSaturation = 1f;
+
+        [Range(0f, 1f)]
+        public float edgeSoftness = 0f;
+
+        [Range(0f, 1f)]
+        public float saturationStrictness = 0.50f;
+
+        [Range(0f, 1f)]
+        public float valueWeight = 1.0f;
+
+        [Range(0f, 1f)]
+        public float satDistWeight = 0.15f;
+
+        [Range(0.01f, 0.5f)]
+        public float satRampScale = 0.10f;
+
+        [Range(0f, 1f)]
+        public float shadowDesaturation = 0.35f;
+
+        [Range(0f, 1f)]
+        public float shadowForgivenessSatMin = 0.05f;
+
+        // 陰影の明度下限(0 = 無効)。有彩サンプルのマッチは「画素の彩度がサンプル以上なら明度差を
+        // 見ない」(CalculateHybridDistance の vDist×(1−sRatio))ため、同色相で暗いだけの別部位
+        // (桃ベージュの上衣に対する暗紫のジャケット、肌に対する舌・まつ毛)が陰影として無制限に
+        // 巻き込まれる。**画素単位ではなく連結成分単位**で効く: 選択の連結成分のうち、この明度に
+        // 達する画素を 1 つも持たない(=全体がこの素材の陰影レンジより暗い)成分を落とす
+        // (PixelProcessor.ApplyConnectedComponentMask)。画素単位で切ると、クリックした島より深い
+        // 陰影を持つ同素材(衣装の深い影)まで落として recall が下がった(実測で衣装の再現率 −5.4pt)。
+        // 本体に地続きの深い影は残り、離れた暗い別パーツだけが落ちる。連続領域モード(useFloodFill)
+        // でのみ効く。証拠つき自動調整がクリックした島(AI 提案セグメント)に実在する明度レンジから
+        // 導く(ZoneAutoTuner.Evidence.cs)。手動でも使える。
+        [Range(0f, 1f)]
+        public float shadowValueFloor = 0f;
+
+        // 別パーツの彩度上限(0 = 無効)。陰影の明度下限の対になる連結成分単位のゲート: 選択の連結成分の
+        // うち、彩度がこの値以下の画素が 1/4 に満たない(=全体がこの素材の彩度の広がりより鮮やかな)成分を
+        // 落とす(PixelProcessor.ApplyConnectedComponentMask)。色の近い、より鮮やかな別パーツ(濃い灰の
+        // パンツに対するこげ茶のブーツ、こげ茶のブーツに対する赤いバンダナ)は、明部免除や広めの tolerance を
+        // 通って成分ごと入る。画素単位で切ると素材自身の鮮やかな陰影・装飾まで落とす(彩度天井を証拠の包絡へ
+        // 下げる案は淡色の上衣で再現率 −0.04)ので、成分の大半が上限を超えるときだけ落とす。
+        // 連続領域モード(useFloodFill)でのみ効く。証拠つき自動調整がクリックした島(AI 提案セグメント)に
+        // 実在する彩度包絡から導く(ZoneAutoTuner.Evidence.cs)。手動でも使える。
+        [Range(0f, 1f)]
+        public float partSatCeiling = 0f;
+
+        // 別パーツの色相幅(0 = 無効、有彩サンプルのみ)。明度下限・彩度上限と同じ連結成分単位のゲート:
+        // 選択の連結成分のうち、色相がサンプル色相から ±この幅に入る画素が 1/4 に満たない成分を落とす。
+        // マッチ距離は色相・彩度・明度の合算なので、tolerance の範囲で色相だけが少しずれた別パーツ
+        // (こげ茶のブーツに対する灰色がかったパンツ、紺の瞳に対する紫の影、格子柄のスカートに対する
+        // 別の布)が成分ごと入る。彩度が低く色相が不安定な画素(サンプル彩度 × HueReliableSatFrac 未満)は
+        // 反証にしない(帯の内側として数える)ので、素材自身の脱彩したツヤや深い影の成分は落ちない。
+        // 連続領域モード(useFloodFill)・有彩サンプルでのみ効く(グレーモードの色相は不定)。
+        // 証拠つき自動調整がクリックした島に実在する色相の広がりから導く(ZoneAutoTuner.Evidence.cs)。
+        [Range(0f, 0.5f)]
+        public float partHueBand = 0f;
+
+        // 彩度天井(グレーモード専用、0 = 自動)。無彩/微 tint サンプルの選択から、サンプル彩度の
+        // ChromaCeilSampleFrac 倍(下限 ChromaCeilAbs)を超える高彩度画素を「染められた別素材」として
+        // 落とす後段ゲート(PixelProcessor.ApplyChromaCeilingGate)の天井を上書きする。白い布の青みが
+        // かった陰のように、素材自身の陰影が地色の何倍もの tint を持つと自動の天井では陰が丸ごと
+        // 落ちる(実測: 白い布の明部クリックで再現率 0.60〜0.66、陰の S 0.07〜0.14 に対し
+        // 天井 0.05)。証拠つき自動調整がクリックした島(AI 提案セグメント)に実在する彩度包絡から導き、
+        // 自動の天井より高いときだけ入れる(ZoneAutoTuner.Evidence.cs)。手動でも使える。
+        [Range(0f, 1f)]
+        public float chromaCeiling = 0f;
+
+        // 穴埋めの余白(tolerance に対する比、0 = 余白なし)。選択に囲まれた小さな穴を埋めてよいかの
+        // 判定(穴埋めの緩和マッチ)だけを tolerance × (1 + この値) で行う。布の明るい所や柄の光の周りの
+        // ように、素材の色が許容範囲の境目をまたぐ所では、画素ごとのノイズで選ぶ・選ばないが交互になり、
+        // 元の色の点が点々と残る(穴埋めも主マッチと同じ境目で弾いていた)。境界回復と主マッチは変えない
+        // ので、囲まれていない画素は広がらない。証拠つき自動調整が入れる(ZoneAutoTuner.Evidence.cs)。
+        // 手動の許容範囲では 0 のまま: 許容範囲を広く取ると別の部位が穴だらけに選ばれ、デコンタミが
+        // 縁として元の色へ戻すので目立たない。穴を埋めるとそれが塊として表に出る(実測: 生成りの布)。
+        [Range(0f, 1f)]
+        public float holeFillMargin = 0f;
+
+        [Range(0f, 1f)]
+        public float chromaThreshold = 0.05f;
+
+        [Range(0f, 1f)]
+        public float saturationGuard = 0f;
+
+        public bool highlightRecovery = true;
+        public bool highlightBandExpand = true;
+        // 【シミュレーション専用】ハイライト(明部)の距離免除・彩度ゲート免除を無効化する。
+        // ZoneAutoTuner の閉ループ検証が「免除経路だけで選択される画素」を切り分けて数える
+        // ために使う。製品 UI からは変更されず常に false(=免除有効)。シリアライズ対象外。
+        [System.NonSerialized] internal bool simDisableBrightForgiveness = false;
+        // ハイライト白寄せ合成: 明部(明度>サンプル)を「wash→白 軸」へ射影し、鏡面ハイライトを
+        // 表現する。既定 OFF（オプトイン）。OFF のときは OkLab 再着色のみで、明部の
+        // 明度・彩度構造はそのまま温存される。ON でも有彩の模様は軸残差フェードで保護され、
+        // 軸上の真の鏡面のみが白寄せされる。
+        public bool applyHighlightWash = false;
+        // 俯瞰スポイト補正: ハイライト白寄せ合成(applyHighlightWash)用サンプルの明度を、テクスチャの
+        // 地色まで自動で下げる配下オプション。明るい光沢部をスポイトしても鏡面グラデが潰れない。
+        // match/base は不変＝再着色範囲は変えない。applyHighlightWash が ON のときだけ作用する。
+        // 既定 OFF。房の多いテクスチャ（髪など）では OFF が望ましいことがある。
+        public bool autoHighlightSample = false;
+        // サンプル自動補正(再着色アンカー正規化): OkLab 再着色のアンカー (sL, sC) を、スポイト
+        // 画素ではなくマッチ領域の統計(明部の地色)から自動推定する。スポイトを陰影のどの明るさで
+        // 取ってもパーツの明部が target 色に一致する(サンプル位置非依存)。マッチング・wash は
+        // スポイト色のまま＝再着色範囲は不変。既定 ON(オプトアウト): 影をスポイトしても出力が過度に
+        // 明るく/ベタ塗りにならないよう、位置非依存で代表地色を target 明度へ合わせる。クリック
+        // 画素を厳密に target 色へ当てたい/意図的に明るく塗りたいゾーンだけ OFF にする。旧プリセット
+        // JSON で明示保存された値は尊重(マイグレーションなし)。フィールド欠落の旧 JSON は新既定 true。
+        public bool autoRecolorAnchor = true;
+        // [非推奨] 旧: 処理順を表す数値。現在は「リストの並び順＝優先度(先頭が最優先)」に
+        // 変更したため未使用。古いプリセット JSON の後方互換のためフィールドのみ残す
+        // (PresetsView.MigrateLegacyLayerPriority が読み込み時に一度だけ降順移行に使用)。
+        public int layerIndex = 0;
+        public string id = "";
+
+        // ゾーンカードの「詳細設定」折りたたみ状態（UI 専用・非永続）。既定 false＝畳む。
+        // 通常モードで詳細パラメータをゾーンごとに畳んで初見の圧を下げるために使う。
+        // データ・プリセット JSON には残さないため [NonSerialized]（ドメインリロードで畳みへ戻る）。
+        [NonSerialized] public bool detailFoldout = false;
+
+        /// <summary>
+        /// ユーザーがサンプルカラーを明示的に指定したか。既定の白（＝未指定センチネル）と、
+        /// 「白を意図的に選んだ」正当なケースを区別して自動調整の可否などに使う。
+        /// フラグを持たない旧データとの後方互換のため、非白なら指定済みとみなす。
+        /// </summary>
+        public bool HasSampleColor => sampleColorSet || sampleColor != Color.white;
+
+        /// <summary>
+        /// ユーザーが変更先カラーを指定したか。旧データ（フラグなし）は非白なら指定済みとみなす。
+        /// </summary>
+        public bool HasTargetColor => targetColorSet || targetColor != Color.white;
+
+        [NonSerialized] private bool _cacheInitiated = false;
+        [NonSerialized] private Color _cSampleColor;
+        [NonSerialized] private float _cTolerance, _cSatStrictness, _cSatRampScale, _cEdgeSoftness;
+        [NonSerialized] private float _cSaturationGuard;
+        // chromaThreshold も派生値(SampleCache.chromaConfidence)の入力なので無効化判定に要る。
+        // ここに載せ忘れると「値は変えたのに派生値だけ古い」不整合になる（UpdateCacheIfNeeded 参照）。
+        [NonSerialized] private float _cChromaThreshold;
+        // 遅延キャッシュ構築(ColorZone.Match の安全網)を直列化するゲート。Unity の逆シリアライズで
+        // フィールド初期化子が走らない可能性があるため、初期化子ではなく遅延生成する。
+        [NonSerialized] private object _cacheGate;
+        // extraSamples の内容が変わった場合にキャッシュを再構築するためのスナップショット。
+        [NonSerialized] private Color[] _cExtraSamples;
+
+        // サンプルごとに変わる派生値（HSV・彩度ゲート床など）。マルチサンプルでは
+        // サンプル数ぶんの配列を持ち、マッチングは全サンプルの最大強度を採る（和集合）。
+        // ゾーン全体で共通の値（tolerance・各 range・重み・chromaThreshold 等）は
+        // インスタンスフィールドのまま保持する。
+        private struct SampleCache
+        {
+            public Color color;
+            public float sH, sS, sV;       // サンプル色の HSV
+            public float satMin, satRamp;
+            public float chromaConfidence;
+            public float saturationGuardFloor; // 0=無効。pS がこの値未満なら hard reject。
+
+            // ── 以下は MatchOneSample が毎画素で再計算していたサンプル定数 ──
+            // マッチは「全画素 × 全ゾーン × 全サンプル」で回る最ホットループ(4K・4 サンプルで
+            // 6700 万回)なので、サンプル色にしか依存しない値をここへ畳む。式と演算順は元の
+            // インライン計算と一字一句同じで、除算は除算のまま残す(逆数化は丸めが変わる)ため
+            // 出力はビット不変。
+            public bool  isGrayMode;       // sS <= GrayModeEffectiveChromaThreshold(sV, chromaThreshold)
+            public bool  isDarkGray;       // sV < GrayModeDarkSampleValue(暗サンプルの明側許容)
+            public float darknessFactor;   // Clamp01((GrayModeDarkSampleValue - sV) / GrayModeDarkSampleValue)
+            public bool  grayGateActive;   // sS > ChromaGateActivateSat(彩度整合ゲートが作動するか)
+            public float grayGateWeight;   // Clamp01(sV / GrayModeDarkSampleValue)
+            public float graySatFloor;     // Min(sS * ChromaGateFloorFrac, ChromaGateFloorCap)
+            public float graySatFloorDen;  // Max(graySatFloor, 1e-4f)
+            public float shadowVThreshold; // sV * ShadowValueThresholdFrac
+            public float shadowRangeDen;   // sV * ForgivenessRangeFrac
+            public float brightThreshold;  // sV + (1 - sV) * HighlightValueHeadroomFrac
+            public float brightRangeDen;   // Max(0.01f, (1 - sV) * ForgivenessRangeFrac)
+        }
+        [NonSerialized] private SampleCache[] _sampleCaches;
+
+        [NonSerialized] private float softRange, hardRange;
+        [NonSerialized] private float hlHueCap;
+        // グレーモードの AA 縁レンジと hueRelevance の分母。どちらも tolerance/edgeSoftness/
+        // chromaThreshold だけに依存する(いずれも UpdateCacheIfNeeded の無効化条件に入っている)。
+        [NonSerialized] private float aaSoftRange, aaHardRange;
+        [NonSerialized] private float chromaThresholdFloor;
+
+        public void EnsureId()
+        {
+            if (string.IsNullOrEmpty(id))
+                id = Guid.NewGuid().ToString();
+        }
+
+        /// <summary>
+        /// このゾーンのコピーを返します。
+        /// [NonSerialized] のキャッシュフィールドもコピーされますが、
+        /// 値の変更は UpdateCacheIfNeeded で再計算されるため安全です。
+        /// extraSamples は可変リストなので、クローン間で共有しないよう深いコピーにし、
+        /// キャッシュのスナップショット参照も切り離して各クローンが独立に再計算するようにします。
+        /// </summary>
+        public ColorZone Clone()
+        {
+            var c = (ColorZone)MemberwiseClone();
+            c.extraSamples = (extraSamples != null) ? new List<Color>(extraSamples) : new List<Color>();
+            c._cExtraSamples = null;
+            c._sampleCaches = null;
+            c._cacheInitiated = false;
+            return c;
+        }
+
+        /// <summary>
+        /// 再着色とマッチングの詳細チューニングだけを既定値へ戻します。
+        /// ユーザーの明示的な選択（名前・id・有効状態・モード・サンプル/変更先カラー・
+        /// 許容範囲）は保持し、上級モードで触る細かいパラメータのみリセットします。
+        /// 試行錯誤で詳細値を壊したときに、ゾーンを作り直さずに復旧できるようにするためのもの。
+        /// </summary>
+        public void ResetTuningToDefault()
+        {
+            var d = new ColorZone();
+            valueBlend              = d.valueBlend;
+            outputSaturation        = d.outputSaturation;
+            edgeSoftness            = d.edgeSoftness;
+            saturationStrictness    = d.saturationStrictness;
+            saturationGuard         = d.saturationGuard;
+            highlightRecovery       = d.highlightRecovery;
+            highlightBandExpand     = d.highlightBandExpand;
+            applyHighlightWash      = d.applyHighlightWash;
+            autoHighlightSample     = d.autoHighlightSample;
+            autoRecolorAnchor       = d.autoRecolorAnchor;
+            shadowDesaturation      = d.shadowDesaturation;
+            shadowForgivenessSatMin = d.shadowForgivenessSatMin;
+            shadowValueFloor        = d.shadowValueFloor;
+            partSatCeiling          = d.partSatCeiling;
+            partHueBand             = d.partHueBand;
+            chromaCeiling           = d.chromaCeiling;
+            holeFillMargin          = d.holeFillMargin;
+            chromaThreshold         = d.chromaThreshold;
+            valueWeight             = d.valueWeight;
+            satDistWeight           = d.satDistWeight;
+            satRampScale            = d.satRampScale;
+        }
+    }
+}

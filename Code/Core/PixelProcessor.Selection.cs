@@ -1,0 +1,1086 @@
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
+// Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System;
+using System.Buffers;
+using System.Collections.Generic;
+using System.Text;
+using System.Threading;
+using System.Diagnostics;
+using System.Threading.Tasks;
+using UnityEngine;
+
+namespace Iroca
+{
+    internal static partial class PixelProcessor
+    {
+        /// <summary>
+        /// 分離型ボックス和フィルタ。各ピクセル位置で (2r+1)×(2r+1) 窓内の合計を dst に書き込む
+        /// （境界はゼロ拡張：画像外の寄与を 0 として無視）。スライディングウィンドウで O(N) で計算。
+        /// 内部 temp バッファは ArrayPool から借用・返却するのでヒープアロケーションなし。
+        /// dst は呼び出し元が事前に確保すること（ArrayPool.Rent 推奨）。
+        ///
+        /// bbox 未指定(boxMaxX&lt;0)なら全画素。指定時は dst をその矩形内だけ埋める(GaussianBlur と
+        /// 同じ形)。src は矩形を r だけ広げた範囲 [boxMinX-r, boxMaxX+r]×[boxMinY-r, boxMaxY+r] が
+        /// 正しく用意されていれば足り、その外は読まれない。
+        /// 矩形指定時はスライディング和の開始位置が変わるため、加算順序が全画素版と一致するのは
+        /// **src が整数値(0..255 のバイト値 / 0-1 マスク)で窓和が float の整数精度に収まる**用途に限る
+        /// (現在の呼び出し元はすべてこれを満たす)。その場合は丸め差が原理的に生じず出力ビット不変。
+        /// </summary>
+        private static void BoxFilterSum(float[] src, float[] dst, int w, int h, int r, CancellationToken ct = default,
+            int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1)
+        {
+            int len = w * h;
+            if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
+            float[] temp = s_floatPool.Rent(len);
+            var filterPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            try
+            {
+                // 水平パス。垂直パスが読む行は [boxMinY-r, boxMaxY+r] なので、その行範囲だけ作る。
+                int hMinY = Mathf.Max(0, boxMinY - r);
+                int hMaxY = Mathf.Min(h - 1, boxMaxY + r);
+                Parallel.For(hMinY, hMaxY + 1, filterPo, y =>
+                {
+                    int rowOff = y * w;
+                    float sum = 0f;
+                    int initBeg = Mathf.Max(0, boxMinX - r);
+                    int initEnd = Mathf.Min(w - 1, boxMinX + r);
+                    for (int k = initBeg; k <= initEnd; k++) sum += src[rowOff + k];
+                    temp[rowOff + boxMinX] = sum;
+                    for (int x = boxMinX + 1; x <= boxMaxX; x++)
+                    {
+                        int subIdx = x - 1 - r;
+                        int addIdx = x + r;
+                        if (subIdx >= 0) sum -= src[rowOff + subIdx];
+                        if (addIdx < w) sum += src[rowOff + addIdx];
+                        temp[rowOff + x] = sum;
+                    }
+                });
+
+                // 垂直パス。1 反復 = 1 列の縦走査だと、4K ではストライド 16KB でキャッシュラインの
+                // 1/16 しか使えない。VBlock 列ぶんの走査和をまとめて持ち行方向に進むことで、1 行の
+                // アクセスが連続 16 要素(=1 キャッシュライン)になる。各列の加算順序は従来と同一
+                // (初期窓を昇順に加算 → 行ごとに sub → add)なので出力ビット不変。
+                const int VBlock = 16;
+                int blockCount = (boxMaxX - boxMinX + VBlock) / VBlock;
+                Parallel.For(0, blockCount, filterPo, bi =>
+                {
+                    int xs = boxMinX + bi * VBlock;
+                    int xe = Mathf.Min(xs + VBlock - 1, boxMaxX);
+                    var sums = new float[VBlock];
+                    int initBeg = Mathf.Max(0, boxMinY - r);
+                    int initEnd = Mathf.Min(h - 1, boxMinY + r);
+                    for (int k = initBeg; k <= initEnd; k++)
+                    {
+                        int krb = k * w;
+                        for (int x = xs; x <= xe; x++) sums[x - xs] += temp[krb + x];
+                    }
+                    int drb = boxMinY * w;
+                    for (int x = xs; x <= xe; x++) dst[drb + x] = sums[x - xs];
+                    for (int y = boxMinY + 1; y <= boxMaxY; y++)
+                    {
+                        int subIdx = y - 1 - r;
+                        int addIdx = y + r;
+                        if (subIdx >= 0)
+                        {
+                            int srb = subIdx * w;
+                            for (int x = xs; x <= xe; x++) sums[x - xs] -= temp[srb + x];
+                        }
+                        if (addIdx < h)
+                        {
+                            int arb = addIdx * w;
+                            for (int x = xs; x <= xe; x++) sums[x - xs] += temp[arb + x];
+                        }
+                        int yrb = y * w;
+                        for (int x = xs; x <= xe; x++) dst[yrb + x] = sums[x - xs];
+                    }
+                });
+            }
+            finally
+            {
+                s_floatPool.Return(temp);
+            }
+        }
+
+        /// <summary>
+        /// ガウシアンブラーを src に適用して dst に書き込む。
+        /// 内部 temp バッファは ArrayPool から借用・返却するのでヒープアロケーションなし。
+        /// dst は呼び出し元が事前に確保すること（ArrayPool.Rent 推奨）。
+        /// radius &lt; 1 のとき何もしない（dst は未定義のまま）。
+        /// 戻り値: ブラー処理を行った場合 true、スキップした場合 false。
+        /// </summary>
+        private static bool GaussianBlur(float[] src, float[] dst, int w, int h, float sigma,
+            int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1,
+            CancellationToken ct = default)
+        {
+            int radius = Mathf.CeilToInt(sigma * GaussianRadiusPerSigma);
+            if (radius < 1) return false;
+
+            float[] kernel = new float[radius * 2 + 1];
+            float kernelSum = 0f;
+            for (int i = -radius; i <= radius; i++)
+            {
+                kernel[i + radius] = Mathf.Exp(-(i * i) / (2f * sigma * sigma));
+                kernelSum += kernel[i + radius];
+            }
+            for (int i = 0; i < kernel.Length; i++)
+                kernel[i] /= kernelSum;
+
+            int len = w * h;
+            // bbox 未指定(boxMaxX<0)なら全画素。指定時はその矩形内だけブラーする(P2-7)。矩形は
+            // 呼び出し側が「src の非0 が矩形より radius 以上内側」を保証するため、矩形外の真のブラー出力は
+            // 常に 0。dst を全クリアしておけば矩形内だけ計算しても全画素ブラーと出力ビット一致する。
+            if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
+
+            float[] temp = s_floatPool.Rent(len);
+            var gaussPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            try
+            {
+                Array.Clear(dst, 0, len);   // 矩形外は 0(全画素ブラーの src=0 領域と一致)
+                // 垂直パスが読む行は [boxMinY-radius, boxMaxY+radius] なので、水平パスはその行範囲ぶん
+                // 上下に広げて temp を用意する(列は矩形のまま。垂直は矩形列しか読まない)。
+                int hMinY = Mathf.Max(0, boxMinY - radius);
+                int hMaxY = Mathf.Min(h - 1, boxMaxY + radius);
+                Parallel.For(hMinY, hMaxY + 1, gaussPo, y =>
+                {
+                    int rb = y * w;
+                    for (int x = boxMinX; x <= boxMaxX; x++)
+                    {
+                        float val = 0f;
+                        for (int k = -radius; k <= radius; k++)
+                        {
+                            int nx = Mathf.Clamp(x + k, 0, w - 1);
+                            val += src[rb + nx] * kernel[k + radius];
+                        }
+                        temp[rb + x] = val;
+                    }
+                });
+
+                Parallel.For(boxMinY, boxMaxY + 1, gaussPo, y =>
+                {
+                    int rb = y * w;
+                    for (int x = boxMinX; x <= boxMaxX; x++)
+                    {
+                        float val = 0f;
+                        for (int k = -radius; k <= radius; k++)
+                        {
+                            int ny = Mathf.Clamp(y + k, 0, h - 1);
+                            val += temp[ny * w + x] * kernel[k + radius];
+                        }
+                        dst[rb + x] = val;
+                    }
+                });
+            }
+            finally
+            {
+                s_floatPool.Return(temp);
+            }
+            return true;
+        }
+
+        private static void ConstrainBlur(float[] blurred, float[] original, int w, int h, int radius, CancellationToken ct = default)
+        {
+            // マッチがなかった領域へのブラーの流出を防止。
+            // original > 0 を float マスクに変換して BoxFilterSum に流すことで
+            // 近傍チェックを O(N·r²) から O(N) に削減。
+            int len = w * h;
+            float[] mask = null, neighborSum = null;
+            try
+            {
+                mask = s_floatPool.Rent(len);
+                neighborSum = s_floatPool.Rent(len);
+                // 行並列(要素独立・自 index 書き込みのみ=出力ビット不変)。per-index デリゲートを避ける。
+                var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+                var maskL = mask;
+                Parallel.For(0, h, po, y =>
+                {
+                    int rowOff = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        maskL[i] = original[i] > 0f ? 1f : 0f;
+                    }
+                });
+
+                BoxFilterSum(mask, neighborSum, w, h, radius, ct);
+
+                var neighborSumL = neighborSum;
+                Parallel.For(0, h, po, y =>
+                {
+                    int rowOff = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        if (original[i] > 0f) continue;
+                        if (neighborSumL[i] <= 0f)
+                            blurred[i] = 0f;
+                    }
+                });
+            }
+            finally
+            {
+                if (neighborSum != null) s_floatPool.Return(neighborSum);
+                if (mask        != null) s_floatPool.Return(mask);
+            }
+        }
+
+        /// <summary>
+        /// strength &gt; thr かつ α&gt;=128 の画素を囲むバウンディングボックスを求める。
+        /// 連結成分系(連結成分アンカリング / 成分別 L マップ)が「連結予測子」と同じ条件で使う共通版。
+        /// 行ごとに独立に求めた min/max をマージするだけなので、逐次走査と結果は同一(順序非依存)。
+        /// </summary>
+        /// <returns>該当画素が 1 つ以上あれば true。</returns>
+        private static bool TryComputeMatchedBBox(float[] strength, Color32[] px, int w, int h, float thr,
+            out int minX, out int minY, out int maxX, out int maxY, CancellationToken ct = default)
+        {
+            int lminX = w, lmaxX = -1, lminY = h, lmaxY = -1;
+            object gate = new object();
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            Parallel.For(0, h, po,
+                () => (minX: w, maxX: -1, minY: h, maxY: -1),
+                (y, _, loc) =>
+                {
+                    int rb = y * w;
+                    for (int x = 0; x < w; x++)
+                        if (strength[rb + x] > thr && px[rb + x].a >= OpaqueAlphaMin)
+                        {
+                            if (x < loc.minX) loc.minX = x;
+                            if (x > loc.maxX) loc.maxX = x;
+                            if (y < loc.minY) loc.minY = y;
+                            if (y > loc.maxY) loc.maxY = y;
+                        }
+                    return loc;
+                },
+                loc =>
+                {
+                    lock (gate)
+                    {
+                        if (loc.minX < lminX) lminX = loc.minX;
+                        if (loc.maxX > lmaxX) lmaxX = loc.maxX;
+                        if (loc.minY < lminY) lminY = loc.minY;
+                        if (loc.maxY > lmaxY) lmaxY = loc.maxY;
+                    }
+                });
+            minX = lminX; minY = lminY; maxX = lmaxX; maxY = lmaxY;
+            return lmaxX >= 0;
+        }
+
+        /// <summary>
+        /// strength &gt; thr の画素を囲むバウンディングボックス(min/max)を求める。
+        /// 後段パス(穴埋め/境界回復/ブラー)を実マッチ範囲＋余白に限定し、全画素走査を避けるために使う。
+        /// </summary>
+        /// <returns>マッチ画素が 1 つ以上あれば true(false のとき bbox は空で、後段パスは no-op)。</returns>
+        private static bool TryComputeStrengthBBox(float[] strength, int w, int h, float thr,
+            out int minX, out int minY, out int maxX, out int maxY, CancellationToken ct = default)
+        {
+            // 行ごとに独立に求めた min/max をマージするだけなので順序非依存(逐次走査と同一結果)。
+            // 4K では全画素走査なので、単スレッドのままだと後段 bbox の算出自体が無視できない。
+            int lminX = w, lmaxX = -1, lminY = h, lmaxY = -1;
+            object gate = new object();
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            Parallel.For(0, h, po,
+                () => (minX: w, maxX: -1, minY: h, maxY: -1),
+                (y, _, loc) =>
+                {
+                    int rb = y * w;
+                    int rowMinX = -1, rowMaxX = -1;
+                    for (int x = 0; x < w; x++)
+                    {
+                        if (strength[rb + x] > thr)
+                        {
+                            if (rowMinX < 0) rowMinX = x;
+                            rowMaxX = x;
+                        }
+                    }
+                    if (rowMaxX >= 0)
+                    {
+                        if (rowMinX < loc.minX) loc.minX = rowMinX;
+                        if (rowMaxX > loc.maxX) loc.maxX = rowMaxX;
+                        if (y < loc.minY) loc.minY = y;
+                        if (y > loc.maxY) loc.maxY = y;
+                    }
+                    return loc;
+                },
+                loc =>
+                {
+                    lock (gate)
+                    {
+                        if (loc.minX < lminX) lminX = loc.minX;
+                        if (loc.maxX > lmaxX) lmaxX = loc.maxX;
+                        if (loc.minY < lminY) lminY = loc.minY;
+                        if (loc.maxY > lmaxY) lmaxY = loc.maxY;
+                    }
+                });
+            minX = lminX; minY = lminY; maxX = lmaxX; maxY = lmaxY;
+            return lmaxX >= 0;
+        }
+
+        /// <summary>
+        /// 形態学的フィル：ゼロ強度のピクセルがマッチした隣接ピクセルの多数派に囲まれていれば
+        /// 最小隣接強度で埋める。
+        /// これにより、satConfidenceゲートを通過するに低い彩度を持つアンチエイリアス処理された
+        /// 端のピクセルが原因の孤立した1-2pxドットアーティファクトを除去します。
+        /// パス数と最小隣接数はアドバンスモードで調整可能。
+        /// </summary>
+        /// <remarks>
+        /// 各パスはパス開始時の状態を読み、書き込みはパスの終わりにまとめる(旧: 二重バッファ)。
+        /// </remarks>
+        private const int QuantSmoothLevels = 1;
+
+        /// <summary>
+        /// 色の照合に使う、量子化をならした色: 自分と 8 近傍のうち RGBA の各チャネルが QuantSmoothLevels 階調以内の
+        /// 画素の平均。ごく暗い・色の薄い画素は 1 階調で HSV の色相・彩度が大きく動き、同じ布の中で照合が画素ごとに
+        /// ばらつく(元の色の点が残る・別部位に点々と入る)。量子化の誤差でしか違わない隣と平均してから HSV を求める。
+        /// 違う色の隣は混ぜないので境界はぼけない。近傍がどれも自分と同じ色なら false(元の色のまま)。
+        /// </summary>
+        private static bool TryQuantSmoothedColor(Color32[] px, int x, int y, int w, int h, float tolerance,
+            out Color color)
+        {
+            Color32 c = px[y * w + x];
+            // 1 階調で HSV の彩度が許容幅以上に動く(彩度の刻み 1/(255·V) > tolerance)ほど暗い画素だけ
+            int vmax = Math.Max(c.r, Math.Max(c.g, c.b));
+            if (vmax * tolerance >= 1f)
+            {
+                color = default;
+                return false;
+            }
+            int sr = 0, sg = 0, sb = 0, n = 0;
+            bool differs = false;
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                int ny = y + dy;
+                if (ny < 0 || ny >= h) continue;
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    int nx = x + dx;
+                    if (nx < 0 || nx >= w) continue;
+                    Color32 q = px[ny * w + nx];
+                    if (Math.Abs(q.r - c.r) > QuantSmoothLevels || Math.Abs(q.g - c.g) > QuantSmoothLevels
+                        || Math.Abs(q.b - c.b) > QuantSmoothLevels || Math.Abs(q.a - c.a) > QuantSmoothLevels)
+                        continue;
+                    sr += q.r; sg += q.g; sb += q.b; n++;
+                    if (q.r != c.r || q.g != c.g || q.b != c.b) differs = true;
+                }
+            }
+            if (!differs)
+            {
+                color = default;
+                return false;
+            }
+            float inv = 1f / (255f * n);
+            color = new Color(sr * inv, sg * inv, sb * inv, c.a / 255f);
+            return true;
+        }
+
+        private static void FillSmallHoles(float[] strength, int w, int h,
+            int passes, int minNeighbors, bool[] allowedMask,
+            int boxMinX, int boxMinY, int boxMaxX, int boxMaxY,
+            CancellationToken ct)
+        {
+            if (passes <= 0) return;
+            // minNeighbors<=0 だと「matched>=0 かつ total>=0」が常に真になり、relaxed 許可領域
+            // 全体が毎パス埋まる（プリセット JSON 由来の 0 で到達し得た。レビュー §4 低）。
+            // 8 近傍のうち最低 1 つは一致していることを要求し、上限も近傍数で頭打ちにする。
+            minNeighbors = Mathf.Clamp(minNeighbors, 1, 8);
+
+            // bbox 未指定(boxMaxX<0)なら全画素。指定時はその矩形内だけ近傍走査する(P2-7)。
+            // 矩形外は呼び出し側が「処理前後とも 0」を保証するので走査を省いても出力ビット不変。
+            if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
+
+            var fillPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+
+            // 1 パス = 「未選択(!(s > 0))で許可された画素のうち、8 近傍の選択済み(s > 0)が minNeighbors 以上
+            // (かつ画像内の近傍数も minNeighbors 以上)の画素」を、選択済みの近傍の最小値(上限 1)で埋める。
+            // 読むのはパス開始時の状態。パス 2 以降に新しく埋まり得るのは、直前のパスで埋まった画素の隣だけ
+            // (それ以外の画素は読む近傍が前のパスと同じなので、前のパスと同じく埋まらない)。そこで最初の
+            // パスだけ矩形を走査し、以降は直前のパスで埋めた画素の隣だけを調べる。書き込みはパスの終わりに
+            // まとめるので、旧実装(二重バッファで矩形全体を毎パス走査)と同じ値になる。
+            bool TryFill(int x, int y, out float value)
+            {
+                int matched = 0;
+                int total = 0;
+                float minNeighbour = 1f;
+                for (int dy = -1; dy <= 1; dy++)
+                {
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        if (dx == 0 && dy == 0) continue;
+                        int nx = x + dx, ny = y + dy;
+                        if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+                        total++;
+                        float ns = strength[ny * w + nx];
+                        if (ns > 0f)
+                        {
+                            matched++;
+                            if (ns < minNeighbour) minNeighbour = ns;
+                        }
+                    }
+                }
+                value = minNeighbour;
+                return matched >= minNeighbors && total >= minNeighbors;
+            }
+
+            // パス 1: 矩形を走査。選択済みの近傍の数は、列ごとの上下 3 画素の個数を左右 3 列で足して数える
+            // (中央の画素自身は未選択なので含めても同じ)。足りる画素だけ近傍を読んで最小値を求める。
+            var found = new List<(int idx, float v)[]>();
+            var foundLock = new object();
+            Parallel.For(boxMinY, boxMaxY + 1, fillPo,
+                () => (col: new int[boxMaxX - boxMinX + 3], hits: new List<(int, float)>()),
+                (y, _, local) =>
+                {
+                    int[] col = local.col;
+                    int rb = y * w;
+                    int cx0 = Math.Max(0, boxMinX - 1), cx1 = Math.Min(w - 1, boxMaxX + 1);
+                    Array.Clear(col, 0, col.Length);
+                    for (int x = cx0; x <= cx1; x++)
+                    {
+                        int n = strength[rb + x] > 0f ? 1 : 0;
+                        if (y > 0 && strength[rb - w + x] > 0f) n++;
+                        if (y < h - 1 && strength[rb + w + x] > 0f) n++;
+                        col[x - boxMinX + 1] = n;
+                    }
+                    for (int x = boxMinX; x <= boxMaxX; x++)
+                    {
+                        int idx = rb + x;
+                        if (strength[idx] > 0f) continue;
+                        // relaxed ゲート: 画素自身が relaxed マッチを通る色でなければ埋めない。
+                        // マッチ領域に囲まれただけの背景グレー/白を full strength に塗らないことで、
+                        // 薄いロゴ周辺のフリンジ(白/灰ノイズ)を構造的に防ぐ。
+                        if (allowedMask != null && !allowedMask[idx]) continue;
+                        int c = x - boxMinX + 1;
+                        if (col[c - 1] + col[c] + col[c + 1] < minNeighbors) continue;
+                        if (TryFill(x, y, out float v)) local.hits.Add((idx, v));
+                    }
+                    return local;
+                },
+                local => { if (local.hits.Count > 0) lock (foundLock) found.Add(local.hits.ToArray()); });
+
+            // パスの書き込みをまとめて行い、埋めた画素を次のパスの起点にする。同じ画素が複数の起点から
+            // 見つかっても値は同じ(パス開始時の近傍だけで決まる)なので、最初の 1 回だけ書く。
+            var frontier = new List<int>();
+            void Apply()
+            {
+                frontier.Clear();
+                foreach (var arr in found)
+                    foreach (var (idx, v) in arr)
+                    {
+                        if (strength[idx] > 0f) continue;
+                        strength[idx] = v;
+                        frontier.Add(idx);
+                    }
+                found.Clear();
+            }
+            Apply();
+
+            for (int pass = 1; pass < passes && frontier.Count > 0; pass++)
+            {
+                ct.ThrowIfCancellationRequested();
+                int[] fr = frontier.ToArray();
+                const int Chunk = 4096;
+                int nChunks = (fr.Length + Chunk - 1) / Chunk;
+                Parallel.For(0, nChunks, fillPo, () => new List<(int, float)>(), (ci, _, hits) =>
+                {
+                    int k1 = Math.Min(fr.Length, (ci + 1) * Chunk);
+                    for (int k = ci * Chunk; k < k1; k++)
+                    {
+                        int q = fr[k];
+                        int qy = q / w, qx = q - qy * w;
+                        int ny0 = Math.Max(boxMinY, qy - 1), ny1 = Math.Min(boxMaxY, qy + 1);
+                        int nx0 = Math.Max(boxMinX, qx - 1), nx1 = Math.Min(boxMaxX, qx + 1);
+                        for (int ny = ny0; ny <= ny1; ny++)
+                            for (int nx = nx0; nx <= nx1; nx++)
+                            {
+                                int idx = ny * w + nx;
+                                if (strength[idx] > 0f) continue;   // q 自身も(埋まったので)ここで外れる
+                                if (allowedMask != null && !allowedMask[idx]) continue;
+                                if (TryFill(nx, ny, out float v)) hits.Add((idx, v));
+                            }
+                    }
+                    return hits;
+                },
+                hits => { if (hits.Count > 0) lock (foundLock) found.Add(hits.ToArray()); });
+                Apply();
+            }
+        }
+
+        // 彩度天井ゲート(グレーモード専用)のコア近接保護半径。この px 以内に低彩度コアが
+        // ある高彩度画素は「素材自身の装飾/陰影」(クリーム素材のピンク縫い取りや濃い目の
+        // シェーディング帯、三角の頂点ハイライト等)とみなして除去しない。手描きテクスチャの
+        // 陰影グラデ帯・先端の装飾はコアの地色から数 px〜10px 規模で連続するため、帯を覆える
+        // 幅(実測で GT 高彩度画素の 99%+ をカバー)に置く。独立した別素材はコアから
+        // 数十〜数百 px 離れているため、この半径では保護されない。
+        private const int ChromaCeilProtectRadius = 12;
+
+        /// <summary>
+        /// 彩度天井ゲート(グレーモード専用・コア近接保護付き)を post-match に適用する。
+        /// 無彩/微 tint サンプルの彩度包絡(ceil=max(sS*ChromaCeilSampleFrac, ChromaCeilAbs))を
+        /// 超える高彩度画素のうち、低彩度コア(strength>0.05 かつ pS&lt;ceil)から
+        /// ChromaCeilProtectRadius px より遠いものを strength(と matchConf)から除去する。
+        /// 白い布をスポイトしたときクリーム色のワンピース等の別素材が巻き込まれるのを防ぐ。
+        /// 素材自身の高彩度ディテール(三角のピンク角・濃い陰影帯等)は低彩度コアに隣接する
+        /// ため保護される。除去は部分強度への格下げでなく 0 へのハード除去とする
+        /// (部分強度は出力を中途半端な明るさにし、陰影相関 form_fidelity を壊すことが判明)。
+        /// matchConf も除去しないと flood fill が「確信コアを含む成分」として別素材を保持する。
+        /// 保護はコアからの 4 近傍 dilation を 1 回限りで行い、保護の連鎖はしない。
+        /// </summary>
+        private static void ApplyChromaCeilingGate(
+            float[] strength, float[] matchConf, PixelHsv hsv,
+            float sS, float sV, float chromaThreshold, float chromaCeiling,
+            int w, int h, CancellationToken ct = default)
+        {
+            float[] pixS = hsv.S; int[] pixIdx = hsv.Index;
+            // グレーモード判定は ColorZone.MatchOneSample / GetRelaxedMatchStrength と共有ヘルパー。
+            float effectiveChromaThreshold = ColorZone.GrayModeEffectiveChromaThreshold(sV, chromaThreshold);
+            if (sS > effectiveChromaThreshold) return;   // 有彩サンプル=グレーモードではない
+
+            float satCeil = ColorZone.EffectiveChromaCeiling(sS, chromaCeiling);
+
+            const float matchThr = ColorZone.MatchStrengthFloor;  // コア判定の strength 床(NeutralReject と同じ)
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+
+            // bbox 限定(出力ビット不変): 除去が起こり得るのは strength>0 の画素だけなので
+            // 対象は strength の bbox 内に限られる。保護領域の種(低彩度コア)は
+            // 「strength>matchThr」= これも bbox 内。分離型 L1 距離変換は経路でなく
+            // 「全種への最小 L1 距離」を直接求めるので、bbox の外を走査に含めなくても
+            // bbox 内の距離は厳密に正しい。よって窓 = strength bbox で足りる。
+            if (!TryComputeStrengthBBox(strength, w, h, 0f,
+                    out int bx0, out int by0, out int bx1, out int by1, ct))
+                return;   // マッチ皆無 → 除去対象なし
+            int bw = bx1 - bx0 + 1, bh = by1 - by0 + 1;
+            int bwh = bw * bh;
+
+            // 4 近傍 dilation を R 回 = 「種からのマンハッタン(L1)距離 ≤ R」と厳密に等価。
+            // 旧実装は全画素 × R(=12)パスの dilation を回していたが、分離型 L1 距離変換なら
+            // 行パス + 列パスの実質 4 スイープで同じ集合が得られる(結果は集合として同一
+            // = 出力ビット不変)。
+            const int R = ChromaCeilProtectRadius;
+            const int Inf = 1 << 28;
+            int[] dist = s_intPool.Rent(bwh);
+            try
+            {
+                // 低彩度コアを種に行パス(行内 1D 距離)。同時に保護候補(高彩度画素)の有無を調べる。
+                // anyHigh を bbox 内だけで見ても結果は同じ: bbox 外は strength=0 で除去対象外なので、
+                // bbox 外にしか高彩度画素が無い場合は旧実装も 1 画素も除去しない。
+                bool anyHigh = false;
+                Parallel.For(0, bh, po, ly =>
+                {
+                    int lrb = ly * bw;
+                    int grb = (ly + by0) * w + bx0;
+                    bool localHigh = false;
+                    int run = Inf;
+                    for (int lx = 0; lx < bw; lx++)
+                    {
+                        int gi = grb + lx;
+                        float ps = pixS[HsvSlot(pixIdx, gi)];
+                        if (ps >= satCeil) localHigh = true;
+                        if (strength[gi] > matchThr && ps < satCeil) { run = 0; dist[lrb + lx] = 0; }
+                        else { if (run < Inf) run++; dist[lrb + lx] = run; }
+                    }
+                    run = Inf;
+                    for (int lx = bw - 1; lx >= 0; lx--)
+                    {
+                        int li = lrb + lx;
+                        if (dist[li] == 0) { run = 0; continue; }
+                        if (run < Inf) run++;
+                        if (run < dist[li]) dist[li] = run;
+                    }
+                    if (localHigh) anyHigh = true;
+                });
+                if (!anyHigh) return;
+
+                // 列パス: x を並列度ぶんの連続レンジに分けて y 前進/後退走査(行メジャーで連続アクセス)
+                int dop = Mathf.Max(1, po.MaxDegreeOfParallelism);
+                int chunk = (bw + dop - 1) / dop;
+                Parallel.For(0, dop, po, p =>
+                {
+                    int lx0 = p * chunk, lx1 = Math.Min(bw, lx0 + chunk);
+                    if (lx0 >= lx1) return;
+                    for (int ly = 1; ly < bh; ly++)
+                    {
+                        int cur = ly * bw, prev = cur - bw;
+                        for (int lx = lx0; lx < lx1; lx++)
+                        {
+                            int v = dist[prev + lx] + 1;
+                            if (v < dist[cur + lx]) dist[cur + lx] = v;
+                        }
+                    }
+                    for (int ly = bh - 2; ly >= 0; ly--)
+                    {
+                        int cur = ly * bw, next = cur + bw;
+                        for (int lx = lx0; lx < lx1; lx++)
+                        {
+                            int v = dist[next + lx] + 1;
+                            if (v < dist[cur + lx]) dist[cur + lx] = v;
+                        }
+                    }
+                });
+
+                // 保護領域(L1 距離 ≤ R)外の高彩度選択画素を除去(別素材)。matchConf も除去しないと
+                // flood fill が「確信コアを含む成分」として別素材を保持してしまう。
+                Parallel.For(0, bh, po, ly =>
+                {
+                    int lrb = ly * bw;
+                    int grb = (ly + by0) * w + bx0;
+                    for (int lx = 0; lx < bw; lx++)
+                    {
+                        int gi = grb + lx;
+                        if (dist[lrb + lx] > R && pixS[HsvSlot(pixIdx, gi)] >= satCeil && strength[gi] > 0f)
+                        {
+                            strength[gi] = 0f;
+                            if (matchConf != null) matchConf[gi] = 0f;
+                        }
+                    }
+                });
+            }
+            finally
+            {
+                s_intPool.Return(dist);
+            }
+        }
+
+        /// <summary>
+        /// 彩度整合ゲートが落とした「素材自身の純白ツヤ」を空間的に復帰させる(グレーモード専用)。
+        ///
+        /// 彩度整合ゲート(ColorZone.Match の床ゲート)は、サンプルより著しく中性な画素=純白の
+        /// UV パディングを別マテリアルとみなし距離加算で落とす。これは実測で有効(アトラス被写体では
+        /// パディングへの巻き込みが false positive の 0.0〜0.9% に収まる)一方、生成り/オフホワイトの
+        /// 布のように **素材自身のツヤが純白へ脱彩する** 場合、そのハイライトも同じ色になるため
+        /// 巻き添えで落ちる(実測: 白衣装の recall 0.665)。両者は色が完全に同一なので、色空間の
+        /// どのしきい値でも分離できない。
+        ///
+        /// 唯一残る非対称性は空間にある。パディングは画像端まで繋がった開領域だが、素材のツヤは
+        /// 選択済みの地色に囲まれた閉領域である。そこで未選択画素を画像端から辿り、届かなかった
+        /// 閉領域のうち「ゲートが落としたはずの画素」だけを戻す。ApplyChromaCeilingGate
+        /// (コア近接保護付きの空間ゲート)の鏡像で、判定は連結性とサンプル相対の色量のみ=
+        /// 特定キャラ・色・座標には依存しない。
+        ///
+        /// 復帰対象は「ゲートが無ければマッチしていたはず」の画素に限る:
+        ///   ・未選択(strength &lt;= matchThr)
+        ///   ・彩度がゲートの床未満(= ゲートがペナルティを課した画素)
+        ///   ・グレーモードの素の RGB 距離が tolerance 以内(= 距離加算だけが棄却の理由だった)
+        /// 部分強度でなく full strength で戻す(部分強度は出力を中途半端な明るさにして陰影相関を
+        /// 壊す、という ApplyChromaCeilingGate と同じ理由)。
+        ///
+        /// 連結性は大域演算なので **フル画像経路でのみ**呼ぶこと(呼び出し側で担保)。部分クロップで
+        /// 走らせるとクロップ境界に接した閉領域が開領域と誤判定される。
+        /// </summary>
+        private static void RecoverEnclosedNeutral(
+            float[] strength, float[] matchConf, PixelHsv hsv, Color32[] pixels,
+            Color sampleColor, float tolerance, float sS, float sV, float chromaThreshold,
+            int w, int h, CancellationToken ct = default)
+        {
+            float[] pixS = hsv.S; int[] pixIdx = hsv.Index;
+            // グレーモード判定は ColorZone.MatchOneSample / ApplyChromaCeilingGate と共有ヘルパー。
+            float effectiveChromaThreshold = ColorZone.GrayModeEffectiveChromaThreshold(sV, chromaThreshold);
+            if (sS > effectiveChromaThreshold) return;   // 有彩サンプル=グレーモードではない
+            // 彩度整合ゲートが作動しないサンプル(真の無彩)では打ち消す対象が無い。
+            if (sS <= ColorZone.ChromaGateActivateSat) return;
+            // 暗いサンプルではゲート重みがフェードし、距離指標も pS 側へ lerp されるため
+            // 素の RGB 距離では「ゲートが無ければマッチしたか」を再現できない。対象外。
+            if (sV < ColorZone.GrayModeDarkSampleValue) return;
+
+            float satFloor = Mathf.Min(sS * ColorZone.ChromaGateFloorFrac, ColorZone.ChromaGateFloorCap);
+            float sr = sampleColor.r, sg = sampleColor.g, sb = sampleColor.b;
+
+            int len = w * h;
+            const float matchThr = ColorZone.MatchStrengthFloor;   // 未選択判定(ApplyChromaCeilingGate と同じ床)
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            bool[] free = s_boolPool.Rent(len);   // 未選択=開領域を辿れる画素
+            bool[] open = s_boolPool.Rent(len);   // 画像端から到達できた未選択画素
+            try
+            {
+                bool anyCandidate = false;
+                Parallel.For(0, h, po, y =>
+                {
+                    int rowOff = y * w;
+                    bool local = false;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        bool f = strength[i] <= matchThr;
+                        free[i] = f;
+                        open[i] = false;
+                        if (f && pixS[HsvSlot(pixIdx, i)] < satFloor) local = true;
+                    }
+                    if (local) anyCandidate = true;
+                });
+                if (!anyCandidate) return;
+
+                // 画像端の未選択画素を種に、未選択画素だけを 4 近傍で伝播させる(開領域 = open)。
+                // 探索本体は閉領域ハイライト復帰(RecoverEnclosedHighlight)と共有する。
+                MarkOpenFromBorder(free, open, w, h, ct);
+
+                // 閉領域(画像端から到達できなかった未選択画素)のうち、ゲートが落としたはずの
+                // 中性画素を full strength で戻す。
+                Parallel.For(0, h, po, y =>
+                {
+                    int rowOff = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        if (!free[i] || open[i]) continue;
+                        if (pixS[HsvSlot(pixIdx, i)] >= satFloor) continue;
+                        Color32 c = pixels[i];
+                        float dr = c.r / 255f - sr, dg = c.g / 255f - sg, db = c.b / 255f - sb;
+                        float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * ColorZone.InvSqrt3;
+                        if (rgbDist > tolerance) continue;   // ゲート以外の理由で外れていた画素
+                        strength[i] = 1f;
+                        if (matchConf != null) matchConf[i] = 1f;
+                    }
+                });
+            }
+            finally
+            {
+                s_boolPool.Return(free);
+                s_boolPool.Return(open);
+            }
+        }
+
+        /// <summary>
+        /// 画像端の未選択画素(free)を種に、未選択画素だけを 4 近傍で伝播させ、到達できた画素を open に
+        /// 立てる(open = 開領域。free ∧ !open が「選択に囲まれた閉領域」)。open は呼び出し側が全 false に
+        /// 初期化しておく。閉領域復帰(RecoverEnclosedNeutral / RecoverEnclosedHighlight)が共有する。
+        ///
+        /// 旧実装(RecoverEnclosedNeutral 内)は前方/後方のラスタスイープ対を最大 24 回
+        /// まわして到達集合を近似していた(全画素を毎スイープ 2 回、単スレッド)。ここでは画像端に触れる
+        /// free の連結成分を行 run + union-find で求めて塗る。結果は同じ伝播規則の**不動点そのもの**(辿る
+        /// 順序に依存しない)で、スイープが収束(changed=false)して終わった場合の結果と完全に一致し、反復上限で
+        /// 打ち切られていた場合だけ「本来到達できるはずの画素」が追加で開領域になる(= 打ち切りの取りこぼしが
+        /// 無くなる方向。復帰は閉領域限定なので過剰復帰は起きない)。
+        /// </summary>
+        private static void MarkOpenFromBorder(bool[] free, bool[] open, int w, int h, CancellationToken ct)
+        {
+            // 画像端の free 画素から 4 近傍で辿れる free 画素の集合は、辿る順序に依存しない。行 run +
+            // union-find の連結成分で「画像端に触れる成分」を求め、その run を塗る(旧: 単一スレッドの
+            // 深さ優先探索で背景全体=数百万画素を辿っていた)。
+            // run は行内の左右連結そのもの、上下に x 範囲が重なる run の結合は縦の 4 近傍連結そのもの
+            // なので、成分の分割は探索と厳密に同じ=open の集合はビット単位で同じ。
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+            var runCount = new int[h];
+            Parallel.For(0, h, po, y =>
+            {
+                int rb = y * w, n = 0, x = 0;
+                while (x < w)
+                {
+                    if (!free[rb + x]) { x++; continue; }
+                    n++;
+                    while (x < w && free[rb + x]) x++;
+                }
+                runCount[y] = n;
+            });
+            var rowOff = new int[h + 1];
+            for (int y = 0; y < h; y++) rowOff[y + 1] = rowOff[y] + runCount[y];
+            int R = rowOff[h];
+            if (R == 0) return;
+            int[] runX0 = s_intPool.Rent(R), runX1 = s_intPool.Rent(R), parent = s_intPool.Rent(R);
+            try
+            {
+                Parallel.For(0, h, po, y =>
+                {
+                    int rb = y * w, k = rowOff[y], x = 0;
+                    while (x < w)
+                    {
+                        if (!free[rb + x]) { x++; continue; }
+                        int s0 = x;
+                        while (x < w && free[rb + x]) x++;
+                        runX0[k] = s0; runX1[k] = x - 1; k++;
+                    }
+                });
+                for (int r = 0; r < R; r++) parent[r] = r;
+                int Find(int a)
+                {
+                    while (parent[a] != a) { parent[a] = parent[parent[a]]; a = parent[a]; }
+                    return a;
+                }
+                for (int y = 0; y + 1 < h; y++)
+                {
+                    if ((y & 255) == 0) ct.ThrowIfCancellationRequested();
+                    int i = rowOff[y], iEnd = rowOff[y + 1];
+                    int j = rowOff[y + 1], jEnd = rowOff[y + 2];
+                    while (i < iEnd && j < jEnd)
+                    {
+                        if (runX0[i] <= runX1[j] && runX0[j] <= runX1[i])
+                        {
+                            int a = Find(i), b = Find(j);
+                            if (a != b) parent[a] = b;
+                        }
+                        if (runX1[i] < runX1[j]) i++; else j++;
+                    }
+                }
+                // 全 run の根を確定させ(以降は読むだけ)、画像端に触れる run の根に印を付ける。
+                var touches = new bool[R];
+                for (int y = 0; y < h; y++)
+                {
+                    bool edgeRow = y == 0 || y == h - 1;
+                    for (int k = rowOff[y]; k < rowOff[y + 1]; k++)
+                    {
+                        int root = Find(k);
+                        parent[k] = root;
+                        if (edgeRow || runX0[k] == 0 || runX1[k] == w - 1) touches[root] = true;
+                    }
+                }
+                Parallel.For(0, h, po, y =>
+                {
+                    int rb = y * w;
+                    for (int k = rowOff[y]; k < rowOff[y + 1]; k++)
+                    {
+                        if (!touches[parent[k]]) continue;
+                        for (int x = runX0[k]; x <= runX1[k]; x++) open[rb + x] = true;
+                    }
+                });
+            }
+            finally
+            {
+                s_intPool.Return(runX0);
+                s_intPool.Return(runX1);
+                s_intPool.Return(parent);
+            }
+        }
+
+        /// <summary>
+        /// 境界復元：少なくとも1つのマッチしたピクセルに隣接するマッチしないピクセルについて
+        /// 緩和マッチ（GetRelaxedMatchStrength。最低彩度ゲートは全体設定 relaxedSatMin）でカラーマッチを再評価します。
+        /// これにより、厳格な動的satMinが拒否したアンチエイリアス端のピクセルに対して
+        /// 正しい段階的な強度値が得られます。各パスはマッチした境界からさらに1ピクセル
+        /// 外側への復元を拡張します。隣接要件により、内部領域でのAO/影のにじみを防ぎます。
+        /// </summary>
+        private static void RecoverBoundaryEdges(
+            float[] strength, int w, int h,
+            PixelHsv hsv,
+            Color sampleColor, float tolerance,
+            float edgeSoftness, float valueWeight, float satDistWeight,
+            float relaxedSatMin, int passes,
+            int boxMinX, int boxMinY, int boxMaxX, int boxMaxY,
+            Color32[] originalPixels, float chromaConfidence, float chromaThreshold,
+            float chromaCeiling, CancellationToken ct,
+            float[] relaxedByColor, int[] colorIndex)
+        {
+            // relaxedByColor / colorIndex: 色の表(ColorPalette)の番号ごとに、この関数と同じ引数で
+            // GetRelaxedMatchStrength を求めた値と、画素 → 番号。渡されたら画素ごとの計算の代わりに読む
+            // (同じ関数に同じ入力を与えた値なのでビット単位で同じ)。
+            if (passes <= 0) return;
+            float[] pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int[] pixIdx = hsv.Index;
+
+            // bbox 未指定(boxMaxX<0)なら全画素。指定時はその矩形内だけ走査する(P2-7、出力ビット不変)。
+            if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
+
+            float sH, sS, sV;
+            Color.RGBToHSV(sampleColor, out sH, out sS, out sV);
+            float rcSampR = sampleColor.r, rcSampG = sampleColor.g, rcSampB = sampleColor.b;
+
+            var recoverPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+
+            // 1 パス = 「未選択(!(s > 0))で、8 近傍のどれかが選択済み(s > 0)の画素」に緩和マッチの値を
+            // 書く(値 > 0 のときだけ)。読むのはパス開始時の状態。緩和マッチの値は画素の色だけで決まる。
+            // そのためパス 2 以降に新しく書かれ得るのは、直前のパスで書かれた画素の隣だけ(それより前から
+            // 選択済みの画素の隣なら、値 > 0 である限り前のパスで書かれている)。そこで最初のパスだけ矩形を
+            // 走査し、以降は直前のパスで書いた画素の隣だけを調べる。どのパスも書き込みは終わりにまとめて
+            // 行うので、読むのはパス開始時の状態=旧実装(二重バッファで矩形全体を毎パス走査)と同じ値。
+            float RelaxedAt(int idx)
+            {
+                if (relaxedByColor != null) return relaxedByColor[colorIndex[idx]];
+                float rpR = 0f, rpG = 0f, rpB = 0f;
+                if (originalPixels != null)
+                {
+                    Color32 rop = originalPixels[idx];
+                    rpR = rop.r / 255f; rpG = rop.g / 255f; rpB = rop.b / 255f;
+                }
+                return GetRelaxedMatchStrength(
+                    pixH[HsvSlot(pixIdx, idx)], pixS[HsvSlot(pixIdx, idx)], pixV[HsvSlot(pixIdx, idx)],
+                    sH, sS, sV, tolerance, edgeSoftness, valueWeight,
+                    satDistWeight, relaxedSatMin,
+                    rpR, rpG, rpB, rcSampR, rcSampG, rcSampB, chromaConfidence, chromaThreshold,
+                    chromaCeiling);
+            }
+
+            // パス 1: 矩形を走査。8 近傍に選択済みがあるかは、列ごとの上下 3 画素の OR を左右 3 列で OR して
+            // 求める(中央の画素自身は未選択なので含めても同じ)。
+            var found = new List<(int idx, float v)[]>();
+            var foundLock = new object();
+            Parallel.For(boxMinY, boxMaxY + 1, recoverPo,
+                () => (col: new bool[boxMaxX - boxMinX + 3], hits: new List<(int, float)>()),
+                (y, _, local) =>
+                {
+                    bool[] col = local.col;
+                    int rb = y * w;
+                    int cx0 = Math.Max(0, boxMinX - 1), cx1 = Math.Min(w - 1, boxMaxX + 1);
+                    // col[x - boxMinX + 1] = (x, y-1..y+1) のどれかが選択済み。画像外の列は false のまま。
+                    Array.Clear(col, 0, col.Length);
+                    for (int x = cx0; x <= cx1; x++)
+                    {
+                        bool any = strength[rb + x] > 0f;
+                        if (y > 0 && strength[rb - w + x] > 0f) any = true;
+                        if (y < h - 1 && strength[rb + w + x] > 0f) any = true;
+                        col[x - boxMinX + 1] = any;
+                    }
+                    for (int x = boxMinX; x <= boxMaxX; x++)
+                    {
+                        int idx = rb + x;
+                        if (strength[idx] > 0f) continue;
+                        int c = x - boxMinX + 1;
+                        if (!(col[c - 1] || col[c] || col[c + 1])) continue;
+                        float rel = RelaxedAt(idx);
+                        if (rel > 0f) local.hits.Add((idx, rel));
+                    }
+                    return local;
+                },
+                local => { if (local.hits.Count > 0) lock (foundLock) found.Add(local.hits.ToArray()); });
+
+            // パスの書き込みをまとめて行い、書いた画素を次のパスの起点にする。同じ画素が複数の起点から
+            // 見つかっても値は同じ(色だけで決まる)なので、最初の 1 回だけ書いて残りは捨てる。
+            var frontier = new List<int>();
+            void Apply()
+            {
+                frontier.Clear();
+                foreach (var arr in found)
+                    foreach (var (idx, v) in arr)
+                    {
+                        if (strength[idx] > 0f) continue;
+                        strength[idx] = v;
+                        frontier.Add(idx);
+                    }
+                found.Clear();
+            }
+            Apply();
+
+            for (int pass = 1; pass < passes && frontier.Count > 0; pass++)
+            {
+                ct.ThrowIfCancellationRequested();
+                int[] fr = frontier.ToArray();
+                const int Chunk = 4096;
+                int nChunks = (fr.Length + Chunk - 1) / Chunk;
+                Parallel.For(0, nChunks, recoverPo, () => new List<(int, float)>(), (ci, _, hits) =>
+                {
+                    int k1 = Math.Min(fr.Length, (ci + 1) * Chunk);
+                    for (int k = ci * Chunk; k < k1; k++)
+                    {
+                        int q = fr[k];
+                        int qy = q / w, qx = q - qy * w;
+                        int ny0 = Math.Max(boxMinY, qy - 1), ny1 = Math.Min(boxMaxY, qy + 1);
+                        int nx0 = Math.Max(boxMinX, qx - 1), nx1 = Math.Min(boxMaxX, qx + 1);
+                        for (int ny = ny0; ny <= ny1; ny++)
+                            for (int nx = nx0; nx <= nx1; nx++)
+                            {
+                                int idx = ny * w + nx;
+                                if (strength[idx] > 0f) continue;   // q 自身も(選択済みなので)ここで外れる
+                                float rel = RelaxedAt(idx);
+                                if (rel > 0f) hits.Add((idx, rel));
+                            }
+                    }
+                    return hits;
+                },
+                hits => { if (hits.Count > 0) lock (foundLock) found.Add(hits.ToArray()); });
+                Apply();
+            }
+        }
+
+        /// <summary>
+        /// 緩和された彩度閾値を使用したカラーマッチ。
+        /// すでにマッチした領域に隣接する境界ピクセルにのみ使用されます。
+        /// アドバンスモードでrelaxedSatMin/satDistWeightを調整可能。
+        /// </summary>
+        /// <remarks>
+        /// FIX: satConfidence による強度ダンピングを廃止。境界復元はすでにマッチ済みピクセルに
+        /// 隣接するピクセルのみが対象なので、「微妙にマッチさせる」より「マッチさせるなら全強度で」
+        /// の方が見た目が綺麗。低 satConfidence (例: 0.3) を掛けると AA 縁が部分的に元色を残し、
+        /// 白装飾の周囲などにピンク/赤の残留ピクセルが見える原因になっていた。
+        /// 純白装飾はそのまま残すため、relaxedSatMin による「最低彩度ゲート」だけは保持する。
+        /// 全体設定の relaxedSatRamp は緩和マッチでは使わない（BuildSelectionKey と保存形式の互換のためだけに残る）。
+        /// </remarks>
+        private static float GetRelaxedMatchStrength(
+            float pH, float pS, float pV,
+            float sH, float sS, float sV,
+            float tolerance, float edgeSoftness, float valueWeight,
+            float satDistWeight, float relaxedSatMin,
+            float pR, float pG, float pB,
+            float sR, float sG, float sB, float chromaConfidence,
+            float chromaThreshold, float chromaCeiling)
+        {
+            // ColorZone.MatchOneSample と共有ヘルパーによる動的しきい値（暗いサンプルほど範囲拡大）。
+            // 上端は zone.chromaThreshold(ユーザー可変)を使う。以前は既定値 0.05 を焼き込んでいたため、
+            // ユーザーが chromaThreshold を変えると主経路と穴埋め/境界回復でグレーモード判定が食い違っていた。
+            float effectiveChromaThreshold = ColorZone.GrayModeEffectiveChromaThreshold(sV, chromaThreshold);
+
+            // 純白装飾はそのまま残す: relaxedSatMin 未満は弾く（ハードゲート）
+            // ただしサンプル自体が高彩度の場合のみ適用（暗サンプルの低彩度ピクセルは通過させる）
+            if (pS < relaxedSatMin && sS > effectiveChromaThreshold) return 0f;
+
+            // サンプルが暗い型（指定出来ない彩度）の場合: 動的閾値を使って判定
+            if (sS <= effectiveChromaThreshold)
+            {
+                // 主経路(GetColorMatchScores グレーモード)と同じ RGB 距離で判定する。
+                // 旧実装は値距離 |pV-sV| のみで、明るいサンプルでは色に関係なく「明るい」だけで一致
+                // したため、対象と同じくらい明るい隣接の有彩色(布地の縁など)まで境界回復/穴埋めが
+                // 拾い、再着色色が対象の元領域を超えてはみ出していた。RGB 距離なら主経路と同じく
+                // 色の遠い隣接色(距離>tol)を拒否し、対象自身の AA 縁(地色寄りの混色)だけを回復する。
+                // 暗サンプルでは Lerp で pS へ収束=従来同等。
+                float dr = pR - sR, dg = pG - sG, db = pB - sB;
+                float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * ColorZone.InvSqrt3;
+                float darknessFactor = Mathf.Clamp01((ColorZone.GrayModeDarkSampleValue - sV) / ColorZone.GrayModeDarkSampleValue);
+                float effectiveDist = Mathf.Lerp(rgbDist, pS, darknessFactor);
+                // 輝度盲対策: 純黒サンプルで純白まで距離0マッチするのを防ぐ。ヘッドルーム超えの
+                // 明るさに輝度超過ペナルティを加える。ColorZone.MatchOneSample のグレーモードと同期。
+                float lumExcess = Mathf.Max(0f, (pV - sV) - ColorZone.GrayHighlightHeadroom);
+                effectiveDist += lumExcess * ColorZone.GrayLumExcessWeight;
+                // 彩度整合ゲート(主経路 MatchOneSample と共有ヘルパー)。サンプルが微小な tint を
+                // 持つとき、それより著しく中性寄りの候補(純白 UV 背景等)を距離加算でソフト排除する。
+                // 明るい tint 付きサンプル(生成りの布地など)では値距離だと純白(pV≈sV)が一致するため、
+                // ここでも必要。
+                effectiveDist += ColorZone.GrayChromaGatePenalty(sS, sV, pS, tolerance);
+                // 彩度天井ゲート(主経路 GetColorMatchScores のグレーモードと同期): 無彩/微 tint
+                // 素材の彩度包絡を超える高彩度画素(染められた別素材)に距離を加算する。
+                // 穴埋め/境界回復が主経路で弾かれた別素材を復元してしまわないよう同じゲートを課す。
+                {
+                    float ceilWeight = Mathf.Clamp01(sV / ColorZone.GrayModeDarkSampleValue);
+                    float satCeil = ColorZone.EffectiveChromaCeiling(sS, chromaCeiling);
+                    float overS = Mathf.Clamp01((pS - satCeil) / Mathf.Max(satCeil, 1e-4f));
+                    effectiveDist += overS * ColorZone.ChromaCeilPenalty * tolerance * ceilWeight;
+                }
+                if (effectiveDist >= tolerance) return 0f;
+                float sr = tolerance * edgeSoftness;
+                float hr = tolerance - sr;
+                if (sr < 0.0001f || effectiveDist <= hr) return 1f;
+                return 1f - (effectiveDist - hr) / sr;
+            }
+
+            float hDist = Mathf.Abs(pH - sH);
+            if (hDist > 0.5f) hDist = 1f - hDist;
+
+            // 境界ピクセルはAAブレンディングから低下した彩度を持つと予想される
+            float sDist = Mathf.Abs(pS - sS);
+            float vDist = Mathf.Abs(pV - sV);
+            float sRatio = (sS > 0.01f) ? Mathf.Clamp01(pS / sS) : 1f;
+            float dist = hDist + sDist * satDistWeight + vDist * valueWeight * (1f - sRatio);
+
+            // 低彩度サンプル(白/灰)では HSV 距離が hue 支配になり、同色相だが彩度だけが大きく違う別色
+            // (オフホワイトの地の隣にある鮮やかな布地など)を弾けず、境界回復が別色を周囲へ大量にスピル
+            // させる。
+            // プライマリ(CalculateHybridDistance)と同じ RGB 距離ブレンドで整合させる:
+            // dist = lerp(rgbDist, hsvDist, chromaConfidence)。有彩サンプルは cc≈1 で従来式と一致。
+            if (chromaConfidence < 0.999f)
+            {
+                float dr = pR - sR, dg = pG - sG, db = pB - sB;
+                float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * ColorZone.InvSqrt3;
+                dist = rgbDist * (1f - chromaConfidence) + dist * chromaConfidence;
+            }
+
+            // シャドウ（暗い色）の境界距離許容は廃止（プライマリ CalculateHybridDistance と同期）。
+            // 緩和マッチ(穴埋め/境界回復)で near-black の別マテリアルを tolerance 内へ逆送し
+            // 巻き込みを広げる経路だったため除去する。
+
+            if (dist >= tolerance) return 0f;
+
+            float softRange = tolerance * edgeSoftness;
+            float hardRange = tolerance - softRange;
+
+            float strength;
+            if (softRange < 0.0001f)
+                strength = 1f;
+            else if (dist <= hardRange)
+                strength = 1f;
+            else
+                strength = 1f - (dist - hardRange) / softRange;
+
+            return strength;
+        }
+    }
+}

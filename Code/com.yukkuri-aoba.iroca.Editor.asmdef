@@ -1,0 +1,24 @@
+{
+    "name": "com.yukkuri-aoba.iroca.Editor",
+    "rootNamespace": "Iroca",
+    "references": [
+        "com.yukkuri-aoba.iroca.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "nadena.dev.ndmf",
+            "expression": "[1.8.0,2.0.0)",
+            "define": "IROCA_NDMF_PRESENT"
+        }
+    ],
+    "noEngineReferences": false
+}

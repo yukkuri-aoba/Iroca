@@ -1,0 +1,312 @@
+// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
+// Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System.IO;
+using UnityEditor;
+using UnityEngine.Networking;
+
+namespace Iroca
+{
+    /// <summary>
+    /// AI マスク提案モデル(ONNX ペア)のモデル専用リポジトリ(raw ブランチ取得)からのダウンロード。
+    /// ユーザーの明示ボタン操作でのみ開始し、sha256 検証後に
+    /// <see cref="MaskSuggestBridge.ModelsDirectory"/> へ配置する。
+    /// ネットワーク不可・検証失敗時は部分ファイルを残さない(手動配置のフォールバックは
+    /// フォルダを開くボタンと マニュアルの手順で案内する)。
+    /// </summary>
+    internal static class MaskSuggestModelDownload
+    {
+        // AI モデルは本体と分離した「モデル専用リポジトリ」の main ブランチ直下に置き、
+        // raw で取得する。GitHub Release の儀式(タグ/資産アップロード)が不要で、main へ
+        // push した時点で即配布される。
+        // 配布先を変えるときは owner/repo をここだけ直す。
+        // 注意: sha256 が本体側(下記 Files)に焼き込まれているため、モデルの差し替えは
+        // 「モデルリポジトリへの push + 本体のハッシュ更新リリース」を必ずセットで行う。
+        // モデルだけ差し替えると全既存クライアントがハッシュ不一致で失敗する(安全側だが配布は止まる)。
+        public const string ModelRepo = "yukkuri-aoba/Iroca-Models"; // owner/repo
+        public const string ModelBranch = "main";
+        public const string BaseUrl =
+            "https://raw.githubusercontent.com/" + ModelRepo + "/" + ModelBranch + "/";
+
+        // export_meta.json (dev_safe/ml) で確定したエクスポート成果物のハッシュとバイト数。
+        // リリースへは必ずこのハッシュのファイルをアップロードする。
+        // size は「これを超えたら即打ち切る」上限として使う。sha256 は全量を受け取った後でしか
+        // 検証できないため、それだけだと配布元異常や経路上の改竄で無制限に書き込まれ得る
+        // (ストール検知は「止まる」側にしか効かず、「流れ続ける」側は素通りする)。
+        // 正しいファイルはこのサイズちょうどなので、超過した時点で異常と判断してよい。
+        static readonly (string file, string sha256, long size)[] Files =
+        {
+            ("mobile_sam_encoder.onnx", "25fb1f619027c2e81a7e54425c148e16e99990c8f0d83eefd29a0f4495a75865", 27969755L),
+            ("mobile_sam_decoder.onnx", "2196a2a4b153528d00383c7c6a363dd765725c10097bb06233917b171d8ceda4", 16353451L),
+        };
+
+        static UnityWebRequest _request;
+        static int _fileIndex = -1;
+
+        // ストール検知: UnityWebRequest.timeout(全体時間)だと大きいモデルの正当な低速 DL まで
+        // 切ってしまうため、「downloadedBytes が一定時間進まない」ことをタイムアウト条件にする。
+        const double StallTimeoutSeconds = 30.0;
+        static double _lastProgressTime;
+        static ulong _lastProgressBytes;
+
+        public static bool InProgress => _fileIndex >= 0;
+        public static string Error { get; private set; }
+
+        /// <summary>全体進捗 0..1(ファイル数で均等割り)。</summary>
+        public static float Progress
+        {
+            get
+            {
+                if (!InProgress) return 0f;
+                float cur = _request != null ? _request.downloadProgress : 0f;
+                return (_fileIndex + UnityEngine.Mathf.Clamp01(cur)) / Files.Length;
+            }
+        }
+
+        /// <summary>
+        /// 置いてあるモデルが配布物そのもの(サイズ + sha256)か。モデルの読み込みに失敗したとき、
+        /// 取り直すべきかを判定するのに使う。存在だけを見る <see cref="MaskSuggestBridge.ModelFilesPresent"/>
+        /// では、壊れたファイルや別物を手動配置した場合も「揃っている」扱いになり、取り直しの
+        /// 導線が出なかった。44 MB を読むので、描画のたびではなくボタン操作時だけ呼ぶこと。
+        /// </summary>
+        public static bool LocalModelsMatchRelease()
+        {
+            try
+            {
+                foreach (var (file, sha256, size) in Files)
+                {
+                    string path = Path.Combine(MaskSuggestBridge.ModelsDirectory, file);
+                    if (!File.Exists(path) || new FileInfo(path).Length != size) return false;
+                    if (!string.Equals(Sha256Of(path), sha256, System.StringComparison.OrdinalIgnoreCase))
+                        return false;
+                }
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>ダウンロードを開始する(進行中なら no-op)。完了/失敗は状態プロパティで観測する。</summary>
+        public static void Start()
+        {
+            if (InProgress) return;
+            Error = null;
+            try
+            {
+                Directory.CreateDirectory(MaskSuggestBridge.ModelsDirectory);
+            }
+            catch (System.Exception e)
+            {
+                // ここで例外を投げると UI のボタンハンドラへ素通しになり、Error にも載らないため
+                // 画面には何も出ない（押しても無反応に見える）。Error に載せて表示させる。
+                Error = string.Format(Localization.AiErrModelDirFormat, e.Message);
+                return;
+            }
+            _fileIndex = 0;
+            EditorApplication.update += Tick;
+            // ドメインリロードで static 状態(進捗・購読)は消えるため、ネイティブの
+            // UnityWebRequest と部分ファイルだけはリロード前に後始末する。これが無いと
+            // ダウンロード中のスクリプトコンパイルでリクエストがリークし .download が残る。
+            AssemblyReloadEvents.beforeAssemblyReload += CleanupBeforeReload;
+            BeginCurrentFile();
+        }
+
+        /// <summary>進行中のダウンロードを中止する(部分ファイルは削除・エラー表示なし)。</summary>
+        public static void Cancel()
+        {
+            if (!InProgress) return;
+            string tmp = _fileIndex < Files.Length ? TempPath(Files[_fileIndex].file) : null;
+            AbortRequest();
+            Error = null;
+            try { if (tmp != null && File.Exists(tmp)) File.Delete(tmp); } catch { }
+            Finish();
+        }
+
+        static void BeginCurrentFile()
+        {
+            var (file, sha, _) = Files[_fileIndex];
+
+            // 既に検証済みのファイルが置いてあるなら取り直さない。再試行は常に file 0 から
+            // 始まるため、2 個目で失敗するたびに 1 個目(約 20MB)を落とし直していた
+            // （レビュー §5 低）。ハッシュ計算は再取得に比べれば桁違いに安い。
+            try
+            {
+                string existing = Path.Combine(MaskSuggestBridge.ModelsDirectory, file);
+                if (File.Exists(existing) &&
+                    string.Equals(Sha256Of(existing), sha, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    AdvanceToNextFile();
+                    return;
+                }
+            }
+            catch (System.Exception)
+            {
+                // 既存ファイルを検証できない場合は再ダウンロードへ進む。
+            }
+
+            string tmp = TempPath(file);
+            try
+            {
+                if (File.Exists(tmp)) File.Delete(tmp);
+                _request = new UnityWebRequest(BaseUrl + file, UnityWebRequest.kHttpVerbGET)
+                {
+                    downloadHandler = new DownloadHandlerFile(tmp),
+                };
+                _request.SendWebRequest();
+                _lastProgressBytes = 0;
+                _lastProgressTime = EditorApplication.timeSinceStartup;
+            }
+            catch (System.Exception e)
+            {
+                // .download が別プロセス/AV にロックされている等。例外を漏らすと
+                // InProgress=true のままリクエスト無しで固まるため、必ず Fail に落とす。
+                Fail($"{file}: {e.Message}", tmp);
+            }
+        }
+
+        static void Tick()
+        {
+            if (_request == null) return;
+
+            if (!_request.isDone)
+            {
+                ulong got = _request.downloadedBytes;
+                // サイズ超過検知。sha256 は全量取得後にしか効かないので、その前にここで止める。
+                // 放置すると異常な応答でディスクを埋め尽くされる。
+                long expected = Files[_fileIndex].size;
+                if (expected > 0 && got > (ulong)expected)
+                {
+                    var (oversized, _, _) = Files[_fileIndex];
+                    string oversizedTmp = TempPath(oversized);
+                    AbortRequest();
+                    Fail(string.Format(Localization.AiErrDownloadOversizedFormat, oversized, expected), oversizedTmp);
+                    return;
+                }
+                if (got != _lastProgressBytes)
+                {
+                    _lastProgressBytes = got;
+                    _lastProgressTime = EditorApplication.timeSinceStartup;
+                }
+                else if (EditorApplication.timeSinceStartup - _lastProgressTime > StallTimeoutSeconds)
+                {
+                    var (stalled, _, _) = Files[_fileIndex];
+                    string stalledTmp = TempPath(stalled);
+                    AbortRequest();
+                    Fail(string.Format(Localization.AiErrDownloadStalledFormat, stalled, StallTimeoutSeconds), stalledTmp);
+                }
+                return;
+            }
+
+            var (file, sha, _) = Files[_fileIndex];
+            string tmp = TempPath(file);
+            bool ok = _request.result == UnityWebRequest.Result.Success;
+            string netError = _request.error;
+            _request.Dispose();
+            _request = null;
+
+            if (!ok)
+            {
+                Fail($"{file}: {netError}", tmp);
+                return;
+            }
+            // ハッシュ検証〜配置は IO 例外(AV の一時ロック・別インスタンスとの競合等)が現実的に
+            // 起きる区間。例外が Tick から漏れると _request=null のまま InProgress=true が永続し、
+            // 進捗バーが出続けたままエラーも出ない詰み状態になるため、必ず Fail に落とす。
+            try
+            {
+                string actual = Sha256Of(tmp);
+                if (!string.Equals(actual, sha, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    Fail(string.Format(Localization.AiErrDownloadHashFormat, file, actual), tmp);
+                    return;
+                }
+                string dst = Path.Combine(MaskSuggestBridge.ModelsDirectory, file);
+                // 別インスタンスが同じ onnx をロード中かもしれない。Delete→Move だと
+                // 「一瞬ファイルが存在しない」窓ができ、読み込み中のファイルを消すことにもなる。
+                // Replace は原子的に差し替えるので、読み手は旧か新のどちらかを必ず見る
+                // （ロックされていれば例外 → Fail に落ちる。黙って壊すより良い）。
+                if (File.Exists(dst)) File.Replace(tmp, dst, null);
+                else File.Move(tmp, dst);
+            }
+            catch (System.Exception e)
+            {
+                Fail($"{file}: {e.Message}", tmp);
+                return;
+            }
+
+            AdvanceToNextFile();
+        }
+
+        /// <summary>次のファイルへ進む。全部終わっていれば完了処理。</summary>
+        static void AdvanceToNextFile()
+        {
+            _fileIndex++;
+            if (_fileIndex >= Files.Length)
+            {
+                Finish();
+                MaskSuggestBridge.Service?.TryEnsureModels();
+            }
+            else
+            {
+                BeginCurrentFile();
+            }
+        }
+
+        static void Fail(string message, string tmpToDelete)
+        {
+            Error = message;
+            try { if (File.Exists(tmpToDelete)) File.Delete(tmpToDelete); } catch { }
+            Finish();
+        }
+
+        static void Finish()
+        {
+            _fileIndex = -1;
+            EditorApplication.update -= Tick;
+            AssemblyReloadEvents.beforeAssemblyReload -= CleanupBeforeReload;
+        }
+
+        static void AbortRequest()
+        {
+            if (_request == null) return;
+            try { _request.Abort(); } catch { }
+            _request.Dispose();
+            _request = null;
+        }
+
+        static void CleanupBeforeReload()
+        {
+            AbortRequest();
+            if (_fileIndex >= 0 && _fileIndex < Files.Length)
+            {
+                try
+                {
+                    string tmp = TempPath(Files[_fileIndex].file);
+                    if (File.Exists(tmp)) File.Delete(tmp);
+                }
+                catch { }
+            }
+        }
+
+        // 一時ファイル名は Unity プロセスごとに分ける。モデル置き場は LOCALAPPDATA の
+        // 全プロジェクト共有なので、"<file>.download" 固定だと、別インスタンスが落としている
+        // 最中の一時ファイルを開始時の無条件削除で壊していた（レビュー §5 中）。
+        // プロセス ID はドメインリロードを跨いでも同じなので、リロード時の後始末とも整合する。
+        static readonly string TempSuffix =
+            ".download." + System.Diagnostics.Process.GetCurrentProcess().Id;
+
+        static string TempPath(string file) =>
+            Path.Combine(MaskSuggestBridge.ModelsDirectory, file + TempSuffix);
+
+        static string Sha256Of(string path)
+        {
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            using var fs = File.OpenRead(path);
+            var hash = sha.ComputeHash(fs);
+            var sb = new System.Text.StringBuilder(hash.Length * 2);
+            foreach (byte b in hash) sb.Append(b.ToString("x2"));
+            return sb.ToString();
+        }
+    }
+}

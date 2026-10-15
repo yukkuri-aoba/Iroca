@@ -1,0 +1,57 @@
+<!--
+  Code/Debug/ 配下を Unity 抜きで型チェック・ビルドするための最小プロジェクト。
+  本体 (com.yukkuri-aoba.iroca.Editor) を ProjectReference で参照する。
+
+  メイン csproj は Code/Debug/ を除外するため、Code/Debug/ フォルダを物理的に削除した
+  状態でも本体 (IrocaEditor.csproj) が単独でビルド可能であることを保証する。
+
+  ビルド方法（メインと同じ）:
+    dotnet build scripts/build-check/IrocaEditor.Debug.csproj
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>com.yukkuri-aoba.iroca.Editor.Debug</AssemblyName>
+    <RootNamespace>Iroca.DebugTools</RootNamespace>
+    <OutputType>Library</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>0414;0649;CS0219;CS0169</NoWarn>
+    <!-- 利用者の Unity は nullable 文脈なしでコンパイルするので CS8632 が Console に出る。CI で止める -->
+    <WarningsAsErrors>CS8632</WarningsAsErrors>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <!-- Unity Editor のインストールパス解決（メインと同じ props） -->
+  <Import Project="UnityEditorPath.props" />
+
+  <!-- ソースコード: Code/Debug/ 配下のみ。 -->
+  <ItemGroup>
+    <Compile Include="..\..\Code\Debug\**\*.cs" />
+  </ItemGroup>
+
+  <!-- 本体アセンブリを ProjectReference -->
+  <ItemGroup>
+    <ProjectReference Include="IrocaEditor.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="UnityEngine">
+      <HintPath>$(UnityEditorPath)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEditor">
+      <HintPath>$(UnityEditorPath)\UnityEditor.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="CheckUnityPath" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(UnityEditorPath)\UnityEngine.dll')"
+           Text="UnityEngine.dll が見つかりません: $(UnityEditorPath)\UnityEngine.dll" />
+  </Target>
+
+</Project>

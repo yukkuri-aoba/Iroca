@@ -1,0 +1,506 @@
+/* いろか マニュアル — docs/manual/build_manual.py が書体の指定を頭に足して manual.css として出す
+   見た目は宣伝画像・紹介動画に揃える: 明るい紙の地・墨の文字・丸ゴシック・細い罫。差し色は使わない
+   （色は図版の中のものだけにする）。明暗は OS の設定に従う（data-theme は page.html と manual.js が当てる）。 */
+
+:root {
+  color-scheme: light;
+  --bg: #f7f6f4;
+  --panel: #fcfbfa;
+  --panel-2: #efede9;
+  --line: #e1ded8;
+  --line-soft: #ebe8e3;
+  --rule: #1d1d1f;
+  --fg: #1d1d1f;
+  --fg-mid: #45423e;
+  --fg-dim: #85827c;
+  --fg-faint: #bab7b1;
+  --mark: #ebe1c3;
+  --shade: rgba(29, 29, 31, .06);
+  --radius: 10px;
+  --w-toc: 252px;
+  --w-read: 44rem;
+  --head: 3.6rem;
+  --pad: 2.5rem;           /* 本文の左右の余白 */
+  --clip-gap: 1.25rem;     /* 幅の広い動画と目次・画面の端との間 */
+  --font: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic",
+    "Noto Sans JP", Meiryo, system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;      /* スクロールバーや入力欄も暗い側に揃える */
+  --bg: #111114;
+  --panel: #17171a;
+  --panel-2: #202024;
+  --line: #2c2c31;
+  --line-soft: #222226;
+  --rule: #f0efec;
+  --fg: #f0efec;
+  --fg-mid: #c3c0ba;
+  --fg-dim: #8f8c87;
+  --fg-faint: #5c5a56;
+  --mark: #3d3624;
+  --shade: rgba(0, 0, 0, .35);
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; scroll-padding-top: calc(var(--head) + 1.2rem); }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { transition: none !important; animation: none !important; }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 1.9;
+  letter-spacing: .03em;
+  /* 仮名を詰める（Zen Maru Gothic には無いので、build_fonts.py が宣伝画像と同じ規則で足している） */
+  font-feature-settings: "palt" 1;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-color: var(--fg-faint);
+  text-decoration-thickness: 1px;
+  text-underline-offset: .22em;
+  transition: text-decoration-color .15s;
+}
+a:hover { text-decoration-color: var(--fg); }
+
+code {
+  font-family: var(--mono);
+  font-size: .86em;
+  letter-spacing: 0;
+  font-feature-settings: normal;
+  background: var(--panel-2);
+  border-radius: 4px;
+  padding: .1em .38em;
+  white-space: nowrap;
+}
+
+.skip {
+  position: absolute; left: -999px; top: 0; z-index: 100;
+  background: var(--fg); color: var(--bg); padding: .6rem 1rem; border-radius: 0 0 8px 0;
+}
+.skip:focus { left: 0; }
+
+:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+
+/* ── ヘッダー ───────────────────────────────────── */
+.top {
+  position: sticky; top: 0; z-index: 40;
+  height: var(--head);
+  display: flex; align-items: center; gap: 1rem;
+  padding: 0 1.5rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.brand { display: flex; align-items: baseline; gap: .7rem; min-width: 0; white-space: nowrap; }
+.brand .name { font-weight: 700; font-size: 1.08rem; letter-spacing: .12em; }
+.brand .sub { color: var(--fg-dim); font-size: .8rem; letter-spacing: .14em; }
+.brand .ver { color: var(--fg-faint); font-size: .74rem; letter-spacing: .06em; font-variant-numeric: tabular-nums; }
+
+.tools { margin-left: auto; display: flex; align-items: center; gap: .5rem; }
+
+.search { position: relative; }
+.search input {
+  width: 13rem; max-width: 40vw;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--fg);
+  font: inherit; font-size: .84rem; letter-spacing: .04em;
+  padding: .3rem .9rem .3rem 2rem;
+  outline: none;
+  transition: border-color .15s, width .2s;
+}
+.search input::placeholder { color: var(--fg-dim); }
+.search input:focus { border-color: var(--fg); width: 17rem; }
+.search::before {
+  content: ""; position: absolute; left: .75rem; top: 50%; width: 11px; height: 11px;
+  transform: translateY(-50%);
+  border: 1.5px solid var(--fg-dim); border-radius: 50%;
+  box-shadow: 5.5px 5.5px 0 -4.2px var(--fg-dim);
+  pointer-events: none;
+}
+#q-clear {
+  position: absolute; right: .35rem; top: 50%; transform: translateY(-50%);
+  background: none; border: 0; color: var(--fg-dim); cursor: pointer;
+  font-size: 1.05rem; line-height: 1; padding: .15rem .35rem; border-radius: 50%;
+}
+#q-clear:hover { color: var(--fg); }
+
+.pill {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--fg-dim);
+  border-radius: 999px;
+  font: inherit; font-size: .76rem; font-weight: 700; letter-spacing: .1em;
+  padding: .28rem .75rem;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.pill:hover { color: var(--fg); border-color: var(--fg); }
+.pill.icon { padding: 0; width: 2rem; height: 2rem; display: grid; place-items: center; }
+/* 明暗の切り替え: 半分塗った丸 */
+#theme::before {
+  content: ""; width: 12px; height: 12px; border-radius: 50%;
+  border: 1.5px solid currentColor;
+  background: linear-gradient(90deg, currentColor 50%, transparent 50%);
+}
+/* 目次: 3 本線 */
+#menu::before {
+  content: ""; width: 13px; height: 1.5px; background: currentColor;
+  box-shadow: 0 -4.5px 0 currentColor, 0 4.5px 0 currentColor;
+}
+.pill.only-narrow { display: none; }
+
+/* ── レイアウト ─────────────────────────────────── */
+.layout {
+  display: grid;
+  grid-template-columns: var(--w-toc) minmax(0, 1fr);
+  align-items: start;
+  max-width: 112rem;
+  margin: 0 auto;
+}
+
+.toc {
+  position: sticky; top: var(--head);
+  height: calc(100vh - var(--head));
+  overflow-y: auto; overscroll-behavior: contain;
+  padding: 2.2rem .8rem 3rem 1.5rem;
+  font-size: .84rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.toc ol { list-style: none; margin: 0; padding: 0; counter-reset: none; }
+.toc li { margin: 0; padding-left: 0; }
+.toc li::before { content: none; }
+.toc > ol > li { margin-bottom: .2rem; }
+.toc a {
+  display: block; color: var(--fg-mid); text-decoration: none;
+  padding: .24rem .6rem .24rem .7rem;
+  border-left: 2px solid transparent;
+  line-height: 1.55;
+}
+.toc a:hover { color: var(--fg); }
+.toc a.cur { color: var(--fg); border-left-color: var(--rule); font-weight: 700; }
+.toc .subs { margin: .05rem 0 .55rem; }
+.toc .subs a { font-size: .78rem; color: var(--fg-dim); padding-left: 1.55rem; }
+.toc .subs a:hover { color: var(--fg); }
+.toc .subs a.cur { color: var(--fg); font-weight: 700; border-left-color: var(--fg-faint); }
+.toc .num {
+  color: var(--fg-faint); font-variant-numeric: tabular-nums;
+  margin-right: .55rem; font-size: .76em; letter-spacing: .08em; font-weight: 700;
+}
+.toc a.cur .num { color: var(--fg-dim); }
+
+main {
+  /* 幅の広い動画は、この箱の幅（cqw）から大きさを決める */
+  container-type: inline-size;
+  padding: 3rem var(--pad) 6rem;
+  min-width: 0;
+}
+.doc { max-width: var(--w-read); margin: 0 auto; }
+.doc[hidden] { display: none; }
+
+/* ── 表紙 ───────────────────────────────────────── */
+.cover { max-width: var(--w-read); margin: .5rem auto 4.5rem; }
+.cover[hidden] { display: none; }
+.eyebrow {
+  margin: 0; color: var(--fg-dim);
+  font-size: .78rem; font-weight: 700; letter-spacing: .3em;
+}
+.cover h1 {
+  margin: .5rem 0 .9rem;
+  font-size: 2.7rem; line-height: 1.3; font-weight: 700; letter-spacing: .04em;
+}
+.cover .lead { margin: 0; color: var(--fg-dim); font-size: .95rem; }
+
+/* ── 本文 ───────────────────────────────────────── */
+.sec { border-top: 2px solid var(--rule); padding-top: 1.6rem; }
+.sec + .sec { margin-top: 5.5rem; }
+.sec[hidden] { display: none; }
+
+h1, h2, h3, h4 { color: var(--fg); }
+h2 {
+  font-size: 2rem; line-height: 1.4; letter-spacing: .04em;
+  margin: 0 0 1.8rem; font-weight: 700;
+}
+/* 章番号（宣伝画像の小さな見出しと同じ、字間を空けた灰色の数字） */
+h2[data-num]::before {
+  content: attr(data-num);
+  display: block; margin-bottom: .55rem;
+  color: var(--fg-dim); font-size: .78rem; letter-spacing: .2em; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+h3 {
+  font-size: 1.24rem; line-height: 1.5; margin: 3.2rem 0 .9rem; font-weight: 700;
+  letter-spacing: .04em;
+}
+h4 { margin: 2.1rem 0 .4rem; font-size: 1rem; font-weight: 700; letter-spacing: .04em; }
+h4.qa { margin-top: 2.3rem; }
+
+p { margin: 0 0 1.1rem; color: var(--fg-mid); }
+h4.qa + p, h4.term + p { margin-top: .15rem; }
+strong { color: var(--fg); font-weight: 700; }
+
+ul, ol { margin: 0 0 1.2rem; padding-left: 1.3rem; color: var(--fg-mid); }
+li { margin: .35rem 0; }
+li::marker { color: var(--fg-faint); }
+li > p { margin: .25rem 0 .5rem; }
+li ul { margin: .35rem 0 .5rem; }
+/* 手順の番号は、いろかのウィンドウの ①②③ と同じ丸囲み */
+ol { counter-reset: step; list-style: none; padding-left: 0; }
+ol > li {
+  position: relative; padding-left: 2.3rem; margin: 1rem 0;
+}
+ol > li::before {
+  counter-increment: step; content: counter(step);
+  position: absolute; left: 0; top: .28em;
+  width: 1.5rem; height: 1.5rem; border-radius: 50%;
+  border: 1.5px solid var(--fg); color: var(--fg);
+  font-size: .76rem; font-weight: 700; line-height: calc(1.5rem - 3px); text-align: center;
+  letter-spacing: 0; font-variant-numeric: tabular-nums;
+}
+ol ul { padding-left: 1.2rem; list-style: disc; }
+ol ul > li { padding-left: 0; margin: .25rem 0; }
+ol ul > li::before { content: none; }
+
+blockquote {
+  margin: 1.4rem 0; padding: .1rem 0 .1rem 1.15rem;
+  border-left: 2px solid var(--line);
+  color: var(--fg-dim); font-size: .93rem;
+}
+blockquote p { color: inherit; }
+blockquote p:last-child { margin-bottom: 0; }
+
+.table-wrap { margin: 1.2rem 0 1.8rem; overflow-x: auto; }
+/* 表の頭に墨の罫（宣伝画像の仕様欄と同じ） */
+table {
+  border-collapse: collapse; width: 100%; font-size: .9rem; line-height: 1.75;
+  margin: 1.2rem 0 1.8rem; border-top: 2px solid var(--rule);
+}
+.table-wrap table { margin: 0; }
+th, td { text-align: left; padding: .65rem .9rem .65rem 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th {
+  color: var(--fg-dim); font-weight: 700; white-space: nowrap;
+  font-size: .76rem; letter-spacing: .14em; padding-top: .8rem;
+}
+td { color: var(--fg-mid); }
+td:first-child { color: var(--fg); white-space: nowrap; font-weight: 700; }
+
+/* ── 図版 ───────────────────────────────────────── */
+figure { margin: 1.8rem 0 2rem; }
+figcaption {
+  margin-top: .7rem; font-size: .82rem; color: var(--fg-dim); line-height: 1.7;
+  text-align: center; text-wrap: pretty;
+}
+
+.figure { margin-left: auto; margin-right: auto; }
+.figure .shot {
+  display: block; width: 100%; padding: 0; border: 1px solid var(--line);
+  background: var(--panel); border-radius: 8px; overflow: hidden;
+  cursor: zoom-in;
+}
+.figure img { display: block; width: 100%; height: auto; }
+.figure.wide { max-width: min(var(--w-read), 100%) !important; }
+
+/* ── 実演デモ ───────────────────────────────────── */
+.demo {
+  margin: 1.8rem 0 2.2rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 1.1rem 1.1rem 1rem;
+}
+.demo-head { display: flex; align-items: center; gap: .75rem; margin: 0 0 .9rem; padding: 0 .1rem; text-align: left; }
+.demo-title { font-size: .78rem; font-weight: 700; color: var(--fg-dim); letter-spacing: .14em; }
+
+.viewtog { margin-left: auto; display: flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.viewtog button {
+  background: none; border: 0; color: var(--fg-dim); font: inherit; font-size: .74rem;
+  padding: .18rem .7rem; cursor: pointer;
+}
+.viewtog button.on { background: var(--fg); color: var(--bg); font-weight: 700; }
+
+.stage {
+  position: relative; aspect-ratio: 1 / 1; width: 100%;
+  max-width: 23rem; margin: 0 auto;
+  border-radius: 6px; overflow: hidden; background: #fff;
+}
+:root[data-theme="dark"] .stage { background: #f2f2f4; }
+.stage .fr {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+}
+
+.slider { display: flex; align-items: center; gap: .85rem; margin-top: 1rem; padding: 0 .1rem; }
+.slider .lab { font-size: .78rem; color: var(--fg-dim); white-space: nowrap; letter-spacing: .06em; }
+.slider output {
+  font-variant-numeric: tabular-nums; font-size: .86rem; font-weight: 700;
+  color: var(--fg); min-width: 2.6rem; text-align: right;
+}
+input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  flex: 1; height: 22px; background: none; cursor: pointer; margin: 0;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px; border-radius: 1px; background: var(--line);
+}
+input[type="range"]::-moz-range-track { height: 2px; border-radius: 1px; background: var(--line); }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px; margin-top: -7px; border-radius: 50%;
+  background: var(--fg); border: 3px solid var(--panel);
+  box-shadow: 0 0 0 1px var(--fg);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--fg); border: 3px solid var(--panel); box-shadow: 0 0 0 1px var(--fg);
+}
+input[type="range"]:focus-visible { outline: 2px solid var(--fg); outline-offset: 4px; border-radius: 4px; }
+
+.swatches { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: 1rem; padding: 0 .1rem; justify-content: center; }
+.sw {
+  display: inline-flex; align-items: center; gap: .4rem;
+  background: transparent; border: 1px solid var(--line); border-radius: 999px;
+  color: var(--fg-dim); font: inherit; font-size: .76rem; letter-spacing: .04em;
+  padding: .18rem .75rem .18rem .32rem; cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.sw::before {
+  content: ""; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--sw); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .15);
+}
+.sw:hover { color: var(--fg); }
+.sw.on { color: var(--fg); border-color: var(--fg); font-weight: 700; }
+
+.demo-note { margin: .8rem .1rem 0; font-size: .8rem; color: var(--fg-dim); line-height: 1.7; }
+.frame-tag { display: inline; }
+.frame-tag .tag { display: none; }
+.frame-tag .tag.on {
+  display: inline-block; margin-right: .6rem;
+  color: var(--fg); font-weight: 700;
+}
+
+/* ── 変更前 / 変更後 ────────────────────────────── */
+.ba { margin: 1.8rem 0 2.2rem; }
+.ba-stage {
+  position: relative; aspect-ratio: 1 / 1; width: 100%;
+  max-width: 26rem; margin: 0 auto;
+  border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
+  background: #fff; touch-action: none; user-select: none;
+  --p: 50%;
+}
+.ba-stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* 変更前を左側だけ残す。幅を変えず切り抜くので、左右で被写体の位置がずれない。 */
+.ba-before { clip-path: inset(0 calc(100% - var(--p)) 0 0); }
+.ba-handle {
+  position: absolute; top: 0; bottom: 0; left: var(--p); width: 2px;
+  background: rgba(255, 255, 255, .95); transform: translateX(-1px); cursor: ew-resize;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .14);
+}
+.ba-handle span {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 32px; height: 32px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 6px rgba(0, 0, 0, .22);
+}
+.ba-handle span::before, .ba-handle span::after {
+  content: ""; position: absolute; top: 50%; width: 0; height: 0;
+  border: 4.5px solid transparent;
+}
+.ba-handle span::before { left: 4px; border-right-color: #1d1d1f; transform: translateY(-50%); }
+.ba-handle span::after { right: 4px; border-left-color: #1d1d1f; transform: translateY(-50%); }
+.ba-handle:focus-visible { outline: 2px solid var(--fg); }
+.ba-tag {
+  position: absolute; top: .55rem; font-size: .7rem; font-weight: 700; letter-spacing: .1em;
+  background: rgba(29, 29, 31, .7); color: #fff; padding: .1rem .55rem; border-radius: 999px;
+  pointer-events: none;
+}
+.ba-tag.left { left: .6rem; }
+.ba-tag.right { right: .6rem; }
+
+/* ── 検索 ───────────────────────────────────────── */
+mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 .1em; }
+.no-hit {
+  max-width: var(--w-read); margin: 2rem auto; padding: 1.5rem;
+  border: 1px dashed var(--line); border-radius: var(--radius);
+  color: var(--fg-dim); text-align: center; font-size: .9rem;
+}
+
+/* ── 画像ズーム ─────────────────────────────────── */
+.zoom {
+  position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
+  background: rgba(17, 17, 20, .86);
+  padding: 2rem; cursor: zoom-out;
+}
+.zoom[hidden] { display: none; }
+.zoom img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+
+/* ── フッター ───────────────────────────────────── */
+.foot {
+  max-width: var(--w-read); margin: 6rem auto 0; padding-top: 1.6rem;
+  border-top: 1px solid var(--line); color: var(--fg-dim); font-size: .8rem;
+}
+.foot p { color: inherit; margin-bottom: .6rem; }
+.foot-links { display: flex; gap: 1.4rem; }
+.foot-links a { color: var(--fg-mid); }
+.foot-font { color: var(--fg-faint) !important; font-size: .74rem; }
+
+/* ── 動画 ───────────────────────────────────────── */
+.clip { margin: 1.8rem auto 2.1rem; }
+/* 操作の動画は UI の文字が小さいので、本文の幅を越えて元の大きさまで広げる。
+   広げる先は本文の箱（main）の中だけ。画面の幅（100vw）から決めると、広い画面で本文の列が
+   中央に寄ったときに左の目次へかぶる。 */
+.clip.wide {
+  width: min(var(--clip-w), 100%);
+  width: min(var(--clip-w), calc(100cqw + 2 * var(--pad) - 2 * var(--clip-gap)));
+  position: relative; left: 50%; transform: translateX(-50%);
+  margin-left: 0; margin-right: 0;
+}
+.clip.wide figcaption { max-width: var(--w-read); margin-left: auto; margin-right: auto; }
+.clip-stage {
+  width: 100%; border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; background: #000;
+}
+.clip video { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
+
+/* ── 狭い画面 ───────────────────────────────────── */
+@media (max-width: 900px) {
+  :root { --w-toc: 0px; --pad: 1.2rem; --clip-gap: .6rem; }
+  .pill.only-narrow { display: grid; }
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .toc {
+    position: fixed; top: var(--head); bottom: 0; width: min(19rem, 84vw);
+    left: calc(-1 * min(19rem, 84vw) - 8px);
+    background: var(--bg); border-right: 1px solid var(--line);
+    transition: left .22s ease;
+    z-index: 45; padding: 1.4rem 1rem 3rem; height: auto;
+  }
+  .toc.open { left: 0; box-shadow: 8px 0 24px var(--shade); }
+  main { padding-top: 2rem; padding-bottom: 5rem; }
+  .figure.wide { margin-left: 0; margin-right: 0; }
+  .search input { width: 8.5rem; }
+  .search input:focus { width: 11rem; }
+  .brand .sub, .brand .ver { display: none; }
+  .cover h1 { font-size: 2.2rem; }
+  h2 { font-size: 1.6rem; }
+}
+
+@media (max-width: 520px) {
+  body { font-size: 15.5px; }
+  .top { padding: 0 1rem; }
+  .demo { padding: .8rem; }
+  td:first-child { white-space: normal; }
+  code { white-space: normal; overflow-wrap: anywhere; }
+}

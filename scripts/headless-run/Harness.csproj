@@ -1,0 +1,97 @@
+<!--
+  Code/ の本体ロジック(PixelProcessor 等)を Unity を起動せず dotnet で実行するためのハーネス。
+  実 Unity DLL(CoreModule)を参照するので、リファレンスアセンブリと違い実行時に動く。
+  Code/ を同一アセンブリに取り込むので internal(MaskSnapshot/PixelProcessor)へアクセスできる。
+
+    dotnet run (project scripts/headless-run/Harness.csproj) args: in.raw mask.raw out.raw
+
+  raw 形式: [int32 w][int32 h][payload]  (RGBA=w*h*4 bytes / mask=w*h bytes 1=除外)
+  出力 DLL は scripts/headless-run/bin/ (gitignore 済)。製品パッケージには含めない。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Iroca</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>0414;0649;CS0219;CS8632;CS0169;CS0618</NoWarn>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AssemblyName>IrocaHeadless</AssemblyName>
+    <!-- DLL のバイト列を「ソース + コンパイラ」だけで決める(2026-09-14)。
+         SourceLink は obj/Harness.sourcelink.json に git の HEAD コミット SHA を埋め込み、それが
+         CoreCompile の入力なので、ドキュメントだけのコミットでも次のビルドで DLL が書き換わる。
+         テストの実行キャッシュは DLL のダイジェストをキーに持つため、コミットごとに全エントリが
+         無効化され(ウォーム 3 分 → コールド 7 分半)、コミットが多いほどテストが遅くなっていた。
+         製品パッケージには入らないハーネス専用 DLL なので SourceLink を切る。 -->
+    <EnableSourceLink>false</EnableSourceLink>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <UnityVersion Condition="'$(UnityVersion)' == ''">2022.3.22f1</UnityVersion>
+    <UnityManaged Condition="'$(UnityManaged)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityManaged>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- PixelProcessor の実行に必要な Core ファイルだけを取り込む(UI/Editor 依存を避ける)。
+         PixelProcessor は partial 分割されているため glob で本体+全 partial を取り込む。 -->
+    <Compile Include="..\..\Code\Core\PixelProcessor*.cs" />
+    <Compile Include="..\..\Code\Core\MaskSnapshot.cs" />
+    <Compile Include="..\..\Code\Core\PreviewParityCache.cs" />
+    <Compile Include="..\..\Code\Core\SelectionCache.cs" />
+    <Compile Include="..\..\Code\Core\DebugCaptureHooks.cs" />
+    <Compile Include="..\..\Code\Core\IDebugCapture.cs" />
+    <Compile Include="..\..\Code\Core\PerfReport.cs" />
+    <Compile Include="..\..\Code\Core\HighlightSampleCorrector.cs" />
+    <Compile Include="..\..\Code\Core\ColorZone*.cs" />
+    <Compile Include="..\..\Code\Core\IrocaConsts.cs" />
+    <!-- プレビュー座標変換(スポイト/シード/ペイント/AI 提案クリックの単一の正)。
+         UI が壊れても処理系テストにかからないため previewcoords モードで直接検証する。 -->
+    <Compile Include="..\..\Code\Core\PreviewCoords.cs" />
+    <!-- zones JSON スキーマ既定値の唯一の正。製品側 DTO(IrocaAutomation)と共有し、
+         ハーネスだけ既定値がずれる事故(useFloodFill 製品 true / ハーネス false)を防ぐ。 -->
+    <Compile Include="..\..\Code\Core\ZonesJsonDefaults.cs" />
+    <!-- 再着色の全体設定(ProcessPixelsArray の唯一の入口)。プリセットとの相互変換を持つので
+         IrocaPresetData(純データ)も取り込む。 -->
+    <Compile Include="..\..\Code\Core\RecolorSettings.cs" />
+    <Compile Include="..\..\Code\Core\IrocaPresetData.cs" />
+    <!-- 自動化(MCP)の目視検証パネル/メトリクス生成。UnityEditor 非依存なので headless で実 C# 検証できる。 -->
+    <Compile Include="..\..\Code\Core\RecolorPreview.cs" />
+    <!-- 自動調整(ZoneAutoTuner)を no-mask で実行して GT と突き合わせるための取り込み。
+         Localization は UnityEditor.EditorPrefs に依存するので Harness.cs 内のスタブで代替する。 -->
+    <Compile Include="..\..\Code\Core\ZoneAutoTuner*.cs" />
+    <Compile Include="..\..\Code\Core\IrocaSessionState.cs" />
+    <Compile Include="..\..\Code\Core\MaskState.cs" />
+    <!-- AI マスク提案の純計算層(前処理/座標変換/後処理)+ RLE コーデック。
+         samops 検証モードで pytest の NumPy リファレンスと突き合わせる。 -->
+    <Compile Include="..\..\Code\MaskSuggest\Ops\*.cs" />
+    <Compile Include="..\..\Code\Core\MaskRle.cs" />
+    <Compile Include="..\..\Code\Core\UvChartMap.cs" />
+    <!-- 保存済みマスク → 処理用スナップショット、保存済み編集状態 → 再着色(非破壊ビルドの入口)。
+         viastate モードで raw マスク経路とのバイト一致を検証する。 -->
+    <Compile Include="..\..\Code\Core\MaskStateCodec.cs" />
+    <Compile Include="..\..\Code\Core\SessionRecolor.cs" />
+    <Compile Include="Harness.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 実装入りの実 DLL を直接参照(リファレンスアセンブリでなく)。Color32/Mathf/Color は CoreModule。 -->
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(UnityManaged)\UnityEngine\UnityEngine.CoreModule.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Unity DLL 不在を「Code/ のコンパイルエラー」と区別できる明示メッセージで fail させる。
+       これが無いと参照解決エラーの羅列になり、テスト側の skip/fail 分離が濁る。 -->
+  <Target Name="CheckUnityDlls" BeforeTargets="CoreCompile">
+    <Error Condition="!Exists('$(UnityManaged)\UnityEngine\UnityEngine.CoreModule.dll')"
+           Text="Unity CoreModule DLL が見つかりません: $(UnityManaged)。UnityVersion / UnityManaged プロパティ(または環境変数)で上書きしてください。" />
+  </Target>
+
+</Project>

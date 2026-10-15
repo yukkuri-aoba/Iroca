@@ -1,0 +1,524 @@
+"""C# 自己ゴールデン回帰テストの共有ロジック。
+
+実 C# 実装（scripts/headless-run の Harness, AssemblyName=IrocaHeadless）を合成入力で走らせ、
+出力ハッシュを golden（コミット済み golden_hashes.json）と照合する。
+
+このプロジェクトでは **C# が製品の唯一の正** であり、Python(dev_safe/vacc_python) はアルゴリズム
+試作のための使い捨てスキャフォールドである。よって「C#↔Python 一致」ではなく、
+**C# 自身の出力が黙って変化していないか**（過去に実在した FillSmallHoles 段の消失・OkLab ハイライト
+L キャップ欠落のようなリグレッション）を検出するのが本テストの目的。Python には一切依存しない
+（必要なのは dotnet + Unity CoreModule DLL のみ）。
+
+ゴールデンは toolchain（Unity 2022.3.22f1 / dotnet ランタイム）に紐づく。意図的にアルゴリズムを
+変更したとき、または toolchain を更新したときは `python scripts/golden/golden_lib.py` で再生成する
+（既存 golden と差分があるときは内容を列挙して止まる。確認のうえ --force を付ける）。
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import struct
+import subprocess
+import tempfile
+import time
+from pathlib import Path
+
+import numpy as np
+
+import synth_textures as S
+
+# サブプロセスに timeout を渡さないと、ハーネスがハングしたとき pytest / pre-commit が
+# 無期限に固まる（レビュー §6-15）。「遅い」と「止まっている」を区別するための上限で、
+# 正常系の実測（1 ケース数秒）に対して十分な余裕を取ってある。
+BUILD_TIMEOUT_S = int(os.environ.get("VACC_HARNESS_BUILD_TIMEOUT", "600"))
+RUN_TIMEOUT_S = int(os.environ.get("VACC_HARNESS_RUN_TIMEOUT", "600"))
+PROBE_TIMEOUT_S = int(os.environ.get("VACC_HARNESS_PROBE_TIMEOUT", "60"))
+
+# ハーネスのビルドはプロセス跨ぎで排他する。pytest の既定（-n 4）では golden の各モジュールと
+# dev_safe の回帰が別ワーカーで同じ csproj を同時にビルドし得て、中間ファイルや出力へコピーする
+# Unity DLL を奪い合うと偽のビルド失敗になる。ロックファイル・待ち上限・「取れなければ進む」規則は
+# dev_safe/Tests/regression/fixtures.py と同じにして、同じロックを共有する。
+_BUILD_LOCK = Path(tempfile.gettempdir()) / "iroca_harness_build.lock"
+_BUILD_LOCK_WAIT_S = 900
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[1]
+HARNESS_CSPROJ = REPO / "scripts" / "headless-run" / "Harness.csproj"
+HARNESS_DLL = REPO / "scripts" / "headless-run" / "bin" / "Release" / "IrocaHeadless.dll"
+GOLDEN_FILE = HERE / "golden_hashes.json"
+# 各ケースの期待出力そのもの（PNG, RGBA）。ハッシュは 1 ビットの差でも一致しないので、
+# 別 OS（CI の Linux）では libm の最下位ビット差だけで全滅しうる。そこでは画素で比べて
+# 「丸め誤差の範囲か、挙動の変化か」を分ける（compare_tolerant）。
+EXPECTED_DIR = HERE / "expected"
+# 各ケースの入力（PNG, RGBA）と zones JSON。Unity 実機（scripts/editor-tests の RuntimeParityTests）が
+# 同じ入力を製品経路へ通し、expected/ と突き合わせるために使う。
+CASES_DIR = HERE / "cases"
+
+# 別 toolchain での許容差。libm の ulp 差が uint8 への丸めを跨いだ画素だけが ±1 で動く想定。
+# 段の欠落や定数ずれは多数の画素を大きく動かすので、この範囲には収まらない。
+TOLERANT_MAX_ABS_DIFF = 2
+TOLERANT_MAX_DIFF_FRAC = 0.01
+
+# ── 正準 zone パラメータ（Harness の JSON スキーマ ZoneCfg と同名フィールド） ──
+# 全フィールドを明示し、ケースごとに必要分だけ上書きする（既定値依存を避ける）。
+CANON_ZONE = dict(
+    name="Z",
+    sample=(1.0, 1.0, 1.0),
+    target=(0.0, 0.0, 0.0),
+    tolerance=0.30,
+    valueBlend=1.0,
+    edgeSoftness=0.0,
+    saturationStrictness=0.50,
+    saturationGuard=0.0,
+    chromaThreshold=0.05,
+    shadowDesaturation=0.0,
+    shadowForgivenessSatMin=0.05,
+    shadowValueFloor=0.0,
+    partSatCeiling=0.0,
+    partHueBand=0.0,
+    chromaCeiling=0.0,
+    holeFillMargin=0.0,
+    outputSaturation=1.0,
+    highlightRecovery=False,
+    highlightBandExpand=True,
+    applyHighlightWash=False,
+    autoRecolorAnchor=False,
+    layerIndex=0,
+)
+
+# ── 正準 settings パラメータ（Harness の SettingsCfg と同名フィールド） ──
+CANON_SETTINGS = dict(
+    edgeFeather=0.0,
+    antiAliasCleanup=3,
+    holeFillPasses=5,
+    holeFillMinNeighbors=4,
+    relaxedSatMin=0.02,
+    relaxedSatRamp=0.08,
+    useDecontamination=True,
+    decontaminationRadius=4,
+)
+
+
+def zone(**overrides) -> dict:
+    z = dict(CANON_ZONE)
+    z.update(overrides)
+    return z
+
+
+def settings(**overrides) -> dict:
+    s = dict(CANON_SETTINGS)
+    s.update(overrides)
+    return s
+
+
+# ─────────────────────────── raw I/O（自己完結） ───────────────────────────
+def write_raw(path: Path, arr: np.ndarray) -> None:
+    """[int32 w][int32 h][payload] 形式で書き出す。"""
+    h, w = arr.shape[:2]
+    with open(path, "wb") as f:
+        f.write(struct.pack("<ii", w, h))
+        f.write(np.ascontiguousarray(arr).tobytes())
+
+
+def read_raw_rgba(path: Path) -> np.ndarray:
+    with open(path, "rb") as f:
+        w, h = struct.unpack("<ii", f.read(8))
+        b = np.frombuffer(f.read(), np.uint8)
+    return b.reshape(h, w, 4)
+
+
+# ─────────────────────────── C# 経路 ───────────────────────────
+def dotnet_available() -> bool:
+    try:
+        return subprocess.run(["dotnet", "--version"], capture_output=True, text=True,
+                              timeout=PROBE_TIMEOUT_S).returncode == 0
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _csproj_unity_defaults() -> tuple[str, str, str]:
+    """Harness.csproj から (UnityVersion 既定, UnityManaged 既定テンプレート, DLL 相対パス) を読む。
+
+    以前はこの 3 つを Python 側にハードコードして csproj を手書きミラーしていたが、
+    csproj を変えたときミラーが陳腐化すると「DLL が無い」と誤判定して実 C# を走らせないまま
+    テストが緑に見える（サイレント skip）。csproj を唯一の正として読む。
+    """
+    text = HARNESS_CSPROJ.read_text(encoding="utf-8")
+
+    def prop(name: str) -> str:
+        m = re.search(rf"<{name}\s+Condition=[^>]*>([^<]+)</{name}>", text)
+        if not m:
+            raise RuntimeError(
+                f"Harness.csproj から {name} の既定値を読めません: {HARNESS_CSPROJ}")
+        return m.group(1).strip()
+
+    m = re.search(r"<HintPath>\$\(UnityManaged\)[\\/](.+?)</HintPath>", text)
+    if not m:
+        raise RuntimeError(f"Harness.csproj から Unity DLL の HintPath を読めません: {HARNESS_CSPROJ}")
+    return prop("UnityVersion"), prop("UnityManaged"), m.group(1).strip()
+
+
+def unity_dll_missing() -> str | None:
+    """Harness が参照する Unity CoreModule DLL が無ければそのパスを返す（環境不備 = skip 対象）。
+
+    既定値は Harness.csproj から読む（環境変数 UnityVersion / UnityManaged で上書き可）。
+    これで「環境不備 (skip してよい)」と「Code/ のコンパイルエラー (fail すべき)」を
+    テスト側で区別できる — 過去に DLL 名の陳腐化で実 C# を走らせないまま
+    テストが緑に見えるサイレント skip 事故が起きている。
+    """
+    default_version, managed_template, dll_rel = _csproj_unity_defaults()
+    version = os.environ.get("UnityVersion", default_version)
+    managed = os.environ.get("UnityManaged",
+                             managed_template.replace("$(UnityVersion)", version))
+    dll = Path(managed) / dll_rel.replace("\\", "/")
+    return None if dll.exists() else str(dll)
+
+
+def env_missing(message: str) -> None:
+    """環境不備（dotnet / Unity DLL / golden 未生成）を pytest に伝える。
+
+    ローカルでは skip。CI（IROCA_REQUIRE_HARNESS=1）は環境を揃えてから回すので、ここに来るのは
+    設定の破損であり、skip のままだと「実 C# を一度も走らせずに緑」になる。fail に倒す。
+    """
+    import pytest
+    if os.environ.get("IROCA_REQUIRE_HARNESS") == "1":
+        pytest.fail(message)
+    pytest.skip(message)
+
+
+def require_toolchain() -> None:
+    """dotnet と Unity CoreModule DLL を確かめ、無ければ env_missing に渡す（環境不備 = skip 対象）。
+
+    ハーネスや UnitRun を pytest から回すテストの共通の前段。確かめる順（dotnet → Unity DLL）と
+    文言はテスト間で揃える。
+    """
+    if not dotnet_available():
+        env_missing("dotnet が利用できません")
+    missing = unity_dll_missing()
+    if missing:
+        env_missing(f"Unity CoreModule DLL がありません: {missing}")
+
+
+def build_harness() -> tuple[bool, subprocess.CompletedProcess]:
+    """dotnet build をプロセス跨ぎのロック下で行う（並列実行時の同時ビルド回避）。
+
+    ロックが取れないまま上限を過ぎたら、取り残しとみなして進む（異常終了したプロセスの
+    ロックでスイート全体が止まる方が害が大きい）。
+    """
+    deadline = time.time() + _BUILD_LOCK_WAIT_S
+    acquired = False
+    while time.time() < deadline:
+        try:
+            fd = os.open(str(_BUILD_LOCK), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+            acquired = True
+            break
+        except FileExistsError:
+            time.sleep(0.5)
+    try:
+        r = subprocess.run(
+            ["dotnet", "build", str(HARNESS_CSPROJ), "-c", "Release", "-nologo", "-v", "quiet"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=BUILD_TIMEOUT_S)
+    finally:
+        if acquired:
+            try:
+                _BUILD_LOCK.unlink()
+            except OSError:
+                pass
+    return (r.returncode == 0 and HARNESS_DLL.exists()), r
+
+
+def build_harness_or_fail() -> None:
+    """Harness をビルドし、失敗したら pytest を fail させる（require_toolchain の後に呼ぶ）。
+
+    環境が揃っているのにビルドが失敗するのは Code/ のコンパイルエラー（＝製品退行そのもの）なので、
+    skip でなく fail で顕在化させる。
+    """
+    import pytest
+    ok, r = build_harness()
+    if not ok:
+        pytest.fail(
+            "Harness ビルド失敗。dotnet と Unity DLL は存在するため、Code/ の"
+            "コンパイルエラーの可能性が高い（サイレント skip にしない）:\n"
+            f"{((r.stdout or '') + (r.stderr or ''))[-1500:]}")
+
+
+def _zone_json(z: dict) -> dict:
+    out = dict(z)
+    out["sample"] = list(z["sample"])
+    out["target"] = list(z["target"])
+    return out
+
+
+def run_csharp(rgba: np.ndarray, z: dict, s: dict, work: Path) -> np.ndarray:
+    """C# Harness を 1 ゾーン・除外なしで走らせ、出力 RGBA を返す。"""
+    work = Path(work)
+    work.mkdir(parents=True, exist_ok=True)
+    in_raw, mask_raw, out_raw, zj = work / "in.raw", work / "mask.raw", work / "out.raw", work / "z.json"
+    write_raw(in_raw, rgba)
+    write_raw(mask_raw, np.zeros(rgba.shape[:2], np.uint8))  # 全 0 = 除外なし
+    zj.write_text(json.dumps({"zones": [_zone_json(z)], "settings": s}, ensure_ascii=False),
+                  encoding="utf-8")
+    r = subprocess.run(
+        ["dotnet", str(HARNESS_DLL), str(in_raw), str(mask_raw), str(out_raw), "--zones", str(zj)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=RUN_TIMEOUT_S)
+    if r.returncode != 0:
+        raise RuntimeError(f"Harness 実行失敗: {r.stderr}\n{r.stdout}")
+    return read_raw_rgba(out_raw)
+
+
+def output_hash(arr: np.ndarray) -> str:
+    return hashlib.sha256(np.ascontiguousarray(arr).tobytes()).hexdigest()
+
+
+def expected_path(label: str) -> Path:
+    return EXPECTED_DIR / f"{label}.png"
+
+
+def load_expected(label: str) -> np.ndarray | None:
+    p = expected_path(label)
+    if not p.exists():
+        return None
+    from PIL import Image
+    return np.array(Image.open(p).convert("RGBA"))
+
+
+def save_case_input(label: str, rgba: np.ndarray, z: dict, s: dict) -> None:
+    from PIL import Image
+    CASES_DIR.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(np.ascontiguousarray(rgba), "RGBA").save(CASES_DIR / f"{label}.png", optimize=True)
+    (CASES_DIR / f"{label}.zones.json").write_text(
+        json.dumps({"zones": [_zone_json(z)], "settings": s}, ensure_ascii=False, indent=1) + "\n",
+        encoding="utf-8")
+
+
+def save_expected(label: str, arr: np.ndarray) -> None:
+    from PIL import Image
+    EXPECTED_DIR.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(np.ascontiguousarray(arr), "RGBA").save(expected_path(label), optimize=True)
+
+
+def compare_tolerant(out: np.ndarray, expected: np.ndarray) -> tuple[int, float]:
+    """(最大の画素値差, 差のある画素の割合) を返す。shape 不一致は呼び出し側で先に弾くこと。"""
+    diff = np.abs(out.astype(np.int16) - expected.astype(np.int16))
+    per_px = diff.max(axis=-1)
+    return int(per_px.max()), float((per_px > 0).mean())
+
+
+# ─────────────────────────── テストケース定義 ───────────────────────────
+def build_cases() -> list[tuple[str, np.ndarray, dict, dict]]:
+    """(label, rgba, zone, settings) のリスト。C# の主要経路を広く踏ませる。
+
+    各ケースが異なるコード経路（基底再着色 / 無彩ターゲット / グレーモード / L リマップ /
+    ハイライト復元 / ハイライト L / AA デコンタミ / 彩度ゲート / 暗部脱彩 / 出力彩度 / wash /
+    アンカー正規化 / 彩度ガード）を主に踏むよう選んでいる。
+    """
+    def n(rgb):
+        return tuple(c / 255.0 for c in rgb)
+
+    cases: list[tuple[str, np.ndarray, dict, dict]] = []
+
+    # 基底再着色（有彩→有彩）
+    cases.append(("solid_red_to_blue",
+                  S.solid((200, 50, 50)),
+                  zone(sample=n((200, 50, 50)), target=n((40, 70, 200)), tolerance=0.35), settings()))
+    cases.append(("solid_blue_to_orange",
+                  S.solid((40, 70, 200)),
+                  zone(sample=n((40, 70, 200)), target=n((230, 140, 30)), tolerance=0.35), settings()))
+
+    # 有彩→無彩ターゲット（黒 / 白）
+    cases.append(("solid_red_to_black",
+                  S.solid((200, 50, 50)),
+                  zone(sample=n((200, 50, 50)), target=n((10, 10, 10)), tolerance=0.35), settings()))
+    cases.append(("solid_red_to_white",
+                  S.solid((200, 50, 50)),
+                  zone(sample=n((200, 50, 50)), target=n((240, 240, 240)), tolerance=0.35), settings()))
+
+    # 無彩（グレー）サンプル → 有彩（C# グレーモード = 純 RGB 距離）
+    cases.append(("solid_gray_to_red",
+                  S.solid((130, 130, 130)),
+                  zone(sample=n((130, 130, 130)), target=n((200, 40, 40)), tolerance=0.30), settings()))
+
+    # 明度リマップ（グラデ）
+    cases.append(("grad_red_to_green",
+                  S.vertical_gradient((230, 60, 60), (70, 20, 20)),
+                  zone(sample=n((150, 40, 40)), target=n((40, 160, 60)), tolerance=0.45), settings()))
+    cases.append(("grad_blue_to_white",
+                  S.vertical_gradient((40, 70, 200), (10, 18, 60)),
+                  zone(sample=n((30, 52, 150)), target=n((240, 240, 240)), tolerance=0.50), settings()))
+
+    # ハイライト復元（明部スペキュラ）
+    cases.append(("hl_red_to_bright_yellow",
+                  S.shaded_with_highlight((200, 40, 40)),
+                  zone(sample=n((150, 30, 30)), target=n((230, 210, 40)), tolerance=0.50,
+                       highlightRecovery=True), settings()))
+    # ハイライト + 暗ターゲット（OkLab ハイライト L キャップ領域）
+    cases.append(("hl_red_to_dark_navy",
+                  S.shaded_with_highlight((200, 40, 40)),
+                  zone(sample=n((150, 30, 30)), target=n((20, 25, 70)), tolerance=0.50,
+                       highlightRecovery=True), settings()))
+    # ハイライト wash 経路
+    cases.append(("hl_red_to_blue_wash",
+                  S.shaded_with_highlight((200, 40, 40)),
+                  zone(sample=n((150, 30, 30)), target=n((40, 70, 200)), tolerance=0.50,
+                       highlightRecovery=True, applyHighlightWash=True), settings()))
+
+    # AA 境界デコンタミ
+    cases.append(("aa_red_green_to_blue",
+                  S.two_color_aa((210, 50, 50), (50, 180, 70)),
+                  zone(sample=n((210, 50, 50)), target=n((40, 70, 200)), tolerance=0.30), settings()))
+
+    # 無彩背景の過検出抑制（彩度整合ゲート）
+    cases.append(("chroma_on_white_to_blue",
+                  S.chromatic_on_neutral((210, 50, 50), 235),
+                  zone(sample=n((210, 50, 50)), target=n((40, 70, 200)), tolerance=0.30), settings()))
+
+    # 暗部脱彩
+    cases.append(("solid_red_to_blue_shadowdesat",
+                  S.vertical_gradient((230, 60, 60), (60, 16, 16)),
+                  zone(sample=n((150, 40, 40)), target=n((40, 70, 200)), tolerance=0.45,
+                       shadowDesaturation=0.35), settings()))
+
+    # 出力彩度スケール
+    cases.append(("solid_red_to_blue_outsat",
+                  S.solid((200, 50, 50)),
+                  zone(sample=n((200, 50, 50)), target=n((40, 70, 200)), tolerance=0.35,
+                       outputSaturation=0.5), settings()))
+
+    # 再着色アンカー正規化（既定 ON 経路を明示）
+    cases.append(("grad_red_to_blue_anchor",
+                  S.vertical_gradient((230, 60, 60), (70, 20, 20)),
+                  zone(sample=n((90, 24, 24)), target=n((40, 70, 200)), tolerance=0.45,
+                       autoRecolorAnchor=True), settings()))
+
+    # 彩度ガード（高彩度サンプルで中性画素を hard reject）
+    cases.append(("chroma_on_white_satguard",
+                  S.chromatic_on_neutral((210, 50, 50), 235),
+                  zone(sample=n((210, 50, 50)), target=n((40, 70, 200)), tolerance=0.40,
+                       saturationGuard=0.5), settings()))
+
+    # 非既定 chromaThreshold の出力ロック（W2）。他の全ケースは既定 chromaThreshold=0.05 のため、
+    # chromaThreshold の plumbing（主経路 ColorZone と緩和経路 GetRelaxedMatchStrength の双方が
+    # zone.chromaThreshold を使う）が壊れても検出できなかった。微かに tint した明るいグレー（sS≈0.10）を
+    # 非既定 0.15 でグレーモードに入れる（sS=0.10 は 0.05 なら有彩分岐、0.15 ならグレー分岐）。W2 は
+    # 緩和経路の chromaThreshold 焼き込み（0.05）を撤去し zone 値へ追従させた修正で、これはその値を
+    # 通した出力を固定する。※このフィクスチャ自体の出力は主に主経路の分岐で決まる（緩和経路の寄与は
+    # 小さい）ため、緩和経路専用のロックではなく chromaThreshold 全体の非既定回帰ガードとして機能する。
+    cases.append(("nondefault_chromathreshold_graymode",
+                  S.two_color_aa((200, 190, 180), (150, 60, 60)),
+                  zone(sample=n((200, 190, 180)), target=n((40, 160, 60)), tolerance=0.35,
+                       chromaThreshold=0.15), settings()))
+
+    # ─── 端ケース（α・極端な寸法）。落ちない・黙って変わらないことを固定する ───
+    red, blue = n((200, 50, 50)), n((40, 70, 200))
+    red_zone = dict(sample=red, target=blue, tolerance=0.35)
+    # 1 画素・1 行・1 列。連結成分・近傍処理・縮小の境界条件
+    cases.append(("edge_1x1", S.solid((200, 50, 50), 1, 1), zone(**red_zone), settings()))
+    cases.append(("edge_row_1x64", S.two_color_aa((200, 50, 50), (50, 180, 70), 1, 64),
+                  zone(**red_zone), settings()))
+    cases.append(("edge_col_64x1", S.vertical_gradient((230, 60, 60), (70, 20, 20), 64, 1),
+                  zone(sample=n((150, 40, 40)), target=blue, tolerance=0.45), settings()))
+    # 奇数・非正方の寸法でハイライト復元（中心・半径の丸め）
+    cases.append(("edge_odd_23x37_highlight", S.shaded_with_highlight((200, 40, 40), 23, 37),
+                  zone(sample=n((150, 30, 30)), target=n((230, 210, 40)), tolerance=0.50,
+                       highlightRecovery=True), settings()))
+    # α: 全透明 / 列ごとの半透明 / 透明黒背景の円
+    cases.append(("edge_alpha_all_transparent", S.transparent(S.solid((200, 50, 50))),
+                  zone(**red_zone), settings()))
+    cases.append(("edge_alpha_columns", S.with_alpha_columns(S.solid((200, 50, 50))),
+                  zone(**red_zone), settings()))
+    cases.append(("edge_alpha_disc_on_clear_black", S.disc_on_clear_black((210, 50, 50)),
+                  zone(sample=n((210, 50, 50)), target=blue, tolerance=0.30), settings()))
+    # 無彩だけのテクスチャに有彩スポイト（何も選ばれないのが正）
+    cases.append(("edge_gray_texture_red_sample", S.vertical_gradient((235, 235, 235), (40, 40, 40)),
+                  zone(**red_zone), settings()))
+
+    return cases
+
+
+# ─────────────────────────── ゴールデン I/O ───────────────────────────
+def load_golden() -> dict:
+    if not GOLDEN_FILE.exists():
+        return {}
+    return json.loads(GOLDEN_FILE.read_text(encoding="utf-8")).get("cases", {})
+
+
+def regenerate(force: bool = False) -> int:
+    """全ケースを C# で走らせ golden_hashes.json を書き出す。toolchain 変更/意図的変更時に実行。
+
+    既存 golden と差分があるときは、何が変わるのかを列挙したうえで --force を要求する。
+    golden は「C# の出力が黙って変わっていないか」を見る唯一の基準なので、無警告の一括上書きを
+    許すと、退行を焼き付けたことに誰も気づけない（レビュー 2026-08-06 §6-19）。
+    """
+    import tempfile
+
+    if not dotnet_available():
+        print("dotnet が見つかりません。中止。")
+        return 1
+    ok, r = build_harness()
+    if not ok:
+        print("Harness ビルド失敗（Unity DLL 不在?）:\n" + (r.stdout or "")[-800:])
+        return 1
+
+    out_cases: dict = {}
+    out_arrays: dict[str, np.ndarray] = {}
+    inputs: list[tuple[str, np.ndarray, dict, dict]] = []
+    with tempfile.TemporaryDirectory() as td:
+        work = Path(td)
+        for label, rgba, z, s in build_cases():
+            inputs.append((label, rgba, z, s))
+            arr = run_csharp(rgba, z, s, work)
+            out_arrays[label] = arr
+            out_cases[label] = {"sha256": output_hash(arr), "shape": list(arr.shape)}
+            print(f"  {label:32s} {out_cases[label]['sha256'][:16]} shape={out_cases[label]['shape']}")
+
+    prev = load_golden()
+    changed = sorted(l for l in out_cases if l in prev
+                     and prev[l].get("sha256") != out_cases[l]["sha256"])
+    added = sorted(l for l in out_cases if l not in prev)
+    removed = sorted(l for l in prev if l not in out_cases)
+
+    if changed or removed:
+        print("\n=== 既存 golden との差分 ===")
+        for l in changed:
+            print(f"  変化 {l:32s} {prev[l].get('sha256','?')[:16]} -> {out_cases[l]['sha256'][:16]}")
+        for l in removed:
+            print(f"  消滅 {l:32s} (ケース定義から無くなりました)")
+        if not force:
+            print(f"\n変化 {len(changed)} 件 / 消滅 {len(removed)} 件。"
+                  "\nこれは『C# の出力が変わった』ことを意味する。意図した変更（アルゴリズム改善・"
+                  "toolchain 更新）であることを確認したうえで、--force を付けて再実行すること。")
+            return 2
+        print("\n--force 指定のため上書きします。")
+    if added:
+        print(f"\n新規ケース {len(added)} 件: {', '.join(added)}")
+
+    doc = {
+        "_meta": {
+            "note": "C# 自己ゴールデン（製品 C# の出力ハッシュ）。Python 非依存の回帰検出。"
+                    "意図的変更・toolchain 更新時は `python scripts/golden/golden_lib.py --force` で再生成。",
+            "unity": "2022.3.22f1",
+            "assembly": "IrocaHeadless",
+        },
+        "cases": dict(sorted(out_cases.items())),
+    }
+    GOLDEN_FILE.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    for d in (EXPECTED_DIR, CASES_DIR):
+        for old in d.glob("*") if d.exists() else []:
+            if old.name.split(".")[0] not in out_arrays:
+                old.unlink()
+    for label, arr in out_arrays.items():
+        save_expected(label, arr)
+    for label, rgba, z, s in inputs:
+        save_case_input(label, rgba, z, s)
+    print(f"\n{len(out_cases)} 件を {GOLDEN_FILE}・{EXPECTED_DIR}・{CASES_DIR} に書き出しました。")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(regenerate(force="--force" in sys.argv[1:]))
