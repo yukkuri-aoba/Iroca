@@ -1,5 +1,7 @@
 # BOOTH 商品ページ素材（タイトル・説明文・タグ）
 
+商品ページは https://booth.pm/ja/items/8169184 （公開するまでは開けない。編集は https://manage.booth.pm/items/8169184/edit ）。
+
 ---
 
 ## 商品タイトル案
@@ -145,6 +147,7 @@ GitHub：https://github.com/yukkuri-aoba/Iroca
 ## タグ案（最大 10 個）
 
 非破壊のツールを探す人向けに「NDMF」を入れ、広すぎる「ツール」を外した。
+「VRC」は入れて保存すると消える（BOOTH 側で「VRChat」と同じタグとして扱っているらしい）ので、実際に付くのは 9 個。
 
 ```
 VRChat, VRC, アバター改変, 衣装改変, 色改変, テクスチャ, Unity, エディタ拡張, 無料, NDMF
@@ -154,8 +157,8 @@ VRChat, VRC, アバター改変, 衣装改変, 色改変, テクスチャ, Unity
 
 ## 掲載画像
 
-現行の掲載画像は 6 枚で、プライベート側の `dev_safe/promo/booth_new_plain4/out/slide-1.png`〜`slide-6.png`。
-`booth_new_plain3` のコンプから書体と 1・5 枚目の文言を替えたもので、作り方は `make_plain4.py` の先頭にある。
+現行の掲載画像は 6 枚で、プライベート側の `dev_safe/promo/booth_new_plain5/out/slide-1.png`〜`slide-6.png`。
+`booth_new_plain3` のコンプから書体と 1・5 枚目の文言を替えた `booth_new_plain4` の、5 枚目の「自動調整のみ、初回に」を「AI を使う機能は、初回に」に直したもの（0.2.0 では右クリックの AI も同じモデルを使うため）。ほかの 5 枚は plain4 と画素一致。作り方は `make_plain5.py` と `make_plain4.py` の先頭にある。
 公開側の `docs/booth_new/promo/` は 2026-07 の旧キット。
 
 ### 権利メモ
