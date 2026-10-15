@@ -5,13 +5,14 @@
 ## 全体像
 
 ```
-Build-VpmPackage.ps1（ローカル）                 release.yml（CI）           手動                release-verify.yml（CI）
-zip + SHA256 + listing更新 + インストーラ生成  →  整合検証 + draft作成  →  資産アップロード+publish  →  公開zipのSHA256照合
+Build-VpmPackage.ps1（ローカル）                          release.yml（CI）           手動                release-verify.yml（CI）
+zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合検証 + draft作成  →  資産アップロード+publish  →  公開zipのSHA256照合
 ```
 
-- 配布資産は 2 つ。
-  - **VPM zip**（`com.yukkuri-aoba.iroca-<VERSION>.zip`）: git 追跡ファイルだけから作る。unitypackage は同梱しない。VCC / ALCOM と VPAI インストーラがこれを取得する。
-  - **VPAI インストーラ**（`Iroca_Installer.unitypackage`）: unitypackage で導入したい利用者（BOOTH など）向け。後述。
+- 配布資産は 3 つ。
+  - **配布 zip**（`Iroca_v<VERSION>.zip`）: 利用者がダウンロードするもの（リリースページ・BOOTH）。中身は VPAI インストーラ・`README.txt`（導入方法・動作環境・利用規約の要約・連絡先。原稿は `scripts/download/README.txt`）・`LICENSE.txt`。`scripts/Build-DownloadZip.ps1` が作る。
+  - **VPM zip**（`com.yukkuri-aoba.iroca-<VERSION>.zip`）: git 追跡ファイルだけから作るパッケージ本体。VCC / ALCOM と VPAI インストーラがこれを取得する。VPM の決まりで `package.json` を頂点に置く形なので、利用者が開くものではなく、unitypackage も入れない。
+  - **VPAI インストーラ**（`Iroca_Installer.unitypackage`）: 配布 zip の中身と同じもの。インストーラだけを取りたい人と、0.2.0 時点の文書（「Releases から `Iroca_Installer.unitypackage` をダウンロード」）のために単体でも添付する。後述。
 - **CI が作るのは draft まで**。資産アップロードと publish は手動。
 - publish すると `release-verify.yml` が公開 zip の SHA256 を `docs/index.json`（VPM listing）と照合し、不一致なら fail する。
 
@@ -22,7 +23,8 @@ zip + SHA256 + listing更新 + インストーラ生成  →  整合検証 + dra
    ```powershell
    .\scripts\Build-VpmPackage.ps1 -Version <VERSION>
    ```
-   - package.json（version / url）、README 見出しのバージョン、`docs/index.json`（エントリ + zipSHA256）、zip、`Iroca_Installer.unitypackage` が更新される。
+   - package.json（version / url）、README 見出しのバージョン、`docs/index.json`（エントリ + zipSHA256）、VPM zip、`Iroca_Installer.unitypackage`、配布 zip（`Iroca_v<VERSION>.zip`）が更新される。
+   - VPM zip のエントリ日時は実行時の HEAD のコミット日時なので、listing を作った後にコミットが増えてから再実行すると SHA256 が変わる。資産だけ作り直したいときは `Build-DownloadZip.ps1` / `Build-Installer.ps1` を単独で実行する。
    - Code/ に未コミットの変更があると止まる（zip を HEAD と 1:1 にするため）。
 3. **コミット**: `package.json` / `README.md` / `docs/index.json` / `CHANGELOG.md` をコミット。
 4. **main へマージ + タグ**（要ユーザー確認の操作）:
@@ -38,7 +40,7 @@ zip + SHA256 + listing更新 + インストーラ生成  →  整合検証 + dra
    - tag ↔ package.json の version / url
    - CHANGELOG に非空の `## [<VERSION>]` 節
    - `docs/index.json` に該当バージョンのエントリ + zipSHA256
-5. **資産アップロード + publish**: draft に zip と `Iroca_Installer.unitypackage` をアップロードし、本文のチェックリスト節を削除して publish。
+5. **資産アップロード + publish**: draft に配布 zip・VPM zip・`Iroca_Installer.unitypackage` をアップロードし、本文のチェックリスト節を削除して publish。BOOTH には配布 zip を上げる。
 6. **検証確認**: `release-verify.yml`（publish/edit で起動）が green になることを確認。fail した場合は zip の差し替え、または `Build-VpmPackage.ps1` 再実行 → listing 再コミットで解消する。
 
 ## 初回公開の後に確認すること
@@ -46,7 +48,7 @@ zip + SHA256 + listing更新 + インストーラ生成  →  整合検証 + dra
 - [ ] release-verify が green。
 - [ ] `https://yukkuri-aoba.github.io/Iroca/index.json` に NDMF の項目も載っている（→「GitHub Pages の配信」）。いろかウィンドウの「マニュアル」でオンラインマニュアルが開く。
 - [ ] VCC / ALCOM にリポジトリ URL を追加してインストールできる。いろかのリポジトリだけで NDMF も選べる。
-- [ ] 公開版の `Iroca_Installer.unitypackage` を素の Unity 2022.3 プロジェクトと VRChat プロジェクトへインポートして導入できる（NDMF も入る）。
+- [ ] 公開版の配布 zip（`Iroca_v<VERSION>.zip`）をダウンロードして展開し、中の `Iroca_Installer.unitypackage` を素の Unity 2022.3 プロジェクトと VRChat プロジェクトへインポートして導入できる（NDMF も入る）。
 - [ ] 済んだらこの節を削除する。
 
 > 0.1.0 は listing から削除済み（公開資産が旧名 `vrc-avatar-color-changer` のみで、zip 内 package.json も旧 ID のため現行 URL では修復不能）。復活させたい場合は旧 zip を新 ID で作り直して v0.1.0 リリースへ追加アップロードする必要があるが、旧版を配布し直す価値は乏しい。
