@@ -41,33 +41,6 @@ zip + SHA256 + listing更新 + インストーラ生成  →  整合検証 + dra
 5. **資産アップロード + publish**: draft に zip と `Iroca_Installer.unitypackage` をアップロードし、本文のチェックリスト節を削除して publish。
 6. **検証確認**: `release-verify.yml`（publish/edit で起動）が green になることを確認。fail した場合は zip の差し替え、または `Build-VpmPackage.ps1` 再実行 → listing 再コミットで解消する。
 
-## 公開前の一度きり復旧タスク（初回 0.2.0 のタグ前に完了させる）
-
-最初の公開は **0.2.0 として develop の内容を出す**（2026-09-23 ユーザー決定）。旧 main の 0.2.0（2026-06）は一度も公開されていないので、その出し直しになる。
-
-> **機械ゲート化（2026-08-03）**: この節が残っている間、`release.yml` はタグを push しても
-> fail する。ここには**タグより前にできる作業だけ**を置き、全部済んだら本節を丸ごと削除して
-> develop にコミットしてから手順 3 以降へ進む（それでゲートが解除される）。
-> タグより後の作業は次の節「初回公開の後に確認すること」にある。
-> 旧 release.yml の draft は 2026-09-23 に `gh release list`（認証済みなので draft も出る）で 0 件と確認済み。
-
-- [ ] Unity での実地確認（`docs/release-smoke-test.md`）を通す。
-- [ ] `CHANGELOG.md` の見出し `## [0.2.0] - 未リリース` を公開日にする。
-- [ ] 旧 `v0.2.0` タグ（旧 main の 7f175b7 を指す）をローカルとリモートから消す（要ユーザー確認）:
-  ```
-  git tag -d v0.2.0
-  git push origin :refs/tags/v0.2.0
-  ```
-  残したままだと手順 4 の `git tag v0.2.0` が「already exists」で止まり、release.yml が新しいコミットで走らない。
-- [ ] 手順 2 の `Build-VpmPackage.ps1 -Version 0.2.0` で `docs/index.json` の 0.2.0 エントリを作り直す（今は「存在しない資産の URL + リネーム前 zip の SHA256」のまま）。
-- [x] GitHub Pages を有効化する（Settings → Pages → Source を **GitHub Actions** にする）。2026-10-11 に済み（API で `build_type: workflow`、`github-pages` 環境は main からだけ配信できる）。マニュアルはパッケージに入れずオンライン版だけで配るので、publish の時点で配信されていないと「マニュアル」ボタンが 404 を開く。手順 4 の main への push で `pages.yml` が初めて配信する（main に `pages.yml` が入るのもこのマージから。それまでは 404 のまま）。
-
-**main へのマージで `docs/index.json` が衝突する。** main 側は旧 ID（`com.yukkuri-aoba.vrc-avatar-color-changer`）の listing のままなので、develop 側を採用して解決する:
-```
-git checkout main && git merge develop
-git checkout --theirs docs/index.json && git add docs/index.json && git commit
-```
-
 ## 初回公開の後に確認すること
 
 - [ ] release-verify が green。
