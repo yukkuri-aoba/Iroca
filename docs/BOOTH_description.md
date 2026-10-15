@@ -21,7 +21,8 @@ BOOTH の検索結果はタイトル前方しか見えないことが多いの�
 最初のブロックを「商品紹介文」欄に貼る。残りは「＋ 段落」で足し、見出しを「見出しテキスト」、本文を「本文テキスト」に入れる。
 
 - BOOTH に一言説明の欄は無い。商品紹介文の冒頭約 300 字が、SNS などに出るカードの説明文になる。
-- 更新履歴の「（公開日）」は公開時に埋める。
+- 更新履歴の日付は CHANGELOG.md の版の日付に合わせる。
+- 開発に使ったモデル・衣装の一覧は CREDITS.md だけに持ち、ここにはリンクだけを置く（一覧を二重に持つと、足したときに食い違う）。掲載画像に使ったアバターのクレジットは、画像と同じページに要るのでここにも書く。
 - 段落を使わず 1 つの欄にまとめる場合は、各ブロックの前に「■使い方」のように見出しを置き、空行で区切る。
 - 本文は和文と英数字の間を空けない。括弧は全角。
 
@@ -112,26 +113,12 @@ https://polyformproject.org/licenses/shield/1.0.0
 ハオラン-HAOLAN【オリジナル3Dモデル】／かなリぁ
 https://booth.pm/ja/items/3818504
 
-開発（色替えアルゴリズムの検証）に使用させていただいたモデル・衣装（敬称略）
-・ハオラン-HAOLAN／かなリぁ
-https://booth.pm/ja/items/3818504
-・オリジナル3Dモデル フェイナ／Senna Studio
-https://booth.pm/ja/items/7428637
-・Quanstella - クアンステーラ／もやしちゃん
-https://booth.pm/ja/items/5922294
-・ROUGHCUT／NOIRVAIL_BOOTH
-https://booth.pm/ja/items/8111161
-・ゆめか / Yumeka／Arka_X
-https://arkax.booth.pm/
-
-いずれもデータ自体は本ツールに含まれていません。
+開発（色替えアルゴリズムの検証）に使用させていただいたモデル・衣装、AIモデル、ソフトウェアの一覧は、いろかのウィンドウ右上の「クレジット」と次のページにまとめています。モデル・衣装のデータは本ツールに含まれていません。
+https://github.com/yukkuri-aoba/Iroca/blob/main/CREDITS.md
 
 インストーラに同梱しているソフトウェア
 ・VPMPackageAutoInstaller／anatawa12（MIT License）
 https://github.com/anatawa12/VPMPackageAutoInstaller
-
-AIマスク提案のモデル
-・MobileSAM（Apache License 2.0）をONNX形式に変換して使用しています
 ```
 
 ### 段落：連絡先
@@ -148,7 +135,7 @@ GitHub：https://github.com/yukkuri-aoba/Iroca
 ### 段落：更新履歴
 
 ```
-（公開日）　v0.2.0　名前を「いろか」に変更。アバターへの非破壊登録、自動調整、右クリックでの修正（AI・メッシュ）を追加。VCC・ALCOMからの導入に対応
+2026/10/15　v0.2.0　名前を「いろか」に変更。アバターへの非破壊登録、自動調整、右クリックでの修正（AI・メッシュ）を追加。VCC・ALCOMからの導入に対応
 2026/04/18　v0.1.0　初回リリース
 ```
 
@@ -166,8 +153,9 @@ VRChat, VRC, アバター改変, 衣装改変, 色改変, テクスチャ, Unity
 
 ## 掲載画像
 
-現行の販促画像キットは `docs/booth_new/promo/`（手順は同フォルダの README.md）。
-書き出した `slide-N.png` はプライベート側の `dev_safe/promo/booth_new/out/` に出る。
+現行の掲載画像は 6 枚で、プライベート側の `dev_safe/promo/booth_new_plain4/out/slide-1.png`〜`slide-6.png`。
+`booth_new_plain3` のコンプから書体と 1・5 枚目の文言を替えたもので、作り方は `make_plain4.py` の先頭にある。
+公開側の `docs/booth_new/promo/` は 2026-07 の旧キット。
 
 ### 権利メモ
 
@@ -180,7 +168,8 @@ VRChat, VRC, アバター改変, 衣装改変, 色改変, テクスチャ, Unity
   スニーカーのヒーロー画像と、UI スクリーンショットのプレビュー領域はこれを使う。
 - **Feina（Senna Studio）… 有償アバター。**
   3D レンダーの掲載は可。**テクスチャデータを平面画像として載せるのは不可。**
-  （`ba-before.png` などのバンダナ素材はレンダーなので掲載自体は可。ただし現構成では未使用。）
+  （`ba-before.png` などのバンダナ素材はレンダーなので掲載自体は可。ただし現構成では未使用。
+  2026-07 の旧キット `docs/booth/images/` に入れた 4 枚は、ファイルを消した今も公開リポの履歴に残っている。）
 
 ---
 
