@@ -30,7 +30,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 
 ### クイックスタート
 
-1. [Releases](https://github.com/yukkuri-aoba/Iroca/releases) から `Iroca_Installer.unitypackage` をダウンロードし、Unity Editor のプロジェクトウィンドウにドラッグ＆ドロップして「Import」をクリックします
+1. [Releases](https://github.com/yukkuri-aoba/Iroca/releases) から `Iroca_v<バージョン>.zip` をダウンロードして展開し、中の `Iroca_Installer.unitypackage` を Unity Editor のプロジェクトウィンドウにドラッグ＆ドロップして「Import」をクリックします
 2. 確認ダイアログで「Install」をクリックすると、最新版がダウンロードされて入ります（VCC / ALCOM からも導入できます。[インストール手順](#インストール手順)）
 3. `Tools > いろか` からウィンドウを開きます
 4. テクスチャを選び、「スポイトで変えたい色を選ぶ」を押してプレビュー上の色をクリックし、「変更先カラー」で新しい色を決めます
@@ -91,8 +91,8 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 
 **インストーラ（unitypackage）から**
 
-1. [Releases](https://github.com/yukkuri-aoba/Iroca/releases) から `Iroca_Installer.unitypackage` をダウンロードします
-2. Unity Editor にドラッグ＆ドロップし、ダイアログで「Import」をクリックします
+1. [Releases](https://github.com/yukkuri-aoba/Iroca/releases) から `Iroca_v<バージョン>.zip` をダウンロードして展開します（中身はインストーラ `Iroca_Installer.unitypackage`・README.txt・LICENSE.txt です。同じ欄の `com.yukkuri-aoba.iroca-<バージョン>.zip` は VCC / ALCOM が取得するパッケージ本体なので、ダウンロードする必要はありません）
+2. `Iroca_Installer.unitypackage` を Unity Editor にドラッグ＆ドロップし、ダイアログで「Import」をクリックします
 3. 確認ダイアログで「Install」をクリックすると、最新版がダウンロードされて入ります（インターネット接続が必要です。インストーラ自体は自動で消えます）
 
 **VCC / ALCOM から**
@@ -133,7 +133,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 
 ### Quick Start
 
-1. Import `Iroca_Installer.unitypackage` into Unity Editor and click "Install" in the confirmation dialog (or add it via VCC / ALCOM; see [Installation](#installation))
+1. Download `Iroca_v<version>.zip` from [Releases](https://github.com/yukkuri-aoba/Iroca/releases), extract it, import `Iroca_Installer.unitypackage` into Unity Editor, and click "Install" in the confirmation dialog (or add it via VCC / ALCOM; see [Installation](#installation))
 2. Open the window: `Tools > いろか`
 3. Select a texture, press "Pick the color to change" and click that color on the preview, then choose the new color in "Target Color"
 4. Click `Register to avatar (non-destructive)` (the original texture is kept; the recoloring happens only when entering Play mode or uploading). To save an image file instead, open `Export as a texture` and click `Apply & Save`
@@ -193,8 +193,8 @@ Use either method. Both install Iroca into your project's `Packages`.
 
 **From the installer (unitypackage)**
 
-1. Download `Iroca_Installer.unitypackage` from [Releases](https://github.com/yukkuri-aoba/Iroca/releases)
-2. In Unity Editor, select `Assets > Import Package > Custom Package...`, choose the file, and click "Import"
+1. Download `Iroca_v<version>.zip` from [Releases](https://github.com/yukkuri-aoba/Iroca/releases) and extract it (it contains the installer `Iroca_Installer.unitypackage`, README.txt and LICENSE.txt; the `com.yukkuri-aoba.iroca-<version>.zip` in the same list is the package that VCC / ALCOM download, so you don't need it)
+2. In Unity Editor, select `Assets > Import Package > Custom Package...`, choose `Iroca_Installer.unitypackage`, and click "Import"
 3. Click "Install" in the confirmation dialog. The latest version is downloaded and installed (requires an internet connection; the installer removes itself)
 
 **From VCC / ALCOM**

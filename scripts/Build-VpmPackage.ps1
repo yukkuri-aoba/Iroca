@@ -6,9 +6,10 @@
     Version number (e.g. 0.2.0). Defaults to the value in package.json.
 
 .DESCRIPTION
-    zip の中身は git 追跡ファイルだけ（unitypackage は同梱しない）。unitypackage で配る
-    利用者向けには VPAI インストーラ（scripts/Build-Installer.ps1）を別資産として配り、
-    インストーラが listing からこの zip を取得する。最後にインストーラも生成する。
+    zip の中身は git 追跡ファイルだけ（unitypackage は同梱しない）。この zip は VCC / ALCOM と
+    VPAI インストーラが listing から取得するパッケージ本体で、利用者が直接開くものではない。
+    利用者がダウンロードするのは、インストーラ（scripts/Build-Installer.ps1）と README・LICENSE を
+    入れた別の zip（scripts/Build-DownloadZip.ps1 → Iroca_v<VERSION>.zip）。最後にこの 2 つも生成する。
 
 .PARAMETER AllowDirtyTree
     Build even when Code/ has uncommitted changes. The zip then no longer
@@ -258,6 +259,9 @@ try {
     # --- VPAI installer（listing を範囲指定で引くので zip の SHA256 とは独立）---
     & (Join-Path $PSScriptRoot "Build-Installer.ps1")
 
+    # --- 利用者がダウンロードする zip（インストーラ + README + LICENSE）---
+    & (Join-Path $PSScriptRoot "Build-DownloadZip.ps1") -Version $Version
+
     # --- Next steps ---
     Write-Host ""
     Write-Host "=== Next Steps ==="
@@ -267,7 +271,7 @@ try {
     Write-Host "4. git push origin main"
     Write-Host "5. git tag v$Version && git push origin v$Version"
     Write-Host "   -> CI will create a DRAFT release on GitHub"
-    Write-Host "6. Upload $ZipName and Iroca_Installer.unitypackage to the draft release, then publish"
+    Write-Host "6. Upload Iroca_v$Version.zip and $ZipName to the draft release, then publish"
     Write-Host "   $RepoUrl/releases"
     Write-Host ""
     Write-Host "zip location:"

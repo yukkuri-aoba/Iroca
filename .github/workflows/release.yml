@@ -2,7 +2,7 @@ name: Release VPM Package
 
 # フロー: scripts/Build-VpmPackage.ps1 で zip + SHA256 + docs/index.json を更新
 #   → main へコミット → v<VERSION> タグ push → 本ワークフローが整合検証 + draft 作成
-#   → 人間が zip / VPAI インストーラ unitypackage を draft へアップロードして publish
+#   → 人間が配布 zip（VPAI インストーラ入り）/ VPM zip を draft へアップロードして publish
 #   → release-verify.yml が公開資産の SHA256 を docs/index.json と照合
 # 手順の全体像は docs/RELEASING.md を参照。
 
@@ -119,12 +119,19 @@ jobs:
             '.packages[$id].versions[$v].zipSHA256' docs/index.json)
           # GITHUB_OUTPUT の heredoc 経由だと、CHANGELOG に区切り行と同じ文字列が 1 行あるだけで
           # 出力が壊れる（任意の step output を注入できる）。ファイルに書いて body_path で渡す。
+          # 資産の欄には zip が 3 つ（配布 zip・VPM zip・GitHub が自動で付ける Source code）並ぶので、
+          # 利用者が取るものを最初に書く。
           {
+            echo "### ダウンロード"
+            echo "- **\`Iroca_v$VERSION.zip\`** … これをダウンロードしてください。展開して、中の \`Iroca_Installer.unitypackage\` を Unity のプロジェクトウィンドウにドラッグ＆ドロップします（導入方法は同梱の README.txt と[マニュアル](https://yukkuri-aoba.github.io/Iroca/manual/)にあります）。"
+            echo "- \`$PACKAGE_ID-$VERSION.zip\` … VCC / ALCOM とインストーラが自動で取得するパッケージ本体です。手でダウンロードする必要はありません。"
+            echo "- Source code … GitHub が自動で付けるソースコードです。導入には使いません。"
+            echo ""
             printf '%s\n\n' "$BODY"
             echo "---"
             echo "### 公開前チェックリスト（draft のまま実施 → 完了後にこの節を削除して publish）"
+            echo "- [ ] \`Iroca_v$VERSION.zip\`（配布 zip。インストーラ + README + LICENSE）をこのリリースへアップロード"
             echo "- [ ] \`$PACKAGE_ID-$VERSION.zip\` をこのリリースへアップロード（SHA256 = \`$SHA\`）"
-            echo "- [ ] \`Iroca_Installer.unitypackage\`（VPAI インストーラ）をこのリリースへアップロード"
             echo "- [ ] Pages の配信を確認: https://yukkuri-aoba.github.io/Iroca/index.json と https://yukkuri-aoba.github.io/Iroca/manual/ が開く（「マニュアル」ボタンとインストーラの取得先）"
             echo "- [ ] publish 後、release-verify ワークフローが成功することを確認"
           } > "$RUNNER_TEMP/release-body.md"

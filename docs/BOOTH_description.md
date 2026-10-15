@@ -84,7 +84,7 @@ https://yukkuri-aoba.github.io/Iroca/manual/
 ### 段落：導入方法
 
 ```
-1. 「Iroca_Installer.unitypackage」をUnityにドラッグ＆ドロップし、「Import」を押します
+1. ダウンロードしたzipを展開し、中の「Iroca_Installer.unitypackage」をUnityにドラッグ＆ドロップして、「Import」を押します
 2. 確認画面で「Install」を押すと、最新版がダウンロードされて入ります（インターネット接続が必要です）
 3. メニューの「Tools > いろか」からウィンドウを開きます
 
