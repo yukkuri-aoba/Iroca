@@ -639,8 +639,8 @@ namespace Iroca
         // AI の準備を求めるダイアログ(MaskSuggestSetupPrompt。自動調整を押したのに AI が無いときに出る)。
         public static string AiSetupTitle => IsJapanese ? "いろか — AI の準備" : "Iroca — AI setup";
         public static string AiSetupSentisBody => IsJapanese
-            ? "自動調整と AI マスク提案には、Unity Sentis {0} と AI モデル（約 44 MB）が必要です。\n\n今すぐ Sentis を Package Manager から導入しますか？\n導入後に Unity が再コンパイルし、続けて AI モデルのダウンロードを案内します。\n\n「あとで」を選ぶと自動調整は使えません（ウィンドウ上部の案内からいつでも導入できます）。"
-            : "Auto-tune and AI Mask Suggestion require Unity Sentis {0} and the AI models (about 44 MB).\n\nInstall Sentis via the Package Manager now?\nUnity will recompile, then you will be asked to download the models.\n\nIf you choose \u201cLater\u201d, Auto-tune stays unavailable (you can install any time from the notice at the top of the window).";
+            ? "自動調整と AI マスク提案には、Unity Sentis {0} と AI モデル（約 44 MB）が必要です。\n\n今すぐ Sentis を Package Manager から導入しますか？\n導入後に Unity が再コンパイルし、続けて AI モデルのダウンロードを案内します。\nSentis と一緒に、VRChat SDK も使う Burst と Collections が新しい版に上がります。Unity から再起動の案内が出たら、再起動してください。\n\n「あとで」を選ぶと自動調整は使えません（ウィンドウ上部の案内からいつでも導入できます）。"
+            : "Auto-tune and AI Mask Suggestion require Unity Sentis {0} and the AI models (about 44 MB).\n\nInstall Sentis via the Package Manager now?\nUnity will recompile, then you will be asked to download the models.\nBurst and Collections, which the VRChat SDK also uses, are updated to newer versions along with Sentis. If Unity asks you to restart, please do.\n\nIf you choose \u201cLater\u201d, Auto-tune stays unavailable (you can install any time from the notice at the top of the window).";
         public static string AiSetupModelBody => IsJapanese
             ? "自動調整と AI マスク提案に必要な AI モデル（MobileSAM、約 44 MB）をダウンロードします。\n\n保存先: {0}\n取得元: {1}\n\n「あとで」を選ぶと自動調整は使えません（ウィンドウ上部の案内からいつでもダウンロードできます）。"
             : "Download the AI models (MobileSAM, about 44 MB) required by Auto-tune and AI Mask Suggestion.\n\nSave to: {0}\nSource: {1}\n\nIf you choose \u201cLater\u201d, Auto-tune stays unavailable (you can download any time from the notice at the top of the window).";
@@ -648,8 +648,8 @@ namespace Iroca
         public static string AiSetupDownload => IsJapanese ? "ダウンロード" : "Download";
         public static string AiSetupLater => IsJapanese ? "あとで" : "Later";
         public static string AiSuggestInstallSentisTooltip => IsJapanese
-            ? "Unity Package Manager 経由で {0}（バージョン {1}）を導入します\n導入後 Unity が自動で再コンパイルし、AI マスク提案が使えるようになります\n（Package Manager から手動で「Add package by name」しても同じです）"
-            : "Installs {0} (version {1}) via the Unity Package Manager.\nUnity recompiles automatically afterward and AI mask suggestion becomes available.\n(Equivalent to adding it manually via 'Add package by name'.)";
+            ? "Unity Package Manager 経由で {0}（バージョン {1}）を導入します\n導入後 Unity が自動で再コンパイルし、AI マスク提案が使えるようになります\n一緒に、VRChat SDK も使う Burst と Collections が新しい版に上がります（Unity から再起動の案内が出ることがあります）\n（Package Manager から手動で「Add package by name」しても同じです）"
+            : "Installs {0} (version {1}) via the Unity Package Manager.\nUnity recompiles automatically afterward and AI mask suggestion becomes available.\nBurst and Collections, which the VRChat SDK also uses, are updated to newer versions along with it (Unity may ask you to restart).\n(Equivalent to adding it manually via 'Add package by name'.)";
         public static string AiSuggestInstalling => IsJapanese
             ? "Sentis を導入中… 完了すると Unity が自動で再コンパイルします。"
             : "Installing Sentis... Unity will recompile automatically when it finishes.";
