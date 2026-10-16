@@ -92,9 +92,21 @@ namespace Iroca.NdmfIntegration
             if (ready.IsCompleted) return Task.FromResult<IRenderFilterNode>(node.Swap(proxies));
             // 作りかけのレシピを待つ。完了はメインスレッドだが、待ち合わせ(WhenAll)の続きはどこで走るか
             // 決まらないので、差し替えはメインスレッドへ戻してから行う。
+            // NDMF は全部のノードがそろってから次の表示へ切り替えるので、この Task は何があっても完了させる
+            // (残すと、ほかのツールの分も含めてシーンのプレビューが古い表示のまま止まる)。
             var result = new TaskCompletionSource<IRenderFilterNode>();
-            ready.ContinueWith(_ => PreviewJobMainThread.Post(() => result.SetResult(node.Swap(proxies))),
-                TaskScheduler.Default);
+            ready.ContinueWith(_ => PreviewJobMainThread.Post(() =>
+            {
+                try
+                {
+                    result.TrySetResult(node.Swap(proxies));
+                }
+                catch (System.Exception ex)
+                {
+                    Debug.LogException(ex);
+                    result.TrySetResult(node);
+                }
+            }), TaskScheduler.Default);
             return result.Task;
         }
 
@@ -218,8 +230,11 @@ namespace Iroca.NdmfIntegration
             {
                 foreach (var s in _slots)
                 {
-                    var texture = s.recipe != null ? s.recipe.Result : s.live;
-                    if (texture == null) continue;
+                    // 作れなかったレシピ・待っている間に消えたマテリアルは飛ばす(ほかの差し替えは続ける)。
+                    var texture = s.recipe != null
+                        ? (s.recipe.Status == TaskStatus.RanToCompletion ? s.recipe.Result : null)
+                        : s.live;
+                    if (texture == null || s.material == null) continue;
                     if (!_clones.TryGetValue(s.material, out var clone))
                     {
                         // hideFlags は既定のまま(DontSave にすると、ノードが片付けられずに残ったとき

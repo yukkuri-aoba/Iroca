@@ -132,6 +132,23 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void TryRecolor_SourceFileThatCannotBeOpened_ReportsUnreadable()
+        {
+            // ほかのアプリが掴んでいる・同期サービスのオンライン専用ファイルなど、原本を開けないとき。
+            // 例外で抜けるとビルドでは素の例外、プレビューでは作りかけが終わらなくなる。
+            var src = ImportSource();
+            var recipe = RecipeStore.Create(src, RedToGreenWithInclude(), _assets.Folder);
+            string file = System.IO.Path.GetFullPath(AssetDatabase.GetAssetPath(src));
+            using (new System.IO.FileStream(file, System.IO.FileMode.Open, System.IO.FileAccess.Read,
+                       System.IO.FileShare.None))
+            {
+                Assert.IsFalse(RecipeTextureBuilder.TryRecolor(recipe, out _, out _, out _, out var failure));
+                Assert.AreEqual(RecipeTextureBuilder.Failure.SourceUnreadable, failure);
+            }
+            Assert.IsTrue(RecipeTextureBuilder.TryRecolor(recipe, out _, out _, out _, out var after), after.ToString());
+        }
+
+        [Test]
         public void Recipe_Save_WritesOnlyWhenChanged()
         {
             var src = ImportSource();

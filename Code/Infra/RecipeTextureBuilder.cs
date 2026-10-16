@@ -72,8 +72,38 @@ namespace Iroca
         /// BC7 圧縮 0.3 秒ほど)。出来上がりとキャッシュは <see cref="Build"/> と同じ。
         /// <paramref name="done"/> は必ずメインスレッドで 1 回呼ぶ(作れなければ null)。キャッシュがあるときや
         /// 作れないと分かっているとき(レシピが空・壊れている)は、この呼び出しの中で呼ぶ。
+        /// <para>
+        /// 途中で例外が出ても null で呼ぶ。シーンのプレビューは NDMF が全部のノードの完了を待ってから切り替えるので、
+        /// 呼ばれないままだと、ほかのツールの分も含めてシーンの NDMF のプレビュー全体が古い表示のまま止まる
+        /// (作りかけは <see cref="RecipePreviewTextures"/> が共有するので、プレビューを入れ直しても直らない)。
+        /// </para>
         /// </summary>
         internal static void BuildAsync(IrocaRecipe recipe, Action<Texture2D> done)
+        {
+            bool called = false;
+            void Once(Texture2D tex)
+            {
+                if (called)
+                {
+                    if (tex != null) UnityEngine.Object.DestroyImmediate(tex);   // 受け取り手がいない
+                    return;
+                }
+                called = true;
+                done(tex);
+            }
+
+            try
+            {
+                StartBuild(recipe, Once);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                Once(null);
+            }
+        }
+
+        private static void StartBuild(IrocaRecipe recipe, Action<Texture2D> done)
         {
             var like = recipe != null ? recipe.sourceTexture : null;
             if (like == null) { done(null); return; }
@@ -83,7 +113,7 @@ namespace Iroca
             if (cached != null) { done(cached); return; }
 
             if (!TryLoadState(recipe, out var state, out _)) { done(null); return; }
-            PreviewJobMainThread.Post(() =>
+            PostOrFail(done, () =>
             {
                 if (like == null || !TryReadPixels(like, out var pixels, out int w, out int h, out _)) { done(null); return; }
                 int dw = like.width, dh = like.height;
@@ -91,8 +121,25 @@ namespace Iroca
                 {
                     SessionRecolor.Apply(pixels, w, h, state);
                     return (dw == w && dh == h) ? pixels : ResizeArea(pixels, w, h, dw, dh);
-                }).ContinueWith(t => PreviewJobMainThread.Post(() => FinishAsync(t, like, dw, dh, key, done)),
+                }).ContinueWith(t => PostOrFail(done, () => FinishAsync(t, like, dw, dh, key, done)),
                     TaskScheduler.Default);
+            });
+        }
+
+        // メインスレッドの次の tick で work を回す。例外で抜けたら記録して done(null)(done は 1 回目だけ効く)。
+        private static void PostOrFail(Action<Texture2D> done, Action work)
+        {
+            PreviewJobMainThread.Post(() =>
+            {
+                try
+                {
+                    work();
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogException(ex);
+                    done(null);
+                }
             });
         }
 
@@ -108,7 +155,7 @@ namespace Iroca
                 done(null);
                 return;
             }
-            PreviewJobMainThread.Post(() =>
+            PostOrFail(done, () =>
             {
                 if (like == null)
                 {
@@ -173,7 +220,21 @@ namespace Iroca
         {
             failure = Failure.None;
             string srcPath = AssetDatabase.GetAssetPath(src);
-            var kind = ExportPipeline.ReadSourcePixels(srcPath, src, out pixels, out width, out height);
+            ExportPipeline.SourceKind kind;
+            try
+            {
+                kind = ExportPipeline.ReadSourcePixels(srcPath, src, out pixels, out width, out height);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
+                                       || ex is ArgumentException || ex is NotSupportedException)
+            {
+                // 原本のファイルを開けない(ほかのアプリが掴んでいる・同期サービスのオンライン専用ファイル・
+                // Unity の外で消した等)。ビルドでは「元テクスチャを読めません」として報告する。
+                Debug.LogWarning($"[Iroca] 元テクスチャのファイルを読めませんでした: {srcPath}\n{ex.Message}");
+                pixels = null; width = height = 0;
+                failure = Failure.SourceUnreadable;
+                return false;
+            }
             if (kind == ExportPipeline.SourceKind.Unavailable) { failure = Failure.SourceUnreadable; return false; }
             return true;
         }

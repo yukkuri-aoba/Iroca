@@ -187,6 +187,27 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void MaterialGoneWhileWaitingForTheRecipe_TheNodeStillFinishes()
+        {
+            // NDMF は全部のノードがそろってから次の表示へ切り替えるので、ノードが終わらないと
+            // ほかのツールの分も含めてシーンのプレビューが止まる。
+            var (src, mat) = SourceAndMaterial();
+            var avatar = Track(new GameObject("avatar"));
+            var inside = Mesh("inside", mat, avatar);
+            avatar.AddComponent<IrocaRecolor>().recipes.Add(RedToGreen(src));
+
+            var filter = new IrocaPreviewFilter();
+            var group = GroupOf(filter.FindTargets(new ComputeContext("test")), inside);
+            var proxy = ProxyOf(inside);
+            var instantiating = filter.Instantiate(group, new List<(Renderer, Renderer)> { (inside, proxy) },
+                new ComputeContext("node"));
+            Assert.IsFalse(instantiating.IsCompleted, "テストの前提(初めて映すレシピは作りかけ)が崩れている");
+            Object.DestroyImmediate(mat);   // 待っている間に借りたマテリアルが消えた
+            var node = TestAssets.Wait(instantiating);
+            node.Dispose();
+        }
+
+        [Test]
         public void OneComponentWithSeveralRecipes_ShowsEachTexture()
         {
             string pathA = _assets.WritePng("a", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);

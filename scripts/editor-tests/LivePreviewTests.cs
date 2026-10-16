@@ -363,6 +363,32 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void SourceFileThatCannotBeOpened_FinishesWithNothing_AndIsBuiltAgainLater()
+        {
+            // 作りかけが終わらないと、NDMF のプレビューがシーンごと(ほかのツールの分も)止まる。
+            string path = _assets.WritePng("src", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);
+            var recipe = RedToGreen(AssetDatabase.LoadAssetAtPath<Texture2D>(path), 0.2f);
+            int before = RecipePreviewTextures.Count;
+
+            Texture2D failed;
+            string keyA;
+            using (new System.IO.FileStream(System.IO.Path.GetFullPath(path), System.IO.FileMode.Open,
+                       System.IO.FileAccess.Read, System.IO.FileShare.None))
+            {
+                var pending = RecipePreviewTextures.Acquire(recipe, out keyA);
+                failed = TestAssets.Wait(pending);
+            }
+            Assert.IsNull(failed, "開けない原本から何か作った");
+
+            // 開けるようになったら、次に借りるときに作り直す(作れなかった結果を貸し続けない)。
+            var built = TestAssets.Wait(RecipePreviewTextures.Acquire(recipe, out var keyB));
+            Assert.IsNotNull(built, "作れなかった結果を貸し続けている");
+            RecipePreviewTextures.Release(keyA);
+            RecipePreviewTextures.Release(keyB);
+            Assert.AreEqual(before, RecipePreviewTextures.Count);
+        }
+
+        [Test]
         public void BrokenRecipe_LendsNothing()
         {
             string path = _assets.WritePng("src", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);
