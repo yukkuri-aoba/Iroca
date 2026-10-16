@@ -26,9 +26,9 @@ namespace Iroca.NdmfIntegration
     /// </para>
     /// <para>
     /// アニメーションで切り替わるマテリアル(衣装・表情のトグル。MA のマテリアル切り替えも MA の後なので
-    /// アニメーションになっている)を書き換えるため、NDMF の AnimatorServicesContext を必要と宣言する。
-    /// 宣言しておけば、アニメーターを直接触る後続のツールの前に NDMF が書き戻してくれる
-    /// (パスの中で黙って有効にすると、後続のツールの変更を上書きしかねない)。
+    /// アニメーションになっている)を書き換えるため、NDMF の AnimatorServicesContext を使う。Required とは
+    /// 宣言せず、いろかの部品があるアバターでだけ開く(<see cref="AnimatorServicesOnDemand"/>。いろかを
+    /// 使っていないアバターのビルドに、アニメーターの作り直しを足さないため)。
     /// </para>
     /// <para>
     /// NDMF が入っているときだけコンパイルされる(asmdef の IROCA_NDMF_PRESENT)。
@@ -46,10 +46,8 @@ namespace Iroca.NdmfIntegration
             InPhase(BuildPhase.Transforming)
                 .AfterPlugin("nadena.dev.modular-avatar")
                 .BeforePlugin("net.rs64.tex-trans-tool")
-                .WithRequiredExtension(typeof(AnimatorServicesContext), seq =>
-                    seq.Run("Recolor textures", ctx =>
-                            NonDestructiveApplier.Apply(ctx.AvatarRootObject, new BuildHost(ctx),
-                                ctx.GetState<NonDestructiveApplier.BuildState>(), NonDestructiveApplier.Stage.First))
+                .WithCompatibleExtensions(AnimatorServicesOnDemand.Types, seq =>
+                    seq.Run("Recolor textures", ctx => Run(ctx, NonDestructiveApplier.Stage.First))
                         // 編集中(再生していないとき)は、シーン上のアバターに同じ色替えを映す。
                         .PreviewingWith(new IrocaPreviewFilter()));
 
@@ -58,17 +56,30 @@ namespace Iroca.NdmfIntegration
             // テクスチャを使い回す)。コンポーネントはここで外す。
             InPhase(BuildPhase.Optimizing)
                 .BeforePlugin("com.anatawa12.avatar-optimizer")
-                .WithRequiredExtension(typeof(AnimatorServicesContext), seq =>
-                    seq.Run("Recolor materials added after Transforming", ctx =>
-                        NonDestructiveApplier.Apply(ctx.AvatarRootObject, new BuildHost(ctx),
-                            ctx.GetState<NonDestructiveApplier.BuildState>(), NonDestructiveApplier.Stage.Late)));
+                .WithCompatibleExtensions(AnimatorServicesOnDemand.Types, seq =>
+                    seq.Run("Recolor materials added after Transforming",
+                        ctx => Run(ctx, NonDestructiveApplier.Stage.Late)));
+        }
+
+        private static void Run(BuildContext ctx, NonDestructiveApplier.Stage stage)
+        {
+            // いろかの部品が無いアバターでは何もしない(アニメーターの拡張も開かない)。
+            if (ctx.AvatarRootObject.GetComponentInChildren<IrocaRecolor>(true) == null) return;
+            using (var animators = new AnimatorServicesOnDemand(ctx))
+                NonDestructiveApplier.Apply(ctx.AvatarRootObject, new BuildHost(ctx, animators),
+                    ctx.GetState<NonDestructiveApplier.BuildState>(), stage);
         }
 
         private sealed class BuildHost : NonDestructiveApplier.IHost
         {
             private readonly BuildContext _ctx;
+            private readonly AnimatorServicesOnDemand _animators;
 
-            public BuildHost(BuildContext ctx) { _ctx = ctx; }
+            public BuildHost(BuildContext ctx, AnimatorServicesOnDemand animators)
+            {
+                _ctx = ctx;
+                _animators = animators;
+            }
 
             public Texture2D BuildTexture(IrocaRecipe recipe, out RecipeTextureBuilder.Failure failure)
                 => RecipeTextureBuilder.Build(recipe, out failure);
@@ -84,7 +95,7 @@ namespace Iroca.NdmfIntegration
                 => NdmfMessages.Report(problem, component, recipe, failure);
 
             public void RewriteAnimatedMaterials(Transform scope, Func<Material, Material> mapping)
-                => AnimatedMaterials.Rewrite(_ctx.Extension<AnimatorServicesContext>(), scope, mapping);
+                => AnimatedMaterials.Rewrite(_animators.Get(), scope, mapping);
         }
     }
 
