@@ -21,8 +21,9 @@ namespace Iroca.NdmfIntegration
     /// 順番: Transforming 段で、Modular Avatar の後(衣装の統合やマテリアルの差し替えが済んだ状態の
     /// マテリアルを見る)、TexTransTool の前(デカール・アトラス化は色替え後のテクスチャに対して行う)。
     /// AAO の最適化は Optimizing 段なので必ず後になる。名前で指定した相手が入っていなければ制約は無視される。
-    /// 2 段目は Optimizing 段の最初(AAO の前)。VRCFury のように NDMF の外で途中に動くツールが入れた
-    /// マテリアルも色替えするため(<see cref="NonDestructiveApplier.Stage"/>)。
+    /// 2 段目は Optimizing 段の最初(AAO と TexTransTool の前)。VRCFury のように NDMF の外で途中に動くツールが
+    /// 入れたマテリアルも色替えするため(<see cref="NonDestructiveApplier.Stage"/>)。TexTransTool はアトラス化と
+    /// テクスチャの設定(TextureConfigurator)を Optimizing 段で行うので、1 段目と同じく色替え後のテクスチャを渡す。
     /// </para>
     /// <para>
     /// アニメーションで切り替わるマテリアル(衣装・表情のトグル。MA のマテリアル切り替えも MA の後なので
@@ -52,10 +53,11 @@ namespace Iroca.NdmfIntegration
                         .PreviewingWith(new IrocaPreviewFilter()));
 
             // VRCFury は NDMF の前半(Transforming まで)と最適化段の間に動き、トグルなどで元のマテリアルを
-            // 入れ直す。最適化段の最初(AAO の前)にもう一度当てて、それも色替えする(1 段目の複製と
+            // 入れ直す。最適化段の最初(AAO・TexTransTool の前)にもう一度当てて、それも色替えする(1 段目の複製と
             // テクスチャを使い回す)。コンポーネントはここで外す。
             InPhase(BuildPhase.Optimizing)
                 .BeforePlugin("com.anatawa12.avatar-optimizer")
+                .BeforePlugin("net.rs64.tex-trans-tool")
                 .WithCompatibleExtensions(AnimatorServicesOnDemand.Types, seq =>
                     seq.Run("Recolor materials added after Transforming",
                         ctx => Run(ctx, NonDestructiveApplier.Stage.Late)));
