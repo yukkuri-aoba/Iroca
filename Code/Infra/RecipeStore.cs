@@ -95,8 +95,9 @@ namespace Iroca
             recipe.sourceTexture = texture;
             recipe.sessionJson = state != null ? JsonUtility.ToJson(state) : "";
             recipe.formatVersion = IrocaRecipe.CurrentFormatVersion;
+            // CreateAsset がその場でファイルに書く。SaveAssets は呼ばない(プロジェクトの未保存のアセットを
+            // 全部、利用者の知らないところで保存してしまう)。
             AssetDatabase.CreateAsset(recipe, path);
-            AssetDatabase.SaveAssets();
             return recipe;
         }
 

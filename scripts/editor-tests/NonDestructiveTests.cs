@@ -154,6 +154,10 @@ namespace Iroca.EditorTests
             var src = ImportSource();
             var state = RedToGreenWithInclude();
             var recipe = RecipeStore.Create(src, state, _assets.Folder);
+            // 作った時点でファイルに書かれている(プロジェクト全体の SaveAssets に頼らない)。
+            string file = AssetDatabase.GetAssetPath(recipe);
+            Assert.IsFalse(EditorUtility.IsDirty(recipe), "作ったレシピが未保存のまま");
+            StringAssert.Contains(state.zones[0].id, System.IO.File.ReadAllText(file), "レシピの中身がファイルに無い");
             Assert.IsFalse(RecipeStore.Save(recipe, state), "同じ内容で保存し直した");
             state.zones[0].tolerance = 0.3f;
             Assert.IsTrue(RecipeStore.Save(recipe, state));
