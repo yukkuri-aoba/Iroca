@@ -2,6 +2,11 @@
 
 Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変更できる拡張ツールです。VRChat アバターのテクスチャ編集を主な対象としていますが、一般的な Unity プロジェクトでも使用できます。
 
+[![いろかの紹介動画（YouTube）](docs/manual/img/promo/intro-video.webp)](https://youtu.be/X1nqFYiOFoQ)
+
+▶ [紹介動画（1 分 33 秒・YouTube）](https://youtu.be/X1nqFYiOFoQ) / [Intro video (1:33, Japanese captions)](https://youtu.be/X1nqFYiOFoQ)  
+<sub>画像と動画のアバター / Avatar: かなリぁ「[ハオラン-HAOLAN](https://booth.pm/ja/items/3818504)」</sub>
+
 [日本語](#日本語) | [English](#english)
 
 > **注：** 日本語版が公式版です。英語版は参考情報としてご利用ください。
