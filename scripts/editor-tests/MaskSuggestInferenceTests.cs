@@ -107,5 +107,45 @@ namespace Iroca.EditorTests
 
             Assert.GreaterOrEqual(iou, 0.9f, $"円を取れていない（IoU {iou:F3}, score {proposal.score:F3}）");
         }
+
+        [Test]
+        public void LeftoverModelImportFolders_OnlyIrocasOwnAreRemoved()
+        {
+            // モデルの変換の途中で Unity が落ちると Assets に一時フォルダが残る。次の変換の前に、
+            // 名前が一時フォルダの形で中身がいろかのモデルだけのものに限って消す（AI 統合アセンブリの内部なので
+            // 名前で呼ぶ）。
+            var repo = System.Type.GetType("Iroca.SentisIntegration.SentisModelRepository, Iroca.SentisIntegration");
+            if (repo == null) Assert.Ignore("AI 統合アセンブリが無い（Sentis / Inference Engine 未導入）");
+            var sweep = repo.GetMethod("DeleteLeftoverTempDirs",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            Assert.IsNotNull(sweep, "片付けの関数が見つからない（名前を変えたらこのテストも直す）");
+
+            string Dir(string suffix) => System.IO.Path.Combine(Application.dataPath, "IrocaModelImportTemp_" + suffix);
+            string ours = Dir(System.Guid.NewGuid().ToString("N"));
+            string withUserFile = Dir(System.Guid.NewGuid().ToString("N"));
+            string otherName = Dir("mine");
+            var dirs = new[] { ours, withUserFile, otherName };
+            try
+            {
+                // 取り込ませない（AssetDatabase を更新しない）ので、ファイルを直接置く。
+                foreach (var d in dirs)
+                {
+                    System.IO.Directory.CreateDirectory(d);
+                    System.IO.File.WriteAllText(System.IO.Path.Combine(d, "mobile_sam_encoder.onnx"), "x");
+                }
+                System.IO.File.WriteAllText(System.IO.Path.Combine(withUserFile, "notes.txt"), "x");
+
+                sweep.Invoke(null, null);
+
+                Assert.IsFalse(System.IO.Directory.Exists(ours), "残った一時フォルダを消していない");
+                Assert.IsTrue(System.IO.Directory.Exists(withUserFile), "ほかのファイルが入ったフォルダを消した");
+                Assert.IsTrue(System.IO.Directory.Exists(otherName), "一時フォルダの形でない名前のフォルダを消した");
+            }
+            finally
+            {
+                foreach (var d in dirs)
+                    if (System.IO.Directory.Exists(d)) System.IO.Directory.Delete(d, recursive: true);
+            }
+        }
     }
 }
