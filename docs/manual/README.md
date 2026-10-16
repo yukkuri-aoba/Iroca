@@ -2,6 +2,8 @@
 
 いろかのマニュアルは、原稿から組み立てた HTML（ページ 1 枚と、そこから読む CSS・JS・書体・画像・動画）を
 オンライン版だけで配る。外部 CDN もフォントの取得もしない（どれも同じフォルダに入る）。
+例外は表紙の紹介動画（YouTube）だけで、再生を押すまでは手元のサムネイルを出し、YouTube には繋がない
+（押すと `manual.js` が youtube-nocookie.com の埋め込みに差し替える。動画の ID とサムネイルは `build_manual.py` の `INTRO_VIDEO_*`）。
 
 - オンライン版: <https://yukkuri-aoba.github.io/Iroca/manual/>（`scripts/pages/build_site.py` が原稿から作って Pages へ）。
   いろかウィンドウ上部の「マニュアル」はこれを開く（`Code/UI/IrocaManual.cs`）。
@@ -24,6 +26,7 @@
 | `src/demos.json` | スライダー実演の定義（コマ画像と日英の文言） |
 | `img/ui/*.webp` | Unity Editor の実ウィンドウのスクリーンショット |
 | `img/demo/*.webp` | 実 C# エンジンの出力（実演のコマ） |
+| `img/promo/intro-video.webp` | 表紙の紹介動画のサムネイル（動画の最後の画面 `dev_safe/promo/booth_video/build/end.png` を 1280×720 に縮めたもの）。README の冒頭も同じ画像を使う |
 | `clips/*.mp4` | 操作の短い動画 |
 | `fonts/` | 書体 Zen Maru Gothic を原稿の字だけに絞った WOFF2（本文 500・見出し 700）と、収めた字の一覧 `chars.txt`・`OFL.txt` |
 | `build_manual.py` | 原稿 → `dist/`（標準ライブラリだけで動く） |

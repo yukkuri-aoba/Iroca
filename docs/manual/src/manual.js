@@ -13,6 +13,7 @@
       footNote: 'いろか %s のマニュアルです。いつも最新の版の説明なので、古い版では画面や項目が違うことがあります。',
       changelog: '変更履歴', fontNote: '書体: Zen Maru Gothic（SIL Open Font License 1.1）',
       lead: 'はじめて使うときは「<a href="#quickstart">はじめての色替え</a>」から。',
+      video: '紹介動画（1 分 33 秒・YouTube）',
     },
     en: {
       manual: 'User Manual', search: 'Search', toc: 'Contents', other: '日本語',
@@ -20,6 +21,7 @@
       footNote: 'Manual for Iroca %s. It always describes the latest version, so older versions may look different.',
       changelog: 'Changelog', fontNote: 'Typeface: Zen Maru Gothic (SIL Open Font License 1.1)',
       lead: 'New to Iroca? Start with <a href="#quickstart">the quick start</a>.',
+      video: 'Intro video (1:33, YouTube, Japanese captions)',
     },
   };
 
@@ -380,6 +382,23 @@
       clipWatcher.observe(v);
     });
   }
+
+  /* ── 紹介動画（YouTube） ─────────────────── */
+  // 押すまでは手元のサムネイルだけを出し、YouTube には繋がない。押したら同じ場所で再生する
+  // （Ctrl などを押しながらのクリックは、ふつうのリンクとして YouTube を開く）。
+  document.addEventListener('click', e => {
+    const a = e.target.closest('a[data-yt]');
+    if (!a || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    const f = document.createElement('iframe');
+    f.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(a.dataset.yt)}?autoplay=1&rel=0`;
+    f.title = $('figcaption', a.closest('figure'))?.textContent || 'YouTube';
+    f.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+    f.allowFullscreen = true;
+    f.referrerPolicy = 'strict-origin-when-cross-origin';
+    a.replaceWith(f);
+    f.focus();
+  });
 
   /* ── 画像ズーム ─────────────────────────── */
   document.addEventListener('click', e => {

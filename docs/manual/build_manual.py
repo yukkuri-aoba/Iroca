@@ -143,6 +143,25 @@ def video_size(rel: str) -> tuple[int, int] | None:
         pos = i + 4
 
 
+# ── 紹介動画 ─────────────────────────────────────────────────────
+
+# 表紙に置く紹介動画（YouTube、BOOTH の商品ページと同じもの。docs/YouTube_description.md）。
+# 押すまでは手元のサムネイルだけを出し、YouTube には繋がない。押すと manual.js が埋め込みに差し替える。
+INTRO_VIDEO_ID = "X1nqFYiOFoQ"
+INTRO_VIDEO_POSTER = "img/promo/intro-video.webp"
+
+
+def intro_video() -> str:
+    wh = image_size(INTRO_VIDEO_POSTER)
+    size = f' width="{wh[0]}" height="{wh[1]}"' if wh else ""
+    return ('    <figure class="yt"><div class="yt-stage">'
+            f'<a href="https://youtu.be/{INTRO_VIDEO_ID}" target="_blank" rel="noopener"'
+            f' data-yt="{INTRO_VIDEO_ID}" aria-labelledby="intro-video-cap">'
+            f'<img src="{asset_url(INTRO_VIDEO_POSTER)}" alt=""{size}>'
+            '<span class="yt-play" aria-hidden="true"></span></a></div>'
+            '<figcaption id="intro-video-cap" data-t="video">紹介動画（1 分 33 秒・YouTube）</figcaption></figure>')
+
+
 # ── 原稿の読み込み ───────────────────────────────────────────────
 
 @dataclass
@@ -388,6 +407,7 @@ def build() -> dict[str, bytes]:
         "js": esc(versioned("manual.js", js)),
         "data": script_safe(json.dumps(data, ensure_ascii=False, separators=(",", ":"))),
         "articles": "\n".join(articles),
+        "intro_video": intro_video(),
         "version": esc(version),
         "lang_hidden": "" if len(langs) > 1 else " hidden",
     }

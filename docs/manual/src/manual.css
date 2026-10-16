@@ -227,6 +227,28 @@ main {
 }
 .cover .lead { margin: 0; color: var(--fg-dim); font-size: .95rem; }
 
+/* 紹介動画。押すまでは手元のサムネイルで、押すと YouTube の埋め込みに差し替わる（manual.js） */
+.yt { margin: 2.2rem 0 0; }
+.yt-stage {
+  position: relative; aspect-ratio: 16 / 9;
+  border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: #000;
+}
+.yt-stage a, .yt-stage img, .yt-stage iframe { display: block; width: 100%; height: 100%; border: 0; }
+.yt-stage img { object-fit: cover; }
+.yt-stage a:focus-visible { outline-offset: -4px; }
+.yt-play {
+  position: absolute; left: 50%; top: 50%;
+  width: 4.2rem; height: 4.2rem; margin: -2.1rem 0 0 -2.1rem;
+  border-radius: 50%; background: rgba(29, 29, 31, .78);
+  transition: background .15s;
+}
+.yt-play::after {
+  content: ""; position: absolute; left: 50%; top: 50%; margin: -.75rem 0 0 -.45rem;
+  border-style: solid; border-width: .75rem 0 .75rem 1.3rem;
+  border-color: transparent transparent transparent #f7f6f4;
+}
+.yt-stage a:hover .yt-play, .yt-stage a:focus-visible .yt-play { background: #1d1d1f; }
+
 /* ── 本文 ───────────────────────────────────────── */
 .sec { border-top: 2px solid var(--rule); padding-top: 1.6rem; }
 .sec + .sec { margin-top: 5.5rem; }
