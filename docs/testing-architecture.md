@@ -291,6 +291,8 @@ dev_safe から `scripts/source_checks/` へ移した。資産を要らない検
 |--------|----------------|----------------|
 | 実行キャッシュ | `(DLL の中身, 入力, 除外マスク, zones JSON, 外部マスクの内容, 追加引数)` の SHA-256 をキーに出力 raw を `dev_safe/_harness_cache/` へ保存。同じ入力の再実行を丸ごと省く。zones JSON 内の外部マスク（`includeMask` / `excludeMask` / `evidenceMask`）は**内容**で同定し、パス（ワーカー ID を含む）はキーに入れない | `IROCA_HARNESS_CACHE=0` |
 | 指標の結果キャッシュ | 品質指標 `recolor_quality.compute_all_metrics`（4096² で 1 件約 5 秒）の結果を、`(入力, 出力, 評価マスク, 目標色)` の内容と `recolor_quality.py` / `colorspace.py`・numpy / scipy の版の SHA-256 をキーに `_harness_cache/metrics/` へ保存（2026-10-16）。出力が変われば計算し直す。値は型ごと戻すので計算直後と bit 一致（品質ゲート全 21 件で確認） | `IROCA_METRICS_CACHE=0` |
+| PNG のデコードキャッシュ | `fixtures._load_rgba`（テクスチャ・GT・評価領域の読み込み口）のデコード結果を、ファイルの中身と Pillow の版の SHA-256 をキーに `_harness_cache/decoded/` へ `.npy` で保存（2026-10-17）。4096² で 1 枚 0.1〜0.4 秒 → 0.02 秒。1 枚 64MB なので被写体の画像 1 組で数 GB 使う | `IROCA_DECODED_CACHE=0` |
+| SAM 提案の結果キャッシュ | `sam_proposal.proposal_for_click_full`（提案マスク + 診断）と `measure_sam_e2e.one_case`（e2e の 1 ケース）の結果を、DLL・ONNX・埋め込み / 凍結 logits・テクスチャ・GT・クリック・粒度と関与する Python ソースの SHA-256 をキーに `_harness_cache/results/` へ保存（2026-10-17）。どちらも 1 回に dotnet を 6〜10 回起動していた。共通部品は `fixtures.result_key / result_load / result_store` | `IROCA_RESULT_CACHE=0` |
 | バッチ実行 | 同じテクスチャの複数ケース（通常 5 色）を Harness `--batch` で 1 プロセスにまとめ、dotnet 起動と 64MB の入力書き出しを 1 回にする | （常時。単発呼び出しは従来どおり） |
 | ワーカー分離 | `dev_safe/_iou_csharp_work/<worker>/` に分けて並列実行の書き込み衝突を防ぐ。ハーネスのビルドはプロセス跨ぎのロックで直列化 | — |
 
