@@ -37,6 +37,15 @@ BOOTH の下書きに入っている題名（2026-10-16 決定）。検索結果
 https://yukkuri-aoba.github.io/Iroca/manual/
 ```
 
+### 埋め込みコンテンツ（紹介動画）
+
+商品紹介文のすぐ下、段落の前に置く（「＋ 埋め込みコンテンツ」で末尾に付くので、先頭へ動かす）。動画は https://youtu.be/X1nqFYiOFoQ 。
+YouTube を埋め込むと、商品画像のスライドの 1 枚目にも同じ動画が出る。手順の詳細は `YouTube_description.md` の「BOOTH への埋め込み」。
+
+```
+<iframe width="560" height="315" src="https://www.youtube.com/embed/X1nqFYiOFoQ" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+```
+
 ### 段落：使い方
 
 ```
@@ -174,3 +183,4 @@ VRChat, VRC, アバター改変, 衣装改変, 色改変, テクスチャ, Unity
 ## 紹介動画
 
 商品ページに埋め込む紹介動画（YouTube）のタイトル案・概要欄・アップロード時の設定は `YouTube_description.md`。
+公開した動画は https://youtu.be/X1nqFYiOFoQ で、2026-10-16 に商品ページ（下書き）へ埋め込んだ（説明文の「埋め込みコンテンツ（紹介動画）」）。

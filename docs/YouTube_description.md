@@ -2,6 +2,8 @@
 
 BOOTH の商品ページに埋め込む紹介動画の、YouTube 側の文面と設定。商品ページの文面は `BOOTH_description.md`。
 
+- 公開した動画: https://youtu.be/X1nqFYiOFoQ （2026-10-16 時点で公開済み。タイトルは第 1 案の末尾に「紹介PV」を足したもの）。
+  BOOTH の商品ページには 2026-10-16 に埋め込み済み（下の「BOOTH への埋め込み」）。
 - 動画: `dev_safe/promo/booth_video/iroca_booth_draft.mp4`（1920×1080・30fps・93 秒。字幕は動画に焼き込み済み）。
   作り方と BGM の条件は `dev_safe/promo/booth_video/README.md` と同じフォルダの `bgm/SOURCES.md`。
 - 本文の書き方は `BOOTH_description.md` に合わせる（和文と英数字の間を空けない・括弧は全角）。
@@ -108,3 +110,13 @@ https://opentracks.com/creator/detail/408 ）。
 3. 「下書きで保存する」か「公開で保存する」で保存する。
 
 YouTube を埋め込むと、一部のページでは商品画像の先頭にも動画が出る。BOOTH の画面の詳しい仕様は `商品説明_追加仕様.md`。
+
+2026-10-16 に実施した内容（商品 8169184、下書きで保存）:
+
+- 埋め込みコードは YouTube の「埋め込む」と同じ形で、共有の追跡用パラメータ（`?si=…`）は付けていない。
+  ```
+  <iframe width="560" height="315" src="https://www.youtube.com/embed/X1nqFYiOFoQ" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+  ```
+- 「＋ 埋め込みコンテンツ」のブロックはリストの末尾に付くので、商品紹介文のすぐ下（段落「使い方」の前）へ動かした。
+  ドラッグだとページの端から端まで届かないので、キーボードで動かした（ブロックの見出しにフォーカス → Space で掴む → ↑ を 1 回ずつ間を空けて押す → Space で置く。続けて押すと取りこぼす）。
+- 公開ページでは、商品画像のスライドの 1 枚目と、説明文の先頭（紹介文の後・「使い方」の前）の 2 か所に出る。
