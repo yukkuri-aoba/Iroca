@@ -33,7 +33,7 @@ https://yukkuri-aoba.github.io/Iroca/index.json
   NDMF がなくても、画像（PNG）の書き出しは使えます
 ・AI を使う機能（自動調整と、右クリックでの範囲の見分け）には、Unity Sentis 2.1.3（Unity 2022.3.11f1 以降）と
   AI モデル（約 44MB）が必要です。どちらもウィンドウ上部の案内から導入できます
-・4096×4096 までのテクスチャで確認しています
+・8192×8192 までのテクスチャで確認しています
 
 ■ 利用規約
 PolyForm Shield License 1.0.0（全文は LICENSE.txt）
