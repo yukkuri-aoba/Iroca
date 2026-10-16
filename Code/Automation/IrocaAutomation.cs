@@ -24,6 +24,7 @@ namespace Iroca
     ///   2. MCPForUnity カスタムツール: <c>Code/McpIntegration/IrocaMcpTools.cs</c> の <c>iroca_recolor</c> 等。
     ///      <c>execute_custom_tool</c> から本クラスの公開静的 API を呼ぶ。MCPForUnity 導入時のみ
     ///      コンパイルされる別 asmdef（IROCA_MCP_PRESENT ゲート）で、配布パッケージ本体は依存ゼロを保つ。
+    ///      開発用で、配布物（VPM zip）には入れない。
     ///      生 C# 実行に非対応のクライアントでも駆動できる（Tools メニューには何も追加しない）。
     ///   3. batchmode CLI: <c>Unity.exe -batchmode -executeMethod Iroca.IrocaAutomation.RunFromCommandLine ...</c>。
     ///

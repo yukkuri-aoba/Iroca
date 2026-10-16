@@ -4,6 +4,12 @@
 
 形式は [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) に従い、バージョン管理は [Semantic Versioning](https://semver.org/spec/v2.0.0.html) に準拠します。
 
+## [Unreleased]
+
+### 変更
+
+- MCP for Unity を入れているプロジェクトで、いろかの開発用のツール（`iroca_recolor` など）が AI のツール一覧に出ないようにしました。開発用の連携を配布物から外しています
+
 ## [0.2.0] - 2026-10-15
 
 0.1.0（旧名 VRC Avatar Color Changer / VACC）からの変更です。

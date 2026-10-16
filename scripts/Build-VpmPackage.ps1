@@ -154,7 +154,12 @@ try {
     # Debug 衛星(Code/Debug/)は配布対象外。IrocaEditor.Debug.asmdef は defineConstraints 無し
     # ・autoReferenced=true で、同梱すると全ユーザーで常時コンパイルされ Debug ウィンドウが見えてしまう。
     # AssemblyInfo.cs の「Code/Debug が無ければ Debug ターゲットは単に存在しない」という非同梱運用想定と一致させる。
-    $packedFiles += Get-TrackedFiles @("Code") | Where-Object { $_ -notlike "Code/Debug/*" }
+    # MCP 連携(Code/McpIntegration/)も開発用なので入れない。MCP for Unity はカスタムツールを既定で有効にして
+    # AI のツール一覧へ出すため、同梱すると MCP for Unity を使っている利用者の AI に、頼んでいない
+    # いろかのツールが並ぶ(0.2.0 では入っていた)。更新の速い MCP for Unity の API が変わったときに、
+    # 利用者のプロジェクトのコンパイルを止める心配もなくなる。
+    $packedFiles += Get-TrackedFiles @("Code") |
+        Where-Object { $_ -notlike "Code/Debug/*" -and $_ -notlike "Code/McpIntegration/*" }
     $packedFiles = @($packedFiles)
     if ($packedFiles.Count -eq 0) { throw "梱包対象の追跡ファイルが 0 件です（git 追跡状態を確認してください）" }
     # 収集順が環境で揺れないよう序数ソートで固定する（エントリ順も SHA256 に影響する）。
@@ -222,7 +227,7 @@ try {
         Write-Host "  + $EntryName"
     }
 
-    # 追跡ファイル（package.json / README / CHANGELOG / LICENSE / Code、Debug 除く）
+    # 追跡ファイル（package.json / README / CHANGELOG / LICENSE / Code、Debug・McpIntegration 除く）
     foreach ($rel in $packedFiles) {
         $abs = Join-Path $Root ($rel -replace '/', '\')
         if (-not (Test-Path $abs)) { throw "追跡されているのに実体がありません: $rel" }
