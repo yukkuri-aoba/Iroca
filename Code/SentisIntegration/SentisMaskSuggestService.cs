@@ -150,7 +150,15 @@ namespace Iroca.SentisIntegration
 
         public bool TryEnsureModels()
         {
-            if (_modelsLoaded) return true;
+            if (_modelsLoaded)
+            {
+                // ウィンドウを閉じてワーカーを手放した後(ReleaseGpuResources)。モデルは読み込み済みなので、
+                // ワーカーを作り直すだけ(進捗バーは出さない)。
+                if (_encoder != null && _decoder != null) return true;
+                if (TryCreateWorkers(out string recreateErr)) return true;
+                SetPhase(MaskSuggestPhase.Error, error: recreateErr);
+                return false;
+            }
             // 共有フォルダ化(80d1000)以前に旧プロジェクト内へ置いたモデルを、初回だけ共有先へ引き継ぐ。
             MaskSuggestBridge.MigrateLegacyModelsIfNeeded();
             if (!SentisModelRepository.ModelsPresent())
@@ -868,6 +876,12 @@ namespace Iroca.SentisIntegration
             // Idle に戻す(UI からはテクスチャ切替・右クリックメニューからの選び直しが再試行導線になる)。
             if (_modelsLoaded)
                 SetPhase(MaskSuggestPhase.Idle);
+        }
+
+        public void ReleaseGpuResources()
+        {
+            CancelAll();
+            DisposeWorkers();
         }
 
         void CancelOps()

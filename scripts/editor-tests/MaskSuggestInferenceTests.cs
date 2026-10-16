@@ -58,17 +58,21 @@ namespace Iroca.EditorTests
             LogAssert.ignoreFailingMessages = true;
             try
             {
-                yield return RunDiscSuggestion(svc);
+                yield return RunDiscSuggestion(svc, "iroca-test-disc");
+                // いろかのウィンドウを閉じたとき(推論のワーカーを手放す)の後も、作り直して同じように取れる。
+                // 別の鍵にして、エンコーダーも作り直したワーカーで走らせる。
+                svc.ReleaseGpuResources();
+                yield return RunDiscSuggestion(svc, "iroca-test-disc-after-release");
             }
             finally { LogAssert.ignoreFailingMessages = false; }
         }
 
-        static IEnumerator RunDiscSuggestion(IMaskSuggestService svc)
+        static IEnumerator RunDiscSuggestion(IMaskSuggestService svc, string sourceKey)
         {
             Assert.IsTrue(svc.TryEnsureModels(), $"モデルのロード失敗: {svc.ErrorMessage}");
             Assert.AreEqual(MaskSuggestPhase.Idle, svc.Phase, svc.ErrorMessage);
 
-            svc.SetSource("iroca-test-disc", DiscImage(), Size, Size);
+            svc.SetSource(sourceKey, DiscImage(), Size, Size);
             // エンコード完了の直後にデコーダーの暖機（捨て推論）が Decoding 表示で 1 回走るので、
             // Encoding が終わっただけでなく Idle に戻るまで待つ。
             yield return WaitFor(

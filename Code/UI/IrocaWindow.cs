@@ -368,6 +368,8 @@ namespace Iroca
             SavePersistedSessionForCurrentTexture();
             RememberLastEditedTexture();
             _maskView?.ReleaseOverlayTextures();
+            // 閉じた後も AI の推論のワーカーが GPU のメモリを持ち続けないように(次に開いたら作り直す)。
+            MaskSuggestBridge.Service?.ReleaseGpuResources();
         }
 
         /// <summary>
