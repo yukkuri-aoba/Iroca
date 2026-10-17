@@ -40,9 +40,10 @@ ASSET_SUFFIXES = (".webp", ".png", ".jpg", ".jpeg", ".mp4", ".webm", ".woff2")
 # 出力のページに入れる印。出力先にこの印の無い index.html があれば、別物とみて消さずに止める。
 GENERATOR = "Iroca docs/manual/build_manual.py"
 
-# 書体は宣伝画像・紹介動画と同じ Zen Maru Gothic。原稿に出る字だけに絞った WOFF2 を build_fonts.py が作る。
+# 書体は宣伝画像・紹介動画と同じ Noto Sans JP（2026-10-17 まで Zen Maru Gothic）。原稿に出る字だけに絞った WOFF2 を build_fonts.py が作る。
 FONTS = MANUAL / "fonts"
-FONT_WEIGHTS = {500: "Medium", 700: "Bold"}     # 本文 / 見出しと強調
+FONT_WEIGHTS = {500: "Medium", 700: "Bold"}     # 本文 / 見出しと強調（太さを変えられる書体を、この太さに固めて出す）
+FONT_FAMILY, FONT_FILE = "Noto Sans JP", "noto-sans-jp"
 
 
 # ── 書体 ─────────────────────────────────────────────────────────
@@ -66,15 +67,15 @@ def font_urls() -> list[str]:
     if missing:
         raise SystemExit(f"マニュアルの字がフォントの部分集合にありません: {missing}\n"
                          "  .venv\\Scripts\\python.exe docs/manual/build_fonts.py で作り直してください")
-    return [asset_url(f"fonts/zen-maru-gothic-{weight}.woff2") for weight in FONT_WEIGHTS]
+    return [asset_url(f"fonts/{FONT_FILE}-{weight}.woff2") for weight in FONT_WEIGHTS]
 
 
 def font_css(urls: list[str]) -> str:
-    rules = [('@font-face { font-family: "Zen Maru Gothic"; font-style: normal; '
+    rules = [(f'@font-face {{ font-family: "{FONT_FAMILY}"; font-style: normal; '
               f'font-weight: {weight}; font-display: swap; src: url({url}) format("woff2"); }}')
              for weight, url in zip(FONT_WEIGHTS, urls)]
-    return ("/* Zen Maru Gothic — Copyright 2021 The Zen Maru Gothic Project Authors"
-            " (https://github.com/googlefonts/zen-marugothic). SIL Open Font License 1.1"
+    return ("/* Noto Sans JP — Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'."
+            " SIL Open Font License 1.1"
             " (https://openfontlicense.org). マニュアルに出る字だけに絞っている。 */\n"
             + "\n".join(rules))
 

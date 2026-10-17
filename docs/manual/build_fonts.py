@@ -1,14 +1,15 @@
-"""マニュアルの書体（Zen Maru Gothic）を、マニュアルに出る文字だけに絞った WOFF2 にする。
+"""マニュアルの書体（Noto Sans JP）を、マニュアルに出る文字だけに絞った WOFF2 にする。
 
-宣伝画像・紹介動画と同じ丸ゴシック。全部の字を入れると 1 太さで 3.8 MB あるので、原稿に出る字と
-かな・英数字・記号だけに絞る（1 太さ 130 KB ほど）。原稿に新しい漢字を足すと build_manual.py が
-「フォントに無い字」で止まるので、そのときにこれを流す。
+宣伝画像・紹介動画と同じ書体（2026-10-17 までは Zen Maru Gothic）。配布元の Noto Sans JP は太さを変えられる
+1 ファイル（9 MB 余り）なので、原稿に出る字とかな・英数字・記号だけに絞り、本文と見出しの太さ（build_manual.py の
+FONT_WEIGHTS）に固めて、太さごとの WOFF2 にする。原稿に新しい漢字を足すと build_manual.py が「フォントに無い字」で
+止まるので、そのときにこれを流す。
 
     .venv\\Scripts\\python.exe docs/manual/build_fonts.py
 
-Zen Maru Gothic には仮名を詰める機能（palt）が無く、そのままだと仮名の周りが空いて間延びする。宣伝画像と
-紹介動画の字幕は字ごとに詰めているので（dev_safe/promo の make_plain4.py・make_video.py）、同じ規則の palt を
-ここで書体に足す: 仮名と約物は字面の幅＋GAP で送り、句読点の後ろは少し空け、漢字は少しだけ詰める。
+仮名の詰め（palt）は、宣伝画像と紹介動画の字幕と同じ規則にそろえる（dev_safe/promo の make_plain4.py の tighten・
+make_video.py の draw_text）: 仮名と約物は字面の幅＋GAP で送り、句読点の後ろは少し空け、漢字は少しだけ詰める。
+Noto Sans JP にはもともと palt があるが、詰め方が違うので外して、この規則の palt に置き換える。
 CSS の font-feature-settings: "palt" で効く。
 
 fontTools と brotli が要る（.venv\\Scripts\\python.exe -m pip install fonttools brotli）。
@@ -21,18 +22,23 @@ import io
 import re
 import sys
 import tempfile
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 from fontTools import subset
 from fontTools.otlLib import builder as otl
+from fontTools.ttLib import TTFont
 from fontTools.ttLib.tables import otTables as ot
+from fontTools.varLib import instancer
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from build_manual import FONT_WEIGHTS, FONTS, font_chars, manual_chars  # noqa: E402
+from build_manual import FONT_FILE, FONT_WEIGHTS, FONTS, font_chars, manual_chars  # noqa: E402
 
-SOURCE_URL = "https://raw.githubusercontent.com/google/fonts/main/ofl/zenmarugothic/"
-CACHE = Path(tempfile.gettempdir()) / "iroca-manual-fonts"
+SOURCE_URL = "https://raw.githubusercontent.com/google/fonts/main/ofl/notosansjp/"
+SOURCE_FONT = "NotoSansJP[wght].ttf"
+# 配布元ごとに分ける（同じ名前の OFL.txt を、前の書体の写しと取り違えないように）
+CACHE = Path(tempfile.gettempdir()) / "iroca-manual-fonts" / "notosansjp"
 
 # 原稿に無くても入れておく字（かな・英数字・約物）。漢字だけは原稿に出るものに限る。
 BASE = "".join(chr(c) for r in ((0x20, 0x7E), (0x3000, 0x30FF), (0xFF01, 0xFF5E)) for c in range(r[0], r[1] + 1))
@@ -49,7 +55,7 @@ def fetch(name: str) -> Path:
     p = CACHE / name
     if not p.is_file():
         print(f"download {name}")
-        p.write_bytes(urllib.request.urlopen(SOURCE_URL + name, timeout=120).read())
+        p.write_bytes(urllib.request.urlopen(SOURCE_URL + urllib.parse.quote(name), timeout=300).read())
     return p
 
 
@@ -83,8 +89,8 @@ def palt_values(font) -> dict[str, ot.ValueRecord]:
     return values
 
 
-def add_palt(font) -> None:
-    """GPOS に palt の機能を足す（既存の kern などはそのまま残す）。"""
+def set_palt(font) -> None:
+    """GPOS の palt を、この規則の 1 つに置き換える（書体にもとからある palt は外す。kern などはそのまま）。"""
     gpos = font["GPOS"].table
     sub = otl.buildSinglePosSubtable(palt_values(font), font.getReverseGlyphMap())
     gpos.LookupList.Lookup.append(otl.buildLookup([sub]))
@@ -97,39 +103,45 @@ def add_palt(font) -> None:
     feat.Feature.LookupListIndex = [gpos.LookupList.LookupCount - 1]
     feat.Feature.LookupCount = 1
     old = gpos.FeatureList.FeatureRecord
-    new = sorted(old + [feat], key=lambda r: r.FeatureTag)     # 機能の並びはタグ順（仕様）
+    keep = [r for r in old if r.FeatureTag != "palt"]
+    new = sorted(keep + [feat], key=lambda r: r.FeatureTag)     # 機能の並びはタグ順（仕様）
     pos = {id(r): i for i, r in enumerate(new)}
-    remap = {i: pos[id(r)] for i, r in enumerate(old)}
+    remap = {i: pos[id(r)] for i, r in enumerate(old) if id(r) in pos}
     gpos.FeatureList.FeatureRecord = new
     gpos.FeatureList.FeatureCount = len(new)
     for rec in gpos.ScriptList.ScriptRecord:
         langs = [rec.Script.DefaultLangSys] + [r.LangSys for r in rec.Script.LangSysRecord]
         for ls in filter(None, langs):
-            ls.FeatureIndex = sorted([remap[i] for i in ls.FeatureIndex] + [pos[id(feat)]])
+            ls.FeatureIndex = sorted([remap[i] for i in ls.FeatureIndex if i in remap] + [pos[id(feat)]])
             ls.FeatureCount = len(ls.FeatureIndex)
 
 
 def main() -> int:
     chars = "".join(sorted(manual_chars() | set(BASE)))
     FONTS.mkdir(parents=True, exist_ok=True)
-    for weight, style in FONT_WEIGHTS.items():
-        opts = subset.Options()
-        opts.flavor = "woff2"
-        opts.layout_features = ["*"]
-        opts.name_IDs = ["*"]          # 著作権表示とライセンスの名前を残す（OFL）
-        opts.name_languages = ["*"]
-        opts.notdef_outline = True
-        font = subset.load_font(str(fetch(f"ZenMaruGothic-{style}.ttf")), opts)
+    opts = subset.Options()
+    opts.flavor = "woff2"
+    opts.layout_features = ["*"]
+    opts.name_IDs = ["*"]          # 著作権表示とライセンスの名前を残す（OFL）
+    opts.name_languages = ["*"]
+    opts.notdef_outline = True
+    # 太さを変えられるまま字を絞ってから、太さごとに固める（固めてから絞るより速い）
+    var = subset.load_font(str(fetch(SOURCE_FONT)), opts)
+    sub = subset.Subsetter(opts)
+    sub.populate(text=chars)
+    sub.subset(var)
+    buf = io.BytesIO()
+    var.save(buf)
+    for weight in FONT_WEIGHTS:
+        buf.seek(0)
+        font = instancer.instantiateVariableFont(TTFont(buf), {"wght": weight}, updateFontNames=True)
         font.recalcTimestamp = False   # 同じ字からは毎回同じバイト列にする
-        sub = subset.Subsetter(opts)
-        sub.populate(text=chars)
-        sub.subset(font)
-        add_palt(font)
-        buf = io.BytesIO()
-        subset.save_font(font, buf, opts)
-        out = FONTS / f"zen-maru-gothic-{weight}.woff2"
-        out.write_bytes(buf.getvalue())
-        print(f"done -> {out.relative_to(FONTS.parents[2])} ({len(buf.getvalue()) / 1024:.0f} KB)")
+        set_palt(font)
+        out_buf = io.BytesIO()
+        subset.save_font(font, out_buf, opts)
+        out = FONTS / f"{FONT_FILE}-{weight}.woff2"
+        out.write_bytes(out_buf.getvalue())
+        print(f"done -> {out.relative_to(FONTS.parents[2])} ({len(out_buf.getvalue()) / 1024:.0f} KB)")
     (FONTS / "OFL.txt").write_bytes(fetch("OFL.txt").read_bytes())
     font_chars_path = FONTS / "chars.txt"
     font_chars_path.write_text(chars, encoding="utf-8", newline="\n")

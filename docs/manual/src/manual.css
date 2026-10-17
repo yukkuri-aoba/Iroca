@@ -1,19 +1,20 @@
 /* いろか マニュアル — docs/manual/build_manual.py が書体の指定を頭に足して manual.css として出す
-   見た目は宣伝画像・紹介動画に揃える: 明るい紙の地・墨の文字・丸ゴシック・細い罫。差し色は使わない
-   （色は図版の中のものだけにする）。明暗は OS の設定に従う（data-theme は page.html と manual.js が当てる）。 */
+   見た目は宣伝画像・紹介動画に揃える（dev_safe/promo/DESIGN.md）: 薄紫の地・墨の文字・Noto Sans JP・細い罫。
+   実演の台は宣伝画像の写真の台紙と同じ紙の色。差し色は使わない（色は図版の中のものだけにする）。
+   明暗は OS の設定に従う（data-theme は page.html と manual.js が当てる）。2026-10-17 までは紙の地・Zen Maru Gothic。 */
 
 :root {
   color-scheme: light;
-  --bg: #f7f6f4;
-  --panel: #fcfbfa;
-  --panel-2: #efede9;
-  --line: #e1ded8;
-  --line-soft: #ebe8e3;
+  --bg: #e9e9fa;           /* 宣伝画像の地と同じ薄紫（OKLCH 0.94 / 0.022 / 285） */
+  --panel: #f7f6f4;        /* 宣伝画像の写真の台紙と同じ紙の色 */
+  --panel-2: #dadaed;
+  --line: #d0cfde;
+  --line-soft: #dedeec;
   --rule: #1d1d1f;
   --fg: #1d1d1f;
   --fg-mid: #45423e;
   --fg-dim: #85827c;
-  --fg-faint: #bab7b1;
+  --fg-faint: #b0b0b9;
   --mark: #ebe1c3;
   --shade: rgba(29, 29, 31, .06);
   --radius: 10px;
@@ -22,18 +23,17 @@
   --head: 3.6rem;
   --pad: 2.5rem;           /* 本文の左右の余白 */
   --clip-gap: 1.25rem;     /* 幅の広い動画と目次・画面の端との間 */
-  --font: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic",
-    "Noto Sans JP", Meiryo, system-ui, sans-serif;
+  --font: "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", Meiryo, system-ui, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;      /* スクロールバーや入力欄も暗い側に揃える */
-  --bg: #111114;
-  --panel: #17171a;
-  --panel-2: #202024;
-  --line: #2c2c31;
-  --line-soft: #222226;
+  --bg: #13131a;           /* 薄紫と同じ色味の暗い地 */
+  --panel: #191920;
+  --panel-2: #22222a;
+  --line: #32323b;
+  --line-soft: #202027;
   --rule: #f0efec;
   --fg: #f0efec;
   --fg-mid: #c3c0ba;
@@ -60,7 +60,7 @@ body {
   font-size: 16px;
   line-height: 1.9;
   letter-spacing: .03em;
-  /* 仮名を詰める（Zen Maru Gothic には無いので、build_fonts.py が宣伝画像と同じ規則で足している） */
+  /* 仮名を詰める（build_fonts.py が、書体にもとからある palt を宣伝画像と同じ規則のものに置き換えている） */
   font-feature-settings: "palt" 1;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -106,8 +106,8 @@ code {
 }
 
 .brand { display: flex; align-items: baseline; gap: .7rem; min-width: 0; white-space: nowrap; }
-.brand .name { font-weight: 700; font-size: 1.08rem; letter-spacing: .12em; }
-.brand .sub { color: var(--fg-dim); font-size: .8rem; letter-spacing: .14em; }
+.brand .name { font-weight: 700; font-size: 1.08rem; letter-spacing: .02em; }
+.brand .sub { color: var(--fg-dim); font-size: .8rem; letter-spacing: .04em; }
 .brand .ver { color: var(--fg-faint); font-size: .74rem; letter-spacing: .06em; font-variant-numeric: tabular-nums; }
 
 .tools { margin-left: auto; display: flex; align-items: center; gap: .5rem; }
@@ -217,9 +217,10 @@ main {
 /* ── 表紙 ───────────────────────────────────────── */
 .cover { max-width: var(--w-read); margin: .5rem auto 4.5rem; }
 .cover[hidden] { display: none; }
+/* 宣伝画像の右上と同じ、ふつうの字間の「いろか」（字間を広く空けた小見出しはやめた。DESIGN.md） */
 .eyebrow {
   margin: 0; color: var(--fg-dim);
-  font-size: .78rem; font-weight: 700; letter-spacing: .3em;
+  font-size: .9rem; font-weight: 700; letter-spacing: .02em;
 }
 .cover h1 {
   margin: .5rem 0 .9rem;
