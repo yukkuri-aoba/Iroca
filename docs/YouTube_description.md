@@ -6,7 +6,7 @@ BOOTH の商品ページに埋め込む紹介動画の、YouTube 側の文面と
   「詳細を再利用」で写したもので、タイトルは第 1 案の末尾に「紹介PV」を足したもの。タグは付けていない）。
   BOOTH の商品ページ（下書き）、README の冒頭、オンラインマニュアルの表紙に置いている（サムネイルは動画の最後の画面。
   `docs/manual/img/promo/intro-video.webp`、マニュアルは再生を押すまで YouTube に繋がない）。
-- 前の動画（https://youtu.be/X1nqFYiOFoQ 、2026-10-16 に上げたもの、限定公開）は前のデザイン。どこからも参照していない。
+- 前の動画（https://youtu.be/X1nqFYiOFoQ 、2026-10-16 に上げたもの）は前のデザイン。どこからも参照しておらず、2026-10-18 に非公開にした。
 - 動画: `dev_safe/promo/booth_video/iroca_booth_draft.mp4`（1920×1080・30fps・93 秒。字幕は動画に焼き込み済み）。
   作り方と BGM の条件は `dev_safe/promo/booth_video/README.md` と同じフォルダの `bgm/SOURCES.md`。
 - 本文の書き方は `BOOTH_description.md` に合わせる（和文と英数字の間を空けない・括弧は全角）。
