@@ -39,11 +39,11 @@ https://yukkuri-aoba.github.io/Iroca/manual/
 
 ### 埋め込みコンテンツ（紹介動画）
 
-商品紹介文のすぐ下、段落の前に置く（「＋ 埋め込みコンテンツ」で末尾に付くので、先頭へ動かす）。動画は https://youtu.be/X1nqFYiOFoQ 。
+商品紹介文のすぐ下、段落の前に置く（「＋ 埋め込みコンテンツ」で末尾に付くので、先頭へ動かす）。動画は https://youtu.be/ZGSqvnjfgHo 。
 YouTube を埋め込むと、商品画像のスライドの 1 枚目にも同じ動画が出る。手順の詳細は `YouTube_description.md` の「BOOTH への埋め込み」。
 
 ```
-<iframe width="560" height="315" src="https://www.youtube.com/embed/X1nqFYiOFoQ" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+<iframe width="560" height="315" src="https://www.youtube.com/embed/ZGSqvnjfgHo" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 ```
 
 ### 段落：使い方
@@ -188,5 +188,6 @@ BOOTH の編集画面では、画像の追加と削除は「保存」を押さ�
 ## 紹介動画
 
 商品ページに埋め込む紹介動画（YouTube）のタイトル案・概要欄・アップロード時の設定は `YouTube_description.md`。
-公開した動画は https://youtu.be/X1nqFYiOFoQ で、2026-10-16 に商品ページ（下書き）へ埋め込んだ（説明文の「埋め込みコンテンツ（紹介動画）」）。
+最初の動画（https://youtu.be/X1nqFYiOFoQ ）を 2026-10-16 に商品ページ（下書き）へ埋め込んだ（説明文の「埋め込みコンテンツ（紹介動画）」）。
 2026-10-17 に、後の保存で消えていた埋め込みを入れ直した。
+2026-10-18 に、宣伝画像と同じデザインで作り直した動画（https://youtu.be/ZGSqvnjfgHo 、限定公開）を上げ直し、埋め込みをその動画に替えた。

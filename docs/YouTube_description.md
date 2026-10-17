@@ -2,21 +2,20 @@
 
 BOOTH の商品ページに埋め込む紹介動画の、YouTube 側の文面と設定。商品ページの文面は `BOOTH_description.md`。
 
-- 公開した動画: https://youtu.be/X1nqFYiOFoQ （2026-10-16 時点で公開済み。タイトルは第 1 案の末尾に「紹介PV」を足したもの）。
-  BOOTH の商品ページには 2026-10-16 に埋め込み済み（下の「BOOTH への埋め込み」）。
-  2026-10-17 から README の冒頭とオンラインマニュアルの表紙にも置いている（サムネイルは動画の最後の画面。
+- 上げた動画: https://youtu.be/ZGSqvnjfgHo （2026-10-18 に上げ直した。限定公開。タイトル・概要欄・カテゴリは前の動画から
+  「詳細を再利用」で写したもので、タイトルは第 1 案の末尾に「紹介PV」を足したもの。タグは付けていない）。
+  BOOTH の商品ページ（下書き）、README の冒頭、オンラインマニュアルの表紙に置いている（サムネイルは動画の最後の画面。
   `docs/manual/img/promo/intro-video.webp`、マニュアルは再生を押すまで YouTube に繋がない）。
+- 前の動画（https://youtu.be/X1nqFYiOFoQ 、2026-10-16 に上げたもの、限定公開）は前のデザイン。どこからも参照していない。
 - 動画: `dev_safe/promo/booth_video/iroca_booth_draft.mp4`（1920×1080・30fps・93 秒。字幕は動画に焼き込み済み）。
   作り方と BGM の条件は `dev_safe/promo/booth_video/README.md` と同じフォルダの `bgm/SOURCES.md`。
 - 本文の書き方は `BOOTH_description.md` に合わせる（和文と英数字の間を空けない・括弧は全角）。
 - 動画を作り直したら、下のチャプターの時刻を `make_video.py --sheet` の字幕の時刻で直す。
 - 2026-10-17 に、宣伝画像のデザイン変更（`BOOTH_description.md` の「掲載画像」）に合わせて動画を作り直した。
   変えたのは書体（Noto Sans JP）・字幕の帯の色（薄紫）・冒頭の字幕（「好きな色の服を、Unity の中で」）・最後の画面で、
-  録画・曲・字幕の時刻は同じ（チャプターはそのまま使える）。**YouTube にはまだ上げていない**（公開中の X1nqFYiOFoQ は前のデザイン）。
+  録画・曲・字幕の時刻は同じ（チャプターはそのまま使える）。2026-10-18 に上げ直した（上の ZGSqvnjfgHo）。
   YouTube は同じ URL のまま動画だけを差し替えられないので、上げ直すと新しい URL になる。上げ直したら、BOOTH の埋め込み、
-  README の冒頭、マニュアル（`docs/manual/build_manual.py` の `INTRO_VIDEO_ID`）、この文書の URL を新しい ID に替える。
-  README とマニュアルのサムネイル（`docs/manual/img/promo/intro-video.webp`）は、マニュアルを同じデザインにそろえたとき
-  （2026-10-17）に先に新しい最後の画面にした（上げ直すまでは、サムネイルは新しく、再生される動画は前のデザイン）。
+  README の冒頭、マニュアル（`docs/manual/build_manual.py` の `INTRO_VIDEO_ID`）、この文書と `BOOTH_description.md` の URL を新しい ID に替える。
 
 ---
 
@@ -99,7 +98,7 @@ VRChat, VRC, アバター改変, 衣装改変, 色改変, 色替え, テクス�
 
 | 項目 | 設定 | 理由・メモ |
 |---|---|---|
-| サムネイル | `dev_safe/promo/booth_video/build/thumbnail_1280x720.jpg` | 動画の最後の画面（宣伝画像 1 枚目と同じ組み方の 16:9）と同じ画。`build/` は追跡しないので、無いときは `dev_safe/promo/booth_new_lavender2/out/thumb-1280x720.jpg` を使う（`make_lavender2.py` が書き出す）。2026-10-17 時点の公開動画は、YouTube が自動で選んだコマ（「色はいくつでも足せます」の場面）のまま |
+| サムネイル | `dev_safe/promo/booth_video/build/thumbnail_1280x720.jpg` | 動画の最後の画面（宣伝画像 1 枚目と同じ組み方の 16:9）と同じ画。`build/` は追跡しないので、無いときは `dev_safe/promo/booth_new_lavender2/out/thumb-1280x720.jpg` を使う（`make_lavender2.py` が書き出す）。2026-10-18 に上げ直した動画には設定済み（前の動画は YouTube が自動で選んだコマのままだった） |
 | 公開設定 | BOOTH の公開に合わせて「公開」 | 先に上げておくなら「限定公開」で上げ、BOOTH の公開時に切り替える（限定公開でも埋め込みはできる） |
 | 視聴者（子ども向け） | 「いいえ、子ども向けではありません」 | |
 | 埋め込みを許可 | オン（既定でオン） | BOOTH に埋め込むため |
@@ -124,10 +123,13 @@ YouTube を埋め込むと、一部のページでは商品画像の先頭にも
 
 - 埋め込みコードは YouTube の「埋め込む」と同じ形で、共有の追跡用パラメータ（`?si=…`）は付けていない。
   ```
-  <iframe width="560" height="315" src="https://www.youtube.com/embed/X1nqFYiOFoQ" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+  <iframe width="560" height="315" src="https://www.youtube.com/embed/ZGSqvnjfgHo" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
   ```
 - 「＋ 埋め込みコンテンツ」のブロックはリストの末尾に付くので、商品紹介文のすぐ下（段落「使い方」の前）へ動かした。
   ドラッグだとページの端から端まで届かないので、キーボードで動かした（ブロックの見出しにフォーカス → Space で掴む → ↑ を 1 回ずつ間を空けて押す → Space で置く。続けて押すと取りこぼす）。
 - 公開ページでは、商品画像のスライドの 1 枚目と、説明文の先頭（紹介文の後・「使い方」の前）の 2 か所に出る。
 - 2026-10-17: 後の保存で埋め込みブロックが消えていた（紹介文と段落 9 つは元のまま）ので、同じコードを同じ位置に入れ直した。
   埋め込みを足す前に開いた編集画面から保存すると、その時点の内容で上書きされる。保存の前に開き直すこと。
+- 2026-10-18: 上げ直した動画（ZGSqvnjfgHo）に替えた（上のコードは新しい ID）。編集画面を開き直し、既にある埋め込みブロックの
+  コードの欄を書き換えて下書き保存した（ブロックの位置はそのまま）。BOOTH は保存のときにコードを
+  `<iframe … frameborder="0" allowfullscreen sandbox="…"></iframe>` の形に直して持つ。
