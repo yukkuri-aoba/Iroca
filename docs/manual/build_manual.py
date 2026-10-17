@@ -148,7 +148,7 @@ def video_size(rel: str) -> tuple[int, int] | None:
 
 # 表紙に置く紹介動画（YouTube、BOOTH の商品ページと同じもの。docs/YouTube_description.md）。
 # 押すまでは手元のサムネイルだけを出し、YouTube には繋がない。押すと manual.js が埋め込みに差し替える。
-INTRO_VIDEO_ID = "X1nqFYiOFoQ"
+INTRO_VIDEO_ID = "ZGSqvnjfgHo"
 INTRO_VIDEO_POSTER = "img/promo/intro-video.webp"
 
 
