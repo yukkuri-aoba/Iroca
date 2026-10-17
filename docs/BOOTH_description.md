@@ -160,9 +160,14 @@ VRChat, VRC, アバター改変, 衣装改変, 色改変, テクスチャ, Unity
 
 ## 掲載画像
 
-現行の掲載画像は 6 枚で、プライベート側の `dev_safe/promo/booth_new_plain5/out/slide-1.png`〜`slide-6.png`。
-`booth_new_plain3` のコンプから書体と 1・5 枚目の文言を替えた `booth_new_plain4` の、5 枚目の「自動調整のみ、初回に」を「AI を使う機能は、初回に」に直したもの（0.2.0 では右クリックの AI も同じモデルを使うため）。ほかの 5 枚は plain4 と画素一致。作り方は `make_plain5.py` と `make_plain4.py` の先頭にある。
+現行の掲載画像は 6 枚で、プライベート側の `dev_safe/promo/booth_new_lavender2/out/slide-1.png`〜`slide-6.png`（2026-10-17 に下書きの画像を差し替えた）。
+中身と順番はそれまでの `booth_new_plain5` と同じで、デザインだけを変えた（薄紫の地、見出しは左上、右上に「いろか」、下に説明の帯、書体は Noto Sans JP）。
+表紙の文言は「好きな色の服を、Unity の中で／画像編集ソフトを使わずに、狙った色だけ変えられます。」。
+デザインの決まりと、決めるまでの聞き取りは `dev_safe/promo/DESIGN.md` と `dev_safe/promo/booth_cover_trials/`。作り方は `make_lavender2.py` の先頭にある。
 公開側の `docs/booth_new/promo/` は 2026-07 の旧キット。
+
+BOOTH の編集画面では、画像の追加と削除は「保存」を押さなくてもその場で反映される（削除のときに確認が出る）。
+「画像を追加」はファイルを選ぶ窓を開くので、自動で入れるときは、ページの file 入力にファイルを直接渡す。
 
 ### 権利メモ
 
