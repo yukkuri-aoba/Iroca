@@ -14,8 +14,9 @@ BOOTH の商品ページに埋め込む紹介動画の、YouTube 側の文面と
   変えたのは書体（Noto Sans JP）・字幕の帯の色（薄紫）・冒頭の字幕（「好きな色の服を、Unity の中で」）・最後の画面で、
   録画・曲・字幕の時刻は同じ（チャプターはそのまま使える）。**YouTube にはまだ上げていない**（公開中の X1nqFYiOFoQ は前のデザイン）。
   YouTube は同じ URL のまま動画だけを差し替えられないので、上げ直すと新しい URL になる。上げ直したら、BOOTH の埋め込み、
-  README の冒頭、マニュアル（`docs/manual/build_manual.py` の `INTRO_VIDEO_ID`）、この文書の URL を新しい ID に替え、
-  README とマニュアルのサムネイル（`docs/manual/img/promo/intro-video.webp`）を新しい最後の画面にする。
+  README の冒頭、マニュアル（`docs/manual/build_manual.py` の `INTRO_VIDEO_ID`）、この文書の URL を新しい ID に替える。
+  README とマニュアルのサムネイル（`docs/manual/img/promo/intro-video.webp`）は、マニュアルを同じデザインにそろえたとき
+  （2026-10-17）に先に新しい最後の画面にした（上げ直すまでは、サムネイルは新しく、再生される動画は前のデザイン）。
 
 ---
 
