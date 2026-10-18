@@ -382,6 +382,7 @@ def cmd_compare(engine: str = "csharp") -> None:
     print(f"[compare] 現在のアルゴリズムで全ケースを実行中 (engine={engine}) …")
 
     generated: list[Path] = []
+    to_review: list[Path] = []             # 目視が要るパネル（変化あり、または変更前なし）
     contract: dict[str, int] = {}          # マスク付きケース -> 契約違反画素数
     change_summary: dict[str, dict] = {}   # ケース -> 変化画素の内訳
     for case_id, input_rgba, after_rgba, exclude in _iter_engine(engine):
@@ -444,6 +445,8 @@ def cmd_compare(engine: str = "csharp") -> None:
         out_path = COMPARE_DIR / f"{case_id}_comparison.png"
         Image.fromarray(panel).save(out_path)
         generated.append(out_path)
+        if before_rgba is None or change_summary[case_id]["changed"] > 0:
+            to_review.append(out_path)
         print(f"  → {out_path.name}")
 
     # 古いファイルを掃除（今回生成していないもの）
@@ -489,10 +492,13 @@ def cmd_compare(engine: str = "csharp") -> None:
         if total:
             print("  → 除外マスクで守った画素が書き換わっています。approve はブロックされます。")
         print()
+    # 変更前とビット一致のケースは目視しなくてよい（2026-10-18 ユーザー決定）。
+    # 変更前が無いケースは変化の有無が分からないので目視に回す。
     print("=" * 60)
-    print("【エージェントへ】以下の PNG を Read ツールで 1 枚ずつ確認してください。")
+    print(f"【エージェントへ】変化があったケース {len(to_review)}/{len(generated)} 枚を "
+          "Read ツールで 1 枚ずつ確認してください（変更前とビット一致のケースは読まなくてよい）。")
     print("=" * 60)
-    for p in generated:
+    for p in to_review:
         print(f"  {p}")
     print()
     # Windows コンソール(cp932)で例外にならないよう ASCII 記号を使う。

@@ -189,7 +189,11 @@ def generate(snapshot: bool = False) -> None:
                "assets": assets, "cases": cases}
         (REVIEW / "review.json").write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
         validate_review()
-        print(f"[workflow] パネル{len(cases)}枚を目視: {folder}")
+        # 変更前とビット一致のパネルは目視しなくてよい。変更前が無い(None)パネルは目視に回す。
+        to_review = [c["panel"] for c in cases.values() if c["changed_from_snapshot"] != 0]
+        print(f"[workflow] 変化があったパネル {len(to_review)}/{len(cases)} 枚を目視: {folder}")
+        for name in to_review:
+            print(f"  {folder / name}")
 
 
 def main():
