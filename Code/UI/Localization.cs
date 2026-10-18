@@ -99,10 +99,20 @@ namespace Iroca
         public static string EnableReadWriteConfirm => IsJapanese
             ? "このテクスチャのインポート設定で Read/Write を有効にします。\nこの変更は Undo できません。続けますか？"
             : "This turns on Read/Write in the texture's import settings.\nThis cannot be undone. Continue?";
-        // {0}×{1} = 原本の寸法、{2} = 使うメモリの目安(GB)、{3} = この PC の搭載メモリ(GB)。
+        // {0}×{1} = 元画像の寸法、{2} = 使うメモリの目安(GB)、{3} = この PC の搭載メモリ(GB)。
+        // 作業解像度も元画像のまま(取り込み設定の Max Size が元画像以上)のとき。
         public static string LargeSourceNoticeFormat => IsJapanese
-            ? "大きい画像です（{0}×{1}）。いろかはインポート設定の Max Size に関係なく元の解像度で処理するため、この大きさだとメモリを {2:0}GB ほど使います（この PC は {3:0}GB）。足りないと Unity が重くなったり落ちたりします。そのときはほかのアプリを閉じるか、縮小した画像で作業してください。"
-            : "Large image ({0}×{1}). At this size, it uses about {2:0} GB of memory (this PC has {3:0} GB), because Iroca works at the original file's resolution regardless of the import Max Size. If memory runs short, Unity may slow down or crash; close other apps or work on a downscaled copy.";
+            ? "大きい画像です（{0}×{1}）。インポート設定の Max Size がこの大きさ以上なので元の解像度で処理し、メモリを {2:0}GB ほど使います（この PC は {3:0}GB）。足りないと Unity が重くなったり落ちたりします。そのときはほかのアプリを閉じるか、Max Size を下げてください（編集はその大きさで行い、「テクスチャとして書き出す」だけ元の解像度で行います）。"
+            : "Large image ({0}×{1}). The import Max Size is at least this size, so Iroca works at the original resolution and uses about {2:0} GB of memory (this PC has {3:0} GB). If memory runs short, Unity may slow down or crash. Close other apps or lower the Max Size (editing then happens at that size, and only \"Export as a texture\" uses the original resolution).";
+        // 「元の解像度で編集」がオンで、元画像のまま処理しているとき。引数は LargeSourceNoticeFormat と同じ。
+        public static string LargeSourceAtSourceNoticeFormat => IsJapanese
+            ? "大きい画像です（{0}×{1}）。「元の解像度で編集」がオンなので元の解像度で処理し、メモリを {2:0}GB ほど使います（この PC は {3:0}GB）。足りないと Unity が重くなったり落ちたりします。そのときはほかのアプリを閉じるか、「加工設定」の「元の解像度で編集」をオフにしてインポート設定の Max Size を下げてください。"
+            : "Large image ({0}×{1}). \"Edit at original resolution\" is on, so Iroca works at the original resolution and uses about {2:0} GB of memory (this PC has {3:0} GB). If memory runs short, Unity may slow down or crash. Close other apps, or turn off \"Edit at original resolution\" under \"Processing\" and lower the import Max Size.";
+        // 編集は取り込み後の寸法で、書き出しだけ元画像の解像度のとき。{0}×{1} = 元画像、{2}×{3} = 編集の寸法、
+        // {4} = 書き出しで使うメモリの目安(GB)、{5} = この PC の搭載メモリ(GB)。
+        public static string LargeSourceExportNoticeFormat => IsJapanese
+            ? "大きい画像です（{0}×{1}）。編集はインポート設定の大きさ（{2}×{3}）で行いますが、「テクスチャとして書き出す」は元の解像度で行うため、書き出すときにメモリを {4:0}GB ほど使います（この PC は {5:0}GB）。足りないと Unity が重くなったり落ちたりするので、書き出す前にほかのアプリを閉じてください。"
+            : "Large image ({0}×{1}). Editing happens at the import size ({2}×{3}), but \"Export as a texture\" uses the original resolution, so exporting uses about {4:0} GB of memory (this PC has {5:0} GB). If memory runs short, Unity may slow down or crash, so close other apps before exporting.";
         public static string LargeSourceDismiss => IsJapanese ? "閉じる" : "Dismiss";
         public static string LargeSourceDismissTooltip => IsJapanese
             ? "このテクスチャではこの案内を表示しません。次に Unity を開いたときにまた出ます。"
@@ -1133,6 +1143,11 @@ namespace Iroca
         public static string ZoneGroupMatching => IsJapanese ? "マッチング距離の重み" : "Matching distance weights";
         // ウィンドウのタブの「⋮」メニュー。白寄せ合成とマッチング距離の重みを詳細設定に出す。
         public static string ShowDeveloperSettings => IsJapanese ? "開発者向けの設定を表示" : "Show developer settings";
+
+        public static string EditAtSourceResolution => IsJapanese ? "元の解像度で編集" : "Edit at original resolution";
+        public static string EditAtSourceResolutionTooltip => IsJapanese
+            ? "オフ（既定）のときは、プレビュー・AI 提案・自動調整と「アバターに非破壊で登録」のテクスチャを、インポート設定の Max Size の大きさで処理します。ゲームに出るのもこの大きさです。オンにすると元の画像の解像度で処理します。拡大表示で細部まで確かめられますが、大きい画像ではメモリを多く使います（8192×8192 で 6GB ほど）。「テクスチャとして書き出す」は、どちらでも元の画像の解像度で書き出します。この PC のいろか全体に効きます。"
+            : "When off (default), the preview, AI suggestions, auto-tune, and the textures for \"Register to avatar (non-destructive)\" are processed at the import Max Size, which is also the size that appears in game. When on, Iroca processes at the original image's resolution: zooming in shows every detail, but large images use a lot of memory (about 6 GB at 8192×8192). \"Export as a texture\" always writes at the original resolution. This applies to Iroca on this PC.";
 
         public static string ProcessingDetailFoldout => IsJapanese ? "詳細設定" : "Details";
         public static string ProcessingDetailFoldoutTooltip => IsJapanese

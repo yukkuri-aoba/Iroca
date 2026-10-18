@@ -302,13 +302,17 @@ namespace Iroca
         // 分けてプロキシの再着色のみ変更も高速化する。テクスチャ/寸法変更時は _selectionCache と同時に Clear。
         [System.NonSerialized] private SelectionCache _proxySelectionCache;
 
-        // エクスポートと同じ「ディスク上のフル解像度ファイル」をプレビュー処理にも使うための
-        // キャッシュ。Unity のインポート設定（maxTextureSize / 圧縮）で縮小・劣化した
-        // 画素ではなく元ファイルの画素で処理することで、プレビューと実際のエクスポート結果を
-        // 一致させる。テクスチャ単位でキャッシュする。
+        // プレビュー処理に使う元ファイルの画素(作業解像度。WorkingResolution)のキャッシュ。取り込み済み
+        // テクスチャの圧縮で劣化した画素ではなく、元ファイルをデコードして作業解像度(既定は取り込み後の寸法)へ
+        // 縮めた画素で処理する。非破壊ビルドも同じ画素から作るので、プレビューとシーンの結果が一致する。
+        // テクスチャ単位でキャッシュし、取り込み後の寸法か設定が変わったら読み直す(_trueSourceBasis*)。
         [System.NonSerialized] private Texture2D _trueSourceFor;
         [System.NonSerialized] private Color32[] _trueSourcePixels;
         [System.NonSerialized] private int _trueSourceW, _trueSourceH;
+        [System.NonSerialized] private int _trueSourceBasisW, _trueSourceBasisH;
+        [System.NonSerialized] private bool _trueSourceBasisAtSource;
+        // 元ファイルをデコードした(false = 取り込み済みテクスチャの画素。PSD など)。
+        [System.NonSerialized] private bool _trueSourceFromFile;
         // 直近に画素を取れなかったテクスチャ（毎フレームの可否判定で読み直さないための負のキャッシュ）。
         [System.NonSerialized] private Texture2D _trueSourceFailedFor;
 
@@ -406,8 +410,8 @@ namespace Iroca
         }
 
         /// <summary>
-        /// プレビュー処理用のソース画素を確保する。可能ならディスク上の元ファイルを
-        /// フル解像度で読み込み（エクスポートと同一経路）、PNG/JPG 以外や生成テクスチャ等で
+        /// プレビュー処理用のソース画素を確保する。可能ならディスク上の元ファイルをデコードして
+        /// 作業解像度(<see cref="WorkingResolution"/>)にそろえ、PNG/JPG 以外や生成テクスチャ等で
         /// 失敗した場合はインポート済みテクスチャの GetPixels32 にフォールバックする。
         /// 成功すると <see cref="_trueSourcePixels"/> / <see cref="_trueSourceW"/> /
         /// <see cref="_trueSourceH"/> が有効になる。
@@ -415,7 +419,15 @@ namespace Iroca
         private bool EnsureTrueSource(Texture2D tex)
         {
             if (tex == null) return false;
-            if (_trueSourceFor == tex && _trueSourcePixels != null) return true;
+            if (_trueSourceFor == tex && _trueSourcePixels != null)
+            {
+                if (_trueSourceBasisW == tex.width && _trueSourceBasisH == tex.height
+                    && _trueSourceBasisAtSource == WorkingResolution.AtSourceResolution) return true;
+                // 取り込み設定(Max Size)か「元の解像度で編集」が変わって、作業解像度が変わり得る。
+                // 旧画素から導いた状態ごと捨てて読み直し、表示も作り直す。
+                InvalidateSourceCache();
+                previewDirty = true;
+            }
             // 失敗もテクスチャ単位で覚える。UI の可否判定（スポイト・自動調整・手順表示）が
             // OnGUI ごとにここを通るので、覚えないと「読めないテクスチャ」で毎フレーム
             // ファイル読み込みとデコードを試すことになる。あとで Read/Write を有効にすれば
@@ -432,11 +444,10 @@ namespace Iroca
                     tmp = new Texture2D(2, 2, TextureFormat.RGBA32, false);
                     if (tmp.LoadImage(bytes))
                     {
-                        _trueSourcePixels = tmp.GetPixels32();
-                        _trueSourceW = tmp.width;
-                        _trueSourceH = tmp.height;
+                        _trueSourcePixels = WorkingResolution.PixelsOf(tmp, tex, out _trueSourceW, out _trueSourceH);
                         _trueSourceFor = tex;
                         _trueSourceFailedFor = null;
+                        RememberTrueSourceBasis(tex, fromFile: true);
                         return true;
                     }
                 }
@@ -461,8 +472,21 @@ namespace Iroca
             _trueSourceH = tex.height;
             _trueSourceFor = tex;
             _trueSourceFailedFor = null;
+            RememberTrueSourceBasis(tex, fromFile: false);
             return true;
         }
+
+        // 作業解像度を決めた前提(取り込み後の寸法と設定)を覚える。変わったら EnsureTrueSource が読み直す。
+        private void RememberTrueSourceBasis(Texture2D tex, bool fromFile)
+        {
+            _trueSourceBasisW = tex.width;
+            _trueSourceBasisH = tex.height;
+            _trueSourceBasisAtSource = WorkingResolution.AtSourceResolution;
+            _trueSourceFromFile = fromFile;
+        }
+
+        /// <summary>直近に確保した処理用の画素が、元ファイルをデコードしたものか(取り込み済みテクスチャではなく)。</summary>
+        public bool TrueSourceFromFile => _trueSourcePixels != null && _trueSourceFromFile;
 
         /// <summary>
         /// このテクスチャから処理用の画素を取れるか（原本ファイルのデコード、または
@@ -474,7 +498,7 @@ namespace Iroca
         public bool CanProvideSourcePixels(Texture2D tex) => EnsureTrueSource(tex);
 
         /// <summary>
-        /// 自動調整など他ビューが、プレビュー/エクスポートと同一の true source 画素で解析する
+        /// 自動調整など他ビューが、プレビューと同一の true source 画素(作業解像度)で解析する
         /// ための読み取り専用アクセサ。返す配列は内部キャッシュの共有インスタンスなので、
         /// 呼び出し側は書き換えないこと（プレビュージョブ側も clone してから処理する規約）。
         /// 取得不能（元ファイル読込失敗 かつ 非 Readable）なら false。

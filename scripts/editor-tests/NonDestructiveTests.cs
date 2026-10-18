@@ -187,7 +187,7 @@ namespace Iroca.EditorTests
         {
             var src = new Color32[4 * 4];
             for (int i = 0; i < src.Length; i++) src[i] = new Color32((byte)(i * 10), 0, 0, 255);
-            var dst = RecipeTextureBuilder.ResizeArea(src, 4, 4, 2, 2);
+            var dst = WorkingResolution.ResizeArea(src, 4, 4, 2, 2);
             // 左下 2x2 = 画素 0,1,4,5 → (0+10+40+50)/4 = 25
             Assert.AreEqual(25, dst[0].r);
             // 右上 2x2 = 画素 10,11,14,15 → (100+110+140+150)/4 = 125
@@ -220,6 +220,50 @@ namespace Iroca.EditorTests
             finally
             {
                 if (File.Exists(cacheFile)) File.Delete(cacheFile);
+            }
+        }
+
+        // 元ファイルが取り込み後より大きいとき、既定は取り込み後の寸法へ縮めてから色替えする(いろかの画面の
+        // プレビューと同じ画素)。「元の解像度で編集」なら元の解像度で色替えしてから縮める。鍵も分ける。
+        [Test]
+        public void Build_RecolorsAtImportSizeUnlessAtSourceResolution()
+        {
+            var like = ImportSource(maxSize: 32);
+            Assert.AreEqual(32, like.width, "取り込み時の最大サイズが効いていない(テストの前提)");
+            var state = RedToGreenWithInclude();
+            var recipe = RecipeStore.Create(like, state, _assets.Folder);
+            bool saved = WorkingResolution.AtSourceResolution;
+            var cacheFiles = new List<string>();
+            try
+            {
+                WorkingResolution.AtSourceResolution = false;
+                string workKey = RecipeTextureBuilder.CacheKey(recipe, like);
+                cacheFiles.Add(RecipeTextureBuilder.CachePath(workKey));
+                var built = Track(RecipeTextureBuilder.Build(recipe, out var f1));
+                Assert.IsNotNull(built, f1.ToString());
+                var small = WorkingResolution.ResizeArea(Bands(), W, H, like.width, like.height);
+                Assert.IsTrue(SessionRecolor.Apply(small, like.width, like.height, state));
+                var expected = Track(RecipeTextureBuilder.CreateMatching(small, like.width, like.height, like));
+                CollectionAssert.AreEqual(expected.GetRawTextureData(), built.GetRawTextureData(),
+                    "取り込み後の寸法で色替えしたものと違う");
+
+                WorkingResolution.AtSourceResolution = true;
+                string srcKey = RecipeTextureBuilder.CacheKey(recipe, like);
+                Assert.AreNotEqual(workKey, srcKey, "設定が変わっても同じキャッシュを読んでしまう");
+                cacheFiles.Add(RecipeTextureBuilder.CachePath(srcKey));
+                var builtAtSource = Track(RecipeTextureBuilder.Build(recipe, out var f2));
+                Assert.IsNotNull(builtAtSource, f2.ToString());
+                var full = Bands();
+                Assert.IsTrue(SessionRecolor.Apply(full, W, H, state));
+                var expectedAtSource = Track(RecipeTextureBuilder.CreateMatching(full, W, H, like));
+                CollectionAssert.AreEqual(expectedAtSource.GetRawTextureData(), builtAtSource.GetRawTextureData(),
+                    "元の解像度で色替えして縮めたものと違う");
+            }
+            finally
+            {
+                WorkingResolution.AtSourceResolution = saved;
+                foreach (var file in cacheFiles)
+                    if (File.Exists(file)) File.Delete(file);
             }
         }
 

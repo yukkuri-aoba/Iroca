@@ -20,7 +20,9 @@ namespace Iroca.EditorTests
     ///
     /// 入力は IROCA_MEM_CASES が指す JSON:
     ///   { "steps": 12, "releaseWaitSeconds": 60, "gcEachStep": false, "reuseOutput": false,
-    ///     "cases": [ { "name": "...", "png": "<絶対パス>", "zones": "<zones JSON の絶対パス>" } ] }
+    ///     "cases": [ { "name": "...", "png": "<絶対パス>", "zones": "<zones JSON の絶対パス>", "importMaxSize": 0 } ] }
+    /// importMaxSize が 0 より大きいと、取り込み設定の Max Size がその値のときの作業解像度(WorkingResolution)へ
+    /// プレビューと同じ読み方で縮めてから処理する(0 は元ファイルの解像度＝「元の解像度で編集」と同じ)。
     /// 1 手ごとに、フル段のプレビュー(PreviewView.ScheduleFullPreview)と同じく原本を複製して
     /// <see cref="PixelProcessor.ProcessPixelsArray"/> を選択キャッシュ付きで呼び、出力を 1 枚だけ保持する。
     /// 偶数手は許容度を変える(選択キャッシュのミス)、奇数手はターゲット色だけ変える(ヒット)。
@@ -36,7 +38,7 @@ namespace Iroca.EditorTests
     [Category("Memory")]
     public class MemoryBenchTests
     {
-        [Serializable] private class CaseDto { public string name = ""; public string png = ""; public string zones = ""; }
+        [Serializable] private class CaseDto { public string name = ""; public string png = ""; public string zones = ""; public int importMaxSize; }
         [Serializable] private class CasesDto { public int steps = 12; public int releaseWaitSeconds = 60; public bool gcEachStep; public bool reuseOutput; public List<CaseDto> cases = new List<CaseDto>(); }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -119,7 +121,21 @@ namespace Iroca.EditorTests
                     var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
                     Assert.IsTrue(tex.LoadImage(File.ReadAllBytes(c.png)), $"{c.name}: PNG を読めません");
                     int w = tex.width, h = tex.height;
-                    Color32[] src = tex.GetPixels32();
+                    Color32[] src;
+                    if (c.importMaxSize > 0)
+                    {
+                        // 取り込みの Max Size は長辺をその値へ縮める(縦横比を保つ)。
+                        int longest = Math.Max(w, h);
+                        int iw = longest > c.importMaxSize ? Math.Max(1, (int)((long)w * c.importMaxSize / longest)) : w;
+                        int ih = longest > c.importMaxSize ? Math.Max(1, (int)((long)h * c.importMaxSize / longest)) : h;
+                        WorkingResolution.Size(w, h, iw, ih, false, out int ww, out int wh);
+                        Assert.IsTrue(WorkingResolution.TryLayout(tex.format, out var layout), $"{c.name}: {tex.format}");
+                        src = ww == w && wh == h ? tex.GetPixels32()
+                            : WorkingResolution.ResizeArea(tex.GetPixelData<byte>(0), layout, w, h, ww, wh);
+                        w = ww;
+                        h = wh;
+                    }
+                    else src = tex.GetPixels32();
                     UnityEngine.Object.DestroyImmediate(tex);
 
                     var (zones, settings) = LoadZones(File.ReadAllText(c.zones));

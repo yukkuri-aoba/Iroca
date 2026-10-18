@@ -34,15 +34,25 @@ namespace Iroca.NdmfIntegration
         private static readonly PublishedValue<LivePreview.Target> Live =
             new PublishedValue<LivePreview.Target>(null, "Iroca/LiveTarget");
 
+        // 「元の解像度で編集」。レシピの出来上がりが変わるので、変わったら作り直す。
+        private static readonly PublishedValue<bool> AtSource =
+            new PublishedValue<bool>(false, "Iroca/AtSourceResolution");
+
         [InitializeOnLoadMethod]
         private static void Install()
         {
             LivePreview.TargetChanged -= OnTargetChanged;
             LivePreview.TargetChanged += OnTargetChanged;
             Live.Value = LivePreview.Current;
+            WorkingResolution.Changed -= OnWorkingResolutionChanged;
+            WorkingResolution.Changed += OnWorkingResolutionChanged;
+            // メインスレッドで一度読んでおく(設定は EditorPrefs にあり、レシピのキャッシュの鍵もこれを読む)。
+            AtSource.Value = WorkingResolution.AtSourceResolution;
         }
 
         private static void OnTargetChanged() => Live.Value = LivePreview.Current;
+
+        private static void OnWorkingResolutionChanged() => AtSource.Value = WorkingResolution.AtSourceResolution;
 
         public IEnumerable<TogglablePreviewNode> GetPreviewControlNodes()
         {
@@ -213,8 +223,9 @@ namespace Iroca.NdmfIntegration
                     }
                     else
                     {
-                        // レシピの中身が変わったら作り直す(ウィンドウがレシピへ保存したとき)。
+                        // レシピの中身か作業解像度の設定が変わったら作り直す(ウィンドウがレシピへ保存したとき)。
                         context.Observe(replacement.recipe, r => r.sessionJson);
+                        context.Observe(AtSource);
                         slot.recipe = RecipePreviewTextures.Acquire(replacement.recipe, out var key);
                         if (key != null) _recipeKeys.Add(key);
                     }
