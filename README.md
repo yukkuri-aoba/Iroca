@@ -23,7 +23,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 - **PSD がないテクスチャ向け**: 1 枚の PNG テクスチャを色改変したい場合に便利です
 - **結合されたテクスチャも対応**: ブラシで保護エリアを描けるため、複数パーツが 1 枚にまとまっていても使用できます
 - **高精度な処理**: 陰影や細部も正確に変更できます
-- **3Dモデルに依存しない**: UV情報などに依存せず、テクスチャ単体で使用できます
+- **3Dモデルが無くても使える**: テクスチャ単体で使用できます（メッシュが見つかれば、UV の島ごとの選択も使えます）
 
 ### 動作環境（検証済み）
 
@@ -61,7 +61,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 - 除外は全ゾーン共通と各ゾーン専用の 2 種類を使い分けられます
 - Unity 標準の Undo（Ctrl+Z）に対応しています
 - 右クリックメニュー：プレビューを右クリックして、AI 提案やパーツ（メッシュの UV の島）単位でマスクへ追加します
-  - AI マスク提案（実験的）：AI が領域を推定してマスクへ追加します。1 回で取れるのはつながった 1 領域なので、分かれたパーツは島ごとに繰り返します（Unity Sentis + MobileSAM）
+  - AI マスク提案（実験的）：AI が領域を推定してマスクへ追加します。1 回で取れるのは画像上でつながった 1 領域なので、分かれたパーツは領域ごとに繰り返します（Unity Sentis + MobileSAM）
   - パーツ：テクスチャを使うメッシュが見つかると、UV の島やメッシュ単位で追加できます。色では分けられない同じ色の別パーツを分けられます（メッシュが無ければ従来どおり）
   - 使っているメッシュはマスク欄の「メッシュ」に出ます。FBX・Prefab をドラッグして指定でき、UV の島の輪郭をプレビューに重ねて表示できます
 - Scene でクリックした場所の表示：Scene でモデルをクリックすると、その部分がテクスチャのどこにあるかをプレビューに示します（テクスチャを開いていなければ、そのテクスチャを開きます）
@@ -126,7 +126,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 - **For textures without a PSD**: Great when you just want to recolor a single PNG texture
 - **Works with merged textures**: The exclusion mask brush makes it easy to isolate parts even when multiple elements share one texture
 - **High-precision algorithm**: Accurate recoloring with fine details preserved
-- **Independent of 3D models**: Works on textures alone, without relying on UV information or other model data
+- **Works without 3D models**: Works on textures alone (when a mesh is found, UV island selection is also available)
 
 ### Requirements
 
@@ -163,7 +163,7 @@ The manual is in Japanese for now; an English version will follow.
 - Exclude supports both a common mask and per-zone masks
 - Integrated with Unity's standard Undo (Ctrl+Z)
 - Right-click menu: right-click the preview to add an AI-suggested region or a mesh part (UV island) to a mask
-  - AI Mask Suggestion (experimental): the AI estimates the region and adds it to the mask. One use picks one connected region, so repeat for each island of a split part (Unity Sentis + MobileSAM)
+  - AI Mask Suggestion (experimental): the AI estimates the region and adds it to the mask. One use picks one connected region of the image, so repeat for each region of a split part (Unity Sentis + MobileSAM)
   - Parts: when a mesh using the texture is found, add whole UV islands or meshes. This separates same-colored parts that color alone cannot split (without a mesh, everything works as before)
   - The meshes in use are shown in the "Mesh" field of the mask section. Drag an FBX or prefab there to choose one, and overlay the UV island outlines on the preview
 - Show the spot you click in the Scene: click the model in the Scene view to see where that part is on the texture (if no texture is open, the texture of that part is opened)
