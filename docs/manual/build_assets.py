@@ -128,7 +128,8 @@ SHOTS_SRC = ROOT / "dev_safe" / "manual_shots"
 SHOTS_OUT = ROOT / "docs" / "manual" / "img" / "ui"
 SHOTS = [
     # (出力名, 原板, クロップ or None=全体, 出力幅 or None=原寸)
-    # 原板は 2026-10-10 に Iroca_Dev で撮影（窓 820pt 幅・pixelsPerPoint 1.25。被写体は HAOLAN スニーカー、
+    # 原板は 2026-10-10 に Iroca_Dev で撮影し、UI の文言を変えた 2026-10-14 に大半を、「元の解像度で編集」を足した
+    # 2026-10-18 に tall_open を撮り直した（窓 820pt 幅・pixelsPerPoint 1.25。被写体は HAOLAN スニーカー、
     # スポイトはトゲの明るい青、変更先は純赤）。qs* は「はじめての色替え」の手順ごとの状態。
     ("qs-1", "qs1_empty.png", (0, 0, 1026, 430), None),
     ("window", "window.png", None, None),
@@ -136,8 +137,8 @@ SHOTS = [
     ("nd-section", "window.png", (0, 872, 1026, 1000), None),
     ("export-section", "tall_open.png", (0, 913, 1026, 1165), None),
     ("zone-detail", "zone_detail.png", (0, 140, 392, 950), None),
-    ("processing", "tall_open.png", (0, 397, 392, 648), None),
-    ("mask-section", "tall_open.png", (0, 655, 392, 810), None),
+    ("processing", "tall_open.png", (0, 397, 392, 673), None),
+    ("mask-section", "tall_open.png", (0, 680, 392, 835), None),
     ("presets", "presets_open.png", (0, 585, 392, 790), None),
     # 前後比較は 2 面並ぶので、窓を 1320pt 幅に広げて撮った原板から切り出す（820pt だと小さい）
     ("preview-compare", "preview_compare.png", (556, 112, 1645, 745), None),
