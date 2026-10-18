@@ -68,6 +68,7 @@ The data was used only to develop and test the algorithms, never to train any AI
 
 - **VPMPackageAutoInstaller**（`Iroca_Installer.unitypackage` に同梱）: Copyright (c) 2022 anatawa12 — MIT License（[全文](https://github.com/anatawa12/VPMPackageAutoInstaller/blob/master/LICENSE)）
 - **MobileSAM**（AI マスク提案のモデル。いろか本体には含まれず、初回にダウンロード）: Apache License 2.0 — 変換済みモデルと NOTICE は [Iroca-Models](https://github.com/yukkuri-aoba/Iroca-Models)
+- **Noto Sans JP**（オンラインマニュアルの書体。マニュアルに出る字だけに絞って使用。いろか本体には含まれません）: Copyright 2014-2021 Adobe — SIL Open Font License 1.1（[全文](docs/manual/fonts/OFL.txt)）
 
 ## 連絡先 / Contact
 
