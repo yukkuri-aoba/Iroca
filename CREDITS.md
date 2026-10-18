@@ -34,7 +34,7 @@ NOIRVAIL_BOOTH
 [【14アバター対応】ROUGHCUT【VRChat向け衣装モデル】](https://noirvail029.booth.pm/items/8111161)
 
 Arka_X  
-[ゆめか / Yumeka](https://arkax.booth.pm/)
+[ゆめか / Yumeka](https://arkax.booth.pm/items/8672657)
 
 Pochi by KT  
 [Pochi](https://booth.pm/ja/items/6283622)
