@@ -24,8 +24,13 @@ namespace Iroca
     [AddComponentMenu("Iroca/Iroca Recolor")]
     [HelpURL("https://yukkuri-aoba.github.io/Iroca/manual/#nondestructive")]
     public sealed class IrocaRecolor : MonoBehaviour, ISerializationCallbackReceiver
+#if IROCA_VRCSDK_BASE
+        // VRChat SDK があれば、NDMF の有無や版に関係なく、ビルドで外す部品にする。SDK の「使えないコンポーネント」
+        // 扱い(「Remove」で部品ごと消せてしまう)を受けないため。NDMF が使えないのに色替えするものがあるときは、
+        // 色替えされないまま上がらないよう、本体の NdmfUploadGuard がアップロードを止める。
+        , VRC.SDKBase.IEditorOnly
+#endif
 #if IROCA_NDMF_PRESENT
-        // VRChat SDK があれば IEditorOnly になり、SDK の「使えないコンポーネント」扱いを受けない。
         , nadena.dev.ndmf.INDMFEditorOnly
 #endif
     {

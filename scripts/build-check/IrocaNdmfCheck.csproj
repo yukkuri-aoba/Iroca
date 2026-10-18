@@ -44,6 +44,9 @@
     <NdmfHostProject Condition="'$(NdmfHostProject)' == '' and '$(IROCA_NDMF_HOST)' != ''">$(IROCA_NDMF_HOST)</NdmfHostProject>
     <NdmfHostProject Condition="'$(NdmfHostProject)' == ''">$(MSBuildThisFileDirectory)..\..\..\Avatar_Projects\Iroca_Dev</NdmfHostProject>
     <NdmfAssembliesPath>$(NdmfHostProject)\Library\ScriptAssemblies</NdmfAssembliesPath>
+    <!-- Runtime(com.vrchat.base)と本体(com.vrchat.avatars)の asmdef が持つ define。ホストに SDK があるときだけ。 -->
+    <DefineConstants Condition="Exists('$(NdmfHostProject)\Packages\com.vrchat.base\Runtime\VRCSDK\Plugins\VRCSDKBase.dll')">$(DefineConstants);IROCA_VRCSDK_BASE</DefineConstants>
+    <DefineConstants Condition="Exists('$(NdmfHostProject)\Packages\com.vrchat.avatars') and Exists('$(NdmfHostProject)\Packages\com.vrchat.base\Runtime\VRCSDK\Plugins\VRCSDKBase-Editor.dll')">$(DefineConstants);IROCA_VRCSDK_AVATARS</DefineConstants>
   </PropertyGroup>
 
   <!-- Debug / McpIntegration / SentisIntegration は IrocaEditor.csproj と同じ理由で除外。NdmfIntegration は含める。 -->
@@ -69,9 +72,14 @@
       <HintPath>$(NdmfAssembliesPath)\nadena.dev.ndmf.runtime.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <!-- VRChat SDK があるホストでは INDMFEditorOnly が VRC の IEditorOnly を継ぐので、その定義も要る。 -->
+    <!-- VRChat SDK があるホストでは INDMFEditorOnly が VRC の IEditorOnly を継ぐので、その定義も要る。
+         Unity と同じく、SDK があれば IrocaRecolor の IEditorOnly とアップロードの確認(NdmfUploadGuard)も入れる。 -->
     <Reference Include="VRCSDKBase" Condition="Exists('$(NdmfHostProject)\Packages\com.vrchat.base\Runtime\VRCSDK\Plugins\VRCSDKBase.dll')">
       <HintPath>$(NdmfHostProject)\Packages\com.vrchat.base\Runtime\VRCSDK\Plugins\VRCSDKBase.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="VRCSDKBase-Editor" Condition="Exists('$(NdmfHostProject)\Packages\com.vrchat.avatars') and Exists('$(NdmfHostProject)\Packages\com.vrchat.base\Runtime\VRCSDK\Plugins\VRCSDKBase-Editor.dll')">
+      <HintPath>$(NdmfHostProject)\Packages\com.vrchat.base\Runtime\VRCSDK\Plugins\VRCSDKBase-Editor.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <!-- NDMF のプレビュー API(IRenderFilter)は ImmutableList を露出する。Unity では VRChat SDK か NDMF が

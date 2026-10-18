@@ -1202,6 +1202,45 @@ namespace Iroca
         public static string NdmfMissing => IsJapanese
             ? "NDMF（Non-Destructive Modular Framework）が入っていないか、対応していない版なので、非破壊の色替えは使えません。画像の書き出しは使えます。VCC / ALCOM で、いろかと同じリポジトリから「Non-Destructive Modular Framework」を追加してください。"
             : "NDMF (Non-Destructive Modular Framework) is not installed or its version is not supported, so non-destructive recoloring is not available. Exporting images still works. Add \"Non-Destructive Modular Framework\" in VCC / ALCOM from the same repository as Iroca.";
+        // NDMF が使えない理由(「〜ので」「〜ためです」に続く形)と直し方。
+        private static string NdmfCause(NdmfSupportState state)
+        {
+            switch (state)
+            {
+                case NdmfSupportState.TooOld: return IsJapanese
+                    ? "入っている NDMF（Non-Destructive Modular Framework）が古い（1.8.0 より前の版）"
+                    : "the installed NDMF (Non-Destructive Modular Framework) is too old (before 1.8.0)";
+                case NdmfSupportState.TooNew: return IsJapanese
+                    ? "入っている NDMF（Non-Destructive Modular Framework）が、このいろかの対応している版より新しい"
+                    : "the installed NDMF (Non-Destructive Modular Framework) is newer than this version of Iroca supports";
+                default: return IsJapanese
+                    ? "NDMF（Non-Destructive Modular Framework）が入っていない"
+                    : "NDMF (Non-Destructive Modular Framework) is not installed";
+            }
+        }
+        private static string NdmfFix(NdmfSupportState state)
+        {
+            switch (state)
+            {
+                case NdmfSupportState.TooOld: return IsJapanese
+                    ? "VCC / ALCOM で、NDMF を新しい版にしてください。"
+                    : "Update NDMF in VCC / ALCOM.";
+                case NdmfSupportState.TooNew: return IsJapanese
+                    ? "VCC / ALCOM で、いろかを最新の版にしてください。"
+                    : "Update Iroca to the latest version in VCC / ALCOM.";
+                default: return IsJapanese
+                    ? "VCC / ALCOM で、いろかと同じリポジトリから「Non-Destructive Modular Framework」を追加してください。"
+                    : "Add \"Non-Destructive Modular Framework\" in VCC / ALCOM from the same repository as Iroca.";
+            }
+        }
+        public static string UploadBlockedTitle => IsJapanese ? "いろか: アップロードを止めました" : "Iroca: Upload stopped";
+        internal static string UploadBlocked(NdmfSupportState state) => IsJapanese
+            ? "「Iroca Recolor」で色替えできないので、アップロードを止めました（色替えされないまま上がらないように）。"
+              + NdmfCause(state) + "ためです。" + NdmfFix(state)
+              + "色替えせずにアップロードするときは、アバターから「Iroca Recolor」を外してください。"
+            : "The upload was stopped because \"Iroca Recolor\" cannot recolor this avatar (so that it is not uploaded without the recolor): "
+              + NdmfCause(state) + ". " + NdmfFix(state)
+              + " To upload without the recolor, remove \"Iroca Recolor\" from the avatar.";
         public static string BoundRecipe => IsJapanese ? "保存先のレシピ" : "Recipe";
         public static string BoundRecipeTooltip => IsJapanese
             ? "このテクスチャの編集内容は、このレシピにも保存されます（アバターの「Iroca Recolor」がビルド時に使う内容）。"

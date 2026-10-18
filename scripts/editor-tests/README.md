@@ -17,6 +17,8 @@ headless ハーネスと golden は net8 で製品 C# を動かすので、Unity
 | `MeshIslandOutlineTests.cs` | プレビューに重ねる UV の島の輪郭（内側の対角線を描かない、UV を重ねた左右対称のパーツでも輪郭が残る、Tiling / Offset） |
 | `SceneMeshPickerTests.cs` | Scene でクリックした場所を求める（`SceneMeshPicker`）とプレビューに重ねる島の組み立て。手前の Renderer・UV、マテリアルのカリング、非表示のものを除く、スキンメッシュはポーズ込みの形。テスト用の物は開いているシーンの遠く（座標 1000）に置いて片付ける |
 | `NonDestructiveTests.cs` / `NdmfProcessAvatarTests.cs` | 非破壊の色替え（レシピ → テクスチャ → マテリアル差し替え）。後者は NDMF を通した結合で、NDMF があるホストでだけコンパイルされる |
+| `WorkingResolutionTests.cs` | 編集の作業解像度（`WorkingResolution`）。既定は元ファイルを取り込み後の寸法へ縮め、「元の解像度で編集」なら元のまま。書き出しは常に元の解像度。縮小をテクスチャの生データから帯ごとに読む経路が、Color32[] の経路と同じ画素になる（RGBA32・ARGB32・BGRA32・RGB24）|
+| `NdmfSupportTests.cs` | NDMF が使えないときの扱い。asmdef の版の範囲（2.0 のベータ版も外す）を Unity がそのとおりに読んでいるか（入っているパッケージの版から各 asmdef の define を照らす）。NDMF が入っていない・古い・新しすぎるときに、色替えするものがあれば VRChat へのアップロードを止めて直し方を案内するか。VRChat SDK があれば「Iroca Recolor」が NDMF と関係なく `IEditorOnly` で、アップロードの確認が NDMF より先に走り、NDMF が使えるときは素通しするか |
 | `RecipeRegistrationTests.cs` | 登録で `Iroca Recolor` が増えない（同じオブジェクトは 1 つにまとめる・同じテクスチャは置き換え・Undo）、旧保存形式の読み込み |
 | `LivePreviewTests.cs` / `NdmfPreviewFilterTests.cs` | シーンでのプレビュー（どこに何を映すかの規則、ウィンドウの結果を RenderTexture に書く受け渡し口、レシピの出来上がりの貸し借り、NDMF のフィルタの呼び出し口）。後者は NDMF があるホストでだけコンパイルされる |
 | `RuntimeParityTests.cs` | 製品の実行環境（Unity の Mono）とテストの実行環境（ハーネスの net8）で再着色の出力が一致するか。golden の入力（`scripts/golden/cases/`）を製品経路（`IrocaAutomation.RecolorWithZones`）に通し、ハーネスの出力（`scripts/golden/expected/`）と比べる |
