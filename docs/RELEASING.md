@@ -26,8 +26,9 @@ zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合
    - package.json（version / url）、README 見出しのバージョン、`docs/index.json`（エントリ + zipSHA256）、VPM zip、`Iroca_Installer.unitypackage`、配布 zip（`Iroca_v<VERSION>.zip`）が更新される。
    - VPM zip のエントリ日時は実行時の HEAD のコミット日時なので、listing を作った後にコミットが増えてから再実行すると SHA256 が変わる。資産だけ作り直したいときは `Build-DownloadZip.ps1` / `Build-Installer.ps1` を単独で実行する。
    - Code/ に未コミットの変更があると止まる（zip を HEAD と 1:1 にするため）。
-3. **コミット**: `package.json` / `README.md` / `docs/index.json` / `CHANGELOG.md` をコミット。
-4. **main へマージ + タグ**（要ユーザー確認の操作）:
+   - Node.js が要る（`Build-Installer.ps1` が VPAI の `creator.mjs` を node で実行する。無いと止まる）。
+3. **コミット**: `package.json` / `README.md` / `docs/index.json` / `CHANGELOG.md` をコミット。続けて `docs/release-smoke-test.md` の Unity 実地確認を通す。
+4. **main へマージ + タグ**（要ユーザー確認の操作）: マージの前に `git log develop..origin/main` で main だけにあるコミットを確かめる（→「main と develop」）。
    ```
    git checkout main && git merge develop
    git push origin main
@@ -39,14 +40,22 @@ zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合
    → `release.yml` が起動し、以下を検証してから draft を作成する（不一致は fail）:
    - tag ↔ package.json の version / url
    - CHANGELOG に非空の `## [<VERSION>]` 節
+   - README.md の見出しに `Ver <VERSION>`
    - `docs/index.json` に該当バージョンのエントリ + zipSHA256
 5. **資産アップロード + publish**: draft に配布 zip と VPM zip をアップロードし、本文のチェックリスト節を削除して publish。BOOTH には配布 zip を上げる。
 6. **検証確認**: `release-verify.yml`（publish/edit で起動）が green になることを確認。fail した場合は zip の差し替え、または `Build-VpmPackage.ps1` 再実行 → listing 再コミットで解消する。
 
+## main と develop
+
+main は develop の祖先とは限らない。2026-10-18 時点で main には develop に無いコミットがある（develop を取り込んだマージコミット、公開中の文書だけの修正を develop から cherry-pick したもの、GitHub 上で直した `CREDITS.md`）。公開中の版向けの注意書きを main だけに入れることもある（develop の同じ行は次の版の挙動で書く）。そのため develop → main のマージは早送りにならず、衝突することがある。
+
+- Pages で配る文書（マニュアル・README）だけの修正で公開中の版に当てはまるものは、develop で直してから main へ cherry-pick してよい。
+- リリースで develop を main へマージする前に、`git log develop..origin/main` で main だけのコミットを確かめる。
+- `docs/manual/src` で衝突したら、main だけにある注意書きは旧版向けなので develop 側を採る。ただし採る前に両方の内容を確かめる（main 側にしか無い直しが混じっていないか）。
+
 ## 初回公開の後に確認すること
 
-- [ ] release-verify が green。
-- [ ] `https://yukkuri-aoba.github.io/Iroca/index.json` に NDMF の項目も載っている（→「GitHub Pages の配信」）。いろかウィンドウの「マニュアル」でオンラインマニュアルが開く。
+- [ ] いろかウィンドウの「マニュアル」でオンラインマニュアルが開く。
 - [ ] VCC / ALCOM にリポジトリ URL を追加してインストールできる。いろかのリポジトリだけで NDMF も選べる。
 - [ ] 公開版の配布 zip（`Iroca_v<VERSION>.zip`）をダウンロードして展開し、中の `Iroca_Installer.unitypackage` を素の Unity 2022.3 プロジェクトと VRChat プロジェクトへインポートして導入できる（NDMF も入る）。
 - [ ] 済んだらこの節を削除する。
