@@ -74,6 +74,7 @@ zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合
 
 - 配信のたびに `scripts/pages/build_site.py` が、NDMF の公式 listing（`https://vpm.nadena.dev/vpm.json`）から、いろかが対応する範囲の安定版を index.json に写す。VCC / ALCOM で、いろかのリポジトリだけを追加した人でも NDMF を選べるようにするため。写す項目は公式とまったく同じ（URL・zipSHA256 とも）なので、NDMF の公式リポジトリも追加している環境でもぶつからない（Avatar Optimizer の listing も同じやり方で NDMF を載せている）。
 - 対応する範囲は `Code/NdmfIntegration/Iroca.NdmfIntegration.asmdef` の versionDefines（`nadena.dev.ndmf` の式）から読む。NDMF 2.0 が出て対応を広げるときは、asmdef の範囲を変えれば写す範囲も変わる。
+- 範囲の上限は `2.0.0` でなく `2.0.0-0` と書く（`[1.8.0,2.0.0-0)`）。Unity は版を SemVer の順で比べるので、`2.0.0)` だと 2.0 のベータ版（`2.0.0-beta.1` など。`2.0.0` より前と数える）が範囲に入り、未確認の API に対して NDMF 連携がコンパイルされてしまう。`2.0.0-0` は 2.0 のどのプレリリースよりも前の版なので、2.0 系をすべて外せる（Modular Avatar の `<2.0.0-a` と同じ考え）。範囲を変えるときは、この式を使う asmdef（Runtime・本体・NDMF 連携・EditMode テスト）をそろえる。
 - いろかのリリースは頻繁でないので、写した項目はリポジトリへ書き戻さず、毎日配信し直して新しい NDMF を拾う（main への push と手動実行でも配信する）。公式 listing を読めなかった日は組み立てが失敗して配信されず、前回の配信が残る。
 - release-verify.yml は `docs/index.json` の、いろかの項目だけを照合するので、写した項目の影響を受けない。
 - 手元で確かめるときは `python scripts/pages/build_site.py --out _site`（`_site/` は git 管理外）。
