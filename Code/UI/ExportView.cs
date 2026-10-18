@@ -93,7 +93,7 @@ namespace Iroca
             EditorGUI.BeginDisabledGroup(_host.SourceTexture == null);
             DrawTextureExport(primary: true);
             EditorGUILayout.Space(4);
-            EditorGUILayout.HelpBox(Localization.NdmfMissing, MessageType.Warning);
+            EditorGUILayout.HelpBox(Localization.NdmfUnavailable(NdmfSupport.State), MessageType.Warning);
             DrawRegister(primary: false);
 #endif
 
@@ -215,7 +215,7 @@ namespace Iroca
 #else
             h += TextureExportHeight(primary: true);
             h += 4f;                  // Space(4)
-            h += NdmfMissingHelpBoxHeight();
+            h += NdmfUnavailableHelpBoxHeight();
             h += RegisterHeight(primary: false);
 #endif
             if (!string.IsNullOrEmpty(_lastError))
@@ -253,7 +253,7 @@ namespace Iroca
         }
 
 #if !IROCA_NDMF_PRESENT
-        private static float NdmfMissingHelpBoxHeight() => HelpBoxHeight(Localization.NdmfMissing);
+        private static float NdmfUnavailableHelpBoxHeight() => HelpBoxHeight(Localization.NdmfUnavailable(NdmfSupport.State));
 #endif
 
         // 長い HelpBox は縦並び(狭幅)では 3 行以上に折り返すので固定の 40 では足りない。

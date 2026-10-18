@@ -23,7 +23,7 @@ namespace Iroca
             var component = (IrocaRecolor)target;
             EditorGUILayout.HelpBox(Localization.RecolorInspectorHelp, MessageType.None);
 #if !IROCA_NDMF_PRESENT
-            EditorGUILayout.HelpBox(Localization.NdmfMissing, MessageType.Warning);
+            EditorGUILayout.HelpBox(Localization.NdmfUnavailable(NdmfSupport.State), MessageType.Warning);
 #endif
             DrawMerge(component);
 

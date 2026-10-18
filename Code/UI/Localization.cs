@@ -1199,9 +1199,15 @@ namespace Iroca
         public static string RegisterRecipeNew => IsJapanese ? "{0}（新しく作ります）" : "{0} (new)";
         public static string RegisterDoneFormat => IsJapanese ? "「{0}」に登録しました" : "Registered to \"{0}\"";
         public static string RegisterOk => IsJapanese ? "登録" : "Register";
-        public static string NdmfMissing => IsJapanese
-            ? "NDMF（Non-Destructive Modular Framework）が入っていないか、対応していない版なので、非破壊の色替えは使えません。画像の書き出しは使えます。VCC / ALCOM で、いろかと同じリポジトリから「Non-Destructive Modular Framework」を追加してください。"
-            : "NDMF (Non-Destructive Modular Framework) is not installed or its version is not supported, so non-destructive recoloring is not available. Exporting images still works. Add \"Non-Destructive Modular Framework\" in VCC / ALCOM from the same repository as Iroca.";
+        // いろかウィンドウとインスペクタの警告。入っていない・古い・新しすぎるで直し方が違う。
+        internal static string NdmfUnavailable(NdmfSupportState state)
+        {
+            string cause = NdmfCause(state);
+            return IsJapanese
+                ? cause + "ので、非破壊の色替えは使えません。画像の書き出しは使えます。" + NdmfFix(state)
+                : char.ToUpperInvariant(cause[0]) + cause.Substring(1)
+                  + ", so non-destructive recoloring is not available. Exporting images still works. " + NdmfFix(state);
+        }
         // NDMF が使えない理由(「〜ので」「〜ためです」に続く形)と直し方。
         private static string NdmfCause(NdmfSupportState state)
         {
