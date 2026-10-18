@@ -30,11 +30,13 @@ https://yukkuri-aoba.github.io/Iroca/index.json
 ■ 動作環境
 ・Unity 2022.3（2022.3.22f1・Windows で動作を確認しています）。VCC や VRChat SDK がなくても動きます
 ・アバターへの登録（非破壊の色替え）には NDMF 1.8 以上 2.0 未満を使います。インストーラで導入した場合は一緒に入ります。
-  NDMF がなくても、画像（PNG）の書き出しは使えます
+  NDMF がなくても、画像（PNG）の書き出しは使えます（NDMF が無い、または対応していない版のときは、
+  「Iroca Recolor」の付いたアバターのアップロードを止めて直し方を表示します）
 ・AI を使う機能（自動調整と、右クリックでの範囲の見分け）には、Unity Sentis 2.1.3（Unity 2022.3.11f1 以降）と
   AI モデル（約 44MB）が必要です。どちらもウィンドウ上部の案内から導入できます。
   Sentis を入れると、VRChat SDK も使う Burst と Collections も新しい版に上がります
-・8192×8192 までのテクスチャで確認しています
+・8192×8192 までのテクスチャで確認しています。編集はインポート設定の Max Size の大きさで行い、
+  「テクスチャとして書き出す」だけ元の解像度で行います（8K の書き出しでは数 GB のメモリを使います）
 
 ■ 利用規約
 PolyForm Shield License 1.0.0（全文は LICENSE.txt）
@@ -84,11 +86,13 @@ https://yukkuri-aoba.github.io/Iroca/manual/ (Japanese for now)
 [Requirements]
 - Unity 2022.3 (tested with 2022.3.22f1 on Windows). Works without VCC or the VRChat SDK
 - Non-destructive recoloring uses NDMF 1.8 or later, below 2.0 (installed together by the installer).
-  Without NDMF, exporting images still works
+  Without NDMF, exporting images still works (if NDMF is missing or an unsupported version,
+  uploading an avatar with "Iroca Recolor" is stopped with instructions)
 - Auto-tune and the AI suggestion need Unity Sentis 2.1.3 (Unity 2022.3.11f1 or later) and the
   AI models (about 44 MB). You can install them from the notice at the top of the window.
   Installing Sentis also updates Burst and Collections, which the VRChat SDK uses too
-- Tested with textures up to 8192x8192
+- Tested with textures up to 8192x8192. Editing uses the import Max Size, and only
+  "Export as a texture" uses the original resolution (exporting at 8K uses several GB of memory)
 
 [License]
 PolyForm Shield License 1.0.0 (see LICENSE.txt)
