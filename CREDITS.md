@@ -17,7 +17,7 @@ The latest version is at the URL above.
 Copyright (c) 2026 yukkuri__aoba  
 Licensed under [PolyForm Shield License 1.0.0](LICENSE)
 
-## アルゴリズムの開発に使用したデータ(敬称略) / Data Used for Algorithm Development
+## アルゴリズムの開発に使用したデータ（敬称略） / Data Used for Algorithm Development
 
 色抽出・マスク生成・領域判定の開発と検証に、次のモデル・衣装のテクスチャを使用させていただきました。
 
