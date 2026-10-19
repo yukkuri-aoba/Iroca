@@ -171,7 +171,7 @@ namespace Iroca
         public static string AntiAliasCleanup => IsJapanese ? "縁のドット回収" : "AA Edge Cleanup";
         public static string AntiAliasCleanupTooltip => IsJapanese
             ? "アンチエイリアス境界の残りドットを除去するパス数。\n0 = オフ、3 = 既定（推奨）、5 = 最大\n値を大きくすると境界の回収範囲が広がります。\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。縁は境界クリーンアップが塗ります。"
-            : "Number of passes to recover anti-alias boundary pixels.\n0 = off, 3 = normal (recommended), 5 = max\nHigher values recover more edge pixels.\nWith the defaults (Edge Decontamination ON, Edge Feather 0) this has no effect on colored parts; Edge Decontamination paints their edges.";
+            : "Number of passes to recover anti-alias boundary pixels.\n0 = off, 3 = default (recommended), 5 = max\nHigher values recover more edge pixels.\nWith the defaults (Edge Decontamination ON, Edge Feather 0) this has no effect on colored parts; Edge Decontamination paints their edges.";
 
         public static string UseDecontamination => IsJapanese ? "境界クリーンアップ" : "Edge Decontamination";
         public static string UseDecontaminationTooltip => IsJapanese
@@ -237,7 +237,7 @@ namespace Iroca
         public static string ShadowForgivenessSatMin => IsJapanese ? "暗部に含める最低彩度" : "Shadow Min Saturation";
         public static string ShadowForgivenessSatMinTooltip => IsJapanese
             ? "グレーや黒のピクセルを同系色の影として巻き込むのを防ぐための最低彩度です。\n既定: 0.05"
-            : "Minimum saturation required to include a dark pixel as part of the shadow. Prevents pure greys from being colorized.\nDefault: 0.05";
+            : "Minimum saturation required to include a dark pixel as part of the shadow. Prevents pure grays from being colorized.\nDefault: 0.05";
 
         public static string ShadowValueFloor => IsJapanese ? "暗部の明度下限" : "Shadow Value Floor";
         public static string ShadowValueFloorTooltip => IsJapanese
@@ -261,7 +261,7 @@ namespace Iroca
         public static string ChromaCeiling => IsJapanese ? "無彩色の彩度上限" : "Neutral Chroma Ceiling";
         public static string ChromaCeilingTooltip => IsJapanese
             ? "サンプルが無彩色（白/グレー/黒）のとき、この彩度を超える離れた領域は「染められた別素材」とみなして選択から外します。\n0 = 自動（サンプル彩度の 3 倍、最低 0.04）。白い布の青みがかった陰のように、素材自身の陰影が地色より強く色づく場合は上げます。\n自動調整（AI 提案あり）がクリックした部分に実在する彩度から導きます。\n既定: 0"
-            : "When the sample is neutral (white/grey/black), detached regions more saturated than this are treated as a dyed, different material and excluded.\n0 = automatic (3x the sample saturation, at least 0.04). Raise it when the material's own shading is more tinted than its base, such as bluish shadows on white cloth.\nAuto-tune with an AI proposal derives it from the saturation actually present in the clicked part.\nDefault: 0";
+            : "When the sample is neutral (white/gray/black), detached regions more saturated than this are treated as a dyed, different material and excluded.\n0 = automatic (3x the sample saturation, at least 0.04). Raise it when the material's own shading is more tinted than its base, such as bluish shadows on white cloth.\nAuto-tune with an AI proposal derives it from the saturation actually present in the clicked part.\nDefault: 0";
 
         public static string HoleFillMargin => IsJapanese ? "穴埋めの余白" : "Hole Fill Margin";
         public static string HoleFillMarginTooltip => IsJapanese
@@ -1101,7 +1101,7 @@ namespace Iroca
         public static string PeekOriginal => IsJapanese ? "元を表示" : "Original";
         public static string PeekOriginalTooltip => IsJapanese
             ? "押している間だけ変更前のテクスチャを表示します（離すと変更後に戻ります）。\n拡大しているときは変更前をプレビュー解像度で表示します。"
-            : "Shows the original texture while the button is held (releases back to the result).\nAt high zoom the original is shown at preview resolution.";
+            : "Shows the original texture while the button is held (release it to return to the result).\nAt high zoom the original is shown at preview resolution.";
 
         // ─────────────────────────────────────────────────────────────
         // ゾーンのソロ表示
@@ -1204,13 +1204,13 @@ namespace Iroca
             : "The other recipe for \"{0}\" on this object ({1}) is replaced with this one.";
         public static string RegisterSwitchExportsFormat => IsJapanese
             ? "「適用して保存」で書き出した画像を使っているマテリアル {0} 個を、元のテクスチャ「{1}」に戻します（非破壊の色替えは元のテクスチャを探すため。Ctrl+Z で戻せます）。"
-            : "{0} materials that use an image exported with \"Apply & Save\" are switched back to the original texture \"{1}\" (non-destructive recoloring looks for the original texture. Ctrl+Z restores them).";
+            : "{0} material(s) that use an image exported with \"Apply & Save\" are switched back to the original texture \"{1}\" (non-destructive recoloring looks for the original texture. Ctrl+Z restores them).";
         public static string RegisterLockedExportsFormat => IsJapanese
             ? "書き出した画像を使っているマテリアルのうち {0} 個は、書き換えられない場所（FBX の中・パッケージ）にあるのでそのままです。"
-            : "{0} materials that use an exported image are in places that cannot be changed (inside an FBX or a package), so they are left as they are.";
+            : "{0} material(s) that use an exported image are in places that cannot be changed (inside an FBX or a package), so they are left as they are.";
         public static string ExportUsersHintFormat => IsJapanese
             ? "シーンに、このテクスチャを書き出した画像を使っているマテリアルが {0} 個あります。非破壊で色替えするには、「アバターに非破壊で登録」で元のテクスチャに戻してください（登録のときにまとめて戻せます）。"
-            : "{0} materials in the scene use an image exported from this texture. To recolor non-destructively, switch them back to the original texture with \"Register to avatar (non-destructive)\" (it does this for you when registering).";
+            : "{0} material(s) in the scene use an image exported from this texture. To recolor non-destructively, switch them back to the original texture with \"Register to avatar (non-destructive)\" (it does this for you when registering).";
         public static string RegisterRecipeNew => IsJapanese ? "{0}（新しく作ります）" : "{0} (new)";
         public static string RegisterDoneFormat => IsJapanese ? "「{0}」に登録しました" : "Registered to \"{0}\"";
         public static string RegisterOk => IsJapanese ? "登録" : "Register";
@@ -1287,7 +1287,7 @@ namespace Iroca
             : "No renderer in this scope uses \"{0}\". That is fine if it is only used by a material that an animation (such as an outfit toggle) switches to. Otherwise, place the component on the outfit or avatar root.";
         public static string RecolorScopeFormat => IsJapanese
             ? "対象のマテリアル: {0} 個（Renderer {1} 個）"
-            : "Target materials: {0} ({1} renderers)";
+            : "Target materials: {0} ({1} renderer(s))";
         public static string RecipeInspectorZonesFormat => IsJapanese ? "ゾーン: {0} 個（有効 {1} 個）" : "Zones: {0} ({1} enabled)";
         public static string RecipeField => IsJapanese ? "レシピ" : "Recipes";
         public static string RecipeFieldTooltip => IsJapanese
