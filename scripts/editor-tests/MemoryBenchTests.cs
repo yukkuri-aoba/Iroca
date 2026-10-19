@@ -238,6 +238,9 @@ namespace Iroca.EditorTests
                             double ems = ew.Elapsed.TotalMilliseconds;
                             sb.Append(Sample(c.name, "export", k, ems, 0, cfg.hashOutput ? HashPixels(exportPixels, exportPixels.Length) : null)).Append('\n');
                             exportPixels = null;
+                            // 製品の書き出し(ExportView)は終わったら作業配列の空きを手放す(0.3.0〜)。口がある版では同じく呼ぶ。
+                            typeof(PixelProcessor).GetMethod("ReleaseWorkBuffers", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public,
+                                null, Type.EmptyTypes, null)?.Invoke(null, null);
                             // 書き出しの解像度の作業配列がプールに残ったか(GC の後の生きている量)。
                             GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
                             sb.Append(Sample(c.name, "liveAfterExport", k, 0)).Append('\n');

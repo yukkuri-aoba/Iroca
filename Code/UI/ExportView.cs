@@ -448,8 +448,17 @@ namespace Iroca
                     {
                         ReportExportFailure(ex);
                     }
+                    finally
+                    {
+                        // 書き出しの解像度の作業配列を OS へ返す(一括書き出しの末尾と同じ理由)。
+                        PixelProcessor.ReleaseWorkBuffers();
+                    }
                 },
-                onError: ReportExportFailure);
+                onError: ex =>
+                {
+                    ReportExportFailure(ex);
+                    PixelProcessor.ReleaseWorkBuffers();
+                });
         }
 
         /// <summary>エクスポート失敗をログ＋UI 通知へ流す（BG 側と apply 側で共有）。</summary>
@@ -625,6 +634,9 @@ namespace Iroca
             }
 
             if (previewSourceOverwritten) _host?.InvalidateSourceAndRepaint();
+            // 書き出しは元の解像度で処理するので、作業解像度で編集しているとその解像度の作業配列が丸ごと残る
+            // (8K で約 3GB)。使っていない分を OS へ返す(次のプレビューは新しく確保し直す)。
+            PixelProcessor.ReleaseWorkBuffers();
 
             EditorUtility.DisplayDialog(Localization.Complete,
                 Localization.BatchComplete(success), Localization.OK);
