@@ -364,7 +364,7 @@ namespace Iroca
         public static string CtxPartUseSelectionNone => IsJapanese
             ? "メッシュはマスク欄の「メッシュ」で指定できます（FBX・Prefab をドラッグ）"
             : "Choose meshes in the \"Mesh\" field of the mask section (drag an FBX or prefab)";
-        public static string CtxPartResearch => IsJapanese ? "メッシュを探し直す" : "Search for meshes again";
+        public static string CtxPartResearch => IsJapanese ? "メッシュを探し直す" : "Rescan for meshes";
         // 右クリックの操作の結果(MaskPaintView.DescribeRegionEdit)。{0} = ゾーン名。
         public static string NotifyPaintHereFormat => IsJapanese
             ? "「{0}」で、ここも塗るようにしました（Ctrl+Z で戻せます）" : "\"{0}\" now paints here too (Ctrl+Z to undo)";
@@ -405,7 +405,7 @@ namespace Iroca
               + "Searched automatically in the open scene, then in prefabs in the texture's asset folder.\n"
               + "If nothing is found or the wrong one is picked, drag an FBX or prefab here from the Project or Hierarchy, or pick one with ◎.\n"
               + "Clearing the field (select it and press Delete) goes back to automatic";
-        public static string MeshResearch => IsJapanese ? "探し直す" : "Search again";
+        public static string MeshResearch => IsJapanese ? "探し直す" : "Rescan";
         public static string MeshResearchTooltip => IsJapanese
             ? "メッシュを自動で探し直します（アバターをシーンに置いた・FBX の Read/Write を変えたあと。シーンを開き直したときは自動で探し直します）。手動の指定は外れます"
             : "Search for meshes again (after placing the avatar in the scene or changing Read/Write on the FBX; reopening a scene searches again automatically). Clears a manual choice";
@@ -420,7 +420,7 @@ namespace Iroca
             : "Not found (color selection still works). Drag an FBX or prefab here to choose one";
         public static string MeshStatusUnreadableFormat => IsJapanese
             ? "メッシュを読めません（{0} 個）。FBX の Read/Write を有効にして「探し直す」"
-            : "Cannot read the meshes ({0}). Enable Read/Write on the FBX, then \"Search again\"";
+            : "Cannot read the meshes ({0}). Enable Read/Write on the FBX, then \"Rescan\"";
         public static string MeshListTooltipHeader => IsJapanese ? "使っているメッシュ:" : "Meshes in use:";
         public static string MeshShowIslands => IsJapanese ? "UV の島をプレビューに表示" : "Show UV islands on the preview";
         public static string MeshShowIslandsTooltip => IsJapanese
@@ -902,7 +902,7 @@ namespace Iroca
         // ゾーンがあるときの同じボタン（2 色目以降も 1 色目と同じ「押す → クリック」で足す）。
         public static string AddColorWithEyedropper => IsJapanese
             ? "スポイトで別の色を追加"
-            : "Add another color with the eyedropper";
+            : "Add a color (eyedropper)";
         public static string StartWithEyedropperActive => IsJapanese
             ? "■ プレビューで変えたい色をクリック"
             : "■ Click the color to change on the preview";
