@@ -870,14 +870,14 @@ namespace Iroca
             ? "現在のゾーン設定と加工設定をプリセットとして保存します"
             : "Save current zone and processing settings as a preset";
         public static string ExportJsonTooltip => IsJapanese
-            ? "現在の保存先のプリセットを JSON ファイルとしてエクスポートします"
-            : "Export presets from the current storage location as a JSON file";
+            ? "現在のゾーン設定と加工設定を JSON ファイルに書き出します"
+            : "Export the current zone and processing settings to a JSON file";
         public static string ImportJsonTooltip => IsJapanese
-            ? "JSON ファイルからプリセット設定をインポートします"
-            : "Import preset settings from a JSON file";
+            ? "JSON ファイルを読み込み、現在のゾーン設定と加工設定を上書きします"
+            : "Load a JSON file and overwrite the current zone and processing settings";
         public static string LoadPresetTooltip => IsJapanese
-            ? "このプリセットを読み込み、現在のゾーン設定を上書きします"
-            : "Load this preset and overwrite current zone settings";
+            ? "このプリセットを読み込み、現在のゾーン設定と加工設定を上書きします"
+            : "Load this preset and overwrite the current zone and processing settings";
         public static string DeletePresetTooltip => IsJapanese
             ? "このプリセットを削除します"
             : "Delete this preset";
