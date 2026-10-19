@@ -241,8 +241,8 @@ namespace Iroca
 
         public static string ShadowValueFloor => IsJapanese ? "暗部の明度下限" : "Shadow Value Floor";
         public static string ShadowValueFloorTooltip => IsJapanese
-            ? "この明度より暗いピクセルだけで出来た離れた領域は、同系色でも同じ素材の陰影とみなさず選択から外します。\n同じ色相で暗いだけの別パーツ（上衣に対する暗いジャケット、肌に対する口の中など）の巻き込みを防ぎます。本体に地続きの影は残ります。\n自動調整（AI 提案あり）がクリックした部分に実在する暗さから導きます。連続領域モードでのみ効きます。0 = 無効\n既定: 0"
-            : "Detached regions made only of pixels darker than this value are not treated as shading of the same material, even when the hue matches.\nStops darker parts of the same hue (a dark jacket next to a top, the inside of a mouth next to skin) from being included; shading connected to the body is kept.\nAuto-tune with an AI proposal derives it from the darkness actually present in the clicked part. Only in connected-region mode. 0 = off\nDefault: 0";
+            ? "この明度以上のピクセルが 4 分の 1 に満たない離れた領域は、同系色でも同じ素材の陰影とみなさず選択から外します。\n同じ色相で暗いだけの別パーツ（上衣に対する暗いジャケット、肌に対する口の中など）の巻き込みを防ぎます。本体に地続きの影は残ります。\n自動調整（AI 提案あり）がクリックした部分に実在する暗さから導きます。連続領域モードでのみ効きます。0 = 無効\n既定: 0"
+            : "Detached regions where fewer than a quarter of the pixels are at or above this value are not treated as shading of the same material, even when the hue matches.\nStops darker parts of the same hue (a dark jacket next to a top, the inside of a mouth next to skin) from being included; shading connected to the body is kept.\nAuto-tune with an AI proposal derives it from the darkness actually present in the clicked part. Only in connected-region mode. 0 = off\nDefault: 0";
 
         public static string PartSatCeiling => IsJapanese ? "別パーツの彩度上限" : "Part Saturation Ceiling";
         public static string PartSatCeilingTooltip => IsJapanese
@@ -851,8 +851,8 @@ namespace Iroca
             : "Apply current zone settings to all textures in the list and save\nOutput files get a _recolored suffix";
 
         public static string ComparisonModeTooltip => IsJapanese
-            ? "変更前と変更後を横並びで比較表示します（高ズーム時は使用不可）"
-            : "Show before and after side by side (unavailable at high zoom)";
+            ? "変更前と変更後を横並びで比較表示します。拡大しているときはプレビュー解像度で表示します"
+            : "Show before and after side by side. At high zoom both are shown at preview resolution";
         public static string DiffModeTooltip => IsJapanese
             ? "変更前後の差分（変化したピクセル）を強調表示します"
             : "Highlight pixels that changed between before and after";
