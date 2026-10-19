@@ -37,6 +37,10 @@
 .PARAMETER Graphics
     -nographics を付けずに起動する（GPU を使う段も実機で通す。HiRes のシーンプレビューの段や AI 推論の GPU 経路）。
 
+.PARAMETER AllowForeignCode
+    ホストの Code が、このスクリプトのある作業ツリー以外を指していても止めない（交互 A/B で Code だけを
+    基準の木へ向けるとき）。テストのリンクは常にこの作業ツリーを指している必要がある。
+
 .EXAMPLE
     .\scripts\Run-EditorTests.ps1
 .EXAMPLE
@@ -49,7 +53,8 @@ param(
     [string]$PerfCases,
     [string]$MemCases,
     [string]$HiResCases,
-    [switch]$Graphics
+    [switch]$Graphics,
+    [switch]$AllowForeignCode
 )
 
 $ErrorActionPreference = 'Stop'
@@ -71,6 +76,24 @@ if (-not (Test-Path $testsLink)) {
     throw "テストがホストにリンクされていません: $testsLink`n  .\scripts\Link-HostPackage.ps1 -HostProject `"$HostProject`" -WithEditorTests を実行してください"
 }
 
+# ホストの Code とテストは、このスクリプトのある作業ツリーへのジャンクションのはず。別の作業ツリー
+# （worktree や本体）を指したまま回すと、黙ってそちらのコードを測る。交互 A/B で Code だけを基準の木へ
+# 向けるときは -AllowForeignCode を付ける（指している先は表示する）。
+function Get-LinkTarget([string]$path) {
+    $item = Get-Item -LiteralPath $path -Force
+    if ($item.LinkType -ne 'Junction' -and $item.LinkType -ne 'SymbolicLink') { return $null }
+    return [IO.Path]::GetFullPath(@($item.Target)[0]).TrimEnd('\')
+}
+$codeLink = Join-Path $HostProject 'Packages\com.yukkuri-aoba.iroca\Code'
+foreach ($pair in @(@($codeLink, (Join-Path $RepoRoot 'Code')), @($testsLink, (Join-Path $RepoRoot 'scripts\editor-tests')))) {
+    $target = if (Test-Path $pair[0]) { Get-LinkTarget $pair[0] } else { $null }
+    $want = [IO.Path]::GetFullPath($pair[1]).TrimEnd('\')
+    if ($target -ieq $want) { continue }
+    $msg = "$($pair[0]) は $(if ($target) { $target } else { 'ジャンクションではありません' }) を指しています（この作業ツリーは $want）"
+    if ($AllowForeignCode -and $pair[0] -eq $codeLink -and $target) { Write-Host "注意: $msg" -ForegroundColor Yellow; continue }
+    throw "$msg`n  この作業ツリーの .\scripts\Link-HostPackage.ps1 -HostProject `"$HostProject`" -WithEditorTests で向け直してください"
+}
+
 # Editor が同じプロジェクトを開いていると batchmode は即終了する。先に分かりやすく止める。
 $lock = Join-Path $HostProject 'Temp\UnityLockfile'
 if (Test-Path $lock) {
@@ -86,6 +109,9 @@ $log = Join-Path $outDir 'unity.log'
 $parity = Join-Path $outDir 'parity.tsv'
 
 # テストが参照する（RuntimeParityTests は golden の入力と期待出力をリポジトリから読む）。
+# 呼び出したシェルにそのまま残すと、同じシェルで回した別の作業ツリーの abcheck がこれを読んで
+# こちらの木を測ってしまうので、終わったら元に戻す（下の finally）。
+$prevIrocaRepo = $env:IROCA_REPO
 $env:IROCA_REPO = $RepoRoot
 $env:IROCA_PARITY_REPORT = $parity
 
@@ -131,9 +157,14 @@ if ($HiResCases) {
     Remove-Item Env:IROCA_HIRES_CASES -ErrorAction SilentlyContinue
 }
 Write-Host "Unity を batchmode で起動します（結果: $outDir）…"
-$p = Start-Process -FilePath $UnityExe -ArgumentList $unityArgs -PassThru
-try { $p.PriorityClass = 'BelowNormal' } catch { }
-$p.WaitForExit()
+try {
+    $p = Start-Process -FilePath $UnityExe -ArgumentList $unityArgs -PassThru
+    try { $p.PriorityClass = 'BelowNormal' } catch { }
+    $p.WaitForExit()
+} finally {
+    if ($null -eq $prevIrocaRepo) { Remove-Item Env:IROCA_REPO -ErrorAction SilentlyContinue }
+    else { $env:IROCA_REPO = $prevIrocaRepo }
+}
 
 if (-not (Test-Path $results)) {
     Write-Host (Get-Content $log -Tail 40 -ErrorAction SilentlyContinue | Out-String)
