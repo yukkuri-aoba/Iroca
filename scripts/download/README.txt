@@ -37,7 +37,7 @@ https://yukkuri-aoba.github.io/Iroca/index.json
   AI モデル（約 44 MB）が必要です。どちらもウィンドウ上部の案内から導入できます。
   Sentis を入れると、VRChat SDK も使う Burst と Collections も新しい版に上がります
 ・8192×8192 までのテクスチャで確認しています。編集はインポート設定の Max Size の大きさで行い、
-  「テクスチャとして書き出す」だけ元の解像度で行います（8K の書き出しでは数 GB のメモリを使います）
+  書き出し（「適用して保存」）だけ元の解像度で行います（8K の書き出しでは数 GB のメモリを使います）
 
 ■ 利用規約
 PolyForm Shield License 1.0.0（全文は LICENSE.txt）
@@ -81,7 +81,8 @@ With VCC / ALCOM, you can instead add the repository below and add "いろか" a
 "Non-Destructive Modular Framework" (NDMF) to your project. NDMF is also listed in this repository.
 https://yukkuri-aoba.github.io/Iroca/index.json
 
-When a new version is released, update it from VCC / ALCOM, or import the new installer again.
+When a new version is released, update it from VCC / ALCOM, or import this installer again
+(it installs the latest version at the time you import it).
 
 If you used the old version (0.1.0, formerly "VRC Avatar Color Changer"), delete the Assets/VACC folder.
 
@@ -97,7 +98,7 @@ https://yukkuri-aoba.github.io/Iroca/manual/ (Japanese for now)
   AI models (about 44 MB). You can install them from the notice at the top of the window.
   Installing Sentis also updates Burst and Collections, which the VRChat SDK uses too
 - Tested with textures up to 8192x8192. Editing uses the import Max Size, and only
-  "Export as a texture" uses the original resolution (exporting at 8K uses several GB of memory)
+  exporting ("Apply & Save") uses the original resolution (exporting at 8K uses several GB of memory)
 
 [License]
 PolyForm Shield License 1.0.0 (see LICENSE.txt)

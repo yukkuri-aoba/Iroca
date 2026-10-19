@@ -66,7 +66,7 @@ namespace Iroca
         public const string CreditsUrl = "https://github.com/yukkuri-aoba/Iroca/blob/main/CREDITS.md";
         public static string CreditBody  => IsJapanese
             ? "いろか\n\n制作: yukkuri__aoba\nAI 補助: Claude（Anthropic）\n\nAI マスク提案: MobileSAM（Apache License 2.0）を ONNX に変換して使用\n\n開発に使わせていただいたモデル・テクスチャの一覧は「一覧を開く」から\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0"
-            : "いろか\n\nDeveloper: yukkuri__aoba\nAI Assistance: Claude (Anthropic)\n\nAI Mask Suggestion: MobileSAM (Apache License 2.0), converted to ONNX\n\nModels and textures used in development: see \"Open full list\"\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0";
+            : "Iroca\n\nDeveloper: yukkuri__aoba\nAI Assistance: Claude (Anthropic)\n\nAI Mask Suggestion: MobileSAM (Apache License 2.0), converted to ONNX\n\nModels and textures used in development: see \"Open full list\"\n\nCopyright (c) 2026 yukkuri__aoba\nPolyForm Shield License 1.0.0\nhttps://polyformproject.org/licenses/shield/1.0.0";
 
         // セクションが等価に並んで開始点が分かりにくいので、主要 4 ステップに番号を振り、
         // テクスチャ未設定時はこの導入ヒントで一連の流れを示す。
@@ -102,17 +102,17 @@ namespace Iroca
         // {0}×{1} = 元画像の寸法、{2} = 使うメモリの目安(GB)、{3} = この PC の搭載メモリ(GB)。
         // 作業解像度も元画像のまま(取り込み設定の Max Size が元画像以上)のとき。
         public static string LargeSourceNoticeFormat => IsJapanese
-            ? "大きい画像です（{0}×{1}）。インポート設定の Max Size がこの大きさ以上なので元の解像度で処理し、メモリを {2:0}GB ほど使います（この PC は {3:0}GB）。足りないと Unity が重くなったり落ちたりします。そのときはほかのアプリを閉じるか、Max Size を下げてください（編集はその大きさで行い、「テクスチャとして書き出す」だけ元の解像度で行います）。"
-            : "Large image ({0}×{1}). The import Max Size is at least this size, so Iroca works at the original resolution and uses about {2:0} GB of memory (this PC has {3:0} GB). If memory runs short, Unity may slow down or crash. Close other apps or lower the Max Size (editing then happens at that size, and only \"Export as a texture\" uses the original resolution).";
+            ? "大きい画像です（{0}×{1}）。インポート設定の Max Size がこの大きさ以上なので元の解像度で処理し、メモリを {2:0} GB ほど使います（この PC は {3:0} GB）。足りないと Unity が重くなったり落ちたりします。そのときはほかのアプリを閉じるか、Max Size を下げてください（編集はその大きさで行い、書き出し（「適用して保存」）だけ元の解像度で行います）。"
+            : "Large image ({0}×{1}). The import Max Size is at least this size, so Iroca works at the original resolution and uses about {2:0} GB of memory (this PC has {3:0} GB). If memory runs short, Unity may slow down or crash. Close other apps or lower the Max Size (editing then happens at that size, and only exporting (\"Apply & Save\") uses the original resolution).";
         // 「元の解像度で編集」がオンで、元画像のまま処理しているとき。引数は LargeSourceNoticeFormat と同じ。
         public static string LargeSourceAtSourceNoticeFormat => IsJapanese
-            ? "大きい画像です（{0}×{1}）。「元の解像度で編集」がオンなので元の解像度で処理し、メモリを {2:0}GB ほど使います（この PC は {3:0}GB）。足りないと Unity が重くなったり落ちたりします。そのときはほかのアプリを閉じるか、「加工設定」の「元の解像度で編集」をオフにしてインポート設定の Max Size を下げてください。"
+            ? "大きい画像です（{0}×{1}）。「元の解像度で編集」がオンなので元の解像度で処理し、メモリを {2:0} GB ほど使います（この PC は {3:0} GB）。足りないと Unity が重くなったり落ちたりします。そのときはほかのアプリを閉じるか、「加工設定」の「元の解像度で編集」をオフにしてインポート設定の Max Size を下げてください。"
             : "Large image ({0}×{1}). \"Edit at original resolution\" is on, so Iroca works at the original resolution and uses about {2:0} GB of memory (this PC has {3:0} GB). If memory runs short, Unity may slow down or crash. Close other apps, or turn off \"Edit at original resolution\" under \"Processing\" and lower the import Max Size.";
         // 編集は取り込み後の寸法で、書き出しだけ元画像の解像度のとき。{0}×{1} = 元画像、{2}×{3} = 編集の寸法、
         // {4} = 書き出しで使うメモリの目安(GB)、{5} = この PC の搭載メモリ(GB)。
         public static string LargeSourceExportNoticeFormat => IsJapanese
-            ? "大きい画像です（{0}×{1}）。編集はインポート設定の大きさ（{2}×{3}）で行いますが、「テクスチャとして書き出す」は元の解像度で行うため、書き出すときにメモリを {4:0}GB ほど使います（この PC は {5:0}GB）。足りないと Unity が重くなったり落ちたりするので、書き出す前にほかのアプリを閉じてください。"
-            : "Large image ({0}×{1}). Editing happens at the import size ({2}×{3}), but \"Export as a texture\" uses the original resolution, so exporting uses about {4:0} GB of memory (this PC has {5:0} GB). If memory runs short, Unity may slow down or crash, so close other apps before exporting.";
+            ? "大きい画像です（{0}×{1}）。編集はインポート設定の大きさ（{2}×{3}）で行いますが、書き出し（「適用して保存」）は元の解像度で行うため、書き出すときにメモリを {4:0} GB ほど使います（この PC は {5:0} GB）。足りないと Unity が重くなったり落ちたりするので、書き出す前にほかのアプリを閉じてください。"
+            : "Large image ({0}×{1}). Editing happens at the import size ({2}×{3}), but exporting (\"Apply & Save\") uses the original resolution, so it uses about {4:0} GB of memory (this PC has {5:0} GB). If memory runs short, Unity may slow down or crash, so close other apps before exporting.";
         public static string LargeSourceDismiss => IsJapanese ? "閉じる" : "Dismiss";
         public static string LargeSourceDismissTooltip => IsJapanese
             ? "このテクスチャではこの案内を表示しません。次に Unity を開いたときにまた出ます。"
@@ -191,8 +191,8 @@ namespace Iroca
 
         public static string ResetZoneTuning => IsJapanese ? "詳細を既定値に戻す" : "Reset details to default";
         public static string ResetZoneTuningTooltip => IsJapanese
-            ? "このゾーンの詳細パラメータ（エッジ・彩度・シャドウ/ハイライト等）だけを既定値に戻します。\nサンプル/変更先カラー・許容範囲・名前は変わりません。試行錯誤で値を崩したときの復旧用です。"
-            : "Resets only this zone's detailed parameters (edge, saturation, shadow/highlight, etc.) to defaults.\nSample/target color, tolerance, and name are kept. Handy to recover after over-tweaking.";
+            ? "このゾーンの詳細パラメータ（エッジ・彩度・シャドウ/ハイライト等）と、模様保持・出力彩度を既定値に戻します。\nサンプル/変更先カラー・許容範囲・名前・連続領域モード・シードは変わりません。試行錯誤で値を崩したときの復旧用です。"
+            : "Resets this zone's detailed parameters (edge, saturation, shadow/highlight, etc.) and Pattern Preserve / Output Saturation to defaults.\nSample/target color, tolerance, name, Connected Region, and the seed are kept. Handy to recover after over-tweaking.";
 
         public static string HoleFillPasses => IsJapanese ? "穴埋めパス数" : "Hole Fill Passes";
         public static string HoleFillPassesTooltip => IsJapanese
@@ -260,8 +260,8 @@ namespace Iroca
 
         public static string HoleFillMargin => IsJapanese ? "穴埋めの余白" : "Hole Fill Margin";
         public static string HoleFillMarginTooltip => IsJapanese
-            ? "選択に囲まれた小さな穴を埋めるとき、許容範囲をこの割合だけ広げて判定します。\n布の明るい面のように色が許容範囲の境目をまたぐ所で、元の色が点々と残るのを防ぎます。囲まれていない画素は広がりません。\n自動調整（AI 提案あり）が設定します。許容範囲を手で広く取ったときに上げると、別の部位が塊で塗られることがあります。0 = 余白なし\n既定: 0"
-            : "When filling small holes surrounded by the selection, the tolerance is widened by this fraction.\nStops dots of the original color from being left where the color straddles the tolerance edge, such as the lit side of cloth. Pixels that are not surrounded are not added.\nAuto-tune with an AI proposal sets it. Raising it with a wide manual tolerance can paint other parts in blocks. 0 = no margin\nDefault: 0";
+            ? "選択に囲まれた小さな穴を埋めるとき、許容範囲をこの割合だけ広げて判定します。\n布の明るい面のように色が許容範囲の境目をまたぐ所で、元の色が点々と残るのを防ぎます。囲まれていない画素は広がりません。\n自動調整（AI 提案あり）が設定します。許容範囲を手で広く取ったときに上げると、別の部位が塊で塗られることがあります。0 = 余白なし\n既定: 0\n初期設定（境界クリーンアップ ON・エッジぼかし 0）では、色のあるパーツには効きません。"
+            : "When filling small holes surrounded by the selection, the tolerance is widened by this fraction.\nStops dots of the original color from being left where the color straddles the tolerance edge, such as the lit side of cloth. Pixels that are not surrounded are not added.\nAuto-tune with an AI proposal sets it. Raising it with a wide manual tolerance can paint other parts in blocks. 0 = no margin\nDefault: 0\nWith the defaults (Edge Decontamination ON, Edge Feather 0) this has no effect on colored parts.";
 
         public static string ChromaThreshold => IsJapanese ? "無彩色とみなす彩度" : "Neutral Threshold";
         public static string ChromaThresholdTooltip => IsJapanese
@@ -473,6 +473,8 @@ namespace Iroca
         public static string SaveAsNewFile => IsJapanese ? "新規ファイルとして保存" : "Save as new file";
         public static string FileName => IsJapanese ? "ファイル名" : "File Name";
         public static string ApplyAndSave => IsJapanese ? "適用して保存" : "Apply & Save";
+        public static string ExportPngEncodeEmpty => IsJapanese
+            ? "PNG への変換結果が空でした" : "PNG encoding returned no data";
         public static string OpenFolder => IsJapanese ? "フォルダを開く" : "Open Folder";
 
         public static string Error => IsJapanese ? "エラー" : "Error";
@@ -672,7 +674,7 @@ namespace Iroca
         public static string AiSuggestRestartNowTooltip => IsJapanese
             ? "現在のプロジェクトを開き直して Unity を再起動します（未保存の変更は先に保存してください）"
             : "Reopens the current project to restart Unity (save any unsaved changes first).";
-        public static string AiSuggestRestartLater => IsJapanese ? "後で" : "Later";
+        public static string AiSuggestRestartLater => IsJapanese ? "あとで" : "Later";
         public static string AiSuggestRestartLaterTooltip => IsJapanese
             ? "この案内を閉じます（このまま使えることが多いですが、AI が動かないときは Unity を再起動してください）"
             : "Dismiss this notice (it usually works as-is; if the AI doesn't run, restart Unity).";
@@ -837,8 +839,8 @@ namespace Iroca
             ? "色替えをテクスチャに書き込んで保存します（新しいファイルにするか上書きするかは上の設定で決まります）"
             : "Writes the recolor into the texture and saves it (as a new file or over the original, per the setting above)";
         public static string OpenFolderTooltip => IsJapanese
-            ? "元テクスチャのあるフォルダをファイルマネージャーで開きます"
-            : "Open the folder containing the source texture in the file manager";
+            ? "元テクスチャのあるフォルダをエクスプローラーで開きます"
+            : "Open the folder containing the source texture in Explorer";
         public static string InheritImportSettings => IsJapanese
             ? "インポート設定を引き継ぐ"
             : "Inherit Import Settings";
@@ -1148,8 +1150,8 @@ namespace Iroca
 
         public static string EditAtSourceResolution => IsJapanese ? "元の解像度で編集" : "Edit at original resolution";
         public static string EditAtSourceResolutionTooltip => IsJapanese
-            ? "オフ（既定）のときは、プレビュー・AI 提案・自動調整と「アバターに非破壊で登録」のテクスチャを、インポート設定の Max Size の大きさで処理します。ゲームに出るのもこの大きさです。オンにすると元の画像の解像度で処理します。拡大表示で細部まで確かめられますが、大きい画像ではメモリを多く使います（8192×8192 で 6GB ほど）。「テクスチャとして書き出す」は、どちらでも元の画像の解像度で書き出します。この PC のいろか全体に効きます。"
-            : "When off (default), the preview, AI suggestions, auto-tune, and the textures for \"Register to avatar (non-destructive)\" are processed at the import Max Size, which is also the size that appears in game. When on, Iroca processes at the original image's resolution: zooming in shows every detail, but large images use a lot of memory (about 6 GB at 8192×8192). \"Export as a texture\" always writes at the original resolution. This applies to Iroca on this PC.";
+            ? "オフ（既定）のときは、プレビュー・AI 提案・自動調整と「アバターに非破壊で登録」のテクスチャを、インポート設定の Max Size の大きさで処理します。ゲームに出るのもこの大きさです。オンにすると元の画像の解像度で処理します。拡大表示で細部まで確かめられますが、大きい画像ではメモリを多く使います（8192×8192 で 6 GB ほど）。書き出し（「適用して保存」）は、どちらでも元の画像の解像度で行います。この PC のいろか全体に効きます。"
+            : "When off (default), the preview, AI suggestions, auto-tune, and the textures for \"Register to avatar (non-destructive)\" are processed at the import Max Size, which is also the size that appears in game. When on, Iroca processes at the original image's resolution: zooming in shows every detail, but large images use a lot of memory (about 6 GB at 8192×8192). Exporting (\"Apply & Save\") always uses the original resolution. This applies to Iroca on this PC.";
 
         public static string ProcessingDetailFoldout => IsJapanese ? "詳細設定" : "Details";
         public static string ProcessingDetailFoldoutTooltip => IsJapanese

@@ -37,7 +37,7 @@ namespace Iroca.NdmfIntegration
 
             ["iroca.build_failed.source_unreadable"] = "いろか: 元テクスチャを読めません",
             ["iroca.build_failed.source_unreadable:description"] = "{0} のレシピ {1} の元テクスチャを読めなかったので、色替えできませんでした。",
-            ["iroca.build_failed.source_unreadable:hint"] = "PNG/JPG 以外の形式なら、テクスチャのインポート設定で Read/Write を有効にしてください。",
+            ["iroca.build_failed.source_unreadable:hint"] = "ほかのアプリでファイルを開いているなら閉じ、同期サービスのオンライン専用のファイルならこの PC に保存してから、もう一度試してください。PNG/JPG 以外の形式なら、テクスチャのインポート設定で Read/Write を有効にしてください。",
         };
 
         private static readonly Dictionary<string, string> En = new Dictionary<string, string>
@@ -64,7 +64,7 @@ namespace Iroca.NdmfIntegration
 
             ["iroca.build_failed.source_unreadable"] = "Iroca: Cannot read the source texture",
             ["iroca.build_failed.source_unreadable:description"] = "The source texture of recipe {1} of {0} could not be read, so it could not be recolored.",
-            ["iroca.build_failed.source_unreadable:hint"] = "For formats other than PNG/JPG, enable Read/Write in the texture's import settings.",
+            ["iroca.build_failed.source_unreadable:hint"] = "If another app has the file open, close it; if it is an online-only file of a sync service, keep it on this PC; then try again. For formats other than PNG/JPG, enable Read/Write in the texture's import settings.",
         };
 
         private static readonly Localizer Localizer = new Localizer("en-US", () =>

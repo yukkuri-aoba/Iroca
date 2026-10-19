@@ -31,7 +31,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 - VCC や VRChat SDK は不要です（Unity Editor 単体で動作します）
 - 非破壊の色替えには NDMF 1.8 以上 2.0 未満を使います。インストーラで入れると一緒に入ります（VCC / ALCOM の場合は[インストール手順](#インストール手順)を参照）。NDMF が無くても、画像の書き出しは使えます（NDMF が無い、または対応していない版のときは、「Iroca Recolor」の付いたアバターのアップロードを止めて直し方を表示します）
 - 自動調整と AI マスク提案には、Unity Sentis 2.1.3（Unity 2022.3.11f1 以降）と AI モデル（約 44 MB）が必要です。ウィンドウ上部の案内から導入できます。Sentis を入れると、VRChat SDK も使う Burst と Collections も新しい版に上がります
-- 8192×8192 までのテクスチャで検証しています。編集はインポート設定の Max Size の大きさで行い、「テクスチャとして書き出す」だけ元の解像度で行います（8K の書き出しでは数 GB のメモリを使います）
+- 8192×8192 までのテクスチャで検証しています。編集はインポート設定の Max Size の大きさで行い、書き出し（「適用して保存」）だけ元の解像度で行います（8K の書き出しでは数 GB のメモリを使います）
 
 ### クイックスタート
 
@@ -54,7 +54,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 
 #### 境界処理
 - エッジぼかし・縁のドット回収・境界クリーンアップに対応します
-(元のテクスチャを壊さず、誤った部分を変換しないための仕組みです)
+（境界をきれいに色替えし、縁に元の色が残らないようにする仕組みです）
 
 #### マスク（除外・含める）
 - プレビュー上でブラシを使って、色改変しない領域（除外）と必ず色改変する領域（含める）を指定します
@@ -62,7 +62,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 - Unity 標準の Undo（Ctrl+Z）に対応しています
 - 右クリックメニュー：プレビューを右クリックして、AI 提案やパーツ（メッシュの UV の島）単位でマスクへ追加します
   - AI マスク提案（実験的）：AI が領域を推定してマスクへ追加します。1 回で取れるのは画像上でつながった 1 領域なので、分かれたパーツは領域ごとに繰り返します（Unity Sentis + MobileSAM）
-  - パーツ：テクスチャを使うメッシュが見つかると、UV の島やメッシュ単位で追加できます。色では分けられない同じ色の別パーツを分けられます（メッシュが無ければ従来どおり）
+  - パーツ：テクスチャを使うメッシュが見つかると、UV の島やメッシュ単位で追加できます。色では分けられない同じ色の別パーツを分けられます（メッシュが無ければ色だけで選びます）
   - 使っているメッシュはマスク欄の「メッシュ」に出ます。FBX・Prefab をドラッグして指定でき、UV の島の輪郭をプレビューに重ねて表示できます
 - Scene でクリックした場所の表示：Scene でモデルをクリックすると、その部分がテクスチャのどこにあるかをプレビューに示します（テクスチャを開いていなければ、そのテクスチャを開きます）
 
@@ -112,7 +112,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 [PolyForm Shield License 1.0.0](LICENSE)
 
 - 個人・商用を問わず自由に使用できます
-- 本ツールと競合する製品・サービスの開発・提供に使用することは禁止されています
+- 本ツールと競合する製品・サービスの提供に使用することは禁止されています
 - 改変および再配布は自由に許可されています（競合製品への使用を除く）
 - 各規約・ガイドラインに従った使用は利用者の責任です
 
@@ -134,7 +134,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 - No VCC or VRChat SDK required (works standalone in the Unity Editor)
 - Non-destructive recoloring uses NDMF 1.8 or later (below 2.0). The installer installs it together with Iroca (for VCC / ALCOM, see [Installation](#installation)). Without NDMF, exporting images still works (if NDMF is missing or an unsupported version, uploading an avatar with "Iroca Recolor" is stopped with instructions)
 - Auto-tune and AI Mask Suggestion need Unity Sentis 2.1.3 (Unity 2022.3.11f1 or later) and the AI models (about 44 MB). You can install them from the notice at the top of the window. Installing Sentis also updates Burst and Collections, which the VRChat SDK uses too
-- Tested with textures up to 8192×8192. Editing uses the import Max Size, and only "Export as a texture" uses the original resolution (exporting at 8K uses several GB of memory)
+- Tested with textures up to 8192×8192. Editing uses the import Max Size, and only exporting ("Apply & Save") uses the original resolution (exporting at 8K uses several GB of memory)
 
 ### Quick Start
 
@@ -164,7 +164,7 @@ The manual is in Japanese for now; an English version will follow.
 - Integrated with Unity's standard Undo (Ctrl+Z)
 - Right-click menu: right-click the preview to add an AI-suggested region or a mesh part (UV island) to a mask
   - AI Mask Suggestion (experimental): the AI estimates the region and adds it to the mask. One use picks one connected region of the image, so repeat for each region of a split part (Unity Sentis + MobileSAM)
-  - Parts: when a mesh using the texture is found, add whole UV islands or meshes. This separates same-colored parts that color alone cannot split (without a mesh, everything works as before)
+  - Parts: when a mesh using the texture is found, add whole UV islands or meshes. This separates same-colored parts that color alone cannot split (without a mesh, selection uses color only)
   - The meshes in use are shown in the "Mesh" field of the mask section. Drag an FBX or prefab there to choose one, and overlay the UV island outlines on the preview
 - Show the spot you click in the Scene: click the model in the Scene view to see where that part is on the texture (if no texture is open, the texture of that part is opened)
 
