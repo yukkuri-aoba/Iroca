@@ -165,6 +165,29 @@ namespace Iroca.EditorTests
             CollectionAssert.AreEqual(new[] { recipe }, RecipeStore.FindForTexture(src));
         }
 
+        [Test]
+        public void Recipe_PathForNew_IsWhereCreatePutsIt()
+        {
+            // 別フォルダに同じ名前のテクスチャがあると、2 つ目のレシピは連番の名前になる。
+            // 登録の確認に出すパス(PathForNew)が、実際にできるパスと同じであること。
+            AssetDatabase.CreateFolder(_assets.Folder, "a");
+            AssetDatabase.CreateFolder(_assets.Folder, "b");
+            var texA = AssetDatabase.LoadAssetAtPath<Texture2D>(
+                _assets.WritePng("a/Body", TestAssets.Solid(4, 4, new Color32(255, 0, 0, 255)), 4, 4));
+            var texB = AssetDatabase.LoadAssetAtPath<Texture2D>(
+                _assets.WritePng("b/Body", TestAssets.Solid(4, 4, new Color32(0, 0, 255, 255)), 4, 4));
+            string recipes = _assets.Folder + "/Recipes";
+
+            Assert.AreEqual(recipes + "/Body.asset", RecipeStore.PathForNew(texA, recipes), "フォルダがまだ無いときは名前のまま");
+            var ra = RecipeStore.Create(texA, null, recipes);
+            Assert.AreEqual(recipes + "/Body.asset", AssetDatabase.GetAssetPath(ra));
+
+            string shown = RecipeStore.PathForNew(texB, recipes);
+            Assert.AreNotEqual(AssetDatabase.GetAssetPath(ra), shown, "すでにある別のテクスチャのレシピのパスを出した");
+            var rb = RecipeStore.Create(texB, null, recipes);
+            Assert.AreEqual(shown, AssetDatabase.GetAssetPath(rb));
+        }
+
         // ───────────── 取り込み設定へそろえる ─────────────
 
         [Test]

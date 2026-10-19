@@ -83,14 +83,26 @@ namespace Iroca
         }
 
         /// <summary>
+        /// <see cref="Create"/> がこのテクスチャのレシピを作る先のパス。名前は元テクスチャ名で、
+        /// 別フォルダの同名テクスチャのレシピなどと重なれば連番になる。登録の確認に出すパスと
+        /// 実際にできるパスを同じ規則で求めるため、ここ 1 か所にまとめる。
+        /// </summary>
+        public static string PathForNew(Texture2D texture, string folder = DefaultFolder)
+        {
+            if (texture == null) throw new ArgumentNullException(nameof(texture));
+            string path = $"{folder}/{PathUtils.SanitizeFileName(texture.name, "recipe")}.asset";
+            // フォルダがまだ無ければ重なる物も無い(GenerateUniqueAssetPath は無いフォルダに空文字を返す)。
+            return AssetDatabase.IsValidFolder(folder) ? AssetDatabase.GenerateUniqueAssetPath(path) : path;
+        }
+
+        /// <summary>
         /// 新しいレシピを作る(既定の置き場所は <see cref="DefaultFolder"/>)。名前は元テクスチャ名(重複したら連番)。
         /// </summary>
         public static IrocaRecipe Create(Texture2D texture, IrocaSessionState state, string folder = DefaultFolder)
         {
             if (texture == null) throw new ArgumentNullException(nameof(texture));
             EnsureFolder(folder);
-            string safe = PathUtils.SanitizeFileName(texture.name, "recipe");
-            string path = AssetDatabase.GenerateUniqueAssetPath($"{folder}/{safe}.asset");
+            string path = PathForNew(texture, folder);
             var recipe = ScriptableObject.CreateInstance<IrocaRecipe>();
             recipe.sourceTexture = texture;
             recipe.sessionJson = state != null ? JsonUtility.ToJson(state) : "";
