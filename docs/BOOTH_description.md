@@ -1,6 +1,6 @@
 # BOOTH 商品ページ素材（タイトル・説明文・タグ）
 
-商品ページは https://booth.pm/ja/items/8169184 （公開するまでは開けない。編集は https://manage.booth.pm/items/8169184/edit ）。
+商品ページは https://booth.pm/ja/items/8169184 （2026-10-18 に公開。編集は https://manage.booth.pm/items/8169184/edit ）。
 
 ---
 
