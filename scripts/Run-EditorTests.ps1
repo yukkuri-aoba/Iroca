@@ -37,6 +37,12 @@
 .PARAMETER Graphics
     -nographics を付けずに起動する（GPU を使う段も実機で通す。HiRes のシーンプレビューの段や AI 推論の GPU 経路）。
 
+.PARAMETER KernelBench
+    ループの書き方の速さ比べ（KernelBenchTests、Category "Kernel"）だけを回す。結果は出力フォルダの kernel.jsonl。
+
+.PARAMETER DebugCodeOptimization
+    Unity を Debug の最適化モード（-debugCodeOptimization）で起動する。Mono のインライン展開が止まる状態での速さを見るとき。
+
 .PARAMETER AllowForeignCode
     ホストの Code が、このスクリプトのある作業ツリー以外を指していても止めない（交互 A/B で Code だけを
     基準の木へ向けるとき）。テストのリンクは常にこの作業ツリーを指している必要がある。
@@ -54,7 +60,9 @@ param(
     [string]$MemCases,
     [string]$HiResCases,
     [switch]$Graphics,
-    [switch]$AllowForeignCode
+    [switch]$AllowForeignCode,
+    [switch]$KernelBench,
+    [switch]$DebugCodeOptimization
 )
 
 $ErrorActionPreference = 'Stop'
@@ -156,6 +164,16 @@ if ($HiResCases) {
 } else {
     Remove-Item Env:IROCA_HIRES_CASES -ErrorAction SilentlyContinue
 }
+# ループの書き方の速さ比べは Kernel カテゴリだけを回す（普段のテストでは IROCA_KERNEL_REPORT が無いので Ignore になる）。
+$kernelReport = Join-Path $outDir 'kernel.jsonl'
+if ($KernelBench) {
+    if ($PerfCases -or $MemCases -or $HiResCases) { throw "-KernelBench は -PerfCases / -MemCases / -HiResCases と同時に指定できません" }
+    $env:IROCA_KERNEL_REPORT = $kernelReport
+    $unityArgs += @('-testCategory', 'Kernel')
+} else {
+    Remove-Item Env:IROCA_KERNEL_REPORT -ErrorAction SilentlyContinue
+}
+if ($DebugCodeOptimization) { $unityArgs += '-debugCodeOptimization' }
 Write-Host "Unity を batchmode で起動します（結果: $outDir）…"
 try {
     $p = Start-Process -FilePath $UnityExe -ArgumentList $unityArgs -PassThru
@@ -184,6 +202,9 @@ if ($PerfCases -and (Test-Path $perfReport)) {
 }
 if ($MemCases -and (Test-Path $memReport)) {
     Write-Host "メモリ計測の結果: $memReport"
+}
+if ($KernelBench -and (Test-Path $kernelReport)) {
+    Write-Host "ループの書き方の速さ比べの結果: $kernelReport"
 }
 if ($HiResCases -and (Test-Path $hiresReport)) {
     Write-Host "大きなテクスチャの通し確認の結果: $hiresReport"
