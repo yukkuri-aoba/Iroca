@@ -265,7 +265,7 @@ namespace Iroca
 
         public static string HoleFillMargin => IsJapanese ? "穴埋めの余白" : "Hole Fill Margin";
         public static string HoleFillMarginTooltip => IsJapanese
-            ? "選択に囲まれた小さな穴を埋めるとき、許容範囲をこの割合だけ広げて判定します。\n布の明るい面のように色が許容範囲の境目をまたぐ所で、元の色の点が点々と残るのを防ぎます。囲まれていない画素は広がりません。\n自動調整（AI 提案あり）が設定します。許容範囲を手で広く取ったときに上げると、別の部位が塊で塗られることがあります。0 = 余白なし\n既定: 0"
+            ? "選択に囲まれた小さな穴を埋めるとき、許容範囲をこの割合だけ広げて判定します。\n布の明るい面のように色が許容範囲の境目をまたぐ所で、元の色が点々と残るのを防ぎます。囲まれていない画素は広がりません。\n自動調整（AI 提案あり）が設定します。許容範囲を手で広く取ったときに上げると、別の部位が塊で塗られることがあります。0 = 余白なし\n既定: 0"
             : "When filling small holes surrounded by the selection, the tolerance is widened by this fraction.\nStops dots of the original color from being left where the color straddles the tolerance edge, such as the lit side of cloth. Pixels that are not surrounded are not added.\nAuto-tune with an AI proposal sets it. Raising it with a wide manual tolerance can paint other parts in blocks. 0 = no margin\nDefault: 0";
 
         public static string ChromaThreshold => IsJapanese ? "無彩色とみなす彩度" : "Neutral Threshold";
@@ -290,8 +290,8 @@ namespace Iroca
 
         public static string AutoHighlightSample => IsJapanese ? "ハイライト自動補正" : "Auto Highlight Sample";
         public static string AutoHighlightSampleTooltip => IsJapanese
-            ? "「ハイライト白寄せ合成」の配下オプション。ON のときのみ有効です。\n明るい光沢部をスポイトすると、中央ハイライトのグラデーションが潰れて「ベタ塗り」に見えることがあります。\nこの設定は、パーツの地色（同じ色相の中間トーン）をテクスチャから自動で見つけ、白寄せ合成がドーム全体に\n効くようにして鏡面の立体感を出します。色替えする範囲は変えず、見え方だけを補正します。\n※ 髪など細い房が多いテクスチャでは白寄せが広がりすぎることがあるため、その場合は OFF にしてください。\n既定: OFF（必要なゾーンだけ ON）"
-            : "A sub-option of \"Highlight White Blend\"; only active when that is ON.\nWhen you eyedrop a bright glossy spot, the central highlight gradient can collapse into a flat look.\nThis finds the part's base tone (same-hue mid tone) from the texture automatically so the white blend covers the\nwhole dome, making specular shading appear. It does not change which pixels are recolored (matching), only how it looks.\nNote: on hair-like textures with many thin strands the white-ward blend can spread too much - turn this OFF there.\nDefault: OFF (enable per zone as needed)";
+            ? "「ハイライト白寄せ合成」の配下オプション。ON のときのみ有効です。\n明るい光沢部をスポイトすると、中央ハイライトのグラデーションが潰れて「ベタ塗り」に見えることがあります。\nこの設定は、パーツの地色（同じ色相の中間トーン）をテクスチャから自動で見つけ、白寄せ合成がドーム全体に効くようにして鏡面の立体感を出します。色替えする範囲は変えず、見え方だけを補正します。\n髪など細い房が多いテクスチャでは白寄せが広がりすぎることがあるため、その場合は OFF にしてください。\n既定: OFF（必要なゾーンだけ ON）"
+            : "A sub-option of \"Highlight White Blend\"; only active when that is ON.\nWhen you eyedrop a bright glossy spot, the central highlight gradient can collapse into a flat look.\nThis finds the part's base tone (same-hue mid tone) from the texture automatically so the white blend covers the whole dome, making specular shading appear. It does not change which pixels are recolored (matching), only how it looks.\nNote: on hair-like textures with many thin strands the white-ward blend can spread too much - turn this OFF there.\nDefault: OFF (enable per zone as needed)";
 
         public static string AutoRecolorAnchor => IsJapanese ? "基準色の自動補正" : "Auto Sample Anchor";
         public static string AutoRecolorAnchorTooltip => IsJapanese
@@ -470,8 +470,8 @@ namespace Iroca
         // 書き出したときの注意。取り込み側は maxTextureSize の縮小・圧縮を受けているので、
         // 出力が原本と同じ解像度・画質とは限らない。黙って書き出さないための表示。
         public static string ExportFromImportedTexture(int w, int h) => IsJapanese
-            ? $"元ファイルを直接読めないため、取り込み済みテクスチャ（{w}x{h}）から書き出しました。インポート設定の縮小・圧縮が反映されます。"
-            : $"The source file could not be read directly, so the output came from the imported texture ({w}x{h}). Import downscaling and compression apply.";
+            ? $"元ファイルを直接読めないため、取り込み済みテクスチャ（{w}×{h}）から書き出しました。インポート設定の縮小・圧縮が反映されます。"
+            : $"The source file could not be read directly, so the output came from the imported texture ({w}×{h}). Import downscaling and compression apply.";
         public static string ExportSourceUnavailable => IsJapanese
             ? "元ファイルを読めず、テクスチャからも画素を取れません。インポート設定で Read/Write を有効にするか、PNG / JPG のテクスチャを使ってください。"
             : "The source file could not be read, and pixels are not available from the texture either. Turn on Read/Write in the import settings, or use a PNG/JPG texture.";
