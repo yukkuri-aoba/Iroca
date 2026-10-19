@@ -131,14 +131,14 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 ### Requirements
 
 - **Unity 2022.3.22f1** (tested on Windows)
-- No VCC / VRCSDK required (works standalone in Unity Editor)
+- No VCC or VRChat SDK required (works standalone in the Unity Editor)
 - Non-destructive recoloring uses NDMF 1.8 or later (below 2.0). The installer installs it together with Iroca (for VCC / ALCOM, see [Installation](#installation)). Without NDMF, exporting images still works (if NDMF is missing or an unsupported version, uploading an avatar with "Iroca Recolor" is stopped with instructions)
 - Auto-tune and AI Mask Suggestion need Unity Sentis 2.1.3 (Unity 2022.3.11f1 or later) and the AI models (about 44 MB). You can install them from the notice at the top of the window. Installing Sentis also updates Burst and Collections, which the VRChat SDK uses too
 - Tested with textures up to 8192×8192. Editing uses the import Max Size, and only "Export as a texture" uses the original resolution (exporting at 8K uses several GB of memory)
 
 ### Quick Start
 
-1. Download `Iroca_v<version>.zip` from [Releases](https://github.com/yukkuri-aoba/Iroca/releases), extract it, import `Iroca_Installer.unitypackage` into Unity Editor, and click "Install" in the confirmation dialog (or add it via VCC / ALCOM; see [Installation](#installation))
+1. Download `Iroca_v<version>.zip` from [Releases](https://github.com/yukkuri-aoba/Iroca/releases), extract it, drag and drop `Iroca_Installer.unitypackage` into the Project window of the Unity Editor, click "Import", and then click "Install" in the confirmation dialog (or add it via VCC / ALCOM; see [Installation](#installation))
 2. Open the window: `Tools > いろか`
 3. Select a texture, press "Pick the color to change" and click that color on the preview, then choose the new color in "Target Color"
 4. Click `Register to avatar (non-destructive)` (the original texture is kept; the recoloring happens only when entering Play mode or uploading). To save an image file instead, open `Export as a texture` and click `Apply & Save`
@@ -186,7 +186,7 @@ The manual is in Japanese for now; an English version will follow.
 
 ### Limitations
 
-- Textures with many similarly-colored areas
+- Textures with many similarly colored areas
 - Textures with complex color gradients
 - Textures with reflections or specular highlights
 
@@ -199,7 +199,7 @@ Use either method. Both install Iroca into your project's `Packages`.
 **From the installer (unitypackage)**
 
 1. Download `Iroca_v<version>.zip` from [Releases](https://github.com/yukkuri-aoba/Iroca/releases) and extract it (it contains the installer `Iroca_Installer.unitypackage`, README.txt and LICENSE.txt; the `com.yukkuri-aoba.iroca-<version>.zip` in the same list is the package that VCC / ALCOM download, so you don't need it)
-2. In Unity Editor, select `Assets > Import Package > Custom Package...`, choose `Iroca_Installer.unitypackage`, and click "Import"
+2. Drag and drop `Iroca_Installer.unitypackage` into the Unity Editor and click "Import" in the dialog
 3. Click "Install" in the confirmation dialog. The latest version is downloaded and installed (requires an internet connection; the installer removes itself)
 
 **From VCC / ALCOM**

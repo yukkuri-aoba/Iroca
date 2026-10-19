@@ -81,6 +81,10 @@ With VCC / ALCOM, you can instead add the repository below and add "いろか" a
 "Non-Destructive Modular Framework" (NDMF) to your project. NDMF is also listed in this repository.
 https://yukkuri-aoba.github.io/Iroca/index.json
 
+When a new version is released, update it from VCC / ALCOM, or import the new installer again.
+
+If you used the old version (0.1.0, formerly "VRC Avatar Color Changer"), delete the Assets/VACC folder.
+
 [Manual]
 https://yukkuri-aoba.github.io/Iroca/manual/ (Japanese for now)
 
@@ -99,6 +103,7 @@ https://yukkuri-aoba.github.io/Iroca/manual/ (Japanese for now)
 PolyForm Shield License 1.0.0 (see LICENSE.txt)
 Free for personal and commercial use. Modification and redistribution are permitted,
 except for providing a product that competes with this software.
+Modify and publish avatars and outfits according to their own terms of use, at your own responsibility.
 
 [Credits]
 See the "Credits" button in the Iroca window, or

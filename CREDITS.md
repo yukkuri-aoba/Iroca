@@ -63,6 +63,8 @@ Nanju_Bami / BAMI
 
 The distributed packages (zip and installer) contain no model or texture data from the above.
 The data was used only to develop and test the algorithms, never to train any AI model.
+The screenshots, demo images, and intro video of the online manual (including the thumbnails at the top of the README and the manual) show the textures and model of かなリぁ's "ハオラン-HAOLAN" (some recolored), under its license.
+If you find any problem, please contact us.
 
 ## サードパーティ / Third-party
 
