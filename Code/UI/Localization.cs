@@ -353,7 +353,7 @@ namespace Iroca
             ? "メッシュの形で: このテクスチャを使うメッシュが見つかりません" : "By mesh shape: no mesh using this texture was found";
         public static string CtxPartUnreadableFormat => IsJapanese
             ? "メッシュの形で: メッシュを読めません（{0} 個。FBX の Read/Write を有効にして探し直してください）"
-            : "By mesh shape: cannot read the meshes ({0}; enable Read/Write on the FBX and search again)";
+            : "By mesh shape: cannot read the meshes ({0}; enable Read/Write on the FBX and rescan)";
         public static string CtxPartUseSelectionFormat => IsJapanese
             ? "選択中の「{0}」のメッシュを使う" : "Use the meshes of the selected \"{0}\"";
         public static string CtxPartUseSelectionNone => IsJapanese
