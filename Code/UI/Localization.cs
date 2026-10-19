@@ -317,7 +317,7 @@ namespace Iroca
             : "Eraser mode: drag on the preview to erase the currently selected mask type\nClick again to exit paint mode";
         public static string AiSuggestSectionHeader => IsJapanese ? "AI 提案（プレビューを右クリック）" : "AI Suggest (right-click the preview)";
         public static string AiSuggestSectionHeaderTooltip => IsJapanese
-            ? "AI 提案（実験的）: プレビューを右クリックして「ここも塗る / ここは塗らない / この部分だけ塗る」を選ぶと、\nクリックした場所の部分を AI が見分けて、メニューの見出しのゾーンに当てます\nここでは見分ける粒度と、推論の進み具合を確認できます"
+            ? "AI 提案（実験的）: プレビューを右クリックして「ここも塗る / ここは塗らない / この部分だけ塗る」を選ぶと、\nクリックした場所の部分を AI が見分けて、メニューの見出しのゾーンに当てます\nここでは見分ける粒度を選べます。推論の進み具合も確認できます"
             : "AI Suggest (experimental): right-click the preview and choose \"Paint here too / Don't paint here / Paint only this part\";\nthe AI finds the part you clicked and applies it to the zone shown at the top of the menu\nHere you can set the granularity and see the inference status";
         public static string AiSuggestNoModelInEditor => IsJapanese
             ? "AI モデルが未取得です。いろか本体ウィンドウ上部の案内から取得してください。"
@@ -658,8 +658,8 @@ namespace Iroca
         public static string AiSetupDownload => IsJapanese ? "ダウンロード" : "Download";
         public static string AiSetupLater => IsJapanese ? "あとで" : "Later";
         public static string AiSuggestInstallSentisTooltip => IsJapanese
-            ? "Unity Package Manager 経由で {0}（バージョン {1}）を導入します\n導入後 Unity が自動で再コンパイルし、AI マスク提案が使えるようになります\n一緒に、VRChat SDK も使う Burst と Collections が新しい版に上がります（Unity から再起動の案内が出ることがあります）\n（Package Manager から手動で「Add package by name」しても同じです）"
-            : "Installs {0} (version {1}) via the Unity Package Manager.\nUnity recompiles automatically afterward and AI mask suggestion becomes available.\nBurst and Collections, which the VRChat SDK also uses, are updated to newer versions along with it (Unity may ask you to restart).\n(Equivalent to adding it manually via 'Add package by name'.)";
+            ? "Unity Package Manager 経由で {0}（バージョン {1}）を導入します\n導入後 Unity が自動で再コンパイルし、続けて AI モデルのダウンロードを案内します\n一緒に、VRChat SDK も使う Burst と Collections が新しい版に上がります（Unity から再起動の案内が出ることがあります）\n（Package Manager から手動で「Add package by name」しても同じです）"
+            : "Installs {0} (version {1}) via the Unity Package Manager.\nUnity recompiles automatically afterward, then you will be asked to download the AI models.\nBurst and Collections, which the VRChat SDK also uses, are updated to newer versions along with it (Unity may ask you to restart).\n(Equivalent to adding it manually via 'Add package by name'.)";
         public static string AiSuggestInstalling => IsJapanese
             ? "Sentis を導入中… 完了すると Unity が自動で再コンパイルします。"
             : "Installing Sentis... Unity will recompile automatically when it finishes.";
@@ -716,8 +716,8 @@ namespace Iroca
             ? "この Unity では内部コンパイル（Burst）が失敗しているため、AI が部分を見分けられず、右クリックしてもマスクが変わりません。Unity を再起動すると直ります。"
             : "The internal compiler (Burst) failed in this Unity session, so the AI cannot find regions and right-clicks won't change the mask. Restarting Unity fixes it.";
         public static string AiSuggestErrorRestartHint => IsJapanese
-            ? "推論エンジンの初期化に失敗している可能性があります（Unity 起動時の Burst コンパイル失敗など）。Unity を再起動すると直ることが多いです。AI 提案を一度終了してから開始し直すと再試行します。"
-            : "The inference engine may have failed to initialize (e.g. a Burst compile failure at Unity startup). Restarting Unity usually fixes it. Stopping and restarting AI suggestion retries the setup.";
+            ? "推論エンジンの初期化に失敗している可能性があります（Unity 起動時の Burst コンパイル失敗など）。Unity を再起動すると直ることが多いです。プレビューの右クリックからもう一度選ぶと、準備をやり直します。"
+            : "The inference engine may have failed to initialize (e.g. a Burst compile failure at Unity startup). Restarting Unity usually fixes it. Choosing an item from the preview's right-click menu again retries the setup.";
         public static string AiSuggestRecheckModels => IsJapanese ? "モデルを確認して取り直す" : "Check and re-download models";
         public static string AiSuggestRecheckModelsTooltip => IsJapanese
             ? "置いてあるモデル 2 ファイルを配布物と照合し（sha256）、壊れていたり別物だったりしたら取り直します\n一致していれば取り直さず、その旨を表示します"
@@ -727,7 +727,7 @@ namespace Iroca
             : "The model files match the released ones, so the cause is elsewhere (restarting Unity usually fixes it).";
         public static string AiSuggestGranularity => IsJapanese ? "提案の粒度" : "Granularity";
         public static string AiSuggestGranularityTooltip => IsJapanese
-            ? "AI はクリック 1 点に対して粒度の違う候補（模様・パーツ・全体）を同時に推定します\n右クリックの「ここも塗る」などで、どの候補を使うかを選びます（次のクリックから適用）\n1 回だけ変えるときは、右クリックの「小さめの部分で」「大きめの部分で」から選べます"
+            ? "AI はクリック 1 点に対して粒度の違う候補（模様・パーツ・全体）を同時に推定します\n右クリックの「ここも塗る」などがどの候補を使うかを、ここで選びます（次のクリックから適用）\n1 回だけ変えるときは、右クリックの「小さめの部分で」「大きめの部分で」から選べます"
             : "The AI estimates candidates of different granularity (pattern / part / whole) for one click.\nChoose which candidate \"Paint here too\" and the other right-click items use (applies from the next click).\nTo change it for one click only, use \"As a smaller part\" / \"As a larger part\" in the right-click menu.";
         public static string AiSuggestGranularityAuto => IsJapanese ? "自動" : "Auto";
         public static string AiSuggestGranularityAutoTooltip => IsJapanese
@@ -742,8 +742,8 @@ namespace Iroca
             ? "輪郭のはっきりさを問わず、最も大きい候補を採用します。「自動」で足りないときに（周囲を巻き込むこともあります）"
             : "Use the largest candidate regardless of outline crispness. When Auto is not enough (may spill into surroundings).";
         public static string AiSuggestNoZoneWarning => IsJapanese
-            ? "ゾーンがまだありません。マスクはゾーンの色替え範囲を直すものなので、先に「スポイトで変えたい色を選ぶ」で色を選んでください。"
-            : "There is no zone yet. Masks adjust where a zone recolors, so first pick a color with \"Pick the color to change\".";
+            ? "有効なゾーンがまだありません。マスクはゾーンの色替え範囲を直すものなので、先に「スポイトで変えたい色を選ぶ」で色を選んでください。"
+            : "There is no enabled zone yet. Masks adjust where a zone recolors, so first pick a color with \"Pick the color to change\".";
 
         // ─────────────────────────────────────────────────────────────
         // AI まわりのエラー文。帯・マスク編集ウィンドウの HelpBox にそのまま出るので、
