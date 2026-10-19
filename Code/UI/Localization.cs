@@ -718,6 +718,13 @@ namespace Iroca
         public static string AiSuggestErrorRestartHint => IsJapanese
             ? "推論エンジンの初期化に失敗している可能性があります（Unity 起動時の Burst コンパイル失敗など）。Unity を再起動すると直ることが多いです。プレビューの右クリックからもう一度選ぶと、準備をやり直します。"
             : "The inference engine may have failed to initialize (e.g. a Burst compile failure at Unity startup). Restarting Unity usually fixes it. Choosing an item from the preview's right-click menu again retries the setup.";
+        // モデルのファイルを読めなかったとき(ONNX の取り込みの失敗・ファイルの欠け)。原因が分かっているので、
+        // 再起動の案内(AiSuggestErrorRestartHint)は出さず、取り直しだけを案内する。
+        public static string AiSuggestModelFileErrorHint => IsJapanese
+            ? "AI モデルのファイルを読めませんでした。「モデルを確認して取り直す」を押すと、ファイルを確かめて、壊れていれば取り直します。"
+            : "The AI model files could not be read. Click \"Check and re-download models\" to check the files and download them again if they are broken.";
+        // 理由が返ってこなかった失敗(Package Manager・推論)。
+        public static string AiUnknownError => IsJapanese ? "不明なエラー" : "unknown error";
         public static string AiSuggestRecheckModels => IsJapanese ? "モデルを確認して取り直す" : "Check and re-download models";
         public static string AiSuggestRecheckModelsTooltip => IsJapanese
             ? "置いてあるモデル 2 ファイルを配布物と照合し（sha256）、壊れていたり別物だったりしたら取り直します\n一致していれば取り直さず、その旨を表示します"
