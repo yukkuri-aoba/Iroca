@@ -61,6 +61,9 @@ namespace Iroca
     /// 新しい Schedule が来たら前のジョブを CancellationToken でキャンセルし、
     /// 古いジョブの結果は世代不一致で破棄する。Dispose でも同様にキャンセルし、
     /// 以降の apply / onError は呼ばれない。
+    /// 新しいジョブは、キャンセルした前のジョブが抜け終わってから始める(1 つの PreviewJob で計算が同時に
+    /// 走るのは 1 本だけ)。重ねて走らせると、前のジョブがまだ借りている作業配列とは別にもう 1 組を借りることになり、
+    /// プールはその組をずっと持ち続ける(Mono のヒープも縮まない。8K で 1 組 2〜3GB)。
     /// </summary>
     internal sealed class PreviewJob<T> : IDisposable
     {
@@ -70,6 +73,8 @@ namespace Iroca
         private volatile bool _disposed;
         private CancellationTokenSource _cts;
         private int _generation;
+        // 最後に投げた計算。次の計算はこれの後ろにつなぐ(メインスレッドからしか触らない)。
+        private Task _last = Task.CompletedTask;
 
         public void Schedule(Func<CancellationToken, T> work, Action<T> apply, Action<Exception> onError = null)
         {
@@ -82,10 +87,13 @@ namespace Iroca
             int myGen = ++_generation;
             _isRunning = true;
 
-            Task.Run(() =>
+            // 前の計算(キャンセル済み)が抜けてから始める。途中で次の Schedule が来てキャンセルされたら、
+            // 計算せずにすぐ抜ける(下の ThrowIfCancellationRequested)。前の計算の成否は見ない。
+            _last = _last.ContinueWith(_ =>
             {
                 try
                 {
+                    token.ThrowIfCancellationRequested();
                     var result = work(token);
                     token.ThrowIfCancellationRequested();
                     PreviewJobMainThread.Post(() =>
@@ -104,7 +112,7 @@ namespace Iroca
                         if (TryComplete(myGen)) onError?.Invoke(ex);
                     });
                 }
-            }, token);
+            }, CancellationToken.None, TaskContinuationOptions.DenyChildAttach, TaskScheduler.Default);
         }
 
         /// <summary>

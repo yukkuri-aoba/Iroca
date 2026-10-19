@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
@@ -118,14 +119,26 @@ namespace Iroca
             {
                 if (like == null || !TryReadPixels(like, out var pixels, out int w, out int h, out _)) { done(null); return; }
                 int dw = like.width, dh = like.height;
-                Task.Run(() =>
+                // 計算は 1 本ずつ、前に投げた計算の後ろにつなぐ。シーンのプレビューは映すレシピの数だけ
+                // 同時にここへ来るので、並べて走らせると作業配列のプールがその組数ぶん膨らみ、そのまま残る
+                // (Mono のヒープは縮まない)。計算そのものが全コアを使うので、順番にしても合計の時間はほぼ同じ。
+                // 前の計算の成否は見ない(1 つが失敗しても後ろは作る)。
+                var compute = s_lastCompute.ContinueWith(_ =>
                 {
                     SessionRecolor.Apply(pixels, w, h, state);
                     return (dw == w && dh == h) ? pixels : WorkingResolution.ResizeArea(pixels, w, h, dw, dh);
-                }).ContinueWith(t => PostOrFail(done, () => FinishAsync(t, like, dw, dh, key, done)),
+                }, CancellationToken.None, TaskContinuationOptions.DenyChildAttach, TaskScheduler.Default);
+                // compute そのものを持つと、結果の画素(4K で 64MB)まで static で持ち続けるので、結果を持たない
+                // 後続のタスクをつなぎ目にする(後続は走り終えると前のタスクへの参照を手放す)。
+                s_lastCompute = compute.ContinueWith(_ => { }, CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                compute.ContinueWith(t => PostOrFail(done, () => FinishAsync(t, like, dw, dh, key, done)),
                     TaskScheduler.Default);
             });
         }
+
+        // 最後に投げた計算(メインスレッドからしか触らない)。
+        private static Task s_lastCompute = Task.CompletedTask;
 
         // メインスレッドの次の tick で work を回す。例外で抜けたら記録して done(null)(done は 1 回目だけ効く)。
         private static void PostOrFail(Action<Texture2D> done, Action work)
