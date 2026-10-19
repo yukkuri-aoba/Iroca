@@ -19,6 +19,18 @@
 
 <p>VCC / ALCOM を使っているなら、リポジトリ <code>https://yukkuri-aoba.github.io/Iroca/index.json</code> を追加して、プロジェクトの管理画面から「いろか」と「Non-Destructive Modular Framework」（NDMF）を追加する方法でも導入できます。NDMF もこのリポジトリに載っています。新しい版が出たら、VCC / ALCOM から更新するか、インストーラをもう一度読み込みます。</p>
 
+<h3 id="install-no-vrchat">VRChat SDK の無いプロジェクトに入れる</h3>
+
+<p>インストーラは VRChat のプロジェクト向けです。一緒に入れる NDMF は VRChat SDK を前提にしているため、SDK の無いプロジェクトではコンパイルエラーになります。そのときはインストーラを使わず、いろかだけを入れます（画像の書き出しが使えます。非破壊の色替えは使えません）。</p>
+
+<ol>
+  <li><a href="https://github.com/yukkuri-aoba/Iroca/releases" target="_blank" rel="noopener">GitHub Releases</a> から <code>com.yukkuri-aoba.iroca-&lt;バージョン&gt;.zip</code> をダウンロードします。</li>
+  <li>プロジェクトの <code>Packages</code> フォルダの中に <code>com.yukkuri-aoba.iroca</code> フォルダを作り、zip の中身をそこへ展開します（そのフォルダのすぐ下に <code>package.json</code> があるように）。</li>
+  <li>Unity に戻ると読み込まれます。メニューの <code>Tools &gt; いろか</code> でウィンドウを開きます。</li>
+</ol>
+
+<p>新しい版にするときは、フォルダの中身を新しい zip の中身に入れ替えます。</p>
+
 <p>このマニュアルは、いろかウィンドウ上部の「マニュアル」でいつでも開けます。</p>
 
 <blockquote>旧版（0.1.0、旧名 VRC Avatar Color Changer）を使っていた場合は、<code>Assets/VACC</code> フォルダを削除してください。いろかとは別物として入るため、残すと旧版も動いたままになります。プロジェクト内に保存したプリセットが必要なら、削除の前にバックアップしてください。</blockquote>

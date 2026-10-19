@@ -97,6 +97,8 @@ YouTube を埋め込むと、商品画像のスライドの 1 枚目にも同じ
 2. 確認画面で「Install」を押すと、最新版がダウンロードされて入ります（インターネット接続が必要です）
 3. メニューの「Tools > いろか」からウィンドウを開きます
 
+インストーラはVRChatのプロジェクト向けです。VRChat SDKの無いプロジェクトに入れるときは、オンラインマニュアルの「インストール」を見てください。
+
 VCC・ALCOMをお使いの場合は、次のリポジトリを追加して、プロジェクトに「いろか」と「Non-Destructive Modular Framework」（NDMF）を追加することもできます（NDMFもこのリポジトリに載っています）。
 https://yukkuri-aoba.github.io/Iroca/index.json
 

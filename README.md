@@ -28,7 +28,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 ### 動作環境（検証済み）
 
 - **Unity 2022.3.22f1**（Windows で検証しています）
-- VCC や VRChat SDK は不要です（Unity Editor 単体で動作します）
+- いろか本体は VCC や VRChat SDK が無くても動きます。ただし、インストーラは VRChat のプロジェクト向けです（→ インストール手順の「VRChat SDK の無いプロジェクトに入れる」）
 - 非破壊の色替えには NDMF 1.8 以上 2.0 未満を使います。インストーラで入れると一緒に入ります（VCC / ALCOM の場合は[インストール手順](#インストール手順)を参照）。NDMF が無くても、画像の書き出しは使えます（NDMF が無い、または対応していない版のときは、「Iroca Recolor」の付いたアバターのアップロードを止めて直し方を表示します）
 - 自動調整と AI マスク提案には、Unity Sentis 2.1.3（Unity 2022.3.11f1 以降）と AI モデル（約 44 MB）が必要です。ウィンドウ上部の案内から導入できます。Sentis を入れると、VRChat SDK も使う Burst と Collections も新しい版に上がります
 - 8192×8192 までのテクスチャで検証しています。編集はインポート設定の Max Size の大きさで行い、書き出し（「適用して保存」）だけ元の解像度で行います（8K の書き出しでは数 GB のメモリを使います）
@@ -92,7 +92,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 
 ### インストール手順
 
-次のどちらかで導入します。どちらも、いろかは Unity の `Packages` に入ります。
+VRChat のプロジェクトには、次のどちらかで導入します。どちらも、いろかは Unity の `Packages` に入ります。
 
 **インストーラ（unitypackage）から**
 
@@ -104,6 +104,13 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 
 1. VCC（または ALCOM）の設定で、リポジトリ `https://yukkuri-aoba.github.io/Iroca/index.json` を追加します
 2. プロジェクトの管理画面で「いろか」と「Non-Destructive Modular Framework」（NDMF）を追加します。NDMF もこのリポジトリに載っています
+
+**VRChat SDK の無いプロジェクトに入れる**
+
+インストーラは NDMF も一緒に入れますが、NDMF は VRChat SDK を前提にしているため、SDK の無いプロジェクトではコンパイルエラーになります。そのときはインストーラを使わず、いろかだけを入れます（画像の書き出しが使えます）。
+
+1. [Releases](https://github.com/yukkuri-aoba/Iroca/releases) から `com.yukkuri-aoba.iroca-<バージョン>.zip` をダウンロードします
+2. プロジェクトの `Packages` フォルダの中に `com.yukkuri-aoba.iroca` フォルダを作り、zip の中身をそこへ展開します（そのフォルダのすぐ下に `package.json` があるように）
 
 入ったら `Tools > いろか` からウィンドウを開きます。
 
@@ -131,7 +138,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 ### Requirements
 
 - **Unity 2022.3.22f1** (tested on Windows)
-- No VCC or VRChat SDK required (works standalone in the Unity Editor)
+- Iroca itself works without VCC or the VRChat SDK. The installer, however, is for VRChat projects (see "Projects without the VRChat SDK" under Installation)
 - Non-destructive recoloring uses NDMF 1.8 or later (below 2.0). The installer installs it together with Iroca (for VCC / ALCOM, see [Installation](#installation)). Without NDMF, exporting images still works (if NDMF is missing or an unsupported version, uploading an avatar with "Iroca Recolor" is stopped with instructions)
 - Auto-tune and AI Mask Suggestion need Unity Sentis 2.1.3 (Unity 2022.3.11f1 or later) and the AI models (about 44 MB). You can install them from the notice at the top of the window. Installing Sentis also updates Burst and Collections, which the VRChat SDK uses too
 - Tested with textures up to 8192×8192. Editing uses the import Max Size, and only exporting ("Apply & Save") uses the original resolution (exporting at 8K uses several GB of memory)
@@ -194,7 +201,7 @@ The manual's troubleshooting chapter covers workarounds and tips.
 
 ### Installation
 
-Use either method. Both install Iroca into your project's `Packages`.
+For a VRChat project, use either method. Both install Iroca into your project's `Packages`.
 
 **From the installer (unitypackage)**
 
@@ -206,6 +213,13 @@ Use either method. Both install Iroca into your project's `Packages`.
 
 1. In VCC (or ALCOM) settings, add the repository `https://yukkuri-aoba.github.io/Iroca/index.json`
 2. Add "いろか" and "Non-Destructive Modular Framework" (NDMF) from your project's management screen. NDMF is also listed in this repository
+
+**Projects without the VRChat SDK**
+
+The installer also installs NDMF, which assumes the VRChat SDK and causes compile errors in projects without it. In that case, install Iroca alone instead of using the installer (image export works).
+
+1. Download `com.yukkuri-aoba.iroca-<version>.zip` from [Releases](https://github.com/yukkuri-aoba/Iroca/releases)
+2. Create a `com.yukkuri-aoba.iroca` folder inside your project's `Packages` folder and extract the zip there (so that `package.json` is directly inside that folder)
 
 Then open the window via `Tools > いろか`.
 
