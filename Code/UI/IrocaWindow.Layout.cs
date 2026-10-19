@@ -680,6 +680,9 @@ namespace Iroca
             // （起動時モーダルの置き換え。導入・ダウンロード・再起動の導線をここへ集約した）。
             MaskSuggestSection.DrawSetupBanner();
 
+            // 新しい版のお知らせ。更新は VCC / ALCOM に任せ、ここでは知らせて手順へ案内するだけ。
+            UpdateNotice.DrawBanner();
+
             EditorGUILayout.Space(4);
         }
 

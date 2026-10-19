@@ -1314,5 +1314,30 @@ namespace Iroca
         public static string RecipeSourceFieldTooltip => IsJapanese
             ? "色替えの元になるテクスチャ。マテリアルがこのテクスチャを参照している所だけが差し替わります。"
             : "The texture to recolor. Only materials that reference this texture are swapped.";
+
+        // 新しい版のお知らせ（UpdateNotice）。{0} は新しい版、{1} は入っている版。
+        public static string UpdateNoticeFormat => IsJapanese
+            ? "いろか {0} が出ています（入っているのは {1}）。VCC / ALCOM で、このプロジェクトの管理画面から更新できます。"
+            : "Iroca {0} is available (installed: {1}). You can update it from this project's management page in VCC / ALCOM.";
+        public static string UpdateNoticeChanges => IsJapanese ? "変更点" : "What's new";
+        public static string UpdateNoticeChangesTooltip => IsJapanese
+            ? "いろかの変更履歴をブラウザで開きます。"
+            : "Opens the Iroca changelog in your browser.";
+        public static string UpdateNoticeHowTo => IsJapanese ? "更新のしかた" : "How to update";
+        public static string UpdateNoticeHowToTooltip => IsJapanese
+            ? "マニュアルの更新の手順をブラウザで開きます。"
+            : "Opens the update steps in the manual in your browser.";
+        public static string UpdateNoticeDismiss => IsJapanese ? "閉じる" : "Dismiss";
+        public static string UpdateNoticeDismissTooltip => IsJapanese
+            ? "この版のお知らせを閉じます。もっと新しい版が出たら、また知らせます。お知らせそのものは Preferences の「いろか」で止められます。"
+            : "Hides the notice for this version. You will be notified again when a newer version comes out. To turn off these notices, use Preferences > Iroca.";
+        public static string PreferencesLabel => IsJapanese ? "いろか" : "Iroca";
+        public static string UpdateCheckToggle => IsJapanese ? "新しい版を知らせる" : "Notify me of new versions";
+        public static string UpdateCheckToggleTooltip => IsJapanese
+            ? "いろかのウィンドウを開いたときに（1 日 1 回まで）新しい版があるかを調べ、あればウィンドウの上部で知らせます。"
+            : "When you open the Iroca window (at most once a day), checks for a new version and shows a notice at the top of the window if there is one.";
+        public static string UpdateCheckPrivacy => IsJapanese
+            ? "調べるときは、VCC / ALCOM が読むのと同じ公開リストを読むだけで、こちらから送る情報はありません。更新は VCC / ALCOM で行います。\n読むリスト: " + UpdateCheck.ListingUrl
+            : "The check only reads the same public listing that VCC / ALCOM reads. Nothing about you or your project is sent. Updating is done in VCC / ALCOM.\nListing: " + UpdateCheck.ListingUrl;
     }
 }
