@@ -238,8 +238,16 @@ namespace Iroca.EditorTests
                             double ems = ew.Elapsed.TotalMilliseconds;
                             sb.Append(Sample(c.name, "export", k, ems, 0, cfg.hashOutput ? HashPixels(exportPixels, exportPixels.Length) : null)).Append('\n');
                             exportPixels = null;
+                            // 書き出しの解像度の作業配列がプールに残ったか(GC の後の生きている量)。
+                            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                            sb.Append(Sample(c.name, "liveAfterExport", k, 0)).Append('\n');
                         }
                     }
+
+                    // GC の後の生きている量(プール・キャッシュ・保持している出力)。重なりの場面の前後で比べると、
+                    // プールが 2 組目を持ったか(生きている量が 1 組分増える)が、ゴミに埋もれずに見える。
+                    GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                    sb.Append(Sample(c.name, "liveAfterSteps", cfg.steps, 0)).Append('\n');
 
                     if (c.cancelOverlapRounds > 0)
                     {
@@ -284,6 +292,8 @@ namespace Iroca.EditorTests
                                     cfg.hashOutput ? HashPixels(applied, src.Length) : null)).Append('\n');
                             }
                         }
+                        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                        sb.Append(Sample(c.name, "liveAfterOverlap", c.cancelOverlapRounds, 0)).Append('\n');
                     }
 
                     // 手放す: 出力・選択キャッシュ・プール。その後 GC をかけながら待ち、OS へ返るかを見る。
