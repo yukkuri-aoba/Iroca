@@ -187,92 +187,101 @@ namespace Iroca
             // Mono では縮まないヒープにその分が残り続ける。
             long[] slots = new long[capacity];
             int[] index = s_intPool.Rent(len);
-            int inserted = 0;
-            int overflow = 0;
-
-            // 1) 画素ごとに表の位置(スロット)を求めて index に書く。隣の画素と同じ色が続くことが
-            //    多いので、直前の色と同じなら表を引かない。
-            Parallel.For(0, h, po, (y, state) =>
+            // 表に渡すまでは、途中で抜けたとき(種類が多すぎた・キャンセル)も借りたものを必ず返す。
+            ColorPalette built = null;
+            try
             {
-                if (Volatile.Read(ref overflow) != 0) { state.Stop(); return; }
-                int row = y * w;
-                uint lastKey = 0;
-                int lastSlot = -1;
-                for (int x = 0; x < w; x++)
+                int inserted = 0;
+                int overflow = 0;
+
+                // 1) 画素ごとに表の位置(スロット)を求めて index に書く。隣の画素と同じ色が続くことが
+                //    多いので、直前の色と同じなら表を引かない。
+                Parallel.For(0, h, po, (y, state) =>
                 {
-                    Color32 c = pixels[row + x];
-                    uint key = (uint)c.r | ((uint)c.g << 8) | ((uint)c.b << 16) | ((uint)c.a << 24);
-                    if (lastSlot >= 0 && key == lastKey) { index[row + x] = lastSlot; continue; }
-                    long want = (long)key + 1;
-                    int slot = (int)((key * 2654435761u) >> shift);
-                    while (true)
+                    if (Volatile.Read(ref overflow) != 0) { state.Stop(); return; }
+                    int row = y * w;
+                    uint lastKey = 0;
+                    int lastSlot = -1;
+                    for (int x = 0; x < w; x++)
                     {
-                        long cur = Volatile.Read(ref slots[slot]);
-                        if (cur == want) break;
-                        if (cur == 0)
+                        Color32 c = pixels[row + x];
+                        uint key = (uint)c.r | ((uint)c.g << 8) | ((uint)c.b << 16) | ((uint)c.a << 24);
+                        if (lastSlot >= 0 && key == lastKey) { index[row + x] = lastSlot; continue; }
+                        long want = (long)key + 1;
+                        int slot = (int)((key * 2654435761u) >> shift);
+                        while (true)
                         {
-                            long prev = Interlocked.CompareExchange(ref slots[slot], want, 0);
-                            if (prev == 0)
+                            long cur = Volatile.Read(ref slots[slot]);
+                            if (cur == want) break;
+                            if (cur == 0)
                             {
-                                if (Interlocked.Increment(ref inserted) > maxColors)
+                                long prev = Interlocked.CompareExchange(ref slots[slot], want, 0);
+                                if (prev == 0)
                                 {
-                                    Volatile.Write(ref overflow, 1);
-                                    state.Stop();
-                                    return;
+                                    if (Interlocked.Increment(ref inserted) > maxColors)
+                                    {
+                                        Volatile.Write(ref overflow, 1);
+                                        state.Stop();
+                                        return;
+                                    }
+                                    break;
                                 }
-                                break;
+                                if (prev == want) break;
                             }
-                            if (prev == want) break;
+                            slot = (slot + 1) & mask;
                         }
-                        slot = (slot + 1) & mask;
+                        index[row + x] = slot;
+                        lastKey = key;
+                        lastSlot = slot;
                     }
-                    index[row + x] = slot;
-                    lastKey = key;
-                    lastSlot = slot;
+                });
+                sub?.Mark(SpPaletteHash);   // 種類が多すぎて作るのをやめた分もここに計上する
+                if (overflow != 0 || po.CancellationToken.IsCancellationRequested)
+                {
+                    po.CancellationToken.ThrowIfCancellationRequested();
+                    return null;
                 }
-            });
-            sub?.Mark(SpPaletteHash);   // 種類が多すぎて作るのをやめた分もここに計上する
-            if (overflow != 0 || po.CancellationToken.IsCancellationRequested)
-            {
-                s_intPool.Return(index);
-                po.CancellationToken.ThrowIfCancellationRequested();
-                return null;
+
+                // 2) 使われたスロットに番号を振り、色と HSV を求める(種類数ぶんだけ)。
+                //    slotToId は使われたスロットの位置だけ書いて読むので、0 で埋めなくてよい。
+                int count = inserted;
+                int[] slotToId = new int[capacity];
+                var colors = new Color32[count];
+                int n = 0;
+                for (int s = 0; s < capacity; s++)
+                {
+                    long v = slots[s];
+                    if (v == 0) continue;
+                    uint key = (uint)(v - 1);
+                    slotToId[s] = n;
+                    colors[n++] = new Color32((byte)key, (byte)(key >> 8), (byte)(key >> 16), (byte)(key >> 24));
+                }
+                var hh = new float[count];
+                var ss = new float[count];
+                var vv = new float[count];
+                ForEachPaletteChunk(count, po, (k0, k1) =>
+                {
+                    for (int k = k0; k < k1; k++)
+                        Color.RGBToHSV((Color)colors[k], out hh[k], out ss[k], out vv[k]);
+                });
+
+                sub?.Mark(SpPaletteIds);
+                // 3) スロット番号を色番号へ置き換える。
+                var slotToIdL = slotToId;
+                Parallel.For(0, h, po, y =>
+                {
+                    int row = y * w;
+                    for (int x = 0; x < w; x++) index[row + x] = slotToIdL[index[row + x]];
+                });
+
+                sub?.Mark(SpPaletteRemap);
+                built = new ColorPalette { Count = count, Colors = colors, Index = index, H = hh, S = ss, V = vv };
+                return built;
             }
-
-            // 2) 使われたスロットに番号を振り、色と HSV を求める(種類数ぶんだけ)。
-            //    slotToId は使われたスロットの位置だけ書いて読むので、0 で埋めなくてよい。
-            int count = inserted;
-            int[] slotToId = new int[capacity];
-            var colors = new Color32[count];
-            int n = 0;
-            for (int s = 0; s < capacity; s++)
+            finally
             {
-                long v = slots[s];
-                if (v == 0) continue;
-                uint key = (uint)(v - 1);
-                slotToId[s] = n;
-                colors[n++] = new Color32((byte)key, (byte)(key >> 8), (byte)(key >> 16), (byte)(key >> 24));
+                if (built == null) s_intPool.Return(index);
             }
-            var hh = new float[count];
-            var ss = new float[count];
-            var vv = new float[count];
-            ForEachPaletteChunk(count, po, (k0, k1) =>
-            {
-                for (int k = k0; k < k1; k++)
-                    Color.RGBToHSV((Color)colors[k], out hh[k], out ss[k], out vv[k]);
-            });
-
-            sub?.Mark(SpPaletteIds);
-            // 3) スロット番号を色番号へ置き換える。
-            var slotToIdL = slotToId;
-            Parallel.For(0, h, po, y =>
-            {
-                int row = y * w;
-                for (int x = 0; x < w; x++) index[row + x] = slotToIdL[index[row + x]];
-            });
-
-            sub?.Mark(SpPaletteRemap);
-            return new ColorPalette { Count = count, Colors = colors, Index = index, H = hh, S = ss, V = vv };
         }
 
         // ───────── 無彩パスの再着色メモ ─────────

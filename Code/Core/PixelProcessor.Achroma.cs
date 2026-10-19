@@ -453,28 +453,40 @@ namespace Iroca
             {
                 map = s_floatPool.Rent(len);
                 umap = s_floatPool.Rent(len);
-                var clearMap = map; var clearUp = umap;
-                const int ClearChunk = 1 << 18;
-                Parallel.For(0, (len + ClearChunk - 1) / ClearChunk, bboxPo, c =>
-                {
-                    int c0 = c * ClearChunk;
-                    Array.Clear(clearMap, c0, Math.Min(ClearChunk, len - c0));
-                    Array.Clear(clearUp, c0, Math.Min(ClearChunk, len - c0));
-                });
             }
             else { map = new float[len]; umap = new float[len]; }
-            var umapL = umap;
-            Parallel.For(0, bh, bboxPo, ly =>
+            // 呼び出し側へ渡す前に抜けたら(キャンセル)、借りた地図はここで返す。
+            try
             {
-                int rb = (ly + minY) * w + minX;
-                for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
+                if (rentMap)
                 {
-                    float v = med[comp[k]];
-                    float u = up[comp[k]];
-                    int x1 = runX1[k];
-                    for (int lx = runX0[k]; lx <= x1; lx++) { map[rb + lx] = v; umapL[rb + lx] = u; }
+                    var clearMap = map; var clearUp = umap;
+                    const int ClearChunk = 1 << 18;
+                    Parallel.For(0, (len + ClearChunk - 1) / ClearChunk, bboxPo, c =>
+                    {
+                        int c0 = c * ClearChunk;
+                        Array.Clear(clearMap, c0, Math.Min(ClearChunk, len - c0));
+                        Array.Clear(clearUp, c0, Math.Min(ClearChunk, len - c0));
+                    });
                 }
-            });
+                var umapL = umap;
+                Parallel.For(0, bh, bboxPo, ly =>
+                {
+                    int rb = (ly + minY) * w + minX;
+                    for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
+                    {
+                        float v = med[comp[k]];
+                        float u = up[comp[k]];
+                        int x1 = runX1[k];
+                        for (int lx = runX0[k]; lx <= x1; lx++) { map[rb + lx] = v; umapL[rb + lx] = u; }
+                    }
+                });
+            }
+            catch
+            {
+                if (rentMap) { s_floatPool.Return(map); s_floatPool.Return(umap); }
+                throw;
+            }
             upMap = umap;
             return map;
             }
