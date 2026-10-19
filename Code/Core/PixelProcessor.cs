@@ -411,7 +411,6 @@ namespace Iroca
                     // strength(=生の選択)を復元して選択フェーズ(Match/Highlight/FloodFill/穴埋め/
                     // 境界/ブラー/マスク再適用)を丸ごと省く。フル画像経路でのみ使う。
                     string selKey = null;
-                    float[] cachedStrength = null;
                     ulong[] cachedKeep = null;
                     ulong[] cachedForced = null;
                     bool selCached = false;
@@ -420,8 +419,6 @@ namespace Iroca
                         selKey = BuildSelectionKey(zone, edgeFeather, antiAliasCleanup, holeFillPasses,
                             holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp, commonMask, zoneMask,
                             zoneInclude, maskW, maskH, zMixMode);
-                        selCached = selectionCache.TryGet(zone.id, selKey, w, h,
-                            out cachedStrength, out cachedKeep, out cachedForced);
                     }
 
                     // 含めるマスクをテクスチャ解像度の bool[] へ展開する(除外優先を焼き込む)。
@@ -449,6 +446,11 @@ namespace Iroca
 
                     // 1. 元のピクセルカラーを使用した強度マップを構築(キャッシュヒット時は復元のみ)
                     strength = s_floatPool.Rent(len);
+                    // キャッシュにあれば strength へ写す(キャッシュの中身はネイティブメモリにあり、写すのは
+                    // キャッシュの lock の中。配列を受け取って後で写すと、その間に手放されることがある)。
+                    if (selKey != null)
+                        selCached = selectionCache.TryGet(zone.id, selKey, w, h,
+                            out cachedKeep, out cachedForced, strength);
                     // matchConf は連結成分アンカリング(flood fill)のコア判定専用。FF が有効でフル画像
                     // 経路かつキャッシュミス時のみ確保・充填する(ヒット時は keep を転写するため不要)。
                     bool needMatchConf = IrocaConsts.ExperimentalFeatures.EnableFloodFill
@@ -457,11 +459,7 @@ namespace Iroca
                     // ミス時に FF が確定した keep を、選択キャッシュにも保存して次回のヒット復元に使う。
                     ulong[] keepBitsForCache = null;
 
-                    if (selCached)
-                    {
-                        Array.Copy(cachedStrength, strength, len);
-                    }
-                    else
+                    if (!selCached)
                     {
                         // strength / highlightPot / matchConf は下のマッチのループが全画素に書く(除外マスクの
                         // 画素には 0)ので、先にゼロで埋めない(旧: 3 本とも単一スレッドの Array.Clear)。
@@ -898,7 +896,7 @@ namespace Iroca
                     // 次回「再着色のみ変更」した再生成で復元して選択フェーズを丸ごと省く(出力ビット不変)。
                     _sub.Mark(SpBlurReapply);
                     if (!selCached && selectionCache != null && isFullImagePath)
-                        selectionCache.Store(zone.id, selKey, strength, keepBitsForCache, forcedBits, w, h);
+                        selectionCache.Store(zone.id, selKey, strength, keepBitsForCache, forcedBits, w, h, cancellationToken);
 
                     // 無彩サンプル/極端無彩ターゲットの重み(無彩パスと AA フィデリティ修正で共用)。
                     _sub.Mark(SpSelCacheStore);

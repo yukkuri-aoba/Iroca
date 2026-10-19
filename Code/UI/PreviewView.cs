@@ -529,6 +529,13 @@ namespace Iroca
         public void Suspend()
         {
             CancelJobsAndDropPending();
+            // 選択キャッシュ(ゾーンごとに 4K で 64MB・8K で 256MB)はネイティブメモリなので、閉じる・リロードの前に
+            // ここで解放すれば OS へ戻る。取り消した計算が後から Store しても残らない(Dispose 済みは保存しない)。
+            // 開き直したときは Initialize が作り直す。
+            _selectionCache?.Dispose();
+            _selectionCache = null;
+            _proxySelectionCache?.Dispose();
+            _proxySelectionCache = null;
             _detailView?.Suspend();
             _lastDirtyTime = 0;
             TextureSlot.Release(ref previewTexture);

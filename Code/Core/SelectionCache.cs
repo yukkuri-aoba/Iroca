@@ -1,13 +1,8 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
-using System.Buffers;
 using System.Collections.Generic;
-using System.Text;
 using System.Threading;
-using System.Diagnostics;
-using System.Threading.Tasks;
-using UnityEngine;
 
 namespace Iroca
 {
@@ -26,77 +21,126 @@ namespace Iroca
     /// 復元結果が「同一入力でフル計算した strength」と完全一致するので出力はビット不変。
     /// フル画像経路でのみ使う(詳細プレビューのクロップでは使わない)。テクスチャ/寸法変更時は
     /// 呼び出し側(PreviewView)が Clear する。
+    ///
+    /// strength のコピーは Mono のヒープの外(<see cref="NativeFloatBuffer"/>)に置く(1 ゾーン 4K で 64MB・8K で 256MB)。
+    /// Mono のヒープは縮まないので、ヒープに置くとテクスチャを替えてもウィンドウを閉じても OS へ戻らない。
+    /// 配列は外へ渡さず、中身を写す。写すのは lock の外(64〜256MB を写す間、メインスレッドの Clear・RetainOnly を
+    /// 待たせない)で、写している間はエントリを貸し出し中として数え、外されても最後に返した側が解放する。
+    /// Clear・Dispose の後に、それより前に始まった Store が終わっても保存しない(世代で見分ける)。Clear の後に始まった
+    /// Store でも、取り消した計算のもの(Clear の前の画素で作った選択)は保存しない(Store に渡す ct で見分ける)。
+    /// ウィンドウを閉じるときは <see cref="Dispose"/> で全部解放し、以後の Store は保存しない。
     /// </summary>
-    internal sealed class SelectionCache
+    internal sealed class SelectionCache : IDisposable
     {
         private sealed class Entry
         {
             public string Key;
-            public float[] Strength;   // マスク再適用直後の strength のコピー(len=w*h)
+            public NativeFloatBuffer Strength;   // マスク再適用直後の strength のコピー(len=w*h)
             public ulong[] Keep;       // flood fill keep(毎回 new されるので参照保持で安全)。FF OFF は null
             public ulong[] Forced;     // 閉領域ハイライト復帰の画素ビット(parityCache へ再公開する)。該当なしは null
             public int W, H;
+            public int Leases;         // 中身を写している最中の数(_gate の中で増減)
+            public bool Detached;      // 辞書から外した。Leases が 0 になったら解放する
         }
 
         private readonly Dictionary<string, Entry> _byZone = new Dictionary<string, Entry>();
-        // メインプレビューの PreviewJob はキャンセル猶予中に旧タスクと新タスクが一時的に並走しうる
-        // (どちらもバックグラウンドスレッド)。Dictionary はスレッド安全でないので lock で保護する。
+        // 計算はバックグラウンドスレッドで走り、Clear・RetainOnly・Dispose はメインスレッドから来る。
+        // 辞書・貸し出し数・世代はこの lock の中でだけ触る。
         private readonly object _gate = new object();
+        private int _epoch;            // Clear・Dispose のたびに進める
+        private bool _disposed;
 
+        /// <summary>
+        /// キャッシュにあれば true と keep・forced を返し、strengthDst があればそこへ strength を写す(長さ w*h 以上)。
+        /// strengthDst が null なら有無だけを見る。
+        /// </summary>
         public bool TryGet(string zoneId, string key, int w, int h,
-            out float[] strength, out ulong[] keep, out ulong[] forced)
+            out ulong[] keep, out ulong[] forced, float[] strengthDst = null)
         {
-            strength = null; keep = null; forced = null;
+            keep = null; forced = null;
             if (string.IsNullOrEmpty(zoneId)) return false;
+            Entry e;
             lock (_gate)
             {
-                if (_byZone.TryGetValue(zoneId, out var e) && e.Key == key && e.W == w && e.H == h)
-                {
-                    strength = e.Strength; keep = e.Keep; forced = e.Forced; return true;
-                }
+                if (!_byZone.TryGetValue(zoneId, out e) || e.Key != key || e.W != w || e.H != h) return false;
+                keep = e.Keep; forced = e.Forced;
+                if (strengthDst == null) return true;
+                e.Leases++;
             }
-            return false;
+            try
+            {
+                e.Strength.CopyTo(strengthDst, w * h);
+            }
+            finally
+            {
+                // 中断中は貸し出しを返さない(この領域を最後まで解放しない。後始末はファイナライザ)。
+                if (!IrocaNativeMemory.CurrentThreadAborting)
+                    lock (_gate) Return(e);
+            }
+            return true;
         }
 
-        public void Store(string zoneId, string key, float[] strength, ulong[] keep, ulong[] forced, int w, int h)
+        /// <summary>
+        /// strength(長さ w*h 以上)を写して保存する。ct が取り消されていたら保存しない: 取り消した計算(テクスチャの
+        /// 読み直しの前の画素で作った選択)を、Clear の後に保存させないため。呼び出し側は Clear の前に必ず取り消す。
+        /// </summary>
+        public void Store(string zoneId, string key, float[] strength, ulong[] keep, ulong[] forced, int w, int h,
+            CancellationToken ct = default)
         {
             if (string.IsNullOrEmpty(zoneId)) return;
             int len = w * h;
-            // 同じゾーンの前のエントリの配列を使い回す。毎回 new float[len](4K で 67MB)を確保すると、
-            // Mono では大配列の確保が全スレッド停止の GC を誘発し、ときどき数百 ms の引っかかりになった。
-            // 上書きの前にエントリを外すので、以後の TryGet がこの配列を返すことはない(TryGet の呼び出し側は
-            // 内容を自分の作業配列へコピーするだけ。外す前に受け取った呼び出しは、新しい Store が来た時点で
-            // 取り消し済みの旧ジョブで、その結果は捨てられる)。
-            float[] copy = null;
+            int epoch;
+            NativeFloatBuffer buf = null;
             lock (_gate)
             {
-                if (_byZone.TryGetValue(zoneId, out var old) && old.Strength != null
-                    && old.Strength.Length == len && !ReferenceEquals(old.Strength, strength))
+                if (_disposed || ct.IsCancellationRequested) return;
+                epoch = _epoch;
+                // 同じゾーンの前のエントリを外す。誰も写していなくて寸法が同じなら領域を使い回す。
+                if (_byZone.TryGetValue(zoneId, out var old))
                 {
-                    copy = old.Strength;
                     _byZone.Remove(zoneId);
+                    if (old.Leases == 0 && old.Strength.Length == len) buf = old.Strength;
+                    else Detach(old);
                 }
             }
-            copy ??= new float[len];
-            // 67MB の逐次コピーを行の帯ごとに並列に(内容は同じ)。
-            const int Chunk = 1 << 18;
-            int chunks = (len + Chunk - 1) / Chunk;
-            var src = strength;
-            var dst = copy;
-            System.Threading.Tasks.Parallel.For(0, chunks,
-                new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism() },
-                c =>
+            bool published = false;
+            try
+            {
+                buf ??= new NativeFloatBuffer(len);
+                buf.CopyFrom(strength, len);
+                var entry = new Entry { Key = key, Strength = buf, Keep = keep, Forced = forced, W = w, H = h };
+                lock (_gate)
                 {
-                    int s0 = c * Chunk;
-                    Array.Copy(src, s0, dst, s0, Math.Min(Chunk, len - s0));
-                });
-            lock (_gate) { _byZone[zoneId] = new Entry { Key = key, Strength = copy, Keep = keep, Forced = forced, W = w, H = h }; }
+                    // 取り消しは lock の外でも起きるが、呼び出し側は「取り消し → Clear」の順なので、Clear の後に
+                    // ここへ来た計算は必ず取り消し済みとして見える。
+                    if (_disposed || epoch != _epoch || ct.IsCancellationRequested) return;
+                    // 写している間に別の Store が同じゾーンへ入れていたら、そちらを外す(後から来た方を残す)。
+                    // 外すのは差し替えた後(差し替えで例外が出ても、解放済みの項目を辞書に残さない)。
+                    _byZone.TryGetValue(zoneId, out var other);
+                    _byZone[zoneId] = entry;
+                    published = true;
+                    if (other != null) Detach(other);
+                }
+            }
+            finally
+            {
+                // 中断中は解放しない(並列で写している途中の領域を、ほかのスレッドがまだ書いていることがある)。
+                if (!published && !IrocaNativeMemory.CurrentThreadAborting) buf?.Dispose();
+            }
         }
 
-        public void Clear() { lock (_gate) { _byZone.Clear(); } }
+        public void Clear()
+        {
+            lock (_gate)
+            {
+                _epoch++;
+                foreach (var e in _byZone.Values) Detach(e);
+                _byZone.Clear();
+            }
+        }
 
         /// <summary>liveZoneIds に含まれない zoneId のエントリを一括破棄する。
-        /// ゾーン削除後もエントリ(4K で float[w*h]≈67MB)が恒久残留するのを防ぐ。
+        /// ゾーン削除後もエントリ(4K で 64MB)が恒久残留するのを防ぐ。
         /// プレビュー生成のたびにセッションの全ゾーン id を渡して呼ぶ。</summary>
         public void RetainOnly(ICollection<string> liveZoneIds)
         {
@@ -107,9 +151,37 @@ namespace Iroca
                 List<string> stale = null;
                 foreach (var id in _byZone.Keys)
                     if (!liveZoneIds.Contains(id)) (stale ??= new List<string>()).Add(id);
-                if (stale != null)
-                    foreach (var id in stale) _byZone.Remove(id);
+                if (stale == null) return;
+                foreach (var id in stale)
+                {
+                    Detach(_byZone[id]);
+                    _byZone.Remove(id);
+                }
             }
+        }
+
+        /// <summary>全部解放し、以後は保存しない(ウィンドウを閉じるとき・リロードの前)。写している最中の分は、写し終えた時点で解放する。</summary>
+        public void Dispose()
+        {
+            lock (_gate)
+            {
+                _disposed = true;
+                _epoch++;
+                foreach (var e in _byZone.Values) Detach(e);
+                _byZone.Clear();
+            }
+        }
+
+        // 以下 2 つは _gate の中で呼ぶ。
+        private static void Detach(Entry e)
+        {
+            e.Detached = true;
+            if (e.Leases == 0) e.Strength.Dispose();
+        }
+
+        private static void Return(Entry e)
+        {
+            if (--e.Leases == 0 && e.Detached) e.Strength.Dispose();
         }
     }
 }

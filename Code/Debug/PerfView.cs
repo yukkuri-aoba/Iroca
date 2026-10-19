@@ -466,6 +466,7 @@ namespace Iroca.DebugTools
         {
             internal long MonoUsed, MonoHeap;             // Mono(マネージド)ヒープ
             internal long NativeUsed, NativeReserved;     // Unity の内部アロケータ
+            internal long IrocaNative;                    // いろかが Mono の外に持つ分(IrocaNativeMemory)
             internal bool HasProcess;                     // false = プロセスの値が取れない(Windows 以外など)
             internal long Private, PeakPrivate, WorkingSet;
             internal int GcCount;
@@ -501,6 +502,7 @@ namespace Iroca.DebugTools
                 MonoHeap = Profiler.GetMonoHeapSizeLong(),
                 NativeUsed = Profiler.GetTotalAllocatedMemoryLong(),
                 NativeReserved = Profiler.GetTotalReservedMemoryLong(),
+                IrocaNative = IrocaNativeMemory.LiveBytes,
                 GcCount = GC.CollectionCount(0),
             };
             m.HasProcess = TryGetProcessMemory(out m.Private, out m.PeakPrivate, out m.WorkingSet);
@@ -541,7 +543,7 @@ namespace Iroca.DebugTools
 
             var m = s_memory;
             DrawValueRow("Mono ヒープ", $"使用 {Mb(m.MonoUsed)} / 確保 {Mb(m.MonoHeap)} MB",
-                "C# のマネージドメモリ。いろかの画素配列・作業配列・選択キャッシュなどはここに入ります。\n" +
+                "C# のマネージドメモリ。いろかの画素配列・作業配列などはここに入ります。\n" +
                 "使用: 生きているオブジェクトと、まだ回収されていないゴミの合計。\n" +
                 "確保: ヒープ全体の大きさ。Unity の Mono は一度広げたヒープを OS に返さないので、" +
                 "処理中のピークに引きずられて増え、編集をやめても減りません。",
@@ -550,6 +552,10 @@ namespace Iroca.DebugTools
                 "Unity エンジン側のメモリ(テクスチャ・メッシュなどのアセットとエディタ本体)。\n" +
                 "プレビューやシーンに映すテクスチャはここに入ります。\n" +
                 "使用: Unity の内部アロケータが使っている量。確保: 予約している量。",
+                MemoryLabelWidth);
+            DrawValueRow("いろかのネイティブ", $"{Mb(m.IrocaNative)} MB",
+                "いろかが Mono ヒープの外に置いている量(選択キャッシュなど)。\n" +
+                "Mono ヒープと違い、手放すとすぐ OS へ戻ります(テクスチャを替えたとき・ウィンドウを閉じたときなど)。",
                 MemoryLabelWidth);
             if (m.HasProcess)
             {
