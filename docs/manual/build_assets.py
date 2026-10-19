@@ -137,7 +137,9 @@ SHOTS = [
     ("nd-section", "window.png", (0, 872, 1026, 1000), None),
     ("export-section", "tall_open.png", (0, 913, 1026, 1165), None),
     ("zone-detail", "zone_detail.png", (0, 140, 392, 950), None),
-    ("processing", "tall_open.png", (0, 397, 392, 673), None),
+    # 加工設定は 2026-10-19 に、効かない「境界復元 彩度ランプ」を隠したので撮り直した（中身はテクスチャに依らない）。
+    # 新しい原板は tall_open の同じ範囲から、その 1 行（25px）を抜いたものと画素一致。
+    ("processing", "processing_open.png", (0, 397, 392, 648), None),
     ("mask-section", "tall_open.png", (0, 680, 392, 835), None),
     ("presets", "presets_open.png", (0, 585, 392, 790), None),
     # 前後比較は 2 面並ぶので、窓を 1320pt 幅に広げて撮った原板から切り出す（820pt だと小さい）

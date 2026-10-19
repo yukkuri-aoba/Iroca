@@ -211,7 +211,7 @@ namespace Iroca
                 Localization.FloodFillSeedPoint, Localization.HighlightBandExpand,
                 Localization.AutoHighlightSample, Localization.HoleFillPasses,
                 Localization.HoleFillMinNeighbors, Localization.RelaxedSatMin,
-                Localization.RelaxedSatRamp, Localization.DecontaminationRadius);
+                Localization.DecontaminationRadius);
 
             // +4: ラベルとフィールドの間に詰まって見えない程度の余白。
             s_measuredLabelWidth = max + 4f;
@@ -801,9 +801,8 @@ namespace Iroca
                     relaxedSatMin = UndoHelper.Slider(this,
                         new GUIContent(Localization.RelaxedSatMin, Localization.RelaxedSatMinTooltip),
                         relaxedSatMin, 0f, 0.2f);
-                    relaxedSatRamp = UndoHelper.Slider(this,
-                        new GUIContent(Localization.RelaxedSatRamp, Localization.RelaxedSatRampTooltip),
-                        relaxedSatRamp, 0.01f, 0.3f);
+                    // relaxedSatRamp は出さない。緩和マッチで使わなくなり、動かしても何も変わらないため。
+                    // 値は選択キャッシュのキーと、プリセット・セッションの保存形式の互換のために残している。
                     using (new EditorGUI.DisabledScope(!useDecontamination))
                     {
                         decontaminationRadius = UndoHelper.IntSlider(this,
