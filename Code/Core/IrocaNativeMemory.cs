@@ -46,11 +46,11 @@ namespace Iroca
     }
 
     /// <summary>
-    /// ネイティブメモリに置いた float の並び。中身の出し入れは配列との一括コピーだけ(unsafe を使わない)。
+    /// ネイティブメモリに置いた float の並び。中身の出し入れは配列・ポインタとの一括コピーだけ。
     /// 1 つの持ち主が使い、ほかのスレッドから同時に Dispose しないこと(持ち主がロックで守る)。
     /// Dispose を忘れても、GC がこのオブジェクトを回収するときに解放する(ただしいつになるかは分からない)。
     /// </summary>
-    internal sealed class NativeFloatBuffer : IDisposable
+    internal sealed unsafe class NativeFloatBuffer : IDisposable
     {
         private IntPtr _ptr;
         public int Length { get; }
@@ -67,23 +67,35 @@ namespace Iroca
 
         ~NativeFloatBuffer() => Release();
 
-        public void CopyFrom(float[] src, int count) => Copy(src, count, toNative: true);
+        public void CopyFrom(float[] src, int count)
+        {
+            if (count > src.Length) throw new ArgumentOutOfRangeException(nameof(count));
+            fixed (float* p = src) Copy(p, count, toNative: true);
+        }
 
-        public void CopyTo(float[] dst, int count) => Copy(dst, count, toNative: false);
+        public void CopyTo(float[] dst, int count)
+        {
+            if (count > dst.Length) throw new ArgumentOutOfRangeException(nameof(count));
+            fixed (float* p = dst) Copy(p, count, toNative: false);
+        }
 
-        private void Copy(float[] managed, int count, bool toNative)
+        // 長さ count 以上の領域との出し入れ(作業配列のプールが貸すポインタ)。
+        public void CopyFrom(float* src, int count) => Copy(src, count, toNative: true);
+
+        public void CopyTo(float* dst, int count) => Copy(dst, count, toNative: false);
+
+        private void Copy(float* other, int count, bool toNative)
         {
             if (_ptr == IntPtr.Zero) throw new ObjectDisposedException(nameof(NativeFloatBuffer));
-            if (count < 0 || count > Length || count > managed.Length) throw new ArgumentOutOfRangeException(nameof(count));
-            IntPtr basePtr = _ptr;
+            if (count < 0 || count > Length) throw new ArgumentOutOfRangeException(nameof(count));
+            float* mine = (float*)_ptr;
             int chunks = (count + CopyChunk - 1) / CopyChunk;
             Parallel.For(0, chunks, new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism() }, c =>
             {
                 int s0 = c * CopyChunk;
-                int n = Math.Min(CopyChunk, count - s0);
-                IntPtr p = IntPtr.Add(basePtr, s0 * sizeof(float));
-                if (toNative) Marshal.Copy(managed, s0, p, n);
-                else Marshal.Copy(p, managed, s0, n);
+                long bytes = (long)Math.Min(CopyChunk, count - s0) * sizeof(float);
+                if (toNative) Buffer.MemoryCopy(other + s0, mine + s0, bytes, bytes);
+                else Buffer.MemoryCopy(mine + s0, other + s0, bytes, bytes);
             });
         }
 

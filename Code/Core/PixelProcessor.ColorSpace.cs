@@ -11,7 +11,7 @@ using UnityEngine;
 
 namespace Iroca
 {
-    internal static partial class PixelProcessor
+    internal static unsafe partial class PixelProcessor
     {
         // ───────────── OkLab 知覚色空間ヘルパー (リング除去の中核) ─────────────
         // リング(ドーナツ)の根本原因は「HSV の V/S は知覚的でないため、S/V を保持して

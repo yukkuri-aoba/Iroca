@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 
 namespace Iroca
 {
-    internal static partial class PixelProcessor
+    internal static unsafe partial class PixelProcessor
     {
         /// <summary>
         /// 画素ごとの HSV(<c>Color.RGBToHSV</c> の結果)。色の表(<see cref="ColorPalette"/>)があれば

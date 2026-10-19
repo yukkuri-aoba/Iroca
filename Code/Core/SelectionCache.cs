@@ -17,7 +17,7 @@ namespace Iroca
     /// 変更ではヒットして選択を再利用する)。tolerance・サンプル色・edgeSoftness・各しきい・マスク内容
     /// などが変われば別キー=ミス=再計算。曖昧なものは安全側で「選択影響」に含める(ミスが増えるだけ)。
     ///
-    /// strength は ArrayPool 由来で後段が破壊的に書き換えるため、Store では必ずコピーを取る。
+    /// strength は作業配列のプールから借りた領域で後段が破壊的に書き換えるため、Store では必ずコピーを取る。
     /// 復元結果が「同一入力でフル計算した strength」と完全一致するので出力はビット不変。
     /// フル画像経路でのみ使う(詳細プレビューのクロップでは使わない)。テクスチャ/寸法変更時は
     /// 呼び出し側(PreviewView)が Clear する。
@@ -30,7 +30,7 @@ namespace Iroca
     /// Store でも、取り消した計算のもの(Clear の前の画素で作った選択)は保存しない(Store に渡す ct で見分ける)。
     /// ウィンドウを閉じるときは <see cref="Dispose"/> で全部解放し、以後の Store は保存しない。
     /// </summary>
-    internal sealed class SelectionCache : IDisposable
+    internal sealed unsafe class SelectionCache : IDisposable
     {
         private sealed class Entry
         {
@@ -56,6 +56,15 @@ namespace Iroca
         /// </summary>
         public bool TryGet(string zoneId, string key, int w, int h,
             out ulong[] keep, out ulong[] forced, float[] strengthDst = null)
+        {
+            if (strengthDst == null) return TryCopy(zoneId, key, w, h, null, out keep, out forced);
+            if (strengthDst.Length < w * h) throw new ArgumentException("strengthDst が w*h より短い", nameof(strengthDst));
+            fixed (float* p = strengthDst) return TryCopy(zoneId, key, w, h, p, out keep, out forced);
+        }
+
+        /// <summary><see cref="TryGet"/> のポインタ版(作業配列のプールが貸す領域へ写す。長さ w*h 以上)。</summary>
+        public bool TryCopy(string zoneId, string key, int w, int h, float* strengthDst,
+            out ulong[] keep, out ulong[] forced)
         {
             keep = null; forced = null;
             if (string.IsNullOrEmpty(zoneId)) return false;
@@ -85,6 +94,14 @@ namespace Iroca
         /// 読み直しの前の画素で作った選択)を、Clear の後に保存させないため。呼び出し側は Clear の前に必ず取り消す。
         /// </summary>
         public void Store(string zoneId, string key, float[] strength, ulong[] keep, ulong[] forced, int w, int h,
+            CancellationToken ct = default)
+        {
+            if (strength.Length < w * h) throw new ArgumentException("strength が w*h より短い", nameof(strength));
+            fixed (float* p = strength) StoreFrom(zoneId, key, p, keep, forced, w, h, ct);
+        }
+
+        /// <summary><see cref="Store"/> のポインタ版(作業配列のプールが貸す領域から写す。長さ w*h 以上)。</summary>
+        public void StoreFrom(string zoneId, string key, float* strength, ulong[] keep, ulong[] forced, int w, int h,
             CancellationToken ct = default)
         {
             if (string.IsNullOrEmpty(zoneId)) return;

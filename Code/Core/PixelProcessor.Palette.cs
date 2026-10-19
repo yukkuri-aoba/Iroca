@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace Iroca
 {
-    internal static partial class PixelProcessor
+    internal static unsafe partial class PixelProcessor
     {
         /// <summary>
         /// 元画素の「色の種類」の表。アバター用テクスチャは塗りが平坦で、色(RGBA)の種類が画素数の
@@ -27,7 +27,7 @@ namespace Iroca
         {
             internal int Count;
             internal Color32[] Colors;   // 番号 → 色
-            internal int[] Index;        // 画素 → 番号(長さ len。s_intPool から借りる。Release で返す)
+            internal int[] Index;        // 画素 → 番号(長さ len。s_paletteIndexPool から借りる。Release で返す)
             internal float[] H, S, V;    // 番号 → Color.RGBToHSV((Color)色) の結果
             // 番号 → RgbToOklab(byte 版) の L と、C = sqrt(a²+b²)。EnsureOklab で初めて要るときに作る。
             internal float[] OkL, OkC;
@@ -66,7 +66,7 @@ namespace Iroca
             internal void Release()
             {
                 if (Shared) return;
-                if (Index != null) s_intPool.Return(Index);
+                if (Index != null) s_paletteIndexPool.Return(Index);
                 Index = null;
             }
         }
@@ -186,7 +186,7 @@ namespace Iroca
             // 表はキャッシュから引くので作り直すのは新しい画像のときだけで、使い回しのために常駐させると、
             // Mono では縮まないヒープにその分が残り続ける。
             long[] slots = new long[capacity];
-            int[] index = s_intPool.Rent(len);
+            int[] index = s_paletteIndexPool.Rent(len);
             // 表に渡すまでは、途中で抜けたとき(種類が多すぎた・キャンセル)も借りたものを必ず返す。
             ColorPalette built = null;
             try
@@ -280,7 +280,7 @@ namespace Iroca
             }
             finally
             {
-                if (built == null) s_intPool.Return(index);
+                if (built == null) s_paletteIndexPool.Return(index);
             }
         }
 

@@ -11,7 +11,7 @@ using UnityEngine;
 
 namespace Iroca
 {
-    internal static partial class PixelProcessor
+    internal static unsafe partial class PixelProcessor
     {
         // 連結成分アンカリングの確信度コア絶対床(matchConf 不在時のフォールバック専用)。
         private const float CoreAbsoluteFloor = 0.6f;
@@ -58,7 +58,7 @@ namespace Iroca
         /// クリックした場所が何も変わらなくなる。巻き込みへ戻すほうが、原因が見えて直せる。コア規則は変えない。
         /// </summary>
         private static void ApplyConnectedComponentMask(
-            float[] strength, float[] matchConf, Color32[] px, int w, int h, int seedX, int seedY,
+            float* strength, float* matchConf, Color32[] px, int w, int h, int seedX, int seedY,
             PixelHsv hsv = default, float shadowValueFloor = 0f, float partSatCeiling = 0f,
             float partHueBand = 0f, float sampleH = 0f, float hueMinSat = 0f,
             int anchorX = -1, int anchorY = -1,
@@ -110,7 +110,7 @@ namespace Iroca
             // そのものなので、成分の分割は DFS と厳密に同一。ラベル番号の付き方は変わるが、
             // 判定に使うのは「その成分にコアがあるか」と「シードの属する成分か」だけで
             // 番号に依存しない = 出力ビット不変。
-            int[] runX0 = null, runX1 = null, parent = null, comp = null;
+            int* runX0 = null, runX1 = null, parent = null, comp = null;
             try
             {
             // 連結予測子。bbox 内の隣接判定でしか使わないので gi は呼び出し側が算出済みの値を渡す。
@@ -323,13 +323,14 @@ namespace Iroca
         }
 
         // フル画像 per-pixel マップ(成分別中央値 L 等)から、クロップ(originX/Y, w×h)に対応する
-        // 矩形を切り出してクロップ座標の新しい配列に詰める。詳細プレビューがフル画像と同じ成分基準で
+        // 矩形を切り出してクロップ座標の作業配列(プールから借りる。呼び出し側がゾーンの終わりに返す)に詰める。詳細プレビューがフル画像と同じ成分基準で
         // 再着色できるようにするための転写。行ごとに連続コピーするだけ(全画素 1 回読み)。
-        private static float[] CropFullMidMap(float[] full, int w, int h, int originX, int originY, int fullW)
+        private static float* CropFullMidMap(float[] full, int w, int h, int originX, int originY, int fullW)
         {
-            var map = new float[w * h];
+            // 作業配列のプールから借りる(呼び出し側がゾーンの終わりに返す)。
+            float* map = s_floatPool.Rent(w * h);
             for (int y = 0; y < h; y++)
-                System.Array.Copy(full, (y + originY) * fullW + originX, map, y * w, w);
+                new ReadOnlySpan<float>(full, (y + originY) * fullW + originX, w).CopyTo(new Span<float>(map + y * w, w));
             return map;
         }
 
@@ -339,7 +340,7 @@ namespace Iroca
         /// これにより詳細プレビュー(クロップ)が大域演算を再実行せずにメイン/最終と完全一致する。
         /// </summary>
         private static void ApplyCachedKeepMask(
-            float[] strength, int w, int h, int originX, int originY, int fullW, ulong[] keep)
+            float* strength, int w, int h, int originX, int originY, int fullW, ulong[] keep)
         {
             for (int y = 0; y < h; y++)
             {
@@ -361,7 +362,7 @@ namespace Iroca
         // keep(AND で絞る)の鏡像で OR で足す。フル画像側で復帰画素は FF の前に strength=1 になっているので
         // keep にも含まれており、この後の keep 転写で落ちない。
         private static void ApplyCachedForcedMask(
-            float[] strength, int w, int h, int originX, int originY, int fullW, ulong[] forced)
+            float* strength, int w, int h, int originX, int originY, int fullW, ulong[] forced)
         {
             for (int y = 0; y < h; y++)
             {

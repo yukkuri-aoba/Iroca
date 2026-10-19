@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace Iroca
 {
-    internal static partial class PixelProcessor
+    internal static unsafe partial class PixelProcessor
     {
         // ───────── 混色帯(選択境界の AA・にじみ)の再着色 ─────────
         // 選択境界の画素は「素材と隣のものが混ざった色」で出来ている: p = α·F + (1−α)·B
@@ -297,13 +297,13 @@ namespace Iroca
         /// 除外画素には書かず、背景の参照にも使わない(strength=0 だが背景ではない保護パーツでありうる)。
         /// </summary>
         private static void AnalyzeMixtureBand(
-            Color32[] originalPixels, float[] strength, int w, int h, int radius,
-            in RecolorParams rc, float[] regMidMap, float[] regUpMap, float regLmid,
-            Color zoneMaterial, bool[] includedPx,
-            Color32[] mixedPixels, float[] mixAlpha,
+            Color32[] originalPixels, float* strength, int w, int h, int radius,
+            in RecolorParams rc, float* regMidMap, float* regUpMap, float regLmid,
+            Color zoneMaterial, bool* includedPx,
+            Color32* mixedPixels, float* mixAlpha,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out int exMinX, out int exMinY, out int exMaxX, out int exMaxY,
-            bool[] maskExcluded, CancellationToken ct = default)
+            bool* maskExcluded, CancellationToken ct = default)
         {
             const int R = MixBandRadius;
             int B = Mathf.Max(radius, R + 1);
@@ -328,7 +328,7 @@ namespace Iroca
             // 「面か」の覚え書き(0 = まだ調べていない、FlatYesB / FlatNoB = 調べた結果)。背景の候補を探す
             // 範囲 G だけ 0 にしてから使う。同じ画素を別の行のスレッドが同時に調べても、書く値は同じ(1 バイトの
             // 書き込みなので、途中の値が見えることもない)。
-            byte[] flatMemo = null;
+            byte* flatMemo = null;
             try
             {
                 flatMemo = s_bytePool.Rent(len);
@@ -355,7 +355,7 @@ namespace Iroca
                     }
                 });
                 var flatL = flatMemo;
-                Parallel.For(gy0, gy1 + 1, po, y => Array.Clear(flatL, y * w + gx0, gx1 - gx0 + 1));
+                Parallel.For(gy0, gy1 + 1, po, y => ClearWork(flatL, y * w + gx0, gx1 - gx0 + 1));
 
                 var rcL = rc;
                 float minChromaSq = MixMinChroma * MixMinChroma;

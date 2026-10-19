@@ -13,6 +13,8 @@
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <LangVersion>9.0</LangVersion>
+    <!-- Core の作業配列はネイティブメモリ(ポインタ)で扱う(0.3.0)。Editor asmdef の allowUnsafeCode と対。 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>disable</Nullable>
     <OutputType>Exe</OutputType>
     <RootNamespace>Iroca</RootNamespace>
@@ -46,6 +48,7 @@
     <Compile Include="..\..\Code\Core\SelectionCache.cs" />
     <!-- 選択キャッシュの中身を Mono のヒープの外(Marshal.AllocHGlobal)に置く部品。 -->
     <Compile Include="..\..\Code\Core\IrocaNativeMemory.cs" />
+    <Compile Include="..\..\Code\Core\NativeWorkPool.cs" />
     <Compile Include="..\..\Code\Core\DebugCaptureHooks.cs" />
     <Compile Include="..\..\Code\Core\IDebugCapture.cs" />
     <Compile Include="..\..\Code\Core\PerfReport.cs" />

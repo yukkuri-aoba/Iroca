@@ -11,14 +11,14 @@ using UnityEngine;
 
 namespace Iroca
 {
-    internal static partial class PixelProcessor
+    internal static unsafe partial class PixelProcessor
     {
         /// <summary>
         /// ハイライト候補領域をコア領域から空間伝播させてマスク化する。
         /// strengthの強いピクセル(コア)から、ハイライト候補スコア(highlightPot)を持つ隣接ピクセルへ
         /// strengthを徐々に伝播させ、孤立した白いシャツなどを染めないようにする。
         /// </summary>
-        private static void PropagateHighlights(float[] strength, float[] highlightPot, int w, int h,
+        private static void PropagateHighlights(float* strength, float* highlightPot, int w, int h,
             CancellationToken ct = default)
         {
             // bbox 制限(P1-5): strength を更新し得るのは下のガード `pot > 0f` を満たす画素のみ。
@@ -57,7 +57,7 @@ namespace Iroca
 
             // パック座標 (y<<16)|x で保持する(index からの %w・/w を避ける。w/h は Unity の
             // 最大テクスチャ 16384 でも 16bit に収まる)。
-            int[] cand = s_intPool.Rent(nCand);
+            int* cand = s_intPool.Rent(nCand);
             try
             {
                 Parallel.For(0, bh, po, ly =>
@@ -89,7 +89,7 @@ namespace Iroca
                 });
                 var tileStart = new int[nTiles + 1];
                 for (int t = 0; t < nTiles; t++) tileStart[t + 1] = tileStart[t] + tileCount[t];
-                int[] tiled = s_intPool.Rent(nCand);
+                int* tiled = s_intPool.Rent(nCand);
                 try
                 {
                     Parallel.For(0, nty, po, ty =>
@@ -203,7 +203,7 @@ namespace Iroca
         /// 候補 tiled[k0..k1) を前方(forward=true: 並び順)または後方(逆順)に 1 回辿り、伝播で strength を上げる。
         /// 1 画素の更新規則は従来の逐次スイープと同じ(近傍の読む順序も同じ)。変化があれば true。
         /// </summary>
-        private static bool PropagateHighlightRange(float[] strength, float[] highlightPot, int[] tiled,
+        private static bool PropagateHighlightRange(float* strength, float* highlightPot, int* tiled,
             int k0, int k1, int w, int h, bool forward)
         {
             bool changed = false;
@@ -290,7 +290,7 @@ namespace Iroca
         /// 採用画素は strength=1 にし、後段のハイライト白寄せ合成で階調を保ったまま再着色する。
         /// </summary>
         private static void GrowHighlightBand(
-            float[] strength, Color32[] originalPixels,
+            float* strength, Color32[] originalPixels,
             PixelHsv hsv, ColorZone zone, int w, int h,
             CancellationToken ct = default, ColorPalette palette = null)
         {
@@ -308,13 +308,13 @@ namespace Iroca
             float satFloor = sS * HlBandMinSatFrac;
 
             int len = w * h;
-            // 候補はプールから Rent(ゼロ初期化されないので Array.Clear で全 false に戻す)し、
+            // 候補はプールから Rent(ゼロ初期化されないので ClearWork で全 false に戻す)し、
             // 早期 return / キャンセル例外を含む全経路で finally から Return する。
-            bool[] candidate = s_boolPool.Rent(len);
-            int[] runX0 = null, runX1 = null, parent = null;
+            bool* candidate = s_boolPool.Rent(len);
+            int* runX0 = null, runX1 = null, parent = null;
             try
             {
-            Array.Clear(candidate, 0, len);
+            ClearWork(candidate, 0, len);
 
             // 候補判定: 各画素は独立(他画素を参照しない)なので並列化する。candidate[] は
             // 走査順に依存せず、書き込みは distinct index のため出力は逐次版とビット不変。
@@ -554,7 +554,7 @@ namespace Iroca
         /// recoveredBits が非 null なら復帰画素のビットを立てる(詳細プレビューへの転写用)。戻り値は復帰画素数。
         /// </summary>
         private static int RecoverEnclosedHighlight(
-            float[] strength, Color32[] pixels,
+            float* strength, Color32[] pixels,
             PixelHsv hsv, ColorZone zone, int w, int h,
             ulong[] recoveredBits, CancellationToken ct = default)
         {
@@ -618,10 +618,10 @@ namespace Iroca
             float glowThr = medSelV + (1f - medSelV) * ColorZone.HighlightValueHeadroomFrac;
             if (glowThr >= 1f) return 0;
 
-            bool[] free = s_boolPool.Rent(len);   // 未選択(閉領域探索の通路)
-            bool[] open = s_boolPool.Rent(len);   // 画像端から到達できた未選択画素。成分走査後は「訪問済み」を兼ねる
-            int[] stamp = s_intPool.Rent(len);    // +id=現在の成分, -id=その成分のリング判定済み。成分 id は単調増加なのでクリア不要
-            int[] queue = s_intPool.Rent(len);    // 成分 flood のキュー(パック座標 (y<<16)|x)
+            bool* free = s_boolPool.Rent(len);   // 未選択(閉領域探索の通路)
+            bool* open = s_boolPool.Rent(len);   // 画像端から到達できた未選択画素。成分走査後は「訪問済み」を兼ねる
+            int* stamp = s_intPool.Rent(len);    // +id=現在の成分, -id=その成分のリング判定済み。成分 id は単調増加なのでクリア不要
+            int* queue = s_intPool.Rent(len);    // 成分 flood のキュー(パック座標 (y<<16)|x)
             int recovered = 0;
             try
             {
@@ -763,7 +763,7 @@ namespace Iroca
         }
 
         // 画素 (x,y) の 8 近傍に stamp==id の画素があるか(成分に隣接する AA 混色帯の除外用)。
-        private static bool IsAdjacent8ToStamp(int[] stamp, int id, int x, int y, int w, int h)
+        private static bool IsAdjacent8ToStamp(int* stamp, int id, int x, int y, int w, int h)
         {
             int yLo = Mathf.Max(0, y - 1), yHi = Mathf.Min(h - 1, y + 1);
             int xLo = Mathf.Max(0, x - 1), xHi = Mathf.Min(w - 1, x + 1);

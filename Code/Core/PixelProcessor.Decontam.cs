@@ -11,7 +11,7 @@ using UnityEngine;
 
 namespace Iroca
 {
-    internal static partial class PixelProcessor
+    internal static unsafe partial class PixelProcessor
     {
         // 無彩フチ消し(CleanAchromaFringe)の定数。マッチ境界の外側に残る「地色の残った」混色画素
         // (背景より地色寄り=明るく、暗い再着色色に対し明るいフチに見える)を α 分解で背景へ寄せて消す。
@@ -47,11 +47,11 @@ namespace Iroca
         ///   それ以外は通常の再着色にフォールバック
         /// </summary>
         private static void DecontaminateAaBoundary(
-            Color32[] originalPixels, float[] strength, int w, int h,
+            Color32[] originalPixels, float* strength, int w, int h,
             Color sampleColor, Color targetColor,
             int radius, float interiorThreshold,
-            bool[] aaMask, Color32[] decontaminatedPixels, bool hasMatch = true,
-            CancellationToken ct = default, bool[] maskExcluded = null,
+            bool* aaMask, Color32* decontaminatedPixels, bool hasMatch = true,
+            CancellationToken ct = default, bool* maskExcluded = null,
             int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1,
             bool solidifyOnly = false)
         {
@@ -59,12 +59,12 @@ namespace Iroca
             // 呼び出し側がゾーン間で再利用するバッファを渡す。aaMask は全画素で読まれるため
             // 前ゾーンの結果をクリアしてから書き込む。decontaminatedPixels は aaMask=true の
             // 位置だけ下で上書きされ、その位置だけ参照されるためクリア不要。
-            Array.Clear(aaMask, 0, len);
+            ClearWork(aaMask, 0, len);
             // マッチ皆無(strength>0 が無い)なら AA 境界画素も存在しないので、4ch BG 推定
             // (BoxFilterSum)を丸ごと省く。aaMask は上でクリア済み=出力ビット不変。
             if (!hasMatch) return;
-            bool[] localAaMask = aaMask;
-            Color32[] localDecontaminatedPixels = decontaminatedPixels;
+            bool* localAaMask = aaMask;
+            Color32* localDecontaminatedPixels = decontaminatedPixels;
 
             // 処理矩形(P2-7 の後段 bbox)。α 分解が触るのは 0<strength<interiorThreshold の画素だけ=
             // 定義上 strength>0 の bbox 内なので、矩形外は前後で常に無変更=出力ビット不変。
@@ -101,8 +101,9 @@ namespace Iroca
             // 局所 BG 推定: strength=0 のピクセルだけを使った近傍和とその密度
             // 0..255 のスケールで計算（後で divide で平均化）
             // null 初期化してから try 内で Rent することでリークを防ぐ。
-            float[] wR = null, wG = null, wB = null, wD = null;
-            float[] bgRSum = null, bgGSum = null, bgBSum = null, bgDensity = null;
+            float* wR = null, wG = null, wB = null, wD = null;
+            float* bgDensity = null;
+            float* bgRSum = null, bgGSum = null, bgBSum = null;
             try
             {
             // 内部の固めだけ(solidifyOnly)なら、要るのは背景の密度だけ。
@@ -122,12 +123,12 @@ namespace Iroca
             {
                 int rowOff = y * w;
                 int beg = rowOff + donorX0;
-                Array.Clear(wD, beg, donorSpan);
+                ClearWork(wD, beg, donorSpan);
                 if (!solidifyOnly)
                 {
-                    Array.Clear(wR, beg, donorSpan);
-                    Array.Clear(wG, beg, donorSpan);
-                    Array.Clear(wB, beg, donorSpan);
+                    ClearWork(wR, beg, donorSpan);
+                    ClearWork(wG, beg, donorSpan);
+                    ClearWork(wB, beg, donorSpan);
                 }
                 for (int x = donorX0; x <= donorX1; x++)
                 {
@@ -264,7 +265,7 @@ namespace Iroca
         private const int DecontamDirectCostRatioSolid = 8;
 
         /// <summary>矩形内の α 分解の対象(0 &lt; strength &lt; interiorThreshold)の数。</summary>
-        private static long CountDecontamCandidates(float[] strength, int w,
+        private static long CountDecontamCandidates(float* strength, int w,
             int boxMinX, int boxMinY, int boxMaxX, int boxMaxY, float interiorThreshold, ParallelOptions po)
         {
             long total = 0;
@@ -288,10 +289,10 @@ namespace Iroca
         /// 候補(strength &gt; 0)の書き換えで変わらないので、読む順序に依存しない。
         /// </summary>
         private static void DecontaminateAaDirect(
-            Color32[] originalPixels, float[] strength, int w, int h,
+            Color32[] originalPixels, float* strength, int w, int h,
             Color sampleColor, Color targetColor, int radius,
             float interiorThreshold, float interiorBgDensityMin,
-            bool[] aaMask, Color32[] decontaminatedPixels, bool[] maskExcluded,
+            bool* aaMask, Color32* decontaminatedPixels, bool* maskExcluded,
             int boxMinX, int boxMinY, int boxMaxX, int boxMaxY, bool solidifyOnly, ParallelOptions po)
         {
             float sR = sampleColor.r * 255f;
@@ -389,10 +390,10 @@ namespace Iroca
         ///     target 混色を塗るのはマスク契約の違反。
         /// </summary>
         private static void CleanAchromaFringe(
-            Color32[] pixels, Color32[] originalPixels, float[] strength, float[] claimed,
+            Color32[] pixels, Color32[] originalPixels, float* strength, float* claimed,
             int w, int h, Color sampleColor, Color targetColor,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY, CancellationToken ct = default,
-            bool[] maskExcluded = null)
+            bool* maskExcluded = null)
         {
             float sR = sampleColor.r * 255f, sG = sampleColor.g * 255f, sB = sampleColor.b * 255f;
             float tR = targetColor.r * 255f, tG = targetColor.g * 255f, tB = targetColor.b * 255f;
@@ -412,7 +413,7 @@ namespace Iroca
             int fx0 = Mathf.Max(0, x0 - FringeBgRadius), fx1 = Mathf.Min(w - 1, x1 + FringeBgRadius);
             int fy0 = Mathf.Max(0, y0 - FringeBgRadius), fy1 = Mathf.Min(h - 1, y1 + FringeBgRadius);
             int fw = fx1 - fx0 + 1, fh = fy1 - fy0 + 1;
-            int[] satM = null;
+            int* satM = null;
             try
             {
                 satM = s_intPool.Rent(fw * fh);
@@ -495,7 +496,7 @@ namespace Iroca
         /// 余白の行・列を持たないので、16K 全面でも配列プールの上限(16384²)に収まる。
         /// 行ごとの累積は行並列、列方向の累積は列の帯ごとに並列(どちらも整数加算なので順序に依存しない)。
         /// </summary>
-        private static void BuildCountSat(float[] src, int[] sat, int w, int x0, int y0, int x1, int y1,
+        private static void BuildCountSat(float* src, int* sat, int w, int x0, int y0, int x1, int y1,
             ParallelOptions po, float minExclusive = 0.5f)
         {
             int satW = x1 - x0 + 1, rows = y1 - y0 + 1;
@@ -527,7 +528,7 @@ namespace Iroca
         private const int MixSegment = 32;
 
         /// <summary>矩形 [rx0..rx1]×[ry0..ry1] のうち範囲 [x0..x1]×[y0..y1] に入る部分の個数(BuildCountSat の表から)。</summary>
-        private static int CountInRect(int[] sat, int satW, int x0, int y0, int x1, int y1,
+        private static int CountInRect(int* sat, int satW, int x0, int y0, int x1, int y1,
             int rx0, int ry0, int rx1, int ry1)
         {
             int xa = Mathf.Max(x0, rx0) - x0, xb = Mathf.Min(x1, rx1) - x0;
@@ -546,7 +547,7 @@ namespace Iroca
 
         /// <summary>(x, y) を中心とする ±r の窓のうち範囲 [x0..x1]×[y0..y1] に入る部分の個数(BuildCountSat の表から)。</summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        private static int CountInWindow(int[] sat, int satW, int x0, int y0, int x1, int y1, int x, int y, int r)
+        private static int CountInWindow(int* sat, int satW, int x0, int y0, int x1, int y1, int x, int y, int r)
         {
             int xa = Mathf.Max(x0, x - r) - x0, xb = Mathf.Min(x1, x + r) - x0;
             int ya = Mathf.Max(y0, y - r) - y0, yb = Mathf.Min(y1, y + r) - y0;

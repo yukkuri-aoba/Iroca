@@ -11,7 +11,7 @@ using UnityEngine;
 
 namespace Iroca
 {
-    internal static partial class PixelProcessor
+    internal static unsafe partial class PixelProcessor
     {
         // ───────── 無彩(achroma)パス: 無彩サンプル / 極端無彩ターゲットの再着色破綻対策 ─────────
         // 通常の再着色は sample 彩度 sC を「分母・基準」に使う前提(mag=oC/sC, 彩度ゲート
@@ -79,15 +79,15 @@ namespace Iroca
         /// 落としつつ、コア近傍の脱彩した陰影/AA縁は保護する(彩度だけでは両者を区別できないため空間距離で
         /// 分離する)。呼び出し側で achromaWeight/サンプル彩度を gate。
         /// </summary>
-        private static void RejectNeutralForAchromaTarget(float[] strength, PixelHsv hsv, int w, int h, float sS, CancellationToken ct = default)
+        private static void RejectNeutralForAchromaTarget(float* strength, PixelHsv hsv, int w, int h, float sS, CancellationToken ct = default)
         {
             float[] pixS = hsv.S; int[] pixIdx = hsv.Index;
             const float matchThr = ColorZone.MatchStrengthFloor;
             float floor = sS * NeutralRejectFloorFrac;
             int len = w * h;
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-            bool[] cur = s_boolPool.Rent(len);
-            bool[] nxt = s_boolPool.Rent(len);
+            bool* cur = s_boolPool.Rent(len);
+            bool* nxt = s_boolPool.Rent(len);
             try
             {
                 // 高彩度マッチコア(マッチ済み かつ 彩度>=床)。行並列(要素独立=ビット不変)。
@@ -157,12 +157,12 @@ namespace Iroca
         /// マッチして元色が残る「中央の段差」を消すための前処理。陰影は後段 recolor の無彩パスの
         /// 形維持リマップ(AchromaFormGain)が担う。
         /// </summary>
-        private static void SolidifyAchromaInterior(float[] strength, int w, int h, float achromaWeight, CancellationToken ct = default)
+        private static void SolidifyAchromaInterior(float* strength, int w, int h, float achromaWeight, CancellationToken ct = default)
         {
             const float matchThr = ColorZone.MatchStrengthFloor;
             int len = w * h;
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-            bool[] m = s_boolPool.Rent(len);
+            bool* m = s_boolPool.Rent(len);
             try
             {
                 // マッチの印(書き換える前の strength で決める)。行並列(要素独立=ビット不変)。
@@ -250,10 +250,10 @@ namespace Iroca
         /// upMap: 同じ成分ごとに、白側の余白(AchromaHeadroomPercentile 参照、AchromaFormOffset 以下)を配る地図。
         /// 戻り値の地図と同じ画素に値が入る(戻り値が null なら null)。
         /// </summary>
-        // rentMap: 返す地図(upMap も)を s_floatPool から借りる(呼び出し側がゾーンの終わりに返す)。false なら new。
-        private static float[] BuildComponentMedianLMap(
-            Color32[] px, float[] strength, int w, int h, float thr, out float[] upMap, CancellationToken ct = default,
-            ColorPalette palette = null, bool rentMap = false)
+        // 返す地図(upMap も)は s_floatPool から借りる(呼び出し側がゾーンの終わりに返す)。
+        private static float* BuildComponentMedianLMap(
+            Color32[] px, float* strength, int w, int h, float thr, out float* upMap, CancellationToken ct = default,
+            ColorPalette palette = null)
         {
             upMap = null;
             int len = w * h;
@@ -269,10 +269,10 @@ namespace Iroca
             // 引く(同じ色に同じ変換を当てた値なのでビット単位で同じ。bbox 全画素の L の配列も要らない)。
             // 無ければ L を bbox 全画素ぶん並列で前計算する(旧: 逐次 DFS の内側で RgbToOklab)。
             // 意図した変更では両経路を同時に直すこと(色の表あり・なしのパリティを直接比べるテストは無い)。
-            float[] okL = null;
+            float* okL = null;
             int[] pIdx = null, binOf = null;
             // 行 run 方式の連結成分ラベリングで使う配列(確保は run 数 R が確定してから)。
-            int[] runX0 = null, runX1 = null, runY = null, parent = null, comp = null, rootComp = null, order = null;
+            int* runX0 = null, runX1 = null, runY = null, parent = null, comp = null, rootComp = null, order = null;
             try
             {
             if (palette != null)
@@ -448,27 +448,19 @@ namespace Iroca
 
             // 成分 → 代表 L の配り直し。行ごとに書き込み先が独立なので並列化しても同一結果。
             // run の外は 0(読む側は 0 を「地図なし」として全体の中央値へ戻す)。借りた配列は 0 で埋めてから。
-            float[] map, umap;
-            if (rentMap)
-            {
-                map = s_floatPool.Rent(len);
-                umap = s_floatPool.Rent(len);
-            }
-            else { map = new float[len]; umap = new float[len]; }
+            float* map = s_floatPool.Rent(len);
+            float* umap = s_floatPool.Rent(len);
             // 呼び出し側へ渡す前に抜けたら(キャンセル)、借りた地図はここで返す。
             try
             {
-                if (rentMap)
+                var clearMap = map; var clearUp = umap;
+                const int ClearChunk = 1 << 18;
+                Parallel.For(0, (len + ClearChunk - 1) / ClearChunk, bboxPo, c =>
                 {
-                    var clearMap = map; var clearUp = umap;
-                    const int ClearChunk = 1 << 18;
-                    Parallel.For(0, (len + ClearChunk - 1) / ClearChunk, bboxPo, c =>
-                    {
-                        int c0 = c * ClearChunk;
-                        Array.Clear(clearMap, c0, Math.Min(ClearChunk, len - c0));
-                        Array.Clear(clearUp, c0, Math.Min(ClearChunk, len - c0));
-                    });
-                }
+                    int c0 = c * ClearChunk;
+                    ClearWork(clearMap, c0, Math.Min(ClearChunk, len - c0));
+                    ClearWork(clearUp, c0, Math.Min(ClearChunk, len - c0));
+                });
                 var umapL = umap;
                 Parallel.For(0, bh, bboxPo, ly =>
                 {
@@ -484,7 +476,8 @@ namespace Iroca
             }
             catch
             {
-                if (rentMap) { s_floatPool.Return(map); s_floatPool.Return(umap); }
+                s_floatPool.Return(map);
+                s_floatPool.Return(umap);
                 throw;
             }
             upMap = umap;
@@ -520,10 +513,10 @@ namespace Iroca
         // 成分ローカルな統計で遠隔作用が無く、同素材の島を含めた場合はその島自身の地色基準を
         // 使うのが正しいため。
         private static bool TryComputeRegionLRange(
-            Color32[] px, float[] strength, int w,
+            Color32[] px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out float mid,
-            bool[] statsExclude = null,
+            bool* statsExclude = null,
             CancellationToken ct = default,
             ColorPalette palette = null)
         {

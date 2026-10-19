@@ -12,7 +12,7 @@ using UnityEngine;
 namespace Iroca
 {
     // PixelProcessor: OkLab 再着色本体(RecolorPixel)・再着色アンカー推定・関連定数。
-    internal static partial class PixelProcessor
+    internal static unsafe partial class PixelProcessor
     {
         // L 再マップの彩度ゲート定数。彩度が sample の何割に達したら remap をフル適用するか。
         // これ未満の低彩度画素は元 L を保持し、target が sample より明るい場合の暗部持ち上げ
@@ -95,10 +95,10 @@ namespace Iroca
         // 「同素材として」写像される)。3 パスとも同一の判定で除外すること — pass1 で除外した
         // 画素の candL/candC は未初期化(プール再利用のゴミ)であり、pass2/3 が読むと壊れる。
         private static bool TryComputeRecolorAnchor(
-            Color32[] px, float[] strength, int w,
+            Color32[] px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out float anchorL, out float anchorC,
-            bool[] statsExclude = null,
+            bool* statsExclude = null,
             CancellationToken ct = default,
             ColorPalette palette = null)
         {
@@ -122,8 +122,8 @@ namespace Iroca
             // 保存は **元画素インデックスのまま**(旧: 先頭詰めの圧縮配列)。pass2/3 は pass1 と同じ
             // コア判定で候補を選び直して読むだけになり、各パスが画素位置だけで完結する=チャンク
             // 並列化できる。集計はヒストグラム(整数加算)なので順序非依存で、逐次版とビット不変。
-            float[] candL = s_floatPool.Rent(len);
-            float[] candC = s_floatPool.Rent(len);
+            float* candL = s_floatPool.Rent(len);
+            float* candC = s_floatPool.Rent(len);
             try
             {
                 // pass 1: (L, C) を保存しつつ飽和度(C/L)ヒストグラム → 中央値から地色下限を決める
@@ -226,10 +226,10 @@ namespace Iroca
         /// 意図した変更では両経路を同時に直すこと(色の表あり・なしのパリティを直接比べるテストは無い)。
         /// </summary>
         private static bool TryComputeRecolorAnchorByColor(
-            Color32[] px, float[] strength, int w,
+            Color32[] px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out float anchorL, out float anchorC,
-            bool[] statsExclude, CancellationToken ct,
+            bool* statsExclude, CancellationToken ct,
             int[] pIdx, float[] pL, float[] pC, int colorCount)
         {
             anchorL = 0f;
