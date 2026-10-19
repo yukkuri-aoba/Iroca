@@ -10,7 +10,7 @@ zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合
 ```
 
 - 配布資産は 2 つ。
-  - **配布 zip**（`Iroca_v<VERSION>.zip`）: 利用者がダウンロードするもの（リリースページ・BOOTH）。中身は VPAI インストーラ・`README.txt`（導入方法・動作環境・利用規約の要約・連絡先。原稿は `scripts/download/README.txt`）・`LICENSE.txt`。`scripts/Build-DownloadZip.ps1` が作る。
+  - **配布 zip**（`Iroca_v<VERSION>.zip`）: 利用者がダウンロードするもの（リリースページ。BOOTH は名前だけ違う同じ中身の zip →「BOOTH の zip」）。中身は VPAI インストーラ・`README.txt`（導入方法・動作環境・利用規約の要約・連絡先。原稿は `scripts/download/README.txt`）・`LICENSE.txt`。`scripts/Build-DownloadZip.ps1` が作る。インストーラは読み込んだ時点の最新版を入れ、README にも版を書かないので、中身は版に依らない。
   - **VPM zip**（`com.yukkuri-aoba.iroca-<VERSION>.zip`）: git 追跡ファイルだけから作るパッケージ本体。VCC / ALCOM と VPAI インストーラがこれを取得する。VPM の決まりで `package.json` を頂点に置く形なので、利用者が開くものではなく、unitypackage も入れない。
   - VPAI インストーラ（`Iroca_Installer.unitypackage`、後述）は配布 zip に入れて配り、単体ではリリースに添付しない（資産の欄に並ぶものを減らして、利用者が取るものを迷わないように。2026-10-15 ユーザー決定）。
 - **CI が作るのは draft まで**。資産アップロードと publish は手動。
@@ -42,8 +42,27 @@ zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合
    - CHANGELOG に非空の `## [<VERSION>]` 節
    - README.md の見出しに `Ver <VERSION>`
    - `docs/index.json` に該当バージョンのエントリ + zipSHA256
-5. **資産アップロード + publish**: draft に配布 zip と VPM zip をアップロードし、本文のチェックリスト節を削除して publish。BOOTH には配布 zip を上げる。
+5. **資産アップロード + publish**: draft に配布 zip と VPM zip をアップロードし、本文のチェックリスト節を削除して publish。BOOTH の zip は、中身を変えていなければ差し替えない（→「BOOTH の zip」）。
 6. **検証確認**: `release-verify.yml`（publish/edit で起動）が green になることを確認。fail した場合は zip の差し替え、または `Build-VpmPackage.ps1` 再実行 → listing 再コミットで解消する。
+
+## BOOTH の zip
+
+BOOTH の 3 つのバリエーションには、版を上げても差し替えなくてよい zip を置いている（2026-10-19 ユーザー依頼）。
+
+```powershell
+.\scripts\Build-DownloadZip.ps1 -Booth   # → booth/ に 3 つ（booth/ は git 管理外）
+```
+
+| バリエーション | zip | 中身 |
+|---|---|---|
+| 無料版（¥0） | `Iroca.zip` | 配布 zip と同じ（インストーラ・README.txt・LICENSE.txt） |
+| 応援パック（¥300） | `Iroca_応援パック.zip` | 上の 3 つ＋応援メッセージ |
+| 応援パック+（¥1,000） | `Iroca_応援パック+.zip` | 同上 |
+
+- 応援メッセージの原稿は、プライベート側の `dev_safe/promo/応援パックを購入してくださった方へ.txt`（購入した人だけが読むものなので公開リポに置かない）。テキストは README と同じく BOM 付き UTF-8・CRLF にして入れる。
+- **作り直して差し替えるのは、中身の元（`scripts/download/README.txt`・`LICENSE`・`scripts/installer/vpai-config.json`・`scripts/Build-Installer.ps1` の creator の版・応援メッセージ）を変えたときだけ。** zip のエントリ日時はこれらの最後のコミット日時なので、中身が同じなら zip はバイト単位で同じになる。作り直した SHA256 が `docs/BOOTH_description.md` の「配布ファイル」に控えた値と同じなら、差し替えは要らない。
+- 中身の元にコミットしていない変更があると止まる（同じ日時で中身の違う zip ができないように）。応援メッセージは dev_safe 側でコミットしておく。
+- README.txt の動作環境は版で変わりうる。変えたら BOOTH の zip も差し替える（毎回ではない）。
 
 ## main と develop
 

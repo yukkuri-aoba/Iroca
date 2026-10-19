@@ -1,4 +1,4 @@
-いろか（Iroca） Ver {VERSION}
+いろか（Iroca）
 VRChat アバターなどのテクスチャを、Unity Editor 上で色替えするツールです。
 
 English follows the Japanese text.
@@ -19,7 +19,8 @@ VCC・ALCOM をお使いの場合は、次のリポジトリを追加して、�
 「Non-Destructive Modular Framework」（NDMF）を追加する方法でも導入できます（NDMF もこのリポジトリに載っています）。
 https://yukkuri-aoba.github.io/Iroca/index.json
 
-新しい版が出たら、VCC・ALCOM から更新するか、新しいインストーラをもう一度読み込んでください。
+新しい版が出たら、VCC・ALCOM から更新するか、このインストーラをもう一度読み込んでください
+（インストーラは、読み込んだ時点の最新版を入れます）。
 
 旧版（0.1.0、旧名「VRC Avatar Color Changer」）をお使いだった場合は、Assets/VACC フォルダを削除してください。
 
@@ -59,7 +60,7 @@ Copyright (c) 2026 yukkuri__aoba
 
 
 ------------------------------------------------------------
-Iroca Ver {VERSION} (English)
+Iroca (English)
 ------------------------------------------------------------
 A Unity Editor extension for recoloring textures, mainly for VRChat avatars.
 The Japanese text above is the official version.

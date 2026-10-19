@@ -277,6 +277,7 @@ try {
     Write-Host "5. git tag v$Version && git push origin v$Version"
     Write-Host "   -> CI will create a DRAFT release on GitHub"
     Write-Host "6. Upload Iroca_v$Version.zip and $ZipName to the draft release, then publish"
+    Write-Host "   (BOOTH の zip は版に依らないので差し替えない。docs/RELEASING.md の「BOOTH の zip」)"
     Write-Host "   $RepoUrl/releases"
     Write-Host ""
     Write-Host "zip location:"
