@@ -37,6 +37,10 @@ zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合
    → main への push で `pages.yml` が listing とオンラインマニュアルを配信する。手順 5 の publish より前に、
    `https://yukkuri-aoba.github.io/Iroca/index.json` と `https://yukkuri-aoba.github.io/Iroca/manual/` が開くことを確かめる
    （いろかの「マニュアル」ボタン・インストーラ・VCC へのリポジトリ追加は、どれも Pages の配信が前提）。
+   → この配信から、0.2.1 以降を使っている人のいろかのウィンドウに新しい版のお知らせが出る（`Code/Infra/UpdateCheck.cs`。
+   1 日 1 回まで listing を読む）。publish までは VPM zip の URL が開かないので、その間に VCC / ALCOM で更新しようと
+   した人は失敗する。手順 5 まで間を空けない。listing の版の `unity` 欄は、お知らせでも「その版が入る Unity の最低版」
+   として使う（今の Unity で入らない版は知らせない）。
    → `release.yml` が起動し、以下を検証してから draft を作成する（不一致は fail）:
    - tag ↔ package.json の version / url
    - CHANGELOG に非空の `## [<VERSION>]` 節
