@@ -213,8 +213,9 @@ namespace Iroca
 
                 float dot = (pR - bR) * dirR + (pG - bG) * dirG + (pB - bB) * dirB;
                 float alpha = dot / dirSq;
+                bool beyondSample = alpha > 1f;
                 if (alpha < 0f) alpha = 0f;
-                else if (alpha > 1f) alpha = 1f;
+                else if (beyondSample) alpha = 1f;
 
                 // BG–sample 線分から大きく外れる色は、α 分解の前提が成り立たないためスキップする。
                 float projR = bR + alpha * dirR;
@@ -222,6 +223,9 @@ namespace Iroca
                 float projB = bB + alpha * dirB;
                 float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
                 if (distSq > DecontamLineDistSqMax) continue; // 許容誤差。各チャンネル約31のズレまで許容
+
+                // サンプルを BG と反対側へ越えた画素は素材そのもの(説明は DecontamBeyondSampleNote)。
+                if (beyondSample) { strength[i] = 1f; continue; }
 
                 float oneMinusAlpha = 1f - alpha;
                 float resR = alpha * tR + oneMinusAlpha * bR;
@@ -252,6 +256,13 @@ namespace Iroca
 
         // ‖sample - BG‖² の下限(≈1 階調)。これ未満は sample≈BG で α が定義できない。
         private const float DecontamDegenEps = 1f;
+
+        // [DecontamBeyondSampleNote] サンプルを BG と反対側へ越えた画素(射影の α > 1。例: サンプルより明るい
+        // 白い布の純白、暗いサンプルより暗い陰)は、BG とサンプルの混色ではなく素材そのものの濃淡。α を 1 に
+        // 丸めて目標色をそのまま塗ると、明るさを保つ再着色をした内側と段差ができ、縁が目標色の線になっていた
+        // (実測 2026-10-20、固定設定: 生成りの上衣の模様のまわりの暗い帯、暗い布の白い三角のまわりの明るい
+        // 縁取り、淡い部品の鮮やかな輪郭)。分解しないだけ(部分強度のまま)だと元の色の輪やまだらが残ったので、
+        // 内部と同じく強度 1 に固めて通常の再着色に任せる。線分から外れる色(距離の判定)は従来どおり触らない。
 
         // BG–sample 線分からの距離² の上限(各 ch 約 31 階調)。これを超える色は α 分解の前提
         // (2 色の混色)が成り立たない。AA デコンタミの両経路と無彩フチ消しで共通。
@@ -349,14 +360,17 @@ namespace Iroca
 
                     float dot = (pR - bR) * dirR + (pG - bG) * dirG + (pB - bB) * dirB;
                     float alpha = dot / dirSq;
+                    bool beyondSample = alpha > 1f;
                     if (alpha < 0f) alpha = 0f;
-                    else if (alpha > 1f) alpha = 1f;
+                    else if (beyondSample) alpha = 1f;
 
                     float projR = bR + alpha * dirR;
                     float projG = bG + alpha * dirG;
                     float projB = bB + alpha * dirB;
                     float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
                     if (distSq > DecontamLineDistSqMax) continue;
+
+                    if (beyondSample) { strength[i] = 1f; continue; }   // 素材そのもの(矩形全体の経路と同じ)
 
                     float oneMinusAlpha = 1f - alpha;
                     float resR = alpha * tR + oneMinusAlpha * bR;
