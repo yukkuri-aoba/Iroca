@@ -122,6 +122,46 @@ namespace Iroca
             else LivePreview.SetTarget(null, null);
         }
 
+        // ───────────── 外(自動化 API・MCP)からの変更 ─────────────
+
+        /// <summary>
+        /// <paramref name="texture"/> を表示している窓の、いまの編集内容の複製(マスク込み)。表示している窓が無ければ null。
+        /// 窓は編集をすぐにはレシピへ書かないので、自動化 API はこれを土台にして、利用者が窓で見ているものに色替えを足す。
+        /// </summary>
+        internal static IrocaSessionState EditingStateOf(Texture2D texture)
+        {
+            var win = WindowShowing(texture);
+            if (win == null || win._session == null) return null;
+            win._maskView?.SyncBuffersToState();
+            return JsonUtility.FromJson<IrocaSessionState>(JsonUtility.ToJson(win._session));
+        }
+
+        /// <summary>
+        /// 自動化 API がレシピを書き換えた後に呼ぶ。そのテクスチャを表示している窓を、今の編集内容を保存せずに
+        /// レシピから読み直す(保存すると、外の変更を窓の古い内容で上書きしてしまう)。読み直しは窓の Undo に
+        /// 積むので、Ctrl+Z で外の変更の前に戻せる(戻した内容は窓の次の保存でレシピにも書かれる)。
+        /// </summary>
+        internal static void ReloadFromRecipe(IrocaRecipe recipe, string undoName)
+        {
+            if (recipe == null || recipe.sourceTexture == null) return;
+            var win = WindowShowing(recipe.sourceTexture);
+            if (win == null) return;
+            win._maskView?.SyncBuffersToState();
+            Undo.RegisterCompleteObjectUndo(win, undoName);
+            win._boundRecipe = recipe;
+            win.LoadPersistedSessionForCurrentTexture();
+            win._maskView?.ResetActiveTarget();
+            win.Repaint();
+        }
+
+        private static IrocaWindow WindowShowing(Texture2D texture)
+        {
+            if (texture == null) return null;
+            foreach (var w in Resources.FindObjectsOfTypeAll<IrocaWindow>())
+                if (w != null && w.sourceTexture == texture) return w;
+            return null;
+        }
+
         // ───────────── 登録 ─────────────
 
         /// <summary>「アバターに非破壊で登録」。登録先を決め、レシピを作るか更新し、コンポーネントを付ける。</summary>

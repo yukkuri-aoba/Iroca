@@ -142,6 +142,122 @@ namespace Iroca.EditorTests
             return r;
         }
 
+        // ─── 色替え(Recolor) ───
+
+        private static readonly Color32 Blue = new Color32(30, 40, 200, 255);
+
+        // 左半分が赤・右半分が青(32×16)。
+        private string Halves()
+        {
+            var px = new Color32[32 * 16];
+            for (int y = 0; y < 16; y++)
+                for (int x = 0; x < 32; x++)
+                    px[y * 32 + x] = x < 16 ? Red : Blue;
+            return _assets.WritePng("halves", px, 32, 16);
+        }
+
+        private static string Request(string texture, string apply, string changes, string extra = "")
+            => "{\"texture\":\"" + texture + "\",\"apply\":\"" + apply + "\",\"changes\":" + changes + extra + "}";
+
+        private static IrocaAutomation.RecolorTextureResult RecolorOk(string request)
+        {
+            string json = IrocaAutomation.Recolor(request);
+            var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
+            Assert.IsTrue(r.ok, json);
+            return r;
+        }
+
+        [Test]
+        public void Recolor_Preview_SavesNothingAndChangesOnlyTheClickedColor()
+        {
+            string src = Halves();
+            var r = RecolorOk(Request(src, "preview", "[{\"name\":\"red\",\"at\":[0.25,0.5],\"to\":\"#1A2B5C\"}]"));
+            Assert.AreEqual(0.5f, r.changedFraction, 1e-4f);
+            Assert.AreEqual("#C81E1E", r.zones.Single().from);
+            Assert.AreEqual("#1A2B5C", r.zones.Single().to);
+            Assert.IsTrue(File.Exists(r.preview), "比較画像を書くこと");
+            Assert.IsEmpty(r.recipe);
+            Assert.IsEmpty(r.output);
+            CollectionAssert.IsEmpty(UnityEditor.AssetDatabase.FindAssets("t:IrocaRecipe", new[] { _assets.Folder }));
+        }
+
+        [Test]
+        public void Recolor_Png_WritesRecoloredNextToSource()
+        {
+            string src = Halves();
+            var r = RecolorOk(Request(src, "png", "[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]"));
+            Assert.AreEqual(TestAssets.Abs(_assets.Folder + "/halves_recolored.png"), r.output);
+            var tex = new Texture2D(2, 2);
+            try
+            {
+                Assert.IsTrue(tex.LoadImage(File.ReadAllBytes(r.output)));
+                var px = tex.GetPixels32();
+                Assert.IsFalse(Same(px[0], Red), "赤い側が変わること");
+                Assert.IsTrue(Same(px[31], Blue), "青い側は変わらないこと");
+            }
+            finally { Object.DestroyImmediate(tex); }
+        }
+
+        [Test]
+        public void Recolor_Avatar_RegistersRecipeAndReplacesZoneOfSameName()
+        {
+            string src = Halves();
+            var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
+            bool hadRecipeFolder = UnityEditor.AssetDatabase.IsValidFolder(RecipeStore.DefaultFolder);
+            bool hadIrocaFolder = UnityEditor.AssetDatabase.IsValidFolder("Assets/Iroca");
+            var root = new GameObject("IrocaRecolorTestAvatar");
+            var mat = new Material(Shader.Find("Standard")) { mainTexture = tex };
+            string recipePath = null;
+            try
+            {
+                var body = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                body.name = "Body";
+                body.transform.SetParent(root.transform);
+                body.GetComponent<Renderer>().sharedMaterial = mat;
+
+                // 登録先の既定は、そのテクスチャを使うレンダラーの共通の親(1 つならそのレンダラー。UI と同じ)。
+                string first = "[{\"name\":\"skirt\",\"at\":[0.25,0.5],\"to\":\"#1A2B5C\"}]";
+                var r = RecolorOk(Request(src, "avatar", first));
+                recipePath = r.recipe;
+                Assert.AreEqual("IrocaRecolorTestAvatar/Body", r.avatar);
+                var component = body.GetComponent<IrocaRecolor>();
+                Assert.IsNotNull(component, "コンポーネントを付けること");
+                var recipe = component.recipes.Single();
+                Assert.AreEqual(tex, recipe.sourceTexture);
+                Assert.AreEqual(recipePath, UnityEditor.AssetDatabase.GetAssetPath(recipe));
+
+                // 同じ名前で頼み直す(登録先は明示) → 同じレシピのまま、ゾーンは 1 つで変更先が替わる。
+                string again = "[{\"name\":\"skirt\",\"at\":[0.25,0.5],\"to\":\"#FFAA00\"}]";
+                var r2 = RecolorOk(Request(src, "avatar", again, ",\"avatar\":\"IrocaRecolorTestAvatar/Body\""));
+                Assert.AreEqual(recipePath, r2.recipe);
+                var state = RecipeStore.Load(recipe);
+                Assert.AreEqual(1, state.zones.Count);
+                Assert.AreEqual("#FFAA00", "#" + ColorUtility.ToHtmlStringRGB(state.zones[0].targetColor));
+                Assert.AreEqual(1, body.GetComponents<IrocaRecolor>().Length);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(mat);
+                if (!string.IsNullOrEmpty(recipePath)) UnityEditor.AssetDatabase.DeleteAsset(recipePath);
+                if (!hadRecipeFolder) UnityEditor.AssetDatabase.DeleteAsset(RecipeStore.DefaultFolder);
+                if (!hadIrocaFolder) UnityEditor.AssetDatabase.DeleteAsset("Assets/Iroca");
+            }
+        }
+
+        [TestCase("preview", "[{\"at\":[0.25,0.5],\"to\":\"darkish blue\"}]", "'to' must be a color")]
+        [TestCase("preview", "[{\"at\":[1.5,0.5],\"to\":\"#000000\"}]", "'at' must be [u, v]")]
+        [TestCase("preview", "[{\"to\":\"#000000\"}]", "give 'at'")]
+        [TestCase("preview", "[]", "no enabled zones")]
+        [TestCase("save", "[{\"from\":\"#C81E1E\",\"to\":\"#000000\"}]", "unknown apply")]
+        public void Recolor_InvalidRequest_IsError(string apply, string changes, string error)
+        {
+            string json = IrocaAutomation.Recolor(Request(Halves(), apply, changes));
+            var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
+            Assert.IsFalse(r.ok, json);
+            StringAssert.Contains(error, r.error);
+        }
+
         // ─── 道具 ───
 
         private static IrocaPresetData RedToBlue(out ColorZone zone)

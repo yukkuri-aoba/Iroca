@@ -340,10 +340,14 @@ namespace Iroca
         /// 全経路がここを通る。原本は製品の書き出しと共有の <see cref="ExportPipeline.ReadSourcePixels"/> を
         /// imported=null で呼んで読む（取り込み済みテクスチャへのフォールバックはしない。PNG/JPG のみ）。
         /// 色替えは非破壊ビルドと同じ入口なので、有効なゾーンだけを並び順のまま、state のマスクを当てて処理する。
+        /// <paramref name="imported"/> を渡すと、PNG/JPG として読めない原本(PSD・TGA など)は UI の書き出しと同じく
+        /// 取り込み済みテクスチャから読む。<paramref name="panelNextToOutput"/> が false なら比較パネルを書かない
+        /// (呼び出し側が別の場所に作る)。
         /// </summary>
         private static RecolorResult RunRecolorCore(
             string sourceAssetPath, IrocaSessionState state,
-            string outputAssetPath, List<string> warnings)
+            string outputAssetPath, List<string> warnings,
+            Texture2D imported = null, bool panelNextToOutput = true)
         {
             var result = new RecolorResult { warnings = warnings ?? new List<string>() };
 
@@ -360,8 +364,8 @@ namespace Iroca
             foreach (var z in state.zones) { if (z != null && z.enabled) { z.EnsureId(); z.UpdateCacheIfNeeded(); } }
 
             // ── ディスクの PNG を直接読む（import 設定/readable に依存せず製品経路と一致させる） ──
-            // 取り込み済みテクスチャを渡さない(null)ので、ExportPipeline のフォールバックは起きず PNG/JPG のみを受け付ける。
-            if (ExportPipeline.ReadSourcePixels(srcAbs, null, out Color32[] pixels, out int w, out int h)
+            // imported が null なら ExportPipeline のフォールバックは起きず PNG/JPG のみを受け付ける。
+            if (ExportPipeline.ReadSourcePixels(srcAbs, imported, out Color32[] pixels, out int w, out int h)
                     == ExportPipeline.SourceKind.Unavailable)
             { result.error = "failed to decode source image."; return result; }
 
@@ -391,7 +395,7 @@ namespace Iroca
             result.largestComponentFraction = metrics.largestComponentFraction;
             result.changeComponentCount = metrics.componentCount;
             result.changeBBox = new[] { metrics.bboxX, metrics.bboxY, metrics.bboxW, metrics.bboxH };
-            WritePreviewPanel(originalPixels, pixels, w, h, outAbs, srcAbs, result);
+            if (panelNextToOutput) WritePreviewPanel(originalPixels, pixels, w, h, outAbs, srcAbs, result);
 
             result.ok = true;
             result.output = outAbs;
