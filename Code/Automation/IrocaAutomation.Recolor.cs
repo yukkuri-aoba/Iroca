@@ -230,6 +230,8 @@ namespace Iroca
                     int switched = RecipeRegistration.SwitchToSource(exportUsers, tex, exports);
                     if (switched > 0) r.warnings.Add($"switched {switched} material(s) from the exported image back to the source texture.");
                     RecipeRegistration.Attach(target, recipe);
+                    // Attach が付ける名前(Iroca: Register Recolor)ではなく、外からの色替えだと分かる名前にする。
+                    Undo.SetCurrentGroupName(UndoName);
                     Undo.CollapseUndoOperations(undoGroup);
 
                     IrocaWindow.ReloadFromRecipe(recipe, UndoName);
