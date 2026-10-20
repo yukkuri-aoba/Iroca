@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### 追加
+
+- AI エージェント（Claude Code・Cursor など）から、[MCP for Unity](https://github.com/CoplayDev/unity-mcp)（バージョン 10）を通していろかを使えるようにしました。「この衣装を紺色にして」と頼むと、AI がアバターのテクスチャの色を調べて色替えし、アバターに非破壊で登録します。仕上げはいろかのウィンドウで手直しできます（マニュアル「AI エージェントから使う（MCP）」）。AI に使わせたくないときは、MCP for Unity の Tools で `iroca_` で始まる 3 つのチェックを外してください
+
 ### 変更
 
 - MCP for Unity を入れているプロジェクトで、いろかの開発用のツール（`iroca_recolor` など）が AI のツール一覧に出ないようにしました。開発用の連携を配布物から外しています
