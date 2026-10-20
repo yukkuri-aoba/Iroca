@@ -71,6 +71,7 @@ docs/unity-mcp-automation.md
 !scripts/build-check/IrocaEditor.Debug.csproj
 !scripts/build-check/IrocaSentisCheck.csproj
 !scripts/build-check/IrocaNdmfCheck.csproj
+!scripts/build-check/IrocaMcpCheck.csproj
 scripts/build-check/bin/
 scripts/build-check/obj/
 
