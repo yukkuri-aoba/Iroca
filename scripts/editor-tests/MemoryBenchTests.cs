@@ -44,7 +44,7 @@ namespace Iroca.EditorTests
     [Category("Memory")]
     public class MemoryBenchTests
     {
-        [Serializable] private class CaseDto { public string name = ""; public string png = ""; public string zones = ""; public int importMaxSize; public int exportAfterStep = -1; public int cancelOverlapRounds; }
+        [Serializable] private class CaseDto { public string name = ""; public string png = ""; public string zones = ""; public int importMaxSize; public int exportAfterStep = -1; public int cancelOverlapRounds; public int refineRounds; }
         [Serializable] private class CasesDto { public int steps = 12; public int releaseWaitSeconds = 60; public bool gcEachStep; public bool reuseOutput; public bool hashOutput = true; public List<CaseDto> cases = new List<CaseDto>(); }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -297,6 +297,33 @@ namespace Iroca.EditorTests
                         }
                         GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
                         sb.Append(Sample(c.name, "liveAfterOverlap", c.cancelOverlapRounds, 0)).Append('\n');
+                    }
+
+                    if (c.refineRounds > 0)
+                    {
+                        // AI 提案の精密化(右クリックの「ここは塗らない」などのたびに走る)を繰り返したときのヒープと GC。
+                        // 提案の代わりに、最初のゾーンのサンプル色に近い画素のマスクを使う(部位ほどの大きさの塊になる)。
+                        var sample = (Color32)zones[0].sampleColor;
+                        var proposal = new bool[src.Length];
+                        for (int i = 0; i < src.Length; i++)
+                        {
+                            int dr = src[i].r - sample.r, dg = src[i].g - sample.g, db = src[i].b - sample.b;
+                            proposal[i] = dr * dr + dg * dg + db * db < 40 * 40;
+                        }
+                        for (int r = 0; r < c.refineRounds; r++)
+                        {
+                            var rw = System.Diagnostics.Stopwatch.StartNew();
+                            var mask = (bool[])proposal.Clone();
+                            SamMaskRefine.SnapBoundary(mask, src, w, h);
+                            SamMaskRefine.ExtendFringe(mask, src, w, h);
+                            SamMaskRefine.IncludeAaTransition(mask, src, w, h);
+                            SamMaskRefine.PeelThinSpill(mask, src, w, h);
+                            int on = 0;
+                            for (int i = 0; i < mask.Length; i++) if (mask[i]) on++;
+                            sb.Append(Sample(c.name, "refine", r, rw.Elapsed.TotalMilliseconds, 0, on.ToString())).Append('\n');
+                        }
+                        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                        sb.Append(Sample(c.name, "liveAfterRefine", c.refineRounds, 0)).Append('\n');
                     }
 
                     // 手放す: 出力・選択キャッシュ・プール。その後 GC をかけながら待ち、OS へ返るかを見る。
