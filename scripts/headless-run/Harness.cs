@@ -338,6 +338,11 @@ namespace Iroca
             if (args.Length >= 1 && args[0] == "--previewselftest")
                 return RunPreviewSelfTest();
 
+            // --nativememselftest: 入力画像不要。Mono のヒープの外に置いた作業配列・色の表が、処理の後に
+            // ReleaseWorkBuffers で全部解放されるか(参照の数え漏れ・返し忘れが無いか)を確かめる。
+            if (args.Length >= 1 && args[0] == "--nativememselftest")
+                return RunNativeMemorySelfTest();
+
             // --samops-*: AI マスク提案の純計算層(SamImageOps/SamCoordMapper/SamMaskPostprocess/
             // MaskRle)を実 C# で駆動し、pytest の NumPy リファレンスと突き合わせる決定的検証モード。
             if (args.Length >= 1 && args[0].StartsWith("--samops-", StringComparison.Ordinal))
@@ -945,6 +950,147 @@ namespace Iroca
                   !(cUnchanged.r == 255 && cUnchanged.g == 0 && cUnchanged.b == 255), "changeTile corner is gray");
 
             Console.WriteLine(fails == 0 ? "PREVIEWSELFTEST ALL PASS" : $"PREVIEWSELFTEST {fails} FAILED");
+            return fails == 0 ? 0 : 4;
+        }
+
+        // ─── ネイティブメモリの自己検証(入力画像不要) ───
+        // 作業配列(WorkPools)と色の表(PixelProcessor.Palette.cs)は Mono のヒープの外に置き、色の表は参照の数で
+        // 解放する。処理の後に ReleaseWorkBuffers を呼ぶと LiveBytes が 0 に戻ること(数え漏れ・返し忘れが無いこと)を、
+        // 色の表を作る経路・作らない経路・取り消し・使用中の表の追い出しで確かめる。追い出した表を使い終わる前に
+        // 解放する誤りがあると、解放した大きい領域は OS へ戻るので、読んだ時点でアクセス違反で落ちる(非 0 で終わる)。
+        private static int RunNativeMemorySelfTest()
+        {
+            int fails = 0;
+            void Check(bool cond, string label)
+            {
+                Console.WriteLine($"NATIVEMEMSELFTEST {(cond ? "PASS" : "FAIL")} {label}");
+                if (!cond) fails++;
+            }
+
+            // 色の種類が少ない画像(色の表を作る。帯ごとに濃淡 7 段)と、ノイズで種類が多い画像(作らない)。
+            Color32[] Flat(int n, int seed)
+            {
+                var px = new Color32[n * n];
+                for (int y = 0; y < n; y++)
+                    for (int x = 0; x < n; x++)
+                    {
+                        byte shade = (byte)(120 + ((x + y) % 7) * 10);
+                        px[y * n + x] = (((x / 37) + (y / 53) + seed) % 4) switch
+                        {
+                            0 => new Color32(shade, 40, 40, 255),
+                            1 => new Color32(40, shade, 60, 255),
+                            2 => new Color32(230, 230, 230, 255),
+                            _ => new Color32(30, 30, (byte)(shade / 2), 255),
+                        };
+                    }
+                return px;
+            }
+            Color32[] Noise(int n)
+            {
+                var rng = new System.Random(12345);
+                var px = new Color32[n * n];
+                for (int i = 0; i < px.Length; i++)
+                    px[i] = new Color32((byte)rng.Next(256), (byte)rng.Next(256), (byte)rng.Next(256), 255);
+                return px;
+            }
+            var zone = new ColorZone
+            {
+                name = "nativemem",
+                enabled = true,
+                mode = SelectionMode.ColorPick,
+                sampleColor = new Color(170 / 255f, 40 / 255f, 40 / 255f),
+                targetColor = new Color(0.2f, 0.4f, 0.9f),
+                tolerance = 0.3f,
+            };
+            zone.EnsureId();
+            zone.UpdateCacheIfNeeded();
+            var zones = new List<ColorZone> { zone };
+            var settings = new SettingsCfg().ToRecolorSettings();
+            Color32[] Run(Color32[] src, int n, System.Threading.CancellationToken ct = default)
+            {
+                var px = (Color32[])src.Clone();
+                PixelProcessor.ProcessPixelsArray(px, n, n, null, zones, settings, ct);
+                return px;
+            }
+            bool Same(Color32[] a, Color32[] b)
+            {
+                if (a == null || b == null || a.Length != b.Length) return false;
+                for (int i = 0; i < a.Length; i++)
+                    if (a[i].r != b[i].r || a[i].g != b[i].g || a[i].b != b[i].b || a[i].a != b[i].a) return false;
+                return true;
+            }
+            long Live() => IrocaNativeMemory.LiveBytes;
+            long PoolFree() => WorkPools.Float.FreeBytes + WorkPools.Bool.FreeBytes + WorkPools.Byte.FreeBytes
+                               + WorkPools.Rgba32.FreeBytes + WorkPools.Int.FreeBytes;
+            int PoolRented() => WorkPools.Float.RentedCount + WorkPools.Bool.RentedCount + WorkPools.Byte.RentedCount
+                                + WorkPools.Rgba32.RentedCount + WorkPools.Int.RentedCount;
+
+            long start = Live();
+            Check(start == 0, $"start live={start}");
+
+            // 1) 色の表を作る経路。表はキャッシュに残る(プールの空きを除いた分 = 色の表。番号だけで 4 バイト/画素)。
+            const int N = 1024;
+            var flatA = Flat(N, 0);
+            var outA = Run(flatA, N);
+            long paletteA = Live() - PoolFree();
+            Check(PoolRented() == 0, $"palette path: all work arrays returned (rented={PoolRented()})");
+            Check(paletteA >= (long)N * N * sizeof(int), $"palette cached bytes={paletteA}");
+            var outA2 = Run(flatA, N);   // キャッシュに当たる
+            Check(Same(outA, outA2), "cache hit: output same");
+            Check(Live() - PoolFree() == paletteA, $"cache hit: no new palette (bytes={Live() - PoolFree()}, want {paletteA})");
+            PixelProcessor.ReleaseWorkBuffers();
+            Check(Live() == start, $"after release (palette) live={Live()}");
+
+            // 2) 色の表を作らない経路(画素ごとの HSV を作業配列から借りる)。
+            const int NN = 512;
+            Run(Noise(NN), NN);
+            Check(PoolRented() == 0, $"no-palette path: all work arrays returned (rented={PoolRented()})");
+            Check(Live() == PoolFree(), $"no-palette path: nothing but pool free blocks (live={Live()}, free={PoolFree()})");
+            PixelProcessor.ReleaseWorkBuffers();
+            Check(Live() == start, $"after release (no palette) live={Live()}");
+
+            // 3) 途中で取り消す。取り消す時期をずらして何度か回し、どこで抜けても返し忘れが無いこと。
+            const int NB = 2048;
+            var flatB = Flat(NB, 1);
+            for (int k = 0; k < 8; k++)
+            {
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromMilliseconds(5 + 15 * k));
+                try { Run(flatB, NB, cts.Token); }
+                catch (OperationCanceledException) { }
+                catch (AggregateException ae) when (ae.InnerException is OperationCanceledException) { }
+            }
+            Check(PoolRented() == 0, $"cancelled: all work arrays returned (rented={PoolRented()})");
+            PixelProcessor.ReleaseWorkBuffers();
+            Check(Live() == start, $"after release (cancelled) live={Live()}");
+
+            // 4) 使っている表を追い出す。大きい画像 C を別スレッドで処理している間に、別の大きい画像 D の処理と
+            //    ReleaseWorkBuffers(キャッシュの全消去)を繰り返す。C の表はキャッシュから外れても、C が使い終わる
+            //    まで解放されてはいけない(出力が単独で処理したときと同じで、落ちないこと)。
+            var flatC = Flat(NB, 2);
+            var flatD = Flat(NB, 3);
+            var refC = Run(flatC, NB);
+            PixelProcessor.ReleaseWorkBuffers();
+            bool allSame = true;
+            int overlapRuns = 0;
+            for (int round = 0; round < 3; round++)
+            {
+                Color32[] gotC = null;
+                var t = System.Threading.Tasks.Task.Run(() => gotC = Run(flatC, NB));
+                while (!t.IsCompleted)
+                {
+                    Run(flatD, NB);
+                    PixelProcessor.ReleaseWorkBuffers();
+                    overlapRuns++;
+                }
+                t.Wait();
+                allSame &= Same(refC, gotC);
+            }
+            Check(allSame, $"evicted palette in use: output same (overlapping runs={overlapRuns})");
+            Check(PoolRented() == 0, $"evicted: all work arrays returned (rented={PoolRented()})");
+            PixelProcessor.ReleaseWorkBuffers();
+            Check(Live() == start, $"after release (evicted in use) live={Live()}");
+
+            Console.WriteLine(fails == 0 ? "NATIVEMEMSELFTEST ALL PASS" : $"NATIVEMEMSELFTEST {fails} FAILED");
             return fails == 0 ? 0 : 4;
         }
 

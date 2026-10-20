@@ -52,6 +52,16 @@ def test_preview_selftest(harness):
     assert not failed, "不変量に反した項目があります:\n" + "\n".join(failed)
 
 
+def test_native_memory_selftest(harness):
+    """作業配列・色の表(Mono のヒープの外)が処理の後に全部解放でき、使用中の色の表を追い出しても出力が変わらない。"""
+    r = _run(harness, "--nativememselftest")
+    lines = r.stdout.splitlines()
+    assert r.returncode == 0, (
+        f"--nativememselftest が失敗 (exit={r.returncode}):\n{r.stdout}\n{r.stderr}")
+    assert lines and lines[-1] == "NATIVEMEMSELFTEST ALL PASS", (
+        f"最終行が ALL PASS ではありません:\n{r.stdout}")
+
+
 # ─────────────── AA 遷移包含: クロップ実行と全画像実行の一致 ───────────────
 _N = 1024          # 全体より小さいクロップ矩形が取れる大きさ（帯幅 d=3、パディング 15d）
 _RADIUS = 60.0
