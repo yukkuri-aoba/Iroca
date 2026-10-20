@@ -22,7 +22,7 @@
       ]
     },
     "chroma_on_white_to_blue": {
-      "sha256": "545a737e9bb3040c62408d326c36db3065b81da71e9710f81767e647aa0e0e92",
+      "sha256": "3440db8833a6d7c2373aac081f321864eddb41acfa9f6318738d55d81cec642d",
       "shape": [
         48,
         48,
@@ -78,7 +78,7 @@
       ]
     },
     "edge_odd_23x37_highlight": {
-      "sha256": "d90e7f6b5149b08c30a99ac4b5ecf46cd58b4aab03b181f4ad670af3fd3b5fc0",
+      "sha256": "392d8700a09b0280f6e6d5f548e8ffdae5846f98df502e273031f55097872cd1",
       "shape": [
         23,
         37,
