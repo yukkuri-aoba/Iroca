@@ -63,6 +63,85 @@ namespace Iroca.EditorTests
             AssertOnlyRightHalfChanged(Run(preset, out _));
         }
 
+        // ─── 調べる(Inspect) ───
+
+        [Test]
+        public void Inspect_Texture_ReturnsEachColorWithPositionInsideIt()
+        {
+            // 左半分が赤・右半分が青(64×32)。2 色が半分ずつで、代表点はそれぞれの側の内側。
+            var blue = new Color32(30, 40, 200, 255);
+            var px = new Color32[64 * 32];
+            for (int y = 0; y < 32; y++)
+                for (int x = 0; x < 64; x++)
+                    px[y * 64 + x] = x < 32 ? Red : blue;
+            string src = _assets.WritePng("halves", px, 64, 32);
+
+            var r = Inspect(src);
+            Assert.AreEqual("texture", r.kind);
+            var info = r.textures.Single();
+            Assert.AreEqual(src, info.path);
+            Assert.AreEqual(2, info.colors.Count, string.Join(",", info.colors.Select(c => c.hex)));
+            var red = info.colors.Single(c => c.hex == "#C81E1E");
+            var bl = info.colors.Single(c => c.hex == "#1E28C8");
+            Assert.AreEqual(0.5f, red.coverage, 1e-4f);
+            Assert.Less(red.uv[0], 0.5f);
+            Assert.Greater(bl.uv[0], 0.5f);
+            Assert.AreEqual(1f, red.regionShare, 1e-4f);
+            Assert.IsTrue(File.Exists(info.thumbnail), "印付きの縮小画像を書くこと");
+        }
+
+        [Test]
+        public void Inspect_SceneObject_ListsMainTexturesUnderIt()
+        {
+            string src = _assets.WritePng("body", Enumerable.Repeat(Red, W * H).ToArray(), W, H);
+            var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
+            var root = new GameObject("IrocaInspectTestAvatar");
+            var mat = new Material(Shader.Find("Standard")) { mainTexture = tex };
+            try
+            {
+                var body = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                body.name = "Body";
+                body.transform.SetParent(root.transform);
+                body.GetComponent<Renderer>().sharedMaterial = mat;
+
+                var r = Inspect("IrocaInspectTestAvatar");
+                Assert.AreEqual("object", r.kind);
+                var info = r.textures.Single();
+                Assert.AreEqual(src, info.path);
+                CollectionAssert.AreEqual(new[] { "IrocaInspectTestAvatar/Body" }, info.renderers);
+                CollectionAssert.IsEmpty(info.colors, "オブジェクトでは色を出さない(テクスチャを渡したときだけ)");
+
+                Assert.AreEqual(src, Inspect("IrocaInspectTestAvatar/Body").textures.Single().path);
+                Assert.AreEqual(src, Inspect("#" + root.GetInstanceID()).textures.Single().path);
+
+                var scene = Inspect("");
+                Assert.AreEqual("scene", scene.kind);
+                Assert.AreEqual(1, scene.objects.Single(o => o.path == "IrocaInspectTestAvatar").textureCount);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(mat);
+            }
+        }
+
+        [Test]
+        public void Inspect_UnknownTarget_IsError()
+        {
+            string json = IrocaAutomation.Inspect("NoSuchObject_IrocaTest");
+            var r = JsonUtility.FromJson<IrocaAutomation.InspectResult>(json);
+            Assert.IsFalse(r.ok, json);
+            StringAssert.StartsWith("not found:", r.error);
+        }
+
+        private static IrocaAutomation.InspectResult Inspect(string target)
+        {
+            string json = IrocaAutomation.Inspect(target);
+            var r = JsonUtility.FromJson<IrocaAutomation.InspectResult>(json);
+            Assert.IsTrue(r.ok, json);
+            return r;
+        }
+
         // ─── 道具 ───
 
         private static IrocaPresetData RedToBlue(out ColorZone zone)

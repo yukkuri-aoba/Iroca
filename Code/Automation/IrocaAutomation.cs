@@ -30,7 +30,7 @@ namespace Iroca
     ///
     /// プリセットに入っているマスク（共通の除外・ゾーン別の除外・含める）も、UI でプリセットを読み込んだときと同じく当てる。
     /// </summary>
-    public static class IrocaAutomation
+    public static partial class IrocaAutomation
     {
         // package.json の name。NDMF の識別子(IrocaNdmfPlugin.QualifiedName・IrocaPreviewFilter のトグルキー)とは
         // 意図的に共有しない(あちらはパッケージ名が変わっても変えてはいけない)。

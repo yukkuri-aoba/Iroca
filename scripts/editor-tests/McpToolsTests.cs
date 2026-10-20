@@ -47,7 +47,7 @@ namespace Iroca.EditorTests
                 .Select(a => (string)a.GetType().GetProperty("Name").GetValue(a))
                 .OrderBy(n => n, StringComparer.Ordinal)
                 .ToArray();
-            CollectionAssert.AreEqual(new[] { "iroca_describe_schema", "iroca_list_presets", "iroca_recolor" }, names);
+            CollectionAssert.AreEqual(new[] { "iroca_describe_schema", "iroca_inspect", "iroca_list_presets", "iroca_recolor" }, names);
         }
 
         [Test]
@@ -56,6 +56,16 @@ namespace Iroca.EditorTests
             string json = Call("IrocaDescribeSchemaTool", "{}");
             Assert.AreEqual("True", Token(json, "success"), json);
             Assert.AreEqual("com.yukkuri-aoba.iroca", Token(json, "data.name"), json);
+        }
+
+        [Test]
+        public void Inspect_ReturnsResultAsData()
+        {
+            string src = _assets.WritePng("src", Fill(16, 8, new Color32(200, 30, 30, 255)), 16, 8);
+            string json = Call("IrocaInspectTool", Args(("target", src)));
+            Assert.AreEqual("True", Token(json, "success"), json);
+            Assert.AreEqual("texture", Token(json, "data.kind"), json);
+            Assert.AreEqual("#C81E1E", Token(json, "data.textures[0].colors[0].hex"), json);
         }
 
         [Test]

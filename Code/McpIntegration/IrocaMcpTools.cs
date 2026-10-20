@@ -63,6 +63,34 @@ namespace Iroca.McpIntegration
         }
     }
 
+    /// <summary>
+    /// 色替えの対象を調べるツール（<see cref="IrocaAutomation.Inspect"/>）。シーンのアバター一覧・
+    /// オブジェクトが使うテクスチャ・テクスチャの主な色と代表点（印付きの縮小画像つき）を返す。
+    /// </summary>
+    [McpForUnityTool("iroca_inspect", Description =
+        "Inspect what Iroca can recolor. With no target: lists scene root objects that have renderers (avatars). "
+        + "With a scene object (hierarchy path like 'Avatar/Body', a unique name, or '#instanceID'): lists the main textures "
+        + "used under it, with their materials, renderers and existing Iroca recipes. With a texture or material asset path: "
+        + "returns the texture's main colors (hex, coverage) and a click position 'uv' (bottom-left origin) inside each color's "
+        + "largest region, plus 'thumbnail', a PNG path showing the texture with a ring at each uv. Use the uv as 'at' when recoloring.")]
+    public static class IrocaInspectTool
+    {
+        public class Parameters
+        {
+            [ToolParameter("Scene object path/name/'#instanceID', or a texture/material asset path (Assets/...). Omit to list the scene.", Required = false)]
+            public string target { get; set; }
+
+            [ToolParameter("Maximum number of main colors to return for a texture (1-16, default 8).", Required = false)]
+            public int? max_colors { get; set; }
+        }
+
+        public static object HandleCommand(JObject @params)
+        {
+            var p = @params != null ? @params.ToObject<Parameters>() : new Parameters();
+            return McpResponses.FromAutomationResult(IrocaAutomation.Inspect(p.target, p.max_colors ?? 0), "inspect failed");
+        }
+    }
+
     /// <summary>呼び出し方・入力スキーマ・既定値・フィールド説明を返す自己発見用ツール。</summary>
     [McpForUnityTool("iroca_describe_schema")]
     public static class IrocaDescribeSchemaTool
