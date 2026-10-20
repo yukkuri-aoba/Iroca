@@ -311,6 +311,22 @@ dev_safe から `scripts/source_checks/` へ移した。資産を要らない検
 「ハーネス実行キャッシュが上限 …GB を超え」と出るので、出たら `IROCA_HARNESS_CACHE_GB` を上げる。
 プロセス内メモは `IROCA_HARNESS_MEM_ENTRIES`（既定 12 件）で件数を絞る（無制限だとワーカー 1 つが
 3GB 近く抱える。ディスクからの読み戻しは 0.04 秒なので少数で足りる）。
+
+**使われなくなったキャッシュと作業ファイルの掃除**（2026-10-20、`dev_safe/Tests/regression/cache_gc.py`）:
+キーがハッシュなので、DLL やソースを変えた後の古いエントリは二度と当たらない。容量上限があったのは
+実行キャッシュ（`*.raw`）だけで、ほかのキャッシュ（`decoded/` `results/` `rows/` `metrics/`
+`gt_tolerance/`）と作業ディレクトリ（`_sam_freeze_work/` `_sam_e2e_work/` `_spike/evidence/`
+`_iou_csharp_work/` など）は書きっぱなしだった。この時点で本体の dev_safe は 120GB を超え、
+そのうち 77GB は 3 日以上使われていなかった。いまは pytest の開始時（xdist なら親プロセスで 1 回、
+6 時間に 1 回まで）に、**キャッシュは 7 日、作業ファイルは 3 日、名前に `.tmp` を含む書きかけは
+1 日**使われなかったものを消す。「使った」は mtime で見る。キャッシュは当たったときに
+`fixtures.touch` で mtime を進め、作業ファイルは使うたびに書き直されるか touch される
+（atime はウイルス対策の読み取りでも進むので使えない）。消したものがまた要れば計算し直すだけで、
+結果は変わらない。走査はふだん 0.2 秒程度。消すと pytest の要約に 1 行出て、
+`_harness_cache/cache_gc.log` に記録が残る。手で回すなら
+`python dev_safe/Tests/regression/cache_gc.py [--dry-run]`。止めるなら `IROCA_CACHE_GC=0`、
+日数は `IROCA_CACHE_GC_DAYS` / `IROCA_WORK_GC_DAYS`。対象の作業ディレクトリは gitignore 済みで
+追跡ファイルを含まないことを `test_cache_gc.py` が git で確かめている。
 `tools/visual_review.py compare --engine csharp` の固定 104 ケースも同じ `run_harness_many`
 （キャッシュ + `--batch`）を通るので、直前に回帰スイートを回していれば dotnet を起動せずに
 同じ DLL の出力が返る（以前は 1 件ずつ単発起動で約 15 分かかっていた）。
