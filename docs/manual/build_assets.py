@@ -5,7 +5,7 @@
                      マニュアルのスライダー実演が参照する。
 
 **製品 C# が唯一の正** なので、デモ画像も Python 再実装ではなく
-`scripts/headless-run` の実ハーネス経由で作る（CLAUDE.md / docs/testing-architecture.md）。
+`scripts/headless-run` の実ハーネス経由で作る（AGENTS.md / docs/testing-architecture.md）。
 
 被写体・サンプル色・パレットは **販促素材と同じ**（`dev_safe/scripts/build_promo_textures.py`）:
 HAOLAN スニーカーの青を別の色へ。色見本は製品のワンショット経路
