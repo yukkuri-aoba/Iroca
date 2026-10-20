@@ -47,15 +47,20 @@ namespace Iroca.EditorTests
                 .Select(a => (string)a.GetType().GetProperty("Name").GetValue(a))
                 .OrderBy(n => n, StringComparer.Ordinal)
                 .ToArray();
-            CollectionAssert.AreEqual(new[] { "iroca_describe_schema", "iroca_inspect", "iroca_list_presets", "iroca_recolor" }, names);
+            CollectionAssert.AreEqual(new[] { "iroca_inspect", "iroca_open", "iroca_recolor" }, names);
         }
 
         [Test]
-        public void DescribeSchema_ReturnsDocumentAsData()
+        public void Tools_HaveDescriptionsForTheAi()
         {
-            string json = Call("IrocaDescribeSchemaTool", "{}");
-            Assert.AreEqual("True", Token(json, "success"), json);
-            Assert.AreEqual("com.yukkuri-aoba.iroca", Token(json, "data.name"), json);
+            foreach (var t in _mcp.GetTypes())
+            {
+                var attr = t.GetCustomAttributes(false)
+                    .FirstOrDefault(a => a.GetType().FullName == "MCPForUnity.Editor.Tools.McpForUnityToolAttribute");
+                if (attr == null) continue;
+                var description = (string)attr.GetType().GetProperty("Description").GetValue(attr);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(description), t.Name + " に説明が無い(AI には 'Tool: 名前' としか見えない)");
+            }
         }
 
         [Test]
@@ -69,47 +74,40 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ListPresets_ReturnsListAsData()
+        public void Recolor_PassesArgumentsAsTheRequest()
         {
-            string json = Call("IrocaListPresetsTool", "{}");
+            string src = _assets.WritePng("src", Fill(16, 8, new Color32(200, 30, 30, 255)), 16, 8);
+            string json = Call("IrocaRecolorTool",
+                "{\"texture\":\"" + src + "\",\"apply\":\"preview\",\"changes\":[{\"name\":\"red\",\"at\":[0.5,0.5],\"to\":\"#1A2B5C\"}]}");
             Assert.AreEqual("True", Token(json, "success"), json);
-            Assert.IsNotNull(Token(json, "data.presets"), json);
+            Assert.AreEqual("red", Token(json, "data.zones[0].name"), json);
+            Assert.AreEqual("1", Token(json, "data.changedFraction"), json);
         }
 
         [Test]
-        public void Recolor_WithZones_WritesOutputAndReturnsResult()
+        public void Recolor_AcceptsChangesSentAsString()
         {
+            // 配列を JSON の文字列で送ってくるクライアントもある。
             string src = _assets.WritePng("src", Fill(16, 8, new Color32(200, 30, 30, 255)), 16, 8);
-            string outPath = _assets.Folder + "/out.png";
-            string zones = "{\"zones\":[{\"name\":\"red\",\"sample\":[0.784,0.118,0.118],\"target\":[0.1,0.2,0.8]}]}";
-
-            string json = Call("IrocaRecolorTool", Args(("source", src), ("output", outPath), ("zones", zones)));
-
+            string json = Call("IrocaRecolorTool", Args(("texture", src), ("apply", "preview"),
+                ("changes", "[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]")));
             Assert.AreEqual("True", Token(json, "success"), json);
-            Assert.AreEqual("True", Token(json, "data.ok"), json);
-            Assert.AreEqual("1", Token(json, "data.zonesApplied"), json);
-            Assert.IsTrue(File.Exists(TestAssets.Abs(outPath)), "出力 PNG を書くこと");
         }
 
         [Test]
         public void Recolor_FailureInIroca_BecomesError()
         {
-            string json = Call("IrocaRecolorTool", Args(
-                ("source", _assets.Folder + "/missing.png"), ("output", _assets.Folder + "/out.png"),
-                ("zones", "{\"zones\":[{\"name\":\"z\"}]}")));
+            string json = Call("IrocaRecolorTool", Args(("texture", _assets.Folder + "/missing.png"), ("apply", "preview")));
             Assert.AreEqual("False", Token(json, "success"), json);
-            StringAssert.StartsWith("source not found:", Token(json, "error"), json);
+            StringAssert.StartsWith("not a texture", Token(json, "error"), json);
         }
 
-        [TestCase(null, "out.png", "{}", null, "source is required")]
-        [TestCase("src.png", null, "{}", null, "output is required")]
-        [TestCase("src.png", "out.png", null, null, "exactly one of 'preset' or 'zones' must be provided")]
-        [TestCase("src.png", "out.png", "{}", "MyPreset", "exactly one of 'preset' or 'zones' must be provided")]
-        public void Recolor_InvalidArguments_BecomeError(string source, string output, string zones, string preset, string error)
+        [Test]
+        public void Open_UnknownTarget_BecomesError()
         {
-            string json = Call("IrocaRecolorTool", Args(("source", source), ("output", output), ("zones", zones), ("preset", preset)));
+            string json = Call("IrocaOpenTool", Args(("target", "NoSuchObject_IrocaTest")));
             Assert.AreEqual("False", Token(json, "success"), json);
-            Assert.AreEqual(error, Token(json, "error"), json);
+            StringAssert.StartsWith("not found:", Token(json, "error"), json);
         }
 
         // ─── 呼び出しの道具 ───
