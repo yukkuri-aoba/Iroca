@@ -28,9 +28,9 @@ namespace Iroca
         // PreviewView._viewportWidth と同方針。
         [System.NonSerialized] private float _sideBySideTopHeight;
 
-        // ジョブオーバーレイ（進捗バー＋キャンセル）の実測高。オーバーレイは DisabledScope の外・
-        // 本体レイアウトの後ろに積まれるため、その分を availableContentH から引かないと
-        // キャンセルボタンがウィンドウ下端で切れて押せなくなる（ジョブ中の唯一の脱出口が消える）。
+        // ジョブオーバーレイ（進捗バー＋キャンセル）の実測高。オーバーレイは DisabledScope の外で
+        // ウィンドウ下端に重ねて描くので、この高さぶん上から置かないとキャンセルボタンが下端で切れて
+        // 押せなくなる（ジョブ中の唯一の脱出口が消える）。
         // _sideBySideTopHeight と同方針で前フレーム Repaint の実測値を使う（定数で見積もると
         // オーバーレイの中身を変えたときに黙ってずれる）。0（未計測）時は決定論フォールバック。
         [System.NonSerialized] private float _jobOverlayHeight;
@@ -96,10 +96,9 @@ namespace Iroca
 
             // position.height はウィンドウ枠（タイトル/タブバー）を含むため、
             // 実描画領域はそれより低い。エクスポートが画面外に押し出されないよう安全マージンを引く。
-            // ジョブ中はオーバーレイが本体レイアウトの後ろに積まれるので、その高さも先に引く
-            // （引かないとキャンセルボタンが下端で切れ、ジョブ中の唯一の脱出口が押せなくなる）。
-            float availableContentH = position.height - IrocaConsts.Layout.WindowChromeMargin
-                                      - (blocking ? JobOverlayReserve() : 0f);
+            // ジョブのオーバーレイの高さはここで引かない。引くとジョブの開始・終了のたびに
+            // プレビューが縮んで下の欄が上下に跳ねるので、オーバーレイは下端に重ねて描く。
+            float availableContentH = position.height - IrocaConsts.Layout.WindowChromeMargin;
             float exportH = _exportView.GetSectionHeight();
 
             if (sideBySide)
@@ -111,14 +110,20 @@ namespace Iroca
 
             // DisabledScope の外でジョブオーバーレイ（進捗バー＋キャンセル）を描画。
             // ウィンドウ全体が無効化されていてもキャンセルだけは押せる。
+            // 本体レイアウトの後ろに積まず、ウィンドウ下端の固定位置に重ねる（下に隠れる欄はジョブ中は押せない）。
             if (blocking)
             {
+                float overlayH = JobOverlayReserve();
+                var area = new Rect(0f, Mathf.Max(0f, position.height - overlayH - 2f), position.width, overlayH + 2f);
+                EditorGUI.DrawRect(area, IrocaColors.WindowBackground);
+                GUILayout.BeginArea(area);
                 var overlayRect = EditorGUILayout.BeginVertical();
                 DrawJobOverlay();
                 EditorGUILayout.EndVertical();
+                GUILayout.EndArea();
 
-                // 実測値を次フレームの予約高に使う。値が変わったら追い再描画を 1 回要求する
-                // （_sideBySideTopHeight と同方針。予約高はオーバーレイ自身の高さに影響しないので収束する）。
+                // 実測値を次フレームの高さに使う。値が変わったら追い再描画を 1 回要求する
+                // （高さはオーバーレイ自身の中身では変わらないので収束する）。
                 if (Event.current.type == EventType.Repaint && overlayRect.height > 1f
                     && Mathf.Abs(overlayRect.height - _jobOverlayHeight) > 0.5f)
                 {
@@ -139,7 +144,7 @@ namespace Iroca
         internal const float JobCancelButtonHeight = 22f;
 
         /// <summary>
-        /// ジョブオーバーレイのために本体レイアウトから引いておく高さ。
+        /// ジョブオーバーレイの高さ（ウィンドウ下端からこの高さの帯に描く）。
         /// 実測値があればそれを、未計測の初回フレームだけ決定論フォールバックを返す。
         /// </summary>
         private float JobOverlayReserve()
