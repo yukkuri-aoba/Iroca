@@ -1090,6 +1090,7 @@ namespace Iroca
                     else if (zone.autoRecolorAnchor && !zOkGray &&
                         TryComputeRecolorAnchor(originalPixels, strength, w,
                             ppMinX, ppMinY, ppMaxX, ppMaxY, out float anchorL, out float anchorC,
+                            zSL, zSa, zSb, sampS > ColorZone.ChromaGateActivateSat,
                             includedPx, cancellationToken, palette))
                     {
                         float zSC0 = zSC;

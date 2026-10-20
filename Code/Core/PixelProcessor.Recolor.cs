@@ -72,6 +72,54 @@ namespace Iroca
         private const float AnchorChromaHistMax = 0.5f;   // chroma ヒストグラムの値域上限(OkLab C は ~0.33 まで)
         private const int   AnchorCountBudget   = 1 << 21; // 色の表の経路で、色ごとの個数を数える配列の合計(int 数、8MB)
 
+        // 別の素材に引っ張られたときの推定し直し(2026-10-20)。上の統計は候補の飽和度の中央値で地色を選ぶので、
+        // 選択に別の素材が多いとそちらを地色とみなす。固定設定の実測では、純白の背景と生成りが候補の 8 割を占めた
+        // 赤い布で推定が失敗し(C≈0。スポイト色に戻る)、白い背景が選択から外れると今度は生成りへ乗り換えた
+        // (基準の飽和度がサンプルの 0.12 倍。赤い部分が暗く、生成りがまだらに塗られた)。黒い布を巻き込んだ紺の布では
+        // 基準の飽和度がサンプルの 0.20 倍に落ち、塗った色の彩度が目標の 0.09〜0.26 倍に潰れた。
+        // AnchorRetrySatrFrac: 推定した基準の飽和度(C/L)がサンプルのこの割合に届かないか、推定に失敗したら、
+        //   「サンプルより淡い別の素材を見ている」とみなして推定し直す。片側だけの判定なので、本体より淡いツヤを
+        //   クリックしても発動しない。実測: 乗り換えたときは 0〜0.20、正しく推定できているときは 0.31 以上
+        //   (陰の方が鮮やかな塗りで、陰の色がサンプルになったとき。ワンショット 57 件と固定設定 19 被写体)。その間に置く。
+        // AnchorMaterialSatrFrac: 推定し直しで、飽和度がサンプルのこの割合未満の画素を地色から外す。L 再マップが
+        //   「サンプルより十分淡い画素」とみなす割合(OklabRemapFullChromaFrac)と同じ線。
+        // AnchorMaterialHueCos: 推定し直しで、OkLab の色相がサンプルからこの角度(45°)を超えて違う画素を外す。正解の
+        //   画素の 97% はサンプルの色相から 25° 以内(固定設定 19 被写体)で、影やツヤをクリックしてサンプル自体が
+        //   20° ずれても本体が残る幅。色相が定まらない無彩の画素(HSV の彩度が ColorZone.ChromaGateActivateSat 未満)も
+        //   外す。推定し直しはサンプルに色相があるときだけ行う(白・灰のサンプルは色で素材を見分けられない)。
+        // 1 段目で済むケース(ワンショット 57 件のすべて、固定設定 19 被写体のうち 14)は出力が変わらない。
+        private const float AnchorRetrySatrFrac    = 0.25f;
+        private const float AnchorMaterialSatrFrac = 0.35f;
+        private const float AnchorMaterialHueCos   = 0.70710678f;  // cos 45°
+
+        // 推定し直しで「サンプルと同じ素材」に残す画素の条件(上の AnchorMaterial* を参照)。
+        // 既定値(Active = false)は 1 段目 = 全候補を使う。
+        private readonly struct AnchorMaterial
+        {
+            public readonly bool Active;
+            public readonly float HueA, HueB;  // サンプルの色相の向き(OkLab の a, b を長さ 1 にしたもの)
+            public readonly float MinSatr;     // 地色とみなす飽和度(C/L)の下限に足す床
+
+            public AnchorMaterial(float sampleA, float sampleB, float sampleSatr)
+            {
+                float c = Mathf.Max(Mathf.Sqrt(sampleA * sampleA + sampleB * sampleB), 1e-9f);
+                Active = true;
+                HueA = sampleA / c;
+                HueB = sampleB / c;
+                MinSatr = AnchorMaterialSatrFrac * sampleSatr;
+            }
+
+            // 無彩の画素(HSV の彩度 = (max-min)/max が ChromaGateActivateSat 未満)と、
+            // OkLab の色相がサンプルから 45° を超えて違う画素を外す。
+            public bool Rejects(Color32 p, float a, float b)
+            {
+                int mx = Math.Max(p.r, Math.Max(p.g, p.b));
+                int mn = Math.Min(p.r, Math.Min(p.g, p.b));
+                if (mx == 0 || (mx - mn) / (float)mx < ColorZone.ChromaGateActivateSat) return true;
+                return a * HueA + b * HueB < AnchorMaterialHueCos * Mathf.Sqrt(a * a + b * b);
+            }
+        }
+
         /// <summary>
         /// サンプル自動補正: OkLab 再着色のアンカー (sL, sC) をマッチ領域の統計から推定する。
         ///
@@ -80,10 +128,40 @@ namespace Iroca
         /// 本関数は「パーツの明るい面の地色」を統計的に推定して返し、スポイト位置非依存にする。
         /// マッチング・wash には影響しない(呼び出し側がアンカー 2 値だけを置き換える)。
         ///
+        /// 推定は 2 段構え。1 段目は全候補で推定する。サンプルに色相があり、1 段目が失敗したか基準の飽和度が
+        /// サンプルの AnchorRetrySatrFrac 倍に届かなければ、サンプルと別の素材(AnchorMaterial)を外して推定し直す。
+        ///
         /// percentile はヒストグラム離散化のため厳密値と最大 1/255 の差を許容する。
         /// </summary>
+        /// <param name="sampleL">サンプル(スポイト色)の OkLab L。</param>
+        /// <param name="sampleA">サンプルの OkLab a。</param>
+        /// <param name="sampleB">サンプルの OkLab b。</param>
+        /// <param name="sampleHasHue">サンプルの HSV の彩度が ColorZone.ChromaGateActivateSat を超えるか。</param>
         /// <returns>false = フォールバック(スポイト色のまま従来挙動)。
-        /// 条件: コア画素&lt;100 / 地色画素&lt;100 / フラット領域(L スプレッド&lt;0.02) / 推定 C≈0。</returns>
+        /// 条件: コア画素&lt;100 / 地色画素&lt;100 / フラット領域(L スプレッド&lt;0.02) / 推定 C≈0 /
+        /// 推定し直しても基準がサンプルより淡すぎる。</returns>
+        private static bool TryComputeRecolorAnchor(
+            Color32[] px, float* strength, int w,
+            int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
+            out float anchorL, out float anchorC,
+            float sampleL, float sampleA, float sampleB, bool sampleHasHue,
+            bool* statsExclude = null,
+            CancellationToken ct = default,
+            ColorPalette palette = null)
+        {
+            bool ok = TryComputeRecolorAnchorOnce(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
+                out anchorL, out anchorC, default, statsExclude, ct, palette);
+            // 白・灰のサンプルは色で素材を見分けられないので、推定し直さない(従来どおり)。
+            if (!sampleHasHue) return ok;
+            float sampleSatr = Mathf.Sqrt(sampleA * sampleA + sampleB * sampleB) / Mathf.Max(sampleL, 1e-4f);
+            float minSatr = AnchorRetrySatrFrac * sampleSatr;
+            if (ok && anchorC / Mathf.Max(anchorL, 1e-4f) >= minSatr) return true;
+            ok = TryComputeRecolorAnchorOnce(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
+                out anchorL, out anchorC, new AnchorMaterial(sampleA, sampleB, sampleSatr), statsExclude, ct, palette);
+            return ok && anchorC / Mathf.Max(anchorL, 1e-4f) >= minSatr;
+        }
+
+        // TryComputeRecolorAnchor の 1 回分の推定。material.Active なら、サンプルと別の素材の画素を統計に入れない。
         // bbMinX..bbMaxY: 候補(strength>=AnchorStrengthMin)が存在しうる矩形。呼び出し側が後段 bbox を
         // 渡す。候補はこの矩形の外に 1 画素も無いので、走査を矩形に限ると 3 パスとも「読む量」だけが
         // 減り、ヒストグラム(整数加算・順序非依存)の中身は全画素走査と完全に一致する = 出力ビット不変。
@@ -94,13 +172,15 @@ namespace Iroca
         // 除外する。除外された画素も再着色自体は受ける(色マッチ画素から推定した素材モデルで
         // 「同素材として」写像される)。3 パスとも同一の判定で除外すること — pass1 で除外した
         // 画素の candL/candC は未初期化(プール再利用のゴミ)であり、pass2/3 が読むと壊れる。
-        private static bool TryComputeRecolorAnchor(
+        // (material で外した画素は pass1 が candC を負にするので、pass2/3 の飽和度の下限で必ず落ちる。)
+        private static bool TryComputeRecolorAnchorOnce(
             Color32[] px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out float anchorL, out float anchorC,
-            bool* statsExclude = null,
-            CancellationToken ct = default,
-            ColorPalette palette = null)
+            AnchorMaterial material,
+            bool* statsExclude,
+            CancellationToken ct,
+            ColorPalette palette)
         {
             anchorL = 0f;
             anchorC = 0f;
@@ -111,8 +191,8 @@ namespace Iroca
             {
                 palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct });
                 return TryComputeRecolorAnchorByColor(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
-                    out anchorL, out anchorC, statsExclude, ct,
-                    palette.Index, palette.OkL, palette.OkC, palette.Count);
+                    out anchorL, out anchorC, material, statsExclude, ct,
+                    palette.Index, palette.OkL, palette.OkC, palette.Colors, palette.Count);
             }
 
             // コア画素(strength>=AnchorStrengthMin & a>=128)の OkLab (L, C) を pass1 で一度だけ
@@ -143,6 +223,7 @@ namespace Iroca
                                 out float L, out float a, out float b);
                             float C = Mathf.Sqrt(a * a + b * b);
                             candL[i] = L;
+                            if (material.Active && material.Rejects(px[i], a, b)) { candC[i] = -1f; continue; }
                             candC[i] = C;
                             n++;
                             float satr = C / Mathf.Max(L, 1e-4f);
@@ -153,8 +234,9 @@ namespace Iroca
                     return n;
                 }, ct);
                 if (candCount < AnchorMinPixels) return false;
-                float satrFloor = AnchorBodySatrFrac *
-                    HistValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax);
+                // material.MinSatr は 1 段目では 0(中央値の項は 0 以上なので値は従来と同じ)。
+                float satrFloor = Mathf.Max(AnchorBodySatrFrac *
+                    HistValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax), material.MinSatr);
 
                 // pass 2: 地色画素(飽和度 ≥ 下限)の L ヒストグラム → 代表 L と L 帯
                 var lHist = new int[256];
@@ -224,13 +306,15 @@ namespace Iroca
         /// 個数から作る(旧: 画素を 3 回走査)。各ビンへの加算は画素ごとに 1 ずつ足すのと同じ整数加算で、
         /// ビンの式も画素ごとの経路と同じなので、ヒストグラムと戻り値はビット単位で同じ。
         /// 意図した変更では両経路を同時に直すこと(色の表あり・なしのパリティを直接比べるテストは無い)。
+        /// material(推定し直し)で外す判定も色だけで決まるので、色ごとに 1 回判定して個数ごと外す。
         /// </summary>
         private static bool TryComputeRecolorAnchorByColor(
             Color32[] px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out float anchorL, out float anchorC,
+            AnchorMaterial material,
             bool* statsExclude, CancellationToken ct,
-            int[] pIdx, float[] pL, float[] pC, int colorCount)
+            int[] pIdx, float[] pL, float[] pC, Color32[] pCol, int colorCount)
         {
             anchorL = 0f;
             anchorC = 0f;
@@ -257,6 +341,19 @@ namespace Iroca
                 return n;
             }, ct, workers);
             if (candCount < AnchorMinPixels) return false;
+            if (material.Active)
+            {
+                for (int k = 0; k < colorCount; k++)
+                {
+                    if (cnt[k] == 0) continue;
+                    Color32 pk = pCol[k];
+                    RgbToOklab(pk.r, pk.g, pk.b, out _, out float a, out float b);
+                    if (!material.Rejects(pk, a, b)) continue;
+                    candCount -= cnt[k];
+                    cnt[k] = 0;
+                }
+                if (candCount < AnchorMinPixels) return false;
+            }
 
             // 1: 飽和度(C/L)ヒストグラム → 中央値から地色下限
             var satrHist = new int[256];
@@ -267,8 +364,8 @@ namespace Iroca
                 float satr = pC[k] / Mathf.Max(pL[k], 1e-4f);
                 satrHist[Mathf.Clamp((int)(satr / AnchorSatrHistMax * 255f), 0, 255)] += c;
             }
-            float satrFloor = AnchorBodySatrFrac *
-                HistValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax);
+            float satrFloor = Mathf.Max(AnchorBodySatrFrac *
+                HistValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax), material.MinSatr);
 
             // 2: 地色(飽和度 ≥ 下限)の L ヒストグラム → 代表 L と L 帯
             var lHist = new int[256];
