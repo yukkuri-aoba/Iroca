@@ -38,6 +38,20 @@ namespace Iroca
         }
 
         /// <summary>
+        /// 自動化 API(MCP)から: テクスチャを開く(そのテクスチャのレシピがプロジェクトに 1 つだけならそれに結び付く)。
+        /// 既に開いていれば何もしない。
+        /// </summary>
+        internal static void OpenTexture(Texture2D texture)
+        {
+            if (texture == null) return;
+            var win = GetWindow<IrocaWindow>();
+            win.Show();
+            win.Focus();
+            if (win.sourceTexture == texture) return;
+            win.SwitchSourceTexture(texture);
+        }
+
+        /// <summary>
         /// 編集するテクスチャを切り替える(今のテクスチャを保存 → 差し替え → 保存済みの編集内容を読む)。
         /// <paramref name="recipe"/> を渡すと、そのレシピに結び付けて読む。
         /// </summary>

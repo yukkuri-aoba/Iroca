@@ -258,6 +258,36 @@ namespace Iroca.EditorTests
             StringAssert.Contains(error, r.error);
         }
 
+        // ─── 窓で開く(Open) ───
+        // 窓を実際に開くのは GUI のホストで確かめる(batchmode -nographics では窓を出さない)。ここでは何を開くかの解決だけ。
+
+        [Test]
+        public void OpenTarget_TextureAndRecipeAndObject()
+        {
+            string src = Halves();
+            var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
+            Assert.IsTrue(IrocaAutomation.ResolveOpenTarget(src, out var t, out var rec, out string err), err);
+            Assert.AreEqual(tex, t);
+            Assert.IsNull(rec);
+
+            var state = IrocaSessionState.CreateDefault();
+            var recipe = RecipeStore.Create(tex, state, _assets.Folder);
+            Assert.IsTrue(IrocaAutomation.ResolveOpenTarget(UnityEditor.AssetDatabase.GetAssetPath(recipe), out t, out rec, out err), err);
+            Assert.AreEqual(recipe, rec);
+            Assert.AreEqual(tex, t);
+
+            var go = new GameObject("IrocaOpenTestAvatar");
+            try
+            {
+                Assert.IsFalse(IrocaAutomation.ResolveOpenTarget("IrocaOpenTestAvatar", out _, out _, out err));
+                StringAssert.StartsWith("no Iroca recipe", err);
+                go.AddComponent<IrocaRecolor>().recipes = new System.Collections.Generic.List<IrocaRecipe> { recipe };
+                Assert.IsTrue(IrocaAutomation.ResolveOpenTarget("IrocaOpenTestAvatar", out t, out rec, out err), err);
+                Assert.AreEqual(recipe, rec);
+            }
+            finally { Object.DestroyImmediate(go); }
+        }
+
         // ─── 道具 ───
 
         private static IrocaPresetData RedToBlue(out ColorZone zone)
