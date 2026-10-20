@@ -211,7 +211,7 @@ namespace Iroca
                 Localization.FloodFillSeedPoint, Localization.HighlightBandExpand,
                 Localization.AutoHighlightSample, Localization.HoleFillPasses,
                 Localization.HoleFillMinNeighbors, Localization.RelaxedSatMin,
-                Localization.RelaxedSatRamp, Localization.DecontaminationRadius);
+                Localization.DecontaminationRadius);
 
             // +4: ラベルとフィールドの間に詰まって見えない程度の余白。
             s_measuredLabelWidth = max + 4f;
@@ -680,6 +680,9 @@ namespace Iroca
             // （起動時モーダルの置き換え。導入・ダウンロード・再起動の導線をここへ集約した）。
             MaskSuggestSection.DrawSetupBanner();
 
+            // 新しい版のお知らせ。更新は VCC / ALCOM に任せ、ここでは知らせて手順へ案内するだけ。
+            UpdateNotice.DrawBanner();
+
             EditorGUILayout.Space(4);
         }
 
@@ -691,15 +694,19 @@ namespace Iroca
         private const string LargeSourceDismissedKeyPrefix = "Iroca.LargeSource.Dismissed:";
 
         /// <summary>
-        /// 8K を超える原本を開いたときの案内。Iroca はインポート設定の Max Size に関係なく元ファイルの
-        /// 解像度で処理する(プレビュー・書き出し・NDMF とも)ので、Max Size を下げてもメモリは減らない。
+        /// 8K を超える元画像を開いたときの案内。「テクスチャとして書き出す」は元ファイルの解像度で処理するので、
+        /// 編集を取り込み後の寸法で行っていても(<see cref="WorkingResolution"/>)、書き出すときはメモリを多く使う。
+        /// 作業解像度も元ファイルのまま(Max Size が元以上・「元の解像度で編集」がオン)なら編集中から使う。
         /// 16K では PC の搭載量を超え得るため、使う量の目安と搭載量を並べて開いた時点で知らせる。
         /// 閉じると、そのテクスチャでは Unity を閉じるまで出さない(上部の高さを奪い続けないため)。
         /// </summary>
         private void DrawLargeSourceNotice()
         {
             if (sourceTexture == null || _previewView == null) return;
-            if (!_previewView.TryGetTrueSourcePixels(sourceTexture, out _, out int w, out int h)) return;
+            if (!_previewView.TryGetTrueSourcePixels(sourceTexture, out _, out int ww, out int wh)) return;
+            // 元ファイルの寸法。取り込み済みテクスチャから読んでいる(PSD など)ときは、書き出しもその寸法。
+            int w = ww, h = wh;
+            if (_previewView.TrueSourceFromFile) SourceFileSize(sourceTexture, ref w, ref h);
             if ((long)w * h <= LargeSourcePixels) return;
             string key = LargeSourceDismissedKeyPrefix + CurrentTexturePath(sourceTexture);
             if (SessionState.GetBool(key, false)) return;
@@ -707,10 +714,39 @@ namespace Iroca
             double needGB = (double)w * h * SourceBytesPerPixel / (1L << 30);
             // 搭載量は切り上げる。systemMemorySize は OS が使える量なので、32GB の PC でも 31.5GB 前後になる。
             double haveGB = System.Math.Ceiling(SystemInfo.systemMemorySize / 1024.0);
-            EditorGUILayout.HelpBox(string.Format(Localization.LargeSourceNoticeFormat, w, h, needGB, haveGB),
-                MessageType.Warning);
+            string text;
+            if ((long)ww * wh < (long)w * h)
+                text = string.Format(Localization.LargeSourceExportNoticeFormat, w, h, ww, wh, needGB, haveGB);
+            else if (WorkingResolution.AtSourceResolution)
+                text = string.Format(Localization.LargeSourceAtSourceNoticeFormat, w, h, needGB, haveGB);
+            else
+                text = string.Format(Localization.LargeSourceNoticeFormat, w, h, needGB, haveGB);
+            EditorGUILayout.HelpBox(text, MessageType.Warning);
             if (GUILayout.Button(new GUIContent(Localization.LargeSourceDismiss, Localization.LargeSourceDismissTooltip)))
                 SessionState.SetBool(key, true);
+        }
+
+        // 元ファイルの寸法の覚え(案内は OnGUI ごとに通るので、取り込み設定を引くのはテクスチャか
+        // 取り込み後の寸法が変わったときだけにする)。
+        [System.NonSerialized] private Texture2D _fileSizeFor;
+        [System.NonSerialized] private int _fileSizeImportW, _fileSizeImportH, _fileW, _fileH;
+
+        // 元ファイルの寸法(取れなければ w, h はそのまま)。
+        private void SourceFileSize(Texture2D tex, ref int w, ref int h)
+        {
+            if (_fileSizeFor != tex || _fileSizeImportW != tex.width || _fileSizeImportH != tex.height)
+            {
+                int fw = 0, fh = 0;
+                string path = AssetDatabase.GetAssetPath(tex);
+                if (!string.IsNullOrEmpty(path) && AssetImporter.GetAtPath(path) is TextureImporter ti)
+                    ti.GetSourceTextureWidthAndHeight(out fw, out fh);
+                _fileSizeFor = tex;
+                _fileSizeImportW = tex.width;
+                _fileSizeImportH = tex.height;
+                _fileW = fw;
+                _fileH = fh;
+            }
+            if (_fileW > 0 && _fileH > 0) { w = _fileW; h = _fileH; }
         }
 
         private void DrawProcessingSection()
@@ -733,6 +769,17 @@ namespace Iroca
             useDecontamination = UndoHelper.Toggle(this,
                 new GUIContent(Localization.UseDecontamination, Localization.UseDecontaminationTooltip),
                 useDecontamination);
+
+            // 作業解像度(WorkingResolution)。この PC のいろか全体の設定なので、作業ごとには保存せず Undo にも
+            // 載せない。ラベルは設定列の幅を決める計測の外に置く(ToggleLeft)。
+            bool atSource = EditorGUILayout.ToggleLeft(
+                new GUIContent(Localization.EditAtSourceResolution, Localization.EditAtSourceResolutionTooltip),
+                WorkingResolution.AtSourceResolution);
+            if (atSource != WorkingResolution.AtSourceResolution)
+            {
+                WorkingResolution.AtSourceResolution = atSource;
+                InvalidateSourceAndRepaint();
+            }
 
             // 内部パラメータ（穴埋め・境界復元・α分解半径）は折りたたみの中へ。
             //
@@ -757,9 +804,8 @@ namespace Iroca
                     relaxedSatMin = UndoHelper.Slider(this,
                         new GUIContent(Localization.RelaxedSatMin, Localization.RelaxedSatMinTooltip),
                         relaxedSatMin, 0f, 0.2f);
-                    relaxedSatRamp = UndoHelper.Slider(this,
-                        new GUIContent(Localization.RelaxedSatRamp, Localization.RelaxedSatRampTooltip),
-                        relaxedSatRamp, 0.01f, 0.3f);
+                    // relaxedSatRamp は出さない。緩和マッチで使わなくなり、動かしても何も変わらないため。
+                    // 値は選択キャッシュのキーと、プリセット・セッションの保存形式の互換のために残している。
                     using (new EditorGUI.DisabledScope(!useDecontamination))
                     {
                         decontaminationRadius = UndoHelper.IntSlider(this,

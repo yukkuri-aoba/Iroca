@@ -772,5 +772,130 @@ namespace Iroca.UnitRun
             var r = MaskRegionEdit.Apply(MaskRegionOp.OnlyThisPart, Region, ex, null, null);
             Check.Equal(0, r.changed, "already only this part");
         }
+
+        // ─── UpdateCheck（新しい版のお知らせ: 公開リストから知らせる版を選ぶ） ───
+
+        private const string UpdatePackageId = "com.yukkuri-aoba.iroca";
+
+        // VPM のリポジトリ形式。ほかのパッケージ(NDMF の写し)も同じリストに載る。
+        private static string Listing(params (string version, string unity)[] versions)
+        {
+            var entries = versions.Select(v =>
+                $"\"{v.version}\": {{ \"name\": \"{UpdatePackageId}\", \"version\": \"{v.version}\", \"displayName\": \"\\u3044\\u308d\\u304b\""
+                + (v.unity == null ? "" : $", \"unity\": \"{v.unity}\"") + " }");
+            return "{ \"name\": \"repo\", \"id\": \"com.yukkuri-aoba.repo\", \"packages\": {"
+                   + " \"nadena.dev.ndmf\": { \"versions\": { \"9.0.0\": { \"name\": \"nadena.dev.ndmf\", \"version\": \"9.0.0\" } } },"
+                   + $" \"{UpdatePackageId}\": {{ \"versions\": {{ {string.Join(", ", entries)} }} }} }} }}";
+        }
+
+        private static string Latest(string json, bool includePrerelease = false, string unity = "2022.3.22f1")
+        {
+            Check.True(UpdateCheck.TryFindLatest(json, UpdatePackageId, includePrerelease, unity, out string latest),
+                "listing readable");
+            return latest;
+        }
+
+        private static int SemVerCompare(string a, string b)
+        {
+            Check.True(UpdateCheck.SemVer.TryParse(a, out var va), a);
+            Check.True(UpdateCheck.SemVer.TryParse(b, out var vb), b);
+            return Math.Sign(va.CompareTo(vb));
+        }
+
+        public static void Update_SemVerComparesLikeVpm()
+        {
+            Check.Equal(1, SemVerCompare("0.2.1", "0.2.0"), "patch");
+            Check.Equal(1, SemVerCompare("0.10.0", "0.9.9"), "numeric, not text");
+            Check.Equal(1, SemVerCompare("1.0.0", "1.0.0-beta.2"), "prerelease comes before release");
+            Check.Equal(1, SemVerCompare("1.0.0-beta.10", "1.0.0-beta.2"), "numeric prerelease ids");
+            Check.Equal(1, SemVerCompare("1.0.0-alpha.1", "1.0.0-alpha"), "more ids is later");
+            Check.Equal(1, SemVerCompare("1.0.0-alpha", "1.0.0-1"), "numeric ids come before text");
+            Check.Equal(0, SemVerCompare("1.2.3+build.5", "1.2.3"), "build metadata ignored");
+        }
+
+        public static void Update_SemVerRejectsMalformed()
+        {
+            foreach (string s in new[] { "", null, "0.2", "v0.2.0", "0.2.0.1", "1.2.3-", "1.2.3-beta..1", "1.x.3", "1.2.3 " })
+                Check.True(!UpdateCheck.SemVer.TryParse(s, out _), $"<{s}> rejected");
+        }
+
+        public static void Update_PicksNewestInstallable()
+        {
+            string json = Listing(("0.2.0", "2022.3"), ("0.2.1", "2022.3"), ("0.3.0-beta.1", "2022.3"), ("0.4.0", "6000.0"));
+            Check.Equal("0.2.1", Latest(json), "skips prerelease and versions needing Unity 6");
+            Check.Equal("0.3.0-beta.1", Latest(json, includePrerelease: true), "prerelease channel");
+            Check.Equal("0.4.0", Latest(json, unity: "6000.0.58f2"), "Unity 6");
+            Check.Equal("0.2.1", Latest(Listing(("0.2.1", null), ("0.2.0", null))), "no unity field");
+        }
+
+        public static void Update_NoEntryIsNotAnError()
+        {
+            Check.Equal(null, Latest("{ \"packages\": {} }"), "package not listed");
+            Check.Equal(null, Latest(Listing(("0.3.0-beta.1", "2022.3"))), "only prereleases");
+        }
+
+        public static void Update_RejectsUnexpectedShapes()
+        {
+            foreach (string json in new[]
+                     {
+                         "", null, "<html>404</html>", "{ \"name\": \"repo\" }", "{ \"packages\": {} } trailing",
+                         "{ \"packages\": { \"" + UpdatePackageId + "\": { \"versions\": [] } } }",
+                     })
+                Check.True(!UpdateCheck.TryFindLatest(json, UpdatePackageId, false, "2022.3.22f1", out _), $"<{json}> rejected");
+        }
+
+        public static void Update_ReadsThePublishedListing()
+        {
+            // リポジトリの docs/index.json(Pages に載るリストの元)をそのまま読めるか。
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "docs", "index.json"))) dir = dir.Parent;
+            Check.True(dir != null, "docs/index.json not found above the test binary");
+            string latest = Latest(File.ReadAllText(Path.Combine(dir.FullName, "docs", "index.json")));
+            Check.True(latest != null, "docs/index.json lists an installable version");
+        }
+
+        public static void Update_UnitySatisfiesComparesMajorMinor()
+        {
+            Check.True(UpdateCheck.UnitySatisfies("2022.3", "2022.3.22f1"), "same");
+            Check.True(UpdateCheck.UnitySatisfies("2022.3", "6000.0.58f2"), "newer major");
+            Check.True(!UpdateCheck.UnitySatisfies("2022.3", "2021.3.45f1"), "older major");
+            Check.True(!UpdateCheck.UnitySatisfies("6000.0", "2022.3.22f1"), "needs Unity 6");
+            Check.True(!UpdateCheck.UnitySatisfies("6000.1", "6000.0.58f2"), "older minor");
+            Check.True(UpdateCheck.UnitySatisfies("someday", "2022.3.22f1"), "unreadable field is not a reason to skip");
+        }
+
+        public static void Update_IsDueOncePerDay()
+        {
+            var now = new DateTime(2026, 10, 19, 12, 0, 0, DateTimeKind.Utc);
+            string Ticks(DateTime t) => t.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            Check.True(UpdateCheck.IsDue("", now), "never checked");
+            Check.True(UpdateCheck.IsDue("garbage", now), "unreadable");
+            Check.True(!UpdateCheck.IsDue(Ticks(now.AddHours(-23)), now), "23 hours ago");
+            Check.True(UpdateCheck.IsDue(Ticks(now.AddHours(-24)), now), "a day ago");
+            Check.True(UpdateCheck.IsDue(Ticks(now.AddHours(1)), now), "clock went back");
+        }
+
+        public static void Update_MiniJsonReadsValues()
+        {
+            var root = UpdateCheck.MiniJson.Parse("\uFEFF{ \"a\": [1, -2.5e1, true, false, null, \"x\\\"\\n\\u3044\"], \"b\": {} }")
+                as System.Collections.Generic.Dictionary<string, object>;
+            Check.True(root != null, "parsed");
+            var a = (System.Collections.Generic.List<object>)root["a"];
+            Check.Equal<object>(1.0, a[0], "int");
+            Check.Equal<object>(-25.0, a[1], "exponent");
+            Check.Equal<object>(true, a[2], "true");
+            Check.Equal<object>(false, a[3], "false");
+            Check.Equal<object>(null, a[4], "null");
+            Check.Equal<object>("x\"\nい", a[5], "escapes");
+            Check.Equal(0, ((System.Collections.Generic.Dictionary<string, object>)root["b"]).Count, "empty object");
+        }
+
+        public static void Update_MiniJsonRejectsMalformed()
+        {
+            foreach (string json in new[] { "{ \"a\": 1, }", "{ \"a\" 1 }", "[1 2]", "\"unterminated", "tru", "\"\\u12\"" })
+                Check.True(UpdateCheck.MiniJson.Parse(json) == null, $"<{json}> rejected");
+            // 深い入れ子でスタックを使い切らない。
+            Check.True(UpdateCheck.MiniJson.Parse(new string('[', 10000) + new string(']', 10000)) == null, "deep nesting");
+        }
     }
 }

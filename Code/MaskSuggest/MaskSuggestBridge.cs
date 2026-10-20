@@ -53,6 +53,11 @@ namespace Iroca
         float Progress { get; }
         /// <summary>Phase == Error のときの表示用メッセージ。</summary>
         string ErrorMessage { get; }
+        /// <summary>
+        /// Phase == Error の原因がモデルのファイルを読めなかったこと(ONNX の取り込みの失敗・ファイルの欠け)か。
+        /// このときは再起動では直らないので、UI は取り直しだけを案内する。
+        /// </summary>
+        bool ErrorIsModelFile { get; }
 
         /// <summary>
         /// 推論が Burst 依存の CPU バックエンドで走っているか(モデル未ロード時は false)。
@@ -93,6 +98,13 @@ namespace Iroca
 
         /// <summary>進行中の処理を破棄する(テクスチャ切替・ウィンドウ破棄時)。</summary>
         void CancelAll();
+
+        /// <summary>
+        /// いろかのウィンドウを閉じたとき。進行中の処理を破棄し、推論のワーカー(GPU のメモリ)を手放す。
+        /// 読み込んだモデルと埋め込みのキャッシュ(どちらも CPU 側)は残すので、次に使うときはワーカーを
+        /// 作り直すだけで済む(<see cref="TryEnsureModels"/> が作り直す)。
+        /// </summary>
+        void ReleaseGpuResources();
 
         /// <summary>Phase/Progress が変化したとき(メインスレッド)。UI の Repaint 用。</summary>
         event System.Action StateChanged;

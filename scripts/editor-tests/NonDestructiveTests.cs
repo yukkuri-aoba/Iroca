@@ -132,16 +132,60 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void TryRecolor_SourceFileThatCannotBeOpened_ReportsUnreadable()
+        {
+            // ほかのアプリが掴んでいる・同期サービスのオンライン専用ファイルなど、原本を開けないとき。
+            // 例外で抜けるとビルドでは素の例外、プレビューでは作りかけが終わらなくなる。
+            var src = ImportSource();
+            var recipe = RecipeStore.Create(src, RedToGreenWithInclude(), _assets.Folder);
+            string file = System.IO.Path.GetFullPath(AssetDatabase.GetAssetPath(src));
+            using (new System.IO.FileStream(file, System.IO.FileMode.Open, System.IO.FileAccess.Read,
+                       System.IO.FileShare.None))
+            {
+                Assert.IsFalse(RecipeTextureBuilder.TryRecolor(recipe, out _, out _, out _, out var failure));
+                Assert.AreEqual(RecipeTextureBuilder.Failure.SourceUnreadable, failure);
+            }
+            Assert.IsTrue(RecipeTextureBuilder.TryRecolor(recipe, out _, out _, out _, out var after), after.ToString());
+        }
+
+        [Test]
         public void Recipe_Save_WritesOnlyWhenChanged()
         {
             var src = ImportSource();
             var state = RedToGreenWithInclude();
             var recipe = RecipeStore.Create(src, state, _assets.Folder);
+            // 作った時点でファイルに書かれている(プロジェクト全体の SaveAssets に頼らない)。
+            string file = AssetDatabase.GetAssetPath(recipe);
+            Assert.IsFalse(EditorUtility.IsDirty(recipe), "作ったレシピが未保存のまま");
+            StringAssert.Contains(state.zones[0].id, System.IO.File.ReadAllText(file), "レシピの中身がファイルに無い");
             Assert.IsFalse(RecipeStore.Save(recipe, state), "同じ内容で保存し直した");
             state.zones[0].tolerance = 0.3f;
             Assert.IsTrue(RecipeStore.Save(recipe, state));
             Assert.AreEqual(0.3f, RecipeStore.Load(recipe).zones[0].tolerance);
             CollectionAssert.AreEqual(new[] { recipe }, RecipeStore.FindForTexture(src));
+        }
+
+        [Test]
+        public void Recipe_PathForNew_IsWhereCreatePutsIt()
+        {
+            // 別フォルダに同じ名前のテクスチャがあると、2 つ目のレシピは連番の名前になる。
+            // 登録の確認に出すパス(PathForNew)が、実際にできるパスと同じであること。
+            AssetDatabase.CreateFolder(_assets.Folder, "a");
+            AssetDatabase.CreateFolder(_assets.Folder, "b");
+            var texA = AssetDatabase.LoadAssetAtPath<Texture2D>(
+                _assets.WritePng("a/Body", TestAssets.Solid(4, 4, new Color32(255, 0, 0, 255)), 4, 4));
+            var texB = AssetDatabase.LoadAssetAtPath<Texture2D>(
+                _assets.WritePng("b/Body", TestAssets.Solid(4, 4, new Color32(0, 0, 255, 255)), 4, 4));
+            string recipes = _assets.Folder + "/Recipes";
+
+            Assert.AreEqual(recipes + "/Body.asset", RecipeStore.PathForNew(texA, recipes), "フォルダがまだ無いときは名前のまま");
+            var ra = RecipeStore.Create(texA, null, recipes);
+            Assert.AreEqual(recipes + "/Body.asset", AssetDatabase.GetAssetPath(ra));
+
+            string shown = RecipeStore.PathForNew(texB, recipes);
+            Assert.AreNotEqual(AssetDatabase.GetAssetPath(ra), shown, "すでにある別のテクスチャのレシピのパスを出した");
+            var rb = RecipeStore.Create(texB, null, recipes);
+            Assert.AreEqual(shown, AssetDatabase.GetAssetPath(rb));
         }
 
         // ───────────── 取り込み設定へそろえる ─────────────
@@ -166,7 +210,7 @@ namespace Iroca.EditorTests
         {
             var src = new Color32[4 * 4];
             for (int i = 0; i < src.Length; i++) src[i] = new Color32((byte)(i * 10), 0, 0, 255);
-            var dst = RecipeTextureBuilder.ResizeArea(src, 4, 4, 2, 2);
+            var dst = WorkingResolution.ResizeArea(src, 4, 4, 2, 2);
             // 左下 2x2 = 画素 0,1,4,5 → (0+10+40+50)/4 = 25
             Assert.AreEqual(25, dst[0].r);
             // 右上 2x2 = 画素 10,11,14,15 → (100+110+140+150)/4 = 125
@@ -199,6 +243,50 @@ namespace Iroca.EditorTests
             finally
             {
                 if (File.Exists(cacheFile)) File.Delete(cacheFile);
+            }
+        }
+
+        // 元ファイルが取り込み後より大きいとき、既定は取り込み後の寸法へ縮めてから色替えする(いろかの画面の
+        // プレビューと同じ画素)。「元の解像度で編集」なら元の解像度で色替えしてから縮める。鍵も分ける。
+        [Test]
+        public void Build_RecolorsAtImportSizeUnlessAtSourceResolution()
+        {
+            var like = ImportSource(maxSize: 32);
+            Assert.AreEqual(32, like.width, "取り込み時の最大サイズが効いていない(テストの前提)");
+            var state = RedToGreenWithInclude();
+            var recipe = RecipeStore.Create(like, state, _assets.Folder);
+            bool saved = WorkingResolution.AtSourceResolution;
+            var cacheFiles = new List<string>();
+            try
+            {
+                WorkingResolution.AtSourceResolution = false;
+                string workKey = RecipeTextureBuilder.CacheKey(recipe, like);
+                cacheFiles.Add(RecipeTextureBuilder.CachePath(workKey));
+                var built = Track(RecipeTextureBuilder.Build(recipe, out var f1));
+                Assert.IsNotNull(built, f1.ToString());
+                var small = WorkingResolution.ResizeArea(Bands(), W, H, like.width, like.height);
+                Assert.IsTrue(SessionRecolor.Apply(small, like.width, like.height, state));
+                var expected = Track(RecipeTextureBuilder.CreateMatching(small, like.width, like.height, like));
+                CollectionAssert.AreEqual(expected.GetRawTextureData(), built.GetRawTextureData(),
+                    "取り込み後の寸法で色替えしたものと違う");
+
+                WorkingResolution.AtSourceResolution = true;
+                string srcKey = RecipeTextureBuilder.CacheKey(recipe, like);
+                Assert.AreNotEqual(workKey, srcKey, "設定が変わっても同じキャッシュを読んでしまう");
+                cacheFiles.Add(RecipeTextureBuilder.CachePath(srcKey));
+                var builtAtSource = Track(RecipeTextureBuilder.Build(recipe, out var f2));
+                Assert.IsNotNull(builtAtSource, f2.ToString());
+                var full = Bands();
+                Assert.IsTrue(SessionRecolor.Apply(full, W, H, state));
+                var expectedAtSource = Track(RecipeTextureBuilder.CreateMatching(full, W, H, like));
+                CollectionAssert.AreEqual(expectedAtSource.GetRawTextureData(), builtAtSource.GetRawTextureData(),
+                    "元の解像度で色替えして縮めたものと違う");
+            }
+            finally
+            {
+                WorkingResolution.AtSourceResolution = saved;
+                foreach (var file in cacheFiles)
+                    if (File.Exists(file)) File.Delete(file);
             }
         }
 

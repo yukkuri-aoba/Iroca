@@ -14,8 +14,13 @@
     "versionDefines": [
         {
             "name": "nadena.dev.ndmf",
-            "expression": "[1.8.0,2.0.0)",
+            "expression": "[1.8.0,2.0.0-0)",
             "define": "IROCA_NDMF_PRESENT"
+        },
+        {
+            "name": "com.vrchat.base",
+            "expression": "",
+            "define": "IROCA_VRCSDK_BASE"
         }
     ],
     "noEngineReferences": false

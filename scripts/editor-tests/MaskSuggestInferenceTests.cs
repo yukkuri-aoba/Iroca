@@ -58,17 +58,21 @@ namespace Iroca.EditorTests
             LogAssert.ignoreFailingMessages = true;
             try
             {
-                yield return RunDiscSuggestion(svc);
+                yield return RunDiscSuggestion(svc, "iroca-test-disc");
+                // いろかのウィンドウを閉じたとき(推論のワーカーを手放す)の後も、作り直して同じように取れる。
+                // 別の鍵にして、エンコーダーも作り直したワーカーで走らせる。
+                svc.ReleaseGpuResources();
+                yield return RunDiscSuggestion(svc, "iroca-test-disc-after-release");
             }
             finally { LogAssert.ignoreFailingMessages = false; }
         }
 
-        static IEnumerator RunDiscSuggestion(IMaskSuggestService svc)
+        static IEnumerator RunDiscSuggestion(IMaskSuggestService svc, string sourceKey)
         {
             Assert.IsTrue(svc.TryEnsureModels(), $"モデルのロード失敗: {svc.ErrorMessage}");
             Assert.AreEqual(MaskSuggestPhase.Idle, svc.Phase, svc.ErrorMessage);
 
-            svc.SetSource("iroca-test-disc", DiscImage(), Size, Size);
+            svc.SetSource(sourceKey, DiscImage(), Size, Size);
             // エンコード完了の直後にデコーダーの暖機（捨て推論）が Decoding 表示で 1 回走るので、
             // Encoding が終わっただけでなく Idle に戻るまで待つ。
             yield return WaitFor(
@@ -102,6 +106,46 @@ namespace Iroca.EditorTests
                     $"{Application.unityVersion}\tcpu={svc.UsesCpuBackend}\tiou={iou:F4}\tscore={proposal.score:F4}\tarea={proposal.areaFrac:F4}\n");
 
             Assert.GreaterOrEqual(iou, 0.9f, $"円を取れていない（IoU {iou:F3}, score {proposal.score:F3}）");
+        }
+
+        [Test]
+        public void LeftoverModelImportFolders_OnlyIrocasOwnAreRemoved()
+        {
+            // モデルの変換の途中で Unity が落ちると Assets に一時フォルダが残る。次の変換の前に、
+            // 名前が一時フォルダの形で中身がいろかのモデルだけのものに限って消す（AI 統合アセンブリの内部なので
+            // 名前で呼ぶ）。
+            var repo = System.Type.GetType("Iroca.SentisIntegration.SentisModelRepository, Iroca.SentisIntegration");
+            if (repo == null) Assert.Ignore("AI 統合アセンブリが無い（Sentis / Inference Engine 未導入）");
+            var sweep = repo.GetMethod("DeleteLeftoverTempDirs",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            Assert.IsNotNull(sweep, "片付けの関数が見つからない（名前を変えたらこのテストも直す）");
+
+            string Dir(string suffix) => System.IO.Path.Combine(Application.dataPath, "IrocaModelImportTemp_" + suffix);
+            string ours = Dir(System.Guid.NewGuid().ToString("N"));
+            string withUserFile = Dir(System.Guid.NewGuid().ToString("N"));
+            string otherName = Dir("mine");
+            var dirs = new[] { ours, withUserFile, otherName };
+            try
+            {
+                // 取り込ませない（AssetDatabase を更新しない）ので、ファイルを直接置く。
+                foreach (var d in dirs)
+                {
+                    System.IO.Directory.CreateDirectory(d);
+                    System.IO.File.WriteAllText(System.IO.Path.Combine(d, "mobile_sam_encoder.onnx"), "x");
+                }
+                System.IO.File.WriteAllText(System.IO.Path.Combine(withUserFile, "notes.txt"), "x");
+
+                sweep.Invoke(null, null);
+
+                Assert.IsFalse(System.IO.Directory.Exists(ours), "残った一時フォルダを消していない");
+                Assert.IsTrue(System.IO.Directory.Exists(withUserFile), "ほかのファイルが入ったフォルダを消した");
+                Assert.IsTrue(System.IO.Directory.Exists(otherName), "一時フォルダの形でない名前のフォルダを消した");
+            }
+            finally
+            {
+                foreach (var d in dirs)
+                    if (System.IO.Directory.Exists(d)) System.IO.Directory.Delete(d, recursive: true);
+            }
         }
     }
 }

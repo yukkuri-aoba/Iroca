@@ -184,6 +184,57 @@ namespace Iroca.EditorTests
             Assert.AreEqual(texPath, AssetDatabase.GetAssetPath(
                 AssetDatabase.LoadAssetAtPath<Material>(altPath).mainTexture), "元のマテリアルを書き換えた");
         }
+
+        // ───────────── アニメーターの拡張は要るときだけ開く ─────────────
+
+        private nadena.dev.ndmf.BuildContext NewContext()
+        {
+            var root = new GameObject("avatar");
+            _created.Add(root);
+            root.AddComponent<Animator>();
+            // 引数 3 つの版を呼ぶ(2 つだと VRChat SDK 用の BuildContext(VRCAvatarDescriptor, string) も候補になり、
+            // このアセンブリが参照しない VRChat SDK の型が要る)。
+            return new nadena.dev.ndmf.BuildContext(root, null, true);
+        }
+
+        private static bool Active<T>(nadena.dev.ndmf.BuildContext ctx) where T : nadena.dev.ndmf.IExtensionContext
+            => Iroca.NdmfIntegration.AnimatorServicesOnDemand.IsActive<T>(ctx);
+
+        [Test]
+        public void AnimatorServices_OpenedOnlyWhenAsked_AndClosedAfterward()
+        {
+            var ctx = NewContext();
+            using (var animators = new Iroca.NdmfIntegration.AnimatorServicesOnDemand(ctx))
+            {
+                Assert.IsFalse(Active<nadena.dev.ndmf.animator.AnimatorServicesContext>(ctx),
+                    "取り出す前に開いた(いろかを使わないアバターでも開くことになる)");
+                Assert.IsNotNull(animators.Get());
+                Assert.IsTrue(Active<nadena.dev.ndmf.animator.AnimatorServicesContext>(ctx));
+                Assert.IsTrue(Active<nadena.dev.ndmf.animator.VirtualControllerContext>(ctx));
+            }
+            // 開いたまま抜けると、NDMF が知らないまま後続のツールの変更を最後の書き戻しで上書きする。
+            Assert.IsFalse(Active<nadena.dev.ndmf.animator.AnimatorServicesContext>(ctx), "自分で開いたものを閉じていない");
+            Assert.IsFalse(Active<nadena.dev.ndmf.animator.VirtualControllerContext>(ctx), "自分で開いたものを閉じていない");
+        }
+
+        [Test]
+        public void AnimatorServices_AlreadyOpenByAnEarlierPass_AreLeftOpen()
+        {
+            var ctx = NewContext();
+            ctx.ActivateExtensionContextRecursive<nadena.dev.ndmf.animator.AnimatorServicesContext>();
+            try
+            {
+                using (var animators = new Iroca.NdmfIntegration.AnimatorServicesOnDemand(ctx))
+                    Assert.AreSame(ctx.Extension<nadena.dev.ndmf.animator.AnimatorServicesContext>(), animators.Get());
+                // 前のパス(MA など)から開いているものは NDMF が管理しているので、閉じると後続のパスが使えなくなる。
+                Assert.IsTrue(Active<nadena.dev.ndmf.animator.AnimatorServicesContext>(ctx), "前から開いていたものを閉じた");
+                Assert.IsTrue(Active<nadena.dev.ndmf.animator.VirtualControllerContext>(ctx), "前から開いていたものを閉じた");
+            }
+            finally
+            {
+                ctx.DeactivateAllExtensionContexts();
+            }
+        }
     }
 }
 #endif

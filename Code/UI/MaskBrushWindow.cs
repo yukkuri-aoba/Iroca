@@ -26,15 +26,43 @@ namespace Iroca
     internal sealed class MaskBrushWindow : EditorWindow
     {
         [SerializeField] private IrocaWindow _host;
+        private Vector2 _scroll;
+
+        // このプロジェクトで一度置いたら、あとは Unity が覚えている位置・大きさに任せる。
+        private static string PlacedKey => "Iroca.MaskBrushWindowPlaced:" + Application.dataPath;
+        private const float DefaultWidth = 320f;
+        private const float DefaultHeight = 560f;
 
         internal static void Open(IrocaWindow host)
         {
+            bool wasOpen = HasOpenInstances<MaskBrushWindow>();
             var win = GetWindow<MaskBrushWindow>(utility: false, title: Localization.MaskEditWindowTitle, focus: true);
             win._host = host;
-            // 高さは対象プルダウン・種類・ツール・ツール別設定・取り消し/クリア・ヒントが
-            // 収まる値（AI 提案の状態表示が出るぶんを含む）。
+            // 中身はスクロールできるので、下限は操作の頭が見える大きさでよい。
             win.minSize = new Vector2(280, 320);
             win.Show();
+            // 初めて開いたときは Unity の既定(画面の左上・約 330×320)になり、AI 提案のエラーが出ていると
+            // 下端の操作まで届かない。いろかのウィンドウの隣に、中身が収まる大きさで置く。
+            // Show の前に入れると、Show が既定の位置で上書きする。2 回目からは Unity が閉じたときの位置を戻す。
+            if (!wasOpen && !EditorPrefs.GetBool(PlacedKey, false))
+            {
+                win.position = PlaceBeside(host);
+                EditorPrefs.SetBool(PlacedKey, true);
+            }
+        }
+
+        /// <summary>いろかのウィンドウの右(はみ出すなら左)に並べる位置。Unity のメインウィンドウの中に収める。</summary>
+        private static Rect PlaceBeside(IrocaWindow host)
+        {
+            Rect screen = EditorGUIUtility.GetMainWindowPosition();
+            float h = Mathf.Min(DefaultHeight, screen.height);
+            if (host == null) return new Rect(screen.center.x - DefaultWidth / 2, screen.center.y - h / 2, DefaultWidth, h);
+            Rect hp = host.position;
+            float x = hp.xMax + 4f;
+            if (x + DefaultWidth > screen.xMax) x = hp.x - DefaultWidth - 4f;
+            x = Mathf.Clamp(x, screen.x, Mathf.Max(screen.x, screen.xMax - DefaultWidth));
+            float y = Mathf.Clamp(hp.y, screen.y, Mathf.Max(screen.y, screen.yMax - h));
+            return new Rect(x, y, DefaultWidth, h);
         }
 
         private void OnEnable()
@@ -70,10 +98,13 @@ namespace Iroca
             // エクスポート中・手動の自動調整中は本体・別窓プレビューと同じく操作を止める
             // (IrocaPreviewWindow と同条件)。ここを開けておくと、ジョブの適用待ちの最中に
             // 「マスクを元に戻す」= Undo.PerformUndo だけが通り、apply と競合する。
+            // 窓を小さくしても下端の操作(取り消し・クリア)に届くよう、中身はスクロールできるようにする。
+            _scroll = EditorGUILayout.BeginScrollView(_scroll);
             using (new EditorGUI.DisabledScope(host.IsJobBlockingUI))
             {
                 host._maskView.DrawBrushPalette();
             }
+            EditorGUILayout.EndScrollView();
         }
 
         // ブラシ/AI の状態はメインウィンドウ側で変わる（Esc＝ClearPreviewInteractionModes による

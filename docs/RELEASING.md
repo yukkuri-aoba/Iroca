@@ -10,7 +10,7 @@ zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合
 ```
 
 - 配布資産は 2 つ。
-  - **配布 zip**（`Iroca_v<VERSION>.zip`）: 利用者がダウンロードするもの（リリースページ・BOOTH）。中身は VPAI インストーラ・`README.txt`（導入方法・動作環境・利用規約の要約・連絡先。原稿は `scripts/download/README.txt`）・`LICENSE.txt`。`scripts/Build-DownloadZip.ps1` が作る。
+  - **配布 zip**（`Iroca_v<VERSION>.zip`）: 利用者がダウンロードするもの（リリースページ。BOOTH は名前だけ違う同じ中身の zip →「BOOTH の zip」）。中身は VPAI インストーラ・`README.txt`（導入方法・動作環境・利用規約の要約・連絡先。原稿は `scripts/download/README.txt`）・`LICENSE.txt`。`scripts/Build-DownloadZip.ps1` が作る。インストーラは読み込んだ時点の最新版を入れ、README にも版を書かないので、中身は版に依らない。
   - **VPM zip**（`com.yukkuri-aoba.iroca-<VERSION>.zip`）: git 追跡ファイルだけから作るパッケージ本体。VCC / ALCOM と VPAI インストーラがこれを取得する。VPM の決まりで `package.json` を頂点に置く形なので、利用者が開くものではなく、unitypackage も入れない。
   - VPAI インストーラ（`Iroca_Installer.unitypackage`、後述）は配布 zip に入れて配り、単体ではリリースに添付しない（資産の欄に並ぶものを減らして、利用者が取るものを迷わないように。2026-10-15 ユーザー決定）。
 - **CI が作るのは draft まで**。資産アップロードと publish は手動。
@@ -26,8 +26,9 @@ zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合
    - package.json（version / url）、README 見出しのバージョン、`docs/index.json`（エントリ + zipSHA256）、VPM zip、`Iroca_Installer.unitypackage`、配布 zip（`Iroca_v<VERSION>.zip`）が更新される。
    - VPM zip のエントリ日時は実行時の HEAD のコミット日時なので、listing を作った後にコミットが増えてから再実行すると SHA256 が変わる。資産だけ作り直したいときは `Build-DownloadZip.ps1` / `Build-Installer.ps1` を単独で実行する。
    - Code/ に未コミットの変更があると止まる（zip を HEAD と 1:1 にするため）。
-3. **コミット**: `package.json` / `README.md` / `docs/index.json` / `CHANGELOG.md` をコミット。
-4. **main へマージ + タグ**（要ユーザー確認の操作）:
+   - Node.js が要る（`Build-Installer.ps1` が VPAI の `creator.mjs` を node で実行する。無いと止まる）。
+3. **コミット**: `package.json` / `README.md` / `docs/index.json` / `CHANGELOG.md` をコミット。続けて `docs/release-smoke-test.md` の Unity 実地確認を通す。
+4. **main へマージ + タグ**（要ユーザー確認の操作）: マージの前に `git log develop..origin/main` で main だけにあるコミットを確かめる（→「main と develop」）。
    ```
    git checkout main && git merge develop
    git push origin main
@@ -36,17 +37,48 @@ zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合
    → main への push で `pages.yml` が listing とオンラインマニュアルを配信する。手順 5 の publish より前に、
    `https://yukkuri-aoba.github.io/Iroca/index.json` と `https://yukkuri-aoba.github.io/Iroca/manual/` が開くことを確かめる
    （いろかの「マニュアル」ボタン・インストーラ・VCC へのリポジトリ追加は、どれも Pages の配信が前提）。
+   → この配信から、0.2.1 以降を使っている人のいろかのウィンドウに新しい版のお知らせが出る（`Code/Infra/UpdateCheck.cs`。
+   1 日 1 回まで listing を読む）。publish までは VPM zip の URL が開かないので、その間に VCC / ALCOM で更新しようと
+   した人は失敗する。手順 5 まで間を空けない。listing の版の `unity` 欄は、お知らせでも「その版が入る Unity の最低版」
+   として使う（今の Unity で入らない版は知らせない）。
    → `release.yml` が起動し、以下を検証してから draft を作成する（不一致は fail）:
    - tag ↔ package.json の version / url
    - CHANGELOG に非空の `## [<VERSION>]` 節
+   - README.md の見出しに `Ver <VERSION>`
    - `docs/index.json` に該当バージョンのエントリ + zipSHA256
-5. **資産アップロード + publish**: draft に配布 zip と VPM zip をアップロードし、本文のチェックリスト節を削除して publish。BOOTH には配布 zip を上げる。
+5. **資産アップロード + publish**: draft に配布 zip と VPM zip をアップロードし、本文のチェックリスト節を削除して publish。BOOTH の zip は、中身を変えていなければ差し替えない（→「BOOTH の zip」）。
 6. **検証確認**: `release-verify.yml`（publish/edit で起動）が green になることを確認。fail した場合は zip の差し替え、または `Build-VpmPackage.ps1` 再実行 → listing 再コミットで解消する。
+
+## BOOTH の zip
+
+BOOTH の 3 つのバリエーションには、版を上げても差し替えなくてよい zip を置いている（2026-10-19 ユーザー依頼）。
+
+```powershell
+.\scripts\Build-DownloadZip.ps1 -Booth   # → booth/ に 3 つ（booth/ は git 管理外）
+```
+
+| バリエーション | zip | 中身 |
+|---|---|---|
+| 無料版（¥0） | `Iroca.zip` | 配布 zip と同じ（インストーラ・README.txt・LICENSE.txt） |
+| 応援パック（¥300） | `Iroca_応援パック.zip` | 上の 3 つ＋応援メッセージ |
+| 応援パック+（¥1,000） | `Iroca_応援パック+.zip` | 同上 |
+
+- 応援メッセージの原稿は、プライベート側の `dev_safe/promo/応援パックを購入してくださった方へ.txt`（購入した人だけが読むものなので公開リポに置かない）。テキストは README と同じく BOM 付き UTF-8・CRLF にして入れる。
+- **作り直して差し替えるのは、中身の元（`scripts/download/README.txt`・`LICENSE`・`scripts/installer/vpai-config.json`・`scripts/Build-Installer.ps1` の creator の版・応援メッセージ）を変えたときだけ。** zip のエントリ日時はこれらの最後のコミット日時なので、中身が同じなら zip はバイト単位で同じになる。作り直した SHA256 が `docs/BOOTH_description.md` の「配布ファイル」に控えた値と同じなら、差し替えは要らない。
+- 中身の元にコミットしていない変更があると止まる（同じ日時で中身の違う zip ができないように）。応援メッセージは dev_safe 側でコミットしておく。
+- README.txt の動作環境は版で変わりうる。変えたら BOOTH の zip も差し替える（毎回ではない）。
+
+## main と develop
+
+main は develop の祖先とは限らない。2026-10-18 時点で main には develop に無いコミットがある（develop を取り込んだマージコミット、公開中の文書だけの修正を develop から cherry-pick したもの、GitHub 上で直した `CREDITS.md`）。公開中の版向けの注意書きを main だけに入れることもある（develop の同じ行は次の版の挙動で書く）。そのため develop → main のマージは早送りにならず、衝突することがある。
+
+- Pages で配る文書（マニュアル・README）だけの修正で公開中の版に当てはまるものは、develop で直してから main へ cherry-pick してよい。
+- リリースで develop を main へマージする前に、`git log develop..origin/main` で main だけのコミットを確かめる。
+- `docs/manual/src` で衝突したら、main だけにある注意書きは旧版向けなので develop 側を採る。ただし採る前に両方の内容を確かめる（main 側にしか無い直しが混じっていないか）。
 
 ## 初回公開の後に確認すること
 
-- [ ] release-verify が green。
-- [ ] `https://yukkuri-aoba.github.io/Iroca/index.json` に NDMF の項目も載っている（→「GitHub Pages の配信」）。いろかウィンドウの「マニュアル」でオンラインマニュアルが開く。
+- [ ] いろかウィンドウの「マニュアル」でオンラインマニュアルが開く。
 - [ ] VCC / ALCOM にリポジトリ URL を追加してインストールできる。いろかのリポジトリだけで NDMF も選べる。
 - [ ] 公開版の配布 zip（`Iroca_v<VERSION>.zip`）をダウンロードして展開し、中の `Iroca_Installer.unitypackage` を素の Unity 2022.3 プロジェクトと VRChat プロジェクトへインポートして導入できる（NDMF も入る）。
 - [ ] 済んだらこの節を削除する。
@@ -74,6 +106,7 @@ zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合
 
 - 配信のたびに `scripts/pages/build_site.py` が、NDMF の公式 listing（`https://vpm.nadena.dev/vpm.json`）から、いろかが対応する範囲の安定版を index.json に写す。VCC / ALCOM で、いろかのリポジトリだけを追加した人でも NDMF を選べるようにするため。写す項目は公式とまったく同じ（URL・zipSHA256 とも）なので、NDMF の公式リポジトリも追加している環境でもぶつからない（Avatar Optimizer の listing も同じやり方で NDMF を載せている）。
 - 対応する範囲は `Code/NdmfIntegration/Iroca.NdmfIntegration.asmdef` の versionDefines（`nadena.dev.ndmf` の式）から読む。NDMF 2.0 が出て対応を広げるときは、asmdef の範囲を変えれば写す範囲も変わる。
+- 範囲の上限は `2.0.0` でなく `2.0.0-0` と書く（`[1.8.0,2.0.0-0)`）。Unity は版を SemVer の順で比べるので、`2.0.0)` だと 2.0 のベータ版（`2.0.0-beta.1` など。`2.0.0` より前と数える）が範囲に入り、未確認の API に対して NDMF 連携がコンパイルされてしまう。`2.0.0-0` は 2.0 のどのプレリリースよりも前の版なので、2.0 系をすべて外せる（Modular Avatar の `<2.0.0-a` と同じ考え）。範囲を変えるときは、この式を使う asmdef（Runtime・本体・NDMF 連携・EditMode テスト）をそろえる。
 - いろかのリリースは頻繁でないので、写した項目はリポジトリへ書き戻さず、毎日配信し直して新しい NDMF を拾う（main への push と手動実行でも配信する）。公式 listing を読めなかった日は組み立てが失敗して配信されず、前回の配信が残る。
 - release-verify.yml は `docs/index.json` の、いろかの項目だけを照合するので、写した項目の影響を受けない。
 - 手元で確かめるときは `python scripts/pages/build_site.py --out _site`（`_site/` は git 管理外）。
@@ -81,4 +114,5 @@ zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合
 ## 補足
 
 - 配布 zip は `Code/` を収集するが、**`Code/Debug/`（開発専用の Debug ウィンドウ）は同梱しない**（`Build-VpmPackage.ps1` が明示的に除外）。IrocaEditor.Debug.asmdef は defineConstraints 無しのため、同梱すると全ユーザーで常時コンパイルされ Debug ウィンドウが見えてしまうのを避けるため。
+- 同じく **`Code/McpIntegration/`（MCP for Unity 用の開発ツール）も同梱しない**（0.2.1〜）。MCP for Unity はカスタムツールを既定で有効にして AI のツール一覧へ出すので、同梱すると MCP for Unity を使っている利用者の AI に、いろかのツールが勝手に並ぶ。
 - `Code/Infra/BuildHelper.cs`（`Assets/Iroca` を unitypackage へ書き出すヘルパー）は、VPAI インストーラへ切り替えた 2026-09-23 以降のリリース手順では使わない。

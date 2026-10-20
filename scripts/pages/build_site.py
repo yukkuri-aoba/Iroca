@@ -47,7 +47,11 @@ def parse_version(text: str) -> tuple[tuple[int, int, int], str | None]:
 
 
 def parse_range(expr: str):
-    """Unity の versionDefines の式（"[1.8.0,2.0.0)" や "1.8.0" など）を (下限, 下限を含む, 上限, 上限を含む) にする。"""
+    """Unity の versionDefines の式（"[1.8.0,2.0.0-0)" や "1.8.0" など）を (下限, 下限を含む, 上限, 上限を含む) にする。
+
+    境界のプレリリース部（"2.0.0-0" の "-0"）は落として比べる。写すのは安定版だけなので、
+    "2.0.0-0" を上限にしても "2.0.0" を上限にしても、載る版は変わらない。
+    """
     expr = expr.strip()
     if expr and expr[0] in "[(":
         if expr[-1] not in ")]" or "," not in expr:

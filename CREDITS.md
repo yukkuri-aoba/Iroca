@@ -17,7 +17,7 @@ The latest version is at the URL above.
 Copyright (c) 2026 yukkuri__aoba  
 Licensed under [PolyForm Shield License 1.0.0](LICENSE)
 
-## アルゴリズムの開発に使用したデータ(敬称略) / Data Used for Algorithm Development
+## アルゴリズムの開発に使用したデータ（敬称略） / Data Used for Algorithm Development
 
 色抽出・マスク生成・領域判定の開発と検証に、次のモデル・衣装のテクスチャを使用させていただきました。
 
@@ -63,6 +63,8 @@ Nanju_Bami / BAMI
 
 The distributed packages (zip and installer) contain no model or texture data from the above.
 The data was used only to develop and test the algorithms, never to train any AI model.
+The screenshots, demo images, and intro video of the online manual (including the thumbnails at the top of the README and the manual) show the textures and model of かなリぁ's "ハオラン-HAOLAN" (some recolored), under its license.
+If you find any problem, please contact us.
 
 ## サードパーティ / Third-party
 

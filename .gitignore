@@ -92,6 +92,8 @@ docs/booth/out/
 /com.yukkuri-aoba.iroca-*.zip
 /Iroca_Installer.unitypackage
 /Iroca_v*.zip
+# Build-DownloadZip.ps1 -Booth の出力（BOOTH の 3 バリエーション用）
+/booth/
 
 # scripts/pages/build_site.py の出力（Pages へは Actions が配信する）
 _site/

@@ -1,0 +1,80 @@
+<!--
+  VRChat SDK はあるが NDMF が無い(または対応していない版の)プロジェクトの型チェック。
+  この組み合わせでだけ効くコード(IrocaRecolor の IEditorOnly・アップロードを止める NdmfUploadGuard)は、
+  NDMF の入った検証ホストでは別の分岐になるので、ここで確かめる。
+
+  VRChat SDK の DLL は、SDK が入った Unity プロジェクト(既定は `..\Avatar_Projects\Iroca_Dev`)の
+  Packages から借りる。ホストに NDMF が入っていても、ここでは NDMF を参照しない(無い場合の分岐を見るため)。
+
+    dotnet build scripts/build-check/IrocaVrcsdkCheck.csproj
+    dotnet build scripts/build-check/IrocaVrcsdkCheck.csproj -p:VrcsdkHostProject="D:\path\to\Project"
+    # または
+    $env:IROCA_VRCSDK_HOST = "D:\path\to\Project"
+
+  NDMF の版が新しすぎる・古いときの分岐は、本体 asmdef の define を足して見る(DefineConstants を丸ごと渡す。
+  コマンドラインでは ; を %3B と書く。古いときは IROCA_NDMF_TOO_NEW を外す):
+
+    dotnet build scripts/build-check/IrocaVrcsdkCheck.csproj "-p:DefineConstants=IROCA_VRCSDK_BASE%3BIROCA_VRCSDK_AVATARS%3BIROCA_NDMF_INSTALLED%3BIROCA_NDMF_TOO_NEW"
+
+  VRChat SDK を入れた Unity プロジェクトが手元にある環境でだけ動く(CI では走らせない)。
+  制約: asmdef 境界(本体 / Runtime)は再現せず 1 アセンブリとしてコンパイルする。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>IrocaVrcsdkCheck</AssemblyName>
+    <RootNamespace>Iroca</RootNamespace>
+    <OutputType>Library</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>0414;0649;CS0219;CS0169</NoWarn>
+    <!-- 利用者の Unity は nullable 文脈なしでコンパイルするので CS8632 が Console に出る。CI で止める -->
+    <WarningsAsErrors>CS8632</WarningsAsErrors>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- ほかの csproj と出力を混ぜない（bin/ は .gitignore 済み） -->
+    <BaseOutputPath>bin\vrcsdk\</BaseOutputPath>
+    <!-- Runtime(com.vrchat.base)と本体(com.vrchat.avatars)の asmdef が持つ define。 -->
+    <DefineConstants>$(DefineConstants);IROCA_VRCSDK_BASE;IROCA_VRCSDK_AVATARS</DefineConstants>
+  </PropertyGroup>
+
+  <Import Project="UnityEditorPath.props" />
+  <PropertyGroup>
+    <VrcsdkHostProject Condition="'$(VrcsdkHostProject)' == '' and '$(IROCA_VRCSDK_HOST)' != ''">$(IROCA_VRCSDK_HOST)</VrcsdkHostProject>
+    <VrcsdkHostProject Condition="'$(VrcsdkHostProject)' == ''">$(MSBuildThisFileDirectory)..\..\..\Avatar_Projects\Iroca_Dev</VrcsdkHostProject>
+    <VrcsdkPluginsPath>$(VrcsdkHostProject)\Packages\com.vrchat.base\Runtime\VRCSDK\Plugins</VrcsdkPluginsPath>
+  </PropertyGroup>
+
+  <!-- NDMF の無いプロジェクトと同じく、NdmfIntegration は入れない。Debug / McpIntegration / SentisIntegration は
+       IrocaEditor.csproj と同じ理由で除外。 -->
+  <ItemGroup>
+    <Compile Include="..\..\Code\**\*.cs"
+             Exclude="..\..\Code\Debug\**\*.cs;..\..\Code\McpIntegration\**\*.cs;..\..\Code\SentisIntegration\**\*.cs;..\..\Code\NdmfIntegration\**\*.cs" />
+  </ItemGroup>
+
+  <!-- VRChat SDK の DLL は UnityEngine の各モジュールを直接参照するので、facade ではなくモジュール実体を参照する
+       (IrocaNdmfCheck.csproj と同じ)。 -->
+  <ItemGroup>
+    <Reference Include="$(UnityEditorPath)\UnityEngine\*.dll">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="VRCSDKBase">
+      <HintPath>$(VrcsdkPluginsPath)\VRCSDKBase.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="VRCSDKBase-Editor">
+      <HintPath>$(VrcsdkPluginsPath)\VRCSDKBase-Editor.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="CheckVrcsdkPath" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(UnityEditorPath)\UnityEngine\UnityEngine.CoreModule.dll')"
+           Text="UnityEngine のモジュール DLL が見つかりません: $(UnityEditorPath)\UnityEngine\&#xA;`-p:UnityVersion=` か `-p:UnityEditorPath=` で正しいパスを指定してください。" />
+    <Error Condition="!Exists('$(VrcsdkPluginsPath)\VRCSDKBase-Editor.dll')"
+           Text="VRCSDKBase-Editor.dll が見つかりません: $(VrcsdkPluginsPath)&#xA;VRChat SDK を導入した Unity プロジェクトのルートを `-p:VrcsdkHostProject=` か環境変数 IROCA_VRCSDK_HOST で指定してください。" />
+  </Target>
+
+</Project>

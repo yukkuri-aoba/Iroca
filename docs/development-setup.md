@@ -25,6 +25,7 @@
 | .NET SDK | 8.0+ | ハーネス・build-check のビルド |
 | Python | 3.13+（検証機は 3.14.6） | リポジトリ直下に `.venv` |
 | PowerShell | Windows PowerShell 5.1 で可 | `scripts/*.ps1` |
+| Node.js | 検証機は 24.19.0 | リリースのときだけ。`scripts/Build-Installer.ps1`（`Build-VpmPackage.ps1` から呼ばれる）が VPAI の `creator.mjs` を node で実行する。無いと止まる |
 
 ## 2. 配置
 
@@ -71,6 +72,9 @@ powershell -ExecutionPolicy Bypass -File scripts\Fetch-Models.ps1
 
 # (5) SAM エンコーダ埋め込みを再生成（4MB × テクスチャ数。リポジトリには入らない）
 .\.venv\Scripts\python.exe dev_safe\scripts\freeze_sam_fixtures.py
+#     ホールドアウト被写体の埋め込みは --holdout を付けたときだけ作られる
+#     （無いと dev_safe\scripts\holdout_eval.py が終了コード 2 で止まる）
+.\.venv\Scripts\python.exe dev_safe\scripts\freeze_sam_fixtures.py --holdout
 ```
 
 ### (5) を飛ばしたときに何が起きるか（2026-09-21 実測）
@@ -114,10 +118,21 @@ vpm resolve project .                       # Packages/ の実体を復元（VCC
 cd ..\..\Iroca
 .\scripts\Link-HostPackage.ps1 -HostProject "..\Avatar_Projects\Iroca_Dev"
 
+# NDMF 連携と「VRChat SDK あり・NDMF なし」の分岐の型チェック（scripts/build-check/README.md）。
+# 前者は Iroca_Dev を一度 Unity で開いてできる Library/ScriptAssemblies の NDMF を、後者は Packages の VRChat SDK を借りる
+dotnet build scripts\build-check\IrocaNdmfCheck.csproj
+dotnet build scripts\build-check\IrocaVrcsdkCheck.csproj
+
 # Sentis 検証をするときだけ（Iroca_MLDev）
 .\scripts\Link-HostPackage.ps1 -HostProject "..\Avatar_Projects\Iroca_MLDev"
 dotnet build scripts\build-check\IrocaSentisCheck.csproj
 ```
+
+Unity 6 の確認用に、VRChat SDK も NDMF も入れない検証ホストを `Avatar_Projects/` に 2 つ置いている
+（リポジトリは無く、手元で作る）: `Iroca_U6`（6000.0.67f1・`com.unity.ai.inference` 2.4.1・test-framework 1.4.6）と
+`Iroca_U2022`（2022.3.22f1・`com.unity.sentis` 2.1.3・test-framework 1.1.33）。どちらも
+`Link-HostPackage.ps1 -WithEditorTests` で繋ぎ、`Run-EditorTests.ps1 -HostProject <ホスト> -UnityExe <その版の Unity.exe>`
+で EditMode テストを回す。
 
 詳細（Unity 未インストール環境での DLL シム、batchmode でのコンパイル確認、
 `manifest.json` に本体ルートを書いてはいけない理由）は `docs/testing-architecture.md`。

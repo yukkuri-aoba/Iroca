@@ -16,8 +16,23 @@
     "versionDefines": [
         {
             "name": "nadena.dev.ndmf",
-            "expression": "[1.8.0,2.0.0)",
+            "expression": "[1.8.0,2.0.0-0)",
             "define": "IROCA_NDMF_PRESENT"
+        },
+        {
+            "name": "nadena.dev.ndmf",
+            "expression": "",
+            "define": "IROCA_NDMF_INSTALLED"
+        },
+        {
+            "name": "nadena.dev.ndmf",
+            "expression": "2.0.0-0",
+            "define": "IROCA_NDMF_TOO_NEW"
+        },
+        {
+            "name": "com.vrchat.avatars",
+            "expression": "",
+            "define": "IROCA_VRCSDK_AVATARS"
         }
     ],
     "noEngineReferences": false

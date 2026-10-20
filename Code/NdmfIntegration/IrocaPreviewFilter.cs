@@ -34,15 +34,25 @@ namespace Iroca.NdmfIntegration
         private static readonly PublishedValue<LivePreview.Target> Live =
             new PublishedValue<LivePreview.Target>(null, "Iroca/LiveTarget");
 
+        // 「元の解像度で編集」。レシピの出来上がりが変わるので、変わったら作り直す。
+        private static readonly PublishedValue<bool> AtSource =
+            new PublishedValue<bool>(false, "Iroca/AtSourceResolution");
+
         [InitializeOnLoadMethod]
         private static void Install()
         {
             LivePreview.TargetChanged -= OnTargetChanged;
             LivePreview.TargetChanged += OnTargetChanged;
             Live.Value = LivePreview.Current;
+            WorkingResolution.Changed -= OnWorkingResolutionChanged;
+            WorkingResolution.Changed += OnWorkingResolutionChanged;
+            // メインスレッドで一度読んでおく(設定は EditorPrefs にあり、レシピのキャッシュの鍵もこれを読む)。
+            AtSource.Value = WorkingResolution.AtSourceResolution;
         }
 
         private static void OnTargetChanged() => Live.Value = LivePreview.Current;
+
+        private static void OnWorkingResolutionChanged() => AtSource.Value = WorkingResolution.AtSourceResolution;
 
         public IEnumerable<TogglablePreviewNode> GetPreviewControlNodes()
         {
@@ -92,9 +102,21 @@ namespace Iroca.NdmfIntegration
             if (ready.IsCompleted) return Task.FromResult<IRenderFilterNode>(node.Swap(proxies));
             // 作りかけのレシピを待つ。完了はメインスレッドだが、待ち合わせ(WhenAll)の続きはどこで走るか
             // 決まらないので、差し替えはメインスレッドへ戻してから行う。
+            // NDMF は全部のノードがそろってから次の表示へ切り替えるので、この Task は何があっても完了させる
+            // (残すと、ほかのツールの分も含めてシーンのプレビューが古い表示のまま止まる)。
             var result = new TaskCompletionSource<IRenderFilterNode>();
-            ready.ContinueWith(_ => PreviewJobMainThread.Post(() => result.SetResult(node.Swap(proxies))),
-                TaskScheduler.Default);
+            ready.ContinueWith(_ => PreviewJobMainThread.Post(() =>
+            {
+                try
+                {
+                    result.TrySetResult(node.Swap(proxies));
+                }
+                catch (System.Exception ex)
+                {
+                    Debug.LogException(ex);
+                    result.TrySetResult(node);
+                }
+            }), TaskScheduler.Default);
             return result.Task;
         }
 
@@ -201,8 +223,9 @@ namespace Iroca.NdmfIntegration
                     }
                     else
                     {
-                        // レシピの中身が変わったら作り直す(ウィンドウがレシピへ保存したとき)。
+                        // レシピの中身か作業解像度の設定が変わったら作り直す(ウィンドウがレシピへ保存したとき)。
                         context.Observe(replacement.recipe, r => r.sessionJson);
+                        context.Observe(AtSource);
                         slot.recipe = RecipePreviewTextures.Acquire(replacement.recipe, out var key);
                         if (key != null) _recipeKeys.Add(key);
                     }
@@ -218,8 +241,11 @@ namespace Iroca.NdmfIntegration
             {
                 foreach (var s in _slots)
                 {
-                    var texture = s.recipe != null ? s.recipe.Result : s.live;
-                    if (texture == null) continue;
+                    // 作れなかったレシピ・待っている間に消えたマテリアルは飛ばす(ほかの差し替えは続ける)。
+                    var texture = s.recipe != null
+                        ? (s.recipe.Status == TaskStatus.RanToCompletion ? s.recipe.Result : null)
+                        : s.live;
+                    if (texture == null || s.material == null) continue;
                     if (!_clones.TryGetValue(s.material, out var clone))
                     {
                         // hideFlags は既定のまま(DontSave にすると、ノードが片付けられずに残ったとき

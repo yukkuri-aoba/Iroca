@@ -677,15 +677,26 @@ namespace Iroca
             var sim = BuildSimZone(aZone, result);
             sim.highlightRecovery = false;
             sim.UpdateCacheIfNeeded();
-            int sel = 0;
-            foreach (var p in domain)
+            // 区間ごとに並列に数えて足す(整数の和なので逐次と同じ値。MatcherLoopOptions の説明)。
+            const int Chunk = 4096;
+            int n = domain.Count;
+            var counts = new int[(n + Chunk - 1) / Chunk];
+            Parallel.For(0, counts.Length, MatcherLoopOptions(), ci =>
             {
-                Color32 c = pixels[p.y * w + p.x];
-                var col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
-                sim.GetMatchScoresPrecomputedHSV(hsv.h[p.gi], hsv.s[p.gi], hsv.v[p.gi], col,
-                    p.x, p.y, w, h, out float strength, out _, out _);
-                if (strength > 0f) sel++;
-            }
+                int end = Mathf.Min(n, (ci + 1) * Chunk);
+                int k = 0;
+                for (int i = ci * Chunk; i < end; i++)
+                {
+                    var p = domain[i];
+                    Color32 c = pixels[p.y * w + p.x];
+                    var col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
+                    sim.GetMatchScoresPrecomputedHSV(hsv.h[p.gi], hsv.s[p.gi], hsv.v[p.gi], col,
+                        p.x, p.y, w, h, out float strength, out _, out _);
+                    if (strength > 0f) k++;
+                }
+                counts[ci] = k;
+            });
+            int sel = SumCounts(counts);
             return sel / (float)domain.Count;
         }
 
@@ -754,11 +765,14 @@ namespace Iroca
             sim.highlightRecovery = false;
             sim.UpdateCacheIfNeeded();
             int stride = hsv.stride;
-            int sel = 0;
-            for (int y = 0, gy = 0; y < h; y += stride, gy++)
+            // 行ごとに並列に数えて足す(整数の和なので逐次と同じ値。MatcherLoopOptions の説明)。
+            var rowCount = new int[hsv.gh];
+            Parallel.For(0, hsv.gh, MatcherLoopOptions(), gy =>
             {
+                int y = gy * stride;
                 int rowStart = y * w;
                 int grow = gy * hsv.gw;
+                int k = 0;
                 for (int x = 0, gx = 0; x < w; x += stride, gx++)
                 {
                     Color32 c = pixels[rowStart + x];
@@ -768,10 +782,11 @@ namespace Iroca
                     var col = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
                     sim.GetMatchScoresPrecomputedHSV(hsv.h[gi], hsv.s[gi], hsv.v[gi], col,
                         x, y, w, h, out float strength, out _, out _);
-                    if (strength > 0f) sel++;
+                    if (strength > 0f) k++;
                 }
-            }
-            return sel;
+                rowCount[gy] = k;
+            });
+            return SumCounts(rowCount);
         }
 
         // ─────────────────── bool マスクの収縮(4 近傍) ───────────────────

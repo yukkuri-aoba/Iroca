@@ -132,7 +132,15 @@ namespace Iroca
                     break;
 
                 case MaskSuggestPhase.Error:
-                    EditorGUILayout.HelpBox(svc.ErrorMessage ?? "error", MessageType.Error);
+                    EditorGUILayout.HelpBox(svc.ErrorMessage ?? Localization.AiUnknownError, MessageType.Error);
+                    if (svc.ErrorIsModelFile)
+                    {
+                        // モデルのファイルを読めなかった(壊れている・欠けている)。再起動では直らないので、
+                        // 取り直しだけを出す(取り直しで直ることは確認済み)。
+                        EditorGUILayout.HelpBox(Localization.AiSuggestModelFileErrorHint, MessageType.Info);
+                        DrawModelRecheck();
+                        break;
+                    }
                     // 推論の失敗は Burst のコールドスタート失敗が原因のことが多く、その世代では
                     // 何度クリックしても直らない。再起動導線をエラーと同じ場所に出す。
                     EditorGUILayout.HelpBox(Localization.AiSuggestErrorRestartHint, MessageType.Info);

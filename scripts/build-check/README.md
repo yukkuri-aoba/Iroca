@@ -34,7 +34,7 @@ $env:UNITY_EDITOR_PATH = "D:\Unity\2022.3.22f1\Editor\Data\Managed"
 dotnet build scripts/build-check/IrocaEditor.csproj
 ```
 
-既定パスの解決（`UnityVersion` の既定・`UNITY_EDITOR_PATH`・Hub の既定パス）は `UnityEditorPath.props` の 1 箇所にあり、build-check の 4 本の csproj が Import する（`scripts/headless-run/Harness.csproj` と `scripts/unit-run/UnitRun.csproj` は別管理）。
+既定パスの解決（`UnityVersion` の既定・`UNITY_EDITOR_PATH`・Hub の既定パス）は `UnityEditorPath.props` の 1 箇所にあり、build-check の 5 本の csproj が Import する（`scripts/headless-run/Harness.csproj` と `scripts/unit-run/UnitRun.csproj` は別管理）。
 
 ## NDMF 連携の型チェック（IrocaNdmfCheck.csproj）
 
@@ -48,15 +48,30 @@ dotnet build scripts/build-check/IrocaNdmfCheck.csproj -p:NdmfHostProject="D:\pa
 ```
 
 ホストを一度 Unity で開いて ScriptAssemblies ができていることが前提（CI では走らせない）。
+ホストに VRChat SDK があれば、Unity と同じく `IROCA_VRCSDK_BASE`・`IROCA_VRCSDK_AVATARS` も付けてコンパイルする。
+
+## VRChat SDK はあるが NDMF が無いとき（IrocaVrcsdkCheck.csproj）
+
+VRChat SDK があれば、`IrocaRecolor` は NDMF の有無に関係なく `IEditorOnly` になり、NDMF が使えないときは
+`NdmfUploadGuard`（本体）がアップロードを止める。NDMF の入った検証ホストではこの分岐を通らないので、
+SDK が入った Unity プロジェクト（既定は `..\Avatar_Projects\Iroca_Dev`）の `Packages` から VRChat SDK の DLL だけを借り、
+NDMF を参照せずに型チェックする:
+
+```powershell
+dotnet build scripts/build-check/IrocaVrcsdkCheck.csproj
+dotnet build scripts/build-check/IrocaVrcsdkCheck.csproj -p:VrcsdkHostProject="D:\path\to\Project"
+# NDMF が新しすぎるとき（古いときは IROCA_NDMF_TOO_NEW を外す）
+dotnet build scripts/build-check/IrocaVrcsdkCheck.csproj "-p:DefineConstants=IROCA_VRCSDK_BASE%3BIROCA_VRCSDK_AVATARS%3BIROCA_NDMF_INSTALLED%3BIROCA_NDMF_TOO_NEW"
+```
 
 ## 既知の限界
 
 - **Unity の Define シンボル**（`UNITY_EDITOR`, `UNITY_2022_3_OR_NEWER` 等）は
   解決されない。`#if UNITY_EDITOR` で囲まれた箇所は **常に除外** されるので、
   そこにエラーがあっても検知できない。
-- **VRChat SDK / VPM パッケージへの参照** はチェック対象外。本プロジェクトは
-  Editor 専用で UnityEngine/UnityEditor のみに依存するため現状問題ないが、
-  将来 VRCSDK に依存させる場合は別途 `<Reference>` を追加すること。
+- **VRChat SDK / VPM パッケージへの参照** は、`IrocaEditor.csproj` では見ない（SDK も NDMF も無いプロジェクトの形）。
+  VRChat SDK に触れるのは `#if IROCA_VRCSDK_*` の中だけで、そちらは `IrocaVrcsdkCheck.csproj` と
+  `IrocaNdmfCheck.csproj` が SDK の DLL を借りて見る。
 - 出力 DLL は Unity が生成するものとは別物。**実機テスト・ビルドには絶対に
   使わない**こと。Unity Editor を実際に開いた時の出力が正となる。
 

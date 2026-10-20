@@ -15,7 +15,8 @@ namespace Iroca
     /// <summary>
     /// レシピ(<see cref="IrocaRecipe"/>)から、非破壊ビルドで差し替える色替え済みテクスチャを作る。
     /// <list type="number">
-    /// <item>原本の画素を「適用して保存」と同じ手順で読む(<see cref="ExportPipeline.ReadSourcePixels"/>)。</item>
+    /// <item>原本の画素を「適用して保存」と同じ手順で読み、プレビューと同じ作業解像度(<see cref="WorkingResolution"/>。
+    ///   既定は取り込み後の寸法)にそろえる(<see cref="ExportPipeline.ReadSourcePixels"/>)。</item>
     /// <item>保存済みの編集状態をそのまま当てる(<see cref="SessionRecolor.Apply"/>)。</item>
     /// <item>取り込み済みの元テクスチャと同じ寸法・圧縮形式・ミップ・色空間・サンプリング設定にそろえる。
     ///   そろえないと VRAM が増えてパフォーマンスランクが落ちる。形式はビルド対象(PC/Android)ごとに
@@ -72,8 +73,38 @@ namespace Iroca
         /// BC7 圧縮 0.3 秒ほど)。出来上がりとキャッシュは <see cref="Build"/> と同じ。
         /// <paramref name="done"/> は必ずメインスレッドで 1 回呼ぶ(作れなければ null)。キャッシュがあるときや
         /// 作れないと分かっているとき(レシピが空・壊れている)は、この呼び出しの中で呼ぶ。
+        /// <para>
+        /// 途中で例外が出ても null で呼ぶ。シーンのプレビューは NDMF が全部のノードの完了を待ってから切り替えるので、
+        /// 呼ばれないままだと、ほかのツールの分も含めてシーンの NDMF のプレビュー全体が古い表示のまま止まる
+        /// (作りかけは <see cref="RecipePreviewTextures"/> が共有するので、プレビューを入れ直しても直らない)。
+        /// </para>
         /// </summary>
         internal static void BuildAsync(IrocaRecipe recipe, Action<Texture2D> done)
+        {
+            bool called = false;
+            void Once(Texture2D tex)
+            {
+                if (called)
+                {
+                    if (tex != null) UnityEngine.Object.DestroyImmediate(tex);   // 受け取り手がいない
+                    return;
+                }
+                called = true;
+                done(tex);
+            }
+
+            try
+            {
+                StartBuild(recipe, Once);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                Once(null);
+            }
+        }
+
+        private static void StartBuild(IrocaRecipe recipe, Action<Texture2D> done)
         {
             var like = recipe != null ? recipe.sourceTexture : null;
             if (like == null) { done(null); return; }
@@ -83,16 +114,33 @@ namespace Iroca
             if (cached != null) { done(cached); return; }
 
             if (!TryLoadState(recipe, out var state, out _)) { done(null); return; }
-            PreviewJobMainThread.Post(() =>
+            PostOrFail(done, () =>
             {
                 if (like == null || !TryReadPixels(like, out var pixels, out int w, out int h, out _)) { done(null); return; }
                 int dw = like.width, dh = like.height;
                 Task.Run(() =>
                 {
                     SessionRecolor.Apply(pixels, w, h, state);
-                    return (dw == w && dh == h) ? pixels : ResizeArea(pixels, w, h, dw, dh);
-                }).ContinueWith(t => PreviewJobMainThread.Post(() => FinishAsync(t, like, dw, dh, key, done)),
+                    return (dw == w && dh == h) ? pixels : WorkingResolution.ResizeArea(pixels, w, h, dw, dh);
+                }).ContinueWith(t => PostOrFail(done, () => FinishAsync(t, like, dw, dh, key, done)),
                     TaskScheduler.Default);
+            });
+        }
+
+        // メインスレッドの次の tick で work を回す。例外で抜けたら記録して done(null)(done は 1 回目だけ効く)。
+        private static void PostOrFail(Action<Texture2D> done, Action work)
+        {
+            PreviewJobMainThread.Post(() =>
+            {
+                try
+                {
+                    work();
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogException(ex);
+                    done(null);
+                }
             });
         }
 
@@ -108,7 +156,7 @@ namespace Iroca
                 done(null);
                 return;
             }
-            PreviewJobMainThread.Post(() =>
+            PostOrFail(done, () =>
             {
                 if (like == null)
                 {
@@ -142,8 +190,9 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 原本を読み、レシピの編集状態を当てた画素(原本の解像度)を返す。
-        /// 「適用して保存」と同じ読み方・同じ処理なので、同じ編集状態なら書き出しとバイト単位で一致する。
+        /// 原本を作業解像度(<see cref="WorkingResolution"/>)で読み、レシピの編集状態を当てた画素を返す。
+        /// プレビューと同じ読み方・同じ処理なので、同じ編集状態ならいろかの画面の確定結果とバイト単位で一致する
+        /// (作業解像度が元ファイルと同じときは「適用して保存」の書き出しとも一致する)。
         /// </summary>
         internal static bool TryRecolor(IrocaRecipe recipe, out Color32[] pixels, out int width, out int height,
             out Failure failure)
@@ -167,13 +216,28 @@ namespace Iroca
             return true;
         }
 
-        // 原本の画素を読む(4K で 0.2 秒ほど)。Unity の API を使うのでメインスレッドで呼ぶ。
+        // 原本の画素を作業解像度で読む(4K で 0.2 秒ほど)。Unity の API を使うのでメインスレッドで呼ぶ。
         private static bool TryReadPixels(Texture2D src, out Color32[] pixels, out int width, out int height,
             out Failure failure)
         {
             failure = Failure.None;
             string srcPath = AssetDatabase.GetAssetPath(src);
-            var kind = ExportPipeline.ReadSourcePixels(srcPath, src, out pixels, out width, out height);
+            ExportPipeline.SourceKind kind;
+            try
+            {
+                kind = ExportPipeline.ReadSourcePixels(srcPath, src, out pixels, out width, out height,
+                    workingSize: true);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
+                                       || ex is ArgumentException || ex is NotSupportedException)
+            {
+                // 原本のファイルを開けない(ほかのアプリが掴んでいる・同期サービスのオンライン専用ファイル・
+                // Unity の外で消した等)。ビルドでは「元テクスチャを読めません」として報告する。
+                Debug.LogWarning($"[Iroca] 元テクスチャのファイルを読めませんでした: {srcPath}\n{ex.Message}");
+                pixels = null; width = height = 0;
+                failure = Failure.SourceUnreadable;
+                return false;
+            }
             if (kind == ExportPipeline.SourceKind.Unavailable) { failure = Failure.SourceUnreadable; return false; }
             return true;
         }
@@ -193,7 +257,7 @@ namespace Iroca
         private static Texture2D CreateUncompressed(Color32[] pixels, int width, int height, Texture2D like)
         {
             int dw = like.width, dh = like.height;
-            var px = (dw == width && dh == height) ? pixels : ResizeArea(pixels, width, height, dw, dh);
+            var px = (dw == width && dh == height) ? pixels : WorkingResolution.ResizeArea(pixels, width, height, dw, dh);
             bool linear = !GraphicsFormatUtility.IsSRGBFormat(like.graphicsFormat);
             bool mips = like.mipmapCount > 1;
             var tex = new Texture2D(dw, dh, TextureFormat.RGBA32, mips, linear);
@@ -261,40 +325,6 @@ namespace Iroca
             if (!like.isReadable) tex.Apply(updateMipmaps: false, makeNoLongerReadable: true);
         }
 
-        /// <summary>
-        /// 面積平均で縮小する(取り込み時の最大サイズへ合わせる用途。整数倍ならボックスフィルタと同じ)。
-        /// 拡大方向(取り込み側が大きい)のときは最近傍。行 0 = 画像下端の並び(Unity の画素順)のまま扱う。
-        /// </summary>
-        internal static Color32[] ResizeArea(Color32[] src, int sw, int sh, int dw, int dh)
-        {
-            var dst = new Color32[dw * dh];
-            for (int y = 0; y < dh; y++)
-            {
-                int y0 = (int)((long)y * sh / dh);
-                int y1 = Math.Max(y0 + 1, (int)(((long)y + 1) * sh / dh));
-                for (int x = 0; x < dw; x++)
-                {
-                    int x0 = (int)((long)x * sw / dw);
-                    int x1 = Math.Max(x0 + 1, (int)(((long)x + 1) * sw / dw));
-                    int r = 0, g = 0, b = 0, a = 0, n = 0;
-                    for (int yy = y0; yy < y1; yy++)
-                    {
-                        int row = yy * sw;
-                        for (int xx = x0; xx < x1; xx++)
-                        {
-                            var c = src[row + xx];
-                            r += c.r; g += c.g; b += c.b; a += c.a; n++;
-                        }
-                    }
-                    int half = n / 2;
-                    dst[y * dw + x] = new Color32(
-                        (byte)((r + half) / n), (byte)((g + half) / n),
-                        (byte)((b + half) / n), (byte)((a + half) / n));
-                }
-            }
-            return dst;
-        }
-
         // ───────────── キャッシュ(Library/Iroca/RecipeTextureCache) ─────────────
         // 鍵 = 元テクスチャの取り込み結果(ファイル内容と取り込み設定) + レシピの中身 + いろかのコード
         //      + 出来上がりの形式。どれかが変われば別の鍵になる。
@@ -308,6 +338,8 @@ namespace Iroca
             // いろかのコードが変われば出力も変わり得る。Editor アセンブリは再コンパイルのたびに MVID が変わる。
             sb.Append(typeof(SessionRecolor).Assembly.ManifestModule.ModuleVersionId).Append('|');
             sb.Append(like.width).Append('x').Append(like.height).Append('|');
+            // 作業解像度で処理するか、元の解像度で処理して縮めるか(元ファイルが取り込み後より大きいと結果が違う)。
+            sb.Append(WorkingResolution.AtSourceResolution ? "src" : "work").Append('|');
             sb.Append((int)like.format).Append('|').Append((int)like.graphicsFormat).Append('|');
             sb.Append(like.mipmapCount).Append('|');
             sb.Append(recipe.formatVersion).Append('|').Append(recipe.sessionJson);

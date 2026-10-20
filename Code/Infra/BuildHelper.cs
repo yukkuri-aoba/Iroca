@@ -1,6 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-// Assets/Iroca（Code/Debug を除く）を unitypackage へ書き出すビルドヘルパー。
+// Assets/Iroca（Code/Debug・Code/McpIntegration を除く）を unitypackage へ書き出すビルドヘルパー。
 // 現行のリリース手順（docs/RELEASING.md）では使わない（配布物は scripts/Build-VpmPackage.ps1 が作る）。
 // 手動で使う場合は Unity -batchmode -quit -executeMethod Iroca.BuildHelper.Export [-outputPath <出力先>]。
 
@@ -21,6 +21,9 @@ namespace Iroca
         // 見えてしまう。zip 生成(Build-VpmPackage.ps1)は既にこのフォルダを除外しており、
         // unitypackage も同じ非同梱運用に揃える。
         private const string DebugFolder = "Assets/Iroca/Code/Debug";
+
+        // MCP 連携(Code/McpIntegration/)も開発用なので同梱しない(Build-VpmPackage.ps1 と同じ)。
+        private const string McpFolder = "Assets/Iroca/Code/McpIntegration";
 
         /// <summary>
         /// バッチモードからのエントリポイント。
@@ -43,15 +46,14 @@ namespace Iroca
 
             Debug.Log($"[BuildHelper] エクスポート開始: {ExportRoot} → {outputPath}");
 
-            // Code/Debug 以外の Assets/Iroca 配下アセットを明示列挙して同梱する。
+            // Code/Debug・Code/McpIntegration 以外の Assets/Iroca 配下アセットを明示列挙して同梱する。
             // フォルダ 1 つを Recurse で丸ごと渡すと Debug も入ってしまうため、対象パスを
             // フィルタした配列を渡し Recurse は使わない(=渡したアセットのみを厳密に同梱)。
-            string debugPrefix = DebugFolder + "/";
             var included = new List<string>();
             foreach (string p in AssetDatabase.GetAllAssetPaths())
             {
                 if (p != ExportRoot && !p.StartsWith(ExportRoot + "/", StringComparison.Ordinal)) continue;
-                if (p == DebugFolder || p.StartsWith(debugPrefix, StringComparison.Ordinal)) continue;
+                if (IsUnder(p, DebugFolder) || IsUnder(p, McpFolder)) continue;
                 included.Add(p);
             }
 
@@ -72,8 +74,11 @@ namespace Iroca
                 outputPath,
                 ExportPackageOptions.Default);
 
-            Debug.Log($"[BuildHelper] エクスポート完了: {outputPath}（{included.Count} アセット, Code/Debug 除外）");
+            Debug.Log($"[BuildHelper] エクスポート完了: {outputPath}（{included.Count} アセット, Code/Debug・Code/McpIntegration 除外）");
         }
+
+        private static bool IsUnder(string path, string folder)
+            => path == folder || path.StartsWith(folder + "/", StringComparison.Ordinal);
 
         private static string GetArgValue(string key)
         {

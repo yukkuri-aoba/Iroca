@@ -71,28 +71,30 @@ precision で過検出に数えられ、設計どおりの挙動と本当の欠�
   適用件数は審査ページと `workflow_review/review.json` に常時出す。上書きマスクの PNG は
   `Tests/Baselines/**/*.png` が gitignore なので `texture_sample/ground_truth/` 配下に置く。
 - 審査: `python dev_safe/scripts/build_tolerance_gt.py` が被写体ごとの許容を画（緑=GT、
-  濃灰=許容）にする。28 パネルと oneshot_review の GT 採点タイルは灰=許容を赤と分けて描く。
-  規則や定数を変えたら `RULE_VERSION` を上げ、`--baseline` / `--assisted-baseline` で再凍結する。
+  濃灰=許容）にする。38 パネルと oneshot_review の GT 採点タイルは灰=許容を赤と分けて描く。
+  規則や定数を変えたら `RULE_VERSION` を上げ、`measure_evidence_autotune.py` の `--baseline` /
+  `--assisted-baseline` で再凍結する。
 
 ### 主経路と追加操作後の必須ゲート
 
-- `test_autotune_evidence`: ワンショット。既定p50 14件、FULLで42件。
-- `test_assisted_include`: 追加操作後p50 14件。独立した `assisted_include_baseline.json` に
+- `test_autotune_evidence`: ワンショット。既定p50 19件、FULLで57件。
+- `test_assisted_include`: 追加操作後p50 19件。独立した `assisted_include_baseline.json` に
   対するIoU/precision/recall/残存島の退行と、提案採用がno-opに変わる事故を検出する。
 - `test_baselines_present`: 上記2種とプリセット比較の必須ファイル・全ケース・有限な指標値を
   検査。欠落はfail（個別実行時もエラー）。ONNX等の環境不備によるskipとは区別する。
 - 追加操作後の基準は `python dev_safe/scripts/measure_evidence_autotune.py --assisted-baseline`
-  で全14件を別ファイルに凍結する。ワンショットの基準は書き換えない。
+  で全19件を別ファイルに凍結する。ワンショットの基準は書き換えない。
 
 `visual_review.py snapshot / compare / approve` は固定設定に加え、
-`tools/workflow_review.py` のワンショット14件・追加操作後14件も必須にする。
+`tools/workflow_review.py` のワンショット19件・追加操作後19件も必須にする。
 追加パネルは `dev_safe/Tests/workflow_review/compare/` に条件ID別に保存する。
 元画像・変更前・変更後、AI証拠、GT採点、等倍クロップを分けて表示する。
-**両方のディレクトリの全パネルを1枚ずつ目視してから**
-`python tools/visual_review.py approve --note "実際の確認範囲と既知の未達"` を実行する。
+**両方のディレクトリのうち変更前から変化したパネルを1枚ずつ目視してから**
+`python tools/visual_review.py approve --note "実際の確認範囲と既知の未達"` を実行する
+（変更前とビット一致のパネルは読まなくてよく、変更前の無いパネルは変化ありとして扱う。下記「視覚レビュー」）。
 
 既存の固定設定レビューが有効なら、ワークフローだけは
-`python tools/workflow_review.py compare` → 28枚の目視 →
+`python tools/workflow_review.py compare` → 38枚のうち変化したパネルの目視 →
 `python tools/workflow_review.py approve --note "確認範囲と既知の未達"` で更新できる。
 pre-commitは**両方の承認**を要求する。部分実行・回帰・古いコード/測定器/ベースライン/
 入力資産・欠落/変更画像は承認不可。再compareすると旧承認は無効になる。
@@ -110,10 +112,11 @@ Iroca 本体リポジトリ（公開）
 │   │                           取り込み（internal アクセス可）、実 UnityEngine.CoreModule.dll を
 │   │                           参照して net8.0 でビルド
 │   └─ Harness.cs               raw 形式 I/O（[int32 w][int32 h][payload]）+ 各種検証モード
-├─ scripts/build-check/         dotnet 単体での型チェック用 csproj 4 本
-│   │                           （IrocaEditor / IrocaEditor.Debug / IrocaNdmfCheck / IrocaSentisCheck）
+├─ scripts/build-check/         dotnet 単体での型チェック用 csproj 5 本
+│   │                           （IrocaEditor / IrocaEditor.Debug / IrocaNdmfCheck / IrocaVrcsdkCheck / IrocaSentisCheck）
 │   │                           ※ UnityEngine.dll + UnityEditor.dll が必要（下記「前提」参照）
-│   │                           ※ IrocaNdmfCheck は NDMF 入りのホスト、IrocaSentisCheck は ML ホストが前提
+│   │                           ※ IrocaNdmfCheck は NDMF 入りのホスト、IrocaVrcsdkCheck は VRChat SDK 入りのホスト
+│   │                             （NDMF は参照しない）、IrocaSentisCheck は ML ホストが前提
 ├─ scripts/golden/              golden（出力ハッシュ固定）テスト。expected/ に期待出力 PNG
 ├─ scripts/source_checks/       C# ソースを読むだけの構造検査（ハーネス・資産不要）
 ├─ scripts/unit-run/            Unity 不要の部品（Infra のパス・書き込み、Scene クリックの当たり判定等）のユニットテスト
@@ -256,10 +259,10 @@ Unity で開くと `Iroca.SentisIntegration.dll` も `Library\ScriptAssemblies` 
 # 大規模ケース（8K/16K、数 GB のディスク書き込みあり）を除外する場合
 .\.venv\Scripts\python.exe -m pytest dev_safe/Tests/regression/ -q -m "not slow"
 
-# 実 C# 品質ゲートを bandana 以外の被写体（hair/costume/sneakers）まで広げる
-$env:VACC_CSHARP_GATE_FULL = "1"
+# 実 C# 品質ゲートを bandana 以外の被写体（hair/costume/sneakers）まで広げる（旧名 VACC_CSHARP_GATE_FULL も効く）
+$env:IROCA_CSHARP_GATE_FULL = "1"
 
-# 自動調整の品質ゲート(compute_all_metrics)を全被写体へ広げる（採否判断時に必須）
+# 自動調整の品質ゲート(compute_all_metrics)を全被写体へ広げる（採否判断時に必須。この変数は旧名のみで IROCA_ の名前は無い）
 $env:VACC_AUTOTUNE_GATE_FULL = "1"
 
 # golden（C# 出力ハッシュの固定）・ソース構造検査・ユニットテスト — dev_safe を必要としない自己完結テスト
@@ -274,7 +277,8 @@ golden は `IROCA_GOLDEN_TOLERANT=1` でハッシュ不一致を `scripts/golden
 `test_event_subscription_symmetry` / `test_zone_cache_invalidation` など）は資産を使わないので
 dev_safe から `scripts/source_checks/` へ移した。資産を要らない検査はこちらに置くこと。
 
-- マーカー: `perf`（性能計測・品質検査なし）/ `slow`（メモリ・時間コスト大）。
+- マーカー: `perf`（性能計測・品質検査なし）/ `slow`（メモリ・時間コスト大）/ `mesh_assisted`（メッシュの UV チャートから
+  作った除外マスクを足した選択。メッシュが見つかったときの任意機能で、`test_uv_chart_map` の一部）。
   マーカー登録とルート rootdir はリポジトリルートの `pytest.ini` が持つ。
 - **`pytest.ini` の `addopts` が既定を決める**（コマンドラインで後から書けば上書きできる）:
   `-m "not perf"`（性能計測テストは既定で走らない。測るときは `-m perf`）と
@@ -307,7 +311,7 @@ dev_safe から `scripts/source_checks/` へ移した。資産を要らない検
 「ハーネス実行キャッシュが上限 …GB を超え」と出るので、出たら `IROCA_HARNESS_CACHE_GB` を上げる。
 プロセス内メモは `IROCA_HARNESS_MEM_ENTRIES`（既定 12 件）で件数を絞る（無制限だとワーカー 1 つが
 3GB 近く抱える。ディスクからの読み戻しは 0.04 秒なので少数で足りる）。
-`tools/visual_review.py compare --engine csharp` の固定 79 ケースも同じ `run_harness_many`
+`tools/visual_review.py compare --engine csharp` の固定 104 ケースも同じ `run_harness_many`
 （キャッシュ + `--batch`）を通るので、直前に回帰スイートを回していれば dotnet を起動せずに
 同じ DLL の出力が返る（以前は 1 件ずつ単発起動で約 15 分かかっていた）。
 
@@ -355,8 +359,8 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
   golden が落ちる＝C# の出力が変わった、の意味。意図した変更なら
   `python scripts/golden/golden_lib.py --force` で再生成する（`--force` 無しだと、
   どのケースがどう変わるかを列挙して止まる）。
-- **改善サイクルの採否判断では `VACC_CSHARP_GATE_FULL=1` と `VACC_AUTOTUNE_GATE_FULL=1` を
-  必ず立てる**（品質ゲートの既定は bandana のみで、残り被写体の実 C# 品質を測らずに
+- **改善サイクルの採否判断では `IROCA_CSHARP_GATE_FULL=1`（旧名 `VACC_CSHARP_GATE_FULL` も効く）と
+  `VACC_AUTOTUNE_GATE_FULL=1` を必ず立てる**（品質ゲートの既定は bandana のみで、残り被写体の実 C# 品質を測らずに
   「全パス」と誤認するため）。
 - **自動調整（スポイト→自動調整＝ユーザーの主経路）の選択ゲートは既定 ON**（2026-08-21〜）:
   `test_autotune_accuracy` は 4 被写体の選択床を常時、アトラス被写体の自動調整テスト（6 被写体）と
@@ -401,7 +405,7 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
 - **AI 提案の E2E 品質ゲート**（2026-08-23〜）: `test_sam_e2e` が凍結ロジット + ONNX 推論
   (onnxruntime) + 実 C# 純計算層で「クリック→提案マスク」の IoU / precision を
   degradation-only で凍結する（`measure_sam_e2e.one_case` = 製品と同順・ズームイン再推論込み）。
-  既定は granularity auto × クリック p50 の 15 被写体、採否判断時は `VACC_SAM_E2E_FULL=1`
+  既定は granularity auto × クリック p50 の 20 被写体、採否判断時は `VACC_SAM_E2E_FULL=1`
   で p25/p95 も回す。ONNX モデル / 凍結ロジット不在は skip。再凍結は
   `python dev_safe/scripts/measure_sam_e2e.py --grans auto`。
 - **証拠つき自動調整（セグメント教師）の契約ゲート**（2026-08-25〜）:
@@ -416,7 +420,7 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
   合成テクスチャの `test_part_sat_ceiling` / `test_part_hue_band` が固定設定で検査する。
   「スポイト位置を含む連結成分はゲートで落とさない」は `test_envelope_gate_anchor`（zones JSON の
   `sampleUV`。ワンショットの driver はクリック位置を必ず `sampleUV` として渡す）。既定は 9 ケース、
-  `VACC_AUTOTUNE_EVIDENCE_FULL=1` で 14 被写体 × 3 位置の非退行。凍結埋め込み不在は skip。
+  `VACC_AUTOTUNE_EVIDENCE_FULL=1` で 19 被写体 × 3 位置の非退行。凍結埋め込み不在は skip。
   全 A/B 表は `python dev_safe/scripts/measure_evidence_autotune.py --clicks p25 p50 p95`。
   - **証拠は製品と同じ全経路で作る**（2026-09-02〜）: `sam_proposal.proposal_for_click_full`
     が製品 `RequestEvidence → RequestProposal(Auto)` と同順（クリック成分が小さいときの
@@ -429,8 +433,8 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
   seeded / masked / atlas_journey とその xfail 目標）は今やフォールバック経路の番兵であり、
   主経路の絶対品質はスイートに数字として無かった。
   - `test_autotune_evidence::test_oneshot_floor`: `measure_evidence_autotune.py --baseline` が
-    凍結した `evidence_autotune_baseline.json`（14 被写体 × p25/p50/p95、B のみ）を床に
-    degradation-only。既定は p50 の 14 件、FULL で 42 件。
+    凍結した `evidence_autotune_baseline.json`（19 被写体 × p25/p50/p95、B のみ）を床に
+    degradation-only。既定は p50 の 19 件、FULL で 57 件。
   - `test_oneshot_satisfaction_target`（xfail strict=False）: 「満足」
     （prec≥0.98 ∧ rec≥0.95 ∧ 残存島≤0.5%）に未達のケースが到達すると XPASS で浮かぶ →
     `--baseline` でラチェット（satisfied=true になり目標から外れる）。
@@ -452,8 +456,8 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
   - **画で見る**（2026-09-03〜）: 上の 3 本は数字しか残さない。`dev_safe/scripts/build_oneshot_review.py`
     が同じ driver（`run_case` / `run_subject`）の出力を「クリック位置+証拠セグメント / 出力 /
     GT 判定オーバーレイ（+注目範囲クロップ）」の画と `review_data.json` に書き出し、
-    `build_oneshot_review_html.py --junit <junit.xml>` が 42 ケース + プリセット比較 4 件 +
-    テスト結果表を 1 枚の HTML（`dev_safe/Tests/oneshot_review/oneshot_review.html`）に組む。
+    `build_oneshot_review_html.py --junit <junit.xml>` が被写体 × 3 クリック位置のケース（2026-09-05 の生成時点で 42 件）+
+    プリセット比較 4 件 + テスト結果表を 1 枚の HTML（`dev_safe/Tests/oneshot_review/oneshot_review.html`）に組む。
     未達ケースの「はみ出しか取りこぼしか、証拠はどこだったか」はここで目視する。
 - **プレビュー座標変換（スポイト/シード/ペイント/AI クリックの v 反転）**（2026-08-23〜）:
   変換は `Code/Core/PreviewCoords.cs` が単一の正（UI でインライン再実装しない）。
@@ -508,17 +512,28 @@ Mono 上の出力は検証できない。`scripts/editor-tests/`（`Iroca.Editor
 |---|---|
 | `PersistenceTests` | セッション・マスク・プリセットの往復、読めないファイルを空保存で消さない（.bak 退避）、GUID 未解決ファイルの .orphan 退避・復元・期限切れ削除、プリセット半径の丸め |
 | `ExportPipelineTests` | 原本を import 設定（maxTextureSize）に左右されず読む、TGA は取り込み済みで代替・Read/Write 無しは不可、PNG 往復、import 設定の引き継ぎ、上書きで GUID を保つ |
+| `WorkingResolutionTests` | 編集の作業解像度（`WorkingResolution`）: 既定は元ファイルを取り込み後の寸法へ縮め（取り込みで大きくなるときは引き伸ばさない）、「元の解像度で編集」なら元のまま、書き出しは設定に関係なく元の解像度。テクスチャの生データから帯ごとに縮める経路が Color32[] の経路と同じ画素になる（RGBA32・ARGB32・BGRA32・RGB24） |
 | `SampleUvUndoTests` | スポイト位置が Undo/Redo・ゾーン削除の Undo で色と対で戻る、プリセットには載らずセッションには残る |
+| `WindowRestoreTests` | ウィンドウが状態を失わない・古い状態に戻らない: プレビュー・オーバーレイの一時テクスチャがシーンを開いても破棄されない、Unity が落ちた後の起動ではレイアウトに残った古い編集内容でなく自動保存を読む（ドメインリロードではメモリ上の内容を使う） |
+| `UndoRestoreSignalTests` | 「関係ない Undo では作り直さない」判定の前提: ウィンドウ自身の Undo/Redo では `undoRedoPerformed` より前に `OnAfterDeserialize` が来て、別のオブジェクトの Undo/Redo では来ない |
+| `PreviewDownsampleTests` | 拡大表示のクロップをフル解像度の配列から直接縮小する `BoxDownsampleRegion` が、切り出してから `BoxDownsample` したのとビット単位で同じ。範囲外の指定は拒否する |
+| `UvChartMapPaddingTests` | メッシュ右クリックの UV チャート地図で、半径の外を落とした持ち主だけを持つ `AssignPaddingBaked` が、`AssignPadding` してから同じ半径で引いたのとどの画素・マスクも同じ（ランダムな三角形） |
 | `MeshUvLocatorTests` | テクスチャを使うメッシュの探索（シーン → 同じ素材フォルダの Prefab、書き出し名 `_recolored` の追跡、手動指定、Read/Write 無効のメッシュで落ちない） |
+| `MeshPartCacheTests` | メッシュの探索結果を捨てて探し直す条件（`MeshPartController.IsStale`）: 使っていた Renderer が消えた・自動の結果でシーンが替わった。手動の指定は残っている限りそのまま |
 | `MeshIslandOutlineTests` | プレビューに重ねる UV の島の輪郭（内側の対角線を描かない、UV を重ねた左右対称のパーツでも輪郭が残る、Tiling / Offset） |
 | `SceneMeshPickerTests` | Scene でクリックした場所: 手前の Renderer・三角形・UV、マテリアルのカリングどおりの面、非表示・無効・保存されない複製に当たらない、スキンメッシュはボーンを動かした直後でも描かれている形に当たる、プレビューに重ねる島はクリックした島だけ・Tiling を繰り返しで畳む |
 | `RuntimeParityTests` | 上記「既知の限界」の Mono とハーネスの一致 |
-| `NonDestructiveTests` | 非破壊の色替え: レシピ（JSON）を往復しても編集状態の直接適用と画素が一致、取り込み設定（最大サイズ・圧縮形式・ミップ・sRGB）にそろう、キャッシュの再利用、マテリアル差し替えの規則（範囲内で元テクスチャを使うものだけ・複製の共有（同じレシピを別々のオブジェクトに登録しても 1 つ）・範囲外と元アセットは無傷・入れ子は深い方が勝つ・失敗してもコンポーネントを消す・1 つのコンポーネントの複数レシピ・同じテクスチャは先が勝つ・アニメーションで切り替わるマテリアルも範囲内なら同じ複製で差し替え、アニメーションでだけ使うテクスチャは「使っていない」と報告しない・2 段（Transforming と最適化段）に分けたとき間に入った元のマテリアルも同じ複製とテクスチャ 1 枚で差し替え、設定の問題は 1 回だけ・「使っていない」は最後の段で判断） |
+| `NonDestructiveTests` | 非破壊の色替え: レシピ（JSON）を往復しても編集状態の直接適用と画素が一致、取り込み設定（最大サイズ・圧縮形式・ミップ・sRGB）にそろう、キャッシュの再利用、マテリアル差し替えの規則（範囲内で元テクスチャを使うものだけ・複製の共有（同じレシピを別々のオブジェクトに登録しても 1 つ）・範囲外と元アセットは無傷・入れ子は深い方が勝つ・失敗してもコンポーネントを消す・1 つのコンポーネントの複数レシピ・同じテクスチャは先が勝つ・アニメーションで切り替わるマテリアルも範囲内なら同じ複製で差し替え、アニメーションでだけ使うテクスチャは「使っていない」と報告しない・2 段（Transforming と最適化段）に分けたとき間に入った元のマテリアルも同じ複製とテクスチャ 1 枚で差し替え、設定の問題は 1 回だけ・「使っていない」は最後の段で判断）。原本のファイルを開けないときは例外で抜けず「元テクスチャを読めない」と報告する。レシピは作った時点でファイルに書かれている（プロジェクト全体の保存に頼らない） |
 | `RecipeRegistrationTests` | 登録でコンポーネントが増えない: 同じオブジェクトへの登録は 1 つの `IrocaRecolor` にレシピを足す、同じテクスチャは置き換え（確認画面用の `Describe` も）、旧版の重複コンポーネントは付いていた順・同じテクスチャは先のものだけ残して 1 つにまとめ 1 回の Undo で戻る、旧保存形式（単一の `recipe`）は一覧の先頭へ移る |
-| `NdmfProcessAvatarTests` | NDMF を通した結合（`AvatarProcessor.ProcessAvatar` でプラグインが走り、元のマテリアル・テクスチャのファイルを変えずに差し替わる。Animator のトグルで切り替わるマテリアルも範囲内だけ差し替わり、元のアニメーションは変わらない）。NDMF があるホストでだけコンパイルされる |
+| `NdmfProcessAvatarTests` | NDMF を通した結合（`AvatarProcessor.ProcessAvatar` でプラグインが走り、元のマテリアル・テクスチャのファイルを変えずに差し替わる。Animator のトグルで切り替わるマテリアルも範囲内だけ差し替わり、元のアニメーションは変わらない）。NDMF があるホストでだけコンパイルされる。アニメーターの拡張（AnimatorServicesContext）は要るときだけ開き、自分で開いたものだけを閉じる（前のパスから開いているものは閉じない） |
+| `NdmfSupportTests` | NDMF が使えないときの扱い。asmdef の版の範囲（`[1.8.0,2.0.0-0)`。2.0 のベータ版も外す）を Unity がそのとおりに読み、入っている NDMF・VRChat SDK の版から付くはずの define が各 asmdef に付いている。NDMF が入っていない・古い・新しすぎるときは、元テクスチャのあるレシピを持つ「Iroca Recolor」があれば VRChat へのアップロードを止め、3 通りで違う直し方を案内する（空のレシピだけ・再生・NDMF が使えるときは止めない）。VRChat SDK があれば「Iroca Recolor」は NDMF と関係なく `IEditorOnly` で、アップロードの確認（`NdmfUploadGuard`）は NDMF などの前処理より先に走り、NDMF が使えるときは素通しする |
 | `LivePreviewTests` | シーンでのプレビューのうち NDMF 非依存の部分: どこに何を映すかの規則（登録前はそのテクスチャを使う全 Renderer にライブ、登録後は範囲内だけ・結び付いたレシピならライブ・それ以外はレシピ、入れ子は深い方）、受け渡し口（編集対象の変化を 1 回だけ知らせる、取り込み済みの寸法の RenderTexture を共有して貸す、編集していないテクスチャの結果は書かない、縮小版も同じ RenderTexture に書く）。画素の読み戻しは `-nographics` では効かないので、GPU があるときだけ見る |
-| `RecipePreviewTexturesTests` | 登録済みレシピの出来上がり（ビルドと同じテクスチャ）を同じ中身なら共有し（作りかけも共有）、編集で別物になり、最後の借り手が返したら捨てる。初回は作りかけで返し（色替えの計算でエディタを止めない）、キャッシュがあればその場で貸す。作っている間に返されたら出来上がりは捨てる。壊れたレシピは貸さない |
-| `NdmfPreviewFilterTests` | `IrocaPreviewFilter` を NDMF の API どおりに呼ぶ: 対象の選び方、プロキシだけの差し替え（元の Renderer・マテリアルは無傷）、毎フレームの差し替え直し（NDMF は描画のたびに描画用プロキシを元のマテリアルへ戻す）、後片付け、編集対象の変化で無効化、初めて映すレシピは出来上がるまでノードを完了させずプロキシにも触らない（ライブは待たせない）。NDMF があるホストでだけコンパイルされる |
+| `RecipePreviewTexturesTests` | 登録済みレシピの出来上がり（ビルドと同じテクスチャ）を同じ中身なら共有し（作りかけも共有）、編集で別物になり、最後の借り手が返したら捨てる。初回は作りかけで返し（色替えの計算でエディタを止めない）、キャッシュがあればその場で貸す。作っている間に返されたら出来上がりは捨てる。壊れたレシピは貸さない。原本のファイルを開けなくても作りかけを終わらせ（貸すものは無し）、開けるようになったら作り直す |
+| `NdmfPreviewFilterTests` | `IrocaPreviewFilter` を NDMF の API どおりに呼ぶ: 対象の選び方、プロキシだけの差し替え（元の Renderer・マテリアルは無傷）、毎フレームの差し替え直し（NDMF は描画のたびに描画用プロキシを元のマテリアルへ戻す）、後片付け、編集対象の変化で無効化、初めて映すレシピは出来上がるまでノードを完了させずプロキシにも触らない（ライブは待たせない）。NDMF があるホストでだけコンパイルされる。待っている間に借りたマテリアルが消えてもノードを完了させる（NDMF は全部のノードがそろうまで表示を切り替えないので、終わらないとシーンのプレビュー全体が止まる） |
+| `MaskSuggestInferenceTests` | AI マスク提案の実推論（パッケージの読み込み・モデルの変換とロード・推論）が Unity 2022.3（Sentis）と Unity 6（Inference Engine）で通る。灰地の赤い円の中心をクリックし、円と提案マスクの IoU を測る（推論のワーカーを手放した後も作り直して同じように取れる）。モデルの変換で Assets に残った一時フォルダは、いろかのものだけを片付ける。パッケージ未導入・モデル未配置なら Ignore |
+| `PerfBenchTests` | Unity の Mono での再着色の速さ（`Perf` カテゴリ。品質は見ない）。`Run-EditorTests.ps1 -PerfCases <json>` のときだけ回り、ふだんは Ignore |
+| `MemoryBenchTests` | プレビュー相当の処理を繰り返したときの Mono ヒープとプロセスのメモリと、最後にプール・キャッシュを手放して OS へ返るか（`Memory` カテゴリ）。`-MemCases <json>` のときだけ回る（1 回の起動に 1 ケース） |
+| `HiResSmokeTests` | 8K・16K のテクスチャを製品の経路（取り込み〜色替え〜PNG の書き出しと読み戻し・NDMF の差し替えテクスチャなど）に 1 回ずつ通し、各段の時間とメモリを記録する（`HiRes` カテゴリ。品質は見ない）。`-HiResCases <json>` のときだけ回る（GPU の段は `-Graphics`。16K は 20GB 前後使う） |
 
 ```powershell
 .\scripts\Link-HostPackage.ps1 -HostProject <ホスト> -WithEditorTests   # 1 回だけ
@@ -527,7 +542,8 @@ Mono 上の出力は検証できない。`scripts/editor-tests/`（`Iroca.Editor
 
 テストは配布物（`Code/`）の外にあり、`Link-HostPackage.ps1 -WithEditorTests` がホストの
 `Assets/IrocaEditorTests` へジャンクションで繋ぐ（ホスト側は .gitignore 済み）。CI では走らない
-（Unity のライセンスが要る）。所要は取り込み済みのホストで 1 分弱。
+（Unity のライセンスが要る）。所要は取り込み済みのホストで 1 分弱。`Run-EditorTests.ps1` は Unity を
+BelowNormal 優先度で起動する（ゲーム中でも邪魔しないように）。
 UI の操作そのもの（OnGUI・ダイアログ）はここでも検証しない。
 
 ## skip と fail の区別（fixtures.require_harness）
@@ -541,16 +557,33 @@ UI の操作そのもの（OnGUI・ダイアログ）はここでも検証しな
 ```
 python tools/visual_review.py snapshot            # 変更前の出力を保存
 python tools/visual_review.py compare --engine csharp   # 3 列比較パネル生成
-（パネル PNG を Read で 1 枚ずつ目視確認）
+（変化したケースのパネル PNG を Read で 1 枚ずつ目視確認）
 python tools/visual_review.py approve --note "確認した範囲と根拠"   # 承認マーカー
 ```
 
 - 承認は `dev_safe/Tests/visual_review/approved.json` に記録される。`--note` には
-  **実際に見た範囲と、それで十分と判断した根拠**を書く（未指定だと「注記なし」と残る）。
+  **実際に見た範囲と、それで十分と判断した根拠**を書く（必須。無いか空だと ValueError で止まり、承認されない）。
+- `compare` は変更前（snapshot）との差を数え、`dev_safe/Tests/visual_review/change_summary.json` に書く。
+  固定設定のケースごとに `changed`（変更前と RGB が違う画素数）・`toward_original`（元テクスチャとの差が縮んだ画素＝
+  誤爆の除去）・`away_from_original`（差が広がった画素＝新しい・強まった着色）・`max_delta`（変更前との最大差）。
+  snapshot の無いケースは載らない。同じ表を変化の大きい順にコンソールにも出し、`changed` が 0 でないケースだけ
+  パネルに等倍クロップの 2 段目が付く。`changed` が 0 のケースは変更前とビット一致。ワークフロー側は
+  `dev_safe/Tests/workflow_review/review.json` の各ケースの `changed_from_snapshot`（変更前と違う画素数。
+  snapshot が無ければ null）が同じ役をする。目視するのは変化のあるケースと変更前の無いケースだけで
+  （ビット一致のケースは読まなくてよい）、compare はそのパネルだけを一覧に出す。
 - pre-commit フック（`scripts/hooks/pre-commit`）が承認の鮮度と品質ゲート較正
-  （`tools/check_visual_review.py`）を検査する。
+  （`tools/check_visual_review.py`）を検査する。鮮度は二方式で見る:
+  - 固定設定: `approved.json` の承認時刻が、ステージしたゲート対象ファイルの **mtime** より新しいこと
+    （`approve` 自体も、比較パネルがゲート対象ファイルの mtime より新しいことを要求する）。内容が同じでも
+    mtime が進めば無効になるので、`git stash` の往復やチェックアウトは compare → approve の前に済ませる。
+  - ワークフロー: `review.json` に compare 時点の **内容の SHA-256**（ゲート対象 C#・`Harness.cs` / `Harness.csproj`・
+    `tools/visual_review.py` / `workflow_review.py` / `workflow_contract.py`・dev_safe の測定スクリプト・2 つのベースライン・
+    `subjects.json`・GT 許容の上書き）とパネル・入力資産のハッシュを残し、今の内容と一致すること、
+    `workflow_review/approved.json` がその `review.json` を指していること。時刻を見ないので stash では切れないが、
+    ツールや測定器を直すと切れる。`python tools/workflow_review.py check` でこちらだけを単独で確かめられる
+    （有効なら何も出さず終了コード 0、無効なら理由つきの例外で止まり終了コード 1）。
 - **ゲートの対象は「headless ハーネスがコンパイルする製品ソース」**（`Harness.csproj` から
-  導出＝`tools/harness_scope.py`。現在 `Code/Core` と `Code/MaskSuggest/Ops` の 32 ファイル）。
+  導出＝`tools/harness_scope.py`。現在 `Code/Core` と `Code/MaskSuggest/Ops` の 43 ファイル）。
   UI / Infra / Automation は対象外で、`Code/` 全体を対象にしていた頃のように
   「文言 1 行の修正で 30 分の compare か SKIP 変数か」の二択にはならない。
   - 理由: ハーネスがコンパイルしないファイルの変更は、compare を何回回しても検出できない。

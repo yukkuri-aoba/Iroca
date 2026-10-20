@@ -129,9 +129,63 @@ namespace Iroca.SentisIntegration
             catch { /* CacheDir 不在・列挙失敗も無視 */ }
         }
 
+        /// <summary>
+        /// 前の変換の途中で Unity が落ちると、一時フォルダ(数十 MB の ONNX 入り)が Assets に残る。
+        /// 名前が一時フォルダの形(接頭辞 + GUID 32 桁)で、中身がいろかのモデル(と .meta)だけのものに限って消す
+        /// (ほかのファイルが入っていれば利用者のものとして触らない)。失敗しても変換は続ける。
+        /// </summary>
+        static void DeleteLeftoverTempDirs()
+        {
+            try
+            {
+                string prefix = Path.GetFileName(TempImportDirPrefix);
+                foreach (string dir in Directory.GetDirectories(Application.dataPath, prefix + "*"))
+                {
+                    string name = Path.GetFileName(dir);
+                    if (!IsTempDirName(name.Substring(prefix.Length))) continue;
+                    if (Directory.GetDirectories(dir).Length > 0) continue;
+                    bool onlyModels = true;
+                    foreach (string f in Directory.GetFiles(dir))
+                        onlyModels &= IsModelFileName(Path.GetFileName(f));
+                    if (!onlyModels) continue;
+
+                    string assetPath = "Assets/" + name;
+                    if (AssetDatabase.IsValidFolder(assetPath))
+                    {
+                        AssetDatabase.DeleteAsset(assetPath);
+                    }
+                    else
+                    {
+                        Directory.Delete(dir, recursive: true);
+                        if (File.Exists(dir + ".meta")) File.Delete(dir + ".meta");
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                UnityEngine.Debug.LogWarning($"[Iroca] AI モデルの変換で残った一時フォルダを消せませんでした: {e.Message}");
+            }
+        }
+
+        static bool IsTempDirName(string guidPart)
+        {
+            if (guidPart.Length != 32) return false;
+            foreach (char c in guidPart)
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+            return true;
+        }
+
+        static bool IsModelFileName(string file)
+        {
+            foreach (string model in new[] { EncoderFileName, DecoderFileName })
+                if (file == model || file == model + ".meta") return true;
+            return false;
+        }
+
         static Model ConvertViaAssetPipeline(string onnxPath, out string error)
         {
             error = null;
+            DeleteLeftoverTempDirs();
             string tempDir = TempImportDirPrefix + Guid.NewGuid().ToString("N");
             string assetPath = tempDir + "/" + Path.GetFileName(onnxPath);
             bool createdTempDir = false;
