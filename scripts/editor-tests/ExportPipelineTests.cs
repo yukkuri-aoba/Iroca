@@ -168,6 +168,21 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void EncodePng_MatchesRgbaByteArrayPath()
+        {
+            // 0.3.0 で、PNG 化の前に RGBA のバイト列へ写し直すのをやめた(Color32[] をそのまま渡す。8K で 256MB 減る)。
+            // 写し直していた頃と同じバイト列になること(α=0 の画素を含む模様で比べる)。
+            var px = Pattern(37, 23);
+            var rgba = new byte[px.Length * 4];
+            for (int i = 0; i < px.Length; i++)
+            {
+                rgba[i * 4] = px[i].r; rgba[i * 4 + 1] = px[i].g; rgba[i * 4 + 2] = px[i].b; rgba[i * 4 + 3] = px[i].a;
+            }
+            byte[] viaBytes = ImageConversion.EncodeArrayToPNG(rgba, UnityEngine.Experimental.Rendering.GraphicsFormat.R8G8B8A8_SRGB, 37, 23);
+            CollectionAssert.AreEqual(viaBytes, ExportPipeline.EncodePng(px, 37, 23));
+        }
+
+        [Test]
         public void EncodePng_RunsOnBackgroundThreadAndMatchesMainThread()
         {
             // 書き出しは PNG 化をバックグラウンドで行う（ExportView）。その前提が実機で成り立つこと。

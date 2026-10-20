@@ -95,17 +95,10 @@ namespace Iroca
         /// </summary>
         public static byte[] EncodePng(Color32[] pixels, int width, int height)
         {
-            byte[] rgba = new byte[pixels.Length * 4];
-            for (int i = 0; i < pixels.Length; i++)
-            {
-                int o = i * 4;
-                rgba[o]     = pixels[i].r;
-                rgba[o + 1] = pixels[i].g;
-                rgba[o + 2] = pixels[i].b;
-                rgba[o + 3] = pixels[i].a;
-            }
+            // Color32 は r, g, b, a の 4 バイトが並ぶ構造体なので、配列のバイト列がそのまま RGBA。写し直さずに渡す
+            // (旧: 同じ並びの byte[] へ写していた。8K で 256MB。EncodePng_MatchesRgbaByteArrayPath で同じバイト列を確認)。
             byte[] png = ImageConversion.EncodeArrayToPNG(
-                rgba, GraphicsFormat.R8G8B8A8_SRGB, (uint)width, (uint)height);
+                pixels, GraphicsFormat.R8G8B8A8_SRGB, (uint)width, (uint)height);
             if (png == null || png.Length == 0)
                 throw new System.Exception("EncodeArrayToPNG が空のデータを返しました");
             return png;
