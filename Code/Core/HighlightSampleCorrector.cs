@@ -16,7 +16,7 @@ namespace Iroca
     /// 鏡面グラデが潰れない。**match / base は元の sampleColor のまま**なので再着色範囲は不変
     /// (= 新規の誤検出は増えない)。
     /// </summary>
-    internal static class HighlightSampleCorrector
+    internal static unsafe class HighlightSampleCorrector
     {
         private const float MinSampleSat   = 0.20f;  // 源色がこれ未満(灰色寄り)なら補正しない(色相が不安定)
         private const float BodySatFrac    = 0.50f;  // 地色とみなす彩度下限(源色相対)。脱彩した wash 済み明部を除外
@@ -30,7 +30,7 @@ namespace Iroca
         /// zone.sampleColor をそのまま返す(= 従来挙動)。
         /// </summary>
         public static Color ComputeWashSample(
-            Color32[] px, PixelProcessor.PixelHsv hsv, int w, int h, ColorZone zone)
+            Color32* px, PixelProcessor.PixelHsv hsv, int w, int h, ColorZone zone)
         {
             float[] pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int[] pixIdx = hsv.Index;
             Color sample = zone.sampleColor;

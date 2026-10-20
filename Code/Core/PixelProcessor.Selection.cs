@@ -229,7 +229,7 @@ namespace Iroca
         /// 行ごとに独立に求めた min/max をマージするだけなので、逐次走査と結果は同一(順序非依存)。
         /// </summary>
         /// <returns>該当画素が 1 つ以上あれば true。</returns>
-        private static bool TryComputeMatchedBBox(float* strength, Color32[] px, int w, int h, float thr,
+        private static bool TryComputeMatchedBBox(float* strength, Color32* px, int w, int h, float thr,
             out int minX, out int minY, out int maxX, out int maxY, CancellationToken ct = default)
         {
             int lminX = w, lmaxX = -1, lminY = h, lmaxY = -1;
@@ -332,7 +332,7 @@ namespace Iroca
         /// ばらつく(元の色の点が残る・別部位に点々と入る)。量子化の誤差でしか違わない隣と平均してから HSV を求める。
         /// 違う色の隣は混ぜないので境界はぼけない。近傍がどれも自分と同じ色なら false(元の色のまま)。
         /// </summary>
-        private static bool TryQuantSmoothedColor(Color32[] px, int x, int y, int w, int h, float tolerance,
+        private static bool TryQuantSmoothedColor(Color32* px, int x, int y, int w, int h, float tolerance,
             out Color color)
         {
             Color32 c = px[y * w + x];
@@ -664,7 +664,7 @@ namespace Iroca
         /// 走らせるとクロップ境界に接した閉領域が開領域と誤判定される。
         /// </summary>
         private static void RecoverEnclosedNeutral(
-            float* strength, float* matchConf, PixelHsv hsv, Color32[] pixels,
+            float* strength, float* matchConf, PixelHsv hsv, Color32* pixels,
             Color sampleColor, float tolerance, float sS, float sV, float chromaThreshold,
             int w, int h, CancellationToken ct = default)
         {
@@ -850,7 +850,7 @@ namespace Iroca
             float edgeSoftness, float valueWeight, float satDistWeight,
             float relaxedSatMin, int passes,
             int boxMinX, int boxMinY, int boxMaxX, int boxMaxY,
-            Color32[] originalPixels, float chromaConfidence, float chromaThreshold,
+            Color32* originalPixels, float chromaConfidence, float chromaThreshold,
             float chromaCeiling, CancellationToken ct,
             float[] relaxedByColor, int[] colorIndex)
         {

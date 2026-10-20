@@ -141,7 +141,7 @@ namespace Iroca
         /// 条件: コア画素&lt;100 / 地色画素&lt;100 / フラット領域(L スプレッド&lt;0.02) / 推定 C≈0 /
         /// 推定し直しても基準がサンプルより淡すぎる。</returns>
         private static bool TryComputeRecolorAnchor(
-            Color32[] px, float* strength, int w,
+            Color32* px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out float anchorL, out float anchorC,
             float sampleL, float sampleA, float sampleB, bool sampleHasHue,
@@ -174,7 +174,7 @@ namespace Iroca
         // 画素の candL/candC は未初期化(プール再利用のゴミ)であり、pass2/3 が読むと壊れる。
         // (material で外した画素は pass1 が candC を負にするので、pass2/3 の飽和度の下限で必ず落ちる。)
         private static bool TryComputeRecolorAnchorOnce(
-            Color32[] px, float* strength, int w,
+            Color32* px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out float anchorL, out float anchorC,
             AnchorMaterial material,
@@ -184,7 +184,9 @@ namespace Iroca
         {
             anchorL = 0f;
             anchorC = 0f;
-            int len = px.Length;
+            // 候補の (L, C) は外接矩形の画素の添字 y*w+x で置くので、矩形の最後の行の末尾までの長さがあれば足りる
+            // (旧: 入力画素の配列の長さ。配列でなくポインタで受けるので長さは持たない)。
+            int len = (bbMaxY + 1) * w;
             // 色の表があれば (L, C) は色ごとの表から読む(同じ色に同じ変換を当てた値なのでビット単位で
             // 同じ)。その経路は TryComputeRecolorAnchorByColor(画素の走査は 1 回)。
             if (palette != null)
@@ -309,7 +311,7 @@ namespace Iroca
         /// material(推定し直し)で外す判定も色だけで決まるので、色ごとに 1 回判定して個数ごと外す。
         /// </summary>
         private static bool TryComputeRecolorAnchorByColor(
-            Color32[] px, float* strength, int w,
+            Color32* px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out float anchorL, out float anchorC,
             AnchorMaterial material,

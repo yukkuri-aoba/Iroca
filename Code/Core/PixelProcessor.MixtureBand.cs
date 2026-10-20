@@ -297,7 +297,7 @@ namespace Iroca
         /// 除外画素には書かず、背景の参照にも使わない(strength=0 だが背景ではない保護パーツでありうる)。
         /// </summary>
         private static void AnalyzeMixtureBand(
-            Color32[] originalPixels, float* strength, int w, int h, int radius,
+            Color32* originalPixels, float* strength, int w, int h, int radius,
             in RecolorParams rc, float* regMidMap, float* regUpMap, float regLmid,
             Color zoneMaterial, bool* includedPx,
             Color32* mixedPixels, float* mixAlpha,

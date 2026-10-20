@@ -4,6 +4,7 @@ using System;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Diagnostics;
@@ -153,24 +154,22 @@ namespace Iroca
         // (8K で約 3GB)。ネイティブなら ReleaseWorkBuffers ですぐ OS へ返せる。ポインタにしたのは、Unity の
         // Mono で配列より遅くならない書き方がポインタだけだったため(構造体の添字や Span は Debug の最適化
         // モードで 2〜4 倍遅い。scripts/editor-tests/KernelBenchTests.cs)。中身が 0 にならないのは従来どおり。
-        // 管理配列のまま残すのは 2 つ: 色の表が無いときの画素ごとの HSV(PixelHsv が色の表と同じ型で持つ)と、
-        // 入力の控え(originalPixels。読む側が Color32[] の入力画素と同じ型で受ける)。
+        // 管理配列のまま残すのは、色の表が無いときの画素ごとの HSV(PixelHsv が色の表と同じ型で持つ)と、
+        // 色の表の「画素 → 番号」(下)。入力の控え(originalPixels)はポインタで読む(ProcessPixelsArrayCore)。
         private const int PoolMaxArrayLength = 1 << 28; // 268,435,456 (16384²)
         private static readonly NativeWorkPool<float> s_floatPool = WorkPools.Float;
         private static readonly NativeWorkPool<bool> s_boolPool = WorkPools.Bool;
         private static readonly NativeWorkPool<byte> s_bytePool = WorkPools.Byte;
-        // デコンタミの書き込み先(decontamPixels)。
+        // デコンタミの書き込み先(decontamPixels)と、書き出しのときの入力の控え(originalPixels)。
         private static readonly NativeWorkPool<Color32> s_color32Pool = WorkPools.Rgba32;
         // 連結成分ラベリング(label / BFS スタック)用。従来は呼び出しごとに new int[bw*bh]
         // (4K 全面マッチで 67MB)を LOH へ確保していた。Rent はゼロ初期化しないので label は
         // 使用前にクリアすること。
         private static readonly NativeWorkPool<int> s_intPool = WorkPools.Int;
-        // 管理配列のまま残すもの(上の 2 つと、色の表の「画素 → 番号」。番号の表は色の表のキャッシュに入り、
+        // 管理配列のまま残すもの(画素ごとの HSV と、色の表の「画素 → 番号」。番号の表は色の表のキャッシュに入り、
         // 処理が終わった後も別の処理から読まれるので、プールの貸し借りの外で GC に任せる)。
         private static ArrayPool<float> s_hsvPool =
             ArrayPool<float>.Create(PoolMaxArrayLength, maxArraysPerBucket: 3);
-        private static ArrayPool<Color32> s_sourceCopyPool =
-            ArrayPool<Color32>.Create(PoolMaxArrayLength, maxArraysPerBucket: 2);
         private static ArrayPool<int> s_paletteIndexPool =
             ArrayPool<int>.Create(PoolMaxArrayLength, maxArraysPerBucket: 4);
 
@@ -185,7 +184,6 @@ namespace Iroca
             // 管理配列のプールは空の同設定のものに差し替える(持っていた配列は GC が回収し、Mono のヒープの中で
             // 使い回される。OS へは返らない)。差し替えの最中に返された配列は新しいプールへ入るだけで害は無い。
             s_hsvPool = ArrayPool<float>.Create(PoolMaxArrayLength, maxArraysPerBucket: 3);
-            s_sourceCopyPool = ArrayPool<Color32>.Create(PoolMaxArrayLength, maxArraysPerBucket: 2);
             s_paletteIndexPool = ArrayPool<int>.Create(PoolMaxArrayLength, maxArraysPerBucket: 4);
         }
 
@@ -309,10 +307,23 @@ namespace Iroca
                     out maskColOf, out maskRowBase);
 
             int len = (int)lenLong;
-            // 入力のスナップショット。以降は読むだけなので、呼び出し側が同じ中身を持っていればそれを使う。
+            // 入力のスナップショット。以降は読むだけなので、呼び出し側が同じ中身を持っていればそれを使う
+            // (処理の間だけ固定してポインタで読む)。持っていなければ(書き出し・NDMF)作業配列のプールへ写す
+            // (8K で 256MB。Mono のヒープに積まない)。どちらも末尾の finally で手放す。
             bool ownsOriginal = sourcePixels == null;
-            Color32[] originalPixels = sourcePixels ?? s_sourceCopyPool.Rent(len);   // 借りたものは末尾の finally で Return
-            if (ownsOriginal) System.Array.Copy(pixels, originalPixels, len);
+            GCHandle sourcePin = default;
+            Color32* originalPixels;
+            if (ownsOriginal)
+            {
+                originalPixels = s_color32Pool.Rent(len);
+                fixed (Color32* src = pixels)
+                    Buffer.MemoryCopy(src, originalPixels, (long)len * sizeof(Color32), (long)len * sizeof(Color32));
+            }
+            else
+            {
+                sourcePin = GCHandle.Alloc(sourcePixels, GCHandleType.Pinned);
+                originalPixels = (Color32*)sourcePin.AddrOfPinnedObject();
+            }
 
             long _t0 = Stopwatch.GetTimestamp();
             var _perfZones = new ZonePerfEntry[sortedZones.Count];
@@ -1487,7 +1498,8 @@ namespace Iroca
                     if (pixS != null) s_hsvPool.Return(pixS);
                     if (pixH != null) s_hsvPool.Return(pixH);
                 }
-                if (ownsOriginal) s_sourceCopyPool.Return(originalPixels);
+                if (ownsOriginal) s_color32Pool.Return(originalPixels);
+                else sourcePin.Free();
             }
             var _perfPhases = new PhasePerfEntry[PhaseCount];
             for (int p = 0; p < PhaseCount; p++)

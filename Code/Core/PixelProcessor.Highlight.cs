@@ -290,7 +290,7 @@ namespace Iroca
         /// 採用画素は strength=1 にし、後段のハイライト白寄せ合成で階調を保ったまま再着色する。
         /// </summary>
         private static void GrowHighlightBand(
-            float* strength, Color32[] originalPixels,
+            float* strength, Color32* originalPixels,
             PixelHsv hsv, ColorZone zone, int w, int h,
             CancellationToken ct = default, ColorPalette palette = null)
         {
@@ -554,7 +554,7 @@ namespace Iroca
         /// recoveredBits が非 null なら復帰画素のビットを立てる(詳細プレビューへの転写用)。戻り値は復帰画素数。
         /// </summary>
         private static int RecoverEnclosedHighlight(
-            float* strength, Color32[] pixels,
+            float* strength, Color32* pixels,
             PixelHsv hsv, ColorZone zone, int w, int h,
             ulong[] recoveredBits, CancellationToken ct = default)
         {

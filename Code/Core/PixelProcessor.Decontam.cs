@@ -47,7 +47,7 @@ namespace Iroca
         ///   それ以外は通常の再着色にフォールバック
         /// </summary>
         private static void DecontaminateAaBoundary(
-            Color32[] originalPixels, float* strength, int w, int h,
+            Color32* originalPixels, float* strength, int w, int h,
             Color sampleColor, Color targetColor,
             int radius, float interiorThreshold,
             bool* aaMask, Color32* decontaminatedPixels, bool hasMatch = true,
@@ -289,7 +289,7 @@ namespace Iroca
         /// 候補(strength &gt; 0)の書き換えで変わらないので、読む順序に依存しない。
         /// </summary>
         private static void DecontaminateAaDirect(
-            Color32[] originalPixels, float* strength, int w, int h,
+            Color32* originalPixels, float* strength, int w, int h,
             Color sampleColor, Color targetColor, int radius,
             float interiorThreshold, float interiorBgDensityMin,
             bool* aaMask, Color32* decontaminatedPixels, bool* maskExcluded,
@@ -390,7 +390,7 @@ namespace Iroca
         ///     target 混色を塗るのはマスク契約の違反。
         /// </summary>
         private static void CleanAchromaFringe(
-            Color32[] pixels, Color32[] originalPixels, float* strength, float* claimed,
+            Color32[] pixels, Color32* originalPixels, float* strength, float* claimed,
             int w, int h, Color sampleColor, Color targetColor,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY, CancellationToken ct = default,
             bool* maskExcluded = null)

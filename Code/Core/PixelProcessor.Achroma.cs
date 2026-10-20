@@ -252,7 +252,7 @@ namespace Iroca
         /// </summary>
         // 返す地図(upMap も)は s_floatPool から借りる(呼び出し側がゾーンの終わりに返す)。
         private static float* BuildComponentMedianLMap(
-            Color32[] px, float* strength, int w, int h, float thr, out float* upMap, CancellationToken ct = default,
+            Color32* px, float* strength, int w, int h, float thr, out float* upMap, CancellationToken ct = default,
             ColorPalette palette = null)
         {
             upMap = null;
@@ -513,7 +513,7 @@ namespace Iroca
         // 成分ローカルな統計で遠隔作用が無く、同素材の島を含めた場合はその島自身の地色基準を
         // 使うのが正しいため。
         private static bool TryComputeRegionLRange(
-            Color32[] px, float* strength, int w,
+            Color32* px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out float mid,
             bool* statsExclude = null,

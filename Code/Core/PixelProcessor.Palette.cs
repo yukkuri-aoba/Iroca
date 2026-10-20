@@ -90,7 +90,7 @@ namespace Iroca
         private static readonly object s_paletteCacheLock = new object();
 
         /// <summary>色の表をキャッシュから取り出す。無ければ作って入れる(TryBuildPalette と同じく null もありうる)。</summary>
-        private static ColorPalette GetOrBuildPalette(Color32[] pixels, int w, int h, ParallelOptions po,
+        private static ColorPalette GetOrBuildPalette(Color32* pixels, int w, int h, ParallelOptions po,
             SubPhaseClock sub = null)
         {
             ulong hash = HashPixels(pixels, w * h, po);
@@ -132,7 +132,7 @@ namespace Iroca
         /// 画素(RGBA)全体の 64bit ハッシュ。塊ごとに並列に混ぜ、塊のハッシュを順に畳む(実行ごとに同じ値)。
         /// 1 画素の違いでも塊のハッシュは必ず変わる(各段が全単射)。
         /// </summary>
-        private static ulong HashPixels(Color32[] px, int len, ParallelOptions po)
+        private static ulong HashPixels(Color32* px, int len, ParallelOptions po)
         {
             const int Chunk = 1 << 16;
             int n = (len + Chunk - 1) / Chunk;
@@ -170,7 +170,7 @@ namespace Iroca
         /// 元画素から色の表を作る。種類が上限を超えた・キャンセルされたときは null(呼び出し側は
         /// 画素ごとの計算に戻る)。
         /// </summary>
-        private static ColorPalette TryBuildPalette(Color32[] pixels, int w, int h, ParallelOptions po,
+        private static ColorPalette TryBuildPalette(Color32* pixels, int w, int h, ParallelOptions po,
             SubPhaseClock sub = null)
         {
             int len = w * h;
