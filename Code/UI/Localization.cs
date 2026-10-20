@@ -902,7 +902,7 @@ namespace Iroca
             : "Add a color (eyedropper)";
         public static string StartWithEyedropperActive => IsJapanese
             ? "■ プレビューで変えたい色をクリック"
-            : "■ Click the color to change on the preview";
+            : "■ Click a color on the preview";
         public static string StartWithEyedropperTooltip => IsJapanese
             ? "押してからプレビュー上の変えたい色をクリックすると、カラーゾーンを作ってその色をサンプルカラーに入れます。\nもう一度押すか Esc で解除します。"
             : "Press, then click the color you want to change on the preview: a color zone is created with that color as its Sample Color.\nPress again or hit Esc to cancel.";

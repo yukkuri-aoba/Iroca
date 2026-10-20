@@ -199,7 +199,7 @@ namespace Iroca
                                   Localization.AiSuggestDownloading);
             if (GUILayout.Button(new GUIContent(Localization.AiSuggestDownloadCancel,
                                                 Localization.AiSuggestDownloadCancelTooltip),
-                                 GUILayout.Width(48f)))
+                                 GUILayout.Width(IrocaWindow.FitButtonWidth(48f, Localization.AiSuggestDownloadCancel))))
                 MaskSuggestModelDownload.Cancel();
             EditorGUILayout.EndHorizontal();
         }

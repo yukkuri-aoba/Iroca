@@ -524,7 +524,8 @@ namespace Iroca
                 using (new EditorGUI.DisabledScope(!canSample))
                 {
                     if (ArmedToggleButton(armed ? s_eyedropperActiveContent : s_eyedropperIdleContent, armed,
-                        GUILayout.Width(IrocaConsts.Layout.EyedropperButtonWidth)))
+                        GUILayout.Width(FitButtonWidth(IrocaConsts.Layout.EyedropperButtonWidth,
+                            s_eyedropperIdleContent.text, s_eyedropperActiveContent.text))))
                     {
                         // トグル：武装↔解除。武装は id で保持し、並べ替え・削除で別ゾーンを指さないようにする
                         // （クリックで一発取得→自動解除）。
