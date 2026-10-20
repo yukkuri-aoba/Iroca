@@ -10,9 +10,9 @@
 //
 // 駆動経路: AI エージェントは execute_custom_tool("iroca_recolor", {...}) のように呼ぶ。
 // 各ツールは IrocaAutomation の公開静的 API を薄くラップするだけで、変換の中核（RunRecolorCore）は共有。
+// MCPForUnity の型はツールの印（McpForUnityTool・ToolParameter）だけを使う。応答は McpResponses が JObject で組む。
 #if IROCA_MCP_PRESENT
 using Newtonsoft.Json.Linq;
-using MCPForUnity.Editor.Helpers;
 using MCPForUnity.Editor.Tools;
 
 namespace Iroca.McpIntegration
@@ -45,45 +45,21 @@ namespace Iroca.McpIntegration
             var p = @params != null ? @params.ToObject<Parameters>() : new Parameters();
 
             if (string.IsNullOrEmpty(p.source))
-                return new ErrorResponse("source is required");
+                return McpResponses.Error("source is required");
             if (string.IsNullOrEmpty(p.output))
-                return new ErrorResponse("output is required");
+                return McpResponses.Error("output is required");
 
             bool hasPreset = !string.IsNullOrEmpty(p.preset);
             bool hasZones = !string.IsNullOrEmpty(p.zones);
             if (hasPreset == hasZones)
-                return new ErrorResponse("exactly one of 'preset' or 'zones' must be provided");
+                return McpResponses.Error("exactly one of 'preset' or 'zones' must be provided");
 
             // IrocaAutomation は例外を投げず {"ok":...} の JSON 文字列を返す設計。
             string json = hasPreset
                 ? IrocaAutomation.RecolorByPreset(p.source, p.preset, p.output)
                 : IrocaAutomation.RecolorWithZones(p.source, p.zones, p.output);
 
-            return WrapResult(json, "recolor failed");
-        }
-
-        // IrocaAutomation の JSON 文字列を MCP の Success/Error レスポンスへ整形する。
-        internal static object WrapResult(string json, string fallbackError)
-        {
-            JObject data;
-            try { data = JObject.Parse(json); }
-            catch { return new ErrorResponse($"{fallbackError}: invalid JSON from Iroca: {json}"); }
-
-            bool ok = data.TryGetValue("ok", out var okToken) && okToken.Type == JTokenType.Boolean && okToken.Value<bool>();
-            if (!ok)
-            {
-                string err = data.TryGetValue("error", out var errToken) ? errToken.ToString() : fallbackError;
-                return new ErrorResponse(string.IsNullOrEmpty(err) ? fallbackError : err);
-            }
-            return new SuccessResponse("ok", data);
-        }
-
-        // "ok" フィールドを持たない素の JSON オブジェクト（DescribeSchema / ListPresets 等）を
-        // そのまま success data として返す。パース不能時のみ error。
-        internal static object WrapResultLenient(string json, string fallbackError)
-        {
-            try { return new SuccessResponse("ok", JObject.Parse(json)); }
-            catch { return new ErrorResponse($"{fallbackError}: invalid JSON from Iroca: {json}"); }
+            return McpResponses.FromAutomationResult(json, "recolor failed");
         }
     }
 
@@ -95,7 +71,7 @@ namespace Iroca.McpIntegration
 
         public static object HandleCommand(JObject @params)
         {
-            return IrocaRecolorTool.WrapResultLenient(IrocaAutomation.DescribeSchema(), "describe_schema failed");
+            return McpResponses.FromAutomationDocument(IrocaAutomation.DescribeSchema(), "describe_schema failed");
         }
     }
 
@@ -107,7 +83,7 @@ namespace Iroca.McpIntegration
 
         public static object HandleCommand(JObject @params)
         {
-            return IrocaRecolorTool.WrapResultLenient(IrocaAutomation.ListPresets(), "list_presets failed");
+            return McpResponses.FromAutomationDocument(IrocaAutomation.ListPresets(), "list_presets failed");
         }
     }
 }
