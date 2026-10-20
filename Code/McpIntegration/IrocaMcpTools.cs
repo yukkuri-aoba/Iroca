@@ -5,8 +5,8 @@
 // このアセンブリは MCPForUnity（パッケージ id com.coplaydev.unity-mcp）が導入されているときだけ
 // コンパイルされる（asmdef の versionDefines + defineConstraints による IROCA_MCP_PRESENT ゲート）。
 // → 配布パッケージ本体は MCPForUnity への依存ゼロを維持する。
-// 開発用で、配布物(VPM zip)には入れない(scripts/Build-VpmPackage.ps1)。MCPForUnity はカスタムツールを
-// 既定で有効にして AI のツール一覧へ出すので、入れると MCPForUnity を使う利用者の AI にこれらが勝手に並ぶ。
+// 0.3.0 から配布物に入れる利用者向けの機能（マニュアル「AI エージェントから使う（MCP）」）。MCPForUnity は
+// カスタムツールを既定で有効にして AI に出すので、使わせたくない利用者は MCPForUnity の Tools 画面で外す。
 //
 // 駆動経路: AI エージェントは execute_custom_tool("iroca_recolor", {...}) のように呼ぶ。
 // ツールは 3 つ（調べる・色替え・窓で開く）。各ツールは IrocaAutomation の公開静的 API を薄くラップするだけで、

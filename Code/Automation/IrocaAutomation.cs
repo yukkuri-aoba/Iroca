@@ -21,10 +21,10 @@ namespace Iroca
     /// 呼び出し経路は 3 つ。いずれも同じ中核（<see cref="RunRecolorCore"/>）を通る:
     ///   1. 静的 API: <see cref="RecolorByPreset"/> / <see cref="RecolorWithZones"/> 等。戻り値は JSON 文字列。
     ///      生 C# 実行が可能な MCP クライアント・EditMode テストから直接呼ぶ。
-    ///   2. MCPForUnity カスタムツール: <c>Code/McpIntegration/IrocaMcpTools.cs</c> の <c>iroca_recolor</c> 等。
-    ///      <c>execute_custom_tool</c> から本クラスの公開静的 API を呼ぶ。MCPForUnity 導入時のみ
-    ///      コンパイルされる別 asmdef（IROCA_MCP_PRESENT ゲート）で、配布パッケージ本体は依存ゼロを保つ。
-    ///      開発用で、配布物（VPM zip）には入れない。
+    ///   2. MCPForUnity カスタムツール: <c>Code/McpIntegration/IrocaMcpTools.cs</c> の <c>iroca_inspect</c>・
+    ///      <c>iroca_recolor</c>・<c>iroca_open</c>（<see cref="Inspect"/>・<see cref="Recolor"/>・<see cref="Open"/>）。
+    ///      MCPForUnity 導入時のみコンパイルされる別 asmdef（IROCA_MCP_PRESENT ゲート）で、配布パッケージ本体は
+    ///      依存ゼロを保つ。利用者向けの説明はマニュアル「AI エージェントから使う（MCP）」。
     ///      生 C# 実行に非対応のクライアントでも駆動できる（Tools メニューには何も追加しない）。
     ///   3. batchmode CLI: <c>Unity.exe -batchmode -executeMethod Iroca.IrocaAutomation.RunFromCommandLine ...</c>。
     ///
@@ -277,7 +277,7 @@ namespace Iroca
         }
 
         // メニュー経路（execute_menu_item）は廃止。MCP からの駆動は MCPForUnity カスタムツール
-        // （Code/McpIntegration/IrocaMcpTools.cs の iroca_recolor 等）経由で公開静的 API を呼ぶ。
+        // （Code/McpIntegration/IrocaMcpTools.cs）経由で公開静的 API を呼ぶ。
         // Tools メニューにはウィンドウ起動の単一項目だけを残し、サブメニュー二重表示を避ける。
 
         /// <summary>

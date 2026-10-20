@@ -110,5 +110,5 @@ main は develop の祖先とは限らない。2026-10-18 時点で main には 
 ## 補足
 
 - 配布 zip は `Code/` を収集するが、**`Code/Debug/`（開発専用の Debug ウィンドウ）は同梱しない**（`Build-VpmPackage.ps1` が明示的に除外）。IrocaEditor.Debug.asmdef は defineConstraints 無しのため、同梱すると全ユーザーで常時コンパイルされ Debug ウィンドウが見えてしまうのを避けるため。
-- 同じく **`Code/McpIntegration/`（MCP for Unity 用の開発ツール）も同梱しない**（0.2.1〜）。MCP for Unity はカスタムツールを既定で有効にして AI のツール一覧へ出すので、同梱すると MCP for Unity を使っている利用者の AI に、いろかのツールが勝手に並ぶ。
+- `Code/McpIntegration/`（MCP for Unity から AI に出す道具）は 0.3.0 から同梱する（マニュアル「AI エージェントから使う（MCP）」）。0.2.1 では、説明の無い開発用の道具が利用者の AI に並ぶのを避けるため外していた。MCP for Unity 10 が入っているときだけコンパイルされ、MCP for Unity の型はツールの印だけを使う。MCP for Unity が新しい版を出したら、実地確認 38 で確かめてから asmdef の版の範囲を広げる。
 - `Code/Infra/BuildHelper.cs`（`Assets/Iroca` を unitypackage へ書き出すヘルパー）は、VPAI インストーラへ切り替えた 2026-09-23 以降のリリース手順では使わない。
