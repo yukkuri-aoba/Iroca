@@ -2,6 +2,7 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace Iroca
 {
@@ -152,6 +153,69 @@ namespace Iroca
             }
             if (drop != null)
                 foreach (var b in drop) b.FreeNow();
+        }
+    }
+    /// <summary>
+    /// 作業配列のプール(型ごとに 1 つ)。PixelProcessor と AI 提案の精密化(SamMaskRefine)が共有し、
+    /// <see cref="PixelProcessor.ReleaseWorkBuffers"/> がまとめて空きを解放する。
+    /// </summary>
+    internal static class WorkPools
+    {
+        internal static readonly NativeWorkPool<float> Float = new NativeWorkPool<float>(maxPerClass: 24);
+        internal static readonly NativeWorkPool<bool> Bool = new NativeWorkPool<bool>(maxPerClass: 12);
+        internal static readonly NativeWorkPool<byte> Byte = new NativeWorkPool<byte>(maxPerClass: 4);
+        internal static readonly NativeWorkPool<Color32> Rgba32 = new NativeWorkPool<Color32>(maxPerClass: 4);
+        internal static readonly NativeWorkPool<int> Int = new NativeWorkPool<int>(maxPerClass: 8);
+
+        internal static void ReleaseFree()
+        {
+            Float.ReleaseFree();
+            Bool.ReleaseFree();
+            Byte.ReleaseFree();
+            Rgba32.ReleaseFree();
+            Int.ReleaseFree();
+        }
+    }
+
+    /// <summary>
+    /// 1 つの処理の中で借りる作業配列をまとめて持ち、Dispose でまとめて返す(<c>using var scratch = new WorkScratch();</c>)。
+    /// 途中で抜けても(キャンセル)返る。返すのは借りたスレッドだけで使うこと(並列ループの中から借りない)。
+    /// 中身は前の持ち主の値が残る。<c>new T[n]</c> と同じ 0 埋めが要るときは clear: true で借りる。
+    /// </summary>
+    internal sealed unsafe class WorkScratch : IDisposable
+    {
+        private List<IntPtr> _bools, _ints;
+
+        public bool* Bool(int n, bool clear)
+        {
+            bool* p = WorkPools.Bool.Rent(n);
+            (_bools ??= new List<IntPtr>(8)).Add((IntPtr)p);
+            if (clear) new Span<bool>(p, n).Clear();
+            return p;
+        }
+
+        public int* Int(int n, bool clear)
+        {
+            int* p = WorkPools.Int.Rent(n);
+            (_ints ??= new List<IntPtr>(8)).Add((IntPtr)p);
+            if (clear) new Span<int>(p, n).Clear();
+            return p;
+        }
+
+        /// <summary>src の先頭 n 個の写し((bool[])src.Clone() の代わり)。</summary>
+        public bool* CopyOf(bool[] src, int n)
+        {
+            bool* p = Bool(n, clear: false);
+            new ReadOnlySpan<bool>(src, 0, n).CopyTo(new Span<bool>(p, n));
+            return p;
+        }
+
+        public void Dispose()
+        {
+            // 中断中(ドメインのアンロード)は、並列で使っている途中のスレッドが残っていることがあるので返さない。
+            if (IrocaNativeMemory.CurrentThreadAborting) return;
+            if (_bools != null) { foreach (var p in _bools) WorkPools.Bool.Return((bool*)p); _bools = null; }
+            if (_ints != null) { foreach (var p in _ints) WorkPools.Int.Return((int*)p); _ints = null; }
         }
     }
 }

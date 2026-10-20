@@ -156,15 +156,15 @@ namespace Iroca
         // 管理配列のまま残すのは 2 つ: 色の表が無いときの画素ごとの HSV(PixelHsv が色の表と同じ型で持つ)と、
         // 入力の控え(originalPixels。読む側が Color32[] の入力画素と同じ型で受ける)。
         private const int PoolMaxArrayLength = 1 << 28; // 268,435,456 (16384²)
-        private static readonly NativeWorkPool<float> s_floatPool = new NativeWorkPool<float>(maxPerClass: 24);
-        private static readonly NativeWorkPool<bool> s_boolPool = new NativeWorkPool<bool>(maxPerClass: 8);
-        private static readonly NativeWorkPool<byte> s_bytePool = new NativeWorkPool<byte>(maxPerClass: 4);
+        private static readonly NativeWorkPool<float> s_floatPool = WorkPools.Float;
+        private static readonly NativeWorkPool<bool> s_boolPool = WorkPools.Bool;
+        private static readonly NativeWorkPool<byte> s_bytePool = WorkPools.Byte;
         // デコンタミの書き込み先(decontamPixels)。
-        private static readonly NativeWorkPool<Color32> s_color32Pool = new NativeWorkPool<Color32>(maxPerClass: 4);
+        private static readonly NativeWorkPool<Color32> s_color32Pool = WorkPools.Rgba32;
         // 連結成分ラベリング(label / BFS スタック)用。従来は呼び出しごとに new int[bw*bh]
         // (4K 全面マッチで 67MB)を LOH へ確保していた。Rent はゼロ初期化しないので label は
         // 使用前にクリアすること。
-        private static readonly NativeWorkPool<int> s_intPool = new NativeWorkPool<int>(maxPerClass: 4);
+        private static readonly NativeWorkPool<int> s_intPool = WorkPools.Int;
         // 管理配列のまま残すもの(上の 2 つと、色の表の「画素 → 番号」。番号の表は色の表のキャッシュに入り、
         // 処理が終わった後も別の処理から読まれるので、プールの貸し借りの外で GC に任せる)。
         private static ArrayPool<float> s_hsvPool =
@@ -181,11 +181,7 @@ namespace Iroca
         /// </summary>
         internal static void ReleaseWorkBuffers()
         {
-            s_floatPool.ReleaseFree();
-            s_boolPool.ReleaseFree();
-            s_bytePool.ReleaseFree();
-            s_color32Pool.ReleaseFree();
-            s_intPool.ReleaseFree();
+            WorkPools.ReleaseFree();   // AI 提案の精密化(SamMaskRefine)の分も同じプール
             // 管理配列のプールは空の同設定のものに差し替える(持っていた配列は GC が回収し、Mono のヒープの中で
             // 使い回される。OS へは返らない)。差し替えの最中に返された配列は新しいプールへ入るだけで害は無い。
             s_hsvPool = ArrayPool<float>.Create(PoolMaxArrayLength, maxArraysPerBucket: 3);

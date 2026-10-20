@@ -22,7 +22,7 @@ namespace Iroca
     /// スレッド間の浮動小数集約なし」で保証する(集計はグリッド行単位に分割し、同一セルへの
     /// 書き込みを単一タスクに閉じる)。結果は逐次実行とビット同一。
     /// </summary>
-    internal static class SamMaskRefine
+    internal static unsafe class SamMaskRefine
     {
         /// <summary>確信領域の平均色に必要な最小画素数(これ未満の側があれば再分類しない)。</summary>
         const int MinSamples = 16;
@@ -185,8 +185,11 @@ namespace Iroca
             int strandHalf = Mathf.Max(2, Mathf.RoundToInt(maxDim / 410f));
             float thr2 = FringeColorThresh * FringeColorThresh;
 
-            var distOut = DistanceToOpposite(mask, w, h, inside: false, token);
-            var distIn = DistanceToOpposite(mask, w, h, inside: true, token);
+            // 画像全体の大きさの作業配列(距離 2 本・印 3 本、4K で計 112MB)は作業配列のプールから借りる
+            // (毎クリック new すると Mono のヒープが膨らみ、縮まない)。抜けるときにまとめて返す。
+            using var scratch = new WorkScratch();
+            var distOut = DistanceToOpposite(scratch, mask, w, h, inside: false, token);
+            var distIn = DistanceToOpposite(scratch, mask, w, h, inside: true, token);
             var po = MakeParallelOptions(token);
 
             // 局所背景色 = mask 直外の確信領域(distOut>d)を粗グリッド集計 → 各画素 5x5 グリッド窓合算平均。
@@ -286,8 +289,8 @@ namespace Iroca
             // を必ず満たす。よって下の帯の外は「読まれない」ことが厳密に言え、false のまま
             // 残しても出力は変わらない。房は境界近傍にしか出ないので実効面積は典型 1 割未満。
             int fringeBand = reach + strandHalf;
-            var far = new bool[w * h];
-            var nearBg = new bool[w * h];
+            bool* far = scratch.Bool(w * h, clear: true);
+            bool* nearBg = scratch.Bool(w * h, clear: true);
             Parallel.For(0, h, po, y =>
             {
                 int gy = y / d, row = y * w;
@@ -335,7 +338,7 @@ namespace Iroca
             // 同じループで「mask に 4 近傍が接する growZone 画素」を行ごとの種リストへ収集する
             // (mask はこのループでは読み取り専用=判定は決定的。従来は種のために全画素をもう
             //  1 パス逐次走査しており、そのパスを丸ごと削減する)。
-            var growZone = new bool[w * h];
+            bool* growZone = scratch.Bool(w * h, clear: true);
             var rowSeeds = new System.Collections.Generic.List<int>[h];
             Parallel.For(0, h, po, y =>
             {
@@ -402,13 +405,14 @@ namespace Iroca
             // 不確実帯の半幅: SAM 低解像度セルの 3/4(±半セルの理論誤差+マージン)。
             int d = BandHalfWidth(w, h);
 
-            // 境界からの深さはセパラブルな L1 距離変換で求める。
-            var distIn = DistanceToOpposite(mask, w, h, inside: true, token);   // mask 内→外境界までの距離
-            var distOut = DistanceToOpposite(mask, w, h, inside: false, token); // mask 外→内境界までの距離
+            // 境界からの深さはセパラブルな L1 距離変換で求める(作業配列は ExtendFringe と同じくプールから)。
+            using var scratch = new WorkScratch();
+            var distIn = DistanceToOpposite(scratch, mask, w, h, inside: true, token);   // mask 内→外境界までの距離
+            var distOut = DistanceToOpposite(scratch, mask, w, h, inside: false, token); // mask 外→内境界までの距離
 
             // 再分類は元マスクのスナップショットに対して行う(書き換え順序への依存を排除し、
             // NumPy リファレンスと決定的に一致させるため)。
-            var mask0 = (bool[])mask.Clone();
+            bool* mask0 = scratch.CopyOf(mask, w * h);
 
             // 確信領域の局所色統計を粗グリッド(ストライド d)で集計。
             // 帯画素は近傍グリッド(半径 2d 相当)の合算平均と比較する。
@@ -530,7 +534,7 @@ namespace Iroca
             // AA 境界画素(地色と背景の中間色)は二値分類がどちらへ転ぶか不安定で
             // ±1px の点状ノイズになる。帯内のみ 3x3 多数決で平滑化して点滅を除去する
             // (帯外は不変なので形状は保たれる)。
-            MajoritySmoothBand(mask, mask0, distIn, distOut, d, w, h, token);
+            MajoritySmoothBand(scratch, mask, mask0, distIn, distOut, d, w, h, token);
         }
 
         /// <summary>
@@ -595,6 +599,8 @@ namespace Iroca
             x1 = Mathf.Min(w - 1, x1 + margin); y1 = Mathf.Min(h - 1, y1 + margin);
             int bw = x1 - x0 + 1, bh = y1 - y0 + 1;
             int ox = x0, oy = y0;   // ラムダ用の写し
+            // 外接矩形の大きさの作業配列(提案が大きいと画像全体に近い)はプールから借りる。
+            using var scratch = new WorkScratch();
 
             // 行ごとの連(マスク画素の横並び。終端は含まない)。
             var runCount = new int[bh];
@@ -656,9 +662,10 @@ namespace Iroca
 
             // 細さ: 境界から d 以内の画素の割合。矩形の外はすべてマスク外なので、距離は矩形の中だけで
             // 求めれば同じ。
-            var local = new bool[bw * bh];
-            Parallel.For(0, bh, po, ly => System.Array.Copy(mask, (ly + oy) * w + ox, local, ly * bw, bw));
-            var distIn = DistanceToOpposite(local, bw, bh, inside: true, token);
+            bool* local = scratch.Bool(bw * bh, clear: false);   // 下で全行を写す
+            Parallel.For(0, bh, po, ly =>
+                new System.ReadOnlySpan<bool>(mask, (ly + oy) * w + ox, bw).CopyTo(new System.Span<bool>(local + ly * bw, bw)));
+            var distIn = DistanceToOpposite(scratch, local, bw, bh, inside: true, token);
             var runBand = new int[nRuns];
             Parallel.For(0, bh, po, ly =>
             {
@@ -688,7 +695,7 @@ namespace Iroca
             token.ThrowIfCancellationRequested();
 
             // 成分の番号を画素へ(矩形内の添字。0 = マスク外)。
-            var label = new int[bw * bh];
+            int* label = scratch.Int(bw * bh, clear: true);
             Parallel.For(0, bh, po, ly =>
             {
                 int row = ly * bw;
@@ -701,7 +708,7 @@ namespace Iroca
 
             // 地色: マスクから d より離れた画素(確信外側)のセル単位モード(SnapBoundary と同じ粗グリッド・同じ
             // セルの位置)。矩形の外にマスク画素は無いので、マスクからの距離は矩形の中だけで求めれば同じ。
-            var distOut = DistanceToOpposite(local, bw, bh, inside: false, token);
+            var distOut = DistanceToOpposite(scratch, local, bw, bh, inside: false, token);
             var sumOut = new long[gw * gh * 4];
             var cntOut = new int[gw * gh];
             int gy0r = oy / d, gy1r = (oy + bh - 1) / d;
@@ -732,8 +739,8 @@ namespace Iroca
                 int row = ly * bw;
                 for (int lx = 0; lx < bw; lx++) local[row + lx] = thin[label[row + lx]];
             });
-            var distThin = DistanceToOpposite(local, bw, bh, inside: false, token);
-            var near = new bool[bw * bh];
+            var distThin = DistanceToOpposite(scratch, local, bw, bh, inside: false, token);
+            bool* near = scratch.Bool(bw * bh, clear: false);   // 下で全画素に書く
             Parallel.For(0, bh, po, ly =>
             {
                 int row = ly * bw;
@@ -747,7 +754,7 @@ namespace Iroca
             // はっきり違う(描き込み): 細い成分の画素のうち、最大半径(MaxWindowRadius セル)の窓のすべての地色
             // (確信外側のセルモード)との距離² が PeelDistinctSq を超えるもの。窓を広く取るのは、地色が 2 種類ある所
             // — 余白の白と隣の部位の紺 — で、近くに白しか無い画素を「はっきり違う」と数えないため。
-            var distinctPx = new bool[bw * bh];
+            bool* distinctPx = scratch.Bool(bw * bh, clear: true);
             Parallel.For(0, bh, po, ly =>
             {
                 for (int lx = 0; lx < bw; lx++)
@@ -778,8 +785,8 @@ namespace Iroca
             // 差を緩めたりはしない: 陰影の濃淡がある所では、描き込み(裾の暗い帯の中の灰色の歯)が別の場所の
             // 地色(帯の明るい縁)と同じ色になり、末端の歯は本体が布の地色とほぼ同じ明るさになる(実測: 本体 50・
             // 周りの地 35)。滑らかさだけで辿れば、縁で地と切れている描き込みは地に入らない。
-            var ground = new bool[bw * bh];
-            var queue = new int[bw * bh];
+            bool* ground = scratch.Bool(bw * bh, clear: true);
+            int* queue = scratch.Int(bw * bh, clear: false);   // 積んだ所だけ読む
             int head = 0, tail = 0;
             for (int li = 0; li < bw * bh; li++)
             {
@@ -810,7 +817,7 @@ namespace Iroca
             // (4 近傍の歩数で)画素の色を割り当て、それとの差が PeelLocalSameSq 以下なら地とする。
             // 描き込みに囲まれた地の袋(柄の帯の中の生成り)は外周から滑らかには辿れないが、すぐ外の地と同じ色
             // なので地になる。末端の歯は本体が布の地色に近くても、すぐ周りの地(裾の暗い帯)より明るいので残る。
-            var nearestGround = new int[bw * bh];
+            int* nearestGround = scratch.Int(bw * bh, clear: false);   // 下で全画素に書く
             for (int li = 0; li < bw * bh; li++) nearestGround[li] = ground[li] ? li : -1;
             head = 0; tail = 0;
             for (int li = 0; li < bw * bh; li++) if (ground[li]) queue[tail++] = li;
@@ -880,8 +887,8 @@ namespace Iroca
                 if (ground[li]) { mask[(li / bw + oy) * w + li % bw + ox] = false; continue; }
                 queue[tail++] = li;
             }
-            var added = local;   // 細い成分の印はもう使わないので、足した画素の印に使い回す
-            System.Array.Clear(added, 0, added.Length);
+            bool* added = local;   // 細い成分の印はもう使わないので、足した画素の印に使い回す
+            new System.Span<bool>(added, bw * bh).Clear();
             while (head < tail)
             {
                 int q = queue[head++];
@@ -911,7 +918,7 @@ namespace Iroca
         /// 描き込みとして連ねないため。歯のような塊や 1px の線は満たす(実測 2026-10-12: この条件が無いと
         /// 民族柄の細い提案が粒を伝って周りの生成りへ広がり、地の滲みが 10,780 → 24,105 に増えた)。
         /// </summary>
-        static bool InStructure(bool[] ground, bool[] near, int bw, int bh, int lx, int ly)
+        static bool InStructure(bool* ground, bool* near, int bw, int bh, int lx, int ly)
         {
             int n = 0;
             for (int dy = -1; dy <= 1; dy++)
@@ -1060,7 +1067,8 @@ namespace Iroca
         static int AbsorbEdgeBlendPass(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
                                        System.Threading.CancellationToken token = default)
         {
-            var mask0 = (bool[])mask.Clone();
+            using var scratch = new WorkScratch();
+            bool* mask0 = scratch.CopyOf(mask, w * h);
             int[] ex = { 1, -1, 0, 0, 1, 1, -1, -1 };
             int[] ey = { 0, 0, 1, -1, 1, -1, 1, -1 };
             // 読みはスナップショット・書きは自画素のみなので行並列で決定的。
@@ -1113,8 +1121,9 @@ namespace Iroca
         static int IncludeAaTransitionPass(bool[] mask, Color32[] pixelsBottomUp, int w, int h, int d,
                                            System.Threading.CancellationToken token = default)
         {
-            var distIn = DistanceToOpposite(mask, w, h, inside: true, token);
-            var distOut = DistanceToOpposite(mask, w, h, inside: false, token);
+            using var scratch = new WorkScratch();
+            var distIn = DistanceToOpposite(scratch, mask, w, h, inside: true, token);
+            var distOut = DistanceToOpposite(scratch, mask, w, h, inside: false, token);
 
             // 確信領域の局所色統計(SnapBoundary と同じ粗グリッド集計・現マスク基準)。
             // 外側統計は近傍(d 超)と遠方(2d 超)の 2 系統を持ち、判定はユニオン(どちらかの
@@ -1307,11 +1316,11 @@ namespace Iroca
 
         /// <summary>帯内画素を 3x3 多数決(5/9 以上)で平滑化する。読みはスナップ結果の
         /// スナップショット、書きは mask(決定的・順序非依存)。</summary>
-        static void MajoritySmoothBand(bool[] mask, bool[] mask0, int[] distIn, int[] distOut,
+        static void MajoritySmoothBand(WorkScratch scratch, bool[] mask, bool* mask0, int* distIn, int* distOut,
                                        int d, int w, int h,
                                        System.Threading.CancellationToken token = default)
         {
-            var snapped = (bool[])mask.Clone();
+            bool* snapped = scratch.CopyOf(mask, w * h);
             Parallel.For(1, h - 1, MakeParallelOptions(token), y =>
             {
                 int row = y * w;
@@ -1396,11 +1405,18 @@ namespace Iroca
         /// 旧 2 パスチャンファー(左下前進/右上後退)と厳密に同値(どちらも正確な L1)だが、
         /// 行パスは行単位・列パスは列レンジ単位で並列化できる(いずれも決定的)。
         /// </summary>
-        internal static int[] DistanceToOpposite(bool[] mask, int w, int h, bool inside,
-                                                 System.Threading.CancellationToken token = default)
+        internal static int* DistanceToOpposite(WorkScratch scratch, bool[] mask, int w, int h, bool inside,
+                                                System.Threading.CancellationToken token = default)
+        {
+            fixed (bool* m = mask) return DistanceToOpposite(scratch, m, w, h, inside, token);
+        }
+
+        /// <summary>上と同じ(mask が作業配列のとき)。結果は scratch から借りる(全画素に書く)。</summary>
+        internal static int* DistanceToOpposite(WorkScratch scratch, bool* mask, int w, int h, bool inside,
+                                                System.Threading.CancellationToken token = default)
         {
             const int Inf = 1 << 28;
-            var dist = new int[w * h];
+            int* dist = scratch.Int(w * h, clear: false);
             var po = MakeParallelOptions(token);
 
             // 行パス: 各行の左右走査で「同じ行内の最近接反対側画素」までの距離(無ければ Inf)
