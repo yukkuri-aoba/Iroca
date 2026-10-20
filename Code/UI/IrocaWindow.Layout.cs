@@ -602,6 +602,9 @@ namespace Iroca
         /// 自動調整は変更先の明るさも入力に取る（模様保持の導出）ので、変更先の後に案内する。
         /// null なら何も描かない。
         /// </summary>
+        // DrawTextureField が描いている案内の文面（NextStepHint の結果を Layout ごとに取り直す）。
+        [System.NonSerialized] private string _nextStepHint;
+
         private string NextStepHint()
         {
             if (!StepTextureDone) return null;               // テクスチャ欄の HelpBox が案内済み
@@ -677,7 +680,12 @@ namespace Iroca
             // 折り返しあり: ゾーン名が入って長くなり、狭いウィンドウや英語表示では 1 行に収まらない
             // （EditorGUILayout.LabelField は 1 行固定高で、折り返した 2 行目が隠れる）。
             // 上部の高さは実測しているので（_sideBySideTopHeight）、行数が変わってもレイアウトは崩れない。
-            string next = NextStepHint();
+            // ドラッグ中は前の文面のまま据え置く。許容範囲のスライダーを動かした瞬間に案内が消えると、
+            // つまんでいるスライダーごと設定列が上へずれる。文面は Layout のときだけ決め、同じフレームの
+            // Repaint と行数を揃える。
+            if (Event.current.type == EventType.Layout && GUIUtility.hotControl == 0)
+                _nextStepHint = NextStepHint();
+            string next = _nextStepHint;
             if (!string.IsNullOrEmpty(next))
                 GUILayout.Label(next, EditorStyles.wordWrappedMiniLabel);
 
