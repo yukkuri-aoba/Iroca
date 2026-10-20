@@ -398,6 +398,7 @@ namespace Iroca
             public float shadowRangeDen;   // sV * ForgivenessRangeFrac
             public float brightThreshold;  // sV + (1 - sV) * HighlightValueHeadroomFrac
             public float brightRangeDen;   // Max(0.01f, (1 - sV) * ForgivenessRangeFrac)
+            public bool  hueTrusted;       // 彩度の上で chromaConfidence が 1(sS >= chromaThreshold + ChromaConfidenceSpan)
         }
         [NonSerialized] private SampleCache[] _sampleCaches;
 
