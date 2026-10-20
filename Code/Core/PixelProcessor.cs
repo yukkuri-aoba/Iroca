@@ -1,7 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
-using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -136,27 +135,17 @@ namespace Iroca
             return sb.ToString();
         }
 
-        // ArrayPool<T>.Shared は既定でバケット上限 2^20 要素。それを超える Rent は
-        // 毎回 new[] を返し Return は捨てるため、2K(4.2M)/4K(16.8M) ではプールが
-        // 全く効かず Rent ごとに LOH 新規確保が発生する(プレビュー再生成のたびに数百MB〜1GB)。
-        // Unity の最大テクスチャ 16384²=2^28 までプールする専用プールに差し替えて GC churn を抑える。
-        // 上限が 4096² だった頃は 8K・16K の作業配列が毎回の新規確保になり、縮まない Mono ヒープが
-        // 8K で 8.6GB・16K で 26GB 超まで膨らんでいた(2^28 にして 8K は 5.1GB・16K は 19GB で頭打ち。
-        // 毎手の処理も速くなる)。
-        // 戻した配列はバケットごとに持ち続けるので、大きいテクスチャを一度処理するとそのぶんは
-        // 手放さない(どのみち Mono ヒープは縮まない)。4096² 以下だけなら挙動は変わらない。
-        // maxArraysPerBucket は ProcessPixelsArray が 1 ゾーンで同時に Rent する本数(〜20)を
-        // 満たす値にする(Create プールは GC 自動トリムされないため上限で保持メモリを抑える)。
-        // 注意: プールの Rent はゼロ初期化を保証しない。既存のクリア(ClearWork・Array.Clear)は残すこと。
-        //
-        // 0.3.0 から作業配列は Mono のヒープの外(NativeWorkPool、ポインタで貸し出す)に置く。Mono のヒープは
-        // 縮まないので、書き出し(元の解像度)などで一度大きく使った分が、エディタを閉じるまで残っていた
-        // (8K で約 3GB)。ネイティブなら ReleaseWorkBuffers ですぐ OS へ返せる。ポインタにしたのは、Unity の
-        // Mono で配列より遅くならない書き方がポインタだけだったため(構造体の添字や Span は Debug の最適化
-        // モードで 2〜4 倍遅い。scripts/editor-tests/KernelBenchTests.cs)。中身が 0 にならないのは従来どおり。
-        // 管理配列のまま残すのは、色の表が無いときの画素ごとの HSV(PixelHsv が色の表と同じ型で持つ)と、
-        // 色の表の「画素 → 番号」(下)。入力の控え(originalPixels)はポインタで読む(ProcessPixelsArrayCore)。
-        private const int PoolMaxArrayLength = 1 << 28; // 268,435,456 (16384²)
+        // 作業配列(フル解像度の float・bool など。1 ゾーンで同時に 20 本ほど借りる)は使い回す。毎回 new すると
+        // プレビューのたびに数百 MB〜1GB の新規確保になる。
+        // 0.3.0 から作業配列は Mono のヒープの外(NativeWorkPool、ポインタで貸し出す)に置く。以前は管理配列の
+        // ArrayPool で使い回していたが、Mono のヒープは縮まないので、書き出し(元の解像度)などで一度大きく使った分が
+        // エディタを閉じるまで残っていた(8K で約 3GB)。ネイティブなら ReleaseWorkBuffers ですぐ OS へ返せる。
+        // ポインタにしたのは、Unity の Mono で配列より遅くならない書き方がポインタだけだったため(構造体の添字や
+        // Span は Debug の最適化モードで 2〜4 倍遅い。scripts/editor-tests/KernelBenchTests.cs)。
+        // 注意: プールの Rent はゼロ初期化を保証しない。既存のクリア(ClearWork)は残すこと。
+        // 色の表(「画素 → 番号」と番号ごとの HSV)も Mono のヒープの外に置き、参照の数で解放する
+        // (PixelProcessor.Palette.cs)。色の表が無いときの画素ごとの HSV は作業配列(s_floatPool)から借りる。
+        // 入力の控え(originalPixels)はポインタで読む(ProcessPixelsArrayCore)。
         private static readonly NativeWorkPool<float> s_floatPool = WorkPools.Float;
         private static readonly NativeWorkPool<bool> s_boolPool = WorkPools.Bool;
         private static readonly NativeWorkPool<byte> s_bytePool = WorkPools.Byte;
@@ -166,25 +155,17 @@ namespace Iroca
         // (4K 全面マッチで 67MB)を LOH へ確保していた。Rent はゼロ初期化しないので label は
         // 使用前にクリアすること。
         private static readonly NativeWorkPool<int> s_intPool = WorkPools.Int;
-        // 管理配列のまま残すもの(画素ごとの HSV と、色の表の「画素 → 番号」。番号の表は色の表のキャッシュに入り、
-        // 処理が終わった後も別の処理から読まれるので、プールの貸し借りの外で GC に任せる)。
-        private static ArrayPool<float> s_hsvPool =
-            ArrayPool<float>.Create(PoolMaxArrayLength, maxArraysPerBucket: 3);
-        private static ArrayPool<int> s_paletteIndexPool =
-            ArrayPool<int>.Create(PoolMaxArrayLength, maxArraysPerBucket: 4);
 
         /// <summary>
-        /// 作業配列のうち、いま使っていない分を全部解放する(OS へ戻る)。計算中の分は計算が返すまで残る。
+        /// 作業配列のうち、いま使っていない分と、色の表のキャッシュを全部解放する(OS へ戻る)。計算中の分は
+        /// 計算が返すまで残る(使っている色の表はその計算が Release した時点で解放される)。
         /// ウィンドウを閉じる・テクスチャを替える・書き出しの後・リロードの前に UI 側から呼ぶ。次の計算は、
-        /// 新しく確保した領域の最初の書き込みの分だけ遅くなる(4K で数十 ms)。
+        /// 新しく確保した領域の最初の書き込みと、色の表の作り直しの分だけ遅くなる(4K で数十 ms)。
         /// </summary>
         internal static void ReleaseWorkBuffers()
         {
+            ClearPaletteCache();
             WorkPools.ReleaseFree();   // AI 提案の精密化(SamMaskRefine)の分も同じプール
-            // 管理配列のプールは空の同設定のものに差し替える(持っていた配列は GC が回収し、Mono のヒープの中で
-            // 使い回される。OS へは返らない)。差し替えの最中に返された配列は新しいプールへ入るだけで害は無い。
-            s_hsvPool = ArrayPool<float>.Create(PoolMaxArrayLength, maxArraysPerBucket: 3);
-            s_paletteIndexPool = ArrayPool<int>.Create(PoolMaxArrayLength, maxArraysPerBucket: 4);
         }
 
         // 借りた作業配列を 0 で埋める([start, start+count))。
@@ -337,8 +318,8 @@ namespace Iroca
             // 2番目以降の Rent が例外を投げた場合に先行の配列をリークしない。
             // 色の表があれば表の H/S/V と画素 → 番号(pixIdx)を指す(フル解像度の配列は持たない)。
             // 表が無いときだけ画素ごとの配列を借りる(hsvRented)。読むときは HsvSlot(pixIdx, i) で引く。
-            float[] pixH = null, pixS = null, pixV = null;
-            int[] pixIdx = null;
+            float* pixH = null, pixS = null, pixV = null;
+            int* pixIdx = null;
             bool hsvRented = false;
             // 占有率バッファ: 優先度の高い(リスト上位の)ゾーンが書き込んだカバレッジを
             // ピクセル単位で累積する。下位ゾーンは残り(1-claimed)の範囲だけ適用され、
@@ -379,10 +360,10 @@ namespace Iroca
             }
             else
             {
-                pixH = s_hsvPool.Rent(len);
-                pixS = s_hsvPool.Rent(len);
-                pixV = s_hsvPool.Rent(len);
                 hsvRented = true;
+                pixH = s_floatPool.Rent(len);
+                pixS = s_floatPool.Rent(len);
+                pixV = s_floatPool.Rent(len);
                 Parallel.For(0, h, po, y =>
                 {
                     int rowOff = y * w;
@@ -433,7 +414,7 @@ namespace Iroca
                 _tp = _tZone;
                 _sub.Restart();
 
-                // ArrayPool 借用は per-zone の try/finally で必ず返却する。
+                // 作業配列の借用は per-zone の try/finally で必ず返却する。
                 // Parallel.For は po.CancellationToken でキャンセル時に OperationCanceledException を投げる。
                 // 後段ヘルパー(Decontaminate/CleanAchromaFringe/GaussianBlur/FillSmallHoles/RecoverBoundaryEdges
                 // /RejectNeutral/Solidify/GrowHighlightBand)にも cancellationToken を渡しており、内部 Parallel.For も
@@ -529,7 +510,7 @@ namespace Iroca
                             palPot = new float[pc];
                             palConf = new float[pc];
                             Color32[] pCol = palette.Colors;
-                            float[] pH = palette.H, pS = palette.S, pV = palette.V;
+                            float* pH = palette.H, pS = palette.S, pV = palette.V;
                             float[] outS = palStrength, outPot = palPot, outConf = palConf;
                             ForEachPaletteChunk(pc, po, (k0, k1) =>
                             {
@@ -538,7 +519,7 @@ namespace Iroca
                                         0, 0, fullW, fullH, out outS[k], out outPot[k], out outConf[k]);
                             });
                         }
-                        int[] palIdxMatch = palette?.Index;
+                        int* palIdxMatch = palette != null ? palette.Index : null;
                         Parallel.For(0, h, po, y =>
                         {
                             int yf = y + originY;
@@ -789,7 +770,7 @@ namespace Iroca
                     {
                         var outRel = new float[palette.Count];
                         Color32[] rCol = palette.Colors;
-                        float[] rH = palette.H, rS = palette.S, rV = palette.V;
+                        float* rH = palette.H, rS = palette.S, rV = palette.V;
                         ForEachPaletteChunk(palette.Count, po, (k0, k1) =>
                         {
                             for (int k = k0; k < k1; k++)
@@ -811,7 +792,7 @@ namespace Iroca
                     if (palette != null && !selCached && hasPostBox && !zMixMode
                         && (long)palette.Count * 2 <= (long)(ppMaxX - ppMinX + 1) * (ppMaxY - ppMinY + 1))
                         palRelaxed = RelaxedPalette(zone.tolerance);
-                    int[] palIdxRelaxed = palette?.Index;
+                    int* palIdxRelaxed = palette != null ? palette.Index : null;
                     if (!selCached && hasPostBox && !zMixMode)
                     {
                         // 穴埋めの許可だけ許容範囲に余白をつける(zone.holeFillMargin、証拠つき自動調整が入れる)。
@@ -1270,7 +1251,7 @@ namespace Iroca
                         int pc = palette.Count;
                         var outRc = new Color32[pc];
                         Color32[] pCol = palette.Colors;
-                        float[] pV = palette.V;
+                        float* pV = palette.V;
                         var rcParamsLocal = rcParams;
                         float lmid = zRegLmid;
                         ForEachPaletteChunk(pc, po, (k0, k1) =>
@@ -1283,7 +1264,7 @@ namespace Iroca
                         });
                         palRecolored = outRc;
                     }
-                    int[] palIdxRecolor = palette?.Index;
+                    int* palIdxRecolor = palette != null ? palette.Index : null;
                     // 色ごとの表を作れないゾーン(成分別 L マップあり)は、スレッドごとのメモで使い回す。
                     int recolorMemoEpoch = palette != null && palRecolored == null && rcMaxX >= 0
                         ? NextRecolorMemoEpoch() : 0;
@@ -1494,9 +1475,9 @@ namespace Iroca
                 if (claimed != null) s_floatPool.Return(claimed);
                 if (hsvRented)
                 {
-                    if (pixV != null) s_hsvPool.Return(pixV);
-                    if (pixS != null) s_hsvPool.Return(pixS);
-                    if (pixH != null) s_hsvPool.Return(pixH);
+                    if (pixV != null) s_floatPool.Return(pixV);
+                    if (pixS != null) s_floatPool.Return(pixS);
+                    if (pixH != null) s_floatPool.Return(pixH);
                 }
                 if (ownsOriginal) s_color32Pool.Return(originalPixels);
                 else sourcePin.Free();

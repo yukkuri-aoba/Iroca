@@ -81,7 +81,7 @@ namespace Iroca
         /// </summary>
         private static void RejectNeutralForAchromaTarget(float* strength, PixelHsv hsv, int w, int h, float sS, CancellationToken ct = default)
         {
-            float[] pixS = hsv.S; int[] pixIdx = hsv.Index;
+            float* pixS = hsv.S; int* pixIdx = hsv.Index;
             const float matchThr = ColorZone.MatchStrengthFloor;
             float floor = sS * NeutralRejectFloorFrac;
             int len = w * h;
@@ -270,7 +270,7 @@ namespace Iroca
             // 無ければ L を bbox 全画素ぶん並列で前計算する(旧: 逐次 DFS の内側で RgbToOklab)。
             // 意図した変更では両経路を同時に直すこと(色の表あり・なしのパリティを直接比べるテストは無い)。
             float* okL = null;
-            int[] pIdx = null, binOf = null;
+            int* pIdx = null; int[] binOf = null;
             // 行 run 方式の連結成分ラベリングで使う配列(確保は run 数 R が確定してから)。
             int* runX0 = null, runX1 = null, runY = null, parent = null, comp = null, rootComp = null, order = null;
             try
@@ -522,7 +522,7 @@ namespace Iroca
         {
             mid = 0.5f;
             // 色の表があれば L は色ごとの表から読む(ビット単位で同じ)。
-            int[] pIdx = null;
+            int* pIdx = null;
             float[] pL = null;
             if (palette != null)
             {

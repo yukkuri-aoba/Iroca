@@ -73,7 +73,7 @@ namespace Iroca
             int anchorX = -1, int anchorY = -1,
             CancellationToken ct = default)
         {
-            float[] pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int[] pixIdx = hsv.Index;
+            float* pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
             bool useValueFloor = shadowValueFloor > 0f && pixV != null;
             bool useSatCeil = partSatCeiling > 0f && pixS != null;
             bool useHueBand = partHueBand > 0f && pixH != null && pixS != null;

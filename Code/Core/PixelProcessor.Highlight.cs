@@ -294,7 +294,7 @@ namespace Iroca
             PixelHsv hsv, ColorZone zone, int w, int h,
             CancellationToken ct = default, ColorPalette palette = null)
         {
-            float[] pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int[] pixIdx = hsv.Index;
+            float* pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
             float sH, sS, sV;
             Color.RGBToHSV(zone.sampleColor, out sH, out sS, out sV);
             if (sS < HlBandMinSampleSat) return;
@@ -323,12 +323,12 @@ namespace Iroca
             // 候補判定は画素の色(と色から求めた HSV)だけで決まるので、色の表があれば色ごとに 1 回だけ
             // 判定して配る(同じ式に同じ入力を与えた結果なのでビット単位で同じ)。
             bool[] candByColor = null;
-            int[] pIdx = palette?.Index;
+            int* pIdx = palette != null ? palette.Index : null;
             if (palette != null)
             {
                 candByColor = new bool[palette.Count];
                 var cols = palette.Colors;
-                float[] qH = palette.H, qS = palette.S, qV = palette.V;
+                float* qH = palette.H, qS = palette.S, qV = palette.V;
                 ForEachPaletteChunk(palette.Count, hlbPo, (k0, k1) =>
                 {
                     for (int k = k0; k < k1; k++)
@@ -558,7 +558,7 @@ namespace Iroca
             PixelHsv hsv, ColorZone zone, int w, int h,
             ulong[] recoveredBits, CancellationToken ct = default)
         {
-            float[] pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int[] pixIdx = hsv.Index;
+            float* pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out _);
             if (sS < HlBandMinSampleSat) return 0;   // 灰色寄りのサンプルでは色相が信用できない(帯成長と同じ床)
             // 彩度床: 色相が完全に信用できる彩度(chromaConfidence が 1 に達する chromaThreshold+0.10)と

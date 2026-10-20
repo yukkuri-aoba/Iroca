@@ -32,7 +32,7 @@ namespace Iroca
         public static Color ComputeWashSample(
             Color32* px, PixelProcessor.PixelHsv hsv, int w, int h, ColorZone zone)
         {
-            float[] pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int[] pixIdx = hsv.Index;
+            float* pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
             Color sample = zone.sampleColor;
             if (!zone.applyHighlightWash || !zone.autoHighlightSample) return sample;
 

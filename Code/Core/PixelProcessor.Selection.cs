@@ -527,7 +527,7 @@ namespace Iroca
             float sS, float sV, float chromaThreshold, float chromaCeiling,
             int w, int h, CancellationToken ct = default)
         {
-            float[] pixS = hsv.S; int[] pixIdx = hsv.Index;
+            float* pixS = hsv.S; int* pixIdx = hsv.Index;
             // グレーモード判定は ColorZone.MatchOneSample / GetRelaxedMatchStrength と共有ヘルパー。
             float effectiveChromaThreshold = ColorZone.GrayModeEffectiveChromaThreshold(sV, chromaThreshold);
             if (sS > effectiveChromaThreshold) return;   // 有彩サンプル=グレーモードではない
@@ -668,7 +668,7 @@ namespace Iroca
             Color sampleColor, float tolerance, float sS, float sV, float chromaThreshold,
             int w, int h, CancellationToken ct = default)
         {
-            float[] pixS = hsv.S; int[] pixIdx = hsv.Index;
+            float* pixS = hsv.S; int* pixIdx = hsv.Index;
             // グレーモード判定は ColorZone.MatchOneSample / ApplyChromaCeilingGate と共有ヘルパー。
             float effectiveChromaThreshold = ColorZone.GrayModeEffectiveChromaThreshold(sV, chromaThreshold);
             if (sS > effectiveChromaThreshold) return;   // 有彩サンプル=グレーモードではない
@@ -852,13 +852,13 @@ namespace Iroca
             int boxMinX, int boxMinY, int boxMaxX, int boxMaxY,
             Color32* originalPixels, float chromaConfidence, float chromaThreshold,
             float chromaCeiling, CancellationToken ct,
-            float[] relaxedByColor, int[] colorIndex)
+            float[] relaxedByColor, int* colorIndex)
         {
             // relaxedByColor / colorIndex: 色の表(ColorPalette)の番号ごとに、この関数と同じ引数で
             // GetRelaxedMatchStrength を求めた値と、画素 → 番号。渡されたら画素ごとの計算の代わりに読む
             // (同じ関数に同じ入力を与えた値なのでビット単位で同じ)。
             if (passes <= 0) return;
-            float[] pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int[] pixIdx = hsv.Index;
+            float* pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
 
             // bbox 未指定(boxMaxX<0)なら全画素。指定時はその矩形内だけ走査する(P2-7、出力ビット不変)。
             if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
