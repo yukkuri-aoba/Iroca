@@ -15,12 +15,19 @@ namespace Iroca
     {
         // 連結成分アンカリングの確信度コア絶対床(matchConf 不在時のフォールバック専用)。
         private const float CoreAbsoluteFloor = 0.6f;
-        // 陰影の明度下限(shadowValueFloor)で成分を残す条件: 成分の画素のうちこの割合以上が下限に
-        // 達していれば「本体+その陰影」とみなす。下限自体がクリック島の陰影レンジより 25% 下に
-        // 置かれる(ZoneAutoTuner.Evidence.cs の EvShadowFloorMarginFrac)ので、同素材の成分は
-        // 大半が下限以上になる。逆に暗い別部位は、同色の明るい縁取り(数%)が付いていても落ちる。
-        // 同じ 1/4 を使い、余白(レンジの 25%)と対になる比率にそろえる。
-        private const float ShadowFloorKeepFrac = 0.25f;
+        // 陰影の明度下限(shadowValueFloor)と別パーツの彩度上限(partSatCeiling)で成分を残す条件:
+        // 成分の画素の過半が包絡の内側(下限以上・上限以下)なら「本体+その陰影」とみなす。包絡自体が
+        // クリック島の広がりより 25% 外に置かれる(ZoneAutoTuner.Evidence.cs の EvShadowFloorMarginFrac・
+        // 彩度上限の ÷0.75)ので、同素材の成分は大半が内側に入る。過半が外側の成分は、同色の縁取りや
+        // 陰が一部に付いていても、大半が別の明るさ・鮮やかさの別部位として落とす。
+        // 実測(2026-10-20、ワンショット 57 件): 1/4 → 1/2 で設計 IoU 0.834 → 0.839(改善 8・悪化 0)。
+        // 全ゲートの割合を上げると 0.6 までは伸びるが 0.75 で同素材の陰の多い成分(上衣・瞳)を落として
+        // 崩れるので、崖から離れた過半にする。
+        private const float ShadowFloorKeepFrac = 0.5f;
+        // 別パーツの色相幅(partHueBand)で成分を残す条件(成分の画素のうち帯に入る割合)。明度・彩度より
+        // 緩い 1/4 にする: 陰やツヤで色相がずれる素材(髪)では、同じ素材の離れた房でも過半が帯の外に
+        // 出る。過半にすると茶髪で房が落ちて再現率 1.000 → 0.965・残存島 3.5% だった(2026-10-20)。
+        private const float PartHueKeepFrac = 0.25f;
 
         /// <summary>
         /// 連結成分アンカリング: strength&gt;0 の画素を4連結でラベリングし、確信度コアを含む成分のみ残す。
@@ -38,8 +45,9 @@ namespace Iroca
         /// seedX&gt;=0 のときはその成分だけを残す上書きモード(無効シード=bleed/背景上 なら自動へフォールバック)。
         /// 連結予測子(strength&gt;0 &amp;&amp; α&gt;=128)・4近傍は BuildComponentMedianLMap と一致させ成分定義を統一する。
         ///
-        /// 陰影の明度下限(shadowValueFloor &gt; 0 のとき): 成分内の最大明度(pixV)がこの値未満の成分 =
-        /// 「全体がこの素材の陰影レンジより暗い、同色相の離れた別パーツ」を落とす(ColorZone.shadowValueFloor
+        /// 陰影の明度下限(shadowValueFloor &gt; 0 のとき): 明度(pixV)がこの値以上の画素が成分の
+        /// ShadowFloorKeepFrac に満たない成分 = 「大半がこの素材の陰影レンジより暗い、同色相の離れた
+        /// 別パーツ」を落とす(ColorZone.shadowValueFloor
         /// のコメント参照)。本体に地続きの深い影は、成分に明るい画素が含まれるので残る。シード上書きモード
         /// (ユーザーが成分を明示)では適用しない。コアが皆無で絞り込まない場合も下限だけは適用する。
         ///
@@ -48,14 +56,15 @@ namespace Iroca
         /// 落とす(ColorZone.partSatCeiling のコメント参照)。適用条件は明度下限と同じ。
         ///
         /// 別パーツの色相幅(partHueBand &gt; 0 のとき): 色相(pixH)が sampleH から ±partHueBand に入る画素が
-        /// 成分の ShadowFloorKeepFrac に満たない成分を落とす。彩度が hueMinSat 未満の画素は色相が不安定
+        /// 成分の PartHueKeepFrac に満たない成分を落とす。彩度が hueMinSat 未満の画素は色相が不安定
         /// なので帯の内側として数える(ColorZone.partHueBand のコメント参照)。グレーモードかどうかの判定は
         /// 呼び出し側が行い、無彩サンプルでは 0 を渡す。
         ///
         /// スポイト位置(anchorX/anchorY &gt;= 0 のとき): その画素を含む成分は、上の 3 つの包絡ゲートでは
         /// 落とさない。包絡はスポイト位置の島から導いた値なので、その成分が包絡の外になるのは「クリックした
-        /// 部位が、地続きの別パーツより小さい(成分の ShadowFloorKeepFrac 未満)」ときだけで、成分ごと落とすと
-        /// クリックした場所が何も変わらなくなる。巻き込みへ戻すほうが、原因が見えて直せる。コア規則は変えない。
+        /// 部位が、地続きの別パーツより小さい(包絡の内側が成分の ShadowFloorKeepFrac・PartHueKeepFrac 未満)」
+        /// ときだけで、成分ごと落とすとクリックした場所が何も変わらなくなる。巻き込みへ戻すほうが、
+        /// 原因が見えて直せる。コア規則は変えない。
         /// </summary>
         private static void ApplyConnectedComponentMask(
             float* strength, float* matchConf, Color32[] px, int w, int h, int seedX, int seedY,
@@ -262,7 +271,7 @@ namespace Iroca
                 for (int c = 0; c < compCount; c++)
                     reachesFloor[c] = (!useValueFloor || reach[c] >= total[c] * ShadowFloorKeepFrac)
                                    && (!useSatCeil || within[c] >= total[c] * ShadowFloorKeepFrac)
-                                   && (!useHueBand || inBand[c] >= total[c] * ShadowFloorKeepFrac);
+                                   && (!useHueBand || inBand[c] >= total[c] * PartHueKeepFrac);
                 // スポイト位置を含む成分は包絡ゲートで落とさない(上の summary 参照)。
                 if (anchorX >= minX && anchorX <= maxX && anchorY >= minY && anchorY <= maxY)
                 {
