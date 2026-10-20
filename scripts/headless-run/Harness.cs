@@ -1517,12 +1517,22 @@ namespace Iroca
                     return 0;
                 }
 
-                // --samops-rle <mask.raw> <encoded.txt> : エンコード文字列を書き出し、往復一致を自己検証
+                // --samops-rle <mask.raw> <encoded.txt> [threads] : エンコード文字列を書き出し、往復一致を自己検証。
+                // threads を渡すと並列度をその値にする(大きいマスクは区間に分けて並列にエンコードするので、継ぎ目の検証用)。
                 case "--samops-rle":
                 {
+                    if (args.Length >= 4) DebugCaptureHooks.ParallelismOverride = int.Parse(args[3], inv);
                     var (w, h, mask) = ReadMaskRaw(args[1]);
                     string encoded = MaskRle.Encode(mask, w, h);
                     File.WriteAllText(args[2], encoded);
+                    // 保存の経路(MaskStateCodec)が使う EncodeIfAny: 全 false なら null、それ以外は Encode と同じ文字列。
+                    bool any = Array.IndexOf(mask, true) >= 0;
+                    string ifAny = MaskRle.EncodeIfAny(mask, w, h);
+                    if (any ? ifAny != encoded : ifAny != null)
+                    {
+                        Console.Error.WriteLine("RLE FAIL EncodeIfAny");
+                        return 1;
+                    }
                     bool[] back = MaskRle.Decode(encoded, out int dw, out int dh);
                     if (back == null || dw != w || dh != h)
                     {
@@ -1531,7 +1541,7 @@ namespace Iroca
                     }
                     for (int i = 0; i < mask.Length; i++)
                         if (mask[i] != back[i]) { Console.Error.WriteLine($"RLE FAIL at {i}"); return 1; }
-                    Console.WriteLine($"RLE OK {w}x{h} len={encoded.Length}");
+                    Console.WriteLine($"RLE OK {w}x{h} len={encoded.Length} any={(any ? 1 : 0)}");
                     return 0;
                 }
 

@@ -22,9 +22,7 @@ namespace Iroca
         {
             ms.width = width;
             ms.height = height;
-            ms.commonMaskBase64 = MaskSnapshot.AnyTrue(common)
-                ? MaskRle.Encode(common, width, height)
-                : "";
+            ms.commonMaskBase64 = MaskRle.EncodeIfAny(common, width, height) ?? "";
 
             if (ms.zones == null) ms.zones = new List<MaskZoneEntry>();
             ms.zones.Clear();
@@ -75,11 +73,13 @@ namespace Iroca
             if (src == null) return;
             foreach (var kv in src)
             {
-                if (string.IsNullOrEmpty(kv.Key) || !MaskSnapshot.AnyTrue(kv.Value)) continue;
+                if (string.IsNullOrEmpty(kv.Key)) continue;
+                string encoded = MaskRle.EncodeIfAny(kv.Value, width, height);
+                if (encoded == null) continue;
                 dst.Add(new MaskZoneEntry
                 {
                     zoneId = kv.Key,
-                    maskBase64 = MaskRle.Encode(kv.Value, width, height),
+                    maskBase64 = encoded,
                 });
             }
         }
