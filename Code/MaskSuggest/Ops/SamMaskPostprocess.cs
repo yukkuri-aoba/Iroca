@@ -12,7 +12,7 @@ namespace Iroca
     ///   bilinear で元寸 → 閾値 0 で二値化。最後に下原点(GetPixels32 順)へ反転して返す。
     /// チャンネル選択は <see cref="SelectChannels"/> が正(妥当性判定 → 粒度規則の 2 段)。
     /// </summary>
-    internal static class SamMaskPostprocess
+    internal static unsafe class SamMaskPostprocess
     {
         /// <summary>デコーダ低解像度マスクの一辺。</summary>
         public const int LowRes = 256;
@@ -207,6 +207,16 @@ namespace Iroca
         /// 実行順の単一ソース。粗マスクを後から精密化する遅延実行(ズーム不発時)もここを通す。
         /// </summary>
         public static void RefineInPlace(bool[] maskBottomUp, Color32[] pixelsBottomUp,
+                                         int texW, int texH,
+                                         System.Threading.CancellationToken token = default)
+        {
+            // 各段は画素が足りなければ何もしない(配列版の約束)ので、足りないときは丸ごと飛ばしても同じ。
+            if (pixelsBottomUp == null || pixelsBottomUp.Length < texW * texH) return;
+            fixed (Color32* p = pixelsBottomUp) RefineInPlace(maskBottomUp, p, texW, texH, token);
+        }
+
+        /// <summary><see cref="RefineInPlace(bool[], Color32[], int, int, System.Threading.CancellationToken)"/> のポインタ版。</summary>
+        public static void RefineInPlace(bool[] maskBottomUp, Color32* pixelsBottomUp,
                                          int texW, int texH,
                                          System.Threading.CancellationToken token = default)
         {

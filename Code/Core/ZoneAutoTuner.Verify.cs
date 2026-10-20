@@ -7,7 +7,7 @@ using UnityEngine;
 namespace Iroca
 {
     // ZoneAutoTuner: 閉ループ検証(実マッチャーで導出パラメータの有害設定を検出し安全側へ倒す)。
-    internal static partial class ZoneAutoTuner
+    internal static unsafe partial class ZoneAutoTuner
     {
         // ─────────────────── 閉ループ検証（実マッチャーによる選択シミュレーション） ───────────────────
         // 導出パラメータを ColorZone.GetMatchScoresPrecomputedHSV（出荷されるマッチャーそのもの）に
@@ -66,7 +66,7 @@ namespace Iroca
             return s;
         }
 
-        private static void VerifyHighlightRecoveryGrowth(Color32[] pixels, int w, int h,
+        private static void VerifyHighlightRecoveryGrowth(Color32* pixels, int w, int h,
             ColorZone zone, bool[] excluded, int maskW, int maskH, HsvGrid hsv,
             bool[] evidence, int evW, int evH, BaseSelection baseOut, ref TuneResult result)
         {
@@ -154,7 +154,7 @@ namespace Iroca
         private const float EvidenceKeepFrac     = 0.97f;  // tol 縮小時に維持すべき証拠被覆率(導出時比)
         private static readonly float[] TolShrinkSteps = { 0.8f, 0.65f, 0.5f };
 
-        private static void VerifyBrightForgivenessOvershoot(Color32[] pixels, int w, int h,
+        private static void VerifyBrightForgivenessOvershoot(Color32* pixels, int w, int h,
             ColorZone zone, bool[] excluded, int maskW, int maskH, HsvGrid hsv, BaseSelection baseSel,
             ref TuneResult result)
         {
@@ -290,7 +290,7 @@ namespace Iroca
         private const int   SheenVConnMarginBins  = 2;      // 連結域上端から許す V 余白(連結歩行の橋渡し幅と同じ)
         private static readonly float[] SheenTolGrowSteps = { 1.15f, 1.3f, 1.5f };
 
-        private static void VerifyBrightSheenRecall(Color32[] pixels, int w, int h,
+        private static void VerifyBrightSheenRecall(Color32* pixels, int w, int h,
             ColorZone zone, bool[] excluded, int maskW, int maskH, HsvGrid hsv, int vConnHiBin,
             BaseSelection known, ref TuneResult result)
         {

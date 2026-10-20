@@ -16,7 +16,7 @@ namespace Iroca
     /// (uint8 経由の PIL/cv2 とは丸め差が出るが、点プロンプト推論には影響しない
     ///  ことを dev_safe/ml/onnx_parity.py の感度計測で確認して採用する)。
     /// </summary>
-    internal static class SamImageOps
+    internal static unsafe class SamImageOps
     {
         /// <summary>SAM 入力正方形の一辺。</summary>
         public const int InputSize = 1024;
@@ -43,6 +43,15 @@ namespace Iroca
         public static float[] BuildEncoderInput(Color32[] pixelsBottomUp, int w, int h,
                                                 System.Threading.CancellationToken token = default)
         {
+            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h)
+                throw new System.ArgumentException("pixelsBottomUp が w*h 画素に足りません", nameof(pixelsBottomUp));
+            fixed (Color32* p = pixelsBottomUp) return BuildEncoderInput(p, w, h, token);
+        }
+
+        /// <summary><see cref="BuildEncoderInput(Color32[], int, int, System.Threading.CancellationToken)"/> のポインタ版。</summary>
+        public static float[] BuildEncoderInput(Color32* pixelsBottomUp, int w, int h,
+                                                System.Threading.CancellationToken token = default)
+        {
             GetResizedSize(w, h, out int newW, out int newH);
             // resized: 上原点 RGB interleaved float(0..255 スケール)
             float[] resized = ResizeTopDown(pixelsBottomUp, w, h, newW, newH, token);
@@ -66,7 +75,7 @@ namespace Iroca
         /// 下原点 Color32[] → 上原点 RGB interleaved float(0..255)。
         /// 縮小軸は面積平均、拡大軸は bilinear(align_corners=False 相当)。
         /// </summary>
-        internal static float[] ResizeTopDown(Color32[] pixelsBottomUp, int w, int h, int newW, int newH,
+        internal static float[] ResizeTopDown(Color32* pixelsBottomUp, int w, int h, int newW, int newH,
                                               System.Threading.CancellationToken token = default)
         {
             var dst = new float[newW * newH * 3];
@@ -106,7 +115,7 @@ namespace Iroca
             return dst;
         }
 
-        static void ResampleRowArea(Color32[] src, int srcOff, int srcW, float[] dst, int dstOff, int dstW)
+        static void ResampleRowArea(Color32* src, int srcOff, int srcW, float[] dst, int dstOff, int dstW)
         {
             double scale = srcW / (double)dstW; // >1
             for (int x = 0; x < dstW; x++)
@@ -126,7 +135,7 @@ namespace Iroca
             }
         }
 
-        static void ResampleRowBilinear(Color32[] src, int srcOff, int srcW, float[] dst, int dstOff, int dstW)
+        static void ResampleRowBilinear(Color32* src, int srcOff, int srcW, float[] dst, int dstOff, int dstW)
         {
             double scale = srcW / (double)dstW; // <1 (拡大)
             for (int x = 0; x < dstW; x++)
