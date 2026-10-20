@@ -33,6 +33,34 @@
           "samples": [],
           "type": "tool",
           "zipSHA256": "acf94e61a1ce3fafec685a0b89cd6adef505660955412959c9995afdc8b75f0d"
+        },
+        "0.2.1": {
+          "name": "com.yukkuri-aoba.iroca",
+          "version": "0.2.1",
+          "displayName": "いろか",
+          "description": "Unity Editor extension for intuitively recoloring VRChat avatar textures.",
+          "unity": "2022.3",
+          "author": {
+            "name": "yukkuri__aoba",
+            "email": "yukkuri-aoba@users.noreply.github.com",
+            "url": "https://github.com/yukkuri-aoba/Iroca"
+          },
+          "license": "PolyForm-Shield-1.0.0",
+          "keywords": [
+            "vrc",
+            "avatar",
+            "color",
+            "texture",
+            "editor"
+          ],
+          "dependencies": {},
+          "vpmDependencies": {},
+          "url": "https://github.com/yukkuri-aoba/Iroca/releases/download/v0.2.1/com.yukkuri-aoba.iroca-0.2.1.zip",
+          "changelogUrl": "https://github.com/yukkuri-aoba/Iroca/blob/main/CHANGELOG.md",
+          "documentationUrl": "https://github.com/yukkuri-aoba/Iroca/blob/main/README.md",
+          "samples": [],
+          "type": "tool",
+          "zipSHA256": "6bb25b695c462acd2a80c209f925a4104c73a9d934fd9a249fc0306d84639af1"
         }
       }
     }
