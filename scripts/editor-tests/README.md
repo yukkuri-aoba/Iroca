@@ -20,6 +20,7 @@ headless ハーネスと golden は net8 で製品 C# を動かすので、Unity
 | `WorkingResolutionTests.cs` | 編集の作業解像度（`WorkingResolution`）。既定は元ファイルを取り込み後の寸法へ縮め、「元の解像度で編集」なら元のまま。書き出しは常に元の解像度。縮小をテクスチャの生データから帯ごとに読む経路が、Color32[] の経路と同じ画素になる（RGBA32・ARGB32・BGRA32・RGB24）|
 | `NdmfSupportTests.cs` | NDMF が使えないときの扱い。asmdef の版の範囲（2.0 のベータ版も外す）を Unity がそのとおりに読んでいるか（入っているパッケージの版から各 asmdef の define を照らす）。NDMF が入っていない・古い・新しすぎるときに、色替えするものがあれば VRChat へのアップロードを止めて直し方を案内するか。VRChat SDK があれば「Iroca Recolor」が NDMF と関係なく `IEditorOnly` で、アップロードの確認が NDMF より先に走り、NDMF が使えるときは素通しするか |
 | `RecipeRegistrationTests.cs` | 登録で `Iroca Recolor` が増えない（同じオブジェクトは 1 つにまとめる・同じテクスチャは置き換え・Undo）、旧保存形式の読み込み |
+| `RecipeSyncTests.cs` | 外（Git の pull・バックアップからの復元など）で書き換わったレシピを、いろかの窓が古い内容で上書きせず読み直す。窓自身の保存・同じ中身での取り込み直し・Undo でレシピが前の中身へ戻ったときは、外からの変更と取り違えない |
 | `LivePreviewTests.cs` / `NdmfPreviewFilterTests.cs` | シーンでのプレビュー（どこに何を映すかの規則、ウィンドウの結果を RenderTexture に書く受け渡し口、レシピの出来上がりの貸し借り、NDMF のフィルタの呼び出し口）。後者は NDMF があるホストでだけコンパイルされる |
 | `RuntimeParityTests.cs` | 製品の実行環境（Unity の Mono）とテストの実行環境（ハーネスの net8）で再着色の出力が一致するか。golden の入力（`scripts/golden/cases/`）を製品経路（`IrocaAutomation.RecolorWithZones`）に通し、ハーネスの出力（`scripts/golden/expected/`）と比べる |
 | `MaskSuggestInferenceTests.cs` | AI マスク提案の実推論（パッケージの読み込み・モデルの変換とロード・推論）が Unity 2022.3（Sentis）と Unity 6（Inference Engine）で通るか。灰地の赤い円の中心をクリックし、円と提案マスクの IoU を測る。パッケージ未導入・モデル未配置なら Ignore。`IROCA_AI_REPORT` にパスがあれば結果を 1 行追記する。いろかのウィンドウを閉じたとき（推論のワーカーを手放す）の後も、作り直して同じように取れるか。モデルの変換で Assets に残った一時フォルダは、いろかのものだけを片付ける |

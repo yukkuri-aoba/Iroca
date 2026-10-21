@@ -356,6 +356,8 @@ namespace Iroca
             // 非破壊ビルドの直前に、編集中の内容を結び付いたレシピへ書き出す。
             NonDestructiveApplier.BeforeApply -= FlushToBoundRecipe;
             NonDestructiveApplier.BeforeApply += FlushToBoundRecipe;
+            // 結び付いたレシピが外(git など)で書き換わっていたら、上書きせずに読み直す。
+            CheckRecipeAfterEnable();
             // 編集が止まって少ししたら保存する(Unity が落ちても直前の編集が残るように)。
             StartAutosave();
             // Scene でモデルをクリックした場所をプレビューで示す(クリックは横から見るだけで消費しない)。
@@ -401,6 +403,8 @@ namespace Iroca
 
         private void OnUndoRedoPerformed()
         {
+            // レシピも Undo で前の中身へ戻ったなら、外での書き換えと取り違えない(窓の状態の書き戻しとは別に見る)。
+            AdoptRecipeAfterUndo();
             // 関係ない Undo(シーンのオブジェクトの移動など)で、全マスクの再展開とフル解像度の
             // 再生成を走らせない。
             if (!_stateRestoredByUnity) return;

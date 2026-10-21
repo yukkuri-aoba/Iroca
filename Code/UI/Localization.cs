@@ -1296,6 +1296,14 @@ namespace Iroca
         public static string BoundRecipeTooltip => IsJapanese
             ? "このテクスチャの編集内容は、このレシピにも保存されます（アバターの「Iroca Recolor」がビルド時に使う内容）。"
             : "Edits to this texture are also saved to this recipe (what \"Iroca Recolor\" on the avatar uses at build time).";
+        // 保存先のレシピが、いろかの外（Git の pull・バックアップからの復元など）で書き換わっていたとき。{0} = レシピの名前。
+        public static string RecipeReloadedFormat => IsJapanese
+            ? "レシピ「{0}」がいろかの外で変わっていたので、読み直しました。Ctrl+Z で読み直す前の内容に戻せます（戻すと、レシピもその内容になります）。"
+            : "The recipe \"{0}\" was changed outside Iroca, so it was reloaded. Press Ctrl+Z to go back to what you had before (the recipe then gets that content).";
+        // {0} = レシピのパス。
+        public static string RegisterRecipeChangedOutsideFormat => IsJapanese
+            ? "保存先のレシピ（{0}）が、いろかの外（Git などでの更新）で変わっています。レシピから読み直すので、内容を確かめてから、もう一度登録してください。"
+            : "The recipe ({0}) was changed outside Iroca (for example by Git). It will be reloaded; check the content and register again.";
         public static string OpenInIroca => IsJapanese ? "いろかで開く" : "Open in Iroca";
         public static string OpenInIrocaTooltip => IsJapanese
             ? "このレシピをいろかウィンドウで開いて編集します。編集内容はこのレシピに保存されます。"

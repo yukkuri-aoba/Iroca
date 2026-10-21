@@ -1,5 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
@@ -94,8 +95,15 @@ namespace Iroca
             if (_boundRecipe == null) return false;
 
             var state = RecipeStore.Load(_boundRecipe);
-            if (state == null) return false;   // 壊れたレシピは読まない(保存も BoundRecipe 経由で上書きしない)
+            if (state == null)
+            {
+                // 壊れたレシピは読まない(保存も BoundRecipe 経由で上書きしない)。空のレシピは書いてよいので、
+                // 同期した中身として覚える(覚えていないレシピには保存しない。下の「外での書き換え」)。
+                if (string.IsNullOrEmpty(_boundRecipe.sessionJson)) MarkRecipeSynced(_boundRecipe);
+                return false;
+            }
             _session = state;
+            MarkRecipeSynced(_boundRecipe);
             EnsureAllZoneIds();
             _maskView?.RestoreFromRecipeState();
             MarkPreviewDirty();
@@ -107,8 +115,15 @@ namespace Iroca
         {
             var recipe = BoundRecipe;
             if (recipe == null || _session == null) return;
+            // 外(git など)で書き換わったレシピを、窓の古い内容で上書きしない。窓が残るならレシピから読み直す。
+            if (RecipeChangedOutside(recipe))
+            {
+                ScheduleRecipeReload();
+                return;
+            }
             // 読めないレシピ(新しい版で作られた等)は上書きしない。
             RecipeStore.SaveUnlessUnreadable(recipe, _session);
+            MarkRecipeSynced(recipe);
         }
 
         /// <summary>
@@ -213,6 +228,147 @@ namespace Iroca
             return null;
         }
 
+        // ───────────── 外(git など)でのレシピの書き換え ─────────────
+        // 窓は編集内容をレシピへ書き戻す(自動保存・テクスチャの切り替え・閉じる・再コンパイル・ビルドの直前)。
+        // git の pull・checkout やバックアップからの復元でレシピが外から書き換わった後に書き戻すと、取り込んだ
+        // 変更が黙って消え、再生・アップロードにも古い色替えが使われていた。
+        // そこで、窓が最後にレシピと同期した(読んだ・書いた)中身を覚えておき、レシピの中身がそれと違えば外からの
+        // 変更とみなして書き戻さず、レシピから読み直す(窓の Undo に積むので、Ctrl+Z で読み直す前に戻せる)。
+        // 覚える場所は窓の直列化ではなく static と SessionState(ドメインリロードをまたぎ、Unity を閉じると消える。
+        // 起動後はレシピを正として読み直すので要らない)。窓の直列化に置くと、Undo で窓の内容と一緒に巻き戻り、
+        // 同期済みのレシピを「外で変わった」と取り違える。
+        // 同期したことの無いレシピ(開いたときに読めなかった)には書かない。迷ったら書かずに読み直す側に倒す
+        // (読み直しは Undo で戻せるが、上書きしたレシピは戻せない)。
+
+        // レシピ(instanceID) → 最後に同期した sessionJson。中身が変わっていなければ参照の比較だけで済む。
+        private static readonly Dictionary<int, string> s_recipeSyncedJson = new Dictionary<int, string>();
+        // SessionState に残す、同期した中身のハッシュの数(新しい順の最後が今の同期)。古いものは Undo で
+        // レシピが前の中身へ戻ったとき(自動化 API の色替えの Ctrl+Z)に、外からの変更と見分けるのに使う。
+        private const int RecipeSyncHistory = 8;
+        [System.NonSerialized] private bool _recipeReloadScheduled;
+        // 読めないと分かったレシピの中身(同じ中身で読み直しを繰り返さない・警告を何度も出さない)。
+        [System.NonSerialized] private string _unreadableRecipeJson;
+
+        private static string RecipeSyncKey(IrocaRecipe recipe)
+        {
+            string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(recipe));
+            return string.IsNullOrEmpty(guid) ? null : "Iroca.RecipeSynced." + guid;
+        }
+
+        private static string RecipeJsonHash(string json) => Hash128.Compute(json ?? "").ToString();
+
+        private static string[] RecipeSyncedHashes(IrocaRecipe recipe)
+        {
+            string key = RecipeSyncKey(recipe);
+            string value = key != null ? SessionState.GetString(key, "") : "";
+            return value.Split(new[] { ',' }, System.StringSplitOptions.RemoveEmptyEntries);
+        }
+
+        /// <summary>レシピの今の中身を、窓と同期した中身として覚える(窓がレシピを読んだ・書いた直後に呼ぶ)。</summary>
+        private static void MarkRecipeSynced(IrocaRecipe recipe)
+        {
+            if (recipe == null) return;
+            string json = recipe.sessionJson ?? "";
+            int id = recipe.GetInstanceID();
+            if (s_recipeSyncedJson.TryGetValue(id, out var known) && ReferenceEquals(known, json)) return;
+            s_recipeSyncedJson[id] = json;
+            string key = RecipeSyncKey(recipe);
+            if (key == null) return;
+            string hash = RecipeJsonHash(json);
+            var hashes = new List<string>(RecipeSyncedHashes(recipe));
+            hashes.Remove(hash);
+            hashes.Add(hash);
+            if (hashes.Count > RecipeSyncHistory) hashes.RemoveRange(0, hashes.Count - RecipeSyncHistory);
+            SessionState.SetString(key, string.Join(",", hashes));
+        }
+
+        /// <summary>
+        /// 窓が最後に同期してから、レシピの中身が外で変わったか。同期したことの無いレシピも true。
+        /// </summary>
+        private static bool RecipeChangedOutside(IrocaRecipe recipe)
+        {
+            if (recipe == null) return false;
+            string json = recipe.sessionJson ?? "";
+            int id = recipe.GetInstanceID();
+            if (s_recipeSyncedJson.TryGetValue(id, out var known) && ReferenceEquals(known, json)) return false;
+            // 参照が違っても(同じ中身で取り込み直された・ドメインリロードの後)中身が同じなら変わっていない。
+            var hashes = RecipeSyncedHashes(recipe);
+            if (hashes.Length == 0 || hashes[hashes.Length - 1] != RecipeJsonHash(json)) return true;
+            s_recipeSyncedJson[id] = json;
+            return false;
+        }
+
+        /// <summary>レシピの今の中身が、窓が前に同期したことのある中身か(最後に同期したものより前も含む)。</summary>
+        private static bool WasRecipeSyncedBefore(IrocaRecipe recipe)
+            => recipe != null && System.Array.IndexOf(RecipeSyncedHashes(recipe), RecipeJsonHash(recipe.sessionJson)) >= 0;
+
+        /// <summary>
+        /// 窓の有効化(開いた・ドメインリロード)で呼ぶ。ドメインリロードでは、レシピを読み直さずメモリ上の内容を
+        /// 使うので、その前に取り込まれた変更(git の pull にスクリプトが含まれていた場合など)はここで拾う。
+        /// </summary>
+        private void CheckRecipeAfterEnable() => ScheduleRecipeReload();
+
+        /// <summary>
+        /// レシピ(.asset)が取り込まれた(git の pull・checkout の後など)ときに呼ばれる(<see cref="RecipeImportWatcher"/>)。
+        /// 結び付いたレシピが外で書き換わっていれば読み直す。次の保存を待たないのは、古い内容のまま編集を続けさせないため。
+        /// </summary>
+        internal void OnRecipeAssetsImported()
+        {
+            if (RecipeChangedOutside(BoundRecipe)) ScheduleRecipeReload();
+        }
+
+        /// <summary>
+        /// Undo/Redo の後に呼ぶ。結び付いたレシピの中身が、窓が前に同期したことのある中身へ戻っていれば
+        /// (Undo でレシピも戻ったとき)、外からの変更ではないので同期した中身として覚え直す。
+        /// </summary>
+        private void AdoptRecipeAfterUndo()
+        {
+            var recipe = BoundRecipe;
+            if (recipe != null && RecipeChangedOutside(recipe) && WasRecipeSyncedBefore(recipe))
+                MarkRecipeSynced(recipe);
+        }
+
+        /// <summary>
+        /// 外で書き換わったレシピを、次のエディタの更新で読み直す。保存の途中(閉じる・ビルドの直前など)からも
+        /// 呼ばれるので、その場では読み直さない。
+        /// </summary>
+        private void ScheduleRecipeReload()
+        {
+            if (_recipeReloadScheduled) return;
+            _recipeReloadScheduled = true;
+            EditorApplication.delayCall += ReloadChangedRecipe;
+        }
+
+        private void ReloadChangedRecipe()
+        {
+            _recipeReloadScheduled = false;
+            if (this == null) return;   // 窓が閉じられた
+            var recipe = BoundRecipe;
+            if (recipe == null || !RecipeChangedOutside(recipe)) return;
+            // 書き出し・自動調整の途中やマスクを塗っている途中は、終わってから読み直す。
+            if (IsJobBlockingUI || (_maskView != null && _maskView.isPainting))
+            {
+                ScheduleRecipeReload();
+                return;
+            }
+            // 読めない(新しい版のいろかで作られた・壊れた)なら読み直さない。保存もしない(覚えた中身と違うので)。
+            // 「保存先のレシピ」に読めない旨が出る。
+            if (ReferenceEquals(_unreadableRecipeJson, recipe.sessionJson)) return;
+            if (RecipeStore.Load(recipe) == null)
+            {
+                _unreadableRecipeJson = recipe.sessionJson;
+                return;
+            }
+            _maskView?.SyncBuffersToState();
+            Undo.RegisterCompleteObjectUndo(this, "Iroca: Reload Recipe");
+            LoadPersistedSessionForCurrentTexture();
+            _maskView?.ResetActiveTarget();
+            string message = string.Format(Localization.RecipeReloadedFormat, recipe.name);
+            Debug.Log("[Iroca] " + message);
+            ShowNotification(new GUIContent(message));
+            Repaint();
+        }
+
         // ───────────── 登録 ─────────────
 
         /// <summary>「アバターに非破壊で登録」。登録先を決め、レシピを作るか更新し、コンポーネントを付ける。</summary>
@@ -249,6 +405,15 @@ namespace Iroca
             string recipeLabel = recipe != null
                 ? AssetDatabase.GetAssetPath(recipe)
                 : string.Format(Localization.RegisterRecipeNew, RecipeStore.PathForNew(sourceTexture));
+            // 保存先のレシピが外(git など)で書き換わっていたら、窓の古い内容で上書きせず、読み直してから
+            // 確かめてもらう。
+            if (recipe != null && recipe == BoundRecipe && RecipeChangedOutside(recipe))
+            {
+                EditorUtility.DisplayDialog(Localization.RegisterNonDestructive,
+                    string.Format(Localization.RegisterRecipeChangedOutsideFormat, recipeLabel), Localization.OK);
+                ScheduleRecipeReload();
+                return;
+            }
 
             // コンポーネントは登録先に 1 つ(既にあればそこへ足す)。置き換え・まとめが起きるなら先に知らせる。
             RecipeRegistration.Describe(target, sourceTexture, recipe, out var replaced, out int components);
@@ -281,6 +446,7 @@ namespace Iroca
             else
                 RecipeStore.Save(recipe, _session);
             _boundRecipe = recipe;
+            MarkRecipeSynced(recipe);
 
             // マテリアルを戻すのとコンポーネントの登録を 1 回の Undo にまとめる。
             Undo.IncrementCurrentGroup();
@@ -291,6 +457,26 @@ namespace Iroca
             Undo.CollapseUndoOperations(undoGroup);
             EditorGUIUtility.PingObject(component);
             ShowNotification(new GUIContent(string.Format(Localization.RegisterDoneFormat, target.name)));
+        }
+    }
+
+    /// <summary>
+    /// アセット(.asset)の取り込み(git の pull・checkout・バックアップからの復元の後など)を、開いているいろかの窓へ
+    /// 知らせる(<see cref="IrocaWindow"/> の「外でのレシピの書き換え」)。取り込みの結果は変えない。
+    /// </summary>
+    internal sealed class RecipeImportWatcher : AssetPostprocessor
+    {
+        private static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets,
+            string[] movedAssets, string[] movedFromAssetPaths)
+        {
+            bool anyAsset = false;
+            foreach (var path in importedAssets)
+            {
+                if (path.EndsWith(".asset", System.StringComparison.OrdinalIgnoreCase)) { anyAsset = true; break; }
+            }
+            if (!anyAsset) return;
+            foreach (var w in Resources.FindObjectsOfTypeAll<IrocaWindow>())
+                if (w != null) w.OnRecipeAssetsImported();
         }
     }
 }
