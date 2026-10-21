@@ -73,12 +73,10 @@ namespace Iroca.EditorTests
             return copy.GetComponent<Renderer>();
         }
 
-        // RenderGroup.Renderers は ImmutableList(このアセンブリは参照しない)なので、等価比較で探す。
+        // RenderGroup.Renderers は ImmutableList(このアセンブリは参照しない)なので、フィルタに聞いて探す
+        // (グループは差し替え先を持っているので、RenderGroup.For(r) とは等しくならない)。
         private static RenderGroup GroupOf(IEnumerable<RenderGroup> groups, Renderer r)
-        {
-            var wanted = RenderGroup.For(r);
-            return groups.FirstOrDefault(g => g.Equals(wanted));
-        }
+            => groups.FirstOrDefault(g => IrocaPreviewFilter.IsGroupOf(g, r));
 
         private IrocaRecipe RedToGreen(Texture2D src)
         {
@@ -172,9 +170,12 @@ namespace Iroca.EditorTests
                 node.Dispose();
             }
 
-            // ウィンドウがこのレシピを編集し始めたら、同じ範囲にライブを映す。
+            // ウィンドウがこのレシピを編集し始めたら、同じ範囲にライブを映す(差し替え先が変わるので別のグループになる)。
             LivePreview.SetTarget(src, recipe);
-            var liveNode = TestAssets.Wait(filter.Instantiate(group,
+            var liveGroup = GroupOf(filter.FindTargets(new ComputeContext("test")), inside);
+            Assert.IsNotNull(liveGroup);
+            Assert.AreNotEqual(group, liveGroup, "差し替え先が変わったのに同じグループ(NDMF がノードを作り直さない)");
+            var liveNode = TestAssets.Wait(filter.Instantiate(liveGroup,
                 new List<(Renderer, Renderer)> { (inside, ProxyOf(inside)) }, new ComputeContext("node")));
             try
             {
@@ -255,6 +256,82 @@ namespace Iroca.EditorTests
             LivePreview.SetTarget(null, null);
             ComputeContext.FlushInvalidates();
             Assert.IsTrue(ctx.IsInvalidated, "ウィンドウの編集対象が変わっても NDMF が対象を選び直さない");
+        }
+
+        [Test]
+        public void OpeningAnUnrelatedTexture_KeepsTheGroupAndTheNode()
+        {
+            // ウィンドウで関係ないテクスチャを開いても、この Renderer の差し替え先は変わらない。グループが等しければ
+            // NDMF はノードを使い回し、ノード自身もウィンドウの編集対象を見張らない(後段のツールまで作り直させない)。
+            var (src, mat) = SourceAndMaterial();
+            var avatar = Track(new GameObject("avatar"));
+            var inside = Mesh("inside", mat, avatar);
+            avatar.AddComponent<IrocaRecolor>().recipes.Add(RedToGreen(src));
+
+            var filter = new IrocaPreviewFilter();
+            var group = GroupOf(filter.FindTargets(new ComputeContext("test")), inside);
+            Assert.IsNotNull(group);
+            var nodeContext = new ComputeContext("node");
+            var node = TestAssets.Wait(filter.Instantiate(group,
+                new List<(Renderer, Renderer)> { (inside, ProxyOf(inside)) }, nodeContext));
+            try
+            {
+                string otherPath = _assets.WritePng("other", TestAssets.Solid(W, H, new Color32(10, 10, 200, 255)), W, H);
+                LivePreview.SetTarget(AssetDatabase.LoadAssetAtPath<Texture2D>(otherPath), null);
+                ComputeContext.FlushInvalidates();
+                Assert.IsFalse(nodeContext.IsInvalidated, "関係ないテクスチャを開いただけでノードを作り直させた");
+                var again = GroupOf(filter.FindTargets(new ComputeContext("test")), inside);
+                Assert.AreEqual(group, again, "差し替え先が同じなのに別のグループになった(NDMF がノードを作り直す)");
+            }
+            finally
+            {
+                node.Dispose();
+            }
+        }
+
+        [Test]
+        public void Refresh_ReusesTheNodeOnlyWhenNothingItUsesChanged()
+        {
+            var (src, mat) = SourceAndMaterial();
+            var renderer = Mesh("mesh", mat);
+            LivePreview.SetTarget(src, null);
+            var filter = new IrocaPreviewFilter();
+            var group = GroupOf(filter.FindTargets(new ComputeContext("test")), renderer);
+            var context = new ComputeContext("node");
+            var node = TestAssets.Wait(filter.Instantiate(group,
+                new List<(Renderer, Renderer)> { (renderer, ProxyOf(renderer)) }, context));
+            try
+            {
+                // 上流でブレンドシェイプ・メッシュだけが変わった: 同じ複製を新しいプロキシへ差し直して使い回す。
+                var proxy = ProxyOf(renderer);
+                var next = new ComputeContext("refresh");
+                var reused = TestAssets.Wait(node.Refresh(new List<(Renderer, Renderer)> { (renderer, proxy) }, next,
+                    RenderAspects.Shapes | RenderAspects.Mesh));
+                Assert.AreSame(node, reused, "マテリアルに関係ない変化で作り直させた");
+                Assert.AreEqual((RenderAspects)0, reused.WhatChanged, "使い回したのに後段へ変化を伝えた");
+                Assert.AreNotSame(mat, proxy.sharedMaterial, "新しいプロキシに差し直していない");
+
+                // 上流でマテリアルが変わった: 作り直してもらう。
+                Assert.IsNull(TestAssets.Wait(node.Refresh(new List<(Renderer, Renderer)> { (renderer, ProxyOf(renderer)) },
+                    new ComputeContext("refresh"), RenderAspects.Material)), "上流のマテリアルが変わったのに使い回した");
+
+                // 元の Renderer の素材が変わった(アニメーションのプレビューなど): 作り直してもらう。
+                var other = Track(new Material(Shader.Find("Standard")) { mainTexture = src });
+                renderer.sharedMaterial = other;
+                Assert.IsNull(TestAssets.Wait(node.Refresh(new List<(Renderer, Renderer)> { (renderer, ProxyOf(renderer)) },
+                    new ComputeContext("refresh"), RenderAspects.Shapes)), "元の素材が変わったのに使い回した");
+                renderer.sharedMaterial = mat;
+
+                // 自分の入力が変わって無効になった(差し替えの変化は 0 で呼ばれる): 作り直してもらう。
+                next.Invalidate();
+                ComputeContext.FlushInvalidates();
+                Assert.IsNull(TestAssets.Wait(node.Refresh(new List<(Renderer, Renderer)> { (renderer, ProxyOf(renderer)) },
+                    new ComputeContext("refresh"), 0)), "入力が変わったのに使い回した");
+            }
+            finally
+            {
+                node.Dispose();
+            }
         }
     }
 }
