@@ -115,6 +115,8 @@ namespace Iroca
             try { record(); }
             finally
             {
+                // 記録の中で別の名前が付いても(マスクのストロークなど)、このまとまりの名前で出す。
+                Undo.SetCurrentGroupName(name);
                 Undo.CollapseUndoOperations(group);
                 Undo.IncrementCurrentGroup();
             }
