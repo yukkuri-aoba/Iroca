@@ -507,6 +507,17 @@ namespace Iroca
             _trueSourceFromFile = fromFile;
         }
 
+        /// <summary>
+        /// いま持っている処理用の画素(作業解像度)の寸法。まだ読んでいない・読めなかったときは false。
+        /// 書き出しが、終わった後に作業配列を手放すか(寸法が違うときだけ)を決めるのに使う。
+        /// </summary>
+        internal bool TryGetWorkingSize(out int w, out int h)
+        {
+            w = _trueSourceW;
+            h = _trueSourceH;
+            return _trueSource != null && w > 0 && h > 0;
+        }
+
         /// <summary>直近に確保した処理用の画素が、元ファイルをデコードしたものか(取り込み済みテクスチャではなく)。</summary>
         public bool TrueSourceFromFile => _trueSource != null && _trueSourceFromFile;
 

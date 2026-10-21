@@ -380,6 +380,12 @@ namespace Iroca
             // 計算に必要な値を全てローカル変数に退避（Task.Run の中から session を直接触らない）
             var settings = RecolorSettings.From(session);
             bool inheritFlag = inheritImportSettings;
+            // 書き出しの寸法が編集の作業解像度と同じなら、書き出しが使う作業配列はプレビューが温めていたものと
+            // 同じ大きさなので、終わっても手放さない(次の 1 手が作業配列と色の表を作り直さずに済む)。
+            // 違う寸法(取り込み後の寸法で編集して元の解像度で書き出す)なら、その解像度の作業配列
+            // (8K で約 3GB)を OS へ返す。
+            bool releaseAfterExport = !(_host?.Preview != null
+                && _host.Preview.TryGetWorkingSize(out int workW, out int workH) && workW == texW && workH == texH);
 
             _exportProgress.Reset();
             _exportProgress.Report(0.05f);
@@ -451,13 +457,13 @@ namespace Iroca
                     finally
                     {
                         // 書き出しの解像度の作業配列を OS へ返す(一括書き出しの末尾と同じ理由)。
-                        PixelProcessor.ReleaseWorkBuffers();
+                        if (releaseAfterExport) PixelProcessor.ReleaseWorkBuffers();
                     }
                 },
                 onError: ex =>
                 {
                     ReportExportFailure(ex);
-                    PixelProcessor.ReleaseWorkBuffers();
+                    if (releaseAfterExport) PixelProcessor.ReleaseWorkBuffers();
                 });
         }
 
