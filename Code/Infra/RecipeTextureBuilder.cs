@@ -152,8 +152,18 @@ namespace Iroca
         /// </para>
         /// </summary>
         internal static void BuildAsync(IrocaRecipe recipe, Action<Texture2D> done)
+            => BuildAsync(recipe, CancellationToken.None, done);
+
+        /// <summary>
+        /// <see cref="BuildAsync(IrocaRecipe, Action{Texture2D})"/> の取り消せる版。<paramref name="cancellationToken"/> が
+        /// 取り消されたら、計算の途中でも止まるのを待たずに(次の tick で)<paramref name="done"/> を null で呼ぶ
+        /// (待っていたシーンのプレビューが、元のテクスチャのまま次の表示へ進めるように)。計算は作業配列をプールへ返して
+        /// 止まり、途中の結果はテクスチャにもキャッシュにもしない。計算の数の勘定(作業配列の解放の判断)は崩さない。
+        /// </summary>
+        internal static void BuildAsync(IrocaRecipe recipe, CancellationToken cancellationToken, Action<Texture2D> done)
         {
             bool called = false;
+            var registration = default(CancellationTokenRegistration);
             void Once(Texture2D tex)
             {
                 if (called)
@@ -162,12 +172,16 @@ namespace Iroca
                     return;
                 }
                 called = true;
+                registration.Dispose();
                 done(tex);
             }
 
+            // 取り消しはどのスレッドから来てもよいので、知らせるのはメインスレッドへ戻してから。
+            if (cancellationToken.CanBeCanceled)
+                registration = cancellationToken.Register(() => PreviewJobMainThread.Post(() => Once(null)));
             try
             {
-                StartBuild(recipe, Once);
+                StartBuild(recipe, cancellationToken, Once);
             }
             catch (Exception ex)
             {
@@ -176,7 +190,7 @@ namespace Iroca
             }
         }
 
-        private static void StartBuild(IrocaRecipe recipe, Action<Texture2D> done)
+        private static void StartBuild(IrocaRecipe recipe, CancellationToken ct, Action<Texture2D> done)
         {
             var like = recipe != null ? recipe.sourceTexture : null;
             if (like == null) { done(null); return; }
@@ -188,6 +202,8 @@ namespace Iroca
             if (!TryLoadState(recipe, out var state, out _)) { done(null); return; }
             PostOrFail(done, () =>
             {
+                // 読む前に取り消された(待っていたプレビューがもう要らない)。
+                if (ct.IsCancellationRequested) { done(null); return; }
                 if (like == null || !TryReadPixels(like, out var pixels, out _)) { done(null); return; }
                 // 計算は 1 本ずつ、前に投げた計算の後ろにつなぐ。シーンのプレビューは映すレシピの数だけ
                 // 同時にここへ来るので、並べて走らせると作業配列のプールがその組数ぶん膨らむ。
@@ -198,7 +214,10 @@ namespace Iroca
                 {
                     try
                     {
-                        Recolor(pixels, state);
+                        // 順番を待つ間に取り消されたら計算しない。計算中に取り消されたら、PixelProcessor が作業配列を
+                        // プールへ返して OperationCanceledException で抜ける(画素はここで手放す)。
+                        ct.ThrowIfCancellationRequested();
+                        Recolor(pixels, state, ct);
                         return pixels;
                     }
                     catch
@@ -215,7 +234,7 @@ namespace Iroca
                 {
                     try
                     {
-                        FinishAsync(t, like, key, done);
+                        FinishAsync(t, like, key, ct, done);
                     }
                     finally
                     {
@@ -246,11 +265,20 @@ namespace Iroca
         }
 
         // 計算が終わったあとのメインスレッドの仕事(画素の確定、次の tick で圧縮とキャッシュ)。
-        private static void FinishAsync(Task<NativePixels> t, Texture2D like, string key, Action<Texture2D> done)
+        private static void FinishAsync(Task<NativePixels> t, Texture2D like, string key, CancellationToken ct,
+            Action<Texture2D> done)
         {
             // 計算している間に元テクスチャが消えたら作らない(取り込み直しで寸法が変わったなら合わせて縮める)。
             // 計算した画素はテクスチャへ写したらすぐ手放す(失敗した計算は自分で手放している)。
             var pixels = t.Status == TaskStatus.RanToCompletion ? t.Result : null;
+            // 取り消されたら作らない(計算し終えていても、もう要らないものに圧縮とキャッシュの書き込みで
+            // メインスレッドを使わない。done は取り消したときに呼ばれる)。
+            if (ct.IsCancellationRequested)
+            {
+                pixels?.Release();
+                done(null);
+                return;
+            }
             Texture2D tex;
             try
             {
@@ -262,13 +290,14 @@ namespace Iroca
             }
             if (tex == null)
             {
-                if (t.IsFaulted) Debug.LogException(t.Exception.GetBaseException());
+                if (t.IsFaulted && !(t.Exception.GetBaseException() is OperationCanceledException))
+                    Debug.LogException(t.Exception.GetBaseException());
                 done(null);
                 return;
             }
             PostOrFail(done, () =>
             {
-                if (like == null)
+                if (like == null || ct.IsCancellationRequested)
                 {
                     UnityEngine.Object.DestroyImmediate(tex);
                     done(null);
@@ -344,8 +373,9 @@ namespace Iroca
         }
 
         // 画素をその場で色替えする(バックグラウンドスレッドから呼んでよい)。
-        private static unsafe void Recolor(NativePixels pixels, IrocaSessionState state)
-            => SessionRecolor.Apply(pixels.Ptr, pixels.Width, pixels.Height, state);
+        private static unsafe void Recolor(NativePixels pixels, IrocaSessionState state,
+            CancellationToken cancellationToken = default)
+            => SessionRecolor.Apply(pixels.Ptr, pixels.Width, pixels.Height, state, cancellationToken);
 
         // レシピの編集状態を読み、色替えするものがあるか確かめる(軽い)。
         private static bool TryLoadState(IrocaRecipe recipe, out IrocaSessionState state, out Failure failure)

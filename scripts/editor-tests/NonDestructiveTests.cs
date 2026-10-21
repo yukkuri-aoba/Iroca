@@ -297,6 +297,52 @@ namespace Iroca.EditorTests
             }
         }
 
+        // シーンのプレビューが要らなくなった作りかけ: 取り消したら途中の結果を作らず、キャッシュにも書かず、
+        // 計算の数の勘定(作業配列を手放す判断に使う)も元に戻る。
+        [Test]
+        public void BuildAsync_Cancelled_FinishesWithNothing_WithoutCacheOrLeftoverWork()
+        {
+            var (recipe, cacheFile) = FreshRecipe();
+            try
+            {
+                int running = NativeMemoryLifecycle.RunningWork;
+                Texture2D Run(System.Threading.CancellationTokenSource cts, bool startFirst)
+                {
+                    bool called = false;
+                    Texture2D built = null;
+                    RecipeTextureBuilder.BuildAsync(recipe, cts.Token, t => { built = t; called = true; });
+                    if (startFirst) PreviewJobMainThread.Drain();   // 原本を読んで計算を始める
+                    cts.Cancel();
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    while (!called || NativeMemoryLifecycle.RunningWork != running)
+                    {
+                        if (sw.ElapsedMilliseconds > 30000) Assert.Fail("取り消した計算が終わらない");
+                        PreviewJobMainThread.Drain();
+                        System.Threading.Thread.Sleep(2);
+                    }
+                    return built;
+                }
+
+                using (var cts = new System.Threading.CancellationTokenSource())
+                    Assert.IsNull(Run(cts, startFirst: false), "計算を始める前に取り消したのに作った");
+                using (var cts = new System.Threading.CancellationTokenSource())
+                {
+                    var built = Run(cts, startFirst: true);
+                    if (built != null)
+                    {
+                        Track(built);
+                        Assert.Inconclusive("取り消す前に出来上がった(小さい画像で計算が速すぎた)");
+                    }
+                }
+                Assert.AreEqual(running, NativeMemoryLifecycle.RunningWork, "取り消した計算の勘定が戻っていない");
+                Assert.IsFalse(File.Exists(cacheFile), "取り消した計算をキャッシュに書いた");
+            }
+            finally
+            {
+                if (File.Exists(cacheFile)) File.Delete(cacheFile);
+            }
+        }
+
         // ウィンドウを開いている間は手放さない(編集の次の 1 手が作業配列と色の表を作り直さないように。
         // ウィンドウを閉じたときにまとめて返る)。
         [Test]

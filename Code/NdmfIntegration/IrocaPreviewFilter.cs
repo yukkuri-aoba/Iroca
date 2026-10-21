@@ -269,6 +269,9 @@ namespace Iroca.NdmfIntegration
             // 決まらないので、差し替えはメインスレッドへ戻してから行う。
             // NDMF は全部のノードがそろってから次の表示へ切り替えるので、この Task は何があっても完了させる
             // (残すと、ほかのツールの分も含めてシーンのプレビューが古い表示のまま止まる)。
+            // 待っている間にこのノードの入力が変わったら、要らなくなった作りかけは待つのをやめる(Node.StopWaiting)。
+            // NDMF はこのパイプラインを最後まで待ってから作り直すので、待ち続けると要らない計算のぶん表示が遅れる。
+            context.InvokeOnInvalidate(node, n => n.StopWaiting());
             var result = new TaskCompletionSource<IRenderFilterNode>();
             ready.ContinueWith(_ => PreviewJobMainThread.Post(() =>
             {
@@ -331,6 +334,9 @@ namespace Iroca.NdmfIntegration
                 public Texture2D source;
                 public Texture live;
                 public Task<Texture2D> recipe;
+                // レシピから作るとき: 借りたレシピと鍵(待つのをやめるとき・要るかを確かめるときに使う)。
+                public IrocaRecipe recipeAsset;
+                public string key;
             }
 
             private readonly List<Slot> _slots = new List<Slot>();
@@ -347,6 +353,8 @@ namespace Iroca.NdmfIntegration
             private ComputeContext _context;
             // 置き換えを知らせる登録簿(NDMF の外で作ったときは null)。
             private readonly IObjectRegistry _registry;
+            // 作りかけを待つのをやめたか(1 回だけ)。
+            private bool _stoppedWaiting;
 
             public Node(IObjectRegistry registry)
             {
@@ -386,6 +394,8 @@ namespace Iroca.NdmfIntegration
                     else
                     {
                         slot.recipe = RecipePreviewTextures.Acquire(replacement.recipe, out var key);
+                        slot.recipeAsset = replacement.recipe;
+                        slot.key = key;
                         if (key != null) _recipeKeys.Add(key);
                         if (!_recipes.Contains(replacement.recipe)) _recipes.Add(replacement.recipe);
                     }
@@ -425,6 +435,47 @@ namespace Iroca.NdmfIntegration
                 foreach (var recipe in _recipes)
                     context.Observe(recipe, r => r.sessionJson);
                 if (_recipes.Count > 0) context.Observe(AtSource);
+                // ウィンドウがこのレシピを編集し始めた・やめた(ライブとレシピが入れ替わる)。差し替え先が変わるので
+                // NDMF はグループを作り直すが、作りかけを待つのをやめるきっかけにもする(StopWaiting)。
+                var watched = new HashSet<IrocaRecipe>();
+                foreach (var s in _slots)
+                {
+                    if (s.recipeAsset == null || !watched.Add(s.recipeAsset)) continue;
+                    var source = s.source;
+                    var recipe = s.recipeAsset;
+                    context.Observe(Live, t => EditsLive(t, source, recipe), (a, b) => a == b);
+                }
+            }
+
+            // ウィンドウがこのレシピ(元テクスチャ)をライブで映す編集をしているか(PreviewTargeting の規則と同じ)。
+            private static bool EditsLive(LivePreview.Target live, Texture2D source, IrocaRecipe recipe) =>
+                live != null && live.source == source && live.boundRecipe != null && live.boundRecipe == recipe;
+
+            /// <summary>
+            /// 作りかけのレシピを待っている間に、このノードの入力が変わった(NDMF がこのノードを作り直すことになった)。
+            /// 待っているレシピのうち、もう要らないもの(レシピの中身・作業解像度・元テクスチャの取り込みが変わって
+            /// 鍵が変わった、ウィンドウがそのレシピを編集し始めてライブを映すことになった)は待つのをやめる。
+            /// ほかに待っている借り手がいなければ作りかけは取り消され、このノードは元のテクスチャのまま、すぐ終わる
+            /// (作り直したノードが、要るものを借り直す)。鍵が同じもの(素材の差し替えなど)は、作り直したノードでも
+            /// 使うので待ち続ける(取り消すと、また初めから計算し直すことになる)。メインスレッドで呼ばれる。
+            /// </summary>
+            public void StopWaiting()
+            {
+                if (_stoppedWaiting) return;
+                _stoppedWaiting = true;
+                foreach (var s in _slots)
+                {
+                    if (s.recipe == null || s.key == null || s.recipe.IsCompleted || StillWanted(s)) continue;
+                    RecipePreviewTextures.Abandon(s.key, s.recipe);
+                }
+            }
+
+            private static bool StillWanted(Slot s)
+            {
+                var recipe = s.recipeAsset;
+                var source = recipe != null ? recipe.sourceTexture : null;
+                if (source == null || EditsLive(LivePreview.Current, s.source, recipe)) return false;
+                return RecipeTextureBuilder.CacheKey(recipe, source) == s.key;
             }
 
             // 作ったときから元の Renderer の素材・テクスチャ欄が変わっていないか。

@@ -330,6 +330,89 @@ namespace Iroca.EditorTests
             }
         }
 
+        // 登録済みのレシピを映すノードを、作りかけのまま作る(NDMF の Instantiate と同じ呼び方)。
+        private (Task<IRenderFilterNode> instantiating, ComputeContext context, Renderer proxy, Material mat,
+            Texture2D src, IrocaRecipe recipe) WaitingNode()
+        {
+            var (src, mat) = SourceAndMaterial();
+            var avatar = Track(new GameObject("avatar"));
+            var inside = Mesh("inside", mat, avatar);
+            var recipe = RedToGreen(src);
+            avatar.AddComponent<IrocaRecolor>().recipes.Add(recipe);
+            var filter = new IrocaPreviewFilter();
+            var group = GroupOf(filter.FindTargets(new ComputeContext("test")), inside);
+            Assert.IsNotNull(group);
+            var context = new ComputeContext("node");
+            var proxy = ProxyOf(inside);
+            var instantiating = filter.Instantiate(group, new List<(Renderer, Renderer)> { (inside, proxy) }, context);
+            Assert.IsFalse(instantiating.IsCompleted, "テストの前提(初めて映すレシピは作りかけ)が崩れている");
+            return (instantiating, context, proxy, mat, src, recipe);
+        }
+
+        [Test]
+        public void RecipeChangedWhileWaiting_TheObsoleteBuildIsDropped_AndTheNodeFinishesAtOnce()
+        {
+            // NDMF は作りかけのパイプラインを最後まで待ってから作り直す。待っている間にレシピの中身が変わったら
+            // (鍵が変わる)、このノードだけが待っている作りかけは取り消し、元のテクスチャのまますぐ終わらせる。
+            var (instantiating, context, proxy, mat, src, recipe) = WaitingNode();
+            string oldCache = RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src));
+            var state = RecipeStore.Load(recipe);
+            state.zones[0].targetColor = new Color(0.2f, 0.2f, 0.9f);
+            RecipeStore.Save(recipe, state);
+            _cacheFiles.Add(RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src)));
+            context.Invalidate();   // NDMF はレシピの中身の変化を、ノードの文脈の無効化で知らせる
+            ComputeContext.FlushInvalidates();
+            var node = TestAssets.Wait(instantiating);
+            try
+            {
+                Assert.AreSame(mat, proxy.sharedMaterial, "要らなくなったレシピの出来上がりを差し込んだ");
+                Assert.IsFalse(System.IO.File.Exists(oldCache), "取り消した計算をキャッシュに書いた");
+            }
+            finally
+            {
+                node.Dispose();
+            }
+        }
+
+        [Test]
+        public void InvalidatedWhileWaiting_ButTheSameRecipeIsStillNeeded_KeepsWaiting()
+        {
+            // 素材の差し替えなどでノードが作り直されても、鍵が同じなら作り直したノードがまた使うので取り消さない
+            // (取り消すと初めから計算し直すことになる)。
+            var (instantiating, context, proxy, _, _, _) = WaitingNode();
+            context.Invalidate();
+            ComputeContext.FlushInvalidates();
+            var node = TestAssets.Wait(instantiating);
+            try
+            {
+                var tex = proxy.sharedMaterial.mainTexture;
+                Assert.IsTrue(tex != null && tex.name.EndsWith("(Iroca)"), $"まだ要る作りかけを取り消した: {tex}");
+            }
+            finally
+            {
+                node.Dispose();
+            }
+        }
+
+        [Test]
+        public void WindowStartsEditingTheRecipeWhileWaiting_TheBuildIsDropped()
+        {
+            // ウィンドウがこのレシピを編集し始めたら、この Renderer にはライブを映すので、レシピの出来上がりは要らない。
+            var (instantiating, context, proxy, mat, src, recipe) = WaitingNode();
+            LivePreview.SetTarget(src, recipe);
+            ComputeContext.FlushInvalidates();
+            Assert.IsTrue(context.IsInvalidated, "ウィンドウがこのレシピを編集し始めたのに、ノードを作り直させない");
+            var node = TestAssets.Wait(instantiating);
+            try
+            {
+                Assert.AreSame(mat, proxy.sharedMaterial, "ライブに替わるのに、レシピの出来上がりを待って差し込んだ");
+            }
+            finally
+            {
+                node.Dispose();
+            }
+        }
+
         [Test]
         public void Refresh_ReusesTheNodeOnlyWhenNothingItUsesChanged()
         {
