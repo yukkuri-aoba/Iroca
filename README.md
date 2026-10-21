@@ -30,7 +30,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 - **Unity 2022.3.22f1**（Windows で検証しています）
 - いろか本体は VCC や VRChat SDK が無くても動きます。ただし、インストーラは VRChat のプロジェクト向けです（→ インストール手順の「VRChat SDK の無いプロジェクトに入れる」）
 - 非破壊の色替えには NDMF 1.8 以上 2.0 未満を使います。インストーラで入れると一緒に入ります（VCC / ALCOM の場合は[インストール手順](#インストール手順)を参照）。NDMF が無くても、画像の書き出しは使えます（NDMF が無い、または対応していない版のときは、「Iroca Recolor」の付いたアバターのアップロードを止めて直し方を表示します）
-- 自動調整と AI マスク提案には、Unity Sentis 2.1.3（Unity 2022.3.11f1 以降）と AI モデル（約 44 MB）が必要です。ウィンドウ上部の案内から導入できます。Sentis を入れると、VRChat SDK も使う Burst と Collections も新しい版に上がります
+- 自動調整と AI マスク提案には、Unity Sentis 2.1.3（Unity 2022.3.11f1 以降）と AI モデル（約 44 MB）が必要です。ウィンドウ上部の案内から導入できます。Sentis を入れると、VRChat SDK も使う Burst と Collections、テスト用の Test Framework なども新しい版に上がります（いろかを外しても残ります）
 - 8192×8192 までのテクスチャで検証しています。編集はインポート設定の Max Size の大きさで行い、書き出し（「適用して保存」）だけ元の解像度で行います（8K の書き出しでは数 GB のメモリを使います）
 
 ### クイックスタート
@@ -146,7 +146,7 @@ VRChat のプロジェクトには、次のどちらかで導入します。ど�
 - **Unity 2022.3.22f1** (tested on Windows)
 - Iroca itself works without VCC or the VRChat SDK. The installer, however, is for VRChat projects (see "Projects without the VRChat SDK" under Installation)
 - Non-destructive recoloring uses NDMF 1.8 or later (below 2.0). The installer installs it together with Iroca (for VCC / ALCOM, see [Installation](#installation)). Without NDMF, exporting images still works (if NDMF is missing or an unsupported version, uploading an avatar with "Iroca Recolor" is stopped with instructions)
-- Auto-tune and AI Mask Suggestion need Unity Sentis 2.1.3 (Unity 2022.3.11f1 or later) and the AI models (about 44 MB). You can install them from the notice at the top of the window. Installing Sentis also updates Burst and Collections, which the VRChat SDK uses too
+- Auto-tune and AI Mask Suggestion need Unity Sentis 2.1.3 (Unity 2022.3.11f1 or later) and the AI models (about 44 MB). You can install them from the notice at the top of the window. Installing Sentis also updates Burst and Collections, which the VRChat SDK uses too, and packages such as the Test Framework (they stay even after you remove Iroca)
 - Tested with textures up to 8192×8192. Editing uses the import Max Size, and only exporting ("Apply & Save") uses the original resolution (exporting at 8K uses several GB of memory)
 
 ### Quick Start
