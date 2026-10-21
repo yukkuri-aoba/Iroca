@@ -35,7 +35,8 @@ namespace Iroca
         public const string RestartRecommendedKey = "Iroca.Sentis.RestartRecommended";
 
         // asmdef の versionDefine 範囲に収まる検証済みバージョンを固定導入する。
-        // 2022.3 は Sentis [2.0.0,2.2.0)、Unity 6 は Inference Engine [2.2.0,3.0.0)。
+        // 2022.3 は Sentis [2.0.0,2.2.0-0)、Unity 6 は Inference Engine [2.2.0,3.0.0-0)(上限の -0 は次の版の
+        // ベータ版も外すため。docs/RELEASING.md の「範囲をそろえる」)。
         // (配布モデルの ONNX もこの版でエクスポート・検証している。版を上げるときはここと
         //  Iroca.SentisIntegration.asmdef の versionDefines、マニュアルの記載を揃える)
 #if UNITY_6000_0_OR_NEWER
@@ -54,7 +55,7 @@ namespace Iroca
         /// (未導入、または既に <see cref="SentisPackageVersion"/> と同じ版なら null)。
         ///
         /// 導入導線は「Sentis 統合アセンブリが不在」= IROCA_SENTIS_PRESENT 未定義で出るが、
-        /// これは未導入だけでなく asmdef の versionDefines 範囲 [2.0.0,3.0.0) を外れた版
+        /// これは未導入だけでなく asmdef の versionDefines 範囲(2.0 以上 3.0 未満。3.0 のベータ版も外れる)を外れた版
         /// (1.x や将来の 3.x)が既に入っている場合も含む。その状態で Add すると、他のツールの
         /// ために手動導入された Sentis を黙って差し替えてしまう。押す前に伝えるための判定。
         /// </summary>

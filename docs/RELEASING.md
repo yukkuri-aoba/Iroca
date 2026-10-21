@@ -27,7 +27,7 @@ zip + SHA256 + listing更新 + インストーラ・配布zip生成  →  整合
    - VPM zip のエントリ日時は実行時の HEAD のコミット日時なので、listing を作った後にコミットが増えてから再実行すると SHA256 が変わる。資産だけ作り直したいときは `Build-DownloadZip.ps1` / `Build-Installer.ps1` を単独で実行する。
    - Code/ に未コミットの変更があると止まる（zip を HEAD と 1:1 にするため）。
    - Node.js が要る（`Build-Installer.ps1` が VPAI の `creator.mjs` を node で実行する。無いと止まる）。
-3. **コミット**: `package.json` / `README.md` / `docs/index.json` / `CHANGELOG.md` をコミット。続けて `docs/release-smoke-test.md` の Unity 実地確認を通す。
+3. **コミット**: `package.json` / `README.md` / `docs/index.json` / `CHANGELOG.md` をコミット。続けて `docs/release-smoke-test.md` の Unity 実地確認を通す。MCP for Unity の最新の正式版とベータ版に対する MCP 連携の型チェック（`scripts/build-check/IrocaMcpCheck.csproj`。→「補足」）もここで回す。
 4. **main へマージ + タグ**（要ユーザー確認の操作）: マージの前に `git log develop..origin/main` で main だけにあるコミットを確かめる（→「main と develop」）。
    ```
    git checkout main && git merge develop
@@ -106,7 +106,7 @@ main は develop の祖先とは限らない。2026-10-18 時点で main には 
 
 - 配信のたびに `scripts/pages/build_site.py` が、NDMF の公式 listing（`https://vpm.nadena.dev/vpm.json`）から、いろかが対応する範囲の安定版を index.json に写す。VCC / ALCOM で、いろかのリポジトリだけを追加した人でも NDMF を選べるようにするため。写す項目は公式とまったく同じ（URL・zipSHA256 とも）なので、NDMF の公式リポジトリも追加している環境でもぶつからない（Avatar Optimizer の listing も同じやり方で NDMF を載せている）。
 - 対応する範囲は `Code/NdmfIntegration/Iroca.NdmfIntegration.asmdef` の versionDefines（`nadena.dev.ndmf` の式）から読む。NDMF 2.0 が出て対応を広げるときは、asmdef の範囲を変えれば写す範囲も変わる。
-- 範囲の上限は `2.0.0` でなく `2.0.0-0` と書く（`[1.8.0,2.0.0-0)`）。Unity は版を SemVer の順で比べるので、`2.0.0)` だと 2.0 のベータ版（`2.0.0-beta.1` など。`2.0.0` より前と数える）が範囲に入り、未確認の API に対して NDMF 連携がコンパイルされてしまう。`2.0.0-0` は 2.0 のどのプレリリースよりも前の版なので、2.0 系をすべて外せる（Modular Avatar の `<2.0.0-a` と同じ考え）。範囲を変えるときは、この式を使う asmdef（Runtime・本体・NDMF 連携・EditMode テスト）をそろえる。
+- 範囲の上限は `2.0.0` でなく `2.0.0-0` と書く（`[1.8.0,2.0.0-0)`）。Unity は版を SemVer の順で比べるので、`2.0.0)` だと 2.0 のベータ版（`2.0.0-beta.1` など。`2.0.0` より前と数える）が範囲に入り、未確認の API に対して NDMF 連携がコンパイルされてしまう。`2.0.0-0` は 2.0 のどのプレリリースよりも前の版なので、2.0 系をすべて外せる（Modular Avatar の `<2.0.0-a` と同じ考え）。範囲を変えるときは、この式を使う asmdef（Runtime・本体・NDMF 連携・EditMode テスト）をそろえる。任意の依存の asmdef（AI の Sentis・Inference Engine、MCP for Unity）も上限を同じく `-0` で書く（下の「補足」）。
 - いろかのリリースは頻繁でないので、写した項目はリポジトリへ書き戻さず、毎日配信し直して新しい NDMF を拾う（main への push と手動実行でも配信する）。公式 listing を読めなかった日は組み立てが失敗して配信されず、前回の配信が残る。
 - release-verify.yml は `docs/index.json` の、いろかの項目だけを照合するので、写した項目の影響を受けない。
 - 手元で確かめるときは `python scripts/pages/build_site.py --out _site`（`_site/` は git 管理外）。
@@ -115,4 +115,13 @@ main は develop の祖先とは限らない。2026-10-18 時点で main には 
 
 - 配布 zip は `Code/` を収集するが、**`Code/Debug/`（開発専用の Debug ウィンドウ）は同梱しない**（`Build-VpmPackage.ps1` が明示的に除外）。IrocaEditor.Debug.asmdef は defineConstraints 無しのため、同梱すると全ユーザーで常時コンパイルされ Debug ウィンドウが見えてしまうのを避けるため。
 - `Code/McpIntegration/`（MCP for Unity から AI に出す道具）は 0.3.0 から同梱する（マニュアル「AI エージェントから使う（MCP）」）。0.2.1 では、説明の無い開発用の道具が利用者の AI に並ぶのを避けるため外していた。MCP for Unity 10 が入っているときだけコンパイルされ、MCP for Unity の型はツールの印だけを使う。MCP for Unity が新しい版を出したら、実地確認 38 で確かめてから asmdef の版の範囲を広げる。
+- 任意の依存の asmdef の版の範囲も、上限は NDMF と同じく `-0` で書き、次のメジャーのベータ版を外す（`Code/SentisIntegration/Iroca.SentisIntegration.asmdef` の Sentis `[2.0.0,2.2.0-0)`・Inference Engine `[2.2.0,3.0.0-0)`、`Code/McpIntegration/Iroca.McpIntegration.asmdef` の MCP for Unity `[10.0.0,11.0.0-0)`）。確かめていない版に対してコンパイルされると、型が合わないときにプロジェクト全体のコンパイルが止まり、Play もアップロードもできなくなる。Unity がこの範囲のとおりに読んでいるかは EditMode テスト `OptionalPackageRangeTests` が見る。Sentis の範囲を変えるときは `Code/MaskSuggest/MaskSuggestInstall.cs` の導入する版とマニュアル（AI の章）もそろえる。
+- ただし MCP for Unity は、次のメジャーの中身を今の系列の次のパッチの名前のベータ版で出したことがある（10.0.0 の前は `9.7.4-beta.3`）。そういう版は範囲の内側なので、上限だけでは防げない。**リリース前**と、**MCP for Unity の新しい minor・ベータ版が出たとき**に、その版を入れた Unity プロジェクト（一度開いて `Library/ScriptAssemblies` を作っておく）に対して MCP 連携の型チェックを回す。最新の正式版とベータ版の両方で確かめる:
+
+  ```powershell
+  $env:IROCA_MCP_HOST = "<確かめたい版の MCP for Unity を入れた Unity プロジェクト>"
+  dotnet build scripts/build-check/IrocaMcpCheck.csproj
+  ```
+
+  通らなければ、直すまで asmdef の上限をその版より前に下げる（例: `[10.0.0,10.4.0-0)`）。直したら、実地確認 38 を回してから上限を戻す。
 - `Code/Infra/BuildHelper.cs`（`Assets/Iroca` を unitypackage へ書き出すヘルパー）は、VPAI インストーラへ切り替えた 2026-09-23 以降のリリース手順では使わない。
