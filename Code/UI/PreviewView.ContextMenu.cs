@@ -22,6 +22,25 @@ namespace Iroca
             e.Use();
         }
 
+        private const string ContextMenuUsedPrefKey = "Iroca.ContextMenuUsed";
+
+        /// <summary>
+        /// 一度でもプレビューの右クリックメニューを開いたか(操作モード行に使い方の案内を出すかどうか。DrawIdleRow)。
+        /// 開けば項目は見えるので、選ばずに閉じても使い方は伝わったとみなす。
+        /// </summary>
+        internal static bool ContextMenuUsed
+        {
+            get => s_contextMenuUsed ??= EditorPrefs.GetBool(ContextMenuUsedPrefKey, false);
+            set
+            {
+                if (s_contextMenuUsed == value) return;
+                s_contextMenuUsed = value;
+                EditorPrefs.SetBool(ContextMenuUsedPrefKey, value);
+            }
+        }
+        // 毎回の描画で EditorPrefs を読まないための控え。
+        private static bool? s_contextMenuUsed;
+
         // 右クリックで選べる操作(いま直しているゾーンに当てる)。全ゾーン共通にできるのは「塗らない」だけ。
         private static (MaskRegionOp op, string label)[] ContextOps(bool zoneTarget) => zoneTarget
             ? new[]
@@ -157,6 +176,7 @@ namespace Iroca
             }
 
             menu.ShowAsContext();
+            ContextMenuUsed = true;
         }
 
         // 直すゾーンの切り替え(各ゾーン / 全ゾーン共通)。パレットの対象プルダウンと同じ activeMaskTarget を書き換える。

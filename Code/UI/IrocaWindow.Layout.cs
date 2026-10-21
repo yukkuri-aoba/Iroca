@@ -594,8 +594,9 @@ namespace Iroca
         /// 有効なゾーンのどれかで、サンプルカラーと変更先カラーの両方が指定済みであること。
         /// 変更先が既定の白のままだと、選んだ所が白っぽくなるだけで色替えは済んでいない
         /// （以前はサンプルカラーだけで ✓ を付け、案内もそこで終わっていた）。
+        /// プレビューの右クリックの案内（PreviewView.DrawIdleRow）を出し始める条件にも使う。
         /// </summary>
-        private bool StepZonesDone
+        internal bool StepZonesDone
         {
             get
             {

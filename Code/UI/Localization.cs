@@ -1086,6 +1086,15 @@ namespace Iroca
             ? "このテクスチャをいろかで開き、クリックした場所を表示します（今のテクスチャの編集内容は保存されます）"
             : "Open this texture in Iroca and show the clicked spot (your edits to the current texture are saved)";
         public static string NotifySceneClickOpenedFormat => IsJapanese ? "「{0}」を開きました" : "Opened \"{0}\"";
+        // ─── 右クリックの使い方(色替えが済んでから、右クリックメニューを一度開くまで操作モード行に出す) ───
+        public static string ContextMenuHint => IsJapanese
+            ? "ヒント: はみ出し・塗り残し・一部だけ変えたい所は、そこを右クリック"
+            : "Tip: right-click a spot to fix spills or gaps, or recolor just that part";
+        public static string ContextMenuHintTooltip => IsJapanese
+            ? "プレビューの直したい場所を右クリックすると、「ここも塗る」「ここは塗らない」「この部分だけ塗る」から選べます（Ctrl+Z で戻せます）。\n"
+              + "右クリックのメニューを一度開くと、このヒントは出なくなります。"
+            : "Right-click the spot you want to fix in the preview and choose \"Paint here too\", \"Don't paint here\" or \"Paint only this part\" (Ctrl+Z undoes it).\n"
+              + "This tip goes away once you have opened the right-click menu.";
 
         public static string PreviewSoloFormat => IsJapanese
             ? "ソロ表示中: {0}"
