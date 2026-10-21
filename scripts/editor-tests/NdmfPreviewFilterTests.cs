@@ -3,7 +3,9 @@
 #if IROCA_NDMF_PRESENT
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Iroca.NdmfIntegration;
+using nadena.dev.ndmf;
 using nadena.dev.ndmf.preview;
 using NUnit.Framework;
 using UnityEditor;
@@ -282,6 +284,45 @@ namespace Iroca.EditorTests
                 Assert.IsFalse(nodeContext.IsInvalidated, "関係ないテクスチャを開いただけでノードを作り直させた");
                 var again = GroupOf(filter.FindTargets(new ComputeContext("test")), inside);
                 Assert.AreEqual(group, again, "差し替え先が同じなのに別のグループになった(NDMF がノードを作り直す)");
+            }
+            finally
+            {
+                node.Dispose();
+            }
+        }
+
+        [Test]
+        public void Replacements_AreRegisteredAsTheOriginals_ForDownstreamTools()
+        {
+            // TexTransTool の MaterialModifier などは、指定されたマテリアル・テクスチャと「置き換え前が同じもの」を
+            // NDMF の登録簿で探す。複製したマテリアルとレシピの出来上がりを、ノードを作るときの登録簿に知らせる。
+            var (src, mat) = SourceAndMaterial();
+            var avatar = Track(new GameObject("avatar"));
+            var inside = Mesh("inside", mat, avatar);
+            avatar.AddComponent<IrocaRecolor>().recipes.Add(RedToGreen(src));
+            var filter = new IrocaPreviewFilter();
+            var group = GroupOf(filter.FindTargets(new ComputeContext("test")), inside);
+            Assert.IsNotNull(group);
+
+            var registry = new ObjectRegistry(null);
+            var proxy = ProxyOf(inside);
+            Task<IRenderFilterNode> instantiating;
+            // NDMF はノードを作る間だけ登録簿を有効にする。レシピを待って後から差し替えても、控えた登録簿に知らせる。
+            using (new ObjectRegistryScope(registry))
+                instantiating = filter.Instantiate(group, new List<(Renderer, Renderer)> { (inside, proxy) },
+                    new ComputeContext("node"));
+            var node = TestAssets.Wait(instantiating);
+            try
+            {
+                IObjectRegistry r = registry;
+                var clone = proxy.sharedMaterial;
+                Assert.AreNotSame(mat, clone);
+                Assert.AreEqual(r.GetReference(mat), r.GetReference(clone, false),
+                    "複製したマテリアルを元のマテリアルとして登録していない");
+                var tex = clone.mainTexture;
+                Assert.IsTrue(tex != null && tex.name.EndsWith("(Iroca)"), $"{tex}");
+                Assert.AreEqual(r.GetReference(src), r.GetReference(tex, false),
+                    "レシピの出来上がりを元テクスチャとして登録していない");
             }
             finally
             {

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Threading.Tasks;
+using nadena.dev.ndmf;
 using nadena.dev.ndmf.preview;
 using UnityEditor;
 using UnityEngine;
@@ -241,7 +242,9 @@ namespace Iroca.NdmfIntegration
             // ここで規則の入力を監視しつつ求める。
             var routes = RoutesOf(group);
             PreviewTargeting.Plan plan = null;
-            var node = new Node();
+            // NDMF はこのノードを作る間だけ、上流から引き継いだ登録簿を ObjectRegistry.ActiveRegistry にしている
+            // (レシピを待ってから差し替えるときには外れているので、ここで控える)。
+            var node = new Node(ObjectRegistry.ActiveRegistry);
             var proxies = new List<Renderer>();
             foreach (var (original, proxy) in proxyPairs)
             {
@@ -325,6 +328,7 @@ namespace Iroca.NdmfIntegration
             {
                 public Material material;
                 public int property;
+                public Texture2D source;
                 public Texture live;
                 public Task<Texture2D> recipe;
             }
@@ -341,6 +345,13 @@ namespace Iroca.NdmfIntegration
                 new List<(Renderer, Material[], Texture[][])>();
             // いまこのノードを使っている NDMF の文脈(入力が変わったら無効になる)。
             private ComputeContext _context;
+            // 置き換えを知らせる登録簿(NDMF の外で作ったときは null)。
+            private readonly IObjectRegistry _registry;
+
+            public Node(IObjectRegistry registry)
+            {
+                _registry = registry;
+            }
 
             // 使い回すとき(Refresh で自分を返す)は何も変えていない。作り直すときは新しいノードになり、
             // 最初の世代のこの値は NDMF が見ない。
@@ -365,7 +376,7 @@ namespace Iroca.NdmfIntegration
                 foreach (int id in material.GetTexturePropertyNameIDs())
                 {
                     if (!routes.TryGet(material.GetTexture(id), out var replacement)) continue;
-                    var slot = new Slot { material = material, property = id };
+                    var slot = new Slot { material = material, property = id, source = replacement.source };
                     if (replacement.IsLive)
                     {
                         slot.live = LivePreview.Acquire(replacement.source);
@@ -448,8 +459,12 @@ namespace Iroca.NdmfIntegration
                         clone = Object.Instantiate(s.material);
                         clone.name = s.material.name + " (Iroca)";
                         _clones[s.material] = clone;
+                        Register(s.material, clone);
                     }
                     clone.SetTexture(s.property, texture);
+                    // レシピの出来上がり(Texture2D)は元テクスチャの置き換えとして知らせる(ビルドと同じ)。ライブの
+                    // RenderTexture は知らせない(TexTransTool も RenderTexture は登録簿に載せない)。
+                    if (s.recipe != null) Register(s.source, texture);
                 }
                 foreach (var proxy in proxies) Replace(proxy);
                 return this;
@@ -471,6 +486,17 @@ namespace Iroca.NdmfIntegration
                 ObserveInputs(context);
                 foreach (var (_, proxy) in proxyPairs) Replace(proxy);
                 return Task.FromResult<IRenderFilterNode>(this);
+            }
+
+            // 置き換えを登録簿に知らせる(ビルドの BuildHost.RegisterReplaced と同じ)。TexTransTool の
+            // MaterialModifier・MaterialOverrideTransfer などは、指定されたマテリアルと「置き換え前が同じもの」を
+            // 登録簿で探すので、知らせないと複製を見つけられず、シーンのプレビューでだけ効かなくなる。登録簿は NDMF が
+            // 下流のノードへ引き継ぎ、下流のノードはこのノードの完了後に作られる。テクスチャはノードの間で共有して
+            // いるので、登録済みでも例外にならない Try で知らせる。
+            private void Register(Object original, Object replacement)
+            {
+                if (_registry == null || original == null || replacement == null) return;
+                _registry.TryRegisterReplacedObject(_registry.GetReference(original), replacement);
             }
 
             // NDMF は毎フレーム、描画用のプロキシのマテリアルを元の Renderer のものへ戻してから各ノードを呼ぶ
