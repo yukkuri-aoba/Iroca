@@ -116,7 +116,7 @@ VRChat のプロジェクトには、次のどちらかで導入します。ど�
 
 **新しい版への更新**
 
-新しい版が出ると、いろかのウィンドウに案内が出ます（0.2.1 から）。VCC / ALCOM でプロジェクトの管理画面から「いろか」を最新の版にするか、インストーラをもう一度読み込みます（前にダウンロードしたものでも、いろかと NDMF がそれぞれ最新の版になります）。zip を展開して入れたときは、フォルダの中身を新しい zip の中身に入れ替えます。
+新しい版が出ると、いろかのウィンドウに案内が出ます（0.2.1 から）。VCC / ALCOM でプロジェクトの管理画面から「いろか」を最新の版にするか、最新の zip をダウンロードし直して、中のインストーラを読み込みます（前にダウンロードしたインストーラは使わないでください。0.3.0 より前のものは、NDMF 2.0 が出た後に、いろかや Modular Avatar などが対応していない NDMF 2.x を入れてしまうおそれがあります）。zip を展開して入れたときは、フォルダの中身を新しい zip の中身に入れ替えます。
 
 案内のために、いろかのウィンドウを開いたとき（1 日 1 回まで）、VCC / ALCOM が読むのと同じ公開リスト（`https://yukkuri-aoba.github.io/Iroca/index.json`）を読みます。こちらから送る情報はありません。`Edit > Preferences` の「いろか」でオフにできます。
 
@@ -231,7 +231,7 @@ Then open the window via `Tools > いろか`.
 
 **Updating to a new version**
 
-When a new version is released, the Iroca window shows a notice (from 0.2.1). Update "いろか" to the latest version from your project's management screen in VCC / ALCOM, or import the installer again (even an older download installs the latest Iroca and NDMF). If you installed by extracting the zip, replace the folder's contents with the new zip.
+When a new version is released, the Iroca window shows a notice (from 0.2.1). Update "いろか" to the latest version from your project's management screen in VCC / ALCOM, or download the latest zip again and import the installer inside it (do not reuse an installer you downloaded before: installers older than 0.3.0 may install NDMF 2.x after NDMF 2.0 is released, which Iroca, Modular Avatar and others do not support). If you installed by extracting the zip, replace the folder's contents with the new zip.
 
 For this notice, when you open the Iroca window (at most once a day), Iroca reads the same public listing that VCC / ALCOM reads (`https://yukkuri-aoba.github.io/Iroca/index.json`). Nothing about you or your project is sent. You can turn it off in `Edit > Preferences` > Iroca.
 
