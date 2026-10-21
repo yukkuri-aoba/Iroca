@@ -203,7 +203,11 @@ namespace Iroca
             public void Cancel()
             {
                 tune?.Cancel();
+                tune?.ReleaseAiIfNoWindow();
                 cts.Cancel();
+                // 元の解像度の作業配列は、取り消した計算が返ってプールへ戻った後に手放す。
+                if (export != null && !workIsFullResolution)
+                    export.ContinueWith(_ => PixelProcessor.ReleaseWorkBuffers(), TaskScheduler.Default);
             }
         }
 
@@ -254,6 +258,7 @@ namespace Iroca
             {
                 job.tune.Advance();
                 if (!job.tune.Done) return null;
+                job.tune.ReleaseAiIfNoWindow();
             }
             if (job.r.apply != ApplyPng) return CompleteRecolor(job);
             if (job.export == null)
@@ -481,6 +486,9 @@ namespace Iroca
         // png の仕上げの残り(メインスレッド): 結果を受け取り、書き込んで取り込む。
         private static string CompletePngExport(RecolorJob job)
         {
+            // 元の解像度で読み直して色替えしたときは、その寸法の作業配列(8K で GB 単位)を OS へ返す
+            // (UI の書き出しと同じ。作業解像度のままなら、窓のプレビューと同じ寸法なので手放さない)。
+            if (!job.workIsFullResolution) PixelProcessor.ReleaseWorkBuffersInBackground();
             var r = job.r;
             var task = job.export;
             if (task.IsCanceled) return FinishRecolor(r, "the recolor was cancelled.");
