@@ -82,7 +82,7 @@ namespace Iroca.McpIntegration
             [ToolParameter("Start from this Iroca preset (file path, name, or JSON) instead of the current zones.", Required = false)]
             public string preset { get; set; }
 
-            [ToolParameter("'avatar' (default): register on the avatar non-destructively; 'png': write a recolored PNG; 'preview': save nothing.", Required = false)]
+            [ToolParameter("'avatar' (default): register on the avatar non-destructively (needs NDMF; not in Play mode); 'png': write a recolored PNG; 'preview': save nothing.", Required = false)]
             public string apply { get; set; }
 
             [ToolParameter("Scene object to register on (default: the object using the texture).", Required = false)]

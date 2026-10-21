@@ -206,6 +206,7 @@ namespace Iroca.EditorTests
         [Test]
         public void Recolor_Avatar_RegistersRecipeAndReplacesZoneOfSameName()
         {
+            if (NdmfSupport.State != NdmfSupportState.Supported) Assert.Ignore("NDMF が使えないホストでは登録を断る(AvatarApplyBlocked で見る)");
             string src = Halves();
             var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
             bool hadRecipeFolder = UnityEditor.AssetDatabase.IsValidFolder(RecipeStore.DefaultFolder);
@@ -261,6 +262,16 @@ namespace Iroca.EditorTests
             var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
             Assert.IsFalse(r.ok, json);
             StringAssert.Contains(error, r.error);
+        }
+
+        [Test]
+        public void AvatarApplyBlocked_InPlayModeOrWithoutNdmf()
+        {
+            // Play 中の登録は Play を止めると消える。NDMF が使えなければ登録しても色替えされない。どちらも断って代わりを案内する。
+            Assert.IsNull(IrocaAutomation.AvatarApplyBlocked(false, NdmfSupportState.Supported));
+            StringAssert.Contains("Play mode", IrocaAutomation.AvatarApplyBlocked(true, NdmfSupportState.Supported));
+            foreach (var state in new[] { NdmfSupportState.Missing, NdmfSupportState.TooOld, NdmfSupportState.TooNew })
+                StringAssert.Contains("apply='png'", IrocaAutomation.AvatarApplyBlocked(false, state), state.ToString());
         }
 
         // ─── PNG の書き出し(作業解像度の画素を使い回すか) ───

@@ -252,6 +252,8 @@ namespace Iroca
             // ── 登録先と土台 ──
             if (r.apply == ApplyAvatar)
             {
+                string blocked = AvatarApplyBlocked(EditorApplication.isPlayingOrWillChangePlaymode, NdmfSupport.State);
+                if (blocked != null) return blocked;
                 if (!string.IsNullOrWhiteSpace(req.avatar))
                 {
                     job.target = FindSceneObject(req.avatar, out string findError);
@@ -375,6 +377,9 @@ namespace Iroca
             }
             else if (r.apply == ApplyAvatar)
             {
+                // 自動調整を待つ間に Play に入っていたら登録しない(依頼の時点と同じ判定)。
+                string blocked = AvatarApplyBlocked(EditorApplication.isPlayingOrWillChangePlaymode, NdmfSupport.State);
+                if (blocked != null) return FinishRecolor(r, blocked);
                 var recipe = job.recipe;
                 if (recipe == null) recipe = RecipeStore.Create(tex, state);
                 else RecipeStore.Save(recipe, state);
@@ -399,6 +404,26 @@ namespace Iroca
         }
 
         private const string UndoName = "Iroca: Recolor (automation)";
+
+        /// <summary>
+        /// apply='avatar'(アバターへの登録)ができない理由。できるなら null。
+        /// Play 中に付けたコンポーネントは Play を止めると消え、書き出し画像から元へ戻したマテリアル(アセット)だけが
+        /// 残る。NDMF が使えないと、登録しても色替えされず、アップロードはいろかの安全装置が止める(窓の登録は
+        /// 警告を出すが、AI への結果には出せない)。どちらも登録しないで断り、できることを案内する。
+        /// </summary>
+        internal static string AvatarApplyBlocked(bool playing, NdmfSupportState ndmf)
+        {
+            if (playing)
+                return "apply='avatar' does not work in Play mode (a registration made now is lost when Play stops). "
+                    + "Ask the user to stop Play mode, then call again. apply='preview' and 'png' work in Play mode.";
+            if (ndmf == NdmfSupportState.Supported) return null;
+            string reason = ndmf == NdmfSupportState.TooOld ? "the installed NDMF is too old for this Iroca"
+                : ndmf == NdmfSupportState.TooNew ? "the installed NDMF is newer than this Iroca supports"
+                : "NDMF is not installed";
+            return $"apply='avatar' needs NDMF to recolor the avatar non-destructively, but {reason} "
+                + "(the recolor would not show, and the upload would be stopped). Use apply='png' to write a recolored "
+                + "image instead, or ask the user to install a supported NDMF (the Iroca installer adds it).";
+        }
 
         /// <summary>
         /// 作業解像度で読んだ画素(<see cref="ExportPipeline.ReadSourcePixels"/> の workingSize: true)が、書き出しで読む
