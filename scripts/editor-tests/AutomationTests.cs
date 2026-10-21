@@ -298,6 +298,17 @@ namespace Iroca.EditorTests
             StringAssert.Contains(error, r.error);
         }
 
+        // VRChat SDK のあるホストでは、何も選ばずに登録すると、アバターの外を登録先にしない。テストのルートを
+        // アバターにする(テストは SDK を参照しないので名前で探す。SDK の無いホストでは何もしない)。
+        private static void MarkAsAvatar(GameObject root)
+        {
+            foreach (var a in System.AppDomain.CurrentDomain.GetAssemblies())
+            {
+                var t = a.GetType("VRC.SDK3.Avatars.Components.VRCAvatarDescriptor", false);
+                if (t != null) { root.AddComponent(t); return; }
+            }
+        }
+
         [Test]
         public void Recolor_Avatar_RegistersRecipeAndReplacesZoneOfSameName()
         {
@@ -306,6 +317,7 @@ namespace Iroca.EditorTests
             bool hadRecipeFolder = UnityEditor.AssetDatabase.IsValidFolder(RecipeStore.DefaultFolder);
             bool hadIrocaFolder = UnityEditor.AssetDatabase.IsValidFolder("Assets/Iroca");
             var root = new GameObject("IrocaRecolorTestAvatar");
+            MarkAsAvatar(root);
             var mat = new Material(Shader.Find("Standard")) { mainTexture = tex };
             string recipePath = null;
             try
