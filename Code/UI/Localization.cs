@@ -681,6 +681,17 @@ namespace Iroca
             ? "このプロジェクトには Sentis {0} が導入済みですが、AI マスク提案は {1} でのみ動作確認しています。\n下のボタンを押すと {1} に差し替わります。他のツールが Sentis {0} を使っている場合は、そちらへの影響をご確認ください。"
             : "Sentis {0} is already installed in this project, but AI mask suggestion is verified only with {1}.\nThe button below will replace it with {1}. If another tool depends on Sentis {0}, please check the impact on it first.";
         public static string AiSuggestReplaceSentis => IsJapanese ? "AI 機能を有効化（Sentis を {0} に差し替え）" : "Enable AI feature (replace Sentis with {0})";
+        // .onnx を取り込む別のパッケージ（Barracuda など）が入っているとき。Unity は 1 つの拡張子を受け持つ取り込みが
+        // 2 つあると両方とも使わなくなるので、Sentis を足すと両方の AI が動かなくなる（MaskSuggestInstall.OnnxImporterConflicts）。
+        public static string AiSuggestOnnxConflict => IsJapanese
+            ? "このプロジェクトには、.onnx ファイルを取り込む別のパッケージ（{0}）が入っています。Sentis を導入すると .onnx の取り込みがぶつかり、そのパッケージの AI モデルも、いろかの AI も使えなくなります。"
+            : "This project already has another package that imports .onnx files ({0}). Installing Sentis makes the two .onnx importers conflict, and neither that package's AI models nor Iroca's AI will work.";
+        public static string AiSetupOnnxConflictBody => IsJapanese
+            ? "自動調整と AI マスク提案には Unity Sentis {1} が必要ですが、このプロジェクトには .onnx ファイルを取り込む別のパッケージ（{0}）が入っています。Sentis を導入すると .onnx の取り込みがぶつかり、そのパッケージの AI モデルも、いろかの AI も使えなくなります。\n\nそのパッケージを使っていなければ、Package Manager で外してから導入してください。導入した後でも、Sentis を外せば元に戻ります。\n\nそれでも導入しますか？"
+            : "Auto-tune and AI Mask Suggestion need Unity Sentis {1}, but this project already has another package that imports .onnx files ({0}). Installing Sentis makes the two .onnx importers conflict, and neither that package's AI models nor Iroca's AI will work.\n\nIf you do not use that package, remove it in the Package Manager before installing. Removing Sentis afterwards also restores it.\n\nInstall anyway?";
+        public static string AiSetupDontInstall => IsJapanese ? "導入しない" : "Don't install";
+        public static string AiSetupInstallAnyway => IsJapanese ? "それでも導入する" : "Install anyway";
+        public static string AiOnnxConflictSeparator => IsJapanese ? "、" : ", ";
         public static string AiSuggestInstallFailed => IsJapanese
             ? "Sentis の導入に失敗しました: {0}\nPackage Manager から手動で「com.unity.sentis」を追加することもできます（手順はマニュアル参照）。"
             : "Failed to install Sentis: {0}\nYou can also add 'com.unity.sentis' manually via the Package Manager (see the manual).";

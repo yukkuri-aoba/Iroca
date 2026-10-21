@@ -186,6 +186,24 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void OnnxImporterConflicts_CountOnlyOtherPackages()
+        {
+            // AI の導入で入る Sentis は、Barracuda など .onnx を取り込む別のパッケージとぶつかる。導入の前に
+            // 知らせるのはそういう別のパッケージだけで、差し替えになる同じ名前の Sentis は数えない。
+            var owners = MaskSuggestInstall.OnnxImporterOwners();
+            if (MaskSuggestBridge.Available)
+                Assert.IsTrue(owners.ContainsKey(MaskSuggestInstall.SentisPackageId),
+                    ".onnx を取り込む Sentis の取り込みを見つけられていない（探し方が壊れている）");
+            var conflicts = MaskSuggestInstall.OnnxImporterConflicts();
+            int others = 0;
+            foreach (var owner in owners)
+                if (owner.Key != MaskSuggestInstall.SentisPackageId) others++;
+            Assert.AreEqual(others, conflicts.Count, string.Join(", ", conflicts));
+            foreach (var c in conflicts)
+                StringAssert.DoesNotContain("(" + MaskSuggestInstall.SentisPackageId + ")", c);
+        }
+
+        [Test]
         public void CacheOpenedByAnotherReader_IsLoadedWithoutConverting()
         {
             // 別の Unity が同じキャッシュを読んでいる最中でも、こちらも読める(以前は開けずに

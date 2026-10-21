@@ -366,6 +366,15 @@ namespace Iroca
                                   replaced, MaskSuggestInstall.SentisPackageVersion),
                     MessageType.Warning);
 
+            // Barracuda など .onnx を取り込む別のパッケージがあると、Sentis を足した時点で両方の AI が動かなくなる。
+            // 押す前から見えるように知らせ、押したときは確認画面で止める(既定は導入しない)。
+            var conflicts = MaskSuggestInstall.OnnxImporterConflicts();
+            if (conflicts.Count > 0)
+                EditorGUILayout.HelpBox(
+                    string.Format(Localization.AiSuggestOnnxConflict,
+                                  string.Join(Localization.AiOnnxConflictSeparator, conflicts)),
+                    MessageType.Warning);
+
             string label = replaced != null
                 ? string.Format(Localization.AiSuggestReplaceSentis, MaskSuggestInstall.SentisPackageVersion)
                 : Localization.AiSuggestInstallSentis;
@@ -373,7 +382,8 @@ namespace Iroca
                     label,
                     string.Format(Localization.AiSuggestInstallSentisTooltip,
                                   MaskSuggestInstall.SentisPackageId,
-                                  MaskSuggestInstall.SentisPackageVersion))))
+                                  MaskSuggestInstall.SentisPackageVersion)))
+                && MaskSuggestInstall.ConfirmDespiteOnnxConflicts())
                 MaskSuggestInstall.StartInstall();
         }
 

@@ -1,8 +1,11 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System.Collections.Generic;
 using UnityEditor;
+using UnityEditor.AssetImporters;
 using UnityEditor.PackageManager;
 using UnityEditor.PackageManager.Requests;
+using UnityEngine;
 
 namespace Iroca
 {
@@ -69,6 +72,85 @@ namespace Iroca
             catch { return null; }  // 情報が取れないだけで導入導線は塞がない
             if (found == null || string.IsNullOrEmpty(found.version)) return null;
             return found.version == SentisPackageVersion ? null : found.version;
+        }
+
+        const string BarracudaPackageId = "com.unity.barracuda";
+        static string[] s_onnxConflicts;
+
+        /// <summary>
+        /// 導入すると .onnx の取り込みがぶつかるパッケージ(表示用の名前。無ければ空)。
+        ///
+        /// Unity は 1 つの拡張子を受け持つ取り込み(ScriptedImporter)が 2 つ以上あると、どれも使わなくなる。
+        /// Sentis も Barracuda(Sentis の前身)も .onnx を受け持つので、Barracuda を使うツールが入ったプロジェクトに
+        /// Sentis を足すと、そのツールの AI モデルも、いろかの AI(モデルの変換に .onnx の取り込みを使う)も動かなくなる。
+        /// .onnx を受け持つ取り込みを型から探すので、Unity 6 の実体のある com.unity.sentis も数え、中継だけの
+        /// com.unity.sentis(取り込みを持たない)は数えない。差し替えになる同じ名前のパッケージ
+        /// (<see cref="SentisPackageId"/>)は数えない(版の差し替えの案内が別に出る)。
+        /// パッケージが変わるとドメインがリロードされるので、結果はドメインごとに 1 回だけ調べる。
+        /// </summary>
+        public static IReadOnlyList<string> OnnxImporterConflicts()
+        {
+            if (s_onnxConflicts != null) return s_onnxConflicts;
+            var found = new List<string>();
+            try
+            {
+                foreach (var owner in OnnxImporterOwners())
+                    if (owner.Key != SentisPackageId) found.Add(owner.Value);
+            }
+            catch { /* 調べられないだけで導入の導線は塞がない */ }
+            return s_onnxConflicts = found.ToArray();
+        }
+
+        /// <summary>
+        /// .onnx を受け持つ取り込みを持つパッケージ(名前 → 表示用の名前。パッケージの外なら名前はアセンブリ名)。
+        /// </summary>
+        internal static SortedDictionary<string, string> OnnxImporterOwners()
+        {
+            var owners = new SortedDictionary<string, string>(System.StringComparer.Ordinal);
+            foreach (var t in TypeCache.GetTypesWithAttribute<ScriptedImporterAttribute>())
+            {
+                foreach (ScriptedImporterAttribute a in t.GetCustomAttributes(typeof(ScriptedImporterAttribute), false))
+                {
+                    if (!TargetsOnnx(a.fileExtensions)) continue;
+                    var pkg = UnityEditor.PackageManager.PackageInfo.FindForAssembly(t.Assembly);
+                    if (pkg != null) owners[pkg.name] = $"{pkg.displayName} ({pkg.name})";
+                    else owners[t.Assembly.GetName().Name] = t.Assembly.GetName().Name;
+                }
+            }
+            // 取り込みの型がコンパイルできていなくても、Barracuda が入っていればぶつかる。
+            foreach (var p in UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages())
+                if (p != null && p.name == BarracudaPackageId) owners[p.name] = $"{p.displayName} ({p.name})";
+            return owners;
+        }
+
+        static bool TargetsOnnx(string[] extensions)
+        {
+            if (extensions == null) return false;
+            foreach (string e in extensions)
+                if (e != null && string.Equals(e.TrimStart('.'), "onnx", System.StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+
+        /// <summary>
+        /// .onnx の取り込みがぶつかるパッケージが入っていれば、導入する前に確認画面で伝える。ぶつかるものが
+        /// 無ければ何も出さずに true。既定のボタン(Enter)と閉じる(Esc)は「導入しない」側にしてある。
+        /// 戻り値 = 導入してよいか。
+        /// </summary>
+        public static bool ConfirmDespiteOnnxConflicts()
+        {
+            var conflicts = OnnxImporterConflicts();
+            if (conflicts.Count == 0) return true;
+            if (Application.isBatchMode) return false;
+            string body = string.Format(Localization.AiSetupOnnxConflictBody,
+                string.Join(Localization.AiOnnxConflictSeparator, conflicts), SentisPackageVersion);
+            string replaced = VersionThatWouldBeReplaced();
+            if (replaced != null)
+                body += "\n\n" + string.Format(Localization.AiSuggestSentisVersionReplace, replaced, SentisPackageVersion);
+            // DisplayDialogComplex: 0 = ok(既定), 1 = cancel(Esc・閉じる), 2 = alt。
+            int choice = EditorUtility.DisplayDialogComplex(Localization.AiSetupTitle, body,
+                Localization.AiSetupDontInstall, Localization.Cancel, Localization.AiSetupInstallAnyway);
+            return choice == 2;
         }
 
         /// <summary>直近の導入失敗メッセージ(成功・未実行時は null)。</summary>

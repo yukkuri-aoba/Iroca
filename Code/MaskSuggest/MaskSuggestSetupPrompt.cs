@@ -36,6 +36,13 @@ namespace Iroca
             if (!MaskSuggestBridge.Available)
             {
                 if (MaskSuggestInstall.InProgress) return false;
+                // .onnx を取り込む別のパッケージがあるときは、ぶつかることを伝える確認画面だけを出す(既定は導入しない)。
+                if (MaskSuggestInstall.OnnxImporterConflicts().Count > 0)
+                {
+                    bool anyway = MaskSuggestInstall.ConfirmDespiteOnnxConflicts();
+                    if (anyway) MaskSuggestInstall.StartInstall();
+                    return anyway;
+                }
                 string replaced = MaskSuggestInstall.VersionThatWouldBeReplaced();
                 string body = string.Format(Localization.AiSetupSentisBody, MaskSuggestInstall.SentisPackageVersion);
                 if (replaced != null)
