@@ -47,6 +47,27 @@ namespace Iroca.EditorTests
 
         private GameObject Avatar() => Track(new GameObject("avatar"));
 
+        // VRChat SDK のアバターの印(VRCAvatarDescriptor)。テストは SDK を参照しないので名前で探す。
+        // SDK の無いホストでは null(登録先の候補は、アバターの内側かを見分けない)。
+        private static System.Type DescriptorType()
+        {
+            foreach (var a in System.AppDomain.CurrentDomain.GetAssemblies())
+            {
+                var t = a.GetType("VRC.SDK3.Avatars.Components.VRCAvatarDescriptor", false);
+                if (t != null) return t;
+            }
+            return null;
+        }
+
+        /// <summary>アバターのルート(SDK があれば Avatar Descriptor を付ける)。</summary>
+        private GameObject AvatarRoot(string name)
+        {
+            var go = Track(new GameObject(name));
+            var descriptor = DescriptorType();
+            if (descriptor != null) go.AddComponent(descriptor);
+            return go;
+        }
+
         [Test]
         public void Attach_AddsToTheExistingComponent()
         {
@@ -144,7 +165,7 @@ namespace Iroca.EditorTests
                 var untouched = new Material(Shader.Find("Standard")) { mainTexture = other };
                 AssetDatabase.CreateAsset(untouched, assets.Folder + "/other.mat");
 
-                var avatar = Avatar();
+                var avatar = AvatarRoot("avatar");
                 var outfit = Track(new GameObject("outfit"));
                 outfit.transform.SetParent(avatar.transform, false);
                 var mesh = Track(new GameObject("mesh"));
@@ -168,6 +189,45 @@ namespace Iroca.EditorTests
                 Undo.PerformUndo();
                 Assert.AreSame(exported, mat.mainTexture, "Undo で書き出した画像に戻らない");
                 Undo.ClearUndo(mat);
+            }
+            finally
+            {
+                assets.Dispose();
+            }
+        }
+
+        [Test]
+        public void SuggestTarget_DoesNotPickAParentOutsideTheAvatars()
+        {
+            // 同じ衣装を着た 2 体を空のオブジェクトの下にまとめていると、共通の親はアバターの外になる。そこに付けると、
+            // シーンのプレビューでは色が変わるのに、ビルドでは変わらない。
+            if (DescriptorType() == null) Assert.Ignore("VRChat SDK の無いホストでは、アバターの内側かを見分けない");
+            var assets = TestAssets.Create();
+            try
+            {
+                var px = TestAssets.Solid(4, 4, new Color32(200, 40, 40, 255));
+                var src = AssetDatabase.LoadAssetAtPath<Texture2D>(assets.WritePng("costume", px, 4, 4));
+                var mat = new Material(Shader.Find("Standard")) { mainTexture = src };
+                AssetDatabase.CreateAsset(mat, assets.Folder + "/costume.mat");
+
+                var group = Track(new GameObject("avatars"));
+                MeshRenderer Body(string name)
+                {
+                    var avatar = AvatarRoot(name);
+                    avatar.transform.SetParent(group.transform, false);
+                    var mesh = Track(new GameObject(name + "_mesh"));
+                    mesh.transform.SetParent(avatar.transform, false);
+                    var r = mesh.AddComponent<MeshRenderer>();
+                    r.sharedMaterial = mat;
+                    return r;
+                }
+                var a = Body("a");
+                var b = Body("b");
+                Assert.IsNull(RecipeRegistration.SuggestTarget(src, null), "アバターの外の親を登録先にした");
+
+                // 使っているのが 1 体だけなら、そのアバターの中で決める。
+                b.sharedMaterial = null;
+                Assert.AreSame(a.gameObject, RecipeRegistration.SuggestTarget(src, null));
             }
             finally
             {

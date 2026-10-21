@@ -14,7 +14,8 @@ namespace Iroca
         /// <summary>
         /// 登録先の候補。シーン上の GameObject が選ばれていればそれ。無ければ、開いているシーンで
         /// <paramref name="texture"/>(か、それをいろかで書き出した画像)を使っている Renderer の共通の親
-        /// (複数のアバター = ルートが複数にまたがるときは決めない)。決まらなければ null。
+        /// (複数のアバター = ルートが複数にまたがるときや、共通の親がどのアバターの内側にも無いときは決めない)。
+        /// 決まらなければ null。
         /// </summary>
         public static GameObject SuggestTarget(Texture2D texture, GameObject selected)
         {
@@ -39,7 +40,24 @@ namespace Iroca
             var root = users[0].root;
             foreach (var t in users)
                 if (t.root != root) return null;
-            return CommonAncestor(users).gameObject;
+            var common = CommonAncestor(users);
+            // 複数のアバターを空のオブジェクトの下にまとめていると、共通の親はアバターの外になる。そこに付けると、
+            // シーンのプレビューでは色が変わるのに、ビルド(アバターの中の部品だけを処理する)では変わらない。
+            if (!IsInsideAvatar(common)) return null;
+            return common.gameObject;
+        }
+
+        /// <summary>
+        /// <paramref name="t"/> かその親がアバターのルート(VRChat の Avatar Descriptor が付いた物)か。
+        /// VRChat SDK の無いプロジェクトではアバターを見分けられないので、常に true(従来どおり)。
+        /// </summary>
+        internal static bool IsInsideAvatar(Transform t)
+        {
+#if IROCA_VRCSDK_AVATARS
+            return t != null && t.GetComponentInParent<VRC.SDKBase.VRC_AvatarDescriptor>(true) != null;
+#else
+            return t != null;
+#endif
         }
 
         /// <summary><paramref name="target"/> に既に登録されている、<paramref name="source"/> のレシピ(無ければ null)。</summary>

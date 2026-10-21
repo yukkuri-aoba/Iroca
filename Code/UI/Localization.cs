@@ -1212,8 +1212,8 @@ namespace Iroca
             ? "元のテクスチャとマテリアルを書き換えずに色替えします。Hierarchy で選んだ衣装やアバター（未選択なら、このテクスチャを使っている所の共通の親）に「Iroca Recolor」を付け、再生・アップロードのときだけ色替えしたテクスチャに差し替えます。コンポーネントを外せば元に戻ります。"
             : "Recolors without changing the original texture or materials. Adds \"Iroca Recolor\" to the outfit or avatar selected in the Hierarchy (or, if nothing is selected, the common parent of the objects using this texture) and swaps in the recolored texture only when entering Play mode or uploading. Remove the component to go back.";
         public static string RegisterNoTarget => IsJapanese
-            ? "登録先が決まりません。Hierarchy で衣装かアバターを選んでから押してください（このテクスチャを使っているオブジェクトがシーンに無いか、複数のアバターにまたがっています）。"
-            : "Could not decide where to register. Select the outfit or avatar in the Hierarchy and try again (no object in the scene uses this texture, or several avatars do).";
+            ? "登録先が決まりません。Hierarchy で衣装かアバターを選んでから押してください（このテクスチャを使っているオブジェクトがシーンに無いか、複数のアバターにまたがっているか、アバターの外にあります）。"
+            : "Could not decide where to register. Select the outfit or avatar in the Hierarchy and try again (no object in the scene uses this texture, several avatars do, or the objects are outside any avatar).";
         public static string RegisterNoZones => IsJapanese
             ? "有効なゾーンがありません。色替えするゾーンを作ってから登録してください。"
             : "There is no enabled zone. Create a zone to recolor before registering.";
