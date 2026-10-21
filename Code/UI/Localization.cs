@@ -1247,6 +1247,14 @@ namespace Iroca
             ? "このうち {0} 個は、開いているシーンで登録先の外の {1} か所でも使われていて、そちらも元の色に戻ります。戻さないときは「{2}」を押してください（そのマテリアルには非破壊の色替えが効きません）。"
             : "{0} of them are also used in {1} place(s) outside the target in the open scenes, which also go back to the original colors. To leave them as they are, press \"{2}\" (the non-destructive recolor does not apply to those materials).";
         public static string RegisterKeepShared => IsJapanese ? "共有の分は戻さずに登録" : "Register, keep shared";
+        // {0} = レシピを使っているほかのオブジェクトの名前の並び（NameQuoteFormat で囲み、多ければ NameListMoreFormat）。
+        public static string RegisterRecipeSharedFormat => IsJapanese
+            ? "このレシピは、開いているシーンの{0}でも使われています。内容は共通なので、登録したあとの編集はそちらの色にも効きます。"
+            : "This recipe is also used by {0} in the open scenes. The content is shared, so edits after registering also change their colors.";
+        public static string NameQuoteFormat => IsJapanese ? "「{0}」" : "\"{0}\"";
+        public static string NameListSeparator => IsJapanese ? "" : ", ";
+        // {0} = 並べた名前、{1} = 残りの数。
+        public static string NameListMoreFormat => IsJapanese ? "{0}ほか {1} か所" : "{0} and {1} more";
         public static string RegisterLockedExportsFormat => IsJapanese
             ? "書き出した画像を使っているマテリアルのうち {0} 個は、書き換えられない場所（FBX の中・パッケージ）にあるのでそのままです。"
             : "{0} material(s) that use an exported image are in places that cannot be changed (inside an FBX or a package), so they are left as they are.";

@@ -457,6 +457,11 @@ namespace Iroca
             if (replaced != null)
                 message += "\n\n" + string.Format(Localization.RegisterReplaceFormat, sourceTexture.name,
                     AssetDatabase.GetAssetPath(replaced));
+            // 流用するレシピ(別のアバターに登録済みの同じテクスチャのレシピなど)をほかでも使っていれば、
+            // 登録した後の編集がそちらの色にも効くことを知らせる。
+            var otherUsers = RecipeRegistration.OtherUsers(recipe, target);
+            if (otherUsers.Count > 0)
+                message += "\n\n" + string.Format(Localization.RegisterRecipeSharedFormat, NameList(otherUsers));
             // 0 = 登録、1 = キャンセル(閉じたときも)、2 = 共有のマテリアルは戻さずに登録。
             int choice = shared.Count > 0
                 ? EditorUtility.DisplayDialogComplex(Localization.RegisterNonDestructive, message,
@@ -484,6 +489,17 @@ namespace Iroca
             Undo.CollapseUndoOperations(undoGroup);
             EditorGUIUtility.PingObject(component);
             ShowNotification(new GUIContent(string.Format(Localization.RegisterDoneFormat, target.name)));
+        }
+
+        // 確認画面に出すオブジェクト名の並び(多ければ 3 つと残りの数)。
+        private static string NameList(List<IrocaRecolor> components)
+        {
+            const int shown = 3;
+            var names = new List<string>();
+            for (int i = 0; i < components.Count && i < shown; i++)
+                names.Add(string.Format(Localization.NameQuoteFormat, components[i].gameObject.name));
+            string list = string.Join(Localization.NameListSeparator, names);
+            return components.Count > shown ? string.Format(Localization.NameListMoreFormat, list, components.Count - shown) : list;
         }
     }
 

@@ -197,6 +197,24 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void OtherUsers_ListsOtherObjectsUsingTheRecipe()
+        {
+            // 登録先にレシピが無いと同じテクスチャのレシピを流用するので、そちらを使っている所を確認画面に出す。
+            var a = Avatar();
+            var b = Track(new GameObject("other avatar"));
+            var recipe = Recipe("r", Tex("r"));
+            var otherRecipe = Recipe("o", Tex("o"));
+            var onA = RecipeRegistration.Attach(a, recipe);
+            var onB = RecipeRegistration.Attach(b, recipe);
+            var unrelated = RecipeRegistration.Attach(Track(new GameObject("unrelated")), otherRecipe);
+
+            CollectionAssert.AreEqual(new[] { onB }, RecipeRegistration.OtherUsers(recipe, a), "登録先自身を数えた／ほかを見落とした");
+            CollectionAssert.AreEqual(new[] { onA }, RecipeRegistration.OtherUsers(recipe, b));
+            CollectionAssert.AreEqual(new[] { unrelated }, RecipeRegistration.OtherUsers(otherRecipe, a), "別のレシピの部品を数えた");
+            Assert.IsEmpty(RecipeRegistration.OtherUsers(null, a));
+        }
+
+        [Test]
         public void UsedOutside_FindsMaterialsSharedWithObjectsOutsideTheTarget()
         {
             // 書き出した画像から元へ戻すのは .mat そのものなので、登録先の外で同じマテリアルを使う所も元の色に戻る。

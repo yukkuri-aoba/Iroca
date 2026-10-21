@@ -70,6 +70,23 @@ namespace Iroca
         }
 
         /// <summary>
+        /// 開いているシーンで <paramref name="recipe"/> を使っている <see cref="IrocaRecolor"/> のうち、<paramref name="target"/> 以外の
+        /// もの。登録先にレシピが無いと同じテクスチャのレシピを流用するので、登録した後の編集はそちらの色にも効く。
+        /// 確認画面で知らせるのに使う。開いていないシーン・プロジェクトの Prefab は数えない。
+        /// </summary>
+        public static List<IrocaRecolor> OtherUsers(IrocaRecipe recipe, GameObject target)
+        {
+            var found = new List<IrocaRecolor>();
+            if (recipe == null) return found;
+            foreach (var c in Object.FindObjectsByType<IrocaRecolor>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (c == null || c.gameObject == target || !IsSceneObject(c.gameObject)) continue;
+                if (c.recipes != null && c.recipes.Contains(recipe)) found.Add(c);
+            }
+            return found;
+        }
+
+        /// <summary>
         /// 登録で <paramref name="target"/> に何が起きるか(確認画面に出す)。
         /// <paramref name="replaced"/> = 置き換えられる、同じ元テクスチャの別のレシピ(無ければ null)。
         /// <paramref name="components"/> = いま付いている <see cref="IrocaRecolor"/> の数(2 以上なら 1 つにまとめる)。
