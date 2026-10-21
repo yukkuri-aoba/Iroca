@@ -235,6 +235,55 @@ namespace Iroca.UnitRun
             finally { Directory.Delete(d, true); }
         }
 
+        public static void Atomic_IfChanged_SkipsSameContent()
+        {
+            // 自動保存: 中身が同じなら書かない(更新時刻も変えない)。
+            string d = TempDir();
+            try
+            {
+                string p = Path.Combine(d, "same.json");
+                Check.True(AtomicFile.WriteAllTextIfChanged(p, "{\"a\":\"マスク\"}"), "first write creates the file");
+                var old = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                File.SetLastWriteTimeUtc(p, old);
+                Check.True(!AtomicFile.WriteAllTextIfChanged(p, "{\"a\":\"マスク\"}"), "same content is not written");
+                Check.Equal(old, File.GetLastWriteTimeUtc(p), "file untouched");
+                Check.True(!File.Exists(p + ".tmp"), "no tmp");
+            }
+            finally { Directory.Delete(d, true); }
+        }
+
+        public static void Atomic_IfChanged_WritesDifferentContent()
+        {
+            // 長さが同じでも中身が違えば書く。長さが違っても書く。
+            string d = TempDir();
+            try
+            {
+                string p = Path.Combine(d, "diff.json");
+                File.WriteAllText(p, "abc");
+                Check.True(AtomicFile.WriteAllTextIfChanged(p, "abd"), "same length, different bytes");
+                Check.Equal("abd", File.ReadAllText(p), "content after same-length change");
+                Check.True(AtomicFile.WriteAllTextIfChanged(p, "abde"), "different length");
+                Check.Equal("abde", File.ReadAllText(p), "content after length change");
+                var bytes = File.ReadAllBytes(p);
+                Check.True(!(bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF), "no BOM");
+            }
+            finally { Directory.Delete(d, true); }
+        }
+
+        public static void Atomic_IfChanged_BomFileIsRewritten()
+        {
+            // 比べるのはバイト列。BOM 付きの同じ文字列は別物として BOM なしで書き直す(WriteAllText と同じ結果にそろえる)。
+            string d = TempDir();
+            try
+            {
+                string p = Path.Combine(d, "bom.json");
+                File.WriteAllText(p, "x", new System.Text.UTF8Encoding(true));
+                Check.True(AtomicFile.WriteAllTextIfChanged(p, "x"), "BOM file differs");
+                Check.Equal("x", string.Join(",", File.ReadAllBytes(p).Select(b => ((char)b).ToString())), "no BOM after rewrite");
+            }
+            finally { Directory.Delete(d, true); }
+        }
+
         public static void Atomic_MissingFolderThrowsWithoutLeftovers()
         {
             string d = TempDir();
