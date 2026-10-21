@@ -106,6 +106,8 @@ namespace Iroca
 
             var components = new List<IrocaRecolor>(root.GetComponentsInChildren<IrocaRecolor>(true));
             int replaced = 0;
+            // レシピを何枚作っても作業配列は使い回し、この段が終わったらまとめて手放す。
+            var keepWorkBuffers = RecipeTextureBuilder.KeepWorkBuffers();
             try
             {
                 // 深い順(同じ深さは見つかった順)。1 つのコンポーネントのレシピは並び順。
@@ -129,6 +131,7 @@ namespace Iroca
             }
             finally
             {
+                keepWorkBuffers.Dispose();
                 // 1 段目はコンポーネントを残す(2 段目が範囲を知るため)。残っても VRChat SDK が
                 // EditorOnly として外すので、2 段目が走らない経路でもアバターには残らない。
                 if (stage != Stage.First)

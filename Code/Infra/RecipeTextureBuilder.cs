@@ -60,11 +60,66 @@ namespace Iroca
             var cached = TryLoadCache(key, like);
             if (cached != null) return cached;
 
-            if (!TryRecolor(recipe, out var pixels, out int w, out int h, out failure)) return null;
-            var tex = CreateMatching(pixels, w, h, like);
-            TryStoreCache(key, tex);
-            FinishLike(tex, like);
-            return tex;
+            BeginCompute();
+            try
+            {
+                if (!TryRecolor(recipe, out var pixels, out int w, out int h, out failure)) return null;
+                var tex = CreateMatching(pixels, w, h, like);
+                TryStoreCache(key, tex);
+                FinishLike(tex, like);
+                return tex;
+            }
+            finally
+            {
+                EndCompute();
+            }
+        }
+
+        // 色替えの計算をしている数(作業配列を借りうる区間。続けて作る区間も含む)と、計算した後まだ手放していないか。
+        // メインスレッドからしか触らない。
+        private static int s_computing;
+        private static bool s_releaseDue;
+
+        // 計算を始める(メインスレッド)。終えたら必ず EndCompute を呼ぶ。
+        private static void BeginCompute()
+        {
+            s_computing++;
+            s_releaseDue = true;
+        }
+
+        // 計算を 1 つ終える(メインスレッド)。続けて投げた計算も全部終わったら、作業配列(ネイティブメモリ)と
+        // 色の表を OS へ返す。いろかのウィンドウが開いていれば返さない(編集の次の 1 手が作業配列と色の表を
+        // 作り直すことになる。ウィンドウを閉じたときにまとめて返る)。ウィンドウを閉じるとシーンのプレビューが
+        // 登録済みのレシピを作り直すので、ここで返さないと閉じたときの解放が打ち消され、4K で 600MB ほどが
+        // エディタを閉じるまで残っていた。
+        private static void EndCompute()
+        {
+            if (--s_computing > 0 || !s_releaseDue) return;
+            if (IrocaWindow.FindAnyInstance() != null) return;
+            s_releaseDue = false;
+            PixelProcessor.ReleaseWorkBuffersInBackground();
+        }
+
+        /// <summary>
+        /// 続けて何枚も作る間(非破壊ビルドの 1 段)は作業配列を手放さず、終わったときにまとめて手放す
+        /// (1 枚ごとに手放すと、次の 1 枚が作業配列を確保し直す)。メインスレッドで使う。
+        /// </summary>
+        internal static IDisposable KeepWorkBuffers()
+        {
+            s_computing++;
+            return new KeepScope();
+        }
+
+        private sealed class KeepScope : IDisposable
+        {
+            private bool _disposed;
+
+            public void Dispose()
+            {
+                if (_disposed) return;
+                _disposed = true;
+                EndCompute();
+            }
         }
 
         /// <summary>
@@ -123,6 +178,7 @@ namespace Iroca
                 // 同時にここへ来るので、並べて走らせると作業配列のプールがその組数ぶん膨らみ、そのまま残る
                 // (Mono のヒープは縮まない)。計算そのものが全コアを使うので、順番にしても合計の時間はほぼ同じ。
                 // 前の計算の成否は見ない(1 つが失敗しても後ろは作る)。
+                BeginCompute();
                 var compute = s_lastCompute.ContinueWith(_ =>
                 {
                     SessionRecolor.Apply(pixels, w, h, state);
@@ -132,8 +188,17 @@ namespace Iroca
                 // 後続のタスクをつなぎ目にする(後続は走り終えると前のタスクへの参照を手放す)。
                 s_lastCompute = compute.ContinueWith(_ => { }, CancellationToken.None,
                     TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-                compute.ContinueWith(t => PostOrFail(done, () => FinishAsync(t, like, dw, dh, key, done)),
-                    TaskScheduler.Default);
+                compute.ContinueWith(t => PostOrFail(done, () =>
+                {
+                    try
+                    {
+                        FinishAsync(t, like, dw, dh, key, done);
+                    }
+                    finally
+                    {
+                        EndCompute();
+                    }
+                }), TaskScheduler.Default);
             });
         }
 
