@@ -76,8 +76,10 @@ namespace Iroca
             EditorGUILayout.EndHorizontal();
 
             var found = parts.Found;
-            EditorGUILayout.LabelField(new GUIContent(StatusText(parts, found), MeshListTooltip(found)),
-                                       EditorStyles.miniLabel);
+            // 折り返す: 見つからない・読めないときの案内は設定列の幅に 1 行で入らず、末尾が欠けていた
+            // （LabelField は 1 行の高さ固定）。行数が変わるのは状態が変わったときだけ。
+            GUILayout.Label(new GUIContent(StatusText(parts, found), MeshListTooltip(found)),
+                            EditorStyles.wordWrappedMiniLabel);
 
             using (new EditorGUI.DisabledScope(!parts.HasMesh))
             {

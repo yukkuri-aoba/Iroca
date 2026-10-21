@@ -296,7 +296,7 @@ dev_safe から `scripts/source_checks/` へ移した。資産を要らない検
 | 実行キャッシュ | `(DLL の中身, 入力, 除外マスク, zones JSON, 外部マスクの内容, 追加引数)` の SHA-256 をキーに出力 raw を `dev_safe/_harness_cache/` へ保存。同じ入力の再実行を丸ごと省く。zones JSON 内の外部マスク（`includeMask` / `excludeMask` / `evidenceMask`）は**内容**で同定し、パス（ワーカー ID を含む）はキーに入れない | `IROCA_HARNESS_CACHE=0` |
 | 指標の結果キャッシュ | 品質指標 `recolor_quality.compute_all_metrics`（4096² で 1 件約 5 秒）の結果を、`(入力, 出力, 評価マスク, 目標色)` の内容と `recolor_quality.py` / `colorspace.py`・numpy / scipy の版の SHA-256 をキーに `_harness_cache/metrics/` へ保存（2026-10-16）。出力が変われば計算し直す。値は型ごと戻すので計算直後と bit 一致（品質ゲート全 21 件で確認） | `IROCA_METRICS_CACHE=0` |
 | PNG のデコードキャッシュ | `fixtures._load_rgba`（テクスチャ・GT・評価領域の読み込み口）のデコード結果を、ファイルの中身と Pillow の版の SHA-256 をキーに `_harness_cache/decoded/` へ `.npy` で保存（2026-10-17）。4096² で 1 枚 0.1〜0.4 秒 → 0.02 秒。1 枚 64MB なので被写体の画像 1 組で数 GB 使う | `IROCA_DECODED_CACHE=0` |
-| SAM 提案の結果キャッシュ | `sam_proposal.proposal_for_click_full`（提案マスク + 診断）と `measure_sam_e2e.one_case`（e2e の 1 ケース）の結果を、DLL・ONNX・埋め込み / 凍結 logits・テクスチャ・GT・クリック・粒度と関与する Python ソースの SHA-256 をキーに `_harness_cache/results/` へ保存（2026-10-17）。どちらも 1 回に dotnet を 6〜10 回起動していた。共通部品は `fixtures.result_key / result_load / result_store` | `IROCA_RESULT_CACHE=0` |
+| SAM 提案の結果キャッシュ | `sam_proposal.proposal_for_click_full`（提案マスク + 診断）と `measure_sam_e2e.one_case`（e2e の 1 ケース）の結果を、DLL・ONNX・埋め込み / 凍結 logits・テクスチャ・GT・クリック・粒度と関与する Python ソースの SHA-256 をキーに `_harness_cache/results/` へ保存（2026-10-17）。どちらも 1 回に dotnet を 6〜10 回起動していた。共通部品は `fixtures.result_key / result_load / result_store`。ズーム再推論のクロップの埋め込みは、実 C# が作ったエンコーダ入力の中身・エンコーダ・onnxruntime の版をキーに `_harness_cache/cropemb/` へ置く（2026-10-20。以前は矩形だけをキーに作業ディレクトリへ置き、samops の入力画像 raw も「あれば使う」だったので、テクスチャ・C# の前処理・エンコーダを変えても古い物を使いえた。入力画像 raw はいま内容ハッシュ名） | `IROCA_RESULT_CACHE=0` |
 | バッチ実行 | 同じテクスチャの複数ケース（通常 5 色）を Harness `--batch` で 1 プロセスにまとめ、dotnet 起動と 64MB の入力書き出しを 1 回にする | （常時。単発呼び出しは従来どおり） |
 | ワーカー分離 | `dev_safe/_iou_csharp_work/<worker>/` に分けて並列実行の書き込み衝突を防ぐ。ハーネスのビルドはプロセス跨ぎのロックで直列化 | — |
 
@@ -311,6 +311,22 @@ dev_safe から `scripts/source_checks/` へ移した。資産を要らない検
 「ハーネス実行キャッシュが上限 …GB を超え」と出るので、出たら `IROCA_HARNESS_CACHE_GB` を上げる。
 プロセス内メモは `IROCA_HARNESS_MEM_ENTRIES`（既定 12 件）で件数を絞る（無制限だとワーカー 1 つが
 3GB 近く抱える。ディスクからの読み戻しは 0.04 秒なので少数で足りる）。
+
+**使われなくなったキャッシュと作業ファイルの掃除**（2026-10-20、`dev_safe/Tests/regression/cache_gc.py`）:
+キーがハッシュなので、DLL やソースを変えた後の古いエントリは二度と当たらない。容量上限があったのは
+実行キャッシュ（`*.raw`）だけで、ほかのキャッシュ（`decoded/` `results/` `rows/` `metrics/`
+`gt_tolerance/`）と作業ディレクトリ（`_sam_freeze_work/` `_sam_e2e_work/` `_spike/evidence/`
+`_iou_csharp_work/` など）は書きっぱなしだった。この時点で本体の dev_safe は 120GB を超え、
+そのうち 77GB は 3 日以上使われていなかった。いまは pytest の開始時（xdist なら親プロセスで 1 回、
+6 時間に 1 回まで）に、**キャッシュは 7 日、作業ファイルは 3 日、名前に `.tmp` を含む書きかけは
+1 日**使われなかったものを消す。「使った」は mtime で見る。キャッシュは当たったときに
+`fixtures.touch` で mtime を進め、作業ファイルは使うたびに書き直されるか touch される
+（atime はウイルス対策の読み取りでも進むので使えない）。消したものがまた要れば計算し直すだけで、
+結果は変わらない。走査はふだん 0.2 秒程度。消すと pytest の要約に 1 行出て、
+`_harness_cache/cache_gc.log` に記録が残る。手で回すなら
+`python dev_safe/Tests/regression/cache_gc.py [--dry-run]`。止めるなら `IROCA_CACHE_GC=0`、
+日数は `IROCA_CACHE_GC_DAYS` / `IROCA_WORK_GC_DAYS`。対象の作業ディレクトリは gitignore 済みで
+追跡ファイルを含まないことを `test_cache_gc.py` が git で確かめている。
 `tools/visual_review.py compare --engine csharp` の固定 104 ケースも同じ `run_harness_many`
 （キャッシュ + `--batch`）を通るので、直前に回帰スイートを回していれば dotnet を起動せずに
 同じ DLL の出力が返る（以前は 1 件ずつ単発起動で約 15 分かかっていた）。
@@ -349,6 +365,16 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
 `[iroca] … ワーカーを 4 → N に減らしました` と出る（2026-10-16 までは `-q` だと何も出ず、
 普段使いの空き 10〜13GB で 1 並列に落ちていても気づけなかった）。同日の実測（ウォーム・全回帰）は
 1 並列 11 分 47 秒、4 並列 3 分 25 秒。4 並列の同時合計の最大は 10.9GB（品質指標を計算する周）。
+
+ここでいう「空き」と、ハーネス起動前の空き待ち（`IROCA_MIN_FREE_GB`、既定 4GB。待ちの上限は
+`IROCA_MEM_WAIT_S`）は、どちらも `dev_safe/Tests/regression/memory_guard.py` が出す
+「空き物理メモリ」と「コミット余裕」の小さい方。**コミット余裕には自動管理のページファイルの伸びしろを足す**
+（2026-10-20〜。上限は RAM の 3 倍程度、ディスクの空きから `IROCA_PAGEFILE_DISK_RESERVE_GB`（既定 10GB）を残した分まで）。
+Windows がページファイルを広げるのは誰かが今のコミット上限を超えて確保したときだけなので、
+「今の上限 − 使用量」だけを見て手前で待つと自分では拡張を起こせない。実際に、物理が 6GB 空いているのに
+コミット余裕 1GB でワーカーが 30 分ずつ止まっていた。拡張の最中に確保が断られた分は、OOM の再試行で吸収する。
+memory_guard.py は出力に関与しないので、実行キャッシュ・行キャッシュ・審査の内容ハッシュのどれにも入れない
+（以前は `headless_io.py` の中にあり、待ちの調整だけでキャッシュと承認が無効になっていた）。
 
 **テストモジュールの大域変数に大きな配列を溜めない。** xdist のワーカーはファイルをまたいで
 生き続けるので、モジュール変数の dict に出力画像やテクスチャを入れると、そのファイルが終わっても

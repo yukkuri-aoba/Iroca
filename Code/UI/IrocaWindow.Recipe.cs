@@ -156,7 +156,7 @@ namespace Iroca
             }
             string recipeLabel = recipe != null
                 ? AssetDatabase.GetAssetPath(recipe)
-                : string.Format(Localization.RegisterRecipeNew, RecipeStore.DefaultFolder + "/" + sourceTexture.name + ".asset");
+                : string.Format(Localization.RegisterRecipeNew, RecipeStore.PathForNew(sourceTexture));
 
             // コンポーネントは登録先に 1 つ(既にあればそこへ足す)。置き換え・まとめが起きるなら先に知らせる。
             RecipeRegistration.Describe(target, sourceTexture, recipe, out var replaced, out int components);

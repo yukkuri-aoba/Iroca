@@ -111,13 +111,18 @@ namespace Iroca
         /// <summary>テクスチャへの書き出し(PNG)。primary のときだけ実行ボタンを大きくする。</summary>
         private void DrawTextureExport(bool primary)
         {
-            saveAsNewFile = EditorGUILayout.Toggle(
-                new GUIContent(Localization.SaveAsNewFile, Localization.SaveAsNewFileTooltip),
-                saveAsNewFile);
+            var saveAsNewContent = new GUIContent(Localization.SaveAsNewFile, Localization.SaveAsNewFileTooltip);
+            var inheritContent = new GUIContent(Localization.InheritImportSettings, Localization.InheritImportSettingsTooltip);
+            // トグルのラベルが入りきる幅までラベル列を広げる。狭いウィンドウの既定のラベル幅（120）では
+            // 「インポート設定を引き継ぐ」の末尾が欠ける。
+            float prevLabelWidth = EditorGUIUtility.labelWidth;
+            EditorGUIUtility.labelWidth = Mathf.Max(prevLabelWidth, Mathf.Ceil(Mathf.Max(
+                EditorStyles.label.CalcSize(saveAsNewContent).x,
+                EditorStyles.label.CalcSize(inheritContent).x)) + 4f);
 
-            inheritImportSettings = EditorGUILayout.Toggle(
-                new GUIContent(Localization.InheritImportSettings, Localization.InheritImportSettingsTooltip),
-                inheritImportSettings);
+            saveAsNewFile = EditorGUILayout.Toggle(saveAsNewContent, saveAsNewFile);
+
+            inheritImportSettings = EditorGUILayout.Toggle(inheritContent, inheritImportSettings);
 
             if (saveAsNewFile)
             {
@@ -125,6 +130,7 @@ namespace Iroca
                     new GUIContent(Localization.FileName, Localization.FileNameTooltip),
                     newFileName);
             }
+            EditorGUIUtility.labelWidth = prevLabelWidth;
 
             // ソロ表示はプレビュー専用。保存すると全ゾーンが適用されるので、
             // 「見えているもの＝保存されるもの」でないことをここで明示する。

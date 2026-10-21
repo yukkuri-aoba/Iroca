@@ -28,9 +28,9 @@ namespace Iroca
         // PreviewView._viewportWidth と同方針。
         [System.NonSerialized] private float _sideBySideTopHeight;
 
-        // ジョブオーバーレイ（進捗バー＋キャンセル）の実測高。オーバーレイは DisabledScope の外・
-        // 本体レイアウトの後ろに積まれるため、その分を availableContentH から引かないと
-        // キャンセルボタンがウィンドウ下端で切れて押せなくなる（ジョブ中の唯一の脱出口が消える）。
+        // ジョブオーバーレイ（進捗バー＋キャンセル）の実測高。オーバーレイは DisabledScope の外で
+        // ウィンドウ下端に重ねて描くので、この高さぶん上から置かないとキャンセルボタンが下端で切れて
+        // 押せなくなる（ジョブ中の唯一の脱出口が消える）。
         // _sideBySideTopHeight と同方針で前フレーム Repaint の実測値を使う（定数で見積もると
         // オーバーレイの中身を変えたときに黙ってずれる）。0（未計測）時は決定論フォールバック。
         [System.NonSerialized] private float _jobOverlayHeight;
@@ -96,10 +96,9 @@ namespace Iroca
 
             // position.height はウィンドウ枠（タイトル/タブバー）を含むため、
             // 実描画領域はそれより低い。エクスポートが画面外に押し出されないよう安全マージンを引く。
-            // ジョブ中はオーバーレイが本体レイアウトの後ろに積まれるので、その高さも先に引く
-            // （引かないとキャンセルボタンが下端で切れ、ジョブ中の唯一の脱出口が押せなくなる）。
-            float availableContentH = position.height - IrocaConsts.Layout.WindowChromeMargin
-                                      - (blocking ? JobOverlayReserve() : 0f);
+            // ジョブのオーバーレイの高さはここで引かない。引くとジョブの開始・終了のたびに
+            // プレビューが縮んで下の欄が上下に跳ねるので、オーバーレイは下端に重ねて描く。
+            float availableContentH = position.height - IrocaConsts.Layout.WindowChromeMargin;
             float exportH = _exportView.GetSectionHeight();
 
             if (sideBySide)
@@ -111,14 +110,20 @@ namespace Iroca
 
             // DisabledScope の外でジョブオーバーレイ（進捗バー＋キャンセル）を描画。
             // ウィンドウ全体が無効化されていてもキャンセルだけは押せる。
+            // 本体レイアウトの後ろに積まず、ウィンドウ下端の固定位置に重ねる（下に隠れる欄はジョブ中は押せない）。
             if (blocking)
             {
+                float overlayH = JobOverlayReserve();
+                var area = new Rect(0f, Mathf.Max(0f, position.height - overlayH - 2f), position.width, overlayH + 2f);
+                EditorGUI.DrawRect(area, IrocaColors.WindowBackground);
+                GUILayout.BeginArea(area);
                 var overlayRect = EditorGUILayout.BeginVertical();
                 DrawJobOverlay();
                 EditorGUILayout.EndVertical();
+                GUILayout.EndArea();
 
-                // 実測値を次フレームの予約高に使う。値が変わったら追い再描画を 1 回要求する
-                // （_sideBySideTopHeight と同方針。予約高はオーバーレイ自身の高さに影響しないので収束する）。
+                // 実測値を次フレームの高さに使う。値が変わったら追い再描画を 1 回要求する
+                // （高さはオーバーレイ自身の中身では変わらないので収束する）。
                 if (Event.current.type == EventType.Repaint && overlayRect.height > 1f
                     && Mathf.Abs(overlayRect.height - _jobOverlayHeight) > 0.5f)
                 {
@@ -139,7 +144,7 @@ namespace Iroca
         internal const float JobCancelButtonHeight = 22f;
 
         /// <summary>
-        /// ジョブオーバーレイのために本体レイアウトから引いておく高さ。
+        /// ジョブオーバーレイの高さ（ウィンドウ下端からこの高さの帯に描く）。
         /// 実測値があればそれを、未計測の初回フレームだけ決定論フォールバックを返す。
         /// </summary>
         private float JobOverlayReserve()
@@ -211,7 +216,7 @@ namespace Iroca
                 Localization.FloodFillSeedPoint, Localization.HighlightBandExpand,
                 Localization.AutoHighlightSample, Localization.HoleFillPasses,
                 Localization.HoleFillMinNeighbors, Localization.RelaxedSatMin,
-                Localization.RelaxedSatRamp, Localization.DecontaminationRadius);
+                Localization.DecontaminationRadius);
 
             // +4: ラベルとフィールドの間に詰まって見えない程度の余白。
             s_measuredLabelWidth = max + 4f;
@@ -480,6 +485,20 @@ namespace Iroca
         }
 
         /// <summary>
+        /// 固定幅のボタンの幅。文言（状態で切り替わるものは全部）が既定のボタンの書体で入りきる幅と
+        /// minWidth の大きい方を返す。言語で長さが変わる文言を固定値の幅に入れると、片方の言語で末尾が欠ける。
+        /// OnGUI の中で呼ぶ。
+        /// </summary>
+        internal static float FitButtonWidth(float minWidth, params string[] texts)
+        {
+            float w = minWidth;
+            var style = GUI.skin.button;
+            foreach (var t in texts)
+                w = Mathf.Max(w, Mathf.Ceil(style.CalcSize(new GUIContent(t)).x));
+            return w;
+        }
+
+        /// <summary>
         /// ジョブオーバーレイの 1 行（進捗バー＋キャンセルボタン）を描画し、キャンセルが押されたら true を返す。
         /// 書き出し・自動調整の解析中・証拠待ちで共通。キャンセル処理は呼び出し側が行う
         /// （どの処理も GUILayout を呼ばないので、後ろの Space の後で行ってもコントロール列は変わらない）。
@@ -575,8 +594,9 @@ namespace Iroca
         /// 有効なゾーンのどれかで、サンプルカラーと変更先カラーの両方が指定済みであること。
         /// 変更先が既定の白のままだと、選んだ所が白っぽくなるだけで色替えは済んでいない
         /// （以前はサンプルカラーだけで ✓ を付け、案内もそこで終わっていた）。
+        /// プレビューの右クリックの案内（PreviewView.DrawIdleRow）を出し始める条件にも使う。
         /// </summary>
-        private bool StepZonesDone
+        internal bool StepZonesDone
         {
             get
             {
@@ -597,6 +617,9 @@ namespace Iroca
         /// 自動調整は変更先の明るさも入力に取る（模様保持の導出）ので、変更先の後に案内する。
         /// null なら何も描かない。
         /// </summary>
+        // DrawTextureField が描いている案内の文面（NextStepHint の結果を Layout ごとに取り直す）。
+        [System.NonSerialized] private string _nextStepHint;
+
         private string NextStepHint()
         {
             if (!StepTextureDone) return null;               // テクスチャ欄の HelpBox が案内済み
@@ -672,13 +695,21 @@ namespace Iroca
             // 折り返しあり: ゾーン名が入って長くなり、狭いウィンドウや英語表示では 1 行に収まらない
             // （EditorGUILayout.LabelField は 1 行固定高で、折り返した 2 行目が隠れる）。
             // 上部の高さは実測しているので（_sideBySideTopHeight）、行数が変わってもレイアウトは崩れない。
-            string next = NextStepHint();
+            // ドラッグ中は前の文面のまま据え置く。許容範囲のスライダーを動かした瞬間に案内が消えると、
+            // つまんでいるスライダーごと設定列が上へずれる。文面は Layout のときだけ決め、同じフレームの
+            // Repaint と行数を揃える。
+            if (Event.current.type == EventType.Layout && GUIUtility.hotControl == 0)
+                _nextStepHint = NextStepHint();
+            string next = _nextStepHint;
             if (!string.IsNullOrEmpty(next))
                 GUILayout.Label(next, EditorStyles.wordWrappedMiniLabel);
 
             // AI(Sentis + モデル)の準備状況。未準備のときだけ非モーダルの帯で案内する
             // （起動時モーダルの置き換え。導入・ダウンロード・再起動の導線をここへ集約した）。
             MaskSuggestSection.DrawSetupBanner();
+
+            // 新しい版のお知らせ。更新は VCC / ALCOM に任せ、ここでは知らせて手順へ案内するだけ。
+            UpdateNotice.DrawBanner();
 
             EditorGUILayout.Space(4);
         }
@@ -801,9 +832,8 @@ namespace Iroca
                     relaxedSatMin = UndoHelper.Slider(this,
                         new GUIContent(Localization.RelaxedSatMin, Localization.RelaxedSatMinTooltip),
                         relaxedSatMin, 0f, 0.2f);
-                    relaxedSatRamp = UndoHelper.Slider(this,
-                        new GUIContent(Localization.RelaxedSatRamp, Localization.RelaxedSatRampTooltip),
-                        relaxedSatRamp, 0.01f, 0.3f);
+                    // relaxedSatRamp は出さない。緩和マッチで使わなくなり、動かしても何も変わらないため。
+                    // 値は選択キャッシュのキーと、プリセット・セッションの保存形式の互換のために残している。
                     using (new EditorGUI.DisabledScope(!useDecontamination))
                     {
                         decontaminationRadius = UndoHelper.IntSlider(this,

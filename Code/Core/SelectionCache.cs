@@ -146,6 +146,25 @@ namespace Iroca
             }
         }
 
+        /// <summary>
+        /// ゾーンの最後に保存した選択の強さのうち、画素 indices の値を dst へ写す。キーは問わない(表示中の
+        /// プレビューを作った選択か、作り直しの途中ならその新しいほう)。寸法が w×h でなければ false。
+        /// 右クリックの宛先を、クリックした場所を塗っているゾーンに合わせるのに使う(PreviewView.ContextMenu)。
+        /// lock の中で読むので、Store が同じ領域へ書いている最中の値は読まない(Store は辞書から外してから書く)。
+        /// 辞書にあるエントリは lock の中では解放されない(解放は Detach で、これも lock の中)。
+        /// </summary>
+        public bool TryReadLatest(string zoneId, int w, int h, int[] indices, float[] dst)
+        {
+            if (string.IsNullOrEmpty(zoneId) || indices == null || dst == null) return false;
+            lock (_gate)
+            {
+                if (_disposed || !_byZone.TryGetValue(zoneId, out var e) || e.W != w || e.H != h || e.Strength == null)
+                    return false;
+                e.Strength.ReadAt(indices, dst);
+                return true;
+            }
+        }
+
         public void Clear()
         {
             lock (_gate)

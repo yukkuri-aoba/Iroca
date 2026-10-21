@@ -53,6 +53,11 @@ namespace Iroca
         float Progress { get; }
         /// <summary>Phase == Error のときの表示用メッセージ。</summary>
         string ErrorMessage { get; }
+        /// <summary>
+        /// Phase == Error の原因がモデルのファイルを読めなかったこと(ONNX の取り込みの失敗・ファイルの欠け)か。
+        /// このときは再起動では直らないので、UI は取り直しだけを案内する。
+        /// </summary>
+        bool ErrorIsModelFile { get; }
 
         /// <summary>
         /// 推論が Burst 依存の CPU バックエンドで走っているか(モデル未ロード時は false)。

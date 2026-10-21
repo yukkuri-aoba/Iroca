@@ -93,7 +93,7 @@ namespace Iroca
             if (!_request.IsCompleted) return;
 
             if (_request.Status == StatusCode.Failure)
-                Error = _request.Error != null ? _request.Error.message : "unknown error";
+                Error = _request.Error != null ? _request.Error.message : Localization.AiUnknownError;
             else if (_request.Status == StatusCode.Success)
                 // 導入自体はパッケージ追加→自動リコンパイルで完了するが、その導入時のドメイン
                 // リロードでは Burst のコールドスタート失敗(関数ポインタ初期化例外)を踏むことがあり、

@@ -1304,10 +1304,10 @@ namespace Iroca
             }
             else
             {
-                // モードが無いときは、Scene でモデルをクリックした結果の案内か使い方を出す
-                // (何も無ければ空白 1 文字)。どれも miniLabel の高さに揃える。行を出入りさせたり高さを
+                // モードが無いときは、Scene でモデルをクリックした結果の案内か、右クリック・Scene のクリックの
+                // 使い方を出す(何も無ければ空白 1 文字)。どれも miniLabel の高さに揃える。行を出入りさせたり高さを
                 // 変えたりするとプレビュー枠が上下に跳ね、chrome 実測（_chromeAboveViewportH）も揺れる。
-                DrawSceneClickRow();
+                DrawIdleRow();
             }
             if (soloZone != null)
             {

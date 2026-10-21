@@ -22,7 +22,26 @@ namespace Iroca
             e.Use();
         }
 
-        // 右クリックで選べる操作(いま直しているゾーンに当てる)。全ゾーン共通にできるのは「塗らない」だけ。
+        private const string ContextMenuUsedPrefKey = "Iroca.ContextMenuUsed";
+
+        /// <summary>
+        /// 一度でもプレビューの右クリックメニューを開いたか(操作モード行に使い方の案内を出すかどうか。DrawIdleRow)。
+        /// 開けば項目は見えるので、選ばずに閉じても使い方は伝わったとみなす。
+        /// </summary>
+        internal static bool ContextMenuUsed
+        {
+            get => s_contextMenuUsed ??= EditorPrefs.GetBool(ContextMenuUsedPrefKey, false);
+            set
+            {
+                if (s_contextMenuUsed == value) return;
+                s_contextMenuUsed = value;
+                EditorPrefs.SetBool(ContextMenuUsedPrefKey, value);
+            }
+        }
+        // 毎回の描画で EditorPrefs を読まないための控え。
+        private static bool? s_contextMenuUsed;
+
+        // 右クリックで選べる操作(宛先のゾーンに当てる。宛先の決め方は ShowPreviewContextMenu)。全ゾーン共通にできるのは「塗らない」だけ。
         private static (MaskRegionOp op, string label)[] ContextOps(bool zoneTarget) => zoneTarget
             ? new[]
             {
@@ -44,7 +63,11 @@ namespace Iroca
 
         // メニューの言葉は「ここも塗る / ここは塗らない / この部分だけ塗る」に揃える(2026-10-06)。
         // 以前は「追加先」「除外」「含める」「AI 提案:」「パーツ:」で、マスクの仕組みを知らないと選べなかった。
-        // 宛先は「いま直しているゾーン」(= マスクの編集対象。最後に触ったゾーンへ追従する)。
+        // 宛先は、クリックした場所をいま塗っているゾーン(PaintingZoneIdAt)。塗られていない所では「いま直している
+        // ゾーン」(= マスクの編集対象。最後に触ったゾーンへ追従する)。以前は後者だけで決めていたので、別のゾーンが
+        // 塗っている所に「ここは塗らない」を当てても見た目が変わらなかった(MaskRegionEdit.PaintingZoneAt)。
+        // 塗っているゾーンに当てても「いま直しているゾーン」は変えない。外した後のその場所は塗られていない所に
+        // なるので、続けて「ここも塗る」を選べば、いま直しているゾーンに入る(別のゾーンへ付け替える 2 手)。
         private void ShowPreviewContextMenu(Vector2 screenPos, Rect previewRect)
         {
             var maskView = _host._maskView;
@@ -53,12 +76,18 @@ namespace Iroca
             var zones = _host.Session?.zones;
             bool hasZone = zones != null && zones.Count > 0;
             string zoneId = maskView.ActiveTargetZoneId();   // null = 全ゾーン共通(ゾーンが無いときも)
+            // 「全部のゾーンに共通で直す」を選んでいるときは、選んだとおり共通に当てる。
+            var painting = zoneId != null ? PaintingZoneAt(uv) : null;
+            bool byPainting = painting != null && painting.id != zoneId;
+            if (byPainting) zoneId = painting.id;
             var ops = ContextOps(zoneId != null);
             var menu = new GenericMenu();
 
-            // 見出し: どのゾーンを直すか。
+            // 見出し: どのゾーンを直すか。いま直しているゾーンと違うときは、なぜそのゾーンかを添える。
             menu.AddDisabledItem(new GUIContent(
-                zoneId != null ? string.Format(Localization.CtxHeaderZoneFormat, MenuSafe(maskView.ActiveTargetName()))
+                byPainting ? string.Format(Localization.CtxHeaderPaintingZoneFormat,
+                                           MenuSafe(string.IsNullOrEmpty(painting.name) ? Localization.UnnamedZone : painting.name))
+                : zoneId != null ? string.Format(Localization.CtxHeaderZoneFormat, MenuSafe(maskView.ActiveTargetName()))
                 : hasZone ? Localization.CtxHeaderCommon
                 : Localization.CtxHeaderNoZone));
             menu.AddSeparator("");
@@ -157,6 +186,45 @@ namespace Iroca
             }
 
             menu.ShowAsContext();
+            ContextMenuUsed = true;
+        }
+
+        // クリックした所の周り(半径 2 画素。1 画素だけだと、塗られた面の中の細い線や穴に当たって外れる)。
+        private const int PaintingProbeRadius = 2;
+
+        /// <summary>
+        /// クリックした場所をいま塗っているゾーン(無ければ null)。表示中のプレビューを作った選択(_selectionCache)を
+        /// 上のゾーンから順に見る(規則は MaskRegionEdit.PaintingZoneAt)。ソロ表示中は、見えているそのゾーンだけを見る。
+        /// 選択がまだ無いゾーン(作り直しの途中など)は塗っていないものとして扱う。
+        /// </summary>
+        private ColorZone PaintingZoneAt(Vector2 uv)
+        {
+            var zones = _host.Session?.zones;
+            if (zones == null || zones.Count == 0 || _selectionCache == null) return null;
+            if (!EnsureTrueSource(_host.SourceTexture)) return null;
+            int w = _trueSourceW, h = _trueSourceH;
+            if (w <= 0 || h <= 0) return null;
+
+            int cx = Mathf.Clamp((int)(uv.x * w), 0, w - 1), cy = Mathf.Clamp((int)(uv.y * h), 0, h - 1);
+            int x0 = Mathf.Max(0, cx - PaintingProbeRadius), x1 = Mathf.Min(w - 1, cx + PaintingProbeRadius);
+            int y0 = Mathf.Max(0, cy - PaintingProbeRadius), y1 = Mathf.Min(h - 1, cy + PaintingProbeRadius);
+            var indices = new int[(x1 - x0 + 1) * (y1 - y0 + 1)];
+            int n = 0;
+            for (int y = y0; y <= y1; y++)
+                for (int x = x0; x <= x1; x++)
+                    indices[n++] = y * w + x;   // 行 0 = 画像の下端(UV と同じ向き)
+
+            var solo = _host.SoloZone;
+            var strengths = new float[zones.Count][];
+            for (int k = 0; k < zones.Count; k++)
+            {
+                var z = zones[k];
+                if (z == null || !z.enabled || (solo != null && z != solo)) continue;
+                var s = new float[n];
+                if (_selectionCache.TryReadLatest(z.id, w, h, indices, s)) strengths[k] = s;
+            }
+            int found = MaskRegionEdit.PaintingZoneAt(strengths, n);
+            return found >= 0 ? zones[found] : null;
         }
 
         // 直すゾーンの切り替え(各ゾーン / 全ゾーン共通)。パレットの対象プルダウンと同じ activeMaskTarget を書き換える。

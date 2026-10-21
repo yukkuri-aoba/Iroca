@@ -12,6 +12,12 @@ namespace Iroca
                 ? new Color(0.45f, 0.65f, 0.95f)
                 : new Color(0.30f, 0.55f, 0.85f);
 
+        // エディタのウィンドウ地の色（Unity 既定の Pro / Personal スキン）。下の要素に重ねて描く帯の下地に使う。
+        public static Color WindowBackground =>
+            EditorGUIUtility.isProSkin
+                ? new Color32(56, 56, 56, 255)
+                : new Color32(194, 194, 194, 255);
+
         public static Color ExcludeButton =>
             EditorGUIUtility.isProSkin
                 ? new Color(1f, 0.55f, 0.55f)

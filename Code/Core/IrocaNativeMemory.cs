@@ -84,6 +84,20 @@ namespace Iroca
 
         public void CopyTo(float* dst, int count) => Copy(dst, count, toNative: false);
 
+        // 少数の画素だけを読む(右クリックの宛先を決める 5×5 画素など)。範囲外は例外。
+        public void ReadAt(int[] indices, float[] dst)
+        {
+            if (_ptr == IntPtr.Zero) throw new ObjectDisposedException(nameof(NativeFloatBuffer));
+            if (dst.Length < indices.Length) throw new ArgumentOutOfRangeException(nameof(dst));
+            float* mine = (float*)_ptr;
+            for (int i = 0; i < indices.Length; i++)
+            {
+                int k = indices[i];
+                if ((uint)k >= (uint)Length) throw new ArgumentOutOfRangeException(nameof(indices));
+                dst[i] = mine[k];
+            }
+        }
+
         private void Copy(float* other, int count, bool toNative)
         {
             if (_ptr == IntPtr.Zero) throw new ObjectDisposedException(nameof(NativeFloatBuffer));

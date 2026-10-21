@@ -45,6 +45,7 @@ namespace Iroca.SentisIntegration
         MaskSuggestPhase _phase = MaskSuggestPhase.NoModel;
         float _progress;
         string _error;
+        bool _errorIsModelFile;
         public event Action StateChanged;
 
         string _sourceKey;
@@ -124,6 +125,7 @@ namespace Iroca.SentisIntegration
         public MaskSuggestPhase Phase => _phase;
         public float Progress => _progress;
         public string ErrorMessage => _error;
+        public bool ErrorIsModelFile => _errorIsModelFile;
 
         // Burst の ILPP はアセンブリ内の BurstDirectCall 関数ポインタをドメインロード時に
         // 一括で先行コンパイルするため、GPUCompute でしか動かさない環境でも
@@ -132,7 +134,7 @@ namespace Iroca.SentisIntegration
         // 実際に CPU で走るときだけが、Burst 失敗を警告してよい状況。
         public bool UsesCpuBackend => _modelsLoaded && _backend == BackendType.CPU;
 
-        void SetPhase(MaskSuggestPhase phase, float progress = 0f, string error = null)
+        void SetPhase(MaskSuggestPhase phase, float progress = 0f, string error = null, bool modelFile = false)
         {
             // Error は手動復帰(右クリックメニューからの選び直し。MaskSuggestController.RequestProposal が
             // CancelAll する)まで続き、処理待ちクリックが実行される
@@ -146,6 +148,7 @@ namespace Iroca.SentisIntegration
             _phase = phase;
             _progress = progress;
             _error = error;
+            _errorIsModelFile = phase == MaskSuggestPhase.Error && modelFile;
             StateChanged?.Invoke();
         }
 
@@ -178,7 +181,7 @@ namespace Iroca.SentisIntegration
                     SentisModelRepository.EncoderOnnxPath, out string encErr);
                 if (_encoderModel == null)
                 {
-                    SetPhase(MaskSuggestPhase.Error, error: encErr);
+                    SetPhase(MaskSuggestPhase.Error, error: encErr, modelFile: true);
                     return false;
                 }
                 EditorUtility.DisplayProgressBar(
@@ -187,7 +190,7 @@ namespace Iroca.SentisIntegration
                     SentisModelRepository.DecoderOnnxPath, out string decErr);
                 if (_decoderModel == null)
                 {
-                    SetPhase(MaskSuggestPhase.Error, error: decErr);
+                    SetPhase(MaskSuggestPhase.Error, error: decErr, modelFile: true);
                     return false;
                 }
                 EditorUtility.DisplayProgressBar(

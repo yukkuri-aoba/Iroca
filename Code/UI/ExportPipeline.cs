@@ -100,7 +100,7 @@ namespace Iroca
             byte[] png = ImageConversion.EncodeArrayToPNG(
                 pixels, GraphicsFormat.R8G8B8A8_SRGB, (uint)width, (uint)height);
             if (png == null || png.Length == 0)
-                throw new System.Exception("EncodeArrayToPNG が空のデータを返しました");
+                throw new System.Exception(Localization.ExportPngEncodeEmpty);
             return png;
         }
 
