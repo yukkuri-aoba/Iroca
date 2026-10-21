@@ -204,6 +204,45 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void Recolor_Png_RefusesToReplaceAnExistingFileUnlessOverwrite()
+        {
+            // 既定の出力先は「適用して保存」の既定名と同じ。前に書いた画像は、overwrite が無ければ置き換えない。
+            string src = Halves();
+            var first = RecolorOk(Request(src, "png", "[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]"));
+            byte[] written = File.ReadAllBytes(first.output);
+            string again = "[{\"from\":\"#C81E1E\",\"to\":\"#FFAA00\"}]";
+            RecolorFails(Request(src, "png", again), "already exists");
+            CollectionAssert.AreEqual(written, File.ReadAllBytes(first.output), "断ったときは書かないこと");
+
+            var replaced = RecolorOk(Request(src, "png", again, ",\"overwrite\":true"));
+            Assert.AreEqual(first.output, replaced.output);
+            CollectionAssert.AreNotEqual(written, File.ReadAllBytes(first.output));
+
+            // 元テクスチャ自身は overwrite があっても書かない。
+            RecolorFails(Request(src, "png", again, ",\"output\":\"" + src + "\",\"overwrite\":true"), "must differ from the source");
+        }
+
+        [TestCase("Packages/iroca_automation_test_out.png")]
+        [TestCase("ProjectSettings/iroca_automation_test_out.png")]
+        [TestCase("Library/iroca_automation_test_out.png")]
+        [TestCase("iroca_automation_test_out.png")]
+        public void Recolor_Png_WritesOnlyUnderAssets(string output)
+        {
+            string src = Halves();
+            RecolorFails(Request(src, "png", "[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]", ",\"output\":\"" + output + "\""),
+                "under Assets/");
+            Assert.IsFalse(File.Exists(TestAssets.Abs(output)));
+        }
+
+        private static void RecolorFails(string request, string error)
+        {
+            string json = IrocaAutomation.Recolor(request);
+            var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
+            Assert.IsFalse(r.ok, json);
+            StringAssert.Contains(error, r.error);
+        }
+
+        [Test]
         public void Recolor_Avatar_RegistersRecipeAndReplacesZoneOfSameName()
         {
             if (NdmfSupport.State != NdmfSupportState.Supported) Assert.Ignore("NDMF が使えないホストでは登録を断る(AvatarApplyBlocked で見る)");

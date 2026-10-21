@@ -178,7 +178,7 @@ namespace Iroca
                         + "（target なしでシーンのアバター一覧、シーンのオブジェクトで使っているテクスチャ、テクスチャで主な色と代表点）",
                     "Recolor(requestJson) -> { ok, texture, apply, avatar, recipe, output, preview, zones, warnings } か "
                         + "{ pending:true }（依頼 JSON: texture, changes:[{name, at:[u,v] | from, to}], remove, reset, preset, "
-                        + "apply=avatar|png|preview, avatar, output, autoTune）",
+                        + "apply=avatar|png|preview, avatar, output, overwrite, autoTune）",
                     "RecolorStatus() -> pending を返した Recolor の続き（終わるまで pending、終われば Recolor と同じ形）",
                     "Open(target) -> { ok, texture, recipe }（いろかの窓で開く。target はレシピ・テクスチャ・マテリアル・シーンのオブジェクト）",
                     "ListPresets() -> { presets:[{name,path,scope}] }",

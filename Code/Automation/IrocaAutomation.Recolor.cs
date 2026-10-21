@@ -28,8 +28,10 @@ namespace Iroca
             public string apply = ApplyAvatar;
             // 登録先のシーンのオブジェクト(既定: そのテクスチャを使っているレンダラーの共通の親)
             public string avatar = "";
-            // png の出力先(既定: 元と同じフォルダの <名前>_recolored.png)
+            // png の出力先(Assets/ の下の .png。既定: 元と同じフォルダの <名前>_recolored.png)
             public string output = "";
+            // true なら、png の出力先に既にあるファイルを置き換える(既定は断る)
+            public bool overwrite;
             // true(既定)なら、changes で作った・置き換えたゾーンに UI と同じ自動調整をかける
             public bool autoTune = true;
         }
@@ -169,6 +171,8 @@ namespace Iroca
             // 作業解像度で読んだ画素が、書き出しで読む元の解像度の画素と同じか(書き出しで読み直さなくてよいか)。
             public bool workIsFullResolution;
             public GameObject target;
+            // png の出力先(絶対パス。依頼の時点で確かめてある)
+            public string outAbs;
             public IrocaRecipe recipe;
             public IrocaSessionState state;
             public readonly List<string> changedZoneIds = new List<string>();
@@ -248,6 +252,13 @@ namespace Iroca
             if (kind == ExportPipeline.SourceKind.Unavailable)
                 return "could not read the pixels (enable Read/Write in the import settings, or use a PNG/JPG source).";
             job.workIsFullResolution = IsFullResolution(kind, tex, job.w, job.h);
+
+            // ── png の出力先(自動調整を待つ前に断れるものは断る) ──
+            if (r.apply == ApplyPng)
+            {
+                string outError = ResolvePngOutput(req, r.texture, out job.outAbs);
+                if (outError != null) return outError;
+            }
 
             // ── 登録先と土台 ──
             if (r.apply == ApplyAvatar)
@@ -356,7 +367,9 @@ namespace Iroca
             // ── 反映 ──
             if (r.apply == ApplyPng)
             {
-                string outPath = string.IsNullOrWhiteSpace(job.req.output) ? ExportPipeline.BatchOutputPath(r.texture) : job.req.output;
+                // 自動調整を待つ間に、出力先へ別の書き出しがされていることがある。書く直前にもう一度確かめる。
+                string outError = ResolvePngOutput(job.req, r.texture, out string outPath);
+                if (outError != null) return FinishRecolor(r, outError);
                 if (job.workIsFullResolution)
                 {
                     // 作業解像度の画素が元の解像度の画素そのものなら、比較画像のために色替えした after が書き出す画素
@@ -438,6 +451,36 @@ namespace Iroca
             if (!(AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(tex)) is TextureImporter ti)) return false;
             ti.GetSourceTextureWidthAndHeight(out int fw, out int fh);
             return fw == w && fh == h;
+        }
+
+        /// <summary>
+        /// apply='png' の出力先を決めて確かめる。エラーなら文言、よければ null と出力先の絶対パス。
+        /// 書くのは Assets/ の下の .png だけ(Packages/・Library/・ProjectSettings/ などへは書かない)。
+        /// 既にファイルがあれば、依頼に overwrite が無い限り断る。既定の出力先は「適用して保存」の既定と同じ名前なので、
+        /// 前に書き出してマテリアルに差している画像を黙って置き換えると、それを使うアバターの見た目まで変わる
+        /// (UI の書き出しは同じ場面で確認を出す)。元テクスチャ自身は overwrite があっても断る。
+        /// </summary>
+        private static string ResolvePngOutput(RecolorRequest req, string texturePath, out string outAbs)
+        {
+            bool given = !string.IsNullOrWhiteSpace(req.output);
+            string path = given ? req.output.Trim() : ExportPipeline.BatchOutputPath(texturePath);
+            outAbs = ResolveOutputPath(path);
+            string rel = outAbs != null ? PathUtils.ToAssetsRelativeOrNull(outAbs) : null;
+            if (rel == null)
+            {
+                outAbs = null;
+                return given
+                    ? $"'output' must be a .png path under Assets/: {req.output}"
+                    : $"the default output ({path}) is outside Assets/; pass 'output' (a .png path under Assets/).";
+            }
+            string srcAbs = PhysicalPath(texturePath);
+            if (srcAbs != null && string.Equals(outAbs, srcAbs, StringComparison.OrdinalIgnoreCase))
+                return "output must differ from the source texture "
+                     + $"(recoloring in place would destroy the original irreversibly): {rel}";
+            if (!req.overwrite && File.Exists(outAbs))
+                return $"{rel} already exists (materials or avatars may use it). Ask the user before replacing it, "
+                     + "then call again with overwrite:true; or pass another 'output'.";
+            return null;
         }
 
         // 1 件の変更をゾーンにする。エラーなら文言、成功なら null。

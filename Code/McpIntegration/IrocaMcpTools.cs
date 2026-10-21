@@ -88,8 +88,11 @@ namespace Iroca.McpIntegration
             [ToolParameter("Scene object to register on (default: the object using the texture).", Required = false)]
             public string avatar { get; set; }
 
-            [ToolParameter("Output PNG path for apply='png' (default: <texture>_recolored.png next to the texture).", Required = false)]
+            [ToolParameter("Output PNG path under Assets/ for apply='png' (default: <texture>_recolored.png next to the texture).", Required = false)]
             public string output { get; set; }
+
+            [ToolParameter("true = replace an existing file at the PNG output (default false: refuse). Ask the user first.", Required = false)]
+            public bool? overwrite { get; set; }
 
             [ToolParameter("false = skip auto-tune and keep the initial settings of new zones (default true).", Required = false)]
             public bool? autoTune { get; set; }
