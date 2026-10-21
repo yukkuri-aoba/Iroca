@@ -105,6 +105,28 @@ namespace Iroca.EditorTests
             Assert.IsFalse(Blocks(NdmfSupportState.Missing, playMode: true), "再生（アップロードではない）で止めた");
         }
 
+        [Test]
+        public void Upload_IsNotStoppedByRecolorsLeftUnderEditorOnly()
+        {
+            // EditorOnly タグの付いたオブジェクト(とその下)は VRChat SDK が外すのでアップロードされない。
+            // そこに残った「Iroca Recolor」では止めない。
+            var avatar = Track(new GameObject("avatar"));
+            var spare = new GameObject("spare");
+            spare.transform.SetParent(avatar.transform, false);
+            spare.tag = "EditorOnly";
+            var child = new GameObject("outfit");
+            child.transform.SetParent(spare.transform, false);
+            var recipe = Track(ScriptableObject.CreateInstance<IrocaRecipe>());
+            recipe.sourceTexture = Track(new Texture2D(4, 4));
+            child.AddComponent<IrocaRecolor>().recipes.Add(recipe);
+
+            Assert.IsFalse(NdmfSupport.ShouldBlockUpload(avatar, NdmfSupportState.Missing, false, out _),
+                "EditorOnly の下(アップロードされない)の部品で止めた");
+            spare.tag = "Untagged";
+            Assert.IsTrue(NdmfSupport.ShouldBlockUpload(avatar, NdmfSupportState.Missing, false, out _),
+                "アップロードされる部品なのに止めていない");
+        }
+
         private static Type FindType(string fullName) =>
             AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetType(fullName)).FirstOrDefault(t => t != null);
 

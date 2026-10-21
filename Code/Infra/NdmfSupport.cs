@@ -37,16 +37,28 @@ namespace Iroca
 
         /// <summary>
         /// アバターに、NDMF が無いと色替えされないもの(元テクスチャのあるレシピを持つ <see cref="IrocaRecolor"/>)が
-        /// あるか。レシピが空のコンポーネントは、NDMF があっても何も変えないので数えない。
+        /// あるか。レシピが空のコンポーネントは、NDMF があっても何も変えないので数えない。EditorOnly タグの付いた
+        /// オブジェクトとその下にあるものも、アップロードされない(VRChat SDK が外す)ので数えない。
         /// </summary>
         public static bool HasRecolorToApply(GameObject avatar)
         {
             if (avatar == null) return false;
             foreach (var component in avatar.GetComponentsInChildren<IrocaRecolor>(true))
             {
-                if (component.recipes == null) continue;
+                if (component.recipes == null || IsEditorOnly(component.transform, avatar.transform)) continue;
                 foreach (var recipe in component.recipes)
                     if (recipe != null && recipe.sourceTexture != null) return true;
+            }
+            return false;
+        }
+
+        // t か、avatar までのその親に EditorOnly タグが付いているか。
+        private static bool IsEditorOnly(Transform t, Transform avatar)
+        {
+            for (; t != null; t = t.parent)
+            {
+                if (t.CompareTag("EditorOnly")) return true;
+                if (t == avatar) break;
             }
             return false;
         }
