@@ -62,6 +62,16 @@ def test_native_memory_selftest(harness):
         f"最終行が ALL PASS ではありません:\n{r.stdout}")
 
 
+def test_mask_codec_selftest(harness):
+    """保存形式のマスクの書き込み・展開。展開で中身の同じマスクは前の配列をそのまま使い、違うものは展開し直す。"""
+    r = _run(harness, "--maskcodecselftest")
+    lines = r.stdout.splitlines()
+    assert r.returncode == 0, (
+        f"--maskcodecselftest が失敗 (exit={r.returncode}):\n{r.stdout}\n{r.stderr}")
+    assert lines and lines[-1] == "MASKCODECSELFTEST ALL PASS", (
+        f"最終行が ALL PASS ではありません:\n{r.stdout}")
+
+
 # ─────────────── AA 遷移包含: クロップ実行と全画像実行の一致 ───────────────
 _N = 1024          # 全体より小さいクロップ矩形が取れる大きさ（帯幅 d=3、パディング 15d）
 _RADIUS = 60.0
