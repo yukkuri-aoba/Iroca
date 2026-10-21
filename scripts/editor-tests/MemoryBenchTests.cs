@@ -67,7 +67,29 @@ namespace Iroca.EditorTests
         private static readonly PropertyInfo s_irocaNativeBytes =
             typeof(PixelProcessor).Assembly.GetType("Iroca.IrocaNativeMemory")?.GetProperty("LiveBytes", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
 
-        private static string Sample(string name, string phase, int step, double ms, double gcMs = 0, string hash = null)
+        // 直前の ProcessPixelsArray の段ごとの時間(このスレッドで出たレポート)。20ms 以上の段だけを "名前=ms,…" で返す。
+        // 2 手目(選択キャッシュに当たる手)の遅れがどの段で出ているかを、基準と変更後で比べるため。
+        private static string TakeSubPhases()
+        {
+            var r = DebugCaptureHooks.TakeThreadPerfReport();
+            if (r == null) return null;
+            var sb = new StringBuilder();
+            void Add(PhasePerfEntry[] es, string prefix)
+            {
+                if (es == null) return;
+                foreach (var e in es)
+                {
+                    if (e.TotalMs < 20) continue;
+                    if (sb.Length > 0) sb.Append(',');
+                    sb.Append(prefix).Append(e.Name).Append('=').Append(e.TotalMs.ToString("F0", System.Globalization.CultureInfo.InvariantCulture));
+                }
+            }
+            Add(r.Phases, "");
+            Add(r.SubPhases, "s.");
+            return sb.ToString();
+        }
+
+        private static string Sample(string name, string phase, int step, double ms, double gcMs = 0, string hash = null, string sub = null)
         {
             GetProcessMemoryInfo(GetCurrentProcess(), out var c, (uint)Marshal.SizeOf<ProcessMemoryCounters>());
             var inv = System.Globalization.CultureInfo.InvariantCulture;
@@ -78,7 +100,8 @@ namespace Iroca.EditorTests
                    $"\"irocaNative\":{irocaNative},\"gcCount\":{GC.CollectionCount(0)}," +
                    $"\"private\":{(long)c.PagefileUsage.ToUInt64() / MB},\"peakPrivate\":{(long)c.PeakPagefileUsage.ToUInt64() / MB}," +
                    $"\"ws\":{(long)c.WorkingSetSize.ToUInt64() / MB},\"peakWs\":{(long)c.PeakWorkingSetSize.ToUInt64() / MB}" +
-                   (hash != null ? $",\"hash\":\"{hash}\"" : "") + "}";
+                   (hash != null ? $",\"hash\":\"{hash}\"" : "") +
+                   (sub != null ? $",\"sub\":\"{sub}\"" : "") + "}";
         }
 
         // 出力の指紋(FNV-1a 64 を画素単位で)。基準と変更後で Mono の出力が同じかを、8K でも確かめるため。
@@ -322,6 +345,7 @@ namespace Iroca.EditorTests
                         else pixels = (Color32[])src.Clone();
                         PixelProcessor.ProcessPixelsArray(pixels, w, h, null, zones, settings,
                             CancellationToken.None, selectionCache: selectionCache);
+                        string sub = TakeSubPhases();
                         if (cfg.reuseOutput && heldOutput != null) retiredOutput = heldOutput;
                         heldOutput = pixels;
                         double ms = sw.Elapsed.TotalMilliseconds, gcMs = 0;
@@ -331,7 +355,7 @@ namespace Iroca.EditorTests
                             GC.Collect();
                             gcMs = gw.Elapsed.TotalMilliseconds;
                         }
-                        sb.Append(Sample(c.name, "step", k, ms, gcMs, cfg.hashOutput ? HashPixels(pixels, src.Length) : null)).Append('\n');
+                        sb.Append(Sample(c.name, "step", k, ms, gcMs, cfg.hashOutput ? HashPixels(pixels, src.Length) : null, sub)).Append('\n');
 
                         if (k == c.exportAfterStep)
                         {
