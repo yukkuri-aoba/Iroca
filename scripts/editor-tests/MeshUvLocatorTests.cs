@@ -119,6 +119,30 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void PrefabCandidatesAreFilteredByDependencies()
+        {
+            // 素材フォルダの Prefab は、読み込む前に依存でこのテクスチャ(か書き出し物)を使うものだけに絞る
+            var tex = Tex("tex");
+            var exported = Tex("tex_recolored");
+            var other = Tex("other");
+            var mesh = TwoQuads();
+            AssetDatabase.CreateAsset(mesh, _assets.Folder + "/mesh.asset");
+            var go = SceneObject(mesh, MaterialWith(tex, "mat"));
+            PrefabUtility.SaveAsPrefabAsset(go, _assets.Folder + "/uses.prefab");
+            go.GetComponent<MeshRenderer>().sharedMaterial = MaterialWith(exported, "mat_exported");
+            PrefabUtility.SaveAsPrefabAsset(go, _assets.Folder + "/uses_export.prefab");
+            go.GetComponent<MeshRenderer>().sharedMaterial = MaterialWith(other, "mat_other");
+            PrefabUtility.SaveAsPrefabAsset(go, _assets.Folder + "/other.prefab");
+            Object.DestroyImmediate(_sceneObject);
+            _sceneObject = null;
+
+            var paths = MeshUvLocator.PrefabsUsing(
+                MeshUvLocator.AssetRoot(AssetDatabase.GetAssetPath(tex)), MeshUvLocator.TargetTextures(tex));
+            CollectionAssert.AreEquivalent(
+                new[] { _assets.Folder + "/uses.prefab", _assets.Folder + "/uses_export.prefab" }, paths);
+        }
+
+        [Test]
         public void ManualObjectWithoutReferenceReturnsAllSubmeshesUnmatched()
         {
             var tex = Tex("tex");
