@@ -107,8 +107,8 @@ namespace Iroca
             ? "Read/Write を有効にする"
             : "Enable Read/Write";
         public static string EnableReadWriteConfirm => IsJapanese
-            ? "このテクスチャのインポート設定で Read/Write を有効にします。\nこの変更は Undo できません。続けますか？"
-            : "This turns on Read/Write in the texture's import settings.\nThis cannot be undone. Continue?";
+            ? "このテクスチャのインポート設定で Read/Write を有効にします。\n・このテクスチャを使うすべての場所に効きます。\n・実行時のメモリが増えます（いろかで色替えしたテクスチャも、読み書きできるままアップロードされます）。\n・不要になったら Inspector で Read/Write を外せます（外すと、いろかでは読めなくなります）。\nこの変更は Undo できません。続けますか？"
+            : "This turns on Read/Write in the texture's import settings.\n- It applies everywhere this texture is used.\n- It uses more memory at runtime (textures recolored by Iroca are also uploaded with Read/Write on).\n- When you no longer need it, you can turn Read/Write off in the Inspector (Iroca then cannot read the texture).\nThis cannot be undone. Continue?";
         // {0}×{1} = 元画像の寸法、{2} = 使うメモリの目安(GB)、{3} = この PC の搭載メモリ(GB)。
         // 作業解像度も元画像のまま(取り込み設定の Max Size が元画像以上)のとき。
         public static string LargeSourceNoticeFormat => IsJapanese
