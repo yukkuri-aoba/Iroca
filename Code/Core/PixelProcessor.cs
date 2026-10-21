@@ -1686,12 +1686,29 @@ namespace Iroca
             int dstW, int dstH, float scale)
             => BoxDownsampleRegion(src, srcW, 0, 0, srcW, srcH, dstW, dstH, scale);
 
+        /// <summary><see cref="BoxDownsample(Color32[], int, int, int, int, float)"/> のポインタ版(src は srcW*srcH 画素)。</summary>
+        public static Color32[] BoxDownsample(Color32* src, int srcW, int srcH,
+            int dstW, int dstH, float scale)
+            => BoxDownsampleRegion(src, (long)srcW * srcH, srcW, 0, 0, srcW, srcH, dstW, dstH, scale);
+
         /// <summary>
         /// <see cref="BoxDownsample"/> の、src の一部(左下 (x0, y0)・regionW×regionH、1 行 srcStride 画素)を
         /// 切り出してから縮小したのと同じ結果を、切り出しの配列を作らずに返す。拡大表示のクロップが
         /// フル解像度の出力から直接縮小するのに使う(4K の 125% 表示でクロップ 1 枚 ~43MB の複製を避ける)。
         /// </summary>
         public static Color32[] BoxDownsampleRegion(Color32[] src, int srcStride, int x0, int y0,
+            int regionW, int regionH, int dstW, int dstH, float scale)
+        {
+            if (src == null) throw new System.ArgumentNullException(nameof(src));
+            fixed (Color32* p = src)
+                return BoxDownsampleRegion(p, src.Length, srcStride, x0, y0, regionW, regionH, dstW, dstH, scale);
+        }
+
+        /// <summary>
+        /// <see cref="BoxDownsampleRegion(Color32[], int, int, int, int, int, int, int, float)"/> のポインタ版。
+        /// srcLength は src の画素数(読む範囲がその中に収まるかを確かめる)。
+        /// </summary>
+        public static Color32[] BoxDownsampleRegion(Color32* src, long srcLength, int srcStride, int x0, int y0,
             int regionW, int regionH, int dstW, int dstH, float scale)
         {
             // scale と dst 寸法の整合を呼び出し側の契約に丸投げしており、不整合だと
@@ -1705,9 +1722,9 @@ namespace Iroca
             if (x0 < 0 || y0 < 0 || x0 + srcW > srcStride)
                 throw new System.ArgumentOutOfRangeException(nameof(x0),
                     $"invalid region: origin=({x0},{y0}) size={srcW}x{srcH} stride={srcStride}");
-            if (src.Length < (long)(y0 + srcH - 1) * srcStride + x0 + srcW)
+            if (srcLength < (long)(y0 + srcH - 1) * srcStride + x0 + srcW)
                 throw new System.ArgumentException(
-                    $"src.Length({src.Length}) < region end({(long)(y0 + srcH - 1) * srcStride + x0 + srcW})", nameof(src));
+                    $"src.Length({srcLength}) < region end({(long)(y0 + srcH - 1) * srcStride + x0 + srcW})", nameof(src));
 
             Color32[] dst = new Color32[dstW * dstH];
             // 合計値が int の範囲を超えないように long を使用。

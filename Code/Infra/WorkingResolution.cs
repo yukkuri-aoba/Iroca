@@ -81,6 +81,57 @@ namespace Iroca
             return ResizeArea(decoded.GetPixels32(), fw, fh, w, h);
         }
 
+        /// <summary>
+        /// <see cref="PixelsOf"/> と同じ画素を、Mono のヒープの外(<see cref="NativePixels"/>。参照 1 で返す)に作る
+        /// (メインスレッド)。プレビューの原本はエディタを開いている間ずっと持つので、管理配列にすると閉じた後も
+        /// その分(4K で 64MB、8K で 256MB)がエディタのメモリに残る。8bit の非圧縮形式はテクスチャの生データから
+        /// 直接書き、管理配列の一時配列も作らない(それ以外の形式は GetPixels32 を経由する)。
+        /// </summary>
+        public static unsafe NativePixels NativePixelsOf(Texture2D decoded, Texture2D imported)
+        {
+            int fw = decoded.width, fh = decoded.height;
+            Size(fw, fh, imported, out int w, out int h);
+            if (!TryLayout(decoded.format, out var layout))
+                return NativePixels.CopyOf(PixelsOf(decoded, imported, out w, out h), w, h);
+            var raw = decoded.GetPixelData<byte>(0);
+            var dst = NativePixels.Allocate(w, h);
+            try
+            {
+                if (w == fw && h == fh) ConvertLayout(raw, layout, fw, fh, dst.Ptr);
+                else ResizeArea(raw, layout, fw, fh, w, h, dst.Ptr);
+            }
+            catch
+            {
+                dst.Release();
+                throw;
+            }
+            return dst;
+        }
+
+        // 縮めないときの写し(GetPixels32 と同じ値。RGBA32 はそのまま写す)。
+        private static unsafe void ConvertLayout(NativeArray<byte> src, Layout layout, int w, int h, Color32* dst)
+        {
+            byte* s = (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(src);
+            long n = (long)w * h;
+            if (layout.bpp == 4 && layout.r == 0 && layout.g == 1 && layout.b == 2 && layout.a == 3)
+            {
+                Buffer.MemoryCopy(s, dst, n * 4, n * 4);
+                return;
+            }
+            int bpp = layout.bpp, ro = layout.r, go = layout.g, bo = layout.b, ao = layout.a;
+            // 呼び出し元(メインスレッド)は返るまで待つので、テクスチャのデータはこの間ずっと読める。
+            Parallel.For(0, h, y =>
+            {
+                byte* row = s + (long)y * w * bpp;
+                Color32* d = dst + (long)y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    byte* p = row + x * bpp;
+                    d[x] = new Color32(p[ro], p[go], p[bo], ao >= 0 ? p[ao] : (byte)255);
+                }
+            });
+        }
+
         // ───────────── 面積平均の縮小 ─────────────
 
         /// <summary>
@@ -140,9 +191,17 @@ namespace Iroca
         /// (<paramref name="layout"/> の並び)から行う。元の行を帯ごとにマネージドの作業配列へ写し、
         /// 出力の行ごとに並列で平均する(結果は行の順に依らない)。NativeArray はメインスレッドでだけ読む。
         /// </summary>
-        internal static Color32[] ResizeArea(NativeArray<byte> src, Layout layout, int sw, int sh, int dw, int dh)
+        internal static unsafe Color32[] ResizeArea(NativeArray<byte> src, Layout layout, int sw, int sh, int dw, int dh)
         {
             var dst = new Color32[dw * dh];
+            fixed (Color32* d = dst) ResizeArea(src, layout, sw, sh, dw, dh, d);
+            return dst;
+        }
+
+        // 上の縮小を、呼び出し側が用意した dw*dh 画素の領域へ書く(プレビューの原本をネイティブへ直接作る)。
+        private static unsafe void ResizeArea(NativeArray<byte> src, Layout layout, int sw, int sh, int dw, int dh,
+            Color32* dst)
+        {
             int rowBytes = sw * layout.bpp;
             int rowsPerDst = (sh + dh - 1) / dh + 1;
             int bandDst = Math.Max(1, Math.Min(dh, BandBytes / Math.Max(1, rowsPerDst * rowBytes)));
@@ -176,11 +235,10 @@ namespace Iroca
                                 n++;
                             }
                         }
-                        dst[y * dw + x] = Average(r, g, b, a, n);
+                        dst[(long)y * dw + x] = Average(r, g, b, a, n);
                     }
                 });
             }
-            return dst;
         }
 
         // 出力の行 y が読む元の行 [y0, y1)。

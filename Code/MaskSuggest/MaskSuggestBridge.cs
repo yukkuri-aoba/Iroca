@@ -67,9 +67,10 @@ namespace Iroca
         /// <summary>
         /// 提案対象のソース画像を設定し、必要なら埋め込み計算を開始する。
         /// cacheKey が前回と同一なら no-op(埋め込みキャッシュ)。
-        /// pixels は下原点(GetPixels32 順)。呼び出し後に配列を書き換えないこと。
+        /// pixels は下原点(GetPixels32 順)。呼び出し後に画素を書き換えないこと。サービスは自分の参照を足して
+        /// 持つ(次のソース・<see cref="CancelAll"/> で返す)ので、呼び出し側の参照はそのまま返してよい。
         /// </summary>
-        void SetSource(string cacheKey, Color32[] pixelsBottomUp, int width, int height);
+        void SetSource(string cacheKey, NativePixels pixelsBottomUp);
 
         /// <summary>
         /// プレビュー UV(下原点)のクリックに対する提案を要求する。推論中に来たクリックは

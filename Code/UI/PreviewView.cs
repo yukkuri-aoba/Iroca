@@ -220,8 +220,9 @@ namespace Iroca
         // 生成することで、テクスチャ切替直後のキャッシュミス時にメインスレッドで走っていた
         // BoxDownsample のヒッチをバックグラウンドへ追い出す。
         // full はフル解像度の処理結果(シーンのアバターへのプレビュー LivePreview へ渡す)。
-        [System.NonSerialized] private readonly PreviewJob<(Color32[] processed, Color32[] raw, Color32[] full)> _previewJob =
-            new PreviewJob<(Color32[] processed, Color32[] raw, Color32[] full)>();
+        // full はフル解像度の出力(Mono のヒープの外。結果を受け取った側が参照を 1 つ持つ)。
+        [System.NonSerialized] private readonly PreviewJob<(Color32[] processed, Color32[] raw, NativePixels full)> _previewJob =
+            new PreviewJob<(Color32[] processed, Color32[] raw, NativePixels full)>();
         // 段階的リファインの第1段。ソースが大きい(scale<1)とき、まず縮小プロキシで概要を即表示する
         // 専用ジョブ。完了 apply で _previewJob(フル解像度)を同一スナップショットでスケジュールする。
         // proxy はソースをプロキシ寸法へ縮小した処理前の画素(_proxySource へ確定する)。
@@ -230,13 +231,11 @@ namespace Iroca
         [System.NonSerialized] private Color32[] _pendingProcessedDisplay;
         [System.NonSerialized] private Color32[] _pendingRawDisplay;
         [System.NonSerialized] private int _pendingPrevW, _pendingPrevH;
-        // 直近に確定したフル段のフル解像度の出力と、その元画素。拡大表示(詳細クロップ)はここから
-        // 切り出す。元画素が変わったら使わない(InvalidateSourceCache / InvalidateFullOutput)。
-        [System.NonSerialized] private Color32[] _fullOutput;
-        [System.NonSerialized] private Color32[] _fullOutputSource;
-        // _fullOutput が使い回しの対象か(縮小表示のテクスチャのフル段の出力だけ。縮小しないテクスチャでは
-        // 同じ配列が表示用・差分ジョブにも渡るので使い回さない)。
-        [System.NonSerialized] private bool _fullOutputRecyclable;
+        // 直近に確定したフル段のフル解像度の出力(参照を 1 つ持つ)と、その元画素(同じ元画素から作ったかを
+        // 見るためだけに覚える。参照は持たない)。拡大表示(詳細クロップ)はここから切り出す。元画素が変わったら
+        // 使わない(InvalidateSourceCache / InvalidateFullOutput)。
+        [System.NonSerialized] private NativePixels _fullOutput;
+        [System.NonSerialized] private NativePixels _fullOutputSource;
         // フル段の出力バッファの使い回し(PreviewOutputBuffers)。置き換えられた前の出力を次のフル段で再利用する。
         [System.NonSerialized] private PreviewOutputBuffers _outputBuffers;
         // 保留中の結果が確定(フル段)か。確定なら拡大表示をすぐ作り直す(ApplyPendingPreview)。
@@ -273,7 +272,8 @@ namespace Iroca
         [System.NonSerialized] private int _pendingDiffW, _pendingDiffH;
 
         [System.NonSerialized] private Texture2D _cachedSourceTexture;
-        [System.NonSerialized] private Color32[] _cachedSrcPixels;
+        // _trueSource と同じものを指す(どの元画素で作ったキャッシュかを見るためだけ。参照は持たない)。
+        [System.NonSerialized] private NativePixels _cachedSrcPixels;
         [System.NonSerialized] private Color32[] _cachedRawDisplay;
         [System.NonSerialized] private int _cachedSrcW, _cachedSrcH;
         [System.NonSerialized] private int _cachedPrevW, _cachedPrevH;
@@ -283,7 +283,7 @@ namespace Iroca
         // このフィールドを触るのはメインスレッド(スケジュール時に読み、apply で確定)だけ。
         private sealed class ProxySourceCache
         {
-            public Color32[] src;        // 縮小元のソース画素(参照で照合する)
+            public NativePixels src;     // 縮小元のソース画素(同じものかを照合するだけ。参照は持たない)
             public int w, h, prevW, prevH;
             public Color32[] proxy;      // プロキシ寸法(処理前)
             public Color32[] display;    // proxy を表示寸法へ縮小したもの(寸法が同じなら proxy と同じ配列)
@@ -306,8 +306,10 @@ namespace Iroca
         // テクスチャの圧縮で劣化した画素ではなく、元ファイルをデコードして作業解像度(既定は取り込み後の寸法)へ
         // 縮めた画素で処理する。非破壊ビルドも同じ画素から作るので、プレビューとシーンの結果が一致する。
         // テクスチャ単位でキャッシュし、取り込み後の寸法か設定が変わったら読み直す(_trueSourceBasis*)。
+        // 画素は Mono のヒープの外に置き(4K で 64MB、8K で 256MB)、ここが参照を 1 つ持つ。別スレッドで読む
+        // ジョブ・AI 提案・自動調整はそれぞれ参照を足して持つので、ここで手放しても読んでいる途中で消えない。
         [System.NonSerialized] private Texture2D _trueSourceFor;
-        [System.NonSerialized] private Color32[] _trueSourcePixels;
+        [System.NonSerialized] private NativePixels _trueSource;
         [System.NonSerialized] private int _trueSourceW, _trueSourceH;
         [System.NonSerialized] private int _trueSourceBasisW, _trueSourceBasisH;
         [System.NonSerialized] private bool _trueSourceBasisAtSource;
@@ -337,16 +339,18 @@ namespace Iroca
         public void InvalidateFullOutput()
         {
             RetireFullOutput();
-            _fullOutput = null;
             _fullOutputSource = null;
         }
 
-        // いまのフル段の出力を使い回しへ回す(置き換える・捨てる直前に呼ぶ)。拡大表示のジョブが切り出し中なら
-        // 印が付いているので、外れるまでは渡されない。
+        // いまのフル段の出力を使い回しへ回し(持っていた参照を渡す)、_fullOutput を空にする。拡大表示のジョブが
+        // 切り出し中・シーンへの反映が保持中なら、それぞれ参照を持っているので、手放されるまでは使い回されない。
         private void RetireFullOutput()
         {
-            if (_fullOutput != null && _fullOutputRecyclable) _outputBuffers?.Retire(_fullOutput);
-            _fullOutputRecyclable = false;
+            var old = _fullOutput;
+            _fullOutput = null;
+            if (old == null) return;
+            if (_outputBuffers != null) _outputBuffers.Retire(old);
+            else old.Release();
         }
 
         // 次回の再生成でプロキシ段(低解像度の概要表示)を使わない 1 回限りのフラグ。
@@ -395,8 +399,7 @@ namespace Iroca
             _cachedSrcW = _cachedSrcH = 0;
             _cachedPrevW = _cachedPrevH = 0;
             _trueSourceFor = null;
-            _trueSourcePixels = null;
-            _trueSourceW = _trueSourceH = 0;
+            DropTrueSource();
             _trueSourceFailedFor = null;
 
             // ソース画素が変わる = キャッシュ済み選択の前提が変わるので選択キャッシュも破棄する。
@@ -413,13 +416,13 @@ namespace Iroca
         /// プレビュー処理用のソース画素を確保する。可能ならディスク上の元ファイルをデコードして
         /// 作業解像度(<see cref="WorkingResolution"/>)にそろえ、PNG/JPG 以外や生成テクスチャ等で
         /// 失敗した場合はインポート済みテクスチャの GetPixels32 にフォールバックする。
-        /// 成功すると <see cref="_trueSourcePixels"/> / <see cref="_trueSourceW"/> /
+        /// 成功すると <see cref="_trueSource"/> / <see cref="_trueSourceW"/> /
         /// <see cref="_trueSourceH"/> が有効になる。
         /// </summary>
         private bool EnsureTrueSource(Texture2D tex)
         {
             if (tex == null) return false;
-            if (_trueSourceFor == tex && _trueSourcePixels != null)
+            if (_trueSourceFor == tex && _trueSource != null)
             {
                 if (_trueSourceBasisW == tex.width && _trueSourceBasisH == tex.height
                     && _trueSourceBasisAtSource == WorkingResolution.AtSourceResolution) return true;
@@ -433,6 +436,9 @@ namespace Iroca
             // ファイル読み込みとデコードを試すことになる。あとで Read/Write を有効にすれば
             // IsReadable が true へ変わるため、そのときは覚えた失敗を無視して取り直す。
             if (_trueSourceFailedFor == tex && !IrocaWindow.IsReadable(tex)) return false;
+            // 別のテクスチャの画素を持ったまま読み直す(SwitchSourceTexture を通らない切り替え)ときは、古い画素を
+            // 指したままのジョブ・キャッシュ・ドラッグの追従の入力も捨てる(手放した画素へ参照を足しに行かないように)。
+            if (_trueSource != null && _trueSourceFor != tex) InvalidateSourceCache();
 
             string path = AssetDatabase.GetAssetPath(tex);
             if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
@@ -444,7 +450,7 @@ namespace Iroca
                     tmp = new Texture2D(2, 2, TextureFormat.RGBA32, false);
                     if (tmp.LoadImage(bytes))
                     {
-                        _trueSourcePixels = WorkingResolution.PixelsOf(tmp, tex, out _trueSourceW, out _trueSourceH);
+                        SetTrueSource(WorkingResolution.NativePixelsOf(tmp, tex));
                         _trueSourceFor = tex;
                         _trueSourceFailedFor = null;
                         RememberTrueSourceBasis(tex, fromFile: true);
@@ -467,13 +473,29 @@ namespace Iroca
                 _trueSourceFailedFor = tex;
                 return false;
             }
-            _trueSourcePixels = tex.GetPixels32();
-            _trueSourceW = tex.width;
-            _trueSourceH = tex.height;
+            SetTrueSource(NativePixels.CopyOf(tex.GetPixels32(), tex.width, tex.height));
             _trueSourceFor = tex;
             _trueSourceFailedFor = null;
             RememberTrueSourceBasis(tex, fromFile: false);
             return true;
+        }
+
+        // 処理用の画素を差し替える(前の画素の参照を返し、新しい画素の参照を持つ)。
+        private void SetTrueSource(NativePixels pixels)
+        {
+            DropTrueSource();
+            _trueSource = pixels;
+            _trueSourceW = pixels.Width;
+            _trueSourceH = pixels.Height;
+        }
+
+        // 処理用の画素の参照を返す。読んでいる途中のジョブは自分の参照を持っているので、ここで返しても消えない。
+        private void DropTrueSource()
+        {
+            var old = _trueSource;
+            _trueSource = null;
+            _trueSourceW = _trueSourceH = 0;
+            old?.Release();
         }
 
         // 作業解像度を決めた前提(取り込み後の寸法と設定)を覚える。変わったら EnsureTrueSource が読み直す。
@@ -486,7 +508,7 @@ namespace Iroca
         }
 
         /// <summary>直近に確保した処理用の画素が、元ファイルをデコードしたものか(取り込み済みテクスチャではなく)。</summary>
-        public bool TrueSourceFromFile => _trueSourcePixels != null && _trueSourceFromFile;
+        public bool TrueSourceFromFile => _trueSource != null && _trueSourceFromFile;
 
         /// <summary>
         /// このテクスチャから処理用の画素を取れるか（原本ファイルのデコード、または
@@ -499,15 +521,17 @@ namespace Iroca
 
         /// <summary>
         /// 自動調整など他ビューが、プレビューと同一の true source 画素(作業解像度)で解析する
-        /// ための読み取り専用アクセサ。返す配列は内部キャッシュの共有インスタンスなので、
-        /// 呼び出し側は書き換えないこと（プレビュージョブ側も clone してから処理する規約）。
+        /// ための読み取り専用アクセサ。返すのは内部キャッシュの共有インスタンス(参照は足さない)なので、
+        /// 呼び出し側は書き換えないこと。メインスレッドの外や後で読むなら、呼び出し側が
+        /// <see cref="NativePixels.AddRef"/> して持ち、読み終えたら Release すること(テクスチャの切り替え・
+        /// ウィンドウを閉じたときに、ここが持つ参照は手放される)。
         /// 取得不能（元ファイル読込失敗 かつ 非 Readable）なら false。
         /// </summary>
-        public bool TryGetTrueSourcePixels(Texture2D tex, out Color32[] pixels, out int w, out int h)
+        public bool TryGetTrueSourcePixels(Texture2D tex, out NativePixels pixels, out int w, out int h)
         {
             if (EnsureTrueSource(tex))
             {
-                pixels = _trueSourcePixels;
+                pixels = _trueSource;
                 w = _trueSourceW;
                 h = _trueSourceH;
                 return true;
@@ -528,7 +552,12 @@ namespace Iroca
 
         public void Suspend()
         {
-            CancelJobsAndDropPending();
+            // ジョブを止め、プレビューの原本・確定段の出力・使い回しのバッファ(Mono のヒープの外。4K で 1 本 64MB)を
+            // 手放す。閉じる・リロードの前に呼ばれるので、ここで返せば OS へ戻る。開き直したら Draw が読み直す。
+            InvalidateSourceCache();
+            // 止めたジョブが後から返してくる出力も、置かずにすぐ手放す。開き直したら Initialize が作り直す。
+            _outputBuffers?.Close();
+            _outputBuffers = null;
             // 選択キャッシュ(ゾーンごとに 4K で 64MB・8K で 256MB)はネイティブメモリなので、閉じる・リロードの前に
             // ここで解放すれば OS へ戻る。取り消した計算が後から Store しても残らない(Dispose 済みは保存しない)。
             // 開き直したときは Initialize が作り直す。
@@ -713,9 +742,8 @@ namespace Iroca
                 {
                     var latency = _detailView.TakeLatencyFor(_detailView.lastDetailDirtyTime, srcW, srcH);
                     _detailView.lastDetailDirtyTime = 0;
-                    var processedFull = ReferenceEquals(_fullOutputSource, _trueSourcePixels) ? _fullOutput : null;
-                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, _trueSourcePixels, processedFull, scale, effZoom, _previewScrollPos, _detailView.lastViewportW, _detailView.lastViewportH, latency,
-                        _outputBuffers);
+                    var processedFull = ReferenceEquals(_fullOutputSource, _trueSource) ? _fullOutput : null;
+                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, _trueSource, processedFull, scale, effZoom, _previewScrollPos, _detailView.lastViewportW, _detailView.lastViewportH, latency);
                 }
                 else if (_detailView.lastDetailDirtyTime > 0 || _detailView.detailJob.IsRunning)
                 {

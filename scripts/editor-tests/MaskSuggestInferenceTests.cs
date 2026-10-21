@@ -72,7 +72,9 @@ namespace Iroca.EditorTests
             Assert.IsTrue(svc.TryEnsureModels(), $"モデルのロード失敗: {svc.ErrorMessage}");
             Assert.AreEqual(MaskSuggestPhase.Idle, svc.Phase, svc.ErrorMessage);
 
-            svc.SetSource(sourceKey, DiscImage(), Size, Size);
+            var src = NativePixels.CopyOf(DiscImage(), Size, Size);
+            svc.SetSource(sourceKey, src);
+            src.Release();   // サービスが自分の参照を持つ
             // エンコード完了の直後にデコーダーの暖機（捨て推論）が Decoding 表示で 1 回走るので、
             // Encoding が終わっただけでなく Idle に戻るまで待つ。
             yield return WaitFor(

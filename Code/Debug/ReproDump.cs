@@ -82,7 +82,7 @@ namespace Iroca.DebugTools
             string dir = Path.Combine(baseDir, $"iroca_repro_{DateTime.Now:yyyyMMdd_HHmmss}");
             Directory.CreateDirectory(dir);
 
-            DebugImaging.WritePng(Path.Combine(dir, "texture.png"), px, w, h);
+            DebugImaging.WritePng(Path.Combine(dir, "texture.png"), px.ToArray(), w, h);
 
             var zones = new List<ColorZone>();
             foreach (var z in win.Session.zones)

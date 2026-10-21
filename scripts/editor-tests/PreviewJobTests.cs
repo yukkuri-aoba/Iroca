@@ -122,5 +122,85 @@ namespace Iroca.EditorTests
                 Assert.AreEqual(7, applied);
             }
         }
+
+        // 後始末(cleanup)は、計算した・始まる前に取り消された・例外で終わった、のどれでも 1 回ずつ走る
+        // (ジョブが読むために足した NativePixels の参照を返す所なので、取りこぼすと Mono のヒープの外に残る)。
+        // 計算は済んだが apply しなかった結果は discard に渡る。
+        [Test]
+        public void CleanupRunsOnceForEveryScheduleAndStaleResultsAreDiscarded()
+        {
+            using (var job = new PreviewJob<int>())
+            using (var started = new ManualResetEventSlim())
+            using (var release = new ManualResetEventSlim())
+            {
+                int cleanups = 0, applied = 0;
+                var discarded = new System.Collections.Concurrent.ConcurrentBag<int>();
+                // 1 本目: 取り消しを無視して最後まで計算する(結果は古くなるので discard へ)。
+                job.Schedule(t => { started.Set(); release.Wait(5000); return 1; }, r => applied = r,
+                    cleanup: () => Interlocked.Increment(ref cleanups), discard: r => discarded.Add(r));
+                Assert.IsTrue(started.Wait(5000), "1 本目が始まらない");
+                // 2 本目: 始まる前に取り消される(計算しない)。
+                job.Schedule(t => 2, r => applied = r,
+                    cleanup: () => Interlocked.Increment(ref cleanups), discard: r => discarded.Add(r));
+                // 3 本目: 例外で終わる。4 本目は 3 本目の後に並ぶので、3 本目も始まる前に取り消される。
+                job.Schedule(t => throw new InvalidOperationException("boom"), r => applied = r,
+                    cleanup: () => Interlocked.Increment(ref cleanups), discard: r => discarded.Add(r));
+                job.Schedule(t => 4, r => applied = r,
+                    cleanup: () => Interlocked.Increment(ref cleanups), discard: r => discarded.Add(r));
+                release.Set();
+
+                PumpUntil(() => Volatile.Read(ref applied) != 0 && Volatile.Read(ref cleanups) == 4);
+                Assert.AreEqual(4, applied, "最後の結果だけが適用される");
+                Assert.AreEqual(4, cleanups, "後始末が予約ごとに 1 回ずつ走っていない");
+                CollectionAssert.AreEquivalent(new[] { 1 }, discarded.ToArray(), "古くなった結果が discard に渡っていない");
+            }
+        }
+
+        // 破棄済みのジョブへの予約は計算しないが、後始末は呼ぶ(呼び出し側が足した参照を返すため)。
+        [Test]
+        public void ScheduleAfterDisposeStillRunsCleanup()
+        {
+            var job = new PreviewJob<int>();
+            job.Dispose();
+            int cleanups = 0, applied = 0;
+            job.Schedule(t => 1, r => applied = r, cleanup: () => cleanups++);
+            PreviewJobMainThread.Drain();
+            Assert.AreEqual(1, cleanups);
+            Assert.AreEqual(0, applied);
+        }
+
+        // 使い回しの出力バッファは、プールだけが参照を持っているもの(参照 1)しか渡さない。
+        // 拡大表示の切り出し中・シーンへの反映中のもの(ほかの持ち主がいる)は渡さず、閉じたら全部手放す。
+        [Test]
+        public void OutputBuffersHandOutOnlyUnsharedBuffersAndReleaseOnClear()
+        {
+            long before = IrocaNativeMemory.LiveBytes;
+            var buffers = new PreviewOutputBuffers();
+            var a = NativePixels.Allocate(8, 8);
+            var held = a.AddRef();               // ほかの持ち主(切り出し中のジョブなど)
+            buffers.Retire(a);                    // プールへ(参照を渡す)
+            Assert.IsNull(buffers.Take(8, 8), "ほかに持ち主がいるのに渡した");
+            held.Release();
+            Assert.IsNull(buffers.Take(4, 4), "寸法が違うのに渡した");
+            var got = buffers.Take(8, 8);
+            Assert.AreSame(a, got, "持ち主がいなくなったのに渡さない");
+            Assert.AreEqual(1, got.RefCount);
+
+            // 置くのは 1 本まで(2 本目を置くと古い方を手放す)。
+            var b = NativePixels.Allocate(8, 8);
+            buffers.Retire(got);
+            buffers.Retire(b);
+            Assert.AreEqual(0, a.RefCount, "古い方を手放していない");
+            buffers.Clear();
+            Assert.AreEqual(0, b.RefCount, "Clear で手放していない");
+
+            // 閉じた後に(止めたジョブから)戻ってきたものは置かずに手放す。
+            var c = NativePixels.Allocate(8, 8);
+            buffers.Close();
+            buffers.Retire(c);
+            Assert.AreEqual(0, c.RefCount, "閉じた後に置いた");
+            Assert.IsNull(buffers.Take(8, 8));
+            Assert.AreEqual(before, IrocaNativeMemory.LiveBytes, "ネイティブメモリが残った");
+        }
     }
 }
