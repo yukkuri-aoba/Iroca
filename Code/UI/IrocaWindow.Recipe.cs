@@ -375,6 +375,13 @@ namespace Iroca
         internal void RegisterToAvatar()
         {
             if (sourceTexture == null) return;
+            // Play 中に付けたコンポーネントは Play を止めると消え、書き出した画像から元へ戻したマテリアル(アセット)
+            // だけが残る。
+            if (EditorApplication.isPlayingOrWillChangePlaymode)
+            {
+                EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterInPlayMode, Localization.OK);
+                return;
+            }
             if (SessionRecolor.CountEnabled(_session?.zones) == 0)
             {
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterNoZones, Localization.OK);

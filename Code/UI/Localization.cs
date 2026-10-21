@@ -1220,6 +1220,9 @@ namespace Iroca
         public static string RegisterNotInScene => IsJapanese
             ? "選んでいるのはシーン上のオブジェクトではありません。Hierarchy で選び直してください。"
             : "The selection is not an object in the scene. Select one in the Hierarchy.";
+        public static string RegisterInPlayMode => IsJapanese
+            ? "Play 中は登録できません（Play を止めると、付けた「Iroca Recolor」が消えます）。Play を止めてから押してください。"
+            : "You cannot register in Play mode (the added \"Iroca Recolor\" would be removed when Play mode ends). Stop Play mode and try again.";
         public static string RegisterConfirmFormat => IsJapanese
             ? "「{0}」とその子のマテリアルのうち「{1}」を使っている所を、再生・アップロード時に色替えします。元のテクスチャとマテリアルは変わりません。\n\nレシピ: {2}"
             : "Materials under \"{0}\" that use \"{1}\" will be recolored when entering Play mode or uploading. The original texture and materials are not changed.\n\nRecipe: {2}";
