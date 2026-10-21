@@ -76,7 +76,8 @@ namespace Iroca
                     catch (Exception ex) { Debug.LogWarning($"[Iroca] Mask backup failed: {ex.Message}"); }
                 }
                 state.schemaVersion = MaskState.CurrentSchemaVersion;
-                AtomicFile.WriteAllText(path, JsonUtility.ToJson(state));
+                // 自動保存は編集のたびに来るが、マスクが変わっていなければファイルは同じ中身のまま(書かない)。
+                AtomicFile.WriteAllTextIfChanged(path, JsonUtility.ToJson(state));
                 return true;
             }
             catch (Exception ex)

@@ -40,6 +40,10 @@
 .PARAMETER KernelBench
     ループの書き方の速さ比べ（KernelBenchTests、Category "Kernel"）だけを回す。結果は出力フォルダの kernel.jsonl。
 
+.PARAMETER UndoBench
+    編集状態を Undo に記録する手間と自動保存の各段の時間（UndoBenchTests、Category "UndoBench"）だけを回す。
+    結果は出力フォルダの undo.jsonl。
+
 .PARAMETER DebugCodeOptimization
     Unity を Debug の最適化モード（-debugCodeOptimization）で起動する。Mono のインライン展開が止まる状態での速さを見るとき。
 
@@ -62,6 +66,7 @@ param(
     [switch]$Graphics,
     [switch]$AllowForeignCode,
     [switch]$KernelBench,
+    [switch]$UndoBench,
     [switch]$DebugCodeOptimization
 )
 
@@ -173,6 +178,15 @@ if ($KernelBench) {
 } else {
     Remove-Item Env:IROCA_KERNEL_REPORT -ErrorAction SilentlyContinue
 }
+# Undo の記録と自動保存の時間は UndoBench カテゴリだけを回す（普段のテストでは IROCA_UNDO_BENCH_REPORT が無いので Ignore になる）。
+$undoReport = Join-Path $outDir 'undo.jsonl'
+if ($UndoBench) {
+    if ($PerfCases -or $MemCases -or $HiResCases -or $KernelBench) { throw "-UndoBench は -PerfCases / -MemCases / -HiResCases / -KernelBench と同時に指定できません" }
+    $env:IROCA_UNDO_BENCH_REPORT = $undoReport
+    $unityArgs += @('-testCategory', 'UndoBench')
+} else {
+    Remove-Item Env:IROCA_UNDO_BENCH_REPORT -ErrorAction SilentlyContinue
+}
 if ($DebugCodeOptimization) { $unityArgs += '-debugCodeOptimization' }
 Write-Host "Unity を batchmode で起動します（結果: $outDir）…"
 try {
@@ -205,6 +219,9 @@ if ($MemCases -and (Test-Path $memReport)) {
 }
 if ($KernelBench -and (Test-Path $kernelReport)) {
     Write-Host "ループの書き方の速さ比べの結果: $kernelReport"
+}
+if ($UndoBench -and (Test-Path $undoReport)) {
+    Write-Host "Undo の記録と自動保存の時間: $undoReport"
 }
 if ($HiResCases -and (Test-Path $hiresReport)) {
     Write-Host "大きなテクスチャの通し確認の結果: $hiresReport"

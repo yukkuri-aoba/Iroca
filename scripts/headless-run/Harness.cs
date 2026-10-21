@@ -343,6 +343,11 @@ namespace Iroca
             if (args.Length >= 1 && args[0] == "--nativememselftest")
                 return RunNativeMemorySelfTest();
 
+            // --maskcodecselftest: 入力画像不要。保存形式のマスクの書き込み・展開と、展開のときに中身の同じマスクは
+            // 前の配列をそのまま使う規則(Undo/Redo の書き戻し)を確かめる。
+            if (args.Length >= 1 && args[0] == "--maskcodecselftest")
+                return RunMaskCodecSelfTest();
+
             // --samops-*: AI マスク提案の純計算層(SamImageOps/SamCoordMapper/SamMaskPostprocess/
             // MaskRle)を実 C# で駆動し、pytest の NumPy リファレンスと突き合わせる決定的検証モード。
             if (args.Length >= 1 && args[0].StartsWith("--samops-", StringComparison.Ordinal))
@@ -1094,6 +1099,88 @@ namespace Iroca
             return fails == 0 ? 0 : 4;
         }
 
+        /// <summary>
+        /// --maskcodecselftest: 保存形式のマスク(MaskStateCodec)の書き込みと展開。展開に前の配列(previous)を渡すと、
+        /// 中身の同じマスクはその配列を返し、違うもの・寸法の違うものは展開し直すこと(Undo/Redo の書き戻し)。
+        /// </summary>
+        private static int RunMaskCodecSelfTest()
+        {
+            int fails = 0;
+            void Check(bool cond, string label)
+            {
+                Console.WriteLine($"MASKCODECSELFTEST {(cond ? "PASS" : "FAIL")} {label}");
+                if (!cond) fails++;
+            }
+            bool Same(bool[] a, bool[] b)
+            {
+                if (a == null || b == null) return a == b;
+                if (a.Length != b.Length) return false;
+                for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+                return true;
+            }
+            // 2^18 画素以上(符号化を区間ごとに並列にする大きさ)。
+            const int W = 640, H = 480;
+            bool[] Disc(int cx, int cy, int r)
+            {
+                var m = new bool[W * H];
+                for (int y = 0; y < H; y++)
+                    for (int x = 0; x < W; x++)
+                        m[y * W + x] = (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r;
+                return m;
+            }
+
+            var common = Disc(100, 100, 40);
+            var zones = new Dictionary<string, bool[]> { ["a"] = Disc(300, 200, 60), ["b"] = Disc(500, 300, 30), ["empty"] = new bool[W * H] };
+            var includes = new Dictionary<string, bool[]> { ["a"] = Disc(320, 220, 10) };
+            var ms = new MaskState();
+            MaskStateCodec.Encode(ms, W, H, common, zones, includes);
+            Check(!string.IsNullOrEmpty(ms.commonMaskBase64), "common is written");
+            Check(ms.zones.Count == 2 && ms.zoneIncludes.Count == 1, $"all-false zone is not written (zones={ms.zones.Count}, includes={ms.zoneIncludes.Count})");
+            var msEmpty = new MaskState();
+            MaskStateCodec.Encode(msEmpty, W, H, new bool[W * H], null, null);
+            Check(msEmpty.commonMaskBase64 == "", "all-false common is an empty string");
+
+            // 1) previous なし: 全部を新しい配列へ展開する。
+            var z1 = new Dictionary<string, bool[]>();
+            var i1 = new Dictionary<string, bool[]>();
+            bool ok1 = MaskStateCodec.Decode(ms, out int w1, out int h1, out bool[] c1, z1, i1);
+            Check(ok1 && w1 == W && h1 == H, "decode without previous");
+            Check(Same(c1, common) && !ReferenceEquals(c1, common), "common decoded into a new array");
+            Check(z1.Count == 2 && Same(z1["a"], zones["a"]) && Same(z1["b"], zones["b"]), "zones decoded");
+            Check(i1.Count == 1 && Same(i1["a"], includes["a"]), "include decoded");
+
+            // 2) Undo で b だけが保存形式の中身(半径 30)に戻る想定。今の b は半径 45。
+            var bNow = Disc(500, 300, 45);
+            var bNowCopy = (bool[])bNow.Clone();
+            var prev = new MaskStateCodec.Previous
+            {
+                width = W, height = H, common = common,
+                zones = new Dictionary<string, bool[]> { ["a"] = zones["a"], ["b"] = bNow, ["gone"] = Disc(10, 10, 5) },
+                includes = new Dictionary<string, bool[]> { ["a"] = includes["a"] },
+            };
+            var z2 = new Dictionary<string, bool[]>();
+            var i2 = new Dictionary<string, bool[]>();
+            MaskStateCodec.Decode(ms, out _, out _, out bool[] c2, z2, i2, prev);
+            Check(ReferenceEquals(c2, common), "unchanged common keeps the previous array");
+            Check(ReferenceEquals(z2["a"], zones["a"]), "unchanged zone keeps the previous array");
+            Check(ReferenceEquals(i2["a"], includes["a"]), "unchanged include keeps the previous array");
+            Check(!ReferenceEquals(z2["b"], bNow) && Same(z2["b"], zones["b"]), "changed zone is decoded from the state");
+            Check(Same(bNow, bNowCopy), "the previous array of the changed zone is not written");
+            Check(!z2.ContainsKey("gone"), "a zone missing from the state is not kept");
+
+            // 3) 寸法が違う previous は使わない(長さが同じでも画素の並びが違う)。
+            var msT = new MaskState();
+            var flat = Disc(200, 150, 50);
+            MaskStateCodec.Encode(msT, H, W, flat, null, null);   // 縦横を入れ替えた寸法で同じ配列を書く
+            var prevT = new MaskStateCodec.Previous { width = W, height = H, common = flat };
+            MaskStateCodec.Decode(msT, out int wT, out int hT, out bool[] cT, new Dictionary<string, bool[]>(),
+                new Dictionary<string, bool[]>(), prevT);
+            Check(wT == H && hT == W && !ReferenceEquals(cT, flat) && Same(cT, flat), "previous with other dimensions is not used");
+
+            Console.WriteLine(fails == 0 ? "MASKCODECSELFTEST ALL PASS" : $"MASKCODECSELFTEST {fails} FAILED");
+            return fails == 0 ? 0 : 4;
+        }
+
         // 対象フィールドを「必ず元と異なる値」に書き換える。未知の型は false。
         private static bool TryPerturbField(ColorZone z, System.Reflection.FieldInfo f)
         {
@@ -1517,12 +1604,22 @@ namespace Iroca
                     return 0;
                 }
 
-                // --samops-rle <mask.raw> <encoded.txt> : エンコード文字列を書き出し、往復一致を自己検証
+                // --samops-rle <mask.raw> <encoded.txt> [threads] : エンコード文字列を書き出し、往復一致を自己検証。
+                // threads を渡すと並列度をその値にする(大きいマスクは区間に分けて並列にエンコードするので、継ぎ目の検証用)。
                 case "--samops-rle":
                 {
+                    if (args.Length >= 4) DebugCaptureHooks.ParallelismOverride = int.Parse(args[3], inv);
                     var (w, h, mask) = ReadMaskRaw(args[1]);
                     string encoded = MaskRle.Encode(mask, w, h);
                     File.WriteAllText(args[2], encoded);
+                    // 保存の経路(MaskStateCodec)が使う EncodeIfAny: 全 false なら null、それ以外は Encode と同じ文字列。
+                    bool any = Array.IndexOf(mask, true) >= 0;
+                    string ifAny = MaskRle.EncodeIfAny(mask, w, h);
+                    if (any ? ifAny != encoded : ifAny != null)
+                    {
+                        Console.Error.WriteLine("RLE FAIL EncodeIfAny");
+                        return 1;
+                    }
                     bool[] back = MaskRle.Decode(encoded, out int dw, out int dh);
                     if (back == null || dw != w || dh != h)
                     {
@@ -1531,7 +1628,7 @@ namespace Iroca
                     }
                     for (int i = 0; i < mask.Length; i++)
                         if (mask[i] != back[i]) { Console.Error.WriteLine($"RLE FAIL at {i}"); return 1; }
-                    Console.WriteLine($"RLE OK {w}x{h} len={encoded.Length}");
+                    Console.WriteLine($"RLE OK {w}x{h} len={encoded.Length} any={(any ? 1 : 0)}");
                     return 0;
                 }
 

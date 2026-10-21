@@ -94,8 +94,7 @@ namespace Iroca
             var recipe = BoundRecipe;
             if (recipe == null || _session == null) return;
             // 読めないレシピ(新しい版で作られた等)は上書きしない。
-            if (!string.IsNullOrEmpty(recipe.sessionJson) && RecipeStore.Load(recipe) == null) return;
-            RecipeStore.Save(recipe, _session);
+            RecipeStore.SaveUnlessUnreadable(recipe, _session);
         }
 
         /// <summary>

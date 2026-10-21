@@ -22,6 +22,34 @@ namespace Iroca
             => Write(path, tmp => WriteAndFlush(tmp, Utf8NoBom.GetBytes(contents)));
 
         /// <summary>
+        /// <see cref="WriteAllText"/> と同じだが、ファイルが既に同じ中身(同じバイト列)なら書かずに false を返す。
+        /// 自動保存は編集が止まるたびに全部の保存先へ書いていたが、中身が変わっていない保存先も多い
+        /// (色だけ変えたときのマスクなど)。書くと一時ファイル・デバイスへの書き切り(Flush(true))・置換が
+        /// メインスレッドで走るので、読んで比べる方が安い。読めなかったときは書く(従来どおり)。
+        /// </summary>
+        public static bool WriteAllTextIfChanged(string path, string contents)
+        {
+            byte[] bytes = Utf8NoBom.GetBytes(contents);
+            if (HasSameBytes(path, bytes)) return false;
+            Write(path, tmp => WriteAndFlush(tmp, bytes));
+            return true;
+        }
+
+        private static bool HasSameBytes(string path, byte[] bytes)
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                if (!info.Exists || info.Length != bytes.Length) return false;
+                return File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// <paramref name="path"/> へバイト列をアトミックに書き込む。
         /// 失敗時は例外を伝播する（既存ファイルは無傷、書きかけの一時ファイルは削除）。
         /// エクスポート PNG のように「書き潰す相手が元テクスチャそのもの」であり得る用途では、

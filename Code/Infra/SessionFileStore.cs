@@ -85,7 +85,8 @@ namespace Iroca
                     }
                     catch (Exception ex) { Debug.LogWarning($"[Iroca] Session backup failed: {ex.Message}"); }
                 }
-                AtomicFile.WriteAllText(path, JsonUtility.ToJson(state));
+                // 中身が変わっていなければ書かない(自動保存はマスクだけ・何も変わらない編集でも来る)。
+                AtomicFile.WriteAllTextIfChanged(path, JsonUtility.ToJson(state));
                 return true;
             }
             catch (Exception ex)
