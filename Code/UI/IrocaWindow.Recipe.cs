@@ -437,9 +437,17 @@ namespace Iroca
             var exportUsers = RecipeRegistration.MaterialsUsing(target, exports);
             int switchable = 0;
             foreach (var m in exportUsers) if (RecipeRegistration.IsEditableMaterial(m)) switchable++;
-            var message = string.Format(Localization.RegisterConfirmFormat, target.name, sourceTexture.name, recipeLabel);
+            // 戻すのは .mat そのものなので、登録先の外で同じマテリアルを使っている所も元の色に戻る。開いているシーンで
+            // 数えて知らせ、それらは戻さずに登録することもできるようにする。
+            var shared = RecipeRegistration.UsedOutside(target, exportUsers, out int sharedPlaces);
+            // 冒頭の「マテリアルは変わりません」は、戻すマテリアルがあるときは正しくない。
+            var message = string.Format(switchable > 0 ? Localization.RegisterConfirmSwitchFormat : Localization.RegisterConfirmFormat,
+                target.name, sourceTexture.name, recipeLabel);
             if (switchable > 0)
                 message += "\n\n" + string.Format(Localization.RegisterSwitchExportsFormat, switchable, sourceTexture.name);
+            if (shared.Count > 0)
+                message += "\n\n" + string.Format(Localization.RegisterSharedExportsFormat, shared.Count, sharedPlaces,
+                    Localization.RegisterKeepShared);
             if (exportUsers.Count > switchable)
                 message += "\n\n" + string.Format(Localization.RegisterLockedExportsFormat, exportUsers.Count - switchable);
             if (components >= 2)
@@ -449,9 +457,14 @@ namespace Iroca
             if (replaced != null)
                 message += "\n\n" + string.Format(Localization.RegisterReplaceFormat, sourceTexture.name,
                     AssetDatabase.GetAssetPath(replaced));
-            if (!EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, message,
-                    Localization.RegisterOk, Localization.Cancel))
-                return;
+            // 0 = 登録、1 = キャンセル(閉じたときも)、2 = 共有のマテリアルは戻さずに登録。
+            int choice = shared.Count > 0
+                ? EditorUtility.DisplayDialogComplex(Localization.RegisterNonDestructive, message,
+                    Localization.RegisterOk, Localization.Cancel, Localization.RegisterKeepShared)
+                : EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, message,
+                    Localization.RegisterOk, Localization.Cancel) ? 0 : 1;
+            if (choice == 1) return;
+            if (choice == 2) exportUsers.RemoveAll(shared.Contains);
 
             // 作業用マスクを state へ同期してからレシピへ書く(マスク込みで保存される)。
             _maskView?.SyncBuffersToState();

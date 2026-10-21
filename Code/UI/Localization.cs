@@ -1226,6 +1226,10 @@ namespace Iroca
         public static string RegisterConfirmFormat => IsJapanese
             ? "「{0}」とその子のマテリアルのうち「{1}」を使っている所を、再生・アップロード時に色替えします。元のテクスチャとマテリアルは変わりません。\n\nレシピ: {2}"
             : "Materials under \"{0}\" that use \"{1}\" will be recolored when entering Play mode or uploading. The original texture and materials are not changed.\n\nRecipe: {2}";
+        // 書き出した画像を元のテクスチャへ戻すマテリアルがあるとき（マテリアルは変わる）。
+        public static string RegisterConfirmSwitchFormat => IsJapanese
+            ? "「{0}」とその子のマテリアルのうち「{1}」を使っている所を、再生・アップロード時に色替えします。元のテクスチャは変わりません。マテリアルは、下の書き出した画像を元のテクスチャへ戻す分だけ書き換えます。\n\nレシピ: {2}"
+            : "Materials under \"{0}\" that use \"{1}\" will be recolored when entering Play mode or uploading. The original texture is not changed. Materials are changed only to switch the exported image back to the original texture (below).\n\nRecipe: {2}";
         public static string RegisterAddToExisting => IsJapanese
             ? "このオブジェクトにある「Iroca Recolor」にレシピを足します（コンポーネントは増えません）。"
             : "The recipe is added to the \"Iroca Recolor\" already on this object (no new component).";
@@ -1236,8 +1240,13 @@ namespace Iroca
             ? "このオブジェクトにある「{0}」の別のレシピ（{1}）は、このレシピに置き換えます。"
             : "The other recipe for \"{0}\" on this object ({1}) is replaced with this one.";
         public static string RegisterSwitchExportsFormat => IsJapanese
-            ? "「適用して保存」で書き出した画像を使っているマテリアル {0} 個を、元のテクスチャ「{1}」に戻します（非破壊の色替えは元のテクスチャを探すため。Ctrl+Z で戻せます）。"
-            : "{0} material(s) that use an image exported with \"Apply & Save\" are switched back to the original texture \"{1}\" (non-destructive recoloring looks for the original texture. Ctrl+Z restores them).";
+            ? "「適用して保存」で書き出した画像を使っているマテリアル {0} 個を、元のテクスチャ「{1}」に戻します（非破壊の色替えは元のテクスチャを探すため。Ctrl+Z で戻せます）。マテリアルのファイルを書き換えるので、ほかのシーンやプレハブで同じマテリアルを使っている所も元の色に戻ります。"
+            : "{0} material(s) that use an image exported with \"Apply & Save\" are switched back to the original texture \"{1}\" (non-destructive recoloring looks for the original texture. Ctrl+Z restores them). The material files themselves are changed, so other scenes or prefabs that use the same materials also go back to the original colors.";
+        // {0} = 登録先の外でも使われているマテリアルの数、{1} = それを使っている登録先の外の Renderer の数、{2} = 戻さないボタンの名前。
+        public static string RegisterSharedExportsFormat => IsJapanese
+            ? "このうち {0} 個は、開いているシーンで登録先の外の {1} か所でも使われていて、そちらも元の色に戻ります。戻さないときは「{2}」を押してください（そのマテリアルには非破壊の色替えが効きません）。"
+            : "{0} of them are also used in {1} place(s) outside the target in the open scenes, which also go back to the original colors. To leave them as they are, press \"{2}\" (the non-destructive recolor does not apply to those materials).";
+        public static string RegisterKeepShared => IsJapanese ? "共有の分は戻さずに登録" : "Register, keep shared";
         public static string RegisterLockedExportsFormat => IsJapanese
             ? "書き出した画像を使っているマテリアルのうち {0} 個は、書き換えられない場所（FBX の中・パッケージ）にあるのでそのままです。"
             : "{0} material(s) that use an exported image are in places that cannot be changed (inside an FBX or a package), so they are left as they are.";

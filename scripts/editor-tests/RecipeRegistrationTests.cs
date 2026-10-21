@@ -197,6 +197,37 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void UsedOutside_FindsMaterialsSharedWithObjectsOutsideTheTarget()
+        {
+            // 書き出した画像から元へ戻すのは .mat そのものなので、登録先の外で同じマテリアルを使う所も元の色に戻る。
+            var assets = TestAssets.Create();
+            try
+            {
+                var px = TestAssets.Solid(4, 4, new Color32(200, 40, 40, 255));
+                var exported = AssetDatabase.LoadAssetAtPath<Texture2D>(assets.WritePng("costume_recolored", px, 4, 4));
+                var sharedMat = new Material(Shader.Find("Standard")) { mainTexture = exported };
+                AssetDatabase.CreateAsset(sharedMat, assets.Folder + "/shared.mat");
+                var ownMat = new Material(Shader.Find("Standard")) { mainTexture = exported };
+                AssetDatabase.CreateAsset(ownMat, assets.Folder + "/own.mat");
+
+                var a = Avatar();
+                var aMesh = Track(new GameObject("a_mesh"));
+                aMesh.transform.SetParent(a.transform, false);
+                aMesh.AddComponent<MeshRenderer>().sharedMaterials = new[] { sharedMat, ownMat };
+                var other = Track(new GameObject("other"));
+                other.AddComponent<MeshRenderer>().sharedMaterial = sharedMat;
+
+                var shared = RecipeRegistration.UsedOutside(a, new[] { sharedMat, ownMat }, out int places);
+                CollectionAssert.AreEqual(new[] { sharedMat }, shared, "範囲の外でも使うマテリアルを見分けていない");
+                Assert.AreEqual(1, places);
+            }
+            finally
+            {
+                assets.Dispose();
+            }
+        }
+
+        [Test]
         public void SuggestTarget_DoesNotPickAParentOutsideTheAvatars()
         {
             // 同じ衣装を着た 2 体を空のオブジェクトの下にまとめていると、共通の親はアバターの外になる。そこに付けると、

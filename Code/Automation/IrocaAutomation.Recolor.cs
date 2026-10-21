@@ -465,8 +465,22 @@ namespace Iroca
                 Undo.SetCurrentGroupName(UndoName);
                 var exports = RecipeRegistration.ExportsOf(tex);
                 var exportUsers = RecipeRegistration.MaterialsUsing(job.target, exports);
+                // 戻すのは .mat そのもの。登録先の外(開いているシーン)でも使われているマテリアルは、ほかのアバターまで
+                // 元の色に戻るので書き換えない(窓の登録と違い、確認画面が無い)。パス付きで知らせる。
+                var shared = RecipeRegistration.UsedOutside(job.target, exportUsers, out _);
+                exportUsers.RemoveAll(shared.Contains);
                 int switched = RecipeRegistration.SwitchToSource(exportUsers, tex, exports);
-                if (switched > 0) r.warnings.Add($"switched {switched} material(s) from the exported image back to the source texture.");
+                if (switched > 0)
+                    r.warnings.Add($"switched {switched} material(s) from the exported image back to the source texture. "
+                        + "The material files themselves were changed, so other scenes or prefabs that use them also show the source texture.");
+                foreach (var m in shared)
+                {
+                    string label = AssetDatabase.GetAssetPath(m);
+                    if (string.IsNullOrEmpty(label)) label = m.name;
+                    r.warnings.Add($"left {label} on the exported image: it is also used outside '{r.avatar}' in the open scenes, "
+                        + "and switching it back would change those objects too. The recolor does not apply to it until it uses "
+                        + "the source texture (switch it in the Inspector, or give this avatar its own material).");
+                }
                 RecipeRegistration.Attach(job.target, recipe);
                 if (recipe == job.recipe)
                 {

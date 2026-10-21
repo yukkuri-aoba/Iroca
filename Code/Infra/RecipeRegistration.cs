@@ -173,6 +173,35 @@ namespace Iroca
             return found;
         }
 
+        /// <summary>
+        /// <paramref name="materials"/> のうち書き換えられるもの(<see cref="IsEditableMaterial"/>)で、<paramref name="scope"/> の
+        /// 外(開いているシーンのほかの Renderer)でも使われているもの。<paramref name="places"/> = それらを使っている
+        /// 範囲外の Renderer の数。書き出した画像から元へ戻すと .mat ごと書き換わり、そちらも元の色に戻るので、
+        /// 戻す前に知らせるのに使う。開いていないシーンやプロジェクトの Prefab は数えない(全部の逆引きは重い)。
+        /// </summary>
+        internal static List<Material> UsedOutside(GameObject scope, IEnumerable<Material> materials, out int places)
+        {
+            places = 0;
+            var shared = new List<Material>();
+            var candidates = new HashSet<Material>();
+            foreach (var m in materials)
+                if (IsEditableMaterial(m)) candidates.Add(m);
+            if (scope == null || candidates.Count == 0) return shared;
+            var scopeRoot = scope.transform;
+            foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (!IsSceneObject(r.gameObject) || r.transform.IsChildOf(scopeRoot)) continue;
+                bool counted = false;
+                foreach (var m in r.sharedMaterials)
+                {
+                    if (m == null || !candidates.Contains(m)) continue;
+                    if (!shared.Contains(m)) shared.Add(m);
+                    if (!counted) { places++; counted = true; }
+                }
+            }
+            return shared;
+        }
+
         /// <summary>開いているシーン全体で、<paramref name="exports"/> のどれかを使っているマテリアルの数。</summary>
         internal static int CountSceneMaterialsUsing(HashSet<Texture> exports)
         {
