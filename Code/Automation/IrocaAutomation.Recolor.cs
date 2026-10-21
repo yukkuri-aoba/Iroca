@@ -335,7 +335,7 @@ namespace Iroca
             // ── 登録先と土台 ──
             if (r.apply == ApplyAvatar)
             {
-                string blocked = AvatarApplyBlocked(EditorApplication.isPlayingOrWillChangePlaymode, NdmfSupport.State);
+                string blocked = AvatarApplyBlocked(EditorApplication.isPlayingOrWillChangePlaymode, NdmfStateForApply);
                 if (blocked != null) return blocked;
                 if (!string.IsNullOrWhiteSpace(req.avatar))
                 {
@@ -442,7 +442,7 @@ namespace Iroca
             if (r.apply == ApplyAvatar)
             {
                 // 自動調整を待つ間に Play に入っていたら登録しない(依頼の時点と同じ判定)。
-                string blocked = AvatarApplyBlocked(EditorApplication.isPlayingOrWillChangePlaymode, NdmfSupport.State);
+                string blocked = AvatarApplyBlocked(EditorApplication.isPlayingOrWillChangePlaymode, NdmfStateForApply);
                 if (blocked != null) return FinishRecolor(r, blocked);
                 string edited = job.waited ? EditedWhileWaiting(job) : null;
                 if (edited != null)
@@ -657,6 +657,13 @@ namespace Iroca
         }
 
         private const string UndoName = "Iroca: Recolor (automation)";
+
+        // EditMode テストだけが立てる。NDMF の無いホストでも登録の経路（レシピ・コンポーネント・Undo）を確かめられるよう、
+        // NDMF の判定だけを「使える」とみなす。製品のコードからは立てない。
+        internal static bool AssumeNdmfForTests;
+
+        private static NdmfSupportState NdmfStateForApply =>
+            AssumeNdmfForTests ? NdmfSupportState.Supported : NdmfSupport.State;
 
         /// <summary>
         /// apply='avatar'(アバターへの登録)ができない理由。できるなら null。

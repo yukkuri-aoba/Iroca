@@ -21,12 +21,19 @@ namespace Iroca.EditorTests
         private TestAssets _assets;
 
         [SetUp]
-        public void SetUp() => _assets = TestAssets.Create();
+        public void SetUp()
+        {
+            _assets = TestAssets.Create();
+            // 登録（apply=avatar）は NDMF が使えないと断る。NDMF の無いホストでも登録の経路を確かめるため、
+            // 判定だけを使えるとみなす（断る判定そのものは AvatarApplyBlocked_InPlayModeOrWithoutNdmf で見る）。
+            IrocaAutomation.AssumeNdmfForTests = true;
+        }
 
         [TearDown]
         public void TearDown()
         {
             IrocaAutomation.CancelRecolorJob();   // 待ちのまま落ちたテストの依頼を、次のテストへ持ち越さない
+            IrocaAutomation.AssumeNdmfForTests = false;
             _assets?.Dispose();
         }
 
@@ -294,7 +301,6 @@ namespace Iroca.EditorTests
         [Test]
         public void Recolor_Avatar_RegistersRecipeAndReplacesZoneOfSameName()
         {
-            if (NdmfSupport.State != NdmfSupportState.Supported) Assert.Ignore("NDMF が使えないホストでは登録を断る(AvatarApplyBlocked で見る)");
             string src = Halves();
             var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
             bool hadRecipeFolder = UnityEditor.AssetDatabase.IsValidFolder(RecipeStore.DefaultFolder);
@@ -343,7 +349,6 @@ namespace Iroca.EditorTests
         public void Recolor_Avatar_UndoRestoresTheRecipeEvenWithoutTheWindow()
         {
             // 窓を開いていなくても、登録済みのレシピの書き換えは Ctrl+Z(Undo)で戻る。
-            if (NdmfSupport.State != NdmfSupportState.Supported) Assert.Ignore("NDMF が使えないホストでは登録を断る");
             string src = Halves();
             var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
             bool hadRecipeFolder = UnityEditor.AssetDatabase.IsValidFolder(RecipeStore.DefaultFolder);
@@ -381,7 +386,6 @@ namespace Iroca.EditorTests
         public IEnumerator Recolor_Avatar_RecipeEditedWhileWaiting_IsNotOverwritten()
         {
             // 自動調整を待つ間にレシピが編集された(窓の自動保存など)ら、仕上げで上書きせずにやめて、呼び直すよう伝える。
-            if (NdmfSupport.State != NdmfSupportState.Supported) Assert.Ignore("NDMF が使えないホストでは登録を断る");
             string src = Halves();
             var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
             bool hadRecipeFolder = UnityEditor.AssetDatabase.IsValidFolder(RecipeStore.DefaultFolder);
@@ -436,7 +440,6 @@ namespace Iroca.EditorTests
         {
             // 同じテクスチャを使うアバターが 2 体あり、片方だけ登録済み。もう片方の登録では、そのレシピを流用して
             // 書き換えない(流用すると先のアバターの色も変わる)。新しいレシピを作り、共有先を知らせる。
-            if (NdmfSupport.State != NdmfSupportState.Supported) Assert.Ignore("NDMF が使えないホストでは登録を断る");
             string src = Halves();
             var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
             bool hadRecipeFolder = UnityEditor.AssetDatabase.IsValidFolder(RecipeStore.DefaultFolder);
