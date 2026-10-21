@@ -52,6 +52,8 @@ namespace Iroca
         {
             // 描かれている = 見えている(Scene のクリックを見る条件。IrocaWindow.SceneClick)。
             _windowShown = true;
+            // 入力があったら、別ウィンドウ(プレビュー・マスク編集)に描き直しを知らせる(DrawStamp)。
+            if (MayChangeState(Event.current.type)) BumpUiState();
             // Ctrl+Z / Ctrl+Y は Unity 標準 Undo に統合済みのため、独自処理は不要。
             ProcessPendingZoneChanges();
             PublishLivePreviewTarget();

@@ -107,6 +107,8 @@ namespace Iroca
             titleContent = new GUIContent(Localization.PreviewWindowTitle,
                 // "d_" は付けない(ダークスキンでは IconContent が自動で付ける。IrocaWindow 参照)
                 EditorGUIUtility.IconContent("Image Icon").image);
+            // シリアライズ参照が切れていたら(ドメインリロード・本体の作り直しなど)、既存の本体へつなぎ直す。
+            if (_host == null) _host = IrocaWindow.FindAnyInstance();
         }
 
         /// <summary>
@@ -119,15 +121,24 @@ namespace Iroca
             return _host;
         }
 
+        // 最後に描いた時点の本体の控え(OnInspectorUpdate で、変わったときだけ描き直す)。
+        [System.NonSerialized] private IrocaWindow.DrawStamp _drawn;
+        // 本体を見失っている間に、次に探してよい時刻。
+        [System.NonSerialized] private double _nextHostSearchAt;
+
         private void OnGUI()
         {
             _shown = true;
-            var host = ResolveHost();
+            // 本体は探さない(探すのは OnInspectorUpdate。同じフレームの Layout と Repaint で見え方を変えない)。
+            var host = _host != null ? _host : null;
+            if (Event.current.type == EventType.Repaint) _drawn.Record(host);
             if (host == null)
             {
-                IrocaWindow.DrawMissingHostNotice();
+                if (IrocaWindow.DrawMissingHostNotice()) _nextHostSearchAt = 0;
                 return;
             }
+            // ここでの操作(ペイント・スポイトなど)を、本体ともう 1 つの別ウィンドウ(マスク編集)に知らせる。
+            if (IrocaWindow.MayChangeState(Event.current.type)) host.BumpUiState();
 
             var preview = host.Preview;
             if (preview == null) return;
@@ -151,11 +162,17 @@ namespace Iroca
         }
 
         // プレビュー状態は本体ウィンドウ側の操作（色・設定・マスク変更）で変わるため、
-        // 低頻度ポーリングで表示を追従させる（OnInspectorUpdate は約 10fps）。
+        // 低頻度ポーリング（OnInspectorUpdate は約 10 回/秒）で、本体の状態が最後に描いたときから
+        // 変わっていたら描き直す（IrocaWindow.DrawStamp）。操作していない間は描き直さない。
         // 生成ジョブの進行やパン/ズームの追い再描画は RequestRepaint 経由で即時に届く。
         private void OnInspectorUpdate()
         {
-            Repaint();
+            if (_host == null && EditorApplication.timeSinceStartup >= _nextHostSearchAt)
+            {
+                _nextHostSearchAt = EditorApplication.timeSinceStartup + IrocaWindow.HostSearchIntervalSeconds;
+                _host = IrocaWindow.FindAnyInstance();
+            }
+            if (_drawn.Changed(_host != null ? _host : null)) Repaint();
         }
 
         private void OnDestroy()

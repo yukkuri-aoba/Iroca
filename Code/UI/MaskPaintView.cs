@@ -39,7 +39,17 @@ namespace Iroca
         // マスクオーバーレイ（テクスチャは都度再構築するのでシリアライズ不要）
         [System.NonSerialized] public Texture2D maskOverlayTexture;
         [System.NonSerialized] public Texture2D zoneMaskOverlayTexture;
-        [System.NonSerialized] public bool maskDirty = true;
+        [System.NonSerialized] private bool _maskDirty = true;
+        public bool maskDirty
+        {
+            get => _maskDirty;
+            set
+            {
+                _maskDirty = value;
+                // マスクが変わったら、別ウィンドウ(プレビュー・マスク編集)にも描き直しを知らせる(IrocaWindow.DrawStamp)。
+                if (value) _host?.BumpUiState();
+            }
+        }
 
         // 直近に構築を開始したオーバーレイの寸法(スケジュール時に更新)。テクスチャ実寸では
         // なくこれと比べて再構築要否を判断する: マスクが空だとテクスチャは解放されるので

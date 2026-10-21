@@ -129,7 +129,51 @@ namespace Iroca
         // プレビューが別ウィンドウ(IrocaPreviewWindow)へ切り出されているときは、そちらも
         // 再描画する。PreviewView は自分の実測値の収束・生成ジョブのポーリング・パン/ズームの
         // 反映をこの要求に頼っているため、描画先の窓に届かないと表示が旧フレームで固まる。
-        internal void RequestRepaint() { Repaint(); IrocaPreviewWindow.RepaintIfOpen(); }
+        internal void RequestRepaint() { BumpUiState(); Repaint(); IrocaPreviewWindow.RepaintIfOpen(); }
+
+        // 別ウィンドウ(プレビュー・マスク編集)が「本体の状態が変わったか」を見る版番号。別ウィンドウは
+        // OnInspectorUpdate(約 10 回/秒)でこれを見て、変わったときだけ描き直す(以前は操作しなくても毎回
+        // 描き直していた)。増やすのは、プレビューの作り直しの要求(PreviewView.previewDirty)・マスクの変更
+        // (MaskPaintView.maskDirty)・再描画の要求(RequestRepaint。ジョブの完了・AI の状態の変化・追い
+        // 再描画もここを通る)・いろかのウィンドウへの入力(MayChangeState)。書き出し・自動調整の
+        // 始まりと終わりは、別ウィンドウが IsJobBlockingUI を直接比べる(DrawStamp)。
+        [System.NonSerialized] private int _uiStateVersion;
+
+        internal void BumpUiState() { unchecked { _uiStateVersion++; } }
+
+        /// <summary>状態を変えうる入力か(描画とレイアウト・マウスの移動だけのイベントは除く)。</summary>
+        internal static bool MayChangeState(EventType t) =>
+            t != EventType.Layout && t != EventType.Repaint && t != EventType.Used && t != EventType.Ignore
+            && t != EventType.MouseMove && t != EventType.MouseEnterWindow && t != EventType.MouseLeaveWindow;
+
+        /// <summary>
+        /// 別ウィンドウが最後に描いた時点の本体(と版番号・ジョブ中か)の控え。OnGUI の Repaint のときに
+        /// 描く前に <see cref="Record"/> し、OnInspectorUpdate で <see cref="Changed"/> なら描き直す。
+        /// </summary>
+        internal struct DrawStamp
+        {
+            private IrocaWindow _host;
+            private int _version;
+            private bool _blocking;
+
+            public void Record(IrocaWindow host)
+            {
+                _host = host;
+                _version = host != null ? host._uiStateVersion : 0;
+                _blocking = host != null && host.IsJobBlockingUI;
+            }
+
+            /// <param name="host">いまの本体(無い・破棄済みなら null を渡す)。</param>
+            public bool Changed(IrocaWindow host)
+            {
+                // 破棄された本体も別の物として比べる(Unity の == は破棄済みを null と等しく扱う)。
+                if (!ReferenceEquals(host, _host)) return true;
+                return host != null && (host._uiStateVersion != _version || host.IsJobBlockingUI != _blocking);
+            }
+        }
+
+        // 別ウィンドウが本体を見失っているとき、探し直す間隔(探すのはエディタ内の全オブジェクトの走査)。
+        internal const double HostSearchIntervalSeconds = 1.0;
 
         /// <summary>
         /// ディスク上のソース画素が変わったときに呼ぶ（エクスポートで元ファイルを上書きした等）。
@@ -211,12 +255,15 @@ namespace Iroca
 
         /// <summary>
         /// 別ウィンドウ（プレビュー / マスク編集）で本体が見つからないときの案内と「Iroca を開く」ボタン。
+        /// 押して本体を開いたら true(呼び出し側はすぐ探し直す)。
         /// </summary>
-        internal static void DrawMissingHostNotice()
+        internal static bool DrawMissingHostNotice()
         {
             EditorGUILayout.HelpBox(Localization.BrushPaletteNoHost, MessageType.Info);
-            if (GUILayout.Button(new GUIContent(Localization.OpenIrocaWindow, Localization.OpenIrocaWindowTooltip)))
-                ShowWindow();
+            if (!GUILayout.Button(new GUIContent(Localization.OpenIrocaWindow, Localization.OpenIrocaWindowTooltip)))
+                return false;
+            ShowWindow();
+            return true;
         }
 
         private void OnEnable()

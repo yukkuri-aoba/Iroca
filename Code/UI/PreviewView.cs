@@ -168,6 +168,8 @@ namespace Iroca
                 InputClock.NoteInput(PreviewLatencyCycle.Now);
                 // 編集はどれもここを通るので、自動保存の合図にもする(IrocaWindow.Autosave)。
                 _host?.NoteSessionEdited();
+                // 別ウィンドウ(プレビュー・マスク編集)の描き直しの合図にもする(IrocaWindow.DrawStamp)。
+                _host?.BumpUiState();
             }
         }
         [System.NonSerialized] private PreviewInputClock _inputClock;
