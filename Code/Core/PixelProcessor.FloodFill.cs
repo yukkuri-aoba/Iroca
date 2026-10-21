@@ -329,6 +329,70 @@ namespace Iroca
                 if (runX1 != null) s_intPool.Return(runX1);
                 if (runX0 != null) s_intPool.Return(runX0);
             }
+            DropDetachedTranslucent(strength, px, w, h,
+                seedX >= 0 ? seedX : anchorX, seedX >= 0 ? seedY : anchorY, ct);
+        }
+
+        /// <summary>
+        /// 半透明の選択画素(strength &gt; 0 かつ α &lt; OpaqueAlphaMin)のうち、残った不透明な選択にも
+        /// 指定の位置(シード、無ければスポイト位置)にも 4 近傍で地続きにつながらないものを選択から外す。
+        /// 連結成分は不透明な画素だけで作る(半透明の余白で島どうしがつながらないように)ので、半透明の画素は
+        /// 上のどのゲートも通らずに選ばれたまま残り、別の部位の半透明の重ね(瞳の上の重ね・肌の重ね)を
+        /// 丸ごと塗っていた(2026-10-20、ワンショット p50: 過検出 922 万のうち 49.5 万、肌の過検出の 58%・瞳の 77%)。
+        /// 部位の縁の AA や、残した部位に重なる半透明の層は地続きなので残る。
+        /// </summary>
+        private static void DropDetachedTranslucent(float* strength, Color32* px, int w, int h,
+            int keepX, int keepY, CancellationToken ct)
+        {
+            int len = w * h;
+            int nT = 0;
+            for (int i = 0; i < len; i++)
+                if (strength[i] > 0f && px[i].a < OpaqueAlphaMin) nT++;
+            if (nT == 0) return;
+            bool* reached = s_boolPool.Rent(len);
+            int* stack = s_intPool.Rent(nT);
+            try
+            {
+                for (int i = 0; i < len; i++) reached[i] = false;
+                int sp = 0;
+                bool IsT(int i) => strength[i] > 0f && px[i].a < OpaqueAlphaMin;
+                void Push(int i) { if (!reached[i]) { reached[i] = true; stack[sp++] = i; } }
+                // 種: 残った不透明な選択に 4 近傍で接する半透明の選択画素と、指定位置の半透明の選択画素。
+                for (int y = 0; y < h; y++)
+                {
+                    if ((y & 255) == 0) ct.ThrowIfCancellationRequested();
+                    int rb = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rb + x;
+                        if (!IsT(i)) continue;
+                        bool touch =
+                               (x > 0 && strength[i - 1] > 0f && px[i - 1].a >= OpaqueAlphaMin)
+                            || (x + 1 < w && strength[i + 1] > 0f && px[i + 1].a >= OpaqueAlphaMin)
+                            || (y > 0 && strength[i - w] > 0f && px[i - w].a >= OpaqueAlphaMin)
+                            || (y + 1 < h && strength[i + w] > 0f && px[i + w].a >= OpaqueAlphaMin);
+                        if (touch) Push(i);
+                    }
+                }
+                if (keepX >= 0 && keepX < w && keepY >= 0 && keepY < h && IsT(keepY * w + keepX))
+                    Push(keepY * w + keepX);
+                while (sp > 0)
+                {
+                    int i = stack[--sp];
+                    int x = i % w, y = i / w;
+                    if (x > 0 && IsT(i - 1)) Push(i - 1);
+                    if (x + 1 < w && IsT(i + 1)) Push(i + 1);
+                    if (y > 0 && IsT(i - w)) Push(i - w);
+                    if (y + 1 < h && IsT(i + w)) Push(i + w);
+                }
+                for (int i = 0; i < len; i++)
+                    if (!reached[i] && strength[i] > 0f && px[i].a < OpaqueAlphaMin) strength[i] = 0f;
+            }
+            finally
+            {
+                s_intPool.Return(stack);
+                s_boolPool.Return(reached);
+            }
         }
 
         // フル画像 per-pixel マップ(成分別中央値 L 等)から、クロップ(originX/Y, w×h)に対応する
