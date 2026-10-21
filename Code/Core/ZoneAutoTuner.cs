@@ -14,7 +14,7 @@ namespace Iroca
     /// UI からは IrocaWindow.RunAutoTune() 経由で呼ばれ、結果は TuneResult として返す。
     /// 純粋計算のため、ピクセル配列さえあればバックグラウンドスレッドからも呼べる。
     /// </summary>
-    internal static partial class ZoneAutoTuner
+    internal static unsafe partial class ZoneAutoTuner
     {
         // ── デフォルト値（単一ソース: ColorZone / IrocaSessionState のフィールド初期値） ──
         // 旧実装は const をここへ複製し「同期は手作業」だったが、片側だけ変えると
@@ -170,7 +170,7 @@ namespace Iroca
             public float[] h, s, v;
         }
 
-        private static HsvGrid BuildHsvGrid(Color32[] pixels, int w, int h, CancellationToken ct)
+        private static HsvGrid BuildHsvGrid(Color32* pixels, int w, int h, CancellationToken ct)
         {
             int stride = (w <= 2048) ? 1 : 2;
             int gw = (w + stride - 1) / stride, gh = (h + stride - 1) / stride;
@@ -215,6 +215,21 @@ namespace Iroca
             bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
             Action<float> report = null)
         {
+            // 長さが足りない配列は渡さない(ヒューリスティック既定だけを返す。ポインタ版は長さを確かめられない)。
+            if (pixels != null && pixels.Length < (long)width * height) pixels = null;
+            fixed (Color32* p = pixels)
+                return Analyze(p, width, height, zone, session, excluded, maskW, maskH, ct, report);
+        }
+
+        /// <summary>
+        /// <see cref="Analyze(Color32[],int,int,ColorZone,IrocaSessionState,bool[],int,int,CancellationToken,System.Action{float})"/> の
+        /// ポインタ版(Mono のヒープの外に置いた画素を写さずに読む)。pixels は width*height 画素以上を、解析が返るまで保つこと。
+        /// </summary>
+        public static TuneResult Analyze(Color32* pixels, int width, int height,
+            ColorZone zone, IrocaSessionState session,
+            bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
+            Action<float> report = null)
+        {
             // 進捗は「解析ステップの通過点」を単調増加で報告する。各ステップの実時間は
             // テクスチャ次第で読めないため、割合はステップ数ベースの目安。null 可(テスト等)。
             void Progress(float v) { report?.Invoke(v); }
@@ -222,8 +237,7 @@ namespace Iroca
             var result = BuildHeuristicDefault(zone);
 
             bool canAnalyze = pixels != null
-                && width >= MinTextureDim && height >= MinTextureDim
-                && pixels.Length >= width * height;
+                && width >= MinTextureDim && height >= MinTextureDim;
             if (canAnalyze)
             {
                 // 解析は最大 15 回前後の全画面走査で数百 ms かかる。各ステップ間でキャンセルを確認し、
@@ -317,7 +331,7 @@ namespace Iroca
         /// (VerifyBrightSheenRecall)の拡張を封印する(打ち切りと拡張が相殺し隣接パーツを再び巻き込むのを防ぐ)。
         /// </param>
         /// <param name="vConnHiBin">トーン連結域の V 上端 bin(明部ツヤ救済の上限に使う)。-1=未確定。</param>
-        private static void DeriveToleranceAndTones(Color32[] pixels, int width, int height,
+        private static void DeriveToleranceAndTones(Color32* pixels, int width, int height,
             ColorZone aZone, bool[] clusterMask, int maskW, int maskH, HsvGrid hsv,
             bool achromatic, CancellationToken ct, Action<float> report, float progressAfterTones,
             ref TuneResult result, out bool foreignCapped, out int vConnHiBin)
@@ -383,7 +397,7 @@ namespace Iroca
         /// <param name="progressAfterOvershoot">免除過剰の判定の後に報告する進捗(有彩のみ)。<see cref="NoProgress"/> なら報告しない。</param>
         /// <param name="evidence">証拠マスク(AI 提案のセグメント = クリックしたパーツ)。null = 証拠なし。
         /// ハイライト成長テストだけが使う(<see cref="VerifyHighlightRecoveryGrowth"/>)。</param>
-        private static void RunClosedLoopVerification(Color32[] pixels, int width, int height,
+        private static void RunClosedLoopVerification(Color32* pixels, int width, int height,
             ColorZone aZone, bool[] excluded, int maskW, int maskH, HsvGrid hsv,
             bool chromatic, bool foreignCapped, int vConnHiBin, CancellationToken ct,
             Action<float> report, float progressAfterGrowth, float progressAfterOvershoot,
@@ -462,7 +476,7 @@ namespace Iroca
             public float tV;  // target color V（明度差で valueBlend 判定に使う）
         }
 
-        private static bool TryAnalyzePixels(Color32[] pixels, int w, int h, ColorZone zone,
+        private static bool TryAnalyzePixels(Color32* pixels, int w, int h, ColorZone zone,
             bool[] excluded, int maskW, int maskH, HsvGrid hsv, out AnalysisStats stats)
         {
             stats = new AnalysisStats

@@ -404,7 +404,7 @@ namespace Iroca
         ///     target 混色を塗るのはマスク契約の違反。
         /// </summary>
         private static void CleanAchromaFringe(
-            Color32[] pixels, Color32* originalPixels, float* strength, float* claimed,
+            Color32* pixels, Color32* originalPixels, float* strength, float* claimed,
             int w, int h, Color sampleColor, Color targetColor,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY, CancellationToken ct = default,
             bool* maskExcluded = null)

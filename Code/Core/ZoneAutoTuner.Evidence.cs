@@ -49,7 +49,7 @@ namespace Iroca
     //
     // 証拠が使えないとき(null/空/過少/汚染)は従来の Analyze へフォールバックするので、
     // AI モデル未ダウンロード環境の挙動は変わらない。
-    internal static partial class ZoneAutoTuner
+    internal static unsafe partial class ZoneAutoTuner
     {
         // ── 証拠の前処理 ──
         // セグメント境界の AA/にじみ画素が統計を汚さないよう、統計は収縮した芯で取る。
@@ -228,9 +228,25 @@ namespace Iroca
             bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
             System.Action<float> report = null)
         {
+            // 長さが足りない配列は渡さない(Analyze と同じくヒューリスティック既定へ落ちる)。
+            if (pixels != null && pixels.Length < (long)width * height) pixels = null;
+            fixed (Color32* p = pixels)
+                return AnalyzeWithEvidence(p, width, height, zone, session, evidence, evW, evH,
+                    excluded, maskW, maskH, ct, report);
+        }
+
+        /// <summary>
+        /// <see cref="AnalyzeWithEvidence(Color32[],int,int,ColorZone,IrocaSessionState,bool[],int,int,bool[],int,int,CancellationToken,System.Action{float})"/> の
+        /// ポインタ版。pixels は width*height 画素以上を、解析が返るまで保つこと。
+        /// </summary>
+        public static TuneResult AnalyzeWithEvidence(Color32* pixels, int width, int height,
+            ColorZone zone, IrocaSessionState session,
+            bool[] evidence, int evW, int evH,
+            bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
+            System.Action<float> report = null)
+        {
             bool canAnalyze = pixels != null
                 && width >= MinTextureDim && height >= MinTextureDim
-                && pixels.Length >= width * height
                 && evidence != null && evW > 0 && evH > 0 && evidence.Length >= evW * evH;
             if (!canAnalyze)
                 return Analyze(pixels, width, height, zone, session, excluded, maskW, maskH, ct, report);
@@ -495,7 +511,7 @@ namespace Iroca
         // HSV 格子(stride 済み)上の証拠画素 index。gi = HsvGrid index。alpha < 128 と除外マスクは対象外。
         private struct GridPt { public int x, y, gi; }
 
-        private static List<GridPt> CollectGridIndices(Color32[] pixels, int w, int h, HsvGrid hsv,
+        private static List<GridPt> CollectGridIndices(Color32* pixels, int w, int h, HsvGrid hsv,
             bool[] mask, int mW, int mH, bool[] excluded, int maskW, int maskH)
         {
             var list = new List<GridPt>();
@@ -581,7 +597,7 @@ namespace Iroca
         // 縁クリックの救済(定数「縁クリック(境界帯の混色)の救済」の説明を参照)。クリック(zone.sampleUV)が
         // 証拠の中・芯の外(境界帯)にあり、その色が最寄りの芯の画素の色と無彩色の混色で説明できるとき、
         // その芯の画素の色と位置を返す。core は統計に使った芯(細いセグメントで収縮しなかったときは証拠そのもの)。
-        private static bool TrySnapBoundaryClick(Color32[] pixels, int w, int h, ColorZone zone,
+        private static bool TrySnapBoundaryClick(Color32* pixels, int w, int h, ColorZone zone,
             bool[] evidence, bool[] core, int evW, int evH, bool[] excluded, int maskW, int maskH,
             out Color coreColor, out int coreX, out int coreY)
         {
@@ -671,7 +687,7 @@ namespace Iroca
         // 導出パラメータ(result)を実マッチャーに通し、証拠ドメインのうち選択される(strength > 0)
         // 割合を返す。基底マッチのみ(ハイライト系は成長テストの管轄)。
         private static float DomainCoverage(ColorZone aZone, in TuneResult result, HsvGrid hsv,
-            Color32[] pixels, int w, int h, List<GridPt> domain)
+            Color32* pixels, int w, int h, List<GridPt> domain)
         {
             if (domain.Count == 0) return 1f;
             var sim = BuildSimZone(aZone, result);
@@ -704,7 +720,7 @@ namespace Iroca
         // その EvTolHeadroom 倍(下限 floor)と導出値の小さい方を返す。導出値は上げない。
         // 被覆の「同じ」は EvCoverGainMin(追加サンプルの採否と同じ、意味のある被覆差の最小幅)まで許す。
         private static float BoundToleranceByEvidence(ColorZone aZone, in TuneResult result, HsvGrid hsv,
-            Color32[] pixels, int w, int h, List<GridPt> domain, float floor)
+            Color32* pixels, int w, int h, List<GridPt> domain, float floor)
         {
             float derived = result.tolerance;
             if (domain.Count == 0 || derived <= floor) return derived;
@@ -723,7 +739,7 @@ namespace Iroca
 
         // sim で覆えていない証拠ドメイン画素のうち、最も多い V 帯の平均色を新サンプルとして返す。
         // 既存サンプルと重複(EvDupSep 未満)するなら false(=これ以上足しても増えない)。
-        private static bool TryUncoveredRepresentative(ColorZone sim, HsvGrid hsv, Color32[] pixels,
+        private static bool TryUncoveredRepresentative(ColorZone sim, HsvGrid hsv, Color32* pixels,
             int w, int h, List<GridPt> domain, Color primary, List<Color> existing, out Color rep)
         {
             const int VB = AutoToneValueBins;
@@ -759,7 +775,7 @@ namespace Iroca
         // 導出パラメータ(result)を実マッチャーに通し、全画面(不透明・非除外)で選択される画素数を
         // 返す(HSV 格子上の数)。追加サンプルの溢れ判定に使う。基底マッチのみ。
         private static int GlobalSelected(ColorZone aZone, in TuneResult result, HsvGrid hsv,
-            Color32[] pixels, int w, int h, bool[] excluded, int maskW, int maskH)
+            Color32* pixels, int w, int h, bool[] excluded, int maskW, int maskH)
         {
             var sim = BuildSimZone(aZone, result);
             sim.highlightRecovery = false;

@@ -48,7 +48,8 @@ namespace Iroca.SentisIntegration
         public event Action StateChanged;
 
         string _sourceKey;
-        Color32[] _sourcePixels;
+        // ソース画素(参照を 1 つ持つ。次のソース・CancelAll で返す)。ジョブは読む間の参照を自分で足す。
+        NativePixels _sourcePixels;
         int _texW, _texH;
         float[] _embedding;                         // 現テクスチャの埋め込み(null=未計算)
         readonly Dictionary<string, float[]> _embeddingCache = new Dictionary<string, float[]>();
@@ -225,7 +226,7 @@ namespace Iroca.SentisIntegration
             }
         }
 
-        public void SetSource(string cacheKey, Color32[] pixelsBottomUp, int width, int height)
+        public void SetSource(string cacheKey, NativePixels pixelsBottomUp)
         {
             if (!_modelsLoaded) return;
             if (cacheKey == _sourceKey &&
@@ -234,9 +235,11 @@ namespace Iroca.SentisIntegration
 
             CancelOps();
             _sourceKey = cacheKey;
-            _sourcePixels = pixelsBottomUp;
-            _texW = width;
-            _texH = height;
+            var old = _sourcePixels;
+            _sourcePixels = pixelsBottomUp?.AddRef();
+            old?.Release();
+            _texW = pixelsBottomUp?.Width ?? 0;
+            _texH = pixelsBottomUp?.Height ?? 0;
             _embedding = null;
 
             if (_embeddingCache.TryGetValue(cacheKey, out var cached))
@@ -254,8 +257,7 @@ namespace Iroca.SentisIntegration
         {
             SetPhase(MaskSuggestPhase.Encoding);
             _encodeStartedAt = MaskSuggestPerf.Now;
-            var px = _sourcePixels;
-            int w = _texW, h = _texH;
+            var px = _sourcePixels.AddRef();   // 読む間の参照(後始末で返す)
             double prepMs = 0; // work(BG)で書き apply(メイン)で読む。Post キュー経由で順序保証あり
             _prepJob ??= new PreviewJob<float[]>();
             _prepJob.Schedule(
@@ -264,7 +266,7 @@ namespace Iroca.SentisIntegration
                     long t0 = MaskSuggestPerf.Now;
                     // ct を貫通させ、キャンセル済みジョブが全コア−2 を占有し続けないようにする
                     // (完走時の出力には影響しない)。
-                    var chw = SamImageOps.BuildEncoderInput(px, w, h, ct);
+                    var chw = SamNativeOps.BuildEncoderInput(px, ct);
                     prepMs = MaskSuggestPerf.MsSince(t0);
                     return chw;
                 },
@@ -273,7 +275,8 @@ namespace Iroca.SentisIntegration
                     _encodePrepMs = prepMs;
                     StartEncoderPump(chw);
                 },
-                e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrPreprocessFormat, e.Message)));
+                e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrPreprocessFormat, e.Message)),
+                cleanup: () => px.Release());
         }
 
         void StartEncoderPump(float[] chw)
@@ -525,7 +528,7 @@ namespace Iroca.SentisIntegration
             _clickDecodeMs = MaskSuggestPerf.MsSince(tDec);
 
             int w = _texW, h = _texH;
-            var px = _sourcePixels;
+            var px = _sourcePixels?.AddRef();   // 読む間の参照(後始末で返す)
             _postJob ??= new PreviewJob<PostOutcome>();
             _postJob.Schedule(
                 ct =>
@@ -561,13 +564,13 @@ namespace Iroca.SentisIntegration
                         o.cropX0 = x0;
                         o.cropY0 = y0;
                         o.cropSide = side;
-                        o.cropPixels = SamZoomOps.ExtractCrop(px, w, h, x0, y0, side);
+                        o.cropPixels = SamNativeOps.ExtractCrop(px, x0, y0, side);
                     }
                     o.postMs = MaskSuggestPerf.MsSince(t0);
                     if (!hasCrop)
                     {
                         long tr = MaskSuggestPerf.Now;
-                        SamMaskPostprocess.RefineInPlace(s1.maskBottomUp, px, w, h, ct);
+                        SamNativeOps.RefineInPlace(s1.maskBottomUp, px, ct);
                         o.refineMs = MaskSuggestPerf.MsSince(tr);
                     }
                     return o;
@@ -580,7 +583,8 @@ namespace Iroca.SentisIntegration
                     if (o.hasCrop) StartZoomStage(o, u, v, granularity);
                     else DeliverProposal(o);
                 },
-                e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, e.Message)));
+                e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, e.Message)),
+                cleanup: () => px?.Release());
         }
 
         /// <summary>デコーダ同期実行(数十 ms)。cropRect が null なら全体埋め込み+全体座標系、
@@ -814,18 +818,17 @@ namespace Iroca.SentisIntegration
             // ズーム計画の第 1 段マスクは粗マスクのまま(発火時は精密化を省く)。そのまま
             // 配信すると品質後退なので、破棄予定でなければここで精密化してから配信する
             // (稀な経路。所要時間は従来の第 1 段精密化と同等)。
-            var px = _sourcePixels;
-            if (!plan.hasCrop || _discardInFlight || px == null)
+            if (!plan.hasCrop || _discardInFlight || _sourcePixels == null)
             {
                 DeliverProposal(plan);
                 return;
             }
-            int w = _texW, h = _texH;
+            var px = _sourcePixels.AddRef();   // 読む間の参照(後始末で返す)
             _postJob.Schedule(
                 ct =>
                 {
                     long t0 = MaskSuggestPerf.Now;
-                    SamMaskPostprocess.RefineInPlace(plan.mask, px, w, h, ct);
+                    SamNativeOps.RefineInPlace(plan.mask, px, ct);
                     plan.refineMs = MaskSuggestPerf.MsSince(t0);
                     return plan;
                 },
@@ -835,7 +838,8 @@ namespace Iroca.SentisIntegration
                     _clickRefineMs = o.refineMs;
                     DeliverProposal(o);
                 },
-                err => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, err.Message)));
+                err => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, err.Message)),
+                cleanup: () => px.Release());
         }
 
         void CacheCropEmbedding(string key, float[] embedding)
@@ -870,7 +874,9 @@ namespace Iroca.SentisIntegration
         {
             CancelOps();
             _sourceKey = null;
+            var px = _sourcePixels;
             _sourcePixels = null;
+            px?.Release();
             _embedding = null;
             // Error を持ち越すと以降のクリックが全部無視されるので、モデルが載っているなら
             // Idle に戻す(UI からはテクスチャ切替・右クリックメニューからの選び直しが再試行導線になる)。

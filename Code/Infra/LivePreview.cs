@@ -52,9 +52,22 @@ namespace Iroca
             public RenderTexture rt;
             public int refs;
             // 最後に届いた画素(行 0 = 画像下端)。借り手が現れたとき・作り直したときに書き込む。
+            // 確定段のフル解像度は Mono のヒープの外(native。参照を 1 つ持つ)、概要段の表示寸法は管理配列(pixels)。
             public Color32[] pixels;
+            public NativePixels native;
             public int width, height;
             public Texture2D staging;
+
+            public bool HasPixels => pixels != null || native != null;
+
+            // 持っている画素を手放す(native は参照を返す)。
+            public void DropPixels()
+            {
+                pixels = null;
+                var n = native;
+                native = null;
+                n?.Release();
+            }
         }
 
         private static readonly Dictionary<Texture2D, Slot> Slots = new Dictionary<Texture2D, Slot>();
@@ -97,15 +110,38 @@ namespace Iroca
         {
             if (source == null || pixels == null || Current == null || Current.source != source) return;
             if (pixels.Length != width * height) return;
+            var slot = SlotFor(source);
+            slot.DropPixels();
+            slot.pixels = pixels;
+            slot.width = width;
+            slot.height = height;
+            if (slot.rt != null) Upload(slot);
+        }
+
+        /// <summary>
+        /// <see cref="Push(Texture2D, Color32[], int, int)"/> の Mono のヒープの外に置いた画素版(確定段のフル解像度)。
+        /// 置いている間は参照を 1 つ持つ(次の Push・テクスチャの切り替え・閉じたときに返す)。
+        /// </summary>
+        public static void Push(Texture2D source, NativePixels pixels)
+        {
+            if (source == null || pixels == null || Current == null || Current.source != source) return;
+            var slot = SlotFor(source);
+            pixels.AddRef();
+            slot.DropPixels();
+            slot.native = pixels;
+            slot.width = pixels.Width;
+            slot.height = pixels.Height;
+            if (slot.rt != null) Upload(slot);
+        }
+
+        private static Slot SlotFor(Texture2D source)
+        {
             if (!Slots.TryGetValue(source, out var slot))
             {
                 slot = new Slot();
                 Slots[source] = slot;
             }
-            slot.pixels = pixels;
-            slot.width = width;
-            slot.height = height;
-            if (slot.rt != null) Upload(slot);
+            return slot;
         }
 
         /// <summary>
@@ -125,7 +161,7 @@ namespace Iroca
                 // GPU 側だけ失われたときは同じオブジェクトのまま作り直す(貸し出し中のマテリアルが参照している)。
                 if (slot.rt == null) CreateTarget(slot, source);
                 else slot.rt.Create();
-                if (slot.pixels != null) Upload(slot);
+                if (slot.HasPixels) Upload(slot);
                 else BlitKeepingActive(source, slot.rt);
             }
             slot.refs++;
@@ -137,18 +173,6 @@ namespace Iroca
             if (source == null || !Slots.TryGetValue(source, out var slot)) return;
             if (slot.refs > 0) slot.refs--;
             DropIfUnused(source);
-        }
-
-        /// <summary>
-        /// <paramref name="pixels"/> をシーンへの反映用に持っているか(再アップロードで読むので、持っている間は
-        /// 書き換えてはいけない)。メインスレッドから呼ぶ。
-        /// </summary>
-        internal static bool HoldsPixels(Color32[] pixels)
-        {
-            if (pixels == null) return false;
-            foreach (var slot in Slots.Values)
-                if (ReferenceEquals(slot.pixels, pixels)) return true;
-            return false;
         }
 
         /// <summary>テスト用: 借りられている数。</summary>
@@ -165,12 +189,17 @@ namespace Iroca
                 return;
             }
             DestroyGpu(slot);
+            slot.DropPixels();
             Slots.Remove(source);
         }
 
         private static void ReleaseAll()
         {
-            foreach (var slot in Slots.Values) DestroyGpu(slot);
+            foreach (var slot in Slots.Values)
+            {
+                DestroyGpu(slot);
+                slot.DropPixels();
+            }
             Slots.Clear();
             Current = null;
         }
@@ -201,9 +230,9 @@ namespace Iroca
         // 画素をいったん Texture2D に載せ、GPU で RenderTexture の寸法へ合わせて書き込む。
         // 縮小のときは、ミップ付きの一時 RenderTexture を挟んで GPU にミップを作らせる(そのまま縮小すると
         // 4 倍以上でちらつく)。CPU でのミップ生成(Texture2D.Apply(true))は 4K で重いので使わない。
-        private static void Upload(Slot slot)
+        private static unsafe void Upload(Slot slot)
         {
-            if (slot.rt == null || slot.pixels == null) return;
+            if (slot.rt == null || !slot.HasPixels) return;
             bool srgb = slot.rt.sRGB;
             if (slot.staging == null || slot.staging.width != slot.width || slot.staging.height != slot.height
                 || GraphicsFormatUtility.IsSRGBFormat(slot.staging.graphicsFormat) != srgb)
@@ -216,7 +245,11 @@ namespace Iroca
                     wrapMode = TextureWrapMode.Clamp,
                 };
             }
-            slot.staging.SetPixelData(slot.pixels, 0);
+            if (slot.native != null)
+                // RGBA32 でミップなしなので、Color32 の並びがそのままテクスチャのデータになる(管理配列へ写さない)。
+                slot.staging.LoadRawTextureData((IntPtr)slot.native.Ptr, slot.native.Length * 4);
+            else
+                slot.staging.SetPixelData(slot.pixels, 0);
             slot.staging.Apply(false, false);
 
             bool shrink = slot.width > slot.rt.width * 2 || slot.height > slot.rt.height * 2;

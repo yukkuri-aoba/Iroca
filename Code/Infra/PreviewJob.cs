@@ -76,9 +76,23 @@ namespace Iroca
         // 最後に投げた計算。次の計算はこれの後ろにつなぐ(メインスレッドからしか触らない)。
         private Task _last = Task.CompletedTask;
 
-        public void Schedule(Func<CancellationToken, T> work, Action<T> apply, Action<Exception> onError = null)
+        /// <param name="cleanup">
+        /// 計算の後(取り消されて計算しなかったときも)、計算したスレッドで必ず 1 回呼ぶ。ジョブが読むために足した
+        /// 参照(<see cref="NativePixels.AddRef"/>)を返す所。
+        /// </param>
+        /// <param name="discard">
+        /// 計算は済んだが apply しなかった結果(取り消し・新しい世代・破棄)を、メインスレッドで渡す。結果が
+        /// ネイティブメモリを持っているとき、ここで手放す(しないと GC のファイナライザまで残る)。
+        /// </param>
+        public void Schedule(Func<CancellationToken, T> work, Action<T> apply, Action<Exception> onError = null,
+            Action cleanup = null, Action<T> discard = null)
         {
-            if (_disposed) return;
+            if (_disposed)
+            {
+                // 予約しないので、呼び出し側が足した参照はここで返す。
+                cleanup?.Invoke();
+                return;
+            }
 
             _cts?.Cancel();
             _cts?.Dispose();
@@ -91,19 +105,31 @@ namespace Iroca
             // 計算せずにすぐ抜ける(下の ThrowIfCancellationRequested)。前の計算の成否は見ない。
             _last = _last.ContinueWith(_ =>
             {
+                T result = default;
+                bool haveResult = false;
                 try
                 {
                     token.ThrowIfCancellationRequested();
-                    var result = work(token);
+                    result = work(token);
+                    haveResult = true;
                     token.ThrowIfCancellationRequested();
+                    var r = result;
+                    haveResult = false;   // ここから先は Post した側が始末する
                     PreviewJobMainThread.Post(() =>
                     {
-                        if (TryComplete(myGen)) apply(result);
+                        if (TryComplete(myGen)) apply(r);
+                        else discard?.Invoke(r);
                     });
                 }
                 catch (OperationCanceledException)
                 {
-                    PreviewJobMainThread.Post(() => TryComplete(myGen));
+                    var r = result;
+                    bool drop = haveResult;
+                    PreviewJobMainThread.Post(() =>
+                    {
+                        TryComplete(myGen);
+                        if (drop) discard?.Invoke(r);
+                    });
                 }
                 catch (Exception ex)
                 {
@@ -111,6 +137,11 @@ namespace Iroca
                     {
                         if (TryComplete(myGen)) onError?.Invoke(ex);
                     });
+                }
+                finally
+                {
+                    try { cleanup?.Invoke(); }
+                    catch (Exception ex) { PreviewJobMainThread.Post(() => Debug.LogException(ex)); }
                 }
             }, CancellationToken.None, TaskContinuationOptions.DenyChildAttach, TaskScheduler.Default);
         }

@@ -5,7 +5,7 @@ using UnityEngine;
 namespace Iroca
 {
     // ZoneAutoTuner: スポイト位置の正規化（クリック画素 → パーツの代表地色）。
-    internal static partial class ZoneAutoTuner
+    internal static unsafe partial class ZoneAutoTuner
     {
         // ─────────────────── スポイト位置の正規化 ───────────────────
         // 【解決する問題】自動調整の導出はすべて「クリックした 1 texel の HSV」を起点にしていた。
@@ -77,7 +77,7 @@ namespace Iroca
         /// ±1 bin 平均 → 裾判定）は共通。
         /// </summary>
         private static bool TryNormalizeSample(
-            Color32[] pixels, int w, int h, ColorZone zone,
+            Color32* pixels, int w, int h, ColorZone zone,
             bool[] excluded, int maskW, int maskH, HsvGrid hsv, out Color normalized,
             out float clickT, bool edgeBypass = false)
         {
@@ -127,7 +127,7 @@ namespace Iroca
         /// 画素を母集団として代表地色を推定する共通部。
         /// </summary>
         private static bool TryNormalizeFromPopulation(
-            Color32[] pixels, int w, int h, ColorZone zone,
+            Color32* pixels, int w, int h, ColorZone zone,
             bool[] excluded, int maskW, int maskH, HsvGrid hsv,
             float sH, float sS, float sV, bool useHueBand, float satFloor, float satCeil,
             float satBinSpan, int satBins, int valBins, bool edgeBypass, out Color normalized,

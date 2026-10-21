@@ -171,11 +171,18 @@ namespace Iroca
         /// mask(下原点 w*h)の境界を、房 strands を覆うように実テクスチャの信号で外郭まで拡張する(in-place)。
         /// SnapBoundary の後段で呼ぶ。房が無い部位ではほとんど成長しない(precision 影響 &lt;=0.004)。
         /// </summary>
+        /// <summary><see cref="ExtendFringe(bool[], Color32*, int, int, System.Threading.CancellationToken)"/> の配列版(画素が w*h に足りなければ何もしない)。</summary>
         public static void ExtendFringe(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
                                         System.Threading.CancellationToken token = default)
         {
-            if (mask == null || pixelsBottomUp == null || mask.Length != w * h ||
-                pixelsBottomUp.Length < w * h) return;
+            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) return;
+            fixed (Color32* p = pixelsBottomUp) ExtendFringe(mask, p, w, h, token);
+        }
+
+        public static void ExtendFringe(bool[] mask, Color32* pixelsBottomUp, int w, int h,
+                                        System.Threading.CancellationToken token = default)
+        {
+            if (mask == null || pixelsBottomUp == null || mask.Length != w * h) return;
 
             int maxDim = Mathf.Max(w, h);
             // グリッド幅 d は SnapBoundary と同一(低解像度セルの 3/4)。reach/strand 幅は解像度比例
@@ -396,11 +403,18 @@ namespace Iroca
         /// <summary>
         /// mask(下原点 w*h)の境界帯を pixels の色統計で再分類する(in-place)。
         /// </summary>
+        /// <summary><see cref="SnapBoundary(bool[], Color32*, int, int, System.Threading.CancellationToken)"/> の配列版(画素が w*h に足りなければ何もしない)。</summary>
         public static void SnapBoundary(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
                                         System.Threading.CancellationToken token = default)
         {
-            if (mask == null || pixelsBottomUp == null || mask.Length != w * h ||
-                pixelsBottomUp.Length < w * h) return;
+            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) return;
+            fixed (Color32* p = pixelsBottomUp) SnapBoundary(mask, p, w, h, token);
+        }
+
+        public static void SnapBoundary(bool[] mask, Color32* pixelsBottomUp, int w, int h,
+                                        System.Threading.CancellationToken token = default)
+        {
+            if (mask == null || pixelsBottomUp == null || mask.Length != w * h) return;
 
             // 不確実帯の半幅: SAM 低解像度セルの 3/4(±半セルの理論誤差+マージン)。
             int d = BandHalfWidth(w, h);
@@ -558,11 +572,18 @@ namespace Iroca
         /// 細い成分が無ければ、外接矩形の距離変換 1 回だけで戻る。
         /// 地の塗りつぶしと足す探索は逐次だが、対象は細い成分の周りだけで画素数は小さい。
         /// </summary>
+        /// <summary><see cref="PeelThinSpill(bool[], Color32*, int, int, System.Threading.CancellationToken)"/> の配列版(画素が w*h に足りなければ何もしない)。</summary>
         public static void PeelThinSpill(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
                                          System.Threading.CancellationToken token = default)
         {
-            if (mask == null || pixelsBottomUp == null || mask.Length != w * h ||
-                pixelsBottomUp.Length < w * h) return;
+            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) return;
+            fixed (Color32* p = pixelsBottomUp) PeelThinSpill(mask, p, w, h, token);
+        }
+
+        public static void PeelThinSpill(bool[] mask, Color32* pixelsBottomUp, int w, int h,
+                                         System.Threading.CancellationToken token = default)
+        {
+            if (mask == null || pixelsBottomUp == null || mask.Length != w * h) return;
             var px = pixelsBottomUp;
             var po = MakeParallelOptions(token);
             int d = BandHalfWidth(w, h);
@@ -960,12 +981,20 @@ namespace Iroca
         /// 除外(保護)マスクの意味論では「パーツ色が目に見えて混ざる画素」を取り残すと
         /// そこだけ再着色されて点ノイズになるため、混合率 AaBlendMin 以上の実混合を包含する。
         /// </summary>
+        /// <summary><see cref="IncludeAaTransition(bool[], Color32*, int, int, System.Threading.CancellationToken, int)"/> の配列版(画素が w*h に足りなければ何もしない)。</summary>
         public static void IncludeAaTransition(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
                                                System.Threading.CancellationToken token = default,
                                                int dOverride = 0)
         {
-            if (mask == null || pixelsBottomUp == null || mask.Length != w * h ||
-                pixelsBottomUp.Length < w * h) return;
+            if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h) return;
+            fixed (Color32* p = pixelsBottomUp) IncludeAaTransition(mask, p, w, h, token, dOverride);
+        }
+
+        public static void IncludeAaTransition(bool[] mask, Color32* pixelsBottomUp, int w, int h,
+                                               System.Threading.CancellationToken token = default,
+                                               int dOverride = 0)
+        {
+            if (mask == null || pixelsBottomUp == null || mask.Length != w * h) return;
 
             // dOverride: クロップ実行(IncludeAaTransitionCropped)が全画像実行と同じ帯幅を使う
             // ための上書き。0 なら従来どおり自寸法から導出(既存呼び出しは全て 0 = 挙動不変)。
@@ -1064,7 +1093,7 @@ namespace Iroca
         /// マスクへ吸収する 1 パス。追加した画素数を返す。読みはパス開始時のスナップショット、
         /// 書きは追加のみ(決定的・順序非依存)。別色の構造(輪郭線等)は残差ゲートで残る。
         /// </summary>
-        static int AbsorbEdgeBlendPass(bool[] mask, Color32[] pixelsBottomUp, int w, int h,
+        static int AbsorbEdgeBlendPass(bool[] mask, Color32* pixelsBottomUp, int w, int h,
                                        System.Threading.CancellationToken token = default)
         {
             using var scratch = new WorkScratch();
@@ -1118,7 +1147,7 @@ namespace Iroca
         }
 
         /// <summary>IncludeAaTransition の 1 パス。追加した画素数を返す。</summary>
-        static int IncludeAaTransitionPass(bool[] mask, Color32[] pixelsBottomUp, int w, int h, int d,
+        static int IncludeAaTransitionPass(bool[] mask, Color32* pixelsBottomUp, int w, int h, int d,
                                            System.Threading.CancellationToken token = default)
         {
             using var scratch = new WorkScratch();

@@ -9,7 +9,7 @@ namespace Iroca
     /// 詳細プレビュー（フル解像度クロップ）の生成と表示用テクスチャ管理。
     /// PreviewView の補助として動作し、単独のトップレベル状態管理は持たない。
     /// </summary>
-    internal class DetailPreviewView
+    internal unsafe class DetailPreviewView
     {
         // マスクの重ね表示はここでは持たない: 詳細と同じ範囲・寸法の等倍の重ね表示は
         // MaskPaintView(RebuildDetailOverlay)が作り、PreviewView.Draw が詳細の上に描く。
@@ -176,9 +176,9 @@ namespace Iroca
         /// processedFull が無い(まだ確定していない・元画素が変わった)ときは何もしない。
         /// displayZoom は画面上の表示倍率(PreviewView.EffectiveZoom。全体表示の倍率込み)。
         /// </summary>
-        public void GenerateDetailPreviewAsync(int srcW, int srcH, Color32[] srcPixels, Color32[] processedFull,
+        public void GenerateDetailPreviewAsync(int srcW, int srcH, NativePixels srcPixels, NativePixels processedFull,
             float scale, float displayZoom, Vector2 previewScrollPos, float viewportW, float viewportH,
-            PreviewLatencyCycle latency = null, PreviewOutputBuffers outputBuffers = null)
+            PreviewLatencyCycle latency = null)
         {
             long prepStart = PreviewLatencyCycle.Now;
             // 画素は呼び出し元（メインプレビュー）が確保した true source をそのまま受け取るので、
@@ -232,13 +232,12 @@ namespace Iroca
             }
 
             int capX0 = x0, capY0 = y0, capSrcW = srcW;
-            var srcPixelsForTask = srcPixels;
-            var processedForTask = processedFull;
             // 変更前のクロップは差分表示の diff にしか使わない(「元を表示」は低解像度の変更前を出す)。
             // 差分表示を ON にしたときは PreviewView が詳細を作り直させる。
             bool needRaw = _host.Preview.diffMode;
-            // 切り出しが終わるまで、このフル段の出力を使い回しに渡さない(作業の最後で外す)。
-            outputBuffers?.AddLease(processedForTask);
+            // 切り出しが終わるまで、このフル段の出力と原本の参照を持つ(使い回しにも渡されない)。後始末で返す。
+            var processedForTask = processedFull.AddRef();
+            var srcPixelsForTask = needRaw ? srcPixels.AddRef() : null;
 
             // 体感速度の計測(確定表示から引き渡されたときだけ)。値・分岐は変えない。
             var marks = latency?.Detail;
@@ -253,36 +252,35 @@ namespace Iroca
                 {
                     if (marks != null) marks.WorkStart = PreviewLatencyCycle.Now;
                     Color32[] outProcessed, outRaw = null;
-                    // 両配列はジョブの間ほかから書き換えられない(フル段の出力は印を付けてある間は使い回されない)。
-                    try
+                    // どちらもジョブの間ほかから書き換えられない(参照を持っている間は使い回されない)。
+                    if (outW != cropW || outH != cropH)
                     {
-                        if (outW != cropW || outH != cropH)
-                        {
-                            // 縮小表示のときは、フル解像度の配列から見えている範囲を直接表示解像度へ落とす
-                            // (クロップの複製を作らない。切り出してから縮小したのとビット単位で同じ)。
-                            // BoxDownsample の scale は dst/src 比なので pxPerSrc をそのまま渡す。
-                            outProcessed = PixelProcessor.BoxDownsampleRegion(processedForTask, capSrcW,
-                                capX0, capY0, cropW, cropH, outW, outH, pxPerSrc);
-                            if (needRaw)
-                                outRaw = PixelProcessor.BoxDownsampleRegion(srcPixelsForTask, capSrcW,
-                                    capX0, capY0, cropW, cropH, outW, outH, pxPerSrc);
-                        }
-                        else
-                        {
-                            // 等倍以上ではクロップがそのままテクスチャになる(見えている画素数ぶんなので小さい)。
-                            // 各行が連続領域なので行単位 Array.Copy。
-                            outProcessed = new Color32[cropW * cropH];
-                            if (needRaw) outRaw = new Color32[cropW * cropH];
+                        // 縮小表示のときは、フル解像度の画素から見えている範囲を直接表示解像度へ落とす
+                        // (クロップの複製を作らない。切り出してから縮小したのとビット単位で同じ)。
+                        // BoxDownsample の scale は dst/src 比なので pxPerSrc をそのまま渡す。
+                        outProcessed = PixelProcessor.BoxDownsampleRegion(processedForTask.Ptr, processedForTask.Length,
+                            capSrcW, capX0, capY0, cropW, cropH, outW, outH, pxPerSrc);
+                        if (needRaw)
+                            outRaw = PixelProcessor.BoxDownsampleRegion(srcPixelsForTask.Ptr, srcPixelsForTask.Length,
+                                capSrcW, capX0, capY0, cropW, cropH, outW, outH, pxPerSrc);
+                    }
+                    else
+                    {
+                        // 等倍以上ではクロップがそのままテクスチャになる(見えている画素数ぶんなので小さい)。
+                        // 各行が連続領域なので行単位で写す。
+                        outProcessed = new Color32[cropW * cropH];
+                        if (needRaw) outRaw = new Color32[cropW * cropH];
+                        long rowBytes = (long)cropW * sizeof(Color32);
+                        fixed (Color32* dstP = outProcessed)
+                        fixed (Color32* dstR = outRaw)
                             for (int cy = 0; cy < cropH; cy++)
                             {
-                                int srcRow = (capY0 + cy) * capSrcW + capX0;
-                                System.Array.Copy(processedForTask, srcRow, outProcessed, cy * cropW, cropW);
+                                long srcRow = (long)(capY0 + cy) * capSrcW + capX0;
+                                System.Buffer.MemoryCopy(processedForTask.Ptr + srcRow, dstP + (long)cy * cropW, rowBytes, rowBytes);
                                 if (needRaw)
-                                    System.Array.Copy(srcPixelsForTask, srcRow, outRaw, cy * cropW, cropW);
+                                    System.Buffer.MemoryCopy(srcPixelsForTask.Ptr + srcRow, dstR + (long)cy * cropW, rowBytes, rowBytes);
                             }
-                        }
                     }
-                    finally { outputBuffers?.ReleaseLease(processedForTask); }
                     token.ThrowIfCancellationRequested();
 
                     if (marks != null) marks.WorkEnd = PreviewLatencyCycle.Now;
@@ -311,6 +309,11 @@ namespace Iroca
                     _pendingDetailOriginX   = result.OriginX;
                     _pendingDetailOriginY   = result.OriginY;
                     _host.RequestRepaint();
+                },
+                cleanup: () =>
+                {
+                    processedForTask.Release();
+                    srcPixelsForTask?.Release();
                 });
         }
 

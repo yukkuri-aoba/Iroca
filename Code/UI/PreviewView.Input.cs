@@ -449,14 +449,14 @@ namespace Iroca
         }
 
         // u,v(0-1, v は下端=0)を実フル解像度ソース画素にマップして色を返す。
-        // _trueSourcePixels は GetPixels32 由来で行 0 = 画像下端。取得不能なら false。
+        // _trueSource は GetPixels32 と同じ並びで行 0 = 画像下端。取得不能なら false。
         private bool SampleTrueSourceColor(float u, float v, int srcW, int srcH, out Color color)
         {
             color = Color.white;
-            var px = _trueSourcePixels;
+            var px = _trueSource;
             if (px == null || srcW <= 0 || srcH <= 0 || px.Length < srcW * srcH) return false;
             PreviewCoords.UvToPixel(u, v, srcW, srcH, out int x, out int y);
-            Color32 c = px[y * srcW + x];
+            Color32 c = px.Get(y * srcW + x);
             // サンプルカラーはマッチング基準(HSV)に使い α は無関係。スウォッチを不透明にするため a=1。
             color = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
             return true;

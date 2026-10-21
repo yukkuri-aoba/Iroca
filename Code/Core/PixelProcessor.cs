@@ -3,7 +3,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Diagnostics;
@@ -202,9 +201,68 @@ namespace Iroca
             SelectionCache selectionCache = null,
             Color32[] sourcePixels = null)
         {
+            // 引数検証。ここが無いと、不正な引数（null / 長さ不足）で Array.Copy が投げたとき
+            // 直前に Rent したプール配列（4K で 64MB）が返却されずリークする。Rent は
+            // finally が守る try の外にあるため、例外が出るなら Rent の前に出さないといけない
+            // （レビュー §4 低）。
+            if (pixels == null) throw new System.ArgumentNullException(nameof(pixels));
+            long lenLong = CheckSize(w, h);
+            if (pixels.Length < lenLong)
+                throw new System.ArgumentException(
+                    $"pixels.Length({pixels.Length}) < w*h({lenLong})", nameof(pixels));
+            if (sourcePixels != null)
+            {
+                // pixels そのものは処理中に書き換わるので、入力の控えにはならない。
+                if (ReferenceEquals(sourcePixels, pixels))
+                    throw new System.ArgumentException("sourcePixels must not be the pixels array itself", nameof(sourcePixels));
+                if (sourcePixels.Length < lenLong)
+                    throw new System.ArgumentException(
+                        $"sourcePixels.Length({sourcePixels.Length}) < w*h({lenLong})", nameof(sourcePixels));
+            }
+            // 処理の間だけ固定してポインタで読み書きする(出力の配列は呼び出し側の持ち物のまま)。
+            fixed (Color32* px = pixels)
+            fixed (Color32* src = sourcePixels)
+                ProcessPixelsArrayCore(px, w, h, masks, sortedZones, in settings,
+                    originX, originY, fullW, fullH, cancellationToken,
+                    debug, parityCache, selectionCache, src);
+        }
+
+        /// <summary>
+        /// <see cref="ProcessPixelsArray(Color32[], int, int, MaskSnapshot, IList{ColorZone}, in RecolorSettings, CancellationToken, int, int, int, int, IDebugCapture, PreviewParityCache, SelectionCache, Color32[])"/> の
+        /// ポインタ版。Mono のヒープの外に置いた画素(プレビューの原本と出力)を写さずに処理する。
+        /// pixels(w*h 画素。入力の画素を入れておくと、その場で処理結果に書き換わる)と sourcePixels(null 可。
+        /// 渡すなら pixels と同じ中身で、処理中は読むだけ)は、処理が返るまで呼び出し側が保つこと。
+        /// </summary>
+        public static void ProcessPixelsNative(
+            Color32* pixels, int w, int h,
+            MaskSnapshot masks,
+            IList<ColorZone> sortedZones,
+            in RecolorSettings settings,
+            CancellationToken cancellationToken = default,
+            int originX = 0, int originY = 0, int fullW = 0, int fullH = 0,
+            IDebugCapture debug = null,
+            PreviewParityCache parityCache = null,
+            SelectionCache selectionCache = null,
+            Color32* sourcePixels = null)
+        {
+            if (pixels == null) throw new System.ArgumentNullException(nameof(pixels));
+            CheckSize(w, h);
+            if (sourcePixels == pixels)
+                throw new System.ArgumentException("sourcePixels must not be the pixels buffer itself", nameof(sourcePixels));
             ProcessPixelsArrayCore(pixels, w, h, masks, sortedZones, in settings,
                 originX, originY, fullW, fullH, cancellationToken,
                 debug, parityCache, selectionCache, sourcePixels);
+        }
+
+        // 寸法の検証(画素数は int に収まること)。戻り値は画素数。
+        private static long CheckSize(int w, int h)
+        {
+            if (w <= 0 || h <= 0)
+                throw new System.ArgumentOutOfRangeException(nameof(w), $"invalid size: {w}x{h}");
+            long lenLong = (long)w * h;
+            if (lenLong > int.MaxValue)
+                throw new System.ArgumentOutOfRangeException(nameof(w), $"size too large: {w}x{h}");
+            return lenLong;
         }
 
         // デコンタミの「内部」判定しきい値。ユーザー設定ではない固定値。
@@ -226,8 +284,9 @@ namespace Iroca
         // 内部固め・領域 L の算出・無彩フチ消し・RecolorPixel 内の使用条件が同じ境目でそろう。
         private const float AchromaWeightActiveMin = 1e-4f;
 
+        // pixels・sourcePixels の検証(null・寸法・同じ領域でないこと)は入口(ProcessPixelsArray / ProcessPixelsNative)が済ませる。
         private static void ProcessPixelsArrayCore(
-            Color32[] pixels, int w, int h,
+            Color32* pixels, int w, int h,
             MaskSnapshot masks,
             IList<ColorZone> sortedZones,
             in RecolorSettings settings,
@@ -236,7 +295,7 @@ namespace Iroca
             IDebugCapture debug,
             PreviewParityCache parityCache,
             SelectionCache selectionCache,
-            Color32[] sourcePixels)
+            Color32* sourcePixels)
         {
             // 全体設定を同じ名前のローカルへ展開する。in 引数はラムダから参照できないので、
             // 本体(ラムダを含む)はこのローカルだけを読み、settings は以降参照しない。
@@ -249,29 +308,8 @@ namespace Iroca
             bool useDecontamination = settings.useDecontamination;
             int decontaminationRadius = settings.decontaminationRadius;
 
-            // 引数検証。ここが無いと、不正な引数（null / 長さ不足）で Array.Copy が投げたとき
-            // 直前に Rent したプール配列（4K で 64MB）が返却されずリークする。Rent は
-            // finally が守る try の外にあるため、例外が出るなら Rent の前に出さないといけない
-            // （レビュー §4 低）。
-            if (pixels == null) throw new System.ArgumentNullException(nameof(pixels));
-            if (w <= 0 || h <= 0)
-                throw new System.ArgumentOutOfRangeException(nameof(w), $"invalid size: {w}x{h}");
-            long lenLong = (long)w * h;
-            if (lenLong > int.MaxValue)
-                throw new System.ArgumentOutOfRangeException(nameof(w), $"size too large: {w}x{h}");
-            if (pixels.Length < lenLong)
-                throw new System.ArgumentException(
-                    $"pixels.Length({pixels.Length}) < w*h({lenLong})", nameof(pixels));
             if (sortedZones == null) throw new System.ArgumentNullException(nameof(sortedZones));
-            if (sourcePixels != null)
-            {
-                // pixels そのものは処理中に書き換わるので、入力の控えにはならない。
-                if (ReferenceEquals(sourcePixels, pixels))
-                    throw new System.ArgumentException("sourcePixels must not be the pixels array itself", nameof(sourcePixels));
-                if (sourcePixels.Length < lenLong)
-                    throw new System.ArgumentException(
-                        $"sourcePixels.Length({sourcePixels.Length}) < w*h({lenLong})", nameof(sourcePixels));
-            }
+            long lenLong = (long)w * h;
 
             if (fullW <= 0) fullW = w;
             if (fullH <= 0) fullH = h;
@@ -288,22 +326,19 @@ namespace Iroca
                     out maskColOf, out maskRowBase);
 
             int len = (int)lenLong;
-            // 入力のスナップショット。以降は読むだけなので、呼び出し側が同じ中身を持っていればそれを使う
-            // (処理の間だけ固定してポインタで読む)。持っていなければ(書き出し・NDMF)作業配列のプールへ写す
-            // (8K で 256MB。Mono のヒープに積まない)。どちらも末尾の finally で手放す。
+            // 入力のスナップショット。以降は読むだけなので、呼び出し側が同じ中身を持っていればそれを使う。
+            // 持っていなければ(書き出し・NDMF)作業配列のプールへ写す(8K で 256MB。Mono のヒープに積まない)。
+            // 写した分は末尾の finally で返す。
             bool ownsOriginal = sourcePixels == null;
-            GCHandle sourcePin = default;
             Color32* originalPixels;
             if (ownsOriginal)
             {
                 originalPixels = s_color32Pool.Rent(len);
-                fixed (Color32* src = pixels)
-                    Buffer.MemoryCopy(src, originalPixels, (long)len * sizeof(Color32), (long)len * sizeof(Color32));
+                Buffer.MemoryCopy(pixels, originalPixels, (long)len * sizeof(Color32), (long)len * sizeof(Color32));
             }
             else
             {
-                sourcePin = GCHandle.Alloc(sourcePixels, GCHandleType.Pinned);
-                originalPixels = (Color32*)sourcePin.AddrOfPinnedObject();
+                originalPixels = sourcePixels;
             }
 
             long _t0 = Stopwatch.GetTimestamp();
@@ -1480,7 +1515,6 @@ namespace Iroca
                     if (pixH != null) s_floatPool.Return(pixH);
                 }
                 if (ownsOriginal) s_color32Pool.Return(originalPixels);
-                else sourcePin.Free();
             }
             var _perfPhases = new PhasePerfEntry[PhaseCount];
             for (int p = 0; p < PhaseCount; p++)
@@ -1652,12 +1686,29 @@ namespace Iroca
             int dstW, int dstH, float scale)
             => BoxDownsampleRegion(src, srcW, 0, 0, srcW, srcH, dstW, dstH, scale);
 
+        /// <summary><see cref="BoxDownsample(Color32[], int, int, int, int, float)"/> のポインタ版(src は srcW*srcH 画素)。</summary>
+        public static Color32[] BoxDownsample(Color32* src, int srcW, int srcH,
+            int dstW, int dstH, float scale)
+            => BoxDownsampleRegion(src, (long)srcW * srcH, srcW, 0, 0, srcW, srcH, dstW, dstH, scale);
+
         /// <summary>
         /// <see cref="BoxDownsample"/> の、src の一部(左下 (x0, y0)・regionW×regionH、1 行 srcStride 画素)を
         /// 切り出してから縮小したのと同じ結果を、切り出しの配列を作らずに返す。拡大表示のクロップが
         /// フル解像度の出力から直接縮小するのに使う(4K の 125% 表示でクロップ 1 枚 ~43MB の複製を避ける)。
         /// </summary>
         public static Color32[] BoxDownsampleRegion(Color32[] src, int srcStride, int x0, int y0,
+            int regionW, int regionH, int dstW, int dstH, float scale)
+        {
+            if (src == null) throw new System.ArgumentNullException(nameof(src));
+            fixed (Color32* p = src)
+                return BoxDownsampleRegion(p, src.Length, srcStride, x0, y0, regionW, regionH, dstW, dstH, scale);
+        }
+
+        /// <summary>
+        /// <see cref="BoxDownsampleRegion(Color32[], int, int, int, int, int, int, int, float)"/> のポインタ版。
+        /// srcLength は src の画素数(読む範囲がその中に収まるかを確かめる)。
+        /// </summary>
+        public static Color32[] BoxDownsampleRegion(Color32* src, long srcLength, int srcStride, int x0, int y0,
             int regionW, int regionH, int dstW, int dstH, float scale)
         {
             // scale と dst 寸法の整合を呼び出し側の契約に丸投げしており、不整合だと
@@ -1671,9 +1722,9 @@ namespace Iroca
             if (x0 < 0 || y0 < 0 || x0 + srcW > srcStride)
                 throw new System.ArgumentOutOfRangeException(nameof(x0),
                     $"invalid region: origin=({x0},{y0}) size={srcW}x{srcH} stride={srcStride}");
-            if (src.Length < (long)(y0 + srcH - 1) * srcStride + x0 + srcW)
+            if (srcLength < (long)(y0 + srcH - 1) * srcStride + x0 + srcW)
                 throw new System.ArgumentException(
-                    $"src.Length({src.Length}) < region end({(long)(y0 + srcH - 1) * srcStride + x0 + srcW})", nameof(src));
+                    $"src.Length({srcLength}) < region end({(long)(y0 + srcH - 1) * srcStride + x0 + srcW})", nameof(src));
 
             Color32[] dst = new Color32[dstW * dstH];
             // 合計値が int の範囲を超えないように long を使用。
