@@ -156,6 +156,9 @@ namespace Iroca
         [MenuItem(IrocaConsts.MenuPath, priority = 100)]
         public static void ShowWindow()
         {
+            // 大きさを決めるのは新しく作ったときだけ。開いている窓の position に代入すると、ドッキング中の窓は
+            // Unity がドッキングから外して浮かせる(タブが複数ある区画・分割の中にある場合)。
+            bool wasOpen = HasOpenInstances<IrocaWindow>();
             var window = GetWindow<IrocaWindow>(Localization.WindowTitle);
             // アイコン名に "d_" を付けないこと。IconContent は装飾なしの名前を渡すと
             // ダークスキンのとき自動で "d_" 版を探す(無ければ素の名前へフォールバックする)。
@@ -172,7 +175,7 @@ namespace Iroca
             //          (新規保存 ON のファイル名行込み)を積んでも、等倍(100%)の
             //          MaxSize(384)px プレビューが縦スクロールバーなしで収まる高さ
             //          (実測で数十 px の余裕。設定列を見渡せるぶんとして残す)。
-            if (window.position.width < DefaultWindowWidth || window.position.height < DefaultWindowHeight)
+            if (!wasOpen && (window.position.width < DefaultWindowWidth || window.position.height < DefaultWindowHeight))
                 window.position = new Rect(window.position.x, window.position.y, DefaultWindowWidth, DefaultWindowHeight);
         }
 
