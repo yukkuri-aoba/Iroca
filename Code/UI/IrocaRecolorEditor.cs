@@ -9,7 +9,9 @@ namespace Iroca
     /// <summary>
     /// 「Iroca Recolor」のインスペクタ。レシピ(テクスチャごとに 1 つ)の一覧と、レシピごとに何が起きるか
     /// (範囲内の対象マテリアル数)・色替えされない理由(元テクスチャ無し・同じテクスチャの重複・範囲に無い・
-    /// NDMF 無し)をビルド前に見せる。旧版で同じオブジェクトに複数付いていれば 1 つにまとめる導線を出す。
+    /// ゾーンがすべて無効・NDMF 無し)をビルド前に見せる。レシピが無い・ゾーンがすべて無効はビルドでは報告しない
+    /// (色替えを外している状態なので)ので、ここだけで知らせる。旧版で同じオブジェクトに複数付いていれば 1 つに
+    /// まとめる導線を出す。
     /// </summary>
     [CustomEditor(typeof(IrocaRecolor))]
     internal sealed class IrocaRecolorEditor : Editor
@@ -61,6 +63,9 @@ namespace Iroca
                     MessageType.Warning);
             else if (!Summary(recipe).Readable(recipe))
                 EditorGUILayout.HelpBox(Localization.RecolorUnreadable, MessageType.Warning);
+            else if (SessionRecolor.CountEnabled(Summary(recipe).Get(recipe).zones) == 0)
+                // 色替えを外している状態(ビルドでは NDMF Console に出さないので、ここで知らせる)。
+                EditorGUILayout.HelpBox(Localization.RecolorNoEnabledZones, MessageType.Info);
             else
                 DrawScope(component, source);
 
