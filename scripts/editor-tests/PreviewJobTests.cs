@@ -202,5 +202,64 @@ namespace Iroca.EditorTests
             Assert.IsNull(buffers.Take(8, 8));
             Assert.AreEqual(before, IrocaNativeMemory.LiveBytes, "ネイティブメモリが残った");
         }
+
+        // 閉じたとき(ReleaseWhenIdle)に計算中だったジョブの作業配列は、走り終わった後に OS へ返す
+        // (その時点の空きを返すだけだと、後からプールへ戻ってきて残り続ける)。
+        [Test]
+        public unsafe void ReleaseWhenIdle_ReturnsWorkBuffersOfJobsStillRunning()
+        {
+            PixelProcessor.ReleaseWorkBuffers();
+            long before = IrocaNativeMemory.LiveBytes;
+            using var rented = new ManualResetEventSlim(false);
+            using var gate = new ManualResetEventSlim(false);
+            var job = new PreviewJob<int>();
+            bool applied = false;
+            job.Schedule(t =>
+            {
+                float* p = WorkPools.Float.Rent(1 << 20);
+                rented.Set();
+                gate.Wait(10000);
+                WorkPools.Float.Return(p);
+                return 1;
+            }, r => applied = true);
+            Assert.IsTrue(rented.Wait(10000), "ジョブが始まらない");
+            NativeMemoryLifecycle.ReleaseWhenIdle();   // ウィンドウを閉じた
+            gate.Set();
+            PumpUntil(() => applied);
+            Assert.IsTrue(WaitForNativeBytes(before), $"計算中だったジョブの作業配列が残った({IrocaNativeMemory.LiveBytes - before} バイト)");
+            job.Dispose();
+        }
+
+        // 手放す予約が無ければ、計算が終わっても手放さない(編集中は次の計算で使い回す)。
+        [Test]
+        public unsafe void JobWithoutReleaseRequest_KeepsWorkBuffersPooled()
+        {
+            PixelProcessor.ReleaseWorkBuffers();
+            long before = IrocaNativeMemory.LiveBytes;
+            var job = new PreviewJob<int>();
+            bool applied = false;
+            job.Schedule(t =>
+            {
+                float* p = WorkPools.Float.Rent(1 << 20);
+                WorkPools.Float.Return(p);
+                return 1;
+            }, r => applied = true);
+            PumpUntil(() => applied);
+            Assert.IsFalse(WaitForNativeBytes(before, timeoutMs: 300), "予約が無いのに手放した");
+            job.Dispose();
+            PixelProcessor.ReleaseWorkBuffers();
+        }
+
+        // 解放はスレッドプールで行うので、ネイティブメモリが atMost 以下になるまで少し待つ。
+        internal static bool WaitForNativeBytes(long atMost, int timeoutMs = 5000)
+        {
+            var sw = Stopwatch.StartNew();
+            while (IrocaNativeMemory.LiveBytes > atMost)
+            {
+                if (sw.ElapsedMilliseconds > timeoutMs) return false;
+                Thread.Sleep(10);
+            }
+            return true;
+        }
     }
 }

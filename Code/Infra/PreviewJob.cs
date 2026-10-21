@@ -101,6 +101,8 @@ namespace Iroca
             int myGen = ++_generation;
             _isRunning = true;
 
+            // 予約から抜けるまでを計算中として数える(閉じたときの解放が、走り終わるのを待って作業配列を返すため)。
+            NativeMemoryLifecycle.WorkStarted();
             // 前の計算(キャンセル済み)が抜けてから始める。途中で次の Schedule が来てキャンセルされたら、
             // 計算せずにすぐ抜ける(下の ThrowIfCancellationRequested)。前の計算の成否は見ない。
             _last = _last.ContinueWith(_ =>
@@ -142,6 +144,7 @@ namespace Iroca
                 {
                     try { cleanup?.Invoke(); }
                     catch (Exception ex) { PreviewJobMainThread.Post(() => Debug.LogException(ex)); }
+                    NativeMemoryLifecycle.WorkEnded();
                 }
             }, CancellationToken.None, TaskContinuationOptions.DenyChildAttach, TaskScheduler.Default);
         }

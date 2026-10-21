@@ -58,6 +58,20 @@ namespace Iroca
         public static void WriteAllBytes(string path, byte[] contents)
             => Write(path, tmp => WriteAndFlush(tmp, contents));
 
+        /// <summary>
+        /// <see cref="WriteAllBytes"/> と同じだが、中身は <paramref name="write"/> が一時ファイルのストリームへ書く
+        /// (大きい中身を管理配列に組み立てずに書くため。Mono のヒープは一度広がると縮まない)。
+        /// </summary>
+        public static void WriteAll(string path, Action<Stream> write)
+            => Write(path, tmp =>
+            {
+                using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    write(fs);
+                    fs.Flush(true);   // 理由は WriteAndFlush と同じ
+                }
+            });
+
         // File.WriteAllText の既定と同じ「BOM なし UTF-8」を保つ。
         private static readonly System.Text.UTF8Encoding Utf8NoBom = new System.Text.UTF8Encoding(false);
 

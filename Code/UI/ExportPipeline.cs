@@ -87,6 +87,34 @@ namespace Iroca
         }
 
         /// <summary>
+        /// <see cref="ReadSourcePixels"/>(workingSize: true)と同じ画素を、Mono のヒープの外(<see cref="NativePixels"/>。
+        /// 参照 1 で返すので、呼び出し側が Release する)へ読む(メインスレッド専用)。非破壊ビルド・シーンのプレビューは
+        /// いろかのウィンドウを閉じた後にも走るので、管理配列で読むとその分(4K で 64MB)Mono のヒープが広がったまま残る。
+        /// </summary>
+        public static SourceKind ReadWorkingPixelsNative(string srcPath, Texture2D imported, out NativePixels pixels)
+        {
+            pixels = null;
+            Texture2D loadTex = null;
+            try
+            {
+                byte[] srcBytes = File.ReadAllBytes(srcPath);
+                loadTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (loadTex.LoadImage(srcBytes))
+                {
+                    pixels = WorkingResolution.NativePixelsOf(loadTex, imported);
+                    return SourceKind.File;
+                }
+            }
+            finally
+            {
+                if (loadTex != null) Object.DestroyImmediate(loadTex);
+            }
+            if (!IrocaWindow.IsReadable(imported)) return SourceKind.Unavailable;
+            pixels = NativePixels.CopyOf(imported.GetPixels32(), imported.width, imported.height);
+            return SourceKind.ImportedTexture;
+        }
+
+        /// <summary>
         /// 画素を PNG にする。Texture2D を介さない ImageConversion.EncodeArrayToPNG は
         /// スレッドセーフなので、バックグラウンドから呼んでよい。
         /// Unity 2022.3.22f1 と 6000.0.67f1 の実機で、バックグラウンド実行がメインスレッドとバイト一致することを

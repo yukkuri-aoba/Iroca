@@ -246,6 +246,91 @@ namespace Iroca.EditorTests
             }
         }
 
+        // ───────────── 作業配列(ネイティブメモリ)の後始末 ─────────────
+
+        // いろかのウィンドウを閉じた後に非破壊ビルド・シーンのプレビューが色替えを計算したら、終わった後に
+        // 作業配列と色の表を OS へ返す(返さないと、ウィンドウを閉じたときの解放が打ち消されて残り続ける)。
+        [Test]
+        public void Build_WithoutWindow_ReturnsWorkBuffersAfterward()
+        {
+            Assume.That(IrocaWindow.FindAnyInstance(), Is.Null, "いろかのウィンドウが開いている");
+            var (recipe, cacheFile) = FreshRecipe();
+            try
+            {
+                PixelProcessor.ReleaseWorkBuffers();
+                long before = IrocaNativeMemory.LiveBytes;
+                Assert.IsNotNull(Track(RecipeTextureBuilder.Build(recipe, out var f)), f.ToString());
+                Assert.IsTrue(WaitForNativeBytes(before), $"作業配列が残った({IrocaNativeMemory.LiveBytes - before} バイト)");
+            }
+            finally
+            {
+                if (File.Exists(cacheFile)) File.Delete(cacheFile);
+            }
+        }
+
+        // シーンのプレビュー(非同期で作る)も同じ。
+        [Test]
+        public void BuildAsync_WithoutWindow_ReturnsWorkBuffersAfterward()
+        {
+            Assume.That(IrocaWindow.FindAnyInstance(), Is.Null, "いろかのウィンドウが開いている");
+            var (recipe, cacheFile) = FreshRecipe();
+            try
+            {
+                PixelProcessor.ReleaseWorkBuffers();
+                long before = IrocaNativeMemory.LiveBytes;
+                bool called = false;
+                Texture2D built = null;
+                RecipeTextureBuilder.BuildAsync(recipe, t => { built = t; called = true; });
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                while (!called)
+                {
+                    if (sw.ElapsedMilliseconds > 30000) Assert.Fail("出来上がりが届かない");
+                    PreviewJobMainThread.Drain();
+                    System.Threading.Thread.Sleep(2);
+                }
+                Assert.IsNotNull(Track(built));
+                Assert.IsTrue(WaitForNativeBytes(before), $"作業配列が残った({IrocaNativeMemory.LiveBytes - before} バイト)");
+            }
+            finally
+            {
+                if (File.Exists(cacheFile)) File.Delete(cacheFile);
+            }
+        }
+
+        // ウィンドウを開いている間は手放さない(編集の次の 1 手が作業配列と色の表を作り直さないように。
+        // ウィンドウを閉じたときにまとめて返る)。
+        [Test]
+        public void Build_WithWindowOpen_KeepsWorkBuffers()
+        {
+            var (recipe, cacheFile) = FreshRecipe();
+            var win = ScriptableObject.CreateInstance<IrocaWindow>();
+            try
+            {
+                PixelProcessor.ReleaseWorkBuffers();
+                long before = IrocaNativeMemory.LiveBytes;
+                Assert.IsNotNull(Track(RecipeTextureBuilder.Build(recipe, out var f)), f.ToString());
+                Assert.IsFalse(WaitForNativeBytes(before, timeoutMs: 300), "ウィンドウが開いているのに作業配列を手放した");
+            }
+            finally
+            {
+                Object.DestroyImmediate(win);
+                if (File.Exists(cacheFile)) File.Delete(cacheFile);
+            }
+        }
+
+        // キャッシュの無いレシピ(色替えの計算が走る)。
+        private (IrocaRecipe recipe, string cacheFile) FreshRecipe()
+        {
+            var src = ImportSource(readable: true);
+            var recipe = RecipeStore.Create(src, RedToGreenWithInclude(), _assets.Folder);
+            string cacheFile = RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src));
+            if (File.Exists(cacheFile)) File.Delete(cacheFile);
+            return (recipe, cacheFile);
+        }
+
+        private static bool WaitForNativeBytes(long atMost, int timeoutMs = 5000)
+            => PreviewJobTests.WaitForNativeBytes(atMost, timeoutMs);
+
         // 元ファイルが取り込み後より大きいとき、既定は取り込み後の寸法へ縮めてから色替えする(いろかの画面の
         // プレビューと同じ画素)。「元の解像度で編集」なら元の解像度で色替えしてから縮める。鍵も分ける。
         [Test]

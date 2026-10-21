@@ -138,10 +138,24 @@ namespace Iroca
         /// 面積平均で縮小する(整数倍ならボックスフィルタと同じ)。拡大方向のときは最近傍。
         /// 行 0 = 画像下端の並び(Unity の画素順)のまま扱う。
         /// </summary>
-        internal static Color32[] ResizeArea(Color32[] src, int sw, int sh, int dw, int dh)
+        internal static unsafe Color32[] ResizeArea(Color32[] src, int sw, int sh, int dw, int dh)
         {
+            if (src.Length < (long)sw * sh) throw new ArgumentException($"src.Length({src.Length}) < {sw}x{sh}", nameof(src));
             var dst = new Color32[dw * dh];
-            for (int y = 0; y < dh; y++)
+            fixed (Color32* s = src)
+            fixed (Color32* d = dst)
+                ResizeArea(s, sw, sh, dw, dh, d);
+            return dst;
+        }
+
+        /// <summary>
+        /// 上と同じ縮小を、ポインタの画素(sw*sh)から呼び出し側が用意した dw*dh 画素の領域へ書く(非破壊ビルドが
+        /// Mono のヒープの外の画素からテクスチャのデータへ直接書く)。出力の行ごとに並列(結果は行の順に依らない)。
+        /// 呼び出し側は返るまで両方の領域を保つこと。
+        /// </summary>
+        internal static unsafe void ResizeArea(Color32* src, int sw, int sh, int dw, int dh, Color32* dst)
+        {
+            Parallel.For(0, dh, y =>
             {
                 int y0 = SrcRow0(y, sh, dh), y1 = SrcRow1(y, y0, sh, dh);
                 for (int x = 0; x < dw; x++)
@@ -151,17 +165,16 @@ namespace Iroca
                     int r = 0, g = 0, b = 0, a = 0, n = 0;
                     for (int yy = y0; yy < y1; yy++)
                     {
-                        int row = yy * sw;
+                        Color32* row = src + (long)yy * sw;
                         for (int xx = x0; xx < x1; xx++)
                         {
-                            var c = src[row + xx];
+                            var c = row[xx];
                             r += c.r; g += c.g; b += c.b; a += c.a; n++;
                         }
                     }
-                    dst[y * dw + x] = Average(r, g, b, a, n);
+                    dst[(long)y * dw + x] = Average(r, g, b, a, n);
                 }
-            }
-            return dst;
+            });
         }
 
         // GetPixelData<byte> の 1 画素の並び(a < 0 は α なし = 255。GetPixels32 と同じ値になる)。
