@@ -436,7 +436,16 @@ namespace Iroca.EditorTests
                 return t;
             }
             public void SaveAsset(Object generated) => Saved.Add(generated);
-            public void RegisterReplaced(Object original, Object replacement) { }
+
+            // 置き換えの登録(元, 置き換え後)と、保存した後に登録したもの(NDMF では参照を引いた後の登録が例外になる)。
+            public readonly List<(Object original, Object replacement)> Replaced = new List<(Object, Object)>();
+            public readonly List<Object> RegisteredAfterSave = new List<Object>();
+
+            public void RegisterReplaced(Object original, Object replacement)
+            {
+                if (Saved.Contains(replacement)) RegisteredAfterSave.Add(replacement);
+                Replaced.Add((original, replacement));
+            }
             public void Report(NonDestructiveApplier.Problem p, IrocaRecolor c, IrocaRecipe r, RecipeTextureBuilder.Failure f)
                 => Reports.Add((p, c, r, f));
 
@@ -774,6 +783,33 @@ namespace Iroca.EditorTests
                 (NonDestructiveApplier.Problem.TextureNotUsedInScope, second),   // 先のレシピが差し替え済み
                 (NonDestructiveApplier.Problem.MissingRecipe, (IrocaRecipe)null), // レシピの無いコンポーネント
             }, host.Reports.ConvertAll(x => (x.Item1, x.Item3)));
+        }
+
+        [Test]
+        public void Applier_RegistersTheRecoloredTextureAsTheSource_OnceAndBeforeSaving()
+        {
+            // TexTransTool の TextureBlender などは、指定された元テクスチャと「置き換え前が同じもの」を探す。
+            // 色替え済みテクスチャを元テクスチャの置き換えとして登録しないと、見つけられずに黙って何もしない。
+            var src = Tex("src");
+            var shared = Mat("shared", src);
+            var root = Node("avatar", null);
+            Node("mesh", root.transform, shared);
+            var later = Node("later", root.transform, Mat("plain", Tex("plain")));
+            var recipe = Recipe("r", src);
+            AddRecolor(root, recipe);
+
+            var host = new FakeHost();
+            var state = new NonDestructiveApplier.BuildState();
+            NonDestructiveApplier.Apply(root, host, state, NonDestructiveApplier.Stage.First);
+            later.GetComponent<Renderer>().sharedMaterial = shared;   // 2 段目で同じテクスチャを使い回す
+            NonDestructiveApplier.Apply(root, host, state, NonDestructiveApplier.Stage.Late);
+
+            var recolored = host.Textures[recipe];
+            var textures = host.Replaced.FindAll(x => x.replacement is Texture);
+            Assert.AreEqual(1, textures.Count, "色替え済みテクスチャを 2 回登録した(NDMF は 2 回目で例外を出す)");
+            Assert.AreSame(src, textures[0].original);
+            Assert.AreSame(recolored, textures[0].replacement);
+            CollectionAssert.DoesNotContain(host.RegisteredAfterSave, recolored, "保存した後に登録した");
         }
     }
 }

@@ -49,7 +49,7 @@ namespace Iroca
             Texture2D BuildTexture(IrocaRecipe recipe, out RecipeTextureBuilder.Failure failure);
             /// <summary>生成物(テクスチャ・マテリアル)をビルドの成果物として保存する。</summary>
             void SaveAsset(Object generated);
-            /// <summary>元のオブジェクトが複製に置き換わったことを知らせる。</summary>
+            /// <summary>元のオブジェクト(マテリアル・テクスチャ)が複製・色替え済みのものに置き換わったことを知らせる。</summary>
             void RegisterReplaced(Object original, Object replacement);
             /// <summary><paramref name="recipe"/> はどのレシピの問題か(レシピが無い・空の欄なら null)。</summary>
             void Report(Problem problem, IrocaRecolor component, IrocaRecipe recipe, RecipeTextureBuilder.Failure failure);
@@ -192,6 +192,13 @@ namespace Iroca
                             host.Report(Problem.BuildFailed, component, recipe, failure);
                             return null;
                         }
+                        // 元テクスチャが色替え済みテクスチャに置き換わったことを知らせる。TexTransTool の
+                        // TextureBlender・TextureConfigurator などは、元テクスチャを指定されると「置き換え前が同じもの」を
+                        // 探すので、知らせないと色替えしたテクスチャを見つけられず黙って何もしない。NDMF は新しい物の参照を
+                        // 一度でも引いた後に登録すると例外を出すので、作った直後(保存より前)に 1 回だけ登録する
+                        // (2 段目は作ったものを使い回すので、ここを通らない)。範囲外で元テクスチャを使っている所はそのまま
+                        // 元テクスチャなので、TexTransTool の効果が及ぶ範囲は色替えしないときと変わらない。
+                        host.RegisterReplaced(source, recolored);
                         host.SaveAsset(recolored);
                         state.built[recipe] = recolored;
                     }
