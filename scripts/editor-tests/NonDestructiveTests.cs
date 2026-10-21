@@ -881,5 +881,37 @@ namespace Iroca.EditorTests
             Assert.AreEqual((W / 2) * (H / 2), mip1.Length);
             Assert.AreNotEqual(new Color32(0, 0, 0, 0), mip1[0], "ミップの中身を写していない");
         }
+
+        [Test]
+        public void CreateMatching_FollowsTheAlphaSourceOfAPng()
+        {
+            // 原本の PNG はファイルから直接読む(取り込み設定を通らない)ので、アルファは PNG のまま届く。差し替える
+            // テクスチャのアルファは取り込みの Alpha Source にそろえる(None = 不透明、From Gray Scale = RGB の平均)。
+            var px = Bands();
+            for (int i = 0; i < px.Length; i++) px[i].a = (byte)(i % 3 == 0 ? 0 : 128);
+            string path = _assets.WritePng("alpha", px, W, H, readable: true);
+            var imp = (TextureImporter)AssetImporter.GetAtPath(path);
+
+            // From Gray Scale: Unity が取り込んだアルファと同じ(丸めの違いは 2 まで許す)。
+            imp.textureCompression = TextureImporterCompression.Uncompressed;
+            imp.alphaSource = TextureImporterAlphaSource.FromGrayScale;
+            imp.SaveAndReimport();
+            var like = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            var imported = like.GetPixels32();
+            var gray = Track(RecipeTextureBuilder.CreateMatching(px, W, H, like)).GetPixels32();
+            for (int i = 0; i < px.Length; i++)
+                if (System.Math.Abs(gray[i].a - imported[i].a) > 2)
+                    Assert.Fail($"画素 {i}: From Gray Scale のアルファが取り込みと違う: {gray[i].a} (取り込み {imported[i].a})");
+
+            // None: アルファを残す圧縮(BC7 など)でも不透明になる。
+            imp.textureCompression = TextureImporterCompression.CompressedHQ;
+            imp.alphaSource = TextureImporterAlphaSource.None;
+            imp.SaveAndReimport();
+            like = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            var none = Track(RecipeTextureBuilder.CreateMatching(px, W, H, like));
+            Assert.AreEqual(like.format, none.format);
+            foreach (var c in none.GetPixels32())
+                if (c.a < 250) Assert.Fail($"Alpha Source が None なのに透けている: {c}");
+        }
     }
 }

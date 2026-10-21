@@ -435,9 +435,11 @@ namespace Iroca
             return tex;
         }
 
-        // 取り込み時の形式へそろえる(圧縮形式なら圧縮、非圧縮なら同じ形式へ詰め替え)。
+        // 取り込み時の形式へそろえる(アルファを取り込み設定どおりにしてから、圧縮形式なら圧縮、非圧縮なら同じ形式へ詰め替え)。
         private static void Compress(Texture2D tex, Texture2D like)
         {
+            var importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(like)) as TextureImporter;
+            ApplyAlphaSource(tex, importer);
             var target = like.format;
             if (target == tex.format) return;
             if (!GraphicsFormatUtility.IsCompressedFormat(like.graphicsFormat))
@@ -446,8 +448,7 @@ namespace Iroca
                 return;
             }
             int quality = 50;
-            if (AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(like)) is TextureImporter importer)
-                quality = Mathf.Clamp(importer.compressionQuality, 0, 100);
+            if (importer != null) quality = Mathf.Clamp(importer.compressionQuality, 0, 100);
             try
             {
                 EditorUtility.CompressTexture(tex, target, quality);
@@ -458,6 +459,34 @@ namespace Iroca
                 // (Crunch が減らすのはダウンロードサイズで、VRAM は変わらない)。
                 EditorUtility.CompressTexture(tex, CrunchFallback(target), quality);
             }
+        }
+
+        /// <summary>
+        /// 原本ファイル(PNG・JPG)から読んだ画素に、取り込み設定の Alpha Source を取り込みと同じく当てる。原本ファイルは
+        /// 取り込み設定を通さずに読む(<see cref="ExportPipeline.ReadSourcePixels"/>)ので、当てないと None でも PNG の
+        /// アルファが戻り、アルファを使うシェーダーで元には無かった透けや穴が出る。None ならアルファを捨てて不透明に、
+        /// From Gray Scale なら RGB の平均をアルファにする(Unity の説明どおり)。色替えはアルファも見て選ぶので、
+        /// 色替えの後(出来上がり)に当てる。色替えした画像を同じ取り込み設定で取り込んだとき(書き出し)と同じになる。
+        /// PSD・TGA などは取り込み済みテクスチャの画素を読むので、Unity が当て済み。
+        /// </summary>
+        private static unsafe void ApplyAlphaSource(Texture2D tex, TextureImporter importer)
+        {
+            if (importer == null || importer.alphaSource == TextureImporterAlphaSource.FromInput) return;
+            if (tex.format != TextureFormat.RGBA32 || !ReadsSourceFile(importer.assetPath)) return;
+            bool gray = importer.alphaSource == TextureImporterAlphaSource.FromGrayScale;
+            var top = (Color32*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility
+                .GetUnsafePtr(tex.GetPixelData<Color32>(0));
+            for (int i = 0, n = tex.width * tex.height; i < n; i++)
+                top[i].a = gray ? (byte)((top[i].r + top[i].g + top[i].b + 1) / 3) : (byte)255;
+            // ミップのアルファも作り直す(RGB は同じ一番上から作るので変わらない)。
+            tex.Apply(updateMipmaps: tex.mipmapCount > 1, makeNoLongerReadable: false);
+        }
+
+        // 原本ファイルをそのまま読む形式か(LoadImage が読める PNG・JPG。ExportPipeline.ReadSourcePixels と同じ)。
+        private static bool ReadsSourceFile(string assetPath)
+        {
+            string ext = Path.GetExtension(assetPath).ToLowerInvariant();
+            return ext == ".png" || ext == ".jpg" || ext == ".jpeg";
         }
 
         /// <summary>
