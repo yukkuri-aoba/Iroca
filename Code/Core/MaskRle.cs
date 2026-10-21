@@ -185,10 +185,11 @@ namespace Iroca
                     {
                         uint run = System.BitConverter.ToUInt32(bytes, byteIdx);
                         byteIdx += 4;
-                        bool fillVal = curVal;
-                        uint end = (uint)System.Math.Min((long)pos + run, len);
-                        while (pos < (int)end)
-                            mask[pos++] = fillVal;
+                        int end = (int)System.Math.Min((long)pos + run, len);
+                        // 新しい配列は false で始まるので false のランは書かない。true のランはまとめて埋める
+                        // (1 画素ずつ書くと Undo・テクスチャの読み込み・NDMF のたびに 4K 1 枚 8〜19ms かかっていた)。
+                        if (curVal && end > pos) new System.Span<bool>(mask, pos, end - pos).Fill(true);
+                        pos = end;
                         curVal = !curVal;
                     }
                     // Encode は必ず全画素分のランを書く。ここで埋め切れていない = 切断データ。
