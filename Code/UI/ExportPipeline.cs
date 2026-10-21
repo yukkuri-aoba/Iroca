@@ -28,7 +28,8 @@ namespace Iroca
 
         /// <summary>
         /// 単体書き出しの出力先。新規ファイルなら名前を <see cref="PathUtils.SanitizeFileName"/> で直して
-        /// 元と同じフォルダへ、上書きなら元の拡張子を .png に替えたパス（元が PNG なら元そのもの）。
+        /// 元と同じフォルダへ（元が Assets の外なら <see cref="PathUtils.ExportFolderFor"/>）、上書きなら元の拡張子を
+        /// .png に替えたパス（元が PNG なら元そのもの）。
         /// </summary>
         public static string SingleOutputPath(string srcPath, bool saveAsNewFile, string newFileName)
         {
@@ -36,13 +37,21 @@ namespace Iroca
             // 区切り文字も置換するのでパストラバーサルはできない。予約名("CON" 等)や
             // 末尾の '.' / ' ' もプリセット保存と同じ規則で直す。
             string safeName = PathUtils.SanitizeFileName(newFileName, "recolored");
-            return Path.Combine(Path.GetDirectoryName(srcPath), safeName + ".png");
+            return InExportFolder(srcPath, safeName + ".png");
         }
 
-        /// <summary>一括書き出しの出力先（元と同じフォルダの &lt;元の名前&gt;_recolored.png）。</summary>
+        /// <summary>
+        /// 一括書き出し・自動化 API の既定の出力先（元と同じフォルダの &lt;元の名前&gt;_recolored.png。
+        /// 元が Assets の外なら <see cref="PathUtils.ExportFolderFor"/> の下）。
+        /// </summary>
         public static string BatchOutputPath(string srcPath)
-            => Path.Combine(Path.GetDirectoryName(srcPath),
-                            Path.GetFileNameWithoutExtension(srcPath) + PathUtils.RecoloredSuffix + ".png");
+            => InExportFolder(srcPath, Path.GetFileNameWithoutExtension(srcPath) + PathUtils.RecoloredSuffix + ".png");
+
+        private static string InExportFolder(string srcPath, string fileName)
+        {
+            string folder = PathUtils.ExportFolderFor(srcPath);
+            return string.IsNullOrEmpty(folder) ? fileName : folder + "/" + fileName;
+        }
 
         /// <summary>
         /// 原本の画素を読む（メインスレッド専用）。PNG/JPG はファイルを直接デコードするので
@@ -134,30 +143,34 @@ namespace Iroca
         /// <summary>
         /// PNG を書き込み、Assets 配下なら取り込む（メインスレッド専用）。書き込みはアトミック
         /// （書き潰す相手が元テクスチャそのものであり得るので、途中で落ちても原本を失わない）。
-        /// <paramref name="inheritImportSettings"/> なら取り込み前に元の .meta を写す。
+        /// 出力先のフォルダが無ければ作る（元が Assets の外のときの <see cref="PathUtils.ExportsFolder"/> の下など）。
+        /// <paramref name="inheritImportSettings"/> なら取り込み前に元の .meta を写す（元がパッケージの中でも）。
         /// 戻り値は出力の Assets 相対パス（Assets の外へ書いたときは null）。
         /// </summary>
         public static string WriteAndImport(string outputPath, byte[] png, string srcPath, bool inheritImportSettings)
         {
+            string dir = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             AtomicFile.WriteAllBytes(outputPath, png);
             string rel = PathUtils.ToAssetsRelativeOrNull(outputPath);
             if (rel == null) return null;
-            if (inheritImportSettings)
-            {
-                string srcRel = PathUtils.ToAssetsRelativeOrNull(srcPath);
-                if (srcRel != null) PreApplyImportSettings(srcRel, rel);
-            }
+            if (inheritImportSettings && !string.IsNullOrEmpty(srcPath))
+                PreApplyImportSettings(srcPath, rel);
             AssetDatabase.ImportAsset(rel);
             return rel;
         }
 
         // .meta ファイルをインポート前に書き込んでおくことで、
         // ImportAsset の 1 回の圧縮パスで正しい設定が適用される（SaveAndReimport 不要）。
-        internal static void PreApplyImportSettings(string srcRelPath, string dstRelPath)
+        // srcPath は元テクスチャのアセットのパス（Assets/… か Packages/…）。
+        internal static void PreApplyImportSettings(string srcPath, string dstRelPath)
         {
             string root = Path.GetDirectoryName(Application.dataPath);
             string sep  = Path.DirectorySeparatorChar.ToString();
-            string srcMeta = Path.Combine(root, srcRelPath.Replace("/", sep)) + ".meta";
+            string srcRel = PathUtils.ToAssetsRelativeOrNull(srcPath);
+            // パッケージ（Packages/…）の実ファイルは Packages/ か Library/PackageCache/ にある。Path.GetFullPath が
+            // 実際の置き場所へ解決する（Unity のマニュアルにある方法）。
+            string srcMeta = (srcRel != null ? Path.Combine(root, srcRel.Replace("/", sep)) : Path.GetFullPath(srcPath)) + ".meta";
             string dstMeta = Path.Combine(root, dstRelPath.Replace("/", sep)) + ".meta";
 
             // 元そのものへ上書きするときは元の .meta をそのまま使う（書き直すと、中身が同じでも

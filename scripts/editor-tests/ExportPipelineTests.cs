@@ -51,6 +51,29 @@ namespace Iroca.EditorTests
         public void BatchOutputPath_AddsSuffix()
             => Assert.AreEqual("Assets/Tex/a_recolored.png", Norm(ExportPipeline.BatchOutputPath("Assets/Tex/a.tga")));
 
+        [Test]
+        public void OutputPath_PackageSourceGoesUnderAssets()
+        {
+            // パッケージのフォルダは VCC / ALCOM の更新で丸ごと入れ替わり、中に書いた画像が消える。
+            Assert.AreEqual("Assets/Iroca/Exports/Packages/com.example/Tex/a_recolored.png",
+                Norm(ExportPipeline.BatchOutputPath("Packages/com.example/Tex/a.png")));
+            Assert.AreEqual("Assets/Iroca/Exports/Packages/com.example/Tex/b.png",
+                Norm(ExportPipeline.SingleOutputPath("Packages/com.example/Tex/a.png", true, "b")));
+            // 上書き（新しいファイルにしない）は利用者が元そのものを選んだので、元の場所のまま。
+            Assert.AreEqual("Packages/com.example/Tex/a.png",
+                Norm(ExportPipeline.SingleOutputPath("Packages/com.example/Tex/a.png", false, null)));
+        }
+
+        [Test]
+        public void WriteAndImport_CreatesTheOutputFolder()
+        {
+            string src = _assets.WritePng("src", Pattern(8, 8), 8, 8);
+            string outAsset = _assets.Folder + "/Exports/Packages/com.example/out.png";
+            string rel = ExportPipeline.WriteAndImport(TestAssets.Abs(outAsset), ExportPipeline.EncodePng(Pattern(8, 8), 8, 8), src, true);
+            Assert.AreEqual(outAsset, rel);
+            Assert.IsNotNull(AssetDatabase.LoadAssetAtPath<Texture2D>(outAsset), "新しいフォルダの中の画像が取り込まれていない");
+        }
+
         private static string Norm(string p) => p.Replace('\\', '/');
 
         // ─── 原本の読み込み ───

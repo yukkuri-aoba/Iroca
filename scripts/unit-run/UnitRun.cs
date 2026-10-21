@@ -153,6 +153,36 @@ namespace Iroca.UnitRun
             Check.Equal("Assets/a.png", Rel(flipped + "/a.png"), "drive letter case");
         }
 
+        // ─── PathUtils.ExportFolderFor（書き出しの置き場所。パッケージの中には書かない） ───
+
+        public static void ExportFolder_InsideAssetsIsTheSameFolder()
+        {
+            Check.Equal("Assets/Tex", PathUtils.ExportFolderFor("Assets/Tex/a.png"), "Assets の中");
+            Check.Equal("Assets", PathUtils.ExportFolderFor("Assets/a.png"), "Assets 直下");
+        }
+
+        public static void ExportFolder_PackageMirrorsUnderExports()
+        {
+            // VCC / ALCOM の更新でパッケージのフォルダは丸ごと入れ替わるので、Assets の下へ写す。
+            Check.Equal("Assets/Iroca/Exports/Packages/com.example.outfit/Textures",
+                PathUtils.ExportFolderFor("Packages/com.example.outfit/Textures/a.png"), "Packages");
+            Check.Equal("Assets/Iroca/Exports/Packages/com.example.outfit/Textures",
+                PathUtils.ExportFolderFor("Packages\\com.example.outfit\\Textures\\a.png"), "backslash");
+        }
+
+        public static void ExportFolder_RoundTripsToTheSourceFolder()
+        {
+            string src = "Packages/com.example.outfit/Textures";
+            Check.Equal(src, PathUtils.SourceFolderOfExport(PathUtils.ExportFolderFor(src + "/a.png")), "round trip");
+            Check.Equal("Assets/Tex", PathUtils.SourceFolderOfExport("Assets/Tex"), "ordinary folder");
+            Check.Equal("Assets/Iroca/Exports", PathUtils.SourceFolderOfExport("Assets/Iroca/Exports"), "exports root");
+            Check.Equal("Assets/Iroca/Exports/Assets/x", PathUtils.SourceFolderOfExport("Assets/Iroca/Exports/Assets/x"),
+                "Assets の中の元は写さない");
+        }
+
+        public static void ExportFolder_ParentTraversalStaysInExports()
+            => Check.Equal("Assets/Iroca/Exports", PathUtils.ExportFolderFor("Packages/../../evil/a.png"), "traversal");
+
         // ─── AtomicFile（エクスポート・セッション・マスク保存の書き込み） ───
 
         private static string TempDir()

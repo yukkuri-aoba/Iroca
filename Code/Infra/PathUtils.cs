@@ -95,5 +95,41 @@ namespace Iroca
         /// 黙って外れるため 1 か所に置く。表示文言（Localization・NdmfMessages）にも同じ綴りがある。
         /// </summary>
         internal const string RecoloredSuffix = "_recolored";
+
+        /// <summary>
+        /// 元テクスチャが Assets の外（VCC / ALCOM で入れたパッケージの Packages/ など）にあるときの書き出し先。
+        /// パッケージのフォルダは更新・入れ直しで丸ごと入れ替わり、中に書いた画像も消えるため。
+        /// </summary>
+        internal const string ExportsFolder = "Assets/Iroca/Exports";
+
+        /// <summary>
+        /// 書き出し（&lt;元の名前&gt;_recolored.png など）を置くフォルダ（'/' 区切り）。元が Assets の中なら元と同じフォルダ。
+        /// 外なら <see cref="ExportsFolder"/> の下に元のフォルダの並びを写す
+        /// （Packages/com.example/Textures → Assets/Iroca/Exports/Packages/com.example/Textures）。写しておくと、
+        /// 書き出した画像から元を辿れる（<see cref="SourceFolderOfExport"/>）。単体・一括・自動化 API の書き出しが共有する。
+        /// </summary>
+        internal static string ExportFolderFor(string srcPath)
+        {
+            string dir = (Path.GetDirectoryName(srcPath ?? "") ?? "").Replace('\\', '/');
+            if (dir == "Assets" || dir.StartsWith("Assets/", StringComparison.Ordinal)) return dir;
+            // アセットのパスでないもの（絶対パス・フォルダ無し）は従来どおり元と同じ場所。
+            if (dir.Length == 0 || Path.IsPathRooted(dir)) return dir;
+            if (Array.IndexOf(dir.Split('/'), "..") >= 0) return ExportsFolder;
+            return ExportsFolder + "/" + dir;
+        }
+
+        /// <summary>
+        /// <see cref="ExportFolderFor"/> の逆: 書き出しのフォルダから、元テクスチャのフォルダを返す。
+        /// Assets の外の元を写したフォルダでなければ、そのまま返す。
+        /// </summary>
+        internal static string SourceFolderOfExport(string exportDir)
+        {
+            string dir = (exportDir ?? "").Replace('\\', '/');
+            string prefix = ExportsFolder + "/";
+            if (!dir.StartsWith(prefix, StringComparison.Ordinal)) return dir;
+            string rest = dir.Substring(prefix.Length);
+            // 写すのは Assets の外の元だけ。Assets/Iroca/Exports/Assets/... は利用者が作ったフォルダ。
+            return rest == "Assets" || rest.StartsWith("Assets/", StringComparison.Ordinal) ? dir : rest;
+        }
     }
 }
