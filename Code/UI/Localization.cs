@@ -4,6 +4,11 @@ namespace Iroca
 {
     public enum LanguageMode { Auto, Japanese, English }
 
+    // スクリプトの読み込みのときにメインスレッドで初期化する。文言はバックグラウンドの計算（自動調整が上書きした
+    // 設定の名前など）からも読まれ、最初に読んだのがバックグラウンドのスレッドだと EditorPrefs が例外を投げて
+    // 型の初期化に失敗し、ドメインのリロードまでいろかの文言がすべて使えなくなる（ウィンドウを開かずに AI から
+    // 自動調整つきの色替えを頼んだときに起きる）。
+    [UnityEditor.InitializeOnLoad]
     public static class Localization
     {
         private const string PrefsKey = "Iroca.Language";
@@ -11,7 +16,15 @@ namespace Iroca
 
         static Localization()
         {
-            CurrentLanguage = (LanguageMode)UnityEditor.EditorPrefs.GetInt(PrefsKey, (int)LanguageMode.Auto);
+            try
+            {
+                CurrentLanguage = (LanguageMode)UnityEditor.EditorPrefs.GetInt(PrefsKey, (int)LanguageMode.Auto);
+            }
+            catch (UnityEngine.UnityException)
+            {
+                // それでもメインスレッドの外で先に初期化されたときは、言語の設定を読めないので自動で始める。
+                CurrentLanguage = LanguageMode.Auto;
+            }
         }
 
         public static void SaveLanguagePreference()
