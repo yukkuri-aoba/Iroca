@@ -155,7 +155,10 @@ namespace Iroca
             return all.found.Count > 0 || all.unreadable > 0 ? Dedup(all) : null;
         }
 
-        /// <summary>このテクスチャ自身と、同じフォルダにある Iroca の書き出し物(&lt;名前&gt;_recolored*)。</summary>
+        /// <summary>
+        /// このテクスチャ自身と、同じフォルダにある Iroca の書き出し物(&lt;名前&gt;_recolored*)。元が Assets の外
+        /// (パッケージの中)なら、書き出しの置き場所(<see cref="PathUtils.ExportFolderFor"/>)にあるものも。
+        /// </summary>
         internal static HashSet<Texture> TargetTextures(Texture2D texture)
         {
             var set = new HashSet<Texture> { texture };
@@ -164,7 +167,10 @@ namespace Iroca
             string dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
             string stem = Path.GetFileNameWithoutExtension(path) + PathUtils.RecoloredSuffix;
             if (string.IsNullOrEmpty(dir)) return set;
-            foreach (var p in SiblingTexturePaths(dir, stem))
+            string exportDir = PathUtils.ExportFolderFor(path);
+            var dirs = exportDir != dir && AssetDatabase.IsValidFolder(exportDir) ? new[] { dir, exportDir } : new[] { dir };
+            foreach (var d in dirs)
+            foreach (var p in SiblingTexturePaths(d, stem))
             {
                 if (!Path.GetFileNameWithoutExtension(p).StartsWith(stem, System.StringComparison.Ordinal)) continue;
                 var t = AssetDatabase.LoadAssetAtPath<Texture2D>(p);
@@ -258,8 +264,9 @@ namespace Iroca
             int cut = name.IndexOf(PathUtils.RecoloredSuffix, System.StringComparison.Ordinal);
             if (cut <= 0) return tex2d;
             string stem = name.Substring(0, cut);
-            string dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
-            if (string.IsNullOrEmpty(dir)) return tex2d;
+            // パッケージの中の元の書き出しは Assets/Iroca/Exports の下にある(元のフォルダへ戻して探す)。
+            string dir = PathUtils.SourceFolderOfExport(Path.GetDirectoryName(path)?.Replace('\\', '/'));
+            if (string.IsNullOrEmpty(dir) || !AssetDatabase.IsValidFolder(dir)) return tex2d;
             foreach (var p in SiblingTexturePaths(dir, stem))
             {
                 if (Path.GetFileNameWithoutExtension(p) != stem) continue;
