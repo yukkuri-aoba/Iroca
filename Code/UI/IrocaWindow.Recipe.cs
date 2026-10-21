@@ -168,6 +168,33 @@ namespace Iroca
             win.Repaint();
         }
 
+        /// <summary>
+        /// 自動化 API の自動調整が AI の証拠を求めるときの受け口。AI の提案を受け取るのは窓のコントローラ
+        /// だけにしておかないと、提案を奪い合う(MaskSuggestController の説明)ので、窓があればそれを返す。
+        /// 窓が <paramref name="texture"/> を表示していれば、窓のプレビューと同じ画素とキーも返す(埋め込みを使い回し、
+        /// 窓の AI 提案の元を切り替えない。呼び出し側は <paramref name="pixels"/> を使い終えたら Release する)。
+        /// 窓が無い・AI が無ければ null(呼び出し側がサービスを直接使う)。
+        /// </summary>
+        internal static MaskSuggestController EvidenceChannel(Texture2D texture, out NativePixels pixels, out string key)
+        {
+            pixels = null;
+            key = null;
+            foreach (var w in Resources.FindObjectsOfTypeAll<IrocaWindow>())
+            {
+                if (w == null || w._maskView == null) continue;
+                var ctl = w._maskView.SuggestController;
+                if (ctl == null) continue;
+                if (w.sourceTexture == texture && w._previewView != null
+                    && w._previewView.TryGetTrueSourcePixels(texture, out var shared, out _, out _))
+                {
+                    pixels = shared.AddRef();
+                    key = w._previewView.TrueSourceCacheKey();
+                }
+                return ctl;
+            }
+            return null;
+        }
+
         private static IrocaWindow WindowShowing(Texture2D texture)
         {
             if (texture == null) return null;

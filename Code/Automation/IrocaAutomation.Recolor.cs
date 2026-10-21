@@ -30,6 +30,8 @@ namespace Iroca
             public string avatar = "";
             // png の出力先(既定: 元と同じフォルダの <名前>_recolored.png)
             public string output = "";
+            // true(既定)なら、changes で作った・置き換えたゾーンに UI と同じ自動調整をかける
+            public bool autoTune = true;
         }
 
         [Serializable]
@@ -73,6 +75,19 @@ namespace Iroca
             public float[] at;
             public float tolerance;
             public bool enabled;
+            // 自動調整のかけ方("evidence" / "conventional" / "skipped: 理由")。この依頼で調整しなかったゾーンは空
+            public string autoTune = "";
+        }
+
+        /// <summary>自動調整を待っている間の途中経過(<see cref="Recolor"/> / <see cref="RecolorStatus"/> が返す)。</summary>
+        [Serializable]
+        internal class RecolorPending
+        {
+            public bool ok = true;
+            public bool pending = true;
+            public string message = "";
+            public int tunedZones;
+            public int zonesToTune;
         }
 
         internal const string ApplyAvatar = "avatar";
@@ -90,165 +105,288 @@ namespace Iroca
         /// </summary>
         public static string Recolor(string requestJson)
         {
-            var r = new RecolorTextureResult();
+            CancelRecolorJob();
+            var job = new RecolorJob();
             try
             {
-                RecolorRequest req;
-                try { req = JsonUtility.FromJson<RecolorRequest>(requestJson ?? ""); }
-                catch (Exception ex) { return FinishRecolor(r, $"request JSON parse failed: {ex.Message}"); }
-                if (req == null) return FinishRecolor(r, "request JSON is empty.");
-                r.apply = string.IsNullOrEmpty(req.apply) ? ApplyAvatar : req.apply.Trim().ToLowerInvariant();
-                if (r.apply != ApplyAvatar && r.apply != ApplyPng && r.apply != ApplyPreview)
-                    return FinishRecolor(r, $"unknown apply '{req.apply}' (use 'avatar', 'png' or 'preview').");
+                string error = PrepareRecolor(requestJson, job);
+                if (error != null) return FinishRecolor(job.r, error);
 
-                // ── テクスチャ ──
-                if (string.IsNullOrWhiteSpace(req.texture)) return FinishRecolor(r, "texture is required.");
-                var asset = LoadAssetByPath(req.texture);
-                var tex = asset as Texture2D ?? (asset is Material m ? MeshUvLocator.MainTexture(m) as Texture2D : null);
-                if (tex == null) return FinishRecolor(r, $"not a texture or a material with a main texture: {req.texture}");
-                var source = MeshUvLocator.EditableSourceOf(tex);
-                if (source != null && source != tex)
+                if (job.req.autoTune && job.changedZoneIds.Count > 0)
                 {
-                    r.warnings.Add($"{AssetDatabase.GetAssetPath(tex)} is an Iroca export; recoloring its source {AssetDatabase.GetAssetPath(source)} instead.");
-                    tex = source;
-                }
-                r.texture = AssetDatabase.GetAssetPath(tex);
-                string abs = PhysicalPath(r.texture);
-                if (abs == null) return FinishRecolor(r, $"texture file not found: {r.texture}");
-                if (ExportPipeline.ReadSourcePixels(abs, tex, out Color32[] work, out int w, out int h, workingSize: true)
-                        == ExportPipeline.SourceKind.Unavailable)
-                    return FinishRecolor(r, "could not read the pixels (enable Read/Write in the import settings, or use a PNG/JPG source).");
-
-                // ── 登録先と土台 ──
-                GameObject target = null;
-                IrocaRecipe recipe = null;
-                if (r.apply == ApplyAvatar)
-                {
-                    if (!string.IsNullOrWhiteSpace(req.avatar))
+                    job.tune = new AutomationAutoTune(job.state, job.tex, job.work, job.w, job.h, job.changedZoneIds, job.r.warnings);
+                    job.tune.Advance();
+                    if (!job.tune.Done)
                     {
-                        target = FindSceneObject(req.avatar, out string findError);
-                        if (target == null) return FinishRecolor(r, findError);
+                        s_job = job;
+                        EditorApplication.update -= PumpRecolorJob;
+                        EditorApplication.update += PumpRecolorJob;
+                        return PendingJson(job);
                     }
-                    else
-                    {
-                        target = RecipeRegistration.SuggestTarget(tex, null);
-                        if (target == null)
-                            return FinishRecolor(r, "could not decide which object to register on (the texture is used by no "
-                                + "scene object, or by several avatars). Pass 'avatar' (a scene object path).");
-                    }
-                    r.avatar = HierarchyPath(target.transform);
-                    recipe = RecipeRegistration.ExistingFor(target, tex);
                 }
-                if (recipe == null)
-                {
-                    var found = RecipeStore.FindForTexture(tex);
-                    if (found.Count == 1) recipe = found[0];
-                }
-                // 読めないレシピ(新しい版のいろかで作られた等)は土台にも書き込み先にもしない(UI と同じ)。
-                if (recipe != null && !string.IsNullOrEmpty(recipe.sessionJson) && RecipeStore.Load(recipe) == null)
-                    return FinishRecolor(r, $"the existing recipe cannot be read (made by a newer Iroca?): {AssetDatabase.GetAssetPath(recipe)}");
-
-                IrocaSessionState state;
-                if (!string.IsNullOrWhiteSpace(req.preset))
-                {
-                    var preset = ResolvePreset(req.preset);
-                    if (preset == null) return FinishRecolor(r, $"preset not found / parse failed: {req.preset}");
-                    state = SessionFromPreset(preset);
-                }
-                else
-                {
-                    state = IrocaWindow.EditingStateOf(tex)
-                         ?? (recipe != null ? RecipeStore.Load(recipe) : null)
-                         ?? IrocaSessionState.CreateDefault();
-                }
-                state.zones ??= new List<ColorZone>();
-                state.maskState ??= new MaskState();
-
-                // ── ゾーンの変更 ──
-                if (req.reset)
-                {
-                    state.zones.Clear();
-                    state.maskState = new MaskState();
-                }
-                foreach (var name in req.remove ?? new List<string>())
-                {
-                    int removed = state.zones.RemoveAll(z => z != null && z.name == name);
-                    if (removed == 0) r.warnings.Add($"no zone named '{name}' to remove.");
-                }
-                foreach (var change in req.changes ?? new List<ChangeRequest>())
-                {
-                    string err = ApplyChange(state, change, work, w, h);
-                    if (err != null) return FinishRecolor(r, err);
-                }
-                DropOrphanMasks(state);
-                foreach (var z in state.zones) if (z != null) { z.EnsureId(); z.UpdateCacheIfNeeded(); }
-                if (SessionRecolor.CountEnabled(state.zones) == 0)
-                    return FinishRecolor(r, "no enabled zones (add at least one entry to 'changes').");
-
-                // ── 比較画像(作業解像度。登録・プレビューで見えるものと同じ) ──
-                var after = (Color32[])work.Clone();
-                SessionRecolor.Apply(after, w, h, state);
-                var metrics = RecolorPreview.ComputeMetrics(work, after, w, h);
-                r.changedFraction = metrics.changedFraction;
-                r.largestComponentFraction = metrics.largestComponentFraction;
-                r.changeComponentCount = metrics.componentCount;
-                r.preview = WriteRecolorPanel(work, after, w, h, r.texture, r.warnings);
-                foreach (var z in state.zones)
-                {
-                    if (z == null) continue;
-                    r.zones.Add(new ZoneInfo
-                    {
-                        name = z.name,
-                        from = "#" + ColorUtility.ToHtmlStringRGB(z.sampleColor),
-                        to = "#" + ColorUtility.ToHtmlStringRGB(z.targetColor),
-                        at = z.sampleUV.x >= 0f ? new[] { z.sampleUV.x, z.sampleUV.y } : new float[0],
-                        tolerance = z.tolerance,
-                        enabled = z.enabled,
-                    });
-                }
-
-                // ── 反映 ──
-                if (r.apply == ApplyPng)
-                {
-                    string outPath = string.IsNullOrWhiteSpace(req.output) ? ExportPipeline.BatchOutputPath(r.texture) : req.output;
-                    var exported = RunRecolorCore(r.texture, state, outPath, r.warnings, imported: tex, panelNextToOutput: false);
-                    if (!exported.ok) return FinishRecolor(r, exported.error);
-                    r.output = exported.output;
-                }
-                else if (r.apply == ApplyAvatar)
-                {
-                    if (recipe == null) recipe = RecipeStore.Create(tex, state);
-                    else RecipeStore.Save(recipe, state);
-                    r.recipe = AssetDatabase.GetAssetPath(recipe);
-
-                    // UI の登録と同じ: 書き出した画像を差しているマテリアルを元へ戻し、コンポーネントに足す(Undo 1 回)。
-                    Undo.IncrementCurrentGroup();
-                    int undoGroup = Undo.GetCurrentGroup();
-                    Undo.SetCurrentGroupName(UndoName);
-                    var exports = RecipeRegistration.ExportsOf(tex);
-                    var exportUsers = RecipeRegistration.MaterialsUsing(target, exports);
-                    int switched = RecipeRegistration.SwitchToSource(exportUsers, tex, exports);
-                    if (switched > 0) r.warnings.Add($"switched {switched} material(s) from the exported image back to the source texture.");
-                    RecipeRegistration.Attach(target, recipe);
-                    // Attach が付ける名前(Iroca: Register Recolor)ではなく、外からの色替えだと分かる名前にする。
-                    Undo.SetCurrentGroupName(UndoName);
-                    Undo.CollapseUndoOperations(undoGroup);
-
-                    IrocaWindow.ReloadFromRecipe(recipe, UndoName);
-                }
-                return FinishRecolor(r, null);
+                return CompleteRecolor(job);
             }
             catch (Exception ex)
             {
-                return FinishRecolor(r, $"{ex.GetType().Name}: {ex.Message}");
+                job.tune?.Cancel();
+                return FinishRecolor(job.r, $"{ex.GetType().Name}: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 自動調整を待っている <see cref="Recolor"/> の続き。進めて、終わっていれば最後の結果(Recolor と同じ形)、
+        /// まだなら途中経過(pending)を返す。MCP の問い合わせ直し(action=status)から呼ぶ。
+        /// </summary>
+        public static string RecolorStatus()
+        {
+            var job = s_job;
+            if (job == null)
+                return FinishRecolor(new RecolorTextureResult(), "no recolor is in progress.");
+            try
+            {
+                PumpRecolorJob();
+                if (job.finalJson == null) return PendingJson(job);
+                s_job = null;
+                return job.finalJson;
+            }
+            catch (Exception ex)
+            {
+                CancelRecolorJob();
+                return FinishRecolor(job.r, $"{ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        // 自動調整を待っている依頼(同時に 1 つ。新しい依頼が来たら前のものは捨てる)。
+        private static RecolorJob s_job;
+
+        private sealed class RecolorJob
+        {
+            public RecolorRequest req;
+            public readonly RecolorTextureResult r = new RecolorTextureResult();
+            public Texture2D tex;
+            public Color32[] work;
+            public int w, h;
+            public GameObject target;
+            public IrocaRecipe recipe;
+            public IrocaSessionState state;
+            public readonly List<string> changedZoneIds = new List<string>();
+            public AutomationAutoTune tune;
+            // 終わった結果。問い合わせが来なくても update で仕上げまで進めて、ここに置いておく。
+            public string finalJson;
+        }
+
+        // update と問い合わせから呼ぶ。自動調整を進め、終わったら仕上げ(比較画像・登録・書き出し)まで行う。
+        private static void PumpRecolorJob()
+        {
+            var job = s_job;
+            if (job == null) { EditorApplication.update -= PumpRecolorJob; return; }
+            if (job.finalJson != null) return;
+            try
+            {
+                job.tune.Advance();
+                if (!job.tune.Done) return;
+                job.finalJson = CompleteRecolor(job);
+            }
+            catch (Exception ex)
+            {
+                job.tune?.Cancel();
+                job.finalJson = FinishRecolor(job.r, $"{ex.GetType().Name}: {ex.Message}");
+            }
+            EditorApplication.update -= PumpRecolorJob;
+        }
+
+        private static void CancelRecolorJob()
+        {
+            s_job?.tune?.Cancel();
+            s_job = null;
+            EditorApplication.update -= PumpRecolorJob;
+        }
+
+        private static string PendingJson(RecolorJob job)
+        {
+            var p = new RecolorPending
+            {
+                tunedZones = job.tune.Finished,
+                zonesToTune = job.tune.Total,
+                message = "Auto-tuning the zones (the first time on a texture, the AI prepares the image, which can take a while). "
+                    + "Call again to get the result.",
+            };
+            return JsonUtility.ToJson(p);
+        }
+
+        // 依頼を読み、テクスチャ・登録先・土台を決め、ゾーンを変える。エラーなら文言、成功なら null。
+        private static string PrepareRecolor(string requestJson, RecolorJob job)
+        {
+            var r = job.r;
+            RecolorRequest req;
+            try { req = JsonUtility.FromJson<RecolorRequest>(requestJson ?? ""); }
+            catch (Exception ex) { return $"request JSON parse failed: {ex.Message}"; }
+            if (req == null) return "request JSON is empty.";
+            job.req = req;
+            r.apply = string.IsNullOrEmpty(req.apply) ? ApplyAvatar : req.apply.Trim().ToLowerInvariant();
+            if (r.apply != ApplyAvatar && r.apply != ApplyPng && r.apply != ApplyPreview)
+                return $"unknown apply '{req.apply}' (use 'avatar', 'png' or 'preview').";
+
+            // ── テクスチャ ──
+            if (string.IsNullOrWhiteSpace(req.texture)) return "texture is required.";
+            var asset = LoadAssetByPath(req.texture);
+            var tex = asset as Texture2D ?? (asset is Material m ? MeshUvLocator.MainTexture(m) as Texture2D : null);
+            if (tex == null) return $"not a texture or a material with a main texture: {req.texture}";
+            var source = MeshUvLocator.EditableSourceOf(tex);
+            if (source != null && source != tex)
+            {
+                r.warnings.Add($"{AssetDatabase.GetAssetPath(tex)} is an Iroca export; recoloring its source {AssetDatabase.GetAssetPath(source)} instead.");
+                tex = source;
+            }
+            job.tex = tex;
+            r.texture = AssetDatabase.GetAssetPath(tex);
+            string abs = PhysicalPath(r.texture);
+            if (abs == null) return $"texture file not found: {r.texture}";
+            if (ExportPipeline.ReadSourcePixels(abs, tex, out job.work, out job.w, out job.h, workingSize: true)
+                    == ExportPipeline.SourceKind.Unavailable)
+                return "could not read the pixels (enable Read/Write in the import settings, or use a PNG/JPG source).";
+
+            // ── 登録先と土台 ──
+            if (r.apply == ApplyAvatar)
+            {
+                if (!string.IsNullOrWhiteSpace(req.avatar))
+                {
+                    job.target = FindSceneObject(req.avatar, out string findError);
+                    if (job.target == null) return findError;
+                }
+                else
+                {
+                    job.target = RecipeRegistration.SuggestTarget(tex, null);
+                    if (job.target == null)
+                        return "could not decide which object to register on (the texture is used by no "
+                            + "scene object, or by several avatars). Pass 'avatar' (a scene object path).";
+                }
+                r.avatar = HierarchyPath(job.target.transform);
+                job.recipe = RecipeRegistration.ExistingFor(job.target, tex);
+            }
+            if (job.recipe == null)
+            {
+                var found = RecipeStore.FindForTexture(tex);
+                if (found.Count == 1) job.recipe = found[0];
+            }
+            // 読めないレシピ(新しい版のいろかで作られた等)は土台にも書き込み先にもしない(UI と同じ)。
+            if (job.recipe != null && !string.IsNullOrEmpty(job.recipe.sessionJson) && RecipeStore.Load(job.recipe) == null)
+                return $"the existing recipe cannot be read (made by a newer Iroca?): {AssetDatabase.GetAssetPath(job.recipe)}";
+
+            IrocaSessionState state;
+            if (!string.IsNullOrWhiteSpace(req.preset))
+            {
+                var preset = ResolvePreset(req.preset);
+                if (preset == null) return $"preset not found / parse failed: {req.preset}";
+                state = SessionFromPreset(preset);
+            }
+            else
+            {
+                state = IrocaWindow.EditingStateOf(tex)
+                     ?? (job.recipe != null ? RecipeStore.Load(job.recipe) : null)
+                     ?? IrocaSessionState.CreateDefault();
+            }
+            state.zones ??= new List<ColorZone>();
+            state.maskState ??= new MaskState();
+            job.state = state;
+
+            // ── ゾーンの変更 ──
+            if (req.reset)
+            {
+                state.zones.Clear();
+                state.maskState = new MaskState();
+            }
+            foreach (var name in req.remove ?? new List<string>())
+            {
+                int removed = state.zones.RemoveAll(z => z != null && z.name == name);
+                if (removed == 0) r.warnings.Add($"no zone named '{name}' to remove.");
+            }
+            foreach (var change in req.changes ?? new List<ChangeRequest>())
+            {
+                string err = ApplyChange(state, change, job.work, job.w, job.h, out var changed);
+                if (err != null) return err;
+                if (!job.changedZoneIds.Contains(changed.id)) job.changedZoneIds.Add(changed.id);
+            }
+            DropOrphanMasks(state);
+            foreach (var z in state.zones) if (z != null) { z.EnsureId(); z.UpdateCacheIfNeeded(); }
+            if (SessionRecolor.CountEnabled(state.zones) == 0)
+                return "no enabled zones (add at least one entry to 'changes').";
+            return null;
+        }
+
+        // 比較画像を作り、登録・書き出しまで行って、最後の結果を返す。
+        private static string CompleteRecolor(RecolorJob job)
+        {
+            var r = job.r;
+            var state = job.state;
+            var tex = job.tex;
+            foreach (var z in state.zones) if (z != null) z.UpdateCacheIfNeeded();
+
+            // ── 比較画像(作業解像度。登録・プレビューで見えるものと同じ) ──
+            var after = (Color32[])job.work.Clone();
+            SessionRecolor.Apply(after, job.w, job.h, state);
+            var metrics = RecolorPreview.ComputeMetrics(job.work, after, job.w, job.h);
+            r.changedFraction = metrics.changedFraction;
+            r.largestComponentFraction = metrics.largestComponentFraction;
+            r.changeComponentCount = metrics.componentCount;
+            r.preview = WriteRecolorPanel(job.work, after, job.w, job.h, r.texture, r.warnings);
+            foreach (var z in state.zones)
+            {
+                if (z == null) continue;
+                string how = "";
+                if (job.tune != null && job.tune.How.TryGetValue(z.name, out var h)) how = h;
+                else if (job.changedZoneIds.Contains(z.id) && !job.req.autoTune) how = "skipped: autoTune=false";
+                r.zones.Add(new ZoneInfo
+                {
+                    name = z.name,
+                    from = "#" + ColorUtility.ToHtmlStringRGB(z.sampleColor),
+                    to = "#" + ColorUtility.ToHtmlStringRGB(z.targetColor),
+                    at = z.sampleUV.x >= 0f ? new[] { z.sampleUV.x, z.sampleUV.y } : new float[0],
+                    tolerance = z.tolerance,
+                    enabled = z.enabled,
+                    autoTune = how,
+                });
+            }
+
+            // ── 反映 ──
+            if (r.apply == ApplyPng)
+            {
+                string outPath = string.IsNullOrWhiteSpace(job.req.output) ? ExportPipeline.BatchOutputPath(r.texture) : job.req.output;
+                var exported = RunRecolorCore(r.texture, state, outPath, r.warnings, imported: tex, panelNextToOutput: false);
+                if (!exported.ok) return FinishRecolor(r, exported.error);
+                r.output = exported.output;
+            }
+            else if (r.apply == ApplyAvatar)
+            {
+                var recipe = job.recipe;
+                if (recipe == null) recipe = RecipeStore.Create(tex, state);
+                else RecipeStore.Save(recipe, state);
+                r.recipe = AssetDatabase.GetAssetPath(recipe);
+
+                // UI の登録と同じ: 書き出した画像を差しているマテリアルを元へ戻し、コンポーネントに足す(Undo 1 回)。
+                Undo.IncrementCurrentGroup();
+                int undoGroup = Undo.GetCurrentGroup();
+                Undo.SetCurrentGroupName(UndoName);
+                var exports = RecipeRegistration.ExportsOf(tex);
+                var exportUsers = RecipeRegistration.MaterialsUsing(job.target, exports);
+                int switched = RecipeRegistration.SwitchToSource(exportUsers, tex, exports);
+                if (switched > 0) r.warnings.Add($"switched {switched} material(s) from the exported image back to the source texture.");
+                RecipeRegistration.Attach(job.target, recipe);
+                // Attach が付ける名前(Iroca: Register Recolor)ではなく、外からの色替えだと分かる名前にする。
+                Undo.SetCurrentGroupName(UndoName);
+                Undo.CollapseUndoOperations(undoGroup);
+
+                IrocaWindow.ReloadFromRecipe(recipe, UndoName);
+            }
+            return FinishRecolor(r, null);
         }
 
         private const string UndoName = "Iroca: Recolor (automation)";
 
         // 1 件の変更をゾーンにする。エラーなら文言、成功なら null。
-        private static string ApplyChange(IrocaSessionState state, ChangeRequest c, Color32[] work, int w, int h)
+        private static string ApplyChange(IrocaSessionState state, ChangeRequest c, Color32[] work, int w, int h, out ColorZone zone)
         {
+            zone = null;
             if (c == null) return "a change is empty.";
             if (string.IsNullOrWhiteSpace(c.to) || !ColorUtility.TryParseHtmlString(c.to.Trim(), out Color to))
                 return $"change '{c.name}': 'to' must be a color like \"#1A2B5C\" or a color name such as \"navy\" (got '{c.to}').";
@@ -274,7 +412,7 @@ namespace Iroca
             to.a = 1f;
 
             string name = string.IsNullOrWhiteSpace(c.name) ? NextZoneName(state.zones) : c.name.Trim();
-            var zone = state.zones.FirstOrDefault(z => z != null && z.name == name);
+            zone = state.zones.FirstOrDefault(z => z != null && z.name == name);
             if (zone == null)
             {
                 // UI でスポイトして新しいゾーンを作ったときと同じ(IrocaWindow.CreateNewZone)。

@@ -3,9 +3,11 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Collections;
 using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace Iroca.EditorTests
 {
@@ -78,7 +80,7 @@ namespace Iroca.EditorTests
         {
             string src = _assets.WritePng("src", Fill(16, 8, new Color32(200, 30, 30, 255)), 16, 8);
             string json = Call("IrocaRecolorTool",
-                "{\"texture\":\"" + src + "\",\"apply\":\"preview\",\"changes\":[{\"name\":\"red\",\"at\":[0.5,0.5],\"to\":\"#1A2B5C\"}]}");
+                "{\"texture\":\"" + src + "\",\"apply\":\"preview\",\"autoTune\":false,\"changes\":[{\"name\":\"red\",\"at\":[0.5,0.5],\"to\":\"#1A2B5C\"}]}");
             Assert.AreEqual("True", Token(json, "success"), json);
             Assert.AreEqual("red", Token(json, "data.zones[0].name"), json);
             Assert.AreEqual("1", Token(json, "data.changedFraction"), json);
@@ -93,6 +95,31 @@ namespace Iroca.EditorTests
                 ("changes", "[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]")));
             Assert.AreEqual("True", Token(json, "success"), json);
         }
+
+        [UnityTest]
+        public IEnumerator Recolor_AutoTune_RepliesPendingThenResultOnStatus()
+        {
+            // 自動調整を待つ間は MCP の pending を返し、サーバーの問い合わせ直し(action=status)で最後の結果を返す。
+            string src = _assets.WritePng("src", Fill(16, 8, new Color32(200, 30, 30, 255)), 16, 8);
+            string args = "{\"texture\":\"" + src + "\",\"apply\":\"preview\",\"changes\":[{\"name\":\"red\",\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]}";
+            string json = Call("IrocaRecolorTool", args);
+            bool sawPending = false;
+            double deadline = UnityEditor.EditorApplication.timeSinceStartup + 120;
+            while (Token(json, "_mcp_status") == "pending")
+            {
+                sawPending = true;
+                Assert.AreEqual("True", Token(json, "success"), json);
+                Assert.Less(UnityEditor.EditorApplication.timeSinceStartup, deadline, json);
+                yield return null;
+                json = Call("IrocaRecolorTool", AddAction(args));
+            }
+            Assert.AreEqual("True", Token(json, "success"), json);
+            Assert.AreEqual("conventional", Token(json, "data.zones[0].autoTune"), json);
+            if (!sawPending) Assert.Pass("解析が 1 回目の呼び出しの中で終わった(pending を経ずに結果)");
+        }
+
+        private string AddAction(string argsJson)
+            => argsJson.Substring(0, argsJson.Length - 1) + ",\"action\":\"status\"}";
 
         [Test]
         public void Recolor_FailureInIroca_BecomesError()

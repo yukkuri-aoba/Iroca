@@ -49,13 +49,34 @@ namespace Iroca.McpIntegration
         }
 
         /// <summary>
-        /// "ok" を持たない素の JSON オブジェクト(DescribeSchema / ListPresets など)をそのまま成功の data として返す。
-        /// パースできないときだけ失敗にする。
+        /// 待っている途中。PendingResponse と同じ形({success:true, _mcp_status:"pending", _mcp_poll_interval, message, data})。
+        /// サーバーは poll_interval 秒後に、同じ引数に action="status" を足して問い合わせ直す(0.1〜5 秒に丸められる)。
         /// </summary>
-        public static JObject FromAutomationDocument(string json, string fallbackError)
+        public static JObject Pending(string message, double pollIntervalSeconds, JToken data = null)
         {
-            try { return Success("ok", JObject.Parse(json)); }
+            var o = new JObject
+            {
+                ["success"] = true,
+                ["_mcp_status"] = "pending",
+                ["_mcp_poll_interval"] = pollIntervalSeconds,
+                ["message"] = message ?? "",
+            };
+            if (data != null) o["data"] = data;
+            return o;
+        }
+
+        /// <summary>
+        /// IrocaAutomation の JSON が途中経過({"pending":true,...})なら <see cref="Pending"/>、そうでなければ
+        /// <see cref="FromAutomationResult"/>。
+        /// </summary>
+        public static JObject FromAutomationPendingOrResult(string json, double pollIntervalSeconds, string fallbackError)
+        {
+            JObject data;
+            try { data = JObject.Parse(json); }
             catch { return Error($"{fallbackError}: invalid JSON from Iroca: {json}"); }
+            bool pending = data.TryGetValue("pending", out var p) && p.Type == JTokenType.Boolean && p.Value<bool>();
+            if (pending) return Pending(data.Value<string>("message"), pollIntervalSeconds, data);
+            return FromAutomationResult(json, fallbackError);
         }
     }
 }

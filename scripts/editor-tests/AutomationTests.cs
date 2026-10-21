@@ -1,9 +1,11 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System.Collections;
 using System.IO;
 using System.Linq;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace Iroca.EditorTests
 {
@@ -156,8 +158,11 @@ namespace Iroca.EditorTests
             return _assets.WritePng("halves", px, 32, 16);
         }
 
-        private static string Request(string texture, string apply, string changes, string extra = "")
-            => "{\"texture\":\"" + texture + "\",\"apply\":\"" + apply + "\",\"changes\":" + changes + extra + "}";
+        // 自動調整は別のテストで見る(ここでは新しいゾーンの初期値のまま、結果を決まった形にする)。
+        private static string Request(string texture, string apply, string changes, string extra = "",
+                                      bool autoTune = false)
+            => "{\"texture\":\"" + texture + "\",\"apply\":\"" + apply + "\",\"changes\":" + changes + extra
+               + ",\"autoTune\":" + (autoTune ? "true" : "false") + "}";
 
         private static IrocaAutomation.RecolorTextureResult RecolorOk(string request)
         {
@@ -256,6 +261,75 @@ namespace Iroca.EditorTests
             var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
             Assert.IsFalse(r.ok, json);
             StringAssert.Contains(error, r.error);
+        }
+
+        // ─── 自動調整 ───
+
+        // 自動調整を待つ依頼を、終わるまで問い合わせ直す(MCP のサーバーと同じ。間に editor の 1 コマを挟む)。
+        private static IEnumerator RecolorUntilDone(string request, System.Action<string> done, double timeoutSeconds = 120)
+        {
+            string json = IrocaAutomation.Recolor(request);
+            double deadline = UnityEditor.EditorApplication.timeSinceStartup + timeoutSeconds;
+            while (json.Contains("\"pending\":true"))
+            {
+                Assert.Less(UnityEditor.EditorApplication.timeSinceStartup, deadline, "自動調整が終わらない: " + json);
+                yield return null;
+                json = IrocaAutomation.RecolorStatus();
+            }
+            done(json);
+        }
+
+        [UnityTest]
+        public IEnumerator Recolor_AutoTune_ZoneGivenByColor_UsesConventionalAnalysis()
+        {
+            // 色で指定したゾーン(スポイト位置なし)は、UI と同じく AI を使わない導出で調整する。
+            string src = Halves();
+            string json = null;
+            yield return RecolorUntilDone(
+                Request(src, "preview", "[{\"name\":\"red\",\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]", autoTune: true),
+                j => json = j);
+            var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
+            Assert.IsTrue(r.ok, json);
+            Assert.AreEqual("conventional", r.zones.Single().autoTune, json);
+            Assert.AreEqual(0.5f, r.changedFraction, 1e-4f, "赤い側だけ変わること");
+        }
+
+        [UnityTest, Timeout(1200000)]
+        public IEnumerator Recolor_AutoTune_ClickedZone_UsesAiEvidenceWhenAvailable()
+        {
+            // スポイト位置のあるゾーンは AI の提案を証拠にする。AI が無いホストでは、UI と同じく初期値のまま残して知らせる。
+            var svc = MaskSuggestBridge.Service;
+            bool ai = svc != null && MaskSuggestBridge.ModelFilesPresent && svc.TryEnsureModels();
+            string src = Halves();
+            string json = null;
+            // -nographics では推論エンジンが GPU のカーネルが無いと LogError してから CPU へ切り替える
+            // (MaskSuggestInferenceTests と同じ)。切り替え後に通ることを見るので、エラーログでは落とさない。
+            LogAssert.ignoreFailingMessages = true;
+            try
+            {
+                yield return RecolorUntilDone(
+                    Request(src, "preview", "[{\"name\":\"red\",\"at\":[0.25,0.5],\"to\":\"#1A2B5C\"}]", autoTune: true),
+                    j => json = j, timeoutSeconds: 600);
+            }
+            finally { LogAssert.ignoreFailingMessages = false; }
+            var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
+            Assert.IsTrue(r.ok, json);
+            string how = r.zones.Single().autoTune;
+            if (ai) StringAssert.DoesNotStartWith("skipped", how, json);
+            else
+            {
+                StringAssert.StartsWith("skipped", how, json);
+                Assert.IsTrue(r.warnings.Any(w => w.Contains("AI")), json);
+            }
+            Assert.AreEqual(0.5f, r.changedFraction, 1e-4f, "赤い側だけ変わること");
+        }
+
+        [Test]
+        public void RecolorStatus_WithoutJob_IsError()
+        {
+            var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(IrocaAutomation.RecolorStatus());
+            Assert.IsFalse(r.ok);
+            StringAssert.Contains("no recolor is in progress", r.error);
         }
 
         // ─── 窓で開く(Open) ───

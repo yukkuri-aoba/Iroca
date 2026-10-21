@@ -58,8 +58,11 @@ namespace Iroca.McpIntegration
         + "(with its shading) change, not only the clicked spot. A change whose name matches an existing zone replaces it, so "
         + "send the same name to retry a part. Existing zones (from the Iroca window or the avatar's recipe) are kept unless "
         + "'reset' is true. apply='avatar' (default) registers the result non-destructively on the avatar (NDMF; visible in the "
-        + "Scene view, applied at upload); apply='png' writes <name>_recolored.png; apply='preview' saves nothing. Always open the "
-        + "returned 'preview' image (left=before, middle=after, right=changed pixels in magenta) to check the result.")]
+        + "Scene view, applied at upload); apply='png' writes <name>_recolored.png; apply='preview' saves nothing. New or replaced "
+        + "zones are auto-tuned like the Iroca window's Auto-tune button (uses the AI, may take up to a minute the first time on a "
+        + "texture). Always open the returned 'preview' image (left=before, middle=after, right=changed pixels in magenta) to check "
+        + "the result.",
+        RequiresPolling = true, PollAction = "status", MaxPollSeconds = 600)]
     public static class IrocaRecolorTool
     {
         public class Parameters
@@ -87,10 +90,20 @@ namespace Iroca.McpIntegration
 
             [ToolParameter("Output PNG path for apply='png' (default: <texture>_recolored.png next to the texture).", Required = false)]
             public string output { get; set; }
+
+            [ToolParameter("false = skip auto-tune and keep the initial settings of new zones (default true).", Required = false)]
+            public bool? autoTune { get; set; }
         }
+
+        // 自動調整を待つ間の問い合わせ間隔。背面の Unity は問い合わせが来たときにしか処理が進まないことがあるので短めにする。
+        private const double PollIntervalSeconds = 0.25;
 
         public static object HandleCommand(JObject @params)
         {
+            // サーバーは途中経過(pending)を受けると、同じ引数に action="status" を足して問い合わせ直してくる。
+            if (@params != null && (string)@params["action"] == "status")
+                return McpResponses.FromAutomationPendingOrResult(IrocaAutomation.RecolorStatus(), PollIntervalSeconds, "recolor failed");
+
             var request = @params != null ? (JObject)@params.DeepClone() : new JObject();
             foreach (var key in new[] { "changes", "remove" })
             {
@@ -100,7 +113,7 @@ namespace Iroca.McpIntegration
                     catch { return McpResponses.Error($"'{key}' must be a JSON array."); }
                 }
             }
-            return McpResponses.FromAutomationResult(IrocaAutomation.Recolor(request.ToString()), "recolor failed");
+            return McpResponses.FromAutomationPendingOrResult(IrocaAutomation.Recolor(request.ToString()), PollIntervalSeconds, "recolor failed");
         }
     }
 
