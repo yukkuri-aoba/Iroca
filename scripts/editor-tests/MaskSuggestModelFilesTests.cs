@@ -93,6 +93,68 @@ namespace Iroca.EditorTests
             }
         }
 
+        // いま動いていないプロセス ID(Windows の ID は 4 の倍数)。
+        static int UnusedProcessId()
+        {
+            for (int pid = 4_000_000; pid > 0; pid -= 4)
+            {
+                try { using (System.Diagnostics.Process.GetProcessById(pid)) { } }
+                catch (ArgumentException) { return pid; }
+            }
+            Assert.Inconclusive("使われていないプロセス ID が見つからない");
+            return 0;
+        }
+
+        // 自分以外の、いま動いているプロセスの ID。
+        static int OtherLiveProcessId()
+        {
+            int self = System.Diagnostics.Process.GetCurrentProcess().Id;
+            foreach (var p in System.Diagnostics.Process.GetProcesses())
+            {
+                using (p)
+                {
+                    try { if (p.Id != self && !p.HasExited) return p.Id; }
+                    catch { /* 権限で見られないプロセスは飛ばす */ }
+                }
+            }
+            Assert.Inconclusive("ほかに動いているプロセスが見つからない");
+            return 0;
+        }
+
+        [Test]
+        public void LeftoverDownloads_OnlyThoseOfGoneUnitiesAreRemoved()
+        {
+            // ダウンロードの途中で Unity が落ちると、途中までのファイル(<モデル>.download.<プロセス ID>)が残る。
+            // 次に始めるときに、持ち主の Unity がもう動いていないもの(と 1 日以上前のもの)だけを消す。
+            string dir = MaskSuggestBridge.ModelsDirectory;
+            Directory.CreateDirectory(dir);
+            string F(int pid) => Path.Combine(dir, MaskSuggestBridge.EncoderFileName + ".download." + pid);
+            int live = OtherLiveProcessId();
+            string ofGone = F(UnusedProcessId());
+            string ofSelf = F(System.Diagnostics.Process.GetCurrentProcess().Id);
+            string ofLive = F(live);
+            var all = new[] { ofGone, ofSelf, ofLive };
+            try
+            {
+                foreach (var f in all) File.WriteAllText(f, "x");
+
+                MaskSuggestModelDownload.DeleteLeftoverDownloads();
+
+                Assert.IsFalse(File.Exists(ofGone), "落ちた Unity の途中のファイルを消していない");
+                Assert.IsTrue(File.Exists(ofSelf), "自分のダウンロード中のファイルを消した");
+                Assert.IsTrue(File.Exists(ofLive), "別の Unity がダウンロード中のファイルを消した");
+
+                // プロセス ID は使い回されるので、1 日以上前のものは持ち主が動いていても消す。
+                File.SetLastWriteTimeUtc(ofLive, DateTime.UtcNow.AddDays(-2));
+                MaskSuggestModelDownload.DeleteLeftoverDownloads();
+                Assert.IsFalse(File.Exists(ofLive), "1 日以上前の途中のファイルを消していない");
+            }
+            finally
+            {
+                foreach (var f in all) if (File.Exists(f)) File.Delete(f);
+            }
+        }
+
         [Test]
         public void CacheOpenedByAnotherReader_IsLoadedWithoutConverting()
         {

@@ -103,12 +103,15 @@ namespace Iroca
                 Error = string.Format(Localization.AiErrModelDirFormat, e.Message);
                 return;
             }
+            DeleteLeftoverDownloads();
             _fileIndex = 0;
             EditorApplication.update += Tick;
             // ドメインリロードで static 状態(進捗・購読)は消えるため、ネイティブの
             // UnityWebRequest と部分ファイルだけはリロード前に後始末する。これが無いと
             // ダウンロード中のスクリプトコンパイルでリクエストがリークし .download が残る。
-            AssemblyReloadEvents.beforeAssemblyReload += CleanupBeforeReload;
+            // Unity を閉じるときも同じ(リロード前の通知は来ない)。
+            AssemblyReloadEvents.beforeAssemblyReload += CleanupOnUnload;
+            EditorApplication.quitting += CleanupOnUnload;
             BeginCurrentFile();
         }
 
@@ -151,7 +154,8 @@ namespace Iroca
                 if (File.Exists(tmp)) File.Delete(tmp);
                 _request = new UnityWebRequest(BaseUrl + file, UnityWebRequest.kHttpVerbGET)
                 {
-                    downloadHandler = new DownloadHandlerFile(tmp),
+                    // 中止したときは Unity が途中までのファイルを消す(既定では残る)。
+                    downloadHandler = new DownloadHandlerFile(tmp) { removeFileOnAbort = true },
                 };
                 _request.SendWebRequest();
                 _lastProgressBytes = 0;
@@ -264,7 +268,8 @@ namespace Iroca
         {
             _fileIndex = -1;
             EditorApplication.update -= Tick;
-            AssemblyReloadEvents.beforeAssemblyReload -= CleanupBeforeReload;
+            AssemblyReloadEvents.beforeAssemblyReload -= CleanupOnUnload;
+            EditorApplication.quitting -= CleanupOnUnload;
         }
 
         static void AbortRequest()
@@ -275,7 +280,7 @@ namespace Iroca
             _request = null;
         }
 
-        static void CleanupBeforeReload()
+        static void CleanupOnUnload()
         {
             AbortRequest();
             if (_fileIndex >= 0 && _fileIndex < Files.Length)
@@ -293,11 +298,54 @@ namespace Iroca
         // 全プロジェクト共有なので、"<file>.download" 固定だと、別インスタンスが落としている
         // 最中の一時ファイルを開始時の無条件削除で壊していた（レビュー §5 中）。
         // プロセス ID はドメインリロードを跨いでも同じなので、リロード時の後始末とも整合する。
-        static readonly string TempSuffix =
-            ".download." + System.Diagnostics.Process.GetCurrentProcess().Id;
+        const string TempMarker = ".download.";
+        static readonly int CurrentProcessId = System.Diagnostics.Process.GetCurrentProcess().Id;
+        static readonly string TempSuffix = TempMarker + CurrentProcessId;
 
         static string TempPath(string file) =>
             Path.Combine(MaskSuggestBridge.ModelsDirectory, file + TempSuffix);
+
+        /// <summary>
+        /// 前にダウンロードの途中で Unity が落ちたときの一時ファイル(&lt;file&gt;.download.&lt;プロセス ID&gt;、
+        /// 最大で数十 MB)を消す。落ちると後始末が動かないので、次に始めるときに片付ける。
+        /// 別の Unity が今落としている最中のもの(そのプロセスが動いている)は消さない。ただしプロセス ID は
+        /// 使い回されることがあるので、1 日以上前のものは消す(ダウンロードは長くても数分で終わる)。
+        /// 自分のプロセスの分は <see cref="BeginCurrentFile"/> が消す。失敗は無視する。
+        /// </summary>
+        internal static void DeleteLeftoverDownloads()
+        {
+            try
+            {
+                string dir = MaskSuggestBridge.ModelsDirectory;
+                if (!Directory.Exists(dir)) return;
+                foreach (var (file, _, _) in Files)
+                {
+                    string prefix = file + TempMarker;
+                    foreach (string path in Directory.GetFiles(dir, prefix + "*"))
+                    {
+                        string name = Path.GetFileName(path);
+                        if (name.Length <= prefix.Length ||
+                            !int.TryParse(name.Substring(prefix.Length), out int pid) || pid == CurrentProcessId)
+                            continue;
+                        bool old = System.DateTime.UtcNow - File.GetLastWriteTimeUtc(path) > System.TimeSpan.FromDays(1);
+                        if (!old && ProcessAlive(pid)) continue;
+                        try { File.Delete(path); } catch { /* 次に始めるときにまた試す */ }
+                    }
+                }
+            }
+            catch { /* 置き場を読めないだけ。ダウンロードは続ける */ }
+        }
+
+        static bool ProcessAlive(int pid)
+        {
+            try
+            {
+                using (var p = System.Diagnostics.Process.GetProcessById(pid))
+                    return !p.HasExited;
+            }
+            catch (System.ArgumentException) { return false; }   // そのプロセスはもう無い
+            catch { return true; }                               // 確かめられないときは消さない(1 日たてば消える)
+        }
 
         static string Sha256Of(string path)
         {
