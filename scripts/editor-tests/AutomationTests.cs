@@ -24,7 +24,11 @@ namespace Iroca.EditorTests
         public void SetUp() => _assets = TestAssets.Create();
 
         [TearDown]
-        public void TearDown() => _assets?.Dispose();
+        public void TearDown()
+        {
+            IrocaAutomation.CancelRecolorJob();   // 待ちのまま落ちたテストの依頼を、次のテストへ持ち越さない
+            _assets?.Dispose();
+        }
 
         [Test]
         public void RecolorByPreset_WithoutMask_ChangesEveryPixel()
@@ -448,6 +452,32 @@ namespace Iroca.EditorTests
                 Assert.IsTrue(r.warnings.Any(w => w.Contains("AI")), json);
             }
             Assert.AreEqual(0.5f, r.changedFraction, 1e-4f, "赤い側だけ変わること");
+        }
+
+        [UnityTest]
+        public IEnumerator Recolor_WhileAnotherIsWaiting_IsRefusedAndTheFirstStillFinishes()
+        {
+            // 待っている依頼があるうちの依頼は断る(前の依頼を捨てて結果を取り違えない)。前の依頼はそのまま終わる。
+            string src = Halves();
+            string first = Request(src, "preview", "[{\"name\":\"red\",\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]", autoTune: true);
+            string json = IrocaAutomation.Recolor(first);
+            if (!json.Contains("\"pending\":true")) Assert.Inconclusive("解析が 1 回目の呼び出しの中で終わった(待ちが無い)");
+
+            RecolorFails(Request(src, "preview", "[{\"name\":\"blue\",\"from\":\"#1E1EC8\",\"to\":\"#FFAA00\"}]"), "still running");
+
+            double deadline = UnityEditor.EditorApplication.timeSinceStartup + 120;
+            while (json.Contains("\"pending\":true"))
+            {
+                Assert.Less(UnityEditor.EditorApplication.timeSinceStartup, deadline, "自動調整が終わらない: " + json);
+                yield return null;
+                json = IrocaAutomation.RecolorStatus();
+            }
+            var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
+            Assert.IsTrue(r.ok, json);
+            Assert.AreEqual("red", r.zones.Single().name, "先の依頼の結果を返すこと");
+
+            // 受け取った後は次の依頼を受ける。
+            RecolorOk(Request(src, "preview", "[{\"name\":\"blue\",\"from\":\"#1E1EC8\",\"to\":\"#FFAA00\"}]"));
         }
 
         [Test]

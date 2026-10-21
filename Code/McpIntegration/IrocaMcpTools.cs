@@ -61,7 +61,7 @@ namespace Iroca.McpIntegration
         + "Scene view, applied at upload); apply='png' writes <name>_recolored.png; apply='preview' saves nothing. New or replaced "
         + "zones are auto-tuned like the Iroca window's Auto-tune button (uses the AI, may take up to a minute the first time on a "
         + "texture). Always open the returned 'preview' image (left=before, middle=after, right=changed pixels in magenta) to check "
-        + "the result.",
+        + "the result. Call it one at a time: a call made while another is still running is refused.",
         RequiresPolling = true, PollAction = "status", MaxPollSeconds = 600)]
     public static class IrocaRecolorTool
     {

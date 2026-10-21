@@ -107,8 +107,19 @@ namespace Iroca
         /// </summary>
         public static string Recolor(string requestJson)
         {
-            CancelRecolorJob();
-            var job = new RecolorJob();
+            // 待っている依頼があるうちは新しい依頼を断る。以前は前の依頼を黙って捨てていたので、AI が 2 件を並べて
+            // 呼ぶと、先の依頼は反映されないまま、問い合わせのどちらかが後の依頼の結果を受け取って取り違えた
+            // (RecolorStatus は依頼を見分けない)。問い合わせが途絶えた依頼(AI が待つのをやめた)だけは捨てて受ける。
+            var running = s_job;
+            if (running != null)
+            {
+                if (EditorApplication.timeSinceStartup - running.lastPolled < AbandonedAfterSeconds)
+                    return FinishRecolor(new RecolorTextureResult(),
+                        $"another iroca_recolor call (texture {running.r.texture}) is still running, so this call did nothing. "
+                        + "Wait until that call returns its result, then call again. Call iroca_recolor one at a time.");
+                CancelRecolorJob();
+            }
+            var job = new RecolorJob { lastPolled = EditorApplication.timeSinceStartup };
             try
             {
                 string error = PrepareRecolor(requestJson, job);
@@ -144,6 +155,7 @@ namespace Iroca
             var job = s_job;
             if (job == null)
                 return FinishRecolor(new RecolorTextureResult(), "no recolor is in progress.");
+            job.lastPolled = EditorApplication.timeSinceStartup;
             try
             {
                 PumpRecolorJob();
@@ -158,12 +170,18 @@ namespace Iroca
             }
         }
 
-        // 自動調整を待っている依頼(同時に 1 つ。新しい依頼が来たら前のものは捨てる)。
+        // 自動調整を待っている依頼(同時に 1 つ。待っている間の新しい依頼は断る)。
         private static RecolorJob s_job;
+
+        // 問い合わせがこれだけ途絶えた依頼は、AI が待つのをやめたものとして、次の依頼が来たら捨てる。
+        // MCP のサーバーは 0.1〜5 秒ごとに問い合わせ直すので、待っている依頼がこれを超えることは無い。
+        private const double AbandonedAfterSeconds = 60.0;
 
         private sealed class RecolorJob
         {
             public RecolorRequest req;
+            // 依頼か問い合わせを最後に受けた時刻(EditorApplication.timeSinceStartup)
+            public double lastPolled;
             public readonly RecolorTextureResult r = new RecolorTextureResult();
             public Texture2D tex;
             public Color32[] work;
@@ -201,7 +219,8 @@ namespace Iroca
             EditorApplication.update -= PumpRecolorJob;
         }
 
-        private static void CancelRecolorJob()
+        /// <summary>待っている依頼を捨てる(テストの後片付けにも使う)。</summary>
+        internal static void CancelRecolorJob()
         {
             s_job?.tune?.Cancel();
             s_job = null;
