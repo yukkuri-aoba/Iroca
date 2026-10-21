@@ -1,4 +1,4 @@
-// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
+﻿// Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.Collections.Generic;
@@ -14,8 +14,8 @@ namespace Iroca
     ///
     /// - 貸し出す長さは要求以上(区分の大きさに切り上げる)。中身は 0 にならない(前の持ち主の値が残る。
     ///   ArrayPool と同じ。借りた側が書いてから読む)。
-    /// - 区分は 2 のべき乗を 8 つに刻んだ大きさ(無駄は最大 1/8)。同じ区分か 1 つ上の区分の空きを使い回し、
-    ///   区分ごとに maxPerClass 個まで手元に残す。
+    /// - 区分は 2 のべき乗を 8 つに刻んだ大きさ(新しく確保するときの無駄は最大 1/8)。要求の約 2 倍までの区分の空きを、
+    ///   小さい方から使い回し、区分ごとに maxPerClass 個まで手元に残す。
     /// - 貸し出し中の塊は解放しない(<see cref="ReleaseFree"/> は空きだけを解放する)。返されたときに残すか解放する。
     /// - 塊ごとにファイナライザを持つので、ドメインのアンロードで取りこぼしても最後に解放される。
     /// Rent/Return はどのスレッドからでも呼べる。
@@ -68,6 +68,9 @@ namespace Iroca
         /// <summary>貸し出し中の塊の数(テスト・計測用)。</summary>
         public int RentedCount { get { lock (_gate) return _rented.Count; } }
 
+        // 1 オクターブ(2 倍)を刻む区分の数(RoundUp の step = 2^(msb-3))。
+        private const int ClassesPerOctave = 8;
+
         // 区分の大きさ: 2 のべき乗を 8 つに刻んだ値へ切り上げる(2^k ちょうどはそのまま)。
         internal static int RoundUp(int n)
         {
@@ -98,8 +101,11 @@ namespace Iroca
             int cap = RoundUp(minLength);
             lock (_gate)
             {
+                // 小さい区分から順に、要求の約 2 倍(1 オクターブ上)までの空きを探す(最初に見つかったのがいちばん小さい)。
+                // 外接矩形の大きさで長さが毎回変わる借り物(連結成分のラン・ラベルなど)は、1 つ上の区分までしか
+                // 見ないと少しずつ違う区分に新しい塊を作り、空きが溜まっていた(4K で int の空きが 270MB → 210MB)。
                 int c = cap;
-                for (int tries = 0; tries < 2; tries++, c = NextClass(c))
+                for (int tries = 0; tries < ClassesPerOctave + 1; tries++, c = NextClass(c))
                 {
                     if (!_free.TryGetValue(c, out var list) || list.Count == 0) continue;
                     var b = list[list.Count - 1];
