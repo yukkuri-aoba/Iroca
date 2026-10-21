@@ -305,17 +305,8 @@ namespace Iroca.EditorTests
             return (recipe, cacheFile);
         }
 
-        // 解放はスレッドプールで行うので、ネイティブメモリが atMost 以下になるまで少し待つ。
         private static bool WaitForNativeBytes(long atMost, int timeoutMs = 5000)
-        {
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            while (IrocaNativeMemory.LiveBytes > atMost)
-            {
-                if (sw.ElapsedMilliseconds > timeoutMs) return false;
-                System.Threading.Thread.Sleep(10);
-            }
-            return true;
-        }
+            => PreviewJobTests.WaitForNativeBytes(atMost, timeoutMs);
 
         // 元ファイルが取り込み後より大きいとき、既定は取り込み後の寸法へ縮めてから色替えする(いろかの画面の
         // プレビューと同じ画素)。「元の解像度で編集」なら元の解像度で色替えしてから縮める。鍵も分ける。

@@ -94,19 +94,26 @@ namespace Iroca
         {
             s_computing++;
             s_releaseDue = true;
+            NativeMemoryLifecycle.WorkStarted();
         }
 
-        // 計算を 1 つ終える(メインスレッド)。続けて投げた計算も全部終わったら、作業配列(ネイティブメモリ)と
-        // 色の表を OS へ返す。いろかのウィンドウが開いていれば返さない(編集の次の 1 手が作業配列と色の表を
-        // 作り直すことになる。ウィンドウを閉じたときにまとめて返る)。ウィンドウを閉じるとシーンのプレビューが
-        // 登録済みのレシピを作り直すので、ここで返さないと閉じたときの解放が打ち消され、4K で 600MB ほどが
-        // エディタを閉じるまで残っていた。
+        // 計算を 1 つ終える(メインスレッド)。
         private static void EndCompute()
+        {
+            NativeMemoryLifecycle.WorkEnded();
+            EndHold();
+        }
+
+        // 続けて投げた計算も全部終わったら、作業配列(ネイティブメモリ)と色の表を OS へ返す。いろかのウィンドウが
+        // 開いていれば返さない(編集の次の 1 手が作業配列と色の表を作り直すことになる。ウィンドウを閉じたときに
+        // まとめて返る)。ウィンドウを閉じるとシーンのプレビューが登録済みのレシピを作り直すので、ここで返さないと
+        // 閉じたときの解放が打ち消され、4K で 600MB ほどがエディタを閉じるまで残っていた。
+        private static void EndHold()
         {
             if (--s_computing > 0 || !s_releaseDue) return;
             if (IrocaWindow.FindAnyInstance() != null) return;
             s_releaseDue = false;
-            PixelProcessor.ReleaseWorkBuffersInBackground();
+            NativeMemoryLifecycle.ReleaseWhenIdle();
         }
 
         /// <summary>
@@ -127,7 +134,7 @@ namespace Iroca
             {
                 if (_disposed) return;
                 _disposed = true;
-                EndCompute();
+                EndHold();
             }
         }
 
