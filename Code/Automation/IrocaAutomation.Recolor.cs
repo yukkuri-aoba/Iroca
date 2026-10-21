@@ -347,7 +347,7 @@ namespace Iroca
                     job.target = RecipeRegistration.SuggestTarget(tex, null);
                     if (job.target == null)
                         return "could not decide which object to register on (the texture is used by no "
-                            + "scene object, or by several avatars). Pass 'avatar' (a scene object path).";
+                            + "scene object, by several avatars, or only by objects outside any avatar). Pass 'avatar' (a scene object path).";
                 }
                 r.avatar = HierarchyPath(job.target.transform);
                 job.recipe = RecipeRegistration.ExistingFor(job.target, tex);
