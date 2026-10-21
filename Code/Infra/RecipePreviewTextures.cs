@@ -103,11 +103,19 @@ namespace Iroca
         /// <summary>テスト用: 貸し出し中(作りかけを含む)のテクスチャの数。</summary>
         internal static int Count => Entries.Count;
 
+        // リロードの前に呼ばれる。1 つ捨てるのに失敗しても残りを捨て、例外を外へ出さない(Unity は購読者を順に
+        // 呼ぶだけで、ここで投げると他ツールのリロード前の後始末が呼ばれない)。
         private static void ReleaseAll()
         {
-            foreach (var entry in Entries.Values)
-                if (entry.texture != null) Object.DestroyImmediate(entry.texture);
-            Entries.Clear();
+            try
+            {
+                foreach (var entry in Entries.Values)
+                {
+                    try { if (entry.texture != null) Object.DestroyImmediate(entry.texture); }
+                    catch (System.Exception e) { Debug.LogException(e); }
+                }
+            }
+            finally { Entries.Clear(); }
         }
     }
 }

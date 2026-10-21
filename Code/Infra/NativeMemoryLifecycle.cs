@@ -25,7 +25,13 @@ namespace Iroca
             AssemblyReloadEvents.beforeAssemblyReload += Release;
         }
 
-        private static void Release() => PixelProcessor.ReleaseWorkBuffers();
+        // リロードの前に呼ばれる。Unity はこの通知の購読者を順に呼ぶだけで、1 つが例外を投げると残りの購読者
+        // (他ツールのリロード前の後始末)を呼ばないので、ここで止める。
+        private static void Release()
+        {
+            try { PixelProcessor.ReleaseWorkBuffers(); }
+            catch (System.Exception e) { UnityEngine.Debug.LogException(e); }
+        }
 
         // 走っているバックグラウンドの計算の数と、全部終わったら返す予約(0/1)。どのスレッドからも触る。
         private static int s_running;
