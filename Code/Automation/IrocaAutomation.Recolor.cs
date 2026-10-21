@@ -4,6 +4,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 
@@ -126,29 +128,28 @@ namespace Iroca
                 if (error != null) return FinishRecolor(job.r, error);
 
                 if (job.req.autoTune && job.changedZoneIds.Count > 0)
-                {
                     job.tune = new AutomationAutoTune(job.state, job.tex, job.work, job.w, job.h, job.changedZoneIds, job.r.warnings);
-                    job.tune.Advance();
-                    if (!job.tune.Done)
-                    {
-                        s_job = job;
-                        EditorApplication.update -= PumpRecolorJob;
-                        EditorApplication.update += PumpRecolorJob;
-                        return PendingJson(job);
-                    }
-                }
-                return CompleteRecolor(job);
+                string done = AdvanceRecolor(job);
+                if (done != null) return done;
+
+                s_job = job;
+                EditorApplication.update -= PumpRecolorJob;
+                EditorApplication.update += PumpRecolorJob;
+                // スクリプトのリロードで依頼は消える。背景の計算も止めておく。
+                AssemblyReloadEvents.beforeAssemblyReload -= CancelRecolorJob;
+                AssemblyReloadEvents.beforeAssemblyReload += CancelRecolorJob;
+                return PendingJson(job);
             }
             catch (Exception ex)
             {
-                job.tune?.Cancel();
+                job.Cancel();
                 return FinishRecolor(job.r, $"{ex.GetType().Name}: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// 自動調整を待っている <see cref="Recolor"/> の続き。進めて、終わっていれば最後の結果(Recolor と同じ形)、
-        /// まだなら途中経過(pending)を返す。MCP の問い合わせ直し(action=status)から呼ぶ。
+        /// 途中経過(pending)を返した <see cref="Recolor"/>(自動調整を待つ・PNG を書き出す)の続き。進めて、終わっていれば
+        /// 最後の結果(Recolor と同じ形)、まだなら途中経過を返す。MCP の問い合わせ直し(action=status)から呼ぶ。
         /// </summary>
         public static string RecolorStatus()
         {
@@ -170,7 +171,7 @@ namespace Iroca
             }
         }
 
-        // 自動調整を待っている依頼(同時に 1 つ。待っている間の新しい依頼は断る)。
+        // 途中経過を返した依頼(同時に 1 つ。待っている間の新しい依頼は断る)。
         private static RecolorJob s_job;
 
         // 問い合わせがこれだけ途絶えた依頼は、AI が待つのをやめたものとして、次の依頼が来たら捨てる。
@@ -189,52 +190,92 @@ namespace Iroca
             // 作業解像度で読んだ画素が、書き出しで読む元の解像度の画素と同じか(書き出しで読み直さなくてよいか)。
             public bool workIsFullResolution;
             public GameObject target;
-            // png の出力先(絶対パス。依頼の時点で確かめてある)
-            public string outAbs;
             public IrocaRecipe recipe;
             public IrocaSessionState state;
             public readonly List<string> changedZoneIds = new List<string>();
             public AutomationAutoTune tune;
+            // png の仕上げ(比較画像・元の解像度の色替え・PNG 化)を背景で計算しているもの
+            public Task<PngExport> export;
+            public readonly CancellationTokenSource cts = new CancellationTokenSource();
             // 終わった結果。問い合わせが来なくても update で仕上げまで進めて、ここに置いておく。
             public string finalJson;
+
+            public void Cancel()
+            {
+                tune?.Cancel();
+                cts.Cancel();
+            }
         }
 
-        // update と問い合わせから呼ぶ。自動調整を進め、終わったら仕上げ(比較画像・登録・書き出し)まで行う。
+        // update と問い合わせから呼ぶ。進められるところまで進め、終わったら結果を置いて update から外れる。
         private static void PumpRecolorJob()
         {
             var job = s_job;
-            if (job == null) { EditorApplication.update -= PumpRecolorJob; return; }
+            if (job == null) { Unhook(); return; }
             if (job.finalJson != null) return;
             try
             {
-                job.tune.Advance();
-                if (!job.tune.Done) return;
-                job.finalJson = CompleteRecolor(job);
+                string done = AdvanceRecolor(job);
+                if (done == null) return;
+                job.finalJson = done;
             }
             catch (Exception ex)
             {
-                job.tune?.Cancel();
+                job.Cancel();
                 job.finalJson = FinishRecolor(job.r, $"{ex.GetType().Name}: {ex.Message}");
             }
+            Unhook();
+        }
+
+        private static void Unhook()
+        {
             EditorApplication.update -= PumpRecolorJob;
+            AssemblyReloadEvents.beforeAssemblyReload -= CancelRecolorJob;
         }
 
         /// <summary>待っている依頼を捨てる(テストの後片付けにも使う)。</summary>
         internal static void CancelRecolorJob()
         {
-            s_job?.tune?.Cancel();
+            s_job?.Cancel();
             s_job = null;
-            EditorApplication.update -= PumpRecolorJob;
+            Unhook();
+        }
+
+        /// <summary>
+        /// 進められるところまで進める(メインスレッド)。終わったら最後の結果、まだ待つなら null。
+        /// 自動調整 → 仕上げの順。avatar・preview の仕上げ(作業解像度の比較画像と登録)はその場で行う。
+        /// png の仕上げは、元の解像度の色替えと PNG 化が重い(16K 級では MCP の 30 秒の時間切れを超え、
+        /// その間エディタも止まる)ので、UI の書き出しと同じく計算を背景のスレッドへ回し、Unity の API
+        /// (元の画素の読み込み・書き込み・取り込み)だけをメインスレッドで行う。
+        /// </summary>
+        private static string AdvanceRecolor(RecolorJob job)
+        {
+            if (job.tune != null && !job.tune.Done)
+            {
+                job.tune.Advance();
+                if (!job.tune.Done) return null;
+            }
+            if (job.r.apply != ApplyPng) return CompleteRecolor(job);
+            if (job.export == null)
+            {
+                string error = StartPngExport(job);
+                return error != null ? FinishRecolor(job.r, error) : null;
+            }
+            if (!job.export.IsCompleted) return null;
+            return CompletePngExport(job);
         }
 
         private static string PendingJson(RecolorJob job)
         {
+            bool tuning = job.tune != null && !job.tune.Done;
             var p = new RecolorPending
             {
-                tunedZones = job.tune.Finished,
-                zonesToTune = job.tune.Total,
-                message = "Auto-tuning the zones (the first time on a texture, the AI prepares the image, which can take a while). "
-                    + "Call again to get the result.",
+                tunedZones = job.tune?.Finished ?? 0,
+                zonesToTune = job.tune?.Total ?? 0,
+                message = tuning
+                    ? "Auto-tuning the zones (the first time on a texture, the AI prepares the image, which can take a while). "
+                      + "Call again to get the result."
+                    : "Writing the recolored PNG (a large texture takes a while). Call again to get the result.",
             };
             return JsonUtility.ToJson(p);
         }
@@ -275,7 +316,7 @@ namespace Iroca
             // ── png の出力先(自動調整を待つ前に断れるものは断る) ──
             if (r.apply == ApplyPng)
             {
-                string outError = ResolvePngOutput(req, r.texture, out job.outAbs);
+                string outError = ResolvePngOutput(req, r.texture, out _);
                 if (outError != null) return outError;
             }
 
@@ -349,65 +390,17 @@ namespace Iroca
             return null;
         }
 
-        // 比較画像を作り、登録・書き出しまで行って、最後の結果を返す。
+        // avatar・preview の仕上げ: 比較画像を作り、登録まで行って、最後の結果を返す(png は StartPngExport)。
         private static string CompleteRecolor(RecolorJob job)
         {
             var r = job.r;
             var state = job.state;
             var tex = job.tex;
             foreach (var z in state.zones) if (z != null) z.UpdateCacheIfNeeded();
-
-            // ── 比較画像(作業解像度。登録・プレビューで見えるものと同じ) ──
-            var after = (Color32[])job.work.Clone();
-            SessionRecolor.Apply(after, job.w, job.h, state);
-            var metrics = RecolorPreview.ComputeMetrics(job.work, after, job.w, job.h);
-            r.changedFraction = metrics.changedFraction;
-            r.largestComponentFraction = metrics.largestComponentFraction;
-            r.changeComponentCount = metrics.componentCount;
-            r.preview = WriteRecolorPanel(job.work, after, job.w, job.h, r.texture, r.warnings);
-            foreach (var z in state.zones)
-            {
-                if (z == null) continue;
-                string how = "";
-                if (job.tune != null && job.tune.How.TryGetValue(z.name, out var h)) how = h;
-                else if (job.changedZoneIds.Contains(z.id) && !job.req.autoTune) how = "skipped: autoTune=false";
-                r.zones.Add(new ZoneInfo
-                {
-                    name = z.name,
-                    from = "#" + ColorUtility.ToHtmlStringRGB(z.sampleColor),
-                    to = "#" + ColorUtility.ToHtmlStringRGB(z.targetColor),
-                    at = z.sampleUV.x >= 0f ? new[] { z.sampleUV.x, z.sampleUV.y } : new float[0],
-                    tolerance = z.tolerance,
-                    enabled = z.enabled,
-                    autoTune = how,
-                });
-            }
+            FillResult(job, Compare(job.work, job.w, job.h, state, CancellationToken.None));
 
             // ── 反映 ──
-            if (r.apply == ApplyPng)
-            {
-                // 自動調整を待つ間に、出力先へ別の書き出しがされていることがある。書く直前にもう一度確かめる。
-                string outError = ResolvePngOutput(job.req, r.texture, out string outPath);
-                if (outError != null) return FinishRecolor(r, outError);
-                if (job.workIsFullResolution)
-                {
-                    // 作業解像度の画素が元の解像度の画素そのものなら、比較画像のために色替えした after が書き出す画素
-                    // (同じ画素に同じ編集状態で SessionRecolor.Apply)。読み込みと色替えをもう一度しない。
-                    string error = WriteRecoloredPng(after, job.w, job.h, PhysicalPath(r.texture), outPath, out string outAbs);
-                    if (error != null) return FinishRecolor(r, error);
-                    r.output = outAbs;
-                }
-                else
-                {
-                    // 取り込みで縮めて編集していたときは、UI の書き出しと同じく元の解像度で読み直して色替えする。
-                    // 変化の指標は作業解像度で数えてあるので、ここでは数えない。
-                    var exported = RunRecolorCore(r.texture, state, outPath, r.warnings, imported: tex,
-                        panelNextToOutput: false, metrics: false);
-                    if (!exported.ok) return FinishRecolor(r, exported.error);
-                    r.output = exported.output;
-                }
-            }
-            else if (r.apply == ApplyAvatar)
+            if (r.apply == ApplyAvatar)
             {
                 // 自動調整を待つ間に Play に入っていたら登録しない(依頼の時点と同じ判定)。
                 string blocked = AvatarApplyBlocked(EditorApplication.isPlayingOrWillChangePlaymode, NdmfSupport.State);
@@ -433,6 +426,132 @@ namespace Iroca
                 IrocaWindow.ReloadFromRecipe(recipe, UndoName);
             }
             return FinishRecolor(r, null);
+        }
+
+        /// <summary>png の仕上げで背景のスレッドが作るもの。</summary>
+        private sealed class PngExport
+        {
+            public Comparison comparison;
+            public byte[] png;
+        }
+
+        /// <summary>
+        /// png の仕上げを始める(メインスレッド)。取り込みで縮めて編集していたときは、UI の書き出しと同じく元の解像度で
+        /// 読み直す(デコードは Unity の API なのでここで)。比較画像・色替え・PNG 化は背景のスレッドで行う。
+        /// 始められなければ理由、始めたら null。
+        /// </summary>
+        private static string StartPngExport(RecolorJob job)
+        {
+            var state = job.state;
+            foreach (var z in state.zones) if (z != null) z.UpdateCacheIfNeeded();
+            Color32[] full = null;
+            int fw = 0, fh = 0;
+            if (!job.workIsFullResolution)
+            {
+                string srcAbs = PhysicalPath(job.r.texture);
+                if (srcAbs == null || ExportPipeline.ReadSourcePixels(srcAbs, job.tex, out full, out fw, out fh)
+                        == ExportPipeline.SourceKind.Unavailable)
+                    return "failed to read the source texture at its original resolution.";
+            }
+            var work = job.work;
+            int w = job.w, h = job.h;
+            var ct = job.cts.Token;
+            job.export = Task.Run(() =>
+            {
+                var result = new PngExport { comparison = Compare(work, w, h, state, ct) };
+                if (full == null)
+                {
+                    // 作業解像度の画素が元の解像度の画素そのもの(IsFullResolution)なら、比較画像のために色替えした
+                    // 画素が書き出す画素(同じ画素に同じ編集状態で SessionRecolor.Apply)。色替えをもう一度しない。
+                    result.png = ExportPipeline.EncodePng(result.comparison.after, w, h);
+                }
+                else
+                {
+                    // 変化の指標は作業解像度で数えてあるので、元の解像度では色替えだけ。
+                    SessionRecolor.Apply(full, fw, fh, state, ct);
+                    ct.ThrowIfCancellationRequested();
+                    result.png = ExportPipeline.EncodePng(full, fw, fh);
+                }
+                result.comparison.after = null;   // 書き出した後は要らない(8K で 256MB)
+                return result;
+            }, ct);
+            return null;
+        }
+
+        // png の仕上げの残り(メインスレッド): 結果を受け取り、書き込んで取り込む。
+        private static string CompletePngExport(RecolorJob job)
+        {
+            var r = job.r;
+            var task = job.export;
+            if (task.IsCanceled) return FinishRecolor(r, "the recolor was cancelled.");
+            if (task.IsFaulted)
+            {
+                var ex = task.Exception?.GetBaseException();
+                return FinishRecolor(r, $"{ex?.GetType().Name}: {ex?.Message}");
+            }
+            var export = task.Result;
+            FillResult(job, export.comparison);
+            // 待つ間に、出力先へ別の書き出しがされていることがある。書く直前にもう一度確かめる(依頼の時点と同じ判定)。
+            string outError = ResolvePngOutput(job.req, r.texture, out string outAbs);
+            if (outError != null) return FinishRecolor(r, outError);
+            WritePngFile(export.png, outAbs);
+            r.output = outAbs;
+            return FinishRecolor(r, null);
+        }
+
+        /// <summary>比較画像の材料(作業解像度。登録・プレビューで見えるものと同じ)。</summary>
+        private sealed class Comparison
+        {
+            public Color32[] after;
+            public RecolorPreview.ChangeMetrics metrics;
+            public byte[] panelPng;    // 作れなければ null(理由は panelError)
+            public string panelError;
+        }
+
+        // 作業解像度で色替えして、変化の指標と比較画像(PNG)を作る。Unity の API に触らないので背景から呼んでよい。
+        private static Comparison Compare(Color32[] work, int w, int h, IrocaSessionState state, CancellationToken ct)
+        {
+            var c = new Comparison { after = (Color32[])work.Clone() };
+            SessionRecolor.Apply(c.after, w, h, state, ct);
+            ct.ThrowIfCancellationRequested();
+            c.metrics = RecolorPreview.ComputeMetrics(work, c.after, w, h);
+            try
+            {
+                var panel = RecolorPreview.BuildComparisonPanel(work, c.after, w, h, RecolorPreview.DefaultMaxTile, out int pw, out int ph);
+                c.panelPng = ExportPipeline.EncodePng(panel, pw, ph);
+            }
+            catch (Exception ex)
+            {
+                c.panelError = $"{ex.GetType().Name}: {ex.Message}";
+            }
+            return c;
+        }
+
+        // 比較の結果(指標・比較画像)とゾーンの一覧を結果へ書く(メインスレッド)。
+        private static void FillResult(RecolorJob job, Comparison c)
+        {
+            var r = job.r;
+            r.changedFraction = c.metrics.changedFraction;
+            r.largestComponentFraction = c.metrics.largestComponentFraction;
+            r.changeComponentCount = c.metrics.componentCount;
+            r.preview = WriteRecolorPanel(c, r.texture, r.warnings);
+            foreach (var z in job.state.zones)
+            {
+                if (z == null) continue;
+                string how = "";
+                if (job.tune != null && job.tune.How.TryGetValue(z.name, out var h)) how = h;
+                else if (job.changedZoneIds.Contains(z.id) && !job.req.autoTune) how = "skipped: autoTune=false";
+                r.zones.Add(new ZoneInfo
+                {
+                    name = z.name,
+                    from = "#" + ColorUtility.ToHtmlStringRGB(z.sampleColor),
+                    to = "#" + ColorUtility.ToHtmlStringRGB(z.targetColor),
+                    at = z.sampleUV.x >= 0f ? new[] { z.sampleUV.x, z.sampleUV.y } : new float[0],
+                    tolerance = z.tolerance,
+                    enabled = z.enabled,
+                    autoTune = how,
+                });
+            }
         }
 
         private const string UndoName = "Iroca: Recolor (automation)";
@@ -567,17 +686,21 @@ namespace Iroca
             state.maskState.zoneIncludes?.RemoveAll(e => e == null || !ids.Contains(e.zoneId));
         }
 
-        private static string WriteRecolorPanel(Color32[] before, Color32[] after, int w, int h, string texturePath, List<string> warnings)
+        private static string WriteRecolorPanel(Comparison c, string texturePath, List<string> warnings)
         {
+            if (c.panelPng == null)
+            {
+                warnings.Add($"preview failed: {c.panelError}");
+                return "";
+            }
             try
             {
-                var panel = RecolorPreview.BuildComparisonPanel(before, after, w, h, RecolorPreview.DefaultMaxTile, out int pw, out int ph);
                 string stem = Path.GetFileNameWithoutExtension(texturePath);
                 string guid = AssetDatabase.AssetPathToGUID(texturePath);
                 string file = Path.Combine(McpDir, "preview",
                     $"{stem}_{(string.IsNullOrEmpty(guid) ? "x" : guid.Substring(0, 8))}.png");
                 Directory.CreateDirectory(Path.GetDirectoryName(file));
-                AtomicFile.WriteAllBytes(file, ExportPipeline.EncodePng(panel, pw, ph));
+                AtomicFile.WriteAllBytes(file, c.panelPng);
                 return file;
             }
             catch (Exception ex)

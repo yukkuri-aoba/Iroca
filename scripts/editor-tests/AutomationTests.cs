@@ -170,10 +170,27 @@ namespace Iroca.EditorTests
 
         private static IrocaAutomation.RecolorTextureResult RecolorOk(string request)
         {
-            string json = IrocaAutomation.Recolor(request);
+            string json = RecolorWaitingOnThisThread(request);
             var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
             Assert.IsTrue(r.ok, json);
             return r;
+        }
+
+        // 依頼を出し、途中経過(pending)なら終わるまで問い合わせ直す。png の仕上げは背景のスレッドで進むので、
+        // editor のコマを挟まなくても終わる(自動調整を待つ依頼は RecolorUntilDone で)。
+        private static string RecolorWaitingOnThisThread(string request)
+            => WaitOnThisThread(IrocaAutomation.Recolor(request));
+
+        private static string WaitOnThisThread(string json, double timeoutSeconds = 60)
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (json.Contains("\"pending\":true"))
+            {
+                Assert.Less(watch.Elapsed.TotalSeconds, timeoutSeconds, "書き出しが終わらない: " + json);
+                System.Threading.Thread.Sleep(5);
+                json = IrocaAutomation.RecolorStatus();
+            }
+            return json;
         }
 
         [Test]
@@ -203,6 +220,34 @@ namespace Iroca.EditorTests
                 var px = tex.GetPixels32();
                 Assert.IsFalse(Same(px[0], Red), "赤い側が変わること");
                 Assert.IsTrue(Same(px[31], Blue), "青い側は変わらないこと");
+            }
+            finally { Object.DestroyImmediate(tex); }
+        }
+
+        [Test]
+        public void Recolor_Png_ShrunkOnImport_WritesTheOriginalResolutionInTheBackground()
+        {
+            // png の仕上げは途中経過を返し、元の解像度の色替えと PNG 化は背景で進める(大きいテクスチャで MCP の
+            // 時間切れにしない)。取り込みで縮めて編集していても、書き出しは元の解像度で読み直す。
+            var px = Enumerable.Repeat(Red, 64 * 64).ToArray();
+            string src = _assets.WritePng("big", px, 64, 64);
+            var importer = (UnityEditor.TextureImporter)UnityEditor.AssetImporter.GetAtPath(src);
+            importer.maxTextureSize = 32;
+            importer.SaveAndReimport();
+
+            string json = IrocaAutomation.Recolor(Request(src, "png", "[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]"));
+            StringAssert.Contains("\"pending\":true", json);
+            json = WaitOnThisThread(json);
+            var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
+            Assert.IsTrue(r.ok, json);
+            Assert.AreEqual(1f, r.changedFraction, 1e-4f, "変化の指標は作業解像度で数える");
+            Assert.IsTrue(File.Exists(r.preview), "比較画像を書くこと");
+            var tex = new Texture2D(2, 2);
+            try
+            {
+                Assert.IsTrue(tex.LoadImage(File.ReadAllBytes(r.output)));
+                Assert.AreEqual((64, 64), (tex.width, tex.height), "元の解像度で書き出す");
+                Assert.IsFalse(tex.GetPixels32().Any(c => Same(c, Red)), "全部変わること");
             }
             finally { Object.DestroyImmediate(tex); }
         }
@@ -240,7 +285,7 @@ namespace Iroca.EditorTests
 
         private static void RecolorFails(string request, string error)
         {
-            string json = IrocaAutomation.Recolor(request);
+            string json = RecolorWaitingOnThisThread(request);
             var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
             Assert.IsFalse(r.ok, json);
             StringAssert.Contains(error, r.error);
