@@ -85,14 +85,16 @@ namespace Iroca
         {
             var e = Event.current;
             if (e == null) return;
+            // rawType: 先に誰かがイベントを使って(Use)いても、元の種類で判定する。こちらは使わない。
+            var type = e.rawType;
+            if (type != EventType.MouseDown && type != EventType.MouseDrag && type != EventType.MouseUp) return;
             if (!SceneClickActive)
             {
                 // 押している途中で隠れた・Play が始まったクリックは、戻ってから離しても拾わない。
                 _sceneDownArmed = false;
                 return;
             }
-            // rawType: 先に誰かがイベントを使って(Use)いても、元の種類で判定する。こちらは使わない。
-            switch (e.rawType)
+            switch (type)
             {
                 case EventType.MouseDown:
                     // Alt+ドラッグは視点の回転。右・中ボタンも視点操作なので見ない。
