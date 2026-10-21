@@ -435,11 +435,16 @@ namespace Iroca
             return tex;
         }
 
-        // 取り込み時の圧縮形式へそろえる。非圧縮(RGBA32 等)はそのまま。
+        // 取り込み時の形式へそろえる(圧縮形式なら圧縮、非圧縮なら同じ形式へ詰め替え)。
         private static void Compress(Texture2D tex, Texture2D like)
         {
             var target = like.format;
-            if (target == tex.format || !GraphicsFormatUtility.IsCompressedFormat(like.graphicsFormat)) return;
+            if (target == tex.format) return;
+            if (!GraphicsFormatUtility.IsCompressedFormat(like.graphicsFormat))
+            {
+                ConvertUncompressed(tex, target);
+                return;
+            }
             int quality = 50;
             if (AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(like)) is TextureImporter importer)
                 quality = Mathf.Clamp(importer.compressionQuality, 0, 100);
@@ -452,6 +457,62 @@ namespace Iroca
                 // Crunch 圧縮をエディタ上で再現できない環境では、同じ VRAM 量の非 Crunch 形式にする
                 // (Crunch が減らすのはダウンロードサイズで、VRAM は変わらない)。
                 EditorUtility.CompressTexture(tex, CrunchFallback(target), quality);
+            }
+        }
+
+        /// <summary>
+        /// 非圧縮の取り込み形式(アルファの無い画像なら RGB24 など)へ詰め替える。RGBA32 のまま渡すと、アップロードする
+        /// 大きさが元より増える(RGB24 なら 1.33 倍)。各ミップの画素はそのまま写す(作り直さない)。
+        /// 詰め替えられない形式なら RGBA32 のまま残す。
+        /// </summary>
+        private static unsafe void ConvertUncompressed(Texture2D tex, TextureFormat target)
+        {
+            if (tex.format != TextureFormat.RGBA32) return;
+            int mips = tex.mipmapCount;
+            bool srgb = GraphicsFormatUtility.IsSRGBFormat(tex.graphicsFormat);
+            var original = tex.graphicsFormat;
+            var levels = new Unity.Collections.NativeArray<Color32>[mips];
+            try
+            {
+                for (int m = 0; m < mips; m++)
+                    levels[m] = new Unity.Collections.NativeArray<Color32>(tex.GetPixelData<Color32>(m),
+                        Unity.Collections.Allocator.Persistent);
+                try
+                {
+                    tex.Reinitialize(tex.width, tex.height, GraphicsFormatUtility.GetGraphicsFormat(target, srgb), mips > 1);
+                    for (int m = 0; m < mips; m++)
+                    {
+                        if (target == TextureFormat.RGB24)
+                        {
+                            // いちばん多い形(アルファの無い画像を圧縮なしで取り込んだもの)は、管理配列を作らずに詰める。
+                            var dst = (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility
+                                .GetUnsafePtr(tex.GetPixelData<byte>(m));
+                            var src = (Color32*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility
+                                .GetUnsafeReadOnlyPtr(levels[m]);
+                            for (int i = 0, n = levels[m].Length; i < n; i++, dst += 3)
+                            {
+                                dst[0] = src[i].r;
+                                dst[1] = src[i].g;
+                                dst[2] = src[i].b;
+                            }
+                        }
+                        else tex.SetPixels32(levels[m].ToArray(), m);   // まれな形式(RGB565 など)は Unity に変換させる
+                    }
+                    tex.Apply(updateMipmaps: false, makeNoLongerReadable: false);
+                }
+                catch (Exception ex)
+                {
+                    // SetPixels32 が扱えない形式など。RGBA32 に戻して中身も戻す(大きさが増えるだけで、見た目は同じ)。
+                    Debug.LogWarning($"[Iroca] 色替えしたテクスチャを {target} にできなかったので RGBA32 のままにします: {ex.Message}");
+                    tex.Reinitialize(tex.width, tex.height, original, mips > 1);
+                    for (int m = 0; m < mips; m++) tex.GetPixelData<Color32>(m).CopyFrom(levels[m]);
+                    tex.Apply(updateMipmaps: false, makeNoLongerReadable: false);
+                }
+            }
+            finally
+            {
+                foreach (var level in levels)
+                    if (level.IsCreated) level.Dispose();
             }
         }
 

@@ -853,5 +853,33 @@ namespace Iroca.EditorTests
             Assert.IsFalse(host.Reports.Exists(x => x.Item1 == NonDestructiveApplier.Problem.TextureNotUsedInScope),
                 "移した小物で使っているのに「使っていない」と報告した");
         }
+
+        [Test]
+        public void CreateMatching_UncompressedRgbImport_StaysRgb24()
+        {
+            // 圧縮なしで取り込んだアルファの無い画像(RGB24)を、色替え後も同じ形式にそろえる
+            // (RGBA32 にするとアップロードの大きさが 1.33 倍になる)。
+            string path = _assets.WritePng("rgb", Bands(), W, H);
+            var imp = (TextureImporter)AssetImporter.GetAtPath(path);
+            imp.textureCompression = TextureImporterCompression.Uncompressed;
+            imp.alphaSource = TextureImporterAlphaSource.None;
+            imp.SaveAndReimport();
+            var like = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            if (like.format != TextureFormat.RGB24) Assert.Ignore($"取り込みが RGB24 にならない({like.format})");
+
+            var px = Bands();
+            var tex = Track(RecipeTextureBuilder.CreateMatching(px, W, H, like));
+            Assert.AreEqual(TextureFormat.RGB24, tex.format, "非圧縮の形式が取り込みと違う");
+            Assert.AreEqual(like.mipmapCount, tex.mipmapCount);
+            Assert.AreEqual(GraphicsFormatUtility.IsSRGBFormat(like.graphicsFormat),
+                GraphicsFormatUtility.IsSRGBFormat(tex.graphicsFormat), "色空間(sRGB)が取り込みと違う");
+            var got = tex.GetPixels32();
+            for (int i = 0; i < px.Length; i++)
+                if (got[i].r != px[i].r || got[i].g != px[i].g || got[i].b != px[i].b)
+                    Assert.Fail($"画素 {i} が変わった: {px[i]} → {got[i]}");
+            var mip1 = tex.GetPixels32(1);
+            Assert.AreEqual((W / 2) * (H / 2), mip1.Length);
+            Assert.AreNotEqual(new Color32(0, 0, 0, 0), mip1[0], "ミップの中身を写していない");
+        }
     }
 }
