@@ -690,6 +690,45 @@ namespace Iroca.UnitRun
             Check.Equal("111000", Bits(inc), "dont→paint: included");
         }
 
+        // 右クリックの宛先: クリックした所(ここでは 4 画素)をいま塗っているゾーン。
+        private static float[] Strength(params float[] s) => s;
+
+        public static void PaintingZone_LowerZoneWhenTopDoesNotPaint()
+        {
+            // 上のゾーンは塗っていない所を、下のゾーンが塗っている(上を宛先にしても何も変わらない場面)。
+            var s = new[] { Strength(0f, 0f, 0f, 0f), Strength(1f, 1f, 1f, 1f) };
+            Check.Equal(1, MaskRegionEdit.PaintingZoneAt(s, 4), "下のゾーン");
+        }
+
+        public static void PaintingZone_TopZoneWinsWhereBothPaint()
+        {
+            // 両方が選んでいる所は、合成で上のゾーンだけが効く。
+            var s = new[] { Strength(1f, 1f, 1f, 1f), Strength(1f, 1f, 1f, 1f) };
+            Check.Equal(0, MaskRegionEdit.PaintingZoneAt(s, 4), "上のゾーン");
+        }
+
+        public static void PaintingZone_WeakTopLeavesRoomForLower()
+        {
+            // 上が 0.3 しか取らなければ、残り 0.7 を下が塗る(見えている色は下のゾーンが大半)。
+            var s = new[] { Strength(0.3f, 0.3f, 0.3f, 0.3f), Strength(1f, 1f, 1f, 1f) };
+            Check.Equal(1, MaskRegionEdit.PaintingZoneAt(s, 4), "取り分の大きい下のゾーン");
+        }
+
+        public static void PaintingZone_NoneWhenMostlyUnpainted()
+        {
+            // 4 画素のうち 1 画素だけ(縁など)では、塗られている所とみなさない。
+            var s = new[] { Strength(1f, 0f, 0f, 0f), Strength(0.2f, 0.2f, 0.2f, 0.2f) };
+            Check.Equal(-1, MaskRegionEdit.PaintingZoneAt(s, 4), "誰も塗っていない");
+        }
+
+        public static void PaintingZone_SkipsZonesWithoutValues()
+        {
+            // 無効のゾーン・選択の値が取れないゾーン(null)は飛ばす。
+            var s = new[] { null, Strength(1f, 1f, 0f, 1f) };
+            Check.Equal(1, MaskRegionEdit.PaintingZoneAt(s, 4), "値のあるゾーン");
+            Check.Equal(-1, MaskRegionEdit.PaintingZoneAt(new float[][] { null, null }, 4), "どれも値なし");
+        }
+
         public static void MaskEdit_CanvasSizeFollowsSourceFile()
         {
             // 4K の元画像を 2048 で取り込んでも、マスクは元画像(書き出しの解像度)に合わせる。

@@ -93,6 +93,23 @@ namespace Iroca
             lock (_gate) { _byZone[zoneId] = new Entry { Key = key, Strength = copy, Keep = keep, Forced = forced, W = w, H = h }; }
         }
 
+        /// <summary>
+        /// ゾーンの最後に保存した選択の強さのうち、画素 indices の値を dst へ写す。キーは問わない(表示中の
+        /// プレビューを作った選択か、作り直しの途中ならその新しいほう)。寸法が w×h でなければ false。
+        /// 右クリックの宛先を、クリックした場所を塗っているゾーンに合わせるのに使う(PreviewView.ContextMenu)。
+        /// lock の中で読むので、Store が同じ配列へ書いている最中の値は読まない(Store は外してから書く)。
+        /// </summary>
+        public bool TryReadLatest(string zoneId, int w, int h, int[] indices, float[] dst)
+        {
+            if (string.IsNullOrEmpty(zoneId) || indices == null || dst == null) return false;
+            lock (_gate)
+            {
+                if (!_byZone.TryGetValue(zoneId, out var e) || e.W != w || e.H != h || e.Strength == null) return false;
+                for (int i = 0; i < indices.Length; i++) dst[i] = e.Strength[indices[i]];
+                return true;
+            }
+        }
+
         public void Clear() { lock (_gate) { _byZone.Clear(); } }
 
         /// <summary>liveZoneIds に含まれない zoneId のエントリを一括破棄する。

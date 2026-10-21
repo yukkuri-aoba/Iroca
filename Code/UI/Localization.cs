@@ -324,6 +324,9 @@ namespace Iroca
         // ─── プレビューの右クリックメニュー(項目にツールチップを付けられないので、文言だけで分かるようにする) ───
         // 「追加先」「除外」「含める」はマスクの仕組みを知らないと選べないので、メニューでは使わない(2026-10-06)。
         public static string CtxHeaderZoneFormat => IsJapanese ? "「{0}」を直す" : "Fix \"{0}\"";
+        // 右クリックした場所を、いま直しているゾーンとは別のゾーンが塗っているとき(そのゾーンに当てる)。
+        public static string CtxHeaderPaintingZoneFormat => IsJapanese
+            ? "「{0}」を直す（ここを塗っているゾーン）" : "Fix \"{0}\" (the zone painting here)";
         public static string CtxHeaderCommon => IsJapanese ? "全部のゾーンに共通で直す" : "Fix for all zones";
         public static string CtxHeaderNoZone => IsJapanese
             ? "先に「スポイトで変えたい色を選ぶ」で色を選んでください"
