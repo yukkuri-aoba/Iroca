@@ -1,7 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.IO;
-using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
@@ -161,8 +160,12 @@ namespace Iroca
             string srcMeta = Path.Combine(root, srcRelPath.Replace("/", sep)) + ".meta";
             string dstMeta = Path.Combine(root, dstRelPath.Replace("/", sep)) + ".meta";
 
+            // 元そのものへ上書きするときは元の .meta をそのまま使う（書き直すと、中身が同じでも
+            // 文字コードや改行の違いで差分が出る）。
+            if (IsSameFile(srcMeta, dstMeta)) return;
             if (!File.Exists(srcMeta)) return;
 
+            // BOM があれば読み飛ばす。改行は元のまま保つ。
             string content = File.ReadAllText(srcMeta, System.Text.Encoding.UTF8);
 
             // 上書きなら既存 GUID を維持、新規ファイルなら新 GUID を生成
@@ -170,8 +173,16 @@ namespace Iroca
             if (string.IsNullOrEmpty(guid))
                 guid = System.Guid.NewGuid().ToString("N");
 
-            content = Regex.Replace(content, @"(?m)^guid: [0-9a-f]+$", $"guid: {guid}");
-            File.WriteAllText(dstMeta, content, System.Text.Encoding.UTF8);
+            // GUID を差し替えられないまま写すと、元と同じ GUID の .meta になる。Unity はそれを衝突として
+            // 書き出し側に新しい GUID を振るので、上書きした画像がマテリアルから外れる。差し替えられなければ
+            // 写さず、通常の取り込み（既定のインポート設定）に任せる。
+            if (!MetaFile.TryReplaceGuid(content, guid, out string replaced))
+            {
+                Debug.LogWarning($"[Iroca] Import settings were not inherited: no GUID line in {srcMeta}.");
+                return;
+            }
+            // BOM なしの UTF-8（Unity が書く .meta と同じ）。小さいがアトミックに書く。
+            AtomicFile.WriteAllText(dstMeta, replaced);
         }
 
         /// <summary>

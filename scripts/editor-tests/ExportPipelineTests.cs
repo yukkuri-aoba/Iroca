@@ -235,6 +235,45 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void WriteAndImport_CrlfSourceMetaKeepsGuidOfExistingOutput()
+        {
+            // Windows の Git(autocrlf)で取り出したプロジェクトでは元の .meta が CRLF。以前は GUID を差し替えられず、
+            // 元と同じ GUID の .meta を写していた(書き出し直した画像に新しい GUID が振られ、マテリアルから外れる)。
+            string src = _assets.WritePng("src", Pattern(8, 8), 8, 8);
+            string outAsset = _assets.Folder + "/out.png";
+            ExportPipeline.WriteAndImport(TestAssets.Abs(outAsset), ExportPipeline.EncodePng(Pattern(8, 8), 8, 8), src, true);
+            string outGuid = AssetDatabase.AssetPathToGUID(outAsset);
+            Assert.IsNotEmpty(outGuid);
+
+            string srcMeta = TestAssets.Abs(src) + ".meta";
+            File.WriteAllText(srcMeta, File.ReadAllText(srcMeta).Replace("\r\n", "\n").Replace("\n", "\r\n"));
+            ExportPipeline.WriteAndImport(TestAssets.Abs(outAsset), ExportPipeline.EncodePng(Pattern(8, 8), 8, 8), src, true);
+
+            Assert.AreEqual(outGuid, AssetDatabase.AssetPathToGUID(outAsset), "書き出し直した画像の GUID が変わった");
+            Assert.AreNotEqual(AssetDatabase.AssetPathToGUID(src), outGuid);
+        }
+
+        [Test]
+        public void PreApplyImportSettings_WritesWithoutBom_AndSkipsTheSourceItself()
+        {
+            string src = _assets.WritePng("src", Pattern(8, 8), 8, 8);
+            string srcMeta = TestAssets.Abs(src) + ".meta";
+            string outAsset = _assets.Folder + "/out.png";
+            ExportPipeline.PreApplyImportSettings(src, outAsset);
+            var bytes = File.ReadAllBytes(TestAssets.Abs(outAsset) + ".meta");
+            Assert.IsFalse(bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF, "BOM 付きで書いた");
+
+            // 元そのものへの上書きでは、元の .meta を書き直さない(中身が同じでも差分が出る)。
+            byte[] before = File.ReadAllBytes(srcMeta);
+            var stamp = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(srcMeta, stamp);
+            ExportPipeline.PreApplyImportSettings(src, src);
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(srcMeta));
+            Assert.AreEqual(stamp, File.GetLastWriteTimeUtc(srcMeta), "元の .meta を書き直した");
+            File.Delete(TestAssets.Abs(outAsset) + ".meta");
+        }
+
+        [Test]
         public void WriteAndImport_WithoutInheritUsesDefaults()
         {
             string src = _assets.WritePng("src", Pattern(8, 8), 8, 8);
