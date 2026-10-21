@@ -98,6 +98,14 @@ namespace Iroca
 
         private T* RentCore(int minLength)
         {
+            // 検証用のはみ出し検出(IrocaNativeMemory.GuardPages)では、要求ちょうどの塊を毎回新しく取る
+            // (切り上げた分や、使い回した大きめの塊の余りに、はみ出しが隠れないように)。
+            if (IrocaNativeMemory.GuardPages)
+            {
+                var exact = new Block(minLength);
+                lock (_gate) _rented.Add(exact.Ptr, exact);
+                return (T*)exact.Ptr;
+            }
             int cap = RoundUp(minLength);
             lock (_gate)
             {
@@ -132,12 +140,16 @@ namespace Iroca
                 // 貸し出し中のまま残す(解放はファイナライザ)。
                 if (IrocaNativeMemory.CurrentThreadAborting) return;
                 _rented.Remove((IntPtr)p);
-                if (!_free.TryGetValue(b.Capacity, out var list)) _free[b.Capacity] = list = new List<Block>();
-                if (list.Count < _maxPerClass)
+                // 検証用のはみ出し検出では使い回さず、すぐ解放する(解放後の読み書きも捕まえる)。
+                if (!IrocaNativeMemory.GuardPages)
                 {
-                    list.Add(b);
-                    _freeBytes += b.Bytes;
-                    return;
+                    if (!_free.TryGetValue(b.Capacity, out var list)) _free[b.Capacity] = list = new List<Block>();
+                    if (list.Count < _maxPerClass)
+                    {
+                        list.Add(b);
+                        _freeBytes += b.Bytes;
+                        return;
+                    }
                 }
             }
             b.FreeNow();

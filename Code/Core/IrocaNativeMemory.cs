@@ -22,10 +22,22 @@ namespace Iroca
         /// <summary>いま確保しているバイト数。</summary>
         public static long LiveBytes => Interlocked.Read(ref s_liveBytes);
 
+        /// <summary>
+        /// 検証用: IROCA_NATIVE_GUARD=1 なら、確保する領域の末尾をページの境目にそろえ、直後のページを読み書きできない
+        /// ページ(ガードページ)にする(Windows だけ。ほかの OS では普段どおり確保する)。寸法の計算違いで塊の後ろへ
+        /// 1 バイトでもはみ出すと、その場でアクセス違反になる(普段は隣の塊やヒープを黙って壊し、後で別の所で落ちる)。
+        /// 解放した塊は OS へ返すので、解放後の読み書きもアクセス違反になる。作業配列のプール(NativeWorkPool)の
+        /// 切り上げと使い回しもやめる。確保のたびに OS から 1 ページ余分に取るので遅く、中身は 0 で始まる
+        /// (普段は不定。書く前に読む所は IROCA_POOL_POISON で探す)。製品では使わない。使い方は docs/testing-architecture.md。
+        /// </summary>
+        public static readonly bool GuardPages =
+            Environment.GetEnvironmentVariable("IROCA_NATIVE_GUARD") == "1"
+            && Environment.OSVersion.Platform == PlatformID.Win32NT;
+
         public static IntPtr Alloc(long bytes)
         {
             if (bytes <= 0) throw new ArgumentOutOfRangeException(nameof(bytes));
-            IntPtr p = Marshal.AllocHGlobal(new IntPtr(bytes));
+            IntPtr p = GuardPages ? GuardedAlloc(bytes) : Marshal.AllocHGlobal(new IntPtr(bytes));
             Interlocked.Add(ref s_liveBytes, bytes);
             return p;
         }
@@ -33,9 +45,59 @@ namespace Iroca
         public static void Free(IntPtr p, long bytes)
         {
             if (p == IntPtr.Zero) return;
-            Marshal.FreeHGlobal(p);
+            if (GuardPages) GuardedFree(p);
+            else Marshal.FreeHGlobal(p);
             Interlocked.Add(ref s_liveBytes, -bytes);
         }
+
+        // ガードページつきで取った領域の先頭 → OS から取った塊の先頭(解放に使う)。
+        private static readonly Dictionary<IntPtr, IntPtr> s_guardedBases = new Dictionary<IntPtr, IntPtr>();
+
+        private static IntPtr GuardedAlloc(long bytes)
+        {
+            long page = Environment.SystemPageSize;
+            long dataBytes = (bytes + page - 1) / page * page;
+            IntPtr block = VirtualAlloc(IntPtr.Zero, new UIntPtr((ulong)(dataBytes + page)), MemCommit | MemReserve, PageReadWrite);
+            if (block == IntPtr.Zero)
+                throw new OutOfMemoryException($"VirtualAlloc に失敗しました（{bytes} バイト、エラー {Marshal.GetLastWin32Error()}）");
+            var guard = new IntPtr(block.ToInt64() + dataBytes);
+            if (!VirtualProtect(guard, new UIntPtr((ulong)page), PageNoAccess, out _))
+            {
+                int error = Marshal.GetLastWin32Error();
+                VirtualFree(block, UIntPtr.Zero, MemRelease);
+                throw new InvalidOperationException($"ガードページを作れませんでした（エラー {error}）");
+            }
+            // 要求長ちょうどで、末尾がガードページの直前に来る位置を返す(寸法が 4 の倍数なら 4 バイト境界にそろう)。
+            var p = new IntPtr(guard.ToInt64() - bytes);
+            lock (s_guardedBases) s_guardedBases.Add(p, block);
+            return p;
+        }
+
+        private static void GuardedFree(IntPtr p)
+        {
+            IntPtr block;
+            lock (s_guardedBases)
+            {
+                if (!s_guardedBases.TryGetValue(p, out block))
+                    throw new InvalidOperationException("IrocaNativeMemory.Alloc が返した領域ではありません（二重の解放か、ずれた番地）");
+                s_guardedBases.Remove(p);
+            }
+            VirtualFree(block, UIntPtr.Zero, MemRelease);
+        }
+
+        private const uint MemCommit = 0x1000, MemReserve = 0x2000, MemRelease = 0x8000;
+        private const uint PageNoAccess = 0x01, PageReadWrite = 0x04;
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr VirtualAlloc(IntPtr address, UIntPtr size, uint allocationType, uint protect);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool VirtualProtect(IntPtr address, UIntPtr size, uint newProtect, out uint oldProtect);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool VirtualFree(IntPtr address, UIntPtr size, uint freeType);
 
         /// <summary>
         /// このスレッドが中断されている最中か(Mono のドメインのアンロードは、残っているスレッドを中断する)。
