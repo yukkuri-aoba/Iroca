@@ -1300,6 +1300,14 @@ namespace Iroca
         public static string RecipeReloadedFormat => IsJapanese
             ? "レシピ「{0}」がいろかの外で変わっていたので、読み直しました。Ctrl+Z で読み直す前の内容に戻せます（戻すと、レシピもその内容になります）。"
             : "The recipe \"{0}\" was changed outside Iroca, so it was reloaded. Press Ctrl+Z to go back to what you had before (the recipe then gets that content).";
+        // 保存先のレシピの中身を読めない（新しい版のいろかで作られた・壊れた）とき。窓の「保存先のレシピ」の下に出す。
+        public static string BoundRecipeUnreadable => IsJapanese
+            ? "このレシピは読めません（新しい版のいろかで作られたか、壊れています）。いろかでの編集はこのレシピに保存されず、登録もできません。いろかを最新の版に更新してください。"
+            : "This recipe cannot be read (it was made with a newer version of Iroca, or it is broken). Edits in Iroca are not saved to it, and you cannot register with it. Update Iroca to the latest version.";
+        // {0} = レシピのパス。
+        public static string RegisterRecipeUnreadableFormat => IsJapanese
+            ? "レシピ（{0}）を読めないので、登録をやめました（新しい版のいろかで作られたか、壊れています）。上書きすると元に戻せないため、このレシピは書き換えません。いろかを最新の版に更新してください。壊れているときは、Git などで前の状態に戻すか、レシピを消してから登録し直してください。"
+            : "Registration was canceled because the recipe ({0}) cannot be read (it was made with a newer version of Iroca, or it is broken). It is not overwritten, because that cannot be undone. Update Iroca to the latest version. If the recipe is broken, restore it (for example with Git) or delete it and register again.";
         // {0} = レシピのパス。
         public static string RegisterRecipeChangedOutsideFormat => IsJapanese
             ? "保存先のレシピ（{0}）が、いろかの外（Git などでの更新）で変わっています。レシピから読み直すので、内容を確かめてから、もう一度登録してください。"

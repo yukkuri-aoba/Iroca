@@ -405,6 +405,13 @@ namespace Iroca
             string recipeLabel = recipe != null
                 ? AssetDatabase.GetAssetPath(recipe)
                 : string.Format(Localization.RegisterRecipeNew, RecipeStore.PathForNew(sourceTexture));
+            // 読めないレシピ(新しい版のいろかで作られた・壊れた)は上書きしない(戻せないため。自動化 API と同じ判定)。
+            if (recipe != null && !string.IsNullOrEmpty(recipe.sessionJson) && RecipeStore.Load(recipe) == null)
+            {
+                EditorUtility.DisplayDialog(Localization.RegisterNonDestructive,
+                    string.Format(Localization.RegisterRecipeUnreadableFormat, recipeLabel), Localization.OK);
+                return;
+            }
             // 保存先のレシピが外(git など)で書き換わっていたら、窓の古い内容で上書きせず、読み直してから
             // 確かめてもらう。
             if (recipe != null && recipe == BoundRecipe && RecipeChangedOutside(recipe))
