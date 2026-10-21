@@ -150,6 +150,17 @@ namespace Iroca
         }
 
         /// <summary>
+        /// <paramref name="texture"/> を表示している窓があれば true と、その窓が結び付いているレシピ(無ければ null)。
+        /// 自動化 API が、窓の編集内容を書き込み先のレシピの土台にしてよいか(同じレシピか)を確かめるのに使う。
+        /// </summary>
+        internal static bool IsShowing(Texture2D texture, out IrocaRecipe boundRecipe)
+        {
+            var win = WindowShowing(texture);
+            boundRecipe = win != null ? win.BoundRecipe : null;
+            return win != null;
+        }
+
+        /// <summary>
         /// 自動化 API がレシピを書き換えた後に呼ぶ。そのテクスチャを表示している窓を、今の編集内容を保存せずに
         /// レシピから読み直す(保存すると、外の変更を窓の古い内容で上書きしてしまう)。読み直しは窓の Undo に
         /// 積むので、Ctrl+Z で外の変更の前に戻せる(戻した内容は窓の次の保存でレシピにも書かれる)。

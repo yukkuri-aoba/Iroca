@@ -103,8 +103,8 @@ namespace Iroca
 
         /// <summary>
         /// 色替えを足して、アバターに登録する(既定)・PNG に書き出す・比較画像だけ作る。
-        /// 土台は、そのテクスチャを開いているいろかの窓の編集内容 → 登録先のレシピ → プロジェクトに 1 つだけのレシピ
-        /// → 空、の順(preset を渡せばそれ)。changes の 1 件が 1 ゾーンで、UI でスポイトして新しいゾーンを作ったのと同じ
+        /// 土台は、そのテクスチャを開いているいろかの窓の編集内容(登録では、窓が書き込み先と同じレシピを表示しているとき
+        /// だけ)→ 登録先のレシピ → プロジェクトに 1 つだけのレシピ → 空、の順(preset を渡せばそれ)。changes の 1 件が 1 ゾーンで、UI でスポイトして新しいゾーンを作ったのと同じ
         /// (末尾に足す=優先度は最も低い)。同じ名前のゾーンがあれば、その場所で置き換える。
         /// </summary>
         public static string Recolor(string requestJson)
@@ -363,7 +363,16 @@ namespace Iroca
             }
             else
             {
-                state = IrocaWindow.EditingStateOf(tex)
+                // 窓の編集内容を土台にするのは、登録では窓が書き込み先と同じレシピを表示しているとき(どちらも無いときを
+                // 含む)だけ。同じテクスチャのレシピを複製して色違いにしていると、窓で別のアバターのレシピを開いたまま
+                // 頼まれることがあり、書き込み先のレシピがその中身で丸ごと置き換わっていた。
+                bool showing = IrocaWindow.IsShowing(tex, out var shown);
+                bool useWindow = showing && (r.apply != ApplyAvatar || shown == job.recipe);
+                if (showing && !useWindow)
+                    r.warnings.Add("the Iroca window is showing another recipe of this texture ("
+                        + (shown != null ? AssetDatabase.GetAssetPath(shown) : "none") + "), so its edits were not used; "
+                        + "started from " + (job.recipe != null ? AssetDatabase.GetAssetPath(job.recipe) : "no zones") + ".");
+                state = (useWindow ? IrocaWindow.EditingStateOf(tex) : null)
                      ?? (job.recipe != null ? RecipeStore.Load(job.recipe) : null)
                      ?? IrocaSessionState.CreateDefault();
             }
@@ -410,6 +419,10 @@ namespace Iroca
                 // 自動調整を待つ間に Play に入っていたら登録しない(依頼の時点と同じ判定)。
                 string blocked = AvatarApplyBlocked(EditorApplication.isPlayingOrWillChangePlaymode, NdmfSupport.State);
                 if (blocked != null) return FinishRecolor(r, blocked);
+                // 書き込み先と同じレシピ(どちらも無いときを含む)を表示している窓だけ、書いた後に読み直す。別のレシピを
+                // 表示している窓は、そちらへ保存するので古い内容で上書きする心配は無く、読み直すと窓の未保存の編集を捨てて
+                // 書き込み先へ結び替えてしまう。
+                bool reloadWindow = IrocaWindow.IsShowing(tex, out var shownRecipe) && shownRecipe == job.recipe;
                 var recipe = job.recipe;
                 if (recipe == null) recipe = RecipeStore.Create(tex, state);
                 else RecipeStore.Save(recipe, state);
@@ -428,7 +441,7 @@ namespace Iroca
                 Undo.SetCurrentGroupName(UndoName);
                 Undo.CollapseUndoOperations(undoGroup);
 
-                IrocaWindow.ReloadFromRecipe(recipe, UndoName);
+                if (reloadWindow) IrocaWindow.ReloadFromRecipe(recipe, UndoName);
             }
             return FinishRecolor(r, null);
         }
