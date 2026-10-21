@@ -39,6 +39,22 @@ namespace Iroca
 
         internal static bool IsOpen => FindInstance() != null;
 
+        // 見えているか(裏のタブでない)。Scene のクリックを見る条件に使う(IrocaWindow.SceneClick)。
+        // 本体の _windowShown と同じく、Unity の通知で追い、OnGUI でも立て直す。
+        [System.NonSerialized] private bool _shown;
+
+        internal static bool IsShown
+        {
+            get
+            {
+                var win = FindInstance();
+                return win != null && win._shown;
+            }
+        }
+
+        private void OnBecameVisible() => _shown = true;
+        private void OnBecameInvisible() => _shown = false;
+
         private static IrocaPreviewWindow FindInstance()
         {
             if (_instance != null) return _instance;
@@ -105,6 +121,7 @@ namespace Iroca
 
         private void OnGUI()
         {
+            _shown = true;
             var host = ResolveHost();
             if (host == null)
             {

@@ -18,6 +18,10 @@ namespace Iroca
     /// <item>別のテクスチャの部分 → 「ここは〇〇のテクスチャです」と案内する(勝手には切り替えない)</item>
     /// <item>何もない所 → 表示を消す</item>
     /// </list>
+    /// クリックを見るのは、いろかのウィンドウ(本体か、切り出したプレビュー)が見えているときだけ。
+    /// 裏のタブに隠れていると、開いた知らせが見えないまま覚えのないテクスチャが開き、当たり判定も
+    /// 見えない所で毎回走っていた。Play 中も見ない(Read/Write が無効のメッシュを読むと、Unity が
+    /// コンソールにエラーを出しうる)。
     /// </summary>
     public partial class IrocaWindow
     {
@@ -53,6 +57,17 @@ namespace Iroca
         internal Texture2D SceneOtherTexture =>
             _sceneOtherTexture != null && _sceneOtherTextureFor == sourceTexture ? _sceneOtherTexture : null;
 
+        // このウィンドウが見えているか(裏のタブ・閉じたウィンドウでは false)。Unity の通知で追い、
+        // OnGUI でも立て直す(OnGUI は見えているときしか呼ばれないので、通知を取りこぼしても戻る)。
+        [System.NonSerialized] private bool _windowShown;
+
+        private void OnBecameVisible() => _windowShown = true;
+        private void OnBecameInvisible() => _windowShown = false;
+
+        /// <summary>Scene のクリックを見るか(クラスの説明を参照)。</summary>
+        private bool SceneClickActive =>
+            !EditorApplication.isPlayingOrWillChangePlaymode && (_windowShown || IrocaPreviewWindow.IsShown);
+
         private void InstallSceneClick()
         {
             SceneView.duringSceneGui -= OnSceneGuiForClick;
@@ -63,12 +78,19 @@ namespace Iroca
         {
             SceneView.duringSceneGui -= OnSceneGuiForClick;
             _sceneDownArmed = false;
+            _windowShown = false;
         }
 
         private void OnSceneGuiForClick(SceneView view)
         {
             var e = Event.current;
             if (e == null) return;
+            if (!SceneClickActive)
+            {
+                // 押している途中で隠れた・Play が始まったクリックは、戻ってから離しても拾わない。
+                _sceneDownArmed = false;
+                return;
+            }
             // rawType: 先に誰かがイベントを使って(Use)いても、元の種類で判定する。こちらは使わない。
             switch (e.rawType)
             {
