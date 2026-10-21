@@ -22,7 +22,8 @@ namespace Iroca
     internal static class MaskSuggestSection
     {
         /// <summary>
-        /// AI 提案が今すぐ使えるか(エラー中は true = 選べば再試行する)。false なら右クリックメニューの
+        /// AI 提案が今すぐ使えるか(エラー中は true = 選べば再試行する。モデルを置いてあってまだ読み込んでいない
+        /// ときも true = 選んだときに読み込む)。false なら右クリックメニューの
         /// 項目を無効表示にし、有効化はメインウィンドウ上部のバナー(<see cref="DrawSetupBanner"/>)へ誘導する。
         /// </summary>
         public static bool ToolReady
@@ -63,11 +64,13 @@ namespace Iroca
             if (svc != null) DrawBurstFailureNoticeIfNeeded(svc);
 
             // 手で置いたモデルを拾う。バナーを描くかを決める前に、Layout のときだけ呼ぶ
-            // （TryEnsureModels は状態をその場で書き換えるので、描いた後に呼ぶと同じフレームの
+            // （状態をその場で書き換えるので、描いた後に呼ぶと同じフレームの
             // Repaint だけバナーが消え、Layout と Repaint で並ぶ要素が食い違っていた）。
+            // 見るのはファイルがあるかだけで、読み込みは使うときまでしない。以前はここで読み込んでいたので、
+            // ウィンドウが見えているだけで、コンパイルや Play の開始のたびに進捗バーが出て一瞬止まっていた。
             if (svc != null && svc.Phase == MaskSuggestPhase.NoModel && !MaskSuggestModelDownload.InProgress
                 && Event.current.type == EventType.Layout)
-                svc.TryEnsureModels();
+                svc.RefreshModelFiles();
 
             bool needsSentis = svc == null;
             bool needsModel = svc != null && svc.Phase == MaskSuggestPhase.NoModel;
@@ -296,7 +299,7 @@ namespace Iroca
         /// <summary>
         /// エラー時の「モデルを取り直す」導線。モデルの存在しか見ない帯(NoModel 時のみ)では、
         /// 壊れたファイルや別物を手動配置した場合に取り直す手段が UI から消えていた。
-        /// 配布物と一致しなければダウンロードし直す(完了時に TryEnsureModels が再ロードする)。
+        /// 配布物と一致しなければダウンロードし直す(完了後、次に使うときに読み込み直す)。
         /// </summary>
         static void DrawModelRecheck()
         {

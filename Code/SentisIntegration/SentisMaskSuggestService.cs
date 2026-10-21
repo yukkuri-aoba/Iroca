@@ -211,6 +211,16 @@ namespace Iroca.SentisIntegration
             return true;
         }
 
+        public void RefreshModelFiles()
+        {
+            // 読み込み済みなら状態は推論の側が持つ。読み込みは同期で止まるので、ここでは決してしない
+            // (ウィンドウが見えているだけで、コンパイルや Play の開始のたびに読み込み直していた)。
+            if (_modelsLoaded) return;
+            MaskSuggestBridge.MigrateLegacyModelsIfNeeded();
+            var next = SentisModelRepository.ModelsPresent() ? MaskSuggestPhase.NotLoaded : MaskSuggestPhase.NoModel;
+            if (_phase != next) SetPhase(next);
+        }
+
         bool TryCreateWorkers(out string error)
         {
             error = null;

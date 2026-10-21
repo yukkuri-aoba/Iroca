@@ -156,6 +156,36 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void CheckingModelFiles_DoesNotLoadTheModels()
+        {
+            // いろかのウィンドウは描くたびに(コンパイルや Play の開始の後も)モデルがあるかを見る。見るのは
+            // ファイルがあるかだけで、読み込みは使うときまでしない(以前はここで読み込み、そのたびに
+            // 進捗バーが出てエディタが止まっていた)。読み込んでいなくても準備済みとして扱う。
+            var t = Type.GetType("Iroca.SentisIntegration.SentisMaskSuggestService, Iroca.SentisIntegration");
+            if (t == null) Assert.Ignore("AI 統合アセンブリが無い（Sentis / Inference Engine 未導入）");
+            if (!MaskSuggestBridge.ModelFilesPresent) Assert.Ignore("AI モデルが未配置");
+            // 共有のサービスは読み込み済みのことがあるので、作りたての別のサービスで見る。
+            var svc = (IMaskSuggestService)Activator.CreateInstance(t, nonPublic: true);
+            var loaded = t.GetField("_modelsLoaded", BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.IsNotNull(loaded, "_modelsLoaded が見つからない（名前を変えたらこのテストも直す）");
+            var shared = MaskSuggestBridge.Service;
+            try
+            {
+                Assert.AreEqual(MaskSuggestPhase.NoModel, svc.Phase);
+                svc.RefreshModelFiles();
+                Assert.AreEqual(MaskSuggestPhase.NotLoaded, svc.Phase, "モデルがあるのに置いていない扱いのまま");
+                Assert.IsFalse((bool)loaded.GetValue(svc), "ファイルを確かめただけで読み込んだ");
+
+                MaskSuggestBridge.Service = svc;
+                Assert.IsTrue(MaskSuggestSection.ToolReady, "読み込む前だと右クリックの AI の項目が使えない表示になる");
+            }
+            finally
+            {
+                MaskSuggestBridge.Service = shared;
+            }
+        }
+
+        [Test]
         public void CacheOpenedByAnotherReader_IsLoadedWithoutConverting()
         {
             // 別の Unity が同じキャッシュを読んでいる最中でも、こちらも読める(以前は開けずに

@@ -249,7 +249,9 @@ namespace Iroca
             if (_fileIndex >= Files.Length)
             {
                 Finish();
-                MaskSuggestBridge.Service?.TryEnsureModels();
+                // 読み込みは使うときに行う(ここで読み込むと、ダウンロードが終わった瞬間にエディタが止まる)。
+                // 失敗していた状態も解いて、次に使うときに置き直したモデルを読み込ませる。
+                MaskSuggestBridge.Service?.RefreshModelFiles();
             }
             else
             {
