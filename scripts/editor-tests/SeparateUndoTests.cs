@@ -51,6 +51,8 @@ namespace Iroca.EditorTests
             Undo.IncrementCurrentGroup();
             Undo.RecordObject(_other, "Other Edit");
             _other.session.edgeFeather = _initial + 1f;
+            // RecordObject の変更は、フレームの終わりか Flush で記録される(記録したまとまりに入る)。
+            Undo.FlushUndoRecordObjects();
 
             LateResult(_initial + 2f);
 
@@ -71,6 +73,7 @@ namespace Iroca.EditorTests
             // 届いた直後の別の操作(まとまりの切り替えを挟まない)。
             Undo.RecordObject(_other, "Other Edit");
             _other.session.edgeFeather = _initial + 1f;
+            Undo.FlushUndoRecordObjects();
 
             Undo.PerformUndo();
             Assert.AreEqual(_initial, _other.session.edgeFeather, "後の操作だけが戻る");
