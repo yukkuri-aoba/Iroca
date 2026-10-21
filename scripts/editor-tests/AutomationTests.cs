@@ -377,6 +377,60 @@ namespace Iroca.EditorTests
             }
         }
 
+        [UnityTest]
+        public IEnumerator Recolor_Avatar_RecipeEditedWhileWaiting_IsNotOverwritten()
+        {
+            // 自動調整を待つ間にレシピが編集された(窓の自動保存など)ら、仕上げで上書きせずにやめて、呼び直すよう伝える。
+            if (NdmfSupport.State != NdmfSupportState.Supported) Assert.Ignore("NDMF が使えないホストでは登録を断る");
+            string src = Halves();
+            var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
+            bool hadRecipeFolder = UnityEditor.AssetDatabase.IsValidFolder(RecipeStore.DefaultFolder);
+            bool hadIrocaFolder = UnityEditor.AssetDatabase.IsValidFolder("Assets/Iroca");
+            var mat = new Material(Shader.Find("Standard")) { mainTexture = tex };
+            var root = new GameObject("IrocaWaitTestAvatar");
+            string recipePath = null;
+            try
+            {
+                var body = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                body.name = "Body";
+                body.transform.SetParent(root.transform);
+                body.GetComponent<Renderer>().sharedMaterial = mat;
+                string target = ",\"avatar\":\"IrocaWaitTestAvatar/Body\"";
+                recipePath = RecolorOk(Request(src, "avatar", "[{\"name\":\"skirt\",\"at\":[0.25,0.5],\"to\":\"#1A2B5C\"}]", target)).recipe;
+                var recipe = UnityEditor.AssetDatabase.LoadAssetAtPath<IrocaRecipe>(recipePath);
+
+                string json = IrocaAutomation.Recolor(Request(src, "avatar",
+                    "[{\"name\":\"blue\",\"from\":\"#1E28C8\",\"to\":\"#FFAA00\"}]", target, autoTune: true));
+                if (!json.Contains("\"pending\":true")) Assert.Inconclusive("解析が 1 回目の呼び出しの中で終わった(待ちが無い)");
+
+                // 待っている間の手直し(ゾーンの色を変える)。
+                var edited = RecipeStore.Load(recipe);
+                edited.zones[0].targetColor = Color.white;
+                RecipeStore.Save(recipe, edited);
+                string editedJson = recipe.sessionJson;
+
+                double deadline = UnityEditor.EditorApplication.timeSinceStartup + 120;
+                while (json.Contains("\"pending\":true"))
+                {
+                    Assert.Less(UnityEditor.EditorApplication.timeSinceStartup, deadline, "自動調整が終わらない: " + json);
+                    yield return null;
+                    json = IrocaAutomation.RecolorStatus();
+                }
+                var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
+                Assert.IsFalse(r.ok, json);
+                StringAssert.Contains("Call iroca_recolor again", r.error);
+                Assert.AreEqual(editedJson, recipe.sessionJson, "待つ間の手直しを上書きしない");
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(mat);
+                if (!string.IsNullOrEmpty(recipePath)) UnityEditor.AssetDatabase.DeleteAsset(recipePath);
+                if (!hadRecipeFolder) UnityEditor.AssetDatabase.DeleteAsset(RecipeStore.DefaultFolder);
+                if (!hadIrocaFolder) UnityEditor.AssetDatabase.DeleteAsset("Assets/Iroca");
+            }
+        }
+
         [Test]
         public void Recolor_Avatar_DoesNotReuseTheRecipeOfAnotherAvatar()
         {
@@ -593,7 +647,7 @@ namespace Iroca.EditorTests
             string json = IrocaAutomation.Recolor(first);
             if (!json.Contains("\"pending\":true")) Assert.Inconclusive("解析が 1 回目の呼び出しの中で終わった(待ちが無い)");
 
-            RecolorFails(Request(src, "preview", "[{\"name\":\"blue\",\"from\":\"#1E1EC8\",\"to\":\"#FFAA00\"}]"), "still running");
+            RecolorFails(Request(src, "preview", "[{\"name\":\"blue\",\"from\":\"#1E28C8\",\"to\":\"#FFAA00\"}]"), "still running");
 
             double deadline = UnityEditor.EditorApplication.timeSinceStartup + 120;
             while (json.Contains("\"pending\":true"))
@@ -607,7 +661,7 @@ namespace Iroca.EditorTests
             Assert.AreEqual("red", r.zones.Single().name, "先の依頼の結果を返すこと");
 
             // 受け取った後は次の依頼を受ける。
-            RecolorOk(Request(src, "preview", "[{\"name\":\"blue\",\"from\":\"#1E1EC8\",\"to\":\"#FFAA00\"}]"));
+            RecolorOk(Request(src, "preview", "[{\"name\":\"blue\",\"from\":\"#1E28C8\",\"to\":\"#FFAA00\"}]"));
         }
 
         [Test]

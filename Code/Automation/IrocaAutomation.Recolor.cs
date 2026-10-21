@@ -132,6 +132,7 @@ namespace Iroca
                 string done = AdvanceRecolor(job);
                 if (done != null) return done;
 
+                job.waited = true;
                 s_job = job;
                 EditorApplication.update -= PumpRecolorJob;
                 EditorApplication.update += PumpRecolorJob;
@@ -191,6 +192,12 @@ namespace Iroca
             public bool workIsFullResolution;
             public GameObject target;
             public IrocaRecipe recipe;
+            // 登録で、依頼の時点の窓の中身(書き込み先と同じレシピの窓を土台にしたとき)とレシピの中身。
+            // 待つ間にどちらかが編集されていたら、仕上げで上書きせずにやめる(EditedWhileWaiting)。
+            public string windowJsonAtRequest;
+            public string recipeJsonAtRequest;
+            // 途中経過を返した(自動調整などを待った)か
+            public bool waited;
             public IrocaSessionState state;
             public readonly List<string> changedZoneIds = new List<string>();
             public AutomationAutoTune tune;
@@ -364,6 +371,19 @@ namespace Iroca
             if (job.recipe != null && !string.IsNullOrEmpty(job.recipe.sessionJson) && RecipeStore.Load(job.recipe) == null)
                 return $"the existing recipe cannot be read (made by a newer Iroca?): {AssetDatabase.GetAssetPath(job.recipe)}";
 
+            // 窓の編集内容を土台にするのは、登録では窓が書き込み先と同じレシピを表示しているとき(どちらも無いときを
+            // 含む)だけ。同じテクスチャのレシピを複製して色違いにしていると、窓で別のアバターのレシピを開いたまま
+            // 頼まれることがあり、書き込み先のレシピがその中身で丸ごと置き換わっていた。
+            bool showing = IrocaWindow.IsShowing(tex, out var shown);
+            bool useWindow = showing && (r.apply != ApplyAvatar || shown == job.recipe);
+            var windowState = useWindow ? IrocaWindow.EditingStateOf(tex) : null;
+            if (r.apply == ApplyAvatar)
+            {
+                // 自動調整を待つ間に窓やレシピが編集されたかを、仕上げで見分けるための依頼の時点の中身。
+                job.windowJsonAtRequest = windowState != null ? JsonUtility.ToJson(windowState) : null;
+                job.recipeJsonAtRequest = job.recipe != null ? job.recipe.sessionJson : null;
+            }
+
             IrocaSessionState state;
             if (!string.IsNullOrWhiteSpace(req.preset))
             {
@@ -373,16 +393,11 @@ namespace Iroca
             }
             else
             {
-                // 窓の編集内容を土台にするのは、登録では窓が書き込み先と同じレシピを表示しているとき(どちらも無いときを
-                // 含む)だけ。同じテクスチャのレシピを複製して色違いにしていると、窓で別のアバターのレシピを開いたまま
-                // 頼まれることがあり、書き込み先のレシピがその中身で丸ごと置き換わっていた。
-                bool showing = IrocaWindow.IsShowing(tex, out var shown);
-                bool useWindow = showing && (r.apply != ApplyAvatar || shown == job.recipe);
                 if (showing && !useWindow)
                     r.warnings.Add("the Iroca window is showing another recipe of this texture ("
                         + (shown != null ? AssetDatabase.GetAssetPath(shown) : "none") + "), so its edits were not used; "
                         + "started from " + (job.recipe != null ? AssetDatabase.GetAssetPath(job.recipe) : "no zones") + ".");
-                state = (useWindow ? IrocaWindow.EditingStateOf(tex) : null)
+                state = windowState
                      ?? (job.recipe != null ? RecipeStore.Load(job.recipe) : null)
                      ?? IrocaSessionState.CreateDefault();
             }
@@ -429,6 +444,10 @@ namespace Iroca
                 // 自動調整を待つ間に Play に入っていたら登録しない(依頼の時点と同じ判定)。
                 string blocked = AvatarApplyBlocked(EditorApplication.isPlayingOrWillChangePlaymode, NdmfSupport.State);
                 if (blocked != null) return FinishRecolor(r, blocked);
+                string edited = job.waited ? EditedWhileWaiting(job) : null;
+                if (edited != null)
+                    return FinishRecolor(r, $"while this call was waiting for auto-tune, {edited}, so the result was not applied "
+                        + "(to keep those edits). Call iroca_recolor again to apply it on top of the current state.");
                 // 書き込み先と同じレシピ(どちらも無いときを含む)を表示している窓だけ、書いた後に読み直す。別のレシピを
                 // 表示している窓は、そちらへ保存するので古い内容で上書きする心配は無く、読み直すと窓の未保存の編集を捨てて
                 // 書き込み先へ結び替えてしまう。
@@ -463,6 +482,35 @@ namespace Iroca
                 Undo.CollapseUndoOperations(undoGroup);
             }
             return FinishRecolor(r, null);
+        }
+
+        /// <summary>
+        /// 登録の依頼が自動調整を待つ間に、書き込み先のレシピか、書いた後に読み直す窓の中身が編集されていたら、その説明。
+        /// 無ければ null。以前は、待つ間に窓でした手直しが「依頼の時点の内容と AI の変更」で置き換わっていた
+        /// (Ctrl+Z で手直しは戻るが、そのときは AI の変更が消える)。編集されていたら上書きしないでやめ、AI に
+        /// 呼び直してもらう(呼び直せば今の内容を土台にする)。
+        /// </summary>
+        private static string EditedWhileWaiting(RecolorJob job)
+        {
+            bool windowIsTarget = IrocaWindow.IsShowing(job.tex, out var shown) && shown == job.recipe;
+            if (job.windowJsonAtRequest != null)
+            {
+                // 依頼の時点では、書き込み先と同じレシピの窓の中身を土台にした。窓の自動保存がその内容をレシピへ書くことは
+                // あるので、レシピではなく窓の中身を比べる(閉じた・切り替えたときは、閉じる前の手直しを確かめられない)。
+                if (!windowIsTarget) return "the Iroca window was closed or switched to another texture or recipe";
+                return JsonUtility.ToJson(IrocaWindow.EditingStateOf(job.tex)) != job.windowJsonAtRequest
+                    ? "the texture was edited in the Iroca window" : null;
+            }
+            if (job.recipe != null && job.recipe.sessionJson != job.recipeJsonAtRequest)
+                return "the recipe was changed (for example, edited in the Iroca window)";
+            if (windowIsTarget)
+            {
+                // 待つ間に窓で開かれた。窓の中身が土台(レシピ)と同じでなければ、読み直しで窓の手直しを置き換えてしまう。
+                string expected = job.recipe != null ? JsonUtility.ToJson(RecipeStore.Load(job.recipe)) : null;
+                if (expected == null || JsonUtility.ToJson(IrocaWindow.EditingStateOf(job.tex)) != expected)
+                    return "the texture was opened and edited in the Iroca window";
+            }
+            return null;
         }
 
         /// <summary>png の仕上げで背景のスレッドが作るもの。</summary>
