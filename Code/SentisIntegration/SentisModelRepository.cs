@@ -70,7 +70,13 @@ namespace Iroca.SentisIntegration
                     File.GetLastWriteTimeUtc(cachePath) >= File.GetLastWriteTimeUtc(onnxPath))
                 {
                     var cached = TryLoadCache(cachePath, out bool locked, out string why);
-                    if (cached != null) return cached;
+                    if (cached != null)
+                    {
+                        MarkUsed(cachePath, onnxPath);
+                        DeleteStaleCaches(onnxPath, cachePath);
+                        DeleteLeftoverTempCaches(onnxPath);
+                        return cached;
+                    }
                     if (locked)
                     {
                         // 別の Unity がつかんだまま離さない。中身は壊れていないので消さずに、今回だけ変換し直す。
@@ -246,13 +252,35 @@ namespace Iroca.SentisIntegration
             catch { /* CacheDir 不在・列挙失敗も無視 */ }
         }
 
+        // ほかの Sentis 版のキャッシュは、これだけの日数使われていないものだけ消す。
+        static readonly TimeSpan UnusedCacheLifetime = TimeSpan.FromDays(30);
+
         /// <summary>
-        /// 同じ .onnx から作られた旧 Sentis 版の .sentis キャッシュを削除する。
+        /// 読み込んだキャッシュの更新時刻を今にする(使った印。<see cref="DeleteStaleCaches"/> が見る)。
+        /// 有効判定は「キャッシュの時刻 ≥ ONNX の時刻」なので、新しくしても判定は変わらない。ただし読んでいる間に
+        /// ONNX が置き換わっていたら(ダウンロードし直した)、古いキャッシュを有効に見せてしまうので触らない。
+        /// 失敗は無視する(別の Unity が読んでいる最中など。その Unity が読み終えたときに新しくする)。
+        /// </summary>
+        static void MarkUsed(string cachePath, string onnxPath)
+        {
+            try
+            {
+                if (File.GetLastWriteTimeUtc(cachePath) < File.GetLastWriteTimeUtc(onnxPath)) return;
+                File.SetLastWriteTimeUtc(cachePath, DateTime.UtcNow);
+            }
+            catch { /* 使った印が付かないだけ */ }
+        }
+
+        /// <summary>
+        /// 同じ .onnx から作られたほかの Sentis 版の .sentis キャッシュのうち、長く使われていないものを削除する。
         ///
         /// キャッシュ名は &lt;stem&gt;.&lt;version&gt;.sentis で、Sentis の版が変わると別ファイルになる。
-        /// 掃除しないと版を上げるたびに 45MB 級の孤児が %LOCALAPPDATA% に積み上がる
-        /// (旧版のキャッシュは二度と参照されない)。
-        /// 現行版の変換が成功した後にだけ呼ぶこと。失敗は無視する(掃除は best-effort で、
+        /// 掃除しないと版を上げるたびに 45MB 級の孤児が %LOCALAPPDATA% に積み上がる。
+        /// ただしこのフォルダは全プロジェクトで共有なので、ほかの版は別のプロジェクト(Unity 2022 の Sentis と
+        /// Unity 6 の Inference Engine など)が今も使っていることがある。無条件に消すと、行き来するたびに
+        /// 互いのキャッシュを消し合って変換し直していた。使うたびに更新時刻を新しくし(<see cref="MarkUsed"/>)、
+        /// <see cref="UnusedCacheLifetime"/> より長く使われていない版だけを消す。
+        /// 現行版を読み込めた後にだけ呼ぶこと。失敗は無視する(掃除は best-effort で、
         /// 消せなくても AI マスク提案の動作には影響しない)。
         /// </summary>
         static void DeleteStaleCaches(string onnxPath, string keepPath)
@@ -266,8 +294,9 @@ namespace Iroca.SentisIntegration
                     // 消す前に本当に .sentis かを明示的に確認する。
                     if (!f.EndsWith(".sentis", StringComparison.OrdinalIgnoreCase)) continue;
                     if (string.Equals(f, keepPath, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (DateTime.UtcNow - File.GetLastWriteTimeUtc(f) < UnusedCacheLifetime) continue;
                     try { File.Delete(f); }
-                    catch { /* 別インスタンスが読込中などは掴まれたまま。次回の変換で消せばよい */ }
+                    catch { /* 別インスタンスが読込中などは掴まれたまま。次回の掃除で消せばよい */ }
                 }
             }
             catch { /* CacheDir 不在・列挙失敗も無視 */ }
