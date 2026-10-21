@@ -487,7 +487,22 @@ namespace Iroca
             finally { pixels?.Release(); }
         }
 
+        // EditorApplication.update から毎フレーム呼ばれる。Unity はそこで例外を受け止めないので、投げたまま
+        // 購読を残すと、窓を閉じるまで毎フレーム、後ろに並んだ他のツールの更新まで飛ばし続ける。
+        // 例外のときは待ちをやめて購読を外す。
         private void TickEvidenceWait()
+        {
+            try { TickEvidenceWaitCore(); }
+            catch (System.Exception e)
+            {
+                EditorApplication.update -= TickEvidenceWait;
+                Debug.LogException(e);
+                try { AbortEvidenceWait(Localization.AutoTuneEvidenceCancelled); }
+                catch (System.Exception e2) { Debug.LogException(e2); }
+            }
+        }
+
+        private void TickEvidenceWaitCore()
         {
             // 破棄済みウィンドウ（fake-null）や待ち終了後は自己解除する。
             if (this == null || !_evidenceWaiting)

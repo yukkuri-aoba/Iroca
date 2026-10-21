@@ -193,15 +193,27 @@ namespace Iroca
             Slots.Remove(source);
         }
 
+        // リロードの直前に、他のツールの後始末と同じ並びで Unity が呼ぶ。Unity はここで例外を受け止めないので、
+        // 投げると後ろに並んだ他のツールの後始末が飛ばされる。スロットごと・手放すものごとに受け止め、
+        // 表は必ず空にする。
         private static void ReleaseAll()
         {
-            foreach (var slot in Slots.Values)
+            try
             {
-                DestroyGpu(slot);
-                slot.DropPixels();
+                foreach (var slot in Slots.Values)
+                {
+                    try { DestroyGpu(slot); }
+                    catch (Exception e) { Debug.LogException(e); }
+                    try { slot.DropPixels(); }
+                    catch (Exception e) { Debug.LogException(e); }
+                }
             }
-            Slots.Clear();
-            Current = null;
+            catch (Exception e) { Debug.LogException(e); }
+            finally
+            {
+                Slots.Clear();
+                Current = null;
+            }
         }
 
         private static void CreateTarget(Slot slot, Texture2D source)
