@@ -165,24 +165,33 @@ namespace Iroca
             EditorApplication.update += Tick;
         }
 
+        // update から呼ばれる入口。例外を漏らすと同じフレームに並んだ他ツールの update が飛ばされ、
+        // しかも毎フレーム繰り返すので、ログに出して見張りをやめる。
         static void Tick()
         {
-            if (_request == null)
+            try
             {
-                EditorApplication.update -= Tick;
-                return;
+                if (_request == null)
+                {
+                    EditorApplication.update -= Tick;
+                    return;
+                }
+                if (!_request.IsCompleted) return;
+
+                if (_request.Status == StatusCode.Failure)
+                    Error = _request.Error != null ? _request.Error.message : Localization.AiUnknownError;
+                else if (_request.Status == StatusCode.Success)
+                    // 導入自体はパッケージ追加→自動リコンパイルで完了するが、その導入時のドメイン
+                    // リロードでは Burst のコールドスタート失敗(関数ポインタ初期化例外)を踏むことがあり、
+                    // その世代だけ Sentis の畳み込みが全滅して AI が動かない。確実に有効化するため
+                    // 再起動を促すフラグを立てる(クリーンな Burst 初期化になる)。
+                    SessionState.SetBool(RestartRecommendedKey, true);
             }
-            if (!_request.IsCompleted) return;
-
-            if (_request.Status == StatusCode.Failure)
-                Error = _request.Error != null ? _request.Error.message : Localization.AiUnknownError;
-            else if (_request.Status == StatusCode.Success)
-                // 導入自体はパッケージ追加→自動リコンパイルで完了するが、その導入時のドメイン
-                // リロードでは Burst のコールドスタート失敗(関数ポインタ初期化例外)を踏むことがあり、
-                // その世代だけ Sentis の畳み込みが全滅して AI が動かない。確実に有効化するため
-                // 再起動を促すフラグを立てる(クリーンな Burst 初期化になる)。
-                SessionState.SetBool(RestartRecommendedKey, true);
-
+            catch (System.Exception e)
+            {
+                Debug.LogException(e);
+                Error = e.Message;
+            }
             _request = null;
             EditorApplication.update -= Tick;
         }

@@ -169,7 +169,28 @@ namespace Iroca
             }
         }
 
+        // update から呼ばれる入口。例外を漏らすと同じフレームに並んだ他ツールの update が飛ばされ、
+        // しかも毎フレーム繰り返す。ログに出してダウンロードを失敗として止める。
         static void Tick()
+        {
+            try
+            {
+                TickCore();
+            }
+            catch (System.Exception e)
+            {
+                UnityEngine.Debug.LogException(e);
+                try
+                {
+                    string tmp = _fileIndex >= 0 && _fileIndex < Files.Length ? TempPath(Files[_fileIndex].file) : null;
+                    AbortRequest();
+                    Fail(e.Message, tmp);
+                }
+                catch (System.Exception inner) { UnityEngine.Debug.LogException(inner); }
+            }
+        }
+
+        static void TickCore()
         {
             if (_request == null) return;
 
@@ -262,7 +283,7 @@ namespace Iroca
         static void Fail(string message, string tmpToDelete)
         {
             Error = message;
-            try { if (File.Exists(tmpToDelete)) File.Delete(tmpToDelete); } catch { }
+            try { if (tmpToDelete != null && File.Exists(tmpToDelete)) File.Delete(tmpToDelete); } catch { }
             Finish();
         }
 
@@ -282,9 +303,11 @@ namespace Iroca
             _request = null;
         }
 
+        // リロード前・終了時に呼ばれる入口。例外を漏らすと、同じタイミングの他ツールの後始末が飛ばされる。
         static void CleanupOnUnload()
         {
-            AbortRequest();
+            try { AbortRequest(); }
+            catch (System.Exception e) { UnityEngine.Debug.LogException(e); }
             if (_fileIndex >= 0 && _fileIndex < Files.Length)
             {
                 try

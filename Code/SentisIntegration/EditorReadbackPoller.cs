@@ -72,6 +72,8 @@ namespace Iroca.SentisIntegration
 
         void Tick()
         {
+            float[] data;
+            Action<float[]> done;
             try
             {
                 if (!_tensor.IsReadbackRequestDone())
@@ -80,19 +82,29 @@ namespace Iroca.SentisIntegration
                         throw new TimeoutException(Localization.AiErrReadbackTimeout);
                     return;
                 }
-                float[] data;
                 using (var t = _tensor.ReadbackAndClone()) // 完了済みなので非ブロッキング
                     data = t.DownloadToArray();
-                var done = _onDone;
+                done = _onDone;
                 Stop();
-                done?.Invoke(data);
             }
             catch (Exception e)
             {
                 var onError = _onError;
                 Stop();
-                onError?.Invoke(e);
+                CallGuarded(() => onError?.Invoke(e));
+                return;
             }
+            // 完了の通知は読み出しの外で呼ぶ(中で投げたものを読み出しの失敗と取り違えない。以前は Stop が
+            // onError を外した後だったので、黙って捨てられていた)。
+            CallGuarded(() => done?.Invoke(data));
+        }
+
+        // update から呼ばれる入口なので、通知先の例外はここで止める。漏らすと、同じフレームに並んだ
+        // 他ツールの update が飛ばされる(Unity は購読者を順に呼ぶだけで例外を止めない)。
+        static void CallGuarded(Action a)
+        {
+            try { a(); }
+            catch (Exception e) { UnityEngine.Debug.LogException(e); }
         }
     }
 }
