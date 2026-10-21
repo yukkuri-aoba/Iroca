@@ -340,6 +340,44 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void Recolor_Avatar_UndoRestoresTheRecipeEvenWithoutTheWindow()
+        {
+            // 窓を開いていなくても、登録済みのレシピの書き換えは Ctrl+Z(Undo)で戻る。
+            if (NdmfSupport.State != NdmfSupportState.Supported) Assert.Ignore("NDMF が使えないホストでは登録を断る");
+            string src = Halves();
+            var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
+            bool hadRecipeFolder = UnityEditor.AssetDatabase.IsValidFolder(RecipeStore.DefaultFolder);
+            bool hadIrocaFolder = UnityEditor.AssetDatabase.IsValidFolder("Assets/Iroca");
+            var mat = new Material(Shader.Find("Standard")) { mainTexture = tex };
+            var root = new GameObject("IrocaUndoTestAvatar");
+            string recipePath = null;
+            try
+            {
+                var body = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                body.name = "Body";
+                body.transform.SetParent(root.transform);
+                body.GetComponent<Renderer>().sharedMaterial = mat;
+                string target = ",\"avatar\":\"IrocaUndoTestAvatar/Body\"";
+                recipePath = RecolorOk(Request(src, "avatar", "[{\"name\":\"skirt\",\"at\":[0.25,0.5],\"to\":\"#1A2B5C\"}]", target)).recipe;
+                var recipe = UnityEditor.AssetDatabase.LoadAssetAtPath<IrocaRecipe>(recipePath);
+                string first = recipe.sessionJson;
+
+                RecolorOk(Request(src, "avatar", "[{\"name\":\"skirt\",\"at\":[0.25,0.5],\"to\":\"#FFAA00\"}]", target));
+                Assert.AreNotEqual(first, recipe.sessionJson);
+                UnityEditor.Undo.PerformUndo();
+                Assert.AreEqual(first, recipe.sessionJson, "Undo でレシピの中身が 1 回前に戻ること");
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(mat);
+                if (!string.IsNullOrEmpty(recipePath)) UnityEditor.AssetDatabase.DeleteAsset(recipePath);
+                if (!hadRecipeFolder) UnityEditor.AssetDatabase.DeleteAsset(RecipeStore.DefaultFolder);
+                if (!hadIrocaFolder) UnityEditor.AssetDatabase.DeleteAsset("Assets/Iroca");
+            }
+        }
+
+        [Test]
         public void Recolor_Avatar_DoesNotReuseTheRecipeOfAnotherAvatar()
         {
             // 同じテクスチャを使うアバターが 2 体あり、片方だけ登録済み。もう片方の登録では、そのレシピを流用して

@@ -433,9 +433,11 @@ namespace Iroca
                 // 表示している窓は、そちらへ保存するので古い内容で上書きする心配は無く、読み直すと窓の未保存の編集を捨てて
                 // 書き込み先へ結び替えてしまう。
                 bool reloadWindow = IrocaWindow.IsShowing(tex, out var shownRecipe) && shownRecipe == job.recipe;
+                // 新しく作るレシピは Undo に積まない(作ったアセットのファイルは Undo で消せない。UI の登録と同じ)。
+                // Ctrl+Z ではコンポーネントへの登録が外れるので、使われないレシピが残るだけになる。
+                // 既存のレシピの書き換えは、下の Undo グループに記録してから書く。
                 var recipe = job.recipe;
                 if (recipe == null) recipe = RecipeStore.Create(tex, state);
-                else RecipeStore.Save(recipe, state);
                 r.recipe = AssetDatabase.GetAssetPath(recipe);
 
                 // UI の登録と同じ: 書き出した画像を差しているマテリアルを元へ戻し、コンポーネントに足す(Undo 1 回)。
@@ -447,11 +449,18 @@ namespace Iroca
                 int switched = RecipeRegistration.SwitchToSource(exportUsers, tex, exports);
                 if (switched > 0) r.warnings.Add($"switched {switched} material(s) from the exported image back to the source texture.");
                 RecipeRegistration.Attach(job.target, recipe);
+                if (recipe == job.recipe)
+                {
+                    // RecipeStore.Save は(窓の自動保存と二重にならないよう)Undo に積まないので、書く前の中身をここで
+                    // 記録する。窓を閉じていても Ctrl+Z でレシピの中身まで戻る(以前は窓で開いているときだけ戻った)。
+                    Undo.RegisterCompleteObjectUndo(recipe, UndoName);
+                    RecipeStore.Save(recipe, state);
+                }
+                // 窓の読み直し(読み直す前の窓を記録する)も同じグループに入れ、1 回の Ctrl+Z でレシピと窓がそろって戻るようにする。
+                if (reloadWindow) IrocaWindow.ReloadFromRecipe(recipe, UndoName);
                 // Attach が付ける名前(Iroca: Register Recolor)ではなく、外からの色替えだと分かる名前にする。
                 Undo.SetCurrentGroupName(UndoName);
                 Undo.CollapseUndoOperations(undoGroup);
-
-                if (reloadWindow) IrocaWindow.ReloadFromRecipe(recipe, UndoName);
             }
             return FinishRecolor(r, null);
         }
