@@ -18,23 +18,33 @@ namespace Iroca
             => UnityEditor.EditorPrefs.SetInt(PrefsKey, (int)CurrentLanguage);
 
         private const string EnglishNoticeKey = "Iroca.EnglishTranslationNoticeShown";
+        // 閉じたかの控え(描画のたびに EditorPrefs を読まない)。
+        private static bool? s_englishNoticeClosed;
 
         /// <summary>
-        /// 英語表示が初めて使われたとき（Auto 判定・手動選択どちらでも）、
-        /// UI の英訳が AI 補助による機械翻訳である旨を一度だけダイアログ表示する。
+        /// 英語表示のとき（Auto 判定・手動選択どちらでも）、UI の英訳が AI 補助による機械翻訳であることを
+        /// いろかのウィンドウ上部の帯で知らせるか。「閉じる」を押すまで出し、押したらこの PC ではもう出さない。
+        /// 以前はエディタ全体を止めるダイアログで、MCP から窓を開いた直後にも出て、OK を押すまで
+        /// AI エージェントの次の操作が進まなかった。
         /// </summary>
-        public static void MaybeShowEnglishTranslationNotice()
+        public static bool ShowEnglishTranslationNotice =>
+            !IsJapanese && !(s_englishNoticeClosed ??= UnityEditor.EditorPrefs.GetBool(EnglishNoticeKey, false));
+
+        public static void CloseEnglishTranslationNotice()
         {
-            if (IsJapanese) return;
-            if (UnityEditor.EditorPrefs.GetBool(EnglishNoticeKey, false)) return;
+            s_englishNoticeClosed = true;
             UnityEditor.EditorPrefs.SetBool(EnglishNoticeKey, true);
-            UnityEditor.EditorUtility.DisplayDialog(
-                "AI Translation Notice",
-                "The English text in this tool is machine-translated with AI assistance.\n"
-                + "It may contain unnatural or inaccurate wording. The Japanese text is authoritative.\n\n"
-                + "この英語表示は AI による機械翻訳です。",
-                "OK");
         }
+
+        // 英語表示のときだけ出すので本文は英語。日本語の 1 行は以前のダイアログと同じく残す。
+        public static string EnglishTranslationNotice =>
+            "The English text in this tool is machine-translated with AI assistance. "
+            + "It may contain unnatural or inaccurate wording. The Japanese text is authoritative.\n"
+            + "この英語表示は AI による機械翻訳です。";
+        public static string EnglishTranslationNoticeClose => IsJapanese ? "閉じる" : "Close";
+        public static string EnglishTranslationNoticeCloseTooltip => IsJapanese
+            ? "このお知らせを閉じます。次からは表示しません"
+            : "Close this notice. It will not be shown again.";
 
         public static bool IsJapanese
         {
