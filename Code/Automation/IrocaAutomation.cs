@@ -284,6 +284,7 @@ namespace Iroca
         /// <c>Unity.exe -batchmode -quit -executeMethod Iroca.IrocaAutomation.RunFromCommandLine
         ///   -irocaSource &lt;path&gt; -irocaOutput &lt;path&gt; (-irocaPreset &lt;path|name&gt; | -irocaZonesFile &lt;json&gt; | -irocaJob &lt;json&gt;)</c>
         /// で呼ぶ、MCP を介さない完全ヘッドレス経路。結果は Console と UserSettings/Iroca/mcp/result.json に出す。
+        /// batchmode のときだけ成否を終了コードにして Unity を終える(開いているエディタから呼ばれたときは終えない)。
         /// </summary>
         public static void RunFromCommandLine()
         {
@@ -329,6 +330,10 @@ namespace Iroca
             // -quit だけでは RunFromCommandLine の成否に関わらず Unity は exit 0 で終了し、
             // 失敗(デコード失敗・ゾーン無し・書き込み失敗等)が握り潰されていた。result.json と
             // ログは上で出力済みなので、ここで成否に応じた終了コードで明示終了する。
+            // 開いているエディタの中で呼ばれた(AI のコード実行や、利用者の自動処理の途中の 1 段など)ときに
+            // 終了すると、保存していないシーンの変更ごと Unity が閉じる。終えるのは batchmode のときだけ
+            // (BuildHelper と同じ形)。
+            if (!Application.isBatchMode) return;
             bool ok = false;
             try { ok = JsonUtility.FromJson<RecolorResult>(resultJson)?.ok ?? false; }
             catch { ok = false; }
