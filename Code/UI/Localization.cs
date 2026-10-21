@@ -1399,7 +1399,7 @@ namespace Iroca
             ? "いろかのウィンドウを開いたときに（1 日 1 回まで）新しい版があるかを調べ、あればウィンドウの上部で知らせます。"
             : "When you open the Iroca window (at most once a day), checks for a new version and shows a notice at the top of the window if there is one.";
         public static string UpdateCheckPrivacy => IsJapanese
-            ? "調べるときは、VCC / ALCOM が読むのと同じ公開リストを読むだけで、こちらから送る情報はありません。更新は VCC / ALCOM で行います。\n読むリスト: " + UpdateCheck.ListingUrl
-            : "The check only reads the same public listing that VCC / ALCOM reads. Nothing about you or your project is sent. Updating is done in VCC / ALCOM.\nListing: " + UpdateCheck.ListingUrl;
+            ? "調べるときは、VCC / ALCOM が読むのと同じ公開リストを読むだけです。通信の仕組み上 GitHub に届く接続元の情報（IP アドレス・Unity の版）のほかは、何も送りません。更新は VCC / ALCOM で行います。\n読むリスト: " + UpdateCheck.ListingUrl
+            : "The check only reads the same public listing that VCC / ALCOM reads. Apart from the connection details that reach GitHub with any request (your IP address and the Unity version), nothing is sent. Updating is done in VCC / ALCOM.\nListing: " + UpdateCheck.ListingUrl;
     }
 }
