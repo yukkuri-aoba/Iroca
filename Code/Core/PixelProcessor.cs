@@ -167,6 +167,14 @@ namespace Iroca
             WorkPools.ReleaseFree();   // AI 提案の精密化(SamMaskRefine)の分も同じプール
         }
 
+        /// <summary>
+        /// <see cref="ReleaseWorkBuffers"/> をスレッドプールで行う(呼んだスレッドはすぐ戻る)。触った大きい塊を OS へ返すのは
+        /// 8K で数十〜数百 ms かかるので、書き出しの後・ウィンドウを閉じたときにメインスレッドを止めないよう、こちらを使う。
+        /// プールと色の表のキャッシュはロックで守られているので、解放の途中で次の計算が借りに来ても壊れない
+        /// (その計算が新しく確保するだけ)。スクリプトのリロードの前は、アンロードに間に合うよう同期の方を使う。
+        /// </summary>
+        internal static Task ReleaseWorkBuffersInBackground() => Task.Run(ReleaseWorkBuffers);
+
         // 借りた作業配列を 0 で埋める([start, start+count))。
         private static void ClearWork<T>(T* p, int start, int count) where T : unmanaged
             => new Span<T>(p + start, count).Clear();

@@ -267,7 +267,7 @@ namespace Iroca
             CancelEvidenceWait();
             _previewView?.Suspend();
             // 閉じたら作業配列(ネイティブメモリ)の空きを OS へ返す(計算中の分は返ってきた後もプールに残る)。
-            PixelProcessor.ReleaseWorkBuffers();
+            PixelProcessor.ReleaseWorkBuffersInBackground();
             _maskView?.SuspendTransientState();
             SavePersistedSessionForCurrentTexture();
             RememberLastEditedTexture();
