@@ -263,6 +263,82 @@ namespace Iroca.EditorTests
             StringAssert.Contains(error, r.error);
         }
 
+        // ─── PNG の書き出し(作業解像度の画素を使い回すか) ───
+
+        [Test]
+        public void IsFullResolution_SameSizePng_ReadsTheSamePixelsAsTheExport()
+        {
+            // 取り込みで縮まない PNG: 作業解像度で読んだ画素が、書き出しで読む画素とビット一致する(読み直さなくてよい)。
+            string src = Halves();
+            var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
+            string abs = TestAssets.Abs(src);
+            var kind = ExportPipeline.ReadSourcePixels(abs, tex, out var work, out int w, out int h, workingSize: true);
+            ExportPipeline.ReadSourcePixels(abs, tex, out var full, out int fw, out int fh);
+            Assert.IsTrue(IrocaAutomation.IsFullResolution(kind, tex, w, h));
+            Assert.AreEqual((fw, fh), (w, h));
+            CollectionAssert.AreEqual(full, work);
+        }
+
+        [Test]
+        public void IsFullResolution_PngShrunkOnImport_IsFalse()
+        {
+            // 取り込みで縮む(最大サイズ 32 の 64×64)ときは、書き出しで元の解像度を読み直す。
+            var px = Enumerable.Repeat(Red, 64 * 64).ToArray();
+            string src = _assets.WritePng("big", px, 64, 64);
+            var importer = (UnityEditor.TextureImporter)UnityEditor.AssetImporter.GetAtPath(src);
+            importer.maxTextureSize = 32;
+            importer.SaveAndReimport();
+            var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
+            var kind = ExportPipeline.ReadSourcePixels(TestAssets.Abs(src), tex, out _, out int w, out int h, workingSize: true);
+            Assert.AreEqual((32, 32), (w, h), "テストの前提(作業解像度が取り込み後の寸法)");
+            Assert.IsFalse(IrocaAutomation.IsFullResolution(kind, tex, w, h));
+        }
+
+        [Test]
+        public void IsFullResolution_ImportedTexture_ReadsTheSamePixelsAsTheExport()
+        {
+            // PNG/JPG として読めない原本(TGA)は、作業解像度でも書き出しでも取り込み済みテクスチャの同じ画素を読む。
+            var b = new byte[18 + 8 * 4 * 4];
+            b[2] = 2; b[12] = 8; b[14] = 4; b[16] = 32; b[17] = 8;
+            for (int i = 0; i < 8 * 4; i++) { b[18 + i * 4] = 30; b[19 + i * 4] = 200; b[20 + i * 4] = 10; b[21 + i * 4] = 255; }
+            string src = _assets.WriteBytes("src.tga", b, readable: true);
+            var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
+            string abs = TestAssets.Abs(src);
+            var kind = ExportPipeline.ReadSourcePixels(abs, tex, out var work, out int w, out int h, workingSize: true);
+            ExportPipeline.ReadSourcePixels(abs, tex, out var full, out _, out _);
+            Assert.AreEqual(ExportPipeline.SourceKind.ImportedTexture, kind);
+            Assert.IsTrue(IrocaAutomation.IsFullResolution(kind, tex, w, h));
+            CollectionAssert.AreEqual(full, work);
+        }
+
+        [Test]
+        public void PngOutput_HasTheSamePixelsAsTexture2DEncode()
+        {
+            // 書き出しのエンコードを Texture2D.EncodeToPNG から ExportPipeline.EncodePng に替えた。読み戻した画素が同じこと。
+            var rng = new System.Random(7);
+            const int pw = 37, ph = 23;
+            var px = new Color32[pw * ph];
+            for (int i = 0; i < px.Length; i++)
+                px[i] = new Color32((byte)rng.Next(256), (byte)rng.Next(256), (byte)rng.Next(256), (byte)rng.Next(256));
+            var viaTexture = new Texture2D(pw, ph, TextureFormat.RGBA32, false);
+            var a = new Texture2D(2, 2);
+            var c = new Texture2D(2, 2);
+            try
+            {
+                viaTexture.SetPixels32(px);
+                Assert.IsTrue(a.LoadImage(viaTexture.EncodeToPNG()));
+                Assert.IsTrue(c.LoadImage(ExportPipeline.EncodePng(px, pw, ph)));
+                CollectionAssert.AreEqual(a.GetPixels32(), c.GetPixels32());
+                CollectionAssert.AreEqual(px, c.GetPixels32());
+            }
+            finally
+            {
+                Object.DestroyImmediate(viaTexture);
+                Object.DestroyImmediate(a);
+                Object.DestroyImmediate(c);
+            }
+        }
+
         // ─── 自動調整 ───
 
         // 自動調整を待つ依頼を、終わるまで問い合わせ直す(MCP のサーバーと同じ。間に editor の 1 コマを挟む)。

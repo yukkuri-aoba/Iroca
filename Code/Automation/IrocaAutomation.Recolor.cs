@@ -166,6 +166,8 @@ namespace Iroca
             public Texture2D tex;
             public Color32[] work;
             public int w, h;
+            // 作業解像度で読んだ画素が、書き出しで読む元の解像度の画素と同じか(書き出しで読み直さなくてよいか)。
+            public bool workIsFullResolution;
             public GameObject target;
             public IrocaRecipe recipe;
             public IrocaSessionState state;
@@ -242,9 +244,10 @@ namespace Iroca
             r.texture = AssetDatabase.GetAssetPath(tex);
             string abs = PhysicalPath(r.texture);
             if (abs == null) return $"texture file not found: {r.texture}";
-            if (ExportPipeline.ReadSourcePixels(abs, tex, out job.work, out job.w, out job.h, workingSize: true)
-                    == ExportPipeline.SourceKind.Unavailable)
+            var kind = ExportPipeline.ReadSourcePixels(abs, tex, out job.work, out job.w, out job.h, workingSize: true);
+            if (kind == ExportPipeline.SourceKind.Unavailable)
                 return "could not read the pixels (enable Read/Write in the import settings, or use a PNG/JPG source).";
+            job.workIsFullResolution = IsFullResolution(kind, tex, job.w, job.h);
 
             // ── 登録先と土台 ──
             if (r.apply == ApplyAvatar)
@@ -352,9 +355,23 @@ namespace Iroca
             if (r.apply == ApplyPng)
             {
                 string outPath = string.IsNullOrWhiteSpace(job.req.output) ? ExportPipeline.BatchOutputPath(r.texture) : job.req.output;
-                var exported = RunRecolorCore(r.texture, state, outPath, r.warnings, imported: tex, panelNextToOutput: false);
-                if (!exported.ok) return FinishRecolor(r, exported.error);
-                r.output = exported.output;
+                if (job.workIsFullResolution)
+                {
+                    // 作業解像度の画素が元の解像度の画素そのものなら、比較画像のために色替えした after が書き出す画素
+                    // (同じ画素に同じ編集状態で SessionRecolor.Apply)。読み込みと色替えをもう一度しない。
+                    string error = WriteRecoloredPng(after, job.w, job.h, PhysicalPath(r.texture), outPath, out string outAbs);
+                    if (error != null) return FinishRecolor(r, error);
+                    r.output = outAbs;
+                }
+                else
+                {
+                    // 取り込みで縮めて編集していたときは、UI の書き出しと同じく元の解像度で読み直して色替えする。
+                    // 変化の指標は作業解像度で数えてあるので、ここでは数えない。
+                    var exported = RunRecolorCore(r.texture, state, outPath, r.warnings, imported: tex,
+                        panelNextToOutput: false, metrics: false);
+                    if (!exported.ok) return FinishRecolor(r, exported.error);
+                    r.output = exported.output;
+                }
             }
             else if (r.apply == ApplyAvatar)
             {
@@ -382,6 +399,21 @@ namespace Iroca
         }
 
         private const string UndoName = "Iroca: Recolor (automation)";
+
+        /// <summary>
+        /// 作業解像度で読んだ画素(<see cref="ExportPipeline.ReadSourcePixels"/> の workingSize: true)が、書き出しで読む
+        /// 元の解像度の画素(workingSize: false)と同じになるか。取り込み済みテクスチャから読んだとき(PSD・TGA など)は
+        /// どちらも同じ画素を読む。ファイルから読んだときは、寸法が元のファイルと同じなら縮めていない
+        /// (<see cref="WorkingResolution.PixelsOf"/> は寸法が同じならデコードした画素をそのまま返す)。
+        /// </summary>
+        internal static bool IsFullResolution(ExportPipeline.SourceKind kind, Texture2D tex, int w, int h)
+        {
+            if (kind == ExportPipeline.SourceKind.ImportedTexture) return true;
+            if (kind != ExportPipeline.SourceKind.File) return false;
+            if (!(AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(tex)) is TextureImporter ti)) return false;
+            ti.GetSourceTextureWidthAndHeight(out int fw, out int fh);
+            return fw == w && fh == h;
+        }
 
         // 1 件の変更をゾーンにする。エラーなら文言、成功なら null。
         private static string ApplyChange(IrocaSessionState state, ChangeRequest c, Color32[] work, int w, int h, out ColorZone zone)

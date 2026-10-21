@@ -183,7 +183,7 @@ namespace Iroca
                     "パスは Assets 相対（Assets/...）・プロジェクト相対・絶対のいずれも可。出力は .png。",
                     "色は [r,g,b]（0..1）。enabled なゾーンが 1 つも無いと error になる。",
                     "プリセットに入っているマスク（除外・含める）も UI と同じく当てる。",
-                    "MCP 経路: execute_custom_tool(\"iroca_recolor\", { source, output, preset|zones }) で呼ぶ（メニュー非依存）。",
+                    "MCP 経路: iroca_inspect・iroca_recolor・iroca_open（引数は Inspect・Recolor の依頼 JSON・Open と同じ）。",
                     "結果には 'preview'（比較パネル PNG のパス: 左=変換前 / 中=変換後 / 右=変化画素をマゼンタ表示）と "
                         + "変化メトリクス（changedPixels / changedFraction / largestComponentFraction / changeComponentCount / changeBBox）が付く。",
                     "検証ループ: 再着色 → 'preview' 画像を開いて意図通りか目視 → ずれていれば target/tolerance を調整して再実行。"
@@ -342,12 +342,13 @@ namespace Iroca
         /// 色替えは非破壊ビルドと同じ入口なので、有効なゾーンだけを並び順のまま、state のマスクを当てて処理する。
         /// <paramref name="imported"/> を渡すと、PNG/JPG として読めない原本(PSD・TGA など)は UI の書き出しと同じく
         /// 取り込み済みテクスチャから読む。<paramref name="panelNextToOutput"/> が false なら比較パネルを書かない
-        /// (呼び出し側が別の場所に作る)。
+        /// (呼び出し側が別の場所に作る)。<paramref name="metrics"/> が false なら変化の指標を数えない
+        /// (連結成分まで数えるので大きいテクスチャでは軽くない。呼び出し側が作業解像度で数えているとき)。
         /// </summary>
         private static RecolorResult RunRecolorCore(
             string sourceAssetPath, IrocaSessionState state,
             string outputAssetPath, List<string> warnings,
-            Texture2D imported = null, bool panelNextToOutput = true)
+            Texture2D imported = null, bool panelNextToOutput = true, bool metrics = true)
         {
             var result = new RecolorResult { warnings = warnings ?? new List<string>() };
 
@@ -370,31 +371,23 @@ namespace Iroca
             { result.error = "failed to decode source image."; return result; }
 
             // 比較パネル/メトリクス用に、再着色前の画素を退避する(ProcessPixelsArray は in-place 変換)。
-            var originalPixels = (Color32[])pixels.Clone();
+            // どちらも要らなければ複製しない(8K で 256MB)。
+            var originalPixels = metrics || panelNextToOutput ? (Color32[])pixels.Clone() : null;
 
             SessionRecolor.Apply(pixels, w, h, state);
 
-            string outAbs = ResolveOutputPath(outputAssetPath);
-            if (outAbs == null)
-            { result.error = $"output must be a .png inside the project: {outputAssetPath}"; return result; }
-            // 出力先が元テクスチャそのものだと、再着色結果で原本を上書きして戻せなくなる。
-            // UI の「上書き保存」は明示操作＋確認ダイアログ＋Undo があるが、MCP/batchmode 経由には
-            // 何も無く、引数のミス 1 つで非可逆に原本が失われる。ここで断る。
-            // 比較は大小無視: 取りこぼして原本を壊すより、別ファイルを拒否する側に倒す。
-            if (string.Equals(outAbs, srcAbs, StringComparison.OrdinalIgnoreCase))
-            {
-                result.error = "output must differ from source "
-                             + $"(recoloring in place would destroy the original irreversibly): {outputAssetPath}";
-                return result;
-            }
-            if (!TryWritePng(pixels, w, h, outAbs)) { result.error = "PNG encode failed."; return result; }
+            string writeError = WriteRecoloredPng(pixels, w, h, srcAbs, outputAssetPath, out string outAbs);
+            if (writeError != null) { result.error = writeError; return result; }
 
-            var metrics = RecolorPreview.ComputeMetrics(originalPixels, pixels, w, h);
-            result.changedPixels = metrics.changedPixels;
-            result.changedFraction = metrics.changedFraction;
-            result.largestComponentFraction = metrics.largestComponentFraction;
-            result.changeComponentCount = metrics.componentCount;
-            result.changeBBox = new[] { metrics.bboxX, metrics.bboxY, metrics.bboxW, metrics.bboxH };
+            if (metrics)
+            {
+                var m = RecolorPreview.ComputeMetrics(originalPixels, pixels, w, h);
+                result.changedPixels = m.changedPixels;
+                result.changedFraction = m.changedFraction;
+                result.largestComponentFraction = m.largestComponentFraction;
+                result.changeComponentCount = m.componentCount;
+                result.changeBBox = new[] { m.bboxX, m.bboxY, m.bboxW, m.bboxH };
+            }
             if (panelNextToOutput) WritePreviewPanel(originalPixels, pixels, w, h, outAbs, srcAbs, result);
 
             result.ok = true;
@@ -446,33 +439,46 @@ namespace Iroca
         }
 
         /// <summary>
+        /// 色替えした画素を出力先へ書く(出力先の確かめ → PNG → 取り込み)。エラーなら文言、成功なら null。
+        /// <paramref name="srcAbs"/> は原本の絶対パス(出力が原本を上書きしないことを確かめる)。
+        /// </summary>
+        private static string WriteRecoloredPng(Color32[] pixels, int w, int h, string srcAbs, string outputAssetPath,
+            out string outAbs)
+        {
+            outAbs = ResolveOutputPath(outputAssetPath);
+            if (outAbs == null) return $"output must be a .png inside the project: {outputAssetPath}";
+            // 出力先が元テクスチャそのものだと、再着色結果で原本を上書きして戻せなくなる。
+            // UI の「上書き保存」は明示操作＋確認ダイアログ＋Undo があるが、MCP/batchmode 経由には
+            // 何も無く、引数のミス 1 つで非可逆に原本が失われる。ここで断る。
+            // 比較は大小無視: 取りこぼして原本を壊すより、別ファイルを拒否する側に倒す。
+            if (string.Equals(outAbs, srcAbs, StringComparison.OrdinalIgnoreCase))
+                return "output must differ from source "
+                     + $"(recoloring in place would destroy the original irreversibly): {outputAssetPath}";
+            if (!TryWritePng(pixels, w, h, outAbs)) return "PNG encode failed.";
+            return null;
+        }
+
+        /// <summary>
         /// 画素を PNG にエンコードして <paramref name="abs"/> へ書き出し、Assets 配下なら取り込む。
         /// エンコードに失敗したら何も書かずに false を返す。I/O 等の例外は捕まえず呼び出し側へ伝える。
+        /// エンコードは UI の書き出しと同じ <see cref="ExportPipeline.EncodePng"/>(Texture2D を作らない。
+        /// 8K で 256MB の写しが要らない)。取り込み設定は既定のまま(元の .meta は写さない。従来どおり)。
         /// </summary>
         private static bool TryWritePng(Color32[] pixels, int w, int h, string abs)
         {
-            Texture2D tex = null;
-            try
-            {
-                tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
-                tex.SetPixels32(pixels);
-                byte[] png = tex.EncodeToPNG();
-                if (png == null) return false;
+            byte[] png;
+            try { png = ExportPipeline.EncodePng(pixels, w, h); }
+            catch (Exception) { return false; }
 
-                string dir = Path.GetDirectoryName(abs);
-                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                // 出力先に既存 PNG があると、書き込み途中で落ちたときその既存物を壊す。
-                // AtomicFile は一時ファイルへ書き切ってから置換する。
-                AtomicFile.WriteAllBytes(abs, png);
+            string dir = Path.GetDirectoryName(abs);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            // 出力先に既存 PNG があると、書き込み途中で落ちたときその既存物を壊す。
+            // AtomicFile は一時ファイルへ書き切ってから置換する。
+            AtomicFile.WriteAllBytes(abs, png);
 
-                string rel = PathUtils.ToAssetsRelativeOrNull(abs);
-                if (rel != null) AssetDatabase.ImportAsset(rel);
-                return true;
-            }
-            finally
-            {
-                if (tex != null) UnityEngine.Object.DestroyImmediate(tex);
-            }
+            string rel = PathUtils.ToAssetsRelativeOrNull(abs);
+            if (rel != null) AssetDatabase.ImportAsset(rel);
+            return true;
         }
 
         private static string MakePreviewPath(string outAbs)
