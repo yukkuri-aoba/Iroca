@@ -175,6 +175,44 @@ namespace Iroca
         // 別ウィンドウが本体を見失っているとき、探し直す間隔(探すのはエディタ内の全オブジェクトの走査)。
         internal const double HostSearchIntervalSeconds = 1.0;
 
+        // Play 中のリロード直後に待たせているプレビューを、次の Layout から始める印(TrackDeferredPreview)。
+        [System.NonSerialized] private bool _resumeDeferredPreview;
+
+        /// <summary>
+        /// Play を始めたときのドメインリロードの直後に待たせている、原本の読み直しとプレビューの作り直し
+        /// (<see cref="PreviewView.SourceLoadDeferred"/>)を、このウィンドウか切り出したプレビューが操作されたら
+        /// (マウスが入る・動く・クリック・スクロール・キー)始める。両ウィンドウの OnGUI の先頭で呼ぶ。
+        /// 操作されたイベントの途中で描くものを変えると IMGUI がエラーを出すので、始めるのは次の Layout から。
+        /// 待っている間はマウスの移動と出入りも受け取る(乗せただけで始まるように)。
+        /// </summary>
+        internal void TrackDeferredPreview(EditorWindow from)
+        {
+            bool deferred = _previewView != null && _previewView.SourceLoadDeferred;
+            if (deferred)
+            {
+                var type = Event.current.type;
+                if (type == EventType.Layout && _resumeDeferredPreview)
+                {
+                    _previewView.EndSourceLoadDeferral();
+                    deferred = false;
+                }
+                else if (!_resumeDeferredPreview && IsDeferredPreviewTrigger(type))
+                {
+                    _resumeDeferredPreview = true;
+                    RequestRepaint();
+                }
+            }
+            if (!deferred) _resumeDeferredPreview = false;
+            if (from.wantsMouseMove != deferred) from.wantsMouseMove = deferred;
+            if (from.wantsMouseEnterLeaveWindow != deferred) from.wantsMouseEnterLeaveWindow = deferred;
+        }
+
+        private static bool IsDeferredPreviewTrigger(EventType t) =>
+            t == EventType.MouseEnterWindow || t == EventType.MouseMove || t == EventType.MouseDown
+            || t == EventType.MouseUp || t == EventType.MouseDrag || t == EventType.ScrollWheel
+            || t == EventType.ContextClick || t == EventType.KeyDown
+            || t == EventType.DragUpdated || t == EventType.DragPerform;
+
         /// <summary>
         /// ディスク上のソース画素が変わったときに呼ぶ（エクスポートで元ファイルを上書きした等）。
         /// プレビューはディスクの現物を読み直して処理するため、ここで無効化しないと
@@ -303,6 +341,11 @@ namespace Iroca
             }
             else
                 _maskView.RestoreFromSession();
+
+            // Play を始めたときのドメインリロードの直後は、原本の読み直しと色替えの計算し直しを、ウィンドウが
+            // 操作されるまで待つ(PreviewView.SourceLoadDeferred)。Play 中以外は今までどおりすぐ読む。
+            if (!firstSinceEditorStart && EditorApplication.isPlayingOrWillChangePlaymode)
+                _previewView.DeferSourceLoad();
 
             // Unity 標準 Undo の戻り/進みに合わせて bool[] バッファを _session.maskState から再展開。
             // 二重購読を避けるため一度外してから登録する（PreviewJobMainThread.Install と同じ防御）。

@@ -446,6 +446,10 @@ namespace Iroca
         public static string SetTexture => IsJapanese
             ? "テクスチャを設定してください。"
             : "Please set a texture.";
+        // Play を始めた直後は、ウィンドウが操作されるまでプレビューを作らない(PreviewView.SourceLoadDeferred)。
+        public static string PreviewDeferredInPlayMode => IsJapanese
+            ? "Play 中は、このウィンドウにマウスを乗せるとプレビューを表示します。"
+            : "During Play mode, the preview appears when you move the mouse over this window.";
 
         public static string PreviewWindowTitle => IsJapanese ? "いろか プレビュー" : "Iroca Preview";
         public static string OpenPreviewWindow => IsJapanese

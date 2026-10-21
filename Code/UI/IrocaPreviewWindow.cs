@@ -139,6 +139,8 @@ namespace Iroca
             }
             // ここでの操作(ペイント・スポイトなど)を、本体ともう 1 つの別ウィンドウ(マスク編集)に知らせる。
             if (IrocaWindow.MayChangeState(Event.current.type)) host.BumpUiState();
+            // Play 中のリロード直後に待たせているプレビューは、この窓が操作されても始める。
+            host.TrackDeferredPreview(this);
 
             var preview = host.Preview;
             if (preview == null) return;

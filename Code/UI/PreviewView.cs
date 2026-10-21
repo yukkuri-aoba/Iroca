@@ -320,6 +320,18 @@ namespace Iroca
         // 直近に画素を取れなかったテクスチャ（毎フレームの可否判定で読み直さないための負のキャッシュ）。
         [System.NonSerialized] private Texture2D _trueSourceFailedFor;
 
+        // Play を始めたときのドメインリロードの直後は、原本の読み直し(デコード)と色替えの計算し直しを、
+        // ウィンドウが操作されるまで待つ(Play を始めてすぐの動作確認と重なって、エディタが止まらないように)。
+        // 待つのは Play 中だけで、どこかで原本を読んだら(自動調整・AI・書き出しなど画素が要る操作)終わる。
+        // 操作の検出と解除は IrocaWindow.TrackDeferredPreview。
+        [System.NonSerialized] private bool _deferSourceLoad;
+
+        internal bool SourceLoadDeferred => _deferSourceLoad && EditorApplication.isPlayingOrWillChangePlaymode;
+        // Draw が Layout のときに見た SourceLoadDeferred(同じフレームの他のイベントもそれで描く)。
+        [System.NonSerialized] private bool _deferredAtLayout;
+        internal void DeferSourceLoad() => _deferSourceLoad = true;
+        internal void EndSourceLoadDeferral() => _deferSourceLoad = false;
+
         [System.NonSerialized] private DetailPreviewView _detailView;
 
         [System.NonSerialized] private IrocaWindow _host;
@@ -456,6 +468,7 @@ namespace Iroca
                         _trueSourceFor = tex;
                         _trueSourceFailedFor = null;
                         RememberTrueSourceBasis(tex, fromFile: true);
+                        _deferSourceLoad = false;
                         return true;
                     }
                 }
@@ -479,6 +492,7 @@ namespace Iroca
             _trueSourceFor = tex;
             _trueSourceFailedFor = null;
             RememberTrueSourceBasis(tex, fromFile: false);
+            _deferSourceLoad = false;
             return true;
         }
 
@@ -529,8 +543,11 @@ namespace Iroca
         /// 有効か」だけを見ていると、PNG/JPG のように原本を直接読める場合でも
         /// 不要にインポート設定の変更を要求してしまうため、実際に取れるかで判定する。
         /// 成否はテクスチャ単位でキャッシュする。
+        /// Play 中のリロード直後で原本の読み直しを待っている間(<see cref="SourceLoadDeferred"/>)は、読まずに
+        /// 取れるものとして答える(UI の可否判定のために読むと、待たせている意味が無くなる)。
         /// </summary>
-        public bool CanProvideSourcePixels(Texture2D tex) => EnsureTrueSource(tex);
+        public bool CanProvideSourcePixels(Texture2D tex) =>
+            tex != null && (SourceLoadDeferred || EnsureTrueSource(tex));
 
         /// <summary>
         /// 自動調整など他ビューが、プレビューと同一の true source 画素(作業解像度)で解析する
@@ -611,6 +628,16 @@ namespace Iroca
             {
                 DrawTitleRow(false, 0f);
                 EditorGUILayout.HelpBox(Localization.SetTexture, MessageType.Info);
+                return;
+            }
+
+            // Play 中のリロード直後は、ウィンドウが操作されるまで原本を読まない(_deferSourceLoad)。
+            // 決めるのは Layout のとき(ボタンの処理で途中から原本を読んでも、同じフレームの描くものを変えない)。
+            if (Event.current.type == EventType.Layout) _deferredAtLayout = SourceLoadDeferred;
+            if (_deferredAtLayout)
+            {
+                DrawTitleRow(false, 0f);
+                EditorGUILayout.HelpBox(Localization.PreviewDeferredInPlayMode, MessageType.Info);
                 return;
             }
 

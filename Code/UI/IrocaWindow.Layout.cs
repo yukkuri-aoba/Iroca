@@ -54,6 +54,7 @@ namespace Iroca
             _windowShown = true;
             // 入力があったら、別ウィンドウ(プレビュー・マスク編集)に描き直しを知らせる(DrawStamp)。
             if (MayChangeState(Event.current.type)) BumpUiState();
+            TrackDeferredPreview(this);
             // Ctrl+Z / Ctrl+Y は Unity 標準 Undo に統合済みのため、独自処理は不要。
             ProcessPendingZoneChanges();
             PublishLivePreviewTarget();
@@ -754,6 +755,8 @@ namespace Iroca
         private void DrawLargeSourceNotice()
         {
             if (sourceTexture == null || _previewView == null) return;
+            // Play 中のリロード直後で原本の読み直しを待っている間は、案内のために読まない。
+            if (_previewView.SourceLoadDeferred) return;
             if (!_previewView.TryGetTrueSourcePixels(sourceTexture, out _, out int ww, out int wh)) return;
             // 元ファイルの寸法。取り込み済みテクスチャから読んでいる(PSD など)ときは、書き出しもその寸法。
             int w = ww, h = wh;
