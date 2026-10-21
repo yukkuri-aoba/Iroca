@@ -452,11 +452,11 @@ namespace Iroca.EditorTests
             // アニメーションのマテリアル切り替え(切り替える先の GameObject と、キーフレームのマテリアル)。
             public readonly List<(GameObject target, Material[] keys)> Animated = new List<(GameObject, Material[])>();
 
-            public void RewriteAnimatedMaterials(Transform scope, System.Func<Material, Material> mapping)
+            public void RewriteAnimatedMaterials(System.Func<Transform, bool> inScope, System.Func<Material, Material> mapping)
             {
                 foreach (var (target, keys) in Animated)
                 {
-                    if (!target.transform.IsChildOf(scope)) continue;
+                    if (!inScope(target.transform)) continue;
                     for (int i = 0; i < keys.Length; i++)
                         if (keys[i] != null) keys[i] = mapping(keys[i]);
                 }
@@ -810,6 +810,48 @@ namespace Iroca.EditorTests
             Assert.AreSame(src, textures[0].original);
             Assert.AreSame(recolored, textures[0].replacement);
             CollectionAssert.DoesNotContain(host.RegisteredAfterSave, recolored, "保存した後に登録した");
+        }
+
+        [Test]
+        public void Applier_RendererMovedOutOfScopeDuringTheBuild_IsStillRecolored()
+        {
+            // Modular Avatar の Merge Armature・Bone Proxy や VRCFury の Armature Link は、衣装の骨の下の小物を
+            // アバター本体の骨の下へ移す。範囲は移す前(Resolving 段で記録)の親子関係で決める。
+            var src = Tex("src");
+            var shared = Mat("shared", src);
+            var root = Node("avatar", null);
+            var bone = Node("Hips", root.transform);
+            var body = Node("body", root.transform, shared);   // 範囲外(本体)
+            var outfit = Node("outfit", root.transform);
+            var outfitBone = Node("Hips", outfit.transform);
+            var accessory = Node("accessory", outfitBone.transform, shared);
+            var toggled = Node("toggled", outfitBone.transform, Mat("plain", Tex("plain")));
+            var recipe = Recipe("r", src);
+            AddRecolor(outfit, recipe);
+
+            var host = new FakeHost();
+            var state = new NonDestructiveApplier.BuildState();
+            NonDestructiveApplier.RecordScopes(root, state);
+            // 骨の統合: 衣装の骨の下の小物が本体の骨の下へ移る。
+            accessory.transform.SetParent(bone.transform, true);
+            toggled.transform.SetParent(bone.transform, true);
+            NonDestructiveApplier.Apply(root, host, state, NonDestructiveApplier.Stage.First);
+
+            var recolored = accessory.GetComponent<Renderer>().sharedMaterial;
+            Assert.AreNotSame(shared, recolored, "骨の下へ移された小物が色替えされていない");
+            Assert.AreSame(host.Textures[recipe], recolored.mainTexture);
+            Assert.AreSame(shared, body.GetComponent<Renderer>().sharedMaterial, "範囲外(本体)まで色替えした");
+
+            // 1 段目と 2 段目の間のツールが、移した小物のトグル(アニメーション)で元のマテリアルを入れる。
+            var keys = new[] { shared };
+            host.Animated.Add((toggled, keys));
+            var bodyKeys = new[] { shared };
+            host.Animated.Add((body, bodyKeys));
+            NonDestructiveApplier.Apply(root, host, state, NonDestructiveApplier.Stage.Late);
+            Assert.AreSame(recolored, keys[0], "移した小物を切り替えるアニメーションが色替えされていない");
+            Assert.AreSame(shared, bodyKeys[0], "範囲外(本体)のアニメーションまで書き換えた");
+            Assert.IsFalse(host.Reports.Exists(x => x.Item1 == NonDestructiveApplier.Problem.TextureNotUsedInScope),
+                "移した小物で使っているのに「使っていない」と報告した");
         }
     }
 }
