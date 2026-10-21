@@ -363,8 +363,8 @@ namespace Iroca
                     if (users == null || users.Count == 0) job.recipe = found[0];
                     else
                         r.warnings.Add($"the recipe {AssetDatabase.GetAssetPath(found[0])} of this texture is used by "
-                            + $"{string.Join(", ", users)}; made a new recipe for this avatar (starting with no zones) "
-                            + "so that their colors do not change.");
+                            + $"{string.Join(", ", users)}; made a new recipe for this avatar so that their colors do not change "
+                            + "(the zones of that recipe are not carried over).");
                 }
             }
             // 読めないレシピ(新しい版のいろかで作られた等)は土台にも書き込み先にもしない(UI と同じ)。
@@ -828,7 +828,7 @@ namespace Iroca
                     + "To retry a part, send a change with the same 'name' (it replaces that zone).";
                 if (r.apply == ApplyAvatar)
                     r.note += " The recolor is registered non-destructively and shows in the Scene view (NDMF preview); "
-                        + "use iroca_open to fine-tune it in the Iroca window.";
+                        + "the user can undo it with Ctrl+Z, or fine-tune it in the Iroca window (iroca_open).";
                 else if (r.apply == ApplyPreview)
                     r.note += " Nothing was saved (apply='preview').";
             }

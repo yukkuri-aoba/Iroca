@@ -24,12 +24,11 @@ namespace Iroca.McpIntegration
     /// オブジェクトが使うテクスチャ・テクスチャの主な色と代表点（印付きの縮小画像つき）を返す。
     /// </summary>
     [McpForUnityTool("iroca_inspect", Description =
-        "Iroca (texture recolor tool for avatars), step 1: find what to recolor. With no target: lists scene root objects "
-        + "that have renderers (avatars). With a scene object (hierarchy path like 'Avatar/Body', a unique name, or '#instanceID'): "
-        + "lists the main textures used under it, with their materials, renderers and existing Iroca recipes. With a texture or "
-        + "material asset path: returns the texture's main colors (hex, coverage) and a click position 'uv' (bottom-left origin) "
-        + "inside each color's largest region, plus 'thumbnail', a PNG path showing the texture with a ring at each uv. "
-        + "Look at the thumbnail, then pass the uv of the part to change as 'at' to iroca_recolor.")]
+        "Iroca (avatar texture recolor tool), step 1: find what to recolor. No target: lists the scene's avatars (root objects "
+        + "with renderers). A scene object ('Avatar/Body', a unique name or '#instanceID'): lists the main textures under it with "
+        + "their materials and Iroca recipes. A texture or material asset path: returns its main colors (hex, coverage), a click "
+        + "position 'uv' (bottom-left origin) inside each, and 'thumbnail', a PNG with a ring at each uv. Open the thumbnail, then "
+        + "pass the uv of the part to change as 'at' to iroca_recolor.")]
     public static class IrocaInspectTool
     {
         public class Parameters
@@ -53,15 +52,14 @@ namespace Iroca.McpIntegration
     /// そのまま渡す（配列を文字列で送ってくるクライアントのために、文字列なら配列へ読み直す）。
     /// </summary>
     [McpForUnityTool("iroca_recolor", Description =
-        "Iroca step 2: recolor parts of a texture, the same way a user does in the Iroca window (pick a color, choose the new color). "
-        + "Each entry of 'changes' becomes one zone: {name, at:[u,v] or from:'#RRGGBB', to:'#RRGGBB'}. All pixels of that color "
-        + "(with its shading) change, not only the clicked spot. A change whose name matches an existing zone replaces it, so "
-        + "send the same name to retry a part. Existing zones (from the Iroca window or the avatar's recipe) are kept unless "
-        + "'reset' is true. apply='avatar' (default) registers the result non-destructively on the avatar (NDMF; visible in the "
-        + "Scene view, applied at upload); apply='png' writes <name>_recolored.png; apply='preview' saves nothing. New or replaced "
-        + "zones are auto-tuned like the Iroca window's Auto-tune button (uses the AI, may take up to a minute the first time on a "
-        + "texture). Always open the returned 'preview' image (left=before, middle=after, right=changed pixels in magenta) to check "
-        + "the result. Call it one at a time: a call made while another is still running is refused.",
+        "Iroca step 2: recolor parts of a texture like the Iroca window does. Each 'changes' entry becomes one zone "
+        + "{name, at:[u,v] or from:'#RRGGBB', to:'#RRGGBB'} and changes every pixel of that color (with its shading), not only "
+        + "the clicked spot; send the same name to redo a zone. Existing zones are kept unless reset=true. apply='avatar' "
+        + "(default) registers it on the avatar non-destructively (shows in the Scene view, applied at upload; needs NDMF, not in "
+        + "Play mode; Ctrl+Z undoes it); 'png' writes a PNG under Assets/ (an existing file is replaced only with overwrite=true); "
+        + "'preview' saves nothing. New zones are auto-tuned (uses the AI; the first run on a texture can take a minute). Open the "
+        + "returned 'preview' image (left=before, middle=after, right=changed pixels in magenta) to check. Call it one at a time: "
+        + "a call made while another is running is refused.",
         RequiresPolling = true, PollAction = "status", MaxPollSeconds = 600)]
     public static class IrocaRecolorTool
     {
@@ -70,35 +68,36 @@ namespace Iroca.McpIntegration
             [ToolParameter("Texture or material asset path (Assets/...).")]
             public string texture { get; set; }
 
-            [ToolParameter("Array of changes: [{\"name\":\"skirt\",\"at\":[u,v],\"to\":\"#1A2B5C\"}]. Use 'from':'#RRGGBB' instead of 'at' to pick by color. Colors may also be Unity color names like \"navy\".", Required = false)]
+            [ToolParameter("[{\"name\":\"skirt\",\"at\":[u,v],\"to\":\"#1A2B5C\"}]. 'from':'#RRGGBB' instead of 'at' picks by color. Unity color names like \"navy\" also work.", Required = false)]
             public JToken changes { get; set; }
 
-            [ToolParameter("Array of zone names to remove.", Required = false)]
+            [ToolParameter("Zone names to remove.", Required = false)]
             public JToken remove { get; set; }
 
-            [ToolParameter("true = discard existing zones and masks before applying 'changes'.", Required = false)]
+            [ToolParameter("true = discard the existing zones and masks first.", Required = false)]
             public bool? reset { get; set; }
 
-            [ToolParameter("Start from this Iroca preset (file path, name, or JSON) instead of the current zones.", Required = false)]
+            [ToolParameter("Start from this Iroca preset (file path, name or JSON) instead of the existing zones.", Required = false)]
             public string preset { get; set; }
 
-            [ToolParameter("'avatar' (default): register on the avatar non-destructively (needs NDMF; not in Play mode); 'png': write a recolored PNG; 'preview': save nothing.", Required = false)]
+            [ToolParameter("'avatar' (default): register on the avatar (needs NDMF; not in Play mode); 'png': write a PNG; 'preview': save nothing.", Required = false)]
             public string apply { get; set; }
 
-            [ToolParameter("Scene object to register on (default: the object using the texture).", Required = false)]
+            [ToolParameter("Scene object to register on (default: the one that uses the texture).", Required = false)]
             public string avatar { get; set; }
 
-            [ToolParameter("Output PNG path under Assets/ for apply='png' (default: <texture>_recolored.png next to the texture).", Required = false)]
+            [ToolParameter("PNG path under Assets/ for apply='png' (default: <texture>_recolored.png next to it).", Required = false)]
             public string output { get; set; }
 
-            [ToolParameter("true = replace an existing file at the PNG output (default false: refuse). Ask the user first.", Required = false)]
+            [ToolParameter("true = replace an existing file at the PNG path (default: refuse). Ask the user first.", Required = false)]
             public bool? overwrite { get; set; }
 
-            [ToolParameter("false = skip auto-tune and keep the initial settings of new zones (default true).", Required = false)]
+            [ToolParameter("false = skip auto-tune (default true).", Required = false)]
             public bool? autoTune { get; set; }
         }
 
-        // 自動調整を待つ間の問い合わせ間隔。背面の Unity は問い合わせが来たときにしか処理が進まないことがあるので短めにする。
+        // 自動調整・PNG の書き出しを待つ間の問い合わせ間隔。背面の Unity は問い合わせが来たときにしか処理が進まないことが
+        // あるので短めにする。
         private const double PollIntervalSeconds = 0.25;
 
         public static object HandleCommand(JObject @params)
