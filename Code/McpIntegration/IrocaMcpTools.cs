@@ -5,109 +5,134 @@
 // このアセンブリは MCPForUnity（パッケージ id com.coplaydev.unity-mcp）が導入されているときだけ
 // コンパイルされる（asmdef の versionDefines + defineConstraints による IROCA_MCP_PRESENT ゲート）。
 // → 配布パッケージ本体は MCPForUnity への依存ゼロを維持する。
-// 開発用で、配布物(VPM zip)には入れない(scripts/Build-VpmPackage.ps1)。MCPForUnity はカスタムツールを
-// 既定で有効にして AI のツール一覧へ出すので、入れると MCPForUnity を使う利用者の AI にこれらが勝手に並ぶ。
+// 0.3.0 から配布物に入れる利用者向けの機能（マニュアル「AI エージェントから使う（MCP）」）。MCPForUnity は
+// カスタムツールを既定で有効にして AI に出すので、使わせたくない利用者は MCPForUnity の Tools 画面で外す。
 //
 // 駆動経路: AI エージェントは execute_custom_tool("iroca_recolor", {...}) のように呼ぶ。
-// 各ツールは IrocaAutomation の公開静的 API を薄くラップするだけで、変換の中核（RunRecolorCore）は共有。
+// ツールは 3 つ（調べる・色替え・窓で開く）。各ツールは IrocaAutomation の公開静的 API を薄くラップするだけで、
+// 判断は持たない（MCP の無いテストでも IrocaAutomation を直接測れるように）。
+// 説明文は AI が読むので英語。MCPForUnity の型はツールの印（McpForUnityTool・ToolParameter）だけを使い、
+// 応答は McpResponses が JObject で組む。
 #if IROCA_MCP_PRESENT
 using Newtonsoft.Json.Linq;
-using MCPForUnity.Editor.Helpers;
 using MCPForUnity.Editor.Tools;
 
 namespace Iroca.McpIntegration
 {
     /// <summary>
-    /// テクスチャを再着色して PNG を書き出す MCP カスタムツール。
-    /// <c>preset</c> を渡せばプリセット経路（<see cref="IrocaAutomation.RecolorByPreset"/>）、
-    /// <c>zones</c> を渡せばその場のゾーン指定経路（<see cref="IrocaAutomation.RecolorWithZones"/>）を通る。
+    /// 色替えの対象を調べるツール（<see cref="IrocaAutomation.Inspect"/>）。シーンのアバター一覧・
+    /// オブジェクトが使うテクスチャ・テクスチャの主な色と代表点（印付きの縮小画像つき）を返す。
     /// </summary>
-    [McpForUnityTool("iroca_recolor")]
-    public static class IrocaRecolorTool
+    [McpForUnityTool("iroca_inspect", Description =
+        "Iroca (texture recolor tool for avatars), step 1: find what to recolor. With no target: lists scene root objects "
+        + "that have renderers (avatars). With a scene object (hierarchy path like 'Avatar/Body', a unique name, or '#instanceID'): "
+        + "lists the main textures used under it, with their materials, renderers and existing Iroca recipes. With a texture or "
+        + "material asset path: returns the texture's main colors (hex, coverage) and a click position 'uv' (bottom-left origin) "
+        + "inside each color's largest region, plus 'thumbnail', a PNG path showing the texture with a ring at each uv. "
+        + "Look at the thumbnail, then pass the uv of the part to change as 'at' to iroca_recolor.")]
+    public static class IrocaInspectTool
     {
         public class Parameters
         {
-            [ToolParameter("入力テクスチャのパス（Assets 相対 / プロジェクト相対 / 絶対のいずれも可）")]
-            public string source { get; set; }
+            [ToolParameter("Scene object path/name/'#instanceID', or a texture/material asset path (Assets/...). Omit to list the scene.", Required = false)]
+            public string target { get; set; }
 
-            [ToolParameter("出力 PNG のパス（.png）。Assets 配下なら自動で取り込まれる")]
-            public string output { get; set; }
-
-            [ToolParameter("プリセットのファイルパス・プリセット名・インライン JSON のいずれか。zones と排他", Required = false)]
-            public string preset { get; set; }
-
-            [ToolParameter("その場のゾーン設定 JSON（{\"zones\":[...],\"settings\":{...}}）。preset と排他。スキーマは iroca_describe_schema 参照", Required = false)]
-            public string zones { get; set; }
+            [ToolParameter("Maximum number of main colors to return for a texture (1-16, default 8).", Required = false)]
+            public int? max_colors { get; set; }
         }
 
         public static object HandleCommand(JObject @params)
         {
             var p = @params != null ? @params.ToObject<Parameters>() : new Parameters();
+            return McpResponses.FromAutomationResult(IrocaAutomation.Inspect(p.target, p.max_colors ?? 0), "inspect failed");
+        }
+    }
 
-            if (string.IsNullOrEmpty(p.source))
-                return new ErrorResponse("source is required");
-            if (string.IsNullOrEmpty(p.output))
-                return new ErrorResponse("output is required");
+    /// <summary>
+    /// 色替えのツール（<see cref="IrocaAutomation.Recolor"/>）。引数の名前は依頼 JSON の欄と同じなので、
+    /// そのまま渡す（配列を文字列で送ってくるクライアントのために、文字列なら配列へ読み直す）。
+    /// </summary>
+    [McpForUnityTool("iroca_recolor", Description =
+        "Iroca step 2: recolor parts of a texture, the same way a user does in the Iroca window (pick a color, choose the new color). "
+        + "Each entry of 'changes' becomes one zone: {name, at:[u,v] or from:'#RRGGBB', to:'#RRGGBB'}. All pixels of that color "
+        + "(with its shading) change, not only the clicked spot. A change whose name matches an existing zone replaces it, so "
+        + "send the same name to retry a part. Existing zones (from the Iroca window or the avatar's recipe) are kept unless "
+        + "'reset' is true. apply='avatar' (default) registers the result non-destructively on the avatar (NDMF; visible in the "
+        + "Scene view, applied at upload); apply='png' writes <name>_recolored.png; apply='preview' saves nothing. New or replaced "
+        + "zones are auto-tuned like the Iroca window's Auto-tune button (uses the AI, may take up to a minute the first time on a "
+        + "texture). Always open the returned 'preview' image (left=before, middle=after, right=changed pixels in magenta) to check "
+        + "the result.",
+        RequiresPolling = true, PollAction = "status", MaxPollSeconds = 600)]
+    public static class IrocaRecolorTool
+    {
+        public class Parameters
+        {
+            [ToolParameter("Texture or material asset path (Assets/...).")]
+            public string texture { get; set; }
 
-            bool hasPreset = !string.IsNullOrEmpty(p.preset);
-            bool hasZones = !string.IsNullOrEmpty(p.zones);
-            if (hasPreset == hasZones)
-                return new ErrorResponse("exactly one of 'preset' or 'zones' must be provided");
+            [ToolParameter("Array of changes: [{\"name\":\"skirt\",\"at\":[u,v],\"to\":\"#1A2B5C\"}]. Use 'from':'#RRGGBB' instead of 'at' to pick by color. Colors may also be Unity color names like \"navy\".", Required = false)]
+            public JToken changes { get; set; }
 
-            // IrocaAutomation は例外を投げず {"ok":...} の JSON 文字列を返す設計。
-            string json = hasPreset
-                ? IrocaAutomation.RecolorByPreset(p.source, p.preset, p.output)
-                : IrocaAutomation.RecolorWithZones(p.source, p.zones, p.output);
+            [ToolParameter("Array of zone names to remove.", Required = false)]
+            public JToken remove { get; set; }
 
-            return WrapResult(json, "recolor failed");
+            [ToolParameter("true = discard existing zones and masks before applying 'changes'.", Required = false)]
+            public bool? reset { get; set; }
+
+            [ToolParameter("Start from this Iroca preset (file path, name, or JSON) instead of the current zones.", Required = false)]
+            public string preset { get; set; }
+
+            [ToolParameter("'avatar' (default): register on the avatar non-destructively; 'png': write a recolored PNG; 'preview': save nothing.", Required = false)]
+            public string apply { get; set; }
+
+            [ToolParameter("Scene object to register on (default: the object using the texture).", Required = false)]
+            public string avatar { get; set; }
+
+            [ToolParameter("Output PNG path for apply='png' (default: <texture>_recolored.png next to the texture).", Required = false)]
+            public string output { get; set; }
+
+            [ToolParameter("false = skip auto-tune and keep the initial settings of new zones (default true).", Required = false)]
+            public bool? autoTune { get; set; }
         }
 
-        // IrocaAutomation の JSON 文字列を MCP の Success/Error レスポンスへ整形する。
-        internal static object WrapResult(string json, string fallbackError)
-        {
-            JObject data;
-            try { data = JObject.Parse(json); }
-            catch { return new ErrorResponse($"{fallbackError}: invalid JSON from Iroca: {json}"); }
+        // 自動調整を待つ間の問い合わせ間隔。背面の Unity は問い合わせが来たときにしか処理が進まないことがあるので短めにする。
+        private const double PollIntervalSeconds = 0.25;
 
-            bool ok = data.TryGetValue("ok", out var okToken) && okToken.Type == JTokenType.Boolean && okToken.Value<bool>();
-            if (!ok)
+        public static object HandleCommand(JObject @params)
+        {
+            // サーバーは途中経過(pending)を受けると、同じ引数に action="status" を足して問い合わせ直してくる。
+            if (@params != null && (string)@params["action"] == "status")
+                return McpResponses.FromAutomationPendingOrResult(IrocaAutomation.RecolorStatus(), PollIntervalSeconds, "recolor failed");
+
+            var request = @params != null ? (JObject)@params.DeepClone() : new JObject();
+            foreach (var key in new[] { "changes", "remove" })
             {
-                string err = data.TryGetValue("error", out var errToken) ? errToken.ToString() : fallbackError;
-                return new ErrorResponse(string.IsNullOrEmpty(err) ? fallbackError : err);
+                if (request[key] is JValue v && v.Type == JTokenType.String)
+                {
+                    try { request[key] = JToken.Parse((string)v); }
+                    catch { return McpResponses.Error($"'{key}' must be a JSON array."); }
+                }
             }
-            return new SuccessResponse("ok", data);
-        }
-
-        // "ok" フィールドを持たない素の JSON オブジェクト（DescribeSchema / ListPresets 等）を
-        // そのまま success data として返す。パース不能時のみ error。
-        internal static object WrapResultLenient(string json, string fallbackError)
-        {
-            try { return new SuccessResponse("ok", JObject.Parse(json)); }
-            catch { return new ErrorResponse($"{fallbackError}: invalid JSON from Iroca: {json}"); }
+            return McpResponses.FromAutomationPendingOrResult(IrocaAutomation.Recolor(request.ToString()), PollIntervalSeconds, "recolor failed");
         }
     }
 
-    /// <summary>呼び出し方・入力スキーマ・既定値・フィールド説明を返す自己発見用ツール。</summary>
-    [McpForUnityTool("iroca_describe_schema")]
-    public static class IrocaDescribeSchemaTool
+    /// <summary>いろかの窓で開くツール（<see cref="IrocaAutomation.Open"/>）。人が手直しする入口。</summary>
+    [McpForUnityTool("iroca_open", Description =
+        "Iroca step 3 (optional): open a texture in the Iroca window so the user can fine-tune it by hand. "
+        + "Target: a recipe, texture or material asset path, or a scene object that has one Iroca recipe.")]
+    public static class IrocaOpenTool
     {
-        public class Parameters { }
-
-        public static object HandleCommand(JObject @params)
+        public class Parameters
         {
-            return IrocaRecolorTool.WrapResultLenient(IrocaAutomation.DescribeSchema(), "describe_schema failed");
+            [ToolParameter("Recipe/texture/material asset path, or a scene object with an Iroca recipe.")]
+            public string target { get; set; }
         }
-    }
-
-    /// <summary>プロジェクト/ユーザー保存先のプリセット一覧を返すツール。</summary>
-    [McpForUnityTool("iroca_list_presets")]
-    public static class IrocaListPresetsTool
-    {
-        public class Parameters { }
 
         public static object HandleCommand(JObject @params)
         {
-            return IrocaRecolorTool.WrapResultLenient(IrocaAutomation.ListPresets(), "list_presets failed");
+            var p = @params != null ? @params.ToObject<Parameters>() : new Parameters();
+            return McpResponses.FromAutomationResult(IrocaAutomation.Open(p.target), "open failed");
         }
     }
 }

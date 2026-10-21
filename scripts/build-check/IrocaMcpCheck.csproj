@@ -1,0 +1,87 @@
+<!--
+  MCP 連携（Code/McpIntegration/）の型チェック。
+
+  IrocaEditor.csproj は MCP for Unity の型を解決できないため Code/McpIntegration/ を除外している。
+  こちらは MCP for Unity が入った Unity プロジェクトの Library/ScriptAssemblies（MCPForUnity.Editor）と
+  Library/PackageCache（Newtonsoft.Json）から DLL を借り、本体を ProjectReference してコンパイルする。
+  本体とは別アセンブリなので、Unity と同じく本体の internal は見えない（public だけで書けているかも確かめられる）。
+
+    dotnet build scripts/build-check/IrocaMcpCheck.csproj
+
+  MCP for Unity を導入した Unity プロジェクトが手元にある環境でだけ動く（CI では走らせない）。
+  別のプロジェクトを使う場合はプロジェクトのルートを渡す:
+
+    dotnet build scripts/build-check/IrocaMcpCheck.csproj -p:McpHostProject="D:\path\to\Project"
+    # または
+    $env:IROCA_MCP_HOST = "D:\path\to\Project"
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>Iroca.McpIntegration</AssemblyName>
+    <RootNamespace>Iroca.McpIntegration</RootNamespace>
+    <OutputType>Library</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>0414;0649;CS0219;CS0169</NoWarn>
+    <!-- 利用者の Unity は nullable 文脈なしでコンパイルするので CS8632 が Console に出る。CI で止める -->
+    <WarningsAsErrors>CS8632</WarningsAsErrors>
+    <!-- MCPForUnity.Editor が netstandard より新しい System.IO.Compression・System.Net.Http を参照している。
+         Unity の中では問題にならない版の食い違いなので、毎回の大量の警告は出さない。 -->
+    <MSBuildWarningsAsMessages>MSB3277</MSBuildWarningsAsMessages>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- IrocaEditor.csproj と出力を混ぜない（bin/ は .gitignore 済み） -->
+    <BaseOutputPath>bin\mcp\</BaseOutputPath>
+    <!-- Iroca.McpIntegration の asmdef が持つ define。これが無いと中身が丸ごと消える。 -->
+    <DefineConstants>$(DefineConstants);IROCA_MCP_PRESENT</DefineConstants>
+  </PropertyGroup>
+
+  <Import Project="UnityEditorPath.props" />
+  <PropertyGroup>
+    <McpHostProject Condition="'$(McpHostProject)' == '' and '$(IROCA_MCP_HOST)' != ''">$(IROCA_MCP_HOST)</McpHostProject>
+    <McpHostProject Condition="'$(McpHostProject)' == ''">$(MSBuildThisFileDirectory)..\..\..\Avatar_Projects\Iroca_Dev</McpHostProject>
+    <McpAssembliesPath>$(McpHostProject)\Library\ScriptAssemblies</McpAssembliesPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\Code\McpIntegration\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="IrocaEditor.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="UnityEngine">
+      <HintPath>$(UnityEditorPath)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEditor">
+      <HintPath>$(UnityEditorPath)\UnityEditor.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="MCPForUnity.Editor">
+      <HintPath>$(McpAssembliesPath)\MCPForUnity.Editor.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="MCPForUnity.Runtime">
+      <HintPath>$(McpAssembliesPath)\MCPForUnity.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- 版のフォルダ名(@3.2.1 など)はホストごとに違うのでワイルドカードで拾う -->
+    <Reference Include="$(McpHostProject)\Library\PackageCache\com.unity.nuget.newtonsoft-json@*\Runtime\Newtonsoft.Json.dll">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="CheckMcpPath" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(UnityEditorPath)\UnityEngine.dll')"
+           Text="UnityEngine.dll が見つかりません: $(UnityEditorPath)\UnityEngine.dll&#xA;`-p:UnityVersion=` か `-p:UnityEditorPath=` で正しいパスを指定してください。" />
+    <Error Condition="!Exists('$(McpAssembliesPath)\MCPForUnity.Editor.dll')"
+           Text="MCPForUnity.Editor.dll が見つかりません: $(McpAssembliesPath)&#xA;MCP for Unity を導入した Unity プロジェクトを一度開いてから、`-p:McpHostProject=` か環境変数 IROCA_MCP_HOST でそのルートを指定してください。" />
+  </Target>
+
+</Project>

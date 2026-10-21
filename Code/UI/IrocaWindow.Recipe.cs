@@ -38,6 +38,20 @@ namespace Iroca
         }
 
         /// <summary>
+        /// 自動化 API(MCP)から: テクスチャを開く(そのテクスチャのレシピがプロジェクトに 1 つだけならそれに結び付く)。
+        /// 既に開いていれば何もしない。
+        /// </summary>
+        internal static void OpenTexture(Texture2D texture)
+        {
+            if (texture == null) return;
+            var win = GetWindow<IrocaWindow>();
+            win.Show();
+            win.Focus();
+            if (win.sourceTexture == texture) return;
+            win.SwitchSourceTexture(texture);
+        }
+
+        /// <summary>
         /// 編集するテクスチャを切り替える(今のテクスチャを保存 → 差し替え → 保存済みの編集内容を読む)。
         /// <paramref name="recipe"/> を渡すと、そのレシピに結び付けて読む。
         /// </summary>
@@ -119,6 +133,73 @@ namespace Iroca
             bool anyEnabled = sourceTexture != null && HasEnabledZone;
             if (anyEnabled) LivePreview.SetTarget(sourceTexture, BoundRecipe);
             else LivePreview.SetTarget(null, null);
+        }
+
+        // ───────────── 外(自動化 API・MCP)からの変更 ─────────────
+
+        /// <summary>
+        /// <paramref name="texture"/> を表示している窓の、いまの編集内容の複製(マスク込み)。表示している窓が無ければ null。
+        /// 窓は編集をすぐにはレシピへ書かないので、自動化 API はこれを土台にして、利用者が窓で見ているものに色替えを足す。
+        /// </summary>
+        internal static IrocaSessionState EditingStateOf(Texture2D texture)
+        {
+            var win = WindowShowing(texture);
+            if (win == null || win._session == null) return null;
+            win._maskView?.SyncBuffersToState();
+            return JsonUtility.FromJson<IrocaSessionState>(JsonUtility.ToJson(win._session));
+        }
+
+        /// <summary>
+        /// 自動化 API がレシピを書き換えた後に呼ぶ。そのテクスチャを表示している窓を、今の編集内容を保存せずに
+        /// レシピから読み直す(保存すると、外の変更を窓の古い内容で上書きしてしまう)。読み直しは窓の Undo に
+        /// 積むので、Ctrl+Z で外の変更の前に戻せる(戻した内容は窓の次の保存でレシピにも書かれる)。
+        /// </summary>
+        internal static void ReloadFromRecipe(IrocaRecipe recipe, string undoName)
+        {
+            if (recipe == null || recipe.sourceTexture == null) return;
+            var win = WindowShowing(recipe.sourceTexture);
+            if (win == null) return;
+            win._maskView?.SyncBuffersToState();
+            Undo.RegisterCompleteObjectUndo(win, undoName);
+            win._boundRecipe = recipe;
+            win.LoadPersistedSessionForCurrentTexture();
+            win._maskView?.ResetActiveTarget();
+            win.Repaint();
+        }
+
+        /// <summary>
+        /// 自動化 API の自動調整が AI の証拠を求めるときの受け口。AI の提案を受け取るのは窓のコントローラ
+        /// だけにしておかないと、提案を奪い合う(MaskSuggestController の説明)ので、窓があればそれを返す。
+        /// 窓が <paramref name="texture"/> を表示していれば、窓のプレビューと同じ画素とキーも返す(埋め込みを使い回し、
+        /// 窓の AI 提案の元を切り替えない。呼び出し側は <paramref name="pixels"/> を使い終えたら Release する)。
+        /// 窓が無い・AI が無ければ null(呼び出し側がサービスを直接使う)。
+        /// </summary>
+        internal static MaskSuggestController EvidenceChannel(Texture2D texture, out NativePixels pixels, out string key)
+        {
+            pixels = null;
+            key = null;
+            foreach (var w in Resources.FindObjectsOfTypeAll<IrocaWindow>())
+            {
+                if (w == null || w._maskView == null) continue;
+                var ctl = w._maskView.SuggestController;
+                if (ctl == null) continue;
+                if (w.sourceTexture == texture && w._previewView != null
+                    && w._previewView.TryGetTrueSourcePixels(texture, out var shared, out _, out _))
+                {
+                    pixels = shared.AddRef();
+                    key = w._previewView.TrueSourceCacheKey();
+                }
+                return ctl;
+            }
+            return null;
+        }
+
+        private static IrocaWindow WindowShowing(Texture2D texture)
+        {
+            if (texture == null) return null;
+            foreach (var w in Resources.FindObjectsOfTypeAll<IrocaWindow>())
+                if (w != null && w.sourceTexture == texture) return w;
+            return null;
         }
 
         // ───────────── 登録 ─────────────

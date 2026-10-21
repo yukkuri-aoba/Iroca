@@ -34,7 +34,7 @@ $env:UNITY_EDITOR_PATH = "D:\Unity\2022.3.22f1\Editor\Data\Managed"
 dotnet build scripts/build-check/IrocaEditor.csproj
 ```
 
-既定パスの解決（`UnityVersion` の既定・`UNITY_EDITOR_PATH`・Hub の既定パス）は `UnityEditorPath.props` の 1 箇所にあり、build-check の 5 本の csproj が Import する（`scripts/headless-run/Harness.csproj` と `scripts/unit-run/UnitRun.csproj` は別管理）。
+既定パスの解決（`UnityVersion` の既定・`UNITY_EDITOR_PATH`・Hub の既定パス）は `UnityEditorPath.props` の 1 箇所にあり、build-check の 6 本の csproj が Import する（`scripts/headless-run/Harness.csproj` と `scripts/unit-run/UnitRun.csproj` は別管理）。
 
 ## NDMF 連携の型チェック（IrocaNdmfCheck.csproj）
 
@@ -63,6 +63,21 @@ dotnet build scripts/build-check/IrocaVrcsdkCheck.csproj -p:VrcsdkHostProject="D
 # NDMF が新しすぎるとき（古いときは IROCA_NDMF_TOO_NEW を外す）
 dotnet build scripts/build-check/IrocaVrcsdkCheck.csproj "-p:DefineConstants=IROCA_VRCSDK_BASE%3BIROCA_VRCSDK_AVATARS%3BIROCA_NDMF_INSTALLED%3BIROCA_NDMF_TOO_NEW"
 ```
+
+## MCP 連携の型チェック（IrocaMcpCheck.csproj）
+
+`Code/McpIntegration/`（MCP for Unity が入ったときだけコンパイルされる別 asmdef）は、本体の csproj では
+除外している。MCP for Unity を入れた Unity プロジェクト（既定は `..\Avatar_Projects\Iroca_Dev`）の
+`Library/ScriptAssemblies` から MCPForUnity の DLL を、`Library/PackageCache` から Newtonsoft.Json を借りて型チェックする。
+本体は ProjectReference なので、Unity と同じく本体の internal は見えない:
+
+```powershell
+dotnet build scripts/build-check/IrocaMcpCheck.csproj
+dotnet build scripts/build-check/IrocaMcpCheck.csproj -p:McpHostProject="D:\path\to\Project"
+```
+
+既定のホストの場所はリポジトリの直下から数えるので、worktree から回すときは `-p:McpHostProject=` か
+環境変数 `IROCA_MCP_HOST` で渡す（NDMF・VRChat SDK の check も同じ）。
 
 ## 既知の限界
 
