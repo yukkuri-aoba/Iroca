@@ -348,7 +348,17 @@ namespace Iroca
             if (job.recipe == null)
             {
                 var found = RecipeStore.FindForTexture(tex);
-                if (found.Count == 1) job.recipe = found[0];
+                if (found.Count == 1)
+                {
+                    // 登録では、ほかのアバターが使っているレシピを流用しない。流用して書き換えると、そのアバターの色も
+                    // 一緒に変わる(別のシーンにいると気付きにくく、窓を閉じていれば Ctrl+Z でも戻らなかった)。
+                    var users = r.apply == ApplyAvatar ? OtherAvatarsUsing(found[0], job.target) : null;
+                    if (users == null || users.Count == 0) job.recipe = found[0];
+                    else
+                        r.warnings.Add($"the recipe {AssetDatabase.GetAssetPath(found[0])} of this texture is used by "
+                            + $"{string.Join(", ", users)}; made a new recipe for this avatar (starting with no zones) "
+                            + "so that their colors do not change.");
+                }
             }
             // 読めないレシピ(新しい版のいろかで作られた等)は土台にも書き込み先にもしない(UI と同じ)。
             if (job.recipe != null && !string.IsNullOrEmpty(job.recipe.sessionJson) && RecipeStore.Load(job.recipe) == null)
@@ -640,6 +650,25 @@ namespace Iroca
                 return $"{rel} already exists (materials or avatars may use it). Ask the user before replacing it, "
                      + "then call again with overwrite:true; or pass another 'output'.";
             return null;
+        }
+
+        /// <summary>
+        /// 開いているシーンで、登録先のアバター(<paramref name="target"/> と同じルート)の外から <paramref name="recipe"/> を
+        /// 使っている <see cref="IrocaRecolor"/> の階層のパス。
+        /// </summary>
+        private static List<string> OtherAvatarsUsing(IrocaRecipe recipe, GameObject target)
+        {
+            var users = new List<string>();
+            if (recipe == null || target == null) return users;
+            var root = target.transform.root;
+            foreach (var c in UnityEngine.Object.FindObjectsByType<IrocaRecolor>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (c == null || c.recipes == null || !c.recipes.Contains(recipe)) continue;
+                if (!RecipeRegistration.IsSceneObject(c.gameObject) || c.transform.root == root) continue;
+                users.Add(HierarchyPath(c.transform));
+            }
+            users.Sort(StringComparer.Ordinal);
+            return users;
         }
 
         // 1 件の変更をゾーンにする。エラーなら文言、成功なら null。

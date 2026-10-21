@@ -339,6 +339,53 @@ namespace Iroca.EditorTests
             }
         }
 
+        [Test]
+        public void Recolor_Avatar_DoesNotReuseTheRecipeOfAnotherAvatar()
+        {
+            // 同じテクスチャを使うアバターが 2 体あり、片方だけ登録済み。もう片方の登録では、そのレシピを流用して
+            // 書き換えない(流用すると先のアバターの色も変わる)。新しいレシピを作り、共有先を知らせる。
+            if (NdmfSupport.State != NdmfSupportState.Supported) Assert.Ignore("NDMF が使えないホストでは登録を断る");
+            string src = Halves();
+            var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
+            bool hadRecipeFolder = UnityEditor.AssetDatabase.IsValidFolder(RecipeStore.DefaultFolder);
+            bool hadIrocaFolder = UnityEditor.AssetDatabase.IsValidFolder("Assets/Iroca");
+            var mat = new Material(Shader.Find("Standard")) { mainTexture = tex };
+            var a = new GameObject("IrocaShareTestA");
+            var b = new GameObject("IrocaShareTestB");
+            var recipePaths = new System.Collections.Generic.List<string>();
+            try
+            {
+                foreach (var root in new[] { a, b })
+                {
+                    var body = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                    body.name = "Body";
+                    body.transform.SetParent(root.transform);
+                    body.GetComponent<Renderer>().sharedMaterial = mat;
+                }
+                var ra = RecolorOk(Request(src, "avatar", "[{\"name\":\"skirt\",\"at\":[0.25,0.5],\"to\":\"#1A2B5C\"}]",
+                    ",\"avatar\":\"IrocaShareTestA/Body\""));
+                recipePaths.Add(ra.recipe);
+                string before = UnityEditor.AssetDatabase.LoadAssetAtPath<IrocaRecipe>(ra.recipe).sessionJson;
+
+                var rb = RecolorOk(Request(src, "avatar", "[{\"name\":\"skirt\",\"at\":[0.25,0.5],\"to\":\"#FFAA00\"}]",
+                    ",\"avatar\":\"IrocaShareTestB/Body\""));
+                recipePaths.Add(rb.recipe);
+                Assert.AreNotEqual(ra.recipe, rb.recipe, "別のレシピを作ること");
+                Assert.IsTrue(rb.warnings.Any(w => w.Contains("IrocaShareTestA/Body")), string.Join("\n", rb.warnings));
+                Assert.AreEqual(before, UnityEditor.AssetDatabase.LoadAssetAtPath<IrocaRecipe>(ra.recipe).sessionJson,
+                    "先のアバターのレシピは変えない");
+            }
+            finally
+            {
+                Object.DestroyImmediate(a);
+                Object.DestroyImmediate(b);
+                Object.DestroyImmediate(mat);
+                foreach (var p in recipePaths) if (!string.IsNullOrEmpty(p)) UnityEditor.AssetDatabase.DeleteAsset(p);
+                if (!hadRecipeFolder) UnityEditor.AssetDatabase.DeleteAsset(RecipeStore.DefaultFolder);
+                if (!hadIrocaFolder) UnityEditor.AssetDatabase.DeleteAsset("Assets/Iroca");
+            }
+        }
+
         [TestCase("preview", "[{\"at\":[0.25,0.5],\"to\":\"darkish blue\"}]", "'to' must be a color")]
         [TestCase("preview", "[{\"at\":[1.5,0.5],\"to\":\"#000000\"}]", "'at' must be [u, v]")]
         [TestCase("preview", "[{\"to\":\"#000000\"}]", "give 'at'")]
