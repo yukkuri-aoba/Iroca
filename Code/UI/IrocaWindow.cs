@@ -100,6 +100,26 @@ namespace Iroca
             return any;
         }
 
+        /// <summary>
+        /// 後から届く結果(自動調整・AI 提案)を、独立した「元に戻す」1 回分として記録する。
+        /// Unity の Undo のまとまりはマウスを押したとき・メニューを実行したときにしか切り替わらないので、
+        /// 結果を待っている間に別のウィンドウでした操作(物の移動・マテリアルの値の変更など)と同じ 1 回分に
+        /// まとまり、Ctrl+Z 1 回で両方が戻っていた。記録の前後で区切る(後ろも区切るのは、届いた直後に
+        /// 続く別の操作をこちらへ混ぜないため)。
+        /// </summary>
+        internal static void RecordAsSeparateUndo(string name, System.Action record)
+        {
+            Undo.IncrementCurrentGroup();
+            Undo.SetCurrentGroupName(name);
+            int group = Undo.GetCurrentGroup();
+            try { record(); }
+            finally
+            {
+                Undo.CollapseUndoOperations(group);
+                Undo.IncrementCurrentGroup();
+            }
+        }
+
         internal void MarkPreviewDirty() { if (_previewView != null) _previewView.previewDirty = true; }
 
         /// <summary>プレビュー再生成(プロキシ段なし)。確定表示がある前提の差分更新用

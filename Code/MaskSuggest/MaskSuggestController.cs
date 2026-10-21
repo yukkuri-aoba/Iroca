@@ -327,7 +327,11 @@ namespace Iroca
             if (proposed == 0) return;
 
             t = MaskSuggestPerf.Now;
-            bool ok = _maskView.ApplyRegion(region, dest, out var result);
+            bool ok = false;
+            MaskRegionEditResult result = default;
+            // 提案は推論を待ってから届くので、待っている間の別の操作とは別の「元に戻す」1 回分にする。
+            IrocaWindow.RecordAsSeparateUndo("AI Mask Suggestion",
+                () => ok = _maskView.ApplyRegion(region, dest, out result));
             applyMs = MaskSuggestPerf.MsSince(t);
             LastCommitEmpty = !ok || result.changed == 0;
             // 何をしたか(と、指示どおりに塗られない理由)を知らせる。結果は推論待ちの後に届くので、
