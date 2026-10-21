@@ -5,7 +5,7 @@
   ],
   "vpmDependencies": {
     "com.yukkuri-aoba.iroca": ">=0.2.0",
-    "nadena.dev.ndmf": ">=1.8.0"
+    "nadena.dev.ndmf": ">=1.8.0 <2.0.0-0"
   },
   "includePrerelease": false,
   "silentIfInstalled": false,

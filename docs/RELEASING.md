@@ -93,7 +93,11 @@ main は develop の祖先とは限らない。2026-10-18 時点で main には 
 .\scripts\Build-Installer.ps1   # → Iroca_Installer.unitypackage（Build-VpmPackage.ps1 からも呼ばれる）
 ```
 
-- 設定は `scripts/installer/vpai-config.json`（listing URL と、入れるパッケージの範囲。コメント不可）。いろか（`com.yukkuri-aoba.iroca: >=0.2.0`）と一緒に NDMF（`nadena.dev.ndmf: >=1.8.0`）も入れる。いろかのパッケージは NDMF を必須の依存にしていない（無ければ書き出しだけで動く）ので、インストーラで入れた人には非破壊の色替えまで届くようにするため。上限を付けないのは、ほかのツールのために新しい NDMF が入っているプロジェクトで、版を下げにいかないため。NDMF の listing（`https://vpm.nadena.dev/vpm.json`）も並べている。中身は設定と VPAI 本体 DLL だけで Iroca のコードを含まないため、**範囲指定を変えない限り出力は毎回同じ**（リリースごとに中身が変わるのは zip の方）。
+- 設定は `scripts/installer/vpai-config.json`（listing URL と、入れるパッケージの範囲。コメント不可）。いろか（`com.yukkuri-aoba.iroca: >=0.2.0`）と一緒に NDMF（`nadena.dev.ndmf: >=1.8.0 <2.0.0-0`）も入れる。いろかのパッケージは NDMF を必須の依存にしていない（無ければ書き出しだけで動く）ので、インストーラで入れた人には非破壊の色替えまで届くようにするため。NDMF の listing（`https://vpm.nadena.dev/vpm.json`）も並べている。中身は設定と VPAI 本体 DLL だけで Iroca のコードを含まないため、**範囲指定を変えない限り出力は毎回同じ**（リリースごとに中身が変わるのは zip の方）。
+- NDMF の範囲には上限（`<2.0.0-0`）を付ける。付けないと、NDMF 2.0 の正式版が出た後にインストーラで NDMF が 2.x に上がる。いろかも、Modular Avatar（依存は `>=1.14.7 <2.0.0-a`）・Avatar Optimizer（`>=1.8.0 <2.0.0`）も 2.x には対応していないので、それらが動かなくなり、アップロードもできなくなる。すでに配った 0.2.0・0.2.1 の zip のインストーラには上限が無いので、マニュアルでは最新の zip を使うよう案内している。
+  - 書き方は VPM の範囲（空白区切りは「かつ」）。VPAI はこれを semver.net の `Range` で読む。上限を `-0` にするのは asmdef と同じ考えで、2.0 のどのプレリリースより前の版だから。Modular Avatar の `<2.0.0-a` だと、semver.net の比べ方（英字は文字コード順・数字は英字より前）では `2.0.0-RC.1` や `2.0.0-1` のような名前のプレリリースが `2.0.0-a` より前になり、範囲に入ってしまう（`includePrerelease: false` でも、上限と同じ `2.0.0` のプレリリースは範囲の判定に回る）。
+  - 上限を付けても、ほかのツールのために新しい NDMF（2.x）が入っているプロジェクトで版を下げにいくことはない（以前はこれを心配して上限を付けていなかったが、VPAI のソースでは成り立たない）。VPAI 1.1.6（`Build-Installer.ps1` の creator の版）のソースで確かめた。範囲から選ぶのは範囲内の最新の安定版（`Assets/InstallerSource/VPMPackageAutoInstaller.cs` 190-191 行）で、入れ替えるかどうかは `VrcGetCs/Mod.cs` の `add_package_request` が決める。`vpm-manifest.json` の dependencies に書かれた最小版が選んだ版より新しいときは対象から外し（742-747 行の retain）、そうでなくても、入れるのは locked（入っている版）より新しい版のときだけ（757 行 `update`）。下げるのは版を 1 つに決めた指定（`"1.14.8"` のような exact）のときだけ（759 行 `downgrade`）。見た目の副作用が 1 つだけあり、2.x が入っているプロジェクトにいろかを新しく入れると、確認ダイアログに `nadena.dev.ndmf version 1.14.x` と出て、`vpm-manifest.json` の dependencies に 1.x の最小版が書かれる（VPM の最小版の意味なので、入っている 2.x はそのまま）。
+  - NDMF 2.0 に対応して範囲を広げるときは、asmdef の範囲（下の「GitHub Pages の配信」）と同時にここも変え、インストーラ・配布 zip・BOOTH の zip を作り直す。
 - creator はバージョンと SHA256 をスクリプト内で固定。同じ設定なら出力はバイト単位で同一。
 - **listing（GitHub Pages）が公開されていないと動かない。** 取得先は `https://yukkuri-aoba.github.io/Iroca/index.json`。利用者側はネット接続が必要。
 - インポートすると「Confirm」ダイアログに導入するパッケージと追加されるリポジトリが出て、**Install** で導入、Cancel で何もせずインストーラだけ消える。
@@ -106,7 +110,7 @@ main は develop の祖先とは限らない。2026-10-18 時点で main には 
 
 - 配信のたびに `scripts/pages/build_site.py` が、NDMF の公式 listing（`https://vpm.nadena.dev/vpm.json`）から、いろかが対応する範囲の安定版を index.json に写す。VCC / ALCOM で、いろかのリポジトリだけを追加した人でも NDMF を選べるようにするため。写す項目は公式とまったく同じ（URL・zipSHA256 とも）なので、NDMF の公式リポジトリも追加している環境でもぶつからない（Avatar Optimizer の listing も同じやり方で NDMF を載せている）。
 - 対応する範囲は `Code/NdmfIntegration/Iroca.NdmfIntegration.asmdef` の versionDefines（`nadena.dev.ndmf` の式）から読む。NDMF 2.0 が出て対応を広げるときは、asmdef の範囲を変えれば写す範囲も変わる。
-- 範囲の上限は `2.0.0` でなく `2.0.0-0` と書く（`[1.8.0,2.0.0-0)`）。Unity は版を SemVer の順で比べるので、`2.0.0)` だと 2.0 のベータ版（`2.0.0-beta.1` など。`2.0.0` より前と数える）が範囲に入り、未確認の API に対して NDMF 連携がコンパイルされてしまう。`2.0.0-0` は 2.0 のどのプレリリースよりも前の版なので、2.0 系をすべて外せる（Modular Avatar の `<2.0.0-a` と同じ考え）。範囲を変えるときは、この式を使う asmdef（Runtime・本体・NDMF 連携・EditMode テスト）をそろえる。任意の依存の asmdef（AI の Sentis・Inference Engine、MCP for Unity）も上限を同じく `-0` で書く（下の「補足」）。
+- 範囲の上限は `2.0.0` でなく `2.0.0-0` と書く（`[1.8.0,2.0.0-0)`）。Unity は版を SemVer の順で比べるので、`2.0.0)` だと 2.0 のベータ版（`2.0.0-beta.1` など。`2.0.0` より前と数える）が範囲に入り、未確認の API に対して NDMF 連携がコンパイルされてしまう。`2.0.0-0` は 2.0 のどのプレリリースよりも前の版なので、2.0 系をすべて外せる（Modular Avatar の `<2.0.0-a` と同じ考え）。範囲を変えるときは、この式を使う asmdef（Runtime・本体・NDMF 連携・EditMode テスト）と、インストーラの設定 `scripts/installer/vpai-config.json` の NDMF の範囲（VPM の書き方で `>=1.8.0 <2.0.0-0`。上の「インストーラ unitypackage」）をそろえる。任意の依存の asmdef（AI の Sentis・Inference Engine、MCP for Unity）も上限を同じく `-0` で書く（下の「補足」）。
 - いろかのリリースは頻繁でないので、写した項目はリポジトリへ書き戻さず、毎日配信し直して新しい NDMF を拾う（main への push と手動実行でも配信する）。公式 listing を読めなかった日は組み立てが失敗して配信されず、前回の配信が残る。
 - release-verify.yml は `docs/index.json` の、いろかの項目だけを照合するので、写した項目の影響を受けない。
 - 手元で確かめるときは `python scripts/pages/build_site.py --out _site`（`_site/` は git 管理外）。
