@@ -24,6 +24,24 @@
 
 <p>はい。アバターに非破壊で登録した色替えの出来上がりを、次の再生・アップロードを速くするために <code>Library/Iroca/RecipeTextureCache</code> に保存しています。レシピを編集したり、いろかを更新したりして使わなくなった分も、合計が 2 GB を超えるまでは消さないので、プロジェクトごとに最大 2 GB ほどたまります。消しても、次の再生・アップロードで作り直すだけです。</p>
 
+<h4 id="faq-uninstall" class="qa">Q: いろかを外す（アンインストールする）には？</h4>
+
+<p>先にアバターや衣装から「Iroca Recolor」を外し、それから VCC / ALCOM でいろかを削除します（zip を展開して入れたときは <code>Packages/com.yukkuri-aoba.iroca</code> フォルダを消します）。「Iroca Recolor」を残したまま外すと Missing Script になり、色替えされません。</p>
+
+<p>いろかを外しても、次のものは残ります。要らなければ消して構いません。</p>
+
+<ul>
+  <li>プロジェクトの <code>Assets/Iroca</code>: レシピ（<code>Recipes</code>）と、「プロジェクト内」に保存したプリセット（<code>Presets</code>）</li>
+  <li>プロジェクトの <code>UserSettings/Iroca</code>: テクスチャごとの作業データ</li>
+  <li>プロジェクトの <code>Library/Iroca</code>: 色替えのキャッシュ</li>
+  <li><code>%APPDATA%\IrocaPresets</code>: 「全プロジェクト共通」に保存したプリセット</li>
+  <li><code>%LOCALAPPDATA%\Iroca\Models</code>: AI モデルと、その変換キャッシュ</li>
+</ul>
+
+<p>最後の 2 つは、この PC のほかのプロジェクトのいろかも使います。</p>
+
+<p>AI のために入れた Sentis（Unity 6 では Inference Engine）と、一緒に上がった Burst・Collections・Test Framework なども残ります。要らなければ、ほかのツールが Sentis を使っていないか確かめてから、Package Manager で Sentis を Remove します。</p>
+
 <h4 id="faq-images" class="qa">Q: マニュアルの画像のテクスチャは？</h4>
 
 <p>画面写真・実演画像・動画には、かなリぁ「<a href="https://booth.pm/ja/items/3818504" target="_blank" rel="noopener">ハオラン-HAOLAN</a>」のテクスチャとモデル（一部は色替え後）を、作者の規約に基づき掲載しています。</p>
