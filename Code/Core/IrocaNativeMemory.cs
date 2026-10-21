@@ -1,6 +1,7 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -43,6 +44,48 @@ namespace Iroca
         /// </summary>
         public static bool CurrentThreadAborting =>
             (Thread.CurrentThread.ThreadState & ThreadState.AbortRequested) != 0;
+    }
+
+    /// <summary>
+    /// <see cref="IrocaNativeMemory"/> から確保した 1 つの塊の持ち主。確保した直後に包んで、本当の持ち主
+    /// (色の表など)に渡すまでの守りに使う。Dispose で解放し、Dispose を忘れても GC が回収するときに解放する。
+    /// 中断中(<see cref="IrocaNativeMemory.CurrentThreadAborting"/>)の Dispose は解放しない。並列で書いている途中の
+    /// スレッドが残っていることがあるからで、塊はドメインのアンロードまで静的に持っておく(ほかの持ち主の守りと
+    /// 同じ考え方。手放すと、アンロードより前に GC がファイナライザで解放してしまうことがある。アンロードは
+    /// スレッドを止めてからファイナライザを走らせるので、そこで解放される)。
+    /// </summary>
+    internal sealed class NativeBlock : IDisposable
+    {
+        private static readonly List<NativeBlock> s_keptUntilUnload = new List<NativeBlock>();
+
+        private IntPtr _ptr;
+        public long Bytes { get; }
+        public IntPtr Ptr => _ptr;
+
+        public NativeBlock(long bytes)
+        {
+            Bytes = bytes;
+            _ptr = IrocaNativeMemory.Alloc(bytes);
+        }
+
+        ~NativeBlock() => Free();
+
+        public void Dispose()
+        {
+            if (IrocaNativeMemory.CurrentThreadAborting)
+            {
+                lock (s_keptUntilUnload) s_keptUntilUnload.Add(this);
+                return;
+            }
+            Free();
+            GC.SuppressFinalize(this);
+        }
+
+        private void Free()
+        {
+            IntPtr p = Interlocked.Exchange(ref _ptr, IntPtr.Zero);
+            if (p != IntPtr.Zero) IrocaNativeMemory.Free(p, Bytes);
+        }
     }
 
     /// <summary>
