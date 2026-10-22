@@ -224,6 +224,12 @@ namespace Iroca
                             default: sb.Append(mat.GetFloat(name).ToString("R")); break;
                         }
                     }
+                    foreach (var name in AppearanceRenderer.UndeclaredBakerVectors)
+                        if (mat.HasProperty(name)) { sb.Append('|'); Append(sb, mat.GetVector(name)); }
+                    foreach (var name in AppearanceRenderer.UndeclaredBakerFloats)
+                        if (mat.HasProperty(name)) sb.Append('|').Append(mat.GetFloat(name).ToString("R"));
+                    foreach (var name in AppearanceRenderer.LayerOrderFloats)
+                        if (mat.HasProperty(name)) sb.Append('|').Append(mat.GetFloat(name).ToString("R"));
                 }
             }
             return sb.ToString();

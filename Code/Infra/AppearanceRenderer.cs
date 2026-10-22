@@ -13,7 +13,8 @@ namespace Iroca
     ///
     /// lilToon は自前で計算し直さず、lilToon 自身の焼き込みシェーダー(インスペクタの「焼き込み」が使う
     /// Hidden/ltsother_baker)へマテリアルの値を写して描く。メインカラー・色調補正・グラデーションマップ・
-    /// 2nd / 3rd の重ね描きまで、lilToon の焼き込みと同じ結果になる。それ以外は色の掛け算だけを
+    /// 2nd / 3rd の重ね描きまで、lilToon の本番の描画で照明を 1 にしたときと同じ色になる(層を照明の前後に
+    /// 分けて重ねる設定は 2 回に分けて描く。lilToon のインスペクタの焼き込みはそこを 1 回で描く)。それ以外は色の掛け算だけを
     /// <see cref="ColorTintLut"/> で当てる(標準・URP・VRChat の Mobile 系などはこれが albedo の全部)。
     ///
     /// 拡大表示の切り出しは、テクスチャの上の位置で値が変わるもの(重ね描きの層・色調補正のマスク)が
@@ -44,6 +45,23 @@ namespace Iroca
             }
         }
 
+        /// <summary>
+        /// 焼き込みシェーダーが読むのに Properties に宣言していない値(lilToon のインスペクタの焼き込み
+        /// lilEditorTextureBaker.cs も名指しで写している)。写さないと 0 のまま描かれ、重ね描きの UV が
+        /// DecalAnimation の 0 割りで壊れる(デカールでない層も同じ関数を通る)。
+        /// </summary>
+        internal static readonly string[] UndeclaredBakerVectors =
+        {
+            "_Main2ndTexDecalAnimation", "_Main2ndTexDecalSubParam", "_Main3rdTexDecalAnimation", "_Main3rdTexDecalSubParam",
+        };
+        internal static readonly string[] UndeclaredBakerFloats = { "_Main2ndTexAlphaMode", "_Main3rdTexAlphaMode" };
+
+        /// <summary>焼き込みシェーダーは読まないが、層の重ね方を決めるのに見る値(照明の前後・表裏)。</summary>
+        internal static readonly string[] LayerOrderFloats =
+        {
+            "_Main2ndEnableLighting", "_Main3rdEnableLighting", "_Main2ndTex_Cull", "_Main3rdTex_Cull",
+        };
+
         /// <summary>この読み取り結果をプレビューにどう掛けるか。</summary>
         internal static Kind KindOf(MaterialColorSettings.Report r)
         {
@@ -67,8 +85,10 @@ namespace Iroca
             }
         }
 
-        // lilToon の焼き込み用のマテリアル(写した値の要約が変わったら作り直す)。
+        // lilToon の焼き込み用のマテリアル(写した値の要約が変わったら作り直す)。_bakerAfter は照明の後に重ねる
+        // 層の分(無ければ null)。
         private Material _baker;
+        private Material _bakerAfter;
         private string _bakerFor;
         // 切り出しを元の位置に貼る作業用(テクスチャ全体の寸法。拡大表示に重ね描きの層があるときだけ)と、貼るのに使うマテリアル。
         private RenderTexture _scratch;
@@ -138,15 +158,24 @@ namespace Iroca
         /// <summary>
         /// マテリアルの値を焼き込みシェーダーへ写す。焼き込みシェーダーにある名前のうち、マテリアルにもあるものを
         /// 全部写す(lilToon のインスペクタの焼き込みが写すものを含む。版が変わって増えた値も追える)。
-        /// UV0 以外で重ねる層は、テクスチャの上の位置が決まらないので切る。
+        /// 照明の後に重ねる層があれば、その分を描く 2 つ目(<see cref="_bakerAfter"/>)も作る(<see cref="SplitByLighting"/>)。
         /// </summary>
         private void PrepareBaker(MaterialColorSettings.Report r)
         {
             if (_baker != null && _bakerFor == r.signature) return;
             DestroyNow(ref _baker);
+            DestroyNow(ref _bakerAfter);
+            _baker = NewBaker(r.material);
+            SplitByLighting(r.material);
+            _bakerFor = r.signature;
+        }
+
+        // UV0 以外で重ねる層は、テクスチャの上の位置が決まらないので切る。表(front)で消える層は、
+        // アバターを外から見たときに出ないので切る。
+        private static Material NewBaker(Material src)
+        {
             var shader = LilToonBaker;
-            _baker = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
-            var src = r.material;
+            var m = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
             int n = shader.GetPropertyCount();
             for (int i = 0; i < n; i++)
             {
@@ -154,26 +183,68 @@ namespace Iroca
                 if (name == "_MainTex" || !src.HasProperty(name)) continue;
                 switch (shader.GetPropertyType(i))
                 {
-                    case ShaderPropertyType.Color: _baker.SetColor(name, src.GetColor(name)); break;
-                    case ShaderPropertyType.Vector: _baker.SetVector(name, src.GetVector(name)); break;
-                    case ShaderPropertyType.Int: _baker.SetInteger(name, src.GetInteger(name)); break;
+                    case ShaderPropertyType.Color: m.SetColor(name, src.GetColor(name)); break;
+                    case ShaderPropertyType.Vector: m.SetVector(name, src.GetVector(name)); break;
+                    case ShaderPropertyType.Int: m.SetInteger(name, src.GetInteger(name)); break;
                     case ShaderPropertyType.Texture:
-                        _baker.SetTexture(name, src.GetTexture(name));
-                        _baker.SetTextureScale(name, src.GetTextureScale(name));
-                        _baker.SetTextureOffset(name, src.GetTextureOffset(name));
+                        m.SetTexture(name, src.GetTexture(name));
+                        m.SetTextureScale(name, src.GetTextureScale(name));
+                        m.SetTextureOffset(name, src.GetTextureOffset(name));
                         break;
-                    default: _baker.SetFloat(name, src.GetFloat(name)); break;
+                    default: m.SetFloat(name, src.GetFloat(name)); break;
                 }
             }
-            DisableOtherUvLayer(src, "_UseMain2ndTex", "_Main2ndTex_UVMode");
-            DisableOtherUvLayer(src, "_UseMain3rdTex", "_Main3rdTex_UVMode");
-            _bakerFor = r.signature;
+            foreach (var name in UndeclaredBakerVectors)
+                if (src.HasProperty(name)) m.SetVector(name, src.GetVector(name));
+            foreach (var name in UndeclaredBakerFloats)
+                if (src.HasProperty(name)) m.SetFloat(name, src.GetFloat(name));
+            HideLayer(m, src, "_UseMain2ndTex", "_Main2ndTex_UVMode", "_Main2ndTex_Cull");
+            HideLayer(m, src, "_UseMain3rdTex", "_Main3rdTex_UVMode", "_Main3rdTex_Cull");
+            return m;
         }
 
-        private void DisableOtherUvLayer(Material src, string use, string uvMode)
+        private static void HideLayer(Material m, Material src, string use, string uvMode, string cull)
         {
-            if (src.HasProperty(uvMode) && Mathf.RoundToInt(src.GetFloat(uvMode)) != 0 && _baker.HasProperty(use))
-                _baker.SetFloat(use, 0f);
+            bool otherUv = src.HasProperty(uvMode) && Mathf.RoundToInt(src.GetFloat(uvMode)) != 0;
+            bool hiddenOnFront = src.HasProperty(cull) && Mathf.RoundToInt(src.GetFloat(cull)) == 1;
+            if ((otherUv || hiddenOnFront) && m.HasProperty(use)) m.SetFloat(use, 0f);
+        }
+
+        /// <summary>
+        /// lilToon の本番の描画は、層の不透明度のうち EnableLighting の割合を照明の前に、残りを照明の後に重ねる
+        /// (2nd → 3rd → 照明 → 2nd → 3rd)。焼き込みシェーダーは 2nd → 3rd を 1 回ずつ重ねるだけなので、照明の後に
+        /// 重ねる分がある層があれば、照明の前の分(<see cref="_baker"/>)と後の分(<see cref="_bakerAfter"/>、メインの
+        /// 色の設定は外す)の 2 回に分ける。分けないと、2nd だけ照明の後のとき 2nd と 3rd の上下が逆になる。
+        /// </summary>
+        private void SplitByLighting(Material src)
+        {
+            float l2 = LayerLighting(src, "_UseMain2ndTex", "_Main2ndEnableLighting");
+            float l3 = LayerLighting(src, "_UseMain3rdTex", "_Main3rdEnableLighting");
+            if (l2 >= 1f && l3 >= 1f) return;
+            // 2 回目はメインの段を素通りさせる。色調補正は無設定でも HSV を経て明るさを 1 で頭打ちにするので
+            // (加算で重ねた層は 1 を超える)、色調補正のマスクを黒にして補正前の値をそのまま使わせる。
+            _bakerAfter = NewBaker(src);
+            _bakerAfter.SetColor("_Color", Color.white);
+            _bakerAfter.SetTexture("_MainColorAdjustMask", Texture2D.blackTexture);
+            SplitLayer("_UseMain2ndTex", "_Color2nd", l2);
+            SplitLayer("_UseMain3rdTex", "_Color3rd", l3);
+        }
+
+        // 層の EnableLighting(描かない層・値が無いときは 1 = 全部を照明の前に重ねる)。
+        private float LayerLighting(Material src, string use, string lighting)
+        {
+            if (!_baker.HasProperty(use) || _baker.GetFloat(use) < 0.5f || !src.HasProperty(lighting)) return 1f;
+            return Mathf.Clamp01(src.GetFloat(lighting));
+        }
+
+        // 層の色の不透明度を、照明の前の分と後の分に割る(焼き込みシェーダーは色の a を層の不透明度に掛ける)。
+        private void SplitLayer(string use, string color, float lighting)
+        {
+            if (lighting >= 1f) { _bakerAfter.SetFloat(use, 0f); return; }
+            var c = _baker.GetColor(color);
+            if (lighting <= 0f) _baker.SetFloat(use, 0f);
+            else _baker.SetColor(color, new Color(c.r, c.g, c.b, c.a * lighting));
+            _bakerAfter.SetColor(color, new Color(c.r, c.g, c.b, c.a * (1f - lighting)));
         }
 
         /// <summary>
@@ -182,9 +253,20 @@ namespace Iroca
         /// </summary>
         private bool DependsOnUv(Material src)
         {
+            if (_bakerAfter != null) return true;
             if (_baker.HasProperty("_UseMain2ndTex") && _baker.GetFloat("_UseMain2ndTex") > 0.5f) return true;
             if (_baker.HasProperty("_UseMain3rdTex") && _baker.GetFloat("_UseMain3rdTex") > 0.5f) return true;
             return src.HasProperty("_MainColorAdjustMask") && src.GetTexture("_MainColorAdjustMask") != null;
+        }
+
+        // 照明の前の結果を置く作業用。8 ビットに丸めず、色空間の変換もしない(2 回目がそのままの値で読む)。
+        // 焼き込みシェーダーは層のマスクをメインテクスチャのサンプラーで読むので、読み方は 1 回目の入力に合わせる。
+        private static RenderTexture GetMidTemporary(int w, int h, Texture like)
+        {
+            var rt = RenderTexture.GetTemporary(w, h, 0, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear);
+            rt.filterMode = like.filterMode;
+            rt.wrapMode = like.wrapMode;
+            return rt;
         }
 
         // 画像全体(UV の 0〜1)を焼き込みシェーダーに通す。lilToon のインスペクタの焼き込みと同じ手順
@@ -194,7 +276,15 @@ namespace Iroca
             // Blit は描き先を rt にしたまま返るので、前の描き先は先に控えて戻す(ウィンドウの描画中に呼ばれる)。
             var prev = RenderTexture.active;
             var rt = RenderTexture.GetTemporary(src.width, src.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Default);
-            Graphics.Blit(src, rt, _baker);
+            if (_bakerAfter == null)
+                Graphics.Blit(src, rt, _baker);
+            else
+            {
+                var mid = GetMidTemporary(src.width, src.height, src);
+                Graphics.Blit(src, mid, _baker);
+                Graphics.Blit(mid, rt, _bakerAfter);
+                RenderTexture.ReleaseTemporary(mid);
+            }
             ReadBack(rt, src.filterMode, ref dst);
             RenderTexture.active = prev;
             RenderTexture.ReleaseTemporary(rt);
@@ -223,7 +313,18 @@ namespace Iroca
 
             var rt = RenderTexture.GetTemporary(crop.width, crop.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Default);
             _baker.mainTexture = _scratch;
-            DrawQuad(rt, _baker, new Rect(0f, 0f, 1f, 1f), uvRect);
+            if (_bakerAfter == null)
+                DrawQuad(rt, _baker, new Rect(0f, 0f, 1f, 1f), uvRect);
+            else
+            {
+                // 照明の前の分を作業用と同じ並び(元の位置)に描き、そこを指して照明の後の分を描く。
+                var mid = GetMidTemporary(sw, sh, _scratch);
+                DrawQuad(mid, _baker, uvRect, uvRect);
+                _bakerAfter.mainTexture = mid;
+                DrawQuad(rt, _bakerAfter, new Rect(0f, 0f, 1f, 1f), uvRect);
+                _bakerAfter.mainTexture = null;
+                RenderTexture.ReleaseTemporary(mid);
+            }
             _baker.mainTexture = null;
             ReadBack(rt, crop.filterMode, ref dst);
             RenderTexture.ReleaseTemporary(rt);
@@ -290,6 +391,7 @@ namespace Iroca
         {
             ReleaseScratch();
             DestroyNow(ref _baker);
+            DestroyNow(ref _bakerAfter);
             DestroyNow(ref _copy);
             _bakerFor = null;
         }

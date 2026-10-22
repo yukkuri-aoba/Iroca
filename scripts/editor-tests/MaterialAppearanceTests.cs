@@ -217,8 +217,10 @@ namespace Iroca.EditorTests
         }
 
         // 拡大表示の切り出しは、重ね描きの層の位置まで含めてテクスチャ全体を描いたものの同じ範囲と一致する。
+        // lighting が 0 だと 2nd を照明の後に重ねる(焼き込みを 2 回に分ける道を通る)。
         [Test]
-        public void LilToonBaker_RegionWithLayer_MatchesWholeRender([Values(false, true)] bool decal)
+        public void LilToonBaker_RegionWithLayer_MatchesWholeRender([Values(false, true)] bool decal,
+                                                                    [Values(1f, 0f)] float lighting)
         {
             RequireGpu();
             var src = Source();
@@ -232,6 +234,7 @@ namespace Iroca.EditorTests
             mat.SetFloat("_UseMain2ndTex", 1f);
             mat.SetTexture("_Main2ndTex", layer);
             mat.SetColor("_Color2nd", Color.white);
+            mat.SetFloat("_Main2ndEnableLighting", lighting);
             if (decal)
             {
                 mat.SetFloat("_Main2ndTexIsDecal", 1f);
@@ -269,6 +272,55 @@ namespace Iroca.EditorTests
             finally { TextureSlot.Release(ref whole); TextureSlot.Release(ref part); }
         }
 
+        // lilToon 本体の描画(照明を 1 に固定)と一致する。焼き込みどうしの比較だけだと、写し漏れた値
+        // (重ね描きの DecalAnimation など)で両方が同じように崩れても通ってしまうので、本体と突き合わせる。
+        [Test]
+        // lighting2nd は 2nd を照明の前に重ねる割合(1 未満だと残りは照明の後 = 3rd より上に重なる)。
+        public void LilToonBaker_Layers_MatchLilToonForwardPass([Values(false, true)] bool decal,
+                                                                [Values(1f, 0f, 0.4f)] float lighting2nd)
+        {
+            RequireGpu();
+            var src = Source();
+            var mat = LilToon();
+            if (AppearanceRenderer.LilToonBaker == null) Assert.Ignore("lilToon の焼き込みシェーダーが無い");
+            mat.mainTexture = src;
+            mat.SetColor("_Color", new Color(0.9f, 0.7f, 0.8f));
+            var layer = Tex(16, 16, (x, y) => ((x / 4 + y / 4) & 1) == 0 ? new Color32(255, 40, 40, 255) : new Color32(0, 0, 0, 0),
+                            TextureWrapMode.Repeat);
+            mat.SetFloat("_UseMain2ndTex", 1f);
+            mat.SetTexture("_Main2ndTex", layer);
+            mat.SetColor("_Color2nd", new Color(0.3f, 1f, 1f, 1f));
+            mat.SetFloat("_Main2ndEnableLighting", lighting2nd);
+            mat.SetFloat("_UseMain3rdTex", 1f);
+            mat.SetTexture("_Main3rdTex", layer);
+            mat.SetColor("_Color3rd", new Color(1f, 1f, 0.2f, 0.5f));
+            mat.SetFloat("_Main3rdTexBlendMode", 1f);
+            mat.SetTextureScale("_Main3rdTex", new Vector2(1f, 3f));
+            if (decal)
+            {
+                mat.SetFloat("_Main2ndTexIsDecal", 1f);
+                mat.SetTextureScale("_Main2ndTex", new Vector2(2f, 2f));
+                mat.SetTextureOffset("_Main2ndTex", new Vector2(-0.3f, -0.6f));
+                mat.SetFloat("_Main2ndTexAngle", 0.3f);
+            }
+            else
+            {
+                mat.SetTextureScale("_Main2ndTex", new Vector2(3f, 2f));
+                mat.SetTextureOffset("_Main2ndTex", new Vector2(0.1f, 0.25f));
+            }
+            var r = MaterialColorSettings.Analyze(mat, Targets(src));
+            Assert.AreEqual(AppearanceRenderer.Kind.LilToonBaker, AppearanceRenderer.KindOf(r));
+
+            var lil = RenderForward(mat, src.width, src.height);
+            if (CountDifferent(lil, Tinted(src.GetPixels32(), mat.GetColor("_Color"))) == 0)
+                Assert.Ignore("このホストの lilToon は 2nd / 3rd を外して組まれている(lilToon のシェーダー設定)");
+            _renderer = new AppearanceRenderer();
+            Texture2D ours = null;
+            Assert.IsTrue(_renderer.Render(r, src, ref ours));
+            try { AssertClose(lil, ours.GetPixels32(), 2, "lilToon 本体と"); }
+            finally { TextureSlot.Release(ref ours); }
+        }
+
         // 色の掛け算だけのときは、切り出しも全体の同じ範囲と一致する(画素ごとの変換)。
         [Test]
         public void Tint_RegionMatchesWholeRender()
@@ -302,6 +354,53 @@ namespace Iroca.EditorTests
             Assert.AreEqual(expect.r, actual.r, 1e-4f, "r");
             Assert.AreEqual(expect.g, actual.g, 1e-4f, "g");
             Assert.AreEqual(expect.b, actual.b, 1e-4f, "b");
+        }
+
+        // lilToon 本体(前面の描画)で、照明を 1 に固定して影を切って描いた色。画面いっぱいの四角に UV の 0〜1 を張る
+        // (画素の中心がテクスチャの画素の中心に当たる)。
+        private Color32[] RenderForward(Material mat, int w, int h)
+        {
+            var m = Keep(new Material(mat));
+            m.SetFloat("_AsUnlit", 1f);
+            m.SetFloat("_UseShadow", 0f);
+            var quad = Keep(GameObject.CreatePrimitive(PrimitiveType.Quad));
+            quad.layer = 31;
+            quad.transform.position = new Vector3(1000f, 1000f, 1000f);
+            quad.transform.localScale = new Vector3(w / (float)h, 1f, 1f);
+            var mr = quad.GetComponent<MeshRenderer>();
+            mr.sharedMaterial = m;
+            mr.shadowCastingMode = ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            var cam = Keep(new GameObject("iroca_forward_test")).AddComponent<Camera>();
+            cam.transform.position = new Vector3(1000f, 1000f, 999f);
+            cam.orthographic = true;
+            cam.orthographicSize = 0.5f;
+            cam.nearClipPlane = 0.01f;
+            cam.farClipPlane = 10f;
+            cam.cullingMask = 1 << 31;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = Color.clear;
+            cam.allowHDR = false;
+            cam.allowMSAA = false;
+            var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Default);
+            var prev = RenderTexture.active;
+            try
+            {
+                cam.targetTexture = rt;
+                cam.Render();
+                RenderTexture.active = rt;
+                var read = Keep(new Texture2D(w, h, TextureFormat.RGBA32, false));
+                read.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+                read.Apply(false);
+                return read.GetPixels32();
+            }
+            finally
+            {
+                RenderTexture.active = prev;
+                cam.targetTexture = null;
+                rt.Release();
+                Object.DestroyImmediate(rt);
+            }
         }
 
         private static Color32[] Tinted(Color32[] src, Color tint)
