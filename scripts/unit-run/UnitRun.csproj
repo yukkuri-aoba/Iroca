@@ -23,6 +23,8 @@
     <AssemblyName>IrocaUnitRun</AssemblyName>
     <EnableSourceLink>false</EnableSourceLink>
     <Deterministic>true</Deterministic>
+    <!-- ColorTintLut の画素ループはポインタ(製品の asmdef も unsafe を許している)。 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -47,6 +49,8 @@
     <Compile Include="..\..\Code\Infra\UpdateCheck.Listing.cs" />
     <!-- 書き出しでインポート設定を引き継ぐときの .meta の GUID の差し替え。 -->
     <Compile Include="..\..\Code\Infra\MetaFile.cs" />
+    <!-- 「アバターの色」表示の、メインカラーの掛け算の表(sRGB と線形の変換を含む)。 -->
+    <Compile Include="..\..\Code\Infra\ColorTintLut.cs" />
     <Compile Include="UnitRun.cs" />
   </ItemGroup>
 

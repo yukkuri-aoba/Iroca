@@ -424,6 +424,8 @@ namespace Iroca
             // 旧テクスチャのクロップが新テクスチャ上に重なって見えるのを防ぐ
             // （詳細ジョブのキャンセルと表示テクスチャの解放を含む）。
             _detailView?.InvalidateDisplay();
+            // 見た目の画像も旧テクスチャのもの。
+            ReleaseAppearance();
         }
 
         /// <summary>
@@ -600,6 +602,7 @@ namespace Iroca
             TextureSlot.Release(ref previewTexture);
             TextureSlot.Release(ref rawPreviewTexture);
             TextureSlot.Release(ref diffTexture);
+            ReleaseAppearance();
             ClearSceneHighlight();
         }
 
@@ -655,6 +658,7 @@ namespace Iroca
 
             var maskView = _host._maskView;
             TickMaskOverlay(maskView);
+            TickAppearance();
 
             string generatingLabel = CurrentGeneratingLabel();
 
@@ -748,6 +752,7 @@ namespace Iroca
             // RepeatButton は押されている間 true を返し続けるが、Editor は要求が無いと
             // 再描画しない。押下中は継続的に再描画を要求しないと 1 フレームで戻って見える。
             if (peekOriginal) _host.RequestRepaint();
+            DrawAppearanceToggle();
 
             GUILayout.FlexibleSpace();
             // MinWidth(0): 生成状態ラベルは文字数が多く、既定では「文字幅＝最小幅」として
@@ -901,7 +906,7 @@ namespace Iroca
                 EditorGUILayout.LabelField(Localization.Before, GUILayout.Width(captionW));
                 var rawRect = GUILayoutUtility.GetRect(displayW, displayH,
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
-                EditorGUI.DrawPreviewTexture(rawRect, rawPreviewTexture);
+                EditorGUI.DrawPreviewTexture(rawRect, ShownRaw);
                 EditorGUILayout.EndVertical();
 
                 GUILayout.Space(IrocaConsts.Preview.PanelSpacing);
@@ -910,7 +915,7 @@ namespace Iroca
                 EditorGUILayout.LabelField(Localization.After, GUILayout.Width(captionW));
                 activePreviewRect = GUILayoutUtility.GetRect(displayW, displayH,
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
-                EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
+                EditorGUI.DrawPreviewTexture(activePreviewRect, ShownPreview);
                 DrawMaskOverlays(activePreviewRect, maskView);
                 EditorGUILayout.EndVertical();
 
@@ -929,12 +934,14 @@ namespace Iroca
                 // 「元を表示」で押下中は、詳細クロップ(再着色後のみ保持)を使わず低解像度の
                 // 変更前を出す。クロップの raw をテクスチャ化して持つとズーム中の VRAM が倍に
                 // なるため、押している間だけ解像度が落ちることを許容する(ツールチップに明記)。
-                if (detailActive && _detailView.detailPreviewTexture != null && !peekOriginal && !_detailHiddenForDrag)
+                // 「アバターの色」の表示中は、切り出しの見た目ができるまで切り出しを重ねない(ShownDetail)。
+                var shownDetail = ShownDetail;
+                if (detailActive && shownDetail != null && !peekOriginal && !_detailHiddenForDrag)
                 {
-                    EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
+                    EditorGUI.DrawPreviewTexture(activePreviewRect, ShownPreview);
 
                     Rect detailScreenRect = _detailView.ComputeDetailScreenRect(activePreviewRect, scale, effZoom, _previewScrollPos, srcW, srcH);
-                    GUI.DrawTexture(detailScreenRect, _detailView.detailPreviewTexture,
+                    GUI.DrawTexture(detailScreenRect, shownDetail,
                         ScaleMode.StretchToFill, false);
 
                     if (diffMode && _detailView.detailDiffTexture != null)
@@ -957,7 +964,7 @@ namespace Iroca
                 else
                 {
                     EditorGUI.DrawPreviewTexture(activePreviewRect,
-                        peekOriginal ? rawPreviewTexture : previewTexture);
+                        peekOriginal ? ShownRaw : ShownPreview);
 
                     // 変更前を見せている間は差分ハイライトを重ねない（変更前に「変わった場所」を
                     // 塗ると、元テクスチャに無い色が乗って見え、確認したい当のものが隠れる）。
@@ -1084,7 +1091,10 @@ namespace Iroca
         {
             // バックグラウンドプレビュータスクからの結果を適用（Texture2D API: メインスレッドのみ）
             if (_pendingProcessedDisplay != null)
+            {
                 ApplyPendingPreview();
+                _previewVersion++;
+            }
 
             // バックグラウンドで仕上がった diff ピクセルをテクスチャへ反映
             ApplyPendingDiff();
@@ -1093,6 +1103,7 @@ namespace Iroca
             if (_detailView.HasPendingResult)
             {
                 _detailView.ApplyPendingResult();
+                _detailVersion++;
                 // 拡大表示用のマスクの重ね表示も、新しい範囲で作り直す(MaskPaintView.RebuildDetailOverlay)。
                 RebuildDetailMaskOverlay();
                 // 隠している間は新しい切り出ししか作らない(Draw の詳細生成の条件)ので、届いたら見せてよい。

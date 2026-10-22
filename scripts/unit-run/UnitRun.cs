@@ -1064,5 +1064,74 @@ namespace Iroca.UnitRun
             // 深い入れ子でスタックを使い切らない。
             Check.True(UpdateCheck.MiniJson.Parse(new string('[', 10000) + new string(']', 10000)) == null, "deep nesting");
         }
+
+        // ─── ColorTintLut（「アバターの色」表示: マテリアルのメインカラーの掛け算） ───
+
+        public static void TintLut_WhiteIsIdentity()
+        {
+            Check.True(ColorTintLut.IsIdentity(ColorTintLut.Build(1f, true)), "linear");
+            Check.True(ColorTintLut.IsIdentity(ColorTintLut.Build(1f, false)), "gamma");
+        }
+
+        public static void TintLut_BlackGivesZero()
+        {
+            var lut = ColorTintLut.Build(0f, true);
+            for (int v = 0; v < 256; v++) Check.Equal((byte)0, lut[v], $"v={v}");
+        }
+
+        // Gamma のプロジェクトでは保存された値どうしをそのまま掛ける。
+        public static void TintLut_GammaMultipliesStoredValues()
+        {
+            var lut = ColorTintLut.Build(0.5f, false);
+            Check.Equal((byte)100, lut[200], "200 * 0.5");
+            Check.Equal((byte)128, lut[255], "255 * 0.5");
+        }
+
+        // Linear のプロジェクトでは線形で掛けて sRGB へ戻す。白(255)に 0.5 を掛けると、保存値の 0.5 に戻る。
+        public static void TintLut_LinearMultipliesInLinearSpace()
+        {
+            var lut = ColorTintLut.Build(0.5f, true);
+            Check.Equal((byte)128, lut[255], "white * 0.5");
+            // 中間の値は線形の積を sRGB に戻したもの(保存値どうしの積 64 とは違う)。
+            float expect = ColorTintLut.LinearToSrgb(ColorTintLut.SrgbToLinear(128 / 255f) * ColorTintLut.SrgbToLinear(0.5f));
+            Check.Equal((byte)Math.Round(expect * 255f), lut[128], "128 * 0.5");
+            Check.True(lut[128] != 64, "not the gamma product");
+        }
+
+        // HDR の色(1 を超える)は明るくし、表示先で飽和するのと同じく 255 で止める。
+        public static void TintLut_HdrBrightensAndClamps()
+        {
+            var lut = ColorTintLut.Build(2f, true);
+            Check.Equal((byte)255, lut[255], "clamped");
+            Check.True(lut[100] > 100, "brighter");
+            for (int v = 1; v < 256; v++) Check.True(lut[v] >= lut[v - 1], $"monotonic at {v}");
+        }
+
+        public static void TintLut_SrgbRoundTrips()
+        {
+            for (int v = 0; v < 256; v++)
+            {
+                float back = ColorTintLut.LinearToSrgb(ColorTintLut.SrgbToLinear(v / 255f));
+                Check.Equal(v, (int)Math.Round(back * 255f), $"v={v}");
+            }
+        }
+
+        public static void TintLut_ApplyMapsChannelsAndKeepsAlpha()
+        {
+            var r = ColorTintLut.Build(1f, true);
+            var g = ColorTintLut.Build(0.5f, false);
+            var b = ColorTintLut.Build(0f, true);
+            var src = new[] { new UnityEngine.Color32(10, 200, 30, 77), new UnityEngine.Color32(255, 255, 255, 0) };
+            var dst = new UnityEngine.Color32[2];
+            ColorTintLut.Apply(src, dst, r, g, b);
+            Check.Equal((byte)10, dst[0].r, "r identity");
+            Check.Equal((byte)100, dst[0].g, "g halved");
+            Check.Equal((byte)0, dst[0].b, "b zero");
+            Check.Equal((byte)77, dst[0].a, "alpha kept");
+            Check.Equal((byte)0, dst[1].a, "alpha kept (0)");
+            // 同じ配列へ書いてもよい。
+            ColorTintLut.Apply(src, src, r, g, b);
+            Check.Equal((byte)100, src[0].g, "in place");
+        }
     }
 }
