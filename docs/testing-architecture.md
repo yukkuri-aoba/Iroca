@@ -327,6 +327,15 @@ dev_safe から `scripts/source_checks/` へ移した。資産を要らない検
 `python dev_safe/Tests/regression/cache_gc.py [--dry-run]`。止めるなら `IROCA_CACHE_GC=0`、
 日数は `IROCA_CACHE_GC_DAYS` / `IROCA_WORK_GC_DAYS`。対象の作業ディレクトリは gitignore 済みで
 追跡ファイルを含まないことを `test_cache_gc.py` が git で確かめている。
+2026-10-22 から、掃除する範囲を**本体リポジトリの各 worktree に置いた dev_safe の複製**
+（`git worktree list` で探す）と abcheck の `%TEMP%/iroca-abcheck`（止められた実行が残した `<pid>/` と
+入力キャッシュ）に広げた。以前は自分の dev_safe しか見なかったので、テストを回さなくなった複製は
+一度も掃除されず、複製 5 つで 229GB 溜まっていた。さらに、ドライブの空きが
+`IROCA_CACHE_GC_MIN_FREE_GB`（既定 50GB。冷えた状態から回帰を 1 回回すと複製 1 つのキャッシュが
+20〜26GB まで育つので、その 2 回分）を切っていたら、6 時間の間隔を待たずに走り、日数に届かないものも
+最後に使ったのが古い順に空きが戻るまで消す。6 時間以内に使ったもの（走っている別のテストの分）は消さない。
+それでも足りなければ pytest の要約に、キャッシュ以外（取り込み済みの worktree・scratchpad・
+Unity の確認用ホスト）を見直すよう 1 行出す。これらは掃除の対象にしない。
 `tools/visual_review.py compare --engine csharp` の固定 104 ケースも同じ `run_harness_many`
 （キャッシュ + `--batch`）を通るので、直前に回帰スイートを回していれば dotnet を起動せずに
 同じ DLL の出力が返る（以前は 1 件ずつ単発起動で約 15 分かかっていた）。
