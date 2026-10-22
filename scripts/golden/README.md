@@ -26,7 +26,7 @@ Python 再実装はもう存在せず、**C# が唯一の正**である（当時
 | `cases/*.png` / `*.zones.json` | 各ケースの入力と zones JSON。Unity 実機のテスト（`scripts/editor-tests/RuntimeParityTests`）が製品経路へ通して `expected/` と比べる |
 | `test_golden_csharp.py` | pytest ゲート（C# を走らせ golden と照合） |
 | `test_selection_key_audit.py` | 選択キャッシュキーの網羅性監査。Harness の `--selkey-audit` で `ColorZone` の public フィールドを 1 つずつ摂動し、`BuildSelectionKey` への反映漏れ（選択キャッシュの誤ヒット）を分類台帳 `SELECTION_IRRELEVANT` と突き合わせる |
-| `test_harness_selfchecks.py` | Harness の自己検査モードを回す。`--previewselftest`（RecolorPreview の既知の不変量）と `--samops-aainclude-crop`（クロップ実行が全画像の `--samops-aainclude` とビット同一） |
+| `test_harness_selfchecks.py` | Harness の自己検査モードを回す。`--previewselftest`（RecolorPreview の既知の不変量）、`--samops-aainclude-crop`（クロップ実行が全画像の `--samops-aainclude` とビット同一）、`--selcache-mask`（マスクだけを変えた再生成が選択キャッシュを持ち越してもフル再計算と同じ）ほか |
 
 合成入力は C# の主要経路（基底再着色 / 無彩ターゲット / グレーモード / OkLab L リマップ /
 ハイライト復元・wash / AA 境界デコンタミ / 彩度整合ゲート / 暗部脱彩 / 出力彩度 / アンカー正規化 /

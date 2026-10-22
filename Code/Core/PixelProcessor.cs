@@ -82,23 +82,15 @@ namespace Iroca
             "MixBand",
         };
 
-        // packed mask の内容ハッシュ(FNV-1a 64bit)。マスク編集を選択キーに反映するため。
-        private static ulong MaskHash(ulong[] m)
-        {
-            if (m == null) return 0UL;
-            ulong h = 1469598103934665603UL; // FNV offset basis
-            for (int i = 0; i < m.Length; i++) { h ^= m[i]; h *= 1099511628211UL; }
-            return h ^ (ulong)m.Length;
-        }
-
-        // 「選択(マッチ→マスク再適用)に影響する入力だけ」から決定論的なキーを作る。
+        // 「選択(マッチ→ブラー)に影響する入力だけ」から決定論的なキーを作る。
         // ターゲット色・valueBlend・出力彩度・シャドウ脱彩・wash・autoRecolorAnchor は **含めない**
         // (これらは再着色のみに効くので、変えてもキーは同じ=選択キャッシュがヒットする)。float は
         // ビット表現で完全一致判定(丸め衝突を避ける)。曖昧なものは安全側で含める(ミスが増えるだけ)。
+        // マスクの中身も含めない: 含めるマスクは保存する選択に効かず、除外マスクは保存時の配列と比べて
+        // 使えるかを判定する(SelectionCache・ExclusionChangeKeepsMatch)。
         private static string BuildSelectionKey(
             ColorZone z, float edgeFeather, int aaCleanup, int holeFillPasses, int holeFillMinNeighbors,
-            float relaxedSatMin, float relaxedSatRamp, ulong[] commonMask, ulong[] zoneMask,
-            ulong[] zoneInclude, int maskW, int maskH, bool mixtureBand)
+            float relaxedSatMin, float relaxedSatRamp, int maskW, int maskH, bool mixtureBand)
         {
             var sb = new StringBuilder(320);
             void F(float v) { sb.Append(BitConverter.SingleToInt32Bits(v)); sb.Append(','); }
@@ -123,14 +115,9 @@ namespace Iroca
             // 混色帯モード(IsMixtureBandZone)では穴埋め・境界回復を行わない = 選択そのものが変わる。
             // 境界クリーンアップの ON/OFF で切り替わるので、キーに入れる。
             B(mixtureBand);
-            // マスク内容(common + zone)。ビット列のハッシュだけでは、同じビット列を別の寸法で
-            // 解釈したケースを区別できない（マスクは packed ulong[] で寸法が別持ちのため、
-            // 寸法が変われば同じビット列でも指す画素が変わる）。寸法もキーに入れる
-            // （レビュー §4 低 / 監査 L-6）。
+            // マスクの寸法。マスクは packed ulong[] で寸法が別持ちのため、寸法が変われば同じビット列でも
+            // 指す画素が変わる（レビュー §4 低 / 監査 L-6）。除外マスクの比べ直しも同じ寸法どうしでしか成り立たない。
             I(maskW); I(maskH);
-            sb.Append(MaskHash(commonMask)); sb.Append(';');
-            sb.Append(MaskHash(zoneMask)); sb.Append(';');
-            sb.Append(MaskHash(zoneInclude)); sb.Append(';');
             return sb.ToString();
         }
 
@@ -480,18 +467,18 @@ namespace Iroca
                     // 部分クロップ経路は現在は検証用(製品 UI の詳細プレビューはフル段出力の切り出し)。
                     bool isFullImagePath = originX == 0 && originY == 0 && fullW == w && fullH == h;
 
-                    // 選択キャッシュ: ターゲット色など「再着色のみ」の変更では、マスク再適用直後の
+                    // 選択キャッシュ: ターゲット色など「再着色のみ」の変更では、マスクを掛ける直前の
                     // strength(=生の選択)を復元して選択フェーズ(Match/Highlight/FloodFill/穴埋め/
-                    // 境界/ブラー/マスク再適用)を丸ごと省く。フル画像経路でのみ使う。
+                    // 境界/ブラー)を丸ごと省く。フル画像経路でのみ使う。
                     string selKey = null;
                     ulong[] cachedKeep = null;
                     ulong[] cachedForced = null;
+                    var cachedBox = default(SelectionCache.PostBox);
                     bool selCached = false;
                     if (selectionCache != null && isFullImagePath)
                     {
                         selKey = BuildSelectionKey(zone, edgeFeather, antiAliasCleanup, holeFillPasses,
-                            holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp, commonMask, zoneMask,
-                            zoneInclude, maskW, maskH, zMixMode);
+                            holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp, maskW, maskH, zMixMode);
                     }
 
                     // 含めるマスクをテクスチャ解像度の bool[] へ展開する(除外優先を焼き込む)。
@@ -519,16 +506,24 @@ namespace Iroca
 
                     // 1. 元のピクセルカラーを使用した強度マップを構築(キャッシュヒット時は復元のみ)
                     strength = s_floatPool.Rent(len);
-                    // キャッシュにあれば strength へ写す(キャッシュの中身はネイティブメモリにあり、写すのは
-                    // キャッシュの lock の中。配列を受け取って後で写すと、その間に手放されることがある)。
-                    if (selKey != null)
-                        selCached = selectionCache.TryCopy(zone.id, selKey, w, h, strength,
-                            out cachedKeep, out cachedForced);
                     // matchConf は連結成分アンカリング(flood fill)のコア判定専用。FF が有効でフル画像
                     // 経路かつキャッシュミス時のみ確保・充填する(ヒット時は keep を転写するため不要)。
-                    bool needMatchConf = IrocaConsts.ExperimentalFeatures.EnableFloodFill
+                    bool ffNeedsMatchConf = IrocaConsts.ExperimentalFeatures.EnableFloodFill
                         && zone.mode == SelectionMode.ColorPick && zone.useFloodFill
-                        && isFullImagePath && !selCached;
+                        && isFullImagePath;
+                    // キャッシュにあれば strength へ写す(キャッシュの中身はネイティブメモリにあり、貸し出し中は
+                    // 手放されない)。除外マスクが保存時と違えば、変わった画素でこのゾーンの照合がどれも 0 のときだけ
+                    // 使う(そのとき照合の直後の配列が計算し直しと同じになり、以降の段はマスクを読まないので選択も同じ)。
+                    if (selKey != null)
+                    {
+                        var zoneForCheck = zone;
+                        selCached = selectionCache.TryCopy(zone.id, selKey, w, h, strength, commonMask, zoneMask,
+                            (oldCommon, oldZone) => ExclusionChangeKeepsMatch(zoneForCheck, originalPixels, hsv,
+                                w, h, originX, originY, fullW, fullH, maskColOf, maskRowBase, maskW, maskH,
+                                oldCommon, oldZone, commonMask, zoneMask, ffNeedsMatchConf, po),
+                            out cachedKeep, out cachedForced, out cachedBox);
+                    }
+                    bool needMatchConf = ffNeedsMatchConf && !selCached;
                     // ミス時に FF が確定した keep を、選択キャッシュにも保存して次回のヒット復元に使う。
                     ulong[] keepBitsForCache = null;
 
@@ -777,20 +772,32 @@ namespace Iroca
                     // 出力ビット不変。bbox 内だけを走査することで、小マッチ(ロゴ等)で全 16.8M 画素の
                     // 近傍走査を避ける。Array.Copy/Clear は全画素のまま(memcpy で安価)残し、重い近傍
                     // 走査・relaxed 判定だけを bbox に絞る。マッチ皆無(hasPostBox=false)なら後段は全て no-op。
-                    int ppBlurRadius = edgeFeather > EdgeFeatherBlurMin ? Mathf.CeilToInt(edgeFeather * GaussianRadiusPerSigma) : 0;
-                    int ppMargin = holeFillPasses + Mathf.Max(0, antiAliasCleanup) + ppBlurRadius + 2;
+                    // ヒット時は保存した bbox を使う(後段のデコンタミ・統計もこの範囲を読むので、計算し直したときと
+                    // 同じ範囲にする。復元した選択から取り直すと、含めるマスクの画素の分だけ範囲が変わりうる)。
                     int ppMinX, ppMinY, ppMaxX, ppMaxY;
-                    bool hasPostBox = TryComputeStrengthBBox(strength, w, h, 0f,
-                        out ppMinX, out ppMinY, out ppMaxX, out ppMaxY, cancellationToken);
-                        _sub.Mark(SpPostBBox);
-                    if (hasPostBox)
+                    bool hasPostBox;
+                    if (selCached)
                     {
-                        ppMinX = Mathf.Max(0, ppMinX - ppMargin);
-                        ppMinY = Mathf.Max(0, ppMinY - ppMargin);
-                        ppMaxX = Mathf.Min(w - 1, ppMaxX + ppMargin);
-                        ppMaxY = Mathf.Min(h - 1, ppMaxY + ppMargin);
+                        hasPostBox = cachedBox.Has;
+                        ppMinX = cachedBox.MinX; ppMinY = cachedBox.MinY;
+                        ppMaxX = cachedBox.MaxX; ppMaxY = cachedBox.MaxY;
                     }
-                    else { ppMinX = 0; ppMinY = 0; ppMaxX = -1; ppMaxY = -1; } // 空 bbox(後段スキップ)
+                    else
+                    {
+                        int ppBlurRadius = edgeFeather > EdgeFeatherBlurMin ? Mathf.CeilToInt(edgeFeather * GaussianRadiusPerSigma) : 0;
+                        int ppMargin = holeFillPasses + Mathf.Max(0, antiAliasCleanup) + ppBlurRadius + 2;
+                        hasPostBox = TryComputeStrengthBBox(strength, w, h, 0f,
+                            out ppMinX, out ppMinY, out ppMaxX, out ppMaxY, cancellationToken);
+                        if (hasPostBox)
+                        {
+                            ppMinX = Mathf.Max(0, ppMinX - ppMargin);
+                            ppMinY = Mathf.Max(0, ppMinY - ppMargin);
+                            ppMaxX = Mathf.Min(w - 1, ppMaxX + ppMargin);
+                            ppMaxY = Mathf.Min(h - 1, ppMaxY + ppMargin);
+                        }
+                        else { ppMinX = 0; ppMinY = 0; ppMaxX = -1; ppMaxY = -1; } // 空 bbox(後段スキップ)
+                    }
+                    _sub.Mark(SpPostBBox);
 
                     // 1b. 孤立した穴を埋める：アンチエイリアス処理された端のピクセルは低彩度を持つことが多く
                     //     satConfidenceで見落とされて、元のカラーの孤立したドットを残す
@@ -936,43 +943,42 @@ namespace Iroca
 
                     _phaseTicks[PhBlur] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
-                    // 3. 除外マスクを再適用：ブラーが除外ピクセルにはみ出す可能性がある
-                    if (!selCached && (commonMask != null || zoneMask != null))
+                    // 選択フェーズ(Match〜ブラー)完了。ここが「生の選択」の境界で、この後はマスクを掛け、
+                    // RejectNeutral/SolidifyAchromaInterior/decontam が target 依存で strength を破壊的に
+                    // 書き換える。ミス時のみ、この時点の strength(コピー)+ FF keep + bbox を選択キャッシュへ保存し、
+                    // 次回「再着色のみ変更」した再生成で復元して選択フェーズを丸ごと省く(出力ビット不変)。
+                    // マスクを掛ける前を保存するので、ヒット時も下でマスクを掛ける。
+                    _sub.Mark(SpBlurReapply);
+                    if (!selCached && selectionCache != null && isFullImagePath)
                     {
-                        var strengthForReapply = strength;
-                        Parallel.For(0, h, po, y =>
+                        var box = new SelectionCache.PostBox
                         {
-                            int rowOff = y * w;
-                            for (int x = 0; x < w; x++)
-                            {
-                                int i = rowOff + x;
-                                if (IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask)) strengthForReapply[i] = 0f;
-                            }
-                        });
+                            Has = hasPostBox, MinX = ppMinX, MinY = ppMinY, MaxX = ppMaxX, MaxY = ppMaxY,
+                        };
+                        selectionCache.StoreFrom(zone.id, selKey, strength, keepBitsForCache, forcedBits, box,
+                            commonMask, zoneMask, w, h, cancellationToken);
+                    }
+                    _sub.Mark(SpSelCacheStore);
+
+                    // 3. 除外マスクを再適用：ブラーが除外ピクセルにはみ出す可能性がある
+                    if (commonMask != null || zoneMask != null)
+                    {
+                        ReapplyExclusion(strength, w, h, maskColOf, maskRowBase, maskW, maskH, commonMask, zoneMask, po);
                         debug?.RecordStage(zone.id, DebugStages.MaskReapply, ToManaged(strength, len), w, h);
                     }
 
                     // 3a. 含めるマスク適用: 指定画素を full strength で選択へ強制追加する。
                     //     除外の再適用より後に置くが、includedPx には除外優先が焼き込み済みなので
                     //     順序に依らず「除外が勝つ」。ブラー等の後段パスより後 = マスク解像度の
-                    //     ハードエッジになる(除外マスクと同じ WYSIWYG 契約)。選択キャッシュ保存の
-                    //     前に置くことで、キー(含めるマスク内容ハッシュ)と保存内容が常に対応する。
-                    if (!selCached && includedPx != null)
+                    //     ハードエッジになる(除外マスクと同じ WYSIWYG 契約)。
+                    if (includedPx != null)
                     {
                         ForceIncluded(strength, includedPx, w, h, po);
                         debug?.RecordStage(zone.id, DebugStages.MaskReapply, ToManaged(strength, len), w, h);
                     }
-
-                    // 選択フェーズ(Match〜マスク再適用)完了。ここが「生の選択」の境界で、この後の
-                    // RejectNeutral/SolidifyAchromaInterior/decontam は target 依存で strength を破壊的に
-                    // 書き換える。ミス時のみ、この時点の strength(コピー)+ FF keep を選択キャッシュへ保存し、
-                    // 次回「再着色のみ変更」した再生成で復元して選択フェーズを丸ごと省く(出力ビット不変)。
                     _sub.Mark(SpBlurReapply);
-                    if (!selCached && selectionCache != null && isFullImagePath)
-                        selectionCache.StoreFrom(zone.id, selKey, strength, keepBitsForCache, forcedBits, w, h, cancellationToken);
 
                     // 無彩サンプル/極端無彩ターゲットの重み(無彩パスと AA フィデリティ修正で共用)。
-                    _sub.Mark(SpSelCacheStore);
                     float zAchromaWeight = ComputeAchromaWeight(zone.sampleColor, zone.targetColor);
 
                     // 有彩サンプル→無彩ターゲット(有彩色→白/黒/灰)の過選択除去。有彩サンプルはマッチ距離が
@@ -1616,6 +1622,122 @@ namespace Iroca
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private static bool IsIncludedAt(int[] colOf, int[] rowBase, int x, int y, ulong[] includeMask)
             => colOf != null && MaskSnapshot.GetBit(includeMask, rowBase[y] + colOf[x]);
+
+        /// <summary>
+        /// 除外(共通 ∪ ゾーン)の画素の strength を 0 にする。表は BuildMaskIndexMap(無ければ何もしない)。
+        /// 除外の立っていないマスクの行に当たる作業行は読まない(選択キャッシュのヒットでも毎回走るため)。
+        /// </summary>
+        private static void ReapplyExclusion(float* strength, int w, int h, int[] colOf, int[] rowBase,
+            int maskW, int maskH, ulong[] commonMask, ulong[] zoneMask, ParallelOptions po)
+        {
+            if (colOf == null) return;
+            var rows = new bool[maskH];
+            int words = MaskWordCount(maskW, maskH);
+            for (int wi = 0; wi < words; wi++)
+                if ((MaskWord(commonMask, wi) | MaskWord(zoneMask, wi)) != 0UL) MarkMaskRows(rows, wi, maskW, maskH);
+            Parallel.For(0, h, po, y =>
+            {
+                if (!rows[rowBase[y] / maskW]) return;
+                int rowOff = y * w;
+                for (int x = 0; x < w; x++)
+                    if (IsExcludedAt(colOf, rowBase, x, y, commonMask, zoneMask)) strength[rowOff + x] = 0f;
+            });
+        }
+
+        /// <summary>
+        /// 除外(共通 ∪ ゾーン)が old から now に変わったとき、変わった画素(除外になった・外れた)のどれでも
+        /// このゾーンの照合(strength と、使うなら highlightPot・matchConf)が +0 か。+0 なら照合の直後の配列は
+        /// old で計算したときと同じ(除外の画素には +0 を書くので)で、その後の段はマスクを読まないため、
+        /// マスクを掛ける前の選択も old のときと同じになる。変わった画素が全体の 1/16 を超えたら調べずに false
+        /// (調べるより計算し直す方が速い)。
+        /// 照合の式はゾーンのループの照合と同じでなければならない(量子化をならした色が取れればその色、
+        /// 無ければ画素の色と HSV)。ループが使う色の表の値は、同じ色・同じ HSV で同じ関数を呼んだものなので
+        /// (ColorPick は位置を見ない)、ここでは表を使わない。
+        /// </summary>
+        private static bool ExclusionChangeKeepsMatch(ColorZone zone, Color32* originalPixels, PixelHsv hsv,
+            int w, int h, int originX, int originY, int fullW, int fullH, int[] colOf, int[] rowBase,
+            int maskW, int maskH, ulong[] oldCommon, ulong[] oldZone, ulong[] newCommon, ulong[] newZone,
+            bool usesMatchConf, ParallelOptions po)
+        {
+            if (colOf == null) return true;   // マスクの表が無い = どちらでも除外なし
+            var rows = new bool[maskH];
+            int words = MaskWordCount(maskW, maskH);
+            long changed = 0;
+            for (int wi = 0; wi < words; wi++)
+            {
+                ulong d = (MaskWord(oldCommon, wi) | MaskWord(oldZone, wi))
+                        ^ (MaskWord(newCommon, wi) | MaskWord(newZone, wi));
+                if (d == 0UL) continue;
+                changed += PopCount(d);
+                MarkMaskRows(rows, wi, maskW, maskH);
+            }
+            if (changed == 0) return true;
+            if (changed > (long)maskW * maskH / 16) return false;
+
+            bool usesPot = zone.highlightRecovery;
+            int failed = 0;
+            Parallel.For(0, h, po, (y, loop) =>
+            {
+                if (!rows[rowBase[y] / maskW] || Volatile.Read(ref failed) != 0) return;
+                int yf = y + originY;
+                int rowOff = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    int idx = rowBase[y] + colOf[x];
+                    bool was = MaskSnapshot.GetBit(oldCommon, idx) || MaskSnapshot.GetBit(oldZone, idx);
+                    bool now = MaskSnapshot.GetBit(newCommon, idx) || MaskSnapshot.GetBit(newZone, idx);
+                    if (was == now) continue;
+                    int i = rowOff + x;
+                    float s, hPot, mc;
+                    if (zone.mode == SelectionMode.ColorPick
+                        && TryQuantSmoothedColor(originalPixels, x, y, w, h, zone.tolerance, out Color qc))
+                    {
+                        Color.RGBToHSV(qc, out float qh, out float qs, out float qv);
+                        zone.GetMatchScoresPrecomputedHSV(qh, qs, qv, qc, x + originX, yf, fullW, fullH,
+                            out s, out hPot, out mc);
+                    }
+                    else
+                    {
+                        int k = HsvSlot(hsv.Index, i);
+                        zone.GetMatchScoresPrecomputedHSV(hsv.H[k], hsv.S[k], hsv.V[k], (Color)originalPixels[i],
+                            x + originX, yf, fullW, fullH, out s, out hPot, out mc);
+                    }
+                    if (BitConverter.SingleToInt32Bits(s) != 0
+                        || (usesPot && BitConverter.SingleToInt32Bits(hPot) != 0)
+                        || (usesMatchConf && BitConverter.SingleToInt32Bits(mc) != 0))
+                    {
+                        Volatile.Write(ref failed, 1);
+                        loop.Stop();
+                        return;
+                    }
+                }
+            });
+            return failed == 0;
+        }
+
+        private static int MaskWordCount(int maskW, int maskH) => (int)(((long)maskW * maskH + 63) >> 6);
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static ulong MaskWord(ulong[] packed, int wi) =>
+            packed != null && wi < packed.Length ? packed[wi] : 0UL;
+
+        // 語 wi(画素 wi*64 .. wi*64+63)が触れるマスクの行に印をつける(語の中のどこが立っているかは見ない。
+        // 印が多すぎても、印のある行は画素ごとに読み直すので結果は変わらない)。
+        private static void MarkMaskRows(bool[] rows, int wi, int maskW, int maskH)
+        {
+            long first = (long)wi << 6;
+            int r0 = (int)(first / maskW);
+            int r1 = (int)Math.Min(maskH - 1, (first + 63) / maskW);
+            for (int r = r0; r <= r1; r++) rows[r] = true;
+        }
+
+        private static int PopCount(ulong v)
+        {
+            v -= (v >> 1) & 0x5555555555555555UL;
+            v = (v & 0x3333333333333333UL) + ((v >> 2) & 0x3333333333333333UL);
+            v = (v + (v >> 4)) & 0x0F0F0F0F0F0F0F0FUL;
+            return (int)((v * 0x0101010101010101UL) >> 56);
+        }
 
         /// <summary>
         /// 矩形 [x0, x1] × [y0, y1](両端含む)の除外フラグ(IsExcludedAt)を dst に書く。範囲外は触らない。
