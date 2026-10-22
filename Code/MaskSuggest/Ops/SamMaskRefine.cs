@@ -78,8 +78,77 @@ namespace Iroca
         /// IncludeAaTransition と TryDeriveAaCropRect が共有する。クロップ実行が全画像実行と
         /// ビット同一である根拠は両者の d の一致なので、式はここ 1 か所にだけ置く。
         /// </summary>
-        static int BandHalfWidth(int w, int h) =>
+        internal static int BandHalfWidth(int w, int h) =>
             Mathf.Max(2, Mathf.CeilToInt(Mathf.Max(w, h) / (float)SamMaskPostprocess.LowRes * 0.75f));
+
+        /// <summary>ExtendFringe が境界から房を育てる最大距離(解像度比例。4096² で 50)。</summary>
+        static int FringeReach(int w, int h, int d) => Mathf.Max(d, Mathf.RoundToInt(Mathf.Max(w, h) / 82f));
+
+        /// <summary>PeelThinSpill が読み書きする矩形の、マスクの外接矩形からの余白(足す探索の届く距離と地色の窓)。</summary>
+        static int PeelRectMargin(int d) => GrowReachCells * d + (MaxWindowRadius + 1) * d + 1;
+
+        /// <summary>
+        /// 精密化 4 段(<see cref="SamMaskPostprocess.RefineInPlace(bool[], Color32*, int, int, System.Threading.CancellationToken)"/>)
+        /// を、マスクの外接矩形に余白を足した矩形だけで回しても全画像で回したのとビット同一になる矩形を求める。
+        /// 4 段は矩形の外の画素を読まず、書き換えもしない(外はすべてマスク外のまま)。
+        /// empty はマスクに true が無いこと(4 段とも何も変えない)。矩形が画像の 3/4 を超えるときは false(切り出す得が小さい)。
+        ///
+        /// 余白の根拠(各段が書くのは直前のマスクの外接矩形から下の範囲の中で、読む範囲も合計の中に収まる):
+        /// - SnapBoundary が書くのは帯(境界から d 以内)。読むのは帯の画素の窓(最大半径 MaxWindowRadius セル)まで。
+        /// - ExtendFringe が足すのは境界から reach 以内。読むのは境界から reach + strandHalf の画素と、その ±2 セルの窓、
+        ///   窓のセルの生地類似の判定(さらに ±2 セル)まで。
+        /// - IncludeAaTransition は 1 パスで境界から d 以内を AaMaxPasses 回、続けて 1px を AaMaxPasses 回足す。
+        ///   読むのは帯の画素の窓(最大半径 MaxWindowRadius セル)まで。
+        /// - PeelThinSpill はマスクの外接矩形に PeelRectMargin を足した矩形の中だけを読み書きする。全画像でその矩形が
+        ///   画像の端で切られないなら、切り出しでも端で切られないことが要る。
+        /// 合計 = d(Snap)+ reach(Fringe)+ AaMaxPasses·(d + 1)(AA)+ PeelRectMargin(Peel)で、Peel の矩形が
+        /// 必ず収まる。ほかの段の読む範囲(9d・reach + strandHalf + 5d・AA の 3d + 9d)はこれより狭い。
+        /// 距離変換(L1)は、マスクが矩形の中にあり、矩形の端(画像の端でない所)がマスク外なら、矩形の中で全画像と同じ値になる。
+        /// セルの位置(x/d)を全画像と揃えるため、矩形の始点は d の倍数、終点はセルの終わりか画像の端にする。
+        /// 帯幅などの定数は全画像の寸法から決める(各段に sizeW・sizeH として渡す)。
+        /// </summary>
+        internal static bool TryDeriveRefineCropRect(bool[] mask, int w, int h, System.Threading.CancellationToken token,
+            out bool empty, out int rx0, out int ry0, out int rw, out int rh)
+        {
+            rx0 = ry0 = rw = rh = 0;
+            empty = false;
+            if (mask == null || mask.Length != w * h) return false;
+            var rowMin = new int[h];
+            var rowMax = new int[h];
+            Parallel.For(0, h, MakeParallelOptions(token), y =>
+            {
+                int row = y * w, mn = -1, mx = -1;
+                for (int x = 0; x < w; x++)
+                {
+                    if (!mask[row + x]) continue;
+                    if (mn < 0) mn = x;
+                    mx = x;
+                }
+                rowMin[y] = mn;
+                rowMax[y] = mx;
+            });
+            int bx0 = w, by0 = h, bx1 = -1, by1 = -1;
+            for (int y = 0; y < h; y++)
+            {
+                if (rowMin[y] < 0) continue;
+                if (rowMin[y] < bx0) bx0 = rowMin[y];
+                if (rowMax[y] > bx1) bx1 = rowMax[y];
+                if (y < by0) by0 = y;
+                by1 = y;
+            }
+            if (bx1 < 0) { empty = true; return false; }
+
+            int d = BandHalfWidth(w, h);
+            int pad = d + FringeReach(w, h, d) + AaMaxPasses * (d + 1) + PeelRectMargin(d);
+            // 負の値の割り算は 0 の側へ切り捨てるが、そのときは画像の端(0)に寄せるので同じ。
+            rx0 = Mathf.Max(0, (bx0 - pad) / d * d);
+            ry0 = Mathf.Max(0, (by0 - pad) / d * d);
+            int rx1 = Mathf.Min(w - 1, ((bx1 + pad) / d + 1) * d - 1);
+            int ry1 = Mathf.Min(h - 1, ((by1 + pad) / d + 1) * d - 1);
+            rw = rx1 - rx0 + 1;
+            rh = ry1 - ry0 + 1;
+            return (long)rw * rh * 4 <= (long)w * h * 3;
+        }
 
         // SnapBoundary は境界を「内側/外側の等距離点」(混合率 ≈50%)に置き、多数決平滑が
         // 階段の角を ±1px 削る。除外(保護)マスクとしては、パーツ色が目に見えて混ざる画素が
@@ -179,16 +248,20 @@ namespace Iroca
             fixed (Color32* p = pixelsBottomUp) ExtendFringe(mask, p, w, h, token);
         }
 
+        /// <param name="sizeW">帯幅などの定数を決める画像の寸法(0 なら w・h)。切り出しで回すとき全画像の寸法を渡す
+        /// (<see cref="TryDeriveRefineCropRect"/>)。</param>
         public static void ExtendFringe(bool[] mask, Color32* pixelsBottomUp, int w, int h,
-                                        System.Threading.CancellationToken token = default)
+                                        System.Threading.CancellationToken token = default,
+                                        int sizeW = 0, int sizeH = 0)
         {
             if (mask == null || pixelsBottomUp == null || mask.Length != w * h) return;
+            if (sizeW <= 0 || sizeH <= 0) { sizeW = w; sizeH = h; }
 
-            int maxDim = Mathf.Max(w, h);
+            int maxDim = Mathf.Max(sizeW, sizeH);
             // グリッド幅 d は SnapBoundary と同一(低解像度セルの 3/4)。reach/strand 幅は解像度比例
             // (4096² で d=12 / reach=50 / strandHalf=10)。
-            int d = BandHalfWidth(w, h);
-            int reach = Mathf.Max(d, Mathf.RoundToInt(maxDim / 82f));
+            int d = BandHalfWidth(sizeW, sizeH);
+            int reach = FringeReach(sizeW, sizeH, d);
             int strandHalf = Mathf.Max(2, Mathf.RoundToInt(maxDim / 410f));
             float thr2 = FringeColorThresh * FringeColorThresh;
 
@@ -411,13 +484,16 @@ namespace Iroca
             fixed (Color32* p = pixelsBottomUp) SnapBoundary(mask, p, w, h, token);
         }
 
+        /// <param name="sizeW">帯幅を決める画像の寸法(0 なら w・h)。切り出しで回すとき全画像の寸法を渡す。</param>
         public static void SnapBoundary(bool[] mask, Color32* pixelsBottomUp, int w, int h,
-                                        System.Threading.CancellationToken token = default)
+                                        System.Threading.CancellationToken token = default,
+                                        int sizeW = 0, int sizeH = 0)
         {
             if (mask == null || pixelsBottomUp == null || mask.Length != w * h) return;
+            if (sizeW <= 0 || sizeH <= 0) { sizeW = w; sizeH = h; }
 
             // 不確実帯の半幅: SAM 低解像度セルの 3/4(±半セルの理論誤差+マージン)。
-            int d = BandHalfWidth(w, h);
+            int d = BandHalfWidth(sizeW, sizeH);
 
             // 境界からの深さはセパラブルな L1 距離変換で求める(作業配列は ExtendFringe と同じくプールから)。
             using var scratch = new WorkScratch();
@@ -580,13 +656,16 @@ namespace Iroca
             fixed (Color32* p = pixelsBottomUp) PeelThinSpill(mask, p, w, h, token);
         }
 
+        /// <param name="sizeW">帯幅を決める画像の寸法(0 なら w・h)。切り出しで回すとき全画像の寸法を渡す。</param>
         public static void PeelThinSpill(bool[] mask, Color32* pixelsBottomUp, int w, int h,
-                                         System.Threading.CancellationToken token = default)
+                                         System.Threading.CancellationToken token = default,
+                                         int sizeW = 0, int sizeH = 0)
         {
             if (mask == null || pixelsBottomUp == null || mask.Length != w * h) return;
+            if (sizeW <= 0 || sizeH <= 0) { sizeW = w; sizeH = h; }
             var px = pixelsBottomUp;
             var po = MakeParallelOptions(token);
-            int d = BandHalfWidth(w, h);
+            int d = BandHalfWidth(sizeW, sizeH);
             int reach = GrowReachCells * d;
             int gw = (w + d - 1) / d, gh = (h + d - 1) / d;
 
@@ -615,7 +694,7 @@ namespace Iroca
                 y1 = y;
             }
             if (x1 < 0) return;
-            int margin = reach + (MaxWindowRadius + 1) * d + 1;
+            int margin = PeelRectMargin(d);
             x0 = Mathf.Max(0, x0 - margin); y0 = Mathf.Max(0, y0 - margin);
             x1 = Mathf.Min(w - 1, x1 + margin); y1 = Mathf.Min(h - 1, y1 + margin);
             int bw = x1 - x0 + 1, bh = y1 - y0 + 1;

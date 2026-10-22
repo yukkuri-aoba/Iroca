@@ -1566,6 +1566,59 @@ namespace Iroca
                     return 0;
                 }
 
+                // --samops-refineall <mask.raw> <image.raw RGBA> <out.raw> [reps] : 精密化 4 段を製品の入口
+                // (SamMaskPostprocess.RefineInPlace。提案が画像の一部なら切り出して回す)で通す。
+                // --samops-refine → -fringe → -aainclude → -peel の連鎖(全画像)とビット同一であることの検証に使う。
+                // reps(既定 1)を渡すと、製品の入口と全画像の 4 段をそれぞれ reps 回ずつ交互に回して最小の時間を出し、
+                // 両者の出力の違う画素数(diff)も数える。
+                // 出力: REFINEALL OK WxH crop=x,y,w,h(切り出さなかったときは crop=none) ms=<製品の入口>
+                //       [full_ms=<全画像の 4 段> diff=<画素数>]
+                case "--samops-refineall":
+                {
+                    var (mw2, mh2, mask2) = ReadMaskRaw(args[1]);
+                    var (iw, ih, rgba2) = ReadRaw(args[2], 4);
+                    if (iw != mw2 || ih != mh2)
+                    {
+                        Console.Error.WriteLine("refineall: mask/image size mismatch");
+                        return 2;
+                    }
+                    int reps = args.Length > 4 ? int.Parse(args[4], inv) : 1;
+                    var px2 = ToColor32(rgba2, iw * ih);
+                    string crop = SamMaskRefine.TryDeriveRefineCropRect(mask2, iw, ih, default,
+                            out _, out int cx0, out int cy0, out int cw, out int ch)
+                        ? $"{cx0},{cy0},{cw},{ch}" : "none";
+                    bool[] result = null, fullResult = null;
+                    double best = double.MaxValue, bestFull = double.MaxValue;
+                    for (int r = 0; r < reps; r++)
+                    {
+                        var m = (bool[])mask2.Clone();
+                        var sw1 = Stopwatch.StartNew();
+                        SamMaskPostprocess.RefineInPlace(m, px2, iw, ih);
+                        best = Math.Min(best, sw1.Elapsed.TotalMilliseconds);
+                        result = m;
+                        if (reps <= 1) break;
+                        var f = (bool[])mask2.Clone();
+                        var sw2 = Stopwatch.StartNew();
+                        SamMaskRefine.SnapBoundary(f, px2, iw, ih);
+                        SamMaskRefine.ExtendFringe(f, px2, iw, ih);
+                        SamMaskRefine.IncludeAaTransition(f, px2, iw, ih);
+                        SamMaskRefine.PeelThinSpill(f, px2, iw, ih);
+                        bestFull = Math.Min(bestFull, sw2.Elapsed.TotalMilliseconds);
+                        fullResult = f;
+                    }
+                    WriteMaskRaw(args[3], iw, ih, result);
+                    string extra = "";
+                    if (fullResult != null)
+                    {
+                        int diff = 0;
+                        for (int i = 0; i < result.Length; i++) if (result[i] != fullResult[i]) diff++;
+                        extra = string.Format(inv, " full_ms={0:F1} diff={1}", bestFull, diff);
+                    }
+                    Console.WriteLine(string.Format(inv, "REFINEALL OK {0}x{1} crop={2} ms={3:F1}{4}",
+                        iw, ih, crop, best, extra));
+                    return 0;
+                }
+
                 // --samops-aainclude <mask.raw> <image.raw RGBA> <out.raw> : AA 遷移帯の包含単体
                 case "--samops-aainclude":
                 {
