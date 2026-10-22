@@ -7,15 +7,18 @@ using System.Threading;
 namespace Iroca
 {
     /// <summary>
-    /// 選択結果(マスク再適用直後の strength=「生の選択」と flood fill keep)をゾーン別にキャッシュする。
+    /// 選択結果(マスクを掛ける直前の strength=「生の選択」・flood fill keep・後段の bbox)をゾーン別にキャッシュする。
     /// 「ターゲット色/再着色パラメータだけ変えた」プレビュー再生成では、選択フェーズ
-    /// (Match/Highlight/FloodFill/穴埋め/境界/ブラー/マスク再適用)の結果は不変なので、再計算せず
-    /// キャッシュした strength を復元し、再着色フェーズ以降だけを走らせる(=「1回の変更ごと」の高速化)。
+    /// (Match/Highlight/FloodFill/穴埋め/境界/ブラー)の結果は不変なので、再計算せず
+    /// キャッシュした strength を復元し、マスクを掛け直して再着色フェーズ以降だけを走らせる(=「1回の変更ごと」の高速化)。
     ///
     /// キーは **選択に影響する入力だけ** から作る(<see cref="PixelProcessor.BuildSelectionKey"/>)。
     /// ターゲット色・valueBlend・出力彩度・シャドウ脱彩・wash・再着色アンカーは含めない(=これらの
-    /// 変更ではヒットして選択を再利用する)。tolerance・サンプル色・edgeSoftness・各しきい・マスク内容
-    /// などが変われば別キー=ミス=再計算。曖昧なものは安全側で「選択影響」に含める(ミスが増えるだけ)。
+    /// 変更ではヒットして選択を再利用する)。tolerance・サンプル色・edgeSoftness・各しきいなどが
+    /// 変われば別キー=ミス=再計算。曖昧なものは安全側で「選択影響」に含める(ミスが増えるだけ)。
+    /// マスクの中身はキーに入れない。含めるマスクは保存する strength に効かない(掛けるのは復元の後)。
+    /// 除外マスク(共通・ゾーン)は保存時の配列を持ち、違っていれば呼び出し側の判定
+    /// (<see cref="MaskReuseCheck"/>)で使えるかを決める。共通マスクを 1 筆塗るたびに全ゾーンが外れないようにするため。
     ///
     /// strength は作業配列のプールから借りた領域で後段が破壊的に書き換えるため、Store では必ずコピーを取る。
     /// 復元結果が「同一入力でフル計算した strength」と完全一致するので出力はビット不変。
@@ -32,12 +35,29 @@ namespace Iroca
     /// </summary>
     internal sealed unsafe class SelectionCache : IDisposable
     {
+        /// <summary>
+        /// 保存時の除外マスク(共通・ゾーン。null は除外なし)のままでも、今の除外マスクで計算し直したのと同じ選択に
+        /// なるか。true なら保存した選択を使う。
+        /// </summary>
+        internal delegate bool MaskReuseCheck(ulong[] storedCommon, ulong[] storedZone);
+
+        /// <summary>後段(穴埋め・境界回復・ブラー・デコンタミ・統計)が走査する範囲。余白を足した後の値で、Has=false は空。</summary>
+        internal struct PostBox
+        {
+            public bool Has;
+            public int MinX, MinY, MaxX, MaxY;
+        }
+
         private sealed class Entry
         {
             public string Key;
-            public NativeFloatBuffer Strength;   // マスク再適用直後の strength のコピー(len=w*h)
+            public NativeFloatBuffer Strength;   // マスクを掛ける直前の strength のコピー(len=w*h)
             public ulong[] Keep;       // flood fill keep(毎回 new されるので参照保持で安全)。FF OFF は null
             public ulong[] Forced;     // 閉領域ハイライト復帰の画素ビット(parityCache へ再公開する)。該当なしは null
+            public PostBox Box;
+            // この選択が正しい除外マスク(MaskSnapshot の配列。作り直さず読むだけなので参照で持つ)。
+            // 判定を通って使い回したら、そのときのマスクに差し替える(次の判定の差分を小さくする)。
+            public ulong[] Common, ZoneMask;
             public int W, H;
             public int Leases;         // 中身を写している最中の数(_gate の中で増減)
             public bool Detached;      // 辞書から外した。Leases が 0 になったら解放する
@@ -49,60 +69,84 @@ namespace Iroca
         private readonly object _gate = new object();
         private int _epoch;            // Clear・Dispose のたびに進める
         private bool _disposed;
+        private int _maskReuseCount;
+
+        /// <summary>除外マスクが保存時と違っていたが、判定を通って使い回した回数(検証用)。</summary>
+        internal int MaskReuseCount => Volatile.Read(ref _maskReuseCount);
 
         /// <summary>
-        /// キャッシュにあれば true と keep・forced を返し、strengthDst があればそこへ strength を写す(長さ w*h 以上)。
-        /// strengthDst が null なら有無だけを見る。
+        /// 除外マスクなしで保存したものを引く(<see cref="TryCopy"/> の配列版)。キャッシュにあれば true と keep・forced を返し、
+        /// strengthDst があればそこへ strength を写す(長さ w*h 以上)。strengthDst が null なら有無だけを見る。
         /// </summary>
         public bool TryGet(string zoneId, string key, int w, int h,
             out ulong[] keep, out ulong[] forced, float[] strengthDst = null)
         {
-            if (strengthDst == null) return TryCopy(zoneId, key, w, h, null, out keep, out forced);
+            if (strengthDst == null) return TryCopy(zoneId, key, w, h, null, null, null, null, out keep, out forced, out _);
             if (strengthDst.Length < w * h) throw new ArgumentException("strengthDst が w*h より短い", nameof(strengthDst));
-            fixed (float* p = strengthDst) return TryCopy(zoneId, key, w, h, p, out keep, out forced);
+            fixed (float* p = strengthDst) return TryCopy(zoneId, key, w, h, p, null, null, null, out keep, out forced, out _);
         }
 
-        /// <summary><see cref="TryGet"/> のポインタ版(作業配列のプールが貸す領域へ写す。長さ w*h 以上)。</summary>
+        /// <summary>
+        /// キャッシュにあれば true と keep・forced・box を返し、strengthDst があればそこへ strength を写す(長さ w*h 以上)。
+        /// strengthDst が null なら有無だけを見る。除外マスク(common・zoneMask)が保存時の配列と違えば、reusable が
+        /// true を返したときだけ使う(reusable が null なら使わない)。reusable は lock の外で呼ぶ。
+        /// </summary>
         public bool TryCopy(string zoneId, string key, int w, int h, float* strengthDst,
-            out ulong[] keep, out ulong[] forced)
+            ulong[] common, ulong[] zoneMask, MaskReuseCheck reusable,
+            out ulong[] keep, out ulong[] forced, out PostBox box)
         {
-            keep = null; forced = null;
+            keep = null; forced = null; box = default;
             if (string.IsNullOrEmpty(zoneId)) return false;
             Entry e;
+            ulong[] storedCommon, storedZone;
             lock (_gate)
             {
                 if (!_byZone.TryGetValue(zoneId, out e) || e.Key != key || e.W != w || e.H != h) return false;
-                keep = e.Keep; forced = e.Forced;
-                if (strengthDst == null) return true;
+                storedCommon = e.Common; storedZone = e.ZoneMask;
                 e.Leases++;
             }
+            bool reused = false;
             try
             {
-                e.Strength.CopyTo(strengthDst, w * h);
+                if (!ReferenceEquals(storedCommon, common) || !ReferenceEquals(storedZone, zoneMask))
+                {
+                    if (reusable == null || !reusable(storedCommon, storedZone)) return false;
+                    reused = true;
+                }
+                if (strengthDst != null) e.Strength.CopyTo(strengthDst, w * h);
             }
             finally
             {
                 // 中断中は貸し出しを返さない(この領域を最後まで解放しない。後始末はファイナライザ)。
                 if (!IrocaNativeMemory.CurrentThreadAborting)
-                    lock (_gate) Return(e);
+                {
+                    lock (_gate)
+                    {
+                        if (reused && !e.Detached) { e.Common = common; e.ZoneMask = zoneMask; }
+                        Return(e);
+                    }
+                }
             }
+            if (reused) Interlocked.Increment(ref _maskReuseCount);
+            keep = e.Keep; forced = e.Forced; box = e.Box;   // 作った後は変えない項目
             return true;
         }
 
-        /// <summary>
-        /// strength(長さ w*h 以上)を写して保存する。ct が取り消されていたら保存しない: 取り消した計算(テクスチャの
-        /// 読み直しの前の画素で作った選択)を、Clear の後に保存させないため。呼び出し側は Clear の前に必ず取り消す。
-        /// </summary>
+        /// <summary>除外マスクなし・bbox なしで保存する(<see cref="StoreFrom"/> の配列版)。</summary>
         public void Store(string zoneId, string key, float[] strength, ulong[] keep, ulong[] forced, int w, int h,
             CancellationToken ct = default)
         {
             if (strength.Length < w * h) throw new ArgumentException("strength が w*h より短い", nameof(strength));
-            fixed (float* p = strength) StoreFrom(zoneId, key, p, keep, forced, w, h, ct);
+            fixed (float* p = strength) StoreFrom(zoneId, key, p, keep, forced, default, null, null, w, h, ct);
         }
 
-        /// <summary><see cref="Store"/> のポインタ版(作業配列のプールが貸す領域から写す。長さ w*h 以上)。</summary>
-        public void StoreFrom(string zoneId, string key, float* strength, ulong[] keep, ulong[] forced, int w, int h,
-            CancellationToken ct = default)
+        /// <summary>
+        /// strength(長さ w*h 以上)を写して保存する。common・zoneMask は、この選択を計算したときの除外マスク
+        /// (MaskSnapshot の配列。参照で持つ)。ct が取り消されていたら保存しない: 取り消した計算(テクスチャの
+        /// 読み直しの前の画素で作った選択)を、Clear の後に保存させないため。呼び出し側は Clear の前に必ず取り消す。
+        /// </summary>
+        public void StoreFrom(string zoneId, string key, float* strength, ulong[] keep, ulong[] forced,
+            in PostBox box, ulong[] common, ulong[] zoneMask, int w, int h, CancellationToken ct = default)
         {
             if (string.IsNullOrEmpty(zoneId)) return;
             int len = w * h;
@@ -125,7 +169,11 @@ namespace Iroca
             {
                 buf ??= new NativeFloatBuffer(len);
                 buf.CopyFrom(strength, len);
-                var entry = new Entry { Key = key, Strength = buf, Keep = keep, Forced = forced, W = w, H = h };
+                var entry = new Entry
+                {
+                    Key = key, Strength = buf, Keep = keep, Forced = forced, Box = box,
+                    Common = common, ZoneMask = zoneMask, W = w, H = h,
+                };
                 lock (_gate)
                 {
                     // 取り消しは lock の外でも起きるが、呼び出し側は「取り消し → Clear」の順なので、Clear の後に

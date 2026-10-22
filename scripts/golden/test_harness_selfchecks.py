@@ -4,6 +4,9 @@
     実 C# 実行し、既知の不変量（変化画素数・連結成分・パネル寸法・マゼンタ着色）を確かめる。入力は不要。
   - --samops-aainclude-crop: AA 遷移帯の包含をクロップして実行する経路（AI 提案のマスク確定段が使う）。
     全画像で実行する --samops-aainclude と、出力がビット同一であることを確かめる。
+  - --samops-refineall: 精密化 4 段の製品の入口（提案の外接矩形＋余白だけで回す）が、全画像で 4 段を回したのと
+    ビット同一であることを確かめる。
+  - --selcache-mask: マスクだけを変えた再生成が、選択キャッシュを持ち越してもフル再計算と同じ出力になること。
 
 Harness.cs は変えない。環境不備は skip（CI の IROCA_REQUIRE_HARNESS=1 では fail）、環境が揃っているのに
 ビルドが失敗したら fail。どちらも golden と同じ規則（golden_lib.require_toolchain / build_harness_or_fail）。
@@ -12,6 +15,7 @@ Harness.cs は変えない。環境不備は skip（CI の IROCA_REQUIRE_HARNESS
 """
 from __future__ import annotations
 
+import json
 import re
 import struct
 import subprocess
@@ -132,3 +136,80 @@ def test_aainclude_crop_matches_full(harness, tmp_path, cx, cy, clamped):
         f"クロップ実行と全画像実行の出力が一致しません（{m.group(0)}）")
     added = int(_read_mask(full_raw).astype(bool).sum()) - int(mask.astype(bool).sum())
     assert added > 0, "AA 遷移帯の画素が 1 つも足されていません（検出力のない入力）"
+
+
+# ─────────────── 精密化 4 段: 切り出しと全画像の一致 ───────────────
+_REFINEALL = re.compile(r"REFINEALL OK \d+x\d+ crop=(\S+) ms=[\d.]+ full_ms=[\d.]+ diff=(\d+)")
+
+
+def _blocky(mask: np.ndarray, cell: int) -> np.ndarray:
+    """SAM の粗い提案に似せて、cell 角ごとに多数決で塗った形にする（境界が色の縁からずれる）。"""
+    h, w = mask.shape
+    m = mask.reshape(h // cell, cell, w // cell, cell).mean(axis=(1, 3)) >= 0.5
+    return np.repeat(np.repeat(m, cell, axis=0), cell, axis=1).astype(np.uint8)
+
+
+def _thin_line_on_cloth() -> tuple[np.ndarray, np.ndarray]:
+    """生成りの地に暗い細い線（幅 3px）と、線の周りに地が滲んだ細い提案（幅 13px）。"""
+    rgba = np.zeros((_N, _N, 4), np.uint8)
+    rgba[..., :3] = (225, 215, 190)
+    rgba[..., 3] = 255
+    rgba[500:503, 300:700, :3] = (40, 35, 30)
+    mask = np.zeros((_N, _N), np.uint8)
+    mask[495:508, 296:704] = 1
+    return rgba, mask
+
+
+@pytest.mark.parametrize("case", ["disc-center", "disc-corner", "thin-line"])
+def test_refineall_crop_matches_full(harness, tmp_path, case):
+    """製品の精密化の入口（提案が画像の一部なら外接矩形＋余白だけで 4 段を回す）が、全画像で 4 段を回したのと
+    ビット同一。--samops-refineall に回数 2 を渡すと、同じプロセスで両方を回して違う画素数を出す。"""
+    if case == "thin-line":
+        rgba, mask = _thin_line_on_cloth()
+    else:
+        rgba, core = _disc_on_gray(*((500.3, 500.3) if case == "disc-center" else (40.3, 40.3)))
+        mask = _blocky(core, 8)
+    img_raw, mask_raw, out_raw = tmp_path / "img.raw", tmp_path / "mask.raw", tmp_path / "out.raw"
+    G.write_raw(img_raw, rgba)
+    G.write_raw(mask_raw, mask)
+    r = _run(harness, "--samops-refineall", mask_raw, img_raw, out_raw, 2)
+    assert r.returncode == 0, f"--samops-refineall 失敗 (exit={r.returncode}):\n{r.stderr}"
+    m = _REFINEALL.search(r.stdout)
+    assert m, f"REFINEALL 行がありません:\n{r.stdout}"
+    assert m.group(1) != "none", f"切り出さずに全画像で回しています（検出力のない入力）: {m.group(0)}"
+    assert int(m.group(2)) == 0, f"切り出しと全画像の出力が違います: {m.group(0)}"
+    assert not np.array_equal(_read_mask(out_raw), mask), "4 段が 1 画素も変えていません（検出力のない入力）"
+
+
+# ─────────────── 選択キャッシュ: マスクだけを変えた再生成 ───────────────
+_SELCACHE = re.compile(r"SELCACHE populate_diff=(\d+) hit_vs_fresh=(\d+) miss_vs_fresh=(\d+)")
+_SELCACHE_MASK = re.compile(r"SELCACHE-MASK quiet=(\d+) busy=(\d+) back=(\d+) include=(\d+) reuse=(\d+)")
+
+
+def test_selection_cache_mask_changes(harness, tmp_path):
+    """除外マスク・含めるマスクだけを変えた再生成が、選択キャッシュを持ち越してもフル再計算と同じ出力になる。
+    筆が通った画素でゾーンの照合が 0 なら、選択を使い回す（reuse が 1 以上）。"""
+    n = 256
+    yy, xx = np.mgrid[0:n, 0:n]
+    rgba = np.zeros((n, n, 4), np.uint8)
+    rgba[..., :3] = 150
+    rgba[..., 3] = 255
+    rgba[(xx - 80) ** 2 + (yy - 80) ** 2 <= 40 ** 2, :3] = (200, 30, 30)
+    rgba[(xx - 180) ** 2 + (yy - 170) ** 2 <= 45 ** 2, :3] = (30, 60, 200)
+    img_raw, mask_raw, out_raw, zj = (tmp_path / "img.raw", tmp_path / "mask.raw", tmp_path / "out.raw",
+                                      tmp_path / "z.json")
+    G.write_raw(img_raw, rgba)
+    G.write_raw(mask_raw, np.zeros((n, n), np.uint8))
+    zones = [G.zone(name="red", sample=(200 / 255, 30 / 255, 30 / 255), target=(0.1, 0.7, 0.2)),
+             G.zone(name="blue", sample=(30 / 255, 60 / 255, 200 / 255), target=(0.9, 0.8, 0.1))]
+    zj.write_text(json.dumps({"zones": [G._zone_json(z) for z in zones], "settings": G.settings()}),
+                  encoding="utf-8")
+    r = _run(harness, img_raw, mask_raw, out_raw, "--zones", zj, "--selcache-mask")
+    assert r.returncode == 0, f"--selcache-mask 失敗 (exit={r.returncode}):\n{r.stderr}"
+    m = _SELCACHE.search(r.stderr)
+    assert m and all(int(g) == 0 for g in m.groups()), f"選択キャッシュの基本の検証が崩れています:\n{r.stderr}"
+    mm = _SELCACHE_MASK.search(r.stderr)
+    assert mm, f"SELCACHE-MASK 行がありません:\n{r.stderr}"
+    quiet, busy, back, include, reuse = (int(g) for g in mm.groups())
+    assert (quiet, busy, back, include) == (0, 0, 0, 0), f"フル再計算と出力が違います: {mm.group(0)}"
+    assert reuse > 0, f"マスクを変えたときに選択を 1 度も使い回していません（検出力のない入力）: {mm.group(0)}"

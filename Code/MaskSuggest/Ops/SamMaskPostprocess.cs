@@ -220,20 +220,64 @@ namespace Iroca
                                          int texW, int texH,
                                          System.Threading.CancellationToken token = default)
         {
-            SamMaskRefine.SnapBoundary(maskBottomUp, pixelsBottomUp, texW, texH, token);
+            // 提案が画像の一部なら、外接矩形に余白を足した矩形だけで 4 段を回す(全画像で回したのとビット同一。
+            // 根拠は TryDeriveRefineCropRect)。4K で全画像を回すと、提案が小さくても 1 回 1〜2 秒かかる。
+            if (SamMaskRefine.TryDeriveRefineCropRect(maskBottomUp, texW, texH, token,
+                    out bool empty, out int rx0, out int ry0, out int rw, out int rh))
+            {
+                RefineCropped(maskBottomUp, pixelsBottomUp, texW, texH, rx0, ry0, rw, rh, token);
+                return;
+            }
+            if (empty) return;   // マスクが空なら 4 段とも何も変えない
+            RefineStages(maskBottomUp, pixelsBottomUp, texW, texH, texW, texH, token);
+        }
+
+        // 4 段をこの順で回す。sizeW・sizeH は帯幅などの定数を決める寸法(切り出しのときは全画像の寸法)。
+        private static void RefineStages(bool[] mask, Color32* px, int w, int h, int sizeW, int sizeH,
+                                         System.Threading.CancellationToken token)
+        {
+            SamMaskRefine.SnapBoundary(mask, px, w, h, token, sizeW, sizeH);
             token.ThrowIfCancellationRequested();
             // 房(細い frayed strands)を実テクスチャ信号で外郭まで拡張(SAM の滑らかな境界が
             // 切り落とす房を救済)。房が無い部位ではほとんど成長しない。
-            SamMaskRefine.ExtendFringe(maskBottomUp, pixelsBottomUp, texW, texH, token);
+            SamMaskRefine.ExtendFringe(mask, px, w, h, token, sizeW, sizeH);
             token.ThrowIfCancellationRequested();
             // 境界外側の AA 遷移(パーツ色の実混合)を包含する最終仕上げ。スナップ境界は
             // 混合率 ≈50% 点に乗るため、外側に残る混合画素が再着色で点ノイズになるのを防ぐ。
-            SamMaskRefine.IncludeAaTransition(maskBottomUp, pixelsBottomUp, texW, texH, token);
+            SamMaskRefine.IncludeAaTransition(mask, px, w, h, token,
+                dOverride: SamMaskRefine.BandHalfWidth(sizeW, sizeH));
             token.ThrowIfCancellationRequested();
             // SAM の解像度より細い描き込み(ファスナーの歯・細い線)の提案を、地(陰影を含む)を外して描き込み
             // そのものへ合わせ、SAM が端で切った続きを足す。最後に置くのは、房の拡張は地色より暗い落ち影を
             // 「地色から遠い外側」として、AA 遷移包含は暗い縁取りと落ち影の間を「混色」として足すため。
-            SamMaskRefine.PeelThinSpill(maskBottomUp, pixelsBottomUp, texW, texH, token);
+            SamMaskRefine.PeelThinSpill(mask, px, w, h, token, sizeW, sizeH);
+        }
+
+        // 矩形 (rx0, ry0, rw, rh) を切り出して 4 段を回し、矩形の行をマスクへ写し戻す。矩形の外は 4 段とも変えない。
+        // Snap と Peel は画素を外すこともあるので、足した画素だけでなく行をそのまま写す。
+        private static void RefineCropped(bool[] mask, Color32* px, int w, int h,
+                                          int rx0, int ry0, int rw, int rh,
+                                          System.Threading.CancellationToken token)
+        {
+            var cropMask = new bool[rw * rh];
+            Color32* cropPx = WorkPools.Rgba32.Rent(rw * rh);
+            try
+            {
+                Parallel.For(0, rh, SamMaskRefine.MakeParallelOptions(token), cy =>
+                {
+                    int src = (ry0 + cy) * w + rx0;
+                    new System.ReadOnlySpan<bool>(mask, src, rw).CopyTo(new System.Span<bool>(cropMask, cy * rw, rw));
+                    new System.ReadOnlySpan<Color32>(px + src, rw).CopyTo(new System.Span<Color32>(cropPx + cy * rw, rw));
+                });
+                RefineStages(cropMask, cropPx, rw, rh, w, h, token);
+                for (int cy = 0; cy < rh; cy++)
+                    System.Array.Copy(cropMask, cy * rw, mask, (ry0 + cy) * w + rx0, rw);
+            }
+            finally
+            {
+                // 中断中は返さない(並列で読んでいる途中のスレッドが残っていることがある)。
+                if (!IrocaNativeMemory.CurrentThreadAborting) WorkPools.Rgba32.Return(cropPx);
+            }
         }
 
         /// <summary>

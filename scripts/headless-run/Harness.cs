@@ -410,7 +410,7 @@ namespace Iroca
                 switch (args[i])
                 {
                     case "--zones": case "--stage": i++; break;   // 値を 1 つ消費
-                    case "--autotune": case "--ffcheck": case "--selcache": case "--viastate": break;
+                    case "--autotune": case "--ffcheck": case "--selcache": case "--selcache-mask": case "--viastate": break;
                     default:
                         // 後方互換の位置引数(sample/target/tolerance の数値 7 個)だけ許す。
                         if (i <= 9 && args.Length >= 10 && double.TryParse(
@@ -570,9 +570,11 @@ namespace Iroca
                 RunFloodFillCropCheck((Color32[])pixels.Clone(), w, h, masks, zoneList, st);
 
             // --selcache: 選択キャッシュのヒット経路が「フル再計算」と byte 一致するか自己検証する。
+            // --selcache-mask はそれに続けて、マスクだけを変えた再生成も確かめる。
             // 元入力 pixels は未改変クローンを使い、ゾーンも複製するので本処理に影響しない。
-            if (System.Array.IndexOf(args, "--selcache") >= 0)
-                RunSelectionCacheCheck((Color32[])pixels.Clone(), w, h, masks, zoneList, st);
+            bool selCacheMask = System.Array.IndexOf(args, "--selcache-mask") >= 0;
+            if (selCacheMask || System.Array.IndexOf(args, "--selcache") >= 0)
+                RunSelectionCacheCheck((Color32[])pixels.Clone(), w, h, masks, zoneList, st, selCacheMask);
 
             // 段階的リファインの表示画像を出力して終了（--stage。上記コメント参照）。
             // 自動調整は実機同様フル解像度の pixels で済ませてから（この上のブロック）、
@@ -859,8 +861,7 @@ namespace Iroca
             string KeyOf(ColorZone z) => (string)mi.Invoke(null, new object[]
             {
                 z, /*edgeFeather*/0f, /*aaCleanup*/3, /*holeFillPasses*/5, /*holeFillMinNeighbors*/4,
-                /*relaxedSatMin*/0.02f, /*relaxedSatRamp*/0.08f, /*commonMask*/null, /*zoneMask*/null,
-                /*zoneInclude*/null, /*maskW*/0, /*maskH*/0, /*mixtureBand*/false,
+                /*relaxedSatMin*/0.02f, /*relaxedSatRamp*/0.08f, /*maskW*/0, /*maskH*/0, /*mixtureBand*/false,
             });
 
             var baseline = new ColorZone();
@@ -1322,8 +1323,10 @@ namespace Iroca
         //   populate_diff : 空キャッシュで populate した出力 == キャッシュ無し出力 か(0 が正)
         //   hit_vs_fresh  : ターゲット色のみ変更→ヒット復元→再着色した出力 == フル再計算 か(★0 が正)
         //   miss_vs_fresh : tolerance 変更→ミス再計算した出力 == フル再計算 か(0 が正)
+        // withMaskChanges(--selcache-mask)なら続けてマスクだけを変える検証も行う(RunSelectionCacheMaskCheck)。
         private static void RunSelectionCacheCheck(
-            Color32[] input, int w, int h, MaskSnapshot masks, List<ColorZone> zonesIn, SettingsCfg st)
+            Color32[] input, int w, int h, MaskSnapshot masks, List<ColorZone> zonesIn, SettingsCfg st,
+            bool withMaskChanges)
         {
             var zones = new List<ColorZone>();
             foreach (var z in zonesIn) { var c = z.Clone(); c.UpdateCacheIfNeeded(); zones.Add(c); }
@@ -1367,6 +1370,90 @@ namespace Iroca
             Console.Error.WriteLine(
                 $"SELCACHE populate_diff={dPopulate} hit_vs_fresh={dHit} miss_vs_fresh={dMiss} "
                 + $"hitMs={sw.Elapsed.TotalMilliseconds:F1} freshMs={swf.Elapsed.TotalMilliseconds:F1}");
+
+            if (withMaskChanges) RunSelectionCacheMaskCheck(input, w, h, masks, zones, st, cache, o3);
+        }
+
+        // 選択キャッシュのマスク変更の検証: 除外マスク・含めるマスクだけを変えた再生成が、キャッシュを持ち越しても
+        // フル再計算と byte 一致するかを確かめる("SELCACHE-MASK" 行。差分はどれも 0 が正)。
+        //   quiet   : どのゾーンも変えなかった 24px 角を共通の除外に足す(照合が 0 なら使い回しになる)
+        //   busy    : いちばん変化の多い 24px 角を共通の除外に足す(そこに合うゾーンは計算し直しになる)
+        //   back    : 共通の除外を元に戻す(中身は同じで別の配列)
+        //   include : 先頭ゾーンの含めるマスクに quiet の角を足す(選択はそのまま使える)
+        //   reuse   : 除外マスクが違うのに使い回した回数(選択キャッシュの数え)
+        // マスクの寸法が画像と違うときは試さない(skipped)。
+        private static void RunSelectionCacheMaskCheck(Color32[] input, int w, int h, MaskSnapshot masks,
+            List<ColorZone> zones, SettingsCfg st, SelectionCache cache, Color32[] current)
+        {
+            if (masks == null || masks.width != w || masks.height != h || zones.Count == 0)
+            {
+                Console.Error.WriteLine("SELCACHE-MASK skipped");
+                return;
+            }
+            const int B = 24;
+            int bestBusy = -1, busyCount = 0, quiet = -1;
+            int bx = w / B, by = h / B;
+            for (int k = 0; k < bx * by; k++)
+            {
+                int x0 = (k % bx) * B, y0 = (k / bx) * B, n = 0;
+                for (int y = y0; y < y0 + B; y++)
+                    for (int x = x0; x < x0 + B; x++)
+                    {
+                        Color32 a = input[y * w + x], b = current[y * w + x];
+                        if (a.r != b.r || a.g != b.g || a.b != b.b || a.a != b.a) n++;
+                    }
+                if (n == 0 && quiet < 0) quiet = k;
+                if (n > busyCount) { busyCount = n; bestBusy = k; }
+            }
+            if (quiet < 0 || bestBusy < 0)
+            {
+                Console.Error.WriteLine("SELCACHE-MASK skipped");
+                return;
+            }
+            int words = (w * h + 63) >> 6;
+            ulong[] WithBlock(ulong[] src, int k)
+            {
+                var dst = new ulong[words];
+                if (src != null) Array.Copy(src, dst, Math.Min(words, src.Length));
+                int x0 = (k % bx) * B, y0 = (k / bx) * B;
+                for (int y = y0; y < y0 + B; y++)
+                    for (int x = x0; x < x0 + B; x++)
+                    {
+                        int i = y * w + x;
+                        dst[i >> 6] |= 1UL << (i & 63);
+                    }
+                return dst;
+            }
+            MaskSnapshot With(ulong[] common, Dictionary<string, ulong[]> includes) => new MaskSnapshot
+            {
+                common = common, width = w, height = h, zones = masks.zones, zoneIncludes = includes,
+            };
+            int Step(MaskSnapshot m)
+            {
+                var withCache = (Color32[])input.Clone();
+                PixelProcessor.ProcessPixelsArray(withCache, w, h, m, zones, st.ToRecolorSettings(), selectionCache: cache);
+                var fresh = (Color32[])input.Clone();
+                PixelProcessor.ProcessPixelsArray(fresh, w, h, m, zones, st.ToRecolorSettings());
+                int n = 0;
+                for (int i = 0; i < fresh.Length; i++)
+                    if (fresh[i].r != withCache[i].r || fresh[i].g != withCache[i].g
+                        || fresh[i].b != withCache[i].b || fresh[i].a != withCache[i].a) n++;
+                return n;
+            }
+            int reuse0 = cache.MaskReuseCount;
+            var quietCommon = WithBlock(masks.common, quiet);
+            int dQuiet = Step(With(quietCommon, masks.zoneIncludes));
+            int dBusy = Step(With(WithBlock(quietCommon, bestBusy), masks.zoneIncludes));
+            var backCommon = masks.common == null ? null : (ulong[])masks.common.Clone();
+            int dBack = Step(With(backCommon, masks.zoneIncludes));
+            var includes = masks.zoneIncludes == null
+                ? new Dictionary<string, ulong[]>() : new Dictionary<string, ulong[]>(masks.zoneIncludes);
+            includes.TryGetValue(zones[0].id, out var inc0);
+            includes[zones[0].id] = WithBlock(inc0, quiet);
+            int dInclude = Step(With(backCommon, includes));
+            Console.Error.WriteLine(
+                $"SELCACHE-MASK quiet={dQuiet} busy={dBusy} back={dBack} include={dInclude} "
+                + $"reuse={cache.MaskReuseCount - reuse0}");
         }
 
         // ─── AI マスク提案の純計算層検証(--samops-*) ───
@@ -1476,6 +1563,59 @@ namespace Iroca
                     SamMaskRefine.PeelThinSpill(mask2, px2, iw, ih);
                     WriteMaskRaw(args[3], iw, ih, mask2);
                     Console.WriteLine($"PEEL OK {iw}x{ih}");
+                    return 0;
+                }
+
+                // --samops-refineall <mask.raw> <image.raw RGBA> <out.raw> [reps] : 精密化 4 段を製品の入口
+                // (SamMaskPostprocess.RefineInPlace。提案が画像の一部なら切り出して回す)で通す。
+                // --samops-refine → -fringe → -aainclude → -peel の連鎖(全画像)とビット同一であることの検証に使う。
+                // reps(既定 1)を渡すと、製品の入口と全画像の 4 段をそれぞれ reps 回ずつ交互に回して最小の時間を出し、
+                // 両者の出力の違う画素数(diff)も数える。
+                // 出力: REFINEALL OK WxH crop=x,y,w,h(切り出さなかったときは crop=none) ms=<製品の入口>
+                //       [full_ms=<全画像の 4 段> diff=<画素数>]
+                case "--samops-refineall":
+                {
+                    var (mw2, mh2, mask2) = ReadMaskRaw(args[1]);
+                    var (iw, ih, rgba2) = ReadRaw(args[2], 4);
+                    if (iw != mw2 || ih != mh2)
+                    {
+                        Console.Error.WriteLine("refineall: mask/image size mismatch");
+                        return 2;
+                    }
+                    int reps = args.Length > 4 ? int.Parse(args[4], inv) : 1;
+                    var px2 = ToColor32(rgba2, iw * ih);
+                    string crop = SamMaskRefine.TryDeriveRefineCropRect(mask2, iw, ih, default,
+                            out _, out int cx0, out int cy0, out int cw, out int ch)
+                        ? $"{cx0},{cy0},{cw},{ch}" : "none";
+                    bool[] result = null, fullResult = null;
+                    double best = double.MaxValue, bestFull = double.MaxValue;
+                    for (int r = 0; r < reps; r++)
+                    {
+                        var m = (bool[])mask2.Clone();
+                        var sw1 = Stopwatch.StartNew();
+                        SamMaskPostprocess.RefineInPlace(m, px2, iw, ih);
+                        best = Math.Min(best, sw1.Elapsed.TotalMilliseconds);
+                        result = m;
+                        if (reps <= 1) break;
+                        var f = (bool[])mask2.Clone();
+                        var sw2 = Stopwatch.StartNew();
+                        SamMaskRefine.SnapBoundary(f, px2, iw, ih);
+                        SamMaskRefine.ExtendFringe(f, px2, iw, ih);
+                        SamMaskRefine.IncludeAaTransition(f, px2, iw, ih);
+                        SamMaskRefine.PeelThinSpill(f, px2, iw, ih);
+                        bestFull = Math.Min(bestFull, sw2.Elapsed.TotalMilliseconds);
+                        fullResult = f;
+                    }
+                    WriteMaskRaw(args[3], iw, ih, result);
+                    string extra = "";
+                    if (fullResult != null)
+                    {
+                        int diff = 0;
+                        for (int i = 0; i < result.Length; i++) if (result[i] != fullResult[i]) diff++;
+                        extra = string.Format(inv, " full_ms={0:F1} diff={1}", bestFull, diff);
+                    }
+                    Console.WriteLine(string.Format(inv, "REFINEALL OK {0}x{1} crop={2} ms={3:F1}{4}",
+                        iw, ih, crop, best, extra));
                     return 0;
                 }
 
