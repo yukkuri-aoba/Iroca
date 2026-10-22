@@ -68,28 +68,40 @@ namespace Iroca.SentisIntegration
         {
             _ticks++;
             var sw = Stopwatch.StartNew();
+            Action done = null;
             try
             {
                 while (sw.ElapsedMilliseconds < BudgetMs)
                 {
                     if (!_iterator.MoveNext())
                     {
-                        var done = _onDone;
+                        done = _onDone ?? (() => { });
                         Stop();
-                        done?.Invoke();
-                        return;
+                        break;
                     }
                     _steps++;
                 }
-                if (_totalSteps > 0)
+                if (done == null && _totalSteps > 0)
                     _onProgress?.Invoke(_steps / (float)_totalSteps);
             }
             catch (Exception e)
             {
                 var onError = _onError;
                 Stop();
-                onError?.Invoke(e);
+                CallGuarded(() => onError?.Invoke(e));
+                return;
             }
+            // 完了の通知は推論の外で呼ぶ(中で投げたものを推論の失敗と取り違えない。以前は Stop が
+            // onError を外した後だったので、黙って捨てられていた)。
+            if (done != null) CallGuarded(done);
+        }
+
+        // update から呼ばれる入口なので、通知先の例外はここで止める。漏らすと、同じフレームに並んだ
+        // 他ツールの update が飛ばされる(Unity は購読者を順に呼ぶだけで例外を止めない)。
+        static void CallGuarded(Action a)
+        {
+            try { a(); }
+            catch (Exception e) { UnityEngine.Debug.LogException(e); }
         }
     }
 }

@@ -181,6 +181,19 @@ namespace Iroca
             return null;
         }
 
+        /// <summary>
+        /// 調整を終えた・やめた後に呼ぶ。AI を使っていて、いろかの窓が 1 つも無ければ、推論のワーカー(GPU のメモリ)と
+        /// サービスが持つ元の画素の写しを手放す。窓は閉じるときに手放す(IrocaWindow.OnDestroy)が、窓を開かずに AI だけで
+        /// 使うと、次のスクリプトのリロードまで持ち続けていた。窓があれば、窓がまだ使うので手放さない。
+        /// </summary>
+        public void ReleaseAiIfNoWindow()
+        {
+            if (!_aiAvailable) return;
+            if (Resources.FindObjectsOfTypeAll<IrocaWindow>().Length > 0) return;
+            MaskSuggestBridge.Service?.ReleaseGpuResources();
+            _aiAvailable = false;
+        }
+
         private bool AiAvailable()
         {
             if (_aiChecked) return _aiAvailable;

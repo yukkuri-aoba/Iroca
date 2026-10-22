@@ -50,6 +50,11 @@ namespace Iroca
 
         private void OnGUI()
         {
+            // 描かれている = 見えている(Scene のクリックを見る条件。IrocaWindow.SceneClick)。
+            _windowShown = true;
+            // 入力があったら、別ウィンドウ(プレビュー・マスク編集)に描き直しを知らせる(DrawStamp)。
+            if (MayChangeState(Event.current.type)) BumpUiState();
+            TrackDeferredPreview(this);
             // Ctrl+Z / Ctrl+Y は Unity 標準 Undo に統合済みのため、独自処理は不要。
             ProcessPendingZoneChanges();
             PublishLivePreviewTarget();
@@ -73,11 +78,6 @@ namespace Iroca
             {
                 SetSoloZone(null);
             }
-
-            // 英語表示が初めて使われたときに AI 機械翻訳である旨を一度だけ告知する。
-            // Layout イベント時のみ実行し、描画途中のモーダル表示を避ける。
-            if (Event.current.type == EventType.Layout)
-                Localization.MaybeShowEnglishTranslationNotice();
 
             // ジョブ実行中はウィンドウ内 UI を全て無効化する。
             // ただしジョブのオーバーレイ（進捗バー＋キャンセル）は DisabledScope の外で
@@ -652,9 +652,33 @@ namespace Iroca
             return Mathf.Approximately(z.tolerance, NewZoneInitialTolerance);
         }
 
+        // 英語表示の AI 翻訳のお知らせを出すか。Layout のときに決め、同じフレームの Repaint もそれで描く
+        // (ヘッダーで言語を切り替えたフレームに、Layout と Repaint で並ぶ要素が食い違わないように)。
+        [System.NonSerialized] private bool _showTranslationNotice;
+
+        // 英語表示の AI 翻訳のお知らせ(閉じるまで出す。Localization.ShowEnglishTranslationNotice)。
+        // エディタを止めるダイアログはやめ、ウィンドウの上部に閉じられる帯で出す。
+        private void DrawTranslationNotice()
+        {
+            if (Event.current.type == EventType.Layout)
+                _showTranslationNotice = Localization.ShowEnglishTranslationNotice;
+            if (!_showTranslationNotice) return;
+            EditorGUILayout.HelpBox(Localization.EnglishTranslationNotice, MessageType.Info);
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            // テクスチャ欄は変更の検出(プレビューの作り直し)に囲まれているので、閉じるだけでは立てない。
+            bool changed = GUI.changed;
+            if (GUILayout.Button(new GUIContent(Localization.EnglishTranslationNoticeClose,
+                    Localization.EnglishTranslationNoticeCloseTooltip), GUILayout.ExpandWidth(false)))
+                Localization.CloseEnglishTranslationNotice();
+            GUI.changed = changed;
+            EditorGUILayout.EndHorizontal();
+        }
+
         private void DrawTextureField()
         {
             EditorGUILayout.Space(4);
+            DrawTranslationNotice();
             // 済んだ手順に ✓ を付ける。番号だけでは「どこまで進んだか」が分からず、
             // テクスチャを入れた瞬間に導入ヒントが消えて案内が途切れていた。
             EditorGUILayout.LabelField(
@@ -731,6 +755,8 @@ namespace Iroca
         private void DrawLargeSourceNotice()
         {
             if (sourceTexture == null || _previewView == null) return;
+            // Play 中のリロード直後で原本の読み直しを待っている間は、案内のために読まない。
+            if (_previewView.SourceLoadDeferred) return;
             if (!_previewView.TryGetTrueSourcePixels(sourceTexture, out _, out int ww, out int wh)) return;
             // 元ファイルの寸法。取り込み済みテクスチャから読んでいる(PSD など)ときは、書き出しもその寸法。
             int w = ww, h = wh;

@@ -37,7 +37,11 @@ namespace Iroca.EditorTests
         }
 
         [TearDown]
-        public void TearDown() => _assets?.Dispose();
+        public void TearDown()
+        {
+            IrocaAutomation.CancelRecolorJob();   // 待ちのまま落ちたテストの依頼を、次のテストへ持ち越さない
+            _assets?.Dispose();
+        }
 
         [Test]
         public void Tools_AreRegisteredUnderTheirNames()
@@ -116,6 +120,25 @@ namespace Iroca.EditorTests
             Assert.AreEqual("True", Token(json, "success"), json);
             Assert.AreEqual("conventional", Token(json, "data.zones[0].autoTune"), json);
             if (!sawPending) Assert.Pass("解析が 1 回目の呼び出しの中で終わった(pending を経ずに結果)");
+        }
+
+        [UnityTest]
+        public IEnumerator Recolor_Png_RepliesPendingThenWritesOnStatus()
+        {
+            // png の仕上げ(色替え・PNG 化)は背景で進めるので、自動調整なしでも pending を返し、問い合わせ直しで結果を返す。
+            string src = _assets.WritePng("src", Fill(16, 8, new Color32(200, 30, 30, 255)), 16, 8);
+            string args = "{\"texture\":\"" + src + "\",\"apply\":\"png\",\"autoTune\":false,\"changes\":[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]}";
+            string json = Call("IrocaRecolorTool", args);
+            Assert.AreEqual("pending", Token(json, "_mcp_status"), json);
+            double deadline = UnityEditor.EditorApplication.timeSinceStartup + 60;
+            while (Token(json, "_mcp_status") == "pending")
+            {
+                Assert.Less(UnityEditor.EditorApplication.timeSinceStartup, deadline, json);
+                yield return null;
+                json = Call("IrocaRecolorTool", AddAction(args));
+            }
+            Assert.AreEqual("True", Token(json, "success"), json);
+            Assert.IsTrue(File.Exists(Token(json, "data.output")), json);
         }
 
         private string AddAction(string argsJson)

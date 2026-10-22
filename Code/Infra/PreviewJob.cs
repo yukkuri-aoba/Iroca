@@ -21,6 +21,7 @@ namespace Iroca
 
         // 1 回の tick で捌く時間の目安。超えたら残りは次の tick へ回す。
         private const long TickBudgetMs = 20;
+        private static readonly long TickBudgetTicks = TickBudgetMs * Stopwatch.Frequency / 1000;
 
         [InitializeOnLoadMethod]
         private static void Install()
@@ -38,14 +39,17 @@ namespace Iroca
         // 回し始めた時点で積まれていた分だけを、目安の時間まで捌く。残りと、捌いている間に積まれた分は
         // 次の tick へ回すので、重いメインスレッドの仕事(シーンのプレビュー用のテクスチャ作りなど)を
         // 分けて積めば、1 フレームにまとめて止めずに少しずつ進む。
+        // エディタの毎フレームの更新で呼ばれるので、積まれていなければ何も確保せずに戻る。
+        // 時間は Stopwatch のインスタンスを作らずに時刻の差で測る。
         internal static void Drain()
         {
-            var sw = Stopwatch.StartNew();
+            if (Queue.IsEmpty) return;
+            long start = Stopwatch.GetTimestamp();
             for (int n = Queue.Count; n > 0 && Queue.TryDequeue(out var action); n--)
             {
                 try { action(); }
                 catch (Exception ex) { Debug.LogException(ex); }
-                if (sw.ElapsedMilliseconds > TickBudgetMs) break;
+                if (Stopwatch.GetTimestamp() - start > TickBudgetTicks) break;
             }
         }
 

@@ -21,10 +21,21 @@ namespace Iroca.EditorTests
         private TestAssets _assets;
 
         [SetUp]
-        public void SetUp() => _assets = TestAssets.Create();
+        public void SetUp()
+        {
+            _assets = TestAssets.Create();
+            // 登録（apply=avatar）は NDMF が使えないと断る。NDMF の無いホストでも登録の経路を確かめるため、
+            // 判定だけを使えるとみなす（断る判定そのものは AvatarApplyBlocked_InPlayModeOrWithoutNdmf で見る）。
+            IrocaAutomation.AssumeNdmfForTests = true;
+        }
 
         [TearDown]
-        public void TearDown() => _assets?.Dispose();
+        public void TearDown()
+        {
+            IrocaAutomation.CancelRecolorJob();   // 待ちのまま落ちたテストの依頼を、次のテストへ持ち越さない
+            IrocaAutomation.AssumeNdmfForTests = false;
+            _assets?.Dispose();
+        }
 
         [Test]
         public void RecolorByPreset_WithoutMask_ChangesEveryPixel()
@@ -166,10 +177,27 @@ namespace Iroca.EditorTests
 
         private static IrocaAutomation.RecolorTextureResult RecolorOk(string request)
         {
-            string json = IrocaAutomation.Recolor(request);
+            string json = RecolorWaitingOnThisThread(request);
             var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
             Assert.IsTrue(r.ok, json);
             return r;
+        }
+
+        // 依頼を出し、途中経過(pending)なら終わるまで問い合わせ直す。png の仕上げは背景のスレッドで進むので、
+        // editor のコマを挟まなくても終わる(自動調整を待つ依頼は RecolorUntilDone で)。
+        private static string RecolorWaitingOnThisThread(string request)
+            => WaitOnThisThread(IrocaAutomation.Recolor(request));
+
+        private static string WaitOnThisThread(string json, double timeoutSeconds = 60)
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (json.Contains("\"pending\":true"))
+            {
+                Assert.Less(watch.Elapsed.TotalSeconds, timeoutSeconds, "書き出しが終わらない: " + json);
+                System.Threading.Thread.Sleep(5);
+                json = IrocaAutomation.RecolorStatus();
+            }
+            return json;
         }
 
         [Test]
@@ -204,6 +232,84 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void Recolor_Png_ShrunkOnImport_WritesTheOriginalResolutionInTheBackground()
+        {
+            // png の仕上げは途中経過を返し、元の解像度の色替えと PNG 化は背景で進める(大きいテクスチャで MCP の
+            // 時間切れにしない)。取り込みで縮めて編集していても、書き出しは元の解像度で読み直す。
+            var px = Enumerable.Repeat(Red, 64 * 64).ToArray();
+            string src = _assets.WritePng("big", px, 64, 64);
+            var importer = (UnityEditor.TextureImporter)UnityEditor.AssetImporter.GetAtPath(src);
+            importer.maxTextureSize = 32;
+            importer.SaveAndReimport();
+
+            string json = IrocaAutomation.Recolor(Request(src, "png", "[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]"));
+            StringAssert.Contains("\"pending\":true", json);
+            json = WaitOnThisThread(json);
+            var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
+            Assert.IsTrue(r.ok, json);
+            Assert.AreEqual(1f, r.changedFraction, 1e-4f, "変化の指標は作業解像度で数える");
+            Assert.IsTrue(File.Exists(r.preview), "比較画像を書くこと");
+            var tex = new Texture2D(2, 2);
+            try
+            {
+                Assert.IsTrue(tex.LoadImage(File.ReadAllBytes(r.output)));
+                Assert.AreEqual((64, 64), (tex.width, tex.height), "元の解像度で書き出す");
+                Assert.IsFalse(tex.GetPixels32().Any(c => Same(c, Red)), "全部変わること");
+            }
+            finally { Object.DestroyImmediate(tex); }
+        }
+
+        [Test]
+        public void Recolor_Png_RefusesToReplaceAnExistingFileUnlessOverwrite()
+        {
+            // 既定の出力先は「適用して保存」の既定名と同じ。前に書いた画像は、overwrite が無ければ置き換えない。
+            string src = Halves();
+            var first = RecolorOk(Request(src, "png", "[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]"));
+            byte[] written = File.ReadAllBytes(first.output);
+            string again = "[{\"from\":\"#C81E1E\",\"to\":\"#FFAA00\"}]";
+            RecolorFails(Request(src, "png", again), "already exists");
+            CollectionAssert.AreEqual(written, File.ReadAllBytes(first.output), "断ったときは書かないこと");
+
+            var replaced = RecolorOk(Request(src, "png", again, ",\"overwrite\":true"));
+            Assert.AreEqual(first.output, replaced.output);
+            CollectionAssert.AreNotEqual(written, File.ReadAllBytes(first.output));
+
+            // 元テクスチャ自身は overwrite があっても書かない。
+            RecolorFails(Request(src, "png", again, ",\"output\":\"" + src + "\",\"overwrite\":true"), "must differ from the source");
+        }
+
+        [TestCase("Packages/iroca_automation_test_out.png")]
+        [TestCase("ProjectSettings/iroca_automation_test_out.png")]
+        [TestCase("Library/iroca_automation_test_out.png")]
+        [TestCase("iroca_automation_test_out.png")]
+        public void Recolor_Png_WritesOnlyUnderAssets(string output)
+        {
+            string src = Halves();
+            RecolorFails(Request(src, "png", "[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]", ",\"output\":\"" + output + "\""),
+                "under Assets/");
+            Assert.IsFalse(File.Exists(TestAssets.Abs(output)));
+        }
+
+        private static void RecolorFails(string request, string error)
+        {
+            string json = RecolorWaitingOnThisThread(request);
+            var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
+            Assert.IsFalse(r.ok, json);
+            StringAssert.Contains(error, r.error);
+        }
+
+        // VRChat SDK のあるホストでは、何も選ばずに登録すると、アバターの外を登録先にしない。テストのルートを
+        // アバターにする(テストは SDK を参照しないので名前で探す。SDK の無いホストでは何もしない)。
+        private static void MarkAsAvatar(GameObject root)
+        {
+            foreach (var a in System.AppDomain.CurrentDomain.GetAssemblies())
+            {
+                var t = a.GetType("VRC.SDK3.Avatars.Components.VRCAvatarDescriptor", false);
+                if (t != null) { root.AddComponent(t); return; }
+            }
+        }
+
+        [Test]
         public void Recolor_Avatar_RegistersRecipeAndReplacesZoneOfSameName()
         {
             string src = Halves();
@@ -211,6 +317,7 @@ namespace Iroca.EditorTests
             bool hadRecipeFolder = UnityEditor.AssetDatabase.IsValidFolder(RecipeStore.DefaultFolder);
             bool hadIrocaFolder = UnityEditor.AssetDatabase.IsValidFolder("Assets/Iroca");
             var root = new GameObject("IrocaRecolorTestAvatar");
+            MarkAsAvatar(root);
             var mat = new Material(Shader.Find("Standard")) { mainTexture = tex };
             string recipePath = null;
             try
@@ -250,6 +357,142 @@ namespace Iroca.EditorTests
             }
         }
 
+        [Test]
+        public void Recolor_Avatar_UndoRestoresTheRecipeEvenWithoutTheWindow()
+        {
+            // 窓を開いていなくても、登録済みのレシピの書き換えは Ctrl+Z(Undo)で戻る。
+            string src = Halves();
+            var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
+            bool hadRecipeFolder = UnityEditor.AssetDatabase.IsValidFolder(RecipeStore.DefaultFolder);
+            bool hadIrocaFolder = UnityEditor.AssetDatabase.IsValidFolder("Assets/Iroca");
+            var mat = new Material(Shader.Find("Standard")) { mainTexture = tex };
+            var root = new GameObject("IrocaUndoTestAvatar");
+            string recipePath = null;
+            try
+            {
+                var body = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                body.name = "Body";
+                body.transform.SetParent(root.transform);
+                body.GetComponent<Renderer>().sharedMaterial = mat;
+                string target = ",\"avatar\":\"IrocaUndoTestAvatar/Body\"";
+                recipePath = RecolorOk(Request(src, "avatar", "[{\"name\":\"skirt\",\"at\":[0.25,0.5],\"to\":\"#1A2B5C\"}]", target)).recipe;
+                var recipe = UnityEditor.AssetDatabase.LoadAssetAtPath<IrocaRecipe>(recipePath);
+                string first = recipe.sessionJson;
+
+                RecolorOk(Request(src, "avatar", "[{\"name\":\"skirt\",\"at\":[0.25,0.5],\"to\":\"#FFAA00\"}]", target));
+                Assert.AreNotEqual(first, recipe.sessionJson);
+                UnityEditor.Undo.PerformUndo();
+                Assert.AreEqual(first, recipe.sessionJson, "Undo でレシピの中身が 1 回前に戻ること");
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(mat);
+                if (!string.IsNullOrEmpty(recipePath)) UnityEditor.AssetDatabase.DeleteAsset(recipePath);
+                if (!hadRecipeFolder) UnityEditor.AssetDatabase.DeleteAsset(RecipeStore.DefaultFolder);
+                if (!hadIrocaFolder) UnityEditor.AssetDatabase.DeleteAsset("Assets/Iroca");
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator Recolor_Avatar_RecipeEditedWhileWaiting_IsNotOverwritten()
+        {
+            // 自動調整を待つ間にレシピが編集された(窓の自動保存など)ら、仕上げで上書きせずにやめて、呼び直すよう伝える。
+            string src = Halves();
+            var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
+            bool hadRecipeFolder = UnityEditor.AssetDatabase.IsValidFolder(RecipeStore.DefaultFolder);
+            bool hadIrocaFolder = UnityEditor.AssetDatabase.IsValidFolder("Assets/Iroca");
+            var mat = new Material(Shader.Find("Standard")) { mainTexture = tex };
+            var root = new GameObject("IrocaWaitTestAvatar");
+            string recipePath = null;
+            try
+            {
+                var body = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                body.name = "Body";
+                body.transform.SetParent(root.transform);
+                body.GetComponent<Renderer>().sharedMaterial = mat;
+                string target = ",\"avatar\":\"IrocaWaitTestAvatar/Body\"";
+                recipePath = RecolorOk(Request(src, "avatar", "[{\"name\":\"skirt\",\"at\":[0.25,0.5],\"to\":\"#1A2B5C\"}]", target)).recipe;
+                var recipe = UnityEditor.AssetDatabase.LoadAssetAtPath<IrocaRecipe>(recipePath);
+
+                string json = IrocaAutomation.Recolor(Request(src, "avatar",
+                    "[{\"name\":\"blue\",\"from\":\"#1E28C8\",\"to\":\"#FFAA00\"}]", target, autoTune: true));
+                if (!json.Contains("\"pending\":true")) Assert.Inconclusive("解析が 1 回目の呼び出しの中で終わった(待ちが無い)");
+
+                // 待っている間の手直し(ゾーンの色を変える)。
+                var edited = RecipeStore.Load(recipe);
+                edited.zones[0].targetColor = Color.white;
+                RecipeStore.Save(recipe, edited);
+                string editedJson = recipe.sessionJson;
+
+                double deadline = UnityEditor.EditorApplication.timeSinceStartup + 120;
+                while (json.Contains("\"pending\":true"))
+                {
+                    Assert.Less(UnityEditor.EditorApplication.timeSinceStartup, deadline, "自動調整が終わらない: " + json);
+                    yield return null;
+                    json = IrocaAutomation.RecolorStatus();
+                }
+                var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
+                Assert.IsFalse(r.ok, json);
+                StringAssert.Contains("Call iroca_recolor again", r.error);
+                Assert.AreEqual(editedJson, recipe.sessionJson, "待つ間の手直しを上書きしない");
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(mat);
+                if (!string.IsNullOrEmpty(recipePath)) UnityEditor.AssetDatabase.DeleteAsset(recipePath);
+                if (!hadRecipeFolder) UnityEditor.AssetDatabase.DeleteAsset(RecipeStore.DefaultFolder);
+                if (!hadIrocaFolder) UnityEditor.AssetDatabase.DeleteAsset("Assets/Iroca");
+            }
+        }
+
+        [Test]
+        public void Recolor_Avatar_DoesNotReuseTheRecipeOfAnotherAvatar()
+        {
+            // 同じテクスチャを使うアバターが 2 体あり、片方だけ登録済み。もう片方の登録では、そのレシピを流用して
+            // 書き換えない(流用すると先のアバターの色も変わる)。新しいレシピを作り、共有先を知らせる。
+            string src = Halves();
+            var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
+            bool hadRecipeFolder = UnityEditor.AssetDatabase.IsValidFolder(RecipeStore.DefaultFolder);
+            bool hadIrocaFolder = UnityEditor.AssetDatabase.IsValidFolder("Assets/Iroca");
+            var mat = new Material(Shader.Find("Standard")) { mainTexture = tex };
+            var a = new GameObject("IrocaShareTestA");
+            var b = new GameObject("IrocaShareTestB");
+            var recipePaths = new System.Collections.Generic.List<string>();
+            try
+            {
+                foreach (var root in new[] { a, b })
+                {
+                    var body = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                    body.name = "Body";
+                    body.transform.SetParent(root.transform);
+                    body.GetComponent<Renderer>().sharedMaterial = mat;
+                }
+                var ra = RecolorOk(Request(src, "avatar", "[{\"name\":\"skirt\",\"at\":[0.25,0.5],\"to\":\"#1A2B5C\"}]",
+                    ",\"avatar\":\"IrocaShareTestA/Body\""));
+                recipePaths.Add(ra.recipe);
+                string before = UnityEditor.AssetDatabase.LoadAssetAtPath<IrocaRecipe>(ra.recipe).sessionJson;
+
+                var rb = RecolorOk(Request(src, "avatar", "[{\"name\":\"skirt\",\"at\":[0.25,0.5],\"to\":\"#FFAA00\"}]",
+                    ",\"avatar\":\"IrocaShareTestB/Body\""));
+                recipePaths.Add(rb.recipe);
+                Assert.AreNotEqual(ra.recipe, rb.recipe, "別のレシピを作ること");
+                Assert.IsTrue(rb.warnings.Any(w => w.Contains("IrocaShareTestA/Body")), string.Join("\n", rb.warnings));
+                Assert.AreEqual(before, UnityEditor.AssetDatabase.LoadAssetAtPath<IrocaRecipe>(ra.recipe).sessionJson,
+                    "先のアバターのレシピは変えない");
+            }
+            finally
+            {
+                Object.DestroyImmediate(a);
+                Object.DestroyImmediate(b);
+                Object.DestroyImmediate(mat);
+                foreach (var p in recipePaths) if (!string.IsNullOrEmpty(p)) UnityEditor.AssetDatabase.DeleteAsset(p);
+                if (!hadRecipeFolder) UnityEditor.AssetDatabase.DeleteAsset(RecipeStore.DefaultFolder);
+                if (!hadIrocaFolder) UnityEditor.AssetDatabase.DeleteAsset("Assets/Iroca");
+            }
+        }
+
         [TestCase("preview", "[{\"at\":[0.25,0.5],\"to\":\"darkish blue\"}]", "'to' must be a color")]
         [TestCase("preview", "[{\"at\":[1.5,0.5],\"to\":\"#000000\"}]", "'at' must be [u, v]")]
         [TestCase("preview", "[{\"to\":\"#000000\"}]", "give 'at'")]
@@ -261,6 +504,16 @@ namespace Iroca.EditorTests
             var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
             Assert.IsFalse(r.ok, json);
             StringAssert.Contains(error, r.error);
+        }
+
+        [Test]
+        public void AvatarApplyBlocked_InPlayModeOrWithoutNdmf()
+        {
+            // Play 中の登録は Play を止めると消える。NDMF が使えなければ登録しても色替えされない。どちらも断って代わりを案内する。
+            Assert.IsNull(IrocaAutomation.AvatarApplyBlocked(false, NdmfSupportState.Supported));
+            StringAssert.Contains("Play mode", IrocaAutomation.AvatarApplyBlocked(true, NdmfSupportState.Supported));
+            foreach (var state in new[] { NdmfSupportState.Missing, NdmfSupportState.TooOld, NdmfSupportState.TooNew })
+                StringAssert.Contains("apply='png'", IrocaAutomation.AvatarApplyBlocked(false, state), state.ToString());
         }
 
         // ─── PNG の書き出し(作業解像度の画素を使い回すか) ───
@@ -398,6 +651,32 @@ namespace Iroca.EditorTests
                 Assert.IsTrue(r.warnings.Any(w => w.Contains("AI")), json);
             }
             Assert.AreEqual(0.5f, r.changedFraction, 1e-4f, "赤い側だけ変わること");
+        }
+
+        [UnityTest]
+        public IEnumerator Recolor_WhileAnotherIsWaiting_IsRefusedAndTheFirstStillFinishes()
+        {
+            // 待っている依頼があるうちの依頼は断る(前の依頼を捨てて結果を取り違えない)。前の依頼はそのまま終わる。
+            string src = Halves();
+            string first = Request(src, "preview", "[{\"name\":\"red\",\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]", autoTune: true);
+            string json = IrocaAutomation.Recolor(first);
+            if (!json.Contains("\"pending\":true")) Assert.Inconclusive("解析が 1 回目の呼び出しの中で終わった(待ちが無い)");
+
+            RecolorFails(Request(src, "preview", "[{\"name\":\"blue\",\"from\":\"#1E28C8\",\"to\":\"#FFAA00\"}]"), "still running");
+
+            double deadline = UnityEditor.EditorApplication.timeSinceStartup + 120;
+            while (json.Contains("\"pending\":true"))
+            {
+                Assert.Less(UnityEditor.EditorApplication.timeSinceStartup, deadline, "自動調整が終わらない: " + json);
+                yield return null;
+                json = IrocaAutomation.RecolorStatus();
+            }
+            var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
+            Assert.IsTrue(r.ok, json);
+            Assert.AreEqual("red", r.zones.Single().name, "先の依頼の結果を返すこと");
+
+            // 受け取った後は次の依頼を受ける。
+            RecolorOk(Request(src, "preview", "[{\"name\":\"blue\",\"from\":\"#1E28C8\",\"to\":\"#FFAA00\"}]"));
         }
 
         [Test]

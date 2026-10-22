@@ -35,6 +35,23 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void StatesThatIntentionallyRecolorNothing_AreNotReportedToNdmf()
+        {
+            // NDMF は重大度に関係なく 1 件でもあれば NDMF Console を開いて前に出す。レシピが無い・ゾーンがすべて
+            // 無効は利用者が色替えを外している状態なので報告しない(インスペクタに出す)。範囲に元テクスチャが
+            // 無いのは設定ミスかもしれないので警告を残す。色替えできなかったものはアップロードを止める。
+            Assert.IsNull(Iroca.NdmfIntegration.NdmfMessages.Classify(NonDestructiveApplier.Problem.MissingRecipe,
+                RecipeTextureBuilder.Failure.None).Item2, "レシピが無いのを報告した");
+            Assert.IsNull(Iroca.NdmfIntegration.NdmfMessages.Classify(NonDestructiveApplier.Problem.BuildFailed,
+                RecipeTextureBuilder.Failure.NoEnabledZones).Item2, "ゾーンがすべて無効なのを報告した");
+            var notUsed = Iroca.NdmfIntegration.NdmfMessages.Classify(NonDestructiveApplier.Problem.TextureNotUsedInScope,
+                RecipeTextureBuilder.Failure.None);
+            Assert.AreEqual((nadena.dev.ndmf.ErrorSeverity.NonFatal, "iroca.texture_not_used"), notUsed);
+            Assert.AreEqual(nadena.dev.ndmf.ErrorSeverity.Error, Iroca.NdmfIntegration.NdmfMessages.Classify(
+                NonDestructiveApplier.Problem.BuildFailed, RecipeTextureBuilder.Failure.SourceUnreadable).Item1);
+        }
+
+        [Test]
         public void ProcessAvatar_SwapsInRecoloredTextureWithoutTouchingAssets()
         {
             var px = TestAssets.Solid(W, H, new Color32(200, 40, 40, 255));

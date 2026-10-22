@@ -9,6 +9,11 @@ namespace Iroca
     {
         /// <summary>モデルファイル未配置(UI は導入案内を出す)。</summary>
         NoModel,
+        /// <summary>
+        /// モデルファイルは置いてあるが、まだ読み込んでいない(UI は準備済みとして扱う)。読み込みは使うとき
+        /// (右クリックの提案・自動調整・MCP からの要求)に <see cref="IMaskSuggestService.TryEnsureModels"/> が行う。
+        /// </summary>
+        NotLoaded,
         /// <summary>モデルの変換・ロード中。</summary>
         LoadingModel,
         /// <summary>待機(クリック受付可)。</summary>
@@ -66,8 +71,17 @@ namespace Iroca
         /// </summary>
         bool UsesCpuBackend { get; }
 
-        /// <summary>モデルファイルの存在確認と非同期ロード開始。false = 未配置(NoModel)。</summary>
+        /// <summary>
+        /// モデルを読み込む(まだなら。初回は変換込みで数秒、進捗バーを出してエディタを止める)。
+        /// false = 未配置(NoModel)か、読み込みに失敗した(Error)。使う直前に呼ぶこと。
+        /// </summary>
         bool TryEnsureModels();
+
+        /// <summary>
+        /// モデルのファイルがあるかだけを見直す(File.Exists だけで、読み込まない)。読み込む前なら、状態を
+        /// NoModel / NotLoaded に合わせる。ウィンドウを描くたびに呼んでよい。
+        /// </summary>
+        void RefreshModelFiles();
 
         /// <summary>
         /// 提案対象のソース画像を設定し、必要なら埋め込み計算を開始する。

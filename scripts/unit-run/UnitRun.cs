@@ -153,6 +153,36 @@ namespace Iroca.UnitRun
             Check.Equal("Assets/a.png", Rel(flipped + "/a.png"), "drive letter case");
         }
 
+        // ─── PathUtils.ExportFolderFor（書き出しの置き場所。パッケージの中には書かない） ───
+
+        public static void ExportFolder_InsideAssetsIsTheSameFolder()
+        {
+            Check.Equal("Assets/Tex", PathUtils.ExportFolderFor("Assets/Tex/a.png"), "Assets の中");
+            Check.Equal("Assets", PathUtils.ExportFolderFor("Assets/a.png"), "Assets 直下");
+        }
+
+        public static void ExportFolder_PackageMirrorsUnderExports()
+        {
+            // VCC / ALCOM の更新でパッケージのフォルダは丸ごと入れ替わるので、Assets の下へ写す。
+            Check.Equal("Assets/Iroca/Exports/Packages/com.example.outfit/Textures",
+                PathUtils.ExportFolderFor("Packages/com.example.outfit/Textures/a.png"), "Packages");
+            Check.Equal("Assets/Iroca/Exports/Packages/com.example.outfit/Textures",
+                PathUtils.ExportFolderFor("Packages\\com.example.outfit\\Textures\\a.png"), "backslash");
+        }
+
+        public static void ExportFolder_RoundTripsToTheSourceFolder()
+        {
+            string src = "Packages/com.example.outfit/Textures";
+            Check.Equal(src, PathUtils.SourceFolderOfExport(PathUtils.ExportFolderFor(src + "/a.png")), "round trip");
+            Check.Equal("Assets/Tex", PathUtils.SourceFolderOfExport("Assets/Tex"), "ordinary folder");
+            Check.Equal("Assets/Iroca/Exports", PathUtils.SourceFolderOfExport("Assets/Iroca/Exports"), "exports root");
+            Check.Equal("Assets/Iroca/Exports/Assets/x", PathUtils.SourceFolderOfExport("Assets/Iroca/Exports/Assets/x"),
+                "Assets の中の元は写さない");
+        }
+
+        public static void ExportFolder_ParentTraversalStaysInExports()
+            => Check.Equal("Assets/Iroca/Exports", PathUtils.ExportFolderFor("Packages/../../evil/a.png"), "traversal");
+
         // ─── AtomicFile（エクスポート・セッション・マスク保存の書き込み） ───
 
         private static string TempDir()
@@ -294,6 +324,55 @@ namespace Iroca.UnitRun
                 Check.True(Directory.GetFiles(d, "*", SearchOption.AllDirectories).Length == 0, "nothing written");
             }
             finally { Directory.Delete(d, true); }
+        }
+
+        // ─── MetaFile（書き出しでインポート設定を引き継ぐときの .meta の GUID の差し替え） ───
+
+        private const string NewGuid = "0123456789abcdef0123456789abcdef";
+
+        private static string Meta(string nl) =>
+            "fileFormatVersion: 2" + nl
+            + "guid: 5f1e2d3c4b5a69788796a5b4c3d2e1f0" + nl
+            + "TextureImporter:" + nl
+            + "  externalObjects: {}" + nl
+            + "  spriteSheet:" + nl
+            + "    sprites: []" + nl
+            + "  - first: {fileID: 2800000, guid: 5f1e2d3c4b5a69788796a5b4c3d2e1f0, type: 3}" + nl;
+
+        public static void Meta_ReplacesGuidLf()
+        {
+            Check.True(MetaFile.TryReplaceGuid(Meta("\n"), NewGuid, out var r), "LF の .meta で GUID の行が見つからない");
+            Check.Equal(Meta("\n").Replace("guid: 5f1e2d3c4b5a69788796a5b4c3d2e1f0\n", "guid: " + NewGuid + "\n"), r, "LF");
+        }
+
+        public static void Meta_ReplacesGuidCrlfAndKeepsLineEnds()
+        {
+            // Windows の Git(autocrlf)で取り出した .meta。以前は CRLF の行末で一致せず、元の GUID のまま写していた。
+            Check.True(MetaFile.TryReplaceGuid(Meta("\r\n"), NewGuid, out var r), "CRLF の .meta で GUID の行が見つからない");
+            Check.True(r.Contains("guid: " + NewGuid + "\r\n"), "CRLF の行末が保たれていない");
+            Check.Equal(Meta("\r\n").Split('\n').Length, r.Split('\n').Length, "行数");
+            Check.True(!r.Replace("\r\n", "").Contains("\n"), "LF だけの行ができた");
+        }
+
+        public static void Meta_LeavesNestedReferencesAlone()
+        {
+            // 行頭でない guid:(入れ子の参照)は差し替えない。
+            MetaFile.TryReplaceGuid(Meta("\n"), NewGuid, out var r);
+            Check.True(r.Contains("{fileID: 2800000, guid: 5f1e2d3c4b5a69788796a5b4c3d2e1f0, type: 3}"), "入れ子の参照まで書き換えた");
+        }
+
+        public static void Meta_LastLineWithoutNewline()
+        {
+            Check.True(MetaFile.TryReplaceGuid("fileFormatVersion: 2\r\nguid: abc123", NewGuid, out var r), "末尾の改行が無い");
+            Check.Equal("fileFormatVersion: 2\r\nguid: " + NewGuid, r, "content");
+        }
+
+        public static void Meta_NoGuidLineIsRefused()
+        {
+            Check.True(!MetaFile.TryReplaceGuid("fileFormatVersion: 2\nTextureImporter:\n", NewGuid, out var r), "GUID の行が無いのに成功した");
+            Check.Equal(null, r, "replaced");
+            Check.True(!MetaFile.TryReplaceGuid("guid: XYZ\n", NewGuid, out _), "16 進でない GUID");
+            Check.True(!MetaFile.TryReplaceGuid("", NewGuid, out _), "empty");
         }
 
         // ─── PreviewLatency（プレビューの体感時間: 操作 → 画面） ───

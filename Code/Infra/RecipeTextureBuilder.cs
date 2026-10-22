@@ -152,8 +152,18 @@ namespace Iroca
         /// </para>
         /// </summary>
         internal static void BuildAsync(IrocaRecipe recipe, Action<Texture2D> done)
+            => BuildAsync(recipe, CancellationToken.None, done);
+
+        /// <summary>
+        /// <see cref="BuildAsync(IrocaRecipe, Action{Texture2D})"/> の取り消せる版。<paramref name="cancellationToken"/> が
+        /// 取り消されたら、計算の途中でも止まるのを待たずに(次の tick で)<paramref name="done"/> を null で呼ぶ
+        /// (待っていたシーンのプレビューが、元のテクスチャのまま次の表示へ進めるように)。計算は作業配列をプールへ返して
+        /// 止まり、途中の結果はテクスチャにもキャッシュにもしない。計算の数の勘定(作業配列の解放の判断)は崩さない。
+        /// </summary>
+        internal static void BuildAsync(IrocaRecipe recipe, CancellationToken cancellationToken, Action<Texture2D> done)
         {
             bool called = false;
+            var registration = default(CancellationTokenRegistration);
             void Once(Texture2D tex)
             {
                 if (called)
@@ -162,12 +172,16 @@ namespace Iroca
                     return;
                 }
                 called = true;
+                registration.Dispose();
                 done(tex);
             }
 
+            // 取り消しはどのスレッドから来てもよいので、知らせるのはメインスレッドへ戻してから。
+            if (cancellationToken.CanBeCanceled)
+                registration = cancellationToken.Register(() => PreviewJobMainThread.Post(() => Once(null)));
             try
             {
-                StartBuild(recipe, Once);
+                StartBuild(recipe, cancellationToken, Once);
             }
             catch (Exception ex)
             {
@@ -176,7 +190,7 @@ namespace Iroca
             }
         }
 
-        private static void StartBuild(IrocaRecipe recipe, Action<Texture2D> done)
+        private static void StartBuild(IrocaRecipe recipe, CancellationToken ct, Action<Texture2D> done)
         {
             var like = recipe != null ? recipe.sourceTexture : null;
             if (like == null) { done(null); return; }
@@ -188,6 +202,8 @@ namespace Iroca
             if (!TryLoadState(recipe, out var state, out _)) { done(null); return; }
             PostOrFail(done, () =>
             {
+                // 読む前に取り消された(待っていたプレビューがもう要らない)。
+                if (ct.IsCancellationRequested) { done(null); return; }
                 if (like == null || !TryReadPixels(like, out var pixels, out _)) { done(null); return; }
                 // 計算は 1 本ずつ、前に投げた計算の後ろにつなぐ。シーンのプレビューは映すレシピの数だけ
                 // 同時にここへ来るので、並べて走らせると作業配列のプールがその組数ぶん膨らむ。
@@ -198,7 +214,10 @@ namespace Iroca
                 {
                     try
                     {
-                        Recolor(pixels, state);
+                        // 順番を待つ間に取り消されたら計算しない。計算中に取り消されたら、PixelProcessor が作業配列を
+                        // プールへ返して OperationCanceledException で抜ける(画素はここで手放す)。
+                        ct.ThrowIfCancellationRequested();
+                        Recolor(pixels, state, ct);
                         return pixels;
                     }
                     catch
@@ -215,7 +234,7 @@ namespace Iroca
                 {
                     try
                     {
-                        FinishAsync(t, like, key, done);
+                        FinishAsync(t, like, key, ct, done);
                     }
                     finally
                     {
@@ -246,11 +265,20 @@ namespace Iroca
         }
 
         // 計算が終わったあとのメインスレッドの仕事(画素の確定、次の tick で圧縮とキャッシュ)。
-        private static void FinishAsync(Task<NativePixels> t, Texture2D like, string key, Action<Texture2D> done)
+        private static void FinishAsync(Task<NativePixels> t, Texture2D like, string key, CancellationToken ct,
+            Action<Texture2D> done)
         {
             // 計算している間に元テクスチャが消えたら作らない(取り込み直しで寸法が変わったなら合わせて縮める)。
             // 計算した画素はテクスチャへ写したらすぐ手放す(失敗した計算は自分で手放している)。
             var pixels = t.Status == TaskStatus.RanToCompletion ? t.Result : null;
+            // 取り消されたら作らない(計算し終えていても、もう要らないものに圧縮とキャッシュの書き込みで
+            // メインスレッドを使わない。done は取り消したときに呼ばれる)。
+            if (ct.IsCancellationRequested)
+            {
+                pixels?.Release();
+                done(null);
+                return;
+            }
             Texture2D tex;
             try
             {
@@ -262,13 +290,14 @@ namespace Iroca
             }
             if (tex == null)
             {
-                if (t.IsFaulted) Debug.LogException(t.Exception.GetBaseException());
+                if (t.IsFaulted && !(t.Exception.GetBaseException() is OperationCanceledException))
+                    Debug.LogException(t.Exception.GetBaseException());
                 done(null);
                 return;
             }
             PostOrFail(done, () =>
             {
-                if (like == null)
+                if (like == null || ct.IsCancellationRequested)
                 {
                     UnityEngine.Object.DestroyImmediate(tex);
                     done(null);
@@ -344,8 +373,9 @@ namespace Iroca
         }
 
         // 画素をその場で色替えする(バックグラウンドスレッドから呼んでよい)。
-        private static unsafe void Recolor(NativePixels pixels, IrocaSessionState state)
-            => SessionRecolor.Apply(pixels.Ptr, pixels.Width, pixels.Height, state);
+        private static unsafe void Recolor(NativePixels pixels, IrocaSessionState state,
+            CancellationToken cancellationToken = default)
+            => SessionRecolor.Apply(pixels.Ptr, pixels.Width, pixels.Height, state, cancellationToken);
 
         // レシピの編集状態を読み、色替えするものがあるか確かめる(軽い)。
         private static bool TryLoadState(IrocaRecipe recipe, out IrocaSessionState state, out Failure failure)
@@ -435,14 +465,20 @@ namespace Iroca
             return tex;
         }
 
-        // 取り込み時の圧縮形式へそろえる。非圧縮(RGBA32 等)はそのまま。
+        // 取り込み時の形式へそろえる(アルファを取り込み設定どおりにしてから、圧縮形式なら圧縮、非圧縮なら同じ形式へ詰め替え)。
         private static void Compress(Texture2D tex, Texture2D like)
         {
+            var importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(like)) as TextureImporter;
+            ApplyAlphaSource(tex, importer);
             var target = like.format;
-            if (target == tex.format || !GraphicsFormatUtility.IsCompressedFormat(like.graphicsFormat)) return;
+            if (target == tex.format) return;
+            if (!GraphicsFormatUtility.IsCompressedFormat(like.graphicsFormat))
+            {
+                ConvertUncompressed(tex, target);
+                return;
+            }
             int quality = 50;
-            if (AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(like)) is TextureImporter importer)
-                quality = Mathf.Clamp(importer.compressionQuality, 0, 100);
+            if (importer != null) quality = Mathf.Clamp(importer.compressionQuality, 0, 100);
             try
             {
                 EditorUtility.CompressTexture(tex, target, quality);
@@ -452,6 +488,90 @@ namespace Iroca
                 // Crunch 圧縮をエディタ上で再現できない環境では、同じ VRAM 量の非 Crunch 形式にする
                 // (Crunch が減らすのはダウンロードサイズで、VRAM は変わらない)。
                 EditorUtility.CompressTexture(tex, CrunchFallback(target), quality);
+            }
+        }
+
+        /// <summary>
+        /// 原本ファイル(PNG・JPG)から読んだ画素に、取り込み設定の Alpha Source を取り込みと同じく当てる。原本ファイルは
+        /// 取り込み設定を通さずに読む(<see cref="ExportPipeline.ReadSourcePixels"/>)ので、当てないと None でも PNG の
+        /// アルファが戻り、アルファを使うシェーダーで元には無かった透けや穴が出る。None ならアルファを捨てて不透明に、
+        /// From Gray Scale なら RGB の平均をアルファにする(Unity の説明どおり)。色替えはアルファも見て選ぶので、
+        /// 色替えの後(出来上がり)に当てる。色替えした画像を同じ取り込み設定で取り込んだとき(書き出し)と同じになる。
+        /// PSD・TGA などは取り込み済みテクスチャの画素を読むので、Unity が当て済み。
+        /// </summary>
+        private static unsafe void ApplyAlphaSource(Texture2D tex, TextureImporter importer)
+        {
+            if (importer == null || importer.alphaSource == TextureImporterAlphaSource.FromInput) return;
+            if (tex.format != TextureFormat.RGBA32 || !ReadsSourceFile(importer.assetPath)) return;
+            bool gray = importer.alphaSource == TextureImporterAlphaSource.FromGrayScale;
+            var top = (Color32*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility
+                .GetUnsafePtr(tex.GetPixelData<Color32>(0));
+            for (int i = 0, n = tex.width * tex.height; i < n; i++)
+                top[i].a = gray ? (byte)((top[i].r + top[i].g + top[i].b + 1) / 3) : (byte)255;
+            // ミップのアルファも作り直す(RGB は同じ一番上から作るので変わらない)。
+            tex.Apply(updateMipmaps: tex.mipmapCount > 1, makeNoLongerReadable: false);
+        }
+
+        // 原本ファイルをそのまま読む形式か(LoadImage が読める PNG・JPG。ExportPipeline.ReadSourcePixels と同じ)。
+        private static bool ReadsSourceFile(string assetPath)
+        {
+            string ext = Path.GetExtension(assetPath).ToLowerInvariant();
+            return ext == ".png" || ext == ".jpg" || ext == ".jpeg";
+        }
+
+        /// <summary>
+        /// 非圧縮の取り込み形式(アルファの無い画像なら RGB24 など)へ詰め替える。RGBA32 のまま渡すと、アップロードする
+        /// 大きさが元より増える(RGB24 なら 1.33 倍)。各ミップの画素はそのまま写す(作り直さない)。
+        /// 詰め替えられない形式なら RGBA32 のまま残す。
+        /// </summary>
+        private static unsafe void ConvertUncompressed(Texture2D tex, TextureFormat target)
+        {
+            if (tex.format != TextureFormat.RGBA32) return;
+            int mips = tex.mipmapCount;
+            bool srgb = GraphicsFormatUtility.IsSRGBFormat(tex.graphicsFormat);
+            var original = tex.graphicsFormat;
+            var levels = new Unity.Collections.NativeArray<Color32>[mips];
+            try
+            {
+                for (int m = 0; m < mips; m++)
+                    levels[m] = new Unity.Collections.NativeArray<Color32>(tex.GetPixelData<Color32>(m),
+                        Unity.Collections.Allocator.Persistent);
+                try
+                {
+                    tex.Reinitialize(tex.width, tex.height, GraphicsFormatUtility.GetGraphicsFormat(target, srgb), mips > 1);
+                    for (int m = 0; m < mips; m++)
+                    {
+                        if (target == TextureFormat.RGB24)
+                        {
+                            // いちばん多い形(アルファの無い画像を圧縮なしで取り込んだもの)は、管理配列を作らずに詰める。
+                            var dst = (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility
+                                .GetUnsafePtr(tex.GetPixelData<byte>(m));
+                            var src = (Color32*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility
+                                .GetUnsafeReadOnlyPtr(levels[m]);
+                            for (int i = 0, n = levels[m].Length; i < n; i++, dst += 3)
+                            {
+                                dst[0] = src[i].r;
+                                dst[1] = src[i].g;
+                                dst[2] = src[i].b;
+                            }
+                        }
+                        else tex.SetPixels32(levels[m].ToArray(), m);   // まれな形式(RGB565 など)は Unity に変換させる
+                    }
+                    tex.Apply(updateMipmaps: false, makeNoLongerReadable: false);
+                }
+                catch (Exception ex)
+                {
+                    // SetPixels32 が扱えない形式など。RGBA32 に戻して中身も戻す(大きさが増えるだけで、見た目は同じ)。
+                    Debug.LogWarning($"[Iroca] 色替えしたテクスチャを {target} にできなかったので RGBA32 のままにします: {ex.Message}");
+                    tex.Reinitialize(tex.width, tex.height, original, mips > 1);
+                    for (int m = 0; m < mips; m++) tex.GetPixelData<Color32>(m).CopyFrom(levels[m]);
+                    tex.Apply(updateMipmaps: false, makeNoLongerReadable: false);
+                }
+            }
+            finally
+            {
+                foreach (var level in levels)
+                    if (level.IsCreated) level.Dispose();
             }
         }
 

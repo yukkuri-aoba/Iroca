@@ -3,7 +3,9 @@
 #if IROCA_NDMF_PRESENT
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Iroca.NdmfIntegration;
+using nadena.dev.ndmf;
 using nadena.dev.ndmf.preview;
 using NUnit.Framework;
 using UnityEditor;
@@ -73,12 +75,10 @@ namespace Iroca.EditorTests
             return copy.GetComponent<Renderer>();
         }
 
-        // RenderGroup.Renderers は ImmutableList(このアセンブリは参照しない)なので、等価比較で探す。
+        // RenderGroup.Renderers は ImmutableList(このアセンブリは参照しない)なので、フィルタに聞いて探す
+        // (グループは差し替え先を持っているので、RenderGroup.For(r) とは等しくならない)。
         private static RenderGroup GroupOf(IEnumerable<RenderGroup> groups, Renderer r)
-        {
-            var wanted = RenderGroup.For(r);
-            return groups.FirstOrDefault(g => g.Equals(wanted));
-        }
+            => groups.FirstOrDefault(g => IrocaPreviewFilter.IsGroupOf(g, r));
 
         private IrocaRecipe RedToGreen(Texture2D src)
         {
@@ -172,9 +172,12 @@ namespace Iroca.EditorTests
                 node.Dispose();
             }
 
-            // ウィンドウがこのレシピを編集し始めたら、同じ範囲にライブを映す。
+            // ウィンドウがこのレシピを編集し始めたら、同じ範囲にライブを映す(差し替え先が変わるので別のグループになる)。
             LivePreview.SetTarget(src, recipe);
-            var liveNode = TestAssets.Wait(filter.Instantiate(group,
+            var liveGroup = GroupOf(filter.FindTargets(new ComputeContext("test")), inside);
+            Assert.IsNotNull(liveGroup);
+            Assert.AreNotEqual(group, liveGroup, "差し替え先が変わったのに同じグループ(NDMF がノードを作り直さない)");
+            var liveNode = TestAssets.Wait(filter.Instantiate(liveGroup,
                 new List<(Renderer, Renderer)> { (inside, ProxyOf(inside)) }, new ComputeContext("node")));
             try
             {
@@ -255,6 +258,204 @@ namespace Iroca.EditorTests
             LivePreview.SetTarget(null, null);
             ComputeContext.FlushInvalidates();
             Assert.IsTrue(ctx.IsInvalidated, "ウィンドウの編集対象が変わっても NDMF が対象を選び直さない");
+        }
+
+        [Test]
+        public void OpeningAnUnrelatedTexture_KeepsTheGroupAndTheNode()
+        {
+            // ウィンドウで関係ないテクスチャを開いても、この Renderer の差し替え先は変わらない。グループが等しければ
+            // NDMF はノードを使い回し、ノード自身もウィンドウの編集対象を見張らない(後段のツールまで作り直させない)。
+            var (src, mat) = SourceAndMaterial();
+            var avatar = Track(new GameObject("avatar"));
+            var inside = Mesh("inside", mat, avatar);
+            avatar.AddComponent<IrocaRecolor>().recipes.Add(RedToGreen(src));
+
+            var filter = new IrocaPreviewFilter();
+            var group = GroupOf(filter.FindTargets(new ComputeContext("test")), inside);
+            Assert.IsNotNull(group);
+            var nodeContext = new ComputeContext("node");
+            var node = TestAssets.Wait(filter.Instantiate(group,
+                new List<(Renderer, Renderer)> { (inside, ProxyOf(inside)) }, nodeContext));
+            try
+            {
+                string otherPath = _assets.WritePng("other", TestAssets.Solid(W, H, new Color32(10, 10, 200, 255)), W, H);
+                LivePreview.SetTarget(AssetDatabase.LoadAssetAtPath<Texture2D>(otherPath), null);
+                ComputeContext.FlushInvalidates();
+                Assert.IsFalse(nodeContext.IsInvalidated, "関係ないテクスチャを開いただけでノードを作り直させた");
+                var again = GroupOf(filter.FindTargets(new ComputeContext("test")), inside);
+                Assert.AreEqual(group, again, "差し替え先が同じなのに別のグループになった(NDMF がノードを作り直す)");
+            }
+            finally
+            {
+                node.Dispose();
+            }
+        }
+
+        [Test]
+        public void Replacements_AreRegisteredAsTheOriginals_ForDownstreamTools()
+        {
+            // TexTransTool の MaterialModifier などは、指定されたマテリアル・テクスチャと「置き換え前が同じもの」を
+            // NDMF の登録簿で探す。複製したマテリアルとレシピの出来上がりを、ノードを作るときの登録簿に知らせる。
+            var (src, mat) = SourceAndMaterial();
+            var avatar = Track(new GameObject("avatar"));
+            var inside = Mesh("inside", mat, avatar);
+            avatar.AddComponent<IrocaRecolor>().recipes.Add(RedToGreen(src));
+            var filter = new IrocaPreviewFilter();
+            var group = GroupOf(filter.FindTargets(new ComputeContext("test")), inside);
+            Assert.IsNotNull(group);
+
+            var registry = new ObjectRegistry(null);
+            var proxy = ProxyOf(inside);
+            Task<IRenderFilterNode> instantiating;
+            // NDMF はノードを作る間だけ登録簿を有効にする。レシピを待って後から差し替えても、控えた登録簿に知らせる。
+            using (new ObjectRegistryScope(registry))
+                instantiating = filter.Instantiate(group, new List<(Renderer, Renderer)> { (inside, proxy) },
+                    new ComputeContext("node"));
+            var node = TestAssets.Wait(instantiating);
+            try
+            {
+                IObjectRegistry r = registry;
+                var clone = proxy.sharedMaterial;
+                Assert.AreNotSame(mat, clone);
+                Assert.AreEqual(r.GetReference(mat), r.GetReference(clone, false),
+                    "複製したマテリアルを元のマテリアルとして登録していない");
+                var tex = clone.mainTexture;
+                Assert.IsTrue(tex != null && tex.name.EndsWith("(Iroca)"), $"{tex}");
+                Assert.AreEqual(r.GetReference(src), r.GetReference(tex, false),
+                    "レシピの出来上がりを元テクスチャとして登録していない");
+            }
+            finally
+            {
+                node.Dispose();
+            }
+        }
+
+        // 登録済みのレシピを映すノードを、作りかけのまま作る(NDMF の Instantiate と同じ呼び方)。
+        private (Task<IRenderFilterNode> instantiating, ComputeContext context, Renderer proxy, Material mat,
+            Texture2D src, IrocaRecipe recipe) WaitingNode()
+        {
+            var (src, mat) = SourceAndMaterial();
+            var avatar = Track(new GameObject("avatar"));
+            var inside = Mesh("inside", mat, avatar);
+            var recipe = RedToGreen(src);
+            avatar.AddComponent<IrocaRecolor>().recipes.Add(recipe);
+            var filter = new IrocaPreviewFilter();
+            var group = GroupOf(filter.FindTargets(new ComputeContext("test")), inside);
+            Assert.IsNotNull(group);
+            var context = new ComputeContext("node");
+            var proxy = ProxyOf(inside);
+            var instantiating = filter.Instantiate(group, new List<(Renderer, Renderer)> { (inside, proxy) }, context);
+            Assert.IsFalse(instantiating.IsCompleted, "テストの前提(初めて映すレシピは作りかけ)が崩れている");
+            return (instantiating, context, proxy, mat, src, recipe);
+        }
+
+        [Test]
+        public void RecipeChangedWhileWaiting_TheObsoleteBuildIsDropped_AndTheNodeFinishesAtOnce()
+        {
+            // NDMF は作りかけのパイプラインを最後まで待ってから作り直す。待っている間にレシピの中身が変わったら
+            // (鍵が変わる)、このノードだけが待っている作りかけは取り消し、元のテクスチャのまますぐ終わらせる。
+            var (instantiating, context, proxy, mat, src, recipe) = WaitingNode();
+            string oldCache = RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src));
+            var state = RecipeStore.Load(recipe);
+            state.zones[0].targetColor = new Color(0.2f, 0.2f, 0.9f);
+            RecipeStore.Save(recipe, state);
+            _cacheFiles.Add(RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(recipe, src)));
+            context.Invalidate();   // NDMF はレシピの中身の変化を、ノードの文脈の無効化で知らせる
+            ComputeContext.FlushInvalidates();
+            var node = TestAssets.Wait(instantiating);
+            try
+            {
+                Assert.AreSame(mat, proxy.sharedMaterial, "要らなくなったレシピの出来上がりを差し込んだ");
+                Assert.IsFalse(System.IO.File.Exists(oldCache), "取り消した計算をキャッシュに書いた");
+            }
+            finally
+            {
+                node.Dispose();
+            }
+        }
+
+        [Test]
+        public void InvalidatedWhileWaiting_ButTheSameRecipeIsStillNeeded_KeepsWaiting()
+        {
+            // 素材の差し替えなどでノードが作り直されても、鍵が同じなら作り直したノードがまた使うので取り消さない
+            // (取り消すと初めから計算し直すことになる)。
+            var (instantiating, context, proxy, _, _, _) = WaitingNode();
+            context.Invalidate();
+            ComputeContext.FlushInvalidates();
+            var node = TestAssets.Wait(instantiating);
+            try
+            {
+                var tex = proxy.sharedMaterial.mainTexture;
+                Assert.IsTrue(tex != null && tex.name.EndsWith("(Iroca)"), $"まだ要る作りかけを取り消した: {tex}");
+            }
+            finally
+            {
+                node.Dispose();
+            }
+        }
+
+        [Test]
+        public void WindowStartsEditingTheRecipeWhileWaiting_TheBuildIsDropped()
+        {
+            // ウィンドウがこのレシピを編集し始めたら、この Renderer にはライブを映すので、レシピの出来上がりは要らない。
+            var (instantiating, context, proxy, mat, src, recipe) = WaitingNode();
+            LivePreview.SetTarget(src, recipe);
+            ComputeContext.FlushInvalidates();
+            Assert.IsTrue(context.IsInvalidated, "ウィンドウがこのレシピを編集し始めたのに、ノードを作り直させない");
+            var node = TestAssets.Wait(instantiating);
+            try
+            {
+                Assert.AreSame(mat, proxy.sharedMaterial, "ライブに替わるのに、レシピの出来上がりを待って差し込んだ");
+            }
+            finally
+            {
+                node.Dispose();
+            }
+        }
+
+        [Test]
+        public void Refresh_ReusesTheNodeOnlyWhenNothingItUsesChanged()
+        {
+            var (src, mat) = SourceAndMaterial();
+            var renderer = Mesh("mesh", mat);
+            LivePreview.SetTarget(src, null);
+            var filter = new IrocaPreviewFilter();
+            var group = GroupOf(filter.FindTargets(new ComputeContext("test")), renderer);
+            var context = new ComputeContext("node");
+            var node = TestAssets.Wait(filter.Instantiate(group,
+                new List<(Renderer, Renderer)> { (renderer, ProxyOf(renderer)) }, context));
+            try
+            {
+                // 上流でブレンドシェイプ・メッシュだけが変わった: 同じ複製を新しいプロキシへ差し直して使い回す。
+                var proxy = ProxyOf(renderer);
+                var next = new ComputeContext("refresh");
+                var reused = TestAssets.Wait(node.Refresh(new List<(Renderer, Renderer)> { (renderer, proxy) }, next,
+                    RenderAspects.Shapes | RenderAspects.Mesh));
+                Assert.AreSame(node, reused, "マテリアルに関係ない変化で作り直させた");
+                Assert.AreEqual((RenderAspects)0, reused.WhatChanged, "使い回したのに後段へ変化を伝えた");
+                Assert.AreNotSame(mat, proxy.sharedMaterial, "新しいプロキシに差し直していない");
+
+                // 上流でマテリアルが変わった: 作り直してもらう。
+                Assert.IsNull(TestAssets.Wait(node.Refresh(new List<(Renderer, Renderer)> { (renderer, ProxyOf(renderer)) },
+                    new ComputeContext("refresh"), RenderAspects.Material)), "上流のマテリアルが変わったのに使い回した");
+
+                // 元の Renderer の素材が変わった(アニメーションのプレビューなど): 作り直してもらう。
+                var other = Track(new Material(Shader.Find("Standard")) { mainTexture = src });
+                renderer.sharedMaterial = other;
+                Assert.IsNull(TestAssets.Wait(node.Refresh(new List<(Renderer, Renderer)> { (renderer, ProxyOf(renderer)) },
+                    new ComputeContext("refresh"), RenderAspects.Shapes)), "元の素材が変わったのに使い回した");
+                renderer.sharedMaterial = mat;
+
+                // 自分の入力が変わって無効になった(差し替えの変化は 0 で呼ばれる): 作り直してもらう。
+                next.Invalidate();
+                ComputeContext.FlushInvalidates();
+                Assert.IsNull(TestAssets.Wait(node.Refresh(new List<(Renderer, Renderer)> { (renderer, ProxyOf(renderer)) },
+                    new ComputeContext("refresh"), 0)), "入力が変わったのに使い回した");
+            }
+            finally
+            {
+                node.Dispose();
+            }
         }
     }
 }

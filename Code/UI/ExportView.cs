@@ -173,6 +173,9 @@ namespace Iroca
                 using (new EditorGUI.DisabledScope(true))
                     EditorGUILayout.ObjectField(new GUIContent(Localization.BoundRecipe, Localization.BoundRecipeTooltip),
                         bound, typeof(IrocaRecipe), false);
+                // 読めないレシピ(新しい版のいろかで作られた・壊れた)には保存も登録もしないので、そう知らせる。
+                if (BoundRecipeUnreadable(bound))
+                    EditorGUILayout.HelpBox(Localization.BoundRecipeUnreadable, MessageType.Warning);
             }
             // 以前書き出した画像をマテリアルに差していると非破壊が効かないので、登録で戻せることを知らせる。
             int exportUsers = ExportUsersCount();
@@ -251,7 +254,11 @@ namespace Iroca
             float lineH = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
             float h = primary ? PrimaryButtonHeight + EditorGUIUtility.standardVerticalSpacing : lineH; // アバターに非破壊で登録
             if (_host != null && _host.BoundRecipe != null)
+            {
                 h += lineH;           // 保存先のレシピ
+                if (BoundRecipeUnreadable(_host.BoundRecipe))
+                    h += HelpBoxHeight(Localization.BoundRecipeUnreadable);
+            }
             int exportUsers = ExportUsersCount();
             if (exportUsers > 0)      // 書き出した画像を使うマテリアルの案内
                 h += HelpBoxHeight(string.Format(Localization.ExportUsersHintFormat, exportUsers));
@@ -270,6 +277,12 @@ namespace Iroca
             float measured = EditorStyles.helpBox.CalcHeight(new GUIContent(text), textW);
             return Mathf.Max(40f, measured) + EditorGUIUtility.standardVerticalSpacing;
         }
+
+        // 保存先のレシピを読めるか。描画のたびに JSON(マスク込み)を読まないよう、中身が変わったときだけ読み直す。
+        [System.NonSerialized] private readonly RecipeSummaryCache _boundSummary = new RecipeSummaryCache();
+
+        private bool BoundRecipeUnreadable(IrocaRecipe bound)
+            => bound != null && !string.IsNullOrEmpty(bound.sessionJson) && !_boundSummary.Readable(bound);
 
         private int ExportUsersCount()
         {

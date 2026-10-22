@@ -78,9 +78,42 @@ namespace Iroca
             /// <summary>何も差し替えない(シーンを調べる必要が無い)。</summary>
             public bool IsEmpty => _liveSource == null && _registeredSources.Count == 0;
 
+            /// <summary>
+            /// シーンのどこにでも映しうるか(ウィンドウが登録の無いテクスチャを編集している)。false なら、映しうるのは
+            /// <see cref="Owners"/>(とその子)の Renderer だけ(持ち主のいない Renderer には何も映さない規則なので)。
+            /// </summary>
+            public bool ShowsLiveAnywhere => _liveSource != null && !_registeredSources.Contains(_liveSource);
+
+            /// <summary>コンポーネントを付けた GameObject(範囲の根)。</summary>
+            public IEnumerable<GameObject> Owners => _byOwner.Keys;
+
+            /// <summary>
+            /// <paramref name="renderer"/> の位置での差し替え先(<see cref="TryResolve"/> の結果をまとめたもの)。
+            /// 登録済みのテクスチャは、Renderer が使っているかに関係なく、持ち主(祖先のコンポーネント)で決まる分を
+            /// すべて入れる(上流のツールが別のマテリアルへ差し替えても引けるように)。ウィンドウで編集中のテクスチャを
+            /// ライブで映すのは、<paramref name="usesLive"/>(Renderer の素材がそれを使っている)ときだけ。使っていない
+            /// Renderer ではレシピのままにして、ウィンドウで別のテクスチャを開くたびに差し替え先が変わらないようにする。
+            /// </summary>
+            public Routes RoutesFor(Transform renderer, bool usesLive)
+            {
+                var found = new List<(Texture, Replacement)>();
+                foreach (var texture in _registeredSources)
+                {
+                    if (!TryResolve(renderer, texture, out var replacement)) continue;
+                    if (replacement.IsLive && !usesLive) replacement = new Replacement(replacement.source, _liveRecipe);
+                    found.Add((texture, replacement));
+                }
+                if (usesLive && ShowsLiveAnywhere && TryResolve(renderer, _liveSource, out var live))
+                    found.Add((_liveSource, live));
+                return new Routes(found);
+            }
+
             /// <summary>差し替えの候補になるテクスチャか(Renderer ごとの判定の前の早い足切り)。</summary>
             public bool IsCandidate(Texture texture) =>
                 texture != null && (texture == _liveSource || _registeredSources.Contains(texture));
+
+            /// <summary>ウィンドウで編集中のテクスチャか。</summary>
+            public bool IsLive(Texture texture) => texture != null && texture == _liveSource;
 
             /// <summary>
             /// <paramref name="renderer"/> が使う <paramref name="texture"/> の差し替え先。差し替えないなら false。
@@ -109,6 +142,77 @@ namespace Iroca
                 }
                 return false;
             }
+        }
+
+        /// <summary>
+        /// ある Renderer の位置での差し替え先の一覧(元テクスチャ → <see cref="Replacement"/>)。シーンのプレビューは
+        /// これを NDMF の対象グループに持たせ、中身が変わったときだけノードを作り直させる(ノード自身はシーン全体の
+        /// 部品を見張らない)。中身で比べる(元テクスチャ・レシピが同じなら等しい)。
+        /// </summary>
+        internal sealed class Routes : System.IEquatable<Routes>
+        {
+            private readonly Texture[] _textures;
+            private readonly Replacement[] _replacements;
+
+            public Routes(List<(Texture texture, Replacement replacement)> routes)
+            {
+                // 見つけた順はハッシュの並びなので、比べられるように並べ替える。
+                routes.Sort((a, b) => a.texture.GetInstanceID().CompareTo(b.texture.GetInstanceID()));
+                _textures = new Texture[routes.Count];
+                _replacements = new Replacement[routes.Count];
+                for (int i = 0; i < routes.Count; i++)
+                {
+                    _textures[i] = routes[i].texture;
+                    _replacements[i] = routes[i].replacement;
+                }
+            }
+
+            public bool IsEmpty => _textures.Length == 0;
+
+            public bool TryGet(Texture texture, out Replacement replacement)
+            {
+                if (texture != null)
+                {
+                    for (int i = 0; i < _textures.Length; i++)
+                    {
+                        if (_textures[i] != texture) continue;
+                        replacement = _replacements[i];
+                        return true;
+                    }
+                }
+                replacement = default;
+                return false;
+            }
+
+            public bool Equals(Routes other)
+            {
+                if (ReferenceEquals(this, other)) return true;
+                if (other == null || other._textures.Length != _textures.Length) return false;
+                for (int i = 0; i < _textures.Length; i++)
+                {
+                    if (!ReferenceEquals(_textures[i], other._textures[i])
+                        || !ReferenceEquals(_replacements[i].source, other._replacements[i].source)
+                        || !ReferenceEquals(_replacements[i].recipe, other._replacements[i].recipe))
+                        return false;
+                }
+                return true;
+            }
+
+            public override bool Equals(object obj) => Equals(obj as Routes);
+
+            // 消えたオブジェクトでも値が変わらないよう、instance ID で(Unity の == は消えると null 扱いになる)。
+            public override int GetHashCode()
+            {
+                int hash = _textures.Length;
+                for (int i = 0; i < _textures.Length; i++)
+                {
+                    hash = hash * 31 + IdOf(_textures[i]);
+                    hash = hash * 31 + IdOf(_replacements[i].recipe);
+                }
+                return hash;
+            }
+
+            private static int IdOf(Object o) => ReferenceEquals(o, null) ? 0 : o.GetInstanceID();
         }
     }
 }

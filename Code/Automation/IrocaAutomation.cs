@@ -18,7 +18,7 @@ namespace Iroca
     /// <see cref="SessionRecolor.Apply"/> に通すので、製品の出力と一致する。
     /// ただし ReadSourcePixels を imported=null で呼ぶので、取り込み済みテクスチャへのフォールバックはしない（PNG/JPG のみ）。
     ///
-    /// 呼び出し経路は 3 つ。いずれも同じ中核（<see cref="RunRecolorCore"/>）を通る:
+    /// 呼び出し経路は 3 つ。1 と 3 は同じ中核（<see cref="RunRecolorCore"/>）を、2 は同じ <see cref="SessionRecolor.Apply"/> を通る:
     ///   1. 静的 API: <see cref="RecolorByPreset"/> / <see cref="RecolorWithZones"/> 等。戻り値は JSON 文字列。
     ///      生 C# 実行が可能な MCP クライアント・EditMode テストから直接呼ぶ。
     ///   2. MCPForUnity カスタムツール: <c>Code/McpIntegration/IrocaMcpTools.cs</c> の <c>iroca_inspect</c>・
@@ -174,6 +174,13 @@ namespace Iroca
                 {
                     "RecolorByPreset(sourceAssetPath, presetPathOrNameOrJson, outputAssetPath) -> RecolorResult",
                     "RecolorWithZones(sourceAssetPath, zonesRequestJson, outputAssetPath) -> RecolorResult",
+                    "Inspect(target, maxColors) -> { kind, objects, textures:[{path, colors:[{hex, uv}], thumbnail}] }"
+                        + "（target なしでシーンのアバター一覧、シーンのオブジェクトで使っているテクスチャ、テクスチャで主な色と代表点）",
+                    "Recolor(requestJson) -> { ok, texture, apply, avatar, recipe, output, preview, zones, warnings } か "
+                        + "{ pending:true }（依頼 JSON: texture, changes:[{name, at:[u,v] | from, to}], remove, reset, preset, "
+                        + "apply=avatar|png|preview, avatar, output, overwrite, autoTune）",
+                    "RecolorStatus() -> pending を返した Recolor の続き（終わるまで pending、終われば Recolor と同じ形）",
+                    "Open(target) -> { ok, texture, recipe }（いろかの窓で開く。target はレシピ・テクスチャ・マテリアル・シーンのオブジェクト）",
                     "ListPresets() -> { presets:[{name,path,scope}] }",
                     "GetVersion() -> { name, version }",
                     "DescribeSchema() -> this document",
@@ -284,6 +291,7 @@ namespace Iroca
         /// <c>Unity.exe -batchmode -quit -executeMethod Iroca.IrocaAutomation.RunFromCommandLine
         ///   -irocaSource &lt;path&gt; -irocaOutput &lt;path&gt; (-irocaPreset &lt;path|name&gt; | -irocaZonesFile &lt;json&gt; | -irocaJob &lt;json&gt;)</c>
         /// で呼ぶ、MCP を介さない完全ヘッドレス経路。結果は Console と UserSettings/Iroca/mcp/result.json に出す。
+        /// batchmode のときだけ成否を終了コードにして Unity を終える(開いているエディタから呼ばれたときは終えない)。
         /// </summary>
         public static void RunFromCommandLine()
         {
@@ -329,6 +337,10 @@ namespace Iroca
             // -quit だけでは RunFromCommandLine の成否に関わらず Unity は exit 0 で終了し、
             // 失敗(デコード失敗・ゾーン無し・書き込み失敗等)が握り潰されていた。result.json と
             // ログは上で出力済みなので、ここで成否に応じた終了コードで明示終了する。
+            // 開いているエディタの中で呼ばれた(AI のコード実行や、利用者の自動処理の途中の 1 段など)ときに
+            // 終了すると、保存していないシーンの変更ごと Unity が閉じる。終えるのは batchmode のときだけ
+            // (BuildHelper と同じ形)。
+            if (!Application.isBatchMode) return;
             bool ok = false;
             try { ok = JsonUtility.FromJson<RecolorResult>(resultJson)?.ok ?? false; }
             catch { ok = false; }
@@ -340,15 +352,12 @@ namespace Iroca
         /// 全経路がここを通る。原本は製品の書き出しと共有の <see cref="ExportPipeline.ReadSourcePixels"/> を
         /// imported=null で呼んで読む（取り込み済みテクスチャへのフォールバックはしない。PNG/JPG のみ）。
         /// 色替えは非破壊ビルドと同じ入口なので、有効なゾーンだけを並び順のまま、state のマスクを当てて処理する。
-        /// <paramref name="imported"/> を渡すと、PNG/JPG として読めない原本(PSD・TGA など)は UI の書き出しと同じく
-        /// 取り込み済みテクスチャから読む。<paramref name="panelNextToOutput"/> が false なら比較パネルを書かない
-        /// (呼び出し側が別の場所に作る)。<paramref name="metrics"/> が false なら変化の指標を数えない
-        /// (連結成分まで数えるので大きいテクスチャでは軽くない。呼び出し側が作業解像度で数えているとき)。
+        /// 静的 API と batchmode の経路。MCP の <see cref="Recolor"/> は同じ <see cref="SessionRecolor.Apply"/> を
+        /// 自分の手順(作業解像度の比較画像・背景での書き出し)で呼ぶ。
         /// </summary>
         private static RecolorResult RunRecolorCore(
             string sourceAssetPath, IrocaSessionState state,
-            string outputAssetPath, List<string> warnings,
-            Texture2D imported = null, bool panelNextToOutput = true, bool metrics = true)
+            string outputAssetPath, List<string> warnings)
         {
             var result = new RecolorResult { warnings = warnings ?? new List<string>() };
 
@@ -366,29 +375,25 @@ namespace Iroca
 
             // ── ディスクの PNG を直接読む（import 設定/readable に依存せず製品経路と一致させる） ──
             // imported が null なら ExportPipeline のフォールバックは起きず PNG/JPG のみを受け付ける。
-            if (ExportPipeline.ReadSourcePixels(srcAbs, imported, out Color32[] pixels, out int w, out int h)
+            if (ExportPipeline.ReadSourcePixels(srcAbs, null, out Color32[] pixels, out int w, out int h)
                     == ExportPipeline.SourceKind.Unavailable)
             { result.error = "failed to decode source image."; return result; }
 
             // 比較パネル/メトリクス用に、再着色前の画素を退避する(ProcessPixelsArray は in-place 変換)。
-            // どちらも要らなければ複製しない(8K で 256MB)。
-            var originalPixels = metrics || panelNextToOutput ? (Color32[])pixels.Clone() : null;
+            var originalPixels = (Color32[])pixels.Clone();
 
             SessionRecolor.Apply(pixels, w, h, state);
 
             string writeError = WriteRecoloredPng(pixels, w, h, srcAbs, outputAssetPath, out string outAbs);
             if (writeError != null) { result.error = writeError; return result; }
 
-            if (metrics)
-            {
-                var m = RecolorPreview.ComputeMetrics(originalPixels, pixels, w, h);
-                result.changedPixels = m.changedPixels;
-                result.changedFraction = m.changedFraction;
-                result.largestComponentFraction = m.largestComponentFraction;
-                result.changeComponentCount = m.componentCount;
-                result.changeBBox = new[] { m.bboxX, m.bboxY, m.bboxW, m.bboxH };
-            }
-            if (panelNextToOutput) WritePreviewPanel(originalPixels, pixels, w, h, outAbs, srcAbs, result);
+            var m = RecolorPreview.ComputeMetrics(originalPixels, pixels, w, h);
+            result.changedPixels = m.changedPixels;
+            result.changedFraction = m.changedFraction;
+            result.largestComponentFraction = m.largestComponentFraction;
+            result.changeComponentCount = m.componentCount;
+            result.changeBBox = new[] { m.bboxX, m.bboxY, m.bboxW, m.bboxH };
+            WritePreviewPanel(originalPixels, pixels, w, h, outAbs, srcAbs, result);
 
             result.ok = true;
             result.output = outAbs;
@@ -469,7 +474,13 @@ namespace Iroca
             byte[] png;
             try { png = ExportPipeline.EncodePng(pixels, w, h); }
             catch (Exception) { return false; }
+            WritePngFile(png, abs);
+            return true;
+        }
 
+        /// <summary>PNG のバイト列を <paramref name="abs"/> へ書き、Assets 配下なら取り込む(メインスレッド)。</summary>
+        private static void WritePngFile(byte[] png, string abs)
+        {
             string dir = Path.GetDirectoryName(abs);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             // 出力先に既存 PNG があると、書き込み途中で落ちたときその既存物を壊す。
@@ -478,7 +489,6 @@ namespace Iroca
 
             string rel = PathUtils.ToAssetsRelativeOrNull(abs);
             if (rel != null) AssetDatabase.ImportAsset(rel);
-            return true;
         }
 
         private static string MakePreviewPath(string outAbs)

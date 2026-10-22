@@ -297,6 +297,52 @@ namespace Iroca.EditorTests
             }
         }
 
+        // シーンのプレビューが要らなくなった作りかけ: 取り消したら途中の結果を作らず、キャッシュにも書かず、
+        // 計算の数の勘定(作業配列を手放す判断に使う)も元に戻る。
+        [Test]
+        public void BuildAsync_Cancelled_FinishesWithNothing_WithoutCacheOrLeftoverWork()
+        {
+            var (recipe, cacheFile) = FreshRecipe();
+            try
+            {
+                int running = NativeMemoryLifecycle.RunningWork;
+                Texture2D Run(System.Threading.CancellationTokenSource cts, bool startFirst)
+                {
+                    bool called = false;
+                    Texture2D built = null;
+                    RecipeTextureBuilder.BuildAsync(recipe, cts.Token, t => { built = t; called = true; });
+                    if (startFirst) PreviewJobMainThread.Drain();   // 原本を読んで計算を始める
+                    cts.Cancel();
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    while (!called || NativeMemoryLifecycle.RunningWork != running)
+                    {
+                        if (sw.ElapsedMilliseconds > 30000) Assert.Fail("取り消した計算が終わらない");
+                        PreviewJobMainThread.Drain();
+                        System.Threading.Thread.Sleep(2);
+                    }
+                    return built;
+                }
+
+                using (var cts = new System.Threading.CancellationTokenSource())
+                    Assert.IsNull(Run(cts, startFirst: false), "計算を始める前に取り消したのに作った");
+                using (var cts = new System.Threading.CancellationTokenSource())
+                {
+                    var built = Run(cts, startFirst: true);
+                    if (built != null)
+                    {
+                        Track(built);
+                        Assert.Inconclusive("取り消す前に出来上がった(小さい画像で計算が速すぎた)");
+                    }
+                }
+                Assert.AreEqual(running, NativeMemoryLifecycle.RunningWork, "取り消した計算の勘定が戻っていない");
+                Assert.IsFalse(File.Exists(cacheFile), "取り消した計算をキャッシュに書いた");
+            }
+            finally
+            {
+                if (File.Exists(cacheFile)) File.Delete(cacheFile);
+            }
+        }
+
         // ウィンドウを開いている間は手放さない(編集の次の 1 手が作業配列と色の表を作り直さないように。
         // ウィンドウを閉じたときにまとめて返る)。
         [Test]
@@ -436,18 +482,27 @@ namespace Iroca.EditorTests
                 return t;
             }
             public void SaveAsset(Object generated) => Saved.Add(generated);
-            public void RegisterReplaced(Object original, Object replacement) { }
+
+            // 置き換えの登録(元, 置き換え後)と、保存した後に登録したもの(NDMF では参照を引いた後の登録が例外になる)。
+            public readonly List<(Object original, Object replacement)> Replaced = new List<(Object, Object)>();
+            public readonly List<Object> RegisteredAfterSave = new List<Object>();
+
+            public void RegisterReplaced(Object original, Object replacement)
+            {
+                if (Saved.Contains(replacement)) RegisteredAfterSave.Add(replacement);
+                Replaced.Add((original, replacement));
+            }
             public void Report(NonDestructiveApplier.Problem p, IrocaRecolor c, IrocaRecipe r, RecipeTextureBuilder.Failure f)
                 => Reports.Add((p, c, r, f));
 
             // アニメーションのマテリアル切り替え(切り替える先の GameObject と、キーフレームのマテリアル)。
             public readonly List<(GameObject target, Material[] keys)> Animated = new List<(GameObject, Material[])>();
 
-            public void RewriteAnimatedMaterials(Transform scope, System.Func<Material, Material> mapping)
+            public void RewriteAnimatedMaterials(System.Func<Transform, bool> inScope, System.Func<Material, Material> mapping)
             {
                 foreach (var (target, keys) in Animated)
                 {
-                    if (!target.transform.IsChildOf(scope)) continue;
+                    if (!inScope(target.transform)) continue;
                     for (int i = 0; i < keys.Length; i++)
                         if (keys[i] != null) keys[i] = mapping(keys[i]);
                 }
@@ -774,6 +829,135 @@ namespace Iroca.EditorTests
                 (NonDestructiveApplier.Problem.TextureNotUsedInScope, second),   // 先のレシピが差し替え済み
                 (NonDestructiveApplier.Problem.MissingRecipe, (IrocaRecipe)null), // レシピの無いコンポーネント
             }, host.Reports.ConvertAll(x => (x.Item1, x.Item3)));
+        }
+
+        [Test]
+        public void Applier_RegistersTheRecoloredTextureAsTheSource_OnceAndBeforeSaving()
+        {
+            // TexTransTool の TextureBlender などは、指定された元テクスチャと「置き換え前が同じもの」を探す。
+            // 色替え済みテクスチャを元テクスチャの置き換えとして登録しないと、見つけられずに黙って何もしない。
+            var src = Tex("src");
+            var shared = Mat("shared", src);
+            var root = Node("avatar", null);
+            Node("mesh", root.transform, shared);
+            var later = Node("later", root.transform, Mat("plain", Tex("plain")));
+            var recipe = Recipe("r", src);
+            AddRecolor(root, recipe);
+
+            var host = new FakeHost();
+            var state = new NonDestructiveApplier.BuildState();
+            NonDestructiveApplier.Apply(root, host, state, NonDestructiveApplier.Stage.First);
+            later.GetComponent<Renderer>().sharedMaterial = shared;   // 2 段目で同じテクスチャを使い回す
+            NonDestructiveApplier.Apply(root, host, state, NonDestructiveApplier.Stage.Late);
+
+            var recolored = host.Textures[recipe];
+            var textures = host.Replaced.FindAll(x => x.replacement is Texture);
+            Assert.AreEqual(1, textures.Count, "色替え済みテクスチャを 2 回登録した(NDMF は 2 回目で例外を出す)");
+            Assert.AreSame(src, textures[0].original);
+            Assert.AreSame(recolored, textures[0].replacement);
+            CollectionAssert.DoesNotContain(host.RegisteredAfterSave, recolored, "保存した後に登録した");
+        }
+
+        [Test]
+        public void Applier_RendererMovedOutOfScopeDuringTheBuild_IsStillRecolored()
+        {
+            // Modular Avatar の Merge Armature・Bone Proxy や VRCFury の Armature Link は、衣装の骨の下の小物を
+            // アバター本体の骨の下へ移す。範囲は移す前(Resolving 段で記録)の親子関係で決める。
+            var src = Tex("src");
+            var shared = Mat("shared", src);
+            var root = Node("avatar", null);
+            var bone = Node("Hips", root.transform);
+            var body = Node("body", root.transform, shared);   // 範囲外(本体)
+            var outfit = Node("outfit", root.transform);
+            var outfitBone = Node("Hips", outfit.transform);
+            var accessory = Node("accessory", outfitBone.transform, shared);
+            var toggled = Node("toggled", outfitBone.transform, Mat("plain", Tex("plain")));
+            var recipe = Recipe("r", src);
+            AddRecolor(outfit, recipe);
+
+            var host = new FakeHost();
+            var state = new NonDestructiveApplier.BuildState();
+            NonDestructiveApplier.RecordScopes(root, state);
+            // 骨の統合: 衣装の骨の下の小物が本体の骨の下へ移る。
+            accessory.transform.SetParent(bone.transform, true);
+            toggled.transform.SetParent(bone.transform, true);
+            NonDestructiveApplier.Apply(root, host, state, NonDestructiveApplier.Stage.First);
+
+            var recolored = accessory.GetComponent<Renderer>().sharedMaterial;
+            Assert.AreNotSame(shared, recolored, "骨の下へ移された小物が色替えされていない");
+            Assert.AreSame(host.Textures[recipe], recolored.mainTexture);
+            Assert.AreSame(shared, body.GetComponent<Renderer>().sharedMaterial, "範囲外(本体)まで色替えした");
+
+            // 1 段目と 2 段目の間のツールが、移した小物のトグル(アニメーション)で元のマテリアルを入れる。
+            var keys = new[] { shared };
+            host.Animated.Add((toggled, keys));
+            var bodyKeys = new[] { shared };
+            host.Animated.Add((body, bodyKeys));
+            NonDestructiveApplier.Apply(root, host, state, NonDestructiveApplier.Stage.Late);
+            Assert.AreSame(recolored, keys[0], "移した小物を切り替えるアニメーションが色替えされていない");
+            Assert.AreSame(shared, bodyKeys[0], "範囲外(本体)のアニメーションまで書き換えた");
+            Assert.IsFalse(host.Reports.Exists(x => x.Item1 == NonDestructiveApplier.Problem.TextureNotUsedInScope),
+                "移した小物で使っているのに「使っていない」と報告した");
+        }
+
+        [Test]
+        public void CreateMatching_UncompressedRgbImport_StaysRgb24()
+        {
+            // 圧縮なしで取り込んだアルファの無い画像(RGB24)を、色替え後も同じ形式にそろえる
+            // (RGBA32 にするとアップロードの大きさが 1.33 倍になる)。
+            string path = _assets.WritePng("rgb", Bands(), W, H);
+            var imp = (TextureImporter)AssetImporter.GetAtPath(path);
+            imp.textureCompression = TextureImporterCompression.Uncompressed;
+            imp.alphaSource = TextureImporterAlphaSource.None;
+            imp.SaveAndReimport();
+            var like = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            if (like.format != TextureFormat.RGB24) Assert.Ignore($"取り込みが RGB24 にならない({like.format})");
+
+            var px = Bands();
+            var tex = Track(RecipeTextureBuilder.CreateMatching(px, W, H, like));
+            Assert.AreEqual(TextureFormat.RGB24, tex.format, "非圧縮の形式が取り込みと違う");
+            Assert.AreEqual(like.mipmapCount, tex.mipmapCount);
+            Assert.AreEqual(GraphicsFormatUtility.IsSRGBFormat(like.graphicsFormat),
+                GraphicsFormatUtility.IsSRGBFormat(tex.graphicsFormat), "色空間(sRGB)が取り込みと違う");
+            var got = tex.GetPixels32();
+            for (int i = 0; i < px.Length; i++)
+                if (got[i].r != px[i].r || got[i].g != px[i].g || got[i].b != px[i].b)
+                    Assert.Fail($"画素 {i} が変わった: {px[i]} → {got[i]}");
+            var mip1 = tex.GetPixels32(1);
+            Assert.AreEqual((W / 2) * (H / 2), mip1.Length);
+            Assert.AreNotEqual(new Color32(0, 0, 0, 0), mip1[0], "ミップの中身を写していない");
+        }
+
+        [Test]
+        public void CreateMatching_FollowsTheAlphaSourceOfAPng()
+        {
+            // 原本の PNG はファイルから直接読む(取り込み設定を通らない)ので、アルファは PNG のまま届く。差し替える
+            // テクスチャのアルファは取り込みの Alpha Source にそろえる(None = 不透明、From Gray Scale = RGB の平均)。
+            var px = Bands();
+            for (int i = 0; i < px.Length; i++) px[i].a = (byte)(i % 3 == 0 ? 0 : 128);
+            string path = _assets.WritePng("alpha", px, W, H, readable: true);
+            var imp = (TextureImporter)AssetImporter.GetAtPath(path);
+
+            // From Gray Scale: Unity が取り込んだアルファと同じ(丸めの違いは 2 まで許す)。
+            imp.textureCompression = TextureImporterCompression.Uncompressed;
+            imp.alphaSource = TextureImporterAlphaSource.FromGrayScale;
+            imp.SaveAndReimport();
+            var like = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            var imported = like.GetPixels32();
+            var gray = Track(RecipeTextureBuilder.CreateMatching(px, W, H, like)).GetPixels32();
+            for (int i = 0; i < px.Length; i++)
+                if (System.Math.Abs(gray[i].a - imported[i].a) > 2)
+                    Assert.Fail($"画素 {i}: From Gray Scale のアルファが取り込みと違う: {gray[i].a} (取り込み {imported[i].a})");
+
+            // None: アルファを残す圧縮(BC7 など)でも不透明になる。
+            imp.textureCompression = TextureImporterCompression.CompressedHQ;
+            imp.alphaSource = TextureImporterAlphaSource.None;
+            imp.SaveAndReimport();
+            like = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            var none = Track(RecipeTextureBuilder.CreateMatching(px, W, H, like));
+            Assert.AreEqual(like.format, none.format);
+            foreach (var c in none.GetPixels32())
+                if (c.a < 250) Assert.Fail($"Alpha Source が None なのに透けている: {c}");
         }
     }
 }

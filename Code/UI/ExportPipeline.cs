@@ -1,7 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.IO;
-using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
@@ -29,7 +28,8 @@ namespace Iroca
 
         /// <summary>
         /// 単体書き出しの出力先。新規ファイルなら名前を <see cref="PathUtils.SanitizeFileName"/> で直して
-        /// 元と同じフォルダへ、上書きなら元の拡張子を .png に替えたパス（元が PNG なら元そのもの）。
+        /// 元と同じフォルダへ（元が Assets の外なら <see cref="PathUtils.ExportFolderFor"/>）、上書きなら元の拡張子を
+        /// .png に替えたパス（元が PNG なら元そのもの）。
         /// </summary>
         public static string SingleOutputPath(string srcPath, bool saveAsNewFile, string newFileName)
         {
@@ -37,13 +37,21 @@ namespace Iroca
             // 区切り文字も置換するのでパストラバーサルはできない。予約名("CON" 等)や
             // 末尾の '.' / ' ' もプリセット保存と同じ規則で直す。
             string safeName = PathUtils.SanitizeFileName(newFileName, "recolored");
-            return Path.Combine(Path.GetDirectoryName(srcPath), safeName + ".png");
+            return InExportFolder(srcPath, safeName + ".png");
         }
 
-        /// <summary>一括書き出しの出力先（元と同じフォルダの &lt;元の名前&gt;_recolored.png）。</summary>
+        /// <summary>
+        /// 一括書き出し・自動化 API の既定の出力先（元と同じフォルダの &lt;元の名前&gt;_recolored.png。
+        /// 元が Assets の外なら <see cref="PathUtils.ExportFolderFor"/> の下）。
+        /// </summary>
         public static string BatchOutputPath(string srcPath)
-            => Path.Combine(Path.GetDirectoryName(srcPath),
-                            Path.GetFileNameWithoutExtension(srcPath) + PathUtils.RecoloredSuffix + ".png");
+            => InExportFolder(srcPath, Path.GetFileNameWithoutExtension(srcPath) + PathUtils.RecoloredSuffix + ".png");
+
+        private static string InExportFolder(string srcPath, string fileName)
+        {
+            string folder = PathUtils.ExportFolderFor(srcPath);
+            return string.IsNullOrEmpty(folder) ? fileName : folder + "/" + fileName;
+        }
 
         /// <summary>
         /// 原本の画素を読む（メインスレッド専用）。PNG/JPG はファイルを直接デコードするので
@@ -135,34 +143,42 @@ namespace Iroca
         /// <summary>
         /// PNG を書き込み、Assets 配下なら取り込む（メインスレッド専用）。書き込みはアトミック
         /// （書き潰す相手が元テクスチャそのものであり得るので、途中で落ちても原本を失わない）。
-        /// <paramref name="inheritImportSettings"/> なら取り込み前に元の .meta を写す。
+        /// 出力先のフォルダが無ければ作る（元が Assets の外のときの <see cref="PathUtils.ExportsFolder"/> の下など）。
+        /// <paramref name="inheritImportSettings"/> なら取り込み前に元の .meta を写す（元がパッケージの中でも）。
         /// 戻り値は出力の Assets 相対パス（Assets の外へ書いたときは null）。
         /// </summary>
         public static string WriteAndImport(string outputPath, byte[] png, string srcPath, bool inheritImportSettings)
         {
+            string dir = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             AtomicFile.WriteAllBytes(outputPath, png);
             string rel = PathUtils.ToAssetsRelativeOrNull(outputPath);
             if (rel == null) return null;
-            if (inheritImportSettings)
-            {
-                string srcRel = PathUtils.ToAssetsRelativeOrNull(srcPath);
-                if (srcRel != null) PreApplyImportSettings(srcRel, rel);
-            }
+            if (inheritImportSettings && !string.IsNullOrEmpty(srcPath))
+                PreApplyImportSettings(srcPath, rel);
             AssetDatabase.ImportAsset(rel);
             return rel;
         }
 
         // .meta ファイルをインポート前に書き込んでおくことで、
         // ImportAsset の 1 回の圧縮パスで正しい設定が適用される（SaveAndReimport 不要）。
-        internal static void PreApplyImportSettings(string srcRelPath, string dstRelPath)
+        // srcPath は元テクスチャのアセットのパス（Assets/… か Packages/…）。
+        internal static void PreApplyImportSettings(string srcPath, string dstRelPath)
         {
             string root = Path.GetDirectoryName(Application.dataPath);
             string sep  = Path.DirectorySeparatorChar.ToString();
-            string srcMeta = Path.Combine(root, srcRelPath.Replace("/", sep)) + ".meta";
+            string srcRel = PathUtils.ToAssetsRelativeOrNull(srcPath);
+            // パッケージ（Packages/…）の実ファイルは Packages/ か Library/PackageCache/ にある。Path.GetFullPath が
+            // 実際の置き場所へ解決する（Unity のマニュアルにある方法）。
+            string srcMeta = (srcRel != null ? Path.Combine(root, srcRel.Replace("/", sep)) : Path.GetFullPath(srcPath)) + ".meta";
             string dstMeta = Path.Combine(root, dstRelPath.Replace("/", sep)) + ".meta";
 
+            // 元そのものへ上書きするときは元の .meta をそのまま使う（書き直すと、中身が同じでも
+            // 文字コードや改行の違いで差分が出る）。
+            if (IsSameFile(srcMeta, dstMeta)) return;
             if (!File.Exists(srcMeta)) return;
 
+            // BOM があれば読み飛ばす。改行は元のまま保つ。
             string content = File.ReadAllText(srcMeta, System.Text.Encoding.UTF8);
 
             // 上書きなら既存 GUID を維持、新規ファイルなら新 GUID を生成
@@ -170,8 +186,16 @@ namespace Iroca
             if (string.IsNullOrEmpty(guid))
                 guid = System.Guid.NewGuid().ToString("N");
 
-            content = Regex.Replace(content, @"(?m)^guid: [0-9a-f]+$", $"guid: {guid}");
-            File.WriteAllText(dstMeta, content, System.Text.Encoding.UTF8);
+            // GUID を差し替えられないまま写すと、元と同じ GUID の .meta になる。Unity はそれを衝突として
+            // 書き出し側に新しい GUID を振るので、上書きした画像がマテリアルから外れる。差し替えられなければ
+            // 写さず、通常の取り込み（既定のインポート設定）に任せる。
+            if (!MetaFile.TryReplaceGuid(content, guid, out string replaced))
+            {
+                Debug.LogWarning($"[Iroca] Import settings were not inherited: no GUID line in {srcMeta}.");
+                return;
+            }
+            // BOM なしの UTF-8（Unity が書く .meta と同じ）。小さいがアトミックに書く。
+            AtomicFile.WriteAllText(dstMeta, replaced);
         }
 
         /// <summary>

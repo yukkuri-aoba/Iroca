@@ -100,6 +100,28 @@ namespace Iroca
             return any;
         }
 
+        /// <summary>
+        /// 後から届く結果(自動調整・AI 提案)を、独立した「元に戻す」1 回分として記録する。
+        /// Unity の Undo のまとまりはマウスを押したとき・メニューを実行したときにしか切り替わらないので、
+        /// 結果を待っている間に別のウィンドウでした操作(物の移動・マテリアルの値の変更など)と同じ 1 回分に
+        /// まとまり、Ctrl+Z 1 回で両方が戻っていた。記録の前後で区切る(後ろも区切るのは、届いた直後に
+        /// 続く別の操作をこちらへ混ぜないため)。
+        /// </summary>
+        internal static void RecordAsSeparateUndo(string name, System.Action record)
+        {
+            Undo.IncrementCurrentGroup();
+            Undo.SetCurrentGroupName(name);
+            int group = Undo.GetCurrentGroup();
+            try { record(); }
+            finally
+            {
+                // 記録の中で別の名前が付いても(マスクのストロークなど)、このまとまりの名前で出す。
+                Undo.SetCurrentGroupName(name);
+                Undo.CollapseUndoOperations(group);
+                Undo.IncrementCurrentGroup();
+            }
+        }
+
         internal void MarkPreviewDirty() { if (_previewView != null) _previewView.previewDirty = true; }
 
         /// <summary>プレビュー再生成(プロキシ段なし)。確定表示がある前提の差分更新用
@@ -109,7 +131,89 @@ namespace Iroca
         // プレビューが別ウィンドウ(IrocaPreviewWindow)へ切り出されているときは、そちらも
         // 再描画する。PreviewView は自分の実測値の収束・生成ジョブのポーリング・パン/ズームの
         // 反映をこの要求に頼っているため、描画先の窓に届かないと表示が旧フレームで固まる。
-        internal void RequestRepaint() { Repaint(); IrocaPreviewWindow.RepaintIfOpen(); }
+        internal void RequestRepaint() { BumpUiState(); Repaint(); IrocaPreviewWindow.RepaintIfOpen(); }
+
+        // 別ウィンドウ(プレビュー・マスク編集)が「本体の状態が変わったか」を見る版番号。別ウィンドウは
+        // OnInspectorUpdate(約 10 回/秒)でこれを見て、変わったときだけ描き直す(以前は操作しなくても毎回
+        // 描き直していた)。増やすのは、プレビューの作り直しの要求(PreviewView.previewDirty)・マスクの変更
+        // (MaskPaintView.maskDirty)・再描画の要求(RequestRepaint。ジョブの完了・AI の状態の変化・追い
+        // 再描画もここを通る)・いろかのウィンドウへの入力(MayChangeState)。書き出し・自動調整の
+        // 始まりと終わりは、別ウィンドウが IsJobBlockingUI を直接比べる(DrawStamp)。
+        [System.NonSerialized] private int _uiStateVersion;
+
+        internal void BumpUiState() { unchecked { _uiStateVersion++; } }
+
+        /// <summary>状態を変えうる入力か(描画とレイアウト・マウスの移動だけのイベントは除く)。</summary>
+        internal static bool MayChangeState(EventType t) =>
+            t != EventType.Layout && t != EventType.Repaint && t != EventType.Used && t != EventType.Ignore
+            && t != EventType.MouseMove && t != EventType.MouseEnterWindow && t != EventType.MouseLeaveWindow;
+
+        /// <summary>
+        /// 別ウィンドウが最後に描いた時点の本体(と版番号・ジョブ中か)の控え。OnGUI の Repaint のときに
+        /// 描く前に <see cref="Record"/> し、OnInspectorUpdate で <see cref="Changed"/> なら描き直す。
+        /// </summary>
+        internal struct DrawStamp
+        {
+            private IrocaWindow _host;
+            private int _version;
+            private bool _blocking;
+
+            public void Record(IrocaWindow host)
+            {
+                _host = host;
+                _version = host != null ? host._uiStateVersion : 0;
+                _blocking = host != null && host.IsJobBlockingUI;
+            }
+
+            /// <param name="host">いまの本体(無い・破棄済みなら null を渡す)。</param>
+            public bool Changed(IrocaWindow host)
+            {
+                // 破棄された本体も別の物として比べる(Unity の == は破棄済みを null と等しく扱う)。
+                if (!ReferenceEquals(host, _host)) return true;
+                return host != null && (host._uiStateVersion != _version || host.IsJobBlockingUI != _blocking);
+            }
+        }
+
+        // 別ウィンドウが本体を見失っているとき、探し直す間隔(探すのはエディタ内の全オブジェクトの走査)。
+        internal const double HostSearchIntervalSeconds = 1.0;
+
+        // Play 中のリロード直後に待たせているプレビューを、次の Layout から始める印(TrackDeferredPreview)。
+        [System.NonSerialized] private bool _resumeDeferredPreview;
+
+        /// <summary>
+        /// Play を始めたときのドメインリロードの直後に待たせている、原本の読み直しとプレビューの作り直し
+        /// (<see cref="PreviewView.SourceLoadDeferred"/>)を、このウィンドウか切り出したプレビューが操作されたら
+        /// (マウスが入る・動く・クリック・スクロール・キー)始める。両ウィンドウの OnGUI の先頭で呼ぶ。
+        /// 操作されたイベントの途中で描くものを変えると IMGUI がエラーを出すので、始めるのは次の Layout から。
+        /// 待っている間はマウスの移動と出入りも受け取る(乗せただけで始まるように)。
+        /// </summary>
+        internal void TrackDeferredPreview(EditorWindow from)
+        {
+            bool deferred = _previewView != null && _previewView.SourceLoadDeferred;
+            if (deferred)
+            {
+                var type = Event.current.type;
+                if (type == EventType.Layout && _resumeDeferredPreview)
+                {
+                    _previewView.EndSourceLoadDeferral();
+                    deferred = false;
+                }
+                else if (!_resumeDeferredPreview && IsDeferredPreviewTrigger(type))
+                {
+                    _resumeDeferredPreview = true;
+                    RequestRepaint();
+                }
+            }
+            if (!deferred) _resumeDeferredPreview = false;
+            if (from.wantsMouseMove != deferred) from.wantsMouseMove = deferred;
+            if (from.wantsMouseEnterLeaveWindow != deferred) from.wantsMouseEnterLeaveWindow = deferred;
+        }
+
+        private static bool IsDeferredPreviewTrigger(EventType t) =>
+            t == EventType.MouseEnterWindow || t == EventType.MouseMove || t == EventType.MouseDown
+            || t == EventType.MouseUp || t == EventType.MouseDrag || t == EventType.ScrollWheel
+            || t == EventType.ContextClick || t == EventType.KeyDown
+            || t == EventType.DragUpdated || t == EventType.DragPerform;
 
         /// <summary>
         /// ディスク上のソース画素が変わったときに呼ぶ（エクスポートで元ファイルを上書きした等）。
@@ -156,6 +260,9 @@ namespace Iroca
         [MenuItem(IrocaConsts.MenuPath, priority = 100)]
         public static void ShowWindow()
         {
+            // 大きさを決めるのは新しく作ったときだけ。開いている窓の position に代入すると、ドッキング中の窓は
+            // Unity がドッキングから外して浮かせる(タブが複数ある区画・分割の中にある場合)。
+            bool wasOpen = HasOpenInstances<IrocaWindow>();
             var window = GetWindow<IrocaWindow>(Localization.WindowTitle);
             // アイコン名に "d_" を付けないこと。IconContent は装飾なしの名前を渡すと
             // ダークスキンのとき自動で "d_" 版を探す(無ければ素の名前へフォールバックする)。
@@ -172,7 +279,7 @@ namespace Iroca
             //          (新規保存 ON のファイル名行込み)を積んでも、等倍(100%)の
             //          MaxSize(384)px プレビューが縦スクロールバーなしで収まる高さ
             //          (実測で数十 px の余裕。設定列を見渡せるぶんとして残す)。
-            if (window.position.width < DefaultWindowWidth || window.position.height < DefaultWindowHeight)
+            if (!wasOpen && (window.position.width < DefaultWindowWidth || window.position.height < DefaultWindowHeight))
                 window.position = new Rect(window.position.x, window.position.y, DefaultWindowWidth, DefaultWindowHeight);
         }
 
@@ -188,12 +295,15 @@ namespace Iroca
 
         /// <summary>
         /// 別ウィンドウ（プレビュー / マスク編集）で本体が見つからないときの案内と「Iroca を開く」ボタン。
+        /// 押して本体を開いたら true(呼び出し側はすぐ探し直す)。
         /// </summary>
-        internal static void DrawMissingHostNotice()
+        internal static bool DrawMissingHostNotice()
         {
             EditorGUILayout.HelpBox(Localization.BrushPaletteNoHost, MessageType.Info);
-            if (GUILayout.Button(new GUIContent(Localization.OpenIrocaWindow, Localization.OpenIrocaWindowTooltip)))
-                ShowWindow();
+            if (!GUILayout.Button(new GUIContent(Localization.OpenIrocaWindow, Localization.OpenIrocaWindowTooltip)))
+                return false;
+            ShowWindow();
+            return true;
         }
 
         private void OnEnable()
@@ -234,6 +344,11 @@ namespace Iroca
             else
                 _maskView.RestoreFromSession();
 
+            // Play を始めたときのドメインリロードの直後は、原本の読み直しと色替えの計算し直しを、ウィンドウが
+            // 操作されるまで待つ(PreviewView.SourceLoadDeferred)。Play 中以外は今までどおりすぐ読む。
+            if (!firstSinceEditorStart && EditorApplication.isPlayingOrWillChangePlaymode)
+                _previewView.DeferSourceLoad();
+
             // Unity 標準 Undo の戻り/進みに合わせて bool[] バッファを _session.maskState から再展開。
             // 二重購読を避けるため一度外してから登録する（PreviewJobMainThread.Install と同じ防御）。
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
@@ -241,6 +356,8 @@ namespace Iroca
             // 非破壊ビルドの直前に、編集中の内容を結び付いたレシピへ書き出す。
             NonDestructiveApplier.BeforeApply -= FlushToBoundRecipe;
             NonDestructiveApplier.BeforeApply += FlushToBoundRecipe;
+            // 結び付いたレシピが外(git など)で書き換わっていたら、上書きせずに読み直す。
+            CheckRecipeAfterEnable();
             // 編集が止まって少ししたら保存する(Unity が落ちても直前の編集が残るように)。
             StartAutosave();
             // Scene でモデルをクリックした場所をプレビューで示す(クリックは横から見るだけで消費しない)。
@@ -286,6 +403,8 @@ namespace Iroca
 
         private void OnUndoRedoPerformed()
         {
+            // レシピも Undo で前の中身へ戻ったなら、外での書き換えと取り違えない(窓の状態の書き戻しとは別に見る)。
+            AdoptRecipeAfterUndo();
             // 関係ない Undo(シーンのオブジェクトの移動など)で、全マスクの再展開とフル解像度の
             // 再生成を走らせない。
             if (!_stateRestoredByUnity) return;

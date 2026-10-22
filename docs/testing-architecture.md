@@ -285,6 +285,28 @@ dev_safe から `scripts/source_checks/` へ移した。資産を要らない検
   `-n 4 --dist loadfile`（4 並列。`loadfile` はモジュール単位の割り当てで、これを外すと
   module スコープ fixture が各ワーカーで再実行されて逆に遅くなる）。直列に戻すなら `-n 0`。
 
+### ネイティブメモリのはみ出しを捕まえる（検証用の環境変数）
+
+0.3.0 から作業配列などは Mono のヒープの外（`IrocaNativeMemory`）に置いてポインタで扱うので、寸法の計算違いは
+例外ではなくメモリ破壊として出る（後で別の所で落ちたり、エディタごと落ちたりする）。`Code/Core` の寸法まわりを
+変えたら、次の 2 つを立てて golden・abcheck・回帰を回す。どちらも出力は変えない（変わったら書く前に読んでいる所がある）。
+
+- `IROCA_NATIVE_GUARD=1`（Windows だけ）: `IrocaNativeMemory.Alloc` が要求長ちょうどで末尾をページ境界にそろえ、
+  直後を読み書きできないガードページにする。作業配列のプール（`NativeWorkPool`）の切り上げと使い回しもやめる。
+  塊の後ろへのはみ出しと解放後の読み書きが、その場でアクセス違反（ハーネスは異常終了）になる。前へのはみ出しは
+  捕まえない。確保のたびに OS から取るので遅く、中身は 0 から始まる。
+- `IROCA_POOL_POISON=1`: プールが貸す領域を 0xFF で埋める（float は NaN、bool は真）。ガードの領域は 0 から
+  始まるので、書く前に読む所を探すにはこちらを併用する。
+
+ハーネスの出力はキャッシュから返ることがあるので、回帰では `IROCA_HARNESS_CACHE=0`・`IROCA_RESULT_CACHE=0`・
+`IROCA_ROW_CACHE=0` も立てて実際に走らせる（golden はキャッシュを使わない）。Unity の中で試すときは、環境変数を立ててから Unity を起動する。
+
+```powershell
+$env:IROCA_NATIVE_GUARD = "1"; $env:IROCA_POOL_POISON = "1"
+$env:IROCA_HARNESS_CACHE = "0"; $env:IROCA_RESULT_CACHE = "0"; $env:IROCA_ROW_CACHE = "0"
+.\.venv\Scripts\python.exe -m pytest scripts/golden -q
+```
+
 ### 実行時間の作り（2026-08-19 に整理）
 
 同じ計算を何度もしないための主な仕掛けは次のとおり。いずれも **測る対象は実 C# のまま**で、

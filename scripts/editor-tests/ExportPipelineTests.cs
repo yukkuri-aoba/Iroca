@@ -51,6 +51,29 @@ namespace Iroca.EditorTests
         public void BatchOutputPath_AddsSuffix()
             => Assert.AreEqual("Assets/Tex/a_recolored.png", Norm(ExportPipeline.BatchOutputPath("Assets/Tex/a.tga")));
 
+        [Test]
+        public void OutputPath_PackageSourceGoesUnderAssets()
+        {
+            // パッケージのフォルダは VCC / ALCOM の更新で丸ごと入れ替わり、中に書いた画像が消える。
+            Assert.AreEqual("Assets/Iroca/Exports/Packages/com.example/Tex/a_recolored.png",
+                Norm(ExportPipeline.BatchOutputPath("Packages/com.example/Tex/a.png")));
+            Assert.AreEqual("Assets/Iroca/Exports/Packages/com.example/Tex/b.png",
+                Norm(ExportPipeline.SingleOutputPath("Packages/com.example/Tex/a.png", true, "b")));
+            // 上書き（新しいファイルにしない）は利用者が元そのものを選んだので、元の場所のまま。
+            Assert.AreEqual("Packages/com.example/Tex/a.png",
+                Norm(ExportPipeline.SingleOutputPath("Packages/com.example/Tex/a.png", false, null)));
+        }
+
+        [Test]
+        public void WriteAndImport_CreatesTheOutputFolder()
+        {
+            string src = _assets.WritePng("src", Pattern(8, 8), 8, 8);
+            string outAsset = _assets.Folder + "/Exports/Packages/com.example/out.png";
+            string rel = ExportPipeline.WriteAndImport(TestAssets.Abs(outAsset), ExportPipeline.EncodePng(Pattern(8, 8), 8, 8), src, true);
+            Assert.AreEqual(outAsset, rel);
+            Assert.IsNotNull(AssetDatabase.LoadAssetAtPath<Texture2D>(outAsset), "新しいフォルダの中の画像が取り込まれていない");
+        }
+
         private static string Norm(string p) => p.Replace('\\', '/');
 
         // ─── 原本の読み込み ───
@@ -232,6 +255,45 @@ namespace Iroca.EditorTests
             string guid = AssetDatabase.AssetPathToGUID(src);
             ExportPipeline.WriteAndImport(TestAssets.Abs(src), ExportPipeline.EncodePng(Pattern(8, 8), 8, 8), src, true);
             Assert.AreEqual(guid, AssetDatabase.AssetPathToGUID(src));
+        }
+
+        [Test]
+        public void WriteAndImport_CrlfSourceMetaKeepsGuidOfExistingOutput()
+        {
+            // Windows の Git(autocrlf)で取り出したプロジェクトでは元の .meta が CRLF。以前は GUID を差し替えられず、
+            // 元と同じ GUID の .meta を写していた(書き出し直した画像に新しい GUID が振られ、マテリアルから外れる)。
+            string src = _assets.WritePng("src", Pattern(8, 8), 8, 8);
+            string outAsset = _assets.Folder + "/out.png";
+            ExportPipeline.WriteAndImport(TestAssets.Abs(outAsset), ExportPipeline.EncodePng(Pattern(8, 8), 8, 8), src, true);
+            string outGuid = AssetDatabase.AssetPathToGUID(outAsset);
+            Assert.IsNotEmpty(outGuid);
+
+            string srcMeta = TestAssets.Abs(src) + ".meta";
+            File.WriteAllText(srcMeta, File.ReadAllText(srcMeta).Replace("\r\n", "\n").Replace("\n", "\r\n"));
+            ExportPipeline.WriteAndImport(TestAssets.Abs(outAsset), ExportPipeline.EncodePng(Pattern(8, 8), 8, 8), src, true);
+
+            Assert.AreEqual(outGuid, AssetDatabase.AssetPathToGUID(outAsset), "書き出し直した画像の GUID が変わった");
+            Assert.AreNotEqual(AssetDatabase.AssetPathToGUID(src), outGuid);
+        }
+
+        [Test]
+        public void PreApplyImportSettings_WritesWithoutBom_AndSkipsTheSourceItself()
+        {
+            string src = _assets.WritePng("src", Pattern(8, 8), 8, 8);
+            string srcMeta = TestAssets.Abs(src) + ".meta";
+            string outAsset = _assets.Folder + "/out.png";
+            ExportPipeline.PreApplyImportSettings(src, outAsset);
+            var bytes = File.ReadAllBytes(TestAssets.Abs(outAsset) + ".meta");
+            Assert.IsFalse(bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF, "BOM 付きで書いた");
+
+            // 元そのものへの上書きでは、元の .meta を書き直さない(中身が同じでも差分が出る)。
+            byte[] before = File.ReadAllBytes(srcMeta);
+            var stamp = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(srcMeta, stamp);
+            ExportPipeline.PreApplyImportSettings(src, src);
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(srcMeta));
+            Assert.AreEqual(stamp, File.GetLastWriteTimeUtc(srcMeta), "元の .meta を書き直した");
+            File.Delete(TestAssets.Abs(outAsset) + ".meta");
         }
 
         [Test]

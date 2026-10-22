@@ -14,7 +14,8 @@ namespace Iroca
         /// <summary>
         /// 登録先の候補。シーン上の GameObject が選ばれていればそれ。無ければ、開いているシーンで
         /// <paramref name="texture"/>(か、それをいろかで書き出した画像)を使っている Renderer の共通の親
-        /// (複数のアバター = ルートが複数にまたがるときは決めない)。決まらなければ null。
+        /// (複数のアバター = ルートが複数にまたがるときや、共通の親がどのアバターの内側にも無いときは決めない)。
+        /// 決まらなければ null。
         /// </summary>
         public static GameObject SuggestTarget(Texture2D texture, GameObject selected)
         {
@@ -39,7 +40,24 @@ namespace Iroca
             var root = users[0].root;
             foreach (var t in users)
                 if (t.root != root) return null;
-            return CommonAncestor(users).gameObject;
+            var common = CommonAncestor(users);
+            // 複数のアバターを空のオブジェクトの下にまとめていると、共通の親はアバターの外になる。そこに付けると、
+            // シーンのプレビューでは色が変わるのに、ビルド(アバターの中の部品だけを処理する)では変わらない。
+            if (!IsInsideAvatar(common)) return null;
+            return common.gameObject;
+        }
+
+        /// <summary>
+        /// <paramref name="t"/> かその親がアバターのルート(VRChat の Avatar Descriptor が付いた物)か。
+        /// VRChat SDK の無いプロジェクトではアバターを見分けられないので、常に true(従来どおり)。
+        /// </summary>
+        internal static bool IsInsideAvatar(Transform t)
+        {
+#if IROCA_VRCSDK_AVATARS
+            return t != null && t.GetComponentInParent<VRC.SDKBase.VRC_AvatarDescriptor>(true) != null;
+#else
+            return t != null;
+#endif
         }
 
         /// <summary><paramref name="target"/> に既に登録されている、<paramref name="source"/> のレシピ(無ければ null)。</summary>
@@ -49,6 +67,23 @@ namespace Iroca
             foreach (var r in Recipes(target.GetComponents<IrocaRecolor>()))
                 if (r != null && r.sourceTexture == source) return r;
             return null;
+        }
+
+        /// <summary>
+        /// 開いているシーンで <paramref name="recipe"/> を使っている <see cref="IrocaRecolor"/> のうち、<paramref name="target"/> 以外の
+        /// もの。登録先にレシピが無いと同じテクスチャのレシピを流用するので、登録した後の編集はそちらの色にも効く。
+        /// 確認画面で知らせるのに使う。開いていないシーン・プロジェクトの Prefab は数えない。
+        /// </summary>
+        public static List<IrocaRecolor> OtherUsers(IrocaRecipe recipe, GameObject target)
+        {
+            var found = new List<IrocaRecolor>();
+            if (recipe == null) return found;
+            foreach (var c in Object.FindObjectsByType<IrocaRecolor>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (c == null || c.gameObject == target || !IsSceneObject(c.gameObject)) continue;
+                if (c.recipes != null && c.recipes.Contains(recipe)) found.Add(c);
+            }
+            return found;
         }
 
         /// <summary>
@@ -153,6 +188,35 @@ namespace Iroca
                 foreach (var m in r.sharedMaterials)
                     if (m != null && !found.Contains(m) && UsesAny(m, exports)) found.Add(m);
             return found;
+        }
+
+        /// <summary>
+        /// <paramref name="materials"/> のうち書き換えられるもの(<see cref="IsEditableMaterial"/>)で、<paramref name="scope"/> の
+        /// 外(開いているシーンのほかの Renderer)でも使われているもの。<paramref name="places"/> = それらを使っている
+        /// 範囲外の Renderer の数。書き出した画像から元へ戻すと .mat ごと書き換わり、そちらも元の色に戻るので、
+        /// 戻す前に知らせるのに使う。開いていないシーンやプロジェクトの Prefab は数えない(全部の逆引きは重い)。
+        /// </summary>
+        internal static List<Material> UsedOutside(GameObject scope, IEnumerable<Material> materials, out int places)
+        {
+            places = 0;
+            var shared = new List<Material>();
+            var candidates = new HashSet<Material>();
+            foreach (var m in materials)
+                if (IsEditableMaterial(m)) candidates.Add(m);
+            if (scope == null || candidates.Count == 0) return shared;
+            var scopeRoot = scope.transform;
+            foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (!IsSceneObject(r.gameObject) || r.transform.IsChildOf(scopeRoot)) continue;
+                bool counted = false;
+                foreach (var m in r.sharedMaterials)
+                {
+                    if (m == null || !candidates.Contains(m)) continue;
+                    if (!shared.Contains(m)) shared.Add(m);
+                    if (!counted) { places++; counted = true; }
+                }
+            }
+            return shared;
         }
 
         /// <summary>開いているシーン全体で、<paramref name="exports"/> のどれかを使っているマテリアルの数。</summary>

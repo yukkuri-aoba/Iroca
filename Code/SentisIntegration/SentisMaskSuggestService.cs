@@ -211,6 +211,16 @@ namespace Iroca.SentisIntegration
             return true;
         }
 
+        public void RefreshModelFiles()
+        {
+            // 読み込み済みなら状態は推論の側が持つ。読み込みは同期で止まるので、ここでは決してしない
+            // (ウィンドウが見えているだけで、コンパイルや Play の開始のたびに読み込み直していた)。
+            if (_modelsLoaded) return;
+            MaskSuggestBridge.MigrateLegacyModelsIfNeeded();
+            var next = SentisModelRepository.ModelsPresent() ? MaskSuggestPhase.NotLoaded : MaskSuggestPhase.NoModel;
+            if (_phase != next) SetPhase(next);
+        }
+
         bool TryCreateWorkers(out string error)
         {
             error = null;
@@ -411,17 +421,36 @@ namespace Iroca.SentisIntegration
         void RunDecoderWarmup()
         {
             EditorApplication.delayCall -= RunDecoderWarmup;
-            if (_phase != MaskSuggestPhase.Decoding || _embedding == null) return;
-            long t0 = MaskSuggestPerf.Now;
-            TryRunDecoderCore(0.5f, 0.5f, cropRect: null, out _, out _, out _);
-            MaskSuggestPerf.Log($"デコーダ暖機: {MaskSuggestPerf.MsSince(t0):F0}ms");
-            if (_phase != MaskSuggestPhase.Decoding) return;
-            if (_clickQueue.Count > 0)
+            try
             {
-                StartNextClick();
-                return;
+                if (_phase != MaskSuggestPhase.Decoding || _embedding == null) return;
+                long t0 = MaskSuggestPerf.Now;
+                TryRunDecoderCore(0.5f, 0.5f, cropRect: null, out _, out _, out _);
+                MaskSuggestPerf.Log($"デコーダ暖機: {MaskSuggestPerf.MsSince(t0):F0}ms");
+                if (_phase != MaskSuggestPhase.Decoding) return;
+                if (_clickQueue.Count > 0)
+                {
+                    StartNextClick();
+                    return;
+                }
+                SetPhase(MaskSuggestPhase.Idle);
             }
-            SetPhase(MaskSuggestPhase.Idle);
+            catch (Exception e)
+            {
+                FailFromEditorCallback(e, Localization.AiErrDecodeFormat);
+            }
+        }
+
+        /// <summary>
+        /// EditorApplication の update・delayCall から直接呼ばれる入口で出た例外の始末。Unity はそこで
+        /// 購読者を順に呼ぶだけで例外を止めないので、漏らすと同じフレームに並んだ他ツールの処理が飛ばされる。
+        /// ログに出して、処理中のまま止まらないよう Error に落とす(右クリックから選び直せば再試行になる)。
+        /// </summary>
+        void FailFromEditorCallback(Exception e, string format)
+        {
+            Debug.LogException(e);
+            try { SetPhase(MaskSuggestPhase.Error, error: string.Format(format, e.Message)); }
+            catch (Exception inner) { Debug.LogException(inner); }
         }
 
         void OnEncoderError(Exception e)
@@ -505,13 +534,20 @@ namespace Iroca.SentisIntegration
         void ProcessNextQueuedClick()
         {
             EditorApplication.delayCall -= ProcessNextQueuedClick;
-            if (_phase != MaskSuggestPhase.Decoding) return;
-            if (_clickQueue.Count == 0) // 予約後に FlushPendingClicks が挟まった
+            try
             {
-                SetPhase(MaskSuggestPhase.Idle);
-                return;
+                if (_phase != MaskSuggestPhase.Decoding) return;
+                if (_clickQueue.Count == 0) // 予約後に FlushPendingClicks が挟まった
+                {
+                    SetPhase(MaskSuggestPhase.Idle);
+                    return;
+                }
+                StartNextClick();
             }
-            StartNextClick();
+            catch (Exception e)
+            {
+                FailFromEditorCallback(e, Localization.AiErrDecodeFormat);
+            }
         }
 
         void RunDecode(float u, float v, MaskSuggestGranularity granularity, double queueWaitMs)
@@ -939,12 +975,20 @@ namespace Iroca.SentisIntegration
             _decoder?.Dispose(); _decoder = null;
         }
 
+        // スクリプトのリロード前と Unity の終了時に呼ばれる。ここから例外が漏れると、同じタイミングの他ツールの
+        // 後始末が飛ばされる(Unity は購読者を順に呼ぶだけで例外を止めない。MCP for Unity はリロード前に
+        // 接続を畳むので、飛ばされるとリロード後に自動でつながらない)。1 段の失敗で残りの後始末も飛ばさないよう、
+        // 段ごとに止める。
         void DisposeAll()
         {
-            CancelOps();
-            _prepJob?.Dispose(); _prepJob = null;
-            _postJob?.Dispose(); _postJob = null;
-            DisposeWorkers();
+            try { CancelOps(); }
+            catch (Exception e) { Debug.LogException(e); }
+            try { _prepJob?.Dispose(); _prepJob = null; }
+            catch (Exception e) { Debug.LogException(e); }
+            try { _postJob?.Dispose(); _postJob = null; }
+            catch (Exception e) { Debug.LogException(e); }
+            try { DisposeWorkers(); }
+            catch (Exception e) { Debug.LogException(e); }
         }
     }
 }

@@ -205,8 +205,13 @@ namespace Iroca
                 {
                     // テクスチャの切り替えでプレビューの中身が変わるので、この描画の途中ではなく次の更新で行う
                     // (同じフレームの Layout と Repaint で並びが食い違うと IMGUI がエラーを出す)。
+                    // delayCall で Unity は例外を受け止めない(投げると、同じ回に積まれた他のツールの処理が飛ぶ)ので、ここで受け止める。
                     var host = _host;
-                    EditorApplication.delayCall += () => { if (host != null) host.OpenSceneOtherTexture(); };
+                    EditorApplication.delayCall += () =>
+                    {
+                        try { if (host != null) host.OpenSceneOtherTexture(); }
+                        catch (System.Exception e) { Debug.LogException(e); }
+                    };
                 }
                 EditorGUIUtility.AddCursorRect(GUILayoutUtility.GetLastRect(), MouseCursor.Link);
                 return;

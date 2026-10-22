@@ -329,10 +329,14 @@ namespace Iroca
                     var targetZone = FindZoneById(_autoTuneTargetZoneId);
                     if (targetZone == null) return;
 
-                    Undo.RegisterCompleteObjectUndo(this, "Auto-tune Zone");
-                    // 導出結果 → ゾーン/グローバルの写像は TuneResult.ApplyTo が単一の正
-                    // （headless ハーネスの --autotune と共有。ここに項目を並べ直さない）。
-                    result.ApplyTo(targetZone, _session);
+                    // 結果は押してから数秒後に届くので、待っている間の別の操作とは別の「元に戻す」1 回分にする。
+                    RecordAsSeparateUndo("Auto-tune Zone", () =>
+                    {
+                        Undo.RegisterCompleteObjectUndo(this, "Auto-tune Zone");
+                        // 導出結果 → ゾーン/グローバルの写像は TuneResult.ApplyTo が単一の正
+                        // （headless ハーネスの --autotune と共有。ここに項目を並べ直さない）。
+                        result.ApplyTo(targetZone, _session);
+                    });
                     _autoTuneInputs ??= new System.Collections.Generic.Dictionary<string, AutoTuneInput>();
                     _autoTuneInputs[targetZone.id] = new AutoTuneInput
                     {
@@ -483,7 +487,22 @@ namespace Iroca
             finally { pixels?.Release(); }
         }
 
+        // EditorApplication.update から毎フレーム呼ばれる。Unity はそこで例外を受け止めないので、投げたまま
+        // 購読を残すと、窓を閉じるまで毎フレーム、後ろに並んだ他のツールの更新まで飛ばし続ける。
+        // 例外のときは待ちをやめて購読を外す。
         private void TickEvidenceWait()
+        {
+            try { TickEvidenceWaitCore(); }
+            catch (System.Exception e)
+            {
+                EditorApplication.update -= TickEvidenceWait;
+                Debug.LogException(e);
+                try { AbortEvidenceWait(Localization.AutoTuneEvidenceCancelled); }
+                catch (System.Exception e2) { Debug.LogException(e2); }
+            }
+        }
+
+        private void TickEvidenceWaitCore()
         {
             // 破棄済みウィンドウ（fake-null）や待ち終了後は自己解除する。
             if (this == null || !_evidenceWaiting)

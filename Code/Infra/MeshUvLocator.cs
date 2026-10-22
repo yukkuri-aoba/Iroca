@@ -13,7 +13,8 @@ namespace Iroca
     ///
     /// 自動で探す順:
     ///   1. 開いているシーンの Renderer
-    ///   2. テクスチャと同じ素材フォルダ(Assets/&lt;作者やモデル名&gt;/ 配下)の Prefab
+    ///   2. テクスチャと同じ素材フォルダ(Assets/&lt;作者やモデル名&gt;/ 配下)の Prefab のうち、
+    ///      このテクスチャ(か書き出し物)に依存するもの(<see cref="PrefabsUsing"/>。読み込む前に依存で絞る)
     /// マテリアルの対応は「メインテクスチャがこのテクスチャ」か「このテクスチャを Iroca で書き出したもの
     /// (&lt;元の名前&gt;_recolored*.png、同じフォルダ)」。後者は、書き出し後にマテリアルを差し替えたあと
     /// 元のテクスチャを開き直したときに、メッシュを見失わないため。
@@ -69,22 +70,54 @@ namespace Iroca
             if (scene.found.Count > 0) return Dedup(scene);
 
             var project = new Result { via = "project" };
-            string root = AssetRoot(AssetDatabase.GetAssetPath(texture));
-            if (root != null)
+            foreach (var path in PrefabsUsing(AssetRoot(AssetDatabase.GetAssetPath(texture)), targets))
             {
-                foreach (var guid in AssetDatabase.FindAssets("t:Prefab", new[] { root }))
-                {
-                    string path = AssetDatabase.GUIDToAssetPath(guid);
-                    var go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-                    if (go == null) continue;
-                    foreach (var r in go.GetComponentsInChildren<Renderer>(true))
-                        Collect(r, targets, project, requireMatch: true, originPrefix: path + ":" + r.name);
-                }
+                var go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (go == null) continue;
+                foreach (var r in go.GetComponentsInChildren<Renderer>(true))
+                    Collect(r, targets, project, requireMatch: true, originPrefix: path + ":" + r.name);
             }
             if (project.found.Count > 0) return Dedup(project);
             // 使っているメッシュはあったが読めなかった(Read/Write 無効など)。found は空で、件数だけ返す
             int unreadable = scene.unreadable + project.unreadable;
             return unreadable > 0 ? new Result { via = scene.unreadable > 0 ? "scene" : "project", unreadable = unreadable } : null;
+        }
+
+        // 素材フォルダから読み込む Prefab の上限(依存で絞った後)。同じテクスチャを使う Prefab が多い
+        // (対応アバターごとの衣装の Prefab など)ときも、UV はほぼ同じなので先頭から読む分で足りる。
+        private const int MaxProjectPrefabs = 8;
+
+        /// <summary>
+        /// 素材フォルダ(<paramref name="root"/>)の Prefab のうち、<paramref name="targets"/> のどれかに
+        /// (マテリアルなどを通して)依存するもののパス。先頭から <see cref="MaxProjectPrefabs"/> 件まで。
+        /// 依存は Prefab を読み込まずに引ける(AssetDatabase.GetDependencies)。以前はフォルダの Prefab を
+        /// 全部読み込んでから調べていたので、衣装やアバターをまとめたフォルダでは、テクスチャを開いただけで
+        /// エディタが止まり、読み込んだ分だけメモリも増えていた。
+        /// </summary>
+        internal static List<string> PrefabsUsing(string root, HashSet<Texture> targets)
+        {
+            var result = new List<string>();
+            if (root == null || targets == null) return result;
+            var targetPaths = new HashSet<string>();
+            foreach (var t in targets)
+            {
+                string p = t != null ? AssetDatabase.GetAssetPath(t) : null;
+                if (!string.IsNullOrEmpty(p)) targetPaths.Add(p);
+            }
+            if (targetPaths.Count == 0) return result;
+
+            foreach (var guid in AssetDatabase.FindAssets("t:Prefab", new[] { root }))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                foreach (var dep in AssetDatabase.GetDependencies(path, true))
+                {
+                    if (!targetPaths.Contains(dep)) continue;
+                    result.Add(path);
+                    break;
+                }
+                if (result.Count >= MaxProjectPrefabs) break;
+            }
+            return result;
         }
 
         /// <summary>
@@ -122,7 +155,10 @@ namespace Iroca
             return all.found.Count > 0 || all.unreadable > 0 ? Dedup(all) : null;
         }
 
-        /// <summary>このテクスチャ自身と、同じフォルダにある Iroca の書き出し物(&lt;名前&gt;_recolored*)。</summary>
+        /// <summary>
+        /// このテクスチャ自身と、同じフォルダにある Iroca の書き出し物(&lt;名前&gt;_recolored*)。元が Assets の外
+        /// (パッケージの中)なら、書き出しの置き場所(<see cref="PathUtils.ExportFolderFor"/>)にあるものも。
+        /// </summary>
         internal static HashSet<Texture> TargetTextures(Texture2D texture)
         {
             var set = new HashSet<Texture> { texture };
@@ -131,7 +167,10 @@ namespace Iroca
             string dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
             string stem = Path.GetFileNameWithoutExtension(path) + PathUtils.RecoloredSuffix;
             if (string.IsNullOrEmpty(dir)) return set;
-            foreach (var p in SiblingTexturePaths(dir, stem))
+            string exportDir = PathUtils.ExportFolderFor(path);
+            var dirs = exportDir != dir && AssetDatabase.IsValidFolder(exportDir) ? new[] { dir, exportDir } : new[] { dir };
+            foreach (var d in dirs)
+            foreach (var p in SiblingTexturePaths(d, stem))
             {
                 if (!Path.GetFileNameWithoutExtension(p).StartsWith(stem, System.StringComparison.Ordinal)) continue;
                 var t = AssetDatabase.LoadAssetAtPath<Texture2D>(p);
@@ -225,8 +264,9 @@ namespace Iroca
             int cut = name.IndexOf(PathUtils.RecoloredSuffix, System.StringComparison.Ordinal);
             if (cut <= 0) return tex2d;
             string stem = name.Substring(0, cut);
-            string dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
-            if (string.IsNullOrEmpty(dir)) return tex2d;
+            // パッケージの中の元の書き出しは Assets/Iroca/Exports の下にある(元のフォルダへ戻して探す)。
+            string dir = PathUtils.SourceFolderOfExport(Path.GetDirectoryName(path)?.Replace('\\', '/'));
+            if (string.IsNullOrEmpty(dir) || !AssetDatabase.IsValidFolder(dir)) return tex2d;
             foreach (var p in SiblingTexturePaths(dir, stem))
             {
                 if (Path.GetFileNameWithoutExtension(p) != stem) continue;

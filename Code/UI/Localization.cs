@@ -4,6 +4,11 @@ namespace Iroca
 {
     public enum LanguageMode { Auto, Japanese, English }
 
+    // スクリプトの読み込みのときにメインスレッドで初期化する。文言はバックグラウンドの計算（自動調整が上書きした
+    // 設定の名前など）からも読まれ、最初に読んだのがバックグラウンドのスレッドだと EditorPrefs が例外を投げて
+    // 型の初期化に失敗し、ドメインのリロードまでいろかの文言がすべて使えなくなる（ウィンドウを開かずに AI から
+    // 自動調整つきの色替えを頼んだときに起きる）。
+    [UnityEditor.InitializeOnLoad]
     public static class Localization
     {
         private const string PrefsKey = "Iroca.Language";
@@ -11,30 +16,48 @@ namespace Iroca
 
         static Localization()
         {
-            CurrentLanguage = (LanguageMode)UnityEditor.EditorPrefs.GetInt(PrefsKey, (int)LanguageMode.Auto);
+            try
+            {
+                CurrentLanguage = (LanguageMode)UnityEditor.EditorPrefs.GetInt(PrefsKey, (int)LanguageMode.Auto);
+            }
+            catch (UnityEngine.UnityException)
+            {
+                // それでもメインスレッドの外で先に初期化されたときは、言語の設定を読めないので自動で始める。
+                CurrentLanguage = LanguageMode.Auto;
+            }
         }
 
         public static void SaveLanguagePreference()
             => UnityEditor.EditorPrefs.SetInt(PrefsKey, (int)CurrentLanguage);
 
         private const string EnglishNoticeKey = "Iroca.EnglishTranslationNoticeShown";
+        // 閉じたかの控え(描画のたびに EditorPrefs を読まない)。
+        private static bool? s_englishNoticeClosed;
 
         /// <summary>
-        /// 英語表示が初めて使われたとき（Auto 判定・手動選択どちらでも）、
-        /// UI の英訳が AI 補助による機械翻訳である旨を一度だけダイアログ表示する。
+        /// 英語表示のとき（Auto 判定・手動選択どちらでも）、UI の英訳が AI 補助による機械翻訳であることを
+        /// いろかのウィンドウ上部の帯で知らせるか。「閉じる」を押すまで出し、押したらこの PC ではもう出さない。
+        /// 以前はエディタ全体を止めるダイアログで、MCP から窓を開いた直後にも出て、OK を押すまで
+        /// AI エージェントの次の操作が進まなかった。
         /// </summary>
-        public static void MaybeShowEnglishTranslationNotice()
+        public static bool ShowEnglishTranslationNotice =>
+            !IsJapanese && !(s_englishNoticeClosed ??= UnityEditor.EditorPrefs.GetBool(EnglishNoticeKey, false));
+
+        public static void CloseEnglishTranslationNotice()
         {
-            if (IsJapanese) return;
-            if (UnityEditor.EditorPrefs.GetBool(EnglishNoticeKey, false)) return;
+            s_englishNoticeClosed = true;
             UnityEditor.EditorPrefs.SetBool(EnglishNoticeKey, true);
-            UnityEditor.EditorUtility.DisplayDialog(
-                "AI Translation Notice",
-                "The English text in this tool is machine-translated with AI assistance.\n"
-                + "It may contain unnatural or inaccurate wording. The Japanese text is authoritative.\n\n"
-                + "この英語表示は AI による機械翻訳です。",
-                "OK");
         }
+
+        // 英語表示のときだけ出すので本文は英語。日本語の 1 行は以前のダイアログと同じく残す。
+        public static string EnglishTranslationNotice =>
+            "The English text in this tool is machine-translated with AI assistance. "
+            + "It may contain unnatural or inaccurate wording. The Japanese text is authoritative.\n"
+            + "この英語表示は AI による機械翻訳です。";
+        public static string EnglishTranslationNoticeClose => IsJapanese ? "閉じる" : "Close";
+        public static string EnglishTranslationNoticeCloseTooltip => IsJapanese
+            ? "このお知らせを閉じます。次からは表示しません"
+            : "Close this notice. It will not be shown again.";
 
         public static bool IsJapanese
         {
@@ -97,8 +120,8 @@ namespace Iroca
             ? "Read/Write を有効にする"
             : "Enable Read/Write";
         public static string EnableReadWriteConfirm => IsJapanese
-            ? "このテクスチャのインポート設定で Read/Write を有効にします。\nこの変更は Undo できません。続けますか？"
-            : "This turns on Read/Write in the texture's import settings.\nThis cannot be undone. Continue?";
+            ? "このテクスチャのインポート設定で Read/Write を有効にします。\n・このテクスチャを使うすべての場所に効きます。\n・実行時のメモリが増えます（いろかで色替えしたテクスチャも、読み書きできるままアップロードされます）。\n・不要になったら Inspector で Read/Write を外せます（外すと、いろかでは読めなくなります）。\nこの変更は Undo できません。続けますか？"
+            : "This turns on Read/Write in the texture's import settings.\n- It applies everywhere this texture is used.\n- It uses more memory at runtime (textures recolored by Iroca are also uploaded with Read/Write on).\n- When you no longer need it, you can turn Read/Write off in the Inspector (Iroca then cannot read the texture).\nThis cannot be undone. Continue?";
         // {0}×{1} = 元画像の寸法、{2} = 使うメモリの目安(GB)、{3} = この PC の搭載メモリ(GB)。
         // 作業解像度も元画像のまま(取り込み設定の Max Size が元画像以上)のとき。
         public static string LargeSourceNoticeFormat => IsJapanese
@@ -436,6 +459,10 @@ namespace Iroca
         public static string SetTexture => IsJapanese
             ? "テクスチャを設定してください。"
             : "Please set a texture.";
+        // Play を始めた直後は、ウィンドウが操作されるまでプレビューを作らない(PreviewView.SourceLoadDeferred)。
+        public static string PreviewDeferredInPlayMode => IsJapanese
+            ? "再生中は、このウィンドウにマウスを乗せるとプレビューを表示します。"
+            : "During Play mode, the preview appears when you move the mouse over this window.";
 
         public static string PreviewWindowTitle => IsJapanese ? "いろか プレビュー" : "Iroca Preview";
         public static string OpenPreviewWindow => IsJapanese
@@ -667,6 +694,17 @@ namespace Iroca
             ? "このプロジェクトには Sentis {0} が導入済みですが、AI マスク提案は {1} でのみ動作確認しています。\n下のボタンを押すと {1} に差し替わります。他のツールが Sentis {0} を使っている場合は、そちらへの影響をご確認ください。"
             : "Sentis {0} is already installed in this project, but AI mask suggestion is verified only with {1}.\nThe button below will replace it with {1}. If another tool depends on Sentis {0}, please check the impact on it first.";
         public static string AiSuggestReplaceSentis => IsJapanese ? "AI 機能を有効化（Sentis を {0} に差し替え）" : "Enable AI feature (replace Sentis with {0})";
+        // .onnx を取り込む別のパッケージ（Barracuda など）が入っているとき。Unity は 1 つの拡張子を受け持つ取り込みが
+        // 2 つあると両方とも使わなくなるので、Sentis を足すと両方の AI が動かなくなる（MaskSuggestInstall.OnnxImporterConflicts）。
+        public static string AiSuggestOnnxConflict => IsJapanese
+            ? "このプロジェクトには、.onnx ファイルを取り込む別のパッケージ（{0}）が入っています。Sentis を導入すると .onnx の取り込みがぶつかり、そのパッケージの AI モデルも、いろかの AI も使えなくなります。"
+            : "This project already has another package that imports .onnx files ({0}). Installing Sentis makes the two .onnx importers conflict, and neither that package's AI models nor Iroca's AI will work.";
+        public static string AiSetupOnnxConflictBody => IsJapanese
+            ? "自動調整と AI マスク提案には Unity Sentis {1} が必要ですが、このプロジェクトには .onnx ファイルを取り込む別のパッケージ（{0}）が入っています。Sentis を導入すると .onnx の取り込みがぶつかり、そのパッケージの AI モデルも、いろかの AI も使えなくなります。\n\nそのパッケージを使っていなければ、Package Manager で外してから導入してください。導入した後でも、Sentis を外せば元に戻ります。\n\nそれでも導入しますか？"
+            : "Auto-tune and AI Mask Suggestion need Unity Sentis {1}, but this project already has another package that imports .onnx files ({0}). Installing Sentis makes the two .onnx importers conflict, and neither that package's AI models nor Iroca's AI will work.\n\nIf you do not use that package, remove it in the Package Manager before installing. Removing Sentis afterwards also restores it.\n\nInstall anyway?";
+        public static string AiSetupDontInstall => IsJapanese ? "導入しない" : "Don't install";
+        public static string AiSetupInstallAnyway => IsJapanese ? "それでも導入する" : "Install anyway";
+        public static string AiOnnxConflictSeparator => IsJapanese ? "、" : ", ";
         public static string AiSuggestInstallFailed => IsJapanese
             ? "Sentis の導入に失敗しました: {0}\nPackage Manager から手動で「com.unity.sentis」を追加することもできます（手順はマニュアル参照）。"
             : "Failed to install Sentis: {0}\nYou can also add 'com.unity.sentis' manually via the Package Manager (see the manual).";
@@ -1162,8 +1200,8 @@ namespace Iroca
 
         public static string EditAtSourceResolution => IsJapanese ? "元の解像度で編集" : "Edit at original resolution";
         public static string EditAtSourceResolutionTooltip => IsJapanese
-            ? "オフ（既定）のときは、プレビュー・AI 提案・自動調整と「アバターに非破壊で登録」のテクスチャを、インポート設定の Max Size の大きさで処理します。ゲームに出るのもこの大きさです。オンにすると元の画像の解像度で処理します。拡大表示で細部まで確かめられますが、大きい画像ではメモリを多く使います（8192×8192 で 6 GB ほど）。書き出し（「適用して保存」）は、どちらでも元の画像の解像度で行います。この PC のいろか全体に効きます。"
-            : "When off (default), the preview, AI suggestions, auto-tune, and the textures for \"Register to avatar (non-destructive)\" are processed at the import Max Size, which is also the size that appears in game. When on, Iroca processes at the original image's resolution: zooming in shows every detail, but large images use a lot of memory (about 6 GB at 8192×8192). Exporting (\"Apply & Save\") always uses the original resolution. This applies to Iroca on this PC.";
+            ? "オフ（既定）のときは、プレビュー・AI 提案・自動調整と「アバターに非破壊で登録」のテクスチャを、インポート設定の Max Size の大きさで処理します。ゲームに出るのもこの大きさです。オンにすると元の画像の解像度で処理します。拡大表示で細部まで確かめられますが、大きい画像ではメモリを多く使います（8192×8192 で 6 GB ほど）。書き出し（「適用して保存」）は、どちらでも元の画像の解像度で行います。この PC のいろか全体に効きます（ほかのプロジェクトの再生・アップロードの処理も含みます）。"
+            : "When off (default), the preview, AI suggestions, auto-tune, and the textures for \"Register to avatar (non-destructive)\" are processed at the import Max Size, which is also the size that appears in game. When on, Iroca processes at the original image's resolution: zooming in shows every detail, but large images use a lot of memory (about 6 GB at 8192×8192). Exporting (\"Apply & Save\") always uses the original resolution. This applies to Iroca on this PC, including Play mode and uploads in your other projects.";
 
         public static string ProcessingDetailFoldout => IsJapanese ? "詳細設定" : "Details";
         public static string ProcessingDetailFoldoutTooltip => IsJapanese
@@ -1198,17 +1236,24 @@ namespace Iroca
             ? "元のテクスチャとマテリアルを書き換えずに色替えします。Hierarchy で選んだ衣装やアバター（未選択なら、このテクスチャを使っている所の共通の親）に「Iroca Recolor」を付け、再生・アップロードのときだけ色替えしたテクスチャに差し替えます。コンポーネントを外せば元に戻ります。"
             : "Recolors without changing the original texture or materials. Adds \"Iroca Recolor\" to the outfit or avatar selected in the Hierarchy (or, if nothing is selected, the common parent of the objects using this texture) and swaps in the recolored texture only when entering Play mode or uploading. Remove the component to go back.";
         public static string RegisterNoTarget => IsJapanese
-            ? "登録先が決まりません。Hierarchy で衣装かアバターを選んでから押してください（このテクスチャを使っているオブジェクトがシーンに無いか、複数のアバターにまたがっています）。"
-            : "Could not decide where to register. Select the outfit or avatar in the Hierarchy and try again (no object in the scene uses this texture, or several avatars do).";
+            ? "登録先が決まりません。Hierarchy で衣装かアバターを選んでから押してください（このテクスチャを使っているオブジェクトがシーンに無いか、複数のアバターにまたがっているか、アバターの外にあります）。"
+            : "Could not decide where to register. Select the outfit or avatar in the Hierarchy and try again (no object in the scene uses this texture, several avatars do, or the objects are outside any avatar).";
         public static string RegisterNoZones => IsJapanese
             ? "有効なゾーンがありません。色替えするゾーンを作ってから登録してください。"
             : "There is no enabled zone. Create a zone to recolor before registering.";
         public static string RegisterNotInScene => IsJapanese
             ? "選んでいるのはシーン上のオブジェクトではありません。Hierarchy で選び直してください。"
             : "The selection is not an object in the scene. Select one in the Hierarchy.";
+        public static string RegisterInPlayMode => IsJapanese
+            ? "Play 中は登録できません（Play を止めると、付けた「Iroca Recolor」が消えます）。Play を止めてから押してください。"
+            : "You cannot register in Play mode (the added \"Iroca Recolor\" would be removed when Play mode ends). Stop Play mode and try again.";
         public static string RegisterConfirmFormat => IsJapanese
             ? "「{0}」とその子のマテリアルのうち「{1}」を使っている所を、再生・アップロード時に色替えします。元のテクスチャとマテリアルは変わりません。\n\nレシピ: {2}"
             : "Materials under \"{0}\" that use \"{1}\" will be recolored when entering Play mode or uploading. The original texture and materials are not changed.\n\nRecipe: {2}";
+        // 書き出した画像を元のテクスチャへ戻すマテリアルがあるとき（マテリアルは変わる）。
+        public static string RegisterConfirmSwitchFormat => IsJapanese
+            ? "「{0}」とその子のマテリアルのうち「{1}」を使っている所を、再生・アップロード時に色替えします。元のテクスチャは変わりません。マテリアルは、下の書き出した画像を元のテクスチャへ戻す分だけ書き換えます。\n\nレシピ: {2}"
+            : "Materials under \"{0}\" that use \"{1}\" will be recolored when entering Play mode or uploading. The original texture is not changed. Materials are changed only to switch the exported image back to the original texture (below).\n\nRecipe: {2}";
         public static string RegisterAddToExisting => IsJapanese
             ? "このオブジェクトにある「Iroca Recolor」にレシピを足します（コンポーネントは増えません）。"
             : "The recipe is added to the \"Iroca Recolor\" already on this object (no new component).";
@@ -1219,8 +1264,21 @@ namespace Iroca
             ? "このオブジェクトにある「{0}」の別のレシピ（{1}）は、このレシピに置き換えます。"
             : "The other recipe for \"{0}\" on this object ({1}) is replaced with this one.";
         public static string RegisterSwitchExportsFormat => IsJapanese
-            ? "「適用して保存」で書き出した画像を使っているマテリアル {0} 個を、元のテクスチャ「{1}」に戻します（非破壊の色替えは元のテクスチャを探すため。Ctrl+Z で戻せます）。"
-            : "{0} material(s) that use an image exported with \"Apply & Save\" are switched back to the original texture \"{1}\" (non-destructive recoloring looks for the original texture. Ctrl+Z restores them).";
+            ? "「適用して保存」で書き出した画像を使っているマテリアル {0} 個を、元のテクスチャ「{1}」に戻します（非破壊の色替えは元のテクスチャを探すため。Ctrl+Z で戻せます）。マテリアルのファイルを書き換えるので、ほかのシーンやプレハブで同じマテリアルを使っている所も元の色に戻ります。"
+            : "{0} material(s) that use an image exported with \"Apply & Save\" are switched back to the original texture \"{1}\" (non-destructive recoloring looks for the original texture. Ctrl+Z restores them). The material files themselves are changed, so other scenes or prefabs that use the same materials also go back to the original colors.";
+        // {0} = 登録先の外でも使われているマテリアルの数、{1} = それを使っている登録先の外の Renderer の数、{2} = 戻さないボタンの名前。
+        public static string RegisterSharedExportsFormat => IsJapanese
+            ? "このうち {0} 個は、開いているシーンで登録先の外の {1} か所でも使われていて、そちらも元の色に戻ります。戻さないときは「{2}」を押してください（そのマテリアルには非破壊の色替えが効きません）。"
+            : "{0} of them are also used in {1} place(s) outside the target in the open scenes, which also go back to the original colors. To leave them as they are, press \"{2}\" (the non-destructive recolor does not apply to those materials).";
+        public static string RegisterKeepShared => IsJapanese ? "共有の分は戻さずに登録" : "Register, keep shared";
+        // {0} = レシピを使っているほかのオブジェクトの名前の並び（NameQuoteFormat で囲み、多ければ NameListMoreFormat）。
+        public static string RegisterRecipeSharedFormat => IsJapanese
+            ? "このレシピは、開いているシーンの{0}でも使われています。内容は共通なので、登録したあとの編集はそちらの色にも効きます。"
+            : "This recipe is also used by {0} in the open scenes. The content is shared, so edits after registering also change their colors.";
+        public static string NameQuoteFormat => IsJapanese ? "「{0}」" : "\"{0}\"";
+        public static string NameListSeparator => IsJapanese ? "" : ", ";
+        // {0} = 並べた名前、{1} = 残りの数。
+        public static string NameListMoreFormat => IsJapanese ? "{0}ほか {1} か所" : "{0} and {1} more";
         public static string RegisterLockedExportsFormat => IsJapanese
             ? "書き出した画像を使っているマテリアルのうち {0} 個は、書き換えられない場所（FBX の中・パッケージ）にあるのでそのままです。"
             : "{0} material(s) that use an exported image are in places that cannot be changed (inside an FBX or a package), so they are left as they are.";
@@ -1282,6 +1340,22 @@ namespace Iroca
         public static string BoundRecipeTooltip => IsJapanese
             ? "このテクスチャの編集内容は、このレシピにも保存されます（アバターの「Iroca Recolor」がビルド時に使う内容）。"
             : "Edits to this texture are also saved to this recipe (what \"Iroca Recolor\" on the avatar uses at build time).";
+        // 保存先のレシピが、いろかの外（Git の pull・バックアップからの復元など）で書き換わっていたとき。{0} = レシピの名前。
+        public static string RecipeReloadedFormat => IsJapanese
+            ? "レシピ「{0}」がいろかの外で変わっていたので、読み直しました。Ctrl+Z で読み直す前の内容に戻せます（戻すと、レシピもその内容になります）。"
+            : "The recipe \"{0}\" was changed outside Iroca, so it was reloaded. Press Ctrl+Z to go back to what you had before (the recipe then gets that content).";
+        // 保存先のレシピの中身を読めない（新しい版のいろかで作られた・壊れた）とき。窓の「保存先のレシピ」の下に出す。
+        public static string BoundRecipeUnreadable => IsJapanese
+            ? "このレシピは読めません（新しい版のいろかで作られたか、壊れています）。いろかでの編集はこのレシピに保存されず、登録もできません。いろかを最新の版に更新してください。"
+            : "This recipe cannot be read (it was made with a newer version of Iroca, or it is broken). Edits in Iroca are not saved to it, and you cannot register with it. Update Iroca to the latest version.";
+        // {0} = レシピのパス。
+        public static string RegisterRecipeUnreadableFormat => IsJapanese
+            ? "レシピ（{0}）を読めないので、登録をやめました（新しい版のいろかで作られたか、壊れています）。上書きすると元に戻せないため、このレシピは書き換えません。いろかを最新の版に更新してください。壊れているときは、Git などで前の状態に戻すか、レシピを消してから登録し直してください。"
+            : "Registration was canceled because the recipe ({0}) cannot be read (it was made with a newer version of Iroca, or it is broken). It is not overwritten, because that cannot be undone. Update Iroca to the latest version. If the recipe is broken, restore it (for example with Git) or delete it and register again.";
+        // {0} = レシピのパス。
+        public static string RegisterRecipeChangedOutsideFormat => IsJapanese
+            ? "保存先のレシピ（{0}）が、いろかの外（Git などでの更新）で変わっています。レシピから読み直すので、内容を確かめてから、もう一度登録してください。"
+            : "The recipe ({0}) was changed outside Iroca (for example by Git). It will be reloaded; check the content and register again.";
         public static string OpenInIroca => IsJapanese ? "いろかで開く" : "Open in Iroca";
         public static string OpenInIrocaTooltip => IsJapanese
             ? "このレシピをいろかウィンドウで開いて編集します。編集内容はこのレシピに保存されます。"
@@ -1298,6 +1372,9 @@ namespace Iroca
         public static string RecolorUnreadable => IsJapanese
             ? "レシピの中身を読めません（空か、壊れているか、新しい版のいろかで作られています）。"
             : "Cannot read the recipe (empty, broken, or made with a newer version of Iroca).";
+        public static string RecolorNoEnabledZones => IsJapanese
+            ? "このレシピには有効なゾーンが無いので、何も色替えしません。色替えするときは、いろかウィンドウでゾーンを有効にしてください。"
+            : "This recipe has no enabled zone, so nothing is recolored. To recolor, enable a zone in the Iroca window.";
         public static string RecolorNotUsedFormat => IsJapanese
             ? "この範囲の Renderer に「{0}」を使っているマテリアルがありません。衣装のトグルなどアニメーションで切り替えた先でだけ使うならこのままで構いません。そうでなければ、コンポーネントを衣装やアバターの親に置いてください。"
             : "No renderer in this scope uses \"{0}\". That is fine if it is only used by a material that an animation (such as an outfit toggle) switches to. Otherwise, place the component on the outfit or avatar root.";
@@ -1349,7 +1426,7 @@ namespace Iroca
             ? "いろかのウィンドウを開いたときに（1 日 1 回まで）新しい版があるかを調べ、あればウィンドウの上部で知らせます。"
             : "When you open the Iroca window (at most once a day), checks for a new version and shows a notice at the top of the window if there is one.";
         public static string UpdateCheckPrivacy => IsJapanese
-            ? "調べるときは、VCC / ALCOM が読むのと同じ公開リストを読むだけで、こちらから送る情報はありません。更新は VCC / ALCOM で行います。\n読むリスト: " + UpdateCheck.ListingUrl
-            : "The check only reads the same public listing that VCC / ALCOM reads. Nothing about you or your project is sent. Updating is done in VCC / ALCOM.\nListing: " + UpdateCheck.ListingUrl;
+            ? "調べるときは、VCC / ALCOM が読むのと同じ公開リストを読むだけです。通信の仕組み上 GitHub に届く接続元の情報（IP アドレス・Unity の版）のほかは、何も送りません。更新は VCC / ALCOM で行います。\n読むリスト: " + UpdateCheck.ListingUrl
+            : "The check only reads the same public listing that VCC / ALCOM reads. Apart from the connection details that reach GitHub with any request (your IP address and the Unity version), nothing is sent. Updating is done in VCC / ALCOM.\nListing: " + UpdateCheck.ListingUrl;
     }
 }
