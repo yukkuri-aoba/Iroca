@@ -68,10 +68,12 @@ def _placeholders(text: str) -> set[str]:
 def test_extraction_is_not_empty():
     """抽出が空になると以降の一致検査が空集合どうしで通ってしまうので、件数の下限を先に見る。"""
     keys = _classify_keys()
-    assert len(keys) >= 5, f"Classify が返すキーを読めていません: {sorted(keys)}"
+    # 今は 4 つ（レシピが無い・ゾーンがすべて無効は NDMF に報告せず、インスペクタだけで知らせる）。
+    # 辞書はキーごとに題・説明・ヒントの 3 項目。
+    assert len(keys) >= 4, f"Classify が返すキーを読めていません: {sorted(keys)}"
     for name in ("Ja", "En"):
         items = _dictionary(name)
-        assert len(items) >= 15, f"辞書 {name} の項目を読めていません（{len(items)} 件）"
+        assert len(items) >= 12, f"辞書 {name} の項目を読めていません（{len(items)} 件）"
 
 
 def test_no_duplicate_entries():
