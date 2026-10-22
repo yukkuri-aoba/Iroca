@@ -1381,6 +1381,9 @@ namespace Iroca
         //   back    : 共通の除外を元に戻す(中身は同じで別の配列)
         //   include : 先頭ゾーンの含めるマスクに quiet の角を足す(選択はそのまま使える)
         //   reuse   : 除外マスクが違うのに使い回した回数(選択キャッシュの数え)
+        //   latest  : 右クリックの宛先が読む値(TryReadLatest)が、持ち越したキャッシュと同じマスクで作り直した
+        //             キャッシュとで違う画素の数(各段・全ゾーンの合計)
+        //   latest_excl : TryReadLatest が除外の画素で 0 を返さなかった数(保存はマスクを掛ける前なので、読むときに掛ける)
         // マスクの寸法が画像と違うときは試さない(skipped)。
         private static void RunSelectionCacheMaskCheck(Color32[] input, int w, int h, MaskSnapshot masks,
             List<ColorZone> zones, SettingsCfg st, SelectionCache cache, Color32[] current)
@@ -1428,6 +1431,32 @@ namespace Iroca
             {
                 common = common, width = w, height = h, zones = masks.zones, zoneIncludes = includes,
             };
+            int latestDiff = 0, latestExcl = 0;
+            var all = new int[w * h];
+            for (int i = 0; i < all.Length; i++) all[i] = i;
+            void CompareLatest(MaskSnapshot m)
+            {
+                using (var rebuilt = new SelectionCache())
+                {
+                    var px = (Color32[])input.Clone();
+                    PixelProcessor.ProcessPixelsArray(px, w, h, m, zones, st.ToRecolorSettings(), selectionCache: rebuilt);
+                    var a = new float[all.Length];
+                    var b = new float[all.Length];
+                    foreach (var z in zones)
+                    {
+                        bool okA = cache.TryReadLatest(z.id, w, h, all, a), okB = rebuilt.TryReadLatest(z.id, w, h, all, b);
+                        if (okA != okB) { latestDiff += all.Length; continue; }
+                        if (!okA) continue;
+                        ulong[] zm = null;
+                        m.zones?.TryGetValue(z.id, out zm);
+                        for (int i = 0; i < all.Length; i++)
+                        {
+                            if (a[i] != b[i]) latestDiff++;
+                            if (a[i] != 0f && (MaskSnapshot.GetBit(m.common, i) || MaskSnapshot.GetBit(zm, i))) latestExcl++;
+                        }
+                    }
+                }
+            }
             int Step(MaskSnapshot m)
             {
                 var withCache = (Color32[])input.Clone();
@@ -1438,6 +1467,7 @@ namespace Iroca
                 for (int i = 0; i < fresh.Length; i++)
                     if (fresh[i].r != withCache[i].r || fresh[i].g != withCache[i].g
                         || fresh[i].b != withCache[i].b || fresh[i].a != withCache[i].a) n++;
+                CompareLatest(m);
                 return n;
             }
             int reuse0 = cache.MaskReuseCount;
@@ -1453,7 +1483,7 @@ namespace Iroca
             int dInclude = Step(With(backCommon, includes));
             Console.Error.WriteLine(
                 $"SELCACHE-MASK quiet={dQuiet} busy={dBusy} back={dBack} include={dInclude} "
-                + $"reuse={cache.MaskReuseCount - reuse0}");
+                + $"reuse={cache.MaskReuseCount - reuse0} latest={latestDiff} latest_excl={latestExcl}");
         }
 
         // ─── AI マスク提案の純計算層検証(--samops-*) ───

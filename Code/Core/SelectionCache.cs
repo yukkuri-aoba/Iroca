@@ -58,6 +58,7 @@ namespace Iroca
             // この選択が正しい除外マスク(MaskSnapshot の配列。作り直さず読むだけなので参照で持つ)。
             // 判定を通って使い回したら、そのときのマスクに差し替える(次の判定の差分を小さくする)。
             public ulong[] Common, ZoneMask;
+            public int MaskW, MaskH;   // Common・ZoneMask の寸法(マスクの寸法は選択の鍵に入るので、使い回しても変わらない)
             public int W, H;
             public int Leases;         // 中身を写している最中の数(_gate の中で増減)
             public bool Detached;      // 辞書から外した。Leases が 0 になったら解放する
@@ -137,16 +138,17 @@ namespace Iroca
             CancellationToken ct = default)
         {
             if (strength.Length < w * h) throw new ArgumentException("strength が w*h より短い", nameof(strength));
-            fixed (float* p = strength) StoreFrom(zoneId, key, p, keep, forced, default, null, null, w, h, ct);
+            fixed (float* p = strength) StoreFrom(zoneId, key, p, keep, forced, default, null, null, 0, 0, w, h, ct);
         }
 
         /// <summary>
         /// strength(長さ w*h 以上)を写して保存する。common・zoneMask は、この選択を計算したときの除外マスク
-        /// (MaskSnapshot の配列。参照で持つ)。ct が取り消されていたら保存しない: 取り消した計算(テクスチャの
+        /// (MaskSnapshot の配列。参照で持つ)で、寸法は maskW×maskH。ct が取り消されていたら保存しない: 取り消した計算(テクスチャの
         /// 読み直しの前の画素で作った選択)を、Clear の後に保存させないため。呼び出し側は Clear の前に必ず取り消す。
         /// </summary>
         public void StoreFrom(string zoneId, string key, float* strength, ulong[] keep, ulong[] forced,
-            in PostBox box, ulong[] common, ulong[] zoneMask, int w, int h, CancellationToken ct = default)
+            in PostBox box, ulong[] common, ulong[] zoneMask, int maskW, int maskH, int w, int h,
+            CancellationToken ct = default)
         {
             if (string.IsNullOrEmpty(zoneId)) return;
             int len = w * h;
@@ -172,7 +174,7 @@ namespace Iroca
                 var entry = new Entry
                 {
                     Key = key, Strength = buf, Keep = keep, Forced = forced, Box = box,
-                    Common = common, ZoneMask = zoneMask, W = w, H = h,
+                    Common = common, ZoneMask = zoneMask, MaskW = maskW, MaskH = maskH, W = w, H = h,
                 };
                 lock (_gate)
                 {
@@ -200,6 +202,8 @@ namespace Iroca
         /// 右クリックの宛先を、クリックした場所を塗っているゾーンに合わせるのに使う(PreviewView.ContextMenu)。
         /// lock の中で読むので、Store が同じ領域へ書いている最中の値は読まない(Store は辞書から外してから書く)。
         /// 辞書にあるエントリは lock の中では解放されない(解放は Detach で、これも lock の中)。
+        /// 保存しているのは除外マスクを掛ける前の選択なので、表示中の選択に合わせて除外の画素は 0 にして返す
+        /// (含めるマスクは掛けない。表示では除外の後に掛ける)。
         /// </summary>
         public bool TryReadLatest(string zoneId, int w, int h, int[] indices, float[] dst)
         {
@@ -209,6 +213,17 @@ namespace Iroca
                 if (_disposed || !_byZone.TryGetValue(zoneId, out var e) || e.W != w || e.H != h || e.Strength == null)
                     return false;
                 e.Strength.ReadAt(indices, dst);
+                if ((e.Common != null || e.ZoneMask != null) && e.MaskW > 0 && e.MaskH > 0)
+                {
+                    // 座標の対応は PixelProcessor.BuildMaskIndexMap と同じ(保存するのは全画像の経路だけなので原点は 0)
+                    for (int k = 0; k < indices.Length; k++)
+                    {
+                        int x = indices[k] % w, y = indices[k] / w;
+                        int mi = Math.Min(Math.Max(y * e.MaskH / h, 0), e.MaskH - 1) * e.MaskW
+                               + Math.Min(Math.Max(x * e.MaskW / w, 0), e.MaskW - 1);
+                        if (MaskSnapshot.GetBit(e.Common, mi) || MaskSnapshot.GetBit(e.ZoneMask, mi)) dst[k] = 0f;
+                    }
+                }
                 return true;
             }
         }

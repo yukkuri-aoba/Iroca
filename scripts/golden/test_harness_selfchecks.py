@@ -183,12 +183,16 @@ def test_refineall_crop_matches_full(harness, tmp_path, case):
 
 # ─────────────── 選択キャッシュ: マスクだけを変えた再生成 ───────────────
 _SELCACHE = re.compile(r"SELCACHE populate_diff=(\d+) hit_vs_fresh=(\d+) miss_vs_fresh=(\d+)")
-_SELCACHE_MASK = re.compile(r"SELCACHE-MASK quiet=(\d+) busy=(\d+) back=(\d+) include=(\d+) reuse=(\d+)")
+_SELCACHE_MASK = re.compile(r"SELCACHE-MASK quiet=(\d+) busy=(\d+) back=(\d+) include=(\d+) reuse=(\d+)"
+                            r" latest=(\d+) latest_excl=(\d+)")
 
 
-def test_selection_cache_mask_changes(harness, tmp_path):
+@pytest.mark.parametrize("feather", [0.0, 2.0])
+def test_selection_cache_mask_changes(harness, tmp_path, feather):
     """除外マスク・含めるマスクだけを変えた再生成が、選択キャッシュを持ち越してもフル再計算と同じ出力になる。
-    筆が通った画素でゾーンの照合が 0 なら、選択を使い回す（reuse が 1 以上）。"""
+    筆が通った画素でゾーンの照合が 0 なら、選択を使い回す（reuse が 1 以上）。
+    feather > 0 はぼかしが除外の画素へにじむ（保存した選択の除外の画素が 0 でない）ので、右クリックの宛先が
+    読む値（TryReadLatest が除外を掛けて返すこと）の検査に効く。"""
     n = 256
     yy, xx = np.mgrid[0:n, 0:n]
     rgba = np.zeros((n, n, 4), np.uint8)
@@ -202,7 +206,7 @@ def test_selection_cache_mask_changes(harness, tmp_path):
     G.write_raw(mask_raw, np.zeros((n, n), np.uint8))
     zones = [G.zone(name="red", sample=(200 / 255, 30 / 255, 30 / 255), target=(0.1, 0.7, 0.2)),
              G.zone(name="blue", sample=(30 / 255, 60 / 255, 200 / 255), target=(0.9, 0.8, 0.1))]
-    zj.write_text(json.dumps({"zones": [G._zone_json(z) for z in zones], "settings": G.settings()}),
+    zj.write_text(json.dumps({"zones": [G._zone_json(z) for z in zones], "settings": G.settings(edgeFeather=feather)}),
                   encoding="utf-8")
     r = _run(harness, img_raw, mask_raw, out_raw, "--zones", zj, "--selcache-mask")
     assert r.returncode == 0, f"--selcache-mask 失敗 (exit={r.returncode}):\n{r.stderr}"
@@ -210,6 +214,8 @@ def test_selection_cache_mask_changes(harness, tmp_path):
     assert m and all(int(g) == 0 for g in m.groups()), f"選択キャッシュの基本の検証が崩れています:\n{r.stderr}"
     mm = _SELCACHE_MASK.search(r.stderr)
     assert mm, f"SELCACHE-MASK 行がありません:\n{r.stderr}"
-    quiet, busy, back, include, reuse = (int(g) for g in mm.groups())
+    quiet, busy, back, include, reuse, latest, latest_excl = (int(g) for g in mm.groups())
     assert (quiet, busy, back, include) == (0, 0, 0, 0), f"フル再計算と出力が違います: {mm.group(0)}"
     assert reuse > 0, f"マスクを変えたときに選択を 1 度も使い回していません（検出力のない入力）: {mm.group(0)}"
+    # 右クリックの宛先が読む値（TryReadLatest）: 持ち越しと作り直しで同じ、除外の画素は 0
+    assert (latest, latest_excl) == (0, 0), f"右クリックの宛先が読む選択が表示と違います: {mm.group(0)}"

@@ -956,7 +956,7 @@ namespace Iroca
                             Has = hasPostBox, MinX = ppMinX, MinY = ppMinY, MaxX = ppMaxX, MaxY = ppMaxY,
                         };
                         selectionCache.StoreFrom(zone.id, selKey, strength, keepBitsForCache, forcedBits, box,
-                            commonMask, zoneMask, w, h, cancellationToken);
+                            commonMask, zoneMask, maskW, maskH, w, h, cancellationToken);
                     }
                     _sub.Mark(SpSelCacheStore);
 
