@@ -360,9 +360,14 @@ namespace Iroca
                 return;
             }
             _maskView?.SyncBuffersToState();
-            Undo.RegisterCompleteObjectUndo(this, "Iroca: Reload Recipe");
-            LoadPersistedSessionForCurrentTexture();
-            _maskView?.ResetActiveTarget();
+            // 外の変更を拾うのは後から(delayCall)なので、利用者が直前にした操作と同じ「元に戻す」にまとめない
+            // (まとめると、Ctrl+Z 1 回で読み直しと一緒に直前の操作まで戻る)。
+            RecordAsSeparateUndo("Iroca: Reload Recipe", () =>
+            {
+                Undo.RegisterCompleteObjectUndo(this, "Iroca: Reload Recipe");
+                LoadPersistedSessionForCurrentTexture();
+                _maskView?.ResetActiveTarget();
+            });
             string message = string.Format(Localization.RecipeReloadedFormat, recipe.name);
             Debug.Log("[Iroca] " + message);
             ShowNotification(new GUIContent(message));
