@@ -564,7 +564,8 @@ namespace Iroca
                 nb *= fac;
             }
 
-            OklabToRgb(nL, na, nb, out float outR, out float outG, out float outB);
+            // sRGB の範囲を超えた色は、明度と色相を保ったまま彩度だけ縮める(OklabToRgbInGamut のコメント参照)。
+            OklabToRgbInGamut(nL, na, nb, out float outR, out float outG, out float outB);
             Color result = new Color(Mathf.Clamp01(outR), Mathf.Clamp01(outG), Mathf.Clamp01(outB), 1f);
 
             // ハイライト合成 (P5 軸射影版・residual なし / 2026-05-26):
