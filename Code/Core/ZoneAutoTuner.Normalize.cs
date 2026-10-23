@@ -60,6 +60,18 @@ namespace Iroca
         // 門を全面的に外す案は、当たっているクリックまで動かして 5/42 ケースで precision を
         // 落としたので採らない(実測 2026-08-29: boots/skirt/black/eye で IoU −0.025〜−0.053)。
         private const float NormEdgeFrac = 0.10f;
+        // 証拠つき導出で、色味の乗ったグレーのクリックを寄せ直すときの母集団の下限(セグメントの不透明画素に対する割合)。
+        // 中性境界(ChromaGateActivateSat)と無彩 tolerance の分岐点(AchromaSampleSatMax)の間のクリックは
+        // TryNormalizeSample では寄せない(無彩の母集団で別の無彩パーツへ乗り換えた事故がある。同関数の説明参照)。
+        // ただしこの帯には有彩素材のツヤ・陰(色相は素材のまま、明るく淡く抜けた画素)も入る。そこをクリックすると
+        // 証拠ドメインがツヤだけになり、汚染判定で従来導出へ落ちて、ツヤの色から導いた別の素材を塗っていた
+        // (実測: 紺のスカートのツヤで IoU 0.08、黒い布の明部で再現率 0.74)。
+        // そこで証拠が使えなかったときに限り(当たっているクリックは作り直さない。NormOutlierFrac の説明参照)、
+        // 母集団をセグメント内の同色相・有彩(彩度 >= AchromaSampleSatMax)に取って寄せ直す。母集団がセグメントの
+        // 過半に満たない(セグメントの主が同色相の有彩でない = 淡い素材そのものや白い飾り)なら寄せない。
+        // 実測(2026-10-23、19 被写体のワンショット): 寄せ直した 4 件はこの割合が 0.59〜0.81、寄せ直しを試して
+        // 下回った生成りの上衣・淡い肌は 0.18・0。
+        private const float NormTintedChromaticPopFrac = 0.5f;
 
         // 無彩クリック用の分解能。母集団の彩度が [0, AchromaClusterSatMax] の狭帯に潰れるので、
         // 有彩と同じ「彩度 [0,1] を 16 分割」では tint の有無(白布 S≈0.05 と純白 S=0)が同じ bin に
@@ -76,10 +88,12 @@ namespace Iroca
         /// 母集団の採り方だけがクリック彩度で変わり、以降の手順（V 連結域 → 最頻 (S,V) bin →
         /// ±1 bin 平均 → 裾判定）は共通。
         /// </summary>
+        /// <param name="tintedChromatic">true なら、色味の乗ったグレーのクリックも有彩の手順で寄せる
+        /// (証拠つき導出の寄せ直しだけが渡す。NormTintedChromaticPopFrac の説明参照)。</param>
         private static bool TryNormalizeSample(
             Color32* pixels, int w, int h, ColorZone zone,
             bool[] excluded, int maskW, int maskH, HsvGrid hsv, out Color normalized,
-            out float clickT, bool edgeBypass = false)
+            out float clickT, bool edgeBypass = false, bool tintedChromatic = false)
         {
             normalized = zone.sampleColor;
             clickT = -1f;
@@ -111,7 +125,15 @@ namespace Iroca
                     out normalized, out clickT);
             }
 
-            if (sS < AchromaSampleSatMax) return false; // 色味の乗ったグレー: 従来どおりクリック色のまま
+            if (sS < AchromaSampleSatMax)
+            {
+                if (!tintedChromatic) return false; // 色味の乗ったグレー: 従来どおりクリック色のまま
+                // 有彩素材のツヤ・陰として、同色相・有彩の母集団(セグメントの過半に限る)の地色へ寄せる。
+                return TryNormalizeFromPopulation(pixels, w, h, zone, excluded, maskW, maskH, hsv,
+                    sH, sS, sV, useHueBand: true, satFloor: AchromaSampleSatMax, satCeil: float.MaxValue,
+                    satBinSpan: 1f, satBins: NormSatBins, valBins: NormValBins, edgeBypass,
+                    out normalized, out clickT, minPopFrac: NormTintedChromaticPopFrac);
+            }
 
             // 無彩画素は Unity の RGBToHSV が hue=0 へ丸めるため、暖色クリックへ大量に誤混入する。
             // クリック彩度の床（下記）は通常この無彩床より高いが、低彩度クリックでも下回らないようにする。
@@ -126,12 +148,15 @@ namespace Iroca
         /// 彩度帯 [<paramref name="satFloor"/>, <paramref name="satCeil"/>) の（必要なら同色相の）
         /// 画素を母集団として代表地色を推定する共通部。
         /// </summary>
+        /// <param name="minPopFrac">0 より大きいとき、母集団が除外されていない不透明画素のこの割合に満たなければ
+        /// 寄せない。また明度のつながりをクリックの明度でなく母集団の最頻の明度から取る(クリックが母集団の
+        /// 外に居る、色味の乗ったグレーの寄せ直し用)。</param>
         private static bool TryNormalizeFromPopulation(
             Color32* pixels, int w, int h, ColorZone zone,
             bool[] excluded, int maskW, int maskH, HsvGrid hsv,
             float sH, float sS, float sV, bool useHueBand, float satFloor, float satCeil,
             float satBinSpan, int satBins, int valBins, bool edgeBypass, out Color normalized,
-            out float clickT)
+            out float clickT, float minPopFrac = 0f)
         {
             normalized = zone.sampleColor;
             clickT = -1f;
@@ -145,6 +170,7 @@ namespace Iroca
             var sumB = new double[SB * VB];
             var vHist = new int[VB];
             int total = 0;
+            int opaque = 0;                      // 除外されていない不透明画素(minPopFrac の分母)
 
             int stride = hsv.stride;
             for (int y = 0, gy = 0; y < h; y += stride, gy++)
@@ -156,6 +182,7 @@ namespace Iroca
                     Color32 c = pixels[rowStart + x];
                     if (c.a < PixelProcessor.OpaqueAlphaMin) continue;
                     if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue;
+                    opaque++;
                     float pH = hsv.h[grow + gx], pS = hsv.s[grow + gx], pV = hsv.v[grow + gx];
                     if (pS < satFloor) continue;         // クリックより淡い側（＝別素材/脱彩の裾）を除外
                     if (pS >= satCeil) continue;         // 有彩の別素材を除外（無彩クリック時のみ有効な上限）
@@ -177,7 +204,18 @@ namespace Iroca
                 }
             }
             if (total < AutoToneMinPixels) return false;
-            if (!TryConnectedValueRange(vHist, total, sV, out int loBin, out int hiBin)) return false;
+            // 色味の乗ったグレーの寄せ直し: クリックは母集団(彩度床より上)の外に居るので、明度のつながりを
+            // クリックの明度から探すと、近くに居る数十画素の塊を起点にしてしまう(実測: 紺のスカートのツヤで
+            // 本体の明度帯から離れた 14 画素)。母集団の最頻の明度 = 素材の主要な色帯から取る。
+            float startV = sV;
+            if (minPopFrac > 0f)
+            {
+                if (total < opaque * minPopFrac) return false;
+                int modeVb = 0;
+                for (int vb = 1; vb < VB; vb++) if (vHist[vb] > vHist[modeVb]) modeVb = vb;
+                startV = (modeVb + 0.5f) / VB;
+            }
+            if (!TryConnectedValueRange(vHist, total, startV, out int loBin, out int hiBin)) return false;
 
             // トーン連結域内で最も画素の多い (S,V) bin = パーツの地色。
             // 彩度だけを最頻値にして明度は連結域全体で平均する版も試したが、明るい柄やツヤを持つ

@@ -293,7 +293,12 @@ namespace Iroca
             ct.ThrowIfCancellationRequested();
             var click = zone;            // 正規化の起点。縁クリックの救済で最寄りの芯の画素に替わる
             bool snapped = false;
-            string snapDiag = "";
+            // 色味の乗ったグレーのクリック(有彩素材のツヤ・陰かもしれない)。ここまでの手順で証拠が使えなかった
+            // ときだけ、元のクリックを有彩の手順で寄せ直す(Normalize.cs の NormTintedChromaticPopFrac を参照)。
+            Color.RGBToHSV(zone.sampleColor, out _, out float clickSat, out _);
+            bool tintedClick = clickSat > ColorZone.ChromaGateActivateSat && clickSat < AchromaSampleSatMax;
+            bool tintRetry = false;
+            string retryDiag = "";
             Color rep;
             float clickT, repH, repS, repV, materialFrac;
             List<GridPt> domain;
@@ -303,7 +308,7 @@ namespace Iroca
             {
                 rep = click.sampleColor;
                 if (TryNormalizeSample(pixels, width, height, click, notEvidence, evW, evH, hsv,
-                        out Color normalized, out clickT, edgeBypass: true))
+                        out Color normalized, out clickT, edgeBypass: true, tintedChromatic: tintRetry))
                     rep = normalized;
                 Color.RGBToHSV(rep, out repH, out repS, out repV);
 
@@ -318,14 +323,22 @@ namespace Iroca
                 // クリックの素材がセグメントの裾(1/10 未満)のときだけ、縁の混色なら最寄りの芯の画素で
                 // 1 回だけやり直す(定数の説明参照)。
                 bool clickOnFringe = domain.Count < EvMinDomainPixels || materialFrac < NormOutlierFrac;
-                if (usable || snapped || !clickOnFringe
-                    || !TrySnapBoundaryClick(pixels, width, height, zone, evidence, core, evW, evH,
+                if (usable) break;
+                if (!snapped && !tintRetry && clickOnFringe
+                    && TrySnapBoundaryClick(pixels, width, height, zone, evidence, core, evW, evH,
                         excluded, maskW, maskH, out Color coreColor, out int snapX, out int snapY))
-                    break;
-                click = zone.Clone();
-                click.sampleColor = coreColor;
-                snapped = true;
-                snapDiag = $" snap={snapX},{snapY}";
+                {
+                    click = zone.Clone();
+                    click.sampleColor = coreColor;
+                    snapped = true;
+                    retryDiag = $" snap={snapX},{snapY}";
+                    continue;
+                }
+                // 縁の救済でも使えなかった(または対象外だった)色味の乗ったグレーのクリックを、1 回だけ寄せ直す。
+                if (tintRetry || !tintedClick) break;
+                click = zone;
+                tintRetry = true;
+                retryDiag = " tint";
             }
             var aZone = zone.Clone();
             aZone.sampleColor = rep;
@@ -337,7 +350,7 @@ namespace Iroca
                     ct, report);
                 fallback.evidenceDiag = (contaminated ? "fallback contaminated" : "fallback no-domain")
                     + $" materialFrac={materialFrac:F3}"
-                    + $" core={coreList.Count} domain={domain.Count} sheen={sheenCount}" + snapDiag;
+                    + $" core={coreList.Count} domain={domain.Count} sheen={sheenCount}" + retryDiag;
                 return fallback;
             }
             Progress(0.50f);
@@ -453,7 +466,7 @@ namespace Iroca
                 + $" added={added} cov={cov:F4} tol={result.tolerance:F4}"
                 + $" vFloor={result.shadowValueFloor:F3} ceil={result.chromaCeiling:F3}"
                 + $" tolDerived={tolDerived:F4} partSat={result.partSatCeiling:F3} partHue={result.partHueBand:F3}"
-                + $" holeMargin={result.holeFillMargin:F2}" + snapDiag;
+                + $" holeMargin={result.holeFillMargin:F2}" + retryDiag;
             Progress(0.98f);
 
             DecideGlobals(width, height, session, ref result);
