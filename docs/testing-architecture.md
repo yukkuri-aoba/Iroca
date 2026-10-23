@@ -39,6 +39,18 @@ CLAUDE.md / `.claude/instructions/improvement-cycle.md` が「テスト構成の
 12 被写体を入れた。GT は `dev_safe/scripts/build_holdout_gt.py` が作る。部位レイヤーの無い PSD は、PSD の島
 （作者の島マスク / UV 線の塗りつぶし）と同じ塗りの島から作る素材単位、部位レイヤーのある PSD は
 部位レイヤー ∩ 島。テスト側の定義は `fixtures.HOLDOUT_REGISTRY` で、`SUBJECT_REGISTRY` には入れない。
+見るたびにホールドアウトへ合わせてしまうので、被写体ごとの延べの回数が 20 回に届いたら holdout_eval.py が
+入れ替えの時期を知らせる（2026-10-23。次に GT を足すとき、届いた被写体を `SUBJECTS` へ移し、新しい被写体を
+ホールドアウトにする）。集計には ΔE 球（下記）に負けた被写体の数も出す。
+
+**汎化の物差し**（2026-10-23〜、`dev_safe/scripts/generalization_report.py`）: ホールドアウトを見る前に、
+手元の被写体で過学習しない変更かを確かめる。回帰の被写体は 19 件でも描いた人（アバター）は 4 組しかないので、
+`subjects.json` の `subject_groups` でアバターごとにまとめる。`run` はワンショットを開発に使ったクリック
+（p25/p50/p95）と使っていないクリック（p05/p75/p99）の 114 件で回し（DLL は `_harness_cache/builds/` へ写して使う）、
+`compare` はアバター別の平均・変更のきっかけのアバター（`--motivated-by`）を除いた平均・ケースごとの退行床・
+素朴な基準線（クリック画素の色から CIELAB ΔE76 ≤ 16 の球、design IoU で採点）に 0.05 以上負けた数を並べて
+採否の目安を出す。`sweep` は定数の掃引から台地とアバター単位の交差検証（LOAO）を出す。採否の決まりは
+`.claude/instructions/improvement-cycle.md` の「過学習を防ぐ採否の物差し」。
 
 GTは採点とテスト用クリック位置の選定に使う。`oneshot` / `assisted_include` の処理入力に
 GTマスクを渡さない。証拠・含める・除外・採点GTは役割を別に記録する。
