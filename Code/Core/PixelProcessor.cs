@@ -1162,16 +1162,19 @@ namespace Iroca
                         // na = |chroma| * (osat/sC) * zTa, nb = 同 zTb。oC=sC(sample) で (zTa,zTb)=target に一致。
                         zOkMagScale = zOsat / zSC;
                     }
-                    // ChromaAmpMaxFactor キャップの上限 mag をゾーン定数として 1 回だけ算出する。
-                    // 旧版は RecolorPixel 内で画素ごとに tC=sqrt(zTa²+zTb²) と maxMag=(zSC/tC)·Factor を
-                    // 再計算していたが、zTa/zTb/zSC はゾーン不変なので per-pixel で常に同値=冗長だった。
-                    // ホットな再着色ループから sqrt+除算を除去する(出力はビット不変)。キャップ非適用
-                    // (Factor<=0 または target が無彩で tC≈0)のときは +∞ にして per-pixel の比較を no-op 化。
-                    float zOkChromaMaxMag = float.PositiveInfinity;
-                    if (ChromaAmpMaxFactor > 0f)
+                    // 彩度の写し方(PixelProcessor.Recolor.cs の「彩度の写し方」参照)。塗り先が元より鮮やか(osat·tC > sC)なときだけ、
+                    // 彩度を陰影・混色で予想できる分と残りに分けて写す。ゾーン不変なのでここで 1 回だけ決める。サンプルが無彩
+                    // (okGray)・塗り先が無彩(tC≈0)なら全体の比例のまま。
+                    bool zOkSplitChroma = false;
+                    float zOkInvTC = 0f;
+                    if (!zOkGray)
                     {
                         float zTC = Mathf.Sqrt(zTa * zTa + zTb * zTb);
-                        if (zTC > 1e-4f) zOkChromaMaxMag = (zSC / zTC) * ChromaAmpMaxFactor;
+                        if (zTC > 1e-4f && zTC * zOsat > zSC)
+                        {
+                            zOkSplitChroma = true;
+                            zOkInvTC = 1f / zTC;
+                        }
                     }
 
                     // 無彩パスの領域 L 中央値を事前計算(zAchromaWeight は上で算出済み)。
@@ -1255,7 +1258,7 @@ namespace Iroca
                     // ゾーン不変の再着色パラメータをループ前に 1 回だけ構築(in 渡しで per-pixel コピー回避)。
                     var rcParams = new RecolorParams(
                         zOkMagScale, zTa, zTb, zOkGray, zOkGa, zOkGb,
-                        zSL, zTL, zSC, zOkChromaMaxMag, zValueBlend, zEffShadowDesat,
+                        zSL, zTL, zSC, zOkSplitChroma, zOkInvTC, zValueBlend, zEffShadowDesat,
                         sampS, zTR, zTG, zTB, zWR, zWG, zWB, zWV,
                         zApplyWash, zAchromaWeight, zOsat, zHasRegL);
                     // 混色帯(選択境界の AA・にじみ)の解析。境界クリーンアップ ON かつ有彩サンプルのゾーンでは、
