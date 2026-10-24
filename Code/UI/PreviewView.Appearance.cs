@@ -17,6 +17,10 @@ namespace Iroca
 
         [System.NonSerialized] private AppearanceRenderer _appearance;
         [System.NonSerialized] private Texture2D _appearancePreview, _appearanceRaw, _appearanceDetail;
+        // 「元を表示」中の変更前の切り出しの見た目と、それを作った元(変更前の切り出し)・設定。
+        [System.NonSerialized] private Texture2D _appearanceDetailRaw;
+        [System.NonSerialized] private int _appearanceDetailRawBuilt = -1;
+        [System.NonSerialized] private string _appearanceDetailRawFor;
         // 表示用テクスチャ(全体・切り出し)を差し替えるたびに進める番号と、見た目を作ったときの番号・設定。
         [System.NonSerialized] private int _previewVersion, _detailVersion;
         [System.NonSerialized] private int _appearancePreviewBuilt = -1, _appearanceDetailBuilt = -1;
@@ -89,6 +93,40 @@ namespace Iroca
             }
         }
 
+        /// <summary>
+        /// 「元を表示」を押している間に、拡大表示の切り出しに描く変更前の画像(変更後の切り出しと同じ範囲・寸法・
+        /// 作業解像度)。作れないとき(切り出しが無い・見た目がまだ作れない)は null で、呼び出し側は全体の変更前を出す。
+        /// </summary>
+        private Texture ShownDetailRaw()
+        {
+            if (!_detailView.EnsureDetailRaw(_trueSource, _trueSourceW, _trueSourceH)) return null;
+            var raw = _detailView.detailRawTexture;
+            if (!AppearanceActive) return raw;
+            var report = AppearanceReport;
+            if (_appearance == null || report == null) return null;
+            if (_appearanceDetailRaw == null || _appearanceDetailRawBuilt != _detailView.detailRawVersion
+                || _appearanceDetailRawFor != report.signature)
+            {
+                var uv = new Rect(
+                    _detailView.detailOriginX / (float)_trueSourceW, _detailView.detailOriginY / (float)_trueSourceH,
+                    _detailView.detailCropW / (float)_trueSourceW, _detailView.detailCropH / (float)_trueSourceH);
+                _appearance.RenderRegion(report, raw, uv, _trueSourceW, _trueSourceH, ref _appearanceDetailRaw);
+                _appearanceDetailRawBuilt = _detailView.detailRawVersion;
+                _appearanceDetailRawFor = report.signature;
+            }
+            return _appearanceDetailRaw;
+        }
+
+        /// <summary>「元を表示」を離したときに、変更前の切り出しとその見た目を手放す。</summary>
+        private void ReleaseDetailRaw()
+        {
+            _detailView.ReleaseDetailRaw();
+            if (_appearanceDetailRaw == null) return;
+            TextureSlot.Release(ref _appearanceDetailRaw);
+            _appearanceDetailRawBuilt = -1;
+            _appearanceDetailRawFor = null;
+        }
+
         /// <summary>操作行の「アバターの色」ボタン。マテリアルに色の設定があるときだけ出す。</summary>
         private void DrawAppearanceToggle()
         {
@@ -104,13 +142,17 @@ namespace Iroca
         /// <summary>見た目の画像と作業用の RenderTexture を手放す(オフにした・テクスチャを替えた・閉じたとき)。</summary>
         private void ReleaseAppearance()
         {
-            if (_appearance == null && _appearancePreview == null && _appearanceRaw == null && _appearanceDetail == null)
+            if (_appearance == null && _appearancePreview == null && _appearanceRaw == null && _appearanceDetail == null
+                && _appearanceDetailRaw == null)
                 return;
             _appearance?.Dispose();
             _appearance = null;
             TextureSlot.Release(ref _appearancePreview);
             TextureSlot.Release(ref _appearanceRaw);
             TextureSlot.Release(ref _appearanceDetail);
+            TextureSlot.Release(ref _appearanceDetailRaw);
+            _appearanceDetailRawBuilt = -1;
+            _appearanceDetailRawFor = null;
             _appearancePreviewBuilt = _appearanceDetailBuilt = -1;
             _appearancePreviewFor = _appearanceDetailFor = null;
         }

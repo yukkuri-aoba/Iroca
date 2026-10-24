@@ -1154,8 +1154,8 @@ namespace Iroca
 
         public static string PeekOriginal => IsJapanese ? "元を表示" : "Original";
         public static string PeekOriginalTooltip => IsJapanese
-            ? "押している間だけ変更前のテクスチャを表示します（離すと変更後に戻ります）。\n拡大しているときは変更前をプレビュー解像度で表示します。"
-            : "Shows the original texture while the button is held (release it to return to the result).\nAt high zoom the original is shown at preview resolution.";
+            ? "押している間だけ変更前のテクスチャを表示します（離すと変更後に戻ります）。\n拡大しているときも、変更後と同じ解像度（編集の解像度。「元の解像度で編集」がオンなら元の画像の解像度）で表示します。"
+            : "Shows the original texture while the button is held (release it to return to the result).\nWhen zoomed in, the original is shown at the same resolution as the result (the editing resolution, or the original image's resolution when \"Edit at original resolution\" is on).";
 
         // ─────────────────────────────────────────────────────────────
         // マテリアルの色の設定（メインカラー・色調補正・重ね描きなど）とアバター上の色

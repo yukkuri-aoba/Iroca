@@ -931,20 +931,25 @@ namespace Iroca
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
                 zoomHitRect = activePreviewRect;
 
-                // 「元を表示」で押下中は、詳細クロップ(再着色後のみ保持)を使わず低解像度の
-                // 変更前を出す。クロップの raw をテクスチャ化して持つとズーム中の VRAM が倍に
-                // なるため、押している間だけ解像度が落ちることを許容する(ツールチップに明記)。
+                // 「元を表示」で押下中は、変更後の切り出しと同じ範囲・寸法の変更前の切り出しを、原本(作業解像度。
+                // 「元の解像度で編集」がオンなら元の画像の解像度)から作って重ねる(ShownDetailRaw)。変更前の
+                // 切り出しは押している間だけ持ち、離したら手放す(拡大中の VRAM が増えるのは押している間だけ)。
+                // 作れないとき(切り出しがまだ無い・見た目がまだ作れない)は、全体の変更前だけを出す。
                 // 「アバターの色」の表示中は、切り出しの見た目ができるまで切り出しを重ねない(ShownDetail)。
                 var shownDetail = ShownDetail;
-                if (detailActive && shownDetail != null && !peekOriginal && !_detailHiddenForDrag)
+                bool detailShown = detailActive && shownDetail != null && !_detailHiddenForDrag;
+                Texture peekDetail = detailShown && peekOriginal ? ShownDetailRaw() : null;
+                if (!peekOriginal) ReleaseDetailRaw();
+                if (detailShown && (!peekOriginal || peekDetail != null))
                 {
-                    EditorGUI.DrawPreviewTexture(activePreviewRect, ShownPreview);
+                    EditorGUI.DrawPreviewTexture(activePreviewRect, peekOriginal ? ShownRaw : ShownPreview);
 
                     Rect detailScreenRect = _detailView.ComputeDetailScreenRect(activePreviewRect, scale, effZoom, _previewScrollPos, srcW, srcH);
-                    GUI.DrawTexture(detailScreenRect, shownDetail,
+                    GUI.DrawTexture(detailScreenRect, peekOriginal ? peekDetail : shownDetail,
                         ScaleMode.StretchToFill, false);
 
-                    if (diffMode && _detailView.detailDiffTexture != null)
+                    // 変更前を見せている間は差分ハイライトを重ねない(下の全体表示と同じ理由)。
+                    if (!peekOriginal && diffMode && _detailView.detailDiffTexture != null)
                         GUI.DrawTexture(detailScreenRect, _detailView.detailDiffTexture,
                             ScaleMode.StretchToFill, true);
                     else

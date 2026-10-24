@@ -16,6 +16,13 @@ namespace Iroca
         // ブラシは両方の重ね表示へ直接書くので、詳細の再生成を待たずに塗った所が見える。
         [System.NonSerialized] public Texture2D detailPreviewTexture;
         [System.NonSerialized] public Texture2D detailDiffTexture;
+        // 「元を表示」を押している間だけ持つ、変更前の切り出し(detailPreviewTexture と同じ範囲・寸法)。
+        // 離したら手放す(EnsureDetailRaw / ReleaseDetailRaw)ので、拡大中の VRAM が増えるのは押している間だけ。
+        [System.NonSerialized] public Texture2D detailRawTexture;
+        // detailRawTexture を作ったときの切り出し(範囲・寸法が変わったら作り直す)。
+        [System.NonSerialized] private int _rawOriginX = -1, _rawOriginY = -1, _rawCropW, _rawCropH, _rawTexW, _rawTexH;
+        // detailRawTexture を作り直すたびに進める番号(テクスチャは使い回すので、見た目の作り直しの判定に使う)。
+        [System.NonSerialized] public int detailRawVersion;
 
         [System.NonSerialized] public readonly PreviewJob<DetailPreviewResult> detailJob = new PreviewJob<DetailPreviewResult>();
         [System.NonSerialized] private Color32[] _pendingDetailProcessed;
@@ -23,6 +30,7 @@ namespace Iroca
         [System.NonSerialized] private int _pendingDetailTexW, _pendingDetailTexH;
         [System.NonSerialized] private int _pendingDetailCropW, _pendingDetailCropH;
         [System.NonSerialized] private int _pendingDetailOriginX, _pendingDetailOriginY;
+        [System.NonSerialized] private float _pendingDetailPxPerSrc;
         [System.NonSerialized] private PreviewLatencyCycle _pendingDetailLatency;
         [System.NonSerialized] public double lastDetailDirtyTime;
         // 体感速度の計測: 確定表示(フル)の直後に始まる再生成を、その操作を起点に測るための引き渡し。
@@ -61,6 +69,9 @@ namespace Iroca
         // クロップが覆うソース画素数。表示矩形の計算はこちらを使う（テクスチャ解像度は
         // 縮小表示のとき表示ピクセル数まで落とすので、両者は一致しない）。
         [System.NonSerialized] public int detailCropW, detailCropH;
+        // クロップを表示解像度へ落としたときの倍率(BoxDownsampleRegion に渡した dst/src 比)。変更前の切り出しを
+        // 同じ画素の並びで作るのに使う。
+        [System.NonSerialized] private float _detailPxPerSrc;
 
         // Diff テクスチャ生成（バックグラウンド）
         [System.NonSerialized] private readonly PreviewJob<Color32[]> _diffJob = new PreviewJob<Color32[]>();
@@ -232,8 +243,8 @@ namespace Iroca
             }
 
             int capX0 = x0, capY0 = y0, capSrcW = srcW;
-            // 変更前のクロップは差分表示の diff にしか使わない(「元を表示」は低解像度の変更前を出す)。
-            // 差分表示を ON にしたときは PreviewView が詳細を作り直させる。
+            // ここで作る変更前のクロップは差分表示の diff にしか使わない。差分表示を ON にしたときは
+            // PreviewView が詳細を作り直させる。「元を表示」の変更前は、押したときに EnsureDetailRaw が作る。
             bool needRaw = _host.Preview.diffMode;
             // 切り出しが終わるまで、このフル段の出力と原本の参照を持つ(使い回しにも渡されない)。後始末で返す。
             var processedForTask = processedFull.AddRef();
@@ -308,6 +319,7 @@ namespace Iroca
                     _pendingDetailCropH     = result.CropH;
                     _pendingDetailOriginX   = result.OriginX;
                     _pendingDetailOriginY   = result.OriginY;
+                    _pendingDetailPxPerSrc  = pxPerSrc;
                     _host.RequestRepaint();
                 },
                 cleanup: () =>
@@ -339,6 +351,7 @@ namespace Iroca
             detailOriginY = oy;
             detailCropW   = cw;
             detailCropH   = ch;
+            _detailPxPerSrc = _pendingDetailPxPerSrc;
 
             // filterMode は Resize では決めない(再利用時に既存設定が維持され、縮小あり/なしを
             // 行き来したときに前回のモードが残るため)。確保後に毎回明示する。
@@ -403,6 +416,64 @@ namespace Iroca
             detailDiffTexture.Apply();
         }
 
+        /// <summary>
+        /// 「元を表示」用の変更前の切り出しを、今の切り出し(detailPreviewTexture)と同じ範囲・寸法・縮小で
+        /// 原本(srcPixels。変更後の切り出しの元になったフル段と同じ作業解像度の画素)から作る。
+        /// 同じ切り出しのものがあれば作り直さない。切り出しが無い・原本の寸法が合わないときは false。
+        /// 見えている範囲だけなので、押した最初のフレームにメインスレッドで作る(数〜数十 ms)。
+        /// </summary>
+        public bool EnsureDetailRaw(NativePixels srcPixels, int srcW, int srcH)
+        {
+            var dt = detailPreviewTexture;
+            if (dt == null || detailCropW <= 0 || detailCropH <= 0) return false;
+            if (srcPixels == null || srcPixels.Length != srcW * srcH) return false;
+            if (detailOriginX < 0 || detailOriginY < 0
+                || detailOriginX + detailCropW > srcW || detailOriginY + detailCropH > srcH) return false;
+            int w = dt.width, h = dt.height;
+            if (detailRawTexture != null && _rawOriginX == detailOriginX && _rawOriginY == detailOriginY
+                && _rawCropW == detailCropW && _rawCropH == detailCropH && _rawTexW == w && _rawTexH == h)
+                return true;
+
+            Color32[] pixels;
+            if (w != detailCropW || h != detailCropH)
+            {
+                // 変更後と同じく、見えている範囲を表示解像度へ面平均で落とす(同じ倍率なので画素の並びがそろう)。
+                pixels = PixelProcessor.BoxDownsampleRegion(srcPixels.Ptr, srcPixels.Length,
+                    srcW, detailOriginX, detailOriginY, detailCropW, detailCropH, w, h, _detailPxPerSrc);
+            }
+            else
+            {
+                pixels = new Color32[detailCropW * detailCropH];
+                long rowBytes = (long)detailCropW * sizeof(Color32);
+                fixed (Color32* dst = pixels)
+                    for (int cy = 0; cy < detailCropH; cy++)
+                    {
+                        long srcRow = (long)(detailOriginY + cy) * srcW + detailOriginX;
+                        System.Buffer.MemoryCopy(srcPixels.Ptr + srcRow, dst + (long)cy * detailCropW, rowBytes, rowBytes);
+                    }
+            }
+            TextureSlot.Resize(ref detailRawTexture, w, h);
+            detailRawTexture.filterMode = DetailFilterMode(w, detailCropW);
+            detailRawTexture.SetPixels32(pixels);
+            detailRawTexture.Apply();
+            _rawOriginX = detailOriginX;
+            _rawOriginY = detailOriginY;
+            _rawCropW = detailCropW;
+            _rawCropH = detailCropH;
+            _rawTexW = w;
+            _rawTexH = h;
+            detailRawVersion++;
+            return true;
+        }
+
+        /// <summary>「元を表示」用の変更前の切り出しを手放す(離したとき・切り出しを捨てたとき)。</summary>
+        public void ReleaseDetailRaw()
+        {
+            if (detailRawTexture == null) return;
+            TextureSlot.Release(ref detailRawTexture);
+            _rawOriginX = _rawOriginY = -1;
+        }
+
         public void Dispose()
         {
             Suspend();
@@ -435,6 +506,7 @@ namespace Iroca
             detailCropW = detailCropH = 0;
             TextureSlot.Release(ref detailPreviewTexture);
             TextureSlot.Release(ref detailDiffTexture);
+            ReleaseDetailRaw();
         }
     }
 }
