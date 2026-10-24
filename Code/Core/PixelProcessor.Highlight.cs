@@ -487,11 +487,12 @@ namespace Iroca
         /// <summary>
         /// 帯成長の候補判定(GrowHighlightBand の画素ループと同じ式)。色の表で色ごとに判定するときに使う。
         /// 画素ループ側の式を変えたらここも同じに変えること。意図した変更では両経路を同時に直す
-        /// (色の表あり・なしのパリティを直接比べるテストは無い)。
-        /// ZoneAutoTuner.VerifyHighlightRecoveryGrowth もこの条件をインラインで写している(画素ループの
-        /// 中なので性能のため呼び出しにしない)。式を変えたら Verify 側も同じに変えること。
+        /// (色の表あり・なしの出力の一致は scripts/golden/test_palette_parity.py が確かめる)。
+        /// 自動調整の閉ループ検証(ZoneAutoTuner.VerifyHighlightRecoveryGrowth)もこれを呼ぶ。以前は画素ループの
+        /// 中なので性能のため式をインラインで写していたが、写しは片方だけ直されやすいので呼び出しにした(2026-10-24)。
         /// </summary>
-        private static bool IsHighlightBandCandidate(float pH, float pS, float pV, Color32 op,
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        internal static bool IsHighlightBandCandidate(float pH, float pS, float pV, Color32 op,
             float sH, float sS, float sV, float sR, float sG, float sB,
             float dR, float dG, float dB, float dsq, float hueCap, float satFloor)
         {

@@ -73,11 +73,9 @@ namespace Iroca
             var sim = BuildSimZone(zone, result);
             var selGrid = new bool[hsv.gw * hsv.gh];
 
-            // 帯拡張(GrowHighlightBand)の候補条件を同一定数でミラーする。
+            // 帯拡張(GrowHighlightBand)の候補条件は同じ判定(PixelProcessor.IsHighlightBandCandidate)を呼ぶ。
             // 連結性(コア連結 BFS)は模擬しない=候補は全て加算される上界。境界 AA が常に
             // 橋になるため実運用でもほぼ全候補へ到達し、上界と実際の差は小さい。
-            // 式は PixelProcessor.IsHighlightBandCandidate と同じ。画素ループの中なので性能のため
-            // 呼び出しにせずインラインで写している。どちらかを変えたら両方を同じに変えること。
             Color.RGBToHSV(zone.sampleColor, out float bSH, out float bSS, out float bSV);
             bool bandActive = zone.highlightBandExpand && bSS >= PixelProcessor.HlBandMinSampleSat;
             float sR = zone.sampleColor.r, sG = zone.sampleColor.g, sB = zone.sampleColor.b;
@@ -86,7 +84,6 @@ namespace Iroca
             if (dsq < 1e-6f) bandActive = false;
             float hueCap = Mathf.Max(ColorZone.HighlightHueCapFloor, result.tolerance * ColorZone.HighlightHueCapTolFrac);
             float bandSatFloor = bSS * PixelProcessor.HlBandMinSatFrac;
-            float axisEpsSq = PixelProcessor.HlBandAxisEps * PixelProcessor.HlBandAxisEps;
 
             int stride = hsv.stride;
             var rowBase = new int[hsv.gh];
@@ -112,21 +109,10 @@ namespace Iroca
                     // IsMaskExcluded はマスクの値を最近傍で引くだけの関数で、ここでは「証拠の内側か」を引く。
                     if (evidence != null && IsMaskExcluded(evidence, evW, evH, x, y, w, h)) continue;
                     if (hlPot > 0f) { nHlOnly++; continue; }
-                    // 帯拡張の候補条件(GrowHighlightBand と同一)
-                    if (bandActive && pV > bSV && pS < bSS && pS >= bandSatFloor)
-                    {
-                        float hd = Mathf.Abs(pH - bSH); if (hd > 0.5f) hd = 1f - hd;
-                        if (hd < hueCap)
-                        {
-                            float ox = r - sR, oy = g - sG, oz = b - sB;
-                            float wv = (ox * dR + oy * dG + oz * dB) / dsq;
-                            if (wv < 0f) wv = 0f; else if (wv > 1f) wv = 1f;
-                            float rr = r - (sR + wv * dR);
-                            float rg = g - (sG + wv * dG);
-                            float rb = b - (sB + wv * dB);
-                            if (rr * rr + rg * rg + rb * rb < axisEpsSq) nHlOnly++;
-                        }
-                    }
+                    // 帯拡張の候補条件(GrowHighlightBand と同じ判定)
+                    if (bandActive && PixelProcessor.IsHighlightBandCandidate(pH, pS, pV, c,
+                            bSH, bSS, bSV, sR, sG, sB, dR, dG, dB, dsq, hueCap, bandSatFloor))
+                        nHlOnly++;
                 }
                 rowBase[gy] = nBase;
                 rowHlOnly[gy] = nHlOnly;
