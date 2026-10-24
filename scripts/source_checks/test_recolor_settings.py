@@ -218,3 +218,31 @@ def test_preset_radius_is_clamped_in_one_place():
     presets_view = _src(REPO_ROOT / "Code" / "UI" / "PresetsView.cs")
     assert "decontaminationRadius" not in presets_view, (
         "PresetsView が設定を個別に触っています。丸めや変換は RecolorSettings.From に寄せること")
+
+
+# 選択キャッシュの鍵（PixelProcessor.BuildSelectionKey）に入れない全体設定。保存する選択より後の段だけに効く
+# ものに限る。ここに足すときは理由を書く。ColorZone 側は scripts/golden/test_selection_key_audit.py が見る。
+SELECTION_IRRELEVANT_SETTINGS = {
+    "useDecontamination",     # AA 境界の α 分解。選択キャッシュの保存より後の段
+    "decontaminationRadius",  # 同上
+}
+
+
+def test_selection_key_covers_selection_settings():
+    """全体設定を足して選択キャッシュの鍵に入れ忘れると、値を変えても古い選択のままのプレビューになる
+    （書き出しはキャッシュを使わないので気づきにくい）。設定ごとに「鍵に入れる」か「選択に効かない」かを決めさせる。"""
+    src = _src(CORE / "PixelProcessor.cs")
+    call = re.search(r"selKey\s*=\s*BuildSelectionKey\s*\(([^;]*)\)\s*;", src)
+    assert call, "BuildSelectionKey の呼び出しが見つかりません（改名?）"
+    args = set(re.findall(r"\b([a-z]\w*)\b", call.group(1)))
+    for f in _settings_fields():
+        assert re.search(rf"\b\w+\s+{f}\s*=\s*settings\.{f}\s*;", src), (
+            f"ProcessPixelsArrayCore が設定 {f} を同じ名前のローカルへ展開していません")
+    unclassified = [f for f in _settings_fields() if f not in args and f not in SELECTION_IRRELEVANT_SETTINGS]
+    assert not unclassified, (
+        f"選択キャッシュの鍵に入らず、選択に効かないとも分類されていない全体設定: {unclassified}\n"
+        "→ 選択に効くなら BuildSelectionKey へ渡す、効かないなら SELECTION_IRRELEVANT_SETTINGS に理由つきで足す")
+    stale = sorted(SELECTION_IRRELEVANT_SETTINGS - set(_settings_fields()))
+    assert not stale, f"SELECTION_IRRELEVANT_SETTINGS に実在しない設定: {stale}"
+    both = sorted(SELECTION_IRRELEVANT_SETTINGS & args)
+    assert not both, f"選択に効かないと分類した設定が鍵にも入っています（どちらかが誤り）: {both}"

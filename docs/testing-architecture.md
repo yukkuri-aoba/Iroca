@@ -521,7 +521,9 @@ memory_guard.py は出力に関与しないので、実行キャッシュ・行�
     （2026-09-24〜）。`PixelProcessor.ProcessPixelsArray` の入口はこれを受け取る 1 つだけで、プレビュー 2 段・
     詳細・単体/一括エクスポート・Automation・ハーネスの全呼び出し元が同じ型を渡す（以前は各所で 8 個の値を
     位置引数に並べ直していた）。セッション・プリセット・zones JSON とのフィールド対応と既定値の参照は
-    `scripts/source_checks/test_recolor_settings.py` が検査する。
+    `scripts/source_checks/test_recolor_settings.py` が検査する。同じテストが、全体設定のそれぞれが選択キャッシュの
+    鍵（`BuildSelectionKey`）に入っているか「選択に効かない」と分類されているかも見る（ゾーン側は
+    `scripts/golden/test_selection_key_audit.py`）。
   - **画で見る**（2026-09-03〜）: 上の 3 本は数字しか残さない。`dev_safe/scripts/build_oneshot_review.py`
     が同じ driver（`run_case` / `run_subject`）の出力を「クリック位置+証拠セグメント / 出力 /
     GT 判定オーバーレイ（+注目範囲クロップ）」の画と `review_data.json` に書き出し、
