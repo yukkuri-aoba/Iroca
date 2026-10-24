@@ -73,6 +73,18 @@ namespace Iroca
         const int MaxWindowRadius = 8;
 
         /// <summary>
+        /// 近傍グリッドの窓の最初の半径(セル単位、5×5 セル)。SnapBoundary と IncludeAaTransition はここから
+        /// 2 セルずつ <see cref="MaxWindowRadius"/> まで広げる。
+        /// </summary>
+        const int MinWindowRadius = 2;
+
+        /// <summary>
+        /// ExtendFringe が背景・生地の色を集める窓の半径(セル単位、5×5 セル。広げない)。
+        /// TryDeriveRefineCropRect の余白の根拠(読む範囲 reach + strandHalf + この 2 倍 + d)に入る。
+        /// </summary>
+        const int FringeWindowRadius = 2;
+
+        /// <summary>
         /// 境界の不確実帯の半幅 d(= 粗グリッドのストライド): SAM 低解像度セルの 3/4
         /// (±半セルの理論誤差+マージン。4096² で 12)。SnapBoundary / ExtendFringe /
         /// IncludeAaTransition と TryDeriveAaCropRect が共有する。クロップ実行が全画像実行と
@@ -95,8 +107,8 @@ namespace Iroca
         ///
         /// 余白の根拠(各段が書くのは直前のマスクの外接矩形から下の範囲の中で、読む範囲も合計の中に収まる):
         /// - SnapBoundary が書くのは帯(境界から d 以内)。読むのは帯の画素の窓(最大半径 MaxWindowRadius セル)まで。
-        /// - ExtendFringe が足すのは境界から reach 以内。読むのは境界から reach + strandHalf の画素と、その ±2 セルの窓、
-        ///   窓のセルの生地類似の判定(さらに ±2 セル)まで。
+        /// - ExtendFringe が足すのは境界から reach 以内。読むのは境界から reach + strandHalf の画素と、その ±FringeWindowRadius
+        ///   セルの窓、窓のセルの生地類似の判定(さらに ±FringeWindowRadius セル)まで。
         /// - IncludeAaTransition は 1 パスで境界から d 以内を AaMaxPasses 回、続けて 1px を AaMaxPasses 回足す。
         ///   読むのは帯の画素の窓(最大半径 MaxWindowRadius セル)まで。
         /// - PeelThinSpill はマスクの外接矩形に PeelRectMargin を足した矩形の中だけを読み書きする。全画像でその矩形が
@@ -328,13 +340,13 @@ namespace Iroca
             // (プール平均時代は希釈で偶然無害だった汚染の、モード化に伴う明示対処)。
             for (int gy = 0; gy < gh; gy++)
             {
-                int gy0 = Mathf.Max(0, gy - 2), gy1 = Mathf.Min(gh - 1, gy + 2);
+                int gy0 = Mathf.Max(0, gy - FringeWindowRadius), gy1 = Mathf.Min(gh - 1, gy + FringeWindowRadius);
                 for (int gx = 0; gx < gw; gx++)
                 {
                     int g = gy * gw + gx;
                     if (!cellValid[g]) continue;
                     int o = g * 3;
-                    int gx0 = Mathf.Max(0, gx - 2), gx1 = Mathf.Min(gw - 1, gx + 2);
+                    int gx0 = Mathf.Max(0, gx - FringeWindowRadius), gx1 = Mathf.Min(gw - 1, gx + FringeWindowRadius);
                     bool fabricLike = false;
                     for (int yy = gy0; yy <= gy1 && !fabricLike; yy++)
                     {
@@ -374,13 +386,13 @@ namespace Iroca
             Parallel.For(0, h, po, y =>
             {
                 int gy = y / d, row = y * w;
-                int gy0 = Mathf.Max(0, gy - 2), gy1 = Mathf.Min(gh - 1, gy + 2);
+                int gy0 = Mathf.Max(0, gy - FringeWindowRadius), gy1 = Mathf.Min(gh - 1, gy + FringeWindowRadius);
                 for (int x = 0; x < w; x++)
                 {
                     int i = row + x;
                     if (mask[i] ? distIn[i] > strandHalf : distOut[i] > fringeBand) continue;
                     int gx = x / d;
-                    int gx0 = Mathf.Max(0, gx - 2), gx1 = Mathf.Min(gw - 1, gx + 2);
+                    int gx0 = Mathf.Max(0, gx - FringeWindowRadius), gx1 = Mathf.Min(gw - 1, gx + FringeWindowRadius);
                     var c = pixelsBottomUp[i];
                     long sr = 0, sg = 0, sb = 0; int n = 0;
                     double minD = double.MaxValue;
@@ -575,7 +587,7 @@ namespace Iroca
                     long ir = 0, ig = 0, ib = 0, ia = 0, or_ = 0, og = 0, ob = 0, oa = 0;
                     int ic = 0, oc = 0;
                     double minIn = double.MaxValue, minOut = double.MaxValue;
-                    for (int radius = 2; radius <= MaxWindowRadius; radius += 2)
+                    for (int radius = MinWindowRadius; radius <= MaxWindowRadius; radius += 2)
                     {
                         ir = ig = ib = ia = or_ = og = ob = oa = 0; ic = 0; oc = 0;
                         minIn = minOut = double.MaxValue;
@@ -1100,13 +1112,14 @@ namespace Iroca
         /// (d 格子整列・マージン込み)を導出する。mask に true が無ければ false(AA 不要)。
         ///
         /// マージンの根拠(=クロップ実行が読むデータが全画像実行と一致する条件):
-        /// - 各パスの追加は境界外側の帯(距離 ≤ d)のみ → 3 パスで成長 ≤ 3d、
-        ///   フェーズ 2 のリング吸収は 1px × 3 パス。
-        /// - 帯画素が読むセル統計は半径 MaxWindowRadius(8) セル = (8+1)d 以内。
+        /// - 各パスの追加は境界外側の帯(距離 ≤ d)のみ → AaMaxPasses パスで成長 ≤ AaMaxPasses·d、
+        ///   フェーズ 2 のリング吸収は 1px × AaMaxPasses パス。
+        /// - 帯画素が読むセル統計は半径 MaxWindowRadius セル = (MaxWindowRadius+1)d 以内。
         ///   クロップ端の欠けセルまで読まないよう +1 セル。
         /// - 距離変換は mask がクロップ内に完全に収まっていれば全画素で全画像実行と一致
         ///   (最近接 mask/非 mask 画素がクロップ内にあるため)。
-        /// → パディング 15d(切り上げで格子整列)で全条件を満たす。
+        /// → 要る余白は AaMaxPasses·(d+1) + (MaxWindowRadius+2)·d(今の定数で 13d+3)。切りのよい 15d と
+        ///   大きい方を使う(定数を変えたときに余白が足りなくならないよう、式からも求める)。
         /// rx0/ry0 は d の倍数に切り下げ、セル境界(x/d)を全画像実行と一致させる。
         /// </summary>
         public static bool TryDeriveAaCropRect(bool[] mask, int w, int h,
@@ -1132,7 +1145,7 @@ namespace Iroca
             }
             if (bx1 < 0) return false; // true 画素なし → AA 包含は no-op
 
-            int pad = 15 * d;
+            int pad = Mathf.Max(15 * d, AaMaxPasses * (d + 1) + (MaxWindowRadius + 2) * d);
             rx0 = Mathf.Max(0, (bx0 - pad) / d * d);
             ry0 = Mathf.Max(0, (by0 - pad) / d * d);
             int rx1 = Mathf.Min(w - 1, ((bx1 + pad) / d + 1) * d - 1);
@@ -1322,7 +1335,7 @@ namespace Iroca
                     int ic = 0, nc = 0, fc = 0;
                     double bestNearD = double.MaxValue, bestFarD = double.MaxValue;
                     int bestNearO = -1, bestFarO = -1;
-                    for (int radius = 2; radius <= MaxWindowRadius; radius += 2)
+                    for (int radius = MinWindowRadius; radius <= MaxWindowRadius; radius += 2)
                     {
                         ir = ig = ib = ia = 0; ic = 0;
                         nr = ng = nb = na = 0; nc = 0;
