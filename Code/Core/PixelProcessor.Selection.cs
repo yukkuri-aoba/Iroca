@@ -314,16 +314,7 @@ namespace Iroca
             return lmaxX >= 0;
         }
 
-        /// <summary>
-        /// 形態学的フィル：ゼロ強度のピクセルがマッチした隣接ピクセルの多数派に囲まれていれば
-        /// 最小隣接強度で埋める。
-        /// これにより、satConfidenceゲートを通過するに低い彩度を持つアンチエイリアス処理された
-        /// 端のピクセルが原因の孤立した1-2pxドットアーティファクトを除去します。
-        /// パス数と最小隣接数はアドバンスモードで調整可能。
-        /// </summary>
-        /// <remarks>
-        /// 各パスはパス開始時の状態を読み、書き込みはパスの終わりにまとめる(旧: 二重バッファ)。
-        /// </remarks>
+        // 量子化のならし(TryQuantSmoothedColor)で「量子化の誤差でしか違わない」とみなす各チャネルの差(8bit の 1 階調)。
         private const int QuantSmoothLevels = 1;
 
         /// <summary>
@@ -371,6 +362,16 @@ namespace Iroca
             return true;
         }
 
+        /// <summary>
+        /// 形態学的フィル：ゼロ強度のピクセルがマッチした隣接ピクセルの多数派に囲まれていれば
+        /// 最小隣接強度で埋める。
+        /// これにより、satConfidenceゲートを通過するに低い彩度を持つアンチエイリアス処理された
+        /// 端のピクセルが原因の孤立した1-2pxドットアーティファクトを除去します。
+        /// パス数と最小隣接数はアドバンスモードで調整可能。
+        /// </summary>
+        /// <remarks>
+        /// 各パスはパス開始時の状態を読み、書き込みはパスの終わりにまとめる(旧: 二重バッファ)。
+        /// </remarks>
         private static void FillSmallHoles(float* strength, int w, int h,
             int passes, int minNeighbors, bool* allowedMask,
             int boxMinX, int boxMinY, int boxMaxX, int boxMaxY,
@@ -534,7 +535,7 @@ namespace Iroca
 
             float satCeil = ColorZone.EffectiveChromaCeiling(sS, chromaCeiling);
 
-            const float matchThr = ColorZone.MatchStrengthFloor;  // コア判定の strength 床(NeutralReject と同じ)
+            const float matchThr = ColorZone.MatchStrengthFloor;  // コア判定の strength 床(SolidifyAchromaInterior と同じ)
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
 
             // bbox 限定(出力ビット不変): 除去が起こり得るのは strength>0 の画素だけなので

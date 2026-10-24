@@ -67,5 +67,12 @@ namespace Iroca
         /// Debug モジュールの PerfView が EditorPrefs に永続化して管理する。
         /// </summary>
         internal static int ParallelismOverride;
+
+        /// <summary>
+        /// true のとき色の表(PixelProcessor.Palette.cs)を作らず、全部の段を画素ごとの計算で回す。
+        /// 色の表がある経路と無い経路は同じ式の別実装なので、両方の出力がビット単位で同じことを
+        /// ハーネスを IROCA_NO_PALETTE=1 で動かして確かめる(scripts/golden/test_palette_parity.py)。製品からは設定しない。
+        /// </summary>
+        internal static bool DisablePalette;
     }
 }

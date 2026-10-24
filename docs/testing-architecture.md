@@ -39,6 +39,21 @@ CLAUDE.md / `.claude/instructions/improvement-cycle.md` が「テスト構成の
 12 被写体を入れた。GT は `dev_safe/scripts/build_holdout_gt.py` が作る。部位レイヤーの無い PSD は、PSD の島
 （作者の島マスク / UV 線の塗りつぶし）と同じ塗りの島から作る素材単位、部位レイヤーのある PSD は
 部位レイヤー ∩ 島。テスト側の定義は `fixtures.HOLDOUT_REGISTRY` で、`SUBJECT_REGISTRY` には入れない。
+見るたびにホールドアウトへ合わせてしまうので、被写体ごとの延べの回数が 20 回に届いたら holdout_eval.py が
+入れ替えの時期を知らせる（2026-10-23。次に GT を足すとき、届いた被写体を `SUBJECTS` へ移し、新しい被写体を
+ホールドアウトにする）。集計には ΔE 球（下記）に負けた被写体の数も出す。
+2026-10-23 に最初の入れ替えをした（ユーザー了承）: 延べ 16〜17 回見た 5 体（14 被写体）を `SUBJECTS` へ移し、
+回帰の被写体は 33 件（9 体）になった。移した被写体の定義は `fixtures.py` で、どちらの一覧に属すかは `subjects.json` が決める。
+
+**汎化の物差し**（2026-10-23〜、`dev_safe/scripts/generalization_report.py`）: ホールドアウトを見る前に、
+手元の被写体で過学習しない変更かを確かめる。回帰の被写体は件数より描いた人（アバター）の数が少ない（入れ替え前は
+19 件で 4 組、後は 33 件で 9 組）ので、`subjects.json` の `subject_groups` でアバターごとにまとめる。`run` はワンショットを
+開発に使ったクリック（p25/p50/p95）と使っていないクリック（p05/p75/p99）の 被写体 × 6 件（33 被写体で 198 件）で回し
+（DLL は `_harness_cache/builds/` へ写して使う）、
+`compare` はアバター別の平均・変更のきっかけのアバター（`--motivated-by`）を除いた平均・ケースごとの退行床・
+素朴な基準線（クリック画素の色から CIELAB ΔE76 ≤ 16 の球、design IoU で採点）に 0.05 以上負けた数を並べて
+採否の目安を出す。`sweep` は定数の掃引から台地とアバター単位の交差検証（LOAO）を出す。採否の決まりは
+`.claude/instructions/improvement-cycle.md` の「過学習を防ぐ採否の物差し」。
 
 GTは採点とテスト用クリック位置の選定に使う。`oneshot` / `assisted_include` の処理入力に
 GTマスクを渡さない。証拠・含める・除外・採点GTは役割を別に記録する。
@@ -277,6 +292,12 @@ golden は `IROCA_GOLDEN_TOLERANT=1` でハッシュ不一致を `scripts/golden
 `test_event_subscription_symmetry` / `test_zone_cache_invalidation` など）は資産を使わないので
 dev_safe から `scripts/source_checks/` へ移した。資産を要らない検査はこちらに置くこと。
 
+`test_algorithm_constants`（2026-10-24〜）は、出力に効くファイル（`ColorZone*`・`PixelProcessor*`・`ZoneAutoTuner*`・
+`HighlightSampleCorrector`・`UvChartMap`・`Code/MaskSuggest/Ops`）の名前付き数値定数を、定数の台帳
+`docs/algorithm-constants.md`（種類・段・根拠）と突き合わせる。定数を足した・値を変えた・消したとき、名前の無い小数の
+リテラルの数がファイルごとの記録と違うときに落ちる。手元の被写体で選んだ値（実測）と由来の記録が無い値（不明）を
+区別しておき、減らす候補と、新しい被写体で外れたときに疑う先にするため。
+
 - マーカー: `perf`（性能計測・品質検査なし）/ `slow`（メモリ・時間コスト大）/ `mesh_assisted`（メッシュの UV チャートから
   作った除外マスクを足した選択。メッシュが見つかったときの任意機能で、`test_uv_chart_map` の一部）。
   マーカー登録とルート rootdir はリポジトリルートの `pytest.ini` が持つ。
@@ -407,6 +428,12 @@ memory_guard.py は出力に関与しないので、実行キャッシュ・行�
   golden が落ちる＝C# の出力が変わった、の意味。意図した変更なら
   `python scripts/golden/golden_lib.py --force` で再生成する（`--force` 無しだと、
   どのケースがどう変わるかを列挙して止まる）。
+- **色の表あり・なしのパリティ**（2026-10-24〜）: `PixelProcessor` は元画素の色の種類の表があると、色だけで決まる
+  計算（照合・帯成長の候補判定・無彩の領域 L・再着色アンカー・再着色）を色ごとに 1 回だけ行い、表が作れない画像
+  （色の種類が画素数の 1/4 を超える写真調など）では画素ごとに計算する。同じ式の 2 通りの実装なので、片方だけ
+  直すと色の多いテクスチャでだけ出力が変わる。`scripts/golden/test_palette_parity.py` が golden の全ケースと
+  帯成長の合成 2 ケースを、通常の実行とハーネスの `IROCA_NO_PALETTE=1`（表を作らない）で回してビット単位で比べる。
+  色ごとの経路を足したら、そこを踏むケースがあるか（片側だけ変えて落ちるか）を確かめること。
 - **改善サイクルの採否判断では `IROCA_CSHARP_GATE_FULL=1`（旧名 `VACC_CSHARP_GATE_FULL` も効く）と
   `VACC_AUTOTUNE_GATE_FULL=1` を必ず立てる**（品質ゲートの既定は bandana のみで、残り被写体の実 C# 品質を測らずに
   「全パス」と誤認するため）。
@@ -500,7 +527,9 @@ memory_guard.py は出力に関与しないので、実行キャッシュ・行�
     （2026-09-24〜）。`PixelProcessor.ProcessPixelsArray` の入口はこれを受け取る 1 つだけで、プレビュー 2 段・
     詳細・単体/一括エクスポート・Automation・ハーネスの全呼び出し元が同じ型を渡す（以前は各所で 8 個の値を
     位置引数に並べ直していた）。セッション・プリセット・zones JSON とのフィールド対応と既定値の参照は
-    `scripts/source_checks/test_recolor_settings.py` が検査する。
+    `scripts/source_checks/test_recolor_settings.py` が検査する。同じテストが、全体設定のそれぞれが選択キャッシュの
+    鍵（`BuildSelectionKey`）に入っているか「選択に効かない」と分類されているかも見る（ゾーン側は
+    `scripts/golden/test_selection_key_audit.py`）。
   - **画で見る**（2026-09-03〜）: 上の 3 本は数字しか残さない。`dev_safe/scripts/build_oneshot_review.py`
     が同じ driver（`run_case` / `run_subject`）の出力を「クリック位置+証拠セグメント / 出力 /
     GT 判定オーバーレイ（+注目範囲クロップ）」の画と `review_data.json` に書き出し、

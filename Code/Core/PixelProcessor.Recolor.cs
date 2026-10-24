@@ -25,10 +25,20 @@ namespace Iroca
         // ターゲットにしても出力がその暗さに収まるための既定挙動。
         private const float HighlightLMult = 2.0f;
 
-        // chroma 増幅キャップ(有彩ターゲット向けの無彩パス拡張): tC > sC の色相変化で OkLab→RGB の
-        // lum 感度が高まりバンディングが発生しうる(彩度比 tC/sC が大きいほど明度コントラストが増幅される)。
-        // output chroma = mag*tC が sC*Factor を超えないよう mag を制限。
-        private const float ChromaAmpMaxFactor = 1.0f;
+        // 彩度の写し方(2026-10-24): 画素の彩度 oC を、明度の 2 区間リマップと同じ折れ線で予想できる分 Ĉ と残り oC − Ĉ に分ける。
+        //   Ĉ = sC·oL/sL(oL ≤ sL: 陰影・黒との混色) / sC·(1 − oL)/(1 − sL)(oL > sL: 白との混色)
+        // 乗算の陰影や、白・黒との混色(輪郭の AA・白へ抜けるグラデ・ツヤ)では、彩度は明度と同じ割合で動くので Ĉ に一致する。
+        // 残りは素材そのものの彩度の揺れ(布目・染めむら・ノイズ)。
+        //   出力の彩度 = osat·tC·Ĉ/sC + κ·(oC − Ĉ)、κ = min(1, osat·tC/sC)
+        //   - 塗り先が元より鮮やか(osat·tC > sC、okSplitChroma): 予想できる分は塗り先の彩度に比例させ(面 = アンカーで
+        //     塗り先の彩度そのもの、混色・陰影は同じ割合)、残りは 1 倍のまま写す。全体を比例にすると残りの揺れが tC/sC 倍に
+        //     増幅されて、地味な素材を鮮やかな色にしたときにざらつく。全体を r^γ で圧縮する案(10-23 の「方法 3」)は揺れを
+        //     増幅しないが、低い彩度を持ち上げるので混色を鮮やかにしすぎ、白へ抜けるグラデの選択の境目に硬い継ぎ目が出た。
+        //   - 塗り先が元と同じかより地味: κ = osat·tC/sC で、式は全体の比例 osat·tC·oC/sC と同じ(従来どおり)。
+        // 以前は「塗った後の彩度 ≤ アンカーの彩度」の上限(ChromaAmpMaxFactor = 1。2026-06-16、Python の代理実装で見えた
+        // バンディング対策。実 C# にはそのバンディングは無かった)で増幅を止めていたため、元が地味な素材ほど指定した色に
+        // 届かなかった(明るい面で目標の 0.78 倍、茶髪 → 青で 0.33 倍)。上限を外して増えた sRGB の範囲外の色は、
+        // OklabToRgbInGamut が明度と色相を保って彩度だけ縮める。
 
         // ハイライト白寄せ(wash)の軸残差フェード定数 (2026-08-15 OkLab 方向分解版)。
         // 旧実装は RGB ユークリッド残差(許容 HlBandAxisEps=0.10)で一律減衰しており、作画表現として
@@ -89,7 +99,7 @@ namespace Iroca
         //   外す。推定し直しはサンプルに色相があるときだけ行う(白・灰のサンプルは色で素材を見分けられない)。
         // 1 段目で済むケース(ワンショット 57 件のすべて、固定設定 19 被写体のうち 14)は出力が変わらない。
         private const float AnchorRetrySatrFrac    = 0.25f;
-        private const float AnchorMaterialSatrFrac = 0.35f;
+        private const float AnchorMaterialSatrFrac = OklabRemapFullChromaFrac;
         private const float AnchorMaterialHueCos   = 0.70710678f;  // cos 45°
 
         // 推定し直しで「サンプルと同じ素材」に残す画素の条件(上の AnchorMaterial* を参照)。
@@ -307,7 +317,7 @@ namespace Iroca
         /// 色ごとに 1 回の走査で数え、3 つのヒストグラム(飽和度・L・帯内の chroma)は色ごとの (L, C) と
         /// 個数から作る(旧: 画素を 3 回走査)。各ビンへの加算は画素ごとに 1 ずつ足すのと同じ整数加算で、
         /// ビンの式も画素ごとの経路と同じなので、ヒストグラムと戻り値はビット単位で同じ。
-        /// 意図した変更では両経路を同時に直すこと(色の表あり・なしのパリティを直接比べるテストは無い)。
+        /// 意図した変更では両経路を同時に直すこと(色の表あり・なしの出力の一致は scripts/golden/test_palette_parity.py が確かめる)。
         /// material(推定し直し)で外す判定も色だけで決まるので、色ごとに 1 回判定して個数ごと外す。
         /// </summary>
         private static bool TryComputeRecolorAnchorByColor(
@@ -415,7 +425,9 @@ namespace Iroca
             public readonly float okMagScale, okTa, okTb;
             public readonly bool okGray;
             public readonly float okGa, okGb;
-            public readonly float okSL, okTL, okSC, okChromaMaxMag;
+            public readonly float okSL, okTL, okSC;
+            public readonly bool okSplitChroma;   // 彩度を予想できる分と残りに分けて写すか(osat·tC > sC)
+            public readonly float okInvTC;        // 1 / tC(okSplitChroma のときだけ使う)
             public readonly float valueBlend, shadowDesaturation;
             public readonly float sS, tR, tG, tB;
             public readonly float washR, washG, washB, washV;
@@ -424,14 +436,15 @@ namespace Iroca
             public readonly bool hasRegL;
             public RecolorParams(
                 float okMagScale, float okTa, float okTb, bool okGray, float okGa, float okGb,
-                float okSL, float okTL, float okSC, float okChromaMaxMag,
+                float okSL, float okTL, float okSC, bool okSplitChroma, float okInvTC,
                 float valueBlend, float shadowDesaturation, float sS, float tR, float tG, float tB,
                 float washR, float washG, float washB, float washV, bool applyHighlightWash,
                 float achromaWeight, float osat, bool hasRegL)
             {
                 this.okMagScale = okMagScale; this.okTa = okTa; this.okTb = okTb;
                 this.okGray = okGray; this.okGa = okGa; this.okGb = okGb;
-                this.okSL = okSL; this.okTL = okTL; this.okSC = okSC; this.okChromaMaxMag = okChromaMaxMag;
+                this.okSL = okSL; this.okTL = okTL; this.okSC = okSC;
+                this.okSplitChroma = okSplitChroma; this.okInvTC = okInvTC;
                 this.valueBlend = valueBlend; this.shadowDesaturation = shadowDesaturation;
                 this.sS = sS; this.tR = tR; this.tG = tG; this.tB = tB;
                 this.washR = washR; this.washG = washG; this.washB = washB; this.washV = washV;
@@ -451,7 +464,9 @@ namespace Iroca
             float okMagScale = p.okMagScale, okTa = p.okTa, okTb = p.okTb;
             bool okGray = p.okGray;
             float okGa = p.okGa, okGb = p.okGb;
-            float okSL = p.okSL, okTL = p.okTL, okSC = p.okSC, okChromaMaxMag = p.okChromaMaxMag;
+            float okSL = p.okSL, okTL = p.okTL, okSC = p.okSC;
+            bool okSplitChroma = p.okSplitChroma;
+            float okInvTC = p.okInvTC;
             float valueBlend = p.valueBlend, shadowDesaturation = p.shadowDesaturation;
             float sS = p.sS, tR = p.tR, tG = p.tG, tB = p.tB;
             float washR = p.washR, washG = p.washG, washB = p.washB, washV = p.washV;
@@ -461,8 +476,8 @@ namespace Iroca
             // L: 2区間線形リマップ (0→0, sL→tL, 1→1)。base を target 明度へ寄せる。単調維持
             //    (リング無し)・ガンマット内(クリップ無し)・白→白/黒→黒。明度を完全保持すると
             //    暗い色→黄色が brown 化するため base は target 明度に合わせる。
-            // (a,b)_new = |chroma|·(osat/sC)·(target 色相単位ベクトル) ← 大きさは元 chroma に比例、
-            //    向きは target に均一化。旧版の「色相回転保持」は、単色ロゴなどの AA 縁で元テクスチャに
+            // (a,b)_new = mag·(target の a,b) ← 大きさは元 chroma から(塗り先が元より鮮やかなら、陰影・混色で予想できる分は
+            //    比例、残りの揺れは 1 倍。ファイル先頭の「彩度の写し方」参照)、向きは target に均一化。旧版の「色相回転保持」は、単色ロゴなどの AA 縁で元テクスチャに
             //    無い色相ノイズ(輪郭だけが別色へ転ぶ)を生んだため、向きを揃えて L を保ったまま色相を
             //    均一化する。
             RgbToOklab(oRb, oGb, oBb, out float oL, out float oa, out float ob);
@@ -476,18 +491,22 @@ namespace Iroca
             }
             else
             {
-                float mag = oC * okMagScale;            // |chroma|/sC · osat
-                // chroma 増幅キャップ: tC > sC のとき output chroma = mag*tC が sC*Factor を超えないよう制限。
-                // 上限 mag はゾーン定数 okChromaMaxMag に事前算出済み(キャップ非適用時は +∞ で
-                // この比較は no-op)。旧版は per-pixel で tC=sqrt(okTa²+okTb²) と maxMag を再計算していた。
-                // キャップは **サンプル相対項(oC/sC)だけ** に掛ける。旧版は下の無彩ブレンド後に掛けて
-                // いたため、微彩度の白(例: 250,245,254 / sC≈0.01)を有彩ターゲットへ写すと上限
-                // (sC/tC)·Factor≈0.05 が uniform 彩度 osat まで潰し、出力が灰色になった(完全無彩
-                // [1,1,1] は okGray 経路で target 彩度が乗るのに、わずかに色づいた白は灰になる不連続)。
-                // キャップの目的は「oC/sC の増幅による明度コントラスト/ノイズの増幅→バンディング」の
-                // 抑制で、uniform 項(osat)は oC 非依存=増幅しないので対象外。weight=0(有彩×有彩)では
-                // 順序が変わっても同値=出力バイト不変。
-                if (mag > okChromaMaxMag) mag = okChromaMaxMag;
+                // 彩度の大きさ(ファイル先頭の「彩度の写し方」参照。mag は塗り先の (a, b) に掛ける倍率 = 出力の彩度 / tC)。
+                // 写し方は **サンプル相対項** にだけ掛け、下の無彩ブレンドの uniform 項(osat)には掛けない
+                // (uniform 項は oC に依らず、揺れを増幅しないため。以前の上限も同じ理由でここに置いていた)。
+                float mag;
+                if (!okSplitChroma)
+                {
+                    mag = oC * okMagScale;              // |chroma|/sC · osat(全体の比例)
+                }
+                else
+                {
+                    float cHat = oL <= okSL
+                        ? okSC * oL / Mathf.Max(okSL, 1e-4f)
+                        : okSC * (1f - oL) / Mathf.Max(1f - okSL, 1e-4f);
+                    // osat·tC·Ĉ/sC + (oC − Ĉ) を tC で割った値。osat·tC > sC なので oC ≥ 0 なら負にならないが、丸めに備える。
+                    mag = Mathf.Max(0f, cHat * okMagScale + (oC - cHat) * okInvTC);
+                }
                 // 無彩パス: 無彩サンプルでは oC/sC が微小彩度ノイズを増幅(脚色)。uniform target 彩度
                 // (osat, oC 非依存)へ achromaWeight でフェードし増幅を止める。weight=0 で従来式。
                 // weight=1 で mag=osat = okGray 経路(na=zTa·osat)と一致する。
@@ -564,7 +583,8 @@ namespace Iroca
                 nb *= fac;
             }
 
-            OklabToRgb(nL, na, nb, out float outR, out float outG, out float outB);
+            // sRGB の範囲を超えた色は、明度と色相を保ったまま彩度だけ縮める(OklabToRgbInGamut のコメント参照)。
+            OklabToRgbInGamut(nL, na, nb, out float outR, out float outG, out float outB);
             Color result = new Color(Mathf.Clamp01(outR), Mathf.Clamp01(outG), Mathf.Clamp01(outB), 1f);
 
             // ハイライト合成 (P5 軸射影版・residual なし / 2026-05-26):

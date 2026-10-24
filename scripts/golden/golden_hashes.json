@@ -6,7 +6,7 @@
   },
   "cases": {
     "aa_red_green_to_blue": {
-      "sha256": "9cb1b26294478a9b9df22c9d2f562ee4c47813846bf666ee09c250cde0887063",
+      "sha256": "627baf3efb93fe435ef3ff356b5c6679d7ac3d6f3f4c84eaaffbcb61ee0c7f06",
       "shape": [
         48,
         48,
@@ -14,7 +14,7 @@
       ]
     },
     "chroma_on_white_satguard": {
-      "sha256": "3440db8833a6d7c2373aac081f321864eddb41acfa9f6318738d55d81cec642d",
+      "sha256": "b8975f748b8fc5a748b4007c1174d252566bc02dce0d0f0a0f651b160aa4cb8a",
       "shape": [
         48,
         48,
@@ -22,7 +22,7 @@
       ]
     },
     "chroma_on_white_to_blue": {
-      "sha256": "3440db8833a6d7c2373aac081f321864eddb41acfa9f6318738d55d81cec642d",
+      "sha256": "b8975f748b8fc5a748b4007c1174d252566bc02dce0d0f0a0f651b160aa4cb8a",
       "shape": [
         48,
         48,
@@ -30,7 +30,7 @@
       ]
     },
     "edge_1x1": {
-      "sha256": "ecd1286ddec431e6bcd0806ee1948372ff7b330230f8c8169b8d5ddbcf61a9a4",
+      "sha256": "1ae4a64baaf5f7ca66c20a0c45bdc297f2b8932001bc447bca5489b2da31b4a3",
       "shape": [
         1,
         1,
@@ -38,7 +38,7 @@
       ]
     },
     "edge_alpha_all_transparent": {
-      "sha256": "bb53d98464e683cc2cfd62f207d817dc8e0d7da1fba0efebefa92a387989afd1",
+      "sha256": "9c94f0b0534df1b88efc57c965d7ecce9de8144426459477feec76e7746b954d",
       "shape": [
         40,
         40,
@@ -46,7 +46,7 @@
       ]
     },
     "edge_alpha_columns": {
-      "sha256": "f6469c4bde7d43145e7a8b2228c8307402ffaf84b843dc02c65ddb64176102e4",
+      "sha256": "b0ebf30c134326e30940da53c1ae93447a2b8aa6e301daac7fe16af8b9a0e872",
       "shape": [
         40,
         40,
@@ -54,7 +54,7 @@
       ]
     },
     "edge_alpha_disc_on_clear_black": {
-      "sha256": "cf7b6cabd590d0c0ae20d094bb904e5f0da139270e46a59ab57986576837e641",
+      "sha256": "5fa98c39592a26fd48972da871e017e622826284a8b750dded6004fc124d288b",
       "shape": [
         48,
         48,
@@ -62,7 +62,7 @@
       ]
     },
     "edge_col_64x1": {
-      "sha256": "376940a15ea6648a8bfebbe6fe5e93e8dfc6682fbfc620ab3c2246b1b6404af2",
+      "sha256": "d63f2d684b5e75deb380cceaad84f9545827d857b7bfbb87847b372d44f194a0",
       "shape": [
         64,
         1,
@@ -78,7 +78,7 @@
       ]
     },
     "edge_odd_23x37_highlight": {
-      "sha256": "392d8700a09b0280f6e6d5f548e8ffdae5846f98df502e273031f55097872cd1",
+      "sha256": "62318257e218d70c25ca3a707a3bf8922ec42f13551bc5d9c611031f8435ad11",
       "shape": [
         23,
         37,
@@ -86,7 +86,7 @@
       ]
     },
     "edge_row_1x64": {
-      "sha256": "2e517430c1e564eb01bda5ee832ae69bfe0133538830c219bbd7c366918de78a",
+      "sha256": "9df49292bcbeb868ca9803a525ff5ce9a67c42e1970fa2ca49814d888fbeb21a",
       "shape": [
         1,
         64,
@@ -102,7 +102,7 @@
       ]
     },
     "grad_red_to_blue_anchor": {
-      "sha256": "049b85ba13a82630029bc9431c8ab50365abf81b80f673f71c8d49eb04d4e0ba",
+      "sha256": "acfed491e6393377e9c19f0c672a6f36e92b362ed519893c979e3eedcf8cd002",
       "shape": [
         48,
         48,
@@ -110,7 +110,7 @@
       ]
     },
     "grad_red_to_green": {
-      "sha256": "144a6ff646217d6a5f986ea065e3e6a5a645e6b31304391bbe1fed6f6148340c",
+      "sha256": "bc631c4c647721afedfaa66eddc22166f78d7c297b3866fcae312983205f2281",
       "shape": [
         48,
         48,
@@ -118,7 +118,7 @@
       ]
     },
     "hl_red_to_blue_wash": {
-      "sha256": "e0f3a70a489e03f3fa332c06336d78d470f759ad8c38b3985e36027afe1b62a6",
+      "sha256": "395e14b03d0a5dd8fedee5b47b4d7c5135f34518be6d807a3ab6e22369008618",
       "shape": [
         48,
         48,
@@ -126,7 +126,7 @@
       ]
     },
     "hl_red_to_bright_yellow": {
-      "sha256": "0755b77a1a149ee641ce1bbfab164407319f68cd905859a20d32ad4d79a0b120",
+      "sha256": "95c84bb52c939fdf59e60e636b7582e917eb2092dcbe6ff76866f251461d123f",
       "shape": [
         48,
         48,
@@ -142,7 +142,7 @@
       ]
     },
     "nondefault_chromathreshold_graymode": {
-      "sha256": "afdb69863160b08743b1aeb8a6dbffa27c10a61bfa4079aebf21eaa5e8638530",
+      "sha256": "9bf7465b70090663408495493480df0edca376910bf9fffaf40f141a7b93e216",
       "shape": [
         48,
         48,
@@ -174,7 +174,7 @@
       ]
     },
     "solid_red_to_blue": {
-      "sha256": "e8c3ddf74c89ba0cd1f3cbffca05f3b4486a6723cdec352e8168800c1fd87b41",
+      "sha256": "bc7b4d7e5836049f9a331ce1aa3f4d5cdbcdcacf671f9de2bb36b40df8b8cfdc",
       "shape": [
         40,
         40,
@@ -190,7 +190,7 @@
       ]
     },
     "solid_red_to_blue_shadowdesat": {
-      "sha256": "3f062faab27619a573664d0a0775a9a459d5f51911ec10f3703b1d1eb3fab31c",
+      "sha256": "3a17e96fa121f060ae46f9290b5aab4a73e1371c6937a10ed69539e33f068081",
       "shape": [
         48,
         48,

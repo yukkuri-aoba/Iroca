@@ -123,6 +123,8 @@ namespace Iroca
         private static ColorPalette GetOrBuildPalette(Color32* pixels, int w, int h, ParallelOptions po,
             SubPhaseClock sub = null)
         {
+            // 色の表あり・なしの両経路が同じ出力になることを比べるテスト用(ハーネスの --no-palette)。
+            if (DebugCaptureHooks.DisablePalette) return null;
             ulong hash = HashPixels(pixels, w * h, po);
             lock (s_paletteCacheLock)
             {

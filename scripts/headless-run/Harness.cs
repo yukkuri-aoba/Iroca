@@ -386,6 +386,11 @@ namespace Iroca
                 && int.TryParse(threadsEnv, out int threads) && threads > 0)
                 DebugCaptureHooks.ParallelismOverride = threads;
 
+            // IROCA_NO_PALETTE=1: 色の表を作らず、全部の段を画素ごとの計算で回す(色の表あり・なしの
+            // パリティ検査用。scripts/golden/test_palette_parity.py)。設定したときだけ効く。
+            if (Environment.GetEnvironmentVariable("IROCA_NO_PALETTE") == "1")
+                DebugCaptureHooks.DisablePalette = true;
+
             // --batch <json>: 同一入力・複数ゾーン設定をまとめて処理する(テスト実行の高速化)。
             if (args.Length >= 2 && args[0] == "--batch")
                 return RunBatch(args[1]);

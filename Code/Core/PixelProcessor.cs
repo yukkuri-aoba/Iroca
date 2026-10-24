@@ -67,16 +67,16 @@ namespace Iroca
         private const int SpAlloc = 0, SpMatchLoop = 1, SpChromaCeiling = 2, SpEnclosedNeutral = 3,
             SpHlPropagate = 4, SpHlBand = 5, SpHlEnclosed = 6, SpFfComponents = 7, SpFfKeepBits = 8,
             SpPostBBox = 9, SpHoleFillGate = 10, SpHoleFill = 11, SpBoundary = 12, SpBlurReapply = 13,
-            SpSelCacheStore = 14, SpRejectNeutral = 15, SpSolidify = 16, SpDecontamExcl = 17,
-            SpDecontam = 18, SpWashSample = 19, SpAnchor = 20, SpRegionLRange = 21, SpMedianLMap = 22,
-            SpRecolorBBox = 23, SpRecolorLoop = 24, SpAchromaFringe = 25, SpPaletteHash = 26,
-            SpPaletteIds = 27, SpPaletteRemap = 28, SpMixBand = 29, SubPhaseCount = 30;
+            SpSelCacheStore = 14, SpSolidify = 15, SpDecontamExcl = 16,
+            SpDecontam = 17, SpWashSample = 18, SpAnchor = 19, SpRegionLRange = 20, SpMedianLMap = 21,
+            SpRecolorBBox = 22, SpRecolorLoop = 23, SpAchromaFringe = 24, SpPaletteHash = 25,
+            SpPaletteIds = 26, SpPaletteRemap = 27, SpMixBand = 28, SubPhaseCount = 29;
         private static readonly string[] s_perfSubPhaseNames =
         {
             "Alloc", "MatchLoop", "ChromaCeiling", "EnclosedNeutral",
             "HlPropagate", "HlBand", "HlEnclosed", "FfComponents", "FfKeepBits",
             "PostBBox", "HoleFillGate", "HoleFill", "Boundary", "BlurReapply",
-            "SelCacheStore", "RejectNeutral", "Solidify", "DecontamExcl",
+            "SelCacheStore", "Solidify", "DecontamExcl",
             "Decontam", "WashSample", "Anchor", "RegionLRange", "MedianLMap",
             "RecolorBBox", "RecolorLoop", "AchromaFringe", "PaletteHash", "PaletteIds", "PaletteRemap",
             "MixBand",
@@ -447,7 +447,7 @@ namespace Iroca
                 // 作業配列の借用は per-zone の try/finally で必ず返却する。
                 // Parallel.For は po.CancellationToken でキャンセル時に OperationCanceledException を投げる。
                 // 後段ヘルパー(Decontaminate/CleanAchromaFringe/GaussianBlur/FillSmallHoles/RecoverBoundaryEdges
-                // /RejectNeutral/Solidify/GrowHighlightBand)にも cancellationToken を渡しており、内部 Parallel.For も
+                // /Solidify/GrowHighlightBand)にも cancellationToken を渡しており、内部 Parallel.For も
                 // 同様にキャンセル例外を伝播するため、例外経路でもプールが汚染されないよう finally でガードする。
                 float* strength = null;
                 float* highlightPot = null;
@@ -810,9 +810,10 @@ namespace Iroca
                     // chromaConfidence と sample RGB。低彩度サンプル(白/灰)で同色相の高彩度色を弾き、
                     // 境界回復が無関係な色を周囲へスピルさせる(対象の縁に別色のハローが出る)のを防ぐ。
                     // 有彩は cc≈1 で従来式。
+                    // 式は ColorZone.BuildSampleCache の chromaConfidence と同じ(定数も共有する)。
                     float relaxedChromaConf = Mathf.Min(
-                        Mathf.Clamp01((sampS - zone.chromaThreshold) / 0.10f),
-                        Mathf.Clamp01((sampV - 0.05f) / 0.15f));
+                        Mathf.Clamp01((sampS - zone.chromaThreshold) / ColorZone.ChromaConfidenceSpan),
+                        Mathf.Clamp01((sampV - ColorZone.HueValueConfLo) / ColorZone.HueValueConfSpan));
                     float rgSampR = zone.sampleColor.r, rgSampG = zone.sampleColor.g, rgSampB = zone.sampleColor.b;
                     // 緩和マッチ(穴埋めの許可判定と境界回復が同じ引数で呼ぶ)は色だけで決まるので、
                     // 色の表があれば色ごとに 1 回だけ求めて両方で使う(ビット単位で同じ)。
@@ -944,7 +945,7 @@ namespace Iroca
                     _phaseTicks[PhBlur] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
                     // 選択フェーズ(Match〜ブラー)完了。ここが「生の選択」の境界で、この後はマスクを掛け、
-                    // RejectNeutral/SolidifyAchromaInterior/decontam が target 依存で strength を破壊的に
+                    // SolidifyAchromaInterior/decontam が target 依存で strength を破壊的に
                     // 書き換える。ミス時のみ、この時点の strength(コピー)+ FF keep + bbox を選択キャッシュへ保存し、
                     // 次回「再着色のみ変更」した再生成で復元して選択フェーズを丸ごと省く(出力ビット不変)。
                     // マスクを掛ける前を保存するので、ヒット時も下でマスクを掛ける。
@@ -981,28 +982,6 @@ namespace Iroca
                     // 無彩サンプル/極端無彩ターゲットの重み(無彩パスと AA フィデリティ修正で共用)。
                     float zAchromaWeight = ComputeAchromaWeight(zone.sampleColor, zone.targetColor);
 
-                    // 有彩サンプル→無彩ターゲット(有彩色→白/黒/灰)の過選択除去。有彩サンプルはマッチ距離が
-                    // hue 支配になり彩度差を過小評価するため、明るい中性画素(白UV背景等)を巻き込む
-                    // (特に暖色サンプルで顕著。無彩画素の hue は 0 に丸められ暖色と同色相に見えるため)。
-                    // 巻き込みで領域が明るい背景に支配されると後段の成分中央値Lが上がり、本体(中L)が形維持
-                    // リマップで黒へ落ちる(黒化)。マッチ全段(穴埋め/境界回復)の後・内部固め/成分統計の前に、
-                    // サンプル彩度の相対床を下回る中性画素を strength から除去する(高彩度コア近傍は保護)。
-                    // 発動判定は **明度非依存** の ComputeAchromaSelectWeight を使う(灰色=中明度の無彩でも
-                    // 発動させる。ComputeAchromaWeight の extremeness では中明度グレーで重みが落ち白背景が
-                    // 灰色化する)。有彩→有彩(weight≈0)・低彩度サンプル(sS<床)では作動しない=従来挙動を完全維持。
-                    float zAchromaSelectWeight = ComputeAchromaSelectWeight(zone.sampleColor, zone.targetColor);
-                    if (zAchromaSelectWeight > AchromaNeutralRejectWeightMin && sampS >= NeutralRejectActiveSourceSat)
-                    {
-                        RejectNeutralForAchromaTarget(strength, hsv, w, h, sampS, cancellationToken);
-                        // 含める画素の再主張: 中性リジェクトは target 依存で strength を破壊的に
-                        // 書き換え、ユーザーが明示的に含めた画素(例: 白ツヤ)まで落とし得る。
-                        // 「含める」は明示指示なのでヒューリスティックより優先する。
-                        // 本段は選択キャッシュのヒット経路でも毎回走るため、selCached と無関係に適用する。
-                        if (includedPx != null)
-                            ForceIncluded(strength, includedPx, w, h, po);
-                    }
-
-                    _sub.Mark(SpRejectNeutral);
                     // 無彩パスの内部固め: 極端な無彩ターゲット(白↔黒)では、マッチ強度が色のばらつきで内部まで
                     // フルにならず、明るい画素ほど弱く塗られて元色が残り「中央の段差」になる。陰影は塗り
                     // 強度でなく recolor の achroma レンジリマップ(gain≤1)で表現すべきなので、マッチ領域の
@@ -1162,16 +1141,19 @@ namespace Iroca
                         // na = |chroma| * (osat/sC) * zTa, nb = 同 zTb。oC=sC(sample) で (zTa,zTb)=target に一致。
                         zOkMagScale = zOsat / zSC;
                     }
-                    // ChromaAmpMaxFactor キャップの上限 mag をゾーン定数として 1 回だけ算出する。
-                    // 旧版は RecolorPixel 内で画素ごとに tC=sqrt(zTa²+zTb²) と maxMag=(zSC/tC)·Factor を
-                    // 再計算していたが、zTa/zTb/zSC はゾーン不変なので per-pixel で常に同値=冗長だった。
-                    // ホットな再着色ループから sqrt+除算を除去する(出力はビット不変)。キャップ非適用
-                    // (Factor<=0 または target が無彩で tC≈0)のときは +∞ にして per-pixel の比較を no-op 化。
-                    float zOkChromaMaxMag = float.PositiveInfinity;
-                    if (ChromaAmpMaxFactor > 0f)
+                    // 彩度の写し方(PixelProcessor.Recolor.cs の「彩度の写し方」参照)。塗り先が元より鮮やか(osat·tC > sC)なときだけ、
+                    // 彩度を陰影・混色で予想できる分と残りに分けて写す。ゾーン不変なのでここで 1 回だけ決める。サンプルが無彩
+                    // (okGray)・塗り先が無彩(tC≈0)なら全体の比例のまま。
+                    bool zOkSplitChroma = false;
+                    float zOkInvTC = 0f;
+                    if (!zOkGray)
                     {
                         float zTC = Mathf.Sqrt(zTa * zTa + zTb * zTb);
-                        if (zTC > 1e-4f) zOkChromaMaxMag = (zSC / zTC) * ChromaAmpMaxFactor;
+                        if (zTC > 1e-4f && zTC * zOsat > zSC)
+                        {
+                            zOkSplitChroma = true;
+                            zOkInvTC = 1f / zTC;
+                        }
                     }
 
                     // 無彩パスの領域 L 中央値を事前計算(zAchromaWeight は上で算出済み)。
@@ -1210,7 +1192,7 @@ namespace Iroca
                             if (zHasRegL)
                             {
                                 // 地図はプールから借りる(ゾーンの終わりに返す)。キャッシュへ渡すとき(下)は管理配列へ写す。
-                                zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, 0.05f, out zRegUpMap, cancellationToken,
+                                zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, ColorZone.MatchStrengthFloor, out zRegUpMap, cancellationToken,
                                     palette);
                                 regMidMapRented = zRegMidMap; regUpMapRented = zRegUpMap;
                             }
@@ -1255,7 +1237,7 @@ namespace Iroca
                     // ゾーン不変の再着色パラメータをループ前に 1 回だけ構築(in 渡しで per-pixel コピー回避)。
                     var rcParams = new RecolorParams(
                         zOkMagScale, zTa, zTb, zOkGray, zOkGa, zOkGb,
-                        zSL, zTL, zSC, zOkChromaMaxMag, zValueBlend, zEffShadowDesat,
+                        zSL, zTL, zSC, zOkSplitChroma, zOkInvTC, zValueBlend, zEffShadowDesat,
                         sampS, zTR, zTG, zTB, zWR, zWG, zWB, zWV,
                         zApplyWash, zAchromaWeight, zOsat, zHasRegL);
                     // 混色帯(選択境界の AA・にじみ)の解析。境界クリーンアップ ON かつ有彩サンプルのゾーンでは、
