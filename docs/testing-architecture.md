@@ -292,6 +292,12 @@ golden は `IROCA_GOLDEN_TOLERANT=1` でハッシュ不一致を `scripts/golden
 `test_event_subscription_symmetry` / `test_zone_cache_invalidation` など）は資産を使わないので
 dev_safe から `scripts/source_checks/` へ移した。資産を要らない検査はこちらに置くこと。
 
+`test_algorithm_constants`（2026-10-24〜）は、出力に効くファイル（`ColorZone*`・`PixelProcessor*`・`ZoneAutoTuner*`・
+`HighlightSampleCorrector`・`UvChartMap`・`Code/MaskSuggest/Ops`）の名前付き数値定数を、定数の台帳
+`docs/algorithm-constants.md`（種類・段・根拠）と突き合わせる。定数を足した・値を変えた・消したとき、名前の無い小数の
+リテラルの数がファイルごとの記録と違うときに落ちる。手元の被写体で選んだ値（実測）と由来の記録が無い値（不明）を
+区別しておき、減らす候補と、新しい被写体で外れたときに疑う先にするため。
+
 - マーカー: `perf`（性能計測・品質検査なし）/ `slow`（メモリ・時間コスト大）/ `mesh_assisted`（メッシュの UV チャートから
   作った除外マスクを足した選択。メッシュが見つかったときの任意機能で、`test_uv_chart_map` の一部）。
   マーカー登録とルート rootdir はリポジトリルートの `pytest.ini` が持つ。
