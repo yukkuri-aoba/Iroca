@@ -1158,6 +1158,62 @@ namespace Iroca
             : "Shows the original texture while the button is held (release it to return to the result).\nAt high zoom the original is shown at preview resolution.";
 
         // ─────────────────────────────────────────────────────────────
+        // マテリアルの色の設定（メインカラー・色調補正・重ね描きなど）とアバター上の色
+        // ─────────────────────────────────────────────────────────────
+        public static string AppearanceMode => IsJapanese ? "アバターの色" : "On avatar";
+        public static string AppearanceModeTooltip => IsJapanese
+            ? "マテリアルの色の設定（メインカラー・色調補正・重ね描きなど）を掛けた、アバター上の色で表示します。光や影は入りません。\nオフにするとテクスチャそのものの色で表示します。表示だけの切り替えで、色替えの結果は変わりません。\nスポイトで拾う色と変更先カラーは、どちらの表示でもテクスチャの色です。"
+            : "Shows the colors as they appear on the avatar, with the material's color settings (Main Color, color adjustment, layers, etc.) applied. Lighting and shadows are not included.\nTurn it off to show the texture's own colors. This only changes the display, not the recolor result.\nThe eyedropper and the target color always use the texture's colors.";
+
+        // {0} = マテリアル名、{1} = シェーダー名、{2} = 見つけた設定の並び(MaterialColorTint など)。
+        public static string MaterialColorNoticeFormat => IsJapanese
+            ? "マテリアル「{0}」（{1}）の色の設定で、アバター上の色はテクスチャと違って見えます: {2}。"
+            : "The color settings of material \"{0}\" ({1}) make the colors on the avatar differ from the texture: {2}.";
+        // 重ね描きの層として使われているとき。{0} = マテリアル名、{1} = 層の名前(MaterialColorLayer2nd など)。
+        public static string MaterialColorLayerNoticeFormat => IsJapanese
+            ? "このテクスチャはマテリアル「{0}」の{1}として、メインテクスチャの上に重ねて描かれます。"
+            : "This texture is drawn over the main texture as the {1} of material \"{0}\".";
+        public static string MaterialColorShownInPreview => IsJapanese
+            ? "プレビューはこれを掛けた色で表示しています（「アバターの色」で切り替えられます）。"
+            : "The preview shows the colors with these applied (toggle with \"On avatar\").";
+        public static string MaterialColorShownInPreviewLayer => IsJapanese
+            ? "プレビューはこの層の色を掛けた色で表示しています（下のメインテクスチャは入っていません）。"
+            : "The preview shows the colors with this layer's color applied (the main texture underneath is not included).";
+        public static string MaterialColorPreviewOff => IsJapanese
+            ? "「アバターの色」を押すと、これを掛けた色でプレビューできます。"
+            : "Press \"On avatar\" to preview the colors with these applied.";
+        // {0} = プレビューに入っていない設定の並び。
+        public static string MaterialColorNotPreviewedFormat => IsJapanese
+            ? "{0}はプレビューに入っていません。シーンのアバターで確かめてください。"
+            : "{0} not included in the preview. Check the avatar in the Scene view.";
+        public static string MaterialColorGradationFull => IsJapanese
+            ? "グラデーションマップの強さが 1 なので、色相を変えても見た目にはほとんど出ません。"
+            : "The Gradation Map strength is 1, so hue changes barely show on the avatar.";
+        // {0} = メインカラーの明るさ（%）。
+        public static string MaterialColorDarkTintFormat => IsJapanese
+            ? "メインカラーが暗め（{0}%）なので、明るい色にしても {0}% ほどの明るさまでにしかなりません。"
+            : "The Main Color is dark ({0}%), so even bright colors only reach about {0}% brightness.";
+        public static string MaterialColorChoice => IsJapanese ? "表示に使うマテリアル" : "Material for preview";
+        public static string MaterialColorChoiceTooltip => IsJapanese
+            ? "このテクスチャを使うマテリアルで色の設定が違います。プレビューに使うものを選びます（色替えの結果は変わりません）。"
+            : "Materials using this texture have different color settings. Choose the one used for the preview (the recolor result does not change).";
+        // {0} = 最初のマテリアル名、{1} = ほかの数。
+        public static string MaterialColorChoiceManyFormat => IsJapanese ? "{0} ほか {1} 個" : "{0} and {1} more";
+        public static string MaterialColorDismissTooltip => IsJapanese
+            ? "このテクスチャではこの案内を表示しません（プレビューの切り替えは「アバターの色」でできます）。次に Unity を開いたときにまた出ます。"
+            : "Hide this notice for this texture (you can still toggle the preview with \"On avatar\"). It comes back the next time you open Unity.";
+        public static string MaterialColorTint => IsJapanese ? "メインカラー" : "Main Color";
+        public static string MaterialColorToneCorrection => IsJapanese ? "色調補正" : "color adjustment (HSVG)";
+        public static string MaterialColorGradation => IsJapanese ? "グラデーションマップ" : "Gradation Map";
+        public static string MaterialColorLayer2nd => IsJapanese ? "メインカラー2nd" : "Main Color 2nd";
+        public static string MaterialColorLayer3rd => IsJapanese ? "メインカラー3rd" : "Main Color 3rd";
+        public static string MaterialColorLayerOtherUv => IsJapanese ? "UV0 以外で重ねる 2nd / 3rd" : "2nd / 3rd layers on another UV";
+        public static string MaterialColorPoiColorAdjust => IsJapanese ? "Color Adjust" : "Color Adjust";
+        public static string MaterialColorPoiDecal => IsJapanese ? "デカール" : "Decals";
+        public static string MaterialColorPoiRgbMask => IsJapanese ? "RGBA Color Masking" : "RGBA Color Masking";
+        public static string MaterialColorListSeparator => IsJapanese ? "・" : ", ";
+
+        // ─────────────────────────────────────────────────────────────
         // ゾーンのソロ表示
         // ─────────────────────────────────────────────────────────────
         public static string ZoneSolo => IsJapanese ? "ソロ" : "Solo";

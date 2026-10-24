@@ -713,6 +713,8 @@ namespace Iroca
             }
 
             DrawLargeSourceNotice();
+            // マテリアルの色の設定(メインカラー・色調補正・重ね描きなど)で、アバター上の色がテクスチャと違うとき。
+            DrawMaterialColorNotice();
 
             // 次の一手。HelpBox でなく miniLabel なのは、常設の帯がプレビュー列の
             // 高さを恒常的に奪わないようにするため。手順が済めば消える。
