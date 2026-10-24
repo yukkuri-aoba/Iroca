@@ -535,7 +535,7 @@ namespace Iroca
 
             float satCeil = ColorZone.EffectiveChromaCeiling(sS, chromaCeiling);
 
-            const float matchThr = ColorZone.MatchStrengthFloor;  // コア判定の strength 床(NeutralReject と同じ)
+            const float matchThr = ColorZone.MatchStrengthFloor;  // コア判定の strength 床(SolidifyAchromaInterior と同じ)
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
 
             // bbox 限定(出力ビット不変): 除去が起こり得るのは strength>0 の画素だけなので

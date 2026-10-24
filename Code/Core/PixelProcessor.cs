@@ -447,7 +447,7 @@ namespace Iroca
                 // 作業配列の借用は per-zone の try/finally で必ず返却する。
                 // Parallel.For は po.CancellationToken でキャンセル時に OperationCanceledException を投げる。
                 // 後段ヘルパー(Decontaminate/CleanAchromaFringe/GaussianBlur/FillSmallHoles/RecoverBoundaryEdges
-                // /RejectNeutral/Solidify/GrowHighlightBand)にも cancellationToken を渡しており、内部 Parallel.For も
+                // /Solidify/GrowHighlightBand)にも cancellationToken を渡しており、内部 Parallel.For も
                 // 同様にキャンセル例外を伝播するため、例外経路でもプールが汚染されないよう finally でガードする。
                 float* strength = null;
                 float* highlightPot = null;
@@ -945,7 +945,7 @@ namespace Iroca
                     _phaseTicks[PhBlur] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
                     // 選択フェーズ(Match〜ブラー)完了。ここが「生の選択」の境界で、この後はマスクを掛け、
-                    // RejectNeutral/SolidifyAchromaInterior/decontam が target 依存で strength を破壊的に
+                    // SolidifyAchromaInterior/decontam が target 依存で strength を破壊的に
                     // 書き換える。ミス時のみ、この時点の strength(コピー)+ FF keep + bbox を選択キャッシュへ保存し、
                     // 次回「再着色のみ変更」した再生成で復元して選択フェーズを丸ごと省く(出力ビット不変)。
                     // マスクを掛ける前を保存するので、ヒット時も下でマスクを掛ける。
@@ -981,27 +981,6 @@ namespace Iroca
 
                     // 無彩サンプル/極端無彩ターゲットの重み(無彩パスと AA フィデリティ修正で共用)。
                     float zAchromaWeight = ComputeAchromaWeight(zone.sampleColor, zone.targetColor);
-
-                    // 有彩サンプル→無彩ターゲット(有彩色→白/黒/灰)の過選択除去。有彩サンプルはマッチ距離が
-                    // hue 支配になり彩度差を過小評価するため、明るい中性画素(白UV背景等)を巻き込む
-                    // (特に暖色サンプルで顕著。無彩画素の hue は 0 に丸められ暖色と同色相に見えるため)。
-                    // 巻き込みで領域が明るい背景に支配されると後段の成分中央値Lが上がり、本体(中L)が形維持
-                    // リマップで黒へ落ちる(黒化)。マッチ全段(穴埋め/境界回復)の後・内部固め/成分統計の前に、
-                    // サンプル彩度の相対床を下回る中性画素を strength から除去する(高彩度コア近傍は保護)。
-                    // 発動判定は **明度非依存** の ComputeAchromaSelectWeight を使う(灰色=中明度の無彩でも
-                    // 発動させる。ComputeAchromaWeight の extremeness では中明度グレーで重みが落ち白背景が
-                    // 灰色化する)。有彩→有彩(weight≈0)・低彩度サンプル(sS<床)では作動しない=従来挙動を完全維持。
-                    float zAchromaSelectWeight = ComputeAchromaSelectWeight(zone.sampleColor, zone.targetColor);
-                    if (zAchromaSelectWeight > AchromaNeutralRejectWeightMin && sampS >= NeutralRejectActiveSourceSat)
-                    {
-                        RejectNeutralForAchromaTarget(strength, hsv, w, h, sampS, cancellationToken);
-                        // 含める画素の再主張: 中性リジェクトは target 依存で strength を破壊的に
-                        // 書き換え、ユーザーが明示的に含めた画素(例: 白ツヤ)まで落とし得る。
-                        // 「含める」は明示指示なのでヒューリスティックより優先する。
-                        // 本段は選択キャッシュのヒット経路でも毎回走るため、selCached と無関係に適用する。
-                        if (includedPx != null)
-                            ForceIncluded(strength, includedPx, w, h, po);
-                    }
 
                     _sub.Mark(SpRejectNeutral);
                     // 無彩パスの内部固め: 極端な無彩ターゲット(白↔黒)では、マッチ強度が色のばらつきで内部まで

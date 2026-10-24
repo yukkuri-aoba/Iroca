@@ -185,12 +185,6 @@
 | `AchromaRefPercentile` | `0.80f` | 実測 | — | 成分の地色基準の L 分位。中央値では暗い縁が混ざり模様ごとにばらつき、P80 で std 0.074→0.024 |
 | `AchromaHeadroomPercentile` | `0.90f` | 実測 | — | 白側の余白を測る明部の分位。P95 では細い文字の縁が入り余白が残ったと実測 |
 | `AchromaRegionCoreThr` | `0.5f` | 不明 | — | 領域の L 中央値に使う strength の下限。選んだ記録なし |
-| `AchromaNeutralRejectWeightMin` | `0.5f` | 設計 | RN | 中性の除去を動かす無彩重みの下限（重みの半分）。呼び出し側の発動条件だけで使う |
-| `NeutralRejectActiveSourceSat` | `0.40f` | 設計 | RN | 有彩サンプルとみなす HSV 彩度。照合の彩度ガードの作動境 0.40 を流用 |
-| `NeutralRejectFloorFrac` | `0.07f` | 実測 | RN | 中性とみなす相対彩度の床。模様上の淡い色が残るのを見て 0.30→0.10→0.07 と下げた |
-| `NeutralRejectRampFrac` | `0.5f` | 設計 | RN | 床の手前のフェード開始（床の半分）。二値の斑を消すための連続化 |
-| `NeutralRejectProtectRadius` | `2` | 不明 | RN | 高彩度コアの周りを保護する距離（AA 縁の幅）。選んだ記録なし |
-| `matchThr` | `ColorZone.MatchStrengthFloor` | 設計 | RN | 選択済みとみなす strength の床 0.05 の共有定数の別名 |
 | `matchThr` | `ColorZone.MatchStrengthFloor` | 設計 | SA | 同上（内部固め側の別名） |
 | `ClearChunk` | `1 << 18` | 計算 | — | 地図のゼロ埋めを並列に分ける塊。出力に効かない |
 
