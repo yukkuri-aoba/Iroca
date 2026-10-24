@@ -328,10 +328,10 @@
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
 | `Ph*` | 11 個 | 計算 | — | 処理時間の計測の段の番号（PhaseCount を含む）。値は計測の表の位置だけ |
-| `Sp*` | 30 個 | 計算 | — | 処理時間の計測の小段の番号。値は計測の表の位置だけ |
+| `Sp*` | 29 個 | 計算 | — | 処理時間の計測の小段の番号。値は計測の表の位置だけ |
 | `s_defaultParallelism` | `ComputeDefaultParallelism(Environment.ProcessorCount)` | 計算 | — | 既定の並列数（コア数から決める。出力は並列数によらない） |
 | `OpaqueAlphaMin` | `128` | 設計 | — | α の中点（0.5）以上を不透明とみなす仕様の境目 |
-| `SubPhaseCount` | `30` | 計算 | — | 計測の小段の数（Sp* の数） |
+| `SubPhaseCount` | `29` | 計算 | — | 計測の小段の数（Sp* の数） |
 | `DecontaminationInteriorThreshold` | `0.97f` | 不明 | — | デコンタミが α 分解しない「内部」の strength 下限。導入時から記録なし |
 | `GaussianRadiusPerSigma` | `2.5f` | 近似 | — | ガウス核の打ち切り半径（σ の 2.5 倍、裾の質量は約 1%） |
 | `EdgeFeatherBlurMin` | `0.01f` | 量子化 | — | これ以下の σ では核がほぼ単位元になるので、ぼかし 0 とみなす境目 |

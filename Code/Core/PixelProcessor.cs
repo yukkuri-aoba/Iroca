@@ -67,16 +67,16 @@ namespace Iroca
         private const int SpAlloc = 0, SpMatchLoop = 1, SpChromaCeiling = 2, SpEnclosedNeutral = 3,
             SpHlPropagate = 4, SpHlBand = 5, SpHlEnclosed = 6, SpFfComponents = 7, SpFfKeepBits = 8,
             SpPostBBox = 9, SpHoleFillGate = 10, SpHoleFill = 11, SpBoundary = 12, SpBlurReapply = 13,
-            SpSelCacheStore = 14, SpRejectNeutral = 15, SpSolidify = 16, SpDecontamExcl = 17,
-            SpDecontam = 18, SpWashSample = 19, SpAnchor = 20, SpRegionLRange = 21, SpMedianLMap = 22,
-            SpRecolorBBox = 23, SpRecolorLoop = 24, SpAchromaFringe = 25, SpPaletteHash = 26,
-            SpPaletteIds = 27, SpPaletteRemap = 28, SpMixBand = 29, SubPhaseCount = 30;
+            SpSelCacheStore = 14, SpSolidify = 15, SpDecontamExcl = 16,
+            SpDecontam = 17, SpWashSample = 18, SpAnchor = 19, SpRegionLRange = 20, SpMedianLMap = 21,
+            SpRecolorBBox = 22, SpRecolorLoop = 23, SpAchromaFringe = 24, SpPaletteHash = 25,
+            SpPaletteIds = 26, SpPaletteRemap = 27, SpMixBand = 28, SubPhaseCount = 29;
         private static readonly string[] s_perfSubPhaseNames =
         {
             "Alloc", "MatchLoop", "ChromaCeiling", "EnclosedNeutral",
             "HlPropagate", "HlBand", "HlEnclosed", "FfComponents", "FfKeepBits",
             "PostBBox", "HoleFillGate", "HoleFill", "Boundary", "BlurReapply",
-            "SelCacheStore", "RejectNeutral", "Solidify", "DecontamExcl",
+            "SelCacheStore", "Solidify", "DecontamExcl",
             "Decontam", "WashSample", "Anchor", "RegionLRange", "MedianLMap",
             "RecolorBBox", "RecolorLoop", "AchromaFringe", "PaletteHash", "PaletteIds", "PaletteRemap",
             "MixBand",
@@ -982,7 +982,6 @@ namespace Iroca
                     // 無彩サンプル/極端無彩ターゲットの重み(無彩パスと AA フィデリティ修正で共用)。
                     float zAchromaWeight = ComputeAchromaWeight(zone.sampleColor, zone.targetColor);
 
-                    _sub.Mark(SpRejectNeutral);
                     // 無彩パスの内部固め: 極端な無彩ターゲット(白↔黒)では、マッチ強度が色のばらつきで内部まで
                     // フルにならず、明るい画素ほど弱く塗られて元色が残り「中央の段差」になる。陰影は塗り
                     // 強度でなく recolor の achroma レンジリマップ(gain≤1)で表現すべきなので、マッチ領域の
