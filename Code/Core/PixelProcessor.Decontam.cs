@@ -432,9 +432,9 @@ namespace Iroca
             {
                 satM = s_intPool.Rent(fw * fh);
                 var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-                // マッチ指標(strength > 0.05)の累積和。近傍の窓(±AchromaFringeMatchRadius)は F の内側か、
+                // マッチ指標(strength > MatchStrengthFloor)の累積和。近傍の窓(±AchromaFringeMatchRadius)は F の内側か、
                 // F と同じく画像の端で切られる(F = 矩形 ± 背景の窓の半径 ⊇ 矩形 ± マッチの窓の半径)。
-                BuildCountSat(strength, satM, w, fx0, fy0, fx1, fy1, po, 0.05f);
+                BuildCountSat(strength, satM, w, fx0, fy0, fx1, fy1, po, ColorZone.MatchStrengthFloor);
                 var satML = satM;
                 Parallel.For(y0, y1 + 1, po, y =>
                 {

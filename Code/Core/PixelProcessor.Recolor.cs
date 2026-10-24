@@ -99,7 +99,7 @@ namespace Iroca
         //   外す。推定し直しはサンプルに色相があるときだけ行う(白・灰のサンプルは色で素材を見分けられない)。
         // 1 段目で済むケース(ワンショット 57 件のすべて、固定設定 19 被写体のうち 14)は出力が変わらない。
         private const float AnchorRetrySatrFrac    = 0.25f;
-        private const float AnchorMaterialSatrFrac = 0.35f;
+        private const float AnchorMaterialSatrFrac = OklabRemapFullChromaFrac;
         private const float AnchorMaterialHueCos   = 0.70710678f;  // cos 45°
 
         // 推定し直しで「サンプルと同じ素材」に残す画素の条件(上の AnchorMaterial* を参照)。

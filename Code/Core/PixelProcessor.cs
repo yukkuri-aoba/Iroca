@@ -810,9 +810,10 @@ namespace Iroca
                     // chromaConfidence と sample RGB。低彩度サンプル(白/灰)で同色相の高彩度色を弾き、
                     // 境界回復が無関係な色を周囲へスピルさせる(対象の縁に別色のハローが出る)のを防ぐ。
                     // 有彩は cc≈1 で従来式。
+                    // 式は ColorZone.BuildSampleCache の chromaConfidence と同じ(定数も共有する)。
                     float relaxedChromaConf = Mathf.Min(
-                        Mathf.Clamp01((sampS - zone.chromaThreshold) / 0.10f),
-                        Mathf.Clamp01((sampV - 0.05f) / 0.15f));
+                        Mathf.Clamp01((sampS - zone.chromaThreshold) / ColorZone.ChromaConfidenceSpan),
+                        Mathf.Clamp01((sampV - ColorZone.HueValueConfLo) / ColorZone.HueValueConfSpan));
                     float rgSampR = zone.sampleColor.r, rgSampG = zone.sampleColor.g, rgSampB = zone.sampleColor.b;
                     // 緩和マッチ(穴埋めの許可判定と境界回復が同じ引数で呼ぶ)は色だけで決まるので、
                     // 色の表があれば色ごとに 1 回だけ求めて両方で使う(ビット単位で同じ)。
@@ -1213,7 +1214,7 @@ namespace Iroca
                             if (zHasRegL)
                             {
                                 // 地図はプールから借りる(ゾーンの終わりに返す)。キャッシュへ渡すとき(下)は管理配列へ写す。
-                                zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, 0.05f, out zRegUpMap, cancellationToken,
+                                zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, ColorZone.MatchStrengthFloor, out zRegUpMap, cancellationToken,
                                     palette);
                                 regMidMapRented = zRegMidMap; regUpMapRented = zRegUpMap;
                             }

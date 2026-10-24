@@ -767,7 +767,7 @@ namespace Iroca
                 int x = Mathf.Clamp((int)(uv.x * w), 0, w - 1);
                 int y = Mathf.Clamp((int)(uv.y * h), 0, h - 1);
                 var p = work[y * w + x];
-                if (p.a < 128) return $"change '{c.name}': 'at' points at a transparent pixel.";
+                if (p.a < PixelProcessor.OpaqueAlphaMin) return $"change '{c.name}': 'at' points at a transparent pixel.";
                 from = new Color(p.r / 255f, p.g / 255f, p.b / 255f, 1f);
             }
             else if (!string.IsNullOrWhiteSpace(c.from) && ColorUtility.TryParseHtmlString(c.from.Trim(), out from))

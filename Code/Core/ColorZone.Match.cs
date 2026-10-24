@@ -104,7 +104,7 @@ namespace Iroca
             float currentChromaHi = chromaThreshold + ChromaConfidenceSpan;
             float baseChromaConf = Mathf.Clamp01((sc.sS - chromaThreshold) / ((currentChromaHi) - chromaThreshold));
             // 暗すぎる色（黒）は彩度データが高くても色相（Hue）の計算がノイズで暴れるため信用しない
-            float valueConf = Mathf.Clamp01((sc.sV - 0.05f) / 0.15f); // Vが0.05(非常に暗い)〜0.20の範囲で減衰
+            float valueConf = Mathf.Clamp01((sc.sV - HueValueConfLo) / HueValueConfSpan); // Vが0.05(非常に暗い)〜0.20の範囲で減衰
             sc.chromaConfidence = Mathf.Min(baseChromaConf, valueConf);
 
             // ── ホットループから追い出したサンプル定数(式・演算順は MatchOneSample と同一) ──
@@ -415,7 +415,7 @@ namespace Iroca
 
             // ハイライト（明部）の距離許容: 上のシャドウ許容の対称形。
             // サンプルより明るく同色相なら、低彩度化したハイライト芯でも同素材として
-            // 距離を免除する。免除上限はシャドウ側と同じ 0.3f（最大70%）で対称。
+            // 距離を免除する。免除の上限は BrightDistanceForgivenessMin（最大 70% 短縮。廃止したシャドウ側と同じ値）。
             if (brightActive)
                 finalDist *= Mathf.Lerp(1f, BrightDistanceForgivenessMin, brightForgiveness);
 

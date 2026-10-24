@@ -132,6 +132,11 @@ namespace Iroca
         // internal: PixelProcessor.RecoverEnclosedHighlight が「色相が完全に信用できる彩度」
         // (chromaThreshold+この値)を彩度床に使う。
         internal const float ChromaConfidenceSpan = 0.10f;
+        // 暗すぎる色(黒)は色相がノイズで暴れるので信用しない。サンプルの明度がこの値から +HueValueConfSpan までの
+        // 間で chromaConfidence を 0→1 に立ち上げる。internal: 緩和マッチ(PixelProcessor の relaxedChromaConf)が
+        // 主経路と同じ式を使うため。
+        internal const float HueValueConfLo = 0.05f;
+        internal const float HueValueConfSpan = 0.15f;
         // シャドウ/ハイライト免除ランプの幅(利用可能レンジ比)。免除が 0→1 へ立ち上がる区間長。
         // シャドウは sV×この値、ハイライトは (1-sV)×この値。
         private const float ForgivenessRangeFrac = 0.6f;

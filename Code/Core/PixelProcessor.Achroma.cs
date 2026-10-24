@@ -60,7 +60,7 @@ namespace Iroca
         // 有彩サンプルはマッチ距離が hue 支配で彩度差を過小評価し、明るい中性画素(無彩の UV 背景等)を
         // 巻き込む。無彩ターゲットのときだけ、サンプル彩度の相対床 sS·Frac 未満の画素を strength から
         // 除去する(高彩度コア近傍 Radius px は保護=対象自身の脱彩した陰影/AA縁を守る)。値は既存定数を流用。
-        private const float AchromaNeutralRejectWeightMin = 0.5f; // 白↔黒の極端無彩ターゲットでのみ作動
+        private const float AchromaNeutralRejectWeightMin = 0.5f; // 無彩の塗り先の重み(明度によらない ComputeAchromaSelectWeight。灰でも作動)がこれを超えたら作動
         private const float NeutralRejectActiveSourceSat = 0.40f; // サンプルがこの彩度以上(=有彩)でのみ作動
         // サンプル彩度 sS·frac 未満を「中性(=無彩の背景)」とみなして弾く。小さめの値にすることで、
         // 中性背景(彩度≈0)だけを落とし、模様の上で淡く抜けた対象色(彩度がサンプルの数%まで落ちた

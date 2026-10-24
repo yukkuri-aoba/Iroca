@@ -74,7 +74,7 @@
 | 種類 | 数 |
 |---|---|
 | 実測 | 41 |
-| 不明 | 105 |
+| 不明 | 107 |
 | 設計 | 62 |
 | 近似 | 23 |
 | 量子化 | 14 |
@@ -98,12 +98,12 @@
 | ファイル | 数 |
 |---|---|
 | `Code/Core/ColorZone.cs` | 6 |
-| `Code/Core/ColorZone.Match.cs` | 8 |
+| `Code/Core/ColorZone.Match.cs` | 6 |
 | `Code/Core/HighlightSampleCorrector.cs` | 0 |
 | `Code/Core/PixelProcessor.Achroma.cs` | 0 |
 | `Code/Core/PixelProcessor.ColorSpace.cs` | 43 |
-| `Code/Core/PixelProcessor.cs` | 10 |
-| `Code/Core/PixelProcessor.Decontam.cs` | 2 |
+| `Code/Core/PixelProcessor.cs` | 6 |
+| `Code/Core/PixelProcessor.Decontam.cs` | 1 |
 | `Code/Core/PixelProcessor.FloodFill.cs` | 1 |
 | `Code/Core/PixelProcessor.Highlight.cs` | 6 |
 | `Code/Core/PixelProcessor.Hsv.cs` | 0 |
@@ -152,6 +152,8 @@
 | `HighlightHueCapFloor` | `0.05f` | 不明 | — | ハイライト色相帯の下限。淡色の隣接布への誤マッチ対策として導入、計測なし |
 | `HighlightHueCapTolFrac` | `0.3f` | 不明 | — | ハイライト色相帯の tolerance 比。上と同時に導入、計測記録なし |
 | `ChromaConfidenceSpan` | `0.10f` | 不明 | — | 色相の確信度が 0→1 に立ち上がる彩度の幅。由来の記録なし |
+| `HueValueConfLo` | `0.05f` | 不明 | — | 暗い色の色相を信用し始めるサンプルの明度。初期実装からあり、記録なし |
+| `HueValueConfSpan` | `0.15f` | 不明 | — | 上から色相の確信度が 1 になるまでの明度の幅（V 0.05〜0.20）。初期実装からあり、記録なし |
 | `ForgivenessRangeFrac` | `0.6f` | 不明 | — | 陰影・ツヤ免除ランプの幅（使えるレンジに対する比）。初期実装からあり、計測記録なし |
 | `HueReliableSatFrac` | `0.35f` | 不明 | — | 色相を信用する彩度の下限比。自動トーン抽出の彩度帯から流用、値の掃引記録なし |
 | `BrightDistanceForgivenessMin` | `0.3f` | 不明 | BF | 明部の距離短縮の下限（最大 70%）。廃止した暗部側 0.3 と対称に置いた |
@@ -310,7 +312,7 @@
 | `AnchorChromaHistMax` | `0.5f` | 近似 | — | 彩度ヒストグラムの値域。sRGB の OkLab 彩度（約 0.33 まで）を覆う |
 | `AnchorCountBudget` | `1 << 21` | 計算 | — | 色ごとの個数を数える配列の合計の上限（8MB）。人数だけが変わり結果は同じ |
 | `AnchorRetrySatrFrac` | `0.25f` | 実測 | — | 推定し直しの境。実測で乗り換えたとき 0〜0.20、正しいとき 0.31 以上の間 |
-| `AnchorMaterialSatrFrac` | `0.35f` | 設計 | — | 推定し直しで地色から外す飽和度比。L 再マップの 0.35 と揃えた |
+| `AnchorMaterialSatrFrac` | `OklabRemapFullChromaFrac` | 設計 | — | 推定し直しで地色から外す飽和度比。L 再マップの線（OklabRemapFullChromaFrac）と同じ |
 | `AnchorMaterialHueCos` | `0.70710678f` | 実測 | — | 推定し直しで外す色相差 45°。正解画素の 97% が 25° 以内という実測に余裕を取った |
 
 ## `Code/Core/PixelProcessor.Selection.cs`
