@@ -348,6 +348,39 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void BuildIsCancelledOnlyWhenNoBorrowerWaitsForIt_AndBuiltAgainLater()
+        {
+            // NDMF は作りかけのパイプラインを最後まで待つので、要らなくなった作りかけは取り消す。ただし、ほかに
+            // 待っている借り手がいれば取り消さない。取り消した分はキャッシュに書かず、次に借りたときに作り直す。
+            string path = _assets.WritePng("src", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);
+            var src = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            int before = RecipePreviewTextures.Count;
+
+            var shared = RedToGreen(src, 0.2f);
+            var a = RecipePreviewTextures.Acquire(shared, out var keyA);
+            var b = RecipePreviewTextures.Acquire(shared, out var keyB);
+            Assert.IsFalse(a.IsCompleted, "テストの前提(初めて映すレシピは作りかけ)が崩れている");
+            RecipePreviewTextures.Abandon(keyA, a);
+            Assert.IsNotNull(TestAssets.Wait(b), "ほかの借り手が待っているのに取り消した");
+            RecipePreviewTextures.Release(keyA);
+            RecipePreviewTextures.Release(keyB);
+
+            var alone = RedToGreen(src, 0.3f);
+            string cache = RecipeTextureBuilder.CachePath(RecipeTextureBuilder.CacheKey(alone, src));
+            var c = RecipePreviewTextures.Acquire(alone, out var keyC);
+            Assert.IsFalse(c.IsCompleted);
+            RecipePreviewTextures.Abandon(keyC, c);
+            Assert.IsNull(TestAssets.Wait(c), "誰も待っていない作りかけを取り消していない");
+            Assert.IsFalse(System.IO.File.Exists(cache), "取り消した計算をキャッシュに書いた");
+            var d = RecipePreviewTextures.Acquire(alone, out var keyD);
+            Assert.AreNotSame(c, d, "取り消した作りかけを後から借りた人に貸した");
+            Assert.IsNotNull(TestAssets.Wait(d), "取り消した後に借りたのに作り直していない");
+            RecipePreviewTextures.Release(keyC);
+            RecipePreviewTextures.Release(keyD);
+            Assert.AreEqual(before, RecipePreviewTextures.Count);
+        }
+
+        [Test]
         public void ReleasedWhileBuilding_TheResultIsDiscarded()
         {
             string path = _assets.WritePng("src", TestAssets.Solid(W, H, new Color32(200, 40, 40, 255)), W, H);

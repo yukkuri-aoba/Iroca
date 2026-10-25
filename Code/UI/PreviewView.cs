@@ -168,6 +168,8 @@ namespace Iroca
                 InputClock.NoteInput(PreviewLatencyCycle.Now);
                 // 編集はどれもここを通るので、自動保存の合図にもする(IrocaWindow.Autosave)。
                 _host?.NoteSessionEdited();
+                // 別ウィンドウ(プレビュー・マスク編集)の描き直しの合図にもする(IrocaWindow.DrawStamp)。
+                _host?.BumpUiState();
             }
         }
         [System.NonSerialized] private PreviewInputClock _inputClock;
@@ -220,8 +222,10 @@ namespace Iroca
         // 生成することで、テクスチャ切替直後のキャッシュミス時にメインスレッドで走っていた
         // BoxDownsample のヒッチをバックグラウンドへ追い出す。
         // full はフル解像度の処理結果(シーンのアバターへのプレビュー LivePreview へ渡す)。
-        [System.NonSerialized] private readonly PreviewJob<(Color32[] processed, Color32[] raw, Color32[] full)> _previewJob =
-            new PreviewJob<(Color32[] processed, Color32[] raw, Color32[] full)>();
+        // full はフル解像度の出力(Mono のヒープの外。結果を受け取った側が参照を 1 つ持つ)。
+        // display はフル段の出力を拡大表示の寸法(取り込み後の寸法)へ縮めたもの(その寸法で映さないときは null)。
+        [System.NonSerialized] private readonly PreviewJob<(Color32[] processed, Color32[] raw, NativePixels full, NativePixels display)> _previewJob =
+            new PreviewJob<(Color32[] processed, Color32[] raw, NativePixels full, NativePixels display)>();
         // 段階的リファインの第1段。ソースが大きい(scale<1)とき、まず縮小プロキシで概要を即表示する
         // 専用ジョブ。完了 apply で _previewJob(フル解像度)を同一スナップショットでスケジュールする。
         // proxy はソースをプロキシ寸法へ縮小した処理前の画素(_proxySource へ確定する)。
@@ -230,13 +234,11 @@ namespace Iroca
         [System.NonSerialized] private Color32[] _pendingProcessedDisplay;
         [System.NonSerialized] private Color32[] _pendingRawDisplay;
         [System.NonSerialized] private int _pendingPrevW, _pendingPrevH;
-        // 直近に確定したフル段のフル解像度の出力と、その元画素。拡大表示(詳細クロップ)はここから
-        // 切り出す。元画素が変わったら使わない(InvalidateSourceCache / InvalidateFullOutput)。
-        [System.NonSerialized] private Color32[] _fullOutput;
-        [System.NonSerialized] private Color32[] _fullOutputSource;
-        // _fullOutput が使い回しの対象か(縮小表示のテクスチャのフル段の出力だけ。縮小しないテクスチャでは
-        // 同じ配列が表示用・差分ジョブにも渡るので使い回さない)。
-        [System.NonSerialized] private bool _fullOutputRecyclable;
+        // 直近に確定したフル段のフル解像度の出力(参照を 1 つ持つ)と、その元画素(同じ元画素から作ったかを
+        // 見るためだけに覚える。参照は持たない)。拡大表示(詳細クロップ)はここから切り出す。元画素が変わったら
+        // 使わない(InvalidateSourceCache / InvalidateFullOutput)。
+        [System.NonSerialized] private NativePixels _fullOutput;
+        [System.NonSerialized] private NativePixels _fullOutputSource;
         // フル段の出力バッファの使い回し(PreviewOutputBuffers)。置き換えられた前の出力を次のフル段で再利用する。
         [System.NonSerialized] private PreviewOutputBuffers _outputBuffers;
         // 保留中の結果が確定(フル段)か。確定なら拡大表示をすぐ作り直す(ApplyPendingPreview)。
@@ -273,7 +275,8 @@ namespace Iroca
         [System.NonSerialized] private int _pendingDiffW, _pendingDiffH;
 
         [System.NonSerialized] private Texture2D _cachedSourceTexture;
-        [System.NonSerialized] private Color32[] _cachedSrcPixels;
+        // _trueSource と同じものを指す(どの元画素で作ったキャッシュかを見るためだけ。参照は持たない)。
+        [System.NonSerialized] private NativePixels _cachedSrcPixels;
         [System.NonSerialized] private Color32[] _cachedRawDisplay;
         [System.NonSerialized] private int _cachedSrcW, _cachedSrcH;
         [System.NonSerialized] private int _cachedPrevW, _cachedPrevH;
@@ -283,7 +286,7 @@ namespace Iroca
         // このフィールドを触るのはメインスレッド(スケジュール時に読み、apply で確定)だけ。
         private sealed class ProxySourceCache
         {
-            public Color32[] src;        // 縮小元のソース画素(参照で照合する)
+            public NativePixels src;     // 縮小元のソース画素(同じものかを照合するだけ。参照は持たない)
             public int w, h, prevW, prevH;
             public Color32[] proxy;      // プロキシ寸法(処理前)
             public Color32[] display;    // proxy を表示寸法へ縮小したもの(寸法が同じなら proxy と同じ配列)
@@ -303,18 +306,36 @@ namespace Iroca
         [System.NonSerialized] private SelectionCache _proxySelectionCache;
 
         // プレビュー処理に使う元ファイルの画素(作業解像度。WorkingResolution)のキャッシュ。取り込み済み
-        // テクスチャの圧縮で劣化した画素ではなく、元ファイルをデコードして作業解像度(既定は取り込み後の寸法)へ
-        // 縮めた画素で処理する。非破壊ビルドも同じ画素から作るので、プレビューとシーンの結果が一致する。
-        // テクスチャ単位でキャッシュし、取り込み後の寸法か設定が変わったら読み直す(_trueSourceBasis*)。
+        // テクスチャの圧縮で劣化した画素ではなく、元ファイルをデコードした画素(辺が 8192 を超えるときだけ取り込み後の
+        // 寸法へ縮めたもの)で処理する。書き出し・非破壊ビルドも同じ解像度で処理するので、色替えの中身が一致する。
+        // テクスチャ単位でキャッシュし、取り込み後の寸法が変わったら読み直す(_trueSourceBasis*)。
+        // 画素は Mono のヒープの外に置き(4K で 64MB、8K で 256MB)、ここが参照を 1 つ持つ。別スレッドで読む
+        // ジョブ・AI 提案・自動調整はそれぞれ参照を足して持つので、ここで手放しても読んでいる途中で消えない。
         [System.NonSerialized] private Texture2D _trueSourceFor;
-        [System.NonSerialized] private Color32[] _trueSourcePixels;
+        [System.NonSerialized] private NativePixels _trueSource;
         [System.NonSerialized] private int _trueSourceW, _trueSourceH;
         [System.NonSerialized] private int _trueSourceBasisW, _trueSourceBasisH;
-        [System.NonSerialized] private bool _trueSourceBasisAtSource;
+        // 拡大表示に映す寸法(取り込み後の寸法。ゲームに出る大きさ。WorkingResolution.DisplaySize)の原本と、
+        // フル段の出力をその寸法へ縮めたもの(面平均。非破壊ビルドがテクスチャを作るときと同じ縮小)。
+        // 作業解像度のままでよいとき(取り込みで小さくならない)は null で、作業解像度のものをそのまま映す。
+        [System.NonSerialized] private NativePixels _displaySource, _displayOutput;
+        [System.NonSerialized] private int _displayW, _displayH;
         // 元ファイルをデコードした(false = 取り込み済みテクスチャの画素。PSD など)。
         [System.NonSerialized] private bool _trueSourceFromFile;
         // 直近に画素を取れなかったテクスチャ（毎フレームの可否判定で読み直さないための負のキャッシュ）。
         [System.NonSerialized] private Texture2D _trueSourceFailedFor;
+
+        // Play を始めたときのドメインリロードの直後は、原本の読み直し(デコード)と色替えの計算し直しを、
+        // ウィンドウが操作されるまで待つ(Play を始めてすぐの動作確認と重なって、エディタが止まらないように)。
+        // 待つのは Play 中だけで、どこかで原本を読んだら(自動調整・AI・書き出しなど画素が要る操作)終わる。
+        // 操作の検出と解除は IrocaWindow.TrackDeferredPreview。
+        [System.NonSerialized] private bool _deferSourceLoad;
+
+        internal bool SourceLoadDeferred => _deferSourceLoad && EditorApplication.isPlayingOrWillChangePlaymode;
+        // Draw が Layout のときに見た SourceLoadDeferred(同じフレームの他のイベントもそれで描く)。
+        [System.NonSerialized] private bool _deferredAtLayout;
+        internal void DeferSourceLoad() => _deferSourceLoad = true;
+        internal void EndSourceLoadDeferral() => _deferSourceLoad = false;
 
         [System.NonSerialized] private DetailPreviewView _detailView;
 
@@ -337,16 +358,20 @@ namespace Iroca
         public void InvalidateFullOutput()
         {
             RetireFullOutput();
-            _fullOutput = null;
             _fullOutputSource = null;
         }
 
-        // いまのフル段の出力を使い回しへ回す(置き換える・捨てる直前に呼ぶ)。拡大表示のジョブが切り出し中なら
-        // 印が付いているので、外れるまでは渡されない。
+        // いまのフル段の出力を使い回しへ回し(持っていた参照を渡す)、_fullOutput を空にする。拡大表示のジョブが
+        // 切り出し中・シーンへの反映が保持中なら、それぞれ参照を持っているので、手放されるまでは使い回されない。
         private void RetireFullOutput()
         {
-            if (_fullOutput != null && _fullOutputRecyclable) _outputBuffers?.Retire(_fullOutput);
-            _fullOutputRecyclable = false;
+            _displayOutput?.Release();
+            _displayOutput = null;
+            var old = _fullOutput;
+            _fullOutput = null;
+            if (old == null) return;
+            if (_outputBuffers != null) _outputBuffers.Retire(old);
+            else old.Release();
         }
 
         // 次回の再生成でプロキシ段(低解像度の概要表示)を使わない 1 回限りのフラグ。
@@ -395,8 +420,7 @@ namespace Iroca
             _cachedSrcW = _cachedSrcH = 0;
             _cachedPrevW = _cachedPrevH = 0;
             _trueSourceFor = null;
-            _trueSourcePixels = null;
-            _trueSourceW = _trueSourceH = 0;
+            DropTrueSource();
             _trueSourceFailedFor = null;
 
             // ソース画素が変わる = キャッシュ済み選択の前提が変わるので選択キャッシュも破棄する。
@@ -407,23 +431,24 @@ namespace Iroca
             // 旧テクスチャのクロップが新テクスチャ上に重なって見えるのを防ぐ
             // （詳細ジョブのキャンセルと表示テクスチャの解放を含む）。
             _detailView?.InvalidateDisplay();
+            // 見た目の画像も旧テクスチャのもの。
+            ReleaseAppearance();
         }
 
         /// <summary>
         /// プレビュー処理用のソース画素を確保する。可能ならディスク上の元ファイルをデコードして
         /// 作業解像度(<see cref="WorkingResolution"/>)にそろえ、PNG/JPG 以外や生成テクスチャ等で
         /// 失敗した場合はインポート済みテクスチャの GetPixels32 にフォールバックする。
-        /// 成功すると <see cref="_trueSourcePixels"/> / <see cref="_trueSourceW"/> /
+        /// 成功すると <see cref="_trueSource"/> / <see cref="_trueSourceW"/> /
         /// <see cref="_trueSourceH"/> が有効になる。
         /// </summary>
         private bool EnsureTrueSource(Texture2D tex)
         {
             if (tex == null) return false;
-            if (_trueSourceFor == tex && _trueSourcePixels != null)
+            if (_trueSourceFor == tex && _trueSource != null)
             {
-                if (_trueSourceBasisW == tex.width && _trueSourceBasisH == tex.height
-                    && _trueSourceBasisAtSource == WorkingResolution.AtSourceResolution) return true;
-                // 取り込み設定(Max Size)か「元の解像度で編集」が変わって、作業解像度が変わり得る。
+                if (_trueSourceBasisW == tex.width && _trueSourceBasisH == tex.height) return true;
+                // 取り込み設定(Max Size)が変わって、作業解像度か拡大表示の寸法が変わり得る。
                 // 旧画素から導いた状態ごと捨てて読み直し、表示も作り直す。
                 InvalidateSourceCache();
                 previewDirty = true;
@@ -433,6 +458,9 @@ namespace Iroca
             // ファイル読み込みとデコードを試すことになる。あとで Read/Write を有効にすれば
             // IsReadable が true へ変わるため、そのときは覚えた失敗を無視して取り直す。
             if (_trueSourceFailedFor == tex && !IrocaWindow.IsReadable(tex)) return false;
+            // 別のテクスチャの画素を持ったまま読み直す(SwitchSourceTexture を通らない切り替え)ときは、古い画素を
+            // 指したままのジョブ・キャッシュ・ドラッグの追従の入力も捨てる(手放した画素へ参照を足しに行かないように)。
+            if (_trueSource != null && _trueSourceFor != tex) InvalidateSourceCache();
 
             string path = AssetDatabase.GetAssetPath(tex);
             if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
@@ -444,10 +472,11 @@ namespace Iroca
                     tmp = new Texture2D(2, 2, TextureFormat.RGBA32, false);
                     if (tmp.LoadImage(bytes))
                     {
-                        _trueSourcePixels = WorkingResolution.PixelsOf(tmp, tex, out _trueSourceW, out _trueSourceH);
+                        SetTrueSource(WorkingResolution.NativePixelsOf(tmp, tex));
                         _trueSourceFor = tex;
                         _trueSourceFailedFor = null;
                         RememberTrueSourceBasis(tex, fromFile: true);
+                        _deferSourceLoad = false;
                         return true;
                     }
                 }
@@ -467,26 +496,78 @@ namespace Iroca
                 _trueSourceFailedFor = tex;
                 return false;
             }
-            _trueSourcePixels = tex.GetPixels32();
-            _trueSourceW = tex.width;
-            _trueSourceH = tex.height;
+            SetTrueSource(NativePixels.CopyOf(tex.GetPixels32(), tex.width, tex.height));
             _trueSourceFor = tex;
             _trueSourceFailedFor = null;
             RememberTrueSourceBasis(tex, fromFile: false);
+            _deferSourceLoad = false;
             return true;
         }
 
-        // 作業解像度を決めた前提(取り込み後の寸法と設定)を覚える。変わったら EnsureTrueSource が読み直す。
-        private void RememberTrueSourceBasis(Texture2D tex, bool fromFile)
+        // 処理用の画素を差し替える(前の画素の参照を返し、新しい画素の参照を持つ)。
+        private void SetTrueSource(NativePixels pixels)
+        {
+            DropTrueSource();
+            _trueSource = pixels;
+            _trueSourceW = pixels.Width;
+            _trueSourceH = pixels.Height;
+        }
+
+        // 処理用の画素の参照を返す。読んでいる途中のジョブは自分の参照を持っているので、ここで返しても消えない。
+        private void DropTrueSource()
+        {
+            var old = _trueSource;
+            _trueSource = null;
+            _trueSourceW = _trueSourceH = 0;
+            old?.Release();
+            _displaySource?.Release();
+            _displaySource = null;
+            _displayW = _displayH = 0;
+        }
+
+        // 作業解像度を決めた前提(取り込み後の寸法)を覚える。変わったら EnsureTrueSource が読み直す。
+        // 拡大表示に映す寸法の原本もここで作る(取り込みで小さくなるときだけ。4K→2K で数十 ms)。
+        private unsafe void RememberTrueSourceBasis(Texture2D tex, bool fromFile)
         {
             _trueSourceBasisW = tex.width;
             _trueSourceBasisH = tex.height;
-            _trueSourceBasisAtSource = WorkingResolution.AtSourceResolution;
             _trueSourceFromFile = fromFile;
+            WorkingResolution.DisplaySize(_trueSourceW, _trueSourceH, tex.width, tex.height, out int dw, out int dh);
+            if (dw == _trueSourceW && dh == _trueSourceH) return;
+            _displayW = dw;
+            _displayH = dh;
+            _displaySource = NativePixels.Allocate(dw, dh);
+            WorkingResolution.ResizeArea(_trueSource.Ptr, _trueSourceW, _trueSourceH, dw, dh, _displaySource.Ptr);
+        }
+
+        // 拡大表示(詳細クロップ)の座標の土台。取り込み後の寸法で映すときはその寸法の原本、そうでなければ作業解像度の原本。
+        private NativePixels DetailSource => _displaySource ?? _trueSource;
+        private int DetailW => _displaySource != null ? _displayW : _trueSourceW;
+        private int DetailH => _displaySource != null ? _displayH : _trueSourceH;
+
+        // 拡大表示の切り出し元(いまの原本で作ったフル段の出力。DetailSource と同じ寸法)。まだ無ければ null。
+        private NativePixels DetailOutput
+        {
+            get
+            {
+                if (!ReferenceEquals(_fullOutputSource, _trueSource)) return null;
+                return _displaySource != null ? _displayOutput : _fullOutput;
+            }
+        }
+
+        /// <summary>
+        /// いま持っている処理用の画素(作業解像度)の寸法。まだ読んでいない・読めなかったときは false。
+        /// 書き出しが、終わった後に作業配列を手放すか(寸法が違うときだけ)を決めるのに使う。
+        /// </summary>
+        internal bool TryGetWorkingSize(out int w, out int h)
+        {
+            w = _trueSourceW;
+            h = _trueSourceH;
+            return _trueSource != null && w > 0 && h > 0;
         }
 
         /// <summary>直近に確保した処理用の画素が、元ファイルをデコードしたものか(取り込み済みテクスチャではなく)。</summary>
-        public bool TrueSourceFromFile => _trueSourcePixels != null && _trueSourceFromFile;
+        public bool TrueSourceFromFile => _trueSource != null && _trueSourceFromFile;
 
         /// <summary>
         /// このテクスチャから処理用の画素を取れるか（原本ファイルのデコード、または
@@ -494,20 +575,25 @@ namespace Iroca
         /// 有効か」だけを見ていると、PNG/JPG のように原本を直接読める場合でも
         /// 不要にインポート設定の変更を要求してしまうため、実際に取れるかで判定する。
         /// 成否はテクスチャ単位でキャッシュする。
+        /// Play 中のリロード直後で原本の読み直しを待っている間(<see cref="SourceLoadDeferred"/>)は、読まずに
+        /// 取れるものとして答える(UI の可否判定のために読むと、待たせている意味が無くなる)。
         /// </summary>
-        public bool CanProvideSourcePixels(Texture2D tex) => EnsureTrueSource(tex);
+        public bool CanProvideSourcePixels(Texture2D tex) =>
+            tex != null && (SourceLoadDeferred || EnsureTrueSource(tex));
 
         /// <summary>
         /// 自動調整など他ビューが、プレビューと同一の true source 画素(作業解像度)で解析する
-        /// ための読み取り専用アクセサ。返す配列は内部キャッシュの共有インスタンスなので、
-        /// 呼び出し側は書き換えないこと（プレビュージョブ側も clone してから処理する規約）。
+        /// ための読み取り専用アクセサ。返すのは内部キャッシュの共有インスタンス(参照は足さない)なので、
+        /// 呼び出し側は書き換えないこと。メインスレッドの外や後で読むなら、呼び出し側が
+        /// <see cref="NativePixels.AddRef"/> して持ち、読み終えたら Release すること(テクスチャの切り替え・
+        /// ウィンドウを閉じたときに、ここが持つ参照は手放される)。
         /// 取得不能（元ファイル読込失敗 かつ 非 Readable）なら false。
         /// </summary>
-        public bool TryGetTrueSourcePixels(Texture2D tex, out Color32[] pixels, out int w, out int h)
+        public bool TryGetTrueSourcePixels(Texture2D tex, out NativePixels pixels, out int w, out int h)
         {
             if (EnsureTrueSource(tex))
             {
-                pixels = _trueSourcePixels;
+                pixels = _trueSource;
                 w = _trueSourceW;
                 h = _trueSourceH;
                 return true;
@@ -528,12 +614,25 @@ namespace Iroca
 
         public void Suspend()
         {
-            CancelJobsAndDropPending();
+            // ジョブを止め、プレビューの原本・確定段の出力・使い回しのバッファ(Mono のヒープの外。4K で 1 本 64MB)を
+            // 手放す。閉じる・リロードの前に呼ばれるので、ここで返せば OS へ戻る。開き直したら Draw が読み直す。
+            InvalidateSourceCache();
+            // 止めたジョブが後から返してくる出力も、置かずにすぐ手放す。開き直したら Initialize が作り直す。
+            _outputBuffers?.Close();
+            _outputBuffers = null;
+            // 選択キャッシュ(ゾーンごとに 4K で 64MB・8K で 256MB)はネイティブメモリなので、閉じる・リロードの前に
+            // ここで解放すれば OS へ戻る。取り消した計算が後から Store しても残らない(Dispose 済みは保存しない)。
+            // 開き直したときは Initialize が作り直す。
+            _selectionCache?.Dispose();
+            _selectionCache = null;
+            _proxySelectionCache?.Dispose();
+            _proxySelectionCache = null;
             _detailView?.Suspend();
             _lastDirtyTime = 0;
             TextureSlot.Release(ref previewTexture);
             TextureSlot.Release(ref rawPreviewTexture);
             TextureSlot.Release(ref diffTexture);
+            ReleaseAppearance();
             ClearSceneHighlight();
         }
 
@@ -565,6 +664,16 @@ namespace Iroca
                 return;
             }
 
+            // Play 中のリロード直後は、ウィンドウが操作されるまで原本を読まない(_deferSourceLoad)。
+            // 決めるのは Layout のとき(ボタンの処理で途中から原本を読んでも、同じフレームの描くものを変えない)。
+            if (Event.current.type == EventType.Layout) _deferredAtLayout = SourceLoadDeferred;
+            if (_deferredAtLayout)
+            {
+                DrawTitleRow(false, 0f);
+                EditorGUILayout.HelpBox(Localization.PreviewDeferredInPlayMode, MessageType.Info);
+                return;
+            }
+
             // エクスポートと同じフル解像度ソースを確保（プレビュー＝実結果の一致のため）。
             // EnsureTrueSource は原本が読めなければインポート済みテクスチャへ落ちるので、
             // ここで Read/Write を別途要求しない（PNG/JPG は Read/Write なしで表示できる）。
@@ -579,6 +688,7 @@ namespace Iroca
 
             var maskView = _host._maskView;
             TickMaskOverlay(maskView);
+            TickAppearance();
 
             string generatingLabel = CurrentGeneratingLabel();
 
@@ -595,6 +705,9 @@ namespace Iroca
             float scale = (srcW > IrocaConsts.Preview.MaxSize || srcH > IrocaConsts.Preview.MaxSize)
                 ? IrocaConsts.Preview.MaxSize / (float)Mathf.Max(srcW, srcH)
                 : 1f;
+            // 拡大表示の座標の土台(取り込み後の寸法で映すときはその寸法)と、その 1 画素あたりのプレビューテクスチャの画素数。
+            int detW = DetailW, detH = DetailH;
+            float detScale = detW > 0 ? scale * srcW / detW : scale;
 
             // プレビュー枠の幅は「カラムの見えている幅」に固定する。ExpandWidth(true) だと
             // GUILayout は外側 ScrollView の clientWidth をそのまま配るが、GUIScrollGroup は
@@ -646,6 +759,8 @@ namespace Iroca
             {
                 comparisonMode = !comparisonMode;
                 if (comparisonMode) diffMode = false;
+                // 画像の並び(位置)が変わるので、拡大表示の切り出しを新しい並びで作り直す。
+                _detailView.OnViewMoved();
             }
             if (GUILayout.Toggle(diffMode, new GUIContent(Localization.DiffMode, Localization.DiffModeTooltip), EditorStyles.miniButtonRight, GUILayout.ExpandWidth(false)) != diffMode)
             {
@@ -672,6 +787,7 @@ namespace Iroca
             // RepeatButton は押されている間 true を返し続けるが、Editor は要求が無いと
             // 再描画しない。押下中は継続的に再描画を要求しないと 1 フレームで戻って見える。
             if (peekOriginal) _host.RequestRepaint();
+            DrawAppearanceToggle();
 
             GUILayout.FlexibleSpace();
             // MinWidth(0): 生成状態ラベルは文字数が多く、既定では「文字幅＝最小幅」として
@@ -687,28 +803,26 @@ namespace Iroca
             int panelCount = PanelCount;
             UpdateFitScale(panelCount, frameW);
             float effZoom = EffectiveZoom;
+            SyncMagnifyFilters(scale, effZoom);
 
             // 詳細モード: ソースが縮小されて表示されている(scale<1)テクスチャを、プレビューテクスチャより
             // 大きく表示しているとき(拡大したとき・広いウィンドウの全体表示)、低解像度プレビューの
-            // 引き伸ばしではなくソース解像度から作り直したクロップを出す。
-            bool detailActive = scale < 1f &&
-                                effZoom > DetailPreviewView.DetailMinZoom &&
-                                !comparisonMode;
+            // 引き伸ばしではなくソース解像度から作り直したクロップを出す。前後比較では同じ切り出しを
+            // 変更前・変更後の両方に重ねる。
+            bool detailActive = detScale < 1f &&
+                                effZoom > DetailPreviewView.DetailMinZoom;
 
             if (detailActive)
             {
                 if (!_detailView.detailJob.IsRunning &&
                     (!_detailHiddenForDrag || _fullOutputFreshSinceHide) &&
                     _detailView.lastDetailDirtyTime > 0 &&
-                    (EditorApplication.timeSinceStartup - _detailView.lastDetailDirtyTime)
-                        >= DetailPreviewView.DetailDebounceSeconds &&
                     _detailView.lastPreviewRect.width > 0)
                 {
                     var latency = _detailView.TakeLatencyFor(_detailView.lastDetailDirtyTime, srcW, srcH);
                     _detailView.lastDetailDirtyTime = 0;
-                    var processedFull = ReferenceEquals(_fullOutputSource, _trueSourcePixels) ? _fullOutput : null;
-                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, _trueSourcePixels, processedFull, scale, effZoom, _previewScrollPos, _detailView.lastViewportW, _detailView.lastViewportH, latency,
-                        _outputBuffers);
+                    var beforeRect = panelCount == 2 ? _detailView.lastBeforeRect : default;
+                    _detailView.GenerateDetailPreviewAsync(detW, detH, DetailSource, DetailOutput, detScale, effZoom, _previewScrollPos, _detailView.lastViewportW, _detailView.lastViewportH, _detailView.lastPreviewRect, beforeRect, latency);
                 }
                 else if (_detailView.lastDetailDirtyTime > 0 || _detailView.detailJob.IsRunning)
                 {
@@ -799,8 +913,7 @@ namespace Iroca
                 frameW > 1f ? GUILayout.Width(frameW) : GUILayout.ExpandWidth(true));
             if (_previewScrollPos != prevScroll)
             {
-                // 古い詳細プレビューは新しいスクロール位置と整合しないため、
-                // 一旦表示を破棄して低解像度プレビューに統一する（c107e85）。
+                // 見えている範囲が動いたので拡大表示を作り直させる(できるまでは前の切り出しを描き続ける)。
                 _detailView.OnViewMoved();
             }
 
@@ -808,6 +921,8 @@ namespace Iroca
             // Ctrl+スクロールズームの判定領域。比較モードでは Before/After 両パネルを
             // またぐ矩形にし、どちらのパネル上でもズームできるようにする。
             Rect zoomHitRect = default;
+            // 前後比較の変更前の画像の矩形。ツールは載らないので、どのモードでも左ドラッグでパンできる。
+            Rect beforePanRect = default;
 
             // 画像を枠の左右中央に置く。全体表示は枠の縦横比と画像の縦横比が合わないと片方に余白が
             // 残り、左寄せだと広いウィンドウで右側だけが大きく空く。画像が枠より広いときは
@@ -826,7 +941,7 @@ namespace Iroca
                 EditorGUILayout.LabelField(Localization.Before, GUILayout.Width(captionW));
                 var rawRect = GUILayoutUtility.GetRect(displayW, displayH,
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
-                EditorGUI.DrawPreviewTexture(rawRect, rawPreviewTexture);
+                EditorGUI.DrawPreviewTexture(rawRect, ShownRaw);
                 EditorGUILayout.EndVertical();
 
                 GUILayout.Space(IrocaConsts.Preview.PanelSpacing);
@@ -835,9 +950,32 @@ namespace Iroca
                 EditorGUILayout.LabelField(Localization.After, GUILayout.Width(captionW));
                 activePreviewRect = GUILayoutUtility.GetRect(displayW, displayH,
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
-                EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
-                DrawMaskOverlays(activePreviewRect, maskView);
+                EditorGUI.DrawPreviewTexture(activePreviewRect, ShownPreview);
+
+                // 拡大中は、変更後の切り出しと同じ範囲の変更前の切り出し(ShownDetailRaw。原本の作業解像度から作る)を
+                // 変更前の画像に重ねる。片方しか作れないときは両方とも全体表示のまま(解像度をそろえて比べる)。
+                var shownDetail = ShownDetail;
+                Texture beforeDetail = detailActive && shownDetail != null && !_detailHiddenForDrag
+                    ? ShownDetailRaw() : null;
+                Rect afterDetailRect = default;
+                if (beforeDetail != null)
+                {
+                    GUI.DrawTexture(_detailView.ComputeDetailScreenRect(rawRect, detScale, effZoom, _previewScrollPos, detW, detH),
+                        beforeDetail, ScaleMode.StretchToFill, false);
+                    afterDetailRect = _detailView.ComputeDetailScreenRect(activePreviewRect, detScale, effZoom, _previewScrollPos, detW, detH);
+                    GUI.DrawTexture(afterDetailRect, shownDetail, ScaleMode.StretchToFill, false);
+                }
+                var dtc = _detailView.detailPreviewTexture;
+                if (beforeDetail != null &&
+                    maskView.DetailOverlayMatches(detW, detH, _detailView.detailOriginX, _detailView.detailOriginY,
+                                                  _detailView.detailCropW, _detailView.detailCropH, dtc.width, dtc.height))
+                    DrawMaskOverlaysWithDetail(activePreviewRect, afterDetailRect, maskView);
+                else
+                    DrawMaskOverlays(activePreviewRect, maskView);
                 EditorGUILayout.EndVertical();
+
+                if (Event.current.type == EventType.Repaint) _detailView.lastBeforeRect = rawRect;
+                beforePanRect = rawRect;
 
                 zoomHitRect = Rect.MinMaxRect(
                     Mathf.Min(rawRect.x, activePreviewRect.x),
@@ -851,18 +989,25 @@ namespace Iroca
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
                 zoomHitRect = activePreviewRect;
 
-                // 「元を表示」で押下中は、詳細クロップ(再着色後のみ保持)を使わず低解像度の
-                // 変更前を出す。クロップの raw をテクスチャ化して持つとズーム中の VRAM が倍に
-                // なるため、押している間だけ解像度が落ちることを許容する(ツールチップに明記)。
-                if (detailActive && _detailView.detailPreviewTexture != null && !peekOriginal && !_detailHiddenForDrag)
+                // 「元を表示」で押下中は、変更後の切り出しと同じ範囲・寸法の変更前の切り出しを、原本(拡大表示の寸法。
+                // 取り込み後の寸法へ縮めたもの。DetailSource)から作って重ねる(ShownDetailRaw)。変更前の
+                // 切り出しは押している間だけ持ち、離したら手放す(拡大中の VRAM が増えるのは押している間だけ)。
+                // 作れないとき(切り出しがまだ無い・見た目がまだ作れない)は、全体の変更前だけを出す。
+                // 「アバターの色」の表示中は、切り出しの見た目ができるまで切り出しを重ねない(ShownDetail)。
+                var shownDetail = ShownDetail;
+                bool detailShown = detailActive && shownDetail != null && !_detailHiddenForDrag;
+                Texture peekDetail = detailShown && peekOriginal ? ShownDetailRaw() : null;
+                if (!peekOriginal) ReleaseDetailRaw();
+                if (detailShown && (!peekOriginal || peekDetail != null))
                 {
-                    EditorGUI.DrawPreviewTexture(activePreviewRect, previewTexture);
+                    EditorGUI.DrawPreviewTexture(activePreviewRect, peekOriginal ? ShownRaw : ShownPreview);
 
-                    Rect detailScreenRect = _detailView.ComputeDetailScreenRect(activePreviewRect, scale, effZoom, _previewScrollPos, srcW, srcH);
-                    GUI.DrawTexture(detailScreenRect, _detailView.detailPreviewTexture,
+                    Rect detailScreenRect = _detailView.ComputeDetailScreenRect(activePreviewRect, detScale, effZoom, _previewScrollPos, detW, detH);
+                    GUI.DrawTexture(detailScreenRect, peekOriginal ? peekDetail : shownDetail,
                         ScaleMode.StretchToFill, false);
 
-                    if (diffMode && _detailView.detailDiffTexture != null)
+                    // 変更前を見せている間は差分ハイライトを重ねない(下の全体表示と同じ理由)。
+                    if (!peekOriginal && diffMode && _detailView.detailDiffTexture != null)
                         GUI.DrawTexture(detailScreenRect, _detailView.detailDiffTexture,
                             ScaleMode.StretchToFill, true);
                     else
@@ -872,7 +1017,7 @@ namespace Iroca
                         // まだ無い・範囲が古いときは全体用だけ(以前と同じ)。ペイント中の直接書き込み(PaintMask)は
                         // 両方へ入るので、塗ったそばから見える。
                         var dt = _detailView.detailPreviewTexture;
-                        if (maskView.DetailOverlayMatches(srcW, srcH, _detailView.detailOriginX, _detailView.detailOriginY,
+                        if (maskView.DetailOverlayMatches(detW, detH, _detailView.detailOriginX, _detailView.detailOriginY,
                                                           _detailView.detailCropW, _detailView.detailCropH, dt.width, dt.height))
                             DrawMaskOverlaysWithDetail(activePreviewRect, detailScreenRect, maskView);
                         else
@@ -882,7 +1027,7 @@ namespace Iroca
                 else
                 {
                     EditorGUI.DrawPreviewTexture(activePreviewRect,
-                        peekOriginal ? rawPreviewTexture : previewTexture);
+                        peekOriginal ? ShownRaw : ShownPreview);
 
                     // 変更前を見せている間は差分ハイライトを重ねない（変更前に「変わった場所」を
                     // 塗ると、元テクスチャに無い色が乗って見え、確認したい当のものが隠れる）。
@@ -971,7 +1116,7 @@ namespace Iroca
             if (previewZoom > 1f || overflowsFrame)
             {
                 bool leftDragPans = !maskView.maskPaintActive && !eyedropperArmed && !seedPickArmed;
-                HandlePreviewPanInput(activePreviewRect, leftDragPans);
+                HandlePreviewPanInput(activePreviewRect, leftDragPans, beforePanRect);
             }
 
             EditorGUILayout.EndScrollView();
@@ -1009,7 +1154,10 @@ namespace Iroca
         {
             // バックグラウンドプレビュータスクからの結果を適用（Texture2D API: メインスレッドのみ）
             if (_pendingProcessedDisplay != null)
+            {
                 ApplyPendingPreview();
+                _previewVersion++;
+            }
 
             // バックグラウンドで仕上がった diff ピクセルをテクスチャへ反映
             ApplyPendingDiff();
@@ -1018,6 +1166,7 @@ namespace Iroca
             if (_detailView.HasPendingResult)
             {
                 _detailView.ApplyPendingResult();
+                _detailVersion++;
                 // 拡大表示用のマスクの重ね表示も、新しい範囲で作り直す(MaskPaintView.RebuildDetailOverlay)。
                 RebuildDetailMaskOverlay();
                 // 隠している間は新しい切り出ししか作らない(Draw の詳細生成の条件)ので、届いたら見せてよい。
@@ -1201,9 +1350,9 @@ namespace Iroca
         {
             var mv = _host._maskView;
             var t = _detailView.detailPreviewTexture;
-            if (mv == null || t == null || _trueSourceW <= 0 || _trueSourceH <= 0) return;
+            if (mv == null || t == null || DetailW <= 0 || DetailH <= 0) return;
             if (_detailView.detailCropW <= 0 || _detailView.detailCropH <= 0) return;
-            mv.RebuildDetailOverlay(_trueSourceW, _trueSourceH, _detailView.detailOriginX, _detailView.detailOriginY,
+            mv.RebuildDetailOverlay(DetailW, DetailH, _detailView.detailOriginX, _detailView.detailOriginY,
                                     _detailView.detailCropW, _detailView.detailCropH, t.width, t.height);
         }
 
@@ -1258,10 +1407,10 @@ namespace Iroca
             }
             else
             {
-                // モードが無いときは、Scene でモデルをクリックした結果の案内か使い方を出す
-                // (何も無ければ空白 1 文字)。どれも miniLabel の高さに揃える。行を出入りさせたり高さを
+                // モードが無いときは、Scene でモデルをクリックした結果の案内か、右クリック・Scene のクリックの
+                // 使い方を出す(何も無ければ空白 1 文字)。どれも miniLabel の高さに揃える。行を出入りさせたり高さを
                 // 変えたりするとプレビュー枠が上下に跳ね、chrome 実測（_chromeAboveViewportH）も揺れる。
-                DrawSceneClickRow();
+                DrawIdleRow();
             }
             if (soloZone != null)
             {
@@ -1308,13 +1457,66 @@ namespace Iroca
                 if (!TitleRowFits(title, zoom, reset))
                     zoom.text = _cachedZoomLabelShort;
                 GUILayout.Label(zoom, GUILayout.ExpandWidth(false));
+                bool smooth = GUILayout.Toggle(SmoothMagnify, SmoothContent, EditorStyles.miniButton, GUILayout.ExpandWidth(false));
+                if (smooth != SmoothMagnify)
+                {
+                    SmoothMagnify = smooth;
+                    _host.RequestRepaint();
+                }
                 if (GUILayout.Button(reset, EditorStyles.miniButton, GUILayout.ExpandWidth(false)))
                     ResetZoom(maxZoom);
             }
             EditorGUILayout.EndHorizontal();
         }
 
-        // 見出し行(題名・ズーム率・リセット)がカラムの見えている幅に収まるか。
+        // ── 拡大したときの補間(表示だけの設定) ─────────────────────────
+        // オフ(既定): 等倍以上に拡大したら 1 画素ずつ四角く見せる(画素単位で確かめる)。
+        // オン: 画素の間をなめらかにつなぐ(ゲームの中でテクスチャを近くから見たときの見え方に近い)。
+        // 縮小表示は面平均で作った画像を描くので、どちらでも変わらない。マスクの重ね表示は
+        // 「入っている / いない」を見せるものなので、ここでは変えない(MaskPaintView.SyncOverlayFilter)。
+        private const string SmoothMagnifyPrefKey = "Iroca.PreviewSmoothMagnify";
+        private static bool? s_smoothMagnify;
+
+        /// <summary>拡大したときに画素の間をなめらかにつなぐか。この PC のいろか全体の表示の設定。</summary>
+        internal static bool SmoothMagnify
+        {
+            get => s_smoothMagnify ??= EditorPrefs.GetBool(SmoothMagnifyPrefKey, false);
+            set
+            {
+                s_smoothMagnify = value;
+                EditorPrefs.SetBool(SmoothMagnifyPrefKey, value);
+            }
+        }
+
+        private static GUIContent SmoothContent => new GUIContent(Localization.SmoothMagnify, Localization.SmoothMagnifyTooltip);
+
+        /// <summary>
+        /// 表示用テクスチャの補間を今の設定と倍率に合わせる(描く前に毎フレーム。値が同じなら何もしない)。
+        /// 全体表示の画像は、元の画像をそのまま載せている(scale>=1)ときだけ、拡大中に「ドット」なら Point にする
+        /// (縮小した画像の画素を四角く見せても、元の画素ではないので意味が無い)。
+        /// </summary>
+        private void SyncMagnifyFilters(float scale, float effZoom)
+        {
+            var whole = scale >= 1f && effZoom > 1f && !SmoothMagnify ? FilterMode.Point : FilterMode.Bilinear;
+            SetFilter(previewTexture, whole);
+            SetFilter(rawPreviewTexture, whole);
+            SetFilter(_appearancePreview, whole);
+            SetFilter(_appearanceRaw, whole);
+            var dt = _detailView.detailPreviewTexture;
+            if (dt == null || _detailView.detailCropW <= 0) return;
+            var detail = DetailPreviewView.DetailFilterMode(dt.width, _detailView.detailCropW);
+            SetFilter(dt, detail);
+            SetFilter(_detailView.detailRawTexture, detail);
+            SetFilter(_appearanceDetail, detail);
+            SetFilter(_appearanceDetailRaw, detail);
+        }
+
+        private static void SetFilter(Texture tex, FilterMode mode)
+        {
+            if (tex != null && tex.filterMode != mode) tex.filterMode = mode;
+        }
+
+        // 見出し行(題名・ズーム率・なめらか・リセット)がカラムの見えている幅に収まるか。
         // カラム幅を渡さないホストでは従来どおり省略しない。
         private bool TitleRowFits(GUIContent title, GUIContent zoom, GUIContent reset)
         {
@@ -1326,7 +1528,8 @@ namespace Iroca
             var button = EditorStyles.miniButton;
             float need = bold.CalcSize(title).x + bold.margin.horizontal
                          + label.CalcSize(zoom).x + label.margin.horizontal
-                         + button.CalcSize(reset).x + button.margin.horizontal;
+                         + button.CalcSize(reset).x + button.margin.horizontal
+                         + button.CalcSize(SmoothContent).x + button.margin.horizontal;
             return need <= avail;
         }
 
@@ -1335,7 +1538,7 @@ namespace Iroca
         {
             previewZoom = Mathf.Clamp(1f, MinPreviewZoom, maxZoom);
             _previewScrollPos = Vector2.zero;
-            // ズーム比が変わると古い詳細クロップは整合しない（Ctrl+スクロール経路と同じ）。
+            // 見えている範囲が変わるので拡大表示を作り直させる（Ctrl+スクロール経路と同じ）。
             _detailView.OnViewMoved();
             _host.RequestRepaint();
         }

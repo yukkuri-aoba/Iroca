@@ -132,6 +132,11 @@ namespace Iroca
         // internal: PixelProcessor.RecoverEnclosedHighlight が「色相が完全に信用できる彩度」
         // (chromaThreshold+この値)を彩度床に使う。
         internal const float ChromaConfidenceSpan = 0.10f;
+        // 暗すぎる色(黒)は色相がノイズで暴れるので信用しない。サンプルの明度がこの値から +HueValueConfSpan までの
+        // 間で chromaConfidence を 0→1 に立ち上げる。internal: 緩和マッチ(PixelProcessor の relaxedChromaConf)が
+        // 主経路と同じ式を使うため。
+        internal const float HueValueConfLo = 0.05f;
+        internal const float HueValueConfSpan = 0.15f;
         // シャドウ/ハイライト免除ランプの幅(利用可能レンジ比)。免除が 0→1 へ立ち上がる区間長。
         // シャドウは sV×この値、ハイライトは (1-sV)×この値。
         private const float ForgivenessRangeFrac = 0.6f;
@@ -253,7 +258,7 @@ namespace Iroca
         // 見ない」(CalculateHybridDistance の vDist×(1−sRatio))ため、同色相で暗いだけの別部位
         // (桃ベージュの上衣に対する暗紫のジャケット、肌に対する舌・まつ毛)が陰影として無制限に
         // 巻き込まれる。**画素単位ではなく連結成分単位**で効く: 選択の連結成分のうち、この明度に
-        // 達する画素を 1 つも持たない(=全体がこの素材の陰影レンジより暗い)成分を落とす
+        // 達する画素が半分に満たない(=大半がこの素材の陰影レンジより暗い)成分を落とす
         // (PixelProcessor.ApplyConnectedComponentMask)。画素単位で切ると、クリックした島より深い
         // 陰影を持つ同素材(衣装の深い影)まで落として recall が下がった(実測で衣装の再現率 −5.4pt)。
         // 本体に地続きの深い影は残り、離れた暗い別パーツだけが落ちる。連続領域モード(useFloodFill)
@@ -263,7 +268,7 @@ namespace Iroca
         public float shadowValueFloor = 0f;
 
         // 別パーツの彩度上限(0 = 無効)。陰影の明度下限の対になる連結成分単位のゲート: 選択の連結成分の
-        // うち、彩度がこの値以下の画素が 1/4 に満たない(=全体がこの素材の彩度の広がりより鮮やかな)成分を
+        // うち、彩度がこの値以下の画素が半分に満たない(=大半がこの素材の彩度の広がりより鮮やかな)成分を
         // 落とす(PixelProcessor.ApplyConnectedComponentMask)。色の近い、より鮮やかな別パーツ(濃い灰の
         // パンツに対するこげ茶のブーツ、こげ茶のブーツに対する赤いバンダナ)は、明部免除や広めの tolerance を
         // 通って成分ごと入る。画素単位で切ると素材自身の鮮やかな陰影・装飾まで落とす(彩度天井を証拠の包絡へ
@@ -398,6 +403,7 @@ namespace Iroca
             public float shadowRangeDen;   // sV * ForgivenessRangeFrac
             public float brightThreshold;  // sV + (1 - sV) * HighlightValueHeadroomFrac
             public float brightRangeDen;   // Max(0.01f, (1 - sV) * ForgivenessRangeFrac)
+            public bool  hueTrusted;       // 彩度の上で chromaConfidence が 1(sS >= chromaThreshold + ChromaConfidenceSpan)
         }
         [NonSerialized] private SampleCache[] _sampleCaches;
 

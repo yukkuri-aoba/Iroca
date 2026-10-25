@@ -24,8 +24,9 @@ namespace Iroca
         private Color _pendingNewZoneColor;
         private Vector2 _pendingNewZoneUV;
 
-        // 「いま直しているゾーン」= マスクの編集対象(_maskView.activeMaskTarget)。右クリックの
-        // 「ここも塗る / ここは塗らない / この部分だけ塗る」とブラシは、ここに当たる。専用の選択操作は
+        // 「いま直しているゾーン」= マスクの編集対象(_maskView.activeMaskTarget)。ブラシと、どのゾーンも塗って
+        // いない所での右クリックの「ここも塗る / ここは塗らない / この部分だけ塗る」は、ここに当たる(塗られている所の
+        // 右クリックは、塗っているゾーンに当たる。PreviewView.ShowPreviewContextMenu)。専用の選択操作は
         // 足さず(手数を増やさない)、最後に触ったゾーン(作った・カードのどこかを押した。スポイトや自動調整も
         // カードのボタンから始まる)へ追従させる。どれかはカードの枠で示す(ゾーンが 2 つ以上のとき。DrawZoneCard)。
         private void SetCurrentZoneIndex(int index)
@@ -403,7 +404,7 @@ namespace Iroca
 
             EditorGUILayout.EndVertical();
 
-            // いま直しているゾーン(右クリックとブラシの宛先)を枠で示す。ゾーンが 1 つなら自明なので出さない。
+            // いま直しているゾーン(ブラシと、塗られていない所での右クリックの宛先)を枠で示す。ゾーンが 1 つなら自明なので出さない。
             if (Event.current.type == EventType.Repaint && zones.Count >= 2
                 && _maskView != null && _maskView.activeMaskTarget == index)
             {
@@ -524,7 +525,8 @@ namespace Iroca
                 using (new EditorGUI.DisabledScope(!canSample))
                 {
                     if (ArmedToggleButton(armed ? s_eyedropperActiveContent : s_eyedropperIdleContent, armed,
-                        GUILayout.Width(IrocaConsts.Layout.EyedropperButtonWidth)))
+                        GUILayout.Width(FitButtonWidth(IrocaConsts.Layout.EyedropperButtonWidth,
+                            s_eyedropperIdleContent.text, s_eyedropperActiveContent.text))))
                     {
                         // トグル：武装↔解除。武装は id で保持し、並べ替え・削除で別ゾーンを指さないようにする
                         // （クリックで一発取得→自動解除）。

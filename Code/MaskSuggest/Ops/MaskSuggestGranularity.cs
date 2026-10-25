@@ -9,7 +9,7 @@ namespace Iroca
     /// </summary>
     internal enum MaskSuggestGranularity
     {
-        /// <summary>モデルの予測スコア最大の候補(既定)。</summary>
+        /// <summary>安定な候補のうち面積最大のもの(既定)。規則は SamMaskPostprocess.SelectChannels が正。</summary>
         Auto,
         /// <summary>面積最小の候補(模様・小パーツ向け)。</summary>
         Fine,

@@ -109,10 +109,40 @@ def test_neutral_texture_untouched_by_chromatic_sample(label, rgba, zone, settin
 
     2026-09-24 に見つけた未達(デコンタミが 222 前後の灰を最大 16 段階暗くし、235 の白も最大 4 段階動かす)は、
     2026-10-03 の混色帯(境界の画素を被覆率で塗る。旧デコンタミは内部の固めだけ)で解消し、xfail を外した。
-    同じ時に記録した chroma_on_white_to_blue の白地の動き(最大 5 段階)は、彩度ガード OFF で主マッチが白を
-    選ぶもの(縁の処理の外)で、今も残る。
+    同じ時に記録した chroma_on_white_to_blue の白地の動きは、下の
+    test_neutral_ground_untouched_around_chromatic_part で固定している。
     """
     out = outputs(label, rgba, zone, settings)
     diff = abs(out[..., :3].astype(int) - rgba[..., :3].astype(int)).max(axis=-1)
     assert int(diff.max()) == 0, (
         f"{label}: 選ばれるはずのない無彩画素が {int((diff > 0).sum())} 画素変化（最大 {int(diff.max())}）")
+
+
+_ON_NEUTRAL = [c for c in _CASES if c[0] == "chroma_on_white_to_blue"]
+
+
+@pytest.mark.parametrize("label,rgba,zone,settings", [pytest.param(*c, id=c[0]) for c in _ON_NEUTRAL])
+def test_neutral_ground_untouched_around_chromatic_part(label, rgba, zone, settings, outputs):
+    """無彩の地(235 の灰白)の上の有彩の部品をスポイトしても、部品から離れた地は変わらないのが正。
+
+    2026-09-24 に見つけた未達(地が最大 5 段階暗くなる)は、彩度ガード OFF で主マッチが地を選んでいたもの。
+    明部免除が「サンプルより明るく色相が近い画素」の距離を縮める際、R=G=B の色相は 0(=赤)になるので
+    赤いサンプルでは灰白まで通っていた。2026-10-20 に「色のはっきりしたサンプルでは色味の無い画素を
+    明部免除しない」(ColorZone.Match.cs)で解消した。部品の縁(2 画素以内)は混色帯の担当なので見ない。
+    """
+    out = outputs(label, rgba, zone, settings)
+    rgb = rgba[..., :3].astype(int)
+    neutral = (rgb.max(axis=-1) == rgb.min(axis=-1))
+    near_part = ~neutral
+    for _ in range(2):  # 2 画素ぶん膨らませる(4 近傍)
+        grown = near_part.copy()
+        grown[1:] |= near_part[:-1]
+        grown[:-1] |= near_part[1:]
+        grown[:, 1:] |= near_part[:, :-1]
+        grown[:, :-1] |= near_part[:, 1:]
+        near_part = grown
+    ground = neutral & ~near_part
+    diff = abs(out[..., :3].astype(int) - rgb).max(axis=-1)
+    assert int(ground.sum()) > 0
+    assert int(diff[ground].max()) == 0, (
+        f"{label}: 無彩の地が {int((diff[ground] > 0).sum())} 画素変化（最大 {int(diff[ground].max())}）")

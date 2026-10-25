@@ -22,6 +22,34 @@ namespace Iroca
             => Write(path, tmp => WriteAndFlush(tmp, Utf8NoBom.GetBytes(contents)));
 
         /// <summary>
+        /// <see cref="WriteAllText"/> と同じだが、ファイルが既に同じ中身(同じバイト列)なら書かずに false を返す。
+        /// 自動保存は編集が止まるたびに全部の保存先へ書いていたが、中身が変わっていない保存先も多い
+        /// (色だけ変えたときのマスクなど)。書くと一時ファイル・デバイスへの書き切り(Flush(true))・置換が
+        /// メインスレッドで走るので、読んで比べる方が安い。読めなかったときは書く(従来どおり)。
+        /// </summary>
+        public static bool WriteAllTextIfChanged(string path, string contents)
+        {
+            byte[] bytes = Utf8NoBom.GetBytes(contents);
+            if (HasSameBytes(path, bytes)) return false;
+            Write(path, tmp => WriteAndFlush(tmp, bytes));
+            return true;
+        }
+
+        private static bool HasSameBytes(string path, byte[] bytes)
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                if (!info.Exists || info.Length != bytes.Length) return false;
+                return File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// <paramref name="path"/> へバイト列をアトミックに書き込む。
         /// 失敗時は例外を伝播する（既存ファイルは無傷、書きかけの一時ファイルは削除）。
         /// エクスポート PNG のように「書き潰す相手が元テクスチャそのもの」であり得る用途では、
@@ -29,6 +57,20 @@ namespace Iroca
         /// </summary>
         public static void WriteAllBytes(string path, byte[] contents)
             => Write(path, tmp => WriteAndFlush(tmp, contents));
+
+        /// <summary>
+        /// <see cref="WriteAllBytes"/> と同じだが、中身は <paramref name="write"/> が一時ファイルのストリームへ書く
+        /// (大きい中身を管理配列に組み立てずに書くため。Mono のヒープは一度広がると縮まない)。
+        /// </summary>
+        public static void WriteAll(string path, Action<Stream> write)
+            => Write(path, tmp =>
+            {
+                using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    write(fs);
+                    fs.Flush(true);   // 理由は WriteAndFlush と同じ
+                }
+            });
 
         // File.WriteAllText の既定と同じ「BOM なし UTF-8」を保つ。
         private static readonly System.Text.UTF8Encoding Utf8NoBom = new System.Text.UTF8Encoding(false);

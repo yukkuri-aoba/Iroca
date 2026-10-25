@@ -1,4 +1,4 @@
-# Iroca/いろか Ver 0.2.1 (Beta)
+# Iroca/いろか Ver 0.3.0 (Beta)
 
 Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変更できる拡張ツールです。VRChat アバターのテクスチャ編集を主な対象としていますが、一般的な Unity プロジェクトでも使用できます。
 
@@ -30,7 +30,7 @@ Iroca/いろか は、Unity Editor 上でテクスチャの色を直感的に変
 - **Unity 2022.3.22f1**（Windows で検証しています）
 - いろか本体は VCC や VRChat SDK が無くても動きます。ただし、インストーラは VRChat のプロジェクト向けです（→ インストール手順の「VRChat SDK の無いプロジェクトに入れる」）
 - 非破壊の色替えには NDMF 1.8 以上 2.0 未満を使います。インストーラで入れると一緒に入ります（VCC / ALCOM の場合は[インストール手順](#インストール手順)を参照）。NDMF が無くても、画像の書き出しは使えます（NDMF が無い、または対応していない版のときは、「Iroca Recolor」の付いたアバターのアップロードを止めて直し方を表示します）
-- 自動調整と AI マスク提案には、Unity Sentis 2.1.3（Unity 2022.3.11f1 以降）と AI モデル（約 44 MB）が必要です。ウィンドウ上部の案内から導入できます。Sentis を入れると、VRChat SDK も使う Burst と Collections も新しい版に上がります
+- 自動調整と AI マスク提案には、Unity Sentis 2.1.3（Unity 2022.3.11f1 以降）と AI モデル（約 44 MB）が必要です。ウィンドウ上部の案内から導入できます。Sentis を入れると、VRChat SDK も使う Burst と Collections、テスト用の Test Framework なども新しい版に上がります（いろかを外しても残ります）
 - 8192×8192 までのテクスチャで検証しています。編集はインポート設定の Max Size の大きさで行い、書き出し（「適用して保存」）だけ元の解像度で行います（8K の書き出しでは数 GB のメモリを使います）
 
 ### クイックスタート
@@ -116,9 +116,9 @@ VRChat のプロジェクトには、次のどちらかで導入します。ど�
 
 **新しい版への更新**
 
-新しい版が出ると、いろかのウィンドウに案内が出ます（0.2.1 から）。VCC / ALCOM でプロジェクトの管理画面から「いろか」を最新の版にするか、インストーラをもう一度読み込みます（前にダウンロードしたものでも、いろかと NDMF がそれぞれ最新の版になります）。zip を展開して入れたときは、フォルダの中身を新しい zip の中身に入れ替えます。
+新しい版が出ると、いろかのウィンドウに案内が出ます（0.2.1 から）。VCC / ALCOM でプロジェクトの管理画面から「いろか」を最新の版にするか、最新の zip をダウンロードし直して、中のインストーラを読み込みます（前にダウンロードしたインストーラは使わないでください。0.3.0 より前のものは、NDMF 2.0 が出た後に、いろかや Modular Avatar などが対応していない NDMF 2.x を入れてしまうおそれがあります）。zip を展開して入れたときは、フォルダの中身を新しい zip の中身に入れ替えます。
 
-案内のために、いろかのウィンドウを開いたとき（1 日 1 回まで）、VCC / ALCOM が読むのと同じ公開リスト（`https://yukkuri-aoba.github.io/Iroca/index.json`）を読みます。こちらから送る情報はありません。`Edit > Preferences` の「いろか」でオフにできます。
+案内のために、いろかのウィンドウを開いたとき（1 日 1 回まで）、VCC / ALCOM が読むのと同じ公開リスト（`https://yukkuri-aoba.github.io/Iroca/index.json`）を読みます。通信の仕組み上 GitHub に届く接続元の情報（IP アドレス・Unity の版）のほかは、何も送りません。`Edit > Preferences` の「いろか」でオフにできます。
 
 ### ライセンス
 
@@ -146,7 +146,7 @@ VRChat のプロジェクトには、次のどちらかで導入します。ど�
 - **Unity 2022.3.22f1** (tested on Windows)
 - Iroca itself works without VCC or the VRChat SDK. The installer, however, is for VRChat projects (see "Projects without the VRChat SDK" under Installation)
 - Non-destructive recoloring uses NDMF 1.8 or later (below 2.0). The installer installs it together with Iroca (for VCC / ALCOM, see [Installation](#installation)). Without NDMF, exporting images still works (if NDMF is missing or an unsupported version, uploading an avatar with "Iroca Recolor" is stopped with instructions)
-- Auto-tune and AI Mask Suggestion need Unity Sentis 2.1.3 (Unity 2022.3.11f1 or later) and the AI models (about 44 MB). You can install them from the notice at the top of the window. Installing Sentis also updates Burst and Collections, which the VRChat SDK uses too
+- Auto-tune and AI Mask Suggestion need Unity Sentis 2.1.3 (Unity 2022.3.11f1 or later) and the AI models (about 44 MB). You can install them from the notice at the top of the window. Installing Sentis also updates Burst and Collections, which the VRChat SDK uses too, and packages such as the Test Framework (they stay even after you remove Iroca)
 - Tested with textures up to 8192×8192. Editing uses the import Max Size, and only exporting ("Apply & Save") uses the original resolution (exporting at 8K uses several GB of memory)
 
 ### Quick Start
@@ -231,9 +231,9 @@ Then open the window via `Tools > いろか`.
 
 **Updating to a new version**
 
-When a new version is released, the Iroca window shows a notice (from 0.2.1). Update "いろか" to the latest version from your project's management screen in VCC / ALCOM, or import the installer again (even an older download installs the latest Iroca and NDMF). If you installed by extracting the zip, replace the folder's contents with the new zip.
+When a new version is released, the Iroca window shows a notice (from 0.2.1). Update "いろか" to the latest version from your project's management screen in VCC / ALCOM, or download the latest zip again and import the installer inside it (do not reuse an installer you downloaded before: installers older than 0.3.0 may install NDMF 2.x after NDMF 2.0 is released, which Iroca, Modular Avatar and others do not support). If you installed by extracting the zip, replace the folder's contents with the new zip.
 
-For this notice, when you open the Iroca window (at most once a day), Iroca reads the same public listing that VCC / ALCOM reads (`https://yukkuri-aoba.github.io/Iroca/index.json`). Nothing about you or your project is sent. You can turn it off in `Edit > Preferences` > Iroca.
+For this notice, when you open the Iroca window (at most once a day), Iroca reads the same public listing that VCC / ALCOM reads (`https://yukkuri-aoba.github.io/Iroca/index.json`). Apart from what any connection shows GitHub (your IP address and the Unity version), nothing is sent. You can turn it off in `Edit > Preferences` > Iroca.
 
 ### License
 

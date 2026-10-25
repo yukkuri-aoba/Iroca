@@ -94,8 +94,8 @@ namespace Iroca
                             }
 
                             previewZoom = newZoom;
-                            // ズーム比が変わるとピクセル/ソース比も変わるため、
-                            // 古い詳細プレビューは整合しなくなる。破棄して再生成を待つ。
+                            // 見えている範囲と倍率が変わるので拡大表示を作り直させる。できるまでは前の切り出しを
+                            // 新しい倍率で(元の画像の座標の位置に)描き続ける。
                             _detailView.OnViewMoved();
                             _host.RequestRepaint();
                         }
@@ -117,18 +117,21 @@ namespace Iroca
         /// 使っている間は false。false でも中ボタンドラッグと Alt+左ドラッグは常にパンになる
         /// （塗っている最中でも表示を動かせるように。2026-09-11 の UX 見直し）。
         /// </param>
-        private void HandlePreviewPanInput(Rect previewRect, bool leftDragPans)
+        private void HandlePreviewPanInput(Rect previewRect, bool leftDragPans, Rect beforeRect = default)
         {
             Event e = Event.current;
             if (e == null) return;
 
             bool isInRect = previewRect.Contains(e.mousePosition);
+            // 前後比較の変更前の画像の上。ブラシ・スポイトなどのツールは変更後の画像にしか効かないので、
+            // こちらは素の左ドラッグも常にパンにする。
+            bool isInBefore = beforeRect.width > 0f && beforeRect.Contains(e.mousePosition);
             int controlId = GUIUtility.GetControlID(FocusType.Passive);
 
             switch (e.GetTypeForControl(controlId))
             {
                 case EventType.MouseDown:
-                    if (isInRect && IsPanButton(e, leftDragPans))
+                    if ((isInRect && IsPanButton(e, leftDragPans)) || (isInBefore && IsPanButton(e, true)))
                     {
                         GUIUtility.hotControl = controlId;
                         e.Use();
@@ -147,7 +150,7 @@ namespace Iroca
                         _previewScrollPos -= e.delta;
                         _previewScrollPos.x = Mathf.Max(0f, _previewScrollPos.x);
                         _previewScrollPos.y = Mathf.Max(0f, _previewScrollPos.y);
-                        // パンで詳細クロップ位置が変わるので古い詳細プレビューを破棄。
+                        // パンで見えている範囲が変わるので拡大表示を作り直させる。
                         _detailView.OnViewMoved();
                         e.Use();
                         _host.RequestRepaint();
@@ -167,6 +170,8 @@ namespace Iroca
                     // Alt は補助操作なので、ブラシのカーソル表示を上書きしない。
                     if (isInRect && leftDragPans)
                         EditorGUIUtility.AddCursorRect(previewRect, MouseCursor.Pan);
+                    if (beforeRect.width > 0f)
+                        EditorGUIUtility.AddCursorRect(beforeRect, MouseCursor.Pan);
                     break;
             }
         }
@@ -449,14 +454,14 @@ namespace Iroca
         }
 
         // u,v(0-1, v は下端=0)を実フル解像度ソース画素にマップして色を返す。
-        // _trueSourcePixels は GetPixels32 由来で行 0 = 画像下端。取得不能なら false。
+        // _trueSource は GetPixels32 と同じ並びで行 0 = 画像下端。取得不能なら false。
         private bool SampleTrueSourceColor(float u, float v, int srcW, int srcH, out Color color)
         {
             color = Color.white;
-            var px = _trueSourcePixels;
+            var px = _trueSource;
             if (px == null || srcW <= 0 || srcH <= 0 || px.Length < srcW * srcH) return false;
             PreviewCoords.UvToPixel(u, v, srcW, srcH, out int x, out int y);
-            Color32 c = px[y * srcW + x];
+            Color32 c = px.Get(y * srcW + x);
             // サンプルカラーはマッチング基準(HSV)に使い α は無関係。スウォッチを不透明にするため a=1。
             color = new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f);
             return true;

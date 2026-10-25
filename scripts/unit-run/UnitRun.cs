@@ -153,6 +153,36 @@ namespace Iroca.UnitRun
             Check.Equal("Assets/a.png", Rel(flipped + "/a.png"), "drive letter case");
         }
 
+        // ─── PathUtils.ExportFolderFor（書き出しの置き場所。パッケージの中には書かない） ───
+
+        public static void ExportFolder_InsideAssetsIsTheSameFolder()
+        {
+            Check.Equal("Assets/Tex", PathUtils.ExportFolderFor("Assets/Tex/a.png"), "Assets の中");
+            Check.Equal("Assets", PathUtils.ExportFolderFor("Assets/a.png"), "Assets 直下");
+        }
+
+        public static void ExportFolder_PackageMirrorsUnderExports()
+        {
+            // VCC / ALCOM の更新でパッケージのフォルダは丸ごと入れ替わるので、Assets の下へ写す。
+            Check.Equal("Assets/Iroca/Exports/Packages/com.example.outfit/Textures",
+                PathUtils.ExportFolderFor("Packages/com.example.outfit/Textures/a.png"), "Packages");
+            Check.Equal("Assets/Iroca/Exports/Packages/com.example.outfit/Textures",
+                PathUtils.ExportFolderFor("Packages\\com.example.outfit\\Textures\\a.png"), "backslash");
+        }
+
+        public static void ExportFolder_RoundTripsToTheSourceFolder()
+        {
+            string src = "Packages/com.example.outfit/Textures";
+            Check.Equal(src, PathUtils.SourceFolderOfExport(PathUtils.ExportFolderFor(src + "/a.png")), "round trip");
+            Check.Equal("Assets/Tex", PathUtils.SourceFolderOfExport("Assets/Tex"), "ordinary folder");
+            Check.Equal("Assets/Iroca/Exports", PathUtils.SourceFolderOfExport("Assets/Iroca/Exports"), "exports root");
+            Check.Equal("Assets/Iroca/Exports/Assets/x", PathUtils.SourceFolderOfExport("Assets/Iroca/Exports/Assets/x"),
+                "Assets の中の元は写さない");
+        }
+
+        public static void ExportFolder_ParentTraversalStaysInExports()
+            => Check.Equal("Assets/Iroca/Exports", PathUtils.ExportFolderFor("Packages/../../evil/a.png"), "traversal");
+
         // ─── AtomicFile（エクスポート・セッション・マスク保存の書き込み） ───
 
         private static string TempDir()
@@ -235,6 +265,55 @@ namespace Iroca.UnitRun
             finally { Directory.Delete(d, true); }
         }
 
+        public static void Atomic_IfChanged_SkipsSameContent()
+        {
+            // 自動保存: 中身が同じなら書かない(更新時刻も変えない)。
+            string d = TempDir();
+            try
+            {
+                string p = Path.Combine(d, "same.json");
+                Check.True(AtomicFile.WriteAllTextIfChanged(p, "{\"a\":\"マスク\"}"), "first write creates the file");
+                var old = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                File.SetLastWriteTimeUtc(p, old);
+                Check.True(!AtomicFile.WriteAllTextIfChanged(p, "{\"a\":\"マスク\"}"), "same content is not written");
+                Check.Equal(old, File.GetLastWriteTimeUtc(p), "file untouched");
+                Check.True(!File.Exists(p + ".tmp"), "no tmp");
+            }
+            finally { Directory.Delete(d, true); }
+        }
+
+        public static void Atomic_IfChanged_WritesDifferentContent()
+        {
+            // 長さが同じでも中身が違えば書く。長さが違っても書く。
+            string d = TempDir();
+            try
+            {
+                string p = Path.Combine(d, "diff.json");
+                File.WriteAllText(p, "abc");
+                Check.True(AtomicFile.WriteAllTextIfChanged(p, "abd"), "same length, different bytes");
+                Check.Equal("abd", File.ReadAllText(p), "content after same-length change");
+                Check.True(AtomicFile.WriteAllTextIfChanged(p, "abde"), "different length");
+                Check.Equal("abde", File.ReadAllText(p), "content after length change");
+                var bytes = File.ReadAllBytes(p);
+                Check.True(!(bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF), "no BOM");
+            }
+            finally { Directory.Delete(d, true); }
+        }
+
+        public static void Atomic_IfChanged_BomFileIsRewritten()
+        {
+            // 比べるのはバイト列。BOM 付きの同じ文字列は別物として BOM なしで書き直す(WriteAllText と同じ結果にそろえる)。
+            string d = TempDir();
+            try
+            {
+                string p = Path.Combine(d, "bom.json");
+                File.WriteAllText(p, "x", new System.Text.UTF8Encoding(true));
+                Check.True(AtomicFile.WriteAllTextIfChanged(p, "x"), "BOM file differs");
+                Check.Equal("x", string.Join(",", File.ReadAllBytes(p).Select(b => ((char)b).ToString())), "no BOM after rewrite");
+            }
+            finally { Directory.Delete(d, true); }
+        }
+
         public static void Atomic_MissingFolderThrowsWithoutLeftovers()
         {
             string d = TempDir();
@@ -245,6 +324,55 @@ namespace Iroca.UnitRun
                 Check.True(Directory.GetFiles(d, "*", SearchOption.AllDirectories).Length == 0, "nothing written");
             }
             finally { Directory.Delete(d, true); }
+        }
+
+        // ─── MetaFile（書き出しでインポート設定を引き継ぐときの .meta の GUID の差し替え） ───
+
+        private const string NewGuid = "0123456789abcdef0123456789abcdef";
+
+        private static string Meta(string nl) =>
+            "fileFormatVersion: 2" + nl
+            + "guid: 5f1e2d3c4b5a69788796a5b4c3d2e1f0" + nl
+            + "TextureImporter:" + nl
+            + "  externalObjects: {}" + nl
+            + "  spriteSheet:" + nl
+            + "    sprites: []" + nl
+            + "  - first: {fileID: 2800000, guid: 5f1e2d3c4b5a69788796a5b4c3d2e1f0, type: 3}" + nl;
+
+        public static void Meta_ReplacesGuidLf()
+        {
+            Check.True(MetaFile.TryReplaceGuid(Meta("\n"), NewGuid, out var r), "LF の .meta で GUID の行が見つからない");
+            Check.Equal(Meta("\n").Replace("guid: 5f1e2d3c4b5a69788796a5b4c3d2e1f0\n", "guid: " + NewGuid + "\n"), r, "LF");
+        }
+
+        public static void Meta_ReplacesGuidCrlfAndKeepsLineEnds()
+        {
+            // Windows の Git(autocrlf)で取り出した .meta。以前は CRLF の行末で一致せず、元の GUID のまま写していた。
+            Check.True(MetaFile.TryReplaceGuid(Meta("\r\n"), NewGuid, out var r), "CRLF の .meta で GUID の行が見つからない");
+            Check.True(r.Contains("guid: " + NewGuid + "\r\n"), "CRLF の行末が保たれていない");
+            Check.Equal(Meta("\r\n").Split('\n').Length, r.Split('\n').Length, "行数");
+            Check.True(!r.Replace("\r\n", "").Contains("\n"), "LF だけの行ができた");
+        }
+
+        public static void Meta_LeavesNestedReferencesAlone()
+        {
+            // 行頭でない guid:(入れ子の参照)は差し替えない。
+            MetaFile.TryReplaceGuid(Meta("\n"), NewGuid, out var r);
+            Check.True(r.Contains("{fileID: 2800000, guid: 5f1e2d3c4b5a69788796a5b4c3d2e1f0, type: 3}"), "入れ子の参照まで書き換えた");
+        }
+
+        public static void Meta_LastLineWithoutNewline()
+        {
+            Check.True(MetaFile.TryReplaceGuid("fileFormatVersion: 2\r\nguid: abc123", NewGuid, out var r), "末尾の改行が無い");
+            Check.Equal("fileFormatVersion: 2\r\nguid: " + NewGuid, r, "content");
+        }
+
+        public static void Meta_NoGuidLineIsRefused()
+        {
+            Check.True(!MetaFile.TryReplaceGuid("fileFormatVersion: 2\nTextureImporter:\n", NewGuid, out var r), "GUID の行が無いのに成功した");
+            Check.Equal(null, r, "replaced");
+            Check.True(!MetaFile.TryReplaceGuid("guid: XYZ\n", NewGuid, out _), "16 進でない GUID");
+            Check.True(!MetaFile.TryReplaceGuid("", NewGuid, out _), "empty");
         }
 
         // ─── PreviewLatency（プレビューの体感時間: 操作 → 画面） ───
@@ -690,6 +818,45 @@ namespace Iroca.UnitRun
             Check.Equal("111000", Bits(inc), "dont→paint: included");
         }
 
+        // 右クリックの宛先: クリックした所(ここでは 4 画素)をいま塗っているゾーン。
+        private static float[] Strength(params float[] s) => s;
+
+        public static void PaintingZone_LowerZoneWhenTopDoesNotPaint()
+        {
+            // 上のゾーンは塗っていない所を、下のゾーンが塗っている(上を宛先にしても何も変わらない場面)。
+            var s = new[] { Strength(0f, 0f, 0f, 0f), Strength(1f, 1f, 1f, 1f) };
+            Check.Equal(1, MaskRegionEdit.PaintingZoneAt(s, 4), "下のゾーン");
+        }
+
+        public static void PaintingZone_TopZoneWinsWhereBothPaint()
+        {
+            // 両方が選んでいる所は、合成で上のゾーンだけが効く。
+            var s = new[] { Strength(1f, 1f, 1f, 1f), Strength(1f, 1f, 1f, 1f) };
+            Check.Equal(0, MaskRegionEdit.PaintingZoneAt(s, 4), "上のゾーン");
+        }
+
+        public static void PaintingZone_WeakTopLeavesRoomForLower()
+        {
+            // 上が 0.3 しか取らなければ、残り 0.7 を下が塗る(見えている色は下のゾーンが大半)。
+            var s = new[] { Strength(0.3f, 0.3f, 0.3f, 0.3f), Strength(1f, 1f, 1f, 1f) };
+            Check.Equal(1, MaskRegionEdit.PaintingZoneAt(s, 4), "取り分の大きい下のゾーン");
+        }
+
+        public static void PaintingZone_NoneWhenMostlyUnpainted()
+        {
+            // 4 画素のうち 1 画素だけ(縁など)では、塗られている所とみなさない。
+            var s = new[] { Strength(1f, 0f, 0f, 0f), Strength(0.2f, 0.2f, 0.2f, 0.2f) };
+            Check.Equal(-1, MaskRegionEdit.PaintingZoneAt(s, 4), "誰も塗っていない");
+        }
+
+        public static void PaintingZone_SkipsZonesWithoutValues()
+        {
+            // 無効のゾーン・選択の値が取れないゾーン(null)は飛ばす。
+            var s = new[] { null, Strength(1f, 1f, 0f, 1f) };
+            Check.Equal(1, MaskRegionEdit.PaintingZoneAt(s, 4), "値のあるゾーン");
+            Check.Equal(-1, MaskRegionEdit.PaintingZoneAt(new float[][] { null, null }, 4), "どれも値なし");
+        }
+
         public static void MaskEdit_CanvasSizeFollowsSourceFile()
         {
             // 4K の元画像を 2048 で取り込んでも、マスクは元画像(書き出しの解像度)に合わせる。
@@ -896,6 +1063,75 @@ namespace Iroca.UnitRun
                 Check.True(UpdateCheck.MiniJson.Parse(json) == null, $"<{json}> rejected");
             // 深い入れ子でスタックを使い切らない。
             Check.True(UpdateCheck.MiniJson.Parse(new string('[', 10000) + new string(']', 10000)) == null, "deep nesting");
+        }
+
+        // ─── ColorTintLut（「アバターの色」表示: マテリアルのメインカラーの掛け算） ───
+
+        public static void TintLut_WhiteIsIdentity()
+        {
+            Check.True(ColorTintLut.IsIdentity(ColorTintLut.Build(1f, true)), "linear");
+            Check.True(ColorTintLut.IsIdentity(ColorTintLut.Build(1f, false)), "gamma");
+        }
+
+        public static void TintLut_BlackGivesZero()
+        {
+            var lut = ColorTintLut.Build(0f, true);
+            for (int v = 0; v < 256; v++) Check.Equal((byte)0, lut[v], $"v={v}");
+        }
+
+        // Gamma のプロジェクトでは保存された値どうしをそのまま掛ける。
+        public static void TintLut_GammaMultipliesStoredValues()
+        {
+            var lut = ColorTintLut.Build(0.5f, false);
+            Check.Equal((byte)100, lut[200], "200 * 0.5");
+            Check.Equal((byte)128, lut[255], "255 * 0.5");
+        }
+
+        // Linear のプロジェクトでは線形で掛けて sRGB へ戻す。白(255)に 0.5 を掛けると、保存値の 0.5 に戻る。
+        public static void TintLut_LinearMultipliesInLinearSpace()
+        {
+            var lut = ColorTintLut.Build(0.5f, true);
+            Check.Equal((byte)128, lut[255], "white * 0.5");
+            // 中間の値は線形の積を sRGB に戻したもの(保存値どうしの積 64 とは違う)。
+            float expect = ColorTintLut.LinearToSrgb(ColorTintLut.SrgbToLinear(128 / 255f) * ColorTintLut.SrgbToLinear(0.5f));
+            Check.Equal((byte)Math.Round(expect * 255f), lut[128], "128 * 0.5");
+            Check.True(lut[128] != 64, "not the gamma product");
+        }
+
+        // HDR の色(1 を超える)は明るくし、表示先で飽和するのと同じく 255 で止める。
+        public static void TintLut_HdrBrightensAndClamps()
+        {
+            var lut = ColorTintLut.Build(2f, true);
+            Check.Equal((byte)255, lut[255], "clamped");
+            Check.True(lut[100] > 100, "brighter");
+            for (int v = 1; v < 256; v++) Check.True(lut[v] >= lut[v - 1], $"monotonic at {v}");
+        }
+
+        public static void TintLut_SrgbRoundTrips()
+        {
+            for (int v = 0; v < 256; v++)
+            {
+                float back = ColorTintLut.LinearToSrgb(ColorTintLut.SrgbToLinear(v / 255f));
+                Check.Equal(v, (int)Math.Round(back * 255f), $"v={v}");
+            }
+        }
+
+        public static void TintLut_ApplyMapsChannelsAndKeepsAlpha()
+        {
+            var r = ColorTintLut.Build(1f, true);
+            var g = ColorTintLut.Build(0.5f, false);
+            var b = ColorTintLut.Build(0f, true);
+            var src = new[] { new UnityEngine.Color32(10, 200, 30, 77), new UnityEngine.Color32(255, 255, 255, 0) };
+            var dst = new UnityEngine.Color32[2];
+            ColorTintLut.Apply(src, dst, r, g, b);
+            Check.Equal((byte)10, dst[0].r, "r identity");
+            Check.Equal((byte)100, dst[0].g, "g halved");
+            Check.Equal((byte)0, dst[0].b, "b zero");
+            Check.Equal((byte)77, dst[0].a, "alpha kept");
+            Check.Equal((byte)0, dst[1].a, "alpha kept (0)");
+            // 同じ配列へ書いてもよい。
+            ColorTintLut.Apply(src, src, r, g, b);
+            Check.Equal((byte)100, src[0].g, "in place");
         }
     }
 }

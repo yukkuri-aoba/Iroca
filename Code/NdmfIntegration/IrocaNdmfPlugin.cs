@@ -24,6 +24,8 @@ namespace Iroca.NdmfIntegration
     /// 2 段目は Optimizing 段の最初(AAO と TexTransTool の前)。VRCFury のように NDMF の外で途中に動くツールが
     /// 入れたマテリアルも色替えするため(<see cref="NonDestructiveApplier.Stage"/>)。TexTransTool はアトラス化と
     /// テクスチャの設定(TextureConfigurator)を Optimizing 段で行うので、1 段目と同じく色替え後のテクスチャを渡す。
+    /// その前の Resolving 段(Modular Avatar より前)では、各コンポーネントの範囲にある Renderer を記録するだけ
+    /// (骨の統合などで範囲の外へ移される小物も色替えするため。<see cref="NonDestructiveApplier.RecordScopes"/>)。
     /// </para>
     /// <para>
     /// アニメーションで切り替わるマテリアル(衣装・表情のトグル。MA のマテリアル切り替えも MA の後なので
@@ -44,6 +46,18 @@ namespace Iroca.NdmfIntegration
 
         protected override void Configure()
         {
+            // Modular Avatar の Merge Armature・Bone Proxy(Transforming 段)や VRCFury の Armature Link は、
+            // 衣装の骨の下の小物をアバター本体の骨の下へ移す。色替えの範囲は編集中の親子関係(シーンのプレビュー・
+            // インスペクタと同じ)で決めたいので、それより前の Resolving 段で各コンポーネントの範囲を記録しておく。
+            InPhase(BuildPhase.Resolving)
+                .BeforePlugin("nadena.dev.modular-avatar")
+                .Run("Record recolor scopes", ctx =>
+                {
+                    if (ctx.AvatarRootObject.GetComponentInChildren<IrocaRecolor>(true) == null) return;
+                    NonDestructiveApplier.RecordScopes(ctx.AvatarRootObject,
+                        ctx.GetState<NonDestructiveApplier.BuildState>());
+                });
+
             InPhase(BuildPhase.Transforming)
                 .AfterPlugin("nadena.dev.modular-avatar")
                 .BeforePlugin("net.rs64.tex-trans-tool")
@@ -96,8 +110,8 @@ namespace Iroca.NdmfIntegration
                 RecipeTextureBuilder.Failure failure)
                 => NdmfMessages.Report(problem, component, recipe, failure);
 
-            public void RewriteAnimatedMaterials(Transform scope, Func<Material, Material> mapping)
-                => AnimatedMaterials.Rewrite(_animators.Get(), scope, mapping);
+            public void RewriteAnimatedMaterials(Func<Transform, bool> inScope, Func<Material, Material> mapping)
+                => AnimatedMaterials.Rewrite(_animators.Get(), inScope, mapping);
         }
     }
 
@@ -109,7 +123,8 @@ namespace Iroca.NdmfIntegration
     {
         private const string MaterialSlotPrefix = "m_Materials.Array.data[";
 
-        public static void Rewrite(AnimatorServicesContext animators, Transform scope, Func<Material, Material> mapping)
+        public static void Rewrite(AnimatorServicesContext animators, Func<Transform, bool> inScope,
+            Func<Material, Material> mapping)
         {
             var paths = animators.ObjectPathRemapper;
             foreach (var clip in animators.AnimationIndex.ClipsWithObjectCurves.ToList())
@@ -118,7 +133,7 @@ namespace Iroca.NdmfIntegration
                 {
                     if (!IsMaterialSlot(binding)) continue;
                     var target = paths.GetObjectForPath(binding.path);
-                    if (target == null || !target.transform.IsChildOf(scope)) continue;
+                    if (target == null || !inScope(target.transform)) continue;
                     var curve = clip.GetObjectCurve(binding);
                     if (curve == null) continue;
 

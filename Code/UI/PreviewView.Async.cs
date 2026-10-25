@@ -9,7 +9,7 @@ using UnityEngine;
 namespace Iroca
 {
     // PreviewView: 非同期プレビュー生成(プロキシ/フル解像度ジョブ・pending 適用・diff 生成)。
-    internal partial class PreviewView
+    internal unsafe partial class PreviewView
     {
 
         // dragOnly: ドラッグ中の追従。プロキシ段だけを回し(縮小しないテクスチャはフル段がそのまま
@@ -27,13 +27,14 @@ namespace Iroca
             PixelProcessor.ComputeFitSize(srcW, srcH, IrocaConsts.Preview.MaxSize,
                 out int prevW, out int prevH, out float scale);
 
-            Color32[] srcPixels;
-            // rawDisplay: 既に確定しているもの(キャッシュヒット or scale>=1 で src と同一)は非 null。
+            NativePixels srcPixels;
+            // rawDisplay: 既に確定しているもの(キャッシュヒット or scale>=1 で src の写し)は非 null。
             // キャッシュミス かつ scale<1 のときのみ null にし、ジョブ側で BoxDownsample してから
             // apply でキャッシュへ確定する(メインスレッドのダウンサンプルヒッチを回避)。
             Color32[] rawDisplay;
             if (_cachedSourceTexture == sourceTexture &&
                 _cachedSrcPixels != null &&
+                ReferenceEquals(_cachedSrcPixels, _trueSource) &&
                 _cachedRawDisplay != null &&
                 _cachedSrcW == srcW && _cachedSrcH == srcH &&
                 _cachedPrevW == prevW && _cachedPrevH == prevH)
@@ -43,9 +44,10 @@ namespace Iroca
             }
             else
             {
-                srcPixels = _trueSourcePixels;
-                // scale>=1 は縮小不要で raw==src(コスト 0)。scale<1 はジョブ側で生成するため null。
-                rawDisplay = scale < 1f ? null : srcPixels;
+                srcPixels = _trueSource;
+                // scale>=1 は縮小不要で raw は src の写し(表示の上限 IrocaConsts.Preview.MaxSize 以下なので小さい)。
+                // scale<1 はジョブ側で生成するため null。
+                rawDisplay = scale < 1f ? null : srcPixels.ToArray();
 
                 // テクスチャ/寸法が変わった = キャッシュ済み選択(strength)の前提画素が変わる。
                 // 選択キャッシュはキーに画素内容を含まないので、ここで必ず破棄する(寸法不一致は
@@ -152,7 +154,8 @@ namespace Iroca
         {
             public Texture2D source;           // 結果をシーンのアバターへ渡すときの宛先(LivePreview)
             public int srcW, srcH;
-            public Color32[] srcPixels;
+            // 原本(参照は持たない。ジョブを予約するときに足し、ジョブの後始末で返す)。
+            public NativePixels srcPixels;
             public Color32[] rawDisplay;       // null=ジョブ側で BoxDownsample して確定
             public float scale;
             public int prevW, prevH;
@@ -181,6 +184,8 @@ namespace Iroca
                     && cached.h == proxyH && cached.prevW == req.prevW && cached.prevH == req.prevH))
                 cached = null;
 
+            // 縮小した控えが無いときだけジョブが原本を読む。読む間の参照を足し、後始末で返す。
+            var src = cached == null ? req.srcPixels.AddRef() : null;
             _proxyJob.Schedule(
                 work: token =>
                 {
@@ -193,7 +198,7 @@ namespace Iroca
                     // 控え(proxyRaw)はソースと寸法だけで決まるので、前の回のものがあればそれを使う。
                     // 処理は ProcessPixelsArray が書き換えるので、その複製に対して行う。
                     Color32[] proxyRaw = cached?.proxy ?? PixelProcessor.BoxDownsample(
-                        req.srcPixels, req.srcW, req.srcH, proxyW, proxyH, proxyScale);
+                        src.Ptr, req.srcW, req.srcH, proxyW, proxyH, proxyScale);
                     Color32[] proxyPixels = (Color32[])proxyRaw.Clone();
                     marks.CoreStart = PreviewLatencyCycle.Now;
                     // 控えた proxyRaw は処理前と同じ中身なので、Core の入力スナップショットにも使う(複製しない)。
@@ -244,7 +249,8 @@ namespace Iroca
                     _host.RequestRepaint();
                     // 続けてフル解像度で確定(同一スナップショット)。
                     if (chainFull) ScheduleFullPreview(req);
-                });
+                },
+                cleanup: () => src?.Release());
         }
 
         // 段階的リファイン第2段(=従来のフル解像度処理)。フル解像度で処理→表示解像度へ縮小し、
@@ -255,45 +261,67 @@ namespace Iroca
             var selCache = _selectionCache;
             var marks = req.latency.Full;
             marks.Scheduled = PreviewLatencyCycle.Now;
-            // 縮小表示のテクスチャでは、出力バッファ(フル解像度)を前のフル段から使い回す。縮小しない
-            // テクスチャは出力の配列がそのまま表示用・差分ジョブにも渡るので使い回さない(毎回 new)。
-            bool recyclable = req.scale < 1f;
+            // 出力バッファ(フル解像度)は前のフル段から使い回す(取り出したものの参照はこのジョブが持つ)。
             var buffers = _outputBuffers;
-            Color32[] reused = recyclable ? buffers?.Take(req.srcPixels.Length, LivePreview.HoldsPixels) : null;
+            NativePixels reused = buffers?.Take(req.srcW, req.srcH);
+            // 原本はジョブが読む間の参照を足し、後始末で返す。
+            var src = req.srcPixels.AddRef();
+            // 拡大表示を取り込み後の寸法で映すなら、その寸法(非破壊ビルドと同じ面平均で縮める)。
+            int dispW = _displaySource != null ? _displayW : 0, dispH = _displaySource != null ? _displayH : 0;
+            bool workStarted = false;
+            // もう書かない出力バッファを使い回しへ戻す(参照を渡す。使い回しが無ければ返す)。
+            void RetireOutput(NativePixels b)
+            {
+                if (b == null) return;
+                if (buffers != null) buffers.Retire(b);
+                else b.Release();
+            }
             _previewJob.Schedule(
                 work: token =>
                 {
+                    workStarted = true;
                     marks.WorkStart = PreviewLatencyCycle.Now;
-                    Color32[] pixels = reused ?? new Color32[req.srcPixels.Length];
+                    NativePixels pixels = reused ?? NativePixels.Allocate(req.srcW, req.srcH);
                     bool handedOff = false;
+                    NativePixels display = null;
                     try
                     {
-                        System.Array.Copy(req.srcPixels, pixels, pixels.Length);
+                        pixels.CopyFrom(src);
                         marks.CoreStart = PreviewLatencyCycle.Now;
-                        // 写し元のソース画素は誰も書き換えない(テクスチャが変われば別の配列になる)ので、
+                        // 写し元のソース画素は誰も書き換えない(テクスチャが変われば別の画素になる)ので、
                         // Core の入力スナップショットにそのまま使う(4K で 64MB の複製を作らない)。
-                        PixelProcessor.ProcessPixelsArray(pixels, req.srcW, req.srcH, req.maskSnap, req.zonesSnapshot,
+                        PixelProcessor.ProcessPixelsNative(pixels.Ptr, req.srcW, req.srcH, req.maskSnap, req.zonesSnapshot,
                             req.settings, token,
                             debug: req.debugCap, selectionCache: selCache,
-                            sourcePixels: req.srcPixels);
+                            sourcePixels: src.Ptr);
                         marks.CoreEnd = PreviewLatencyCycle.Now;
                         marks.CoreReport = DebugCaptureHooks.TakeThreadPerfReport();
 
+                        // 表示用は管理配列(縮小しないテクスチャは表示の上限 IrocaConsts.Preview.MaxSize 以下なので小さい)。
                         Color32[] processedDisplay = req.scale < 1f
-                            ? PixelProcessor.BoxDownsample(pixels, req.srcW, req.srcH, req.prevW, req.prevH, req.scale)
-                            : pixels;
+                            ? PixelProcessor.BoxDownsample(pixels.Ptr, req.srcW, req.srcH, req.prevW, req.prevH, req.scale)
+                            : pixels.ToArray();
                         // raw が未確定(キャッシュミス & scale<1)ならバックグラウンドで生成する。
                         // それ以外(キャッシュヒット or scale>=1)は確定済みをそのまま使う。
                         Color32[] rawForJob = req.rawDisplay ?? PixelProcessor.BoxDownsample(
-                            req.srcPixels, req.srcW, req.srcH, req.prevW, req.prevH, req.scale);
+                            src.Ptr, req.srcW, req.srcH, req.prevW, req.prevH, req.scale);
+                        if (dispW > 0)
+                        {
+                            display = NativePixels.Allocate(dispW, dispH);
+                            WorkingResolution.ResizeArea(pixels.Ptr, req.srcW, req.srcH, dispW, dispH, display.Ptr);
+                        }
                         marks.WorkEnd = PreviewLatencyCycle.Now;
                         handedOff = true;
-                        return (processedDisplay, rawForJob, pixels);
+                        return (processedDisplay, rawForJob, pixels, display);
                     }
                     finally
                     {
                         // 取り消し・例外で結果を渡さなかった作業バッファは、もう書かないので使い回しへ戻す。
-                        if (!handedOff && recyclable) buffers?.Retire(pixels);
+                        if (!handedOff)
+                        {
+                            RetireOutput(pixels);
+                            display?.Release();
+                        }
                     }
                 },
                 apply: result =>
@@ -310,12 +338,18 @@ namespace Iroca
                     _pendingProcessedDisplay = result.processed;
                     _pendingPrevW            = req.prevW;
                     _pendingPrevH            = req.prevH;
-                    // フル解像度の結果を保持する。拡大表示(詳細クロップ)はここから切り出すだけなので、
-                    // 書き出しと同じ計算結果そのものになる(切り出しを計算し直さない)。
-                    if (!ReferenceEquals(_fullOutput, result.full)) RetireFullOutput();
+                    // フル解像度の結果を保持する(ジョブが持っていた参照を引き取る)。拡大表示(詳細クロップ)は
+                    // ここから切り出すだけなので、書き出しと同じ計算結果そのものになる(切り出しを計算し直さない)。
+                    RetireFullOutput();
                     _fullOutput       = result.full;
                     _fullOutputSource = req.srcPixels;
-                    _fullOutputRecyclable = recyclable;
+                    // 拡大表示の寸法が変わっていたら(原本を読み直した)使わない(_fullOutputSource も別の原本になる)。
+                    if (result.display != null && (result.display.Width != _displayW || result.display.Height != _displayH))
+                    {
+                        result.display.Release();
+                        _displayOutput = null;
+                    }
+                    else _displayOutput = result.display;
                     _fullOutputFreshSinceHide = true;
                     // ジョブ側で生成した raw をキャッシュへ確定する(まだ未確定で、対象テクスチャと
                     // 寸法が変わっていない場合のみ。新しいミスで上書きされていれば触らない)。
@@ -325,14 +359,27 @@ namespace Iroca
                     {
                         _cachedRawDisplay = result.raw;
                     }
-                    // シーンのアバターにはフル解像度の結果を映す(取り込み済みテクスチャの寸法へは LivePreview が合わせる)。
-                    LivePreview.Push(req.source, result.full, req.srcW, req.srcH);
+                    // シーンのアバターにはフル解像度の結果を映す(取り込み済みテクスチャの寸法へは LivePreview が合わせる。
+                    // 映している間は LivePreview が参照を持つ)。
+                    LivePreview.Push(req.source, result.full);
                     _host.LatestDebugCapture = req.debugCap;
                     // 充填完了したキャプチャを（メインスレッドの）ここで初めて公開する。
                     // 生成時に公開すると、DebugWindow が Add 中のリストを foreach して競合する。
                     if (req.debugCap != null)
                         DebugCaptureHooks.RaiseCaptureComplete(req.debugCap);
                     _host.RequestRepaint();
+                },
+                cleanup: () =>
+                {
+                    src.Release();
+                    // 取り消されて計算しなかったときは、取り出した出力バッファを戻す。
+                    if (!workStarted) RetireOutput(reused);
+                },
+                // 計算は済んだが apply しなかった(後から来た操作で古くなった)出力も戻す。
+                discard: result =>
+                {
+                    RetireOutput(result.full);
+                    result.display?.Release();
                 });
         }
 
@@ -377,8 +424,7 @@ namespace Iroca
             }
 
             // 拡大表示(詳細クロップ)は確定(フル段)の出力から切り出すので、確定を出したときだけ
-            // 作り直させる。待たない: 詳細の待ち(DetailDebounceSeconds)はスクロール・ズーム中の作り直しを間引く
-            // ためのもの。プロキシの直後は何もしない(切り出し元のフル段の出力がまだ前の状態のまま)。
+            // 作り直させる。プロキシの直後は何もしない(切り出し元のフル段の出力がまだ前の状態のまま)。
             if (isDrag)
             {
                 // ドラッグの追従: 古い拡大表示を隠してこのプロキシを見せる。走っている拡大表示のジョブは
@@ -389,9 +435,8 @@ namespace Iroca
             }
             if (isFinal)
             {
-                double now = EditorApplication.timeSinceStartup;
-                _detailView.lastDetailDirtyTime =
-                    System.Math.Max(double.Epsilon, now - DetailPreviewView.DetailDebounceSeconds);
+                // 走っている切り出しは古いフル段の出力のものなので取り消す(色が古い)。
+                _detailView.lastDetailDirtyTime = System.Math.Max(double.Epsilon, EditorApplication.timeSinceStartup);
                 _detailView.detailJob.Cancel();
             }
 

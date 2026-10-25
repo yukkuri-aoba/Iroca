@@ -22,7 +22,8 @@ namespace Iroca
     internal static class MaskSuggestSection
     {
         /// <summary>
-        /// AI 提案が今すぐ使えるか(エラー中は true = 選べば再試行する)。false なら右クリックメニューの
+        /// AI 提案が今すぐ使えるか(エラー中は true = 選べば再試行する。モデルを置いてあってまだ読み込んでいない
+        /// ときも true = 選んだときに読み込む)。false なら右クリックメニューの
         /// 項目を無効表示にし、有効化はメインウィンドウ上部のバナー(<see cref="DrawSetupBanner"/>)へ誘導する。
         /// </summary>
         public static bool ToolReady
@@ -61,6 +62,15 @@ namespace Iroca
             // ★これと再起動案内は「閉じる」で隠さない★ — AI が動かない状態そのものであり、
             // 隠すと原因不明の不調として残るため。
             if (svc != null) DrawBurstFailureNoticeIfNeeded(svc);
+
+            // 手で置いたモデルを拾う。バナーを描くかを決める前に、Layout のときだけ呼ぶ
+            // （状態をその場で書き換えるので、描いた後に呼ぶと同じフレームの
+            // Repaint だけバナーが消え、Layout と Repaint で並ぶ要素が食い違っていた）。
+            // 見るのはファイルがあるかだけで、読み込みは使うときまでしない。以前はここで読み込んでいたので、
+            // ウィンドウが見えているだけで、コンパイルや Play の開始のたびに進捗バーが出て一瞬止まっていた。
+            if (svc != null && svc.Phase == MaskSuggestPhase.NoModel && !MaskSuggestModelDownload.InProgress
+                && Event.current.type == EventType.Layout)
+                svc.RefreshModelFiles();
 
             bool needsSentis = svc == null;
             bool needsModel = svc != null && svc.Phase == MaskSuggestPhase.NoModel;
@@ -106,7 +116,10 @@ namespace Iroca
                 ctl.Granularity = (MaskSuggestGranularity)gran;
             EditorGUILayout.EndHorizontal();
 
-            switch (svc.Phase)
+            // 状態は Layout のときに決めて、同じフレームの Repaint もそれで描く。推論は裏で進むので、
+            // 間で状態が変わると Layout と Repaint で並ぶ要素が食い違う。
+            if (Event.current.type == EventType.Layout) s_drawnPhase = svc.Phase;
+            switch (s_drawnPhase)
             {
                 case MaskSuggestPhase.NoModel:
                     // 取得操作そのものはメインウィンドウ上部のバナー(DrawSetupBanner)が持つ。
@@ -120,16 +133,19 @@ namespace Iroca
 
                 case MaskSuggestPhase.Encoding:
                 {
-                    var r = EditorGUILayout.GetControlRect(false, 18f);
-                    EditorGUI.ProgressBar(r, Mathf.Clamp01(svc.Progress), Localization.AiSuggestEncoding);
-                    DrawPendingClickCount(svc, minCount: 1);
+                    var r = EditorGUILayout.GetControlRect(false, StatusRowHeight);
+                    EditorGUI.ProgressBar(r, Mathf.Clamp01(svc.Progress),
+                                          WithPendingClicks(Localization.AiSuggestEncoding, svc, minCount: 1));
                     break;
                 }
 
                 case MaskSuggestPhase.Decoding:
-                    EditorGUILayout.LabelField(Localization.AiSuggestDecoding, EditorStyles.miniLabel);
-                    DrawPendingClickCount(svc, minCount: 2);
+                {
+                    var r = EditorGUILayout.GetControlRect(false, StatusRowHeight);
+                    EditorGUI.LabelField(r, WithPendingClicks(Localization.AiSuggestDecoding, svc, minCount: 2),
+                                         EditorStyles.miniLabel);
                     break;
+                }
 
                 case MaskSuggestPhase.Error:
                     EditorGUILayout.HelpBox(svc.ErrorMessage ?? Localization.AiUnknownError, MessageType.Error);
@@ -151,6 +167,9 @@ namespace Iroca
                 default:
                     // 待機中の操作説明は出さない。同じウィンドウの最下部に
                     // 右クリックメニューのヒント(Localization.MaskHintContextMenu)が出ており、二重になる。
+                    // 行は空けておく: 推論中(Encoding/Decoding)と同じ高さを取らないと、提案を出すたびに
+                    // 下の「元に戻す」などが上下に動く。
+                    EditorGUILayout.GetControlRect(false, StatusRowHeight);
                     break;
             }
 
@@ -184,7 +203,6 @@ namespace Iroca
                 }
                 EditorGUILayout.EndHorizontal();
             }
-            if (Event.current.type == EventType.Layout) svc.TryEnsureModels();
         }
 
         /// <summary>
@@ -199,7 +217,7 @@ namespace Iroca
                                   Localization.AiSuggestDownloading);
             if (GUILayout.Button(new GUIContent(Localization.AiSuggestDownloadCancel,
                                                 Localization.AiSuggestDownloadCancelTooltip),
-                                 GUILayout.Width(48f)))
+                                 GUILayout.Width(IrocaWindow.FitButtonWidth(48f, Localization.AiSuggestDownloadCancel))))
                 MaskSuggestModelDownload.Cancel();
             EditorGUILayout.EndHorizontal();
         }
@@ -218,13 +236,21 @@ namespace Iroca
         /// 反映待ちクリックの件数表示。クリックは FIFO で全て順に反映されるため、
         /// 「押した分が消えていない」ことをここで明示する(プレビュー上のマーカーと対)。
         /// </summary>
-        static void DrawPendingClickCount(IMaskSuggestService svc, int minCount)
+        // 推論中の状態表示の行の高さ。待機中も同じ高さを空けておく。
+        const float StatusRowHeight = 18f;
+
+        // DrawToolControls が描いている状態（Layout のときの svc.Phase）。
+        static MaskSuggestPhase s_drawnPhase;
+
+        /// <summary>
+        /// 状態の文言に、処理待ちのクリックの件数を同じ行で添える(件数が minCount 以上のとき)。
+        /// 別の行にすると、件数が出たり消えたりするたびに下の要素が上下に動く。
+        /// </summary>
+        static string WithPendingClicks(string status, IMaskSuggestService svc, int minCount)
         {
             int pending = svc.PendingClickCount;
-            if (pending < minCount) return;
-            EditorGUILayout.LabelField(
-                string.Format(Localization.AiSuggestPendingClicksFormat, pending),
-                EditorStyles.miniLabel);
+            if (pending < minCount) return status;
+            return status + "  " + string.Format(Localization.AiSuggestPendingClicksFormat, pending);
         }
 
         /// <summary>
@@ -273,7 +299,7 @@ namespace Iroca
         /// <summary>
         /// エラー時の「モデルを取り直す」導線。モデルの存在しか見ない帯(NoModel 時のみ)では、
         /// 壊れたファイルや別物を手動配置した場合に取り直す手段が UI から消えていた。
-        /// 配布物と一致しなければダウンロードし直す(完了時に TryEnsureModels が再ロードする)。
+        /// 配布物と一致しなければダウンロードし直す(完了後、次に使うときに読み込み直す)。
         /// </summary>
         static void DrawModelRecheck()
         {
@@ -340,6 +366,15 @@ namespace Iroca
                                   replaced, MaskSuggestInstall.SentisPackageVersion),
                     MessageType.Warning);
 
+            // Barracuda など .onnx を取り込む別のパッケージがあると、Sentis を足した時点で両方の AI が動かなくなる。
+            // 押す前から見えるように知らせ、押したときは確認画面で止める(既定は導入しない)。
+            var conflicts = MaskSuggestInstall.OnnxImporterConflicts();
+            if (conflicts.Count > 0)
+                EditorGUILayout.HelpBox(
+                    string.Format(Localization.AiSuggestOnnxConflict,
+                                  string.Join(Localization.AiOnnxConflictSeparator, conflicts)),
+                    MessageType.Warning);
+
             string label = replaced != null
                 ? string.Format(Localization.AiSuggestReplaceSentis, MaskSuggestInstall.SentisPackageVersion)
                 : Localization.AiSuggestInstallSentis;
@@ -347,7 +382,8 @@ namespace Iroca
                     label,
                     string.Format(Localization.AiSuggestInstallSentisTooltip,
                                   MaskSuggestInstall.SentisPackageId,
-                                  MaskSuggestInstall.SentisPackageVersion))))
+                                  MaskSuggestInstall.SentisPackageVersion)))
+                && MaskSuggestInstall.ConfirmDespiteOnnxConflicts())
                 MaskSuggestInstall.StartInstall();
         }
 

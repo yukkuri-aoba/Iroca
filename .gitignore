@@ -48,6 +48,7 @@ archive/
 .claude/instructions/notify.md
 Code_Archive/
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # 内部向けドキュメント（設計レビュー・監査・計画）は公開リポに置かない。
 # docs/ は GitHub Pages がそのまま配信するため、置いた時点で公開される
@@ -62,7 +63,7 @@ docs/*-review-*.md
 docs/*_audit_*.md
 docs/*roadmap*.md
 # testing-architecture.md は 2026-08-03 の環境全損で「ローカルのみ運用」の脆さが実証されたため
-# git 追跡へ昇格（CLAUDE.md が正として参照する文書。秘匿情報なし）
+# git 追跡へ昇格（AGENTS.md が正として参照する文書。秘匿情報なし）
 docs/unity-mcp-automation.md
 
 # build-check (dotnet 単体での型チェック専用、Unity 非依存)
@@ -71,6 +72,7 @@ docs/unity-mcp-automation.md
 !scripts/build-check/IrocaEditor.Debug.csproj
 !scripts/build-check/IrocaSentisCheck.csproj
 !scripts/build-check/IrocaNdmfCheck.csproj
+!scripts/build-check/IrocaMcpCheck.csproj
 scripts/build-check/bin/
 scripts/build-check/obj/
 

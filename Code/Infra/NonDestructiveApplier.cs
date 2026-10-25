@@ -12,7 +12,8 @@ namespace Iroca
     /// 規則:
     /// <list type="bullet">
     /// <item>範囲は <see cref="IrocaRecolor"/> を置いた GameObject とその子。コンポーネントはレシピを
-    ///   複数持てる(テクスチャごとに 1 つ)。</item>
+    ///   複数持てる(テクスチャごとに 1 つ)。ビルド中にほかのツールが範囲の外へ移した Renderer(衣装の骨の下の
+    ///   小物など)も、移す前に記録しておいて範囲に含める(<see cref="RecordScopes"/>)。</item>
     /// <item>範囲内の Renderer のマテリアルのうち、レシピの元テクスチャをどこかのテクスチャ枠で参照している
     ///   ものだけを複製し、その参照を色替え済みテクスチャへ差し替える。同じマテリアルを複数の Renderer が
     ///   使っていれば複製も共有する。範囲外の Renderer は元のマテリアルのまま。</item>
@@ -49,16 +50,16 @@ namespace Iroca
             Texture2D BuildTexture(IrocaRecipe recipe, out RecipeTextureBuilder.Failure failure);
             /// <summary>生成物(テクスチャ・マテリアル)をビルドの成果物として保存する。</summary>
             void SaveAsset(Object generated);
-            /// <summary>元のオブジェクトが複製に置き換わったことを知らせる。</summary>
+            /// <summary>元のオブジェクト(マテリアル・テクスチャ)が複製・色替え済みのものに置き換わったことを知らせる。</summary>
             void RegisterReplaced(Object original, Object replacement);
             /// <summary><paramref name="recipe"/> はどのレシピの問題か(レシピが無い・空の欄なら null)。</summary>
             void Report(Problem problem, IrocaRecolor component, IrocaRecipe recipe, RecipeTextureBuilder.Failure failure);
             /// <summary>
-            /// アニメーションで切り替わるマテリアルのうち、切り替える先の Renderer が <paramref name="scope"/> か
-            /// その子にあるものを <paramref name="mapping"/> で書き換える(同じものが返れば触らない)。
+            /// アニメーションで切り替わるマテリアルのうち、切り替える先の Renderer(の Transform)が
+            /// <paramref name="inScope"/> を満たすものを <paramref name="mapping"/> で書き換える(同じものが返れば触らない)。
             /// アニメーションを扱えない環境では何もしない。
             /// </summary>
-            void RewriteAnimatedMaterials(Transform scope, System.Func<Material, Material> mapping);
+            void RewriteAnimatedMaterials(System.Func<Transform, bool> inScope, System.Func<Material, Material> mapping);
         }
 
         /// <summary>ビルドの直前に呼ばれる(いろかウィンドウが購読し、編集中の内容をレシピへ書き出す)。</summary>
@@ -91,6 +92,23 @@ namespace Iroca
                 new Dictionary<IrocaRecipe, Dictionary<Material, Material>>();
             /// <summary>範囲内で元テクスチャが使われた (コンポーネント, レシピ)。</summary>
             internal readonly HashSet<(IrocaRecolor, IrocaRecipe)> used = new HashSet<(IrocaRecolor, IrocaRecipe)>();
+            /// <summary>
+            /// ほかのツールが親子関係を変える前(<see cref="RecordScopes"/>)に、コンポーネントの範囲にあった Renderer。
+            /// </summary>
+            internal readonly Dictionary<IrocaRecolor, Renderer[]> recordedScopes = new Dictionary<IrocaRecolor, Renderer[]>();
+        }
+
+        /// <summary>
+        /// 各コンポーネントの範囲にある Renderer を、ほかのツールが親子関係を変える前に記録する(NDMF の Resolving 段で呼ぶ)。
+        /// Modular Avatar の Merge Armature・Bone Proxy や VRCFury の Armature Link は、衣装の骨の下の小物を
+        /// アバター本体の骨の下へ移す。範囲をその時点の子だけで決めると、移された小物は色替えされない
+        /// (シーンのプレビューとインスペクタは編集中の親子関係で範囲を見るので、色が変わって見えていた)。
+        /// 1・2 段目では、その時点の子と、ここで記録したものを合わせて範囲にする。
+        /// </summary>
+        public static void RecordScopes(GameObject root, BuildState state)
+        {
+            foreach (var component in root.GetComponentsInChildren<IrocaRecolor>(true))
+                state.recordedScopes[component] = component.GetComponentsInChildren<Renderer>(true);
         }
 
         /// <summary>
@@ -106,6 +124,8 @@ namespace Iroca
 
             var components = new List<IrocaRecolor>(root.GetComponentsInChildren<IrocaRecolor>(true));
             int replaced = 0;
+            // レシピを何枚作っても作業配列は使い回し、この段が終わったらまとめて手放す。
+            var keepWorkBuffers = RecipeTextureBuilder.KeepWorkBuffers();
             try
             {
                 // 深い順(同じ深さは見つかった順)。1 つのコンポーネントのレシピは並び順。
@@ -129,6 +149,7 @@ namespace Iroca
             }
             finally
             {
+                keepWorkBuffers.Dispose();
                 // 1 段目はコンポーネントを残す(2 段目が範囲を知るため)。残っても VRChat SDK が
                 // EditorOnly として外すので、2 段目が走らない経路でもアバターには残らない。
                 if (stage != Stage.First)
@@ -189,6 +210,13 @@ namespace Iroca
                             host.Report(Problem.BuildFailed, component, recipe, failure);
                             return null;
                         }
+                        // 元テクスチャが色替え済みテクスチャに置き換わったことを知らせる。TexTransTool の
+                        // TextureBlender・TextureConfigurator などは、元テクスチャを指定されると「置き換え前が同じもの」を
+                        // 探すので、知らせないと色替えしたテクスチャを見つけられず黙って何もしない。NDMF は新しい物の参照を
+                        // 一度でも引いた後に登録すると例外を出すので、作った直後(保存より前)に 1 回だけ登録する
+                        // (2 段目は作ったものを使い回すので、ここを通らない)。範囲外で元テクスチャを使っている所はそのまま
+                        // 元テクスチャなので、TexTransTool の効果が及ぶ範囲は色替えしないときと変わらない。
+                        host.RegisterReplaced(source, recolored);
                         host.SaveAsset(recolored);
                         state.built[recipe] = recolored;
                     }
@@ -203,7 +231,21 @@ namespace Iroca
                 return clone;
             }
 
-            foreach (var renderer in component.GetComponentsInChildren<Renderer>(true))
+            // 範囲 = いまの子 + 親子関係が変わる前に範囲にあったもの(ほかのツールが骨の下へ移した小物など)。
+            var scope = component.transform;
+            var renderers = new List<Renderer>(component.GetComponentsInChildren<Renderer>(true));
+            HashSet<Transform> moved = null;
+            if (state.recordedScopes.TryGetValue(component, out var recorded))
+            {
+                foreach (var r in recorded)
+                {
+                    if (r == null || r.transform.IsChildOf(scope)) continue;
+                    moved ??= new HashSet<Transform>();
+                    if (moved.Add(r.transform)) renderers.Add(r);
+                }
+            }
+
+            foreach (var renderer in renderers)
             {
                 var mats = renderer.sharedMaterials;
                 bool changed = false;
@@ -219,7 +261,8 @@ namespace Iroca
             }
 
             // 衣装・表情のトグルなど、アニメーションで後から切り替わるマテリアルも同じ規則で差し替える。
-            host.RewriteAnimatedMaterials(component.transform, m => Swap(m) ?? m);
+            host.RewriteAnimatedMaterials(t => t.IsChildOf(scope) || (moved != null && moved.Contains(t)),
+                m => Swap(m) ?? m);
             if (failed) return replaced;
 
             // 「使っていない」は最後の段で判断する(2 段目で入ったマテリアルで使われることがある)。

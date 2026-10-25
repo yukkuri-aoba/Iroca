@@ -11,13 +11,13 @@ using UnityEngine;
 
 namespace Iroca
 {
-    internal static partial class PixelProcessor
+    internal static unsafe partial class PixelProcessor
     {
         /// <summary>
         /// 分離型ボックス和フィルタ。各ピクセル位置で (2r+1)×(2r+1) 窓内の合計を dst に書き込む
         /// （境界はゼロ拡張：画像外の寄与を 0 として無視）。スライディングウィンドウで O(N) で計算。
-        /// 内部 temp バッファは ArrayPool から借用・返却するのでヒープアロケーションなし。
-        /// dst は呼び出し元が事前に確保すること（ArrayPool.Rent 推奨）。
+        /// 内部 temp バッファは作業配列のプール(ネイティブメモリ)から借りて返すので Mono のヒープを使わない。
+        /// dst は呼び出し元が用意すること（作業配列のプールから借りる）。
         ///
         /// bbox 未指定(boxMaxX&lt;0)なら全画素。指定時は dst をその矩形内だけ埋める(GaussianBlur と
         /// 同じ形)。src は矩形を r だけ広げた範囲 [boxMinX-r, boxMaxX+r]×[boxMinY-r, boxMaxY+r] が
@@ -26,12 +26,12 @@ namespace Iroca
         /// **src が整数値(0..255 のバイト値 / 0-1 マスク)で窓和が float の整数精度に収まる**用途に限る
         /// (現在の呼び出し元はすべてこれを満たす)。その場合は丸め差が原理的に生じず出力ビット不変。
         /// </summary>
-        private static void BoxFilterSum(float[] src, float[] dst, int w, int h, int r, CancellationToken ct = default,
+        private static void BoxFilterSum(float* src, float* dst, int w, int h, int r, CancellationToken ct = default,
             int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1)
         {
             int len = w * h;
             if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
-            float[] temp = s_floatPool.Rent(len);
+            float* temp = s_floatPool.Rent(len);
             var filterPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             try
             {
@@ -103,12 +103,12 @@ namespace Iroca
 
         /// <summary>
         /// ガウシアンブラーを src に適用して dst に書き込む。
-        /// 内部 temp バッファは ArrayPool から借用・返却するのでヒープアロケーションなし。
-        /// dst は呼び出し元が事前に確保すること（ArrayPool.Rent 推奨）。
+        /// 内部 temp バッファは作業配列のプール(ネイティブメモリ)から借りて返すので Mono のヒープを使わない。
+        /// dst は呼び出し元が用意すること（作業配列のプールから借りる）。
         /// radius &lt; 1 のとき何もしない（dst は未定義のまま）。
         /// 戻り値: ブラー処理を行った場合 true、スキップした場合 false。
         /// </summary>
-        private static bool GaussianBlur(float[] src, float[] dst, int w, int h, float sigma,
+        private static bool GaussianBlur(float* src, float* dst, int w, int h, float sigma,
             int boxMinX = 0, int boxMinY = 0, int boxMaxX = -1, int boxMaxY = -1,
             CancellationToken ct = default)
         {
@@ -131,11 +131,11 @@ namespace Iroca
             // 常に 0。dst を全クリアしておけば矩形内だけ計算しても全画素ブラーと出力ビット一致する。
             if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }
 
-            float[] temp = s_floatPool.Rent(len);
+            float* temp = s_floatPool.Rent(len);
             var gaussPo = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
             try
             {
-                Array.Clear(dst, 0, len);   // 矩形外は 0(全画素ブラーの src=0 領域と一致)
+                ClearWork(dst, 0, len);   // 矩形外は 0(全画素ブラーの src=0 領域と一致)
                 // 垂直パスが読む行は [boxMinY-radius, boxMaxY+radius] なので、水平パスはその行範囲ぶん
                 // 上下に広げて temp を用意する(列は矩形のまま。垂直は矩形列しか読まない)。
                 int hMinY = Mathf.Max(0, boxMinY - radius);
@@ -177,13 +177,13 @@ namespace Iroca
             return true;
         }
 
-        private static void ConstrainBlur(float[] blurred, float[] original, int w, int h, int radius, CancellationToken ct = default)
+        private static void ConstrainBlur(float* blurred, float* original, int w, int h, int radius, CancellationToken ct = default)
         {
             // マッチがなかった領域へのブラーの流出を防止。
             // original > 0 を float マスクに変換して BoxFilterSum に流すことで
             // 近傍チェックを O(N·r²) から O(N) に削減。
             int len = w * h;
-            float[] mask = null, neighborSum = null;
+            float* mask = null, neighborSum = null;
             try
             {
                 mask = s_floatPool.Rent(len);
@@ -229,7 +229,7 @@ namespace Iroca
         /// 行ごとに独立に求めた min/max をマージするだけなので、逐次走査と結果は同一(順序非依存)。
         /// </summary>
         /// <returns>該当画素が 1 つ以上あれば true。</returns>
-        private static bool TryComputeMatchedBBox(float[] strength, Color32[] px, int w, int h, float thr,
+        private static bool TryComputeMatchedBBox(float* strength, Color32* px, int w, int h, float thr,
             out int minX, out int minY, out int maxX, out int maxY, CancellationToken ct = default)
         {
             int lminX = w, lmaxX = -1, lminY = h, lmaxY = -1;
@@ -269,7 +269,7 @@ namespace Iroca
         /// 後段パス(穴埋め/境界回復/ブラー)を実マッチ範囲＋余白に限定し、全画素走査を避けるために使う。
         /// </summary>
         /// <returns>マッチ画素が 1 つ以上あれば true(false のとき bbox は空で、後段パスは no-op)。</returns>
-        private static bool TryComputeStrengthBBox(float[] strength, int w, int h, float thr,
+        private static bool TryComputeStrengthBBox(float* strength, int w, int h, float thr,
             out int minX, out int minY, out int maxX, out int maxY, CancellationToken ct = default)
         {
             // 行ごとに独立に求めた min/max をマージするだけなので順序非依存(逐次走査と同一結果)。
@@ -314,16 +314,7 @@ namespace Iroca
             return lmaxX >= 0;
         }
 
-        /// <summary>
-        /// 形態学的フィル：ゼロ強度のピクセルがマッチした隣接ピクセルの多数派に囲まれていれば
-        /// 最小隣接強度で埋める。
-        /// これにより、satConfidenceゲートを通過するに低い彩度を持つアンチエイリアス処理された
-        /// 端のピクセルが原因の孤立した1-2pxドットアーティファクトを除去します。
-        /// パス数と最小隣接数はアドバンスモードで調整可能。
-        /// </summary>
-        /// <remarks>
-        /// 各パスはパス開始時の状態を読み、書き込みはパスの終わりにまとめる(旧: 二重バッファ)。
-        /// </remarks>
+        // 量子化のならし(TryQuantSmoothedColor)で「量子化の誤差でしか違わない」とみなす各チャネルの差(8bit の 1 階調)。
         private const int QuantSmoothLevels = 1;
 
         /// <summary>
@@ -332,7 +323,7 @@ namespace Iroca
         /// ばらつく(元の色の点が残る・別部位に点々と入る)。量子化の誤差でしか違わない隣と平均してから HSV を求める。
         /// 違う色の隣は混ぜないので境界はぼけない。近傍がどれも自分と同じ色なら false(元の色のまま)。
         /// </summary>
-        private static bool TryQuantSmoothedColor(Color32[] px, int x, int y, int w, int h, float tolerance,
+        private static bool TryQuantSmoothedColor(Color32* px, int x, int y, int w, int h, float tolerance,
             out Color color)
         {
             Color32 c = px[y * w + x];
@@ -371,8 +362,18 @@ namespace Iroca
             return true;
         }
 
-        private static void FillSmallHoles(float[] strength, int w, int h,
-            int passes, int minNeighbors, bool[] allowedMask,
+        /// <summary>
+        /// 形態学的フィル：ゼロ強度のピクセルがマッチした隣接ピクセルの多数派に囲まれていれば
+        /// 最小隣接強度で埋める。
+        /// これにより、satConfidenceゲートを通過するに低い彩度を持つアンチエイリアス処理された
+        /// 端のピクセルが原因の孤立した1-2pxドットアーティファクトを除去します。
+        /// パス数と最小隣接数はアドバンスモードで調整可能。
+        /// </summary>
+        /// <remarks>
+        /// 各パスはパス開始時の状態を読み、書き込みはパスの終わりにまとめる(旧: 二重バッファ)。
+        /// </remarks>
+        private static void FillSmallHoles(float* strength, int w, int h,
+            int passes, int minNeighbors, bool* allowedMask,
             int boxMinX, int boxMinY, int boxMaxX, int boxMaxY,
             CancellationToken ct)
         {
@@ -523,18 +524,18 @@ namespace Iroca
         /// 保護はコアからの 4 近傍 dilation を 1 回限りで行い、保護の連鎖はしない。
         /// </summary>
         private static void ApplyChromaCeilingGate(
-            float[] strength, float[] matchConf, PixelHsv hsv,
+            float* strength, float* matchConf, PixelHsv hsv,
             float sS, float sV, float chromaThreshold, float chromaCeiling,
             int w, int h, CancellationToken ct = default)
         {
-            float[] pixS = hsv.S; int[] pixIdx = hsv.Index;
+            float* pixS = hsv.S; int* pixIdx = hsv.Index;
             // グレーモード判定は ColorZone.MatchOneSample / GetRelaxedMatchStrength と共有ヘルパー。
             float effectiveChromaThreshold = ColorZone.GrayModeEffectiveChromaThreshold(sV, chromaThreshold);
             if (sS > effectiveChromaThreshold) return;   // 有彩サンプル=グレーモードではない
 
             float satCeil = ColorZone.EffectiveChromaCeiling(sS, chromaCeiling);
 
-            const float matchThr = ColorZone.MatchStrengthFloor;  // コア判定の strength 床(NeutralReject と同じ)
+            const float matchThr = ColorZone.MatchStrengthFloor;  // コア判定の strength 床(SolidifyAchromaInterior と同じ)
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
 
             // bbox 限定(出力ビット不変): 除去が起こり得るのは strength>0 の画素だけなので
@@ -554,7 +555,7 @@ namespace Iroca
             // = 出力ビット不変)。
             const int R = ChromaCeilProtectRadius;
             const int Inf = 1 << 28;
-            int[] dist = s_intPool.Rent(bwh);
+            int* dist = s_intPool.Rent(bwh);
             try
             {
                 // 低彩度コアを種に行パス(行内 1D 距離)。同時に保護候補(高彩度画素)の有無を調べる。
@@ -664,11 +665,11 @@ namespace Iroca
         /// 走らせるとクロップ境界に接した閉領域が開領域と誤判定される。
         /// </summary>
         private static void RecoverEnclosedNeutral(
-            float[] strength, float[] matchConf, PixelHsv hsv, Color32[] pixels,
+            float* strength, float* matchConf, PixelHsv hsv, Color32* pixels,
             Color sampleColor, float tolerance, float sS, float sV, float chromaThreshold,
             int w, int h, CancellationToken ct = default)
         {
-            float[] pixS = hsv.S; int[] pixIdx = hsv.Index;
+            float* pixS = hsv.S; int* pixIdx = hsv.Index;
             // グレーモード判定は ColorZone.MatchOneSample / ApplyChromaCeilingGate と共有ヘルパー。
             float effectiveChromaThreshold = ColorZone.GrayModeEffectiveChromaThreshold(sV, chromaThreshold);
             if (sS > effectiveChromaThreshold) return;   // 有彩サンプル=グレーモードではない
@@ -684,8 +685,8 @@ namespace Iroca
             int len = w * h;
             const float matchThr = ColorZone.MatchStrengthFloor;   // 未選択判定(ApplyChromaCeilingGate と同じ床)
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-            bool[] free = s_boolPool.Rent(len);   // 未選択=開領域を辿れる画素
-            bool[] open = s_boolPool.Rent(len);   // 画像端から到達できた未選択画素
+            bool* free = s_boolPool.Rent(len);   // 未選択=開領域を辿れる画素
+            bool* open = s_boolPool.Rent(len);   // 画像端から到達できた未選択画素
             try
             {
                 bool anyCandidate = false;
@@ -747,7 +748,7 @@ namespace Iroca
         /// 打ち切られていた場合だけ「本来到達できるはずの画素」が追加で開領域になる(= 打ち切りの取りこぼしが
         /// 無くなる方向。復帰は閉領域限定なので過剰復帰は起きない)。
         /// </summary>
-        private static void MarkOpenFromBorder(bool[] free, bool[] open, int w, int h, CancellationToken ct)
+        private static void MarkOpenFromBorder(bool* free, bool* open, int w, int h, CancellationToken ct)
         {
             // 画像端の free 画素から 4 近傍で辿れる free 画素の集合は、辿る順序に依存しない。行 run +
             // union-find の連結成分で「画像端に触れる成分」を求め、その run を塗る(旧: 単一スレッドの
@@ -771,7 +772,7 @@ namespace Iroca
             for (int y = 0; y < h; y++) rowOff[y + 1] = rowOff[y] + runCount[y];
             int R = rowOff[h];
             if (R == 0) return;
-            int[] runX0 = s_intPool.Rent(R), runX1 = s_intPool.Rent(R), parent = s_intPool.Rent(R);
+            int* runX0 = s_intPool.Rent(R), runX1 = s_intPool.Rent(R), parent = s_intPool.Rent(R);
             try
             {
                 Parallel.For(0, h, po, y =>
@@ -844,21 +845,21 @@ namespace Iroca
         /// 外側への復元を拡張します。隣接要件により、内部領域でのAO/影のにじみを防ぎます。
         /// </summary>
         private static void RecoverBoundaryEdges(
-            float[] strength, int w, int h,
+            float* strength, int w, int h,
             PixelHsv hsv,
             Color sampleColor, float tolerance,
             float edgeSoftness, float valueWeight, float satDistWeight,
             float relaxedSatMin, int passes,
             int boxMinX, int boxMinY, int boxMaxX, int boxMaxY,
-            Color32[] originalPixels, float chromaConfidence, float chromaThreshold,
+            Color32* originalPixels, float chromaConfidence, float chromaThreshold,
             float chromaCeiling, CancellationToken ct,
-            float[] relaxedByColor, int[] colorIndex)
+            float[] relaxedByColor, int* colorIndex)
         {
             // relaxedByColor / colorIndex: 色の表(ColorPalette)の番号ごとに、この関数と同じ引数で
             // GetRelaxedMatchStrength を求めた値と、画素 → 番号。渡されたら画素ごとの計算の代わりに読む
             // (同じ関数に同じ入力を与えた値なのでビット単位で同じ)。
             if (passes <= 0) return;
-            float[] pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int[] pixIdx = hsv.Index;
+            float* pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
 
             // bbox 未指定(boxMaxX<0)なら全画素。指定時はその矩形内だけ走査する(P2-7、出力ビット不変)。
             if (boxMaxX < 0) { boxMinX = 0; boxMinY = 0; boxMaxX = w - 1; boxMaxY = h - 1; }

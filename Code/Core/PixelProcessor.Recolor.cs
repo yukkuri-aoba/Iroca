@@ -12,7 +12,7 @@ using UnityEngine;
 namespace Iroca
 {
     // PixelProcessor: OkLab 再着色本体(RecolorPixel)・再着色アンカー推定・関連定数。
-    internal static partial class PixelProcessor
+    internal static unsafe partial class PixelProcessor
     {
         // L 再マップの彩度ゲート定数。彩度が sample の何割に達したら remap をフル適用するか。
         // これ未満の低彩度画素は元 L を保持し、target が sample より明るい場合の暗部持ち上げ
@@ -25,10 +25,20 @@ namespace Iroca
         // ターゲットにしても出力がその暗さに収まるための既定挙動。
         private const float HighlightLMult = 2.0f;
 
-        // chroma 増幅キャップ(有彩ターゲット向けの無彩パス拡張): tC > sC の色相変化で OkLab→RGB の
-        // lum 感度が高まりバンディングが発生しうる(彩度比 tC/sC が大きいほど明度コントラストが増幅される)。
-        // output chroma = mag*tC が sC*Factor を超えないよう mag を制限。
-        private const float ChromaAmpMaxFactor = 1.0f;
+        // 彩度の写し方(2026-10-24): 画素の彩度 oC を、明度の 2 区間リマップと同じ折れ線で予想できる分 Ĉ と残り oC − Ĉ に分ける。
+        //   Ĉ = sC·oL/sL(oL ≤ sL: 陰影・黒との混色) / sC·(1 − oL)/(1 − sL)(oL > sL: 白との混色)
+        // 乗算の陰影や、白・黒との混色(輪郭の AA・白へ抜けるグラデ・ツヤ)では、彩度は明度と同じ割合で動くので Ĉ に一致する。
+        // 残りは素材そのものの彩度の揺れ(布目・染めむら・ノイズ)。
+        //   出力の彩度 = osat·tC·Ĉ/sC + κ·(oC − Ĉ)、κ = min(1, osat·tC/sC)
+        //   - 塗り先が元より鮮やか(osat·tC > sC、okSplitChroma): 予想できる分は塗り先の彩度に比例させ(面 = アンカーで
+        //     塗り先の彩度そのもの、混色・陰影は同じ割合)、残りは 1 倍のまま写す。全体を比例にすると残りの揺れが tC/sC 倍に
+        //     増幅されて、地味な素材を鮮やかな色にしたときにざらつく。全体を r^γ で圧縮する案(10-23 の「方法 3」)は揺れを
+        //     増幅しないが、低い彩度を持ち上げるので混色を鮮やかにしすぎ、白へ抜けるグラデの選択の境目に硬い継ぎ目が出た。
+        //   - 塗り先が元と同じかより地味: κ = osat·tC/sC で、式は全体の比例 osat·tC·oC/sC と同じ(従来どおり)。
+        // 以前は「塗った後の彩度 ≤ アンカーの彩度」の上限(ChromaAmpMaxFactor = 1。2026-06-16、Python の代理実装で見えた
+        // バンディング対策。実 C# にはそのバンディングは無かった)で増幅を止めていたため、元が地味な素材ほど指定した色に
+        // 届かなかった(明るい面で目標の 0.78 倍、茶髪 → 青で 0.33 倍)。上限を外して増えた sRGB の範囲外の色は、
+        // OklabToRgbInGamut が明度と色相を保って彩度だけ縮める。
 
         // ハイライト白寄せ(wash)の軸残差フェード定数 (2026-08-15 OkLab 方向分解版)。
         // 旧実装は RGB ユークリッド残差(許容 HlBandAxisEps=0.10)で一律減衰しており、作画表現として
@@ -72,6 +82,54 @@ namespace Iroca
         private const float AnchorChromaHistMax = 0.5f;   // chroma ヒストグラムの値域上限(OkLab C は ~0.33 まで)
         private const int   AnchorCountBudget   = 1 << 21; // 色の表の経路で、色ごとの個数を数える配列の合計(int 数、8MB)
 
+        // 別の素材に引っ張られたときの推定し直し(2026-10-20)。上の統計は候補の飽和度の中央値で地色を選ぶので、
+        // 選択に別の素材が多いとそちらを地色とみなす。固定設定の実測では、純白の背景と生成りが候補の 8 割を占めた
+        // 赤い布で推定が失敗し(C≈0。スポイト色に戻る)、白い背景が選択から外れると今度は生成りへ乗り換えた
+        // (基準の飽和度がサンプルの 0.12 倍。赤い部分が暗く、生成りがまだらに塗られた)。黒い布を巻き込んだ紺の布では
+        // 基準の飽和度がサンプルの 0.20 倍に落ち、塗った色の彩度が目標の 0.09〜0.26 倍に潰れた。
+        // AnchorRetrySatrFrac: 推定した基準の飽和度(C/L)がサンプルのこの割合に届かないか、推定に失敗したら、
+        //   「サンプルより淡い別の素材を見ている」とみなして推定し直す。片側だけの判定なので、本体より淡いツヤを
+        //   クリックしても発動しない。実測: 乗り換えたときは 0〜0.20、正しく推定できているときは 0.31 以上
+        //   (陰の方が鮮やかな塗りで、陰の色がサンプルになったとき。ワンショット 57 件と固定設定 19 被写体)。その間に置く。
+        // AnchorMaterialSatrFrac: 推定し直しで、飽和度がサンプルのこの割合未満の画素を地色から外す。L 再マップが
+        //   「サンプルより十分淡い画素」とみなす割合(OklabRemapFullChromaFrac)と同じ線。
+        // AnchorMaterialHueCos: 推定し直しで、OkLab の色相がサンプルからこの角度(45°)を超えて違う画素を外す。正解の
+        //   画素の 97% はサンプルの色相から 25° 以内(固定設定 19 被写体)で、影やツヤをクリックしてサンプル自体が
+        //   20° ずれても本体が残る幅。色相が定まらない無彩の画素(HSV の彩度が ColorZone.ChromaGateActivateSat 未満)も
+        //   外す。推定し直しはサンプルに色相があるときだけ行う(白・灰のサンプルは色で素材を見分けられない)。
+        // 1 段目で済むケース(ワンショット 57 件のすべて、固定設定 19 被写体のうち 14)は出力が変わらない。
+        private const float AnchorRetrySatrFrac    = 0.25f;
+        private const float AnchorMaterialSatrFrac = OklabRemapFullChromaFrac;
+        private const float AnchorMaterialHueCos   = 0.70710678f;  // cos 45°
+
+        // 推定し直しで「サンプルと同じ素材」に残す画素の条件(上の AnchorMaterial* を参照)。
+        // 既定値(Active = false)は 1 段目 = 全候補を使う。
+        private readonly struct AnchorMaterial
+        {
+            public readonly bool Active;
+            public readonly float HueA, HueB;  // サンプルの色相の向き(OkLab の a, b を長さ 1 にしたもの)
+            public readonly float MinSatr;     // 地色とみなす飽和度(C/L)の下限に足す床
+
+            public AnchorMaterial(float sampleA, float sampleB, float sampleSatr)
+            {
+                float c = Mathf.Max(Mathf.Sqrt(sampleA * sampleA + sampleB * sampleB), 1e-9f);
+                Active = true;
+                HueA = sampleA / c;
+                HueB = sampleB / c;
+                MinSatr = AnchorMaterialSatrFrac * sampleSatr;
+            }
+
+            // 無彩の画素(HSV の彩度 = (max-min)/max が ChromaGateActivateSat 未満)と、
+            // OkLab の色相がサンプルから 45° を超えて違う画素を外す。
+            public bool Rejects(Color32 p, float a, float b)
+            {
+                int mx = Math.Max(p.r, Math.Max(p.g, p.b));
+                int mn = Math.Min(p.r, Math.Min(p.g, p.b));
+                if (mx == 0 || (mx - mn) / (float)mx < ColorZone.ChromaGateActivateSat) return true;
+                return a * HueA + b * HueB < AnchorMaterialHueCos * Mathf.Sqrt(a * a + b * b);
+            }
+        }
+
         /// <summary>
         /// サンプル自動補正: OkLab 再着色のアンカー (sL, sC) をマッチ領域の統計から推定する。
         ///
@@ -80,10 +138,40 @@ namespace Iroca
         /// 本関数は「パーツの明るい面の地色」を統計的に推定して返し、スポイト位置非依存にする。
         /// マッチング・wash には影響しない(呼び出し側がアンカー 2 値だけを置き換える)。
         ///
+        /// 推定は 2 段構え。1 段目は全候補で推定する。サンプルに色相があり、1 段目が失敗したか基準の飽和度が
+        /// サンプルの AnchorRetrySatrFrac 倍に届かなければ、サンプルと別の素材(AnchorMaterial)を外して推定し直す。
+        ///
         /// percentile はヒストグラム離散化のため厳密値と最大 1/255 の差を許容する。
         /// </summary>
+        /// <param name="sampleL">サンプル(スポイト色)の OkLab L。</param>
+        /// <param name="sampleA">サンプルの OkLab a。</param>
+        /// <param name="sampleB">サンプルの OkLab b。</param>
+        /// <param name="sampleHasHue">サンプルの HSV の彩度が ColorZone.ChromaGateActivateSat を超えるか。</param>
         /// <returns>false = フォールバック(スポイト色のまま従来挙動)。
-        /// 条件: コア画素&lt;100 / 地色画素&lt;100 / フラット領域(L スプレッド&lt;0.02) / 推定 C≈0。</returns>
+        /// 条件: コア画素&lt;100 / 地色画素&lt;100 / フラット領域(L スプレッド&lt;0.02) / 推定 C≈0 /
+        /// 推定し直しても基準がサンプルより淡すぎる。</returns>
+        private static bool TryComputeRecolorAnchor(
+            Color32* px, float* strength, int w,
+            int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
+            out float anchorL, out float anchorC,
+            float sampleL, float sampleA, float sampleB, bool sampleHasHue,
+            bool* statsExclude = null,
+            CancellationToken ct = default,
+            ColorPalette palette = null)
+        {
+            bool ok = TryComputeRecolorAnchorOnce(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
+                out anchorL, out anchorC, default, statsExclude, ct, palette);
+            // 白・灰のサンプルは色で素材を見分けられないので、推定し直さない(従来どおり)。
+            if (!sampleHasHue) return ok;
+            float sampleSatr = Mathf.Sqrt(sampleA * sampleA + sampleB * sampleB) / Mathf.Max(sampleL, 1e-4f);
+            float minSatr = AnchorRetrySatrFrac * sampleSatr;
+            if (ok && anchorC / Mathf.Max(anchorL, 1e-4f) >= minSatr) return true;
+            ok = TryComputeRecolorAnchorOnce(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
+                out anchorL, out anchorC, new AnchorMaterial(sampleA, sampleB, sampleSatr), statsExclude, ct, palette);
+            return ok && anchorC / Mathf.Max(anchorL, 1e-4f) >= minSatr;
+        }
+
+        // TryComputeRecolorAnchor の 1 回分の推定。material.Active なら、サンプルと別の素材の画素を統計に入れない。
         // bbMinX..bbMaxY: 候補(strength>=AnchorStrengthMin)が存在しうる矩形。呼び出し側が後段 bbox を
         // 渡す。候補はこの矩形の外に 1 画素も無いので、走査を矩形に限ると 3 パスとも「読む量」だけが
         // 減り、ヒストグラム(整数加算・順序非依存)の中身は全画素走査と完全に一致する = 出力ビット不変。
@@ -94,25 +182,29 @@ namespace Iroca
         // 除外する。除外された画素も再着色自体は受ける(色マッチ画素から推定した素材モデルで
         // 「同素材として」写像される)。3 パスとも同一の判定で除外すること — pass1 で除外した
         // 画素の candL/candC は未初期化(プール再利用のゴミ)であり、pass2/3 が読むと壊れる。
-        private static bool TryComputeRecolorAnchor(
-            Color32[] px, float[] strength, int w,
+        // (material で外した画素は pass1 が candC を負にするので、pass2/3 の飽和度の下限で必ず落ちる。)
+        private static bool TryComputeRecolorAnchorOnce(
+            Color32* px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out float anchorL, out float anchorC,
-            bool[] statsExclude = null,
-            CancellationToken ct = default,
-            ColorPalette palette = null)
+            AnchorMaterial material,
+            bool* statsExclude,
+            CancellationToken ct,
+            ColorPalette palette)
         {
             anchorL = 0f;
             anchorC = 0f;
-            int len = px.Length;
+            // 候補の (L, C) は外接矩形の画素の添字 y*w+x で置くので、矩形の最後の行の末尾までの長さがあれば足りる
+            // (旧: 入力画素の配列の長さ。配列でなくポインタで受けるので長さは持たない)。
+            int len = (bbMaxY + 1) * w;
             // 色の表があれば (L, C) は色ごとの表から読む(同じ色に同じ変換を当てた値なのでビット単位で
             // 同じ)。その経路は TryComputeRecolorAnchorByColor(画素の走査は 1 回)。
             if (palette != null)
             {
                 palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct });
                 return TryComputeRecolorAnchorByColor(px, strength, w, bbMinX, bbMinY, bbMaxX, bbMaxY,
-                    out anchorL, out anchorC, statsExclude, ct,
-                    palette.Index, palette.OkL, palette.OkC, palette.Count);
+                    out anchorL, out anchorC, material, statsExclude, ct,
+                    palette.Index, palette.OkL, palette.OkC, palette.Colors, palette.Count);
             }
 
             // コア画素(strength>=AnchorStrengthMin & a>=128)の OkLab (L, C) を pass1 で一度だけ
@@ -122,8 +214,8 @@ namespace Iroca
             // 保存は **元画素インデックスのまま**(旧: 先頭詰めの圧縮配列)。pass2/3 は pass1 と同じ
             // コア判定で候補を選び直して読むだけになり、各パスが画素位置だけで完結する=チャンク
             // 並列化できる。集計はヒストグラム(整数加算)なので順序非依存で、逐次版とビット不変。
-            float[] candL = s_floatPool.Rent(len);
-            float[] candC = s_floatPool.Rent(len);
+            float* candL = s_floatPool.Rent(len);
+            float* candC = s_floatPool.Rent(len);
             try
             {
                 // pass 1: (L, C) を保存しつつ飽和度(C/L)ヒストグラム → 中央値から地色下限を決める
@@ -143,6 +235,7 @@ namespace Iroca
                                 out float L, out float a, out float b);
                             float C = Mathf.Sqrt(a * a + b * b);
                             candL[i] = L;
+                            if (material.Active && material.Rejects(px[i], a, b)) { candC[i] = -1f; continue; }
                             candC[i] = C;
                             n++;
                             float satr = C / Mathf.Max(L, 1e-4f);
@@ -153,8 +246,9 @@ namespace Iroca
                     return n;
                 }, ct);
                 if (candCount < AnchorMinPixels) return false;
-                float satrFloor = AnchorBodySatrFrac *
-                    HistValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax);
+                // material.MinSatr は 1 段目では 0(中央値の項は 0 以上なので値は従来と同じ)。
+                float satrFloor = Mathf.Max(AnchorBodySatrFrac *
+                    HistValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax), material.MinSatr);
 
                 // pass 2: 地色画素(飽和度 ≥ 下限)の L ヒストグラム → 代表 L と L 帯
                 var lHist = new int[256];
@@ -223,14 +317,16 @@ namespace Iroca
         /// 色ごとに 1 回の走査で数え、3 つのヒストグラム(飽和度・L・帯内の chroma)は色ごとの (L, C) と
         /// 個数から作る(旧: 画素を 3 回走査)。各ビンへの加算は画素ごとに 1 ずつ足すのと同じ整数加算で、
         /// ビンの式も画素ごとの経路と同じなので、ヒストグラムと戻り値はビット単位で同じ。
-        /// 意図した変更では両経路を同時に直すこと(色の表あり・なしのパリティを直接比べるテストは無い)。
+        /// 意図した変更では両経路を同時に直すこと(色の表あり・なしの出力の一致は scripts/golden/test_palette_parity.py が確かめる)。
+        /// material(推定し直し)で外す判定も色だけで決まるので、色ごとに 1 回判定して個数ごと外す。
         /// </summary>
         private static bool TryComputeRecolorAnchorByColor(
-            Color32[] px, float[] strength, int w,
+            Color32* px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out float anchorL, out float anchorC,
-            bool[] statsExclude, CancellationToken ct,
-            int[] pIdx, float[] pL, float[] pC, int colorCount)
+            AnchorMaterial material,
+            bool* statsExclude, CancellationToken ct,
+            int* pIdx, float[] pL, float[] pC, Color32[] pCol, int colorCount)
         {
             anchorL = 0f;
             anchorC = 0f;
@@ -257,6 +353,19 @@ namespace Iroca
                 return n;
             }, ct, workers);
             if (candCount < AnchorMinPixels) return false;
+            if (material.Active)
+            {
+                for (int k = 0; k < colorCount; k++)
+                {
+                    if (cnt[k] == 0) continue;
+                    Color32 pk = pCol[k];
+                    RgbToOklab(pk.r, pk.g, pk.b, out _, out float a, out float b);
+                    if (!material.Rejects(pk, a, b)) continue;
+                    candCount -= cnt[k];
+                    cnt[k] = 0;
+                }
+                if (candCount < AnchorMinPixels) return false;
+            }
 
             // 1: 飽和度(C/L)ヒストグラム → 中央値から地色下限
             var satrHist = new int[256];
@@ -267,8 +376,8 @@ namespace Iroca
                 float satr = pC[k] / Mathf.Max(pL[k], 1e-4f);
                 satrHist[Mathf.Clamp((int)(satr / AnchorSatrHistMax * 255f), 0, 255)] += c;
             }
-            float satrFloor = AnchorBodySatrFrac *
-                HistValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax);
+            float satrFloor = Mathf.Max(AnchorBodySatrFrac *
+                HistValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax), material.MinSatr);
 
             // 2: 地色(飽和度 ≥ 下限)の L ヒストグラム → 代表 L と L 帯
             var lHist = new int[256];
@@ -316,7 +425,9 @@ namespace Iroca
             public readonly float okMagScale, okTa, okTb;
             public readonly bool okGray;
             public readonly float okGa, okGb;
-            public readonly float okSL, okTL, okSC, okChromaMaxMag;
+            public readonly float okSL, okTL, okSC;
+            public readonly bool okSplitChroma;   // 彩度を予想できる分と残りに分けて写すか(osat·tC > sC)
+            public readonly float okInvTC;        // 1 / tC(okSplitChroma のときだけ使う)
             public readonly float valueBlend, shadowDesaturation;
             public readonly float sS, tR, tG, tB;
             public readonly float washR, washG, washB, washV;
@@ -325,14 +436,15 @@ namespace Iroca
             public readonly bool hasRegL;
             public RecolorParams(
                 float okMagScale, float okTa, float okTb, bool okGray, float okGa, float okGb,
-                float okSL, float okTL, float okSC, float okChromaMaxMag,
+                float okSL, float okTL, float okSC, bool okSplitChroma, float okInvTC,
                 float valueBlend, float shadowDesaturation, float sS, float tR, float tG, float tB,
                 float washR, float washG, float washB, float washV, bool applyHighlightWash,
                 float achromaWeight, float osat, bool hasRegL)
             {
                 this.okMagScale = okMagScale; this.okTa = okTa; this.okTb = okTb;
                 this.okGray = okGray; this.okGa = okGa; this.okGb = okGb;
-                this.okSL = okSL; this.okTL = okTL; this.okSC = okSC; this.okChromaMaxMag = okChromaMaxMag;
+                this.okSL = okSL; this.okTL = okTL; this.okSC = okSC;
+                this.okSplitChroma = okSplitChroma; this.okInvTC = okInvTC;
                 this.valueBlend = valueBlend; this.shadowDesaturation = shadowDesaturation;
                 this.sS = sS; this.tR = tR; this.tG = tG; this.tB = tB;
                 this.washR = washR; this.washG = washG; this.washB = washB; this.washV = washV;
@@ -352,7 +464,9 @@ namespace Iroca
             float okMagScale = p.okMagScale, okTa = p.okTa, okTb = p.okTb;
             bool okGray = p.okGray;
             float okGa = p.okGa, okGb = p.okGb;
-            float okSL = p.okSL, okTL = p.okTL, okSC = p.okSC, okChromaMaxMag = p.okChromaMaxMag;
+            float okSL = p.okSL, okTL = p.okTL, okSC = p.okSC;
+            bool okSplitChroma = p.okSplitChroma;
+            float okInvTC = p.okInvTC;
             float valueBlend = p.valueBlend, shadowDesaturation = p.shadowDesaturation;
             float sS = p.sS, tR = p.tR, tG = p.tG, tB = p.tB;
             float washR = p.washR, washG = p.washG, washB = p.washB, washV = p.washV;
@@ -362,8 +476,8 @@ namespace Iroca
             // L: 2区間線形リマップ (0→0, sL→tL, 1→1)。base を target 明度へ寄せる。単調維持
             //    (リング無し)・ガンマット内(クリップ無し)・白→白/黒→黒。明度を完全保持すると
             //    暗い色→黄色が brown 化するため base は target 明度に合わせる。
-            // (a,b)_new = |chroma|·(osat/sC)·(target 色相単位ベクトル) ← 大きさは元 chroma に比例、
-            //    向きは target に均一化。旧版の「色相回転保持」は、単色ロゴなどの AA 縁で元テクスチャに
+            // (a,b)_new = mag·(target の a,b) ← 大きさは元 chroma から(塗り先が元より鮮やかなら、陰影・混色で予想できる分は
+            //    比例、残りの揺れは 1 倍。ファイル先頭の「彩度の写し方」参照)、向きは target に均一化。旧版の「色相回転保持」は、単色ロゴなどの AA 縁で元テクスチャに
             //    無い色相ノイズ(輪郭だけが別色へ転ぶ)を生んだため、向きを揃えて L を保ったまま色相を
             //    均一化する。
             RgbToOklab(oRb, oGb, oBb, out float oL, out float oa, out float ob);
@@ -377,18 +491,22 @@ namespace Iroca
             }
             else
             {
-                float mag = oC * okMagScale;            // |chroma|/sC · osat
-                // chroma 増幅キャップ: tC > sC のとき output chroma = mag*tC が sC*Factor を超えないよう制限。
-                // 上限 mag はゾーン定数 okChromaMaxMag に事前算出済み(キャップ非適用時は +∞ で
-                // この比較は no-op)。旧版は per-pixel で tC=sqrt(okTa²+okTb²) と maxMag を再計算していた。
-                // キャップは **サンプル相対項(oC/sC)だけ** に掛ける。旧版は下の無彩ブレンド後に掛けて
-                // いたため、微彩度の白(例: 250,245,254 / sC≈0.01)を有彩ターゲットへ写すと上限
-                // (sC/tC)·Factor≈0.05 が uniform 彩度 osat まで潰し、出力が灰色になった(完全無彩
-                // [1,1,1] は okGray 経路で target 彩度が乗るのに、わずかに色づいた白は灰になる不連続)。
-                // キャップの目的は「oC/sC の増幅による明度コントラスト/ノイズの増幅→バンディング」の
-                // 抑制で、uniform 項(osat)は oC 非依存=増幅しないので対象外。weight=0(有彩×有彩)では
-                // 順序が変わっても同値=出力バイト不変。
-                if (mag > okChromaMaxMag) mag = okChromaMaxMag;
+                // 彩度の大きさ(ファイル先頭の「彩度の写し方」参照。mag は塗り先の (a, b) に掛ける倍率 = 出力の彩度 / tC)。
+                // 写し方は **サンプル相対項** にだけ掛け、下の無彩ブレンドの uniform 項(osat)には掛けない
+                // (uniform 項は oC に依らず、揺れを増幅しないため。以前の上限も同じ理由でここに置いていた)。
+                float mag;
+                if (!okSplitChroma)
+                {
+                    mag = oC * okMagScale;              // |chroma|/sC · osat(全体の比例)
+                }
+                else
+                {
+                    float cHat = oL <= okSL
+                        ? okSC * oL / Mathf.Max(okSL, 1e-4f)
+                        : okSC * (1f - oL) / Mathf.Max(1f - okSL, 1e-4f);
+                    // osat·tC·Ĉ/sC + (oC − Ĉ) を tC で割った値。osat·tC > sC なので oC ≥ 0 なら負にならないが、丸めに備える。
+                    mag = Mathf.Max(0f, cHat * okMagScale + (oC - cHat) * okInvTC);
+                }
                 // 無彩パス: 無彩サンプルでは oC/sC が微小彩度ノイズを増幅(脚色)。uniform target 彩度
                 // (osat, oC 非依存)へ achromaWeight でフェードし増幅を止める。weight=0 で従来式。
                 // weight=1 で mag=osat = okGray 経路(na=zTa·osat)と一致する。
@@ -465,7 +583,8 @@ namespace Iroca
                 nb *= fac;
             }
 
-            OklabToRgb(nL, na, nb, out float outR, out float outG, out float outB);
+            // sRGB の範囲を超えた色は、明度と色相を保ったまま彩度だけ縮める(OklabToRgbInGamut のコメント参照)。
+            OklabToRgbInGamut(nL, na, nb, out float outR, out float outG, out float outB);
             Color result = new Color(Mathf.Clamp01(outR), Mathf.Clamp01(outG), Mathf.Clamp01(outB), 1f);
 
             // ハイライト合成 (P5 軸射影版・residual なし / 2026-05-26):

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Threading.Tasks;
+using nadena.dev.ndmf;
 using nadena.dev.ndmf.preview;
 using UnityEditor;
 using UnityEngine;
@@ -22,6 +23,21 @@ namespace Iroca.NdmfIntegration
     /// </list>
     /// どこに何を映すかの規則は <see cref="PreviewTargeting"/>(NDMF 非依存)。ここは NDMF への橋渡しと、
     /// 規則が依存する値の監視(変わったら NDMF が作り直す)だけ。
+    /// <para>
+    /// 監視は軽く保つ(エディタにフォーカスがある間、NDMF は値を取り出す監視を毎フレーム読み直す。いろかを
+    /// 使っていない物や後段のツールのプレビューに負担を掛けないため):
+    /// <list type="bullet">
+    /// <item>対象を探すのは Iroca Recolor の範囲(付けた GameObject とその子)だけ。持ち主のいない Renderer には
+    ///   何も映さない規則なので、シーン全体を見るのは、ウィンドウが登録の無いテクスチャを編集している間だけ。</item>
+    /// <item>Renderer は素材の並びが変わったか、マテリアルは「候補のテクスチャを含むか」だけを見る(配列を作らない)。</item>
+    /// <item>どの元テクスチャを何に差し替えるか(<see cref="PreviewTargeting.Routes"/>)は対象を選ぶときに決めて
+    ///   グループに持たせる。変われば NDMF が別のグループとしてノードを作り直す。ノード自身が監視するのは、
+    ///   自分の Renderer の素材とそのテクスチャ欄、借りたレシピの中身、作業解像度だけ(シーン全体の部品の増減を
+    ///   見張ると、関係ない編集でもノードが作り直され、同じ Renderer に掛かる後段のツールのプレビューまで
+    ///   作り直しになる)。</item>
+    /// <item>上流の変化がメッシュ・ブレンドシェイプだけなら、ノードを作り直さずに使い回す(<see cref="Node.Refresh"/>)。</item>
+    /// </list>
+    /// </para>
     /// </summary>
     internal sealed class IrocaPreviewFilter : IRenderFilter
     {
@@ -34,9 +50,9 @@ namespace Iroca.NdmfIntegration
         private static readonly PublishedValue<LivePreview.Target> Live =
             new PublishedValue<LivePreview.Target>(null, "Iroca/LiveTarget");
 
-        // 「元の解像度で編集」。レシピの出来上がりが変わるので、変わったら作り直す。
-        private static readonly PublishedValue<bool> AtSource =
-            new PublishedValue<bool>(false, "Iroca/AtSourceResolution");
+        // 監視の読み出しで使い回す入れ物(メインスレッドからしか使わない。毎フレーム配列を作らないため)。
+        private static readonly List<Material> s_materials = new List<Material>();
+        private static readonly List<int> s_textureIds = new List<int>();
 
         [InitializeOnLoadMethod]
         private static void Install()
@@ -44,15 +60,9 @@ namespace Iroca.NdmfIntegration
             LivePreview.TargetChanged -= OnTargetChanged;
             LivePreview.TargetChanged += OnTargetChanged;
             Live.Value = LivePreview.Current;
-            WorkingResolution.Changed -= OnWorkingResolutionChanged;
-            WorkingResolution.Changed += OnWorkingResolutionChanged;
-            // メインスレッドで一度読んでおく(設定は EditorPrefs にあり、レシピのキャッシュの鍵もこれを読む)。
-            AtSource.Value = WorkingResolution.AtSourceResolution;
         }
 
         private static void OnTargetChanged() => Live.Value = LivePreview.Current;
-
-        private static void OnWorkingResolutionChanged() => AtSource.Value = WorkingResolution.AtSourceResolution;
 
         public IEnumerable<TogglablePreviewNode> GetPreviewControlNodes()
         {
@@ -64,8 +74,8 @@ namespace Iroca.NdmfIntegration
         public ImmutableList<RenderGroup> GetTargetGroups(ComputeContext context) => FindTargets(context).ToImmutableList();
 
         /// <summary>
-        /// 差し替えるものがある Renderer ごとのグループ。テストからも呼ぶ(テストのアセンブリは
-        /// System.Collections.Immutable を参照しないので、ImmutableList を返す口とは分けてある)。
+        /// 差し替えるものがある Renderer ごとのグループ(差し替え先を持たせてある)。テストからも呼ぶ(テストの
+        /// アセンブリは System.Collections.Immutable を参照しないので、ImmutableList を返す口とは分けてある)。
         /// </summary>
         internal List<RenderGroup> FindTargets(ComputeContext context)
         {
@@ -73,30 +83,175 @@ namespace Iroca.NdmfIntegration
             var plan = ObservePlan(context);
             if (plan.IsEmpty) return groups;
 
-            foreach (var renderer in context.GetComponentsByType<Renderer>())
+            // 同じマテリアルを何個の Renderer が使っていても、テクスチャ欄の監視は 1 つにする。
+            var usesCandidate = new Dictionary<Material, int>();
+            foreach (var renderer in RenderersToSearch(context, plan))
             {
                 // NDMF のプレビューが扱えるのはこの 2 種だけ。
                 if (renderer == null || !(renderer is MeshRenderer || renderer is SkinnedMeshRenderer)) continue;
-                if (HasReplacement(context, plan, renderer)) groups.Add(RenderGroup.For(renderer));
+                var routes = ObserveRoutes(context, plan, renderer, usesCandidate);
+                if (routes != null) groups.Add(WithRoutes(RenderGroup.For(renderer), routes));
             }
             return groups;
+        }
+
+        /// <summary>テスト用: <paramref name="group"/> が <paramref name="renderer"/> だけのグループか。</summary>
+        internal static bool IsGroupOf(RenderGroup group, Renderer renderer) =>
+            group.Renderers.Count == 1 && group.Renderers[0] == renderer;
+
+        // 映しうる Renderer。ふだんは Iroca Recolor の範囲だけ(部品の増減の監視もその下だけになる)。
+        private static IEnumerable<Renderer> RenderersToSearch(ComputeContext context, PreviewTargeting.Plan plan)
+        {
+            if (plan.ShowsLiveAnywhere) return context.GetComponentsByType<Renderer>();
+            var found = new List<Renderer>();
+            var seen = new HashSet<Renderer>();
+            foreach (var owner in plan.Owners)
+            {
+                if (owner == null) continue;
+                foreach (var r in context.GetComponentsInChildren<Renderer>(owner, true))
+                    if (seen.Add(r)) found.Add(r);
+            }
+            return found;
+        }
+
+        // Renderer の位置での差し替え先(差し替えるものが無ければ null)。素材の並び・テクスチャ欄・親子関係を監視する。
+        private static PreviewTargeting.Routes ObserveRoutes(ComputeContext context, PreviewTargeting.Plan plan,
+            Renderer renderer, Dictionary<Material, int> usesCandidate)
+        {
+            var materials = renderer.sharedMaterials;
+            // 素材を差し替えられたら選び直す。
+            context.Observe(renderer, r => SameMaterials(r, materials), (a, b) => a == b);
+            int uses = 0;
+            foreach (var m in materials)
+            {
+                if (m == null) continue;
+                if (!usesCandidate.TryGetValue(m, out var u))
+                {
+                    // マテリアルのテクスチャを差し替えられたら選び直す。
+                    u = context.Observe(m, mm => CandidateUse(mm, plan), (a, b) => a == b);
+                    usesCandidate[m] = u;
+                }
+                uses |= u;
+            }
+            if (uses == 0) return null;
+
+            // 差し替え先は持ち主(祖先の Iroca Recolor)で決まるので、付け替えたら選び直す。
+            context.ObservePath(renderer.transform);
+            var routes = plan.RoutesFor(renderer.transform, (uses & UsesLive) != 0);
+            foreach (var m in materials)
+                if (m != null && Uses(m, routes)) return routes;
+            return null;
+        }
+
+        // いまの素材の並びが expected と同じか(配列を作らずに比べる)。
+        private static bool SameMaterials(Renderer renderer, Material[] expected)
+        {
+            renderer.GetSharedMaterials(s_materials);
+            bool same = s_materials.Count == expected.Length;
+            for (int i = 0; same && i < expected.Length; i++) same = ReferenceEquals(s_materials[i], expected[i]);
+            s_materials.Clear();
+            return same;
+        }
+
+        // いまのテクスチャ欄の中身が expected と同じか(配列を作らずに比べる)。
+        private static bool SameTextures(Material material, Texture[] expected)
+        {
+            material.GetTexturePropertyNameIDs(s_textureIds);
+            bool same = s_textureIds.Count == expected.Length;
+            for (int i = 0; same && i < expected.Length; i++)
+                same = ReferenceEquals(material.GetTexture(s_textureIds[i]), expected[i]);
+            s_textureIds.Clear();
+            return same;
+        }
+
+        private static Texture[] TexturesOf(Material material)
+        {
+            var ids = material.GetTexturePropertyNameIDs();
+            var textures = new Texture[ids.Length];
+            for (int i = 0; i < ids.Length; i++) textures[i] = material.GetTexture(ids[i]);
+            return textures;
+        }
+
+        // CandidateUse の値: ウィンドウで編集中のテクスチャを使う / それ以外の登録済みのテクスチャを使う。
+        private const int UsesLive = 1, UsesRegistered = 2;
+
+        // マテリアルがテクスチャ欄で差し替えの候補のテクスチャを使っているか(上の値の組み合わせ。使わなければ 0)。
+        private static int CandidateUse(Material material, PreviewTargeting.Plan plan)
+        {
+            material.GetTexturePropertyNameIDs(s_textureIds);
+            int uses = 0;
+            foreach (int id in s_textureIds)
+            {
+                var texture = material.GetTexture(id);
+                if (plan.IsLive(texture)) uses |= UsesLive;
+                else if (plan.IsCandidate(texture)) uses |= UsesRegistered;
+                if (uses == (UsesLive | UsesRegistered)) break;
+            }
+            s_textureIds.Clear();
+            return uses;
+        }
+
+        private static bool Uses(Material material, PreviewTargeting.Routes routes)
+        {
+            material.GetTexturePropertyNameIDs(s_textureIds);
+            bool uses = false;
+            foreach (int id in s_textureIds)
+            {
+                if (!routes.TryGet(material.GetTexture(id), out _)) continue;
+                uses = true;
+                break;
+            }
+            s_textureIds.Clear();
+            return uses;
+        }
+
+        // 差し替え先をグループに持たせる。NDMF 1.13 で等価の規則を明示する多重定義が足され、引数 1 つのこれは
+        // 非推奨になったが、下限の 1.8.0 にはこれしか無い。Routes は IEquatable なので、どの版でも Routes.Equals で
+        // 比べられる(NDMF 2.0 には対応していない)。
+#pragma warning disable CS0618
+        private static RenderGroup WithRoutes(RenderGroup group, PreviewTargeting.Routes routes) => group.WithData(routes);
+#pragma warning restore CS0618
+
+        // グループに持たせた差し替え先(持たせていないグループなら null)。
+        private static PreviewTargeting.Routes RoutesOf(RenderGroup group)
+        {
+            try
+            {
+                return group.GetData<PreviewTargeting.Routes>();
+            }
+            catch (System.InvalidCastException)
+            {
+                return null;
+            }
         }
 
         public Task<IRenderFilterNode> Instantiate(RenderGroup group, IEnumerable<(Renderer, Renderer)> proxyPairs,
             ComputeContext context)
         {
-            var plan = ObservePlan(context);
-            var node = new Node();
+            // 差し替え先は対象を選ぶときに決めてある。持たせていないグループ(NDMF の外から呼んだとき)だけ、
+            // ここで規則の入力を監視しつつ求める。
+            var routes = RoutesOf(group);
+            PreviewTargeting.Plan plan = null;
+            // NDMF はこのノードを作る間だけ、上流から引き継いだ登録簿を ObjectRegistry.ActiveRegistry にしている
+            // (レシピを待ってから差し替えるときには外れているので、ここで控える)。
+            var node = new Node(ObjectRegistry.ActiveRegistry);
             var proxies = new List<Renderer>();
             foreach (var (original, proxy) in proxyPairs)
             {
                 if (original == null || proxy == null) continue;
-                // 元の Renderer の素材と親子関係が変わったら作り直す(上流の差し替えは NDMF が Refresh で知らせる)。
-                HasReplacement(context, plan, original);
+                node.Track(original);
+                var r = routes;
+                if (r == null)
+                {
+                    plan ??= ObservePlan(context);
+                    context.ObservePath(original.transform);
+                    r = plan.RoutesFor(original.transform, usesLive: true);
+                }
                 foreach (var m in proxy.sharedMaterials)
-                    if (m != null) node.Borrow(context, plan, original.transform, m);
+                    if (m != null) node.Borrow(r, m);
                 proxies.Add(proxy);
             }
+            node.ObserveInputs(context);
 
             var ready = node.Ready;
             if (ready.IsCompleted) return Task.FromResult<IRenderFilterNode>(node.Swap(proxies));
@@ -104,6 +259,9 @@ namespace Iroca.NdmfIntegration
             // 決まらないので、差し替えはメインスレッドへ戻してから行う。
             // NDMF は全部のノードがそろってから次の表示へ切り替えるので、この Task は何があっても完了させる
             // (残すと、ほかのツールの分も含めてシーンのプレビューが古い表示のまま止まる)。
+            // 待っている間にこのノードの入力が変わったら、要らなくなった作りかけは待つのをやめる(Node.StopWaiting)。
+            // NDMF はこのパイプラインを最後まで待ってから作り直すので、待ち続けると要らない計算のぶん表示が遅れる。
+            context.InvokeOnInvalidate(node, n => n.StopWaiting());
             var result = new TaskCompletionSource<IRenderFilterNode>();
             ready.ContinueWith(_ => PreviewJobMainThread.Post(() =>
             {
@@ -128,9 +286,9 @@ namespace Iroca.NdmfIntegration
             foreach (var component in context.GetComponentsByType<IrocaRecolor>())
             {
                 if (component == null) continue;
-                var recipes = context.Observe(component,
-                    c => c.recipes != null ? c.recipes.ToArray() : System.Array.Empty<IrocaRecipe>(),
-                    (a, b) => a.SequenceEqual(b));
+                var recipes = component.recipes != null ? component.recipes.ToArray() : System.Array.Empty<IrocaRecipe>();
+                // レシピの欄が変わったら選び直す。
+                context.Observe(component, c => SameRecipes(c, recipes), (a, b) => a == b);
                 // 付け替えると範囲が変わる(ObservePath は呼んだ時点で監視を始める)。
                 context.ObservePath(component.transform);
                 // 並び順のまま渡す(同じテクスチャのレシピが重なったら先が勝つ。ビルドと同じ)。
@@ -145,35 +303,15 @@ namespace Iroca.NdmfIntegration
             return new PreviewTargeting.Plan(registered, live);
         }
 
-        private static bool HasReplacement(ComputeContext context, PreviewTargeting.Plan plan, Renderer renderer)
+        // いまのレシピの欄が expected と同じか(配列を作らずに比べる)。
+        private static bool SameRecipes(IrocaRecolor component, IrocaRecipe[] expected)
         {
-            var mats = context.Observe(renderer, r => r.sharedMaterials, (a, b) => a.SequenceEqual(b));
-            bool candidate = false;
-            foreach (var m in mats)
-            {
-                if (m == null) continue;
-                // マテリアルのテクスチャを差し替えられたら選び直す。
-                foreach (var t in context.Observe(m, TexturesOf, (a, b) => a.SequenceEqual(b)))
-                    candidate |= plan.IsCandidate(t);
-            }
-            if (!candidate) return false;
-
-            context.ObservePath(renderer.transform);
-            foreach (var m in mats)
-            {
-                if (m == null) continue;
-                foreach (var t in TexturesOf(m))
-                    if (plan.TryResolve(renderer.transform, t, out _)) return true;
-            }
-            return false;
-        }
-
-        private static Texture[] TexturesOf(Material material)
-        {
-            var ids = material.GetTexturePropertyNameIDs();
-            var textures = new Texture[ids.Length];
-            for (int i = 0; i < ids.Length; i++) textures[i] = material.GetTexture(ids[i]);
-            return textures;
+            var recipes = component.recipes;
+            int count = recipes != null ? recipes.Count : 0;
+            if (count != expected.Length) return false;
+            for (int i = 0; i < count; i++)
+                if (!ReferenceEquals(recipes[i], expected[i])) return false;
+            return true;
         }
 
         private sealed class Node : IRenderFilterNode
@@ -183,8 +321,12 @@ namespace Iroca.NdmfIntegration
             {
                 public Material material;
                 public int property;
+                public Texture2D source;
                 public Texture live;
                 public Task<Texture2D> recipe;
+                // レシピから作るとき: 借りたレシピと鍵(待つのをやめるとき・要るかを確かめるときに使う)。
+                public IrocaRecipe recipeAsset;
+                public string key;
             }
 
             private readonly List<Slot> _slots = new List<Slot>();
@@ -192,8 +334,26 @@ namespace Iroca.NdmfIntegration
             private readonly Dictionary<Material, Material> _clones = new Dictionary<Material, Material>();
             private readonly List<Texture2D> _live = new List<Texture2D>();
             private readonly List<string> _recipeKeys = new List<string>();
+            // 借りたレシピ(中身が変わったら作り直す)。
+            private readonly List<IrocaRecipe> _recipes = new List<IrocaRecipe>();
+            // 元の Renderer と、作ったときの素材の並び・各素材のテクスチャ欄(変わったら作り直す)。
+            private readonly List<(Renderer renderer, Material[] materials, Texture[][] textures)> _originals =
+                new List<(Renderer, Material[], Texture[][])>();
+            // いまこのノードを使っている NDMF の文脈(入力が変わったら無効になる)。
+            private ComputeContext _context;
+            // 置き換えを知らせる登録簿(NDMF の外で作ったときは null)。
+            private readonly IObjectRegistry _registry;
+            // 作りかけを待つのをやめたか(1 回だけ)。
+            private bool _stoppedWaiting;
 
-            public RenderAspects WhatChanged => RenderAspects.Material | RenderAspects.Texture;
+            public Node(IObjectRegistry registry)
+            {
+                _registry = registry;
+            }
+
+            // 使い回すとき(Refresh で自分を返す)は何も変えていない。作り直すときは新しいノードになり、
+            // 最初の世代のこの値は NDMF が見ない。
+            public RenderAspects WhatChanged => 0;
 
             /// <summary>借りたテクスチャがすべて出来上がったら完了する。</summary>
             public Task Ready
@@ -208,13 +368,13 @@ namespace Iroca.NdmfIntegration
             }
 
             /// <summary>このマテリアルの差し替え先テクスチャを借りる(複製はまだ作らない)。</summary>
-            public void Borrow(ComputeContext context, PreviewTargeting.Plan plan, Transform owner, Material material)
+            public void Borrow(PreviewTargeting.Routes routes, Material material)
             {
                 if (!_borrowed.Add(material)) return;
                 foreach (int id in material.GetTexturePropertyNameIDs())
                 {
-                    if (!plan.TryResolve(owner, material.GetTexture(id), out var replacement)) continue;
-                    var slot = new Slot { material = material, property = id };
+                    if (!routes.TryGet(material.GetTexture(id), out var replacement)) continue;
+                    var slot = new Slot { material = material, property = id, source = replacement.source };
                     if (replacement.IsLive)
                     {
                         slot.live = LivePreview.Acquire(replacement.source);
@@ -223,14 +383,100 @@ namespace Iroca.NdmfIntegration
                     }
                     else
                     {
-                        // レシピの中身か作業解像度の設定が変わったら作り直す(ウィンドウがレシピへ保存したとき)。
-                        context.Observe(replacement.recipe, r => r.sessionJson);
-                        context.Observe(AtSource);
                         slot.recipe = RecipePreviewTextures.Acquire(replacement.recipe, out var key);
+                        slot.recipeAsset = replacement.recipe;
+                        slot.key = key;
                         if (key != null) _recipeKeys.Add(key);
+                        if (!_recipes.Contains(replacement.recipe)) _recipes.Add(replacement.recipe);
                     }
                     _slots.Add(slot);
                 }
+            }
+
+            /// <summary>元の Renderer の、いまの素材の並びと各素材のテクスチャ欄を覚えておく(<see cref="ObserveInputs"/> で監視する)。</summary>
+            public void Track(Renderer original)
+            {
+                var materials = original.sharedMaterials;
+                var textures = new Texture[materials.Length][];
+                for (int i = 0; i < materials.Length; i++)
+                    textures[i] = materials[i] != null ? TexturesOf(materials[i]) : null;
+                _originals.Add((original, materials, textures));
+            }
+
+            /// <summary>
+            /// このノードの入力を <paramref name="context"/> で監視する。元の Renderer の素材の並びとテクスチャ欄
+            /// (アニメーションのプレビューでの切り替えなど、NDMF の変更通知が来ない変化も拾う)、借りたレシピの中身と
+            /// 作業解像度(ウィンドウがレシピへ保存したとき)。
+            /// 比べる相手はノードを作ったときの値(使い回すときも同じ)。
+            /// </summary>
+            public void ObserveInputs(ComputeContext context)
+            {
+                _context = context;
+                foreach (var (renderer, materials, textures) in _originals)
+                {
+                    context.Observe(renderer, r => SameMaterials(r, materials), (a, b) => a == b);
+                    for (int i = 0; i < materials.Length; i++)
+                    {
+                        if (materials[i] == null) continue;
+                        var expected = textures[i];
+                        context.Observe(materials[i], m => SameTextures(m, expected), (a, b) => a == b);
+                    }
+                }
+                foreach (var recipe in _recipes)
+                    context.Observe(recipe, r => r.sessionJson);
+                // ウィンドウがこのレシピを編集し始めた・やめた(ライブとレシピが入れ替わる)。差し替え先が変わるので
+                // NDMF はグループを作り直すが、作りかけを待つのをやめるきっかけにもする(StopWaiting)。
+                var watched = new HashSet<IrocaRecipe>();
+                foreach (var s in _slots)
+                {
+                    if (s.recipeAsset == null || !watched.Add(s.recipeAsset)) continue;
+                    var source = s.source;
+                    var recipe = s.recipeAsset;
+                    context.Observe(Live, t => EditsLive(t, source, recipe), (a, b) => a == b);
+                }
+            }
+
+            // ウィンドウがこのレシピ(元テクスチャ)をライブで映す編集をしているか(PreviewTargeting の規則と同じ)。
+            private static bool EditsLive(LivePreview.Target live, Texture2D source, IrocaRecipe recipe) =>
+                live != null && live.source == source && live.boundRecipe != null && live.boundRecipe == recipe;
+
+            /// <summary>
+            /// 作りかけのレシピを待っている間に、このノードの入力が変わった(NDMF がこのノードを作り直すことになった)。
+            /// 待っているレシピのうち、もう要らないもの(レシピの中身・作業解像度・元テクスチャの取り込みが変わって
+            /// 鍵が変わった、ウィンドウがそのレシピを編集し始めてライブを映すことになった)は待つのをやめる。
+            /// ほかに待っている借り手がいなければ作りかけは取り消され、このノードは元のテクスチャのまま、すぐ終わる
+            /// (作り直したノードが、要るものを借り直す)。鍵が同じもの(素材の差し替えなど)は、作り直したノードでも
+            /// 使うので待ち続ける(取り消すと、また初めから計算し直すことになる)。メインスレッドで呼ばれる。
+            /// </summary>
+            public void StopWaiting()
+            {
+                if (_stoppedWaiting) return;
+                _stoppedWaiting = true;
+                foreach (var s in _slots)
+                {
+                    if (s.recipe == null || s.key == null || s.recipe.IsCompleted || StillWanted(s)) continue;
+                    RecipePreviewTextures.Abandon(s.key, s.recipe);
+                }
+            }
+
+            private static bool StillWanted(Slot s)
+            {
+                var recipe = s.recipeAsset;
+                var source = recipe != null ? recipe.sourceTexture : null;
+                if (source == null || EditsLive(LivePreview.Current, s.source, recipe)) return false;
+                return RecipeTextureBuilder.CacheKey(recipe, source) == s.key;
+            }
+
+            // 作ったときから元の Renderer の素材・テクスチャ欄が変わっていないか。
+            private bool OriginalsUnchanged()
+            {
+                foreach (var (renderer, materials, textures) in _originals)
+                {
+                    if (renderer == null || !SameMaterials(renderer, materials)) return false;
+                    for (int i = 0; i < materials.Length; i++)
+                        if (materials[i] != null && !SameTextures(materials[i], textures[i])) return false;
+                }
+                return true;
             }
 
             /// <summary>
@@ -253,11 +499,44 @@ namespace Iroca.NdmfIntegration
                         clone = Object.Instantiate(s.material);
                         clone.name = s.material.name + " (Iroca)";
                         _clones[s.material] = clone;
+                        Register(s.material, clone);
                     }
                     clone.SetTexture(s.property, texture);
+                    // レシピの出来上がり(Texture2D)は元テクスチャの置き換えとして知らせる(ビルドと同じ)。ライブの
+                    // RenderTexture は知らせない(TexTransTool も RenderTexture は登録簿に載せない)。
+                    if (s.recipe != null) Register(s.source, texture);
                 }
                 foreach (var proxy in proxies) Replace(proxy);
                 return this;
+            }
+
+            /// <summary>
+            /// 上流が変わって NDMF がパイプラインを組み直すとき。自分の入力(元の素材・レシピの中身・作業解像度)が
+            /// 変わった、または上流でマテリアル・テクスチャが変わったら null を返して作り直してもらう(差し替えの
+            /// 対応表は上流のマテリアルを鍵にしている)。メッシュ・ブレンドシェイプだけの変化なら、同じ複製を新しい
+            /// プロキシに差し直して自分を返す(後段のツールにも「何も変えていない」と伝わり、作り直しが連鎖しない)。
+            /// </summary>
+            public Task<IRenderFilterNode> Refresh(IEnumerable<(Renderer, Renderer)> proxyPairs, ComputeContext context,
+                RenderAspects updatedAspects)
+            {
+                if (_context == null || _context.IsInvalidated
+                    || (updatedAspects & (RenderAspects.Material | RenderAspects.Texture)) != 0
+                    || !OriginalsUnchanged())
+                    return Task.FromResult<IRenderFilterNode>(null);
+                ObserveInputs(context);
+                foreach (var (_, proxy) in proxyPairs) Replace(proxy);
+                return Task.FromResult<IRenderFilterNode>(this);
+            }
+
+            // 置き換えを登録簿に知らせる(ビルドの BuildHost.RegisterReplaced と同じ)。TexTransTool の
+            // MaterialModifier・MaterialOverrideTransfer などは、指定されたマテリアルと「置き換え前が同じもの」を
+            // 登録簿で探すので、知らせないと複製を見つけられず、シーンのプレビューでだけ効かなくなる。登録簿は NDMF が
+            // 下流のノードへ引き継ぎ、下流のノードはこのノードの完了後に作られる。テクスチャはノードの間で共有して
+            // いるので、登録済みでも例外にならない Try で知らせる。
+            private void Register(Object original, Object replacement)
+            {
+                if (_registry == null || original == null || replacement == null) return;
+                _registry.TryRegisterReplacedObject(_registry.GetReference(original), replacement);
             }
 
             // NDMF は毎フレーム、描画用のプロキシのマテリアルを元の Renderer のものへ戻してから各ノードを呼ぶ
@@ -290,6 +569,8 @@ namespace Iroca.NdmfIntegration
                 _live.Clear();
                 foreach (var key in _recipeKeys) RecipePreviewTextures.Release(key);
                 _recipeKeys.Clear();
+                _recipes.Clear();
+                _originals.Clear();
             }
         }
     }

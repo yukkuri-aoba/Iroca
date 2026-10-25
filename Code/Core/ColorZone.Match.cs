@@ -104,7 +104,7 @@ namespace Iroca
             float currentChromaHi = chromaThreshold + ChromaConfidenceSpan;
             float baseChromaConf = Mathf.Clamp01((sc.sS - chromaThreshold) / ((currentChromaHi) - chromaThreshold));
             // 暗すぎる色（黒）は彩度データが高くても色相（Hue）の計算がノイズで暴れるため信用しない
-            float valueConf = Mathf.Clamp01((sc.sV - 0.05f) / 0.15f); // Vが0.05(非常に暗い)〜0.20の範囲で減衰
+            float valueConf = Mathf.Clamp01((sc.sV - HueValueConfLo) / HueValueConfSpan); // Vが0.05(非常に暗い)〜0.20の範囲で減衰
             sc.chromaConfidence = Mathf.Min(baseChromaConf, valueConf);
 
             // ── ホットループから追い出したサンプル定数(式・演算順は MatchOneSample と同一) ──
@@ -119,6 +119,7 @@ namespace Iroca
             sc.shadowRangeDen = sc.sV * ForgivenessRangeFrac;
             sc.brightThreshold = sc.sV + (1f - sc.sV) * HighlightValueHeadroomFrac;
             sc.brightRangeDen = Mathf.Max(0.01f, (1f - sc.sV) * ForgivenessRangeFrac);
+            sc.hueTrusted = baseChromaConf >= 1f;
             return sc;
         }
 
@@ -344,8 +345,15 @@ namespace Iroca
             // 暗部のグレー/黒混入とは性質が逆のため）。
             // 免除量は距離免除(CalculateHybridDistance)と発動条件・式・入力が完全に同一なので、
             // ここで 1 回だけ求めて渡す(従来は同じ Clamp01+除算+色相減衰を 2 回評価していた)。
+            // 色のはっきりしたサンプル(sc.hueTrusted)では、色味の無い画素(彩度 ChromaGateActivateSat 未満
+            // = 純白・純灰)を免除しない。色相が定まらず(RGBToHSV は R=G=B で 0 = 赤を返す)、色相ゲートが
+            // 「サンプルの色相が赤に近いか」だけで通ってしまい、肌・茶髪・赤い布のような暖色のサンプルで
+            // だけ白い背景まで同素材として拾っていた。サンプル自体が白に近い(色味がわずかな)ときは、純白は
+            // その素材の地・ツヤなので従来どおり免除する(外すと白い布の模様の縁が縁の混色の扱いに回り、
+            // サンプル色に置き換えられて濃い筋になった)。
             float brightForgiveness = 0f;
             bool brightActive = !simDisableBrightForgiveness && pV > sc.sV
+                                && (pS >= ChromaGateActivateSat || !sc.hueTrusted)
                                 && effectiveHDist < ForgivenessHueGate;
             if (brightActive)
             {
@@ -407,7 +415,7 @@ namespace Iroca
 
             // ハイライト（明部）の距離許容: 上のシャドウ許容の対称形。
             // サンプルより明るく同色相なら、低彩度化したハイライト芯でも同素材として
-            // 距離を免除する。免除上限はシャドウ側と同じ 0.3f（最大70%）で対称。
+            // 距離を免除する。免除の上限は BrightDistanceForgivenessMin（最大 70% 短縮。廃止したシャドウ側と同じ値）。
             if (brightActive)
                 finalDist *= Mathf.Lerp(1f, BrightDistanceForgivenessMin, brightForgiveness);
 

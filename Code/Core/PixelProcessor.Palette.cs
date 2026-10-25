@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace Iroca
 {
-    internal static partial class PixelProcessor
+    internal static unsafe partial class PixelProcessor
     {
         /// <summary>
         /// 元画素の「色の種類」の表。アバター用テクスチャは塗りが平坦で、色(RGBA)の種類が画素数の
@@ -27,14 +27,47 @@ namespace Iroca
         {
             internal int Count;
             internal Color32[] Colors;   // 番号 → 色
-            internal int[] Index;        // 画素 → 番号(長さ len。s_intPool から借りる。Release で返す)
-            internal float[] H, S, V;    // 番号 → Color.RGBToHSV((Color)色) の結果
+            // 画素 → 番号(長さ len)と、番号 → Color.RGBToHSV((Color)色) の結果(長さ Count ずつ)。
+            // どちらも Mono のヒープの外に置く(番号の表は 8K で 256MB。管理配列だと、表を捨てても縮まない
+            // Mono のヒープにその分が残っていた)。最後の参照が外れたときに解放する。
+            internal int* Index;
+            internal float* H, S, V;
             // 番号 → RgbToOklab(byte 版) の L と、C = sqrt(a²+b²)。EnsureOklab で初めて要るときに作る。
             internal float[] OkL, OkC;
-            // 色の表のキャッシュ(GetOrBuildPalette)が持つ表。複数の処理から同時に読まれるので、
-            // Release で Index をプールへ返さない(キャッシュから外れたら GC に任せる)。
-            internal bool Shared;
             private readonly object _oklabLock = new object();
+
+            // 参照の数。作った処理が 1、キャッシュに入れると +1。キャッシュから引いた処理も +1 して、
+            // 使い終わったら Release する(キャッシュから追い出された表を、まだ使っている処理が読むことがある)。
+            private int _refs = 1;
+            // 領域の持ち主。表を捨て忘れても、それぞれのファイナライザが解放する。
+            private readonly NativeBlock _indexMem, _hsvMem;
+            private int _freed;
+
+            // 確保済みの領域を受け取って持ち主になる(ここでは確保しないので、作るのに失敗して二重に解放する
+            // ことはない)。hsvMem は H・S・V を count ずつ並べた領域。
+            internal ColorPalette(int count, Color32[] colors, NativeBlock indexMem, NativeBlock hsvMem)
+            {
+                Count = count;
+                Colors = colors;
+                _indexMem = indexMem;
+                _hsvMem = hsvMem;
+                Index = (int*)indexMem.Ptr;
+                H = (float*)hsvMem.Ptr;
+                S = H + count;
+                V = S + count;
+            }
+
+            internal void AddRef() => Interlocked.Increment(ref _refs);
+
+            internal void Release()
+            {
+                if (Interlocked.Decrement(ref _refs) != 0) return;
+                // 中断中(ドメインのアンロード)は、並列で読んでいる途中のスレッドが残っていることがあるので
+                // 解放しない(NativeBlock.Dispose がアンロードまで持っておき、その後ファイナライザが解放する)。
+                if (Interlocked.Exchange(ref _freed, 1) != 0) return;
+                _indexMem.Dispose();
+                _hsvMem.Dispose();
+            }
 
             /// <summary>
             /// OkLab の表を作る(呼び出し側スレッドから、並列ループの外で呼ぶこと)。表は複数の処理から
@@ -62,13 +95,6 @@ namespace Iroca
                     Volatile.Write(ref OkC, c);
                 }
             }
-
-            internal void Release()
-            {
-                if (Shared) return;
-                if (Index != null) s_intPool.Return(Index);
-                Index = null;
-            }
         }
 
         // 色の表を元画素の中身ごとに使い回す(プレビューは同じ元画像を編集のたびに処理するので、毎回
@@ -76,8 +102,9 @@ namespace Iroca
         // 表は色だけで決まり、番号は出力に影響しない(上の注意)ので、使い回しても出力はビット単位で同じ。
         // 2 枠 = プレビューの縮小段とフル解像度段が交互に来ても互いを追い出さない。
         // ただし大きい画像の表(画素 → 番号だけで 4K なら 64MB)は 1 枚までにする。別のテクスチャやシーン反映の
-        // 処理が走ると大きい表が 2 枚残り、Unity の Mono はヒープを縮めないので、その分がずっとエディタの
-        // メモリになっていた。大きい表を作り直すのは別の画像に切り替わったときだけ。
+        // 処理が走ると大きい表が 2 枚残り、その分がずっとエディタのメモリになっていた。大きい表を作り直すのは
+        // 別の画像に切り替わったときだけ。追い出した表は、使っている処理が Release した時点で解放する
+        // (0.3.0 から表は Mono のヒープの外に置くので、解放した分は OS へ戻る)。
         private const int PaletteCacheSize = 2;
         private const int PaletteLargeLen = 1 << 20;   // これを超える画素数の表は 1 枚まで(縮小段 512² は小さい側)
         private sealed class PaletteCacheEntry
@@ -89,10 +116,15 @@ namespace Iroca
         private static readonly PaletteCacheEntry[] s_paletteCache = new PaletteCacheEntry[PaletteCacheSize];
         private static readonly object s_paletteCacheLock = new object();
 
-        /// <summary>色の表をキャッシュから取り出す。無ければ作って入れる(TryBuildPalette と同じく null もありうる)。</summary>
-        private static ColorPalette GetOrBuildPalette(Color32[] pixels, int w, int h, ParallelOptions po,
+        /// <summary>
+        /// 色の表をキャッシュから取り出す。無ければ作って入れる(TryBuildPalette と同じく null もありうる)。
+        /// 返した表は呼び出し側の参照を 1 つ持つので、使い終わったら Release すること。
+        /// </summary>
+        private static ColorPalette GetOrBuildPalette(Color32* pixels, int w, int h, ParallelOptions po,
             SubPhaseClock sub = null)
         {
+            // 色の表あり・なしの両経路が同じ出力になることを比べるテスト用(ハーネスの --no-palette)。
+            if (DebugCaptureHooks.DisablePalette) return null;
             ulong hash = HashPixels(pixels, w * h, po);
             lock (s_paletteCacheLock)
             {
@@ -103,36 +135,58 @@ namespace Iroca
                     for (int m = k; m > 0; m--) s_paletteCache[m] = s_paletteCache[m - 1];
                     s_paletteCache[0] = e;
                     sub?.Mark(SpPaletteHash);   // 当たったときはハッシュを取った時間だけ
+                    // キャッシュが参照を持っている間に足すので、追い出しと行き違って解放されることはない。
+                    e.Palette?.AddRef();
                     return e.Palette;
                 }
             }
             var built = TryBuildPalette(pixels, w, h, po, sub);
-            if (built != null) built.Shared = true;
+            var evicted = new ColorPalette[PaletteCacheSize];
+            int nEvicted = 0;
             lock (s_paletteCacheLock)
             {
+                built?.AddRef();   // キャッシュの分
                 // 新しい表を先頭に置き、残りを古い順に詰める。大きい表どうしは新しい方だけ残す
-                // (追い出した表を使用中の処理があっても、Shared なので Index はプールへ返らず壊れない)。
+                // (追い出した表は、まだ使っている処理が Release するまで解放されない)。
                 bool newLarge = w * h > PaletteLargeLen;
                 var next = new PaletteCacheEntry[PaletteCacheSize];
                 next[0] = new PaletteCacheEntry { W = w, H = h, Hash = hash, Palette = built };
                 int filled = 1;
-                for (int k = 0; k < PaletteCacheSize && filled < PaletteCacheSize; k++)
+                for (int k = 0; k < PaletteCacheSize; k++)
                 {
                     var e = s_paletteCache[k];
                     if (e == null) continue;
-                    if (newLarge && e.W * e.H > PaletteLargeLen && e.Palette != null) continue;
-                    next[filled++] = e;
+                    bool keep = filled < PaletteCacheSize
+                        && !(newLarge && e.W * e.H > PaletteLargeLen && e.Palette != null);
+                    if (keep) next[filled++] = e;
+                    else if (e.Palette != null) evicted[nEvicted++] = e.Palette;
                 }
                 Array.Copy(next, s_paletteCache, PaletteCacheSize);
             }
+            for (int k = 0; k < nEvicted; k++) evicted[k].Release();
             return built;
+        }
+
+        /// <summary>色の表のキャッシュを空にする(使っている処理が無い表はすぐ解放される)。</summary>
+        private static void ClearPaletteCache()
+        {
+            var drop = new ColorPalette[PaletteCacheSize];
+            lock (s_paletteCacheLock)
+            {
+                for (int k = 0; k < PaletteCacheSize; k++)
+                {
+                    drop[k] = s_paletteCache[k]?.Palette;
+                    s_paletteCache[k] = null;
+                }
+            }
+            foreach (var p in drop) p?.Release();
         }
 
         /// <summary>
         /// 画素(RGBA)全体の 64bit ハッシュ。塊ごとに並列に混ぜ、塊のハッシュを順に畳む(実行ごとに同じ値)。
         /// 1 画素の違いでも塊のハッシュは必ず変わる(各段が全単射)。
         /// </summary>
-        private static ulong HashPixels(Color32[] px, int len, ParallelOptions po)
+        private static ulong HashPixels(Color32* px, int len, ParallelOptions po)
         {
             const int Chunk = 1 << 16;
             int n = (len + Chunk - 1) / Chunk;
@@ -170,7 +224,7 @@ namespace Iroca
         /// 元画素から色の表を作る。種類が上限を超えた・キャンセルされたときは null(呼び出し側は
         /// 画素ごとの計算に戻る)。
         /// </summary>
-        private static ColorPalette TryBuildPalette(Color32[] pixels, int w, int h, ParallelOptions po,
+        private static ColorPalette TryBuildPalette(Color32* pixels, int w, int h, ParallelOptions po,
             SubPhaseClock sub = null)
         {
             int len = w * h;
@@ -186,93 +240,113 @@ namespace Iroca
             // 表はキャッシュから引くので作り直すのは新しい画像のときだけで、使い回しのために常駐させると、
             // Mono では縮まないヒープにその分が残り続ける。
             long[] slots = new long[capacity];
-            int[] index = s_intPool.Rent(len);
-            int inserted = 0;
-            int overflow = 0;
-
-            // 1) 画素ごとに表の位置(スロット)を求めて index に書く。隣の画素と同じ色が続くことが
-            //    多いので、直前の色と同じなら表を引かない。
-            Parallel.For(0, h, po, (y, state) =>
+            // 画素 → 番号と番号 → HSV は Mono のヒープの外に取り、表(ColorPalette)が持ち主になる。
+            // 表に渡すまでは、確保した直後に包んだ持ち主(NativeBlock)が守る。途中で抜けたとき(種類が多すぎた・
+            // キャンセル)は下の finally で解放する。スクリプトの再読み込みでこのスレッドだけが中断されたときは、
+            // 並列のスレッドがまだ書いているので解放せず、持ち主がアンロードまで持っておく(以前はここで
+            // 先に解放していた。小さい画像では、書き込み中の領域がヒープに戻ってエディタごと落ちることがあった)。
+            var indexMem = new NativeBlock((long)len * sizeof(int));
+            int* index = (int*)indexMem.Ptr;
+            NativeBlock hsvMem = null;
+            ColorPalette built = null;
+            try
             {
-                if (Volatile.Read(ref overflow) != 0) { state.Stop(); return; }
-                int row = y * w;
-                uint lastKey = 0;
-                int lastSlot = -1;
-                for (int x = 0; x < w; x++)
+                int inserted = 0;
+                int overflow = 0;
+
+                // 1) 画素ごとに表の位置(スロット)を求めて index に書く。隣の画素と同じ色が続くことが
+                //    多いので、直前の色と同じなら表を引かない。
+                Parallel.For(0, h, po, (y, state) =>
                 {
-                    Color32 c = pixels[row + x];
-                    uint key = (uint)c.r | ((uint)c.g << 8) | ((uint)c.b << 16) | ((uint)c.a << 24);
-                    if (lastSlot >= 0 && key == lastKey) { index[row + x] = lastSlot; continue; }
-                    long want = (long)key + 1;
-                    int slot = (int)((key * 2654435761u) >> shift);
-                    while (true)
+                    if (Volatile.Read(ref overflow) != 0) { state.Stop(); return; }
+                    int row = y * w;
+                    uint lastKey = 0;
+                    int lastSlot = -1;
+                    for (int x = 0; x < w; x++)
                     {
-                        long cur = Volatile.Read(ref slots[slot]);
-                        if (cur == want) break;
-                        if (cur == 0)
+                        Color32 c = pixels[row + x];
+                        uint key = (uint)c.r | ((uint)c.g << 8) | ((uint)c.b << 16) | ((uint)c.a << 24);
+                        if (lastSlot >= 0 && key == lastKey) { index[row + x] = lastSlot; continue; }
+                        long want = (long)key + 1;
+                        int slot = (int)((key * 2654435761u) >> shift);
+                        while (true)
                         {
-                            long prev = Interlocked.CompareExchange(ref slots[slot], want, 0);
-                            if (prev == 0)
+                            long cur = Volatile.Read(ref slots[slot]);
+                            if (cur == want) break;
+                            if (cur == 0)
                             {
-                                if (Interlocked.Increment(ref inserted) > maxColors)
+                                long prev = Interlocked.CompareExchange(ref slots[slot], want, 0);
+                                if (prev == 0)
                                 {
-                                    Volatile.Write(ref overflow, 1);
-                                    state.Stop();
-                                    return;
+                                    if (Interlocked.Increment(ref inserted) > maxColors)
+                                    {
+                                        Volatile.Write(ref overflow, 1);
+                                        state.Stop();
+                                        return;
+                                    }
+                                    break;
                                 }
-                                break;
+                                if (prev == want) break;
                             }
-                            if (prev == want) break;
+                            slot = (slot + 1) & mask;
                         }
-                        slot = (slot + 1) & mask;
+                        index[row + x] = slot;
+                        lastKey = key;
+                        lastSlot = slot;
                     }
-                    index[row + x] = slot;
-                    lastKey = key;
-                    lastSlot = slot;
+                });
+                sub?.Mark(SpPaletteHash);   // 種類が多すぎて作るのをやめた分もここに計上する
+                if (overflow != 0 || po.CancellationToken.IsCancellationRequested)
+                {
+                    po.CancellationToken.ThrowIfCancellationRequested();
+                    return null;
                 }
-            });
-            sub?.Mark(SpPaletteHash);   // 種類が多すぎて作るのをやめた分もここに計上する
-            if (overflow != 0 || po.CancellationToken.IsCancellationRequested)
-            {
-                s_intPool.Return(index);
-                po.CancellationToken.ThrowIfCancellationRequested();
-                return null;
+
+                // 2) 使われたスロットに番号を振り、色と HSV を求める(種類数ぶんだけ)。
+                //    slotToId は使われたスロットの位置だけ書いて読むので、0 で埋めなくてよい。
+                int count = inserted;
+                int[] slotToId = new int[capacity];
+                var colors = new Color32[count];
+                int n = 0;
+                for (int s = 0; s < capacity; s++)
+                {
+                    long v = slots[s];
+                    if (v == 0) continue;
+                    uint key = (uint)(v - 1);
+                    slotToId[s] = n;
+                    colors[n++] = new Color32((byte)key, (byte)(key >> 8), (byte)(key >> 16), (byte)(key >> 24));
+                }
+                hsvMem = new NativeBlock(3L * count * sizeof(float));
+                float* hh = (float*)hsvMem.Ptr, ss = hh + count, vv = ss + count;
+                ForEachPaletteChunk(count, po, (k0, k1) =>
+                {
+                    for (int k = k0; k < k1; k++)
+                        Color.RGBToHSV((Color)colors[k], out hh[k], out ss[k], out vv[k]);
+                });
+
+                sub?.Mark(SpPaletteIds);
+                // 3) スロット番号を色番号へ置き換える。
+                var slotToIdL = slotToId;
+                Parallel.For(0, h, po, y =>
+                {
+                    int row = y * w;
+                    for (int x = 0; x < w; x++) index[row + x] = slotToIdL[index[row + x]];
+                });
+
+                sub?.Mark(SpPaletteRemap);
+                built = new ColorPalette(count, colors, indexMem, hsvMem);
+                return built;
             }
-
-            // 2) 使われたスロットに番号を振り、色と HSV を求める(種類数ぶんだけ)。
-            //    slotToId は使われたスロットの位置だけ書いて読むので、0 で埋めなくてよい。
-            int count = inserted;
-            int[] slotToId = new int[capacity];
-            var colors = new Color32[count];
-            int n = 0;
-            for (int s = 0; s < capacity; s++)
+            finally
             {
-                long v = slots[s];
-                if (v == 0) continue;
-                uint key = (uint)(v - 1);
-                slotToId[s] = n;
-                colors[n++] = new Color32((byte)key, (byte)(key >> 8), (byte)(key >> 16), (byte)(key >> 24));
+                // 表に渡せなかったときだけ始末する。中断中(IrocaNativeMemory.CurrentThreadAborting)の Dispose は
+                // 解放しないので、実質 `built == null && !CurrentThreadAborting` のときだけ解放される。
+                if (built == null)
+                {
+                    indexMem.Dispose();
+                    hsvMem?.Dispose();
+                }
             }
-            var hh = new float[count];
-            var ss = new float[count];
-            var vv = new float[count];
-            ForEachPaletteChunk(count, po, (k0, k1) =>
-            {
-                for (int k = k0; k < k1; k++)
-                    Color.RGBToHSV((Color)colors[k], out hh[k], out ss[k], out vv[k]);
-            });
-
-            sub?.Mark(SpPaletteIds);
-            // 3) スロット番号を色番号へ置き換える。
-            var slotToIdL = slotToId;
-            Parallel.For(0, h, po, y =>
-            {
-                int row = y * w;
-                for (int x = 0; x < w; x++) index[row + x] = slotToIdL[index[row + x]];
-            });
-
-            sub?.Mark(SpPaletteRemap);
-            return new ColorPalette { Count = count, Colors = colors, Index = index, H = hh, S = ss, V = vv };
         }
 
         // ───────── 無彩パスの再着色メモ ─────────

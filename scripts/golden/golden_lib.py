@@ -253,8 +253,8 @@ def _zone_json(z: dict) -> dict:
     return out
 
 
-def run_csharp(rgba: np.ndarray, z: dict, s: dict, work: Path) -> np.ndarray:
-    """C# Harness を 1 ゾーン・除外なしで走らせ、出力 RGBA を返す。"""
+def run_csharp(rgba: np.ndarray, z: dict, s: dict, work: Path, env: dict | None = None) -> np.ndarray:
+    """C# Harness を 1 ゾーン・除外なしで走らせ、出力 RGBA を返す。env は環境変数の追加分（None なら今のまま）。"""
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
     in_raw, mask_raw, out_raw, zj = work / "in.raw", work / "mask.raw", work / "out.raw", work / "z.json"
@@ -265,7 +265,7 @@ def run_csharp(rgba: np.ndarray, z: dict, s: dict, work: Path) -> np.ndarray:
     r = subprocess.run(
         ["dotnet", str(HARNESS_DLL), str(in_raw), str(mask_raw), str(out_raw), "--zones", str(zj)],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=RUN_TIMEOUT_S)
+        timeout=RUN_TIMEOUT_S, env=None if env is None else {**os.environ, **env})
     if r.returncode != 0:
         raise RuntimeError(f"Harness 実行失敗: {r.stderr}\n{r.stdout}")
     return read_raw_rgba(out_raw)

@@ -161,7 +161,7 @@ namespace Iroca
                         && p.y >= _previewScrollPos.y + my && p.y <= _previewScrollPos.y + viewH - my;
             if (visible) return;
             _previewScrollPos = new Vector2(Mathf.Max(0f, p.x - viewW * 0.5f), Mathf.Max(0f, p.y - viewH * 0.5f));
-            // スクロールで古い詳細クロップは整合しなくなる(パン・ズームと同じ扱い)。
+            // 見えている範囲が変わるので拡大表示を作り直させる(パン・ズームと同じ扱い)。
             _detailView.OnViewMoved();
         }
 
@@ -186,9 +186,11 @@ namespace Iroca
 
         /// <summary>
         /// 操作モード行が空いているときの中身: 別のテクスチャの部分をクリックした案内(と「開く」)か、
-        /// まだ一度も使っていなければ使い方。どちらも無ければ空白 1 文字(行の高さを保つ)。
+        /// まだ一度も使っていない操作の使い方。どれも無ければ空白 1 文字(行の高さを保つ)。
+        /// 使い方は、色替えが済んだら右クリック、それまでは Scene のクリック。どちらも一度使えば出ない。
+        /// 行はモードが無いときも高さを取っているので、案内を出しても下のプレビューは動かない。
         /// </summary>
-        private void DrawSceneClickRow()
+        private void DrawIdleRow()
         {
             var other = _host.SceneOtherTexture;
             if (other != null)
@@ -203,10 +205,23 @@ namespace Iroca
                 {
                     // テクスチャの切り替えでプレビューの中身が変わるので、この描画の途中ではなく次の更新で行う
                     // (同じフレームの Layout と Repaint で並びが食い違うと IMGUI がエラーを出す)。
+                    // delayCall で Unity は例外を受け止めない(投げると、同じ回に積まれた他のツールの処理が飛ぶ)ので、ここで受け止める。
                     var host = _host;
-                    EditorApplication.delayCall += () => { if (host != null) host.OpenSceneOtherTexture(); };
+                    EditorApplication.delayCall += () =>
+                    {
+                        try { if (host != null) host.OpenSceneOtherTexture(); }
+                        catch (System.Exception e) { Debug.LogException(e); }
+                    };
                 }
                 EditorGUIUtility.AddCursorRect(GUILayoutUtility.GetLastRect(), MouseCursor.Link);
+                return;
+            }
+            // 範囲を直す操作(右クリック)はメニューの奥にあり、マスク編集ウィンドウを開かないと案内が無かった。
+            // 色替えが済んで「同じ色の別の所まで変わった」と気づく頃に出す。
+            if (_host.StepZonesDone && !ContextMenuUsed)
+            {
+                GUILayout.Label(new GUIContent(Localization.ContextMenuHint, Localization.ContextMenuHintTooltip),
+                                EditorStyles.miniLabel, GUILayout.MinWidth(0f));
                 return;
             }
             bool used = IrocaWindow.SceneClickUsed;

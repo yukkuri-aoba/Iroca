@@ -1,25 +1,24 @@
 # Iroca（旧 VACC）— エージェント運用ガイド
 
-このリポジトリでは、Claude と Codex が同じ運用ルールに従う。Claude 向けの既存ルールは `CLAUDE.md` と `.claude/instructions/` に分割されているため、作業開始前にこのファイルと併せて以下のファイルを必ず読むこと。
+VRChat アバター用テクスチャを直感的に色替えする Unity Editor 拡張。中核は再着色アルゴリズム（色抽出・マスク生成・領域判定）。
 
-- `CLAUDE.md`
-- `.claude/instructions/general.md`
-- `.claude/instructions/improvement-cycle.md`
-- `.claude/instructions/git.md`
-- `.claude/instructions/notify.md`
+このファイルが Claude と Codex の共通の運用ガイド。`CLAUDE.md` はこのファイルを読み込むだけの入口なので、ルールはここに書く。
 
-上記モジュールの内容がこのファイルや他の指示と矛盾する場合は、モジュール側を優先する。
+## 最重要ルール（常時適用）
+- ユーザーへの応答は**日本語**。
+- **製品 C#（`Code/Core/PixelProcessor.cs` ほか）が唯一の正。** 同等アルゴリズムを Python で再実装しない（再実装は存在しない）。テスト・計測・視覚レビューは必ず**実 C# の出力**を測る。背景と構成は `docs/testing-architecture.md`。
+- Unity Editor UI に新しい操作要素を追加するときは、必ずツールチップを付ける。
+- **作業が完了したらコミットまで行う。** ただしテストが全パスした、採用確定の変更だけ（手順は git モジュール）。
+- アルゴリズム改善は**自律サイクル**で回し、1 ステップごとに承認を求めない（改善サイクルモジュール）。
+- 作業完了時は通知ルールに従って ntfy 通知を送る。
+
+詳細は以下のモジュールを正とする。このファイルは要約であり、矛盾したらモジュール側を優先する。作業開始前に必ず読むこと（Claude は下の `@` 行で自動的に読み込まれる）。
+
+## 詳細モジュール
+@.claude/instructions/general.md
+@.claude/instructions/improvement-cycle.md
+@.claude/instructions/git.md
+@.claude/instructions/notify.md
 
 `.claude/instructions/notify.md` は個人の通知先を含むため公開リポジトリに入っていない。
 無い場合は `dev_safe/setup/claude-notify.md` からコピーする（`docs/development-setup.md`）。
-
-## 要約
-
-- ユーザーへの応答は日本語で行う。
-- 製品 C#（`Code/Core/PixelProcessor.cs` ほか）が唯一の正。アルゴリズムを Python で再実装して測定しない。テスト・計測・視覚レビューは実 C# の出力を対象にする。
-- Unity Editor UI に新しい操作要素を追加するときは、必ずツールチップを付ける。
-- アルゴリズム改善は、実 C# の計測、GT との比較、視覚レビューを含む自律改善サイクルで進める。1 ステップごとの承認は求めない。
-- 採用が確定し、テストがすべてパスした変更だけを、Git ルールに従ってコミットする。
-- 作業完了時は通知ルールに従って ntfy 通知を送る。
-
-詳細な手順・停止条件・Git 操作の制約は、上記のモジュールを正とする。

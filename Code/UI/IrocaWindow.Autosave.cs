@@ -37,7 +37,19 @@ namespace Iroca
             _autosaveDue = 0;
         }
 
+        // EditorApplication.update から毎フレーム呼ばれる。Unity はそこで例外を受け止めないので、投げると
+        // 同じフレームで後ろに並んだ他のツールの更新が飛ばされる。ここで受け止め、次の編集まで保存を待つ。
         private void AutosaveTick()
+        {
+            try { AutosaveTickCore(); }
+            catch (System.Exception e)
+            {
+                _autosaveDue = 0;
+                UnityEngine.Debug.LogException(e);
+            }
+        }
+
+        private void AutosaveTickCore()
         {
             if (_autosaveDue <= 0 || EditorApplication.timeSinceStartup < _autosaveDue) return;
             // 書き出し・手動の自動調整の最中や、マスクを塗っている途中は待つ(終わってから 1 回保存する)。

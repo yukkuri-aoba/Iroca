@@ -17,7 +17,7 @@ namespace Iroca
     ///
     /// 座標規約: マスク・画素・クロップ矩形はすべて下原点(GetPixels32 順)。
     /// </summary>
-    internal static class SamZoomOps
+    internal static unsafe class SamZoomOps
     {
         /// <summary>クロップ辺の下限(これ未満に絞っても利得がなく、文脈が減るだけ)。</summary>
         public const int MinCropSide = 256;
@@ -132,6 +132,19 @@ namespace Iroca
             var crop = new Color32[side * side];
             for (int y = 0; y < side; y++)
                 System.Array.Copy(pixelsBottomUp, (y0 + y) * w + x0, crop, y * side, side);
+            return crop;
+        }
+
+        /// <summary><see cref="ExtractCrop(Color32[], int, int, int, int, int)"/> のポインタ版(切り出しは管理配列で返す)。</summary>
+        public static Color32[] ExtractCrop(Color32* pixelsBottomUp, int w, int h,
+                                            int x0, int y0, int side)
+        {
+            var crop = new Color32[side * side];
+            long rowBytes = (long)side * sizeof(Color32);
+            fixed (Color32* dst = crop)
+                for (int y = 0; y < side; y++)
+                    System.Buffer.MemoryCopy(pixelsBottomUp + (long)(y0 + y) * w + x0, dst + (long)y * side,
+                        rowBytes, rowBytes);
             return crop;
         }
 

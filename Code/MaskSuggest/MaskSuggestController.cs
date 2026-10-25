@@ -139,7 +139,7 @@ namespace Iroca
         /// 右クリックメニューを開いた時点(PreviewView.ShowPreviewContextMenu)で走らせて進捗を出す。
         /// メニューを開くたびに呼ばれるが、同一ソースならサービス側で no-op になる。
         /// </summary>
-        public void PrepareSource(Color32[] pixelsBottomUp, int width, int height, string sourceKey)
+        public void PrepareSource(NativePixels pixelsBottomUp, string sourceKey)
         {
             var svc = MaskSuggestBridge.Service;
             if (svc == null) return;
@@ -147,7 +147,7 @@ namespace Iroca
             // 項目を選んだときの RequestProposal の仕事)、エラー中も再試行しない(原因が直らないまま
             // メニューを開くたびに走る。復帰はメニューから選び直す = RequestProposal が CancelAll する)。
             if (svc.Phase != MaskSuggestPhase.Idle) return;
-            svc.SetSource(sourceKey, pixelsBottomUp, width, height);
+            svc.SetSource(sourceKey, pixelsBottomUp);
         }
 
         /// <summary>
@@ -158,7 +158,7 @@ namespace Iroca
         /// granularity = この 1 回だけの粒度(右クリックの「小さめの部分で」など)。null = <see cref="Granularity"/>。
         /// </summary>
         public bool RequestProposal(float u, float v, MaskPaintView.MaskDestination dest,
-                                    Color32[] pixelsBottomUp, int width, int height, string sourceKey,
+                                    NativePixels pixelsBottomUp, string sourceKey,
                                     MaskSuggestGranularity? granularity = null)
         {
             var svc = MaskSuggestBridge.Service;
@@ -168,7 +168,7 @@ namespace Iroca
             if (svc.Phase == MaskSuggestPhase.Error) svc.CancelAll();
             if (!svc.TryEnsureModels()) return false;
 
-            svc.SetSource(sourceKey, pixelsBottomUp, width, height);
+            svc.SetSource(sourceKey, pixelsBottomUp);
             if (!svc.RequestProposal(u, v, granularity ?? Granularity)) return false;
             _pendingClicks.Add(new Vector2(u, v));
             _pendingClickTimes.Add(MaskSuggestPerf.Now);
@@ -327,7 +327,11 @@ namespace Iroca
             if (proposed == 0) return;
 
             t = MaskSuggestPerf.Now;
-            bool ok = _maskView.ApplyRegion(region, dest, out var result);
+            bool ok = false;
+            MaskRegionEditResult result = default;
+            // 提案は推論を待ってから届くので、待っている間の別の操作とは別の「元に戻す」1 回分にする。
+            IrocaWindow.RecordAsSeparateUndo("AI Mask Suggestion",
+                () => ok = _maskView.ApplyRegion(region, dest, out result));
             applyMs = MaskSuggestPerf.MsSince(t);
             LastCommitEmpty = !ok || result.changed == 0;
             // 何をしたか(と、指示どおりに塗られない理由)を知らせる。結果は推論待ちの後に届くので、
@@ -384,14 +388,14 @@ namespace Iroca
         /// pixels/sourceKey はプレビューの AI 提案と同じ true source を渡すこと
         /// (別キーだとソース切替扱いになり、進行中の提案が破棄される)。
         /// </summary>
-        public EvidenceRequest RequestEvidence(float u, float v, Color32[] pixelsBottomUp, int width, int height,
+        public EvidenceRequest RequestEvidence(float u, float v, NativePixels pixelsBottomUp,
                                                string sourceKey, System.Action<MaskSuggestProposal> onResult)
         {
             var svc = MaskSuggestBridge.Service;
             if (svc == null || onResult == null || _evidenceCallback != null) return EvidenceRequest.Unavailable;
             if (!svc.TryEnsureModels()) return EvidenceRequest.Unavailable;
             if (svc.Phase == MaskSuggestPhase.Error) return EvidenceRequest.Unavailable;
-            svc.SetSource(sourceKey, pixelsBottomUp, width, height);
+            svc.SetSource(sourceKey, pixelsBottomUp);
             // Idle 以外(ロード中・埋め込み計算中・マスク提案の処理中)は「準備中」。呼び出し側が
             // 待って再要求する(従来導出へは落とさない。落とすと、その従来導出がハイライトを
             // 取りこぼす当の経路なので「自動調整が壊れる」ようにしか見えない)。

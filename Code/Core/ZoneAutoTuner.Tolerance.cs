@@ -6,7 +6,7 @@ using UnityEngine;
 namespace Iroca
 {
     // ZoneAutoTuner: tolerance 導出(無彩/有彩/マルチサンプル)と自動トーン抽出。
-    internal static partial class ZoneAutoTuner
+    internal static unsafe partial class ZoneAutoTuner
     {
         // ─────────────────── クラスタ距離の共通定数 / マスク判定 ───────────────────
 
@@ -61,7 +61,7 @@ namespace Iroca
         private const float AchromaTolMin = 0.12f;
         private const float AchromaTolMax = 0.40f;
 
-        private static bool TryDeriveAchromaticTolerance(Color32[] pixels, int w, int h, ColorZone zone,
+        private static bool TryDeriveAchromaticTolerance(Color32* pixels, int w, int h, ColorZone zone,
             bool[] excluded, int maskW, int maskH, HsvGrid hsv, out float tolerance)
         {
             tolerance = 0f;
@@ -153,7 +153,7 @@ namespace Iroca
         // 自パーツ core の hue 広がり(P90)から foreign 判定の hue ゲートを導出する。
         // core = サンプルにごく近い(hue/彩度/明度の窓内)有彩画素。その hue 広がりの数倍までを
         // 「同パーツの色相」とみなし、それを超える画素を foreign(別パーツ)候補にする。
-        private static float CoreHueGate(Color32[] pixels, int w, int h, bool[] excluded, int maskW, int maskH,
+        private static float CoreHueGate(Color32* pixels, int w, int h, bool[] excluded, int maskW, int maskH,
             HsvGrid hsv, float sH, float sS, float sV)
         {
             int stride = hsv.stride;
@@ -227,7 +227,7 @@ namespace Iroca
             return true;
         }
 
-        private static bool TryDeriveChromaticTolerance(Color32[] pixels, int w, int h, ColorZone zone,
+        private static bool TryDeriveChromaticTolerance(Color32* pixels, int w, int h, ColorZone zone,
             bool[] excluded, int maskW, int maskH, HsvGrid hsv, out float tolerance, out bool foreignCapped)
         {
             tolerance = 0f;
@@ -333,7 +333,7 @@ namespace Iroca
         // vConnHiBin: V 連結領域ゲートで確定した「サンプルのトーン連結域」の V bin 範囲の上端
         // (AutoToneValueBins 分割)。明部ツヤ救済(VerifyBrightSheenRecall)が「連結域のすぐ上まで」を
         // ツヤとみなす上限に使う。ヒストグラムが作れず範囲を確定できなかったときは -1(無効)。
-        private static List<Color> DeriveAutoTonalSamples(Color32[] pixels, int w, int h,
+        private static List<Color> DeriveAutoTonalSamples(Color32* pixels, int w, int h,
             ColorZone zone, bool[] excluded, int maskW, int maskH,
             HsvGrid hsv, out int vConnHiBin)
         {
@@ -493,7 +493,7 @@ namespace Iroca
         // その画素から全サンプルへの最小マッチ距離を距離分布に積む。P95+margin を tolerance とする。
         // foreign 打ち切り: どのサンプルの core hue ゲートにも入らない near 画素（=隣接別パーツ）が
         // core に対し多いとき、その最小距離手前で tolerance を止める（単一経路と同じ思想を和集合化）。
-        private static bool TryDeriveChromaticToleranceMulti(Color32[] pixels, int w, int h,
+        private static bool TryDeriveChromaticToleranceMulti(Color32* pixels, int w, int h,
             ColorZone zone, SampleHSV[] samples, bool[] excluded, int maskW, int maskH,
             HsvGrid hsv, out float tolerance, out bool foreignCapped)
         {

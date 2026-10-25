@@ -37,6 +37,20 @@
 .PARAMETER Graphics
     -nographics を付けずに起動する（GPU を使う段も実機で通す。HiRes のシーンプレビューの段や AI 推論の GPU 経路）。
 
+.PARAMETER KernelBench
+    ループの書き方の速さ比べ（KernelBenchTests、Category "Kernel"）だけを回す。結果は出力フォルダの kernel.jsonl。
+
+.PARAMETER UndoBench
+    編集状態を Undo に記録する手間と自動保存の各段の時間（UndoBenchTests、Category "UndoBench"）だけを回す。
+    結果は出力フォルダの undo.jsonl。
+
+.PARAMETER DebugCodeOptimization
+    Unity を Debug の最適化モード（-debugCodeOptimization）で起動する。Mono のインライン展開が止まる状態での速さを見るとき。
+
+.PARAMETER AllowForeignCode
+    ホストの Code が、このスクリプトのある作業ツリー以外を指していても止めない（交互 A/B で Code だけを
+    基準の木へ向けるとき）。テストのリンクは常にこの作業ツリーを指している必要がある。
+
 .EXAMPLE
     .\scripts\Run-EditorTests.ps1
 .EXAMPLE
@@ -49,7 +63,11 @@ param(
     [string]$PerfCases,
     [string]$MemCases,
     [string]$HiResCases,
-    [switch]$Graphics
+    [switch]$Graphics,
+    [switch]$AllowForeignCode,
+    [switch]$KernelBench,
+    [switch]$UndoBench,
+    [switch]$DebugCodeOptimization
 )
 
 $ErrorActionPreference = 'Stop'
@@ -71,6 +89,24 @@ if (-not (Test-Path $testsLink)) {
     throw "テストがホストにリンクされていません: $testsLink`n  .\scripts\Link-HostPackage.ps1 -HostProject `"$HostProject`" -WithEditorTests を実行してください"
 }
 
+# ホストの Code とテストは、このスクリプトのある作業ツリーへのジャンクションのはず。別の作業ツリー
+# （worktree や本体）を指したまま回すと、黙ってそちらのコードを測る。交互 A/B で Code だけを基準の木へ
+# 向けるときは -AllowForeignCode を付ける（指している先は表示する）。
+function Get-LinkTarget([string]$path) {
+    $item = Get-Item -LiteralPath $path -Force
+    if ($item.LinkType -ne 'Junction' -and $item.LinkType -ne 'SymbolicLink') { return $null }
+    return [IO.Path]::GetFullPath(@($item.Target)[0]).TrimEnd('\')
+}
+$codeLink = Join-Path $HostProject 'Packages\com.yukkuri-aoba.iroca\Code'
+foreach ($pair in @(@($codeLink, (Join-Path $RepoRoot 'Code')), @($testsLink, (Join-Path $RepoRoot 'scripts\editor-tests')))) {
+    $target = if (Test-Path $pair[0]) { Get-LinkTarget $pair[0] } else { $null }
+    $want = [IO.Path]::GetFullPath($pair[1]).TrimEnd('\')
+    if ($target -ieq $want) { continue }
+    $msg = "$($pair[0]) は $(if ($target) { $target } else { 'ジャンクションではありません' }) を指しています（この作業ツリーは $want）"
+    if ($AllowForeignCode -and $pair[0] -eq $codeLink -and $target) { Write-Host "注意: $msg" -ForegroundColor Yellow; continue }
+    throw "$msg`n  この作業ツリーの .\scripts\Link-HostPackage.ps1 -HostProject `"$HostProject`" -WithEditorTests で向け直してください"
+}
+
 # Editor が同じプロジェクトを開いていると batchmode は即終了する。先に分かりやすく止める。
 $lock = Join-Path $HostProject 'Temp\UnityLockfile'
 if (Test-Path $lock) {
@@ -86,6 +122,9 @@ $log = Join-Path $outDir 'unity.log'
 $parity = Join-Path $outDir 'parity.tsv'
 
 # テストが参照する（RuntimeParityTests は golden の入力と期待出力をリポジトリから読む）。
+# 呼び出したシェルにそのまま残すと、同じシェルで回した別の作業ツリーの abcheck がこれを読んで
+# こちらの木を測ってしまうので、終わったら元に戻す（下の finally）。
+$prevIrocaRepo = $env:IROCA_REPO
 $env:IROCA_REPO = $RepoRoot
 $env:IROCA_PARITY_REPORT = $parity
 
@@ -130,10 +169,34 @@ if ($HiResCases) {
 } else {
     Remove-Item Env:IROCA_HIRES_CASES -ErrorAction SilentlyContinue
 }
+# ループの書き方の速さ比べは Kernel カテゴリだけを回す（普段のテストでは IROCA_KERNEL_REPORT が無いので Ignore になる）。
+$kernelReport = Join-Path $outDir 'kernel.jsonl'
+if ($KernelBench) {
+    if ($PerfCases -or $MemCases -or $HiResCases) { throw "-KernelBench は -PerfCases / -MemCases / -HiResCases と同時に指定できません" }
+    $env:IROCA_KERNEL_REPORT = $kernelReport
+    $unityArgs += @('-testCategory', 'Kernel')
+} else {
+    Remove-Item Env:IROCA_KERNEL_REPORT -ErrorAction SilentlyContinue
+}
+# Undo の記録と自動保存の時間は UndoBench カテゴリだけを回す（普段のテストでは IROCA_UNDO_BENCH_REPORT が無いので Ignore になる）。
+$undoReport = Join-Path $outDir 'undo.jsonl'
+if ($UndoBench) {
+    if ($PerfCases -or $MemCases -or $HiResCases -or $KernelBench) { throw "-UndoBench は -PerfCases / -MemCases / -HiResCases / -KernelBench と同時に指定できません" }
+    $env:IROCA_UNDO_BENCH_REPORT = $undoReport
+    $unityArgs += @('-testCategory', 'UndoBench')
+} else {
+    Remove-Item Env:IROCA_UNDO_BENCH_REPORT -ErrorAction SilentlyContinue
+}
+if ($DebugCodeOptimization) { $unityArgs += '-debugCodeOptimization' }
 Write-Host "Unity を batchmode で起動します（結果: $outDir）…"
-$p = Start-Process -FilePath $UnityExe -ArgumentList $unityArgs -PassThru
-try { $p.PriorityClass = 'BelowNormal' } catch { }
-$p.WaitForExit()
+try {
+    $p = Start-Process -FilePath $UnityExe -ArgumentList $unityArgs -PassThru
+    try { $p.PriorityClass = 'BelowNormal' } catch { }
+    $p.WaitForExit()
+} finally {
+    if ($null -eq $prevIrocaRepo) { Remove-Item Env:IROCA_REPO -ErrorAction SilentlyContinue }
+    else { $env:IROCA_REPO = $prevIrocaRepo }
+}
 
 if (-not (Test-Path $results)) {
     Write-Host (Get-Content $log -Tail 40 -ErrorAction SilentlyContinue | Out-String)
@@ -153,6 +216,12 @@ if ($PerfCases -and (Test-Path $perfReport)) {
 }
 if ($MemCases -and (Test-Path $memReport)) {
     Write-Host "メモリ計測の結果: $memReport"
+}
+if ($KernelBench -and (Test-Path $kernelReport)) {
+    Write-Host "ループの書き方の速さ比べの結果: $kernelReport"
+}
+if ($UndoBench -and (Test-Path $undoReport)) {
+    Write-Host "Undo の記録と自動保存の時間: $undoReport"
 }
 if ($HiResCases -and (Test-Path $hiresReport)) {
     Write-Host "大きなテクスチャの通し確認の結果: $hiresReport"

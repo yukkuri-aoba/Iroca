@@ -95,7 +95,8 @@ namespace Iroca
                     string pname = Path.GetFileNameWithoutExtension(file);
                     EditorGUILayout.BeginHorizontal();
                     EditorGUILayout.LabelField(pname, GUILayout.ExpandWidth(true));
-                    if (GUILayout.Button(new GUIContent(Localization.LoadPreset, Localization.LoadPresetTooltip), GUILayout.Width(40)))
+                    if (GUILayout.Button(new GUIContent(Localization.LoadPreset, Localization.LoadPresetTooltip),
+                            GUILayout.Width(IrocaWindow.FitButtonWidth(40f, Localization.LoadPreset))))
                         LoadPreset(file);
                     if (GUILayout.Button(new GUIContent("×", Localization.DeletePresetTooltip), GUILayout.Width(IrocaConsts.Layout.RemoveButtonWidth)))
                     {

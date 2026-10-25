@@ -11,7 +11,7 @@ using UnityEngine;
 
 namespace Iroca
 {
-    internal static partial class PixelProcessor
+    internal static unsafe partial class PixelProcessor
     {
         // ───────────── OkLab 知覚色空間ヘルパー (リング除去の中核) ─────────────
         // リング(ドーナツ)の根本原因は「HSV の V/S は知覚的でないため、S/V を保持して
@@ -102,16 +102,57 @@ namespace Iroca
                 out L, out a, out bb);
         }
 
-        private static void OklabToRgb(float L, float a, float b,
-            out float r, out float g, out float bb)
+        // OkLab → 線形 sRGB(切り詰めなし)。範囲の判定と変換で同じ値を使うために分けてある。
+        private static void OklabToLinear(float L, float a, float b,
+            out float lr, out float lg, out float lb)
         {
             float l_ = L + 0.3963377774f * a + 0.2158037573f * b;
             float m_ = L - 0.1055613458f * a - 0.0638541728f * b;
             float s_ = L - 0.0894841775f * a - 1.2914855480f * b;
             float l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_;
-            float lr = +4.0767416621f * l - 3.3077115913f * m + 0.2309699292f * s;
-            float lg = -1.2684380046f * l + 2.6097574011f * m - 0.3413193965f * s;
-            float lb = -0.0041960863f * l - 0.7034186147f * m + 1.7076147010f * s;
+            lr = +4.0767416621f * l - 3.3077115913f * m + 0.2309699292f * s;
+            lg = -1.2684380046f * l + 2.6097574011f * m - 0.3413193965f * s;
+            lb = -0.0041960863f * l - 0.7034186147f * m + 1.7076147010f * s;
+        }
+
+        private static void OklabToRgb(float L, float a, float b,
+            out float r, out float g, out float bb)
+        {
+            OklabToLinear(L, a, b, out float lr, out float lg, out float lb);
+            r = LinearToSrgb(lr);
+            g = LinearToSrgb(lg);
+            bb = LinearToSrgb(lb);
+        }
+
+        // 色域写像(2026-10-23): sRGB の範囲(線形で 0..1)を超える OkLab の色を、明度 L と色相(a:b の向き)を
+        // 保ったまま彩度(a, b の大きさ)だけ縮めて範囲に収める。チャンネルごとに 0..1 へ切り詰めると、はみ出した
+        // チャンネルだけが削られて色相と明度がずれる(明るい純色の明部が隣の色相へ転び、明るさも変わる)。明度と
+        // 色相を固定して彩度を下げるのは色域写像の標準のやり方で、範囲内の色は今までとビット単位で同じ。
+        // 範囲の判定は線形の値で行う(LinearToSrgb は 0..1 に切り詰めるので、sRGB に直した後では範囲外を見分け
+        // られない)。L が 0..1 なら a = b = 0(灰)は必ず範囲内なので、縮める率は 0..1 の二分探索で必ず見つかる。
+        private const float GamutEps = 1e-4f;      // 線形値の丸め誤差として範囲内に数える幅
+        private const int GamutBisectSteps = 14;   // 縮める率の分解能 1/16384(8 ビットの出力には十分)
+
+        private static bool InLinearGamut(float lr, float lg, float lb)
+            => lr >= -GamutEps && lr <= 1f + GamutEps
+            && lg >= -GamutEps && lg <= 1f + GamutEps
+            && lb >= -GamutEps && lb <= 1f + GamutEps;
+
+        private static void OklabToRgbInGamut(float L, float a, float b,
+            out float r, out float g, out float bb)
+        {
+            OklabToLinear(L, a, b, out float lr, out float lg, out float lb);
+            if (!InLinearGamut(lr, lg, lb))
+            {
+                float lo = 0f, hi = 1f;
+                for (int it = 0; it < GamutBisectSteps; it++)
+                {
+                    float k = (lo + hi) * 0.5f;
+                    OklabToLinear(L, a * k, b * k, out float tr, out float tg, out float tb);
+                    if (InLinearGamut(tr, tg, tb)) lo = k; else hi = k;
+                }
+                OklabToLinear(L, a * lo, b * lo, out lr, out lg, out lb);
+            }
             r = LinearToSrgb(lr);
             g = LinearToSrgb(lg);
             bb = LinearToSrgb(lb);

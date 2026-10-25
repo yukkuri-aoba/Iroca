@@ -1,0 +1,62 @@
+<h2>よくある質問</h2>
+
+<h4 id="faq-psd" class="qa">Q: PSD のレイヤー構造をサポートしていますか？</h4>
+
+<p>いいえ。統合済みのテクスチャが対象です。いろかでも色は替えられますが、PSD があるなら、PSD 側で直接編集した方がレイヤーごとに思いどおりに仕上げられます。</p>
+
+<h4 id="faq-undo" class="qa">Q: Undo は使えますか？</h4>
+
+<p>ゾーンの作成・設定の変更・マスクの描画は Ctrl+Z で戻せます。アバターへの反映は非破壊なので、元のテクスチャは変わりません。書き出しで元のファイルを上書きしたときだけは元に戻せないので、上書きの前にバックアップをお勧めします。</p>
+
+<h4 id="faq-projects" class="qa">Q: 複数のプロジェクトで使えますか？</h4>
+
+<p>はい。各プロジェクトで最新の zip のインストーラを読み込むか、VCC / ALCOM から追加するだけです。プリセットの保存先を「全プロジェクト共通」にすると、プロジェクト間で設定を共有できます。</p>
+
+<h4 id="faq-formats" class="qa">Q: 対応しているファイル形式は？</h4>
+
+<p>入力は PNG / JPG が基本で、出力は常に PNG です。TGA・EXR・PSD は、Unity が取り込んだ画素から書き出します（インポート設定の縮小・圧縮が反映されるため、原本と同じ解像度・画質とは限りません。書き出し時に知らせます）。</p>
+
+<h4 id="faq-readwrite" class="qa">Q: PSD などで「Read/Write を有効にする」を押しても大丈夫ですか？</h4>
+
+<p>使えますが、メモリが増えます。Read/Write は元テクスチャの取り込み設定なので、そのテクスチャを使うすべての場所に効き、読み書きできるテクスチャは実行時にメモリ上へ写しを持ちます。アバターに非破壊で登録すると、色替え後のテクスチャも読み書きできる状態でアップロードされます。いろかの書き出しで作った PNG も、「インポート設定を引き継ぐ」がオンなら Read/Write を引き継ぎます。</p>
+
+<p>避けたいときは、元の画像を画像編集ソフトで PNG に保存し直し、マテリアルにはその PNG を使います。PNG / JPG なら、いろかは Read/Write なしで読めます。Read/Write は元テクスチャの Inspector でオフに戻せます。ただし、非破壊で登録している間は再生・アップロードのたびに元テクスチャを読むので、オフにすると色替えできなくなります。</p>
+
+<h4 id="faq-size" class="qa">Q: 大きなテクスチャでも使えますか？</h4>
+
+<p>8192×8192 まで検証しています。編集も書き出しも元の画像の解像度で処理するので、8K の画像ではメモリを数 GB 使います。辺が 8192 を超える画像は、編集をインポート設定の Max Size の大きさで行い、書き出し（「適用して保存」）だけ元の解像度で処理します（→「<a href="#processing-resolution" class="xref">処理する解像度</a>」）。8192×8192 より大きいテクスチャはメモリを大きく使うため、お勧めしません。</p>
+
+<h4 id="faq-cache" class="qa">Q: プロジェクトの Library/Iroca は消してもよいですか？</h4>
+
+<p>はい。アバターに非破壊で登録した色替えの出来上がりを、次の再生・アップロードを速くするために <code>Library/Iroca/RecipeTextureCache</code> に保存しています。レシピを編集したり、いろかを更新したりして使わなくなった分も、合計が 2 GB を超えるまでは消さないので、プロジェクトごとに最大 2 GB ほどたまります。消しても、次の再生・アップロードで作り直すだけです。</p>
+
+<h4 id="faq-uninstall" class="qa">Q: いろかを外す（アンインストールする）には？</h4>
+
+<p>先にアバターや衣装から「Iroca Recolor」を外し、それから VCC / ALCOM でいろかを削除します（zip を展開して入れたときは <code>Packages/com.yukkuri-aoba.iroca</code> フォルダを消します）。「Iroca Recolor」を残したまま外すと Missing Script になり、色替えされません。</p>
+
+<p>いろかを外しても、次のものは残ります。要らなければ消して構いません。</p>
+
+<ul>
+  <li>プロジェクトの <code>Assets/Iroca</code>: レシピ（<code>Recipes</code>）と、「プロジェクト内」に保存したプリセット（<code>Presets</code>）</li>
+  <li>プロジェクトの <code>UserSettings/Iroca</code>: テクスチャごとの作業データ</li>
+  <li>プロジェクトの <code>Library/Iroca</code>: 色替えのキャッシュ</li>
+  <li><code>%APPDATA%\IrocaPresets</code>: 「全プロジェクト共通」に保存したプリセット</li>
+  <li><code>%LOCALAPPDATA%\Iroca\Models</code>: AI モデルと、その変換キャッシュ</li>
+</ul>
+
+<p>最後の 2 つは、この PC のほかのプロジェクトのいろかも使います。</p>
+
+<p>次のものも残りますが、消す前に確かめてください。</p>
+
+<ul>
+  <li>書き出した画像（既定は元のテクスチャと同じフォルダの <code>〜_recolored.png</code>。元が Assets の外なら <code>Assets/Iroca/Exports</code>）: 色替えの成果物です。マテリアルが使っていることがあるので、消すと色が戻ったり、テクスチャが外れたりします</li>
+  <li>Unity の設定（EditorPrefs）の <code>Iroca.</code> で始まる値: 言語・拡大表示の「なめらか」・更新の確認などの設定です。Unity のどのプロジェクトでも共通で、Windows ではレジストリの <code>HKEY_CURRENT_USER\Software\Unity Technologies\Unity Editor 5.x</code> にあります。残っていても害はありません</li>
+  <li>インストーラで入れたときの NDMF: いろかを消しても残ります。Modular Avatar などほかのツールも使っていることが多いので、使っていないと確かめられたときだけ VCC / ALCOM で削除します</li>
+  <li>インストーラが VCC / ALCOM に追加した、いろかのパッケージの置き場（リポジトリ）: 要らなければ VCC / ALCOM の設定（Settings → Packages）から削除できます</li>
+</ul>
+
+<p>AI のために入れた Sentis（Unity 6 では Inference Engine）と、一緒に上がった Burst・Collections・Test Framework なども残ります。要らなければ、ほかのツールが Sentis を使っていないか確かめてから、Package Manager で Sentis を Remove します。</p>
+
+<h4 id="faq-images" class="qa">Q: マニュアルの画像のテクスチャは？</h4>
+
+<p>画面写真・実演画像・動画には、かなリぁ「<a href="https://booth.pm/ja/items/3818504" target="_blank" rel="noopener">ハオラン-HAOLAN</a>」のテクスチャとモデル（一部は色替え後）を、作者の規約に基づき掲載しています。</p>

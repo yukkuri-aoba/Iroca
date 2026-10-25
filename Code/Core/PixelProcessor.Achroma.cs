@@ -11,7 +11,7 @@ using UnityEngine;
 
 namespace Iroca
 {
-    internal static partial class PixelProcessor
+    internal static unsafe partial class PixelProcessor
     {
         // ───────── 無彩(achroma)パス: 無彩サンプル / 極端無彩ターゲットの再着色破綻対策 ─────────
         // 通常の再着色は sample 彩度 sC を「分母・基準」に使う前提(mag=oC/sC, 彩度ゲート
@@ -56,100 +56,6 @@ namespace Iroca
         // (二重定義で乖離しないよう一本化)。緩和マッチ(穴埋め/境界回復)のグレー分岐は主経路と同じ
         // 相対彩度床で純白(中性)を排除する。
 
-        // 有彩サンプル→無彩極端ターゲット(有彩色→白/黒等)の「中性画素リジェクト・フロア」定数。
-        // 有彩サンプルはマッチ距離が hue 支配で彩度差を過小評価し、明るい中性画素(無彩の UV 背景等)を
-        // 巻き込む。無彩ターゲットのときだけ、サンプル彩度の相対床 sS·Frac 未満の画素を strength から
-        // 除去する(高彩度コア近傍 Radius px は保護=対象自身の脱彩した陰影/AA縁を守る)。値は既存定数を流用。
-        private const float AchromaNeutralRejectWeightMin = 0.5f; // 白↔黒の極端無彩ターゲットでのみ作動
-        private const float NeutralRejectActiveSourceSat = 0.40f; // サンプルがこの彩度以上(=有彩)でのみ作動
-        // サンプル彩度 sS·frac 未満を「中性(=無彩の背景)」とみなして弾く。小さめの値にすることで、
-        // 中性背景(彩度≈0)だけを落とし、模様の上で淡く抜けた対象色(彩度がサンプルの数%まで落ちた
-        // 画素)は残す。大きすぎる(0.30 規模)と淡い対象色まで巻き添えで弾き、模様上の対象色が変換
-        // されず放置される。小さすぎる(<0.05)と中性背景を取りこぼす。
-        private const float NeutralRejectFloorFrac = 0.07f;
-        // ソフト床のフェード開始 = floor·RampFrac。これ未満(中性の背景)は完全に弾き、floor 以上は
-        // 完全保持、間は連続フェードで境界の二値ノイズを消す。
-        private const float NeutralRejectRampFrac = 0.5f;
-        private const int NeutralRejectProtectRadius = 2;         // 高彩度コアからこの px 以内は保護
-
-        /// <summary>
-        /// 有彩サンプル→無彩極端ターゲット時の中性画素リジェクト・フロア。サンプル彩度の相対床
-        /// (sS·NeutralRejectFloorFrac)未満の画素のうち、高彩度マッチコアから NeutralRejectProtectRadius
-        /// px より遠いものの strength を 0 にする。hue 支配距離で巻き込んだ明るい中性背景(白UV背景等)を
-        /// 落としつつ、コア近傍の脱彩した陰影/AA縁は保護する(彩度だけでは両者を区別できないため空間距離で
-        /// 分離する)。呼び出し側で achromaWeight/サンプル彩度を gate。
-        /// </summary>
-        private static void RejectNeutralForAchromaTarget(float[] strength, PixelHsv hsv, int w, int h, float sS, CancellationToken ct = default)
-        {
-            float[] pixS = hsv.S; int[] pixIdx = hsv.Index;
-            const float matchThr = ColorZone.MatchStrengthFloor;
-            float floor = sS * NeutralRejectFloorFrac;
-            int len = w * h;
-            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-            bool[] cur = s_boolPool.Rent(len);
-            bool[] nxt = s_boolPool.Rent(len);
-            try
-            {
-                // 高彩度マッチコア(マッチ済み かつ 彩度>=床)。行並列(要素独立=ビット不変)。
-                var curInit = cur;
-                Parallel.For(0, h, po, y =>
-                {
-                    int rowOff = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
-                        int i = rowOff + x;
-                        curInit[i] = strength[i] > matchThr && pixS[HsvSlot(pixIdx, i)] >= floor;
-                    }
-                });
-                // 4 近傍 dilation を ProtectRadius 回(コア近傍を保護領域に広げる)。画像端外は false。
-                for (int it = 0; it < NeutralRejectProtectRadius; it++)
-                {
-                    var curL = cur; var nxtL = nxt;
-                    Parallel.For(0, h, po, y =>
-                    {
-                        int rowOff = y * w;
-                        for (int x = 0; x < w; x++)
-                        {
-                            int i = rowOff + x;
-                            bool on = curL[i]
-                                || (x > 0 && curL[i - 1])
-                                || (x < w - 1 && curL[i + 1])
-                                || (y > 0 && curL[i - w])
-                                || (y < h - 1 && curL[i + w]);
-                            nxtL[i] = on;
-                        }
-                    });
-                    var tmp = cur; cur = nxt; nxt = tmp;
-                }
-                var protectedCore = cur;
-                var strengthL = strength;
-                var pixSL = pixS;
-                var pixIdxL = pixIdx;
-                // ソフトな床: floor で二値カットすると、対象色が淡く抜けていく階調(彩度が床付近で
-                // 揺らぐ帯)で再着色/非再着色が斑に混在しジャギーノイズになる。floorLo..floor を連続
-                // フェードにして境界を滑らかにする。中性の背景(彩度<=floorLo)は w=0 で完全に弾く。
-                float floorLo = floor * NeutralRejectRampFrac;
-                float rampSpan = Mathf.Max(floor - floorLo, 1e-5f);
-                // 行並列(要素独立・自 index 書き込みのみ=ビット不変)。
-                Parallel.For(0, h, po, y =>
-                {
-                    int rowOff = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
-                        int i = rowOff + x;
-                        if (protectedCore[i]) continue;
-                        float wgt = Mathf.Clamp01((pixSL[HsvSlot(pixIdxL, i)] - floorLo) / rampSpan);
-                        if (wgt < 1f) strengthL[i] *= wgt;
-                    }
-                });
-            }
-            finally
-            {
-                s_boolPool.Return(cur);
-                s_boolPool.Return(nxt);
-            }
-        }
-
         /// <summary>
         /// 無彩パスの内部固め: マッチ領域(strength&gt;matchThr)を erodePx だけ侵食した「内部」の
         /// strength を full(=strength→1 へ achromaWeight 比でフェード)に固める。AA 縁(侵食で
@@ -157,12 +63,12 @@ namespace Iroca
         /// マッチして元色が残る「中央の段差」を消すための前処理。陰影は後段 recolor の無彩パスの
         /// 形維持リマップ(AchromaFormGain)が担う。
         /// </summary>
-        private static void SolidifyAchromaInterior(float[] strength, int w, int h, float achromaWeight, CancellationToken ct = default)
+        private static void SolidifyAchromaInterior(float* strength, int w, int h, float achromaWeight, CancellationToken ct = default)
         {
             const float matchThr = ColorZone.MatchStrengthFloor;
             int len = w * h;
             var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
-            bool[] m = s_boolPool.Rent(len);
+            bool* m = s_boolPool.Rent(len);
             try
             {
                 // マッチの印(書き換える前の strength で決める)。行並列(要素独立=ビット不変)。
@@ -220,24 +126,6 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 中性背景リジェクト(選択保護)用の無彩重み。**明度に依存しない**。
-        /// ComputeAchromaWeight は戻り値の target 側の項に targetExtremeness=(1-4tL(1-tL)) を掛けるため、
-        /// 中明度グレー(tL≈0.5)で重みが≈0 に落ち、灰色ターゲットでは中性背景リジェクトが発動せず
-        /// 「白い背景が灰色になる」破綻が出る(黒/白は extremeness≈1 で発動)。選択保護に必要なのは
-        /// 『ターゲットが無彩か』だけで明度は無関係なので、extremeness を外し彩度のみで判定する。
-        /// </summary>
-        private static float ComputeAchromaSelectWeight(Color sample, Color target)
-        {
-            RgbToOklab(sample.r, sample.g, sample.b, out _, out float sa, out float sb);
-            RgbToOklab(target.r, target.g, target.b, out _, out float ta, out float tb);
-            float sC = Mathf.Sqrt(sa * sa + sb * sb);
-            float tC = Mathf.Sqrt(ta * ta + tb * tb);
-            float achromaSample = Mathf.Clamp01(1f - sC / AchromaSampleC);
-            float targetAchroma = Mathf.Clamp01(1f - tC / AchromaTargetC);
-            return Mathf.Max(achromaSample, targetAchroma);
-        }
-
-        /// <summary>
         /// 無彩パスの形維持リマップ用: マッチ領域を 4 近傍連結成分に分け、各成分の OkLab L の
         /// **地色基準(AchromaRefPercentile=P80)** をその成分の全画素へ配る per-pixel マップを返す。
         /// center 基準を **成分ごとに局所化**することで、ゆるいマスクが明るい背景(L≈1.0)を巻き込んだ
@@ -250,10 +138,10 @@ namespace Iroca
         /// upMap: 同じ成分ごとに、白側の余白(AchromaHeadroomPercentile 参照、AchromaFormOffset 以下)を配る地図。
         /// 戻り値の地図と同じ画素に値が入る(戻り値が null なら null)。
         /// </summary>
-        // rentMap: 返す地図(upMap も)を s_floatPool から借りる(呼び出し側がゾーンの終わりに返す)。false なら new。
-        private static float[] BuildComponentMedianLMap(
-            Color32[] px, float[] strength, int w, int h, float thr, out float[] upMap, CancellationToken ct = default,
-            ColorPalette palette = null, bool rentMap = false)
+        // 返す地図(upMap も)は s_floatPool から借りる(呼び出し側がゾーンの終わりに返す)。
+        private static float* BuildComponentMedianLMap(
+            Color32* px, float* strength, int w, int h, float thr, out float* upMap, CancellationToken ct = default,
+            ColorPalette palette = null)
         {
             upMap = null;
             int len = w * h;
@@ -268,11 +156,11 @@ namespace Iroca
             // ヒストグラムのビン(OkLab L の 255 段)。色の表があれば色ごとに 1 回だけ求め、画素へは番号で
             // 引く(同じ色に同じ変換を当てた値なのでビット単位で同じ。bbox 全画素の L の配列も要らない)。
             // 無ければ L を bbox 全画素ぶん並列で前計算する(旧: 逐次 DFS の内側で RgbToOklab)。
-            // 意図した変更では両経路を同時に直すこと(色の表あり・なしのパリティを直接比べるテストは無い)。
-            float[] okL = null;
-            int[] pIdx = null, binOf = null;
+            // 意図した変更では両経路を同時に直すこと(色の表あり・なしの出力の一致は scripts/golden/test_palette_parity.py が確かめる)。
+            float* okL = null;
+            int* pIdx = null; int[] binOf = null;
             // 行 run 方式の連結成分ラベリングで使う配列(確保は run 数 R が確定してから)。
-            int[] runX0 = null, runX1 = null, runY = null, parent = null, comp = null, rootComp = null, order = null;
+            int* runX0 = null, runX1 = null, runY = null, parent = null, comp = null, rootComp = null, order = null;
             try
             {
             if (palette != null)
@@ -448,33 +336,38 @@ namespace Iroca
 
             // 成分 → 代表 L の配り直し。行ごとに書き込み先が独立なので並列化しても同一結果。
             // run の外は 0(読む側は 0 を「地図なし」として全体の中央値へ戻す)。借りた配列は 0 で埋めてから。
-            float[] map, umap;
-            if (rentMap)
+            float* map = s_floatPool.Rent(len);
+            float* umap = s_floatPool.Rent(len);
+            // 呼び出し側へ渡す前に抜けたら(キャンセル)、借りた地図はここで返す。
+            try
             {
-                map = s_floatPool.Rent(len);
-                umap = s_floatPool.Rent(len);
                 var clearMap = map; var clearUp = umap;
                 const int ClearChunk = 1 << 18;
                 Parallel.For(0, (len + ClearChunk - 1) / ClearChunk, bboxPo, c =>
                 {
                     int c0 = c * ClearChunk;
-                    Array.Clear(clearMap, c0, Math.Min(ClearChunk, len - c0));
-                    Array.Clear(clearUp, c0, Math.Min(ClearChunk, len - c0));
+                    ClearWork(clearMap, c0, Math.Min(ClearChunk, len - c0));
+                    ClearWork(clearUp, c0, Math.Min(ClearChunk, len - c0));
+                });
+                var umapL = umap;
+                Parallel.For(0, bh, bboxPo, ly =>
+                {
+                    int rb = (ly + minY) * w + minX;
+                    for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
+                    {
+                        float v = med[comp[k]];
+                        float u = up[comp[k]];
+                        int x1 = runX1[k];
+                        for (int lx = runX0[k]; lx <= x1; lx++) { map[rb + lx] = v; umapL[rb + lx] = u; }
+                    }
                 });
             }
-            else { map = new float[len]; umap = new float[len]; }
-            var umapL = umap;
-            Parallel.For(0, bh, bboxPo, ly =>
+            catch
             {
-                int rb = (ly + minY) * w + minX;
-                for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
-                {
-                    float v = med[comp[k]];
-                    float u = up[comp[k]];
-                    int x1 = runX1[k];
-                    for (int lx = runX0[k]; lx <= x1; lx++) { map[rb + lx] = v; umapL[rb + lx] = u; }
-                }
-            });
+                s_floatPool.Return(map);
+                s_floatPool.Return(umap);
+                throw;
+            }
             upMap = umap;
             return map;
             }
@@ -508,16 +401,16 @@ namespace Iroca
         // 成分ローカルな統計で遠隔作用が無く、同素材の島を含めた場合はその島自身の地色基準を
         // 使うのが正しいため。
         private static bool TryComputeRegionLRange(
-            Color32[] px, float[] strength, int w,
+            Color32* px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
             out float mid,
-            bool[] statsExclude = null,
+            bool* statsExclude = null,
             CancellationToken ct = default,
             ColorPalette palette = null)
         {
             mid = 0.5f;
             // 色の表があれば L は色ごとの表から読む(ビット単位で同じ)。
-            int[] pIdx = null;
+            int* pIdx = null;
             float[] pL = null;
             if (palette != null)
             {

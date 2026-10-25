@@ -49,7 +49,7 @@ namespace Iroca
     //
     // 証拠が使えないとき(null/空/過少/汚染)は従来の Analyze へフォールバックするので、
     // AI モデル未ダウンロード環境の挙動は変わらない。
-    internal static partial class ZoneAutoTuner
+    internal static unsafe partial class ZoneAutoTuner
     {
         // ── 証拠の前処理 ──
         // セグメント境界の AA/にじみ画素が統計を汚さないよう、統計は収縮した芯で取る。
@@ -184,7 +184,7 @@ namespace Iroca
         // 陰影の明度下限の対。色の近い、より鮮やかな別パーツ(濃い灰のパンツ S 0.11 に対するこげ茶の
         // ブーツ S 0.23〜0.30、こげ茶のブーツに対する赤いバンダナ S 0.52)は、広めの tolerance や明部免除を
         // 通って成分ごと入る。証拠ドメインの彩度包絡(上と同じ P95 ÷ 0.75)を上限にし、成分の画素の
-        // 1/4 以上が上限以下でなければ落とす(PixelProcessor.ApplyConnectedComponentMask)。
+        // 半分以上が上限以下でなければ落とす(PixelProcessor.ApplyConnectedComponentMask の ShadowFloorKeepFrac)。
         // 画素単位で切らない理由は明度下限と同じ: 素材自身の鮮やかな陰影・装飾は本体に地続きなので残したい
         // (画素単位の天井を包絡へ下げる試算では淡色の上衣で再現率 −0.04)。
         // 余白と割合の感度(2026-10-02、57 ケースの試算): 余白 0.20〜0.40・割合 0.10〜0.50 で悪化 0。
@@ -228,9 +228,25 @@ namespace Iroca
             bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
             System.Action<float> report = null)
         {
+            // 長さが足りない配列は渡さない(Analyze と同じくヒューリスティック既定へ落ちる)。
+            if (pixels != null && pixels.Length < (long)width * height) pixels = null;
+            fixed (Color32* p = pixels)
+                return AnalyzeWithEvidence(p, width, height, zone, session, evidence, evW, evH,
+                    excluded, maskW, maskH, ct, report);
+        }
+
+        /// <summary>
+        /// <see cref="AnalyzeWithEvidence(Color32[],int,int,ColorZone,IrocaSessionState,bool[],int,int,bool[],int,int,CancellationToken,System.Action{float})"/> の
+        /// ポインタ版。pixels は width*height 画素以上を、解析が返るまで保つこと。
+        /// </summary>
+        public static TuneResult AnalyzeWithEvidence(Color32* pixels, int width, int height,
+            ColorZone zone, IrocaSessionState session,
+            bool[] evidence, int evW, int evH,
+            bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
+            System.Action<float> report = null)
+        {
             bool canAnalyze = pixels != null
                 && width >= MinTextureDim && height >= MinTextureDim
-                && pixels.Length >= width * height
                 && evidence != null && evW > 0 && evH > 0 && evidence.Length >= evW * evH;
             if (!canAnalyze)
                 return Analyze(pixels, width, height, zone, session, excluded, maskW, maskH, ct, report);
@@ -277,7 +293,12 @@ namespace Iroca
             ct.ThrowIfCancellationRequested();
             var click = zone;            // 正規化の起点。縁クリックの救済で最寄りの芯の画素に替わる
             bool snapped = false;
-            string snapDiag = "";
+            // 色味の乗ったグレーのクリック(有彩素材のツヤ・陰かもしれない)。ここまでの手順で証拠が使えなかった
+            // ときだけ、元のクリックを有彩の手順で寄せ直す(Normalize.cs の NormTintedChromaticPopFrac を参照)。
+            Color.RGBToHSV(zone.sampleColor, out _, out float clickSat, out _);
+            bool tintedClick = clickSat > ColorZone.ChromaGateActivateSat && clickSat < AchromaSampleSatMax;
+            bool tintRetry = false;
+            string retryDiag = "";
             Color rep;
             float clickT, repH, repS, repV, materialFrac;
             List<GridPt> domain;
@@ -287,7 +308,7 @@ namespace Iroca
             {
                 rep = click.sampleColor;
                 if (TryNormalizeSample(pixels, width, height, click, notEvidence, evW, evH, hsv,
-                        out Color normalized, out clickT, edgeBypass: true))
+                        out Color normalized, out clickT, edgeBypass: true, tintedChromatic: tintRetry))
                     rep = normalized;
                 Color.RGBToHSV(rep, out repH, out repS, out repV);
 
@@ -302,14 +323,22 @@ namespace Iroca
                 // クリックの素材がセグメントの裾(1/10 未満)のときだけ、縁の混色なら最寄りの芯の画素で
                 // 1 回だけやり直す(定数の説明参照)。
                 bool clickOnFringe = domain.Count < EvMinDomainPixels || materialFrac < NormOutlierFrac;
-                if (usable || snapped || !clickOnFringe
-                    || !TrySnapBoundaryClick(pixels, width, height, zone, evidence, core, evW, evH,
+                if (usable) break;
+                if (!snapped && !tintRetry && clickOnFringe
+                    && TrySnapBoundaryClick(pixels, width, height, zone, evidence, core, evW, evH,
                         excluded, maskW, maskH, out Color coreColor, out int snapX, out int snapY))
-                    break;
-                click = zone.Clone();
-                click.sampleColor = coreColor;
-                snapped = true;
-                snapDiag = $" snap={snapX},{snapY}";
+                {
+                    click = zone.Clone();
+                    click.sampleColor = coreColor;
+                    snapped = true;
+                    retryDiag = $" snap={snapX},{snapY}";
+                    continue;
+                }
+                // 縁の救済でも使えなかった(または対象外だった)色味の乗ったグレーのクリックを、1 回だけ寄せ直す。
+                if (tintRetry || !tintedClick) break;
+                click = zone;
+                tintRetry = true;
+                retryDiag = " tint";
             }
             var aZone = zone.Clone();
             aZone.sampleColor = rep;
@@ -321,7 +350,7 @@ namespace Iroca
                     ct, report);
                 fallback.evidenceDiag = (contaminated ? "fallback contaminated" : "fallback no-domain")
                     + $" materialFrac={materialFrac:F3}"
-                    + $" core={coreList.Count} domain={domain.Count} sheen={sheenCount}" + snapDiag;
+                    + $" core={coreList.Count} domain={domain.Count} sheen={sheenCount}" + retryDiag;
                 return fallback;
             }
             Progress(0.50f);
@@ -437,7 +466,7 @@ namespace Iroca
                 + $" added={added} cov={cov:F4} tol={result.tolerance:F4}"
                 + $" vFloor={result.shadowValueFloor:F3} ceil={result.chromaCeiling:F3}"
                 + $" tolDerived={tolDerived:F4} partSat={result.partSatCeiling:F3} partHue={result.partHueBand:F3}"
-                + $" holeMargin={result.holeFillMargin:F2}" + snapDiag;
+                + $" holeMargin={result.holeFillMargin:F2}" + retryDiag;
             Progress(0.98f);
 
             DecideGlobals(width, height, session, ref result);
@@ -495,7 +524,7 @@ namespace Iroca
         // HSV 格子(stride 済み)上の証拠画素 index。gi = HsvGrid index。alpha < 128 と除外マスクは対象外。
         private struct GridPt { public int x, y, gi; }
 
-        private static List<GridPt> CollectGridIndices(Color32[] pixels, int w, int h, HsvGrid hsv,
+        private static List<GridPt> CollectGridIndices(Color32* pixels, int w, int h, HsvGrid hsv,
             bool[] mask, int mW, int mH, bool[] excluded, int maskW, int maskH)
         {
             var list = new List<GridPt>();
@@ -581,7 +610,7 @@ namespace Iroca
         // 縁クリックの救済(定数「縁クリック(境界帯の混色)の救済」の説明を参照)。クリック(zone.sampleUV)が
         // 証拠の中・芯の外(境界帯)にあり、その色が最寄りの芯の画素の色と無彩色の混色で説明できるとき、
         // その芯の画素の色と位置を返す。core は統計に使った芯(細いセグメントで収縮しなかったときは証拠そのもの)。
-        private static bool TrySnapBoundaryClick(Color32[] pixels, int w, int h, ColorZone zone,
+        private static bool TrySnapBoundaryClick(Color32* pixels, int w, int h, ColorZone zone,
             bool[] evidence, bool[] core, int evW, int evH, bool[] excluded, int maskW, int maskH,
             out Color coreColor, out int coreX, out int coreY)
         {
@@ -671,7 +700,7 @@ namespace Iroca
         // 導出パラメータ(result)を実マッチャーに通し、証拠ドメインのうち選択される(strength > 0)
         // 割合を返す。基底マッチのみ(ハイライト系は成長テストの管轄)。
         private static float DomainCoverage(ColorZone aZone, in TuneResult result, HsvGrid hsv,
-            Color32[] pixels, int w, int h, List<GridPt> domain)
+            Color32* pixels, int w, int h, List<GridPt> domain)
         {
             if (domain.Count == 0) return 1f;
             var sim = BuildSimZone(aZone, result);
@@ -704,7 +733,7 @@ namespace Iroca
         // その EvTolHeadroom 倍(下限 floor)と導出値の小さい方を返す。導出値は上げない。
         // 被覆の「同じ」は EvCoverGainMin(追加サンプルの採否と同じ、意味のある被覆差の最小幅)まで許す。
         private static float BoundToleranceByEvidence(ColorZone aZone, in TuneResult result, HsvGrid hsv,
-            Color32[] pixels, int w, int h, List<GridPt> domain, float floor)
+            Color32* pixels, int w, int h, List<GridPt> domain, float floor)
         {
             float derived = result.tolerance;
             if (domain.Count == 0 || derived <= floor) return derived;
@@ -723,7 +752,7 @@ namespace Iroca
 
         // sim で覆えていない証拠ドメイン画素のうち、最も多い V 帯の平均色を新サンプルとして返す。
         // 既存サンプルと重複(EvDupSep 未満)するなら false(=これ以上足しても増えない)。
-        private static bool TryUncoveredRepresentative(ColorZone sim, HsvGrid hsv, Color32[] pixels,
+        private static bool TryUncoveredRepresentative(ColorZone sim, HsvGrid hsv, Color32* pixels,
             int w, int h, List<GridPt> domain, Color primary, List<Color> existing, out Color rep)
         {
             const int VB = AutoToneValueBins;
@@ -759,7 +788,7 @@ namespace Iroca
         // 導出パラメータ(result)を実マッチャーに通し、全画面(不透明・非除外)で選択される画素数を
         // 返す(HSV 格子上の数)。追加サンプルの溢れ判定に使う。基底マッチのみ。
         private static int GlobalSelected(ColorZone aZone, in TuneResult result, HsvGrid hsv,
-            Color32[] pixels, int w, int h, bool[] excluded, int maskW, int maskH)
+            Color32* pixels, int w, int h, bool[] excluded, int maskW, int maskH)
         {
             var sim = BuildSimZone(aZone, result);
             sim.highlightRecovery = false;

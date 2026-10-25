@@ -1,7 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
-using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text;
@@ -17,7 +16,7 @@ namespace Iroca
     /// UnityEditor / EditorWindow / AssetDatabase に依存しない純粋ロジックだけを保持する。
     /// バックグラウンドスレッドからの呼び出しを前提にしている。
     /// </summary>
-    internal static partial class PixelProcessor
+    internal static unsafe partial class PixelProcessor
     {
         // Parallel.For で使用する既定の CPU コア数制限。
         // 計算はバックグラウンドで走り、その間もメインスレッドが UI を描くので、全コア並列にせず
@@ -68,38 +67,30 @@ namespace Iroca
         private const int SpAlloc = 0, SpMatchLoop = 1, SpChromaCeiling = 2, SpEnclosedNeutral = 3,
             SpHlPropagate = 4, SpHlBand = 5, SpHlEnclosed = 6, SpFfComponents = 7, SpFfKeepBits = 8,
             SpPostBBox = 9, SpHoleFillGate = 10, SpHoleFill = 11, SpBoundary = 12, SpBlurReapply = 13,
-            SpSelCacheStore = 14, SpRejectNeutral = 15, SpSolidify = 16, SpDecontamExcl = 17,
-            SpDecontam = 18, SpWashSample = 19, SpAnchor = 20, SpRegionLRange = 21, SpMedianLMap = 22,
-            SpRecolorBBox = 23, SpRecolorLoop = 24, SpAchromaFringe = 25, SpPaletteHash = 26,
-            SpPaletteIds = 27, SpPaletteRemap = 28, SpMixBand = 29, SubPhaseCount = 30;
+            SpSelCacheStore = 14, SpSolidify = 15, SpDecontamExcl = 16,
+            SpDecontam = 17, SpWashSample = 18, SpAnchor = 19, SpRegionLRange = 20, SpMedianLMap = 21,
+            SpRecolorBBox = 22, SpRecolorLoop = 23, SpAchromaFringe = 24, SpPaletteHash = 25,
+            SpPaletteIds = 26, SpPaletteRemap = 27, SpMixBand = 28, SubPhaseCount = 29;
         private static readonly string[] s_perfSubPhaseNames =
         {
             "Alloc", "MatchLoop", "ChromaCeiling", "EnclosedNeutral",
             "HlPropagate", "HlBand", "HlEnclosed", "FfComponents", "FfKeepBits",
             "PostBBox", "HoleFillGate", "HoleFill", "Boundary", "BlurReapply",
-            "SelCacheStore", "RejectNeutral", "Solidify", "DecontamExcl",
+            "SelCacheStore", "Solidify", "DecontamExcl",
             "Decontam", "WashSample", "Anchor", "RegionLRange", "MedianLMap",
             "RecolorBBox", "RecolorLoop", "AchromaFringe", "PaletteHash", "PaletteIds", "PaletteRemap",
             "MixBand",
         };
 
-        // packed mask の内容ハッシュ(FNV-1a 64bit)。マスク編集を選択キーに反映するため。
-        private static ulong MaskHash(ulong[] m)
-        {
-            if (m == null) return 0UL;
-            ulong h = 1469598103934665603UL; // FNV offset basis
-            for (int i = 0; i < m.Length; i++) { h ^= m[i]; h *= 1099511628211UL; }
-            return h ^ (ulong)m.Length;
-        }
-
-        // 「選択(マッチ→マスク再適用)に影響する入力だけ」から決定論的なキーを作る。
+        // 「選択(マッチ→ブラー)に影響する入力だけ」から決定論的なキーを作る。
         // ターゲット色・valueBlend・出力彩度・シャドウ脱彩・wash・autoRecolorAnchor は **含めない**
         // (これらは再着色のみに効くので、変えてもキーは同じ=選択キャッシュがヒットする)。float は
         // ビット表現で完全一致判定(丸め衝突を避ける)。曖昧なものは安全側で含める(ミスが増えるだけ)。
+        // マスクの中身も含めない: 含めるマスクは保存する選択に効かず、除外マスクは保存時の配列と比べて
+        // 使えるかを判定する(SelectionCache・ExclusionChangeKeepsMatch)。
         private static string BuildSelectionKey(
             ColorZone z, float edgeFeather, int aaCleanup, int holeFillPasses, int holeFillMinNeighbors,
-            float relaxedSatMin, float relaxedSatRamp, ulong[] commonMask, ulong[] zoneMask,
-            ulong[] zoneInclude, int maskW, int maskH, bool mixtureBand)
+            float relaxedSatMin, float relaxedSatRamp, int maskW, int maskH, bool mixtureBand)
         {
             var sb = new StringBuilder(320);
             void F(float v) { sb.Append(BitConverter.SingleToInt32Bits(v)); sb.Append(','); }
@@ -124,45 +115,65 @@ namespace Iroca
             // 混色帯モード(IsMixtureBandZone)では穴埋め・境界回復を行わない = 選択そのものが変わる。
             // 境界クリーンアップの ON/OFF で切り替わるので、キーに入れる。
             B(mixtureBand);
-            // マスク内容(common + zone)。ビット列のハッシュだけでは、同じビット列を別の寸法で
-            // 解釈したケースを区別できない（マスクは packed ulong[] で寸法が別持ちのため、
-            // 寸法が変われば同じビット列でも指す画素が変わる）。寸法もキーに入れる
-            // （レビュー §4 低 / 監査 L-6）。
+            // マスクの寸法。マスクは packed ulong[] で寸法が別持ちのため、寸法が変われば同じビット列でも
+            // 指す画素が変わる（レビュー §4 低 / 監査 L-6）。除外マスクの比べ直しも同じ寸法どうしでしか成り立たない。
             I(maskW); I(maskH);
-            sb.Append(MaskHash(commonMask)); sb.Append(';');
-            sb.Append(MaskHash(zoneMask)); sb.Append(';');
-            sb.Append(MaskHash(zoneInclude)); sb.Append(';');
             return sb.ToString();
         }
 
-        // ArrayPool<T>.Shared は既定でバケット上限 2^20 要素。それを超える Rent は
-        // 毎回 new[] を返し Return は捨てるため、2K(4.2M)/4K(16.8M) ではプールが
-        // 全く効かず Rent ごとに LOH 新規確保が発生する(プレビュー再生成のたびに数百MB〜1GB)。
-        // Unity の最大テクスチャ 16384²=2^28 までプールする専用プールに差し替えて GC churn を抑える。
-        // 上限が 4096² だった頃は 8K・16K の作業配列が毎回の新規確保になり、縮まない Mono ヒープが
-        // 8K で 8.6GB・16K で 26GB 超まで膨らんでいた(2^28 にして 8K は 5.1GB・16K は 19GB で頭打ち。
-        // 毎手の処理も速くなる)。
-        // 戻した配列はバケットごとに持ち続けるので、大きいテクスチャを一度処理するとそのぶんは
-        // 手放さない(どのみち Mono ヒープは縮まない)。4096² 以下だけなら挙動は変わらない。
-        // maxArraysPerBucket は ProcessPixelsArray が 1 ゾーンで同時に Rent する本数(〜20)を
-        // 満たす値にする(Create プールは GC 自動トリムされないため上限で保持メモリを抑える)。
-        // 注意: Create プールの Rent はゼロ初期化を保証しない。既存の Array.Clear は残すこと。
-        private const int PoolMaxArrayLength = 1 << 28; // 268,435,456 (16384²)
-        private static readonly ArrayPool<float> s_floatPool =
-            ArrayPool<float>.Create(PoolMaxArrayLength, maxArraysPerBucket: 24);
-        private static readonly ArrayPool<bool> s_boolPool =
-            ArrayPool<bool>.Create(PoolMaxArrayLength, maxArraysPerBucket: 8);
-        private static readonly ArrayPool<byte> s_bytePool =
-            ArrayPool<byte>.Create(PoolMaxArrayLength, maxArraysPerBucket: 4);
-        // originalPixels(入力画素のスナップショット)用。従来は毎回 new Color32[len](4K で 67MB)を
-        // LOH に確保していた。Rent はゼロ初期化されないが Array.Copy で全域上書きするので問題なし。
-        private static readonly ArrayPool<Color32> s_color32Pool =
-            ArrayPool<Color32>.Create(PoolMaxArrayLength, maxArraysPerBucket: 4);
+        // 作業配列(フル解像度の float・bool など。1 ゾーンで同時に 20 本ほど借りる)は使い回す。毎回 new すると
+        // プレビューのたびに数百 MB〜1GB の新規確保になる。
+        // 0.3.0 から作業配列は Mono のヒープの外(NativeWorkPool、ポインタで貸し出す)に置く。以前は管理配列の
+        // ArrayPool で使い回していたが、Mono のヒープは縮まないので、書き出し(元の解像度)などで一度大きく使った分が
+        // エディタを閉じるまで残っていた(8K で約 3GB)。ネイティブなら ReleaseWorkBuffers ですぐ OS へ返せる。
+        // ポインタにしたのは、Unity の Mono で配列より遅くならない書き方がポインタだけだったため(構造体の添字や
+        // Span は Debug の最適化モードで 2〜4 倍遅い。scripts/editor-tests/KernelBenchTests.cs)。
+        // 注意: プールの Rent はゼロ初期化を保証しない。既存のクリア(ClearWork)は残すこと。
+        // 色の表(「画素 → 番号」と番号ごとの HSV)も Mono のヒープの外に置き、参照の数で解放する
+        // (PixelProcessor.Palette.cs)。色の表が無いときの画素ごとの HSV は作業配列(s_floatPool)から借りる。
+        // 入力の控え(originalPixels)はポインタで読む(ProcessPixelsArrayCore)。
+        private static readonly NativeWorkPool<float> s_floatPool = WorkPools.Float;
+        private static readonly NativeWorkPool<bool> s_boolPool = WorkPools.Bool;
+        private static readonly NativeWorkPool<byte> s_bytePool = WorkPools.Byte;
+        // デコンタミの書き込み先(decontamPixels)と、書き出しのときの入力の控え(originalPixels)。
+        private static readonly NativeWorkPool<Color32> s_color32Pool = WorkPools.Rgba32;
         // 連結成分ラベリング(label / BFS スタック)用。従来は呼び出しごとに new int[bw*bh]
         // (4K 全面マッチで 67MB)を LOH へ確保していた。Rent はゼロ初期化しないので label は
-        // 使用前に Array.Clear すること。
-        private static readonly ArrayPool<int> s_intPool =
-            ArrayPool<int>.Create(PoolMaxArrayLength, maxArraysPerBucket: 4);
+        // 使用前にクリアすること。
+        private static readonly NativeWorkPool<int> s_intPool = WorkPools.Int;
+
+        /// <summary>
+        /// 作業配列のうち、いま使っていない分と、色の表のキャッシュを全部解放する(OS へ戻る)。計算中の分は
+        /// 計算が返すまで残る(使っている色の表はその計算が Release した時点で解放される)。
+        /// ウィンドウを閉じる・テクスチャを替える・書き出しの後・リロードの前に UI 側から呼ぶ。次の計算は、
+        /// 新しく確保した領域の最初の書き込みと、色の表の作り直しの分だけ遅くなる(4K で数十 ms)。
+        /// </summary>
+        internal static void ReleaseWorkBuffers()
+        {
+            ClearPaletteCache();
+            WorkPools.ReleaseFree();   // AI 提案の精密化(SamMaskRefine)の分も同じプール
+        }
+
+        /// <summary>
+        /// <see cref="ReleaseWorkBuffers"/> をスレッドプールで行う(呼んだスレッドはすぐ戻る)。触った大きい塊を OS へ返すのは
+        /// 8K で数十〜数百 ms かかるので、書き出しの後・ウィンドウを閉じたときにメインスレッドを止めないよう、こちらを使う。
+        /// プールと色の表のキャッシュはロックで守られているので、解放の途中で次の計算が借りに来ても壊れない
+        /// (その計算が新しく確保するだけ)。スクリプトのリロードの前は、アンロードに間に合うよう同期の方を使う。
+        /// </summary>
+        internal static Task ReleaseWorkBuffersInBackground() => Task.Run(ReleaseWorkBuffers);
+
+        // 借りた作業配列を 0 で埋める([start, start+count))。
+        private static void ClearWork<T>(T* p, int start, int count) where T : unmanaged
+            => new Span<T>(p + start, count).Clear();
+
+        // 作業配列の中身を管理配列へ写した複製(デバッグの記録用。debug があるときだけ呼ぶ)。
+        private static T[] ToManaged<T>(T* p, int count) where T : unmanaged
+        {
+            if (p == null) return null;
+            var a = new T[count];
+            new ReadOnlySpan<T>(p, count).CopyTo(a);
+            return a;
+        }
 
         // スタティック計算メソッド — バックグラウンドスレッドで実行可能
         // Texture2Dなし、UnityEngine.Object APIなし、Mathfとカラー計算のみ（いずれもスレッドセーフ）
@@ -185,9 +196,68 @@ namespace Iroca
             SelectionCache selectionCache = null,
             Color32[] sourcePixels = null)
         {
+            // 引数検証。ここが無いと、不正な引数（null / 長さ不足）で Array.Copy が投げたとき
+            // 直前に Rent したプール配列（4K で 64MB）が返却されずリークする。Rent は
+            // finally が守る try の外にあるため、例外が出るなら Rent の前に出さないといけない
+            // （レビュー §4 低）。
+            if (pixels == null) throw new System.ArgumentNullException(nameof(pixels));
+            long lenLong = CheckSize(w, h);
+            if (pixels.Length < lenLong)
+                throw new System.ArgumentException(
+                    $"pixels.Length({pixels.Length}) < w*h({lenLong})", nameof(pixels));
+            if (sourcePixels != null)
+            {
+                // pixels そのものは処理中に書き換わるので、入力の控えにはならない。
+                if (ReferenceEquals(sourcePixels, pixels))
+                    throw new System.ArgumentException("sourcePixels must not be the pixels array itself", nameof(sourcePixels));
+                if (sourcePixels.Length < lenLong)
+                    throw new System.ArgumentException(
+                        $"sourcePixels.Length({sourcePixels.Length}) < w*h({lenLong})", nameof(sourcePixels));
+            }
+            // 処理の間だけ固定してポインタで読み書きする(出力の配列は呼び出し側の持ち物のまま)。
+            fixed (Color32* px = pixels)
+            fixed (Color32* src = sourcePixels)
+                ProcessPixelsArrayCore(px, w, h, masks, sortedZones, in settings,
+                    originX, originY, fullW, fullH, cancellationToken,
+                    debug, parityCache, selectionCache, src);
+        }
+
+        /// <summary>
+        /// <see cref="ProcessPixelsArray(Color32[], int, int, MaskSnapshot, IList{ColorZone}, in RecolorSettings, CancellationToken, int, int, int, int, IDebugCapture, PreviewParityCache, SelectionCache, Color32[])"/> の
+        /// ポインタ版。Mono のヒープの外に置いた画素(プレビューの原本と出力)を写さずに処理する。
+        /// pixels(w*h 画素。入力の画素を入れておくと、その場で処理結果に書き換わる)と sourcePixels(null 可。
+        /// 渡すなら pixels と同じ中身で、処理中は読むだけ)は、処理が返るまで呼び出し側が保つこと。
+        /// </summary>
+        public static void ProcessPixelsNative(
+            Color32* pixels, int w, int h,
+            MaskSnapshot masks,
+            IList<ColorZone> sortedZones,
+            in RecolorSettings settings,
+            CancellationToken cancellationToken = default,
+            int originX = 0, int originY = 0, int fullW = 0, int fullH = 0,
+            IDebugCapture debug = null,
+            PreviewParityCache parityCache = null,
+            SelectionCache selectionCache = null,
+            Color32* sourcePixels = null)
+        {
+            if (pixels == null) throw new System.ArgumentNullException(nameof(pixels));
+            CheckSize(w, h);
+            if (sourcePixels == pixels)
+                throw new System.ArgumentException("sourcePixels must not be the pixels buffer itself", nameof(sourcePixels));
             ProcessPixelsArrayCore(pixels, w, h, masks, sortedZones, in settings,
                 originX, originY, fullW, fullH, cancellationToken,
                 debug, parityCache, selectionCache, sourcePixels);
+        }
+
+        // 寸法の検証(画素数は int に収まること)。戻り値は画素数。
+        private static long CheckSize(int w, int h)
+        {
+            if (w <= 0 || h <= 0)
+                throw new System.ArgumentOutOfRangeException(nameof(w), $"invalid size: {w}x{h}");
+            long lenLong = (long)w * h;
+            if (lenLong > int.MaxValue)
+                throw new System.ArgumentOutOfRangeException(nameof(w), $"size too large: {w}x{h}");
+            return lenLong;
         }
 
         // デコンタミの「内部」判定しきい値。ユーザー設定ではない固定値。
@@ -209,8 +279,9 @@ namespace Iroca
         // 内部固め・領域 L の算出・無彩フチ消し・RecolorPixel 内の使用条件が同じ境目でそろう。
         private const float AchromaWeightActiveMin = 1e-4f;
 
+        // pixels・sourcePixels の検証(null・寸法・同じ領域でないこと)は入口(ProcessPixelsArray / ProcessPixelsNative)が済ませる。
         private static void ProcessPixelsArrayCore(
-            Color32[] pixels, int w, int h,
+            Color32* pixels, int w, int h,
             MaskSnapshot masks,
             IList<ColorZone> sortedZones,
             in RecolorSettings settings,
@@ -219,7 +290,7 @@ namespace Iroca
             IDebugCapture debug,
             PreviewParityCache parityCache,
             SelectionCache selectionCache,
-            Color32[] sourcePixels)
+            Color32* sourcePixels)
         {
             // 全体設定を同じ名前のローカルへ展開する。in 引数はラムダから参照できないので、
             // 本体(ラムダを含む)はこのローカルだけを読み、settings は以降参照しない。
@@ -232,29 +303,8 @@ namespace Iroca
             bool useDecontamination = settings.useDecontamination;
             int decontaminationRadius = settings.decontaminationRadius;
 
-            // 引数検証。ここが無いと、不正な引数（null / 長さ不足）で Array.Copy が投げたとき
-            // 直前に Rent したプール配列（4K で 64MB）が返却されずリークする。Rent は
-            // finally が守る try の外にあるため、例外が出るなら Rent の前に出さないといけない
-            // （レビュー §4 低）。
-            if (pixels == null) throw new System.ArgumentNullException(nameof(pixels));
-            if (w <= 0 || h <= 0)
-                throw new System.ArgumentOutOfRangeException(nameof(w), $"invalid size: {w}x{h}");
-            long lenLong = (long)w * h;
-            if (lenLong > int.MaxValue)
-                throw new System.ArgumentOutOfRangeException(nameof(w), $"size too large: {w}x{h}");
-            if (pixels.Length < lenLong)
-                throw new System.ArgumentException(
-                    $"pixels.Length({pixels.Length}) < w*h({lenLong})", nameof(pixels));
             if (sortedZones == null) throw new System.ArgumentNullException(nameof(sortedZones));
-            if (sourcePixels != null)
-            {
-                // pixels そのものは処理中に書き換わるので、入力の控えにはならない。
-                if (ReferenceEquals(sourcePixels, pixels))
-                    throw new System.ArgumentException("sourcePixels must not be the pixels array itself", nameof(sourcePixels));
-                if (sourcePixels.Length < lenLong)
-                    throw new System.ArgumentException(
-                        $"sourcePixels.Length({sourcePixels.Length}) < w*h({lenLong})", nameof(sourcePixels));
-            }
+            long lenLong = (long)w * h;
 
             if (fullW <= 0) fullW = w;
             if (fullH <= 0) fullH = h;
@@ -272,9 +322,19 @@ namespace Iroca
 
             int len = (int)lenLong;
             // 入力のスナップショット。以降は読むだけなので、呼び出し側が同じ中身を持っていればそれを使う。
+            // 持っていなければ(書き出し・NDMF)作業配列のプールへ写す(8K で 256MB。Mono のヒープに積まない)。
+            // 写した分は末尾の finally で返す。
             bool ownsOriginal = sourcePixels == null;
-            Color32[] originalPixels = sourcePixels ?? s_color32Pool.Rent(len);   // 借りたものは末尾の finally で Return
-            if (ownsOriginal) System.Array.Copy(pixels, originalPixels, len);
+            Color32* originalPixels;
+            if (ownsOriginal)
+            {
+                originalPixels = s_color32Pool.Rent(len);
+                Buffer.MemoryCopy(pixels, originalPixels, (long)len * sizeof(Color32), (long)len * sizeof(Color32));
+            }
+            else
+            {
+                originalPixels = sourcePixels;
+            }
 
             long _t0 = Stopwatch.GetTimestamp();
             var _perfZones = new ZonePerfEntry[sortedZones.Count];
@@ -288,28 +348,28 @@ namespace Iroca
             // 2番目以降の Rent が例外を投げた場合に先行の配列をリークしない。
             // 色の表があれば表の H/S/V と画素 → 番号(pixIdx)を指す(フル解像度の配列は持たない)。
             // 表が無いときだけ画素ごとの配列を借りる(hsvRented)。読むときは HsvSlot(pixIdx, i) で引く。
-            float[] pixH = null, pixS = null, pixV = null;
-            int[] pixIdx = null;
+            float* pixH = null, pixS = null, pixV = null;
+            int* pixIdx = null;
             bool hsvRented = false;
             // 占有率バッファ: 優先度の高い(リスト上位の)ゾーンが書き込んだカバレッジを
             // ピクセル単位で累積する。下位ゾーンは残り(1-claimed)の範囲だけ適用され、
             // 「重なった部分は上位ゾーンのみ適用」というレイヤー排他を実現する。
             // 単一ゾーン/非重複ピクセルでは常に 0 のままで、従来挙動は不変。
-            float[] claimed = null;
+            float* claimed = null;
             // 混色帯の被覆率(AnalyzeMixtureBand の出力)。初めて要るゾーンで借り、末尾の finally で返す。
-            float[] mixAlpha = null;
+            float* mixAlpha = null;
             // 色の種類の表(PixelProcessor.Palette.cs)。色だけで決まる計算を色ごとに 1 回で済ませる。
             // 種類が多い画像では null(画素ごとに計算する)。どちらでも出力はビット単位で同じ。
             ColorPalette palette = null;
             // decontamination 用バッファ(下で借りる。末尾の finally で返す)。
-            bool[] decontamAaMask = null;
-            Color32[] decontamPixels = null;
+            bool* decontamAaMask = null;
+            Color32* decontamPixels = null;
             // 除外マスク画素の位置(BG ドナー隠蔽用)。マスクがあるゾーンで初回に借り、ゾーン間で再利用。
-            bool[] decontamMaskExcluded = null;
+            bool* decontamMaskExcluded = null;
             try
             {
             claimed = s_floatPool.Rent(len);
-            Array.Clear(claimed, 0, len);
+            ClearWork(claimed, 0, len);
 
             // po を HSV 計算 + foreach 内の全 Parallel.For で共用。
             // MaxDegreeOfParallelism で Unity Editor のスレッドプール圧迫を防ぐ。
@@ -330,10 +390,10 @@ namespace Iroca
             }
             else
             {
+                hsvRented = true;
                 pixH = s_floatPool.Rent(len);
                 pixS = s_floatPool.Rent(len);
                 pixV = s_floatPool.Rent(len);
-                hsvRented = true;
                 Parallel.For(0, h, po, y =>
                 {
                     int rowOff = y * w;
@@ -384,17 +444,17 @@ namespace Iroca
                 _tp = _tZone;
                 _sub.Restart();
 
-                // ArrayPool 借用は per-zone の try/finally で必ず返却する。
+                // 作業配列の借用は per-zone の try/finally で必ず返却する。
                 // Parallel.For は po.CancellationToken でキャンセル時に OperationCanceledException を投げる。
                 // 後段ヘルパー(Decontaminate/CleanAchromaFringe/GaussianBlur/FillSmallHoles/RecoverBoundaryEdges
-                // /RejectNeutral/Solidify/GrowHighlightBand)にも cancellationToken を渡しており、内部 Parallel.For も
+                // /Solidify/GrowHighlightBand)にも cancellationToken を渡しており、内部 Parallel.For も
                 // 同様にキャンセル例外を伝播するため、例外経路でもプールが汚染されないよう finally でガードする。
-                float[] strength = null;
-                float[] highlightPot = null;
-                float[] matchConf = null;
-                bool[] includedPx = null;
-                float[] regMidMapRented = null;   // 成分中央値の地図をプールから借りたとき(ゾーンの終わりに返す)
-                float[] regUpMapRented = null;    // 同、白側の余白の地図
+                float* strength = null;
+                float* highlightPot = null;
+                float* matchConf = null;
+                bool* includedPx = null;
+                float* regMidMapRented = null;   // 成分中央値の地図をプールから借りたとき(ゾーンの終わりに返す)
+                float* regUpMapRented = null;    // 同、白側の余白の地図
                 try
                 {
                     // サンプル色の HSV(ゾーン内で不変。彩度天井ゲート・別パーツの色相幅・緩和マッチ・
@@ -407,21 +467,18 @@ namespace Iroca
                     // 部分クロップ経路は現在は検証用(製品 UI の詳細プレビューはフル段出力の切り出し)。
                     bool isFullImagePath = originX == 0 && originY == 0 && fullW == w && fullH == h;
 
-                    // 選択キャッシュ: ターゲット色など「再着色のみ」の変更では、マスク再適用直後の
+                    // 選択キャッシュ: ターゲット色など「再着色のみ」の変更では、マスクを掛ける直前の
                     // strength(=生の選択)を復元して選択フェーズ(Match/Highlight/FloodFill/穴埋め/
-                    // 境界/ブラー/マスク再適用)を丸ごと省く。フル画像経路でのみ使う。
+                    // 境界/ブラー)を丸ごと省く。フル画像経路でのみ使う。
                     string selKey = null;
-                    float[] cachedStrength = null;
                     ulong[] cachedKeep = null;
                     ulong[] cachedForced = null;
+                    var cachedBox = default(SelectionCache.PostBox);
                     bool selCached = false;
                     if (selectionCache != null && isFullImagePath)
                     {
                         selKey = BuildSelectionKey(zone, edgeFeather, antiAliasCleanup, holeFillPasses,
-                            holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp, commonMask, zoneMask,
-                            zoneInclude, maskW, maskH, zMixMode);
-                        selCached = selectionCache.TryGet(zone.id, selKey, w, h,
-                            out cachedStrength, out cachedKeep, out cachedForced);
+                            holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp, maskW, maskH, zMixMode);
                     }
 
                     // 含めるマスクをテクスチャ解像度の bool[] へ展開する(除外優先を焼き込む)。
@@ -451,17 +508,26 @@ namespace Iroca
                     strength = s_floatPool.Rent(len);
                     // matchConf は連結成分アンカリング(flood fill)のコア判定専用。FF が有効でフル画像
                     // 経路かつキャッシュミス時のみ確保・充填する(ヒット時は keep を転写するため不要)。
-                    bool needMatchConf = IrocaConsts.ExperimentalFeatures.EnableFloodFill
+                    bool ffNeedsMatchConf = IrocaConsts.ExperimentalFeatures.EnableFloodFill
                         && zone.mode == SelectionMode.ColorPick && zone.useFloodFill
-                        && isFullImagePath && !selCached;
+                        && isFullImagePath;
+                    // キャッシュにあれば strength へ写す(キャッシュの中身はネイティブメモリにあり、貸し出し中は
+                    // 手放されない)。除外マスクが保存時と違えば、変わった画素でこのゾーンの照合がどれも 0 のときだけ
+                    // 使う(そのとき照合の直後の配列が計算し直しと同じになり、以降の段はマスクを読まないので選択も同じ)。
+                    if (selKey != null)
+                    {
+                        var zoneForCheck = zone;
+                        selCached = selectionCache.TryCopy(zone.id, selKey, w, h, strength, commonMask, zoneMask,
+                            (oldCommon, oldZone) => ExclusionChangeKeepsMatch(zoneForCheck, originalPixels, hsv,
+                                w, h, originX, originY, fullW, fullH, maskColOf, maskRowBase, maskW, maskH,
+                                oldCommon, oldZone, commonMask, zoneMask, ffNeedsMatchConf, po),
+                            out cachedKeep, out cachedForced, out cachedBox);
+                    }
+                    bool needMatchConf = ffNeedsMatchConf && !selCached;
                     // ミス時に FF が確定した keep を、選択キャッシュにも保存して次回のヒット復元に使う。
                     ulong[] keepBitsForCache = null;
 
-                    if (selCached)
-                    {
-                        Array.Copy(cachedStrength, strength, len);
-                    }
-                    else
+                    if (!selCached)
                     {
                         // strength / highlightPot / matchConf は下のマッチのループが全画素に書く(除外マスクの
                         // 画素には 0)ので、先にゼロで埋めない(旧: 3 本とも単一スレッドの Array.Clear)。
@@ -482,7 +548,7 @@ namespace Iroca
                             palPot = new float[pc];
                             palConf = new float[pc];
                             Color32[] pCol = palette.Colors;
-                            float[] pH = palette.H, pS = palette.S, pV = palette.V;
+                            float* pH = palette.H, pS = palette.S, pV = palette.V;
                             float[] outS = palStrength, outPot = palPot, outConf = palConf;
                             ForEachPaletteChunk(pc, po, (k0, k1) =>
                             {
@@ -491,7 +557,7 @@ namespace Iroca
                                         0, 0, fullW, fullH, out outS[k], out outPot[k], out outConf[k]);
                             });
                         }
-                        int[] palIdxMatch = palette?.Index;
+                        int* palIdxMatch = palette != null ? palette.Index : null;
                         Parallel.For(0, h, po, y =>
                         {
                             int yf = y + originY;
@@ -555,7 +621,7 @@ namespace Iroca
                                     zone.chromaThreshold, w, h, cancellationToken);
                         }
                         _sub.Mark(SpEnclosedNeutral);
-                        debug?.RecordStage(zone.id, DebugStages.Match, strength, w, h);
+                        debug?.RecordStage(zone.id, DebugStages.Match, ToManaged(strength, len), w, h);
                     }
                     _phaseTicks[PhMatch] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
@@ -566,7 +632,7 @@ namespace Iroca
                         _sub.Mark(SpHlPropagate);
                         s_floatPool.Return(highlightPot);
                         highlightPot = null;
-                        debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, strength, w, h);
+                        debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, ToManaged(strength, len), w, h);
                     }
 
                     // 1.a.1 ハイライト帯成長: matched core から「sample→白 軸上の同色相の明部」へ
@@ -576,7 +642,7 @@ namespace Iroca
                         GrowHighlightBand(strength, originalPixels, hsv, zone, w, h, cancellationToken,
                             palette);
                         _sub.Mark(SpHlBand);
-                        debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, strength, w, h);
+                        debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, ToManaged(strength, len), w, h);
                     }
 
                     // 1.a.3 閉領域ハイライト復帰: 選択に囲まれ、グロー(本体より明るい周囲)に縁取られた
@@ -602,7 +668,7 @@ namespace Iroca
                             if (nForced > 0)
                             {
                                 forcedBits = bits;
-                                debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, strength, w, h);
+                                debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, ToManaged(strength, len), w, h);
                             }
                         }
                         else if (parityCache != null
@@ -674,7 +740,7 @@ namespace Iroca
                                     parityCache.SetKeep(zone.id, keepBits);
                                 }
                             }
-                            debug?.RecordStage(zone.id, DebugStages.FloodFill, strength, w, h);
+                            debug?.RecordStage(zone.id, DebugStages.FloodFill, ToManaged(strength, len), w, h);
                         }
                         else if (parityCache != null
                                  && parityCache.fullW == fullW && parityCache.fullH == fullH)
@@ -685,7 +751,7 @@ namespace Iroca
                             if (keepBits != null)
                             {
                                 ApplyCachedKeepMask(strength, w, h, originX, originY, fullW, keepBits);
-                                debug?.RecordStage(zone.id, DebugStages.FloodFill, strength, w, h);
+                                debug?.RecordStage(zone.id, DebugStages.FloodFill, ToManaged(strength, len), w, h);
                             }
                         }
                     }
@@ -706,20 +772,32 @@ namespace Iroca
                     // 出力ビット不変。bbox 内だけを走査することで、小マッチ(ロゴ等)で全 16.8M 画素の
                     // 近傍走査を避ける。Array.Copy/Clear は全画素のまま(memcpy で安価)残し、重い近傍
                     // 走査・relaxed 判定だけを bbox に絞る。マッチ皆無(hasPostBox=false)なら後段は全て no-op。
-                    int ppBlurRadius = edgeFeather > EdgeFeatherBlurMin ? Mathf.CeilToInt(edgeFeather * GaussianRadiusPerSigma) : 0;
-                    int ppMargin = holeFillPasses + Mathf.Max(0, antiAliasCleanup) + ppBlurRadius + 2;
+                    // ヒット時は保存した bbox を使う(後段のデコンタミ・統計もこの範囲を読むので、計算し直したときと
+                    // 同じ範囲にする。復元した選択から取り直すと、含めるマスクの画素の分だけ範囲が変わりうる)。
                     int ppMinX, ppMinY, ppMaxX, ppMaxY;
-                    bool hasPostBox = TryComputeStrengthBBox(strength, w, h, 0f,
-                        out ppMinX, out ppMinY, out ppMaxX, out ppMaxY, cancellationToken);
-                        _sub.Mark(SpPostBBox);
-                    if (hasPostBox)
+                    bool hasPostBox;
+                    if (selCached)
                     {
-                        ppMinX = Mathf.Max(0, ppMinX - ppMargin);
-                        ppMinY = Mathf.Max(0, ppMinY - ppMargin);
-                        ppMaxX = Mathf.Min(w - 1, ppMaxX + ppMargin);
-                        ppMaxY = Mathf.Min(h - 1, ppMaxY + ppMargin);
+                        hasPostBox = cachedBox.Has;
+                        ppMinX = cachedBox.MinX; ppMinY = cachedBox.MinY;
+                        ppMaxX = cachedBox.MaxX; ppMaxY = cachedBox.MaxY;
                     }
-                    else { ppMinX = 0; ppMinY = 0; ppMaxX = -1; ppMaxY = -1; } // 空 bbox(後段スキップ)
+                    else
+                    {
+                        int ppBlurRadius = edgeFeather > EdgeFeatherBlurMin ? Mathf.CeilToInt(edgeFeather * GaussianRadiusPerSigma) : 0;
+                        int ppMargin = holeFillPasses + Mathf.Max(0, antiAliasCleanup) + ppBlurRadius + 2;
+                        hasPostBox = TryComputeStrengthBBox(strength, w, h, 0f,
+                            out ppMinX, out ppMinY, out ppMaxX, out ppMaxY, cancellationToken);
+                        if (hasPostBox)
+                        {
+                            ppMinX = Mathf.Max(0, ppMinX - ppMargin);
+                            ppMinY = Mathf.Max(0, ppMinY - ppMargin);
+                            ppMaxX = Mathf.Min(w - 1, ppMaxX + ppMargin);
+                            ppMaxY = Mathf.Min(h - 1, ppMaxY + ppMargin);
+                        }
+                        else { ppMinX = 0; ppMinY = 0; ppMaxX = -1; ppMaxY = -1; } // 空 bbox(後段スキップ)
+                    }
+                    _sub.Mark(SpPostBBox);
 
                     // 1b. 孤立した穴を埋める：アンチエイリアス処理された端のピクセルは低彩度を持つことが多く
                     //     satConfidenceで見落とされて、元のカラーの孤立したドットを残す
@@ -732,9 +810,10 @@ namespace Iroca
                     // chromaConfidence と sample RGB。低彩度サンプル(白/灰)で同色相の高彩度色を弾き、
                     // 境界回復が無関係な色を周囲へスピルさせる(対象の縁に別色のハローが出る)のを防ぐ。
                     // 有彩は cc≈1 で従来式。
+                    // 式は ColorZone.BuildSampleCache の chromaConfidence と同じ(定数も共有する)。
                     float relaxedChromaConf = Mathf.Min(
-                        Mathf.Clamp01((sampS - zone.chromaThreshold) / 0.10f),
-                        Mathf.Clamp01((sampV - 0.05f) / 0.15f));
+                        Mathf.Clamp01((sampS - zone.chromaThreshold) / ColorZone.ChromaConfidenceSpan),
+                        Mathf.Clamp01((sampV - ColorZone.HueValueConfLo) / ColorZone.HueValueConfSpan));
                     float rgSampR = zone.sampleColor.r, rgSampG = zone.sampleColor.g, rgSampB = zone.sampleColor.b;
                     // 緩和マッチ(穴埋めの許可判定と境界回復が同じ引数で呼ぶ)は色だけで決まるので、
                     // 色の表があれば色ごとに 1 回だけ求めて両方で使う(ビット単位で同じ)。
@@ -742,7 +821,7 @@ namespace Iroca
                     {
                         var outRel = new float[palette.Count];
                         Color32[] rCol = palette.Colors;
-                        float[] rH = palette.H, rS = palette.S, rV = palette.V;
+                        float* rH = palette.H, rS = palette.S, rV = palette.V;
                         ForEachPaletteChunk(palette.Count, po, (k0, k1) =>
                         {
                             for (int k = k0; k < k1; k++)
@@ -764,7 +843,7 @@ namespace Iroca
                     if (palette != null && !selCached && hasPostBox && !zMixMode
                         && (long)palette.Count * 2 <= (long)(ppMaxX - ppMinX + 1) * (ppMaxY - ppMinY + 1))
                         palRelaxed = RelaxedPalette(zone.tolerance);
-                    int[] palIdxRelaxed = palette?.Index;
+                    int* palIdxRelaxed = palette != null ? palette.Index : null;
                     if (!selCached && hasPostBox && !zMixMode)
                     {
                         // 穴埋めの許可だけ許容範囲に余白をつける(zone.holeFillMargin、証拠つき自動調整が入れる)。
@@ -774,7 +853,7 @@ namespace Iroca
                             ? zone.tolerance * (1f + zone.holeFillMargin) : zone.tolerance;
                         float[] palFill = palRelaxed != null && fillTol != zone.tolerance
                             ? RelaxedPalette(fillTol) : palRelaxed;
-                        bool[] fillAllowed = s_boolPool.Rent(len);
+                        bool* fillAllowed = s_boolPool.Rent(len);
                         try
                         {
                             // fillAllowed は FillSmallHoles が中心画素 idx でのみ参照する(近傍は strength を読む)
@@ -815,7 +894,7 @@ namespace Iroca
                         }
                     }
                     _sub.Mark(SpHoleFill);
-                    debug?.RecordStage(zone.id, DebugStages.HoleFill, strength, w, h);
+                    debug?.RecordStage(zone.id, DebugStages.HoleFill, ToManaged(strength, len), w, h);
                     _phaseTicks[PhHoleFill] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
                     // 1c. 境界復元：マッチしたピクセルに隣接するマッチしないピクセルを再評価
@@ -829,7 +908,7 @@ namespace Iroca
                             originalPixels, relaxedChromaConf, zone.chromaThreshold, zone.chromaCeiling,
                             cancellationToken, palRelaxed, palIdxRelaxed);
                         _sub.Mark(SpBoundary);
-                        debug?.RecordStage(zone.id, DebugStages.BoundaryRecover, strength, w, h);
+                        debug?.RecordStage(zone.id, DebugStages.BoundaryRecover, ToManaged(strength, len), w, h);
                     }
 
                     _phaseTicks[PhBoundary] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
@@ -838,12 +917,12 @@ namespace Iroca
                     {
                         // ガウシアンブラー用の一時バッファ。GaussianBlur 内部の Parallel.For
                         // でキャンセルが入っても preBlur/blurOut が漏れないよう try/finally で囲む。
-                        float[] preBlur = null;
-                        float[] blurOut = null;
+                        float* preBlur = null;
+                        float* blurOut = null;
                         try
                         {
                             preBlur = s_floatPool.Rent(len);
-                            Array.Copy(strength, preBlur, len);
+                            Buffer.MemoryCopy(strength, preBlur, (long)len * sizeof(float), (long)len * sizeof(float));
                             blurOut = s_floatPool.Rent(len);
                             if (GaussianBlur(strength, blurOut, w, h, edgeFeather,
                                 ppMinX, ppMinY, ppMaxX, ppMaxY, cancellationToken))
@@ -860,72 +939,49 @@ namespace Iroca
                             if (blurOut != null) s_floatPool.Return(blurOut);
                             if (preBlur != null) s_floatPool.Return(preBlur);
                         }
-                        debug?.RecordStage(zone.id, DebugStages.Blur, strength, w, h);
+                        debug?.RecordStage(zone.id, DebugStages.Blur, ToManaged(strength, len), w, h);
                     }
 
                     _phaseTicks[PhBlur] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
-                    // 3. 除外マスクを再適用：ブラーが除外ピクセルにはみ出す可能性がある
-                    if (!selCached && (commonMask != null || zoneMask != null))
+                    // 選択フェーズ(Match〜ブラー)完了。ここが「生の選択」の境界で、この後はマスクを掛け、
+                    // SolidifyAchromaInterior/decontam が target 依存で strength を破壊的に
+                    // 書き換える。ミス時のみ、この時点の strength(コピー)+ FF keep + bbox を選択キャッシュへ保存し、
+                    // 次回「再着色のみ変更」した再生成で復元して選択フェーズを丸ごと省く(出力ビット不変)。
+                    // マスクを掛ける前を保存するので、ヒット時も下でマスクを掛ける。
+                    _sub.Mark(SpBlurReapply);
+                    if (!selCached && selectionCache != null && isFullImagePath)
                     {
-                        var strengthForReapply = strength;
-                        Parallel.For(0, h, po, y =>
+                        var box = new SelectionCache.PostBox
                         {
-                            int rowOff = y * w;
-                            for (int x = 0; x < w; x++)
-                            {
-                                int i = rowOff + x;
-                                if (IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask)) strengthForReapply[i] = 0f;
-                            }
-                        });
-                        debug?.RecordStage(zone.id, DebugStages.MaskReapply, strength, w, h);
+                            Has = hasPostBox, MinX = ppMinX, MinY = ppMinY, MaxX = ppMaxX, MaxY = ppMaxY,
+                        };
+                        selectionCache.StoreFrom(zone.id, selKey, strength, keepBitsForCache, forcedBits, box,
+                            commonMask, zoneMask, maskW, maskH, w, h, cancellationToken);
+                    }
+                    _sub.Mark(SpSelCacheStore);
+
+                    // 3. 除外マスクを再適用：ブラーが除外ピクセルにはみ出す可能性がある
+                    if (commonMask != null || zoneMask != null)
+                    {
+                        ReapplyExclusion(strength, w, h, maskColOf, maskRowBase, maskW, maskH, commonMask, zoneMask, po);
+                        debug?.RecordStage(zone.id, DebugStages.MaskReapply, ToManaged(strength, len), w, h);
                     }
 
                     // 3a. 含めるマスク適用: 指定画素を full strength で選択へ強制追加する。
                     //     除外の再適用より後に置くが、includedPx には除外優先が焼き込み済みなので
                     //     順序に依らず「除外が勝つ」。ブラー等の後段パスより後 = マスク解像度の
-                    //     ハードエッジになる(除外マスクと同じ WYSIWYG 契約)。選択キャッシュ保存の
-                    //     前に置くことで、キー(含めるマスク内容ハッシュ)と保存内容が常に対応する。
-                    if (!selCached && includedPx != null)
+                    //     ハードエッジになる(除外マスクと同じ WYSIWYG 契約)。
+                    if (includedPx != null)
                     {
                         ForceIncluded(strength, includedPx, w, h, po);
-                        debug?.RecordStage(zone.id, DebugStages.MaskReapply, strength, w, h);
+                        debug?.RecordStage(zone.id, DebugStages.MaskReapply, ToManaged(strength, len), w, h);
                     }
-
-                    // 選択フェーズ(Match〜マスク再適用)完了。ここが「生の選択」の境界で、この後の
-                    // RejectNeutral/SolidifyAchromaInterior/decontam は target 依存で strength を破壊的に
-                    // 書き換える。ミス時のみ、この時点の strength(コピー)+ FF keep を選択キャッシュへ保存し、
-                    // 次回「再着色のみ変更」した再生成で復元して選択フェーズを丸ごと省く(出力ビット不変)。
                     _sub.Mark(SpBlurReapply);
-                    if (!selCached && selectionCache != null && isFullImagePath)
-                        selectionCache.Store(zone.id, selKey, strength, keepBitsForCache, forcedBits, w, h);
 
                     // 無彩サンプル/極端無彩ターゲットの重み(無彩パスと AA フィデリティ修正で共用)。
-                    _sub.Mark(SpSelCacheStore);
                     float zAchromaWeight = ComputeAchromaWeight(zone.sampleColor, zone.targetColor);
 
-                    // 有彩サンプル→無彩ターゲット(有彩色→白/黒/灰)の過選択除去。有彩サンプルはマッチ距離が
-                    // hue 支配になり彩度差を過小評価するため、明るい中性画素(白UV背景等)を巻き込む
-                    // (特に暖色サンプルで顕著。無彩画素の hue は 0 に丸められ暖色と同色相に見えるため)。
-                    // 巻き込みで領域が明るい背景に支配されると後段の成分中央値Lが上がり、本体(中L)が形維持
-                    // リマップで黒へ落ちる(黒化)。マッチ全段(穴埋め/境界回復)の後・内部固め/成分統計の前に、
-                    // サンプル彩度の相対床を下回る中性画素を strength から除去する(高彩度コア近傍は保護)。
-                    // 発動判定は **明度非依存** の ComputeAchromaSelectWeight を使う(灰色=中明度の無彩でも
-                    // 発動させる。ComputeAchromaWeight の extremeness では中明度グレーで重みが落ち白背景が
-                    // 灰色化する)。有彩→有彩(weight≈0)・低彩度サンプル(sS<床)では作動しない=従来挙動を完全維持。
-                    float zAchromaSelectWeight = ComputeAchromaSelectWeight(zone.sampleColor, zone.targetColor);
-                    if (zAchromaSelectWeight > AchromaNeutralRejectWeightMin && sampS >= NeutralRejectActiveSourceSat)
-                    {
-                        RejectNeutralForAchromaTarget(strength, hsv, w, h, sampS, cancellationToken);
-                        // 含める画素の再主張: 中性リジェクトは target 依存で strength を破壊的に
-                        // 書き換え、ユーザーが明示的に含めた画素(例: 白ツヤ)まで落とし得る。
-                        // 「含める」は明示指示なのでヒューリスティックより優先する。
-                        // 本段は選択キャッシュのヒット経路でも毎回走るため、selCached と無関係に適用する。
-                        if (includedPx != null)
-                            ForceIncluded(strength, includedPx, w, h, po);
-                    }
-
-                    _sub.Mark(SpRejectNeutral);
                     // 無彩パスの内部固め: 極端な無彩ターゲット(白↔黒)では、マッチ強度が色のばらつきで内部まで
                     // フルにならず、明るい画素ほど弱く塗られて元色が残り「中央の段差」になる。陰影は塗り
                     // 強度でなく recolor の achroma レンジリマップ(gain≤1)で表現すべきなので、マッチ領域の
@@ -938,8 +994,8 @@ namespace Iroca
                     // 3b. AA 境界の α 分解（オプション）：strength が 0 < s < interiorThreshold の
                     //     ピクセルを「α×FG + (1-α)×BG」と見て元テクスチャの合成を逆算し、
                     //     新色で再合成する。halo（薄汚れた中間色）を構造的に除去する。
-                    bool[] aaMask = null;
-                    Color32[] decontaminatedPixels = null;
+                    bool* aaMask = null;
+                    Color32* decontaminatedPixels = null;
                     if (useDecontamination)
                     {
                         aaMask = decontamAaMask;
@@ -951,7 +1007,7 @@ namespace Iroca
                         // 除外マスク画素は strength=0 だが「背景」ではない(サンプル同色の保護パーツで
                         // あり得る)。BG ドナーに入れると推定色がサンプル色で汚染され、マスク境界の外側に
                         // 誤色の点ノイズを塗るため、位置を渡してドナーから隠す(マスク中立化)。
-                        bool[] deconExcluded = null;
+                        bool* deconExcluded = null;
                         if (commonMask != null || zoneMask != null)
                         {
                             if (decontamMaskExcluded == null) decontamMaskExcluded = s_boolPool.Rent(len);
@@ -977,7 +1033,7 @@ namespace Iroca
                             deconExcluded, ppMinX, ppMinY, ppMaxX, ppMaxY,
                             solidifyOnly: zMixMode);
                         _sub.Mark(SpDecontam);
-                        debug?.RecordDecontamination(zone.id, aaMask, w, h);
+                        debug?.RecordDecontamination(zone.id, ToManaged(aaMask, len), w, h);
                     }
 
                     _phaseTicks[PhDecontam] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
@@ -1050,6 +1106,7 @@ namespace Iroca
                     else if (zone.autoRecolorAnchor && !zOkGray &&
                         TryComputeRecolorAnchor(originalPixels, strength, w,
                             ppMinX, ppMinY, ppMaxX, ppMaxY, out float anchorL, out float anchorC,
+                            zSL, zSa, zSb, sampS > ColorZone.ChromaGateActivateSat,
                             includedPx, cancellationToken, palette))
                     {
                         float zSC0 = zSC;
@@ -1084,16 +1141,19 @@ namespace Iroca
                         // na = |chroma| * (osat/sC) * zTa, nb = 同 zTb。oC=sC(sample) で (zTa,zTb)=target に一致。
                         zOkMagScale = zOsat / zSC;
                     }
-                    // ChromaAmpMaxFactor キャップの上限 mag をゾーン定数として 1 回だけ算出する。
-                    // 旧版は RecolorPixel 内で画素ごとに tC=sqrt(zTa²+zTb²) と maxMag=(zSC/tC)·Factor を
-                    // 再計算していたが、zTa/zTb/zSC はゾーン不変なので per-pixel で常に同値=冗長だった。
-                    // ホットな再着色ループから sqrt+除算を除去する(出力はビット不変)。キャップ非適用
-                    // (Factor<=0 または target が無彩で tC≈0)のときは +∞ にして per-pixel の比較を no-op 化。
-                    float zOkChromaMaxMag = float.PositiveInfinity;
-                    if (ChromaAmpMaxFactor > 0f)
+                    // 彩度の写し方(PixelProcessor.Recolor.cs の「彩度の写し方」参照)。塗り先が元より鮮やか(osat·tC > sC)なときだけ、
+                    // 彩度を陰影・混色で予想できる分と残りに分けて写す。ゾーン不変なのでここで 1 回だけ決める。サンプルが無彩
+                    // (okGray)・塗り先が無彩(tC≈0)なら全体の比例のまま。
+                    bool zOkSplitChroma = false;
+                    float zOkInvTC = 0f;
+                    if (!zOkGray)
                     {
                         float zTC = Mathf.Sqrt(zTa * zTa + zTb * zTb);
-                        if (zTC > 1e-4f) zOkChromaMaxMag = (zSC / zTC) * ChromaAmpMaxFactor;
+                        if (zTC > 1e-4f && zTC * zOsat > zSC)
+                        {
+                            zOkSplitChroma = true;
+                            zOkInvTC = 1f / zTC;
+                        }
                     }
 
                     // 無彩パスの領域 L 中央値を事前計算(zAchromaWeight は上で算出済み)。
@@ -1103,8 +1163,8 @@ namespace Iroca
                     // ゆるいマスクで明るい背景を巻き込んでも、各成分が自分の地色基準で再着色されるので、
                     // 背景よりわずかに暗いだけの明るい対象がベタ黒へ潰れない。null のときは
                     // zRegLmid(全体中央値)へフォールバック。
-                    float[] zRegMidMap = null;
-                    float[] zRegUpMap = null;
+                    float* zRegMidMap = null;
+                    float* zRegUpMap = null;
                     if (zAchromaWeight > AchromaWeightActiveMin)
                     {
                         if (useCachedStats)
@@ -1115,8 +1175,12 @@ namespace Iroca
                             if (zHasRegL && cachedStats.regMidMapFull != null)
                             {
                                 zRegMidMap = CropFullMidMap(cachedStats.regMidMapFull, w, h, originX, originY, fullW);
+                                regMidMapRented = zRegMidMap;
                                 if (cachedStats.regUpMapFull != null)
+                                {
                                     zRegUpMap = CropFullMidMap(cachedStats.regUpMapFull, w, h, originX, originY, fullW);
+                                    regUpMapRented = zRegUpMap;
+                                }
                             }
                         }
                         else
@@ -1127,11 +1191,10 @@ namespace Iroca
                                 _sub.Mark(SpRegionLRange);
                             if (zHasRegL)
                             {
-                                // 地図をキャッシュへ渡す(下)ときだけ新しく確保し、それ以外はプールから借りる。
-                                bool keepMap = isFullImagePath && parityCache != null;
-                                zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, 0.05f, out zRegUpMap, cancellationToken,
-                                    palette, rentMap: !keepMap);
-                                if (!keepMap) { regMidMapRented = zRegMidMap; regUpMapRented = zRegUpMap; }
+                                // 地図はプールから借りる(ゾーンの終わりに返す)。キャッシュへ渡すとき(下)は管理配列へ写す。
+                                zRegMidMap = BuildComponentMedianLMap(originalPixels, strength, w, h, ColorZone.MatchStrengthFloor, out zRegUpMap, cancellationToken,
+                                    palette);
+                                regMidMapRented = zRegMidMap; regUpMapRented = zRegUpMap;
                             }
                         }
                     }
@@ -1152,8 +1215,8 @@ namespace Iroca
                             washR = zWR, washG = zWG, washB = zWB, washV = zWV,
                             hasRegL = zHasRegL,
                             regLmid = zRegLmid,
-                            regMidMapFull = zRegMidMap,
-                            regUpMapFull = zRegUpMap,
+                            regMidMapFull = ToManaged(zRegMidMap, len),
+                            regUpMapFull = ToManaged(zRegUpMap, len),
                         });
                     }
 
@@ -1174,18 +1237,18 @@ namespace Iroca
                     // ゾーン不変の再着色パラメータをループ前に 1 回だけ構築(in 渡しで per-pixel コピー回避)。
                     var rcParams = new RecolorParams(
                         zOkMagScale, zTa, zTb, zOkGray, zOkGa, zOkGb,
-                        zSL, zTL, zSC, zOkChromaMaxMag, zValueBlend, zEffShadowDesat,
+                        zSL, zTL, zSC, zOkSplitChroma, zOkInvTC, zValueBlend, zEffShadowDesat,
                         sampS, zTR, zTG, zTB, zWR, zWG, zWB, zWV,
                         zApplyWash, zAchromaWeight, zOsat, zHasRegL);
                     // 混色帯(選択境界の AA・にじみ)の解析。境界クリーンアップ ON かつ有彩サンプルのゾーンでは、
                     // 境界の画素を「被覆率ぶんだけ隣の素材の変化を足す」合成の式で塗る(PixelProcessor.MixtureBand.cs
                     // の AnalyzeMixtureBand)。対象の画素は mixAlpha ≥ 0、色は decontaminatedPixels に入り、
                     // 下のループが読む。無彩サンプル(グレーモード相当)は色度で被覆率を測れないので従来の経路。
-                    float[] mixAlphaLocal = null;
+                    float* mixAlphaLocal = null;
                     if (zMixMode && rcMaxX >= 0)
                     {
                         if (mixAlpha == null) mixAlpha = s_floatPool.Rent(len);
-                        bool[] mixExcluded = null;
+                        bool* mixExcluded = null;
                         if (commonMask != null || zoneMask != null)
                         {
                             // 解析が読むのは bbox ± (2·探索半径 + 1)。その範囲の除外フラグを埋める。
@@ -1219,7 +1282,7 @@ namespace Iroca
                         int pc = palette.Count;
                         var outRc = new Color32[pc];
                         Color32[] pCol = palette.Colors;
-                        float[] pV = palette.V;
+                        float* pV = palette.V;
                         var rcParamsLocal = rcParams;
                         float lmid = zRegLmid;
                         ForEachPaletteChunk(pc, po, (k0, k1) =>
@@ -1232,7 +1295,7 @@ namespace Iroca
                         });
                         palRecolored = outRc;
                     }
-                    int[] palIdxRecolor = palette?.Index;
+                    int* palIdxRecolor = palette != null ? palette.Index : null;
                     // 色ごとの表を作れないゾーン(成分別 L マップあり)は、スレッドごとのメモで使い回す。
                     int recolorMemoEpoch = palette != null && palRecolored == null && rcMaxX >= 0
                         ? NextRecolorMemoEpoch() : 0;
@@ -1328,7 +1391,7 @@ namespace Iroca
                         }
                     });
                     _sub.Mark(SpRecolorLoop);
-                    debug?.RecordStage(zone.id, DebugStages.Recolor, strength, w, h);
+                    debug?.RecordStage(zone.id, DebugStages.Recolor, ToManaged(strength, len), w, h);
 
                     // 無彩(白↔黒)再着色のエッジに残る「地色の残り」フチ消し。マッチ境界の外側 2px に残る
                     // 背景より明るい混色画素を α 分解で背景へ寄せ、暗い再着色色に対する明るいフチを消す。
@@ -1343,7 +1406,7 @@ namespace Iroca
                         // 埋める範囲はフチ消しが読む bbox±AchromaFringeExclusionMargin だけ
                         // (デコンタミ側の充填は ppMin/Max±decontaminationRadius かつ
                         //  useDecontamination 時のみなので、ここは独立に埋める必要がある)。
-                        bool[] fringeExcluded = null;
+                        bool* fringeExcluded = null;
                         if (commonMask != null || zoneMask != null)
                         {
                             if (decontamMaskExcluded == null) decontamMaskExcluded = s_boolPool.Rent(len);
@@ -1543,10 +1606,126 @@ namespace Iroca
             => colOf != null && MaskSnapshot.GetBit(includeMask, rowBase[y] + colOf[x]);
 
         /// <summary>
+        /// 除外(共通 ∪ ゾーン)の画素の strength を 0 にする。表は BuildMaskIndexMap(無ければ何もしない)。
+        /// 除外の立っていないマスクの行に当たる作業行は読まない(選択キャッシュのヒットでも毎回走るため)。
+        /// </summary>
+        private static void ReapplyExclusion(float* strength, int w, int h, int[] colOf, int[] rowBase,
+            int maskW, int maskH, ulong[] commonMask, ulong[] zoneMask, ParallelOptions po)
+        {
+            if (colOf == null) return;
+            var rows = new bool[maskH];
+            int words = MaskWordCount(maskW, maskH);
+            for (int wi = 0; wi < words; wi++)
+                if ((MaskWord(commonMask, wi) | MaskWord(zoneMask, wi)) != 0UL) MarkMaskRows(rows, wi, maskW, maskH);
+            Parallel.For(0, h, po, y =>
+            {
+                if (!rows[rowBase[y] / maskW]) return;
+                int rowOff = y * w;
+                for (int x = 0; x < w; x++)
+                    if (IsExcludedAt(colOf, rowBase, x, y, commonMask, zoneMask)) strength[rowOff + x] = 0f;
+            });
+        }
+
+        /// <summary>
+        /// 除外(共通 ∪ ゾーン)が old から now に変わったとき、変わった画素(除外になった・外れた)のどれでも
+        /// このゾーンの照合(strength と、使うなら highlightPot・matchConf)が +0 か。+0 なら照合の直後の配列は
+        /// old で計算したときと同じ(除外の画素には +0 を書くので)で、その後の段はマスクを読まないため、
+        /// マスクを掛ける前の選択も old のときと同じになる。変わった画素が全体の 1/16 を超えたら調べずに false
+        /// (調べるより計算し直す方が速い)。
+        /// 照合の式はゾーンのループの照合と同じでなければならない(量子化をならした色が取れればその色、
+        /// 無ければ画素の色と HSV)。ループが使う色の表の値は、同じ色・同じ HSV で同じ関数を呼んだものなので
+        /// (ColorPick は位置を見ない)、ここでは表を使わない。
+        /// </summary>
+        private static bool ExclusionChangeKeepsMatch(ColorZone zone, Color32* originalPixels, PixelHsv hsv,
+            int w, int h, int originX, int originY, int fullW, int fullH, int[] colOf, int[] rowBase,
+            int maskW, int maskH, ulong[] oldCommon, ulong[] oldZone, ulong[] newCommon, ulong[] newZone,
+            bool usesMatchConf, ParallelOptions po)
+        {
+            if (colOf == null) return true;   // マスクの表が無い = どちらでも除外なし
+            var rows = new bool[maskH];
+            int words = MaskWordCount(maskW, maskH);
+            long changed = 0;
+            for (int wi = 0; wi < words; wi++)
+            {
+                ulong d = (MaskWord(oldCommon, wi) | MaskWord(oldZone, wi))
+                        ^ (MaskWord(newCommon, wi) | MaskWord(newZone, wi));
+                if (d == 0UL) continue;
+                changed += PopCount(d);
+                MarkMaskRows(rows, wi, maskW, maskH);
+            }
+            if (changed == 0) return true;
+            if (changed > (long)maskW * maskH / 16) return false;
+
+            bool usesPot = zone.highlightRecovery;
+            int failed = 0;
+            Parallel.For(0, h, po, (y, loop) =>
+            {
+                if (!rows[rowBase[y] / maskW] || Volatile.Read(ref failed) != 0) return;
+                int yf = y + originY;
+                int rowOff = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    int idx = rowBase[y] + colOf[x];
+                    bool was = MaskSnapshot.GetBit(oldCommon, idx) || MaskSnapshot.GetBit(oldZone, idx);
+                    bool now = MaskSnapshot.GetBit(newCommon, idx) || MaskSnapshot.GetBit(newZone, idx);
+                    if (was == now) continue;
+                    int i = rowOff + x;
+                    float s, hPot, mc;
+                    if (zone.mode == SelectionMode.ColorPick
+                        && TryQuantSmoothedColor(originalPixels, x, y, w, h, zone.tolerance, out Color qc))
+                    {
+                        Color.RGBToHSV(qc, out float qh, out float qs, out float qv);
+                        zone.GetMatchScoresPrecomputedHSV(qh, qs, qv, qc, x + originX, yf, fullW, fullH,
+                            out s, out hPot, out mc);
+                    }
+                    else
+                    {
+                        int k = HsvSlot(hsv.Index, i);
+                        zone.GetMatchScoresPrecomputedHSV(hsv.H[k], hsv.S[k], hsv.V[k], (Color)originalPixels[i],
+                            x + originX, yf, fullW, fullH, out s, out hPot, out mc);
+                    }
+                    if (BitConverter.SingleToInt32Bits(s) != 0
+                        || (usesPot && BitConverter.SingleToInt32Bits(hPot) != 0)
+                        || (usesMatchConf && BitConverter.SingleToInt32Bits(mc) != 0))
+                    {
+                        Volatile.Write(ref failed, 1);
+                        loop.Stop();
+                        return;
+                    }
+                }
+            });
+            return failed == 0;
+        }
+
+        private static int MaskWordCount(int maskW, int maskH) => (int)(((long)maskW * maskH + 63) >> 6);
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static ulong MaskWord(ulong[] packed, int wi) =>
+            packed != null && wi < packed.Length ? packed[wi] : 0UL;
+
+        // 語 wi(画素 wi*64 .. wi*64+63)が触れるマスクの行に印をつける(語の中のどこが立っているかは見ない。
+        // 印が多すぎても、印のある行は画素ごとに読み直すので結果は変わらない)。
+        private static void MarkMaskRows(bool[] rows, int wi, int maskW, int maskH)
+        {
+            long first = (long)wi << 6;
+            int r0 = (int)(first / maskW);
+            int r1 = (int)Math.Min(maskH - 1, (first + 63) / maskW);
+            for (int r = r0; r <= r1; r++) rows[r] = true;
+        }
+
+        private static int PopCount(ulong v)
+        {
+            v -= (v >> 1) & 0x5555555555555555UL;
+            v = (v & 0x3333333333333333UL) + ((v >> 2) & 0x3333333333333333UL);
+            v = (v + (v >> 4)) & 0x0F0F0F0F0F0F0F0FUL;
+            return (int)((v * 0x0101010101010101UL) >> 56);
+        }
+
+        /// <summary>
         /// 矩形 [x0, x1] × [y0, y1](両端含む)の除外フラグ(IsExcludedAt)を dst に書く。範囲外は触らない。
         /// デコンタミ・混色帯・無彩フチ消しの 3 か所が、それぞれ自分の読む範囲だけをこれで埋める。
         /// </summary>
-        private static void FillExcludedRect(bool[] dst, int w, int x0, int y0, int x1, int y1,
+        private static void FillExcludedRect(bool* dst, int w, int x0, int y0, int x1, int y1,
             int[] colOf, int[] rowBase, ulong[] commonMask, ulong[] zoneMask, ParallelOptions po)
         {
             Parallel.For(y0, y1 + 1, po, y =>
@@ -1558,7 +1737,7 @@ namespace Iroca
         }
 
         /// <summary>含める画素(included[i] が true)の strength を 1(full strength)にする。他の画素は触らない。</summary>
-        private static void ForceIncluded(float[] strength, bool[] included, int w, int h, ParallelOptions po)
+        private static void ForceIncluded(float* strength, bool* included, int w, int h, ParallelOptions po)
         {
             Parallel.For(0, h, po, y =>
             {
@@ -1576,7 +1755,7 @@ namespace Iroca
         /// 画素 i は語 i &gt;&gt; 6 のビット i &amp; 63)を返す。フル画像で解いた keep(strength&gt;0)を
         /// パリティキャッシュ・選択キャッシュへ渡すときに使う。
         /// </summary>
-        private static ulong[] PackPositiveBits(float[] src, int len, ParallelOptions po)
+        private static ulong[] PackPositiveBits(float* src, int len, ParallelOptions po)
         {
             // 64 画素ごとの語は互いに独立なので、語のまとまりごとに並列で作る(出力ビット不変)。
             int nWords = (len + 63) >> 6;
@@ -1619,12 +1798,29 @@ namespace Iroca
             int dstW, int dstH, float scale)
             => BoxDownsampleRegion(src, srcW, 0, 0, srcW, srcH, dstW, dstH, scale);
 
+        /// <summary><see cref="BoxDownsample(Color32[], int, int, int, int, float)"/> のポインタ版(src は srcW*srcH 画素)。</summary>
+        public static Color32[] BoxDownsample(Color32* src, int srcW, int srcH,
+            int dstW, int dstH, float scale)
+            => BoxDownsampleRegion(src, (long)srcW * srcH, srcW, 0, 0, srcW, srcH, dstW, dstH, scale);
+
         /// <summary>
         /// <see cref="BoxDownsample"/> の、src の一部(左下 (x0, y0)・regionW×regionH、1 行 srcStride 画素)を
         /// 切り出してから縮小したのと同じ結果を、切り出しの配列を作らずに返す。拡大表示のクロップが
         /// フル解像度の出力から直接縮小するのに使う(4K の 125% 表示でクロップ 1 枚 ~43MB の複製を避ける)。
         /// </summary>
         public static Color32[] BoxDownsampleRegion(Color32[] src, int srcStride, int x0, int y0,
+            int regionW, int regionH, int dstW, int dstH, float scale)
+        {
+            if (src == null) throw new System.ArgumentNullException(nameof(src));
+            fixed (Color32* p = src)
+                return BoxDownsampleRegion(p, src.Length, srcStride, x0, y0, regionW, regionH, dstW, dstH, scale);
+        }
+
+        /// <summary>
+        /// <see cref="BoxDownsampleRegion(Color32[], int, int, int, int, int, int, int, float)"/> のポインタ版。
+        /// srcLength は src の画素数(読む範囲がその中に収まるかを確かめる)。
+        /// </summary>
+        public static Color32[] BoxDownsampleRegion(Color32* src, long srcLength, int srcStride, int x0, int y0,
             int regionW, int regionH, int dstW, int dstH, float scale)
         {
             // scale と dst 寸法の整合を呼び出し側の契約に丸投げしており、不整合だと
@@ -1638,9 +1834,9 @@ namespace Iroca
             if (x0 < 0 || y0 < 0 || x0 + srcW > srcStride)
                 throw new System.ArgumentOutOfRangeException(nameof(x0),
                     $"invalid region: origin=({x0},{y0}) size={srcW}x{srcH} stride={srcStride}");
-            if (src.Length < (long)(y0 + srcH - 1) * srcStride + x0 + srcW)
+            if (srcLength < (long)(y0 + srcH - 1) * srcStride + x0 + srcW)
                 throw new System.ArgumentException(
-                    $"src.Length({src.Length}) < region end({(long)(y0 + srcH - 1) * srcStride + x0 + srcW})", nameof(src));
+                    $"src.Length({srcLength}) < region end({(long)(y0 + srcH - 1) * srcStride + x0 + srcW})", nameof(src));
 
             Color32[] dst = new Color32[dstW * dstH];
             // 合計値が int の範囲を超えないように long を使用。

@@ -338,6 +338,16 @@ namespace Iroca
             if (args.Length >= 1 && args[0] == "--previewselftest")
                 return RunPreviewSelfTest();
 
+            // --nativememselftest: 入力画像不要。Mono のヒープの外に置いた作業配列・色の表が、処理の後に
+            // ReleaseWorkBuffers で全部解放されるか(参照の数え漏れ・返し忘れが無いか)を確かめる。
+            if (args.Length >= 1 && args[0] == "--nativememselftest")
+                return RunNativeMemorySelfTest();
+
+            // --maskcodecselftest: 入力画像不要。保存形式のマスクの書き込み・展開と、展開のときに中身の同じマスクは
+            // 前の配列をそのまま使う規則(Undo/Redo の書き戻し)を確かめる。
+            if (args.Length >= 1 && args[0] == "--maskcodecselftest")
+                return RunMaskCodecSelfTest();
+
             // --samops-*: AI マスク提案の純計算層(SamImageOps/SamCoordMapper/SamMaskPostprocess/
             // MaskRle)を実 C# で駆動し、pytest の NumPy リファレンスと突き合わせる決定的検証モード。
             if (args.Length >= 1 && args[0].StartsWith("--samops-", StringComparison.Ordinal))
@@ -376,6 +386,11 @@ namespace Iroca
                 && int.TryParse(threadsEnv, out int threads) && threads > 0)
                 DebugCaptureHooks.ParallelismOverride = threads;
 
+            // IROCA_NO_PALETTE=1: 色の表を作らず、全部の段を画素ごとの計算で回す(色の表あり・なしの
+            // パリティ検査用。scripts/golden/test_palette_parity.py)。設定したときだけ効く。
+            if (Environment.GetEnvironmentVariable("IROCA_NO_PALETTE") == "1")
+                DebugCaptureHooks.DisablePalette = true;
+
             // --batch <json>: 同一入力・複数ゾーン設定をまとめて処理する(テスト実行の高速化)。
             if (args.Length >= 2 && args[0] == "--batch")
                 return RunBatch(args[1]);
@@ -400,7 +415,7 @@ namespace Iroca
                 switch (args[i])
                 {
                     case "--zones": case "--stage": i++; break;   // 値を 1 つ消費
-                    case "--autotune": case "--ffcheck": case "--selcache": case "--viastate": break;
+                    case "--autotune": case "--ffcheck": case "--selcache": case "--selcache-mask": case "--viastate": break;
                     default:
                         // 後方互換の位置引数(sample/target/tolerance の数値 7 個)だけ許す。
                         if (i <= 9 && args.Length >= 10 && double.TryParse(
@@ -560,9 +575,11 @@ namespace Iroca
                 RunFloodFillCropCheck((Color32[])pixels.Clone(), w, h, masks, zoneList, st);
 
             // --selcache: 選択キャッシュのヒット経路が「フル再計算」と byte 一致するか自己検証する。
+            // --selcache-mask はそれに続けて、マスクだけを変えた再生成も確かめる。
             // 元入力 pixels は未改変クローンを使い、ゾーンも複製するので本処理に影響しない。
-            if (System.Array.IndexOf(args, "--selcache") >= 0)
-                RunSelectionCacheCheck((Color32[])pixels.Clone(), w, h, masks, zoneList, st);
+            bool selCacheMask = System.Array.IndexOf(args, "--selcache-mask") >= 0;
+            if (selCacheMask || System.Array.IndexOf(args, "--selcache") >= 0)
+                RunSelectionCacheCheck((Color32[])pixels.Clone(), w, h, masks, zoneList, st, selCacheMask);
 
             // 段階的リファインの表示画像を出力して終了（--stage。上記コメント参照）。
             // 自動調整は実機同様フル解像度の pixels で済ませてから（この上のブロック）、
@@ -849,8 +866,7 @@ namespace Iroca
             string KeyOf(ColorZone z) => (string)mi.Invoke(null, new object[]
             {
                 z, /*edgeFeather*/0f, /*aaCleanup*/3, /*holeFillPasses*/5, /*holeFillMinNeighbors*/4,
-                /*relaxedSatMin*/0.02f, /*relaxedSatRamp*/0.08f, /*commonMask*/null, /*zoneMask*/null,
-                /*zoneInclude*/null, /*maskW*/0, /*maskH*/0, /*mixtureBand*/false,
+                /*relaxedSatMin*/0.02f, /*relaxedSatRamp*/0.08f, /*maskW*/0, /*maskH*/0, /*mixtureBand*/false,
             });
 
             var baseline = new ColorZone();
@@ -945,6 +961,229 @@ namespace Iroca
                   !(cUnchanged.r == 255 && cUnchanged.g == 0 && cUnchanged.b == 255), "changeTile corner is gray");
 
             Console.WriteLine(fails == 0 ? "PREVIEWSELFTEST ALL PASS" : $"PREVIEWSELFTEST {fails} FAILED");
+            return fails == 0 ? 0 : 4;
+        }
+
+        // ─── ネイティブメモリの自己検証(入力画像不要) ───
+        // 作業配列(WorkPools)と色の表(PixelProcessor.Palette.cs)は Mono のヒープの外に置き、色の表は参照の数で
+        // 解放する。処理の後に ReleaseWorkBuffers を呼ぶと LiveBytes が 0 に戻ること(数え漏れ・返し忘れが無いこと)を、
+        // 色の表を作る経路・作らない経路・取り消し・使用中の表の追い出しで確かめる。追い出した表を使い終わる前に
+        // 解放する誤りがあると、解放した大きい領域は OS へ戻るので、読んだ時点でアクセス違反で落ちる(非 0 で終わる)。
+        private static int RunNativeMemorySelfTest()
+        {
+            int fails = 0;
+            void Check(bool cond, string label)
+            {
+                Console.WriteLine($"NATIVEMEMSELFTEST {(cond ? "PASS" : "FAIL")} {label}");
+                if (!cond) fails++;
+            }
+
+            // 色の種類が少ない画像(色の表を作る。帯ごとに濃淡 7 段)と、ノイズで種類が多い画像(作らない)。
+            Color32[] Flat(int n, int seed)
+            {
+                var px = new Color32[n * n];
+                for (int y = 0; y < n; y++)
+                    for (int x = 0; x < n; x++)
+                    {
+                        byte shade = (byte)(120 + ((x + y) % 7) * 10);
+                        px[y * n + x] = (((x / 37) + (y / 53) + seed) % 4) switch
+                        {
+                            0 => new Color32(shade, 40, 40, 255),
+                            1 => new Color32(40, shade, 60, 255),
+                            2 => new Color32(230, 230, 230, 255),
+                            _ => new Color32(30, 30, (byte)(shade / 2), 255),
+                        };
+                    }
+                return px;
+            }
+            Color32[] Noise(int n)
+            {
+                var rng = new System.Random(12345);
+                var px = new Color32[n * n];
+                for (int i = 0; i < px.Length; i++)
+                    px[i] = new Color32((byte)rng.Next(256), (byte)rng.Next(256), (byte)rng.Next(256), 255);
+                return px;
+            }
+            var zone = new ColorZone
+            {
+                name = "nativemem",
+                enabled = true,
+                mode = SelectionMode.ColorPick,
+                sampleColor = new Color(170 / 255f, 40 / 255f, 40 / 255f),
+                targetColor = new Color(0.2f, 0.4f, 0.9f),
+                tolerance = 0.3f,
+            };
+            zone.EnsureId();
+            zone.UpdateCacheIfNeeded();
+            var zones = new List<ColorZone> { zone };
+            var settings = new SettingsCfg().ToRecolorSettings();
+            Color32[] Run(Color32[] src, int n, System.Threading.CancellationToken ct = default)
+            {
+                var px = (Color32[])src.Clone();
+                PixelProcessor.ProcessPixelsArray(px, n, n, null, zones, settings, ct);
+                return px;
+            }
+            bool Same(Color32[] a, Color32[] b)
+            {
+                if (a == null || b == null || a.Length != b.Length) return false;
+                for (int i = 0; i < a.Length; i++)
+                    if (a[i].r != b[i].r || a[i].g != b[i].g || a[i].b != b[i].b || a[i].a != b[i].a) return false;
+                return true;
+            }
+            long Live() => IrocaNativeMemory.LiveBytes;
+            long PoolFree() => WorkPools.Float.FreeBytes + WorkPools.Bool.FreeBytes + WorkPools.Byte.FreeBytes
+                               + WorkPools.Rgba32.FreeBytes + WorkPools.Int.FreeBytes;
+            int PoolRented() => WorkPools.Float.RentedCount + WorkPools.Bool.RentedCount + WorkPools.Byte.RentedCount
+                                + WorkPools.Rgba32.RentedCount + WorkPools.Int.RentedCount;
+
+            long start = Live();
+            Check(start == 0, $"start live={start}");
+
+            // 1) 色の表を作る経路。表はキャッシュに残る(プールの空きを除いた分 = 色の表。番号だけで 4 バイト/画素)。
+            const int N = 1024;
+            var flatA = Flat(N, 0);
+            var outA = Run(flatA, N);
+            long paletteA = Live() - PoolFree();
+            Check(PoolRented() == 0, $"palette path: all work arrays returned (rented={PoolRented()})");
+            Check(paletteA >= (long)N * N * sizeof(int), $"palette cached bytes={paletteA}");
+            var outA2 = Run(flatA, N);   // キャッシュに当たる
+            Check(Same(outA, outA2), "cache hit: output same");
+            Check(Live() - PoolFree() == paletteA, $"cache hit: no new palette (bytes={Live() - PoolFree()}, want {paletteA})");
+            PixelProcessor.ReleaseWorkBuffers();
+            Check(Live() == start, $"after release (palette) live={Live()}");
+
+            // 2) 色の表を作らない経路(画素ごとの HSV を作業配列から借りる)。
+            const int NN = 512;
+            Run(Noise(NN), NN);
+            Check(PoolRented() == 0, $"no-palette path: all work arrays returned (rented={PoolRented()})");
+            Check(Live() == PoolFree(), $"no-palette path: nothing but pool free blocks (live={Live()}, free={PoolFree()})");
+            PixelProcessor.ReleaseWorkBuffers();
+            Check(Live() == start, $"after release (no palette) live={Live()}");
+
+            // 3) 途中で取り消す。取り消す時期をずらして何度か回し、どこで抜けても返し忘れが無いこと。
+            const int NB = 2048;
+            var flatB = Flat(NB, 1);
+            for (int k = 0; k < 8; k++)
+            {
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromMilliseconds(5 + 15 * k));
+                try { Run(flatB, NB, cts.Token); }
+                catch (OperationCanceledException) { }
+                catch (AggregateException ae) when (ae.InnerException is OperationCanceledException) { }
+            }
+            Check(PoolRented() == 0, $"cancelled: all work arrays returned (rented={PoolRented()})");
+            PixelProcessor.ReleaseWorkBuffers();
+            Check(Live() == start, $"after release (cancelled) live={Live()}");
+
+            // 4) 使っている表を追い出す。大きい画像 C を別スレッドで処理している間に、別の大きい画像 D の処理と
+            //    ReleaseWorkBuffers(キャッシュの全消去)を繰り返す。C の表はキャッシュから外れても、C が使い終わる
+            //    まで解放されてはいけない(出力が単独で処理したときと同じで、落ちないこと)。
+            var flatC = Flat(NB, 2);
+            var flatD = Flat(NB, 3);
+            var refC = Run(flatC, NB);
+            PixelProcessor.ReleaseWorkBuffers();
+            bool allSame = true;
+            int overlapRuns = 0;
+            for (int round = 0; round < 3; round++)
+            {
+                Color32[] gotC = null;
+                var t = System.Threading.Tasks.Task.Run(() => gotC = Run(flatC, NB));
+                while (!t.IsCompleted)
+                {
+                    Run(flatD, NB);
+                    PixelProcessor.ReleaseWorkBuffers();
+                    overlapRuns++;
+                }
+                t.Wait();
+                allSame &= Same(refC, gotC);
+            }
+            Check(allSame, $"evicted palette in use: output same (overlapping runs={overlapRuns})");
+            Check(PoolRented() == 0, $"evicted: all work arrays returned (rented={PoolRented()})");
+            PixelProcessor.ReleaseWorkBuffers();
+            Check(Live() == start, $"after release (evicted in use) live={Live()}");
+
+            Console.WriteLine(fails == 0 ? "NATIVEMEMSELFTEST ALL PASS" : $"NATIVEMEMSELFTEST {fails} FAILED");
+            return fails == 0 ? 0 : 4;
+        }
+
+        /// <summary>
+        /// --maskcodecselftest: 保存形式のマスク(MaskStateCodec)の書き込みと展開。展開に前の配列(previous)を渡すと、
+        /// 中身の同じマスクはその配列を返し、違うもの・寸法の違うものは展開し直すこと(Undo/Redo の書き戻し)。
+        /// </summary>
+        private static int RunMaskCodecSelfTest()
+        {
+            int fails = 0;
+            void Check(bool cond, string label)
+            {
+                Console.WriteLine($"MASKCODECSELFTEST {(cond ? "PASS" : "FAIL")} {label}");
+                if (!cond) fails++;
+            }
+            bool Same(bool[] a, bool[] b)
+            {
+                if (a == null || b == null) return a == b;
+                if (a.Length != b.Length) return false;
+                for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+                return true;
+            }
+            // 2^18 画素以上(符号化を区間ごとに並列にする大きさ)。
+            const int W = 640, H = 480;
+            bool[] Disc(int cx, int cy, int r)
+            {
+                var m = new bool[W * H];
+                for (int y = 0; y < H; y++)
+                    for (int x = 0; x < W; x++)
+                        m[y * W + x] = (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r;
+                return m;
+            }
+
+            var common = Disc(100, 100, 40);
+            var zones = new Dictionary<string, bool[]> { ["a"] = Disc(300, 200, 60), ["b"] = Disc(500, 300, 30), ["empty"] = new bool[W * H] };
+            var includes = new Dictionary<string, bool[]> { ["a"] = Disc(320, 220, 10) };
+            var ms = new MaskState();
+            MaskStateCodec.Encode(ms, W, H, common, zones, includes);
+            Check(!string.IsNullOrEmpty(ms.commonMaskBase64), "common is written");
+            Check(ms.zones.Count == 2 && ms.zoneIncludes.Count == 1, $"all-false zone is not written (zones={ms.zones.Count}, includes={ms.zoneIncludes.Count})");
+            var msEmpty = new MaskState();
+            MaskStateCodec.Encode(msEmpty, W, H, new bool[W * H], null, null);
+            Check(msEmpty.commonMaskBase64 == "", "all-false common is an empty string");
+
+            // 1) previous なし: 全部を新しい配列へ展開する。
+            var z1 = new Dictionary<string, bool[]>();
+            var i1 = new Dictionary<string, bool[]>();
+            bool ok1 = MaskStateCodec.Decode(ms, out int w1, out int h1, out bool[] c1, z1, i1);
+            Check(ok1 && w1 == W && h1 == H, "decode without previous");
+            Check(Same(c1, common) && !ReferenceEquals(c1, common), "common decoded into a new array");
+            Check(z1.Count == 2 && Same(z1["a"], zones["a"]) && Same(z1["b"], zones["b"]), "zones decoded");
+            Check(i1.Count == 1 && Same(i1["a"], includes["a"]), "include decoded");
+
+            // 2) Undo で b だけが保存形式の中身(半径 30)に戻る想定。今の b は半径 45。
+            var bNow = Disc(500, 300, 45);
+            var bNowCopy = (bool[])bNow.Clone();
+            var prev = new MaskStateCodec.Previous
+            {
+                width = W, height = H, common = common,
+                zones = new Dictionary<string, bool[]> { ["a"] = zones["a"], ["b"] = bNow, ["gone"] = Disc(10, 10, 5) },
+                includes = new Dictionary<string, bool[]> { ["a"] = includes["a"] },
+            };
+            var z2 = new Dictionary<string, bool[]>();
+            var i2 = new Dictionary<string, bool[]>();
+            MaskStateCodec.Decode(ms, out _, out _, out bool[] c2, z2, i2, prev);
+            Check(ReferenceEquals(c2, common), "unchanged common keeps the previous array");
+            Check(ReferenceEquals(z2["a"], zones["a"]), "unchanged zone keeps the previous array");
+            Check(ReferenceEquals(i2["a"], includes["a"]), "unchanged include keeps the previous array");
+            Check(!ReferenceEquals(z2["b"], bNow) && Same(z2["b"], zones["b"]), "changed zone is decoded from the state");
+            Check(Same(bNow, bNowCopy), "the previous array of the changed zone is not written");
+            Check(!z2.ContainsKey("gone"), "a zone missing from the state is not kept");
+
+            // 3) 寸法が違う previous は使わない(長さが同じでも画素の並びが違う)。
+            var msT = new MaskState();
+            var flat = Disc(200, 150, 50);
+            MaskStateCodec.Encode(msT, H, W, flat, null, null);   // 縦横を入れ替えた寸法で同じ配列を書く
+            var prevT = new MaskStateCodec.Previous { width = W, height = H, common = flat };
+            MaskStateCodec.Decode(msT, out int wT, out int hT, out bool[] cT, new Dictionary<string, bool[]>(),
+                new Dictionary<string, bool[]>(), prevT);
+            Check(wT == H && hT == W && !ReferenceEquals(cT, flat) && Same(cT, flat), "previous with other dimensions is not used");
+
+            Console.WriteLine(fails == 0 ? "MASKCODECSELFTEST ALL PASS" : $"MASKCODECSELFTEST {fails} FAILED");
             return fails == 0 ? 0 : 4;
         }
 
@@ -1089,8 +1328,10 @@ namespace Iroca
         //   populate_diff : 空キャッシュで populate した出力 == キャッシュ無し出力 か(0 が正)
         //   hit_vs_fresh  : ターゲット色のみ変更→ヒット復元→再着色した出力 == フル再計算 か(★0 が正)
         //   miss_vs_fresh : tolerance 変更→ミス再計算した出力 == フル再計算 か(0 が正)
+        // withMaskChanges(--selcache-mask)なら続けてマスクだけを変える検証も行う(RunSelectionCacheMaskCheck)。
         private static void RunSelectionCacheCheck(
-            Color32[] input, int w, int h, MaskSnapshot masks, List<ColorZone> zonesIn, SettingsCfg st)
+            Color32[] input, int w, int h, MaskSnapshot masks, List<ColorZone> zonesIn, SettingsCfg st,
+            bool withMaskChanges)
         {
             var zones = new List<ColorZone>();
             foreach (var z in zonesIn) { var c = z.Clone(); c.UpdateCacheIfNeeded(); zones.Add(c); }
@@ -1134,6 +1375,120 @@ namespace Iroca
             Console.Error.WriteLine(
                 $"SELCACHE populate_diff={dPopulate} hit_vs_fresh={dHit} miss_vs_fresh={dMiss} "
                 + $"hitMs={sw.Elapsed.TotalMilliseconds:F1} freshMs={swf.Elapsed.TotalMilliseconds:F1}");
+
+            if (withMaskChanges) RunSelectionCacheMaskCheck(input, w, h, masks, zones, st, cache, o3);
+        }
+
+        // 選択キャッシュのマスク変更の検証: 除外マスク・含めるマスクだけを変えた再生成が、キャッシュを持ち越しても
+        // フル再計算と byte 一致するかを確かめる("SELCACHE-MASK" 行。差分はどれも 0 が正)。
+        //   quiet   : どのゾーンも変えなかった 24px 角を共通の除外に足す(照合が 0 なら使い回しになる)
+        //   busy    : いちばん変化の多い 24px 角を共通の除外に足す(そこに合うゾーンは計算し直しになる)
+        //   back    : 共通の除外を元に戻す(中身は同じで別の配列)
+        //   include : 先頭ゾーンの含めるマスクに quiet の角を足す(選択はそのまま使える)
+        //   reuse   : 除外マスクが違うのに使い回した回数(選択キャッシュの数え)
+        //   latest  : 右クリックの宛先が読む値(TryReadLatest)が、持ち越したキャッシュと同じマスクで作り直した
+        //             キャッシュとで違う画素の数(各段・全ゾーンの合計)
+        //   latest_excl : TryReadLatest が除外の画素で 0 を返さなかった数(保存はマスクを掛ける前なので、読むときに掛ける)
+        // マスクの寸法が画像と違うときは試さない(skipped)。
+        private static void RunSelectionCacheMaskCheck(Color32[] input, int w, int h, MaskSnapshot masks,
+            List<ColorZone> zones, SettingsCfg st, SelectionCache cache, Color32[] current)
+        {
+            if (masks == null || masks.width != w || masks.height != h || zones.Count == 0)
+            {
+                Console.Error.WriteLine("SELCACHE-MASK skipped");
+                return;
+            }
+            const int B = 24;
+            int bestBusy = -1, busyCount = 0, quiet = -1;
+            int bx = w / B, by = h / B;
+            for (int k = 0; k < bx * by; k++)
+            {
+                int x0 = (k % bx) * B, y0 = (k / bx) * B, n = 0;
+                for (int y = y0; y < y0 + B; y++)
+                    for (int x = x0; x < x0 + B; x++)
+                    {
+                        Color32 a = input[y * w + x], b = current[y * w + x];
+                        if (a.r != b.r || a.g != b.g || a.b != b.b || a.a != b.a) n++;
+                    }
+                if (n == 0 && quiet < 0) quiet = k;
+                if (n > busyCount) { busyCount = n; bestBusy = k; }
+            }
+            if (quiet < 0 || bestBusy < 0)
+            {
+                Console.Error.WriteLine("SELCACHE-MASK skipped");
+                return;
+            }
+            int words = (w * h + 63) >> 6;
+            ulong[] WithBlock(ulong[] src, int k)
+            {
+                var dst = new ulong[words];
+                if (src != null) Array.Copy(src, dst, Math.Min(words, src.Length));
+                int x0 = (k % bx) * B, y0 = (k / bx) * B;
+                for (int y = y0; y < y0 + B; y++)
+                    for (int x = x0; x < x0 + B; x++)
+                    {
+                        int i = y * w + x;
+                        dst[i >> 6] |= 1UL << (i & 63);
+                    }
+                return dst;
+            }
+            MaskSnapshot With(ulong[] common, Dictionary<string, ulong[]> includes) => new MaskSnapshot
+            {
+                common = common, width = w, height = h, zones = masks.zones, zoneIncludes = includes,
+            };
+            int latestDiff = 0, latestExcl = 0;
+            var all = new int[w * h];
+            for (int i = 0; i < all.Length; i++) all[i] = i;
+            void CompareLatest(MaskSnapshot m)
+            {
+                using (var rebuilt = new SelectionCache())
+                {
+                    var px = (Color32[])input.Clone();
+                    PixelProcessor.ProcessPixelsArray(px, w, h, m, zones, st.ToRecolorSettings(), selectionCache: rebuilt);
+                    var a = new float[all.Length];
+                    var b = new float[all.Length];
+                    foreach (var z in zones)
+                    {
+                        bool okA = cache.TryReadLatest(z.id, w, h, all, a), okB = rebuilt.TryReadLatest(z.id, w, h, all, b);
+                        if (okA != okB) { latestDiff += all.Length; continue; }
+                        if (!okA) continue;
+                        ulong[] zm = null;
+                        m.zones?.TryGetValue(z.id, out zm);
+                        for (int i = 0; i < all.Length; i++)
+                        {
+                            if (a[i] != b[i]) latestDiff++;
+                            if (a[i] != 0f && (MaskSnapshot.GetBit(m.common, i) || MaskSnapshot.GetBit(zm, i))) latestExcl++;
+                        }
+                    }
+                }
+            }
+            int Step(MaskSnapshot m)
+            {
+                var withCache = (Color32[])input.Clone();
+                PixelProcessor.ProcessPixelsArray(withCache, w, h, m, zones, st.ToRecolorSettings(), selectionCache: cache);
+                var fresh = (Color32[])input.Clone();
+                PixelProcessor.ProcessPixelsArray(fresh, w, h, m, zones, st.ToRecolorSettings());
+                int n = 0;
+                for (int i = 0; i < fresh.Length; i++)
+                    if (fresh[i].r != withCache[i].r || fresh[i].g != withCache[i].g
+                        || fresh[i].b != withCache[i].b || fresh[i].a != withCache[i].a) n++;
+                CompareLatest(m);
+                return n;
+            }
+            int reuse0 = cache.MaskReuseCount;
+            var quietCommon = WithBlock(masks.common, quiet);
+            int dQuiet = Step(With(quietCommon, masks.zoneIncludes));
+            int dBusy = Step(With(WithBlock(quietCommon, bestBusy), masks.zoneIncludes));
+            var backCommon = masks.common == null ? null : (ulong[])masks.common.Clone();
+            int dBack = Step(With(backCommon, masks.zoneIncludes));
+            var includes = masks.zoneIncludes == null
+                ? new Dictionary<string, ulong[]>() : new Dictionary<string, ulong[]>(masks.zoneIncludes);
+            includes.TryGetValue(zones[0].id, out var inc0);
+            includes[zones[0].id] = WithBlock(inc0, quiet);
+            int dInclude = Step(With(backCommon, includes));
+            Console.Error.WriteLine(
+                $"SELCACHE-MASK quiet={dQuiet} busy={dBusy} back={dBack} include={dInclude} "
+                + $"reuse={cache.MaskReuseCount - reuse0} latest={latestDiff} latest_excl={latestExcl}");
         }
 
         // ─── AI マスク提案の純計算層検証(--samops-*) ───
@@ -1243,6 +1598,59 @@ namespace Iroca
                     SamMaskRefine.PeelThinSpill(mask2, px2, iw, ih);
                     WriteMaskRaw(args[3], iw, ih, mask2);
                     Console.WriteLine($"PEEL OK {iw}x{ih}");
+                    return 0;
+                }
+
+                // --samops-refineall <mask.raw> <image.raw RGBA> <out.raw> [reps] : 精密化 4 段を製品の入口
+                // (SamMaskPostprocess.RefineInPlace。提案が画像の一部なら切り出して回す)で通す。
+                // --samops-refine → -fringe → -aainclude → -peel の連鎖(全画像)とビット同一であることの検証に使う。
+                // reps(既定 1)を渡すと、製品の入口と全画像の 4 段をそれぞれ reps 回ずつ交互に回して最小の時間を出し、
+                // 両者の出力の違う画素数(diff)も数える。
+                // 出力: REFINEALL OK WxH crop=x,y,w,h(切り出さなかったときは crop=none) ms=<製品の入口>
+                //       [full_ms=<全画像の 4 段> diff=<画素数>]
+                case "--samops-refineall":
+                {
+                    var (mw2, mh2, mask2) = ReadMaskRaw(args[1]);
+                    var (iw, ih, rgba2) = ReadRaw(args[2], 4);
+                    if (iw != mw2 || ih != mh2)
+                    {
+                        Console.Error.WriteLine("refineall: mask/image size mismatch");
+                        return 2;
+                    }
+                    int reps = args.Length > 4 ? int.Parse(args[4], inv) : 1;
+                    var px2 = ToColor32(rgba2, iw * ih);
+                    string crop = SamMaskRefine.TryDeriveRefineCropRect(mask2, iw, ih, default,
+                            out _, out int cx0, out int cy0, out int cw, out int ch)
+                        ? $"{cx0},{cy0},{cw},{ch}" : "none";
+                    bool[] result = null, fullResult = null;
+                    double best = double.MaxValue, bestFull = double.MaxValue;
+                    for (int r = 0; r < reps; r++)
+                    {
+                        var m = (bool[])mask2.Clone();
+                        var sw1 = Stopwatch.StartNew();
+                        SamMaskPostprocess.RefineInPlace(m, px2, iw, ih);
+                        best = Math.Min(best, sw1.Elapsed.TotalMilliseconds);
+                        result = m;
+                        if (reps <= 1) break;
+                        var f = (bool[])mask2.Clone();
+                        var sw2 = Stopwatch.StartNew();
+                        SamMaskRefine.SnapBoundary(f, px2, iw, ih);
+                        SamMaskRefine.ExtendFringe(f, px2, iw, ih);
+                        SamMaskRefine.IncludeAaTransition(f, px2, iw, ih);
+                        SamMaskRefine.PeelThinSpill(f, px2, iw, ih);
+                        bestFull = Math.Min(bestFull, sw2.Elapsed.TotalMilliseconds);
+                        fullResult = f;
+                    }
+                    WriteMaskRaw(args[3], iw, ih, result);
+                    string extra = "";
+                    if (fullResult != null)
+                    {
+                        int diff = 0;
+                        for (int i = 0; i < result.Length; i++) if (result[i] != fullResult[i]) diff++;
+                        extra = string.Format(inv, " full_ms={0:F1} diff={1}", bestFull, diff);
+                    }
+                    Console.WriteLine(string.Format(inv, "REFINEALL OK {0}x{1} crop={2} ms={3:F1}{4}",
+                        iw, ih, crop, best, extra));
                     return 0;
                 }
 
@@ -1371,12 +1779,22 @@ namespace Iroca
                     return 0;
                 }
 
-                // --samops-rle <mask.raw> <encoded.txt> : エンコード文字列を書き出し、往復一致を自己検証
+                // --samops-rle <mask.raw> <encoded.txt> [threads] : エンコード文字列を書き出し、往復一致を自己検証。
+                // threads を渡すと並列度をその値にする(大きいマスクは区間に分けて並列にエンコードするので、継ぎ目の検証用)。
                 case "--samops-rle":
                 {
+                    if (args.Length >= 4) DebugCaptureHooks.ParallelismOverride = int.Parse(args[3], inv);
                     var (w, h, mask) = ReadMaskRaw(args[1]);
                     string encoded = MaskRle.Encode(mask, w, h);
                     File.WriteAllText(args[2], encoded);
+                    // 保存の経路(MaskStateCodec)が使う EncodeIfAny: 全 false なら null、それ以外は Encode と同じ文字列。
+                    bool any = Array.IndexOf(mask, true) >= 0;
+                    string ifAny = MaskRle.EncodeIfAny(mask, w, h);
+                    if (any ? ifAny != encoded : ifAny != null)
+                    {
+                        Console.Error.WriteLine("RLE FAIL EncodeIfAny");
+                        return 1;
+                    }
                     bool[] back = MaskRle.Decode(encoded, out int dw, out int dh);
                     if (back == null || dw != w || dh != h)
                     {
@@ -1385,7 +1803,7 @@ namespace Iroca
                     }
                     for (int i = 0; i < mask.Length; i++)
                         if (mask[i] != back[i]) { Console.Error.WriteLine($"RLE FAIL at {i}"); return 1; }
-                    Console.WriteLine($"RLE OK {w}x{h} len={encoded.Length}");
+                    Console.WriteLine($"RLE OK {w}x{h} len={encoded.Length} any={(any ? 1 : 0)}");
                     return 0;
                 }
 

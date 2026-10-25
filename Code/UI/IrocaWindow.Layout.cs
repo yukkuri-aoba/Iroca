@@ -28,9 +28,9 @@ namespace Iroca
         // PreviewView._viewportWidth と同方針。
         [System.NonSerialized] private float _sideBySideTopHeight;
 
-        // ジョブオーバーレイ（進捗バー＋キャンセル）の実測高。オーバーレイは DisabledScope の外・
-        // 本体レイアウトの後ろに積まれるため、その分を availableContentH から引かないと
-        // キャンセルボタンがウィンドウ下端で切れて押せなくなる（ジョブ中の唯一の脱出口が消える）。
+        // ジョブオーバーレイ（進捗バー＋キャンセル）の実測高。オーバーレイは DisabledScope の外で
+        // ウィンドウ下端に重ねて描くので、この高さぶん上から置かないとキャンセルボタンが下端で切れて
+        // 押せなくなる（ジョブ中の唯一の脱出口が消える）。
         // _sideBySideTopHeight と同方針で前フレーム Repaint の実測値を使う（定数で見積もると
         // オーバーレイの中身を変えたときに黙ってずれる）。0（未計測）時は決定論フォールバック。
         [System.NonSerialized] private float _jobOverlayHeight;
@@ -50,6 +50,11 @@ namespace Iroca
 
         private void OnGUI()
         {
+            // 描かれている = 見えている(Scene のクリックを見る条件。IrocaWindow.SceneClick)。
+            _windowShown = true;
+            // 入力があったら、別ウィンドウ(プレビュー・マスク編集)に描き直しを知らせる(DrawStamp)。
+            if (MayChangeState(Event.current.type)) BumpUiState();
+            TrackDeferredPreview(this);
             // Ctrl+Z / Ctrl+Y は Unity 標準 Undo に統合済みのため、独自処理は不要。
             ProcessPendingZoneChanges();
             PublishLivePreviewTarget();
@@ -74,11 +79,6 @@ namespace Iroca
                 SetSoloZone(null);
             }
 
-            // 英語表示が初めて使われたときに AI 機械翻訳である旨を一度だけ告知する。
-            // Layout イベント時のみ実行し、描画途中のモーダル表示を避ける。
-            if (Event.current.type == EventType.Layout)
-                Localization.MaybeShowEnglishTranslationNotice();
-
             // ジョブ実行中はウィンドウ内 UI を全て無効化する。
             // ただしジョブのオーバーレイ（進捗バー＋キャンセル）は DisabledScope の外で
             // 描画し、キャンセルだけは押せるようにする。
@@ -96,10 +96,9 @@ namespace Iroca
 
             // position.height はウィンドウ枠（タイトル/タブバー）を含むため、
             // 実描画領域はそれより低い。エクスポートが画面外に押し出されないよう安全マージンを引く。
-            // ジョブ中はオーバーレイが本体レイアウトの後ろに積まれるので、その高さも先に引く
-            // （引かないとキャンセルボタンが下端で切れ、ジョブ中の唯一の脱出口が押せなくなる）。
-            float availableContentH = position.height - IrocaConsts.Layout.WindowChromeMargin
-                                      - (blocking ? JobOverlayReserve() : 0f);
+            // ジョブのオーバーレイの高さはここで引かない。引くとジョブの開始・終了のたびに
+            // プレビューが縮んで下の欄が上下に跳ねるので、オーバーレイは下端に重ねて描く。
+            float availableContentH = position.height - IrocaConsts.Layout.WindowChromeMargin;
             float exportH = _exportView.GetSectionHeight();
 
             if (sideBySide)
@@ -111,14 +110,20 @@ namespace Iroca
 
             // DisabledScope の外でジョブオーバーレイ（進捗バー＋キャンセル）を描画。
             // ウィンドウ全体が無効化されていてもキャンセルだけは押せる。
+            // 本体レイアウトの後ろに積まず、ウィンドウ下端の固定位置に重ねる（下に隠れる欄はジョブ中は押せない）。
             if (blocking)
             {
+                float overlayH = JobOverlayReserve();
+                var area = new Rect(0f, Mathf.Max(0f, position.height - overlayH - 2f), position.width, overlayH + 2f);
+                EditorGUI.DrawRect(area, IrocaColors.WindowBackground);
+                GUILayout.BeginArea(area);
                 var overlayRect = EditorGUILayout.BeginVertical();
                 DrawJobOverlay();
                 EditorGUILayout.EndVertical();
+                GUILayout.EndArea();
 
-                // 実測値を次フレームの予約高に使う。値が変わったら追い再描画を 1 回要求する
-                // （_sideBySideTopHeight と同方針。予約高はオーバーレイ自身の高さに影響しないので収束する）。
+                // 実測値を次フレームの高さに使う。値が変わったら追い再描画を 1 回要求する
+                // （高さはオーバーレイ自身の中身では変わらないので収束する）。
                 if (Event.current.type == EventType.Repaint && overlayRect.height > 1f
                     && Mathf.Abs(overlayRect.height - _jobOverlayHeight) > 0.5f)
                 {
@@ -139,7 +144,7 @@ namespace Iroca
         internal const float JobCancelButtonHeight = 22f;
 
         /// <summary>
-        /// ジョブオーバーレイのために本体レイアウトから引いておく高さ。
+        /// ジョブオーバーレイの高さ（ウィンドウ下端からこの高さの帯に描く）。
         /// 実測値があればそれを、未計測の初回フレームだけ決定論フォールバックを返す。
         /// </summary>
         private float JobOverlayReserve()
@@ -480,6 +485,20 @@ namespace Iroca
         }
 
         /// <summary>
+        /// 固定幅のボタンの幅。文言（状態で切り替わるものは全部）が既定のボタンの書体で入りきる幅と
+        /// minWidth の大きい方を返す。言語で長さが変わる文言を固定値の幅に入れると、片方の言語で末尾が欠ける。
+        /// OnGUI の中で呼ぶ。
+        /// </summary>
+        internal static float FitButtonWidth(float minWidth, params string[] texts)
+        {
+            float w = minWidth;
+            var style = GUI.skin.button;
+            foreach (var t in texts)
+                w = Mathf.Max(w, Mathf.Ceil(style.CalcSize(new GUIContent(t)).x));
+            return w;
+        }
+
+        /// <summary>
         /// ジョブオーバーレイの 1 行（進捗バー＋キャンセルボタン）を描画し、キャンセルが押されたら true を返す。
         /// 書き出し・自動調整の解析中・証拠待ちで共通。キャンセル処理は呼び出し側が行う
         /// （どの処理も GUILayout を呼ばないので、後ろの Space の後で行ってもコントロール列は変わらない）。
@@ -575,8 +594,9 @@ namespace Iroca
         /// 有効なゾーンのどれかで、サンプルカラーと変更先カラーの両方が指定済みであること。
         /// 変更先が既定の白のままだと、選んだ所が白っぽくなるだけで色替えは済んでいない
         /// （以前はサンプルカラーだけで ✓ を付け、案内もそこで終わっていた）。
+        /// プレビューの右クリックの案内（PreviewView.DrawIdleRow）を出し始める条件にも使う。
         /// </summary>
-        private bool StepZonesDone
+        internal bool StepZonesDone
         {
             get
             {
@@ -597,6 +617,9 @@ namespace Iroca
         /// 自動調整は変更先の明るさも入力に取る（模様保持の導出）ので、変更先の後に案内する。
         /// null なら何も描かない。
         /// </summary>
+        // DrawTextureField が描いている案内の文面（NextStepHint の結果を Layout ごとに取り直す）。
+        [System.NonSerialized] private string _nextStepHint;
+
         private string NextStepHint()
         {
             if (!StepTextureDone) return null;               // テクスチャ欄の HelpBox が案内済み
@@ -629,9 +652,33 @@ namespace Iroca
             return Mathf.Approximately(z.tolerance, NewZoneInitialTolerance);
         }
 
+        // 英語表示の AI 翻訳のお知らせを出すか。Layout のときに決め、同じフレームの Repaint もそれで描く
+        // (ヘッダーで言語を切り替えたフレームに、Layout と Repaint で並ぶ要素が食い違わないように)。
+        [System.NonSerialized] private bool _showTranslationNotice;
+
+        // 英語表示の AI 翻訳のお知らせ(閉じるまで出す。Localization.ShowEnglishTranslationNotice)。
+        // エディタを止めるダイアログはやめ、ウィンドウの上部に閉じられる帯で出す。
+        private void DrawTranslationNotice()
+        {
+            if (Event.current.type == EventType.Layout)
+                _showTranslationNotice = Localization.ShowEnglishTranslationNotice;
+            if (!_showTranslationNotice) return;
+            EditorGUILayout.HelpBox(Localization.EnglishTranslationNotice, MessageType.Info);
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            // テクスチャ欄は変更の検出(プレビューの作り直し)に囲まれているので、閉じるだけでは立てない。
+            bool changed = GUI.changed;
+            if (GUILayout.Button(new GUIContent(Localization.EnglishTranslationNoticeClose,
+                    Localization.EnglishTranslationNoticeCloseTooltip), GUILayout.ExpandWidth(false)))
+                Localization.CloseEnglishTranslationNotice();
+            GUI.changed = changed;
+            EditorGUILayout.EndHorizontal();
+        }
+
         private void DrawTextureField()
         {
             EditorGUILayout.Space(4);
+            DrawTranslationNotice();
             // 済んだ手順に ✓ を付ける。番号だけでは「どこまで進んだか」が分からず、
             // テクスチャを入れた瞬間に導入ヒントが消えて案内が途切れていた。
             EditorGUILayout.LabelField(
@@ -666,13 +713,20 @@ namespace Iroca
             }
 
             DrawLargeSourceNotice();
+            // マテリアルの色の設定(メインカラー・色調補正・重ね描きなど)で、アバター上の色がテクスチャと違うとき。
+            DrawMaterialColorNotice();
 
             // 次の一手。HelpBox でなく miniLabel なのは、常設の帯がプレビュー列の
             // 高さを恒常的に奪わないようにするため。手順が済めば消える。
             // 折り返しあり: ゾーン名が入って長くなり、狭いウィンドウや英語表示では 1 行に収まらない
             // （EditorGUILayout.LabelField は 1 行固定高で、折り返した 2 行目が隠れる）。
             // 上部の高さは実測しているので（_sideBySideTopHeight）、行数が変わってもレイアウトは崩れない。
-            string next = NextStepHint();
+            // ドラッグ中は前の文面のまま据え置く。許容範囲のスライダーを動かした瞬間に案内が消えると、
+            // つまんでいるスライダーごと設定列が上へずれる。文面は Layout のときだけ決め、同じフレームの
+            // Repaint と行数を揃える。
+            if (Event.current.type == EventType.Layout && GUIUtility.hotControl == 0)
+                _nextStepHint = NextStepHint();
+            string next = _nextStepHint;
             if (!string.IsNullOrEmpty(next))
                 GUILayout.Label(next, EditorStyles.wordWrappedMiniLabel);
 
@@ -686,28 +740,29 @@ namespace Iroca
             EditorGUILayout.Space(4);
         }
 
-        // 原本の画素数がこれ(8192²)を超えたら、メモリを多く使うことを案内する。
-        private const long LargeSourcePixels = 8192L * 8192L;
         // 作業中の Unity が原本 1 画素あたりに使うメモリの目安(バイト)。2026-10-11 の実測で、16K の通し
         // (取り込み〜色替え〜書き出し〜NDMF)のピークが約 25GB、8K のプレビュー相当の繰り返しが約 6GB だった。
         private const double SourceBytesPerPixel = 96.0;
         private const string LargeSourceDismissedKeyPrefix = "Iroca.LargeSource.Dismissed:";
 
         /// <summary>
-        /// 8K を超える元画像を開いたときの案内。「テクスチャとして書き出す」は元ファイルの解像度で処理するので、
-        /// 編集を取り込み後の寸法で行っていても(<see cref="WorkingResolution"/>)、書き出すときはメモリを多く使う。
-        /// 作業解像度も元ファイルのまま(Max Size が元以上・「元の解像度で編集」がオン)なら編集中から使う。
-        /// 16K では PC の搭載量を超え得るため、使う量の目安と搭載量を並べて開いた時点で知らせる。
+        /// 辺が 8192 を超える元画像を開いたときの案内(<see cref="WorkingResolution.ExceedsLimit"/>)。編集・プレビュー・
+        /// 非破壊の登録は取り込み後の寸法で処理するので、元の解像度で処理する書き出しとは色がわずかに違い得る。
+        /// 書き出しは元ファイルの解像度で処理するので、書き出すときはメモリを多く使う。取り込みで小さくならない
+        /// (Max Size が元以上)なら編集中から元の解像度で処理する。16K では PC の搭載量を超え得るため、使う量の
+        /// 目安と搭載量を並べて開いた時点で知らせる。
         /// 閉じると、そのテクスチャでは Unity を閉じるまで出さない(上部の高さを奪い続けないため)。
         /// </summary>
         private void DrawLargeSourceNotice()
         {
             if (sourceTexture == null || _previewView == null) return;
+            // Play 中のリロード直後で原本の読み直しを待っている間は、案内のために読まない。
+            if (_previewView.SourceLoadDeferred) return;
             if (!_previewView.TryGetTrueSourcePixels(sourceTexture, out _, out int ww, out int wh)) return;
             // 元ファイルの寸法。取り込み済みテクスチャから読んでいる(PSD など)ときは、書き出しもその寸法。
             int w = ww, h = wh;
             if (_previewView.TrueSourceFromFile) SourceFileSize(sourceTexture, ref w, ref h);
-            if ((long)w * h <= LargeSourcePixels) return;
+            if (!WorkingResolution.ExceedsLimit(w, h)) return;
             string key = LargeSourceDismissedKeyPrefix + CurrentTexturePath(sourceTexture);
             if (SessionState.GetBool(key, false)) return;
 
@@ -717,8 +772,6 @@ namespace Iroca
             string text;
             if ((long)ww * wh < (long)w * h)
                 text = string.Format(Localization.LargeSourceExportNoticeFormat, w, h, ww, wh, needGB, haveGB);
-            else if (WorkingResolution.AtSourceResolution)
-                text = string.Format(Localization.LargeSourceAtSourceNoticeFormat, w, h, needGB, haveGB);
             else
                 text = string.Format(Localization.LargeSourceNoticeFormat, w, h, needGB, haveGB);
             EditorGUILayout.HelpBox(text, MessageType.Warning);
@@ -769,17 +822,6 @@ namespace Iroca
             useDecontamination = UndoHelper.Toggle(this,
                 new GUIContent(Localization.UseDecontamination, Localization.UseDecontaminationTooltip),
                 useDecontamination);
-
-            // 作業解像度(WorkingResolution)。この PC のいろか全体の設定なので、作業ごとには保存せず Undo にも
-            // 載せない。ラベルは設定列の幅を決める計測の外に置く(ToggleLeft)。
-            bool atSource = EditorGUILayout.ToggleLeft(
-                new GUIContent(Localization.EditAtSourceResolution, Localization.EditAtSourceResolutionTooltip),
-                WorkingResolution.AtSourceResolution);
-            if (atSource != WorkingResolution.AtSourceResolution)
-            {
-                WorkingResolution.AtSourceResolution = atSource;
-                InvalidateSourceAndRepaint();
-            }
 
             // 内部パラメータ（穴埋め・境界復元・α分解半径）は折りたたみの中へ。
             //

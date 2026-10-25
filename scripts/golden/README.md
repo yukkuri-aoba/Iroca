@@ -26,7 +26,8 @@ Python 再実装はもう存在せず、**C# が唯一の正**である（当時
 | `cases/*.png` / `*.zones.json` | 各ケースの入力と zones JSON。Unity 実機のテスト（`scripts/editor-tests/RuntimeParityTests`）が製品経路へ通して `expected/` と比べる |
 | `test_golden_csharp.py` | pytest ゲート（C# を走らせ golden と照合） |
 | `test_selection_key_audit.py` | 選択キャッシュキーの網羅性監査。Harness の `--selkey-audit` で `ColorZone` の public フィールドを 1 つずつ摂動し、`BuildSelectionKey` への反映漏れ（選択キャッシュの誤ヒット）を分類台帳 `SELECTION_IRRELEVANT` と突き合わせる |
-| `test_harness_selfchecks.py` | Harness の自己検査モードを回す。`--previewselftest`（RecolorPreview の既知の不変量）と `--samops-aainclude-crop`（クロップ実行が全画像の `--samops-aainclude` とビット同一） |
+| `test_palette_parity.py` | 色の表あり・なしのパリティ。色の表（`PixelProcessor.Palette.cs`）がある経路と画素ごとの経路は同じ式の別実装なので、全ケースと、ハイライト帯の成長が効く合成 2 ケースを、通常の実行と `IROCA_NO_PALETTE=1`（表を作らない）で回してビット単位で比べる。片側だけを変えた変異 5 種（照合・帯成長の候補判定・無彩の領域 L・再着色アンカー・再着色の色ごとの表）をすべて検出することを確かめてある |
+| `test_harness_selfchecks.py` | Harness の自己検査モードを回す。`--previewselftest`（RecolorPreview の既知の不変量）、`--samops-aainclude-crop`（クロップ実行が全画像の `--samops-aainclude` とビット同一）、`--samops-refineall`（精密化 4 段を外接矩形＋余白で回しても全画像とビット同一）、`--selcache-mask`（マスクだけを変えた再生成が選択キャッシュを持ち越してもフル再計算と同じ。右クリックの宛先が読む値も、除外の画素は 0）ほか |
 
 合成入力は C# の主要経路（基底再着色 / 無彩ターゲット / グレーモード / OkLab L リマップ /
 ハイライト復元・wash / AA 境界デコンタミ / 彩度整合ゲート / 暗部脱彩 / 出力彩度 / アンカー正規化 /
@@ -39,8 +40,11 @@ Python 再実装はもう存在せず、**C# が唯一の正**である（当時
 - `test_neutral_texture_untouched_by_chromatic_sample`: 無彩だけのテクスチャに有彩スポイトを
   当てても何も変わらない。2026-09-24 に見つけた未達（デコンタミが 222 前後の灰を最大 16 段階暗くし、
   235 の白も最大 4 段階動かす）は、2026-10-03 の混色帯（境界の画素を被覆率で塗る）で解消し、
-  xfail を外して通常の assert で固定している。同じ時に記録した `chroma_on_white_to_blue` の白地の動き
-  （最大 5 段階）は、彩度ガード OFF で主マッチが白を選ぶもの（縁の処理の外）で、今も残る
+  xfail を外して通常の assert で固定している
+- `test_neutral_ground_untouched_around_chromatic_part`: 無彩の地の上の有彩の部品をスポイトしても、部品から
+  離れた地は変わらない。同じ時に記録した `chroma_on_white_to_blue` の白地の動き（最大 5 段階）は、明部免除が
+  灰白を赤の明部として通していたもので、2026-10-20 に「色のはっきりしたサンプルでは色味の無い画素を明部免除
+  しない」で解消した
 
 ## 実行
 

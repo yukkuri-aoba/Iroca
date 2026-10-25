@@ -39,6 +39,21 @@ CLAUDE.md / `.claude/instructions/improvement-cycle.md` が「テスト構成の
 12 被写体を入れた。GT は `dev_safe/scripts/build_holdout_gt.py` が作る。部位レイヤーの無い PSD は、PSD の島
 （作者の島マスク / UV 線の塗りつぶし）と同じ塗りの島から作る素材単位、部位レイヤーのある PSD は
 部位レイヤー ∩ 島。テスト側の定義は `fixtures.HOLDOUT_REGISTRY` で、`SUBJECT_REGISTRY` には入れない。
+見るたびにホールドアウトへ合わせてしまうので、被写体ごとの延べの回数が 20 回に届いたら holdout_eval.py が
+入れ替えの時期を知らせる（2026-10-23。次に GT を足すとき、届いた被写体を `SUBJECTS` へ移し、新しい被写体を
+ホールドアウトにする）。集計には ΔE 球（下記）に負けた被写体の数も出す。
+2026-10-23 に最初の入れ替えをした（ユーザー了承）: 延べ 16〜17 回見た 5 体（14 被写体）を `SUBJECTS` へ移し、
+回帰の被写体は 33 件（9 体）になった。移した被写体の定義は `fixtures.py` で、どちらの一覧に属すかは `subjects.json` が決める。
+
+**汎化の物差し**（2026-10-23〜、`dev_safe/scripts/generalization_report.py`）: ホールドアウトを見る前に、
+手元の被写体で過学習しない変更かを確かめる。回帰の被写体は件数より描いた人（アバター）の数が少ない（入れ替え前は
+19 件で 4 組、後は 33 件で 9 組）ので、`subjects.json` の `subject_groups` でアバターごとにまとめる。`run` はワンショットを
+開発に使ったクリック（p25/p50/p95）と使っていないクリック（p05/p75/p99）の 被写体 × 6 件（33 被写体で 198 件）で回し
+（DLL は `_harness_cache/builds/` へ写して使う）、
+`compare` はアバター別の平均・変更のきっかけのアバター（`--motivated-by`）を除いた平均・ケースごとの退行床・
+素朴な基準線（クリック画素の色から CIELAB ΔE76 ≤ 16 の球、design IoU で採点）に 0.05 以上負けた数を並べて
+採否の目安を出す。`sweep` は定数の掃引から台地とアバター単位の交差検証（LOAO）を出す。採否の決まりは
+`.claude/instructions/improvement-cycle.md` の「過学習を防ぐ採否の物差し」。
 
 GTは採点とテスト用クリック位置の選定に使う。`oneshot` / `assisted_include` の処理入力に
 GTマスクを渡さない。証拠・含める・除外・採点GTは役割を別に記録する。
@@ -277,6 +292,12 @@ golden は `IROCA_GOLDEN_TOLERANT=1` でハッシュ不一致を `scripts/golden
 `test_event_subscription_symmetry` / `test_zone_cache_invalidation` など）は資産を使わないので
 dev_safe から `scripts/source_checks/` へ移した。資産を要らない検査はこちらに置くこと。
 
+`test_algorithm_constants`（2026-10-24〜）は、出力に効くファイル（`ColorZone*`・`PixelProcessor*`・`ZoneAutoTuner*`・
+`HighlightSampleCorrector`・`UvChartMap`・`Code/MaskSuggest/Ops`）の名前付き数値定数を、定数の台帳
+`docs/algorithm-constants.md`（種類・段・根拠）と突き合わせる。定数を足した・値を変えた・消したとき、名前の無い小数の
+リテラルの数がファイルごとの記録と違うときに落ちる。手元の被写体で選んだ値（実測）と由来の記録が無い値（不明）を
+区別しておき、減らす候補と、新しい被写体で外れたときに疑う先にするため。
+
 - マーカー: `perf`（性能計測・品質検査なし）/ `slow`（メモリ・時間コスト大）/ `mesh_assisted`（メッシュの UV チャートから
   作った除外マスクを足した選択。メッシュが見つかったときの任意機能で、`test_uv_chart_map` の一部）。
   マーカー登録とルート rootdir はリポジトリルートの `pytest.ini` が持つ。
@@ -284,6 +305,28 @@ dev_safe から `scripts/source_checks/` へ移した。資産を要らない検
   `-m "not perf"`（性能計測テストは既定で走らない。測るときは `-m perf`）と
   `-n 4 --dist loadfile`（4 並列。`loadfile` はモジュール単位の割り当てで、これを外すと
   module スコープ fixture が各ワーカーで再実行されて逆に遅くなる）。直列に戻すなら `-n 0`。
+
+### ネイティブメモリのはみ出しを捕まえる（検証用の環境変数）
+
+0.3.0 から作業配列などは Mono のヒープの外（`IrocaNativeMemory`）に置いてポインタで扱うので、寸法の計算違いは
+例外ではなくメモリ破壊として出る（後で別の所で落ちたり、エディタごと落ちたりする）。`Code/Core` の寸法まわりを
+変えたら、次の 2 つを立てて golden・abcheck・回帰を回す。どちらも出力は変えない（変わったら書く前に読んでいる所がある）。
+
+- `IROCA_NATIVE_GUARD=1`（Windows だけ）: `IrocaNativeMemory.Alloc` が要求長ちょうどで末尾をページ境界にそろえ、
+  直後を読み書きできないガードページにする。作業配列のプール（`NativeWorkPool`）の切り上げと使い回しもやめる。
+  塊の後ろへのはみ出しと解放後の読み書きが、その場でアクセス違反（ハーネスは異常終了）になる。前へのはみ出しは
+  捕まえない。確保のたびに OS から取るので遅く、中身は 0 から始まる。
+- `IROCA_POOL_POISON=1`: プールが貸す領域を 0xFF で埋める（float は NaN、bool は真）。ガードの領域は 0 から
+  始まるので、書く前に読む所を探すにはこちらを併用する。
+
+ハーネスの出力はキャッシュから返ることがあるので、回帰では `IROCA_HARNESS_CACHE=0`・`IROCA_RESULT_CACHE=0`・
+`IROCA_ROW_CACHE=0` も立てて実際に走らせる（golden はキャッシュを使わない）。Unity の中で試すときは、環境変数を立ててから Unity を起動する。
+
+```powershell
+$env:IROCA_NATIVE_GUARD = "1"; $env:IROCA_POOL_POISON = "1"
+$env:IROCA_HARNESS_CACHE = "0"; $env:IROCA_RESULT_CACHE = "0"; $env:IROCA_ROW_CACHE = "0"
+.\.venv\Scripts\python.exe -m pytest scripts/golden -q
+```
 
 ### 実行時間の作り（2026-08-19 に整理）
 
@@ -296,7 +339,7 @@ dev_safe から `scripts/source_checks/` へ移した。資産を要らない検
 | 実行キャッシュ | `(DLL の中身, 入力, 除外マスク, zones JSON, 外部マスクの内容, 追加引数)` の SHA-256 をキーに出力 raw を `dev_safe/_harness_cache/` へ保存。同じ入力の再実行を丸ごと省く。zones JSON 内の外部マスク（`includeMask` / `excludeMask` / `evidenceMask`）は**内容**で同定し、パス（ワーカー ID を含む）はキーに入れない | `IROCA_HARNESS_CACHE=0` |
 | 指標の結果キャッシュ | 品質指標 `recolor_quality.compute_all_metrics`（4096² で 1 件約 5 秒）の結果を、`(入力, 出力, 評価マスク, 目標色)` の内容と `recolor_quality.py` / `colorspace.py`・numpy / scipy の版の SHA-256 をキーに `_harness_cache/metrics/` へ保存（2026-10-16）。出力が変われば計算し直す。値は型ごと戻すので計算直後と bit 一致（品質ゲート全 21 件で確認） | `IROCA_METRICS_CACHE=0` |
 | PNG のデコードキャッシュ | `fixtures._load_rgba`（テクスチャ・GT・評価領域の読み込み口）のデコード結果を、ファイルの中身と Pillow の版の SHA-256 をキーに `_harness_cache/decoded/` へ `.npy` で保存（2026-10-17）。4096² で 1 枚 0.1〜0.4 秒 → 0.02 秒。1 枚 64MB なので被写体の画像 1 組で数 GB 使う | `IROCA_DECODED_CACHE=0` |
-| SAM 提案の結果キャッシュ | `sam_proposal.proposal_for_click_full`（提案マスク + 診断）と `measure_sam_e2e.one_case`（e2e の 1 ケース）の結果を、DLL・ONNX・埋め込み / 凍結 logits・テクスチャ・GT・クリック・粒度と関与する Python ソースの SHA-256 をキーに `_harness_cache/results/` へ保存（2026-10-17）。どちらも 1 回に dotnet を 6〜10 回起動していた。共通部品は `fixtures.result_key / result_load / result_store` | `IROCA_RESULT_CACHE=0` |
+| SAM 提案の結果キャッシュ | `sam_proposal.proposal_for_click_full`（提案マスク + 診断）と `measure_sam_e2e.one_case`（e2e の 1 ケース）の結果を、DLL・ONNX・埋め込み / 凍結 logits・テクスチャ・GT・クリック・粒度と関与する Python ソースの SHA-256 をキーに `_harness_cache/results/` へ保存（2026-10-17）。どちらも 1 回に dotnet を 6〜10 回起動していた。共通部品は `fixtures.result_key / result_load / result_store`。ズーム再推論のクロップの埋め込みは、実 C# が作ったエンコーダ入力の中身・エンコーダ・onnxruntime の版をキーに `_harness_cache/cropemb/` へ置く（2026-10-20。以前は矩形だけをキーに作業ディレクトリへ置き、samops の入力画像 raw も「あれば使う」だったので、テクスチャ・C# の前処理・エンコーダを変えても古い物を使いえた。入力画像 raw はいま内容ハッシュ名） | `IROCA_RESULT_CACHE=0` |
 | バッチ実行 | 同じテクスチャの複数ケース（通常 5 色）を Harness `--batch` で 1 プロセスにまとめ、dotnet 起動と 64MB の入力書き出しを 1 回にする | （常時。単発呼び出しは従来どおり） |
 | ワーカー分離 | `dev_safe/_iou_csharp_work/<worker>/` に分けて並列実行の書き込み衝突を防ぐ。ハーネスのビルドはプロセス跨ぎのロックで直列化 | — |
 
@@ -311,6 +354,31 @@ dev_safe から `scripts/source_checks/` へ移した。資産を要らない検
 「ハーネス実行キャッシュが上限 …GB を超え」と出るので、出たら `IROCA_HARNESS_CACHE_GB` を上げる。
 プロセス内メモは `IROCA_HARNESS_MEM_ENTRIES`（既定 12 件）で件数を絞る（無制限だとワーカー 1 つが
 3GB 近く抱える。ディスクからの読み戻しは 0.04 秒なので少数で足りる）。
+
+**使われなくなったキャッシュと作業ファイルの掃除**（2026-10-20、`dev_safe/Tests/regression/cache_gc.py`）:
+キーがハッシュなので、DLL やソースを変えた後の古いエントリは二度と当たらない。容量上限があったのは
+実行キャッシュ（`*.raw`）だけで、ほかのキャッシュ（`decoded/` `results/` `rows/` `metrics/`
+`gt_tolerance/`）と作業ディレクトリ（`_sam_freeze_work/` `_sam_e2e_work/` `_spike/evidence/`
+`_iou_csharp_work/` など）は書きっぱなしだった。この時点で本体の dev_safe は 120GB を超え、
+そのうち 77GB は 3 日以上使われていなかった。いまは pytest の開始時（xdist なら親プロセスで 1 回、
+6 時間に 1 回まで）に、**キャッシュは 7 日、作業ファイルは 3 日、名前に `.tmp` を含む書きかけは
+1 日**使われなかったものを消す。「使った」は mtime で見る。キャッシュは当たったときに
+`fixtures.touch` で mtime を進め、作業ファイルは使うたびに書き直されるか touch される
+（atime はウイルス対策の読み取りでも進むので使えない）。消したものがまた要れば計算し直すだけで、
+結果は変わらない。走査はふだん 0.2 秒程度。消すと pytest の要約に 1 行出て、
+`_harness_cache/cache_gc.log` に記録が残る。手で回すなら
+`python dev_safe/Tests/regression/cache_gc.py [--dry-run]`。止めるなら `IROCA_CACHE_GC=0`、
+日数は `IROCA_CACHE_GC_DAYS` / `IROCA_WORK_GC_DAYS`。対象の作業ディレクトリは gitignore 済みで
+追跡ファイルを含まないことを `test_cache_gc.py` が git で確かめている。
+2026-10-22 から、掃除する範囲を**本体リポジトリの各 worktree に置いた dev_safe の複製**
+（`git worktree list` で探す）と abcheck の `%TEMP%/iroca-abcheck`（止められた実行が残した `<pid>/` と
+入力キャッシュ）に広げた。以前は自分の dev_safe しか見なかったので、テストを回さなくなった複製は
+一度も掃除されず、複製 5 つで 229GB 溜まっていた。さらに、ドライブの空きが
+`IROCA_CACHE_GC_MIN_FREE_GB`（既定 50GB。冷えた状態から回帰を 1 回回すと複製 1 つのキャッシュが
+20〜26GB まで育つので、その 2 回分）を切っていたら、6 時間の間隔を待たずに走り、日数に届かないものも
+最後に使ったのが古い順に空きが戻るまで消す。6 時間以内に使ったもの（走っている別のテストの分）は消さない。
+それでも足りなければ pytest の要約に、キャッシュ以外（取り込み済みの worktree・scratchpad・
+Unity の確認用ホスト）を見直すよう 1 行出す。これらは掃除の対象にしない。
 `tools/visual_review.py compare --engine csharp` の固定 104 ケースも同じ `run_harness_many`
 （キャッシュ + `--batch`）を通るので、直前に回帰スイートを回していれば dotnet を起動せずに
 同じ DLL の出力が返る（以前は 1 件ずつ単発起動で約 15 分かかっていた）。
@@ -350,6 +418,16 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
 普段使いの空き 10〜13GB で 1 並列に落ちていても気づけなかった）。同日の実測（ウォーム・全回帰）は
 1 並列 11 分 47 秒、4 並列 3 分 25 秒。4 並列の同時合計の最大は 10.9GB（品質指標を計算する周）。
 
+ここでいう「空き」と、ハーネス起動前の空き待ち（`IROCA_MIN_FREE_GB`、既定 4GB。待ちの上限は
+`IROCA_MEM_WAIT_S`）は、どちらも `dev_safe/Tests/regression/memory_guard.py` が出す
+「空き物理メモリ」と「コミット余裕」の小さい方。**コミット余裕には自動管理のページファイルの伸びしろを足す**
+（2026-10-20〜。上限は RAM の 3 倍程度、ディスクの空きから `IROCA_PAGEFILE_DISK_RESERVE_GB`（既定 10GB）を残した分まで）。
+Windows がページファイルを広げるのは誰かが今のコミット上限を超えて確保したときだけなので、
+「今の上限 − 使用量」だけを見て手前で待つと自分では拡張を起こせない。実際に、物理が 6GB 空いているのに
+コミット余裕 1GB でワーカーが 30 分ずつ止まっていた。拡張の最中に確保が断られた分は、OOM の再試行で吸収する。
+memory_guard.py は出力に関与しないので、実行キャッシュ・行キャッシュ・審査の内容ハッシュのどれにも入れない
+（以前は `headless_io.py` の中にあり、待ちの調整だけでキャッシュと承認が無効になっていた）。
+
 **テストモジュールの大域変数に大きな配列を溜めない。** xdist のワーカーはファイルをまたいで
 生き続けるので、モジュール変数の dict に出力画像やテクスチャを入れると、そのファイルが終わっても
 解放されない（2026-10-16 に 2 か所・計 3.3GB を確認して修正。1 ワーカーが 6.6GB まで膨らんでいた）。
@@ -359,6 +437,12 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
   golden が落ちる＝C# の出力が変わった、の意味。意図した変更なら
   `python scripts/golden/golden_lib.py --force` で再生成する（`--force` 無しだと、
   どのケースがどう変わるかを列挙して止まる）。
+- **色の表あり・なしのパリティ**（2026-10-24〜）: `PixelProcessor` は元画素の色の種類の表があると、色だけで決まる
+  計算（照合・帯成長の候補判定・無彩の領域 L・再着色アンカー・再着色）を色ごとに 1 回だけ行い、表が作れない画像
+  （色の種類が画素数の 1/4 を超える写真調など）では画素ごとに計算する。同じ式の 2 通りの実装なので、片方だけ
+  直すと色の多いテクスチャでだけ出力が変わる。`scripts/golden/test_palette_parity.py` が golden の全ケースと
+  帯成長の合成 2 ケースを、通常の実行とハーネスの `IROCA_NO_PALETTE=1`（表を作らない）で回してビット単位で比べる。
+  色ごとの経路を足したら、そこを踏むケースがあるか（片側だけ変えて落ちるか）を確かめること。
 - **改善サイクルの採否判断では `IROCA_CSHARP_GATE_FULL=1`（旧名 `VACC_CSHARP_GATE_FULL` も効く）と
   `VACC_AUTOTUNE_GATE_FULL=1` を必ず立てる**（品質ゲートの既定は bandana のみで、残り被写体の実 C# 品質を測らずに
   「全パス」と誤認するため）。
@@ -452,7 +536,9 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
     （2026-09-24〜）。`PixelProcessor.ProcessPixelsArray` の入口はこれを受け取る 1 つだけで、プレビュー 2 段・
     詳細・単体/一括エクスポート・Automation・ハーネスの全呼び出し元が同じ型を渡す（以前は各所で 8 個の値を
     位置引数に並べ直していた）。セッション・プリセット・zones JSON とのフィールド対応と既定値の参照は
-    `scripts/source_checks/test_recolor_settings.py` が検査する。
+    `scripts/source_checks/test_recolor_settings.py` が検査する。同じテストが、全体設定のそれぞれが選択キャッシュの
+    鍵（`BuildSelectionKey`）に入っているか「選択に効かない」と分類されているかも見る（ゾーン側は
+    `scripts/golden/test_selection_key_audit.py`）。
   - **画で見る**（2026-09-03〜）: 上の 3 本は数字しか残さない。`dev_safe/scripts/build_oneshot_review.py`
     が同じ driver（`run_case` / `run_subject`）の出力を「クリック位置+証拠セグメント / 出力 /
     GT 判定オーバーレイ（+注目範囲クロップ）」の画と `review_data.json` に書き出し、
@@ -512,7 +598,7 @@ Mono 上の出力は検証できない。`scripts/editor-tests/`（`Iroca.Editor
 |---|---|
 | `PersistenceTests` | セッション・マスク・プリセットの往復、読めないファイルを空保存で消さない（.bak 退避）、GUID 未解決ファイルの .orphan 退避・復元・期限切れ削除、プリセット半径の丸め |
 | `ExportPipelineTests` | 原本を import 設定（maxTextureSize）に左右されず読む、TGA は取り込み済みで代替・Read/Write 無しは不可、PNG 往復、import 設定の引き継ぎ、上書きで GUID を保つ |
-| `WorkingResolutionTests` | 編集の作業解像度（`WorkingResolution`）: 既定は元ファイルを取り込み後の寸法へ縮め（取り込みで大きくなるときは引き伸ばさない）、「元の解像度で編集」なら元のまま、書き出しは設定に関係なく元の解像度。テクスチャの生データから帯ごとに縮める経路が Color32[] の経路と同じ画素になる（RGBA32・ARGB32・BGRA32・RGB24） |
+| `WorkingResolutionTests` | 編集の作業解像度（`WorkingResolution`）: 辺が 8192 以下なら元ファイルのまま、超えるときだけ取り込み後の寸法へ縮める（取り込みで大きくなるときは引き伸ばさない）。拡大表示に映す寸法は取り込み後の寸法。書き出しは常に元の解像度。テクスチャの生データから帯ごとに縮める経路が Color32[] の経路と同じ画素になる（RGBA32・ARGB32・BGRA32・RGB24） |
 | `SampleUvUndoTests` | スポイト位置が Undo/Redo・ゾーン削除の Undo で色と対で戻る、プリセットには載らずセッションには残る |
 | `WindowRestoreTests` | ウィンドウが状態を失わない・古い状態に戻らない: プレビュー・オーバーレイの一時テクスチャがシーンを開いても破棄されない、Unity が落ちた後の起動ではレイアウトに残った古い編集内容でなく自動保存を読む（ドメインリロードではメモリ上の内容を使う） |
 | `UndoRestoreSignalTests` | 「関係ない Undo では作り直さない」判定の前提: ウィンドウ自身の Undo/Redo では `undoRedoPerformed` より前に `OnAfterDeserialize` が来て、別のオブジェクトの Undo/Redo では来ない |

@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Iroca
 {
-    public partial class IrocaWindow
+    public unsafe partial class IrocaWindow
     {
         [System.NonSerialized] private readonly PreviewJob<ZoneAutoTuner.TuneResult> _autoTuneJob = new PreviewJob<ZoneAutoTuner.TuneResult>();
         [System.NonSerialized] private readonly PreviewJobProgress _autoTuneProgress = new PreviewJobProgress();
@@ -19,7 +19,8 @@ namespace Iroca
         [System.NonSerialized] private bool _evidenceWaiting;
         [System.NonSerialized] private double _evidenceDeadline;
         [System.NonSerialized] private string _evidenceZoneId;
-        [System.NonSerialized] private Color32[] _evidencePixels;
+        // 待ちの間の画素(参照を 1 つ持つ。StopEvidenceWait が返す)。
+        [System.NonSerialized] private NativePixels _evidencePixels;
         [System.NonSerialized] private int _evidenceTexW, _evidenceTexH, _evidenceMw, _evidenceMh;
         [System.NonSerialized] private bool[] _evidenceExcluded;
         // 証拠要求がまだ受理されていない(AI が準備中で Busy)。Tick で再要求する。
@@ -161,7 +162,7 @@ namespace Iroca
 
             // メインスレッド前処理: Texture2D.GetPixels32 と除外マスク構築は
             // バックグラウンドへ持ち込めないので、ここで配列化しておく。
-            PrepareAutoTunePixels(out Color32[] pixels, out int texW, out int texH, out bool trueSource);
+            PrepareAutoTunePixels(out NativePixels pixels, out int texW, out int texH, out bool trueSource);
             if (pixels == null)
             {
                 // GetPixels32 が失敗（非 Readable / 一時例外）。null を背景ジョブへ渡すと
@@ -169,23 +170,28 @@ namespace Iroca
                 ShowNotification(new GUIContent(Localization.TextureReadError));
                 return;
             }
-            bool[] excluded = BuildCombinedExclusionForZone(zone, out int mw, out int mh);
-
-            // 証拠つき導出: スポイト位置の AI 提案セグメントが届いてから解析を始める。
-            // AI が無ければ中止して導入を案内し、準備中なら待つ(従来導出へは落とさない)。
-            // 証拠なしで解析するのは、スポイト位置そのものが無いゾーン(カラーフィールド指定)だけ。
-            switch (BeginAutoTuneEvidence(zone, pixels, texW, texH, excluded, mw, mh, trueSource))
+            // pixels の参照はここで持ち、最後に返す(待ち・ジョブはそれぞれ自分の参照を足す)。
+            try
             {
-                case EvidenceStart.Waiting:
-                    return;
-                case EvidenceStart.NoPosition:
-                    ShowNotification(new GUIContent(Localization.AutoTuneNoSamplePosition));
-                    _autoTuneConventionalReason = "no-sample-position";
-                    ScheduleAutoTuneJob(zone, pixels, texW, texH, excluded, mw, mh);
-                    return;
-                default:
-                    return; // Unavailable: 通知・案内済み。解析は始めない。
+                bool[] excluded = BuildCombinedExclusionForZone(zone, out int mw, out int mh);
+
+                // 証拠つき導出: スポイト位置の AI 提案セグメントが届いてから解析を始める。
+                // AI が無ければ中止して導入を案内し、準備中なら待つ(従来導出へは落とさない)。
+                // 証拠なしで解析するのは、スポイト位置そのものが無いゾーン(カラーフィールド指定)だけ。
+                switch (BeginAutoTuneEvidence(zone, pixels, texW, texH, excluded, mw, mh, trueSource))
+                {
+                    case EvidenceStart.Waiting:
+                        return;
+                    case EvidenceStart.NoPosition:
+                        ShowNotification(new GUIContent(Localization.AutoTuneNoSamplePosition));
+                        _autoTuneConventionalReason = "no-sample-position";
+                        ScheduleAutoTuneJob(zone, pixels, texW, texH, excluded, mw, mh);
+                        return;
+                    default:
+                        return; // Unavailable: 通知・案内済み。解析は始めない。
+                }
             }
+            finally { pixels.Release(); }
         }
 
         /// <summary>
@@ -246,9 +252,10 @@ namespace Iroca
         // インポート済みテクスチャ（圧縮で劣化）を解析すると、彩度/距離分布が実処理経路とずれて
         // 導出パラメータが歪む。通常はプレビューが同じキャッシュを温めて
         // いるため追加コストはない。true source が取れないときのみ GetPixels32 へフォールバック。
-        // trueSource: 画素がプレビュー/AI 提案と同じ true source キャッシュ（同一配列）か。
-        // 証拠要求はこの配列とキーで SetSource するので、フォールバック画素では要求しない。
-        private void PrepareAutoTunePixels(out Color32[] pixels, out int texW, out int texH,
+        // trueSource: 画素がプレビュー/AI 提案と同じ true source キャッシュ（同一の画素）か。
+        // 証拠要求はこの画素とキーで SetSource するので、フォールバック画素では要求しない。
+        // pixels は呼び出し側が参照を 1 つ持つ(使い終わったら Release する)。
+        private void PrepareAutoTunePixels(out NativePixels pixels, out int texW, out int texH,
             out bool trueSource)
         {
             pixels = null;
@@ -262,15 +269,16 @@ namespace Iroca
             {
                 EditorUtility.DisplayProgressBar(Localization.AutoTune, Localization.AnalyzingTexture, 0.1f);
                 if (_previewView != null &&
-                    _previewView.TryGetTrueSourcePixels(tex, out pixels, out texW, out texH))
+                    _previewView.TryGetTrueSourcePixels(tex, out var shared, out texW, out texH))
                 {
+                    pixels = shared.AddRef();
                     trueSource = true;
                     return;
                 }
 
                 texW = tex.width;
                 texH = tex.height;
-                pixels = tex.GetPixels32();
+                pixels = NativePixels.CopyOf(tex.GetPixels32(), texW, texH);
             }
             catch (UnityEngine.UnityException) { pixels = null; }
             finally { EditorUtility.ClearProgressBar(); }
@@ -278,7 +286,8 @@ namespace Iroca
 
         // evidence: 証拠マスク（true=このゾーンの素材そのもの。スポイト位置の AI 提案セグメント。
         // pixels と同じ下原点並び）。null なら従来導出。
-        private void ScheduleAutoTuneJob(ColorZone zone, Color32[] pixels, int texW, int texH, bool[] excluded, int mw, int mh,
+        // pixels は呼び出し側の持ち物のまま(ジョブは自分の参照を足して読み、後始末で返す)。
+        private void ScheduleAutoTuneJob(ColorZone zone, NativePixels pixels, int texW, int texH, bool[] excluded, int mw, int mh,
             bool[] evidence = null, int evW = 0, int evH = 0)
         {
             zone.EnsureId();
@@ -296,6 +305,7 @@ namespace Iroca
 
             // 適用後も持つ証拠(再現データ用)は 1bit/画素に詰めたもの。詰めるのは解析と同じバックグラウンドで。
             ulong[] evidencePacked = null;
+            var px = pixels.AddRef();
             _autoTuneJob.Schedule(
                 work: ct =>
                 {
@@ -305,9 +315,9 @@ namespace Iroca
                     // 解析の各ステップから進捗を受け取る。渡さないと 0.10 → 1.00 の 2 点しか
                     // 報告されず、進捗バーが 10% で固まってから完了に飛ぶ。
                     var result = evidence != null
-                        ? ZoneAutoTuner.AnalyzeWithEvidence(pixels, texW, texH, zoneSnapshot, sessionSnapshot,
+                        ? ZoneAutoTuner.AnalyzeWithEvidence(px.Ptr, texW, texH, zoneSnapshot, sessionSnapshot,
                             evidence, evW, evH, excluded, mw, mh, ct, p => _autoTuneProgress.Report(p))
-                        : ZoneAutoTuner.Analyze(pixels, texW, texH, zoneSnapshot, sessionSnapshot, excluded, mw, mh, ct,
+                        : ZoneAutoTuner.Analyze(px.Ptr, texW, texH, zoneSnapshot, sessionSnapshot, excluded, mw, mh, ct,
                             p => _autoTuneProgress.Report(p));
                     evidencePacked = MaskSnapshot.Pack(evidence);   // null は null
                     _autoTuneProgress.Report(1.0f);
@@ -319,10 +329,14 @@ namespace Iroca
                     var targetZone = FindZoneById(_autoTuneTargetZoneId);
                     if (targetZone == null) return;
 
-                    Undo.RegisterCompleteObjectUndo(this, "Auto-tune Zone");
-                    // 導出結果 → ゾーン/グローバルの写像は TuneResult.ApplyTo が単一の正
-                    // （headless ハーネスの --autotune と共有。ここに項目を並べ直さない）。
-                    result.ApplyTo(targetZone, _session);
+                    // 結果は押してから数秒後に届くので、待っている間の別の操作とは別の「元に戻す」1 回分にする。
+                    RecordAsSeparateUndo("Auto-tune Zone", () =>
+                    {
+                        Undo.RegisterCompleteObjectUndo(this, "Auto-tune Zone");
+                        // 導出結果 → ゾーン/グローバルの写像は TuneResult.ApplyTo が単一の正
+                        // （headless ハーネスの --autotune と共有。ここに項目を並べ直さない）。
+                        result.ApplyTo(targetZone, _session);
+                    });
                     _autoTuneInputs ??= new System.Collections.Generic.Dictionary<string, AutoTuneInput>();
                     _autoTuneInputs[targetZone.id] = new AutoTuneInput
                     {
@@ -352,7 +366,8 @@ namespace Iroca
                 {
                     Debug.LogError($"[Iroca] Auto-tune failed: {ex.Message}\n{ex.StackTrace}");
                     ShowNotification(new GUIContent($"{Localization.Error}: {ex.Message}"));
-                });
+                },
+                cleanup: () => px.Release());
         }
 
         // ─── 証拠つき自動調整（スポイト位置の AI 提案セグメントを教師にする） ───
@@ -366,7 +381,7 @@ namespace Iroca
         // 今は AI が無ければ中止して導入を案内し(MaskSuggestSetupPrompt)、準備中なら届くまで待つ。
         private enum EvidenceStart { Waiting, NoPosition, Unavailable }
 
-        private EvidenceStart BeginAutoTuneEvidence(ColorZone zone, Color32[] pixels, int texW, int texH,
+        private EvidenceStart BeginAutoTuneEvidence(ColorZone zone, NativePixels pixels, int texW, int texH,
             bool[] excluded, int mw, int mh, bool trueSource)
         {
             if (!zone.HasSampleUV) return EvidenceStart.NoPosition;
@@ -383,7 +398,8 @@ namespace Iroca
             }
 
             _evidenceZoneId = zone.id;
-            _evidencePixels = pixels;
+            _evidencePixels?.Release();
+            _evidencePixels = pixels.AddRef();
             _evidenceTexW = texW;
             _evidenceTexH = texH;
             _evidenceExcluded = excluded;
@@ -412,7 +428,7 @@ namespace Iroca
                 AbortEvidenceWait(Localization.AutoTuneEvidenceCancelled);
                 return false;
             }
-            var r = ctl.RequestEvidence(zone.sampleUV.x, zone.sampleUV.y, _evidencePixels, _evidenceTexW, _evidenceTexH,
+            var r = ctl.RequestEvidence(zone.sampleUV.x, zone.sampleUV.y, _evidencePixels,
                 _previewView.TrueSourceCacheKey(), OnAutoTuneEvidence);
             switch (r)
             {
@@ -440,33 +456,53 @@ namespace Iroca
         {
             if (!_evidenceWaiting) return;
             var zone = FindZoneById(_evidenceZoneId);
-            var pixels = _evidencePixels;
+            // 待ちが持っていた参照は StopEvidenceWait が返すので、ここで使う分を足しておく(最後に返す)。
+            var pixels = _evidencePixels?.AddRef();
             int texW = _evidenceTexW, texH = _evidenceTexH;
             var excluded = _evidenceExcluded;
             int mw = _evidenceMw, mh = _evidenceMh;
             StopEvidenceWait();
-            if (zone == null) return; // 待ち中に削除された
+            try
+            {
+                if (zone == null || pixels == null) return; // 待ち中に削除された
 
-            if (proposal == null || proposal.maskBottomUp == null || proposal.width <= 0 || proposal.height <= 0)
-            {
-                ShowNotification(new GUIContent(Localization.AutoTuneEvidenceCancelled));
-                Repaint();
-                return;
+                if (proposal == null || proposal.maskBottomUp == null || proposal.width <= 0 || proposal.height <= 0)
+                {
+                    ShowNotification(new GUIContent(Localization.AutoTuneEvidenceCancelled));
+                    Repaint();
+                    return;
+                }
+                // 背景まで広がった提案（floodWarning）は素材の証拠にならない。この場合だけは証拠なしで
+                // 解析する(AI は使えたが証拠が取れなかった。理由は通知と由来に残す)。
+                if (proposal.floodWarning)
+                {
+                    ShowNotification(new GUIContent(Localization.AutoTuneEvidenceUnusable));
+                    _autoTuneConventionalReason = "evidence-flood";
+                    ScheduleAutoTuneJob(zone, pixels, texW, texH, excluded, mw, mh);
+                    return;
+                }
+                ScheduleAutoTuneJob(zone, pixels, texW, texH, excluded, mw, mh,
+                    proposal.maskBottomUp, proposal.width, proposal.height);
             }
-            // 背景まで広がった提案（floodWarning）は素材の証拠にならない。この場合だけは証拠なしで
-            // 解析する(AI は使えたが証拠が取れなかった。理由は通知と由来に残す)。
-            if (proposal.floodWarning)
-            {
-                ShowNotification(new GUIContent(Localization.AutoTuneEvidenceUnusable));
-                _autoTuneConventionalReason = "evidence-flood";
-                ScheduleAutoTuneJob(zone, pixels, texW, texH, excluded, mw, mh);
-                return;
-            }
-            ScheduleAutoTuneJob(zone, pixels, texW, texH, excluded, mw, mh,
-                proposal.maskBottomUp, proposal.width, proposal.height);
+            finally { pixels?.Release(); }
         }
 
+        // EditorApplication.update から毎フレーム呼ばれる。Unity はそこで例外を受け止めないので、投げたまま
+        // 購読を残すと、窓を閉じるまで毎フレーム、後ろに並んだ他のツールの更新まで飛ばし続ける。
+        // 例外のときは待ちをやめて購読を外す。
         private void TickEvidenceWait()
+        {
+            try { TickEvidenceWaitCore(); }
+            catch (System.Exception e)
+            {
+                EditorApplication.update -= TickEvidenceWait;
+                Debug.LogException(e);
+                try { AbortEvidenceWait(Localization.AutoTuneEvidenceCancelled); }
+                catch (System.Exception e2) { Debug.LogException(e2); }
+            }
+        }
+
+        private void TickEvidenceWaitCore()
         {
             // 破棄済みウィンドウ（fake-null）や待ち終了後は自己解除する。
             if (this == null || !_evidenceWaiting)
@@ -509,7 +545,9 @@ namespace Iroca
         {
             _evidenceWaiting = false;
             _evidencePending = false;
+            var px = _evidencePixels;
             _evidencePixels = null;
+            px?.Release();
             _evidenceExcluded = null;
             _evidenceZoneId = null;
             EditorApplication.update -= TickEvidenceWait;

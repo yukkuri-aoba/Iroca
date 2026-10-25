@@ -49,12 +49,33 @@ namespace Iroca
         public static bool Apply(Color32[] pixels, int width, int height,
             IrocaSessionState state, CancellationToken cancellationToken = default)
         {
-            if (state == null) return false;
-            var zones = EnabledZoneCopies(state.zones);
-            if (zones.Count == 0) return false;
-            var masks = MaskStateCodec.ToSnapshot(state.maskState);
+            if (!TryPrepare(state, out var zones, out var masks)) return false;
             PixelProcessor.ProcessPixelsArray(pixels, width, height, masks, zones,
                 RecolorSettings.From(state), cancellationToken);
+            return true;
+        }
+
+        /// <summary>
+        /// <see cref="Apply(Color32[], int, int, IrocaSessionState, CancellationToken)"/> のポインタ版。Mono のヒープの外に
+        /// 置いた画素(非破壊ビルド・シーンのプレビュー)を写さずに処理する。画素は処理が返るまで呼び出し側が保つこと。
+        /// </summary>
+        public static unsafe bool Apply(Color32* pixels, int width, int height,
+            IrocaSessionState state, CancellationToken cancellationToken = default)
+        {
+            if (!TryPrepare(state, out var zones, out var masks)) return false;
+            PixelProcessor.ProcessPixelsNative(pixels, width, height, masks, zones,
+                RecolorSettings.From(state), cancellationToken);
+            return true;
+        }
+
+        private static bool TryPrepare(IrocaSessionState state, out List<ColorZone> zones, out MaskSnapshot masks)
+        {
+            zones = null;
+            masks = null;
+            if (state == null) return false;
+            zones = EnabledZoneCopies(state.zones);
+            if (zones.Count == 0) return false;
+            masks = MaskStateCodec.ToSnapshot(state.maskState);
             return true;
         }
     }

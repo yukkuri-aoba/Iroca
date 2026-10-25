@@ -111,13 +111,18 @@ namespace Iroca
         /// <summary>テクスチャへの書き出し(PNG)。primary のときだけ実行ボタンを大きくする。</summary>
         private void DrawTextureExport(bool primary)
         {
-            saveAsNewFile = EditorGUILayout.Toggle(
-                new GUIContent(Localization.SaveAsNewFile, Localization.SaveAsNewFileTooltip),
-                saveAsNewFile);
+            var saveAsNewContent = new GUIContent(Localization.SaveAsNewFile, Localization.SaveAsNewFileTooltip);
+            var inheritContent = new GUIContent(Localization.InheritImportSettings, Localization.InheritImportSettingsTooltip);
+            // トグルのラベルが入りきる幅までラベル列を広げる。狭いウィンドウの既定のラベル幅（120）では
+            // 「インポート設定を引き継ぐ」の末尾が欠ける。
+            float prevLabelWidth = EditorGUIUtility.labelWidth;
+            EditorGUIUtility.labelWidth = Mathf.Max(prevLabelWidth, Mathf.Ceil(Mathf.Max(
+                EditorStyles.label.CalcSize(saveAsNewContent).x,
+                EditorStyles.label.CalcSize(inheritContent).x)) + 4f);
 
-            inheritImportSettings = EditorGUILayout.Toggle(
-                new GUIContent(Localization.InheritImportSettings, Localization.InheritImportSettingsTooltip),
-                inheritImportSettings);
+            saveAsNewFile = EditorGUILayout.Toggle(saveAsNewContent, saveAsNewFile);
+
+            inheritImportSettings = EditorGUILayout.Toggle(inheritContent, inheritImportSettings);
 
             if (saveAsNewFile)
             {
@@ -125,6 +130,7 @@ namespace Iroca
                     new GUIContent(Localization.FileName, Localization.FileNameTooltip),
                     newFileName);
             }
+            EditorGUIUtility.labelWidth = prevLabelWidth;
 
             // ソロ表示はプレビュー専用。保存すると全ゾーンが適用されるので、
             // 「見えているもの＝保存されるもの」でないことをここで明示する。
@@ -167,6 +173,9 @@ namespace Iroca
                 using (new EditorGUI.DisabledScope(true))
                     EditorGUILayout.ObjectField(new GUIContent(Localization.BoundRecipe, Localization.BoundRecipeTooltip),
                         bound, typeof(IrocaRecipe), false);
+                // 読めないレシピ(新しい版のいろかで作られた・壊れた)には保存も登録もしないので、そう知らせる。
+                if (BoundRecipeUnreadable(bound))
+                    EditorGUILayout.HelpBox(Localization.BoundRecipeUnreadable, MessageType.Warning);
             }
             // 以前書き出した画像をマテリアルに差していると非破壊が効かないので、登録で戻せることを知らせる。
             int exportUsers = ExportUsersCount();
@@ -245,7 +254,11 @@ namespace Iroca
             float lineH = EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing;
             float h = primary ? PrimaryButtonHeight + EditorGUIUtility.standardVerticalSpacing : lineH; // アバターに非破壊で登録
             if (_host != null && _host.BoundRecipe != null)
+            {
                 h += lineH;           // 保存先のレシピ
+                if (BoundRecipeUnreadable(_host.BoundRecipe))
+                    h += HelpBoxHeight(Localization.BoundRecipeUnreadable);
+            }
             int exportUsers = ExportUsersCount();
             if (exportUsers > 0)      // 書き出した画像を使うマテリアルの案内
                 h += HelpBoxHeight(string.Format(Localization.ExportUsersHintFormat, exportUsers));
@@ -264,6 +277,12 @@ namespace Iroca
             float measured = EditorStyles.helpBox.CalcHeight(new GUIContent(text), textW);
             return Mathf.Max(40f, measured) + EditorGUIUtility.standardVerticalSpacing;
         }
+
+        // 保存先のレシピを読めるか。描画のたびに JSON(マスク込み)を読まないよう、中身が変わったときだけ読み直す。
+        [System.NonSerialized] private readonly RecipeSummaryCache _boundSummary = new RecipeSummaryCache();
+
+        private bool BoundRecipeUnreadable(IrocaRecipe bound)
+            => bound != null && !string.IsNullOrEmpty(bound.sessionJson) && !_boundSummary.Readable(bound);
 
         private int ExportUsersCount()
         {
@@ -380,6 +399,12 @@ namespace Iroca
             // 計算に必要な値を全てローカル変数に退避（Task.Run の中から session を直接触らない）
             var settings = RecolorSettings.From(session);
             bool inheritFlag = inheritImportSettings;
+            // 書き出しの寸法が編集の作業解像度と同じなら、書き出しが使う作業配列はプレビューが温めていたものと
+            // 同じ大きさなので、終わっても手放さない(次の 1 手が作業配列と色の表を作り直さずに済む)。
+            // 違う寸法(取り込み後の寸法で編集して元の解像度で書き出す)なら、その解像度の作業配列
+            // (8K で約 3GB)を OS へ返す。
+            bool releaseAfterExport = !(_host?.Preview != null
+                && _host.Preview.TryGetWorkingSize(out int workW, out int workH) && workW == texW && workH == texH);
 
             _exportProgress.Reset();
             _exportProgress.Report(0.05f);
@@ -448,8 +473,17 @@ namespace Iroca
                     {
                         ReportExportFailure(ex);
                     }
+                    finally
+                    {
+                        // 書き出しの解像度の作業配列を OS へ返す(一括書き出しの末尾と同じ理由)。
+                        if (releaseAfterExport) PixelProcessor.ReleaseWorkBuffersInBackground();
+                    }
                 },
-                onError: ReportExportFailure);
+                onError: ex =>
+                {
+                    ReportExportFailure(ex);
+                    if (releaseAfterExport) PixelProcessor.ReleaseWorkBuffersInBackground();
+                });
         }
 
         /// <summary>エクスポート失敗をログ＋UI 通知へ流す（BG 側と apply 側で共有）。</summary>
@@ -625,6 +659,9 @@ namespace Iroca
             }
 
             if (previewSourceOverwritten) _host?.InvalidateSourceAndRepaint();
+            // 書き出しは元の解像度で処理するので、作業解像度で編集しているとその解像度の作業配列が丸ごと残る
+            // (8K で約 3GB)。使っていない分を OS へ返す(次のプレビューは新しく確保し直す)。
+            PixelProcessor.ReleaseWorkBuffersInBackground();
 
             EditorUtility.DisplayDialog(Localization.Complete,
                 Localization.BatchComplete(success), Localization.OK);

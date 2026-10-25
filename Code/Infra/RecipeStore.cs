@@ -50,11 +50,22 @@ namespace Iroca
         /// 編集状態(マスクを含む全部)をレシピへ書く。内容が変わったときだけアセットを保存する。
         /// 変わったら true。マスクは呼び出し側で作業用バッファから state.maskState へ同期しておくこと。
         /// </summary>
-        public static bool Save(IrocaRecipe recipe, IrocaSessionState state)
+        public static bool Save(IrocaRecipe recipe, IrocaSessionState state) => Save(recipe, state, keepUnreadable: false);
+
+        /// <summary>
+        /// <see cref="Save(IrocaRecipe, IrocaSessionState)"/> と同じだが、今の中身が読めないレシピ(新しい版で
+        /// 作られた等)は上書きしない(自動保存用)。読めるかは書き換えるときだけ確かめる。以前は自動保存のたびに
+        /// マスク込みの全体を読み直していた。
+        /// </summary>
+        public static bool SaveUnlessUnreadable(IrocaRecipe recipe, IrocaSessionState state) => Save(recipe, state, keepUnreadable: true);
+
+        private static bool Save(IrocaRecipe recipe, IrocaSessionState state, bool keepUnreadable)
         {
             if (recipe == null || state == null) return false;
             string json = JsonUtility.ToJson(state);
             if (json == recipe.sessionJson && recipe.formatVersion == IrocaRecipe.CurrentFormatVersion)
+                return false;
+            if (keepUnreadable && !string.IsNullOrEmpty(recipe.sessionJson) && Load(recipe) == null)
                 return false;
             // Undo には積まない(編集の Undo はウィンドウの編集状態側が持つ。自動保存のたびに
             // アセットの記録が積まれると、ウィンドウの Undo と二重になる)。

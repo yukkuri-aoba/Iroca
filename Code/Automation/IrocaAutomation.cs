@@ -13,25 +13,24 @@ namespace Iroca
     /// Unity MCP / AI エージェントから Iroca をヘッドレス駆動するための自動化 API。
     ///
     /// UI（IrocaWindow / ExportView）を介さず、テクスチャ読込 → 再着色 → PNG 出力までを
-    /// 静的メソッド一発で実行できる。<see cref="ExportView"/> の実出力経路（原本を
-    /// <see cref="ExportPipeline.ReadSourcePixels"/> で読み、<see cref="PixelProcessor.ProcessPixelsArray"/>
-    /// に通す）をそのまま同期で再現するので、製品の出力と一致する。
+    /// 静的メソッド一発で実行できる。原本を <see cref="ExportPipeline.ReadSourcePixels"/> で読み、
+    /// ゾーン・処理設定・マスクを編集状態（<see cref="IrocaSessionState"/>）にまとめて、非破壊ビルドと同じ入口
+    /// <see cref="SessionRecolor.Apply"/> に通すので、製品の出力と一致する。
     /// ただし ReadSourcePixels を imported=null で呼ぶので、取り込み済みテクスチャへのフォールバックはしない（PNG/JPG のみ）。
     ///
-    /// 呼び出し経路は 3 つ。いずれも同じ中核（<see cref="RunRecolorCore"/>）を通る:
+    /// 呼び出し経路は 3 つ。1 と 3 は同じ中核（<see cref="RunRecolorCore"/>）を、2 は同じ <see cref="SessionRecolor.Apply"/> を通る:
     ///   1. 静的 API: <see cref="RecolorByPreset"/> / <see cref="RecolorWithZones"/> 等。戻り値は JSON 文字列。
     ///      生 C# 実行が可能な MCP クライアント・EditMode テストから直接呼ぶ。
-    ///   2. MCPForUnity カスタムツール: <c>Code/McpIntegration/IrocaMcpTools.cs</c> の <c>iroca_recolor</c> 等。
-    ///      <c>execute_custom_tool</c> から本クラスの公開静的 API を呼ぶ。MCPForUnity 導入時のみ
-    ///      コンパイルされる別 asmdef（IROCA_MCP_PRESENT ゲート）で、配布パッケージ本体は依存ゼロを保つ。
-    ///      開発用で、配布物（VPM zip）には入れない。
+    ///   2. MCPForUnity カスタムツール: <c>Code/McpIntegration/IrocaMcpTools.cs</c> の <c>iroca_inspect</c>・
+    ///      <c>iroca_recolor</c>・<c>iroca_open</c>（<see cref="Inspect"/>・<see cref="Recolor"/>・<see cref="Open"/>）。
+    ///      MCPForUnity 導入時のみコンパイルされる別 asmdef（IROCA_MCP_PRESENT ゲート）で、配布パッケージ本体は
+    ///      依存ゼロを保つ。利用者向けの説明はマニュアル「AI エージェントから使う（MCP）」。
     ///      生 C# 実行に非対応のクライアントでも駆動できる（Tools メニューには何も追加しない）。
     ///   3. batchmode CLI: <c>Unity.exe -batchmode -executeMethod Iroca.IrocaAutomation.RunFromCommandLine ...</c>。
     ///
-    /// v1 ではプリセット同梱マスクはヘッドレス適用しない（パーツ単位の粗いマスクは後続対応）。
-    /// マスクを含むプリセットを渡した場合は結果 JSON の warnings で明示する。
+    /// プリセットに入っているマスク（共通の除外・ゾーン別の除外・含める）も、UI でプリセットを読み込んだときと同じく当てる。
     /// </summary>
-    public static class IrocaAutomation
+    public static partial class IrocaAutomation
     {
         // package.json の name。NDMF の識別子(IrocaNdmfPlugin.QualifiedName・IrocaPreviewFilter のトグルキー)とは
         // 意図的に共有しない(あちらはパッケージ名が変わっても変えてはいけない)。
@@ -175,6 +174,13 @@ namespace Iroca
                 {
                     "RecolorByPreset(sourceAssetPath, presetPathOrNameOrJson, outputAssetPath) -> RecolorResult",
                     "RecolorWithZones(sourceAssetPath, zonesRequestJson, outputAssetPath) -> RecolorResult",
+                    "Inspect(target, maxColors) -> { kind, objects, textures:[{path, colors:[{hex, uv}], thumbnail}] }"
+                        + "（target なしでシーンのアバター一覧、シーンのオブジェクトで使っているテクスチャ、テクスチャで主な色と代表点）",
+                    "Recolor(requestJson) -> { ok, texture, apply, avatar, recipe, output, preview, zones, warnings } か "
+                        + "{ pending:true }（依頼 JSON: texture, changes:[{name, at:[u,v] | from, to}], remove, reset, preset, "
+                        + "apply=avatar|png|preview, avatar, output, overwrite, autoTune）",
+                    "RecolorStatus() -> pending を返した Recolor の続き（終わるまで pending、終われば Recolor と同じ形）",
+                    "Open(target) -> { ok, texture, recipe }（いろかの窓で開く。target はレシピ・テクスチャ・マテリアル・シーンのオブジェクト）",
                     "ListPresets() -> { presets:[{name,path,scope}] }",
                     "GetVersion() -> { name, version }",
                     "DescribeSchema() -> this document",
@@ -183,8 +189,8 @@ namespace Iroca
                 {
                     "パスは Assets 相対（Assets/...）・プロジェクト相対・絶対のいずれも可。出力は .png。",
                     "色は [r,g,b]（0..1）。enabled なゾーンが 1 つも無いと error になる。",
-                    "v1 ではプリセット同梱マスクはヘッドレス適用しない（適用時は warnings に明記）。",
-                    "MCP 経路: execute_custom_tool(\"iroca_recolor\", { source, output, preset|zones }) で呼ぶ（メニュー非依存）。",
+                    "プリセットに入っているマスク（除外・含める）も UI と同じく当てる。",
+                    "MCP 経路: iroca_inspect・iroca_recolor・iroca_open（引数は Inspect・Recolor の依頼 JSON・Open と同じ）。",
                     "結果には 'preview'（比較パネル PNG のパス: 左=変換前 / 中=変換後 / 右=変化画素をマゼンタ表示）と "
                         + "変化メトリクス（changedPixels / changedFraction / largestComponentFraction / changeComponentCount / changeBBox）が付く。",
                     "検証ループ: 再着色 → 'preview' 画像を開いて意図通りか目視 → ずれていれば target/tolerance を調整して再実行。"
@@ -244,12 +250,7 @@ namespace Iroca
                 if (preset == null)
                     return Fail($"preset not found / parse failed: {presetPathOrNameOrJson}");
 
-                if (HasEmbeddedMask(preset))
-                    warnings.Add("preset contains embedded masks; masks are NOT applied in headless automation (v1).");
-
-                var zones = preset.zones ?? new List<ColorZone>();
-                var settings = SettingsFromPreset(preset);
-                return Json(RunRecolorCore(sourceAssetPath, zones, settings, outputAssetPath, warnings));
+                return Json(RunRecolorCore(sourceAssetPath, SessionFromPreset(preset), outputAssetPath, warnings));
             }
             catch (Exception ex)
             {
@@ -272,9 +273,9 @@ namespace Iroca
                 if (req == null || req.zones == null || req.zones.Count == 0)
                     return Fail("zones JSON has no zones.");
 
-                var zones = req.zones.Select(BuildZone).ToList();
-                var settings = SettingsFromDto(req.settings ?? new SettingsDto());
-                return Json(RunRecolorCore(sourceAssetPath, zones, settings, outputAssetPath, warnings));
+                var state = new IrocaSessionState { zones = req.zones.Select(BuildZone).ToList() };
+                SettingsFromDto(req.settings ?? new SettingsDto()).CopyTo(state);
+                return Json(RunRecolorCore(sourceAssetPath, state, outputAssetPath, warnings));
             }
             catch (Exception ex)
             {
@@ -283,13 +284,14 @@ namespace Iroca
         }
 
         // メニュー経路（execute_menu_item）は廃止。MCP からの駆動は MCPForUnity カスタムツール
-        // （Code/McpIntegration/IrocaMcpTools.cs の iroca_recolor 等）経由で公開静的 API を呼ぶ。
+        // （Code/McpIntegration/IrocaMcpTools.cs）経由で公開静的 API を呼ぶ。
         // Tools メニューにはウィンドウ起動の単一項目だけを残し、サブメニュー二重表示を避ける。
 
         /// <summary>
         /// <c>Unity.exe -batchmode -quit -executeMethod Iroca.IrocaAutomation.RunFromCommandLine
         ///   -irocaSource &lt;path&gt; -irocaOutput &lt;path&gt; (-irocaPreset &lt;path|name&gt; | -irocaZonesFile &lt;json&gt; | -irocaJob &lt;json&gt;)</c>
         /// で呼ぶ、MCP を介さない完全ヘッドレス経路。結果は Console と UserSettings/Iroca/mcp/result.json に出す。
+        /// batchmode のときだけ成否を終了コードにして Unity を終える(開いているエディタから呼ばれたときは終えない)。
         /// </summary>
         public static void RunFromCommandLine()
         {
@@ -335,6 +337,10 @@ namespace Iroca
             // -quit だけでは RunFromCommandLine の成否に関わらず Unity は exit 0 で終了し、
             // 失敗(デコード失敗・ゾーン無し・書き込み失敗等)が握り潰されていた。result.json と
             // ログは上で出力済みなので、ここで成否に応じた終了コードで明示終了する。
+            // 開いているエディタの中で呼ばれた(AI のコード実行や、利用者の自動処理の途中の 1 段など)ときに
+            // 終了すると、保存していないシーンの変更ごと Unity が閉じる。終えるのは batchmode のときだけ
+            // (BuildHelper と同じ形)。
+            if (!Application.isBatchMode) return;
             bool ok = false;
             try { ok = JsonUtility.FromJson<RecolorResult>(resultJson)?.ok ?? false; }
             catch { ok = false; }
@@ -342,12 +348,15 @@ namespace Iroca
         }
 
         /// <summary>
-        /// テクスチャ読込 → <see cref="PixelProcessor.ProcessPixelsArray"/>（同期）→ PNG 書き出し。
+        /// テクスチャ読込 → <see cref="SessionRecolor.Apply"/>（同期）→ PNG 書き出し。
         /// 全経路がここを通る。原本は製品の書き出しと共有の <see cref="ExportPipeline.ReadSourcePixels"/> を
         /// imported=null で呼んで読む（取り込み済みテクスチャへのフォールバックはしない。PNG/JPG のみ）。
+        /// 色替えは非破壊ビルドと同じ入口なので、有効なゾーンだけを並び順のまま、state のマスクを当てて処理する。
+        /// 静的 API と batchmode の経路。MCP の <see cref="Recolor"/> は同じ <see cref="SessionRecolor.Apply"/> を
+        /// 自分の手順(作業解像度の比較画像・背景での書き出し)で呼ぶ。
         /// </summary>
         private static RecolorResult RunRecolorCore(
-            string sourceAssetPath, List<ColorZone> zones, RecolorSettings settings,
+            string sourceAssetPath, IrocaSessionState state,
             string outputAssetPath, List<string> warnings)
         {
             var result = new RecolorResult { warnings = warnings ?? new List<string>() };
@@ -359,13 +368,13 @@ namespace Iroca
             if (srcAbs == null)
             { result.error = $"source not found: {sourceAssetPath}"; return result; }
 
-            var sorted = (zones ?? new List<ColorZone>()).Where(z => z != null && z.enabled).ToList();
-            if (sorted.Count == 0)
+            int enabledCount = SessionRecolor.CountEnabled(state.zones);
+            if (enabledCount == 0)
             { result.error = "no enabled zones."; return result; }
-            foreach (var z in sorted) { z.EnsureId(); z.UpdateCacheIfNeeded(); }
+            foreach (var z in state.zones) { if (z != null && z.enabled) { z.EnsureId(); z.UpdateCacheIfNeeded(); } }
 
             // ── ディスクの PNG を直接読む（import 設定/readable に依存せず製品経路と一致させる） ──
-            // 取り込み済みテクスチャを渡さない(null)ので、ExportPipeline のフォールバックは起きず PNG/JPG のみを受け付ける。
+            // imported が null なら ExportPipeline のフォールバックは起きず PNG/JPG のみを受け付ける。
             if (ExportPipeline.ReadSourcePixels(srcAbs, null, out Color32[] pixels, out int w, out int h)
                     == ExportPipeline.SourceKind.Unavailable)
             { result.error = "failed to decode source image."; return result; }
@@ -373,38 +382,24 @@ namespace Iroca
             // 比較パネル/メトリクス用に、再着色前の画素を退避する(ProcessPixelsArray は in-place 変換)。
             var originalPixels = (Color32[])pixels.Clone();
 
-            // v1: マスクはヘッドレス適用しない（masks=null は ProcessPixelsArray で安全に扱われる）。
-            PixelProcessor.ProcessPixelsArray(pixels, w, h, null, sorted, settings,
-                sourcePixels: originalPixels);
+            SessionRecolor.Apply(pixels, w, h, state);
 
-            string outAbs = ResolveOutputPath(outputAssetPath);
-            if (outAbs == null)
-            { result.error = $"output must be a .png inside the project: {outputAssetPath}"; return result; }
-            // 出力先が元テクスチャそのものだと、再着色結果で原本を上書きして戻せなくなる。
-            // UI の「上書き保存」は明示操作＋確認ダイアログ＋Undo があるが、MCP/batchmode 経由には
-            // 何も無く、引数のミス 1 つで非可逆に原本が失われる。ここで断る。
-            // 比較は大小無視: 取りこぼして原本を壊すより、別ファイルを拒否する側に倒す。
-            if (string.Equals(outAbs, srcAbs, StringComparison.OrdinalIgnoreCase))
-            {
-                result.error = "output must differ from source "
-                             + $"(recoloring in place would destroy the original irreversibly): {outputAssetPath}";
-                return result;
-            }
-            if (!TryWritePng(pixels, w, h, outAbs)) { result.error = "PNG encode failed."; return result; }
+            string writeError = WriteRecoloredPng(pixels, w, h, srcAbs, outputAssetPath, out string outAbs);
+            if (writeError != null) { result.error = writeError; return result; }
 
-            var metrics = RecolorPreview.ComputeMetrics(originalPixels, pixels, w, h);
-            result.changedPixels = metrics.changedPixels;
-            result.changedFraction = metrics.changedFraction;
-            result.largestComponentFraction = metrics.largestComponentFraction;
-            result.changeComponentCount = metrics.componentCount;
-            result.changeBBox = new[] { metrics.bboxX, metrics.bboxY, metrics.bboxW, metrics.bboxH };
+            var m = RecolorPreview.ComputeMetrics(originalPixels, pixels, w, h);
+            result.changedPixels = m.changedPixels;
+            result.changedFraction = m.changedFraction;
+            result.largestComponentFraction = m.largestComponentFraction;
+            result.changeComponentCount = m.componentCount;
+            result.changeBBox = new[] { m.bboxX, m.bboxY, m.bboxW, m.bboxH };
             WritePreviewPanel(originalPixels, pixels, w, h, outAbs, srcAbs, result);
 
             result.ok = true;
             result.output = outAbs;
             result.width = w;
             result.height = h;
-            result.zonesApplied = sorted.Count;
+            result.zonesApplied = enabledCount;
             return result;
         }
 
@@ -449,33 +444,51 @@ namespace Iroca
         }
 
         /// <summary>
+        /// 色替えした画素を出力先へ書く(出力先の確かめ → PNG → 取り込み)。エラーなら文言、成功なら null。
+        /// <paramref name="srcAbs"/> は原本の絶対パス(出力が原本を上書きしないことを確かめる)。
+        /// </summary>
+        private static string WriteRecoloredPng(Color32[] pixels, int w, int h, string srcAbs, string outputAssetPath,
+            out string outAbs)
+        {
+            outAbs = ResolveOutputPath(outputAssetPath);
+            if (outAbs == null) return $"output must be a .png inside the project: {outputAssetPath}";
+            // 出力先が元テクスチャそのものだと、再着色結果で原本を上書きして戻せなくなる。
+            // UI の「上書き保存」は明示操作＋確認ダイアログ＋Undo があるが、MCP/batchmode 経由には
+            // 何も無く、引数のミス 1 つで非可逆に原本が失われる。ここで断る。
+            // 比較は大小無視: 取りこぼして原本を壊すより、別ファイルを拒否する側に倒す。
+            if (string.Equals(outAbs, srcAbs, StringComparison.OrdinalIgnoreCase))
+                return "output must differ from source "
+                     + $"(recoloring in place would destroy the original irreversibly): {outputAssetPath}";
+            if (!TryWritePng(pixels, w, h, outAbs)) return "PNG encode failed.";
+            return null;
+        }
+
+        /// <summary>
         /// 画素を PNG にエンコードして <paramref name="abs"/> へ書き出し、Assets 配下なら取り込む。
         /// エンコードに失敗したら何も書かずに false を返す。I/O 等の例外は捕まえず呼び出し側へ伝える。
+        /// エンコードは UI の書き出しと同じ <see cref="ExportPipeline.EncodePng"/>(Texture2D を作らない。
+        /// 8K で 256MB の写しが要らない)。取り込み設定は既定のまま(元の .meta は写さない。従来どおり)。
         /// </summary>
         private static bool TryWritePng(Color32[] pixels, int w, int h, string abs)
         {
-            Texture2D tex = null;
-            try
-            {
-                tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
-                tex.SetPixels32(pixels);
-                byte[] png = tex.EncodeToPNG();
-                if (png == null) return false;
+            byte[] png;
+            try { png = ExportPipeline.EncodePng(pixels, w, h); }
+            catch (Exception) { return false; }
+            WritePngFile(png, abs);
+            return true;
+        }
 
-                string dir = Path.GetDirectoryName(abs);
-                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                // 出力先に既存 PNG があると、書き込み途中で落ちたときその既存物を壊す。
-                // AtomicFile は一時ファイルへ書き切ってから置換する。
-                AtomicFile.WriteAllBytes(abs, png);
+        /// <summary>PNG のバイト列を <paramref name="abs"/> へ書き、Assets 配下なら取り込む(メインスレッド)。</summary>
+        private static void WritePngFile(byte[] png, string abs)
+        {
+            string dir = Path.GetDirectoryName(abs);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            // 出力先に既存 PNG があると、書き込み途中で落ちたときその既存物を壊す。
+            // AtomicFile は一時ファイルへ書き切ってから置換する。
+            AtomicFile.WriteAllBytes(abs, png);
 
-                string rel = PathUtils.ToAssetsRelativeOrNull(abs);
-                if (rel != null) AssetDatabase.ImportAsset(rel);
-                return true;
-            }
-            finally
-            {
-                if (tex != null) UnityEngine.Object.DestroyImmediate(tex);
-            }
+            string rel = PathUtils.ToAssetsRelativeOrNull(abs);
+            if (rel != null) AssetDatabase.ImportAsset(rel);
         }
 
         private static string MakePreviewPath(string outAbs)
@@ -534,8 +547,42 @@ namespace Iroca
                 c != null && c.Length > 1 ? c[1] : 0f,
                 c != null && c.Length > 2 ? c[2] : 0f, 1f);
 
-        // advancedMode は UI 表示レベルのみで処理結果に影響しないため移送しない。
-        private static RecolorSettings SettingsFromPreset(IrocaPresetData p) => RecolorSettings.From(p);
+        /// <summary>
+        /// プリセットを編集状態へ写す（ゾーン・処理設定・マスク）。UI でプリセットを読み込んだときと同じ中身になる。
+        /// advancedMode は UI 表示レベルのみで処理結果に影響しないため移送しない。
+        /// </summary>
+        private static IrocaSessionState SessionFromPreset(IrocaPresetData p)
+        {
+            var state = new IrocaSessionState { zones = p.zones ?? new List<ColorZone>() };
+            RecolorSettings.From(p).CopyTo(state);
+            state.maskState = MaskStateFromPreset(p);
+            return state;
+        }
+
+        /// <summary>
+        /// プリセットのマスク（RLE + Base64）を保存形式の <see cref="MaskState"/> へ写す。どちらも同じ符号化なので
+        /// 文字列はそのまま渡し、寸法の合わない項目・壊れた項目は <see cref="MaskStateCodec"/> の展開で読み飛ばされる
+        /// （UI の MaskPaintView.ApplyFromPreset と同じ規則）。マスクが無ければ空の MaskState（＝マスクなし）。
+        /// </summary>
+        private static MaskState MaskStateFromPreset(IrocaPresetData p)
+        {
+            var ms = new MaskState { schemaVersion = MaskState.CurrentSchemaVersion };
+            if (p.maskWidth <= 0 || p.maskHeight <= 0) return ms;
+            ms.width = p.maskWidth;
+            ms.height = p.maskHeight;
+            ms.commonMaskBase64 = p.commonMaskBase64 ?? "";
+            CopyMaskEntries(p.zoneMasks, ms.zones);
+            CopyMaskEntries(p.zoneIncludeMasks, ms.zoneIncludes);
+            return ms;
+        }
+
+        private static void CopyMaskEntries(List<ZoneMaskEntry> src, List<MaskZoneEntry> dst)
+        {
+            if (src == null) return;
+            foreach (var e in src)
+                if (e != null && !string.IsNullOrEmpty(e.zoneId))
+                    dst.Add(new MaskZoneEntry { zoneId = e.zoneId, maskBase64 = e.maskBase64 ?? "" });
+        }
 
         private static RecolorSettings SettingsFromDto(SettingsDto d) => new RecolorSettings(
             d.edgeFeather, d.antiAliasCleanup,
@@ -566,15 +613,6 @@ namespace Iroca
                 if (File.Exists(p)) return PresetStore.Load(p);
             }
             return null;
-        }
-
-        private static bool HasEmbeddedMask(IrocaPresetData p)
-        {
-            if (p == null) return false;
-            if (p.maskWidth <= 0 || p.maskHeight <= 0) return false;
-            if (!string.IsNullOrEmpty(p.commonMaskBase64)) return true;
-            if (p.zoneMasks != null && p.zoneMasks.Any(z => z != null && !string.IsNullOrEmpty(z.maskBase64))) return true;
-            return p.zoneIncludeMasks != null && p.zoneIncludeMasks.Any(z => z != null && !string.IsNullOrEmpty(z.maskBase64));
         }
 
         private static void AddPresets(PresetList list, string folder, string scope)

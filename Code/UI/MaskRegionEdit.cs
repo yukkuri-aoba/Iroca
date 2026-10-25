@@ -93,6 +93,41 @@ namespace Iroca
         }
 
         /// <summary>
+        /// 右クリックした場所をいま塗っているゾーン(並び順の番号)。どのゾーンも塗っていなければ -1。
+        /// <para>
+        /// 右クリックの宛先は「いま直しているゾーン」(最後に触ったゾーン)だけで決めていたので、ゾーンが 2 つ以上あると、
+        /// 別のゾーンが塗っている所に「ここは塗らない」を当てても見た目が変わらなかった(宛先のゾーンはそこを
+        /// 塗っていない。通知は成功と出る)。塗られている所では、塗っているゾーンを宛先にする(PreviewView.ContextMenu)。
+        /// </para>
+        /// <para>
+        /// strengths[k] は並び順 k のゾーンの、クリックした所の画素ごとの選択の強さ(0..1、長さ sampleCount)。
+        /// 無効のゾーンや値の取れないゾーンは null。合成と同じく上のゾーンから順に画素の残りを取り合い、
+        /// 取り分の合計がいちばん大きいゾーンを返す。それが画素数の半分に届かなければ、塗られていない所とみなす。
+        /// </para>
+        /// </summary>
+        public static int PaintingZoneAt(float[][] strengths, int sampleCount)
+        {
+            if (strengths == null || sampleCount <= 0) return -1;
+            var share = new float[strengths.Length];
+            for (int i = 0; i < sampleCount; i++)
+            {
+                float room = 1f;
+                for (int k = 0; k < strengths.Length && room > 0f; k++)
+                {
+                    var s = strengths[k];
+                    if (s == null) continue;
+                    float take = System.Math.Min(System.Math.Max(s[i], 0f), room);
+                    share[k] += take;
+                    room -= take;
+                }
+            }
+            int best = -1;
+            for (int k = 0; k < share.Length; k++)
+                if (share[k] >= sampleCount * 0.5f && (best < 0 || share[k] > share[best])) best = k;
+            return best;
+        }
+
+        /// <summary>
         /// ブラシ 1 区間(配列の [start, end))を塗る / 消す。塗るときは反対側の層(opposite: 同じゾーンの
         /// 含めるを塗るなら除外、除外を塗るなら含める)を同じ区間で消す。右クリックと同じ「後から塗ったほうが
         /// 勝つ」で、消さないと合成の「除外が勝つ」により含めるを塗っても効かない。消すときは塗っている層だけを消す。

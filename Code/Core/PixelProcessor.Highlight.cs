@@ -11,14 +11,14 @@ using UnityEngine;
 
 namespace Iroca
 {
-    internal static partial class PixelProcessor
+    internal static unsafe partial class PixelProcessor
     {
         /// <summary>
         /// ハイライト候補領域をコア領域から空間伝播させてマスク化する。
         /// strengthの強いピクセル(コア)から、ハイライト候補スコア(highlightPot)を持つ隣接ピクセルへ
         /// strengthを徐々に伝播させ、孤立した白いシャツなどを染めないようにする。
         /// </summary>
-        private static void PropagateHighlights(float[] strength, float[] highlightPot, int w, int h,
+        private static void PropagateHighlights(float* strength, float* highlightPot, int w, int h,
             CancellationToken ct = default)
         {
             // bbox 制限(P1-5): strength を更新し得るのは下のガード `pot > 0f` を満たす画素のみ。
@@ -57,7 +57,7 @@ namespace Iroca
 
             // パック座標 (y<<16)|x で保持する(index からの %w・/w を避ける。w/h は Unity の
             // 最大テクスチャ 16384 でも 16bit に収まる)。
-            int[] cand = s_intPool.Rent(nCand);
+            int* cand = s_intPool.Rent(nCand);
             try
             {
                 Parallel.For(0, bh, po, ly =>
@@ -89,7 +89,7 @@ namespace Iroca
                 });
                 var tileStart = new int[nTiles + 1];
                 for (int t = 0; t < nTiles; t++) tileStart[t + 1] = tileStart[t] + tileCount[t];
-                int[] tiled = s_intPool.Rent(nCand);
+                int* tiled = s_intPool.Rent(nCand);
                 try
                 {
                     Parallel.For(0, nty, po, ty =>
@@ -203,7 +203,7 @@ namespace Iroca
         /// 候補 tiled[k0..k1) を前方(forward=true: 並び順)または後方(逆順)に 1 回辿り、伝播で strength を上げる。
         /// 1 画素の更新規則は従来の逐次スイープと同じ(近傍の読む順序も同じ)。変化があれば true。
         /// </summary>
-        private static bool PropagateHighlightRange(float[] strength, float[] highlightPot, int[] tiled,
+        private static bool PropagateHighlightRange(float* strength, float* highlightPot, int* tiled,
             int k0, int k1, int w, int h, bool forward)
         {
             bool changed = false;
@@ -290,11 +290,11 @@ namespace Iroca
         /// 採用画素は strength=1 にし、後段のハイライト白寄せ合成で階調を保ったまま再着色する。
         /// </summary>
         private static void GrowHighlightBand(
-            float[] strength, Color32[] originalPixels,
+            float* strength, Color32* originalPixels,
             PixelHsv hsv, ColorZone zone, int w, int h,
             CancellationToken ct = default, ColorPalette palette = null)
         {
-            float[] pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int[] pixIdx = hsv.Index;
+            float* pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
             float sH, sS, sV;
             Color.RGBToHSV(zone.sampleColor, out sH, out sS, out sV);
             if (sS < HlBandMinSampleSat) return;
@@ -308,13 +308,13 @@ namespace Iroca
             float satFloor = sS * HlBandMinSatFrac;
 
             int len = w * h;
-            // 候補はプールから Rent(ゼロ初期化されないので Array.Clear で全 false に戻す)し、
+            // 候補はプールから Rent(ゼロ初期化されないので ClearWork で全 false に戻す)し、
             // 早期 return / キャンセル例外を含む全経路で finally から Return する。
-            bool[] candidate = s_boolPool.Rent(len);
-            int[] runX0 = null, runX1 = null, parent = null;
+            bool* candidate = s_boolPool.Rent(len);
+            int* runX0 = null, runX1 = null, parent = null;
             try
             {
-            Array.Clear(candidate, 0, len);
+            ClearWork(candidate, 0, len);
 
             // 候補判定: 各画素は独立(他画素を参照しない)なので並列化する。candidate[] は
             // 走査順に依存せず、書き込みは distinct index のため出力は逐次版とビット不変。
@@ -323,12 +323,12 @@ namespace Iroca
             // 候補判定は画素の色(と色から求めた HSV)だけで決まるので、色の表があれば色ごとに 1 回だけ
             // 判定して配る(同じ式に同じ入力を与えた結果なのでビット単位で同じ)。
             bool[] candByColor = null;
-            int[] pIdx = palette?.Index;
+            int* pIdx = palette != null ? palette.Index : null;
             if (palette != null)
             {
                 candByColor = new bool[palette.Count];
                 var cols = palette.Colors;
-                float[] qH = palette.H, qS = palette.S, qV = palette.V;
+                float* qH = palette.H, qS = palette.S, qV = palette.V;
                 ForEachPaletteChunk(palette.Count, hlbPo, (k0, k1) =>
                 {
                     for (int k = k0; k < k1; k++)
@@ -487,11 +487,12 @@ namespace Iroca
         /// <summary>
         /// 帯成長の候補判定(GrowHighlightBand の画素ループと同じ式)。色の表で色ごとに判定するときに使う。
         /// 画素ループ側の式を変えたらここも同じに変えること。意図した変更では両経路を同時に直す
-        /// (色の表あり・なしのパリティを直接比べるテストは無い)。
-        /// ZoneAutoTuner.VerifyHighlightRecoveryGrowth もこの条件をインラインで写している(画素ループの
-        /// 中なので性能のため呼び出しにしない)。式を変えたら Verify 側も同じに変えること。
+        /// (色の表あり・なしの出力の一致は scripts/golden/test_palette_parity.py が確かめる)。
+        /// 自動調整の閉ループ検証(ZoneAutoTuner.VerifyHighlightRecoveryGrowth)もこれを呼ぶ。以前は画素ループの
+        /// 中なので性能のため式をインラインで写していたが、写しは片方だけ直されやすいので呼び出しにした(2026-10-24)。
         /// </summary>
-        private static bool IsHighlightBandCandidate(float pH, float pS, float pV, Color32 op,
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        internal static bool IsHighlightBandCandidate(float pH, float pS, float pV, Color32 op,
             float sH, float sS, float sV, float sR, float sG, float sB,
             float dR, float dG, float dB, float dsq, float hueCap, float satFloor)
         {
@@ -554,11 +555,11 @@ namespace Iroca
         /// recoveredBits が非 null なら復帰画素のビットを立てる(詳細プレビューへの転写用)。戻り値は復帰画素数。
         /// </summary>
         private static int RecoverEnclosedHighlight(
-            float[] strength, Color32[] pixels,
+            float* strength, Color32* pixels,
             PixelHsv hsv, ColorZone zone, int w, int h,
             ulong[] recoveredBits, CancellationToken ct = default)
         {
-            float[] pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int[] pixIdx = hsv.Index;
+            float* pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out _);
             if (sS < HlBandMinSampleSat) return 0;   // 灰色寄りのサンプルでは色相が信用できない(帯成長と同じ床)
             // 彩度床: 色相が完全に信用できる彩度(chromaConfidence が 1 に達する chromaThreshold+0.10)と
@@ -618,10 +619,10 @@ namespace Iroca
             float glowThr = medSelV + (1f - medSelV) * ColorZone.HighlightValueHeadroomFrac;
             if (glowThr >= 1f) return 0;
 
-            bool[] free = s_boolPool.Rent(len);   // 未選択(閉領域探索の通路)
-            bool[] open = s_boolPool.Rent(len);   // 画像端から到達できた未選択画素。成分走査後は「訪問済み」を兼ねる
-            int[] stamp = s_intPool.Rent(len);    // +id=現在の成分, -id=その成分のリング判定済み。成分 id は単調増加なのでクリア不要
-            int[] queue = s_intPool.Rent(len);    // 成分 flood のキュー(パック座標 (y<<16)|x)
+            bool* free = s_boolPool.Rent(len);   // 未選択(閉領域探索の通路)
+            bool* open = s_boolPool.Rent(len);   // 画像端から到達できた未選択画素。成分走査後は「訪問済み」を兼ねる
+            int* stamp = s_intPool.Rent(len);    // +id=現在の成分, -id=その成分のリング判定済み。成分 id は単調増加なのでクリア不要
+            int* queue = s_intPool.Rent(len);    // 成分 flood のキュー(パック座標 (y<<16)|x)
             int recovered = 0;
             try
             {
@@ -763,7 +764,7 @@ namespace Iroca
         }
 
         // 画素 (x,y) の 8 近傍に stamp==id の画素があるか(成分に隣接する AA 混色帯の除外用)。
-        private static bool IsAdjacent8ToStamp(int[] stamp, int id, int x, int y, int w, int h)
+        private static bool IsAdjacent8ToStamp(int* stamp, int id, int x, int y, int w, int h)
         {
             int yLo = Mathf.Max(0, y - 1), yHi = Mathf.Min(h - 1, y + 1);
             int xLo = Mathf.Max(0, x - 1), xHi = Mathf.Min(w - 1, x + 1);

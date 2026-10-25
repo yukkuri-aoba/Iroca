@@ -49,7 +49,8 @@ namespace Iroca.SentisIntegration
         public event Action StateChanged;
 
         string _sourceKey;
-        Color32[] _sourcePixels;
+        // ソース画素(参照を 1 つ持つ。次のソース・CancelAll で返す)。ジョブは読む間の参照を自分で足す。
+        NativePixels _sourcePixels;
         int _texW, _texH;
         float[] _embedding;                         // 現テクスチャの埋め込み(null=未計算)
         readonly Dictionary<string, float[]> _embeddingCache = new Dictionary<string, float[]>();
@@ -210,6 +211,16 @@ namespace Iroca.SentisIntegration
             return true;
         }
 
+        public void RefreshModelFiles()
+        {
+            // 読み込み済みなら状態は推論の側が持つ。読み込みは同期で止まるので、ここでは決してしない
+            // (ウィンドウが見えているだけで、コンパイルや Play の開始のたびに読み込み直していた)。
+            if (_modelsLoaded) return;
+            MaskSuggestBridge.MigrateLegacyModelsIfNeeded();
+            var next = SentisModelRepository.ModelsPresent() ? MaskSuggestPhase.NotLoaded : MaskSuggestPhase.NoModel;
+            if (_phase != next) SetPhase(next);
+        }
+
         bool TryCreateWorkers(out string error)
         {
             error = null;
@@ -228,7 +239,7 @@ namespace Iroca.SentisIntegration
             }
         }
 
-        public void SetSource(string cacheKey, Color32[] pixelsBottomUp, int width, int height)
+        public void SetSource(string cacheKey, NativePixels pixelsBottomUp)
         {
             if (!_modelsLoaded) return;
             if (cacheKey == _sourceKey &&
@@ -237,9 +248,11 @@ namespace Iroca.SentisIntegration
 
             CancelOps();
             _sourceKey = cacheKey;
-            _sourcePixels = pixelsBottomUp;
-            _texW = width;
-            _texH = height;
+            var old = _sourcePixels;
+            _sourcePixels = pixelsBottomUp?.AddRef();
+            old?.Release();
+            _texW = pixelsBottomUp?.Width ?? 0;
+            _texH = pixelsBottomUp?.Height ?? 0;
             _embedding = null;
 
             if (_embeddingCache.TryGetValue(cacheKey, out var cached))
@@ -257,8 +270,7 @@ namespace Iroca.SentisIntegration
         {
             SetPhase(MaskSuggestPhase.Encoding);
             _encodeStartedAt = MaskSuggestPerf.Now;
-            var px = _sourcePixels;
-            int w = _texW, h = _texH;
+            var px = _sourcePixels.AddRef();   // 読む間の参照(後始末で返す)
             double prepMs = 0; // work(BG)で書き apply(メイン)で読む。Post キュー経由で順序保証あり
             _prepJob ??= new PreviewJob<float[]>();
             _prepJob.Schedule(
@@ -267,7 +279,7 @@ namespace Iroca.SentisIntegration
                     long t0 = MaskSuggestPerf.Now;
                     // ct を貫通させ、キャンセル済みジョブが全コア−2 を占有し続けないようにする
                     // (完走時の出力には影響しない)。
-                    var chw = SamImageOps.BuildEncoderInput(px, w, h, ct);
+                    var chw = SamNativeOps.BuildEncoderInput(px, ct);
                     prepMs = MaskSuggestPerf.MsSince(t0);
                     return chw;
                 },
@@ -276,7 +288,8 @@ namespace Iroca.SentisIntegration
                     _encodePrepMs = prepMs;
                     StartEncoderPump(chw);
                 },
-                e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrPreprocessFormat, e.Message)));
+                e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrPreprocessFormat, e.Message)),
+                cleanup: () => px.Release());
         }
 
         void StartEncoderPump(float[] chw)
@@ -401,24 +414,56 @@ namespace Iroca.SentisIntegration
             if (_decoderWarmed || _embedding == null) return false;
             _decoderWarmed = true;
             SetPhase(MaskSuggestPhase.Decoding);
-            EditorApplication.delayCall += RunDecoderWarmup;
+            RunOnNextTick(RunDecoderWarmup);
             return true;
         }
 
+        /// <summary>
+        /// 次の tick で 1 回だけ呼ぶ。delayCall は使わない: Unity が前面に無い間は delayCall が回らず
+        /// (update は回る)、AI に MCP から頼んだ自動調整が待ちの上限まで止まっていた。
+        /// 呼ばれた側は最初に <see cref="CancelNextTick"/> で外す。
+        /// </summary>
+        static void RunOnNextTick(EditorApplication.CallbackFunction f)
+        {
+            EditorApplication.update -= f;
+            EditorApplication.update += f;
+        }
+
+        static void CancelNextTick(EditorApplication.CallbackFunction f) => EditorApplication.update -= f;
+
         void RunDecoderWarmup()
         {
-            EditorApplication.delayCall -= RunDecoderWarmup;
-            if (_phase != MaskSuggestPhase.Decoding || _embedding == null) return;
-            long t0 = MaskSuggestPerf.Now;
-            TryRunDecoderCore(0.5f, 0.5f, cropRect: null, out _, out _, out _);
-            MaskSuggestPerf.Log($"デコーダ暖機: {MaskSuggestPerf.MsSince(t0):F0}ms");
-            if (_phase != MaskSuggestPhase.Decoding) return;
-            if (_clickQueue.Count > 0)
+            CancelNextTick(RunDecoderWarmup);
+            try
             {
-                StartNextClick();
-                return;
+                if (_phase != MaskSuggestPhase.Decoding || _embedding == null) return;
+                long t0 = MaskSuggestPerf.Now;
+                TryRunDecoderCore(0.5f, 0.5f, cropRect: null, out _, out _, out _);
+                MaskSuggestPerf.Log($"デコーダ暖機: {MaskSuggestPerf.MsSince(t0):F0}ms");
+                if (_phase != MaskSuggestPhase.Decoding) return;
+                if (_clickQueue.Count > 0)
+                {
+                    StartNextClick();
+                    return;
+                }
+                SetPhase(MaskSuggestPhase.Idle);
             }
-            SetPhase(MaskSuggestPhase.Idle);
+            catch (Exception e)
+            {
+                FailFromEditorCallback(e, Localization.AiErrDecodeFormat);
+            }
+        }
+
+        /// <summary>
+        /// EditorApplication の update・delayCall から直接呼ばれる入口で出た例外の始末。Unity はそこで
+        /// 購読者を順に呼ぶだけで例外を止めないので、漏らすと同じフレームに並んだ他ツールの処理が飛ばされる。
+        /// ログに出して、処理中のまま止まらないよう Error に落とす(右クリックから選び直せば再試行になる)。
+        /// </summary>
+        void FailFromEditorCallback(Exception e, string format)
+        {
+            Debug.LogException(e);
+            try { SetPhase(MaskSuggestPhase.Error, error: string.Format(format, e.Message)); }
+            catch (Exception inner) { Debug.LogException(inner); }
         }
 
         void OnEncoderError(Exception e)
@@ -483,7 +528,7 @@ namespace Iroca.SentisIntegration
 
         /// <summary>
         /// クリック 1 件の完了後、待ちがあれば次を予約し、なければ Idle へ戻す。
-        /// 次のデコードは delayCall で 1 tick 逃がす: 取り出した提案のマスク反映・再描画を
+        /// 次のデコードは次の tick へ逃がす: 取り出した提案のマスク反映・再描画を
         /// 先に済ませ、StateChanged ハンドラ内からの深い再入(同期デコード数十 ms)も避ける。
         /// </summary>
         void ScheduleNextClickOrIdle()
@@ -491,7 +536,7 @@ namespace Iroca.SentisIntegration
             if (_clickQueue.Count > 0)
             {
                 SetPhase(MaskSuggestPhase.Decoding);
-                EditorApplication.delayCall += ProcessNextQueuedClick;
+                RunOnNextTick(ProcessNextQueuedClick);
             }
             else
             {
@@ -501,14 +546,21 @@ namespace Iroca.SentisIntegration
 
         void ProcessNextQueuedClick()
         {
-            EditorApplication.delayCall -= ProcessNextQueuedClick;
-            if (_phase != MaskSuggestPhase.Decoding) return;
-            if (_clickQueue.Count == 0) // 予約後に FlushPendingClicks が挟まった
+            CancelNextTick(ProcessNextQueuedClick);
+            try
             {
-                SetPhase(MaskSuggestPhase.Idle);
-                return;
+                if (_phase != MaskSuggestPhase.Decoding) return;
+                if (_clickQueue.Count == 0) // 予約後に FlushPendingClicks が挟まった
+                {
+                    SetPhase(MaskSuggestPhase.Idle);
+                    return;
+                }
+                StartNextClick();
             }
-            StartNextClick();
+            catch (Exception e)
+            {
+                FailFromEditorCallback(e, Localization.AiErrDecodeFormat);
+            }
         }
 
         void RunDecode(float u, float v, MaskSuggestGranularity granularity, double queueWaitMs)
@@ -528,7 +580,7 @@ namespace Iroca.SentisIntegration
             _clickDecodeMs = MaskSuggestPerf.MsSince(tDec);
 
             int w = _texW, h = _texH;
-            var px = _sourcePixels;
+            var px = _sourcePixels?.AddRef();   // 読む間の参照(後始末で返す)
             _postJob ??= new PreviewJob<PostOutcome>();
             _postJob.Schedule(
                 ct =>
@@ -564,13 +616,13 @@ namespace Iroca.SentisIntegration
                         o.cropX0 = x0;
                         o.cropY0 = y0;
                         o.cropSide = side;
-                        o.cropPixels = SamZoomOps.ExtractCrop(px, w, h, x0, y0, side);
+                        o.cropPixels = SamNativeOps.ExtractCrop(px, x0, y0, side);
                     }
                     o.postMs = MaskSuggestPerf.MsSince(t0);
                     if (!hasCrop)
                     {
                         long tr = MaskSuggestPerf.Now;
-                        SamMaskPostprocess.RefineInPlace(s1.maskBottomUp, px, w, h, ct);
+                        SamNativeOps.RefineInPlace(s1.maskBottomUp, px, ct);
                         o.refineMs = MaskSuggestPerf.MsSince(tr);
                     }
                     return o;
@@ -583,7 +635,8 @@ namespace Iroca.SentisIntegration
                     if (o.hasCrop) StartZoomStage(o, u, v, granularity);
                     else DeliverProposal(o);
                 },
-                e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, e.Message)));
+                e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, e.Message)),
+                cleanup: () => px?.Release());
         }
 
         /// <summary>デコーダ同期実行(数十 ms)。cropRect が null なら全体埋め込み+全体座標系、
@@ -817,18 +870,17 @@ namespace Iroca.SentisIntegration
             // ズーム計画の第 1 段マスクは粗マスクのまま(発火時は精密化を省く)。そのまま
             // 配信すると品質後退なので、破棄予定でなければここで精密化してから配信する
             // (稀な経路。所要時間は従来の第 1 段精密化と同等)。
-            var px = _sourcePixels;
-            if (!plan.hasCrop || _discardInFlight || px == null)
+            if (!plan.hasCrop || _discardInFlight || _sourcePixels == null)
             {
                 DeliverProposal(plan);
                 return;
             }
-            int w = _texW, h = _texH;
+            var px = _sourcePixels.AddRef();   // 読む間の参照(後始末で返す)
             _postJob.Schedule(
                 ct =>
                 {
                     long t0 = MaskSuggestPerf.Now;
-                    SamMaskPostprocess.RefineInPlace(plan.mask, px, w, h, ct);
+                    SamNativeOps.RefineInPlace(plan.mask, px, ct);
                     plan.refineMs = MaskSuggestPerf.MsSince(t0);
                     return plan;
                 },
@@ -838,7 +890,8 @@ namespace Iroca.SentisIntegration
                     _clickRefineMs = o.refineMs;
                     DeliverProposal(o);
                 },
-                err => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, err.Message)));
+                err => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, err.Message)),
+                cleanup: () => px.Release());
         }
 
         void CacheCropEmbedding(string key, float[] embedding)
@@ -873,7 +926,9 @@ namespace Iroca.SentisIntegration
         {
             CancelOps();
             _sourceKey = null;
+            var px = _sourcePixels;
             _sourcePixels = null;
+            px?.Release();
             _embedding = null;
             // Error を持ち越すと以降のクリックが全部無視されるので、モデルが載っているなら
             // Idle に戻す(UI からはテクスチャ切替・右クリックメニューからの選び直しが再試行導線になる)。
@@ -889,8 +944,8 @@ namespace Iroca.SentisIntegration
 
         void CancelOps()
         {
-            EditorApplication.delayCall -= RunDecoderWarmup;
-            EditorApplication.delayCall -= ProcessNextQueuedClick;
+            CancelNextTick(RunDecoderWarmup);
+            CancelNextTick(ProcessNextQueuedClick);
             _pump.Stop();
             _readback.Stop();
             _prepJob?.Cancel();
@@ -933,12 +988,20 @@ namespace Iroca.SentisIntegration
             _decoder?.Dispose(); _decoder = null;
         }
 
+        // スクリプトのリロード前と Unity の終了時に呼ばれる。ここから例外が漏れると、同じタイミングの他ツールの
+        // 後始末が飛ばされる(Unity は購読者を順に呼ぶだけで例外を止めない。MCP for Unity はリロード前に
+        // 接続を畳むので、飛ばされるとリロード後に自動でつながらない)。1 段の失敗で残りの後始末も飛ばさないよう、
+        // 段ごとに止める。
         void DisposeAll()
         {
-            CancelOps();
-            _prepJob?.Dispose(); _prepJob = null;
-            _postJob?.Dispose(); _postJob = null;
-            DisposeWorkers();
+            try { CancelOps(); }
+            catch (Exception e) { Debug.LogException(e); }
+            try { _prepJob?.Dispose(); _prepJob = null; }
+            catch (Exception e) { Debug.LogException(e); }
+            try { _postJob?.Dispose(); _postJob = null; }
+            catch (Exception e) { Debug.LogException(e); }
+            try { DisposeWorkers(); }
+            catch (Exception e) { Debug.LogException(e); }
         }
     }
 }

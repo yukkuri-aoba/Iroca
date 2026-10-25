@@ -79,6 +79,16 @@ namespace Iroca
             if (session == null || session.maskState == null) return;
             var ms = session.maskState;
 
+            // Undo/Redo の書き戻しで変わるのはふつう 1 枚だけなので、中身が同じマスクは今の配列をそのまま使う
+            // (MaskStateCodec.Decode の previous)。
+            var previous = new MaskStateCodec.Previous
+            {
+                width = maskWidth,
+                height = maskHeight,
+                common = exclusionMask,
+                zones = new Dictionary<string, bool[]>(zoneMasks),
+                includes = new Dictionary<string, bool[]>(zoneIncludeMasks),
+            };
             exclusionMask = null;
             zoneMasks.Clear();
             zoneIncludeMasks.Clear();
@@ -86,7 +96,7 @@ namespace Iroca
             // 展開規則(寸法不一致・壊れた項目は捨てる)は Core の MaskStateCodec が唯一の正。
             // 寸法が無効なら maskWidth/maskHeight は前の値のまま(従来どおり)。
             if (!MaskStateCodec.Decode(ms, out int w, out int h, out bool[] common,
-                    zoneMasks, zoneIncludeMasks))
+                    zoneMasks, zoneIncludeMasks, previous))
                 return;
             maskWidth = w;
             maskHeight = h;
