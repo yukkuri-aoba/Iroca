@@ -627,8 +627,9 @@ namespace Iroca
             // いろかのコードが変われば出力も変わり得る。Editor アセンブリは再コンパイルのたびに MVID が変わる。
             sb.Append(typeof(SessionRecolor).Assembly.ManifestModule.ModuleVersionId).Append('|');
             sb.Append(like.width).Append('x').Append(like.height).Append('|');
-            // 作業解像度で処理するか、元の解像度で処理して縮めるか(元ファイルが取り込み後より大きいと結果が違う)。
-            sb.Append(WorkingResolution.AtSourceResolution ? "src" : "work").Append('|');
+            // 作業解像度の規則(WorkingResolution)。2026-10-25 に、元ファイルの辺が上限以下なら元の解像度で処理する
+            // ように変えた(それまでの "src" / "work" と別の鍵にして、前の規則で作った出来上がりを使わない)。
+            sb.Append("src").Append(WorkingResolution.MaxSourceSide).Append('|');
             sb.Append((int)like.format).Append('|').Append((int)like.graphicsFormat).Append('|');
             sb.Append(like.mipmapCount).Append('|');
             sb.Append(recipe.formatVersion).Append('|').Append(recipe.sessionJson);

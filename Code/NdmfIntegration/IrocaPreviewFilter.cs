@@ -50,10 +50,6 @@ namespace Iroca.NdmfIntegration
         private static readonly PublishedValue<LivePreview.Target> Live =
             new PublishedValue<LivePreview.Target>(null, "Iroca/LiveTarget");
 
-        // 「元の解像度で編集」。レシピの出来上がりが変わるので、変わったら作り直す。
-        private static readonly PublishedValue<bool> AtSource =
-            new PublishedValue<bool>(false, "Iroca/AtSourceResolution");
-
         // 監視の読み出しで使い回す入れ物(メインスレッドからしか使わない。毎フレーム配列を作らないため)。
         private static readonly List<Material> s_materials = new List<Material>();
         private static readonly List<int> s_textureIds = new List<int>();
@@ -64,15 +60,9 @@ namespace Iroca.NdmfIntegration
             LivePreview.TargetChanged -= OnTargetChanged;
             LivePreview.TargetChanged += OnTargetChanged;
             Live.Value = LivePreview.Current;
-            WorkingResolution.Changed -= OnWorkingResolutionChanged;
-            WorkingResolution.Changed += OnWorkingResolutionChanged;
-            // メインスレッドで一度読んでおく(設定は EditorPrefs にあり、レシピのキャッシュの鍵もこれを読む)。
-            AtSource.Value = WorkingResolution.AtSourceResolution;
         }
 
         private static void OnTargetChanged() => Live.Value = LivePreview.Current;
-
-        private static void OnWorkingResolutionChanged() => AtSource.Value = WorkingResolution.AtSourceResolution;
 
         public IEnumerable<TogglablePreviewNode> GetPreviewControlNodes()
         {
@@ -416,7 +406,7 @@ namespace Iroca.NdmfIntegration
             /// <summary>
             /// このノードの入力を <paramref name="context"/> で監視する。元の Renderer の素材の並びとテクスチャ欄
             /// (アニメーションのプレビューでの切り替えなど、NDMF の変更通知が来ない変化も拾う)、借りたレシピの中身と
-            /// 作業解像度(ウィンドウがレシピへ保存したとき・「元の解像度で編集」を切り替えたとき)。
+            /// 作業解像度(ウィンドウがレシピへ保存したとき)。
             /// 比べる相手はノードを作ったときの値(使い回すときも同じ)。
             /// </summary>
             public void ObserveInputs(ComputeContext context)
@@ -434,7 +424,6 @@ namespace Iroca.NdmfIntegration
                 }
                 foreach (var recipe in _recipes)
                     context.Observe(recipe, r => r.sessionJson);
-                if (_recipes.Count > 0) context.Observe(AtSource);
                 // ウィンドウがこのレシピを編集し始めた・やめた(ライブとレシピが入れ替わる)。差し替え先が変わるので
                 // NDMF はグループを作り直すが、作りかけを待つのをやめるきっかけにもする(StopWaiting)。
                 var watched = new HashSet<IrocaRecipe>();

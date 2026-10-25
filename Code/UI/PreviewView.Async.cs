@@ -266,6 +266,8 @@ namespace Iroca
             NativePixels reused = buffers?.Take(req.srcW, req.srcH);
             // 原本はジョブが読む間の参照を足し、後始末で返す。
             var src = req.srcPixels.AddRef();
+            // 拡大表示を取り込み後の寸法で映すなら、その寸法(非破壊ビルドと同じ面平均で縮める)。
+            int dispW = _displaySource != null ? _displayW : 0, dispH = _displaySource != null ? _displayH : 0;
             bool workStarted = false;
             // もう書かない出力バッファを使い回しへ戻す(参照を渡す。使い回しが無ければ返す)。
             void RetireOutput(NativePixels b)
@@ -281,6 +283,7 @@ namespace Iroca
                     marks.WorkStart = PreviewLatencyCycle.Now;
                     NativePixels pixels = reused ?? NativePixels.Allocate(req.srcW, req.srcH);
                     bool handedOff = false;
+                    NativePixels display = null;
                     try
                     {
                         pixels.CopyFrom(src);
@@ -302,14 +305,23 @@ namespace Iroca
                         // それ以外(キャッシュヒット or scale>=1)は確定済みをそのまま使う。
                         Color32[] rawForJob = req.rawDisplay ?? PixelProcessor.BoxDownsample(
                             src.Ptr, req.srcW, req.srcH, req.prevW, req.prevH, req.scale);
+                        if (dispW > 0)
+                        {
+                            display = NativePixels.Allocate(dispW, dispH);
+                            WorkingResolution.ResizeArea(pixels.Ptr, req.srcW, req.srcH, dispW, dispH, display.Ptr);
+                        }
                         marks.WorkEnd = PreviewLatencyCycle.Now;
                         handedOff = true;
-                        return (processedDisplay, rawForJob, pixels);
+                        return (processedDisplay, rawForJob, pixels, display);
                     }
                     finally
                     {
                         // 取り消し・例外で結果を渡さなかった作業バッファは、もう書かないので使い回しへ戻す。
-                        if (!handedOff) RetireOutput(pixels);
+                        if (!handedOff)
+                        {
+                            RetireOutput(pixels);
+                            display?.Release();
+                        }
                     }
                 },
                 apply: result =>
@@ -331,6 +343,13 @@ namespace Iroca
                     RetireFullOutput();
                     _fullOutput       = result.full;
                     _fullOutputSource = req.srcPixels;
+                    // 拡大表示の寸法が変わっていたら(原本を読み直した)使わない(_fullOutputSource も別の原本になる)。
+                    if (result.display != null && (result.display.Width != _displayW || result.display.Height != _displayH))
+                    {
+                        result.display.Release();
+                        _displayOutput = null;
+                    }
+                    else _displayOutput = result.display;
                     _fullOutputFreshSinceHide = true;
                     // ジョブ側で生成した raw をキャッシュへ確定する(まだ未確定で、対象テクスチャと
                     // 寸法が変わっていない場合のみ。新しいミスで上書きされていれば触らない)。
@@ -357,7 +376,11 @@ namespace Iroca
                     if (!workStarted) RetireOutput(reused);
                 },
                 // 計算は済んだが apply しなかった(後から来た操作で古くなった)出力も戻す。
-                discard: result => RetireOutput(result.full));
+                discard: result =>
+                {
+                    RetireOutput(result.full);
+                    result.display?.Release();
+                });
         }
 
         private void ApplyPendingPreview()

@@ -8,47 +8,55 @@ using UnityEngine;
 namespace Iroca.EditorTests
 {
     /// <summary>
-    /// 編集の作業解像度(<see cref="WorkingResolution"/>)。既定は取り込み後の寸法へ縮め、「元の解像度で編集」
-    /// なら元ファイルのまま。縮小はテクスチャの生データから帯ごとに読む経路と、Color32[] の経路が同じ画素になること。
+    /// 編集の作業解像度(<see cref="WorkingResolution"/>)。元ファイルの辺が 8192 以下なら元ファイルのまま、超えるときだけ
+    /// 取り込み後の寸法へ縮める。拡大表示に映す寸法は取り込み後の寸法。縮小はテクスチャの生データから帯ごとに読む
+    /// 経路と、Color32[] の経路が同じ画素になること。
     /// </summary>
     public class WorkingResolutionTests
     {
         private TestAssets _assets;
-        private bool _savedAtSource;
 
         [SetUp]
-        public void SetUp()
-        {
-            _assets = TestAssets.Create();
-            // この PC の設定(EditorPrefs)を書き換えるので、終わったら戻す。
-            _savedAtSource = WorkingResolution.AtSourceResolution;
-            WorkingResolution.AtSourceResolution = false;
-        }
+        public void SetUp() => _assets = TestAssets.Create();
 
         [TearDown]
-        public void TearDown()
+        public void TearDown() => _assets.Dispose();
+
+        private static (int, int) Size(int fw, int fh, int iw, int ih)
         {
-            WorkingResolution.AtSourceResolution = _savedAtSource;
-            _assets.Dispose();
+            WorkingResolution.Size(fw, fh, iw, ih, out int w, out int h);
+            return (w, h);
         }
 
-        private static (int, int) Size(int fw, int fh, int iw, int ih, bool atSource)
+        private static (int, int) DisplaySize(int ww, int wh, int iw, int ih)
         {
-            WorkingResolution.Size(fw, fh, iw, ih, atSource, out int w, out int h);
+            WorkingResolution.DisplaySize(ww, wh, iw, ih, out int w, out int h);
             return (w, h);
         }
 
         [Test]
-        public void Size_IsTheImportSizeWhenImportShrinks()
+        public void Size_IsTheSourceUpTo8KAndTheImportSizeBeyond()
         {
-            Assert.AreEqual((2048, 2048), Size(8192, 8192, 2048, 2048, false));
-            Assert.AreEqual((2048, 1024), Size(4096, 2048, 2048, 1024, false));
-            Assert.AreEqual((8192, 8192), Size(8192, 8192, 2048, 2048, true), "元の解像度で編集");
-            // 2 のべき乗へ丸める取り込みで縦横比が変わっても、取り込み後の寸法に従う(ゲームに出る寸法)。
-            Assert.AreEqual((2048, 2048), Size(3000, 2000, 2048, 2048, false));
-            // 取り込みで大きくなる(2 のべき乗へ切り上げ)なら引き伸ばさない。
-            Assert.AreEqual((1000, 500), Size(1000, 500, 1024, 512, false));
-            Assert.AreEqual((64, 64), Size(64, 64, 0, 0, false), "取り込み後の寸法が分からない");
+            // 辺が 8192 以下は、取り込みで小さくなっても元ファイルのまま(書き出しと同じ解像度で処理する)。
+            Assert.AreEqual((8192, 8192), Size(8192, 8192, 2048, 2048));
+            Assert.AreEqual((4096, 2048), Size(4096, 2048, 2048, 1024));
+            // 辺が 8192 を超えるときは取り込み後の寸法。2 のべき乗へ丸める取り込みで縦横比が変わっても従う。
+            Assert.AreEqual((4096, 4096), Size(16384, 16384, 4096, 4096));
+            Assert.AreEqual((4096, 2048), Size(8193, 4000, 4096, 2048));
+            // 超えても取り込みで小さくならないなら元のまま(引き伸ばさない)。
+            Assert.AreEqual((16384, 8192), Size(16384, 8192, 16384, 8192));
+            Assert.AreEqual((9000, 64), Size(9000, 64, 0, 0), "取り込み後の寸法が分からない");
+            Assert.IsFalse(WorkingResolution.ExceedsLimit(8192, 8192));
+            Assert.IsTrue(WorkingResolution.ExceedsLimit(8193, 16));
+        }
+
+        [Test]
+        public void DisplaySize_IsTheImportSizeWhenImportShrinks()
+        {
+            Assert.AreEqual((2048, 2048), DisplaySize(8192, 8192, 2048, 2048));
+            Assert.AreEqual((2048, 2048), DisplaySize(3000, 2000, 2048, 2048));
+            Assert.AreEqual((1000, 500), DisplaySize(1000, 500, 1024, 512), "引き伸ばさない");
+            Assert.AreEqual((64, 64), DisplaySize(64, 64, 0, 0), "取り込み後の寸法が分からない");
         }
 
         private static Color32[] Random(int w, int h, int seed)
@@ -115,7 +123,7 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void ReadSource_WorkingSizeFollowsImportMaxSizeUnlessAtSource()
+        public void ReadSource_WorkingSizeIsTheSourceEvenWhenImportShrinks()
         {
             var px = Pattern(64, 48);
             string path = _assets.WritePng("src", px, 64, 48);
@@ -126,21 +134,14 @@ namespace Iroca.EditorTests
             int iw = imported.width, ih = imported.height;
             Assert.Less(iw * ih, 64 * 48, "前提: 取り込み側は縮小されている");
 
-            // 既定: 元ファイルを取り込み後の寸法へ面積平均で縮める(取り込み済みの圧縮された画素は使わない)。
-            // 64x48 は 2 のべき乗へ丸めてから Max Size に収めるので、取り込み後は縦横比が変わり得る(それに従う)。
+            // 作業解像度: 辺が 8192 以下なので、取り込みで小さくなっても元ファイルのまま(取り込み済みの圧縮された
+            // 画素は使わない)。
             var kind = ExportPipeline.ReadSourcePixels(path, imported, out var got, out int w, out int h, workingSize: true);
             Assert.AreEqual(ExportPipeline.SourceKind.File, kind);
-            Assert.AreEqual((iw, ih), (w, h));
-            CollectionAssert.AreEqual(WorkingResolution.ResizeArea(px, 64, 48, iw, ih), got);
-
-            // 元の解像度で編集: 元ファイルのまま。
-            WorkingResolution.AtSourceResolution = true;
-            ExportPipeline.ReadSourcePixels(path, imported, out got, out w, out h, workingSize: true);
             Assert.AreEqual((64, 48), (w, h));
             CollectionAssert.AreEqual(px, got);
 
-            // 書き出し(workingSize なし)は設定に関係なく元ファイルのまま。
-            WorkingResolution.AtSourceResolution = false;
+            // 書き出し(workingSize なし)も元ファイルのまま。
             ExportPipeline.ReadSourcePixels(path, imported, out got, out w, out h);
             Assert.AreEqual((64, 48), (w, h));
             CollectionAssert.AreEqual(px, got);

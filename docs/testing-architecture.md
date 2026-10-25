@@ -598,7 +598,7 @@ Mono 上の出力は検証できない。`scripts/editor-tests/`（`Iroca.Editor
 |---|---|
 | `PersistenceTests` | セッション・マスク・プリセットの往復、読めないファイルを空保存で消さない（.bak 退避）、GUID 未解決ファイルの .orphan 退避・復元・期限切れ削除、プリセット半径の丸め |
 | `ExportPipelineTests` | 原本を import 設定（maxTextureSize）に左右されず読む、TGA は取り込み済みで代替・Read/Write 無しは不可、PNG 往復、import 設定の引き継ぎ、上書きで GUID を保つ |
-| `WorkingResolutionTests` | 編集の作業解像度（`WorkingResolution`）: 既定は元ファイルを取り込み後の寸法へ縮め（取り込みで大きくなるときは引き伸ばさない）、「元の解像度で編集」なら元のまま、書き出しは設定に関係なく元の解像度。テクスチャの生データから帯ごとに縮める経路が Color32[] の経路と同じ画素になる（RGBA32・ARGB32・BGRA32・RGB24） |
+| `WorkingResolutionTests` | 編集の作業解像度（`WorkingResolution`）: 辺が 8192 以下なら元ファイルのまま、超えるときだけ取り込み後の寸法へ縮める（取り込みで大きくなるときは引き伸ばさない）。拡大表示に映す寸法は取り込み後の寸法。書き出しは常に元の解像度。テクスチャの生データから帯ごとに縮める経路が Color32[] の経路と同じ画素になる（RGBA32・ARGB32・BGRA32・RGB24） |
 | `SampleUvUndoTests` | スポイト位置が Undo/Redo・ゾーン削除の Undo で色と対で戻る、プリセットには載らずセッションには残る |
 | `WindowRestoreTests` | ウィンドウが状態を失わない・古い状態に戻らない: プレビュー・オーバーレイの一時テクスチャがシーンを開いても破棄されない、Unity が落ちた後の起動ではレイアウトに残った古い編集内容でなく自動保存を読む（ドメインリロードではメモリ上の内容を使う） |
 | `UndoRestoreSignalTests` | 「関係ない Undo では作り直さない」判定の前提: ウィンドウ自身の Undo/Redo では `undoRedoPerformed` より前に `OnAfterDeserialize` が来て、別のオブジェクトの Undo/Redo では来ない |

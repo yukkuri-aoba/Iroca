@@ -18,7 +18,7 @@ headless ハーネスと golden は net8 で製品 C# を動かすので、Unity
 | `SceneMeshPickerTests.cs` | Scene でクリックした場所を求める（`SceneMeshPicker`）とプレビューに重ねる島の組み立て。手前の Renderer・UV、マテリアルのカリング、非表示のものを除く、スキンメッシュはポーズ込みの形。テスト用の物は開いているシーンの遠く（座標 1000）に置いて片付ける |
 | `MaterialAppearanceTests.cs` | 「アバターの色」表示。マテリアルの色の設定の読み取り（標準のメインカラー、lilToon のメインカラー・色調補正・グラデーション・2nd / 3rd と UV0 以外の層、2nd のテクスチャとして開いたとき、シーンからの探索）と、それをプレビューに掛ける描画。lilToon の焼き込みシェーダーで描いたメインカラーが自前の掛け算の表と一致する（色空間の扱いが同じ）、拡大表示の切り出しが重ね描きの層（タイル・デカール）の位置まで全体を描いたものと一致する。lilToon が無いホストでは lilToon の段、`-Graphics` でないときは GPU の段を Ignore |
 | `NonDestructiveTests.cs` / `NdmfProcessAvatarTests.cs` | 非破壊の色替え（レシピ → テクスチャ → マテリアル差し替え）。後者は NDMF を通した結合で、NDMF があるホストでだけコンパイルされる |
-| `WorkingResolutionTests.cs` | 編集の作業解像度（`WorkingResolution`）。既定は元ファイルを取り込み後の寸法へ縮め、「元の解像度で編集」なら元のまま。書き出しは常に元の解像度。縮小をテクスチャの生データから帯ごとに読む経路が、Color32[] の経路と同じ画素になる（RGBA32・ARGB32・BGRA32・RGB24）|
+| `WorkingResolutionTests.cs` | 編集の作業解像度（`WorkingResolution`）。辺が 8192 以下なら元ファイルのまま、超えるときだけ取り込み後の寸法へ縮める。拡大表示に映す寸法は取り込み後の寸法。書き出しは常に元の解像度。縮小をテクスチャの生データから帯ごとに読む経路が、Color32[] の経路と同じ画素になる（RGBA32・ARGB32・BGRA32・RGB24）|
 | `NdmfSupportTests.cs` | NDMF が使えないときの扱い。asmdef の版の範囲（2.0 のベータ版も外す）を Unity がそのとおりに読んでいるか（入っているパッケージの版から各 asmdef の define を照らす）。NDMF が入っていない・古い・新しすぎるときに、色替えするものがあれば VRChat へのアップロードを止めて直し方を案内するか。VRChat SDK があれば「Iroca Recolor」が NDMF と関係なく `IEditorOnly` で、アップロードの確認が NDMF より先に走り、NDMF が使えるときは素通しするか |
 | `OptionalPackageRangeTests.cs` | 任意の依存（AI の Sentis・Inference Engine、MCP for Unity）の asmdef の版の範囲（上限は次の版のベータ版も外す `-0`）を Unity がそのとおりに読んでいるか。入っているパッケージの版から、連携部分がコンパイルされるはずかを出して照らす |
 | `RecipeRegistrationTests.cs` | 登録で `Iroca Recolor` が増えない（同じオブジェクトは 1 つにまとめる・同じテクスチャは置き換え・Undo）、旧保存形式の読み込み |

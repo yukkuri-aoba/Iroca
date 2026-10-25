@@ -61,13 +61,13 @@ namespace Iroca
             var detail = _detailView.detailPreviewTexture;
             // 拡大表示をやめたら、切り出し用の作業 RenderTexture(テクスチャ全体の寸法になり得る)は持たない。
             if (detail == null) _appearance.ReleaseScratch();
-            if (detail != null && _trueSourceW > 0 && _trueSourceH > 0
+            if (detail != null && DetailW > 0 && DetailH > 0
                 && (_appearanceDetailBuilt != _detailVersion || _appearanceDetailFor != sig))
             {
                 var uv = new Rect(
-                    _detailView.detailOriginX / (float)_trueSourceW, _detailView.detailOriginY / (float)_trueSourceH,
-                    _detailView.detailCropW / (float)_trueSourceW, _detailView.detailCropH / (float)_trueSourceH);
-                _appearance.RenderRegion(report, detail, uv, _trueSourceW, _trueSourceH, ref _appearanceDetail);
+                    _detailView.detailOriginX / (float)DetailW, _detailView.detailOriginY / (float)DetailH,
+                    _detailView.detailCropW / (float)DetailW, _detailView.detailCropH / (float)DetailH);
+                _appearance.RenderRegion(report, detail, uv, DetailW, DetailH, ref _appearanceDetail);
                 _appearanceDetailBuilt = _detailVersion;
                 _appearanceDetailFor = sig;
             }
@@ -99,7 +99,7 @@ namespace Iroca
         /// </summary>
         private Texture ShownDetailRaw()
         {
-            if (!_detailView.EnsureDetailRaw(_trueSource, _trueSourceW, _trueSourceH)) return null;
+            if (!_detailView.EnsureDetailRaw(DetailSource, DetailW, DetailH)) return null;
             var raw = _detailView.detailRawTexture;
             if (!AppearanceActive) return raw;
             var report = AppearanceReport;
@@ -108,9 +108,9 @@ namespace Iroca
                 || _appearanceDetailRawFor != report.signature)
             {
                 var uv = new Rect(
-                    _detailView.detailOriginX / (float)_trueSourceW, _detailView.detailOriginY / (float)_trueSourceH,
-                    _detailView.detailCropW / (float)_trueSourceW, _detailView.detailCropH / (float)_trueSourceH);
-                _appearance.RenderRegion(report, raw, uv, _trueSourceW, _trueSourceH, ref _appearanceDetailRaw);
+                    _detailView.detailOriginX / (float)DetailW, _detailView.detailOriginY / (float)DetailH,
+                    _detailView.detailCropW / (float)DetailW, _detailView.detailCropH / (float)DetailH);
+                _appearance.RenderRegion(report, raw, uv, DetailW, DetailH, ref _appearanceDetailRaw);
                 _appearanceDetailRawBuilt = _detailView.detailRawVersion;
                 _appearanceDetailRawFor = report.signature;
             }

@@ -9,36 +9,23 @@ using UnityEngine;
 namespace Iroca
 {
     /// <summary>
-    /// 編集の作業解像度。プレビュー・スポイト・AI 提案・自動調整・非破壊ビルド(NDMF)は、既定で元ファイルを
-    /// 取り込み後の寸法(インポート設定の Max Size で縮んだ大きさ)へ縮めた画素で処理する。ゲームに出るのは
-    /// その寸法なので見た目はほぼ変わらず、元ファイルが大きいときのメモリ(8K で 6GB ほど)を使わずに済む。
-    /// PNG の書き出し(単体・一括)は、この設定に関係なく元ファイルの解像度で処理する。
-    /// 「元の解像度で編集」(<see cref="AtSourceResolution"/>)をオンにすると、作業解像度も元ファイルの
-    /// 解像度になる(2026-10-18 より前の動き)。
-    /// マスクの土台は設定に関係なく元ファイルの寸法(書き出しで塗った境目が粗くならないように)。
-    /// 処理側はマスクと画素の寸法が違っても対応する画素を引く(PixelProcessor.BuildMaskIndexMap)。
-    /// 縮小は面積平均。プレビューと非破壊ビルドが同じ縮小・同じ処理を通るので、両者の結果は一致する。
+    /// 編集の作業解像度。プレビュー・スポイト・AI 提案・自動調整・非破壊ビルド(NDMF)は、元ファイルの解像度の
+    /// 画素で処理する。PNG の書き出し(単体・一括)と同じ解像度で処理するので、どの経路でも色替えの中身は同じになる
+    /// (色替えは画素ごとに非線形なので、縮めてから処理すると、処理してから縮めたものと色がずれる。細かい模様の布で
+    /// OkLab の差が 0.01 前後、金の小物で 0.05 前後あった。2026-10-25)。
+    /// ただし元ファイルの辺が <see cref="MaxSourceSide"/> を超えるときは、メモリ(16K で 25GB ほど)が足りなく
+    /// なるので、取り込み後の寸法(インポート設定の Max Size で縮んだ大きさ)へ縮めて処理する。その間は書き出しと
+    /// 色が少し違い得ることを、ウィンドウの案内(IrocaWindow.DrawLargeSourceNotice)が知らせる。
+    /// 2026-10-18〜25 は既定で取り込み後の寸法で処理し、「元の解像度で編集」で元の解像度に切り替えていた。
+    /// プレビューの拡大表示は、処理した結果を取り込み後の寸法(<see cref="DisplaySize"/>)へ縮めて映す
+    /// (ゲームに出るのはその寸法。非破壊ビルドも同じ縮小を通る)。
+    /// マスクの土台は元ファイルの寸法。処理側はマスクと画素の寸法が違っても対応する画素を引く
+    /// (PixelProcessor.BuildMaskIndexMap)。縮小は面積平均。
     /// </summary>
     internal static class WorkingResolution
     {
-        private const string AtSourcePrefKey = "Iroca.EditAtSourceResolution";
-        private static bool? s_atSource;
-
-        /// <summary><see cref="AtSourceResolution"/> が変わったとき(メインスレッド)。</summary>
-        public static event Action Changed;
-
-        /// <summary>元ファイルの解像度で編集するか。この PC のいろか全体の設定(既定はオフ)。</summary>
-        public static bool AtSourceResolution
-        {
-            get => s_atSource ??= EditorPrefs.GetBool(AtSourcePrefKey, false);
-            set
-            {
-                if (value == AtSourceResolution) return;
-                s_atSource = value;
-                EditorPrefs.SetBool(AtSourcePrefKey, value);
-                Changed?.Invoke();
-            }
-        }
+        /// <summary>元ファイルのまま処理する辺の上限(画素)。これを超える元ファイルは取り込み後の寸法で処理する。</summary>
+        public const int MaxSourceSide = 8192;
 
         /// <summary>
         /// 元ファイル(fileW×fileH)を編集する寸法。取り込み済みテクスチャが無ければ元ファイルのまま。
@@ -46,19 +33,39 @@ namespace Iroca
         public static void Size(int fileW, int fileH, Texture2D imported, out int w, out int h)
         {
             if (imported == null) { w = fileW; h = fileH; return; }
-            Size(fileW, fileH, imported.width, imported.height, AtSourceResolution, out w, out h);
+            Size(fileW, fileH, imported.width, imported.height, out w, out h);
         }
 
+        /// <summary>元ファイルが大きすぎて、元の解像度では処理しないか(<see cref="MaxSourceSide"/> を超える辺がある)。</summary>
+        public static bool ExceedsLimit(int fileW, int fileH) => fileW > MaxSourceSide || fileH > MaxSourceSide;
+
         /// <summary>
-        /// 寸法の規則。取り込みで小さくなったときは取り込み後の寸法そのもの(2 のべき乗へ丸める取り込みで
-        /// 縦横比が変わっても従う。ゲームに出るのもその寸法)。取り込みで大きくなるときは元ファイルのまま
-        /// (引き伸ばさない)。
+        /// 寸法の規則。元ファイルの辺が <see cref="MaxSourceSide"/> 以下なら元ファイルのまま。超えるときは、取り込みで
+        /// 小さくなっていれば取り込み後の寸法そのもの(2 のべき乗へ丸める取り込みで縦横比が変わっても従う。ゲームに
+        /// 出るのもその寸法)。取り込みで小さくならないなら元ファイルのまま(引き伸ばさない)。
         /// </summary>
-        internal static void Size(int fileW, int fileH, int importW, int importH, bool atSource, out int w, out int h)
+        internal static void Size(int fileW, int fileH, int importW, int importH, out int w, out int h)
         {
             w = fileW;
             h = fileH;
-            if (atSource || importW <= 0 || importH <= 0) return;
+            if (!ExceedsLimit(fileW, fileH)) return;
+            ShrinkToImport(fileW, fileH, importW, importH, ref w, ref h);
+        }
+
+        /// <summary>
+        /// 作業解像度(workW×workH)で処理した結果を、プレビューの拡大表示に映す寸法。取り込みで小さくなるなら
+        /// 取り込み後の寸法(ゲームに出る寸法)、そうでなければ作業解像度のまま。
+        /// </summary>
+        internal static void DisplaySize(int workW, int workH, int importW, int importH, out int w, out int h)
+        {
+            w = workW;
+            h = workH;
+            ShrinkToImport(workW, workH, importW, importH, ref w, ref h);
+        }
+
+        private static void ShrinkToImport(int fileW, int fileH, int importW, int importH, ref int w, ref int h)
+        {
+            if (importW <= 0 || importH <= 0) return;
             if ((long)importW * importH < (long)fileW * fileH)
             {
                 w = importW;

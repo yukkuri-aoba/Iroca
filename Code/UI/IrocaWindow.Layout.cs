@@ -740,18 +740,17 @@ namespace Iroca
             EditorGUILayout.Space(4);
         }
 
-        // 原本の画素数がこれ(8192²)を超えたら、メモリを多く使うことを案内する。
-        private const long LargeSourcePixels = 8192L * 8192L;
         // 作業中の Unity が原本 1 画素あたりに使うメモリの目安(バイト)。2026-10-11 の実測で、16K の通し
         // (取り込み〜色替え〜書き出し〜NDMF)のピークが約 25GB、8K のプレビュー相当の繰り返しが約 6GB だった。
         private const double SourceBytesPerPixel = 96.0;
         private const string LargeSourceDismissedKeyPrefix = "Iroca.LargeSource.Dismissed:";
 
         /// <summary>
-        /// 8K を超える元画像を開いたときの案内。「テクスチャとして書き出す」は元ファイルの解像度で処理するので、
-        /// 編集を取り込み後の寸法で行っていても(<see cref="WorkingResolution"/>)、書き出すときはメモリを多く使う。
-        /// 作業解像度も元ファイルのまま(Max Size が元以上・「元の解像度で編集」がオン)なら編集中から使う。
-        /// 16K では PC の搭載量を超え得るため、使う量の目安と搭載量を並べて開いた時点で知らせる。
+        /// 辺が 8192 を超える元画像を開いたときの案内(<see cref="WorkingResolution.ExceedsLimit"/>)。編集・プレビュー・
+        /// 非破壊の登録は取り込み後の寸法で処理するので、元の解像度で処理する書き出しとは色がわずかに違い得る。
+        /// 書き出しは元ファイルの解像度で処理するので、書き出すときはメモリを多く使う。取り込みで小さくならない
+        /// (Max Size が元以上)なら編集中から元の解像度で処理する。16K では PC の搭載量を超え得るため、使う量の
+        /// 目安と搭載量を並べて開いた時点で知らせる。
         /// 閉じると、そのテクスチャでは Unity を閉じるまで出さない(上部の高さを奪い続けないため)。
         /// </summary>
         private void DrawLargeSourceNotice()
@@ -763,7 +762,7 @@ namespace Iroca
             // 元ファイルの寸法。取り込み済みテクスチャから読んでいる(PSD など)ときは、書き出しもその寸法。
             int w = ww, h = wh;
             if (_previewView.TrueSourceFromFile) SourceFileSize(sourceTexture, ref w, ref h);
-            if ((long)w * h <= LargeSourcePixels) return;
+            if (!WorkingResolution.ExceedsLimit(w, h)) return;
             string key = LargeSourceDismissedKeyPrefix + CurrentTexturePath(sourceTexture);
             if (SessionState.GetBool(key, false)) return;
 
@@ -773,8 +772,6 @@ namespace Iroca
             string text;
             if ((long)ww * wh < (long)w * h)
                 text = string.Format(Localization.LargeSourceExportNoticeFormat, w, h, ww, wh, needGB, haveGB);
-            else if (WorkingResolution.AtSourceResolution)
-                text = string.Format(Localization.LargeSourceAtSourceNoticeFormat, w, h, needGB, haveGB);
             else
                 text = string.Format(Localization.LargeSourceNoticeFormat, w, h, needGB, haveGB);
             EditorGUILayout.HelpBox(text, MessageType.Warning);
@@ -825,17 +822,6 @@ namespace Iroca
             useDecontamination = UndoHelper.Toggle(this,
                 new GUIContent(Localization.UseDecontamination, Localization.UseDecontaminationTooltip),
                 useDecontamination);
-
-            // 作業解像度(WorkingResolution)。この PC のいろか全体の設定なので、作業ごとには保存せず Undo にも
-            // 載せない。ラベルは設定列の幅を決める計測の外に置く(ToggleLeft)。
-            bool atSource = EditorGUILayout.ToggleLeft(
-                new GUIContent(Localization.EditAtSourceResolution, Localization.EditAtSourceResolutionTooltip),
-                WorkingResolution.AtSourceResolution);
-            if (atSource != WorkingResolution.AtSourceResolution)
-            {
-                WorkingResolution.AtSourceResolution = atSource;
-                InvalidateSourceAndRepaint();
-            }
 
             // 内部パラメータ（穴埋め・境界復元・α分解半径）は折りたたみの中へ。
             //
