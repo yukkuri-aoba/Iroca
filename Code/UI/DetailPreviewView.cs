@@ -405,9 +405,11 @@ namespace Iroca
         /// 詳細クロップの拡大フィルタ。表示解像度へ縮小済み(texW &lt; cropW)なら表示ピクセルと
         /// ほぼ 1:1 なので Bilinear で端数のズレをなじませる。等倍以上のときはソース画素を
         /// くっきり見せたいので Point のままにする（ピクセル単位の確認用）。
+        /// 「なめらか」(<see cref="PreviewView.SmoothMagnify"/>)がオンなら、等倍以上でも Bilinear にする
+        /// (ゲームの中で近くから見たときの見え方に近い)。
         /// </summary>
-        private static FilterMode DetailFilterMode(int texW, int cropW)
-            => texW < cropW ? FilterMode.Bilinear : FilterMode.Point;
+        internal static FilterMode DetailFilterMode(int texW, int cropW)
+            => texW < cropW || PreviewView.SmoothMagnify ? FilterMode.Bilinear : FilterMode.Point;
 
         private void ScheduleDetailDiffTexture(Color32[] before, Color32[] after, int w, int h)
         {

@@ -1148,6 +1148,10 @@ namespace Iroca
         // ズームのリセット（ズーム自体は Ctrl+スクロール。拡大後に初期表示へ戻す手段が無かった）
         // ─────────────────────────────────────────────────────────────
         public static string ZoomReset => IsJapanese ? "リセット" : "Reset";
+        public static string SmoothMagnify => IsJapanese ? "なめらか" : "Smooth";
+        public static string SmoothMagnifyTooltip => IsJapanese
+            ? "オン: 拡大したとき、画素の間をなめらかにつないで表示します（ゲームの中で近くから見たときの見え方に近くなります）。\nオフ: 1 画素ずつ四角く表示します（画素単位で確かめたいとき）。\n表示だけの設定で、色替えの結果は変わりません。"
+            : "On: when zoomed in, pixels are blended smoothly (closer to how the texture looks up close in game).\nOff: each pixel is shown as a square (to check individual pixels).\nThis only changes the display, not the recolor result.";
         public static string ZoomResetTooltip => IsJapanese
             ? "ズームを 100%（テクスチャ全体が収まる大きさ）に戻し、表示位置も先頭に戻します（ズームは Ctrl+スクロールで変えられます）"
             : "Reset the zoom to 100% (the whole texture fits) and the scroll position to the top-left (zoom with Ctrl+Scroll)";

@@ -770,6 +770,7 @@ namespace Iroca
             int panelCount = PanelCount;
             UpdateFitScale(panelCount, frameW);
             float effZoom = EffectiveZoom;
+            SyncMagnifyFilters(scale, effZoom);
 
             // 詳細モード: ソースが縮小されて表示されている(scale<1)テクスチャを、プレビューテクスチャより
             // 大きく表示しているとき(拡大したとき・広いウィンドウの全体表示)、低解像度プレビューの
@@ -1427,13 +1428,66 @@ namespace Iroca
                 if (!TitleRowFits(title, zoom, reset))
                     zoom.text = _cachedZoomLabelShort;
                 GUILayout.Label(zoom, GUILayout.ExpandWidth(false));
+                bool smooth = GUILayout.Toggle(SmoothMagnify, SmoothContent, EditorStyles.miniButton, GUILayout.ExpandWidth(false));
+                if (smooth != SmoothMagnify)
+                {
+                    SmoothMagnify = smooth;
+                    _host.RequestRepaint();
+                }
                 if (GUILayout.Button(reset, EditorStyles.miniButton, GUILayout.ExpandWidth(false)))
                     ResetZoom(maxZoom);
             }
             EditorGUILayout.EndHorizontal();
         }
 
-        // 見出し行(題名・ズーム率・リセット)がカラムの見えている幅に収まるか。
+        // ── 拡大したときの補間(表示だけの設定) ─────────────────────────
+        // オフ(既定): 等倍以上に拡大したら 1 画素ずつ四角く見せる(画素単位で確かめる)。
+        // オン: 画素の間をなめらかにつなぐ(ゲームの中でテクスチャを近くから見たときの見え方に近い)。
+        // 縮小表示は面平均で作った画像を描くので、どちらでも変わらない。マスクの重ね表示は
+        // 「入っている / いない」を見せるものなので、ここでは変えない(MaskPaintView.SyncOverlayFilter)。
+        private const string SmoothMagnifyPrefKey = "Iroca.PreviewSmoothMagnify";
+        private static bool? s_smoothMagnify;
+
+        /// <summary>拡大したときに画素の間をなめらかにつなぐか。この PC のいろか全体の表示の設定。</summary>
+        internal static bool SmoothMagnify
+        {
+            get => s_smoothMagnify ??= EditorPrefs.GetBool(SmoothMagnifyPrefKey, false);
+            set
+            {
+                s_smoothMagnify = value;
+                EditorPrefs.SetBool(SmoothMagnifyPrefKey, value);
+            }
+        }
+
+        private static GUIContent SmoothContent => new GUIContent(Localization.SmoothMagnify, Localization.SmoothMagnifyTooltip);
+
+        /// <summary>
+        /// 表示用テクスチャの補間を今の設定と倍率に合わせる(描く前に毎フレーム。値が同じなら何もしない)。
+        /// 全体表示の画像は、元の画像をそのまま載せている(scale>=1)ときだけ、拡大中に「ドット」なら Point にする
+        /// (縮小した画像の画素を四角く見せても、元の画素ではないので意味が無い)。
+        /// </summary>
+        private void SyncMagnifyFilters(float scale, float effZoom)
+        {
+            var whole = scale >= 1f && effZoom > 1f && !SmoothMagnify ? FilterMode.Point : FilterMode.Bilinear;
+            SetFilter(previewTexture, whole);
+            SetFilter(rawPreviewTexture, whole);
+            SetFilter(_appearancePreview, whole);
+            SetFilter(_appearanceRaw, whole);
+            var dt = _detailView.detailPreviewTexture;
+            if (dt == null || _detailView.detailCropW <= 0) return;
+            var detail = DetailPreviewView.DetailFilterMode(dt.width, _detailView.detailCropW);
+            SetFilter(dt, detail);
+            SetFilter(_detailView.detailRawTexture, detail);
+            SetFilter(_appearanceDetail, detail);
+            SetFilter(_appearanceDetailRaw, detail);
+        }
+
+        private static void SetFilter(Texture tex, FilterMode mode)
+        {
+            if (tex != null && tex.filterMode != mode) tex.filterMode = mode;
+        }
+
+        // 見出し行(題名・ズーム率・なめらか・リセット)がカラムの見えている幅に収まるか。
         // カラム幅を渡さないホストでは従来どおり省略しない。
         private bool TitleRowFits(GUIContent title, GUIContent zoom, GUIContent reset)
         {
@@ -1445,7 +1499,8 @@ namespace Iroca
             var button = EditorStyles.miniButton;
             float need = bold.CalcSize(title).x + bold.margin.horizontal
                          + label.CalcSize(zoom).x + label.margin.horizontal
-                         + button.CalcSize(reset).x + button.margin.horizontal;
+                         + button.CalcSize(reset).x + button.margin.horizontal
+                         + button.CalcSize(SmoothContent).x + button.margin.horizontal;
             return need <= avail;
         }
 
