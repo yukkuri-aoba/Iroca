@@ -31,6 +31,8 @@ namespace Iroca
         internal static void OpenRecipe(IrocaRecipe recipe)
         {
             if (recipe == null || recipe.sourceTexture == null) return;
+            // メニューと同じ開き方にする(素の GetWindow だとタブ名が型名になり、大きさも既定にならない)
+            ShowWindow();
             var win = GetWindow<IrocaWindow>();
             win.Show();
             win.Focus();
@@ -45,6 +47,8 @@ namespace Iroca
         internal static void OpenTexture(Texture2D texture)
         {
             if (texture == null) return;
+            // メニューと同じ開き方にする(素の GetWindow だとタブ名が型名になり、大きさも既定にならない)
+            ShowWindow();
             var win = GetWindow<IrocaWindow>();
             win.Show();
             win.Focus();
