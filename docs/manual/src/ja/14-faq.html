@@ -46,6 +46,15 @@
 
 <p>最後の 2 つは、この PC のほかのプロジェクトのいろかも使います。</p>
 
+<p>次のものも残りますが、消す前に確かめてください。</p>
+
+<ul>
+  <li>書き出した画像（既定は元のテクスチャと同じフォルダの <code>〜_recolored.png</code>。元が Assets の外なら <code>Assets/Iroca/Exports</code>）: 色替えの成果物です。マテリアルが使っていることがあるので、消すと色が戻ったり、テクスチャが外れたりします</li>
+  <li>Unity の設定（EditorPrefs）の <code>Iroca.</code> で始まる値: 言語・「元の解像度で編集」・拡大表示の「なめらか」・更新の確認などの設定です。Unity のどのプロジェクトでも共通で、Windows ではレジストリの <code>HKEY_CURRENT_USER\Software\Unity Technologies\Unity Editor 5.x</code> にあります。残っていても害はありません</li>
+  <li>インストーラで入れたときの NDMF: いろかを消しても残ります。Modular Avatar などほかのツールも使っていることが多いので、使っていないと確かめられたときだけ VCC / ALCOM で削除します</li>
+  <li>インストーラが VCC / ALCOM に追加した、いろかのパッケージの置き場（リポジトリ）: 要らなければ VCC / ALCOM の設定（Settings → Packages）から削除できます</li>
+</ul>
+
 <p>AI のために入れた Sentis（Unity 6 では Inference Engine）と、一緒に上がった Burst・Collections・Test Framework なども残ります。要らなければ、ほかのツールが Sentis を使っていないか確かめてから、Package Manager で Sentis を Remove します。</p>
 
 <h4 id="faq-images" class="qa">Q: マニュアルの画像のテクスチャは？</h4>
