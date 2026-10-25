@@ -161,7 +161,7 @@ namespace Iroca
                         && p.y >= _previewScrollPos.y + my && p.y <= _previewScrollPos.y + viewH - my;
             if (visible) return;
             _previewScrollPos = new Vector2(Mathf.Max(0f, p.x - viewW * 0.5f), Mathf.Max(0f, p.y - viewH * 0.5f));
-            // スクロールで古い詳細クロップは整合しなくなる(パン・ズームと同じ扱い)。
+            // 見えている範囲が変わるので拡大表示を作り直させる(パン・ズームと同じ扱い)。
             _detailView.OnViewMoved();
         }
 

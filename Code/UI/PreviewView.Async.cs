@@ -401,8 +401,7 @@ namespace Iroca
             }
 
             // 拡大表示(詳細クロップ)は確定(フル段)の出力から切り出すので、確定を出したときだけ
-            // 作り直させる。待たない: 詳細の待ち(DetailDebounceSeconds)はスクロール・ズーム中の作り直しを間引く
-            // ためのもの。プロキシの直後は何もしない(切り出し元のフル段の出力がまだ前の状態のまま)。
+            // 作り直させる。プロキシの直後は何もしない(切り出し元のフル段の出力がまだ前の状態のまま)。
             if (isDrag)
             {
                 // ドラッグの追従: 古い拡大表示を隠してこのプロキシを見せる。走っている拡大表示のジョブは
@@ -413,9 +412,8 @@ namespace Iroca
             }
             if (isFinal)
             {
-                double now = EditorApplication.timeSinceStartup;
-                _detailView.lastDetailDirtyTime =
-                    System.Math.Max(double.Epsilon, now - DetailPreviewView.DetailDebounceSeconds);
+                // 走っている切り出しは古いフル段の出力のものなので取り消す(色が古い)。
+                _detailView.lastDetailDirtyTime = System.Math.Max(double.Epsilon, EditorApplication.timeSinceStartup);
                 _detailView.detailJob.Cancel();
             }
 

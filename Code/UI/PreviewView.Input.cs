@@ -94,8 +94,8 @@ namespace Iroca
                             }
 
                             previewZoom = newZoom;
-                            // ズーム比が変わるとピクセル/ソース比も変わるため、
-                            // 古い詳細プレビューは整合しなくなる。破棄して再生成を待つ。
+                            // 見えている範囲と倍率が変わるので拡大表示を作り直させる。できるまでは前の切り出しを
+                            // 新しい倍率で(元の画像の座標の位置に)描き続ける。
                             _detailView.OnViewMoved();
                             _host.RequestRepaint();
                         }
@@ -150,7 +150,7 @@ namespace Iroca
                         _previewScrollPos -= e.delta;
                         _previewScrollPos.x = Mathf.Max(0f, _previewScrollPos.x);
                         _previewScrollPos.y = Mathf.Max(0f, _previewScrollPos.y);
-                        // パンで詳細クロップ位置が変わるので古い詳細プレビューを破棄。
+                        // パンで見えている範囲が変わるので拡大表示を作り直させる。
                         _detailView.OnViewMoved();
                         e.Use();
                         _host.RequestRepaint();

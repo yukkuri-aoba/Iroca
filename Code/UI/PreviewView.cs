@@ -784,8 +784,6 @@ namespace Iroca
                 if (!_detailView.detailJob.IsRunning &&
                     (!_detailHiddenForDrag || _fullOutputFreshSinceHide) &&
                     _detailView.lastDetailDirtyTime > 0 &&
-                    (EditorApplication.timeSinceStartup - _detailView.lastDetailDirtyTime)
-                        >= DetailPreviewView.DetailDebounceSeconds &&
                     _detailView.lastPreviewRect.width > 0)
                 {
                     var latency = _detailView.TakeLatencyFor(_detailView.lastDetailDirtyTime, srcW, srcH);
@@ -883,8 +881,7 @@ namespace Iroca
                 frameW > 1f ? GUILayout.Width(frameW) : GUILayout.ExpandWidth(true));
             if (_previewScrollPos != prevScroll)
             {
-                // 古い詳細プレビューは新しいスクロール位置と整合しないため、
-                // 一旦表示を破棄して低解像度プレビューに統一する（c107e85）。
+                // 見えている範囲が動いたので拡大表示を作り直させる(できるまでは前の切り出しを描き続ける)。
                 _detailView.OnViewMoved();
             }
 
@@ -1509,7 +1506,7 @@ namespace Iroca
         {
             previewZoom = Mathf.Clamp(1f, MinPreviewZoom, maxZoom);
             _previewScrollPos = Vector2.zero;
-            // ズーム比が変わると古い詳細クロップは整合しない（Ctrl+スクロール経路と同じ）。
+            // 見えている範囲が変わるので拡大表示を作り直させる（Ctrl+スクロール経路と同じ）。
             _detailView.OnViewMoved();
             _host.RequestRepaint();
         }
