@@ -414,13 +414,26 @@ namespace Iroca.SentisIntegration
             if (_decoderWarmed || _embedding == null) return false;
             _decoderWarmed = true;
             SetPhase(MaskSuggestPhase.Decoding);
-            EditorApplication.delayCall += RunDecoderWarmup;
+            RunOnNextTick(RunDecoderWarmup);
             return true;
         }
 
+        /// <summary>
+        /// 次の tick で 1 回だけ呼ぶ。delayCall は使わない: Unity が前面に無い間は delayCall が回らず
+        /// (update は回る)、AI に MCP から頼んだ自動調整が待ちの上限まで止まっていた。
+        /// 呼ばれた側は最初に <see cref="CancelNextTick"/> で外す。
+        /// </summary>
+        static void RunOnNextTick(EditorApplication.CallbackFunction f)
+        {
+            EditorApplication.update -= f;
+            EditorApplication.update += f;
+        }
+
+        static void CancelNextTick(EditorApplication.CallbackFunction f) => EditorApplication.update -= f;
+
         void RunDecoderWarmup()
         {
-            EditorApplication.delayCall -= RunDecoderWarmup;
+            CancelNextTick(RunDecoderWarmup);
             try
             {
                 if (_phase != MaskSuggestPhase.Decoding || _embedding == null) return;
@@ -515,7 +528,7 @@ namespace Iroca.SentisIntegration
 
         /// <summary>
         /// クリック 1 件の完了後、待ちがあれば次を予約し、なければ Idle へ戻す。
-        /// 次のデコードは delayCall で 1 tick 逃がす: 取り出した提案のマスク反映・再描画を
+        /// 次のデコードは次の tick へ逃がす: 取り出した提案のマスク反映・再描画を
         /// 先に済ませ、StateChanged ハンドラ内からの深い再入(同期デコード数十 ms)も避ける。
         /// </summary>
         void ScheduleNextClickOrIdle()
@@ -523,7 +536,7 @@ namespace Iroca.SentisIntegration
             if (_clickQueue.Count > 0)
             {
                 SetPhase(MaskSuggestPhase.Decoding);
-                EditorApplication.delayCall += ProcessNextQueuedClick;
+                RunOnNextTick(ProcessNextQueuedClick);
             }
             else
             {
@@ -533,7 +546,7 @@ namespace Iroca.SentisIntegration
 
         void ProcessNextQueuedClick()
         {
-            EditorApplication.delayCall -= ProcessNextQueuedClick;
+            CancelNextTick(ProcessNextQueuedClick);
             try
             {
                 if (_phase != MaskSuggestPhase.Decoding) return;
@@ -931,8 +944,8 @@ namespace Iroca.SentisIntegration
 
         void CancelOps()
         {
-            EditorApplication.delayCall -= RunDecoderWarmup;
-            EditorApplication.delayCall -= ProcessNextQueuedClick;
+            CancelNextTick(RunDecoderWarmup);
+            CancelNextTick(ProcessNextQueuedClick);
             _pump.Stop();
             _readback.Stop();
             _prepJob?.Cancel();
