@@ -1007,9 +1007,18 @@ namespace Iroca
                         ScaleMode.StretchToFill, false);
 
                     // 変更前を見せている間は差分ハイライトを重ねない(下の全体表示と同じ理由)。
-                    if (!peekOriginal && diffMode && _detailView.detailDiffTexture != null)
-                        GUI.DrawTexture(detailScreenRect, _detailView.detailDiffTexture,
-                            ScaleMode.StretchToFill, true);
+                    if (!peekOriginal && diffMode)
+                    {
+                        // 切り出しの差分は切り出しと同時に差し替わる(DetailPreviewView.ApplyPendingResult)ので、
+                        // あれば切り出しの上にそのまま重ねる。切り出しの外側(新しく見えた端)や、切り出しの差分が
+                        // まだ無いとき(差分表示へ切り替えた直後)は、全体用の差分で補う。補わないと差分が切り出しの
+                        // 範囲だけで途切れる。切り出しの内側には全体用を重ねない(二重に塗って色が濃くなる)。
+                        var detailDiff = _detailView.detailDiffTexture;
+                        if (diffTexture != null)
+                            DrawTextureOutside(activePreviewRect, detailDiff != null ? detailScreenRect : default, diffTexture);
+                        if (detailDiff != null)
+                            GUI.DrawTexture(detailScreenRect, detailDiff, ScaleMode.StretchToFill, true);
+                    }
                     else
                     {
                         // マスクの重ね表示: 詳細の範囲は、詳細と同じ範囲・寸法で描いた等倍のもの
@@ -1172,7 +1181,6 @@ namespace Iroca
                 // 隠している間は新しい切り出ししか作らない(Draw の詳細生成の条件)ので、届いたら見せてよい。
                 _detailHiddenForDrag = false;
             }
-            _detailView.ApplyPendingDiff();
         }
 
         /// <summary>
@@ -1489,6 +1497,42 @@ namespace Iroca
         }
 
         private static GUIContent SmoothContent => new GUIContent(Localization.SmoothMagnify, Localization.SmoothMagnifyTooltip);
+
+        /// <summary>
+        /// tex(full 全体に引き伸ばして重ねる画像。v は下端が 0)を、full のうち hole の外側だけ描く。
+        /// hole が空(幅 0)なら full 全体を描く。hole は full の内側に収める。
+        /// </summary>
+        private static void DrawTextureOutside(Rect full, Rect hole, Texture tex)
+        {
+            if (full.width <= 0f || full.height <= 0f) return;
+            hole = hole.width > 0f && hole.height > 0f
+                ? Rect.MinMaxRect(
+                    Mathf.Clamp(hole.xMin, full.xMin, full.xMax), Mathf.Clamp(hole.yMin, full.yMin, full.yMax),
+                    Mathf.Clamp(hole.xMax, full.xMin, full.xMax), Mathf.Clamp(hole.yMax, full.yMin, full.yMax))
+                : default;
+            if (hole.width <= 0f || hole.height <= 0f)
+            {
+                GUI.DrawTexture(full, tex, ScaleMode.StretchToFill, true);
+                return;
+            }
+            // 上・下は全幅、左・右は hole の高さだけ。
+            DrawTexturePart(full, Rect.MinMaxRect(full.xMin, full.yMin, full.xMax, hole.yMin), tex);
+            DrawTexturePart(full, Rect.MinMaxRect(full.xMin, hole.yMax, full.xMax, full.yMax), tex);
+            DrawTexturePart(full, Rect.MinMaxRect(full.xMin, hole.yMin, hole.xMin, hole.yMax), tex);
+            DrawTexturePart(full, Rect.MinMaxRect(hole.xMax, hole.yMin, full.xMax, hole.yMax), tex);
+        }
+
+        // full に引き伸ばした tex のうち part(full の内側)に当たる範囲だけを part に描く。
+        private static void DrawTexturePart(Rect full, Rect part, Texture tex)
+        {
+            if (part.width <= 0f || part.height <= 0f) return;
+            var uv = new Rect(
+                (part.xMin - full.xMin) / full.width,
+                1f - (part.yMax - full.yMin) / full.height,
+                part.width / full.width,
+                part.height / full.height);
+            GUI.DrawTextureWithTexCoords(part, tex, uv, true);
+        }
 
         /// <summary>
         /// 表示用テクスチャの補間を今の設定と倍率に合わせる(描く前に毎フレーム。値が同じなら何もしない)。
