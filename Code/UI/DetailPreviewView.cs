@@ -26,7 +26,7 @@ namespace Iroca
 
         [System.NonSerialized] public readonly PreviewJob<DetailPreviewResult> detailJob = new PreviewJob<DetailPreviewResult>();
         [System.NonSerialized] private Color32[] _pendingDetailProcessed;
-        [System.NonSerialized] private Color32[] _pendingDetailRaw;
+        [System.NonSerialized] private Color32[] _pendingDetailDiff;
         [System.NonSerialized] private int _pendingDetailTexW, _pendingDetailTexH;
         [System.NonSerialized] private int _pendingDetailCropW, _pendingDetailCropH;
         [System.NonSerialized] private int _pendingDetailOriginX, _pendingDetailOriginY;
@@ -76,11 +76,6 @@ namespace Iroca
         // クロップを表示解像度へ落としたときの倍率(BoxDownsampleRegion に渡した dst/src 比)。変更前の切り出しを
         // 同じ画素の並びで作るのに使う。
         [System.NonSerialized] private float _detailPxPerSrc;
-
-        // Diff テクスチャ生成（バックグラウンド）
-        [System.NonSerialized] private readonly PreviewJob<Color32[]> _diffJob = new PreviewJob<Color32[]>();
-        [System.NonSerialized] private Color32[] _pendingDetailDiffPixels;
-        [System.NonSerialized] private int _pendingDetailDiffW, _pendingDetailDiffH;
 
         [System.NonSerialized] private IrocaWindow _host;
 
@@ -136,8 +131,10 @@ namespace Iroca
 
         public struct DetailPreviewResult
         {
-            // 変更前のクロップ。差分表示中に作り始めたときだけ(それ以外は null)。
-            public Color32[] Raw;
+            // 変更前後の差分ハイライト(Processed と同じ範囲・寸法)。差分表示中に作り始めたときだけ(それ以外は null)。
+            // 切り出しと同じジョブで作り、同じフレームに反映する(別ジョブにすると、切り出しだけ先に新しい範囲になり、
+            // 古い範囲の差分が新しい範囲に引き伸ばされて見えた)。
+            public Color32[] Diff;
             public Color32[] Processed;
             // テクスチャ解像度（＝表示ピクセル数。拡大表示ではクロップ寸法と同じ）
             public int TexW;
@@ -213,7 +210,7 @@ namespace Iroca
             // (同じ切り出しを両方に重ねる。変更前は EnsureDetailRaw が同じ範囲で作る)。
             int x0 = srcW, y0 = srcH, x1 = 0, y1 = 0;
             float pxPerSrcView = displayZoom * scale;
-            var viewRect = new Rect(previewScrollPos.x, previewScrollPos.y, viewportW, viewportH);
+            var viewRect = ClampedViewRect(previewScrollPos, viewportW, viewportH, afterRect, beforeRect);
             AddVisibleRange(afterRect, viewRect, pxPerSrcView, srcW, srcH, ref x0, ref y0, ref x1, ref y1);
             if (beforeRect.width > 0f)
                 AddVisibleRange(beforeRect, viewRect, pxPerSrcView, srcW, srcH, ref x0, ref y0, ref x1, ref y1);
@@ -257,7 +254,7 @@ namespace Iroca
                 work: token =>
                 {
                     if (marks != null) marks.WorkStart = PreviewLatencyCycle.Now;
-                    Color32[] outProcessed, outRaw = null;
+                    Color32[] outProcessed, outRaw = null, outDiff = null;
                     // どちらもジョブの間ほかから書き換えられない(参照を持っている間は使い回されない)。
                     if (outW != cropW || outH != cropH)
                     {
@@ -288,11 +285,12 @@ namespace Iroca
                             }
                     }
                     token.ThrowIfCancellationRequested();
+                    if (needRaw) outDiff = PreviewView.BuildDiffPixels(outRaw, outProcessed, outW, outH, token);
 
                     if (marks != null) marks.WorkEnd = PreviewLatencyCycle.Now;
                     return new DetailPreviewResult
                     {
-                        Raw = outRaw,
+                        Diff = outDiff,
                         Processed = outProcessed,
                         TexW = outW,
                         TexH = outH,
@@ -306,7 +304,7 @@ namespace Iroca
                 {
                     if (marks != null) marks.Applied = PreviewLatencyCycle.Now;
                     _pendingDetailLatency   = latency;
-                    _pendingDetailRaw       = result.Raw;
+                    _pendingDetailDiff      = result.Diff;
                     _pendingDetailProcessed = result.Processed;
                     _pendingDetailTexW      = result.TexW;
                     _pendingDetailTexH      = result.TexH;
@@ -350,10 +348,33 @@ namespace Iroca
             y1 = Mathf.Max(y1, py1);
         }
 
+        /// <summary>
+        /// 見えている範囲(スクロールビューの内容座標)。スクロール位置の控えは、パンやズームの補正で内容の端を
+        /// 越えて動くことがある(IMGUI は表示のときに端へ丸めるが、控えは丸められない)ので、そのまま使うと
+        /// 実際に見えている範囲とずれ、端の見えている部分が切り出しから漏れる(縮小表示のまま残る)。
+        /// 内容の端(画像の矩形＋余白)に収まるよう丸める。スクロールバーの分だけ実際の可視範囲は狭いので、
+        /// その分は広めに取って、実際に見えている範囲を必ず含むようにする。
+        /// </summary>
+        private static Rect ClampedViewRect(Vector2 scroll, float viewportW, float viewportH, Rect afterRect, Rect beforeRect)
+        {
+            float right = afterRect.xMax, bottom = afterRect.yMax;
+            if (beforeRect.width > 0f)
+            {
+                right = Mathf.Max(right, beforeRect.xMax);
+                bottom = Mathf.Max(bottom, beforeRect.yMax);
+            }
+            var pad = GUI.skin.scrollView.padding;
+            float contentW = right + pad.right, contentH = bottom + pad.bottom;
+            float slack = GUI.skin.verticalScrollbar.fixedWidth + GUI.skin.horizontalScrollbar.fixedHeight + 4f;
+            float sx = Mathf.Clamp(scroll.x, 0f, Mathf.Max(0f, contentW - viewportW));
+            float sy = Mathf.Clamp(scroll.y, 0f, Mathf.Max(0f, contentH - viewportH));
+            return new Rect(sx, sy, viewportW + slack, viewportH + slack);
+        }
+
         public void ApplyPendingResult()
         {
             var processed = _pendingDetailProcessed;
-            var raw       = _pendingDetailRaw;
+            var diff      = _pendingDetailDiff;
             int w  = _pendingDetailTexW;
             int h  = _pendingDetailTexH;
             int cw = _pendingDetailCropW;
@@ -362,7 +383,7 @@ namespace Iroca
             int oy = _pendingDetailOriginY;
             var latency = _pendingDetailLatency;
             _pendingDetailProcessed = null;
-            _pendingDetailRaw       = null;
+            _pendingDetailDiff      = null;
             _pendingDetailLatency   = null;
 
             if (processed == null) return;
@@ -384,13 +405,20 @@ namespace Iroca
             // diff は diff モード表示中のみ生成する(クロップは 4K ズーム閾値直上で数十 MB 級。
             // OFF 中の生成+アップロードは描画されず捨てられるだけだった)。ON へ切り替えた
             // ときは PreviewView 側が詳細を dirty にして再生成する。
-            // Color32[] が手元にあるのでそのままバックグラウンド diff へ。GetPixels32 を再度呼ばない。
-            // 変更前のクロップは差分表示中に作り始めたジョブにしか無い。切り出し中に ON へ切り替わったときは
-            // 作り直させる(古い diff を新しいクロップの位置に重ねない)。
-            if (_host.Preview.diffMode)
+            // diff は切り出しと同じジョブで作ってあり、ここで同時に差し替える。差分を持たない結果のときは
+            // 古い diff を手放す(別の範囲の diff が残って、新しい切り出しの上に重なるのを防ぐ)。
+            // 切り出し中に ON へ切り替わったときは diff を持たない結果が届くので作り直させる。
+            if (diff != null)
             {
-                if (raw != null) ScheduleDetailDiffTexture(raw, processed, w, h);
-                else lastDetailDirtyTime = EditorApplication.timeSinceStartup;
+                TextureSlot.Resize(ref detailDiffTexture, w, h);
+                detailDiffTexture.filterMode = DetailFilterMode(w, cw);
+                detailDiffTexture.SetPixels32(diff);
+                detailDiffTexture.Apply();
+            }
+            else
+            {
+                TextureSlot.Release(ref detailDiffTexture);
+                if (_host.Preview.diffMode) lastDetailDirtyTime = EditorApplication.timeSinceStartup;
             }
 
             // 体感速度: 拡大表示まで含めたレポートで、確定表示時点のものを差し替える。
@@ -410,34 +438,6 @@ namespace Iroca
         /// </summary>
         internal static FilterMode DetailFilterMode(int texW, int cropW)
             => texW < cropW || PreviewView.SmoothMagnify ? FilterMode.Bilinear : FilterMode.Point;
-
-        private void ScheduleDetailDiffTexture(Color32[] before, Color32[] after, int w, int h)
-        {
-            if (before == null || after == null || before.Length != w * h || after.Length != w * h) return;
-            int capW = w, capH = h;
-            _diffJob.Schedule(
-                work: token => PreviewView.BuildDiffPixels(before, after, capW, capH, token),
-                apply: result =>
-                {
-                    _pendingDetailDiffPixels = result;
-                    _pendingDetailDiffW = capW;
-                    _pendingDetailDiffH = capH;
-                    _host.RequestRepaint();
-                });
-        }
-
-        public void ApplyPendingDiff()
-        {
-            if (_pendingDetailDiffPixels == null) return;
-            var pixels = _pendingDetailDiffPixels;
-            int w = _pendingDetailDiffW, h = _pendingDetailDiffH;
-            _pendingDetailDiffPixels = null;
-
-            TextureSlot.Resize(ref detailDiffTexture, w, h);
-            detailDiffTexture.filterMode = DetailFilterMode(w, detailCropW);
-            detailDiffTexture.SetPixels32(pixels);
-            detailDiffTexture.Apply();
-        }
 
         /// <summary>
         /// 「元を表示」用の変更前の切り出しを、今の切り出し(detailPreviewTexture)と同じ範囲・寸法・縮小で
@@ -501,7 +501,6 @@ namespace Iroca
         {
             Suspend();
             detailJob.Dispose();
-            _diffJob.Dispose();
         }
 
         public void Suspend()
@@ -519,10 +518,8 @@ namespace Iroca
         public void InvalidateDisplay()
         {
             detailJob.Cancel();
-            _diffJob.Cancel();
             _pendingDetailProcessed = null;
-            _pendingDetailRaw = null;
-            _pendingDetailDiffPixels = null;
+            _pendingDetailDiff = null;
             detailCropW = detailCropH = 0;
             TextureSlot.Release(ref detailPreviewTexture);
             TextureSlot.Release(ref detailDiffTexture);
