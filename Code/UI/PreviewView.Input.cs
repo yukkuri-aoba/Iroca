@@ -117,18 +117,21 @@ namespace Iroca
         /// 使っている間は false。false でも中ボタンドラッグと Alt+左ドラッグは常にパンになる
         /// （塗っている最中でも表示を動かせるように。2026-09-11 の UX 見直し）。
         /// </param>
-        private void HandlePreviewPanInput(Rect previewRect, bool leftDragPans)
+        private void HandlePreviewPanInput(Rect previewRect, bool leftDragPans, Rect beforeRect = default)
         {
             Event e = Event.current;
             if (e == null) return;
 
             bool isInRect = previewRect.Contains(e.mousePosition);
+            // 前後比較の変更前の画像の上。ブラシ・スポイトなどのツールは変更後の画像にしか効かないので、
+            // こちらは素の左ドラッグも常にパンにする。
+            bool isInBefore = beforeRect.width > 0f && beforeRect.Contains(e.mousePosition);
             int controlId = GUIUtility.GetControlID(FocusType.Passive);
 
             switch (e.GetTypeForControl(controlId))
             {
                 case EventType.MouseDown:
-                    if (isInRect && IsPanButton(e, leftDragPans))
+                    if ((isInRect && IsPanButton(e, leftDragPans)) || (isInBefore && IsPanButton(e, true)))
                     {
                         GUIUtility.hotControl = controlId;
                         e.Use();
@@ -167,6 +170,8 @@ namespace Iroca
                     // Alt は補助操作なので、ブラシのカーソル表示を上書きしない。
                     if (isInRect && leftDragPans)
                         EditorGUIUtility.AddCursorRect(previewRect, MouseCursor.Pan);
+                    if (beforeRect.width > 0f)
+                        EditorGUIUtility.AddCursorRect(beforeRect, MouseCursor.Pan);
                     break;
             }
         }

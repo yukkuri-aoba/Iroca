@@ -726,6 +726,8 @@ namespace Iroca
             {
                 comparisonMode = !comparisonMode;
                 if (comparisonMode) diffMode = false;
+                // 画像の並び(位置)が変わるので、拡大表示の切り出しを新しい並びで作り直す。
+                _detailView.OnViewMoved();
             }
             if (GUILayout.Toggle(diffMode, new GUIContent(Localization.DiffMode, Localization.DiffModeTooltip), EditorStyles.miniButtonRight, GUILayout.ExpandWidth(false)) != diffMode)
             {
@@ -771,10 +773,10 @@ namespace Iroca
 
             // 詳細モード: ソースが縮小されて表示されている(scale<1)テクスチャを、プレビューテクスチャより
             // 大きく表示しているとき(拡大したとき・広いウィンドウの全体表示)、低解像度プレビューの
-            // 引き伸ばしではなくソース解像度から作り直したクロップを出す。
+            // 引き伸ばしではなくソース解像度から作り直したクロップを出す。前後比較では同じ切り出しを
+            // 変更前・変更後の両方に重ねる。
             bool detailActive = scale < 1f &&
-                                effZoom > DetailPreviewView.DetailMinZoom &&
-                                !comparisonMode;
+                                effZoom > DetailPreviewView.DetailMinZoom;
 
             if (detailActive)
             {
@@ -788,7 +790,8 @@ namespace Iroca
                     var latency = _detailView.TakeLatencyFor(_detailView.lastDetailDirtyTime, srcW, srcH);
                     _detailView.lastDetailDirtyTime = 0;
                     var processedFull = ReferenceEquals(_fullOutputSource, _trueSource) ? _fullOutput : null;
-                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, _trueSource, processedFull, scale, effZoom, _previewScrollPos, _detailView.lastViewportW, _detailView.lastViewportH, latency);
+                    var beforeRect = panelCount == 2 ? _detailView.lastBeforeRect : default;
+                    _detailView.GenerateDetailPreviewAsync(srcW, srcH, _trueSource, processedFull, scale, effZoom, _previewScrollPos, _detailView.lastViewportW, _detailView.lastViewportH, _detailView.lastPreviewRect, beforeRect, latency);
                 }
                 else if (_detailView.lastDetailDirtyTime > 0 || _detailView.detailJob.IsRunning)
                 {
@@ -888,6 +891,8 @@ namespace Iroca
             // Ctrl+スクロールズームの判定領域。比較モードでは Before/After 両パネルを
             // またぐ矩形にし、どちらのパネル上でもズームできるようにする。
             Rect zoomHitRect = default;
+            // 前後比較の変更前の画像の矩形。ツールは載らないので、どのモードでも左ドラッグでパンできる。
+            Rect beforePanRect = default;
 
             // 画像を枠の左右中央に置く。全体表示は枠の縦横比と画像の縦横比が合わないと片方に余白が
             // 残り、左寄せだと広いウィンドウで右側だけが大きく空く。画像が枠より広いときは
@@ -916,8 +921,31 @@ namespace Iroca
                 activePreviewRect = GUILayoutUtility.GetRect(displayW, displayH,
                     GUILayout.Width(displayW), GUILayout.Height(displayH));
                 EditorGUI.DrawPreviewTexture(activePreviewRect, ShownPreview);
-                DrawMaskOverlays(activePreviewRect, maskView);
+
+                // 拡大中は、変更後の切り出しと同じ範囲の変更前の切り出し(ShownDetailRaw。原本の作業解像度から作る)を
+                // 変更前の画像に重ねる。片方しか作れないときは両方とも全体表示のまま(解像度をそろえて比べる)。
+                var shownDetail = ShownDetail;
+                Texture beforeDetail = detailActive && shownDetail != null && !_detailHiddenForDrag
+                    ? ShownDetailRaw() : null;
+                Rect afterDetailRect = default;
+                if (beforeDetail != null)
+                {
+                    GUI.DrawTexture(_detailView.ComputeDetailScreenRect(rawRect, scale, effZoom, _previewScrollPos, srcW, srcH),
+                        beforeDetail, ScaleMode.StretchToFill, false);
+                    afterDetailRect = _detailView.ComputeDetailScreenRect(activePreviewRect, scale, effZoom, _previewScrollPos, srcW, srcH);
+                    GUI.DrawTexture(afterDetailRect, shownDetail, ScaleMode.StretchToFill, false);
+                }
+                var dtc = _detailView.detailPreviewTexture;
+                if (beforeDetail != null &&
+                    maskView.DetailOverlayMatches(srcW, srcH, _detailView.detailOriginX, _detailView.detailOriginY,
+                                                  _detailView.detailCropW, _detailView.detailCropH, dtc.width, dtc.height))
+                    DrawMaskOverlaysWithDetail(activePreviewRect, afterDetailRect, maskView);
+                else
+                    DrawMaskOverlays(activePreviewRect, maskView);
                 EditorGUILayout.EndVertical();
+
+                if (Event.current.type == EventType.Repaint) _detailView.lastBeforeRect = rawRect;
+                beforePanRect = rawRect;
 
                 zoomHitRect = Rect.MinMaxRect(
                     Mathf.Min(rawRect.x, activePreviewRect.x),
@@ -1058,7 +1086,7 @@ namespace Iroca
             if (previewZoom > 1f || overflowsFrame)
             {
                 bool leftDragPans = !maskView.maskPaintActive && !eyedropperArmed && !seedPickArmed;
-                HandlePreviewPanInput(activePreviewRect, leftDragPans);
+                HandlePreviewPanInput(activePreviewRect, leftDragPans, beforePanRect);
             }
 
             EditorGUILayout.EndScrollView();

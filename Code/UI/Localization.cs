@@ -896,8 +896,8 @@ namespace Iroca
             : "Apply current zone settings to all textures in the list and save\nOutput files get a _recolored suffix";
 
         public static string ComparisonModeTooltip => IsJapanese
-            ? "変更前と変更後を横並びで比較表示します。拡大しているときはプレビュー解像度で表示します"
-            : "Show before and after side by side. At high zoom both are shown at preview resolution";
+            ? "変更前と変更後を横並びで比較表示します。拡大しているときも、両方とも編集の解像度で細部まで表示します"
+            : "Show before and after side by side. When zoomed in, both are shown in full detail at the editing resolution";
         public static string DiffModeTooltip => IsJapanese
             ? "変更前後の差分（変化したピクセル）を強調表示します"
             : "Highlight pixels that changed between before and after";

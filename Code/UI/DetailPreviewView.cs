@@ -42,6 +42,8 @@ namespace Iroca
         [System.NonSerialized] private long _viewInput;
         [System.NonSerialized] private double _viewDirtyTime;
         [System.NonSerialized] public Rect lastPreviewRect;
+        // 前後比較の変更前の画像の矩形(lastPreviewRect と同じ座標。比較していないときは幅 0)。
+        [System.NonSerialized] public Rect lastBeforeRect;
         // スクロールビューの可視領域サイズ（ディスプレイピクセル）。クロップ範囲を
         // 画像全幅ではなく「実際に見えている範囲」だけに絞るために使う。
         [System.NonSerialized] public float lastViewportW, lastViewportH;
@@ -189,7 +191,7 @@ namespace Iroca
         /// </summary>
         public void GenerateDetailPreviewAsync(int srcW, int srcH, NativePixels srcPixels, NativePixels processedFull,
             float scale, float displayZoom, Vector2 previewScrollPos, float viewportW, float viewportH,
-            PreviewLatencyCycle latency = null)
+            Rect afterRect, Rect beforeRect, PreviewLatencyCycle latency = null)
         {
             long prepStart = PreviewLatencyCycle.Now;
             // 画素は呼び出し元（メインプレビュー）が確保した true source をそのまま受け取るので、
@@ -207,21 +209,14 @@ namespace Iroca
             // ＝displayW)を使っていたため x1 が常に srcW までクランプされ、ズーム時に
             // 可視範囲をはるかに超える全幅をフル解像度で処理していた。viewportW/H は
             // スクロールビューの可視サイズなので、ここから可視ソース範囲を求める。
-            float invZoomScale = 1f / (displayZoom * scale);
-            int x0 = Mathf.FloorToInt(previewScrollPos.x * invZoomScale);
-            int x1 = Mathf.CeilToInt((previewScrollPos.x + viewportW) * invZoomScale);
-
-            // Y はソースのメモリ行(GetPixels32 は行0=画像下端の上向き)と、スクロール座標
-            // (画面の下向き、上端=0)で上下が反転している。テクスチャは正立描画されるため、
-            // スクロール量(下向き y)を一旦ソースのメモリ行(上向き)へ変換してからクロップする。
-            // これをしないと、ビュー上端に画像下端のクロップが出る＝表示中の領域とズレる。
-            int y0 = Mathf.FloorToInt(srcH - (previewScrollPos.y + viewportH) * invZoomScale);
-            int y1 = Mathf.CeilToInt (srcH - previewScrollPos.y * invZoomScale);
-
-            x0 = Mathf.Clamp(x0, 0, srcW);
-            y0 = Mathf.Clamp(y0, 0, srcH);
-            x1 = Mathf.Clamp(x1, 0, srcW);
-            y1 = Mathf.Clamp(y1, 0, srcH);
+            // 前後比較では変更前・変更後の 2 枚が並ぶので、それぞれの見えている範囲を合わせた範囲を切り出す
+            // (同じ切り出しを両方に重ねる。変更前は EnsureDetailRaw が同じ範囲で作る)。
+            int x0 = srcW, y0 = srcH, x1 = 0, y1 = 0;
+            float pxPerSrcView = displayZoom * scale;
+            var viewRect = new Rect(previewScrollPos.x, previewScrollPos.y, viewportW, viewportH);
+            AddVisibleRange(afterRect, viewRect, pxPerSrcView, srcW, srcH, ref x0, ref y0, ref x1, ref y1);
+            if (beforeRect.width > 0f)
+                AddVisibleRange(beforeRect, viewRect, pxPerSrcView, srcW, srcH, ref x0, ref y0, ref x1, ref y1);
 
             int cropW = x1 - x0;
             int cropH = y1 - y0;
@@ -327,6 +322,32 @@ namespace Iroca
                     processedForTask.Release();
                     srcPixelsForTask?.Release();
                 });
+        }
+
+        /// <summary>
+        /// 画像の矩形 panel(スクロールビューの内容座標)のうち view(同じ座標の見えている範囲)に入る部分を、
+        /// ソースの画素範囲([x0,x1)×[y0,y1)。y はメモリ行＝行 0 が画像下端)として足し合わせる。
+        /// </summary>
+        private static void AddVisibleRange(Rect panel, Rect view, float pxPerSrc, int srcW, int srcH,
+            ref int x0, ref int y0, ref int x1, ref int y1)
+        {
+            if (pxPerSrc <= 0f) return;
+            float cx0 = Mathf.Max(view.xMin, panel.xMin), cx1 = Mathf.Min(view.xMax, panel.xMax);
+            float cy0 = Mathf.Max(view.yMin, panel.yMin), cy1 = Mathf.Min(view.yMax, panel.yMax);
+            if (cx1 <= cx0 || cy1 <= cy0) return;
+            float inv = 1f / pxPerSrc;
+            int px0 = Mathf.Clamp(Mathf.FloorToInt((cx0 - panel.x) * inv), 0, srcW);
+            int px1 = Mathf.Clamp(Mathf.CeilToInt((cx1 - panel.x) * inv), 0, srcW);
+            // Y はソースのメモリ行(GetPixels32 は行0=画像下端の上向き)と、画面(下向き、上端=0)で上下が
+            // 反転している。テクスチャは正立描画されるため、画面の上からの距離をメモリ行へ変換してから切り出す。
+            // これをしないと、ビュー上端に画像下端のクロップが出る＝表示中の領域とズレる。
+            int py0 = Mathf.Clamp(Mathf.FloorToInt(srcH - (cy1 - panel.y) * inv), 0, srcH);
+            int py1 = Mathf.Clamp(Mathf.CeilToInt(srcH - (cy0 - panel.y) * inv), 0, srcH);
+            if (px1 <= px0 || py1 <= py0) return;
+            x0 = Mathf.Min(x0, px0);
+            y0 = Mathf.Min(y0, py0);
+            x1 = Mathf.Max(x1, px1);
+            y1 = Mathf.Max(y1, py1);
         }
 
         public void ApplyPendingResult()
