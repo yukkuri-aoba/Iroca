@@ -68,7 +68,7 @@ namespace Iroca.DebugTools
                 DrawLatency(shown);
 
                 // 同じ操作のコア処理: 段ごとの合計と、フェーズ別/ゾーン別の内訳。
-                DrawPerfReport(shown);
+                DrawPerfReport(host, shown);
 
                 EditorGUILayout.Space(4);
                 DrawMemory();
@@ -225,7 +225,7 @@ namespace Iroca.DebugTools
 
         // コア処理(ProcessPixelsArray)の実行時間。上の「体感」と同じ操作の、画面に出た段のものを出すので、
         // 操作のたびに体感と一緒に差し替わる(エクスポートなどプレビュー以外の処理のものは混ぜない)。
-        private static void DrawPerfReport(PreviewLatencyReport r)
+        private static void DrawPerfReport(IrocaWindow host, PreviewLatencyReport r)
         {
             if (r == null)
             {
@@ -289,10 +289,25 @@ namespace Iroca.DebugTools
 
             foreach (var z in rep.Zones)
             {
-                string label = string.IsNullOrEmpty(z.ZoneId) ? "(unnamed)" : z.ZoneId;
+                string label = ZoneLabel(host, z.ZoneId);
                 DrawBarRow(label, z.TotalMs, maxMs, new Color(0.25f, 0.65f, 0.35f),
-                    $"ゾーン \"{label}\" の処理時間");
+                    $"ゾーン \"{label}\" の処理時間\nID: {z.ZoneId}");
             }
+        }
+
+        /// <summary>
+        /// 内訳の行の見出し。ゾーンの一覧での番号と名前(「2. 袖」)。今のゾーンに無い ID(計測のあとで消した
+        /// など)は ID の先頭 8 文字。
+        /// </summary>
+        internal static string ZoneLabel(IrocaWindow host, string zoneId)
+        {
+            if (string.IsNullOrEmpty(zoneId)) return "(unnamed)";
+            var zones = host != null ? host.Session?.zones : null;
+            if (zones != null)
+                for (int i = 0; i < zones.Count; i++)
+                    if (zones[i] != null && zones[i].id == zoneId)
+                        return $"{i + 1}. {(string.IsNullOrEmpty(zones[i].name) ? "(名前なし)" : zones[i].name)}";
+            return zoneId.Length > 8 ? zoneId.Substring(0, 8) + "…" : zoneId;
         }
 
         private static void DrawLatency(PreviewLatencyReport r)
@@ -507,6 +522,31 @@ namespace Iroca.DebugTools
             };
             m.HasProcess = TryGetProcessMemory(out m.Private, out m.PeakPrivate, out m.WorkingSet);
             s_memory = m;
+            if (m.MonoUsed > s_monoUsedPeak) s_monoUsedPeak = m.MonoUsed;
+            // ヒープが広がった(Mono は縮めないので、増えたときだけ記録する)。初回は起点として控えるだけ。
+            if (s_monoHeapLast > 0 && m.MonoHeap > s_monoHeapLast)
+            {
+                s_monoHeapGrowth = m.MonoHeap - s_monoHeapLast;
+                s_monoHeapGrewAt = now;
+            }
+            s_monoHeapLast = m.MonoHeap;
+        }
+
+        // Mono ヒープの観測値(このウィンドウが読んだ範囲。読んでいない間のピークは拾えない)。
+        private static long s_monoUsedPeak, s_monoHeapLast, s_monoHeapGrowth;
+        private static double s_monoHeapGrewAt = double.NegativeInfinity;
+        // 「試しに回収」の結果(回収の前後の使用量)。
+        private static long s_gcBefore = -1, s_gcAfter = -1;
+
+        /// <summary>完全な GC を走らせ、前後の Mono の使用量を控える(生きている量とゴミを分けて見るため)。</summary>
+        private static void CollectNow()
+        {
+            s_gcBefore = Profiler.GetMonoUsedSizeLong();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            s_gcAfter = Profiler.GetMonoUsedSizeLong();
+            s_memorySampledAt = double.NegativeInfinity;
         }
 
         // プロセスのメモリ(Windows の GetProcessMemoryInfo)。MemoryBenchTests と同じ値を読む。
@@ -548,6 +588,37 @@ namespace Iroca.DebugTools
                 "確保: ヒープ全体の大きさ。Unity の Mono は一度広げたヒープを OS に返さないので、" +
                 "処理中のピークに引きずられて増え、編集をやめても減りません。",
                 MemoryLabelWidth);
+            DrawValueRow("　空き", $"{Mb(Math.Max(0L, m.MonoHeap - m.MonoUsed))} MB (確保 − 使用)",
+                "確保済みのヒープのうち、いま使っていない量。次の割り当てはまずここから取るので、\n" +
+                "これより大きい配列を作るとヒープがさらに広がります(広がった分は戻りません)。",
+                MemoryLabelWidth);
+            DrawValueRow("　使用の最大", $"{Mb(s_monoUsedPeak)} MB",
+                "デバッグモードでこのセクションが読んだ「使用」の最大値(0.5 秒おきの観測なので、その間の山は拾えません)。\n" +
+                "確保がこの値より大きく残っていれば、観測していない間か、回収前のゴミで広がったものです。",
+                MemoryLabelWidth);
+            string grew = s_monoHeapGrowth > 0
+                ? $"+{Mb(s_monoHeapGrowth)} MB ({EditorApplication.timeSinceStartup - s_monoHeapGrewAt:F0} 秒前)"
+                : "観測してから増えていません";
+            DrawValueRow("　最後の拡張", grew,
+                "確保(ヒープ全体)が最後に増えたときの増分と、それが何秒前か。\n" +
+                "操作の直後に増えていれば、その操作の一時配列でヒープが広がっています。",
+                MemoryLabelWidth);
+            DrawValueRow("　GC の方式", GarbageCollectorModeText(),
+                "Unity の GC の設定。インクリメンタルなら回収を複数フレームに分けて行うので、1 回の停止は短くなります。",
+                MemoryLabelWidth);
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                var collect = new GUIContent("試しに回収",
+                    "いま完全なガベージコレクションを走らせ、前後の「使用」を表示します。\n" +
+                    "回収後の値が、実際に生きているオブジェクトの量です(減った分はまだ回収されていなかったゴミ)。\n" +
+                    "回収の間はエディタが少し止まります。確保(ヒープ全体)は減りません。");
+                if (GUILayout.Button(collect, EditorStyles.miniButton, GUILayout.Width(MemoryLabelWidth)))
+                    CollectNow();
+                string result = s_gcBefore >= 0
+                    ? $"{Mb(s_gcBefore)} → {Mb(s_gcAfter)} MB (ゴミ {Mb(Math.Max(0L, s_gcBefore - s_gcAfter))} MB)"
+                    : "(まだ回収していません)";
+                EditorGUILayout.LabelField(result, EditorStyles.miniLabel, GUILayout.MinWidth(0f));
+            }
             DrawValueRow("Unity ネイティブ", $"使用 {Mb(m.NativeUsed)} / 確保 {Mb(m.NativeReserved)} MB",
                 "Unity エンジン側のメモリ(テクスチャ・メッシュなどのアセットとエディタ本体)。\n" +
                 "プレビューやシーンに映すテクスチャはここに入ります。\n" +
@@ -571,6 +642,14 @@ namespace Iroca.DebugTools
                 "起動してからのガベージコレクションの回数。操作のあとに増えていれば、その操作で回収が走っています" +
                 "(回収の間はエディタが止まります)。",
                 MemoryLabelWidth);
+        }
+
+        private static string GarbageCollectorModeText()
+        {
+            string mode = UnityEngine.Scripting.GarbageCollector.isIncremental ? "インクリメンタル" : "一括";
+            return UnityEngine.Scripting.GarbageCollector.GCMode == UnityEngine.Scripting.GarbageCollector.Mode.Enabled
+                ? mode
+                : $"{mode} ({UnityEngine.Scripting.GarbageCollector.GCMode})";
         }
 
         private static void DrawBarRow(string label, double ms, double maxMs, Color barColor, string tooltip)

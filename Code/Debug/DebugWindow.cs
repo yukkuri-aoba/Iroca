@@ -133,9 +133,12 @@ namespace Iroca.DebugTools
             int zoneIdx = Mathf.Max(0, zoneIds.IndexOf(_selectedZoneId));
 
             EditorGUI.BeginChangeCheck();
+            // 見出しはゾーンの一覧での番号と名前(ID のままだとどれがどれか分からない)。
+            var irocaWindows = Resources.FindObjectsOfTypeAll<IrocaWindow>();
+            var host = irocaWindows.Length > 0 ? irocaWindows[0] : null;
             zoneIdx = EditorGUILayout.Popup(
                 new GUIContent("Zone", "どの zone のキャプチャを表示するか選択します。"),
-                zoneIdx, zoneIds.ConvertAll(s => new GUIContent(s)).ToArray());
+                zoneIdx, zoneIds.ConvertAll(s => new GUIContent(PerfView.ZoneLabel(host, s), s)).ToArray());
             if (EditorGUI.EndChangeCheck())
             {
                 _selectedZoneId = zoneIds[zoneIdx];
