@@ -110,7 +110,9 @@ namespace Iroca
         /// </summary>
         internal static string ExportFolderFor(string srcPath)
         {
-            string dir = (Path.GetDirectoryName(srcPath ?? "") ?? "").Replace('\\', '/');
+            // '\' を先に '/' にそろえる（Linux の Path は '\' を区切りとして扱わず、Windows 形式のパスのフォルダが空になる）。
+            string dir = Path.GetDirectoryName((srcPath ?? "").Replace('\\', '/')) ?? "";
+            dir = dir.Replace('\\', '/');
             if (dir == "Assets" || dir.StartsWith("Assets/", StringComparison.Ordinal)) return dir;
             // アセットのパスでないもの（絶対パス・フォルダ無し）は従来どおり元と同じ場所。
             if (dir.Length == 0 || Path.IsPathRooted(dir)) return dir;
