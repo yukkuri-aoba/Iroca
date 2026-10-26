@@ -299,23 +299,34 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
 
 ### 作業する場所（2026-10-26 に確認）
 
-- **実装と検証は手元の Windows の PC のセッションで行う。** この計画の検証のほとんどは、Unity・ホストの Unity
-  プロジェクト・dev_safe の資産のそろった手元の PC でしかできない。
-  - Unity が要るもの: EditMode テスト・`RuntimeParityTests`・MemoryBench・PerfBench・KernelBench・実機の操作・
-    GPU の計測。
-  - ハーネス（golden・abcheck・回帰）は、.NET 8 と Unity の DLL が要る。
-- **クラウドのセッションでは検証できない。** .NET も Unity の DLL も無いので、できるのはソースを読む調査・計画・
-  文書と、Python の検査の一部だけ。
-- **dev_safe の GitHub 上の版は 2026-10-20 で止まっていて、手元より古い。** 確かめた範囲で GitHub に無いもの:
-  - `scripts/generalization_report.py`
-  - `scripts/probe_target_chroma.py`
-  - `Tests/regression/cache_gc.py`
-  - `Tests/regression/memory_guard.py`
-  - `Tests/Baselines/generalization_reference.json`
+- **クラウドのセッションで回せるもの**（`scripts/cloud/setup.sh` で用意する。手順は `docs/development-setup.md` の 6 章）:
+  - ハーネス・build-check・unit-run のビルド
+  - golden（53 件のハッシュが Windows と完全一致した）・ソース構造検査・unit-run
+  - abcheck
+  - dev_safe の回帰（下の dev_safe の同期の後）
+  - 視覚レビュー（比較パネルを作って 1 枚ずつ目視する。Linux ではまだ試していない）
 
-  `Tests/subjects.json` も 10-23 の入れ替えより前の内容。**フェーズ 0 の前に、手元の dev_safe の未 push のコミット
-  （と未コミットの変更）を push する**（並行するセッションと手元のバックアップのため）。
-- 画像の資産そのもの（10-20 の版の fixtures が参照する 46 個の画像と GT。PSD を含む）は GitHub にそろっていた。
+  移すだけの手順と、出力のビット一致の確認（フェーズ 0 の検査づくり・2・3・4 の大半）はクラウドで進められる。
+- **手元の Windows の PC でしかできないもの**（Unity が要る）:
+  - EditMode テスト・`RuntimeParityTests`・MemoryBench・PerfBench・KernelBench
+  - 実機の操作と GPU の計測
+  - NDMF・ML（Sentis）・MCP の各ホストでのコンパイル
+
+  クラウドの作業は、区切りごとに手元でこれらをまとめて回す（フェーズの終わりの確認）。
+- **dev_safe の同期（フェーズ 0 の前提）。** GitHub の dev_safe（a597cfc）には、dev-0.3.0 の worktree の dev_safe 複製で
+  行った更新が入っていないと見られる。
+  - 入っていないもの: 0.3.0 の色の変更に合わせた基準の作り直し・ホールドアウトの入れ替え（`Tests/subjects.json` は
+    開発側 19 被写体のまま）・`scripts/generalization_report.py`・`scripts/probe_target_chroma.py`・
+    `Tests/Baselines/generalization_reference.json`。
+  - そのため、クラウドで回帰を回すと 78 件落ちる（998 件は通る）。色の変更の直前の C# に戻すと、グラデの継ぎ目と
+    品質ゲートは通った。
+  - 複製のコミットを本体の dev_safe へ取り込み、push する。クラウドと手元の両方で dev_safe に書くときは、
+    片方で push してから、もう片方で pull する。
+- **dev_safe の `scripts/refactor_abcheck/abcheck.py` の 1 行の修正**（クラウドで abcheck を使うため）。
+  `CRASH_RC`（.NET の未処理例外の終了コード）が Windows の値に固定されている。Linux では SIGABRT（-6）になるので、
+  次のように直す:
+  `CRASH_RC = -532462766 if os.name == "nt" else -6`
+  直すと自己検査が通り、作業ツリーとの比較（4 グループ 317 単位）も一致した。
 
 ### フェーズ 0: 安全網と基準の計測（製品のコードは変えない）
 

@@ -13,8 +13,8 @@ export UnityManaged="$IROCA_ENV/unity/Editor/Data/Managed"
 export UNITY_EDITOR_PATH="$IROCA_ENV/unity/Editor/Data/Managed"
 # AI マスク提案のモデルの置き場（$LOCALAPPDATA/Iroca/Models。製品・Fetch-Models.ps1 と同じ形）。
 export LOCALAPPDATA="$IROCA_ENV/localappdata"
-# Linux と Windows では libm の最下位ビットが違い得るので、golden のハッシュ不一致は画素比較で判定する（ci.yml と同じ）。
-export IROCA_GOLDEN_TOLERANT=1
+# golden はハッシュで厳密に比べる（IROCA_GOLDEN_TOLERANT は立てない）。2026-10-26 にこの環境で 53 件すべてが
+# Windows で固定したハッシュと一致した。CI（ci.yml）は別の Linux イメージなので画素比較にしている。
 # セッションのディスクは約 30GB しか無い。dev_safe（約 6GB）と道具を置いた残りに収まるよう、ハーネスの実行キャッシュの
 # 上限を既定の 24GB から下げる（足りない分は古い順に捨てて作り直すので、遅くなるだけで結果は変わらない）。
 export IROCA_HARNESS_CACHE_GB=8

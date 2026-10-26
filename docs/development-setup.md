@@ -155,7 +155,8 @@ Unity 本体が要るもの（EditMode テスト・`RuntimeParityTests`・Memory
   ```bash
   . scripts/cloud/env.sh && .venv/bin/python -m pytest scripts/golden scripts/source_checks scripts/unit-run -q
   ```
-- Linux なので golden は CI と同じく画素比較で判定する（`env.sh` が `IROCA_GOLDEN_TOLERANT=1` を立てる）。
+- golden はハッシュで厳密に比べる。2026-10-26 にこの環境で 53 件すべてが Windows で固定したハッシュと一致した
+  （CI は別の Linux イメージなので画素比較のまま）。ハーネスの出力は Windows と同じと見てよい。
 - ディスクは約 30GB しか無い。回帰を回すと、作り直せる作業ディレクトリが数 GB ずつ増える。
   - 増えるもの: `dev_safe/_sam_e2e_work`（約 4GB）・`_sam_freeze_work`・`_iou_csharp_work`・`_csharp_gate_work`。
   - 回し終えたら消してよい（`cache_gc.py` が消してよいとしているもの）。
@@ -164,6 +165,10 @@ Unity 本体が要るもの（EditMode テスト・`RuntimeParityTests`・Memory
   - abcheck は Linux でも回る。ただし `dev_safe/scripts/refactor_abcheck/abcheck.py` の `CRASH_RC`（.NET の未処理例外の
     終了コード）が Windows の値（0xE0434352）に固定されていて、自己検査 2 件が落ちる。Linux では SIGABRT（-6）になる。
     `os.name` で分けると自己検査が通り、作業ツリーとの比較（4 グループ 317 単位）も一致した。
+  - dev_safe の回帰は 998 件が通り、78 件が落ちた。落ちたのは、0.3.0 の色の変更（3f074c4・c5c036e）の後の出力と
+    比べる基準（画素数の完全一致・品質ゲート・グラデの継ぎ目・repro の期待値など）。その直前の C# に戻すと、
+    グラデの継ぎ目と品質ゲートは通った。GitHub の dev_safe に、0.3.0 の作業でした基準の作り直しが入っていない
+    ためと見ている（作業は dev-0.3.0 の worktree の dev_safe 複製で行われた）。
   - `freeze_sam_fixtures.py` は、追跡している凍結ロジット（`*_logits.bin` / `*_scores.bin`）も作り直す。Linux の
     onnxruntime では最下位ビットが Windows と違うので、`setup.sh` は作り直した後に追跡している版へ戻す。
 
