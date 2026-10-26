@@ -1,0 +1,490 @@
+# 0.4.0 の計画
+
+作成 2026-10-26。**案（ユーザーの確認待ち）**。最後の「決めてほしいこと」が決まったら、この文書を正として作業を始める。
+並行するセッションは、作業前にこの文書の該当フェーズを読むこと。進み具合はフェーズごとのチェックボックスで残す。
+
+## 0. 0.4.0 でやること
+
+| # | やること | ユーザーの言葉 |
+|---|---|---|
+| T1 | 拡大表示を元の（作業）解像度で見られる設定を戻す | プレビューをフル解像度で表示する設定の復旧 |
+| T2 | パン・ズーム・スライダーを激しく動かしても、差分表示が表示中の画像とずれないようにする | 依然としてプレビューを激しく動かすと差分表示の表示追従が怪しい |
+| T3 | 画素数に比例する Mono ヒープの確保をなくす | Mono ヒープの使用をほぼ、できる限り廃止したい |
+| T4 | 依存が適度に分かれた、保守しやすいひとかたまりのコードにする | アルゴリズムの寄せ集め・束から、保守性の高いひとかたまりへ。技術的負債がなるべくないように |
+
+**やらないこと**: 色替えの中身（選択・再着色の結果）を変えること。T3・T4 は出力をビット一致で保つ作り替えで、
+改善サイクル（`.claude/instructions/improvement-cycle.md`）とは混ぜない。わざと振る舞いを変えるもの（下の 4.3 の
+プリセットの不一致の修正など）は、それだけで 1 コミットにして CHANGELOG に書く。
+
+## 1. 今の状態（2026-10-26 の調査）
+
+規模: `Code/` は 160 ファイル・46,300 行。Core 14,340 / UI 14,316 / Infra 5,770 / MaskSuggest 4,302 /
+Automation 2,709 / Debug 1,974 / Sentis 1,647 / NDMF 916 / MCP 224 / Runtime 96。
+
+### 1.1 T1: フル解像度の表示が消えた経緯
+
+- 465cb3c（0.3.0）で、色替えは元の解像度（辺が 8192 以下なら）で行い、**拡大表示はインポート設定の Max Size まで
+  縮めて映す**ようにした。それまでの「元の解像度で編集」（オンなら拡大表示も元の解像度）はこのとき消えた。
+- 拡大表示の土台を縮めたものにするか作業解像度のものにするかは、`PreviewView.DetailSource` / `DetailW` / `DetailH` /
+  `DetailOutput`（`Code/UI/PreviewView.cs:544-556`）の 1 か所で決まっている。拡大表示・前後比較・「元を表示」・
+  マスクの重ね表示・アバターの色は、どれもここを通る。縮めたもの（`_displaySource` / `_displayOutput`）は
+  `RememberTrueSourceBasis`（:530）と確定段（`PreviewView.Async.cs:270`）が作る。
+- したがって **出力に影響しない「表示だけの設定」として戻せる**。処理の解像度（`WorkingResolution.Size`）は変えない。
+
+### 1.2 T2: 差分表示がずれる原因
+
+1. **全体の差分が別のジョブで遅れて届く。** プレビュー画像を差し替えたあとで `_diffJob` を予約する
+   （`PreviewView.Async.cs:413`）。差分の反映は早くて次のフレームなので、画像が新しく差分が古いフレームが必ずある。
+   スライダーのドラッグ中はプロキシの結果が次々届くので、差分はいつも 1 つ前の結果のものになる。
+2. **拡大中は 2 種類の差分が継ぎ合わさる。** 切り出しの差分は 0.3.1（ca0bc4f）で切り出しと同じジョブにしたが、
+   切り出しの外側は 1. の縮小表示用の差分で補っている。解像度の違う 2 つの差分が境目で接し、1. の遅れもそのまま残る。
+3. **切り出しの範囲が 1 フレーム古い。** 切り出しは前のフレームの配置（`lastPreviewRect`）とスクロール位置から
+   範囲を決め、走っているジョブがあれば終わるまで次を始めない（`PreviewView.cs:816-829`）。続けてパン・ズームすると、
+   切り出しはいつも少し後ろを追い、端が縮小表示のまま残る。
+4. **パンのたびに管理配列を 3 本作る**（切り出し・変更前・差分。`DetailPreviewView.cs:274-288`）。GC の停止で
+   追従がさらに詰まる（T3 とつながる）。
+5. ca0bc4f のコミット本文のとおり、0.3.1 の修正は実機の操作では確かめていない。
+
+差分の定義は「変更前と変更後の画素ごとの RGB の差の合計が 10 を超えたら (255,220,0,160) で塗る」だけ
+（`PreviewView.BuildDiffPixels`、`PreviewView.Async.cs:484`）。**描いている 2 枚のテクスチャから、同じ描画の中で
+GPU（シェーダー）で作れば、ずれは原理的に起きない。** 別ジョブ・差分テクスチャ・管理配列も要らなくなる。
+
+### 1.3 T3: Mono ヒープに残っている大きな確保
+
+0.3.0 までに、Core の作業配列・色の表・選択キャッシュ・プレビューの原本と出力・NDMF の画素はヒープの外へ移した。
+残っているもの（N = 画素数。4K で 1,680 万、8K で 6,710 万）:
+
+| 段 | 何 | 主な場所 | 4K / 8K | 寿命 |
+|---|---|---|---|---|
+| A1 | 編集中のマスク（`bool[N]` を層ごと） | `MaskPaintView.cs:28-37` | 共通 1 + ゾーン 5×2 で 176MB / 704MB | ウィンドウを開いている間 |
+| A2 | 重ね表示の作り直しで全層を複製 | `MaskPaintView.Overlay.cs:152` | 層ごと 16 / 64MB（ストロークのたび） | 一時 |
+| A3 | 書き出し（読み込み・`GetPixels32`・PNG 化） | `ExportPipeline.cs:71-136`、一括書き出し | 64 / 256MB + ファイル + PNG | 書き出しごと |
+| A4 | メッシュの部位（UV チャート） | `UvChartMap.cs:109, 260, 369` | 64 / 256MB ×2 + 右クリックごと 16 / 64MB | 部位を使う間 |
+| A5 | 自動調整の HSV グリッドと証拠の配列 | `ZoneAutoTuner.cs:180`、`.Evidence.cs:277, 826`、`.Verify.cs` | 48 / 192MB + 数十 MB | 実行ごと |
+| A6 | 自動化 API（MCP）の色替え | `IrocaAutomation.cs:378-390`、`.Recolor.cs:323-616` | 8K で約 900MB + PNG | 呼び出しごと |
+| B1 | NDMF のビルド・シーンのプレビューでのマスク展開 | `MaskRle.cs:181`（`MaskStateCodec.ToSnapshot` 経由） | マスクごと 16 / 64MB | ビルドごと（ウィンドウを閉じていても） |
+| B2 | Undo・ストロークのたびのマスクの符号化・復号 | `MaskPaintView.Persistence.cs:70-100`、`MaskRle.cs:62-110` | マスクの複雑さ次第 | 操作ごと |
+| B3 | プレビューの要求ごとのマスクの詰め直し | `MaskSnapshot.Pack`（`MaskPaintView.cs:894`） | 層ごと 2 / 8MB | 要求ごと（ドラッグ中も） |
+| B4 | AI 提案の前処理・後処理と埋め込みのキャッシュ | `SamImageOps.cs:104`、`SamMaskPostprocess.cs`、`SamZoomOps.cs`、`SamMaskRefine.cs`、`SentisMaskSuggestService.cs` | 数十〜100MB | クリックごと・常駐 25MB |
+| B5 | 色の表の大きさの配列 | `PixelProcessor.Palette.cs:242, 308`、`PixelProcessor.cs:547-549` ほか | 最大 16MB 前後 | 実行ごと |
+| B6 | 選択の残す・強制のビット列 | `PixelProcessor.cs:664, 734` | 2 / 8MB | ゾーンごと |
+| C | 拡大表示の切り出し・プロキシ・デバッグの記録・文字列・OnGUI の細かい確保 | `DetailPreviewView.cs`、`PreviewView.Async.cs`、`DebugCaptureContext.cs` ほか | 数 MB 以下 | 頻繁 |
+
+ヒープの外の部品（`IrocaNativeMemory` / `NativeBlock` / `NativeFloatBuffer` / `NativeWorkPool` / `NativePixels` /
+`ColorPalette`）にも課題がある:
+
+- 持ち主と後始末（ファイナライザ・スレッド中断時の扱い）の実装が 5 通りあり、少しずつ違う。
+- 生の `T*` は長さを持たず、はみ出しは Windows のガードページ（`IROCA_NATIVE_GUARD`）でしか捕まらない。
+- プールへの二重返却が、間に貸し出しを挟むと他人の塊を黙って返してしまう。
+- プールに上限の量と、手を止めたときの縮小が無い（4K で 64MB の塊を最大 24 個まで持ちうる）。
+- 量の記録が全体で 1 つの数だけ。用途別・最大値・貸し出し中と空きの区別が無い。
+
+Unity 2022.3 の制約: `LoadImage`・`SetPixels32`・`EncodeToPNG` は管理配列しか受け取らない。
+`GetPixelData<T>`・`SetPixelData`・`LoadRawTextureData(IntPtr)`・`ImageConversion.EncodeNativeArrayToPNG` は使える。
+headless ハーネス（.NET 8）には Unity の実行環境が無いので、**Core は `NativeArray` を使えない**
+（`Marshal.AllocHGlobal` のまま）。`NativeArray` に見せるのは Infra の境目だけにする。
+
+### 1.4 T4: 構造の問題
+
+**Core**
+
+- `PixelProcessor` は 11 ファイルに分けた 1 つの static クラス（7,191 行・静的メソッド約 100）。パイプライン全体が
+  `ProcessPixelsArrayCore` の 1 メソッド（`PixelProcessor.cs:283-1521`、約 1,240 行）にあり、16 の段と、
+  選択キャッシュ・切り出しの検証・時間計測・デバッグ記録の 4 つの横断的な処理が混ざっている。分けたファイル同士で
+  private の定数・型・プールを使い合っていて、分割は見た目だけ。
+- 引数が多い: `AnalyzeMixtureBand` 23、`RecoverBoundaryEdges` 22、`GetRelaxedMatchStrength` 20 ほか、15 以上が 9 個。
+- 同じ計算の二重実装: 色の表あり・なし（`test_palette_parity` だけが見張る）、連結成分のラベル付け 2 つ
+  （FloodFill と Achroma）、マスクの最近傍の対応 2 つ、`PopCount` 2 つ、緩い照合と `ColorZone` の灰色の規則
+  （「同期」のコメントで結んでいるだけ）、OkLab（Automation の `TextureColorSummary` が写しを持つ）。
+- `ColorZone` が保存されるデータ・UI の開閉状態・照合のキャッシュ・照合そのものを全部持つ。`UpdateCacheIfNeeded`
+  を照合の前に呼ぶ決まりがあり、PixelProcessor・自動調整の 7 か所・`ApplyTo`・Automation の 6 か所が呼ぶ。
+- `ZoneAutoTuner`（3,038 行）はパイプラインを回さず照合だけを真似る。連結・穴埋め・境界などの段が変わると黙って
+  ずれる。入力は `IrocaSessionState` 丸ごと、出力に UI の文言（`Localization`）を含む。**Core → UI の依存**で、
+  ハーネスのスタブ（`scripts/headless-run/Harness.cs:12-33`）が隠している。
+- Core にあるが Core でないもの: `TextureSlot`・`PreviewJobProgress`・`MeshRaycast`・`IrocaConsts.Layout/MenuPath`・
+  常に true の `ExperimentalFeatures.EnableFloodFill`。
+
+**エディタ側**
+
+- `IrocaWindow` は 8 ファイル・4,023 行、`PreviewView` は 7 ファイル・3,537 行。分けたファイル同士で private の
+  状態を使い合う。
+- **色替えの経路が 5 本並んでいる**（プレビュー・書き出し・一括書き出し・NDMF・自動化 API）。それぞれが原本の読み込み・
+  ゾーンの選び方・マスク・実行のしかたを自前で組み立てる。
+- 同じ流れの二重実装: 自動調整（ウィンドウと Automation。待ち時間 180 秒の定数まで 2 つ）、アバターへの登録、
+  新しいゾーン、原本の読み込み、PNG の書き込み、プリセットの読み込み。
+  **プリセットは実害がある**: UI は古い優先順位を直す `MigrateLegacyLayerPriority`（`PresetsView.cs:194`）を通すが、
+  MCP の `IrocaAutomation.SessionFromPreset`（`IrocaAutomation.cs:554`）は通さない。古いプリセットのゾーンの順が
+  MCP 経由だけ違う。
+- 逆向きの依存: Core → UI（`Localization`）、Infra → UI（`RecipeTextureBuilder` → `ExportPipeline`・`IrocaWindow`、
+  `UpdateCheck` → `IrocaWindow`）、MaskSuggest → UI、Automation → UI。`FindObjectsOfTypeAll<IrocaWindow>` などで
+  ウィンドウを探す所が 18 か所あり、場当たりの「今の編集」の窓口になっている。
+- マスクを 2 か所で持つ（保存用の RLE 文字列とペイント用の `bool[]`）。手で置いた 22 か所の同期で合わせている。
+- 「編集が変わった」の通知が実質 `previewDirty` の setter しかない（入力の時刻・自動保存・UI の版を兼ねる）。
+  再計算は `OnGUI` の中から進め、シーンへの反映もその副産物。
+- Undo はウィンドウ全体を記録するので、ズームや開閉状態まで巻き戻る（`s_viewState*` で回避している）。
+- EditorPrefs / SessionState のキー約 30 個が 15 ファイルに散る。`Localization`（1,483 行・約 520 の文言）は
+  全層から使われる。
+- `scripts/build-check` は `Code/**` を 1 つのアセンブリとしてコンパイルするので、層の境目を CI が確かめられない。
+
+**安全網**: 強いが、ファイルの場所と名前に結びついている。
+
+- `Harness.csproj` は Core のファイルを名前で取り込む。
+- `test_algorithm_constants` は `Code/Core` 直下の決まったファイルだけを見る。
+- `test_autotune_apply_single_source` / `test_zone_cache_invalidation` / `test_recolor_settings` /
+  `test_zone_dto_mapping` は、ファイルの場所とメソッド名を正規表現で読む。
+- `test_selection_key_audit` と一部の EditMode テストは、private メソッドを名前の文字列で反射して呼ぶ。
+- `tools/harness_scope.py` の `_glob_to_regex` は `**` を 1 階層として扱う。サブフォルダへ移したファイルは、
+  **視覚レビューのゲートから黙って外れる**。
+
+## 2. 全体を通す決まり
+
+1. **出力を変えない。** T3・T4 のコミットは、golden・abcheck（`dev_safe/scripts/refactor_abcheck/abcheck.py`、
+   全モード約 1,400 単位をバイト比較）・Unity の `RuntimeParityTests` で一致を示す。メモリの貸し借りの順が変わる
+   ものは `IROCA_POOL_POISON=1` / `IROCA_NATIVE_GUARD=1` でも回す。コミット本文に結果を書き、
+   `SKIP_VISUAL_REVIEW=1` は abcheck の不一致 0 を確かめたときだけ使う（今の決まりのまま）。
+2. **移すだけのコミットと書き換えるコミットを分ける。** 1 コミット = 1 つの変更。
+3. **互換を壊さない。** 次は 0.3.x と同じに保つ。
+   - ウィンドウとビューの保存されるフィールド名（`sourceTexture`・`_session`・`_boundRecipe`・各ビュー・
+     ビューの public フィールド）。名前を変えたり別の入れ物に包んだりすると利用者の作業状態が消える。
+     最悪の場合、空のセッションで保存して結びついたレシピを上書きする。
+   - JSON の項目名（`IrocaSessionState`・`ColorZone`・`MaskState`・プリセット・レシピ・zones JSON）。
+   - EditorPrefs / SessionState のキー。
+   - 自動化 API（`IrocaAutomation`・`-executeMethod` の名前・MCP のツール名と JSON の形）。
+   - `Code/Runtime/*.meta` の GUID。
+   - ウィンドウの型とアセンブリの名前（レイアウトに保存される）。
+4. **依存の向きは機械で守る。** まず許可表つきの検査（違反の一覧は減らすことしかできない）で縛り、
+   最後に asmdef で固める。
+5. **測ってから変える。** フェーズの初めと終わりに、メモリ（MemoryBench）・速さ（PerfBench・KernelBench）・
+   操作から表示までの時間（PreviewLatency）を記録して比べる。
+6. **Mono で遅くしない。** 画素を回すループの中は生の `T*` のローカル変数のまま。インターフェース・仮想呼び出し・
+   `Span`・構造体のインデクサは使わない（KernelBench で Mono の Debug 最適化だと 2〜4 倍遅かった）。
+   段は static なクラスにし、段の入口で引数の構造体をローカルへ展開する（`RecolorPixel` が既にそうしている）。
+7. **Core を作り替えている間は、アルゴリズムを変えない。** 改善を急ぐものがあれば、フェーズ 3 に入る前か後に入れる。
+
+## 3. 目標の形
+
+### 3.1 層と依存の向き
+
+```
+UI           IrocaWindow・各ビュー・インスペクタ・プレビューの描画（表示と入力だけ）
+  ↓
+Automation   IrocaAutomation（MCP・コマンドラインの窓口。JSON を下の層へつなぐだけ）
+  ↓
+Application  EditingSession・RecolorInput・PreviewPipeline・AutoTuneService・ExportService・
+             RegistrationService・AiSuggestBroker・SessionPersistence（操作の流れ。IMGUI を知らない）
+  ↓
+Infra        TextureIO・各 Store・WorkingResolution・ジョブ・LivePreview・NDMF 用のビルダー・
+             Text（文言）・IrocaPrefs（Unity とファイルとの境目）
+  ↓
+Core         Foundation / Color / Model / Matching / Recolor（パイプラインと段）/ Filters / AutoTune / Uv
+             （計算だけ。UnityEditor も文言も知らない）
+
+統合（NDMF・Sentis・MCP・Debug）は、上の層の決まった窓口だけを使う。
+```
+
+名前空間は 0.4.0 では `Iroca` のまま（変えても何も縛らず、ハーネス・テスト・Debug の書き換えが増えるだけ）。
+縛るのはフォルダと asmdef と検査。
+
+### 3.2 Core
+
+```
+Code/Core/
+  Foundation/  並列度・画素の決まり（OpaqueAlphaMin）・ネイティブメモリ・ビット列・ヒストグラム・PixelRect
+  Color/       色空間（OkLab を公開して写しをなくす）・PixelHsv・色の表とそのキャッシュ
+  Model/       ColorZone（データだけ）・RecolorSettings・セッション / プリセット / DTO・マスクの形と符号化
+  Matching/    ZoneMatcher（実行ごとにゾーンの写しから作る不変の照合。ColorZone のキャッシュを置き換える）・照合の規則
+  Recolor/     PixelProcessor（今の入口の形のまま残す窓口）・RecolorPipeline（段を順に呼ぶだけ。約 200 行で
+               パイプラインの仕様として読める）・RunContext / ZoneState / ZoneBuffers・SelectionKey・SelectionCache
+    Stages/    Match・ChromaCeiling・EnclosedNeutral・Highlight・FloodFill・Refine（穴・境界・ぼかし）・Achroma・
+               Decontam・MixtureBand・RecolorStats・RecolorKernel・Compose
+  Filters/     箱・ガウスのぼかし、連結成分のラベル付け（1 つにする）
+  AutoTune/    ZoneAutoTuner（入力は専用の記録、出力は項目の列挙。文言を持たない）・HsvGrid・SelectionSimulator
+  Diagnostics/ 時間計測・デバッグ記録（段の境目で呼ぶ観察者。既定は何もしない）
+  Preview/     座標変換・縮小・RecolorPreview
+  Uv/          UvChartMap
+```
+
+- 段は `FloodFillStage.Run(RunContext r, ZoneState z)` のような static メソッドにする。段の順と条件分岐は今と同じ
+  （ビット一致はこの順に依存する）。ゾーンごとの値は `ZoneParams` として 1 回だけ、今と同じ式で計算する。
+- メモリの持ち主を決める: 実行全体（`RunBuffers`）・ゾーンごと（`ZoneBuffers`。8K の最大量を変えないよう、今と同じ
+  所で早めに手放す）・段の中の一時（`WorkScratch`）。
+
+### 3.3 Application（エディタ側の新しい層）
+
+| 部品 | 役割 | 置き換えるもの |
+|---|---|---|
+| `EditingSession` | 編集中の文書（原本・結びついたレシピ・ゾーンと設定・マスク・自動調整の入力）。操作（ゾーンの追加・並べ替え・サンプル・プリセットの適用・テクスチャの切り替えなど）は Undo とマスクの同期をしてから `Changed(種類)` を出す | ウィンドウの各 partial に散った操作と `previewDirty` の通知の役 |
+| `MaskWorkspace` | 編集中のマスク（1 画素 1 ビットのネイティブのマスク） | `MaskPaintView` の `bool[]` と 22 か所の同期 |
+| `SessionPersistence` | 復元の優先順（レシピ → セッションのファイル → 既定）・自動保存・外での書き換えの検出 | ウィンドウと 3 つの Store にまたがる復元の順 |
+| `EditingSessionRegistry` | 開いている編集の一覧（ウィンドウが OnEnable で登録・OnDisable で外す） | `FindObjectsOfTypeAll<IrocaWindow>` の 18 か所 |
+| `SourcePixelCache` | 作業解像度の原本（参照の数で貸す） | `PreviewView` が持つ原本 |
+| `RecolorInput` | 色替えの入力（ゾーン・マスク・設定・原本）を組み立てる唯一の場所 | 5 本の経路の自前の組み立て |
+| `PreviewPipeline` | 概要段・確定段・ドラッグの追従の状態と、選択キャッシュ・出力バッファ・シーンへの反映 | `PreviewView.Async` の計算の部分 |
+| `AutoTuneService` | 自動調整の流れ 1 本（ウィンドウ用と自動化用の薄い差し込み口を持つ） | `IrocaWindow.AutoTune` と `AutomationAutoTune` |
+| `AiSuggestBroker` | AI 提案の待ち行列の唯一の持ち主 | 自動化がウィンドウの窓口（`EvidenceChannel`）を借りる形 |
+| `ExportService` / `RegistrationService` | 書き出しと登録。登録は「計画」を返し、ウィンドウは確認画面に、自動化は警告にする | 2 本ずつある実装 |
+| `PresetApplier` | プリセット → 編集状態（古い優先順位の移行を含む） | UI と自動化で食い違う 2 本 |
+
+IMGUI のビューは今どおり毎フレーム状態を読む（MVVM にはしない）。`Changed` を購読するのは、非同期に動くもの
+（プレビューの再計算・自動保存・UI の版・シーンへの反映・マスクの重ね表示）だけ。
+
+### 3.4 ヒープの外のメモリの層（Core/Foundation と Infra の境目）
+
+- **確保の窓口を 1 つにする**: `IrocaNativeMemory.Alloc(bytes, 用途)`。用途ごとに今の量と最大値を数える。
+- **持ち主の型を 1 つにする**: `SafeHandle` から作る `NativeBuffer`。参照の数・ファイナライザ・スレッド中断時の扱いを
+  ここだけに書く。`NativePixels`・色の表・キャッシュの塊はこれの上に作り直す（5 通り → 1 通り）。
+- **境目では長さつきの `NativeSpan<T>`** を渡す。範囲の検査は検証用のビルド定義（`IROCA_NATIVE_CHECKS`）のときだけ。
+  ループの中は `T*` のまま。
+- **`NativeBitMask`**: 1 画素 1 ビット、参照の数で持ち、写しは書くときだけ作る。編集中のマスク・`MaskSnapshot`・
+  選択の残す / 強制のビット列・`UvChartMap.MaskOf` を置き換える。RLE の符号化・復号はビットへ直接読み書きする。
+- **プールに上限と縮小**: 量の上限（直近の最大量の 1.5 倍ほど）と、手を止めて数秒たったら空きを返す縮小を足す。
+- **Unity との境目は Infra だけ**: `NativeArray` に見せる薄い変換（安全ハンドルの作成と解放を含む）と、`TextureIO`
+  （原本を読んで `NativePixels` にする・PNG にしてファイルへ流す）。
+- **記録と検証**: PerfView に用途ごとの量・最大値・プールの空きと貸し出し中・Mono ヒープの伸びを出す。ウィンドウを
+  閉じたとき・リロードの前に残っているものを用途ごとにログへ出す。今の毒入れ・ガードに、返したあとに 0xDD で埋める
+  モードを足す（返したあとに読む所を見つける）。
+
+### 3.5 プレビューの表示
+
+`PreviewPipeline`（計算）と `PreviewRenderer`（GPU の表示: テクスチャ・差分のシェーダー・拡大表示）に分ける。
+差分は描画のときにシェーダーで作る（4.2）。拡大表示の作り方は 2 案あり、フェーズ 4 で計測して決める:
+
+- **案 A（今の形の延長）**: 見えている範囲を CPU で切り出してアップロードする。範囲を少し広めに取り（先読み）、
+  切り出しはヒープの外の置き場から `LoadRawTextureData(IntPtr)` で上げる。
+- **案 B（GPU に置いたまま見る）**: 確定段の出力（作業解像度または取り込み後の寸法）をまるごと GPU に置き、パン・ズームは
+  描くときの UV だけで行う。縮小はミップマップ。パン・ズームの追従は原理的に遅れず、拡大表示のジョブがなくなる。
+  代わりに VRAM（4K で 1 枚 64MB＋ミップ、8K で 256MB＋ミップ。変更前と変更後で 2 枚）と、確定のたびのアップロードの
+  時間がかかる。**4K / 8K でアップロード時間と VRAM を測って、目安（たとえば 4K で 1 フレーム以内）に収まれば案 B。**
+
+## 4. 進め方
+
+ブランチは 0.3.0 と同じ形を提案する: 統合ブランチ `dev-0.4.0`、作業ごとに `dev-0.4.0-<作業>` を worktree で切る。
+`develop` は 0.3.x の修正用に残し、`dev-0.4.0` へ随時取り込む（「決めてほしいこと」2）。
+
+### フェーズ 0: 安全網と基準の計測（製品のコードは変えない）
+
+- [ ] 0-1 **基準を測る**（dev_safe に記録する）:
+  - MemoryBench: 4K と 8K で今のケースを測る。さらに次のケースを足す。
+    - マスク N 層のペイントと Undo / Redo
+    - マスクつきの NDMF のビルドとシーンのプレビュー
+    - 自動調整
+    - メッシュの部位の右クリック
+    - AI 提案の準備とクリック
+    - MCP の色替え
+  - PerfBench・KernelBench。
+  - PreviewLatency: パン・ズーム・スライダーのドラッグを決まった手順で再生できるようにして測る。
+- [ ] 0-2 **振る舞いを固定する EditMode テスト**:
+  - ウィンドウの確定段の出力 = `SessionRecolor.Apply`（同じセッション・マスクつき）。
+  - ウィンドウの書き出し = 自動化 API の PNG。
+  - EditorPrefs / SessionState のキーの一覧。
+  - ウィンドウとビューの保存されるフィールド名の一覧。`[FormerlySerializedAs]` なしで名前が変わったら落とす。
+  - 古い版で保存したレシピ・セッション・プリセットの読み込み結果。
+- [ ] 0-3 **構造の検査**（`scripts/source_checks/`）:
+  - `test_layer_dependencies.py`: フォルダ間の許可表。今の違反は一覧に載せ、一覧は減らすことしかできない。
+  - `test_no_pixel_sized_managed_arrays.py`: `new (bool|byte|int|float|Color32|ulong)[…]` のうち画素数の大きさの
+    もの。これも許可の一覧つきで、一覧は減らすことしかできない。
+  - `test_event_subscription_symmetry` の長生きのイベントの一覧に、次の 6 つを足す: `duringSceneGui`・
+    `TargetChanged`・`BeforeApply`・`OnDrawFoldout`・`OnCaptureComplete`・`OnReport`。
+- [ ] 0-4 **移動に弱い道具を先に直す**:
+  - `tools/harness_scope.py` の `**` の扱い。
+  - `test_algorithm_constants` の対象をサブフォルダまで広げる。
+  - 名前の文字列で反射して呼んでいるテストを、internal の窓口を通す形に替える（`test_selection_key_audit`・
+    RecipeSyncTests・WindowRestoreTests・MemoryBenchTests・HiResSmokeTests）。
+  - dev_safe 側でハーネスの約束事を一覧にする: コマンドラインの形、`PHASE` / `SUBPHASE` / `AUTOTUNE` / `SELKEY`
+    の出力、abcheck が名前で呼ぶ private メソッド。この調査は dev_safe の無い環境で行ったので未確認。
+- [ ] 0-5 **設計の記録** `docs/architecture.md` を書く（3 章の層・依存の決まり・メモリの持ち主の決まり）。以後のセッションはこれを正にする。
+
+### フェーズ 1: 表示の 2 件（T1・T2）。今の構造の上で小さく直す
+
+- [ ] 1-1 **T1 拡大表示の解像度の設定**
+  - プレビューの見出し行の「なめらか」の隣にトグルを置く（ツールチップ必須）。この PC のいろか全体の表示の設定として
+    EditorPrefs に新しいキーで持つ。表示だけの設定なので、NDMF・書き出し・自動化には効かない（以前の
+    「元の解像度で編集」と違う点）。
+  - オンなら `DetailSource` / `DetailOutput` は作業解像度のもの。縮めた原本・縮めた出力は作らない（その分メモリが減る）。
+    オフは今と同じ。
+  - 切り替えたら拡大表示を捨てて作り直す。オフへ戻すときは、色替えをやり直さず、確定段の出力から縮めたものを作る。
+  - 文言を直す: `ComparisonModeTooltip` と `PeekOriginalTooltip` は「Max Size の大きさで表示」と書いている。
+    マニュアル（08-preview ほか）と CHANGELOG も直す。
+  - テスト: 両方の設定で、拡大表示の寸法と、変更前・変更後・マスクの重ね表示の範囲がそろうこと（EditMode）。出力は変わらない。
+- [ ] 1-2 **T2 差分を GPU で描く**
+  - 隠しシェーダー（`Hidden/Iroca/PreviewDiff`）: 変更前と変更後を同じ UV で読み、8 ビットの値で RGB の差の合計が
+    10 を超えたら (255,220,0,160)、それ以外は透明。今の `BuildDiffPixels` と同じ定義。テクスチャを sRGB として
+    読むと値が変わるので、線形で作るかシェーダーで戻す。
+  - 全体は `previewTexture` と `rawPreviewTexture` から、拡大表示は切り出しと同じ範囲の変更前の切り出しから描く。
+    変更前の切り出しは、今も差分表示中のジョブが作っている。それを「元を表示」と共用のテクスチャに上げる。
+    切り出しの外側は全体の 2 枚から同じシェーダーで描く。
+  - 消すもの: `_diffJob`・`BuildDiffPixels`・`diffTexture`・`detailDiffTexture`・`ApplyPendingDiff`・差分のための管理配列。
+  - 切り出しの範囲をそのフレームのスクロール位置・倍率から決め、上下左右に少し余白を足す（小さなパンで端が粗く
+    ならないように）。
+  - 配布: `.shader` を `Code/UI/` に置けば追跡ファイルとして zip に入る（`Build-VpmPackage.ps1` は `Code/` の追跡
+    ファイルを全部入れる）。`Shader.Find` で引く。インストーラ（unitypackage）にも入ることを
+    release-smoke-test で確かめる。
+  - テスト:
+    - 合成した画像の組で、シェーダーの出力（RenderTexture に描いて読み戻す）が CPU の定義と一致すること（EditMode）。
+      CPU の定義はテストの中にだけ残す。
+    - 実機で、4K・8K の画像を差分表示にしてパン・ズーム・スライダーのドラッグを激しく行い、ずれと古い差分が
+      出ないこと（release-smoke-test に手順を足す）。
+
+### フェーズ 2: メモリの土台（T3 の基礎）
+
+- [ ] 2-1 B1: `MaskRle` に詰めたビットへ直接復号する口を足し、NDMF のビルドとシーンのプレビューで使う
+  （小さな変更で大きく効く。最初にやる）。
+- [ ] 2-2 3.4 の `NativeBuffer`・用途つきの確保・プールの上限と縮小・返したあとに埋めるモード・閉じたときの残りの報告。
+  既存の 5 通りをこの上へ移す（1 種類ずつ別コミット）。
+- [ ] 2-3 `NativeBitMask` と、RLE からビットへ・ビットから RLE への直接の符号化。
+- [ ] 2-4 Infra の境目: `NativeArray` への変換、`TextureIO`。
+  - 読む: `GetPixelData` から `NativePixels`。
+  - 書く: `EncodeNativeArrayToPNG` で PNG にし、小さな置き場を通してファイルへ流す。
+- [ ] 2-5 PerfView に用途ごとの量を出す。
+- 確かめること:
+  - `EncodeNativeArrayToPNG` を別スレッドで呼べるか（今の `EncodePng_RunsOnBackgroundThreadAndMatchesMainThread` を広げる）。
+  - `LoadImage` の代わりに管理配列を使わない読み込み方があるか（Unity 6 の `ReadOnlySpan` の口、
+    `UnityWebRequestTexture` など）。`GetPixels32` と同じ画素になるかも見る。
+  - Mono の `FileStream.Write(ReadOnlySpan)` は管理配列へ写すので使わない。
+
+### フェーズ 3: Core の作り直し（T4 の Core と、Core に残る T3）
+
+各手順を 1 つ以上のコミットにする。どれもビット一致（abcheck・golden・`test_palette_parity`・`test_selection_key_audit`）。
+
+- [ ] 3-1 `ZoneAutoTuner` が文言でなく項目の列挙を返すようにし、ハーネスのスタブを消す（Core → UI の依存をなくす）。
+- [ ] 3-2 `DebugCaptureHooks` を Core の部分と UI の部分（開閉の描画）に分ける。
+- [ ] 3-3 Core でないものを外へ移す: `TextureSlot`・`PreviewJobProgress`・`MeshRaycast` は Infra へ、
+  `IrocaConsts.Layout/MenuPath` は UI へ。常に true の `EnableFloodFill` を消す。
+- [ ] 3-4 Foundation を切り出す: 並列度・`OpaqueAlphaMin`・`CoreMemory.ReleaseIdle`。今の名前は転送役として残す。
+- [ ] 3-5 移すだけの切り出し: 色空間（OkLab を公開し、Automation の写しを消す）・`PixelHsv`・色の表・
+  ヒストグラム・マスクの対応・ビット列・ぼかし。定数の台帳の節も一緒に移す（台帳の行は消さずに移す）。
+- [ ] 3-6 `SelectionKey` を外へ出す。ハーネスの反射呼び出しを直接の呼び出しにする。
+- [ ] 3-7 `ProcessPixelsArrayCore` を段に分ける。
+  - 先に `RunContext` / `ZoneState` / `ZoneBuffers` を入れ、段はパイプラインの順に 1 段 1 コミットで分ける。
+  - 最後に残る `RecolorPipeline` は約 200 行で読めるようにし、デバッグと時間計測は段の境目の観察者にする。
+  - 色の表あり・なしの二重実装は、段ごとに 1 本にできるかを KernelBench で速さを見ながら決める。
+- [ ] 3-8 切り出しの検証経路（`PreviewParityCache` と切り出しの処理。製品は使っていない）を、消すか検証専用の
+  部品に閉じ込める（「決めてほしいこと」7）。
+- [ ] 3-9 照合を `ColorZone` から出し（`ZoneMatcher` と照合の規則）、`ColorZone` をデータだけにする。
+  - 外からの `UpdateCacheIfNeeded` の呼び出しと、自動調整用の旗 `simDisableBrightForgiveness` をなくす。
+  - `test_zone_cache_invalidation` を新しい形に書き直す。
+- [ ] 3-10 `ZoneAutoTuner` を作り直す。
+  - 入力は専用の記録にし、`IrocaSessionState` 丸ごとはやめる。
+  - Verify と Evidence の数え方を 1 つの `SelectionSimulator` にまとめ、マスクの対応も共有する。
+  - `MergeAnalyzed` の名前の無い数値に名前を付ける（台帳も直す）。
+  - HSV グリッドと証拠の配列をヒープの外へ移す（A5）。
+- [ ] 3-11 連結成分のラベル付けを 1 つにする。いちばん危ない手順なので最後にする。Achroma 側は行と順序も使っている。
+- [ ] 3-12 Core に残る管理配列をなくす: `UvChartMap`（A4）、色の表の大きさの配列（B5）、残す / 強制のビット列を
+  `NativeBitMask` へ（B6）、穴埋めと境界のリスト。
+- [ ] 3-13 `Harness.csproj` の取り込みをフォルダ単位にする。
+- フェーズの終わり: Unity の `RuntimeParityTests`（Mono とハーネスの一致）、MemoryBench、PerfBench、KernelBench。
+
+### フェーズ 4: エディタ側の層（T4 のエディタ側と、エディタ側に残る T3）
+
+- [ ] 4-1 移すだけ:
+  - `ExportPipeline` を Infra へ移す（`TextureIO` の土台にする）。
+  - `Localization` を Text フォルダへ移し、機能ごとの partial に分ける（呼び出し側は変えない）。
+  - キーの一覧 `IrocaPrefs` を作る（文字列は同じ）。
+  - `IrocaWindow` にある static の道具（`IsReadable`・`RecordAsSeparateUndo` など）を外へ出す。
+  - `UnitRun.csproj` のパスを同じコミットで直す。
+- [ ] 4-2 部品を切り出す。ウィンドウは当面、切り出した部品へ転送する。順は次のとおり:
+  1. `SourcePixelCache`
+  2. `RecolorInput`
+  3. `EditingSessionRegistry`
+  4. `EditingSession`: 今の保存される `_session` を包むだけで、フィールド名は変えない。
+  5. `SessionPersistence` と自動保存
+  6. `MaskWorkspace`: マスクを `NativeBitMask` に替える（A1・A2・B3）。
+  7. ゾーンの操作
+  8. `Changed` が `previewDirty` の通知の役を引き継ぐ
+- [ ] 4-3 並んだ経路を 1 本にする:
+  - `AutoTuneService`: `test_autotune_apply_single_source` を同じコミットで直す。
+  - `AiSuggestBroker`
+  - `ExportService`: ヒープの外の書き出し（A3・A6）。一括書き出しをメインスレッドの外へ出すかも検討する。
+  - `RegistrationService`
+  - `PresetApplier`: 自動化の古い優先順位の扱いを UI に合わせる。わざと振る舞いを変えるので、別コミットにして
+    CHANGELOG に書く。
+- [ ] 4-4 プレビューを `PreviewPipeline` と `PreviewRenderer` に分ける。
+  - 3.5 の案 A / 案 B を計測して決める。
+  - 残る管理配列（概要段・表示用・切り出し）をなくす。
+  - 再計算は当面ウィンドウの描画から進める（`EditorApplication.update` へ移すと、隠れている間の CPU の使い方と
+    シーンへの反映が変わる）。
+- [ ] 4-5 AI 提案の前処理・後処理・埋め込みのキャッシュをヒープの外へ移す（B4）。
+  - Sentis 2.x の `Tensor<float>(TensorShape, NativeArray<float>)` と `DownloadToNativeArray` を使う。
+  - Inference Engine 2.2 でも使えるか確かめる。
+  - Sentis の asmdef は unsafe を許していないので、ポインタは今どおり `SamNativeOps` に置く。
+- [ ] 4-6 OnGUI の細かい確保（毎フレームの `new GUIContent`・プレビューの要求ごとの LINQ）を減らす。優先度は低い。
+
+### フェーズ 5: Undo の作り直し（入れるかは「決めてほしいこと」5）
+
+- 文書を `HideAndDontSave` の ScriptableObject に移し、Undo の対象にする。ズームなど表示の状態が巻き戻らなくなり、
+  `s_viewState*` の回避が要らなくなる（`UndoRestoreSignalTests` が ScriptableObject を対象に使っているので確かめられる）。
+- マスクの履歴は版の番号だけを保存し、中身はヒープの外の RLE の履歴に持つ。リロードのあとは `MaskFileStore` から
+  戻す（B2 の、Undo のたびの base64 文字列の読み直しがなくなる）。
+- 利用者の作業状態の保存と復元に直接かかわるので、他のフェーズより確かめることが多い。
+
+### フェーズ 6: asmdef で固める（入れるかは「決めてほしいこと」6）
+
+- `com.yukkuri-aoba.iroca.Editor.Core`（Core と MaskSuggest/Ops。unsafe 可）と
+  `com.yukkuri-aoba.iroca.Editor.Services`（Infra・Application・Text と MaskSuggest の UI でない部分）を足す。
+- `com.yukkuri-aoba.iroca.Editor` は UI と Automation のまま残す。ウィンドウの型の識別子（利用者のレイアウトに保存される）・
+  `-executeMethod`・MCP / Debug の asmdef の参照を変えないため。NDMF と Sentis は Services を参照する。
+- `InternalsVisibleTo` を足す。`DebugCaptureHooks` の分割は 3-2 で済ませておく。EditorTests の asmdef にも参照を足す。
+- **`scripts/build-check` を asmdef ごとの csproj（ProjectReference つき）にする。** これをしないと CI は境目を見ない。
+- NDMF・ML（Sentis）・MCP の各ホストで、Unity の batchmode でコンパイルを確かめる。
+
+### フェーズ 7: 仕上げとリリース
+
+- [ ] 許可の一覧が 0 になった検査は、一覧なしの決まりにする。
+- [ ] 文書を直す: `docs/testing-architecture.md`（パス）・`docs/algorithm-constants.md`（ファイルの節）・
+  `docs/development-setup.md`・`docs/architecture.md`、マニュアル、CHANGELOG、`docs/release-smoke-test.md`
+  （差分の追従・解像度の設定・メモリの確認を足す）。
+- [ ] 0.3.1（`v0.3.1` タグ）と abcheck で比べる。わざと変えたもの以外は一致すること。
+- [ ] フェーズ 0 の基準と、メモリ・速さ・表示までの時間を比べて CHANGELOG に書く。
+
+## 5. 終わったと言える条件
+
+| # | 条件 |
+|---|---|
+| T1 | トグルがあり、ツールチップがある。オンにすると、元が 4096・Max Size が 2048 のテクスチャを拡大したとき 4096 の画素で見える。オフは今と同じ。出力は変わらない |
+| T2 | 差分は表示中の 2 枚から描画のときに作る（別のジョブで作る差分が残っていない）。4K・8K で、激しいパン・ズーム・スライダーのドラッグの間も、古い差分や位置のずれた差分が出ない（実機の手順で確認） |
+| T3 | `Code/**` に、画素数に比例する管理配列の確保が無い。例外は一覧に理由つきで書いたものだけ（2022.3 の `LoadImage` に渡す圧縮されたファイルの中身、フェーズ 5 を入れない場合の Undo の文字列など）。MemoryBench で、Mono ヒープの最大値が 4K と 8K でほぼ同じ（テクスチャの大きさに比例しない）。ウィンドウを閉じたら、ヒープの外の量が開く前に戻る |
+| T4 | 依存の向きが検査（または asmdef）で守られ、違反の一覧が 0。パイプラインが段を順に呼ぶ約 200 行で読める。色替えの入力の組み立て・自動調整・登録・書き出し・プリセットの読み込みがそれぞれ 1 本。Core に UI と UnityEditor の参照が無い |
+| 共通 | わざと変えたもの以外、出力が 0.3.1 とビット一致。PerfBench・KernelBench で 5% を超えて遅くならない。表示までの時間は同じか短い |
+
+## 6. 危ないところと手当て
+
+| 危ないところ | 手当て |
+|---|---|
+| 保存されるフィールド名を変えて、利用者の作業状態が消える・レシピを空で上書きする | 0-2 のフィールド名の固定テスト。`EditingSession` は今の `_session` を包むだけにし、中身の名前は変えない |
+| Mono と .NET 8 で浮動小数の結果が違う（式を別のメソッドや入れ物へ移したとき） | `RuntimeParityTests` をフェーズ 3 の手順ごとに回す（ハーネスの一致だけでは足りない） |
+| 作り替えで Mono の Debug 最適化のときに遅くなる | 2 章 6。KernelBench・PerfBench をフェーズの終わりに回す |
+| 早めに手放していたメモリを手放さなくなり、8K の最大量が増える | `ZoneBuffers` の手放す所を今と同じにする。MemoryBench の 8K で確かめる |
+| プールの貸す順が変わって、書く前に読む所が表に出る | 毒入れ・ガード・返したあとに埋めるモードで回す |
+| 色の表あり・なしの片方だけを移して食い違う | 段ごとに両方を同じコミットで移す。`test_palette_parity` |
+| dev_safe の約束事（ハーネスの出力の形・private メソッドの名前）を知らずに壊す | 0-4 で一覧にしてから動かす |
+| 手順ごとにハーネスの DLL が変わり、キャッシュが冷えて回帰（約 7 分半）と abcheck（約 8 分）が毎回かかる | 移すだけの小さな手順はまとめて検証してよい（コミットは分けたまま、検証は数コミットごと）。ただし段の分割（3-7）は 1 段ごとに検証する |
+| asmdef の境目は、任意のパッケージ（NDMF・Sentis・MCP）が入ったホストでしか確かめられない | フェーズ 6 で 3 つのホストの batchmode コンパイルを手順にする |
+| 定数を移して台帳の由来の記録が消える | 台帳の行は消さずに移す。`test_algorithm_constants` の対象をサブフォルダまで広げる（0-4） |
+| 長い作業の間に 0.3.x の修正が必要になる | `develop` で直して `dev-0.4.0` へ取り込む |
+
+## 7. 決めてほしいこと
+
+1. **T1 の設定の既定値と置き場所。** 案: 見出し行の「なめらか」の隣のトグル、既定はオフ（ゲームに出る大きさ）。
+   既定をオンにする（0.3.0 より前に近い見え方にする）か。
+2. **ブランチ。** 案: 0.3.0 と同じく `dev-0.4.0` を統合ブランチにする。または `develop` へ直接積む。
+3. **T1・T2 を先に 0.3.2 として出すか。** どちらも小さく、今の構造の上で直せる。先に出すなら `develop` で行い、
+   `dev-0.4.0` へ取り込む。
+4. **Core を作り替えている間（フェーズ 3）は、アルゴリズムの改善を止めてよいか。**
+5. **Undo の作り直し（フェーズ 5）を 0.4.0 に入れるか。** 入れないと Undo / Redo とストロークの文字列の確保（B2）が残る。
+6. **asmdef の分割（フェーズ 6）を 0.4.0 に入れるか。** 入れない場合も、許可表の検査で依存の向きは守れる。
+7. **切り出しの検証経路（`PreviewParityCache`）を消してよいか。** 製品は使っておらず、ハーネスの `--ffcheck` などと
+   dev_safe のテストだけが使う。
+8. **拡大表示の案 A / 案 B を、計測の結果で決めてよいか。** 案 B は VRAM を多く使う代わりに、パン・ズームの追従が
+   原理的に遅れない。
+
+## 8. まだ確かめていないこと
+
+- この計画は、dev_safe と Unity の無い環境でソースを読んで作った。abcheck の中身・ハーネスの出力の使われ方・
+  実機の挙動は確かめていない。
+- 調査の数字（行数・引数の数・確保の大きさ）は 2026-10-26 の develop（6f93f0e）のもの。確保の大きさは式から
+  見積もったもので、測ったものではない（フェーズ 0 で測る）。
+- Unity の API で確かめること:
+  - `EncodeNativeArrayToPNG` を別スレッドで呼べるか。
+  - `LoadImage` の代わりになる読み込み方。
+  - Inference Engine 2.2 の `NativeArray` の口。
+  - パッケージに入れたシェーダーを `Shader.Find` で引けるか。
