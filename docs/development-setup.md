@@ -156,6 +156,16 @@ Unity 本体が要るもの（EditMode テスト・`RuntimeParityTests`・Memory
   . scripts/cloud/env.sh && .venv/bin/python -m pytest scripts/golden scripts/source_checks scripts/unit-run -q
   ```
 - Linux なので golden は CI と同じく画素比較で判定する（`env.sh` が `IROCA_GOLDEN_TOLERANT=1` を立てる）。
+- ディスクは約 30GB しか無い。回帰を回すと、作り直せる作業ディレクトリが数 GB ずつ増える。
+  - 増えるもの: `dev_safe/_sam_e2e_work`（約 4GB）・`_sam_freeze_work`・`_iou_csharp_work`・`_csharp_gate_work`。
+  - 回し終えたら消してよい（`cache_gc.py` が消してよいとしているもの）。
+  - ハーネスの実行キャッシュは `env.sh` が上限を 8GB にしている。
+- 2026-10-26 にこのセッションで確かめたこと:
+  - abcheck は Linux でも回る。ただし `dev_safe/scripts/refactor_abcheck/abcheck.py` の `CRASH_RC`（.NET の未処理例外の
+    終了コード）が Windows の値（0xE0434352）に固定されていて、自己検査 2 件が落ちる。Linux では SIGABRT（-6）になる。
+    `os.name` で分けると自己検査が通り、作業ツリーとの比較（4 グループ 317 単位）も一致した。
+  - `freeze_sam_fixtures.py` は、追跡している凍結ロジット（`*_logits.bin` / `*_scores.bin`）も作り直す。Linux の
+    onnxruntime では最下位ビットが Windows と違うので、`setup.sh` は作り直した後に追跡している版へ戻す。
 
 ## どのリポジトリにも入らないもの
 

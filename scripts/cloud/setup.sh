@@ -125,6 +125,9 @@ if [ -d "$ROOT/dev_safe/Tests" ]; then
         && .venv/bin/python dev_safe/scripts/freeze_sam_fixtures.py --holdout)
     # 作業ディレクトリ（約 12GB。埋め込みを作るときの中間ファイルだけで、テストは読まない）を消す。
     rm -rf "$ROOT/dev_safe/_sam_freeze_work"
+    # 追跡している凍結ロジット（*_logits.bin / *_scores.bin）は、Linux の onnxruntime で作り直すと
+    # Windows で凍結したものと最下位ビットが違う。テストが Windows と同じ入力を使うよう、追跡している版へ戻す。
+    git -C "$ROOT/dev_safe" checkout -- texture_sample/ground_truth/sam_fixtures
 fi
 
 log "完了。使う前に: . scripts/cloud/env.sh"
