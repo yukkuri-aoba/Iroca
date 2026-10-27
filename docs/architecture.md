@@ -143,7 +143,7 @@ GC は大きな塊を動かせない。8K の原本は 6,700 万画素あり、`
   - 返し忘れはファイナライザ（`SafeHandle`）が解放し、用途つきで数える（`IrocaNativeMemory.FinalizedCount`。
     `--nativememselftest` が 0 であることを確かめる）。
 - 目標（0.4.0 のフェーズ 2）:
-  - 今ある部品（プールの塊・`NativePixels`）を `NativeBuffer` の上に移す（2-2。色の表・選択キャッシュは移した）。
+  - 今ある部品（プールの塊）を `NativeBuffer` の上に移す（2-2。色の表・選択キャッシュ・`NativePixels` は移した）。
   - 境目では長さつきの `NativeSpan<T>` を渡す。範囲の検査は検証用のビルド定義（`IROCA_NATIVE_CHECKS`）のときだけ。
     ループの中は `T*` のまま。
   - マスクとビット列は `NativeBitMask`（1 画素 1 ビット、参照の数で持ち、書くときだけ写す）。
