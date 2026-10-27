@@ -25,16 +25,40 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LEDGER = REPO_ROOT / "docs" / "algorithm-constants.md"
 
-# 台帳の対象。出力（選択・再着色・自動調整・AI 提案のマスク）に効くファイルだけ。UI の寸法・メモリ管理・
-# 保存形式・利用者が変える設定の既定値（RecolorSettings / ZonesJsonDefaults / ColorZone のフィールド）は外す。
-SCOPE_GLOBS = [
-    "Code/Core/ColorZone*.cs",
-    "Code/Core/PixelProcessor*.cs",
-    "Code/Core/ZoneAutoTuner*.cs",
-    "Code/Core/HighlightSampleCorrector.cs",
-    "Code/Core/UvChartMap.cs",
-    "Code/MaskSuggest/Ops/*.cs",
-]
+# 台帳の対象。出力（選択・再着色・自動調整・AI 提案のマスク）に効くファイルだけ。
+# 0.4.0 の作り替えでファイルをサブフォルダへ移したり名前を変えたりしても台帳から黙って外れないよう、
+# 下のフォルダの中（サブフォルダを含む）を既定で対象にし、出力に効かないファイルだけを理由つきで外す（2026-10-27）。
+# 外したファイルを移したり消したりしたら、ここも直す（ここに書いたファイルが無いと落ちる）。
+SCOPE_ROOTS = ["Code/Core", "Code/MaskSuggest/Ops"]
+SCOPE_EXCLUDE = {
+    # 診断（計測・記録だけで出力を変えない）
+    "Code/Core/DebugCaptureHooks.cs": "診断",
+    "Code/Core/IDebugCapture.cs": "診断",
+    "Code/Core/PerfReport.cs": "診断",
+    # メモリ管理とキャッシュ（出力を変えない）
+    "Code/Core/IrocaNativeMemory.cs": "メモリ管理",
+    "Code/Core/NativePixels.cs": "メモリ管理",
+    "Code/Core/NativeWorkPool.cs": "メモリ管理",
+    "Code/Core/SelectionCache.cs": "キャッシュ",
+    # 保存形式と、利用者が変える設定の既定値
+    "Code/Core/IrocaPresetData.cs": "保存形式",
+    "Code/Core/IrocaSessionState.cs": "保存形式",
+    "Code/Core/MaskState.cs": "保存形式",
+    "Code/Core/MaskStateCodec.cs": "保存形式",
+    "Code/Core/MaskRle.cs": "保存形式",
+    "Code/Core/MaskSnapshot.cs": "マスクの詰め方（中身は変えない）",
+    "Code/Core/RecolorSettings.cs": "設定の既定値",
+    "Code/Core/ZonesJsonDefaults.cs": "設定の既定値",
+    # UI・座標・入口
+    "Code/Core/IrocaConsts.cs": "UI の寸法・メニュー・表示の上限",
+    "Code/Core/TextureSlot.cs": "UI のテクスチャの入れ物",
+    "Code/Core/PreviewJobProgress.cs": "UI の進み具合",
+    "Code/Core/MeshRaycast.cs": "座標の変換（定義どおりの式）",
+    "Code/Core/PreviewCoords.cs": "座標の変換（定義どおりの式）",
+    "Code/Core/SessionRecolor.cs": "非破壊の入口（設定を写すだけ）",
+    "Code/Core/RecolorPreview.cs": "自動化の比較パネルと指標（出力そのものではない）",
+    "Code/Core/PreviewParityCache.cs": "検証用（0.4.0 の 3-8 で消す）",
+}
 
 KINDS = {"定義", "量子化", "計算", "近似", "設計", "実測", "不明"}
 # 選択の段（dev_safe の切除計測で 1 つずつ外して測った単位）。台帳の「段」の欄に使う記号。
@@ -64,9 +88,17 @@ def strip_comments(src: str) -> str:
 
 def scope_files() -> list[Path]:
     out: set[Path] = set()
-    for g in SCOPE_GLOBS:
-        out.update(REPO_ROOT.glob(g))
+    for root in SCOPE_ROOTS:
+        out.update(p for p in (REPO_ROOT / root).rglob("*.cs")
+                   if p.relative_to(REPO_ROOT).as_posix() not in SCOPE_EXCLUDE)
     return sorted(out)
+
+
+def test_scope_exclusions_exist():
+    """外したファイルが今もある（移した・消したのに外す一覧が古いままだと、移した先が黙って対象に入るか、
+    一覧が嘘になる）。"""
+    missing = sorted(f for f in SCOPE_EXCLUDE if not (REPO_ROOT / f).is_file())
+    assert not missing, f"SCOPE_EXCLUDE に書いたファイルがありません（移したなら一覧を直す）: {missing}"
 
 
 def _rel(p: Path) -> str:
