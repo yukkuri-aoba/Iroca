@@ -1,7 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.IO;
-using System.Reflection;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -16,8 +15,6 @@ namespace Iroca.EditorTests
     /// </summary>
     public class RecipeSyncTests
     {
-        private const BindingFlags Instance = BindingFlags.Instance | BindingFlags.NonPublic;
-
         private TestAssets _assets;
         private string _tex;
         private string _guid;
@@ -36,9 +33,7 @@ namespace Iroca.EditorTests
             _recipe = RecipeStore.Create(texture, State("登録した内容"), _assets.Folder);
 
             // 窓は開いたときに「前回のテクスチャ」を読む。テスト用のテクスチャを指しておき、開発者の値は TearDown で戻す。
-            _prefKey = (string)typeof(IrocaWindow)
-                .GetProperty("LastTextureGuidPrefKey", BindingFlags.Static | BindingFlags.NonPublic)
-                .GetValue(null);
+            _prefKey = IrocaWindow.LastTextureGuidPrefKey;
             _prefBefore = EditorPrefs.HasKey(_prefKey) ? EditorPrefs.GetString(_prefKey) : null;
             EditorPrefs.SetString(_prefKey, _guid);
 
@@ -86,7 +81,7 @@ namespace Iroca.EditorTests
             Save();   // 閉じる・再コンパイル・ビルドの直前・自動保存と同じ保存
             Assert.AreEqual("Git で取り込んだ内容", RecipeZoneName(), "外で書き換わったレシピを窓の古い内容で上書きした");
 
-            Invoke("ReloadChangedRecipe");
+            _win.ReloadChangedRecipe();
             Assert.AreEqual("Git で取り込んだ内容", ZoneName(), "窓がレシピから読み直していない");
 
             // 読み直した後は、窓の編集がまたレシピに保存される。
@@ -114,7 +109,7 @@ namespace Iroca.EditorTests
             Save();
             _recipe.sessionJson = new string(registered.ToCharArray());
 
-            Invoke("AdoptRecipeAfterUndo");
+            _win.AdoptRecipeAfterUndo();
             SetZoneName("Undo の後に直した内容");
             Save();
             Assert.AreEqual("Undo の後に直した内容", RecipeZoneName(), "Undo で戻ったレシピを外からの変更と取り違えた");
@@ -135,8 +130,6 @@ namespace Iroca.EditorTests
 
         private string RecipeZoneName() => RecipeStore.Load(_recipe).zones[0].name;
 
-        private void Save() => Invoke("SavePersistedSessionForCurrentTexture");
-
-        private void Invoke(string method) => typeof(IrocaWindow).GetMethod(method, Instance).Invoke(_win, null);
+        private void Save() => _win.SavePersistedSessionForCurrentTexture();
     }
 }

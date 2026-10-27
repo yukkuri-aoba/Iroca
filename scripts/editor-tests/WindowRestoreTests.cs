@@ -1,7 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.IO;
-using System.Reflection;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -23,8 +22,6 @@ namespace Iroca.EditorTests
     /// </summary>
     public class WindowRestoreTests
     {
-        private const BindingFlags Instance = BindingFlags.Instance | BindingFlags.NonPublic;
-
         private TestAssets _assets;
         private string _tex;
         private string _guid;
@@ -42,9 +39,7 @@ namespace Iroca.EditorTests
 
             // ウィンドウは開いたときに「前回のテクスチャ」を読むので、テスト用のテクスチャを指しておく。
             // 開発者の実際の値は TearDown で戻す。
-            _prefKey = (string)typeof(IrocaWindow)
-                .GetProperty("LastTextureGuidPrefKey", BindingFlags.Static | BindingFlags.NonPublic)
-                .GetValue(null);
+            _prefKey = IrocaWindow.LastTextureGuidPrefKey;
             _prefBefore = EditorPrefs.HasKey(_prefKey) ? EditorPrefs.GetString(_prefKey) : null;
             EditorPrefs.SetString(_prefKey, _guid);
         }
@@ -123,10 +118,8 @@ namespace Iroca.EditorTests
 
         private void SetZoneName(string name) => _win.Session.zones[0].name = name;
 
-        private string EnabledKey()
-            => (string)typeof(IrocaWindow).GetProperty("EnabledSinceEditorStartKey", Instance).GetValue(_win);
+        private string EnabledKey() => _win.EnabledSinceEditorStartKey;
 
-        private void CallOnEnable()
-            => typeof(IrocaWindow).GetMethod("OnEnable", Instance).Invoke(_win, null);
+        private void CallOnEnable() => _win.OnEnable();
     }
 }

@@ -324,8 +324,9 @@ namespace Iroca
         /// <summary>
         /// Undo/Redo の後に呼ぶ。結び付いたレシピの中身が、窓が前に同期したことのある中身へ戻っていれば
         /// (Undo でレシピも戻ったとき)、外からの変更ではないので同期した中身として覚え直す。
+        /// internal は RecipeSyncTests が直接呼ぶため。
         /// </summary>
-        private void AdoptRecipeAfterUndo()
+        internal void AdoptRecipeAfterUndo()
         {
             var recipe = BoundRecipe;
             if (recipe != null && RecipeChangedOutside(recipe) && WasRecipeSyncedBefore(recipe))
@@ -343,7 +344,8 @@ namespace Iroca
             EditorApplication.delayCall += ReloadChangedRecipe;
         }
 
-        private void ReloadChangedRecipe()
+        // internal は RecipeSyncTests が次のエディタの更新を待たずに呼ぶため。
+        internal void ReloadChangedRecipe()
         {
             _recipeReloadScheduled = false;
             if (this == null) return;   // 窓が閉じられた

@@ -306,7 +306,8 @@ namespace Iroca
             return true;
         }
 
-        private void OnEnable()
+        // internal は WindowRestoreTests が Unity の再起動後の復元を再現するために呼ぶため(Unity からの呼び出しは変わらない)。
+        internal void OnEnable()
         {
             // ドメインリロードの書き戻しはここで取り込むので、次の Undo の印として残さない。
             _stateRestoredByUnity = false;
@@ -524,7 +525,8 @@ namespace Iroca
         // (Application.dataPath)の安定ハッシュを付与してプロジェクトごとに分離する。これが無いと
         // コピーした別プロジェクトが前プロジェクトの GUID を誤って自動ロードしうる。string.GetHashCode
         // はプロセス間で不安定(乱択化)なため FNV-1a を使う(再起動を跨いで同一キー)。
-        private static string LastTextureGuidPrefKey =>
+        // internal は EditMode テストが開発者の値を退避して差し替えるため。
+        internal static string LastTextureGuidPrefKey =>
             "Iroca.LastTextureGuid." + StableHashHex(Application.dataPath);
 
         private static string StableHashHex(string s)
@@ -537,7 +539,8 @@ namespace Iroca
 
         // このウィンドウが Unity の起動後に有効化されたかの印。SessionState は Unity を閉じると消え、
         // ドメインリロードでは残る。ウィンドウの instanceID はドメインリロードで変わらない。
-        private string EnabledSinceEditorStartKey => "Iroca.WindowEnabled." + GetInstanceID();
+        // internal は WindowRestoreTests が印を消して再起動を再現するため。
+        internal string EnabledSinceEditorStartKey => "Iroca.WindowEnabled." + GetInstanceID();
 
         /// <summary>Unity を起動してからこのウィンドウの最初の有効化なら true（印を付ける）。ドメインリロード後は false。</summary>
         private bool MarkEnabledSinceEditorStart()
@@ -562,8 +565,9 @@ namespace Iroca
         /// <summary>
         /// 現在のテクスチャのマスク＋セッション（ゾーン/色/処理設定）をディスクへ保存する。
         /// マスク保存に失敗したときだけ false（呼び出し側でユーザー通知に使う）。
+        /// internal は RecipeSyncTests が直接呼ぶため。
         /// </summary>
-        private bool SavePersistedSessionForCurrentTexture()
+        internal bool SavePersistedSessionForCurrentTexture()
         {
             bool maskOk = _maskView == null || _maskView.SaveToSession();
             string path = CurrentTexturePath(sourceTexture);
