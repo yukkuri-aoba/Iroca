@@ -446,7 +446,9 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
      - `RecipeSyncTests`・`WindowRestoreTests`（反射をやめて直接呼ぶ形にした）
   4. 0-4 の残りは無い（2026-10-27 にクラウドで済ませた。MemoryBench・HiResSmoke の名前での反射は、基準の版にも
      当てるための役目なので残し、`BenchSeams` にまとめてふだんのテストで名前を確かめる形にした）。
-  5. 0-1 の基準を測る（dev-0.4.0 の今の先頭で。製品のコードは 0.3.x と同じで、変えたのは `BuildSelectionKey` を
+  5. 0-1 の基準を測る。**2026-10-27 から `.\dev_safe\scripts\run_baseline_0.4.0.ps1` 1 本で、下の全部を順に回して
+     dev_safe の `Tests/Baselines/perf-0.4.0-base/` に残せる**（ケースは `make_bench_cases.py` が作る）。以下は中身の説明
+     （dev-0.4.0 の今の先頭で。製品のコードは 0.3.x と同じで、変えたのは `BuildSelectionKey` を
      internal にしただけ）。1 回の起動に 1 種類ずつ:
      - PerfBench: `python dev_safe/scripts/perf_bench.py unity-cases` → `.\scripts\Run-EditorTests.ps1 -PerfCases
        $env:TEMP\iroca-perf\unity\unity_cases.json` → `python dev_safe/scripts/perf_bench.py unity-report <出力>\perf.jsonl`。
