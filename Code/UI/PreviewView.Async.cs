@@ -344,13 +344,17 @@ namespace Iroca
                     RetireFullOutput();
                     _fullOutput       = result.full;
                     _fullOutputSource = req.srcPixels;
-                    // 拡大表示の寸法が変わっていたら(原本を読み直した)使わない(_fullOutputSource も別の原本になる)。
+                    // 拡大表示の寸法が変わっていたら(原本を読み直した・「元の解像度」をオンにした)使わない
+                    // (原本を読み直したなら _fullOutputSource も別の原本になる)。
                     if (result.display != null && (result.display.Width != _displayW || result.display.Height != _displayH))
                     {
                         result.display.Release();
                         _displayOutput = null;
                     }
                     else _displayOutput = result.display;
+                    // 走っている間に「元の解像度」をオフへ戻したら、縮めたものがまだ無いので、ここで縮める。
+                    if (_displayOutput == null && _displaySource != null && ReferenceEquals(req.srcPixels, _trueSource))
+                        _displayOutput = ShrinkToDisplay(result.full);
                     _fullOutputFreshSinceHide = true;
                     // ジョブ側で生成した raw をキャッシュへ確定する(まだ未確定で、対象テクスチャと
                     // 寸法が変わっていない場合のみ。新しいミスで上書きされていれば触らない)。

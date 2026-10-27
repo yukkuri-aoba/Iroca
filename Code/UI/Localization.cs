@@ -892,8 +892,8 @@ namespace Iroca
             : "Apply current zone settings to all textures in the list and save\nOutput files get a _recolored suffix";
 
         public static string ComparisonModeTooltip => IsJapanese
-            ? "変更前と変更後を横並びで比較表示します。拡大しているときも、両方ともインポート設定の Max Size の大きさ（ゲームに出る大きさ）で細部まで表示します"
-            : "Show before and after side by side. When zoomed in, both are shown in full detail at the import Max Size (the size used in game)";
+            ? "変更前と変更後を横並びで比較表示します。拡大しているときも、両方とも同じ解像度（既定はインポート設定の Max Size の大きさ。「元の解像度」がオンなら元の解像度）で細部まで表示します"
+            : "Show before and after side by side. When zoomed in, both are shown in full detail at the same resolution (the import Max Size by default, or the original resolution when \"Full res\" is on)";
         public static string DiffModeTooltip => IsJapanese
             ? "変更前後の差分（変化したピクセル）を強調表示します"
             : "Highlight pixels that changed between before and after";
@@ -1148,14 +1148,18 @@ namespace Iroca
         public static string SmoothMagnifyTooltip => IsJapanese
             ? "オン: 拡大したとき、画素の間をなめらかにつないで表示します（ゲームの中で近くから見たときの見え方に近くなります）。\nオフ: 1 画素ずつ四角く表示します（画素単位で確かめたいとき）。\n表示だけの設定で、色替えの結果は変わりません。"
             : "On: when zoomed in, pixels are blended smoothly (closer to how the texture looks up close in game).\nOff: each pixel is shown as a square (to check individual pixels).\nThis only changes the display, not the recolor result.";
+        public static string DetailFullResolution => IsJapanese ? "元の解像度" : "Full res";
+        public static string DetailFullResolutionTooltip => IsJapanese
+            ? "オン: 拡大したとき、色替えを計算している解像度（元の画像の解像度。辺が 8192 を超える画像はインポート後の大きさ）で表示します。\nオフ: インポート設定の Max Size の大きさ（ゲームに出る大きさ）に縮めて表示します。\n表示だけの設定で、色替えの結果・書き出し・アバターへの反映は変わりません。"
+            : "On: when zoomed in, show the texture at the resolution the recolor is computed at (the original image resolution; images with a side over 8192 use the imported size).\nOff: show it shrunk to the import Max Size (the size used in game).\nThis only changes the display, not the recolor result, export, or what is applied to the avatar.";
         public static string ZoomResetTooltip => IsJapanese
             ? "ズームを 100%（テクスチャ全体が収まる大きさ）に戻し、表示位置も先頭に戻します（ズームは Ctrl+スクロールで変えられます）"
             : "Reset the zoom to 100% (the whole texture fits) and the scroll position to the top-left (zoom with Ctrl+Scroll)";
 
         public static string PeekOriginal => IsJapanese ? "元を表示" : "Original";
         public static string PeekOriginalTooltip => IsJapanese
-            ? "押している間だけ変更前のテクスチャを表示します（離すと変更後に戻ります）。\n拡大しているときも、変更後と同じ解像度（インポート設定の Max Size の大きさ。ゲームに出る大きさ）で表示します。"
-            : "Shows the original texture while the button is held (release it to return to the result).\nWhen zoomed in, the original is shown at the same resolution as the result (the import Max Size, which is the size used in game).";
+            ? "押している間だけ変更前のテクスチャを表示します（離すと変更後に戻ります）。\n拡大しているときも、変更後と同じ解像度（既定はインポート設定の Max Size の大きさ。「元の解像度」がオンなら元の解像度）で表示します。"
+            : "Shows the original texture while the button is held (release it to return to the result).\nWhen zoomed in, the original is shown at the same resolution as the result (the import Max Size by default, or the original resolution when \"Full res\" is on).";
 
         // ─────────────────────────────────────────────────────────────
         // マテリアルの色の設定（メインカラー・色調補正・重ね描きなど）とアバター上の色

@@ -320,7 +320,8 @@ namespace Iroca
         [System.NonSerialized] private int _trueSourceBasisW, _trueSourceBasisH;
         // 拡大表示に映す寸法(取り込み後の寸法。ゲームに出る大きさ。WorkingResolution.DisplaySize)の原本と、
         // フル段の出力をその寸法へ縮めたもの(面平均。非破壊ビルドがテクスチャを作るときと同じ縮小)。
-        // 作業解像度のままでよいとき(取り込みで小さくならない)は null で、作業解像度のものをそのまま映す。
+        // 作業解像度のままでよいとき(取り込みで小さくならない・「元の解像度」の設定がオン)は null で、
+        // 作業解像度のものをそのまま映す(WantsDisplaySize)。
         [System.NonSerialized] private NativePixels _displaySource, _displayOutput;
         [System.NonSerialized] private int _displayW, _displayH;
         // 元ファイルをデコードした(false = 取り込み済みテクスチャの画素。PSD など)。
@@ -529,27 +530,80 @@ namespace Iroca
         }
 
         // 作業解像度を決めた前提(取り込み後の寸法)を覚える。変わったら EnsureTrueSource が読み直す。
-        // 拡大表示に映す寸法の原本もここで作る(取り込みで小さくなるときだけ。4K→2K で数十 ms)。
-        private unsafe void RememberTrueSourceBasis(Texture2D tex, bool fromFile)
+        // 拡大表示に映す寸法の原本もここで作る(取り込みで小さくなり、「元の解像度」の設定がオフのときだけ。
+        // 4K→2K で数十 ms)。
+        private void RememberTrueSourceBasis(Texture2D tex, bool fromFile)
         {
             _trueSourceBasisW = tex.width;
             _trueSourceBasisH = tex.height;
             _trueSourceFromFile = fromFile;
-            WorkingResolution.DisplaySize(_trueSourceW, _trueSourceH, tex.width, tex.height, out int dw, out int dh);
-            if (dw == _trueSourceW && dh == _trueSourceH) return;
-            _displayW = dw;
-            _displayH = dh;
-            _displaySource = NativePixels.Allocate(dw, dh);
-            WorkingResolution.ResizeArea(_trueSource.Ptr, _trueSourceW, _trueSourceH, dw, dh, _displaySource.Ptr);
+            if (WantsDisplaySize(out int dw, out int dh)) BuildDisplaySource(dw, dh);
+        }
+
+        // 拡大表示を取り込み後の寸法へ縮めて映すか(取り込みで小さくなり、「元の解像度」の設定がオフ)と、その寸法。
+        private bool WantsDisplaySize(out int w, out int h)
+        {
+            WorkingResolution.DisplaySize(_trueSourceW, _trueSourceH, _trueSourceBasisW, _trueSourceBasisH, out w, out h);
+            return !DetailFullResolution && (w != _trueSourceW || h != _trueSourceH);
+        }
+
+        // 拡大表示に映す寸法の原本を作る。いまの原本で作ったフル段の出力があれば、それも同じ寸法へ縮める
+        // (設定をオフへ戻したとき。色替えはやり直さない。確定段のジョブが作るものと同じ縮小なので同じ画素になる)。
+        private unsafe void BuildDisplaySource(int w, int h)
+        {
+            _displayW = w;
+            _displayH = h;
+            _displaySource = NativePixels.Allocate(w, h);
+            WorkingResolution.ResizeArea(_trueSource.Ptr, _trueSourceW, _trueSourceH, w, h, _displaySource.Ptr);
+            _displayOutput?.Release();
+            _displayOutput = _fullOutput != null && ReferenceEquals(_fullOutputSource, _trueSource)
+                ? ShrinkToDisplay(_fullOutput)
+                : null;
+        }
+
+        // フル段の出力(作業解像度)を拡大表示に映す寸法へ縮めたもの(参照 1 で返す)。
+        private unsafe NativePixels ShrinkToDisplay(NativePixels full)
+        {
+            var display = NativePixels.Allocate(_displayW, _displayH);
+            WorkingResolution.ResizeArea(full.Ptr, full.Width, full.Height, _displayW, _displayH, display.Ptr);
+            return display;
+        }
+
+        // 縮めた原本・出力を手放す(拡大表示は作業解像度のものを映す)。
+        private void ReleaseDisplaySource()
+        {
+            _displaySource?.Release();
+            _displaySource = null;
+            _displayOutput?.Release();
+            _displayOutput = null;
+            _displayW = _displayH = 0;
+        }
+
+        /// <summary>
+        /// 拡大表示の土台を「元の解像度」の設定(<see cref="DetailFullResolution"/>)に合わせる。Draw が毎回呼び、
+        /// 合っていれば何もしない(設定はこの PC のいろか全体のもので、どのウィンドウも次に描くときに合わせる)。
+        /// 切り替わったら、今の拡大表示を捨てて作り直させる。色替えの結果には効かない(表示の寸法だけ)。
+        /// </summary>
+        internal void SyncDetailResolution()
+        {
+            if (_trueSource == null) return;
+            bool want = WantsDisplaySize(out int dw, out int dh);
+            if (want == (_displaySource != null)) return;
+            if (want) BuildDisplaySource(dw, dh);
+            else ReleaseDisplaySource();
+            _detailView.InvalidateDisplay();
+            _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
+            _host?.RequestRepaint();
         }
 
         // 拡大表示(詳細クロップ)の座標の土台。取り込み後の寸法で映すときはその寸法の原本、そうでなければ作業解像度の原本。
-        private NativePixels DetailSource => _displaySource ?? _trueSource;
-        private int DetailW => _displaySource != null ? _displayW : _trueSourceW;
-        private int DetailH => _displaySource != null ? _displayH : _trueSourceH;
+        internal NativePixels DetailSource => _displaySource ?? _trueSource;
+        internal int DetailW => _displaySource != null ? _displayW : _trueSourceW;
+        internal int DetailH => _displaySource != null ? _displayH : _trueSourceH;
+        internal DetailPreviewView DetailView => _detailView;
 
         // 拡大表示の切り出し元(いまの原本で作ったフル段の出力。DetailSource と同じ寸法)。まだ無ければ null。
-        private NativePixels DetailOutput
+        internal NativePixels DetailOutput
         {
             get
             {
@@ -687,6 +741,8 @@ namespace Iroca
             }
 
             ApplyPendingResults();
+            // 「元の解像度」を切り替えた直後なら、拡大表示の土台を合わせる(このフレームの拡大表示の寸法を決める前に)。
+            SyncDetailResolution();
             TickPreviewRegeneration();
 
             var maskView = _host._maskView;
@@ -1357,7 +1413,7 @@ namespace Iroca
         /// <summary>
         /// 拡大表示用のマスクの重ね表示を、詳細プレビューのいまの範囲で作り直す(詳細が無ければ何もしない)。
         /// </summary>
-        private void RebuildDetailMaskOverlay()
+        internal void RebuildDetailMaskOverlay()
         {
             var mv = _host._maskView;
             var t = _detailView.detailPreviewTexture;
@@ -1474,6 +1530,13 @@ namespace Iroca
                     SmoothMagnify = smooth;
                     _host.RequestRepaint();
                 }
+                bool fullRes = GUILayout.Toggle(DetailFullResolution, DetailFullResolutionContent, EditorStyles.miniButton, GUILayout.ExpandWidth(false));
+                if (fullRes != DetailFullResolution)
+                {
+                    // 土台の作り直しは次の Draw の始め(SyncDetailResolution)。このイベントの残りは今の土台のまま描く。
+                    DetailFullResolution = fullRes;
+                    _host.RequestRepaint();
+                }
                 if (GUILayout.Button(reset, EditorStyles.miniButton, GUILayout.ExpandWidth(false)))
                     ResetZoom(maxZoom);
             }
@@ -1500,6 +1563,28 @@ namespace Iroca
         }
 
         private static GUIContent SmoothContent => new GUIContent(Localization.SmoothMagnify, Localization.SmoothMagnifyTooltip);
+
+        // ── 拡大表示の解像度(表示だけの設定) ─────────────────────────
+        // オフ(既定): 取り込み後の寸法(インポート設定の Max Size。ゲームに出る大きさ)へ縮めて映す。
+        // オン: 作業解像度(色替えを計算している解像度。元の画像の辺が 8192 以下なら元の解像度)のまま映す。
+        // 縮めた原本・出力を持たないので、その分メモリが減る。処理の解像度(WorkingResolution.Size)は変えないので、
+        // 色替えの結果・書き出し・非破壊ビルド・自動化には効かない(0.3.0 で消えた「元の解像度で編集」と違う点)。
+        internal const string DetailFullResolutionPrefKey = "Iroca.PreviewDetailFullResolution";
+        private static bool? s_detailFullResolution;
+
+        /// <summary>拡大表示を作業解像度のまま映すか。この PC のいろか全体の表示の設定。</summary>
+        internal static bool DetailFullResolution
+        {
+            get => s_detailFullResolution ??= EditorPrefs.GetBool(DetailFullResolutionPrefKey, false);
+            set
+            {
+                s_detailFullResolution = value;
+                EditorPrefs.SetBool(DetailFullResolutionPrefKey, value);
+            }
+        }
+
+        private static GUIContent DetailFullResolutionContent
+            => new GUIContent(Localization.DetailFullResolution, Localization.DetailFullResolutionTooltip);
 
         /// <summary>
         /// tex(full 全体に引き伸ばして重ねる画像。v は下端が 0)を、full のうち hole の外側だけ描く。
@@ -1563,7 +1648,7 @@ namespace Iroca
             if (tex != null && tex.filterMode != mode) tex.filterMode = mode;
         }
 
-        // 見出し行(題名・ズーム率・なめらか・リセット)がカラムの見えている幅に収まるか。
+        // 見出し行(題名・ズーム率・なめらか・元の解像度・リセット)がカラムの見えている幅に収まるか。
         // カラム幅を渡さないホストでは従来どおり省略しない。
         private bool TitleRowFits(GUIContent title, GUIContent zoom, GUIContent reset)
         {
@@ -1576,7 +1661,8 @@ namespace Iroca
             float need = bold.CalcSize(title).x + bold.margin.horizontal
                          + label.CalcSize(zoom).x + label.margin.horizontal
                          + button.CalcSize(reset).x + button.margin.horizontal
-                         + button.CalcSize(SmoothContent).x + button.margin.horizontal;
+                         + button.CalcSize(SmoothContent).x + button.margin.horizontal
+                         + button.CalcSize(DetailFullResolutionContent).x + button.margin.horizontal;
             return need <= avail;
         }
 

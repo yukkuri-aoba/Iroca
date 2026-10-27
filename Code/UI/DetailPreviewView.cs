@@ -234,6 +234,18 @@ namespace Iroca
                 outH = Mathf.Clamp(Mathf.RoundToInt(cropH * pxPerSrc), 1, cropH);
             }
 
+            ScheduleCrop(srcW, srcPixels, processedFull, x0, y0, cropW, cropH, outW, outH, pxPerSrc, latency, prepStart);
+        }
+
+        /// <summary>
+        /// フル段の出力(processedFull。幅 srcW)のうち [x0, x0+cropW) × [y0, y0+cropH)(行 0 = 画像の下端)を、
+        /// outW×outH の拡大表示として切り出すジョブを予約する。範囲は <see cref="GenerateDetailPreviewAsync"/> が
+        /// 見えている範囲から決める。outW×outH が切り出しより小さいときは pxPerSrc(dst/src 比)で面平均して縮める。
+        /// </summary>
+        internal void ScheduleCrop(int srcW, NativePixels srcPixels, NativePixels processedFull,
+            int x0, int y0, int cropW, int cropH, int outW, int outH, float pxPerSrc,
+            PreviewLatencyCycle latency = null, long prepStart = 0)
+        {
             int capX0 = x0, capY0 = y0, capSrcW = srcW;
             // ここで作る変更前のクロップは差分表示の diff にしか使わない。差分表示を ON にしたときは
             // PreviewView が詳細を作り直させる。「元を表示」の変更前は、押したときに EnsureDetailRaw が作る。

@@ -30,6 +30,7 @@ PREFS_KEYS = {
     "Iroca.ShowDeveloperSettings",
     "Iroca.ShowMeshIslands",
     "Iroca.PreviewSmoothMagnify",
+    "Iroca.PreviewDetailFullResolution",
     "Iroca.LastTextureGuid.",            # + プロジェクトのパスのハッシュ
     "Iroca.MaskBrushWindowPlaced:",      # + プロジェクトのパス
     "Iroca.AiSuggestPerfLog",
