@@ -625,7 +625,7 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
     詰めたビットの配列を作る所は `MaskSnapshot.NewBits` の 1 か所にまとめた（2-3 で `NativeBitMask` に替える所。
     画素数の大きさの管理配列の一覧は増やしていない）。abcheck 全一致、`--maskcodecselftest` に古い口との一致
     （旧 bitpack・語の境目・壊れた入力・スナップショットの組み立て）を足した。
-- [ ] 2-2 3.4 の `NativeBuffer`・用途つきの確保・プールの上限と縮小・返したあとに埋めるモード・閉じたときの残りの報告。
+- [x] 2-2 3.4 の `NativeBuffer`・用途つきの確保・プールの上限と縮小・返したあとに埋めるモード・閉じたときの残りの報告。
   既存の 5 通りをこの上へ移す（1 種類ずつ別コミット）。
   - 2026-10-28: 用途つきの確保と `NativeBuffer`・色の表（2e445a7）、選択キャッシュ（dbb23b3）、`NativePixels`（24f3808）、
     プールの塊と量の上限・返したあとに埋めて寝かせるモード（a2c7fc3）。どれも abcheck 全一致。手を止めて 10 秒たったら
@@ -639,7 +639,8 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
 - [ ] 2-4 Infra の境目: `NativeArray` への変換、`TextureIO`。
   - 読む: `GetPixelData` から `NativePixels`。
   - 書く: `EncodeNativeArrayToPNG` で PNG にし、小さな置き場を通してファイルへ流す。
-- [ ] 2-5 PerfView に用途ごとの量を出す。
+- [x] 2-5 PerfView に用途ごとの量を出す。（2026-10-28。用途ごとの今の量・最大・作業配列の貸し出し中と空き・返し忘れの数と、
+  最大のリセット。開発者用の `Code/Debug` なのでコンパイルまで確かめた）
 - 確かめること:
   - `EncodeNativeArrayToPNG` を別スレッドで呼べるか（今の `EncodePng_RunsOnBackgroundThreadAndMatchesMainThread` を広げる）。
   - `LoadImage` の代わりに管理配列を使わない読み込み方があるか（Unity 6 の `ReadOnlySpan` の口、

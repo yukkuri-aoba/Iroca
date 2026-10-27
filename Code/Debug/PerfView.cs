@@ -479,6 +479,9 @@ namespace Iroca.DebugTools
             internal long MonoUsed, MonoHeap;             // Mono(マネージド)ヒープ
             internal long NativeUsed, NativeReserved;     // Unity の内部アロケータ
             internal long IrocaNative;                    // いろかが Mono の外に持つ分(IrocaNativeMemory)
+            internal long[] UsageLive, UsagePeak;         // その用途(NativeUsage)ごとの今の量と最大値
+            internal int[] UsageFinalized;                // 用途ごとの返し忘れ(ファイナライザが解放した塊の数)
+            internal long PoolRented, PoolFree;           // 作業配列のプール(全部の型)の貸し出し中と空き
             internal bool HasProcess;                     // false = プロセスの値が取れない(Windows 以外など)
             internal long Private, PeakPrivate, WorkingSet;
             internal int GcCount;
@@ -515,8 +518,21 @@ namespace Iroca.DebugTools
                 NativeUsed = Profiler.GetTotalAllocatedMemoryLong(),
                 NativeReserved = Profiler.GetTotalReservedMemoryLong(),
                 IrocaNative = IrocaNativeMemory.LiveBytes,
+                UsageLive = new long[UsageCount],
+                UsagePeak = new long[UsageCount],
+                UsageFinalized = new int[UsageCount],
+                PoolRented = WorkPools.Float.RentedBytes + WorkPools.Bool.RentedBytes + WorkPools.Byte.RentedBytes
+                             + WorkPools.Rgba32.RentedBytes + WorkPools.Int.RentedBytes,
+                PoolFree = WorkPools.Float.FreeBytes + WorkPools.Bool.FreeBytes + WorkPools.Byte.FreeBytes
+                           + WorkPools.Rgba32.FreeBytes + WorkPools.Int.FreeBytes,
                 GcCount = GC.CollectionCount(0),
             };
+            for (int u = 0; u < UsageCount; u++)
+            {
+                m.UsageLive[u] = IrocaNativeMemory.LiveBytesOf((NativeUsage)u);
+                m.UsagePeak[u] = IrocaNativeMemory.PeakBytesOf((NativeUsage)u);
+                m.UsageFinalized[u] = IrocaNativeMemory.FinalizedCount((NativeUsage)u);
+            }
             m.HasProcess = TryGetProcessMemory(out m.Private, out m.PeakPrivate, out m.WorkingSet);
             s_memory = m;
             if (m.MonoUsed > s_monoUsedPeak) s_monoUsedPeak = m.MonoUsed;
@@ -625,6 +641,25 @@ namespace Iroca.DebugTools
                 "いろかが Mono ヒープの外に置いている量(選択キャッシュなど)。\n" +
                 "Mono ヒープと違い、手放すとすぐ OS へ戻ります(テクスチャを替えたとき・ウィンドウを閉じたときなど)。",
                 MemoryLabelWidth);
+            if (m.UsageLive != null)
+            {
+                for (int u = 0; u < UsageCount; u++)
+                {
+                    string text = $"{Mb(m.UsageLive[u])} MB (最大 {Mb(m.UsagePeak[u])} MB)";
+                    if ((NativeUsage)u == NativeUsage.Work)
+                        text += $"　貸し出し中 {Mb(m.PoolRented)} / 空き {Mb(m.PoolFree)} MB";
+                    if (m.UsageFinalized[u] > 0) text += $"　返し忘れ {m.UsageFinalized[u]} 個";
+                    DrawValueRow("　" + UsageLabels[u], text, UsageTooltips[u], MemoryLabelWidth);
+                }
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    var reset = new GUIContent("最大をリセット",
+                        "用途ごとの「最大」を今の量に戻します(操作の前に押すと、その操作で一番多く使った量が分かります)。\n" +
+                        "作業配列のプールが手元に持つ量の上限(直近の最大の 1.5 倍)には影響しません。");
+                    if (GUILayout.Button(reset, EditorStyles.miniButton, GUILayout.Width(MemoryLabelWidth)))
+                        IrocaNativeMemory.ResetPeaks();
+                }
+            }
             if (m.HasProcess)
             {
                 DrawValueRow("プロセス", $"{Mb(m.Private)} MB (最大 {Mb(m.PeakPrivate)} MB)",
@@ -640,6 +675,21 @@ namespace Iroca.DebugTools
                 "(回収の間はエディタが止まります)。",
                 MemoryLabelWidth);
         }
+
+        private const int UsageCount = (int)NativeUsage.Other + 1;
+
+        // NativeUsage の順。
+        private static readonly string[] UsageLabels = { "作業配列", "画素", "色の表", "選択キャッシュ", "マスク", "そのほか" };
+        private static readonly string[] UsageTooltips =
+        {
+            "処理の途中で借りる作業配列のプール。計算の間だけ借り、返した塊は次の計算で使い回します。\n" +
+            "計算が 10 秒のあいだ無いと、空きを OS へ返します。返し忘れが出たら不具合です。",
+            "プレビューの原本と出力、非破壊ビルド・書き出しの画素。ウィンドウを閉じる・テクスチャを替えると返します。",
+            "画素ごとの色の番号と、色ごとの HSV の表(同じ画像の処理で使い回す)。別の画像に切り替わると作り直します。",
+            "ゾーンごとの選択の強さ(色だけを変えたときの再計算を省く)。ゾーンを消す・テクスチャを替えると返します。",
+            "1 画素 1 ビットのマスク。",
+            "どの用途にも入らないもの。",
+        };
 
         private static string GarbageCollectorModeText()
         {
