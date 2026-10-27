@@ -468,7 +468,9 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
   7. 交互 A/B の前に、基準の Code で今のテストがコンパイルできるかを `bash scripts/build-check/ab-compile.sh <基準>` で
      確かめられる（クラウドでも回る）。0-2 のテストが internal の口を使うので、基準は 567b0a0 以降にする。
 - **手元で確かめること（フェーズ 1。2026-10-27〜）**:
-  1. 取り込んでから EditMode テスト一式（`.\scripts\Run-EditorTests.ps1`）。新しい `DetailResolutionTests`（1-1）が通ること。
+  1. ~~取り込んでから EditMode テスト一式。~~ **2026-10-28 に済み**（下の 3 と同じ回。`-Graphics` で 299 件、成功 294・
+     失敗 0・スキップ 5、Unity とハーネスの一致 25 / 25。足したテストは 9 件: `DetailResolutionTests` 6・
+     `PreviewDiffShaderTests` 3）。
   2. 1-1 の見た目: Max Size を元の画像より小さくしたテクスチャ（例: 4096 の画像を Max Size 2048）を開き、拡大する。
      - 「なめらか」の右に「元の解像度」が出て、ツールチップが出る。オフ（既定）は今までと同じ見え方。
      - オンにすると拡大表示が細かくなる（4096 の画素）。前後比較・「元を表示」・差分表示・マスクの重ね表示・
@@ -476,8 +478,8 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
        （生成中の表示が出ない）。
      - 書き出した画像・シーンのプレビューは設定で変わらない。
      - ウィンドウが狭いとき、見出し行のリセットが隠れない（ズーム率の「(Ctrl+スクロール)」が省かれる）。
-  3. 1-2 のテスト: `.\scripts\Run-EditorTests.ps1 -Graphics`（`PreviewDiffShaderTests` は GPU が要るので、-nographics の
-     ふだんの実行では Ignore になる）。
+  3. ~~1-2 のテスト: `.\scripts\Run-EditorTests.ps1 -Graphics`~~ **2026-10-28 に済み**（上の 1。`PreviewDiffShaderTests` は
+     GPU が要るので、-nographics のふだんの実行では Ignore になる）。
   4. 1-2 の見た目: `docs/release-smoke-test.md` の 51（4K と 8K で差分表示にして、パン・ズーム・スライダーのドラッグを
      激しく行う。前後比較から直接差分表示へ）。リニアのプロジェクト（VRChat のアバタープロジェクト）で、差分の黄色が
      以前と同じ色に見えること。
@@ -568,8 +570,8 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
 
 ### フェーズ 1: 表示の 2 件（T1・T2）。今の構造の上で小さく直す
 
-- [ ] 1-1 **T1 拡大表示の解像度の設定**（2026-10-27 にクラウドでコードとテストを書いた。コンパイル・ソースの検査・
-  マニュアルの組み立てまで確かめた。残りは手元の Unity でテストを回すことと、見た目の確認。下の「手元で確かめること」）
+- [ ] 1-1 **T1 拡大表示の解像度の設定**（2026-10-27 にクラウドでコードとテストを書いた。2026-10-28 に手元の Unity で
+  EditMode テストが通った。残りは見た目の確認。「手元で確かめること（フェーズ 1）」の 2）
   - 設定は `PreviewView.DetailFullResolution`（キー `Iroca.PreviewDetailFullResolution`）。各ウィンドウは描く前に
     `SyncDetailResolution` で土台を設定に合わせる。確定段が走っている間に切り替えても、受け取るときに合わせる。
   - テストは `DetailResolutionTests`。見えている範囲から切り出しを決める所は GUI の中でしか動かない
@@ -583,8 +585,9 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
   - 文言を直す: `ComparisonModeTooltip` と `PeekOriginalTooltip` は「Max Size の大きさで表示」と書いている。
     マニュアル（08-preview ほか）と CHANGELOG も直す。
   - テスト: 両方の設定で、拡大表示の寸法と、変更前・変更後・マスクの重ね表示の範囲がそろうこと（EditMode）。出力は変わらない。
-- [ ] 1-2 **T2 差分を GPU で描く**（2026-10-27 にクラウドでコードとテストを書いた。コンパイル・ソースの検査まで。
-  残りは手元の Unity でのテスト（シェーダーのテストは `-Graphics` が要る）と見た目の確認）
+- [ ] 1-2 **T2 差分を GPU で描く**（2026-10-27 にクラウドでコードとテストを書いた。2026-10-28 に手元の Unity で
+  `-Graphics` の EditMode テスト（シェーダーと CPU の定義の一致を含む）が通った。残りは見た目の確認。
+  「手元で確かめること（フェーズ 1）」の 4）
   - `PreviewDiffDrawer`（`Code/UI/PreviewDiffDrawer.cs`）が `Hidden/Iroca/PreviewDiff`（`Code/UI/PreviewDiff.shader`）で
     描く。IMGUI の切り抜きは Unity の GUI のシェーダーと同じ受け取り方。テクスチャの補間（Point / Bilinear）に合わせて、
     1 画素の四角か、周りの 4 画素の判定を混ぜたものにする。
