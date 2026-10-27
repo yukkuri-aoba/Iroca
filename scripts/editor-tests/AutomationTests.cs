@@ -533,9 +533,26 @@ namespace Iroca.EditorTests
         }
 
         [Test]
-        public void IsFullResolution_PngShrunkOnImport_IsFalse()
+        public void IsFullResolution_PngOver8192ShrunkOnImport_IsFalse()
         {
-            // 取り込みで縮む(最大サイズ 32 の 64×64)ときは、書き出しで元の解像度を読み直す。
+            // 辺が 8192 を超える元ファイルは取り込み後の寸法で編集する(WorkingResolution)。そのときは、書き出しで
+            // 元の解像度を読み直す。細長くして、画素数は小さく保つ。
+            const int fw = WorkingResolution.MaxSourceSide + 8, fh = 4;
+            string src = _assets.WritePng("wide", Enumerable.Repeat(Red, fw * fh).ToArray(), fw, fh);
+            var importer = (UnityEditor.TextureImporter)UnityEditor.AssetImporter.GetAtPath(src);
+            importer.maxTextureSize = 4096;
+            importer.SaveAndReimport();
+            var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
+            var kind = ExportPipeline.ReadSourcePixels(TestAssets.Abs(src), tex, out _, out int w, out int h, workingSize: true);
+            Assert.AreEqual((tex.width, tex.height), (w, h), "テストの前提(作業解像度が取り込み後の寸法)");
+            Assert.Less(w, fw, "テストの前提(取り込みで縮んでいる)");
+            Assert.IsFalse(IrocaAutomation.IsFullResolution(kind, tex, w, h));
+        }
+
+        [Test]
+        public void IsFullResolution_PngUpTo8192ShrunkOnImport_IsTrue()
+        {
+            // 辺が 8192 以下なら、取り込みで縮んでいても元の解像度で編集する(465cb3c)。読み直さなくてよい。
             var px = Enumerable.Repeat(Red, 64 * 64).ToArray();
             string src = _assets.WritePng("big", px, 64, 64);
             var importer = (UnityEditor.TextureImporter)UnityEditor.AssetImporter.GetAtPath(src);
@@ -543,8 +560,9 @@ namespace Iroca.EditorTests
             importer.SaveAndReimport();
             var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
             var kind = ExportPipeline.ReadSourcePixels(TestAssets.Abs(src), tex, out _, out int w, out int h, workingSize: true);
-            Assert.AreEqual((32, 32), (w, h), "テストの前提(作業解像度が取り込み後の寸法)");
-            Assert.IsFalse(IrocaAutomation.IsFullResolution(kind, tex, w, h));
+            Assert.AreEqual((32, 32), (tex.width, tex.height), "テストの前提(取り込みで縮んでいる)");
+            Assert.AreEqual((64, 64), (w, h), "辺が 8192 以下は元の解像度で編集する");
+            Assert.IsTrue(IrocaAutomation.IsFullResolution(kind, tex, w, h));
         }
 
         [Test]
