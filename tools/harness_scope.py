@@ -43,9 +43,23 @@ def harness_source_globs() -> list[str]:
 
 
 def _glob_to_regex(glob: str) -> re.Pattern:
-    # '*' はディレクトリ境界を越えない（csproj の Include も同じ意味）
-    parts = [re.escape(seg).replace(r"\*", "[^/]*") for seg in glob.split("/")]
-    return re.compile("^" + "/".join(parts) + "$")
+    """csproj の Include（MSBuild の glob）と同じ意味の正規表現にする。
+
+    '*' と '?' はディレクトリ境界を越えない。'**' はディレクトリを 0 個以上またぐ（harness_source_files が使う
+    pathlib の glob と同じ）。以前は '**' も 1 階層として扱っていたので、サブフォルダへ移したファイルが
+    ゲートから黙って外れた（2026-10-27 に直した）。
+    """
+    segs = glob.split("/")
+    out = ""
+    for i, seg in enumerate(segs):
+        last = i == len(segs) - 1
+        if seg == "**":
+            out += ".*" if last else "(?:[^/]+/)*"
+            continue
+        out += re.escape(seg).replace(r"\*", "[^/]*").replace(r"\?", "[^/]")
+        if not last:
+            out += "/"
+    return re.compile("^" + out + "$")
 
 
 def is_harness_source(rel_path: str) -> bool:
