@@ -230,7 +230,8 @@ namespace Iroca
 
         // internal は WindowOutputParityTests が書き出しを直接始めるため(保存される名前は変わらない)。
         [SerializeField] internal ExportView _exportView = new ExportView();
-        [SerializeField] private PresetsView _presetsView = new PresetsView();
+        // internal は OldFormatLoadTests がプリセットを直接読み込むため(保存される名前は変わらない)。
+        [SerializeField] internal PresetsView _presetsView = new PresetsView();
         [SerializeField] internal MaskPaintView _maskView = new MaskPaintView();
         [SerializeField] private PreviewView _previewView = new PreviewView();
         // プレビューを別ウィンドウ(IrocaPreviewWindow)へ切り出すときの描画委譲先。

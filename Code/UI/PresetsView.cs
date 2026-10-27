@@ -169,7 +169,8 @@ namespace Iroca
             return data;
         }
 
-        private void LoadPreset(string filePath)
+        // internal は OldFormatLoadTests が古い版のプリセットを読み込むため。
+        internal void LoadPreset(string filePath)
         {
             var data = PresetStore.Load(filePath);
             if (data == null)
