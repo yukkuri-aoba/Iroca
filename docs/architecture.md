@@ -157,7 +157,8 @@ GC は大きな塊を動かせない。8K の原本は 6,700 万画素あり、`
 
 ## 6. 互換の約束（変えると利用者の状態が壊れるもの）
 
-次の名前は、移すときも変えない。変えるなら移行を書いて、テストで古い版の読み込みを確かめる。
+次の名前は、移すときも変えない。変えるなら移行を書いて、テストで古い版の読み込みを確かめる。保存されるフィールドの
+名前とキーは、ソースの検査が今の一覧と比べる（7 章）。
 
 - ウィンドウとビューの保存されるフィールド名（`sourceTexture`・`_session`・`_boundRecipe`・各ビューとその public
   フィールド）。名前を変えたり別の入れ物に包んだりすると作業状態が消え、最悪、空のセッションで結びついたレシピを
@@ -177,6 +178,8 @@ GC は大きな塊を動かせない。8K の原本は 6,700 万画素あり、`
 | `scripts/source_checks/test_core_no_editor_dependency.py` | Core が UnityEditor を参照しない |
 | `scripts/source_checks/test_no_pixel_sized_managed_arrays.py` | 4 章の、画素数の大きさの管理配列を増やさない |
 | `scripts/source_checks/test_event_subscription_symmetry.py` | 5 章の、static のイベントの購読と解除の対 |
+| `scripts/source_checks/test_serialized_field_names.py` | 6 章の、Unity が保存するフィールドの名前（一覧は `serialized_field_names.json`） |
+| `scripts/source_checks/test_editor_prefs_keys.py` | 6 章の、EditorPrefs / SessionState のキー |
 | `scripts/source_checks/test_algorithm_constants.py` | 定数の台帳と、直書きの小数を増やさない |
 | `scripts/source_checks/test_harness_scope.py` | 視覚レビューのゲートの範囲が、ハーネスのコンパイルする製品ソースと一致する |
 | golden・abcheck・`RuntimeParityTests` | 作り替えで出力が変わらない（`docs/testing-architecture.md`） |

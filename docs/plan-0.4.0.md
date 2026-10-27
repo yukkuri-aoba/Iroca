@@ -371,6 +371,25 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
   - NDMF・ML（Sentis）・MCP の各ホストでのコンパイル
 
   クラウドの作業は、区切りごとに手元でこれらをまとめて回す（フェーズの終わりの確認）。
+- **手元でやること（フェーズ 0 の残り。2026-10-27 時点）**:
+  1. 取り込む: 本体は `git fetch origin` → `git switch dev-0.4.0` → `git pull`、dev_safe は `git -C dev_safe pull`。
+  2. 新しいソースの検査と golden を手元でも回す: `python -m pytest scripts/source_checks scripts/golden -q -n 0`
+     （改行コードと BOM に依らない作りにしたが、Windows では初めて回す）。
+  3. EditMode テスト一式: `.\scripts\Run-EditorTests.ps1`（0.3.0 のときは U2022 で 159 / 166）。
+  4. 0-4 の残り: RecipeSyncTests・WindowRestoreTests・MemoryBenchTests・HiResSmokeTests の、名前の文字列での反射を
+     直接の呼び出しに替える。MemoryBenchTests の `IrocaNativeMemory.LiveBytes` は、それが無い古い版を測るための反射
+     なので、もう直接読んでよい。製品側のメソッドを private から internal にするときは abcheck も回す。
+  5. 0-1 の基準を測る（dev-0.4.0 の今の先頭で。製品のコードは 0.3.x と同じで、変えたのは `BuildSelectionKey` を
+     internal にしただけ）。1 回の起動に 1 種類ずつ:
+     - PerfBench: `python dev_safe/scripts/perf_bench.py unity-cases` → `.\scripts\Run-EditorTests.ps1 -PerfCases
+       $env:TEMP\iroca-perf\unity_cases.json` → `python dev_safe/scripts/perf_bench.py unity-report <出力>\perf.jsonl`。
+     - KernelBench: `-KernelBench`。
+     - MemoryBench: 0.3.0 のときのケースの JSON（dev_safe `docs/memory-0.3.0-plan.md`）で 4K と 8K を `-MemCases`。
+       8K の 2 手目の遅さは、各手の `sub`（20ms 以上の段の時間）を基準 7d2bf6f と段ごとに比べて切り分ける。
+     - HiResSmoke: 8K を `-HiResCases`。
+     - 結果は dev_safe の `Tests/Baselines/perf-0.4.0-base/` に、コミットの番号・PC・Unity の版と一緒に置く。
+  6. テストのコードを足す仕事（0-1 の新しい場面 6 つ・PreviewLatency の再生、0-2 の残りの 3 つ）。EditMode テストは
+     クラウドではコンパイルも確かめられないので、今は手元で書いて回す。
 - **dev_safe の同期（2026-10-26 に済み）。**
   - dev-0.3.0 の worktree の dev_safe 複製にあった 0.3.0 の作業（基準の作り直し・ホールドアウトの入れ替え・
     `generalization_report.py` ほか）を、本体の dev_safe の `main` へ取り込んだ（d3e3e68）。`abcheck.py` の `CRASH_RC` を
@@ -413,23 +432,28 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
 - [ ] 0-2 **振る舞いを固定する EditMode テスト**:
   - ウィンドウの確定段の出力 = `SessionRecolor.Apply`（同じセッション・マスクつき）。
   - ウィンドウの書き出し = 自動化 API の PNG。
-  - EditorPrefs / SessionState のキーの一覧。
+  - EditorPrefs / SessionState のキーの一覧。**（済み 2026-10-27。ソースから決まるので、Unity の要らない
+    `scripts/source_checks/test_editor_prefs_keys.py` にした）**
   - ウィンドウとビューの保存されるフィールド名の一覧。`[FormerlySerializedAs]` なしで名前が変わったら落とす。
+    **（済み 2026-10-27。同じく `test_serialized_field_names.py`。JSON の項目名・レシピ・コンポーネントも含めた 37 型・284 個）**
   - 古い版で保存したレシピ・セッション・プリセットの読み込み結果。
-- [ ] 0-3 **構造の検査**（`scripts/source_checks/`）:
+- [x] 0-3 **構造の検査**（`scripts/source_checks/`）（2026-10-27 に済み。今ある違反: 層の向き 25 件・層をまたぐ型 1・
+  画素数の大きさの管理配列 106 件。どれも一覧に載せ、一覧は減らすことしかできない）:
   - `test_layer_dependencies.py`: フォルダ間の許可表。今の違反は一覧に載せ、一覧は減らすことしかできない。
   - `test_no_pixel_sized_managed_arrays.py`: `new (bool|byte|int|float|Color32|ulong)[…]` のうち画素数の大きさの
     もの。これも許可の一覧つきで、一覧は減らすことしかできない。
   - `test_event_subscription_symmetry` の長生きのイベントの一覧に、次の 6 つを足す: `duringSceneGui`・
     `TargetChanged`・`BeforeApply`・`OnDrawFoldout`・`OnCaptureComplete`・`OnReport`。
 - [ ] 0-4 **移動に弱い道具を先に直す**:
-  - `tools/harness_scope.py` の `**` の扱い。
-  - `test_algorithm_constants` の対象をサブフォルダまで広げる。
+  - `tools/harness_scope.py` の `**` の扱い。**（済み d3e112c）**
+  - `test_algorithm_constants` の対象をサブフォルダまで広げる。**（済み de14c1b。Core と `MaskSuggest/Ops` の中を既定にし、
+    外すファイルは理由つきの一覧にした）**
   - 名前の文字列で反射して呼んでいるテストを、internal の窓口を通す形に替える（`test_selection_key_audit`・
-    RecipeSyncTests・WindowRestoreTests・MemoryBenchTests・HiResSmokeTests）。
+    RecipeSyncTests・WindowRestoreTests・MemoryBenchTests・HiResSmokeTests）。**`test_selection_key_audit` は済み
+    （fcf3a5a。abcheck 1397 / 1397）。EditMode の 4 つは手元で行う（下の「手元でやること」）。**
   - dev_safe 側でハーネスの約束事を一覧にする: コマンドラインの形、`PHASE` / `SUBPHASE` / `AUTOTUNE` / `SELKEY`
-    の出力、abcheck が名前で呼ぶ private メソッド。この調査は dev_safe の無い環境で行ったので未確認。
-- [ ] 0-5 **設計の記録** `docs/architecture.md` を書く（3 章の層・依存の決まり・メモリの持ち主の決まり）。以後のセッションはこれを正にする。
+    の出力、abcheck が名前で呼ぶ private メソッド。**（済み。dev_safe `docs/harness-contract-2026-10-27.md`）**
+- [x] 0-5 **設計の記録** `docs/architecture.md` を書く（2026-10-27 に済み。AGENTS.md から参照する）（3 章の層・依存の決まり・メモリの持ち主の決まり）。以後のセッションはこれを正にする。
 - [ ] 0-6 **測定器の環境依存を点検する**（2026-10-26 の件の続き）。
   - `colorspace` の他の関数（ΔE・OkLab の L・HSV）も float32 の `np.power` / `np.cbrt` を使う。しきい値で数える所
     （品質ゲート・ΔE の球）は、境目の画素が環境で入れ替わりうる。値への効き方を測り、要る所は環境に依らない計算へ替える。
