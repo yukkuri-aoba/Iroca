@@ -33,7 +33,7 @@ namespace Iroca
             {
                 Capacity = capacity;
                 Bytes = (long)capacity * sizeof(T);
-                _ptr = IrocaNativeMemory.Alloc(Bytes);
+                _ptr = IrocaNativeMemory.Alloc(Bytes, NativeUsage.Work);
             }
 
             ~Block() => Free();
@@ -41,7 +41,7 @@ namespace Iroca
             public void Free()
             {
                 IntPtr p = System.Threading.Interlocked.Exchange(ref _ptr, IntPtr.Zero);
-                if (p != IntPtr.Zero) IrocaNativeMemory.Free(p, Bytes);
+                if (p != IntPtr.Zero) IrocaNativeMemory.Free(p, Bytes, NativeUsage.Work);
             }
 
             public void FreeNow()

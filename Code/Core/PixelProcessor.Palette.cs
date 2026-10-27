@@ -39,13 +39,12 @@ namespace Iroca
             // 参照の数。作った処理が 1、キャッシュに入れると +1。キャッシュから引いた処理も +1 して、
             // 使い終わったら Release する(キャッシュから追い出された表を、まだ使っている処理が読むことがある)。
             private int _refs = 1;
-            // 領域の持ち主。表を捨て忘れても、それぞれのファイナライザが解放する。
-            private readonly NativeBlock _indexMem, _hsvMem;
-            private int _freed;
+            // 領域の持ち主(それぞれの参照を 1 つずつ持つ)。表を捨て忘れても、ファイナライザが解放する。
+            private readonly NativeBuffer _indexMem, _hsvMem;
 
             // 確保済みの領域を受け取って持ち主になる(ここでは確保しないので、作るのに失敗して二重に解放する
             // ことはない)。hsvMem は H・S・V を count ずつ並べた領域。
-            internal ColorPalette(int count, Color32[] colors, NativeBlock indexMem, NativeBlock hsvMem)
+            internal ColorPalette(int count, Color32[] colors, NativeBuffer indexMem, NativeBuffer hsvMem)
             {
                 Count = count;
                 Colors = colors;
@@ -61,12 +60,17 @@ namespace Iroca
 
             internal void Release()
             {
-                if (Interlocked.Decrement(ref _refs) != 0) return;
-                // 中断中(ドメインのアンロード)は、並列で読んでいる途中のスレッドが残っていることがあるので
-                // 解放しない(NativeBlock.Dispose がアンロードまで持っておき、その後ファイナライザが解放する)。
-                if (Interlocked.Exchange(ref _freed, 1) != 0) return;
-                _indexMem.Dispose();
-                _hsvMem.Dispose();
+                int left = Interlocked.Decrement(ref _refs);
+                if (left > 0) return;
+                if (left < 0)
+                {
+                    Interlocked.Increment(ref _refs);
+                    throw new InvalidOperationException("色の表の参照を返しすぎました");
+                }
+                // 中断中(ドメインのアンロード)は、並列で読んでいる途中のスレッドが残っていることがあるので、
+                // NativeBuffer.Release が解放せずにアンロードまで持つ。
+                _indexMem.Release();
+                _hsvMem.Release();
             }
 
             /// <summary>
@@ -241,13 +245,13 @@ namespace Iroca
             // Mono では縮まないヒープにその分が残り続ける。
             long[] slots = new long[capacity];
             // 画素 → 番号と番号 → HSV は Mono のヒープの外に取り、表(ColorPalette)が持ち主になる。
-            // 表に渡すまでは、確保した直後に包んだ持ち主(NativeBlock)が守る。途中で抜けたとき(種類が多すぎた・
+            // 表に渡すまでは、確保した直後の持ち主(NativeBuffer)が守る。途中で抜けたとき(種類が多すぎた・
             // キャンセル)は下の finally で解放する。スクリプトの再読み込みでこのスレッドだけが中断されたときは、
             // 並列のスレッドがまだ書いているので解放せず、持ち主がアンロードまで持っておく(以前はここで
             // 先に解放していた。小さい画像では、書き込み中の領域がヒープに戻ってエディタごと落ちることがあった)。
-            var indexMem = new NativeBlock((long)len * sizeof(int));
+            var indexMem = new NativeBuffer((long)len * sizeof(int), NativeUsage.Palette);
             int* index = (int*)indexMem.Ptr;
-            NativeBlock hsvMem = null;
+            NativeBuffer hsvMem = null;
             ColorPalette built = null;
             try
             {
@@ -316,7 +320,7 @@ namespace Iroca
                     slotToId[s] = n;
                     colors[n++] = new Color32((byte)key, (byte)(key >> 8), (byte)(key >> 16), (byte)(key >> 24));
                 }
-                hsvMem = new NativeBlock(3L * count * sizeof(float));
+                hsvMem = new NativeBuffer(3L * count * sizeof(float), NativeUsage.Palette);
                 float* hh = (float*)hsvMem.Ptr, ss = hh + count, vv = ss + count;
                 ForEachPaletteChunk(count, po, (k0, k1) =>
                 {

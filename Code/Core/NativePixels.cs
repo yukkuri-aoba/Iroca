@@ -30,7 +30,7 @@ namespace Iroca
             Width = width;
             Height = height;
             _bytes = (long)width * height * sizeof(Color32);
-            _mem = IrocaNativeMemory.Alloc(_bytes);
+            _mem = IrocaNativeMemory.Alloc(_bytes, NativeUsage.Pixels);
         }
 
         ~NativePixels() => Free();
@@ -113,7 +113,7 @@ namespace Iroca
         private void Free()
         {
             IntPtr p = Interlocked.Exchange(ref _mem, IntPtr.Zero);
-            if (p != IntPtr.Zero) IrocaNativeMemory.Free(p, _bytes);
+            if (p != IntPtr.Zero) IrocaNativeMemory.Free(p, _bytes, NativeUsage.Pixels);
         }
     }
 }

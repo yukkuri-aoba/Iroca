@@ -1090,9 +1090,50 @@ namespace Iroca
             PixelProcessor.ReleaseWorkBuffers();
             Check(Live() == start, $"after release (evicted in use) live={Live()}");
 
+            // 5) 持ち主の型(NativeBuffer)の決まり。用途ごとに数える・最後の Release で解放する・返しすぎと解放後の
+            //    AddRef は投げる・返し忘れはファイナライザが解放して用途つきで数える。
+            long otherBefore = IrocaNativeMemory.LiveBytesOf(NativeUsage.Other);
+            var nb = new NativeBuffer(4096, NativeUsage.Other);
+            Check(IrocaNativeMemory.LiveBytesOf(NativeUsage.Other) == otherBefore + 4096 && nb.Ptr != IntPtr.Zero && nb.RefCount == 1,
+                "buffer: allocated and counted by usage");
+            Check(IrocaNativeMemory.PeakBytesOf(NativeUsage.Other) >= otherBefore + 4096, "buffer: peak recorded");
+            nb.AddRef();
+            nb.Release();
+            Check(nb.Ptr != IntPtr.Zero && nb.RefCount == 1, "buffer: alive while a reference is held");
+            nb.Release();
+            Check(nb.Ptr == IntPtr.Zero && IrocaNativeMemory.LiveBytesOf(NativeUsage.Other) == otherBefore, "buffer: freed on the last release");
+            bool threw = false;
+            try { nb.Release(); } catch (InvalidOperationException) { threw = true; }
+            Check(threw, "buffer: over-release throws");
+            threw = false;
+            try { nb.AddRef(); } catch (ObjectDisposedException) { threw = true; }
+            Check(threw, "buffer: AddRef after release throws");
+
+            int finOther = IrocaNativeMemory.FinalizedCount(NativeUsage.Other);
+            LeakNativeBuffer();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            Check(IrocaNativeMemory.FinalizedCount(NativeUsage.Other) == finOther + 1
+                  && IrocaNativeMemory.LiveBytesOf(NativeUsage.Other) == otherBefore,
+                "buffer: a forgotten buffer is freed and counted by the finalizer");
+            // ここまでの処理(取り消し・使っている表の追い出しを含む)で、持ち主が返し忘れた塊は無い。
+            foreach (NativeUsage u in new[] { NativeUsage.Work, NativeUsage.Pixels, NativeUsage.Palette, NativeUsage.Selection, NativeUsage.Mask })
+            {
+                Check(IrocaNativeMemory.FinalizedCount(u) == 0, $"no buffer of {u} was left to the finalizer (count={IrocaNativeMemory.FinalizedCount(u)})");
+                Check(IrocaNativeMemory.LiveBytesOf(u) == 0, $"nothing of {u} is left (live={IrocaNativeMemory.LiveBytesOf(u)})");
+            }
+            Check(IrocaNativeMemory.PeakBytesOf(NativeUsage.Palette) >= (long)N * N * sizeof(int), "palette peak recorded");
+            Check(IrocaNativeMemory.PeakBytesOf(NativeUsage.Work) > 0, "work pool peak recorded");
+
             Console.WriteLine(fails == 0 ? "NATIVEMEMSELFTEST ALL PASS" : $"NATIVEMEMSELFTEST {fails} FAILED");
             return fails == 0 ? 0 : 4;
         }
+
+        // 参照を返さずに手放す(--nativememselftest の取りこぼしの検査)。呼び出し元のフレームに参照が残らないよう、
+        // 埋め込ませない。
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void LeakNativeBuffer() => new NativeBuffer(8192, NativeUsage.Other);
 
         /// <summary>
         /// --maskcodecselftest: 保存形式のマスク(MaskStateCodec)の書き込みと展開。展開に前の配列(previous)を渡すと、

@@ -131,13 +131,19 @@ GC は大きな塊を動かせない。8K の原本は 6,700 万画素あり、`
 - 新しく書くコードは、画素数の大きさの配列を管理配列で作らない。`test_no_pixel_sized_managed_arrays.py` が
   `new T[w * h]` の形と Unity の API が返す画素の管理配列（`GetPixels32()` など）を数え、今ある分の一覧
   （`scripts/source_checks/pixel_sized_managed_arrays.json`）から増えたら落とす。
-- ヒープの外の部品（今）: 確保の窓口 `IrocaNativeMemory.Alloc` / `Free`、作業配列のプール `NativeWorkPool<T>`
+- ヒープの外の部品（今）: 確保の窓口 `IrocaNativeMemory.Alloc(bytes, 用途)` / `Free`（用途 `NativeUsage` ごとに今の量・
+  最大値・ファイナライザで解放した数を数える）、持ち主の型 `NativeBuffer`、作業配列のプール `NativeWorkPool<T>`
   （`Rent` / `Return`。中身は前の持ち主の値が残るので、借りた側が書いてから読む）、原本と出力の `NativePixels`、
-  色の表。
+  色の表、選択キャッシュの `NativeFloatBuffer`。
+- `NativeBuffer` の決まり（新しくヒープの外に持つものは、この上に作る）:
+  - 持ち方は参照の数。作った側が 1 つ目を持ち、ほかの持ち主・別スレッドの読み手は `AddRef` して持ち、使い終わったら
+    `Release` する。返しすぎ・解放後の `AddRef` はいつも投げる。
+  - 中断中（ドメインのアンロード）の最後の `Release` は解放せず、アンロードまで持つ（並列で使っている途中のスレッドが
+    残っていることがある）。持ち主の側では中断を見ない。
+  - 返し忘れはファイナライザ（`SafeHandle`）が解放し、用途つきで数える（`IrocaNativeMemory.FinalizedCount`。
+    `--nativememselftest` が 0 であることを確かめる）。
 - 目標（0.4.0 のフェーズ 2）:
-  - 確保の窓口は `IrocaNativeMemory.Alloc(bytes, 用途)` の 1 つ。用途ごとに今の量と最大値を数える。
-  - 持ち主の型は `SafeHandle` から作る `NativeBuffer` の 1 つ。参照の数・ファイナライザ・スレッド中断時の扱いをここだけに
-    書き、ほかの部品はこの上に作る。
+  - 今ある部品（プールの塊・`NativePixels`・選択キャッシュ）を `NativeBuffer` の上に移す（2-2。色の表は移した）。
   - 境目では長さつきの `NativeSpan<T>` を渡す。範囲の検査は検証用のビルド定義（`IROCA_NATIVE_CHECKS`）のときだけ。
     ループの中は `T*` のまま。
   - マスクとビット列は `NativeBitMask`（1 画素 1 ビット、参照の数で持ち、書くときだけ写す）。

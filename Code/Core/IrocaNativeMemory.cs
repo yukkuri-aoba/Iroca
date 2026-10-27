@@ -18,9 +18,35 @@ namespace Iroca
     internal static class IrocaNativeMemory
     {
         private static long s_liveBytes;
+        // 用途(NativeUsage)ごとのいまの量・最大値・ファイナライザで解放した数(取りこぼし)。
+        private const int UsageCount = (int)NativeUsage.Other + 1;
+        private static readonly long[] s_liveByUsage = new long[UsageCount];
+        private static readonly long[] s_peakByUsage = new long[UsageCount];
+        private static readonly int[] s_finalizedByUsage = new int[UsageCount];
 
         /// <summary>いま確保しているバイト数。</summary>
         public static long LiveBytes => Interlocked.Read(ref s_liveBytes);
+
+        /// <summary>用途ごとの、いま確保しているバイト数。</summary>
+        public static long LiveBytesOf(NativeUsage usage) => Interlocked.Read(ref s_liveByUsage[(int)usage]);
+
+        /// <summary>用途ごとの、これまでの最大のバイト数(<see cref="ResetPeaks"/> から)。</summary>
+        public static long PeakBytesOf(NativeUsage usage) => Interlocked.Read(ref s_peakByUsage[(int)usage]);
+
+        /// <summary>
+        /// 用途ごとの、持ち主が返さずにファイナライザが解放した塊の数(<see cref="NativeBuffer"/>)。取りこぼしなので
+        /// 0 のはず(テストで確かめる)。
+        /// </summary>
+        public static int FinalizedCount(NativeUsage usage) => Volatile.Read(ref s_finalizedByUsage[(int)usage]);
+
+        /// <summary>最大値をいまの量に戻す(計測の区切り)。</summary>
+        public static void ResetPeaks()
+        {
+            for (int u = 0; u < UsageCount; u++)
+                Interlocked.Exchange(ref s_peakByUsage[u], Interlocked.Read(ref s_liveByUsage[u]));
+        }
+
+        internal static void NoteFinalized(NativeUsage usage) => Interlocked.Increment(ref s_finalizedByUsage[(int)usage]);
 
         /// <summary>
         /// 検証用: IROCA_NATIVE_GUARD=1 なら、確保する領域の末尾をページの境目にそろえ、直後のページを読み書きできない
@@ -34,20 +60,29 @@ namespace Iroca
             Environment.GetEnvironmentVariable("IROCA_NATIVE_GUARD") == "1"
             && Environment.OSVersion.Platform == PlatformID.Win32NT;
 
-        public static IntPtr Alloc(long bytes)
+        /// <summary>
+        /// bytes バイトを確保する(中身は不定)。ふつうは <see cref="NativeBuffer"/> を通す(持ち主と後始末の決まりが
+        /// そこにある)。usage は数え上げの区分で、<see cref="Free"/> にも同じ値を渡す。
+        /// </summary>
+        public static IntPtr Alloc(long bytes, NativeUsage usage)
         {
             if (bytes <= 0) throw new ArgumentOutOfRangeException(nameof(bytes));
             IntPtr p = GuardPages ? GuardedAlloc(bytes) : Marshal.AllocHGlobal(new IntPtr(bytes));
             Interlocked.Add(ref s_liveBytes, bytes);
+            long now = Interlocked.Add(ref s_liveByUsage[(int)usage], bytes);
+            long peak;
+            while (now > (peak = Interlocked.Read(ref s_peakByUsage[(int)usage]))
+                   && Interlocked.CompareExchange(ref s_peakByUsage[(int)usage], now, peak) != peak) { }
             return p;
         }
 
-        public static void Free(IntPtr p, long bytes)
+        public static void Free(IntPtr p, long bytes, NativeUsage usage)
         {
             if (p == IntPtr.Zero) return;
             if (GuardPages) GuardedFree(p);
             else Marshal.FreeHGlobal(p);
             Interlocked.Add(ref s_liveBytes, -bytes);
+            Interlocked.Add(ref s_liveByUsage[(int)usage], -bytes);
         }
 
         // ガードページつきで取った領域の先頭 → OS から取った塊の先頭(解放に使う)。
@@ -109,48 +144,6 @@ namespace Iroca
     }
 
     /// <summary>
-    /// <see cref="IrocaNativeMemory"/> から確保した 1 つの塊の持ち主。確保した直後に包んで、本当の持ち主
-    /// (色の表など)に渡すまでの守りに使う。Dispose で解放し、Dispose を忘れても GC が回収するときに解放する。
-    /// 中断中(<see cref="IrocaNativeMemory.CurrentThreadAborting"/>)の Dispose は解放しない。並列で書いている途中の
-    /// スレッドが残っていることがあるからで、塊はドメインのアンロードまで静的に持っておく(ほかの持ち主の守りと
-    /// 同じ考え方。手放すと、アンロードより前に GC がファイナライザで解放してしまうことがある。アンロードは
-    /// スレッドを止めてからファイナライザを走らせるので、そこで解放される)。
-    /// </summary>
-    internal sealed class NativeBlock : IDisposable
-    {
-        private static readonly List<NativeBlock> s_keptUntilUnload = new List<NativeBlock>();
-
-        private IntPtr _ptr;
-        public long Bytes { get; }
-        public IntPtr Ptr => _ptr;
-
-        public NativeBlock(long bytes)
-        {
-            Bytes = bytes;
-            _ptr = IrocaNativeMemory.Alloc(bytes);
-        }
-
-        ~NativeBlock() => Free();
-
-        public void Dispose()
-        {
-            if (IrocaNativeMemory.CurrentThreadAborting)
-            {
-                lock (s_keptUntilUnload) s_keptUntilUnload.Add(this);
-                return;
-            }
-            Free();
-            GC.SuppressFinalize(this);
-        }
-
-        private void Free()
-        {
-            IntPtr p = Interlocked.Exchange(ref _ptr, IntPtr.Zero);
-            if (p != IntPtr.Zero) IrocaNativeMemory.Free(p, Bytes);
-        }
-    }
-
-    /// <summary>
     /// ネイティブメモリに置いた float の並び。中身の出し入れは配列・ポインタとの一括コピーだけ。
     /// 1 つの持ち主が使い、ほかのスレッドから同時に Dispose しないこと(持ち主がロックで守る)。
     /// Dispose を忘れても、GC がこのオブジェクトを回収するときに解放する(ただしいつになるかは分からない)。
@@ -167,7 +160,7 @@ namespace Iroca
         {
             if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length));
             Length = length;
-            _ptr = IrocaNativeMemory.Alloc((long)length * sizeof(float));
+            _ptr = IrocaNativeMemory.Alloc((long)length * sizeof(float), NativeUsage.Selection);
         }
 
         ~NativeFloatBuffer() => Release();
@@ -227,7 +220,7 @@ namespace Iroca
         private void Release()
         {
             IntPtr p = Interlocked.Exchange(ref _ptr, IntPtr.Zero);
-            if (p != IntPtr.Zero) IrocaNativeMemory.Free(p, (long)Length * sizeof(float));
+            if (p != IntPtr.Zero) IrocaNativeMemory.Free(p, (long)Length * sizeof(float), NativeUsage.Selection);
         }
     }
 }
