@@ -154,7 +154,8 @@ namespace Iroca
 
         [System.NonSerialized] public Texture2D previewTexture;
         [System.NonSerialized] public Texture2D rawPreviewTexture;
-        [System.NonSerialized] public Texture2D diffTexture;
+        // 差分表示は描いている変更前・変更後のテクスチャから GPU で描く(差分の画像は持たない)。
+        [System.NonSerialized] private PreviewDiffDrawer _diffDrawer;
         // 立てた時刻を体感速度の起点(操作の時刻)として控える(PreviewLatency)。初期値の true は
         // 操作ではないので、プロパティを通さずに入れる。
         [System.NonSerialized] private bool _previewDirty = true;
@@ -272,11 +273,6 @@ namespace Iroca
         // GC でフレームが詰まるため、ペイント中だけ意図的に間引く。
         private const double PaintOverlayThrottleSeconds = 0.1;
 
-        // Diff テクスチャ生成: ピクセル比較はバックグラウンドへ、SetPixels32/Apply はメインスレッド。
-        [System.NonSerialized] private readonly PreviewJob<Color32[]> _diffJob = new PreviewJob<Color32[]>();
-        [System.NonSerialized] private Color32[] _pendingDiffPixels;
-        [System.NonSerialized] private int _pendingDiffW, _pendingDiffH;
-
         [System.NonSerialized] private Texture2D _cachedSourceTexture;
         // _trueSource と同じものを指す(どの元画素で作ったキャッシュかを見るためだけ。参照は持たない)。
         [System.NonSerialized] private NativePixels _cachedSrcPixels;
@@ -353,6 +349,7 @@ namespace Iroca
             _outputBuffers ??= new PreviewOutputBuffers();
             _detailView ??= new DetailPreviewView();
             _detailView.Initialize(host);
+            _diffDrawer ??= new PreviewDiffDrawer();
         }
 
         /// <summary>
@@ -665,7 +662,6 @@ namespace Iroca
             Suspend();
             _proxyJob.Dispose();
             _previewJob.Dispose();
-            _diffJob.Dispose();
             _detailView?.Dispose();
         }
 
@@ -688,13 +684,14 @@ namespace Iroca
             _lastDirtyTime = 0;
             TextureSlot.Release(ref previewTexture);
             TextureSlot.Release(ref rawPreviewTexture);
-            TextureSlot.Release(ref diffTexture);
+            // 差分のマテリアルも手放す(HideAndDontSave なので、リロードで参照を失うと残る)。次に描くときに作り直す。
+            _diffDrawer?.Dispose();
             ReleaseAppearance();
             ClearSceneHighlight();
         }
 
         /// <summary>
-        /// 3 つのジョブ(追従・確定・差分)を止め、まだ表示へ渡していない結果を捨てる。
+        /// 2 つのジョブ(追従・確定)を止め、まだ表示へ渡していない結果を捨てる。
         /// ソースの差し替え(<see cref="InvalidateSourceCache"/>)と停止(<see cref="Suspend"/>)の共通部分。
         /// 新しい pending を足したら、ここで捨てる。
         /// </summary>
@@ -702,10 +699,8 @@ namespace Iroca
         {
             _proxyJob.Cancel();
             _previewJob.Cancel();
-            _diffJob.Cancel();
             _pendingProcessedDisplay = null;
             _pendingRawDisplay = null;
-            _pendingDiffPixels = null;
         }
 
         public void Draw()
@@ -824,13 +819,9 @@ namespace Iroca
             if (GUILayout.Toggle(diffMode, new GUIContent(Localization.DiffMode, Localization.DiffModeTooltip), EditorStyles.miniButtonRight, GUILayout.ExpandWidth(false)) != diffMode)
             {
                 diffMode = !diffMode;
-                if (diffMode)
-                {
-                    comparisonMode = false;
-                    // 詳細 diff は diff モード表示中しか生成しない(DetailPreviewView 参照)ため、
-                    // ON へ切り替えたら詳細クロップを再生成して diff を作らせる。
-                    _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
-                }
+                // 拡大表示の差分は、変更後の切り出しと同じ範囲の変更前の切り出しから描く。今の切り出しの分は
+                // 描くときにその場で作る(ShownDetailRawForDiff)ので、作り直しは待たない。
+                if (diffMode) comparisonMode = false;
             }
             // 押している間だけ変更前を表示する。前後比較(横並び)は高ズームで使えず、差分表示は
             // 「変わった画素」しか示さないため、拡大して細部を見ているときに「元はどうだったか」を
@@ -870,24 +861,6 @@ namespace Iroca
             // 変更前・変更後の両方に重ねる。
             bool detailActive = detScale < 1f &&
                                 effZoom > DetailPreviewView.DetailMinZoom;
-
-            if (detailActive)
-            {
-                if (!_detailView.detailJob.IsRunning &&
-                    (!_detailHiddenForDrag || _fullOutputFreshSinceHide) &&
-                    _detailView.lastDetailDirtyTime > 0 &&
-                    _detailView.lastPreviewRect.width > 0)
-                {
-                    var latency = _detailView.TakeLatencyFor(_detailView.lastDetailDirtyTime, srcW, srcH);
-                    _detailView.lastDetailDirtyTime = 0;
-                    var beforeRect = panelCount == 2 ? _detailView.lastBeforeRect : default;
-                    _detailView.GenerateDetailPreviewAsync(detW, detH, DetailSource, DetailOutput, detScale, effZoom, _previewScrollPos, _detailView.lastViewportW, _detailView.lastViewportH, _detailView.lastPreviewRect, beforeRect, latency);
-                }
-                else if (_detailView.lastDetailDirtyTime > 0 || _detailView.detailJob.IsRunning)
-                {
-                    _host.RequestRepaint();
-                }
-            }
 
             float displayW = previewTexture.width  * effZoom;
             float displayH = previewTexture.height * effZoom;
@@ -1056,7 +1029,8 @@ namespace Iroca
                 var shownDetail = ShownDetail;
                 bool detailShown = detailActive && shownDetail != null && !_detailHiddenForDrag;
                 Texture peekDetail = detailShown && peekOriginal ? ShownDetailRaw() : null;
-                if (!peekOriginal) ReleaseDetailRaw();
+                // 差分表示の間は、変更前の切り出しを差分が読むので持っておく。
+                if (!peekOriginal && !diffMode) ReleaseDetailRaw();
                 if (detailShown && (!peekOriginal || peekDetail != null))
                 {
                     EditorGUI.DrawPreviewTexture(activePreviewRect, peekOriginal ? ShownRaw : ShownPreview);
@@ -1068,15 +1042,15 @@ namespace Iroca
                     // 変更前を見せている間は差分ハイライトを重ねない(下の全体表示と同じ理由)。
                     if (!peekOriginal && diffMode)
                     {
-                        // 切り出しの差分は切り出しと同時に差し替わる(DetailPreviewView.ApplyPendingResult)ので、
-                        // あれば切り出しの上にそのまま重ねる。切り出しの外側(新しく見えた端)や、切り出しの差分が
-                        // まだ無いとき(差分表示へ切り替えた直後)は、全体用の差分で補う。補わないと差分が切り出しの
-                        // 範囲だけで途切れる。切り出しの内側には全体用を重ねない(二重に塗って色が濃くなる)。
-                        var detailDiff = _detailView.detailDiffTexture;
-                        if (diffTexture != null)
-                            DrawTextureOutside(activePreviewRect, detailDiff != null ? detailScreenRect : default, diffTexture);
-                        if (detailDiff != null)
-                            GUI.DrawTexture(detailScreenRect, detailDiff, ScaleMode.StretchToFill, true);
+                        // 切り出しの上は、変更後の切り出しと同じ範囲の変更前の切り出しから差分を描く(描いている 2 枚から
+                        // 作るので、切り出しと差分が食い違わない)。切り出しの外側(新しく見えた端)は、下に描いている
+                        // 縮小表示の 2 枚から同じ定義で描く。変更前の切り出しが作れないときは全体を縮小表示の 2 枚から描く。
+                        // 切り出しの内側には縮小表示の分を重ねない(二重に塗って色が濃くなる)。
+                        var detailBefore = ShownDetailRawForDiff();
+                        _diffDrawer.DrawOutside(activePreviewRect, detailBefore != null ? detailScreenRect : default,
+                                                rawPreviewTexture, previewTexture);
+                        if (detailBefore != null)
+                            _diffDrawer.Draw(detailScreenRect, detailBefore, _detailView.detailPreviewTexture, new Rect(0f, 0f, 1f, 1f));
                     }
                     else
                     {
@@ -1099,8 +1073,8 @@ namespace Iroca
 
                     // 変更前を見せている間は差分ハイライトを重ねない（変更前に「変わった場所」を
                     // 塗ると、元テクスチャに無い色が乗って見え、確認したい当のものが隠れる）。
-                    if (!peekOriginal && diffMode && diffTexture != null)
-                        GUI.DrawTexture(activePreviewRect, diffTexture, ScaleMode.StretchToFill, true);
+                    if (!peekOriginal && diffMode)
+                        _diffDrawer.DrawOutside(activePreviewRect, default, rawPreviewTexture, previewTexture);
                     else
                     {
                         DrawMaskOverlays(activePreviewRect, maskView);
@@ -1128,9 +1102,14 @@ namespace Iroca
                 DrawAiSuggestPendingOverlay(activePreviewRect);
             }
 
-            // プレビューレクトを格納して、次の詳細生成ティックで使用
+            // 画像の矩形を控える(拡大表示の切り出しの範囲と、描く位置の計算に使う)。
             if (Event.current.type == EventType.Repaint && activePreviewRect.width > 0)
                 _detailView.lastPreviewRect = activePreviewRect;
+
+            // 拡大表示の切り出しを作り直す。範囲はこのフレームの配置(画像の矩形・スクロール位置・倍率)で決める
+            // (以前は描く前に前のフレームの矩形で決めていたので、ズームした直後は 1 コマ古い範囲を切り出していた)。
+            if (detailActive)
+                TickDetailGeneration(detW, detH, detScale, effZoom, panelCount, srcW, srcH);
 
             HandlePreviewGlobalInput(zoomHitRect, maxZoom);
 
@@ -1226,9 +1205,6 @@ namespace Iroca
                 ApplyPendingPreview();
                 _previewVersion++;
             }
-
-            // バックグラウンドで仕上がった diff ピクセルをテクスチャへ反映
-            ApplyPendingDiff();
 
             // バックグラウンド詳細プレビュータスクからの結果を適用
             if (_detailView.HasPendingResult)
@@ -1411,6 +1387,32 @@ namespace Iroca
         }
 
         /// <summary>
+        /// 拡大表示の切り出しの作り直しを始める(作り直しが要り、走っているものが無いとき)。範囲はこのフレームの
+        /// 画像の矩形(lastPreviewRect・lastBeforeRect)とスクロール位置から決めるので、Repaint の、画像の矩形が
+        /// 決まった後で呼ぶ。作り直し待ち・走っている間は再描画を頼み続ける(終わったらすぐ最新の範囲で作り直す)。
+        /// </summary>
+        private void TickDetailGeneration(int detW, int detH, float detScale, float effZoom, int panelCount, int srcW, int srcH)
+        {
+            var dv = _detailView;
+            if (Event.current.type == EventType.Repaint &&
+                !dv.detailJob.IsRunning &&
+                (!_detailHiddenForDrag || _fullOutputFreshSinceHide) &&
+                dv.lastDetailDirtyTime > 0 &&
+                dv.lastPreviewRect.width > 0)
+            {
+                var latency = dv.TakeLatencyFor(dv.lastDetailDirtyTime, srcW, srcH);
+                dv.lastDetailDirtyTime = 0;
+                var beforeRect = panelCount == 2 ? dv.lastBeforeRect : default;
+                dv.GenerateDetailPreviewAsync(detW, detH, DetailSource, DetailOutput, detScale, effZoom, _previewScrollPos,
+                    dv.lastViewportW, dv.lastViewportH, dv.lastPreviewRect, beforeRect, latency);
+            }
+            else if (dv.lastDetailDirtyTime > 0 || dv.detailJob.IsRunning)
+            {
+                _host.RequestRepaint();
+            }
+        }
+
+        /// <summary>
         /// 拡大表示用のマスクの重ね表示を、詳細プレビューのいまの範囲で作り直す(詳細が無ければ何もしない)。
         /// </summary>
         internal void RebuildDetailMaskOverlay()
@@ -1585,42 +1587,6 @@ namespace Iroca
 
         private static GUIContent DetailFullResolutionContent
             => new GUIContent(Localization.DetailFullResolution, Localization.DetailFullResolutionTooltip);
-
-        /// <summary>
-        /// tex(full 全体に引き伸ばして重ねる画像。v は下端が 0)を、full のうち hole の外側だけ描く。
-        /// hole が空(幅 0)なら full 全体を描く。hole は full の内側に収める。
-        /// </summary>
-        private static void DrawTextureOutside(Rect full, Rect hole, Texture tex)
-        {
-            if (full.width <= 0f || full.height <= 0f) return;
-            hole = hole.width > 0f && hole.height > 0f
-                ? Rect.MinMaxRect(
-                    Mathf.Clamp(hole.xMin, full.xMin, full.xMax), Mathf.Clamp(hole.yMin, full.yMin, full.yMax),
-                    Mathf.Clamp(hole.xMax, full.xMin, full.xMax), Mathf.Clamp(hole.yMax, full.yMin, full.yMax))
-                : default;
-            if (hole.width <= 0f || hole.height <= 0f)
-            {
-                GUI.DrawTexture(full, tex, ScaleMode.StretchToFill, true);
-                return;
-            }
-            // 上・下は全幅、左・右は hole の高さだけ。
-            DrawTexturePart(full, Rect.MinMaxRect(full.xMin, full.yMin, full.xMax, hole.yMin), tex);
-            DrawTexturePart(full, Rect.MinMaxRect(full.xMin, hole.yMax, full.xMax, full.yMax), tex);
-            DrawTexturePart(full, Rect.MinMaxRect(full.xMin, hole.yMin, hole.xMin, hole.yMax), tex);
-            DrawTexturePart(full, Rect.MinMaxRect(hole.xMax, hole.yMin, full.xMax, hole.yMax), tex);
-        }
-
-        // full に引き伸ばした tex のうち part(full の内側)に当たる範囲だけを part に描く。
-        private static void DrawTexturePart(Rect full, Rect part, Texture tex)
-        {
-            if (part.width <= 0f || part.height <= 0f) return;
-            var uv = new Rect(
-                (part.xMin - full.xMin) / full.width,
-                1f - (part.yMax - full.yMin) / full.height,
-                part.width / full.width,
-                part.height / full.height);
-            GUI.DrawTextureWithTexCoords(part, tex, uv, true);
-        }
 
         /// <summary>
         /// 表示用テクスチャの補間を今の設定と倍率に合わせる(描く前に毎フレーム。値が同じなら何もしない)。

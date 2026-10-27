@@ -117,6 +117,14 @@ namespace Iroca
             return _appearanceDetailRaw;
         }
 
+        /// <summary>
+        /// 差分表示で、拡大表示の切り出しの上の差分を描くのに使う変更前の切り出し(テクスチャの色。変更後の切り出しと
+        /// 同じ範囲・寸法)。差分表示の間に作り始めた切り出しなら一緒に届いている。届いていない(差分表示へ切り替えた
+        /// 直後など)ときはその場で作る。作れないときは null。
+        /// </summary>
+        private Texture ShownDetailRawForDiff()
+            => _detailView.EnsureDetailRaw(DetailSource, DetailW, DetailH) ? _detailView.detailRawTexture : null;
+
         /// <summary>「元を表示」を離したときに、変更前の切り出しとその見た目を手放す。</summary>
         private void ReleaseDetailRaw()
         {

@@ -414,9 +414,6 @@ namespace Iroca
             rawPreviewTexture.SetPixels32(raw);
             rawPreviewTexture.Apply();
 
-            // Color32[] が手元にあるのでそのままバックグラウンドへ。GetPixels32 を再度呼ばない。
-            ScheduleDiffTexture(raw, processed, w, h);
-
             var maskView = _host._maskView;
             // オーバーレイ寸法はプレビュー寸法の整数倍(表示倍率に追従。OverlayScale が正)。
             int ovScale = maskView.OverlayScale(w, h, EffectiveZoom);
@@ -458,59 +455,6 @@ namespace Iroca
                     if (PreviewLatency.Publish(latency)) _host.RequestRepaint();
                 }
             }
-        }
-
-        /// <summary>
-        /// Before/After の Color32 配列から差分ハイライトをバックグラウンドで生成する。
-        /// 結果は <see cref="ApplyPendingDiff"/> で次フレーム以降にテクスチャへ反映される。
-        /// </summary>
-        private void ScheduleDiffTexture(Color32[] before, Color32[] after, int w, int h)
-        {
-            if (before == null || after == null || before.Length != w * h || after.Length != w * h) return;
-            int capW = w, capH = h;
-            _diffJob.Schedule(
-                work: token => BuildDiffPixels(before, after, capW, capH, token),
-                apply: result =>
-                {
-                    _pendingDiffPixels = result;
-                    _pendingDiffW = capW;
-                    _pendingDiffH = capH;
-                    _host.RequestRepaint();
-                });
-        }
-
-        /// <summary>差分ハイライトとみなす RGB 差の合計の閾値（これを超えた画素を塗る）。</summary>
-        private const int DiffHighlightThreshold = 10;
-
-        /// <summary>
-        /// Before/After の画素ごとの RGB 差の合計が閾値を超えた画素だけを塗った差分ハイライトを作る。
-        /// メイン表示と拡大表示(<see cref="DetailPreviewView"/>)の両方の差分ハイライトの唯一の実装。
-        /// </summary>
-        internal static Color32[] BuildDiffPixels(Color32[] a, Color32[] b, int w, int h, CancellationToken token)
-        {
-            var d = new Color32[w * h];
-            var highlight = new Color32(255, 220, 0, 160);
-            for (int i = 0; i < d.Length; i++)
-            {
-                int diff = Mathf.Abs(a[i].r - b[i].r)
-                         + Mathf.Abs(a[i].g - b[i].g)
-                         + Mathf.Abs(a[i].b - b[i].b);
-                if (diff > DiffHighlightThreshold) d[i] = highlight;
-                if ((i & 0x7FFF) == 0) token.ThrowIfCancellationRequested();
-            }
-            return d;
-        }
-
-        public void ApplyPendingDiff()
-        {
-            if (_pendingDiffPixels == null) return;
-            var pixels = _pendingDiffPixels;
-            int w = _pendingDiffW, h = _pendingDiffH;
-            _pendingDiffPixels = null;
-
-            TextureSlot.Resize(ref diffTexture, w, h);
-            diffTexture.SetPixels32(pixels);
-            diffTexture.Apply();
         }
     }
 }

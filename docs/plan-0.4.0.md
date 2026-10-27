@@ -476,6 +476,11 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
        （生成中の表示が出ない）。
      - 書き出した画像・シーンのプレビューは設定で変わらない。
      - ウィンドウが狭いとき、見出し行のリセットが隠れない（ズーム率の「(Ctrl+スクロール)」が省かれる）。
+  3. 1-2 のテスト: `.\scripts\Run-EditorTests.ps1 -Graphics`（`PreviewDiffShaderTests` は GPU が要るので、-nographics の
+     ふだんの実行では Ignore になる）。
+  4. 1-2 の見た目: `docs/release-smoke-test.md` の 51（4K と 8K で差分表示にして、パン・ズーム・スライダーのドラッグを
+     激しく行う。前後比較から直接差分表示へ）。リニアのプロジェクト（VRChat のアバタープロジェクト）で、差分の黄色が
+     以前と同じ色に見えること。
 - **dev_safe の同期（2026-10-26 に済み）。**
   - dev-0.3.0 の worktree の dev_safe 複製にあった 0.3.0 の作業（基準の作り直し・ホールドアウトの入れ替え・
     `generalization_report.py` ほか）を、本体の dev_safe の `main` へ取り込んだ（d3e3e68）。`abcheck.py` の `CRASH_RC` を
@@ -578,7 +583,17 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
   - 文言を直す: `ComparisonModeTooltip` と `PeekOriginalTooltip` は「Max Size の大きさで表示」と書いている。
     マニュアル（08-preview ほか）と CHANGELOG も直す。
   - テスト: 両方の設定で、拡大表示の寸法と、変更前・変更後・マスクの重ね表示の範囲がそろうこと（EditMode）。出力は変わらない。
-- [ ] 1-2 **T2 差分を GPU で描く**
+- [ ] 1-2 **T2 差分を GPU で描く**（2026-10-27 にクラウドでコードとテストを書いた。コンパイル・ソースの検査まで。
+  残りは手元の Unity でのテスト（シェーダーのテストは `-Graphics` が要る）と見た目の確認）
+  - `PreviewDiffDrawer`（`Code/UI/PreviewDiffDrawer.cs`）が `Hidden/Iroca/PreviewDiff`（`Code/UI/PreviewDiff.shader`）で
+    描く。IMGUI の切り抜きは Unity の GUI のシェーダーと同じ受け取り方。テクスチャの補間（Point / Bilinear）に合わせて、
+    1 画素の四角か、周りの 4 画素の判定を混ぜたものにする。
+  - 拡大表示の差分は、変更後の切り出しと「元を表示」と共用の変更前の切り出しから描く。差分表示の間に作り始めた
+    切り出しは変更前も一緒に持ってくる。差分表示へ切り替えた直後は、その場で作る（作り直しを待たない）。
+  - 切り出しの作り直しは、画像の矩形が決まった後の Repaint で、そのフレームの配置から範囲を決める。見えている範囲の外に
+    画面で 96pt の余白を足す（`DetailPreviewView.CropMarginPoints`）。
+  - テストは `PreviewDiffShaderTests`（シェーダーと CPU の定義の一致。しきい値の前後と暗い色を多めに）と
+    `DetailResolutionTests.DiffMode_CropBringsTheSameBeforeCropAsEnsureDetailRaw`。実機の確認は release-smoke-test の 51。
   - 隠しシェーダー（`Hidden/Iroca/PreviewDiff`）: 変更前と変更後を同じ UV で読み、8 ビットの値で RGB の差の合計が
     10 を超えたら (255,220,0,160)、それ以外は透明。今の `BuildDiffPixels` と同じ定義。テクスチャを sRGB として
     読むと値が変わるので、線形で作るかシェーダーで戻す。

@@ -158,6 +158,36 @@ namespace Iroca.EditorTests
             AssertSamePixels(full, preview.FullOutput.ToArray(), W, "確定段の出力");
         }
 
+        // 差分表示の間に作り始めた切り出しは、同じ範囲の変更前の切り出しを持ってくる(差分はこの 2 枚から GPU で描く。1-2)。
+        // それは「元を表示」と同じ口(EnsureDetailRaw)がその場で作るものと同じ画素で、同じ範囲なら作り直さない。
+        [Test]
+        public void DiffMode_CropBringsTheSameBeforeCropAsEnsureDetailRaw()
+        {
+            PreviewView.DetailFullResolution = false;
+            OpenWindow();
+            var preview = _win.Preview;
+            RunFullStage(preview);
+            preview.diffMode = true;
+            int det = preview.DetailW;
+            var dv = preview.DetailView;
+            // 縮めて切り出す(表示の 1 画素に元の 2×2 画素)。
+            int x0 = 3, y0 = 5, cw = 20, ch = 18, outW = 10, outH = 9;
+            dv.ScheduleCrop(det, preview.DetailSource, preview.DetailOutput, x0, y0, cw, ch, outW, outH, 0.5f);
+            Wait(() => dv.HasPendingResult, "拡大表示の切り出し");
+            dv.ApplyPendingResult();
+            var raw = dv.detailRawTexture;
+            Assert.IsNotNull(raw, "差分表示中の切り出しが、変更前の切り出しを持ってこない");
+            Assert.AreEqual((outW, outH), (raw.width, raw.height), "変更前の切り出しの寸法");
+            var fromJob = raw.GetPixels32();
+            int version = dv.detailRawVersion;
+            Assert.IsTrue(dv.EnsureDetailRaw(preview.DetailSource, preview.DetailW, preview.DetailH));
+            Assert.AreEqual(version, dv.detailRawVersion, "同じ範囲なのに作り直した");
+
+            dv.ReleaseDetailRaw();
+            Assert.IsTrue(dv.EnsureDetailRaw(preview.DetailSource, preview.DetailW, preview.DetailH), "変更前の切り出しを作れない");
+            AssertSamePixels(dv.detailRawTexture.GetPixels32(), fromJob, outW, "ジョブの変更前の切り出しと、その場で作ったもの");
+        }
+
         // 確定段が走っている間に切り替えても、終わったときの拡大表示の土台は設定どおりで、確定段の出力と食い違わない。
         [TestCase(false, TestName = "TogglingWhileGenerating_EndsConsistent(ToOn)")]
         [TestCase(true, TestName = "TogglingWhileGenerating_EndsConsistent(ToOff)")]

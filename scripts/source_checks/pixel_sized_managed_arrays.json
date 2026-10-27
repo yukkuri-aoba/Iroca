@@ -109,9 +109,6 @@
       "new bool[len]": 2,
       "new bool[newW * newH]": 1
     },
-    "Code/UI/PreviewView.Async.cs": {
-      "new Color32[w * h]": 1
-    },
     "Code/UI/PreviewView.ContextMenu.cs": {
       "new int[(x1 - x0 + 1) * (y1 - y0 + 1)]": 1
     },
