@@ -54,7 +54,7 @@ namespace Iroca.EditorTests
             _sb.Append($"{{\"name\":\"{name}\",\"phase\":\"{phase}\",\"ms\":{ms.ToString("F1", inv)}," +
                        $"\"monoHeap\":{Profiler.GetMonoHeapSizeLong() / MB},\"monoUsed\":{Profiler.GetMonoUsedSizeLong() / MB}," +
                        $"\"private\":{(long)c.PagefileUsage.ToUInt64() / MB},\"peakPrivate\":{(long)c.PeakPagefileUsage.ToUInt64() / MB}," +
-                       $"\"info\":\"{info.Replace("\"", "'")}\"}}\n");
+                       $"\"info\":\"{info.Replace("\\", "/").Replace("\"", "'")}\"}}\n");
             File.WriteAllText(_report, _sb.ToString());   // 途中で落ちても段ごとの記録を残す
         }
 
