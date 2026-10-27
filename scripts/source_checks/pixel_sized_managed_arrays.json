@@ -1,0 +1,125 @@
+{
+  "_note": "画素数に比例する大きさの管理配列の、今ある分(2026-10-27)。数は減らすことしかできない。test_no_pixel_sized_managed_arrays.py を参照",
+  "allowed": {
+    "Code/Automation/AutomationAutoTune.cs": {
+      "new bool[len]": 1
+    },
+    "Code/Core/MaskRle.cs": {
+      "new bool[len]": 2
+    },
+    "Code/Core/MaskSnapshot.cs": {
+      "new ulong[(mask.Length + 63) >> 6]": 1
+    },
+    "Code/Core/NativePixels.cs": {
+      "new Color32[Length]": 1
+    },
+    "Code/Core/PixelProcessor.MixtureBand.cs": {
+      "new ulong[h * wpr]": 2
+    },
+    "Code/Core/PixelProcessor.cs": {
+      "new Color32[dstW * dstH]": 1,
+      "new byte[len]": 1,
+      "new ulong[(len + 63) >> 6]": 1,
+      "new ulong[nWords]": 1
+    },
+    "Code/Core/RecolorPreview.cs": {
+      "new Color32[panelW * panelH]": 1,
+      "new Color32[tw * th]": 2,
+      "new bool[w * h]": 1
+    },
+    "Code/Core/UvChartMap.cs": {
+      "new bool[owner.Length]": 1,
+      "new int[Width * Height]": 2,
+      "new int[owner.Length]": 1,
+      "new int[raster.Length]": 1,
+      "new int[w * h]": 1
+    },
+    "Code/Core/ZoneAutoTuner.Evidence.cs": {
+      "new bool[evW * evH]": 1,
+      "new bool[w * h]": 1
+    },
+    "Code/Core/ZoneAutoTuner.Verify.cs": {
+      "new bool[hsv.gw * hsv.gh]": 3,
+      "new byte[hsv.gw * hsv.gh]": 1
+    },
+    "Code/Core/ZoneAutoTuner.cs": {
+      "new float[gw * gh]": 3
+    },
+    "Code/Debug/DebugCaptureContext.cs": {
+      "new byte[len]": 2
+    },
+    "Code/Debug/DebugImaging.cs": {
+      ".EncodeToPNG()": 1,
+      "new Color32[len]": 4,
+      "new byte[len]": 1
+    },
+    "Code/Debug/ReproDump.cs": {
+      "new Color32[w * h]": 1
+    },
+    "Code/Infra/WorkingResolution.cs": {
+      ".GetPixels32()": 2,
+      "new Color32[dw * dh]": 2,
+      "new byte[(long)stripRows * rowBytes]": 1
+    },
+    "Code/MaskSuggest/MaskSuggestController.cs": {
+      ".GetPixels32()": 1,
+      "new Color32[rw * rh]": 1
+    },
+    "Code/MaskSuggest/Ops/SamImageOps.cs": {
+      "new float[3 * InputSize * InputSize]": 1,
+      "new float[newW * h * 3]": 1,
+      "new float[newW * newH * 3]": 1
+    },
+    "Code/MaskSuggest/Ops/SamMaskPostprocess.cs": {
+      "new bool[rw * rh]": 1,
+      "new bool[texW * texH]": 1,
+      "new float[S * S]": 1
+    },
+    "Code/MaskSuggest/Ops/SamMaskRefine.cs": {
+      "new bool[dw * dh]": 1,
+      "new bool[gw * gh]": 7,
+      "new bool[rw * rh]": 1,
+      "new double[gw * gh * 3]": 2,
+      "new double[gw * gh * 4]": 5,
+      "new int[gw * gh]": 8,
+      "new long[gw * gh * 3]": 2,
+      "new long[gw * gh * 4]": 6
+    },
+    "Code/MaskSuggest/Ops/SamZoomOps.cs": {
+      "new Color32[side * side]": 2,
+      "new bool[w * h]": 1,
+      "new bool[ww * wh]": 1
+    },
+    "Code/UI/DetailPreviewView.cs": {
+      "new Color32[cropW * cropH]": 2,
+      "new Color32[detailCropW * detailCropH]": 1
+    },
+    "Code/UI/ExportPipeline.cs": {
+      ".GetPixels32()": 3
+    },
+    "Code/UI/IrocaWindow.AutoTune.cs": {
+      ".GetPixels32()": 1,
+      "new bool[len]": 1
+    },
+    "Code/UI/MaskPaintView.Overlay.cs": {
+      "new Color32[w * h]": 2,
+      "new bool[w * h]": 1
+    },
+    "Code/UI/MaskPaintView.cs": {
+      "new bool[len]": 2,
+      "new bool[newW * newH]": 1
+    },
+    "Code/UI/PreviewView.Async.cs": {
+      "new Color32[w * h]": 1
+    },
+    "Code/UI/PreviewView.ContextMenu.cs": {
+      "new int[(x1 - x0 + 1) * (y1 - y0 + 1)]": 1
+    },
+    "Code/UI/PreviewView.SceneHighlight.cs": {
+      "new Color32[w * hgt]": 1
+    },
+    "Code/UI/PreviewView.cs": {
+      ".GetPixels32()": 1
+    }
+  }
+}
