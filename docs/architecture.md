@@ -156,8 +156,8 @@ GC は大きな塊を動かせない。8K の原本は 6,700 万画素あり、`
   - マスクとビット列は `NativeBitMask`（1 画素 1 ビット、参照の数で持ち、書くときだけ写す）。
 - 持ち主の範囲を決めて書く: 実行全体（`RunBuffers`）・ゾーンごと（`ZoneBuffers`。8K の最大量を増やさないよう、使い
   終わった所で早めに手放す）・段の中の一時（`WorkScratch`）。借りたものは同じ範囲の `finally` で返す。
-- **Unity との境目は Infra だけ。** `NativeArray` に見せる薄い変換と、`TextureIO`（原本を読んで `NativePixels` にする・
-  PNG にしてファイルへ流す）。Unity 2022.3 では `LoadImage`・`SetPixels32`・`EncodeToPNG` が管理配列しか受け取らない
+- **Unity との境目は Infra だけ。** `NativeArray` に見せる薄い変換（`TextureIO.NativeView<T>`）と、`TextureIO`（原本を読んで
+  `NativePixels` にする・PNG にしてファイルへ流す。`Code/Infra/TextureIO.cs`）。Unity 2022.3 では `LoadImage`・`SetPixels32`・`EncodeToPNG` が管理配列しか受け取らない
   ので、`GetPixelData<T>`・`SetPixelData`・`LoadRawTextureData(IntPtr)`・`ImageConversion.EncodeNativeArrayToPNG` を使う。
 - 検証: 貸し借りの順が変わる変更は `IROCA_POOL_POISON=1`（貸す塊を 0xFF で埋め、書く前に読む所を出力の違いで
   見つける。返した塊は 0xDD で埋めて寝かせ、返したあとに読む所と二重の返却も見つける）と `IROCA_NATIVE_GUARD=1`

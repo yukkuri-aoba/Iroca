@@ -639,6 +639,11 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
 - [ ] 2-4 Infra の境目: `NativeArray` への変換、`TextureIO`。
   - 読む: `GetPixelData` から `NativePixels`。
   - 書く: `EncodeNativeArrayToPNG` で PNG にし、小さな置き場を通してファイルへ流す。
+  - 2026-10-28: `Code/Infra/TextureIO.cs` を足した（`ReadSourceFile`・`EncodePng`・`WriteAllBytes`、ヒープの外の領域を
+    `NativeArray` に見せる `NativeView<T>`。安全ハンドルの作成と解放を含む）。元ファイルをデコードできないもの（PSD など）の
+    取り込み済みテクスチャからの読み込みは、`GetPixels32` が要るので呼び出し側に残した。EditMode テスト `TextureIOTests`
+    （今の経路と同じ画素・同じバイト列、別スレッドでの PNG 化、置き場を通した書き込み）は手元で回す。使う側
+    （書き出し・自動化。A3・A6）を移すのは 4-3 の `ExportService`。
 - [x] 2-5 PerfView に用途ごとの量を出す。（2026-10-28。用途ごとの今の量・最大・作業配列の貸し出し中と空き・返し忘れの数と、
   最大のリセット。開発者用の `Code/Debug` なのでコンパイルまで確かめた）
 - 確かめること:
