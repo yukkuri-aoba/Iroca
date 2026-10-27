@@ -9,6 +9,7 @@
 #                本体 + Debug 衛星の両方を検証できる。
 #                headless ハーネス（Harness.csproj）のビルドも検証し、
 #                Code/Core の取り込みリスト切れ（新規ファイル追加漏れ）を検知する。
+#                EditMode テスト（scripts/editor-tests）は Unity が要るので回せないが、コンパイルだけ確かめる。
 #                続けて資産不要のテストを回す: scripts/golden（合成入力に対する実 C# 出力の
 #                固定）・scripts/source_checks（C# ソースの構造検査）・scripts/unit-run
 #                （Unity を起動しなくても動く部品のユニットテスト）。
@@ -93,9 +94,15 @@ jobs:
       - name: Python（golden / ソース静的検査用）
         run: |
           apt-get update -qq
-          apt-get install -y -qq python3 python3-venv python3-pip > /dev/null
+          apt-get install -y -qq python3 python3-venv python3-pip curl ca-certificates > /dev/null
           python3 -m venv /tmp/venv
           /tmp/venv/bin/pip install -q -r scripts/ci-requirements.txt
+      # テストの asmdef が参照する Unity Test Framework と Unity の NUnit は、Unity のパッケージの配布元から
+      # sha256 を確かめて取る（Unity のライセンス物なのでリポジトリには入れない）。
+      - name: EditMode テストのコンパイル
+        run: |
+          bash scripts/build-check/fetch-unity-test-framework.sh "$RUNNER_TEMP/unity-packages"
+          dotnet build scripts/build-check/IrocaEditorTests.csproj -c Release -nologo -p:UnityPackagesPath="$RUNNER_TEMP/unity-packages"
       - name: golden（実 C# 出力の固定）・ソース静的検査・Unity 不要部品のユニットテスト
         env:
           # Linux と Windows では libm の最下位ビットが違い得るので、ハッシュ不一致は
