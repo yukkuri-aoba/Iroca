@@ -134,7 +134,11 @@ GC は大きな塊を動かせない。8K の原本は 6,700 万画素あり、`
 - ヒープの外の部品（今）: 確保の窓口 `IrocaNativeMemory.Alloc(bytes, 用途)` / `Free`（用途 `NativeUsage` ごとに今の量・
   最大値・ファイナライザで解放した数を数える）、持ち主の型 `NativeBuffer`、作業配列のプール `NativeWorkPool<T>`
   （`Rent` / `Return`。中身は前の持ち主の値が残るので、借りた側が書いてから読む）、原本と出力の `NativePixels`、
-  色の表、選択キャッシュの `NativeFloatBuffer`。
+  色の表、選択キャッシュの `NativeFloatBuffer`。どれも中身は `NativeBuffer` で持つ（0.4.0 の 2-2）。
+- 作業配列のプールは、手元に持つ量（貸し出し中 + 空き）を直近の貸し出し中の最大量の 1.5 倍までにする（新しい塊を作る
+  ときに、空きを大きい順に手放す）。返すのは番地（`Return(T*)`）のまま。返したものをもう一度返す誤りは、検証用の
+  `IROCA_POOL_POISON=1` で見つける（返した塊を寝かせ、同じ番地をすぐ別の借り手へ貸さない）。借りた側が札を持つ形は、
+  画素の処理を段に分けるとき（3-7b の `ZoneBuffers`）に、段の持ち物として入れる。
 - `NativeBuffer` の決まり（新しくヒープの外に持つものは、この上に作る）:
   - 持ち方は参照の数。作った側が 1 つ目を持ち、ほかの持ち主・別スレッドの読み手は `AddRef` して持ち、使い終わったら
     `Release` する。返しすぎ・解放後の `AddRef` はいつも投げる。
@@ -143,18 +147,18 @@ GC は大きな塊を動かせない。8K の原本は 6,700 万画素あり、`
   - 返し忘れはファイナライザ（`SafeHandle`）が解放し、用途つきで数える（`IrocaNativeMemory.FinalizedCount`。
     `--nativememselftest` が 0 であることを確かめる）。
 - 目標（0.4.0 のフェーズ 2）:
-  - 今ある部品（プールの塊）を `NativeBuffer` の上に移す（2-2。色の表・選択キャッシュ・`NativePixels` は移した）。
   - 境目では長さつきの `NativeSpan<T>` を渡す。範囲の検査は検証用のビルド定義（`IROCA_NATIVE_CHECKS`）のときだけ。
     ループの中は `T*` のまま。
   - マスクとビット列は `NativeBitMask`（1 画素 1 ビット、参照の数で持ち、書くときだけ写す）。
-  - プールには量の上限と、手を止めて数秒たったら空きを返す縮小を持たせる。
+  - プールに、手を止めて数秒たったら空きを返す縮小を持たせる（量の上限は済み）。
 - 持ち主の範囲を決めて書く: 実行全体（`RunBuffers`）・ゾーンごと（`ZoneBuffers`。8K の最大量を増やさないよう、使い
   終わった所で早めに手放す）・段の中の一時（`WorkScratch`）。借りたものは同じ範囲の `finally` で返す。
 - **Unity との境目は Infra だけ。** `NativeArray` に見せる薄い変換と、`TextureIO`（原本を読んで `NativePixels` にする・
   PNG にしてファイルへ流す）。Unity 2022.3 では `LoadImage`・`SetPixels32`・`EncodeToPNG` が管理配列しか受け取らない
   ので、`GetPixelData<T>`・`SetPixelData`・`LoadRawTextureData(IntPtr)`・`ImageConversion.EncodeNativeArrayToPNG` を使う。
 - 検証: 貸し借りの順が変わる変更は `IROCA_POOL_POISON=1`（貸す塊を 0xFF で埋め、書く前に読む所を出力の違いで
-  見つける）と `IROCA_NATIVE_GUARD=1`（ガードページではみ出しを捕まえる。Windows）でも回す。
+  見つける。返した塊は 0xDD で埋めて寝かせ、返したあとに読む所と二重の返却も見つける）と `IROCA_NATIVE_GUARD=1`
+  （ガードページではみ出しを捕まえる。Windows）でも回す。
 
 ## 5. 寿命とイベント
 

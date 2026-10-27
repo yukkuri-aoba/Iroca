@@ -1126,7 +1126,7 @@ namespace Iroca
             Check(IrocaNativeMemory.PeakBytesOf(NativeUsage.Palette) >= (long)N * N * sizeof(int), "palette peak recorded");
             Check(IrocaNativeMemory.PeakBytesOf(NativeUsage.Work) > 0, "work pool peak recorded");
 
-            // 7) 選択キャッシュの強さ(NativeFloatBuffer。NativeBuffer の参照の数)。写している途中に辞書から外されても、
+            // 6) 選択キャッシュの強さ(NativeFloatBuffer。NativeBuffer の参照の数)。写している途中に辞書から外されても、
             //    写し終えるまで解放されず、写し終えた時点で解放される。Dispose の後は何も残らない。
             {
                 const int SW = 64, SH = 32;
@@ -1171,6 +1171,40 @@ namespace Iroca
                 Check(IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection) == 0 && IrocaNativeMemory.FinalizedCount(NativeUsage.Selection) == 0,
                     "selection: nothing left after Dispose");
             }
+
+            // 7) 作業配列のプールの決まり(テスト用の別のプールで)。手元の量は直近の貸し出し中の最大量の HoldFactor 倍まで
+            //    (新しく作るときに空きを大きい順に手放す)。ReleaseFree で直近の最大量を今の貸し出し中の量へ戻す。
+            //    検証用(IROCA_POOL_POISON=1)では、返した塊は寝かせるので、返したものをもう一度返すと投げる。
+            bool poison = Environment.GetEnvironmentVariable("IROCA_POOL_POISON") == "1";
+            var pool = new NativeWorkPool<float>(maxPerClass: 4);
+            const int MB = 1 << 18;   // float で 1MB
+            unsafe
+            {
+                float* a = pool.Rent(MB);
+                pool.Return(a);
+                if (poison)
+                {
+                    threw = false;
+                    float* other = pool.Rent(MB);   // 寝かせている間は同じ塊を貸さない
+                    try { pool.Return(a); } catch (InvalidOperationException) { threw = true; }
+                    Check(threw && other != a, "pool (poison): returning a returned block again throws");
+                    pool.Return(other);
+                }
+                else
+                {
+                    float* b = pool.Rent(2 * MB);
+                    pool.Return(b);
+                    Check(pool.FreeBytes == 3L * MB * sizeof(float) && pool.PeakRentedBytes == 2L * MB * sizeof(float),
+                        $"pool: free blocks kept within the hold limit (free={pool.FreeBytes}, peak={pool.PeakRentedBytes})");
+                    float* c = pool.Rent(4 * MB);   // 手元が 1+2+4 = 7MB > 1.5 × 4MB なので、2MB の空きを手放す
+                    Check(pool.FreeBytes == 1L * MB * sizeof(float) && pool.RentedBytes == 4L * MB * sizeof(float),
+                        $"pool: the largest free block is released over the hold limit (free={pool.FreeBytes}, rented={pool.RentedBytes})");
+                    pool.Return(c);
+                }
+            }
+            pool.ReleaseFree();
+            Check(pool.FreeBytes == 0 && pool.RentedBytes == 0 && pool.PeakRentedBytes == 0, "pool: ReleaseFree drops free blocks and resets the peak");
+            Check(Live() == start, $"after the pool rules live={Live()}");
 
             Console.WriteLine(fails == 0 ? "NATIVEMEMSELFTEST ALL PASS" : $"NATIVEMEMSELFTEST {fails} FAILED");
             return fails == 0 ? 0 : 4;

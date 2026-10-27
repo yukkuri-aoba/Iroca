@@ -17,7 +17,10 @@ namespace Iroca
     /// - 区分は 2 のべき乗を 8 つに刻んだ大きさ(新しく確保するときの無駄は最大 1/8)。要求の約 2 倍までの区分の空きを、
     ///   小さい方から使い回し、区分ごとに maxPerClass 個まで手元に残す。
     /// - 貸し出し中の塊は解放しない(<see cref="ReleaseFree"/> は空きだけを解放する)。返されたときに残すか解放する。
-    /// - 塊ごとにファイナライザを持つので、ドメインのアンロードで取りこぼしても最後に解放される。
+    /// - 手元に持つ量(貸し出し中 + 空き)は、直近の貸し出し中の最大量の <see cref="HoldFactor"/> 倍まで。新しい塊を
+    ///   作るときに超えるなら、先に空きを大きい順に解放する(区分が合わずに使われない空きが溜まらないように)。
+    ///   直近の最大量は <see cref="ReleaseFree"/> で今の貸し出し中の量へ戻す(手を止めたときの縮小。NativeMemoryLifecycle)。
+    /// - 塊の持ち主は <see cref="NativeBuffer"/>(用途 Work)。ドメインのアンロードで取りこぼしても、そのファイナライザが解放する。
     /// Rent/Return はどのスレッドからでも呼べる。
     /// </summary>
     internal sealed unsafe class NativeWorkPool<T> where T : unmanaged
@@ -25,37 +28,32 @@ namespace Iroca
         private sealed class Block
         {
             public readonly int Capacity;
-            public readonly long Bytes;
-            private IntPtr _ptr;
-            public IntPtr Ptr => _ptr;
+            public readonly NativeBuffer Mem;
+            public long Bytes => Mem.Bytes;
+            public readonly IntPtr Ptr;
 
             public Block(int capacity)
             {
                 Capacity = capacity;
-                Bytes = (long)capacity * sizeof(T);
-                _ptr = IrocaNativeMemory.Alloc(Bytes, NativeUsage.Work);
+                Mem = new NativeBuffer((long)capacity * sizeof(T), NativeUsage.Work);
+                Ptr = Mem.Ptr;
             }
 
-            ~Block() => Free();
-
-            public void Free()
-            {
-                IntPtr p = System.Threading.Interlocked.Exchange(ref _ptr, IntPtr.Zero);
-                if (p != IntPtr.Zero) IrocaNativeMemory.Free(p, Bytes, NativeUsage.Work);
-            }
-
-            public void FreeNow()
-            {
-                Free();
-                GC.SuppressFinalize(this);
-            }
+            public void FreeNow() => Mem.Release();
         }
+
+        /// <summary>手元に持つ量の上限: 直近の貸し出し中の最大量の何倍まで持つか。</summary>
+        internal const double HoldFactor = 1.5;
+
+        // 検証用(IROCA_POOL_POISON=1)に、返された塊を埋めてから空きへ回すまで寝かせる数。
+        private const int QuarantineLength = 8;
 
         private readonly object _gate = new object();
         private readonly int _maxPerClass;
         private readonly Dictionary<int, List<Block>> _free = new Dictionary<int, List<Block>>();
         private readonly Dictionary<IntPtr, Block> _rented = new Dictionary<IntPtr, Block>();
-        private long _freeBytes;
+        private readonly Queue<Block> _quarantine = new Queue<Block>();
+        private long _freeBytes, _rentedBytes, _peakRentedBytes;
 
         public NativeWorkPool(int maxPerClass)
         {
@@ -67,6 +65,12 @@ namespace Iroca
 
         /// <summary>貸し出し中の塊の数(テスト・計測用)。</summary>
         public int RentedCount { get { lock (_gate) return _rented.Count; } }
+
+        /// <summary>貸し出し中のバイト数。</summary>
+        public long RentedBytes { get { lock (_gate) return _rentedBytes; } }
+
+        /// <summary>直近(最後の <see cref="ReleaseFree"/> から)の貸し出し中の最大のバイト数。</summary>
+        public long PeakRentedBytes { get { lock (_gate) return _peakRentedBytes; } }
 
         // 1 オクターブ(2 倍)を刻む区分の数(RoundUp の step = 2^(msb-3))。
         private const int ClassesPerOctave = 8;
@@ -85,7 +89,10 @@ namespace Iroca
         private static int NextClass(int cap) => RoundUp(cap + 1);
 
         // 検証用: IROCA_POOL_POISON=1 なら貸す領域を 0xFF で埋める(float は NaN、bool は真)。借りた側が書く前に
-        // 読んでいる所があれば出力が変わるので、abcheck・回帰でそれを見つけられる。製品では使わない。
+        // 読んでいる所があれば出力が変わるので、abcheck・回帰でそれを見つけられる。返された塊は 0xDD で埋め、
+        // QuarantineLength 個のあいだ貸さずに寝かせる(返したあとに読む所は出力の違いで、返したものをもう一度返す所は
+        // 「このプールが貸した塊ではありません」の例外で見つかる。寝かせないと、同じ番地が別の借り手へ貸された後の
+        // 2 回目の返却を見分けられない)。製品では使わない。
         private static readonly bool s_poison = Environment.GetEnvironmentVariable("IROCA_POOL_POISON") == "1";
 
         public T* Rent(int minLength)
@@ -103,10 +110,11 @@ namespace Iroca
             if (IrocaNativeMemory.GuardPages)
             {
                 var exact = new Block(minLength);
-                lock (_gate) _rented.Add(exact.Ptr, exact);
+                lock (_gate) MarkRented(exact);
                 return (T*)exact.Ptr;
             }
             int cap = RoundUp(minLength);
+            List<Block> evict = null;
             lock (_gate)
             {
                 // 小さい区分から順に、要求の約 2 倍(1 オクターブ上)までの空きを探す(最初に見つかったのがいちばん小さい)。
@@ -119,13 +127,49 @@ namespace Iroca
                     var b = list[list.Count - 1];
                     list.RemoveAt(list.Count - 1);
                     _freeBytes -= b.Bytes;
-                    _rented.Add(b.Ptr, b);
+                    MarkRented(b);
                     return (T*)b.Ptr;
                 }
+                // 新しく作る。手元の量(貸し出し中 + 空き + 新しい塊)が直近の最大量の HoldFactor 倍を超えるなら、
+                // 空きを大きい順に手放す(使われない区分の空きが溜まらないように)。
+                long add = (long)cap * sizeof(T);
+                long limit = (long)(HoldFactor * Math.Max(_peakRentedBytes, _rentedBytes + add));
+                if (_rentedBytes + _freeBytes + add > limit) evict = TakeFreeLargestFirst(_rentedBytes + _freeBytes + add - limit);
             }
+            if (evict != null)
+                foreach (var e in evict) e.FreeNow();
             var nb = new Block(cap);
-            lock (_gate) _rented.Add(nb.Ptr, nb);
+            lock (_gate) MarkRented(nb);
             return (T*)nb.Ptr;
+        }
+
+        // 貸し出し中として数える(_gate の中で呼ぶ)。
+        private void MarkRented(Block b)
+        {
+            _rented.Add(b.Ptr, b);
+            _rentedBytes += b.Bytes;
+            if (_rentedBytes > _peakRentedBytes) _peakRentedBytes = _rentedBytes;
+        }
+
+        // 空きを大きい順に、合わせて atLeast バイト以上になるまで取り出す(_gate の中で呼ぶ。解放は外で)。
+        private List<Block> TakeFreeLargestFirst(long atLeast)
+        {
+            var taken = new List<Block>();
+            var classes = new List<int>(_free.Keys);
+            classes.Sort();
+            for (int k = classes.Count - 1; k >= 0 && atLeast > 0; k--)
+            {
+                var list = _free[classes[k]];
+                while (list.Count > 0 && atLeast > 0)
+                {
+                    var b = list[list.Count - 1];
+                    list.RemoveAt(list.Count - 1);
+                    _freeBytes -= b.Bytes;
+                    atLeast -= b.Bytes;
+                    taken.Add(b);
+                }
+            }
+            return taken;
         }
 
         public void Return(T* p)
@@ -137,11 +181,24 @@ namespace Iroca
                 if (!_rented.TryGetValue((IntPtr)p, out b))
                     throw new InvalidOperationException("このプールが貸した塊ではありません");
                 // 中断中(ドメインのアンロード)は、並列で使っている途中のスレッドが残っていることがあるので、
-                // 貸し出し中のまま残す(解放はファイナライザ)。
+                // 貸し出し中のまま残す(解放はアンロードの後のファイナライザ)。
                 if (IrocaNativeMemory.CurrentThreadAborting) return;
                 _rented.Remove((IntPtr)p);
+                _rentedBytes -= b.Bytes;
                 // 検証用のはみ出し検出では使い回さず、すぐ解放する(解放後の読み書きも捕まえる)。
-                if (!IrocaNativeMemory.GuardPages)
+                if (IrocaNativeMemory.GuardPages) b = null;
+                else if (s_poison)
+                {
+                    // 返した後に読む所を見つけるため埋め、しばらく貸さない(寝かせている分も手元の量 = 空きに数える。
+                    // 貸せないだけで、プールが持っているのは同じ)。
+                    new Span<byte>((void*)b.Ptr, checked((int)Math.Min(b.Bytes, int.MaxValue))).Fill(0xDD);
+                    _quarantine.Enqueue(b);
+                    _freeBytes += b.Bytes;
+                    if (_quarantine.Count <= QuarantineLength) return;
+                    b = _quarantine.Dequeue();
+                    _freeBytes -= b.Bytes;
+                }
+                if (b != null)
                 {
                     if (!_free.TryGetValue(b.Capacity, out var list)) _free[b.Capacity] = list = new List<Block>();
                     if (list.Count < _maxPerClass)
@@ -152,10 +209,13 @@ namespace Iroca
                     }
                 }
             }
-            b.FreeNow();
+            b?.FreeNow();
         }
 
-        /// <summary>空きの塊を全部解放する(OS へ戻る)。貸し出し中の塊はそのまま。</summary>
+        /// <summary>
+        /// 空きの塊(寝かせている分も)を全部解放する(OS へ戻る)。貸し出し中の塊はそのまま。直近の最大量を今の
+        /// 貸し出し中の量へ戻す。
+        /// </summary>
         public void ReleaseFree()
         {
             List<Block> drop = null;
@@ -167,7 +227,9 @@ namespace Iroca
                     (drop ??= new List<Block>()).AddRange(list);
                     list.Clear();
                 }
+                while (_quarantine.Count > 0) (drop ??= new List<Block>()).Add(_quarantine.Dequeue());
                 _freeBytes = 0;
+                _peakRentedBytes = _rentedBytes;
             }
             if (drop != null)
                 foreach (var b in drop) b.FreeNow();
