@@ -1126,6 +1126,52 @@ namespace Iroca
             Check(IrocaNativeMemory.PeakBytesOf(NativeUsage.Palette) >= (long)N * N * sizeof(int), "palette peak recorded");
             Check(IrocaNativeMemory.PeakBytesOf(NativeUsage.Work) > 0, "work pool peak recorded");
 
+            // 7) 選択キャッシュの強さ(NativeFloatBuffer。NativeBuffer の参照の数)。写している途中に辞書から外されても、
+            //    写し終えるまで解放されず、写し終えた時点で解放される。Dispose の後は何も残らない。
+            {
+                const int SW = 64, SH = 32;
+                var strengthIn = new float[SW * SH];
+                for (int i = 0; i < strengthIn.Length; i++) strengthIn[i] = (i % 97) / 97f;
+                var cache = new SelectionCache();
+                var storedCommon = new ulong[(SW * SH + 63) >> 6];
+                var otherCommon = new ulong[(SW * SH + 63) >> 6];
+                unsafe
+                {
+                    fixed (float* sp = strengthIn)
+                        cache.StoreFrom("z", "k", sp, null, null, default, storedCommon, null, SW, SH, SW, SH);
+                }
+                long sel = IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection);
+                Check(sel == (long)SW * SH * sizeof(float), $"selection: stored (live={sel})");
+                var copied = new float[SW * SH];
+                bool hit;
+                unsafe
+                {
+                    fixed (float* dp = copied)
+                        hit = cache.TryCopy("z", "k", SW, SH, dp, otherCommon, null, (c, zm) =>
+                        {
+                            cache.Clear();   // 写している途中に外す
+                            return true;
+                        }, out _, out _, out _);
+                }
+                Check(hit && copied.AsSpan().SequenceEqual(strengthIn), "selection: copied while detached in the middle");
+                Check(IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection) == 0,
+                    $"selection: freed when the copy ends (live={IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection)})");
+                Check(!cache.TryGet("z", "k", SW, SH, out _, out _), "selection: cleared entry is gone");
+                unsafe
+                {
+                    fixed (float* sp = strengthIn)
+                    {
+                        cache.StoreFrom("z", "k", sp, null, null, default, null, null, 0, 0, SW, SH);
+                        cache.StoreFrom("z", "k2", sp, null, null, default, null, null, 0, 0, SW, SH);   // 同じ寸法なら使い回す
+                    }
+                }
+                Check(IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection) == (long)SW * SH * sizeof(float),
+                    "selection: the same zone reuses its buffer");
+                cache.Dispose();
+                Check(IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection) == 0 && IrocaNativeMemory.FinalizedCount(NativeUsage.Selection) == 0,
+                    "selection: nothing left after Dispose");
+            }
+
             Console.WriteLine(fails == 0 ? "NATIVEMEMSELFTEST ALL PASS" : $"NATIVEMEMSELFTEST {fails} FAILED");
             return fails == 0 ? 0 : 4;
         }

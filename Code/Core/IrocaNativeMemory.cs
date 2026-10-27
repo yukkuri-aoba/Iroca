@@ -144,13 +144,13 @@ namespace Iroca
     }
 
     /// <summary>
-    /// ネイティブメモリに置いた float の並び。中身の出し入れは配列・ポインタとの一括コピーだけ。
-    /// 1 つの持ち主が使い、ほかのスレッドから同時に Dispose しないこと(持ち主がロックで守る)。
-    /// Dispose を忘れても、GC がこのオブジェクトを回収するときに解放する(ただしいつになるかは分からない)。
+    /// ネイティブメモリに置いた float の並び(選択キャッシュの強さ)。中身の出し入れは配列・ポインタとの一括コピーだけ。
+    /// 持ち方は <see cref="NativeBuffer"/> と同じ参照の数: 作った側が 1 つ目を持ち、写している間の読み手は
+    /// <see cref="AddRef"/> して持ち、<see cref="Release"/> で返す。返し忘れは NativeBuffer のファイナライザが解放する。
     /// </summary>
     internal sealed unsafe class NativeFloatBuffer : IDisposable
     {
-        private IntPtr _ptr;
+        private readonly NativeBuffer _mem;
         public int Length { get; }
 
         // 大きい一括コピーは帯に分けて並列にする(4K の 64MB を 1 本で写すと数十 ms かかる)。
@@ -160,10 +160,24 @@ namespace Iroca
         {
             if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length));
             Length = length;
-            _ptr = IrocaNativeMemory.Alloc((long)length * sizeof(float), NativeUsage.Selection);
+            _mem = new NativeBuffer((long)length * sizeof(float), NativeUsage.Selection);
         }
 
-        ~NativeFloatBuffer() => Release();
+        /// <summary>いまの参照の数(持ち主が「自分だけが持っているか」を見るため)。</summary>
+        public int RefCount => _mem.RefCount;
+
+        /// <summary>参照を 1 つ足す(解放済みなら投げる)。</summary>
+        public NativeFloatBuffer AddRef()
+        {
+            _mem.AddRef();
+            return this;
+        }
+
+        /// <summary>参照を 1 つ返す。最後の参照なら解放する。返しすぎは投げる。</summary>
+        public void Release() => _mem.Release();
+
+        /// <summary>持ち主が 1 つのときの後始末(<see cref="Release"/> と同じ)。</summary>
+        public void Dispose() => Release();
 
         public void CopyFrom(float[] src, int count)
         {
@@ -185,9 +199,9 @@ namespace Iroca
         // 少数の画素だけを読む(右クリックの宛先を決める 5×5 画素など)。範囲外は例外。
         public void ReadAt(int[] indices, float[] dst)
         {
-            if (_ptr == IntPtr.Zero) throw new ObjectDisposedException(nameof(NativeFloatBuffer));
+            float* mine = (float*)_mem.Ptr;
+            if (mine == null) throw new ObjectDisposedException(nameof(NativeFloatBuffer));
             if (dst.Length < indices.Length) throw new ArgumentOutOfRangeException(nameof(dst));
-            float* mine = (float*)_ptr;
             for (int i = 0; i < indices.Length; i++)
             {
                 int k = indices[i];
@@ -198,9 +212,9 @@ namespace Iroca
 
         private void Copy(float* other, int count, bool toNative)
         {
-            if (_ptr == IntPtr.Zero) throw new ObjectDisposedException(nameof(NativeFloatBuffer));
+            float* mine = (float*)_mem.Ptr;
+            if (mine == null) throw new ObjectDisposedException(nameof(NativeFloatBuffer));
             if (count < 0 || count > Length) throw new ArgumentOutOfRangeException(nameof(count));
-            float* mine = (float*)_ptr;
             int chunks = (count + CopyChunk - 1) / CopyChunk;
             Parallel.For(0, chunks, new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism() }, c =>
             {
@@ -211,16 +225,5 @@ namespace Iroca
             });
         }
 
-        public void Dispose()
-        {
-            Release();
-            GC.SuppressFinalize(this);
-        }
-
-        private void Release()
-        {
-            IntPtr p = Interlocked.Exchange(ref _ptr, IntPtr.Zero);
-            if (p != IntPtr.Zero) IrocaNativeMemory.Free(p, (long)Length * sizeof(float), NativeUsage.Selection);
-        }
     }
 }

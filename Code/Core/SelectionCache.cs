@@ -28,7 +28,8 @@ namespace Iroca
     /// strength のコピーは Mono のヒープの外(<see cref="NativeFloatBuffer"/>)に置く(1 ゾーン 4K で 64MB・8K で 256MB)。
     /// Mono のヒープは縮まないので、ヒープに置くとテクスチャを替えてもウィンドウを閉じても OS へ戻らない。
     /// 配列は外へ渡さず、中身を写す。写すのは lock の外(64〜256MB を写す間、メインスレッドの Clear・RetainOnly を
-    /// 待たせない)で、写している間はエントリを貸し出し中として数え、外されても最後に返した側が解放する。
+    /// 待たせない)で、写している間は写す側が強さの参照を 1 つ持つ(NativeBuffer と同じ参照の数)。辞書から外すときは
+    /// 辞書の分の参照を返すので、写している途中なら、写し終えて返した時点で解放される。
     /// Clear・Dispose の後に、それより前に始まった Store が終わっても保存しない(世代で見分ける)。Clear の後に始まった
     /// Store でも、取り消した計算のもの(Clear の前の画素で作った選択)は保存しない(Store に渡す ct で見分ける)。
     /// ウィンドウを閉じるときは <see cref="Dispose"/> で全部解放し、以後の Store は保存しない。
@@ -51,7 +52,7 @@ namespace Iroca
         private sealed class Entry
         {
             public string Key;
-            public NativeFloatBuffer Strength;   // マスクを掛ける直前の strength のコピー(len=w*h)
+            public NativeFloatBuffer Strength;   // マスクを掛ける直前の strength のコピー(len=w*h)。辞書が参照を 1 つ持つ
             public ulong[] Keep;       // flood fill keep(毎回 new されるので参照保持で安全)。FF OFF は null
             public ulong[] Forced;     // 閉領域ハイライト復帰の画素ビット(parityCache へ再公開する)。該当なしは null
             public PostBox Box;
@@ -60,13 +61,11 @@ namespace Iroca
             public ulong[] Common, ZoneMask;
             public int MaskW, MaskH;   // Common・ZoneMask の寸法(マスクの寸法は選択の鍵に入るので、使い回しても変わらない)
             public int W, H;
-            public int Leases;         // 中身を写している最中の数(_gate の中で増減)
-            public bool Detached;      // 辞書から外した。Leases が 0 になったら解放する
         }
 
         private readonly Dictionary<string, Entry> _byZone = new Dictionary<string, Entry>();
         // 計算はバックグラウンドスレッドで走り、Clear・RetainOnly・Dispose はメインスレッドから来る。
-        // 辞書・貸し出し数・世代はこの lock の中でだけ触る。
+        // 辞書・世代はこの lock の中でだけ触る。写す側が参照を足すのも lock の中(辞書にある間に足す)。
         private readonly object _gate = new object();
         private int _epoch;            // Clear・Dispose のたびに進める
         private bool _disposed;
@@ -104,7 +103,7 @@ namespace Iroca
             {
                 if (!_byZone.TryGetValue(zoneId, out e) || e.Key != key || e.W != w || e.H != h) return false;
                 storedCommon = e.Common; storedZone = e.ZoneMask;
-                e.Leases++;
+                e.Strength.AddRef();
             }
             bool reused = false;
             try
@@ -118,15 +117,19 @@ namespace Iroca
             }
             finally
             {
-                // 中断中は貸し出しを返さない(この領域を最後まで解放しない。後始末はファイナライザ)。
-                if (!IrocaNativeMemory.CurrentThreadAborting)
+                if (reused)
                 {
                     lock (_gate)
                     {
-                        if (reused && !e.Detached) { e.Common = common; e.ZoneMask = zoneMask; }
-                        Return(e);
+                        if (_byZone.TryGetValue(zoneId, out var cur) && ReferenceEquals(cur, e))
+                        {
+                            e.Common = common;
+                            e.ZoneMask = zoneMask;
+                        }
                     }
                 }
+                // 中断中に最後の参照だった場合は NativeBuffer が解放せずにアンロードまで持つ。
+                e.Strength.Release();
             }
             if (reused) Interlocked.Increment(ref _maskReuseCount);
             keep = e.Keep; forced = e.Forced; box = e.Box;   // 作った後は変えない項目
@@ -158,11 +161,12 @@ namespace Iroca
             {
                 if (_disposed || ct.IsCancellationRequested) return;
                 epoch = _epoch;
-                // 同じゾーンの前のエントリを外す。誰も写していなくて寸法が同じなら領域を使い回す。
+                // 同じゾーンの前のエントリを外す。誰も写していなくて(参照が辞書の分だけ)寸法が同じなら、辞書の分の
+                // 参照ごと領域を使い回す。辞書から外した後は誰も参照を足さない(足すのは辞書にある間だけ)。
                 if (_byZone.TryGetValue(zoneId, out var old))
                 {
                     _byZone.Remove(zoneId);
-                    if (old.Leases == 0 && old.Strength.Length == len) buf = old.Strength;
+                    if (old.Strength.RefCount == 1 && old.Strength.Length == len) buf = old.Strength;
                     else Detach(old);
                 }
             }
@@ -191,8 +195,9 @@ namespace Iroca
             }
             finally
             {
-                // 中断中は解放しない(並列で写している途中の領域を、ほかのスレッドがまだ書いていることがある)。
-                if (!published && !IrocaNativeMemory.CurrentThreadAborting) buf?.Dispose();
+                // 載せなかった領域を返す(中断中は NativeBuffer が解放せずにアンロードまで持つ。並列で写している途中の
+                // 領域を、ほかのスレッドがまだ書いていることがある)。
+                if (!published) buf?.Release();
             }
         }
 
@@ -271,16 +276,8 @@ namespace Iroca
             }
         }
 
-        // 以下 2 つは _gate の中で呼ぶ。
-        private static void Detach(Entry e)
-        {
-            e.Detached = true;
-            if (e.Leases == 0) e.Strength.Dispose();
-        }
-
-        private static void Return(Entry e)
-        {
-            if (--e.Leases == 0 && e.Detached) e.Strength.Dispose();
-        }
+        // 辞書から外したエントリの、辞書の分の参照を返す(_gate の中で呼ぶ)。写している途中の読み手がいれば、
+        // その読み手が返した時点で解放される。
+        private static void Detach(Entry e) => e.Strength.Release();
     }
 }
