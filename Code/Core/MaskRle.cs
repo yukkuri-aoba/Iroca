@@ -164,71 +164,156 @@ namespace Iroca
         /// (8K で 64MB → 8MB。非破壊ビルド・シーンのプレビューはマスクごとにこれを作る)。失敗の条件も Decode と同じで、
         /// そのときは null を返す。
         /// </summary>
-        public static ulong[] DecodePacked(string encoded, out int w, out int h)
+        public static unsafe ulong[] DecodePacked(string encoded, out int w, out int h)
         {
-            w = 0; h = 0;
-            if (string.IsNullOrEmpty(encoded)) return null;
+            if (!TryParse(encoded, out byte[] bytes, out bool rle, out w, out h, out int len)) return null;
+            var bits = MaskSnapshot.NewBits(len);
+            fixed (ulong* p = bits) FillBits(bytes, rle, len, p);
+            return bits;
+        }
 
-            if (encoded.StartsWith(RlePrefix, System.StringComparison.Ordinal))
+        /// <summary>
+        /// <see cref="DecodePacked"/> と同じ展開を、ヒープの外のマスク(<see cref="NativeBitMask"/>。参照 1)へ行う。
+        /// 失敗したときは null。
+        /// </summary>
+        public static unsafe NativeBitMask DecodeBits(string encoded)
+        {
+            if (!TryParse(encoded, out byte[] bytes, out bool rle, out int w, out int h, out int len)) return null;
+            var mask = NativeBitMask.Allocate(w, h);
+            FillBits(bytes, rle, len, mask.Bits);
+            return mask;
+        }
+
+        /// <summary>
+        /// ヒープの外のマスクを、<see cref="Encode"/> が同じ画素の bool[] から作るのと同じ文字列にする(bool[] を経由しない)。
+        /// 同じ値が続く語(64 画素)は 1 回の比較で飛ばす。
+        /// </summary>
+        public static unsafe string EncodeBits(NativeBitMask mask)
+        {
+            if (mask == null) return "";
+            return EncodeBitsCore(mask.Bits, mask.Length, mask.Width, mask.Height, out _);
+        }
+
+        /// <summary><see cref="EncodeBits"/> と同じ文字列。ただし立っている画素が無ければ null(<see cref="EncodeIfAny"/> と同じ)。</summary>
+        public static unsafe string EncodeBitsIfAny(NativeBitMask mask)
+        {
+            if (mask == null) return null;
+            string encoded = EncodeBitsCore(mask.Bits, mask.Length, mask.Width, mask.Height, out bool any);
+            return any ? encoded : null;
+        }
+
+        private static unsafe string EncodeBitsCore(ulong* bits, int len, int w, int h, out bool any)
+        {
+            var runs = new List<uint>();
+            bool first = (bits[0] & 1UL) != 0UL;
+            bool cur = first;
+            for (int pos = 0; pos < len; cur = !cur)
             {
-                try
-                {
-                    byte[] bytes = System.Convert.FromBase64String(encoded.Substring(RlePrefix.Length));
-                    if (bytes.Length < 9) return null;
-                    if (!TryReadHeader(bytes, out w, out h, out int len)) return null;
-                    // 確保の前に、ラン列が全画素を覆うことを確かめる(Decode と同じ)。
-                    long covered = 0;
-                    for (int bi = 9; bi + 4 <= bytes.Length && covered < len; bi += 4)
-                        covered += System.BitConverter.ToUInt32(bytes, bi);
-                    if (covered < len) return null;
-                    bool curVal = bytes[8] != 0;
-                    var bits = MaskSnapshot.NewBits(len);
-                    int pos = 0;
-                    int byteIdx = 9;
-                    while (pos < len && byteIdx + 4 <= bytes.Length)
-                    {
-                        uint run = System.BitConverter.ToUInt32(bytes, byteIdx);
-                        byteIdx += 4;
-                        int end = (int)System.Math.Min((long)pos + run, len);
-                        if (curVal && end > pos) SetBits(bits, pos, end);
-                        pos = end;
-                        curVal = !curVal;
-                    }
-                    if (pos < len) return null;
-                    return bits;
-                }
-                catch (System.Exception ex)
-                {
-                    Debug.LogWarning($"[Iroca] Mask decode failed: {ex.Message}");
-                    return null;
-                }
+                int next = NextChange(bits, len, pos, cur);
+                runs.Add((uint)(next - pos));
+                pos = next;
             }
+            any = first || runs.Count > 1;   // 全 false ⇔ false から始まるランが 1 本だけ
+            byte[] bytes = new byte[9 + runs.Count * 4];
+            fixed (byte* b = bytes)
+            {
+                // EncodeCore と同じ並び(寸法・ラン長はマシンのバイト順)。
+                *(int*)b = w;
+                *(int*)(b + 4) = h;
+                b[8] = first ? (byte)1 : (byte)0;
+                uint* dst = (uint*)(b + 9);
+                for (int k = 0; k < runs.Count; k++) dst[k] = runs[k];
+            }
+            return RlePrefix + System.Convert.ToBase64String(bytes);
+        }
 
-            // 旧 bitpack フォーマット(後方互換)。画素 i はバイト 8 + i/8 の i%8 ビット目なので、8 バイトずつ下位から
-            // 並べればそのまま詰めた形の語になる。画素数より後ろのビット(最後のバイトの余り)は落とす。
+        // pos から先で、値が cur でない最初の画素(無ければ len)。
+        private static unsafe int NextChange(ulong* bits, int len, int pos, bool cur)
+        {
+            ulong flip = cur ? ~0UL : 0UL;
+            int wi = pos >> 6, words = (len + 63) >> 6;
+            ulong v = (bits[wi] ^ flip) & (~0UL << (pos & 63));
+            while (v == 0UL)
+            {
+                if (++wi >= words) return len;
+                v = bits[wi] ^ flip;
+            }
+            return System.Math.Min(len, (wi << 6) + TrailingZeros(v));
+        }
+
+        // 0 でない v の、下から数えて 0 が続くビットの数(Unity の Mono には BitOperations が無い)。
+        private static int TrailingZeros(ulong v)
+        {
+            int n = 0;
+            if ((v & 0xFFFFFFFFUL) == 0UL) { n += 32; v >>= 32; }
+            if ((v & 0xFFFFUL) == 0UL) { n += 16; v >>= 16; }
+            if ((v & 0xFFUL) == 0UL) { n += 8; v >>= 8; }
+            if ((v & 0xFUL) == 0UL) { n += 4; v >>= 4; }
+            if ((v & 0x3UL) == 0UL) { n += 2; v >>= 2; }
+            if ((v & 0x1UL) == 0UL) n += 1;
+            return n;
+        }
+
+        /// <summary>
+        /// 保存形式の文字列(RLE / 旧 bitpack)を読み、寸法を確かめる。RLE はラン列が全画素を覆うことまで、旧 bitpack は
+        /// 長さが足りることまで、確保の前に確かめる(<see cref="Decode"/> と同じ条件)。
+        /// </summary>
+        private static bool TryParse(string encoded, out byte[] bytes, out bool rle, out int w, out int h, out int len)
+        {
+            bytes = null;
+            w = h = len = 0;
+            rle = false;
+            if (string.IsNullOrEmpty(encoded)) return false;
+            rle = encoded.StartsWith(RlePrefix, System.StringComparison.Ordinal);
             try
             {
-                byte[] packed = System.Convert.FromBase64String(encoded);
-                if (packed.Length < 9) return null;
-                if (!TryReadHeader(packed, out w, out h, out int len)) return null;
-                int dataBytes = (len + 7) / 8;
-                if (packed.Length < 8 + dataBytes) return null;
-                var bits = MaskSnapshot.NewBits(len);
-                for (int k = 0; k < dataBytes; k++)
-                    bits[k >> 3] |= (ulong)packed[8 + k] << ((k & 7) << 3);
-                int rest = len & 63;
-                if (rest != 0) bits[bits.Length - 1] &= (1UL << rest) - 1UL;
-                return bits;
+                bytes = System.Convert.FromBase64String(rle ? encoded.Substring(RlePrefix.Length) : encoded);
             }
             catch (System.Exception ex)
             {
-                Debug.LogWarning($"[Iroca] Mask decode (legacy bitpack) failed: {ex.Message}");
-                return null;
+                Debug.LogWarning(rle ? $"[Iroca] Mask decode failed: {ex.Message}"
+                                     : $"[Iroca] Mask decode (legacy bitpack) failed: {ex.Message}");
+                return false;
+            }
+            if (bytes.Length < 9) return false;
+            if (!TryReadHeader(bytes, out w, out h, out len)) return false;
+            if (!rle) return bytes.Length >= 8 + (len + 7) / 8;
+            long covered = 0;
+            for (int bi = 9; bi + 4 <= bytes.Length && covered < len; bi += 4)
+                covered += System.BitConverter.ToUInt32(bytes, bi);
+            return covered >= len;
+        }
+
+        // TryParse が通した中身を、0 で始まる len 画素ぶんの詰めた形へ書く。
+        // 旧 bitpack は画素 i がバイト 8 + i/8 の i%8 ビット目なので、8 バイトずつ下位から並べればそのまま語になる。
+        // 画素数より後ろのビット(最後のバイトの余り)は落とす。
+        private static unsafe void FillBits(byte[] bytes, bool rle, int len, ulong* bits)
+        {
+            if (!rle)
+            {
+                int dataBytes = (len + 7) / 8;
+                for (int k = 0; k < dataBytes; k++)
+                    bits[k >> 3] |= (ulong)bytes[8 + k] << ((k & 7) << 3);
+                int rest = len & 63;
+                if (rest != 0) bits[((len + 63) >> 6) - 1] &= (1UL << rest) - 1UL;
+                return;
+            }
+            bool curVal = bytes[8] != 0;
+            int pos = 0;
+            int byteIdx = 9;
+            while (pos < len && byteIdx + 4 <= bytes.Length)
+            {
+                uint run = System.BitConverter.ToUInt32(bytes, byteIdx);
+                byteIdx += 4;
+                int end = (int)System.Math.Min((long)pos + run, len);
+                if (curVal && end > pos) SetBits(bits, pos, end);
+                pos = end;
+                curVal = !curVal;
             }
         }
 
         // 詰めた形のビット [s, e)(s < e)を立てる。
-        private static void SetBits(ulong[] bits, int s, int e)
+        private static unsafe void SetBits(ulong* bits, int s, int e)
         {
             int w0 = s >> 6, w1 = (e - 1) >> 6;
             ulong head = ~0UL << (s & 63);

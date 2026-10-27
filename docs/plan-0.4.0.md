@@ -635,7 +635,12 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
     呼び出し 130 か所ほどを書き換えることになり、3-7b で画素の処理を段に分けるときに、その段の持ち物（`ZoneBuffers`）
     として入れ直す方が二度手間にならない。それまでの間の「他人の塊を黙って返す」誤りは、検証用の
     `IROCA_POOL_POISON=1` で、返した塊を寝かせて同じ番地をすぐ貸さないことで見つける（2 回目の返却が例外になる）。
-- [ ] 2-3 `NativeBitMask` と、RLE からビットへ・ビットから RLE への直接の符号化。
+- [x] 2-3 `NativeBitMask` と、RLE からビットへ・ビットから RLE への直接の符号化。
+  - 2026-10-28: `Code/Core/NativeBitMask.cs`（ヒープの外・用途 Mask・参照の数・書く前に写す `Writable`）と、
+    `MaskRle.EncodeBits` / `EncodeBitsIfAny` / `DecodeBits`（bool[] を経由しない。同じ値が続く語は 1 回の比較で飛ばす）。
+    詰めた形への展開（`DecodePacked`）と同じ読み取りにまとめた。abcheck 全一致、`--bitmaskselftest`（bool[] の口と
+    同じ文字列・同じビット、参照の数と書く前の写し）。使う側（編集中のマスク・スナップショット）を移すのは 4-2 の
+    `MaskWorkspace`。
 - [ ] 2-4 Infra の境目: `NativeArray` への変換、`TextureIO`。
   - 読む: `GetPixelData` から `NativePixels`。
   - 書く: `EncodeNativeArrayToPNG` で PNG にし、小さな置き場を通してファイルへ流す。

@@ -348,6 +348,11 @@ namespace Iroca
             if (args.Length >= 1 && args[0] == "--maskcodecselftest")
                 return RunMaskCodecSelfTest();
 
+            // --bitmaskselftest: 入力画像不要。ヒープの外の 1 画素 1 ビットのマスク(NativeBitMask)と、保存形式(RLE)との
+            // 直接の変換が、bool[] を経由する変換と同じ結果になるか。参照の数と書く前の写しの決まりも。
+            if (args.Length >= 1 && args[0] == "--bitmaskselftest")
+                return RunBitMaskSelfTest();
+
             // --samops-*: AI マスク提案の純計算層(SamImageOps/SamCoordMapper/SamMaskPostprocess/
             // MaskRle)を実 C# で駆動し、pytest の NumPy リファレンスと突き合わせる決定的検証モード。
             if (args.Length >= 1 && args[0].StartsWith("--samops-", StringComparison.Ordinal))
@@ -1207,6 +1212,96 @@ namespace Iroca
             Check(Live() == start, $"after the pool rules live={Live()}");
 
             Console.WriteLine(fails == 0 ? "NATIVEMEMSELFTEST ALL PASS" : $"NATIVEMEMSELFTEST {fails} FAILED");
+            return fails == 0 ? 0 : 4;
+        }
+
+        /// <summary>
+        /// --bitmaskselftest: NativeBitMask と MaskRle.EncodeBits / DecodeBits / EncodeBitsIfAny。bool[] の口(Encode・Decode・
+        /// EncodeIfAny・MaskSnapshot.Pack)と同じ文字列・同じビットになること。参照の数・書く前の写し(Writable)・
+        /// 終わったときにマスクの用途の量が 0 に戻ること。
+        /// </summary>
+        private static unsafe int RunBitMaskSelfTest()
+        {
+            int fails = 0;
+            void Check(bool cond, string label)
+            {
+                Console.WriteLine($"BITMASKSELFTEST {(cond ? "PASS" : "FAIL")} {label}");
+                if (!cond) fails++;
+            }
+            bool SameBits(NativeBitMask m, ulong[] packed)
+            {
+                if (m == null || packed == null || m.Words != packed.Length) return false;
+                for (int k = 0; k < packed.Length; k++) if (m.Bits[k] != packed[k]) return false;
+                return true;
+            }
+            long live0 = IrocaNativeMemory.LiveBytesOf(NativeUsage.Mask);
+            var rng = new System.Random(20261028);
+            bool[] Runs(int n, int meanRun, bool startTrue)
+            {
+                var m = new bool[n];
+                bool v = startTrue;
+                for (int i = 0; i < n;)
+                {
+                    int run = 1 + rng.Next(meanRun * 2);
+                    for (int k = 0; k < run && i < n; k++, i++) m[i] = v;
+                    v = !v;
+                }
+                return m;
+            }
+            bool[] Filled(int n, bool v)
+            {
+                var m = new bool[n];
+                for (int i = 0; i < n; i++) m[i] = v;
+                return m;
+            }
+            var cases = new List<(string label, bool[] m, int w, int h)>
+            {
+                ("37x29 short runs", Runs(37 * 29, 3, false), 37, 29),
+                ("37x29 starts true", Runs(37 * 29, 40, true), 37, 29),
+                ("640x480 long runs", Runs(640 * 480, 900, false), 640, 480),
+                ("64x1 all true", Filled(64, true), 64, 1),
+                ("65x1 all true", Filled(65, true), 65, 1),
+                ("70x3 all false", Filled(210, false), 70, 3),
+                ("1x1 true", Filled(1, true), 1, 1),
+                ("1x1 false", Filled(1, false), 1, 1),
+            };
+            foreach (var (label, b, w, h) in cases)
+            {
+                var m = NativeBitMask.FromBools(b, w, h);
+                Check(SameBits(m, MaskSnapshot.Pack(b)), "FromBools equals Pack: " + label);
+                string viaBools = MaskRle.Encode(b, w, h);
+                Check(MaskRle.EncodeBits(m) == viaBools, "EncodeBits equals Encode: " + label);
+                Check(MaskRle.EncodeBitsIfAny(m) == MaskRle.EncodeIfAny(b, w, h), "EncodeBitsIfAny equals EncodeIfAny: " + label);
+                var back = MaskRle.DecodeBits(viaBools);
+                Check(back != null && back.Width == w && back.Height == h && SameBits(back, MaskRle.DecodePacked(viaBools, out _, out _)),
+                    "DecodeBits equals DecodePacked: " + label);
+                Check(m.Any() == MaskSnapshot.AnyTrue(b), "Any: " + label);
+                back?.Release();
+                m.Release();
+            }
+            Check(MaskRle.DecodeBits("R:" + Convert.ToBase64String(new byte[13])) == null, "DecodeBits rejects a zero size");
+
+            // 参照の数と書く前の写し。
+            var a = NativeBitMask.Allocate(100, 3);
+            a.Set(5, true);
+            var shared = a.AddRef();
+            var w1 = a.Writable();   // 共有中なので写す(a の参照を 1 つ返す)
+            Check(!ReferenceEquals(w1, a) && a.RefCount == 1 && w1.RefCount == 1 && w1.Get(5), "Writable copies a shared mask");
+            w1.Set(7, true);
+            Check(!shared.Get(7) && w1.Get(7), "writing the copy leaves the shared mask");
+            var w2 = w1.Writable();  // 自分だけなので写さない
+            Check(ReferenceEquals(w2, w1), "Writable keeps an unshared mask");
+            bool threw = false;
+            try { a.Get(300); } catch (ArgumentOutOfRangeException) { threw = true; }
+            Check(threw, "Get out of range throws");
+            shared.Release();
+            w2.Release();
+            threw = false;
+            try { shared.Release(); } catch (InvalidOperationException) { threw = true; }
+            Check(threw, "over-release throws");
+            Check(IrocaNativeMemory.LiveBytesOf(NativeUsage.Mask) == live0, $"nothing left (live={IrocaNativeMemory.LiveBytesOf(NativeUsage.Mask)})");
+
+            Console.WriteLine(fails == 0 ? "BITMASKSELFTEST ALL PASS" : $"BITMASKSELFTEST {fails} FAILED");
             return fails == 0 ? 0 : 4;
         }
 

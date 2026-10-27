@@ -76,6 +76,16 @@ def test_mask_codec_selftest(harness):
         f"最終行が ALL PASS ではありません:\n{r.stdout}")
 
 
+def test_bit_mask_selftest(harness):
+    """ヒープの外の 1 画素 1 ビットのマスクと、保存形式との直接の変換が bool[] の口と同じ結果になる。"""
+    r = _run(harness, "--bitmaskselftest")
+    lines = r.stdout.splitlines()
+    assert r.returncode == 0, (
+        f"--bitmaskselftest が失敗 (exit={r.returncode}):\n{r.stdout}\n{r.stderr}")
+    assert lines and lines[-1] == "BITMASKSELFTEST ALL PASS", (
+        f"最終行が ALL PASS ではありません:\n{r.stdout}")
+
+
 # ─────────────── AA 遷移包含: クロップ実行と全画像実行の一致 ───────────────
 _N = 1024          # 全体より小さいクロップ矩形が取れる大きさ（帯幅 d=3、パディング 15d）
 _RADIUS = 60.0

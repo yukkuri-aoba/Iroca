@@ -38,6 +38,7 @@ SCOPE_EXCLUDE = {
     # メモリ管理とキャッシュ（出力を変えない）
     "Code/Core/IrocaNativeMemory.cs": "メモリ管理",
     "Code/Core/NativeBuffer.cs": "メモリ管理",
+    "Code/Core/NativeBitMask.cs": "メモリ管理",
     "Code/Core/NativePixels.cs": "メモリ管理",
     "Code/Core/NativeWorkPool.cs": "メモリ管理",
     "Code/Core/SelectionCache.cs": "キャッシュ",

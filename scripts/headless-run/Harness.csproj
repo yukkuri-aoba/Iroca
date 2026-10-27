@@ -49,6 +49,7 @@
     <!-- 選択キャッシュの中身を Mono のヒープの外(Marshal.AllocHGlobal)に置く部品。 -->
     <Compile Include="..\..\Code\Core\IrocaNativeMemory.cs" />
     <Compile Include="..\..\Code\Core\NativeBuffer.cs" />
+    <Compile Include="..\..\Code\Core\NativeBitMask.cs" />
     <Compile Include="..\..\Code\Core\NativeWorkPool.cs" />
     <Compile Include="..\..\Code\Core\DebugCaptureHooks.cs" />
     <Compile Include="..\..\Code\Core\IDebugCapture.cs" />
