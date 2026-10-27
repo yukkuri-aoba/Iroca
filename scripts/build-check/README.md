@@ -58,6 +58,11 @@ dotnet build scripts/build-check/IrocaEditorTests.csproj -p:UnityPackagesPath="<
   パッケージの配布元から Unity 2022.3.22f1 の既定の版（test-framework 1.1.33・ext.nunit 1.0.6）を sha256 を確かめて取る。
   Unity Companion License の物なのでリポジトリには入れない。
 - NDMF を使うテスト（`#if IROCA_NDMF_PRESENT`）は、NDMF が無いので外れる。
+- 手元の交互 A/B（`Run-EditorTests.ps1 -AllowForeignCode` で Code だけを基準の木へ向ける）は、テストのアセンブリ全体が
+  基準の Code でコンパイルできないと回らない。`bash scripts/build-check/ab-compile.sh <基準のコミット> [テストのコミット]` で、
+  Unity を開く前に確かめられる（作業ツリーと git の状態は変えない）。2026-10-27 の時点で、7d2bf6f（0.3.0 の途中）の Code には
+  今のテストは MemoryBench 単体でも当たらない（`WorkingResolution.Size` の引数が違う）。古い基準と比べるときは、基準の木の
+  テストを使う。
 
 ## NDMF 連携の型チェック（IrocaNdmfCheck.csproj）
 
