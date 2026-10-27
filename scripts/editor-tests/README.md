@@ -30,6 +30,7 @@ headless ハーネスと golden は net8 で製品 C# を動かすので、Unity
 | `PerfBenchTests.cs` | 製品の実行環境（Unity の Mono）での再着色の速さ（`Perf` カテゴリ。品質は見ない）。`IROCA_PERF_CASES` が無ければ Ignore で、`Run-EditorTests.ps1 -PerfCases <json>` のときだけ回る（結果は出力フォルダの `perf.jsonl`） |
 | `MemoryBenchTests.cs` | 製品の実行環境（Unity の Mono）でプレビュー相当の処理を繰り返したときの Mono ヒープとプロセスのメモリ（`Memory` カテゴリ）。Mono のヒープは縮まないので、見た目のメモリを決めるのはヒープの最大値。最後にプール・キャッシュを手放して GC し、OS へ返るかも記録する。`IROCA_MEM_CASES` が無ければ Ignore で、`Run-EditorTests.ps1 -MemCases <json>` のときだけ回る（結果は `mem.jsonl`。1 回の起動に 1 ケース） |
 | `HiResSmokeTests.cs` | 大きなテクスチャ（8K・16K）を製品の経路に 1 回ずつ通す（`HiRes` カテゴリ。品質は見ない）。取り込み・原本の読み込み・マスクの保存形式・色替え・PNG の書き出しと読み戻し一致・シーンへのプレビュー（`-Graphics` のときだけ）・NDMF の差し替えテクスチャ・MCP の入口の、各段の時間とメモリを記録する。`IROCA_HIRES_CASES` が無ければ Ignore で、`Run-EditorTests.ps1 -HiResCases <json>` のときだけ回る（結果は `hires.jsonl`。16K は 20GB 前後使うので 1 回の起動に 1 ケース） |
+| `BenchSeams.cs` | 計測（MemoryBench・HiResSmoke）が名前で探す製品のメンバーの一覧と、それが今の製品にあるかの検査（`BenchSeamTests`）。計測は同じテストを基準のコミット（メンバーが private・まだ無い版）にも当てて比べるので直接は呼ばない。名前を変えたら、計測を回す前にふだんのテストで気づく |
 
 テストは配布パッケージ（`Code/`）の外に置いてあるので、ユーザーのプロジェクトには入らない。
 

@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using NUnit.Framework;
@@ -61,10 +60,8 @@ namespace Iroca.EditorTests
 
         private static List<ColorZone> LoadZones(string json, out IrocaSessionState state)
         {
-            var t = typeof(IrocaAutomation);
-            const BindingFlags F = BindingFlags.Static | BindingFlags.NonPublic;
             var req = JsonUtility.FromJson<IrocaAutomation.ZonesRequest>(json);
-            var build = t.GetMethod("BuildZone", F);
+            var build = BenchSeams.BuildZone;   // 基準の版でも回るよう名前で探す
             var zones = new List<ColorZone>();
             state = new IrocaSessionState();
             foreach (var z in req.zones)

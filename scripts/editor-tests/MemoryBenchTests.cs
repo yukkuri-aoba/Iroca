@@ -62,10 +62,9 @@ namespace Iroca.EditorTests
 
         private const long MB = 1024 * 1024;
 
-        // いろかが Marshal.AllocHGlobal で持っているバイト数(0.3.0 で足す予定の数え上げ)。Unity の Profiler には
-        // 出ないので、あれば反射で読む。基準側のコード(まだ無い)でも同じテストを回せるよう、型は名前で引く。
-        private static readonly PropertyInfo s_irocaNativeBytes =
-            typeof(PixelProcessor).Assembly.GetType("Iroca.IrocaNativeMemory")?.GetProperty("LiveBytes", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        // いろかが Marshal.AllocHGlobal で持っているバイト数(0.3.0 から)。Unity の Profiler には出ないので、あれば
+        // 読む。基準側のコード(まだ無い版)でも同じテストを回せるよう、名前で引く(BenchSeams)。
+        private static readonly PropertyInfo s_irocaNativeBytes = BenchSeams.NativeLiveBytes;
 
         // 直前の ProcessPixelsArray の段ごとの時間(このスレッドで出たレポート)。20ms 以上の段だけを "名前=ms,…" で返す。
         // 2 手目(選択キャッシュに当たる手)の遅れがどの段で出ているかを、基準と変更後で比べるため。
@@ -133,11 +132,9 @@ namespace Iroca.EditorTests
         // zones JSON の読み込みは製品(IrocaAutomation.RecolorWithZones)と同じ変換を通す。
         private static (List<ColorZone> zones, RecolorSettings settings) LoadZones(string json)
         {
-            var t = typeof(IrocaAutomation);
-            const BindingFlags F = BindingFlags.Static | BindingFlags.NonPublic;
             var req = JsonUtility.FromJson<IrocaAutomation.ZonesRequest>(json);
-            var build = t.GetMethod("BuildZone", F);
-            var settingsFrom = t.GetMethod("SettingsFromDto", F);
+            var build = BenchSeams.BuildZone;
+            var settingsFrom = BenchSeams.SettingsFromDto;
             Assert.IsNotNull(build, "IrocaAutomation.BuildZone が見つかりません");
             Assert.IsNotNull(settingsFrom, "IrocaAutomation.SettingsFromDto が見つかりません");
             var zones = new List<ColorZone>();
@@ -159,7 +156,7 @@ namespace Iroca.EditorTests
         private static void ReleasePools()
         {
             const BindingFlags F = BindingFlags.Static | BindingFlags.NonPublic;
-            var release = typeof(PixelProcessor).GetMethod("ReleaseWorkBuffers", F | BindingFlags.Public, null, Type.EmptyTypes, null);
+            var release = BenchSeams.ReleaseWorkBuffers;
             if (release != null) { release.Invoke(null, null); return; }
             foreach (var f in typeof(PixelProcessor).GetFields(F))
             {
@@ -171,10 +168,9 @@ namespace Iroca.EditorTests
             }
         }
 
-        // ウィンドウの場面(CaseDto.window)。製品の PreviewView を反射で動かす(基準の版でも同じテストが回るように)。
+        // ウィンドウの場面(CaseDto.window)。製品の PreviewView を名前で探して動かす(基準の版でも同じテストが回るように。BenchSeams)。
         private static void RunWindowCase(CaseDto c, CasesDto cfg, StringBuilder sb)
         {
-            const BindingFlags I = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
             const string dir = "Assets/IrocaMemBench";
             string assetPath = $"{dir}/{c.name}.png";
             Directory.CreateDirectory(dir);
@@ -200,12 +196,12 @@ namespace Iroca.EditorTests
                 win.Session.zones.Clear();
                 foreach (var z in zones) win.Session.zones.Add(z);
                 var pv = win.Preview;
-                var gen = typeof(PreviewView).GetMethod("GeneratePreviewAsync", I);
-                var proxyJob = typeof(PreviewView).GetField("_proxyJob", I).GetValue(pv);
-                var fullJob = typeof(PreviewView).GetField("_previewJob", I).GetValue(pv);
-                var fullOutput = typeof(PreviewView).GetField("_fullOutput", I);
+                var gen = BenchSeams.GeneratePreviewAsync;
+                var proxyJob = BenchSeams.ProxyJob.GetValue(pv);
+                var fullJob = BenchSeams.FullJob.GetValue(pv);
+                var fullOutput = BenchSeams.FullOutput;
                 Assert.IsNotNull(gen, "PreviewView.GeneratePreviewAsync が見つかりません");
-                bool Running(object job) => (bool)job.GetType().GetProperty("IsRunning").GetValue(job);
+                bool Running(object job) => BenchSeams.IsRunning(job);
                 for (int k = 0; k < cfg.steps; k++)
                 {
                     for (int i = 0; i < zones.Count; i++)
@@ -255,7 +251,7 @@ namespace Iroca.EditorTests
             var t = output.GetType();
             int len = (int)t.GetProperty("Length").GetValue(output);
             // Mono の反射はポインタ型のプロパティを GetValue で読めない(型引数にできないと言って投げる)ので、確保した領域の IntPtr を読む。
-            var ptr = (Color32*)(IntPtr)t.GetField("_mem", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(output);
+            var ptr = (Color32*)(IntPtr)BenchSeams.NativePixelsMemory(t).GetValue(output);
             ulong h = 14695981039346656037UL;
             for (int i = 0; i < len; i++)
             {
@@ -369,8 +365,7 @@ namespace Iroca.EditorTests
                             sb.Append(Sample(c.name, "export", k, ems, 0, cfg.hashOutput ? HashPixels(exportPixels, exportPixels.Length) : null)).Append('\n');
                             exportPixels = null;
                             // 製品の書き出し(ExportView)は終わったら作業配列の空きを手放す(0.3.0〜)。口がある版では同じく呼ぶ。
-                            typeof(PixelProcessor).GetMethod("ReleaseWorkBuffers", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public,
-                                null, Type.EmptyTypes, null)?.Invoke(null, null);
+                            BenchSeams.ReleaseWorkBuffers?.Invoke(null, null);
                             // 書き出しの解像度の作業配列がプールに残ったか(GC の後の生きている量)。
                             GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
                             sb.Append(Sample(c.name, "liveAfterExport", k, 0)).Append('\n');
