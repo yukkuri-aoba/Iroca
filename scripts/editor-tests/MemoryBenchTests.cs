@@ -36,6 +36,8 @@ namespace Iroca.EditorTests
     /// window が true のケースは、上の代わりに製品のウィンドウ(IrocaWindow)でプレビューを steps 回作り直してから
     /// ウィンドウを閉じ、プレビューの原本・出力(0.3.0 から Mono のヒープの外)が閉じた後に OS へ返るかを見る
     /// (png を一時アセットとして取り込み、Max Size は importMaxSize、0 なら 16384)。
+    /// scenario を書いたケースは、代わりにその場面を steps 回繰り返す(maskPaint・recipeBuild・autoTune・mcpRecolor。
+    /// 中身は MemoryBenchTests.Scenarios.cs。0.4.0 の計画の 0-1)。
     /// 結果は IROCA_MEM_REPORT が指すファイルへ 1 行 1 計測の JSON で書く。Mono ヒープ・Unity のネイティブ(nativeAlloc/Reserved)・
     /// いろかが自分で持つネイティブ(irocaNative、無い版は -1)・プロセスの Private と WS。hashOutput なら出力の指紋(hash)も書くので、
     /// 基準と変更後で Mono の出力が同じかを 8K でも比べられる(同じ JSON・同じ手順なら同じ値になる)。
@@ -45,9 +47,9 @@ namespace Iroca.EditorTests
     /// (ヒープの最大値は同じプロセスの前のケースを引きずる)。
     /// </summary>
     [Category("Memory")]
-    public class MemoryBenchTests
+    public partial class MemoryBenchTests
     {
-        [Serializable] private class CaseDto { public string name = ""; public string png = ""; public string zones = ""; public int importMaxSize; public int exportAfterStep = -1; public int cancelOverlapRounds; public int refineRounds; public bool window; }
+        [Serializable] private class CaseDto { public string name = ""; public string png = ""; public string zones = ""; public int importMaxSize; public int exportAfterStep = -1; public int cancelOverlapRounds; public int refineRounds; public bool window; public string scenario = ""; }
         [Serializable] private class CasesDto { public int steps = 12; public int releaseWaitSeconds = 60; public bool gcEachStep; public bool reuseOutput; public bool hashOutput = true; public List<CaseDto> cases = new List<CaseDto>(); }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -278,6 +280,11 @@ namespace Iroca.EditorTests
             {
                 foreach (var c in cfg.cases)
                 {
+                    if (!string.IsNullOrEmpty(c.scenario))
+                    {
+                        RunScenarioCase(c, cfg, sb);   // MemoryBenchTests.Scenarios.cs
+                        continue;
+                    }
                     if (c.window)
                     {
                         RunWindowCase(c, cfg, sb);
