@@ -376,21 +376,34 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
   1. 取り込む: 本体は `git fetch origin` → `git switch dev-0.4.0` → `git pull`、dev_safe は `git -C dev_safe pull`。
   2. 新しいソースの検査と golden を手元でも回す: `python -m pytest scripts/source_checks scripts/golden -q -n 0`
      （改行コードと BOM に依らない作りにしたが、Windows では初めて回す）。
-  3. EditMode テスト一式: `.\scripts\Run-EditorTests.ps1`（0.3.0 のときは U2022 で 159 / 166）。
-  4. 0-4 の残り: RecipeSyncTests・WindowRestoreTests・MemoryBenchTests・HiResSmokeTests の、名前の文字列での反射を
-     直接の呼び出しに替える。MemoryBenchTests の `IrocaNativeMemory.LiveBytes` は、それが無い古い版を測るための反射
-     なので、もう直接読んでよい。製品側のメソッドを private から internal にするときは abcheck も回す。
+  3. EditMode テスト一式: `.\scripts\Run-EditorTests.ps1`（0.3.0 のときは U2022 で 159 / 166）。2026-10-27 にクラウドで
+     書いた次のテストは、コンパイルしか確かめていないので、ここで初めて動く。落ちたら、製品の振る舞いの方が正しいかを
+     見てからテストを直す（振る舞いを固定するテストなので、今の製品が正）。
+     - `WindowOutputParityTests`（0-2: ウィンドウの確定段 = `SessionRecolor.Apply`、書き出し = 自動化 API の PNG）
+     - `OldFormatLoadTests`（0-2: v0.1.0・v0.3.0 のプリセット・セッションのファイル・レシピ）
+     - `BenchSeamTests`（計測が名前で探す製品のメンバーがあるか）
+     - `RecipeSyncTests`・`WindowRestoreTests`（反射をやめて直接呼ぶ形にした）
+  4. 0-4 の残りは無い（2026-10-27 にクラウドで済ませた。MemoryBench・HiResSmoke の名前での反射は、基準の版にも
+     当てるための役目なので残し、`BenchSeams` にまとめてふだんのテストで名前を確かめる形にした）。
   5. 0-1 の基準を測る（dev-0.4.0 の今の先頭で。製品のコードは 0.3.x と同じで、変えたのは `BuildSelectionKey` を
      internal にしただけ）。1 回の起動に 1 種類ずつ:
      - PerfBench: `python dev_safe/scripts/perf_bench.py unity-cases` → `.\scripts\Run-EditorTests.ps1 -PerfCases
        $env:TEMP\iroca-perf\unity_cases.json` → `python dev_safe/scripts/perf_bench.py unity-report <出力>\perf.jsonl`。
      - KernelBench: `-KernelBench`。
      - MemoryBench: 0.3.0 のときのケースの JSON（dev_safe `docs/memory-0.3.0-plan.md`）で 4K と 8K を `-MemCases`。
-       8K の 2 手目の遅さは、各手の `sub`（20ms 以上の段の時間）を基準 7d2bf6f と段ごとに比べて切り分ける。
+       2026-10-27 に足した場面（ケースに `"scenario"` を書く。`maskPaint`・`recipeBuild`・`autoTune`・`mcpRecolor`）も
+       4K と 8K で 1 回ずつ。例: `{"name":"4k-mask","png":"…","zones":"…","scenario":"maskPaint"}`（steps は 3〜4 で足りる）。
+     - 8K の 2 手目の遅さ: 各手の `sub`（20ms 以上の段の時間）を基準 7d2bf6f と段ごとに比べて切り分ける。ただし今の
+       テストは 7d2bf6f の Code ではコンパイルできない（`WorkingResolution.Size` の引数が 465cb3c で変わった）。
+       7d2bf6f の側は、19aa342 の `MemoryBenchTests.cs` だけを置いたテストのフォルダで回す（クラウドでコンパイルを確かめた）。
+       今の側は今のテストで回す。同じテストの写しを両側には当てられない。
      - HiResSmoke: 8K を `-HiResCases`。
      - 結果は dev_safe の `Tests/Baselines/perf-0.4.0-base/` に、コミットの番号・PC・Unity の版と一緒に置く。
-  6. テストのコードを足す仕事（0-1 の新しい場面 6 つ・PreviewLatency の再生、0-2 の残りの 3 つ）。2026-10-27 から
-     クラウドでも EditMode テストのコンパイルを確かめられるので、コードはクラウドで書き、手元では回して直すだけにする。
+  6. まだ書いていない計測: MemoryBench のメッシュの部位の右クリック（シーンにテクスチャを使うメッシュが要る）と AI 提案の
+     準備とクリック（Sentis とモデルが要る）、PreviewLatency の再生（ウィンドウを表示して OnGUI を回す必要があり、
+     batchmode では描かれない）。どれも手元の Unity で動きを見ながら作る。
+  7. 交互 A/B の前に、基準の Code で今のテストがコンパイルできるかを `bash scripts/build-check/ab-compile.sh <基準>` で
+     確かめられる（クラウドでも回る）。0-2 のテストが internal の口を使うので、基準は 567b0a0 以降にする。
 - **dev_safe の同期（2026-10-26 に済み）。**
   - dev-0.3.0 の worktree の dev_safe 複製にあった 0.3.0 の作業（基準の作り直し・ホールドアウトの入れ替え・
     `generalization_report.py` ほか）を、本体の dev_safe の `main` へ取り込んだ（d3e3e68）。`abcheck.py` の `CRASH_RC` を
@@ -426,18 +439,24 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
     - メッシュの部位の右クリック
     - AI 提案の準備とクリック
     - MCP の色替え
+
+    （2026-10-27: マスクの塗りと Undo / Redo・マスクつきのレシピのビルド・自動調整・MCP の色替えは
+    `MemoryBenchTests.Scenarios.cs` に書いた。シーンのプレビュー・メッシュの部位・AI 提案は手元で足す。HiResSmoke が
+    シーンのプレビューを 1 回通している）
   - PerfBench・KernelBench。
   - PreviewLatency: パン・ズーム・スライダーのドラッグを決まった手順で再生できるようにして測る。
   - 0.3.0 から持ち越した速さの懸念: 8K を元の解像度で編集した 2 手目（選択キャッシュに当たる手）が基準より遅い
     （dev_safe `docs/memory-0.3.0-plan.md` の「速さの懸念」の 3。未着手）。基準を測るついでに段ごとの時間で切り分ける。
-- [ ] 0-2 **振る舞いを固定する EditMode テスト**:
-  - ウィンドウの確定段の出力 = `SessionRecolor.Apply`（同じセッション・マスクつき）。
-  - ウィンドウの書き出し = 自動化 API の PNG。
+- [ ] 0-2 **振る舞いを固定する EditMode テスト**（2026-10-27 に全部書いた。下の 3 つは手元の Unity で回すまで未確認）:
+  - ウィンドウの確定段の出力 = `SessionRecolor.Apply`（同じセッション・マスクつき）。**（`WindowOutputParityTests`）**
+  - ウィンドウの書き出し = 自動化 API の PNG。**（`WindowOutputParityTests`）**
   - EditorPrefs / SessionState のキーの一覧。**（済み 2026-10-27。ソースから決まるので、Unity の要らない
     `scripts/source_checks/test_editor_prefs_keys.py` にした）**
   - ウィンドウとビューの保存されるフィールド名の一覧。`[FormerlySerializedAs]` なしで名前が変わったら落とす。
     **（済み 2026-10-27。同じく `test_serialized_field_names.py`。JSON の項目名・レシピ・コンポーネントも含めた 37 型・284 個）**
-  - 古い版で保存したレシピ・セッション・プリセットの読み込み結果。
+  - 古い版で保存したレシピ・セッション・プリセットの読み込み結果。**（`OldFormatLoadTests`。v0.1.0 のプリセットの優先度の
+    並べ替え、v0.3.0 のプリセット・セッションのファイル・レシピ、旧 bitpack のマスク。自動化 API がプリセットを並べ替えない
+    今の食い違いも、4-3 で直すまで固定した）**
 - [x] 0-3 **構造の検査**（`scripts/source_checks/`）（2026-10-27 に済み。今ある違反: 層の向き 25 件・層をまたぐ型 1・
   画素数の大きさの管理配列 106 件。どれも一覧に載せ、一覧は減らすことしかできない）:
   - `test_layer_dependencies.py`: フォルダ間の許可表。今の違反は一覧に載せ、一覧は減らすことしかできない。
@@ -445,13 +464,15 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
     もの。これも許可の一覧つきで、一覧は減らすことしかできない。
   - `test_event_subscription_symmetry` の長生きのイベントの一覧に、次の 6 つを足す: `duringSceneGui`・
     `TargetChanged`・`BeforeApply`・`OnDrawFoldout`・`OnCaptureComplete`・`OnReport`。
-- [ ] 0-4 **移動に弱い道具を先に直す**:
+- [x] 0-4 **移動に弱い道具を先に直す**（2026-10-27 に済み）:
   - `tools/harness_scope.py` の `**` の扱い。**（済み d3e112c）**
   - `test_algorithm_constants` の対象をサブフォルダまで広げる。**（済み de14c1b。Core と `MaskSuggest/Ops` の中を既定にし、
     外すファイルは理由つきの一覧にした）**
   - 名前の文字列で反射して呼んでいるテストを、internal の窓口を通す形に替える（`test_selection_key_audit`・
     RecipeSyncTests・WindowRestoreTests・MemoryBenchTests・HiResSmokeTests）。**`test_selection_key_audit` は済み
-    （fcf3a5a。abcheck 1397 / 1397）。EditMode の 4 つは手元で行う（下の「手元でやること」）。**
+    （fcf3a5a。abcheck 1397 / 1397）。RecipeSyncTests・WindowRestoreTests は d8bf8c8 で直接呼ぶ形にした。
+    MemoryBench・HiResSmoke は基準の版にも当てる計測なので名前で探すまま残し、`BenchSeams` にまとめて、ふだんのテスト
+    （`BenchSeamTests`）で名前が今の製品にあることを確かめる（2f07a60）。**
   - dev_safe 側でハーネスの約束事を一覧にする: コマンドラインの形、`PHASE` / `SUBPHASE` / `AUTOTUNE` / `SELKEY`
     の出力、abcheck が名前で呼ぶ private メソッド。**（済み。dev_safe `docs/harness-contract-2026-10-27.md`）**
 - [x] 0-5 **設計の記録** `docs/architecture.md` を書く（2026-10-27 に済み。AGENTS.md から参照する）（3 章の層・依存の決まり・メモリの持ち主の決まり）。以後のセッションはこれを正にする。
