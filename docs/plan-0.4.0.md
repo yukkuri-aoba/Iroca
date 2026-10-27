@@ -508,7 +508,7 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
   - PreviewLatency: パン・ズーム・スライダーのドラッグを決まった手順で再生できるようにして測る。
   - 0.3.0 から持ち越した速さの懸念: 8K を元の解像度で編集した 2 手目（選択キャッシュに当たる手）が基準より遅い
     （dev_safe `docs/memory-0.3.0-plan.md` の「速さの懸念」の 3。未着手）。基準を測るついでに段ごとの時間で切り分ける。
-- [ ] 0-2 **振る舞いを固定する EditMode テスト**（2026-10-27 に全部書いた。下の 3 つは手元の Unity で回すまで未確認）:
+- [x] 0-2 **振る舞いを固定する EditMode テスト**（2026-10-27 に全部書き、同じ日に手元の Unity 2022 で 290 件中 274 成功・失敗 0・スキップ 16（計測用と -nographics で見られない描画）。Unity とハーネスの一致 25 / 25）:
   - ウィンドウの確定段の出力 = `SessionRecolor.Apply`（同じセッション・マスクつき）。**（`WindowOutputParityTests`）**
   - ウィンドウの書き出し = 自動化 API の PNG。**（`WindowOutputParityTests`）**
   - EditorPrefs / SessionState のキーの一覧。**（済み 2026-10-27。ソースから決まるので、Unity の要らない
