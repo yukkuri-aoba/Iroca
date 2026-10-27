@@ -484,6 +484,17 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
   4. 1-2 の見た目: `docs/release-smoke-test.md` の 51（4K と 8K で差分表示にして、パン・ズーム・スライダーのドラッグを
      激しく行う。前後比較から直接差分表示へ）。リニアのプロジェクト（VRChat のアバタープロジェクト）で、差分の黄色が
      以前と同じ色に見えること。
+- **手元で確かめること（フェーズ 2。2026-10-28〜）**:
+  1. 取り込んでから EditMode テスト一式（`.\scripts\Run-EditorTests.ps1 -Graphics`）。新しいテストは
+     `NativeMemoryLifecycleTests`（手を止めたら作業配列の空きが返る）と `TextureIOTests`（ヒープの外のまま読み書きする口。
+     別スレッドでの PNG 化を含む）。`NativePixels`・選択キャッシュ・プールの塊の持ち方を替えたので、プレビューまわりの
+     テスト（`WindowOutputParityTests`・`PreviewJobTests`・`DetailResolutionTests`・`NonDestructiveTests`）も通ること。
+  2. ふだんの操作で Console に `Native memory blocks were not released by their owner` の警告が出ないこと（出たら
+     返し忘れの不具合）。開発者向けの設定をオンにしてウィンドウを閉じると、残りの量が用途ごとにログに出る。
+     PerfView（デバッグモード）のメモリの欄に用途ごとの量が出る。
+  3. 計測（任意。フェーズ 4 の終わりにまとめて取ってもよい）: `.\dev_safe\scripts\run_baseline_0.4.0.ps1` で 0-1 と同じ
+     計測を回し、`Tests/Baselines/perf-0.4.0-base/` と比べる。2-1 で `recipeBuild`（8K で +1,370MB）の残る増えが
+     減るはず（マスクの展開が 1/8）。ほかの場面の Mono ヒープはフェーズ 4 で減る。
 - **dev_safe の同期（2026-10-26 に済み）。**
   - dev-0.3.0 の worktree の dev_safe 複製にあった 0.3.0 の作業（基準の作り直し・ホールドアウトの入れ替え・
     `generalization_report.py` ほか）を、本体の dev_safe の `main` へ取り込んだ（d3e3e68）。`abcheck.py` の `CRASH_RC` を
