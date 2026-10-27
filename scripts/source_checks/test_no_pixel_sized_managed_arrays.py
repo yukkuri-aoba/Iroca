@@ -181,6 +181,14 @@ def test_allowed_list_only_shrinks():
         + "\n  減らした・移したなら、一覧の数を今の数へ下げる(0 なら項目ごと消す)。")
 
 
+def test_exempt_folders():
+    """T3 の対象外にしたフォルダ(exempt)が実在し、理由が書いてあること。対象外でも allowed で数え、増やさない。"""
+    doc = json.loads(ALLOWED_PATH.read_text(encoding="utf-8"))
+    for prefix, reason in doc.get("exempt", {}).items():
+        assert prefix.endswith("/") and (REPO_ROOT / prefix).is_dir(), f"exempt のフォルダがありません: {prefix}"
+        assert reason.strip(), f"exempt に理由がありません: {prefix}"
+
+
 def test_not_pixel_sized_entries_still_exist():
     """NOT_PIXEL_SIZED の陳腐化を検出する（該当の確保が消えたら外す）。"""
     present = set()

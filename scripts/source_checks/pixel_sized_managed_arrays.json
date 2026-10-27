@@ -1,5 +1,9 @@
 {
   "_note": "画素数に比例する大きさの管理配列の、今ある分(2026-10-27)。数は減らすことしかできない。test_no_pixel_sized_managed_arrays.py を参照",
+  "_exempt_note": "exempt のフォルダは T3(Mono ヒープの使用をなくす)の対象外。ヒープの外へ移さないが、ここでの確保も allowed で数え、増やさない",
+  "exempt": {
+    "Code/Debug/": "開発者だけが使う診断(デバッグの記録・再現データの書き出し)。配布の zip に入らない(Build-VpmPackage.ps1 が除く)。2026-10-28 決定"
+  },
   "allowed": {
     "Code/Automation/AutomationAutoTune.cs": {
       "new bool[len]": 1

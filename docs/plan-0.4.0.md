@@ -357,8 +357,9 @@ IMGUI のビューは今どおり毎フレーム状態を読む（MVVM にはし
 
 まだ決めていないこと:
 
-- `Code/Debug`（`DebugImaging`・`ReproDump`・`DebugCaptureContext`）は開発者だけが使う。T3 の例外にするか、ヒープの外へ
-  移すかを、2-2 の前に決める（例外にするなら `pixel_sized_managed_arrays.json` に理由を書く）。
+- ~~`Code/Debug`（`DebugImaging`・`ReproDump`・`DebugCaptureContext`）は開発者だけが使う。T3 の例外にするか、ヒープの外へ
+  移すかを、2-2 の前に決める。~~ **2026-10-28 に T3 の例外と決めた**（配布の zip に入らず、利用者のエディタでは
+  動かないため）。`pixel_sized_managed_arrays.json` の `exempt` に理由を書いた。例外でも一覧で数え、増やさない。
 - 表の大きさの数字は式からの見積もり（8 章）。フェーズ 0 の MemoryBench で測った値で、置く順（大きく長く持つものから）を
   確かめる。
 
