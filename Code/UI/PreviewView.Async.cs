@@ -14,7 +14,8 @@ namespace Iroca
 
         // dragOnly: ドラッグ中の追従。プロキシ段だけを回し(縮小しないテクスチャはフル段がそのまま
         // 軽いのでフル段)、入力を _dragReq に控える。確定は FinishDragPreview が同じ入力で行う。
-        private void GeneratePreviewAsync(bool dragOnly = false)
+        // internal は WindowOutputParityTests が OnGUI を回さずに作り直すため。
+        internal void GeneratePreviewAsync(bool dragOnly = false)
         {
             long prepStart = PreviewLatencyCycle.Now;
             var sourceTexture = _host.SourceTexture;

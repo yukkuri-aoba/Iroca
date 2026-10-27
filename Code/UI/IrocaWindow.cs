@@ -228,7 +228,8 @@ namespace Iroca
             Repaint();
         }
 
-        [SerializeField] private ExportView _exportView = new ExportView();
+        // internal は WindowOutputParityTests が書き出しを直接始めるため(保存される名前は変わらない)。
+        [SerializeField] internal ExportView _exportView = new ExportView();
         [SerializeField] private PresetsView _presetsView = new PresetsView();
         [SerializeField] internal MaskPaintView _maskView = new MaskPaintView();
         [SerializeField] private PreviewView _previewView = new PreviewView();

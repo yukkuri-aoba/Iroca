@@ -301,7 +301,8 @@ namespace Iroca
             return _exportUsersFor == source ? _exportUsersCount : 0;
         }
 
-        private void ApplyRecolor()
+        // internal は WindowOutputParityTests がボタンを押さずに書き出すため。
+        internal void ApplyRecolor()
         {
             if (_exportJob.IsRunning) return;
 

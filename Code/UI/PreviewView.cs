@@ -239,6 +239,9 @@ namespace Iroca
         // 使わない(InvalidateSourceCache / InvalidateFullOutput)。
         [System.NonSerialized] private NativePixels _fullOutput;
         [System.NonSerialized] private NativePixels _fullOutputSource;
+        // テスト(WindowOutputParityTests)が、概要段・確定段の終わりを待って確定段の出力を読むための口。
+        internal bool IsGenerating => _proxyJob.IsRunning || _previewJob.IsRunning;
+        internal NativePixels FullOutput => ReferenceEquals(_fullOutputSource, _trueSource) ? _fullOutput : null;
         // フル段の出力バッファの使い回し(PreviewOutputBuffers)。置き換えられた前の出力を次のフル段で再利用する。
         [System.NonSerialized] private PreviewOutputBuffers _outputBuffers;
         // 保留中の結果が確定(フル段)か。確定なら拡大表示をすぐ作り直す(ApplyPendingPreview)。
