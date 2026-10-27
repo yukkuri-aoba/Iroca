@@ -449,7 +449,7 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
   5. 0-1 の基準を測る（dev-0.4.0 の今の先頭で。製品のコードは 0.3.x と同じで、変えたのは `BuildSelectionKey` を
      internal にしただけ）。1 回の起動に 1 種類ずつ:
      - PerfBench: `python dev_safe/scripts/perf_bench.py unity-cases` → `.\scripts\Run-EditorTests.ps1 -PerfCases
-       $env:TEMP\iroca-perf\unity_cases.json` → `python dev_safe/scripts/perf_bench.py unity-report <出力>\perf.jsonl`。
+       $env:TEMP\iroca-perf\unity\unity_cases.json` → `python dev_safe/scripts/perf_bench.py unity-report <出力>\perf.jsonl`。
      - KernelBench: `-KernelBench`。
      - MemoryBench: 0.3.0 のときのケースの JSON（dev_safe `docs/memory-0.3.0-plan.md`）で 4K と 8K を `-MemCases`。
        2026-10-27 に足した場面（ケースに `"scenario"` を書く。`maskPaint`・`recipeBuild`・`autoTune`・`mcpRecolor`）も

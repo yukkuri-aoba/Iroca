@@ -54,7 +54,7 @@
 .EXAMPLE
     .\scripts\Run-EditorTests.ps1
 .EXAMPLE
-    .\scripts\Run-EditorTests.ps1 -HostProject <ホスト> -PerfCases $env:TEMP\iroca-perf\unity_cases.json
+    .\scripts\Run-EditorTests.ps1 -HostProject <ホスト> -PerfCases $env:TEMP\iroca-perf\unity\unity_cases.json
 #>
 [CmdletBinding()]
 param(
