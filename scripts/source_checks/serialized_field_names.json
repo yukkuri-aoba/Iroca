@@ -1,0 +1,363 @@
+{
+  "_note": "Unity が保存するフィールドの名前(2026-10-27)。消す・変えるときは FormerlySerializedAs を付ける。test_serialized_field_names.py を参照",
+  "types": {
+    "ColorZone": [
+      "applyHighlightWash",
+      "autoHighlightSample",
+      "autoRecolorAnchor",
+      "chromaCeiling",
+      "chromaThreshold",
+      "edgeSoftness",
+      "enabled",
+      "extraSamples",
+      "highlightBandExpand",
+      "highlightRecovery",
+      "holeFillMargin",
+      "id",
+      "layerIndex",
+      "mode",
+      "name",
+      "outputSaturation",
+      "partHueBand",
+      "partSatCeiling",
+      "sampleColor",
+      "sampleColorSet",
+      "sampleUV",
+      "satDistWeight",
+      "satRampScale",
+      "saturationGuard",
+      "saturationStrictness",
+      "seedUV",
+      "shadowDesaturation",
+      "shadowForgivenessSatMin",
+      "shadowValueFloor",
+      "targetColor",
+      "targetColorSet",
+      "tolerance",
+      "useFloodFill",
+      "uvRect",
+      "valueBlend",
+      "valueWeight"
+    ],
+    "DebugWindow": [
+      "_mode",
+      "_scrollPos",
+      "_selectedStageIndex",
+      "_selectedZoneId"
+    ],
+    "ExportView": [
+      "_lastError",
+      "_lastSavedAssetPath",
+      "batchFoldout",
+      "batchTextures",
+      "inheritImportSettings",
+      "newFileName",
+      "saveAsNewFile",
+      "textureExportFoldout"
+    ],
+    "IrocaAutomation.ChangeRequest": [
+      "at",
+      "from",
+      "name",
+      "to"
+    ],
+    "IrocaAutomation.ColorInfo": [
+      "coverage",
+      "hex",
+      "regionShare",
+      "rgb",
+      "uv"
+    ],
+    "IrocaAutomation.InspectResult": [
+      "error",
+      "kind",
+      "note",
+      "objects",
+      "ok",
+      "target",
+      "textures",
+      "version",
+      "warnings"
+    ],
+    "IrocaAutomation.JobRequest": [
+      "mode",
+      "output",
+      "preset",
+      "source",
+      "zones"
+    ],
+    "IrocaAutomation.ObjectInfo": [
+      "isAvatar",
+      "path",
+      "rendererCount",
+      "textureCount"
+    ],
+    "IrocaAutomation.OpenResult": [
+      "error",
+      "note",
+      "ok",
+      "recipe",
+      "texture"
+    ],
+    "IrocaAutomation.PresetEntry": [
+      "name",
+      "path",
+      "scope"
+    ],
+    "IrocaAutomation.PresetList": [
+      "presets"
+    ],
+    "IrocaAutomation.RecolorPending": [
+      "message",
+      "ok",
+      "pending",
+      "tunedZones",
+      "zonesToTune"
+    ],
+    "IrocaAutomation.RecolorRequest": [
+      "apply",
+      "autoTune",
+      "avatar",
+      "changes",
+      "output",
+      "overwrite",
+      "preset",
+      "remove",
+      "reset",
+      "texture"
+    ],
+    "IrocaAutomation.RecolorResult": [
+      "changeBBox",
+      "changeComponentCount",
+      "changedFraction",
+      "changedPixels",
+      "error",
+      "height",
+      "largestComponentFraction",
+      "note",
+      "ok",
+      "output",
+      "preview",
+      "warnings",
+      "width",
+      "zonesApplied"
+    ],
+    "IrocaAutomation.RecolorTextureResult": [
+      "apply",
+      "avatar",
+      "changeComponentCount",
+      "changedFraction",
+      "error",
+      "largestComponentFraction",
+      "note",
+      "ok",
+      "output",
+      "preview",
+      "recipe",
+      "texture",
+      "warnings",
+      "zones"
+    ],
+    "IrocaAutomation.SchemaDoc": [
+      "fieldDocs",
+      "jobExample",
+      "methods",
+      "name",
+      "notes",
+      "settingsDefaults",
+      "version",
+      "zoneDefaults"
+    ],
+    "IrocaAutomation.SettingsDto": [
+      "antiAliasCleanup",
+      "decontaminationRadius",
+      "edgeFeather",
+      "holeFillMinNeighbors",
+      "holeFillPasses",
+      "relaxedSatMin",
+      "relaxedSatRamp",
+      "useDecontamination"
+    ],
+    "IrocaAutomation.TextureInfo": [
+      "colors",
+      "editableSource",
+      "height",
+      "materials",
+      "path",
+      "recipes",
+      "renderers",
+      "thumbnail",
+      "width",
+      "workHeight",
+      "workWidth"
+    ],
+    "IrocaAutomation.ZoneDto": [
+      "applyHighlightWash",
+      "autoHighlightSample",
+      "autoRecolorAnchor",
+      "chromaCeiling",
+      "chromaThreshold",
+      "edgeSoftness",
+      "highlightBandExpand",
+      "highlightRecovery",
+      "holeFillMargin",
+      "layerIndex",
+      "name",
+      "outputSaturation",
+      "partHueBand",
+      "partSatCeiling",
+      "sample",
+      "sampleUV",
+      "saturationGuard",
+      "saturationStrictness",
+      "seedUV",
+      "shadowDesaturation",
+      "shadowForgivenessSatMin",
+      "shadowValueFloor",
+      "target",
+      "tolerance",
+      "useFloodFill",
+      "valueBlend"
+    ],
+    "IrocaAutomation.ZoneInfo": [
+      "at",
+      "autoTune",
+      "enabled",
+      "from",
+      "name",
+      "to",
+      "tolerance"
+    ],
+    "IrocaAutomation.ZonesRequest": [
+      "settings",
+      "zones"
+    ],
+    "IrocaPresetData": [
+      "advancedMode",
+      "antiAliasCleanup",
+      "commonMaskBase64",
+      "decontaminationRadius",
+      "edgeFeather",
+      "holeFillMinNeighbors",
+      "holeFillPasses",
+      "maskHeight",
+      "maskWidth",
+      "name",
+      "relaxedSatMin",
+      "relaxedSatRamp",
+      "schemaVersion",
+      "useDecontamination",
+      "zoneIncludeMasks",
+      "zoneMasks",
+      "zones"
+    ],
+    "IrocaPreviewWindow": [
+      "_host"
+    ],
+    "IrocaRecipe": [
+      "formatVersion",
+      "sessionJson",
+      "sourceTexture"
+    ],
+    "IrocaRecolor": [
+      "recipe",
+      "recipes"
+    ],
+    "IrocaSessionState": [
+      "antiAliasCleanup",
+      "decontaminationRadius",
+      "edgeFeather",
+      "editMode",
+      "holeFillMinNeighbors",
+      "holeFillPasses",
+      "maskState",
+      "relaxedSatMin",
+      "relaxedSatRamp",
+      "useDecontamination",
+      "zones"
+    ],
+    "IrocaWindow": [
+      "_boundRecipe",
+      "_exportView",
+      "_maskView",
+      "_presetsView",
+      "_previewView",
+      "_session",
+      "processingDetailFoldout",
+      "processingFoldout",
+      "sourceTexture",
+      "zonesFoldout"
+    ],
+    "MaskBrushWindow": [
+      "_host"
+    ],
+    "MaskPaintView": [
+      "activeMaskTarget",
+      "brushEraseMode",
+      "brushSize",
+      "editIncludeLayer",
+      "maskFoldout"
+    ],
+    "MaskPaintView.LegacyMaskIndex": [
+      "hasCommon",
+      "height",
+      "width",
+      "zoneIds"
+    ],
+    "MaskState": [
+      "commonMaskBase64",
+      "height",
+      "schemaVersion",
+      "width",
+      "zoneIncludes",
+      "zones"
+    ],
+    "MaskZoneEntry": [
+      "maskBase64",
+      "zoneId"
+    ],
+    "PresetsView": [
+      "presetAdvancedFoldout",
+      "presetApplyMasks",
+      "presetIncludeMasks",
+      "presetSaveName",
+      "presetStorageProject",
+      "presetsFoldout"
+    ],
+    "PreviewView": [
+      "appearanceMode",
+      "comparisonMode",
+      "diffMode",
+      "previewZoom"
+    ],
+    "ReproDump.MetaDto": [
+      "assetPath",
+      "createdAt",
+      "maskH",
+      "maskW",
+      "packageVersion",
+      "textureH",
+      "textureW",
+      "unityVersion",
+      "zones"
+    ],
+    "ReproDump.ZoneMetaDto": [
+      "autoTune",
+      "autoTuneEvidence",
+      "autoTuneInputSample",
+      "autoTuneInputTarget",
+      "autoTuneMaskUsed",
+      "autoTuneParamsIntact",
+      "excludeMask",
+      "extraSamples",
+      "id",
+      "includeMask",
+      "name",
+      "sampleUV"
+    ],
+    "ZoneMaskEntry": [
+      "maskBase64",
+      "zoneId"
+    ]
+  }
+}
