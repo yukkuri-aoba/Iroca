@@ -1,0 +1,39 @@
+<!--
+  Unity Test Framework の UnityEditor.TestRunner を、パッケージのソースから作る（EditMode テストのコンパイル確認用）。
+  テストの asmdef が参照するので、Unity と同じく参照できるようにしておく。UnityEngine.TestRunner.csproj と同じ作り。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <AssemblyName>UnityEditor.TestRunner</AssemblyName>
+    <OutputType>Library</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <WarningLevel>0</WarningLevel>
+    <NoWarn>$(NoWarn);CS0618;CS0414;CS0649;CS0169;CS0067</NoWarn>
+    <DefineConstants>UNITY_EDITOR;UNITY_INCLUDE_TESTS</DefineConstants>
+  </PropertyGroup>
+
+  <Import Project="../UnityEditorPath.props" />
+  <Import Project="../UnityTestFramework.props" />
+
+  <ItemGroup>
+    <Compile Include="$(UnityPackagesPath)\com.unity.test-framework@*\UnityEditor.TestRunner\**\*.cs" />
+    <ProjectReference Include="UnityEngine.TestRunner.csproj" />
+    <Reference Include="UnityEngine">
+      <HintPath>$(UnityEditorPath)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEditor">
+      <HintPath>$(UnityEditorPath)\UnityEditor.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="@(UnityNUnitDll)">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

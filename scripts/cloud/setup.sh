@@ -12,6 +12,8 @@
 #   - Unity 2022.3.22f1 の Editor/Data/Managed（ハーネス・build-check・unit-run のコンパイル用。Unity は起動しない）
 #     Unity の DLL は Unity のライセンス物なのでリポジトリには入れず、ここで Unity の配布元から取ってくる。
 #   - AI マスク提案の ONNX モデル（配布元と sha256 は製品コード MaskSuggestModelDownload.cs から読む）
+#   - Unity Test Framework と Unity の NUnit のパッケージ（EditMode テストのコンパイル確認用。
+#     scripts/build-check/fetch-unity-test-framework.sh が Unity のパッケージの配布元から sha256 を確かめて取る）
 # リポジトリに対して行うこと:
 #   - dev_safe を本体の直下へ置く。セッションが本体の隣（iroca_dev_safe / Iroca_dev_safe）に clone したときは
 #     本体の直下へ移し、元の場所にリンクを残す（dev_safe のスクリプトは自分の実体の場所から本体を探すので、
@@ -20,7 +22,8 @@
 #   - git config core.hooksPath scripts/hooks、通知のルールのコピー
 #   - SAM の埋め込みを作る（freeze_sam_fixtures.py。--holdout も）
 #
-# できないこと: Unity 本体が要るもの（EditMode テスト・RuntimeParityTests・MemoryBench・PerfBench・実機の確認）。
+# できないこと: Unity 本体が要るもの（EditMode テストの実行・RuntimeParityTests・MemoryBench・PerfBench・実機の確認）。
+# EditMode テストのコンパイルだけは確かめられる（dotnet build scripts/build-check/IrocaEditorTests.csproj）。
 # 使うコマンドの前で毎回 `. scripts/cloud/env.sh` を読み込む。
 set -euo pipefail
 
@@ -56,6 +59,9 @@ else
     tar -xJf "$TARBALL" -C "$ENV_DIR/unity" --wildcards 'Editor/Data/Managed/*'
     rm -f "$TARBALL"
 fi
+
+# --- EditMode テストのコンパイル確認（build-check/IrocaEditorTests.csproj）に要る Unity のパッケージ ---
+bash "$ROOT/scripts/build-check/fetch-unity-test-framework.sh" "$ENV_DIR/upm"
 
 # --- AI マスク提案のモデル ---
 MODELS="$ENV_DIR/localappdata/Iroca/Models"

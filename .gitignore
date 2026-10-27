@@ -73,8 +73,12 @@ docs/unity-mcp-automation.md
 !scripts/build-check/IrocaSentisCheck.csproj
 !scripts/build-check/IrocaNdmfCheck.csproj
 !scripts/build-check/IrocaMcpCheck.csproj
+!scripts/build-check/IrocaEditorTests.csproj
+!scripts/build-check/unity-test-framework/*.csproj
 scripts/build-check/bin/
 scripts/build-check/obj/
+scripts/build-check/unity-test-framework/bin/
+scripts/build-check/unity-test-framework/obj/
 
 # headless-run (実 Unity DLL を参照して PixelProcessor を Unity なしで実行する検証ハーネス)
 # csproj/cs 本体だけコミット、bin/obj は無視

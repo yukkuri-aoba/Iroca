@@ -1,0 +1,64 @@
+<!--
+  EditMode テスト（scripts/editor-tests、asmdef は Iroca.EditorTests）を、Unity を起動せずにコンパイルだけ確かめる。
+  テストの実行は Unity が要る（scripts/Run-EditorTests.ps1）。テストを書いたら Unity を開く前にここで型の誤りを見つける。
+
+    dotnet build scripts/build-check/IrocaEditorTests.csproj
+
+  参照は Iroca.EditorTests.asmdef と同じにする: 本体（IrocaEditor.csproj。Code/Runtime を含む）・UnityEngine.TestRunner・
+  UnityEditor.TestRunner（Unity と同じくパッケージのソースから作る。unity-test-framework/）・Unity の NUnit。
+  アセンブリの名前も同じにして、本体の InternalsVisibleTo("Iroca.EditorTests") が効くようにする。
+  NDMF を使うテスト（#if IROCA_NDMF_PRESENT）は NDMF が無いので外れる（IrocaNdmfCheck.csproj と同じく手元のホストの
+  DLL を借りれば見られるが、今は見ない）。
+
+  Unity のパッケージの置き場は UnityTestFramework.props、Unity の DLL は UnityEditorPath.props で決まる。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+    <AssemblyName>Iroca.EditorTests</AssemblyName>
+    <RootNamespace>Iroca.EditorTests</RootNamespace>
+    <OutputType>Library</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>0414;0649;CS0219;CS0169</NoWarn>
+    <WarningsAsErrors>CS8632</WarningsAsErrors>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <Import Project="UnityEditorPath.props" />
+  <Import Project="UnityTestFramework.props" />
+
+  <ItemGroup>
+    <Compile Include="..\editor-tests\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="IrocaEditor.csproj" />
+    <ProjectReference Include="unity-test-framework\UnityEngine.TestRunner.csproj" />
+    <ProjectReference Include="unity-test-framework\UnityEditor.TestRunner.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="UnityEngine">
+      <HintPath>$(UnityEditorPath)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEditor">
+      <HintPath>$(UnityEditorPath)\UnityEditor.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="@(UnityNUnitDll)">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="CheckUnityPath" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(UnityEditorPath)\UnityEngine.dll')"
+           Text="UnityEngine.dll が見つかりません: $(UnityEditorPath)\UnityEngine.dll" />
+  </Target>
+
+</Project>

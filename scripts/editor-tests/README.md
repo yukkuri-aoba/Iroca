@@ -49,3 +49,16 @@ Editor を開いたまま回したいときは、Unity の Test Runner ウィン
 （その場合 `RuntimeParityTests` は `IROCA_REPO` が無いので Ignore になる）。
 
 テストは `Assets/IrocaEditorTests_Temp/` に一時アセットを作り、終わったら消す。
+
+### コンパイルだけ確かめる（Unity を起動しない）
+
+テストを書いたら、Unity を開く前に型の誤りを見つけられる。クラウドのセッションと CI でもこれは回る。
+
+```powershell
+dotnet build scripts/build-check/IrocaEditorTests.csproj
+```
+
+参照はテストの asmdef と同じ（本体・Unity Test Framework・Unity の NUnit）。Unity Test Framework は Unity と同じく
+パッケージのソースから作る。パッケージはホストの `Library/PackageCache` から借りる（ホストを持たない環境は
+`scripts/build-check/fetch-unity-test-framework.sh` で取る）。NDMF を使うテスト（`#if IROCA_NDMF_PRESENT`）は
+NDMF が無いので外れる。詳しくは `scripts/build-check/README.md`。

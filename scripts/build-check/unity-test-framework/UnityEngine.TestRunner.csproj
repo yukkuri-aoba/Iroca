@@ -1,0 +1,37 @@
+<!--
+  Unity Test Framework の UnityEngine.TestRunner を、パッケージのソースから作る（EditMode テストのコンパイル確認用）。
+  テストの asmdef が参照する UnityEngine.TestTools（[UnityTest]・LogAssert など）は、Unity ではパッケージのソースを
+  コンパイルしたこのアセンブリにある。写しや代わりの型を作らず、Unity と同じソースを使う。
+  ソースの置き場は ../UnityTestFramework.props、Unity の DLL は ../UnityEditorPath.props で決まる。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <AssemblyName>UnityEngine.TestRunner</AssemblyName>
+    <OutputType>Library</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- 他人のソースなので警告は見ない（エラーだけ）。 -->
+    <WarningLevel>0</WarningLevel>
+    <NoWarn>$(NoWarn);CS0618;CS0414;CS0649;CS0169;CS0067</NoWarn>
+    <DefineConstants>UNITY_EDITOR;UNITY_INCLUDE_TESTS</DefineConstants>
+  </PropertyGroup>
+
+  <Import Project="../UnityEditorPath.props" />
+  <Import Project="../UnityTestFramework.props" />
+
+  <ItemGroup>
+    <Compile Include="$(UnityPackagesPath)\com.unity.test-framework@*\UnityEngine.TestRunner\**\*.cs" />
+    <Reference Include="UnityEngine">
+      <HintPath>$(UnityEditorPath)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="@(UnityNUnitDll)">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

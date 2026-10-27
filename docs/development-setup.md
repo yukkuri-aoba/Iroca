@@ -140,13 +140,15 @@ Unity 6 の確認用に、VRChat SDK も NDMF も入れない検証ホストを 
 ## 6. クラウドのセッション（Linux。2026-10-26〜）
 
 claude.ai のクラウドのセッション（Ubuntu のコンテナ）でも、Unity を起動しない範囲の検証は回せる:
-ハーネスと build-check のコンパイル、golden・ソース構造検査・unit-run、dev_safe の回帰テスト、abcheck。
-Unity 本体が要るもの（EditMode テスト・`RuntimeParityTests`・MemoryBench・PerfBench・実機の確認）は手元で行う。
+ハーネスと build-check のコンパイル、golden・ソース構造検査・unit-run、dev_safe の回帰テスト、abcheck、
+EditMode テストのコンパイル（`dotnet build scripts/build-check/IrocaEditorTests.csproj`。2026-10-27〜）。
+Unity 本体が要るもの（EditMode テストの実行・`RuntimeParityTests`・MemoryBench・PerfBench・実機の確認）は手元で行う。
 
 - 環境の設定で、リポジトリに `Iroca` と `Iroca_dev_safe` の両方を選ぶ。
 - 環境の設定の「セットアップスクリプト」に `bash Iroca/scripts/cloud/setup.sh` を書く（リポジトリの 1 つ上で始まる）。
   - .NET SDK・Unity 2022.3.22f1 の DLL（Unity の配布元から約 3.2GB を取って `Editor/Data/Managed` だけ展開）・
-    AI のモデルを `/opt/iroca-env` に入れる。
+    AI のモデル・Unity Test Framework と Unity の NUnit のパッケージ（EditMode テストのコンパイル用）を
+    `/opt/iroca-env` に入れる。
   - dev_safe を本体の直下へ移し、元の場所にリンクを残す。dev_safe のスクリプトは自分の実体の場所から本体を探すので、
     本体の直下にリンクを張るだけでは動かない。
   - `.venv` を作り、フックを有効にし、SAM の埋め込みを作る。

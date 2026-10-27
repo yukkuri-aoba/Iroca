@@ -363,6 +363,7 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
   - abcheck
   - dev_safe の回帰（下の dev_safe の同期の後）
   - 視覚レビュー（比較パネルを作って 1 枚ずつ目視する。Linux ではまだ試していない）
+  - EditMode テストのコンパイル（`scripts/build-check/IrocaEditorTests.csproj`。2026-10-27 から。実行は手元）
 
   移すだけの手順と、出力のビット一致の確認（フェーズ 0 の検査づくり・2・3・4 の大半）はクラウドで進められる。
 - **手元の Windows の PC でしかできないもの**（Unity が要る）:
@@ -388,8 +389,8 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
        8K の 2 手目の遅さは、各手の `sub`（20ms 以上の段の時間）を基準 7d2bf6f と段ごとに比べて切り分ける。
      - HiResSmoke: 8K を `-HiResCases`。
      - 結果は dev_safe の `Tests/Baselines/perf-0.4.0-base/` に、コミットの番号・PC・Unity の版と一緒に置く。
-  6. テストのコードを足す仕事（0-1 の新しい場面 6 つ・PreviewLatency の再生、0-2 の残りの 3 つ）。EditMode テストは
-     クラウドではコンパイルも確かめられないので、今は手元で書いて回す。
+  6. テストのコードを足す仕事（0-1 の新しい場面 6 つ・PreviewLatency の再生、0-2 の残りの 3 つ）。2026-10-27 から
+     クラウドでも EditMode テストのコンパイルを確かめられるので、コードはクラウドで書き、手元では回して直すだけにする。
 - **dev_safe の同期（2026-10-26 に済み）。**
   - dev-0.3.0 の worktree の dev_safe 複製にあった 0.3.0 の作業（基準の作り直し・ホールドアウトの入れ替え・
     `generalization_report.py` ほか）を、本体の dev_safe の `main` へ取り込んだ（d3e3e68）。`abcheck.py` の `CRASH_RC` を

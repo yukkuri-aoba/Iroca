@@ -11,6 +11,9 @@ export DOTNET_NOLOGO=1
 # ハーネス（UnityManaged）と build-check（UNITY_EDITOR_PATH）が参照する Unity の DLL。
 export UnityManaged="$IROCA_ENV/unity/Editor/Data/Managed"
 export UNITY_EDITOR_PATH="$IROCA_ENV/unity/Editor/Data/Managed"
+# EditMode テストのコンパイル確認（build-check/IrocaEditorTests.csproj）が使う Unity のパッケージの置き場
+# （Library/PackageCache と同じ形。setup.sh が fetch-unity-test-framework.sh で入れる）。
+export IROCA_UNITY_PACKAGES="$IROCA_ENV/upm"
 # AI マスク提案のモデルの置き場（$LOCALAPPDATA/Iroca/Models。製品・Fetch-Models.ps1 と同じ形）。
 export LOCALAPPDATA="$IROCA_ENV/localappdata"
 # golden はハッシュで厳密に比べる（IROCA_GOLDEN_TOLERANT は立てない）。2026-10-26 にこの環境で 53 件すべてが

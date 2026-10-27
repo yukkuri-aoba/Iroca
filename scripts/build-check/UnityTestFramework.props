@@ -1,0 +1,31 @@
+<!--
+  EditMode テストのコンパイル確認（IrocaEditorTests.csproj と unity-test-framework/ の 2 本）が使う、Unity の
+  パッケージ（com.unity.test-framework・com.unity.ext.nunit）の置き場の解決。
+
+  置き場は Library/PackageCache と同じ形（<名前>@<版>/）のフォルダ。次の順で決める:
+    1. -p:UnityPackagesPath=<フォルダ>
+    2. 環境変数 IROCA_UNITY_PACKAGES（クラウドのセッションは scripts/cloud/env.sh が立てる）
+    3. テストを回すホストの Library/PackageCache（-p:EditorTestsHostProject= か環境変数 IROCA_TESTS_HOST。
+       既定はほかの check と同じ ..\Avatar_Projects\Iroca_Dev）
+  ホストを持たない環境（クラウド・CI）は fetch-unity-test-framework.sh で配布元から取る。
+-->
+<Project>
+
+  <PropertyGroup>
+    <EditorTestsHostProject Condition="'$(EditorTestsHostProject)' == '' and '$(IROCA_TESTS_HOST)' != ''">$(IROCA_TESTS_HOST)</EditorTestsHostProject>
+    <EditorTestsHostProject Condition="'$(EditorTestsHostProject)' == ''">$(MSBuildThisFileDirectory)..\..\..\Avatar_Projects\Iroca_Dev</EditorTestsHostProject>
+    <UnityPackagesPath Condition="'$(UnityPackagesPath)' == '' and '$(IROCA_UNITY_PACKAGES)' != ''">$(IROCA_UNITY_PACKAGES)</UnityPackagesPath>
+    <UnityPackagesPath Condition="'$(UnityPackagesPath)' == ''">$(EditorTestsHostProject)\Library\PackageCache</UnityPackagesPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Unity が使う NUnit（Unity 向けに直した 3.5）。版によって net35 / net40 の下にある。 -->
+    <UnityNUnitDll Include="$(UnityPackagesPath)\com.unity.ext.nunit@*\**\nunit.framework.dll" />
+  </ItemGroup>
+
+  <Target Name="CheckUnityPackages" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'@(UnityNUnitDll)' == ''"
+           Text="com.unity.ext.nunit の nunit.framework.dll が見つかりません: $(UnityPackagesPath)&#xA;テストを回すホストを一度 Unity で開くか（-p:EditorTestsHostProject= / IROCA_TESTS_HOST）、`bash scripts/build-check/fetch-unity-test-framework.sh &lt;置き場&gt;` で取って -p:UnityPackagesPath= / IROCA_UNITY_PACKAGES で渡してください。" />
+  </Target>
+
+</Project>

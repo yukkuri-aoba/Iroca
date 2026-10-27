@@ -34,7 +34,30 @@ $env:UNITY_EDITOR_PATH = "D:\Unity\2022.3.22f1\Editor\Data\Managed"
 dotnet build scripts/build-check/IrocaEditor.csproj
 ```
 
-既定パスの解決（`UnityVersion` の既定・`UNITY_EDITOR_PATH`・Hub の既定パス）は `UnityEditorPath.props` の 1 箇所にあり、build-check の 6 本の csproj が Import する（`scripts/headless-run/Harness.csproj` と `scripts/unit-run/UnitRun.csproj` は別管理）。
+既定パスの解決（`UnityVersion` の既定・`UNITY_EDITOR_PATH`・Hub の既定パス）は `UnityEditorPath.props` の 1 箇所にあり、build-check の csproj（`unity-test-framework/` の 2 本を含む）がすべて Import する（`scripts/headless-run/Harness.csproj` と `scripts/unit-run/UnitRun.csproj` は別管理）。
+
+## EditMode テストのコンパイル（IrocaEditorTests.csproj）
+
+`scripts/editor-tests`（asmdef は `Iroca.EditorTests`）を、Unity を起動せずにコンパイルだけ確かめる。テストの実行は
+Unity が要る（`scripts/Run-EditorTests.ps1`）。CI（`ci.yml`）とクラウドのセッションでも回る。
+
+```powershell
+dotnet build scripts/build-check/IrocaEditorTests.csproj
+dotnet build scripts/build-check/IrocaEditorTests.csproj -p:EditorTestsHostProject="D:\path\to\Project"
+dotnet build scripts/build-check/IrocaEditorTests.csproj -p:UnityPackagesPath="<Library/PackageCache と同じ形のフォルダ>"
+```
+
+- 参照はテストの asmdef と同じ: 本体（`IrocaEditor.csproj`）・`UnityEngine.TestRunner`・`UnityEditor.TestRunner`・
+  Unity の NUnit。アセンブリの名前も `Iroca.EditorTests` にして、本体の `InternalsVisibleTo` が効くようにしてある。
+- `UnityEngine.TestRunner` と `UnityEditor.TestRunner` は、Unity と同じく Unity Test Framework のパッケージのソースから
+  作る（`unity-test-framework/` の 2 本）。代わりの型は作らない（Unity に無い API を使ったテストがここだけ通るのを防ぐ）。
+- パッケージ（`com.unity.test-framework`・`com.unity.ext.nunit`）の置き場は `UnityTestFramework.props` で決まる:
+  `-p:UnityPackagesPath=` → 環境変数 `IROCA_UNITY_PACKAGES` → テストを回すホストの `Library/PackageCache`
+  （`-p:EditorTestsHostProject=` か `IROCA_TESTS_HOST`。既定はほかの check と同じ `..\Avatar_Projects\Iroca_Dev`）。
+- ホストを持たない環境（クラウド・CI）は `bash scripts/build-check/fetch-unity-test-framework.sh <置き場>` で、Unity の
+  パッケージの配布元から Unity 2022.3.22f1 の既定の版（test-framework 1.1.33・ext.nunit 1.0.6）を sha256 を確かめて取る。
+  Unity Companion License の物なのでリポジトリには入れない。
+- NDMF を使うテスト（`#if IROCA_NDMF_PRESENT`）は、NDMF が無いので外れる。
 
 ## NDMF 連携の型チェック（IrocaNdmfCheck.csproj）
 
