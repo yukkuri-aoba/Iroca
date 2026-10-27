@@ -88,7 +88,8 @@ namespace Iroca
         // ビット表現で完全一致判定(丸め衝突を避ける)。曖昧なものは安全側で含める(ミスが増えるだけ)。
         // マスクの中身も含めない: 含めるマスクは保存する選択に効かず、除外マスクは保存時の配列と比べて
         // 使えるかを判定する(SelectionCache・ExclusionChangeKeepsMatch)。
-        private static string BuildSelectionKey(
+        // internal はハーネスの --selkey-audit が直接呼ぶため(名前の文字列で反射して呼ぶと、改名がコンパイルで分からない)。
+        internal static string BuildSelectionKey(
             ColorZone z, float edgeFeather, int aaCleanup, int holeFillPasses, int holeFillMinNeighbors,
             float relaxedSatMin, float relaxedSatRamp, int maskW, int maskH, bool mixtureBand)
         {

@@ -853,21 +853,10 @@ namespace Iroca
         // なるため、その取りこぼしを機械検出するのが目的。
         private static int RunSelectionKeyAudit()
         {
-            var mi = typeof(PixelProcessor).GetMethod(
-                "BuildSelectionKey",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-            if (mi == null)
-            {
-                Console.Error.WriteLine(
-                    "BuildSelectionKey が見つかりません(リネーム?)。selkey-audit の追従修正が必要です。");
-                return 3;
-            }
-
-            string KeyOf(ColorZone z) => (string)mi.Invoke(null, new object[]
-            {
-                z, /*edgeFeather*/0f, /*aaCleanup*/3, /*holeFillPasses*/5, /*holeFillMinNeighbors*/4,
-                /*relaxedSatMin*/0.02f, /*relaxedSatRamp*/0.08f, /*maskW*/0, /*maskH*/0, /*mixtureBand*/false,
-            });
+            // 直接呼ぶ(2026-10-27 まで名前の文字列で反射して呼んでいた。改名・引数の変更はコンパイルで分かる)。
+            string KeyOf(ColorZone z) => PixelProcessor.BuildSelectionKey(
+                z, edgeFeather: 0f, aaCleanup: 3, holeFillPasses: 5, holeFillMinNeighbors: 4,
+                relaxedSatMin: 0.02f, relaxedSatRamp: 0.08f, maskW: 0, maskH: 0, mixtureBand: false);
 
             var baseline = new ColorZone();
             baseline.extraSamples = new List<Color> { new Color(0.3f, 0.4f, 0.5f, 1f) };
