@@ -1172,6 +1172,124 @@ namespace Iroca
                 new Dictionary<string, bool[]>(), prevT);
             Check(wT == H && hT == W && !ReferenceEquals(cT, flat) && Same(cT, flat), "previous with other dimensions is not used");
 
+            // 4) 詰めた形への直接の展開(MaskRle.DecodePacked)は、bool[] へ展開してから詰めたもの(MaskSnapshot.Pack)と
+            //    同じ配列になる。画素数が 64 の倍数でない・ランが語の境目をまたぐ・全部 true / false・旧 bitpack(最後の
+            //    バイトの余りに 1 が立っている)・壊れた文字列も。
+            bool SameBits(ulong[] a, ulong[] b)
+            {
+                if (a == null || b == null) return a == b;
+                if (a.Length != b.Length) return false;
+                for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+                return true;
+            }
+            string Legacy(bool[] m, int lw, int lh)
+            {
+                var bytes = new byte[8 + (m.Length + 7) / 8];
+                BitConverter.GetBytes(lw).CopyTo(bytes, 0);
+                BitConverter.GetBytes(lh).CopyTo(bytes, 4);
+                for (int i = 0; i < m.Length; i++) if (m[i]) bytes[8 + i / 8] |= (byte)(1 << (i % 8));
+                if ((m.Length & 7) != 0) bytes[bytes.Length - 1] |= (byte)(0xFF << (m.Length & 7));   // 余りのビットに 1
+                return Convert.ToBase64String(bytes);
+            }
+            var rng = new System.Random(20261028);
+            bool[] Runs(int n, int meanRun)
+            {
+                var m = new bool[n];
+                bool v = rng.Next(2) == 0;
+                for (int i = 0; i < n;)
+                {
+                    int run = 1 + rng.Next(meanRun * 2);
+                    for (int k = 0; k < run && i < n; k++, i++) m[i] = v;
+                    v = !v;
+                }
+                return m;
+            }
+            bool[] Filled(int n, bool v)
+            {
+                var m = new bool[n];
+                for (int i = 0; i < n; i++) m[i] = v;
+                return m;
+            }
+            bool[] LastOnly(int n)
+            {
+                var m = new bool[n];
+                m[n - 1] = true;
+                return m;
+            }
+            var cases = new List<(string label, bool[] m, int w, int h)>
+            {
+                ("37x29 short runs", Runs(37 * 29, 5), 37, 29),
+                ("37x29 long runs", Runs(37 * 29, 90), 37, 29),
+                ("640x480 runs", Runs(W * H, 700), W, H),
+                ("640x480 disc", Disc(300, 200, 120), W, H),
+                ("65x1 all true", Filled(65, true), 65, 1),
+                ("64x2 all true", Filled(128, true), 64, 2),
+                ("70x3 all false", new bool[210], 70, 3),
+                ("1x1 true", new[] { true }, 1, 1),
+                ("last pixel only", LastOnly(100), 10, 10),
+            };
+            foreach (var (label, m, cw, ch) in cases)
+            {
+                var expected = MaskSnapshot.Pack(m);
+                var rle = MaskRle.DecodePacked(MaskRle.Encode(m, cw, ch), out int rw, out int rh);
+                Check(rw == cw && rh == ch && SameBits(rle, expected), "packed decode (RLE) equals Pack(Decode): " + label);
+                var legacy = MaskRle.DecodePacked(Legacy(m, cw, ch), out int lw2, out int lh2);
+                Check(lw2 == cw && lh2 == ch && SameBits(legacy, expected), "packed decode (legacy bitpack) equals Pack(Decode): " + label);
+                Check(SameBits(MaskSnapshot.Pack(MaskRle.Decode(Legacy(m, cw, ch), out _, out _)), expected),
+                    "legacy bitpack decode ignores the padding bits: " + label);
+            }
+            string full = MaskRle.Encode(Runs(37 * 29, 5), 37, 29);
+            string truncated = "R:" + Convert.ToBase64String(Convert.FromBase64String(full.Substring(2)), 0, 9 + 4);
+            var huge = new byte[13];
+            BitConverter.GetBytes(MaskRle.MaxSide + 1).CopyTo(huge, 0);
+            BitConverter.GetBytes(1).CopyTo(huge, 4);
+            BitConverter.GetBytes((uint)(MaskRle.MaxSide + 1)).CopyTo(huge, 9);
+            // 壊れた Base64 は Debug.LogWarning を通る(ハーネスでは呼べない)ので、ここでは見ない(abprobe の codec が見る)。
+            foreach (var (label, bad) in new[] { ("truncated runs", truncated), ("side over MaxSide", "R:" + Convert.ToBase64String(huge)),
+                                                 ("short legacy", Convert.ToBase64String(new byte[9])) })
+            {
+                Check(MaskRle.Decode(bad, out _, out _) == null, "bool decode rejects: " + label);
+                Check(MaskRle.DecodePacked(bad, out _, out _) == null, "packed decode rejects: " + label);
+            }
+
+            // 5) 保存形式から作るスナップショット(MaskStateCodec.ToSnapshot。非破壊ビルド・シーンのプレビューの入口)は、
+            //    bool[] へ展開してから組み立てたもの(MaskSnapshot.FromBuffers)と同じ。切れた項目・寸法の違う項目・
+            //    ゾーン id の無い項目・同じゾーン id の 2 つ目・全 false の含めるマスクも同じに扱う。
+            var msX = new MaskState();
+            MaskStateCodec.Encode(msX, W, H, common, zones, includes);
+            msX.zones.Add(new MaskZoneEntry { zoneId = "broken", maskBase64 = truncated });
+            msX.zones.Add(new MaskZoneEntry { zoneId = "other size", maskBase64 = MaskRle.Encode(Disc(10, 10, 5), H, W) });
+            msX.zones.Add(new MaskZoneEntry { zoneId = "", maskBase64 = MaskRle.Encode(Disc(10, 10, 5), W, H) });
+            msX.zones.Add(null);
+            msX.zones.Add(new MaskZoneEntry { zoneId = "a", maskBase64 = MaskRle.Encode(Disc(50, 60, 20), W, H) });   // 後が勝つ
+            msX.zones.Add(new MaskZoneEntry { zoneId = "legacy", maskBase64 = Legacy(Disc(400, 100, 33), W, H) });
+            msX.zoneIncludes.Add(new MaskZoneEntry { zoneId = "b", maskBase64 = MaskRle.Encode(new bool[W * H], W, H) });   // 全 false
+            var zx = new Dictionary<string, bool[]>();
+            var ix = new Dictionary<string, bool[]>();
+            MaskStateCodec.Decode(msX, out int wx, out int hx, out bool[] cx, zx, ix);
+            var viaBools = MaskSnapshot.FromBuffers(wx, hx, cx, zx, ix);
+            var direct = MaskStateCodec.ToSnapshot(msX);
+            bool SameDict(Dictionary<string, ulong[]> a, Dictionary<string, ulong[]> b)
+            {
+                if (a == null || b == null) return a == b;
+                if (a.Count != b.Count) return false;
+                foreach (var kv in a)
+                    if (!b.TryGetValue(kv.Key, out var v) || !SameBits(kv.Value, v)) return false;
+                return true;
+            }
+            Check(direct != null && direct.width == viaBools.width && direct.height == viaBools.height, "snapshot dimensions");
+            Check(direct != null && SameBits(direct.common, viaBools.common), "snapshot common");
+            Check(direct != null && SameDict(direct.zones, viaBools.zones) && direct.zones.Count == 3,
+                $"snapshot zones (count={direct?.zones?.Count})");
+            Check(direct != null && SameDict(direct.zoneIncludes, viaBools.zoneIncludes) && direct.zoneIncludes.Count == 1,
+                "snapshot includes (all-false include is not carried)");
+            var msNoCommon = new MaskState { width = W, height = H, commonMaskBase64 = "" };
+            var noCommon = MaskStateCodec.ToSnapshot(msNoCommon);
+            Check(noCommon != null && noCommon.common == null && noCommon.zones.Count == 0 && noCommon.zoneIncludes == null,
+                "snapshot of a state without masks");
+            Check(MaskStateCodec.ToSnapshot(new MaskState()) == null && MaskStateCodec.ToSnapshot(null) == null,
+                "no snapshot without dimensions");
+
             Console.WriteLine(fails == 0 ? "MASKCODECSELFTEST ALL PASS" : $"MASKCODECSELFTEST {fails} FAILED");
             return fails == 0 ? 0 : 4;
         }

@@ -31,11 +31,17 @@ namespace Iroca
         // 定まらないため、含めるは常にゾーン単位)。除外と重なった画素は除外が勝つ。
         public Dictionary<string, ulong[]> zoneIncludes;
 
+        /// <summary>
+        /// len 画素ぶんの 1 画素 1 ビットの配列(全部 0)。詰めた形の配列はここでだけ作る(保存形式からの直接の展開
+        /// <see cref="MaskRle.DecodePacked"/> も使う。ヒープの外の NativeBitMask へ置き換えるときの 1 か所。計画の 2-3)。
+        /// </summary>
+        internal static ulong[] NewBits(int len) => new ulong[(len + 63) >> 6];
+
         /// <summary>bool[](true=除外)を 1bit/画素の ulong[] にパックする。null は null を返す。</summary>
         public static ulong[] Pack(bool[] mask)
         {
             if (mask == null) return null;
-            var packed = new ulong[(mask.Length + 63) >> 6];
+            var packed = NewBits(mask.Length);
             int words = packed.Length;
             // 64 画素 = 1 語ごとに独立なので、大きいマスクは語の範囲に分けて並列に詰める(どの語も同じ値になる)。
             // プレビューは生成のたびにメインスレッドで全マスクを詰める(BuildSnapshot)ので、ここで待つ時間が
@@ -73,7 +79,7 @@ namespace Iroca
         }
 
         // 詰めたマスクに立っているビットがあるか(null は false)。
-        private static bool AnyBitSet(ulong[] packed)
+        internal static bool AnyBitSet(ulong[] packed)
         {
             if (packed == null) return false;
             for (int i = 0; i < packed.Length; i++) if (packed[i] != 0UL) return true;

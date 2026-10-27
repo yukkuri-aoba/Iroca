@@ -157,6 +157,92 @@ namespace Iroca
             return true;
         }
 
+        /// <summary>
+        /// <see cref="Decode"/> と同じ文字列を、1 画素 1 ビットに詰めた形(<see cref="MaskSnapshot"/> と同じ並び:
+        /// 画素 i は語 i &gt;&gt; 6 の i &amp; 63 ビット目。画素数より後ろのビットは 0)へ直接展開する。
+        /// <c>MaskSnapshot.Pack(Decode(...))</c> と同じ配列になる。bool[] を経由しないので、作る配列は 1/8 の大きさで済む
+        /// (8K で 64MB → 8MB。非破壊ビルド・シーンのプレビューはマスクごとにこれを作る)。失敗の条件も Decode と同じで、
+        /// そのときは null を返す。
+        /// </summary>
+        public static ulong[] DecodePacked(string encoded, out int w, out int h)
+        {
+            w = 0; h = 0;
+            if (string.IsNullOrEmpty(encoded)) return null;
+
+            if (encoded.StartsWith(RlePrefix, System.StringComparison.Ordinal))
+            {
+                try
+                {
+                    byte[] bytes = System.Convert.FromBase64String(encoded.Substring(RlePrefix.Length));
+                    if (bytes.Length < 9) return null;
+                    if (!TryReadHeader(bytes, out w, out h, out int len)) return null;
+                    // 確保の前に、ラン列が全画素を覆うことを確かめる(Decode と同じ)。
+                    long covered = 0;
+                    for (int bi = 9; bi + 4 <= bytes.Length && covered < len; bi += 4)
+                        covered += System.BitConverter.ToUInt32(bytes, bi);
+                    if (covered < len) return null;
+                    bool curVal = bytes[8] != 0;
+                    var bits = MaskSnapshot.NewBits(len);
+                    int pos = 0;
+                    int byteIdx = 9;
+                    while (pos < len && byteIdx + 4 <= bytes.Length)
+                    {
+                        uint run = System.BitConverter.ToUInt32(bytes, byteIdx);
+                        byteIdx += 4;
+                        int end = (int)System.Math.Min((long)pos + run, len);
+                        if (curVal && end > pos) SetBits(bits, pos, end);
+                        pos = end;
+                        curVal = !curVal;
+                    }
+                    if (pos < len) return null;
+                    return bits;
+                }
+                catch (System.Exception ex)
+                {
+                    Debug.LogWarning($"[Iroca] Mask decode failed: {ex.Message}");
+                    return null;
+                }
+            }
+
+            // 旧 bitpack フォーマット(後方互換)。画素 i はバイト 8 + i/8 の i%8 ビット目なので、8 バイトずつ下位から
+            // 並べればそのまま詰めた形の語になる。画素数より後ろのビット(最後のバイトの余り)は落とす。
+            try
+            {
+                byte[] packed = System.Convert.FromBase64String(encoded);
+                if (packed.Length < 9) return null;
+                if (!TryReadHeader(packed, out w, out h, out int len)) return null;
+                int dataBytes = (len + 7) / 8;
+                if (packed.Length < 8 + dataBytes) return null;
+                var bits = MaskSnapshot.NewBits(len);
+                for (int k = 0; k < dataBytes; k++)
+                    bits[k >> 3] |= (ulong)packed[8 + k] << ((k & 7) << 3);
+                int rest = len & 63;
+                if (rest != 0) bits[bits.Length - 1] &= (1UL << rest) - 1UL;
+                return bits;
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"[Iroca] Mask decode (legacy bitpack) failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        // 詰めた形のビット [s, e)(s < e)を立てる。
+        private static void SetBits(ulong[] bits, int s, int e)
+        {
+            int w0 = s >> 6, w1 = (e - 1) >> 6;
+            ulong head = ~0UL << (s & 63);
+            ulong tail = ~0UL >> (63 - ((e - 1) & 63));
+            if (w0 == w1)
+            {
+                bits[w0] |= head & tail;
+                return;
+            }
+            bits[w0] |= head;
+            for (int k = w0 + 1; k < w1; k++) bits[k] = ~0UL;
+            bits[w1] |= tail;
+        }
+
         /// <summary>Encode の逆。デコード失敗時は null を返す。</summary>
         public static bool[] Decode(string encoded, out int w, out int h)
         {

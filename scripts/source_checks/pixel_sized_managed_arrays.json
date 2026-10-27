@@ -12,7 +12,7 @@
       "new bool[len]": 2
     },
     "Code/Core/MaskSnapshot.cs": {
-      "new ulong[(mask.Length + 63) >> 6]": 1
+      "new ulong[(len + 63) >> 6]": 1
     },
     "Code/Core/NativePixels.cs": {
       "new Color32[Length]": 1
