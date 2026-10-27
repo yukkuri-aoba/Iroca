@@ -37,6 +37,13 @@ LONG_LIVED_EVENTS = {
     "hierarchyChanged",        # EditorApplication
     "selectionChanged",        # Selection / EditorApplication
     "StateChanged",            # IMaskSuggestService(ドメイン寿命の静的保持)
+    # 2026-10-27 に追加(0.4.0 の計画 0-3)。どれも static event で、発行側はドメインと同じだけ生きる。
+    "duringSceneGui",          # SceneView.duringSceneGui
+    "TargetChanged",           # LivePreview.TargetChanged
+    "BeforeApply",             # NonDestructiveApplier.BeforeApply
+    "OnDrawFoldout",           # DebugCaptureHooks.OnDrawFoldout
+    "OnCaptureComplete",       # DebugCaptureHooks.OnCaptureComplete
+    "OnReport",                # PreviewLatency.OnReport
 }
 
 # 解除が不要と判断した購読。**理由を必ず書くこと**(黙って足すと本テストの意味が消える)。
@@ -45,6 +52,12 @@ ALLOWED_WITHOUT_UNSUBSCRIBE = {
     # ネイティブ資源を解放する」こと。ドメインと同時に消えるので解除の意味がない。
     ("Code/SentisIntegration/SentisMaskSuggestService.cs",
      "beforeAssemblyReload", "DisposeAll"),
+    # 以下 3 つは、デバッグの asmdef が [InitializeOnLoadMethod] で static メソッドを 1 度だけつなぐもの。
+    # 購読者は static メソッドなので生き残るオブジェクトが無く、ドメインの読み直しで発行側の static event も
+    # 空に戻るので二重にもならない。
+    ("Code/Debug/DebugBootstrap.cs", "OnCaptureComplete", "DebugView.PublishCompletedCapture"),
+    ("Code/Debug/DebugBootstrap.cs", "OnDrawFoldout", "PerfView.Draw"),
+    ("Code/Debug/PerfView.cs", "OnReport", "HandleLatency"),
 }
 
 # 行コメント / ブロックコメント / 文字列リテラルを落とす(コメント中の += を拾わない)。
