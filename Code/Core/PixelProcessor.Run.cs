@@ -135,6 +135,9 @@ namespace Iroca
             public RecolorParams Params;
             public float RegLmid;
             public float* RegMidMap, RegUpMap;
+            // 混色帯: 再着色する範囲(画素が無ければ RcMaxX < 0)と、帯の被覆率(帯が無ければ null。指す先は RunBuffers)。
+            public int RcMinX, RcMinY, RcMaxX, RcMaxY;
+            public float* MixAlpha;
         }
 
         /// <summary>

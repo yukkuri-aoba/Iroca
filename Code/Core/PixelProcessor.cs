@@ -458,45 +458,9 @@ namespace Iroca
                     var aaMaskLocal = aaMask;
                     var decontaminatedLocal = decontaminatedPixels;
                     var claimedLocal = rb.Claimed;
-                    // bbox 制限(P2-7): recolor ループは先頭で s<=0.001 を skip し近傍読みをしないため、
-                    // strength>0.001 の bbox だけを走査すれば出力はビット不変。マッチ領域が小さいゾーン
-                    // (ロゴ等)で OkLab 再着色の per-pixel コストを実マッチ範囲に限定する。bbox 走査は
-                    // 軽い比較 1 パスで、recolor の重い per-pixel コスト削減が上回る。
-                    // 走査自体は共通の並列 bbox ヘルパへ寄せる(同条件の逐次コピーだった)。
-                    TryComputeStrengthBBox(strengthForRecolor, w, h, RecolorMinStrength,
-                        out int rcMinX, out int rcMinY, out int rcMaxX, out int rcMaxY, cancellationToken);
-                    _sub.Mark(SpRecolorBBox);
-                    // 混色帯(選択境界の AA・にじみ)の解析。境界クリーンアップ ON かつ有彩サンプルのゾーンでは、
-                    // 境界の画素を「被覆率ぶんだけ隣の素材の変化を足す」合成の式で塗る(PixelProcessor.MixtureBand.cs
-                    // の AnalyzeMixtureBand)。対象の画素は mixAlpha ≥ 0、色は decontaminatedPixels に入り、
-                    // 下のループが読む。無彩サンプル(グレーモード相当)は色度で被覆率を測れないので従来の経路。
-                    float* mixAlphaLocal = null;
-                    if (zMixMode && rcMaxX >= 0)
-                    {
-                        float* mixAlpha = rb.MixAlphaOrRent(len);
-                        bool* mixExcluded = null;
-                        if (commonMask != null || zoneMask != null)
-                        {
-                            // 解析が読むのは bbox ± (2·探索半径 + 1)。その範囲の除外フラグを埋める。
-                            mixExcluded = rb.MaskExcludedOrRent(len);
-                            int mm = 2 * Mathf.Max(MixBandRadius + 1, decontaminationRadius) + 1;
-                            int my0 = Mathf.Max(0, rcMinY - mm), my1 = Mathf.Min(h - 1, rcMaxY + mm);
-                            int mx0 = Mathf.Max(0, rcMinX - mm), mx1 = Mathf.Min(w - 1, rcMaxX + mm);
-                            FillExcludedRect(mixExcluded, w, mx0, my0, mx1, my1,
-                                maskColOf, maskRowBase, commonMask, zoneMask, po);
-                        }
-                        AnalyzeMixtureBand(originalPixels, strengthForRecolor, w, h, decontaminationRadius,
-                            in rcParams, zRegMidMap, zRegUpMap, zRegLmid,
-                            MostChromaticSample(zone), includedPx,
-                            decontaminatedPixels, mixAlpha,
-                            rcMinX, rcMinY, rcMaxX, rcMaxY,
-                            out int mixMinX, out int mixMinY, out int mixMaxX, out int mixMaxY,
-                            mixExcluded, cancellationToken);
-                        // 帯は選択の外側にも伸びるので、ループの範囲を広げる。
-                        rcMinX = mixMinX; rcMinY = mixMinY; rcMaxX = mixMaxX; rcMaxY = mixMaxY;
-                        mixAlphaLocal = mixAlpha;
-                    }
-                    _sub.Mark(SpMixBand);
+                    MixtureBandStage.Run(run, z);
+                    int rcMinX = z.RcMinX, rcMinY = z.RcMinY, rcMaxX = z.RcMaxX, rcMaxY = z.RcMaxY;
+                    float* mixAlphaLocal = z.MixAlpha;
                     // 再着色色は画素の色(RGBA と色から求めた V)とゾーン定数だけで決まる。成分別 L マップ
                     // (無彩パス)を使わないゾーンでは色ごとに 1 回だけ求めて配る。表の大きさが再着色の
                     // 範囲より大きい(小さなロゴ等)ときは画素ごとに求めたほうが安いので使わない。
