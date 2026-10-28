@@ -463,36 +463,9 @@ namespace Iroca
                     float* mixAlphaLocal = z.MixAlpha;
                     ComposeStage.Run(run, z);
 
-                    // 無彩(白↔黒)再着色のエッジに残る「地色の残り」フチ消し。マッチ境界の外側 2px に残る
-                    // 背景より明るい混色画素を α 分解で背景へ寄せ、暗い再着色色に対する明るいフチを消す。
-                    // 有彩(zAchromaWeight≈0)では呼ばれず完全 no-op。共有のマッチ/合成経路は変更しない。
-                    // 混色帯の解析が走ったゾーン(有彩サンプル)では、外側の縁もそちらが合成の式で塗り終えている。
-                    if (zAchromaWeight > AchromaWeightActiveMin && rcMaxX >= 0 && mixAlphaLocal == null)
-                    {
-                        // 除外マスク画素の位置をフチ消しへ渡す。渡さないとフチ消しは
-                        //   (a) 除外画素を BG ドナーに数えて BG 推定をサンプル色で汚染し
-                        //   (b) 除外画素そのものへ target 混色を書き込む(マスク契約違反)
-                        // という DecontaminateAaBoundary では 05ecca8 で塞いだ穴を残す。
-                        // 埋める範囲はフチ消しが読む bbox±AchromaFringeExclusionMargin だけ
-                        // (デコンタミ側の充填は ppMin/Max±decontaminationRadius かつ
-                        //  useDecontamination 時のみなので、ここは独立に埋める必要がある)。
-                        bool* fringeExcluded = null;
-                        if (commonMask != null || zoneMask != null)
-                        {
-                            fringeExcluded = rb.MaskExcludedOrRent(len);
-                            const int fm = AchromaFringeExclusionMargin;
-                            int fy0 = Mathf.Max(0, rcMinY - fm), fy1 = Mathf.Min(h - 1, rcMaxY + fm);
-                            int fx0 = Mathf.Max(0, rcMinX - fm), fx1 = Mathf.Min(w - 1, rcMaxX + fm);
-                            FillExcludedRect(fringeExcluded, w, fx0, fy0, fx1, fy1,
-                                maskColOf, maskRowBase, commonMask, zoneMask, po);
-                        }
-                        CleanAchromaFringe(pixels, originalPixels, strengthForRecolor, claimedLocal,
-                            w, h, zone.sampleColor, zone.targetColor, rcMinX, rcMinY, rcMaxX, rcMaxY,
-                            cancellationToken, fringeExcluded);
-                    }
-
-                    _sub.Mark(SpAchromaFringe);
-                    _phaseTicks[PhRecolor] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
+                    run.Tp = _tp;
+                    AchromaFringeStage.Run(run, z);
+                    _tp = run.Tp;
 
                     // Recolor 段で各ピクセルに適用されたサブブランチを記録する。
                     // hot loop には分岐を増やさず、debug 有効時だけ追加の Parallel.For で

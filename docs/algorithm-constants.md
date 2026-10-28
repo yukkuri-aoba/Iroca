@@ -116,6 +116,7 @@
 | `Code/Core/PixelProcessor.Recolor.cs` | 8 |
 | `Code/Core/PixelProcessor.Run.cs` | 0 |
 | `Code/Core/PixelProcessor.cs` | 2 |
+| `Code/Core/Recolor/PixelProcessor.AchromaFringeStage.cs` | 0 |
 | `Code/Core/Recolor/PixelProcessor.AchromaSolidifyStage.cs` | 0 |
 | `Code/Core/Recolor/PixelProcessor.ComposeStage.cs` | 3 |
 | `Code/Core/Recolor/PixelProcessor.DecontamStage.cs` | 0 |
@@ -374,6 +375,11 @@
 | `EdgeFeatherBlurMin` | `0.01f` | 量子化 | — | これ以下の σ では核がほぼ単位元になるので、ぼかし 0 とみなす境目 |
 | `RecolorMinStrength` | `0.001f` | 量子化 | — | 8bit で 1 階調未満の変化しか生まない強度を読み飛ばす境目 |
 | `AchromaWeightActiveMin` | `1e-4f` | 量子化 | — | 無彩パスの重みを 0 とみなす ε |
+
+## `Code/Core/Recolor/PixelProcessor.AchromaFringeStage.cs`
+
+| 定数 | 値 | 種類 | 段 | 根拠 |
+|---|---|---|---|---|
 | `fm` | `AchromaFringeExclusionMargin` | 設計 | — | 無彩フチ消しが読む範囲（照合半径＋背景窓）の局所別名 |
 
 ## `Code/Core/UvChartMap.cs`
