@@ -272,25 +272,17 @@ namespace Iroca
             float* pixH = null, pixS = null, pixV = null;
             int* pixIdx = null;
             bool hsvRented = false;
-            // 占有率バッファ: 優先度の高い(リスト上位の)ゾーンが書き込んだカバレッジを
-            // ピクセル単位で累積する。下位ゾーンは残り(1-claimed)の範囲だけ適用され、
-            // 「重なった部分は上位ゾーンのみ適用」というレイヤー排他を実現する。
-            // 単一ゾーン/非重複ピクセルでは常に 0 のままで、従来挙動は不変。
-            float* claimed = null;
-            // 混色帯の被覆率(AnalyzeMixtureBand の出力)。初めて要るゾーンで借り、末尾の finally で返す。
-            float* mixAlpha = null;
+            // ゾーンをまたいで使い回す作業配列(占有率・デコンタミ・除外フラグ・混色帯。末尾の finally で返す)。
+            // 占有率: 下位ゾーンは残り(1-claimed)の範囲だけ適用され、「重なった部分は上位ゾーンのみ適用」という
+            // レイヤー排他を実現する。単一ゾーン/非重複ピクセルでは常に 0 のままで、従来挙動は不変。
+            var rb = new RunBuffers();
             // 色の種類の表(PixelProcessor.Palette.cs)。色だけで決まる計算を色ごとに 1 回で済ませる。
             // 種類が多い画像では null(画素ごとに計算する)。どちらでも出力はビット単位で同じ。
             ColorPalette palette = null;
-            // decontamination 用バッファ(下で借りる。末尾の finally で返す)。
-            bool* decontamAaMask = null;
-            Color32* decontamPixels = null;
-            // 除外マスク画素の位置(BG ドナー隠蔽用)。マスクがあるゾーンで初回に借り、ゾーン間で再利用。
-            bool* decontamMaskExcluded = null;
             try
             {
-            claimed = s_floatPool.Rent(len);
-            ClearWork(claimed, 0, len);
+            rb.Claimed = s_floatPool.Rent(len);
+            ClearWork(rb.Claimed, 0, len);
 
             // po を HSV 計算 + foreach 内の全 Parallel.For で共用。
             // MaxDegreeOfParallelism で Unity Editor のスレッドプール圧迫を防ぐ。
@@ -338,8 +330,8 @@ namespace Iroca
             // 値が残っていても壊れない作り)。
             if (useDecontamination)
             {
-                decontamAaMask = s_boolPool.Rent(len);
-                decontamPixels = s_color32Pool.Rent(len);
+                rb.DecontamAaMask = s_boolPool.Rent(len);
+                rb.DecontamPixels = s_color32Pool.Rent(len);
             }
 
             // ゾーンをまたいで変わらない入力。選択・マスクの契約へ渡す(RunLegacySelection・ApplyMaskContract)。
@@ -453,8 +445,8 @@ namespace Iroca
                     Color32* decontaminatedPixels = null;
                     if (useDecontamination)
                     {
-                        aaMask = decontamAaMask;
-                        decontaminatedPixels = decontamPixels;
+                        aaMask = rb.DecontamAaMask;
+                        decontaminatedPixels = rb.DecontamPixels;
                         // 内部固め(上)が無彩ターゲットの内部を均一化したので、旧 AA フィデリティ修正の
                         // interior_threshold=1.01(全画素 α 再合成)は不要(むしろ内部を背景色で再合成して
                         // 段差を復活させる)。常に通常閾値で AA 縁だけをデコンタミする。
@@ -465,8 +457,7 @@ namespace Iroca
                         bool* deconExcluded = null;
                         if (commonMask != null || zoneMask != null)
                         {
-                            if (decontamMaskExcluded == null) decontamMaskExcluded = s_boolPool.Rent(len);
-                            deconExcluded = decontamMaskExcluded;
+                            deconExcluded = rb.MaskExcludedOrRent(len);
                             // デコンタミが除外フラグを読むのは BG ドナー範囲(後段 bbox ± radius)だけ
                             // なので、そこだけ埋める。範囲外は読まれない=出力ビット不変
                             // (バッファはゾーン間で使い回すが、各ゾーンが自分の読む範囲を必ず埋める)。
@@ -680,7 +671,7 @@ namespace Iroca
                     var strengthForRecolor = strength;
                     var aaMaskLocal = aaMask;
                     var decontaminatedLocal = decontaminatedPixels;
-                    var claimedLocal = claimed;
+                    var claimedLocal = rb.Claimed;
                     // bbox 制限(P2-7): recolor ループは先頭で s<=0.001 を skip し近傍読みをしないため、
                     // strength>0.001 の bbox だけを走査すれば出力はビット不変。マッチ領域が小さいゾーン
                     // (ロゴ等)で OkLab 再着色の per-pixel コストを実マッチ範囲に限定する。bbox 走査は
@@ -702,13 +693,12 @@ namespace Iroca
                     float* mixAlphaLocal = null;
                     if (zMixMode && rcMaxX >= 0)
                     {
-                        if (mixAlpha == null) mixAlpha = s_floatPool.Rent(len);
+                        float* mixAlpha = rb.MixAlphaOrRent(len);
                         bool* mixExcluded = null;
                         if (commonMask != null || zoneMask != null)
                         {
                             // 解析が読むのは bbox ± (2·探索半径 + 1)。その範囲の除外フラグを埋める。
-                            if (decontamMaskExcluded == null) decontamMaskExcluded = s_boolPool.Rent(len);
-                            mixExcluded = decontamMaskExcluded;
+                            mixExcluded = rb.MaskExcludedOrRent(len);
                             int mm = 2 * Mathf.Max(MixBandRadius + 1, decontaminationRadius) + 1;
                             int my0 = Mathf.Max(0, rcMinY - mm), my1 = Mathf.Min(h - 1, rcMaxY + mm);
                             int mx0 = Mathf.Max(0, rcMinX - mm), mx1 = Mathf.Min(w - 1, rcMaxX + mm);
@@ -864,8 +854,7 @@ namespace Iroca
                         bool* fringeExcluded = null;
                         if (commonMask != null || zoneMask != null)
                         {
-                            if (decontamMaskExcluded == null) decontamMaskExcluded = s_boolPool.Rent(len);
-                            fringeExcluded = decontamMaskExcluded;
+                            fringeExcluded = rb.MaskExcludedOrRent(len);
                             const int fm = AchromaFringeExclusionMargin;
                             int fy0 = Mathf.Max(0, rcMinY - fm), fy1 = Mathf.Min(h - 1, rcMaxY + fm);
                             int fx0 = Mathf.Max(0, rcMinX - fm), fx1 = Mathf.Min(w - 1, rcMaxX + fm);
@@ -949,11 +938,7 @@ namespace Iroca
             finally
             {
                 palette?.Release();
-                if (decontamMaskExcluded != null) s_boolPool.Return(decontamMaskExcluded);
-                if (decontamPixels != null) s_color32Pool.Return(decontamPixels);
-                if (decontamAaMask != null) s_boolPool.Return(decontamAaMask);
-                if (mixAlpha != null) s_floatPool.Return(mixAlpha);
-                if (claimed != null) s_floatPool.Return(claimed);
+                rb.ReturnAll();
                 if (hsvRented)
                 {
                     if (pixV != null) s_floatPool.Return(pixV);

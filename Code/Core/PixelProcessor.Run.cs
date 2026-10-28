@@ -45,6 +45,41 @@ namespace Iroca
         }
 
         /// <summary>
+        /// 1 回の処理で、ゾーンをまたいで使い回す作業配列の持ち主(0.4.0 の計画の 3-7b)。占有率は最初に借り、
+        /// デコンタミの 2 つは設定が有効なときに借り、除外フラグと混色帯の被覆率は初めて要るゾーンで借りる。
+        /// 処理の終わり(例外・取り消しのときも)に <see cref="ReturnAll"/> が返す。どれもゼロ初期化されないので、
+        /// 書いた位置しか読まない(占有率だけは借りた直後に 0 で埋める)。
+        /// </summary>
+        private sealed class RunBuffers
+        {
+            // 占有率: 優先度の高い(リスト上位の)ゾーンが書き込んだカバレッジをピクセル単位で累積する。
+            public float* Claimed;
+            public bool* DecontamAaMask;       // デコンタミで AA 縁とした画素
+            public Color32* DecontamPixels;    // デコンタミ・混色帯で塗る色
+            // 除外マスクの画素の位置(デコンタミ・混色帯・無彩のフチ消しが、それぞれ自分の読む範囲だけを埋める)。
+            public bool* MaskExcluded;
+            public float* MixAlpha;            // 混色帯の被覆率(AnalyzeMixtureBand の出力)
+
+            public bool* MaskExcludedOrRent(int len) =>
+                MaskExcluded != null ? MaskExcluded : (MaskExcluded = s_boolPool.Rent(len));
+
+            public float* MixAlphaOrRent(int len) =>
+                MixAlpha != null ? MixAlpha : (MixAlpha = s_floatPool.Rent(len));
+
+            public void ReturnAll()
+            {
+                if (MaskExcluded != null) s_boolPool.Return(MaskExcluded);
+                if (DecontamPixels != null) s_color32Pool.Return(DecontamPixels);
+                if (DecontamAaMask != null) s_boolPool.Return(DecontamAaMask);
+                if (MixAlpha != null) s_floatPool.Return(MixAlpha);
+                if (Claimed != null) s_floatPool.Return(Claimed);
+                MaskExcluded = DecontamAaMask = null;
+                DecontamPixels = null;
+                MixAlpha = Claimed = null;
+            }
+        }
+
+        /// <summary>
         /// 1 つのゾーンの処理で借りる作業配列の持ち主。段が借りたら入れ、途中で返したら null に戻す。ゾーンの終わり
         /// (例外・取り消しのときも)に <see cref="ReturnAll"/> が残っているものを返す。
         /// </summary>
