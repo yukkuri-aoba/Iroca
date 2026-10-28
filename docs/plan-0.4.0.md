@@ -723,8 +723,20 @@ T5 で消える部分は作り直さない（1.5）。
     （`OpaqueAlphaMin`）・`CoreMemory`（`ReleaseIdle` / `ReleaseIdleInBackground`）を置いた。`PixelProcessor` の
     `ComputeDefaultParallelism`・`DefaultParallelism`・`GetMaxParallelism`・`OpaqueAlphaMin`・`ReleaseWorkBuffers*` と
     `DebugCaptureHooks.ParallelismOverride`（欄からプロパティへ）は転送役。新しく書くコード（T5 など）は Foundation を使う。
-- [ ] 3-5 移すだけの切り出し: 色空間（OkLab を公開し、Automation の写しを消す）・`PixelHsv`・色の表・
+- [x] 3-5 移すだけの切り出し: 色空間（OkLab を公開し、Automation の写しを消す）・`PixelHsv`・色の表・
   ヒストグラム・ビット列・ぼかし。定数の台帳の節も一緒に移す（台帳の行は消さずに移す）。
+  - 2026-10-28（手元）: 色空間は `Code/Core/Color/OkLab.cs` の static クラス `OkLab` にし（c43a7d4）、自動化の
+    `TextureColorSummary` の写しを消した。写しは sRGB → 線形を `MathF.Pow`、製品の表は `Mathf.Pow`（double の Pow）で
+    求めていたが、256 値すべてが .NET 8 と Unity 同梱の Mono 6.13 の両方でビット単位で同じだった（手がかりの値は変わらない）。
+  - `PixelHsv`・`HsvSlot` と色の表は `Code/Core/Color/` へ移したが、`PixelProcessor` の partial のままにした（45ecb03）。
+    `HsvSlot` は旧の選択の画素ループが毎画素呼ぶので、別の型へ移すと転送役を挟むか旧の選択を書き換えることになる
+    （2 章の 6・7）。色の表を T5 の領域の層から使うときは、そのとき `internal` にする。色の表のファイルにあった
+    無彩パスの再着色メモは、再着色の側（`PixelProcessor.Recolor.cs`）へ移した。
+  - ヒストグラム（`AccumulateHistParallelRows`・`HistValueAtPercentile`）は `Foundation/Histogram.cs` の
+    `Histogram.AccumulateParallelRows`・`ValueAtPercentile` に、ビット数（マスクの側の `PopCount` と混色帯の `PopCount64`
+    の 2 つの実装）は `Foundation/Bits.cs` の `Bits.PopCount` 1 つにした。旧の選択の中の呼び出し 2 か所（連結成分の
+    コアの分位点・選択キャッシュの鍵のビット数）は名前だけ替えた。旧の選択と旧の自動調整だけが使うヒストグラム
+    （`HistogramMedian`・`PercentileBin`）は T5 で消えるので移していない。ぼかしは 3-7a で済んでいた。
 - [x] 3-7a **選択と再着色の境目を決める（T5 の前提。フェーズ 3A でいちばん先に済ませたい手順）。**
   - `ProcessPixelsArrayCore` のうち、選択（照合 → 強度 → ぼかし・選択キャッシュへの保存まで）が後段へ渡している値を洗い出し、
     `SelectionResult` にまとめる。

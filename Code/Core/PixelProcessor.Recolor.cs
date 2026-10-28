@@ -220,7 +220,7 @@ namespace Iroca
             {
                 // pass 1: (L, C) を保存しつつ飽和度(C/L)ヒストグラム → 中央値から地色下限を決める
                 var satrHist = new int[256];
-                int candCount = AccumulateHistParallelRows(bbMinY, bbMaxY + 1, satrHist, (y0, y1, hist) =>
+                int candCount = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, satrHist, (y0, y1, hist) =>
                 {
                     int n = 0;
                     for (int y = y0; y < y1; y++)
@@ -248,11 +248,11 @@ namespace Iroca
                 if (candCount < AnchorMinPixels) return false;
                 // material.MinSatr は 1 段目では 0(中央値の項は 0 以上なので値は従来と同じ)。
                 float satrFloor = Mathf.Max(AnchorBodySatrFrac *
-                    HistValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax), material.MinSatr);
+                    Histogram.ValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax), material.MinSatr);
 
                 // pass 2: 地色画素(飽和度 ≥ 下限)の L ヒストグラム → 代表 L と L 帯
                 var lHist = new int[256];
-                int bodyCount = AccumulateHistParallelRows(bbMinY, bbMaxY + 1, lHist, (y0, y1, hist) =>
+                int bodyCount = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, lHist, (y0, y1, hist) =>
                 {
                     int n = 0;
                     for (int y = y0; y < y1; y++)
@@ -272,16 +272,16 @@ namespace Iroca
                     return n;
                 }, ct);
                 if (bodyCount < AnchorMinPixels) return false;
-                float l05 = HistValueAtPercentile(lHist, bodyCount, 0.05f, 1f);
-                float l95 = HistValueAtPercentile(lHist, bodyCount, 0.95f, 1f);
+                float l05 = Histogram.ValueAtPercentile(lHist, bodyCount, 0.05f, 1f);
+                float l95 = Histogram.ValueAtPercentile(lHist, bodyCount, 0.95f, 1f);
                 if (l95 - l05 < AnchorMinLSpread) return false;  // フラット領域: どこを取っても同じ
-                anchorL = HistValueAtPercentile(lHist, bodyCount, AnchorLPct, 1f);
-                float bandLo = HistValueAtPercentile(lHist, bodyCount, AnchorLBandLoPct, 1f);
-                float bandHi = HistValueAtPercentile(lHist, bodyCount, AnchorLBandHiPct, 1f);
+                anchorL = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLPct, 1f);
+                float bandLo = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLBandLoPct, 1f);
+                float bandHi = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLBandHiPct, 1f);
 
                 // pass 3: L 帯内の地色画素の chroma 中央値 → 代表 C
                 var cHist = new int[256];
-                int bandCount = AccumulateHistParallelRows(bbMinY, bbMaxY + 1, cHist, (y0, y1, hist) =>
+                int bandCount = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, cHist, (y0, y1, hist) =>
                 {
                     int n = 0;
                     for (int y = y0; y < y1; y++)
@@ -302,7 +302,7 @@ namespace Iroca
                     return n;
                 }, ct);
                 if (bandCount < 1) return false;
-                anchorC = HistValueAtPercentile(cHist, bandCount, 0.5f, AnchorChromaHistMax);
+                anchorC = Histogram.ValueAtPercentile(cHist, bandCount, 0.5f, AnchorChromaHistMax);
                 return anchorC > 1e-4f;
             }
             finally
@@ -335,7 +335,7 @@ namespace Iroca
             // ワーカー全員が持つと 1 回で 50MB を超えるので、配列の合計が AnchorCountBudget に収まる人数で数える
             // (普通のテクスチャは数千〜数万色で、人数は変わらない)。整数の加算なので人数によらず結果は同じ。
             int workers = Math.Max(1, AnchorCountBudget / Math.Max(1, colorCount));
-            int candCount = AccumulateHistParallelRows(bbMinY, bbMaxY + 1, cnt, (y0, y1, local) =>
+            int candCount = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, cnt, (y0, y1, local) =>
             {
                 int n = 0;
                 for (int y = y0; y < y1; y++)
@@ -377,7 +377,7 @@ namespace Iroca
                 satrHist[Mathf.Clamp((int)(satr / AnchorSatrHistMax * 255f), 0, 255)] += c;
             }
             float satrFloor = Mathf.Max(AnchorBodySatrFrac *
-                HistValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax), material.MinSatr);
+                Histogram.ValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax), material.MinSatr);
 
             // 2: 地色(飽和度 ≥ 下限)の L ヒストグラム → 代表 L と L 帯
             var lHist = new int[256];
@@ -392,12 +392,12 @@ namespace Iroca
                 bodyCount += c;
             }
             if (bodyCount < AnchorMinPixels) return false;
-            float l05 = HistValueAtPercentile(lHist, bodyCount, 0.05f, 1f);
-            float l95 = HistValueAtPercentile(lHist, bodyCount, 0.95f, 1f);
+            float l05 = Histogram.ValueAtPercentile(lHist, bodyCount, 0.05f, 1f);
+            float l95 = Histogram.ValueAtPercentile(lHist, bodyCount, 0.95f, 1f);
             if (l95 - l05 < AnchorMinLSpread) return false;  // フラット領域: どこを取っても同じ
-            anchorL = HistValueAtPercentile(lHist, bodyCount, AnchorLPct, 1f);
-            float bandLo = HistValueAtPercentile(lHist, bodyCount, AnchorLBandLoPct, 1f);
-            float bandHi = HistValueAtPercentile(lHist, bodyCount, AnchorLBandHiPct, 1f);
+            anchorL = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLPct, 1f);
+            float bandLo = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLBandLoPct, 1f);
+            float bandHi = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLBandHiPct, 1f);
 
             // 3: L 帯内の地色の chroma 中央値 → 代表 C
             var cHist = new int[256];
@@ -413,7 +413,7 @@ namespace Iroca
                 bandCount += c;
             }
             if (bandCount < 1) return false;
-            anchorC = HistValueAtPercentile(cHist, bandCount, 0.5f, AnchorChromaHistMax);
+            anchorC = Histogram.ValueAtPercentile(cHist, bandCount, 0.5f, AnchorChromaHistMax);
             return anchorC > 1e-4f;
         }
 

@@ -263,25 +263,12 @@ namespace Iroca
             for (int y = ya; y <= yb; y++)
             {
                 int o = y * wpr;
-                if (wa == wb) { n += PopCount64(bits[o + wa] & ma & mb); continue; }
-                n += PopCount64(bits[o + wa] & ma);
-                for (int k = wa + 1; k < wb; k++) n += PopCount64(bits[o + k]);
-                n += PopCount64(bits[o + wb] & mb);
+                if (wa == wb) { n += Bits.PopCount(bits[o + wa] & ma & mb); continue; }
+                n += Bits.PopCount(bits[o + wa] & ma);
+                for (int k = wa + 1; k < wb; k++) n += Bits.PopCount(bits[o + k]);
+                n += Bits.PopCount(bits[o + wb] & mb);
             }
             return n;
-        }
-
-        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        private static int PopCount64(ulong v)
-        {
-#if NETCOREAPP3_0_OR_GREATER
-            return System.Numerics.BitOperations.PopCount(v);
-#else
-            v -= (v >> 1) & 0x5555555555555555UL;
-            v = (v & 0x3333333333333333UL) + ((v >> 2) & 0x3333333333333333UL);
-            v = (v + (v >> 4)) & 0x0F0F0F0F0F0F0F0FUL;
-            return (int)((v * 0x0101010101010101UL) >> 56);
-#endif
         }
 
         /// <summary>

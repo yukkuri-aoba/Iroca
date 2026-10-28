@@ -104,7 +104,7 @@ namespace Iroca
                     }
                 }
                 coreThreshold = Mathf.Max(
-                    HistValueAtPercentile(sHist, posCount, 0.75f, 1f), CoreAbsoluteFloor);
+                    Histogram.ValueAtPercentile(sHist, posCount, 0.75f, 1f), CoreAbsoluteFloor);
             }
 
             int bw = maxX - minX + 1, bh = maxY - minY + 1;

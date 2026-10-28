@@ -323,13 +323,13 @@ namespace Iroca
                     }
                     size += x1 - x0 + 1;
                 }
-                med[c] = HistValueAtPercentile(hist, size, AchromaRefPercentile, 1f);
+                med[c] = Histogram.ValueAtPercentile(hist, size, AchromaRefPercentile, 1f);
                 // 明部の幅はコアマッチ(strength≥AnchorStrengthMin)の画素だけで測る。AA 縁は素材と隣の色の
                 // 混色で、隣が明るいと芯より明るい画素が並ぶが、それは陰影ではない(アンカー推定と同じ除外)。
                 // コアが無い成分(全体が淡い縁など)は全画素で測る。
                 float hi = coreSize > 0
-                    ? HistValueAtPercentile(histCore, coreSize, AchromaHeadroomPercentile, 1f)
-                    : HistValueAtPercentile(hist, size, AchromaHeadroomPercentile, 1f);
+                    ? Histogram.ValueAtPercentile(histCore, coreSize, AchromaHeadroomPercentile, 1f)
+                    : Histogram.ValueAtPercentile(hist, size, AchromaHeadroomPercentile, 1f);
                 up[c] = Mathf.Min(AchromaFormOffset, AchromaFormGain * Mathf.Max(0f, hi - med[c]));
                 return hs;
             }, _ => { });
@@ -424,7 +424,7 @@ namespace Iroca
             {
                 Array.Clear(hist, 0, hist.Length);
                 float passThr = thr;   // ラムダは ref ローカルを捕獲できないのでパス毎に固定する
-                count = AccumulateHistParallelRows(bbMinY, bbMaxY + 1, hist, (y0, y1, localHist) =>
+                count = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, hist, (y0, y1, localHist) =>
                 {
                     int n = 0;
                     for (int y = y0; y < y1; y++)
@@ -448,7 +448,7 @@ namespace Iroca
                 thr = 1e-4f;   // フォールバック: strength>0 の全マッチ画素
             }
             if (count < 1) return false;
-            mid = HistValueAtPercentile(hist, count, 0.50f, 1f);
+            mid = Histogram.ValueAtPercentile(hist, count, 0.50f, 1f);
             return true;
         }
 

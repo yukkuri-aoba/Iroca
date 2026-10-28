@@ -76,7 +76,7 @@ namespace Iroca
                 ulong d = (MaskWord(oldCommon, wi) | MaskWord(oldZone, wi))
                         ^ (MaskWord(newCommon, wi) | MaskWord(newZone, wi));
                 if (d == 0UL) continue;
-                changed += PopCount(d);
+                changed += Bits.PopCount(d);
                 MarkMaskRows(rows, wi, maskW, maskH);
             }
             if (changed == 0) return true;

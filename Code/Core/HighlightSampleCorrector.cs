@@ -45,7 +45,7 @@ namespace Iroca
             // ヒストグラムは整数加算だけで集計順に依存しないため行並列化できる(結果は逐次版と同値)。
             // 4K では全画素 1670 万回の逐次ループで、再着色パラメータを変えるたびに毎回走っていた。
             var vHist = new int[256];
-            int body = PixelProcessor.AccumulateHistParallelRows(0, h, vHist, (y0, y1, hist) =>
+            int body = Histogram.AccumulateParallelRows(0, h, vHist, (y0, y1, hist) =>
             {
                 int n = 0;
                 for (int y = y0; y < y1; y++)
@@ -69,11 +69,11 @@ namespace Iroca
 
             // スポイトが地色帯の高 percentile より上＝明らかにハイライトを取った時だけ補正する。
             // 地色帯内のスポイト(ハイライトでない)は補正しない＝房の多いテクスチャ等での過剰白寄せを防ぐ。
-            float gateV = PixelProcessor.HistValueAtPercentile(vHist, body, HighlightGatePct, 1f);
+            float gateV = Histogram.ValueAtPercentile(vHist, body, HighlightGatePct, 1f);
             if (sV <= gateV) return sample;
 
             // 補正時の wash しきい(washV)= 地色帯上部(TargetPct)。中央値まで下げない(=上位~40%だけ白寄せ)。
-            float targetV = PixelProcessor.HistValueAtPercentile(vHist, body, TargetPct, 1f);
+            float targetV = Histogram.ValueAtPercentile(vHist, body, TargetPct, 1f);
             float effV = Mathf.Min(sV, targetV);
             float scale = effV / Mathf.Max(sV, 1e-6f);
             return new Color(sample.r * scale, sample.g * scale, sample.b * scale, 1f);

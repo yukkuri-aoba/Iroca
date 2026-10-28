@@ -115,14 +115,6 @@ namespace Iroca
             for (int r = r0; r <= r1; r++) rows[r] = true;
         }
 
-        private static int PopCount(ulong v)
-        {
-            v -= (v >> 1) & 0x5555555555555555UL;
-            v = (v & 0x3333333333333333UL) + ((v >> 2) & 0x3333333333333333UL);
-            v = (v + (v >> 4)) & 0x0F0F0F0F0F0F0F0FUL;
-            return (int)((v * 0x0101010101010101UL) >> 56);
-        }
-
         /// <summary>
         /// 矩形 [x0, x1] × [y0, y1](両端含む)の除外フラグ(IsExcludedAt)を dst に書く。範囲外は触らない。
         /// デコンタミ・混色帯・無彩フチ消しの 3 か所が、それぞれ自分の読む範囲だけをこれで埋める。

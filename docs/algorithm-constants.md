@@ -102,8 +102,10 @@
 | `Code/Core/Color/PixelProcessor.Palette.cs` | 0 |
 | `Code/Core/ColorZone.cs` | 6 |
 | `Code/Core/Filters/PixelProcessor.Blur.cs` | 0 |
+| `Code/Core/Foundation/Bits.cs` | 0 |
 | `Code/Core/Foundation/CoreMemory.cs` | 0 |
 | `Code/Core/Foundation/CoreParallelism.cs` | 0 |
+| `Code/Core/Foundation/Histogram.cs` | 0 |
 | `Code/Core/Foundation/PixelRules.cs` | 0 |
 | `Code/Core/HighlightSampleCorrector.cs` | 0 |
 | `Code/Core/Masks/PixelProcessor.Masks.cs` | 0 |
