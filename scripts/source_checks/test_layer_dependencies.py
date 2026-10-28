@@ -49,17 +49,6 @@ ALLOWED: dict[str, set[str]] = {
 
 # 今ある違反。(使う側のファイル, 使われる型) → 使われる型の層。**減らすことしかできない。**
 KNOWN_VIOLATIONS: dict[tuple[str, str], str] = {
-    # 4-1: Localization を Text へ移す。
-    ("Code/Automation/IrocaAutomation.Recolor.cs", "Localization"): "UI",
-    ("Code/Infra/NdmfSupport.cs", "Localization"): "UI",
-    ("Code/MaskSuggest/MaskSuggestInstall.cs", "Localization"): "UI",
-    ("Code/MaskSuggest/MaskSuggestModelDownload.cs", "Localization"): "UI",
-    ("Code/MaskSuggest/MaskSuggestSection.cs", "Localization"): "UI",
-    ("Code/MaskSuggest/MaskSuggestSetupPrompt.cs", "Localization"): "UI",
-    ("Code/NdmfIntegration/IrocaPreviewFilter.cs", "Localization"): "UI",
-    ("Code/SentisIntegration/EditorReadbackPoller.cs", "Localization"): "UI",
-    ("Code/SentisIntegration/SentisMaskSuggestService.cs", "Localization"): "UI",
-    ("Code/SentisIntegration/SentisModelRepository.cs", "Localization"): "UI",
     # 4-1: ExportPipeline を Infra へ移す。
     ("Code/Automation/IrocaAutomation.Inspect.cs", "ExportPipeline"): "UI",
     ("Code/Automation/IrocaAutomation.Recolor.cs", "ExportPipeline"): "UI",
