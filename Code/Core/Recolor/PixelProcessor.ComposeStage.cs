@@ -42,12 +42,14 @@ namespace Iroca
                 // 再着色色は画素の色(RGBA と色から求めた V)とゾーン定数だけで決まる。成分別 L マップ
                 // (無彩パス)を使わないゾーンでは色ごとに 1 回だけ求めて配る。表の大きさが再着色の
                 // 範囲より大きい(小さなロゴ等)ときは画素ごとに求めたほうが安いので使わない。
-                Color32[] palRecolored = null;
+                Color32* palRecolored = null;
                 if (palette != null && zRegMidMap == null && rcMaxX >= 0
                     && (long)palette.Count * 2 <= (long)(rcMaxX - rcMinX + 1) * (rcMaxY - rcMinY + 1))
                 {
                     int pc = palette.Count;
-                    var outRc = new Color32[pc];
+                    // 表(色の数の長さ)はプールから借り、ゾーンの終わりに返す(0.4.0 の 3-12。管理配列だと
+                    // ゾーンを処理するたびに Mono のヒープに積んでいた)。
+                    Color32* outRc = z.Buffers.PalRecolored = s_color32Pool.Rent(pc);
                     Color32* pCol = palette.Colors;
                     float* pV = palette.V;
                     var rcParamsLocal = rcParams;

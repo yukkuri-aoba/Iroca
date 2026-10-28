@@ -99,6 +99,7 @@ namespace Iroca
             public bool* IncludedPx;       // 含めるマスクをテクスチャ解像度へ展開したもの(除外優先を焼き込み済み)
             public float* RegMidMap;       // 成分中央値の地図(再着色の統計がプールから借りたとき)
             public float* RegUpMap;        // 同、白側の余白の地図
+            public Color32* PalRecolored;  // 合成の段の色ごとの再着色の表(色の数の長さ。使うゾーンだけ)
 
             public void ReturnAll()
             {
@@ -108,8 +109,10 @@ namespace Iroca
                 if (Strength != null) s_floatPool.Return(Strength);
                 if (MatchConf != null) s_floatPool.Return(MatchConf);
                 if (IncludedPx != null) s_boolPool.Return(IncludedPx);
+                if (PalRecolored != null) s_color32Pool.Return(PalRecolored);
                 RegMidMap = RegUpMap = HighlightPot = Strength = MatchConf = null;
                 IncludedPx = null;
+                PalRecolored = null;
             }
         }
 

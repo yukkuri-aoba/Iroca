@@ -158,7 +158,7 @@ namespace Iroca
             // 無ければ L を bbox 全画素ぶん並列で前計算する(旧: 逐次 DFS の内側で RgbToOklab)。
             // 意図した変更では両経路を同時に直すこと(色の表あり・なしの出力の一致は scripts/golden/test_palette_parity.py が確かめる)。
             float* okL = null;
-            int* pIdx = null; int[] binOf = null;
+            int* pIdx = null; int* binOf = null;
             // 行 run 方式の連結成分ラベリングで使う配列(確保は run 数 R が確定してから)。
             int* runX0 = null, runX1 = null, runY = null, parent = null, comp = null, rootComp = null, order = null;
             try
@@ -168,7 +168,8 @@ namespace Iroca
                 palette.EnsureOklab(bboxPo);
                 pIdx = palette.Index;
                 float* pL = palette.OkL;
-                var bins = new int[palette.Count];
+                // 色ごとのビン(色の数の長さ)はプールから借り、下の finally で返す(0.4.0 の 3-12)。
+                int* bins = binOf = s_intPool.Rent(palette.Count);
                 ForEachPaletteChunk(palette.Count, bboxPo, (k0, k1) =>
                 {
                     for (int k = k0; k < k1; k++) bins[k] = Mathf.Clamp((int)(pL[k] * 255f), 0, 255);
@@ -381,6 +382,7 @@ namespace Iroca
                 if (runX1 != null) s_intPool.Return(runX1);
                 if (runX0 != null) s_intPool.Return(runX0);
                 if (okL != null) s_floatPool.Return(okL);
+                if (binOf != null) s_intPool.Return(binOf);
             }
         }
 
