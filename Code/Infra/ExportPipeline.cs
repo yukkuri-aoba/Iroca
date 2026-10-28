@@ -87,7 +87,7 @@ namespace Iroca
             {
                 if (loadTex != null) Object.DestroyImmediate(loadTex);
             }
-            if (!IrocaWindow.IsReadable(imported)) return SourceKind.Unavailable;
+            if (!TextureIO.IsReadable(imported)) return SourceKind.Unavailable;
             pixels = imported.GetPixels32();
             width = imported.width;
             height = imported.height;
@@ -117,7 +117,7 @@ namespace Iroca
             {
                 if (loadTex != null) Object.DestroyImmediate(loadTex);
             }
-            if (!IrocaWindow.IsReadable(imported)) return SourceKind.Unavailable;
+            if (!TextureIO.IsReadable(imported)) return SourceKind.Unavailable;
             pixels = NativePixels.CopyOf(imported.GetPixels32(), imported.width, imported.height);
             return SourceKind.ImportedTexture;
         }

@@ -23,8 +23,21 @@ namespace Iroca
     internal static unsafe class TextureIO
     {
         /// <summary>
+        /// CPU 側から画素を読めるテクスチャか(0.4.0 の計画の 4-1 で IrocaWindow から移した)。
+        /// </summary>
+        internal static bool IsReadable(Texture2D tex)
+        {
+            // isReadable は CPU 側からピクセル読み取り可能かを示すネイティブプロパティ。
+            // 旧実装の GetPixel(0,0)+例外捕捉(Read/Write 無効テクスチャで UnityException を
+            // 投げる)と等価で、Read/Write 無効アセット=false、LoadImage 生成の一時テクスチャ=
+            // true を正しく返す。PreviewView.Draw / DrawTextureField / ゾーンごとの canTune 判定から
+            // 毎フレーム複数回呼ばれるため、例外コストとネイティブ往復を 1 プロパティ読みに削減する。
+            return tex != null && tex.isReadable;
+        }
+
+        /// <summary>
         /// 原本の画素をヒープの外へ読む(メインスレッド専用。参照 1 で返すので、呼び出し側が Release する)。
-        /// 書き出しの原本の読み込み(UI の ExportPipeline.ReadSourcePixels)と同じ画素で、<paramref name="workingSize"/> なら
+        /// 書き出しの原本の読み込み(Infra の ExportPipeline.ReadSourcePixels)と同じ画素で、<paramref name="workingSize"/> なら
         /// 編集の作業解像度(<see cref="WorkingResolution"/>)、そうでなければ元の解像度(書き出し)。
         /// 元ファイルを直接デコードできなければ(PSD・TGA・EXR など Unity が取り込みで変換するもの)null。そのときは
         /// 呼び出し側が取り込み済みテクスチャから読む。

@@ -458,7 +458,7 @@ namespace Iroca
             // OnGUI ごとにここを通るので、覚えないと「読めないテクスチャ」で毎フレーム
             // ファイル読み込みとデコードを試すことになる。あとで Read/Write を有効にすれば
             // IsReadable が true へ変わるため、そのときは覚えた失敗を無視して取り直す。
-            if (_trueSourceFailedFor == tex && !IrocaWindow.IsReadable(tex)) return false;
+            if (_trueSourceFailedFor == tex && !TextureIO.IsReadable(tex)) return false;
             // 別のテクスチャの画素を持ったまま読み直す(SwitchSourceTexture を通らない切り替え)ときは、古い画素を
             // 指したままのジョブ・キャッシュ・ドラッグの追従の入力も捨てる(手放した画素へ参照を足しに行かないように)。
             if (_trueSource != null && _trueSourceFor != tex) InvalidateSourceCache();
@@ -492,7 +492,7 @@ namespace Iroca
             }
 
             // フォールバック: インポート済みテクスチャ（要 Read/Write）。
-            if (!IrocaWindow.IsReadable(tex))
+            if (!TextureIO.IsReadable(tex))
             {
                 _trueSourceFailedFor = tex;
                 return false;

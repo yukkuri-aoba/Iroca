@@ -437,7 +437,7 @@ namespace Iroca
         /// 書き出しはいずれも同じ true source 経路を使う）。UI の可否判定はこれを見る。
         /// </summary>
         internal bool CanReadSource(Texture2D tex) =>
-            tex != null && (IsReadable(tex)
+            tex != null && (TextureIO.IsReadable(tex)
                 || (_previewView != null && _previewView.CanProvideSourcePixels(tex)));
 
         internal ColorZone FindZoneById(string id)
@@ -446,16 +446,6 @@ namespace Iroca
             foreach (var z in _session.zones)
                 if (z != null && z.id == id) return z;
             return null;
-        }
-
-        internal static bool IsReadable(Texture2D tex)
-        {
-            // isReadable は CPU 側からピクセル読み取り可能かを示すネイティブプロパティ。
-            // 旧実装の GetPixel(0,0)+例外捕捉(Read/Write 無効テクスチャで UnityException を
-            // 投げる)と等価で、Read/Write 無効アセット=false、LoadImage 生成の一時テクスチャ=
-            // true を正しく返す。PreviewView.Draw / DrawTextureField / ゾーンごとの canTune 判定から
-            // 毎フレーム複数回呼ばれるため、例外コストとネイティブ往復を 1 プロパティ読みに削減する。
-            return tex != null && tex.isReadable;
         }
 
         internal static void EnableReadWrite(Texture2D tex)

@@ -17,19 +17,19 @@
     "Code/Core/NativePixels.cs": {
       "new Color32[Length]": 1
     },
+    "Code/Core/Pipeline/PixelProcessor.cs": {
+      "new Color32[dstW * dstH]": 1
+    },
     "Code/Core/Recolor/PixelProcessor.MixtureBand.cs": {
       "new ulong[h * wpr]": 2
     },
-    "Code/Core/Pipeline/PixelProcessor.cs": {
-      "new Color32[dstW * dstH]": 1
+    "Code/Core/Recolor/PixelProcessor.RecolorBranchRecorder.cs": {
+      "new byte[len]": 1
     },
     "Code/Core/RecolorPreview.cs": {
       "new Color32[panelW * panelH]": 1,
       "new Color32[tw * th]": 2,
       "new bool[w * h]": 1
-    },
-    "Code/Core/Recolor/PixelProcessor.RecolorBranchRecorder.cs": {
-      "new byte[len]": 1
     },
     "Code/Core/Selection/Legacy/PixelProcessor.LegacySelection.cs": {
       "new ulong[(len + 63) >> 6]": 1
@@ -65,6 +65,9 @@
     },
     "Code/Debug/ReproDump.cs": {
       "new Color32[w * h]": 1
+    },
+    "Code/Infra/ExportPipeline.cs": {
+      ".GetPixels32()": 3
     },
     "Code/Infra/WorkingResolution.cs": {
       ".GetPixels32()": 2,
@@ -103,9 +106,6 @@
     "Code/UI/DetailPreviewView.cs": {
       "new Color32[cropW * cropH]": 2,
       "new Color32[detailCropW * detailCropH]": 1
-    },
-    "Code/UI/ExportPipeline.cs": {
-      ".GetPixels32()": 3
     },
     "Code/UI/IrocaWindow.AutoTune.cs": {
       ".GetPixels32()": 1,

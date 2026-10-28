@@ -49,11 +49,6 @@ ALLOWED: dict[str, set[str]] = {
 
 # 今ある違反。(使う側のファイル, 使われる型) → 使われる型の層。**減らすことしかできない。**
 KNOWN_VIOLATIONS: dict[tuple[str, str], str] = {
-    # 4-1: ExportPipeline を Infra へ移す。
-    ("Code/Automation/IrocaAutomation.Inspect.cs", "ExportPipeline"): "UI",
-    ("Code/Automation/IrocaAutomation.Recolor.cs", "ExportPipeline"): "UI",
-    ("Code/Automation/IrocaAutomation.cs", "ExportPipeline"): "UI",
-    ("Code/Infra/RecipeTextureBuilder.cs", "ExportPipeline"): "UI",
     # 4-2・4-3: 開いているウィンドウを探す・その状態を読む・窓口を借りるのを、EditingSessionRegistry・
     # EditingSession・AutoTuneService・AiSuggestBroker を通す形にする。
     ("Code/Automation/AutomationAutoTune.cs", "IrocaWindow"): "UI",
