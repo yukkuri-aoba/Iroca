@@ -55,7 +55,7 @@ namespace Iroca
             presetSaveName = EditorGUILayout.TextField(
                 new GUIContent(Localization.PresetName, Localization.PresetNameTooltip),
                 presetSaveName);
-            if (GUILayout.Button(new GUIContent(Localization.SavePreset, Localization.SavePresetTooltip), GUILayout.Width(IrocaConsts.Layout.SmallButtonWidth)))
+            if (GUILayout.Button(new GUIContent(Localization.SavePreset, Localization.SavePresetTooltip), GUILayout.Width(IrocaUiConsts.Layout.SmallButtonWidth)))
                 SavePreset(presetSaveName);
             EditorGUILayout.EndHorizontal();
 
@@ -98,7 +98,7 @@ namespace Iroca
                     if (GUILayout.Button(new GUIContent(Localization.LoadPreset, Localization.LoadPresetTooltip),
                             GUILayout.Width(IrocaWindow.FitButtonWidth(40f, Localization.LoadPreset))))
                         LoadPreset(file);
-                    if (GUILayout.Button(new GUIContent("×", Localization.DeletePresetTooltip), GUILayout.Width(IrocaConsts.Layout.RemoveButtonWidth)))
+                    if (GUILayout.Button(new GUIContent("×", Localization.DeletePresetTooltip), GUILayout.Width(IrocaUiConsts.Layout.RemoveButtonWidth)))
                     {
                         if (EditorUtility.DisplayDialog(Localization.Confirm,
                             Localization.DeletePresetConfirm(pname), Localization.OK, Localization.Cancel))

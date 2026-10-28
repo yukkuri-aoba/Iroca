@@ -42,7 +42,7 @@
     <Compile Include="..\..\Code\UI\PreviewLatency.cs" />
     <Compile Include="..\..\Code\Core\PerfReport.cs" />
     <!-- Scene でモデルをクリックした場所を求める当たり判定(光線と三角形・UV の補間)。 -->
-    <Compile Include="..\..\Code\Core\MeshRaycast.cs" />
+    <Compile Include="..\..\Code\Infra\MeshRaycast.cs" />
     <!-- 右クリックの「ここも塗る / ここは塗らない / この部分だけ塗る」をマスク配列へ当てる規則。 -->
     <Compile Include="..\..\Code\UI\MaskRegionEdit.cs" />
     <!-- 新しい版のお知らせで、公開リストから知らせる版を選ぶ部分(版の比べ方・JSON の読み取り)。 -->

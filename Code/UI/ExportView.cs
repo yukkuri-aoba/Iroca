@@ -542,7 +542,7 @@ namespace Iroca
                 batchTextures[i] = (Texture2D)EditorGUILayout.ObjectField(
                     batchTextures[i], typeof(Texture2D), false);
                 if (GUILayout.Button(new GUIContent("×", Localization.RemoveBatchTextureTooltip),
-                        GUILayout.Width(IrocaConsts.Layout.RemoveButtonWidth)))
+                        GUILayout.Width(IrocaUiConsts.Layout.RemoveButtonWidth)))
                     removeIdx = i;
                 EditorGUILayout.EndHorizontal();
             }

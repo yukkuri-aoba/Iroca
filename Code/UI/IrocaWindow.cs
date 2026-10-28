@@ -256,10 +256,10 @@ namespace Iroca
         private float relaxedSatRamp { get => _session.relaxedSatRamp; set => _session.relaxedSatRamp = value; }
 
         // ShowWindow が確保する既定サイズ（内訳は ShowWindow 内のコメント参照）。
-        private const float DefaultWindowWidth = IrocaConsts.Layout.LeftColumnMin + IrocaConsts.Layout.PreviewColumnReserve; // 320 + 408 = 728
+        private const float DefaultWindowWidth = IrocaUiConsts.Layout.LeftColumnMin + IrocaUiConsts.Layout.PreviewColumnReserve; // 320 + 408 = 728
         private const float DefaultWindowHeight = 786f; // 実測値
 
-        [MenuItem(IrocaConsts.MenuPath, priority = 100)]
+        [MenuItem(IrocaUiConsts.MenuPath, priority = 100)]
         public static void ShowWindow()
         {
             // 大きさを決めるのは新しく作ったときだけ。開いている窓の position に代入すると、ドッキング中の窓は

@@ -456,7 +456,7 @@ namespace Iroca
                 bool soloed = !string.IsNullOrEmpty(zone.id) && SoloZoneId == zone.id;
                 var prevSoloBg = GUI.backgroundColor;
                 if (soloed) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
-                if (GUILayout.Button(s_zoneSoloContent, GUILayout.Width(IrocaConsts.Layout.SmallButtonWidth)))
+                if (GUILayout.Button(s_zoneSoloContent, GUILayout.Width(IrocaUiConsts.Layout.SmallButtonWidth)))
                 {
                     zone.EnsureId();
                     SetSoloZone(soloed ? null : zone.id);
@@ -465,7 +465,7 @@ namespace Iroca
                 GUI.backgroundColor = prevSoloBg;
             }
 
-            if (GUILayout.Button(s_removeZoneContent, GUILayout.Width(IrocaConsts.Layout.RemoveButtonWidth)))
+            if (GUILayout.Button(s_removeZoneContent, GUILayout.Width(IrocaUiConsts.Layout.RemoveButtonWidth)))
             {
                 removeRequested = true;
             }
@@ -489,7 +489,7 @@ namespace Iroca
             {
                 EditorGUIUtility.labelWidth = Mathf.Min(prevColorRowsLabelWidth, Mathf.Max(95f,
                     _settingsContentWidth - CardChrome
-                    - IrocaConsts.Layout.EyedropperButtonWidth - ColorSwatchMinWidth));
+                    - IrocaUiConsts.Layout.EyedropperButtonWidth - ColorSwatchMinWidth));
             }
 
             EditorGUILayout.BeginHorizontal();
@@ -525,7 +525,7 @@ namespace Iroca
                 using (new EditorGUI.DisabledScope(!canSample))
                 {
                     if (ArmedToggleButton(armed ? s_eyedropperActiveContent : s_eyedropperIdleContent, armed,
-                        GUILayout.Width(FitButtonWidth(IrocaConsts.Layout.EyedropperButtonWidth,
+                        GUILayout.Width(FitButtonWidth(IrocaUiConsts.Layout.EyedropperButtonWidth,
                             s_eyedropperIdleContent.text, s_eyedropperActiveContent.text))))
                     {
                         // トグル：武装↔解除。武装は id で保持し、並べ替え・削除で別ゾーンを指さないようにする

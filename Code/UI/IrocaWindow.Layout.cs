@@ -92,13 +92,13 @@ namespace Iroca
 
             EditorGUI.BeginDisabledGroup(blocking);
 
-            bool sideBySide = position.width >= IrocaConsts.Layout.SideBySideMinWidth;
+            bool sideBySide = position.width >= IrocaUiConsts.Layout.SideBySideMinWidth;
 
             // position.height はウィンドウ枠（タイトル/タブバー）を含むため、
             // 実描画領域はそれより低い。エクスポートが画面外に押し出されないよう安全マージンを引く。
             // ジョブのオーバーレイの高さはここで引かない。引くとジョブの開始・終了のたびに
             // プレビューが縮んで下の欄が上下に跳ねるので、オーバーレイは下端に重ねて描く。
-            float availableContentH = position.height - IrocaConsts.Layout.WindowChromeMargin;
+            float availableContentH = position.height - IrocaUiConsts.Layout.WindowChromeMargin;
             float exportH = _exportView.GetSectionHeight();
 
             if (sideBySide)
@@ -273,22 +273,22 @@ namespace Iroca
                 + 4f + (EditorGUIUtility.singleLineHeight + EditorGUIUtility.standardVerticalSpacing) * 2 + 4f;
             float topOverheadH = _sideBySideTopHeight > 1f ? _sideBySideTopHeight : fallbackTopH;
             float horizH = Mathf.Max(
-                IrocaConsts.Layout.MiddleAreaMinHeight,
+                IrocaUiConsts.Layout.MiddleAreaMinHeight,
                 availableContentH - topOverheadH - exportH);
 
             EditorGUILayout.BeginHorizontal(GUILayout.Height(horizH));
 
             float leftWidth = Mathf.Clamp(
-                position.width * IrocaConsts.Layout.LeftColumnRatio,
-                IrocaConsts.Layout.LeftColumnMin,
-                IrocaConsts.Layout.LeftColumnMax);
+                position.width * IrocaUiConsts.Layout.LeftColumnRatio,
+                IrocaUiConsts.Layout.LeftColumnMin,
+                IrocaUiConsts.Layout.LeftColumnMax);
             // 等倍(100%)プレビューがバー無しで収まる幅(PreviewColumnReserve)を右カラムへ優先確保し、
             // 左カラムは下限(LeftColumnMin)までの範囲で譲る。現行の定数(比率 0.4・下限 320・
             // 上限 450・予約 408)では補正の前後で幅は変わらない(幅 728 未満は下限 320 が勝ち、
             // 728 以上は Clamp 済みの幅のままで予約が残る)。Preview.MaxSize や比率を変えたときの
             // 保険として残す。下限は既に狭いウィンドウで常用される幅なので設定 UI は崩れない。
-            leftWidth = Mathf.Max(IrocaConsts.Layout.LeftColumnMin,
-                Mathf.Min(leftWidth, position.width - IrocaConsts.Layout.PreviewColumnReserve));
+            leftWidth = Mathf.Max(IrocaUiConsts.Layout.LeftColumnMin,
+                Mathf.Min(leftWidth, position.width - IrocaUiConsts.Layout.PreviewColumnReserve));
             EditorGUILayout.BeginVertical(GUILayout.Width(leftWidth));
             // 縦バーを常時確保し、横バーは無効化する。簡易オーバーロードは縦バーが内容高で
             // 出入り(トグル)し、その都度コンテンツ幅が ~13px 変わって設定UIが左右にガクつく
@@ -380,7 +380,7 @@ namespace Iroca
             // エクスポートを常にウィンドウ下部に表示するため、上部だけをスクロール領域にする。
             float toolbarH = EditorStyles.toolbar.fixedHeight + 4f;
             float topScrollH = Mathf.Max(
-                IrocaConsts.Layout.MiddleAreaMinHeight,
+                IrocaUiConsts.Layout.MiddleAreaMinHeight,
                 availableContentH - toolbarH - exportH);
 
             // 横バーは無効化(GUIStyle.none)。この外側 ScrollView は縦スクロール専用で、

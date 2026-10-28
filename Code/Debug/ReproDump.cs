@@ -42,7 +42,7 @@ namespace Iroca.DebugTools
         // dev_safe/Tests/repro_cases を選べば、以後は書き出し=取り込み(移動不要)になる。
         private const string LastDirPrefKey = "Iroca.ReproDump.LastDir";
 
-        [MenuItem(IrocaConsts.MenuPath + "/再現データを書き出す...")]
+        [MenuItem(IrocaUiConsts.MenuPath + "/再現データを書き出す...")]
         private static void ExportMenu()
         {
             IrocaWindow win = null;

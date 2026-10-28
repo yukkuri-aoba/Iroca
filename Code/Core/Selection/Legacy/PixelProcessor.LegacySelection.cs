@@ -63,8 +63,7 @@ namespace Iroca
             strength = zb.Strength = s_floatPool.Rent(len);
             // matchConf は連結成分アンカリング(flood fill)のコア判定専用。FF が有効でフル画像
             // 経路かつキャッシュミス時のみ確保・充填する(ヒット時は keep を転写するため不要)。
-            bool ffNeedsMatchConf = IrocaConsts.ExperimentalFeatures.EnableFloodFill
-                && zone.mode == SelectionMode.ColorPick && zone.useFloodFill
+            bool ffNeedsMatchConf = zone.mode == SelectionMode.ColorPick && zone.useFloodFill
                 && isFullImagePath;
             // キャッシュにあれば strength へ写す(キャッシュの中身はネイティブメモリにあり、貸し出し中は
             // 手放されない)。除外マスクが保存時と違えば、変わった画素でこのゾーンの照合がどれも 0 のときだけ
@@ -246,8 +245,7 @@ namespace Iroca
             // 連結性は大域演算のため、フル画像経路(メインプレビュー/Apply/Export)でのみ実行する。
             // 部分クロップは、parityCache にフル画像で解いた keep があれば転写して一致させ(下の
             // else if)、無ければ絞り込まず色のみ=最終の上位集合(安全側)になる。
-            if (IrocaConsts.ExperimentalFeatures.EnableFloodFill
-                && zone.mode == SelectionMode.ColorPick
+            if (zone.mode == SelectionMode.ColorPick
                 && zone.useFloodFill)
             {
                 if (selCached)

@@ -155,7 +155,7 @@ namespace Iroca
                     false, false, GUIStyle.none, GUI.skin.verticalScrollbar, GUI.skin.scrollView,
                     GUILayout.ExpandHeight(true));
 
-                preview.availableColumnHeight = position.height - IrocaConsts.Layout.WindowChromeMargin;
+                preview.availableColumnHeight = position.height - IrocaUiConsts.Layout.WindowChromeMargin;
                 preview.availableColumnWidth = position.width;
                 preview.Draw();
 

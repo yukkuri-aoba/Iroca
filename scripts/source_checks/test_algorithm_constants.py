@@ -52,10 +52,7 @@ SCOPE_EXCLUDE = {
     "Code/Core/RecolorSettings.cs": "設定の既定値",
     "Code/Core/ZonesJsonDefaults.cs": "設定の既定値",
     # UI・座標・入口
-    "Code/Core/IrocaConsts.cs": "UI の寸法・メニュー・表示の上限",
-    "Code/Core/TextureSlot.cs": "UI のテクスチャの入れ物",
-    "Code/Core/PreviewJobProgress.cs": "UI の進み具合",
-    "Code/Core/MeshRaycast.cs": "座標の変換（定義どおりの式）",
+    "Code/Core/IrocaConsts.cs": "プレビューの表示の上限",
     "Code/Core/PreviewCoords.cs": "座標の変換（定義どおりの式）",
     "Code/Core/SessionRecolor.cs": "非破壊の入口（設定を写すだけ）",
     "Code/Core/RecolorPreview.cs": "自動化の比較パネルと指標（出力そのものではない）",

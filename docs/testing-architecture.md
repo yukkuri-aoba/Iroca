@@ -576,7 +576,7 @@ memory_guard.py は出力に関与しないので、実行キャッシュ・行�
   メッシュを探す側（`Code/Infra/MeshUvLocator.cs`）と、プレビューに重ねる島の輪郭は
   Unity 依存なので EditMode テスト（下記）で見る。
 - **Scene でクリックした場所の表示**（2026-10-04〜）: 光線と三角形の当たり判定・UV の補間・
-  Tiling の畳み込み・カリング（`Code/Core/MeshRaycast.cs`）は Unity 不要なので `scripts/unit-run` が見る。
+  Tiling の畳み込み・カリング（`Code/Infra/MeshRaycast.cs`）は Unity 不要なので `scripts/unit-run` が見る。
   シーンの Renderer を集めて当てる側（`Code/Infra/SceneMeshPicker.cs`。スキンメッシュはポーズ込みの形、
   NDMF のプレビュー用の複製は除く）とプレビューに重ねる島の組み立ては EditMode の `SceneMeshPickerTests`。
   再着色の経路には入らないので、ハーネス・視覚レビューの対象外。
