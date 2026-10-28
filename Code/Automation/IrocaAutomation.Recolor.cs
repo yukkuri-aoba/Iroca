@@ -424,7 +424,7 @@ namespace Iroca
             }
             DropOrphanMasks(state);
             foreach (var z in state.zones) if (z != null) { z.EnsureId(); z.UpdateCacheIfNeeded(); }
-            if (SessionRecolor.CountEnabled(state.zones) == 0)
+            if (RecolorInput.CountEnabled(state.zones) == 0)
                 return "no enabled zones (add at least one entry to 'changes').";
             return null;
         }

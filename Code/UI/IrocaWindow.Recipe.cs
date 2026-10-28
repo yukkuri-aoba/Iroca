@@ -393,7 +393,7 @@ namespace Iroca
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterInPlayMode, Localization.OK);
                 return;
             }
-            if (SessionRecolor.CountEnabled(_session?.zones) == 0)
+            if (RecolorInput.CountEnabled(_session?.zones) == 0)
             {
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterNoZones, Localization.OK);
                 return;

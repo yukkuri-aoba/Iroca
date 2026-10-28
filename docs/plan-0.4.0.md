@@ -884,6 +884,17 @@ T5 で消える部分は作り直さない（1.5）。
     導いた状態（ジョブ・キャッシュ・拡大表示の寸法の原本）を捨てるのは `PreviewView` に残した（`EnsureTrueSource`）。
     今は `PreviewView` が 1 つ持つ（ウィンドウごと）。自動調整・AI 提案・書き出しから直接使う形にするのは、
     `EditingSession`（4）が原本の持ち主になってから。
+  - 2026-10-29（手元）: 2 の `RecolorInput` を作った。適用するゾーン（有効なものを並び順のまま複製）・マスク・全体設定を
+    組み立てる。編集中の状態から（`FromEditing`。プレビュー・書き出し・一括書き出し）と、保存済みの状態から
+    （`FromSaved`。`SessionRecolor` を通る非破壊ビルドと自動化）の 2 つの入口。一括書き出しだけゾーンを複製して
+    いなかったのも同じ組み立てになった（出力は同じ）。`SessionRecolor.EnabledZoneCopies`・`CountEnabled` は
+    `RecolorInput` へ移した。
+    - **決めたこと**: 置き場所は計画の Application ではなく Core（`Code/Core/RecolorInput.cs`）。非破壊ビルドの土台
+      （Infra の `RecipeTextureBuilder`）とその下の `SessionRecolor`（Core）からも使うので、Application に置くと層の
+      向きに逆らう。組み立ては Core の型（ゾーン・`MaskSnapshot`・`RecolorSettings`・`IrocaSessionState`）だけで書ける。
+    - **残したこと**: 原本の画素は入れていない。読み方が経路ごとに違う（プレビューは `SourcePixelCache`、書き出しは
+      `ExportPipeline.ReadSourcePixels`、非破壊ビルドは `TextureIO.ReadSourceFile`、自動化は自前）ので、そろえるのは
+      `EditingSession`（4）と `ExportService`（4-3）のとき。
 - [ ] 4-3 並んだ経路を 1 本にする:
   - `AutoTuneService`: `test_autotune_apply_single_source` を同じコミットで直す。Core の自動調整の中身は T5 で替わるが、
     流れ（証拠の待ち・適用・Undo・自動化からの呼び出し）は残るので、先に 1 本にしておく。

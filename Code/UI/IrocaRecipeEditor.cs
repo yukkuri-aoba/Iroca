@@ -28,7 +28,7 @@ namespace Iroca
             }
             else
             {
-                int enabled = SessionRecolor.CountEnabled(state.zones);
+                int enabled = RecolorInput.CountEnabled(state.zones);
                 EditorGUILayout.LabelField(string.Format(Localization.RecipeInspectorZonesFormat,
                     state.zones.Count, enabled), EditorStyles.miniLabel);
             }

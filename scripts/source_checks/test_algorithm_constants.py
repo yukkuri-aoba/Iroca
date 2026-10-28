@@ -55,6 +55,7 @@ SCOPE_EXCLUDE = {
     "Code/Core/IrocaConsts.cs": "プレビューの表示の上限",
     "Code/Core/PreviewCoords.cs": "座標の変換（定義どおりの式）",
     "Code/Core/SessionRecolor.cs": "非破壊の入口（設定を写すだけ）",
+    "Code/Core/RecolorInput.cs": "色替えの入力の組み立て（設定を写すだけ）",
     "Code/Core/RecolorPreview.cs": "自動化の比較パネルと指標（出力そのものではない）",
 }
 

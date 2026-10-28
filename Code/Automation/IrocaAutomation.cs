@@ -368,7 +368,7 @@ namespace Iroca
             if (srcAbs == null)
             { result.error = $"source not found: {sourceAssetPath}"; return result; }
 
-            int enabledCount = SessionRecolor.CountEnabled(state.zones);
+            int enabledCount = RecolorInput.CountEnabled(state.zones);
             if (enabledCount == 0)
             { result.error = "no enabled zones."; return result; }
             foreach (var z in state.zones) { if (z != null && z.enabled) { z.EnsureId(); z.UpdateCacheIfNeeded(); } }

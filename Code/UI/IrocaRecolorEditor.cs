@@ -63,7 +63,7 @@ namespace Iroca
                     MessageType.Warning);
             else if (!Summary(recipe).Readable(recipe))
                 EditorGUILayout.HelpBox(Localization.RecolorUnreadable, MessageType.Warning);
-            else if (SessionRecolor.CountEnabled(Summary(recipe).Get(recipe).zones) == 0)
+            else if (RecolorInput.CountEnabled(Summary(recipe).Get(recipe).zones) == 0)
                 // 色替えを外している状態(ビルドでは NDMF Console に出さないので、ここで知らせる)。
                 EditorGUILayout.HelpBox(Localization.RecolorNoEnabledZones, MessageType.Info);
             else

@@ -393,12 +393,10 @@ namespace Iroca
             // ゾーンは Clone してから BG へ渡す(プレビュー系と同じ防御コピー)。書き出し中も
             // Undo などでゾーンが変異し得るため、生参照だと一部ゾーンだけ新旧混在の出力に
             // なり得る。Clone は値等価コピーで出力ビット不変。
-            // 非破壊ビルド(SessionRecolor.Apply)と同じ選び方を通す。
-            var sorted = SessionRecolor.EnabledZoneCopies(session.zones);
-            var maskSnap = (sorted.Count > 0) ? _host.BuildMaskSnapshot() : null;
-
+            // 非破壊ビルド(SessionRecolor.Apply)と同じ選び方を通す(RecolorInput)。
             // 計算に必要な値を全てローカル変数に退避（Task.Run の中から session を直接触らない）
-            var settings = RecolorSettings.From(session);
+            var input = RecolorInput.FromEditing(session,
+                RecolorInput.CountEnabled(session.zones) > 0 ? _host.BuildMaskSnapshot() : null);
             bool inheritFlag = inheritImportSettings;
             // 書き出しの寸法が編集の作業解像度と同じなら、書き出しが使う作業配列はプレビューが温めていたものと
             // 同じ大きさなので、終わっても手放さない(次の 1 手が作業配列と色の表を作り直さずに済む)。
@@ -414,11 +412,11 @@ namespace Iroca
                 work: ct =>
                 {
                     _exportProgress.Report(0.10f);
-                    if (sorted.Count > 0)
+                    if (input.HasZones)
                     {
                         // CancellationToken 対応オーバーロード: 内部で ThrowIfCancellationRequested を呼ぶ
                         PixelProcessor.ProcessPixelsArray(pixels, texW, texH,
-                            maskSnap, sorted, settings, ct);
+                            input.Masks, input.Zones, input.Settings, ct);
                     }
                     ct.ThrowIfCancellationRequested();
                     _exportProgress.Report(0.80f);
@@ -632,13 +630,12 @@ namespace Iroca
                                 + $"using the imported texture ({texW}x{texH}).");
                         }
 
-                        // リスト先頭のゾーンほど先に処理され、重なった領域を占有する。
-                        var sorted = session.zones.Where(z => z.enabled).ToList();
-                        if (sorted.Count > 0)
+                        // リスト先頭のゾーンほど先に処理され、重なった領域を占有する(単体の書き出しと同じ組み立て)。
+                        if (RecolorInput.CountEnabled(session.zones) > 0)
                         {
-                            var maskSnap = _host.BuildMaskSnapshot();
+                            var input = RecolorInput.FromEditing(session, _host.BuildMaskSnapshot());
                             PixelProcessor.ProcessPixelsArray(pixels, texW, texH,
-                                maskSnap, sorted, RecolorSettings.From(session));
+                                input.Masks, input.Zones, input.Settings);
                         }
 
                         string outPath = ExportPipeline.BatchOutputPath(srcPath);
