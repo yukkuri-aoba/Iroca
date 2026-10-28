@@ -237,7 +237,7 @@ namespace Iroca
     }
     /// <summary>
     /// 作業配列のプール(型ごとに 1 つ)。PixelProcessor と AI 提案の精密化(SamMaskRefine)が共有し、
-    /// <see cref="PixelProcessor.ReleaseWorkBuffers"/> がまとめて空きを解放する。
+    /// <see cref="CoreMemory.ReleaseIdle"/> がまとめて空きを解放する。
     /// </summary>
     internal static class WorkPools
     {

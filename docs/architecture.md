@@ -79,7 +79,8 @@ Code/Core/
 ```
 
 移した所（2026-10-28 時点）: `Selection/Legacy/`（旧の選択の段・`ColorZone` の照合・選択キャッシュの鍵）、
-`Masks/`（マスクの契約と除外・含めるの判定）、`Filters/`（ぼかし）。旧の選択の外から使う下回りは `Legacy` に置かない
+`Masks/`（マスクの契約と除外・含めるの判定）、`Filters/`（ぼかし）、`Foundation/`（並列度・画素の決まり・使っていない
+メモリを返す窓口。`PixelProcessor` の同名のものは転送役）。旧の選択の外から使う下回りは `Legacy` に置かない
 （T5 の P3 で `Legacy` を丸ごと消すため）。強度の範囲（`PixelProcessor.Bounds.cs`）は再着色の段も使うので Core に残し、
 成分別の地色の地図の切り出し（`CropFullMidMap`）は再着色の統計の側（`PixelProcessor.Achroma.cs`）へ寄せた。
 

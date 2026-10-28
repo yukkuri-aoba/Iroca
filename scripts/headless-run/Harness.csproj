@@ -47,6 +47,8 @@
     <Compile Include="..\..\Code\Core\Selection\Legacy\*.cs" />
     <Compile Include="..\..\Code\Core\Masks\*.cs" />
     <Compile Include="..\..\Code\Core\Filters\*.cs" />
+    <!-- 並列度・画素の決まり・使っていないメモリを返す窓口(0.4.0 の 3-4)。 -->
+    <Compile Include="..\..\Code\Core\Foundation\*.cs" />
     <Compile Include="..\..\Code\Core\MaskSnapshot.cs" />
     <Compile Include="..\..\Code\Core\PreviewParityCache.cs" />
     <Compile Include="..\..\Code\Core\SelectionCache.cs" />

@@ -99,6 +99,9 @@
 |---|---|
 | `Code/Core/ColorZone.cs` | 6 |
 | `Code/Core/Filters/PixelProcessor.Blur.cs` | 0 |
+| `Code/Core/Foundation/CoreMemory.cs` | 0 |
+| `Code/Core/Foundation/CoreParallelism.cs` | 0 |
+| `Code/Core/Foundation/PixelRules.cs` | 0 |
 | `Code/Core/HighlightSampleCorrector.cs` | 0 |
 | `Code/Core/Masks/PixelProcessor.Masks.cs` | 0 |
 | `Code/Core/PixelProcessor.Achroma.cs` | 0 |
@@ -179,6 +182,18 @@
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
 | `VBlock` | `16` | 計算 | — | ボックス和の縦パスを 16 列ずつまとめてキャッシュラインに合わせる。出力ビット不変 |
+
+## `Code/Core/Foundation/CoreParallelism.cs`
+
+| 定数 | 値 | 種類 | 段 | 根拠 |
+|---|---|---|---|---|
+| `s_default` | `ComputeDefault(Environment.ProcessorCount)` | 計算 | — | 既定の並列数（コア数から決める。出力は並列数によらない） |
+
+## `Code/Core/Foundation/PixelRules.cs`
+
+| 定数 | 値 | 種類 | 段 | 根拠 |
+|---|---|---|---|---|
+| `OpaqueAlphaMin` | `128` | 設計 | — | α の中点（0.5）以上を不透明とみなす仕様の境目 |
 
 ## `Code/Core/HighlightSampleCorrector.cs`
 
@@ -345,8 +360,7 @@
 |---|---|---|---|---|
 | `Ph*` | 11 個 | 計算 | — | 処理時間の計測の段の番号（PhaseCount を含む）。値は計測の表の位置だけ |
 | `Sp*` | 29 個 | 計算 | — | 処理時間の計測の小段の番号。値は計測の表の位置だけ |
-| `s_defaultParallelism` | `ComputeDefaultParallelism(Environment.ProcessorCount)` | 計算 | — | 既定の並列数（コア数から決める。出力は並列数によらない） |
-| `OpaqueAlphaMin` | `128` | 設計 | — | α の中点（0.5）以上を不透明とみなす仕様の境目 |
+| `OpaqueAlphaMin` | `PixelRules.OpaqueAlphaMin` | 設計 | — | Foundation の PixelRules.OpaqueAlphaMin の転送役（0.4.0 の 3-4） |
 | `SubPhaseCount` | `29` | 計算 | — | 計測の小段の数（Sp* の数） |
 | `DecontaminationInteriorThreshold` | `0.97f` | 不明 | — | デコンタミが α 分解しない「内部」の strength 下限。導入時から記録なし |
 | `GaussianRadiusPerSigma` | `2.5f` | 近似 | — | ガウス核の打ち切り半径（σ の 2.5 倍、裾の質量は約 1%） |

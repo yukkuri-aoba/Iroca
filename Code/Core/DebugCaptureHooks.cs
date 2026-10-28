@@ -67,8 +67,13 @@ namespace Iroca
         /// Parallel.For の MaxDegreeOfParallelism を手動設定する。
         /// 0 以下のとき自動設定 (PixelProcessor.DefaultParallelism) を使用する。
         /// Debug モジュールの PerfView が EditorPrefs に永続化して管理する。
+        /// 値は Foundation の <see cref="CoreParallelism.Override"/> が持つ(ここは転送役。0.4.0 の計画の 3-4)。
         /// </summary>
-        internal static int ParallelismOverride;
+        internal static int ParallelismOverride
+        {
+            get => CoreParallelism.Override;
+            set => CoreParallelism.Override = value;
+        }
 
         /// <summary>
         /// true のとき色の表(PixelProcessor.Palette.cs)を作らず、全部の段を画素ごとの計算で回す。

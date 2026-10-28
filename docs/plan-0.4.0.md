@@ -693,7 +693,11 @@ T5 で消える部分は作り直さない（1.5）。
   - 2026-10-28: 3 つのファイルを `Code/Infra` へ移した（単体テストの取り込みも）。`IrocaConsts` の `Layout` と `MenuPath` は
     UI の `IrocaUiConsts` へ。Core の `IrocaConsts` にはハーネスとも共有するプレビューの寸法（`Preview`）だけが残る。
     `EnableFloodFill` は定数の true なので、旧の選択の 2 か所の条件から項を外しても出力は同じ（abcheck 全一致）。
-- [ ] 3-4 Foundation を切り出す: 並列度・`OpaqueAlphaMin`・`CoreMemory.ReleaseIdle`。今の名前は転送役として残す。
+- [x] 3-4 Foundation を切り出す: 並列度・`OpaqueAlphaMin`・`CoreMemory.ReleaseIdle`。今の名前は転送役として残す。
+  - 2026-10-28: `Code/Core/Foundation/` に `CoreParallelism`（既定の並列度・手動の上書き・`Max()`）・`PixelRules`
+    （`OpaqueAlphaMin`）・`CoreMemory`（`ReleaseIdle` / `ReleaseIdleInBackground`）を置いた。`PixelProcessor` の
+    `ComputeDefaultParallelism`・`DefaultParallelism`・`GetMaxParallelism`・`OpaqueAlphaMin`・`ReleaseWorkBuffers*` と
+    `DebugCaptureHooks.ParallelismOverride`（欄からプロパティへ）は転送役。新しく書くコード（T5 など）は Foundation を使う。
 - [ ] 3-5 移すだけの切り出し: 色空間（OkLab を公開し、Automation の写しを消す）・`PixelHsv`・色の表・
   ヒストグラム・ビット列・ぼかし。定数の台帳の節も一緒に移す（台帳の行は消さずに移す）。
 - [x] 3-7a **選択と再着色の境目を決める（T5 の前提。フェーズ 3A でいちばん先に済ませたい手順）。**

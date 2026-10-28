@@ -18,36 +18,12 @@ namespace Iroca
     /// </summary>
     internal static unsafe partial class PixelProcessor
     {
-        // Parallel.For で使用する既定の CPU コア数制限。
-        // 計算はバックグラウンドで走り、その間もメインスレッドが UI を描くので、全コア並列にせず
-        // コアをあけておく。あける数は割合でなく固定: 要るのは Unity のメインスレッドと描画などの
-        // 分で、コア数に比例しない。8 論理コア以上は 2、それ未満は 1(4 コア 4 スレッドで 2 本しか
-        // 使わず半分遊ばせていた)。最低 1 はあける(全コアにすると操作中の UI が引っかかる)。
-        // オーバーライドは DebugCaptureHooks.ParallelismOverride で設定可能。
-        private static readonly int s_defaultParallelism =
-            ComputeDefaultParallelism(Environment.ProcessorCount);
-
-        internal static int ComputeDefaultParallelism(int processorCount)
-        {
-            int reserve = processorCount >= 8 ? 2 : 1;
-            return Math.Max(1, processorCount - reserve);
-        }
-
-        // デバッグ画面の「自動」の表示が実際の既定値と食い違わないよう、計算式はここだけに置く。
-        internal static int DefaultParallelism => s_defaultParallelism;
-
-        // ZoneAutoTuner など Core の他クラスからも同じ規則で並列度を決められるよう internal。
-        // 各所で Environment.ProcessorCount から直に計算すると、デバッグ時のスレッド数指定が
-        // 一部の処理にだけ効かず、計測が食い違う。
-        internal static int GetMaxParallelism()
-        {
-            int ov = DebugCaptureHooks.ParallelismOverride;
-            return ov > 0 ? Math.Min(ov, Environment.ProcessorCount) : s_defaultParallelism;
-        }
-
-        // 不透明とみなす α の下限。統計・連結成分・閉領域・自動調整のサンプリングの対象画素はこれ以上。
-        // HighlightSampleCorrector と ZoneAutoTuner も同じ規約で数えるので internal。
-        internal const int OpaqueAlphaMin = 128;
+        // 並列度の規則と画素の決まりは Foundation(CoreParallelism・PixelRules)が持つ。ここは今の名前を残す転送役
+        // (0.4.0 の計画の 3-4。呼び出しが多く、ハーネス・テスト・AI 提案の後処理もこの名前で呼ぶ)。
+        internal static int ComputeDefaultParallelism(int processorCount) => CoreParallelism.ComputeDefault(processorCount);
+        internal static int DefaultParallelism => CoreParallelism.Default;
+        internal static int GetMaxParallelism() => CoreParallelism.Max();
+        internal const int OpaqueAlphaMin = PixelRules.OpaqueAlphaMin;
 
         private static double TicksToMs(long ticks) =>
             ticks * 1000.0 / Stopwatch.Frequency;
@@ -103,25 +79,9 @@ namespace Iroca
         // 使用前にクリアすること。
         private static readonly NativeWorkPool<int> s_intPool = WorkPools.Int;
 
-        /// <summary>
-        /// 作業配列のうち、いま使っていない分と、色の表のキャッシュを全部解放する(OS へ戻る)。計算中の分は
-        /// 計算が返すまで残る(使っている色の表はその計算が Release した時点で解放される)。
-        /// ウィンドウを閉じる・テクスチャを替える・書き出しの後・リロードの前に UI 側から呼ぶ。次の計算は、
-        /// 新しく確保した領域の最初の書き込みと、色の表の作り直しの分だけ遅くなる(4K で数十 ms)。
-        /// </summary>
-        internal static void ReleaseWorkBuffers()
-        {
-            ClearPaletteCache();
-            WorkPools.ReleaseFree();   // AI 提案の精密化(SamMaskRefine)の分も同じプール
-        }
-
-        /// <summary>
-        /// <see cref="ReleaseWorkBuffers"/> をスレッドプールで行う(呼んだスレッドはすぐ戻る)。触った大きい塊を OS へ返すのは
-        /// 8K で数十〜数百 ms かかるので、書き出しの後・ウィンドウを閉じたときにメインスレッドを止めないよう、こちらを使う。
-        /// プールと色の表のキャッシュはロックで守られているので、解放の途中で次の計算が借りに来ても壊れない
-        /// (その計算が新しく確保するだけ)。スクリプトのリロードの前は、アンロードに間に合うよう同期の方を使う。
-        /// </summary>
-        internal static Task ReleaseWorkBuffersInBackground() => Task.Run(ReleaseWorkBuffers);
+        // 使っていないメモリをまとめて返す窓口は Foundation の CoreMemory。ここは今の名前を残す転送役(3-4)。
+        internal static void ReleaseWorkBuffers() => CoreMemory.ReleaseIdle();
+        internal static Task ReleaseWorkBuffersInBackground() => CoreMemory.ReleaseIdleInBackground();
 
         // 借りた作業配列を 0 で埋める([start, start+count))。
         private static void ClearWork<T>(T* p, int start, int count) where T : unmanaged

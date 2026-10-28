@@ -171,8 +171,8 @@ namespace Iroca
             return built;
         }
 
-        /// <summary>色の表のキャッシュを空にする(使っている処理が無い表はすぐ解放される)。</summary>
-        private static void ClearPaletteCache()
+        /// <summary>色の表のキャッシュを空にする(使っている処理が無い表はすぐ解放される)。CoreMemory.ReleaseIdle が呼ぶ。</summary>
+        internal static void ClearPaletteCache()
         {
             var drop = new ColorPalette[PaletteCacheSize];
             lock (s_paletteCacheLock)
