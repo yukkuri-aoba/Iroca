@@ -330,7 +330,7 @@ namespace Iroca
             bool ok = false;
             MaskRegionEditResult result = default;
             // 提案は推論を待ってから届くので、待っている間の別の操作とは別の「元に戻す」1 回分にする。
-            IrocaWindow.RecordAsSeparateUndo("AI Mask Suggestion",
+            SeparateUndo.Record("AI Mask Suggestion",
                 () => ok = _maskView.ApplyRegion(region, dest, out result));
             applyMs = MaskSuggestPerf.MsSince(t);
             LastCommitEmpty = !ok || result.changed == 0;

@@ -708,7 +708,7 @@ namespace Iroca
 
                 if (GUILayout.Button(new GUIContent(Localization.EnableReadWrite, Localization.EnableReadWriteTooltip)))
                 {
-                    EnableReadWrite(sourceTexture);
+                    TextureIO.EnableReadWrite(sourceTexture);
                 }
             }
 

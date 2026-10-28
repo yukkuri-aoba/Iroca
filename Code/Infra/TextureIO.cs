@@ -36,6 +36,33 @@ namespace Iroca
         }
 
         /// <summary>
+        /// テクスチャの取り込み設定で Read/Write を有効にする(確かめのダイアログを出す。0.4.0 の計画の 4-1 で
+        /// IrocaWindow から移した)。アセットでないテクスチャ・テクスチャの取り込みでないものは何もしない。
+        /// </summary>
+        internal static void EnableReadWrite(Texture2D tex)
+        {
+            string path = UnityEditor.AssetDatabase.GetAssetPath(tex);
+            if (string.IsNullOrEmpty(path)) return;
+
+            var importer = UnityEditor.AssetImporter.GetAtPath(path) as UnityEditor.TextureImporter;
+            if (importer == null) return;
+
+            // SaveAndReimport はディスク上の import 設定を書き換えるため Undo 不可。
+            // 不可逆な操作として明示確認を取る。
+            if (!UnityEditor.EditorUtility.DisplayDialog(
+                    Localization.Confirm,
+                    Localization.EnableReadWriteConfirm,
+                    Localization.OK,
+                    Localization.Cancel))
+            {
+                return;
+            }
+
+            importer.isReadable = true;
+            importer.SaveAndReimport();
+        }
+
+        /// <summary>
         /// 原本の画素をヒープの外へ読む(メインスレッド専用。参照 1 で返すので、呼び出し側が Release する)。
         /// 書き出しの原本の読み込み(Infra の ExportPipeline.ReadSourcePixels)と同じ画素で、<paramref name="workingSize"/> なら
         /// 編集の作業解像度(<see cref="WorkingResolution"/>)、そうでなければ元の解像度(書き出し)。

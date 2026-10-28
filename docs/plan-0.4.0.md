@@ -863,8 +863,12 @@ T5 で消える部分は作り直さない（1.5）。
     層の依存の検査の既知の違反は 24 → 10 件。キーの一覧 `Code/Infra/IrocaPrefs.cs` を作り、23 ファイルの 33 か所の
     定義をそこへ向けた（文字列は同じ。`test_editor_prefs_keys.py` は一覧のファイルも読む。次のコミット）。
     `UnitRun.csproj` は移したファイルを取り込んでいないので直す所は無かった。
-  - 残り: `Localization` を機能ごとの partial に分ける・`IrocaWindow` の残りの static の道具（`EnableReadWrite`・
-    `RecordAsSeparateUndo` など）。
+  - 2026-10-29（手元）: `IrocaWindow` の残りの static の道具を外へ出した。`RecordAsSeparateUndo` は
+    `Code/Infra/SeparateUndo.cs` の `SeparateUndo.Record`（AI 提案のコントローラ・自動調整・レシピの読み直しが使う）、
+    `EnableReadWrite` は `TextureIO.EnableReadWrite`。`MayChangeState` は UI のウィンドウだけが使うので残した。
+    AI 提案のコントローラはウィンドウ（`_host`）も持っているので、層の違反の数は変わらない（4-3 の `AiSuggestBroker` で消える）。
+  - 残り: `Localization` を機能ごとの partial に分ける（2026-10-29 に見送り: static の初期化子がファイルをまたぐと
+    初期化の順が決まらない。分けるなら初期化子を持つ表を 1 つのファイルに残す）。
 - [ ] 4-2 部品を切り出す。ウィンドウは当面、切り出した部品へ転送する。順は次のとおり:
   1. `SourcePixelCache`
   2. `RecolorInput`

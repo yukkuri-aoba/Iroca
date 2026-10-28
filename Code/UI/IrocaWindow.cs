@@ -100,28 +100,6 @@ namespace Iroca
             return any;
         }
 
-        /// <summary>
-        /// 後から届く結果(自動調整・AI 提案)を、独立した「元に戻す」1 回分として記録する。
-        /// Unity の Undo のまとまりはマウスを押したとき・メニューを実行したときにしか切り替わらないので、
-        /// 結果を待っている間に別のウィンドウでした操作(物の移動・マテリアルの値の変更など)と同じ 1 回分に
-        /// まとまり、Ctrl+Z 1 回で両方が戻っていた。記録の前後で区切る(後ろも区切るのは、届いた直後に
-        /// 続く別の操作をこちらへ混ぜないため)。
-        /// </summary>
-        internal static void RecordAsSeparateUndo(string name, System.Action record)
-        {
-            Undo.IncrementCurrentGroup();
-            Undo.SetCurrentGroupName(name);
-            int group = Undo.GetCurrentGroup();
-            try { record(); }
-            finally
-            {
-                // 記録の中で別の名前が付いても(マスクのストロークなど)、このまとまりの名前で出す。
-                Undo.SetCurrentGroupName(name);
-                Undo.CollapseUndoOperations(group);
-                Undo.IncrementCurrentGroup();
-            }
-        }
-
         internal void MarkPreviewDirty() { if (_previewView != null) _previewView.previewDirty = true; }
 
         /// <summary>プレビュー再生成(プロキシ段なし)。確定表示がある前提の差分更新用
@@ -446,29 +424,6 @@ namespace Iroca
             foreach (var z in _session.zones)
                 if (z != null && z.id == id) return z;
             return null;
-        }
-
-        internal static void EnableReadWrite(Texture2D tex)
-        {
-            string path = AssetDatabase.GetAssetPath(tex);
-            if (string.IsNullOrEmpty(path)) return;
-
-            var importer = AssetImporter.GetAtPath(path) as TextureImporter;
-            if (importer == null) return;
-
-            // SaveAndReimport はディスク上の import 設定を書き換えるため Undo 不可。
-            // 不可逆な操作として明示確認を取る。
-            if (!EditorUtility.DisplayDialog(
-                    Localization.Confirm,
-                    Localization.EnableReadWriteConfirm,
-                    Localization.OK,
-                    Localization.Cancel))
-            {
-                return;
-            }
-
-            importer.isReadable = true;
-            importer.SaveAndReimport();
         }
 
         private void OnDestroy()

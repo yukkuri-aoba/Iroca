@@ -331,7 +331,7 @@ namespace Iroca
                     if (targetZone == null) return;
 
                     // 結果は押してから数秒後に届くので、待っている間の別の操作とは別の「元に戻す」1 回分にする。
-                    RecordAsSeparateUndo("Auto-tune Zone", () =>
+                    SeparateUndo.Record("Auto-tune Zone", () =>
                     {
                         Undo.RegisterCompleteObjectUndo(this, "Auto-tune Zone");
                         // 導出結果 → ゾーン/グローバルの写像は TuneResult.ApplyTo が単一の正

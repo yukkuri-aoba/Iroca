@@ -8,7 +8,7 @@ namespace Iroca.EditorTests
 {
     /// <summary>
     /// 後から届く結果(自動調整・AI 提案)を独立した「元に戻す」1 回分にする
-    /// (<see cref="IrocaWindow.RecordAsSeparateUndo"/>)。Undo のまとまりはマウスを押す・メニューを
+    /// (<see cref="SeparateUndo.Record"/>)。Undo のまとまりはマウスを押す・メニューを
     /// 実行するまで切り替わらないので、待っている間に別のウィンドウでした操作と 1 回分にまとまっていた。
     /// Undo の書き戻しは Unity のシリアライザが行うので、実機でしか検査できない。
     /// </summary>
@@ -38,7 +38,7 @@ namespace Iroca.EditorTests
         }
 
         private void LateResult(float value) =>
-            IrocaWindow.RecordAsSeparateUndo("Late Result", () =>
+            SeparateUndo.Record("Late Result", () =>
             {
                 Undo.RegisterCompleteObjectUndo(_late, "Late Result");
                 _late.session.edgeFeather = value;
