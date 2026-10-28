@@ -27,7 +27,7 @@ CODE_DIR = REPO_ROOT / "Code"
 _BASE = {"Core", "MaskSuggest/Ops"}
 _SERVICES = _BASE | {"Runtime", "Infra", "Text"}
 # 層 → その層のコードが使ってよい層（自分を含む）。計画の 3.1 の図の上から下への向き。
-# Application（計画の 3.3）と Text（文言。4-1 で UI の Localization を移す）はまだ無い層。MaskSuggest（Ops を除く）は
+# Application（計画の 3.3。4-2 で SourcePixelCache から作り始めた）・Text（文言。4-1 で UI の Localization を移した）。MaskSuggest（Ops を除く）は
 # フェーズ 6 で Infra・Application・Text と同じ Services の asmdef に入る。
 ALLOWED: dict[str, set[str]] = {
     "Core": {"Core"},

@@ -21,8 +21,8 @@ namespace Iroca
             var sourceTexture = _host.SourceTexture;
             if (sourceTexture == null || !EnsureTrueSource(sourceTexture)) return;
 
-            int srcW = _trueSourceW;
-            int srcH = _trueSourceH;
+            int srcW = TrueSourceW;
+            int srcH = TrueSourceH;
 
             // 表示寸法の丸めは ComputeFitSize が単一の正(ハーネスのプレビュー段検証と共有)。
             PixelProcessor.ComputeFitSize(srcW, srcH, IrocaConsts.Preview.MaxSize,
@@ -35,7 +35,7 @@ namespace Iroca
             Color32[] rawDisplay;
             if (_cachedSourceTexture == sourceTexture &&
                 _cachedSrcPixels != null &&
-                ReferenceEquals(_cachedSrcPixels, _trueSource) &&
+                ReferenceEquals(_cachedSrcPixels, TrueSource) &&
                 _cachedRawDisplay != null &&
                 _cachedSrcW == srcW && _cachedSrcH == srcH &&
                 _cachedPrevW == prevW && _cachedPrevH == prevH)
@@ -45,7 +45,7 @@ namespace Iroca
             }
             else
             {
-                srcPixels = _trueSource;
+                srcPixels = TrueSource;
                 // scale>=1 は縮小不要で raw は src の写し(表示の上限 IrocaConsts.Preview.MaxSize 以下なので小さい)。
                 // scale<1 はジョブ側で生成するため null。
                 rawDisplay = scale < 1f ? null : srcPixels.ToArray();
@@ -353,7 +353,7 @@ namespace Iroca
                     }
                     else _displayOutput = result.display;
                     // 走っている間に「元の解像度」をオフへ戻したら、縮めたものがまだ無いので、ここで縮める。
-                    if (_displayOutput == null && _displaySource != null && ReferenceEquals(req.srcPixels, _trueSource))
+                    if (_displayOutput == null && _displaySource != null && ReferenceEquals(req.srcPixels, TrueSource))
                         _displayOutput = ShrinkToDisplay(result.full);
                     _fullOutputFreshSinceHide = true;
                     // ジョブ側で生成した raw をキャッシュへ確定する(まだ未確定で、対象テクスチャと

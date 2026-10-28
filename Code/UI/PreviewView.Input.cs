@@ -454,11 +454,11 @@ namespace Iroca
         }
 
         // u,v(0-1, v は下端=0)を実フル解像度ソース画素にマップして色を返す。
-        // _trueSource は GetPixels32 と同じ並びで行 0 = 画像下端。取得不能なら false。
+        // TrueSource は GetPixels32 と同じ並びで行 0 = 画像下端。取得不能なら false。
         private bool SampleTrueSourceColor(float u, float v, int srcW, int srcH, out Color color)
         {
             color = Color.white;
-            var px = _trueSource;
+            var px = TrueSource;
             if (px == null || srcW <= 0 || srcH <= 0 || px.Length < srcW * srcH) return false;
             PreviewCoords.UvToPixel(u, v, srcW, srcH, out int x, out int y);
             Color32 c = px.Get(y * srcW + x);
@@ -473,11 +473,12 @@ namespace Iroca
         // SetSource するために使う(別キーだとソース切替扱いになり埋め込みを捨てる)。
         internal string TrueSourceCacheKey()
         {
-            string path = _trueSourceFor != null ? AssetDatabase.GetAssetPath(_trueSourceFor) : null;
+            var sourceFor = _sources?.Texture;
+            string path = sourceFor != null ? AssetDatabase.GetAssetPath(sourceFor) : null;
             long ticks = 0;
             if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
                 ticks = System.IO.File.GetLastWriteTimeUtc(path).Ticks;
-            return $"{path}|{ticks}|{_trueSourceW}x{_trueSourceH}";
+            return $"{path}|{ticks}|{TrueSourceW}x{TrueSourceH}";
         }
 
         private void PaintAtScreenPos(Vector2 screenPos, Rect previewRect)

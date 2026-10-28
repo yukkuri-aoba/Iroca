@@ -105,8 +105,8 @@ namespace Iroca
             else
             {
                 // メニューを読んでいる間に画像の解析を先行させる(準備済みなら no-op)。
-                if (EnsureTrueSource(_host.SourceTexture) && _trueSourceW > 0)
-                    ai.PrepareSource(_trueSource, TrueSourceCacheKey());
+                if (EnsureTrueSource(_host.SourceTexture) && TrueSourceW > 0)
+                    ai.PrepareSource(TrueSource, TrueSourceCacheKey());
                 foreach (var (op, label) in ops)
                 {
                     var dest = new MaskPaintView.MaskDestination(zoneId, op);
@@ -202,7 +202,7 @@ namespace Iroca
             var zones = _host.Session?.zones;
             if (zones == null || zones.Count == 0 || _selectionCache == null) return null;
             if (!EnsureTrueSource(_host.SourceTexture)) return null;
-            int w = _trueSourceW, h = _trueSourceH;
+            int w = TrueSourceW, h = TrueSourceH;
             if (w <= 0 || h <= 0) return null;
 
             int cx = Mathf.Clamp((int)(uv.x * w), 0, w - 1), cy = Mathf.Clamp((int)(uv.y * h), 0, h - 1);
@@ -259,10 +259,10 @@ namespace Iroca
         private void RequestAiSuggest(MaskSuggestController ctl, Vector2 uv, MaskPaintView.MaskDestination dest,
                                       MaskSuggestGranularity? granularity)
         {
-            if (_trueSource == null)
+            if (TrueSource == null)
                 EnsureTrueSource(_host.SourceTexture);
-            if (_trueSource == null || _trueSourceW <= 0) return;
-            if (!ctl.RequestProposal(uv.x, uv.y, dest, _trueSource, TrueSourceCacheKey(), granularity))
+            if (TrueSource == null || TrueSourceW <= 0) return;
+            if (!ctl.RequestProposal(uv.x, uv.y, dest, TrueSource, TrueSourceCacheKey(), granularity))
                 _host.ShowNotification(new GUIContent(Localization.NotifyAiNotStarted));
             _host.RequestRepaint();
         }

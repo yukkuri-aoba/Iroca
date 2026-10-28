@@ -878,6 +878,12 @@ T5 で消える部分は作り直さない（1.5）。
   6. `MaskWorkspace`: マスクを `NativeBitMask` に替える（A1・A2・B3）。
   7. ゾーンの操作
   8. `Changed` が `previewDirty` の通知の役を引き継ぐ
+  - 2026-10-29（手元）: 1 の `SourcePixelCache` を `Code/Application/` に作った（Application の層の最初のファイル）。
+    `PreviewView` が持っていた原本の読み込み（元ファイルのデコード → 取り込み済みテクスチャへのフォールバック）・
+    原本の画素と参照・読めなかったテクスチャの覚え・取り込み後の寸法を移した。読み直すかどうかの判断と、原本から
+    導いた状態（ジョブ・キャッシュ・拡大表示の寸法の原本）を捨てるのは `PreviewView` に残した（`EnsureTrueSource`）。
+    今は `PreviewView` が 1 つ持つ（ウィンドウごと）。自動調整・AI 提案・書き出しから直接使う形にするのは、
+    `EditingSession`（4）が原本の持ち主になってから。
 - [ ] 4-3 並んだ経路を 1 本にする:
   - `AutoTuneService`: `test_autotune_apply_single_source` を同じコミットで直す。Core の自動調整の中身は T5 で替わるが、
     流れ（証拠の待ち・適用・Undo・自動化からの呼び出し）は残るので、先に 1 本にしておく。
