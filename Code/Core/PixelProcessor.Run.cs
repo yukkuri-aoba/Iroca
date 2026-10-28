@@ -21,6 +21,8 @@ namespace Iroca
             public int OriginX, OriginY, FullW, FullH;
             // 入力の控え(処理中は読むだけ)。
             public Color32* Original;
+            // 出力(呼び出し側の画素。入力と同じ中身で渡され、段がその場で書き換える)。
+            public Color32* Pixels;
             public ParallelOptions Po;
             public CancellationToken Ct;
             // 色の表(無ければ null)と画素ごとの HSV。
