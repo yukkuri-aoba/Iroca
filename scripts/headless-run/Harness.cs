@@ -397,7 +397,7 @@ namespace Iroca
                 switch (args[i])
                 {
                     case "--zones": case "--stage": i++; break;   // 値を 1 つ消費
-                    case "--autotune": case "--ffcheck": case "--selcache": case "--selcache-mask": case "--viastate": break;
+                    case "--autotune": case "--selcache": case "--selcache-mask": case "--viastate": break;
                     default:
                         // 後方互換の位置引数(sample/target/tolerance の数値 7 個)だけ許す。
                         if (i <= 9 && args.Length >= 10 && double.TryParse(
@@ -551,13 +551,6 @@ namespace Iroca
                 }
             }
 
-            // --ffcheck: 連結keepのクロップ転写がフル画像と一致するか自己検証(M4 完全一致プレビュー)。
-            // フル画像で keep を解いてキャッシュ→同じクロップを (a)キャッシュあり (b)なし で処理し、
-            // クロップ内部(境界マージン除外)をフルのクロップ領域と比較する。元入力 pixels は未改変の
-            // クローンを使い、本処理に影響しない。
-            if (System.Array.IndexOf(args, "--ffcheck") >= 0)
-                RunFloodFillCropCheck((Color32[])pixels.Clone(), w, h, masks, zoneList, st);
-
             // --selcache: 選択キャッシュのヒット経路が「フル再計算」と byte 一致するか自己検証する。
             // --selcache-mask はそれに続けて、マスクだけを変えた再生成も確かめる。
             // 元入力 pixels は未改変クローンを使い、ゾーンも複製するので本処理に影響しない。
@@ -607,7 +600,7 @@ namespace Iroca
 
             // ProcessPixelsArray のみを計測(dotnet 起動・raw I/O を除外)。stderr に出すので
             // stdout の "OK" を汚さない。Python 側が "PROCESS_MS " 行を拾って前後比較に使う。
-            // フェーズ別内訳(HSV/Match/FloodFill/...)も stderr へ。--ffcheck の余分な実行を
+            // フェーズ別内訳(HSV/Match/FloodFill/...)も stderr へ。--selcache の余分な実行を
             // 拾わないよう、本計測の直前で購読する(全ゾーン合算の 1 レポートだけが出る)。
             DebugCaptureHooks.OnPerfReport += WritePerfPhases;
             if (viaState)
@@ -1532,98 +1525,6 @@ namespace Iroca
 
         // 0..1 に収まりつつ必ず元と異なる値へ（反転だと 0.5 で不動点になる）。
         private static float PerturbChannel(float c) => c < 0.5f ? c + 0.25f : c - 0.25f;
-
-        // 連結keep のクロップ転写検証(M4)。フル画像で keep をキャッシュし、中央クロップを
-        // (a)キャッシュあり (b)なし で処理。クロップ内部(境界マージン除外)をフルのクロップ領域と
-        // 比較し、(a)が一致・(b)が過選択(上位集合)であることを stderr に出す。
-        private static void RunFloodFillCropCheck(
-            Color32[] input, int w, int h, MaskSnapshot masks, List<ColorZone> zones, SettingsCfg st)
-        {
-            void Process(Color32[] px, int pw, int ph, int ox, int oy, int fw, int fh, PreviewParityCache keep)
-            {
-                PixelProcessor.ProcessPixelsArray(px, pw, ph, masks, zones, st.ToRecolorSettings(),
-                    originX: ox, originY: oy, fullW: fw, fullH: fh,
-                    parityCache: keep);
-            }
-
-            // 1) フル画像で処理し keep/領域統計をキャッシュ。
-            var full = (Color32[])input.Clone();
-            // sourceId は Core が読まない識別子(書くのは locality probe だけ)。ハーネスは parityCache を
-            // 直接渡すので未設定(0)のままでよい。
-            var cache = new PreviewParityCache();
-            Process(full, w, h, 0, 0, 0, 0, cache);
-
-            // 2) 中央クロップ(画像の半分)を (a)キャッシュあり (b)なし で処理。
-            int cx0 = w / 4, cy0 = h / 4, cw = w / 2, ch = h / 2;
-            Color32[] MakeCrop()
-            {
-                var c = new Color32[cw * ch];
-                for (int cy = 0; cy < ch; cy++)
-                    System.Array.Copy(input, (cy0 + cy) * w + cx0, c, cy * cw, cw);
-                return c;
-            }
-            var cropCached = MakeCrop();
-            var cropNoCache = MakeCrop();
-            var swCached = Stopwatch.StartNew();
-            Process(cropCached, cw, ch, cx0, cy0, w, h, cache);
-            swCached.Stop();
-            var swNoCache = Stopwatch.StartNew();
-            Process(cropNoCache, cw, ch, cx0, cy0, w, h, null);
-            swNoCache.Stop();
-            Console.Error.WriteLine(
-                $"FFCHECK_CROPMS cached={swCached.Elapsed.TotalMilliseconds:F1} "
-                + $"noCache(recompute)={swNoCache.Elapsed.TotalMilliseconds:F1}");
-
-            // 3) クロップ内部(境界 margin 除外)を full のクロップ領域と比較。
-            int margin = st.holeFillPasses + System.Math.Max(0, st.antiAliasCleanup)
-                         + st.decontaminationRadius + 4;
-            bool Changed(Color32 a, Color32 b) => a.r != b.r || a.g != b.g || a.b != b.b;
-            // 「選択(再着色されたか否か)」を full と比較する。値の差(再着色アンカー等の領域統計が
-            // クロップ/フルで異なることによる)は flood fill keep の正否と無関係なので、選択集合の
-            // XOR で keep 転写の正しさを切り分ける。
-            int recFull = 0, recCached = 0, recNoCache = 0, interior = 0;
-            int selCachedExtra = 0, selCachedMiss = 0, selNoCacheExtra = 0, selNoCacheMiss = 0;
-            // 色のズレ計測(選択が一致した画素に限定)。keep 転写で選択は一致するが、autoRecolorAnchor /
-            // wash サンプルが「クロップ領域の統計」から導出されるためフルと出力色が乖離する=ズーム/
-            // スクロールで色が変わる症状を定量化する。
-            long colDeltaSum = 0; int colDeltaMax = 0; int colDeltaCount = 0; int colDeltaOver8 = 0;
-            for (int cy = margin; cy < ch - margin; cy++)
-            {
-                for (int cx = margin; cx < cw - margin; cx++)
-                {
-                    interior++;
-                    int ci = cy * cw + cx;
-                    int fi = (cy0 + cy) * w + (cx0 + cx);
-                    Color32 src = input[fi];
-                    bool rF = Changed(full[fi], src);
-                    bool rC = Changed(cropCached[ci], src);
-                    bool rN = Changed(cropNoCache[ci], src);
-                    if (rF) recFull++;
-                    if (rC) recCached++;
-                    if (rN) recNoCache++;
-                    if (rC && !rF) selCachedExtra++;   // cache がフルより多く選択(=keep転写漏れ)
-                    if (!rC && rF) selCachedMiss++;     // cache がフルより少なく選択(=過剰除去)
-                    if (rN && !rF) selNoCacheExtra++;   // cacheなしの過選択(=上位集合の超過分)
-                    if (!rN && rF) selNoCacheMiss++;
-                    // 選択がフルと一致した画素だけの色差(|dr|+|dg|+|db|)。
-                    if (rF && rC)
-                    {
-                        int d = System.Math.Abs(full[fi].r - cropCached[ci].r)
-                              + System.Math.Abs(full[fi].g - cropCached[ci].g)
-                              + System.Math.Abs(full[fi].b - cropCached[ci].b);
-                        colDeltaSum += d; colDeltaCount++;
-                        if (d > colDeltaMax) colDeltaMax = d;
-                        if (d > 8) colDeltaOver8++;
-                    }
-                }
-            }
-            double colMean = colDeltaCount > 0 ? (double)colDeltaSum / colDeltaCount : 0.0;
-            Console.Error.WriteLine(
-                $"FFCHECK interior={interior} recFull={recFull} recCached={recCached} recNoCache={recNoCache} | "
-                + $"cachedVsFull selXOR(extra/miss)={selCachedExtra}/{selCachedMiss} | "
-                + $"noCacheVsFull selXOR(extra/miss)={selNoCacheExtra}/{selNoCacheMiss} | "
-                + $"colorDelta(mean/max/over8 of {colDeltaCount})={colMean:F2}/{colDeltaMax}/{colDeltaOver8}");
-        }
 
         // 選択キャッシュ検証: 「再着色のみ変更した再生成」がキャッシュヒットでフル再計算と byte 一致し、
         // 「選択パラメータ変更」はミスして正しく再計算されることを確認する。

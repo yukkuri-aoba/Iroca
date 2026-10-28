@@ -361,8 +361,8 @@ namespace Iroca
         /// 部分強度でなく full strength で戻す(部分強度は出力を中途半端な明るさにして陰影相関を
         /// 壊す、という ApplyChromaCeilingGate と同じ理由)。
         ///
-        /// 連結性は大域演算なので **フル画像経路でのみ**呼ぶこと(呼び出し側で担保)。部分クロップで
-        /// 走らせるとクロップ境界に接した閉領域が開領域と誤判定される。
+        /// 連結性は大域演算なので画像全体で呼ぶこと。画像の一部だけで走らせると、切り口に接した
+        /// 閉領域が開領域と誤判定される。
         /// </summary>
         private static void RecoverEnclosedNeutral(
             float* strength, float* matchConf, PixelHsv hsv, Color32* pixels,

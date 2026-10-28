@@ -175,7 +175,7 @@ dev_safe の `docs/selection_redesign_0.4.0.md`（10-24 の設計の下書き）
   穴埋めと境界のリスト）は移さない（消えるので）。新しく書く層は、最初からヒープの外で持つ（2 章の 8）。
   10-25 の「単独の作業にはしない」は、10-26 の依頼で「残る部分も移す」に広げた（T3）。
 - **切り出しの一致の作り直しは要らない。** 再設計の 5.1 は「切り出し・縮小プレビューの一致の仕組みを領域単位で作り直す」と
-  しているが、3-8 で切り出しの検証経路を消す（製品は使っていない）ので、要るのは縮小プレビュー（概要段）との一致だけ。
+  しているが、3-8 で切り出しの検証経路を消した（製品は使っていなかった）ので、要るのは縮小プレビュー（概要段）との一致だけ。
 
 ## 2. 全体を通す決まり
 
@@ -792,14 +792,18 @@ T5 で消える部分は作り直さない（1.5）。
       していない。速さの確かめ（KernelBench・PerfBench で 5% 以内）が要り、出力を変えない作り替えの中で 1 つずつ
       試す手順になるので、3-8 以降の別の手にする。`ProcessPixelsArrayCore` の準備の部分（入力の控え・色の表と画素の
       HSV・作業配列）も段にはしていない。
-- [ ] 3-8 切り出しの検証経路（`PreviewParityCache` と切り出しの処理。製品は使っていない）を消す（2026-10-26 決定）。
+- [x] 3-8 切り出しの検証経路（`PreviewParityCache` と切り出しの処理。製品は使っていない）を消す（2026-10-26 決定）。
   ハーネスの `--ffcheck` など使う側のモードと、dev_safe のテスト・abcheck のモードも同じ時に消す。
-  - 2026-10-29: 着手前に止めた（**ユーザーの判断待ち**）。消すと、dev_safe の局所プローブ（`scripts/locality_probe/Probe.cs`。
-    拡大中の先出し「手順 3」の調査の道具。`PreviewParityCache` と部分クロップを 10 か所ほど使う）が動かなくなる。手順 3 は
-    10-04 から判断待ちのままなので、消すとその判断を先取りすることになる。消す範囲は、Core の入口の引数
-    （`originX`/`originY`/`fullW`/`fullH`/`parityCache`）・旧の選択の部分クロップの分岐（22 か所）・統計の段の転写・
-    `CropFullMidMap`・ハーネスの `--ffcheck`・dev_safe の `test_detail_preview_parity.py`・abcheck の checks と
-    probe の `recolor/crop`・abprobe の crop と parity の op。
+  - 2026-10-29 朝、着手前に止めて聞いた: 消すと、dev_safe の局所プローブ（`scripts/locality_probe/Probe.cs`。拡大中の
+    先出し「手順 3」の調査の道具）が動かなくなる。**ユーザー決定（2026-10-29）: 消してよい。手順 3 はやるなら T5 の後に、
+    新しい選択の上で考え直す**（旧の選択で測った局所プローブは、選択を作り替えるとどのみち使えない。調べた数字は
+    dev_safe の `docs/zoom_roi_study_2026-10-03.md` に残っている）。
+  - 2026-10-29（手元。abcheck で HEAD と全モード一致）: Core の入口の引数（`originX`/`originY`/`fullW`/`fullH`/
+    `parityCache`）・`RunContext` の原点と全体の寸法・`ZoneState.IsFullImagePath`・旧の選択の部分クロップの分岐（keep と
+    閉領域の復帰の転写 `ApplyCachedKeepMask`/`ApplyCachedForcedMask`、閉領域の中性ツヤの復帰の条件）・統計の段の転写・
+    `CropFullMidMap`・`PreviewParityCache`（と `ZoneRecolorStats`）・ハーネスの `--ffcheck` を消した。マスクの判定表
+    （`BuildMaskIndexMap`）と照合の位置の引数は作業画像の寸法そのものになった。dev_safe は `test_detail_preview_parity.py`・
+    局所プローブ・abcheck の `--ffcheck` の項目と probe の `recolor/crop`・abprobe の crop と parity を消した。
 - [ ] 3-12 Core に残る管理配列のうち、T5 の後も残るものをなくす: `UvChartMap`（A4）、色の表の大きさの配列（B5）。
   旧の選択・旧の自動調整の中の配列（A5・B6・穴埋めと境界のリスト）は移さない（T5 の P3 で消える）。
   - 2026-10-29（手元。どれも abcheck 1397 / 1397 一致）: B5 のうち、色の表を作るときのハッシュ表とスロット → 番号の対応

@@ -22,8 +22,7 @@ namespace Iroca
     ///
     /// strength は作業配列のプールから借りた領域で後段が破壊的に書き換えるため、Store では必ずコピーを取る。
     /// 復元結果が「同一入力でフル計算した strength」と完全一致するので出力はビット不変。
-    /// フル画像経路でのみ使う(詳細プレビューのクロップでは使わない)。テクスチャ/寸法変更時は
-    /// 呼び出し側(PreviewView)が Clear する。
+    /// テクスチャ/寸法変更時は呼び出し側(PreviewView)が Clear する。
     ///
     /// strength のコピーは Mono のヒープの外(<see cref="NativeFloatBuffer"/>)に置く(1 ゾーン 4K で 64MB・8K で 256MB)。
     /// Mono のヒープは縮まないので、ヒープに置くとテクスチャを替えてもウィンドウを閉じても OS へ戻らない。
@@ -54,7 +53,7 @@ namespace Iroca
             public string Key;
             public NativeFloatBuffer Strength;   // マスクを掛ける直前の strength のコピー(len=w*h)。辞書が参照を 1 つ持つ
             public ulong[] Keep;       // flood fill keep(毎回 new されるので参照保持で安全)。FF OFF は null
-            public ulong[] Forced;     // 閉領域ハイライト復帰の画素ビット(parityCache へ再公開する)。該当なしは null
+            public ulong[] Forced;     // 閉領域ハイライト復帰の画素ビット。該当なしは null
             public PostBox Box;
             // この選択が正しい除外マスク(MaskSnapshot の配列。作り直さず読むだけなので参照で持つ)。
             // 判定を通って使い回したら、そのときのマスクに差し替える(次の判定の差分を小さくする)。
@@ -220,7 +219,7 @@ namespace Iroca
                 e.Strength.ReadAt(indices, dst);
                 if ((e.Common != null || e.ZoneMask != null) && e.MaskW > 0 && e.MaskH > 0)
                 {
-                    // 座標の対応は PixelProcessor.BuildMaskIndexMap と同じ(保存するのは全画像の経路だけなので原点は 0)
+                    // 座標の対応は PixelProcessor.BuildMaskIndexMap と同じ
                     for (int k = 0; k < indices.Length; k++)
                     {
                         int x = indices[k] % w, y = indices[k] / w;

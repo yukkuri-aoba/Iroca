@@ -47,17 +47,17 @@ namespace Iroca
 
         /// <summary>
         /// マスク(除外・含める)の判定表を作る。作業座標の列 x → マスクの列(mx)と、行 y → マスクの行の先頭(my·maskW)。
-        /// 作業画像はテクスチャ(texW×texH)の (originX, originY) からの切り出しで、マスクの解像度は
+        /// 作業画像(w×h)はテクスチャ全体で、マスクの解像度は
         /// テクスチャと違ってよい(整数の拡縮で対応するマスク画素へ、端は切り詰め)。
         /// 以前は画素ごとにこの割り算をしていた(同じ式なので判定は同じ)。
         /// </summary>
-        private static void BuildMaskIndexMap(int w, int h, int originX, int originY, int texW, int texH,
+        private static void BuildMaskIndexMap(int w, int h,
             int maskW, int maskH, out int[] colOf, out int[] rowBase)
         {
             colOf = new int[w];
-            for (int x = 0; x < w; x++) colOf[x] = Mathf.Clamp((x + originX) * maskW / texW, 0, maskW - 1);
+            for (int x = 0; x < w; x++) colOf[x] = Mathf.Clamp(x * maskW / w, 0, maskW - 1);
             rowBase = new int[h];
-            for (int y = 0; y < h; y++) rowBase[y] = Mathf.Clamp((y + originY) * maskH / texH, 0, maskH - 1) * maskW;
+            for (int y = 0; y < h; y++) rowBase[y] = Mathf.Clamp(y * maskH / h, 0, maskH - 1) * maskW;
         }
 
         /// <summary>作業座標 (x, y) が除外(共通 ∪ ゾーン)か。表は BuildMaskIndexMap(無ければ除外なし)。</summary>

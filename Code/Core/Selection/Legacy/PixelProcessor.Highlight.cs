@@ -541,7 +541,7 @@ namespace Iroca
         // AA 混色で成分自身の色に引っ張られる(実測: 淡黄ダイヤの隣接リング V 0.95 に対し 2〜4px
         // 外側は 0.87=地色)ため使わない。判定は色量の比と連結性のみで、特定色・座標に依存しない。
         //
-        // 連結性は大域演算なので **フル画像経路でのみ**呼ぶ(部分クロップにはビット集合で転写する)。
+        // 連結性は大域演算なので画像全体で解く(画像の一部だけで呼ぶと、切り口に接した閉領域を開領域と誤判定する)。
         internal const int   EnclosedHlMinPixels  = 64;    // 成分の最小不透明画素数(8×8 相当。これ未満は穴埋めの守備範囲)
         internal const float EnclosedHlMaxSelFrac = 0.05f; // 成分の最大画素数(選択画素数比)。芯は本体の数%
         internal const float EnclosedHlSatFrac    = 0.60f; // 芯の中央値 S < min(サンプル S, リング S) × これ(脱彩の定義。ZoneAutoTuner.EvSheenSatFrac と同値)

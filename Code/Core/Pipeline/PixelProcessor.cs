@@ -98,8 +98,7 @@ namespace Iroca
 
         // スタティック計算メソッド — バックグラウンドスレッドで実行可能
         // Texture2Dなし、UnityEngine.Object APIなし、Mathfとカラー計算のみ（いずれもスレッドセーフ）
-        // originX/Y: フル解像度テクスチャでのクロップオフセット（0で全テクスチャ処理）
-        // fullW/H: フル解像度テクスチャの寸法（0 = w/hと同じ、つまりクロップなし）
+        // 画像はいつも全体を渡す(部分クロップの検証経路は 0.4.0 の計画の 3-8 で消した)。
         // 全体設定は RecolorSettings で受け取る（呼び出し元ごとに位置引数を並べ直させない）。
         // cancellationToken: バックグラウンドのプレビュー/エクスポートが渡す
         // sourcePixels: 呼び出した時点の pixels と同じ中身の配列(長さ w*h 以上)。処理中は読むだけで、
@@ -111,9 +110,7 @@ namespace Iroca
             IList<ColorZone> sortedZones,
             in RecolorSettings settings,
             CancellationToken cancellationToken = default,
-            int originX = 0, int originY = 0, int fullW = 0, int fullH = 0,
             IDebugCapture debug = null,
-            PreviewParityCache parityCache = null,
             SelectionCache selectionCache = null,
             Color32[] sourcePixels = null)
         {
@@ -139,12 +136,11 @@ namespace Iroca
             fixed (Color32* px = pixels)
             fixed (Color32* src = sourcePixels)
                 ProcessPixelsArrayCore(px, w, h, masks, sortedZones, in settings,
-                    originX, originY, fullW, fullH, cancellationToken,
-                    debug, parityCache, selectionCache, src);
+                    cancellationToken, debug, selectionCache, src);
         }
 
         /// <summary>
-        /// <see cref="ProcessPixelsArray(Color32[], int, int, MaskSnapshot, IList{ColorZone}, in RecolorSettings, CancellationToken, int, int, int, int, IDebugCapture, PreviewParityCache, SelectionCache, Color32[])"/> の
+        /// <see cref="ProcessPixelsArray(Color32[], int, int, MaskSnapshot, IList{ColorZone}, in RecolorSettings, CancellationToken, IDebugCapture, SelectionCache, Color32[])"/> の
         /// ポインタ版。Mono のヒープの外に置いた画素(プレビューの原本と出力)を写さずに処理する。
         /// pixels(w*h 画素。入力の画素を入れておくと、その場で処理結果に書き換わる)と sourcePixels(null 可。
         /// 渡すなら pixels と同じ中身で、処理中は読むだけ)は、処理が返るまで呼び出し側が保つこと。
@@ -155,9 +151,7 @@ namespace Iroca
             IList<ColorZone> sortedZones,
             in RecolorSettings settings,
             CancellationToken cancellationToken = default,
-            int originX = 0, int originY = 0, int fullW = 0, int fullH = 0,
             IDebugCapture debug = null,
-            PreviewParityCache parityCache = null,
             SelectionCache selectionCache = null,
             Color32* sourcePixels = null)
         {
@@ -166,8 +160,7 @@ namespace Iroca
             if (sourcePixels == pixels)
                 throw new System.ArgumentException("sourcePixels must not be the pixels buffer itself", nameof(sourcePixels));
             ProcessPixelsArrayCore(pixels, w, h, masks, sortedZones, in settings,
-                originX, originY, fullW, fullH, cancellationToken,
-                debug, parityCache, selectionCache, sourcePixels);
+                cancellationToken, debug, selectionCache, sourcePixels);
         }
 
         // 寸法の検証(画素数は int に収まること)。戻り値は画素数。
@@ -206,10 +199,8 @@ namespace Iroca
             MaskSnapshot masks,
             IList<ColorZone> sortedZones,
             in RecolorSettings settings,
-            int originX, int originY, int fullW, int fullH,
             CancellationToken cancellationToken,
             IDebugCapture debug,
-            PreviewParityCache parityCache,
             SelectionCache selectionCache,
             Color32* sourcePixels)
         {
@@ -227,9 +218,6 @@ namespace Iroca
             if (sortedZones == null) throw new System.ArgumentNullException(nameof(sortedZones));
             long lenLong = (long)w * h;
 
-            if (fullW <= 0) fullW = w;
-            if (fullH <= 0) fullH = h;
-
             // マスクスナップショットからローカル変数に展開(packed ulong[]、1bit/画素)
             ulong[] commonMask = masks?.common;
             int maskW = masks?.width ?? 0;
@@ -238,8 +226,7 @@ namespace Iroca
             // 列と行ごとに 1 回だけにする。マスクが無ければ null(=除外なし・含めるなし)。
             int[] maskColOf = null, maskRowBase = null;
             if (masks != null && maskW > 0 && maskH > 0)
-                BuildMaskIndexMap(w, h, originX, originY, fullW, fullH, maskW, maskH,
-                    out maskColOf, out maskRowBase);
+                BuildMaskIndexMap(w, h, maskW, maskH, out maskColOf, out maskRowBase);
 
             int len = (int)lenLong;
             // 入力のスナップショット。以降は読むだけなので、呼び出し側が同じ中身を持っていればそれを使う。
@@ -337,7 +324,6 @@ namespace Iroca
             var run = new RunContext
             {
                 W = w, H = h, Len = len,
-                OriginX = originX, OriginY = originY, FullW = fullW, FullH = fullH,
                 Original = originalPixels, Pixels = pixels, Po = po, Ct = cancellationToken,
                 Palette = palette, Hsv = hsv, PixH = pixH, PixS = pixS, PixV = pixV, PixIdx = pixIdx,
                 CommonMask = commonMask, MaskW = maskW, MaskH = maskH, MaskColOf = maskColOf, MaskRowBase = maskRowBase,
@@ -346,7 +332,7 @@ namespace Iroca
                 HoleFillMinNeighbors = holeFillMinNeighbors,
                 UseDecontamination = useDecontamination, DecontaminationRadius = decontaminationRadius,
                 Buf = rb,
-                Debug = debug, ParityCache = parityCache, SelectionCache = selectionCache,
+                Debug = debug, SelectionCache = selectionCache,
                 PhaseTicks = _phaseTicks, PerfZones = _perfZones, Sub = _sub,
             };
 

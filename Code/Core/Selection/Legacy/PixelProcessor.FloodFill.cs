@@ -394,49 +394,5 @@ namespace Iroca
                 s_boolPool.Return(reached);
             }
         }
-
-        /// <summary>
-        /// 連結成分アンカリングの keep(フル画像で解いた「残す画素」1bit/画素)を部分クロップへ転写する。
-        /// クロップの各画素をフル座標(originX/Y オフセット)で keep 参照し、残さない画素の strength を 0 化。
-        /// これにより詳細プレビュー(クロップ)が大域演算を再実行せずにメイン/最終と完全一致する。
-        /// </summary>
-        private static void ApplyCachedKeepMask(
-            float* strength, int w, int h, int originX, int originY, int fullW, ulong[] keep)
-        {
-            for (int y = 0; y < h; y++)
-            {
-                int rowOff = y * w;
-                int fRow = (y + originY) * fullW + originX;
-                for (int x = 0; x < w; x++)
-                {
-                    int i = rowOff + x;
-                    if (strength[i] <= 0f) continue;
-                    int gi = fRow + x;
-                    int word = gi >> 6;
-                    if (word < 0 || word >= keep.Length || (keep[word] & (1UL << (gi & 63))) == 0UL)
-                        strength[i] = 0f;
-                }
-            }
-        }
-
-        // 閉領域ハイライト復帰(フル画像で確定した復帰画素のビット集合)を部分クロップへ転写する(strength=1)。
-        // keep(AND で絞る)の鏡像で OR で足す。フル画像側で復帰画素は FF の前に strength=1 になっているので
-        // keep にも含まれており、この後の keep 転写で落ちない。
-        private static void ApplyCachedForcedMask(
-            float* strength, int w, int h, int originX, int originY, int fullW, ulong[] forced)
-        {
-            for (int y = 0; y < h; y++)
-            {
-                int rowOff = y * w;
-                int fRow = (y + originY) * fullW + originX;
-                for (int x = 0; x < w; x++)
-                {
-                    int gi = fRow + x;
-                    int word = gi >> 6;
-                    if (word < 0 || word >= forced.Length) continue;
-                    if ((forced[word] & (1UL << (gi & 63))) != 0UL) strength[rowOff + x] = 1f;
-                }
-            }
-        }
     }
 }

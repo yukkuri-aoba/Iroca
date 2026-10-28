@@ -56,7 +56,6 @@ SCOPE_EXCLUDE = {
     "Code/Core/PreviewCoords.cs": "座標の変換（定義どおりの式）",
     "Code/Core/SessionRecolor.cs": "非破壊の入口（設定を写すだけ）",
     "Code/Core/RecolorPreview.cs": "自動化の比較パネルと指標（出力そのものではない）",
-    "Code/Core/PreviewParityCache.cs": "検証用（0.4.0 の 3-8 で消す）",
 }
 
 KINDS = {"定義", "量子化", "計算", "近似", "設計", "実測", "不明"}

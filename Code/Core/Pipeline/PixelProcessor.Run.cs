@@ -17,8 +17,6 @@ namespace Iroca
         private sealed class RunContext
         {
             public int W, H, Len;
-            // 部分クロップのときの位置とフル解像度の寸法(フル画像なら 0 と W・H)。
-            public int OriginX, OriginY, FullW, FullH;
             // 入力の控え(処理中は読むだけ)。
             public Color32* Original;
             // 出力(呼び出し側の画素。入力と同じ中身で渡され、段がその場で書き換える)。
@@ -42,7 +40,6 @@ namespace Iroca
             // ゾーンをまたいで使い回す作業配列。
             public RunBuffers Buf;
             public IDebugCapture Debug;
-            public PreviewParityCache ParityCache;
             public SelectionCache SelectionCache;
             // 計測(値・分岐は変えない)。
             public long[] PhaseTicks;
@@ -126,7 +123,6 @@ namespace Iroca
             public ZoneBuffers Buffers;          // このゾーンで借りた作業配列の持ち主
             public ulong[] ZoneMask;            // ゾーン別の除外マスク(無ければ null)
             public bool MixMode;                // 混色帯モード(IsMixtureBandZone)
-            public bool IsFullImagePath;        // フル画像の経路か(false は検証用の部分クロップ)
             public float SampH, SampS, SampV;   // サンプル色の HSV
             public bool* IncludedPx;            // 含めるマスクをテクスチャ解像度へ展開したもの(無ければ null)
             // 選択の出力(マスクの契約を掛けた後の強度と、後段が走査する範囲)。

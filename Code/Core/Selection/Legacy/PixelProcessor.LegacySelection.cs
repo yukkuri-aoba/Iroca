@@ -17,11 +17,10 @@ namespace Iroca
         /// 計測の時刻は run.Tp で受け渡す。
         /// </summary>
         private static SelectionResult RunLegacySelection(RunContext run, ColorZone zone, ZoneBuffers zb,
-            ulong[] zoneMask, bool zMixMode, bool isFullImagePath, float sampH, float sampS, float sampV)
+            ulong[] zoneMask, bool zMixMode, float sampH, float sampS, float sampV)
         {
             // ProcessPixelsArrayCore と同じ名前のローカルへ展開する(切り出した本体をそのまま読めるように)。
             int w = run.W, h = run.H, len = run.Len;
-            int originX = run.OriginX, originY = run.OriginY, fullW = run.FullW, fullH = run.FullH;
             Color32* originalPixels = run.Original;
             var po = run.Po;
             var cancellationToken = run.Ct;
@@ -36,7 +35,6 @@ namespace Iroca
             int antiAliasCleanup = run.AntiAliasCleanup, holeFillPasses = run.HoleFillPasses;
             int holeFillMinNeighbors = run.HoleFillMinNeighbors;
             var debug = run.Debug;
-            var parityCache = run.ParityCache;
             var selectionCache = run.SelectionCache;
             var _phaseTicks = run.PhaseTicks;
             var _sub = run.Sub;
@@ -47,13 +45,12 @@ namespace Iroca
 
             // 選択キャッシュ: ターゲット色など「再着色のみ」の変更では、マスクを掛ける直前の
             // strength(=生の選択)を復元して選択フェーズ(Match/Highlight/FloodFill/穴埋め/
-            // 境界/ブラー)を丸ごと省く。フル画像経路でのみ使う。
+            // 境界/ブラー)を丸ごと省く。
             string selKey = null;
-            ulong[] cachedKeep = null;
             ulong[] cachedForced = null;
             var cachedBox = default(SelectionCache.PostBox);
             bool selCached = false;
-            if (selectionCache != null && isFullImagePath)
+            if (selectionCache != null)
             {
                 selKey = BuildSelectionKey(zone, edgeFeather, antiAliasCleanup, holeFillPasses,
                     holeFillMinNeighbors, relaxedSatMin, relaxedSatRamp, maskW, maskH, zMixMode);
@@ -61,10 +58,9 @@ namespace Iroca
 
             // 1. 元のピクセルカラーを使用した強度マップを構築(キャッシュヒット時は復元のみ)
             strength = zb.Strength = s_floatPool.Rent(len);
-            // matchConf は連結成分アンカリング(flood fill)のコア判定専用。FF が有効でフル画像
-            // 経路かつキャッシュミス時のみ確保・充填する(ヒット時は keep を転写するため不要)。
-            bool ffNeedsMatchConf = zone.mode == SelectionMode.ColorPick && zone.useFloodFill
-                && isFullImagePath;
+            // matchConf は連結成分アンカリング(flood fill)のコア判定専用。FF が有効で
+            // キャッシュミス時のみ確保・充填する(ヒット時は FF を省くため不要)。
+            bool ffNeedsMatchConf = zone.mode == SelectionMode.ColorPick && zone.useFloodFill;
             // キャッシュにあれば strength へ写す(キャッシュの中身はネイティブメモリにあり、貸し出し中は
             // 手放されない)。除外マスクが保存時と違えば、変わった画素でこのゾーンの照合がどれも 0 のときだけ
             // 使う(そのとき照合の直後の配列が計算し直しと同じになり、以降の段はマスクを読まないので選択も同じ)。
@@ -73,9 +69,9 @@ namespace Iroca
                 var zoneForCheck = zone;
                 selCached = selectionCache.TryCopy(zone.id, selKey, w, h, strength, commonMask, zoneMask,
                     (oldCommon, oldZone) => ExclusionChangeKeepsMatch(zoneForCheck, originalPixels, hsv,
-                        w, h, originX, originY, fullW, fullH, maskColOf, maskRowBase, maskW, maskH,
+                        w, h, maskColOf, maskRowBase, maskW, maskH,
                         oldCommon, oldZone, commonMask, zoneMask, ffNeedsMatchConf, po),
-                    out cachedKeep, out cachedForced, out cachedBox);
+                    out _, out cachedForced, out cachedBox);
             }
             bool needMatchConf = ffNeedsMatchConf && !selCached;
             // ミス時に FF が確定した keep を、選択キャッシュにも保存して次回のヒット復元に使う。
@@ -108,17 +104,15 @@ namespace Iroca
                     {
                         for (int k = k0; k < k1; k++)
                             zone.GetMatchScoresPrecomputedHSV(pH[k], pS[k], pV[k], (Color)pCol[k],
-                                0, 0, fullW, fullH, out outS[k], out outPot[k], out outConf[k]);
+                                0, 0, w, h, out outS[k], out outPot[k], out outConf[k]);
                     });
                 }
                 int* palIdxMatch = palette != null ? palette.Index : null;
                 Parallel.For(0, h, po, y =>
                 {
-                    int yf = y + originY;
                     int rowOff = y * w;
                     for (int x = 0; x < w; x++)
                     {
-                        int xf = x + originX;
                         int i = rowOff + x;
                         if (IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask))
                         {
@@ -133,7 +127,7 @@ namespace Iroca
                             && TryQuantSmoothedColor(originalPixels, x, y, w, h, zone.tolerance, out Color qc))
                         {
                             Color.RGBToHSV(qc, out float qh, out float qs, out float qv);
-                            zone.GetMatchScoresPrecomputedHSV(qh, qs, qv, qc, xf, yf, fullW, fullH,
+                            zone.GetMatchScoresPrecomputedHSV(qh, qs, qv, qc, x, y, w, h,
                                 out s, out hPot, out mc);
                         }
                         else if (palStrength != null)
@@ -143,7 +137,7 @@ namespace Iroca
                         }
                         else
                         {
-                            zone.GetMatchScoresPrecomputedHSV(pixH[HsvSlot(pixIdx, i)], pixS[HsvSlot(pixIdx, i)], pixV[HsvSlot(pixIdx, i)], (Color)originalPixels[i], xf, yf, fullW, fullH, out s, out hPot, out mc);
+                            zone.GetMatchScoresPrecomputedHSV(pixH[HsvSlot(pixIdx, i)], pixS[HsvSlot(pixIdx, i)], pixV[HsvSlot(pixIdx, i)], (Color)originalPixels[i], x, y, w, h, out s, out hPot, out mc);
                         }
                         strengthLocal[i] = s;
                         if (highlightPotLocal != null) highlightPotLocal[i] = hPot;
@@ -167,12 +161,10 @@ namespace Iroca
                         _sub.Mark(SpChromaCeiling);
                     // 中性ツヤ復帰(グレーモード以外では内部で no-op): 彩度整合ゲートが純白
                     // パディングと一緒に落とした「素材自身の純白ツヤ」を、選択領域に囲まれた
-                    // 閉領域という空間条件だけで戻す。連結性は大域演算なのでフル画像経路限定
-                    // (部分クロップではクロップ境界に接した閉領域を開領域と誤判定するため)。
-                    if (isFullImagePath)
-                        RecoverEnclosedNeutral(strength, matchConf, hsv, originalPixels,
-                            zone.sampleColor, zone.tolerance, sampS, sampV,
-                            zone.chromaThreshold, w, h, cancellationToken);
+                    // 閉領域という空間条件だけで戻す。連結性は大域演算なので画像全体で解く。
+                    RecoverEnclosedNeutral(strength, matchConf, hsv, originalPixels,
+                        zone.sampleColor, zone.tolerance, sampS, sampV,
+                        zone.chromaThreshold, w, h, cancellationToken);
                 }
                 _sub.Mark(SpEnclosedNeutral);
                 debug?.RecordStage(zone.id, DebugStages.Match, ToManaged(strength, len), w, h);
@@ -201,10 +193,8 @@ namespace Iroca
 
             // 1.a.3 閉領域ハイライト復帰: 選択に囲まれ、グロー(本体より明るい周囲)に縁取られた
             //       「色相の回った有彩の芯」を空間条件で戻す(PixelProcessor.Highlight.cs の
-            //       RecoverEnclosedHighlight 参照)。連結性は大域演算なのでフル画像で解き、復帰画素の
-            //       ビット集合を parityCache(詳細プレビューのクロップ転写)と選択キャッシュ(ヒット時の
-            //       再公開)に持たせる。クロップは色だけでは芯を選べない(それがこの復帰の存在理由)ので、
-            //       転写が無いとズーム位置で芯の色が変わる。ハイライト補助(highlightRecovery)の一部。
+            //       RecoverEnclosedHighlight 参照)。連結性は大域演算なので画像全体で解き、復帰画素の
+            //       ビット集合を選択キャッシュに持たせる。ハイライト補助(highlightRecovery)の一部。
             ulong[] forcedBits = null;
             if (zone.mode == SelectionMode.ColorPick && zone.highlightRecovery)
             {
@@ -212,10 +202,9 @@ namespace Iroca
                 {
                     forcedBits = cachedForced;
                 }
-                else if (isFullImagePath)
+                else
                 {
-                    var bits = (parityCache != null || selectionCache != null)
-                        ? new ulong[(len + 63) >> 6] : null;
+                    var bits = selectionCache != null ? new ulong[(len + 63) >> 6] : null;
                     int nForced = RecoverEnclosedHighlight(strength, originalPixels,
                         hsv, zone, w, h, bits, cancellationToken);
                     _sub.Mark(SpHlEnclosed);
@@ -225,40 +214,16 @@ namespace Iroca
                         debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, ToManaged(strength, len), w, h);
                     }
                 }
-                else if (parityCache != null
-                         && parityCache.fullW == fullW && parityCache.fullH == fullH)
-                {
-                    var fb = parityCache.GetForced(zone.id);
-                    if (fb != null)
-                        ApplyCachedForcedMask(strength, w, h, originX, originY, fullW, fb);
-                }
-                if (isFullImagePath && parityCache != null)
-                {
-                    parityCache.SetFullSize(w, h);
-                    parityCache.SetForced(zone.id, forcedBits);   // null=該当なし(旧エントリを消す)
-                }
             }
 
             _phaseTicks[PhHighlight] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
 
             // 1.a.2 連結成分アンカリング: 確信度コアを含む連結成分のみに strength を絞り込む。
-            // 連結性は大域演算のため、フル画像経路(メインプレビュー/Apply/Export)でのみ実行する。
-            // 部分クロップは、parityCache にフル画像で解いた keep があれば転写して一致させ(下の
-            // else if)、無ければ絞り込まず色のみ=最終の上位集合(安全側)になる。
+            // キャッシュヒット時は省く(復元した strength に反映済み)。
             if (zone.mode == SelectionMode.ColorPick
                 && zone.useFloodFill)
             {
-                if (selCached)
-                {
-                    // ヒット: フル画像で確定済みの keep を parityCache へ再公開する(詳細プレビュー
-                    // 転写用)。FF 自体は省略済み(復元 strength に反映済み)。
-                    if (parityCache != null && cachedKeep != null)
-                    {
-                        parityCache.SetFullSize(w, h);
-                        parityCache.SetKeep(zone.id, cachedKeep);
-                    }
-                }
-                else if (isFullImagePath)
+                if (!selCached)
                 {
                     int seedX = -1, seedY = -1;
                     if (zone.seedUV.x >= 0f)
@@ -280,32 +245,13 @@ namespace Iroca
                         ffHueBand, sampH, sampS * ColorZone.HueReliableSatFrac,
                         anchorX, anchorY, cancellationToken);
                         _sub.Mark(SpFfComponents);
-                    // フル画像で解いた keep(=残った画素 strength>0)を作り、詳細プレビュー(クロップ)へ
-                    // 転写(parityCache)・次回の選択キャッシュ復元(keepBitsForCache)の両方に使う。
-                    if (parityCache != null || selectionCache != null)
+                    // 解いた keep(=残った画素 strength>0)を作り、選択キャッシュに持たせる(keepBitsForCache)。
+                    if (selectionCache != null)
                     {
-                        var keepBits = PackPositiveBits(strength, len, po);
+                        keepBitsForCache = PackPositiveBits(strength, len, po);
                         _sub.Mark(SpFfKeepBits);
-                        keepBitsForCache = keepBits;
-                        if (parityCache != null)
-                        {
-                            parityCache.SetFullSize(w, h);
-                            parityCache.SetKeep(zone.id, keepBits);
-                        }
                     }
                     debug?.RecordStage(zone.id, DebugStages.FloodFill, ToManaged(strength, len), w, h);
-                }
-                else if (parityCache != null
-                         && parityCache.fullW == fullW && parityCache.fullH == fullH)
-                {
-                    // 部分クロップ(詳細プレビュー): フル画像で解いた keep をフル座標で転写。
-                    // keep が無い/寸法不一致なら絞り込まず色のみ=上位集合(安全側)。
-                    var keepBits = parityCache.GetKeep(zone.id);
-                    if (keepBits != null)
-                    {
-                        ApplyCachedKeepMask(strength, w, h, originX, originY, fullW, keepBits);
-                        debug?.RecordStage(zone.id, DebugStages.FloodFill, ToManaged(strength, len), w, h);
-                    }
                 }
             }
             // matchConf を読むのは連結成分アンカリングまで。後段(穴埋め・ブラー・デコンタミ等)が
@@ -503,7 +449,7 @@ namespace Iroca
             // 次回「再着色のみ変更」した再生成で復元して選択フェーズを丸ごと省く(出力ビット不変)。
             // マスクを掛ける前を保存するので、ヒット時も下でマスクを掛ける。
             _sub.Mark(SpBlurReapply);
-            if (!selCached && selectionCache != null && isFullImagePath)
+            if (!selCached && selectionCache != null)
             {
                 var box = new SelectionCache.PostBox
                 {

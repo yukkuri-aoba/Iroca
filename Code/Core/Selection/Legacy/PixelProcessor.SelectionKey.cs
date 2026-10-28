@@ -63,7 +63,7 @@ namespace Iroca
         /// (ColorPick は位置を見ない)、ここでは表を使わない。
         /// </summary>
         private static bool ExclusionChangeKeepsMatch(ColorZone zone, Color32* originalPixels, PixelHsv hsv,
-            int w, int h, int originX, int originY, int fullW, int fullH, int[] colOf, int[] rowBase,
+            int w, int h, int[] colOf, int[] rowBase,
             int maskW, int maskH, ulong[] oldCommon, ulong[] oldZone, ulong[] newCommon, ulong[] newZone,
             bool usesMatchConf, ParallelOptions po)
         {
@@ -87,7 +87,6 @@ namespace Iroca
             Parallel.For(0, h, po, (y, loop) =>
             {
                 if (!rows[rowBase[y] / maskW] || Volatile.Read(ref failed) != 0) return;
-                int yf = y + originY;
                 int rowOff = y * w;
                 for (int x = 0; x < w; x++)
                 {
@@ -101,14 +100,14 @@ namespace Iroca
                         && TryQuantSmoothedColor(originalPixels, x, y, w, h, zone.tolerance, out Color qc))
                     {
                         Color.RGBToHSV(qc, out float qh, out float qs, out float qv);
-                        zone.GetMatchScoresPrecomputedHSV(qh, qs, qv, qc, x + originX, yf, fullW, fullH,
+                        zone.GetMatchScoresPrecomputedHSV(qh, qs, qv, qc, x, y, w, h,
                             out s, out hPot, out mc);
                     }
                     else
                     {
                         int k = HsvSlot(hsv.Index, i);
                         zone.GetMatchScoresPrecomputedHSV(hsv.H[k], hsv.S[k], hsv.V[k], (Color)originalPixels[i],
-                            x + originX, yf, fullW, fullH, out s, out hPot, out mc);
+                            x, y, w, h, out s, out hPot, out mc);
                     }
                     if (BitConverter.SingleToInt32Bits(s) != 0
                         || (usesPot && BitConverter.SingleToInt32Bits(hPot) != 0)

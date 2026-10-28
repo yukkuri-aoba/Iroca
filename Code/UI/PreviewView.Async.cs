@@ -205,7 +205,7 @@ namespace Iroca
                     // 控えた proxyRaw は処理前と同じ中身なので、Core の入力スナップショットにも使う(複製しない)。
                     PixelProcessor.ProcessPixelsArray(proxyPixels, proxyW, proxyH, req.maskSnap, req.zonesSnapshot,
                         req.settings, token,
-                        debug: null, parityCache: null, selectionCache: proxySelCache,
+                        debug: null, selectionCache: proxySelCache,
                         sourcePixels: proxyRaw);
                     marks.CoreEnd = PreviewLatencyCycle.Now;
                     marks.CoreReport = DebugCaptureHooks.TakeThreadPerfReport();
