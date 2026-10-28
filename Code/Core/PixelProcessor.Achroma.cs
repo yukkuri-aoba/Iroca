@@ -115,8 +115,8 @@ namespace Iroca
         /// </summary>
         private static float ComputeAchromaWeight(Color sample, Color target)
         {
-            RgbToOklab(sample.r, sample.g, sample.b, out _, out float sa, out float sb);
-            RgbToOklab(target.r, target.g, target.b, out float tL, out float ta, out float tb);
+            OkLab.RgbToOklab(sample.r, sample.g, sample.b, out _, out float sa, out float sb);
+            OkLab.RgbToOklab(target.r, target.g, target.b, out float tL, out float ta, out float tb);
             float sC = Mathf.Sqrt(sa * sa + sb * sb);
             float tC = Mathf.Sqrt(ta * ta + tb * tb);
             float achromaSample = Mathf.Clamp01(1f - sC / AchromaSampleC);
@@ -186,7 +186,7 @@ namespace Iroca
                     for (int lx = 0; lx < bw; lx++)
                     {
                         var p = px[grb + lx];
-                        RgbToOklab(p.r, p.g, p.b, out float L, out _, out _);
+                        OkLab.RgbToOklab(p.r, p.g, p.b, out float L, out _, out _);
                         okLL[lrb + lx] = L;
                     }
                 });
@@ -437,7 +437,7 @@ namespace Iroca
                             if (statsExclude != null && statsExclude[i]) continue;
                             float L;
                             if (pIdx != null) L = pL[pIdx[i]];
-                            else RgbToOklab(px[i].r, px[i].g, px[i].b, out L, out _, out _);
+                            else OkLab.RgbToOklab(px[i].r, px[i].g, px[i].b, out L, out _, out _);
                             localHist[Mathf.Clamp((int)(L * 255f), 0, 255)]++;
                             n++;
                         }

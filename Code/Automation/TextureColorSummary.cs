@@ -289,22 +289,9 @@ namespace Iroca
         }
 
         // ─── 色空間 ───
-        // 製品の変換(PixelProcessor の RgbToOklab)と同じ式。あちらは処理の中核で private なので、
-        // 手がかり用のここでは写して持つ(色替えの結果には関わらない)。
+        // 製品の変換(Core の OkLab)をそのまま使う。
 
         private static void ToOklab(Color32 c, out float L, out float a, out float b)
-        {
-            float lr = SrgbToLinear(c.r / 255f), lg = SrgbToLinear(c.g / 255f), lb = SrgbToLinear(c.b / 255f);
-            float l = 0.4122214708f * lr + 0.5363325363f * lg + 0.0514459929f * lb;
-            float m = 0.2119034982f * lr + 0.6806995451f * lg + 0.1073969566f * lb;
-            float s = 0.0883024619f * lr + 0.2817188376f * lg + 0.6299787005f * lb;
-            float l_ = MathF.Cbrt(l), m_ = MathF.Cbrt(m), s_ = MathF.Cbrt(s);
-            L = 0.2104542553f * l_ + 0.7936177850f * m_ - 0.0040720468f * s_;
-            a = 1.9779984951f * l_ - 2.4285922050f * m_ + 0.4505937099f * s_;
-            b = 0.0259040371f * l_ + 0.7827717662f * m_ - 0.8086757660f * s_;
-        }
-
-        private static float SrgbToLinear(float v)
-            => v <= 0.04045f ? v / 12.92f : MathF.Pow((v + 0.055f) / 1.055f, 2.4f);
+            => OkLab.RgbToOklab(c.r, c.g, c.b, out L, out a, out b);
     }
 }

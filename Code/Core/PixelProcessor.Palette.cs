@@ -32,7 +32,7 @@ namespace Iroca
             // Mono のヒープにその分が残っていた)。最後の参照が外れたときに解放する。
             internal int* Index;
             internal float* H, S, V;
-            // 番号 → RgbToOklab(byte 版) の L と、C = sqrt(a²+b²)。EnsureOklab で初めて要るときに作る。
+            // 番号 → OkLab.RgbToOklab(byte 版) の L と、C = sqrt(a²+b²)。EnsureOklab で初めて要るときに作る。
             internal float[] OkL, OkC;
             private readonly object _oklabLock = new object();
 
@@ -90,7 +90,7 @@ namespace Iroca
                     {
                         for (int k = k0; k < k1; k++)
                         {
-                            RgbToOklab(colors[k].r, colors[k].g, colors[k].b, out float L, out float a, out float b);
+                            OkLab.RgbToOklab(colors[k].r, colors[k].g, colors[k].b, out float L, out float a, out float b);
                             l[k] = L;
                             c[k] = Mathf.Sqrt(a * a + b * b);
                         }

@@ -1,17 +1,15 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
-using System.Buffers;
-using System.Collections.Generic;
-using System.Text;
-using System.Threading;
-using System.Diagnostics;
-using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Iroca
 {
-    internal static unsafe partial class PixelProcessor
+    /// <summary>
+    /// sRGB と OkLab の変換。再着色の中核(<see cref="PixelProcessor"/>)と、自動化の手がかり
+    /// (<c>TextureColorSummary</c>)が同じ式を使う(0.4.0 の 3-5 で PixelProcessor から切り出した)。
+    /// </summary>
+    internal static class OkLab
     {
         // ───────────── OkLab 知覚色空間ヘルパー (リング除去の中核) ─────────────
         // リング(ドーナツ)の根本原因は「HSV の V/S は知覚的でないため、S/V を保持して
@@ -88,14 +86,14 @@ namespace Iroca
         }
 
         // 任意 float 入力版(ゾーン定数: sample/target 色)。
-        private static void RgbToOklab(float r, float g, float b,
+        internal static void RgbToOklab(float r, float g, float b,
             out float L, out float a, out float bb)
         {
             OklabFromLinear(SrgbToLinear(r), SrgbToLinear(g), SrgbToLinear(b), out L, out a, out bb);
         }
 
         // byte 入力版(per-pixel 経路)。SrgbToLinear を 256 エントリ LUT で厳密に表引きする。
-        private static void RgbToOklab(byte r, byte g, byte b,
+        internal static void RgbToOklab(byte r, byte g, byte b,
             out float L, out float a, out float bb)
         {
             OklabFromLinear(s_srgbToLinearLut[r], s_srgbToLinearLut[g], s_srgbToLinearLut[b],
@@ -115,7 +113,7 @@ namespace Iroca
             lb = -0.0041960863f * l - 0.7034186147f * m + 1.7076147010f * s;
         }
 
-        private static void OklabToRgb(float L, float a, float b,
+        internal static void OklabToRgb(float L, float a, float b,
             out float r, out float g, out float bb)
         {
             OklabToLinear(L, a, b, out float lr, out float lg, out float lb);
@@ -138,7 +136,7 @@ namespace Iroca
             && lg >= -GamutEps && lg <= 1f + GamutEps
             && lb >= -GamutEps && lb <= 1f + GamutEps;
 
-        private static void OklabToRgbInGamut(float L, float a, float b,
+        internal static void OklabToRgbInGamut(float L, float a, float b,
             out float r, out float g, out float bb)
         {
             OklabToLinear(L, a, b, out float lr, out float lg, out float lb);

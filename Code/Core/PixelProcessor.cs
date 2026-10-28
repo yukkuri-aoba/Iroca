@@ -540,8 +540,8 @@ namespace Iroca
                     // 単色ロゴなどでは AA 縁の混色が元と違う色相へ転写され、輪郭だけが別色に転ぶ色相ノイズを
                     // 生んだ。向きを target に揃えることで L(リング除去)を保ったまま色相を均一化する。outputSaturation は
                     // 大きさスケールに畳み込む。sample が無彩(zSC≈0)なら target chroma を一律付与する。
-                    RgbToOklab(zSR, zSG, zSB, out float zSL, out float zSa, out float zSb);
-                    RgbToOklab(zTR, zTG, zTB, out float zTL, out float zTa, out float zTb);
+                    OkLab.RgbToOklab(zSR, zSG, zSB, out float zSL, out float zSa, out float zSb);
+                    OkLab.RgbToOklab(zTR, zTG, zTB, out float zTL, out float zTa, out float zTb);
                     float zSC = Mathf.Sqrt(zSa * zSa + zSb * zSb);
                     float zOsat = zOutputSat < 0.999f ? zOutputSat : 1f;
                     bool zOkGray = zSC <= 1e-4f;
@@ -576,7 +576,7 @@ namespace Iroca
                         // 相対的な暗部」だけを脱彩する。アンカー非採用時は従来の絶対閾値で完全互換。
                         if (zEffShadowDesat > 0f)
                         {
-                            OklabToRgb(zSL,
+                            OkLab.OklabToRgb(zSL,
                                 zSa / Mathf.Max(zSC0, 1e-9f) * zSC,
                                 zSb / Mathf.Max(zSC0, 1e-9f) * zSC,
                                 out float aRr, out float aGg, out float aBb);

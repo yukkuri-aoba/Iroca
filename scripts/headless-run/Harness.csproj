@@ -49,6 +49,8 @@
     <Compile Include="..\..\Code\Core\Filters\*.cs" />
     <!-- 並列度・画素の決まり・使っていないメモリを返す窓口(0.4.0 の 3-4)。 -->
     <Compile Include="..\..\Code\Core\Foundation\*.cs" />
+    <!-- 色空間(OkLab)ほか、色の下回り(0.4.0 の 3-5)。 -->
+    <Compile Include="..\..\Code\Core\Color\*.cs" />
     <Compile Include="..\..\Code\Core\MaskSnapshot.cs" />
     <Compile Include="..\..\Code\Core\PreviewParityCache.cs" />
     <Compile Include="..\..\Code\Core\SelectionCache.cs" />

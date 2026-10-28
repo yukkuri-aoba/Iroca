@@ -231,7 +231,7 @@ namespace Iroca
                             int i = rowOff + x;
                             if (strength[i] < AnchorStrengthMin || px[i].a < OpaqueAlphaMin) continue;
                             if (statsExclude != null && statsExclude[i]) continue;
-                            RgbToOklab(px[i].r, px[i].g, px[i].b,
+                            OkLab.RgbToOklab(px[i].r, px[i].g, px[i].b,
                                 out float L, out float a, out float b);
                             float C = Mathf.Sqrt(a * a + b * b);
                             candL[i] = L;
@@ -359,7 +359,7 @@ namespace Iroca
                 {
                     if (cnt[k] == 0) continue;
                     Color32 pk = pCol[k];
-                    RgbToOklab(pk.r, pk.g, pk.b, out _, out float a, out float b);
+                    OkLab.RgbToOklab(pk.r, pk.g, pk.b, out _, out float a, out float b);
                     if (!material.Rejects(pk, a, b)) continue;
                     candCount -= cnt[k];
                     cnt[k] = 0;
@@ -480,7 +480,7 @@ namespace Iroca
             //    比例、残りの揺れは 1 倍。ファイル先頭の「彩度の写し方」参照)、向きは target に均一化。旧版の「色相回転保持」は、単色ロゴなどの AA 縁で元テクスチャに
             //    無い色相ノイズ(輪郭だけが別色へ転ぶ)を生んだため、向きを揃えて L を保ったまま色相を
             //    均一化する。
-            RgbToOklab(oRb, oGb, oBb, out float oL, out float oa, out float ob);
+            OkLab.RgbToOklab(oRb, oGb, oBb, out float oL, out float oa, out float ob);
             float oC = Mathf.Sqrt(oa * oa + ob * ob);
             float na, nb;
             if (okGray)
@@ -584,7 +584,7 @@ namespace Iroca
             }
 
             // sRGB の範囲を超えた色は、明度と色相を保ったまま彩度だけ縮める(OklabToRgbInGamut のコメント参照)。
-            OklabToRgbInGamut(nL, na, nb, out float outR, out float outG, out float outB);
+            OkLab.OklabToRgbInGamut(nL, na, nb, out float outR, out float outG, out float outB);
             Color result = new Color(Mathf.Clamp01(outR), Mathf.Clamp01(outG), Mathf.Clamp01(outB), 1f);
 
             // ハイライト合成 (P5 軸射影版・residual なし / 2026-05-26):
@@ -654,7 +654,7 @@ namespace Iroca
                     float axR = washR + w * dR;
                     float axG = washG + w * dG;
                     float axB = washB + w * dB;
-                    RgbToOklab(axR, axG, axB, out float axL, out float axA, out float axB2);
+                    OkLab.RgbToOklab(axR, axG, axB, out float axL, out float axA, out float axB2);
                     float dOkA = oa - axA, dOkB = ob - axB2;
                     float axC = Mathf.Sqrt(axA * axA + axB2 * axB2);
                     float dRad = oC - axC;                      // +: 軸予測より高彩度

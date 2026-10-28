@@ -90,13 +90,14 @@
 テストはこの数と一致することを確かめる。調整した値を直書きで足すと増えて落ちる（名前を付けて上の台帳へ）。
 整数（`Mathf.Max(50, …)` のような画素数の床）は添字やループと見分けられないので数えていない。
 
-多いのは 2 つ。`PixelProcessor.ColorSpace.cs` の 43 は sRGB・OkLab の変換係数（定義）。`ZoneAutoTuner.cs` の 40 は
+多いのは 2 つ。`Color/OkLab.cs` の 43 は sRGB・OkLab の変換係数（定義）。`ZoneAutoTuner.cs` の 40 は
 ほとんどが `MergeAnalyzed` の段階関数（彩度の厳しさ・グレー判定のしきい値・模様保持・エッジの柔らかさ・影の彩度下限・
 ハイライト補助の初期値などを、サンプルの統計から階段状に決める）で、由来の記録が無く、そのままゾーンへ出荷される。
 名前の付いた定数より、こちらが「由来の分からない調整値」としては大きい（2026-10-24 の分類で確認）。
 
 | ファイル | 数 |
 |---|---|
+| `Code/Core/Color/OkLab.cs` | 43 |
 | `Code/Core/ColorZone.cs` | 6 |
 | `Code/Core/Filters/PixelProcessor.Blur.cs` | 0 |
 | `Code/Core/Foundation/CoreMemory.cs` | 0 |
@@ -106,7 +107,6 @@
 | `Code/Core/Masks/PixelProcessor.Masks.cs` | 0 |
 | `Code/Core/PixelProcessor.Achroma.cs` | 0 |
 | `Code/Core/PixelProcessor.Bounds.cs` | 0 |
-| `Code/Core/PixelProcessor.ColorSpace.cs` | 43 |
 | `Code/Core/PixelProcessor.Decontam.cs` | 1 |
 | `Code/Core/PixelProcessor.Hsv.cs` | 0 |
 | `Code/Core/PixelProcessor.MixtureBand.cs` | 0 |
@@ -132,6 +132,16 @@
 | `Code/MaskSuggest/Ops/SamMaskPostprocess.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamMaskRefine.cs` | 3 |
 | `Code/MaskSuggest/Ops/SamZoomOps.cs` | 0 |
+
+## `Code/Core/Color/OkLab.cs`
+
+| 定数 | 値 | 種類 | 段 | 根拠 |
+|---|---|---|---|---|
+| `LinToSrgbLutSize` | `4096` | 近似 | — | 線形→sRGB の表の分割数。Pow 版と 98304 色の往復でバイト差 0 を確認 |
+| `s_srgbToLinearLut` | `BuildSrgbToLinearLut()` | 定義 | — | sRGB の 256 段 → 線形の表（sRGB の変換式から作る） |
+| `s_linearToSrgbLut` | `BuildLinearToSrgbLut()` | 定義 | — | 線形 → sRGB の表（sRGB の変換式から作る） |
+| `GamutEps` | `1e-4f` | 量子化 | — | 線形 RGB の丸め誤差を範囲内とみなす幅 |
+| `GamutBisectSteps` | `14` | 近似 | — | 彩度を縮める率の二分探索の回数。分解能 1/16384 で 8bit 出力には十分 |
 
 ## `Code/Core/ColorZone.cs`
 
@@ -219,16 +229,6 @@
 | `AchromaRegionCoreThr` | `0.5f` | 不明 | — | 領域の L 中央値に使う strength の下限。選んだ記録なし |
 | `matchThr` | `ColorZone.MatchStrengthFloor` | 設計 | SA | 同上（内部固め側の別名） |
 | `ClearChunk` | `1 << 18` | 計算 | — | 地図のゼロ埋めを並列に分ける塊。出力に効かない |
-
-## `Code/Core/PixelProcessor.ColorSpace.cs`
-
-| 定数 | 値 | 種類 | 段 | 根拠 |
-|---|---|---|---|---|
-| `LinToSrgbLutSize` | `4096` | 近似 | — | 線形→sRGB の表の分割数。Pow 版と 98304 色の往復でバイト差 0 を確認 |
-| `s_srgbToLinearLut` | `BuildSrgbToLinearLut()` | 定義 | — | sRGB の 256 段 → 線形の表（sRGB の変換式から作る） |
-| `s_linearToSrgbLut` | `BuildLinearToSrgbLut()` | 定義 | — | 線形 → sRGB の表（sRGB の変換式から作る） |
-| `GamutEps` | `1e-4f` | 量子化 | — | 線形 RGB の丸め誤差を範囲内とみなす幅 |
-| `GamutBisectSteps` | `14` | 近似 | — | 彩度を縮める率の二分探索の回数。分解能 1/16384 で 8bit 出力には十分 |
 
 ## `Code/Core/PixelProcessor.Decontam.cs`
 
