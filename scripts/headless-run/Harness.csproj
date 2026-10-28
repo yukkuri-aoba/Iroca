@@ -51,6 +51,8 @@
     <Compile Include="..\..\Code\Core\Foundation\*.cs" />
     <!-- 色空間(OkLab)ほか、色の下回り(0.4.0 の 3-5)。 -->
     <Compile Include="..\..\Code\Core\Color\*.cs" />
+    <!-- 再着色の段(0.4.0 の 3-7b)。 -->
+    <Compile Include="..\..\Code\Core\Recolor\*.cs" />
     <Compile Include="..\..\Code\Core\MaskSnapshot.cs" />
     <Compile Include="..\..\Code\Core\PreviewParityCache.cs" />
     <Compile Include="..\..\Code\Core\SelectionCache.cs" />

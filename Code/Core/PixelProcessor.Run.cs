@@ -106,6 +106,25 @@ namespace Iroca
         }
 
         /// <summary>
+        /// 1 つのゾーンの処理で、再着色の段から段へ渡す値(0.4.0 の計画の 3-7b)。ゾーンの入力と選択の出力を入れてから
+        /// 段を順に呼び、各段は自分の出力をここへ書く。指す先(強度・含めるマスク)の持ち主は <see cref="ZoneBuffers"/>。
+        /// </summary>
+        private sealed class ZoneState
+        {
+            public ColorZone Zone;
+            public ulong[] ZoneMask;            // ゾーン別の除外マスク(無ければ null)
+            public bool MixMode;                // 混色帯モード(IsMixtureBandZone)
+            public bool IsFullImagePath;        // フル画像の経路か(false は検証用の部分クロップ)
+            public float SampH, SampS, SampV;   // サンプル色の HSV
+            public bool* IncludedPx;            // 含めるマスクをテクスチャ解像度へ展開したもの(無ければ null)
+            // 選択の出力(マスクの契約を掛けた後の強度と、後段が走査する範囲)。
+            public float* Strength;
+            public SelectionCache.PostBox Box;
+            // 無彩の固め: 無彩サンプル/極端無彩ターゲットの重み(ComputeAchromaWeight)。
+            public float AchromaWeight;
+        }
+
+        /// <summary>
         /// 選択と再着色の境目(0.4.0 の計画の 3-7a)。再着色の段が選択から読むのはこれだけ。旧の選択
         /// (<see cref="RunLegacySelection"/>)も、T5 の新しい選択も、この形で出す。
         /// </summary>

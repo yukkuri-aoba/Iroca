@@ -426,18 +426,16 @@ namespace Iroca
                     // マスクの契約(除外の掛け直し・含める)。
                     ApplyMaskContract(run, zone, strength, zoneMask, includedPx);
 
-                    // 無彩サンプル/極端無彩ターゲットの重み(無彩パスと AA フィデリティ修正で共用)。
-                    float zAchromaWeight = ComputeAchromaWeight(zone.sampleColor, zone.targetColor);
+                    // 再着色の段。段どうしは z で値を受け渡す(0.4.0 の計画の 3-7b)。
+                    var z = new ZoneState
+                    {
+                        Zone = zone, ZoneMask = zoneMask, MixMode = zMixMode, IsFullImagePath = isFullImagePath,
+                        SampH = sampH, SampS = sampS, SampV = sampV, IncludedPx = includedPx,
+                        Strength = strength, Box = sel.Box,
+                    };
+                    AchromaSolidifyStage.Run(run, z);
+                    float zAchromaWeight = z.AchromaWeight;
 
-                    // 無彩パスの内部固め: 極端な無彩ターゲット(白↔黒)では、マッチ強度が色のばらつきで内部まで
-                    // フルにならず、明るい画素ほど弱く塗られて元色が残り「中央の段差」になる。陰影は塗り
-                    // 強度でなく recolor の achroma レンジリマップ(gain≤1)で表現すべきなので、マッチ領域の
-                    // 内部を full strength に固め、AA 縁(侵食で除いた帯)の taper だけ残す。有彩ターゲット
-                    // (achromaWeight≈0)では no-op = byte 不変。
-                    if (zAchromaWeight > AchromaWeightActiveMin)
-                        SolidifyAchromaInterior(strength, w, h, zAchromaWeight, cancellationToken);
-
-                    _sub.Mark(SpSolidify);
                     // 3b. AA 境界の α 分解（オプション）：strength が 0 < s < interiorThreshold の
                     //     ピクセルを「α×FG + (1-α)×BG」と見て元テクスチャの合成を逆算し、
                     //     新色で再合成する。halo（薄汚れた中間色）を構造的に除去する。
