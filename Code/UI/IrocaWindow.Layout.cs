@@ -743,7 +743,7 @@ namespace Iroca
         // 作業中の Unity が原本 1 画素あたりに使うメモリの目安(バイト)。2026-10-11 の実測で、16K の通し
         // (取り込み〜色替え〜書き出し〜NDMF)のピークが約 25GB、8K のプレビュー相当の繰り返しが約 6GB だった。
         private const double SourceBytesPerPixel = 96.0;
-        private const string LargeSourceDismissedKeyPrefix = "Iroca.LargeSource.Dismissed:";
+        private const string LargeSourceDismissedKeyPrefix = IrocaPrefs.LargeSourceDismissedPrefix;
 
         /// <summary>
         /// 辺が 8192 を超える元画像を開いたときの案内(<see cref="WorkingResolution.ExceedsLimit"/>)。編集・プレビュー・

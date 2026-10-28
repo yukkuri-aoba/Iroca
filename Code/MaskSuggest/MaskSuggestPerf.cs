@@ -17,7 +17,7 @@ namespace Iroca
     /// </summary>
     internal static class MaskSuggestPerf
     {
-        const string PrefKey = "Iroca.AiSuggestPerfLog";
+        const string PrefKey = IrocaPrefs.AiSuggestPerfLog;
 
         static bool? _enabled;
 

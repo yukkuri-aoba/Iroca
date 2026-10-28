@@ -29,14 +29,14 @@ namespace Iroca
         // 版をまたいで更新する人にも途中の変更が全部見えるよう、版ごとのリリースページでなく通しの変更履歴を開く。
         public const string ChangelogUrl = "https://github.com/yukkuri-aoba/Iroca/blob/main/CHANGELOG.md";
 
-        const string EnabledKey = "Iroca.UpdateCheck.Enabled";
-        const string DismissedKey = "Iroca.UpdateCheck.Dismissed";
+        const string EnabledKey = IrocaPrefs.UpdateCheckEnabled;
+        const string DismissedKey = IrocaPrefs.UpdateCheckDismissed;
         // 結果は Unity の版(major.minor)と、先行版を含めるかごとに分けて覚える。同じ PC で Unity 2022 と 6 の
         // プロジェクトを開くと、入れられる最新版が違い得るため。
-        const string LatestKeyPrefix = "Iroca.UpdateCheck.Latest:";
-        const string CheckedAtKeyPrefix = "Iroca.UpdateCheck.CheckedAtUtc:";
+        const string LatestKeyPrefix = IrocaPrefs.UpdateCheckLatestPrefix;
+        const string CheckedAtKeyPrefix = IrocaPrefs.UpdateCheckCheckedAtUtcPrefix;
         // この Unity の起動中にもう試したか(ドメインリロードをまたいで残る)。
-        const string TriedThisSessionKey = "Iroca.UpdateCheck.Tried";
+        const string TriedThisSessionKey = IrocaPrefs.UpdateCheckTried;
         const int TimeoutSeconds = 20;
 
         static UnityWebRequest s_request;

@@ -40,7 +40,7 @@ namespace Iroca.DebugTools
         // 前回の書き出し先(EditorPrefs)。回帰ケース化の運用は「見つけたその場で書き出す」の
         // 積み重ねなので、毎回フォルダを辿り直す摩擦を無くす。開発機で一度
         // dev_safe/Tests/repro_cases を選べば、以後は書き出し=取り込み(移動不要)になる。
-        private const string LastDirPrefKey = "Iroca.ReproDump.LastDir";
+        private const string LastDirPrefKey = IrocaPrefs.ReproDumpLastDir;
 
         [MenuItem(IrocaUiConsts.MenuPath + "/再現データを書き出す...")]
         private static void ExportMenu()

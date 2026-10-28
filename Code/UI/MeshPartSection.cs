@@ -16,7 +16,7 @@ namespace Iroca
     /// </summary>
     internal static class MeshPartSection
     {
-        private const string ShowIslandsPrefKey = "Iroca.ShowMeshIslands";
+        private const string ShowIslandsPrefKey = IrocaPrefs.ShowMeshIslands;
         // ツールチップに並べるメッシュ名の上限(多いアバターでツールチップが画面を覆わないように)
         private const int MaxListedMeshes = 20;
         // メッシュ欄(ラベルを除く)の最小幅。ピッカーのボタンと名前の頭が見える程度。

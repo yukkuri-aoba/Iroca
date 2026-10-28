@@ -256,7 +256,7 @@ namespace Iroca
         private static string RecipeSyncKey(IrocaRecipe recipe)
         {
             string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(recipe));
-            return string.IsNullOrEmpty(guid) ? null : "Iroca.RecipeSynced." + guid;
+            return string.IsNullOrEmpty(guid) ? null : IrocaPrefs.RecipeSyncedPrefix + guid;
         }
 
         private static string RecipeJsonHash(string json) => Hash128.Compute(json ?? "").ToString();

@@ -17,7 +17,7 @@ namespace Iroca.DebugTools
     /// </summary>
     internal static class DebugMode
     {
-        private const string PrefKey = "Iroca.Debug.MasterEnabled";
+        private const string PrefKey = IrocaPrefs.DebugMasterEnabled;
 
         private static bool s_loaded;
         private static bool s_enabled;

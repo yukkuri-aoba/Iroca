@@ -15,7 +15,7 @@ namespace Iroca.DebugTools
     /// </summary>
     internal static class PerfView
     {
-        private const string PrefKeyThreads = "Iroca.Perf.ThreadOverride";
+        private const string PrefKeyThreads = IrocaPrefs.PerfThreadOverride;
 
         private static bool s_prefsLoaded;
         // 体感速度(操作 → 画面)と、同じ操作のコア処理の計測。メインスレッドで届くので同期は要らない。

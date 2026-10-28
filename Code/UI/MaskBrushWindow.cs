@@ -29,7 +29,7 @@ namespace Iroca
         private Vector2 _scroll;
 
         // このプロジェクトで一度置いたら、あとは Unity が覚えている位置・大きさに任せる。
-        private static string PlacedKey => "Iroca.MaskBrushWindowPlaced:" + Application.dataPath;
+        private static string PlacedKey => IrocaPrefs.MaskBrushWindowPlacedPrefix + Application.dataPath;
         private const float DefaultWidth = 320f;
         private const float DefaultHeight = 560f;
 

@@ -38,7 +38,7 @@ namespace Iroca
         // バナーを「このセッションでは閉じた」フラグ。SessionState なので Unity 再起動で戻る。
         // 消えたままにしないのは、自動調整がこの準備に依存しているため（次に Unity を開けば
         // また案内が出る）。
-        const string BannerDismissedKey = "Iroca.AiSetup.BannerDismissed";
+        const string BannerDismissedKey = IrocaPrefs.AiSetupBannerDismissed;
 
         /// <summary>
         /// メインウィンドウ上部（元テクスチャ欄の下）に描く AI の準備バナー。

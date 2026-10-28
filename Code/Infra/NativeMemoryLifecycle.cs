@@ -168,6 +168,6 @@ namespace Iroca
         private static bool s_reportLive;
 
         // IrocaWindow の「開発者向けの設定を表示」と同じキー(Infra から UI を参照しないので、文字列を写して読む)。
-        private const string DeveloperSettingsPrefKey = "Iroca.ShowDeveloperSettings";
+        private const string DeveloperSettingsPrefKey = IrocaPrefs.ShowDeveloperSettings;
     }
 }

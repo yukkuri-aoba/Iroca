@@ -22,7 +22,7 @@ namespace Iroca
     internal static class MaskSuggestBurstWatch
     {
         /// <summary>このセッションで Burst のコンパイル失敗を観測した(SessionState キー)。</summary>
-        public const string BurstFailedKey = "Iroca.Burst.CompileFailed";
+        public const string BurstFailedKey = IrocaPrefs.BurstCompileFailed;
 
         // Burst 1.8 が型初期化失敗時に出すメッセージ。バージョンが変わっても
         // 「Burst が関数をコンパイルできなかった」旨は同じ語で出ている。

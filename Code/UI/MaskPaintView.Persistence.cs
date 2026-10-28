@@ -19,9 +19,9 @@ namespace Iroca
 
         // 旧 SessionState キー（Phase 6 で MaskFileStore に移行済み）。
         // 残存データをマイグレートするためのみ残し、新規書き込みには使わない。
-        private static string LegacyMaskIndexSessionKey(string path) => "Iroca_MaskIndex_" + path;
-        private static string LegacyMaskArraySessionKey(string path, string targetKey) => "Iroca_Mask_" + path + ":" + targetKey;
-        private static string LegacySingleMaskSessionKey(string path) => "Iroca_Mask_" + path;
+        private static string LegacyMaskIndexSessionKey(string path) => IrocaPrefs.LegacyMaskIndexPrefix + path;
+        private static string LegacyMaskArraySessionKey(string path, string targetKey) => IrocaPrefs.LegacyMaskPrefix + path + ":" + targetKey;
+        private static string LegacySingleMaskSessionKey(string path) => IrocaPrefs.LegacyMaskPrefix + path;
 
         [System.Serializable]
         private class LegacyMaskIndex

@@ -20,7 +20,7 @@ namespace Iroca.DebugTools
     /// </summary>
     internal static class DebugView
     {
-        private const string PrefKeyEnabled = "Iroca.Debug.EnableCapture";
+        private const string PrefKeyEnabled = IrocaPrefs.DebugEnableCapture;
 
         private static bool s_enableCapture;
         private static bool s_loadedPrefs;

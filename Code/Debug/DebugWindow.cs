@@ -21,9 +21,9 @@ namespace Iroca.DebugTools
             RecolorBranch,
         }
 
-        private const string PrefKeyStage = "Iroca.Debug.SelectedStage";
-        private const string PrefKeyZone = "Iroca.Debug.SelectedZone";
-        private const string PrefKeyMode = "Iroca.Debug.Mode";
+        private const string PrefKeyStage = IrocaPrefs.DebugSelectedStage;
+        private const string PrefKeyZone = IrocaPrefs.DebugSelectedZone;
+        private const string PrefKeyMode = IrocaPrefs.DebugWindowMode;
 
         [SerializeField] private int _selectedStageIndex;
         [SerializeField] private string _selectedZoneId = "";

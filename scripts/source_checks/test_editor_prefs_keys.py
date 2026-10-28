@@ -63,10 +63,16 @@ _STRING = re.compile(r"\"((?:\\.|[^\"\\\n])*)\"")
 _PREFS_CALL = re.compile(r"\b(?:EditorPrefs|SessionState)\.(?:Get|Set|Has|Delete|Erase)\w*\s*\(\s*")
 
 
-def keys_in(src: str) -> tuple[set[str], list[str]]:
-    """(キーに見えるリテラル, Iroca で始まらないリテラルを直接キーにした呼び出し)。"""
+# キーの一覧(0.4.0 の 4-1 で各ファイルの定数をここへまとめた)。EditorPrefs / SessionState を呼ばないファイルだが、
+# キーの文字列はここにあるので、呼び出しの有無によらず読む。
+KEY_LIST = CODE_DIR / "Infra" / "IrocaPrefs.cs"
+
+
+def keys_in(src: str, key_list: bool = False) -> tuple[set[str], list[str]]:
+    """(キーに見えるリテラル, Iroca で始まらないリテラルを直接キーにした呼び出し)。
+    key_list = True ならキーの一覧のファイルとして、呼び出しが無くてもリテラルを集める。"""
     code = _COMMENT.sub(" ", src)
-    if not _PREFS_CALL.search(code):
+    if not key_list and not _PREFS_CALL.search(code):
         return set(), []
     keys = {m.group(1) for m in _STRING.finditer(code) if re.match(r"Iroca[._]", m.group(1))}
     raw = [m.group(0) + code[m.end():m.end() + 40].split(")")[0]
@@ -78,8 +84,9 @@ def keys_in(src: str) -> tuple[set[str], list[str]]:
 def _scan() -> tuple[set[str], list[str]]:
     keys: set[str] = set()
     raw: list[str] = []
+    assert KEY_LIST.is_file(), f"キーの一覧がありません(移したならここも直す): {KEY_LIST}"
     for path in sorted(CODE_DIR.rglob("*.cs")):
-        k, r = keys_in(path.read_text(encoding="utf-8"))
+        k, r = keys_in(path.read_text(encoding="utf-8"), key_list=path == KEY_LIST)
         keys |= k
         raw += [f"{path.relative_to(REPO_ROOT).as_posix()}: {x}" for x in r]
     return keys, raw

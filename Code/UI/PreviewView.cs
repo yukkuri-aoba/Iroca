@@ -1550,7 +1550,7 @@ namespace Iroca
         // オン: 画素の間をなめらかにつなぐ(ゲームの中でテクスチャを近くから見たときの見え方に近い)。
         // 縮小表示は面平均で作った画像を描くので、どちらでも変わらない。マスクの重ね表示は
         // 「入っている / いない」を見せるものなので、ここでは変えない(MaskPaintView.SyncOverlayFilter)。
-        private const string SmoothMagnifyPrefKey = "Iroca.PreviewSmoothMagnify";
+        private const string SmoothMagnifyPrefKey = IrocaPrefs.PreviewSmoothMagnify;
         private static bool? s_smoothMagnify;
 
         /// <summary>拡大したときに画素の間をなめらかにつなぐか。この PC のいろか全体の表示の設定。</summary>
@@ -1571,7 +1571,7 @@ namespace Iroca
         // オン: 作業解像度(色替えを計算している解像度。元の画像の辺が 8192 以下なら元の解像度)のまま映す。
         // 縮めた原本・出力を持たないので、その分メモリが減る。処理の解像度(WorkingResolution.Size)は変えないので、
         // 色替えの結果・書き出し・非破壊ビルド・自動化には効かない(0.3.0 で消えた「元の解像度で編集」と違う点)。
-        internal const string DetailFullResolutionPrefKey = "Iroca.PreviewDetailFullResolution";
+        internal const string DetailFullResolutionPrefKey = IrocaPrefs.PreviewDetailFullResolution;
         private static bool? s_detailFullResolution;
 
         /// <summary>拡大表示を作業解像度のまま映すか。この PC のいろか全体の表示の設定。</summary>

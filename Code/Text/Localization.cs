@@ -11,7 +11,7 @@ namespace Iroca
     [UnityEditor.InitializeOnLoad]
     public static class Localization
     {
-        private const string PrefsKey = "Iroca.Language";
+        private const string PrefsKey = IrocaPrefs.Language;
         public static LanguageMode CurrentLanguage;
 
         static Localization()
@@ -30,7 +30,7 @@ namespace Iroca
         public static void SaveLanguagePreference()
             => UnityEditor.EditorPrefs.SetInt(PrefsKey, (int)CurrentLanguage);
 
-        private const string EnglishNoticeKey = "Iroca.EnglishTranslationNoticeShown";
+        private const string EnglishNoticeKey = IrocaPrefs.EnglishTranslationNoticeShown;
         // 閉じたかの控え(描画のたびに EditorPrefs を読まない)。
         private static bool? s_englishNoticeClosed;
 

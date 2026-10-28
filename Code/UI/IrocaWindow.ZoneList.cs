@@ -642,7 +642,7 @@ namespace Iroca
         // 増やし、どれを触ればよいかを分かりにくくしていたので既定では隠す（2026-10-04）。
         // 切り替えはウィンドウのタブの「⋮」メニュー（AddItemsToMenu）。自動調整はこれらを書き換えないが、
         // プリセットで既定から変わっているゾーンでは効いている値が見えなくならないよう、設定に関係なく出す。
-        private const string ShowDeveloperSettingsPrefKey = "Iroca.ShowDeveloperSettings";
+        private const string ShowDeveloperSettingsPrefKey = IrocaPrefs.ShowDeveloperSettings;
         private static bool? s_showDeveloperSettings;
         private static bool ShowDeveloperSettings
         {

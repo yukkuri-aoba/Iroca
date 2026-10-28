@@ -32,7 +32,7 @@ namespace Iroca
 
         /// <summary>Sentis 導入直後に「再起動推奨」を出すためのフラグ(SessionState キー)。
         /// SessionState はドメインリロードを跨いで残り、エディタ再起動で消える = 再起動するまで表示。</summary>
-        public const string RestartRecommendedKey = "Iroca.Sentis.RestartRecommended";
+        public const string RestartRecommendedKey = IrocaPrefs.SentisRestartRecommended;
 
         // asmdef の versionDefine 範囲に収まる検証済みバージョンを固定導入する。
         // 2022.3 は Sentis [2.0.0,2.2.0-0)、Unity 6 は Inference Engine [2.2.0,3.0.0-0)(上限の -0 は次の版の

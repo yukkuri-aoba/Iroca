@@ -27,7 +27,7 @@ namespace Iroca
     {
         // 押した位置と離した位置がこれ以上離れたら、クリックではなくドラッグ(範囲選択など)とみなす。
         private const float SceneClickSlopPx = 4f;
-        private const string SceneClickUsedPrefKey = "Iroca.SceneClickUsed";
+        private const string SceneClickUsedPrefKey = IrocaPrefs.SceneClickUsed;
 
         [System.NonSerialized] private bool _sceneDownArmed;
         [System.NonSerialized] private Vector2 _sceneDownPos;

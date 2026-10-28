@@ -28,7 +28,7 @@ namespace Iroca
         // 読み直す間隔(インスペクタで色を変えたのを追う)。どちらもウィンドウを描いているときだけ。
         private const double MaterialColorRescanSeconds = 2.0;
         private const double MaterialColorRereadSeconds = 0.5;
-        private const string MaterialColorDismissedKeyPrefix = "Iroca.MaterialColor.Dismissed:";
+        private const string MaterialColorDismissedKeyPrefix = IrocaPrefs.MaterialColorDismissedPrefix;
 
         /// <summary>プレビューの「アバターの色」に使う読み取り結果。マテリアルが見つからなければ null。</summary>
         internal MaterialColorSettings.Report AppearanceReport { get; private set; }

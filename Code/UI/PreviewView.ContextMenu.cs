@@ -22,7 +22,7 @@ namespace Iroca
             e.Use();
         }
 
-        private const string ContextMenuUsedPrefKey = "Iroca.ContextMenuUsed";
+        private const string ContextMenuUsedPrefKey = IrocaPrefs.ContextMenuUsed;
 
         /// <summary>
         /// 一度でもプレビューの右クリックメニューを開いたか(操作モード行に使い方の案内を出すかどうか。DrawIdleRow)。

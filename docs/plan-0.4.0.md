@@ -850,6 +850,13 @@ T5 で消える部分は作り直さない（1.5）。
   - キーの一覧 `IrocaPrefs` を作る（文字列は同じ）。
   - `IrocaWindow` にある static の道具（`IsReadable`・`RecordAsSeparateUndo` など）を外へ出す。
   - `UnitRun.csproj` のパスを同じコミットで直す。
+  - 2026-10-29（手元）: `Localization` を `Code/Text/` へ移した（fa5fbbd。partial に分けるのはまだ）。`ExportPipeline` を
+    `Code/Infra/` へ移し、それが使っていた `IrocaWindow.IsReadable` を `TextureIO.IsReadable` にした（718c5c2）。
+    層の依存の検査の既知の違反は 24 → 10 件。キーの一覧 `Code/Infra/IrocaPrefs.cs` を作り、23 ファイルの 33 か所の
+    定義をそこへ向けた（文字列は同じ。`test_editor_prefs_keys.py` は一覧のファイルも読む。次のコミット）。
+    `UnitRun.csproj` は移したファイルを取り込んでいないので直す所は無かった。
+  - 残り: `Localization` を機能ごとの partial に分ける・`IrocaWindow` の残りの static の道具（`EnableReadWrite`・
+    `RecordAsSeparateUndo` など）。
 - [ ] 4-2 部品を切り出す。ウィンドウは当面、切り出した部品へ転送する。順は次のとおり:
   1. `SourcePixelCache`
   2. `RecolorInput`
