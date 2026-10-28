@@ -107,9 +107,11 @@
 | `Code/Core/PixelProcessor.FloodFill.cs` | 1 |
 | `Code/Core/PixelProcessor.Highlight.cs` | 6 |
 | `Code/Core/PixelProcessor.Hsv.cs` | 0 |
+| `Code/Core/PixelProcessor.LegacySelection.cs` | 0 |
 | `Code/Core/PixelProcessor.MixtureBand.cs` | 0 |
 | `Code/Core/PixelProcessor.Palette.cs` | 2 |
 | `Code/Core/PixelProcessor.Recolor.cs` | 6 |
+| `Code/Core/PixelProcessor.Run.cs` | 0 |
 | `Code/Core/PixelProcessor.Selection.cs` | 2 |
 | `Code/Core/UvChartMap.cs` | 0 |
 | `Code/Core/ZoneAutoTuner.cs` | 40 |

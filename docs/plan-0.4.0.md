@@ -692,6 +692,13 @@ T5 で消える部分は作り直さない（1.5）。
     `Legacy` へ移し、ハーネスの反射呼び出しを直接の呼び出しにする。`ColorZone` はデータだけになる（照合のキャッシュは
     `[NonSerialized]` なので、移しても保存の形は変わらない）。
   - `test_zone_cache_invalidation`・`test_recolor_settings`・`test_selection_key_audit` を同じコミットで新しい場所に向ける。
+  - 2026-10-28: 洗い出した結果、選択が後段へ渡しているのは**マスクを掛ける前の強度と、後段が走査する範囲（選択の画素に
+    余白を足した矩形）の 2 つだけ**だった。含めるマスクの展開（`includedPx`）・スポイト色の HSV・全画像の経路か・
+    混色帯モードかは、選択の出力でなくパイプラインの入力（選択も再着色も読む）。これを `SelectionResult` にし、
+    `ProcessPixelsArrayCore` を `RunLegacySelection`（旧の選択）→ `ApplyMaskContract`（除外の掛け直しと含める）→
+    再着色の段、の順の呼び出しにした（中身は書き換えずに移した。`PixelProcessor.Run.cs` に `RunContext`・`ZoneBuffers`・
+    `SelectionResult`）。借りた作業配列は `ZoneBuffers` が持ち、ゾーンの終わりにまとめて返す（返す順は前と同じ）。
+    abcheck 全一致・golden 94。
 - [ ] 3-7b 再着色の側を段に分ける。
   - 先に `RunContext` / `ZoneState` / `ZoneBuffers` を入れ、段はパイプラインの順に 1 段 1 コミットで分ける
     （無彩の固め・デコンタミ・再着色の統計・混色帯・再着色の核・合成・無彩のフチ消し）。

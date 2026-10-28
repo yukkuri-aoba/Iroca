@@ -232,7 +232,10 @@ def test_selection_key_covers_selection_settings():
     """全体設定を足して選択キャッシュの鍵に入れ忘れると、値を変えても古い選択のままのプレビューになる
     （書き出しはキャッシュを使わないので気づきにくい）。設定ごとに「鍵に入れる」か「選択に効かない」かを決めさせる。"""
     src = _src(CORE / "PixelProcessor.cs")
-    call = re.search(r"selKey\s*=\s*BuildSelectionKey\s*\(([^;]*)\)\s*;", src)
+    # 選択キャッシュの鍵を作るのは旧の選択(3-7a で RunLegacySelection へ切り出した)。ファイルを移しても見失わない
+    # よう、PixelProcessor の全部の部分から探す。
+    sel_src = "\n".join(_src(f) for f in sorted(CORE.rglob("PixelProcessor*.cs")))
+    call = re.search(r"selKey\s*=\s*BuildSelectionKey\s*\(([^;]*)\)\s*;", sel_src)
     assert call, "BuildSelectionKey の呼び出しが見つかりません（改名?）"
     args = set(re.findall(r"\b([a-z]\w*)\b", call.group(1)))
     for f in _settings_fields():
