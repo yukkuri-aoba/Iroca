@@ -134,8 +134,7 @@ namespace Iroca.DebugTools
 
             EditorGUI.BeginChangeCheck();
             // 見出しはゾーンの一覧での番号と名前(ID のままだとどれがどれか分からない)。
-            var irocaWindows = Resources.FindObjectsOfTypeAll<IrocaWindow>();
-            var host = irocaWindows.Length > 0 ? irocaWindows[0] : null;
+            var host = IrocaWindow.FindAnyInstance();
             zoneIdx = EditorGUILayout.Popup(
                 new GUIContent("Zone", "どの zone のキャプチャを表示するか選択します。"),
                 zoneIdx, zoneIds.ConvertAll(s => new GUIContent(PerfView.ZoneLabel(host, s), s)).ToArray());
@@ -223,9 +222,7 @@ namespace Iroca.DebugTools
                     "Dump all stages to PNG",
                     "全 zone × 全段階のキャプチャを Library/Iroca/Debug/<source>/<timestamp>/ 配下に PNG として書き出します。manifest.json も併せて生成されます。\nProject ビューには表示されません（Assets/ 外に保存）。書き出し後にフォルダをエクスプローラーで開きます。")))
             {
-                var irocaWin = Resources.FindObjectsOfTypeAll<IrocaWindow>().Length > 0
-                    ? Resources.FindObjectsOfTypeAll<IrocaWindow>()[0]
-                    : null;
+                var irocaWin = IrocaWindow.FindAnyInstance();
                 string srcName = irocaWin != null && irocaWin.SourceTexture != null
                     ? irocaWin.SourceTexture.name : "unknown";
                 string dumpPath = DebugDumpStore.DumpAll(ctx, srcName);

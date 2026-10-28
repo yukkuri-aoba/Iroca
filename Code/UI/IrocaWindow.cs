@@ -265,13 +265,10 @@ namespace Iroca
 
         /// <summary>
         /// 開いている IrocaWindow を 1 つ返す（無ければ null）。別ウィンドウ（プレビュー / マスク編集）が
-        /// ドメインリロード後などに本体へ再接続するときの規則で、複数ある場合は先頭。
+        /// ドメインリロード後などに本体へ再接続するときの規則で、複数ある場合は先に開いたもの
+        /// (<see cref="EditingSessionRegistry"/>)。
         /// </summary>
-        internal static IrocaWindow FindAnyInstance()
-        {
-            var hosts = Resources.FindObjectsOfTypeAll<IrocaWindow>();
-            return hosts.Length > 0 ? hosts[0] : null;
-        }
+        internal static IrocaWindow FindAnyInstance() => EditingSessionRegistry.First as IrocaWindow;
 
         /// <summary>
         /// 別ウィンドウ（プレビュー / マスク編集）で本体が見つからないときの案内と「Iroca を開く」ボタン。
@@ -289,6 +286,8 @@ namespace Iroca
         // internal は WindowRestoreTests が Unity の再起動後の復元を再現するために呼ぶため(Unity からの呼び出しは変わらない)。
         internal void OnEnable()
         {
+            // 開いている編集の一覧に載せる(別ウィンドウ・自動化・非破壊ビルドはここから探す)。OnDisable の最後で外す。
+            EditingSessionRegistry.Register(this);
             // ドメインリロードの書き戻しはここで取り込むので、次の Undo の印として残さない。
             _stateRestoredByUnity = false;
             _session ??= IrocaSessionState.CreateDefault();
@@ -369,6 +368,8 @@ namespace Iroca
             _maskView?.SuspendTransientState();
             SavePersistedSessionForCurrentTexture();
             RememberLastEditedTexture();
+            // 外すのは最後(閉じる途中の処理からは、まだ開いている編集として見える。型で探していたときと同じ)。
+            EditingSessionRegistry.Unregister(this);
         }
 
         // Unity がこのウィンドウの状態を書き戻した(Undo/Redo・ドメインリロード)印。

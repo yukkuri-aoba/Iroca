@@ -208,9 +208,9 @@ namespace Iroca
         {
             pixels = null;
             key = null;
-            foreach (var w in Resources.FindObjectsOfTypeAll<IrocaWindow>())
+            foreach (var e in EditingSessionRegistry.Snapshot())
             {
-                if (w == null || w._maskView == null) continue;
+                if (!(e is IrocaWindow w) || w._maskView == null) continue;
                 var ctl = w._maskView.SuggestController;
                 if (ctl == null) continue;
                 if (w.sourceTexture == texture && w._previewView != null
@@ -227,8 +227,8 @@ namespace Iroca
         private static IrocaWindow WindowShowing(Texture2D texture)
         {
             if (texture == null) return null;
-            foreach (var w in Resources.FindObjectsOfTypeAll<IrocaWindow>())
-                if (w != null && w.sourceTexture == texture) return w;
+            foreach (var e in EditingSessionRegistry.Snapshot())
+                if (e is IrocaWindow w && w.sourceTexture == texture) return w;
             return null;
         }
 
@@ -529,8 +529,8 @@ namespace Iroca
                 if (path.EndsWith(".asset", System.StringComparison.OrdinalIgnoreCase)) { anyAsset = true; break; }
             }
             if (!anyAsset) return;
-            foreach (var w in Resources.FindObjectsOfTypeAll<IrocaWindow>())
-                if (w != null) w.OnRecipeAssetsImported();
+            foreach (var e in EditingSessionRegistry.Snapshot())
+                if (e is IrocaWindow w) w.OnRecipeAssetsImported();
         }
     }
 }

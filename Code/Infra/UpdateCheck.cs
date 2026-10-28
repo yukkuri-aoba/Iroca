@@ -171,10 +171,6 @@ namespace Iroca
         static string LatestKey(bool includePrerelease) => LatestKeyPrefix + UnityKey + (includePrerelease ? ":pre" : "");
         static string CheckedAtKey(bool includePrerelease) => CheckedAtKeyPrefix + UnityKey + (includePrerelease ? ":pre" : "");
 
-        static void RepaintWindows()
-        {
-            foreach (var window in Resources.FindObjectsOfTypeAll<IrocaWindow>())
-                window.Repaint();
-        }
+        static void RepaintWindows() => EditingSessionRegistry.RepaintAll();
     }
 }

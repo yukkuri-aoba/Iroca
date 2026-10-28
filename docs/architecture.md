@@ -111,9 +111,9 @@ partial のまま置いた）、`Pipeline/`（入口の `PixelProcessor.cs`・�
 | `EditingSession` | 編集中の文書（原本・結びついたレシピ・ゾーンと設定・マスク・自動調整の入力）。操作は Undo とマスクの同期をしてから `Changed(種類)` を出す |
 | `MaskWorkspace` | 編集中のマスク（1 画素 1 ビットのヒープの外のマスク） |
 | `SessionPersistence` | 復元の優先順（レシピ → セッションのファイル → 既定）・自動保存・外での書き換えの検出 |
-| `EditingSessionRegistry` | 開いている編集の一覧。ウィンドウを型で探す（`FindObjectsOfTypeAll<IrocaWindow>`）代わり |
+| `EditingSessionRegistry` | 開いている編集の一覧。ウィンドウを型で探す（`FindObjectsOfTypeAll<IrocaWindow>`）代わり。Infra の非破壊ビルドと更新の確認も使うので Infra に置いた（4-2） |
 | `SourcePixelCache` | 作業解像度の原本（参照の数で貸す） |
-| `RecolorInput` | 色替えの入力を組み立てる唯一の場所。プレビュー・書き出し・一括書き出し・NDMF・自動化が共通で使う |
+| `RecolorInput` | 色替えの入力を組み立てる唯一の場所。プレビュー・書き出し・一括書き出し・NDMF・自動化が共通で使う。非破壊ビルドの土台と `SessionRecolor` も使うので Core に置いた（4-2） |
 | `PreviewPipeline` / `PreviewRenderer` | プレビューの計算（概要段・確定段・ドラッグの追従・選択キャッシュ）と、GPU での表示 |
 | `AutoTuneService`・`AiSuggestBroker`・`ExportService`・`RegistrationService`・`PresetApplier` | 自動調整・AI 提案の待ち行列・書き出し・登録・プリセットの読み込みを、それぞれ 1 本にする |
 

@@ -183,7 +183,7 @@ namespace Iroca
         public void ReleaseAiIfNoWindow()
         {
             if (!_aiAvailable) return;
-            if (Resources.FindObjectsOfTypeAll<IrocaWindow>().Length > 0) return;
+            if (EditingSessionRegistry.Any) return;
             MaskSuggestBridge.Service?.ReleaseGpuResources();
             _aiAvailable = false;
         }

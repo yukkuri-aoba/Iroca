@@ -214,14 +214,14 @@ UI           IrocaWindow・各ビュー・インスペクタ・プレビュー�
   ↓
 Automation   IrocaAutomation（MCP・コマンドラインの窓口。JSON を下の層へつなぐだけ）
   ↓
-Application  EditingSession・RecolorInput・PreviewPipeline・AutoTuneService・ExportService・
+Application  EditingSession・SourcePixelCache・PreviewPipeline・AutoTuneService・ExportService・
              RegistrationService・AiSuggestBroker・SessionPersistence（操作の流れ。IMGUI を知らない）
   ↓
-Infra        TextureIO・各 Store・WorkingResolution・ジョブ・LivePreview・NDMF 用のビルダー・
+Infra        TextureIO・各 Store・WorkingResolution・ジョブ・LivePreview・NDMF 用のビルダー・EditingSessionRegistry・
              Text（文言）・IrocaPrefs（Unity とファイルとの境目）
   ↓
-Core         Foundation / Color / Model / Pipeline / Selection（旧と T5）/ Masks / Recolor / Filters / AutoTune / Uv
-             （計算だけ。UnityEditor も文言も知らない）
+Core         Foundation / Color / Model / Pipeline / Selection（旧と T5）/ Masks / Recolor / Filters / AutoTune / Uv・
+             RecolorInput（計算だけ。UnityEditor も文言も知らない）
 
 統合（NDMF・Sentis・MCP・Debug）は、上の層の決まった窓口だけを使う。
 ```
@@ -895,6 +895,15 @@ T5 で消える部分は作り直さない（1.5）。
     - **残したこと**: 原本の画素は入れていない。読み方が経路ごとに違う（プレビューは `SourcePixelCache`、書き出しは
       `ExportPipeline.ReadSourcePixels`、非破壊ビルドは `TextureIO.ReadSourceFile`、自動化は自前）ので、そろえるのは
       `EditingSession`（4）と `ExportService`（4-3）のとき。
+  - 2026-10-29（手元）: 3 の `EditingSessionRegistry` を作った。いろかのウィンドウが OnEnable の最初で登録し、OnDisable の
+    最後で外す（閉じる途中の処理からは、まだ開いている編集として見える。型で探していたときと同じ）。ウィンドウを型で
+    探していた所（`Resources.FindObjectsOfTypeAll<IrocaWindow>`。本体 8 か所・Debug 3 か所）をこれに替えた。
+    非破壊ビルドの作業配列の手放し・更新の確認の再描画・自動化の AI の手放しは、UI の型を知らずに済むようになり、
+    層の依存の既知の違反が 10 → 8 件になった。並びは登録した順（前は Unity が返す順）。
+    - **決めたこと**: 置き場所は計画の Application ではなく Infra（`Code/Infra/EditingSessionRegistry.cs`）。Infra の
+      `RecipeTextureBuilder`（ウィンドウが開いていれば作業配列を返さない）と `UpdateCheck`（ウィンドウを描き直す）が使う。
+      持つのはウィンドウそのもの（Infra は UI の型を知らないので `EditorWindow` として持つ）。`EditingSession`（4）が
+      できたらそれに替える。
 - [ ] 4-3 並んだ経路を 1 本にする:
   - `AutoTuneService`: `test_autotune_apply_single_source` を同じコミットで直す。Core の自動調整の中身は T5 で替わるが、
     流れ（証拠の待ち・適用・Undo・自動化からの呼び出し）は残るので、先に 1 本にしておく。

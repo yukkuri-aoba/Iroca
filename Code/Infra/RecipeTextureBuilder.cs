@@ -111,7 +111,7 @@ namespace Iroca
         private static void EndHold()
         {
             if (--s_computing > 0 || !s_releaseDue) return;
-            if (IrocaWindow.FindAnyInstance() != null) return;
+            if (EditingSessionRegistry.Any) return;
             s_releaseDue = false;
             NativeMemoryLifecycle.ReleaseWhenIdle();
         }

@@ -54,8 +54,6 @@ KNOWN_VIOLATIONS: dict[tuple[str, str], str] = {
     ("Code/Automation/AutomationAutoTune.cs", "IrocaWindow"): "UI",
     ("Code/Automation/IrocaAutomation.Open.cs", "IrocaWindow"): "UI",
     ("Code/Automation/IrocaAutomation.Recolor.cs", "IrocaWindow"): "UI",
-    ("Code/Infra/RecipeTextureBuilder.cs", "IrocaWindow"): "UI",
-    ("Code/Infra/UpdateCheck.cs", "IrocaWindow"): "UI",
     # フェーズ 6 の前: MaskSuggest のうちウィンドウに描く部分（コントローラ・セクション）を UI 側へ分ける。
     ("Code/MaskSuggest/MaskSuggestController.cs", "IrocaWindow"): "UI",
     ("Code/MaskSuggest/MaskSuggestController.cs", "MaskPaintView"): "UI",

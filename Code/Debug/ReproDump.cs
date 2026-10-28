@@ -45,8 +45,7 @@ namespace Iroca.DebugTools
         [MenuItem(IrocaUiConsts.MenuPath + "/再現データを書き出す...")]
         private static void ExportMenu()
         {
-            IrocaWindow win = null;
-            foreach (var w in Resources.FindObjectsOfTypeAll<IrocaWindow>()) { win = w; break; }
+            IrocaWindow win = IrocaWindow.FindAnyInstance();
             if (win == null || win.SourceTexture == null)
             {
                 EditorUtility.DisplayDialog("いろか",
