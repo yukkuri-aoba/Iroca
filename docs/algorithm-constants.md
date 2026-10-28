@@ -134,15 +134,20 @@
 
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
+| `MatchStrengthFloor` | `0.05f` | 不明 | — | これ以下を未選択とみなす strength 床。局所定数 4 個を一本化したもので、由来の記録なし |
+| `ChromaGateActivateSat` | `0.02f` | 実測 | — | 微 tint とみなす彩度の境界。圧縮ノイズは S≈0.01 台、見える tint は S≥0.02 という観察 |
+
+## `Code/Core/Selection/Legacy/ColorZone.Match.cs`
+
+| 定数 | 値 | 種類 | 段 | 根拠 |
+|---|---|---|---|---|
 | `HighlightValueMin` | `0.80f` | 不明 | — | ハイライト候補の明度下限。導入時の記録は「高明度 V>0.80」だけで、計測なし |
 | `HighlightSaturationMax` | `0.20f` | 不明 | — | ハイライト候補の彩度上限の絶対床。導入時に計測記録なし |
 | `HighlightSaturationMaxSampleFrac` | `0.5f` | 実測 | — | 高彩度の青い靴のツヤが S0.2〜0.5 に分布した観察から、サンプル彩度の半分を上限にした |
 | `HighlightRelaxedSatMin` | `0.02f` | 不明 | — | ハイライト補助の彩度ランプの始点。通常マッチの彩度床 0.02 を写した値 |
 | `HighlightRelaxedSatRamp` | `0.08f` | 不明 | — | 同じランプの幅。通常マッチの satRamp 床 0.08 を写した値 |
-| `MatchStrengthFloor` | `0.05f` | 不明 | — | これ以下を未選択とみなす strength 床。局所定数 4 個を一本化したもので、由来の記録なし |
 | `SaturationGuardActiveSourceSat` | `0.40f` | 不明 | — | 彩度ガードが働く源色彩度の下限。ガード量は感度解析したが、この値は未掃引 |
 | `SaturationGuardFractionScale` | `0.30f` | 不明 | — | ガードの床＝源色 S×この値×ガード量。値そのものの計測記録なし |
-| `ChromaGateActivateSat` | `0.02f` | 実測 | — | 微 tint とみなす彩度の境界。圧縮ノイズは S≈0.01 台、見える tint は S≥0.02 という観察 |
 | `ChromaGateFloorFrac` | `0.5f` | 不明 | — | 中性すぎとみなす相対床（サンプル彩度の半分）。効果は測ったが値の根拠なし |
 | `ChromaGateFloorCap` | `0.02f` | 実測 | — | 床の絶対上限。白い布の地 S0.02〜0.05、純白背景 S≲0.012 の観察から |
 | `ChromaGatePenalty` | `1.0f` | 設計 | — | 加算距離を tolerance 1 個分にし、pS=0 なら確実に選択の外へ落とす |

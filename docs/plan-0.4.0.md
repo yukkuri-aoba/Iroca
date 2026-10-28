@@ -684,7 +684,7 @@ T5 で消える部分は作り直さない（1.5）。
 - [ ] 3-4 Foundation を切り出す: 並列度・`OpaqueAlphaMin`・`CoreMemory.ReleaseIdle`。今の名前は転送役として残す。
 - [ ] 3-5 移すだけの切り出し: 色空間（OkLab を公開し、Automation の写しを消す）・`PixelHsv`・色の表・
   ヒストグラム・ビット列・ぼかし。定数の台帳の節も一緒に移す（台帳の行は消さずに移す）。
-- [ ] 3-7a **選択と再着色の境目を決める（T5 の前提。フェーズ 3A でいちばん先に済ませたい手順）。**
+- [x] 3-7a **選択と再着色の境目を決める（T5 の前提。フェーズ 3A でいちばん先に済ませたい手順）。**
   - `ProcessPixelsArrayCore` のうち、選択（照合 → 強度 → ぼかし・選択キャッシュへの保存まで）が後段へ渡している値を洗い出し、
     `SelectionResult` にまとめる。
   - パイプラインを「旧の選択」「マスクの契約（除外・含める）」「再着色の段」の 3 つの呼び出しに分ける。
@@ -710,6 +710,12 @@ T5 で消える部分は作り直さない（1.5）。
       ゾーンのループの頭の `zone.UpdateCacheIfNeeded()`、混色帯モードかの判定（`IsMixtureBandZone`）が使う
       `ColorZone.GrayModeEffectiveChromaThreshold`（旧の照合のグレーモードの境目）、旧の自動調整（`ZoneAutoTuner*`。
       照合・帯候補の判定・定数）、自動化の `UpdateCacheIfNeeded`。
+  - 2026-10-28: `ColorZone.cs` をゾーンのデータだけにした。照合の定数・キャッシュの欄（`[NonSerialized]`）・`SampleCache`・
+    自動調整のシミュレーション用の切り替え（`simDisableBrightForgiveness`）を `Selection/Legacy/ColorZone.Match.cs` へ移した
+    （保存されるフィールドは動かしていないので、保存の形と並びは変わらない）。`Clone` のキャッシュの切り離しは部分メソッド
+    （`ResetMatchCache`）にした（旧の照合を消すと呼び出しごと消える）。再着色も読む `MatchStrengthFloor`・
+    `ChromaGateActivateSat` は `ColorZone.cs` に残した。ハーネスの反射呼び出しは 0-4 で無くしてあったので、この手順で
+    直す所は無かった（abcheck の probe の反射は、基準と新の両方の DLL を読むためのもので、残す）。
 - [ ] 3-7b 再着色の側を段に分ける。
   - 先に `RunContext` / `ZoneState` / `ZoneBuffers` を入れ、段はパイプラインの順に 1 段 1 コミットで分ける
     （無彩の固め・デコンタミ・再着色の統計・混色帯・再着色の核・合成・無彩のフチ消し）。
@@ -719,7 +725,9 @@ T5 で消える部分は作り直さない（1.5）。
   ハーネスの `--ffcheck` など使う側のモードと、dev_safe のテスト・abcheck のモードも同じ時に消す。
 - [ ] 3-12 Core に残る管理配列のうち、T5 の後も残るものをなくす: `UvChartMap`（A4）、色の表の大きさの配列（B5）。
   旧の選択・旧の自動調整の中の配列（A5・B6・穴埋めと境界のリスト）は移さない（T5 の P3 で消える）。
-- [ ] 3-13 `Harness.csproj` の取り込みをフォルダ単位にする。
+- [ ] 3-13 `Harness.csproj` の取り込みをフォルダ単位にする。dev_safe の局所プローブ（`locality_probe`）は同じ一覧を
+  写して持っていて、フェーズ 2 で足したファイルが抜けたままビルドできなくなっていた（2026-10-28 に写し直した）。
+  一覧を 1 か所（共有の .props など）にし、ハーネス・局所プローブ・`tools/harness_scope.py`・abcheck がそこを読む。
 - フェーズの終わり: Unity の `RuntimeParityTests`（Mono とハーネスの一致）、MemoryBench、PerfBench、KernelBench。
 - 前の版の計画にあった次の手順は、T5 で旧ごと消えるのでやらない: 照合の作り直し（`ZoneMatcher`）、`ZoneAutoTuner` の
   中身の作り直し（`SelectionSimulator` など）、FloodFill と Achroma の連結成分のラベル付けの一本化。
