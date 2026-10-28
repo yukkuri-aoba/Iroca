@@ -345,6 +345,8 @@ namespace Iroca
                 EdgeFeather = edgeFeather, RelaxedSatMin = relaxedSatMin, RelaxedSatRamp = relaxedSatRamp,
                 AntiAliasCleanup = antiAliasCleanup, HoleFillPasses = holeFillPasses,
                 HoleFillMinNeighbors = holeFillMinNeighbors,
+                UseDecontamination = useDecontamination, DecontaminationRadius = decontaminationRadius,
+                Buf = rb,
                 Debug = debug, ParityCache = parityCache, SelectionCache = selectionCache,
                 PhaseTicks = _phaseTicks, Sub = _sub,
             };
@@ -436,51 +438,11 @@ namespace Iroca
                     AchromaSolidifyStage.Run(run, z);
                     float zAchromaWeight = z.AchromaWeight;
 
-                    // 3b. AA 境界の α 分解（オプション）：strength が 0 < s < interiorThreshold の
-                    //     ピクセルを「α×FG + (1-α)×BG」と見て元テクスチャの合成を逆算し、
-                    //     新色で再合成する。halo（薄汚れた中間色）を構造的に除去する。
-                    bool* aaMask = null;
-                    Color32* decontaminatedPixels = null;
-                    if (useDecontamination)
-                    {
-                        aaMask = rb.DecontamAaMask;
-                        decontaminatedPixels = rb.DecontamPixels;
-                        // 内部固め(上)が無彩ターゲットの内部を均一化したので、旧 AA フィデリティ修正の
-                        // interior_threshold=1.01(全画素 α 再合成)は不要(むしろ内部を背景色で再合成して
-                        // 段差を復活させる)。常に通常閾値で AA 縁だけをデコンタミする。
-                        float effInteriorThreshold = DecontaminationInteriorThreshold;
-                        // 除外マスク画素は strength=0 だが「背景」ではない(サンプル同色の保護パーツで
-                        // あり得る)。BG ドナーに入れると推定色がサンプル色で汚染され、マスク境界の外側に
-                        // 誤色の点ノイズを塗るため、位置を渡してドナーから隠す(マスク中立化)。
-                        bool* deconExcluded = null;
-                        if (commonMask != null || zoneMask != null)
-                        {
-                            deconExcluded = rb.MaskExcludedOrRent(len);
-                            // デコンタミが除外フラグを読むのは BG ドナー範囲(後段 bbox ± radius)だけ
-                            // なので、そこだけ埋める。範囲外は読まれない=出力ビット不変
-                            // (バッファはゾーン間で使い回すが、各ゾーンが自分の読む範囲を必ず埋める)。
-                            int exY0 = Mathf.Max(0, ppMinY - decontaminationRadius);
-                            int exY1 = Mathf.Min(h - 1, ppMaxY + decontaminationRadius);
-                            int exX0 = Mathf.Max(0, ppMinX - decontaminationRadius);
-                            int exX1 = Mathf.Min(w - 1, ppMaxX + decontaminationRadius);
-                            if (hasPostBox)
-                                FillExcludedRect(deconExcluded, w, exX0, exY0, exX1, exY1,
-                                    maskColOf, maskRowBase, commonMask, zoneMask, po);
-                        }
-                        // 後段 bbox(ppMin/Max)を渡してデコンタミを実マッチ範囲に限定する。α 分解が
-                        // 触るのは 0<strength<threshold の画素だけ=定義上この bbox 内なので出力ビット不変。
-                        _sub.Mark(SpDecontamExcl);
-                        DecontaminateAaBoundary(originalPixels, strength, w, h,
-                            zone.sampleColor, zone.targetColor,
-                            decontaminationRadius, effInteriorThreshold,
-                            aaMask, decontaminatedPixels, hasPostBox, cancellationToken,
-                            deconExcluded, ppMinX, ppMinY, ppMaxX, ppMaxY,
-                            solidifyOnly: zMixMode);
-                        _sub.Mark(SpDecontam);
-                        debug?.RecordDecontamination(zone.id, ToManaged(aaMask, len), w, h);
-                    }
-
-                    _phaseTicks[PhDecontam] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
+                    run.Tp = _tp;
+                    DecontamStage.Run(run, z);
+                    _tp = run.Tp;
+                    bool* aaMask = z.AaMask;
+                    Color32* decontaminatedPixels = z.Decontaminated;
 
                     // 4. 強度でブレンドした再色付けを適用
                     // (サンプルの S/V は sampS/sampV としてゾーン先頭で算出済み)

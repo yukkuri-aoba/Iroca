@@ -35,6 +35,10 @@ namespace Iroca
             // 全体設定(RecolorSettings を展開したもの)。
             public float EdgeFeather, RelaxedSatMin, RelaxedSatRamp;
             public int AntiAliasCleanup, HoleFillPasses, HoleFillMinNeighbors;
+            public bool UseDecontamination;
+            public int DecontaminationRadius;
+            // ゾーンをまたいで使い回す作業配列。
+            public RunBuffers Buf;
             public IDebugCapture Debug;
             public PreviewParityCache ParityCache;
             public SelectionCache SelectionCache;
@@ -122,6 +126,9 @@ namespace Iroca
             public SelectionCache.PostBox Box;
             // 無彩の固め: 無彩サンプル/極端無彩ターゲットの重み(ComputeAchromaWeight)。
             public float AchromaWeight;
+            // デコンタミ: AA 縁とした画素と、そこへ塗る色(設定が無効なら null。指す先は RunBuffers)。
+            public bool* AaMask;
+            public Color32* Decontaminated;
         }
 
         /// <summary>
