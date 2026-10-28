@@ -26,28 +26,31 @@ namespace Iroca
         private sealed class ColorPalette
         {
             internal int Count;
-            internal Color32[] Colors;   // 番号 → 色
+            internal Color32* Colors;    // 番号 → 色(ヒープの外。_colorsMem が持つ)
             // 画素 → 番号(長さ len)と、番号 → Color.RGBToHSV((Color)色) の結果(長さ Count ずつ)。
             // どちらも Mono のヒープの外に置く(番号の表は 8K で 256MB。管理配列だと、表を捨てても縮まない
             // Mono のヒープにその分が残っていた)。最後の参照が外れたときに解放する。
             internal int* Index;
             internal float* H, S, V;
-            // 番号 → OkLab.RgbToOklab(byte 版) の L と、C = sqrt(a²+b²)。EnsureOklab で初めて要るときに作る。
-            internal float[] OkL, OkC;
+            // 番号 → OkLab.RgbToOklab(byte 版) の L と、C = sqrt(a²+b²)。EnsureOklab で初めて要るときに作る
+            // (ヒープの外。L と C を Count ずつ並べた _oklabMem が持つ。0.4.0 の 3-12 で管理配列から移した)。
+            internal float* OkL, OkC;
+            private NativeBuffer _oklabMem;   // null = まだ作っていない(作ったら OkL・OkC を書いてから入れる)
             private readonly object _oklabLock = new object();
 
             // 参照の数。作った処理が 1、キャッシュに入れると +1。キャッシュから引いた処理も +1 して、
             // 使い終わったら Release する(キャッシュから追い出された表を、まだ使っている処理が読むことがある)。
             private int _refs = 1;
             // 領域の持ち主(それぞれの参照を 1 つずつ持つ)。表を捨て忘れても、ファイナライザが解放する。
-            private readonly NativeBuffer _indexMem, _hsvMem;
+            private readonly NativeBuffer _indexMem, _hsvMem, _colorsMem;
 
             // 確保済みの領域を受け取って持ち主になる(ここでは確保しないので、作るのに失敗して二重に解放する
-            // ことはない)。hsvMem は H・S・V を count ずつ並べた領域。
-            internal ColorPalette(int count, Color32[] colors, NativeBuffer indexMem, NativeBuffer hsvMem)
+            // ことはない)。hsvMem は H・S・V を count ずつ並べた領域、colorsMem は count 色。
+            internal ColorPalette(int count, NativeBuffer colorsMem, NativeBuffer indexMem, NativeBuffer hsvMem)
             {
                 Count = count;
-                Colors = colors;
+                _colorsMem = colorsMem;
+                Colors = (Color32*)colorsMem.Ptr;
                 _indexMem = indexMem;
                 _hsvMem = hsvMem;
                 Index = (int*)indexMem.Ptr;
@@ -71,32 +74,43 @@ namespace Iroca
                 // NativeBuffer.Release が解放せずにアンロードまで持つ。
                 _indexMem.Release();
                 _hsvMem.Release();
+                _colorsMem.Release();
+                Volatile.Read(ref _oklabMem)?.Release();
             }
 
             /// <summary>
             /// OkLab の表を作る(呼び出し側スレッドから、並列ループの外で呼ぶこと)。表は複数の処理から
-            /// 同時に使われうるので、作るのは 1 回だけにし、L → C の順に置いて C が見えたら両方揃っているとする。
+            /// 同時に使われうるので、作るのは 1 回だけにし、L と C を書いてから持ち主を置き、持ち主が見えたら両方揃っているとする。
             /// </summary>
             internal void EnsureOklab(ParallelOptions po)
             {
-                if (Volatile.Read(ref OkC) != null) return;
+                if (Volatile.Read(ref _oklabMem) != null) return;
                 lock (_oklabLock)
                 {
-                    if (OkC != null) return;
-                    var l = new float[Count];
-                    var c = new float[Count];
-                    var colors = Colors;
-                    ForEachPaletteChunk(Count, po, (k0, k1) =>
+                    if (_oklabMem != null) return;
+                    var mem = new NativeBuffer(2L * Count * sizeof(float), NativeUsage.Palette);
+                    try
                     {
-                        for (int k = k0; k < k1; k++)
+                        float* l = (float*)mem.Ptr, c = l + Count;
+                        var colors = Colors;
+                        ForEachPaletteChunk(Count, po, (k0, k1) =>
                         {
-                            OkLab.RgbToOklab(colors[k].r, colors[k].g, colors[k].b, out float L, out float a, out float b);
-                            l[k] = L;
-                            c[k] = Mathf.Sqrt(a * a + b * b);
-                        }
-                    });
-                    OkL = l;
-                    Volatile.Write(ref OkC, c);
+                            for (int k = k0; k < k1; k++)
+                            {
+                                OkLab.RgbToOklab(colors[k].r, colors[k].g, colors[k].b, out float L, out float a, out float b);
+                                l[k] = L;
+                                c[k] = Mathf.Sqrt(a * a + b * b);
+                            }
+                        });
+                        OkL = l;
+                        OkC = c;
+                    }
+                    catch
+                    {
+                        mem.Dispose();
+                        throw;
+                    }
+                    Volatile.Write(ref _oklabMem, mem);
                 }
             }
         }
@@ -251,7 +265,7 @@ namespace Iroca
             // 先に解放していた。小さい画像では、書き込み中の領域がヒープに戻ってエディタごと落ちることがあった)。
             var indexMem = new NativeBuffer((long)len * sizeof(int), NativeUsage.Palette);
             int* index = (int*)indexMem.Ptr;
-            NativeBuffer hsvMem = null;
+            NativeBuffer hsvMem = null, colorsMem = null;
             ColorPalette built = null;
             try
             {
@@ -314,7 +328,8 @@ namespace Iroca
                 int count = inserted;
                 slotToIdMem = new NativeBuffer((long)capacity * sizeof(int), NativeUsage.Palette);
                 int* slotToId = (int*)slotToIdMem.Ptr;
-                var colors = new Color32[count];
+                colorsMem = new NativeBuffer((long)count * sizeof(Color32), NativeUsage.Palette);
+                Color32* colors = (Color32*)colorsMem.Ptr;
                 int n = 0;
                 for (int s = 0; s < capacity; s++)
                 {
@@ -342,7 +357,7 @@ namespace Iroca
                 });
 
                 sub?.Mark(SpPaletteRemap);
-                built = new ColorPalette(count, colors, indexMem, hsvMem);
+                built = new ColorPalette(count, colorsMem, indexMem, hsvMem);
                 return built;
             }
             finally
@@ -356,6 +371,7 @@ namespace Iroca
                 {
                     indexMem.Dispose();
                     hsvMem?.Dispose();
+                    colorsMem?.Dispose();
                 }
             }
         }

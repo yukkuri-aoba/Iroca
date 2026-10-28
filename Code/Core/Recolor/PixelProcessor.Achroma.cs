@@ -167,7 +167,7 @@ namespace Iroca
             {
                 palette.EnsureOklab(bboxPo);
                 pIdx = palette.Index;
-                float[] pL = palette.OkL;
+                float* pL = palette.OkL;
                 var bins = new int[palette.Count];
                 ForEachPaletteChunk(palette.Count, bboxPo, (k0, k1) =>
                 {
@@ -411,7 +411,7 @@ namespace Iroca
             mid = 0.5f;
             // 色の表があれば L は色ごとの表から読む(ビット単位で同じ)。
             int* pIdx = null;
-            float[] pL = null;
+            float* pL = null;
             if (palette != null)
             {
                 palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct });

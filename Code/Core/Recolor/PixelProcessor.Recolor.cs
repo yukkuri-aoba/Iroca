@@ -326,7 +326,7 @@ namespace Iroca
             out float anchorL, out float anchorC,
             AnchorMaterial material,
             bool* statsExclude, CancellationToken ct,
-            int* pIdx, float[] pL, float[] pC, Color32[] pCol, int colorCount)
+            int* pIdx, float* pL, float* pC, Color32* pCol, int colorCount)
         {
             anchorL = 0f;
             anchorC = 0f;

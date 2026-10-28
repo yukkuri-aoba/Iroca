@@ -101,7 +101,7 @@ namespace Iroca
                     palStrength = new float[pc];
                     palPot = new float[pc];
                     palConf = new float[pc];
-                    Color32[] pCol = palette.Colors;
+                    Color32* pCol = palette.Colors;
                     float* pH = palette.H, pS = palette.S, pV = palette.V;
                     float[] outS = palStrength, outPot = palPot, outConf = palConf;
                     ForEachPaletteChunk(pc, po, (k0, k1) =>
@@ -373,7 +373,7 @@ namespace Iroca
             float[] RelaxedPalette(float tol)
             {
                 var outRel = new float[palette.Count];
-                Color32[] rCol = palette.Colors;
+                Color32* rCol = palette.Colors;
                 float* rH = palette.H, rS = palette.S, rV = palette.V;
                 ForEachPaletteChunk(palette.Count, po, (k0, k1) =>
                 {

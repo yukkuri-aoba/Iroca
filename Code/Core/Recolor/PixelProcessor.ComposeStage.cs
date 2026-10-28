@@ -48,7 +48,7 @@ namespace Iroca
                 {
                     int pc = palette.Count;
                     var outRc = new Color32[pc];
-                    Color32[] pCol = palette.Colors;
+                    Color32* pCol = palette.Colors;
                     float* pV = palette.V;
                     var rcParamsLocal = rcParams;
                     float lmid = zRegLmid;
