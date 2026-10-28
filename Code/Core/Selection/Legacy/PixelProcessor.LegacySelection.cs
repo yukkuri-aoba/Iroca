@@ -527,39 +527,5 @@ namespace Iroca
             };
         }
 
-        /// <summary>
-        /// マスクの契約(製品の約束。旧の選択と新の選択で共通): 選択の強度に、除外マスクを掛け直し(ぼかしが除外の
-        /// 画素へはみ出すことがある)、含めるマスクの画素を全強度で足す(除外優先は焼き込み済み)。
-        /// ProcessPixelsArrayCore から中身を書き換えずに切り出したもの(0.4.0 の計画の 3-7a)。
-        /// </summary>
-        private static void ApplyMaskContract(RunContext run, ColorZone zone, float* strength, ulong[] zoneMask,
-            bool* includedPx)
-        {
-            int w = run.W, h = run.H, len = run.Len;
-            var po = run.Po;
-            ulong[] commonMask = run.CommonMask;
-            int maskW = run.MaskW, maskH = run.MaskH;
-            int[] maskColOf = run.MaskColOf, maskRowBase = run.MaskRowBase;
-            var debug = run.Debug;
-            var _sub = run.Sub;
-
-            // 3. 除外マスクを再適用：ブラーが除外ピクセルにはみ出す可能性がある
-            if (commonMask != null || zoneMask != null)
-            {
-                ReapplyExclusion(strength, w, h, maskColOf, maskRowBase, maskW, maskH, commonMask, zoneMask, po);
-                debug?.RecordStage(zone.id, DebugStages.MaskReapply, ToManaged(strength, len), w, h);
-            }
-
-            // 3a. 含めるマスク適用: 指定画素を full strength で選択へ強制追加する。
-            //     除外の再適用より後に置くが、includedPx には除外優先が焼き込み済みなので
-            //     順序に依らず「除外が勝つ」。ブラー等の後段パスより後 = マスク解像度の
-            //     ハードエッジになる(除外マスクと同じ WYSIWYG 契約)。
-            if (includedPx != null)
-            {
-                ForceIncluded(strength, includedPx, w, h, po);
-                debug?.RecordStage(zone.id, DebugStages.MaskReapply, ToManaged(strength, len), w, h);
-            }
-            _sub.Mark(SpBlurReapply);
-        }
     }
 }

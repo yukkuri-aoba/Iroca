@@ -43,6 +43,10 @@
     <!-- PixelProcessor の実行に必要な Core ファイルだけを取り込む(UI/Editor 依存を避ける)。
          PixelProcessor は partial 分割されているため glob で本体+全 partial を取り込む。 -->
     <Compile Include="..\..\Code\Core\PixelProcessor*.cs" />
+    <!-- 旧の選択(ColorZone の照合を含む)・マスクの契約・ぼかし(0.4.0 の 3-7a でフォルダへ分けた)。 -->
+    <Compile Include="..\..\Code\Core\Selection\Legacy\*.cs" />
+    <Compile Include="..\..\Code\Core\Masks\*.cs" />
+    <Compile Include="..\..\Code\Core\Filters\*.cs" />
     <Compile Include="..\..\Code\Core\MaskSnapshot.cs" />
     <Compile Include="..\..\Code\Core\PreviewParityCache.cs" />
     <Compile Include="..\..\Code\Core\SelectionCache.cs" />

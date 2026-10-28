@@ -28,7 +28,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ZONE_CS = REPO_ROOT / "Code" / "Core" / "ColorZone.cs"
-MATCH_CS = REPO_ROOT / "Code" / "Core" / "ColorZone.Match.cs"
+# 照合は旧の選択の一部(0.4.0 の 3-7a で Selection/Legacy へ移した)。
+MATCH_CS = REPO_ROOT / "Code" / "Core" / "Selection" / "Legacy" / "ColorZone.Match.cs"
 
 # 行コメント / ブロックコメント / 文字列リテラルを落とす。
 _COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/|\"(?:\\.|[^\"\\])*\"", re.DOTALL)

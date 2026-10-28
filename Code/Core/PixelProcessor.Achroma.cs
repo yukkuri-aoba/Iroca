@@ -451,5 +451,17 @@ namespace Iroca
             mid = HistValueAtPercentile(hist, count, 0.50f, 1f);
             return true;
         }
+
+        // フル画像 per-pixel マップ(成分別中央値 L 等)から、クロップ(originX/Y, w×h)に対応する
+        // 矩形を切り出してクロップ座標の作業配列(プールから借りる。呼び出し側がゾーンの終わりに返す)に詰める。詳細プレビューがフル画像と同じ成分基準で
+        // 再着色できるようにするための転写。行ごとに連続コピーするだけ(全画素 1 回読み)。
+        private static float* CropFullMidMap(float[] full, int w, int h, int originX, int originY, int fullW)
+        {
+            // 作業配列のプールから借りる(呼び出し側がゾーンの終わりに返す)。
+            float* map = s_floatPool.Rent(w * h);
+            for (int y = 0; y < h; y++)
+                new ReadOnlySpan<float>(full, (y + originY) * fullW + originX, w).CopyTo(new Span<float>(map + y * w, w));
+            return map;
+        }
     }
 }

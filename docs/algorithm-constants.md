@@ -98,27 +98,31 @@
 | ファイル | 数 |
 |---|---|
 | `Code/Core/ColorZone.cs` | 6 |
-| `Code/Core/ColorZone.Match.cs` | 6 |
+| `Code/Core/Filters/PixelProcessor.Blur.cs` | 0 |
 | `Code/Core/HighlightSampleCorrector.cs` | 0 |
+| `Code/Core/Masks/PixelProcessor.Masks.cs` | 0 |
 | `Code/Core/PixelProcessor.Achroma.cs` | 0 |
+| `Code/Core/PixelProcessor.Bounds.cs` | 0 |
 | `Code/Core/PixelProcessor.ColorSpace.cs` | 43 |
-| `Code/Core/PixelProcessor.cs` | 6 |
 | `Code/Core/PixelProcessor.Decontam.cs` | 1 |
-| `Code/Core/PixelProcessor.FloodFill.cs` | 1 |
-| `Code/Core/PixelProcessor.Highlight.cs` | 6 |
 | `Code/Core/PixelProcessor.Hsv.cs` | 0 |
-| `Code/Core/PixelProcessor.LegacySelection.cs` | 0 |
 | `Code/Core/PixelProcessor.MixtureBand.cs` | 0 |
 | `Code/Core/PixelProcessor.Palette.cs` | 2 |
 | `Code/Core/PixelProcessor.Recolor.cs` | 6 |
 | `Code/Core/PixelProcessor.Run.cs` | 0 |
-| `Code/Core/PixelProcessor.Selection.cs` | 2 |
+| `Code/Core/PixelProcessor.cs` | 6 |
+| `Code/Core/Selection/Legacy/ColorZone.Match.cs` | 6 |
+| `Code/Core/Selection/Legacy/PixelProcessor.FloodFill.cs` | 1 |
+| `Code/Core/Selection/Legacy/PixelProcessor.Highlight.cs` | 6 |
+| `Code/Core/Selection/Legacy/PixelProcessor.LegacySelection.cs` | 0 |
+| `Code/Core/Selection/Legacy/PixelProcessor.Selection.cs` | 2 |
+| `Code/Core/Selection/Legacy/PixelProcessor.SelectionKey.cs` | 0 |
 | `Code/Core/UvChartMap.cs` | 0 |
-| `Code/Core/ZoneAutoTuner.cs` | 40 |
 | `Code/Core/ZoneAutoTuner.Evidence.cs` | 7 |
 | `Code/Core/ZoneAutoTuner.Normalize.cs` | 0 |
 | `Code/Core/ZoneAutoTuner.Tolerance.cs` | 5 |
 | `Code/Core/ZoneAutoTuner.Verify.cs` | 0 |
+| `Code/Core/ZoneAutoTuner.cs` | 40 |
 | `Code/MaskSuggest/Ops/MaskSuggestGranularity.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamCoordMapper.cs` | 0 |
 | `Code/MaskSuggest/Ops/SamImageOps.cs` | 0 |
@@ -164,6 +168,12 @@
 | `GrayModeDarkSampleValue` | `0.3f` | 不明 | — | 暗いサンプルとみなす明度の上限。初期実装からあり、計測記録なし |
 | `GrayHighlightHeadroom` | `0.55f` | 不明 | — | 暗い無彩サンプルで罰しない明るさの余白。合成グラデで確かめただけ |
 | `GrayLumExcessWeight` | `1.2f` | 設計 | — | (1−0.55)×重み>0.40（無彩 tol 上限）で白を弾けるよう、式から決めた |
+
+## `Code/Core/Filters/PixelProcessor.Blur.cs`
+
+| 定数 | 値 | 種類 | 段 | 根拠 |
+|---|---|---|---|---|
+| `VBlock` | `16` | 計算 | — | ボックス和の縦パスを 16 列ずつまとめてキャッシュラインに合わせる。出力ビット不変 |
 
 ## `Code/Core/HighlightSampleCorrector.cs`
 
@@ -218,7 +228,7 @@
 | `Band` | `64` | 計算 | — | 累積和の列方向を並列に分ける帯の幅。整数の加算で出力に効かない |
 | `MixSegment` | `32` | 計算 | — | 早い打ち切りをまとめて判定する行の区間。出力はビット単位で同じ |
 
-## `Code/Core/PixelProcessor.FloodFill.cs`
+## `Code/Core/Selection/Legacy/PixelProcessor.FloodFill.cs`
 
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
@@ -226,7 +236,7 @@
 | `ShadowFloorKeepFrac` | `0.5f` | 実測 | — | 包絡の内側が過半なら成分を残す。57 件で 1/4〜0.75 を試し、崩れる 0.75 から離した |
 | `PartHueKeepFrac` | `0.25f` | 実測 | PH | 色相帯は 1/4 で残す。過半にすると茶髪の房が落ちた（再現率 1.000→0.965） |
 
-## `Code/Core/PixelProcessor.Highlight.cs`
+## `Code/Core/Selection/Legacy/PixelProcessor.Highlight.cs`
 
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
@@ -311,11 +321,10 @@
 | `AnchorMaterialSatrFrac` | `OklabRemapFullChromaFrac` | 設計 | — | 推定し直しで地色から外す飽和度比。L 再マップの線（OklabRemapFullChromaFrac）と同じ |
 | `AnchorMaterialHueCos` | `0.70710678f` | 実測 | — | 推定し直しで外す色相差 45°。正解画素の 97% が 25° 以内という実測に余裕を取った |
 
-## `Code/Core/PixelProcessor.Selection.cs`
+## `Code/Core/Selection/Legacy/PixelProcessor.Selection.cs`
 
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
-| `VBlock` | `16` | 計算 | — | ボックス和の縦パスを 16 列ずつまとめてキャッシュラインに合わせる。出力ビット不変 |
 | `QuantSmoothLevels` | `1` | 量子化 | QS | 8bit で 1 階調以内の隣だけ平均する（量子化誤差の幅そのもの） |
 | `Chunk` | `4096` | 計算 | FH | 穴埋め 2 パス目以降の並列の分割単位。書き込みはパスの最後なので出力は不変 |
 | `Chunk` | `4096` | 計算 | BE | 境界回復 2 パス目以降の並列の分割単位。出力は不変 |

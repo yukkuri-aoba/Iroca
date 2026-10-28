@@ -699,6 +699,17 @@ T5 で消える部分は作り直さない（1.5）。
     再着色の段、の順の呼び出しにした（中身は書き換えずに移した。`PixelProcessor.Run.cs` に `RunContext`・`ZoneBuffers`・
     `SelectionResult`）。借りた作業配列は `ZoneBuffers` が持ち、ゾーンの終わりにまとめて返す（返す順は前と同じ）。
     abcheck 全一致・golden 94。
+  - 2026-10-28: 旧の選択の段（`PixelProcessor.Selection`・`Highlight`・`FloodFill`・`LegacySelection`）と `ColorZone.Match.cs`、
+    選択キャッシュの鍵（`BuildSelectionKey`・`ExclusionChangeKeepsMatch`・保存する「残す」のビット。`PixelProcessor.SelectionKey.cs`）を
+    `Code/Core/Selection/Legacy/` へ、マスクの契約（`ApplyMaskContract` と除外・含めるの判定）を `Code/Core/Masks/` へ移した
+    （宣言のまとまりを行単位で移しただけ。移す前と後で行の集まりが同じことを確かめた）。旧の選択の外も使う下回りは
+    `Legacy` に置かない: ぼかし（箱フィルタの和はデコンタミも使う）は `Filters/` へ（3-5 の「ぼかし」を先に済ませた）、
+    強度の範囲は `PixelProcessor.Bounds.cs`、成分別の地色の地図の切り出しは `PixelProcessor.Achroma.cs` へ。
+    dev_safe の `ablation_build.py`（段を外して測る）は、差し込む先をファイル名で探すようにし、新しい置き場所へ向けた。
+    - Legacy の外から Legacy を呼んでいる所（T5 で旧を消すときに替えるもの）: パイプラインの `RunLegacySelection` と
+      ゾーンのループの頭の `zone.UpdateCacheIfNeeded()`、混色帯モードかの判定（`IsMixtureBandZone`）が使う
+      `ColorZone.GrayModeEffectiveChromaThreshold`（旧の照合のグレーモードの境目）、旧の自動調整（`ZoneAutoTuner*`。
+      照合・帯候補の判定・定数）、自動化の `UpdateCacheIfNeeded`。
 - [ ] 3-7b 再着色の側を段に分ける。
   - 先に `RunContext` / `ZoneState` / `ZoneBuffers` を入れ、段はパイプラインの順に 1 段 1 コミットで分ける
     （無彩の固め・デコンタミ・再着色の統計・混色帯・再着色の核・合成・無彩のフチ消し）。
