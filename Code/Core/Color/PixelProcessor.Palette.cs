@@ -240,10 +240,10 @@ namespace Iroca
             int mask = capacity - 1;
             int shift = 32 - bits;
             // 0 = 空き、それ以外 = RGBA の 32bit 値 + 1。
-            // ハッシュ表とスロット → 番号の対応(4K で long 2^21 + int 2^21 = 24MB)は作るたびに確保する。
-            // 表はキャッシュから引くので作り直すのは新しい画像のときだけで、使い回しのために常駐させると、
-            // Mono では縮まないヒープにその分が残り続ける。
-            long[] slots = new long[capacity];
+            // ハッシュ表とスロット → 番号の対応(4K で long 2^21 + int 2^21 = 24MB)は作るたびにヒープの外に取り、
+            // 作り終えたら返す(下の finally)。表はキャッシュから引くので作り直すのは新しい画像のときだけだが、
+            // 管理配列だと、作るたびに Mono の縮まないヒープの山をその分押し上げていた(0.4.0 の 3-12)。
+            NativeBuffer slotsMem = null, slotToIdMem = null;
             // 画素 → 番号と番号 → HSV は Mono のヒープの外に取り、表(ColorPalette)が持ち主になる。
             // 表に渡すまでは、確保した直後の持ち主(NativeBuffer)が守る。途中で抜けたとき(種類が多すぎた・
             // キャンセル)は下の finally で解放する。スクリプトの再読み込みでこのスレッドだけが中断されたときは、
@@ -255,6 +255,9 @@ namespace Iroca
             ColorPalette built = null;
             try
             {
+                slotsMem = new NativeBuffer((long)capacity * sizeof(long), NativeUsage.Palette);
+                long* slots = (long*)slotsMem.Ptr;
+                ClearWork(slots, 0, capacity);
                 int inserted = 0;
                 int overflow = 0;
 
@@ -309,7 +312,8 @@ namespace Iroca
                 // 2) 使われたスロットに番号を振り、色と HSV を求める(種類数ぶんだけ)。
                 //    slotToId は使われたスロットの位置だけ書いて読むので、0 で埋めなくてよい。
                 int count = inserted;
-                int[] slotToId = new int[capacity];
+                slotToIdMem = new NativeBuffer((long)capacity * sizeof(int), NativeUsage.Palette);
+                int* slotToId = (int*)slotToIdMem.Ptr;
                 var colors = new Color32[count];
                 int n = 0;
                 for (int s = 0; s < capacity; s++)
@@ -343,6 +347,9 @@ namespace Iroca
             }
             finally
             {
+                // ハッシュ表とスロット → 番号の対応は、作れたときも返す(表は持たない)。
+                slotToIdMem?.Dispose();
+                slotsMem?.Dispose();
                 // 表に渡せなかったときだけ始末する。中断中(IrocaNativeMemory.CurrentThreadAborting)の Dispose は
                 // 解放しないので、実質 `built == null && !CurrentThreadAborting` のときだけ解放される。
                 if (built == null)
