@@ -687,5 +687,53 @@ namespace Iroca
             result.a = alpha;
             return result;
         }
+
+        // ───────── 無彩パスの再着色メモ ─────────
+        // 成分別 L マップ(BuildComponentMedianLMap)を使うゾーンでは、再着色色が「色」と「その画素の
+        // 成分の地色基準 L」の組で決まるので、色ごとの表を 1 枚では作れない。代わりに、スレッドごとの
+        // 小さな直接写像メモで、同じ(色番号, 地色基準 L)の結果を使い回す。テクスチャは成分ごとに
+        // 色の種類が少ないので、ほとんどの画素はメモに当たる。
+        // 鍵には呼び出し(ゾーン)ごとの世代番号を含める。スレッドプールのスレッドは別の呼び出しの
+        // 行も処理するので、世代が違う項目は外れとして扱う(色番号は呼び出しごとに振り直されるため)。
+        // 当たった値は同じ入力で RecolorPixel を呼んだ結果そのものなので、出力はビット単位で同じ。
+        private const int RecolorMemoSize = 8192;   // 2 のべき
+        [ThreadStatic] private static int[] t_memoEpoch;
+        [ThreadStatic] private static int[] t_memoColor;
+        [ThreadStatic] private static float[] t_memoMid;
+        [ThreadStatic] private static float[] t_memoUp;
+        [ThreadStatic] private static Color32[] t_memoOut;
+        private static int s_recolorMemoEpoch;
+
+        private static int NextRecolorMemoEpoch()
+        {
+            int e = Interlocked.Increment(ref s_recolorMemoEpoch);
+            // 0 は「メモを使わない」の印なので飛ばす(一周するのは 2^32 回後)。
+            return e != 0 ? e : Interlocked.Increment(ref s_recolorMemoEpoch);
+        }
+
+        private static Color32 RecolorPixelMemo(int epoch, int colorId, float regLmid, float regUp,
+            Color32 op, float oV, float alpha, in RecolorParams p)
+        {
+            int[] ep = t_memoEpoch;
+            if (ep == null)
+            {
+                ep = t_memoEpoch = new int[RecolorMemoSize];
+                t_memoColor = new int[RecolorMemoSize];
+                t_memoMid = new float[RecolorMemoSize];
+                t_memoUp = new float[RecolorMemoSize];
+                t_memoOut = new Color32[RecolorMemoSize];
+            }
+            int slot = (int)(((uint)colorId * 2654435761u) ^ (uint)(int)(regLmid * 1048576f) ^ ((uint)(int)(regUp * 1048576f) * 40503u))
+                       & (RecolorMemoSize - 1);
+            if (ep[slot] == epoch && t_memoColor[slot] == colorId && t_memoMid[slot] == regLmid && t_memoUp[slot] == regUp)
+                return t_memoOut[slot];
+            Color32 r = RecolorPixel(op.r, op.g, op.b, oV, alpha, in p, regLmid, regUp);
+            ep[slot] = epoch;
+            t_memoColor[slot] = colorId;
+            t_memoMid[slot] = regLmid;
+            t_memoUp[slot] = regUp;
+            t_memoOut[slot] = r;
+            return r;
+        }
     }
 }

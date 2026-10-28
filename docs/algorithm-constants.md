@@ -98,6 +98,8 @@
 | ファイル | 数 |
 |---|---|
 | `Code/Core/Color/OkLab.cs` | 43 |
+| `Code/Core/Color/PixelProcessor.Hsv.cs` | 0 |
+| `Code/Core/Color/PixelProcessor.Palette.cs` | 0 |
 | `Code/Core/ColorZone.cs` | 6 |
 | `Code/Core/Filters/PixelProcessor.Blur.cs` | 0 |
 | `Code/Core/Foundation/CoreMemory.cs` | 0 |
@@ -108,10 +110,8 @@
 | `Code/Core/PixelProcessor.Achroma.cs` | 0 |
 | `Code/Core/PixelProcessor.Bounds.cs` | 0 |
 | `Code/Core/PixelProcessor.Decontam.cs` | 1 |
-| `Code/Core/PixelProcessor.Hsv.cs` | 0 |
 | `Code/Core/PixelProcessor.MixtureBand.cs` | 0 |
-| `Code/Core/PixelProcessor.Palette.cs` | 2 |
-| `Code/Core/PixelProcessor.Recolor.cs` | 6 |
+| `Code/Core/PixelProcessor.Recolor.cs` | 8 |
 | `Code/Core/PixelProcessor.Run.cs` | 0 |
 | `Code/Core/PixelProcessor.cs` | 6 |
 | `Code/Core/Selection/Legacy/ColorZone.Match.cs` | 6 |
@@ -142,6 +142,17 @@
 | `s_linearToSrgbLut` | `BuildLinearToSrgbLut()` | 定義 | — | 線形 → sRGB の表（sRGB の変換式から作る） |
 | `GamutEps` | `1e-4f` | 量子化 | — | 線形 RGB の丸め誤差を範囲内とみなす幅 |
 | `GamutBisectSteps` | `14` | 近似 | — | 彩度を縮める率の二分探索の回数。分解能 1/16384 で 8bit 出力には十分 |
+
+## `Code/Core/Color/PixelProcessor.Palette.cs`
+
+| 定数 | 値 | 種類 | 段 | 根拠 |
+|---|---|---|---|---|
+| `PaletteCacheSize` | `2` | 計算 | — | 色の表のキャッシュ枠。縮小段とフル解像度段が互いを追い出さない数 |
+| `PaletteLargeLen` | `1 << 20` | 計算 | — | 大きい表を 1 枚までにする画素数の境。メモリだけに効く |
+| `Chunk` | `1 << 16` | 計算 | — | 画素のハッシュを並列に取る塊。キャッシュの鍵にだけ効く |
+| `Chunk` | `4096` | 計算 | — | 色番号を並列に分ける塊の大きさ |
+| `PaletteMaxColorsDivisor` | `4` | 計算 | — | 色数が画素数の 1/4 を超えたら表を作らない。表の有無で出力は同じ（test_palette_parity） |
+| `PaletteMaxColorsCap` | `1 << 20` | 計算 | — | 色の表の色数の上限。表の有無で出力は同じ |
 
 ## `Code/Core/ColorZone.cs`
 
@@ -304,18 +315,6 @@
 | `EnclDy` | `{ 0, 0, 1, -1, 1, -1, 1, -1 }` | 定義 | — | 8 近傍の y の向き |
 | `R` | `MixBandRadius` | 設計 | — | MixBandRadius のローカルな別名 |
 
-## `Code/Core/PixelProcessor.Palette.cs`
-
-| 定数 | 値 | 種類 | 段 | 根拠 |
-|---|---|---|---|---|
-| `PaletteCacheSize` | `2` | 計算 | — | 色の表のキャッシュ枠。縮小段とフル解像度段が互いを追い出さない数 |
-| `PaletteLargeLen` | `1 << 20` | 計算 | — | 大きい表を 1 枚までにする画素数の境。メモリだけに効く |
-| `Chunk` | `1 << 16` | 計算 | — | 画素のハッシュを並列に取る塊。キャッシュの鍵にだけ効く |
-| `Chunk` | `4096` | 計算 | — | 色番号を並列に分ける塊の大きさ |
-| `PaletteMaxColorsDivisor` | `4` | 計算 | — | 色数が画素数の 1/4 を超えたら表を作らない。表の有無で出力は同じ（test_palette_parity） |
-| `PaletteMaxColorsCap` | `1 << 20` | 計算 | — | 色の表の色数の上限。表の有無で出力は同じ |
-| `RecolorMemoSize` | `8192` | 計算 | — | 無彩パスの再着色メモの枠数（2 のべき）。当たり率だけに効く |
-
 ## `Code/Core/PixelProcessor.Recolor.cs`
 
 | 定数 | 値 | 種類 | 段 | 根拠 |
@@ -340,6 +339,7 @@
 | `AnchorRetrySatrFrac` | `0.25f` | 実測 | — | 推定し直しの境。実測で乗り換えたとき 0〜0.20、正しいとき 0.31 以上の間 |
 | `AnchorMaterialSatrFrac` | `OklabRemapFullChromaFrac` | 設計 | — | 推定し直しで地色から外す飽和度比。L 再マップの線（OklabRemapFullChromaFrac）と同じ |
 | `AnchorMaterialHueCos` | `0.70710678f` | 実測 | — | 推定し直しで外す色相差 45°。正解画素の 97% が 25° 以内という実測に余裕を取った |
+| `RecolorMemoSize` | `8192` | 計算 | — | 無彩パスの再着色メモの枠数（2 のべき）。当たり率だけに効く |
 
 ## `Code/Core/Selection/Legacy/PixelProcessor.Selection.cs`
 
