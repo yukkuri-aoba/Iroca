@@ -794,8 +794,24 @@ T5 で消える部分は作り直さない（1.5）。
       HSV・作業配列）も段にはしていない。
 - [ ] 3-8 切り出しの検証経路（`PreviewParityCache` と切り出しの処理。製品は使っていない）を消す（2026-10-26 決定）。
   ハーネスの `--ffcheck` など使う側のモードと、dev_safe のテスト・abcheck のモードも同じ時に消す。
+  - 2026-10-29: 着手前に止めた（**ユーザーの判断待ち**）。消すと、dev_safe の局所プローブ（`scripts/locality_probe/Probe.cs`。
+    拡大中の先出し「手順 3」の調査の道具。`PreviewParityCache` と部分クロップを 10 か所ほど使う）が動かなくなる。手順 3 は
+    10-04 から判断待ちのままなので、消すとその判断を先取りすることになる。消す範囲は、Core の入口の引数
+    （`originX`/`originY`/`fullW`/`fullH`/`parityCache`）・旧の選択の部分クロップの分岐（22 か所）・統計の段の転写・
+    `CropFullMidMap`・ハーネスの `--ffcheck`・dev_safe の `test_detail_preview_parity.py`・abcheck の checks と
+    probe の `recolor/crop`・abprobe の crop と parity の op。
 - [ ] 3-12 Core に残る管理配列のうち、T5 の後も残るものをなくす: `UvChartMap`（A4）、色の表の大きさの配列（B5）。
   旧の選択・旧の自動調整の中の配列（A5・B6・穴埋めと境界のリスト）は移さない（T5 の P3 で消える）。
+  - 2026-10-29（手元。どれも abcheck 1397 / 1397 一致）: B5 のうち、色の表を作るときのハッシュ表とスロット → 番号の対応
+    （252e8aa）、色の表が持ち続ける色と OkLab の表（367ef40）、合成の段の色ごとの再着色の表と無彩パスの地色の
+    色ごとのビン（d0d21e0）、アンカーの色ごとの数え上げ（色の数の配列と、ワーカーごとの集計。ヒストグラムの並列集計に
+    ヒープの外に置く版 `Histogram.AccumulateParallelRowsNative` を足した。このコミット）をヒープの外へ移した。
+    B5 で旧の選択の外に残る色の表の大きさの管理配列は無い（旧の選択の中のもの 5 つは T5 で消える）。
+  - 残り: `UvChartMap`（A4。下の決めたこと）。
+  - **決めたこと**: `UvChartMap` は 4-2 の `MaskWorkspace` と一緒に移す。`MaskOf()` の結果は編集中のマスク（今は
+    `bool[]`）へ入り、`Raster`・`Owner` は UI（メッシュの部位の右クリック・シーンのハイライト）と abcheck の probe が
+    管理配列のまま読むので、先に移すと `bool[]` との写し合いが増えるだけになる（3.4 の `NativeBitMask` の置き換え先にも
+    `UvChartMap.MaskOf` が入っている）。
 - [x] 3-13 `Harness.csproj` の取り込みをフォルダ単位にする。dev_safe の局所プローブ（`locality_probe`）は同じ一覧を
   写して持っていて、フェーズ 2 で足したファイルが抜けたままビルドできなくなっていた（2026-10-28 に写し直した）。
   一覧を 1 か所（共有の .props など）にし、ハーネス・局所プローブ・`tools/harness_scope.py`・abcheck がそこを読む。

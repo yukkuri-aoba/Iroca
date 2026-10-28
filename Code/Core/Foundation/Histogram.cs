@@ -1,6 +1,8 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -11,7 +13,7 @@ namespace Iroca
     /// 整数のヒストグラムの並列集計と分位点(0.4.0 の計画の 3-5 で PixelProcessor から切り出した)。
     /// 再着色の統計(アンカー)・無彩パスの地色・スポイト補正・旧の選択が使う。
     /// </summary>
-    internal static class Histogram
+    internal static unsafe class Histogram
     {
         /// <summary>集計対象が行レンジ [yFrom,yTo) のデリゲート。戻り値は集計した画素数。</summary>
         internal delegate int RowChunk(int yFrom, int yTo, int[] localHist);
@@ -47,6 +49,58 @@ namespace Iroca
                     lock (gate)
                         for (int b = 0; b < local.Length; b++) hist[b] += local[b];
                 });
+            return total;
+        }
+
+        /// <summary><see cref="AccumulateParallelRowsNative"/> の、集計対象が行レンジ [yFrom,yTo) のデリゲート。</summary>
+        internal delegate int RowChunkNative(int yFrom, int yTo, int* localHist);
+
+        /// <summary>
+        /// <see cref="AccumulateParallelRows"/> の、ヒストグラム(<paramref name="hist"/>、長さ <paramref name="bins"/>)と
+        /// ワーカーごとの集計をヒープの外に置く版。ビンが色の数ほど多いとき(アンカーの色ごとの数え上げ)に使う
+        /// (0.4.0 の計画の 3-12。管理配列の版だと、ワーカーの数 × 色の数の配列を呼ぶたびに Mono のヒープに積んでいた)。
+        /// ワーカーごとの集計は作業配列のプールから借りて 0 で埋め、集計が終わったら(取り消されたときも)まとめて返す。
+        /// 整数の加算だけなので、結果は管理配列の版と同じ。
+        /// </summary>
+        internal static int AccumulateParallelRowsNative(int yFrom, int yTo, int* hist, int bins,
+            RowChunkNative chunk, CancellationToken ct = default, int maxWorkers = 0)
+        {
+            if (yTo <= yFrom) return 0;
+            int dop = CoreParallelism.Max();
+            if (maxWorkers > 0 && maxWorkers < dop) dop = maxWorkers;
+            var po = new ParallelOptions { MaxDegreeOfParallelism = dop, CancellationToken = ct };
+            int total = 0;
+            object gate = new object();
+            var rented = new List<IntPtr>();
+            try
+            {
+                Parallel.ForEach(Partitioner.Create(yFrom, yTo), po,
+                    () =>
+                    {
+                        int* p = WorkPools.Int.Rent(bins);
+                        lock (gate) rented.Add((IntPtr)p);
+                        new Span<int>(p, bins).Clear();
+                        return (IntPtr)p;
+                    },
+                    (range, _, local) =>
+                    {
+                        int c = chunk(range.Item1, range.Item2, (int*)local);
+                        if (c != 0) Interlocked.Add(ref total, c);
+                        return local;
+                    },
+                    local =>
+                    {
+                        int* p = (int*)local;
+                        lock (gate)
+                            for (int b = 0; b < bins; b++) hist[b] += p[b];
+                    });
+            }
+            finally
+            {
+                // 中断中(ドメインのアンロード)は、並列で使っている途中のスレッドが残っていることがあるので返さない。
+                if (!IrocaNativeMemory.CurrentThreadAborting)
+                    foreach (var p in rented) WorkPools.Int.Return((int*)p);
+            }
             return total;
         }
 
