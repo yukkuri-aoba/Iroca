@@ -496,6 +496,31 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
   3. 計測（任意。フェーズ 4 の終わりにまとめて取ってもよい）: `.\dev_safe\scripts\run_baseline_0.4.0.ps1` で 0-1 と同じ
      計測を回し、`Tests/Baselines/perf-0.4.0-base/` と比べる。2-1 で `recipeBuild`（8K で +1,370MB）の残る増えが
      減るはず（マスクの展開が 1/8）。ほかの場面の Mono ヒープはフェーズ 4 で減る。
+- **ローカルへ戻すときの引き継ぎ（2026-10-28。クラウドで 3-7a・3-1・3-2・3-3・3-4 まで進めた時点）**:
+  - 取り込む: 本体は `git fetch origin` → `git switch dev-0.4.0` → `git pull`（先頭は 3-4 の 82903e2 と、この引き継ぎの
+    文書のコミット）、dev_safe は `git -C dev_safe pull`（`main` の先頭 da53edf）。どちらもクラウドに未 push の変更は無い。
+  - ファイルを移したので、パッケージのフォルダに古い場所の `.meta` が残り、Unity が「`.meta` はあるがアセットが無い」と
+    警告することがある（`.meta` は追跡していない）。害は無く、その `.meta` を消せば止まる。移したもの:
+    `Code/Core` の `PixelProcessor.Selection`・`Highlight`・`FloodFill`・`ColorZone.Match`（→ `Selection/Legacy`）、
+    `TextureSlot`・`PreviewJobProgress`・`MeshRaycast`（→ `Code/Infra`）、`Code/UI/DebugCaptureHooks.Foldout.cs`
+    （→ `DebugWindowHooks.cs`）。どれも保存されるアセットから GUID で参照される型ではない。
+  - 各手順の確かめ方（クラウドで回したもの。手元でも同じに回せる）: ハーネスのビルド → `python -m pytest
+    scripts/source_checks scripts/golden -q -n 0` → `python dev_safe/scripts/refactor_abcheck/abcheck.py`（全モード
+    1397 単位。不一致 0 を確かめてから `SKIP_VISUAL_REVIEW=1` でコミットし、本文に結果を書く）。作業配列の持ち主・返す順を
+    変えたときは golden を `IROCA_POOL_POISON=1` でも回す。Unity 側のコンパイルは `scripts/build-check` の 3 つ
+    （手元では Unity で開けば足りる）。
+  - 次の手順は 3-5（移すだけの切り出し: 色空間・`PixelHsv`・色の表・ヒストグラム・ビット列）→ 3-7b（再着色の側を段に
+    分ける）→ 3-8 → 3-12 → 3-13。3-4 では、ヒープの外のメモリの部品（`IrocaNativeMemory`・`NativeBuffer`・
+    `NativeBitMask`・`NativePixels`・`NativeWorkPool`）を `Foundation/` へ移すのはしていない（計画の 3-4 の項目に無いので。
+    移すならハーネス・局所プローブの取り込みと、台帳の対象外の一覧・画素数の管理配列の記録のパスも直す）。
+- **手元で確かめること（フェーズ 3A の途中。2026-10-28〜）**:
+  1. 取り込んでから EditMode テスト一式（`.\scripts\Run-EditorTests.ps1 -Graphics`）。3A ではテストを足していないので、
+     フェーズ 2 と同じ件数（306 件、成功 301・失敗 0・スキップ 5、Unity とハーネスの一致 25 / 25）になるはず。
+  2. 3-1 で自動調整の上書きの確認の文言の組み立て方を替えた。手で詳細の項目を既定から動かしたゾーンで「自動調整」を押し、
+     確認のダイアログに前と同じ項目名（許容範囲・模様保持など）が同じ順で並ぶこと。
+  3. 3-2 でデバッグの開閉の描画の差し込み口を替えた。デバッグモード（開発者向けの設定）で「パフォーマンス」欄が出て、
+     スレッド数の指定が効くこと（`DebugCaptureHooks.ParallelismOverride` は転送役になった）。
+  4. フェーズの終わりの確認（`RuntimeParityTests` 以外の MemoryBench・PerfBench・KernelBench）は 3A の残りが済んでから。
 - **dev_safe の同期（2026-10-26 に済み）。**
   - dev-0.3.0 の worktree の dev_safe 複製にあった 0.3.0 の作業（基準の作り直し・ホールドアウトの入れ替え・
     `generalization_report.py` ほか）を、本体の dev_safe の `main` へ取り込んだ（d3e3e68）。`abcheck.py` の `CRASH_RC` を
