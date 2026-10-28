@@ -484,7 +484,8 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
   4. 1-2 の見た目: `docs/release-smoke-test.md` の 51（4K と 8K で差分表示にして、パン・ズーム・スライダーのドラッグを
      激しく行う。前後比較から直接差分表示へ）。リニアのプロジェクト（VRChat のアバタープロジェクト）で、差分の黄色が
      以前と同じ色に見えること。
-- **手元で確かめること（フェーズ 2。2026-10-28〜）**:
+- **手元で確かめること（フェーズ 2。2026-10-28〜）**（1 は 2026-10-28 に済み: `-Graphics` で 306 件、成功 301・失敗 0・
+  スキップ 5、Unity とハーネスの一致 25 / 25）:
   1. 取り込んでから EditMode テスト一式（`.\scripts\Run-EditorTests.ps1 -Graphics`）。新しいテストは
      `NativeMemoryLifecycleTests`（手を止めたら作業配列の空きが返る）と `TextureIOTests`（ヒープの外のまま読み書きする口。
      別スレッドでの PNG 化を含む）。`NativePixels`・選択キャッシュ・プールの塊の持ち方を替えたので、プレビューまわりの
@@ -652,18 +653,19 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
     詰めた形への展開（`DecodePacked`）と同じ読み取りにまとめた。abcheck 全一致、`--bitmaskselftest`（bool[] の口と
     同じ文字列・同じビット、参照の数と書く前の写し）。使う側（編集中のマスク・スナップショット）を移すのは 4-2 の
     `MaskWorkspace`。
-- [ ] 2-4 Infra の境目: `NativeArray` への変換、`TextureIO`。
+- [x] 2-4 Infra の境目: `NativeArray` への変換、`TextureIO`。
   - 読む: `GetPixelData` から `NativePixels`。
   - 書く: `EncodeNativeArrayToPNG` で PNG にし、小さな置き場を通してファイルへ流す。
   - 2026-10-28: `Code/Infra/TextureIO.cs` を足した（`ReadSourceFile`・`EncodePng`・`WriteAllBytes`、ヒープの外の領域を
     `NativeArray` に見せる `NativeView<T>`。安全ハンドルの作成と解放を含む）。元ファイルをデコードできないもの（PSD など）の
     取り込み済みテクスチャからの読み込みは、`GetPixels32` が要るので呼び出し側に残した。EditMode テスト `TextureIOTests`
-    （今の経路と同じ画素・同じバイト列、別スレッドでの PNG 化、置き場を通した書き込み）は手元で回す。使う側
+    （今の経路と同じ画素・同じバイト列、別スレッドでの PNG 化、置き場を通した書き込み）は 2026-10-28 に手元で通った。使う側
     （書き出し・自動化。A3・A6）を移すのは 4-3 の `ExportService`。
 - [x] 2-5 PerfView に用途ごとの量を出す。（2026-10-28。用途ごとの今の量・最大・作業配列の貸し出し中と空き・返し忘れの数と、
   最大のリセット。開発者用の `Code/Debug` なのでコンパイルまで確かめた）
 - 確かめること:
-  - `EncodeNativeArrayToPNG` を別スレッドで呼べるか（今の `EncodePng_RunsOnBackgroundThreadAndMatchesMainThread` を広げる）。
+  - ~~`EncodeNativeArrayToPNG` を別スレッドで呼べるか~~ **呼べる**（2026-10-28。Unity 2022.3 で
+    `TextureIOTests.EncodePng_RunsOnABackgroundThreadAndMatchesTheMainThread` が通った。安全ハンドルの作成も別スレッドで動いた）。
   - `LoadImage` の代わりに管理配列を使わない読み込み方があるか（Unity 6 の `ReadOnlySpan` の口、
     `UnityWebRequestTexture` など）。今と同じ画素になるときだけ替える。出力が変わり、直しても合わせられないなら
     見送り、圧縮されたファイルの中身の分は T3 の例外として残す（2026-10-26 決定）。
