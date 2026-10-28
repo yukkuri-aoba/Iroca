@@ -46,6 +46,8 @@ namespace Iroca
             public SelectionCache SelectionCache;
             // 計測(値・分岐は変えない)。
             public long[] PhaseTicks;
+            public ZonePerfEntry[] PerfZones;   // ゾーンごとの時間(PerfCount 個まで書いた)
+            public int PerfCount;
             public SubPhaseClock Sub;
             public long Tp;
         }

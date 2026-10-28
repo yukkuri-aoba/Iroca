@@ -113,6 +113,7 @@
 | `Code/Core/PixelProcessor.Bounds.cs` | 0 |
 | `Code/Core/PixelProcessor.Decontam.cs` | 1 |
 | `Code/Core/PixelProcessor.MixtureBand.cs` | 0 |
+| `Code/Core/PixelProcessor.Pipeline.cs` | 0 |
 | `Code/Core/PixelProcessor.Recolor.cs` | 8 |
 | `Code/Core/PixelProcessor.Run.cs` | 0 |
 | `Code/Core/PixelProcessor.cs` | 1 |
