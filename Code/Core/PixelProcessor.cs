@@ -422,8 +422,6 @@ namespace Iroca
                     var sel = RunLegacySelection(run, zone, zb, zoneMask, zMixMode, isFullImagePath, sampH, sampS, sampV);
                     _tp = run.Tp;
                     float* strength = sel.Strength;
-                    bool hasPostBox = sel.Box.Has;
-                    int ppMinX = sel.Box.MinX, ppMinY = sel.Box.MinY, ppMaxX = sel.Box.MaxX, ppMaxY = sel.Box.MaxY;
 
                     // マスクの契約(除外の掛け直し・含める)。
                     ApplyMaskContract(run, zone, strength, zoneMask, includedPx);
@@ -436,94 +434,23 @@ namespace Iroca
                         Strength = strength, Box = sel.Box,
                     };
                     AchromaSolidifyStage.Run(run, z);
-                    float zAchromaWeight = z.AchromaWeight;
 
                     run.Tp = _tp;
                     DecontamStage.Run(run, z);
                     _tp = run.Tp;
-                    bool* aaMask = z.AaMask;
-                    Color32* decontaminatedPixels = z.Decontaminated;
 
                     run.Tp = _tp;
                     RecolorStatsStage.Run(run, z);
                     _tp = run.Tp;
-                    var rcParams = z.Params;
-                    float zRegLmid = z.RegLmid;
-                    float* zRegMidMap = z.RegMidMap;
-                    float* zRegUpMap = z.RegUpMap;
-                    float zEffShadowDesat = rcParams.shadowDesaturation;
-                    float zWV = rcParams.washV;
 
-                    var strengthForRecolor = strength;
-                    var aaMaskLocal = aaMask;
-                    var decontaminatedLocal = decontaminatedPixels;
-                    var claimedLocal = rb.Claimed;
                     MixtureBandStage.Run(run, z);
-                    int rcMinX = z.RcMinX, rcMinY = z.RcMinY, rcMaxX = z.RcMaxX, rcMaxY = z.RcMaxY;
-                    float* mixAlphaLocal = z.MixAlpha;
                     ComposeStage.Run(run, z);
 
                     run.Tp = _tp;
                     AchromaFringeStage.Run(run, z);
                     _tp = run.Tp;
 
-                    // Recolor 段で各ピクセルに適用されたサブブランチを記録する。
-                    // hot loop には分岐を増やさず、debug 有効時だけ追加の Parallel.For で
-                    // 上の RecolorPixel 内の条件式を再評価する。
-                    // 優先度: Decontaminate > Shadow > Highlight > Base。
-                    // shadow と highlight は条件上ほぼ排他（oV<thr と oV>sV）だが念のため shadow を優先。
-                    // NOTE: 実際の RecolorPixel に渡した値を使うこと。
-                    //   Shadow: zone.shadowDesaturation でなく zEffShadowDesat (autoRecolorAnchor 時に補正済み)
-                    //   Highlight: sampV でなく zWV (HighlightSampleCorrector で補正した実効 wash サンプルの V)
-                    if (debug != null)
-                    {
-                        byte[] branchMap = new byte[len];
-                        float zoneShadowDesat = zEffShadowDesat;
-                        float zoneSV = zWV;
-                        float zoneSS = sampS;
-                        bool zoneApplyWash = zone.applyHighlightWash;
-                        var aaMaskForBranch = aaMask;
-                        var mixForBranch = mixAlphaLocal;
-                        int bx0 = rcMinX, by0 = rcMinY, bx1 = rcMaxX, by1 = rcMaxY;
-                        Parallel.For(0, len, po, i =>
-                        {
-                            // 混色帯で塗った画素(選択の外側も含む)は、合成で塗る分岐として記録する。
-                            // mixAlpha が有効なのは解析した矩形の中だけ。
-                            if (mixForBranch != null)
-                            {
-                                int bx = i % w, by = i / w;
-                                if (bx >= bx0 && bx <= bx1 && by >= by0 && by <= by1 && mixForBranch[i] >= 0f
-                                    && mixForBranch[i] < MixAsMaterial)
-                                {
-                                    branchMap[i] = (byte)(mixForBranch[i] > 0f ? DebugBranch.Decontaminate : DebugBranch.None);
-                                    return;
-                                }
-                            }
-                            if (strengthForRecolor[i] <= RecolorMinStrength)
-                            {
-                                branchMap[i] = (byte)DebugBranch.None;
-                                return;
-                            }
-                            if (aaMaskForBranch != null && aaMaskForBranch[i])
-                            {
-                                branchMap[i] = (byte)DebugBranch.Decontaminate;
-                                return;
-                            }
-                            float oV = pixV[HsvSlot(pixIdx, i)];
-                            if (zoneShadowDesat > 0f && oV < zoneShadowDesat)
-                            {
-                                branchMap[i] = (byte)DebugBranch.Shadow;
-                                return;
-                            }
-                            if (zoneApplyWash && zoneSS > 0.01f && oV > zoneSV)
-                            {
-                                branchMap[i] = (byte)DebugBranch.Highlight;
-                                return;
-                            }
-                            branchMap[i] = (byte)DebugBranch.Base;
-                        });
-                        debug.RecordRecolorBranches(zone.id, branchMap, w, h);
-                    }
+                    if (run.Debug != null) RecolorBranchRecorder.Record(run, z);
                     _perfZones[_perfIdx++] = new ZonePerfEntry(zone.id, TicksToMs(Stopwatch.GetTimestamp() - _tZone));
                 }
                 finally
