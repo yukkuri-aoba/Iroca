@@ -1115,7 +1115,7 @@ namespace Iroca
                 unsafe
                 {
                     fixed (float* sp = strengthIn)
-                        cache.StoreFrom("z", "k", sp, null, null, default, storedCommon, null, SW, SH, SW, SH);
+                        cache.StoreFrom("z", "k", sp, default, storedCommon, null, SW, SH, SW, SH);
                 }
                 long sel = IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection);
                 Check(sel == (long)SW * SH * sizeof(float), $"selection: stored (live={sel})");
@@ -1128,18 +1128,18 @@ namespace Iroca
                         {
                             cache.Clear();   // 写している途中に外す
                             return true;
-                        }, out _, out _, out _);
+                        }, out _);
                 }
                 Check(hit && copied.AsSpan().SequenceEqual(strengthIn), "selection: copied while detached in the middle");
                 Check(IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection) == 0,
                     $"selection: freed when the copy ends (live={IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection)})");
-                Check(!cache.TryGet("z", "k", SW, SH, out _, out _), "selection: cleared entry is gone");
+                Check(!cache.TryGet("z", "k", SW, SH), "selection: cleared entry is gone");
                 unsafe
                 {
                     fixed (float* sp = strengthIn)
                     {
-                        cache.StoreFrom("z", "k", sp, null, null, default, null, null, 0, 0, SW, SH);
-                        cache.StoreFrom("z", "k2", sp, null, null, default, null, null, 0, 0, SW, SH);   // 同じ寸法なら使い回す
+                        cache.StoreFrom("z", "k", sp, default, null, null, 0, 0, SW, SH);
+                        cache.StoreFrom("z", "k2", sp, default, null, null, 0, 0, SW, SH);   // 同じ寸法なら使い回す
                     }
                 }
                 Check(IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection) == (long)SW * SH * sizeof(float),

@@ -552,12 +552,12 @@ namespace Iroca
         /// 復帰した画素は strength=1。matchConf は触らない: 連結成分アンカリングは「コア(matchConf>0)を
         /// 含む成分」を残すので、復帰画素をコアにすると芯を囲む選択が流出成分だった場合にそれごと
         /// 錨止めしてしまう。芯の採否は囲んでいる成分の採否に従わせる(同じ連結成分なので一緒に残る/落ちる)。
-        /// recoveredBits が非 null なら復帰画素のビットを立てる(詳細プレビューへの転写用)。戻り値は復帰画素数。
+        /// 戻り値は復帰画素数。
         /// </summary>
         private static int RecoverEnclosedHighlight(
             float* strength, Color32* pixels,
             PixelHsv hsv, ColorZone zone, int w, int h,
-            ulong[] recoveredBits, CancellationToken ct = default)
+            CancellationToken ct = default)
         {
             float* pixH = hsv.H, pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
             Color.RGBToHSV(zone.sampleColor, out float sH, out float sS, out _);
@@ -747,7 +747,6 @@ namespace Iroca
                             int i = (packed >> 16) * w + (packed & 0xFFFF);
                             if (pixels[i].a < OpaqueAlphaMin) continue;
                             strength[i] = 1f;
-                            if (recoveredBits != null) recoveredBits[i >> 6] |= 1UL << (i & 63);
                             recovered++;
                         }
                     }

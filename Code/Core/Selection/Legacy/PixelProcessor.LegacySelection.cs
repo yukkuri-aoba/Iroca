@@ -47,7 +47,6 @@ namespace Iroca
             // strength(=生の選択)を復元して選択フェーズ(Match/Highlight/FloodFill/穴埋め/
             // 境界/ブラー)を丸ごと省く。
             string selKey = null;
-            ulong[] cachedForced = null;
             var cachedBox = default(SelectionCache.PostBox);
             bool selCached = false;
             if (selectionCache != null)
@@ -71,11 +70,9 @@ namespace Iroca
                     (oldCommon, oldZone) => ExclusionChangeKeepsMatch(zoneForCheck, originalPixels, hsv,
                         w, h, maskColOf, maskRowBase, maskW, maskH,
                         oldCommon, oldZone, commonMask, zoneMask, ffNeedsMatchConf, po),
-                    out _, out cachedForced, out cachedBox);
+                    out cachedBox);
             }
             bool needMatchConf = ffNeedsMatchConf && !selCached;
-            // ミス時に FF が確定した keep を、選択キャッシュにも保存して次回のヒット復元に使う。
-            ulong[] keepBitsForCache = null;
 
             if (!selCached)
             {
@@ -193,27 +190,15 @@ namespace Iroca
 
             // 1.a.3 閉領域ハイライト復帰: 選択に囲まれ、グロー(本体より明るい周囲)に縁取られた
             //       「色相の回った有彩の芯」を空間条件で戻す(PixelProcessor.Highlight.cs の
-            //       RecoverEnclosedHighlight 参照)。連結性は大域演算なので画像全体で解き、復帰画素の
-            //       ビット集合を選択キャッシュに持たせる。ハイライト補助(highlightRecovery)の一部。
-            ulong[] forcedBits = null;
-            if (zone.mode == SelectionMode.ColorPick && zone.highlightRecovery)
+            //       RecoverEnclosedHighlight 参照)。連結性は大域演算なので画像全体で解く。キャッシュヒット時は省く
+            //       (復元した strength に反映済み)。ハイライト補助(highlightRecovery)の一部。
+            if (!selCached && zone.mode == SelectionMode.ColorPick && zone.highlightRecovery)
             {
-                if (selCached)
-                {
-                    forcedBits = cachedForced;
-                }
-                else
-                {
-                    var bits = selectionCache != null ? new ulong[(len + 63) >> 6] : null;
-                    int nForced = RecoverEnclosedHighlight(strength, originalPixels,
-                        hsv, zone, w, h, bits, cancellationToken);
-                    _sub.Mark(SpHlEnclosed);
-                    if (nForced > 0)
-                    {
-                        forcedBits = bits;
-                        debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, ToManaged(strength, len), w, h);
-                    }
-                }
+                int nForced = RecoverEnclosedHighlight(strength, originalPixels,
+                    hsv, zone, w, h, cancellationToken);
+                _sub.Mark(SpHlEnclosed);
+                if (nForced > 0)
+                    debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, ToManaged(strength, len), w, h);
             }
 
             _phaseTicks[PhHighlight] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
@@ -245,12 +230,6 @@ namespace Iroca
                         ffHueBand, sampH, sampS * ColorZone.HueReliableSatFrac,
                         anchorX, anchorY, cancellationToken);
                         _sub.Mark(SpFfComponents);
-                    // 解いた keep(=残った画素 strength>0)を作り、選択キャッシュに持たせる(keepBitsForCache)。
-                    if (selectionCache != null)
-                    {
-                        keepBitsForCache = PackPositiveBits(strength, len, po);
-                        _sub.Mark(SpFfKeepBits);
-                    }
                     debug?.RecordStage(zone.id, DebugStages.FloodFill, ToManaged(strength, len), w, h);
                 }
             }
@@ -445,7 +424,7 @@ namespace Iroca
 
             // 選択フェーズ(Match〜ブラー)完了。ここが「生の選択」の境界で、この後はマスクを掛け、
             // SolidifyAchromaInterior/decontam が target 依存で strength を破壊的に
-            // 書き換える。ミス時のみ、この時点の strength(コピー)+ FF keep + bbox を選択キャッシュへ保存し、
+            // 書き換える。ミス時のみ、この時点の strength(コピー)+ bbox を選択キャッシュへ保存し、
             // 次回「再着色のみ変更」した再生成で復元して選択フェーズを丸ごと省く(出力ビット不変)。
             // マスクを掛ける前を保存するので、ヒット時も下でマスクを掛ける。
             _sub.Mark(SpBlurReapply);
@@ -455,7 +434,7 @@ namespace Iroca
                 {
                     Has = hasPostBox, MinX = ppMinX, MinY = ppMinY, MaxX = ppMaxX, MaxY = ppMaxY,
                 };
-                selectionCache.StoreFrom(zone.id, selKey, strength, keepBitsForCache, forcedBits, box,
+                selectionCache.StoreFrom(zone.id, selKey, strength, box,
                     commonMask, zoneMask, maskW, maskH, w, h, cancellationToken);
             }
             _sub.Mark(SpSelCacheStore);

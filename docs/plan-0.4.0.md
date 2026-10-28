@@ -803,7 +803,11 @@ T5 で消える部分は作り直さない（1.5）。
     閉領域の復帰の転写 `ApplyCachedKeepMask`/`ApplyCachedForcedMask`、閉領域の中性ツヤの復帰の条件）・統計の段の転写・
     `CropFullMidMap`・`PreviewParityCache`（と `ZoneRecolorStats`）・ハーネスの `--ffcheck` を消した。マスクの判定表
     （`BuildMaskIndexMap`）と照合の位置の引数は作業画像の寸法そのものになった。dev_safe は `test_detail_preview_parity.py`・
-    局所プローブ・abcheck の `--ffcheck` の項目と probe の `recolor/crop`・abprobe の crop と parity を消した。
+    局所プローブ・abcheck の `--ffcheck` の項目と probe の `recolor/crop`・abprobe の crop と parity を消した（98f3d62）。
+  - 続けて、選択キャッシュが持っていた keep（連結成分で残した画素）と forced（閉領域のハイライトの復帰）のビット列を
+    消した。どちらもキャッシュに当たったときに切り出しへ写し直すためだけのもので、3-8 の後は誰も読まない。これで
+    画素数の大きさの管理配列が 2 つ（`PackPositiveBits` と復帰のビット列）減り、計測の小段 `FfKeepBits` も無くなった
+    （abcheck は前の版と比べられるよう、この小段の行を捨てて比べる）。
 - [ ] 3-12 Core に残る管理配列のうち、T5 の後も残るものをなくす: `UvChartMap`（A4）、色の表の大きさの配列（B5）。
   旧の選択・旧の自動調整の中の配列（A5・B6・穴埋めと境界のリスト）は移さない（T5 の P3 で消える）。
   - 2026-10-29（手元。どれも abcheck 1397 / 1397 一致）: B5 のうち、色の表を作るときのハッシュ表とスロット → 番号の対応

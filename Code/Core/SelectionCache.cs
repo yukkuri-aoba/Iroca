@@ -7,7 +7,7 @@ using System.Threading;
 namespace Iroca
 {
     /// <summary>
-    /// 選択結果(マスクを掛ける直前の strength=「生の選択」・flood fill keep・後段の bbox)をゾーン別にキャッシュする。
+    /// 選択結果(マスクを掛ける直前の strength=「生の選択」と後段の bbox)をゾーン別にキャッシュする。
     /// 「ターゲット色/再着色パラメータだけ変えた」プレビュー再生成では、選択フェーズ
     /// (Match/Highlight/FloodFill/穴埋め/境界/ブラー)の結果は不変なので、再計算せず
     /// キャッシュした strength を復元し、マスクを掛け直して再着色フェーズ以降だけを走らせる(=「1回の変更ごと」の高速化)。
@@ -52,8 +52,6 @@ namespace Iroca
         {
             public string Key;
             public NativeFloatBuffer Strength;   // マスクを掛ける直前の strength のコピー(len=w*h)。辞書が参照を 1 つ持つ
-            public ulong[] Keep;       // flood fill keep(毎回 new されるので参照保持で安全)。FF OFF は null
-            public ulong[] Forced;     // 閉領域ハイライト復帰の画素ビット。該当なしは null
             public PostBox Box;
             // この選択が正しい除外マスク(MaskSnapshot の配列。作り直さず読むだけなので参照で持つ)。
             // 判定を通って使い回したら、そのときのマスクに差し替える(次の判定の差分を小さくする)。
@@ -74,27 +72,25 @@ namespace Iroca
         internal int MaskReuseCount => Volatile.Read(ref _maskReuseCount);
 
         /// <summary>
-        /// 除外マスクなしで保存したものを引く(<see cref="TryCopy"/> の配列版)。キャッシュにあれば true と keep・forced を返し、
+        /// 除外マスクなしで保存したものを引く(<see cref="TryCopy"/> の配列版)。キャッシュにあれば true を返し、
         /// strengthDst があればそこへ strength を写す(長さ w*h 以上)。strengthDst が null なら有無だけを見る。
         /// </summary>
-        public bool TryGet(string zoneId, string key, int w, int h,
-            out ulong[] keep, out ulong[] forced, float[] strengthDst = null)
+        public bool TryGet(string zoneId, string key, int w, int h, float[] strengthDst = null)
         {
-            if (strengthDst == null) return TryCopy(zoneId, key, w, h, null, null, null, null, out keep, out forced, out _);
+            if (strengthDst == null) return TryCopy(zoneId, key, w, h, null, null, null, null, out _);
             if (strengthDst.Length < w * h) throw new ArgumentException("strengthDst が w*h より短い", nameof(strengthDst));
-            fixed (float* p = strengthDst) return TryCopy(zoneId, key, w, h, p, null, null, null, out keep, out forced, out _);
+            fixed (float* p = strengthDst) return TryCopy(zoneId, key, w, h, p, null, null, null, out _);
         }
 
         /// <summary>
-        /// キャッシュにあれば true と keep・forced・box を返し、strengthDst があればそこへ strength を写す(長さ w*h 以上)。
+        /// キャッシュにあれば true と box を返し、strengthDst があればそこへ strength を写す(長さ w*h 以上)。
         /// strengthDst が null なら有無だけを見る。除外マスク(common・zoneMask)が保存時の配列と違えば、reusable が
         /// true を返したときだけ使う(reusable が null なら使わない)。reusable は lock の外で呼ぶ。
         /// </summary>
         public bool TryCopy(string zoneId, string key, int w, int h, float* strengthDst,
-            ulong[] common, ulong[] zoneMask, MaskReuseCheck reusable,
-            out ulong[] keep, out ulong[] forced, out PostBox box)
+            ulong[] common, ulong[] zoneMask, MaskReuseCheck reusable, out PostBox box)
         {
-            keep = null; forced = null; box = default;
+            box = default;
             if (string.IsNullOrEmpty(zoneId)) return false;
             Entry e;
             ulong[] storedCommon, storedZone;
@@ -131,16 +127,16 @@ namespace Iroca
                 e.Strength.Release();
             }
             if (reused) Interlocked.Increment(ref _maskReuseCount);
-            keep = e.Keep; forced = e.Forced; box = e.Box;   // 作った後は変えない項目
+            box = e.Box;   // 作った後は変えない項目
             return true;
         }
 
         /// <summary>除外マスクなし・bbox なしで保存する(<see cref="StoreFrom"/> の配列版)。</summary>
-        public void Store(string zoneId, string key, float[] strength, ulong[] keep, ulong[] forced, int w, int h,
+        public void Store(string zoneId, string key, float[] strength, int w, int h,
             CancellationToken ct = default)
         {
             if (strength.Length < w * h) throw new ArgumentException("strength が w*h より短い", nameof(strength));
-            fixed (float* p = strength) StoreFrom(zoneId, key, p, keep, forced, default, null, null, 0, 0, w, h, ct);
+            fixed (float* p = strength) StoreFrom(zoneId, key, p, default, null, null, 0, 0, w, h, ct);
         }
 
         /// <summary>
@@ -148,7 +144,7 @@ namespace Iroca
         /// (MaskSnapshot の配列。参照で持つ)で、寸法は maskW×maskH。ct が取り消されていたら保存しない: 取り消した計算(テクスチャの
         /// 読み直しの前の画素で作った選択)を、Clear の後に保存させないため。呼び出し側は Clear の前に必ず取り消す。
         /// </summary>
-        public void StoreFrom(string zoneId, string key, float* strength, ulong[] keep, ulong[] forced,
+        public void StoreFrom(string zoneId, string key, float* strength,
             in PostBox box, ulong[] common, ulong[] zoneMask, int maskW, int maskH, int w, int h,
             CancellationToken ct = default)
         {
@@ -176,7 +172,7 @@ namespace Iroca
                 buf.CopyFrom(strength, len);
                 var entry = new Entry
                 {
-                    Key = key, Strength = buf, Keep = keep, Forced = forced, Box = box,
+                    Key = key, Strength = buf, Box = box,
                     Common = common, ZoneMask = zoneMask, MaskW = maskW, MaskH = maskH, W = w, H = h,
                 };
                 lock (_gate)

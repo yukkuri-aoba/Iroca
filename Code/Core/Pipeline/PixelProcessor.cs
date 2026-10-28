@@ -41,16 +41,16 @@ namespace Iroca
         // フェーズの内訳(サブ段)。ゾーンループ内の主要な呼び出しごとに区切る(区切り間の時間を
         // 次の区切りに計上する。SubPhaseClock 参照)。キャッシュ命中で省いた段は 0 のまま。計測専用。
         private const int SpAlloc = 0, SpMatchLoop = 1, SpChromaCeiling = 2, SpEnclosedNeutral = 3,
-            SpHlPropagate = 4, SpHlBand = 5, SpHlEnclosed = 6, SpFfComponents = 7, SpFfKeepBits = 8,
-            SpPostBBox = 9, SpHoleFillGate = 10, SpHoleFill = 11, SpBoundary = 12, SpBlurReapply = 13,
-            SpSelCacheStore = 14, SpSolidify = 15, SpDecontamExcl = 16,
-            SpDecontam = 17, SpWashSample = 18, SpAnchor = 19, SpRegionLRange = 20, SpMedianLMap = 21,
-            SpRecolorBBox = 22, SpRecolorLoop = 23, SpAchromaFringe = 24, SpPaletteHash = 25,
-            SpPaletteIds = 26, SpPaletteRemap = 27, SpMixBand = 28, SubPhaseCount = 29;
+            SpHlPropagate = 4, SpHlBand = 5, SpHlEnclosed = 6, SpFfComponents = 7,
+            SpPostBBox = 8, SpHoleFillGate = 9, SpHoleFill = 10, SpBoundary = 11, SpBlurReapply = 12,
+            SpSelCacheStore = 13, SpSolidify = 14, SpDecontamExcl = 15,
+            SpDecontam = 16, SpWashSample = 17, SpAnchor = 18, SpRegionLRange = 19, SpMedianLMap = 20,
+            SpRecolorBBox = 21, SpRecolorLoop = 22, SpAchromaFringe = 23, SpPaletteHash = 24,
+            SpPaletteIds = 25, SpPaletteRemap = 26, SpMixBand = 27, SubPhaseCount = 28;
         private static readonly string[] s_perfSubPhaseNames =
         {
             "Alloc", "MatchLoop", "ChromaCeiling", "EnclosedNeutral",
-            "HlPropagate", "HlBand", "HlEnclosed", "FfComponents", "FfKeepBits",
+            "HlPropagate", "HlBand", "HlEnclosed", "FfComponents",
             "PostBBox", "HoleFillGate", "HoleFill", "Boundary", "BlurReapply",
             "SelCacheStore", "Solidify", "DecontamExcl",
             "Decontam", "WashSample", "Anchor", "RegionLRange", "MedianLMap",

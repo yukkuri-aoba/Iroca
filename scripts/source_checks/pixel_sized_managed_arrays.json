@@ -31,12 +31,6 @@
       "new Color32[tw * th]": 2,
       "new bool[w * h]": 1
     },
-    "Code/Core/Selection/Legacy/PixelProcessor.LegacySelection.cs": {
-      "new ulong[(len + 63) >> 6]": 1
-    },
-    "Code/Core/Selection/Legacy/PixelProcessor.SelectionKey.cs": {
-      "new ulong[nWords]": 1
-    },
     "Code/Core/UvChartMap.cs": {
       "new bool[owner.Length]": 1,
       "new int[Width * Height]": 2,
