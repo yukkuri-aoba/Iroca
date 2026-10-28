@@ -82,8 +82,7 @@ KNOWN_VIOLATIONS: dict[tuple[str, str], str] = {
 
 # 層をまたいで宣言している型（partial の型を分けている・同じ名前の型が 2 つの層にある）。型 → 層の集合。
 SPLIT_TYPES: dict[str, set[str]] = {
-    # 3-2: Core の記録の窓口と、UI の折りたたみの描画の差し込み口を別の型に分ける。
-    "DebugCaptureHooks": {"Core", "UI"},
+    # 3-2 で DebugCaptureHooks(Core)と DebugWindowHooks(UI)に分けたので空。
 }
 
 # 行コメント / ブロックコメント / 逐語的文字列 / 文字列 / 文字リテラル。改行は残して行番号を保つ。

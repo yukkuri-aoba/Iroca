@@ -684,7 +684,10 @@ T5 で消える部分は作り直さない（1.5）。
     UI と自動化がそれぞれ作っていたセッションの写し（ゾーンを全部写していた）は要らなくなった。ハーネスの `Localization`
     の代用品と、層の依存の検査の許可表の Core → UI の行を消した。結果を書き戻す `TuneResult.ApplyTo(ColorZone,
     IrocaSessionState)` はそのまま。abcheck の probe は旧と新の両方の DLL で同じ行を出すように直した（dev_safe）。
-- [ ] 3-2 `DebugCaptureHooks` を Core の部分と UI の部分（開閉の描画）に分ける。
+- [x] 3-2 `DebugCaptureHooks` を Core の部分と UI の部分（開閉の描画）に分ける。
+  - 2026-10-28: UI の部分を別の型 `DebugWindowHooks`（`Code/UI/DebugWindowHooks.cs`。`OnDrawFoldout` / `RaiseDrawFoldout`）に
+    した（partial のままだと、フェーズ 6 で Core と UI を別の asmdef にしたときに 1 つの型にできない）。層の依存の検査の
+    `SPLIT_TYPES` は空になった。
 - [ ] 3-3 Core でないものを外へ移す: `TextureSlot`・`PreviewJobProgress`・`MeshRaycast` は Infra へ、
   `IrocaConsts.Layout/MenuPath` は UI へ。常に true の `EnableFloodFill` を消す。
 - [ ] 3-4 Foundation を切り出す: 並列度・`OpaqueAlphaMin`・`CoreMemory.ReleaseIdle`。今の名前は転送役として残す。

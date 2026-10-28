@@ -330,7 +330,7 @@ namespace Iroca
             // Code/Debug/ asmdef がない or 未登録なら subscriber がいないので何も描画されない。
             // 左カラムのスクロール領域内に置くことで、エクスポートのピン留めと
             // 競合せず、スクロールで到達できるようにする。
-            DebugCaptureHooks.RaiseDrawFoldout(this);
+            DebugWindowHooks.RaiseDrawFoldout(this);
 
             EditorGUIUtility.labelWidth = prevLabelWidth;
             EditorGUILayout.EndVertical();
@@ -419,7 +419,7 @@ namespace Iroca
             // Code/Debug/ asmdef がない or 未登録なら subscriber がいないので何も描画されない。
             // メインスクロール領域内に置くことで、エクスポートのピン留めと
             // 競合せず、スクロールで到達できるようにする。
-            DebugCaptureHooks.RaiseDrawFoldout(this);
+            DebugWindowHooks.RaiseDrawFoldout(this);
 
             EditorGUIUtility.labelWidth = prevLabelWidth;
             EditorGUILayout.EndScrollView();

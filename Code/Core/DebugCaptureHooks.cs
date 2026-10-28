@@ -9,11 +9,13 @@ namespace Iroca
     /// 本体は型としてこのクラスだけを参照する。
     ///
     /// Code/Debug/ の asmdef が存在し、かつ <c>[InitializeOnLoadMethod]</c> で
-    /// <see cref="Factory"/> と UI 側 partial（Code/UI/DebugCaptureHooks.Foldout.cs）の
-    /// OnDrawFoldout を登録したときだけデバッグ機能が有効化される。フォルダごと削除すれば本クラスは
+    /// <see cref="Factory"/> と UI 側の <c>DebugWindowHooks.OnDrawFoldout</c>（Code/UI/DebugWindowHooks.cs）を
+    /// 登録したときだけデバッグ機能が有効化される。フォルダごと削除すれば本クラスは
     /// 単なる「null 入れ物」として静かに無効化される。
+    /// ウィンドウの型を使う部分は UI の DebugWindowHooks に分けた(0.4.0 の計画の 3-2。partial のままだと、
+    /// Core と UI を別の asmdef にしたときに 1 つの型にできない)。
     /// </summary>
-    internal static partial class DebugCaptureHooks
+    internal static class DebugCaptureHooks
     {
         /// <summary>
         /// プレビュー / エクスポートのジョブが <see cref="PixelProcessor"/> に渡す

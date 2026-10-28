@@ -41,7 +41,7 @@ LONG_LIVED_EVENTS = {
     "duringSceneGui",          # SceneView.duringSceneGui
     "TargetChanged",           # LivePreview.TargetChanged
     "BeforeApply",             # NonDestructiveApplier.BeforeApply
-    "OnDrawFoldout",           # DebugCaptureHooks.OnDrawFoldout
+    "OnDrawFoldout",           # DebugWindowHooks.OnDrawFoldout
     "OnCaptureComplete",       # DebugCaptureHooks.OnCaptureComplete
     "OnReport",                # PreviewLatency.OnReport
 }

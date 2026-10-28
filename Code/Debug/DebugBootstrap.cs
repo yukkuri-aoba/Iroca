@@ -5,7 +5,7 @@ using UnityEditor;
 namespace Iroca.DebugTools
 {
     /// <summary>
-    /// Editor 起動時に <see cref="DebugCaptureHooks"/> へファクトリと描画フックを登録する。
+    /// Editor 起動時に <see cref="DebugCaptureHooks"/> へファクトリを、<see cref="DebugWindowHooks"/> へ描画フックを登録する。
     /// この asmdef ごと削除すれば <c>InitializeOnLoadMethod</c> は呼ばれず、
     /// 本体 <see cref="DebugCaptureHooks.Factory"/> は null のままで何も起きない。
     /// </summary>
@@ -21,7 +21,7 @@ namespace Iroca.DebugTools
             PerfView.Register();
             // 「パフォーマンス」セクション 1 つに集約。デバッグモード ON のとき
             // 詳細内訳・スレッド設定・段階キャプチャ(DebugView)を PerfView が内包して描画する。
-            DebugCaptureHooks.OnDrawFoldout += PerfView.Draw;
+            DebugWindowHooks.OnDrawFoldout += PerfView.Draw;
         }
     }
 }
