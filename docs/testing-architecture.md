@@ -123,9 +123,10 @@ pre-commitは**両方の承認**を要求する。部分実行・回帰・古い
 Iroca 本体リポジトリ（公開）
 ├─ Code/                        製品 C#（唯一の正）
 ├─ scripts/headless-run/        実 C# を Unity なしで実行するハーネス
-│   ├─ Harness.csproj           Code/Core の対象ファイル + MaskSuggest/Ops を同一アセンブリに
+│   ├─ Harness.csproj           Code/Core 全部 + MaskSuggest/Ops を同一アセンブリに
 │   │                           取り込み（internal アクセス可）、実 UnityEngine.CoreModule.dll を
-│   │                           参照して net8.0 でビルド
+│   │                           参照して net8.0 でビルド。取り込む一覧は HarnessSources.props
+│   │                           （dev_safe の局所プローブも同じものを Import する）
 │   └─ Harness.cs               raw 形式 I/O（[int32 w][int32 h][payload]）+ 各種検証モード
 ├─ scripts/build-check/         dotnet 単体での型チェック用 csproj 5 本
 │   │                           （IrocaEditor / IrocaEditor.Debug / IrocaNdmfCheck / IrocaVrcsdkCheck / IrocaSentisCheck）
@@ -670,14 +671,15 @@ python tools/visual_review.py approve --note "確認した範囲と根拠"   # �
     `workflow_review/approved.json` がその `review.json` を指していること。時刻を見ないので stash では切れないが、
     ツールや測定器を直すと切れる。`python tools/workflow_review.py check` でこちらだけを単独で確かめられる
     （有効なら何も出さず終了コード 0、無効なら理由つきの例外で止まり終了コード 1）。
-- **ゲートの対象は「headless ハーネスがコンパイルする製品ソース」**（`Harness.csproj` から
-  導出＝`tools/harness_scope.py`。現在 `Code/Core` と `Code/MaskSuggest/Ops` の 43 ファイル）。
+- **ゲートの対象は「headless ハーネスがコンパイルする製品ソース」**（`Harness.csproj` と、それが Import する
+  `HarnessSources.props` から導出＝`tools/harness_scope.py`。0.4.0 の 3-13 から `Code/Core` 全部（サブフォルダを含む）と
+  `Code/MaskSuggest/Ops`）。
   UI / Infra / Automation は対象外で、`Code/` 全体を対象にしていた頃のように
   「文言 1 行の修正で 30 分の compare か SKIP 変数か」の二択にはならない。
   - 理由: ハーネスがコンパイルしないファイルの変更は、compare を何回回しても検出できない。
     要求しても検証にならず、バイパスを日常動作として学習させるだけだった（レビュー §6-14）。
   - 対象外のファイルは ci.yml の `build-check`（dotnet 型チェック）が受け持つ。
-  - csproj に Core ファイルを足せばゲート対象も自動で増える（手書きミラーを置かない）。
+  - Core にファイルを足せば（どのサブフォルダでも）ゲート対象も自動で増える（手書きミラーを置かない）。
 - **フックは clone ごとに 1 回の有効化が必要**（忘れるとゲートは一切動かない）:
   ```
   git config core.hooksPath scripts/hooks

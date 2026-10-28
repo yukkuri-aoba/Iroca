@@ -31,6 +31,7 @@ def state() -> dict:
     paths = set(harness_source_files())
     paths.update(ROOT / p for p in (
         "scripts/headless-run/Harness.cs", "scripts/headless-run/Harness.csproj",
+        "scripts/headless-run/HarnessSources.props",
         "tools/workflow_review.py", "tools/workflow_contract.py", "tools/visual_review.py",
         "dev_safe/scripts/measure_evidence_autotune.py", "dev_safe/scripts/sam_proposal.py",
         "dev_safe/scripts/freeze_sam_fixtures.py", "dev_safe/measure_residual.py",

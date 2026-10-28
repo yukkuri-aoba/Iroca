@@ -1,0 +1,17 @@
+<!--
+  headless ハーネスが取り込む製品ソースの唯一の一覧(0.4.0 の計画の 3-13)。
+  - Import する側: scripts/headless-run/Harness.csproj と dev_safe の局所プローブ(scripts/locality_probe/LocalityProbe.csproj)
+  - 読む側: tools/harness_scope.py(視覚レビューのゲートの範囲)と dev_safe の abcheck(ハーネスの DLL がソースより古いかの判定)
+  Core はフォルダごと取り込む。Core は UnityEditor も文言も参照せず、UnityEngine.CoreModule だけで動く決まりなので
+  (docs/architecture.md の 2 章。scripts/source_checks/test_core_no_editor_dependency.py が見張る)、ファイルを
+  移したり足したりしても、ここを直さずにハーネスと視覚レビューのゲートに入る。
+  以前は Harness.csproj がファイルを名前で並べ、局所プローブが同じ一覧を写して持っていたので、ファイルを移すと
+  どちらかが黙って外れた(2026-10-28 に局所プローブがビルドできなくなっていた)。
+-->
+<Project>
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Code\Core\**\*.cs" />
+    <!-- AI マスク提案の純計算層(前処理/座標変換/後処理)。samops 検証モードで pytest の NumPy リファレンスと突き合わせる。 -->
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Code\MaskSuggest\Ops\*.cs" />
+  </ItemGroup>
+</Project>

@@ -796,9 +796,15 @@ T5 で消える部分は作り直さない（1.5）。
   ハーネスの `--ffcheck` など使う側のモードと、dev_safe のテスト・abcheck のモードも同じ時に消す。
 - [ ] 3-12 Core に残る管理配列のうち、T5 の後も残るものをなくす: `UvChartMap`（A4）、色の表の大きさの配列（B5）。
   旧の選択・旧の自動調整の中の配列（A5・B6・穴埋めと境界のリスト）は移さない（T5 の P3 で消える）。
-- [ ] 3-13 `Harness.csproj` の取り込みをフォルダ単位にする。dev_safe の局所プローブ（`locality_probe`）は同じ一覧を
+- [x] 3-13 `Harness.csproj` の取り込みをフォルダ単位にする。dev_safe の局所プローブ（`locality_probe`）は同じ一覧を
   写して持っていて、フェーズ 2 で足したファイルが抜けたままビルドできなくなっていた（2026-10-28 に写し直した）。
   一覧を 1 か所（共有の .props など）にし、ハーネス・局所プローブ・`tools/harness_scope.py`・abcheck がそこを読む。
+  - 2026-10-29（手元）: `scripts/headless-run/HarnessSources.props` に `Code\Core\**\*.cs` と `Code\MaskSuggest\Ops\*.cs` の
+    2 行だけを置き、`Harness.csproj` と局所プローブが Import する。`tools/harness_scope.py`（視覚レビューのゲートの範囲）と
+    abcheck の古さの判定（`**` をサブフォルダまで見る）はこの props も読み、ワークフローの承認の鮮度もこれを含めて測る。
+    Core で今までハーネスに入っていなかったのは `NativePixels.cs` だけ（ハーネスは使わないが、コンパイルできる）。
+    3-7b でパイプラインの骨組みを `Pipeline/` へ移したとき、dev_safe の `ablation_build.py` が差し込む
+    `Code/Core/PixelProcessor.Ablation.cs` が取り込みから外れていたのも、これで戻った。
 - フェーズの終わり: Unity の `RuntimeParityTests`（Mono とハーネスの一致）、MemoryBench、PerfBench、KernelBench。
 - 前の版の計画にあった次の手順は、T5 で旧ごと消えるのでやらない: 照合の作り直し（`ZoneMatcher`）、`ZoneAutoTuner` の
   中身の作り直し（`SelectionSimulator` など）、FloodFill と Achroma の連結成分のラベル付けの一本化。

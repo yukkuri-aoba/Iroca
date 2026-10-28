@@ -9,7 +9,8 @@
 
 なぜ csproj から読むか:
   対象リストをここに書き写すと、csproj 側に Core ファイルが増えたときミラーが陳腐化し、
-  出力に効く変更がゲートをすり抜ける。Harness.csproj を唯一の正として読む。
+  出力に効く変更がゲートをすり抜ける。ハーネスが取り込む一覧（Harness.csproj と、それが Import する
+  HarnessSources.props。0.4.0 の 3-13 から製品ソースは props の 1 か所）を唯一の正として読む。
 
 対象外のファイル（UI / Infra / Automation など）が無検査になるわけではない:
   ci.yml の build-check が dotnet 型チェックを回しており、そちらが受け持つ。
@@ -21,14 +22,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HARNESS_CSPROJ = ROOT / "scripts" / "headless-run" / "Harness.csproj"
+HARNESS_SOURCES = ROOT / "scripts" / "headless-run" / "HarnessSources.props"
 
 
 def harness_source_globs() -> list[str]:
-    """Harness.csproj の <Compile Include> のうち Code/ 配下のものを glob 文字列で返す。
+    """Harness.csproj と HarnessSources.props の <Compile Include> のうち Code/ 配下のものを glob 文字列で返す。
 
-    例: '..\\..\\Code\\Core\\PixelProcessor*.cs' -> 'Code/Core/PixelProcessor*.cs'
+    例: '$(MSBuildThisFileDirectory)..\\..\\Code\\Core\\**\\*.cs' -> 'Code/Core/**/*.cs'
     """
-    text = HARNESS_CSPROJ.read_text(encoding="utf-8")
+    text = "\n".join(f.read_text(encoding="utf-8-sig") for f in (HARNESS_CSPROJ, HARNESS_SOURCES) if f.exists())
     globs: list[str] = []
     for raw in re.findall(r'<Compile\s+Include="([^"]+)"', text):
         norm = raw.replace("\\", "/")
@@ -38,7 +40,7 @@ def harness_source_globs() -> list[str]:
         globs.append(norm[idx:])
     if not globs:
         raise RuntimeError(
-            f"Harness.csproj から Code/ の Compile Include を 1 件も読めません: {HARNESS_CSPROJ}")
+            f"Harness.csproj / HarnessSources.props から Code/ の Compile Include を 1 件も読めません: {HARNESS_CSPROJ}")
     return sorted(set(globs))
 
 

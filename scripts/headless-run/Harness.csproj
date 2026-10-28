@@ -39,61 +39,11 @@
     <UnityManaged Condition="'$(UnityManaged)' == ''">C:\Program Files\Unity\Hub\Editor\$(UnityVersion)\Editor\Data\Managed</UnityManaged>
   </PropertyGroup>
 
+  <!-- 取り込む製品ソース(Code/Core 全部と AI 提案の純計算層)の一覧は HarnessSources.props の 1 か所に置く
+       (dev_safe の局所プローブも同じものを Import する。0.4.0 の計画の 3-13)。 -->
+  <Import Project="HarnessSources.props" />
+
   <ItemGroup>
-    <!-- PixelProcessor の実行に必要な Core ファイルだけを取り込む(UI/Editor 依存を避ける)。
-         PixelProcessor は partial 分割されているため、入口とパイプラインの骨組み(0.4.0 の 3-7b で Pipeline へ)と
-         下の各フォルダの partial を取り込む。 -->
-    <Compile Include="..\..\Code\Core\Pipeline\*.cs" />
-    <!-- 旧の選択(ColorZone の照合を含む)・マスクの契約・ぼかし(0.4.0 の 3-7a でフォルダへ分けた)。 -->
-    <Compile Include="..\..\Code\Core\Selection\Legacy\*.cs" />
-    <Compile Include="..\..\Code\Core\Masks\*.cs" />
-    <Compile Include="..\..\Code\Core\Filters\*.cs" />
-    <!-- 並列度・画素の決まり・使っていないメモリを返す窓口(0.4.0 の 3-4)。 -->
-    <Compile Include="..\..\Code\Core\Foundation\*.cs" />
-    <!-- 色空間(OkLab)ほか、色の下回り(0.4.0 の 3-5)。 -->
-    <Compile Include="..\..\Code\Core\Color\*.cs" />
-    <!-- 再着色の段と下回り(0.4.0 の 3-7b)。 -->
-    <Compile Include="..\..\Code\Core\Recolor\*.cs" />
-    <Compile Include="..\..\Code\Core\MaskSnapshot.cs" />
-    <Compile Include="..\..\Code\Core\PreviewParityCache.cs" />
-    <Compile Include="..\..\Code\Core\SelectionCache.cs" />
-    <!-- 選択キャッシュの中身を Mono のヒープの外(Marshal.AllocHGlobal)に置く部品。 -->
-    <Compile Include="..\..\Code\Core\IrocaNativeMemory.cs" />
-    <Compile Include="..\..\Code\Core\NativeBuffer.cs" />
-    <Compile Include="..\..\Code\Core\NativeBitMask.cs" />
-    <Compile Include="..\..\Code\Core\NativeWorkPool.cs" />
-    <Compile Include="..\..\Code\Core\DebugCaptureHooks.cs" />
-    <Compile Include="..\..\Code\Core\IDebugCapture.cs" />
-    <Compile Include="..\..\Code\Core\PerfReport.cs" />
-    <Compile Include="..\..\Code\Core\HighlightSampleCorrector.cs" />
-    <Compile Include="..\..\Code\Core\ColorZone*.cs" />
-    <Compile Include="..\..\Code\Core\IrocaConsts.cs" />
-    <!-- プレビュー座標変換(スポイト/シード/ペイント/AI 提案クリックの単一の正)。
-         UI が壊れても処理系テストにかからないため previewcoords モードで直接検証する。 -->
-    <Compile Include="..\..\Code\Core\PreviewCoords.cs" />
-    <!-- zones JSON スキーマ既定値の唯一の正。製品側 DTO(IrocaAutomation)と共有し、
-         ハーネスだけ既定値がずれる事故(useFloodFill 製品 true / ハーネス false)を防ぐ。 -->
-    <Compile Include="..\..\Code\Core\ZonesJsonDefaults.cs" />
-    <!-- 再着色の全体設定(ProcessPixelsArray の唯一の入口)。プリセットとの相互変換を持つので
-         IrocaPresetData(純データ)も取り込む。 -->
-    <Compile Include="..\..\Code\Core\RecolorSettings.cs" />
-    <Compile Include="..\..\Code\Core\IrocaPresetData.cs" />
-    <!-- 自動化(MCP)の目視検証パネル/メトリクス生成。UnityEditor 非依存なので headless で実 C# 検証できる。 -->
-    <Compile Include="..\..\Code\Core\RecolorPreview.cs" />
-    <!-- 自動調整(ZoneAutoTuner)を no-mask で実行して GT と突き合わせるための取り込み。
-         上書きする項目は列挙で返す(文言は UI が付ける)ので、Localization の代用品は要らない(0.4.0 の 3-1)。 -->
-    <Compile Include="..\..\Code\Core\ZoneAutoTuner*.cs" />
-    <Compile Include="..\..\Code\Core\IrocaSessionState.cs" />
-    <Compile Include="..\..\Code\Core\MaskState.cs" />
-    <!-- AI マスク提案の純計算層(前処理/座標変換/後処理)+ RLE コーデック。
-         samops 検証モードで pytest の NumPy リファレンスと突き合わせる。 -->
-    <Compile Include="..\..\Code\MaskSuggest\Ops\*.cs" />
-    <Compile Include="..\..\Code\Core\MaskRle.cs" />
-    <Compile Include="..\..\Code\Core\UvChartMap.cs" />
-    <!-- 保存済みマスク → 処理用スナップショット、保存済み編集状態 → 再着色(非破壊ビルドの入口)。
-         viastate モードで raw マスク経路とのバイト一致を検証する。 -->
-    <Compile Include="..\..\Code\Core\MaskStateCodec.cs" />
-    <Compile Include="..\..\Code\Core\SessionRecolor.cs" />
     <Compile Include="Harness.cs" />
   </ItemGroup>
 
