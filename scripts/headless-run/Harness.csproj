@@ -41,8 +41,9 @@
 
   <ItemGroup>
     <!-- PixelProcessor の実行に必要な Core ファイルだけを取り込む(UI/Editor 依存を避ける)。
-         PixelProcessor は partial 分割されているため glob で本体+全 partial を取り込む。 -->
-    <Compile Include="..\..\Code\Core\PixelProcessor*.cs" />
+         PixelProcessor は partial 分割されているため、入口とパイプラインの骨組み(0.4.0 の 3-7b で Pipeline へ)と
+         下の各フォルダの partial を取り込む。 -->
+    <Compile Include="..\..\Code\Core\Pipeline\*.cs" />
     <!-- 旧の選択(ColorZone の照合を含む)・マスクの契約・ぼかし(0.4.0 の 3-7a でフォルダへ分けた)。 -->
     <Compile Include="..\..\Code\Core\Selection\Legacy\*.cs" />
     <Compile Include="..\..\Code\Core\Masks\*.cs" />
@@ -51,7 +52,7 @@
     <Compile Include="..\..\Code\Core\Foundation\*.cs" />
     <!-- 色空間(OkLab)ほか、色の下回り(0.4.0 の 3-5)。 -->
     <Compile Include="..\..\Code\Core\Color\*.cs" />
-    <!-- 再着色の段(0.4.0 の 3-7b)。 -->
+    <!-- 再着色の段と下回り(0.4.0 の 3-7b)。 -->
     <Compile Include="..\..\Code\Core\Recolor\*.cs" />
     <Compile Include="..\..\Code\Core\MaskSnapshot.cs" />
     <Compile Include="..\..\Code\Core\PreviewParityCache.cs" />

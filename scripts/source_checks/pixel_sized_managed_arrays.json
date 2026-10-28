@@ -17,10 +17,10 @@
     "Code/Core/NativePixels.cs": {
       "new Color32[Length]": 1
     },
-    "Code/Core/PixelProcessor.MixtureBand.cs": {
+    "Code/Core/Recolor/PixelProcessor.MixtureBand.cs": {
       "new ulong[h * wpr]": 2
     },
-    "Code/Core/PixelProcessor.cs": {
+    "Code/Core/Pipeline/PixelProcessor.cs": {
       "new Color32[dstW * dstH]": 1
     },
     "Code/Core/RecolorPreview.cs": {

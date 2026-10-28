@@ -82,7 +82,12 @@ Code/Core/
 `Masks/`（マスクの契約と除外・含めるの判定）、`Filters/`（ぼかし）、`Foundation/`（並列度・画素の決まり・使っていない
 メモリを返す窓口・ヒストグラムの集計と分位点 `Histogram`・ビット数 `Bits`。`PixelProcessor` の並列度などの同名のものは
 転送役）、`Color/`（色空間の `OkLab`。自動化の手がかりも同じ変換を使う。画素の HSV と色の表は `PixelProcessor` の
-partial のまま置いた）。旧の選択の外から使う下回りは `Legacy` に置かない
+partial のまま置いた）、`Pipeline/`（入口の `PixelProcessor.cs`・ゾーン 1 つ分の流れ `RunZone`・`RunContext` /
+`RunBuffers` / `ZoneState` / `ZoneBuffers` / `SelectionResult`・強度の範囲）、`Recolor/`（再着色の段 6 つ
+`AchromaSolidifyStage` → `DecontamStage` → `RecolorStatsStage` → `MixtureBandStage` → `ComposeStage` →
+`AchromaFringeStage` と、その下回り・再着色の核・デバッグの分岐の観察者）。段は `PixelProcessor` の入れ子の static
+クラスで、`Run(RunContext, ZoneState)` を持つ（入れ子にしたのは、移した本体が `PixelProcessor` の private の下回りを
+そのまま呼べるようにするため）。旧の選択の外から使う下回りは `Legacy` に置かない
 （T5 の P3 で `Legacy` を丸ごと消すため）。強度の範囲（`PixelProcessor.Bounds.cs`）は再着色の段も使うので Core に残し、
 成分別の地色の地図の切り出し（`CropFullMidMap`）は再着色の統計の側（`PixelProcessor.Achroma.cs`）へ寄せた。
 

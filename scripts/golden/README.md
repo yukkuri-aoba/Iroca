@@ -1,6 +1,6 @@
 # golden — C# 自己ゴールデン回帰テスト
 
-製品の唯一の正である **C# 実装（`Code/Core/PixelProcessor.cs` ほか）の出力が、黙って変化していないか**
+製品の唯一の正である **C# 実装（`Code/Core/Pipeline/PixelProcessor.cs` ほか）の出力が、黙って変化していないか**
 を検出する回帰テスト。かつてアルゴリズム試作に使っていた Python 参照実装（`dev_safe/vacc_python`、
 使い捨てのスキャフォールド）は削除済みで、本テストも Python には依存しない。
 

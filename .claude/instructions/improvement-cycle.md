@@ -3,7 +3,7 @@
 色抽出・マスク生成・領域判定など再着色アルゴリズムの品質改善は、**ユーザーの都度指示を待たず、エージェント自身が自律的にサイクルを回して** 進める。1 ステップごとに「次やりますか?」と聞かない。
 
 ## 測る対象は常に「実 C#」
-- **製品 C#（`Code/Core/PixelProcessor.cs` ほか）が唯一の正。** 改善の良し悪しは、実 C# をそのまま動かす headless ハーネス経由の出力で判定する。アルゴリズムの Python 再実装を作って測らない（過去、Python プロキシが製品から IoU 0.26 乖離して改善サイクルが製品でなくプロキシを測っていた）。テスト構成・実行方法は `docs/testing-architecture.md` が正。
+- **製品 C#（`Code/Core/Pipeline/PixelProcessor.cs` ほか）が唯一の正。** 改善の良し悪しは、実 C# をそのまま動かす headless ハーネス経由の出力で判定する。アルゴリズムの Python 再実装を作って測らない（過去、Python プロキシが製品から IoU 0.26 乖離して改善サイクルが製品でなくプロキシを測っていた）。テスト構成・実行方法は `docs/testing-architecture.md` が正。
 
 ## 正解データ (Ground Truth)
 - **PSD のレイヤー情報を「正」とする。** GT マスク/領域は `dev_safe/scripts/` 配下の GT 生成スクリプト（`build_*_gt.py` / `analyze_*_psd.py` 等）で PSD から作る。

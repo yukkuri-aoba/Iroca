@@ -769,11 +769,29 @@ T5 で消える部分は作り直さない（1.5）。
     （`ResetMatchCache`）にした（旧の照合を消すと呼び出しごと消える）。再着色も読む `MatchStrengthFloor`・
     `ChromaGateActivateSat` は `ColorZone.cs` に残した。ハーネスの反射呼び出しは 0-4 で無くしてあったので、この手順で
     直す所は無かった（abcheck の probe の反射は、基準と新の両方の DLL を読むためのもので、残す）。
-- [ ] 3-7b 再着色の側を段に分ける。
+- [x] 3-7b 再着色の側を段に分ける。
   - 先に `RunContext` / `ZoneState` / `ZoneBuffers` を入れ、段はパイプラインの順に 1 段 1 コミットで分ける
     （無彩の固め・デコンタミ・再着色の統計・混色帯・再着色の核・合成・無彩のフチ消し）。
   - 最後に残る `RecolorPipeline` は約 200 行で読めるようにし、デバッグと時間計測は段の境目の観察者にする。
   - 色の表あり・なしの二重実装は、段ごとに 1 本にできるかを KernelBench で速さを見ながら決める。
+  - 2026-10-29（手元。どの手も abcheck 1397 / 1397 一致・golden を `IROCA_POOL_POISON=1` でも通した）:
+    - ゾーンをまたいで使い回す作業配列（占有率・デコンタミの 2 つ・除外フラグ・混色帯の被覆率）の持ち主
+      `RunBuffers`（0eebaac。借りる時と返す順は前と同じ）と、段から段へ値を渡す `ZoneState`（0490c7f）。
+    - 段 6 つ（`AchromaSolidifyStage`・`DecontamStage`・`RecolorStatsStage`・`MixtureBandStage`・`ComposeStage`・
+      `AchromaFringeStage`。0490c7f〜8e1f909）と、デバッグの分岐の記録の観察者 `RecolorBranchRecorder`（f7b1953）。
+      ゾーン 1 つ分の流れを `RunZone`（`Pipeline/PixelProcessor.Pipeline.cs`、約 120 行。2782ff9）にし、入口と骨組みを
+      `Pipeline/`、再着色の段と下回りを `Recolor/` へ移した。
+    - **決めたこと**: 段は別の型でなく `PixelProcessor` の入れ子の static クラスにした。移した本体が `PixelProcessor` の
+      private の下回り（`DecontaminateAaBoundary` など 20 余り）をそのまま呼べるので、下回りを `internal` に広げずに
+      済み、旧の選択（partial のまま）とも同じ形になる。段の入口で同じ名前のローカルへ展開し、本体の行は字下げ以外
+      変えていない（画素ループのラムダもローカルを捕まえる今の形のまま。2 章の 6）。
+    - **決めたこと**: 計測の小段の区切り（`Sp*`）は段の中に残した。デコンタミの除外フラグの充填と α 分解のように、
+      段より細かい区切りを測っているため、段の境目だけにすると内訳が見えなくなる。段の時間（`Ph*`）の計上も
+      今の位置のまま（段の境目と一致しないものがある: 再着色の時間は混色帯・合成・フチ消しの 3 段にまたがる）。
+    - **残したこと**: 色の表あり・なしの二重実装の一本化（アンカー・領域 L・照合などの「表あり」と「画素ごと」）は
+      していない。速さの確かめ（KernelBench・PerfBench で 5% 以内）が要り、出力を変えない作り替えの中で 1 つずつ
+      試す手順になるので、3-8 以降の別の手にする。`ProcessPixelsArrayCore` の準備の部分（入力の控え・色の表と画素の
+      HSV・作業配列）も段にはしていない。
 - [ ] 3-8 切り出しの検証経路（`PreviewParityCache` と切り出しの処理。製品は使っていない）を消す（2026-10-26 決定）。
   ハーネスの `--ffcheck` など使う側のモードと、dev_safe のテスト・abcheck のモードも同じ時に消す。
 - [ ] 3-12 Core に残る管理配列のうち、T5 の後も残るものをなくす: `UvChartMap`（A4）、色の表の大きさの配列（B5）。

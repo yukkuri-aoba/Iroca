@@ -109,19 +109,19 @@
 | `Code/Core/Foundation/PixelRules.cs` | 0 |
 | `Code/Core/HighlightSampleCorrector.cs` | 0 |
 | `Code/Core/Masks/PixelProcessor.Masks.cs` | 0 |
-| `Code/Core/PixelProcessor.Achroma.cs` | 0 |
-| `Code/Core/PixelProcessor.Bounds.cs` | 0 |
-| `Code/Core/PixelProcessor.Decontam.cs` | 1 |
-| `Code/Core/PixelProcessor.MixtureBand.cs` | 0 |
-| `Code/Core/PixelProcessor.Pipeline.cs` | 0 |
-| `Code/Core/PixelProcessor.Recolor.cs` | 8 |
-| `Code/Core/PixelProcessor.Run.cs` | 0 |
-| `Code/Core/PixelProcessor.cs` | 1 |
+| `Code/Core/Pipeline/PixelProcessor.Bounds.cs` | 0 |
+| `Code/Core/Pipeline/PixelProcessor.Pipeline.cs` | 0 |
+| `Code/Core/Pipeline/PixelProcessor.Run.cs` | 0 |
+| `Code/Core/Pipeline/PixelProcessor.cs` | 1 |
+| `Code/Core/Recolor/PixelProcessor.Achroma.cs` | 0 |
 | `Code/Core/Recolor/PixelProcessor.AchromaFringeStage.cs` | 0 |
 | `Code/Core/Recolor/PixelProcessor.AchromaSolidifyStage.cs` | 0 |
 | `Code/Core/Recolor/PixelProcessor.ComposeStage.cs` | 3 |
+| `Code/Core/Recolor/PixelProcessor.Decontam.cs` | 1 |
 | `Code/Core/Recolor/PixelProcessor.DecontamStage.cs` | 0 |
+| `Code/Core/Recolor/PixelProcessor.MixtureBand.cs` | 0 |
 | `Code/Core/Recolor/PixelProcessor.MixtureBandStage.cs` | 0 |
+| `Code/Core/Recolor/PixelProcessor.Recolor.cs` | 8 |
 | `Code/Core/Recolor/PixelProcessor.RecolorBranchRecorder.cs` | 1 |
 | `Code/Core/Recolor/PixelProcessor.RecolorStatsStage.cs` | 1 |
 | `Code/Core/Selection/Legacy/ColorZone.Match.cs` | 6 |
@@ -237,7 +237,7 @@
 | `TargetPct` | `0.60f` | 不明 | — | 補正後の wash しきい＝地色 V の P60。既定 OFF、計測記録なし |
 | `MinBodyPixels` | `100` | 設計 | — | 地色統計に要る最小画素数。再着色アンカーの AnchorMinPixels とそろえた |
 
-## `Code/Core/PixelProcessor.Achroma.cs`
+## `Code/Core/Recolor/PixelProcessor.Achroma.cs`
 
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
@@ -251,7 +251,7 @@
 | `matchThr` | `ColorZone.MatchStrengthFloor` | 設計 | SA | 同上（内部固め側の別名） |
 | `ClearChunk` | `1 << 18` | 計算 | — | 地図のゼロ埋めを並列に分ける塊。出力に効かない |
 
-## `Code/Core/PixelProcessor.Decontam.cs`
+## `Code/Core/Recolor/PixelProcessor.Decontam.cs`
 
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
@@ -294,7 +294,7 @@
 | `hueGate` | `ColorZone.ForgivenessHueGate` | 設計 | EH | ForgivenessHueGate の局所別名 |
 | `R` | `EnclosedHlRingRadius` | 設計 | EH | EnclosedHlRingRadius の局所別名 |
 
-## `Code/Core/PixelProcessor.MixtureBand.cs`
+## `Code/Core/Recolor/PixelProcessor.MixtureBand.cs`
 
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
@@ -325,7 +325,7 @@
 | `EnclDy` | `{ 0, 0, 1, -1, 1, -1, 1, -1 }` | 定義 | — | 8 近傍の y の向き |
 | `R` | `MixBandRadius` | 設計 | — | MixBandRadius のローカルな別名 |
 
-## `Code/Core/PixelProcessor.Recolor.cs`
+## `Code/Core/Recolor/PixelProcessor.Recolor.cs`
 
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
@@ -364,7 +364,7 @@
 | `R` | `ChromaCeilProtectRadius` | 設計 | CC | ChromaCeilProtectRadius の局所別名 |
 | `Inf` | `1 << 28` | 量子化 | CC | 距離変換の「無限大」の番兵。どの距離より大きく、+1 しても桁あふれしない |
 
-## `Code/Core/PixelProcessor.cs`
+## `Code/Core/Pipeline/PixelProcessor.cs`
 
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|

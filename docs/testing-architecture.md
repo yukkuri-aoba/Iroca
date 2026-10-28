@@ -7,7 +7,7 @@ CLAUDE.md / `.claude/instructions/improvement-cycle.md` が「テスト構成の
 
 ## 大原則
 
-- **製品 C#（`Code/Core/PixelProcessor.cs` ほか）が唯一の正。** テスト・計測・視覚レビューは
+- **製品 C#（`Code/Core/Pipeline/PixelProcessor.cs` ほか）が唯一の正。** テスト・計測・視覚レビューは
   必ず実 C# の出力を測る。アルゴリズムの Python 再実装は作らない（過去、Python プロキシが
   製品から IoU 0.26 乖離し、改善サイクルがプロキシを測っていた事故がある）。
 - **GT（正解データ）は PSD のレイヤー情報が正。** `dev_safe/scripts/` の `build_*_gt.py` /

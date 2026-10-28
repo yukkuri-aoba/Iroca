@@ -52,7 +52,7 @@ NOT_PIXEL_SIZED: dict[tuple[str, str], str] = {
         "長辺 AnalysisMaxSide(256) 以下に縮めた画像の画素数。原本の大きさに依らず 6.6 万以下",
     ("Code/Automation/TextureColorSummary.cs", "new int[label.Length]"):
         "label は上の縮めた画像の塊の番号。同じく 6.6 万以下",
-    ("Code/Core/PixelProcessor.MixtureBand.cs", "new int[(2 * B + 1) * (2 * B + 1)]"):
+    ("Code/Core/Recolor/PixelProcessor.MixtureBand.cs", "new int[(2 * B + 1) * (2 * B + 1)]"):
         "混色帯の判定の正方形の窓(半径 B)。画素数でなく半径の 2 乗",
     ("Code/Core/Foundation/Histogram.cs", "new int[hist.Length]"):
         "ヒストグラムの bin の数",

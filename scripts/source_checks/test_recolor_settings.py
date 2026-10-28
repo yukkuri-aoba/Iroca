@@ -194,7 +194,7 @@ def test_harness_cfg_argument_order_matches_ctor():
 
 def test_process_pixels_has_single_entry():
     """位置引数の旧入口が残る/復活すると、呼び出し元ごとの並べ直しがまた始まる。"""
-    src = "".join(_src(p) for p in CORE.glob("PixelProcessor*.cs"))
+    src = "".join(_src(p) for p in sorted(CORE.rglob("PixelProcessor*.cs")))
     entries = re.findall(r"(\w+)\s+static\s+void\s+ProcessPixelsArray\w*\s*\(([^)]*)\)", src)
     public = [(acc, params) for acc, params in entries if acc != "private"]
     assert len(public) == 1, f"非 private な ProcessPixelsArray が 1 つではありません: {[a for a, _ in public]}"
@@ -231,7 +231,7 @@ SELECTION_IRRELEVANT_SETTINGS = {
 def test_selection_key_covers_selection_settings():
     """全体設定を足して選択キャッシュの鍵に入れ忘れると、値を変えても古い選択のままのプレビューになる
     （書き出しはキャッシュを使わないので気づきにくい）。設定ごとに「鍵に入れる」か「選択に効かない」かを決めさせる。"""
-    src = _src(CORE / "PixelProcessor.cs")
+    src = _src(CORE / "Pipeline" / "PixelProcessor.cs")
     # 選択キャッシュの鍵を作るのは旧の選択(3-7a で RunLegacySelection へ切り出した)。ファイルを移しても見失わない
     # よう、PixelProcessor の全部の部分から探す。
     sel_src = "\n".join(_src(f) for f in sorted(CORE.rglob("PixelProcessor*.cs")))
