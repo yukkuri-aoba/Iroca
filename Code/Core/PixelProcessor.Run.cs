@@ -116,6 +116,7 @@ namespace Iroca
         private sealed class ZoneState
         {
             public ColorZone Zone;
+            public ZoneBuffers Buffers;          // このゾーンで借りた作業配列の持ち主
             public ulong[] ZoneMask;            // ゾーン別の除外マスク(無ければ null)
             public bool MixMode;                // 混色帯モード(IsMixtureBandZone)
             public bool IsFullImagePath;        // フル画像の経路か(false は検証用の部分クロップ)
@@ -129,6 +130,11 @@ namespace Iroca
             // デコンタミ: AA 縁とした画素と、そこへ塗る色(設定が無効なら null。指す先は RunBuffers)。
             public bool* AaMask;
             public Color32* Decontaminated;
+            // 再着色の統計: ゾーン不変の再着色パラメータと、無彩パスの領域 L(全体の中央値と、成分ごとの地図。
+            // 地図は無ければ null で、指す先は ZoneBuffers)。
+            public RecolorParams Params;
+            public float RegLmid;
+            public float* RegMidMap, RegUpMap;
         }
 
         /// <summary>

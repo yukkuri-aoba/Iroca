@@ -115,9 +115,10 @@
 | `Code/Core/PixelProcessor.MixtureBand.cs` | 0 |
 | `Code/Core/PixelProcessor.Recolor.cs` | 8 |
 | `Code/Core/PixelProcessor.Run.cs` | 0 |
-| `Code/Core/PixelProcessor.cs` | 6 |
+| `Code/Core/PixelProcessor.cs` | 5 |
 | `Code/Core/Recolor/PixelProcessor.AchromaSolidifyStage.cs` | 0 |
 | `Code/Core/Recolor/PixelProcessor.DecontamStage.cs` | 0 |
+| `Code/Core/Recolor/PixelProcessor.RecolorStatsStage.cs` | 1 |
 | `Code/Core/Selection/Legacy/ColorZone.Match.cs` | 6 |
 | `Code/Core/Selection/Legacy/PixelProcessor.FloodFill.cs` | 1 |
 | `Code/Core/Selection/Legacy/PixelProcessor.Highlight.cs` | 6 |
