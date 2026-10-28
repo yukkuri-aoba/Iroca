@@ -9,29 +9,6 @@ using UnityEngine;
 
 namespace Iroca
 {
-    // ZoneAutoTuner がラベル収集で参照する Localization のスタブ。
-    // 実 Localization は UnityEditor.EditorPrefs に依存するため headless では使えない。
-    // 自動調整の数値計算には影響しない（overwrittenLabels の文字列に使われるだけ）。
-    internal static class Localization
-    {
-        public static string Tolerance               => "Tolerance";
-        public static string SaturationStrictness    => "SaturationStrictness";
-        public static string SaturationGuard         => "SaturationGuard";
-        public static string ChromaThreshold         => "ChromaThreshold";
-        public static string HighlightRecovery       => "HighlightRecovery";
-        public static string PatternPreserve         => "PatternPreserve";
-        public static string EdgeSoftness            => "EdgeSoftness";
-        public static string ShadowDesaturation      => "ShadowDesaturation";
-        public static string ShadowForgivenessSatMin => "ShadowForgivenessSatMin";
-        public static string ShadowValueFloor        => "ShadowValueFloor";
-        public static string PartSatCeiling          => "PartSatCeiling";
-        public static string PartHueBand             => "PartHueBand";
-        public static string ChromaCeiling           => "ChromaCeiling";
-        public static string HoleFillMargin          => "HoleFillMargin";
-        public static string AntiAliasCleanup        => "AntiAliasCleanup";
-        public static string UseDecontamination      => "UseDecontamination";
-    }
-
     // ─── --zones <json> 用の簡易設定 DTO(System.Text.Json, Unity 非依存) ───
     // Python(headless_io.write_zones_json)が組み立てるフラットなスキーマ。色は [r,g,b] 0..1。
     // 欠落フィールドは既定値(=従来 Harness のハードコード値)にフォールバックする。
@@ -521,14 +498,16 @@ namespace Iroca
                         ? evidencePaths[zi] : null;
                     if (!string.IsNullOrEmpty(evPath))
                         (evW, evH, evidence) = ReadMaskRaw(evPath);
+                    // セッションから読むものは、前のゾーンの適用(全体設定の書き込み)の後の値(製品と同じ)。
+                    var sessionInput = ZoneAutoTuner.SessionInput.From(session);
                     var tune = evidence != null
-                        ? ZoneAutoTuner.AnalyzeWithEvidence(pixels, w, h, z, session,
+                        ? ZoneAutoTuner.AnalyzeWithEvidence(pixels, w, h, z, sessionInput,
                             evidence, evW, evH,
                             excluded: useMask ? common : null,
                             maskW: useMask ? mw : 0, maskH: useMask ? mh : 0)
                         : useMask
-                            ? ZoneAutoTuner.Analyze(pixels, w, h, z, session, common, mw, mh)
-                            : ZoneAutoTuner.Analyze(pixels, w, h, z, session, excluded: null, maskW: 0, maskH: 0);
+                            ? ZoneAutoTuner.Analyze(pixels, w, h, z, sessionInput, common, mw, mh)
+                            : ZoneAutoTuner.Analyze(pixels, w, h, z, sessionInput, excluded: null, maskW: 0, maskH: 0);
                     // 導出結果 → ゾーン/グローバルの写像は製品 UI と同じ TuneResult.ApplyTo
                     // （正規化サンプル・内部マルチサンプル・globals を含む。ここに項目を並べ直さない）。
                     // globals は製品と同じくセッションへ書かれるので、ハーネスの設定 DTO へ写し戻す。

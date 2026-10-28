@@ -49,8 +49,6 @@ ALLOWED: dict[str, set[str]] = {
 
 # 今ある違反。(使う側のファイル, 使われる型) → 使われる型の層。**減らすことしかできない。**
 KNOWN_VIOLATIONS: dict[tuple[str, str], str] = {
-    # 3-1: 自動調整が、上書きした項目を UI の文言でなく項目の列挙で返す。
-    ("Code/Core/ZoneAutoTuner.cs", "Localization"): "UI",
     # 4-1: Localization を Text へ移す。
     ("Code/Automation/IrocaAutomation.Recolor.cs", "Localization"): "UI",
     ("Code/Infra/NdmfSupport.cs", "Localization"): "UI",

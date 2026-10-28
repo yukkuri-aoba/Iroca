@@ -209,11 +209,11 @@ namespace Iroca
                 return AutoTuneValuesIntact(zone, input.applied);
 
             // 未調整ゾーン: 初期 tolerance を既定値に均してから、他に既定と違う項目が
-            // 残らないかを既存の判定（PreviewOverwrittenLabels）で見る。
+            // 残らないかを既存の判定（PreviewOverwrittenSettings）で見る。
             var probe = zone.Clone();
             if (Mathf.Approximately(probe.tolerance, NewZoneInitialTolerance))
                 probe.tolerance = ZoneDefaults.tolerance;
-            return ZoneAutoTuner.PreviewOverwrittenLabels(probe).Count == 0;
+            return ZoneAutoTuner.PreviewOverwrittenSettings(probe).Count == 0;
         }
 
         // ─── 上書き確認はジョブ開始“前”に行う ───
@@ -232,12 +232,12 @@ namespace Iroca
             // 毎回ダイアログが出て、押すたびに一手増えていた）。
             if (ZoneParamsUntouchedByUser(zone)) return true;
 
-            var previewLabels = ZoneAutoTuner.PreviewOverwrittenLabels(zone);
-            if (previewLabels.Count == 0) return true;
+            var overwritten = ZoneAutoTuner.PreviewOverwrittenSettings(zone);
+            if (overwritten.Count == 0) return true;
 
             // applyGlobals は事後判定だが、true になる条件下では globals は既に default
             // のため AutoTuneOverwriteBody の includesGlobals=true の差分は表示しない。
-            string body = Localization.AutoTuneOverwriteBody(previewLabels, includesGlobals: false);
+            string body = Localization.AutoTuneOverwriteBody(overwritten, includesGlobals: false);
             return EditorUtility.DisplayDialog(
                 Localization.AutoTuneConfirmTitle, body,
                 Localization.OK, Localization.Cancel);
@@ -297,8 +297,9 @@ namespace Iroca
             // 解析中も Undo などでゾーンや session が変異し得るため、live を渡すと
             // sampleColor 変異で混成サンプルから無意味な tolerance を導出したり、session.zones 列挙中の
             // add/remove で InvalidOperationException になり得る（プレビュー/エクスポート経路は既に Clone 済み）。
+            // セッションから読むもの(全体設定と、どのゾーンも既定のままか)は、ここ(メインスレッド)で取る。
             var zoneSnapshot = zone.Clone();
-            var sessionSnapshot = SnapshotSessionForAutoTune();
+            var sessionInput = ZoneAutoTuner.SessionInput.From(_session);
 
             _autoTuneProgress.Reset();
             _autoTuneProgress.Report(0.05f);
@@ -315,9 +316,9 @@ namespace Iroca
                     // 解析の各ステップから進捗を受け取る。渡さないと 0.10 → 1.00 の 2 点しか
                     // 報告されず、進捗バーが 10% で固まってから完了に飛ぶ。
                     var result = evidence != null
-                        ? ZoneAutoTuner.AnalyzeWithEvidence(px.Ptr, texW, texH, zoneSnapshot, sessionSnapshot,
+                        ? ZoneAutoTuner.AnalyzeWithEvidence(px.Ptr, texW, texH, zoneSnapshot, sessionInput,
                             evidence, evW, evH, excluded, mw, mh, ct, p => _autoTuneProgress.Report(p))
-                        : ZoneAutoTuner.Analyze(px.Ptr, texW, texH, zoneSnapshot, sessionSnapshot, excluded, mw, mh, ct,
+                        : ZoneAutoTuner.Analyze(px.Ptr, texW, texH, zoneSnapshot, sessionInput, excluded, mw, mh, ct,
                             p => _autoTuneProgress.Report(p));
                     evidencePacked = MaskSnapshot.Pack(evidence);   // null は null
                     _autoTuneProgress.Report(1.0f);
@@ -551,25 +552,6 @@ namespace Iroca
             _evidenceExcluded = null;
             _evidenceZoneId = null;
             EditorApplication.update -= TickEvidenceWait;
-        }
-
-        // 背景の ZoneAutoTuner.Analyze へ渡す session のスナップショット。Analyze が読むのは
-        // antiAliasCleanup / useDecontamination / zones のみなので、それらを値コピーし、zones は
-        // リストごとクローンして列挙中の構造変更（InvalidOperationException）を断つ。
-        private IrocaSessionState SnapshotSessionForAutoTune()
-        {
-            var snap = new IrocaSessionState
-            {
-                antiAliasCleanup   = _session.antiAliasCleanup,
-                useDecontamination = _session.useDecontamination,
-            };
-            snap.zones.Clear();
-            if (_session.zones != null)
-            {
-                foreach (var z in _session.zones)
-                    if (z != null) snap.zones.Add(z.Clone());
-            }
-            return snap;
         }
     }
 }

@@ -140,15 +140,9 @@ namespace Iroca
         private void StartAnalysis(ColorZone zone, bool[] evidence, int evW, int evH, string how)
         {
             How[zone.name] = how;
-            // 背景の解析には値のコピーを渡す(IrocaWindow.SnapshotSessionForAutoTune と同じ中身)。
+            // 背景の解析には値のコピーを渡す。セッションから読むものはここ(メインスレッド)で取る(UI と同じ)。
             var zoneSnapshot = zone.Clone();
-            var session = new IrocaSessionState
-            {
-                antiAliasCleanup = _state.antiAliasCleanup,
-                useDecontamination = _state.useDecontamination,
-            };
-            session.zones.Clear();
-            foreach (var z in _state.zones) if (z != null) session.zones.Add(z.Clone());
+            var session = ZoneAutoTuner.SessionInput.From(_state);
             bool[] excluded = CombinedExclusion(_state.maskState, zone.id, out int mw, out int mh);
             var ct = _cts.Token;
             var pixels = _pixels;

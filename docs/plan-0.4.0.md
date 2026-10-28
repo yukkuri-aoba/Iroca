@@ -676,8 +676,14 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
 各手順を 1 つ以上のコミットにする。どれもビット一致（abcheck・golden・`test_palette_parity`・`test_selection_key_audit`）。
 T5 で消える部分は作り直さない（1.5）。
 
-- [ ] 3-1 `ZoneAutoTuner` が文言でなく項目の列挙を返すようにし、ハーネスのスタブを消す（Core → UI の依存をなくす）。
+- [x] 3-1 `ZoneAutoTuner` が文言でなく項目の列挙を返すようにし、ハーネスのスタブを消す（Core → UI の依存をなくす）。
   入力を専用の記録にし、`IrocaSessionState` 丸ごとはやめる（T5 の自動調整と同じ窓口にするため）。中身は変えない。
+  - 2026-10-28: 上書きする項目は `ZoneAutoTuner.TunedSetting`（`PreviewOverwrittenSettings`・`TuneResult.overwrittenSettings`）、
+    文言は UI の `Localization.TunedSettingLabel` が付ける。入力は `ZoneAutoTuner.SessionInput`（全体設定の 2 つと
+    「どのゾーンも基本の項目が既定のままか」）で、呼び出し側のスレッドで `SessionInput.From(IrocaSessionState)` が取る。
+    UI と自動化がそれぞれ作っていたセッションの写し（ゾーンを全部写していた）は要らなくなった。ハーネスの `Localization`
+    の代用品と、層の依存の検査の許可表の Core → UI の行を消した。結果を書き戻す `TuneResult.ApplyTo(ColorZone,
+    IrocaSessionState)` はそのまま。abcheck の probe は旧と新の両方の DLL で同じ行を出すように直した（dev_safe）。
 - [ ] 3-2 `DebugCaptureHooks` を Core の部分と UI の部分（開閉の描画）に分ける。
 - [ ] 3-3 Core でないものを外へ移す: `TextureSlot`・`PreviewJobProgress`・`MeshRaycast` は Infra へ、
   `IrocaConsts.Layout/MenuPath` は UI へ。常に true の `EnableFloodFill` を消す。

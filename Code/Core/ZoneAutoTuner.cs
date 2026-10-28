@@ -18,7 +18,7 @@ namespace Iroca
     {
         // ── デフォルト値（単一ソース: ColorZone / IrocaSessionState のフィールド初期値） ──
         // 旧実装は const をここへ複製し「同期は手作業」だったが、片側だけ変えると
-        // IsZoneBasicsAtDefault / CollectOverwrittenLabels / Globals 適用可否の判定が静かに壊れる
+        // IsZoneBasicsAtDefault / CollectOverwrittenSettings / Globals 適用可否の判定が静かに壊れる
         // (2026-07/08 監査で指摘)。既定値インスタンスから読むことで構造的に同期する。
         // 注意: 読み取り専用。変異させないこと(BG スレッドからも参照される)。
         private static readonly ColorZone s_zoneDefaults = new ColorZone();
@@ -63,6 +63,69 @@ namespace Iroca
         private const int MinTextureDim  = 32;
         private const int MinNearSampleCount = 64;
 
+        /// <summary>
+        /// 自動調整が上書きする項目(既定値から変わっていると、上書きの確認に並べる)。文言は UI が付ける
+        /// (Core から UI の Localization を見ない。0.4.0 の計画の 3-1)。並びは確認に並べる順。
+        /// </summary>
+        public enum TunedSetting
+        {
+            Tolerance,
+            SaturationStrictness,
+            SaturationGuard,
+            ChromaThreshold,
+            HighlightRecovery,
+            PatternPreserve,          // valueBlend(UI の「模様保持」)
+            EdgeSoftness,
+            ShadowDesaturation,
+            ShadowForgivenessSatMin,
+            ShadowValueFloor,
+            PartSatCeiling,
+            PartHueBand,
+            ChromaCeiling,
+            HoleFillMargin,
+            // 全体設定(applyGlobals のときだけ)
+            AntiAliasCleanup,
+            UseDecontamination,
+        }
+
+        /// <summary>
+        /// 自動調整がセッションから読むもの(0.4.0 の計画の 3-1)。以前はセッション丸ごと(IrocaSessionState)を
+        /// 受け取り、背景の解析が列挙中のゾーンの一覧を壊さないよう、UI と自動化がそれぞれゾーンを写した
+        /// セッションを作っていた。読むのは全体設定の 2 つと「どのゾーンも基本の項目が既定のままか」だけなので、
+        /// 呼び出し側のスレッドで <see cref="From"/> が 1 回だけ取る。
+        /// </summary>
+        public readonly struct SessionInput
+        {
+            public readonly int  antiAliasCleanup;
+            public readonly bool useDecontamination;
+            // セッションのどのゾーンも基本の項目(IsZoneBasicsAtDefault)が既定のままか。全体設定を提案してよいかの条件。
+            public readonly bool allZonesAtDefault;
+
+            public SessionInput(int antiAliasCleanup, bool useDecontamination, bool allZonesAtDefault)
+            {
+                this.antiAliasCleanup   = antiAliasCleanup;
+                this.useDecontamination = useDecontamination;
+                this.allZonesAtDefault  = allZonesAtDefault;
+            }
+
+            public static SessionInput From(IrocaSessionState session)
+            {
+                bool allZonesAtDefault = true;
+                if (session.zones != null)
+                {
+                    foreach (var z in session.zones)
+                    {
+                        if (!IsZoneBasicsAtDefault(z))
+                        {
+                            allZonesAtDefault = false;
+                            break;
+                        }
+                    }
+                }
+                return new SessionInput(session.antiAliasCleanup, session.useDecontamination, allZonesAtDefault);
+            }
+        }
+
         public struct TuneResult
         {
             // Per-zone（常に有効）
@@ -92,8 +155,8 @@ namespace Iroca
             public int   antiAliasCleanup;
             public bool  useDecontamination;
 
-            // 現在値がデフォルトと異なるフィールドのローカライズ済みラベル
-            public List<string> overwrittenLabels;
+            // 現在値がデフォルトと異なる(自動調整で上書きされる)項目。文言は UI が付ける。
+            public List<TunedSetting> overwrittenSettings;
 
             // 自動トーン抽出で生成した内部サンプル（暗部/中間/明部の代表色）。
             // ユーザーのスポイト1点から算出され、選択（マッチング）の和集合に使う。
@@ -211,7 +274,7 @@ namespace Iroca
         /// 「含有(非除外)領域全体をパーツとみなし、その距離分布から tolerance を導出」する。
         /// </param>
         public static TuneResult Analyze(Color32[] pixels, int width, int height,
-            ColorZone zone, IrocaSessionState session,
+            ColorZone zone, SessionInput session,
             bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
             Action<float> report = null)
         {
@@ -222,11 +285,11 @@ namespace Iroca
         }
 
         /// <summary>
-        /// <see cref="Analyze(Color32[],int,int,ColorZone,IrocaSessionState,bool[],int,int,CancellationToken,System.Action{float})"/> の
+        /// <see cref="Analyze(Color32[],int,int,ColorZone,SessionInput,bool[],int,int,CancellationToken,System.Action{float})"/> の
         /// ポインタ版(Mono のヒープの外に置いた画素を写さずに読む)。pixels は width*height 画素以上を、解析が返るまで保つこと。
         /// </summary>
         public static TuneResult Analyze(Color32* pixels, int width, int height,
-            ColorZone zone, IrocaSessionState session,
+            ColorZone zone, SessionInput session,
             bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
             Action<float> report = null)
         {
@@ -297,7 +360,7 @@ namespace Iroca
             }
 
             DecideGlobals(width, height, session, ref result);
-            CollectOverwrittenLabels(zone, session, ref result);
+            CollectOverwrittenSettings(zone, session, ref result);
             return result;
         }
 
@@ -456,7 +519,7 @@ namespace Iroca
                 applyGlobals            = false,
                 antiAliasCleanup        = DefaultAntiAliasCleanup,
                 useDecontamination      = DefaultUseDecontamination,
-                overwrittenLabels       = new List<string>(),
+                overwrittenSettings     = new List<TunedSetting>(),
                 autoSamples             = new List<Color>(),
             };
         }
@@ -655,14 +718,14 @@ namespace Iroca
                 applyGlobals            = false,
                 antiAliasCleanup        = heuristic.antiAliasCleanup,
                 useDecontamination      = heuristic.useDecontamination,
-                overwrittenLabels       = new List<string>(),
+                overwrittenSettings     = new List<TunedSetting>(),
                 autoSamples             = new List<Color>(),
             };
         }
 
         // ─────────────────── Globals 判定 ───────────────────
 
-        private static void DecideGlobals(int texWidth, int texHeight, IrocaSessionState session, ref TuneResult result)
+        private static void DecideGlobals(int texWidth, int texHeight, SessionInput session, ref TuneResult result)
         {
             // edgeFeather は自動調整では一切触らない（"ごまかし" を増やさない方針）。
             // 自動調整が扱う Global は antiAliasCleanup と useDecontamination のみ。
@@ -672,18 +735,7 @@ namespace Iroca
                 session.antiAliasCleanup == DefaultAntiAliasCleanup &&
                 session.useDecontamination == DefaultUseDecontamination;
 
-            bool allZonesAtDefault = true;
-            if (session.zones != null)
-            {
-                foreach (var z in session.zones)
-                {
-                    if (!IsZoneBasicsAtDefault(z))
-                    {
-                        allZonesAtDefault = false;
-                        break;
-                    }
-                }
-            }
+            bool allZonesAtDefault = session.allZonesAtDefault;
 
             if (!globalsAtDefault || !allZonesAtDefault)
             {
@@ -707,73 +759,73 @@ namespace Iroca
             return DefaultAntiAliasCleanup; // 3 = 推奨下限
         }
 
-        // ─────────────────── 上書き対象ラベル収集 ───────────────────
+        // ─────────────────── 上書きされる項目の収集 ───────────────────
 
         /// <summary>
         /// Analyze を呼ぶ前に、現在の zone 値が default と異なるか（＝自動調整で上書きされ
-        /// うるか）を判定して labels を返す。globals 関連ラベルは applyGlobals=true 時のみ
+        /// うるか）を判定して項目を返す。globals の項目は applyGlobals=true 時のみ
         /// 追加されるが、その条件下では globals は default 値であるため実質追加されない
-        /// （CollectOverwrittenLabels と整合）。
+        /// （CollectOverwrittenSettings と整合）。
         ///
         /// 非同期化のために事前確認をジョブ開始前へ移動する用途で使う。
         /// </summary>
-        public static List<string> PreviewOverwrittenLabels(ColorZone zone)
+        public static List<TunedSetting> PreviewOverwrittenSettings(ColorZone zone)
         {
-            var labels = new List<string>();
-            if (zone == null) return labels;
+            var settings = new List<TunedSetting>();
+            if (zone == null) return settings;
 
-            AddZoneOverwrittenLabels(zone, labels);
-            return labels;
+            AddZoneOverwrittenSettings(zone, settings);
+            return settings;
         }
 
-        private static void CollectOverwrittenLabels(ColorZone zone, IrocaSessionState session, ref TuneResult result)
+        private static void CollectOverwrittenSettings(ColorZone zone, SessionInput session, ref TuneResult result)
         {
-            var labels = result.overwrittenLabels;
+            var settings = result.overwrittenSettings;
 
-            AddZoneOverwrittenLabels(zone, labels);
+            AddZoneOverwrittenSettings(zone, settings);
 
             if (result.applyGlobals)
             {
                 if (session.antiAliasCleanup != DefaultAntiAliasCleanup)
-                    labels.Add(Localization.AntiAliasCleanup);
+                    settings.Add(TunedSetting.AntiAliasCleanup);
                 if (session.useDecontamination != DefaultUseDecontamination)
-                    labels.Add(Localization.UseDecontamination);
+                    settings.Add(TunedSetting.UseDecontamination);
             }
         }
 
-        // ゾーン単位の項目のうち既定値と異なるもののラベルを、決まった順で labels へ足す。
-        // PreviewOverwrittenLabels(Analyze 前の事前確認)と CollectOverwrittenLabels(TuneResult)で
+        // ゾーン単位の項目のうち既定値と異なるものを、決まった順で settings へ足す。
+        // PreviewOverwrittenSettings(Analyze 前の事前確認)と CollectOverwrittenSettings(TuneResult)で
         // 項目と順序をそろえるための共通部分。
-        private static void AddZoneOverwrittenLabels(ColorZone zone, List<string> labels)
+        private static void AddZoneOverwrittenSettings(ColorZone zone, List<TunedSetting> settings)
         {
             if (!Mathf.Approximately(zone.tolerance, DefaultTolerance))
-                labels.Add(Localization.Tolerance);
+                settings.Add(TunedSetting.Tolerance);
             if (!Mathf.Approximately(zone.saturationStrictness, DefaultSaturationStrictness))
-                labels.Add(Localization.SaturationStrictness);
+                settings.Add(TunedSetting.SaturationStrictness);
             if (!Mathf.Approximately(zone.saturationGuard, DefaultSaturationGuard))
-                labels.Add(Localization.SaturationGuard);
+                settings.Add(TunedSetting.SaturationGuard);
             if (!Mathf.Approximately(zone.chromaThreshold, DefaultChromaThreshold))
-                labels.Add(Localization.ChromaThreshold);
+                settings.Add(TunedSetting.ChromaThreshold);
             if (zone.highlightRecovery != DefaultHighlightRecovery)
-                labels.Add(Localization.HighlightRecovery);
+                settings.Add(TunedSetting.HighlightRecovery);
             if (!Mathf.Approximately(zone.valueBlend, DefaultValueBlend))
-                labels.Add(Localization.PatternPreserve);
+                settings.Add(TunedSetting.PatternPreserve);
             if (!Mathf.Approximately(zone.edgeSoftness, DefaultEdgeSoftness))
-                labels.Add(Localization.EdgeSoftness);
+                settings.Add(TunedSetting.EdgeSoftness);
             if (!Mathf.Approximately(zone.shadowDesaturation, DefaultShadowDesaturation))
-                labels.Add(Localization.ShadowDesaturation);
+                settings.Add(TunedSetting.ShadowDesaturation);
             if (!Mathf.Approximately(zone.shadowForgivenessSatMin, DefaultShadowForgivenessSatMin))
-                labels.Add(Localization.ShadowForgivenessSatMin);
+                settings.Add(TunedSetting.ShadowForgivenessSatMin);
             if (!Mathf.Approximately(zone.shadowValueFloor, DefaultShadowValueFloor))
-                labels.Add(Localization.ShadowValueFloor);
+                settings.Add(TunedSetting.ShadowValueFloor);
             if (!Mathf.Approximately(zone.partSatCeiling, DefaultPartSatCeiling))
-                labels.Add(Localization.PartSatCeiling);
+                settings.Add(TunedSetting.PartSatCeiling);
             if (!Mathf.Approximately(zone.partHueBand, DefaultPartHueBand))
-                labels.Add(Localization.PartHueBand);
+                settings.Add(TunedSetting.PartHueBand);
             if (!Mathf.Approximately(zone.chromaCeiling, DefaultChromaCeiling))
-                labels.Add(Localization.ChromaCeiling);
+                settings.Add(TunedSetting.ChromaCeiling);
             if (!Mathf.Approximately(zone.holeFillMargin, DefaultHoleFillMargin))
-                labels.Add(Localization.HoleFillMargin);
+                settings.Add(TunedSetting.HoleFillMargin);
         }
 
         // ─────────────────── ユーティリティ ───────────────────

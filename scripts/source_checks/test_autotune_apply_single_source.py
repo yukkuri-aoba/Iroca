@@ -43,7 +43,7 @@ FIELD_MAP = {
     "applyGlobals": None,                     # globals の適用条件
     "antiAliasCleanup": "session.antiAliasCleanup",
     "useDecontamination": "session.useDecontamination",
-    "overwrittenLabels": None,                # UI の確認ダイアログ用
+    "overwrittenSettings": None,              # UI の確認ダイアログ用(上書きされる項目)
     "evidenceDiag": None,                     # 診断文字列
 }
 
@@ -147,8 +147,8 @@ _SITES = [
     ("merge-analyzed", "ZoneAutoTuner.MergeAnalyzed の return new TuneResult",
      lambda: _nested_block(TUNER_CS, r"TuneResult\s+MergeAnalyzed\s*\(", r"return\s+new\s+TuneResult\b"),
      (r"\b{f}\s*=(?!=)",), {}),
-    ("overwritten-labels", "ZoneAutoTuner.AddZoneOverwrittenLabels",
-     lambda: _nested_block(TUNER_CS, r"void\s+AddZoneOverwrittenLabels\s*\("),
+    ("overwritten-settings", "ZoneAutoTuner.AddZoneOverwrittenSettings",
+     lambda: _nested_block(TUNER_CS, r"void\s+AddZoneOverwrittenSettings\s*\("),
      (r"\bzone\.{f}\b",), {}),
     ("basics-at-default", "ZoneAutoTuner.IsZoneBasicsAtDefault",
      lambda: _nested_block(TUNER_CS, r"bool\s+IsZoneBasicsAtDefault\s*\("),

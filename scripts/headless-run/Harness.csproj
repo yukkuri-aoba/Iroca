@@ -74,7 +74,7 @@
     <!-- 自動化(MCP)の目視検証パネル/メトリクス生成。UnityEditor 非依存なので headless で実 C# 検証できる。 -->
     <Compile Include="..\..\Code\Core\RecolorPreview.cs" />
     <!-- 自動調整(ZoneAutoTuner)を no-mask で実行して GT と突き合わせるための取り込み。
-         Localization は UnityEditor.EditorPrefs に依存するので Harness.cs 内のスタブで代替する。 -->
+         上書きする項目は列挙で返す(文言は UI が付ける)ので、Localization の代用品は要らない(0.4.0 の 3-1)。 -->
     <Compile Include="..\..\Code\Core\ZoneAutoTuner*.cs" />
     <Compile Include="..\..\Code\Core\IrocaSessionState.cs" />
     <Compile Include="..\..\Code\Core\MaskState.cs" />

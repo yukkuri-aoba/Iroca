@@ -1016,16 +1016,42 @@ namespace Iroca
             ? "次のときは使えません:\n・元テクスチャを選んでいない\n・テクスチャを読めない（Read/Write の警告が出ているとき）\n・サンプルカラーをまだ選んでいない"
             : "Disabled when:\n- No source texture is selected\n- The texture cannot be read (the Read/Write warning is shown)\n- No sample color has been picked yet";
         public static string AutoTuneConfirmTitle => IsJapanese ? "自動調整の確認" : "Confirm Auto-tune";
-        public static string AutoTuneOverwriteBody(System.Collections.Generic.IList<string> labels, bool includesGlobals)
+        // 自動調整が上書きする項目の名前(上書きの確認に並べる)。項目は Core の ZoneAutoTuner.TunedSetting。
+        internal static string TunedSettingLabel(ZoneAutoTuner.TunedSetting setting)
+        {
+            switch (setting)
+            {
+                case ZoneAutoTuner.TunedSetting.Tolerance:               return Tolerance;
+                case ZoneAutoTuner.TunedSetting.SaturationStrictness:    return SaturationStrictness;
+                case ZoneAutoTuner.TunedSetting.SaturationGuard:         return SaturationGuard;
+                case ZoneAutoTuner.TunedSetting.ChromaThreshold:         return ChromaThreshold;
+                case ZoneAutoTuner.TunedSetting.HighlightRecovery:       return HighlightRecovery;
+                case ZoneAutoTuner.TunedSetting.PatternPreserve:         return PatternPreserve;
+                case ZoneAutoTuner.TunedSetting.EdgeSoftness:            return EdgeSoftness;
+                case ZoneAutoTuner.TunedSetting.ShadowDesaturation:      return ShadowDesaturation;
+                case ZoneAutoTuner.TunedSetting.ShadowForgivenessSatMin: return ShadowForgivenessSatMin;
+                case ZoneAutoTuner.TunedSetting.ShadowValueFloor:        return ShadowValueFloor;
+                case ZoneAutoTuner.TunedSetting.PartSatCeiling:          return PartSatCeiling;
+                case ZoneAutoTuner.TunedSetting.PartHueBand:             return PartHueBand;
+                case ZoneAutoTuner.TunedSetting.ChromaCeiling:           return ChromaCeiling;
+                case ZoneAutoTuner.TunedSetting.HoleFillMargin:          return HoleFillMargin;
+                case ZoneAutoTuner.TunedSetting.AntiAliasCleanup:        return AntiAliasCleanup;
+                case ZoneAutoTuner.TunedSetting.UseDecontamination:      return UseDecontamination;
+                default:                                                 return setting.ToString();
+            }
+        }
+
+        internal static string AutoTuneOverwriteBody(System.Collections.Generic.IList<ZoneAutoTuner.TunedSetting> settings,
+            bool includesGlobals)
         {
             var sb = new System.Text.StringBuilder();
             sb.Append(IsJapanese
                 ? "以下のパラメータは既定値から変更されています。自動調整で上書きしますか？\n\n"
                 : "The following parameters have been modified from defaults. Overwrite via Auto-tune?\n\n");
-            for (int i = 0; i < labels.Count; i++)
+            for (int i = 0; i < settings.Count; i++)
             {
                 sb.Append("・");
-                sb.Append(labels[i]);
+                sb.Append(TunedSettingLabel(settings[i]));
                 sb.Append('\n');
             }
             if (includesGlobals)

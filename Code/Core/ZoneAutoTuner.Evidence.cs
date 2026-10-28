@@ -223,7 +223,7 @@ namespace Iroca
         /// へフォールバックする。evidence の寸法はテクスチャと同一想定(異寸は最近傍で対応)。
         /// </summary>
         public static TuneResult AnalyzeWithEvidence(Color32[] pixels, int width, int height,
-            ColorZone zone, IrocaSessionState session,
+            ColorZone zone, SessionInput session,
             bool[] evidence, int evW, int evH,
             bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
             System.Action<float> report = null)
@@ -240,7 +240,7 @@ namespace Iroca
         /// ポインタ版。pixels は width*height 画素以上を、解析が返るまで保つこと。
         /// </summary>
         public static TuneResult AnalyzeWithEvidence(Color32* pixels, int width, int height,
-            ColorZone zone, IrocaSessionState session,
+            ColorZone zone, SessionInput session,
             bool[] evidence, int evW, int evH,
             bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
             System.Action<float> report = null)
@@ -470,7 +470,7 @@ namespace Iroca
             Progress(0.98f);
 
             DecideGlobals(width, height, session, ref result);
-            CollectOverwrittenLabels(zone, session, ref result);
+            CollectOverwrittenSettings(zone, session, ref result);
             return result;
         }
 
