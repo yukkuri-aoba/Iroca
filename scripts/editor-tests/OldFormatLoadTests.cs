@@ -96,10 +96,10 @@ namespace Iroca.EditorTests
             AssertRecolors(s, "v0.1.0 のゾーンは sampleColorSet が無いが、色が既定(白)でないので当たる");
         }
 
-        // 自動化 API はプリセットの古い優先度を並べ替えない(UI と食い違う。計画の 1.4)。0.4.0 の 4-3 で
-        // プリセットの読み込みを 1 本(PresetApplier)にしたら UI と同じ並び(skirt, ribbon, shirt)になるので、そのとき直す。
+        // 自動化 API もウィンドウと同じ規則(PresetApplier)で古い優先度を並べ替える。0.3.x までは並べ替えず、
+        // ウィンドウと重なりの勝ち負けが食い違っていた(0.4.0 の 4-3 で直した)。
         [Test]
-        public void V010Preset_ByAutomation_KeepsTheSavedOrder_UntilPresetLoadingIsUnified()
+        public void V010Preset_ByAutomation_SortsByTheOldPriorityLikeTheWindow()
         {
             string preset = _assets.Folder + "/old-vacc.json";
             WriteFile("old-vacc.json", F.V010Preset);
@@ -107,8 +107,8 @@ namespace Iroca.EditorTests
                 + "\",\"changes\":[],\"autoTune\":false}");
             var r = JsonUtility.FromJson<IrocaAutomation.RecolorTextureResult>(json);
             Assert.IsTrue(r.ok, json);
-            CollectionAssert.AreEqual(new[] { "shirt", "skirt", "ribbon" }, r.zones.Select(z => z.name).ToArray(),
-                "自動化 API の並びが変わった。PresetApplier で UI と同じにしたのなら、このテストを UI と同じ並びに直す");
+            CollectionAssert.AreEqual(new[] { "skirt", "ribbon", "shirt" }, r.zones.Select(z => z.name).ToArray(),
+                "ウィンドウで読み込んだときと同じ並び(古い優先度の大きい順)");
         }
 
         // ───────────── v0.3.0 のプリセット・セッション・レシピ ─────────────

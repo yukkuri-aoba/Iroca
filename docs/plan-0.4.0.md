@@ -970,6 +970,12 @@ T5 で消える部分は作り直さない（1.5）。
   - `RegistrationService`
   - `PresetApplier`: 自動化の古い優先順位の扱いを UI に合わせる。わざと振る舞いを変えるので、別コミットにして
     CHANGELOG に書く。
+  - 2026-10-30（手元）: `PresetApplier` を `Code/Application/` に作った。プリセット → 編集状態の規則（古い優先順位の移行・
+    id・処理設定・マスクの写し方）を 1 か所にし、UI は `EditingSession.ApplyPreset`（Undo 1 ステップ・マスクは
+    `MaskWorkspace.DecodeFrom`・`Changed(Replaced)`）で読む（出力同一、f7eed4f）。続くコミットで自動化（MCP）の
+    プリセットも同じ規則にし、0.1.x の古いプリセットのゾーンの順が UI と同じになった（わざと変えた。CHANGELOG の修正）。
+    - **残したこと**: 自動化でインライン JSON として渡したプリセットは、スポイト位置を外さない（ファイルから読むときは
+      `PresetStore.Load` が外す）。同じテクスチャのために書いた位置かもしれないので、そのままにした。
 - [ ] 4-4 プレビューを `PreviewPipeline` と `PreviewRenderer` に分ける。
   - 3.5 の案 A（CPU のタイル・先読み・最新の要求だけ・管理配列を使わないアップロード）で作る。パン・ズームの追従を
     PreviewLatency で、今の作りと比べる。

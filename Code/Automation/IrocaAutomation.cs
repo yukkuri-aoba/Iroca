@@ -548,13 +548,14 @@ namespace Iroca
                 c != null && c.Length > 2 ? c[2] : 0f, 1f);
 
         /// <summary>
-        /// プリセットを編集状態へ写す（ゾーン・処理設定・マスク）。UI でプリセットを読み込んだときと同じ中身になる。
+        /// プリセットを新しい編集状態へ写す（ゾーン・処理設定・マスク）。UI でプリセットを読み込んだときと同じ規則
+        /// （<see cref="PresetApplier"/>。古い優先順位の移行・id を含む）。
         /// advancedMode は UI 表示レベルのみで処理結果に影響しないため移送しない。
         /// </summary>
         private static IrocaSessionState SessionFromPreset(IrocaPresetData p)
         {
-            var state = new IrocaSessionState { zones = p.zones ?? new List<ColorZone>() };
-            RecolorSettings.From(p).CopyTo(state);
+            var state = new IrocaSessionState();
+            PresetApplier.ApplyZonesAndSettings(p, state);
             state.maskState = PresetApplier.MaskStateOf(p);
             return state;
         }
