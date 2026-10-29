@@ -20,8 +20,8 @@ namespace Iroca
         // 1 画素 = 1 bit のビットパック表現(true=除外)。bool[] を deep clone すると 4K で 16.7MB/枚に
         // なりプレビュー再生成・ペイントのたびに GC を圧迫するため、スナップショットは 1/8 サイズの
         // ulong[] で保持する。idx 番目の画素は (arr[idx>>6] >> (idx&63)) & 1。範囲は width*height。
-        // 注: 作業用マスク(MaskPaintView.exclusionMask / zoneMasks)や保存形式(MaskFileStore)は
-        //     bool[] / RLE のまま。ここはスレッドへ渡すスナップショットの内部表現のみを packed 化する。
+        // 注: 編集中のマスク(MaskWorkspace)は同じ並びのヒープの外のマスク(NativeBitMask)、保存形式(MaskFileStore)は RLE。
+        //     ここはスレッドへ渡すスナップショットの表現(編集中のマスクから語ごとに写す)。
         public ulong[] common;
         public int width;
         public int height;

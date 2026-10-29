@@ -130,8 +130,9 @@ namespace Iroca
 
         /// <summary>
         /// 共通マスクとゾーン別マスクのオーバーレイテクスチャの再構築をバックグラウンドに
-        /// スケジュールする。bool[] バッファを Clone してワーカに渡すため、ペイント中の
-        /// 変更とデータレースしない。SetPixels32 / Apply は次フレーム以降に
+        /// スケジュールする。マスクの層は参照を足してワーカに渡し(複製しない)、ペイント側は書く前に
+        /// 自分だけのものにする(<see cref="MaskWorkspace"/>)ので、ペイント中の変更とデータレースしない。
+        /// 参照は計算の後(取り消されて計算しなかったときも)返す。SetPixels32 / Apply は次フレーム以降に
         /// <see cref="ApplyPendingOverlay"/> で適用される。
         /// </summary>
         public void RebuildMaskOverlay(int width, int height)
@@ -149,7 +150,7 @@ namespace Iroca
             int capMw = maskWidth;
             int capMh = maskHeight;
 
-            CollectOverlayLayers(m => (bool[])m.Clone(), out var commonSnap, out var commonColor, out var zoneInfos);
+            CollectOverlayLayers(out var commonSnap, out var commonColor, out var zoneInfos);
 
             _overlayJob.Schedule(
                 work: token => ComputeOverlayPixels(commonSnap, commonColor, zoneInfos, capW, capH, capMw, capMh, token),
@@ -157,15 +158,17 @@ namespace Iroca
                 {
                     _pendingOverlayResult = result;
                     _host.RequestRepaint();
-                });
+                },
+                cleanup: () => ReleaseOverlayLayers(commonSnap, zoneInfos));
         }
 
         /// <summary>
-        /// オーバーレイに描く層を集める(全体用・拡大表示用で共通)。snap は各マスクの写しを作る関数(全体なら複製、
-        /// 拡大表示なら見えている範囲の切り出し)。バックグラウンドへ渡すので、ペイント中の変更とデータレースしない。
+        /// オーバーレイに描く層を集める(全体用・拡大表示用で共通)。各層は参照を足して返すので、使い終えたら
+        /// <see cref="ReleaseOverlayLayers"/> で返す。バックグラウンドへ渡しても、ペイント側は書く前に写すので
+        /// データレースしない。
         /// </summary>
-        private void CollectOverlayLayers(System.Func<bool[], bool[]> snap, out bool[] commonSnap,
-                                          out Color32 commonColor, out List<(Color32 color, bool[] mask)> zoneInfos)
+        private void CollectOverlayLayers(out NativeBitMask commonSnap,
+                                          out Color32 commonColor, out List<(Color32 color, NativeBitMask mask)> zoneInfos)
         {
             // 適用中のマスクはすべて表示する(共通の除外=赤 / ゾーン別の除外=ゾーン色 /
             // 含める=緑)。編集対象×種類の 1 枚だけを出す旧仕様は「表示されていないのに
@@ -179,36 +182,39 @@ namespace Iroca
 
             commonSnap = null;
             commonColor = ExcludedOverlayColor;
-            if (exclusionMask != null && maskWidth > 0 && maskHeight > 0)
+            var common = Workspace.Common;
+            if (common != null && maskWidth > 0 && maskHeight > 0)
             {
-                commonSnap = snap(exclusionMask);
+                commonSnap = common.AddRef();
                 if (!commonIsActive) commonColor = DimOverlayColor(ExcludedOverlayColor);
             }
 
-            zoneInfos = new List<(Color32 color, bool[] mask)>();
+            zoneInfos = new List<(Color32 color, NativeBitMask mask)>();
             if (zones != null && maskWidth > 0 && maskHeight > 0)
             {
-                (Color32 color, bool[] mask)? editingEntry = null;
+                (Color32 color, NativeBitMask mask)? editingEntry = null;
                 for (int i = 0; i < zones.Count; i++)
                 {
                     var zone = zones[i];
                     if (zone == null || string.IsNullOrEmpty(zone.id)) continue;
                     bool zoneIsTarget = i == activeMaskTarget;
 
-                    if (zoneMasks.TryGetValue(zone.id, out var ex) && ex != null)
+                    var ex = Workspace.Layer(false, zone.id);
+                    if (ex != null)
                     {
                         bool isEditing = zoneIsTarget && !editIncludeLayer;
                         var color = OverlayColorForZone(i);
-                        var entry = (isEditing ? color : DimOverlayColor(color), snap(ex));
+                        var entry = (isEditing ? color : DimOverlayColor(color), ex.AddRef());
                         if (isEditing) editingEntry = entry;
                         else zoneInfos.Add(entry);
                     }
-                    if (zoneIncludeMasks.TryGetValue(zone.id, out var inc) && inc != null)
+                    var inc = Workspace.Layer(true, zone.id);
+                    if (inc != null)
                     {
                         bool isEditing = zoneIsTarget && editIncludeLayer;
                         var entry = (isEditing ? IncludedOverlayColor
                                                : DimOverlayColor(IncludedOverlayColor),
-                                     snap(inc));
+                                     inc.AddRef());
                         if (isEditing) editingEntry = entry;
                         else zoneInfos.Add(entry);
                     }
@@ -217,8 +223,15 @@ namespace Iroca
             }
         }
 
+        /// <summary><see cref="CollectOverlayLayers"/> が足した参照を返す(重ね表示の計算の後。ワーカのスレッドから呼ぶ)。</summary>
+        private static void ReleaseOverlayLayers(NativeBitMask common, List<(Color32 color, NativeBitMask mask)> zoneInfos)
+        {
+            common?.Release();
+            foreach (var (_, m) in zoneInfos) m.Release();
+        }
+
         private static OverlayResult ComputeOverlayPixels(
-            bool[] common, Color32 commonColor, List<(Color32 color, bool[] mask)> zoneInfos,
+            NativeBitMask common, Color32 commonColor, List<(Color32 color, NativeBitMask mask)> zoneInfos,
             int w, int h, int mw, int mh, CancellationToken token)
         {
             var result = new OverlayResult { width = w, height = h };
@@ -252,10 +265,11 @@ namespace Iroca
         /// 被覆率で階調化され、実体どおりの滑らかな縁に見える(二値ブロックの偽ギザギザを防ぐ)。
         /// accumulate 非 null 時はその配列に上書き合成して返す(ゾーン重ね描き用)。
         /// </summary>
-        private static Color32[] RenderMaskCoverage(
-            bool[] mask, Color32 color, Color32[] accumulate, int w, int h, int mw, int mh)
+        private static unsafe Color32[] RenderMaskCoverage(
+            NativeBitMask mask, Color32 color, Color32[] accumulate, int w, int h, int mw, int mh)
         {
             var pixels = accumulate ?? new Color32[w * h];
+            ulong* bits = mask.Bits;
             // 列のマスク範囲は行に依らないので前計算する(オーバーレイは表示倍率に応じて
             // OverlayMaxSize² まで大きくなるため、画素あたりの整数除算が効いてくる)。
             var cx0 = new int[w];
@@ -279,7 +293,10 @@ namespace Iroca
                     {
                         int myBase = my * mw;
                         for (int mx = mx0; mx < mx1; mx++)
-                            if (mask[myBase + mx]) count++;
+                        {
+                            int i = myBase + mx;
+                            if ((bits[i >> 6] & (1UL << (i & 63))) != 0UL) count++;
+                        }
                     }
                     if (count == 0) continue;
                     int total = (my1 - my0) * (mx1 - mx0);
@@ -371,8 +388,8 @@ namespace Iroca
         [System.NonSerialized] private DetailOverlayResult? _pendingDetailOverlay;
 
         /// <summary>
-        /// 拡大表示用オーバーレイの再構築をバックグラウンドにスケジュールする。マスクは見えている範囲だけを
-        /// 切り出して渡す(全体の複製は 4K で 1 枚 16MB)。範囲は詳細プレビューと同じ(<see cref="DetailRange"/>)。
+        /// 拡大表示用オーバーレイの再構築をバックグラウンドにスケジュールする。マスクの層は参照を足して渡し、
+        /// 見えている範囲だけを読む(切り出しの写しは作らない)。範囲は詳細プレビューと同じ(<see cref="DetailRange"/>)。
         /// </summary>
         public void RebuildDetailOverlay(int srcW, int srcH, int x0, int y0, int cw, int ch, int outW, int outH)
         {
@@ -387,8 +404,7 @@ namespace Iroca
             int my0 = Mathf.Clamp((int)((long)y0 * mh / srcH), 0, mh - 1);
             int my1 = Mathf.Clamp((int)(((long)(y0 + ch) * mh + srcH - 1) / srcH), my0 + 1, mh);
             int cmw = mx1 - mx0, cmh = my1 - my0;
-            CollectOverlayLayers(m => CropMask(m, mw, mx0, my0, cmw, cmh),
-                                 out var commonSnap, out var commonColor, out var zoneInfos);
+            CollectOverlayLayers(out var commonSnap, out var commonColor, out var zoneInfos);
 
             // 出力の各列・行が覆うマスクの範囲(切り出しの中の座標)。
             var cx0 = new int[outW]; var cx1 = new int[outW];
@@ -403,7 +419,7 @@ namespace Iroca
                     if (commonSnap != null)
                     {
                         r.hasCommon = true;
-                        r.commonPixels = RenderCoverageRanges(commonSnap, cmw, cx0, cx1, cy0, cy1, outW, outH, commonColor, null);
+                        r.commonPixels = RenderCoverageRanges(commonSnap, mx0, my0, cx0, cx1, cy0, cy1, outW, outH, commonColor, null);
                         token.ThrowIfCancellationRequested();
                     }
                     if (zoneInfos.Count > 0)
@@ -412,7 +428,7 @@ namespace Iroca
                         Color32[] pixels = null;
                         foreach (var (color, zm) in zoneInfos)
                         {
-                            pixels = RenderCoverageRanges(zm, cmw, cx0, cx1, cy0, cy1, outW, outH, color, pixels);
+                            pixels = RenderCoverageRanges(zm, mx0, my0, cx0, cx1, cy0, cy1, outW, outH, color, pixels);
                             token.ThrowIfCancellationRequested();
                         }
                         r.zonePixels = pixels;
@@ -423,16 +439,8 @@ namespace Iroca
                 {
                     _pendingDetailOverlay = result;
                     _host.RequestRepaint();
-                });
-        }
-
-        /// <summary>マスク m(幅 mw)の矩形 [x0, x0+w) × [y0, y0+h) を切り出す。</summary>
-        private static bool[] CropMask(bool[] m, int mw, int x0, int y0, int w, int h)
-        {
-            var dst = new bool[w * h];
-            for (int y = 0; y < h; y++)
-                System.Array.Copy(m, (y0 + y) * mw + x0, dst, y * w, w);
-            return dst;
+                },
+                cleanup: () => ReleaseOverlayLayers(commonSnap, zoneInfos));
         }
 
         /// <summary>
@@ -456,11 +464,17 @@ namespace Iroca
             }
         }
 
-        /// <summary><see cref="RenderMaskCoverage"/> と同じ被覆率アルファの描画を、前計算した列・行の範囲で行う。</summary>
-        private static Color32[] RenderCoverageRanges(bool[] mask, int stride, int[] cx0, int[] cx1, int[] cy0, int[] cy1,
-                                                      int w, int h, Color32 color, Color32[] accumulate)
+        /// <summary>
+        /// <see cref="RenderMaskCoverage"/> と同じ被覆率アルファの描画を、前計算した列・行の範囲で行う。範囲は見えている
+        /// 部分の始まり (offX, offY)(マスクの画素)からの座標。
+        /// </summary>
+        private static unsafe Color32[] RenderCoverageRanges(NativeBitMask mask, int offX, int offY,
+                                                             int[] cx0, int[] cx1, int[] cy0, int[] cy1,
+                                                             int w, int h, Color32 color, Color32[] accumulate)
         {
             var pixels = accumulate ?? new Color32[w * h];
+            ulong* bits = mask.Bits;
+            int stride = mask.Width;
             for (int y = 0; y < h; y++)
             {
                 int my0 = cy0[y], my1 = cy1[y];
@@ -471,9 +485,12 @@ namespace Iroca
                     int count = 0;
                     for (int my = my0; my < my1; my++)
                     {
-                        int myBase = my * stride;
+                        int myBase = (offY + my) * stride + offX;
                         for (int mx = mx0; mx < mx1; mx++)
-                            if (mask[myBase + mx]) count++;
+                        {
+                            int i = myBase + mx;
+                            if ((bits[i >> 6] & (1UL << (i & 63))) != 0UL) count++;
+                        }
                     }
                     if (count == 0) continue;
                     int total = (my1 - my0) * (mx1 - mx0);

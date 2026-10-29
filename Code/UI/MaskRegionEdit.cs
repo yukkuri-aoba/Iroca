@@ -27,8 +27,10 @@ namespace Iroca
     }
 
     /// <summary>
-    /// 右クリックの「ここも塗る / ここは塗らない / この部分だけ塗る」を、マスク配列へ当てる純粋な部品
-    /// (Unity に依存しない。scripts/unit-run で検査する)。
+    /// 右クリックの「ここも塗る / ここは塗らない / この部分だけ塗る」とブラシを、マスクへ当てる純粋な部品
+    /// (Unity に依存しない。scripts/unit-run で検査する)。マスクは 1 画素 1 ビットの語の並び
+    /// (<see cref="NativeBitMask.Bits"/>。画素 i は語 i &gt;&gt; 6 の i &amp; 63 ビット目)で受け取り、書く側は呼び出し側が
+    /// 自分だけのものにしておく(<see cref="NativeBitMask.Writable"/>)。
     /// <para>
     /// 規則は「後から言ったほうが勝つ」。製品の合成は「除外が含めるに勝つ」(PixelProcessor の includedPx。
     /// 重なると含めるが無効)なので、含めるを足すだけでは、前に外した場所で「塗ったのに効かない」ことになる。
@@ -39,7 +41,7 @@ namespace Iroca
     /// 呼び出し側が知らせる。
     /// </para>
     /// </summary>
-    internal static class MaskRegionEdit
+    internal static unsafe class MaskRegionEdit
     {
         /// <param name="op">当てる操作。</param>
         /// <param name="region">範囲(マスクと同じ寸法)。</param>
@@ -47,7 +49,7 @@ namespace Iroca
         /// <param name="include">宛先ゾーンの含めるマスク。PaintHere では必須、ほかは null 可(消す物が無い)。共通宛では null。</param>
         /// <param name="common">全ゾーン共通の除外(重なりを数えるだけ。null 可)。共通宛のときは null を渡す。</param>
         public static MaskRegionEditResult Apply(MaskRegionOp op, bool[] region,
-                                                 bool[] exclude, bool[] include, bool[] common)
+                                                 ulong* exclude, ulong* include, ulong* common)
         {
             var r = new MaskRegionEditResult();
             if (region == null) return r;
@@ -58,9 +60,11 @@ namespace Iroca
                     for (int i = 0; i < n; i++)
                     {
                         if (!region[i]) continue;
-                        if (!include[i]) { include[i] = true; r.changed++; }
-                        if (exclude != null && exclude[i]) { exclude[i] = false; r.changed++; }
-                        if (common != null && common[i]) r.commonOverlap++;
+                        int w = i >> 6;
+                        ulong bit = 1UL << (i & 63);
+                        if ((include[w] & bit) == 0UL) { include[w] |= bit; r.changed++; }
+                        if (exclude != null && (exclude[w] & bit) != 0UL) { exclude[w] &= ~bit; r.changed++; }
+                        if (common != null && (common[w] & bit) != 0UL) r.commonOverlap++;
                     }
                     break;
 
@@ -68,23 +72,27 @@ namespace Iroca
                     for (int i = 0; i < n; i++)
                     {
                         if (!region[i]) continue;
-                        if (!exclude[i]) { exclude[i] = true; r.changed++; }
-                        if (include != null && include[i]) { include[i] = false; r.changed++; }
+                        int w = i >> 6;
+                        ulong bit = 1UL << (i & 63);
+                        if ((exclude[w] & bit) == 0UL) { exclude[w] |= bit; r.changed++; }
+                        if (include != null && (include[w] & bit) != 0UL) { include[w] &= ~bit; r.changed++; }
                     }
                     break;
 
                 case MaskRegionOp.OnlyThisPart:
                     for (int i = 0; i < n; i++)
                     {
+                        int w = i >> 6;
+                        ulong bit = 1UL << (i & 63);
                         if (region[i])
                         {
-                            if (exclude[i]) { exclude[i] = false; r.changed++; }
-                            if (common != null && common[i]) r.commonOverlap++;
+                            if ((exclude[w] & bit) != 0UL) { exclude[w] &= ~bit; r.changed++; }
+                            if (common != null && (common[w] & bit) != 0UL) r.commonOverlap++;
                         }
                         else
                         {
-                            if (!exclude[i]) { exclude[i] = true; r.changed++; }
-                            if (include != null && include[i]) { include[i] = false; r.changed++; }
+                            if ((exclude[w] & bit) == 0UL) { exclude[w] |= bit; r.changed++; }
+                            if (include != null && (include[w] & bit) != 0UL) { include[w] &= ~bit; r.changed++; }
                         }
                     }
                     break;
@@ -133,11 +141,29 @@ namespace Iroca
         /// 勝つ」で、消さないと合成の「除外が勝つ」により含めるを塗っても効かない。消すときは塗っている層だけを消す。
         /// opposite は null 可(反対側の層が無い・共通マスクを塗っている)。
         /// </summary>
-        public static void BrushSpan(bool[] target, bool[] opposite, int start, int end, bool paint)
+        public static void BrushSpan(ulong* target, ulong* opposite, int start, int end, bool paint)
         {
-            for (int i = start; i < end; i++) target[i] = paint;
-            if (paint && opposite != null)
-                for (int i = start; i < end; i++) opposite[i] = false;
+            SetRange(target, start, end, paint);
+            if (paint && opposite != null) SetRange(opposite, start, end, false);
+        }
+
+        // 画素 [start, end) のビットをまとめて立てる / 下ろす(語の途中は覆いで、まるごとの語は代入で)。
+        private static void SetRange(ulong* bits, int start, int end, bool value)
+        {
+            if (end <= start) return;
+            int w0 = start >> 6, w1 = (end - 1) >> 6;
+            ulong head = ~0UL << (start & 63);
+            ulong tail = ~0UL >> (63 - ((end - 1) & 63));
+            if (w0 == w1)
+            {
+                ulong m = head & tail;
+                bits[w0] = value ? bits[w0] | m : bits[w0] & ~m;
+                return;
+            }
+            bits[w0] = value ? bits[w0] | head : bits[w0] & ~head;
+            ulong fill = value ? ~0UL : 0UL;
+            for (int k = w0 + 1; k < w1; k++) bits[k] = fill;
+            bits[w1] = value ? bits[w1] | tail : bits[w1] & ~tail;
         }
 
         /// <summary>マスクの土台の長辺の上限。これを超える元画像では縦横比を保って縮める
@@ -170,7 +196,7 @@ namespace Iroca
         /// 同じ画素を消す(<see cref="BrushSpan"/> と同じ「後から塗ったほうが勝つ」)。
         /// 塗った範囲の外接矩形 [x0, x1) × [y0, y1) を返す(画像の外にかかる所は切る。何も塗らなければ空)。
         /// </summary>
-        public static void StampDisk(bool[] target, bool[] opposite, int w, int h,
+        public static void StampDisk(ulong* target, ulong* opposite, int w, int h,
                                      float cx, float cy, float radius, bool paint,
                                      out int x0, out int y0, out int x1, out int y1)
         {

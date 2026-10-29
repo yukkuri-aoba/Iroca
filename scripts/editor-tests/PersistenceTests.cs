@@ -262,6 +262,16 @@ namespace Iroca.EditorTests
             Assert.IsNull(PresetStore.Load(path));
         }
 
+        // マスク画面に層を置く(寸法 w×h。各層は (ゾーン id, 含めるか, 画素))。使い終えたら Workspace.Clear() で返す。
+        private static MaskPaintView MaskViewWith(int w, int h, params (string zoneId, bool include, bool[] mask)[] layers)
+        {
+            var view = new MaskPaintView();
+            view.Workspace.Reset(w, h);
+            foreach (var (zoneId, include, mask) in layers)
+                view.Workspace.SetLayer(include, zoneId, NativeBitMask.FromBools(mask, w, h));
+            return view;
+        }
+
         [Test]
         public void Preset_MaskViewWritesExcludeAndIncludeEntries()
         {
@@ -269,13 +279,11 @@ namespace Iroca.EditorTests
             // 取り違えないこと、全 false のマスクは書かないこと。_host は使わない経路なのでホスト無しで呼べる。
             var exclude = new bool[8]; exclude[1] = true;
             var include = new bool[8]; include[6] = true; include[7] = true;
-            var view = new MaskPaintView { maskWidth = 4, maskHeight = 2 };
-            view.zoneMasks["z1"] = exclude;
-            view.zoneMasks["z2"] = new bool[8];
-            view.zoneIncludeMasks["z3"] = include;
+            var view = MaskViewWith(4, 2, ("z1", false, exclude), ("z2", false, new bool[8]), ("z3", true, include));
 
             var data = new IrocaPresetData();
             view.WriteToPreset(data);
+            view.Workspace.Clear();
 
             Assert.AreEqual("", data.commonMaskBase64, "共通マスクが無ければ書かない");
             Assert.AreEqual(1, data.zoneMasks.Count, "全 false の z2 は書かない");
@@ -300,21 +308,20 @@ namespace Iroca.EditorTests
         public void Preset_MaskViewWritesSizeOnlyWithSomeMask()
         {
             // 含めるマスクだけでも寸法は載る。何も書かなければ寸法も書かない（0 のまま）。
-            var includeOnly = new MaskPaintView { maskWidth = 4, maskHeight = 2 };
             var include = new bool[8]; include[0] = true;
-            includeOnly.zoneIncludeMasks["z1"] = include;
+            var includeOnly = MaskViewWith(4, 2, ("z1", true, include));
             var data = new IrocaPresetData();
             includeOnly.WriteToPreset(data);
+            includeOnly.Workspace.Clear();
             Assert.AreEqual(0, data.zoneMasks.Count);
             Assert.AreEqual(1, data.zoneIncludeMasks.Count);
             Assert.AreEqual(4, data.maskWidth);
             Assert.AreEqual(2, data.maskHeight);
 
-            var allFalse = new MaskPaintView { maskWidth = 4, maskHeight = 2 };
-            allFalse.zoneMasks["z1"] = new bool[8];
-            allFalse.zoneIncludeMasks["z1"] = new bool[8];
+            var allFalse = MaskViewWith(4, 2, ("z1", false, new bool[8]), ("z1", true, new bool[8]));
             var none = new IrocaPresetData();
             allFalse.WriteToPreset(none);
+            allFalse.Workspace.Clear();
             Assert.AreEqual("", none.commonMaskBase64);
             Assert.AreEqual(0, none.zoneMasks.Count);
             Assert.AreEqual(0, none.zoneIncludeMasks.Count);

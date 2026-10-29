@@ -34,12 +34,12 @@ namespace Iroca
 
         /// <summary>
         /// 現在の全マスク（共通 + 各ゾーン）をプロジェクト下の MaskCache ファイルへ
-        /// 永続化する。同時に _session.maskState を bool[] バッファの内容で更新する。
+        /// 永続化する。同時に _session.maskState を編集中のマスクの内容で更新する。
         /// ディスク書き込みに失敗したときだけ false（呼び出し側で通知に使う）。
         /// </summary>
         public bool SaveToSession()
         {
-            // bool[] バッファを _session.maskState（RLE 文字列）に書き戻す。
+            // 編集中のマスクを _session.maskState（RLE 文字列）に書き戻す。
             SyncBuffersToState();
 
             string path = MaskTexturePath();
@@ -59,48 +59,28 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 現在の bool[] バッファの内容を RLE エンコードして _session.maskState に書き戻す。
+        /// 編集中のマスクを RLE エンコードして _session.maskState に書き戻す。
         /// </summary>
         public void SyncBuffersToState()
         {
             var session = _host.Session;
             if (session == null) return;
             var ms = session.maskState ?? (session.maskState = new MaskState());
-            // 書き込み規則(全 false は書かない)は Core の MaskStateCodec が唯一の正。
-            MaskStateCodec.Encode(ms, maskWidth, maskHeight, exclusionMask, zoneMasks, zoneIncludeMasks);
+            // 書き込み規則(全 false は書かない)は Core の MaskStateCodec と同じ(MaskWorkspace.EncodeTo)。
+            Workspace.EncodeTo(ms);
         }
 
         /// <summary>
-        /// _session.maskState（RLE 文字列）を bool[] バッファに展開する。
+        /// _session.maskState（RLE 文字列）を編集中のマスクに展開する。
         /// </summary>
         public void SyncBuffersFromState()
         {
             var session = _host.Session;
             if (session == null || session.maskState == null) return;
-            var ms = session.maskState;
-
-            // Undo/Redo の書き戻しで変わるのはふつう 1 枚だけなので、中身が同じマスクは今の配列をそのまま使う
-            // (MaskStateCodec.Decode の previous)。
-            var previous = new MaskStateCodec.Previous
-            {
-                width = maskWidth,
-                height = maskHeight,
-                common = exclusionMask,
-                zones = new Dictionary<string, bool[]>(zoneMasks),
-                includes = new Dictionary<string, bool[]>(zoneIncludeMasks),
-            };
-            exclusionMask = null;
-            zoneMasks.Clear();
-            zoneIncludeMasks.Clear();
-
-            // 展開規則(寸法不一致・壊れた項目は捨てる)は Core の MaskStateCodec が唯一の正。
-            // 寸法が無効なら maskWidth/maskHeight は前の値のまま(従来どおり)。
-            if (!MaskStateCodec.Decode(ms, out int w, out int h, out bool[] common,
-                    zoneMasks, zoneIncludeMasks, previous))
-                return;
-            maskWidth = w;
-            maskHeight = h;
-            exclusionMask = common;
+            // 展開規則(寸法不一致・壊れた項目は捨てる)は Core の MaskStateCodec と同じ。寸法が無効ならマスクなしで、
+            // 寸法は前の値のまま(従来どおり)。Undo/Redo の書き戻しで変わるのはふつう 1 枚だけなので、中身が同じ層は
+            // 今のものをそのまま使う(MaskWorkspace.DecodeFrom)。
+            Workspace.DecodeFrom(session.maskState);
         }
 
         /// <summary>
@@ -116,9 +96,7 @@ namespace Iroca
             // テクスチャ(セッション)切替: AI 提案の積み上げ・進行中推論は旧テクスチャ由来なので破棄
             _suggestController?.OnSourceChangedOrClosing();
 
-            exclusionMask = null;
-            zoneMasks.Clear();
-            zoneIncludeMasks.Clear();
+            Workspace.Clear();
             _maskLoadFailed = false;
 
             // 1) MaskCache ファイルからの読み込みを最優先する（Editor 再起動を跨ぐ正規ストア）。
@@ -182,14 +160,14 @@ namespace Iroca
                     return false;
                 }
 
-                maskWidth = idx.width;
-                maskHeight = idx.height;
+                Workspace.Reset(idx.width, idx.height);
 
+                // 寸法の合わない層は受け取らない(SetCommon・SetLayer)。
                 if (idx.hasCommon)
                 {
                     string enc = SessionState.GetString(LegacyMaskArraySessionKey(path, CommonMaskKey), null);
                     if (!string.IsNullOrEmpty(enc))
-                        exclusionMask = DecodeMask(enc, out _, out _);
+                        Workspace.SetCommon(MaskRle.DecodeBits(enc));
                 }
 
                 if (idx.zoneIds != null)
@@ -199,8 +177,7 @@ namespace Iroca
                         if (string.IsNullOrEmpty(zid)) continue;
                         string enc = SessionState.GetString(LegacyMaskArraySessionKey(path, zid), null);
                         if (string.IsNullOrEmpty(enc)) continue;
-                        var arr = DecodeMask(enc, out _, out _);
-                        if (arr != null) zoneMasks[zid] = arr;
+                        Workspace.SetLayer(false, zid, MaskRle.DecodeBits(enc));
                     }
                 }
 
@@ -213,16 +190,15 @@ namespace Iroca
             string legacyEncoded = SessionState.GetString(LegacySingleMaskSessionKey(path), null);
             if (string.IsNullOrEmpty(legacyEncoded)) return false;
 
-            var legacy = DecodeMask(legacyEncoded, out int lw, out int lh);
+            var legacy = MaskRle.DecodeBits(legacyEncoded);
             if (legacy == null)
             {
                 SessionState.EraseString(LegacySingleMaskSessionKey(path));
                 return false;
             }
 
-            maskWidth = lw;
-            maskHeight = lh;
-            exclusionMask = legacy;
+            Workspace.Reset(legacy.Width, legacy.Height);
+            Workspace.SetCommon(legacy);
 
             SessionState.EraseString(LegacySingleMaskSessionKey(path));
             SaveToSession();
@@ -251,9 +227,7 @@ namespace Iroca
         {
             _overlayJob.Cancel();
             _pendingOverlayResult = null;
-            exclusionMask = null;
-            zoneMasks.Clear();
-            zoneIncludeMasks.Clear();
+            Workspace.Clear();
             isPainting = false;
             _maskStrokeStarted = false;
             lastPaintUV = -Vector2.one;
@@ -264,7 +238,7 @@ namespace Iroca
         }
 
         /// <summary>
-        /// bool 配列を RLE 圧縮 + Base64 文字列にエンコード(実体は Core の MaskRle)。
+        /// bool 配列を RLE 圧縮 + Base64 文字列にエンコード(実体は Core の MaskRle。テストが使う)。
         /// </summary>
         public static string EncodeMask(bool[] mask, int w, int h) => MaskRle.Encode(mask, w, h);
 
@@ -281,40 +255,31 @@ namespace Iroca
         {
             if (data == null || data.maskWidth <= 0 || data.maskHeight <= 0) return;
 
-            maskWidth = data.maskWidth;
-            maskHeight = data.maskHeight;
-            exclusionMask = null;
-            zoneMasks.Clear();
-            zoneIncludeMasks.Clear();
+            Workspace.Reset(data.maskWidth, data.maskHeight);
 
+            // 寸法の合わない層は受け取らない(SetCommon・SetLayer)。
             if (!string.IsNullOrEmpty(data.commonMaskBase64))
-            {
-                var m = DecodeMask(data.commonMaskBase64, out int w, out int h);
-                if (m != null && w == maskWidth && h == maskHeight)
-                    exclusionMask = m;
-            }
+                Workspace.SetCommon(MaskRle.DecodeBits(data.commonMaskBase64));
 
-            DecodePresetEntries(data.zoneMasks, zoneMasks);
+            DecodePresetEntries(data.zoneMasks, include: false);
 
             // 含めるマスク(v2)。旧プリセットでは欠落フィールド=空リスト。
-            DecodePresetEntries(data.zoneIncludeMasks, zoneIncludeMasks);
+            DecodePresetEntries(data.zoneIncludeMasks, include: true);
 
             SaveToSession();
         }
 
         /// <summary>
-        /// プリセットのエントリ列を dst へ展開する(除外・含めるで共通)。
-        /// zoneId が空・デコード失敗・寸法不一致の項目は捨てる。src が null なら何もしない。
+        /// プリセットのエントリ列を編集中のマスクの層へ展開する(除外・含めるで共通)。
+        /// zoneId が空・デコード失敗・寸法不一致の項目は捨てる。同じ zoneId は後の項目が勝つ。src が null なら何もしない。
         /// </summary>
-        private void DecodePresetEntries(List<ZoneMaskEntry> src, Dictionary<string, bool[]> dst)
+        private void DecodePresetEntries(List<ZoneMaskEntry> src, bool include)
         {
             if (src == null) return;
             foreach (var e in src)
             {
                 if (e == null || string.IsNullOrEmpty(e.zoneId)) continue;
-                var m = DecodeMask(e.maskBase64, out int w, out int h);
-                if (m == null || w != maskWidth || h != maskHeight) continue;
-                dst[e.zoneId] = m;
+                Workspace.SetLayer(include, e.zoneId, MaskRle.DecodeBits(e.maskBase64));
             }
         }
 
@@ -327,15 +292,16 @@ namespace Iroca
 
             bool includedAnything = false;
 
-            if (exclusionMask != null && MaskSnapshot.AnyTrue(exclusionMask))
+            var common = Workspace.Common;
+            if (common != null && common.Any())
             {
-                data.commonMaskBase64 = EncodeMask(exclusionMask, maskWidth, maskHeight);
+                data.commonMaskBase64 = MaskRle.EncodeBits(common);
                 includedAnything = true;
             }
 
             // |= は短絡しないので、除外が書けても含めるマスクも必ず書く(|| にしない)。
-            includedAnything |= EncodePresetEntries(zoneMasks, data.zoneMasks);
-            includedAnything |= EncodePresetEntries(zoneIncludeMasks, data.zoneIncludeMasks);
+            includedAnything |= EncodePresetEntries(Workspace.Layers(false), data.zoneMasks);
+            includedAnything |= EncodePresetEntries(Workspace.Layers(true), data.zoneIncludeMasks);
 
             if (includedAnything)
             {
@@ -347,16 +313,16 @@ namespace Iroca
         /// <summary>
         /// 全 false でないマスクを dst へ書き足す(除外・含めるで共通)。何か足したら true。
         /// </summary>
-        private bool EncodePresetEntries(Dictionary<string, bool[]> src, List<ZoneMaskEntry> dst)
+        private static bool EncodePresetEntries(IEnumerable<KeyValuePair<string, NativeBitMask>> src, List<ZoneMaskEntry> dst)
         {
             bool added = false;
             foreach (var kv in src)
             {
-                if (kv.Value == null || !MaskSnapshot.AnyTrue(kv.Value)) continue;
+                if (!kv.Value.Any()) continue;
                 dst.Add(new ZoneMaskEntry
                 {
                     zoneId = kv.Key,
-                    maskBase64 = EncodeMask(kv.Value, maskWidth, maskHeight),
+                    maskBase64 = MaskRle.EncodeBits(kv.Value),
                 });
                 added = true;
             }

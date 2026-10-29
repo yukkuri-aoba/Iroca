@@ -5,6 +5,9 @@
     "Code/Debug/": "開発者だけが使う診断(デバッグの記録・再現データの書き出し)。配布の zip に入らない(Build-VpmPackage.ps1 が除く)。2026-10-28 決定"
   },
   "allowed": {
+    "Code/Application/MaskWorkspace.cs": {
+      "new bool[len]": 1
+    },
     "Code/Application/SourcePixelCache.cs": {
       ".GetPixels32()": 1
     },
@@ -105,16 +108,10 @@
       "new Color32[detailCropW * detailCropH]": 1
     },
     "Code/UI/IrocaWindow.AutoTune.cs": {
-      ".GetPixels32()": 1,
-      "new bool[len]": 1
+      ".GetPixels32()": 1
     },
     "Code/UI/MaskPaintView.Overlay.cs": {
-      "new Color32[w * h]": 2,
-      "new bool[w * h]": 1
-    },
-    "Code/UI/MaskPaintView.cs": {
-      "new bool[len]": 2,
-      "new bool[newW * newH]": 1
+      "new Color32[w * h]": 2
     },
     "Code/UI/PreviewView.ContextMenu.cs": {
       "new int[(x1 - x0 + 1) * (y1 - y0 + 1)]": 1

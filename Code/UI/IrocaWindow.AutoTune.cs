@@ -133,21 +133,7 @@ namespace Iroca
             mw = _maskView != null ? _maskView.maskWidth : 0;
             mh = _maskView != null ? _maskView.maskHeight : 0;
             if (_maskView == null || mw <= 0 || mh <= 0) return null;
-
-            bool[] common = _maskView.exclusionMask;
-            bool[] zoneMask = null;
-            if (!string.IsNullOrEmpty(zone.id) && _maskView.zoneMasks != null)
-                _maskView.zoneMasks.TryGetValue(zone.id, out zoneMask);
-
-            int len = mw * mh;
-            bool commonOk = common != null && common.Length >= len;
-            bool zoneOk = zoneMask != null && zoneMask.Length >= len;
-            if (!commonOk && !zoneOk) return null;
-
-            var combined = new bool[len];
-            for (int i = 0; i < len; i++)
-                combined[i] = (commonOk && common[i]) || (zoneOk && zoneMask[i]);
-            return combined;
+            return _maskView.Workspace.CombinedExclusion(zone.id);
         }
 
         private void RunAutoTune(ColorZone zone)

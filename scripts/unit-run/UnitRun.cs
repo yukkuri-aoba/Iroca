@@ -735,7 +735,7 @@ namespace Iroca.UnitRun
         }
 
         // ─── MaskRegionEdit(右クリックの「ここも塗る / ここは塗らない / この部分だけ塗る」) ───
-        // 画素は 6 つ: 範囲 = [0..2]、範囲の外 = [3..5]。
+        // 画素は 6 つ: 範囲 = [0..2]、範囲の外 = [3..5]。範囲は bool[]、マスクの層は 1 画素 1 ビットの語の並び。
 
         private static bool[] Mask(params int[] on)
         {
@@ -744,21 +744,56 @@ namespace Iroca.UnitRun
             return m;
         }
 
-        private static string Bits(bool[] m)
+        private static ulong[] Layer(params int[] on) => PackBits(6, on);
+
+        private static ulong[] PackBits(int n, params int[] on)
         {
-            var c = new char[m.Length];
-            for (int i = 0; i < m.Length; i++) c[i] = m[i] ? '1' : '0';
+            var b = new ulong[(n + 63) >> 6];
+            foreach (int i in on) b[i >> 6] |= 1UL << (i & 63);
+            return b;
+        }
+
+        private static bool Bit(ulong[] b, int i) => (b[i >> 6] & (1UL << (i & 63))) != 0UL;
+
+        private static string Bits(ulong[] b)
+        {
+            var c = new char[6];
+            for (int i = 0; i < 6; i++) c[i] = Bit(b, i) ? '1' : '0';
             return new string(c);
+        }
+
+        private static int CountBits(ulong[] b, int n)
+        {
+            int k = 0;
+            for (int i = 0; i < n; i++) if (Bit(b, i)) k++;
+            return k;
+        }
+
+        private static unsafe MaskRegionEditResult Apply(MaskRegionOp op, ulong[] ex, ulong[] inc, ulong[] common)
+        {
+            fixed (ulong* e = ex, i = inc, c = common) return MaskRegionEdit.Apply(op, Region, e, i, c);
+        }
+
+        private static unsafe void Span(ulong[] target, ulong[] opposite, int start, int end, bool paint)
+        {
+            fixed (ulong* t = target, o = opposite) MaskRegionEdit.BrushSpan(t, o, start, end, paint);
+        }
+
+        private static unsafe void Stamp(ulong[] target, ulong[] opposite, int w, int h, float cx, float cy, float r,
+                                         bool paint, out int x0, out int y0, out int x1, out int y1)
+        {
+            fixed (ulong* t = target, o = opposite)
+                MaskRegionEdit.StampDisk(t, o, w, h, cx, cy, r, paint, out x0, out y0, out x1, out y1);
         }
 
         private static readonly bool[] Region = Mask(0, 1, 2);
 
         public static void MaskEdit_PaintHere_IncludesAndClearsZoneExclusion()
         {
-            var ex = Mask(1, 4);           // 範囲の中 1 と外 4 を外していた
-            var inc = Mask(5);
-            var common = Mask(2, 3);
-            var r = MaskRegionEdit.Apply(MaskRegionOp.PaintHere, Region, ex, inc, common);
+            var ex = Layer(1, 4);          // 範囲の中 1 と外 4 を外していた
+            var inc = Layer(5);
+            var common = Layer(2, 3);
+            var r = Apply(MaskRegionOp.PaintHere, ex, inc, common);
             Check.Equal("111001", Bits(inc), "include = 範囲 + 既存");
             Check.Equal("000010", Bits(ex), "範囲の中の除外だけ消える");
             Check.Equal("001100", Bits(common), "共通の除外は触らない");
@@ -768,17 +803,17 @@ namespace Iroca.UnitRun
 
         public static void MaskEdit_PaintHere_AllowsMissingExclusion()
         {
-            var inc = Mask();
-            var r = MaskRegionEdit.Apply(MaskRegionOp.PaintHere, Region, null, inc, null);
+            var inc = Layer();
+            var r = Apply(MaskRegionOp.PaintHere, null, inc, null);
             Check.Equal("111000", Bits(inc), "include");
             Check.Equal(0, r.commonOverlap, "no common");
         }
 
         public static void MaskEdit_DontPaintHere_ExcludesAndClearsInclude()
         {
-            var ex = Mask(4);
-            var inc = Mask(0, 5);
-            var r = MaskRegionEdit.Apply(MaskRegionOp.DontPaintHere, Region, ex, inc, null);
+            var ex = Layer(4);
+            var inc = Layer(0, 5);
+            var r = Apply(MaskRegionOp.DontPaintHere, ex, inc, null);
             Check.Equal("111010", Bits(ex), "exclude = 範囲 + 既存");
             Check.Equal("000001", Bits(inc), "範囲の中の含めるだけ消える");
             Check.Equal(4, r.changed, "除外 3 + 含めるを消す 1");
@@ -786,17 +821,17 @@ namespace Iroca.UnitRun
 
         public static void MaskEdit_DontPaintHere_CommonWithoutInclude()
         {
-            var common = Mask(5);
-            MaskRegionEdit.Apply(MaskRegionOp.DontPaintHere, Region, common, null, null);
+            var common = Layer(5);
+            Apply(MaskRegionOp.DontPaintHere, common, null, null);
             Check.Equal("111001", Bits(common), "共通の除外へ足す");
         }
 
         public static void MaskEdit_OnlyThisPart_ExcludesOutsideOnly()
         {
-            var ex = Mask(1);              // 範囲の中で外していた所は、この部分を塗るので消す
-            var inc = Mask(2, 4);          // 範囲の外の含めるは消し、中は残す
-            var common = Mask(0);
-            var r = MaskRegionEdit.Apply(MaskRegionOp.OnlyThisPart, Region, ex, inc, common);
+            var ex = Layer(1);             // 範囲の中で外していた所は、この部分を塗るので消す
+            var inc = Layer(2, 4);         // 範囲の外の含めるは消し、中は残す
+            var common = Layer(0);
+            var r = Apply(MaskRegionOp.OnlyThisPart, ex, inc, common);
             Check.Equal("000111", Bits(ex), "範囲の外だけ除外");
             Check.Equal("001000", Bits(inc), "範囲の中の含めるは残る(足しもしない)");
             Check.Equal(1, r.commonOverlap, "範囲の中の共通の重なり");
@@ -806,14 +841,14 @@ namespace Iroca.UnitRun
         public static void MaskEdit_LaterInstructionWins()
         {
             // 塗る → 塗らない: 除外だけが残る(含めるが残っていても除外が勝つが、見た目と食い違わないよう消す)。
-            var ex = Mask();
-            var inc = Mask();
-            MaskRegionEdit.Apply(MaskRegionOp.PaintHere, Region, ex, inc, null);
-            MaskRegionEdit.Apply(MaskRegionOp.DontPaintHere, Region, ex, inc, null);
+            var ex = Layer();
+            var inc = Layer();
+            Apply(MaskRegionOp.PaintHere, ex, inc, null);
+            Apply(MaskRegionOp.DontPaintHere, ex, inc, null);
             Check.Equal("111000", Bits(ex), "paint→dont: excluded");
             Check.Equal("000000", Bits(inc), "paint→dont: not included");
             // 塗らない → 塗る: 含めるだけが残る(除外が残ると合成で含めるが無効になる)。
-            MaskRegionEdit.Apply(MaskRegionOp.PaintHere, Region, ex, inc, null);
+            Apply(MaskRegionOp.PaintHere, ex, inc, null);
             Check.Equal("000000", Bits(ex), "dont→paint: not excluded");
             Check.Equal("111000", Bits(inc), "dont→paint: included");
         }
@@ -876,46 +911,40 @@ namespace Iroca.UnitRun
         public static void MaskEdit_StampDiskPaintsPixelsInsideCircle()
         {
             const int W = 11, H = 11;
-            var target = new bool[W * H];
-            var opposite = new bool[W * H];
-            for (int i = 0; i < opposite.Length; i++) opposite[i] = true;
+            var target = PackBits(W * H);
+            var opposite = PackBits(W * H, Enumerable.Range(0, W * H).ToArray());
             // 中心が画素 (5,5) の中心、半径 1.5: 中心からの距離が 1.5 以下の画素(3x3 の 9 画素)。
-            MaskRegionEdit.StampDisk(target, opposite, W, H, 5.5f, 5.5f, 1.5f, true,
-                                     out int x0, out int y0, out int x1, out int y1);
-            int n = 0;
-            for (int i = 0; i < target.Length; i++) if (target[i]) n++;
-            Check.Equal(9, n, "painted pixels");
-            Check.True(target[5 * W + 5] && target[4 * W + 4] && target[6 * W + 6], "3x3 painted");
-            Check.True(!opposite[5 * W + 5] && opposite[5 * W + 8], "opposite cleared under the brush only");
+            Stamp(target, opposite, W, H, 5.5f, 5.5f, 1.5f, true, out int x0, out int y0, out int x1, out int y1);
+            Check.Equal(9, CountBits(target, W * H), "painted pixels");
+            Check.True(Bit(target, 5 * W + 5) && Bit(target, 4 * W + 4) && Bit(target, 6 * W + 6), "3x3 painted");
+            Check.True(!Bit(opposite, 5 * W + 5) && Bit(opposite, 5 * W + 8), "opposite cleared under the brush only");
             Check.Equal(4, x0, "bbox x0"); Check.Equal(4, y0, "bbox y0");
             Check.Equal(7, x1, "bbox x1"); Check.Equal(7, y1, "bbox y1");
             // 消す: 塗った円の中だけ消え、反対側の層には触らない。
-            MaskRegionEdit.StampDisk(target, opposite, W, H, 5.5f, 5.5f, 0.5f, false, out _, out _, out _, out _);
-            Check.True(!target[5 * W + 5] && target[4 * W + 4], "erase center only");
+            Stamp(target, opposite, W, H, 5.5f, 5.5f, 0.5f, false, out _, out _, out _, out _);
+            Check.True(!Bit(target, 5 * W + 5) && Bit(target, 4 * W + 4), "erase center only");
         }
 
         public static void MaskEdit_StampDiskTinyBrushPaintsCenterPixel()
         {
             const int W = 8, H = 8;
-            var target = new bool[W * H];
+            var target = PackBits(W * H);
             // 半径 0(拡大して最小のブラシ): 中心が画素の中心から外れていても、その画素は塗る。
-            MaskRegionEdit.StampDisk(target, null, W, H, 3.9f, 2.1f, 0f, true, out int x0, out int y0, out int x1, out int y1);
-            int n = 0;
-            for (int i = 0; i < target.Length; i++) if (target[i]) n++;
-            Check.Equal(1, n, "one pixel");
-            Check.True(target[2 * W + 3], "the pixel under the center");
+            Stamp(target, null, W, H, 3.9f, 2.1f, 0f, true, out int x0, out int y0, out int x1, out int y1);
+            Check.Equal(1, CountBits(target, W * H), "one pixel");
+            Check.True(Bit(target, 2 * W + 3), "the pixel under the center");
             Check.Equal(3, x0, "bbox x0"); Check.Equal(4, x1, "bbox x1");
             // 画像の外にかかる円は切る(落ちない)。
-            MaskRegionEdit.StampDisk(target, null, W, H, -1f, -1f, 2.2f, true, out x0, out y0, out x1, out y1);
-            Check.True(target[0] && x0 == 0 && y0 == 0, "clipped at the corner");
+            Stamp(target, null, W, H, -1f, -1f, 2.2f, true, out x0, out y0, out x1, out y1);
+            Check.True(Bit(target, 0) && x0 == 0 && y0 == 0, "clipped at the corner");
         }
 
         public static void MaskEdit_BrushPaintClearsOppositeLayerInSpanOnly()
         {
             // 含めるを [1, 4) に塗る: 同じゾーンの除外はその区間だけ消え、区間の外(0, 4, 5)は残る。
-            var inc = Mask();
-            var ex = Mask(0, 1, 2, 3, 4, 5);
-            MaskRegionEdit.BrushSpan(inc, ex, 1, 4, paint: true);
+            var inc = Layer();
+            var ex = Layer(0, 1, 2, 3, 4, 5);
+            Span(inc, ex, 1, 4, paint: true);
             Check.Equal("011100", Bits(inc), "painted span");
             Check.Equal("100011", Bits(ex), "opposite cleared in span only");
         }
@@ -923,20 +952,20 @@ namespace Iroca.UnitRun
         public static void MaskEdit_BrushEraseKeepsOppositeLayer()
         {
             // 消しゴムは塗っている層だけを消す(反対側の層まで消すと、消しただけで別の指定が消える)。
-            var inc = Mask(0, 1, 2);
-            var ex = Mask(1, 2, 3);
-            MaskRegionEdit.BrushSpan(inc, ex, 0, 6, paint: false);
+            var inc = Layer(0, 1, 2);
+            var ex = Layer(1, 2, 3);
+            Span(inc, ex, 0, 6, paint: false);
             Check.Equal("000000", Bits(inc), "erased");
             Check.Equal("011100", Bits(ex), "opposite untouched");
             // 反対側の層が無い(null)ときも塗れる。
-            MaskRegionEdit.BrushSpan(inc, null, 2, 3, paint: true);
+            Span(inc, null, 2, 3, paint: true);
             Check.Equal("001000", Bits(inc), "no opposite layer");
         }
 
         public static void MaskEdit_NoChangeReportsZero()
         {
-            var ex = Mask(3, 4, 5);
-            var r = MaskRegionEdit.Apply(MaskRegionOp.OnlyThisPart, Region, ex, null, null);
+            var ex = Layer(3, 4, 5);
+            var r = Apply(MaskRegionOp.OnlyThisPart, ex, null, null);
             Check.Equal(0, r.changed, "already only this part");
         }
 

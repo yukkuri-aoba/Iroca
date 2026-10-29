@@ -7,7 +7,7 @@ using UnityEngine;
 namespace Iroca
 {
     /// <summary>
-    /// マスク対象選択・ブラシ入力・オーバーレイ生成(MaskPaintView.Overlay.cs)・bool[] バッファと
+    /// マスク対象選択・ブラシ入力・オーバーレイ生成(MaskPaintView.Overlay.cs)・編集中のマスク(<see cref="MaskWorkspace"/>)と
     /// _session.maskState の同期を担当する。
     /// ゾーン本体の編集 UI、プレビュー生成本体、プリセット一覧、エクスポートは扱わない。
     /// </summary>
@@ -24,17 +24,14 @@ namespace Iroca
         public bool editIncludeLayer;
         public bool maskFoldout = true;
 
-        // 共通マスク（フル解像度、true = 除外）。全ゾーンに適用される。
-        [System.NonSerialized] public bool[] exclusionMask;
-        [System.NonSerialized] public int maskWidth, maskHeight;
+        // 編集中のマスク(全ゾーン共通の除外・ゾーン別の除外・ゾーン別の含める。元画像の解像度、1 画素 1 ビット、
+        // ヒープの外)。保存形式との変換・スナップショットもここを通る。
+        [System.NonSerialized] private MaskWorkspace _workspace = new MaskWorkspace();
+        internal MaskWorkspace Workspace => _workspace ??= new MaskWorkspace();
 
-        // ゾーン別マスク: key = ColorZone.id。配列サイズは maskWidth * maskHeight。
-        // 値が null のエントリは持たない（存在しない = 全ピクセル非除外扱い）。
-        [System.NonSerialized] public Dictionary<string, bool[]> zoneMasks = new Dictionary<string, bool[]>();
-
-        // ゾーン別「含める」マスク: key = ColorZone.id、true = 強制的に色替えへ含める。
-        // 除外と同じキャンバス寸法(maskWidth × maskHeight)。null 値のエントリは持たない。
-        [System.NonSerialized] public Dictionary<string, bool[]> zoneIncludeMasks = new Dictionary<string, bool[]>();
+        /// <summary>マスクの土台の寸法(0 = まだ決まっていない)。</summary>
+        public int maskWidth => Workspace.Width;
+        public int maskHeight => Workspace.Height;
 
         // マスクオーバーレイ（テクスチャは都度再構築するのでシリアライズ不要）
         [System.NonSerialized] public Texture2D maskOverlayTexture;
@@ -302,7 +299,7 @@ namespace Iroca
                                   ActiveTargetName(), ActiveLayerName()),
                     Localization.ClearMaskTooltip)))
             {
-                // bool[] バッファを _session.maskState に同期してから Undo 登録、クリア後に再同期。
+                // 編集中のマスクを _session.maskState に同期してから Undo 登録、クリア後に再同期。
                 SyncBuffersToState();
                 Undo.RegisterCompleteObjectUndo(_host, "Clear Mask");
                 ClearActiveMask();
@@ -423,7 +420,7 @@ namespace Iroca
         /// 解像度が変わったときは既存マスクを新しい座標系へ最近傍でリスケールする
         /// （破棄すると import Max Size を変えただけで描いたマスクが消え、
         /// その状態が次回保存で永続化されてしまう）。
-        /// 共通マスク <see cref="exclusionMask"/> の確保は行わない（アクティブターゲットが
+        /// 共通マスクの確保は行わない（アクティブターゲットが
         /// ゾーンだけの場合に zone-only mask を巻き込んで消さないため）。
         /// </summary>
         public void EnsureMasks()
@@ -435,22 +432,15 @@ namespace Iroca
             if (maskWidth != w || maskHeight != h)
             {
                 int oldW = maskWidth, oldH = maskHeight;
-                bool hadData = exclusionMask != null || zoneMasks.Count > 0 || zoneIncludeMasks.Count > 0;
-                if (hadData && oldW > 0 && oldH > 0)
+                if (Workspace.HasLayers && oldW > 0 && oldH > 0)
                 {
-                    exclusionMask = RescaleMask(exclusionMask, oldW, oldH, w, h);
-                    RescaleLayer(zoneMasks, oldW, oldH, w, h);
-                    RescaleLayer(zoneIncludeMasks, oldW, oldH, w, h);
+                    Workspace.Rescale(w, h);
                     Debug.Log($"[Iroca] テクスチャ解像度の変更 ({oldW}x{oldH} → {w}x{h}) に合わせてマスクをリスケールしました。");
                 }
                 else
                 {
-                    exclusionMask = null;
-                    zoneMasks.Clear();
-                    zoneIncludeMasks.Clear();
+                    Workspace.Reset(w, h);
                 }
-                maskWidth = w;
-                maskHeight = h;
                 maskDirty = true;
             }
         }
@@ -488,74 +478,25 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 旧解像度の bool マスクを新解像度へ最近傍でリスケールする。
-        /// サンプリング式は処理側（PixelProcessor の <c>mx = x * maskW / texW</c>）と同じ
-        /// 整数切り捨てで、適用結果の対応関係を保つ。<c>null</c> や不整合サイズは <c>null</c> を返す。
-        /// </summary>
-        private static bool[] RescaleMask(bool[] src, int oldW, int oldH, int newW, int newH)
-        {
-            if (src == null || src.Length != oldW * oldH || newW <= 0 || newH <= 0) return null;
-            var dst = new bool[newW * newH];
-            for (int y = 0; y < newH; y++)
-            {
-                int oy = (int)((long)y * oldH / newH);
-                int rowOld = oy * oldW;
-                int rowNew = y * newW;
-                for (int x = 0; x < newW; x++)
-                {
-                    int ox = (int)((long)x * oldW / newW);
-                    dst[rowNew + x] = src[rowOld + ox];
-                }
-            }
-            return dst;
-        }
-
-        /// <summary>
-        /// ゾーン別マスクの辞書（<see cref="zoneMasks"/> = 除外 / <see cref="zoneIncludeMasks"/> = 含める）の
-        /// 全エントリを <see cref="RescaleMask"/> で新解像度へ揃える。リスケールできないエントリは削除する。
-        /// </summary>
-        private static void RescaleLayer(Dictionary<string, bool[]> layer, int oldW, int oldH, int w, int h)
-        {
-            var keys = new List<string>(layer.Keys);
-            foreach (var key in keys)
-            {
-                var scaled = RescaleMask(layer[key], oldW, oldH, w, h);
-                if (scaled != null) layer[key] = scaled;
-                else layer.Remove(key); // 不変条件: null 値のエントリは持たない
-            }
-        }
-
-        /// <summary>
-        /// 共通マスク bool[] を遅延確保する。<see cref="EnsureMasks"/> は座標系のみを扱い、
+        /// 共通マスクを遅延確保して、書ける状態で返す。<see cref="EnsureMasks"/> は座標系のみを扱い、
         /// このメソッドは「実際に共通マスクへ書き込む直前」にだけ呼ぶ。
         /// </summary>
-        private bool[] EnsureCommonMask()
+        private NativeBitMask EnsureCommonMask()
         {
             EnsureMasks();
-            if (maskWidth <= 0 || maskHeight <= 0) return null;
-            int len = maskWidth * maskHeight;
-            if (exclusionMask == null || exclusionMask.Length != len)
-                exclusionMask = new bool[len];
-            return exclusionMask;
+            return Workspace.WritableCommon();
         }
 
         /// <summary>
-        /// 指定ゾーンの、<paramref name="layer"/>（<see cref="zoneMasks"/> = 除外 /
-        /// <see cref="zoneIncludeMasks"/> = 含める）のマスクを確保（存在しなければ新規作成）して返す。
+        /// 指定ゾーンの、含める(<paramref name="include"/>)か除外のマスクを確保(存在しなければ新規作成)して、書ける状態で返す。
         /// </summary>
-        private bool[] EnsureZoneLayer(Dictionary<string, bool[]> layer, string zoneId)
+        private NativeBitMask EnsureZoneLayer(bool include, string zoneId)
         {
             EnsureMasks();
-            if (string.IsNullOrEmpty(zoneId)) return null;
-            if (maskWidth <= 0 || maskHeight <= 0) return null;
-            int len = maskWidth * maskHeight;
-            if (!layer.TryGetValue(zoneId, out var m) || m == null || m.Length != len)
-            {
-                m = new bool[len];
-                layer[zoneId] = m;
-            }
-            return m;
+            return Workspace.WritableLayer(include, zoneId);
         }
+
+        private static unsafe ulong* BitsOf(NativeBitMask m) => m != null ? m.Bits : null;
 
         /// <summary>
         /// 現在のアクティブターゲット（共通 or ゾーン）× レイヤー(除外 or 含める)の
@@ -564,7 +505,7 @@ namespace Iroca
         /// 共通ターゲット × 含めるレイヤーは存在しない組み合わせで null を返す
         /// (UI 側は EnforceLayerConsistency がこの状態を解消する。データ経路の防御)。
         /// </summary>
-        public bool[] GetActiveMaskArray()
+        private NativeBitMask ActiveLayerForWrite()
         {
             var zones = _host.Session.zones;
             if (IsCommonTarget(zones))
@@ -572,7 +513,7 @@ namespace Iroca
 
             var zone = zones[activeMaskTarget];
             zone.EnsureId();
-            return editIncludeLayer ? EnsureZoneLayer(zoneIncludeMasks, zone.id) : EnsureZoneLayer(zoneMasks, zone.id);
+            return EnsureZoneLayer(editIncludeLayer, zone.id);
         }
 
         /// <summary>
@@ -609,14 +550,15 @@ namespace Iroca
         /// (規則は <see cref="MaskRegionEdit"/>)。AI 提案と右クリックメニューの共通の出口。
         /// 宛先のゾーンが消えた・共通に塗らない以外を当てようとした・寸法違いなら false。
         /// </summary>
-        public bool ApplyRegion(bool[] region, MaskDestination d, out MaskRegionEditResult result)
+        public unsafe bool ApplyRegion(bool[] region, MaskDestination d, out MaskRegionEditResult result)
         {
             result = default;
             EnsureMasks();
             int len = maskWidth * maskHeight;
             if (region == null || len <= 0 || region.Length != len) return false;
 
-            bool[] exclude, include = null, common = null;
+            // 書く層は自分だけのものにしてから渡す(重ね表示のワーカーが読んでいれば写す)。共通は重なりを数えるだけ。
+            NativeBitMask exclude, include = null, common = null;
             if (d.zoneId == null)
             {
                 if (d.op != MaskRegionOp.DontPaintHere) return false;
@@ -625,24 +567,22 @@ namespace Iroca
             else
             {
                 if (FindZone(d.zoneId) == null) return false;
-                common = exclusionMask;
+                common = Workspace.Common;
                 if (d.op == MaskRegionOp.PaintHere)
                 {
-                    include = EnsureZoneLayer(zoneIncludeMasks, d.zoneId);
-                    zoneMasks.TryGetValue(d.zoneId, out exclude);
+                    include = EnsureZoneLayer(true, d.zoneId);
+                    exclude = Workspace.WritableExistingLayer(false, d.zoneId);
                 }
                 else
                 {
-                    exclude = EnsureZoneLayer(zoneMasks, d.zoneId);
-                    zoneIncludeMasks.TryGetValue(d.zoneId, out include);
+                    exclude = EnsureZoneLayer(false, d.zoneId);
+                    include = Workspace.WritableExistingLayer(true, d.zoneId);
                 }
             }
-            if (exclude != null && exclude.Length != len) return false;
-            if (include != null && include.Length != len) return false;
-            if (common != null && common.Length != len) common = null;
+            if (d.op == MaskRegionOp.PaintHere ? include == null : exclude == null) return false;
 
             BeginStroke();
-            result = MaskRegionEdit.Apply(d.op, region, exclude, include, common);
+            result = MaskRegionEdit.Apply(d.op, region, BitsOf(exclude), BitsOf(include), BitsOf(common));
             EndStroke();
             maskDirty = true;
             _host.MarkPreviewDirtyFullRefine();
@@ -685,14 +625,13 @@ namespace Iroca
             if (activeMaskTarget < 0)
             {
                 // 共通ターゲットに含めるレイヤーは存在しない(EnforceLayerConsistency 済み)。
-                if (!editIncludeLayer) exclusionMask = null;
+                if (!editIncludeLayer) Workspace.SetCommon(null);
             }
             else if (zones != null && activeMaskTarget < zones.Count)
             {
                 var zone = zones[activeMaskTarget];
                 zone.EnsureId();
-                if (editIncludeLayer) zoneIncludeMasks.Remove(zone.id);
-                else zoneMasks.Remove(zone.id);
+                Workspace.RemoveLayer(editIncludeLayer, zone.id);
             }
         }
 
@@ -704,11 +643,7 @@ namespace Iroca
             var zones = _host.Session.zones;
             if (zones == null || index < 0 || index >= zones.Count) return;
             string id = zones[index].id;
-            if (!string.IsNullOrEmpty(id))
-            {
-                zoneMasks.Remove(id);
-                zoneIncludeMasks.Remove(id);
-            }
+            if (!string.IsNullOrEmpty(id)) Workspace.RemoveZone(id);
 
             // 編集対象(=いま直しているゾーン)を消したら、残ったゾーンのうち同じ位置(末尾なら 1 つ上)へ移す。
             // 共通へ戻すと、右クリックの「ここも塗る」などがゾーン無しの扱いになってしまう。
@@ -764,9 +699,9 @@ namespace Iroca
         /// 画素単位で塗っても拡大して見れば塗ったとおりに見える。全体表示のプレビュー(縮小)は、ブロック先頭の
         /// 1 画素を読むので、円の縁が 1 セル程度ずれて見えることがある。
         /// </summary>
-        public void PaintMask(Vector2 uvPos, float radiusPx)
+        public unsafe void PaintMask(Vector2 uvPos, float radiusPx)
         {
-            bool[] target = GetActiveMaskArray();
+            var target = ActiveLayerForWrite();
             if (target == null) return;
             if (maskWidth <= 0 || maskHeight <= 0) return;
 
@@ -774,12 +709,12 @@ namespace Iroca
             bool value = !brushEraseMode;
             // 後から塗ったほうが勝つ: ゾーンの「含める」を塗ったら、ブラシの下の同じゾーンの「除外」を消す(逆も同じ)。
             // 合成は「除外が勝つ」ので、消さないと含めるを塗っても効かず、重ね表示も 2 色が混ざる(2026-10-06)。
-            bool[] opposite = value ? OppositeZoneLayer() : null;
-            MaskRegionEdit.StampDisk(target, opposite, maskWidth, maskHeight, cx, cy, radiusPx, value,
+            var opposite = value ? OppositeZoneLayer() : null;
+            MaskRegionEdit.StampDisk(target.Bits, BitsOf(opposite), maskWidth, maskHeight, cx, cy, radiusPx, value,
                                      out int x0, out int y0, out int x1, out int y1);
             if (x1 <= x0) return;
 
-            // オーバーレイ直接書き込み: 非同期再構築のスロットル待ちとフル解像度 bool[] clone をストローク中に
+            // オーバーレイ直接書き込み: 非同期再構築のスロットル待ちとマスクの読み直しをストローク中に
             // 発生させず、塗った所をすぐ見せる。全体用のオーバーレイ(表示格子の整数倍)と、拡大表示用の
             // 等倍オーバーレイ(見えている範囲)の両方へ、同じ円を各自の解像度で書く。書けないとき(未生成)は
             // 従来どおり maskDirty を立てて非同期再構築に任せる。ストロークの終わりに正規の再構築で揃う。
@@ -843,20 +778,18 @@ namespace Iroca
 
         /// <summary>
         /// ブラシで塗るとき、ブラシの下で消す反対側の層(編集中のゾーンの、含めるなら除外・除外なら含める)。
-        /// 無ければ null(確保はしない)。共通マスクを塗るときも null: 共通の除外は「どのゾーンでも塗らない」
+        /// 無ければ null(確保はしない。あれば書ける状態で返す)。共通マスクを塗るときも null: 共通の除外は「どのゾーンでも塗らない」
         /// 指定で合成でもゾーンの含めるに勝つので、ゾーンの含めるは消さずに残す。
         /// 反対側を消したセルの表示は、同じゾーン用オーバーレイへの直接書き込み(新しい層の色で上書き)と、
         /// ストローク終了時の再構築(EndStroke の maskDirty)で揃う。
         /// </summary>
-        private bool[] OppositeZoneLayer()
+        private NativeBitMask OppositeZoneLayer()
         {
             var zones = _host.Session.zones;
             if (IsCommonTarget(zones)) return null;
             var zone = zones[activeMaskTarget];
             zone.EnsureId();
-            var layers = editIncludeLayer ? zoneMasks : zoneIncludeMasks;
-            return layers.TryGetValue(zone.id, out var m) && m != null && m.Length == maskWidth * maskHeight
-                ? m : null;
+            return Workspace.WritableExistingLayer(!editIncludeLayer, zone.id);
         }
 
         /// <summary>
@@ -867,7 +800,7 @@ namespace Iroca
         {
             if (_maskStrokeStarted) return;
             _strokeHadDirectOverlayWrite = false;
-            // bool[] バッファの内容を _session.maskState に書き戻してから Undo 登録すれば、
+            // 編集中のマスクを _session.maskState に書き戻してから Undo 登録すれば、
             // 戻し操作でストローク開始前の状態に確実に復元できる。
             SyncBuffersToState();
             Undo.RegisterCompleteObjectUndo(_host, "Paint Mask Stroke");
@@ -875,7 +808,7 @@ namespace Iroca
         }
 
         /// <summary>
-        /// ペイントストローク終了時に呼び、ストローク後の bool[] を _session.maskState へ反映する。
+        /// ペイントストローク終了時に呼び、ストローク後のマスクを _session.maskState へ反映する。
         /// 次回の Undo でストローク開始前へ戻すための「変更後の状態」が確定する。
         /// </summary>
         public void EndStroke()
@@ -889,18 +822,9 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 現在のマスク状態をスナップショット化する（deep clone）。
+        /// 現在のマスク状態をスナップショット化する(写し。組み立ての規則は MaskSnapshot.FromBuffers と同じ)。
         /// </summary>
-        public MaskSnapshot BuildSnapshot()
-        {
-            // bool[] を 1bit/画素の ulong[] にパックする(従来の deep clone は 4K で 16.7MB/枚、
-            // プレビュー再生成・ペイントのたびに発生し GC を圧迫していた)。パックは clone と同じ
-            // O(N) だがアロケーションが 1/8 になる。作業用マスク(exclusionMask/zoneMasks)は bool[] のまま。
-            // 組み立て規則は Core の MaskSnapshot.FromBuffers が唯一の正(保存済みマスクから
-            // 作り直す非破壊ビルドと同じ規則を通す)。
-            return MaskSnapshot.FromBuffers(maskWidth, maskHeight,
-                exclusionMask, zoneMasks, zoneIncludeMasks);
-        }
+        public MaskSnapshot BuildSnapshot() => Workspace.ToSnapshot();
 
         /// <summary>
         /// 編集対象(=いま直しているゾーン)を既定へ戻す。ゾーンがあれば先頭のゾーン、無ければ共通。
@@ -932,6 +856,9 @@ namespace Iroca
             _suggestController = null;
             // メッシュの探索結果とチャート地図(4K で数十 MB)も手放す。次の右クリックで作り直す。
             _meshParts = null;
+            // 編集中のマスク(ヒープの外)も返す。ウィンドウを破棄するときだけ呼ばれ、マスクはその前に保存済み
+            // (OnDisable は保存より前に後片付けを呼ぶので、そこでは手放さない。空のマスクを保存してしまう)。
+            _workspace?.Clear();
         }
 
         public void SuspendTransientState()
