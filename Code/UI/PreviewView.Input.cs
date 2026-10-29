@@ -473,7 +473,7 @@ namespace Iroca
         // SetSource するために使う(別キーだとソース切替扱いになり埋め込みを捨てる)。
         internal string TrueSourceCacheKey()
         {
-            var sourceFor = _sources?.Texture;
+            var sourceFor = Sources?.Texture;
             string path = sourceFor != null ? AssetDatabase.GetAssetPath(sourceFor) : null;
             long ticks = 0;
             if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))

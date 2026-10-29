@@ -10,8 +10,8 @@ namespace Iroca
     /// OnDisable で外す。以前はウィンドウを型で探していた(<c>Resources.FindObjectsOfTypeAll&lt;IrocaWindow&gt;</c>)ので、
     /// ウィンドウより下の層(非破壊ビルド・更新の確認・自動化)は UI の型を知るしかなかった。
     /// 計画では Application の層だったが、Infra(非破壊ビルドの作業配列の手放し・更新の確認の再描画)からも使うので
-    /// Infra に置いた。持つのはウィンドウそのもの(UI の型は知らないので <see cref="EditorWindow"/> として持つ)で、
-    /// EditingSession(4-2 の 4)ができたらそれに替える。
+    /// Infra に置いた。持つのはウィンドウそのもの(UI の型は知らないので <see cref="EditorWindow"/> として持つ)。
+    /// 編集中の文書(EditingSession)は Application の層にあり、Infra からは見えないので持たない(ウィンドウから取る)。
     /// 並びは登録した順(先に開いたものが先頭)。ドメインリロードで空になり、ウィンドウの OnEnable がまた登録する。
     /// メインスレッド専用。
     /// </summary>

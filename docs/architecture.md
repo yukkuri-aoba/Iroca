@@ -32,7 +32,7 @@ Core         計算だけ（選択・マスクの適用・再着色・自動調�
 | `Code/Runtime` | 実行時（アバターに付けるコンポーネント） | Runtime |
 | `Code/Infra`・`Code/Text` | Infra | Core・Runtime・Infra・Text |
 | `Code/MaskSuggest`（Ops を除く） | Infra と同じ段（AI 提案の準備・窓口） | 上に MaskSuggest を足したもの |
-| `Code/Application`（4-2 で作り始めた。今は `SourcePixelCache` だけ） | Application | 上に Application を足したもの |
+| `Code/Application`（4-2 で作り始めた。今は `SourcePixelCache` と `EditingSession`） | Application | 上に Application を足したもの |
 | `Code/Automation` | Automation | 上に Automation を足したもの |
 | `Code/UI` | UI | 上に UI を足したもの |
 | `Code/NdmfIntegration`・`Code/SentisIntegration` | 統合 | Application まで（UI と自動化は使わない） |
@@ -108,7 +108,7 @@ partial のまま置いた）、`Pipeline/`（入口の `PixelProcessor.cs`・�
 
 | 部品 | 役割 |
 |---|---|
-| `EditingSession` | 編集中の文書（原本・結びついたレシピ・ゾーンと設定・マスク・自動調整の入力）。操作は Undo とマスクの同期をしてから `Changed(種類)` を出す |
+| `EditingSession` | 編集中の文書（原本・結びついたレシピ・ゾーンと設定・マスク・自動調整の入力）。操作は Undo とマスクの同期をしてから `Changed(種類)` を出す。今（4-2 の 4）は、ウィンドウが保存する編集状態を包むものと、原本の画素（`SourcePixelCache`）の持ち主。保存されるフィールドはウィンドウに残す |
 | `MaskWorkspace` | 編集中のマスク（1 画素 1 ビットのヒープの外のマスク） |
 | `SessionPersistence` | 復元の優先順（レシピ → セッションのファイル → 既定）・自動保存・外での書き換えの検出 |
 | `EditingSessionRegistry` | 開いている編集の一覧。ウィンドウを型で探す（`FindObjectsOfTypeAll<IrocaWindow>`）代わり。Infra の非破壊ビルドと更新の確認も使うので Infra に置いた（4-2） |

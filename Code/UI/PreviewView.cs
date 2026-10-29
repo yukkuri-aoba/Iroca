@@ -304,13 +304,13 @@ namespace Iroca
         // 分けてプロキシの再着色のみ変更も高速化する。テクスチャ/寸法変更時は _selectionCache と同時に Clear。
         [System.NonSerialized] private SelectionCache _proxySelectionCache;
 
-        // プレビュー処理に使う原本の画素(作業解像度。SourcePixelCache)。テクスチャ単位で持ち、取り込み後の寸法が
-        // 変わったら読み直す(EnsureTrueSource)。
-        [System.NonSerialized] private SourcePixelCache _sources;
-        private SourcePixelCache Sources => _sources ??= new SourcePixelCache();
-        private NativePixels TrueSource => _sources?.Pixels;
-        private int TrueSourceW => _sources?.Width ?? 0;
-        private int TrueSourceH => _sources?.Height ?? 0;
+        // プレビュー処理に使う原本の画素(作業解像度。SourcePixelCache)。持ち主は編集中の文書(EditingSession)で、
+        // テクスチャ単位で持つ。読み直すかどうか(取り込み後の寸法が変わった)と、原本から導いた状態を捨てるのは
+        // ここが決める(EnsureTrueSource)。
+        private SourcePixelCache Sources => _host?.Editing.Sources;
+        private NativePixels TrueSource => Sources?.Pixels;
+        private int TrueSourceW => Sources?.Width ?? 0;
+        private int TrueSourceH => Sources?.Height ?? 0;
         // 拡大表示に映す寸法(取り込み後の寸法。ゲームに出る大きさ。WorkingResolution.DisplaySize)の原本と、
         // フル段の出力をその寸法へ縮めたもの(面平均。非破壊ビルドがテクスチャを作るときと同じ縮小)。
         // 作業解像度のままでよいとき(取り込みで小さくならない・「元の解像度」の設定がオン)は null で、
@@ -435,8 +435,8 @@ namespace Iroca
         /// </summary>
         private bool EnsureTrueSource(Texture2D tex)
         {
-            if (tex == null) return false;
             var sources = Sources;
+            if (tex == null || sources == null) return false;
             if (sources.Texture == tex && sources.Pixels != null)
             {
                 if (sources.BasisWidth == tex.width && sources.BasisHeight == tex.height) return true;
@@ -463,7 +463,7 @@ namespace Iroca
         // 読んでいる途中のジョブは自分の参照を持っているので、ここで返しても消えない。
         private void DropTrueSource()
         {
-            _sources?.Clear();
+            Sources?.Clear();
             _displaySource?.Release();
             _displaySource = null;
             _displayW = _displayH = 0;

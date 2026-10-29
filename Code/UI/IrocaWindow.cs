@@ -220,6 +220,10 @@ namespace Iroca
         // 個別 [SerializeField] フィールド群を IrocaSessionState に集約したもの。
         [SerializeField] private IrocaSessionState _session = IrocaSessionState.CreateDefault();
 
+        // 編集中の文書。_session を包み(持ち主はこのウィンドウのまま)、原本の画素を持つ。
+        [System.NonSerialized] private EditingSession _editing;
+        internal EditingSession Editing => _editing ??= new EditingSession(() => _session);
+
         // partial class 内のコードが、集約前と同じフィールド名のまま _session 内のフィールドへ
         // アクセスできるようにするブリッジ。新規コードは _session.xxx を直接参照してよい。
         private List<ColorZone> zones { get => _session.zones; set => _session.zones = value; }
@@ -419,13 +423,7 @@ namespace Iroca
             tex != null && (TextureIO.IsReadable(tex)
                 || (_previewView != null && _previewView.CanProvideSourcePixels(tex)));
 
-        internal ColorZone FindZoneById(string id)
-        {
-            if (string.IsNullOrEmpty(id) || _session?.zones == null) return null;
-            foreach (var z in _session.zones)
-                if (z != null && z.id == id) return z;
-            return null;
-        }
+        internal ColorZone FindZoneById(string id) => Editing.FindZoneById(id);
 
         private void OnDestroy()
         {
@@ -445,12 +443,7 @@ namespace Iroca
         /// <summary>
         /// 現在の zones に対して id 未設定のものへ GUID を振る。
         /// </summary>
-        internal void EnsureAllZoneIds()
-        {
-            if (_session?.zones == null) return;
-            for (int i = 0; i < _session.zones.Count; i++)
-                _session.zones[i]?.EnsureId();
-        }
+        internal void EnsureAllZoneIds() => Editing.EnsureAllZoneIds();
 
         internal void ApplyMaskFromPreset(IrocaPresetData data) => _maskView?.ApplyFromPreset(data);
         internal void WriteMaskToPreset(IrocaPresetData data) => _maskView?.WriteToPreset(data);

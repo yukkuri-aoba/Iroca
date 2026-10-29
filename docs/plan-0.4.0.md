@@ -904,6 +904,16 @@ T5 で消える部分は作り直さない（1.5）。
       `RecipeTextureBuilder`（ウィンドウが開いていれば作業配列を返さない）と `UpdateCheck`（ウィンドウを描き直す）が使う。
       持つのはウィンドウそのもの（Infra は UI の型を知らないので `EditorWindow` として持つ）。`EditingSession`（4）が
       できたらそれに替える。
+  - 2026-10-29（手元）: 4 の `EditingSession` を `Code/Application/` に作った。ウィンドウが保存する編集状態（`_session`）を
+    包むものと、原本の画素（`SourcePixelCache`）の持ち主。`SourcePixelCache` は `PreviewView` からここへ移した（読み直すか
+    どうかの判断と、原本から導いた状態を捨てるのは `PreviewView` のまま）。ゾーンを id で探す・id を振るのもここへ移し、
+    ウィンドウは転送する。
+    - **決めたこと**: 編集状態は覚えずに、毎回ウィンドウから受け取る（`Func<IrocaSessionState>`）。ウィンドウは読み込み・
+      リセット・レシピの読み直しで `_session` をまるごと差し替え、Unity は Undo とドメインリロードで書き戻すので、
+      参照を覚えると古いものを指す。保存されるフィールド（`_session`・`sourceTexture`・`_boundRecipe`）はウィンドウに残す。
+    - **決めたこと**: `EditingSessionRegistry` はウィンドウのまま持つ。`EditingSession` は Application の層で、Infra の
+      一覧からは見えない。
+    - 原本のテクスチャ・結び付いたレシピは、使う所を移すとき（5 の永続化）に足す。今は使う所が無いので入れていない。
 - [ ] 4-3 並んだ経路を 1 本にする:
   - `AutoTuneService`: `test_autotune_apply_single_source` を同じコミットで直す。Core の自動調整の中身は T5 で替わるが、
     流れ（証拠の待ち・適用・Undo・自動化からの呼び出し）は残るので、先に 1 本にしておく。
