@@ -194,7 +194,7 @@ namespace Iroca
         public bool autoRecolorAnchor = true;
         // [非推奨] 旧: 処理順を表す数値。現在は「リストの並び順＝優先度(先頭が最優先)」に
         // 変更したため未使用。古いプリセット JSON の後方互換のためフィールドのみ残す
-        // (PresetsView.MigrateLegacyLayerPriority が読み込み時に一度だけ降順移行に使用)。
+        // (PresetApplier.MigrateLegacyLayerPriority が読み込み時に一度だけ降順移行に使用)。
         public int layerIndex = 0;
         public string id = "";
 

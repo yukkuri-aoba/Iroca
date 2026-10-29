@@ -253,6 +253,22 @@ namespace Iroca
             NotifyChanged(EditChange.Content);
         }
 
+        /// <summary>
+        /// プリセットを読み込む(ゾーンと処理設定。<paramref name="applyMasks"/> ならマスクも。規則は <see cref="PresetApplier"/>)。
+        /// 記録の前に編集中のマスクを保存形式へ書くので、Undo 1 ステップでゾーン・設定・マスクがそろって戻る。
+        /// マスクを読み込まないときは、今のマスクを残す。マスクを読み込んだら true。
+        /// </summary>
+        internal bool ApplyPreset(IrocaPresetData preset, bool applyMasks)
+        {
+            SyncMasksToState();
+            Undo.RegisterCompleteObjectUndo(_undoTarget, "Load Preset");
+            PresetApplier.ApplyZonesAndSettings(preset, State);
+            bool masks = applyMasks && PresetApplier.HasMasks(preset);
+            if (masks) Masks.DecodeFrom(PresetApplier.MaskStateOf(preset));
+            NotifyChanged(EditChange.Replaced);
+            return masks;
+        }
+
         /// <summary>ゾーンの詳細の調整値を既定へ戻す(色・許容範囲・名前などの利用者の選択は残す。ColorZone.ResetTuningToDefault)。</summary>
         internal void ResetZoneTuning(ColorZone zone)
         {

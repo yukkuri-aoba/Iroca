@@ -242,41 +242,6 @@ namespace Iroca
             MaskRle.Decode(encoded, out w, out h);
 
         /// <summary>
-        /// プリセット内のマスクデータで現在のマスク状態を置き換える。
-        /// </summary>
-        public void ApplyFromPreset(IrocaPresetData data)
-        {
-            if (data == null || data.maskWidth <= 0 || data.maskHeight <= 0) return;
-
-            Workspace.Reset(data.maskWidth, data.maskHeight);
-
-            // 寸法の合わない層は受け取らない(SetCommon・SetLayer)。
-            if (!string.IsNullOrEmpty(data.commonMaskBase64))
-                Workspace.SetCommon(MaskRle.DecodeBits(data.commonMaskBase64));
-
-            DecodePresetEntries(data.zoneMasks, include: false);
-
-            // 含めるマスク(v2)。旧プリセットでは欠落フィールド=空リスト。
-            DecodePresetEntries(data.zoneIncludeMasks, include: true);
-
-            SaveToSession();
-        }
-
-        /// <summary>
-        /// プリセットのエントリ列を編集中のマスクの層へ展開する(除外・含めるで共通)。
-        /// zoneId が空・デコード失敗・寸法不一致の項目は捨てる。同じ zoneId は後の項目が勝つ。src が null なら何もしない。
-        /// </summary>
-        private void DecodePresetEntries(List<ZoneMaskEntry> src, bool include)
-        {
-            if (src == null) return;
-            foreach (var e in src)
-            {
-                if (e == null || string.IsNullOrEmpty(e.zoneId)) continue;
-                Workspace.SetLayer(include, e.zoneId, MaskRle.DecodeBits(e.maskBase64));
-            }
-        }
-
-        /// <summary>
         /// 現在のマスク状態を IrocaPresetData の commonMaskBase64 / zoneMasks フィールドに書き出す。
         /// </summary>
         public void WriteToPreset(IrocaPresetData data)

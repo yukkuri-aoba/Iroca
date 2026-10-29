@@ -555,33 +555,8 @@ namespace Iroca
         {
             var state = new IrocaSessionState { zones = p.zones ?? new List<ColorZone>() };
             RecolorSettings.From(p).CopyTo(state);
-            state.maskState = MaskStateFromPreset(p);
+            state.maskState = PresetApplier.MaskStateOf(p);
             return state;
-        }
-
-        /// <summary>
-        /// プリセットのマスク（RLE + Base64）を保存形式の <see cref="MaskState"/> へ写す。どちらも同じ符号化なので
-        /// 文字列はそのまま渡し、寸法の合わない項目・壊れた項目は <see cref="MaskStateCodec"/> の展開で読み飛ばされる
-        /// （UI の MaskPaintView.ApplyFromPreset と同じ規則）。マスクが無ければ空の MaskState（＝マスクなし）。
-        /// </summary>
-        private static MaskState MaskStateFromPreset(IrocaPresetData p)
-        {
-            var ms = new MaskState { schemaVersion = MaskState.CurrentSchemaVersion };
-            if (p.maskWidth <= 0 || p.maskHeight <= 0) return ms;
-            ms.width = p.maskWidth;
-            ms.height = p.maskHeight;
-            ms.commonMaskBase64 = p.commonMaskBase64 ?? "";
-            CopyMaskEntries(p.zoneMasks, ms.zones);
-            CopyMaskEntries(p.zoneIncludeMasks, ms.zoneIncludes);
-            return ms;
-        }
-
-        private static void CopyMaskEntries(List<ZoneMaskEntry> src, List<MaskZoneEntry> dst)
-        {
-            if (src == null) return;
-            foreach (var e in src)
-                if (e != null && !string.IsNullOrEmpty(e.zoneId))
-                    dst.Add(new MaskZoneEntry { zoneId = e.zoneId, maskBase64 = e.maskBase64 ?? "" });
         }
 
         private static RecolorSettings SettingsFromDto(SettingsDto d) => new RecolorSettings(

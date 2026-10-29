@@ -1,8 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -179,54 +177,13 @@ namespace Iroca
                 return;
             }
 
-            // 読込前の状態を Unity Undo に登録する（zones + 処理パラメータ + マスク状態を
-            // 1 ステップで復元可能にする）。マスクは bool[] バッファを先に _session.maskState へ
-            // 同期してから登録することで、Undo 後に SyncBuffersFromState で正しく再展開できる。
-            _host.SyncMaskBuffersToState();
-            Undo.RegisterCompleteObjectUndo(_host, "Load Preset");
-
-            // Unity の JsonUtility は JSON に含まれないフィールドを「既定値で上書き」ではなく
-            // 「クラスのフィールド初期化子の値を保持」するため、ここで `> 0 ? : default` のような
-            // defaulting を行うとユーザーが明示的に 0 を保存したケース（UI レンジに 0 を含む
-            // antiAliasCleanup や holeFillPasses）を不当に書き換えてしまう。
-            // 旧バージョンとの後方互換は IrocaPresetData の初期化子側に寄せる。
-            var session = _host.Session;
-            session.zones = data.zones ?? new List<ColorZone>();
-            MigrateLegacyLayerPriority(session.zones);
-            _host.EnsureAllZoneIds();
+            // ゾーン・処理設定・(選んでいれば)マスクを 1 ステップの Undo で読み込む(EditingSession.ApplyPreset)。
             // 編集モードはプリセットで上書きしない（現在の表示モードを維持）。
-            RecolorSettings.From(data).CopyTo(session);
-
-            if (presetApplyMasks && data.maskWidth > 0 && data.maskHeight > 0)
-            {
-                _host.ApplyMaskFromPreset(data);
-            }
+            if (_host.Editing.ApplyPreset(data, presetApplyMasks))
+                _host.SaveMasksToFile();
 
             _host.ResetActiveMaskTarget();
-            _host.Editing.NotifyChanged(EditChange.Replaced);
             Notify(Localization.PresetLoaded);
-        }
-
-        /// <summary>
-        /// 旧バージョン互換の一度きり移行。かつて優先度は layerIndex(数値・大きいほど
-        /// 重なりで上に来る)で表していたが、現在は「リストの並び順＝優先度(先頭が最優先)」
-        /// に変更した。layerIndex に差異を持つ旧プリセットだけを降順で安定ソートし、
-        /// 旧来の勝敗(大きい layerIndex が勝つ → 先頭が勝つ)を再現する。
-        /// 全ゾーンが同値(既定 0 を含む)なら並び順は既に意図どおりなので何もしない。
-        /// </summary>
-        private static void MigrateLegacyLayerPriority(List<ColorZone> zones)
-        {
-            if (zones == null || zones.Count < 2) return;
-            int first = zones[0].layerIndex;
-            bool allSame = true;
-            for (int i = 1; i < zones.Count; i++)
-            {
-                if (zones[i].layerIndex != first) { allSame = false; break; }
-            }
-            if (allSame) return;
-            var migrated = zones.OrderByDescending(z => z.layerIndex).ToList();
-            zones.Clear();
-            zones.AddRange(migrated);
         }
 
         private void ExportPresetJson()

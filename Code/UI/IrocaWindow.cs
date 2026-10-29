@@ -457,15 +457,12 @@ namespace Iroca
         /// </summary>
         internal void EnsureAllZoneIds() => Editing.EnsureAllZoneIds();
 
-        internal void ApplyMaskFromPreset(IrocaPresetData data) => _maskView?.ApplyFromPreset(data);
+        // 編集中のマスクをマスクのファイル(MaskCache)へ書く(プリセットでマスクを読み込んだ直後)。
+        internal void SaveMasksToFile() => _maskView?.SaveToSession();
         internal void WriteMaskToPreset(IrocaPresetData data) => _maskView?.WriteToPreset(data);
         internal void ResetActiveMaskTarget() => _maskView?.ResetActiveTarget();
 
         internal MaskSnapshot BuildMaskSnapshot() => _maskView?.BuildSnapshot();
-
-        // bool[] バッファを _session.maskState に書き戻す（Undo 登録前のスナップショット確定用）。
-        // プリセット読込の Undo 登録（PresetsView.LoadPreset）から呼ばれる。
-        internal void SyncMaskBuffersToState() => _maskView?.SyncBuffersToState();
 
         // ─────────────── セッション永続化（テクスチャ GUID 単位） ───────────────
         // マスクは MaskFileStore、ゾーン・色・処理設定は SessionFileStore が、それぞれ
