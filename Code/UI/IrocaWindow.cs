@@ -459,24 +459,10 @@ namespace Iroca
         // マスクは MaskFileStore、ゾーン・色・処理設定は SessionFileStore が、それぞれ
         // テクスチャ GUID 単位でディスク保存する。ウィンドウを閉じても、開き直した
         // テクスチャの編集内容がまるごと復元される。前回編集テクスチャは EditorPrefs に
-        // 記憶し、初回オープン時に自動ロードする。
+        // 記憶し、初回オープン時に自動ロードする。どこから読み・どこへ書くかは SessionPersistence。
 
-        // 最後に編集していたテクスチャの GUID を保存する EditorPrefs キー（Editor 再起動を跨ぐ）。
-        // EditorPrefs は Unity インストール単位(全プロジェクト共有)なので、プロジェクトパス
-        // (Application.dataPath)の安定ハッシュを付与してプロジェクトごとに分離する。これが無いと
-        // コピーした別プロジェクトが前プロジェクトの GUID を誤って自動ロードしうる。string.GetHashCode
-        // はプロセス間で不安定(乱択化)なため FNV-1a を使う(再起動を跨いで同一キー)。
         // internal は EditMode テストが開発者の値を退避して差し替えるため。
-        internal static string LastTextureGuidPrefKey =>
-            IrocaPrefs.LastTextureGuidPrefix + StableHashHex(Application.dataPath);
-
-        private static string StableHashHex(string s)
-        {
-            uint h = 2166136261u; // FNV-1a 32bit
-            if (s != null)
-                foreach (char c in s) { h ^= c; h *= 16777619u; }
-            return h.ToString("X8");
-        }
+        internal static string LastTextureGuidPrefKey => SessionPersistence.LastTextureGuidPrefKey;
 
         // このウィンドウが Unity の起動後に有効化されたかの印。SessionState は Unity を閉じると消え、
         // ドメインリロードでは残る。ウィンドウの instanceID はドメインリロードで変わらない。
@@ -496,12 +482,7 @@ namespace Iroca
         // 削除・無退避上書きを抑止する（MaskPaintView._maskLoadFailed と同じ防御）。
         [System.NonSerialized] private bool _sessionLoadFailed;
 
-        private static string CurrentTexturePath(Texture2D tex)
-        {
-            if (tex == null) return null;
-            string path = AssetDatabase.GetAssetPath(tex);
-            return string.IsNullOrEmpty(path) ? null : path;
-        }
+        private static string CurrentTexturePath(Texture2D tex) => SessionPersistence.TexturePathOf(tex);
 
         /// <summary>
         /// 現在のテクスチャのマスク＋セッション（ゾーン/色/処理設定）をディスクへ保存する。
@@ -511,9 +492,7 @@ namespace Iroca
         internal bool SavePersistedSessionForCurrentTexture()
         {
             bool maskOk = _maskView == null || _maskView.SaveToSession();
-            string path = CurrentTexturePath(sourceTexture);
-            if (path != null && _session != null)
-                SessionFileStore.SaveSession(path, _session, _sessionLoadFailed);
+            SessionPersistence.SaveToFile(sourceTexture, _session, _sessionLoadFailed);
             // 非破壊のレシピが結び付いていればそちらにも書く(SaveToSession でマスクは state へ同期済み)。
             SaveSessionToBoundRecipe();
             return maskOk;
@@ -530,13 +509,8 @@ namespace Iroca
             // 非破壊のレシピがあればそれが正(マスクも含めてレシピから読む)。
             if (TryLoadSessionFromRecipe()) return;
 
-            string path = CurrentTexturePath(sourceTexture);
-            IrocaSessionState loaded = null;
-            if (path != null)
-            {
-                loaded = SessionFileStore.LoadSession(path, out bool unreadable);
-                _sessionLoadFailed = unreadable;
-            }
+            var loaded = SessionPersistence.LoadFromFile(sourceTexture, out bool unreadable);
+            _sessionLoadFailed = unreadable;
 
             // 読み込めた内容 or 既定値で _session をまるごと置き換える。maskState は空にしておき、
             // 直後の RestoreFromSession がディスクのマスクファイルから読み直して上書きする
@@ -552,12 +526,7 @@ namespace Iroca
         /// <summary>
         /// 現在のテクスチャ GUID を「前回編集テクスチャ」として記憶する（テクスチャ未設定なら空）。
         /// </summary>
-        private void RememberLastEditedTexture()
-        {
-            string path = CurrentTexturePath(sourceTexture);
-            string guid = path != null ? AssetDatabase.AssetPathToGUID(path) : "";
-            EditorPrefs.SetString(LastTextureGuidPrefKey, guid ?? "");
-        }
+        private void RememberLastEditedTexture() => SessionPersistence.RememberLastEdited(sourceTexture);
 
         /// <summary>
         /// EditorPrefs に記憶した前回編集テクスチャを解決して sourceTexture へ設定する。
@@ -565,15 +534,11 @@ namespace Iroca
         /// </summary>
         private bool TryAutoLoadLastEditedTexture()
         {
-            string guid = EditorPrefs.GetString(LastTextureGuidPrefKey, "");
-            if (string.IsNullOrEmpty(guid)) return false;
-            string path = AssetDatabase.GUIDToAssetPath(guid);
-            if (string.IsNullOrEmpty(path)) return false;
-            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            var tex = SessionPersistence.LastEdited();
             if (tex == null) return false;
 
             sourceTexture = tex;
-            _exportView?.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(path));
+            _exportView?.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(CurrentTexturePath(tex)));
             return true;
         }
 

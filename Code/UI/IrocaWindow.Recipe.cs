@@ -90,24 +90,13 @@ namespace Iroca
         /// </summary>
         private bool TryLoadSessionFromRecipe()
         {
-            if (sourceTexture == null) { _boundRecipe = null; return false; }
-            if (BoundRecipe == null)
-            {
-                var found = RecipeStore.FindForTexture(sourceTexture);
-                _boundRecipe = found.Count == 1 ? found[0] : null;
-            }
+            _boundRecipe = SessionPersistence.RecipeFor(sourceTexture, BoundRecipe);
             if (_boundRecipe == null) return false;
 
-            var state = RecipeStore.Load(_boundRecipe);
-            if (state == null)
-            {
-                // 壊れたレシピは読まない(保存も BoundRecipe 経由で上書きしない)。空のレシピは書いてよいので、
-                // 同期した中身として覚える(覚えていないレシピには保存しない。下の「外での書き換え」)。
-                if (string.IsNullOrEmpty(_boundRecipe.sessionJson)) MarkRecipeSynced(_boundRecipe);
-                return false;
-            }
+            // 壊れたレシピは読まない(保存も BoundRecipe 経由で上書きしない)。
+            var state = SessionPersistence.LoadFromRecipe(_boundRecipe);
+            if (state == null) return false;
             _session = state;
-            MarkRecipeSynced(_boundRecipe);
             EnsureAllZoneIds();
             _maskView?.RestoreFromRecipeState();
             MarkPreviewDirty();
@@ -120,14 +109,7 @@ namespace Iroca
             var recipe = BoundRecipe;
             if (recipe == null || _session == null) return;
             // 外(git など)で書き換わったレシピを、窓の古い内容で上書きしない。窓が残るならレシピから読み直す。
-            if (RecipeChangedOutside(recipe))
-            {
-                ScheduleRecipeReload();
-                return;
-            }
-            // 読めないレシピ(新しい版で作られた等)は上書きしない。
-            RecipeStore.SaveUnlessUnreadable(recipe, _session);
-            MarkRecipeSynced(recipe);
+            if (!SessionPersistence.SaveToRecipe(recipe, _session)) ScheduleRecipeReload();
         }
 
         /// <summary>
@@ -233,78 +215,12 @@ namespace Iroca
         }
 
         // ───────────── 外(git など)でのレシピの書き換え ─────────────
-        // 窓は編集内容をレシピへ書き戻す(自動保存・テクスチャの切り替え・閉じる・再コンパイル・ビルドの直前)。
-        // git の pull・checkout やバックアップからの復元でレシピが外から書き換わった後に書き戻すと、取り込んだ
-        // 変更が黙って消え、再生・アップロードにも古い色替えが使われていた。
-        // そこで、窓が最後にレシピと同期した(読んだ・書いた)中身を覚えておき、レシピの中身がそれと違えば外からの
-        // 変更とみなして書き戻さず、レシピから読み直す(窓の Undo に積むので、Ctrl+Z で読み直す前に戻せる)。
-        // 覚える場所は窓の直列化ではなく static と SessionState(ドメインリロードをまたぎ、Unity を閉じると消える。
-        // 起動後はレシピを正として読み直すので要らない)。窓の直列化に置くと、Undo で窓の内容と一緒に巻き戻り、
-        // 同期済みのレシピを「外で変わった」と取り違える。
-        // 同期したことの無いレシピ(開いたときに読めなかった)には書かない。迷ったら書かずに読み直す側に倒す
-        // (読み直しは Undo で戻せるが、上書きしたレシピは戻せない)。
+        // 窓が最後にレシピと同期した中身と違えば外からの変更とみなし、書き戻さずにレシピから読み直す
+        // (仕組みと理由は SessionPersistence の「外でのレシピの書き換え」)。
 
-        // レシピ(instanceID) → 最後に同期した sessionJson。中身が変わっていなければ参照の比較だけで済む。
-        private static readonly Dictionary<int, string> s_recipeSyncedJson = new Dictionary<int, string>();
-        // SessionState に残す、同期した中身のハッシュの数(新しい順の最後が今の同期)。古いものは Undo で
-        // レシピが前の中身へ戻ったとき(自動化 API の色替えの Ctrl+Z)に、外からの変更と見分けるのに使う。
-        private const int RecipeSyncHistory = 8;
         [System.NonSerialized] private bool _recipeReloadScheduled;
         // 読めないと分かったレシピの中身(同じ中身で読み直しを繰り返さない・警告を何度も出さない)。
         [System.NonSerialized] private string _unreadableRecipeJson;
-
-        private static string RecipeSyncKey(IrocaRecipe recipe)
-        {
-            string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(recipe));
-            return string.IsNullOrEmpty(guid) ? null : IrocaPrefs.RecipeSyncedPrefix + guid;
-        }
-
-        private static string RecipeJsonHash(string json) => Hash128.Compute(json ?? "").ToString();
-
-        private static string[] RecipeSyncedHashes(IrocaRecipe recipe)
-        {
-            string key = RecipeSyncKey(recipe);
-            string value = key != null ? SessionState.GetString(key, "") : "";
-            return value.Split(new[] { ',' }, System.StringSplitOptions.RemoveEmptyEntries);
-        }
-
-        /// <summary>レシピの今の中身を、窓と同期した中身として覚える(窓がレシピを読んだ・書いた直後に呼ぶ)。</summary>
-        private static void MarkRecipeSynced(IrocaRecipe recipe)
-        {
-            if (recipe == null) return;
-            string json = recipe.sessionJson ?? "";
-            int id = recipe.GetInstanceID();
-            if (s_recipeSyncedJson.TryGetValue(id, out var known) && ReferenceEquals(known, json)) return;
-            s_recipeSyncedJson[id] = json;
-            string key = RecipeSyncKey(recipe);
-            if (key == null) return;
-            string hash = RecipeJsonHash(json);
-            var hashes = new List<string>(RecipeSyncedHashes(recipe));
-            hashes.Remove(hash);
-            hashes.Add(hash);
-            if (hashes.Count > RecipeSyncHistory) hashes.RemoveRange(0, hashes.Count - RecipeSyncHistory);
-            SessionState.SetString(key, string.Join(",", hashes));
-        }
-
-        /// <summary>
-        /// 窓が最後に同期してから、レシピの中身が外で変わったか。同期したことの無いレシピも true。
-        /// </summary>
-        private static bool RecipeChangedOutside(IrocaRecipe recipe)
-        {
-            if (recipe == null) return false;
-            string json = recipe.sessionJson ?? "";
-            int id = recipe.GetInstanceID();
-            if (s_recipeSyncedJson.TryGetValue(id, out var known) && ReferenceEquals(known, json)) return false;
-            // 参照が違っても(同じ中身で取り込み直された・ドメインリロードの後)中身が同じなら変わっていない。
-            var hashes = RecipeSyncedHashes(recipe);
-            if (hashes.Length == 0 || hashes[hashes.Length - 1] != RecipeJsonHash(json)) return true;
-            s_recipeSyncedJson[id] = json;
-            return false;
-        }
-
-        /// <summary>レシピの今の中身が、窓が前に同期したことのある中身か(最後に同期したものより前も含む)。</summary>
-        private static bool WasRecipeSyncedBefore(IrocaRecipe recipe)
-            => recipe != null && System.Array.IndexOf(RecipeSyncedHashes(recipe), RecipeJsonHash(recipe.sessionJson)) >= 0;
 
         /// <summary>
         /// 窓の有効化(開いた・ドメインリロード)で呼ぶ。ドメインリロードでは、レシピを読み直さずメモリ上の内容を
@@ -318,7 +234,7 @@ namespace Iroca
         /// </summary>
         internal void OnRecipeAssetsImported()
         {
-            if (RecipeChangedOutside(BoundRecipe)) ScheduleRecipeReload();
+            if (SessionPersistence.RecipeChangedOutside(BoundRecipe)) ScheduleRecipeReload();
         }
 
         /// <summary>
@@ -329,8 +245,9 @@ namespace Iroca
         internal void AdoptRecipeAfterUndo()
         {
             var recipe = BoundRecipe;
-            if (recipe != null && RecipeChangedOutside(recipe) && WasRecipeSyncedBefore(recipe))
-                MarkRecipeSynced(recipe);
+            if (recipe != null && SessionPersistence.RecipeChangedOutside(recipe)
+                && SessionPersistence.WasRecipeSyncedBefore(recipe))
+                SessionPersistence.MarkRecipeSynced(recipe);
         }
 
         /// <summary>
@@ -350,7 +267,7 @@ namespace Iroca
             _recipeReloadScheduled = false;
             if (this == null) return;   // 窓が閉じられた
             var recipe = BoundRecipe;
-            if (recipe == null || !RecipeChangedOutside(recipe)) return;
+            if (recipe == null || !SessionPersistence.RecipeChangedOutside(recipe)) return;
             // 書き出し・自動調整の途中やマスクを塗っている途中は、終わってから読み直す。
             if (IsJobBlockingUI || (_maskView != null && _maskView.isPainting))
             {
@@ -432,7 +349,7 @@ namespace Iroca
             }
             // 保存先のレシピが外(git など)で書き換わっていたら、窓の古い内容で上書きせず、読み直してから
             // 確かめてもらう。
-            if (recipe != null && recipe == BoundRecipe && RecipeChangedOutside(recipe))
+            if (recipe != null && recipe == BoundRecipe && SessionPersistence.RecipeChangedOutside(recipe))
             {
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive,
                     string.Format(Localization.RegisterRecipeChangedOutsideFormat, recipeLabel), Localization.OK);
@@ -489,7 +406,7 @@ namespace Iroca
             else
                 RecipeStore.Save(recipe, _session);
             _boundRecipe = recipe;
-            MarkRecipeSynced(recipe);
+            SessionPersistence.MarkRecipeSynced(recipe);
 
             // マテリアルを戻すのとコンポーネントの登録を 1 回の Undo にまとめる。
             Undo.IncrementCurrentGroup();
