@@ -1,5 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System.Linq;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -161,6 +162,48 @@ namespace Iroca.EditorTests
             Assert.AreEqual(seed, Zones[0].seedUV, "外したのを戻す");
             Undo.PerformUndo();
             Assert.Less(Zones[0].seedUV.x, 0f, "置く前へ戻る");
+        }
+
+        [Test]
+        public void Operations_NotifyContentOnceAndOnlyWhenSomethingChanged()
+        {
+            var got = new System.Collections.Generic.List<EditChange>();
+            _editing.Changed += got.Add;
+            int Count() { int n = got.Count; got.Clear(); return n; }
+
+            _editing.AddZone();
+            _editing.AddZoneFromSample(Color.red, new Vector2(0.1f, 0.1f));
+            CollectionAssert.AreEqual(new[] { EditChange.Content, EditChange.Content }, got);
+            got.Clear();
+
+            Assert.IsFalse(_editing.MoveZone(0, 0));
+            Assert.IsFalse(_editing.RemoveZoneAt(5));
+            Assert.IsFalse(_editing.ApplySample(Zones[1], Color.red, new Vector2(0.1f, 0.1f)), "同じ色・同じ位置");
+            Assert.IsFalse(_editing.SetFloodFillSeed(Zones[0], Zones[0].seedUV));
+            Assert.AreEqual(0, Count(), "何も変えなければ知らせない");
+
+            Assert.IsTrue(_editing.MoveZone(0, 1));
+            Assert.IsTrue(_editing.ApplySample(Zones[0], Color.blue, new Vector2(0.2f, 0.2f)));
+            Assert.IsTrue(_editing.SetFloodFillSeed(Zones[0], new Vector2(0.3f, 0.3f)));
+            _editing.ClearFloodFillSeed(Zones[0]);
+            _editing.ResetZoneTuning(Zones[0]);
+            Assert.IsTrue(_editing.RemoveZoneAt(0));
+            Assert.AreEqual(6, got.Count, "1 回の操作で 1 回");
+            CollectionAssert.AreEqual(new[] { EditChange.Content }, got.Distinct());
+        }
+
+        [Test]
+        public void Autosave_IsScheduledByChangesUntilStopped()
+        {
+            var autosave = new AutosaveSchedule(() => false, () => { });
+            autosave.Start(_editing);
+            Assert.IsFalse(autosave.IsPending);
+            _editing.NotifyChanged(EditChange.Masks);
+            Assert.IsTrue(autosave.IsPending, "編集で予定が立つ");
+            autosave.Stop();
+            Assert.IsFalse(autosave.IsPending, "やめると予定も消える");
+            _editing.NotifyChanged(EditChange.Content);
+            Assert.IsFalse(autosave.IsPending, "やめた後の編集は見ない");
         }
 
         [Test]

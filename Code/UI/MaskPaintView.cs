@@ -305,8 +305,7 @@ namespace Iroca
                 Undo.RegisterCompleteObjectUndo(_host, "Clear Mask");
                 ClearActiveMask();
                 SyncBuffersToState();
-                maskDirty = true;
-                _host.MarkPreviewDirty();
+                _host.Editing.NotifyChanged(EditChange.Masks);
             }
 
             EditorGUILayout.HelpBox(
@@ -585,8 +584,7 @@ namespace Iroca
             BeginStroke();
             result = MaskRegionEdit.Apply(d.op, region, BitsOf(exclude), BitsOf(include), BitsOf(common));
             EndStroke();
-            maskDirty = true;
-            _host.MarkPreviewDirtyFullRefine();
+            _host.NotifyMasksEditedFullRefine();
             _host.RequestRepaint();
             return true;
         }

@@ -227,10 +227,10 @@ namespace Iroca
                     {
                         GUIUtility.hotControl = 0;
                         maskView.isPainting = false;
-                        // ストローク終了: bool[] バッファを _session.maskState に書き戻す。
+                        // ストローク終了: 編集中のマスクを _session.maskState に書き戻し、編集を知らせる。
                         maskView.EndStroke();
                         maskView.lastPaintUV = -Vector2.one;
-                        previewDirty = true;
+                        _host.Editing.NotifyChanged(EditChange.Masks);
                         e.Use();
                         _host.RequestRepaint();
                     }
@@ -322,8 +322,7 @@ namespace Iroca
                     {
                         // 変わるときだけ、書く前に Undo へ記録する（EditingSession.SetFloodFillSeed）。
                         var newSeed = PreviewCoords.ScreenToUv(e.mousePosition, previewRect);
-                        if (_host.Editing.SetFloodFillSeed(targetZone, newSeed))
-                            previewDirty = true;
+                        _host.Editing.SetFloodFillSeed(targetZone, newSeed);
                         if (armed)
                         {
                             // 一発で武装解除（同じ位置を選び直したときも解除する）。
@@ -385,15 +384,14 @@ namespace Iroca
                             {
                                 // ゾーンがまだ無いときの開始操作: ゾーンを作ってこの色を入れる。
                                 // ゾーンリストの変更は次の Layout イベントで適用する（遅延ミューテーション）。
+                                // 編集の合図はそのときに出る(EditingSession.AddZoneFromSample)。
                                 _host.RequestNewZoneFromSample(picked, uv);
-                                previewDirty = true;
                             }
                             else
                             {
                                 // 武装ゾーンは id で解決する（並べ替え・削除で index がずれても正しいゾーンに入る）。
                                 var zone = _host.FindZoneById(_host.EyedropperZoneId);
-                                if (zone != null && _host.Editing.ApplySample(zone, picked, uv))
-                                    previewDirty = true;
+                                if (zone != null) _host.Editing.ApplySample(zone, picked, uv);
                             }
                             // one-shot: 取得したら武装解除。
                             // ★hotControl は取らない★ — 武装解除後は次のイベントでこのハンドラが

@@ -7,14 +7,25 @@ using UnityEngine;
 
 namespace Iroca
 {
+    /// <summary>編集の種類(<see cref="EditingSession.Changed"/>。購読する側が自分に関係するかを見分ける)。</summary>
+    internal enum EditChange
+    {
+        /// <summary>ゾーン(色・許容範囲・並び・起点など)と全体の設定。</summary>
+        Content,
+        /// <summary>マスクの層(ブラシ・右クリックの範囲・AI 提案・マスクを消す)。</summary>
+        Masks,
+        /// <summary>編集状態をまるごと差し替えた・書き戻した(読み込み・リセット・Undo/Redo・プリセット・レシピの読み直し)。</summary>
+        Replaced,
+    }
+
     /// <summary>
     /// 編集中の文書(0.4.0 の計画の 4-2)。いろかのウィンドウ 1 つにつき 1 つ。
     /// ウィンドウが保存する編集状態(ゾーン・設定・マスクの <see cref="IrocaSessionState"/>)を包み、原本の画素
-    /// (<see cref="SourcePixelCache"/>)と編集中のマスク(<see cref="MaskWorkspace"/>)を持ち、ゾーンの操作を行う。
+    /// (<see cref="SourcePixelCache"/>)と編集中のマスク(<see cref="MaskWorkspace"/>)を持ち、ゾーンの操作を行い、
+    /// 編集を <see cref="Changed"/> で知らせる。
     /// 編集状態の持ち主はウィンドウのまま(保存されるフィールドの名前と置き場所を変えると、利用者の作業状態が
     /// レイアウトと Undo から戻らなくなる)。ウィンドウは読み込み・リセット・レシピの読み直しで編集状態をまるごと
     /// 差し替え、Unity は Undo とドメインリロードで書き戻すので、ここは編集状態を覚えずに毎回ウィンドウから受け取る。
-    /// 変更の通知(4-2 の 8)は、この後の手順でここへ移す。
     /// メインスレッド専用。
     /// </summary>
     internal sealed class EditingSession
@@ -31,6 +42,16 @@ namespace Iroca
 
         /// <summary>今の編集状態(ウィンドウが保存しているもの)。</summary>
         internal IrocaSessionState State => _state();
+
+        /// <summary>
+        /// 編集された(保存される中身が変わった)。購読するのは、非同期に動くもの(プレビューの作り直し・マスクの重ね表示・
+        /// 自動保存)だけ。画面は IMGUI が毎フレーム状態を読む。表示だけの変更(ソロ表示・デバッグ表示・原本の読み直し)は
+        /// 編集ではないので、ここを通さずにプレビューへ直接頼む。
+        /// </summary>
+        internal event Action<EditChange> Changed;
+
+        /// <summary>編集を知らせる。ここの操作は自分で呼ぶ。IMGUI がその場で書いた値などは、書いた側が呼ぶ。</summary>
+        internal void NotifyChanged(EditChange kind) => Changed?.Invoke(kind);
 
         /// <summary>
         /// 原本の画素(作業解像度)。読み直すかどうか(別のテクスチャ・取り込み後の寸法が変わった)と、原本から導いた
@@ -73,7 +94,7 @@ namespace Iroca
         }
 
         // ─────────────── ゾーンの操作 ───────────────
-        // どれも Undo に記録してから書き換える(1 回の操作 = Undo 1 ステップ)。プレビューの作り直しの合図と、
+        // どれも Undo に記録してから書き換え(1 回の操作 = Undo 1 ステップ)、変えたら Changed(Content) を出す。
         // 画面の追従(いま直しているゾーン・開閉)は呼ぶ側が行う。
 
         // 新しく作ったゾーンの許容範囲。
@@ -127,6 +148,7 @@ namespace Iroca
             var zones = State.zones;
             Undo.RegisterCompleteObjectUndo(_undoTarget, "Add Zone");
             zones.Add(NewZone(zones));
+            NotifyChanged(EditChange.Content);
             return zones.Count - 1;
         }
 
@@ -144,6 +166,7 @@ namespace Iroca
             // スポイトで取ったので位置も持つ（自動調整が AI 提案の証拠に使う。ApplySample と同じ）。
             zone.sampleUV = uv;
             zones.Add(zone);
+            NotifyChanged(EditChange.Content);
             return zones.Count - 1;
         }
 
@@ -161,6 +184,7 @@ namespace Iroca
             if (!string.IsNullOrEmpty(id)) Masks.RemoveZone(id);
             zones.RemoveAt(index);
             SyncMasksToState();
+            NotifyChanged(EditChange.Content);
             return true;
         }
 
@@ -179,6 +203,7 @@ namespace Iroca
             zones.RemoveAt(from);
             zones.Insert(to, moved);
             SyncMasksToState();
+            NotifyChanged(EditChange.Content);
             return true;
         }
 
@@ -187,8 +212,9 @@ namespace Iroca
         /// Undo へ記録する（sampleUV もシリアライズ対象なので、Undo/Redo で色と位置が対で戻る）。
         /// 同じ色を別の場所で拾い直したときも位置は更新する（別の島をクリックしたかもしれない。
         /// 位置は自動調整が AI 提案の証拠を取るアンカー）。
-        /// 戻り値 true = プレビューの再生成が要る。色が変わったとき、または位置だけが変わって、その位置が
-        /// 選択に効く状態のとき（ColorZone.SelectionUsesSampleUV: 位置を含む連結成分は包絡ゲートで落とさない）。
+        /// 色が変わったとき、または位置だけが変わって、その位置が選択に効く状態のとき（ColorZone.SelectionUsesSampleUV:
+        /// 位置を含む連結成分は包絡ゲートで落とさない）だけ、編集を知らせて true を返す(出力が変わらない位置だけの
+        /// 書き換えでプレビューを作り直さない。位置は次の保存で一緒に書かれる)。
         /// </summary>
         internal bool ApplySample(ColorZone zone, Color picked, Vector2 uv)
         {
@@ -204,7 +230,9 @@ namespace Iroca
                     zone.extraSamples.Clear();
             }
             zone.sampleUV = uv;
-            return colorChanged || zone.SelectionUsesSampleUV;
+            if (!colorChanged && !zone.SelectionUsesSampleUV) return false;
+            NotifyChanged(EditChange.Content);
+            return true;
         }
 
         /// <summary>連続領域の起点を置く。変わったときだけ記録して true。</summary>
@@ -213,6 +241,7 @@ namespace Iroca
             if (zone.seedUV == uv) return false;
             Undo.RecordObject(_undoTarget, "Set Flood Fill Seed");
             zone.seedUV = uv;
+            NotifyChanged(EditChange.Content);
             return true;
         }
 
@@ -221,6 +250,7 @@ namespace Iroca
         {
             Undo.RecordObject(_undoTarget, "Clear Flood Fill Seed");
             zone.seedUV = new Vector2(-1f, -1f);
+            NotifyChanged(EditChange.Content);
         }
 
         /// <summary>ゾーンの詳細の調整値を既定へ戻す(色・許容範囲・名前などの利用者の選択は残す。ColorZone.ResetTuningToDefault)。</summary>
@@ -228,6 +258,7 @@ namespace Iroca
         {
             Undo.RegisterCompleteObjectUndo(_undoTarget, "Reset Zone Tuning");
             zone.ResetTuningToDefault();
+            NotifyChanged(EditChange.Content);
         }
     }
 }

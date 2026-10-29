@@ -346,7 +346,7 @@ namespace Iroca
             // プロキシ段なしの再生成: 確定表示中のプレビューが低解像度へ一瞬戻る「ちらつき」を
             // 防ぐ(キューで連続コミットすると毎回プロキシが挟まり点滅に見える)。
             if (clickStartedAt != 0) MaskSuggestPerf.ArmE2EWatch(clickStartedAt);
-            _host?.MarkPreviewDirtyFullRefine();
+            _host?.NotifyMasksEditedFullRefine();
             _host?.RequestRepaint();
         }
 

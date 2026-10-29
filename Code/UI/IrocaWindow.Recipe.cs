@@ -99,7 +99,7 @@ namespace Iroca
             _session = state;
             EnsureAllZoneIds();
             _maskView?.RestoreFromRecipeState();
-            MarkPreviewDirty();
+            Editing.NotifyChanged(EditChange.Replaced);
             return true;
         }
 

@@ -72,23 +72,18 @@ namespace Iroca
                 _pendingRemoveZoneIndex = -1;
                 // ゾーンとそのマスクを消す(Undo 1 ステップで両方戻る。EditingSession.RemoveZoneAt)。
                 if (Editing.RemoveZoneAt(idx))
-                {
                     _maskView.OnZoneRemoved(idx);
-                    MarkPreviewDirty();
-                }
             }
             if (_pendingAddZone)
             {
                 _pendingAddZone = false;
                 SetCurrentZoneIndex(Editing.AddZone());
-                MarkPreviewDirty();
             }
             if (_pendingNewZoneFromSample)
             {
                 _pendingNewZoneFromSample = false;
                 SetCurrentZoneIndex(Editing.AddZoneFromSample(_pendingNewZoneColor, _pendingNewZoneUV));
                 zonesFoldout = true;
-                MarkPreviewDirty();
             }
             if (_pendingReorderFrom >= 0 && _pendingReorderTo >= 0)
             {
@@ -98,10 +93,7 @@ namespace Iroca
                 _pendingReorderTo = -1;
                 // 並び順(優先度)だけを変え、編集中マスクターゲット(index 参照)を移動に追従させる。
                 if (Editing.MoveZone(from, to))
-                {
                     _maskView.OnZoneReordered(from, to);
-                    MarkPreviewDirty();
-                }
             }
         }
 
@@ -452,7 +444,7 @@ namespace Iroca
                 // 古いパーツのものになるためクリアする（次の自動調整で作り直す）。
                 if (zone.extraSamples != null && zone.extraSamples.Count > 0)
                     zone.extraSamples.Clear();
-                MarkPreviewDirty();
+                Editing.NotifyChanged(EditChange.Content);
             }
 
             // カラーピッカーを経由せず、プレビュー上のクリックでこのゾーンのサンプルカラーを
@@ -521,7 +513,7 @@ namespace Iroca
             zone.useFloodFill = UndoHelper.Toggle(this,
                 new GUIContent(Localization.UseFloodFill, Localization.UseFloodFillTooltip),
                 zone.useFloodFill);
-            if (zone.useFloodFill != prevUseFloodFill) MarkPreviewDirty();
+            if (zone.useFloodFill != prevUseFloodFill) Editing.NotifyChanged(EditChange.Content);
 
             if (zone.useFloodFill)
             {
@@ -566,7 +558,6 @@ namespace Iroca
                             GUILayout.MinWidth(0)))
                         {
                             Editing.ClearFloodFillSeed(zone);
-                            MarkPreviewDirty();
                         }
                     }
                     EditorGUILayout.EndHorizontal();
@@ -741,7 +732,6 @@ namespace Iroca
             if (GUILayout.Button(new GUIContent(Localization.ResetZoneTuning, Localization.ResetZoneTuningTooltip)))
             {
                 Editing.ResetZoneTuning(zone);
-                MarkPreviewDirty();
             }
         }
 

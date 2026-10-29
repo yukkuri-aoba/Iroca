@@ -100,12 +100,21 @@ namespace Iroca
             return any;
         }
 
+        /// <summary>
+        /// プレビューを作り直す。編集は <see cref="EditingSession.NotifyChanged"/> で知らせればここへ来る
+        /// (OnEditChanged)。直接呼ぶのは、表示だけが変わるとき(ソロ表示・デバッグ表示・原本の読み直し)。
+        /// </summary>
         internal void MarkPreviewDirty() { if (_previewView != null) _previewView.previewDirty = true; }
 
-        /// <summary>プレビュー再生成(プロキシ段なし)。確定表示がある前提の差分更新用
-        /// (詳細は PreviewView.MarkDirtyFullRefine 参照)。</summary>
-        internal void MarkPreviewDirtyFullRefine() => _previewView?.MarkDirtyFullRefine();
-        internal void MarkMaskDirty() { if (_maskView != null) _maskView.maskDirty = true; }
+        /// <summary>
+        /// マスクを書き換えたことを知らせ、プレビューはプロキシ段なしで作り直す。確定表示がある前提の差分更新用
+        /// (AI 提案・右クリックの範囲。詳細は PreviewView.SkipProxyOnce 参照)。
+        /// </summary>
+        internal void NotifyMasksEditedFullRefine()
+        {
+            _previewView?.SkipProxyOnce();
+            Editing.NotifyChanged(EditChange.Masks);
+        }
         // プレビューが別ウィンドウ(IrocaPreviewWindow)へ切り出されているときは、そちらも
         // 再描画する。PreviewView は自分の実測値の収束・生成ジョブのポーリング・パン/ズームの
         // 反映をこの要求に頼っているため、描画先の窓に届かないと表示が旧フレームで固まる。
@@ -304,6 +313,8 @@ namespace Iroca
             _maskView.Initialize(this);
             _previewView ??= new PreviewView();
             _previewView.Initialize(this);
+            // 編集の合図(プレビュー・重ね表示・自動保存)。この後の読み込みも編集として受ける。
+            SubscribeEditChanges();
             EnsureAllZoneIds();
             // AssetWatcher の delete フックを取りこぼした場合の保険として、
             // ウィンドウを開いた時に MaskCache / SessionCache の orphan ファイルを掃除する。
@@ -343,8 +354,6 @@ namespace Iroca
             NonDestructiveApplier.BeforeApply += FlushToBoundRecipe;
             // 結び付いたレシピが外(git など)で書き換わっていたら、上書きせずに読み直す。
             CheckRecipeAfterEnable();
-            // 編集が止まって少ししたら保存する(Unity が落ちても直前の編集が残るように)。
-            StartAutosave();
             // Scene でモデルをクリックした場所をプレビューで示す(クリックは横から見るだけで消費しない)。
             InstallSceneClick();
 
@@ -360,7 +369,7 @@ namespace Iroca
         {
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
             NonDestructiveApplier.BeforeApply -= FlushToBoundRecipe;
-            StopAutosave();   // ここで保存するので予定は消す
+            UnsubscribeEditChanges();   // ここで保存するので自動保存の予定は消す
             UninstallSceneClick();
             // ウィンドウを閉じたら、シーンのアバターへの編集中の表示もやめる(登録済みならレシピの表示に戻る)。
             LivePreview.SetTarget(null, null);
@@ -402,7 +411,6 @@ namespace Iroca
             if (_maskView != null)
             {
                 _maskView.SyncBuffersFromState();
-                _maskView.maskDirty = true;
                 // 保留中の AI 提案は Undo 前の状態に対する提案なので重ねない
                 _maskView.SuggestControllerIfCreated?.OnUndoRedoPerformed();
             }
@@ -411,7 +419,7 @@ namespace Iroca
             // ズーム倍率・スクロール位置は「今どこを見ているか」であって編集内容ではない。
             // Undo の書き戻しで一緒に巻き戻るため、直前の視点へ戻して見ている箇所を保つ。
             _previewView?.RestoreViewStateAfterUndo(this);
-            MarkPreviewDirty();
+            Editing.NotifyChanged(EditChange.Replaced);
             Repaint();
         }
 
@@ -524,7 +532,7 @@ namespace Iroca
             EnsureAllZoneIds();
 
             _maskView?.RestoreFromSession();
-            MarkPreviewDirty();
+            Editing.NotifyChanged(EditChange.Replaced);
         }
 
         /// <summary>
@@ -561,7 +569,7 @@ namespace Iroca
             EnsureAllZoneIds();
 
             _previewView?.InvalidateSourceCache();
-            MarkPreviewDirty();
+            Editing.NotifyChanged(EditChange.Replaced);
             Repaint();
         }
     }

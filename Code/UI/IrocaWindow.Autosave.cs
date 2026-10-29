@@ -1,65 +1,42 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-using UnityEditor;
 
 namespace Iroca
 {
     /// <summary>
-    /// 編集内容(ゾーン・色・処理設定・マスク、結び付いたレシピ)の自動保存。
-    /// <para>
-    /// 以前は保存がテクスチャの切り替え・ウィンドウを閉じる・ドメインリロード・非破壊ビルドの直前だけで、
-    /// Unity が落ちると直前の編集が消えた。非破壊ではレシピが成果物そのものなので、編集が止まって
-    /// 少ししたら保存する。編集の合図は PreviewView の previewDirty(編集はどれもプレビューの作り直しを
-    /// 経由する)。スライダーのドラッグ中・マスクを塗っている途中・書き出しなどの最中は保存しない。
-    /// 保存先はどれも中身が変わっていなければ書き込まないか、同じ中身を書くだけなので、空振りしても害は無い。
-    /// </para>
+    /// 編集の合図(<see cref="EditingSession.Changed"/>)を受ける所: プレビューの作り直し・マスクの重ね表示・
+    /// 自動保存(<see cref="AutosaveSchedule"/>)。
     /// </summary>
     public partial class IrocaWindow
     {
-        // 最後の編集から保存するまでの待ち。ドラッグ中は編集のたびに延びるので、止まってから 1 回になる。
-        private const double AutosaveDelaySeconds = 2.0;
-        // 0 = 予定なし。
-        [System.NonSerialized] private double _autosaveDue;
+        [System.NonSerialized] private AutosaveSchedule _autosave;
 
-        /// <summary>編集があった(PreviewView が previewDirty を立てたとき呼ぶ)。</summary>
-        internal void NoteSessionEdited()
-            => _autosaveDue = EditorApplication.timeSinceStartup + AutosaveDelaySeconds;
-
-        private void StartAutosave()
-        {
-            EditorApplication.update -= AutosaveTick;
-            EditorApplication.update += AutosaveTick;
-        }
-
-        private void StopAutosave()
-        {
-            EditorApplication.update -= AutosaveTick;
-            _autosaveDue = 0;
-        }
-
-        // EditorApplication.update から毎フレーム呼ばれる。Unity はそこで例外を受け止めないので、投げると
-        // 同じフレームで後ろに並んだ他のツールの更新が飛ばされる。ここで受け止め、次の編集まで保存を待つ。
-        private void AutosaveTick()
-        {
-            try { AutosaveTickCore(); }
-            catch (System.Exception e)
-            {
-                _autosaveDue = 0;
-                UnityEngine.Debug.LogException(e);
-            }
-        }
-
-        private void AutosaveTickCore()
-        {
-            if (_autosaveDue <= 0 || EditorApplication.timeSinceStartup < _autosaveDue) return;
+        private AutosaveSchedule Autosave => _autosave ??= new AutosaveSchedule(
             // 書き出し・手動の自動調整の最中や、マスクを塗っている途中は待つ(終わってから 1 回保存する)。
-            if (IsJobBlockingUI || (_maskView != null && _maskView.isPainting))
-            {
-                _autosaveDue = EditorApplication.timeSinceStartup + 0.5;
-                return;
-            }
-            _autosaveDue = 0;
-            SavePersistedSessionForCurrentTexture();
+            () => IsJobBlockingUI || (_maskView != null && _maskView.isPainting),
+            () => SavePersistedSessionForCurrentTexture());
+
+        // OnEnable の初めで呼ぶ(有効化の途中の読み込みも編集として受ける。前の作りでは、開いた直後の読み込みも
+        // 自動保存の予定を立てていた)。二重に購読しないよう、一度外してから付ける。
+        private void SubscribeEditChanges()
+        {
+            Editing.Changed -= OnEditChanged;
+            Editing.Changed += OnEditChanged;
+            Autosave.Start(Editing);
+        }
+
+        // OnDisable で呼ぶ(この後で保存するので、自動保存の予定は消す)。
+        private void UnsubscribeEditChanges()
+        {
+            if (_editing != null) _editing.Changed -= OnEditChanged;
+            _autosave?.Stop();
+        }
+
+        private void OnEditChanged(EditChange kind)
+        {
+            // マスクが変わった・まるごと差し替わったなら、重ね表示も作り直す。
+            if (kind != EditChange.Content && _maskView != null) _maskView.maskDirty = true;
+            MarkPreviewDirty();
         }
     }
 }

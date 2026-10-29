@@ -331,7 +331,7 @@ namespace Iroca
                         evidence = evidencePacked, evW = evW, evH = evH, texW = texW, texH = texH,
                         maskUsed = excluded != null, applied = result,
                     };
-                    MarkPreviewDirty();
+                    Editing.NotifyChanged(EditChange.Content);
                     // 証拠が実際に導出に使われたか（汚染セグメント等で従来へ戻った場合は "fallback"）。
                     bool usedEvidence = !string.IsNullOrEmpty(result.evidenceDiag)
                         && !result.evidenceDiag.StartsWith("fallback");

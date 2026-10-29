@@ -157,7 +157,8 @@ namespace Iroca
         // 差分表示は描いている変更前・変更後のテクスチャから GPU で描く(差分の画像は持たない)。
         [System.NonSerialized] private PreviewDiffDrawer _diffDrawer;
         // 立てた時刻を体感速度の起点(操作の時刻)として控える(PreviewLatency)。初期値の true は
-        // 操作ではないので、プロパティを通さずに入れる。
+        // 操作ではないので、プロパティを通さずに入れる。編集はウィンドウが EditingSession.Changed を受けて立てる
+        // (IrocaWindow.OnEditChanged)。自動保存は Changed を直接見る(AutosaveSchedule)。
         [System.NonSerialized] private bool _previewDirty = true;
         public bool previewDirty
         {
@@ -167,8 +168,6 @@ namespace Iroca
                 _previewDirty = value;
                 if (!value) return;
                 InputClock.NoteInput(PreviewLatencyCycle.Now);
-                // 編集はどれもここを通るので、自動保存の合図にもする(IrocaWindow.Autosave)。
-                _host?.NoteSessionEdited();
                 // 別ウィンドウ(プレビュー・マスク編集)の描き直しの合図にもする(IrocaWindow.DrawStamp)。
                 _host?.BumpUiState();
             }
@@ -373,18 +372,15 @@ namespace Iroca
         [System.NonSerialized] private bool _skipProxyOnce;
 
         /// <summary>
-        /// プレビュー再生成を要求するが、段階的リファインのプロキシ段は使わない。
+        /// 次のプレビュー再生成では、段階的リファインのプロキシ段を使わない(作り直しの要求は別に立てる。
+        /// IrocaWindow.NotifyMasksEditedFullRefine)。
         /// 確定表示が既にある状態での差分的な更新(AI 提案のマスク反映など)でプロキシを挟むと、
         /// 鮮明な表示が一瞬低解像度へ戻る「ちらつき」になる(クリックキュー化でコミットが
         /// 連続すると特に目立つ)。フル段のみで、旧表示を保ったまま静かに差し替える。
         /// 通常の <see cref="previewDirty"/> が直後に重なった場合もフラグは 1 回で消費され、
         /// その再生成のプロキシが 1 度飛ぶだけ(結果は同じ・フィードバックが少し遅れるのみ)。
         /// </summary>
-        public void MarkDirtyFullRefine()
-        {
-            previewDirty = true;
-            _skipProxyOnce = true;
-        }
+        public void SkipProxyOnce() => _skipProxyOnce = true;
 
         /// <summary>
         /// ソース画素が変わったとき（テクスチャ差し替え・セッションリセット・エクスポートで

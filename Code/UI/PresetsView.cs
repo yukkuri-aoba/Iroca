@@ -203,8 +203,7 @@ namespace Iroca
             }
 
             _host.ResetActiveMaskTarget();
-            _host.MarkMaskDirty();
-            _host.MarkPreviewDirty();
+            _host.Editing.NotifyChanged(EditChange.Replaced);
             Notify(Localization.PresetLoaded);
         }
 
