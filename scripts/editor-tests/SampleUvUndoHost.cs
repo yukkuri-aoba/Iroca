@@ -5,7 +5,7 @@ using UnityEngine;
 namespace Iroca.EditorTests
 {
     /// <summary>
-    /// SampleUvUndoTests 用の Undo 対象。IrocaWindow と同じく IrocaSessionState を
+    /// SampleUvUndoTests・EditingSessionZoneTests 用の Undo 対象。IrocaWindow と同じく IrocaSessionState を
     /// [SerializeField] で持つだけの入れ物（ウィンドウ本体は OnEnable で前回のテクスチャや
     /// セッションファイルを読みに行くので、テストでは使わない）。
     /// Unity は ScriptableObject をファイル名と同名のクラスで引くため、単独ファイルに置く。

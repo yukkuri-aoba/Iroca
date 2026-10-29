@@ -1,24 +1,33 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
+using System.Collections.Generic;
+using UnityEditor;
+using UnityEngine;
 
 namespace Iroca
 {
     /// <summary>
-    /// 編集中の文書(0.4.0 の計画の 4-2 の 4)。いろかのウィンドウ 1 つにつき 1 つ。
-    /// 今は、ウィンドウが保存する編集状態(ゾーン・設定・マスクの <see cref="IrocaSessionState"/>)を包むものと、
-    /// 原本の画素(<see cref="SourcePixelCache"/>)の持ち主。
+    /// 編集中の文書(0.4.0 の計画の 4-2)。いろかのウィンドウ 1 つにつき 1 つ。
+    /// ウィンドウが保存する編集状態(ゾーン・設定・マスクの <see cref="IrocaSessionState"/>)を包み、原本の画素
+    /// (<see cref="SourcePixelCache"/>)と編集中のマスク(<see cref="MaskWorkspace"/>)を持ち、ゾーンの操作を行う。
     /// 編集状態の持ち主はウィンドウのまま(保存されるフィールドの名前と置き場所を変えると、利用者の作業状態が
     /// レイアウトと Undo から戻らなくなる)。ウィンドウは読み込み・リセット・レシピの読み直しで編集状態をまるごと
     /// 差し替え、Unity は Undo とドメインリロードで書き戻すので、ここは編集状態を覚えずに毎回ウィンドウから受け取る。
-    /// 永続化(4-2 の 5)・マスク(6)・ゾーンの操作(7)・変更の通知(8)は、この後の手順でここへ移す。
+    /// 変更の通知(4-2 の 8)は、この後の手順でここへ移す。
     /// メインスレッド専用。
     /// </summary>
     internal sealed class EditingSession
     {
         private readonly Func<IrocaSessionState> _state;
+        // 操作を Undo に記録する先(編集状態を保存しているもの。ふつうはウィンドウ)。
+        private readonly UnityEngine.Object _undoTarget;
 
-        internal EditingSession(Func<IrocaSessionState> state) => _state = state;
+        internal EditingSession(Func<IrocaSessionState> state, UnityEngine.Object undoTarget)
+        {
+            _state = state;
+            _undoTarget = undoTarget;
+        }
 
         /// <summary>今の編集状態(ウィンドウが保存しているもの)。</summary>
         internal IrocaSessionState State => _state();
@@ -28,6 +37,22 @@ namespace Iroca
         /// 状態を捨てるのはプレビューが決める(PreviewView.EnsureTrueSource)。
         /// </summary>
         internal SourcePixelCache Sources { get; } = new SourcePixelCache();
+
+        /// <summary>
+        /// 編集中のマスク(ヒープの外)。保存されるのは保存形式の文字列(<c>State.maskState</c>)で、Undo とドメイン
+        /// リロードが書き戻すのもそちら。ブラシ・範囲の操作はマスクの編集(MaskPaintView)が書く。
+        /// 手放すのはウィンドウを破棄するときだけ(保存より前に手放すと、空のマスクを保存してファイルを消す)。
+        /// </summary>
+        internal MaskWorkspace Masks { get; } = new MaskWorkspace();
+
+        /// <summary>編集中のマスクを保存形式にして <c>State.maskState</c> へ書く(Undo に記録する前・保存の前)。</summary>
+        internal void SyncMasksToState()
+        {
+            var state = State;
+            if (state == null) return;
+            // 書き込み規則(全 false は書かない)は Core の MaskStateCodec と同じ(MaskWorkspace.EncodeTo)。
+            Masks.EncodeTo(state.maskState ??= new MaskState());
+        }
 
         internal ColorZone FindZoneById(string id)
         {
@@ -45,6 +70,164 @@ namespace Iroca
             if (zones == null) return;
             for (int i = 0; i < zones.Count; i++)
                 zones[i]?.EnsureId();
+        }
+
+        // ─────────────── ゾーンの操作 ───────────────
+        // どれも Undo に記録してから書き換える(1 回の操作 = Undo 1 ステップ)。プレビューの作り直しの合図と、
+        // 画面の追従(いま直しているゾーン・開閉)は呼ぶ側が行う。
+
+        // 新しく作ったゾーンの許容範囲。
+        //
+        // ColorZone のフィールド既定は 0 で、これは「まだ何も指定していない」状態を表す値
+        // （距離 0 の画素しか一致しない＝プレビューが一切変わらない）。自動調整で埋める前提の
+        // 設計だったが、自動調整には AI モデルが要るため、未導入のユーザーはスポイトで色を
+        // 取っても何も起きず「壊れている」ようにしか見えなかった（2026-09-11 の UX 見直し）。
+        //
+        // zones JSON 経路（MCP・batchmode）の既定と同じ値で、回帰テストのシナリオ既定（fixtures.ZoneSpec.tolerance）
+        // とも一致する実績のある動作点。
+        // ★ColorZone.cs 側の既定は変えない★ — あちらは JSON／プリセットから値が入る前提の
+        // データ既定であり、ハーネス（回帰テスト・視覚ゲート）が読む唯一の正でもある。
+        // ここで入れるのは「新しく作ったゾーンの初期値」だけ。
+        internal const float NewZoneInitialTolerance = ZonesJsonDefaults.Tolerance;
+
+        /// <summary>
+        /// 新しいゾーン(リストには足さない)。名前を渡さなければ、既存と重ならない最小の番号の名前を振る
+        /// (全ゾーンが同名だと、マスクの編集対象のプルダウンやドラッグ中のゴーストで見分けがつかなかった)。
+        /// UI と自動化が同じ規則で作る。
+        /// </summary>
+        internal static ColorZone NewZone(List<ColorZone> zones, string name = null)
+        {
+            var zone = new ColorZone
+            {
+                name = string.IsNullOrEmpty(name) ? NextZoneName(zones) : name,
+                // 「色を選べば何か変わる」状態から始められるようにする（定数のコメント参照）。
+                tolerance = NewZoneInitialTolerance,
+            };
+            zone.EnsureId();
+            return zone;
+        }
+
+        private static string NextZoneName(List<ColorZone> zones)
+        {
+            var used = new HashSet<string>();
+            if (zones != null)
+                foreach (var z in zones)
+                    if (z != null && !string.IsNullOrEmpty(z.name)) used.Add(z.name);
+            // ゾーンが n 個なら、1〜n+1 のどれかは空いている。
+            for (int n = 1; ; n++)
+            {
+                string candidate = string.Format(Localization.NewZoneNameFormat, n);
+                if (!used.Contains(candidate)) return candidate;
+            }
+        }
+
+        /// <summary>新しいゾーンを末尾に足す。足した位置を返す。</summary>
+        internal int AddZone()
+        {
+            var zones = State.zones;
+            Undo.RegisterCompleteObjectUndo(_undoTarget, "Add Zone");
+            zones.Add(NewZone(zones));
+            return zones.Count - 1;
+        }
+
+        /// <summary>
+        /// スポイトで取った色と位置から新しいゾーンを作って末尾に足す(Undo 1 ステップ。戻すとゾーンごと消える)。
+        /// 足した位置を返す。
+        /// </summary>
+        internal int AddZoneFromSample(Color picked, Vector2 uv)
+        {
+            var zones = State.zones;
+            Undo.RegisterCompleteObjectUndo(_undoTarget, "Add Zone");
+            var zone = NewZone(zones);
+            zone.sampleColor = picked;
+            zone.sampleColorSet = true;
+            // スポイトで取ったので位置も持つ（自動調整が AI 提案の証拠に使う。ApplySample と同じ）。
+            zone.sampleUV = uv;
+            zones.Add(zone);
+            return zones.Count - 1;
+        }
+
+        /// <summary>
+        /// ゾーンを消す。そのゾーンのマスク(除外・含める)も消す。記録の前に編集中のマスクを保存形式へ書くので、
+        /// Undo 1 ステップでゾーンとマスクがそろって戻る(戻したあとはウィンドウが保存形式から展開し直す)。
+        /// </summary>
+        internal bool RemoveZoneAt(int index)
+        {
+            var zones = State?.zones;
+            if (zones == null || index < 0 || index >= zones.Count) return false;
+            SyncMasksToState();
+            Undo.RegisterCompleteObjectUndo(_undoTarget, "Remove Zone");
+            string id = zones[index]?.id;
+            if (!string.IsNullOrEmpty(id)) Masks.RemoveZone(id);
+            zones.RemoveAt(index);
+            SyncMasksToState();
+            return true;
+        }
+
+        /// <summary>
+        /// ゾーンを from から to(取り除いた後の挿入位置)へ移す。並び順が優先度。マスクはゾーンの id で引くので
+        /// 動かさない。動かなければ(同じ位置・範囲外)false。
+        /// </summary>
+        internal bool MoveZone(int from, int to)
+        {
+            var zones = State?.zones;
+            if (zones == null || from == to || from < 0 || from >= zones.Count || to < 0 || to >= zones.Count)
+                return false;
+            SyncMasksToState();
+            Undo.RegisterCompleteObjectUndo(_undoTarget, "Reorder Zone");
+            var moved = zones[from];
+            zones.RemoveAt(from);
+            zones.Insert(to, moved);
+            SyncMasksToState();
+            return true;
+        }
+
+        /// <summary>
+        /// スポイトで取った色と位置をゾーンへ書く。色か位置のどちらかが変わるなら、書く前に
+        /// Undo へ記録する（sampleUV もシリアライズ対象なので、Undo/Redo で色と位置が対で戻る）。
+        /// 同じ色を別の場所で拾い直したときも位置は更新する（別の島をクリックしたかもしれない。
+        /// 位置は自動調整が AI 提案の証拠を取るアンカー）。
+        /// 戻り値 true = プレビューの再生成が要る。色が変わったとき、または位置だけが変わって、その位置が
+        /// 選択に効く状態のとき（ColorZone.SelectionUsesSampleUV: 位置を含む連結成分は包絡ゲートで落とさない）。
+        /// </summary>
+        internal bool ApplySample(ColorZone zone, Color picked, Vector2 uv)
+        {
+            bool colorChanged = zone.sampleColor != picked || !zone.sampleColorSet;
+            if (!colorChanged && zone.sampleUV == uv) return false;
+            Undo.RecordObject(_undoTarget, "Sample Color");
+            if (colorChanged)
+            {
+                zone.sampleColor = picked;
+                zone.sampleColorSet = true;
+                // 主サンプル変更で陳腐化する内部サンプルを破棄（ColorField と同じ挙動）。
+                if (zone.extraSamples != null && zone.extraSamples.Count > 0)
+                    zone.extraSamples.Clear();
+            }
+            zone.sampleUV = uv;
+            return colorChanged || zone.SelectionUsesSampleUV;
+        }
+
+        /// <summary>連続領域の起点を置く。変わったときだけ記録して true。</summary>
+        internal bool SetFloodFillSeed(ColorZone zone, Vector2 uv)
+        {
+            if (zone.seedUV == uv) return false;
+            Undo.RecordObject(_undoTarget, "Set Flood Fill Seed");
+            zone.seedUV = uv;
+            return true;
+        }
+
+        /// <summary>連続領域の起点を外す。</summary>
+        internal void ClearFloodFillSeed(ColorZone zone)
+        {
+            Undo.RecordObject(_undoTarget, "Clear Flood Fill Seed");
+            zone.seedUV = new Vector2(-1f, -1f);
+        }
+
+        /// <summary>ゾーンの詳細の調整値を既定へ戻す(色・許容範囲・名前などの利用者の選択は残す。ColorZone.ResetTuningToDefault)。</summary>
+        internal void ResetZoneTuning(ColorZone zone)
+        {
+            Undo.RegisterCompleteObjectUndo(_undoTarget, "Reset Zone Tuning");
+            zone.ResetTuningToDefault();
         }
     }
 }

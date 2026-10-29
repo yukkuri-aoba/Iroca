@@ -649,7 +649,7 @@ namespace Iroca
         {
             if (!string.IsNullOrEmpty(AutoTuneProvenance(z.id))) return false;
             if (z.extraSamples != null && z.extraSamples.Count > 0) return false;
-            return Mathf.Approximately(z.tolerance, NewZoneInitialTolerance);
+            return Mathf.Approximately(z.tolerance, EditingSession.NewZoneInitialTolerance);
         }
 
         // 英語表示の AI 翻訳のお知らせを出すか。Layout のときに決め、同じフレームの Repaint もそれで描く

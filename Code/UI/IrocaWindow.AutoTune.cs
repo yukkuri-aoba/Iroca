@@ -183,7 +183,7 @@ namespace Iroca
         /// <summary>
         /// 導出パラメータが「ユーザーの手調整を含まない」状態か。
         /// ・自動調整済みのゾーン: その適用値のままなら手調整なし
-        /// ・未調整のゾーン: UI が新規ゾーンへ入れる初期値（<see cref="NewZoneInitialTolerance"/>）
+        /// ・未調整のゾーン: UI が新規ゾーンへ入れる初期値（<see cref="EditingSession.NewZoneInitialTolerance"/>）
         ///   だけが ZoneAutoTuner の既定と違うなら、それは UI が置いた値であって手調整ではない
         /// 自動調整の入力はドメインリロードで失われるため、リロード直後の 1 回だけは
         /// 調整済みゾーンでも「手調整あり」と見えるが、安全側（確認を出す側）に倒れる。
@@ -197,7 +197,7 @@ namespace Iroca
             // 未調整ゾーン: 初期 tolerance を既定値に均してから、他に既定と違う項目が
             // 残らないかを既存の判定（PreviewOverwrittenSettings）で見る。
             var probe = zone.Clone();
-            if (Mathf.Approximately(probe.tolerance, NewZoneInitialTolerance))
+            if (Mathf.Approximately(probe.tolerance, EditingSession.NewZoneInitialTolerance))
                 probe.tolerance = ZoneDefaults.tolerance;
             return ZoneAutoTuner.PreviewOverwrittenSettings(probe).Count == 0;
         }

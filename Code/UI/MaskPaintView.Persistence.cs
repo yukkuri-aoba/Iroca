@@ -61,14 +61,7 @@ namespace Iroca
         /// <summary>
         /// 編集中のマスクを RLE エンコードして _session.maskState に書き戻す。
         /// </summary>
-        public void SyncBuffersToState()
-        {
-            var session = _host.Session;
-            if (session == null) return;
-            var ms = session.maskState ?? (session.maskState = new MaskState());
-            // 書き込み規則(全 false は書かない)は Core の MaskStateCodec と同じ(MaskWorkspace.EncodeTo)。
-            Workspace.EncodeTo(ms);
-        }
+        public void SyncBuffersToState() => _host.Editing.SyncMasksToState();
 
         /// <summary>
         /// _session.maskState（RLE 文字列）を編集中のマスクに展開する。

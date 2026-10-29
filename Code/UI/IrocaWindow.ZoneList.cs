@@ -48,48 +48,6 @@ namespace Iroca
             Repaint();
         }
 
-        // UI から追加する新規ゾーンの初期許容範囲。
-        //
-        // ColorZone のフィールド既定は 0 で、これは「まだ何も指定していない」状態を表す値
-        // （距離 0 の画素しか一致しない＝プレビューが一切変わらない）。自動調整で埋める前提の
-        // 設計だったが、自動調整には AI モデルが要るため、未導入のユーザーはスポイトで色を
-        // 取っても何も起きず「壊れている」ようにしか見えなかった（2026-09-11 の UX 見直し）。
-        //
-        // 0.2 は zones JSON 経路（MCP・batchmode）の既定 ZonesJsonDefaults.Tolerance と同値で、
-        // 回帰テストのシナリオ既定（fixtures.ZoneSpec.tolerance）とも一致する実績のある動作点。
-        // ★ColorZone.cs 側の既定は変えない★ — あちらは JSON／プリセットから値が入る前提の
-        // データ既定であり、ハーネス（回帰テスト・視覚ゲート）が読む唯一の正でもある。
-        // ここで入れるのは「UI で新しく作ったゾーンの初期値」だけ。
-        private const float NewZoneInitialTolerance = 0.2f;
-
-        /// <summary>
-        /// 新規ゾーンの既定名。既存と重複しない最小の番号を振る。
-        /// 全ゾーンが同名（"Zone"）だと、マスク編集ウィンドウの「編集対象」プルダウンや
-        /// ドラッグ中のゴーストで見分けがつかなかった。
-        /// </summary>
-        private string NextZoneName()
-        {
-            var used = new HashSet<string>();
-            foreach (var z in zones)
-                if (z != null && !string.IsNullOrEmpty(z.name)) used.Add(z.name);
-            for (int n = 1; n <= zones.Count + 1; n++)
-            {
-                string candidate = string.Format(Localization.NewZoneNameFormat, n);
-                if (!used.Contains(candidate)) return candidate;
-            }
-            return string.Format(Localization.NewZoneNameFormat, zones.Count + 1);
-        }
-
-        private ColorZone CreateNewZone()
-        {
-            var newZone = new ColorZone();
-            newZone.EnsureId();
-            // 「色を選べば何か変わる」状態から始められるようにする（定数のコメント参照）。
-            newZone.tolerance = NewZoneInitialTolerance;
-            newZone.name = NextZoneName();
-            return newZone;
-        }
-
         // ゾーン並べ替え（ドラッグ）用。並び順が優先度なので、リスト上のドラッグで優先度を変える。
         // _dragZoneIndex: 現在ドラッグ中のゾーン index（-1 = ドラッグなし）。
         // _pendingReorder*: 確定した移動を次の Layout イベントで適用する（遅延ミューテーション）。
@@ -112,35 +70,23 @@ namespace Iroca
             {
                 int idx = _pendingRemoveZoneIndex;
                 _pendingRemoveZoneIndex = -1;
-                // bool[] バッファを _session.maskState に同期してから Undo 登録、削除後に再同期。
-                // これでゾーン削除1回 = Undo 1ステップで完全復元できる。
-                _maskView.SyncBuffersToState();
-                Undo.RegisterCompleteObjectUndo(this, "Remove Zone");
-                _maskView.OnZoneAboutToBeRemoved(idx);
-                zones.RemoveAt(idx);
-                _maskView.SyncBuffersToState();
-                MarkPreviewDirty();
+                // ゾーンとそのマスクを消す(Undo 1 ステップで両方戻る。EditingSession.RemoveZoneAt)。
+                if (Editing.RemoveZoneAt(idx))
+                {
+                    _maskView.OnZoneRemoved(idx);
+                    MarkPreviewDirty();
+                }
             }
             if (_pendingAddZone)
             {
                 _pendingAddZone = false;
-                Undo.RegisterCompleteObjectUndo(this, "Add Zone");
-                zones.Add(CreateNewZone());
-                SetCurrentZoneIndex(zones.Count - 1);
+                SetCurrentZoneIndex(Editing.AddZone());
                 MarkPreviewDirty();
             }
             if (_pendingNewZoneFromSample)
             {
                 _pendingNewZoneFromSample = false;
-                // ゾーンの追加と色の設定を Undo 1 ステップにまとめる（戻すとゾーンごと消える）。
-                Undo.RegisterCompleteObjectUndo(this, "Add Zone");
-                var newZone = CreateNewZone();
-                newZone.sampleColor = _pendingNewZoneColor;
-                newZone.sampleColorSet = true;
-                // スポイトで取ったので位置も持つ（自動調整が AI 提案の証拠に使う。ApplyEyedropperSample と同じ）。
-                newZone.sampleUV = _pendingNewZoneUV;
-                zones.Add(newZone);
-                SetCurrentZoneIndex(zones.Count - 1);
+                SetCurrentZoneIndex(Editing.AddZoneFromSample(_pendingNewZoneColor, _pendingNewZoneUV));
                 zonesFoldout = true;
                 MarkPreviewDirty();
             }
@@ -150,17 +96,10 @@ namespace Iroca
                 int to = _pendingReorderTo;
                 _pendingReorderFrom = -1;
                 _pendingReorderTo = -1;
-                if (from != to && from >= 0 && from < zones.Count && to >= 0 && to < zones.Count)
+                // 並び順(優先度)だけを変え、編集中マスクターゲット(index 参照)を移動に追従させる。
+                if (Editing.MoveZone(from, to))
                 {
-                    // マスク本体は zone.id キーで管理されるため移動不要。並び順(優先度)のみ変更し、
-                    // 編集中マスクターゲット(index 参照)を移動に追従させる。Undo 1ステップで復元可能。
-                    _maskView.SyncBuffersToState();
-                    Undo.RegisterCompleteObjectUndo(this, "Reorder Zone");
-                    var moved = zones[from];
-                    zones.RemoveAt(from);
-                    zones.Insert(to, moved);
                     _maskView.OnZoneReordered(from, to);
-                    _maskView.SyncBuffersToState();
                     MarkPreviewDirty();
                 }
             }
@@ -626,8 +565,7 @@ namespace Iroca
                             new GUIContent(Localization.FloodFillClear, Localization.FloodFillClearTooltip),
                             GUILayout.MinWidth(0)))
                         {
-                            Undo.RecordObject(this, "Clear Flood Fill Seed");
-                            zone.seedUV = new UnityEngine.Vector2(-1f, -1f);
+                            Editing.ClearFloodFillSeed(zone);
                             MarkPreviewDirty();
                         }
                     }
@@ -802,8 +740,7 @@ namespace Iroca
             EditorGUILayout.Space(2);
             if (GUILayout.Button(new GUIContent(Localization.ResetZoneTuning, Localization.ResetZoneTuningTooltip)))
             {
-                Undo.RegisterCompleteObjectUndo(this, "Reset Zone Tuning");
-                zone.ResetTuningToDefault();
+                Editing.ResetZoneTuning(zone);
                 MarkPreviewDirty();
             }
         }

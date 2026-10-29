@@ -220,9 +220,10 @@ namespace Iroca
         // 個別 [SerializeField] フィールド群を IrocaSessionState に集約したもの。
         [SerializeField] private IrocaSessionState _session = IrocaSessionState.CreateDefault();
 
-        // 編集中の文書。_session を包み(持ち主はこのウィンドウのまま)、原本の画素を持つ。
+        // 編集中の文書。_session を包み(持ち主はこのウィンドウのまま)、原本の画素と編集中のマスクを持ち、ゾーンの操作を
+        // このウィンドウの Undo に記録する。
         [System.NonSerialized] private EditingSession _editing;
-        internal EditingSession Editing => _editing ??= new EditingSession(() => _session);
+        internal EditingSession Editing => _editing ??= new EditingSession(() => _session, this);
 
         // partial class 内のコードが、集約前と同じフィールド名のまま _session 内のフィールドへ
         // アクセスできるようにするブリッジ。新規コードは _session.xxx を直接参照してよい。
@@ -436,6 +437,9 @@ namespace Iroca
             SavePersistedSessionForCurrentTexture();
             RememberLastEditedTexture();
             _maskView?.ReleaseOverlayTextures();
+            // 編集中のマスク(ヒープの外)も返す。手放すのはここだけで、マスクは直前に保存済み(OnDisable は保存より前に
+            // 後片付けを呼ぶので、そこでは手放さない。空のマスクを保存してファイルを消してしまう)。
+            _editing?.Masks.Clear();
             // 閉じた後も AI の推論のワーカーが GPU のメモリを持ち続けないように(次に開いたら作り直す)。
             MaskSuggestBridge.Service?.ReleaseGpuResources();
         }

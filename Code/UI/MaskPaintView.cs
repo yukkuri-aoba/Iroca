@@ -25,9 +25,10 @@ namespace Iroca
         public bool maskFoldout = true;
 
         // 編集中のマスク(全ゾーン共通の除外・ゾーン別の除外・ゾーン別の含める。元画像の解像度、1 画素 1 ビット、
-        // ヒープの外)。保存形式との変換・スナップショットもここを通る。
-        [System.NonSerialized] private MaskWorkspace _workspace = new MaskWorkspace();
-        internal MaskWorkspace Workspace => _workspace ??= new MaskWorkspace();
+        // ヒープの外)。保存形式との変換・スナップショットもここを通る。持ち主は編集中の文書(EditingSession.Masks)。
+        // ウィンドウに付いていないとき(テストがプリセットの変換だけを見る)だけ、自前で持つ。
+        [System.NonSerialized] private MaskWorkspace _hostlessWorkspace;
+        internal MaskWorkspace Workspace => _host != null ? _host.Editing.Masks : (_hostlessWorkspace ??= new MaskWorkspace());
 
         /// <summary>マスクの土台の寸法(0 = まだ決まっていない)。</summary>
         public int maskWidth => Workspace.Width;
@@ -636,18 +637,17 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 指定インデックスのゾーンが削除されるタイミングで、紐付くマスクを破棄する。
+        /// 指定インデックスのゾーンを消した後に、編集対象(index 参照)を追従させる。マスクは消す操作
+        /// (EditingSession.RemoveZoneAt)が一緒に消している。
         /// </summary>
-        public void OnZoneAboutToBeRemoved(int index)
+        public void OnZoneRemoved(int index)
         {
             var zones = _host.Session.zones;
-            if (zones == null || index < 0 || index >= zones.Count) return;
-            string id = zones[index].id;
-            if (!string.IsNullOrEmpty(id)) Workspace.RemoveZone(id);
+            if (zones == null) return;
 
             // 編集対象(=いま直しているゾーン)を消したら、残ったゾーンのうち同じ位置(末尾なら 1 つ上)へ移す。
             // 共通へ戻すと、右クリックの「ここも塗る」などがゾーン無しの扱いになってしまう。
-            int remaining = zones.Count - 1;
+            int remaining = zones.Count;
             if (activeMaskTarget == index) activeMaskTarget = remaining > 0 ? Mathf.Min(index, remaining - 1) : -1;
             else if (activeMaskTarget > index) activeMaskTarget--;
 
@@ -856,9 +856,7 @@ namespace Iroca
             _suggestController = null;
             // メッシュの探索結果とチャート地図(4K で数十 MB)も手放す。次の右クリックで作り直す。
             _meshParts = null;
-            // 編集中のマスク(ヒープの外)も返す。ウィンドウを破棄するときだけ呼ばれ、マスクはその前に保存済み
-            // (OnDisable は保存より前に後片付けを呼ぶので、そこでは手放さない。空のマスクを保存してしまう)。
-            _workspace?.Clear();
+            _hostlessWorkspace?.Clear();
         }
 
         public void SuspendTransientState()

@@ -22,11 +22,13 @@ namespace Iroca.EditorTests
         private static readonly Vector2 Uv2 = new Vector2(0.6f, 0.1f);
 
         private SampleUvUndoHost _host;
+        private EditingSession _editing;
 
         [SetUp]
         public void SetUp()
         {
             _host = ScriptableObject.CreateInstance<SampleUvUndoHost>();
+            _editing = new EditingSession(() => _host.session, _host);
             var z = new ColorZone { name = "服" };
             z.EnsureId();
             _host.session.zones.Add(z);
@@ -37,6 +39,7 @@ namespace Iroca.EditorTests
         public void TearDown()
         {
             Undo.ClearUndo(_host);
+            _editing.Masks.Clear();
             Object.DestroyImmediate(_host);
         }
 
@@ -47,7 +50,7 @@ namespace Iroca.EditorTests
         private void Pick(Color c, Vector2 uv)
         {
             Undo.IncrementCurrentGroup();
-            PreviewView.ApplyEyedropperSample(_host, Zone, c, uv);
+            _editing.ApplySample(Zone, c, uv);
             Undo.IncrementCurrentGroup();
         }
 
@@ -107,8 +110,7 @@ namespace Iroca.EditorTests
         {
             Pick(Red, Uv1);
             Undo.IncrementCurrentGroup();
-            Undo.RegisterCompleteObjectUndo(_host, "Remove Zone");
-            _host.session.zones.RemoveAt(0);
+            Assert.IsTrue(_editing.RemoveZoneAt(0));
             Undo.IncrementCurrentGroup();
 
             Undo.PerformUndo();

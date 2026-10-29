@@ -98,9 +98,6 @@ namespace Iroca
         internal const string ApplyPng = "png";
         internal const string ApplyPreview = "preview";
 
-        // UI で新しく作ったゾーンの初期値と同じ(IrocaWindow.NewZoneInitialTolerance)。
-        private const float NewZoneTolerance = ZonesJsonDefaults.Tolerance;
-
         /// <summary>
         /// 色替えを足して、アバターに登録する(既定)・PNG に書き出す・比較画像だけ作る。
         /// 土台は、そのテクスチャを開いているいろかの窓の編集内容(登録では、窓が書き込み先と同じレシピを表示しているとき
@@ -777,13 +774,12 @@ namespace Iroca
             else return $"change '{c.name}': give 'at' ([u, v]) or 'from' (\"#RRGGBB\").";
             to.a = 1f;
 
-            string name = string.IsNullOrWhiteSpace(c.name) ? NextZoneName(state.zones) : c.name.Trim();
-            zone = state.zones.FirstOrDefault(z => z != null && z.name == name);
+            string name = string.IsNullOrWhiteSpace(c.name) ? null : c.name.Trim();
+            zone = name == null ? null : state.zones.FirstOrDefault(z => z != null && z.name == name);
             if (zone == null)
             {
-                // UI でスポイトして新しいゾーンを作ったときと同じ(IrocaWindow.CreateNewZone)。
-                zone = new ColorZone { name = name, tolerance = NewZoneTolerance };
-                zone.EnsureId();
+                // UI でスポイトして新しいゾーンを作ったときと同じ規則(名前の番号・許容範囲)。
+                zone = EditingSession.NewZone(state.zones, name);
                 state.zones.Add(zone);
             }
             zone.enabled = true;
@@ -793,17 +789,6 @@ namespace Iroca
             zone.targetColorSet = true;
             zone.sampleUV = uv;
             return null;
-        }
-
-        // 既存と重ならない最小の番号の名前(UI の NextZoneName と同じ規則)。
-        private static string NextZoneName(List<ColorZone> zones)
-        {
-            var used = new HashSet<string>(zones.Where(z => z != null && !string.IsNullOrEmpty(z.name)).Select(z => z.name));
-            for (int n = 1; ; n++)
-            {
-                string candidate = string.Format(Localization.NewZoneNameFormat, n);
-                if (!used.Contains(candidate)) return candidate;
-            }
         }
 
         // 消したゾーンのマスク(除外・含める)を落とす(残っていても使われないが、レシピに死んだ項目を残さない)。
