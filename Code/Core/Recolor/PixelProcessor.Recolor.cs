@@ -90,8 +90,9 @@ namespace Iroca
         // 暗部へ沈むグラデーションの明るい側が平らに張り付いて、選択の境目に継ぎ目が出た(合成シーンで継ぎ目の組 31 → 382)。
         // 下の半分を見ないのは、影の多い塗りや、選択に入った暗い別の部分(髪のすき間など)を地色とみなさないため。
         // 山は飽和度で絞らないコア画素で探す(淡い地色の素材では、上の飽和度の絞り込みが地色そのものを外していた)。
-        // ワンショットの 33 被写体 × 10 色で、地色の出力と目標の色差の中央値 0.031 → 0.017、良くなった 81 件・悪くなった
-        // 0 件(dev_safe/scripts/probe_target_chroma.py の base_dE。記録は dev_safe/docs/anchor-base-color-2026-10-29.md)。
+        // 地色の出力と目標の色差の中央値は、ワンショットの 33 被写体 × 10 色で 0.031 → 0.024(良くなった 54 件・悪くなった
+        // 0 件。dev_safe/scripts/probe_target_chroma.py の base_dE)、GT の無い素材の 137 クリック × 3 色で 0.042 → 0.015
+        // (良 110・悪 3。probe_recolor_gtless.py)。記録は dev_safe/docs/anchor-base-color-2026-10-29.md。
         // AnchorModeHalfBins: 山をならす窓の片側のビン数(L で 1 ビン = 1/255)。窓の幅 5 ビン ≈ 0.02 は
         //   AnchorMinLSpread と同じ「同じ明るさとみなす幅」。代表 C もこの窓の中の画素から取る。代表 L は窓の上の端に置き、
         //   地色を L 再マップの折れ目(sL)より下の 1 本の直線に乗せる(地色は target より窓の半分ほど暗く、ΔL 0.01 程度)。
@@ -100,8 +101,17 @@ namespace Iroca
         // AnchorPeakRatio: 窓の画素数が、すぐ上とすぐ下の同じ幅の窓のどちらよりもこの倍率以上多いとき山とみなす。
         //   なだらかなグラデーションの合成 11 シーンは 1.08 以下、ワンショットで山のある被写体は 1.30 以上。1.1〜1.3 の
         //   どこに置いても 330 件の結果は同じで、その中ほど。
+        // AnchorMaxBaseStretch: 地色の山を代表にしたとき、地色のすぐ上の明るさの揺れ(布目・肌の粒)を L 再マップの上側
+        //   [sL,1]→[tL,topL] が広げる倍率の上限。上側の傾き (topL − tL)/(1 − sL) は塗り先が tL = 1/HighlightLMult の
+        //   ときいちばん急で (1 − 1/HighlightLMult)/(1 − sL)。これがこの倍率を超える明るい地色(肌・生成り・白)は、
+        //   塗り先に依らず P90 のままにする(AnchorPeakMaxL)。明るい面を基準にすると上側に入るのはツヤの 1 割だけだが、
+        //   明るい地色の山を基準にすると地色の質感の上半分が入り、肌を暗い色へ塗ると平らな面の粒が 2.4 倍・生成りの
+        //   ニットの網目が 1.8 倍に広がった(GT の無い素材での目視、2026-10-29)。塗り先で決めないのは、色を選んでいる間に
+        //   基準が切り替わって明るさが跳ばないようにするため。
         private const int   AnchorModeHalfBins  = 2;
         private const float AnchorPeakRatio     = 1.2f;
+        private const float AnchorMaxBaseStretch = 2f;
+        private const float AnchorPeakMaxL = 1f - (1f - 1f / HighlightLMult) / AnchorMaxBaseStretch;
         private const float AnchorMinLSpread    = 0.02f;  // L の P95-P05 がこれ未満=フラット領域は補正不要
         private const float AnchorSatrHistMax   = 4f;     // 飽和度(C/L)ヒストグラムの値域上限
         private const float AnchorChromaHistMax = 0.5f;   // chroma ヒストグラムの値域上限(OkLab C は ~0.33 まで)
@@ -227,6 +237,13 @@ namespace Iroca
             return true;
         }
 
+        // 地色の山を代表 L にするか。山があり、明るい面(brightFaceL)より窓 1 つ分以上暗く、代表 L(窓の上の端)が
+        // AnchorPeakMaxL 以下のとき(AnchorMaxBaseStretch の説明)。
+        private static bool UseBaseColorPeak(int[] lHist, int count, float brightFaceL, out int modeBin)
+            => TryFindBaseColorPeak(lHist, count, out modeBin)
+               && (modeBin + 2 * AnchorModeHalfBins + 1) / 255f <= brightFaceL
+               && (modeBin + AnchorModeHalfBins + 1) / 255f <= AnchorPeakMaxL;
+
         // TryComputeRecolorAnchor の 1 回分の推定。material.Active なら、サンプルと別の素材の画素を統計に入れない。
         // bbMinX..bbMaxY: 候補(strength>=AnchorStrengthMin)が存在しうる矩形。呼び出し側が後段 bbox を
         // 渡す。候補はこの矩形の外に 1 画素も無いので、走査を矩形に限るとどのパスも「読む量」だけが
@@ -346,8 +363,7 @@ namespace Iroca
                 float bandHi = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLBandHiPct, 1f);
 
                 // 明るい面より窓 1 つ分以上暗い所に地色の山があれば、そちらを代表にする(AnchorPeakRatio の説明を参照)。
-                bool usePeak = TryFindBaseColorPeak(coreLHist, coreCount, out int modeBin)
-                    && (modeBin + 2 * AnchorModeHalfBins + 1) / 255f <= anchorL;
+                bool usePeak = UseBaseColorPeak(coreLHist, coreCount, anchorL, out int modeBin);
                 int peakLoBin = modeBin - AnchorModeHalfBins, peakHiBin = modeBin + AnchorModeHalfBins;
                 // 代表 L は山の窓の上の端。地色(窓の中)の画素が、L 再マップの折れ目より下の 1 本の直線に乗る(AnchorModeHalfBins の説明)。
                 if (usePeak) anchorL = (modeBin + AnchorModeHalfBins + 1) / 255f;
@@ -490,8 +506,7 @@ namespace Iroca
             float bandHi = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLBandHiPct, 1f);
 
             // 明るい面より窓 1 つ分以上暗い所に地色の山があれば、そちらを代表にする(AnchorPeakRatio の説明を参照)。
-            bool usePeak = TryFindBaseColorPeak(coreLHist, coreCount, out int modeBin)
-                && (modeBin + 2 * AnchorModeHalfBins + 1) / 255f <= anchorL;
+            bool usePeak = UseBaseColorPeak(coreLHist, coreCount, anchorL, out int modeBin);
             int peakLoBin = modeBin - AnchorModeHalfBins, peakHiBin = modeBin + AnchorModeHalfBins;
             // 代表 L は山の窓の上の端。地色(窓の中)の画素が、L 再マップの折れ目より下の 1 本の直線に乗る(AnchorModeHalfBins の説明)。
             if (usePeak) anchorL = (modeBin + AnchorModeHalfBins + 1) / 255f;

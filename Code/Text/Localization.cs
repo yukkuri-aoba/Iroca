@@ -309,8 +309,8 @@ namespace Iroca
 
         public static string AutoRecolorAnchor => IsJapanese ? "基準色の自動補正" : "Auto Sample Anchor";
         public static string AutoRecolorAnchorTooltip => IsJapanese
-            ? "パーツの地色が「変更先カラー」と同じ色になるように、色の合わせ方を自動で補正します（地色がはっきりしたパーツではいちばん多い色、なだらかなグラデーションのパーツでは明るい面を合わせます）。影やツヤの所をスポイトしても、仕上がりの明るさは変わりません。\nOFF にすると、スポイトした画素そのものが変更先カラーになります。\n色替えする範囲は変わりません。\n既定: ON"
-            : "Adjusts how colors are mapped so the base color of the part matches the Target Color (its most common color when the part has a clear base color, or its lit side for smooth gradients), even if you sampled a shadow or a highlight.\nWhen OFF, the sampled pixel itself becomes the Target Color.\nIt does not change which pixels are recolored.\nDefault: ON";
+            ? "パーツの地色が「変更先カラー」と同じ色になるように、色の合わせ方を自動で補正します（地色がはっきりしたパーツではいちばん多い色、なだらかなグラデーションのパーツや、肌・白など明るい地色のパーツでは明るい面を合わせます）。影やツヤの所をスポイトしても、仕上がりの明るさは変わりません。\nOFF にすると、スポイトした画素そのものが変更先カラーになります。\n色替えする範囲は変わりません。\n既定: ON"
+            : "Adjusts how colors are mapped so the base color of the part matches the Target Color (its most common color when the part has a clear base color, or its lit side for smooth gradients and for light base colors such as skin or white), even if you sampled a shadow or a highlight.\nWhen OFF, the sampled pixel itself becomes the Target Color.\nIt does not change which pixels are recolored.\nDefault: ON";
 
         // 含めるマスク追加(2026-08)以降、このセクションは除外/含めるの両マスクを扱う。
         public static string ExclusionMask => IsJapanese ? "マスク" : "Masks";
