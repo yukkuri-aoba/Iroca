@@ -347,25 +347,22 @@ namespace Iroca
                             + "scene object, by several avatars, or only by objects outside any avatar). Pass 'avatar' (a scene object path).";
                 }
                 r.avatar = HierarchyPath(job.target.transform);
-                job.recipe = RecipeRegistration.ExistingFor(job.target, tex);
             }
-            if (job.recipe == null)
+            // 使うレシピ(UI の登録と同じ順。登録先が無い書き出し・比較画像では、このテクスチャのレシピがちょうど 1 つならそれ)。
+            // 登録では、ほかのアバターが使っているレシピを流用しない。流用して書き換えると、そのアバターの色も
+            // 一緒に変わる(別のシーンにいると気付きにくく、窓を閉じていれば Ctrl+Z でも戻らなかった)。
+            job.recipe = RegistrationService.ChooseRecipe(job.target, tex, null, shareWithOtherAvatars: false,
+                out var notShared, out var notSharedUsers);
+            if (notShared != null)
             {
-                var found = RecipeStore.FindForTexture(tex);
-                if (found.Count == 1)
-                {
-                    // 登録では、ほかのアバターが使っているレシピを流用しない。流用して書き換えると、そのアバターの色も
-                    // 一緒に変わる(別のシーンにいると気付きにくく、窓を閉じていれば Ctrl+Z でも戻らなかった)。
-                    var users = r.apply == ApplyAvatar ? OtherAvatarsUsing(found[0], job.target) : null;
-                    if (users == null || users.Count == 0) job.recipe = found[0];
-                    else
-                        r.warnings.Add($"the recipe {AssetDatabase.GetAssetPath(found[0])} of this texture is used by "
-                            + $"{string.Join(", ", users)}; made a new recipe for this avatar so that their colors do not change "
-                            + "(the zones of that recipe are not carried over).");
-                }
+                var users = notSharedUsers.ConvertAll(c => HierarchyPath(c.transform));
+                users.Sort(StringComparer.Ordinal);
+                r.warnings.Add($"the recipe {AssetDatabase.GetAssetPath(notShared)} of this texture is used by "
+                    + $"{string.Join(", ", users)}; made a new recipe for this avatar so that their colors do not change "
+                    + "(the zones of that recipe are not carried over).");
             }
             // 読めないレシピ(新しい版のいろかで作られた等)は土台にも書き込み先にもしない(UI と同じ)。
-            if (job.recipe != null && !string.IsNullOrEmpty(job.recipe.sessionJson) && RecipeStore.Load(job.recipe) == null)
+            if (RegistrationService.IsUnreadable(job.recipe))
                 return $"the existing recipe cannot be read (made by a newer Iroca?): {AssetDatabase.GetAssetPath(job.recipe)}";
 
             // 窓の編集内容を土台にするのは、登録では窓が書き込み先と同じレシピを表示しているとき(どちらも無いときを
@@ -460,17 +457,14 @@ namespace Iroca
                 Undo.IncrementCurrentGroup();
                 int undoGroup = Undo.GetCurrentGroup();
                 Undo.SetCurrentGroupName(UndoName);
-                var exports = RecipeRegistration.ExportsOf(tex);
-                var exportUsers = RecipeRegistration.MaterialsUsing(job.target, exports);
                 // 戻すのは .mat そのもの。登録先の外(開いているシーン)でも使われているマテリアルは、ほかのアバターまで
                 // 元の色に戻るので書き換えない(窓の登録と違い、確認画面が無い)。パス付きで知らせる。
-                var shared = RecipeRegistration.UsedOutside(job.target, exportUsers, out _);
-                exportUsers.RemoveAll(shared.Contains);
-                int switched = RecipeRegistration.SwitchToSource(exportUsers, tex, exports);
+                var plan = RegistrationService.Describe(job.target, tex, recipe);
+                int switched = RegistrationService.SwitchAndAttach(plan, recipe, keepShared: true, out _);
                 if (switched > 0)
                     r.warnings.Add($"switched {switched} material(s) from the exported image back to the source texture. "
                         + "The material files themselves were changed, so other scenes or prefabs that use them also show the source texture.");
-                foreach (var m in shared)
+                foreach (var m in plan.shared)
                 {
                     string label = AssetDatabase.GetAssetPath(m);
                     if (string.IsNullOrEmpty(label)) label = m.name;
@@ -478,7 +472,6 @@ namespace Iroca
                         + "and switching it back would change those objects too. The recolor does not apply to it until it uses "
                         + "the source texture (switch it in the Inspector, or give this avatar its own material).");
                 }
-                RecipeRegistration.Attach(job.target, recipe);
                 if (recipe == job.recipe)
                 {
                     // RecipeStore.Save は(窓の自動保存と二重にならないよう)Undo に積まないので、書く前の中身をここで
@@ -725,25 +718,6 @@ namespace Iroca
                 return $"{rel} already exists (materials or avatars may use it). Ask the user before replacing it, "
                      + "then call again with overwrite:true; or pass another 'output'.";
             return null;
-        }
-
-        /// <summary>
-        /// 開いているシーンで、登録先のアバター(<paramref name="target"/> と同じルート)の外から <paramref name="recipe"/> を
-        /// 使っている <see cref="IrocaRecolor"/> の階層のパス。
-        /// </summary>
-        private static List<string> OtherAvatarsUsing(IrocaRecipe recipe, GameObject target)
-        {
-            var users = new List<string>();
-            if (recipe == null || target == null) return users;
-            var root = target.transform.root;
-            foreach (var c in UnityEngine.Object.FindObjectsByType<IrocaRecolor>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-            {
-                if (c == null || c.recipes == null || !c.recipes.Contains(recipe)) continue;
-                if (!RecipeRegistration.IsSceneObject(c.gameObject) || c.transform.root == root) continue;
-                users.Add(HierarchyPath(c.transform));
-            }
-            users.Sort(StringComparer.Ordinal);
-            return users;
         }
 
         // 1 件の変更をゾーンにする。エラーなら文言、成功なら null。

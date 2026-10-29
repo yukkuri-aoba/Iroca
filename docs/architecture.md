@@ -32,7 +32,7 @@ Core         計算だけ（選択・マスクの適用・再着色・自動調�
 | `Code/Runtime` | 実行時（アバターに付けるコンポーネント） | Runtime |
 | `Code/Infra`・`Code/Text` | Infra | Core・Runtime・Infra・Text |
 | `Code/MaskSuggest`（Ops を除く） | Infra と同じ段（AI 提案の準備・窓口） | 上に MaskSuggest を足したもの |
-| `Code/Application`（4-2 で作った。`SourcePixelCache`・`EditingSession`・`SessionPersistence`・`MaskWorkspace`・`AutosaveSchedule`） | Application | 上に Application を足したもの |
+| `Code/Application`（4-2・4-3 で作った。`SourcePixelCache`・`EditingSession`・`SessionPersistence`・`MaskWorkspace`・`AutosaveSchedule`・`PresetApplier`・`RegistrationService`） | Application | 上に Application を足したもの |
 | `Code/Automation` | Automation | 上に Automation を足したもの |
 | `Code/UI` | UI | 上に UI を足したもの |
 | `Code/NdmfIntegration`・`Code/SentisIntegration` | 統合 | Application まで（UI と自動化は使わない） |
@@ -115,7 +115,7 @@ partial のまま置いた）、`Pipeline/`（入口の `PixelProcessor.cs`・�
 | `SourcePixelCache` | 作業解像度の原本（参照の数で貸す） |
 | `RecolorInput` | 色替えの入力を組み立てる唯一の場所。プレビュー・書き出し・一括書き出し・NDMF・自動化が共通で使う。非破壊ビルドの土台と `SessionRecolor` も使うので Core に置いた（4-2） |
 | `PreviewPipeline` / `PreviewRenderer` | プレビューの計算（概要段・確定段・ドラッグの追従・選択キャッシュ）と、GPU での表示 |
-| `AutoTuneService`・`AiSuggestBroker`・`ExportService`・`RegistrationService`・`PresetApplier` | 自動調整・AI 提案の待ち行列・書き出し・登録・プリセットの読み込みを、それぞれ 1 本にする |
+| `AutoTuneService`・`AiSuggestBroker`・`ExportService`・`RegistrationService`・`PresetApplier` | 自動調整・AI 提案の待ち行列・書き出し・登録・プリセットの読み込みを、それぞれ 1 本にする。4-3 で `PresetApplier`（プリセット → 編集状態の規則）と `RegistrationService`（使うレシピの選び方と登録の計画。ウィンドウは確認画面に、自動化は警告にする）を作った |
 
 - IMGUI のビューは毎フレーム状態を読む（MVVM にはしない）。`Changed` を購読するのは、非同期に動くもの（プレビューの
   再計算・自動保存・UI の版・シーンへの反映・マスクの重ね表示）だけ。

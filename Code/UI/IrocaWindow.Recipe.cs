@@ -329,19 +329,15 @@ namespace Iroca
             }
 
             // 使うレシピ: 結び付いているもの → 登録先に既にあるこのテクスチャのレシピ(登録し直し = 更新)
-            // → このテクスチャのレシピがプロジェクトにちょうど 1 つならそれ → 新しく作る。
-            var recipe = BoundRecipe;
-            if (recipe == null) recipe = RecipeRegistration.ExistingFor(target, sourceTexture);
-            if (recipe == null)
-            {
-                var found = RecipeStore.FindForTexture(sourceTexture);
-                if (found.Count == 1) recipe = found[0];
-            }
+            // → このテクスチャのレシピがプロジェクトにちょうど 1 つならそれ → 新しく作る。ほかのアバターが使うレシピも
+            // 流用する(確認画面で知らせる。確認できない自動化は流用しない)。
+            var recipe = RegistrationService.ChooseRecipe(target, sourceTexture, BoundRecipe,
+                shareWithOtherAvatars: true, out _, out _);
             string recipeLabel = recipe != null
                 ? AssetDatabase.GetAssetPath(recipe)
                 : string.Format(Localization.RegisterRecipeNew, RecipeStore.PathForNew(sourceTexture));
             // 読めないレシピ(新しい版のいろかで作られた・壊れた)は上書きしない(戻せないため。自動化 API と同じ判定)。
-            if (recipe != null && !string.IsNullOrEmpty(recipe.sessionJson) && RecipeStore.Load(recipe) == null)
+            if (RegistrationService.IsUnreadable(recipe))
             {
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive,
                     string.Format(Localization.RegisterRecipeUnreadableFormat, recipeLabel), Localization.OK);
@@ -357,47 +353,41 @@ namespace Iroca
                 return;
             }
 
+            // 登録で何が起きるか(RegistrationService.Describe)を確認画面に出す。
             // コンポーネントは登録先に 1 つ(既にあればそこへ足す)。置き換え・まとめが起きるなら先に知らせる。
-            RecipeRegistration.Describe(target, sourceTexture, recipe, out var replaced, out int components);
             // 以前「適用して保存」で書き出した画像を差しているマテリアルは、元のテクスチャへ戻す
             // (戻さないと非破壊の色替えが効かない)。書き換えられない場所のものは知らせるだけ。
-            var exports = RecipeRegistration.ExportsOf(sourceTexture);
-            var exportUsers = RecipeRegistration.MaterialsUsing(target, exports);
-            int switchable = 0;
-            foreach (var m in exportUsers) if (RecipeRegistration.IsEditableMaterial(m)) switchable++;
             // 戻すのは .mat そのものなので、登録先の外で同じマテリアルを使っている所も元の色に戻る。開いているシーンで
             // 数えて知らせ、それらは戻さずに登録することもできるようにする。
-            var shared = RecipeRegistration.UsedOutside(target, exportUsers, out int sharedPlaces);
+            var plan = RegistrationService.Describe(target, sourceTexture, recipe);
             // 冒頭の「マテリアルは変わりません」は、戻すマテリアルがあるときは正しくない。
-            var message = string.Format(switchable > 0 ? Localization.RegisterConfirmSwitchFormat : Localization.RegisterConfirmFormat,
+            var message = string.Format(plan.switchable > 0 ? Localization.RegisterConfirmSwitchFormat : Localization.RegisterConfirmFormat,
                 target.name, sourceTexture.name, recipeLabel);
-            if (switchable > 0)
-                message += "\n\n" + string.Format(Localization.RegisterSwitchExportsFormat, switchable, sourceTexture.name);
-            if (shared.Count > 0)
-                message += "\n\n" + string.Format(Localization.RegisterSharedExportsFormat, shared.Count, sharedPlaces,
+            if (plan.switchable > 0)
+                message += "\n\n" + string.Format(Localization.RegisterSwitchExportsFormat, plan.switchable, sourceTexture.name);
+            if (plan.shared.Count > 0)
+                message += "\n\n" + string.Format(Localization.RegisterSharedExportsFormat, plan.shared.Count, plan.sharedPlaces,
                     Localization.RegisterKeepShared);
-            if (exportUsers.Count > switchable)
-                message += "\n\n" + string.Format(Localization.RegisterLockedExportsFormat, exportUsers.Count - switchable);
-            if (components >= 2)
-                message += "\n\n" + string.Format(Localization.RegisterMergeFormat, components);
-            else if (components == 1)
+            if (plan.exportUsers.Count > plan.switchable)
+                message += "\n\n" + string.Format(Localization.RegisterLockedExportsFormat, plan.exportUsers.Count - plan.switchable);
+            if (plan.components >= 2)
+                message += "\n\n" + string.Format(Localization.RegisterMergeFormat, plan.components);
+            else if (plan.components == 1)
                 message += "\n\n" + Localization.RegisterAddToExisting;
-            if (replaced != null)
+            if (plan.replaced != null)
                 message += "\n\n" + string.Format(Localization.RegisterReplaceFormat, sourceTexture.name,
-                    AssetDatabase.GetAssetPath(replaced));
+                    AssetDatabase.GetAssetPath(plan.replaced));
             // 流用するレシピ(別のアバターに登録済みの同じテクスチャのレシピなど)をほかでも使っていれば、
             // 登録した後の編集がそちらの色にも効くことを知らせる。
-            var otherUsers = RecipeRegistration.OtherUsers(recipe, target);
-            if (otherUsers.Count > 0)
-                message += "\n\n" + string.Format(Localization.RegisterRecipeSharedFormat, NameList(otherUsers));
+            if (plan.otherUsers.Count > 0)
+                message += "\n\n" + string.Format(Localization.RegisterRecipeSharedFormat, NameList(plan.otherUsers));
             // 0 = 登録、1 = キャンセル(閉じたときも)、2 = 共有のマテリアルは戻さずに登録。
-            int choice = shared.Count > 0
+            int choice = plan.shared.Count > 0
                 ? EditorUtility.DisplayDialogComplex(Localization.RegisterNonDestructive, message,
                     Localization.RegisterOk, Localization.Cancel, Localization.RegisterKeepShared)
                 : EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, message,
                     Localization.RegisterOk, Localization.Cancel) ? 0 : 1;
             if (choice == 1) return;
-            if (choice == 2) exportUsers.RemoveAll(shared.Contains);
 
             // 作業用マスクを state へ同期してからレシピへ書く(マスク込みで保存される)。
             _maskView?.SyncBuffersToState();
@@ -412,8 +402,7 @@ namespace Iroca
             Undo.IncrementCurrentGroup();
             int undoGroup = Undo.GetCurrentGroup();
             Undo.SetCurrentGroupName(Localization.RegisterNonDestructive);
-            RecipeRegistration.SwitchToSource(exportUsers, sourceTexture, exports);
-            var component = RecipeRegistration.Attach(target, recipe);
+            RegistrationService.SwitchAndAttach(plan, recipe, keepShared: choice == 2, out var component);
             Undo.CollapseUndoOperations(undoGroup);
             EditorGUIUtility.PingObject(component);
             ShowNotification(new GUIContent(string.Format(Localization.RegisterDoneFormat, target.name)));
