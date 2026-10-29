@@ -145,7 +145,9 @@ namespace Iroca.EditorTests
                 byte[] png = ExportPipeline.EncodePng(outPx, w, h);
                 Step(c.name, "encodePng", sw.Elapsed.TotalMilliseconds, $"{png.Length / MB}MB");
                 sw.Restart();
-                string outRel = ExportPipeline.WriteAndImport(TestAssets.Abs(assets.Folder + "/out.png"), png, path, true);
+                string outRel;
+                using (var native = new Unity.Collections.NativeArray<byte>(png, Unity.Collections.Allocator.Persistent))
+                    outRel = ExportService.WriteAndImport(TestAssets.Abs(assets.Folder + "/out.png"), native, path, true);
                 png = null;
                 var outTex = AssetDatabase.LoadAssetAtPath<Texture2D>(outRel);
                 Step(c.name, "writeImport", sw.Elapsed.TotalMilliseconds, $"{outTex.width}x{outTex.height} {outTex.format} max={((TextureImporter)AssetImporter.GetAtPath(outRel)).maxTextureSize}");

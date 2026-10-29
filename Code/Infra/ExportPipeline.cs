@@ -140,26 +140,6 @@ namespace Iroca
             return png;
         }
 
-        /// <summary>
-        /// PNG を書き込み、Assets 配下なら取り込む（メインスレッド専用）。書き込みはアトミック
-        /// （書き潰す相手が元テクスチャそのものであり得るので、途中で落ちても原本を失わない）。
-        /// 出力先のフォルダが無ければ作る（元が Assets の外のときの <see cref="PathUtils.ExportsFolder"/> の下など）。
-        /// <paramref name="inheritImportSettings"/> なら取り込み前に元の .meta を写す（元がパッケージの中でも）。
-        /// 戻り値は出力の Assets 相対パス（Assets の外へ書いたときは null）。
-        /// </summary>
-        public static string WriteAndImport(string outputPath, byte[] png, string srcPath, bool inheritImportSettings)
-        {
-            string dir = Path.GetDirectoryName(outputPath);
-            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            AtomicFile.WriteAllBytes(outputPath, png);
-            string rel = PathUtils.ToAssetsRelativeOrNull(outputPath);
-            if (rel == null) return null;
-            if (inheritImportSettings && !string.IsNullOrEmpty(srcPath))
-                PreApplyImportSettings(srcPath, rel);
-            AssetDatabase.ImportAsset(rel);
-            return rel;
-        }
-
         // .meta ファイルをインポート前に書き込んでおくことで、
         // ImportAsset の 1 回の圧縮パスで正しい設定が適用される（SaveAndReimport 不要）。
         // srcPath は元テクスチャのアセットのパス（Assets/… か Packages/…）。

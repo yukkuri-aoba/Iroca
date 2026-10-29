@@ -42,8 +42,8 @@ namespace Iroca
         // 保存後に Project ウィンドウで選択・表示する導線に使う。
         [SerializeField] private string _lastSavedAssetPath;
 
-        // メインスレッドで pixels を取得し、PixelProcessor 計算 + PNG エンコード + 書き込みを
-        // Task.Run(バックグラウンド)で実行する。完了後、メインスレッドでは AssetDatabase 操作のみ。
+        // メインスレッドで pixels を取得し、PixelProcessor 計算 + PNG エンコードを
+        // Task.Run(バックグラウンド)で実行する。完了後、メインスレッドでは書き込みと AssetDatabase 操作のみ。
         // (旧: エンコード/書き込みもメインスレッドで行い 4K で終了時にフリーズしていた)
         [System.NonSerialized] private readonly PreviewJob<ExportPayload> _exportJob = new PreviewJob<ExportPayload>();
         [System.NonSerialized] private readonly PreviewJobProgress _exportProgress = new PreviewJobProgress();
@@ -53,10 +53,10 @@ namespace Iroca
             public string outputPath;
             public string srcPath;
             public bool inheritImportSettings;
-            // エンコード済み PNG。ディスクへの書き込みは apply(メインスレッド)で行う。
+            // エンコード済み PNG(ヒープの外。apply か discard で手放す)。ディスクへの書き込みは apply(メインスレッド)で行う。
             // BG で書くと「ファイルは書けたがキャンセルで apply が走らない」中途半端な状態
             // (ImportAsset も InvalidateSourceAndRepaint も未実行)が作れてしまうため。
-            public byte[] pngData;
+            public Unity.Collections.NativeArray<byte> png;
         }
 
         /// <summary>エクスポート処理中。true の間はウィンドウ全体を Disabled に。</summary>
@@ -370,14 +370,15 @@ namespace Iroca
             // 変換しているので LoadImage が読めず、以前はここで停止していた＝プレビューでは
             // 色替えできるのに、作り込んだ後の「適用して保存」だけが失敗していた。
             // プレビューと同じく、読めないときは取り込み済みテクスチャの画素で書き出す。
-            var source = ExportPipeline.ReadSourcePixels(srcPath, sourceTexture,
-                out Color32[] pixels, out int texW, out int texH);
+            // 画素は Mono のヒープの外(ExportService)。ジョブの後始末(cleanup)で手放す。
+            var source = ExportService.ReadSource(srcPath, sourceTexture, out NativePixels pixels);
             if (source == ExportPipeline.SourceKind.Unavailable)
             {
                 // 原本も取り込み側も読めない。Read/Write を有効にすれば後者が使える。
                 NotifyError(Localization.ExportSourceUnavailable);
                 return;
             }
+            int texW = pixels.Width, texH = pixels.Height;
 
             if (source == ExportPipeline.SourceKind.ImportedTexture)
             {
@@ -412,19 +413,15 @@ namespace Iroca
                 work: ct =>
                 {
                     _exportProgress.Report(0.10f);
-                    if (input.HasZones)
-                    {
-                        // CancellationToken 対応オーバーロード: 内部で ThrowIfCancellationRequested を呼ぶ
-                        PixelProcessor.ProcessPixelsArray(pixels, texW, texH,
-                            input.Masks, input.Zones, input.Settings, ct);
-                    }
+                    // 取り消しに対応する(処理の中で ThrowIfCancellationRequested を呼ぶ)。
+                    ExportService.Recolor(pixels, input, ct);
                     ct.ThrowIfCancellationRequested();
                     _exportProgress.Report(0.80f);
 
                     // PNG エンコードもバックグラウンドで行う(メインスレッドの終了時フリーズを解消。
                     // 旧版は Texture2D + EncodeToPNG をメインスレッドで実行し 4K で秒単位ブロックしていた)。
-                    // スレッド安全性の根拠は ExportPipeline.EncodePng を参照。
-                    byte[] pngData = ExportPipeline.EncodePng(pixels, texW, texH);
+                    // スレッド安全性の根拠は ExportPipeline.EncodePng / TextureIO.EncodePng を参照。
+                    var png = ExportService.EncodePng(pixels);
                     _exportProgress.Report(0.95f);
 
                     // ★ここでディスクへ書かない★ — 書いてしまうと、この直後〜apply までの間に
@@ -437,7 +434,7 @@ namespace Iroca
                         outputPath = outputPath,
                         srcPath = srcPath,
                         inheritImportSettings = inheritFlag,
-                        pngData = pngData,
+                        png = png,
                     };
                 },
                 apply: payload =>
@@ -451,8 +448,8 @@ namespace Iroca
                     try
                     {
                         // 書き込みはアトミック(書き潰す相手が元テクスチャそのものであり得るため)。
-                        string relativePath = ExportPipeline.WriteAndImport(
-                            payload.outputPath, payload.pngData, payload.srcPath, payload.inheritImportSettings);
+                        string relativePath = ExportService.WriteAndImport(
+                            payload.outputPath, payload.png, payload.srcPath, payload.inheritImportSettings);
                         // 「Project で表示」の対象。Assets/ の外へ書いた場合は null のまま
                         // （Unity のアセットではないので Project ウィンドウに出せない）。
                         _lastSavedAssetPath = relativePath;
@@ -474,6 +471,7 @@ namespace Iroca
                     }
                     finally
                     {
+                        payload.png.Dispose();
                         // 書き出しの解像度の作業配列を OS へ返す(一括書き出しの末尾と同じ理由)。
                         if (releaseAfterExport) PixelProcessor.ReleaseWorkBuffersInBackground();
                     }
@@ -482,7 +480,11 @@ namespace Iroca
                 {
                     ReportExportFailure(ex);
                     if (releaseAfterExport) PixelProcessor.ReleaseWorkBuffersInBackground();
-                });
+                },
+                // 原本の画素は計算の後で(取り消されて計算しなかったときも)返す。
+                cleanup: () => pixels.Release(),
+                // エンコードまで済んだが書き込まなかった(取り消し・破棄)PNG を手放す。
+                discard: payload => payload.png.Dispose());
         }
 
         /// <summary>エクスポート失敗をログ＋UI 通知へ流す（BG 側と apply 側で共有）。</summary>
@@ -614,12 +616,12 @@ namespace Iroca
                     string srcPath = AssetDatabase.GetAssetPath(tex);
                     if (string.IsNullOrEmpty(srcPath)) continue;
 
+                    NativePixels pixels = null;
                     try
                     {
-                        // 読み込み・PNG 化・書き込みは単体書き出しと同じ ExportPipeline を通す
-                        // （以前は一括だけ書き込みがアトミックでなかった）。
-                        var source = ExportPipeline.ReadSourcePixels(srcPath, tex,
-                            out Color32[] pixels, out int texW, out int texH);
+                        // 読み込み・PNG 化・書き込みは単体書き出しと同じ ExportService を通す
+                        // （以前は一括だけ書き込みがアトミックでなかった）。画素も PNG もヒープの外。
+                        var source = ExportService.ReadSource(srcPath, tex, out pixels);
                         // 原本も取り込み側も読めない（PSD/TGA 等で Read/Write 無効）。
                         if (source == ExportPipeline.SourceKind.Unavailable) continue;
                         if (source == ExportPipeline.SourceKind.ImportedTexture)
@@ -627,26 +629,26 @@ namespace Iroca
                             // 取り込み済みテクスチャで代替する（縮小・圧縮の影響を受ける）。以前は黙って
                             // スキップしていたので、完了件数だけを見たユーザーには理由が残らなかった。
                             Debug.LogWarning($"[Iroca] Batch: source file could not be decoded for {tex.name}; "
-                                + $"using the imported texture ({texW}x{texH}).");
+                                + $"using the imported texture ({pixels.Width}x{pixels.Height}).");
                         }
 
                         // リスト先頭のゾーンほど先に処理され、重なった領域を占有する(単体の書き出しと同じ組み立て)。
                         if (RecolorInput.CountEnabled(session.zones) > 0)
-                        {
-                            var input = RecolorInput.FromEditing(session, _host.BuildMaskSnapshot());
-                            PixelProcessor.ProcessPixelsArray(pixels, texW, texH,
-                                input.Masks, input.Zones, input.Settings);
-                        }
+                            ExportService.Recolor(pixels, RecolorInput.FromEditing(session, _host.BuildMaskSnapshot()));
 
                         string outPath = ExportPipeline.BatchOutputPath(srcPath);
-                        ExportPipeline.WriteAndImport(outPath, ExportPipeline.EncodePng(pixels, texW, texH),
-                            srcPath, inheritImportSettings);
+                        using (var png = ExportService.EncodePng(pixels))
+                            ExportService.WriteAndImport(outPath, png, srcPath, inheritImportSettings);
                         if (ExportPipeline.IsSameFile(outPath, previewSrcPath)) previewSourceOverwritten = true;
                         success++;
                     }
                     catch (System.Exception ex)
                     {
                         Debug.LogWarning($"[Iroca] Batch apply failed for {tex.name}: {ex.Message}");
+                    }
+                    finally
+                    {
+                        pixels?.Release();
                     }
                 }
             }

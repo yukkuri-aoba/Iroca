@@ -967,6 +967,15 @@ T5 で消える部分は作り直さない（1.5）。
     流れ（証拠の待ち・適用・Undo・自動化からの呼び出し）は残るので、先に 1 本にしておく。
   - `AiSuggestBroker`
   - `ExportService`: ヒープの外の書き出し（A3・A6）。一括書き出しをメインスレッドの外へ出すかも検討する。
+  - 2026-10-30（手元）: `ExportService` を `Code/Application/` に作り、ウィンドウの「適用して保存」と一括書き出しを
+    ヒープの外にした（A3）。原本（`TextureIO.ReadSourceFile`。PSD などは取り込み済みテクスチャを
+    `WorkingResolution.NativePixelsOf` で）・色替え（`ProcessPixelsNative`）・PNG（`TextureIO.EncodePng`）・書き込み
+    （`TextureIO.WriteAllBytes`）。単体の書き出しは、原本の画素をジョブの cleanup で、書き込まなかった PNG を discard で
+    返す。管理配列の書き込み（`ExportPipeline.WriteAndImport`）は使う所が無くなったので消し、そのテストは
+    `ExportService.WriteAndImport` へ向けた。出力のバイト列は同じ（`WindowOutputParityTests`・`TextureIOTests`）。
+    - **残したこと**: 自動化（MCP の色替え・静的 API）の A6 は、比較画像と変化の数え方（`RecolorPreview`）が管理配列を
+      読むので、まだ管理配列のまま。一括書き出しはメインスレッドのまま（進み具合のダイアログで止められる）。
+      メモリの実測（MemoryBench の書き出しの山）はまだ。
   - `RegistrationService`
   - 2026-10-30（手元）: `RegistrationService` を `Code/Application/` に作った。使うレシピの選び方（結び付き → 登録先のもの →
     プロジェクトにちょうど 1 つ。自動化はほかのアバターが使うレシピを流用しない）・読めないレシピの判定・登録の計画

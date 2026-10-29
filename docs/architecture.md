@@ -32,7 +32,7 @@ Core         計算だけ（選択・マスクの適用・再着色・自動調�
 | `Code/Runtime` | 実行時（アバターに付けるコンポーネント） | Runtime |
 | `Code/Infra`・`Code/Text` | Infra | Core・Runtime・Infra・Text |
 | `Code/MaskSuggest`（Ops を除く） | Infra と同じ段（AI 提案の準備・窓口） | 上に MaskSuggest を足したもの |
-| `Code/Application`（4-2・4-3 で作った。`SourcePixelCache`・`EditingSession`・`SessionPersistence`・`MaskWorkspace`・`AutosaveSchedule`・`PresetApplier`・`RegistrationService`） | Application | 上に Application を足したもの |
+| `Code/Application`（4-2・4-3 で作った。`SourcePixelCache`・`EditingSession`・`SessionPersistence`・`MaskWorkspace`・`AutosaveSchedule`・`PresetApplier`・`RegistrationService`・`ExportService`） | Application | 上に Application を足したもの |
 | `Code/Automation` | Automation | 上に Automation を足したもの |
 | `Code/UI` | UI | 上に UI を足したもの |
 | `Code/NdmfIntegration`・`Code/SentisIntegration` | 統合 | Application まで（UI と自動化は使わない） |
