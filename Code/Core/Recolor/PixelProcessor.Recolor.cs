@@ -77,6 +77,31 @@ namespace Iroca
         private const float AnchorLPct          = 0.90f;  // 代表 L percentile(鏡面ハイライト芯の最上位~10%を除外)
         private const float AnchorLBandLoPct    = 0.80f;  // 代表 C を取る L 帯の下限 percentile
         private const float AnchorLBandHiPct    = 0.97f;  // 同上限 percentile
+        // 地色の山(2026-10-29)。明るい側(L の中央値あたりから上)に、はっきりした明るさの山(アニメ調の平らな地色)があり、
+        // それが上の P90(明るい面)より窓 1 つ分(下の AnchorModeHalfBins の窓の幅)以上暗ければ、その山を代表 L にする。
+        // パーツでいちばん多い地色が target 色になり、それより明るい面は target より明るく、影は暗く塗られる。
+        // 山が無いとき(なだらかなグラデーション)と、山が明るい面と同じ明るさの幅に入るか明るいときは P90 のまま。
+        // 明るい面より明るい山は、飽和度の絞り込みで外れる白っぽい明部で、白に近い肌ではそこに合わせると基準が明るさの
+        // 上の端に張り付き、元では見えない淡い模様が染みに浮いた(基準より上の狭い幅が target〜白へ引き伸ばされる)。
+        // 明るい面と同じ幅の山は、明るい面がすでに地色で直すことがない(生成りのニットで 4 ビン下げただけで、
+        // 布目が変更前の 1.6〜1.9 倍に強まった)。
+        // P90 だけでは、明るいしわ・ツヤの帯がパーツの 1 割を超える布で P90 がそこに乗り、地色の大部分が指定より
+        // 暗く仕上がった。逆に山の無いグラデーションまで最頻値に合わせると、最頻値は中央値の際に落ちて基準が下がり、
+        // 暗部へ沈むグラデーションの明るい側が平らに張り付いて、選択の境目に継ぎ目が出た(合成シーンで継ぎ目の組 31 → 382)。
+        // 下の半分を見ないのは、影の多い塗りや、選択に入った暗い別の部分(髪のすき間など)を地色とみなさないため。
+        // 山は飽和度で絞らないコア画素で探す(淡い地色の素材では、上の飽和度の絞り込みが地色そのものを外していた)。
+        // ワンショットの 33 被写体 × 10 色で、地色の出力と目標の色差の中央値 0.031 → 0.017、良くなった 81 件・悪くなった
+        // 0 件(dev_safe/scripts/probe_target_chroma.py の base_dE。記録は dev_safe/docs/anchor-base-color-2026-10-29.md)。
+        // AnchorModeHalfBins: 山をならす窓の片側のビン数(L で 1 ビン = 1/255)。窓の幅 5 ビン ≈ 0.02 は
+        //   AnchorMinLSpread と同じ「同じ明るさとみなす幅」。代表 C もこの窓の中の画素から取る。代表 L は窓の上の端に置き、
+        //   地色を L 再マップの折れ目(sL)より下の 1 本の直線に乗せる(地色は target より窓の半分ほど暗く、ΔL 0.01 程度)。
+        //   折れ目を地色のビンの下の端に置くと、地色の画素がすべて折れ目のすぐ上の急な傾き(白へ向かう側)に乗り、
+        //   平らな面の 1〜2 階調の淡い模様が染み・筋に浮いた(平らなピンクの面、2026-10-29 の視覚レビュー)。
+        // AnchorPeakRatio: 窓の画素数が、すぐ上とすぐ下の同じ幅の窓のどちらよりもこの倍率以上多いとき山とみなす。
+        //   なだらかなグラデーションの合成 11 シーンは 1.08 以下、ワンショットで山のある被写体は 1.30 以上。1.1〜1.3 の
+        //   どこに置いても 330 件の結果は同じで、その中ほど。
+        private const int   AnchorModeHalfBins  = 2;
+        private const float AnchorPeakRatio     = 1.2f;
         private const float AnchorMinLSpread    = 0.02f;  // L の P95-P05 がこれ未満=フラット領域は補正不要
         private const float AnchorSatrHistMax   = 4f;     // 飽和度(C/L)ヒストグラムの値域上限
         private const float AnchorChromaHistMax = 0.5f;   // chroma ヒストグラムの値域上限(OkLab C は ~0.33 まで)
@@ -108,7 +133,7 @@ namespace Iroca
         {
             public readonly bool Active;
             public readonly float HueA, HueB;  // サンプルの色相の向き(OkLab の a, b を長さ 1 にしたもの)
-            public readonly float MinSatr;     // 地色とみなす飽和度(C/L)の下限に足す床
+            public readonly float MinSatr;     // 地色とみなす飽和度(C/L)の下限に足す床(地色の山を探すときは下限そのもの)
 
             public AnchorMaterial(float sampleA, float sampleB, float sampleSatr)
             {
@@ -135,7 +160,8 @@ namespace Iroca
         ///
         /// OkLab 再着色は (sL, sC) を不動点とする相対写像のため、スポイトした画素の陰影レベルが
         /// そのまま出力全体の明度・彩度バイアスになる(明部平均 HSV-S で最大 ~0.22 のブレを実測)。
-        /// 本関数は「パーツの明るい面の地色」を統計的に推定して返し、スポイト位置非依存にする。
+        /// 本関数は「パーツの地色」(明るい面より暗い所に地色の山があればその山、無ければ明るい面)を統計的に推定して返し、
+        /// スポイト位置非依存にする。
         /// マッチング・wash には影響しない(呼び出し側がアンカー 2 値だけを置き換える)。
         ///
         /// 推定は 2 段構え。1 段目は全候補で推定する。サンプルに色相があり、1 段目が失敗したか基準の飽和度が
@@ -171,18 +197,49 @@ namespace Iroca
             return ok && anchorC / Mathf.Max(anchorL, 1e-4f) >= minSatr;
         }
 
+        // L ヒストグラム(256 ビン、count 画素)の P95−P05 が AnchorMinLSpread 未満(フラット領域)か。
+        private static bool IsFlatL(int[] lHist, int count)
+        {
+            float l05 = Histogram.ValueAtPercentile(lHist, count, 0.05f, 1f);
+            float l95 = Histogram.ValueAtPercentile(lHist, count, 0.95f, 1f);
+            return l95 - l05 < AnchorMinLSpread;
+        }
+
+        // 地色の山を探す(AnchorModeHalfBins・AnchorPeakRatio の説明を参照。画素ごとと色の表の 2 つの経路で共有)。
+        // コア画素の L ヒストグラム(256 ビン、count 画素)で、明るい側(窓が中央値に届く所から上)のならした最頻値の窓が、
+        // すぐ上とすぐ下の同じ幅の窓のどちらよりも AnchorPeakRatio 倍以上多ければ true と、その窓でいちばん多いビンを返す。
+        private static bool TryFindBaseColorPeak(int[] lHist, int count, out int modeBin)
+        {
+            modeBin = 0;
+            if (count < AnchorMinPixels) return false;
+            if (IsFlatL(lHist, count)) return false;  // フラット領域: 山を探さない
+            // 窓が中央値に届く所から探す。中央値が地色の山の中に落ちると、中央値から探しては山を半分に切って最頻値が
+            // 際に張り付き、縮小したプレビューでだけ山を見失って確定と違う基準になった(固定設定のブーツ)。
+            int medianBin = Mathf.RoundToInt(Histogram.ValueAtPercentile(lHist, count, 0.5f, 1f) * 255f);
+            modeBin = Histogram.SmoothedModeBin(lHist, AnchorModeHalfBins, Math.Max(0, medianBin - AnchorModeHalfBins));
+            int step = 2 * AnchorModeHalfBins + 1;
+            int side = Math.Max(Histogram.WindowSum(lHist, modeBin - step, AnchorModeHalfBins),
+                                Histogram.WindowSum(lHist, modeBin + step, AnchorModeHalfBins));
+            if (Histogram.WindowSum(lHist, modeBin, AnchorModeHalfBins) < AnchorPeakRatio * side) return false;
+            // 代表は窓の中でいちばん多いビン(平らな地色はここに立つ)。ならした窓の中心は、地色の片側に画素が多いと
+            // 地色から最大 AnchorModeHalfBins ずれる(ピンクの布で地色より 2 ビン暗い所が基準になった)。
+            modeBin = Histogram.MaxBin(lHist, modeBin - AnchorModeHalfBins, modeBin + AnchorModeHalfBins);
+            return true;
+        }
+
         // TryComputeRecolorAnchor の 1 回分の推定。material.Active なら、サンプルと別の素材の画素を統計に入れない。
         // bbMinX..bbMaxY: 候補(strength>=AnchorStrengthMin)が存在しうる矩形。呼び出し側が後段 bbox を
-        // 渡す。候補はこの矩形の外に 1 画素も無いので、走査を矩形に限ると 3 パスとも「読む量」だけが
+        // 渡す。候補はこの矩形の外に 1 画素も無いので、走査を矩形に限るとどのパスも「読む量」だけが
         // 減り、ヒストグラム(整数加算・順序非依存)の中身は全画素走査と完全に一致する = 出力ビット不変。
         // 空矩形(マッチ皆無, bbMaxX<bbMinX)なら候補 0 件で false を返す(従来の「候補不足」と同じ)。
         // statsExclude: 統計から除外する画素(テクスチャ解像度、null=除外なし)。含めるマスクで
         // 強制追加された画素は strength=1 でコア判定を通ってしまうが、手動追加領域(別素材の
         // 可能性がある)が地色統計を汚すとゾーン全体の再着色が遠隔で変わるため、大域統計からは
         // 除外する。除外された画素も再着色自体は受ける(色マッチ画素から推定した素材モデルで
-        // 「同素材として」写像される)。3 パスとも同一の判定で除外すること — pass1 で除外した
-        // 画素の candL/candC は未初期化(プール再利用のゴミ)であり、pass2/3 が読むと壊れる。
-        // (material で外した画素は pass1 が candC を負にするので、pass2/3 の飽和度の下限で必ず落ちる。)
+        // 「同素材として」写像される)。どのパスも同一の判定で除外すること — pass1 で除外した
+        // 画素の candL/candC は未初期化(プール再利用のゴミ)であり、後のパスが読むと壊れる。
+        // (material で外した画素は pass1 が candC を負にするので、後のパスの飽和度の下限で必ず落ちる。)
+        // pass 3 で代表 C を取るのは、地色の山を使うなら山の窓、使わなければ明るい面の L 帯。
         private static bool TryComputeRecolorAnchorOnce(
             Color32* px, float* strength, int w,
             int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
@@ -218,9 +275,11 @@ namespace Iroca
             float* candC = s_floatPool.Rent(len);
             try
             {
-                // pass 1: (L, C) を保存しつつ飽和度(C/L)ヒストグラム → 中央値から地色下限を決める
-                var satrHist = new int[256];
-                int candCount = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, satrHist, (y0, y1, hist) =>
+                // pass 1: (L, C) を保存しつつ、飽和度(C/L)ヒストグラム(前半 256 ビン)と、地色の山を探す L ヒストグラム
+                // (後半 256 ビン。飽和度で絞らない。推定し直しでは material.MinSatr 未満を外す)を数える
+                var hists = new int[512];
+                float minSatr = material.MinSatr;
+                int candCount = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, hists, (y0, y1, hist) =>
                 {
                     int n = 0;
                     for (int y = y0; y < y1; y++)
@@ -241,16 +300,25 @@ namespace Iroca
                             float satr = C / Mathf.Max(L, 1e-4f);
                             int bin = Mathf.Clamp((int)(satr / AnchorSatrHistMax * 255f), 0, 255);
                             hist[bin]++;
+                            if (satr >= minSatr) hist[256 + Mathf.Clamp((int)(L * 255f), 0, 255)]++;
                         }
                     }
                     return n;
                 }, ct);
                 if (candCount < AnchorMinPixels) return false;
+                var satrHist = new int[256];
+                var coreLHist = new int[256];
+                Array.Copy(hists, 0, satrHist, 0, 256);
+                Array.Copy(hists, 256, coreLHist, 0, 256);
+                int coreCount = 0;
+                foreach (int c in coreLHist) coreCount += c;
+
+                // 飽和度の中央値から地色下限を決める。
                 // material.MinSatr は 1 段目では 0(中央値の項は 0 以上なので値は従来と同じ)。
                 float satrFloor = Mathf.Max(AnchorBodySatrFrac *
                     Histogram.ValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax), material.MinSatr);
 
-                // pass 2: 地色画素(飽和度 ≥ 下限)の L ヒストグラム → 代表 L と L 帯
+                // pass 2: 地色画素(飽和度 ≥ 下限)の L ヒストグラム → 明るい面(P90)と L 帯
                 var lHist = new int[256];
                 int bodyCount = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, lHist, (y0, y1, hist) =>
                 {
@@ -272,14 +340,19 @@ namespace Iroca
                     return n;
                 }, ct);
                 if (bodyCount < AnchorMinPixels) return false;
-                float l05 = Histogram.ValueAtPercentile(lHist, bodyCount, 0.05f, 1f);
-                float l95 = Histogram.ValueAtPercentile(lHist, bodyCount, 0.95f, 1f);
-                if (l95 - l05 < AnchorMinLSpread) return false;  // フラット領域: どこを取っても同じ
+                if (IsFlatL(lHist, bodyCount)) return false;  // フラット領域: どこを取っても同じ
                 anchorL = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLPct, 1f);
                 float bandLo = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLBandLoPct, 1f);
                 float bandHi = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLBandHiPct, 1f);
 
-                // pass 3: L 帯内の地色画素の chroma 中央値 → 代表 C
+                // 明るい面より窓 1 つ分以上暗い所に地色の山があれば、そちらを代表にする(AnchorPeakRatio の説明を参照)。
+                bool usePeak = TryFindBaseColorPeak(coreLHist, coreCount, out int modeBin)
+                    && (modeBin + 2 * AnchorModeHalfBins + 1) / 255f <= anchorL;
+                int peakLoBin = modeBin - AnchorModeHalfBins, peakHiBin = modeBin + AnchorModeHalfBins;
+                // 代表 L は山の窓の上の端。地色(窓の中)の画素が、L 再マップの折れ目より下の 1 本の直線に乗る(AnchorModeHalfBins の説明)。
+                if (usePeak) anchorL = (modeBin + AnchorModeHalfBins + 1) / 255f;
+
+                // pass 3: 代表 C = 地色の山の窓(コア画素)か、明るい面の L 帯(地色画素)の chroma 中央値
                 var cHist = new int[256];
                 int bandCount = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, cHist, (y0, y1, hist) =>
                 {
@@ -293,8 +366,17 @@ namespace Iroca
                             if (strength[i] < AnchorStrengthMin || px[i].a < OpaqueAlphaMin) continue;
                             if (statsExclude != null && statsExclude[i]) continue;
                             float L = candL[i], c = candC[i];
-                            if (c / Mathf.Max(L, 1e-4f) < satrFloor) continue;
-                            if (L < bandLo || L > bandHi) continue;
+                            if (usePeak)
+                            {
+                                if (c < 0f || c / Mathf.Max(L, 1e-4f) < minSatr) continue;
+                                int lBin = Mathf.Clamp((int)(L * 255f), 0, 255);
+                                if (lBin < peakLoBin || lBin > peakHiBin) continue;
+                            }
+                            else
+                            {
+                                if (c / Mathf.Max(L, 1e-4f) < satrFloor) continue;
+                                if (L < bandLo || L > bandHi) continue;
+                            }
                             hist[Mathf.Clamp((int)(c / AnchorChromaHistMax * 255f), 0, 255)]++;
                             n++;
                         }
@@ -314,8 +396,8 @@ namespace Iroca
 
         /// <summary>
         /// TryComputeRecolorAnchor の色の表がある場合。(L, C) は色の番号だけで決まるので、コア画素を
-        /// 色ごとに 1 回の走査で数え、3 つのヒストグラム(飽和度・L・帯内の chroma)は色ごとの (L, C) と
-        /// 個数から作る(旧: 画素を 3 回走査)。各ビンへの加算は画素ごとに 1 ずつ足すのと同じ整数加算で、
+        /// 色ごとに 1 回の走査で数え、ヒストグラム(飽和度・地色の山を探す L・地色の L・代表 C を取る chroma)は
+        /// 色ごとの (L, C) と個数から作る(旧: 画素を 3 回走査)。各ビンへの加算は画素ごとに 1 ずつ足すのと同じ整数加算で、
         /// ビンの式も画素ごとの経路と同じなので、ヒストグラムと戻り値はビット単位で同じ。
         /// 意図した変更では両経路を同時に直すこと(色の表あり・なしの出力の一致は scripts/golden/test_palette_parity.py が確かめる)。
         /// material(推定し直し)で外す判定も色だけで決まるので、色ごとに 1 回判定して個数ごと外す。
@@ -369,19 +451,27 @@ namespace Iroca
                 if (candCount < AnchorMinPixels) return false;
             }
 
-            // 1: 飽和度(C/L)ヒストグラム → 中央値から地色下限
+            // 1: 飽和度(C/L)ヒストグラムと、地色の山を探す L ヒストグラム(飽和度で絞らない。推定し直しでは
+            //    material.MinSatr 未満を外す)
             var satrHist = new int[256];
+            var coreLHist = new int[256];
+            int coreCount = 0;
             for (int k = 0; k < colorCount; k++)
             {
                 int c = cnt[k];
                 if (c == 0) continue;
                 float satr = pC[k] / Mathf.Max(pL[k], 1e-4f);
                 satrHist[Mathf.Clamp((int)(satr / AnchorSatrHistMax * 255f), 0, 255)] += c;
+                if (satr < material.MinSatr) continue;
+                coreLHist[Mathf.Clamp((int)(pL[k] * 255f), 0, 255)] += c;
+                coreCount += c;
             }
+
+            // 飽和度の中央値から地色下限を決める。
             float satrFloor = Mathf.Max(AnchorBodySatrFrac *
                 Histogram.ValueAtPercentile(satrHist, candCount, 0.5f, AnchorSatrHistMax), material.MinSatr);
 
-            // 2: 地色(飽和度 ≥ 下限)の L ヒストグラム → 代表 L と L 帯
+            // 2: 地色(飽和度 ≥ 下限)の L ヒストグラム → 明るい面(P90)と L 帯
             var lHist = new int[256];
             int bodyCount = 0;
             for (int k = 0; k < colorCount; k++)
@@ -394,14 +484,19 @@ namespace Iroca
                 bodyCount += c;
             }
             if (bodyCount < AnchorMinPixels) return false;
-            float l05 = Histogram.ValueAtPercentile(lHist, bodyCount, 0.05f, 1f);
-            float l95 = Histogram.ValueAtPercentile(lHist, bodyCount, 0.95f, 1f);
-            if (l95 - l05 < AnchorMinLSpread) return false;  // フラット領域: どこを取っても同じ
+            if (IsFlatL(lHist, bodyCount)) return false;  // フラット領域: どこを取っても同じ
             anchorL = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLPct, 1f);
             float bandLo = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLBandLoPct, 1f);
             float bandHi = Histogram.ValueAtPercentile(lHist, bodyCount, AnchorLBandHiPct, 1f);
 
-            // 3: L 帯内の地色の chroma 中央値 → 代表 C
+            // 明るい面より窓 1 つ分以上暗い所に地色の山があれば、そちらを代表にする(AnchorPeakRatio の説明を参照)。
+            bool usePeak = TryFindBaseColorPeak(coreLHist, coreCount, out int modeBin)
+                && (modeBin + 2 * AnchorModeHalfBins + 1) / 255f <= anchorL;
+            int peakLoBin = modeBin - AnchorModeHalfBins, peakHiBin = modeBin + AnchorModeHalfBins;
+            // 代表 L は山の窓の上の端。地色(窓の中)の画素が、L 再マップの折れ目より下の 1 本の直線に乗る(AnchorModeHalfBins の説明)。
+            if (usePeak) anchorL = (modeBin + AnchorModeHalfBins + 1) / 255f;
+
+            // 3: 代表 C = 地色の山の窓(コア画素)か、明るい面の L 帯(地色)の chroma 中央値
             var cHist = new int[256];
             int bandCount = 0;
             for (int k = 0; k < colorCount; k++)
@@ -409,8 +504,17 @@ namespace Iroca
                 int c = cnt[k];
                 if (c == 0) continue;
                 float L = pL[k], ch = pC[k];
-                if (ch / Mathf.Max(L, 1e-4f) < satrFloor) continue;
-                if (L < bandLo || L > bandHi) continue;
+                if (usePeak)
+                {
+                    if (ch / Mathf.Max(L, 1e-4f) < material.MinSatr) continue;
+                    int lBin = Mathf.Clamp((int)(L * 255f), 0, 255);
+                    if (lBin < peakLoBin || lBin > peakHiBin) continue;
+                }
+                else
+                {
+                    if (ch / Mathf.Max(L, 1e-4f) < satrFloor) continue;
+                    if (L < bandLo || L > bandHi) continue;
+                }
                 cHist[Mathf.Clamp((int)(ch / AnchorChromaHistMax * 255f), 0, 255)] += c;
                 bandCount += c;
             }

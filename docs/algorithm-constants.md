@@ -121,7 +121,7 @@
 | `Code/Core/Recolor/PixelProcessor.DecontamStage.cs` | 0 |
 | `Code/Core/Recolor/PixelProcessor.MixtureBand.cs` | 0 |
 | `Code/Core/Recolor/PixelProcessor.MixtureBandStage.cs` | 0 |
-| `Code/Core/Recolor/PixelProcessor.Recolor.cs` | 8 |
+| `Code/Core/Recolor/PixelProcessor.Recolor.cs` | 6 |
 | `Code/Core/Recolor/PixelProcessor.RecolorBranchRecorder.cs` | 1 |
 | `Code/Core/Recolor/PixelProcessor.RecolorStatsStage.cs` | 1 |
 | `Code/Core/Selection/Legacy/ColorZone.Match.cs` | 6 |
@@ -342,6 +342,8 @@
 | `AnchorLPct` | `0.90f` | 不明 | — | 代表 L の分位。上位約 10% の鏡面の芯を外す意図。比べた記録なし |
 | `AnchorLBandLoPct` | `0.80f` | 不明 | — | 代表 C を取る L 帯の下限の分位。選んだ記録なし |
 | `AnchorLBandHiPct` | `0.97f` | 不明 | — | 代表 C を取る L 帯の上限の分位。選んだ記録なし |
+| `AnchorModeHalfBins` | `2` | 設計 | — | 地色の山（明るい側でいちばん多い明るさ）をならす窓の片側のビン数。窓の幅 5 ビン ≈ L 0.02 は `AnchorMinLSpread` と同じ「同じ明るさとみなす幅」。山と比べる隣の窓・代表 C を取る窓も同じ幅。明るい面（`AnchorLPct`）より窓 1 つ分以上暗い山があれば、明るい面の代わりに山を target に合わせる（明るい面と同じ幅か明るい山は使わない。白っぽい明部・明るい面がすでに地色）（2026-10-29 ユーザー判断。明るい面では明るいしわの多い布の地色が指定より暗く塗られた。記録は dev_safe/docs/anchor-base-color-2026-10-29.md） |
+| `AnchorPeakRatio` | `1.2f` | 実測 | — | 地色の山とみなす、山の窓とすぐ上・すぐ下の窓の画素数の比。なだらかなグラデーションの合成 11 シーンは 1.08 以下、ワンショットで山のある被写体は 1.30 以上。1.1〜1.3 のどこでも 330 件の結果が同じで、その中ほど |
 | `AnchorMinLSpread` | `0.02f` | 不明 | — | L の P95−P05 がこれ未満なら平坦として補正しない。選んだ記録なし |
 | `AnchorSatrHistMax` | `4f` | 近似 | — | 飽和度ヒストグラムの値域の上限。超えた分は最上位のビンに入る |
 | `AnchorChromaHistMax` | `0.5f` | 近似 | — | 彩度ヒストグラムの値域。sRGB の OkLab 彩度（約 0.33 まで）を覆う |
