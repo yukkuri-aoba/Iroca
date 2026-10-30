@@ -15,7 +15,7 @@ namespace Iroca.EditorTests
     /// <list type="bullet">
     /// <item>確定段の表示用の 2 枚は、確定段の出力と原本をそれぞれ表示寸法へ面平均で縮めたものと同じ。</item>
     /// <item>縮小しないテクスチャでは、確定段の出力と原本そのもの(写さない)。</item>
-    /// <item>テクスチャへ上げたもの(<see cref="PreviewView.UploadPixels"/>)は、SetPixels32 で上げたものと同じ。</item>
+    /// <item>テクスチャへ上げたもの(<see cref="PreviewRenderer.UploadPixels"/>)は、SetPixels32 で上げたものと同じ。</item>
     /// <item>受け取られなかった結果・閉じた後に、画素(<see cref="NativeUsage.Pixels"/>)が残らない。</item>
     /// </list>
     /// </summary>
@@ -100,7 +100,7 @@ namespace Iroca.EditorTests
             Texture2D byUpload = null, bySet = null;
             try
             {
-                PreviewView.UploadPixels(ref byUpload, native);
+                PreviewRenderer.UploadPixels(ref byUpload, native);
                 TextureSlot.Resize(ref bySet, w, h);
                 bySet.SetPixels32(px);
                 bySet.Apply();

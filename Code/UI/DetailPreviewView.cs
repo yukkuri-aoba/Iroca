@@ -429,7 +429,7 @@ namespace Iroca
 
             // filterMode は Resize では決めない(再利用時に既存設定が維持され、縮小あり/なしを
             // 行き来したときに前回のモードが残るため)。確保後に毎回明示する。
-            PreviewView.UploadPixels(ref detailPreviewTexture, result.Processed);
+            PreviewRenderer.UploadPixels(ref detailPreviewTexture, result.Processed);
             detailPreviewTexture.filterMode = DetailFilterMode(detailPreviewTexture.width, detailCropW);
 
             // 差分表示中に作り始めた切り出しは、同じ範囲の変更前の切り出しも持ってくる(切り出しと同じジョブで作って
@@ -437,7 +437,7 @@ namespace Iroca
             // 持っていない結果のときは何もしない(範囲が変われば、要るときに EnsureDetailRaw が作り直す)。
             if (result.Raw != null)
             {
-                PreviewView.UploadPixels(ref detailRawTexture, result.Raw);
+                PreviewRenderer.UploadPixels(ref detailRawTexture, result.Raw);
                 detailRawTexture.filterMode = DetailFilterMode(detailRawTexture.width, detailCropW);
                 _rawShown = result.RawRange;
                 _hasRawShown = true;
@@ -483,7 +483,7 @@ namespace Iroca
             var pixels = DetailTileCache.Assemble(rawRange, source, _beforeTiles, CancellationToken.None);
             try
             {
-                PreviewView.UploadPixels(ref detailRawTexture, pixels);
+                PreviewRenderer.UploadPixels(ref detailRawTexture, pixels);
             }
             finally { pixels.Release(); }
             detailRawTexture.filterMode = DetailFilterMode(detailRawTexture.width, detailCropW);

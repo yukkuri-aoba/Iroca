@@ -70,8 +70,8 @@ namespace Iroca
                                     + (panels - 1) * IrocaConsts.Preview.PanelSpacing;
                                 float dispH = previewTexture.height * newZoom * _fitScale;
                                 bool fitsViewport = newZoom <= 1f + ZoomEpsilon &&
-                                    dispW <= _detailView.lastViewportW + 1f &&
-                                    dispH <= _detailView.lastViewportH + 1f;
+                                    dispW <= DetailView.lastViewportW + 1f &&
+                                    dispH <= DetailView.lastViewportH + 1f;
                                 if (fitsViewport)
                                 {
                                     _previewScrollPos = Vector2.zero;
@@ -84,7 +84,7 @@ namespace Iroca
                                     var pad = GUI.skin.scrollView.padding;
                                     float oldOffsetX = previewRect.x - pad.left;
                                     float newOffsetX = Mathf.Max(0f,
-                                        (_detailView.lastViewportW - pad.horizontal - dispW) * 0.5f);
+                                        (DetailView.lastViewportW - pad.horizontal - dispW) * 0.5f);
                                     Vector2 mouseInImage = e.mousePosition - new Vector2(previewRect.x, previewRect.y);
                                     _previewScrollPos += mouseInImage * (newZoom / oldZoom - 1f);
                                     _previewScrollPos.x += newOffsetX - oldOffsetX;
@@ -96,7 +96,7 @@ namespace Iroca
                             previewZoom = newZoom;
                             // 見えている範囲と倍率が変わるので拡大表示を作り直させる。できるまでは前の切り出しを
                             // 新しい倍率で(元の画像の座標の位置に)描き続ける。
-                            _detailView.OnViewMoved();
+                            DetailView.OnViewMoved();
                             _host.RequestRepaint();
                         }
 
@@ -151,7 +151,7 @@ namespace Iroca
                         _previewScrollPos.x = Mathf.Max(0f, _previewScrollPos.x);
                         _previewScrollPos.y = Mathf.Max(0f, _previewScrollPos.y);
                         // パンで見えている範囲が変わるので拡大表示を作り直させる。
-                        _detailView.OnViewMoved();
+                        DetailView.OnViewMoved();
                         e.Use();
                         _host.RequestRepaint();
                     }

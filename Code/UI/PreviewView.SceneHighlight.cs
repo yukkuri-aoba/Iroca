@@ -147,7 +147,7 @@ namespace Iroca
         {
             if (!_pendingFocusUv.HasValue) return;
             var uv = _pendingFocusUv.Value;
-            var r = _detailView.lastPreviewRect;
+            var r = DetailView.lastPreviewRect;
             if (!overflowsFrame || r.width <= 0f || viewW <= 1f || viewH <= 1f)
             {
                 // 全体が見えている(動かす必要が無い)か、まだ一度も描いていない。後者は次の描画で寄せる。
@@ -162,7 +162,7 @@ namespace Iroca
             if (visible) return;
             _previewScrollPos = new Vector2(Mathf.Max(0f, p.x - viewW * 0.5f), Mathf.Max(0f, p.y - viewH * 0.5f));
             // 見えている範囲が変わるので拡大表示を作り直させる(パン・ズームと同じ扱い)。
-            _detailView.OnViewMoved();
+            DetailView.OnViewMoved();
         }
 
         // 案内の「開く」。ボタン枠を付けると行が miniLabel より高くなりプレビュー枠が跳ねるので、

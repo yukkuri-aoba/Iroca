@@ -114,7 +114,7 @@ partial のまま置いた）、`Pipeline/`（入口の `PixelProcessor.cs`・�
 | `EditingSessionRegistry` | 開いている編集の一覧。ウィンドウを型で探す（`FindObjectsOfTypeAll<IrocaWindow>`）代わり。Infra の非破壊ビルドと更新の確認も使うので Infra に置いた（4-2） |
 | `SourcePixelCache` | 作業解像度の原本（参照の数で貸す） |
 | `RecolorInput` | 色替えの入力を組み立てる唯一の場所。プレビュー・書き出し・一括書き出し・NDMF・自動化が共通で使う。非破壊ビルドの土台と `SessionRecolor` も使うので Core に置いた（4-2） |
-| `PreviewPipeline` / `PreviewRenderer` | プレビューの計算（概要段・確定段・ドラッグの追従・選択キャッシュ）と、GPU での表示 |
+| `PreviewPipeline` / `PreviewRenderer` | プレビューの計算（概要段・確定段・ドラッグの追従・選択キャッシュ・拡大表示の土台。`Code/Application/`）と、表示（テクスチャ・拡大表示のタイル・差分のシェーダー・「アバターの色」・画像の矩形への描画。`Code/UI/`）。4-4 で分けた。レイアウト・ズーム・入力は `PreviewView` |
 | `AutoTuneService`・`AiSuggestBroker`・`ExportService`・`RegistrationService`・`PresetApplier` | 自動調整・AI 提案の待ち行列・書き出し・登録・プリセットの読み込みを、それぞれ 1 本にする。4-3 で `PresetApplier`（プリセット → 編集状態の規則）と `RegistrationService`（使うレシピの選び方と登録の計画。ウィンドウは確認画面に、自動化は警告にする）、`ExportService`（書き出しの画素と PNG をヒープの外に置く）、`AiSuggestBroker`（サービスを購読する唯一の所。求めた順に受け取り先へ返す。右クリックのコントローラも使うので `Code/MaskSuggest` に置いた）、`AutoTuneService`（1 つのゾーンの証拠の待ち・解析・当て方。ウィンドウは確認・通知・Undo、自動化は警告）を作った |
 
 - IMGUI のビューは毎フレーム状態を読む（MVVM にはしない）。`Changed` を購読するのは、非同期に動くもの（プレビューの
