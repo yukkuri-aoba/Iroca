@@ -21,7 +21,7 @@ namespace Iroca.SentisIntegration
     ///   - エンコーダ推論は Worker.ScheduleIterable を EditorApplication.update から
     ///     時間予算で pump(GPU ディスパッチはメインスレッド必須のため)
     ///   - デコーダ推論は数十 ms なのでメインスレッド同期実行
-    ///   - 埋め込み(4.2MB float[])はテクスチャキー単位で LRU キャッシュ
+    ///   - 埋め込み(4.2MB。ヒープの外の float の並び)はテクスチャキー単位で LRU キャッシュ
     ///   - GPUCompute で失敗したら CPU バックエンドへ自動フォールバック(1 回)
     /// </summary>
     internal sealed class SentisMaskSuggestService : IMaskSuggestService
@@ -52,13 +52,15 @@ namespace Iroca.SentisIntegration
         // ソース画素(参照を 1 つ持つ。次のソース・CancelAll で返す)。ジョブは読む間の参照を自分で足す。
         NativePixels _sourcePixels;
         int _texW, _texH;
-        float[] _embedding;                         // 現テクスチャの埋め込み(null=未計算)
-        readonly Dictionary<string, float[]> _embeddingCache = new Dictionary<string, float[]>();
+        // 現テクスチャの埋め込み(null=未計算)。埋め込みとエンコーダの入力はヒープの外の float の並び(NativeBuffer)で、
+        // ここと各キャッシュがそれぞれ参照を 1 つ持つ(0.4.0 の計画の B4)。推論に渡すときだけ NativeArray に見せる。
+        NativeBuffer _embedding;
+        readonly Dictionary<string, NativeBuffer> _embeddingCache = new Dictionary<string, NativeBuffer>();
         readonly List<string> _lruOrder = new List<string>();
 
         readonly EditorIteratorPump _pump = new EditorIteratorPump();
         readonly EditorReadbackPoller _readback = new EditorReadbackPoller();
-        PreviewJob<float[]> _prepJob;
+        PreviewJob<NativeBuffer> _prepJob;
         PreviewJob<PostOutcome> _postJob;
         Tensor<float> _encInput;                    // pump 中だけ保持
         MaskSuggestProposal _proposal;
@@ -95,7 +97,7 @@ namespace Iroca.SentisIntegration
         double _encodePrepMs;        // BuildEncoderInput(BG スレッド)
         long _pumpStartedAt;         // pump 開始
 
-        readonly Dictionary<string, float[]> _cropEmbeddingCache = new Dictionary<string, float[]>();
+        readonly Dictionary<string, NativeBuffer> _cropEmbeddingCache = new Dictionary<string, NativeBuffer>();
         readonly List<string> _cropLruOrder = new List<string>();
 
         /// <summary>後処理ジョブの結果。第 1 段では提案ペイロード+ズーム計画、
@@ -253,11 +255,11 @@ namespace Iroca.SentisIntegration
             old?.Release();
             _texW = pixelsBottomUp?.Width ?? 0;
             _texH = pixelsBottomUp?.Height ?? 0;
-            _embedding = null;
+            SetEmbedding(null);
 
             if (_embeddingCache.TryGetValue(cacheKey, out var cached))
             {
-                _embedding = cached;
+                SetEmbedding(cached.AddRef());
                 TouchLru(cacheKey);
                 MaskSuggestPerf.Log("エンコード(全体): 埋め込みキャッシュ命中");
                 SetPhase(MaskSuggestPhase.Idle);
@@ -272,7 +274,7 @@ namespace Iroca.SentisIntegration
             _encodeStartedAt = MaskSuggestPerf.Now;
             var px = _sourcePixels.AddRef();   // 読む間の参照(後始末で返す)
             double prepMs = 0; // work(BG)で書き apply(メイン)で読む。Post キュー経由で順序保証あり
-            _prepJob ??= new PreviewJob<float[]>();
+            _prepJob ??= new PreviewJob<NativeBuffer>();
             _prepJob.Schedule(
                 ct =>
                 {
@@ -289,16 +291,33 @@ namespace Iroca.SentisIntegration
                     StartEncoderPump(chw);
                 },
                 e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrPreprocessFormat, e.Message)),
-                cleanup: () => px.Release());
+                cleanup: () => px.Release(),
+                // 作ったが使わなかった入力(取り消し・新しいソース)も返す。
+                discard: chw => chw?.Release());
         }
 
-        void StartEncoderPump(float[] chw)
+        // エンコーダの入力のテンソルを作る(入力の並びは写し終えたら返す)。
+        static Tensor<float> EncoderInputTensor(NativeBuffer chw)
         {
-            if (_phase != MaskSuggestPhase.Encoding) return;
             try
             {
-                _encInput = new Tensor<float>(
-                    new TensorShape(1, 3, SamImageOps.InputSize, SamImageOps.InputSize), chw);
+                using var view = SamNativeOps.FloatView(chw, SamImageOps.EncoderInputLength);
+                return new Tensor<float>(
+                    new TensorShape(1, 3, SamImageOps.InputSize, SamImageOps.InputSize), view.Array);
+            }
+            finally { chw.Release(); }
+        }
+
+        void StartEncoderPump(NativeBuffer chw)
+        {
+            if (_phase != MaskSuggestPhase.Encoding)
+            {
+                chw.Release();
+                return;
+            }
+            try
+            {
+                _encInput = EncoderInputTensor(chw);
                 var it = _encoder.ScheduleIterable(_encInput);
                 int total = _encoderModel.layers != null ? _encoderModel.layers.Count : 0;
                 _pumpStartedAt = MaskSuggestPerf.Now;
@@ -335,11 +354,11 @@ namespace Iroca.SentisIntegration
             }
         }
 
-        void CompleteEncode(float[] data, double pumpMs, long readStartedAt)
+        void CompleteEncode(NativeBuffer data, double pumpMs, long readStartedAt)
         {
             try
             {
-                _embedding = data;
+                SetEmbedding(data);
                 if (MaskSuggestPerf.Enabled)
                     MaskSuggestPerf.Log(
                         $"エンコード(全体 {_texW}x{_texH}): 前処理 {_encodePrepMs:F0}ms" +
@@ -347,9 +366,9 @@ namespace Iroca.SentisIntegration
                         $" / 読出 {MaskSuggestPerf.MsSince(readStartedAt):F0}ms(非同期)" +
                         $" / 合計 {MaskSuggestPerf.MsSince(_encodeStartedAt):F0}ms ({_backend})");
                 DisposeEncInput();
-                if (_embedding == null || _embedding.Length != EmbeddingLength)
+                if (SamNativeOps.FloatCount(_embedding) != EmbeddingLength)
                     throw new InvalidOperationException(
-                        string.Format(Localization.AiErrEmbeddingSizeFormat, _embedding?.Length ?? 0));
+                        string.Format(Localization.AiErrEmbeddingSizeFormat, SamNativeOps.FloatCount(_embedding)));
                 // 形は正しいのに中身が定数/NaN = 推論カーネルが実行されていない。下流では
                 // 「提案は返るのにマスクへ 1 画素も足されない」という分かりにくい失敗になるため、
                 // ここで異常として扱いフォールバック/報告へ回す。
@@ -386,8 +405,10 @@ namespace Iroca.SentisIntegration
         /// Burst のコールドスタート失敗などでカーネルが実行されないと、例外が出ないまま
         /// 出力が定数になることがある。定数出力は全域で定数なので、全走査せず間引いて見る。
         /// </summary>
-        static bool IsDegenerate(float[] embedding)
+        static bool IsDegenerate(NativeBuffer buffer)
         {
+            using var view = SamNativeOps.FloatView(buffer, SamNativeOps.FloatCount(buffer));
+            var embedding = view.Array;
             float first = embedding[0];
             bool allSame = true;
             int step = Mathf.Max(1, embedding.Length / 4096);
@@ -641,7 +662,7 @@ namespace Iroca.SentisIntegration
 
         /// <summary>デコーダ同期実行(数十 ms)。cropRect が null なら全体埋め込み+全体座標系、
         /// 指定ありなら渡されたクロップ埋め込み+クロップ座標系で推論する。</summary>
-        bool TryRunDecoderCore(float u, float v, (int x0, int y0, int side, float[] emb)? cropRect,
+        bool TryRunDecoderCore(float u, float v, (int x0, int y0, int side, NativeBuffer emb)? cropRect,
                                out float[] logits, out float[] scores, out Exception error)
         {
             logits = scores = null;
@@ -649,7 +670,7 @@ namespace Iroca.SentisIntegration
             try
             {
                 float x, y;
-                float[] embedding;
+                NativeBuffer embedding;
                 if (cropRect.HasValue)
                 {
                     var c = cropRect.Value;
@@ -661,7 +682,10 @@ namespace Iroca.SentisIntegration
                     SamCoordMapper.UvTo1024(u, v, _texW, _texH, out x, out y);
                     embedding = _embedding;
                 }
-                using var emb = new Tensor<float>(new TensorShape(1, 256, 64, 64), embedding);
+                if (embedding == null) throw new InvalidOperationException(Localization.AiErrEmptyResult);
+                // 埋め込みはテンソルへ写す間だけ NativeArray に見せる(写した後は手放してよい)。
+                using var embView = SamNativeOps.FloatView(embedding, EmbeddingLength);
+                using var emb = new Tensor<float>(new TensorShape(1, 256, 64, 64), embView.Array);
                 using var pts = new Tensor<float>(new TensorShape(1, 2, 2), new[] { x, y, 0f, 0f });
                 using var lbl = new Tensor<float>(new TensorShape(1, 2), new[] { 1f, -1f });
                 _decoder.Schedule(emb, pts, lbl);
@@ -731,12 +755,12 @@ namespace Iroca.SentisIntegration
             var cropPx = plan.cropPixels;
             int side = plan.cropSide;
             double prepMs = 0; // work(BG)で書き apply(メイン)で読む
-            _prepJob ??= new PreviewJob<float[]>();
+            _prepJob ??= new PreviewJob<NativeBuffer>();
             _prepJob.Schedule(
                 ct =>
                 {
                     long t0 = MaskSuggestPerf.Now;
-                    var chw = SamImageOps.BuildEncoderInput(cropPx, side, side, ct);
+                    var chw = SamNativeOps.BuildEncoderInput(cropPx, side, ct);
                     prepMs = MaskSuggestPerf.MsSince(t0);
                     return chw;
                 },
@@ -745,17 +769,21 @@ namespace Iroca.SentisIntegration
                     _encodePrepMs = prepMs;
                     StartZoomEncoderPump(chw, key, plan, u, v, granularity);
                 },
-                e => FallbackToStage1(plan, e));
+                e => FallbackToStage1(plan, e),
+                discard: chw => chw?.Release());
         }
 
-        void StartZoomEncoderPump(float[] chw, string key, PostOutcome plan,
+        void StartZoomEncoderPump(NativeBuffer chw, string key, PostOutcome plan,
                                   float u, float v, MaskSuggestGranularity granularity)
         {
-            if (_phase != MaskSuggestPhase.Decoding) return;
+            if (_phase != MaskSuggestPhase.Decoding)
+            {
+                chw.Release();
+                return;
+            }
             try
             {
-                _encInput = new Tensor<float>(
-                    new TensorShape(1, 3, SamImageOps.InputSize, SamImageOps.InputSize), chw);
+                _encInput = EncoderInputTensor(chw);
                 var it = _encoder.ScheduleIterable(_encInput);
                 int total = _encoderModel.layers != null ? _encoderModel.layers.Count : 0;
                 _pumpStartedAt = MaskSuggestPerf.Now;
@@ -793,7 +821,8 @@ namespace Iroca.SentisIntegration
             }
         }
 
-        void CompleteZoomEncode(float[] emb, string key, PostOutcome plan,
+        // emb の参照はここが引き取る(キャッシュへ入れたら、手元の分は返す)。
+        void CompleteZoomEncode(NativeBuffer emb, string key, PostOutcome plan,
                                 float u, float v, MaskSuggestGranularity granularity,
                                 double pumpMs, long readStartedAt)
         {
@@ -806,21 +835,26 @@ namespace Iroca.SentisIntegration
                         $" / 読出 {MaskSuggestPerf.MsSince(readStartedAt):F0}ms(非同期)" +
                         $" / 合計 {MaskSuggestPerf.MsSince(_encodeStartedAt):F0}ms ({_backend})");
                 DisposeEncInput();
-                if (emb == null || emb.Length != EmbeddingLength)
+                if (SamNativeOps.FloatCount(emb) != EmbeddingLength)
                     throw new InvalidOperationException(
-                        string.Format(Localization.AiErrCropEmbeddingSizeFormat, emb?.Length ?? 0));
+                        string.Format(Localization.AiErrCropEmbeddingSizeFormat, SamNativeOps.FloatCount(emb)));
             }
             catch (Exception e)
             {
+                emb?.Release();
                 DisposeEncInput();
                 FallbackToStage1(plan, e);
                 return;
             }
-            CacheCropEmbedding(key, emb);
-            RunZoomDecode(emb, plan, u, v, granularity);
+            try
+            {
+                CacheCropEmbedding(key, emb);
+                RunZoomDecode(emb, plan, u, v, granularity);
+            }
+            finally { emb.Release(); }
         }
 
-        void RunZoomDecode(float[] cropEmbedding, PostOutcome plan,
+        void RunZoomDecode(NativeBuffer cropEmbedding, PostOutcome plan,
                            float u, float v, MaskSuggestGranularity granularity)
         {
             if (_phase != MaskSuggestPhase.Decoding) return;
@@ -894,17 +928,43 @@ namespace Iroca.SentisIntegration
                 cleanup: () => px.Release());
         }
 
-        void CacheCropEmbedding(string key, float[] embedding)
+        // キャッシュが自分の参照を足して持つ(押し出したものは返す)。
+        void CacheCropEmbedding(string key, NativeBuffer embedding)
+            => PutLru(_cropEmbeddingCache, _cropLruOrder, CropEmbeddingCacheCapacity, key, embedding);
+
+        static void PutLru(Dictionary<string, NativeBuffer> cache, List<string> order, int capacity,
+                           string key, NativeBuffer embedding)
         {
-            if (string.IsNullOrEmpty(key)) return;
-            _cropEmbeddingCache[key] = embedding;
-            TouchCropLru(key);
-            while (_cropLruOrder.Count > CropEmbeddingCacheCapacity)
+            if (string.IsNullOrEmpty(key) || embedding == null) return;
+            if (cache.TryGetValue(key, out var old)) old.Release();
+            cache[key] = embedding.AddRef();
+            order.Remove(key);
+            order.Add(key);
+            while (order.Count > capacity)
             {
-                string evict = _cropLruOrder[0];
-                _cropLruOrder.RemoveAt(0);
-                _cropEmbeddingCache.Remove(evict);
+                string evict = order[0];
+                order.RemoveAt(0);
+                if (cache.TryGetValue(evict, out var e))
+                {
+                    cache.Remove(evict);
+                    e.Release();
+                }
             }
+        }
+
+        static void ClearLru(Dictionary<string, NativeBuffer> cache, List<string> order)
+        {
+            foreach (var e in cache.Values) e.Release();
+            cache.Clear();
+            order.Clear();
+        }
+
+        // 今の埋め込みを差し替える(前のものの参照を返す。渡したものの参照は引き取る)。
+        void SetEmbedding(NativeBuffer embedding)
+        {
+            var old = _embedding;
+            _embedding = embedding;
+            old?.Release();
         }
 
         void TouchCropLru(string key)
@@ -929,7 +989,7 @@ namespace Iroca.SentisIntegration
             var px = _sourcePixels;
             _sourcePixels = null;
             px?.Release();
-            _embedding = null;
+            SetEmbedding(null);
             // Error を持ち越すと以降のクリックが全部無視されるので、モデルが載っているなら
             // Idle に戻す(UI からはテクスチャ切替・右クリックメニューからの選び直しが再試行導線になる)。
             if (_modelsLoaded)
@@ -957,18 +1017,9 @@ namespace Iroca.SentisIntegration
             _discardInFlight = false;
         }
 
-        void CacheEmbedding(string key, float[] embedding)
-        {
-            if (string.IsNullOrEmpty(key)) return;
-            _embeddingCache[key] = embedding;
-            TouchLru(key);
-            while (_lruOrder.Count > EmbeddingCacheCapacity)
-            {
-                string evict = _lruOrder[0];
-                _lruOrder.RemoveAt(0);
-                _embeddingCache.Remove(evict);
-            }
-        }
+        // キャッシュが自分の参照を足して持つ(押し出したものは返す)。
+        void CacheEmbedding(string key, NativeBuffer embedding)
+            => PutLru(_embeddingCache, _lruOrder, EmbeddingCacheCapacity, key, embedding);
 
         void TouchLru(string key)
         {
@@ -1001,6 +1052,14 @@ namespace Iroca.SentisIntegration
             try { _postJob?.Dispose(); _postJob = null; }
             catch (Exception e) { Debug.LogException(e); }
             try { DisposeWorkers(); }
+            catch (Exception e) { Debug.LogException(e); }
+            // 埋め込み(ヒープの外)も手放す。
+            try
+            {
+                SetEmbedding(null);
+                ClearLru(_embeddingCache, _lruOrder);
+                ClearLru(_cropEmbeddingCache, _cropLruOrder);
+            }
             catch (Exception e) { Debug.LogException(e); }
         }
     }

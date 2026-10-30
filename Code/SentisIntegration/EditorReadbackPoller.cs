@@ -22,6 +22,8 @@ namespace Iroca.SentisIntegration
     /// 不変条件: ポーリング中に同一 Worker へ新規 Schedule しないこと(PeekOutput の
     /// テンソルが無効化される)。サービスの Encoding/Decoding フェーズの単一実行が
     /// これを保証する。
+    /// 読み出した中身はヒープの外の float の並び(<see cref="NativeBuffer"/>。参照 1)で渡し、受け取った側が持つ
+    /// (0.4.0 の計画の B4。以前は 4.2MB の float[] を毎回作っていた)。
     /// </summary>
     internal sealed class EditorReadbackPoller
     {
@@ -29,7 +31,7 @@ namespace Iroca.SentisIntegration
         const double TimeoutMs = 15000;
 
         Tensor<float> _tensor;
-        Action<float[]> _onDone;
+        Action<NativeBuffer> _onDone;
         Action<Exception> _onError;
         long _startedAt;
         bool _running;
@@ -38,7 +40,7 @@ namespace Iroca.SentisIntegration
 
         /// <summary>読出リクエストを発行しポーリングを開始する。tensor は Worker 所有の
         /// PeekOutput 返しを想定(こちらでは Dispose しない)。</summary>
-        public void Start(Tensor<float> tensor, Action<float[]> onDone, Action<Exception> onError)
+        public void Start(Tensor<float> tensor, Action<NativeBuffer> onDone, Action<Exception> onError)
         {
             Stop();
             try
@@ -72,8 +74,8 @@ namespace Iroca.SentisIntegration
 
         void Tick()
         {
-            float[] data;
-            Action<float[]> done;
+            NativeBuffer data;
+            Action<NativeBuffer> done;
             try
             {
                 if (!_tensor.IsReadbackRequestDone())
@@ -83,7 +85,7 @@ namespace Iroca.SentisIntegration
                     return;
                 }
                 using (var t = _tensor.ReadbackAndClone()) // 完了済みなので非ブロッキング
-                    data = t.DownloadToArray();
+                    data = SamNativeOps.CopyFloats(t.DownloadToNativeArray());
                 done = _onDone;
                 Stop();
             }
@@ -96,7 +98,12 @@ namespace Iroca.SentisIntegration
             }
             // 完了の通知は読み出しの外で呼ぶ(中で投げたものを読み出しの失敗と取り違えない。以前は Stop が
             // onError を外した後だったので、黙って捨てられていた)。
-            CallGuarded(() => done?.Invoke(data));
+            if (done == null)
+            {
+                data?.Release();
+                return;
+            }
+            CallGuarded(() => done(data));
         }
 
         // update から呼ばれる入口なので、通知先の例外はここで止める。漏らすと、同じフレームに並んだ

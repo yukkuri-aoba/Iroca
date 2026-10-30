@@ -75,9 +75,7 @@
       "new Color32[rw * rh]": 1
     },
     "Code/MaskSuggest/Ops/SamImageOps.cs": {
-      "new float[3 * InputSize * InputSize]": 1,
-      "new float[newW * h * 3]": 1,
-      "new float[newW * newH * 3]": 1
+      "new float[3 * InputSize * InputSize]": 1
     },
     "Code/MaskSuggest/Ops/SamMaskPostprocess.cs": {
       "new bool[rw * rh]": 1,

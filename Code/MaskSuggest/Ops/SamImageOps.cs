@@ -36,6 +36,9 @@ namespace Iroca
             newH = (int)(h * scale + 0.5f);
         }
 
+        /// <summary>エンコーダ入力(<see cref="BuildEncoderInputInto"/> の書き先)の要素数。</summary>
+        public const int EncoderInputLength = 3 * InputSize * InputSize;
+
         /// <summary>
         /// 下原点 RGBA 画素列から [1,3,1024,1024] CHW float テンソル(平坦配列)を作る。
         /// token はキャンセル観測のみ(完走時の出力には影響しない)。
@@ -45,18 +48,30 @@ namespace Iroca
         {
             if (pixelsBottomUp == null || pixelsBottomUp.Length < w * h)
                 throw new System.ArgumentException("pixelsBottomUp が w*h 画素に足りません", nameof(pixelsBottomUp));
-            fixed (Color32* p = pixelsBottomUp) return BuildEncoderInput(p, w, h, token);
+            var chw = new float[3 * InputSize * InputSize];
+            fixed (Color32* p = pixelsBottomUp)
+            fixed (float* d = chw)
+                BuildEncoderInputInto(p, w, h, d, token);
+            return chw;
         }
 
-        /// <summary><see cref="BuildEncoderInput(Color32[], int, int, System.Threading.CancellationToken)"/> のポインタ版。</summary>
-        public static float[] BuildEncoderInput(Color32* pixelsBottomUp, int w, int h,
-                                                System.Threading.CancellationToken token = default)
+        /// <summary>
+        /// <see cref="BuildEncoderInput(Color32[], int, int, System.Threading.CancellationToken)"/> の、画素がポインタで
+        /// 書き先(chw。<see cref="EncoderInputLength"/> 要素)を呼び出し側が持つ版。途中のリサイズの作業もヒープの外に置く
+        /// (4K の原本で 60MB 前後。0.4.0 の計画の B4)。
+        /// </summary>
+        public static void BuildEncoderInputInto(Color32* pixelsBottomUp, int w, int h, float* chw,
+                                                 System.Threading.CancellationToken token = default)
         {
+            if (chw == null) throw new System.ArgumentNullException(nameof(chw));
             GetResizedSize(w, h, out int newW, out int newH);
             // resized: 上原点 RGB interleaved float(0..255 スケール)
-            float[] resized = ResizeTopDown(pixelsBottomUp, w, h, newW, newH, token);
+            using var resized = new NativeBuffer((long)newW * newH * 3 * sizeof(float), NativeUsage.Other);
+            float* rs = (float*)resized.Ptr;
+            ResizeTopDown(pixelsBottomUp, w, h, newW, newH, rs, token);
 
-            var chw = new float[3 * InputSize * InputSize]; // パディング領域は 0 のまま
+            // パディング領域は 0(書き先の中身は不定なので先に消す)。
+            new System.Span<float>(chw, EncoderInputLength).Clear();
             // (c, y) を平坦化した行並列。各反復は自分の出力行だけに書き、読みは resized の
             // 読み取り専用参照のみなので決定的(出力ビット同一)。
             Parallel.For(0, 3 * newH, SamMaskRefine.MakeParallelOptions(token), i =>
@@ -66,19 +81,17 @@ namespace Iroca
                 int rowOff = y * newW * 3;
                 int dstOff = c * InputSize * InputSize + y * InputSize;
                 for (int x = 0; x < newW; x++)
-                    chw[dstOff + x] = (resized[rowOff + x * 3 + c] - mean) / std;
+                    chw[dstOff + x] = (rs[rowOff + x * 3 + c] - mean) / std;
             });
-            return chw;
         }
 
         /// <summary>
-        /// 下原点 Color32[] → 上原点 RGB interleaved float(0..255)。
+        /// 下原点 Color32[] → 上原点 RGB interleaved float(0..255)を dst(newW*newH*3 要素)へ書く。
         /// 縮小軸は面積平均、拡大軸は bilinear(align_corners=False 相当)。
         /// </summary>
-        internal static float[] ResizeTopDown(Color32* pixelsBottomUp, int w, int h, int newW, int newH,
-                                              System.Threading.CancellationToken token = default)
+        internal static void ResizeTopDown(Color32* pixelsBottomUp, int w, int h, int newW, int newH, float* dst,
+                                           System.Threading.CancellationToken token = default)
         {
-            var dst = new float[newW * newH * 3];
             bool downX = newW < w, downY = newH < h;
 
             // 行並列(4K で実測 300-400ms の単スレッドがクリティカルパスだった)。全パスとも
@@ -97,11 +110,13 @@ namespace Iroca
                         dst[o] = p.r; dst[o + 1] = p.g; dst[o + 2] = p.b;
                     }
                 });
-                return dst;
+                return;
             }
 
             // 軸ごとの分離適用: まず X 軸 → 次に Y 軸(面積平均/bilinear どちらも分離可能)。
-            var mid = new float[newW * h * 3];
+            // mid は元の高さぶんある(4K で 1024×4096×3 = 4,800 万バイト)ので、ヒープの外に置く。
+            using var midBuffer = new NativeBuffer((long)newW * h * 3 * sizeof(float), NativeUsage.Other);
+            float* mid = (float*)midBuffer.Ptr;
             Parallel.For(0, h, po, ty =>
             {
                 int srcRow = (h - 1 - ty) * w; // 上下反転しつつ読む
@@ -112,10 +127,9 @@ namespace Iroca
             // mid は上原点なので、Y 軸処理での反転は不要。
             if (downY) ResampleColsArea(mid, h, newW, dst, newH, token);
             else ResampleColsBilinear(mid, h, newW, dst, newH, token);
-            return dst;
         }
 
-        static void ResampleRowArea(Color32* src, int srcOff, int srcW, float[] dst, int dstOff, int dstW)
+        static void ResampleRowArea(Color32* src, int srcOff, int srcW, float* dst, int dstOff, int dstW)
         {
             double scale = srcW / (double)dstW; // >1
             for (int x = 0; x < dstW; x++)
@@ -135,7 +149,7 @@ namespace Iroca
             }
         }
 
-        static void ResampleRowBilinear(Color32* src, int srcOff, int srcW, float[] dst, int dstOff, int dstW)
+        static void ResampleRowBilinear(Color32* src, int srcOff, int srcW, float* dst, int dstOff, int dstW)
         {
             double scale = srcW / (double)dstW; // <1 (拡大)
             for (int x = 0; x < dstW; x++)
@@ -152,7 +166,7 @@ namespace Iroca
             }
         }
 
-        static void ResampleColsArea(float[] src, int srcH, int width, float[] dst, int dstH,
+        static void ResampleColsArea(float* src, int srcH, int width, float* dst, int dstH,
                                      System.Threading.CancellationToken token = default)
         {
             double scale = srcH / (double)dstH; // >1
@@ -179,7 +193,7 @@ namespace Iroca
             });
         }
 
-        static void ResampleColsBilinear(float[] src, int srcH, int width, float[] dst, int dstH,
+        static void ResampleColsBilinear(float* src, int srcH, int width, float* dst, int dstH,
                                          System.Threading.CancellationToken token = default)
         {
             double scale = srcH / (double)dstH; // <1 (拡大)

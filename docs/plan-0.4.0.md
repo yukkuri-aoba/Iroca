@@ -1105,6 +1105,22 @@ T5 で消える部分は作り直さない（1.5）。
   - Sentis 2.x の `Tensor<float>(TensorShape, NativeArray<float>)` と `DownloadToNativeArray` を使う。
   - Inference Engine 2.2 でも使えるか確かめる。
   - Sentis の asmdef は unsafe を許していないので、ポインタは今どおり `SamNativeOps` に置く。
+  - 2026-10-30（手元）: 4-5a として、エンコーダの入力と埋め込みをヒープの外へ移した。
+    - 前処理（`SamImageOps.BuildEncoderInputInto`）は書き先（CHW の float の並び）を呼び出し側が持ち、途中のリサイズの
+      作業（4K の原本で横だけ縮めた 1024×4096×3 の float、約 48MB）も `NativeBuffer` に置く。配列版（ハーネスの
+      `--samops-encinput`）は書き先版へ転送する（出力は同じ。視覚レビュー 174 件・ワークフロー 66 枚とも変化 0、
+      `test_mask_suggest_ops` 85 件）。
+    - 推論のサービスは、エンコーダの入力と埋め込み（4.2MB。全体 2 件・ズーム 4 件のキャッシュ）を `NativeBuffer`
+      （参照の数）で持ち、テンソルへ渡すときだけ `NativeArray` に見せる（`SamNativeOps.FloatView`。`TextureIO.NativeView`
+      の上）。読み出しは `DownloadToNativeArray` の中身（CPU では Temp、GPU では読み出しの持ち物で、次のフレームまで）を
+      すぐ写す（`SamNativeOps.CopyFloats`）。キャッシュは押し出したもの・スクリプトの再読み込みの前に返す。
+    - **確かめたこと**: Sentis 2.1.3（`IrocaSentisCheck`）と Inference Engine 2.4.1（Unity 6 のホストの
+      ScriptAssemblies を借りた一時のビルド）の両方で型が通る。`Tensor<float>(TensorShape, NativeArray<float>)` と
+      `DownloadToNativeArray` は両方にあるので、間の 2.2 にもある。推論そのものは Sentis の入った Iroca_Dev での実機確認待ち
+      （EditMode のホストには Sentis が無い）。
+    - **残したこと（4-5b）**: 提案のマスク（元の解像度の `bool[]`。`MaskSuggestProposal.maskBottomUp`）と後処理・精密化・
+      ズームの切り出しの配列。マスクは右クリックの反映（`MaskPaintView.ApplyRegion`）と自動調整の証拠まで渡るので、
+      `NativeBitMask` に替えるときはそこまで一緒に直す。デコーダの出力（低解像度のロジット 1MB）は配列のまま。
 - [ ] 4-6 OnGUI の細かい確保（毎フレームの `new GUIContent`・プレビューの要求ごとの LINQ）を減らす。優先度は低い。
 
 ### フェーズ 5: Undo の作り直し（0.4.0 に入れる。2026-10-26 決定）
