@@ -171,6 +171,7 @@ namespace Iroca.EditorTests
             CheckCommon("再読み込みの前", 1, 2);
             CheckZones("再読み込みの前", 1);
             Check(UndoRecords().Count == 3, "再読み込みの前は 3 回分の履歴がある");
+            SessionState.SetInt(Key + "doc", win.UndoTarget.GetInstanceID());
 
             EditorUtility.RequestScriptReload();
             EditorApplication.update += WaitAndRun;
@@ -191,6 +192,7 @@ namespace Iroca.EditorTests
         {
             Line("     履歴: " + string.Join(" | ", UndoRecords()));
             Check(Win != null, "再読み込みで窓が残る");
+            Check(Win.UndoTarget.GetInstanceID() == SessionState.GetInt(Key + "doc", 0), "文書も同じものが残る");
             CheckCommon("再読み込みの後", 1, 2);
             CheckZones("再読み込みの後", 1);
 

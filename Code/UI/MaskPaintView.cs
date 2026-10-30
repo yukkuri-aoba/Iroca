@@ -76,6 +76,10 @@ namespace Iroca
 
         public const string CommonMaskKey = "__common__";
 
+        // いま直しているゾーンの id(描く前に覚える)。編集対象は番号で持ち、Undo では巻き戻らないので、Undo/Redo で
+        // ゾーンの並びが変わったときに同じゾーンを指し直すのに使う。
+        [System.NonSerialized] private string _activeTargetZoneId;
+
         [System.NonSerialized] public bool maskPaintActive;
 
         [System.NonSerialized] private IrocaWindow _host;
@@ -302,7 +306,7 @@ namespace Iroca
             {
                 // 編集中のマスクを _session.maskState に同期してから Undo 登録、クリア後に再同期。
                 SyncBuffersToState();
-                Undo.RegisterCompleteObjectUndo(_host, "Clear Mask");
+                Undo.RegisterCompleteObjectUndo(_host.UndoTarget, "Clear Mask");
                 ClearActiveMask();
                 SyncBuffersToState();
                 _host.Editing.NotifyChanged(EditChange.Masks);
@@ -695,6 +699,30 @@ namespace Iroca
             maskDirty = true;
         }
 
+        /// <summary>いま直しているゾーンを覚える。別ウィンドウも含めて、描く前に呼ぶ。</summary>
+        public void RememberActiveTarget()
+        {
+            var zones = _host?.Session?.zones;
+            _activeTargetZoneId = zones != null && activeMaskTarget >= 0 && activeMaskTarget < zones.Count
+                ? zones[activeMaskTarget]?.id
+                : null;
+        }
+
+        /// <summary>
+        /// Undo/Redo でゾーンの並びが変わった後に、覚えておいたゾーンを指し直す。そのゾーンが消えたら同じ位置
+        /// (末尾なら 1 つ上。<see cref="OnZoneRemoved"/> と同じ)。全ゾーン共通は番号が -1 のままなので変わらない。
+        /// </summary>
+        public void FollowActiveTargetAfterUndo()
+        {
+            var zones = _host?.Session?.zones;
+            if (zones == null) return;
+            if (!string.IsNullOrEmpty(_activeTargetZoneId))
+                for (int i = 0; i < zones.Count; i++)
+                    if (zones[i]?.id == _activeTargetZoneId) { activeMaskTarget = i; return; }
+            if (activeMaskTarget >= zones.Count) activeMaskTarget = zones.Count - 1;
+            EnforceLayerConsistency();
+        }
+
         /// <summary>
         /// ブラシの半径(マスクの画素単位)。brushSize は全体表示のときのプレビューの格子セル単位の半径
         /// (塗られる円の直径は 2×サイズ+1 セル)で、拡大するとその倍率だけ小さく塗る: 画面上のブラシの
@@ -821,7 +849,7 @@ namespace Iroca
             // 編集中のマスクを _session.maskState に書き戻してから Undo 登録すれば、
             // 戻し操作でストローク開始前の状態に確実に復元できる。
             SyncBuffersToState();
-            Undo.RegisterCompleteObjectUndo(_host, "Paint Mask Stroke");
+            Undo.RegisterCompleteObjectUndo(_host.UndoTarget, "Paint Mask Stroke");
             _maskStrokeStarted = true;
         }
 

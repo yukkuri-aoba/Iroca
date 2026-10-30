@@ -85,7 +85,7 @@ namespace Iroca
                 // 証拠の元のキーは、画素がプレビュー・右クリックの AI 提案と同じ原本のときだけ渡す
                 // (フォールバックの画素で同じキーを使うと、別の画素の埋め込みと取り違える)。
                 string key = trueSource && _previewView != null ? _previewView.TrueSourceCacheKey() : null;
-                var run = AutoTuneService.Start(zone, _session, pixels, key, excluded, mw, mh);
+                var run = AutoTuneService.Start(zone, Session, pixels, key, excluded, mw, mh);
                 if (run.Status == AutoTuneService.Status.Failed)
                 {
                     NotifyAutoTuneFailure(run);
@@ -151,7 +151,7 @@ namespace Iroca
         {
             pixels = null;
             trueSource = false;
-            var tex = sourceTexture;
+            var tex = SourceTexture;
             if (tex == null) return;
 
             try
@@ -236,8 +236,8 @@ namespace Iroca
             // 結果は押してから数秒後に届くので、待っている間の別の操作とは別の「元に戻す」1 回分にする。
             SeparateUndo.Record("Auto-tune Zone", () =>
             {
-                Undo.RegisterCompleteObjectUndo(this, "Auto-tune Zone");
-                run.ApplyTo(targetZone, _session);
+                Undo.RegisterCompleteObjectUndo(UndoTarget, "Auto-tune Zone");
+                run.ApplyTo(targetZone, Session);
             });
             (_autoTuneInputs ??= new Dictionary<string, AutoTuneService.Input>())[targetZone.id] = run.ToInput();
             Editing.NotifyChanged(EditChange.Content);

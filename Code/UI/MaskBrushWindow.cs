@@ -99,6 +99,7 @@ namespace Iroca
                 if (IrocaWindow.DrawMissingHostNotice()) _nextHostSearchAt = 0;
                 return;
             }
+            host._maskView?.RememberActiveTarget();
             // ここでの操作(対象・ブラシ・粒度の切り替えなど)を、本体と別ウィンドウのプレビューに知らせる。
             if (IrocaWindow.MayChangeState(Event.current.type)) host.BumpUiState();
             if (host.SourceTexture == null)

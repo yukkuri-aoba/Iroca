@@ -51,6 +51,7 @@ namespace Iroca
         {
             // 描かれている = 見えている(Scene のクリックを見る条件。IrocaWindow.SceneClick)。
             _windowShown = true;
+            _maskView?.RememberActiveTarget();
             // 入力があったら、別ウィンドウ(プレビュー・マスク編集)に描き直しを知らせる(DrawStamp)。
             if (MayChangeState(Event.current.type)) BumpUiState();
             TrackDeferredPreview(this);
@@ -62,18 +63,18 @@ namespace Iroca
             // 「スポイトで変えたい色を選ぶ」の武装（NewZoneEyedropperId）はまだ無いゾーンを指すので、
             // ゾーンの有無では解除しない（解除すると押した次の描画で武装が消え、トグルにならなかった）。
             if (!string.IsNullOrEmpty(_eyedropperZoneId) &&
-                (sourceTexture == null
+                (SourceTexture == null
                  || (_eyedropperZoneId != NewZoneEyedropperId && FindZoneById(_eyedropperZoneId) == null)))
                 _eyedropperZoneId = null;
             // シード指定の武装も同じ理由で掃除する（武装したまま対象が消えると、プレビュー上の
             // クリックが行き先の無い状態で待ち続ける）。
             if (!string.IsNullOrEmpty(_seedPickZoneId) &&
-                (sourceTexture == null || FindZoneById(_seedPickZoneId) == null))
+                (SourceTexture == null || FindZoneById(_seedPickZoneId) == null))
                 _seedPickZoneId = null;
             // ソロ表示の対象が消えた／テクスチャが外れたら通常表示へ戻す。残すと「ゾーンを
             // 消したのにプレビューが元に戻らない」ように見える。
             if (!string.IsNullOrEmpty(_soloZoneId) &&
-                (sourceTexture == null || FindZoneById(_soloZoneId) == null))
+                (SourceTexture == null || FindZoneById(_soloZoneId) == null))
             {
                 SetSoloZone(null);
             }
@@ -537,7 +538,7 @@ namespace Iroca
             // 確認ダイアログを挟み、Undo 登録するので誤操作しても「元に戻す」で復元できる。
             // ジョブ実行中は無効化する: エクスポート/自動調整の完了時 apply がリセット後の
             // セッションへ書き戻し、状態不整合を生み得るため。
-            using (new EditorGUI.DisabledScope(sourceTexture == null || jobBlocking))
+            using (new EditorGUI.DisabledScope(SourceTexture == null || jobBlocking))
             {
                 if (GUILayout.Button(new GUIContent(Localization.ResetSession, Localization.ResetSessionTooltip),
                         EditorStyles.toolbarButton, GUILayout.ExpandWidth(false)))
@@ -564,7 +565,7 @@ namespace Iroca
         /// <summary>
         /// 元テクスチャが選ばれ、かつ画素を読める状態か（＝手順①が済んでいるか）。
         /// </summary>
-        private bool StepTextureDone => CanReadSource(sourceTexture);
+        private bool StepTextureDone => CanReadSource(SourceTexture);
 
         /// <summary>
         /// 有効なゾーンが 1 つ以上あるか（無ければ「スポイトで変えたい色を選ぶ」から始める）。
@@ -575,7 +576,7 @@ namespace Iroca
         {
             get
             {
-                var list = _session?.zones;
+                var list = Session?.zones;
                 if (list == null) return false;
                 for (int i = 0; i < list.Count; i++)
                     if (list[i] != null && list[i].enabled) return true;
@@ -594,7 +595,7 @@ namespace Iroca
         {
             get
             {
-                var list = _session?.zones;
+                var list = Session?.zones;
                 if (list == null) return false;
                 for (int i = 0; i < list.Count; i++)
                 {
@@ -621,7 +622,7 @@ namespace Iroca
 
             // 手順の途中のゾーンを、最後に足したもの（リストの下）から探す。2 色目を足したときに、
             // そのゾーンの次の一手を案内するため。
-            var list = _session.zones;
+            var list = Session.zones;
             for (int i = list.Count - 1; i >= 0; i--)
             {
                 var z = list[i];
@@ -681,28 +682,28 @@ namespace Iroca
                 EditorStyles.boldLabel);
 
             // 開始点が分かりにくいので、テクスチャ未設定時だけ一連の流れを案内する。
-            if (sourceTexture == null)
+            if (SourceTexture == null)
                 EditorGUILayout.HelpBox(Localization.WorkflowHint, MessageType.Info);
 
             var newTex = (Texture2D)EditorGUILayout.ObjectField(
                 new GUIContent(Localization.Texture, Localization.TextureTooltip),
-                sourceTexture, typeof(Texture2D), false,
+                SourceTexture, typeof(Texture2D), false,
                 // 1 行高に固定する。Texture2D の ObjectField は既定で 64px のサムネイル枠になり、
                 // 右端の小さな枠のために行の左側が 3 行ぶん空いて、下の設定列とプレビューの
                 // 高さを恒常的に奪っていた。絵はプレビューで見えるのでここでは名前だけで足りる。
                 GUILayout.Height(EditorGUIUtility.singleLineHeight));
-            if (newTex != sourceTexture)
+            if (newTex != SourceTexture)
                 SwitchSourceTexture(newTex);
 
             // Read/Write を求めるのは、原本ファイルからも画素を取れないときだけ（PSD/TGA 等）。
             // PNG/JPG は原本を直接読めるので、インポート設定を書き換える必要はない。
-            if (sourceTexture != null && !CanReadSource(sourceTexture))
+            if (SourceTexture != null && !CanReadSource(SourceTexture))
             {
                 EditorGUILayout.HelpBox(Localization.ReadWriteError, MessageType.Error);
 
                 if (GUILayout.Button(new GUIContent(Localization.EnableReadWrite, Localization.EnableReadWriteTooltip)))
                 {
-                    TextureIO.EnableReadWrite(sourceTexture);
+                    TextureIO.EnableReadWrite(SourceTexture);
                 }
             }
 
@@ -749,15 +750,15 @@ namespace Iroca
         /// </summary>
         private void DrawLargeSourceNotice()
         {
-            if (sourceTexture == null || _previewView == null) return;
+            if (SourceTexture == null || _previewView == null) return;
             // Play 中のリロード直後で原本の読み直しを待っている間は、案内のために読まない。
             if (_previewView.SourceLoadDeferred) return;
-            if (!_previewView.TryGetTrueSourcePixels(sourceTexture, out _, out int ww, out int wh)) return;
+            if (!_previewView.TryGetTrueSourcePixels(SourceTexture, out _, out int ww, out int wh)) return;
             // 元ファイルの寸法。取り込み済みテクスチャから読んでいる(PSD など)ときは、書き出しもその寸法。
             int w = ww, h = wh;
-            if (_previewView.TrueSourceFromFile) SourceFileSize(sourceTexture, ref w, ref h);
+            if (_previewView.TrueSourceFromFile) SourceFileSize(SourceTexture, ref w, ref h);
             if (!WorkingResolution.ExceedsLimit(w, h)) return;
-            string key = LargeSourceDismissedKeyPrefix + CurrentTexturePath(sourceTexture);
+            string key = LargeSourceDismissedKeyPrefix + CurrentTexturePath(SourceTexture);
             if (SessionState.GetBool(key, false)) return;
 
             double needGB = (double)w * h * SourceBytesPerPixel / (1L << 30);
@@ -805,15 +806,15 @@ namespace Iroca
                 return;
             }
 
-            edgeFeather = UndoHelper.Slider(this,
+            edgeFeather = UndoHelper.Slider(UndoTarget,
                 new GUIContent(Localization.EdgeFeather, Localization.EdgeFeatherTooltip),
                 edgeFeather, 0f, 5f);
 
-            antiAliasCleanup = UndoHelper.IntSlider(this,
+            antiAliasCleanup = UndoHelper.IntSlider(UndoTarget,
                 new GUIContent(Localization.AntiAliasCleanup, Localization.AntiAliasCleanupTooltip),
                 antiAliasCleanup, 0, 5);
 
-            useDecontamination = UndoHelper.Toggle(this,
+            useDecontamination = UndoHelper.Toggle(UndoTarget,
                 new GUIContent(Localization.UseDecontamination, Localization.UseDecontaminationTooltip),
                 useDecontamination);
 
@@ -831,20 +832,20 @@ namespace Iroca
             {
                 using (new EditorGUI.IndentLevelScope())
                 {
-                    holeFillPasses = UndoHelper.IntSlider(this,
+                    holeFillPasses = UndoHelper.IntSlider(UndoTarget,
                         new GUIContent(Localization.HoleFillPasses, Localization.HoleFillPassesTooltip),
                         holeFillPasses, 0, 10);
-                    holeFillMinNeighbors = UndoHelper.IntSlider(this,
+                    holeFillMinNeighbors = UndoHelper.IntSlider(UndoTarget,
                         new GUIContent(Localization.HoleFillMinNeighbors, Localization.HoleFillMinNeighborsTooltip),
                         holeFillMinNeighbors, 1, 8);
-                    relaxedSatMin = UndoHelper.Slider(this,
+                    relaxedSatMin = UndoHelper.Slider(UndoTarget,
                         new GUIContent(Localization.RelaxedSatMin, Localization.RelaxedSatMinTooltip),
                         relaxedSatMin, 0f, 0.2f);
                     // relaxedSatRamp は出さない。緩和マッチで使わなくなり、動かしても何も変わらないため。
                     // 値は選択キャッシュのキーと、プリセット・セッションの保存形式の互換のために残している。
                     using (new EditorGUI.DisabledScope(!useDecontamination))
                     {
-                        decontaminationRadius = UndoHelper.IntSlider(this,
+                        decontaminationRadius = UndoHelper.IntSlider(UndoTarget,
                             new GUIContent(Localization.DecontaminationRadius, Localization.DecontaminationRadiusTooltip),
                             decontaminationRadius,
                             RecolorSettings.MinDecontaminationRadius, RecolorSettings.MaxDecontaminationRadius);

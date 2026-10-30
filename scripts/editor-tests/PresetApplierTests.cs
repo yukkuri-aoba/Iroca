@@ -16,14 +16,14 @@ namespace Iroca.EditorTests
     {
         private const int W = 6, H = 2;
 
-        private SampleUvUndoHost _host;
+        private IrocaEditingDocument _host;
         private EditingSession _editing;
 
         [SetUp]
         public void SetUp()
         {
-            _host = ScriptableObject.CreateInstance<SampleUvUndoHost>();
-            _editing = new EditingSession(() => _host.session, _host);
+            _host = ScriptableObject.CreateInstance<IrocaEditingDocument>();
+            _editing = new EditingSession(_host);
             Undo.ClearUndo(_host);
         }
 

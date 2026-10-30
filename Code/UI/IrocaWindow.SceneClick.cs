@@ -55,7 +55,7 @@ namespace Iroca
 
         /// <summary>直前のクリックが別のテクスチャの部分だったときの、そのテクスチャ(無ければ null)。</summary>
         internal Texture2D SceneOtherTexture =>
-            _sceneOtherTexture != null && _sceneOtherTextureFor == sourceTexture ? _sceneOtherTexture : null;
+            _sceneOtherTexture != null && _sceneOtherTextureFor == SourceTexture ? _sceneOtherTexture : null;
 
         // このウィンドウが見えているか(裏のタブ・閉じたウィンドウでは false)。Unity の通知で追い、
         // OnGUI でも立て直す(OnGUI は見えているときしか呼ばれないので、通知を取りこぼしても戻る)。
@@ -129,7 +129,7 @@ namespace Iroca
             }
 
             // 何も開いていなければ、クリックした部分のテクスチャを開く(作業中のものが切り替わる心配は無い)。
-            if (sourceTexture == null)
+            if (SourceTexture == null)
             {
                 var open = MeshUvLocator.EditableSourceOf(MeshUvLocator.MainTexture(hit.material));
                 if (open == null) return;
@@ -144,7 +144,7 @@ namespace Iroca
                 // 別のテクスチャの部分。何のテクスチャか分からない物(地面の単色マテリアル等)は黙って消すだけ。
                 _previewView.ClearSceneHighlight();
                 _sceneOtherTexture = MeshUvLocator.EditableSourceOf(MeshUvLocator.MainTexture(hit.material));
-                _sceneOtherTextureFor = sourceTexture;
+                _sceneOtherTextureFor = SourceTexture;
                 _sceneOtherHit = _sceneOtherTexture != null ? hit : null;
             }
             RequestRepaint();
@@ -153,11 +153,11 @@ namespace Iroca
         /// <summary>当たった部分が開いているテクスチャを使っていれば、その場所をプレビューに出して true。</summary>
         private bool ShowSceneHit(SceneMeshPicker.Hit hit)
         {
-            if (sourceTexture == null || hit?.material == null) return false;
-            var targets = MeshUvLocator.TargetTextures(sourceTexture);
+            if (SourceTexture == null || hit?.material == null) return false;
+            var targets = MeshUvLocator.TargetTextures(SourceTexture);
             if (!MeshUvLocator.UsesTexture(hit.material, targets, out string prop)) return false;
             _previewView.ShowSceneHighlight(SceneClickHighlight.Build(
-                sourceTexture, hit, hit.material.GetTextureScale(prop), hit.material.GetTextureOffset(prop)));
+                SourceTexture, hit, hit.material.GetTextureScale(prop), hit.material.GetTextureOffset(prop)));
             SceneClickUsed = true;
             return true;
         }

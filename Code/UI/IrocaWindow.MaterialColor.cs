@@ -41,7 +41,7 @@ namespace Iroca
         private void RefreshMaterialColors()
         {
             if (Event.current.type != EventType.Layout) return;
-            var tex = sourceTexture;
+            var tex = SourceTexture;
             if (tex == null)
             {
                 _materialColorGroups = null;
@@ -105,11 +105,11 @@ namespace Iroca
             RefreshMaterialColors();
             var groups = _materialColorGroups;
             var r = AppearanceReport;
-            if (sourceTexture == null || groups == null || r == null) return;
+            if (SourceTexture == null || groups == null || r == null) return;
             bool any = false;
             foreach (var g in groups) any |= g[0].AffectsColor;
             if (!any) return;
-            string key = MaterialColorDismissedKeyPrefix + CurrentTexturePath(sourceTexture);
+            string key = MaterialColorDismissedKeyPrefix + CurrentTexturePath(SourceTexture);
             if (SessionState.GetBool(key, false)) return;
 
             EditorGUILayout.HelpBox(MaterialColorNoticeText(r, _previewView != null && _previewView.appearanceMode,

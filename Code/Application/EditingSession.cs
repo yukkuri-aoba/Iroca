@@ -20,28 +20,21 @@ namespace Iroca
 
     /// <summary>
     /// 編集中の文書(0.4.0 の計画の 4-2)。いろかのウィンドウ 1 つにつき 1 つ。
-    /// ウィンドウが保存する編集状態(ゾーン・設定・マスクの <see cref="IrocaSessionState"/>)を包み、原本の画素
+    /// 文書の中身(<see cref="IrocaEditingDocument"/>。ゾーン・設定・テクスチャ・レシピ。Undo の対象)を包み、原本の画素
     /// (<see cref="SourcePixelCache"/>)と編集中のマスク(<see cref="MaskWorkspace"/>)を持ち、ゾーンの操作を行い、
     /// 編集を <see cref="Changed"/> で知らせる。
-    /// 編集状態の持ち主はウィンドウのまま(保存されるフィールドの名前と置き場所を変えると、利用者の作業状態が
-    /// レイアウトと Undo から戻らなくなる)。ウィンドウは読み込み・リセット・レシピの読み直しで編集状態をまるごと
-    /// 差し替え、Unity は Undo とドメインリロードで書き戻すので、ここは編集状態を覚えずに毎回ウィンドウから受け取る。
-    /// メインスレッド専用。
+    /// ウィンドウは読み込み・リセット・レシピの読み直しで編集状態をまるごと差し替え、Unity は Undo とドメインリロードで
+    /// 書き戻すので、編集状態は覚えずに毎回文書の中身から読む。メインスレッド専用。
     /// </summary>
     internal sealed class EditingSession
     {
-        private readonly Func<IrocaSessionState> _state;
-        // 操作を Undo に記録する先(編集状態を保存しているもの。ふつうはウィンドウ)。
-        private readonly UnityEngine.Object _undoTarget;
+        internal EditingSession(IrocaEditingDocument document) => Document = document;
 
-        internal EditingSession(Func<IrocaSessionState> state, UnityEngine.Object undoTarget)
-        {
-            _state = state;
-            _undoTarget = undoTarget;
-        }
+        /// <summary>文書の中身(操作を Undo に記録する先)。作り直されたらウィンドウが指し直す。</summary>
+        internal IrocaEditingDocument Document { get; set; }
 
-        /// <summary>今の編集状態(ウィンドウが保存しているもの)。</summary>
-        internal IrocaSessionState State => _state();
+        /// <summary>今の編集状態。</summary>
+        internal IrocaSessionState State => Document.session;
 
         /// <summary>
         /// 編集された(保存される中身が変わった)。購読するのは、非同期に動くもの(プレビューの作り直し・マスクの重ね表示・
@@ -146,7 +139,7 @@ namespace Iroca
         internal int AddZone()
         {
             var zones = State.zones;
-            Undo.RegisterCompleteObjectUndo(_undoTarget, "Add Zone");
+            Undo.RegisterCompleteObjectUndo(Document, "Add Zone");
             zones.Add(NewZone(zones));
             NotifyChanged(EditChange.Content);
             return zones.Count - 1;
@@ -159,7 +152,7 @@ namespace Iroca
         internal int AddZoneFromSample(Color picked, Vector2 uv)
         {
             var zones = State.zones;
-            Undo.RegisterCompleteObjectUndo(_undoTarget, "Add Zone");
+            Undo.RegisterCompleteObjectUndo(Document, "Add Zone");
             var zone = NewZone(zones);
             zone.sampleColor = picked;
             zone.sampleColorSet = true;
@@ -179,7 +172,7 @@ namespace Iroca
             var zones = State?.zones;
             if (zones == null || index < 0 || index >= zones.Count) return false;
             SyncMasksToState();
-            Undo.RegisterCompleteObjectUndo(_undoTarget, "Remove Zone");
+            Undo.RegisterCompleteObjectUndo(Document, "Remove Zone");
             string id = zones[index]?.id;
             if (!string.IsNullOrEmpty(id)) Masks.RemoveZone(id);
             zones.RemoveAt(index);
@@ -198,7 +191,7 @@ namespace Iroca
             if (zones == null || from == to || from < 0 || from >= zones.Count || to < 0 || to >= zones.Count)
                 return false;
             SyncMasksToState();
-            Undo.RegisterCompleteObjectUndo(_undoTarget, "Reorder Zone");
+            Undo.RegisterCompleteObjectUndo(Document, "Reorder Zone");
             var moved = zones[from];
             zones.RemoveAt(from);
             zones.Insert(to, moved);
@@ -220,7 +213,7 @@ namespace Iroca
         {
             bool colorChanged = zone.sampleColor != picked || !zone.sampleColorSet;
             if (!colorChanged && zone.sampleUV == uv) return false;
-            Undo.RecordObject(_undoTarget, "Sample Color");
+            Undo.RecordObject(Document, "Sample Color");
             if (colorChanged)
             {
                 zone.sampleColor = picked;
@@ -239,7 +232,7 @@ namespace Iroca
         internal bool SetFloodFillSeed(ColorZone zone, Vector2 uv)
         {
             if (zone.seedUV == uv) return false;
-            Undo.RecordObject(_undoTarget, "Set Flood Fill Seed");
+            Undo.RecordObject(Document, "Set Flood Fill Seed");
             zone.seedUV = uv;
             NotifyChanged(EditChange.Content);
             return true;
@@ -248,7 +241,7 @@ namespace Iroca
         /// <summary>連続領域の起点を外す。</summary>
         internal void ClearFloodFillSeed(ColorZone zone)
         {
-            Undo.RecordObject(_undoTarget, "Clear Flood Fill Seed");
+            Undo.RecordObject(Document, "Clear Flood Fill Seed");
             zone.seedUV = new Vector2(-1f, -1f);
             NotifyChanged(EditChange.Content);
         }
@@ -261,7 +254,7 @@ namespace Iroca
         internal bool ApplyPreset(IrocaPresetData preset, bool applyMasks)
         {
             SyncMasksToState();
-            Undo.RegisterCompleteObjectUndo(_undoTarget, "Load Preset");
+            Undo.RegisterCompleteObjectUndo(Document, "Load Preset");
             PresetApplier.ApplyZonesAndSettings(preset, State);
             bool masks = applyMasks && PresetApplier.HasMasks(preset);
             if (masks) Masks.DecodeFrom(PresetApplier.MaskStateOf(preset));
@@ -272,7 +265,7 @@ namespace Iroca
         /// <summary>ゾーンの詳細の調整値を既定へ戻す(色・許容範囲・名前などの利用者の選択は残す。ColorZone.ResetTuningToDefault)。</summary>
         internal void ResetZoneTuning(ColorZone zone)
         {
-            Undo.RegisterCompleteObjectUndo(_undoTarget, "Reset Zone Tuning");
+            Undo.RegisterCompleteObjectUndo(Document, "Reset Zone Tuning");
             zone.ResetTuningToDefault();
             NotifyChanged(EditChange.Content);
         }

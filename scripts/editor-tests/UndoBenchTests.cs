@@ -24,7 +24,7 @@ namespace Iroca.EditorTests
         private const int W = 4096, H = 4096;
         private const int Reps = 15;
 
-        private UndoRestoreSignalHost _host;
+        private IrocaEditingDocument _host;
 
         [TearDown]
         public void TearDown()
@@ -100,7 +100,7 @@ namespace Iroca.EditorTests
             {
                 foreach (var kind in new[] { "none", "typical", "heavy" })
                 {
-                    _host = ScriptableObject.CreateInstance<UndoRestoreSignalHost>();
+                    _host = ScriptableObject.CreateInstance<IrocaEditingDocument>();
                     _host.session = Session(kind);
                     Undo.ClearAll();
                     var ms = _host.session.maskState;

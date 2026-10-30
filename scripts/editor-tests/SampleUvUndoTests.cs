@@ -21,14 +21,14 @@ namespace Iroca.EditorTests
         private static readonly Vector2 Uv1 = new Vector2(0.25f, 0.75f);
         private static readonly Vector2 Uv2 = new Vector2(0.6f, 0.1f);
 
-        private SampleUvUndoHost _host;
+        private IrocaEditingDocument _host;
         private EditingSession _editing;
 
         [SetUp]
         public void SetUp()
         {
-            _host = ScriptableObject.CreateInstance<SampleUvUndoHost>();
-            _editing = new EditingSession(() => _host.session, _host);
+            _host = ScriptableObject.CreateInstance<IrocaEditingDocument>();
+            _editing = new EditingSession(_host);
             var z = new ColorZone { name = "服" };
             z.EnsureId();
             _host.session.zones.Add(z);

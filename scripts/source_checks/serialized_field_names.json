@@ -276,8 +276,14 @@
       "useDecontamination",
       "zones"
     ],
+    "IrocaEditingDocument": [
+      "boundRecipe",
+      "session",
+      "sourceTexture"
+    ],
     "IrocaWindow": [
       "_boundRecipe",
+      "_document",
       "_exportView",
       "_maskView",
       "_presetsView",

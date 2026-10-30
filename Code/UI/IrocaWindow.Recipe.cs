@@ -19,12 +19,10 @@ namespace Iroca
     /// </summary>
     public partial class IrocaWindow
     {
-        [SerializeField] private IrocaRecipe _boundRecipe;
-
         /// <summary>今のテクスチャに結び付いたレシピ(無ければ null)。</summary>
         internal IrocaRecipe BoundRecipe =>
-            _boundRecipe != null && sourceTexture != null && _boundRecipe.sourceTexture == sourceTexture
-                ? _boundRecipe
+            Doc.boundRecipe != null && SourceTexture != null && Doc.boundRecipe.sourceTexture == SourceTexture
+                ? Doc.boundRecipe
                 : null;
 
         /// <summary>インスペクタの「いろかで開く」から: レシピの元テクスチャを開き、そのレシピに結び付ける。</summary>
@@ -36,7 +34,7 @@ namespace Iroca
             var win = GetWindow<IrocaWindow>();
             win.Show();
             win.Focus();
-            if (win.sourceTexture == recipe.sourceTexture && win.BoundRecipe == recipe) return;
+            if (win.SourceTexture == recipe.sourceTexture && win.BoundRecipe == recipe) return;
             win.SwitchSourceTexture(recipe.sourceTexture, recipe);
         }
 
@@ -52,7 +50,7 @@ namespace Iroca
             var win = GetWindow<IrocaWindow>();
             win.Show();
             win.Focus();
-            if (win.sourceTexture == texture) return;
+            if (win.SourceTexture == texture) return;
             win.SwitchSourceTexture(texture);
         }
 
@@ -65,15 +63,15 @@ namespace Iroca
             // マスク保存失敗時はユーザーに通知（黙って消えないように）。
             if (!SavePersistedSessionForCurrentTexture())
                 ShowNotification(new GUIContent($"{Localization.Error}: {Localization.MaskSaveFailed}"));
-            // _session をまるごと差し替えるため、深い Undo (RegisterCompleteObjectUndo) を使う。
-            Undo.RegisterCompleteObjectUndo(this, "Change Source Texture");
-            sourceTexture = newTex;
-            _boundRecipe = recipe;
+            // Session をまるごと差し替えるため、深い Undo (RegisterCompleteObjectUndo) を使う。
+            Undo.RegisterCompleteObjectUndo(UndoTarget, "Change Source Texture");
+            SourceTexture = newTex;
+            Doc.boundRecipe = recipe;
             _previewView.InvalidateSourceCache();
             _maskView.ClearBuffersOnTextureChange();
-            if (sourceTexture != null)
+            if (SourceTexture != null)
             {
-                var path = AssetDatabase.GetAssetPath(sourceTexture);
+                var path = AssetDatabase.GetAssetPath(SourceTexture);
                 _exportView.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(path));
             }
             LoadPersistedSessionForCurrentTexture();
@@ -90,13 +88,13 @@ namespace Iroca
         /// </summary>
         private bool TryLoadSessionFromRecipe()
         {
-            _boundRecipe = SessionPersistence.RecipeFor(sourceTexture, BoundRecipe);
-            if (_boundRecipe == null) return false;
+            Doc.boundRecipe = SessionPersistence.RecipeFor(SourceTexture, BoundRecipe);
+            if (Doc.boundRecipe == null) return false;
 
             // 壊れたレシピは読まない(保存も BoundRecipe 経由で上書きしない)。
-            var state = SessionPersistence.LoadFromRecipe(_boundRecipe);
+            var state = SessionPersistence.LoadFromRecipe(Doc.boundRecipe);
             if (state == null) return false;
-            _session = state;
+            Session = state;
             EnsureAllZoneIds();
             _maskView?.RestoreFromRecipeState();
             Editing.NotifyChanged(EditChange.Replaced);
@@ -107,9 +105,9 @@ namespace Iroca
         private void SaveSessionToBoundRecipe()
         {
             var recipe = BoundRecipe;
-            if (recipe == null || _session == null) return;
+            if (recipe == null || Session == null) return;
             // 外(git など)で書き換わったレシピを、窓の古い内容で上書きしない。窓が残るならレシピから読み直す。
-            if (!SessionPersistence.SaveToRecipe(recipe, _session)) ScheduleRecipeReload();
+            if (!SessionPersistence.SaveToRecipe(recipe, Session)) ScheduleRecipeReload();
         }
 
         /// <summary>
@@ -131,8 +129,8 @@ namespace Iroca
         /// </summary>
         private void PublishLivePreviewTarget()
         {
-            bool anyEnabled = sourceTexture != null && HasEnabledZone;
-            if (anyEnabled) LivePreview.SetTarget(sourceTexture, BoundRecipe);
+            bool anyEnabled = SourceTexture != null && HasEnabledZone;
+            if (anyEnabled) LivePreview.SetTarget(SourceTexture, BoundRecipe);
             else LivePreview.SetTarget(null, null);
         }
 
@@ -145,9 +143,9 @@ namespace Iroca
         internal static IrocaSessionState EditingStateOf(Texture2D texture)
         {
             var win = WindowShowing(texture);
-            if (win == null || win._session == null) return null;
+            if (win == null || win.Session == null) return null;
             win._maskView?.SyncBuffersToState();
-            return JsonUtility.FromJson<IrocaSessionState>(JsonUtility.ToJson(win._session));
+            return JsonUtility.FromJson<IrocaSessionState>(JsonUtility.ToJson(win.Session));
         }
 
         /// <summary>
@@ -172,8 +170,8 @@ namespace Iroca
             var win = WindowShowing(recipe.sourceTexture);
             if (win == null) return;
             win._maskView?.SyncBuffersToState();
-            Undo.RegisterCompleteObjectUndo(win, undoName);
-            win._boundRecipe = recipe;
+            Undo.RegisterCompleteObjectUndo(win.UndoTarget, undoName);
+            win.Doc.boundRecipe = recipe;
             win.LoadPersistedSessionForCurrentTexture();
             win._maskView?.ResetActiveTarget();
             win.Repaint();
@@ -183,7 +181,7 @@ namespace Iroca
         {
             if (texture == null) return null;
             foreach (var e in EditingSessionRegistry.Snapshot())
-                if (e is IrocaWindow w && w.sourceTexture == texture) return w;
+                if (e is IrocaWindow w && w.SourceTexture == texture) return w;
             return null;
         }
 
@@ -260,7 +258,7 @@ namespace Iroca
             // (まとめると、Ctrl+Z 1 回で読み直しと一緒に直前の操作まで戻る)。
             SeparateUndo.Record("Iroca: Reload Recipe", () =>
             {
-                Undo.RegisterCompleteObjectUndo(this, "Iroca: Reload Recipe");
+                Undo.RegisterCompleteObjectUndo(UndoTarget, "Iroca: Reload Recipe");
                 LoadPersistedSessionForCurrentTexture();
                 _maskView?.ResetActiveTarget();
             });
@@ -275,7 +273,7 @@ namespace Iroca
         /// <summary>「アバターに非破壊で登録」。登録先を決め、レシピを作るか更新し、コンポーネントを付ける。</summary>
         internal void RegisterToAvatar()
         {
-            if (sourceTexture == null) return;
+            if (SourceTexture == null) return;
             // Play 中に付けたコンポーネントは Play を止めると消え、書き出した画像から元へ戻したマテリアル(アセット)
             // だけが残る。
             if (EditorApplication.isPlayingOrWillChangePlaymode)
@@ -283,7 +281,7 @@ namespace Iroca
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterInPlayMode, Localization.OK);
                 return;
             }
-            if (RecolorInput.CountEnabled(_session?.zones) == 0)
+            if (RecolorInput.CountEnabled(Session?.zones) == 0)
             {
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterNoZones, Localization.OK);
                 return;
@@ -294,7 +292,7 @@ namespace Iroca
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterNotInScene, Localization.OK);
                 return;
             }
-            var target = RecipeRegistration.SuggestTarget(sourceTexture, selected);
+            var target = RecipeRegistration.SuggestTarget(SourceTexture, selected);
             if (target == null)
             {
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterNoTarget, Localization.OK);
@@ -304,11 +302,11 @@ namespace Iroca
             // 使うレシピ: 結び付いているもの → 登録先に既にあるこのテクスチャのレシピ(登録し直し = 更新)
             // → このテクスチャのレシピがプロジェクトにちょうど 1 つならそれ → 新しく作る。ほかのアバターが使うレシピも
             // 流用する(確認画面で知らせる。確認できない自動化は流用しない)。
-            var recipe = RegistrationService.ChooseRecipe(target, sourceTexture, BoundRecipe,
+            var recipe = RegistrationService.ChooseRecipe(target, SourceTexture, BoundRecipe,
                 shareWithOtherAvatars: true, out _, out _);
             string recipeLabel = recipe != null
                 ? AssetDatabase.GetAssetPath(recipe)
-                : string.Format(Localization.RegisterRecipeNew, RecipeStore.PathForNew(sourceTexture));
+                : string.Format(Localization.RegisterRecipeNew, RecipeStore.PathForNew(SourceTexture));
             // 読めないレシピ(新しい版のいろかで作られた・壊れた)は上書きしない(戻せないため。自動化 API と同じ判定)。
             if (RegistrationService.IsUnreadable(recipe))
             {
@@ -332,12 +330,12 @@ namespace Iroca
             // (戻さないと非破壊の色替えが効かない)。書き換えられない場所のものは知らせるだけ。
             // 戻すのは .mat そのものなので、登録先の外で同じマテリアルを使っている所も元の色に戻る。開いているシーンで
             // 数えて知らせ、それらは戻さずに登録することもできるようにする。
-            var plan = RegistrationService.Describe(target, sourceTexture, recipe);
+            var plan = RegistrationService.Describe(target, SourceTexture, recipe);
             // 冒頭の「マテリアルは変わりません」は、戻すマテリアルがあるときは正しくない。
             var message = string.Format(plan.switchable > 0 ? Localization.RegisterConfirmSwitchFormat : Localization.RegisterConfirmFormat,
-                target.name, sourceTexture.name, recipeLabel);
+                target.name, SourceTexture.name, recipeLabel);
             if (plan.switchable > 0)
-                message += "\n\n" + string.Format(Localization.RegisterSwitchExportsFormat, plan.switchable, sourceTexture.name);
+                message += "\n\n" + string.Format(Localization.RegisterSwitchExportsFormat, plan.switchable, SourceTexture.name);
             if (plan.shared.Count > 0)
                 message += "\n\n" + string.Format(Localization.RegisterSharedExportsFormat, plan.shared.Count, plan.sharedPlaces,
                     Localization.RegisterKeepShared);
@@ -348,7 +346,7 @@ namespace Iroca
             else if (plan.components == 1)
                 message += "\n\n" + Localization.RegisterAddToExisting;
             if (plan.replaced != null)
-                message += "\n\n" + string.Format(Localization.RegisterReplaceFormat, sourceTexture.name,
+                message += "\n\n" + string.Format(Localization.RegisterReplaceFormat, SourceTexture.name,
                     AssetDatabase.GetAssetPath(plan.replaced));
             // 流用するレシピ(別のアバターに登録済みの同じテクスチャのレシピなど)をほかでも使っていれば、
             // 登録した後の編集がそちらの色にも効くことを知らせる。
@@ -365,10 +363,10 @@ namespace Iroca
             // 作業用マスクを state へ同期してからレシピへ書く(マスク込みで保存される)。
             _maskView?.SyncBuffersToState();
             if (recipe == null)
-                recipe = RecipeStore.Create(sourceTexture, _session);
+                recipe = RecipeStore.Create(SourceTexture, Session);
             else
-                RecipeStore.Save(recipe, _session);
-            _boundRecipe = recipe;
+                RecipeStore.Save(recipe, Session);
+            Doc.boundRecipe = recipe;
             SessionPersistence.MarkRecipeSynced(recipe);
 
             // マテリアルを戻すのとコンポーネントの登録を 1 回の Undo にまとめる。

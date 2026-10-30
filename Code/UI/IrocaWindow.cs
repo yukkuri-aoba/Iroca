@@ -9,6 +9,7 @@ namespace Iroca
 {
     // いろか メインウィンドウ。責務別に partial ファイルへ分割している:
     //   IrocaWindow.cs            … 本体(横断フィールド・ライフサイクル・共通ヘルパー)
+    //   IrocaWindow.Document.cs   … 編集中の文書の中身(Undo の対象)と、保存の控え
     //   IrocaWindow.Layout.cs     … OnGUI とレイアウト/セクション描画
     //   IrocaWindow.ZoneList.cs   … ゾーンリストの描画・並べ替え・遅延ミューテーション
     //   IrocaWindow.AutoTune.cs   … 自動調整(ZoneAutoTuner)連携
@@ -18,12 +19,6 @@ namespace Iroca
     //   IrocaWindow.Autosave.cs   … 編集内容の自動保存
     public partial class IrocaWindow : EditorWindow, IHasCustomMenu, ISerializationCallbackReceiver, IPreviewPipelineHost
     {
-        // [SerializeField] を付けることで、スクリプト再コンパイル時に Unity が
-        // EditorWindow の状態をシリアライズ/復元し、入力内容が失われにくくなる。
-        [SerializeField] private Texture2D sourceTexture;
-        internal Texture2D SourceTexture { get => sourceTexture; set => sourceTexture = value; }
-        internal IrocaSessionState Session => _session;
-
         // パイプライン透明化機能（Code.Debug/ asmdef がある場合のみ実体が入る）。
         // PreviewView が ProcessPixelsArray に渡したインスタンスをここに保管し、
         // DebugView が後から読み出す。Debug 機能未導入なら常に null。
@@ -233,27 +228,22 @@ namespace Iroca
         void IPreviewPipelineHost.RequestRepaint() => RequestRepaint();
         void IPreviewPipelineHost.PublishDebugCapture(IDebugCapture capture) => LatestDebugCapture = capture;
 
-        // 編集状態（ゾーン定義・処理パラメータ・マスク状態）。
-        // 個別 [SerializeField] フィールド群を IrocaSessionState に集約したもの。
-        [SerializeField] private IrocaSessionState _session = IrocaSessionState.CreateDefault();
-
-        // 編集中の文書。_session を包み(持ち主はこのウィンドウのまま)、原本の画素と編集中のマスクを持ち、ゾーンの操作を
-        // このウィンドウの Undo に記録する。
+        // 編集中の文書。原本の画素と編集中のマスクを持ち、ゾーンの操作を文書(Doc)の Undo に記録する。
         [System.NonSerialized] private EditingSession _editing;
-        internal EditingSession Editing => _editing ??= new EditingSession(() => _session, this);
+        internal EditingSession Editing => _editing ??= new EditingSession(Doc);
 
-        // partial class 内のコードが、集約前と同じフィールド名のまま _session 内のフィールドへ
-        // アクセスできるようにするブリッジ。新規コードは _session.xxx を直接参照してよい。
-        private List<ColorZone> zones { get => _session.zones; set => _session.zones = value; }
-        private float edgeFeather { get => _session.edgeFeather; set => _session.edgeFeather = value; }
-        private int antiAliasCleanup { get => _session.antiAliasCleanup; set => _session.antiAliasCleanup = value; }
-        private bool useDecontamination { get => _session.useDecontamination; set => _session.useDecontamination = value; }
-        private int decontaminationRadius { get => _session.decontaminationRadius; set => _session.decontaminationRadius = value; }
-        private EditMode editMode { get => _session.editMode; set => _session.editMode = value; }
-        private int holeFillPasses { get => _session.holeFillPasses; set => _session.holeFillPasses = value; }
-        private int holeFillMinNeighbors { get => _session.holeFillMinNeighbors; set => _session.holeFillMinNeighbors = value; }
-        private float relaxedSatMin { get => _session.relaxedSatMin; set => _session.relaxedSatMin = value; }
-        private float relaxedSatRamp { get => _session.relaxedSatRamp; set => _session.relaxedSatRamp = value; }
+        // partial class 内のコードが、集約前と同じフィールド名のまま Session 内のフィールドへ
+        // アクセスできるようにするブリッジ。新規コードは Session.xxx を直接参照してよい。
+        private List<ColorZone> zones { get => Session.zones; set => Session.zones = value; }
+        private float edgeFeather { get => Session.edgeFeather; set => Session.edgeFeather = value; }
+        private int antiAliasCleanup { get => Session.antiAliasCleanup; set => Session.antiAliasCleanup = value; }
+        private bool useDecontamination { get => Session.useDecontamination; set => Session.useDecontamination = value; }
+        private int decontaminationRadius { get => Session.decontaminationRadius; set => Session.decontaminationRadius = value; }
+        private EditMode editMode { get => Session.editMode; set => Session.editMode = value; }
+        private int holeFillPasses { get => Session.holeFillPasses; set => Session.holeFillPasses = value; }
+        private int holeFillMinNeighbors { get => Session.holeFillMinNeighbors; set => Session.holeFillMinNeighbors = value; }
+        private float relaxedSatMin { get => Session.relaxedSatMin; set => Session.relaxedSatMin = value; }
+        private float relaxedSatRamp { get => Session.relaxedSatRamp; set => Session.relaxedSatRamp = value; }
 
         // ShowWindow が確保する既定サイズ（内訳は ShowWindow 内のコメント参照）。
         private const float DefaultWindowWidth = IrocaUiConsts.Layout.LeftColumnMin + IrocaUiConsts.Layout.PreviewColumnReserve; // 320 + 408 = 728
@@ -311,8 +301,8 @@ namespace Iroca
             // 開いている編集の一覧に載せる(別ウィンドウ・自動化・非破壊ビルドはここから探す)。OnDisable の最後で外す。
             EditingSessionRegistry.Register(this);
             // ドメインリロードの書き戻しはここで取り込むので、次の Undo の印として残さない。
-            _stateRestoredByUnity = false;
-            _session ??= IrocaSessionState.CreateDefault();
+            Doc.ConsumeRestored();
+            AdoptDocumentAfterEnable();
             _exportView ??= new ExportView();
             _exportView.Initialize(this);
             _presetsView ??= new PresetsView();
@@ -329,21 +319,21 @@ namespace Iroca
             MaskFileStore.CleanupOrphans();
             SessionFileStore.CleanupOrphans();
 
-            // 新しく開いたとき（sourceTexture 未設定）と、Unity を起動して最初の有効化（レイアウトからの復元）では、
+            // 新しく開いたとき（SourceTexture 未設定）と、Unity を起動して最初の有効化（レイアウトからの復元）では、
             // 前回編集していたテクスチャを自動ロードし、そのテクスチャのセッション（ゾーン/色/処理設定）＋
             // マスクをディスクからまるごと復元する。
-            // レイアウト復元では sourceTexture と _session もメモリ上に戻るが、Unity がレイアウトを書くのは
+            // レイアウト復元では SourceTexture と Session も控えから戻るが、Unity がレイアウトを書くのは
             // 正常終了のときだけなので、落ちた後の起動では最後に正常終了したときの古い編集内容が戻る。それを
             // 使うと、次の保存（ドメインリロード・閉じる）で自動保存済みの新しい編集とレシピを上書きしていた。
             // ディスクは編集のたびの自動保存と終了時の保存があるので、レイアウトより古くならない。
             // ドメインリロードでは直前の OnDisable で保存したメモリ上の状態をそのまま使い、マスクバッファの
             // 再展開だけ行う。
             bool firstSinceEditorStart = MarkEnabledSinceEditorStart();
-            if (sourceTexture == null || firstSinceEditorStart)
+            if (SourceTexture == null || firstSinceEditorStart)
             {
                 // 前回のテクスチャを解決できなければ、今のテクスチャ（レイアウトのもの）のまま読む。
                 TryAutoLoadLastEditedTexture();
-                if (sourceTexture != null) LoadPersistedSessionForCurrentTexture();
+                if (SourceTexture != null) LoadPersistedSessionForCurrentTexture();
             }
             else
                 _maskView.RestoreFromSession();
@@ -353,7 +343,7 @@ namespace Iroca
             if (!firstSinceEditorStart && EditorApplication.isPlayingOrWillChangePlaymode)
                 _previewView.DeferSourceLoad();
 
-            // Unity 標準 Undo の戻り/進みに合わせて bool[] バッファを _session.maskState から再展開。
+            // Unity 標準 Undo の戻り/進みに合わせて bool[] バッファを Session.maskState から再展開。
             // 二重購読を避けるため一度外してから登録する（PreviewJobMainThread.Install と同じ防御）。
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
             Undo.undoRedoPerformed += OnUndoRedoPerformed;
@@ -394,39 +384,26 @@ namespace Iroca
             EditingSessionRegistry.Unregister(this);
         }
 
-        // Unity がこのウィンドウの状態を書き戻した(Undo/Redo・ドメインリロード)印。
-        // Undo.undoRedoPerformed はエディタ全体の Undo で呼ばれるので、シーンや別ウィンドウの
-        // Ctrl+Z でも、これが立っていなければウィンドウの状態は変わっていない。Undo の書き戻しは
-        // シリアライザ経由で OnAfterDeserialize を通る(UndoRestoreSignalTests が実機で確かめている)。
-        [System.NonSerialized] private bool _stateRestoredByUnity;
-
-        void ISerializationCallbackReceiver.OnBeforeSerialize() { }
-
-        // 読み込みスレッドから呼ばれることがあるので、印を立てる以外のことはしない。
-        void ISerializationCallbackReceiver.OnAfterDeserialize() => _stateRestoredByUnity = true;
-
         private void OnUndoRedoPerformed()
         {
             // レシピも Undo で前の中身へ戻ったなら、外での書き換えと取り違えない(窓の状態の書き戻しとは別に見る)。
             AdoptRecipeAfterUndo();
             // 関係ない Undo(シーンのオブジェクトの移動など)で、全マスクの再展開とフル解像度の
             // 再生成を走らせない。
-            if (!_stateRestoredByUnity) return;
-            _stateRestoredByUnity = false;
+            if (!Doc.ConsumeRestored()) return;
 
-            // _session.maskState の RLE 文字列が Undo で書き戻されたので、
-            // bool[] バッファを再展開してオーバーレイ・プレビューを更新させる。
+            // Session.maskState の RLE 文字列が Undo で書き戻されたので、
+            // 編集中のマスクへ展開し直してオーバーレイ・プレビューを更新させる。
             if (_maskView != null)
             {
                 _maskView.SyncBuffersFromState();
+                // ゾーンの並びが戻っても、いま直しているゾーンを指し続ける(番号は Undo で巻き戻らない)。
+                _maskView.FollowActiveTargetAfterUndo();
                 // 保留中の AI 提案は Undo 前の状態に対する提案なので重ねない
                 _maskView.SuggestControllerIfCreated?.OnUndoRedoPerformed();
             }
             // スポイト位置（ColorZone.sampleUV）はシリアライズ対象なので、sampleColor と対で
             // Undo が書き戻す。ここで手当てする必要はない。
-            // ズーム倍率・スクロール位置は「今どこを見ているか」であって編集内容ではない。
-            // Undo の書き戻しで一緒に巻き戻るため、直前の視点へ戻して見ている箇所を保つ。
-            _previewView?.RestoreViewStateAfterUndo(this);
             Editing.NotifyChanged(EditChange.Replaced);
             Repaint();
         }
@@ -455,6 +432,7 @@ namespace Iroca
             // 編集中のマスク(ヒープの外)も返す。手放すのはここだけで、マスクは直前に保存済み(OnDisable は保存より前に
             // 後片付けを呼ぶので、そこでは手放さない。空のマスクを保存してファイルを消してしまう)。
             _editing?.Masks.Clear();
+            ReleaseDocument();
             // 閉じた後も AI の推論のワーカーが GPU のメモリを持ち続けないように(次に開いたら作り直す)。
             // ほかのウィンドウ・自動化の要求が残っていれば、それが終わるまで手放さない。
             AiSuggestBroker.ReleaseGpuIfUnused();
@@ -509,7 +487,7 @@ namespace Iroca
         internal bool SavePersistedSessionForCurrentTexture()
         {
             bool maskOk = _maskView == null || _maskView.SaveToSession();
-            SessionPersistence.SaveToFile(sourceTexture, _session, _sessionLoadFailed);
+            SessionPersistence.SaveToFile(SourceTexture, Session, _sessionLoadFailed);
             // 非破壊のレシピが結び付いていればそちらにも書く(SaveToSession でマスクは state へ同期済み)。
             SaveSessionToBoundRecipe();
             return maskOk;
@@ -527,14 +505,14 @@ namespace Iroca
             // 非破壊のレシピがあればそれが正(マスクも含めてレシピから読む)。
             if (TryLoadSessionFromRecipe()) return;
 
-            var loaded = SessionPersistence.LoadFromFile(sourceTexture, out bool unreadable);
+            var loaded = SessionPersistence.LoadFromFile(SourceTexture, out bool unreadable);
             _sessionLoadFailed = unreadable;
 
-            // 読み込めた内容 or 既定値で _session をまるごと置き換える。maskState は空にしておき、
+            // 読み込めた内容 or 既定値で Session をまるごと置き換える。maskState は空にしておき、
             // 直後の RestoreFromSession がディスクのマスクファイルから読み直して上書きする
             // （マスクが無ければ空のまま＝正しい）。
-            _session = loaded ?? IrocaSessionState.CreateDefault();
-            _session.maskState = new MaskState();
+            Session = loaded ?? IrocaSessionState.CreateDefault();
+            Session.maskState = new MaskState();
             EnsureAllZoneIds();
 
             _maskView?.RestoreFromSession();
@@ -544,10 +522,10 @@ namespace Iroca
         /// <summary>
         /// 現在のテクスチャ GUID を「前回編集テクスチャ」として記憶する（テクスチャ未設定なら空）。
         /// </summary>
-        private void RememberLastEditedTexture() => SessionPersistence.RememberLastEdited(sourceTexture);
+        private void RememberLastEditedTexture() => SessionPersistence.RememberLastEdited(SourceTexture);
 
         /// <summary>
-        /// EditorPrefs に記憶した前回編集テクスチャを解決して sourceTexture へ設定する。
+        /// EditorPrefs に記憶した前回編集テクスチャを解決して SourceTexture へ設定する。
         /// 解決できたら true（呼び出し側でセッション/マスク復元を続ける）。
         /// </summary>
         private bool TryAutoLoadLastEditedTexture()
@@ -555,7 +533,7 @@ namespace Iroca
             var tex = SessionPersistence.LastEdited();
             if (tex == null) return false;
 
-            sourceTexture = tex;
+            SourceTexture = tex;
             _exportView?.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(CurrentTexturePath(tex)));
             return true;
         }
@@ -567,9 +545,9 @@ namespace Iroca
         /// </summary>
         private void ResetCurrentSession()
         {
-            Undo.RegisterCompleteObjectUndo(this, "Reset Iroca Session");
+            Undo.RegisterCompleteObjectUndo(UndoTarget, "Reset Iroca Session");
 
-            _session = IrocaSessionState.CreateDefault();
+            Session = IrocaSessionState.CreateDefault();
             _maskView?.ClearBuffersOnTextureChange();
             _maskView?.SyncBuffersToState();
             EnsureAllZoneIds();

@@ -9,30 +9,30 @@ namespace Iroca.EditorTests
     /// <summary>
     /// IrocaWindow が「関係ない Undo では作り直さない」判定に使う前提を実機で確かめる。
     /// Undo.undoRedoPerformed はエディタ全体の Undo で呼ばれるので、ウィンドウは
-    /// OnAfterDeserialize(Unity が状態を書き戻した印)が来たときだけマスクの再展開と
+    /// 文書の OnAfterDeserialize(Unity が状態を書き戻した印)が来たときだけマスクの再展開と
     /// プレビューの再生成を行う。前提は次の 2 つ:
-    ///   ・ウィンドウ自身の Undo/Redo では、undoRedoPerformed より前に OnAfterDeserialize が呼ばれる
-    ///   ・別のオブジェクトの Undo/Redo では、ウィンドウの OnAfterDeserialize は呼ばれない
+    ///   ・文書(HideAndDontSave)の Undo/Redo では、undoRedoPerformed より前に OnAfterDeserialize が呼ばれる
+    ///   ・別のオブジェクトの Undo/Redo では、文書の OnAfterDeserialize は呼ばれない
     /// 前者が崩れると Iroca の Undo が画面に反映されなくなり、後者が崩れると無駄な再生成に戻る。
     /// </summary>
     public class UndoRestoreSignalTests
     {
-        private UndoRestoreSignalHost _host;
+        private IrocaEditingDocument _host;
         private SampleUvUndoHost _other;
-        private int _restoredSeenByCallback;
+        private bool _restoredSeenByCallback;
         private int _callbacks;
 
         [SetUp]
         public void SetUp()
         {
-            _host = ScriptableObject.CreateInstance<UndoRestoreSignalHost>();
+            _host = IrocaEditingDocument.Create(null, null, null);
             _other = ScriptableObject.CreateInstance<SampleUvUndoHost>();
             var z = new ColorZone { name = "服" };
             z.EnsureId();
             _host.session.zones.Add(z);
             Undo.ClearAll();
-            _host.restoredCount = 0;
-            _restoredSeenByCallback = -1;
+            _host.ConsumeRestored();
+            _restoredSeenByCallback = false;
             _callbacks = 0;
             Undo.undoRedoPerformed += OnUndoRedo;
         }
@@ -49,7 +49,7 @@ namespace Iroca.EditorTests
         private void OnUndoRedo()
         {
             _callbacks++;
-            _restoredSeenByCallback = _host.restoredCount;
+            _restoredSeenByCallback = _host.ConsumeRestored();
         }
 
         private void EditHost(float tolerance)
@@ -72,16 +72,16 @@ namespace Iroca.EditorTests
         public void OwnUndoAndRedo_SignalBeforeCallback()
         {
             EditHost(0.4f);
-            _host.restoredCount = 0;
+            _host.ConsumeRestored();
 
             Undo.PerformUndo();
             Assert.AreEqual(1, _callbacks);
-            Assert.Greater(_restoredSeenByCallback, 0, "自分の Undo では undoRedoPerformed の前に書き戻しの印が来る");
+            Assert.IsTrue(_restoredSeenByCallback, "自分の Undo では undoRedoPerformed の前に書き戻しの印が来る");
 
-            _host.restoredCount = 0;
+            _host.ConsumeRestored();
             Undo.PerformRedo();
             Assert.AreEqual(2, _callbacks);
-            Assert.Greater(_restoredSeenByCallback, 0, "Redo でも同じ");
+            Assert.IsTrue(_restoredSeenByCallback, "Redo でも同じ");
             Assert.AreEqual(0.4f, _host.session.zones[0].tolerance);
         }
 
@@ -92,11 +92,11 @@ namespace Iroca.EditorTests
             Undo.RegisterCompleteObjectUndo(_host, "Remove Zone");
             _host.session.zones.RemoveAt(0);
             Undo.IncrementCurrentGroup();
-            _host.restoredCount = 0;
+            _host.ConsumeRestored();
 
             Undo.PerformUndo();
             Assert.AreEqual(1, _host.session.zones.Count);
-            Assert.Greater(_restoredSeenByCallback, 0, "RegisterCompleteObjectUndo の Undo でも印が来る");
+            Assert.IsTrue(_restoredSeenByCallback, "RegisterCompleteObjectUndo の Undo でも印が来る");
         }
 
         [Test]
@@ -104,16 +104,16 @@ namespace Iroca.EditorTests
         {
             EditHost(0.4f);
             EditOther();
-            _host.restoredCount = 0;
+            _host.ConsumeRestored();
 
             Undo.PerformUndo();
             Assert.AreEqual(1, _callbacks, "別のオブジェクトの Undo でも undoRedoPerformed は呼ばれる");
-            Assert.AreEqual(0, _restoredSeenByCallback, "別のオブジェクトの Undo ではウィンドウは書き戻されない");
+            Assert.IsFalse(_restoredSeenByCallback, "別のオブジェクトの Undo では文書は書き戻されない");
             Assert.AreEqual(0.4f, _host.session.zones[0].tolerance);
 
             Undo.PerformRedo();
             Assert.AreEqual(2, _callbacks);
-            Assert.AreEqual(0, _restoredSeenByCallback, "Redo でも同じ");
+            Assert.IsFalse(_restoredSeenByCallback, "Redo でも同じ");
         }
     }
 }

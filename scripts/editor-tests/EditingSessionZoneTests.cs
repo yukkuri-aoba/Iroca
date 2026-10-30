@@ -10,20 +10,20 @@ namespace Iroca.EditorTests
     /// <summary>
     /// 編集中の文書(<see cref="EditingSession"/>)のゾーンの操作。1 回の操作が Undo 1 ステップで戻ること、ゾーンを
     /// 消すとそのマスクも消えて、戻すとゾーンとマスクがそろって戻ること、新しいゾーンの名前と初期値。
-    /// Undo の書き戻しは Unity のシリアライザが行うので、実機で見る(ウィンドウの代わりに入れ物を Undo の対象にする)。
+    /// Undo の書き戻しは Unity のシリアライザが行うので、実機で見る(文書の中身をそのまま Undo の対象にする)。
     /// </summary>
     public class EditingSessionZoneTests
     {
         private const int W = 5, H = 3;
 
-        private SampleUvUndoHost _host;
+        private IrocaEditingDocument _host;
         private EditingSession _editing;
 
         [SetUp]
         public void SetUp()
         {
-            _host = ScriptableObject.CreateInstance<SampleUvUndoHost>();
-            _editing = new EditingSession(() => _host.session, _host);
+            _host = ScriptableObject.CreateInstance<IrocaEditingDocument>();
+            _editing = new EditingSession(_host);
             Undo.ClearUndo(_host);
         }
 
