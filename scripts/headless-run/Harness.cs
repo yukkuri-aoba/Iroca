@@ -560,7 +560,7 @@ namespace Iroca
 
             // 段階的リファインの表示画像を出力して終了（--stage。上記コメント参照）。
             // 自動調整は実機同様フル解像度の pixels で済ませてから（この上のブロック）、
-            // プロキシ縮小・処理・表示縮小を PreviewView.Async と同一の鎖・丸めで行う。
+            // プロキシ縮小・処理・表示縮小を PreviewPipeline と同一の鎖・丸めで行う。
             if (stage != null)
             {
                 PixelProcessor.ComputeFitSize(w, h, IrocaConsts.Preview.MaxSize,

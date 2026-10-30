@@ -886,23 +886,30 @@ namespace Iroca
         }
 
         /// <summary>
+        /// Mono のヒープの外の画素をテクスチャへ上げる(寸法が変わったら作り直す)。RGBA32 でミップなしなので、
+        /// Color32 の並びがそのままテクスチャのデータになる(管理配列へ写さない。SetPixels32 と同じ中身になる)。
+        /// </summary>
+        internal static unsafe void UploadPixels(ref Texture2D tex, NativePixels pixels)
+        {
+            TextureSlot.Resize(ref tex, pixels.Width, pixels.Height);
+            tex.LoadRawTextureData((System.IntPtr)pixels.Ptr, pixels.Length * sizeof(Color32));
+            tex.Apply();
+        }
+
+        /// <summary>
         /// 計算の側から受け取った結果(表示寸法の変更後・変更前)をテクスチャへ上げ、マスクの重ね表示と拡大表示を
         /// 追従させる。
         /// </summary>
-        private void ApplyPendingPreview(in PreviewFrame frame)
+        private void ApplyPendingPreview(PreviewFrame frame)
         {
             int w = frame.Width;
             int h = frame.Height;
             var stage = frame.Stage;
             if (stage != null) stage.UploadStart = PreviewLatencyCycle.Now;
 
-            TextureSlot.Resize(ref previewTexture, w, h);
-            previewTexture.SetPixels32(frame.Processed);
-            previewTexture.Apply();
-
-            TextureSlot.Resize(ref rawPreviewTexture, w, h);
-            rawPreviewTexture.SetPixels32(frame.Raw);
-            rawPreviewTexture.Apply();
+            UploadPixels(ref previewTexture, frame.Processed);
+            UploadPixels(ref rawPreviewTexture, frame.Raw);
+            frame.Release();
 
             var maskView = _host._maskView;
             // オーバーレイ寸法はプレビュー寸法の整数倍(表示倍率に追従。OverlayScale が正)。

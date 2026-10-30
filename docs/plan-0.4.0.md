@@ -1055,6 +1055,15 @@ T5 で消える部分は作り直さない（1.5）。
     新しくなったかは、確定段の出力の番号（`FullOutputVersion`）で見る。`PreviewLatency`・`PreviewOutputBuffers` も
     `Code/Application/` へ移した。計測（MemoryBench）の名前探し（`BenchSeams`）は、`_pipeline` があればそちらの
     ジョブと出力を読む（基準の古い版では今までどおり `PreviewView`）。
+  - 2026-10-30（手元）: 概要段と表示用の画素をヒープの外へ移した（C の一部）。概要段の縮小・処理の写し・表示寸法の
+    変更後と変更前・縮小した控え（`ProxySourceCache`）・変更前の控えを `NativePixels` にし、表示へは `PreviewFrame` が
+    参照を 1 つずつ持って渡す（受け取られなかった結果は次の結果が置き換えるときに返す）。縮小しないテクスチャでは、
+    確定段の出力と原本をそのまま上げる（写さない）。テクスチャへは `LoadRawTextureData(IntPtr)` で上げる
+    （`PreviewView.UploadPixels`。`SetPixels32` と同じ中身）。Core の縮小に書き先を渡す版
+    （`BoxDownsampleInto`・`BoxDownsampleRegionInto`）を足し、配列を返す版はそこへ転送する（出力は同じ。視覚レビューの
+    固定設定 174 件・ワークフロー 66 枚とも変化 0）。EditMode の `PreviewFrameTests` が、表示用の 2 枚が確定段の出力と
+    原本の縮小に一致すること・縮小しないときは写さないこと・上げたものが `SetPixels32` と同じこと・閉じた後に画素が
+    残らないことを見る。
 - [ ] 4-5 AI 提案の前処理・後処理・埋め込みのキャッシュをヒープの外へ移す（B4）。
   - Sentis 2.x の `Tensor<float>(TensorShape, NativeArray<float>)` と `DownloadToNativeArray` を使う。
   - Inference Engine 2.2 でも使えるか確かめる。

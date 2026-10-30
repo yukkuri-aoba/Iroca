@@ -389,6 +389,14 @@ namespace Iroca
             => BoxDownsampleRegion(src, (long)srcW * srcH, srcW, 0, 0, srcW, srcH, dstW, dstH, scale);
 
         /// <summary>
+        /// <see cref="BoxDownsample(Color32*, int, int, int, int, float)"/> の、書き先(dst。dstW*dstH 画素)を呼び出し側が
+        /// 持つ版(プレビューの表示用の画素を Mono のヒープの外に置く)。
+        /// </summary>
+        public static void BoxDownsampleInto(Color32* src, int srcW, int srcH,
+            Color32* dst, int dstW, int dstH, float scale)
+            => BoxDownsampleRegionInto(src, (long)srcW * srcH, srcW, 0, 0, srcW, srcH, dst, dstW, dstH, scale);
+
+        /// <summary>
         /// <see cref="BoxDownsample"/> の、src の一部(左下 (x0, y0)・regionW×regionH、1 行 srcStride 画素)を
         /// 切り出してから縮小したのと同じ結果を、切り出しの配列を作らずに返す。拡大表示のクロップが
         /// フル解像度の出力から直接縮小するのに使う(4K の 125% 表示でクロップ 1 枚 ~43MB の複製を避ける)。
@@ -408,10 +416,27 @@ namespace Iroca
         public static Color32[] BoxDownsampleRegion(Color32* src, long srcLength, int srcStride, int x0, int y0,
             int regionW, int regionH, int dstW, int dstH, float scale)
         {
+            if (dstW <= 0 || dstH <= 0)
+                throw new System.ArgumentOutOfRangeException(nameof(scale),
+                    $"invalid downsample params: src={regionW}x{regionH} dst={dstW}x{dstH} scale={scale}");
+            Color32[] dst = new Color32[dstW * dstH];
+            fixed (Color32* d = dst)
+                BoxDownsampleRegionInto(src, srcLength, srcStride, x0, y0, regionW, regionH, d, dstW, dstH, scale);
+            return dst;
+        }
+
+        /// <summary>
+        /// <see cref="BoxDownsampleRegion(Color32*, long, int, int, int, int, int, int, int, float)"/> の、書き先
+        /// (dst。dstW*dstH 画素)を呼び出し側が持つ版。拡大表示のタイルと、プレビューの表示用の画素を Mono のヒープの外に置く。
+        /// </summary>
+        public static void BoxDownsampleRegionInto(Color32* src, long srcLength, int srcStride, int x0, int y0,
+            int regionW, int regionH, Color32* dst, int dstW, int dstH, float scale)
+        {
             // scale と dst 寸法の整合を呼び出し側の契約に丸投げしており、不整合だと
             // src の範囲外を読んで IndexOutOfRange になっていた（レビュー §4 低）。
             // 読み出し位置を src 範囲にクランプして、契約違反を例外でなく劣化で吸収する。
             if (src == null) throw new System.ArgumentNullException(nameof(src));
+            if (dst == null) throw new System.ArgumentNullException(nameof(dst));
             int srcW = regionW, srcH = regionH;
             if (srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0 || scale <= 0f)
                 throw new System.ArgumentOutOfRangeException(nameof(scale),
@@ -423,7 +448,6 @@ namespace Iroca
                 throw new System.ArgumentException(
                     $"src.Length({srcLength}) < region end({(long)(y0 + srcH - 1) * srcStride + x0 + srcW})", nameof(src));
 
-            Color32[] dst = new Color32[dstW * dstH];
             // 合計値が int の範囲を超えないように long を使用。
             // 例: 8192x8192 の画像を 512x512 に縮小すると 1 ピクセル当たり 256 サンプル以上、
             // 合計が byte(255) * 256 = 65280 を超え、バッチサイズ次第では int でも桁数が
@@ -452,12 +476,11 @@ namespace Iroca
                         }
                     }
                     if (count <= 0) count = 1; // ゼロ除算ガード（理論上は到達しないが念のため）
-                    dst[y * dstW + x] = new Color32(
+                    dst[(long)y * dstW + x] = new Color32(
                         (byte)(r / count), (byte)(g / count),
                         (byte)(b / count), (byte)(a / count));
                 }
             });
-            return dst;
         }
     }
 }
