@@ -125,7 +125,11 @@ namespace Iroca
                 if (error != null) return FinishRecolor(job.r, error);
 
                 if (job.req.autoTune && job.changedZoneIds.Count > 0)
-                    job.tune = new AutomationAutoTune(job.state, job.tex, job.work, job.w, job.h, job.changedZoneIds, job.r.warnings);
+                {
+                    var native = NativePixels.CopyOf(job.work, job.w, job.h);
+                    try { job.tune = new AutomationAutoTune(job.state, job.tex, native, job.changedZoneIds, job.r.warnings); }
+                    finally { native.Release(); }
+                }
                 string done = AdvanceRecolor(job);
                 if (done != null) return done;
 

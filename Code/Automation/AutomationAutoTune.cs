@@ -1,20 +1,16 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
-using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 
 namespace Iroca
 {
     /// <summary>
-    /// 自動化 API(MCP)の自動調整。UI の「自動調整」と同じ手順をゾーンごとに順に行う:
-    /// スポイト位置のあるゾーンは AI(MobileSAM)にその位置の提案を 1 件求め、それを証拠に
-    /// <see cref="ZoneAutoTuner.AnalyzeWithEvidence"/>。位置の無いゾーン(色で指定)と、提案が背景まで
-    /// 広がったときは証拠なしの <see cref="ZoneAutoTuner.Analyze"/>。結果は <see cref="ZoneAutoTuner.TuneResult.ApplyTo"/>
+    /// 自動化 API(MCP)の自動調整。UI の「自動調整」と同じ手順(<see cref="AutoTuneService"/>)をゾーンごとに順に行う:
+    /// スポイト位置のあるゾーンは AI(MobileSAM)にその位置の提案を 1 件求めて証拠にし、位置の無いゾーン(色で指定)と、
+    /// 提案が背景まで広がったときは証拠なしで導出する。結果は <see cref="ZoneAutoTuner.TuneResult.ApplyTo"/>
     /// でゾーンに当てる(UI・ハーネスと同じ写像)。
     /// AI が無いときは、UI と同じく位置のあるゾーンを証拠なしの導出に落とさない(落とすとツヤを取りこぼす)。
     /// そのゾーンは新しいゾーンの初期値のまま残し、warnings で知らせる。
@@ -24,23 +20,18 @@ namespace Iroca
     /// </summary>
     internal sealed class AutomationAutoTune
     {
-        // UI と同じ待ちの上限(IrocaWindow.AutoTune の EvidenceWaitSeconds)。埋め込みの計算は
-        // CPU バックエンドの大きなテクスチャで数十秒かかることがある。
-        private const double EvidenceWaitSeconds = 180.0;
-
         private readonly IrocaSessionState _state;
-        private readonly Texture2D _texture;
-        private readonly Color32[] _pixels;
-        private readonly int _w, _h;
         private readonly List<string> _zoneIds;
         private readonly List<string> _warnings;
-        private readonly CancellationTokenSource _cts = new CancellationTokenSource();
+        // 作業解像度の原本(参照を 1 つ持つ。終わったら返す)と、AI の元のキー(窓のプレビューと同じ形)。
+        private NativePixels _pixels;
+        private readonly string _key;
+        // 除外マスク(状態のマスクを 1 回だけ展開する。終わったら返す)。
+        private MaskWorkspace _masks;
 
         private int _index;
-        private Evidence _evidence;
-        private Task<ZoneAutoTuner.TuneResult> _analysis;
-        private bool _aiChecked;
-        private bool _aiAvailable;
+        private AutoTuneService.Run _run;
+        private bool _askedAi;
 
         /// <summary>ゾーン名 → どう調整したか("evidence" / "conventional" / "skipped: …")。</summary>
         public readonly Dictionary<string, string> How = new Dictionary<string, string>();
@@ -49,25 +40,24 @@ namespace Iroca
         public int Total => _zoneIds.Count;
         public int Finished => _index;
 
-        /// <param name="pixels">作業解像度の原本(下原点)。解析が背景で読むので、終わるまで書き換えないこと。</param>
-        public AutomationAutoTune(IrocaSessionState state, Texture2D texture, Color32[] pixels, int w, int h,
+        /// <param name="pixels">作業解像度の原本(下原点)。参照を足して持つ。解析が背景で読むので、終わるまで書き換えないこと。</param>
+        public AutomationAutoTune(IrocaSessionState state, Texture2D texture, NativePixels pixels,
             List<string> zoneIds, List<string> warnings)
         {
             _state = state;
-            _texture = texture;
-            _pixels = pixels;
-            _w = w;
-            _h = h;
+            _pixels = pixels.AddRef();
+            _key = CacheKey(texture, pixels.Width, pixels.Height);
             _zoneIds = zoneIds ?? new List<string>();
             _warnings = warnings;
+            if (Done) Release();
         }
 
         public void Cancel()
         {
-            _cts.Cancel();
-            _evidence?.Dispose();
-            _evidence = null;
+            _run?.Cancel();
+            _run = null;
             _index = _zoneIds.Count;
+            Release();
         }
 
         /// <summary>進められるところまで進める(待ちに入ったら返る)。メインスレッドから呼ぶ。</summary>
@@ -76,103 +66,110 @@ namespace Iroca
             while (!Done)
             {
                 var zone = FindZone(_zoneIds[_index]);
-                if (zone == null) { _index++; continue; }
-
-                // 解析の結果待ち
-                if (_analysis != null)
+                if (zone == null)
                 {
-                    if (!_analysis.IsCompleted) return;
-                    var task = _analysis;
-                    _analysis = null;
-                    if (task.Status == TaskStatus.RanToCompletion)
-                    {
-                        task.Result.ApplyTo(zone, _state);
+                    _run?.Cancel();
+                    _run = null;
+                    Next();
+                    continue;
+                }
+
+                if (_run == null)
+                {
+                    bool[] excluded = CombinedExclusion(zone.id, out int mw, out int mh);
+                    _run = AutoTuneService.Start(zone, _state, _pixels, _key, excluded, mw, mh);
+                    _askedAi |= _run.AskedAi;
+                }
+                _run.Advance();
+                var run = _run;
+                switch (run.Status)
+                {
+                    case AutoTuneService.Status.Done:
+                        run.ApplyTo(zone, _state);
                         zone.UpdateCacheIfNeeded();
-                    }
-                    else
-                    {
-                        var ex = task.Exception?.GetBaseException();
-                        How[zone.name] = "skipped: analysis failed";
-                        _warnings.Add($"auto-tune of '{zone.name}' failed ({ex?.GetType().Name}: {ex?.Message}); it keeps the initial settings.");
-                    }
-                    _index++;
-                    continue;
+                        How[zone.name] = HowOf(run);
+                        break;
+                    case AutoTuneService.Status.Failed:
+                        Skip(zone, run);
+                        break;
+                    default:
+                        return;   // 証拠・解析の待ち
                 }
-
-                // 位置の無いゾーン(色で指定)は、UI と同じく証拠なしで導出する
-                if (!zone.HasSampleUV)
-                {
-                    StartAnalysis(zone, null, 0, 0, "conventional");
-                    continue;
-                }
-
-                if (!AiAvailable())
-                {
-                    How[zone.name] = "skipped: AI not available";
-                    _warnings.Add($"auto-tune of '{zone.name}' was skipped because the AI (Unity Sentis and the model) is not installed; "
-                        + "it keeps the initial settings, so highlights or shadows may be missed. See the manual's AI chapter to install it.");
-                    _index++;
-                    continue;
-                }
-
-                // 証拠(スポイト位置の AI 提案)待ち
-                if (_evidence == null)
-                    _evidence = new Evidence(_texture, _pixels, _w, _h, zone.sampleUV);
-                if (!_evidence.Poll(out var proposal, out string failure)) return;
-                _evidence.Dispose();
-                _evidence = null;
-
-                if (failure != null)
-                {
-                    How[zone.name] = "skipped: " + failure;
-                    _warnings.Add($"auto-tune of '{zone.name}' was skipped ({failure}); it keeps the initial settings.");
-                    _index++;
-                    continue;
-                }
-                // 背景まで広がった提案は素材の証拠にならない。UI と同じく、このときだけ証拠なしで導出する。
-                if (proposal.floodWarning)
-                    StartAnalysis(zone, null, 0, 0, "conventional (AI region spread to the background)");
-                else
-                    StartAnalysis(zone, proposal.maskBottomUp, proposal.width, proposal.height, "evidence");
+                _run = null;
+                Next();
             }
         }
 
-        private void StartAnalysis(ColorZone zone, bool[] evidence, int evW, int evH, string how)
+        private void Next()
         {
-            How[zone.name] = how;
-            // 背景の解析には値のコピーを渡す。セッションから読むものはここ(メインスレッド)で取る(UI と同じ)。
-            var zoneSnapshot = zone.Clone();
-            var session = ZoneAutoTuner.SessionInput.From(_state);
-            bool[] excluded = CombinedExclusion(_state.maskState, zone.id, out int mw, out int mh);
-            var ct = _cts.Token;
-            var pixels = _pixels;
-            int w = _w, h = _h;
-            _analysis = Task.Run(() => evidence != null
-                ? ZoneAutoTuner.AnalyzeWithEvidence(pixels, w, h, zoneSnapshot, session, evidence, evW, evH, excluded, mw, mh, ct)
-                : ZoneAutoTuner.Analyze(pixels, w, h, zoneSnapshot, session, excluded, mw, mh, ct), ct);
+            _index++;
+            if (Done) Release();
         }
 
-        // UI の BuildCombinedExclusionForZone と同じ: 共通の除外 ∪ そのゾーンの除外。無ければ null。
-        private static bool[] CombinedExclusion(MaskState ms, string zoneId, out int mw, out int mh)
+        private static string HowOf(AutoTuneService.Run run)
         {
-            var zones = new Dictionary<string, bool[]>();
-            var includes = new Dictionary<string, bool[]>();
-            if (!MaskStateCodec.Decode(ms, out mw, out mh, out bool[] common, zones, includes)) { mw = mh = 0; return null; }
-            zones.TryGetValue(zoneId ?? "", out var zoneMask);
-            int len = mw * mh;
-            bool commonOk = common != null && common.Length >= len;
-            bool zoneOk = zoneMask != null && zoneMask.Length >= len;
-            if (!commonOk && !zoneOk) return null;
-            var combined = new bool[len];
-            for (int i = 0; i < len; i++)
-                combined[i] = (commonOk && common[i]) || (zoneOk && zoneMask[i]);
-            return combined;
+            if (run.HadEvidence) return "evidence";
+            return run.ConventionalReason == AutoTuneService.ReasonEvidenceFlood
+                ? "conventional (AI region spread to the background)"
+                : "conventional";
+        }
+
+        private void Skip(ColorZone zone, AutoTuneService.Run run)
+        {
+            switch (run.Failure)
+            {
+                case AutoTuneService.Failure.AiUnavailable:
+                    How[zone.name] = "skipped: AI not available";
+                    _warnings.Add($"auto-tune of '{zone.name}' was skipped because the AI (Unity Sentis and the model) is not installed; "
+                        + "it keeps the initial settings, so highlights or shadows may be missed. See the manual's AI chapter to install it.");
+                    return;
+                case AutoTuneService.Failure.AnalysisFailed:
+                {
+                    var ex = run.Error;
+                    How[zone.name] = "skipped: analysis failed";
+                    _warnings.Add($"auto-tune of '{zone.name}' failed ({ex?.GetType().Name}: {ex?.Message}); it keeps the initial settings.");
+                    return;
+                }
+            }
+            string failure = run.Failure switch
+            {
+                AutoTuneService.Failure.AiError => "AI error: " + run.FailureDetail,
+                AutoTuneService.Failure.Timeout => "timed out waiting for the AI",
+                AutoTuneService.Failure.Cancelled => "cancelled",
+                _ => "the AI returned no region",
+            };
+            How[zone.name] = "skipped: " + failure;
+            _warnings.Add($"auto-tune of '{zone.name}' was skipped ({failure}); it keeps the initial settings.");
+        }
+
+        // UI(IrocaWindow.BuildCombinedExclusionForZone)と同じ: 共通の除外 ∪ そのゾーンの除外。無ければ null。
+        private bool[] CombinedExclusion(string zoneId, out int mw, out int mh)
+        {
+            if (_masks == null)
+            {
+                _masks = new MaskWorkspace();
+                if (_state.maskState != null) _masks.DecodeFrom(_state.maskState);
+            }
+            mw = _masks.Width;
+            mh = _masks.Height;
+            if (mw <= 0 || mh <= 0) return null;
+            return _masks.CombinedExclusion(zoneId);
         }
 
         private ColorZone FindZone(string id)
         {
             foreach (var z in _state.zones) if (z != null && z.id == id) return z;
             return null;
+        }
+
+        // 原本と展開したマスク(ヒープの外)を返す。
+        private void Release()
+        {
+            var px = _pixels;
+            _pixels = null;
+            px?.Release();
+            _masks?.Clear();
+            _masks = null;
         }
 
         /// <summary>
@@ -182,102 +179,10 @@ namespace Iroca
         /// </summary>
         public void ReleaseAiIfNoWindow()
         {
-            if (!_aiAvailable) return;
+            if (!_askedAi) return;
             if (EditingSessionRegistry.Any) return;
             AiSuggestBroker.ReleaseGpuIfUnused();
-            _aiAvailable = false;
-        }
-
-        private bool AiAvailable()
-        {
-            if (_aiChecked) return _aiAvailable;
-            _aiChecked = true;
-            var svc = MaskSuggestBridge.Service;
-            _aiAvailable = svc != null && svc.TryEnsureModels();
-            return _aiAvailable;
-        }
-
-        /// <summary>
-        /// スポイト位置の AI 提案を 1 件もらう(待ち行列は <see cref="AiSuggestBroker"/> が持つ。窓の右クリックの提案と
-        /// 同じ列に並ぶ)。元のキーは窓のプレビューと同じ形なので、窓が同じテクスチャを表示していれば埋め込みを
-        /// 使い回し、窓の AI 提案の元も切り替えない。
-        /// </summary>
-        private sealed class Evidence : IDisposable
-        {
-            private readonly Texture2D _texture;
-            private readonly Color32[] _pixels;
-            private readonly int _w, _h;
-            private readonly Vector2 _uv;
-            private readonly double _deadline;
-            private NativePixels _native;
-            private string _key;
-            private bool _requested;
-            private bool _received;
-            private MaskSuggestProposal _proposal;
-
-            public Evidence(Texture2D texture, Color32[] pixels, int w, int h, Vector2 uv)
-            {
-                _texture = texture;
-                _pixels = pixels;
-                _w = w;
-                _h = h;
-                _uv = uv;
-                _deadline = EditorApplication.timeSinceStartup + EvidenceWaitSeconds;
-            }
-
-            /// <summary>終わったら true(proposal か failure のどちらか)。待ちなら false。</summary>
-            public bool Poll(out MaskSuggestProposal proposal, out string failure)
-            {
-                proposal = null;
-                failure = null;
-                var svc = MaskSuggestBridge.Service;
-                if (svc == null) { failure = "AI not available"; return true; }
-                if (svc.Phase == MaskSuggestPhase.Error)
-                {
-                    failure = "AI error: " + svc.ErrorMessage;
-                    return true;
-                }
-                if (_received)
-                {
-                    if (_proposal == null || _proposal.maskBottomUp == null || _proposal.width <= 0 || _proposal.height <= 0)
-                    {
-                        failure = "the AI returned no region";
-                        return true;
-                    }
-                    proposal = _proposal;
-                    return true;
-                }
-                if (EditorApplication.timeSinceStartup > _deadline)
-                {
-                    AiSuggestBroker.Cancel(this);
-                    failure = "timed out waiting for the AI";
-                    return true;
-                }
-
-                if (!_requested) Request();
-                return false;
-            }
-
-            private void Request()
-            {
-                if (_native == null)
-                {
-                    _native = NativePixels.CopyOf(_pixels, _w, _h);
-                    _key = CacheKey(_texture, _w, _h);
-                }
-                // Busy(準備中・ほかの元の要求が並んでいる)は次の Poll で求め直す。Unavailable はサービスの状態
-                // (エラー)を次の Poll が見る。
-                var r = AiSuggestBroker.RequestWhenIdle(this, _key, _native, _uv.x, _uv.y,
-                    p => { _proposal = p; _received = true; });
-                if (r == AiSuggestBroker.Request.Started) _requested = true;
-            }
-
-            public void Dispose()
-            {
-                AiSuggestBroker.Cancel(this);
-                _native?.Release();
-                _native = null;
-            }
+            _askedAi = false;
         }
 
         /// <summary>窓のプレビューと同じ形の埋め込みキャッシュのキー(PreviewView.TrueSourceCacheKey)。</summary>

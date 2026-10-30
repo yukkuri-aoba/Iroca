@@ -8,12 +8,14 @@
 対策として写像を Core の `ZoneAutoTuner.TuneResult.ApplyTo(ColorZone, IrocaSessionState)` に
 一本化した(ハーネスのコンパイル対象 = 出荷ゲート対象)。本テストは C# ソースを直接読み、
 
-  1. UI とハーネスの両方が ApplyTo を呼び、TuneResult のフィールドをゾーンへ直接代入していない
+  1. 製品の自動調整の流れ(Code/Application/AutoTuneService.cs。0.4.0 の 4-3 でウィンドウと自動化の 2 本を
+     1 本にした)とハーネスの両方が ApplyTo を呼び、ウィンドウ・自動化を含めて TuneResult のフィールドを
+     ゾーンへ直接代入していない
   2. ApplyTo 本体が TuneResult の「ゾーンへ写すべきフィールド」を全部代入している
      (TuneResult に per-zone フィールドを足して ApplyTo に書き忘れたら落ちる)
   3. ApplyTo のほかにゾーン単位の項目(tolerance … chromaCeiling)を手書きで並べている 8 か所
      (既定値・解析結果の初期化子、上書き確認のラベル、既定判定、閉ループ検証の模擬ゾーン、
-     UI の手調整判定、ハーネスの AUTOTUNE 出力、詳細設定のリセット)が全項目を並べている
+     手調整の判定、ハーネスの AUTOTUNE 出力、詳細設定のリセット)が全項目を並べている
      (並べないのが意図の項目は理由つきの許可リストで明示し、許可リストの陳腐化も検出する)
 
 を固定する。ハーネス不要・常時実行。
@@ -29,7 +31,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 TUNER_CS = REPO_ROOT / "Code" / "Core" / "ZoneAutoTuner.cs"
 VERIFY_CS = REPO_ROOT / "Code" / "Core" / "ZoneAutoTuner.Verify.cs"
 COLORZONE_CS = REPO_ROOT / "Code" / "Core" / "ColorZone.cs"
+SERVICE_CS = REPO_ROOT / "Code" / "Application" / "AutoTuneService.cs"
 UI_CS = REPO_ROOT / "Code" / "UI" / "IrocaWindow.AutoTune.cs"
+AUTOMATION_CS = REPO_ROOT / "Code" / "Automation" / "AutomationAutoTune.cs"
 HARNESS_CS = REPO_ROOT / "scripts" / "headless-run" / "Harness.cs"
 
 _COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/|\"(?:\\.|[^\"\\])*\"", re.DOTALL)
@@ -105,13 +109,22 @@ _DIRECT_ASSIGN = re.compile(
     r"|sampleColor|antiAliasCleanup|useDecontamination)\s*=\s*(?:result|tune|r)\.")
 
 
-@pytest.mark.parametrize("path", [UI_CS, HARNESS_CS], ids=["ui", "harness"])
+@pytest.mark.parametrize("path", [SERVICE_CS, HARNESS_CS], ids=["service", "harness"])
 def test_callers_use_apply_to_only(path: Path):
     src = _strip(path.read_text(encoding="utf-8"))
     assert re.search(r"\.ApplyTo\s*\(", src), f"{path.name} が TuneResult.ApplyTo を呼んでいない"
     direct = [m.group(0) for m in _DIRECT_ASSIGN.finditer(src)]
     assert not direct, (
         f"{path.name} に導出結果の直接代入が残っている(ApplyTo に一本化すること): {direct}")
+
+
+@pytest.mark.parametrize("path", [UI_CS, AUTOMATION_CS], ids=["ui", "automation"])
+def test_window_and_automation_do_not_map_results_themselves(path: Path):
+    # ウィンドウと自動化は AutoTuneService の Run.ApplyTo を通す(写像を自前で書かない)。
+    src = _strip(path.read_text(encoding="utf-8"))
+    direct = [m.group(0) for m in _DIRECT_ASSIGN.finditer(src)]
+    assert not direct, (
+        f"{path.name} に導出結果の直接代入がある(AutoTuneService を通すこと): {direct}")
 
 
 # ─────────────────── ゾーン単位の項目の列挙箇所 ───────────────────
@@ -158,8 +171,8 @@ _SITES = [
      (r"\bsim\.{f}\s*=(?!=)",),
      {"valueBlend": "再着色の段だけで使い、閉ループ検証が測る選択には効かない",
       "shadowDesaturation": "再着色の段だけで使い、閉ループ検証が測る選択には効かない"}),
-    ("ui-values-intact", "IrocaWindow.AutoTune.cs の AutoTuneValuesIntact",
-     lambda: _nested_block(UI_CS, r"bool\s+AutoTuneValuesIntact\s*\("),
+    ("values-intact", "AutoTuneService.cs の ValuesIntact(手調整の判定)",
+     lambda: _nested_block(SERVICE_CS, r"bool\s+ValuesIntact\s*\("),
      (r"\bzone\.{f}\b", r"\br\.{f}\b"), {}),
     ("harness-json", "Harness.cs の AUTOTUNE 出力(JSON)",
      _harness_autotune_block,

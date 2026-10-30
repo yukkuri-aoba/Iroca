@@ -373,9 +373,9 @@ namespace Iroca
             UninstallSceneClick();
             // ウィンドウを閉じたら、シーンのアバターへの編集中の表示もやめる(登録済みならレシピの表示に戻る)。
             LivePreview.SetTarget(null, null);
-            // 証拠待ちの自動調整は EditorApplication.update に張っているので、ドメインリロード・
-            // ウィンドウ無効化で残さない（届いた提案はコントローラが捨てる）。
-            CancelEvidenceWait();
+            // 自動調整は EditorApplication.update に張っているので、ドメインリロード・
+            // ウィンドウ無効化で残さない（届いた提案は捨てる）。
+            CancelAutoTune();
             _previewView?.Suspend();
             // 閉じたら作業配列(ネイティブメモリ)を OS へ返す。取り消したプレビューなど計算中の分は、走り終わってから返す。
             NativeMemoryLifecycle.ReleaseWhenIdle();
@@ -440,8 +440,7 @@ namespace Iroca
             // 以降の apply / onError も _disposed フラグで抑止する。
             _previewView?.Dispose();
             _exportView?.Dispose();
-            CancelEvidenceWait();
-            _autoTuneJob?.Dispose();
+            CancelAutoTune();
             SavePersistedSessionForCurrentTexture();
             RememberLastEditedTexture();
             _maskView?.ReleaseOverlayTextures();

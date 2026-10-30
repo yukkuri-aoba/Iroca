@@ -8,34 +8,17 @@ namespace Iroca
 {
     public unsafe partial class IrocaWindow
     {
-        [System.NonSerialized] private readonly PreviewJob<ZoneAutoTuner.TuneResult> _autoTuneJob = new PreviewJob<ZoneAutoTuner.TuneResult>();
-        [System.NonSerialized] private readonly PreviewJobProgress _autoTuneProgress = new PreviewJobProgress();
-        // apply 時に zone を特定するための GUID。世代不一致で apply が破棄されるか、
-        // ユーザーが zone を削除/追加した場合に備えて id で再ルックアップする。
-        [System.NonSerialized] private string _autoTuneTargetZoneId;
+        // 実行中の自動調整(証拠待ちと解析。null = していない)。流れは AutoTuneService が持ち、ここは上書きの確認・
+        // 進み具合・通知・Undo・由来の記録(ウィンドウだけのもの)。
+        [System.NonSerialized] private AutoTuneService.Run _autoTune;
+        // 最後に描いた進み具合(%)と段階。変わったときだけ描き直す(EditorApplication.update は毎回描き直すには速すぎる)。
+        [System.NonSerialized] private int _autoTuneShownPct = -1;
+        [System.NonSerialized] private bool _autoTuneShownPreparing;
 
-        // 証拠つき自動調整: スポイト位置の AI 提案セグメントを待っている状態。提案が届くか、
-        // 期限切れ・取消で従来導出へ進む。待ち中の入力はジョブ開始時にそのまま渡す。
-        [System.NonSerialized] private bool _evidenceWaiting;
-        [System.NonSerialized] private double _evidenceDeadline;
-        [System.NonSerialized] private string _evidenceZoneId;
-        // 待ちの間の画素(参照を 1 つ持つ。StopEvidenceWait が返す)。
-        [System.NonSerialized] private NativePixels _evidencePixels;
-        [System.NonSerialized] private int _evidenceTexW, _evidenceTexH, _evidenceMw, _evidenceMh;
-        [System.NonSerialized] private bool[] _evidenceExcluded;
-        // 証拠要求がまだ受理されていない(AI が準備中で Busy)。Tick で再要求する。
-        [System.NonSerialized] private bool _evidencePending;
-        // 証拠なしで解析するときの理由(由来の記録用。null = 証拠あり/理由なし)。
-        [System.NonSerialized] private string _autoTuneConventionalReason;
-
-        // ゾーン id → 最後に適用した自動調整の由来(証拠の有無・正規化の有無・導出診断)。
-        // 再現データ書き出し(ReproDump)が meta.json に載せる。書き出された失敗ケースが
-        // 「証拠経路を通ったのか、AI 未ウォームで従来導出だったのか」を後から判別できないと、
-        // どちらの経路を直せばよいか分からない(2026-08-29: スニーカー明部クリックの再現データで
-        // 証拠なし導出と byte 一致したが、証拠ありでも同じ結果になる位置だったため区別できなかった)。
-        // テクスチャ固有の一時情報なので Undo/プリセットには載せない。
+        // ゾーン id → 最後に適用した自動調整の由来(AutoTuneService.Run.Provenance: 証拠の有無・正規化の有無・導出診断)。
+        // 再現データ書き出し(ReproDump)が meta.json に載せる。テクスチャ固有の一時情報なので Undo/プリセットには載せない。
         [System.NonSerialized]
-        private System.Collections.Generic.Dictionary<string, string> _autoTuneProvenance;
+        private Dictionary<string, string> _autoTuneProvenance;
 
         internal string AutoTuneProvenance(string zoneId)
         {
@@ -43,27 +26,11 @@ namespace Iroca
             return _autoTuneProvenance.TryGetValue(zoneId, out var s) ? s : "";
         }
 
-        // 最後に適用した自動調整の「入力」(ゾーン id 毎)。再現データ書き出し(ReproDump)が
-        // meta.json / zone{i}_evidence.png に載せ、dev_safe の test_repro_cases が同じ入力から
-        // 導出をやり直す(ワンショットの再現)。書き出しの zones.json は自動調整「後」の値なので、
-        // これが無いと「自動調整がどう導出したか」は後から再現できない(2026-09-02)。
-        // テクスチャ固有の一時情報なので Undo/プリセットには載せない。
-        internal sealed class AutoTuneInput
-        {
-            public Color sample;          // 導出に渡したサンプル色(正規化前のスポイト色)
-            public Color target;
-            // 証拠マスク(下原点、1bit/画素に MaskSnapshot.Pack したもの。null=証拠なし導出)。
-            // bool[] のままだと 4K で 1 ゾーン 16MB を持ち続ける(詰めると 2MB)。
-            public ulong[] evidence;
-            public int evW, evH;
-            public int texW, texH;
-            public bool maskUsed;         // 除外マスク(共通∪ゾーン別)を導出に渡したか
-            public ZoneAutoTuner.TuneResult applied;
-        }
+        // 最後に適用した自動調整の「入力」(ゾーン id 毎。AutoTuneService.Input の説明)。
         [System.NonSerialized]
-        private System.Collections.Generic.Dictionary<string, AutoTuneInput> _autoTuneInputs;
+        private Dictionary<string, AutoTuneService.Input> _autoTuneInputs;
 
-        internal bool TryGetAutoTuneInput(string zoneId, out AutoTuneInput input)
+        internal bool TryGetAutoTuneInput(string zoneId, out AutoTuneService.Input input)
         {
             input = null;
             if (_autoTuneInputs == null || string.IsNullOrEmpty(zoneId)) return false;
@@ -73,58 +40,15 @@ namespace Iroca
         // セッションに無いゾーン(削除した・別のテクスチャに切り替えた)の入力を捨てる。プレビュー生成ごとに
         // 選択キャッシュと同じ id の集合で刈る。削除を Undo で戻したゾーンは入力が無い状態になり、
         // ドメインリロードの後と同じく、再現データに載らず次の自動調整では上書きの確認が出る(安全側)。
-        internal void RetainAutoTuneInputs(System.Collections.Generic.ICollection<string> liveZoneIds)
+        internal void RetainAutoTuneInputs(ICollection<string> liveZoneIds)
         {
             if (_autoTuneInputs == null || _autoTuneInputs.Count == 0) return;
-            System.Collections.Generic.List<string> gone = null;
+            List<string> gone = null;
             foreach (var id in _autoTuneInputs.Keys)
-                if (!liveZoneIds.Contains(id)) (gone ??= new System.Collections.Generic.List<string>()).Add(id);
+                if (!liveZoneIds.Contains(id)) (gone ??= new List<string>()).Add(id);
             if (gone == null) return;
             foreach (var id in gone) _autoTuneInputs.Remove(id);
         }
-
-        // 自動調整の適用値と同じとみなす許容差（AutoTuneParamsIntact / AutoTuneValuesIntact で共用）。
-        private static bool ParamEq(float a, float b) => Mathf.Abs(a - b) <= 1e-5f;
-
-        // ゾーンのパラメータが、その自動調整の適用値のまま(手で触っていない)か。
-        // 再現側はこれが真のときだけ「再導出した値 = 書き出しの値」を契約にできる。
-        internal static bool AutoTuneParamsIntact(ColorZone zone, AutoTuneInput input)
-        {
-            if (zone == null || input == null) return false;
-            var r = input.applied;
-            if (!AutoTuneValuesIntact(zone, r)) return false;
-            var expectedSample = r.hasNormalizedSample ? r.normalizedSample : input.sample;
-            int autoCount = r.autoSamples != null ? r.autoSamples.Count : 0;
-            return ParamEq(zone.sampleColor.r, expectedSample.r) && ParamEq(zone.sampleColor.g, expectedSample.g)
-                && ParamEq(zone.sampleColor.b, expectedSample.b)
-                && (zone.extraSamples != null ? zone.extraSamples.Count : 0) == autoCount;
-        }
-
-        // 導出パラメータだけが自動調整の適用値のままか（サンプル色・内部サンプルは見ない）。
-        // 上書き確認は「パラメータを手で変えたか」だけを問うので、色を取り直しただけの
-        // ゾーンまで手調整扱いにしないよう、サンプル側の一致とは分けて判定する。
-        internal static bool AutoTuneValuesIntact(ColorZone zone, ZoneAutoTuner.TuneResult r)
-        {
-            if (zone == null) return false;
-            return ParamEq(zone.tolerance, r.tolerance)
-                && ParamEq(zone.saturationStrictness, r.saturationStrictness)
-                && ParamEq(zone.saturationGuard, r.saturationGuard)
-                && ParamEq(zone.chromaThreshold, r.chromaThreshold)
-                && zone.highlightRecovery == r.highlightRecovery
-                && ParamEq(zone.valueBlend, r.valueBlend)
-                && ParamEq(zone.edgeSoftness, r.edgeSoftness)
-                && ParamEq(zone.shadowDesaturation, r.shadowDesaturation)
-                && ParamEq(zone.shadowForgivenessSatMin, r.shadowForgivenessSatMin)
-                && ParamEq(zone.shadowValueFloor, r.shadowValueFloor)
-                && ParamEq(zone.partSatCeiling, r.partSatCeiling)
-                && ParamEq(zone.partHueBand, r.partHueBand)
-                && ParamEq(zone.chromaCeiling, r.chromaCeiling)
-                && ParamEq(zone.holeFillMargin, r.holeFillMargin);
-        }
-        // 証拠待ちの上限。埋め込み計算(テクスチャ毎 1 回)は CPU バックエンドの大きな
-        // テクスチャで数十秒かかり得るので、短い期限で諦めて従来導出へ落とさない
-        // (以前の 8 秒は「待たない方針」の名残。期限切れは中止して案内する)。
-        private const double EvidenceWaitSeconds = 180.0;
 
         // 「パーツをユーザーが粗く囲った」情報を tolerance 導出に活用する。
         // マスク未使用なら null。
@@ -138,17 +62,15 @@ namespace Iroca
 
         private void RunAutoTune(ColorZone zone)
         {
-            if (_autoTuneJob.IsRunning || _evidenceWaiting) return;
-            if (zone == null) return;
+            if (_autoTune != null || zone == null) return;
 
             if (!ConfirmAutoTuneOverwriteIfNeeded(zone))
                 return;
 
             zone.EnsureId();
 
-            // メインスレッド前処理: Texture2D.GetPixels32 と除外マスク構築は
-            // バックグラウンドへ持ち込めないので、ここで配列化しておく。
-            PrepareAutoTunePixels(out NativePixels pixels, out int texW, out int texH, out bool trueSource);
+            // メインスレッド前処理: 原本の画素と除外マスクはバックグラウンドへ持ち込めないので、ここで用意する。
+            PrepareAutoTunePixels(out NativePixels pixels, out bool trueSource);
             if (pixels == null)
             {
                 // GetPixels32 が失敗（非 Readable / 一時例外）。null を背景ジョブへ渡すと
@@ -156,51 +78,36 @@ namespace Iroca
                 ShowNotification(new GUIContent(Localization.TextureReadError));
                 return;
             }
-            // pixels の参照はここで持ち、最後に返す(待ち・ジョブはそれぞれ自分の参照を足す)。
+            // pixels の参照はここで持ち、最後に返す(自動調整は自分の参照を足す)。
             try
             {
                 bool[] excluded = BuildCombinedExclusionForZone(zone, out int mw, out int mh);
-
-                // 証拠つき導出: スポイト位置の AI 提案セグメントが届いてから解析を始める。
-                // AI が無ければ中止して導入を案内し、準備中なら待つ(従来導出へは落とさない)。
-                // 証拠なしで解析するのは、スポイト位置そのものが無いゾーン(カラーフィールド指定)だけ。
-                switch (BeginAutoTuneEvidence(zone, pixels, texW, texH, excluded, mw, mh, trueSource))
+                // 証拠の元のキーは、画素がプレビュー・右クリックの AI 提案と同じ原本のときだけ渡す
+                // (フォールバックの画素で同じキーを使うと、別の画素の埋め込みと取り違える)。
+                string key = trueSource && _previewView != null ? _previewView.TrueSourceCacheKey() : null;
+                var run = AutoTuneService.Start(zone, _session, pixels, key, excluded, mw, mh);
+                if (run.Status == AutoTuneService.Status.Failed)
                 {
-                    case EvidenceStart.Waiting:
-                        return;
-                    case EvidenceStart.NoPosition:
-                        ShowNotification(new GUIContent(Localization.AutoTuneNoSamplePosition));
-                        _autoTuneConventionalReason = "no-sample-position";
-                        ScheduleAutoTuneJob(zone, pixels, texW, texH, excluded, mw, mh);
-                        return;
-                    default:
-                        return; // Unavailable: 通知・案内済み。解析は始めない。
+                    NotifyAutoTuneFailure(run);
+                    return;
                 }
+                if (run.ConventionalReason == AutoTuneService.ReasonNoSamplePosition)
+                    ShowNotification(new GUIContent(Localization.AutoTuneNoSamplePosition));
+                _autoTune = run;
+                _autoTuneShownPct = -1;
+                EditorApplication.update -= TickAutoTune;
+                EditorApplication.update += TickAutoTune;
+                Repaint();
             }
             finally { pixels.Release(); }
         }
 
         /// <summary>
-        /// 導出パラメータが「ユーザーの手調整を含まない」状態か。
-        /// ・自動調整済みのゾーン: その適用値のままなら手調整なし
-        /// ・未調整のゾーン: UI が新規ゾーンへ入れる初期値（<see cref="EditingSession.NewZoneInitialTolerance"/>）
-        ///   だけが ZoneAutoTuner の既定と違うなら、それは UI が置いた値であって手調整ではない
-        /// 自動調整の入力はドメインリロードで失われるため、リロード直後の 1 回だけは
-        /// 調整済みゾーンでも「手調整あり」と見えるが、安全側（確認を出す側）に倒れる。
+        /// 導出パラメータが「ユーザーの手調整を含まない」状態か(<see cref="AutoTuneService.UntouchedByUser"/>。
+        /// 自動調整済みかどうかは、このウィンドウが持つ最後の入力で見る)。
         /// </summary>
         private bool ZoneParamsUntouchedByUser(ColorZone zone)
-        {
-            if (zone == null) return false;
-            if (TryGetAutoTuneInput(zone.id, out var input))
-                return AutoTuneValuesIntact(zone, input.applied);
-
-            // 未調整ゾーン: 初期 tolerance を既定値に均してから、他に既定と違う項目が
-            // 残らないかを既存の判定（PreviewOverwrittenSettings）で見る。
-            var probe = zone.Clone();
-            if (Mathf.Approximately(probe.tolerance, EditingSession.NewZoneInitialTolerance))
-                probe.tolerance = ZoneDefaults.tolerance;
-            return ZoneAutoTuner.PreviewOverwrittenSettings(probe).Count == 0;
-        }
+            => AutoTuneService.UntouchedByUser(zone, TryGetAutoTuneInput(zone?.id, out var input) ? input : null);
 
         // ─── 上書き確認はジョブ開始“前”に行う ───
         // 完了後にモーダルを出すと Editor がブロックされ、ユーザーの
@@ -239,14 +146,10 @@ namespace Iroca
         // 導出パラメータが歪む。通常はプレビューが同じキャッシュを温めて
         // いるため追加コストはない。true source が取れないときのみ GetPixels32 へフォールバック。
         // trueSource: 画素がプレビュー/AI 提案と同じ true source キャッシュ（同一の画素）か。
-        // 証拠要求はこの画素とキーで SetSource するので、フォールバック画素では要求しない。
         // pixels は呼び出し側が参照を 1 つ持つ(使い終わったら Release する)。
-        private void PrepareAutoTunePixels(out NativePixels pixels, out int texW, out int texH,
-            out bool trueSource)
+        private void PrepareAutoTunePixels(out NativePixels pixels, out bool trueSource)
         {
             pixels = null;
-            texW = 0;
-            texH = 0;
             trueSource = false;
             var tex = sourceTexture;
             if (tex == null) return;
@@ -255,296 +158,150 @@ namespace Iroca
             {
                 EditorUtility.DisplayProgressBar(Localization.AutoTune, Localization.AnalyzingTexture, 0.1f);
                 if (_previewView != null &&
-                    _previewView.TryGetTrueSourcePixels(tex, out var shared, out texW, out texH))
+                    _previewView.TryGetTrueSourcePixels(tex, out var shared, out _, out _))
                 {
                     pixels = shared.AddRef();
                     trueSource = true;
                     return;
                 }
 
-                texW = tex.width;
-                texH = tex.height;
-                pixels = NativePixels.CopyOf(tex.GetPixels32(), texW, texH);
+                pixels = NativePixels.CopyOf(tex.GetPixels32(), tex.width, tex.height);
             }
             catch (UnityEngine.UnityException) { pixels = null; }
             finally { EditorUtility.ClearProgressBar(); }
         }
 
-        // evidence: 証拠マスク（true=このゾーンの素材そのもの。スポイト位置の AI 提案セグメント。
-        // pixels と同じ下原点並び）。null なら従来導出。
-        // pixels は呼び出し側の持ち物のまま(ジョブは自分の参照を足して読み、後始末で返す)。
-        private void ScheduleAutoTuneJob(ColorZone zone, NativePixels pixels, int texW, int texH, bool[] excluded, int mw, int mh,
-            bool[] evidence = null, int evW = 0, int evH = 0)
-        {
-            zone.EnsureId();
-            _autoTuneTargetZoneId = zone.id;
-
-            // 背景解析には live の zone / session を直接渡さず、値等価コピーを渡す。
-            // 解析中も Undo などでゾーンや session が変異し得るため、live を渡すと
-            // sampleColor 変異で混成サンプルから無意味な tolerance を導出したり、session.zones 列挙中の
-            // add/remove で InvalidOperationException になり得る（プレビュー/エクスポート経路は既に Clone 済み）。
-            // セッションから読むもの(全体設定と、どのゾーンも既定のままか)は、ここ(メインスレッド)で取る。
-            var zoneSnapshot = zone.Clone();
-            var sessionInput = ZoneAutoTuner.SessionInput.From(_session);
-
-            _autoTuneProgress.Reset();
-            _autoTuneProgress.Report(0.05f);
-
-            // 適用後も持つ証拠(再現データ用)は 1bit/画素に詰めたもの。詰めるのは解析と同じバックグラウンドで。
-            ulong[] evidencePacked = null;
-            var px = pixels.AddRef();
-            _autoTuneJob.Schedule(
-                work: ct =>
-                {
-                    _autoTuneProgress.Report(0.10f);
-                    // ct を Analyze へ渡す。新しい自動調整が来て前ジョブが Cancel されたら、
-                    // 各解析ステップ間で停止しゾンビ実行(CPU 2 倍/進捗バー飛び)を防ぐ。
-                    // 解析の各ステップから進捗を受け取る。渡さないと 0.10 → 1.00 の 2 点しか
-                    // 報告されず、進捗バーが 10% で固まってから完了に飛ぶ。
-                    var result = evidence != null
-                        ? ZoneAutoTuner.AnalyzeWithEvidence(px.Ptr, texW, texH, zoneSnapshot, sessionInput,
-                            evidence, evW, evH, excluded, mw, mh, ct, p => _autoTuneProgress.Report(p))
-                        : ZoneAutoTuner.Analyze(px.Ptr, texW, texH, zoneSnapshot, sessionInput, excluded, mw, mh, ct,
-                            p => _autoTuneProgress.Report(p));
-                    evidencePacked = MaskSnapshot.Pack(evidence);   // null は null
-                    _autoTuneProgress.Report(1.0f);
-                    return result;
-                },
-                apply: result =>
-                {
-                    // 実行中に削除・追加された可能性があるため、live zone を id で引き直す。
-                    var targetZone = FindZoneById(_autoTuneTargetZoneId);
-                    if (targetZone == null) return;
-
-                    // 結果は押してから数秒後に届くので、待っている間の別の操作とは別の「元に戻す」1 回分にする。
-                    SeparateUndo.Record("Auto-tune Zone", () =>
-                    {
-                        Undo.RegisterCompleteObjectUndo(this, "Auto-tune Zone");
-                        // 導出結果 → ゾーン/グローバルの写像は TuneResult.ApplyTo が単一の正
-                        // （headless ハーネスの --autotune と共有。ここに項目を並べ直さない）。
-                        result.ApplyTo(targetZone, _session);
-                    });
-                    _autoTuneInputs ??= new System.Collections.Generic.Dictionary<string, AutoTuneInput>();
-                    _autoTuneInputs[targetZone.id] = new AutoTuneInput
-                    {
-                        sample = zoneSnapshot.sampleColor, target = zoneSnapshot.targetColor,
-                        evidence = evidencePacked, evW = evW, evH = evH, texW = texW, texH = texH,
-                        maskUsed = excluded != null, applied = result,
-                    };
-                    Editing.NotifyChanged(EditChange.Content);
-                    // 証拠が実際に導出に使われたか（汚染セグメント等で従来へ戻った場合は "fallback"）。
-                    bool usedEvidence = !string.IsNullOrEmpty(result.evidenceDiag)
-                        && !result.evidenceDiag.StartsWith("fallback");
-                    _autoTuneProvenance ??= new System.Collections.Generic.Dictionary<string, string>();
-                    string reason = _autoTuneConventionalReason;
-                    _autoTuneConventionalReason = null;
-                    _autoTuneProvenance[targetZone.id] =
-                        (evidence != null ? (usedEvidence ? "evidence" : "evidence-fallback")
-                                          : "conventional" + (reason != null ? "(" + reason + ")" : ""))
-                        + $"; normalized={result.hasNormalizedSample}"
-                        + (string.IsNullOrEmpty(result.evidenceDiag) ? "" : "; " + result.evidenceDiag);
-                    if (MaskSuggestPerf.Enabled && result.evidenceDiag != null)
-                        MaskSuggestPerf.Log($"自動調整の証拠: {result.evidenceDiag}");
-                    ShowNotification(new GUIContent(
-                        usedEvidence ? Localization.AutoTuneDoneWithEvidence : Localization.AutoTuneDone));
-                    Repaint();
-                },
-                onError: ex =>
-                {
-                    Debug.LogError($"[Iroca] Auto-tune failed: {ex.Message}\n{ex.StackTrace}");
-                    ShowNotification(new GUIContent($"{Localization.Error}: {ex.Message}"));
-                },
-                cleanup: () => px.Release());
-        }
-
-        // ─── 証拠つき自動調整（スポイト位置の AI 提案セグメントを教師にする） ───
-        // 従来導出は「クリック 1 texel + 近傍窓」の当て推量で母集団を作るため、ハイライト
-        // （明度↑彩度↓の非対称な逸脱）を原理的に取りこぼす。スポイトした位置に AI マスク提案
-        // （SAM）を 1 回かけ、そのセグメントを ZoneAutoTuner.AnalyzeWithEvidence の証拠に渡す
-        // （実測 42 ケース非退行、明部クリック IoU 0.15→0.82 等。ZoneAutoTuner.Evidence.cs 参照）。
-        //
-        // 2026-08-29 まで「AI が温まっていなければ待たず従来導出」だったが、その従来導出が
-        // ハイライトを取りこぼす当の経路で、ユーザーには「自動調整が壊れる」としか見えなかった。
-        // 今は AI が無ければ中止して導入を案内し(MaskSuggestSetupPrompt)、準備中なら届くまで待つ。
-        private enum EvidenceStart { Waiting, NoPosition, Unavailable }
-
-        private EvidenceStart BeginAutoTuneEvidence(ColorZone zone, NativePixels pixels, int texW, int texH,
-            bool[] excluded, int mw, int mh, bool trueSource)
-        {
-            if (!zone.HasSampleUV) return EvidenceStart.NoPosition;
-            if (!MaskSuggestSetupPrompt.Ready)
-            {
-                ShowNotification(new GUIContent(Localization.AutoTuneNeedsAi));
-                MaskSuggestSetupPrompt.PromptIfNeeded();
-                return EvidenceStart.Unavailable;
-            }
-            if (!trueSource || _previewView == null)
-            {
-                ShowNotification(new GUIContent(Localization.AutoTuneSourceNotShared));
-                return EvidenceStart.Unavailable;
-            }
-
-            _evidenceZoneId = zone.id;
-            _evidencePixels?.Release();
-            _evidencePixels = pixels.AddRef();
-            _evidenceTexW = texW;
-            _evidenceTexH = texH;
-            _evidenceExcluded = excluded;
-            _evidenceMw = mw;
-            _evidenceMh = mh;
-            _evidenceWaiting = true;
-            _evidencePending = true;
-            _evidenceDeadline = EditorApplication.timeSinceStartup + EvidenceWaitSeconds;
-            _autoTuneProgress.Reset();
-            _autoTuneProgress.Report(0.02f);
-            EditorApplication.update -= TickEvidenceWait;
-            EditorApplication.update += TickEvidenceWait;
-            if (!TryStartEvidenceRequest()) return EvidenceStart.Unavailable;
-            Repaint();
-            return EvidenceStart.Waiting;
-        }
-
-        // 証拠要求を(再)試行する。Busy なら pending のまま(Tick が再試行)。
-        // 戻り値 false = AI が使えない(待ちを畳んで通知済み)。
-        private bool TryStartEvidenceRequest()
-        {
-            var zone = FindZoneById(_evidenceZoneId);
-            if (zone == null || _previewView == null || !zone.HasSampleUV)
-            {
-                AbortEvidenceWait(Localization.AutoTuneEvidenceCancelled);
-                return false;
-            }
-            // 受け取り先の持ち主はこのウィンドウ(右クリックの提案はコントローラが持ち主なので、別に取り消せる)。
-            var r = AiSuggestBroker.RequestWhenIdle(this, _previewView.TrueSourceCacheKey(), _evidencePixels,
-                zone.sampleUV.x, zone.sampleUV.y, OnAutoTuneEvidence);
-            switch (r)
-            {
-                case AiSuggestBroker.Request.Started:
-                    _evidencePending = false;
-                    return true;
-                case AiSuggestBroker.Request.Busy:
-                    return true;
-                default:
-                {
-                    var svc = MaskSuggestBridge.Service;
-                    string why = svc != null && svc.Phase == MaskSuggestPhase.Error && !string.IsNullOrEmpty(svc.ErrorMessage)
-                        ? string.Format(Localization.AutoTuneAiError, svc.ErrorMessage)
-                        : Localization.AutoTuneNeedsAi;
-                    AbortEvidenceWait(why);
-                    if (svc == null || svc.Phase == MaskSuggestPhase.NoModel)
-                        MaskSuggestSetupPrompt.PromptIfNeeded();
-                    return false;
-                }
-            }
-        }
-
-        // 提案の到着（null = 取消・破棄）。null なら中止(従来導出へは落とさない)。
-        private void OnAutoTuneEvidence(MaskSuggestProposal proposal)
-        {
-            if (!_evidenceWaiting) return;
-            var zone = FindZoneById(_evidenceZoneId);
-            // 待ちが持っていた参照は StopEvidenceWait が返すので、ここで使う分を足しておく(最後に返す)。
-            var pixels = _evidencePixels?.AddRef();
-            int texW = _evidenceTexW, texH = _evidenceTexH;
-            var excluded = _evidenceExcluded;
-            int mw = _evidenceMw, mh = _evidenceMh;
-            StopEvidenceWait();
-            try
-            {
-                if (zone == null || pixels == null) return; // 待ち中に削除された
-
-                if (proposal == null || proposal.maskBottomUp == null || proposal.width <= 0 || proposal.height <= 0)
-                {
-                    ShowNotification(new GUIContent(Localization.AutoTuneEvidenceCancelled));
-                    Repaint();
-                    return;
-                }
-                // 背景まで広がった提案（floodWarning）は素材の証拠にならない。この場合だけは証拠なしで
-                // 解析する(AI は使えたが証拠が取れなかった。理由は通知と由来に残す)。
-                if (proposal.floodWarning)
-                {
-                    ShowNotification(new GUIContent(Localization.AutoTuneEvidenceUnusable));
-                    _autoTuneConventionalReason = "evidence-flood";
-                    ScheduleAutoTuneJob(zone, pixels, texW, texH, excluded, mw, mh);
-                    return;
-                }
-                ScheduleAutoTuneJob(zone, pixels, texW, texH, excluded, mw, mh,
-                    proposal.maskBottomUp, proposal.width, proposal.height);
-            }
-            finally { pixels?.Release(); }
-        }
-
         // EditorApplication.update から毎フレーム呼ばれる。Unity はそこで例外を受け止めないので、投げたまま
         // 購読を残すと、窓を閉じるまで毎フレーム、後ろに並んだ他のツールの更新まで飛ばし続ける。
-        // 例外のときは待ちをやめて購読を外す。
-        private void TickEvidenceWait()
+        // 例外のときは自動調整をやめて購読を外す。
+        private void TickAutoTune()
         {
-            try { TickEvidenceWaitCore(); }
+            try { TickAutoTuneCore(); }
             catch (System.Exception e)
             {
-                EditorApplication.update -= TickEvidenceWait;
+                EditorApplication.update -= TickAutoTune;
                 Debug.LogException(e);
-                try { AbortEvidenceWait(Localization.AutoTuneEvidenceCancelled); }
+                try
+                {
+                    CancelAutoTune();
+                    ShowNotification(new GUIContent(Localization.AutoTuneEvidenceCancelled));
+                }
                 catch (System.Exception e2) { Debug.LogException(e2); }
             }
         }
 
-        private void TickEvidenceWaitCore()
+        private void TickAutoTuneCore()
         {
-            // 破棄済みウィンドウ（fake-null）や待ち終了後は自己解除する。
-            if (this == null || !_evidenceWaiting)
+            var run = _autoTune;
+            // 破棄済みウィンドウ（fake-null）や終わった後は自己解除する。
+            if (this == null || run == null)
             {
-                EditorApplication.update -= TickEvidenceWait;
+                EditorApplication.update -= TickAutoTune;
                 return;
             }
-            if (_evidencePending)
+            run.Advance();
+            switch (run.Status)
             {
-                if (!TryStartEvidenceRequest()) return;
-                // 準備の進み(モデルロード・埋め込み計算)を進捗バーに映す。
-                var svc = MaskSuggestBridge.Service;
-                float prep = svc != null ? Mathf.Clamp01(svc.Progress) : 0f;
-                _autoTuneProgress.Report(0.02f + 0.28f * prep);
+                case AutoTuneService.Status.Done:
+                    StopAutoTuneTick();
+                    ApplyAutoTune(run);
+                    return;
+                case AutoTuneService.Status.Failed:
+                    StopAutoTuneTick();
+                    NotifyAutoTuneFailure(run);
+                    return;
+            }
+            // 準備の進み(モデルロード・埋め込み計算)と解析の進みを進捗バーに映す。
+            int pct = Mathf.RoundToInt(run.Progress * 100f);
+            if (pct != _autoTuneShownPct || run.EvidencePreparing != _autoTuneShownPreparing)
+            {
+                _autoTuneShownPct = pct;
+                _autoTuneShownPreparing = run.EvidencePreparing;
                 Repaint();
             }
-            if (EditorApplication.timeSinceStartup < _evidenceDeadline) return;
-            // 期限切れ: 中止して案内する（後から届いた提案はコントローラが捨てる）。
-            AbortEvidenceWait(Localization.AutoTuneEvidenceTimeout);
         }
 
-        // 証拠待ちを畳んで通知する(解析は始めない)。
-        private void AbortEvidenceWait(string message)
+        private void StopAutoTuneTick()
         {
-            StopEvidenceWait();
-            ShowNotification(new GUIContent(message));
+            _autoTune = null;
+            EditorApplication.update -= TickAutoTune;
+        }
+
+        private void ApplyAutoTune(AutoTuneService.Run run)
+        {
+            // 実行中に削除・追加された可能性があるため、live zone を id で引き直す。
+            var targetZone = FindZoneById(run.ZoneId);
+            if (targetZone == null) return;
+
+            // 結果は押してから数秒後に届くので、待っている間の別の操作とは別の「元に戻す」1 回分にする。
+            SeparateUndo.Record("Auto-tune Zone", () =>
+            {
+                Undo.RegisterCompleteObjectUndo(this, "Auto-tune Zone");
+                run.ApplyTo(targetZone, _session);
+            });
+            (_autoTuneInputs ??= new Dictionary<string, AutoTuneService.Input>())[targetZone.id] = run.ToInput();
+            Editing.NotifyChanged(EditChange.Content);
+            (_autoTuneProvenance ??= new Dictionary<string, string>())[targetZone.id] = run.Provenance;
+            if (MaskSuggestPerf.Enabled && run.Result.evidenceDiag != null)
+                MaskSuggestPerf.Log($"自動調整の証拠: {run.Result.evidenceDiag}");
+            ShowNotification(new GUIContent(
+                run.UsedEvidence ? Localization.AutoTuneDoneWithEvidence : Localization.AutoTuneDone));
             Repaint();
         }
 
-        // 証拠待ちの中止（ユーザーの中止・ウィンドウ無効化/破棄）。解析は始めない。
-        private void CancelEvidenceWait()
+        // 始められなかった・途中で終わった理由を知らせる(解析は始めない。従来導出へは落とさない)。
+        private void NotifyAutoTuneFailure(AutoTuneService.Run run)
         {
-            if (!_evidenceWaiting) return;
-            StopEvidenceWait();
+            switch (run.Failure)
+            {
+                case AutoTuneService.Failure.AiUnavailable:
+                    // AI が無ければ中止して導入を案内する。
+                    ShowNotification(new GUIContent(Localization.AutoTuneNeedsAi));
+                    MaskSuggestSetupPrompt.PromptIfNeeded();
+                    break;
+                case AutoTuneService.Failure.AiError:
+                    ShowNotification(new GUIContent(string.Format(Localization.AutoTuneAiError, run.FailureDetail)));
+                    break;
+                case AutoTuneService.Failure.SourceNotShared:
+                    ShowNotification(new GUIContent(Localization.AutoTuneSourceNotShared));
+                    break;
+                case AutoTuneService.Failure.Timeout:
+                    ShowNotification(new GUIContent(Localization.AutoTuneEvidenceTimeout));
+                    break;
+                case AutoTuneService.Failure.AnalysisFailed:
+                {
+                    var ex = run.Error;
+                    Debug.LogError($"[Iroca] Auto-tune failed: {ex?.Message}\n{ex?.StackTrace}");
+                    ShowNotification(new GUIContent($"{Localization.Error}: {ex?.Message}"));
+                    break;
+                }
+                case AutoTuneService.Failure.Cancelled:
+                    break;   // 押した人が止めた
+                default:
+                    ShowNotification(new GUIContent(Localization.AutoTuneEvidenceCancelled));
+                    break;
+            }
+            Repaint();
+        }
+
+        // 自動調整の中止（ユーザーの中止・ウィンドウ無効化/破棄）。証拠待ちなら解析は始めない。
+        private void CancelAutoTune()
+        {
+            var run = _autoTune;
+            if (run == null) return;
+            StopAutoTuneTick();
+            run.Cancel();
         }
 
         // テクスチャの切り替え・レシピの読み直し: 待っている証拠は前の元のものなので、待ちをやめて知らせる
-        // (前はコントローラが右クリックの提案と一緒に取り消していた)。
+        // (前はコントローラが右クリックの提案と一緒に取り消していた)。解析が始まっていれば、そのまま当てる
+        // (当て先は id で引き直すので、別のテクスチャのゾーンには当たらない)。
         private void AbortEvidenceWaitForSourceChange()
         {
-            if (_evidenceWaiting) AbortEvidenceWait(Localization.AutoTuneEvidenceCancelled);
-        }
-
-        private void StopEvidenceWait()
-        {
-            _evidenceWaiting = false;
-            _evidencePending = false;
-            var px = _evidencePixels;
-            _evidencePixels = null;
-            px?.Release();
-            _evidenceExcluded = null;
-            _evidenceZoneId = null;
-            EditorApplication.update -= TickEvidenceWait;
-            // 待ちを畳んだ後に取り消す(届かない知らせ = OnAutoTuneEvidence(null) は、待っていないので素通りする)。
-            AiSuggestBroker.Cancel(this);
+            if (_autoTune == null || _autoTune.Status != AutoTuneService.Status.WaitingForEvidence) return;
+            CancelAutoTune();
+            ShowNotification(new GUIContent(Localization.AutoTuneEvidenceCancelled));
+            Repaint();
         }
     }
 }

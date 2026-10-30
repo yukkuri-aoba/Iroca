@@ -11,9 +11,6 @@
     "Code/Application/SourcePixelCache.cs": {
       ".GetPixels32()": 1
     },
-    "Code/Automation/AutomationAutoTune.cs": {
-      "new bool[len]": 1
-    },
     "Code/Core/MaskRle.cs": {
       "new bool[len]": 2
     },

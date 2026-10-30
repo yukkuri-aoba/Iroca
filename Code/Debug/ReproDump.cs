@@ -122,7 +122,7 @@ namespace Iroca.DebugTools
                     zm.autoTuneInputSample.AddRange(new[] { ati.sample.r, ati.sample.g, ati.sample.b });
                     zm.autoTuneInputTarget.AddRange(new[] { ati.target.r, ati.target.g, ati.target.b });
                     zm.autoTuneMaskUsed = ati.maskUsed;
-                    zm.autoTuneParamsIntact = IrocaWindow.AutoTuneParamsIntact(zones[i], ati);
+                    zm.autoTuneParamsIntact = AutoTuneService.ParamsIntact(zones[i], ati);
                     if (ati.evidence != null && ati.evW == w && ati.evH == h
                         && ati.evidence.Length >= ((long)w * h + 63) >> 6)
                     {
@@ -226,7 +226,7 @@ namespace Iroca.DebugTools
             public List<float> sampleUV = new List<float>();
             // 最後に適用した自動調整の由来(IrocaWindow.AutoTuneProvenance)。未実行なら空。
             public string autoTune = "";
-            // 自動調整の入力(ワンショット再現用。IrocaWindow.AutoTuneInput)。未実行なら空。
+            // 自動調整の入力(ワンショット再現用。AutoTuneService.Input)。未実行なら空。
             // sample は正規化「前」のスポイト色(zones.json の sample は正規化後)。
             public List<float> autoTuneInputSample = new List<float>();
             public List<float> autoTuneInputTarget = new List<float>();

@@ -533,8 +533,10 @@ memory_guard.py は出力に関与しないので、実行キャッシュ・行�
     目標（dE p95 ≤ 0.05 ∧ IoU ≥ 0.95）は xfail。PSD 由来の再着色 GT（gt_*.png）はベタ塗りに
     近く（元との明度相関 0.2）理想には使わない。4 被写体（bandana / costume / hair / sneakers）。
   - 導出結果 → ゾーンの適用写像は `ZoneAutoTuner.TuneResult.ApplyTo` が単一の正
-    （UI とハーネスの二重実装を解消）。`scripts/source_checks/test_autotune_apply_single_source` が C# ソースから
-    「両呼び出し元が ApplyTo だけを使う」「TuneResult の全フィールドを写す」を検査する。
+    （UI とハーネスの二重実装を解消）。製品の側でそれを呼ぶのは自動調整の流れ `AutoTuneService`（ウィンドウと
+    自動化の 2 本を 0.4.0 の 4-3 で 1 本にした）だけ。`scripts/source_checks/test_autotune_apply_single_source` が
+    C# ソースから「流れとハーネスが ApplyTo だけを使う（ウィンドウと自動化は直接代入しない）」「TuneResult の全フィールドを
+    写す」を検査する。
   - 同じ考えで、再着色の全体設定（edgeFeather〜decontaminationRadius）は `RecolorSettings` が単一の正
     （2026-09-24〜）。`PixelProcessor.ProcessPixelsArray` の入口はこれを受け取る 1 つだけで、プレビュー 2 段・
     詳細・単体/一括エクスポート・Automation・ハーネスの全呼び出し元が同じ型を渡す（以前は各所で 8 個の値を

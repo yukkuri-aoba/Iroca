@@ -43,10 +43,9 @@ namespace Iroca
         /// </summary>
         internal bool IsJobBlockingUI =>
             (_exportView != null && _exportView.IsExporting)
-            || _autoTuneJob.IsRunning
             // 証拠（AI 提案）待ちも自動調整の一部（解析はまだ始まっていないが
             // 途中でゾーンを触られると待ち中の入力と食い違う）。
-            || _evidenceWaiting;
+            || _autoTune != null;
 
         private void OnGUI()
         {
@@ -465,23 +464,17 @@ namespace Iroca
         {
             _exportView?.DrawJobOverlay();
 
-            if (_evidenceWaiting)
+            var run = _autoTune;
+            if (run != null)
             {
-                // 解析開始前の証拠（AI 提案セグメント）待ち。無言だと押しても無反応に見えるので、
+                float pct = run.Progress;
+                // 解析開始前の証拠（AI 提案セグメント）待ちは、無言だと押しても無反応に見えるので、
                 // 解析中と同じ場所に何を待っているかを出す。中止は解析を始めない。
-                if (DrawJobProgressRow(_autoTuneProgress.Value,
-                    $"{Localization.AutoTune}  {(_evidencePending ? Localization.AutoTuneEvidencePreparing : Localization.AutoTuneEvidenceFetching)}"))
-                {
-                    CancelEvidenceWait();
-                }
-            }
-            else if (_autoTuneJob.IsRunning)
-            {
-                float pct = _autoTuneProgress.Value;
-                if (DrawJobProgressRow(pct, $"{Localization.AutoTune}  {Mathf.RoundToInt(pct * 100f)}%"))
-                {
-                    _autoTuneJob.Cancel();
-                }
+                string label = run.Status == AutoTuneService.Status.WaitingForEvidence
+                    ? $"{Localization.AutoTune}  {(run.EvidencePreparing ? Localization.AutoTuneEvidencePreparing : Localization.AutoTuneEvidenceFetching)}"
+                    : $"{Localization.AutoTune}  {Mathf.RoundToInt(pct * 100f)}%";
+                if (DrawJobProgressRow(pct, label))
+                    CancelAutoTune();
             }
         }
 
