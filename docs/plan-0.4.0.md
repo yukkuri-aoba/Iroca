@@ -1010,6 +1010,18 @@ T5 で消える部分は作り直さない（1.5）。
     - **残したこと**: 自動化（MCP の色替え・静的 API）の A6 は、比較画像と変化の数え方（`RecolorPreview`）が管理配列を
       読むので、まだ管理配列のまま。一括書き出しはメインスレッドのまま（進み具合のダイアログで止められる）。
       メモリの実測（MemoryBench の書き出しの山）はまだ。
+  - 2026-10-30（手元）: 自動化（MCP の色替え・静的 API）もヒープの外にした（A6）。作業解像度の原本
+    （`ExportPipeline.ReadWorkingPixelsNative`）・色替えした写し・元の解像度の画素（`ExportService.ReadSource`）・PNG
+    （`TextureIO.EncodePng`・`TextureIO.WriteAllBytes`）。比較画像と変化の数え方（`RecolorPreview`）にポインタ版を足し、
+    画素数の大きさの作業（変化の印・連結成分のスタック）も `NativeBitMask`・`NativeBuffer` に置いた（配列版はポインタ版へ
+    転送する。出力は同じ。ハーネスの `--previewselftest` が見る）。自動調整にも同じ原本を渡すので、写しが要らなくなった。
+    - **決めたこと**: 依頼の原本は依頼が参照を 1 つ持ち、待たずに終わった依頼は `Recolor` の最後、待った依頼は仕上げと
+      取り消しで返す。背景の仕上げは自分の参照を足して読み、終わったら返す（取り消しのトークンは `Task.Run` に渡さない。
+      始まる前に取り消されると中身が走らず、参照を返せない）。受け取らなかった PNG はメインスレッドで手放す。
+    - EditMode の `Recolor_ReturnsItsPixelsOffTheHeap_InEveryMode` が、preview・png・断った依頼・静的 API のどれでも
+      画素（`NativeUsage.Pixels`）が元の量へ戻ることを見る。
+    - **残したこと**: `iroca_inspect`（色の一覧と縮小画像）は、作業解像度の原本を管理配列で 1 枚読むまま（色を数えて
+      縮小画像を作るだけで、写しは作らない。色替えの 3 枚より小さい）。
   - `RegistrationService`
   - 2026-10-30（手元）: `RegistrationService` を `Code/Application/` に作った。使うレシピの選び方（結び付き → 登録先のもの →
     プロジェクトにちょうど 1 つ。自動化はほかのアバターが使うレシピを流用しない）・読めないレシピの判定・登録の計画

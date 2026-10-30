@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Unity.Collections;
 using UnityEditor;
 using UnityEngine;
 
@@ -125,11 +126,7 @@ namespace Iroca
                 if (error != null) return FinishRecolor(job.r, error);
 
                 if (job.req.autoTune && job.changedZoneIds.Count > 0)
-                {
-                    var native = NativePixels.CopyOf(job.work, job.w, job.h);
-                    try { job.tune = new AutomationAutoTune(job.state, job.tex, native, job.changedZoneIds, job.r.warnings); }
-                    finally { native.Release(); }
-                }
+                    job.tune = new AutomationAutoTune(job.state, job.tex, job.work, job.changedZoneIds, job.r.warnings);
                 string done = AdvanceRecolor(job);
                 if (done != null) return done;
 
@@ -146,6 +143,11 @@ namespace Iroca
             {
                 job.Cancel();
                 return FinishRecolor(job.r, $"{ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                // 待たずに終わった(結果・エラーを返した)依頼の原本はここで返す。待つ依頼は仕上げ・取り消しで返す。
+                if (!ReferenceEquals(s_job, job)) job.ReleasePixels();
             }
         }
 
@@ -187,7 +189,8 @@ namespace Iroca
             public double lastPolled;
             public readonly RecolorTextureResult r = new RecolorTextureResult();
             public Texture2D tex;
-            public Color32[] work;
+            // 作業解像度の原本(ヒープの外。参照を 1 つ持ち、仕上げ・取り消しで返す。背景の仕上げは自分の参照を足す)。
+            public NativePixels work;
             public int w, h;
             // 作業解像度で読んだ画素が、書き出しで読む元の解像度の画素と同じか(書き出しで読み直さなくてよいか)。
             public bool workIsFullResolution;
@@ -213,9 +216,27 @@ namespace Iroca
                 tune?.Cancel();
                 tune?.ReleaseAiIfNoWindow();
                 cts.Cancel();
-                // 元の解像度の作業配列は、取り消した計算が返ってプールへ戻った後に手放す。
-                if (export != null && !workIsFullResolution)
-                    export.ContinueWith(_ => PixelProcessor.ReleaseWorkBuffers(), TaskScheduler.Default);
+                if (export != null)
+                {
+                    bool fullResolution = workIsFullResolution;
+                    export.ContinueWith(t =>
+                    {
+                        // 元の解像度の作業配列は、取り消した計算が返ってプールへ戻った後に手放す。
+                        if (!fullResolution) PixelProcessor.ReleaseWorkBuffers();
+                        // 受け取らなかった PNG(ヒープの外)はメインスレッドで手放す(書き込んだ後なら手放し済み)。
+                        if (t.Status == TaskStatus.RanToCompletion)
+                            PreviewJobMainThread.Post(() => t.Result.DisposePng());
+                    }, TaskScheduler.Default);
+                }
+                ReleasePixels();
+            }
+
+            /// <summary>作業解像度の原本を返す(何度呼んでもよい)。</summary>
+            public void ReleasePixels()
+            {
+                var px = work;
+                work = null;
+                px?.Release();
             }
         }
 
@@ -230,6 +251,7 @@ namespace Iroca
                 string done = AdvanceRecolor(job);
                 if (done == null) return;
                 job.finalJson = done;
+                job.ReleasePixels();
             }
             catch (Exception ex)
             {
@@ -321,9 +343,11 @@ namespace Iroca
             r.texture = AssetDatabase.GetAssetPath(tex);
             string abs = PhysicalPath(r.texture);
             if (abs == null) return $"texture file not found: {r.texture}";
-            var kind = ExportPipeline.ReadSourcePixels(abs, tex, out job.work, out job.w, out job.h, workingSize: true);
+            var kind = ExportPipeline.ReadWorkingPixelsNative(abs, tex, out job.work);
             if (kind == ExportPipeline.SourceKind.Unavailable)
                 return "could not read the pixels (enable Read/Write in the import settings, or use a PNG/JPG source).";
+            job.w = job.work.Width;
+            job.h = job.work.Height;
             job.workIsFullResolution = IsFullResolution(kind, tex, job.w, job.h);
 
             // ── png の出力先(自動調整を待つ前に断れるものは断る) ──
@@ -416,7 +440,7 @@ namespace Iroca
             }
             foreach (var change in req.changes ?? new List<ChangeRequest>())
             {
-                string err = ApplyChange(state, change, job.work, job.w, job.h, out var changed);
+                string err = ApplyChange(state, change, job.work, out var changed);
                 if (err != null) return err;
                 if (!job.changedZoneIds.Contains(changed.id)) job.changedZoneIds.Add(changed.id);
             }
@@ -434,7 +458,7 @@ namespace Iroca
             var state = job.state;
             var tex = job.tex;
             foreach (var z in state.zones) if (z != null) z.UpdateCacheIfNeeded();
-            FillResult(job, Compare(job.work, job.w, job.h, state, CancellationToken.None));
+            FillResult(job, Compare(job.work, state, CancellationToken.None, keepAfter: false, out _));
 
             // ── 反映 ──
             if (r.apply == ApplyAvatar)
@@ -525,7 +549,15 @@ namespace Iroca
         private sealed class PngExport
         {
             public Comparison comparison;
-            public byte[] png;
+            // ヒープの外。受け取った側(CompletePngExport・取り消し)が手放す。
+            public NativeArray<byte> png;
+
+            // メインスレッドから呼ぶ。何度呼んでもよい。
+            public void DisposePng()
+            {
+                if (png.IsCreated) png.Dispose();
+                png = default;
+            }
         }
 
         /// <summary>
@@ -533,41 +565,50 @@ namespace Iroca
         /// 読み直す(デコードは Unity の API なのでここで)。比較画像・色替え・PNG 化は背景のスレッドで行う。
         /// 始められなければ理由、始めたら null。
         /// </summary>
-        private static string StartPngExport(RecolorJob job)
+        private static unsafe string StartPngExport(RecolorJob job)
         {
             var state = job.state;
             foreach (var z in state.zones) if (z != null) z.UpdateCacheIfNeeded();
-            Color32[] full = null;
-            int fw = 0, fh = 0;
+            NativePixels full = null;
             if (!job.workIsFullResolution)
             {
+                // 「適用して保存」と同じ読み方(ExportService。PNG/JPG はファイルを直接、ほかは取り込み済みテクスチャ)。
                 string srcAbs = PhysicalPath(job.r.texture);
-                if (srcAbs == null || ExportPipeline.ReadSourcePixels(srcAbs, job.tex, out full, out fw, out fh)
+                if (srcAbs == null || ExportService.ReadSource(srcAbs, job.tex, out full)
                         == ExportPipeline.SourceKind.Unavailable)
                     return "failed to read the source texture at its original resolution.";
             }
-            var work = job.work;
-            int w = job.w, h = job.h;
+            var work = job.work.AddRef();   // 背景の仕上げが読む間の参照
             var ct = job.cts.Token;
+            // 取り消しのトークンは Task.Run に渡さない(始まる前に取り消されると中身が走らず、参照を返せない)。
             job.export = Task.Run(() =>
             {
-                var result = new PngExport { comparison = Compare(work, w, h, state, ct) };
-                if (full == null)
+                NativePixels after = null;
+                try
                 {
+                    ct.ThrowIfCancellationRequested();
                     // 作業解像度の画素が元の解像度の画素そのもの(IsFullResolution)なら、比較画像のために色替えした
                     // 画素が書き出す画素(同じ画素に同じ編集状態で SessionRecolor.Apply)。色替えをもう一度しない。
-                    result.png = ExportPipeline.EncodePng(result.comparison.after, w, h);
+                    var result = new PngExport { comparison = Compare(work, state, ct, keepAfter: full == null, out after) };
+                    if (full == null)
+                        result.png = ExportService.EncodePng(after);
+                    else
+                    {
+                        // 変化の指標は作業解像度で数えてあるので、元の解像度では色替えだけ。
+                        SessionRecolor.Apply(full.Ptr, full.Width, full.Height, state, ct);
+                        ct.ThrowIfCancellationRequested();
+                        result.png = ExportService.EncodePng(full);
+                    }
+                    return result;
                 }
-                else
+                finally
                 {
-                    // 変化の指標は作業解像度で数えてあるので、元の解像度では色替えだけ。
-                    SessionRecolor.Apply(full, fw, fh, state, ct);
-                    ct.ThrowIfCancellationRequested();
-                    result.png = ExportPipeline.EncodePng(full, fw, fh);
+                    // 画素は書き出した後は要らない(8K で 256MB ずつ)。
+                    after?.Release();
+                    full?.Release();
+                    work.Release();
                 }
-                result.comparison.after = null;   // 書き出した後は要らない(8K で 256MB)
-                return result;
-            }, ct);
+            });
             return null;
         }
 
@@ -583,44 +624,71 @@ namespace Iroca
             if (task.IsFaulted)
             {
                 var ex = task.Exception?.GetBaseException();
+                if (ex is OperationCanceledException) return FinishRecolor(r, "the recolor was cancelled.");
                 return FinishRecolor(r, $"{ex?.GetType().Name}: {ex?.Message}");
             }
             var export = task.Result;
-            FillResult(job, export.comparison);
-            // 待つ間に、出力先へ別の書き出しがされていることがある。書く直前にもう一度確かめる(依頼の時点と同じ判定)。
-            string outError = ResolvePngOutput(job.req, r.texture, out string outAbs);
-            if (outError != null) return FinishRecolor(r, outError);
-            WritePngFile(export.png, outAbs);
-            r.output = outAbs;
-            return FinishRecolor(r, null);
+            try
+            {
+                FillResult(job, export.comparison);
+                // 待つ間に、出力先へ別の書き出しがされていることがある。書く直前にもう一度確かめる(依頼の時点と同じ判定)。
+                string outError = ResolvePngOutput(job.req, r.texture, out string outAbs);
+                if (outError != null) return FinishRecolor(r, outError);
+                WritePngFile(export.png, outAbs);
+                r.output = outAbs;
+                return FinishRecolor(r, null);
+            }
+            finally { export.DisposePng(); }
         }
 
         /// <summary>比較画像の材料(作業解像度。登録・プレビューで見えるものと同じ)。</summary>
         private sealed class Comparison
         {
-            public Color32[] after;
             public RecolorPreview.ChangeMetrics metrics;
             public byte[] panelPng;    // 作れなければ null(理由は panelError)
             public string panelError;
         }
 
         // 作業解像度で色替えして、変化の指標と比較画像(PNG)を作る。Unity の API に触らないので背景から呼んでよい。
-        private static Comparison Compare(Color32[] work, int w, int h, IrocaSessionState state, CancellationToken ct)
+        // 色替えした画素はヒープの外に作る。keepAfter なら after に返す(呼ぶ側が Release する)。
+        private static unsafe Comparison Compare(NativePixels work, IrocaSessionState state, CancellationToken ct,
+            bool keepAfter, out NativePixels after)
         {
-            var c = new Comparison { after = (Color32[])work.Clone() };
-            SessionRecolor.Apply(c.after, w, h, state, ct);
-            ct.ThrowIfCancellationRequested();
-            c.metrics = RecolorPreview.ComputeMetrics(work, c.after, w, h);
+            after = null;
+            int w = work.Width, h = work.Height;
+            var recolored = Duplicate(work);
             try
             {
-                var panel = RecolorPreview.BuildComparisonPanel(work, c.after, w, h, RecolorPreview.DefaultMaxTile, out int pw, out int ph);
-                c.panelPng = ExportPipeline.EncodePng(panel, pw, ph);
+                var c = new Comparison();
+                SessionRecolor.Apply(recolored.Ptr, w, h, state, ct);
+                ct.ThrowIfCancellationRequested();
+                c.metrics = RecolorPreview.ComputeMetrics(work.Ptr, recolored.Ptr, w, h);
+                try
+                {
+                    var panel = RecolorPreview.BuildComparisonPanel(work.Ptr, recolored.Ptr, w, h,
+                        RecolorPreview.DefaultMaxTile, out int pw, out int ph);
+                    c.panelPng = ExportPipeline.EncodePng(panel, pw, ph);
+                }
+                catch (Exception ex)
+                {
+                    c.panelError = $"{ex.GetType().Name}: {ex.Message}";
+                }
+                if (keepAfter)
+                {
+                    after = recolored;
+                    recolored = null;
+                }
+                return c;
             }
-            catch (Exception ex)
-            {
-                c.panelError = $"{ex.GetType().Name}: {ex.Message}";
-            }
-            return c;
+            finally { recolored?.Release(); }
+        }
+
+        // 同じ寸法の写し(ヒープの外。参照 1 で返す)。
+        internal static NativePixels Duplicate(NativePixels src)
+        {
+            var copy = NativePixels.Allocate(src.Width, src.Height);
+            copy.CopyFrom(src);
+            return copy;
         }
 
         // 比較の結果(指標・比較画像)とゾーンの一覧を結果へ書く(メインスレッド)。
@@ -725,8 +793,9 @@ namespace Iroca
         }
 
         // 1 件の変更をゾーンにする。エラーなら文言、成功なら null。
-        private static string ApplyChange(IrocaSessionState state, ChangeRequest c, Color32[] work, int w, int h, out ColorZone zone)
+        private static unsafe string ApplyChange(IrocaSessionState state, ChangeRequest c, NativePixels work, out ColorZone zone)
         {
+            int w = work.Width, h = work.Height;
             zone = null;
             if (c == null) return "a change is empty.";
             if (string.IsNullOrWhiteSpace(c.to) || !ColorUtility.TryParseHtmlString(c.to.Trim(), out Color to))
@@ -741,7 +810,7 @@ namespace Iroca
                 uv = new Vector2(c.at[0], c.at[1]);
                 int x = Mathf.Clamp((int)(uv.x * w), 0, w - 1);
                 int y = Mathf.Clamp((int)(uv.y * h), 0, h - 1);
-                var p = work[y * w + x];
+                var p = work.Ptr[y * w + x];
                 if (p.a < PixelProcessor.OpaqueAlphaMin) return $"change '{c.name}': 'at' points at a transparent pixel.";
                 from = new Color(p.r / 255f, p.g / 255f, p.b / 255f, 1f);
             }

@@ -31,8 +31,7 @@
     },
     "Code/Core/RecolorPreview.cs": {
       "new Color32[panelW * panelH]": 1,
-      "new Color32[tw * th]": 2,
-      "new bool[w * h]": 1
+      "new Color32[tw * th]": 2
     },
     "Code/Core/UvChartMap.cs": {
       "new bool[owner.Length]": 1,

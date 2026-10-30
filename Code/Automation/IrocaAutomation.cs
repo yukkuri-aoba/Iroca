@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Unity.Collections;
 using UnityEditor;
 using UnityEngine;
 
@@ -349,13 +350,14 @@ namespace Iroca
 
         /// <summary>
         /// テクスチャ読込 → <see cref="SessionRecolor.Apply"/>（同期）→ PNG 書き出し。
-        /// 全経路がここを通る。原本は製品の書き出しと共有の <see cref="ExportPipeline.ReadSourcePixels"/> を
+        /// 全経路がここを通る。原本は製品の書き出しと共有の <see cref="ExportService.ReadSource"/> を
         /// imported=null で呼んで読む（取り込み済みテクスチャへのフォールバックはしない。PNG/JPG のみ）。
+        /// 画素はヒープの外に置く（色替え前の写しと、色替えした画素。0.4.0 の計画の A6）。
         /// 色替えは非破壊ビルドと同じ入口なので、有効なゾーンだけを並び順のまま、state のマスクを当てて処理する。
         /// 静的 API と batchmode の経路。MCP の <see cref="Recolor"/> は同じ <see cref="SessionRecolor.Apply"/> を
         /// 自分の手順(作業解像度の比較画像・背景での書き出し)で呼ぶ。
         /// </summary>
-        private static RecolorResult RunRecolorCore(
+        private static unsafe RecolorResult RunRecolorCore(
             string sourceAssetPath, IrocaSessionState state,
             string outputAssetPath, List<string> warnings)
         {
@@ -375,32 +377,42 @@ namespace Iroca
 
             // ── ディスクの PNG を直接読む（import 設定/readable に依存せず製品経路と一致させる） ──
             // imported が null なら ExportPipeline のフォールバックは起きず PNG/JPG のみを受け付ける。
-            if (ExportPipeline.ReadSourcePixels(srcAbs, null, out Color32[] pixels, out int w, out int h)
+            if (ExportService.ReadSource(srcAbs, null, out NativePixels pixels)
                     == ExportPipeline.SourceKind.Unavailable)
             { result.error = "failed to decode source image."; return result; }
 
-            // 比較パネル/メトリクス用に、再着色前の画素を退避する(ProcessPixelsArray は in-place 変換)。
-            var originalPixels = (Color32[])pixels.Clone();
+            NativePixels originalPixels = null;
+            try
+            {
+                int w = pixels.Width, h = pixels.Height;
+                // 比較パネル/メトリクス用に、再着色前の画素を退避する(色替えは in-place 変換)。
+                originalPixels = Duplicate(pixels);
 
-            SessionRecolor.Apply(pixels, w, h, state);
+                SessionRecolor.Apply(pixels.Ptr, w, h, state);
 
-            string writeError = WriteRecoloredPng(pixels, w, h, srcAbs, outputAssetPath, out string outAbs);
-            if (writeError != null) { result.error = writeError; return result; }
+                string writeError = WriteRecoloredPng(pixels, srcAbs, outputAssetPath, out string outAbs);
+                if (writeError != null) { result.error = writeError; return result; }
 
-            var m = RecolorPreview.ComputeMetrics(originalPixels, pixels, w, h);
-            result.changedPixels = m.changedPixels;
-            result.changedFraction = m.changedFraction;
-            result.largestComponentFraction = m.largestComponentFraction;
-            result.changeComponentCount = m.componentCount;
-            result.changeBBox = new[] { m.bboxX, m.bboxY, m.bboxW, m.bboxH };
-            WritePreviewPanel(originalPixels, pixels, w, h, outAbs, srcAbs, result);
+                var m = RecolorPreview.ComputeMetrics(originalPixels.Ptr, pixels.Ptr, w, h);
+                result.changedPixels = m.changedPixels;
+                result.changedFraction = m.changedFraction;
+                result.largestComponentFraction = m.largestComponentFraction;
+                result.changeComponentCount = m.componentCount;
+                result.changeBBox = new[] { m.bboxX, m.bboxY, m.bboxW, m.bboxH };
+                WritePreviewPanel(originalPixels, pixels, outAbs, srcAbs, result);
 
-            result.ok = true;
-            result.output = outAbs;
-            result.width = w;
-            result.height = h;
-            result.zonesApplied = enabledCount;
-            return result;
+                result.ok = true;
+                result.output = outAbs;
+                result.width = w;
+                result.height = h;
+                result.zonesApplied = enabledCount;
+                return result;
+            }
+            finally
+            {
+                originalPixels?.Release();
+                pixels.Release();
+            }
         }
 
         /// <summary>
@@ -408,8 +420,8 @@ namespace Iroca
         /// 生成できたら <see cref="RecolorResult.preview"/> とエージェント向け <see cref="RecolorResult.note"/> を設定。
         /// 失敗は非致命(本体出力は成功のまま)で warnings に残す。
         /// </summary>
-        private static void WritePreviewPanel(
-            Color32[] before, Color32[] after, int w, int h, string outAbs, string srcAbs, RecolorResult result)
+        private static unsafe void WritePreviewPanel(
+            NativePixels before, NativePixels after, string outAbs, string srcAbs, RecolorResult result)
         {
             // 比較パネルの行き先は outAbs から機械的に導く(&lt;stem&gt;_preview.png)ため、
             // 本体出力が原本と別でも、パネルだけが原本を指すことがある
@@ -428,7 +440,7 @@ namespace Iroca
             try
             {
                 var panel = RecolorPreview.BuildComparisonPanel(
-                    before, after, w, h, RecolorPreview.DefaultMaxTile, out int pw, out int ph);
+                    before.Ptr, after.Ptr, before.Width, before.Height, RecolorPreview.DefaultMaxTile, out int pw, out int ph);
                 if (!TryWritePng(panel, pw, ph, previewAbs)) { result.warnings.Add("preview panel PNG encode failed."); return; }
 
                 result.preview = previewAbs;
@@ -447,7 +459,7 @@ namespace Iroca
         /// 色替えした画素を出力先へ書く(出力先の確かめ → PNG → 取り込み)。エラーなら文言、成功なら null。
         /// <paramref name="srcAbs"/> は原本の絶対パス(出力が原本を上書きしないことを確かめる)。
         /// </summary>
-        private static string WriteRecoloredPng(Color32[] pixels, int w, int h, string srcAbs, string outputAssetPath,
+        private static string WriteRecoloredPng(NativePixels pixels, string srcAbs, string outputAssetPath,
             out string outAbs)
         {
             outAbs = ResolveOutputPath(outputAssetPath);
@@ -459,7 +471,7 @@ namespace Iroca
             if (string.Equals(outAbs, srcAbs, StringComparison.OrdinalIgnoreCase))
                 return "output must differ from source "
                      + $"(recoloring in place would destroy the original irreversibly): {outputAssetPath}";
-            if (!TryWritePng(pixels, w, h, outAbs)) return "PNG encode failed.";
+            if (!TryWritePng(pixels, outAbs)) return "PNG encode failed.";
             return null;
         }
 
@@ -476,6 +488,31 @@ namespace Iroca
             catch (Exception) { return false; }
             WritePngFile(png, abs);
             return true;
+        }
+
+        /// <summary>
+        /// <see cref="TryWritePng(Color32[],int,int,string)"/> のヒープの外の版(色替えした画素。PNG もヒープの外に作り、
+        /// 書いたら手放す。バイト列は同じ)。
+        /// </summary>
+        private static bool TryWritePng(NativePixels pixels, string abs)
+        {
+            NativeArray<byte> png;
+            try { png = TextureIO.EncodePng(pixels); }
+            catch (Exception) { return false; }
+            try { WritePngFile(png, abs); }
+            finally { png.Dispose(); }
+            return true;
+        }
+
+        /// <summary>
+        /// ヒープの外の PNG を <paramref name="abs"/> へ書き、Assets 配下なら取り込む(メインスレッド)。書き方は
+        /// <see cref="WritePngFile(byte[],string)"/> と同じ(フォルダを作る・一時ファイルへ書き切ってから置き換える)。
+        /// </summary>
+        private static void WritePngFile(NativeArray<byte> png, string abs)
+        {
+            TextureIO.WriteAllBytes(abs, png);
+            string rel = PathUtils.ToAssetsRelativeOrNull(abs);
+            if (rel != null) AssetDatabase.ImportAsset(rel);
         }
 
         /// <summary>PNG のバイト列を <paramref name="abs"/> へ書き、Assets 配下なら取り込む(メインスレッド)。</summary>

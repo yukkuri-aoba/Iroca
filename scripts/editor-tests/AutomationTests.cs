@@ -232,6 +232,23 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void Recolor_ReturnsItsPixelsOffTheHeap_InEveryMode()
+        {
+            // 色替えの画素(作業解像度の原本・色替えした写し・元の解像度の画素)はヒープの外に置き、終わったら返す
+            // (0.4.0 の計画の A6。管理配列だと 8K で 1GB 近くが Mono のヒープを広げたまま残った)。
+            string src = Halves();
+            long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels);
+            RecolorOk(Request(src, "preview", "[{\"name\":\"red\",\"at\":[0.25,0.5],\"to\":\"#1A2B5C\"}]"));
+            Assert.AreEqual(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels), "preview");
+            RecolorOk(Request(src, "png", "[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]"));
+            Assert.AreEqual(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels), "png");
+            RecolorFails(Request(src, "png", "[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]"), "already exists");
+            Assert.AreEqual(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels), "断った依頼");
+            Run(RedToBlue(out _), out _);
+            Assert.AreEqual(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels), "静的 API");
+        }
+
+        [Test]
         public void Recolor_Png_ShrunkOnImport_WritesTheOriginalResolutionInTheBackground()
         {
             // png の仕上げは途中経過を返し、元の解像度の色替えと PNG 化は背景で進める(大きいテクスチャで MCP の
