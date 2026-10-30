@@ -625,6 +625,8 @@ Mono 上の出力は検証できない。`scripts/editor-tests/`（`Iroca.Editor
 | `PerfBenchTests` | Unity の Mono での再着色の速さ（`Perf` カテゴリ。品質は見ない）。`Run-EditorTests.ps1 -PerfCases <json>` のときだけ回り、ふだんは Ignore |
 | `MemoryBenchTests` | プレビュー相当の処理を繰り返したときの Mono ヒープとプロセスのメモリと、最後にプール・キャッシュを手放して OS へ返るか（`Memory` カテゴリ）。`-MemCases <json>` のときだけ回る（1 回の起動に 1 ケース） |
 | `HiResSmokeTests` | 8K・16K のテクスチャを製品の経路（取り込み〜色替え〜PNG の書き出しと読み戻し・NDMF の差し替えテクスチャなど）に 1 回ずつ通し、各段の時間とメモリを記録する（`HiRes` カテゴリ。品質は見ない）。`-HiResCases <json>` のときだけ回る（GPU の段は `-Graphics`。16K は 20GB 前後使う） |
+| `WindowUndoTests`・`MaskHistoryTests` | Undo/Redo で戻るのが編集内容だけなこと（ズーム・開閉は戻らない）、いま直しているゾーンを指し続けること、文書にマスクの文字列が入らないこと、マスクの履歴（版へ戻す・層の共有・やり直しの分と上限で手放す・退避の往復・壊れたファイルは読まない） |
+| `UndoReloadScenario`（テストではなく台本） | 再読み込み・Play をまたいだ編集と Undo。Unity 2022.3 はスクリプトのオブジェクトの Undo を再読み込みで捨て、Unity 6 は残す。テストランナーの中と batchmode の 2022.3 では履歴が全部空になるので、ランナーなし・画面あり（最小化）の台本にした。`-UndoReload` で回す。**Undo や保存の形を変えたら 2022.3 と Unity 6 の両方のホストで回す**（2 分ほど） |
 
 ```powershell
 .\scripts\Link-HostPackage.ps1 -HostProject <ホスト> -WithEditorTests   # 1 回だけ
