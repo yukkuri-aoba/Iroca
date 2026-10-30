@@ -75,6 +75,16 @@ namespace Iroca
             Undo.RegisterCompleteObjectUndo(Document, undoName);
         }
 
+        /// <summary>
+        /// 開いた後(ドメインリロードの後も)に呼ぶ。今の版が履歴にあれば(再読み込みの前の履歴を読み戻した)それが今のマスクで、
+        /// 無ければ今のマスクを新しい版にする。
+        /// </summary>
+        internal void AdoptMasksAfterEnable()
+        {
+            if (MaskHistory.Contains(Document.maskRevision)) _appliedMaskRevision = Document.maskRevision;
+            else CommitMaskEdit();
+        }
+
         /// <summary>今のマスクを新しい版にして、文書の番号を進める。読み込みなど、マスクを置き換えたときも呼ぶ。</summary>
         internal void CommitMaskEdit()
         {

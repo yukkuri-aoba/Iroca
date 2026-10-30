@@ -111,7 +111,7 @@ partial のまま置いた）、`Pipeline/`（入口の `PixelProcessor.cs`・�
 | `EditingSession` | 編集中の文書。文書の中身（`IrocaEditingDocument`）を包み、原本の画素（`SourcePixelCache`）・編集中のマスク（`MaskWorkspace`）・マスクの履歴（`MaskHistory`）の持ち主、ゾーンの操作（追加・削除・並べ替え・スポイト・起点・調整のリセット）、編集の通知 `Changed`（`Content`・`Masks`・`Replaced`。ウィンドウがプレビューと重ね表示へ回し、自動保存の予定 `AutosaveSchedule` は直接購読する）。保存に渡す編集状態は `ToSaveState()` が作る。新しいゾーンの規則（名前の番号・初期の許容範囲）は自動化もここを使う |
 | `IrocaEditingDocument` | 文書の中身（ゾーン・設定・テクスチャ・レシピ・マスクの版の番号）。`HideAndDontSave` の ScriptableObject で、**Undo の対象はこれ**（ウィンドウではないので、ズーム・開閉などの表示の状態は巻き戻らない）。ウィンドウの `sourceTexture`・`_session`・`_boundRecipe` は保存の控えで、保存の直前に文書を指し直すだけ（6 章。`test_window_document_mirror`） |
 | `MaskWorkspace` | 編集中のマスク（1 画素 1 ビットのヒープの外のマスク）。層は参照の数で共有し（重ね表示のワーカー）、書く前に写す。保存形式との変換・スナップショットは bool[] の経路と同じ結果。持ち主は `EditingSession`（4-2 の 7）で、ブラシ・範囲の操作はマスクの編集（`MaskPaintView`）が書く |
-| `MaskHistory` | マスクの履歴。Undo に載るのは文書の版の番号だけで、中身はここがヒープの外に RLE で持つ。マスクを書き換える操作は `EditingSession.RecordMaskEdit` → 書き換え → `CommitMaskEdit` の順にする（記録を飛ばすと Undo で戻らない）。変わっていない層は前の版と共有する。Unity は再読み込みでスクリプトのオブジェクトの Undo を捨てるので、履歴も再読み込みで消えてよい（退避しない。`UndoReloadScenario`） |
+| `MaskHistory` | マスクの履歴。Undo に載るのは文書の版の番号だけで、中身はここがヒープの外に RLE で持つ。マスクを書き換える操作は `EditingSession.RecordMaskEdit` → 書き換え → `CommitMaskEdit` の順にする（記録を飛ばすと Undo で戻らない）。変わっていない層は前の版と共有する。再読み込みで Undo の記録が残るかは Unity の版で違う（2022.3 は捨て、Unity 6 は残す）ので、履歴はファイルへ退避して読み戻す（`UndoReloadScenario` を両方の版で回す） |
 | `SessionPersistence` | 復元の優先順（レシピ → セッションのファイル → 既定）・自動保存・外での書き換えの検出。今（4-2 の 5）は読み書きと判断だけで、編集状態の差し替え・Undo・マスクの同期はウィンドウ。自動保存の予定は `AutosaveSchedule`（4-2 の 8） |
 | `EditingSessionRegistry` | 開いている編集の一覧。ウィンドウを型で探す（`FindObjectsOfTypeAll<IrocaWindow>`）代わり。Infra の非破壊ビルドと更新の確認も使うので Infra に置いた（4-2） |
 | `SourcePixelCache` | 作業解像度の原本（参照の数で貸す） |

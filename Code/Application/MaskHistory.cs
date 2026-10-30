@@ -2,6 +2,7 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.Collections.Generic;
+using System.IO;
 
 namespace Iroca
 {
@@ -10,8 +11,10 @@ namespace Iroca
     /// だけで、マスクの中身はここがヒープの外に RLE で持つ。以前は全層の Base64 の文字列を、ストロークのたびに Mono のヒープで
     /// 作り直して文書ごと Undo に記録し、スライダーの Undo でも読み直していた。
     /// <para>
-    /// 変わっていない層は前の版と同じ塊を共有するので、1 ストロークで増えるのは塗った層の分だけ。Unity は再読み込みのときに文書の
-    /// Undo を捨てるので(<c>UndoReloadScenario</c>)、ここも再読み込みで消えてよい。メインスレッド専用。
+    /// 変わっていない層は前の版と同じ塊を共有するので、1 ストロークで増えるのは塗った層の分だけ。
+    /// 再読み込み(Play の前後も)で Undo の記録が残るかは Unity の版で違う(2022.3 は文書の記録を捨て、Unity 6 は残す。
+    /// <c>UndoReloadScenario</c> で確かめた)。残る版でも戻せるよう、再読み込みの前にファイルへ退避して読み戻す
+    /// (<see cref="SaveTo"/> / <see cref="LoadFrom"/>)。メインスレッド専用。
     /// </para>
     /// </summary>
     internal sealed class MaskHistory
@@ -36,6 +39,11 @@ namespace Iroca
             public int Width, Height;
             public readonly List<Entry> Entries = new List<Entry>();   // 並びは層を足した順(共通・除外・含める)
         }
+
+        // 退避のファイルの見出し(同じエディタの中で書いて読むだけなので、形を変えたら版を上げて読まない)。
+        private const int SpillMagic = 0x53484D49;   // "IMHS"
+        private const int SpillFormat = 1;
+        private const int SpillChunkBytes = 64 * 1024;
 
         private readonly List<Version> _versions = new List<Version>();   // 番号の昇順
         private readonly long _maxBytes;
@@ -136,6 +144,143 @@ namespace Iroca
         {
             foreach (var v in _versions) Drop(v);
             _versions.Clear();
+            _bytes = 0;
+        }
+
+        // ─────────────── 再読み込みをまたぐ ───────────────
+
+        /// <summary>
+        /// 履歴をファイルへ書く(再読み込みの直前)。共有している塊は 1 回だけ書く。書けなければ投げる(呼び出し側がファイルを消す)。
+        /// </summary>
+        public unsafe void SaveTo(string path)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            var blobs = new List<NativeBuffer>();
+            var indexOf = new Dictionary<NativeBuffer, int>();
+            foreach (var v in _versions)
+                foreach (var e in v.Entries)
+                    if (!indexOf.ContainsKey(e.Rle))
+                    {
+                        indexOf[e.Rle] = blobs.Count;
+                        blobs.Add(e.Rle);
+                    }
+
+            using (var w = new BinaryWriter(new FileStream(path, FileMode.Create, FileAccess.Write)))
+            {
+                w.Write(SpillMagic);
+                w.Write(SpillFormat);
+                w.Write(_lastRevision);
+                w.Write(blobs.Count);
+                var chunk = new byte[SpillChunkBytes];
+                foreach (var blob in blobs)
+                {
+                    w.Write(blob.Bytes);
+                    for (long off = 0; off < blob.Bytes; off += chunk.Length)
+                    {
+                        int n = (int)Math.Min(chunk.Length, blob.Bytes - off);
+                        System.Runtime.InteropServices.Marshal.Copy((IntPtr)((byte*)blob.Ptr + off), chunk, 0, n);
+                        w.Write(chunk, 0, n);
+                    }
+                }
+                w.Write(_versions.Count);
+                foreach (var v in _versions)
+                {
+                    w.Write(v.Revision);
+                    w.Write(v.Width);
+                    w.Write(v.Height);
+                    w.Write(v.Entries.Count);
+                    foreach (var e in v.Entries)
+                    {
+                        w.Write(e.ZoneId ?? "");
+                        w.Write(e.Include);
+                        w.Write(indexOf[e.Rle]);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 履歴を <see cref="SaveTo"/> のファイルで置き換える。読めなければ false で、履歴は空になる(戻せないことはそこへ Undo した
+        /// ときに知らせる)。中身は確かめてから持つ(壊れたラン列を展開すると範囲の外へ書く)。
+        /// </summary>
+        public unsafe bool LoadFrom(string path)
+        {
+            Clear();
+            var blobs = new List<NativeBuffer>();
+            bool ok = false;
+            try
+            {
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read))
+                using (var r = new BinaryReader(fs))
+                {
+                    if (r.ReadInt32() != SpillMagic || r.ReadInt32() != SpillFormat) return false;
+                    _lastRevision = r.ReadInt64();
+                    int blobCount = r.ReadInt32();
+                    var chunk = new byte[SpillChunkBytes];
+                    for (int i = 0; i < blobCount; i++)
+                    {
+                        long bytes = r.ReadInt64();
+                        if (bytes <= 0 || bytes > fs.Length - fs.Position) return false;
+                        var blob = new NativeBuffer(bytes, NativeUsage.Mask);
+                        blobs.Add(blob);
+                        for (long off = 0; off < bytes; off += chunk.Length)
+                        {
+                            int n = (int)Math.Min(chunk.Length, bytes - off);
+                            if (r.Read(chunk, 0, n) != n) return false;
+                            System.Runtime.InteropServices.Marshal.Copy(chunk, 0, (IntPtr)((byte*)blob.Ptr + off), n);
+                        }
+                        if (!IsValidRle(blob)) return false;
+                    }
+                    int versionCount = r.ReadInt32();
+                    for (int i = 0; i < versionCount; i++)
+                    {
+                        var v = new Version { Revision = r.ReadInt64(), Width = r.ReadInt32(), Height = r.ReadInt32() };
+                        _versions.Add(v);
+                        int entries = r.ReadInt32();
+                        for (int k = 0; k < entries; k++)
+                        {
+                            string zoneId = r.ReadString();
+                            bool include = r.ReadBoolean();
+                            int index = r.ReadInt32();
+                            if (index < 0 || index >= blobs.Count) return false;
+                            v.Entries.Add(new Entry { ZoneId = zoneId.Length > 0 ? zoneId : null, Include = include, Rle = blobs[index].AddRef() });
+                        }
+                    }
+                }
+                foreach (var blob in blobs)
+                    if (blob.RefCount > 1) _bytes += blob.Bytes;
+                ok = true;
+                return true;
+            }
+            catch (Exception e) when (e is IOException || e is UnauthorizedAccessException || e is OverflowException
+                                      || e is OutOfMemoryException || e is ArgumentException || e is FormatException)
+            {
+                return false;
+            }
+            finally
+            {
+                // 版が持っていない塊はここで手放す。読めなかったら版ごと手放す。
+                foreach (var blob in blobs) blob.Release();
+                if (!ok) Clear();
+            }
+        }
+
+        // ヘッダとラン列の形(長さ・寸法の範囲・ランの合計が全画素)を確かめる。
+        private static unsafe bool IsValidRle(NativeBuffer rle)
+        {
+            long bytes = rle.Bytes;
+            if (bytes < 13 || (bytes - 9) % 4 != 0) return false;
+            byte* b = (byte*)rle.Ptr;
+            int w = *(int*)b, h = *(int*)(b + 4);
+            if (w <= 0 || h <= 0 || w > MaskRle.MaxSide || h > MaskRle.MaxSide) return false;
+            uint* run = (uint*)(b + 9);
+            long runs = (bytes - 9) / 4, covered = 0;
+            for (long i = 0; i < runs; i++)
+            {
+                if (run[i] == 0) return false;
+                covered += run[i];
+            }
+            return covered == (long)w * h;
         }
 
         private void Drop(Version version)

@@ -1,5 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System.IO;
 using UnityEngine;
 
 namespace Iroca
@@ -49,6 +50,41 @@ namespace Iroca
             if (_document == null) return;
             UnityEditor.Undo.ClearUndo(_document);
             DestroyImmediate(_document);
+        }
+
+        // ─────────────── マスクの履歴の退避 ───────────────
+        // ヒープの外の履歴は再読み込みで消えるが、Unity 6 では文書の Undo の記録は残るので(2022.3 は捨てる。UndoReloadScenario)、
+        // 再読み込みの前にファイルへ退避して読み戻す。読めなければマスクはファイルの最新のままで、前の版へ Undo したときに知らせる。
+
+        private string MaskHistorySpillPath =>
+            Path.Combine(Path.GetDirectoryName(Application.dataPath), "Library", "Iroca", "MaskHistory", GetInstanceID() + ".bin");
+
+        private void SpillMaskHistoryBeforeReload()
+        {
+            if (_editing == null) return;
+            string path = MaskHistorySpillPath;
+            try { _editing.MaskHistory.SaveTo(path); }
+            catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException)
+            {
+                Debug.LogWarning($"[Iroca] Mask undo history could not be kept across the reload: {e.Message}");
+                DeleteSpill(path);
+            }
+        }
+
+        // 退避のファイルは読んだら消す。エディタの起動後の最初の有効化なら、落ちたときの残りなので読まない。
+        private void RestoreMaskHistoryAfterReload(bool firstSinceEditorStart)
+        {
+            string path = MaskHistorySpillPath;
+            if (!File.Exists(path)) return;
+            if (!firstSinceEditorStart && !Editing.MaskHistory.LoadFrom(path))
+                Debug.LogWarning("[Iroca] Mask undo history from before the reload could not be read.");
+            DeleteSpill(path);
+        }
+
+        private static void DeleteSpill(string path)
+        {
+            try { File.Delete(path); }
+            catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException) { }
         }
 
         // 読み込みスレッドから呼ばれることがあるので Unity の API を使わない(参照を指し直すだけ。文書が破棄された後でも読める)。

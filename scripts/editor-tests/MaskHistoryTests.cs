@@ -1,13 +1,16 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System;
 using System.Collections.Generic;
+using System.IO;
 using NUnit.Framework;
 
 namespace Iroca.EditorTests
 {
     /// <summary>
     /// 編集中のマスクの履歴(<see cref="MaskHistory"/>)。版へ戻すと同じ中身になること、変わらない層は共有して量が増えないこと、
-    /// やり直しの分を手放すこと、上限で古い版を手放すこと、持っているものを全部返すこと。
+    /// やり直しの分を手放すこと、上限で古い版を手放すこと、ファイルへ退避して読み戻せること(壊れたファイルは読まない)、
+    /// 持っているものを全部返すこと。
     /// </summary>
     public class MaskHistoryTests
     {
@@ -175,6 +178,127 @@ namespace Iroca.EditorTests
                 Assert.Greater(next, v);
                 v = next;
             }
+        }
+
+        private string SpillFile() => Path.Combine(Path.GetTempPath(), "iroca-mask-history-" + Guid.NewGuid().ToString("N") + ".bin");
+
+        [Test]
+        public void Spill_RoundTripsEveryVersionAndKeepsSharing()
+        {
+            string path = SpillFile();
+            try
+            {
+                long v0 = Commit(0);
+                _masks.WritableCommon().Set(3, true);
+                _masks.WritableLayer(false, "z").Set(4, true);
+                long v1 = Commit(v0);
+                _masks.WritableLayer(true, "z").Set(5, true);
+                long v2 = Commit(v1);
+                long bytes = _history.Bytes;
+                _history.SaveTo(path);
+
+                var loaded = new MaskHistory();
+                try
+                {
+                    Assert.IsTrue(loaded.LoadFrom(path));
+                    Assert.AreEqual(3, loaded.Count);
+                    Assert.AreEqual(bytes, loaded.Bytes, "共有していた塊は共有のまま");
+
+                    var restored = new MaskWorkspace();
+                    try
+                    {
+                        Assert.IsTrue(loaded.TryRestore(v1, restored));
+                        Assert.AreEqual((W, H), (restored.Width, restored.Height));
+                        CollectionAssert.AreEqual(new[] { 3 }, Pixels(restored.Common));
+                        CollectionAssert.AreEqual(new[] { 4 }, Pixels(restored.Layer(false, "z")));
+                        Assert.IsNull(restored.Layer(true, "z"));
+                        Assert.IsTrue(loaded.TryRestore(v2, restored));
+                        CollectionAssert.AreEqual(new[] { 5 }, Pixels(restored.Layer(true, "z")));
+                        Assert.IsTrue(loaded.TryRestore(v0, restored));
+                        Assert.IsFalse(restored.HasLayers);
+                    }
+                    finally { restored.Clear(); }
+
+                    Assert.Greater(loaded.Capture(_masks, v2), v2, "読み戻した後の番号も前と重ならない");
+                }
+                finally { loaded.Clear(); }
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Test]
+        public void Spill_EmptyHistoryRoundTrips()
+        {
+            string path = SpillFile();
+            try
+            {
+                _history.SaveTo(path);
+                var loaded = new MaskHistory();
+                Assert.IsTrue(loaded.LoadFrom(path));
+                Assert.AreEqual(0, loaded.Count);
+            }
+            finally { File.Delete(path); }
+        }
+
+        [Test]
+        public void Spill_MissingFileLeavesItEmpty()
+        {
+            Commit(0);
+            Assert.IsFalse(_history.LoadFrom(SpillFile()));
+            Assert.AreEqual(0, _history.Count);
+            Assert.AreEqual(0, _history.Bytes);
+        }
+
+        [Test]
+        public void Spill_BrokenFilesAreNotRead()
+        {
+            string path = SpillFile();
+            try
+            {
+                _masks.WritableCommon().Set(3, true);
+                _masks.WritableLayer(false, "z").Set(4, true);
+                long v0 = Commit(0);
+                _masks.WritableCommon().Set(5, true);
+                Commit(v0);
+                _history.SaveTo(path);
+                byte[] good = File.ReadAllBytes(path);
+
+                void AssertUnreadable(byte[] bytes, string why)
+                {
+                    File.WriteAllBytes(path, bytes);
+                    var h = new MaskHistory();
+                    Assert.IsFalse(h.LoadFrom(path), why);
+                    Assert.AreEqual(0, h.Count, why);
+                    Assert.AreEqual(0, h.Bytes, why);
+                }
+
+                // 途中で切れたファイル(書いている途中で落ちた)。どこで切れても読まない。
+                for (int len = 0; len < good.Length; len += Math.Max(1, good.Length / 40))
+                {
+                    var cut = new byte[len];
+                    Array.Copy(good, cut, len);
+                    AssertUnreadable(cut, $"{len} バイトで切れた");
+                }
+
+                var badMagic = (byte[])good.Clone();
+                badMagic[0] ^= 0xFF;
+                AssertUnreadable(badMagic, "見出しが違う");
+
+                var badFormat = (byte[])good.Clone();
+                badFormat[4] ^= 0xFF;
+                AssertUnreadable(badFormat, "形の版が違う");
+
+                // 最初の塊のラン列を壊す(見出し 4+4+8+4 の次に塊の長さ 8、その次が RLE。ヘッダ 9 バイトの次の最初のラン)。
+                // 合計が全画素にならないラン列を展開すると範囲の外へ書くので、読む前に止める。
+                var badRun = (byte[])good.Clone();
+                badRun[20 + 8 + 9] ^= 0x7F;
+                AssertUnreadable(badRun, "ランの合計が合わない");
+
+                var badSize = (byte[])good.Clone();
+                badSize[20 + 8] ^= 0x7F;
+                AssertUnreadable(badSize, "寸法が合わない");
+            }
+            finally { File.Delete(path); }
         }
 
         [Test]

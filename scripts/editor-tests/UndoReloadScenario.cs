@@ -10,19 +10,27 @@ namespace Iroca.EditorTests
 {
     /// <summary>
     /// スクリプトの再読み込み・Play をまたいだときの編集と Undo の確認。
-    /// Unity は再読み込みのときに、スクリプトのオブジェクト(ウィンドウ・ScriptableObject)を対象にした Undo を捨てる
-    /// (シーンの物の Undo だけが残る。2026-10-30 に実験で確かめた)。なので、それより前のいろかの編集は Ctrl+Z で戻せない。
-    /// ここで見るのは、編集内容(マスク・ゾーン)が失われないこと、空振りの Ctrl+Z で何も変わらないこと、再読み込みの後の
-    /// 編集は普通に取り消せること。Unity の振る舞いが変わって履歴が残るようになったら、ここが落ちて分かる。
-    /// テストランナーの中と batchmode では、シーンの物の Undo も含めて履歴が空になるので、[UnityTest] では見られない。
-    /// そこでランナーを使わずに、再読み込みのたびに続きから進む台本にした。環境変数 IROCA_UNDO_RELOAD_REPORT があるときだけ
-    /// 動く(<c>Run-EditorTests.ps1 -UndoReload</c>)。結果は 1 行ずつ報告のファイルへ書き、失敗の数を終了コードにする。
+    /// 再読み込みで Undo の記録が残るかは Unity の版で違う(2026-10-30 に実験で確かめた)。2022.3 はスクリプトのオブジェクト
+    /// (ウィンドウ・ScriptableObject)を対象にした記録を捨て、シーンの物の記録だけを残す。Unity 6 は残す。
+    /// ここで見るのは、編集内容(マスク・ゾーン)が失われないこと、記録が残る版では前の編集をマスクごと戻せること(ヒープの外の
+    /// 履歴はファイルへ退避して読み戻す)、捨てる版では空振りの Ctrl+Z で何も変わらないこと、再読み込みの後の編集は取り消せること。
+    /// 版の振る舞いが想定と違ったら、ここが落ちて分かる。
+    /// テストランナーの中と batchmode では 2022.3 だと履歴が全部空になるので、[UnityTest] では見られない。そこでランナーを使わずに、
+    /// 再読み込みのたびに続きから進む台本にした。環境変数 IROCA_UNDO_RELOAD_REPORT があるときだけ動く
+    /// (<c>Run-EditorTests.ps1 -UndoReload</c>)。結果は 1 行ずつ報告のファイルへ書き、失敗の数を終了コードにする。
     /// </summary>
     [InitializeOnLoad]
     internal static class UndoReloadScenario
     {
         private const string Key = "Iroca.Tests.UndoReload.";
         private const int W = 4, H = 4;
+
+        // この版の Unity は、再読み込みをまたいで文書の Undo の記録を残すか。
+#if UNITY_6000_0_OR_NEWER
+        private const bool KeepsUndoAcrossReload = true;
+#else
+        private const bool KeepsUndoAcrossReload = false;
+#endif
 
         private static string Report => Environment.GetEnvironmentVariable("IROCA_UNDO_RELOAD_REPORT");
 
@@ -195,11 +203,34 @@ namespace Iroca.EditorTests
             Check(Win.UndoTarget.GetInstanceID() == SessionState.GetInt(Key + "doc", 0), "文書も同じものが残る");
             CheckCommon("再読み込みの後", 1, 2);
             CheckZones("再読み込みの後", 1);
+            Check(!File.Exists(SpillPath()), "退避のファイルは読んだら消す");
 
-            Check(UndoRecords().Count == 0, "Unity が再読み込みの前の編集の Undo を捨てている");
-            Undo.PerformUndo();
-            CheckCommon("空振りの Ctrl+Z", 1, 2);
-            CheckZones("空振りの Ctrl+Z", 1);
+#pragma warning disable CS0162 // 版で片方だけ通る
+            if (KeepsUndoAcrossReload)
+            {
+                Check(UndoRecords().Count == 3, "再読み込みの前の編集の Undo が残っている");
+                Undo.PerformUndo();
+                CheckCommon("ストロークを戻す", 1);
+                CheckZones("ストロークを戻す", 1);
+                Undo.PerformUndo();
+                CheckCommon("ゾーンの追加を戻す", 1);
+                CheckZones("ゾーンの追加を戻す", 0);
+                Undo.PerformUndo();
+                CheckCommon("最初のストロークを戻す");
+                Undo.PerformRedo();
+                Undo.PerformRedo();
+                Undo.PerformRedo();
+                CheckCommon("やり直す", 1, 2);
+                CheckZones("やり直す", 1);
+            }
+            else
+            {
+                Check(UndoRecords().Count == 0, "Unity が再読み込みの前の編集の Undo を捨てている");
+                Undo.PerformUndo();
+                CheckCommon("空振りの Ctrl+Z", 1, 2);
+                CheckZones("空振りの Ctrl+Z", 1);
+            }
+#pragma warning restore CS0162
 
             Stroke(3);
             CheckCommon("再読み込みの後のストローク", 1, 2, 3);
@@ -214,10 +245,23 @@ namespace Iroca.EditorTests
             EditorApplication.update += WaitAndRun;
         }
 
+        private static string SpillPath() =>
+            Path.Combine(Path.GetDirectoryName(Application.dataPath), "Library", "Iroca", "MaskHistory",
+                SessionState.GetInt(Key + "win", 0) + ".bin");
+
         private static void InPlayMode()
         {
             CheckCommon("Play を始めた後", 1, 2);
             CheckZones("Play を始めた後", 1);
+#pragma warning disable CS0162
+            if (KeepsUndoAcrossReload)
+            {
+                Undo.PerformUndo();
+                CheckCommon("Play 中に、始める前の編集を戻す", 1);
+                Undo.PerformRedo();
+                CheckCommon("Play 中に、始める前の編集をやり直す", 1, 2);
+            }
+#pragma warning restore CS0162
             Stroke(4);
             CheckCommon("Play 中のストローク", 1, 2, 4);
             Undo.PerformUndo();
@@ -234,6 +278,15 @@ namespace Iroca.EditorTests
         {
             CheckCommon("Play を止めた後", 1, 2, 4);
             CheckZones("Play を止めた後", 1);
+#pragma warning disable CS0162
+            if (KeepsUndoAcrossReload)
+            {
+                Undo.PerformUndo();
+                CheckCommon("Play を止めた後に、Play 中の編集を戻す", 1, 2);
+                Undo.PerformRedo();
+                CheckCommon("Play を止めた後に、Play 中の編集をやり直す", 1, 2, 4);
+            }
+#pragma warning restore CS0162
             Stroke(5);
             Undo.PerformUndo();
             CheckCommon("Play を止めた後に戻す", 1, 2, 4);

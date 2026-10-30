@@ -329,6 +329,7 @@ namespace Iroca
             // ドメインリロードでは直前の OnDisable で保存したメモリ上の状態をそのまま使い、マスクバッファの
             // 再展開だけ行う。
             bool firstSinceEditorStart = MarkEnabledSinceEditorStart();
+            RestoreMaskHistoryAfterReload(firstSinceEditorStart);
             if (SourceTexture == null || firstSinceEditorStart)
             {
                 // 前回のテクスチャを解決できなければ、今のテクスチャ（レイアウトのもの）のまま読む。
@@ -338,7 +339,7 @@ namespace Iroca
             else
                 _maskView.RestoreFromSession();
             // 今のマスクを Undo の履歴の起点にする。
-            Editing.CommitMaskEdit();
+            Editing.AdoptMasksAfterEnable();
 
             // Play を始めたときのドメインリロードの直後は、原本の読み直しと色替えの計算し直しを、ウィンドウが
             // 操作されるまで待つ(PreviewView.SourceLoadDeferred)。Play 中以外は今までどおりすぐ読む。
@@ -349,6 +350,8 @@ namespace Iroca
             // 二重購読を避けるため一度外してから登録する（PreviewJobMainThread.Install と同じ防御）。
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
             Undo.undoRedoPerformed += OnUndoRedoPerformed;
+            AssemblyReloadEvents.beforeAssemblyReload -= SpillMaskHistoryBeforeReload;
+            AssemblyReloadEvents.beforeAssemblyReload += SpillMaskHistoryBeforeReload;
             // 非破壊ビルドの直前に、編集中の内容を結び付いたレシピへ書き出す。
             NonDestructiveApplier.BeforeApply -= FlushToBoundRecipe;
             NonDestructiveApplier.BeforeApply += FlushToBoundRecipe;
@@ -368,6 +371,7 @@ namespace Iroca
         private void OnDisable()
         {
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
+            AssemblyReloadEvents.beforeAssemblyReload -= SpillMaskHistoryBeforeReload;
             NonDestructiveApplier.BeforeApply -= FlushToBoundRecipe;
             UnsubscribeEditChanges();   // ここで保存するので自動保存の予定は消す
             UninstallSceneClick();

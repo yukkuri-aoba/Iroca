@@ -401,8 +401,8 @@ namespace Iroca
             ? "「自動調整」を押すと、この部分の中だけを見て範囲を合わせます"
             : "Press Auto-tune to fit the range by looking only inside this part";
         public static string NotifyMaskUndoTooOld => IsJapanese
-            ? "マスクはこれより前へ戻せません（履歴の上限を超えました）"
-            : "Masks cannot go back further (the history limit was reached)";
+            ? "マスクはこれより前へ戻せません（履歴が残っていません）"
+            : "Masks cannot go back further (no history is left)";
         public static string NotifyMaskNoChange =>IsJapanese ? "変わりませんでした（すでにそうなっています）" : "Nothing changed (it was already that way)";
         public static string NotifyMaskNotAdded => IsJapanese
             ? "当てられませんでした（直すゾーンが無いか、この場所に島がありません）"
