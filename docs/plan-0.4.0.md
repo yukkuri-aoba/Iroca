@@ -1144,11 +1144,14 @@ T5 で消える部分は作り直さない（1.5）。
   `s_viewState*` の回避が要らなくなる（`UndoRestoreSignalTests` が ScriptableObject を対象に使っているので確かめられる）。
 - マスクの履歴は版の番号だけを保存し、中身はヒープの外の RLE の履歴に持つ（B2 の、Undo のたびの base64 文字列の
   読み直しがなくなる）。
-- **スクリプトの再読み込みをまたいだ Undo は今と同じに保つ。** 今はマスクの文字列がウィンドウごと Undo に載るので、
-  再読み込みの後もマスクのストロークを取り消せるはず（フェーズ 0 で確かめ、固定するテストにする）。ヒープの外の履歴は
-  再読み込みで消えるので、再読み込みの前に一時ファイル
-  （`Library/` の下）へ退避して読み戻す。退避できなかったときは `MaskFileStore` の最新の状態へ戻し、取り消せないことを
-  知らせる。
+- ~~スクリプトの再読み込みをまたいだ Undo は今と同じに保つ。今はマスクの文字列がウィンドウごと Undo に載るので、
+  再読み込みの後もマスクのストロークを取り消せるはず。ヒープの外の履歴は一時ファイルへ退避して読み戻す。~~
+  **2026-10-30 に実験で確かめたら前提が誤りだった。** Unity は再読み込みのときに、スクリプトのオブジェクト（ウィンドウ・
+  ScriptableObject）を対象にした Undo を捨てる。残るのはシーンの物の Undo だけ（窓も `HideAndDontSave` の ScriptableObject も
+  同じ。0.3.x でも再読み込みの前のいろかの編集は Ctrl+Z で戻せない）。Play の前後も同じ。**なので履歴の退避は作らない**
+  （履歴と Undo の記録が同時に消える）。守るのは、編集内容が失われないこと・空振りの Ctrl+Z で何も変わらないこと・
+  再読み込みの後の編集は取り消せること。`scripts/editor-tests/UndoReloadScenario.cs`（`Run-EditorTests.ps1 -UndoReload`）で
+  固定した。テストランナーの中と batchmode では、シーンの物の Undo も含めて履歴が空になるので、ランナーなし・画面ありで回す。
 - 利用者の作業状態の保存と復元に直接かかわるので、他のフェーズより確かめることが多い。PersistenceTests・
   WindowRestoreTests・SampleUvUndoTests・SeparateUndoTests・UndoRestoreSignalTests・UndoBenchTests に、
   再読み込みと Play をまたぐ場面を足す。

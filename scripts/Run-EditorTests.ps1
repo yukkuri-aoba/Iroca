@@ -51,6 +51,14 @@
 .PARAMETER DebugCodeOptimization
     Unity を Debug の最適化モード（-debugCodeOptimization）で起動する。Mono のインライン展開が止まる状態での速さを見るとき。
 
+.PARAMETER TestFilter
+    テスト名の絞り込み（Unity の -testFilter。正規表現・セミコロン区切り）。直しているテストだけを手早く回すとき。
+
+.PARAMETER UndoReload
+    再読み込み・Play をまたいだ Undo の確認（UndoReloadScenario）だけを回す。Undo の履歴はテストランナーの中でも
+    batchmode でもドメインリロードで空になるので、これだけはランナーなし・画面あり（最小化）で Unity を起動する。
+    結果は出力フォルダの undo-reload.txt。
+
 .PARAMETER AllowForeignCode
     ホストの Code が、このスクリプトのある作業ツリー以外を指していても止めない（交互 A/B で Code だけを
     基準の木へ向けるとき）。テストのリンクは常にこの作業ツリーを指している必要がある。
@@ -72,7 +80,9 @@ param(
     [switch]$KernelBench,
     [switch]$UndoBench,
     [switch]$DetailBench,
-    [switch]$DebugCodeOptimization
+    [switch]$DebugCodeOptimization,
+    [string]$TestFilter,
+    [switch]$UndoReload
 )
 
 $ErrorActionPreference = 'Stop'
@@ -132,6 +142,31 @@ $parity = Join-Path $outDir 'parity.tsv'
 $prevIrocaRepo = $env:IROCA_REPO
 $env:IROCA_REPO = $RepoRoot
 $env:IROCA_PARITY_REPORT = $parity
+
+# 再読み込みをまたぐ Undo の確認はテストランナーの外で回す（UndoReloadScenario が自分で Unity を終わらせる）。
+# batchmode でも Undo の履歴はドメインリロードで空になる（2026-10-30 に確かめた）ので、画面ありで最小化して起動する。
+if ($UndoReload) {
+    $report = Join-Path $outDir 'undo-reload.txt'
+    $env:IROCA_UNDO_RELOAD_REPORT = $report
+    Write-Host "Unity を画面ありで起動して再読み込みをまたぐ Undo を確かめます（結果: $outDir）…"
+    try {
+        $p = Start-Process -FilePath $UnityExe -ArgumentList @('-projectPath', "`"$HostProject`"", '-logFile', "`"$log`"") -PassThru -WindowStyle Minimized
+        try { $p.PriorityClass = 'BelowNormal' } catch { }
+        $p.WaitForExit()
+    } finally {
+        Remove-Item Env:IROCA_UNDO_RELOAD_REPORT -ErrorAction SilentlyContinue
+        if ($null -eq $prevIrocaRepo) { Remove-Item Env:IROCA_REPO -ErrorAction SilentlyContinue }
+        else { $env:IROCA_REPO = $prevIrocaRepo }
+    }
+    if (-not (Test-Path $report)) {
+        Write-Host (Get-Content $log -Tail 40 -ErrorAction SilentlyContinue | Out-String)
+        throw "結果が出力されませんでした（Unity の終了コード $($p.ExitCode)）。ログ: $log"
+    }
+    $lines = Get-Content $report -Encoding UTF8
+    $lines | ForEach-Object { Write-Host $_ }
+    if (-not ($lines | Where-Object { $_ -match '^done ' })) { throw "途中で終わりました。ログ: $log" }
+    exit $p.ExitCode
+}
 
 $unityArgs = @('-batchmode')
 if (-not $Graphics) { $unityArgs += '-nographics' }
@@ -202,6 +237,7 @@ if ($DetailBench) {
     Remove-Item Env:IROCA_DETAIL_BENCH_REPORT -ErrorAction SilentlyContinue
 }
 if ($DebugCodeOptimization) { $unityArgs += '-debugCodeOptimization' }
+if ($TestFilter) { $unityArgs += @('-testFilter', "`"$TestFilter`"") }
 Write-Host "Unity を batchmode で起動します（結果: $outDir）…"
 try {
     $p = Start-Process -FilePath $UnityExe -ArgumentList $unityArgs -PassThru

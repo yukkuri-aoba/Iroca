@@ -8,6 +8,7 @@ headless ハーネスと golden は net8 で製品 C# を動かすので、Unity
 | `PersistenceTests.cs` | セッション・マスク・プリセットの保存と復元。読めないファイルを空保存で消さない、GUID が一時的に引けないだけのファイルを消さない（.orphan 退避と復元） |
 | `WindowRestoreTests.cs` | ウィンドウが状態を失わない・古い状態に戻らない。プレビューの一時テクスチャがシーンを開いても破棄されない、Unity が落ちた後の起動ではレイアウトの古い編集内容でなく自動保存を読む（ドメインリロードではメモリ上の内容を使う） |
 | `SampleUvUndoTests.cs` | スポイト位置（`ColorZone.sampleUV`）が Undo/Redo・ゾーン削除の Undo で色と対で戻る、プリセットには載らずセッションには残る（Undo の書き戻しは Unity のシリアライザなので実機で検査。対象は `SampleUvUndoHost.cs`） |
+| `UndoReloadScenario.cs` | 再読み込み・Play をまたいだときの編集と Undo（編集内容が残る・空振りの Ctrl+Z で変わらない・その後の編集は取り消せる）。Undo の履歴はテストランナーの中と batchmode では再読み込みで空になるので、[UnityTest] でなくランナーなし・画面ありの台本（`Run-EditorTests.ps1 -UndoReload`） |
 | `UndoRestoreSignalTests.cs` | ウィンドウが「関係ない Undo では作り直さない」ための前提。自分の Undo/Redo では `undoRedoPerformed` より前に `OnAfterDeserialize` が来て、別のオブジェクトの Undo/Redo では来ない（対象は `UndoRestoreSignalHost.cs`） |
 | `PreviewDownsampleTests.cs` | 拡大表示のクロップをフル解像度の配列から直接縮小する `BoxDownsampleRegion` が、切り出してから `BoxDownsample` したのとビット単位で同じになる |
 | `UvChartMapPaddingTests.cs` | メッシュ右クリックの UV チャート地図が、半径の外を落とした持ち主だけを持つ形(`AssignPaddingBaked`)でも、`AssignPadding` してから同じ半径で引いたのとどの画素・マスクも同じになる |
