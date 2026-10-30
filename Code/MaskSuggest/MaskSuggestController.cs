@@ -18,8 +18,8 @@ namespace Iroca
     /// 方式だった。よく使う操作がパレットの奥に隠れるので、モードを廃して右クリックメニューへ移した
     /// (メニューは PreviewView.ShowPreviewContextMenu)。
     ///
-    /// サービス(Sentis 側)とは MaskSuggestBridge 経由で結合し、Sentis 不在時はインスタンスも
-    /// 作られない(MaskSuggestSection 参照)。
+    /// サービス(Sentis 側)へ求めるのも、提案を受け取るのも <see cref="AiSuggestBroker"/> を通す(待ち行列の持ち主は
+    /// そこだけ。自動調整の証拠も同じ待ち行列に並ぶ)。Sentis 不在時はインスタンスも作られない(MaskSuggestSection 参照)。
     /// </summary>
     internal sealed class MaskSuggestController
     {
@@ -27,28 +27,18 @@ namespace Iroca
         MaskPaintView _maskView;
         bool _subscribed;
 
-        // 反映待ちクリックの UV(古い順)。サービスは FIFO で処理するので、提案を 1 件
-        // 受け取るたび先頭を除く。プレビュー上の待機マーカー表示に使う(可視化しないと
-        // 推論が追いつくまで「押したのに無反応」に見えて二度押しを誘う)。
+        // 反映待ちのクリック 1 件(受理した時刻は E2E 計測用、宛先はメニューで選んだ時点の対象ゾーン × 操作)。
+        sealed class PendingClick
+        {
+            public Vector2 uv;
+            public long at;
+            public MaskPaintView.MaskDestination dest;
+        }
+        readonly List<PendingClick> _pending = new List<PendingClick>();
+
+        // 反映待ちクリックの UV(古い順。_pending と同じ並び)。プレビュー上の待機マーカー表示に使う(可視化しないと
+        // 推論が追いつくまで「押したのに無反応」に見えて二度押しを誘う)。要素の増減は必ず _pending と同じ箇所で行う。
         readonly List<Vector2> _pendingClicks = new List<Vector2>();
-
-        // _pendingClicks と同期して保つクリック受理時刻(E2E 計測用)。要素の増減は
-        // 必ず _pendingClicks と同じ箇所で行うこと。
-        readonly List<long> _pendingClickTimes = new List<long>();
-
-        // 提案の宛先。サービスは受理順(FIFO)に 1 件ずつ ProposalReady にするので、要求と同じ
-        // 順で宛先を積んでおけば「今取り出せる提案が誰のものか」が決まる。マスク反映
-        // (右クリック)のほかに、自動調整が証拠セグメントを 1 件要求する経路(RequestEvidence)
-        // が同じサービスを共有するため必要になった。サービス側のキュー破棄(Flush/CancelAll/
-        // Error)と同じ箇所で必ず丸ごと空にし、両者を一致させ続ける。
-        enum ProposalOwner { Mask, Evidence }
-        readonly List<ProposalOwner> _owners = new List<ProposalOwner>();
-        // 証拠要求の受け取り先(同時に 1 件)。null = 要求なし、または取消済み
-        // (取消後に届いた提案は宛先だけ消費して捨てる)。
-        System.Action<MaskSuggestProposal> _evidenceCallback;
-
-        // _pendingClicks と同期して保つ宛先(メニューで選んだ時点の対象ゾーン × 除外/含める)。
-        readonly List<MaskPaintView.MaskDestination> _pendingDestinations = new List<MaskPaintView.MaskDestination>();
 
         /// <summary>反映待ちクリックの UV(古い順・先頭が処理中)。プレビューの待機マーカー用。</summary>
         public IReadOnlyList<Vector2> PendingClicks => _pendingClicks;
@@ -75,36 +65,23 @@ namespace Iroca
         {
             _host = host;
             _maskView = maskView;
-            var svc = MaskSuggestBridge.Service;
-            if (svc != null && !_subscribed)
+            if (!_subscribed)
             {
-                svc.StateChanged += OnServiceStateChanged;
+                AiSuggestBroker.StateChanged += OnServiceStateChanged;
+                AiSuggestBroker.EnsureSubscribed();
                 _subscribed = true;
             }
         }
 
         /// <summary>
-        /// 静的サービスへの購読を解除する。<see cref="Shutdown"/> と自己修復経路の共通処理。
-        /// </summary>
-        void Unsubscribe()
-        {
-            var svc = MaskSuggestBridge.Service;
-            if (svc != null && _subscribed) svc.StateChanged -= OnServiceStateChanged;
-            _subscribed = false;
-        }
-
-        /// <summary>
-        /// ウィンドウ破棄時の後始末。**購読解除がここの主目的**。
-        ///
-        /// サービスはドメイン寿命の静的保持(<see cref="MaskSuggestBridge.Service"/>)なので、
-        /// 解除しないと閉じたウィンドウのコントローラがイベント経由で生き続ける。再オープン後は
-        /// 新旧 2 購読者が並び、**先に登録された旧側**が <see cref="OnServiceStateChanged"/> で
-        /// <c>TryTakeProposal</c> を先に呼んで提案を奪い、そのまま捨てる(サービスは Idle へ戻るので
-        /// 新側には何も届かない)。ユーザーには「クリックしても時々何も起きない」としか見えない。
+        /// ウィンドウ破棄時の後始末。描き直しの購読を外し、このウィンドウの要求を取り消す。
+        /// 購読は静的(<see cref="AiSuggestBroker.StateChanged"/>)なので、外さないと閉じたウィンドウの
+        /// コントローラがイベント経由で生き続ける。
         /// </summary>
         public void Shutdown()
         {
-            Unsubscribe();
+            if (_subscribed) AiSuggestBroker.StateChanged -= OnServiceStateChanged;
+            _subscribed = false;
             OnSourceChangedOrClosing();
         }
 
@@ -114,21 +91,18 @@ namespace Iroca
         /// </summary>
         public bool CancelPending()
         {
-            if (_pendingClicks.Count == 0) return false;
-            MaskSuggestBridge.Service?.FlushPendingClicks();
+            if (_pending.Count == 0) return false;
             ClearQueues();
             _host?.RequestRepaint();
             return true;
         }
 
-        // サービスのキューと対になっている手元の列を丸ごと空にする(Flush/CancelAll/Error と同じ箇所で呼ぶ)。
+        // 待ちの要求を取り消し、手元の列を空にする。
         void ClearQueues()
         {
+            AiSuggestBroker.Cancel(this);
+            _pending.Clear();
             _pendingClicks.Clear();
-            _pendingClickTimes.Clear();
-            _pendingDestinations.Clear();
-            _owners.Clear();
-            FailEvidence();
         }
 
         /// <summary>
@@ -141,13 +115,10 @@ namespace Iroca
         /// </summary>
         public void PrepareSource(NativePixels pixelsBottomUp, string sourceKey)
         {
-            var svc = MaskSuggestBridge.Service;
-            if (svc == null) return;
             // 待機中だけ先行させる。モデルのロードは同期で重いのでここでは開始せず(それはメニュー
             // 項目を選んだときの RequestProposal の仕事)、エラー中も再試行しない(原因が直らないまま
-            // メニューを開くたびに走る。復帰はメニューから選び直す = RequestProposal が CancelAll する)。
-            if (svc.Phase != MaskSuggestPhase.Idle) return;
-            svc.SetSource(sourceKey, pixelsBottomUp);
+            // メニューを開くたびに走る。復帰はメニューから選び直す = RequestProposal が止めてやり直す)。
+            AiSuggestBroker.Prepare(sourceKey, pixelsBottomUp);
         }
 
         /// <summary>
@@ -161,77 +132,50 @@ namespace Iroca
                                     NativePixels pixelsBottomUp, string sourceKey,
                                     MaskSuggestGranularity? granularity = null)
         {
-            var svc = MaskSuggestBridge.Service;
-            if (svc == null) return false;
-            // エラー表示のまま選び直したときは、ここが再試行の導線になる
-            // (自動再試行は原因が直らないまま走り続けるので入れない)。
-            if (svc.Phase == MaskSuggestPhase.Error) svc.CancelAll();
-            if (!svc.TryEnsureModels()) return false;
-
-            svc.SetSource(sourceKey, pixelsBottomUp);
-            if (!svc.RequestProposal(u, v, granularity ?? Granularity)) return false;
-            _pendingClicks.Add(new Vector2(u, v));
-            _pendingClickTimes.Add(MaskSuggestPerf.Now);
-            _pendingDestinations.Add(dest);
-            _owners.Add(ProposalOwner.Mask);
+            var click = new PendingClick { uv = new Vector2(u, v), at = MaskSuggestPerf.Now, dest = dest };
+            // 手元の列には先に積む(受理されなかったら外す)。結果が null(取り消し・破棄・エラー)なら
+            // マーカーだけ消す。残ると「処理中」に見え続ける。
+            _pending.Add(click);
+            _pendingClicks.Add(click.uv);
+            if (!AiSuggestBroker.Enqueue(this, sourceKey, pixelsBottomUp, u, v, granularity ?? Granularity,
+                    proposal => OnProposal(click, proposal)))
+            {
+                RemovePending(click);
+                return false;
+            }
             _host?.RequestRepaint();
             return true;
         }
 
+        void OnProposal(PendingClick click, MaskSuggestProposal proposal)
+        {
+            // 取り消し後(手元の列から外した後)に届いたものは反映しない。
+            if (!RemovePending(click)) return;
+            // 破棄済みウィンドウ(fake-null)には触れない。Unity の破棄済みオブジェクトは参照自体は非 null のため
+            // `?.` をすり抜けるので、判定には Unity がオーバーロードした `==` を使うこと。
+            if (_host == null) return;
+            if (proposal != null) CommitProposalToMask(proposal, click.dest, click.at);
+            _host.RequestRepaint();
+        }
+
+        bool RemovePending(PendingClick click)
+        {
+            int i = _pending.IndexOf(click);
+            if (i < 0) return false;
+            _pending.RemoveAt(i);
+            _pendingClicks.RemoveAt(i);
+            return true;
+        }
+
+        // サービスの状態の変化(読み込み・埋め込みの計算の進み)を描き直す。
         void OnServiceStateChanged()
         {
-            var svc = MaskSuggestBridge.Service;
-            if (svc == null) return;
-            // 破棄済みウィンドウに紐づく購読者(= Shutdown を取りこぼした残骸)は、提案に一切触れずに
-            // 自己解除する。触れると生きている購読者から提案を奪ってしまう。
-            // Unity の破棄済みオブジェクトは「fake-null」で参照自体は非 null のため `?.` をすり抜ける。
-            // 判定には Unity がオーバーロードした `==` を使うこと(以降の _host 参照も同様)。
+            // 破棄済みウィンドウに紐づく購読者(= Shutdown を取りこぼした残骸)は自己解除する。
             if (_host == null)
             {
-                Unsubscribe();
+                AiSuggestBroker.StateChanged -= OnServiceStateChanged;
+                _subscribed = false;
                 return;
-            }
-            if (svc.Phase == MaskSuggestPhase.ProposalReady &&
-                svc.TryTakeProposal(out var proposal))
-            {
-                // サービスは FIFO のため、提案は宛先列の先頭に対応する(宛先列が空なら
-                // 従来どおりマスク反映として扱う)。
-                var owner = ProposalOwner.Mask;
-                if (_owners.Count > 0)
-                {
-                    owner = _owners[0];
-                    _owners.RemoveAt(0);
-                }
-                if (owner == ProposalOwner.Evidence)
-                {
-                    // 自動調整の証拠。取消済み(callback null)なら宛先だけ消費して捨てる。
-                    var cb = _evidenceCallback;
-                    _evidenceCallback = null;
-                    cb?.Invoke(proposal);
-                }
-                else
-                {
-                    if (_pendingClicks.Count > 0) _pendingClicks.RemoveAt(0);
-                    long clickAt = 0;
-                    if (_pendingClickTimes.Count > 0)
-                    {
-                        clickAt = _pendingClickTimes[0];
-                        _pendingClickTimes.RemoveAt(0);
-                    }
-                    // 宛先が無い(取り消し後に届いた)提案はマスクへ反映しない。
-                    if (_pendingDestinations.Count > 0)
-                    {
-                        var dest = _pendingDestinations[0];
-                        _pendingDestinations.RemoveAt(0);
-                        if (proposal != null) CommitProposalToMask(proposal, dest, clickAt);
-                    }
-                }
-            }
-            else if (svc.Phase == MaskSuggestPhase.Error)
-            {
-                // Error では処理待ちがサービス側で破棄される(復帰はメニューから選び直す)。
-                // マーカーだけ残ると「処理中」に見え続けるため同期して消す。
-                ClearQueues();
             }
             _host.RequestRepaint();
         }
@@ -356,12 +300,7 @@ namespace Iroca
         /// </summary>
         public void OnUndoRedoPerformed()
         {
-            if (_pendingClicks.Count > 0)
-            {
-                // Flush はサービスのキューを丸ごと捨てる(証拠要求が並んでいても同じ)。
-                MaskSuggestBridge.Service?.FlushPendingClicks();
-                ClearQueues();
-            }
+            if (_pending.Count > 0) ClearQueues();
             LastClickFloodWarning = false;
             LastCommitEmpty = false;
             LastProposalEmpty = false;
@@ -370,65 +309,13 @@ namespace Iroca
         /// <summary>テクスチャ切替・ウィンドウ破棄時の後始末。</summary>
         public void OnSourceChangedOrClosing()
         {
-            MaskSuggestBridge.Service?.CancelAll();
-            ClearQueues();
+            // ほかの要求(別のウィンドウ・自動化)が無ければ、サービスの処理も止めて元の参照を手放させる。
+            AiSuggestBroker.Release(this);
+            _pending.Clear();
+            _pendingClicks.Clear();
             LastClickFloodWarning = false;
             LastCommitEmpty = false;
             LastProposalEmpty = false;
-        }
-
-        // ─── 自動調整の証拠(スポイト位置の提案セグメント) ───
-
-        /// <summary>
-        /// 自動調整の証拠用に、UV(下原点)の提案を 1 件要求する。AI が温まっている
-        /// (モデルロード済み・このソースの埋め込み計算済み・待機中)ときだけ受理する(Started)。
-        /// 準備中なら Busy(埋め込み計算は SetSource で始まるので、呼び出し側は待って再要求する)。
-        /// 結果は onResult(提案。取消・破棄時は null)で 1 回だけ返す。同時に 1 件まで。
-        /// 右クリックメニューからの提案とは独立に使える(同じサービスを FIFO で共有する)。
-        /// pixels/sourceKey はプレビューの AI 提案と同じ true source を渡すこと
-        /// (別キーだとソース切替扱いになり、進行中の提案が破棄される)。
-        /// </summary>
-        public EvidenceRequest RequestEvidence(float u, float v, NativePixels pixelsBottomUp,
-                                               string sourceKey, System.Action<MaskSuggestProposal> onResult)
-        {
-            var svc = MaskSuggestBridge.Service;
-            if (svc == null || onResult == null || _evidenceCallback != null) return EvidenceRequest.Unavailable;
-            if (!svc.TryEnsureModels()) return EvidenceRequest.Unavailable;
-            if (svc.Phase == MaskSuggestPhase.Error) return EvidenceRequest.Unavailable;
-            svc.SetSource(sourceKey, pixelsBottomUp);
-            // Idle 以外(ロード中・埋め込み計算中・マスク提案の処理中)は「準備中」。呼び出し側が
-            // 待って再要求する(従来導出へは落とさない。落とすと、その従来導出がハイライトを
-            // 取りこぼす当の経路なので「自動調整が壊れる」ようにしか見えない)。
-            if (svc.Phase != MaskSuggestPhase.Idle) return EvidenceRequest.Busy;
-            if (!svc.RequestProposal(u, v, MaskSuggestGranularity.Auto)) return EvidenceRequest.Unavailable;
-            _owners.Add(ProposalOwner.Evidence);
-            _evidenceCallback = onResult;
-            return EvidenceRequest.Started;
-        }
-
-        /// <summary><see cref="RequestEvidence"/> の結果。</summary>
-        public enum EvidenceRequest
-        {
-            /// <summary>受理した。結果は onResult で 1 回だけ返る。</summary>
-            Started,
-            /// <summary>AI が準備中(モデルロード・埋め込み計算・別の提案処理)。後で再要求する。</summary>
-            Busy,
-            /// <summary>AI が使えない(Sentis/モデル不在・エラー・ソース未設定)。</summary>
-            Unavailable,
-        }
-
-        /// <summary>証拠要求を取り消す(期限切れ・中止)。届いた提案は宛先だけ消費して捨てる。</summary>
-        public void CancelEvidence()
-        {
-            _evidenceCallback = null;
-        }
-
-        // サービスのキューが破棄されたとき、待っている証拠要求に「来ない」を伝える。
-        void FailEvidence()
-        {
-            var cb = _evidenceCallback;
-            _evidenceCallback = null;
-            cb?.Invoke(null);
         }
     }
 }

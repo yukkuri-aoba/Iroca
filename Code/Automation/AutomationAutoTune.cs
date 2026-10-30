@@ -184,7 +184,7 @@ namespace Iroca
         {
             if (!_aiAvailable) return;
             if (EditingSessionRegistry.Any) return;
-            MaskSuggestBridge.Service?.ReleaseGpuResources();
+            AiSuggestBroker.ReleaseGpuIfUnused();
             _aiAvailable = false;
         }
 
@@ -198,8 +198,9 @@ namespace Iroca
         }
 
         /// <summary>
-        /// スポイト位置の AI 提案を 1 件もらう。窓があれば窓のコントローラ(提案の唯一の受け手)を通し、
-        /// 無ければサービスを直接使う(このとき受け手はこれだけ)。
+        /// スポイト位置の AI 提案を 1 件もらう(待ち行列は <see cref="AiSuggestBroker"/> が持つ。窓の右クリックの提案と
+        /// 同じ列に並ぶ)。元のキーは窓のプレビューと同じ形なので、窓が同じテクスチャを表示していれば埋め込みを
+        /// 使い回し、窓の AI 提案の元も切り替えない。
         /// </summary>
         private sealed class Evidence : IDisposable
         {
@@ -210,7 +211,6 @@ namespace Iroca
             private readonly double _deadline;
             private NativePixels _native;
             private string _key;
-            private MaskSuggestController _channel;
             private bool _requested;
             private bool _received;
             private MaskSuggestProposal _proposal;
@@ -249,56 +249,32 @@ namespace Iroca
                 }
                 if (EditorApplication.timeSinceStartup > _deadline)
                 {
-                    _channel?.CancelEvidence();
+                    AiSuggestBroker.Cancel(this);
                     failure = "timed out waiting for the AI";
                     return true;
                 }
 
-                if (!_requested) Request(svc);
-                else if (_channel == null && svc.Phase == MaskSuggestPhase.ProposalReady && svc.TryTakeProposal(out var p))
-                {
-                    _proposal = p;
-                    _received = true;
-                    return Poll(out proposal, out failure);
-                }
+                if (!_requested) Request();
                 return false;
             }
 
-            private void Request(IMaskSuggestService svc)
+            private void Request()
             {
                 if (_native == null)
                 {
-                    _channel = IrocaWindow.EvidenceChannel(_texture, out var shared, out var sharedKey);
-                    if (shared != null)
-                    {
-                        _native = shared;
-                        _key = sharedKey;
-                    }
-                    else
-                    {
-                        _native = NativePixels.CopyOf(_pixels, _w, _h);
-                        _key = CacheKey(_texture, _w, _h);
-                    }
+                    _native = NativePixels.CopyOf(_pixels, _w, _h);
+                    _key = CacheKey(_texture, _w, _h);
                 }
-
-                if (_channel != null)
-                {
-                    // 窓のコントローラが別のテクスチャの提案を処理中なら、元を切り替えると取り違えるので空くまで待つ。
-                    if (_channel.PendingClicks.Count > 0) return;
-                    var r = _channel.RequestEvidence(_uv.x, _uv.y, _native, _key, p => { _proposal = p; _received = true; });
-                    if (r == MaskSuggestController.EvidenceRequest.Started) _requested = true;
-                    // Busy(準備中)と、窓自身の自動調整が証拠を待っている間の Unavailable は、次の Poll で再要求する。
-                    return;
-                }
-
-                if (!svc.TryEnsureModels()) return;
-                svc.SetSource(_key, _native);
-                if (svc.Phase != MaskSuggestPhase.Idle) return;   // ロード・埋め込み計算中。次の Poll で再要求
-                if (svc.RequestProposal(_uv.x, _uv.y, MaskSuggestGranularity.Auto)) _requested = true;
+                // Busy(準備中・ほかの元の要求が並んでいる)は次の Poll で求め直す。Unavailable はサービスの状態
+                // (エラー)を次の Poll が見る。
+                var r = AiSuggestBroker.RequestWhenIdle(this, _key, _native, _uv.x, _uv.y,
+                    p => { _proposal = p; _received = true; });
+                if (r == AiSuggestBroker.Request.Started) _requested = true;
             }
 
             public void Dispose()
             {
+                AiSuggestBroker.Cancel(this);
                 _native?.Release();
                 _native = null;
             }

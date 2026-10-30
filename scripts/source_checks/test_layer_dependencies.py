@@ -51,7 +51,6 @@ ALLOWED: dict[str, set[str]] = {
 KNOWN_VIOLATIONS: dict[tuple[str, str], str] = {
     # 4-2・4-3: 開いているウィンドウを探す・その状態を読む・窓口を借りるのを、EditingSessionRegistry・
     # EditingSession・AutoTuneService・AiSuggestBroker を通す形にする。
-    ("Code/Automation/AutomationAutoTune.cs", "IrocaWindow"): "UI",
     ("Code/Automation/IrocaAutomation.Open.cs", "IrocaWindow"): "UI",
     ("Code/Automation/IrocaAutomation.Recolor.cs", "IrocaWindow"): "UI",
     # フェーズ 6 の前: MaskSuggest のうちウィンドウに描く部分（コントローラ・セクション）を UI 側へ分ける。

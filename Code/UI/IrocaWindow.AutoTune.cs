@@ -378,7 +378,7 @@ namespace Iroca
                 MaskSuggestSetupPrompt.PromptIfNeeded();
                 return EvidenceStart.Unavailable;
             }
-            if (!trueSource || _maskView == null || _previewView == null || _maskView.SuggestController == null)
+            if (!trueSource || _previewView == null)
             {
                 ShowNotification(new GUIContent(Localization.AutoTuneSourceNotShared));
                 return EvidenceStart.Unavailable;
@@ -409,20 +409,20 @@ namespace Iroca
         private bool TryStartEvidenceRequest()
         {
             var zone = FindZoneById(_evidenceZoneId);
-            var ctl = _maskView?.SuggestController;
-            if (zone == null || ctl == null || !zone.HasSampleUV)
+            if (zone == null || _previewView == null || !zone.HasSampleUV)
             {
                 AbortEvidenceWait(Localization.AutoTuneEvidenceCancelled);
                 return false;
             }
-            var r = ctl.RequestEvidence(zone.sampleUV.x, zone.sampleUV.y, _evidencePixels,
-                _previewView.TrueSourceCacheKey(), OnAutoTuneEvidence);
+            // 受け取り先の持ち主はこのウィンドウ(右クリックの提案はコントローラが持ち主なので、別に取り消せる)。
+            var r = AiSuggestBroker.RequestWhenIdle(this, _previewView.TrueSourceCacheKey(), _evidencePixels,
+                zone.sampleUV.x, zone.sampleUV.y, OnAutoTuneEvidence);
             switch (r)
             {
-                case MaskSuggestController.EvidenceRequest.Started:
+                case AiSuggestBroker.Request.Started:
                     _evidencePending = false;
                     return true;
-                case MaskSuggestController.EvidenceRequest.Busy:
+                case AiSuggestBroker.Request.Busy:
                     return true;
                 default:
                 {
@@ -514,7 +514,6 @@ namespace Iroca
         // 証拠待ちを畳んで通知する(解析は始めない)。
         private void AbortEvidenceWait(string message)
         {
-            _maskView?.SuggestControllerIfCreated?.CancelEvidence();
             StopEvidenceWait();
             ShowNotification(new GUIContent(message));
             Repaint();
@@ -524,8 +523,14 @@ namespace Iroca
         private void CancelEvidenceWait()
         {
             if (!_evidenceWaiting) return;
-            _maskView?.SuggestControllerIfCreated?.CancelEvidence();
             StopEvidenceWait();
+        }
+
+        // テクスチャの切り替え・レシピの読み直し: 待っている証拠は前の元のものなので、待ちをやめて知らせる
+        // (前はコントローラが右クリックの提案と一緒に取り消していた)。
+        private void AbortEvidenceWaitForSourceChange()
+        {
+            if (_evidenceWaiting) AbortEvidenceWait(Localization.AutoTuneEvidenceCancelled);
         }
 
         private void StopEvidenceWait()
@@ -538,6 +543,8 @@ namespace Iroca
             _evidenceExcluded = null;
             _evidenceZoneId = null;
             EditorApplication.update -= TickEvidenceWait;
+            // 待ちを畳んだ後に取り消す(届かない知らせ = OnAutoTuneEvidence(null) は、待っていないので素通りする)。
+            AiSuggestBroker.Cancel(this);
         }
     }
 }

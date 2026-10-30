@@ -449,7 +449,8 @@ namespace Iroca
             // 後片付けを呼ぶので、そこでは手放さない。空のマスクを保存してファイルを消してしまう)。
             _editing?.Masks.Clear();
             // 閉じた後も AI の推論のワーカーが GPU のメモリを持ち続けないように(次に開いたら作り直す)。
-            MaskSuggestBridge.Service?.ReleaseGpuResources();
+            // ほかのウィンドウ・自動化の要求が残っていれば、それが終わるまで手放さない。
+            AiSuggestBroker.ReleaseGpuIfUnused();
         }
 
         /// <summary>
@@ -514,6 +515,7 @@ namespace Iroca
         /// </summary>
         private void LoadPersistedSessionForCurrentTexture()
         {
+            AbortEvidenceWaitForSourceChange();
             _sessionLoadFailed = false;
             // 非破壊のレシピがあればそれが正(マスクも含めてレシピから読む)。
             if (TryLoadSessionFromRecipe()) return;
