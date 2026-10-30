@@ -337,13 +337,15 @@ namespace Iroca
             }
             else
                 _maskView.RestoreFromSession();
+            // 今のマスクを Undo の履歴の起点にする。
+            Editing.CommitMaskEdit();
 
             // Play を始めたときのドメインリロードの直後は、原本の読み直しと色替えの計算し直しを、ウィンドウが
             // 操作されるまで待つ(PreviewView.SourceLoadDeferred)。Play 中以外は今までどおりすぐ読む。
             if (!firstSinceEditorStart && EditorApplication.isPlayingOrWillChangePlaymode)
                 _previewView.DeferSourceLoad();
 
-            // Unity 標準 Undo の戻り/進みに合わせて bool[] バッファを Session.maskState から再展開。
+            // Unity 標準 Undo の戻り/進みに合わせて、編集中のマスクを履歴から戻す。
             // 二重購読を避けるため一度外してから登録する（PreviewJobMainThread.Install と同じ防御）。
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
             Undo.undoRedoPerformed += OnUndoRedoPerformed;
@@ -392,11 +394,11 @@ namespace Iroca
             // 再生成を走らせない。
             if (!Doc.ConsumeRestored()) return;
 
-            // Session.maskState の RLE 文字列が Undo で書き戻されたので、
-            // 編集中のマスクへ展開し直してオーバーレイ・プレビューを更新させる。
+            // 文書のマスクの版の番号が Undo で戻ったら、編集中のマスクをその版へ戻してオーバーレイ・プレビューを更新させる。
             if (_maskView != null)
             {
-                _maskView.SyncBuffersFromState();
+                if (!Editing.RestoreMasksAfterUndo())
+                    ShowNotification(new GUIContent(Localization.NotifyMaskUndoTooOld));
                 // ゾーンの並びが戻っても、いま直しているゾーンを指し続ける(番号は Undo で巻き戻らない)。
                 _maskView.FollowActiveTargetAfterUndo();
                 // 保留中の AI 提案は Undo 前の状態に対する提案なので重ねない
@@ -432,6 +434,7 @@ namespace Iroca
             // 編集中のマスク(ヒープの外)も返す。手放すのはここだけで、マスクは直前に保存済み(OnDisable は保存より前に
             // 後片付けを呼ぶので、そこでは手放さない。空のマスクを保存してファイルを消してしまう)。
             _editing?.Masks.Clear();
+            _editing?.MaskHistory.Clear();
             ReleaseDocument();
             // 閉じた後も AI の推論のワーカーが GPU のメモリを持ち続けないように(次に開いたら作り直す)。
             // ほかのウィンドウ・自動化の要求が残っていれば、それが終わるまで手放さない。
@@ -486,10 +489,11 @@ namespace Iroca
         /// </summary>
         internal bool SavePersistedSessionForCurrentTexture()
         {
-            bool maskOk = _maskView == null || _maskView.SaveToSession();
-            SessionPersistence.SaveToFile(SourceTexture, Session, _sessionLoadFailed);
-            // 非破壊のレシピが結び付いていればそちらにも書く(SaveToSession でマスクは state へ同期済み)。
-            SaveSessionToBoundRecipe();
+            var saved = Editing.ToSaveState();
+            bool maskOk = _maskView == null || _maskView.SaveMasks(saved.maskState);
+            SessionPersistence.SaveToFile(SourceTexture, saved, _sessionLoadFailed);
+            // 非破壊のレシピが結び付いていればそちらにも書く。
+            SaveSessionToBoundRecipe(saved);
             return maskOk;
         }
 
@@ -516,6 +520,7 @@ namespace Iroca
             EnsureAllZoneIds();
 
             _maskView?.RestoreFromSession();
+            Editing.CommitMaskEdit();
             Editing.NotifyChanged(EditChange.Replaced);
         }
 
@@ -545,11 +550,11 @@ namespace Iroca
         /// </summary>
         private void ResetCurrentSession()
         {
-            Undo.RegisterCompleteObjectUndo(UndoTarget, "Reset Iroca Session");
+            Editing.RecordMaskEdit("Reset Iroca Session");
 
             Session = IrocaSessionState.CreateDefault();
             _maskView?.ClearBuffersOnTextureChange();
-            _maskView?.SyncBuffersToState();
+            Editing.CommitMaskEdit();
             EnsureAllZoneIds();
 
             _previewView?.InvalidateSourceCache();

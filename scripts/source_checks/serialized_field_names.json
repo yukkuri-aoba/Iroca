@@ -278,6 +278,7 @@
     ],
     "IrocaEditingDocument": [
       "boundRecipe",
+      "maskRevision",
       "session",
       "sourceTexture"
     ],

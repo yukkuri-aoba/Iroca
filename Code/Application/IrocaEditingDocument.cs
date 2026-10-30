@@ -18,6 +18,8 @@ namespace Iroca
         [SerializeField] internal IrocaSessionState session = IrocaSessionState.CreateDefault();
         [SerializeField] internal Texture2D sourceTexture;
         [SerializeField] internal IrocaRecipe boundRecipe;
+        // マスクの版の番号(中身は MaskHistory)。Undo に載るのはこの番号だけで、session.maskState はいつも空。
+        [SerializeField] internal long maskRevision;
 
         // Unity が中身を書き戻した(Undo/Redo・ドメインリロード)印。
         // Undo.undoRedoPerformed はエディタ全体の Undo で呼ばれるので、シーンや別ウィンドウの

@@ -227,7 +227,7 @@ namespace Iroca
                     {
                         GUIUtility.hotControl = 0;
                         maskView.isPainting = false;
-                        // ストローク終了: 編集中のマスクを _session.maskState に書き戻し、編集を知らせる。
+                        // ストローク終了: 編集中のマスクを新しい版にして、編集を知らせる。
                         maskView.EndStroke();
                         maskView.lastPaintUV = -Vector2.one;
                         _host.Editing.NotifyChanged(EditChange.Masks);

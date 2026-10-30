@@ -36,8 +36,13 @@ namespace Iroca
         /// <summary>編集を Undo に記録する先。</summary>
         internal Object UndoTarget => Doc;
 
-        // ドメインリロードで控えに残った複製を手放す(次の保存の直前に指し直す)。
-        private void AdoptDocumentAfterEnable() => _session = Doc.session;
+        // ドメインリロードで控えに残った複製を手放す(次の保存の直前に指し直す)。0.3.x の控えにはマスクの文字列が入っているが、
+        // マスクはこの後ファイルから読むので、文書には持たない。
+        private void AdoptDocumentAfterEnable()
+        {
+            _session = Doc.session;
+            _session.maskState = new MaskState();
+        }
 
         private void ReleaseDocument()
         {

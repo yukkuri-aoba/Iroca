@@ -53,19 +53,56 @@ namespace Iroca
         internal SourcePixelCache Sources { get; } = new SourcePixelCache();
 
         /// <summary>
-        /// 編集中のマスク(ヒープの外)。保存されるのは保存形式の文字列(<c>State.maskState</c>)で、Undo とドメイン
-        /// リロードが書き戻すのもそちら。ブラシ・範囲の操作はマスクの編集(MaskPaintView)が書く。
+        /// 編集中のマスク(ヒープの外)。ブラシ・範囲の操作はマスクの編集(MaskPaintView)が書く。Undo に載るのは版の番号だけで、
+        /// 中身は <see cref="MaskHistory"/> が持つ。ドメインリロードの後は保存したファイルから読み直す。
         /// 手放すのはウィンドウを破棄するときだけ(保存より前に手放すと、空のマスクを保存してファイルを消す)。
         /// </summary>
         internal MaskWorkspace Masks { get; } = new MaskWorkspace();
 
-        /// <summary>編集中のマスクを保存形式にして <c>State.maskState</c> へ書く(Undo に記録する前・保存の前)。</summary>
-        internal void SyncMasksToState()
+        /// <summary>編集中のマスクの履歴。手放すのはウィンドウを破棄するとき。</summary>
+        internal MaskHistory MaskHistory { get; } = new MaskHistory();
+
+        // 編集中のマスクが、どの版の中身か。
+        private long _appliedMaskRevision;
+
+        /// <summary>
+        /// マスクを書き換える操作の前に呼ぶ(Undo に記録する)。書き換えたら <see cref="CommitMaskEdit"/> を呼ぶ。
+        /// 今の版が履歴に無ければ(マスクをまだ版にしていない・上限で手放した)、今のマスクをここで版にする。
+        /// </summary>
+        internal void RecordMaskEdit(string undoName)
         {
-            var state = State;
-            if (state == null) return;
-            // 書き込み規則(全 false は書かない)は Core の MaskStateCodec と同じ(MaskWorkspace.EncodeTo)。
-            Masks.EncodeTo(state.maskState ??= new MaskState());
+            if (!MaskHistory.Contains(Document.maskRevision)) CommitMaskEdit();
+            Undo.RegisterCompleteObjectUndo(Document, undoName);
+        }
+
+        /// <summary>今のマスクを新しい版にして、文書の番号を進める。読み込みなど、マスクを置き換えたときも呼ぶ。</summary>
+        internal void CommitMaskEdit()
+        {
+            _appliedMaskRevision = MaskHistory.Capture(Masks, Document.maskRevision);
+            Document.maskRevision = _appliedMaskRevision;
+        }
+
+        /// <summary>
+        /// Undo/Redo の後に呼ぶ。文書の番号が変わっていれば、編集中のマスクをその版へ戻す(番号が同じなら何もしない。スライダーの
+        /// Undo でマスクに触らない)。その版を上限で手放していて戻せなければ false(マスクはそのまま)。
+        /// </summary>
+        internal bool RestoreMasksAfterUndo()
+        {
+            long revision = Document.maskRevision;
+            if (revision == _appliedMaskRevision) return true;
+            _appliedMaskRevision = revision;
+            return MaskHistory.TryRestore(revision, Masks);
+        }
+
+        /// <summary>
+        /// 保存に渡す編集状態(ゾーンと設定は今のものを指す写しで、マスクを保存形式にして付けたもの)。書き込み規則(全 false は
+        /// 書かない)は Core の MaskStateCodec と同じ(MaskWorkspace.EncodeTo)。
+        /// </summary>
+        internal IrocaSessionState ToSaveState()
+        {
+            var masks = new MaskState();
+            Masks.EncodeTo(masks);
+            return State.WithMasks(masks);
         }
 
         internal ColorZone FindZoneById(string id)
@@ -164,19 +201,18 @@ namespace Iroca
         }
 
         /// <summary>
-        /// ゾーンを消す。そのゾーンのマスク(除外・含める)も消す。記録の前に編集中のマスクを保存形式へ書くので、
-        /// Undo 1 ステップでゾーンとマスクがそろって戻る(戻したあとはウィンドウが保存形式から展開し直す)。
+        /// ゾーンを消す。そのゾーンのマスク(除外・含める)も消す。Undo 1 ステップでゾーンとマスクがそろって戻る
+        /// (戻したあとはウィンドウが履歴から戻す)。
         /// </summary>
         internal bool RemoveZoneAt(int index)
         {
             var zones = State?.zones;
             if (zones == null || index < 0 || index >= zones.Count) return false;
-            SyncMasksToState();
-            Undo.RegisterCompleteObjectUndo(Document, "Remove Zone");
+            RecordMaskEdit("Remove Zone");
             string id = zones[index]?.id;
             if (!string.IsNullOrEmpty(id)) Masks.RemoveZone(id);
             zones.RemoveAt(index);
-            SyncMasksToState();
+            CommitMaskEdit();
             NotifyChanged(EditChange.Content);
             return true;
         }
@@ -190,12 +226,10 @@ namespace Iroca
             var zones = State?.zones;
             if (zones == null || from == to || from < 0 || from >= zones.Count || to < 0 || to >= zones.Count)
                 return false;
-            SyncMasksToState();
             Undo.RegisterCompleteObjectUndo(Document, "Reorder Zone");
             var moved = zones[from];
             zones.RemoveAt(from);
             zones.Insert(to, moved);
-            SyncMasksToState();
             NotifyChanged(EditChange.Content);
             return true;
         }
@@ -248,16 +282,19 @@ namespace Iroca
 
         /// <summary>
         /// プリセットを読み込む(ゾーンと処理設定。<paramref name="applyMasks"/> ならマスクも。規則は <see cref="PresetApplier"/>)。
-        /// 記録の前に編集中のマスクを保存形式へ書くので、Undo 1 ステップでゾーン・設定・マスクがそろって戻る。
+        /// Undo 1 ステップでゾーン・設定・マスクがそろって戻る。
         /// マスクを読み込まないときは、今のマスクを残す。マスクを読み込んだら true。
         /// </summary>
         internal bool ApplyPreset(IrocaPresetData preset, bool applyMasks)
         {
-            SyncMasksToState();
-            Undo.RegisterCompleteObjectUndo(Document, "Load Preset");
+            RecordMaskEdit("Load Preset");
             PresetApplier.ApplyZonesAndSettings(preset, State);
             bool masks = applyMasks && PresetApplier.HasMasks(preset);
-            if (masks) Masks.DecodeFrom(PresetApplier.MaskStateOf(preset));
+            if (masks)
+            {
+                Masks.DecodeFrom(PresetApplier.MaskStateOf(preset));
+                CommitMaskEdit();
+            }
             NotifyChanged(EditChange.Replaced);
             return masks;
         }

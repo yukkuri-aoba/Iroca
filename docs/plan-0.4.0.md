@@ -1138,12 +1138,41 @@ T5 で消える部分は作り直さない（1.5）。
       マスクを持つので、ほとんど通らない）。推論の実機確認は Iroca_Dev で行う。
 - [ ] 4-6 OnGUI の細かい確保（毎フレームの `new GUIContent`・プレビューの要求ごとの LINQ）を減らす。優先度は低い。
 
-### フェーズ 5: Undo の作り直し（0.4.0 に入れる。2026-10-26 決定）
+### フェーズ 5: Undo の作り直し（0.4.0 に入れる。2026-10-26 決定。2026-10-31 に済み）
 
-- 文書を `HideAndDontSave` の ScriptableObject に移し、Undo の対象にする。ズームなど表示の状態が巻き戻らなくなり、
+- [x] 文書を `HideAndDontSave` の ScriptableObject に移し、Undo の対象にする。ズームなど表示の状態が巻き戻らなくなり、
   `s_viewState*` の回避が要らなくなる（`UndoRestoreSignalTests` が ScriptableObject を対象に使っているので確かめられる）。
-- マスクの履歴は版の番号だけを保存し、中身はヒープの外の RLE の履歴に持つ（B2 の、Undo のたびの base64 文字列の
+  - 2026-10-30（12281b1）: `IrocaEditingDocument`（`Code/Application/`）。ウィンドウの `sourceTexture`・`_session`・`_boundRecipe` は
+    保存される名前を保つ控えとして残し、保存の直前に文書の中身を指し直す（写さない）。文書が無いとき（起動後・0.3.x から
+    入れ替えた直後）は控えから作る。ウィンドウのコードが控えを使っていないことは `test_window_document_mirror` が見る。
+  - **決めたこと**: いま直しているゾーン（`activeMaskTarget`）は表示の状態として巻き戻さない。番号で持つので、描く前に id を覚え、
+    ゾーンの並びが戻ったら同じゾーンを指し直す（消えたら、ゾーンを消したときと同じ規則）。
+  - 窓を閉じたら文書の Undo も消して破棄する（押しても何も起きない Ctrl+Z が残らない）。
+- [x] マスクの履歴は版の番号だけを保存し、中身はヒープの外の RLE の履歴に持つ（B2 の、Undo のたびの base64 文字列の
   読み直しがなくなる）。
+  - 2026-10-31: `MaskHistory`（`Code/Application/`）と `IrocaEditingDocument.maskRevision`。操作は
+    `EditingSession.RecordMaskEdit`（Undo に記録）→ 書き換え → `CommitMaskEdit`（新しい版）。Undo の後は `RestoreMasksAfterUndo` が
+    番号の変わったときだけマスクを戻す（スライダーの Undo でマスクに触らない）。文書の `session.maskState` はいつも空で、保存のときだけ
+    `EditingSession.ToSaveState()` が文字列を作る（ゾーンは写さない）。RLE は `MaskRle.EncodeBitsNative` / `DecodeBitsNative` /
+    `MatchesBits`（`--bitmaskselftest` が保存形式のバイト列と同じことを見る）。
+  - **決めたこと**: 変わっていない層は前の版と同じ塊を共有する。どの層が変わったかの印は持たず、全層を符号化してバイト列を比べる
+    （10-21 に「変わったマスクだけ変換」をやめたのと同じ理由で、印の付け忘れが履歴の食い違いになるため。符号化は十分速い）。
+  - **決めたこと**: 履歴の上限は 256MB。超えたら古い版から手放し、そこへ Undo したらマスクを変えずに知らせる（`NotifyMaskUndoTooOld`）。
+    版の番号は時刻から作る（再読み込みで履歴が空になっても前の番号と重ならない）。新しい編集で、やり直しの分の版を手放す。
+  - **計測**（`-UndoBench`。4K、ゾーン 4 つ。左が 10-21 の 0.3.0 の作り、右が今。単位 ms。マスクは「ふつう 3.2 万字 / 多い 269 万字」）:
+
+    | 場面 | 前 | 今 |
+    |---|---|---|
+    | スライダーを離したとき | 0.15〜0.4 / 12〜24 | 0.04 / 0.06 |
+    | ブラシの押し始め | 同上 | 0.03 / 0.07 |
+    | ブラシを離したとき（履歴へ記録） | 測っていない（全層の文字列化） | 1.0 / 20 |
+    | Undo・Redo（マスクが変わるとき） | 同上 | 1.0 / 8.7 |
+    | Undo（スライダー） | 同上 | 文書の書き戻しだけ |
+
+    前の 0.15〜24ms は「押し始め・離したとき・Undo」をまとめて測った値（10-21 の記録）。15 ストロークの履歴の量は、ふつうで 193KB、
+    多いで 9.7MB。Mono のヒープの文字列はストロークのたびに作らなくなった（残るのは自動保存のときだけ）。
+  - **残したこと**: 保存のたびの文字列（自動保存・閉じるとき。`ToSaveState`）は Mono のヒープに一時的に作る。保存形式が文字列だから。
+    大きさは RLE の量で、画素数に比例しない。
 - ~~スクリプトの再読み込みをまたいだ Undo は今と同じに保つ。今はマスクの文字列がウィンドウごと Undo に載るので、
   再読み込みの後もマスクのストロークを取り消せるはず。ヒープの外の履歴は一時ファイルへ退避して読み戻す。~~
   **2026-10-30 に実験で確かめたら前提が誤りだった。** Unity は再読み込みのときに、スクリプトのオブジェクト（ウィンドウ・
@@ -1152,9 +1181,11 @@ T5 で消える部分は作り直さない（1.5）。
   （履歴と Undo の記録が同時に消える）。守るのは、編集内容が失われないこと・空振りの Ctrl+Z で何も変わらないこと・
   再読み込みの後の編集は取り消せること。`scripts/editor-tests/UndoReloadScenario.cs`（`Run-EditorTests.ps1 -UndoReload`）で
   固定した。テストランナーの中と batchmode では、シーンの物の Undo も含めて履歴が空になるので、ランナーなし・画面ありで回す。
-- 利用者の作業状態の保存と復元に直接かかわるので、他のフェーズより確かめることが多い。PersistenceTests・
+- [x] 利用者の作業状態の保存と復元に直接かかわるので、他のフェーズより確かめることが多い。PersistenceTests・
   WindowRestoreTests・SampleUvUndoTests・SeparateUndoTests・UndoRestoreSignalTests・UndoBenchTests に、
   再読み込みと Play をまたぐ場面を足す。
+  - 2026-10-31: 再読み込みと Play をまたぐ場面は `UndoReloadScenario`（`-UndoReload`）。ふだんの Undo は `WindowUndoTests`・`MaskHistoryTests`。
+    実機の確認は `docs/release-smoke-test.md` の 53。
 
 ### フェーズ 6: asmdef で固める（0.4.0 に入れる。2026-10-26 決定）
 

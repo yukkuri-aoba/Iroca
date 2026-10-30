@@ -8,7 +8,7 @@ namespace Iroca
 {
     /// <summary>
     /// マスク対象選択・ブラシ入力・オーバーレイ生成(MaskPaintView.Overlay.cs)・編集中のマスク(<see cref="MaskWorkspace"/>)と
-    /// _session.maskState の同期を担当する。
+    /// 保存形式との変換と、編集中の文書(EditingSession)の履歴への記録の呼び出しを担当する。
     /// ゾーン本体の編集 UI、プレビュー生成本体、プリセット一覧、エクスポートは扱わない。
     /// </summary>
     [System.Serializable]
@@ -304,11 +304,9 @@ namespace Iroca
                                   ActiveTargetName(), ActiveLayerName()),
                     Localization.ClearMaskTooltip)))
             {
-                // 編集中のマスクを _session.maskState に同期してから Undo 登録、クリア後に再同期。
-                SyncBuffersToState();
-                Undo.RegisterCompleteObjectUndo(_host.UndoTarget, "Clear Mask");
+                _host.Editing.RecordMaskEdit("Clear Mask");
                 ClearActiveMask();
-                SyncBuffersToState();
+                _host.Editing.CommitMaskEdit();
                 _host.Editing.NotifyChanged(EditChange.Masks);
             }
 
@@ -846,21 +844,17 @@ namespace Iroca
         {
             if (_maskStrokeStarted) return;
             _strokeHadDirectOverlayWrite = false;
-            // 編集中のマスクを _session.maskState に書き戻してから Undo 登録すれば、
-            // 戻し操作でストローク開始前の状態に確実に復元できる。
-            SyncBuffersToState();
-            Undo.RegisterCompleteObjectUndo(_host.UndoTarget, "Paint Mask Stroke");
+            _host.Editing.RecordMaskEdit("Paint Mask Stroke");
             _maskStrokeStarted = true;
         }
 
         /// <summary>
-        /// ペイントストローク終了時に呼び、ストローク後のマスクを _session.maskState へ反映する。
-        /// 次回の Undo でストローク開始前へ戻すための「変更後の状態」が確定する。
+        /// ペイントストローク終了時に呼び、ストローク後のマスクを新しい版にする(Redo で戻す先)。
         /// </summary>
         public void EndStroke()
         {
             if (!_maskStrokeStarted) return;
-            SyncBuffersToState();
+            _host.Editing.CommitMaskEdit();
             _maskStrokeStarted = false;
             // ストローク中の直接書き込みは表示テクスチャのみの更新なので、確定時に一度だけ
             // 正規の再構築を予約して収束させる(保留した非同期結果や対象切替の過渡も含む)。

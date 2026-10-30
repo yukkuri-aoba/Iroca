@@ -141,7 +141,7 @@ namespace Iroca.EditorTests
 
             Undo.PerformUndo();
             Assert.AreEqual(before, _host.session.zones[0].id, "ゾーンが戻る");
-            Assert.IsTrue(_editing.Masks.DecodeFrom(_host.session.maskState));
+            Assert.IsTrue(_editing.RestoreMasksAfterUndo());
             CollectionAssert.AreEqual(common, ToBools(_editing.Masks.Common), "マスクも戻る");
             Assert.IsNull(_editing.Masks.Layer(false, zoneId));
         }

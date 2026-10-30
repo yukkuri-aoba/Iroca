@@ -32,7 +32,7 @@ Core         計算だけ（選択・マスクの適用・再着色・自動調�
 | `Code/Runtime` | 実行時（アバターに付けるコンポーネント） | Runtime |
 | `Code/Infra`・`Code/Text` | Infra | Core・Runtime・Infra・Text |
 | `Code/MaskSuggest`（Ops を除く） | Infra と同じ段（AI 提案の準備・窓口。待ち行列の持ち主 `AiSuggestBroker` もここ） | 上に MaskSuggest を足したもの |
-| `Code/Application`（4-2・4-3 で作った。`SourcePixelCache`・`EditingSession`・`SessionPersistence`・`MaskWorkspace`・`AutosaveSchedule`・`PresetApplier`・`RegistrationService`・`ExportService`・`AutoTuneService`） | Application | 上に Application を足したもの |
+| `Code/Application`（4-2・4-3 で作った。`SourcePixelCache`・`EditingSession`・`IrocaEditingDocument`・`SessionPersistence`・`MaskWorkspace`・`MaskHistory`・`AutosaveSchedule`・`PresetApplier`・`RegistrationService`・`ExportService`・`AutoTuneService`） | Application | 上に Application を足したもの |
 | `Code/Automation` | Automation | 上に Automation を足したもの |
 | `Code/UI` | UI | 上に UI を足したもの |
 | `Code/NdmfIntegration`・`Code/SentisIntegration` | 統合 | Application まで（UI と自動化は使わない） |
@@ -108,8 +108,10 @@ partial のまま置いた）、`Pipeline/`（入口の `PixelProcessor.cs`・�
 
 | 部品 | 役割 |
 |---|---|
-| `EditingSession` | 編集中の文書（原本・結びついたレシピ・ゾーンと設定・マスク・自動調整の入力）。操作は Undo とマスクの同期をしてから `Changed(種類)` を出す。今（4-2 の 7）は、ウィンドウが保存する編集状態を包むもの、原本の画素（`SourcePixelCache`）と編集中のマスク（`MaskWorkspace`）の持ち主、ゾーンの操作（追加・削除・並べ替え・スポイト・起点・調整のリセット。Undo の記録先はウィンドウ）、編集の通知 `Changed`（4-2 の 8。`Content`・`Masks`・`Replaced`。ウィンドウがプレビューと重ね表示へ回し、自動保存の予定 `AutosaveSchedule` は直接購読する）。保存されるフィールドはウィンドウに残す。新しいゾーンの規則（名前の番号・初期の許容範囲）は自動化もここを使う |
+| `EditingSession` | 編集中の文書。文書の中身（`IrocaEditingDocument`）を包み、原本の画素（`SourcePixelCache`）・編集中のマスク（`MaskWorkspace`）・マスクの履歴（`MaskHistory`）の持ち主、ゾーンの操作（追加・削除・並べ替え・スポイト・起点・調整のリセット）、編集の通知 `Changed`（`Content`・`Masks`・`Replaced`。ウィンドウがプレビューと重ね表示へ回し、自動保存の予定 `AutosaveSchedule` は直接購読する）。保存に渡す編集状態は `ToSaveState()` が作る。新しいゾーンの規則（名前の番号・初期の許容範囲）は自動化もここを使う |
+| `IrocaEditingDocument` | 文書の中身（ゾーン・設定・テクスチャ・レシピ・マスクの版の番号）。`HideAndDontSave` の ScriptableObject で、**Undo の対象はこれ**（ウィンドウではないので、ズーム・開閉などの表示の状態は巻き戻らない）。ウィンドウの `sourceTexture`・`_session`・`_boundRecipe` は保存の控えで、保存の直前に文書を指し直すだけ（6 章。`test_window_document_mirror`） |
 | `MaskWorkspace` | 編集中のマスク（1 画素 1 ビットのヒープの外のマスク）。層は参照の数で共有し（重ね表示のワーカー）、書く前に写す。保存形式との変換・スナップショットは bool[] の経路と同じ結果。持ち主は `EditingSession`（4-2 の 7）で、ブラシ・範囲の操作はマスクの編集（`MaskPaintView`）が書く |
+| `MaskHistory` | マスクの履歴。Undo に載るのは文書の版の番号だけで、中身はここがヒープの外に RLE で持つ。マスクを書き換える操作は `EditingSession.RecordMaskEdit` → 書き換え → `CommitMaskEdit` の順にする（記録を飛ばすと Undo で戻らない）。変わっていない層は前の版と共有する。Unity は再読み込みでスクリプトのオブジェクトの Undo を捨てるので、履歴も再読み込みで消えてよい（退避しない。`UndoReloadScenario`） |
 | `SessionPersistence` | 復元の優先順（レシピ → セッションのファイル → 既定）・自動保存・外での書き換えの検出。今（4-2 の 5）は読み書きと判断だけで、編集状態の差し替え・Undo・マスクの同期はウィンドウ。自動保存の予定は `AutosaveSchedule`（4-2 の 8） |
 | `EditingSessionRegistry` | 開いている編集の一覧。ウィンドウを型で探す（`FindObjectsOfTypeAll<IrocaWindow>`）代わり。Infra の非破壊ビルドと更新の確認も使うので Infra に置いた（4-2） |
 | `SourcePixelCache` | 作業解像度の原本（参照の数で貸す） |
@@ -213,6 +215,7 @@ GC は大きな塊を動かせない。8K の原本は 6,700 万画素あり、`
 | `scripts/source_checks/test_no_pixel_sized_managed_arrays.py` | 4 章の、画素数の大きさの管理配列を増やさない |
 | `scripts/source_checks/test_event_subscription_symmetry.py` | 5 章の、static のイベントの購読と解除の対 |
 | `scripts/source_checks/test_serialized_field_names.py` | 6 章の、Unity が保存するフィールドの名前（一覧は `serialized_field_names.json`） |
+| `scripts/source_checks/test_window_document_mirror.py` | ウィンドウのコードが保存の控え（`sourceTexture`・`_session`・`_boundRecipe`）を読み書きしない（編集状態は文書から読む） |
 | `scripts/source_checks/test_editor_prefs_keys.py` | 6 章の、EditorPrefs / SessionState のキー |
 | `scripts/source_checks/test_algorithm_constants.py` | 定数の台帳と、直書きの小数を増やさない |
 | `scripts/source_checks/test_harness_scope.py` | 視覚レビューのゲートの範囲が、ハーネスのコンパイルする製品ソースと一致する |

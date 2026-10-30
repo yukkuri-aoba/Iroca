@@ -115,8 +115,7 @@ namespace Iroca.EditorTests
         // 非破壊ビルドと同じ入口。窓が保存するのと同じく、編集用のマスクを保存形式(maskState)へ書いてから当てる。
         private Color32[] BySessionRecolor(bool withMasks)
         {
-            _win._maskView.SyncBuffersToState();
-            var state = JsonUtility.FromJson<IrocaSessionState>(JsonUtility.ToJson(_win.Session));
+            var state = JsonUtility.FromJson<IrocaSessionState>(JsonUtility.ToJson(_win.Editing.ToSaveState()));
             if (!withMasks) state.maskState = new MaskState();
             Assert.IsTrue(_win.Preview.TryGetTrueSourcePixels(_texture, out var src, out int w, out int h), "原本を読めない");
             Assert.AreEqual((W, H), (w, h));

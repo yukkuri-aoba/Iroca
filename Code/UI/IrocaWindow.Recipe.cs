@@ -64,7 +64,7 @@ namespace Iroca
             if (!SavePersistedSessionForCurrentTexture())
                 ShowNotification(new GUIContent($"{Localization.Error}: {Localization.MaskSaveFailed}"));
             // Session をまるごと差し替えるため、深い Undo (RegisterCompleteObjectUndo) を使う。
-            Undo.RegisterCompleteObjectUndo(UndoTarget, "Change Source Texture");
+            Editing.RecordMaskEdit("Change Source Texture");
             SourceTexture = newTex;
             Doc.boundRecipe = recipe;
             _previewView.InvalidateSourceCache();
@@ -97,17 +97,18 @@ namespace Iroca
             Session = state;
             EnsureAllZoneIds();
             _maskView?.RestoreFromRecipeState();
+            Editing.CommitMaskEdit();
             Editing.NotifyChanged(EditChange.Replaced);
             return true;
         }
 
-        /// <summary>結び付いたレシピへ今の編集内容(マスク込み)を書く。マスクは呼び出し側で state へ同期済みであること。</summary>
-        private void SaveSessionToBoundRecipe()
+        /// <summary>結び付いたレシピへ今の編集内容を書く。<paramref name="saved"/> はマスク込みのもの(<see cref="EditingSession.ToSaveState"/>)。</summary>
+        private void SaveSessionToBoundRecipe(IrocaSessionState saved)
         {
             var recipe = BoundRecipe;
-            if (recipe == null || Session == null) return;
+            if (recipe == null) return;
             // 外(git など)で書き換わったレシピを、窓の古い内容で上書きしない。窓が残るならレシピから読み直す。
-            if (!SessionPersistence.SaveToRecipe(recipe, Session)) ScheduleRecipeReload();
+            if (!SessionPersistence.SaveToRecipe(recipe, saved)) ScheduleRecipeReload();
         }
 
         /// <summary>
@@ -118,8 +119,7 @@ namespace Iroca
         private void FlushToBoundRecipe()
         {
             if (BoundRecipe == null) return;
-            _maskView?.SyncBuffersToState();
-            SaveSessionToBoundRecipe();
+            SaveSessionToBoundRecipe(Editing.ToSaveState());
         }
 
         /// <summary>
@@ -143,9 +143,8 @@ namespace Iroca
         internal static IrocaSessionState EditingStateOf(Texture2D texture)
         {
             var win = WindowShowing(texture);
-            if (win == null || win.Session == null) return null;
-            win._maskView?.SyncBuffersToState();
-            return JsonUtility.FromJson<IrocaSessionState>(JsonUtility.ToJson(win.Session));
+            if (win == null) return null;
+            return JsonUtility.FromJson<IrocaSessionState>(JsonUtility.ToJson(win.Editing.ToSaveState()));
         }
 
         /// <summary>
@@ -169,8 +168,7 @@ namespace Iroca
             if (recipe == null || recipe.sourceTexture == null) return;
             var win = WindowShowing(recipe.sourceTexture);
             if (win == null) return;
-            win._maskView?.SyncBuffersToState();
-            Undo.RegisterCompleteObjectUndo(win.UndoTarget, undoName);
+            win.Editing.RecordMaskEdit(undoName);
             win.Doc.boundRecipe = recipe;
             win.LoadPersistedSessionForCurrentTexture();
             win._maskView?.ResetActiveTarget();
@@ -253,12 +251,11 @@ namespace Iroca
                 _unreadableRecipeJson = recipe.sessionJson;
                 return;
             }
-            _maskView?.SyncBuffersToState();
             // 外の変更を拾うのは後から(delayCall)なので、利用者が直前にした操作と同じ「元に戻す」にまとめない
             // (まとめると、Ctrl+Z 1 回で読み直しと一緒に直前の操作まで戻る)。
             SeparateUndo.Record("Iroca: Reload Recipe", () =>
             {
-                Undo.RegisterCompleteObjectUndo(UndoTarget, "Iroca: Reload Recipe");
+                Editing.RecordMaskEdit("Iroca: Reload Recipe");
                 LoadPersistedSessionForCurrentTexture();
                 _maskView?.ResetActiveTarget();
             });
@@ -360,12 +357,12 @@ namespace Iroca
                     Localization.RegisterOk, Localization.Cancel) ? 0 : 1;
             if (choice == 1) return;
 
-            // 作業用マスクを state へ同期してからレシピへ書く(マスク込みで保存される)。
-            _maskView?.SyncBuffersToState();
+            // マスク込みで保存する。
+            var saved = Editing.ToSaveState();
             if (recipe == null)
-                recipe = RecipeStore.Create(SourceTexture, Session);
+                recipe = RecipeStore.Create(SourceTexture, saved);
             else
-                RecipeStore.Save(recipe, Session);
+                RecipeStore.Save(recipe, saved);
             Doc.boundRecipe = recipe;
             SessionPersistence.MarkRecipeSynced(recipe);
 

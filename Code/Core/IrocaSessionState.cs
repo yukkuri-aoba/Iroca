@@ -15,9 +15,9 @@ namespace Iroca
     internal enum EditMode { Simple, Normal, Advanced }
 
     /// <summary>
-    /// 編集状態の永続表現。ゾーン定義・処理パラメータ・マスク状態をまとめて保持し、
-    /// EditorWindow に [SerializeField] で持たせることで Unity 標準の SerializedObject /
-    /// Undo に乗せる。GUI・ファイル I/O・AssetDatabase に依存しない純粋データ。
+    /// 編集状態の永続表現。ゾーン定義・処理パラメータ・マスク状態をまとめて保持する。編集中はゾーンと処理パラメータだけを
+    /// 文書(IrocaEditingDocument)に持たせて Unity の Undo に乗せ、マスクは編集中のマスクと履歴がヒープの外に持つ
+    /// (maskState は保存するときに <see cref="WithMasks"/> で付ける)。GUI・ファイル I/O・AssetDatabase に依存しない純粋データ。
     /// 処理パラメータの既定値は RecolorSettings の定数を参照する（プリセット・zones JSON と同じ値）。
     /// </summary>
     [Serializable]
@@ -38,5 +38,13 @@ namespace Iroca
         public MaskState maskState = new MaskState();
 
         public static IrocaSessionState CreateDefault() => new IrocaSessionState();
+
+        /// <summary>同じゾーンと処理パラメータを指す写しで、マスクだけが <paramref name="masks"/> のもの(保存に渡す。ゾーンは写さない)。</summary>
+        public IrocaSessionState WithMasks(MaskState masks)
+        {
+            var copy = (IrocaSessionState)MemberwiseClone();
+            copy.maskState = masks;
+            return copy;
+        }
     }
 }

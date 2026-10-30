@@ -12,10 +12,9 @@ using UnityEngine;
 namespace Iroca.EditorTests
 {
     /// <summary>
-    /// 編集状態(マスクの RLE 文字列を含む)を Unity の Undo に記録する手間と、自動保存の各段の時間を測る(0.3.0)。
-    /// ウィンドウはスライダーを動かすたびに Undo.RecordObject でウィンドウ全体を記録し、ブラシの押し始めに
-    /// RegisterCompleteObjectUndo で丸ごと写す。記録の量はマスクの文字列の長さで決まるので、マスクなし・
-    /// ふつう(部位のかたまり数個)・多い(細かい塗りが多数)の 3 通りで比べる。
+    /// 編集を Unity の Undo に記録する手間と、自動保存の各段の時間を測る(0.3.0。0.4.0 のフェーズ 5 で文書とマスクの履歴の形にした)。
+    /// スライダーは文書(ゾーンと設定)だけを記録する。ストロークは文書の記録と、離したときのマスクの履歴への記録。Undo は文書の書き戻しと、
+    /// 版が変わったときのマスクの展開。マスクなし・ふつう(部位のかたまり数個)・多い(細かい塗りが多数)の 3 通りで比べる。
     /// 普段は IROCA_UNDO_BENCH_REPORT が無いので Ignore。実行は <c>Run-EditorTests.ps1 -UndoBench</c>。
     /// </summary>
     [Category("UndoBench")]
@@ -25,11 +24,14 @@ namespace Iroca.EditorTests
         private const int Reps = 15;
 
         private IrocaEditingDocument _host;
+        private EditingSession _editing;
 
         [TearDown]
         public void TearDown()
         {
             Undo.ClearAll();
+            _editing?.Masks.Clear();
+            _editing?.MaskHistory.Clear();
             if (_host != null) UnityEngine.Object.DestroyImmediate(_host);
         }
 
@@ -102,8 +104,13 @@ namespace Iroca.EditorTests
                 {
                     _host = ScriptableObject.CreateInstance<IrocaEditingDocument>();
                     _host.session = Session(kind);
-                    Undo.ClearAll();
+                    _editing = new EditingSession(_host);
                     var ms = _host.session.maskState;
+                    _host.session.maskState = new MaskState();
+                    if (ms.width > 0) _editing.Masks.DecodeFrom(ms);
+                    else _editing.Masks.Reset(W, H);
+                    _editing.CommitMaskEdit();
+                    Undo.ClearAll();
                     long maskChars = (ms.commonMaskBase64?.Length ?? 0);
                     foreach (var e in ms.zones) maskChars += e.maskBase64.Length;
                     foreach (var e in ms.zoneIncludes) maskChars += e.maskBase64.Length;
@@ -139,18 +146,20 @@ namespace Iroca.EditorTests
                         dragRelease.Add(Time(Undo.FlushUndoRecordObjects));
                     }
 
-                    // ブラシの押し始め: ウィンドウを丸ごと写す。続けて Undo / Redo(書き戻し)。
+                    // ブラシの押し始め(文書の記録)と離したとき(マスクの履歴への記録)。続けて Undo / Redo(書き戻しと展開)。
                     var stroke = new List<double>();
+                    var strokeEnd = new List<double>();
                     var undo = new List<double>();
                     var redo = new List<double>();
                     for (int i = 0; i < Reps; i++)
                     {
                         Undo.IncrementCurrentGroup();
-                        stroke.Add(Time(() => Undo.RegisterCompleteObjectUndo(_host, "Paint Mask Stroke")));
-                        _host.session.zones[1].tolerance += 0.0001f;
+                        stroke.Add(Time(() => _editing.RecordMaskEdit("Paint Mask Stroke")));
+                        _editing.Masks.WritableCommon().Set(i * 977 % (W * H), true);
+                        strokeEnd.Add(Time(_editing.CommitMaskEdit));
                         Undo.IncrementCurrentGroup();
-                        undo.Add(Time(Undo.PerformUndo));
-                        redo.Add(Time(Undo.PerformRedo));
+                        undo.Add(Time(() => { Undo.PerformUndo(); _editing.RestoreMasksAfterUndo(); }));
+                        redo.Add(Time(() => { Undo.PerformRedo(); _editing.RestoreMasksAfterUndo(); }));
                     }
 
                     // 自動保存の各段(UserSettings のマスクとセッション、結び付いたレシピ)。
@@ -161,8 +170,10 @@ namespace Iroca.EditorTests
                     var sessionJson = new List<double>();
                     var recipeParse = new List<double>();
                     string json = null, fullJson = null;
+                    var encode = new List<double>();
                     for (int i = 0; i < Reps; i++)
                     {
+                        encode.Add(Time(() => ms = _editing.ToSaveState().maskState));
                         maskJson.Add(Time(() => json = JsonUtility.ToJson(ms)));
                         // 毎回 1 文字変えて書く(実際に書く場合)・同じ中身(書かない場合)。
                         string changed = json + (i % 2 == 0 ? " " : "  ");
@@ -179,6 +190,9 @@ namespace Iroca.EditorTests
                       .Append(",\"dragFrameMs\":").Append(Median(dragFrame).ToString("F3"))
                       .Append(",\"dragReleaseMs\":").Append(Median(dragRelease).ToString("F3"))
                       .Append(",\"strokeBeginMs\":").Append(Median(stroke).ToString("F3"))
+                      .Append(",\"strokeEndMs\":").Append(Median(strokeEnd).ToString("F3"))
+                      .Append(",\"historyBytes\":").Append(_editing.MaskHistory.Bytes)
+                      .Append(",\"encodeForSaveMs\":").Append(Median(encode).ToString("F3"))
                       .Append(",\"undoMs\":").Append(Median(undo).ToString("F3"))
                       .Append(",\"redoMs\":").Append(Median(redo).ToString("F3"))
                       .Append(",\"maskToJsonMs\":").Append(Median(maskJson).ToString("F3"))
@@ -188,6 +202,9 @@ namespace Iroca.EditorTests
                       .Append(",\"recipeFromJsonMs\":").Append(Median(recipeParse).ToString("F3"))
                       .Append("}\n");
                     Undo.ClearAll();
+                    _editing.Masks.Clear();
+                    _editing.MaskHistory.Clear();
+                    _editing = null;
                     UnityEngine.Object.DestroyImmediate(_host);
                     _host = null;
                 }

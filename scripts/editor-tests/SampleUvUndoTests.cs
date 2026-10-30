@@ -40,6 +40,7 @@ namespace Iroca.EditorTests
         {
             Undo.ClearUndo(_host);
             _editing.Masks.Clear();
+            _editing.MaskHistory.Clear();
             Object.DestroyImmediate(_host);
         }
 

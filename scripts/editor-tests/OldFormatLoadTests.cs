@@ -123,8 +123,7 @@ namespace Iroca.EditorTests
 
             AssertV030Zones(_win.Session.zones, inPreset: true);
             AssertV030Settings(_win.Session, withEditMode: false);   // 編集モードはプリセットに入れない
-            _win._maskView.SyncBuffersToState();
-            AssertV030Masks(_win.Session.maskState);
+            AssertV030Masks(_win.Editing.ToSaveState().maskState);
         }
 
         [Test]
@@ -139,8 +138,7 @@ namespace Iroca.EditorTests
 
             AssertV030Zones(_win.Session.zones, inPreset: false);
             AssertV030Settings(_win.Session, withEditMode: true);
-            _win._maskView.SyncBuffersToState();
-            AssertV030Masks(_win.Session.maskState);
+            AssertV030Masks(_win.Editing.ToSaveState().maskState);
         }
 
         [Test]

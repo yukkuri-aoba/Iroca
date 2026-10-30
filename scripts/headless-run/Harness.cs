@@ -1249,6 +1249,30 @@ namespace Iroca
                     "DecodeBits equals DecodePacked: " + label);
                 Check(m.Any() == MaskSnapshot.AnyTrue(b), "Any: " + label);
                 back?.Release();
+
+                // ヒープの外の RLE(Undo の履歴): 保存形式の Base64 を解いた中身と同じバイト列で、展開すると同じビット。
+                var rle = MaskRle.EncodeBitsNative(m);
+                Check((rle != null) == MaskSnapshot.AnyTrue(b), "EncodeBitsNative is null only when empty: " + label);
+                if (rle != null)
+                {
+                    var expected = Convert.FromBase64String(viaBools.Substring(2));
+                    var got = new byte[rle.Bytes];
+                    System.Runtime.InteropServices.Marshal.Copy(rle.Ptr, got, 0, got.Length);
+                    Check(got.AsSpan().SequenceEqual(expected), "EncodeBitsNative equals the saved bytes: " + label);
+                    var decoded = MaskRle.DecodeBitsNative(rle);
+                    Check(decoded.Width == w && decoded.Height == h && SameBits(decoded, MaskSnapshot.Pack(b)), "DecodeBitsNative: " + label);
+                    Check(MaskRle.MatchesBits(m, rle), "MatchesBits same: " + label);
+                    decoded.Set(0, !decoded.Get(0));
+                    Check(!MaskRle.MatchesBits(decoded, rle), "MatchesBits first pixel differs: " + label);
+                    decoded.Set(0, !decoded.Get(0));
+                    decoded.Set(decoded.Length - 1, !decoded.Get(decoded.Length - 1));
+                    Check(!MaskRle.MatchesBits(decoded, rle), "MatchesBits last pixel differs: " + label);
+                    decoded.Release();
+                    var otherSize = NativeBitMask.Allocate(w + 1, h);
+                    Check(!MaskRle.MatchesBits(otherSize, rle), "MatchesBits other size: " + label);
+                    otherSize.Release();
+                    rle.Release();
+                }
                 m.Release();
             }
             Check(MaskRle.DecodeBits("R:" + Convert.ToBase64String(new byte[13])) == null, "DecodeBits rejects a zero size");

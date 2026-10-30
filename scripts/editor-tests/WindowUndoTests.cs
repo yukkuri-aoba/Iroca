@@ -248,6 +248,88 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void Document_NeverHoldsMaskStrings()
+        {
+            Stroke(5);
+            AddZones("服");
+            Stroke(6);
+            _win.SavePersistedSessionForCurrentTexture();
+
+            string json = EditorJsonUtility.ToJson(_win.UndoTarget);
+            StringAssert.DoesNotContain("R:", json, "Undo に載る文書にマスクの文字列が入った");
+            Assert.IsEmpty(_win.Session.maskState.commonMaskBase64 ?? "");
+        }
+
+        [Test]
+        public void Saving_WritesTheEditingMasks()
+        {
+            Stroke(5);
+            Assert.IsTrue(_win.SavePersistedSessionForCurrentTexture());
+
+            var saved = MaskFileStore.LoadMask(_tex, out bool unreadable);
+            Assert.IsFalse(unreadable);
+            Assert.IsNotNull(saved, "マスクがファイルに書かれていない");
+            var fromFile = new MaskWorkspace();
+            try
+            {
+                Assert.IsTrue(fromFile.DecodeFrom(saved));
+                Assert.IsTrue(fromFile.Common.Get(5));
+            }
+            finally { fromFile.Clear(); }
+        }
+
+        [Test]
+        public void Undo_OfAnEditWithoutMasks_DoesNotTouchTheMasks()
+        {
+            AddZones("服");
+            Stroke(5);
+            var layer = _win.Editing.Masks.Common;
+            float before = _win.Session.zones[0].tolerance;
+
+            Undo.IncrementCurrentGroup();
+            Undo.RecordObject(_win.UndoTarget, "Iroca Edit");
+            _win.Session.zones[0].tolerance = before + 0.25f;
+            Undo.FlushUndoRecordObjects();
+            Undo.IncrementCurrentGroup();
+
+            Undo.PerformUndo();
+            Assert.AreEqual(before, _win.Session.zones[0].tolerance);
+            Assert.AreSame(layer, _win.Editing.Masks.Common, "マスクの版は変わらないので触らない");
+        }
+
+        [Test]
+        public void Undo_OfAVersionNoLongerInHistory_KeepsMasksAndEditingContinues()
+        {
+            Stroke(1);
+            Stroke(2);
+            _win.Editing.MaskHistory.Clear();   // 上限で手放した状態
+
+            Undo.PerformUndo();
+            Assert.IsTrue(_win.Editing.Masks.Common.Get(1) && _win.Editing.Masks.Common.Get(2), "戻せなければマスクはそのまま");
+
+            Stroke(3);
+            Assert.IsTrue(_win.Editing.Masks.Common.Get(3));
+            Undo.PerformUndo();
+            Assert.IsFalse(_win.Editing.Masks.Common.Get(3), "その後の編集は取り消せる");
+            Assert.IsTrue(_win.Editing.Masks.Common.Get(2));
+        }
+
+        [Test]
+        public void ClosingTheWindow_ReturnsTheMaskHistory()
+        {
+            long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Mask);
+            var win = ScriptableObject.CreateInstance<IrocaWindow>();
+            win.Editing.Masks.Reset(W, H);
+            Undo.IncrementCurrentGroup();
+            win._maskView.BeginStroke();
+            win.Editing.Masks.WritableCommon().Set(1, true);
+            win._maskView.EndStroke();
+            Assert.Greater(IrocaNativeMemory.LiveBytesOf(NativeUsage.Mask), before);
+            Object.DestroyImmediate(win);
+            Assert.AreEqual(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Mask), "閉じたら履歴も返す");
+        }
+
+        [Test]
         public void ClosingTheWindow_DestroysItsDocument()
         {
             var win = ScriptableObject.CreateInstance<IrocaWindow>();

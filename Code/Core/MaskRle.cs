@@ -227,6 +227,74 @@ namespace Iroca
             return RlePrefix + System.Convert.ToBase64String(bytes);
         }
 
+        /// <summary>
+        /// ヒープの外のマスクの RLE(保存形式の文字列の "R:" と Base64 を解いた中身と同じバイト列)を、ヒープの外に作る(用途 Mask。参照 1)。
+        /// 立っている画素が無ければ null。Undo の履歴が持つ。
+        /// </summary>
+        public static unsafe NativeBuffer EncodeBitsNative(NativeBitMask mask)
+        {
+            if (mask == null) return null;
+            ulong* bits = mask.Bits;
+            int len = mask.Length;
+            bool first = (bits[0] & 1UL) != 0UL;
+            long runs = 0;
+            bool cur = first;
+            for (int pos = 0; pos < len; cur = !cur, runs++) pos = NextChange(bits, len, pos, cur);
+            if (!first && runs <= 1) return null;
+
+            var rle = new NativeBuffer(9 + runs * 4, NativeUsage.Mask);
+            byte* b = (byte*)rle.Ptr;
+            *(int*)b = mask.Width;
+            *(int*)(b + 4) = mask.Height;
+            b[8] = first ? (byte)1 : (byte)0;
+            uint* dst = (uint*)(b + 9);
+            cur = first;
+            for (int pos = 0; pos < len; cur = !cur)
+            {
+                int next = NextChange(bits, len, pos, cur);
+                *dst++ = (uint)(next - pos);
+                pos = next;
+            }
+            return rle;
+        }
+
+        /// <summary><see cref="EncodeBitsNative"/> の逆(新しいマスク。参照 1)。</summary>
+        public static unsafe NativeBitMask DecodeBitsNative(NativeBuffer rle)
+        {
+            byte* b = (byte*)rle.Ptr;
+            var mask = NativeBitMask.Allocate(*(int*)b, *(int*)(b + 4));
+            ulong* bits = mask.Bits;
+            int len = mask.Length;
+            bool cur = b[8] != 0;
+            uint* run = (uint*)(b + 9);
+            for (int pos = 0; pos < len; cur = !cur)
+            {
+                int end = pos + (int)*run++;
+                if (cur) SetBits(bits, pos, end);
+                pos = end;
+            }
+            return mask;
+        }
+
+        /// <summary>マスクの中身が <see cref="EncodeBitsNative"/> の結果と同じか(展開し直さずに済むか)。寸法も見る。</summary>
+        public static unsafe bool MatchesBits(NativeBitMask mask, NativeBuffer rle)
+        {
+            byte* b = (byte*)rle.Ptr;
+            if (mask.Width != *(int*)b || mask.Height != *(int*)(b + 4)) return false;
+            ulong* bits = mask.Bits;
+            int len = mask.Length;
+            bool cur = b[8] != 0;
+            if (((bits[0] & 1UL) != 0UL) != cur) return false;
+            uint* run = (uint*)(b + 9);
+            for (int pos = 0; pos < len; cur = !cur)
+            {
+                int next = NextChange(bits, len, pos, cur);
+                if ((uint)(next - pos) != *run++) return false;
+                pos = next;
+            }
+            return true;
+        }
+
         // pos から先で、値が cur でない最初の画素(無ければ len)。
         private static unsafe int NextChange(ulong* bits, int len, int pos, bool cur)
         {

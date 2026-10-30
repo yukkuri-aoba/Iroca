@@ -34,18 +34,16 @@ namespace Iroca
 
         /// <summary>
         /// 現在の全マスク（共通 + 各ゾーン）をプロジェクト下の MaskCache ファイルへ
-        /// 永続化する。同時に _session.maskState を編集中のマスクの内容で更新する。
-        /// ディスク書き込みに失敗したときだけ false（呼び出し側で通知に使う）。
+        /// 永続化する。ディスク書き込みに失敗したときだけ false（呼び出し側で通知に使う）。
         /// </summary>
-        public bool SaveToSession()
-        {
-            // 編集中のマスクを _session.maskState（RLE 文字列）に書き戻す。
-            SyncBuffersToState();
+        public bool SaveToSession() => SaveMasks(_host.Editing.ToSaveState().maskState);
 
+        /// <summary>保存形式にしたマスクを MaskCache ファイルへ書く(<see cref="SaveToSession"/> と同じ)。</summary>
+        public bool SaveMasks(MaskState ms)
+        {
             string path = MaskTexturePath();
             if (path == null) return true;
 
-            var ms = _host.Session?.maskState;
             bool ok = MaskFileStore.SaveMask(path, ms, _maskLoadFailed);
 
             // 有効な内容を書き込めたら通常動作へ復帰する（空保存スキップの場合は
@@ -56,24 +54,6 @@ namespace Iroca
                  || (ms.zoneIncludes != null && ms.zoneIncludes.Count > 0));
             if (ok && hasContent) _maskLoadFailed = false;
             return ok;
-        }
-
-        /// <summary>
-        /// 編集中のマスクを RLE エンコードして _session.maskState に書き戻す。
-        /// </summary>
-        public void SyncBuffersToState() => _host.Editing.SyncMasksToState();
-
-        /// <summary>
-        /// _session.maskState（RLE 文字列）を編集中のマスクに展開する。
-        /// </summary>
-        public void SyncBuffersFromState()
-        {
-            var session = _host.Session;
-            if (session == null || session.maskState == null) return;
-            // 展開規則(寸法不一致・壊れた項目は捨てる)は Core の MaskStateCodec と同じ。寸法が無効ならマスクなしで、
-            // 寸法は前の値のまま(従来どおり)。Undo/Redo の書き戻しで変わるのはふつう 1 枚だけなので、中身が同じ層は
-            // 今のものをそのまま使う(MaskWorkspace.DecodeFrom)。
-            Workspace.DecodeFrom(session.maskState);
         }
 
         /// <summary>
@@ -96,8 +76,8 @@ namespace Iroca
             var fileState = MaskFileStore.LoadMask(path, out bool unreadable);
             if (fileState != null && fileState.width > 0 && fileState.height > 0)
             {
-                _host.Session.maskState = fileState;
-                SyncBuffersFromState();
+                // 展開規則(寸法不一致・壊れた項目は捨てる)は Core の MaskStateCodec と同じ(MaskWorkspace.DecodeFrom)。
+                Workspace.DecodeFrom(fileState);
                 maskDirty = true;
                 return;
             }
@@ -115,15 +95,17 @@ namespace Iroca
         }
 
         /// <summary>
-        /// レシピから読んだ編集状態(<c>_session.maskState</c> にマスクが入っている)を作業用バッファへ展開する。
-        /// MaskCache(UserSettings)は読まない(レシピが正。次の保存で MaskCache も同じ内容に揃う)。
+        /// レシピから読んだ編集状態(<c>maskState</c> にマスクが入っている)のマスクを編集中のマスクへ展開し、編集状態からは外す
+        /// (文書に文字列を持たない)。MaskCache(UserSettings)は読まない(レシピが正。次の保存で MaskCache も同じ内容に揃う)。
         /// </summary>
         public void RestoreFromRecipeState()
         {
             if (MaskTexturePath() == null) return;
             _suggestController?.OnSourceChangedOrClosing();
             _maskLoadFailed = false;
-            SyncBuffersFromState();
+            var session = _host.Session;
+            if (session.maskState != null) Workspace.DecodeFrom(session.maskState);
+            session.maskState = new MaskState();
             maskDirty = true;
         }
 

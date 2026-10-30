@@ -32,6 +32,7 @@ namespace Iroca.EditorTests
         {
             Undo.ClearUndo(_host);
             _editing.Masks.Clear();
+            _editing.MaskHistory.Clear();
             Object.DestroyImmediate(_host);
         }
 
@@ -111,14 +112,14 @@ namespace Iroca.EditorTests
             Assert.AreEqual(kept, Zones[0].id);
             Assert.IsNull(_editing.Masks.Layer(false, gone), "消したゾーンの除外も消える");
             Assert.IsNull(_editing.Masks.Layer(true, gone), "含めるも消える");
-            Assert.IsFalse(_host.session.maskState.zones.Exists(e => e.zoneId == gone), "保存形式にも残さない");
+            Assert.IsFalse(_editing.ToSaveState().maskState.zones.Exists(e => e.zoneId == gone), "保存形式にも残さない");
             CollectionAssert.AreEqual(keptEx, ToBools(_editing.Masks.Layer(false, kept)), "残るゾーンのマスクはそのまま");
 
             Undo.PerformUndo();
             Assert.AreEqual(2, Zones.Count);
             Assert.AreEqual(gone, Zones[0].id, "同じ位置へ戻る");
-            // ウィンドウは Undo の後に保存形式から展開し直す(IrocaWindow.OnUndoRedoPerformed)。
-            Assert.IsTrue(_editing.Masks.DecodeFrom(_host.session.maskState));
+            // ウィンドウは Undo の後に履歴から戻す(IrocaWindow.OnUndoRedoPerformed)。
+            Assert.IsTrue(_editing.RestoreMasksAfterUndo());
             CollectionAssert.AreEqual(goneEx, ToBools(_editing.Masks.Layer(false, gone)), "マスクもそろって戻る");
             CollectionAssert.AreEqual(goneIn, ToBools(_editing.Masks.Layer(true, gone)));
             CollectionAssert.AreEqual(common, ToBools(_editing.Masks.Common));
