@@ -165,6 +165,17 @@ namespace Iroca
         /// <summary>確定段の出力を差し替えるたびに進む番号(表示が「隠した後に新しくなったか」を見る)。</summary>
         internal int FullOutputVersion { get; private set; }
 
+        /// <summary>
+        /// 拡大表示の土台(<see cref="DetailOutput"/> / <see cref="DetailSource"/>)の中身が変わり得るたびに進む番号。
+        /// 拡大表示は、縮めたタイルの控えがどの土台のものかをこれで見る(出力のバッファは使い回すので、
+        /// 同じものかどうかでは見分けられない)。
+        /// </summary>
+        internal int DetailOutputVersion { get; private set; }
+        internal int DetailSourceVersion { get; private set; }
+
+        private void BumpDetailOutput() { unchecked { DetailOutputVersion++; } }
+        private void BumpDetailSource() { unchecked { DetailSourceVersion++; } BumpDetailOutput(); }
+
         // フル段の出力バッファの使い回し(PreviewOutputBuffers)。置き換えられた前の出力を次のフル段で再利用する。
         private PreviewOutputBuffers _outputBuffers;
 
@@ -296,6 +307,7 @@ namespace Iroca
         // 切り出し中・シーンへの反映が保持中なら、それぞれ参照を持っているので、手放されるまでは使い回されない。
         private void RetireFullOutput()
         {
+            BumpDetailOutput();
             _displayOutput?.Release();
             _displayOutput = null;
             var old = _fullOutput;
@@ -365,6 +377,7 @@ namespace Iroca
             if (sources.Pixels != null && sources.Texture != tex) InvalidateSourceCache();
 
             if (!sources.Load(tex)) return false;
+            BumpDetailSource();
             // 拡大表示に映す寸法の原本もここで作る(取り込みで小さくなり、「元の解像度」の設定がオフのときだけ。
             // 4K→2K で数十 ms)。
             if (WantsDisplaySize(out int dw, out int dh)) BuildDisplaySource(dw, dh);
@@ -376,6 +389,7 @@ namespace Iroca
         // 読んでいる途中のジョブは自分の参照を持っているので、ここで返しても消えない。
         private void DropTrueSource()
         {
+            BumpDetailSource();
             Sources?.Clear();
             _displaySource?.Release();
             _displaySource = null;
@@ -393,6 +407,7 @@ namespace Iroca
         // (設定をオフへ戻したとき。色替えはやり直さない。確定段のジョブが作るものと同じ縮小なので同じ画素になる)。
         private void BuildDisplaySource(int w, int h)
         {
+            BumpDetailSource();
             _displayW = w;
             _displayH = h;
             _displaySource = NativePixels.Allocate(w, h);
@@ -414,6 +429,7 @@ namespace Iroca
         // 縮めた原本・出力を手放す(拡大表示は作業解像度のものを映す)。
         private void ReleaseDisplaySource()
         {
+            BumpDetailSource();
             _displaySource?.Release();
             _displaySource = null;
             _displayOutput?.Release();
@@ -1028,6 +1044,7 @@ namespace Iroca
                     if (_displayOutput == null && _displaySource != null && ReferenceEquals(req.srcPixels, TrueSource))
                         _displayOutput = ShrinkToDisplay(result.full);
                     unchecked { FullOutputVersion++; }
+                    BumpDetailOutput();
                     // ジョブ側で生成した raw をキャッシュへ確定する(まだ未確定で、対象テクスチャと
                     // 寸法が変わっていない場合のみ。新しいミスで上書きされていれば触らない)。
                     if (_cachedRawDisplay == null && _cachedSrcPixels == req.srcPixels &&

@@ -776,7 +776,10 @@ namespace Iroca
             // 拡大表示の切り出しを作り直す。範囲はこのフレームの配置(画像の矩形・スクロール位置・倍率)で決める
             // (以前は描く前に前のフレームの矩形で決めていたので、ズームした直後は 1 コマ古い範囲を切り出していた)。
             if (detailActive)
-                TickDetailGeneration(detW, detH, detScale, effZoom, panelCount, srcW, srcH);
+                TickDetailGeneration(detScale, effZoom, panelCount, srcW, srcH);
+            else
+                // 拡大表示をやめている間は、縮めたタイルの控えを持たない(表示中の切り出しは残す)。
+                _detailView.ReleaseTiles();
 
             HandlePreviewGlobalInput(zoomHitRect, maxZoom);
 
@@ -1080,7 +1083,7 @@ namespace Iroca
         /// 画像の矩形(lastPreviewRect・lastBeforeRect)とスクロール位置から決めるので、Repaint の、画像の矩形が
         /// 決まった後で呼ぶ。作り直し待ち・走っている間は再描画を頼み続ける(終わったらすぐ最新の範囲で作り直す)。
         /// </summary>
-        private void TickDetailGeneration(int detW, int detH, float detScale, float effZoom, int panelCount, int srcW, int srcH)
+        private void TickDetailGeneration(float detScale, float effZoom, int panelCount, int srcW, int srcH)
         {
             var dv = _detailView;
             if (Event.current.type == EventType.Repaint &&
@@ -1092,7 +1095,7 @@ namespace Iroca
                 var latency = dv.TakeLatencyFor(dv.lastDetailDirtyTime, srcW, srcH);
                 dv.lastDetailDirtyTime = 0;
                 var beforeRect = panelCount == 2 ? dv.lastBeforeRect : default;
-                dv.GenerateDetailPreviewAsync(detW, detH, DetailSource, DetailOutput, detScale, effZoom, _previewScrollPos,
+                dv.GenerateDetailPreviewAsync(detScale, effZoom, _previewScrollPos,
                     dv.lastViewportW, dv.lastViewportH, dv.lastPreviewRect, beforeRect, latency);
             }
             else if (dv.lastDetailDirtyTime > 0 || dv.detailJob.IsRunning)

@@ -99,10 +99,6 @@
       "new bool[w * h]": 1,
       "new bool[ww * wh]": 1
     },
-    "Code/UI/DetailPreviewView.cs": {
-      "new Color32[cropW * cropH]": 2,
-      "new Color32[detailCropW * detailCropH]": 1
-    },
     "Code/UI/IrocaWindow.AutoTune.cs": {
       ".GetPixels32()": 1
     },

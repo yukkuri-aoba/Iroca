@@ -99,7 +99,7 @@ namespace Iroca
         /// </summary>
         private Texture ShownDetailRaw()
         {
-            if (!_detailView.EnsureDetailRaw(DetailSource, DetailW, DetailH)) return null;
+            if (!_detailView.EnsureDetailRaw()) return null;
             var raw = _detailView.detailRawTexture;
             if (!AppearanceActive) return raw;
             var report = AppearanceReport;
@@ -123,7 +123,7 @@ namespace Iroca
         /// 直後など)ときはその場で作る。作れないときは null。
         /// </summary>
         private Texture ShownDetailRawForDiff()
-            => _detailView.EnsureDetailRaw(DetailSource, DetailW, DetailH) ? _detailView.detailRawTexture : null;
+            => _detailView.EnsureDetailRaw() ? _detailView.detailRawTexture : null;
 
         /// <summary>「元を表示」を離したときに、変更前の切り出しとその見た目を手放す。</summary>
         private void ReleaseDetailRaw()

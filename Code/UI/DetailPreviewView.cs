@@ -1,13 +1,18 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System.Threading;
 using UnityEditor;
 using UnityEngine;
 
 namespace Iroca
 {
     /// <summary>
-    /// 詳細プレビュー（フル解像度クロップ）の生成と表示用テクスチャ管理。
+    /// 詳細プレビュー（拡大表示）の生成と表示用テクスチャ管理。
     /// PreviewView の補助として動作し、単独のトップレベル状態管理は持たない。
+    /// 拡大表示はタイル(<see cref="DetailTileGrid"/>)で作る(0.4.0 の計画の 3.5 の案 A)。見えている範囲を覆うタイルを
+    /// 並べた 1 枚をテクスチャにし、差分・「元を表示」・見た目・マスクの重ね表示は、今までの 1 枚の切り出しと同じく
+    /// その範囲と寸法で作る。縮めるタイルは控え(<see cref="DetailTileCache"/>。ヒープの外)に覚え、パンでは新しく
+    /// 見えたタイルだけを作る。タイルの並びが変わらないパンでは作り直さない(上げ直しもしない)。
     /// </summary>
     internal unsafe class DetailPreviewView
     {
@@ -19,18 +24,25 @@ namespace Iroca
         // 差分は変更後の切り出しとこれから GPU で描く(PreviewDiffDrawer)。どちらも終わったら手放す
         // (EnsureDetailRaw / ReleaseDetailRaw)ので、拡大中の VRAM が増えるのはその間だけ。
         [System.NonSerialized] public Texture2D detailRawTexture;
-        // detailRawTexture を作ったときの切り出し(範囲・寸法が変わったら作り直す)。
-        [System.NonSerialized] private int _rawOriginX = -1, _rawOriginY = -1, _rawCropW, _rawCropH, _rawTexW, _rawTexH;
         // detailRawTexture を作り直すたびに進める番号(テクスチャは使い回すので、見た目の作り直しの判定に使う)。
         [System.NonSerialized] public int detailRawVersion;
 
+        // 表示中の変更後・変更前の切り出しを作った要求(同じ要求なら作り直さない)。
+        [System.NonSerialized] private DetailTileRange _shown, _rawShown;
+        [System.NonSerialized] private bool _hasShown, _hasRawShown;
+
         [System.NonSerialized] public readonly PreviewJob<DetailPreviewResult> detailJob = new PreviewJob<DetailPreviewResult>();
-        [System.NonSerialized] private Color32[] _pendingDetailProcessed;
-        [System.NonSerialized] private Color32[] _pendingDetailRaw;
-        [System.NonSerialized] private int _pendingDetailTexW, _pendingDetailTexH;
-        [System.NonSerialized] private int _pendingDetailCropW, _pendingDetailCropH;
-        [System.NonSerialized] private int _pendingDetailOriginX, _pendingDetailOriginY;
-        [System.NonSerialized] private float _pendingDetailPxPerSrc;
+        // 見えている範囲の周り 1 枚分のタイルを、切り出しを出した後に作っておく(次のパンで作らずに済む)。
+        // 次の切り出しを始めるときに取り消す(切り出しの計算を待たせない)。
+        [System.NonSerialized] private readonly PreviewJob<int> _prefetchJob = new PreviewJob<int>();
+        // 縮めたタイルの控え(変更後・変更前)。
+        [System.NonSerialized] private readonly DetailTileCache _afterTiles = new DetailTileCache();
+        [System.NonSerialized] private readonly DetailTileCache _beforeTiles = new DetailTileCache();
+        internal DetailTileCache AfterTiles => _afterTiles;
+        // 先読みが走っているか(テストが、控えの枚数を数える前に終わりを待つ)。
+        internal bool IsPrefetching => _prefetchJob.IsRunning;
+
+        [System.NonSerialized] private DetailPreviewResult _pending;
         [System.NonSerialized] private PreviewLatencyCycle _pendingDetailLatency;
         [System.NonSerialized] public double lastDetailDirtyTime;
         // 体感速度の計測: 確定表示(フル)の直後に始まる再生成を、その操作を起点に測るための引き渡し。
@@ -48,12 +60,11 @@ namespace Iroca
         // 画像全幅ではなく「実際に見えている範囲」だけに絞るために使う。
         [System.NonSerialized] public float lastViewportW, lastViewportH;
 
-        // スクロール・ズームのあとは待たずに作り直す。作り直しは確定(フル段)の出力の切り出しだけで軽い
-        // (数〜数十 ms)。走っている間に表示範囲が動いたら、終わってすぐ最新の範囲で作り直す(取り消さない。
-        // 取り消すと連続したスクロールの間に一度も出ない)。作り直すまでは前の切り出しを元の画像の座標の
-        // 位置に描き続ける(ComputeDetailScreenRect)ので、スクロールに付いて動き、新しく見えた端だけが
-        // 縮小表示の引き伸ばしになる。以前は手を止めて 0.1 秒待ち、その間は切り出しを消していたため、
-        // ホイールを 1 段ずつ回すと段の合間で拡大表示が出入りしてちらついていた。
+        // スクロール・ズームのあとは待たずに作り直す。作り直しは確定(フル段)の出力のタイルを並べるだけで軽い
+        // (新しく見えたタイルだけを作る)。走っている間に表示範囲が動いたら、終わってすぐ最新の範囲で作り直す
+        // (取り消さない。取り消すと連続したスクロールの間に一度も出ない)。作り直すまでは前の切り出しを元の画像の
+        // 座標の位置に描き続ける(ComputeDetailScreenRect)ので、スクロールに付いて動き、新しく見えた端だけが
+        // 縮小表示の引き伸ばしになる。
         // 詳細モード: 表示倍率(PreviewView.EffectiveZoom＝プレビューテクスチャ 1 画素が何 pt か。
         // 全体表示の倍率込み)がこの値を超えたら、低解像度プレビューの引き伸ばしをやめて
         // ソース解像度から作り直したクロップへ切り替える。
@@ -61,15 +72,15 @@ namespace Iroca
         // 大きいほど閾値が previewZoom の上限(4x)を超えてしまい、2K超のテクスチャで
         // 詳細プレビューが一切起動しなくなっていた。
         // なお表示倍率 > 1 は「ソース画素より大きく表示されている」ことを意味しない
-        // (画面倍率は scale * 表示倍率で、4K なら 125% でも 1/8.5 の縮小)。クロップは
-        // 表示ピクセル数へ面平均してからアップロードする(GenerateDetailPreviewAsync 参照)。
+        // (画面倍率は scale * 表示倍率で、4K なら 125% でも 1/8.5 の縮小)。タイルは
+        // 表示ピクセル数へ面平均してから並べる(DetailTileGrid)。
         // 1.0 ちょうどでなく少し上にするのは、全体表示の倍率が 1 をわずかに超えるだけのウィンドウで
         // (見た目が変わらないのに)確定のたびに全面のクロップを作り直さないため。ズームのストップは
         // 1 の次が 1.25 なので、全体表示が 1 のときの切り替わりは以前と同じ。
         public const float DetailMinZoom = 1.1f;
 
-        // 切り出しの見えている範囲の外に足す余白(画面の pt)。ホイールの 1 段や小さなドラッグのパンで新しく
-        // 見える幅を覆う程度。広げるほど切り出しとアップロードが重くなる。
+        // 見えている範囲の外に足す余白(画面の pt)。ホイールの 1 段や小さなドラッグのパンで新しく見える幅を覆う程度。
+        // 範囲はこれを覆うタイルの並びまで広がる。
         private const float CropMarginPoints = 96f;
 
         // 永続的な詳細クロップ原点（詳細プレビュー適用時に設定、レンダラーで読み取られます）
@@ -77,9 +88,6 @@ namespace Iroca
         // クロップが覆うソース画素数。表示矩形の計算はこちらを使う（テクスチャ解像度は
         // 縮小表示のとき表示ピクセル数まで落とすので、両者は一致しない）。
         [System.NonSerialized] public int detailCropW, detailCropH;
-        // クロップを表示解像度へ落としたときの倍率(BoxDownsampleRegion に渡した dst/src 比)。変更前の切り出しを
-        // 同じ画素の並びで作るのに使う。
-        [System.NonSerialized] private float _detailPxPerSrc;
 
         [System.NonSerialized] private IrocaWindow _host;
 
@@ -88,7 +96,9 @@ namespace Iroca
             _host = host;
         }
 
-        public bool HasPendingResult => _pendingDetailProcessed != null;
+        private PreviewPipeline Pipeline => _host?.Preview?.Pipeline;
+
+        public bool HasPendingResult => _pending.Processed != null;
 
         /// <summary>確定表示が lastDetailDirtyTime を打った直後に呼ぶ(体感速度の計測)。</summary>
         internal void AttachLatency(PreviewLatencyCycle cycle)
@@ -135,18 +145,20 @@ namespace Iroca
 
         public struct DetailPreviewResult
         {
+            // タイルを並べた変更後(Mono のヒープの外。結果が参照を 1 つ持つ)と、その要求。
+            public NativePixels Processed;
+            public DetailTileRange Range;
             // 変更前の切り出し(Processed と同じ範囲・寸法)。差分表示中に作り始めたときだけ(それ以外は null)。
             // 切り出しと同じジョブで作り、同じフレームに反映する(差分はこの 2 枚から描くので、範囲が食い違わない)。
-            public Color32[] Raw;
-            public Color32[] Processed;
-            // テクスチャ解像度（＝表示ピクセル数。拡大表示ではクロップ寸法と同じ）
-            public int TexW;
-            public int TexH;
-            // クロップが覆うソース画素数（表示矩形の計算用）
-            public int CropW;
-            public int CropH;
-            public int OriginX;
-            public int OriginY;
+            public NativePixels Raw;
+            public DetailTileRange RawRange;
+
+            public void Release()
+            {
+                Processed?.Release();
+                Raw?.Release();
+                Processed = Raw = null;
+            }
         }
 
         /// <summary>
@@ -179,31 +191,23 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 現在のスクロール位置、ズーム、プレビュースケールからソーステクスチャ座標で見える
-        /// クロップリージョンを計算し、フル段の出力(processedFull)からその範囲を切り出す
-        /// バックグラウンドタスクを開始します。
-        /// 以前はクロップだけを ProcessPixelsArray で計算し直し、フル画像で解いた選択・統計を転写して
-        /// 合わせていたが、転写していない段(グレーモードの中性ツヤ復帰、帯成長)やクロップ端の近傍処理で
-        /// 書き出しと食い違っていた(dev_safe/docs/zoom_roi_study_2026-10-03.md §3)。フル段は書き出しと
-        /// 同じ入力・同じ関数でフル解像度を計算しているので、その出力の切り出しは書き出しと一致する。
-        /// processedFull が無い(まだ確定していない・元画素が変わった)ときは何もしない。
+        /// 現在のスクロール位置、ズーム、プレビュースケールからソーステクスチャ座標で見える範囲を求め、それを覆う
+        /// タイルを並べる(<see cref="ScheduleRange"/>)。土台はフル段の出力(書き出しと同じ計算結果)で、切り出しを
+        /// 計算し直さない(以前はクロップだけを計算し直して書き出しと食い違っていた。
+        /// dev_safe/docs/zoom_roi_study_2026-10-03.md §3)。
+        /// フル段の出力が無い(まだ確定していない・元画素が変わった)ときは何もしない。
         /// displayZoom は画面上の表示倍率(PreviewView.EffectiveZoom。全体表示の倍率込み)。
         /// </summary>
-        public void GenerateDetailPreviewAsync(int srcW, int srcH, NativePixels srcPixels, NativePixels processedFull,
-            float scale, float displayZoom, Vector2 previewScrollPos, float viewportW, float viewportH,
-            Rect afterRect, Rect beforeRect, PreviewLatencyCycle latency = null)
+        public void GenerateDetailPreviewAsync(float scale, float displayZoom, Vector2 previewScrollPos,
+            float viewportW, float viewportH, Rect afterRect, Rect beforeRect, PreviewLatencyCycle latency = null)
         {
             long prepStart = PreviewLatencyCycle.Now;
-            // 画素は呼び出し元（メインプレビュー）が確保した true source をそのまま受け取るので、
-            // ここで Read/Write を要求しない（要求すると PNG/JPG でも詳細プレビューが出ない）。
-            var sourceTexture = _host.SourceTexture;
-            if (sourceTexture == null) return;
+            var p = Pipeline;
+            if (_host.SourceTexture == null || p == null) return;
             if (scale >= 1f) return;
-
             if (displayZoom <= DetailMinZoom) return;
             if (viewportW <= 0f || viewportH <= 0f) return;
-            if (processedFull == null || srcPixels == null ||
-                processedFull.Length != srcW * srcH || srcPixels.Length != srcW * srcH) return;
+            int srcW = p.DetailW, srcH = p.DetailH;
 
             // クロップは「画面に見えている範囲」だけに限定する。以前は画像全幅(previewRect.width
             // ＝displayW)を使っていたため x1 が常に srcW までクランプされ、ズーム時に
@@ -212,57 +216,56 @@ namespace Iroca
             // 前後比較では変更前・変更後の 2 枚が並ぶので、それぞれの見えている範囲を合わせた範囲を切り出す
             // (同じ切り出しを両方に重ねる。変更前は EnsureDetailRaw が同じ範囲で作る)。
             int x0 = srcW, y0 = srcH, x1 = 0, y1 = 0;
-            float pxPerSrcView = displayZoom * scale;
+            float pxPerSrc = displayZoom * scale;
             var viewRect = ClampedViewRect(previewScrollPos, viewportW, viewportH, afterRect, beforeRect);
-            AddVisibleRange(afterRect, viewRect, pxPerSrcView, srcW, srcH, ref x0, ref y0, ref x1, ref y1);
+            AddVisibleRange(afterRect, viewRect, pxPerSrc, srcW, srcH, ref x0, ref y0, ref x1, ref y1);
             if (beforeRect.width > 0f)
-                AddVisibleRange(beforeRect, viewRect, pxPerSrcView, srcW, srcH, ref x0, ref y0, ref x1, ref y1);
+                AddVisibleRange(beforeRect, viewRect, pxPerSrc, srcW, srcH, ref x0, ref y0, ref x1, ref y1);
 
             if (x1 <= x0 || y1 <= y0) return;
             // 上下左右に少し余白を足す(小さなパンなら、作り直しが届くまでの間も新しく見えた端が粗くならない)。
             // 余白は画面の大きさで決めるので、切り出しの手間は倍率に依らず見えている範囲の数割増しで済む。
-            int margin = Mathf.CeilToInt(CropMarginPoints / pxPerSrcView);
-            x0 = Mathf.Max(0, x0 - margin);
-            y0 = Mathf.Max(0, y0 - margin);
-            x1 = Mathf.Min(srcW, x1 + margin);
-            y1 = Mathf.Min(srcH, y1 + margin);
-            int cropW = x1 - x0;
-            int cropH = y1 - y0;
-
-            // クロップをアップロードする解像度。ソース 1 画素が占めるディスプレイ画素数
-            // (pxPerSrc = scale * displayZoom) が 1 未満なら、画面上は縮小表示されている。
-            // その状態でフル解像度のままテクスチャ化すると、GPU の Point サンプリングが
-            // 数画素に 1 つを拾う最近傍間引きになり、細かい模様がモアレ＝ブロック状の
-            // ノイズとして出る(4K テクスチャの 125% は 8.5:1 の間引き)。表示ピクセル数まで
-            // 面平均(BoxDownsample)してから渡せば、メインプレビューと同じ縮小品質になる。
-            // 拡大表示(pxPerSrc>=1)ではソース画素をそのまま見せたいので縮小しない。
-            float pxPerSrc = scale * displayZoom;
-            int outW = cropW, outH = cropH;
-            if (pxPerSrc < 1f)
-            {
-                outW = Mathf.Clamp(Mathf.RoundToInt(cropW * pxPerSrc), 1, cropW);
-                outH = Mathf.Clamp(Mathf.RoundToInt(cropH * pxPerSrc), 1, cropH);
-            }
-
-            ScheduleCrop(srcW, srcPixels, processedFull, x0, y0, cropW, cropH, outW, outH, pxPerSrc, latency, prepStart);
+            int margin = Mathf.CeilToInt(CropMarginPoints / pxPerSrc);
+            ScheduleRange(Mathf.Max(0, x0 - margin), Mathf.Max(0, y0 - margin),
+                Mathf.Min(srcW, x1 + margin), Mathf.Min(srcH, y1 + margin), pxPerSrc, latency, prepStart);
         }
 
         /// <summary>
-        /// フル段の出力(processedFull。幅 srcW)のうち [x0, x0+cropW) × [y0, y0+cropH)(行 0 = 画像の下端)を、
-        /// outW×outH の拡大表示として切り出すジョブを予約する。範囲は <see cref="GenerateDetailPreviewAsync"/> が
-        /// 見えている範囲から決める。outW×outH が切り出しより小さいときは pxPerSrc(dst/src 比)で面平均して縮める。
+        /// 拡大表示の土台のうち [x0, x1) × [y0, y1)(行 0 = 画像の下端)を覆うタイルを、元の 1 画素が画面の pxPerSrc pt に
+        /// なる倍率で並べるジョブを予約する。表示中と同じタイルの並び・同じ土台なら何もしない(false)。
+        /// 範囲は <see cref="GenerateDetailPreviewAsync"/> が見えている範囲から決める(テストは直接呼ぶ)。
         /// </summary>
-        internal void ScheduleCrop(int srcW, NativePixels srcPixels, NativePixels processedFull,
-            int x0, int y0, int cropW, int cropH, int outW, int outH, float pxPerSrc,
+        internal bool ScheduleRange(int x0, int y0, int x1, int y1, float pxPerSrc,
             PreviewLatencyCycle latency = null, long prepStart = 0)
         {
-            int capX0 = x0, capY0 = y0, capSrcW = srcW;
-            // ここで作る変更前のクロップは差分表示にだけ使う(差分は変更後の切り出しとこれから描く)。差分表示へ
+            var p = Pipeline;
+            var output = p?.DetailOutput;
+            var source = p?.DetailSource;
+            int w = p?.DetailW ?? 0, h = p?.DetailH ?? 0;
+            if (output == null || source == null || w <= 0 || h <= 0
+                || output.Length != w * h || source.Length != w * h) return false;
+            if (x1 <= x0 || y1 <= y0) return false;
+
+            var grid = DetailTileGrid.For(w, h, pxPerSrc);
+            var range = DetailTileRange.Covering(grid, x0, y0, x1, y1, p.DetailOutputVersion);
+            var rawRange = range.WithVersion(p.DetailSourceVersion);
+            // 差分表示の間は、変更前の切り出しも一緒に作る(差分は変更後の切り出しとこれから描く)。差分表示へ
             // 切り替えた直後の切り出しと「元を表示」の変更前は、描くときに EnsureDetailRaw が同じ範囲で作る。
             bool needRaw = _host.Preview.diffMode;
-            // 切り出しが終わるまで、このフル段の出力と原本の参照を持つ(使い回しにも渡されない)。後始末で返す。
-            var processedForTask = processedFull.AddRef();
-            var srcPixelsForTask = needRaw ? srcPixels.AddRef() : null;
+            if (_hasShown && _shown.Equals(range) && detailPreviewTexture != null
+                && (!needRaw || (_hasRawShown && _rawShown.Equals(rawRange) && detailRawTexture != null)))
+                return false;
+
+            // 前の要求の先読みは止める(今の切り出しの計算を待たせない)。控えは今の要求に合わせる(前の要求のジョブが
+            // 後から作ったタイルは控えに入らない)。
+            _prefetchJob.Cancel();
+            _afterTiles.Retarget(grid, range.Version);
+            if (needRaw) _beforeTiles.Retarget(grid, rawRange.Version);
+            // 並べ終わるまで、土台の参照を持つ(使い回しにも渡されない)。後始末で返す。
+            var outputForTask = output.AddRef();
+            var sourceForTask = needRaw ? source.AddRef() : null;
+            var afterTiles = _afterTiles;
+            var beforeTiles = _beforeTiles;
 
             // 体感速度の計測(確定表示から引き渡されたときだけ)。値・分岐は変えない。
             var marks = latency?.Detail;
@@ -276,70 +279,84 @@ namespace Iroca
                 work: token =>
                 {
                     if (marks != null) marks.WorkStart = PreviewLatencyCycle.Now;
-                    Color32[] outProcessed, outRaw = null;
-                    // どちらもジョブの間ほかから書き換えられない(参照を持っている間は使い回されない)。
-                    if (outW != cropW || outH != cropH)
+                    var result = new DetailPreviewResult { Range = range, RawRange = rawRange };
+                    try
                     {
-                        // 縮小表示のときは、フル解像度の画素から見えている範囲を直接表示解像度へ落とす
-                        // (クロップの複製を作らない。切り出してから縮小したのとビット単位で同じ)。
-                        // BoxDownsample の scale は dst/src 比なので pxPerSrc をそのまま渡す。
-                        outProcessed = PixelProcessor.BoxDownsampleRegion(processedForTask.Ptr, processedForTask.Length,
-                            capSrcW, capX0, capY0, cropW, cropH, outW, outH, pxPerSrc);
-                        if (needRaw)
-                            outRaw = PixelProcessor.BoxDownsampleRegion(srcPixelsForTask.Ptr, srcPixelsForTask.Length,
-                                capSrcW, capX0, capY0, cropW, cropH, outW, outH, pxPerSrc);
+                        result.Processed = DetailTileCache.Assemble(range, outputForTask, afterTiles, token);
+                        if (sourceForTask != null)
+                            result.Raw = DetailTileCache.Assemble(rawRange, sourceForTask, beforeTiles, token);
+                        token.ThrowIfCancellationRequested();
                     }
-                    else
+                    catch
                     {
-                        // 等倍以上ではクロップがそのままテクスチャになる(見えている画素数ぶんなので小さい)。
-                        // 各行が連続領域なので行単位で写す。
-                        outProcessed = new Color32[cropW * cropH];
-                        if (needRaw) outRaw = new Color32[cropW * cropH];
-                        long rowBytes = (long)cropW * sizeof(Color32);
-                        fixed (Color32* dstP = outProcessed)
-                        fixed (Color32* dstR = outRaw)
-                            for (int cy = 0; cy < cropH; cy++)
-                            {
-                                long srcRow = (long)(capY0 + cy) * capSrcW + capX0;
-                                System.Buffer.MemoryCopy(processedForTask.Ptr + srcRow, dstP + (long)cy * cropW, rowBytes, rowBytes);
-                                if (needRaw)
-                                    System.Buffer.MemoryCopy(srcPixelsForTask.Ptr + srcRow, dstR + (long)cy * cropW, rowBytes, rowBytes);
-                            }
+                        result.Release();
+                        throw;
                     }
-                    token.ThrowIfCancellationRequested();
-
                     if (marks != null) marks.WorkEnd = PreviewLatencyCycle.Now;
-                    return new DetailPreviewResult
-                    {
-                        Raw = outRaw,
-                        Processed = outProcessed,
-                        TexW = outW,
-                        TexH = outH,
-                        CropW = cropW,
-                        CropH = cropH,
-                        OriginX = capX0,
-                        OriginY = capY0,
-                    };
+                    return result;
                 },
                 apply: result =>
                 {
                     if (marks != null) marks.Applied = PreviewLatencyCycle.Now;
-                    _pendingDetailLatency   = latency;
-                    _pendingDetailRaw       = result.Raw;
-                    _pendingDetailProcessed = result.Processed;
-                    _pendingDetailTexW      = result.TexW;
-                    _pendingDetailTexH      = result.TexH;
-                    _pendingDetailCropW     = result.CropW;
-                    _pendingDetailCropH     = result.CropH;
-                    _pendingDetailOriginX   = result.OriginX;
-                    _pendingDetailOriginY   = result.OriginY;
-                    _pendingDetailPxPerSrc  = pxPerSrc;
+                    _pending.Release();
+                    _pending = result;
+                    _pendingDetailLatency = latency;
                     _host.RequestRepaint();
+                    SchedulePrefetch(range, result.Raw != null);
                 },
                 cleanup: () =>
                 {
-                    processedForTask.Release();
-                    srcPixelsForTask?.Release();
+                    outputForTask.Release();
+                    sourceForTask?.Release();
+                },
+                discard: result => result.Release());
+            return true;
+        }
+
+        /// <summary>
+        /// 並べたタイルの周り 1 枚分(縮めるタイルだけ)を控えへ作っておく。土台がもう替わっていたら作らない。
+        /// </summary>
+        private void SchedulePrefetch(DetailTileRange range, bool withRaw)
+        {
+            var grid = range.Grid;
+            if (!grid.Shrinks) return;
+            var p = Pipeline;
+            if (p == null || p.DetailOutputVersion != range.Version || p.DetailW != grid.W || p.DetailH != grid.H) return;
+            var output = p.DetailOutput;
+            var source = withRaw ? p.DetailSource : null;
+            if (output == null) return;
+            int sourceVersion = p.DetailSourceVersion;
+            int c0 = Mathf.Max(0, range.C0 - 1), c1 = Mathf.Min(grid.Columns, range.C1 + 1);
+            int r0 = Mathf.Max(0, range.R0 - 1), r1 = Mathf.Min(grid.Rows, range.R1 + 1);
+            if (c0 == range.C0 && c1 == range.C1 && r0 == range.R0 && r1 == range.R1) return;
+
+            var outputForTask = output.AddRef();
+            var sourceForTask = source?.AddRef();
+            var afterTiles = _afterTiles;
+            var beforeTiles = _beforeTiles;
+            _prefetchJob.Schedule(
+                work: token =>
+                {
+                    int made = 0;
+                    for (int r = r0; r < r1; r++)
+                        for (int c = c0; c < c1; c++)
+                        {
+                            if (c >= range.C0 && c < range.C1 && r >= range.R0 && r < range.R1) continue;
+                            token.ThrowIfCancellationRequested();
+                            if (afterTiles.Prefetch(grid, range.Version, c, r, outputForTask)) made++;
+                            if (sourceForTask != null)
+                            {
+                                token.ThrowIfCancellationRequested();
+                                beforeTiles.Prefetch(grid, sourceVersion, c, r, sourceForTask);
+                            }
+                        }
+                    return made;
+                },
+                apply: _ => { },
+                cleanup: () =>
+                {
+                    outputForTask.Release();
+                    sourceForTask?.Release();
                 });
         }
 
@@ -394,52 +411,39 @@ namespace Iroca
 
         public void ApplyPendingResult()
         {
-            var processed = _pendingDetailProcessed;
-            var raw       = _pendingDetailRaw;
-            int w  = _pendingDetailTexW;
-            int h  = _pendingDetailTexH;
-            int cw = _pendingDetailCropW;
-            int ch = _pendingDetailCropH;
-            int ox = _pendingDetailOriginX;
-            int oy = _pendingDetailOriginY;
+            var result = _pending;
             var latency = _pendingDetailLatency;
-            _pendingDetailProcessed = null;
-            _pendingDetailRaw       = null;
-            _pendingDetailLatency   = null;
+            _pending = default;
+            _pendingDetailLatency = null;
 
-            if (processed == null) return;
+            if (result.Processed == null) return;
             if (latency != null) latency.Detail.UploadStart = PreviewLatencyCycle.Now;
 
-            detailOriginX = ox;
-            detailOriginY = oy;
-            detailCropW   = cw;
-            detailCropH   = ch;
-            _detailPxPerSrc = _pendingDetailPxPerSrc;
+            var range = result.Range;
+            detailOriginX = range.OriginX;
+            detailOriginY = range.OriginY;
+            detailCropW   = range.SourceW;
+            detailCropH   = range.SourceH;
+            _shown = range;
+            _hasShown = true;
 
             // filterMode は Resize では決めない(再利用時に既存設定が維持され、縮小あり/なしを
             // 行き来したときに前回のモードが残るため)。確保後に毎回明示する。
-            TextureSlot.Resize(ref detailPreviewTexture, w, h);
-            detailPreviewTexture.filterMode = DetailFilterMode(w, cw);
-            detailPreviewTexture.SetPixels32(processed);
-            detailPreviewTexture.Apply();
+            PreviewView.UploadPixels(ref detailPreviewTexture, result.Processed);
+            detailPreviewTexture.filterMode = DetailFilterMode(detailPreviewTexture.width, detailCropW);
 
             // 差分表示中に作り始めた切り出しは、同じ範囲の変更前の切り出しも持ってくる(切り出しと同じジョブで作って
             // あり、ここで同時に差し替える)。「元を表示」と同じテクスチャに置き、EnsureDetailRaw は同じ範囲なら作り直さない。
             // 持っていない結果のときは何もしない(範囲が変われば、要るときに EnsureDetailRaw が作り直す)。
-            if (raw != null)
+            if (result.Raw != null)
             {
-                TextureSlot.Resize(ref detailRawTexture, w, h);
-                detailRawTexture.filterMode = DetailFilterMode(w, cw);
-                detailRawTexture.SetPixels32(raw);
-                detailRawTexture.Apply();
-                _rawOriginX = ox;
-                _rawOriginY = oy;
-                _rawCropW = cw;
-                _rawCropH = ch;
-                _rawTexW = w;
-                _rawTexH = h;
+                PreviewView.UploadPixels(ref detailRawTexture, result.Raw);
+                detailRawTexture.filterMode = DetailFilterMode(detailRawTexture.width, detailCropW);
+                _rawShown = result.RawRange;
+                _hasRawShown = true;
                 detailRawVersion++;
             }
+            result.Release();
 
             // 体感速度: 拡大表示まで含めたレポートで、確定表示時点のものを差し替える。
             if (latency != null)
@@ -460,51 +464,31 @@ namespace Iroca
             => texW < cropW || PreviewView.SmoothMagnify ? FilterMode.Bilinear : FilterMode.Point;
 
         /// <summary>
-        /// 「元を表示」用の変更前の切り出しを、今の切り出し(detailPreviewTexture)と同じ範囲・寸法・縮小で
-        /// 原本(srcPixels。変更後の切り出しの元になったフル段と同じ作業解像度の画素)から作る。
-        /// 同じ切り出しのものがあれば作り直さない。切り出しが無い・原本の寸法が合わないときは false。
-        /// 見えている範囲だけなので、押した最初のフレームにメインスレッドで作る(数〜数十 ms)。
+        /// 「元を表示」・差分表示用の変更前の切り出しを、今の切り出し(detailPreviewTexture)と同じタイルの並びで
+        /// 拡大表示の変更前の土台(PreviewPipeline.DetailSource)から作る。同じ並び・同じ土台のものがあれば作り直さない。
+        /// 切り出しが無い・土台の寸法が合わないときは false。見えている範囲だけなので、押した最初のフレームに
+        /// メインスレッドで作る(縮めたタイルは控えを使う)。
         /// </summary>
-        public bool EnsureDetailRaw(NativePixels srcPixels, int srcW, int srcH)
+        public bool EnsureDetailRaw()
         {
-            var dt = detailPreviewTexture;
-            if (dt == null || detailCropW <= 0 || detailCropH <= 0) return false;
-            if (srcPixels == null || srcPixels.Length != srcW * srcH) return false;
-            if (detailOriginX < 0 || detailOriginY < 0
-                || detailOriginX + detailCropW > srcW || detailOriginY + detailCropH > srcH) return false;
-            int w = dt.width, h = dt.height;
-            if (detailRawTexture != null && _rawOriginX == detailOriginX && _rawOriginY == detailOriginY
-                && _rawCropW == detailCropW && _rawCropH == detailCropH && _rawTexW == w && _rawTexH == h)
-                return true;
+            if (detailPreviewTexture == null || !_hasShown) return false;
+            var p = Pipeline;
+            var source = p?.DetailSource;
+            var grid = _shown.Grid;
+            if (source == null || p.DetailW != grid.W || p.DetailH != grid.H || source.Length != grid.W * grid.H) return false;
+            var rawRange = _shown.WithVersion(p.DetailSourceVersion);
+            if (detailRawTexture != null && _hasRawShown && _rawShown.Equals(rawRange)) return true;
 
-            Color32[] pixels;
-            if (w != detailCropW || h != detailCropH)
+            _beforeTiles.Retarget(grid, rawRange.Version);
+            var pixels = DetailTileCache.Assemble(rawRange, source, _beforeTiles, CancellationToken.None);
+            try
             {
-                // 変更後と同じく、見えている範囲を表示解像度へ面平均で落とす(同じ倍率なので画素の並びがそろう)。
-                pixels = PixelProcessor.BoxDownsampleRegion(srcPixels.Ptr, srcPixels.Length,
-                    srcW, detailOriginX, detailOriginY, detailCropW, detailCropH, w, h, _detailPxPerSrc);
+                PreviewView.UploadPixels(ref detailRawTexture, pixels);
             }
-            else
-            {
-                pixels = new Color32[detailCropW * detailCropH];
-                long rowBytes = (long)detailCropW * sizeof(Color32);
-                fixed (Color32* dst = pixels)
-                    for (int cy = 0; cy < detailCropH; cy++)
-                    {
-                        long srcRow = (long)(detailOriginY + cy) * srcW + detailOriginX;
-                        System.Buffer.MemoryCopy(srcPixels.Ptr + srcRow, dst + (long)cy * detailCropW, rowBytes, rowBytes);
-                    }
-            }
-            TextureSlot.Resize(ref detailRawTexture, w, h);
-            detailRawTexture.filterMode = DetailFilterMode(w, detailCropW);
-            detailRawTexture.SetPixels32(pixels);
-            detailRawTexture.Apply();
-            _rawOriginX = detailOriginX;
-            _rawOriginY = detailOriginY;
-            _rawCropW = detailCropW;
-            _rawCropH = detailCropH;
-            _rawTexW = w;
-            _rawTexH = h;
+            finally { pixels.Release(); }
+            detailRawTexture.filterMode = DetailFilterMode(detailRawTexture.width, detailCropW);
+            _rawShown = rawRange;
+            _hasRawShown = true;
             detailRawVersion++;
             return true;
         }
@@ -512,15 +496,26 @@ namespace Iroca
         /// <summary>「元を表示」用の変更前の切り出しを手放す(離したとき・切り出しを捨てたとき)。</summary>
         public void ReleaseDetailRaw()
         {
+            _hasRawShown = false;
             if (detailRawTexture == null) return;
             TextureSlot.Release(ref detailRawTexture);
-            _rawOriginX = _rawOriginY = -1;
+        }
+
+        /// <summary>
+        /// 縮めたタイルの控えを手放す(拡大表示をやめた・切り出しを捨てた)。表示中の切り出しはそのまま。
+        /// </summary>
+        internal void ReleaseTiles()
+        {
+            _prefetchJob.Cancel();
+            _afterTiles.Clear();
+            _beforeTiles.Clear();
         }
 
         public void Dispose()
         {
             Suspend();
             detailJob.Dispose();
+            _prefetchJob.Dispose();
         }
 
         public void Suspend()
@@ -538,11 +533,14 @@ namespace Iroca
         public void InvalidateDisplay()
         {
             detailJob.Cancel();
-            _pendingDetailProcessed = null;
-            _pendingDetailRaw = null;
+            _pending.Release();
+            _pending = default;
+            _pendingDetailLatency = null;
+            _hasShown = false;
             detailCropW = detailCropH = 0;
             TextureSlot.Release(ref detailPreviewTexture);
             ReleaseDetailRaw();
+            ReleaseTiles();
         }
     }
 }

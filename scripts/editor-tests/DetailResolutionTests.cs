@@ -15,7 +15,8 @@ namespace Iroca.EditorTests
     /// どちらでも、変更後の切り出し・変更前の切り出し（「元を表示」）・マスクの重ね表示が同じ格子・同じ範囲になること、
     /// 切り替えても色替えをやり直さず、確定段の出力（書き出しと同じもの）は変わらないことを確かめる。
     /// 見えている範囲から切り出しを決める所は GUI の中でしか動かないので、切り出しは範囲を指定して予約する
-    /// （<see cref="DetailPreviewView.ScheduleCrop"/>）。
+    /// （<see cref="DetailPreviewView.ScheduleRange"/>。範囲はタイルの格子で広がるので、テストは格子を小さくして
+    /// 範囲がちょうどタイルの境目になるようにする）。
     /// </summary>
     public class DetailResolutionTests
     {
@@ -29,6 +30,7 @@ namespace Iroca.EditorTests
         private string _prefBefore;   // null = キーが無かった
         private bool _fullResBefore;
         private bool _fullResHadKey;
+        private int _tileTexelsBefore;
         private IrocaWindow _win;
 
         [SetUp]
@@ -36,6 +38,7 @@ namespace Iroca.EditorTests
         {
             _fullResHadKey = EditorPrefs.HasKey(PreviewView.DetailFullResolutionPrefKey);
             _fullResBefore = PreviewView.DetailFullResolution;
+            _tileTexelsBefore = DetailTileGrid.TileTexels;
 
             _assets = TestAssets.Create();
             _path = _assets.WritePng("detail", Scene(), W, H);
@@ -61,6 +64,7 @@ namespace Iroca.EditorTests
             }
             _win = null;
             PreviewView.DetailFullResolution = _fullResBefore;
+            DetailTileGrid.TileTexels = _tileTexelsBefore;
             if (!_fullResHadKey) EditorPrefs.DeleteKey(PreviewView.DetailFullResolutionPrefKey);
             if (_prefBefore == null) EditorPrefs.DeleteKey(_prefKey);
             else EditorPrefs.SetString(_prefKey, _prefBefore);
@@ -91,10 +95,12 @@ namespace Iroca.EditorTests
             AssertSamePixels(expectedSource, preview.DetailSource.ToArray(), det, "拡大表示の変更前の土台");
             AssertSamePixels(expectedOutput, preview.DetailOutput.ToArray(), det, "拡大表示の変更後の土台");
 
-            // 共通の「塗らない」の境目(元の画像の x = 16。拡大表示では det/4)をまたぐ範囲を等倍で切り出す。
+            // 共通の「塗らない」の境目(元の画像の x = 16。拡大表示では det/4)をまたぐ範囲を等倍で切り出す
+            // (格子を det/8 にして、範囲をちょうどタイルの境目にする)。
+            DetailTileGrid.TileTexels = det / 8;
             int x0 = det / 8, y0 = det / 8, cw = det / 2, ch = det / 2;
             var dv = preview.DetailView;
-            dv.ScheduleCrop(det, preview.DetailSource, preview.DetailOutput, x0, y0, cw, ch, cw, ch, 2f);
+            Assert.IsTrue(dv.ScheduleRange(x0, y0, x0 + cw, y0 + ch, 2f), "切り出しを予約しない");
             Wait(() => dv.HasPendingResult, "拡大表示の切り出し");
             dv.ApplyPendingResult();
             Assert.AreEqual((x0, y0, cw, ch), (dv.detailOriginX, dv.detailOriginY, dv.detailCropW, dv.detailCropH));
@@ -102,7 +108,7 @@ namespace Iroca.EditorTests
             Assert.AreEqual((cw, ch), (after.width, after.height), "変更後の切り出しの寸法");
             AssertSamePixels(Crop(expectedOutput, det, x0, y0, cw, ch), after.GetPixels32(), cw, "変更後の切り出し");
 
-            Assert.IsTrue(dv.EnsureDetailRaw(preview.DetailSource, preview.DetailW, preview.DetailH), "変更前の切り出しを作れない");
+            Assert.IsTrue(dv.EnsureDetailRaw(), "変更前の切り出しを作れない");
             var before = dv.detailRawTexture;
             Assert.AreEqual((cw, ch), (before.width, before.height), "変更前の切り出しの寸法");
             AssertSamePixels(Crop(expectedSource, det, x0, y0, cw, ch), before.GetPixels32(), cw, "変更前の切り出し");
@@ -168,24 +174,91 @@ namespace Iroca.EditorTests
             var preview = _win.Preview;
             RunFullStage(preview);
             preview.diffMode = true;
-            int det = preview.DetailW;
             var dv = preview.DetailView;
-            // 縮めて切り出す(表示の 1 画素に元の 2×2 画素)。
-            int x0 = 3, y0 = 5, cw = 20, ch = 18, outW = 10, outH = 9;
-            dv.ScheduleCrop(det, preview.DetailSource, preview.DetailOutput, x0, y0, cw, ch, outW, outH, 0.5f);
+            // 縮めて切り出す(表示の 1 画素に元の 2×2 画素。タイルは元の 8 画素四方を 4 画素四方に縮める)。
+            DetailTileGrid.TileTexels = 4;
+            Assert.IsTrue(dv.ScheduleRange(3, 5, 23, 23, 0.5f), "切り出しを予約しない");
             Wait(() => dv.HasPendingResult, "拡大表示の切り出し");
             dv.ApplyPendingResult();
             var raw = dv.detailRawTexture;
+            var after = dv.detailPreviewTexture;
             Assert.IsNotNull(raw, "差分表示中の切り出しが、変更前の切り出しを持ってこない");
-            Assert.AreEqual((outW, outH), (raw.width, raw.height), "変更前の切り出しの寸法");
+            Assert.AreEqual((0, 0, 24, 24), (dv.detailOriginX, dv.detailOriginY, dv.detailCropW, dv.detailCropH),
+                "範囲を覆うタイルの並び(元の 8 画素四方 × 3)");
+            Assert.AreEqual((12, 12), (after.width, after.height), "変更後の切り出しの寸法");
+            Assert.AreEqual((after.width, after.height), (raw.width, raw.height), "変更前の切り出しの寸法");
             var fromJob = raw.GetPixels32();
             int version = dv.detailRawVersion;
-            Assert.IsTrue(dv.EnsureDetailRaw(preview.DetailSource, preview.DetailW, preview.DetailH));
+            Assert.IsTrue(dv.EnsureDetailRaw());
             Assert.AreEqual(version, dv.detailRawVersion, "同じ範囲なのに作り直した");
 
             dv.ReleaseDetailRaw();
-            Assert.IsTrue(dv.EnsureDetailRaw(preview.DetailSource, preview.DetailW, preview.DetailH), "変更前の切り出しを作れない");
-            AssertSamePixels(dv.detailRawTexture.GetPixels32(), fromJob, outW, "ジョブの変更前の切り出しと、その場で作ったもの");
+            Assert.IsTrue(dv.EnsureDetailRaw(), "変更前の切り出しを作れない");
+            AssertSamePixels(dv.detailRawTexture.GetPixels32(), fromJob, after.width, "ジョブの変更前の切り出しと、その場で作ったもの");
+        }
+
+        // 拡大表示はタイルを並べて作る(0.4.0 の計画の 3.5 の案 A)。並べたものはタイルを 1 枚ずつ縮めたものと同じで、
+        // パンでは控えにあるタイルを使う(見えている範囲の周り 1 枚分は先読みしてある)。タイルの並びが変わらなければ
+        // 作り直さず、確定段の出力が新しくなったら作り直す。
+        [Test]
+        public void Tiles_AreReusedOnPan_AndRebuiltForANewOutput()
+        {
+            PreviewView.DetailFullResolution = true;   // 土台は 64×64
+            OpenWindow();
+            var preview = _win.Preview;
+            RunFullStage(preview);
+            DetailTileGrid.TileTexels = 4;   // 元の 8 画素四方を 4 画素四方に縮める(8×8 枚)
+            var dv = preview.DetailView;
+            var cache = dv.AfterTiles;
+
+            // タイル 1〜3 列 × 1〜3 行を並べる。周りの 1 枚分(0〜4)も先読みする。
+            Show(dv, 8, 8, 32, 32);
+            Assert.AreEqual((8, 8, 24, 24), (dv.detailOriginX, dv.detailOriginY, dv.detailCropW, dv.detailCropH));
+            Assert.AreEqual(25, cache.ComputedTiles, "並べた 9 枚と先読みの 16 枚");
+            AssertSamePixels(TilesShrunkAlone(preview.DetailOutput.ToArray(), 1, 1, 4, 4),
+                dv.detailPreviewTexture.GetPixels32(), 12, "並べたタイルと、1 枚ずつ縮めたもの");
+
+            // 同じタイルの並びに収まる範囲なら作り直さない。
+            Assert.IsFalse(dv.ScheduleRange(9, 9, 31, 31, 0.5f), "同じタイルの並びなのに作り直した");
+
+            // 1 枚分パンする。並べる 9 枚は控えにあるので作らない(作るのは新しい周りの 9 枚だけ)。
+            Show(dv, 16, 16, 40, 40);
+            Assert.AreEqual(34, cache.ComputedTiles, "パンで、控えにあるタイルを作り直した");
+            AssertSamePixels(TilesShrunkAlone(preview.DetailOutput.ToArray(), 2, 2, 5, 5),
+                dv.detailPreviewTexture.GetPixels32(), 12, "パンした後の並び");
+
+            // 確定段の出力が新しくなったら、同じ並びでも作り直す(前の出力のタイルは使わない)。
+            _win.Session.zones[0].targetColor = new Color(0.9f, 0.8f, 0.1f);
+            _win.Session.zones[0].UpdateCacheIfNeeded();
+            RunFullStage(preview);
+            Show(dv, 16, 16, 40, 40);
+            Assert.AreEqual(34 + 9 + 16, cache.ComputedTiles, "新しい出力のタイルを並べる 9 枚と先読みの 16 枚");
+            AssertSamePixels(TilesShrunkAlone(preview.DetailOutput.ToArray(), 2, 2, 5, 5),
+                dv.detailPreviewTexture.GetPixels32(), 12, "新しい出力の並び");
+        }
+
+        // 範囲 [x0,x1)×[y0,y1) を、元の 1 画素が画面の 0.5pt の倍率で並べ、届くのと先読みが終わるのを待つ。
+        private static void Show(DetailPreviewView dv, int x0, int y0, int x1, int y1)
+        {
+            Assert.IsTrue(dv.ScheduleRange(x0, y0, x1, y1, 0.5f), "切り出しを予約しない");
+            Wait(() => dv.HasPendingResult, "拡大表示の切り出し");
+            dv.ApplyPendingResult();
+            Wait(() => !dv.IsPrefetching, "先読み");
+        }
+
+        // 64×64 の出力のタイル(元の 8 画素四方)を 1 枚ずつ 4 画素四方へ縮めて、列 [c0,c1) × 行 [r0,r1) を並べたもの。
+        private static Color32[] TilesShrunkAlone(Color32[] output, int c0, int r0, int c1, int r1)
+        {
+            int ow = (c1 - c0) * 4, oh = (r1 - r0) * 4;
+            var dst = new Color32[ow * oh];
+            for (int r = r0; r < r1; r++)
+                for (int c = c0; c < c1; c++)
+                {
+                    var tile = PixelProcessor.BoxDownsampleRegion(output, W, c * 8, r * 8, 8, 8, 4, 4, 0.5f);
+                    for (int y = 0; y < 4; y++)
+                        System.Array.Copy(tile, y * 4, dst, ((r - r0) * 4 + y) * ow + (c - c0) * 4, 4);
+                }
+            return dst;
         }
 
         // 確定段が走っている間に切り替えても、終わったときの拡大表示の土台は設定どおりで、確定段の出力と食い違わない。
