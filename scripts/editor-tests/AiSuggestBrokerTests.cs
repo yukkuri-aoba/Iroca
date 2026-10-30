@@ -34,7 +34,8 @@ namespace Iroca.EditorTests
             AiSuggestBroker.EnsureSubscribed();
         }
 
-        private static MaskSuggestProposal P(int w) => new MaskSuggestProposal { maskBottomUp = new bool[w], width = w, height = 1 };
+        // 提案の範囲はヒープの外。受け取り先を呼んだ後に AiSuggestBroker が返す。
+        private static MaskSuggestProposal P(int w) => new MaskSuggestProposal { mask = NativeBools.Allocate(w, 1), width = w, height = 1 };
 
         [Test]
         public void ProposalsGoBackToWhoAskedInOrder()

@@ -256,14 +256,19 @@ namespace Iroca
             StateChanged?.Invoke();
         }
 
+        // 提案の範囲(ヒープの外)は受け取り先を呼んだ後に返す(受け取り先が持ち続けるなら写すか参照を足す)。
         private static void Deliver(Ticket t, MaskSuggestProposal proposal)
         {
             var cb = t.onResult;
             t.onResult = null;
-            if (cb == null) return;
-            // 受け取り先の例外で、待ち行列とサービスの対応を崩さない。
-            try { cb(proposal); }
-            catch (Exception e) { Debug.LogException(e); }
+            try
+            {
+                if (cb == null) return;
+                // 受け取り先の例外で、待ち行列とサービスの対応を崩さない。
+                try { cb(proposal); }
+                catch (Exception e) { Debug.LogException(e); }
+            }
+            finally { proposal?.Release(); }
         }
     }
 }

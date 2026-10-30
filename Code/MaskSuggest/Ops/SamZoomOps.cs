@@ -40,6 +40,14 @@ namespace Iroca
                                                  int clickX, int clickY)
         {
             if (maskBottomUp == null || maskBottomUp.Length != w * h) return 0;
+            fixed (bool* m = maskBottomUp) return ClickComponentBBoxLong(m, w, h, clickX, clickY);
+        }
+
+        /// <summary><see cref="ClickComponentBBoxLong(bool[], int, int, int, int)"/> のポインタ版(マスクは w*h 個)。</summary>
+        public static int ClickComponentBBoxLong(bool* maskBottomUp, int w, int h,
+                                                 int clickX, int clickY)
+        {
+            if (maskBottomUp == null) return 0;
             clickX = Mathf.Clamp(clickX, 0, w - 1);
             clickY = Mathf.Clamp(clickY, 0, h - 1);
 
@@ -67,14 +75,16 @@ namespace Iroca
         /// <summary>クリック画素から 4 近傍フラッドフィルで成分 bbox 長辺を測る。
         /// 探索域はクリック中心 ±cap の窓に限定(窓縁到達 = bbox ≥ cap = ズーム対象外が
         /// 確定するため、それ以上の正確さは不要)。</summary>
-        static int ComponentBBoxLongWindowed(bool[] mask, int w, int h, int sx, int sy)
+        static int ComponentBBoxLongWindowed(bool* mask, int w, int h, int sx, int sy)
         {
             int cap = (Mathf.Max(w, h) + ZoomFactor - 1) / ZoomFactor;
             int wx0 = Mathf.Max(0, sx - cap), wx1 = Mathf.Min(w - 1, sx + cap);
             int wy0 = Mathf.Max(0, sy - cap), wy1 = Mathf.Min(h - 1, sy + cap);
             int ww = wx1 - wx0 + 1, wh = wy1 - wy0 + 1;
 
-            var visited = new bool[ww * wh];
+            // 窓は画像の 1/ZoomFactor 四方の 2 倍まで(4K で 2048²)なので、作業配列のプールから借りる。
+            using var scratch = new WorkScratch();
+            bool* visited = scratch.Bool(ww * wh, clear: true);
             var stack = new System.Collections.Generic.Stack<int>(256);
             visited[(sy - wy0) * ww + (sx - wx0)] = true;
             stack.Push(sy * w + sx); // フル座標のまま積む(近傍判定が単純になる)
@@ -135,16 +145,19 @@ namespace Iroca
             return crop;
         }
 
-        /// <summary><see cref="ExtractCrop(Color32[], int, int, int, int, int)"/> のポインタ版(切り出しは管理配列で返す)。</summary>
-        public static Color32[] ExtractCrop(Color32* pixelsBottomUp, int w, int h,
-                                            int x0, int y0, int side)
+        /// <summary>
+        /// <see cref="ExtractCrop(Color32[], int, int, int, int, int)"/> のポインタ版。切り出しは Mono のヒープの外
+        /// (参照 1。受け取った側が手放す)。
+        /// </summary>
+        public static NativePixels ExtractCrop(Color32* pixelsBottomUp, int w, int h,
+                                               int x0, int y0, int side)
         {
-            var crop = new Color32[side * side];
+            var crop = NativePixels.Allocate(side, side);
             long rowBytes = (long)side * sizeof(Color32);
-            fixed (Color32* dst = crop)
-                for (int y = 0; y < side; y++)
-                    System.Buffer.MemoryCopy(pixelsBottomUp + (long)(y0 + y) * w + x0, dst + (long)y * side,
-                        rowBytes, rowBytes);
+            Color32* dst = crop.Ptr;
+            for (int y = 0; y < side; y++)
+                System.Buffer.MemoryCopy(pixelsBottomUp + (long)(y0 + y) * w + x0, dst + (long)y * side,
+                    rowBytes, rowBytes);
             return crop;
         }
 
@@ -154,6 +167,27 @@ namespace Iroca
                                        int x0, int y0, out int trueCount)
         {
             var full = new bool[w * h];
+            fixed (bool* c = cropMaskBottomUp)
+            fixed (bool* f = full)
+                trueCount = PasteCrop(c, side, w, h, x0, y0, f);
+            return full;
+        }
+
+        /// <summary>
+        /// <see cref="PasteCrop(bool[], int, int, int, int, int, out int)"/> の、貼り戻した先を Mono のヒープの外に作る版
+        /// (参照 1。受け取った側が手放す)。
+        /// </summary>
+        public static NativeBools PasteCrop(bool* cropMaskBottomUp, int side, int w, int h,
+                                            int x0, int y0, out int trueCount)
+        {
+            var full = NativeBools.Allocate(w, h);
+            trueCount = PasteCrop(cropMaskBottomUp, side, w, h, x0, y0, full.Ptr);
+            return full;
+        }
+
+        // full(w*h 個。すべて false)へ貼り戻し、true の数を返す。
+        private static int PasteCrop(bool* cropMaskBottomUp, int side, int w, int h, int x0, int y0, bool* full)
+        {
             int count = 0;
             for (int y = 0; y < side; y++)
             {
@@ -165,8 +199,7 @@ namespace Iroca
                     count++;
                 }
             }
-            trueCount = count;
-            return full;
+            return count;
         }
     }
 }

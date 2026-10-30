@@ -1745,7 +1745,10 @@ namespace Iroca
                         : MaskSuggestGranularity.Auto;
                     var res = SamMaskPostprocess.SelectAndUpscale(logits, scores, w, h, frac,
                                                                   granularity: gran);
-                    WriteMaskRaw(args[6], w, h, res.maskBottomUp);
+                    // 提案マスクはヒープの外(NativeBools)。書き出す分を写して手放す。
+                    bool[] resMask = res.mask.ToArray();
+                    res.mask.Release();
+                    WriteMaskRaw(args[6], w, h, resMask);
                     Console.WriteLine(string.Format(inv,
                         "POST channel={0} score={1:R} area={2:R} warn={3}",
                         res.channel, res.score, res.areaFrac, res.floodWarning ? 1 : 0));

@@ -35,8 +35,11 @@ namespace Iroca
 
         internal sealed class Result
         {
-            /// <summary>下原点 texW*texH の提案マスク。</summary>
-            public bool[] maskBottomUp;
+            /// <summary>
+            /// 下原点 texW*texH の提案マスク(Mono のヒープの外。この結果が参照を 1 つ持ち、受け取った側が引き取る。
+            /// 0.4.0 の計画の B4)。
+            /// </summary>
+            public NativeBools mask;
             /// <summary>採用チャンネル(1..3)。</summary>
             public int channel;
             /// <summary>採用チャンネルの予測 IoU スコア。</summary>
@@ -186,14 +189,38 @@ namespace Iroca
                                               MaskSuggestGranularity granularity = MaskSuggestGranularity.Auto,
                                               System.Threading.CancellationToken token = default)
         {
+            // 各段は画素が足りなければ何もしない(配列版の約束)ので、足りないときは精密化しないのと同じ。
+            if (pixelsBottomUp != null && pixelsBottomUp.Length < texW * texH) pixelsBottomUp = null;
+            fixed (Color32* p = pixelsBottomUp)
+                return SelectAndUpscale(logits, scores, texW, texH, floodRejectFrac, p, granularity, token);
+        }
+
+        /// <summary>
+        /// <see cref="SelectAndUpscale(float[], float[], int, int, float, Color32[], MaskSuggestGranularity, System.Threading.CancellationToken)"/>
+        /// の画素がポインタの版(null なら精密化しない。texW*texH 画素)。
+        /// </summary>
+        public static Result SelectAndUpscale(float[] logits, float[] scores, int texW, int texH,
+                                              float floodRejectFrac,
+                                              Color32* pixelsBottomUp,
+                                              MaskSuggestGranularity granularity = MaskSuggestGranularity.Auto,
+                                              System.Threading.CancellationToken token = default)
+        {
             var sel = SelectChannels(logits, scores, texW, texH, floodRejectFrac, granularity);
             SamImageOps.GetResizedSize(texW, texH, out int newW, out int newH);
             var mask = UpscaleChannel(logits, sel.channel, texW, texH, newW, newH, token);
-            if (pixelsBottomUp != null)
-                RefineInPlace(mask, pixelsBottomUp, texW, texH, token);
+            try
+            {
+                if (pixelsBottomUp != null)
+                    RefineInPlace(mask.Ptr, pixelsBottomUp, texW, texH, token);
+            }
+            catch
+            {
+                mask.Release();
+                throw;
+            }
             return new Result
             {
-                maskBottomUp = mask,
+                mask = mask,
                 channel = sel.channel,
                 score = sel.score,
                 areaFrac = sel.areaFrac,
@@ -211,15 +238,18 @@ namespace Iroca
                                          System.Threading.CancellationToken token = default)
         {
             // 各段は画素が足りなければ何もしない(配列版の約束)ので、足りないときは丸ごと飛ばしても同じ。
+            if (maskBottomUp == null || maskBottomUp.Length != texW * texH) return;
             if (pixelsBottomUp == null || pixelsBottomUp.Length < texW * texH) return;
-            fixed (Color32* p = pixelsBottomUp) RefineInPlace(maskBottomUp, p, texW, texH, token);
+            fixed (bool* m = maskBottomUp)
+            fixed (Color32* p = pixelsBottomUp) RefineInPlace(m, p, texW, texH, token);
         }
 
-        /// <summary><see cref="RefineInPlace(bool[], Color32[], int, int, System.Threading.CancellationToken)"/> のポインタ版。</summary>
-        public static void RefineInPlace(bool[] maskBottomUp, Color32* pixelsBottomUp,
+        /// <summary><see cref="RefineInPlace(bool[], Color32[], int, int, System.Threading.CancellationToken)"/> のポインタ版(マスクは texW*texH 個)。</summary>
+        public static void RefineInPlace(bool* maskBottomUp, Color32* pixelsBottomUp,
                                          int texW, int texH,
                                          System.Threading.CancellationToken token = default)
         {
+            if (maskBottomUp == null || pixelsBottomUp == null) return;
             // 提案が画像の一部なら、外接矩形に余白を足した矩形だけで 4 段を回す(全画像で回したのとビット同一。
             // 根拠は TryDeriveRefineCropRect)。4K で全画像を回すと、提案が小さくても 1 回 1〜2 秒かかる。
             if (SamMaskRefine.TryDeriveRefineCropRect(maskBottomUp, texW, texH, token,
@@ -233,7 +263,7 @@ namespace Iroca
         }
 
         // 4 段をこの順で回す。sizeW・sizeH は帯幅などの定数を決める寸法(切り出しのときは全画像の寸法)。
-        private static void RefineStages(bool[] mask, Color32* px, int w, int h, int sizeW, int sizeH,
+        private static void RefineStages(bool* mask, Color32* px, int w, int h, int sizeW, int sizeH,
                                          System.Threading.CancellationToken token)
         {
             SamMaskRefine.SnapBoundary(mask, px, w, h, token, sizeW, sizeH);
@@ -255,44 +285,63 @@ namespace Iroca
 
         // 矩形 (rx0, ry0, rw, rh) を切り出して 4 段を回し、矩形の行をマスクへ写し戻す。矩形の外は 4 段とも変えない。
         // Snap と Peel は画素を外すこともあるので、足した画素だけでなく行をそのまま写す。
-        private static void RefineCropped(bool[] mask, Color32* px, int w, int h,
+        private static void RefineCropped(bool* mask, Color32* px, int w, int h,
                                           int rx0, int ry0, int rw, int rh,
                                           System.Threading.CancellationToken token)
         {
-            var cropMask = new bool[rw * rh];
+            bool* cropMask = WorkPools.Bool.Rent(rw * rh);
             Color32* cropPx = WorkPools.Rgba32.Rent(rw * rh);
             try
             {
                 Parallel.For(0, rh, SamMaskRefine.MakeParallelOptions(token), cy =>
                 {
                     int src = (ry0 + cy) * w + rx0;
-                    new System.ReadOnlySpan<bool>(mask, src, rw).CopyTo(new System.Span<bool>(cropMask, cy * rw, rw));
+                    new System.ReadOnlySpan<bool>(mask + src, rw).CopyTo(new System.Span<bool>(cropMask + cy * rw, rw));
                     new System.ReadOnlySpan<Color32>(px + src, rw).CopyTo(new System.Span<Color32>(cropPx + cy * rw, rw));
                 });
                 RefineStages(cropMask, cropPx, rw, rh, w, h, token);
                 for (int cy = 0; cy < rh; cy++)
-                    System.Array.Copy(cropMask, cy * rw, mask, (ry0 + cy) * w + rx0, rw);
+                    System.Buffer.MemoryCopy(cropMask + (long)cy * rw, mask + (long)(ry0 + cy) * w + rx0, rw, rw);
             }
             finally
             {
                 // 中断中は返さない(並列で読んでいる途中のスレッドが残っていることがある)。
-                if (!IrocaNativeMemory.CurrentThreadAborting) WorkPools.Rgba32.Return(cropPx);
+                if (!IrocaNativeMemory.CurrentThreadAborting)
+                {
+                    WorkPools.Bool.Return(cropMask);
+                    WorkPools.Rgba32.Return(cropPx);
+                }
             }
         }
 
         /// <summary>
         /// 1 チャンネルの 256² ロジットを SamPredictor と同じ 2 段 bilinear で元寸へ拡大し、
-        /// 閾値 0 で二値化して下原点 bool[] を返す。
+        /// 閾値 0 で二値化して下原点のマスクを返す(Mono のヒープの外。参照 1)。1024² の中間は作業配列のプールから借りる。
         /// </summary>
-        internal static bool[] UpscaleChannel(float[] logits, int channel, int texW, int texH,
-                                              int newW, int newH,
-                                              System.Threading.CancellationToken token = default)
+        internal static NativeBools UpscaleChannel(float[] logits, int channel, int texW, int texH,
+                                                   int newW, int newH,
+                                                   System.Threading.CancellationToken token = default)
+        {
+            float* up = WorkPools.Float.Rent(SamImageOps.InputSize * SamImageOps.InputSize);
+            try
+            {
+                return UpscaleChannel(logits, channel, texW, texH, newW, newH, up, token);
+            }
+            finally
+            {
+                // 中断中は返さない(並列で読んでいる途中のスレッドが残っていることがある)。
+                if (!IrocaNativeMemory.CurrentThreadAborting) WorkPools.Float.Return(up);
+            }
+        }
+
+        private static NativeBools UpscaleChannel(float[] logits, int channel, int texW, int texH,
+                                                  int newW, int newH, float* up,
+                                                  System.Threading.CancellationToken token)
         {
             int cOff = channel * LowRes * LowRes;
 
             // 256 から 1024 のキャンバス全域へ補間する。
             const int S = SamImageOps.InputSize;
-            var up = new float[S * S];
             float scale1 = LowRes / (float)S;
             var x0s = new int[S]; var x1s = new int[S]; var fxs = new float[S];
             for (int x = 0; x < S; x++)
@@ -319,8 +368,9 @@ namespace Iroca
                 }
             });
 
-            // 有効領域を元テクスチャ寸法へ補間し、下原点へ戻す。
-            var mask = new bool[texW * texH];
+            // 有効領域を元テクスチャ寸法へ補間し、下原点へ戻す(全画素に書く)。
+            var result = NativeBools.AllocateUninitialized(texW, texH);
+            bool* mask = result.Ptr;
             float scaleX = newW / (float)texW, scaleY = newH / (float)texH;
             var cx0 = new int[texW]; var cx1 = new int[texW]; var cfx = new float[texW];
             for (int x = 0; x < texW; x++)
@@ -345,7 +395,7 @@ namespace Iroca
                     mask[dstRow + x] = (a + (b - a) * fy) > 0f;
                 }
             });
-            return mask;
+            return result;
         }
     }
 }

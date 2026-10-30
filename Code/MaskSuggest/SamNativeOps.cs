@@ -20,14 +20,6 @@ namespace Iroca
         public static NativeBuffer BuildEncoderInput(NativePixels px, CancellationToken token = default)
             => BuildEncoderInput(px.Ptr, px.Width, px.Height, token);
 
-        /// <summary>切り出した画素(ズームの再推論。side 四方)からエンコーダの入力を作る。</summary>
-        public static NativeBuffer BuildEncoderInput(Color32[] crop, int side, CancellationToken token = default)
-        {
-            if (crop == null || crop.Length < side * side)
-                throw new System.ArgumentException("crop が side*side 画素に足りません", nameof(crop));
-            fixed (Color32* p = crop) return BuildEncoderInput(p, side, side, token);
-        }
-
         private static NativeBuffer BuildEncoderInput(Color32* px, int w, int h, CancellationToken token)
         {
             var chw = new NativeBuffer((long)SamImageOps.EncoderInputLength * sizeof(float), NativeUsage.Other);
@@ -72,13 +64,31 @@ namespace Iroca
         public static int FloatCount(NativeBuffer buffer) => buffer == null ? 0 : (int)(buffer.Bytes / sizeof(float));
 
         // 画素が無ければ何もしない(配列版の RefineInPlace と同じ約束)。
-        public static void RefineInPlace(bool[] maskBottomUp, NativePixels px, CancellationToken token = default)
+        public static void RefineInPlace(NativeBools mask, NativePixels px, CancellationToken token = default)
         {
-            if (px == null) return;
-            SamMaskPostprocess.RefineInPlace(maskBottomUp, px.Ptr, px.Width, px.Height, token);
+            if (px == null || mask == null) return;
+            SamMaskPostprocess.RefineInPlace(mask.Ptr, px.Ptr, px.Width, px.Height, token);
         }
 
-        public static Color32[] ExtractCrop(NativePixels px, int x0, int y0, int side)
+        /// <summary>切り出し(参照 1。受け取った側が手放す)。</summary>
+        public static NativePixels ExtractCrop(NativePixels px, int x0, int y0, int side)
             => SamZoomOps.ExtractCrop(px.Ptr, px.Width, px.Height, x0, y0, side);
+
+        /// <summary>
+        /// デコーダの出力から提案マスクを作る(<see cref="SamMaskPostprocess.SelectAndUpscale(float[], float[], int, int, float, Color32*, MaskSuggestGranularity, CancellationToken)"/>)。
+        /// px を渡すと精密化もする(texW*texH 画素)。結果のマスクは受け取った側が手放す。
+        /// </summary>
+        public static SamMaskPostprocess.Result SelectAndUpscale(float[] logits, float[] scores, int texW, int texH,
+            NativePixels px, MaskSuggestGranularity granularity, CancellationToken token = default)
+            => SamMaskPostprocess.SelectAndUpscale(logits, scores, texW, texH, SamMaskPostprocess.DefaultFloodRejectFrac,
+                px == null ? null : px.Ptr, granularity, token);
+
+        /// <summary>クリック画素を含む連結成分の外接矩形の長辺(<see cref="SamZoomOps.ClickComponentBBoxLong(bool*, int, int, int, int)"/>)。</summary>
+        public static int ClickComponentBBoxLong(NativeBools mask, int clickX, int clickY)
+            => SamZoomOps.ClickComponentBBoxLong(mask.Ptr, mask.Width, mask.Height, clickX, clickY);
+
+        /// <summary>切り出しのマスク(side 四方)を w*h へ貼り戻す(参照 1。受け取った側が手放す)。</summary>
+        public static NativeBools PasteCrop(NativeBools crop, int w, int h, int x0, int y0, out int trueCount)
+            => SamZoomOps.PasteCrop(crop.Ptr, crop.Width, w, h, x0, y0, out trueCount);
     }
 }

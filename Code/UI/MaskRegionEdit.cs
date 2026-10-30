@@ -51,9 +51,19 @@ namespace Iroca
         public static MaskRegionEditResult Apply(MaskRegionOp op, bool[] region,
                                                  ulong* exclude, ulong* include, ulong* common)
         {
+            if (region == null) return new MaskRegionEditResult();
+            fixed (bool* p = region) return Apply(op, p, region.Length, exclude, include, common);
+        }
+
+        /// <summary>
+        /// <see cref="Apply(MaskRegionOp, bool[], ulong*, ulong*, ulong*)"/> の、範囲がポインタ(n 個)の版
+        /// (AI 提案の範囲は Mono のヒープの外にある)。
+        /// </summary>
+        public static MaskRegionEditResult Apply(MaskRegionOp op, bool* region, int n,
+                                                 ulong* exclude, ulong* include, ulong* common)
+        {
             var r = new MaskRegionEditResult();
             if (region == null) return r;
-            int n = region.Length;
             switch (op)
             {
                 case MaskRegionOp.PaintHere:

@@ -67,6 +67,7 @@ namespace Iroca.EditorTests
         {
             cancelAlls++;
             queue.Clear();
+            ready?.Release();   // 実物と同じく、受け取られなかった提案の範囲を返す
             ready = null;
             sourceKey = null;
             Set(MaskSuggestPhase.Idle);

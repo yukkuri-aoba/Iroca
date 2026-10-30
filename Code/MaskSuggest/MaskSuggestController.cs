@@ -185,17 +185,17 @@ namespace Iroca
         /// 1 つの Undo ストロークとして当てる(規則は MaskRegionEdit、当てるのは MaskPaintView.ApplyRegion)。
         /// 反映後は通常のマスクとしてブラシ修正・Ctrl+Z(1 ストローク扱い)が効く。
         /// </summary>
-        void CommitProposalToMask(MaskSuggestProposal proposal, MaskPaintView.MaskDestination dest,
-                                  long clickStartedAt = 0)
+        unsafe void CommitProposalToMask(MaskSuggestProposal proposal, MaskPaintView.MaskDestination dest,
+                                         long clickStartedAt = 0)
         {
             // 反映できなかったときは黙って戻らず「空だった」と UI に出す。画面上は
             // どのルートも「クリックしたのに何も起きない」に見えてしまうため。
             LastProposalEmpty = true;
             LastCommitEmpty = true;
             if (_maskView == null) return;
-            var src = proposal.maskBottomUp;
+            var src = proposal.mask;
             int sw = proposal.width, sh = proposal.height;
-            if (src == null || sw <= 0 || sh <= 0) return;
+            if (src == null || sw <= 0 || sh <= 0 || src.Width != sw || src.Height != sh) return;
 
             _maskView.EnsureMasks();
             int mw = _maskView.maskWidth, mh = _maskView.maskHeight;
@@ -204,94 +204,104 @@ namespace Iroca
             long tCommit = MaskSuggestPerf.Now;
             double transferMs = 0, getPixelsMs = 0, aaMs = 0, applyMs;
             long t;
-            bool[] region = src;
-            if (mw != sw || mh != sh)
+            // 範囲はマスクの寸法(ヒープの外)。提案のまま使うときは提案のもの、転写したときは自分で作って手放す。
+            NativeBools region = src;
+            bool ownRegion = false;
+            try
             {
-                // マスク解像度がソースと異なる場合(実ファイル解像度で仕上げた提案 →
-                // インポート解像度のマスクキャンバス等)は被覆保存で転写する。旧実装の
-                // 最近傍サンプリングは縮小時に仕上げ済み境界の被覆を 1 セル単位で欠けさせ、
-                // 取り残し画素が再着色されて境界の点ノイズになっていた(実測: 強ドット 177個
-                // → 被覆保存で 0)。さらにインポート縮小はマスク解像度側に新たな混合画素を
-                // 作るため、提案の寄与分だけを対象に AA 遷移包含をマスク解像度で再適用して
-                // から当てる(ユーザーの既存ストロークには触れない)。
-                t = MaskSuggestPerf.Now;
-                region = SamMaskRefine.TransferCoverage(src, sw, sh, mw, mh);
-                transferMs = MaskSuggestPerf.MsSince(t);
-                if (region == null) return;
-                var tex = _host?.SourceTexture;
-                if (tex != null && tex.width == mw && tex.height == mh &&
-                    SamMaskRefine.TryDeriveAaCropRect(region, mw, mh,
-                        out int rx0, out int ry0, out int rw, out int rh, out int aaD))
+                if (mw != sw || mh != sh)
                 {
-                    // AA 包含は提案 bbox + マージンのクロップで実行する(出力は全画像実行と
-                    // ビット同一 — 根拠は TryDeriveAaCropRect)。小パーツ提案でもマスク全
-                    // 解像度の距離変換×最大 10 回が走っていた(実測 162-225ms のメイン停止)
-                    // のを、画素取得ごとクロップ分に抑える。提案が空なら丸ごとスキップ。
-                    try
+                    // マスク解像度がソースと異なる場合(実ファイル解像度で仕上げた提案 →
+                    // インポート解像度のマスクキャンバス等)は被覆保存で転写する。旧実装の
+                    // 最近傍サンプリングは縮小時に仕上げ済み境界の被覆を 1 セル単位で欠けさせ、
+                    // 取り残し画素が再着色されて境界の点ノイズになっていた(実測: 強ドット 177個
+                    // → 被覆保存で 0)。さらにインポート縮小はマスク解像度側に新たな混合画素を
+                    // 作るため、提案の寄与分だけを対象に AA 遷移包含をマスク解像度で再適用して
+                    // から当てる(ユーザーの既存ストロークには触れない)。
+                    t = MaskSuggestPerf.Now;
+                    region = NativeBools.AllocateUninitialized(mw, mh);
+                    ownRegion = true;
+                    SamMaskRefine.TransferCoverage(src.Ptr, sw, sh, region.Ptr, mw, mh);
+                    transferMs = MaskSuggestPerf.MsSince(t);
+                    var tex = _host?.SourceTexture;
+                    if (tex != null && tex.width == mw && tex.height == mh &&
+                        SamMaskRefine.TryDeriveAaCropRect(region.Ptr, mw, mh,
+                            out int rx0, out int ry0, out int rw, out int rh, out int aaD))
                     {
-                        // 画素は GetPixels32 で取り(GetPixels(rect) の float→byte 丸めは
-                        // テクスチャ形式によって GetPixels32 と一致する保証がない)、
-                        // クロップは行コピーで切り出す。
-                        t = MaskSuggestPerf.Now;
-                        var texPx = tex.GetPixels32();
-                        Color32[] cropPx;
-                        if (rw == mw && rh == mh)
+                        // AA 包含は提案 bbox + マージンのクロップで実行する(出力は全画像実行と
+                        // ビット同一 — 根拠は TryDeriveAaCropRect)。小パーツ提案でもマスク全
+                        // 解像度の距離変換×最大 10 回が走っていた(実測 162-225ms のメイン停止)
+                        // のを、画素取得ごとクロップ分に抑える。提案が空なら丸ごとスキップ。
+                        try
                         {
-                            cropPx = texPx;
+                            // 画素は GetPixels32 で取り(GetPixels(rect) の float→byte 丸めは
+                            // テクスチャ形式によって GetPixels32 と一致する保証がない)、
+                            // クロップは行コピーで切り出す。
+                            t = MaskSuggestPerf.Now;
+                            var texPx = tex.GetPixels32();
+                            Color32[] cropPx;
+                            if (rw == mw && rh == mh)
+                            {
+                                cropPx = texPx;
+                            }
+                            else
+                            {
+                                cropPx = new Color32[rw * rh];
+                                for (int cy = 0; cy < rh; cy++)
+                                    System.Array.Copy(texPx, (ry0 + cy) * mw + rx0,
+                                                      cropPx, cy * rw, rw);
+                            }
+                            getPixelsMs = MaskSuggestPerf.MsSince(t);
+                            t = MaskSuggestPerf.Now;
+                            fixed (Color32* cp = cropPx)
+                                SamMaskRefine.IncludeAaTransitionCropped(region.Ptr, mw, mh,
+                                    cp, rx0, ry0, rw, rh, aaD);
+                            // 細い描き込みの提案は、やり直した AA 包含が落ち影を「混色」として足し直すので、
+                            // 精密化と同じく最後に地を外す(細い成分が無ければ外接矩形の距離変換 1 回で戻る)。
+                            fixed (Color32* tp = texPx)
+                                SamMaskRefine.PeelThinSpill(region.Ptr, tp, mw, mh);
+                            aaMs = MaskSuggestPerf.MsSince(t);
                         }
-                        else
+                        catch (System.Exception)
                         {
-                            cropPx = new Color32[rw * rh];
-                            for (int cy = 0; cy < rh; cy++)
-                                System.Array.Copy(texPx, (ry0 + cy) * mw + rx0,
-                                                  cropPx, cy * rw, rw);
+                            // 画素を取得できない場合も、被覆保存転写だけで提案を適用できる。
                         }
-                        getPixelsMs = MaskSuggestPerf.MsSince(t);
-                        t = MaskSuggestPerf.Now;
-                        SamMaskRefine.IncludeAaTransitionCropped(region, mw, mh,
-                            cropPx, rx0, ry0, rw, rh, aaD);
-                        // 細い描き込みの提案は、やり直した AA 包含が落ち影を「混色」として足し直すので、
-                        // 精密化と同じく最後に地を外す(細い成分が無ければ外接矩形の距離変換 1 回で戻る)。
-                        SamMaskRefine.PeelThinSpill(region, texPx, mw, mh);
-                        aaMs = MaskSuggestPerf.MsSince(t);
-                    }
-                    catch (System.Exception)
-                    {
-                        // 画素を取得できない場合も、被覆保存転写だけで提案を適用できる。
                     }
                 }
+
+                int proposed = region.CountTrue(); // 提案そのものの画素数(0 = 推論が領域を返していない)
+                LastClickFloodWarning = proposal.floodWarning;
+                LastProposalEmpty = proposed == 0;
+                // 空の提案で「この部分だけ」を当てると全体が除外になるので、当てずに止める。
+                if (proposed == 0) return;
+
+                t = MaskSuggestPerf.Now;
+                bool ok = false;
+                MaskRegionEditResult result = default;
+                // 提案は推論を待ってから届くので、待っている間の別の操作とは別の「元に戻す」1 回分にする。
+                SeparateUndo.Record("AI Mask Suggestion",
+                    () => ok = _maskView.ApplyRegion(region, dest, out result));
+                applyMs = MaskSuggestPerf.MsSince(t);
+                LastCommitEmpty = !ok || result.changed == 0;
+                // 何をしたか(と、指示どおりに塗られない理由)を知らせる。結果は推論待ちの後に届くので、
+                // 黙っていると右クリックの操作と結び付かない。
+                _host?.ShowNotification(new GUIContent(_maskView.DescribeRegionEdit(dest, ok, result)));
+                if (MaskSuggestPerf.Enabled)
+                    MaskSuggestPerf.Log(
+                        $"コミット: 転写 {transferMs:F0}ms / GetPixels32 {getPixelsMs:F0}ms / AA包含 {aaMs:F0}ms" +
+                        $" / 反映(Undo 込み) {applyMs:F0}ms / 合計 {MaskSuggestPerf.MsSince(tCommit):F0}ms");
+                if (clickStartedAt != 0)
+                    MaskSuggestPerf.Log($"クリック→コミット完了 {MaskSuggestPerf.MsSince(clickStartedAt):F0}ms");
+                // プロキシ段なしの再生成: 確定表示中のプレビューが低解像度へ一瞬戻る「ちらつき」を
+                // 防ぐ(キューで連続コミットすると毎回プロキシが挟まり点滅に見える)。
+                if (clickStartedAt != 0) MaskSuggestPerf.ArmE2EWatch(clickStartedAt);
+                _host?.NotifyMasksEditedFullRefine();
+                _host?.RequestRepaint();
             }
-
-            int proposed = 0; // 提案そのものの画素数(0 = 推論が領域を返していない)
-            for (int i = 0; i < region.Length; i++)
-                if (region[i]) proposed++;
-            LastClickFloodWarning = proposal.floodWarning;
-            LastProposalEmpty = proposed == 0;
-            // 空の提案で「この部分だけ」を当てると全体が除外になるので、当てずに止める。
-            if (proposed == 0) return;
-
-            t = MaskSuggestPerf.Now;
-            bool ok = false;
-            MaskRegionEditResult result = default;
-            // 提案は推論を待ってから届くので、待っている間の別の操作とは別の「元に戻す」1 回分にする。
-            SeparateUndo.Record("AI Mask Suggestion",
-                () => ok = _maskView.ApplyRegion(region, dest, out result));
-            applyMs = MaskSuggestPerf.MsSince(t);
-            LastCommitEmpty = !ok || result.changed == 0;
-            // 何をしたか(と、指示どおりに塗られない理由)を知らせる。結果は推論待ちの後に届くので、
-            // 黙っていると右クリックの操作と結び付かない。
-            _host?.ShowNotification(new GUIContent(_maskView.DescribeRegionEdit(dest, ok, result)));
-            if (MaskSuggestPerf.Enabled)
-                MaskSuggestPerf.Log(
-                    $"コミット: 転写 {transferMs:F0}ms / GetPixels32 {getPixelsMs:F0}ms / AA包含 {aaMs:F0}ms" +
-                    $" / 反映(Undo 込み) {applyMs:F0}ms / 合計 {MaskSuggestPerf.MsSince(tCommit):F0}ms");
-            if (clickStartedAt != 0)
-                MaskSuggestPerf.Log($"クリック→コミット完了 {MaskSuggestPerf.MsSince(clickStartedAt):F0}ms");
-            // プロキシ段なしの再生成: 確定表示中のプレビューが低解像度へ一瞬戻る「ちらつき」を
-            // 防ぐ(キューで連続コミットすると毎回プロキシが挟まり点滅に見える)。
-            if (clickStartedAt != 0) MaskSuggestPerf.ArmE2EWatch(clickStartedAt);
-            _host?.NotifyMasksEditedFullRefine();
-            _host?.RequestRepaint();
+            finally
+            {
+                if (ownRegion) region.Release();
+            }
         }
 
         /// <summary>

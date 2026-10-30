@@ -358,7 +358,7 @@ namespace Iroca
             private void OnEvidence(MaskSuggestProposal proposal)
             {
                 if (Status != Status.WaitingForEvidence) return;
-                if (proposal == null || proposal.maskBottomUp == null || proposal.width <= 0 || proposal.height <= 0)
+                if (proposal == null || proposal.mask == null || proposal.width <= 0 || proposal.height <= 0)
                 {
                     // AI のエラーで捨てられたのなら、その理由を出す。
                     var svc = MaskSuggestBridge.Service;
@@ -368,7 +368,9 @@ namespace Iroca
                 }
                 // 背景まで広がった提案は素材の証拠にならない。この場合だけは証拠なしで解析する。
                 if (proposal.floodWarning) StartAnalysis(null, 0, 0, ReasonEvidenceFlood);
-                else StartAnalysis(proposal.maskBottomUp, proposal.width, proposal.height, null);
+                // 提案の範囲は受け取りの間だけ使える(AiSuggestBroker が後で返す)。旧の解析(ZoneAutoTuner)は配列で
+                // 受け取って持つので、ここで写す(T5 の新しい層で置き換える。0.4.0 の計画の 3.4.3)。
+                else StartAnalysis(proposal.mask.ToArray(), proposal.width, proposal.height, null);
             }
 
             // evidence: 証拠マスク（true=このゾーンの素材そのもの。pixels と同じ下原点並び）。null なら従来導出。

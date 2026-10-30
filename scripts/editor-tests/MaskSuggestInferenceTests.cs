@@ -89,6 +89,9 @@ namespace Iroca.EditorTests
             Assert.AreEqual(MaskSuggestPhase.ProposalReady, svc.Phase, svc.ErrorMessage);
             Assert.IsTrue(svc.TryTakeProposal(out var proposal));
             Assert.AreEqual((Size, Size), (proposal.width, proposal.height));
+            // 範囲はヒープの外。サービスから直接受け取ったので自分で返す。
+            bool[] gotMask = proposal.mask.ToArray();
+            proposal.Release();
 
             float c = (Size - 1) * 0.5f;
             int inter = 0, union = 0;
@@ -96,7 +99,7 @@ namespace Iroca.EditorTests
                 for (int x = 0; x < Size; x++)
                 {
                     bool truth = (x - c) * (x - c) + (y - c) * (y - c) <= Radius * Radius;
-                    bool got = proposal.maskBottomUp[y * Size + x];
+                    bool got = gotMask[y * Size + x];
                     if (truth && got) inter++;
                     if (truth || got) union++;
                 }

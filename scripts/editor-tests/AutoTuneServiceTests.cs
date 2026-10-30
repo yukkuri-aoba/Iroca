@@ -69,14 +69,18 @@ namespace Iroca.EditorTests
         }
 
         // 左半分(赤)を素材とする証拠。
-        private static MaskSuggestProposal LeftHalf(bool flood = false)
+        private static bool[] LeftHalfMask()
         {
             var m = new bool[W * H];
             for (int y = 0; y < H; y++)
             for (int x = 0; x < W / 2; x++)
                 m[y * W + x] = true;
-            return new MaskSuggestProposal { maskBottomUp = m, width = W, height = H, floodWarning = flood };
+            return m;
         }
+
+        // 提案の範囲はヒープの外で、受け取り先を呼んだ後に AiSuggestBroker が返す(テストは写しの LeftHalfMask と比べる)。
+        private static MaskSuggestProposal LeftHalf(bool flood = false)
+            => new MaskSuggestProposal { mask = NativeBools.CopyOf(LeftHalfMask(), W, H), width = W, height = H, floodWarning = flood };
 
         private static void WaitForAnalysis(AutoTuneService.Run run)
         {
@@ -138,7 +142,7 @@ namespace Iroca.EditorTests
             Assert.AreEqual(AutoTuneService.Status.Analyzing, run.Status);
             WaitForAnalysis(run);
             var expected = ZoneAutoTuner.AnalyzeWithEvidence(_pixels.Ptr, W, H, zone.Clone(),
-                ZoneAutoTuner.SessionInput.From(session), evidence.maskBottomUp, W, H);
+                ZoneAutoTuner.SessionInput.From(session), LeftHalfMask(), W, H);
             AssertSameAsCore(run, zone, session, expected);
             Assert.IsTrue(run.HadEvidence);
             var input = run.ToInput();

@@ -104,7 +104,8 @@ namespace Iroca.SentisIntegration
         /// ズーム後処理では提案ペイロードのみ(hasCrop=false)。</summary>
         sealed class PostOutcome
         {
-            public bool[] mask;
+            // 提案の範囲(ヒープの外。この結果が参照を 1 つ持ち、配信で提案へ渡す)。
+            public NativeBools mask;
             public float score;
             public float areaFrac;
             public bool floodWarning;
@@ -113,9 +114,38 @@ namespace Iroca.SentisIntegration
             // ズーム失敗で第 1 段へ退避するときは FallbackToStage1 が配信前に精密化する。
             public bool hasCrop;
             public int cropX0, cropY0, cropSide;
-            public Color32[] cropPixels;
+            // 切り出した画素(ヒープの外。この結果が参照を 1 つ持つ。読むジョブは自分の参照を足す)。
+            public NativePixels cropPixels;
             public double postMs;
             public double refineMs; // 精密化 4 段(走ったときのみ非 0)
+
+            /// <summary>持っている画素(範囲・切り出し)を返す。配信で範囲を渡した後は切り出しだけ。</summary>
+            public void Release()
+            {
+                mask?.Release();
+                mask = null;
+                cropPixels?.Release();
+                cropPixels = null;
+            }
+        }
+
+        // ズームの第 2 段を回している間の第 1 段の結果(粗マスクと切り出し)。第 2 段の結果を配信するか、第 1 段へ
+        // 退避して配信するか、取り消したときに返す。
+        PostOutcome _plan;
+
+        void ReleasePlan()
+        {
+            var p = _plan;
+            _plan = null;
+            p?.Release();
+        }
+
+        // 確定した提案を差し替える(受け取られなかった前の提案は返す)。
+        void SetProposal(MaskSuggestProposal proposal)
+        {
+            var old = _proposal;
+            _proposal = proposal;
+            old?.Release();
         }
 
         public SentisMaskSuggestService()
@@ -612,52 +642,69 @@ namespace Iroca.SentisIntegration
                     // 空配列へ PasteCrop した結果で置き換える)ため、発火時に精密化すると
                     // その分(4K 実測 0.8-1.4s)が丸ごと捨てられる。不発時のみ従来と同一
                     // 順序・同一入力で精密化する(= SelectAndUpscale(px) と厳密同値)。
-                    var s1 = SamMaskPostprocess.SelectAndUpscale(
-                        logits, scores, w, h, pixelsBottomUp: null, granularity: granularity,
-                        token: ct);
+                    var s1 = SamNativeOps.SelectAndUpscale(logits, scores, w, h, null, granularity, ct);
                     var o = new PostOutcome
                     {
-                        mask = s1.maskBottomUp,
+                        mask = s1.mask,
                         score = s1.score,
                         areaFrac = s1.areaFrac,
                         floodWarning = s1.floodWarning,
                     };
-                    // ズームイン再推論の判定: クリック成分が小さい(=256²ロジットで形状表現
-                    // できない)場合のみ、クリック周辺クロップの再推論計画を積む。粗マスクの
-                    // bbox は精密化後と数 px しか違わず、クロップ矩形は 2 冪スナップで吸収される
-                    // (実 SAM fixture で crop 決定の一致を確認済み)。
-                    int cx = Mathf.Clamp((int)(u * w), 0, w - 1);
-                    int cy = Mathf.Clamp((int)(v * h), 0, h - 1); // v は下原点 → 下原点行と一致
-                    int bb = SamZoomOps.ClickComponentBBoxLong(s1.maskBottomUp, w, h, cx, cy);
-                    bool hasCrop = SamZoomOps.TryDeriveCropRect(bb, cx, cy, w, h,
-                                                                out int x0, out int y0, out int side);
-                    if (hasCrop)
+                    try
                     {
-                        o.hasCrop = true;
-                        o.cropX0 = x0;
-                        o.cropY0 = y0;
-                        o.cropSide = side;
-                        o.cropPixels = SamNativeOps.ExtractCrop(px, x0, y0, side);
+                        // ズームイン再推論の判定: クリック成分が小さい(=256²ロジットで形状表現
+                        // できない)場合のみ、クリック周辺クロップの再推論計画を積む。粗マスクの
+                        // bbox は精密化後と数 px しか違わず、クロップ矩形は 2 冪スナップで吸収される
+                        // (実 SAM fixture で crop 決定の一致を確認済み)。
+                        int cx = Mathf.Clamp((int)(u * w), 0, w - 1);
+                        int cy = Mathf.Clamp((int)(v * h), 0, h - 1); // v は下原点 → 下原点行と一致
+                        int bb = SamNativeOps.ClickComponentBBoxLong(o.mask, cx, cy);
+                        bool hasCrop = SamZoomOps.TryDeriveCropRect(bb, cx, cy, w, h,
+                                                                    out int x0, out int y0, out int side);
+                        if (hasCrop)
+                        {
+                            o.hasCrop = true;
+                            o.cropX0 = x0;
+                            o.cropY0 = y0;
+                            o.cropSide = side;
+                            o.cropPixels = SamNativeOps.ExtractCrop(px, x0, y0, side);
+                        }
+                        o.postMs = MaskSuggestPerf.MsSince(t0);
+                        if (!hasCrop)
+                        {
+                            long tr = MaskSuggestPerf.Now;
+                            SamNativeOps.RefineInPlace(o.mask, px, ct);
+                            o.refineMs = MaskSuggestPerf.MsSince(tr);
+                        }
+                        return o;
                     }
-                    o.postMs = MaskSuggestPerf.MsSince(t0);
-                    if (!hasCrop)
+                    catch
                     {
-                        long tr = MaskSuggestPerf.Now;
-                        SamNativeOps.RefineInPlace(s1.maskBottomUp, px, ct);
-                        o.refineMs = MaskSuggestPerf.MsSince(tr);
+                        o.Release();
+                        throw;
                     }
-                    return o;
                 },
                 o =>
                 {
-                    if (_phase != MaskSuggestPhase.Decoding) return;
+                    if (_phase != MaskSuggestPhase.Decoding)
+                    {
+                        o.Release();
+                        return;
+                    }
                     _clickPostMs = o.postMs;
                     _clickRefineMs = o.refineMs;
-                    if (o.hasCrop) StartZoomStage(o, u, v, granularity);
+                    if (o.hasCrop)
+                    {
+                        // 第 2 段の間は持っておく(配信・退避・取り消しで返す)。
+                        ReleasePlan();
+                        _plan = o;
+                        StartZoomStage(o, u, v, granularity);
+                    }
                     else DeliverProposal(o);
                 },
                 e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, e.Message)),
-                cleanup: () => px?.Release());
+                cleanup: () => px?.Release(),
+                discard: o => o.Release());
         }
 
         /// <summary>デコーダ同期実行(数十 ms)。cropRect が null なら全体埋め込み+全体座標系、
@@ -720,19 +767,23 @@ namespace Iroca.SentisIntegration
             if (_discardInFlight)
             {
                 _discardInFlight = false;
-                _proposal = null;
+                o.Release();
+                SetProposal(null);
                 ScheduleNextClickOrIdle();
                 return;
             }
-            _proposal = new MaskSuggestProposal
+            // 範囲は提案へ渡す(切り出しはもう使わないので返す)。
+            SetProposal(new MaskSuggestProposal
             {
-                maskBottomUp = o.mask,
+                mask = o.mask,
                 width = _texW,
                 height = _texH,
                 score = o.score,
                 areaFrac = o.areaFrac,
                 floodWarning = o.floodWarning,
-            };
+            });
+            o.mask = null;
+            o.Release();
             SetPhase(MaskSuggestPhase.ProposalReady);
         }
 
@@ -752,15 +803,14 @@ namespace Iroca.SentisIntegration
                 return;
             }
             _encodeStartedAt = MaskSuggestPerf.Now;
-            var cropPx = plan.cropPixels;
-            int side = plan.cropSide;
+            var cropPx = plan.cropPixels.AddRef();   // 読む間の参照(後始末で返す)
             double prepMs = 0; // work(BG)で書き apply(メイン)で読む
             _prepJob ??= new PreviewJob<NativeBuffer>();
             _prepJob.Schedule(
                 ct =>
                 {
                     long t0 = MaskSuggestPerf.Now;
-                    var chw = SamNativeOps.BuildEncoderInput(cropPx, side, ct);
+                    var chw = SamNativeOps.BuildEncoderInput(cropPx, ct);
                     prepMs = MaskSuggestPerf.MsSince(t0);
                     return chw;
                 },
@@ -770,6 +820,7 @@ namespace Iroca.SentisIntegration
                     StartZoomEncoderPump(chw, key, plan, u, v, granularity);
                 },
                 e => FallbackToStage1(plan, e),
+                cleanup: () => cropPx.Release(),
                 discard: chw => chw?.Release());
         }
 
@@ -868,16 +919,19 @@ namespace Iroca.SentisIntegration
             _clickZoomDecodeMs = MaskSuggestPerf.MsSince(tDec);
             int w = _texW, h = _texH;
             int x0 = plan.cropX0, y0 = plan.cropY0, side = plan.cropSide;
-            var cropPx = plan.cropPixels;
+            var cropPx = plan.cropPixels.AddRef();   // 読む間の参照(後始末で返す)
             _postJob.Schedule(
                 ct =>
                 {
                     long t0 = MaskSuggestPerf.Now;
-                    var res = SamMaskPostprocess.SelectAndUpscale(
-                        logits, scores, side, side, pixelsBottomUp: cropPx, granularity: granularity,
-                        token: ct);
-                    var full = SamZoomOps.PasteCrop(res.maskBottomUp, side, w, h, x0, y0,
-                                                    out int trueCount);
+                    var res = SamNativeOps.SelectAndUpscale(logits, scores, side, side, cropPx, granularity, ct);
+                    NativeBools full;
+                    int trueCount;
+                    try
+                    {
+                        full = SamNativeOps.PasteCrop(res.mask, w, h, x0, y0, out trueCount);
+                    }
+                    finally { res.mask.Release(); }
                     return new PostOutcome
                     {
                         mask = full,
@@ -889,11 +943,19 @@ namespace Iroca.SentisIntegration
                 },
                 o =>
                 {
-                    if (_phase != MaskSuggestPhase.Decoding) return;
+                    if (_phase != MaskSuggestPhase.Decoding)
+                    {
+                        o.Release();
+                        return;
+                    }
                     _clickZoomPostMs = o.postMs;
+                    // 第 1 段の結果はもう使わない。
+                    ReleasePlan();
                     DeliverProposal(o);
                 },
-                e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, e.Message)));
+                e => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, e.Message)),
+                cleanup: () => cropPx.Release(),
+                discard: o => o.Release());
         }
 
         void FallbackToStage1(PostOutcome plan, Exception e)
@@ -906,26 +968,34 @@ namespace Iroca.SentisIntegration
             // (稀な経路。所要時間は従来の第 1 段精密化と同等)。
             if (!plan.hasCrop || _discardInFlight || _sourcePixels == null)
             {
+                // 第 1 段の結果は配信が引き取る。
+                if (ReferenceEquals(_plan, plan)) _plan = null;
                 DeliverProposal(plan);
                 return;
             }
             var px = _sourcePixels.AddRef();   // 読む間の参照(後始末で返す)
+            var mask = plan.mask.AddRef();     // 第 1 段の結果は _plan が持つ。精密化する間の参照
             _postJob.Schedule(
                 ct =>
                 {
                     long t0 = MaskSuggestPerf.Now;
-                    SamNativeOps.RefineInPlace(plan.mask, px, ct);
+                    SamNativeOps.RefineInPlace(mask, px, ct);
                     plan.refineMs = MaskSuggestPerf.MsSince(t0);
                     return plan;
                 },
                 o =>
                 {
-                    if (_phase != MaskSuggestPhase.Decoding) return;
+                    if (_phase != MaskSuggestPhase.Decoding) return;   // 第 1 段の結果は _plan のまま(取り消しで返す)
                     _clickRefineMs = o.refineMs;
+                    if (ReferenceEquals(_plan, o)) _plan = null;
                     DeliverProposal(o);
                 },
                 err => SetPhase(MaskSuggestPhase.Error, error: string.Format(Localization.AiErrProposalFormat, err.Message)),
-                cleanup: () => px.Release());
+                cleanup: () =>
+                {
+                    px.Release();
+                    mask.Release();
+                });
         }
 
         // キャッシュが自分の参照を足して持つ(押し出したものは返す)。
@@ -973,6 +1043,7 @@ namespace Iroca.SentisIntegration
             _cropLruOrder.Add(key);
         }
 
+        /// <summary>確定した提案を受け取る(範囲の参照ごと渡す。受け取った側が <see cref="MaskSuggestProposal.Release"/> する)。</summary>
         public bool TryTakeProposal(out MaskSuggestProposal proposal)
         {
             proposal = _proposal;
@@ -1011,7 +1082,8 @@ namespace Iroca.SentisIntegration
             _prepJob?.Cancel();
             _postJob?.Cancel();
             DisposeEncInput();
-            _proposal = null;
+            ReleasePlan();
+            SetProposal(null);
             _clickQueue.Clear();
             _clickInFlight = false;
             _discardInFlight = false;

@@ -28,11 +28,16 @@ namespace Iroca
         Error,
     }
 
-    /// <summary>1 クリック分の提案マスク。</summary>
+    /// <summary>
+    /// 1 クリック分の提案マスク。範囲は Mono のヒープの外に置く(元の解像度。4K で 16MB。0.4.0 の計画の B4)。
+    /// 受け取った側(<see cref="AiSuggestBroker"/> の受け取り先)が使えるのは受け取りの間だけで、AiSuggestBroker が
+    /// 受け取り先を呼んだ後に <see cref="Release"/> する。持ち続けるなら写すか、範囲の参照を足す。
+    /// サービスから直接受け取った側は、自分で Release する。
+    /// </summary>
     internal sealed class MaskSuggestProposal
     {
-        /// <summary>下原点(GetPixels32 順) width*height の提案領域。</summary>
-        public bool[] maskBottomUp;
+        /// <summary>下原点(GetPixels32 順) width*height の提案領域(この提案が参照を 1 つ持つ)。</summary>
+        public NativeBools mask;
         public int width;
         public int height;
         /// <summary>モデルの予測 IoU スコア(参考表示用)。</summary>
@@ -41,6 +46,14 @@ namespace Iroca
         public float areaFrac;
         /// <summary>背景に流れた可能性(面積が棄却しきい以上のチャンネルしか無かった)。</summary>
         public bool floodWarning;
+
+        /// <summary>範囲の参照を返す(2 回目からは何もしない)。</summary>
+        public void Release()
+        {
+            var m = mask;
+            mask = null;
+            m?.Release();
+        }
     }
 
     /// <summary>

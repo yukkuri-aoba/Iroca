@@ -556,6 +556,26 @@ namespace Iroca
             EnsureMasks();
             int len = maskWidth * maskHeight;
             if (region == null || len <= 0 || region.Length != len) return false;
+            fixed (bool* p = region) return ApplyRegion(p, d, out result);
+        }
+
+        /// <summary>
+        /// <see cref="ApplyRegion(bool[], MaskDestination, out MaskRegionEditResult)"/> の、範囲が Mono のヒープの外にある版
+        /// (AI 提案。寸法がマスクと違えば false)。
+        /// </summary>
+        public unsafe bool ApplyRegion(NativeBools region, MaskDestination d, out MaskRegionEditResult result)
+        {
+            result = default;
+            EnsureMasks();
+            if (region == null || region.Width != maskWidth || region.Height != maskHeight) return false;
+            return ApplyRegion(region.Ptr, d, out result);
+        }
+
+        // 範囲(マスクと同じ寸法)を当てる本体。
+        private unsafe bool ApplyRegion(bool* region, MaskDestination d, out MaskRegionEditResult result)
+        {
+            result = default;
+            int len = maskWidth * maskHeight;
 
             // 書く層は自分だけのものにしてから渡す(重ね表示のワーカーが読んでいれば写す)。共通は重なりを数えるだけ。
             NativeBitMask exclude, include = null, common = null;
@@ -582,7 +602,7 @@ namespace Iroca
             if (d.op == MaskRegionOp.PaintHere ? include == null : exclude == null) return false;
 
             BeginStroke();
-            result = MaskRegionEdit.Apply(d.op, region, BitsOf(exclude), BitsOf(include), BitsOf(common));
+            result = MaskRegionEdit.Apply(d.op, region, len, BitsOf(exclude), BitsOf(include), BitsOf(common));
             EndStroke();
             _host.NotifyMasksEditedFullRefine();
             _host.RequestRepaint();

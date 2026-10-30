@@ -17,6 +17,9 @@
     "Code/Core/MaskSnapshot.cs": {
       "new ulong[(len + 63) >> 6]": 1
     },
+    "Code/Core/NativeBools.cs": {
+      "new bool[Length]": 1
+    },
     "Code/Core/NativePixels.cs": {
       "new Color32[Length]": 1
     },
@@ -77,15 +80,9 @@
     "Code/MaskSuggest/Ops/SamImageOps.cs": {
       "new float[3 * InputSize * InputSize]": 1
     },
-    "Code/MaskSuggest/Ops/SamMaskPostprocess.cs": {
-      "new bool[rw * rh]": 1,
-      "new bool[texW * texH]": 1,
-      "new float[S * S]": 1
-    },
     "Code/MaskSuggest/Ops/SamMaskRefine.cs": {
       "new bool[dw * dh]": 1,
       "new bool[gw * gh]": 7,
-      "new bool[rw * rh]": 1,
       "new double[gw * gh * 3]": 2,
       "new double[gw * gh * 4]": 5,
       "new int[gw * gh]": 8,
@@ -93,9 +90,8 @@
       "new long[gw * gh * 4]": 6
     },
     "Code/MaskSuggest/Ops/SamZoomOps.cs": {
-      "new Color32[side * side]": 2,
-      "new bool[w * h]": 1,
-      "new bool[ww * wh]": 1
+      "new Color32[side * side]": 1,
+      "new bool[w * h]": 1
     },
     "Code/UI/IrocaWindow.AutoTune.cs": {
       ".GetPixels32()": 1

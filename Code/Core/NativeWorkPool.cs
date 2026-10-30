@@ -290,6 +290,13 @@ namespace Iroca
             return p;
         }
 
+        public bool* CopyOf(bool* src, int n)
+        {
+            bool* p = Bool(n, clear: false);
+            new ReadOnlySpan<bool>(src, n).CopyTo(new Span<bool>(p, n));
+            return p;
+        }
+
         public void Dispose()
         {
             // 中断中(ドメインのアンロード)は、並列で使っている途中のスレッドが残っていることがあるので返さない。
