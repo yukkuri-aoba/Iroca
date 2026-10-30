@@ -473,7 +473,7 @@ memory_guard.py は出力に関与しないので、実行キャッシュ・行�
 - **プロキシ段（操作中の表示）とフル確定段の表示一致ゲートは既定 ON**（2026-08-23〜）:
   ユーザーが操作中に見るのは長辺 ProxyMaxSize(512) の縮小処理表示で、確定表示とは設計上
   一致しない。`test_proxy_parity` が Harness `--stage proxy` / `--stage full-display`
-  （PreviewView.Async の段階的リファイン両段を同じ丸め `PixelProcessor.ComputeFitSize` で
+  （PreviewPipeline の段階的リファイン両段を同じ丸め `PixelProcessor.ComputeFitSize` で
   再現し、表示解像度で出力）の乖離（選択 IoU・色差）を degradation-only で凍結する。
   opt-out は `VACC_PROXY_PARITY=0`、再凍結は `python dev_safe/measure_proxy_parity.py
   --baseline`（乖離を意図して受け入れる変更のときのみ。理由をコミットに残す）。

@@ -16,7 +16,7 @@ namespace Iroca
     //                               シーンのライブプレビューへの通知
     //   IrocaWindow.SceneClick.cs … Scene でモデルをクリックした場所をプレビューで示す
     //   IrocaWindow.Autosave.cs   … 編集内容の自動保存
-    public partial class IrocaWindow : EditorWindow, IHasCustomMenu, ISerializationCallbackReceiver
+    public partial class IrocaWindow : EditorWindow, IHasCustomMenu, ISerializationCallbackReceiver, IPreviewPipelineHost
     {
         // [SerializeField] を付けることで、スクリプト再コンパイル時に Unity が
         // EditorWindow の状態をシリアライズ/復元し、入力内容が失われにくくなる。
@@ -224,6 +224,14 @@ namespace Iroca
         // プレビューを別ウィンドウ(IrocaPreviewWindow)へ切り出すときの描画委譲先。
         // 状態の所有はここ(本体)のまま＝どちらの窓で描いてもズーム/比較/マスクは同じ。
         internal PreviewView Preview => _previewView;
+
+        // プレビューの計算(PreviewPipeline)が読む状態と知らせ先。
+        Texture2D IPreviewPipelineHost.SourceTexture => SourceTexture;
+        EditingSession IPreviewPipelineHost.Editing => Editing;
+        ColorZone IPreviewPipelineHost.SoloZone => SoloZone;
+        void IPreviewPipelineHost.RetainZoneInputs(ICollection<string> liveZoneIds) => RetainAutoTuneInputs(liveZoneIds);
+        void IPreviewPipelineHost.RequestRepaint() => RequestRepaint();
+        void IPreviewPipelineHost.PublishDebugCapture(IDebugCapture capture) => LatestDebugCapture = capture;
 
         // 編集状態（ゾーン定義・処理パラメータ・マスク状態）。
         // 個別 [SerializeField] フィールド群を IrocaSessionState に集約したもの。

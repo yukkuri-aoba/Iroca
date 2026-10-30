@@ -1045,6 +1045,16 @@ T5 で消える部分は作り直さない（1.5）。
   - 残る管理配列（概要段・表示用・切り出し）をなくす。
   - 再計算は当面ウィンドウの描画から進める（`EditorApplication.update` へ移すと、隠れている間の CPU の使い方と
     シーンへの反映が変わる）。
+  - 2026-10-30（手元）: 計算の部分を `PreviewPipeline`（`Code/Application/`）へ移した（出力・振る舞いは同じ）。
+    概要段・確定段のジョブ、ドラッグの追従と確定の待ち、選択キャッシュ・出力バッファ・確定段の出力、拡大表示の土台
+    （取り込み後の寸法へ縮めた原本と出力。「元の解像度」の設定も計算の側に置いた）、原本の確保と読み直しの判断、
+    Play 中の読み込みの待ち、埋め込みキャッシュのキー。ウィンドウは `IPreviewPipelineHost`（原本のテクスチャ・
+    編集中の文書・ソロ表示・自動調整の入力を刈る口・再描画・デバッグの記録）を明示的に実装して渡す（Application は
+    UI を使わない）。表示は `TakePendingFrame` で結果を受け取ってテクスチャへ上げ、`NoteShown` で体感速度の計測へ
+    返す。原本から導いた状態を捨てたら `SourceInvalidated` で拡大表示と見た目を捨てる。拡大表示を隠した後に確定段が
+    新しくなったかは、確定段の出力の番号（`FullOutputVersion`）で見る。`PreviewLatency`・`PreviewOutputBuffers` も
+    `Code/Application/` へ移した。計測（MemoryBench）の名前探し（`BenchSeams`）は、`_pipeline` があればそちらの
+    ジョブと出力を読む（基準の古い版では今までどおり `PreviewView`）。
 - [ ] 4-5 AI 提案の前処理・後処理・埋め込みのキャッシュをヒープの外へ移す（B4）。
   - Sentis 2.x の `Tensor<float>(TensorShape, NativeArray<float>)` と `DownloadToNativeArray` を使う。
   - Inference Engine 2.2 でも使えるか確かめる。

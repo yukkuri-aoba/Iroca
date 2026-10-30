@@ -193,14 +193,15 @@ namespace Iroca
         private const int PaintingProbeRadius = 2;
 
         /// <summary>
-        /// クリックした場所をいま塗っているゾーン(無ければ null)。表示中のプレビューを作った選択(_selectionCache)を
+        /// クリックした場所をいま塗っているゾーン(無ければ null)。表示中のプレビューを作った選択(PreviewPipeline.Selection)を
         /// 上のゾーンから順に見る(規則は MaskRegionEdit.PaintingZoneAt)。ソロ表示中は、見えているそのゾーンだけを見る。
         /// 選択がまだ無いゾーン(作り直しの途中など)は塗っていないものとして扱う。
         /// </summary>
         private ColorZone PaintingZoneAt(Vector2 uv)
         {
             var zones = _host.Session?.zones;
-            if (zones == null || zones.Count == 0 || _selectionCache == null) return null;
+            var selection = _pipeline?.Selection;
+            if (zones == null || zones.Count == 0 || selection == null) return null;
             if (!EnsureTrueSource(_host.SourceTexture)) return null;
             int w = TrueSourceW, h = TrueSourceH;
             if (w <= 0 || h <= 0) return null;
@@ -221,7 +222,7 @@ namespace Iroca
                 var z = zones[k];
                 if (z == null || !z.enabled || (solo != null && z != solo)) continue;
                 var s = new float[n];
-                if (_selectionCache.TryReadLatest(z.id, w, h, indices, s)) strengths[k] = s;
+                if (selection.TryReadLatest(z.id, w, h, indices, s)) strengths[k] = s;
             }
             int found = MaskRegionEdit.PaintingZoneAt(strengths, n);
             return found >= 0 ? zones[found] : null;

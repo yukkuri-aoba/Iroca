@@ -436,19 +436,10 @@ namespace Iroca
             return true;
         }
 
-        // 埋め込みキャッシュのキー。テクスチャの中身が変わったら別キーになるよう
-        // アセットパス + ファイル更新時刻 + 実寸で構成する。
+        // 埋め込みキャッシュのキー(PreviewPipeline.SourceCacheKey)。
         // internal: 自動調整の証拠要求(IrocaWindow.AutoTune)が AI 提案と同じキーで
         // SetSource するために使う(別キーだとソース切替扱いになり埋め込みを捨てる)。
-        internal string TrueSourceCacheKey()
-        {
-            var sourceFor = Sources?.Texture;
-            string path = sourceFor != null ? AssetDatabase.GetAssetPath(sourceFor) : null;
-            long ticks = 0;
-            if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
-                ticks = System.IO.File.GetLastWriteTimeUtc(path).Ticks;
-            return $"{path}|{ticks}|{TrueSourceW}x{TrueSourceH}";
-        }
+        internal string TrueSourceCacheKey() => _pipeline?.SourceCacheKey();
 
         private void PaintAtScreenPos(Vector2 screenPos, Rect previewRect)
         {

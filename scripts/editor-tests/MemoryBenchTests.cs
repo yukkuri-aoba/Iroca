@@ -199,8 +199,9 @@ namespace Iroca.EditorTests
                 foreach (var z in zones) win.Session.zones.Add(z);
                 var pv = win.Preview;
                 var gen = BenchSeams.GeneratePreviewAsync;
-                var proxyJob = BenchSeams.ProxyJob.GetValue(pv);
-                var fullJob = BenchSeams.FullJob.GetValue(pv);
+                var owner = BenchSeams.JobsOwnerOf(pv);
+                var proxyJob = BenchSeams.ProxyJob.GetValue(owner);
+                var fullJob = BenchSeams.FullJob.GetValue(owner);
                 var fullOutput = BenchSeams.FullOutput;
                 Assert.IsNotNull(gen, "PreviewView.GeneratePreviewAsync が見つかりません");
                 bool Running(object job) => BenchSeams.IsRunning(job);
@@ -223,7 +224,7 @@ namespace Iroca.EditorTests
                         Thread.Sleep(2);
                     }
                     sb.Append(Sample(c.name, "wstep", k, sw.Elapsed.TotalMilliseconds, 0,
-                        cfg.hashOutput ? HashAny(fullOutput.GetValue(pv)) : null)).Append('\n');
+                        cfg.hashOutput ? HashAny(fullOutput.GetValue(owner)) : null)).Append('\n');
                 }
                 GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
                 sb.Append(Sample(c.name, "liveWindowOpen", cfg.steps, 0)).Append('\n');

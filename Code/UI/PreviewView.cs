@@ -156,24 +156,28 @@ namespace Iroca
         [System.NonSerialized] public Texture2D rawPreviewTexture;
         // 差分表示は描いている変更前・変更後のテクスチャから GPU で描く(差分の画像は持たない)。
         [System.NonSerialized] private PreviewDiffDrawer _diffDrawer;
-        // 立てた時刻を体感速度の起点(操作の時刻)として控える(PreviewLatency)。初期値の true は
-        // 操作ではないので、プロパティを通さずに入れる。編集はウィンドウが EditingSession.Changed を受けて立てる
-        // (IrocaWindow.OnEditChanged)。自動保存は Changed を直接見る(AutosaveSchedule)。
-        [System.NonSerialized] private bool _previewDirty = true;
+
+        // プレビューの計算(概要段・確定段・ドラッグの追従・選択キャッシュ・拡大表示の土台。PreviewPipeline)。
+        // このビューは受け取った結果をテクスチャへ上げて描く。
+        [System.NonSerialized] private PreviewPipeline _pipeline;
+        internal PreviewPipeline Pipeline => _pipeline;
+
+        /// <summary>
+        /// プレビューの作り直しの要求。立てた時刻を体感速度の起点(操作の時刻)として控える(PreviewLatency)。
+        /// 編集はウィンドウが EditingSession.Changed を受けて立てる(IrocaWindow.OnEditChanged)。
+        /// 自動保存は Changed を直接見る(AutosaveSchedule)。下ろすのは計算の側(受け取ったとき)だけ。
+        /// </summary>
         public bool previewDirty
         {
-            get => _previewDirty;
+            get => _pipeline == null || _pipeline.Dirty;
             set
             {
-                _previewDirty = value;
-                if (!value) return;
-                InputClock.NoteInput(PreviewLatencyCycle.Now);
+                if (!value || _pipeline == null) return;
+                _pipeline.MarkDirty();
                 // 別ウィンドウ(プレビュー・マスク編集)の描き直しの合図にもする(IrocaWindow.DrawStamp)。
                 _host?.BumpUiState();
             }
         }
-        [System.NonSerialized] private PreviewInputClock _inputClock;
-        private PreviewInputClock InputClock => _inputClock ??= new PreviewInputClock();
         [System.NonSerialized] private Vector2 _previewScrollPos;
 
         // ── Undo/Redo で巻き戻さないビュー状態 ───────────────────────
@@ -218,116 +222,32 @@ namespace Iroca
         [System.NonSerialized] private int _cachedZoomPercent = -1;
         [System.NonSerialized] private LanguageMode _cachedZoomLang = (LanguageMode)(-1);
 
-        // 戻り値は (processed, raw) のタプル。raw(ダウンサンプル済み元表示)もジョブ側で
-        // 生成することで、テクスチャ切替直後のキャッシュミス時にメインスレッドで走っていた
-        // BoxDownsample のヒッチをバックグラウンドへ追い出す。
-        // full はフル解像度の処理結果(シーンのアバターへのプレビュー LivePreview へ渡す)。
-        // full はフル解像度の出力(Mono のヒープの外。結果を受け取った側が参照を 1 つ持つ)。
-        // display はフル段の出力を拡大表示の寸法(取り込み後の寸法)へ縮めたもの(その寸法で映さないときは null)。
-        [System.NonSerialized] private readonly PreviewJob<(Color32[] processed, Color32[] raw, NativePixels full, NativePixels display)> _previewJob =
-            new PreviewJob<(Color32[] processed, Color32[] raw, NativePixels full, NativePixels display)>();
-        // 段階的リファインの第1段。ソースが大きい(scale<1)とき、まず縮小プロキシで概要を即表示する
-        // 専用ジョブ。完了 apply で _previewJob(フル解像度)を同一スナップショットでスケジュールする。
-        // proxy はソースをプロキシ寸法へ縮小した処理前の画素(_proxySource へ確定する)。
-        [System.NonSerialized] private readonly PreviewJob<(Color32[] processed, Color32[] raw, Color32[] proxy)> _proxyJob =
-            new PreviewJob<(Color32[] processed, Color32[] raw, Color32[] proxy)>();
-        [System.NonSerialized] private Color32[] _pendingProcessedDisplay;
-        [System.NonSerialized] private Color32[] _pendingRawDisplay;
-        [System.NonSerialized] private int _pendingPrevW, _pendingPrevH;
-        // 直近に確定したフル段のフル解像度の出力(参照を 1 つ持つ)と、その元画素(同じ元画素から作ったかを
-        // 見るためだけに覚える。参照は持たない)。拡大表示(詳細クロップ)はここから切り出す。元画素が変わったら
-        // 使わない(InvalidateSourceCache / InvalidateFullOutput)。
-        [System.NonSerialized] private NativePixels _fullOutput;
-        [System.NonSerialized] private NativePixels _fullOutputSource;
-        // テスト(WindowOutputParityTests)が、概要段・確定段の終わりを待って確定段の出力を読むための口。
-        internal bool IsGenerating => _proxyJob.IsRunning || _previewJob.IsRunning;
-        internal NativePixels FullOutput => ReferenceEquals(_fullOutputSource, TrueSource) ? _fullOutput : null;
-        // フル段の出力バッファの使い回し(PreviewOutputBuffers)。置き換えられた前の出力を次のフル段で再利用する。
-        [System.NonSerialized] private PreviewOutputBuffers _outputBuffers;
-        // 保留中の結果が確定(フル段)か。確定なら拡大表示をすぐ作り直す(ApplyPendingPreview)。
-        [System.NonSerialized] private bool _pendingIsFinal;
-        // 保留中の結果がドラッグの追従(プロキシだけ)か。
-        [System.NonSerialized] private bool _pendingIsDrag;
         // 拡大中のドラッグでは、古い拡大表示(前の確定から切り出したもの)を隠して、追従しているプロキシを
         // 見せる(古いくっきりした絵の下に新しい絵が隠れて、ドラッグ中に画面が止まって見えないように)。
-        // _fullOutputFreshSinceHide: 隠したあとにフル段が確定した(切り出し元が新しくなった)。
-        // 隠している間は古いフル段の出力から切り出し直さない(古い色の拡大表示が戻ってしまう)。
+        // 隠している間は古いフル段の出力から切り出し直さない(古い色の拡大表示が戻ってしまう)。隠したときの
+        // 確定段の出力の番号(_hiddenAtFullVersion)から進んでいれば、切り出し元が新しくなっている。
         [System.NonSerialized] private bool _detailHiddenForDrag;
-        [System.NonSerialized] private bool _fullOutputFreshSinceHide;
-        // 保留中の結果がどの再生成のどの段か(体感速度の計測用。転送が済んだ時刻を打つ)。
-        [System.NonSerialized] private PreviewLatencyCycle _pendingLatency;
-        [System.NonSerialized] private LatencyStageMarks _pendingLatencyStage;
-        [System.NonSerialized] private double _lastDirtyTime;
-        // 手を止めてからフル解像度で確定するまでの待ち。ドラッグ中はこの間、プロキシだけを回して
-        // 追従する(大きいテクスチャのフル段は数百 ms かかり、毎フレーム回すと取り消しの繰り返しになる)。
-        private const double PreviewDebounceSeconds = 0.2;
-        // ドラッグ中の追従プレビュー。_dragReq は直近の追従の入力、_dragReqStale はそれより後に
-        // 操作があったか。_dragRunning は走っているジョブが追従のもの(新しい操作で取り消さない)か。
-        [System.NonSerialized] private PreviewRequest _dragReq;
-        [System.NonSerialized] private bool _dragReqStale = true;
-        [System.NonSerialized] private bool _dragRunning;
-        private bool IsDragPreviewRunning => _dragRunning && (_proxyJob.IsRunning || _previewJob.IsRunning);
+        [System.NonSerialized] private int _hiddenAtFullVersion;
+        private bool FullOutputFreshSinceHide => _pipeline != null && _pipeline.FullOutputVersion != _hiddenAtFullVersion;
         // ペイント中のオーバーレイ再構築の最小間隔（10Hz）。
         // bool[] の clone とジョブ再スケジュールがメインスレッドで頻発すると
         // GC でフレームが詰まるため、ペイント中だけ意図的に間引く。
         private const double PaintOverlayThrottleSeconds = 0.1;
 
-        [System.NonSerialized] private Texture2D _cachedSourceTexture;
-        // TrueSource と同じものを指す(どの元画素で作ったキャッシュかを見るためだけ。参照は持たない)。
-        [System.NonSerialized] private NativePixels _cachedSrcPixels;
-        [System.NonSerialized] private Color32[] _cachedRawDisplay;
-        [System.NonSerialized] private int _cachedSrcW, _cachedSrcH;
-        [System.NonSerialized] private int _cachedPrevW, _cachedPrevH;
+        // 原本の画素(作業解像度)。読み直すかどうかと、原本から導いた状態を捨てるのは計算の側が決める。
+        private SourcePixelCache Sources => _pipeline?.Sources;
+        private NativePixels TrueSource => _pipeline?.TrueSource;
+        private int TrueSourceW => _pipeline?.TrueSourceW ?? 0;
+        private int TrueSourceH => _pipeline?.TrueSourceH ?? 0;
+        private bool EnsureTrueSource(Texture2D tex) => _pipeline != null && _pipeline.EnsureSource(tex);
 
-        // プロキシ段の入力(ソースをプロキシ寸法へ縮小したもの)と、その表示寸法の before。ソース画素と寸法だけで
-        // 決まるので、同じソースの間は使い回す(操作のたびに 4K から縮小し直さない)。ジョブは読むだけで、
-        // このフィールドを触るのはメインスレッド(スケジュール時に読み、apply で確定)だけ。
-        private sealed class ProxySourceCache
-        {
-            public NativePixels src;     // 縮小元のソース画素(同じものかを照合するだけ。参照は持たない)
-            public int w, h, prevW, prevH;
-            public Color32[] proxy;      // プロキシ寸法(処理前)
-            public Color32[] display;    // proxy を表示寸法へ縮小したもの(寸法が同じなら proxy と同じ配列)
-        }
-        [System.NonSerialized] private ProxySourceCache _proxySource;
-
-        // 選択結果キャッシュ: 「ターゲット色など再着色のみ」を変えたプレビュー再生成で、選択フェーズ
-        // (Match/FloodFill/穴埋め/境界/ブラー/マスク再適用)を再計算せず復元して高速化する。
-        // 出力はフル再計算と byte 一致(ProcessPixelsArray が選択パラメータのキーで管理)。テクスチャ/
-        // 寸法が変わると画素前提が崩れるので Clear する。Unity の [Serializable]/ドメインリロード後も
-        // 確実に生成されるよう、inline 初期化でなく Initialize() で ??= する(NonSerialized の流儀)。
-        [System.NonSerialized] private SelectionCache _selectionCache;
-
-        // 段階的リファインのプロキシ専用選択キャッシュ。プロキシはフルと寸法が異なり、SelectionCache は
-        // zoneId 単位で (W,H) 一致を見て上書きするため、フルと共有するとスラッシュする。別インスタンスに
-        // 分けてプロキシの再着色のみ変更も高速化する。テクスチャ/寸法変更時は _selectionCache と同時に Clear。
-        [System.NonSerialized] private SelectionCache _proxySelectionCache;
-
-        // プレビュー処理に使う原本の画素(作業解像度。SourcePixelCache)。持ち主は編集中の文書(EditingSession)で、
-        // テクスチャ単位で持つ。読み直すかどうか(取り込み後の寸法が変わった)と、原本から導いた状態を捨てるのは
-        // ここが決める(EnsureTrueSource)。
-        private SourcePixelCache Sources => _host?.Editing.Sources;
-        private NativePixels TrueSource => Sources?.Pixels;
-        private int TrueSourceW => Sources?.Width ?? 0;
-        private int TrueSourceH => Sources?.Height ?? 0;
-        // 拡大表示に映す寸法(取り込み後の寸法。ゲームに出る大きさ。WorkingResolution.DisplaySize)の原本と、
-        // フル段の出力をその寸法へ縮めたもの(面平均。非破壊ビルドがテクスチャを作るときと同じ縮小)。
-        // 作業解像度のままでよいとき(取り込みで小さくならない・「元の解像度」の設定がオン)は null で、
-        // 作業解像度のものをそのまま映す(WantsDisplaySize)。
-        [System.NonSerialized] private NativePixels _displaySource, _displayOutput;
-        [System.NonSerialized] private int _displayW, _displayH;
-
-        // Play を始めたときのドメインリロードの直後は、原本の読み直し(デコード)と色替えの計算し直しを、
-        // ウィンドウが操作されるまで待つ(Play を始めてすぐの動作確認と重なって、エディタが止まらないように)。
-        // 待つのは Play 中だけで、どこかで原本を読んだら(自動調整・AI・書き出しなど画素が要る操作)終わる。
-        // 操作の検出と解除は IrocaWindow.TrackDeferredPreview。
-        [System.NonSerialized] private bool _deferSourceLoad;
-
-        internal bool SourceLoadDeferred => _deferSourceLoad && EditorApplication.isPlayingOrWillChangePlaymode;
+        // Play を始めたときのドメインリロードの直後は、原本の読み直しと色替えの計算し直しを、ウィンドウが
+        // 操作されるまで待つ(PreviewPipeline.SourceLoadDeferred)。
+        internal bool SourceLoadDeferred => _pipeline != null && _pipeline.SourceLoadDeferred;
         // Draw が Layout のときに見た SourceLoadDeferred(同じフレームの他のイベントもそれで描く)。
         [System.NonSerialized] private bool _deferredAtLayout;
-        internal void DeferSourceLoad() => _deferSourceLoad = true;
-        internal void EndSourceLoadDeferral() => _deferSourceLoad = false;
+        internal void DeferSourceLoad() => _pipeline?.DeferSourceLoad();
+        internal void EndSourceLoadDeferral() => _pipeline?.EndSourceLoadDeferral();
 
         [System.NonSerialized] private DetailPreviewView _detailView;
 
@@ -336,9 +256,12 @@ namespace Iroca
         public void Initialize(IrocaWindow host)
         {
             _host = host;
-            _selectionCache ??= new SelectionCache();
-            _proxySelectionCache ??= new SelectionCache();
-            _outputBuffers ??= new PreviewOutputBuffers();
+            if (_pipeline == null)
+            {
+                _pipeline = new PreviewPipeline(host);
+                _pipeline.SourceInvalidated += OnSourceInvalidated;
+            }
+            _pipeline.Resume();
             _detailView ??= new DetailPreviewView();
             _detailView.Initialize(host);
             _diffDrawer ??= new PreviewDiffDrawer();
@@ -348,74 +271,22 @@ namespace Iroca
         /// 保持しているフル段の出力を捨てる(拡大表示の切り出し元にしない)。処理したゾーンの集合が
         /// 変わったとき(ソロ表示の切り替え)に呼ぶ。次のフル段の確定までは拡大表示を作り直さない。
         /// </summary>
-        public void InvalidateFullOutput()
-        {
-            RetireFullOutput();
-            _fullOutputSource = null;
-        }
+        public void InvalidateFullOutput() => _pipeline?.InvalidateFullOutput();
 
-        // いまのフル段の出力を使い回しへ回し(持っていた参照を渡す)、_fullOutput を空にする。拡大表示のジョブが
-        // 切り出し中・シーンへの反映が保持中なら、それぞれ参照を持っているので、手放されるまでは使い回されない。
-        private void RetireFullOutput()
-        {
-            _displayOutput?.Release();
-            _displayOutput = null;
-            var old = _fullOutput;
-            _fullOutput = null;
-            if (old == null) return;
-            if (_outputBuffers != null) _outputBuffers.Retire(old);
-            else old.Release();
-        }
-
-        // 次回の再生成でプロキシ段(低解像度の概要表示)を使わない 1 回限りのフラグ。
-        // GeneratePreviewAsync が消費してリセットする。
-        [System.NonSerialized] private bool _skipProxyOnce;
-
-        /// <summary>
-        /// 次のプレビュー再生成では、段階的リファインのプロキシ段を使わない(作り直しの要求は別に立てる。
-        /// IrocaWindow.NotifyMasksEditedFullRefine)。
-        /// 確定表示が既にある状態での差分的な更新(AI 提案のマスク反映など)でプロキシを挟むと、
-        /// 鮮明な表示が一瞬低解像度へ戻る「ちらつき」になる(クリックキュー化でコミットが
-        /// 連続すると特に目立つ)。フル段のみで、旧表示を保ったまま静かに差し替える。
-        /// 通常の <see cref="previewDirty"/> が直後に重なった場合もフラグは 1 回で消費され、
-        /// その再生成のプロキシが 1 度飛ぶだけ(結果は同じ・フィードバックが少し遅れるのみ)。
-        /// </summary>
-        public void SkipProxyOnce() => _skipProxyOnce = true;
+        /// <summary>次のプレビュー再生成では、段階的リファインのプロキシ段を使わない(<see cref="PreviewPipeline.SkipProxyOnce"/>)。</summary>
+        public void SkipProxyOnce() => _pipeline?.SkipProxyOnce();
 
         /// <summary>
         /// ソース画素が変わったとき（テクスチャ差し替え・セッションリセット・エクスポートで
-        /// 元ファイルを上書き）に、その画素から導かれた状態を漏れなく捨てる。
-        /// ここで捨て損ねた状態は「プレビュー＝実出力」の一致を破る:
-        /// 走行中ジョブは旧画素の結果を新テクスチャの表示へ apply し、保持しているフル段の出力を
-        /// 残すと、拡大表示(詳細クロップ)が旧テクスチャの色替え結果を切り出して見せる。
+        /// 元ファイルを上書き）に、その画素から導かれた状態を漏れなく捨てる(<see cref="PreviewPipeline.InvalidateSourceCache"/>)。
+        /// 表示の側は <see cref="OnSourceInvalidated"/> で捨てる。
         /// </summary>
-        public void InvalidateSourceCache()
+        public void InvalidateSourceCache() => _pipeline?.InvalidateSourceCache();
+
+        // 計算の側が原本から導いた状態を捨てた。表示も旧テクスチャのものを捨てる。
+        private void OnSourceInvalidated()
         {
-            // 走行中のジョブは旧画素を処理中。世代をぶつけて apply ごと無効化する。
-            CancelJobsAndDropPending();
-            // 追従プレビューの入力とフル段の出力も旧画素のもの。使い回さない。
-            InvalidateFullOutput();
-            // 寸法の違うテクスチャへ移ると使えないので、置いてある出力バッファも手放す。
-            _outputBuffers?.Clear();
             _detailHiddenForDrag = false;
-            _fullOutputFreshSinceHide = false;
-            _dragReq = null;
-            _dragReqStale = true;
-            _dragRunning = false;
-
-            _cachedSourceTexture = null;
-            _cachedSrcPixels = null;
-            _cachedRawDisplay = null;
-            _proxySource = null;
-            _cachedSrcW = _cachedSrcH = 0;
-            _cachedPrevW = _cachedPrevH = 0;
-            DropTrueSource();
-
-            // ソース画素が変わる = キャッシュ済み選択の前提が変わるので選択キャッシュも破棄する。
-            _selectionCache?.Clear();
-            _proxySelectionCache?.Clear();
-
-
             // 旧テクスチャのクロップが新テクスチャ上に重なって見えるのを防ぐ
             // （詳細ジョブのキャンセルと表示テクスチャの解放を含む）。
             _detailView?.InvalidateDisplay();
@@ -424,162 +295,53 @@ namespace Iroca
         }
 
         /// <summary>
-        /// プレビュー処理用のソース画素(<see cref="SourcePixelCache"/>)を確保する。別のテクスチャの画素や、取り込み後の
-        /// 寸法が変わる前の画素を持っていたら、そこから導いた状態ごと捨ててから読む。
-        /// 成功すると <see cref="TrueSource"/> / <see cref="TrueSourceW"/> /
-        /// <see cref="TrueSourceH"/> が有効になる。
-        /// </summary>
-        private bool EnsureTrueSource(Texture2D tex)
-        {
-            var sources = Sources;
-            if (tex == null || sources == null) return false;
-            if (sources.Texture == tex && sources.Pixels != null)
-            {
-                if (sources.BasisWidth == tex.width && sources.BasisHeight == tex.height) return true;
-                // 取り込み設定(Max Size)が変わって、作業解像度か拡大表示の寸法が変わり得る。
-                // 旧画素から導いた状態ごと捨てて読み直し、表示も作り直す。
-                InvalidateSourceCache();
-                previewDirty = true;
-            }
-            // 失敗もテクスチャ単位で覚える(SourcePixelCache.IsKnownUnreadable)。
-            if (sources.IsKnownUnreadable(tex)) return false;
-            // 別のテクスチャの画素を持ったまま読み直す(SwitchSourceTexture を通らない切り替え)ときは、古い画素を
-            // 指したままのジョブ・キャッシュ・ドラッグの追従の入力も捨てる(手放した画素へ参照を足しに行かないように)。
-            if (sources.Pixels != null && sources.Texture != tex) InvalidateSourceCache();
-
-            if (!sources.Load(tex)) return false;
-            // 拡大表示に映す寸法の原本もここで作る(取り込みで小さくなり、「元の解像度」の設定がオフのときだけ。
-            // 4K→2K で数十 ms)。
-            if (WantsDisplaySize(out int dw, out int dh)) BuildDisplaySource(dw, dh);
-            _deferSourceLoad = false;
-            return true;
-        }
-
-        // 処理用の画素を手放し、どのテクスチャを読んだか・読めなかったかも忘れる。拡大表示に映す寸法の原本も手放す。
-        // 読んでいる途中のジョブは自分の参照を持っているので、ここで返しても消えない。
-        private void DropTrueSource()
-        {
-            Sources?.Clear();
-            _displaySource?.Release();
-            _displaySource = null;
-            _displayW = _displayH = 0;
-        }
-
-        // 拡大表示を取り込み後の寸法へ縮めて映すか(取り込みで小さくなり、「元の解像度」の設定がオフ)と、その寸法。
-        private bool WantsDisplaySize(out int w, out int h)
-        {
-            WorkingResolution.DisplaySize(TrueSourceW, TrueSourceH, Sources.BasisWidth, Sources.BasisHeight, out w, out h);
-            return !DetailFullResolution && (w != TrueSourceW || h != TrueSourceH);
-        }
-
-        // 拡大表示に映す寸法の原本を作る。いまの原本で作ったフル段の出力があれば、それも同じ寸法へ縮める
-        // (設定をオフへ戻したとき。色替えはやり直さない。確定段のジョブが作るものと同じ縮小なので同じ画素になる)。
-        private unsafe void BuildDisplaySource(int w, int h)
-        {
-            _displayW = w;
-            _displayH = h;
-            _displaySource = NativePixels.Allocate(w, h);
-            WorkingResolution.ResizeArea(TrueSource.Ptr, TrueSourceW, TrueSourceH, w, h, _displaySource.Ptr);
-            _displayOutput?.Release();
-            _displayOutput = _fullOutput != null && ReferenceEquals(_fullOutputSource, TrueSource)
-                ? ShrinkToDisplay(_fullOutput)
-                : null;
-        }
-
-        // フル段の出力(作業解像度)を拡大表示に映す寸法へ縮めたもの(参照 1 で返す)。
-        private unsafe NativePixels ShrinkToDisplay(NativePixels full)
-        {
-            var display = NativePixels.Allocate(_displayW, _displayH);
-            WorkingResolution.ResizeArea(full.Ptr, full.Width, full.Height, _displayW, _displayH, display.Ptr);
-            return display;
-        }
-
-        // 縮めた原本・出力を手放す(拡大表示は作業解像度のものを映す)。
-        private void ReleaseDisplaySource()
-        {
-            _displaySource?.Release();
-            _displaySource = null;
-            _displayOutput?.Release();
-            _displayOutput = null;
-            _displayW = _displayH = 0;
-        }
-
-        /// <summary>
         /// 拡大表示の土台を「元の解像度」の設定(<see cref="DetailFullResolution"/>)に合わせる。Draw が毎回呼び、
-        /// 合っていれば何もしない(設定はこの PC のいろか全体のもので、どのウィンドウも次に描くときに合わせる)。
-        /// 切り替わったら、今の拡大表示を捨てて作り直させる。色替えの結果には効かない(表示の寸法だけ)。
+        /// 合っていれば何もしない。切り替わったら、今の拡大表示を捨てて作り直させる。
         /// </summary>
         internal void SyncDetailResolution()
         {
-            if (TrueSource == null) return;
-            bool want = WantsDisplaySize(out int dw, out int dh);
-            if (want == (_displaySource != null)) return;
-            if (want) BuildDisplaySource(dw, dh);
-            else ReleaseDisplaySource();
+            if (_pipeline == null || !_pipeline.SyncDetailResolution()) return;
             _detailView.InvalidateDisplay();
             _detailView.lastDetailDirtyTime = EditorApplication.timeSinceStartup;
             _host?.RequestRepaint();
         }
 
         // 拡大表示(詳細クロップ)の座標の土台。取り込み後の寸法で映すときはその寸法の原本、そうでなければ作業解像度の原本。
-        internal NativePixels DetailSource => _displaySource ?? TrueSource;
-        internal int DetailW => _displaySource != null ? _displayW : TrueSourceW;
-        internal int DetailH => _displaySource != null ? _displayH : TrueSourceH;
+        internal NativePixels DetailSource => _pipeline?.DetailSource;
+        internal int DetailW => _pipeline?.DetailW ?? 0;
+        internal int DetailH => _pipeline?.DetailH ?? 0;
         internal DetailPreviewView DetailView => _detailView;
 
         // 拡大表示の切り出し元(いまの原本で作ったフル段の出力。DetailSource と同じ寸法)。まだ無ければ null。
-        internal NativePixels DetailOutput
-        {
-            get
-            {
-                if (!ReferenceEquals(_fullOutputSource, TrueSource)) return null;
-                return _displaySource != null ? _displayOutput : _fullOutput;
-            }
-        }
+        internal NativePixels DetailOutput => _pipeline?.DetailOutput;
 
-        /// <summary>
-        /// いま持っている処理用の画素(作業解像度)の寸法。まだ読んでいない・読めなかったときは false。
-        /// 書き出しが、終わった後に作業配列を手放すか(寸法が違うときだけ)を決めるのに使う。
-        /// </summary>
+        // テスト・計測(WindowOutputParityTests・MemoryBench)が、OnGUI を回さずに作り直し、概要段・確定段の
+        // 終わりを待って確定段の出力を読むための口。
+        internal void GeneratePreviewAsync(bool dragOnly = false) => _pipeline?.GeneratePreviewAsync(dragOnly);
+        internal bool IsGenerating => _pipeline != null && _pipeline.IsGenerating;
+        internal NativePixels FullOutput => _pipeline?.FullOutput;
+
+        /// <summary>いま持っている処理用の画素(作業解像度)の寸法(<see cref="PreviewPipeline.TryGetWorkingSize"/>)。</summary>
         internal bool TryGetWorkingSize(out int w, out int h)
         {
-            w = TrueSourceW;
-            h = TrueSourceH;
-            return TrueSource != null && w > 0 && h > 0;
+            if (_pipeline != null) return _pipeline.TryGetWorkingSize(out w, out h);
+            w = h = 0;
+            return false;
         }
 
         /// <summary>直近に確保した処理用の画素が、元ファイルをデコードしたものか(取り込み済みテクスチャではなく)。</summary>
-        public bool TrueSourceFromFile => TrueSource != null && Sources.FromFile;
+        public bool TrueSourceFromFile => _pipeline != null && _pipeline.TrueSourceFromFile;
+
+        /// <summary>このテクスチャから処理用の画素を取れるか(<see cref="PreviewPipeline.CanProvideSourcePixels"/>)。</summary>
+        public bool CanProvideSourcePixels(Texture2D tex) => _pipeline != null && _pipeline.CanProvideSourcePixels(tex);
 
         /// <summary>
-        /// このテクスチャから処理用の画素を取れるか（原本ファイルのデコード、または
-        /// インポート済みテクスチャの GetPixels32）。UI の可否判定が「Read/Write が
-        /// 有効か」だけを見ていると、PNG/JPG のように原本を直接読める場合でも
-        /// 不要にインポート設定の変更を要求してしまうため、実際に取れるかで判定する。
-        /// 成否はテクスチャ単位でキャッシュする。
-        /// Play 中のリロード直後で原本の読み直しを待っている間(<see cref="SourceLoadDeferred"/>)は、読まずに
-        /// 取れるものとして答える(UI の可否判定のために読むと、待たせている意味が無くなる)。
-        /// </summary>
-        public bool CanProvideSourcePixels(Texture2D tex) =>
-            tex != null && (SourceLoadDeferred || EnsureTrueSource(tex));
-
-        /// <summary>
-        /// 自動調整など他ビューが、プレビューと同一の true source 画素(作業解像度)で解析する
-        /// ための読み取り専用アクセサ。返すのは内部キャッシュの共有インスタンス(参照は足さない)なので、
-        /// 呼び出し側は書き換えないこと。メインスレッドの外や後で読むなら、呼び出し側が
-        /// <see cref="NativePixels.AddRef"/> して持ち、読み終えたら Release すること(テクスチャの切り替え・
-        /// ウィンドウを閉じたときに、ここが持つ参照は手放される)。
-        /// 取得不能（元ファイル読込失敗 かつ 非 Readable）なら false。
+        /// 自動調整など他ビューが、プレビューと同一の true source 画素(作業解像度)で解析するための読み取り専用アクセサ
+        /// (<see cref="PreviewPipeline.TryGetTrueSourcePixels"/>。参照は足さない)。
         /// </summary>
         public bool TryGetTrueSourcePixels(Texture2D tex, out NativePixels pixels, out int w, out int h)
         {
-            if (EnsureTrueSource(tex))
-            {
-                pixels = TrueSource;
-                w = TrueSourceW;
-                h = TrueSourceH;
-                return true;
-            }
+            if (_pipeline != null) return _pipeline.TryGetTrueSourcePixels(tex, out pixels, out w, out h);
             pixels = null;
             w = h = 0;
             return false;
@@ -588,47 +350,23 @@ namespace Iroca
         public void Dispose()
         {
             Suspend();
-            _proxyJob.Dispose();
-            _previewJob.Dispose();
+            _pipeline?.Dispose();
             _detailView?.Dispose();
         }
 
         public void Suspend()
         {
-            // ジョブを止め、プレビューの原本・確定段の出力・使い回しのバッファ(Mono のヒープの外。4K で 1 本 64MB)を
-            // 手放す。閉じる・リロードの前に呼ばれるので、ここで返せば OS へ戻る。開き直したら Draw が読み直す。
-            InvalidateSourceCache();
-            // 止めたジョブが後から返してくる出力も、置かずにすぐ手放す。開き直したら Initialize が作り直す。
-            _outputBuffers?.Close();
-            _outputBuffers = null;
-            // 選択キャッシュ(ゾーンごとに 4K で 64MB・8K で 256MB)はネイティブメモリなので、閉じる・リロードの前に
-            // ここで解放すれば OS へ戻る。取り消した計算が後から Store しても残らない(Dispose 済みは保存しない)。
-            // 開き直したときは Initialize が作り直す。
-            _selectionCache?.Dispose();
-            _selectionCache = null;
-            _proxySelectionCache?.Dispose();
-            _proxySelectionCache = null;
+            // ジョブを止め、プレビューの原本・確定段の出力・使い回しのバッファ・選択キャッシュ(Mono のヒープの外)を
+            // 手放す。閉じる・リロードの前に呼ばれるので、ここで返せば OS へ戻る。開き直したら Initialize が作り直し、
+            // Draw が読み直す。
+            _pipeline?.Suspend();
             _detailView?.Suspend();
-            _lastDirtyTime = 0;
             TextureSlot.Release(ref previewTexture);
             TextureSlot.Release(ref rawPreviewTexture);
             // 差分のマテリアルも手放す(HideAndDontSave なので、リロードで参照を失うと残る)。次に描くときに作り直す。
             _diffDrawer?.Dispose();
             ReleaseAppearance();
             ClearSceneHighlight();
-        }
-
-        /// <summary>
-        /// 2 つのジョブ(追従・確定)を止め、まだ表示へ渡していない結果を捨てる。
-        /// ソースの差し替え(<see cref="InvalidateSourceCache"/>)と停止(<see cref="Suspend"/>)の共通部分。
-        /// 新しい pending を足したら、ここで捨てる。
-        /// </summary>
-        private void CancelJobsAndDropPending()
-        {
-            _proxyJob.Cancel();
-            _previewJob.Cancel();
-            _pendingProcessedDisplay = null;
-            _pendingRawDisplay = null;
         }
 
         public void Draw()
@@ -666,7 +404,8 @@ namespace Iroca
             ApplyPendingResults();
             // 「元の解像度」を切り替えた直後なら、拡大表示の土台を合わせる(このフレームの拡大表示の寸法を決める前に)。
             SyncDetailResolution();
-            TickPreviewRegeneration();
+            // 作り直しの状態機械(ドラッグ中はプロキシで追従し、手を止めるか離したら確定する)。
+            _pipeline.Tick(pointerHeld: GUIUtility.hotControl != 0);
 
             var maskView = _host._maskView;
             TickMaskOverlay(maskView);
@@ -1128,9 +867,9 @@ namespace Iroca
         private void ApplyPendingResults()
         {
             // バックグラウンドプレビュータスクからの結果を適用（Texture2D API: メインスレッドのみ）
-            if (_pendingProcessedDisplay != null)
+            if (_pipeline.TakePendingFrame(out var frame))
             {
-                ApplyPendingPreview();
+                ApplyPendingPreview(frame);
                 _previewVersion++;
             }
 
@@ -1147,50 +886,65 @@ namespace Iroca
         }
 
         /// <summary>
-        /// プレビュー再生成の状態機械。previewDirty を受けて打刻し、ドラッグ中はプロキシだけで追従、
-        /// 手を止めて PreviewDebounceSeconds 経つか離したらフル段で確定する。
-        /// <see cref="Draw"/> が毎フレーム呼ぶ。GUILayout は呼ばない。
+        /// 計算の側から受け取った結果(表示寸法の変更後・変更前)をテクスチャへ上げ、マスクの重ね表示と拡大表示を
+        /// 追従させる。
         /// </summary>
-        private void TickPreviewRegeneration()
+        private void ApplyPendingPreview(in PreviewFrame frame)
         {
-            if (previewDirty)
+            int w = frame.Width;
+            int h = frame.Height;
+            var stage = frame.Stage;
+            if (stage != null) stage.UploadStart = PreviewLatencyCycle.Now;
+
+            TextureSlot.Resize(ref previewTexture, w, h);
+            previewTexture.SetPixels32(frame.Processed);
+            previewTexture.Apply();
+
+            TextureSlot.Resize(ref rawPreviewTexture, w, h);
+            rawPreviewTexture.SetPixels32(frame.Raw);
+            rawPreviewTexture.Apply();
+
+            var maskView = _host._maskView;
+            // オーバーレイ寸法はプレビュー寸法の整数倍(表示倍率に追従。OverlayScale が正)。
+            int ovScale = maskView.OverlayScale(w, h, EffectiveZoom);
+            int ovW = w * ovScale, ovH = h * ovScale;
+            if (maskView.overlayBuiltW != ovW || maskView.overlayBuiltH != ovH || maskView.maskDirty)
             {
-                _lastDirtyTime = EditorApplication.timeSinceStartup;
-                _dragReqStale = true;
-                // プロキシ・フル両段をキャンセル。プロキシ進行中の再ダーティでは、プロキシの
-                // キャンセル(世代ぶつけ)で apply が抑止されフルが起動しない。
-                // ただしドラッグ中の追従プレビューは取り消さない。ドラッグ中は値がほぼ毎フレーム
-                // 変わるので、取り消すと一度も画面に出ない。終わってから最新の値で回し直す。
-                if (!IsDragPreviewRunning)
+                // 非同期スケジュール：結果は次フレームの Draw 冒頭で ApplyPendingOverlay により反映
+                maskView.RebuildMaskOverlay(ovW, ovH);
+                maskView.maskDirty = false;
+            }
+
+            // 拡大表示(詳細クロップ)は確定(フル段)の出力から切り出すので、確定を出したときだけ
+            // 作り直させる。プロキシの直後は何もしない(切り出し元のフル段の出力がまだ前の状態のまま)。
+            if (frame.IsDrag)
+            {
+                // ドラッグの追従: 古い拡大表示を隠してこのプロキシを見せる。走っている拡大表示のジョブは
+                // 古い切り出し元のものなので取り消す(確定の後で作り直す)。
+                _detailHiddenForDrag = true;
+                _hiddenAtFullVersion = _pipeline.FullOutputVersion;
+                _detailView.detailJob.Cancel();
+            }
+            if (frame.IsFinal)
+            {
+                // 走っている切り出しは古いフル段の出力のものなので取り消す(色が古い)。
+                _detailView.lastDetailDirtyTime = System.Math.Max(double.Epsilon, EditorApplication.timeSinceStartup);
+                _detailView.detailJob.Cancel();
+            }
+
+            // 体感速度: ここで描いたものがこの OnGUI の終わりに画面へ出る。画面に出るたびに
+            // (ドラッグの追従のプロキシも含めて)ここまでのレポートを出す。確定表示(フル)なら
+            // 続く拡大表示の再生成も同じ起点で測れるよう引き渡す。
+            if (stage != null)
+            {
+                stage.UploadEnd = PreviewLatencyCycle.Now;
+                _pipeline.NoteShown();
+                var latency = frame.Latency;
+                if (latency != null)
                 {
-                    _proxyJob.Cancel();
-                    _previewJob.Cancel();
+                    if (ReferenceEquals(stage, latency.Full)) _detailView.AttachLatency(latency);
+                    if (PreviewLatency.Publish(latency)) _host.RequestRepaint();
                 }
-                _host.RequestRepaint();
-                previewDirty = false;
-            }
-            else if (!_proxyJob.IsRunning && !_previewJob.IsRunning &&
-                     _lastDirtyTime > 0 &&
-                     (GUIUtility.hotControl == 0 ||
-                      (EditorApplication.timeSinceStartup - _lastDirtyTime)
-                          >= PreviewDebounceSeconds))
-            {
-                _lastDirtyTime = 0;
-                // 最後の追従プレビュー以降に操作が無ければ、その入力のままフル段だけで確定する
-                // (同じ入力のプロキシをやり直すと、確定がその分遅れるだけ)。
-                if (_dragReq != null && !_dragReqStale) FinishDragPreview();
-                else GeneratePreviewAsync(dragOnly: false);
-            }
-            else if (!_proxyJob.IsRunning && !_previewJob.IsRunning &&
-                     _lastDirtyTime > 0 && _dragReqStale)
-            {
-                // ドラッグ中(手を止めて PreviewDebounceSeconds 経つまで): プロキシだけを回して
-                // 絵を操作に追従させる。フル段は手を止めるか離してから。
-                GeneratePreviewAsync(dragOnly: true);
-            }
-            else if (_lastDirtyTime > 0 || _proxyJob.IsRunning || _previewJob.IsRunning)
-            {
-                _host.RequestRepaint();
             }
         }
 
@@ -1252,7 +1006,7 @@ namespace Iroca
             // 出入りで UI が上下にジャンプしないよう行高を固定する。
             // 詳細プレビュー生成も同じ表示に統一する（c107e85）。
             string generatingLabel;
-            if (_proxyJob.IsRunning || _previewJob.IsRunning)
+            if (IsGenerating)
                 generatingLabel = Localization.GeneratingPreview;
             else if (_detailView.detailJob.IsRunning)
                 generatingLabel = Localization.GeneratingDetailPreview;
@@ -1324,7 +1078,7 @@ namespace Iroca
             var dv = _detailView;
             if (Event.current.type == EventType.Repaint &&
                 !dv.detailJob.IsRunning &&
-                (!_detailHiddenForDrag || _fullOutputFreshSinceHide) &&
+                (!_detailHiddenForDrag || FullOutputFreshSinceHide) &&
                 dv.lastDetailDirtyTime > 0 &&
                 dv.lastPreviewRect.width > 0)
             {
@@ -1494,23 +1248,14 @@ namespace Iroca
 
         private static GUIContent SmoothContent => new GUIContent(Localization.SmoothMagnify, Localization.SmoothMagnifyTooltip);
 
-        // ── 拡大表示の解像度(表示だけの設定) ─────────────────────────
-        // オフ(既定): 取り込み後の寸法(インポート設定の Max Size。ゲームに出る大きさ)へ縮めて映す。
-        // オン: 作業解像度(色替えを計算している解像度。元の画像の辺が 8192 以下なら元の解像度)のまま映す。
-        // 縮めた原本・出力を持たないので、その分メモリが減る。処理の解像度(WorkingResolution.Size)は変えないので、
-        // 色替えの結果・書き出し・非破壊ビルド・自動化には効かない(0.3.0 で消えた「元の解像度で編集」と違う点)。
-        internal const string DetailFullResolutionPrefKey = IrocaPrefs.PreviewDetailFullResolution;
-        private static bool? s_detailFullResolution;
+        // ── 拡大表示の解像度(表示だけの設定。確定段が縮めたものを作るかを決めるので、PreviewPipeline が持つ) ──
+        internal const string DetailFullResolutionPrefKey = PreviewPipeline.DetailFullResolutionPrefKey;
 
-        /// <summary>拡大表示を作業解像度のまま映すか。この PC のいろか全体の表示の設定。</summary>
+        /// <summary>拡大表示を作業解像度のまま映すか(<see cref="PreviewPipeline.DetailFullResolution"/>)。</summary>
         internal static bool DetailFullResolution
         {
-            get => s_detailFullResolution ??= EditorPrefs.GetBool(DetailFullResolutionPrefKey, false);
-            set
-            {
-                s_detailFullResolution = value;
-                EditorPrefs.SetBool(DetailFullResolutionPrefKey, value);
-            }
+            get => PreviewPipeline.DetailFullResolution;
+            set => PreviewPipeline.DetailFullResolution = value;
         }
 
         private static GUIContent DetailFullResolutionContent

@@ -23,9 +23,13 @@ namespace Iroca.EditorTests
 
         // ウィンドウの場面: プレビューを作り直し、概要段と確定段のジョブが終わるのを待ち、確定段の出力を読む。
         internal static MethodInfo GeneratePreviewAsync => typeof(PreviewView).GetMethod("GeneratePreviewAsync", Instance);
-        internal static FieldInfo ProxyJob => typeof(PreviewView).GetField("_proxyJob", Instance);
-        internal static FieldInfo FullJob => typeof(PreviewView).GetField("_previewJob", Instance);
-        internal static FieldInfo FullOutput => typeof(PreviewView).GetField("_fullOutput", Instance);
+        // ジョブと確定段の出力の持ち主。0.4.0 からはプレビューの計算(PreviewView._pipeline)、それより前の版は PreviewView。
+        internal static FieldInfo Pipeline => typeof(PreviewView).GetField("_pipeline", Instance);
+        internal static object JobsOwnerOf(object preview) => Pipeline != null ? Pipeline.GetValue(preview) : preview;
+        private static Type JobsOwnerType => Pipeline != null ? Pipeline.FieldType : typeof(PreviewView);
+        internal static FieldInfo ProxyJob => JobsOwnerType.GetField("_proxyJob", Instance);
+        internal static FieldInfo FullJob => JobsOwnerType.GetField("_previewJob", Instance);
+        internal static FieldInfo FullOutput => JobsOwnerType.GetField("_fullOutput", Instance);
         internal static bool IsRunning(object job) => (bool)job.GetType().GetProperty("IsRunning").GetValue(job);
 
         // 0.3.0 から。基準の版に無ければ、計測は代わりの手で測る（無いことを許す）。
@@ -48,11 +52,12 @@ namespace Iroca.EditorTests
             Assert.IsNotNull(BenchSeams.BuildZone, "IrocaAutomation.BuildZone");
             Assert.IsNotNull(BenchSeams.SettingsFromDto, "IrocaAutomation.SettingsFromDto");
             Assert.IsNotNull(BenchSeams.GeneratePreviewAsync, "PreviewView.GeneratePreviewAsync");
-            Assert.IsNotNull(BenchSeams.ProxyJob, "PreviewView._proxyJob");
-            Assert.IsNotNull(BenchSeams.FullJob, "PreviewView._previewJob");
-            Assert.IsNotNull(BenchSeams.FullOutput, "PreviewView._fullOutput");
-            Assert.IsNotNull(BenchSeams.ProxyJob.FieldType.GetProperty("IsRunning"), "PreviewView._proxyJob の IsRunning");
-            Assert.IsNotNull(BenchSeams.FullJob.FieldType.GetProperty("IsRunning"), "PreviewView._previewJob の IsRunning");
+            Assert.IsNotNull(BenchSeams.Pipeline, "PreviewView._pipeline");
+            Assert.IsNotNull(BenchSeams.ProxyJob, "PreviewPipeline._proxyJob");
+            Assert.IsNotNull(BenchSeams.FullJob, "PreviewPipeline._previewJob");
+            Assert.IsNotNull(BenchSeams.FullOutput, "PreviewPipeline._fullOutput");
+            Assert.IsNotNull(BenchSeams.ProxyJob.FieldType.GetProperty("IsRunning"), "PreviewPipeline._proxyJob の IsRunning");
+            Assert.IsNotNull(BenchSeams.FullJob.FieldType.GetProperty("IsRunning"), "PreviewPipeline._previewJob の IsRunning");
             Assert.IsNotNull(BenchSeams.NativeLiveBytes, "IrocaNativeMemory.LiveBytes");
             Assert.IsNotNull(BenchSeams.ReleaseWorkBuffers, "PixelProcessor.ReleaseWorkBuffers");
             Assert.IsNotNull(BenchSeams.NativePixelsMemory(BenchSeams.FullOutput.FieldType), "確定段の出力の _mem");
