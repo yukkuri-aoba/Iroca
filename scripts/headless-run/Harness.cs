@@ -575,7 +575,7 @@ namespace Iroca
                     ProcessZones(proxyPixels, proxyW, proxyH, masks, zoneList, st, source: proxyRaw);
                     // ScheduleProxyPreview と同じ: プロキシ寸法≠表示寸法のときだけ再縮小。
                     bool needsResample = proxyW != prevW || proxyH != prevH;
-                    float toDisplay = prevW / (float)proxyW;
+                    float toDisplay = proxyW >= proxyH ? prevW / (float)proxyW : prevH / (float)proxyH;
                     display = needsResample
                         ? PixelProcessor.BoxDownsample(
                             proxyPixels, proxyW, proxyH, prevW, prevH, toDisplay)

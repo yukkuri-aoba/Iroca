@@ -790,6 +790,13 @@ namespace Iroca
             req.ReleaseMasks();
         }
 
+        /// <summary>
+        /// 概要段の画像を表示の寸法へ縮める率。長い辺で求める(細長いと短い辺は丸めで同じ値になり、4×1024 では比 1.0 で
+        /// 下の一部だけが映って絵が崩れた)。
+        /// </summary>
+        internal static float ProxyToDisplayScale(int proxyW, int proxyH, int prevW, int prevH)
+            => proxyW >= proxyH ? prevW / (float)proxyW : prevH / (float)proxyH;
+
         // 段階的リファインの入力スナップショット。GeneratePreviewAsync が 1 回構築し、プロキシ段と
         // フル段が同一の値を処理する。フィールドはバックグラウンドジョブからの読み取り専用(不変)。
         private sealed class PreviewRequest
@@ -879,7 +886,7 @@ namespace Iroca
 
                         // 表示寸法へ。ProxyMaxSize==MaxSize なら proxy==表示で再縮小なし(最頻ケース)。
                         bool needsResample = proxyW != req.prevW || proxyH != req.prevH;
-                        float toDisplay = req.prevW / (float)proxyW;
+                        float toDisplay = ProxyToDisplayScale(proxyW, proxyH, req.prevW, req.prevH);
                         if (needsResample)
                         {
                             processedDisplay = NativePixels.Allocate(req.prevW, req.prevH);

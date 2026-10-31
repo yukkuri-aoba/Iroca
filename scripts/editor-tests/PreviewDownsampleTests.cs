@@ -50,6 +50,26 @@ namespace Iroca.EditorTests
                 Assert.AreEqual(want[i], got[i], $"画素 {i}");
         }
 
+        // 細長いテクスチャは短い辺が丸めで同じ値になる。短い辺で率を求めると比 1.0 で、下の一部だけが映って絵が崩れた。
+        [Test]
+        public unsafe void ProxyToDisplay_TallTexture_CoversTheWholeHeight()
+        {
+            const int w = 2, proxyH = 512, prevH = 384;
+            float scale = PreviewPipeline.ProxyToDisplayScale(w, proxyH, w, prevH);
+            Assert.AreEqual(0.75f, scale, 1e-5f);
+
+            // 行の番号を色にした細長い画像を縮めると、最後の行は元の最後の方の行になる。
+            var src = new Color32[w * proxyH];
+            for (int y = 0; y < proxyH; y++)
+                for (int x = 0; x < w; x++)
+                    src[y * w + x] = new Color32((byte)(y * 255 / (proxyH - 1)), 0, 0, 255);
+            var dst = new Color32[w * prevH];
+            fixed (Color32* s = src)
+            fixed (Color32* d = dst)
+                PixelProcessor.BoxDownsampleInto(s, w, proxyH, d, w, prevH, scale);
+            Assert.Greater(dst[(prevH - 1) * w].r, 250, "元の最後の行まで届いていない");
+        }
+
         [Test]
         public void Region_RejectsOutOfRange()
         {
