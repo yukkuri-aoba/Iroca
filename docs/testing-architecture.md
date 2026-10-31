@@ -355,9 +355,9 @@ $env:IROCA_HARNESS_CACHE = "0"; $env:IROCA_RESULT_CACHE = "0"; $env:IROCA_ROW_CA
 パスにワーカー ID が入るせいで、同じ計算が別ワーカーに割り当たるだけでミスし、同一出力の複製が
 上限を食い潰していた。いま捨てが起きると pytest の warning 要約に
 「ハーネス実行キャッシュが上限 …GB を超え」と出るので、出たら `IROCA_HARNESS_CACHE_GB` を上げる。
-プロセス内メモは `IROCA_HARNESS_MEM_ENTRIES`（pytest では既定 6 件、`Tests/conftest.py` で設定）で件数を絞る
+プロセス内メモは `IROCA_HARNESS_MEM_ENTRIES`（pytest では既定 2 件、`Tests/conftest.py` で設定）で件数を絞る
 （無制限だとワーカー 1 つが 3GB 近く抱える。ディスクからの読み戻しは 0.04 秒なので少数で足りる）。テストファイルの
-境界で、このメモ・入力の指標メモ・AI のセッションを手放す（同じ conftest のフック）。
+境界で、このメモ・入力の指標メモ・AI のセッションを手放す（同じ conftest のフック。AI のエンコーダーは作業領域が大きいのでテストごとに手放す）。
 
 **使われなくなったキャッシュと作業ファイルの掃除**（2026-10-20、`dev_safe/Tests/regression/cache_gc.py`）:
 キーがハッシュなので、DLL やソースを変えた後の古いエントリは二度と当たらない。容量上限があったのは
@@ -420,12 +420,14 @@ fixtures が **論理コア数の半分**（16 コア機で 8）を子プロセ�
 `IROCA_WORKER_GB`、既定 1.5GB。固定は `IROCA_TEST_WORKERS`）。減らしたときは結果の最後に
 `[iroca] … ワーカーを 4 → N に減らしました` と出る（2026-10-16 までは `-q` だと何も出ず、
 普段使いの空き 10〜13GB で 1 並列に落ちていても気づけなかった）。同日の実測（ウォーム・全回帰）は
-1 並列 11 分 47 秒、4 並列 3 分 25 秒。2026-10-31 の実測（4 並列・キャッシュ空・全回帰、dotnet を含む）では
-同時合計の最大はコミット 5.13GB・Working Set 4.36GB。
+1 並列 11 分 47 秒、4 並列 3 分 25 秒。2026-11-01 の実測（4 並列・キャッシュ空・全回帰、dotnet を含む）では
+同時合計の最大はコミット 4.82GB・Working Set 4.51GB。重いファイルが同時に当たるかで 1GB 以上ぶれるので、
+比べるときはワーカーごとのピーク（最大 1.61GB）も見る。
 
 **pytest では `OPENBLAS_NUM_THREADS=1`**（`Tests/conftest.py`、numpy の読み込みより前に設定）。numpy と scipy は
 それぞれ OpenBLAS を持ち、既定では読み込むだけでスレッド数ぶんの作業領域を確保する（16 コア機で 1 プロセス計 1GB の
 コミット。実際に触るのは 60MB 程度）。1 にすると 40MB。キャッシュが効く全回帰の時間は変わらない。
+**ハーネスは `DOTNET_gcConcurrent=0`**（同じ conftest、環境変数で子プロセスへ引き継ぐ）。5 色のバッチのピークが 0.91GB → 0.72GB。
 
 ここでいう「空き」と、ハーネス起動前の空き待ち（`IROCA_MIN_FREE_GB`、既定 4GB。待ちの上限は
 `IROCA_MEM_WAIT_S`）は、どちらも `dev_safe/Tests/regression/memory_guard.py` が出す
