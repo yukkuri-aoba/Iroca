@@ -1484,6 +1484,30 @@ namespace Iroca
                 Check(tuned.materialTube == null, "提案の中の領域が 1 つだけなら管を作らない");
             }
 
+            // ツヤ: 囲まれて小さく明るい領域は足す。囲まれていても大きい部品、暗い領域、選択の外の領域は足さない
+            const int GlintSize = 2048;
+            var glintImage = new Color32[GlintSize * GlintSize];
+            for (int y = 0; y < GlintSize; y++)
+                for (int x = 0; x < GlintSize; x++)
+                {
+                    Color32 c = x < GlintSize / 2 ? Rgb(30, 30, 200) : Rgb(200, 30, 30);
+                    if (x >= 100 && x < 110 && y >= 100 && y < 110) c = Rgb(255, 255, 255);          // 小さく明るい: ツヤ
+                    if (x >= 200 && x < 210 && y >= 100 && y < 110) c = Rgb(5, 5, 20);               // 小さく暗い: 別の物
+                    if (x >= 300 && x < 700 && y >= 300 && y < 700) c = Rgb(250, 250, 250);          // 大きく明るい: ロゴ
+                    if (x >= GlintSize - 110 && x < GlintSize - 100 && y >= 100 && y < 110) c = Rgb(254, 254, 254);   // 選択の外のツヤ
+                    glintImage[y * GlintSize + x] = c;
+                }
+            using (var m = Build(glintImage, GlintSize, GlintSize, s0))
+            {
+                var map = MaterialMap.Build(m);
+                var z = new ColorZone { tolerance = ZonesJsonDefaults.Tolerance, sampleColor = new Color(30f / 255f, 30f / 255f, 200f / 255f, 1f), sampleUV = new Vector2(0.05f, 0.01f) };
+                var picked = map.SelectedRegions(z, GlintSize, GlintSize);
+                Check(picked[m.Labels[105 * GlintSize + 105]], "囲まれて小さく明るい領域はツヤとして足す");
+                Check(!picked[m.Labels[105 * GlintSize + 205]], "囲まれていても暗い領域は足さない");
+                Check(!picked[m.Labels[500 * GlintSize + 500]], "囲まれていても大きい部品は足さない");
+                Check(!picked[m.Labels[105 * GlintSize + GlintSize - 105]], "選択の外のツヤは足さない");
+            }
+
             // 色の近い明度違いの組: 入り組んだ縞は 1 つの素材、接しているだけの 2 パーツは別の素材
             const int Margin = Big / 8, StripeHeight = Big / 16;
             using (var stripes = Build(TwoTones(interleaved: true), Big, Big, s0))
@@ -1604,9 +1628,14 @@ namespace Iroca
                 }
                 var standard = At(ZonesJsonDefaults.Tolerance);
                 Check(map.MaterialOfRegion[reds] == map.MaterialOfRegion[redFar] && standard[reds] && standard[redFar] && !standard[orange] && !standard[blue], "既定の広さは素材そのまま");
-                var narrow = At(0f);
-                Check(narrow[reds] && !narrow[redFar], "いちばん狭いとスポイト色の領域だけ");
-                Check(Subset(narrow, At(0.1f)) && Subset(At(0.1f), standard), "狭める側は単調");
+                int Limit(float width)
+                {
+                    var z = new ColorZone { tolerance = width, sampleColor = new Color(200f / 255f, 40f / 255f, 40f / 255f, 1f), sampleUV = new Vector2(1.5f / WidthSize, 1.5f / WidthSize) };
+                    return map.NarrowLimit(map.SelectedRegions(z, WidthSize, WidthSize), z);
+                }
+                Check(Limit(ZonesJsonDefaults.Tolerance) == -1 && Limit(0.5f) == -1, "既定以上の広さは画素で絞らない");
+                Check(Limit(0f) == 0, "いちばん狭いとスポイト色の画素だけ");
+                Check(Limit(0f) <= Limit(0.05f) && Limit(0.05f) <= Limit(0.1f) && Limit(0.1f) <= Limit(0.19f) && Limit(0.19f) > 0, "狭める側は単調");
                 var wider = At(0.6f);
                 var widest = At(1f);
                 Check(Subset(standard, wider) && Subset(wider, widest), "広げる側は単調");

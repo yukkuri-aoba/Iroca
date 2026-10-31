@@ -49,9 +49,16 @@ namespace Iroca
                 : new MaterialScene(original, w, h);
             RegionMap regions = scene.Regions;
             bool[] selected = scene.Materials.SelectedRegions(zone, w, h);
+            int narrow = scene.Materials.NarrowLimit(selected, zone);
+            byte sampleR = (byte)Mathf.Clamp(Mathf.RoundToInt(zone.sampleColor.r * 255f), 0, 255);
+            byte sampleG = (byte)Mathf.Clamp(Mathf.RoundToInt(zone.sampleColor.g * 255f), 0, 255);
+            byte sampleB = (byte)Mathf.Clamp(Mathf.RoundToInt(zone.sampleColor.b * 255f), 0, 255);
+            bool WithinNarrow(Color32 c) => narrow < 0
+                || (Math.Abs(c.r - sampleR) <= narrow && Math.Abs(c.g - sampleG) <= narrow && Math.Abs(c.b - sampleB) <= narrow);
 
             float* strength = zb.Strength = s_floatPool.Rent(len);
             var strengthLocal = strength;
+            Color32* originalLocal = original;
             int* labels = regions.Labels;
             ulong* commonMask = run.CommonBits;
             ulong* zoneMask = NativeBitMask.BitsOf(zoneMaskLayer);
@@ -62,7 +69,7 @@ namespace Iroca
                 for (int x = 0; x < w; x++)
                 {
                     int i = rowOff + x;
-                    strengthLocal[i] = selected[labels[i]] && !IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask) ? 1f : 0f;
+                    strengthLocal[i] = selected[labels[i]] && WithinNarrow(originalLocal[i]) && !IsExcludedAt(maskColOf, maskRowBase, x, y, commonMask, zoneMask) ? 1f : 0f;
                 }
             });
 
@@ -76,6 +83,7 @@ namespace Iroca
                 bool own = selected[labels[i]], other = selected[partner[k]];
                 if (own == other) continue;
                 if (IsExcludedAt(maskColOf, maskRowBase, i % w, i / w, commonMask, zoneMask)) continue;
+                if (!WithinNarrow(original[i])) continue;
                 float cover = mix[i] / 255f;
                 strength[i] = own ? cover : 1f - cover;
             }

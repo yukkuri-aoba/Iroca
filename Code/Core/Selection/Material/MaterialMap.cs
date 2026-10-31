@@ -55,6 +55,15 @@ namespace Iroca
         // 投票は、クリックした領域が見える画素のこの割合以下のときだけ(縁や点をクリックしたときの救い)。
         // 十分に大きな領域をクリックしたなら、その素材を選んだとみなす(提案が隣の部品を含むことがあるので)。
         internal const double VoteRegionShare = 1e-4;
+        // ツヤを足す条件: 選んだ領域との接触の割合、見える画素に対する領域の面積の割合、彩度の余裕、くり返しの回数。
+        // 境目のはっきりした白は、ツヤとも別の部品とも言えるので、ごく小さいものだけ足す(GlintTinyArea)。
+        // なだらかにつながるなら(選んだ領域との接触のうち GlintSoftContact 以上)ツヤなので GlintArea まで足す。
+        internal const double GlintContact = 0.3;
+        internal const double GlintArea = 1e-4;
+        internal const double GlintTinyArea = 3e-5;
+        internal const double GlintSoftContact = 0.3;
+        internal const double GlintChromaMargin = 0.02;
+        internal const int GlintPasses = 3;
         // 色の平面で近い組をまとめる条件(縞・市松の 2 トーン): 平面の距離、境界のうち相手との接触の割合、
         // 接触の長さ(同じ面積の正方形の周の何倍か)、面積の釣り合い。
         internal const double InterleaveDistance = 1.0;
@@ -82,6 +91,9 @@ namespace Iroca
         private readonly double[] _lab;
         private readonly int[] _neighborStart;
         private readonly int[] _neighbors;
+        private readonly int[] _neighborContact;
+        private readonly int[] _neighborSoft;
+        private readonly long _visibleArea;
 
         /// <summary>素材の数(番号は 1〜Count)。</summary>
         public int Count { get; private set; }
@@ -114,12 +126,20 @@ namespace Iroca
             }
             for (int r = 1; r <= n + 1; r++) _neighborStart[r] += _neighborStart[r - 1];
             _neighbors = new int[_neighborStart[n + 1]];
+            _neighborContact = new int[_neighborStart[n + 1]];
+            _neighborSoft = new int[_neighborStart[n + 1]];
             var fill = (int[])_neighborStart.Clone();
             for (int k = 0; k < pairCount; k++)
             {
-                _neighbors[fill[adjacency[k].A]++] = adjacency[k].B;
-                _neighbors[fill[adjacency[k].B]++] = adjacency[k].A;
+                int a = adjacency[k].A, b = adjacency[k].B;
+                _neighborContact[fill[a]] = adjacency[k].Contact;
+                _neighborSoft[fill[a]] = adjacency[k].SoftContact;
+                _neighbors[fill[a]++] = b;
+                _neighborContact[fill[b]] = adjacency[k].Contact;
+                _neighborSoft[fill[b]] = adjacency[k].SoftContact;
+                _neighbors[fill[b]++] = a;
             }
+            for (int r = 1; r <= n; r++) _visibleArea += table[r].Area;
         }
 
         public static MaterialMap Build(RegionMap regions)
@@ -486,7 +506,8 @@ namespace Iroca
             var selected = new bool[n + 1];
             for (int r = 1; r <= n; r++) selected[r] = wanted[MaterialOfRegion[r]];
             if (zone.materialTube != null && zone.materialTube.Length >= 3) ApplyTube(selected, zone.materialTube);
-            ApplyWidth(selected, wanted, zone);
+            AddGlints(selected);
+            WidenToNearMaterials(selected, wanted, zone);
             if (zone.useFloodFill && zone.seedUV.x >= 0f)
             {
                 int seed = HomeRegionOfUv(zone.seedUV, w, h);
@@ -635,28 +656,79 @@ namespace Iroca
             return tube;
         }
 
-        // 広さ(許容のスライダー)。既定の値では素材そのまま。下げると素材の中でスポイト色から遠い領域から落とし、
-        // 上げるとスポイト色に近い別の素材から足す。どちらも値に対して単調で、選択はつながって広がる。
-        private void ApplyWidth(bool[] selected, bool[] wanted, ColorZone zone)
+        /// <summary>
+        /// 選んだ領域に囲まれた、より明るく彩度の低い小さな領域を足す(ツヤ)。白へ抜けるツヤは色の平面で素材から離れるので、
+        /// 色だけでは同じ素材にならない。囲まれていることを条件にするので、選択の外へは広がらない。小さいものに限るので、
+        /// 囲まれた大きな部品(ロゴなど)は足さない。境目のはっきりした小さな白い部品を巻き込まないよう、なだらかにつながるものと
+        /// ごく小さいものに限る。足した領域も次の回の「選んだ領域」に数える(ツヤの中の白い芯まで届くように)。
+        /// </summary>
+        private void AddGlints(bool[] selected)
+        {
+            RegionInfo* table = _regions.Regions;
+            long maxArea = (long)(GlintArea * _visibleArea);
+            long tinyArea = (long)(GlintTinyArea * _visibleArea);
+            var added = new List<int>();
+            for (int pass = 0; pass < GlintPasses; pass++)
+            {
+                added.Clear();
+                for (int r = 1; r < selected.Length; r++)
+                {
+                    if (selected[r] || table[r].Area > maxArea) continue;
+                    double total = 0.0, touching = 0.0, soft = 0.0, sumL = 0.0, sumC = 0.0;
+                    for (int k = _neighborStart[r]; k < _neighborStart[r + 1]; k++)
+                    {
+                        int nb = _neighbors[k];
+                        double contact = _neighborContact[k];
+                        total += contact;
+                        if (!selected[nb]) continue;
+                        touching += contact;
+                        soft += _neighborSoft[k];
+                        sumL += contact * _lab[nb * 3];
+                        sumC += contact * Chroma(nb);
+                    }
+                    if (touching <= 0.0 || touching < GlintContact * total) continue;
+                    if (table[r].Area > tinyArea && soft < GlintSoftContact * touching) continue;
+                    if (_lab[r * 3] >= sumL / touching && Chroma(r) <= sumC / touching + GlintChromaMargin) added.Add(r);
+                }
+                if (added.Count == 0) break;
+                foreach (int r in added) selected[r] = true;
+            }
+        }
+
+        private double Chroma(int r) => Math.Sqrt(_lab[r * 3 + 1] * _lab[r * 3 + 1] + _lab[r * 3 + 2] * _lab[r * 3 + 2]);
+
+        /// <summary>
+        /// 広さ(許容のスライダー)を既定より下げたときの、スポイト色からの色の差の上限(RGB の最大の差)。既定以上なら -1。
+        /// 値に比例して狭まり、0 ならスポイト色そのものの画素だけになる。領域の中にも色の幅があるので、絞るのは画素単位。
+        /// </summary>
+        public int NarrowLimit(bool[] selected, ColorZone zone)
         {
             double width = zone.tolerance, standard = ZonesJsonDefaults.Tolerance;
-            if (width == standard) return;
+            if (width >= standard) return -1;
+            int sr = RoundByte(zone.sampleColor.r), sg = RoundByte(zone.sampleColor.g), sb = RoundByte(zone.sampleColor.b);
+            RegionInfo* table = _regions.Regions;
+            int farthest = 0;
+            for (int r = 1; r < selected.Length; r++)
+            {
+                if (!selected[r]) continue;
+                int lo = table[r].BoxMin, hi = table[r].BoxMax;
+                farthest = Math.Max(farthest, Math.Max(Math.Abs((lo & 255) - sr), Math.Abs((hi & 255) - sr)));
+                farthest = Math.Max(farthest, Math.Max(Math.Abs(((lo >> 8) & 255) - sg), Math.Abs(((hi >> 8) & 255) - sg)));
+                farthest = Math.Max(farthest, Math.Max(Math.Abs(((lo >> 16) & 255) - sb), Math.Abs(((hi >> 16) & 255) - sb)));
+            }
+            return (int)Math.Floor(Math.Max(width, 0.0) / standard * farthest);
+        }
+
+        private static int RoundByte(float c) => Clamp((int)(c * 255f + 0.5f), 256);
+
+        // 広さを既定より上げたとき: 素材の代表色(面積の重みの平均)がスポイト色から reach 以内の素材を足す。値に対して単調。
+        // 上げ始めは細かく動くように 2 乗にする(OkLab の距離は黒と白で約 1)。
+        private void WidenToNearMaterials(bool[] selected, bool[] wanted, ColorZone zone)
+        {
+            double width = zone.tolerance, standard = ZonesJsonDefaults.Tolerance;
+            if (width <= standard) return;
             OkLab.RgbToOklab(zone.sampleColor.r, zone.sampleColor.g, zone.sampleColor.b, out float L, out float a, out float b);
             RegionInfo* table = _regions.Regions;
-            if (width < standard)
-            {
-                var kept = new List<(double value, double weight)>();
-                for (int r = 1; r < selected.Length; r++)
-                    if (selected[r]) kept.Add((DistanceTo(r, L, a, b), table[r].Area));
-                if (kept.Count == 0) return;
-                double limit = WeightedQuantile(kept, Math.Max(width, 0.0) / standard);
-                for (int r = 1; r < selected.Length; r++)
-                    if (selected[r] && DistanceTo(r, L, a, b) > limit) selected[r] = false;
-                return;
-            }
-
-            // 上げる側は、素材の代表色(面積の重みの平均)がスポイト色から reach 以内の素材を足す。
-            // 上げ始めは細かく動くように 2 乗にする(OkLab の距離は黒と白で約 1)。
             double t = (width - standard) / (1.0 - standard);
             double reach = t * t;
             var weight = new double[Count + 1];

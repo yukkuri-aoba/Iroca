@@ -62,6 +62,30 @@ namespace Iroca.EditorTests
             Assert.AreEqual(input[right], pixels[right], "別の素材が塗られた");
         }
 
+        // 許容 0 ではスポイト色そのものの画素だけが塗られる(領域の中にも色の幅があるので、領域を丸ごと塗らない)。
+        [Test]
+        public void ZeroWidth_PaintsOnlyTheSampleColor()
+        {
+            var pixels = new Color32[Size * Size];
+            for (int y = 0; y < Size; y++)
+                for (int x = 0; x < Size; x++)
+                    pixels[y * Size + x] = new Color32((byte)(200 - (x % 4)), 30, 30, 255);
+            var input = (Color32[])pixels.Clone();
+            var zones = ZoneOnLeft();
+            zones[0].tolerance = 0f;
+            zones[0].UpdateCacheIfNeeded();
+            PixelProcessor.ProcessPixelsArray(pixels, Size, Size, null, zones, RecolorSettings.Default, CancellationToken.None);
+            int sameColorPainted = 0, otherPainted = 0;
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                bool painted = !pixels[i].Equals(input[i]);
+                if (input[i].r == 200) sameColorPainted += painted ? 1 : 0;
+                else otherPainted += painted ? 1 : 0;
+            }
+            Assert.Greater(sameColorPainted, 0, "スポイト色の画素が塗られていない");
+            Assert.Less(otherPainted, pixels.Length / 8, "スポイト色でない画素まで広く塗られた");
+        }
+
         [Test]
         public void ReusesTheSceneAcrossRuns_AndReleasesItsMemory()
         {
