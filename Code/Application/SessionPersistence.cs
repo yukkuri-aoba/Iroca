@@ -27,6 +27,26 @@ namespace Iroca
             return string.IsNullOrEmpty(path) ? null : path;
         }
 
+        /// <summary>
+        /// テクスチャの編集内容のファイルを決める鍵(MaskFileStore・SessionFileStore に渡す。アセットでなければ null)。
+        /// ふつうのテクスチャはパスそのもので、1 つのファイルに複数のテクスチャがあるときはサブアセットの番号を足す。
+        /// </summary>
+        internal static string StorageKeyOf(Texture2D tex)
+        {
+            string path = TexturePathOf(tex);
+            if (path == null || AssetDatabase.IsMainAsset(tex)) return path;
+            return AssetDatabase.TryGetGUIDAndLocalFileIdentifier(tex, out string _, out long localId)
+                ? path + GuidFileCache.SubAssetSeparator + localId
+                : path;
+        }
+
+        /// <summary>テクスチャのアセットの GUID(アセットでなければ空)。</summary>
+        internal static string GuidOf(Texture2D tex)
+        {
+            string path = TexturePathOf(tex);
+            return path != null ? AssetDatabase.AssetPathToGUID(path) : "";
+        }
+
         // ─────────────── レシピとセッションのファイル ───────────────
 
         /// <summary>
@@ -42,7 +62,7 @@ namespace Iroca
             var found = RecipeStore.FindForTexture(tex);
             if (found.Count == 1) return found[0];
             if (found.Count == 0) return null;
-            string guid = SessionFileStore.LoadBoundRecipeGuid(TexturePathOf(tex));
+            string guid = SessionFileStore.LoadBoundRecipeGuid(StorageKeyOf(tex));
             if (string.IsNullOrEmpty(guid)) return null;
             foreach (var recipe in found)
                 if (AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(recipe)) == guid) return recipe;
@@ -52,7 +72,7 @@ namespace Iroca
         /// <summary>テクスチャに結び付いたレシピを覚える(<see cref="RecipeFor"/> が開き直したときに使う)。null なら忘れる。</summary>
         internal static void RememberBoundRecipe(Texture2D tex, IrocaRecipe recipe)
         {
-            string path = TexturePathOf(tex);
+            string path = StorageKeyOf(tex);
             if (path == null) return;
             string recipePath = recipe != null ? AssetDatabase.GetAssetPath(recipe) : null;
             SessionFileStore.SaveBoundRecipeGuid(path, string.IsNullOrEmpty(recipePath) ? null : AssetDatabase.AssetPathToGUID(recipePath));
@@ -92,7 +112,7 @@ namespace Iroca
         internal static IrocaSessionState LoadFromFile(Texture2D tex, out bool unreadable)
         {
             unreadable = false;
-            string path = TexturePathOf(tex);
+            string path = StorageKeyOf(tex);
             return path != null ? SessionFileStore.LoadSession(path, out unreadable) : null;
         }
 
@@ -104,7 +124,7 @@ namespace Iroca
         internal static bool SaveToFile(Texture2D tex, IrocaSessionState state, bool loadFailed, out bool wroteContent)
         {
             wroteContent = false;
-            string path = TexturePathOf(tex);
+            string path = StorageKeyOf(tex);
             if (path == null || state == null) return true;
             bool ok = SessionFileStore.SaveSession(path, state, loadFailed);
             wroteContent = ok && !SessionFileStore.IsEmpty(state);

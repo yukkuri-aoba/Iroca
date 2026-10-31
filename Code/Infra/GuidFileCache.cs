@@ -19,6 +19,12 @@ namespace Iroca
         // 退避したまま GUID がこの日数を超えて解決できなければ初めて実削除する（猶予期間）。
         private const int OrphanRetentionDays = 30;
 
+        /// <summary>
+        /// 保存の鍵(<see cref="PathForAsset"/> に渡す文字列)で、アセットのパスとサブアセットの番号を分ける文字。パスには入らない。
+        /// 1 つのファイルに複数のテクスチャがあると(.asset・FBX の埋め込み)GUID は同じなので、番号で分ける。
+        /// </summary>
+        internal const char SubAssetSeparator = '\n';
+
         private readonly string _relativeDir;
         private readonly string _extension;
         // ログ用の語（"Mask" / "mask" など）。ログ文言を変えないよう小文字形も明示で受け取る。
@@ -40,15 +46,29 @@ namespace Iroca
             Path.GetFullPath(Path.Combine(Application.dataPath, "..", _relativeDir));
 
         /// <summary>
-        /// テクスチャのアセットパスから保存先ファイルのパスを返す。
+        /// テクスチャのアセットパスから保存先ファイルのパスを返す。サブアセットは <see cref="SubAssetSeparator"/> の後の番号でファイルを分ける。
         /// パスが空、または GUID が引けない（Assets 外など）ときは <c>null</c>。
         /// </summary>
         public string PathForAsset(string assetPath)
         {
             if (string.IsNullOrEmpty(assetPath)) return null;
+            string subAsset = "";
+            int separator = assetPath.IndexOf(SubAssetSeparator);
+            if (separator >= 0)
+            {
+                subAsset = "_" + assetPath.Substring(separator + 1);
+                assetPath = assetPath.Substring(0, separator);
+            }
             string guid = AssetDatabase.AssetPathToGUID(assetPath);
             if (string.IsNullOrEmpty(guid)) return null;
-            return Path.Combine(CacheDir, guid + _extension);
+            return Path.Combine(CacheDir, guid + subAsset + _extension);
+        }
+
+        // ファイル名(拡張子を除く)の GUID の部分。
+        private static string GuidOfName(string name)
+        {
+            int subAsset = name.IndexOf('_');
+            return subAsset >= 0 ? name.Substring(0, subAsset) : name;
         }
 
         /// <summary>
@@ -61,7 +81,25 @@ namespace Iroca
             string path = PathForAsset(assetPath);
             if (path == null || File.Exists(path)) return;
             string orphan = path + OrphanSuffix;
-            if (File.Exists(orphan)) RestoreFromOrphan(orphan, path);
+            if (File.Exists(orphan))
+            {
+                RestoreFromOrphan(orphan, path);
+                return;
+            }
+            AdoptSharedFile(assetPath, path);
+        }
+
+        // 0.3.x までは同じファイルのテクスチャが GUID だけのファイルを共有していた。本体がテクスチャでなければ(FBX の埋め込みなど)
+        // 誰の編集か決められないので、開いたサブアセットごとに写して引き継ぐ。本体がテクスチャなら、そのファイルは本体のもの。
+        private void AdoptSharedFile(string key, string path)
+        {
+            int separator = key.IndexOf(SubAssetSeparator);
+            if (separator < 0) return;
+            string assetPath = key.Substring(0, separator);
+            string shared = PathForAsset(assetPath);
+            if (shared == null || !File.Exists(shared) || AssetDatabase.GetMainAssetTypeAtPath(assetPath) == typeof(Texture2D)) return;
+            try { File.Copy(shared, path); }
+            catch (Exception ex) { Debug.LogWarning($"[Iroca] {_label} could not be carried over: {ex.Message}"); }
         }
 
         /// <summary>
@@ -69,9 +107,11 @@ namespace Iroca
         /// </summary>
         public void RetireByGuid(string guid)
         {
-            if (string.IsNullOrEmpty(guid)) return;
+            if (string.IsNullOrEmpty(guid) || !Directory.Exists(CacheDir)) return;
             string path = Path.Combine(CacheDir, guid + _extension);
             if (File.Exists(path)) RetireToOrphan(path);
+            foreach (var subAsset in Directory.GetFiles(CacheDir, guid + "_*" + _extension))
+                RetireToOrphan(subAsset);
         }
 
         /// <summary>
@@ -98,7 +138,7 @@ namespace Iroca
                 if (fileName.EndsWith(_extension + OrphanSuffix, StringComparison.OrdinalIgnoreCase))
                 {
                     string activeName = fileName.Substring(0, fileName.Length - OrphanSuffix.Length);
-                    string guid = activeName.Substring(0, activeName.Length - _extension.Length);
+                    string guid = GuidOfName(activeName.Substring(0, activeName.Length - _extension.Length));
                     if (string.IsNullOrEmpty(guid)) continue;
                     if (!string.IsNullOrEmpty(AssetDatabase.GUIDToAssetPath(guid)))
                         RestoreFromOrphan(file, Path.Combine(CacheDir, activeName));
@@ -107,7 +147,7 @@ namespace Iroca
                 }
                 else if (fileName.EndsWith(_extension, StringComparison.OrdinalIgnoreCase))
                 {
-                    string guid = fileName.Substring(0, fileName.Length - _extension.Length);
+                    string guid = GuidOfName(fileName.Substring(0, fileName.Length - _extension.Length));
                     if (string.IsNullOrEmpty(guid)) continue;
                     if (string.IsNullOrEmpty(AssetDatabase.GUIDToAssetPath(guid)))
                         RetireToOrphan(file);

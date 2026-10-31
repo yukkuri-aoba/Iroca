@@ -16,6 +16,42 @@ namespace Iroca.EditorTests
     /// </summary>
     public class PersistenceTests
     {
+        // 1 つのファイルに複数のテクスチャがあっても、編集内容のファイルは分ける。
+        [Test]
+        public void TexturesInOneAsset_DoNotShareTheirEdits()
+        {
+            using (var assets = TestAssets.Create())
+            {
+                string path = assets.Folder + "/two-textures.asset";
+                var main = new Texture2D(2, 2);
+                var sub = new Texture2D(2, 2) { name = "sub" };
+                AssetDatabase.CreateAsset(main, path);
+                AssetDatabase.AddObjectToAsset(sub, path);
+                AssetDatabase.SaveAssets();
+                string guid = AssetDatabase.AssetPathToGUID(path);
+                try
+                {
+                    var a = new IrocaSessionState();
+                    a.zones.Add(new ColorZone { name = "本体" });
+                    var b = new IrocaSessionState();
+                    b.zones.Add(new ColorZone { name = "サブ" });
+                    Assert.IsTrue(SessionPersistence.SaveToFile(main, a, false, out _));
+                    Assert.IsTrue(SessionPersistence.SaveToFile(sub, b, false, out _));
+
+                    Assert.AreEqual("本体", SessionPersistence.LoadFromFile(main, out _).zones[0].name);
+                    Assert.AreEqual("サブ", SessionPersistence.LoadFromFile(sub, out _).zones[0].name);
+
+                    // 消したら両方退避する。
+                    SessionFileStore.RetireSessionByGuid(guid);
+                    Assert.AreEqual(2, Directory.GetFiles(SessionFileStore.CacheDir, guid + "*.orphan").Length);
+                }
+                finally
+                {
+                    foreach (var f in Directory.GetFiles(SessionFileStore.CacheDir, guid + "*")) File.Delete(f);
+                }
+            }
+        }
+
         private TestAssets _assets;
         private string _tex;
         private string _guid;

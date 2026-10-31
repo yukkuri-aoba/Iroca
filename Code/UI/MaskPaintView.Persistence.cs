@@ -9,13 +9,7 @@ namespace Iroca
     internal partial class MaskPaintView
     {
 
-        private string MaskTexturePath()
-        {
-            var sourceTexture = _host.SourceTexture;
-            if (sourceTexture == null) return null;
-            string path = AssetDatabase.GetAssetPath(sourceTexture);
-            return string.IsNullOrEmpty(path) ? null : path;
-        }
+        private string MaskTexturePath() => SessionPersistence.StorageKeyOf(_host.SourceTexture);
 
         // 旧 SessionState キー（Phase 6 で MaskFileStore に移行済み）。
         // 残存データをマイグレートするためのみ残し、新規書き込みには使わない。
