@@ -263,8 +263,8 @@ dotnet build scripts/build-check/IrocaSentisCheck.csproj
 
 別の場所に置くなら `-p:SentisAssembliesPath=` か `IROCA_SENTIS_ASSEMBLIES` で上書きする。
 Unity で開くと `Iroca.SentisIntegration.dll` も `Library\ScriptAssemblies` に出る。
-**dotnet 側は 1 アセンブリにまとめてコンパイルするので asmdef 境界は再現しない。**
-境界（internal の見え方など）の最終確認はこの Unity 側コンパイルが正。
+dotnet 側（`scripts/build-check`）も asmdef と同じ境目で分けてある（同じ所の README）が、任意のパッケージのある・無しの
+組み合わせまでは再現しない。境界（internal の見え方など）の最終確認はこの Unity 側コンパイルが正。
 
 ## 標準の実行コマンド
 
@@ -623,7 +623,7 @@ Mono 上の出力は検証できない。`scripts/editor-tests/`（`Iroca.Editor
 | `NdmfPreviewFilterTests` | `IrocaPreviewFilter` を NDMF の API どおりに呼ぶ: 対象の選び方、プロキシだけの差し替え（元の Renderer・マテリアルは無傷）、毎フレームの差し替え直し（NDMF は描画のたびに描画用プロキシを元のマテリアルへ戻す）、後片付け、編集対象の変化で無効化、初めて映すレシピは出来上がるまでノードを完了させずプロキシにも触らない（ライブは待たせない）。NDMF があるホストでだけコンパイルされる。待っている間に借りたマテリアルが消えてもノードを完了させる（NDMF は全部のノードがそろうまで表示を切り替えないので、終わらないとシーンのプレビュー全体が止まる） |
 | `MaskSuggestInferenceTests` | AI マスク提案の実推論（パッケージの読み込み・モデルの変換とロード・推論）が Unity 2022.3（Sentis）と Unity 6（Inference Engine）で通る。灰地の赤い円の中心をクリックし、円と提案マスクの IoU を測る（推論のワーカーを手放した後も作り直して同じように取れる）。モデルの変換で Assets に残った一時フォルダは、いろかのものだけを片付ける。パッケージ未導入・モデル未配置なら Ignore |
 | `PerfBenchTests` | Unity の Mono での再着色の速さ（`Perf` カテゴリ。品質は見ない）。`Run-EditorTests.ps1 -PerfCases <json>` のときだけ回り、ふだんは Ignore |
-| `MemoryBenchTests` | プレビュー相当の処理を繰り返したときの Mono ヒープとプロセスのメモリと、最後にプール・キャッシュを手放して OS へ返るか（`Memory` カテゴリ）。`-MemCases <json>` のときだけ回る（1 回の起動に 1 ケース） |
+| `MemoryBenchTests` | プレビュー相当の処理や、製品の経路の場面（ケースの `scenario`: `maskPaint`・`recipeBuild`・`autoTune`・`mcpRecolor`・`aiSuggest`）を繰り返したときの Mono ヒープとプロセスのメモリと、最後にプール・キャッシュを手放して OS へ返るか（`Memory` カテゴリ）。`-MemCases <json>` のときだけ回る（1 回の起動に 1 ケース）。`aiSuggest` は Sentis とモデルのあるホストで `-Graphics` をつけて回す。基準と結果は dev_safe の `Tests/Baselines/`（ケースは `scripts/make_bench_cases.py`） |
 | `HiResSmokeTests` | 8K・16K のテクスチャを製品の経路（取り込み〜色替え〜PNG の書き出しと読み戻し・NDMF の差し替えテクスチャなど）に 1 回ずつ通し、各段の時間とメモリを記録する（`HiRes` カテゴリ。品質は見ない）。`-HiResCases <json>` のときだけ回る（GPU の段は `-Graphics`。16K は 20GB 前後使う） |
 | `WindowUndoTests`・`MaskHistoryTests` | Undo/Redo で戻るのが編集内容だけなこと（ズーム・開閉は戻らない）、いま直しているゾーンを指し続けること、文書にマスクの文字列が入らないこと、マスクの履歴（版へ戻す・層の共有・やり直しの分と上限で手放す・退避の往復・壊れたファイルは読まない） |
 | `UndoReloadScenario`（テストではなく台本） | 再読み込み・Play をまたいだ編集と Undo。Unity 2022.3 はスクリプトのオブジェクトの Undo を再読み込みで捨て、Unity 6 は残す。テストランナーの中と batchmode の 2022.3 では履歴が全部空になるので、ランナーなし・画面あり（最小化）の台本にした。`-UndoReload` で回す。**Undo や保存の形を変えたら 2022.3 と Unity 6 の両方のホストで回す**（2 分ほど） |
