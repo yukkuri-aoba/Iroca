@@ -229,7 +229,7 @@ namespace Iroca
         /// (x, y) から 8 方向それぞれ、距離 1..reach のどこかに確かな選択(selBits)があるか。= 選択に囲まれた
         /// 小さな穴。画像の端で切れる方向は「無い」とみなす。
         /// </summary>
-        private static bool IsEnclosedBySelection(ulong[] selBits, int wpr, int x, int y, int w, int h, int reach)
+        private static bool IsEnclosedBySelection(ulong* selBits, int wpr, int x, int y, int w, int h, int reach)
         {
             for (int d = 0; d < 8; d++)
             {
@@ -250,7 +250,7 @@ namespace Iroca
         /// 行ごとのビット列(1 画素 1 bit、1 行 wpr 語)で、矩形 [rx0..rx1]×[ry0..ry1] のうち範囲 [x0..x1]×[y0..y1] に
         /// 入る部分の立っているビットの数。
         /// </summary>
-        private static int CountBitsInRect(ulong[] bits, int wpr, int x0, int y0, int x1, int y1,
+        private static int CountBitsInRect(ulong* bits, int wpr, int x0, int y0, int x1, int y1,
             int rx0, int ry0, int rx1, int ry1)
         {
             int xa = Mathf.Max(x0, rx0), xb = Mathf.Min(x1, rx1);
@@ -310,14 +310,19 @@ namespace Iroca
             // ビットは範囲 S だけ立て、窓は S で切って数える(窓は常に S の内側か、S と同じく画像の端で切られる。
             // S = 調べる範囲 ± 2B、窓は最大 ±B を G = 調べる範囲 ± B から取る)。
             int wpr = (w + 63) >> 6;
-            var selBits = new ulong[h * wpr];
-            var anyBits = new ulong[h * wpr];
+            int bitBytes = h * wpr * sizeof(ulong);
+            ulong* selBits = null;
+            ulong* anyBits = null;
             // 「面か」の覚え書き(0 = まだ調べていない、FlatYesB / FlatNoB = 調べた結果)。背景の候補を探す
             // 範囲 G だけ 0 にしてから使う。同じ画素を別の行のスレッドが同時に調べても、書く値は同じ(1 バイトの
             // 書き込みなので、途中の値が見えることもない)。
             byte* flatMemo = null;
             try
             {
+                selBits = (ulong*)s_bytePool.Rent(bitBytes);
+                anyBits = (ulong*)s_bytePool.Rent(bitBytes);
+                new Span<byte>(selBits, bitBytes).Clear();
+                new Span<byte>(anyBits, bitBytes).Clear();
                 flatMemo = s_bytePool.Rent(len);
                 var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
                 Parallel.For(sy0, sy1 + 1, po, y =>
@@ -629,6 +634,8 @@ namespace Iroca
             finally
             {
                 if (flatMemo != null) s_bytePool.Return(flatMemo);
+                if (anyBits != null) s_bytePool.Return((byte*)anyBits);
+                if (selBits != null) s_bytePool.Return((byte*)selBits);
             }
         }
     }

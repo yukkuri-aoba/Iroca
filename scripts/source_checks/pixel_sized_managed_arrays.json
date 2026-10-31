@@ -23,9 +23,6 @@
     "Code/Core/Pipeline/PixelProcessor.cs": {
       "new Color32[dstW * dstH]": 1
     },
-    "Code/Core/Recolor/PixelProcessor.MixtureBand.cs": {
-      "new ulong[h * wpr]": 2
-    },
     "Code/Core/Recolor/PixelProcessor.RecolorBranchRecorder.cs": {
       "new byte[len]": 1
     },
