@@ -110,6 +110,27 @@ namespace Iroca.EditorTests
             AssertSamePixels(byWindow, byAutomation, "自動化 API の PNG");
         }
 
+        // 幅の狭い窓ではプレビューを描かないが、シーンのアバターの色のために計算は進める。
+        [Test]
+        public void PreviewNotDrawn_StillRunsTheFullStage()
+        {
+            var expected = BySessionRecolor(withMasks: true);
+            var preview = _win.Preview;
+            preview.previewDirty = true;
+            var watch = Stopwatch.StartNew();
+            int idle = 0;
+            while (idle < 3)
+            {
+                Assert.Less(watch.Elapsed.TotalSeconds, 60, "プレビューが終わらない");
+                preview.TickWithoutDrawing();
+                PreviewJobMainThread.Drain();
+                bool waiting = preview.IsGenerating || preview.previewDirty || preview.FullOutput == null;
+                idle = waiting ? 0 : idle + 1;
+                Thread.Sleep(2);
+            }
+            AssertSamePixels(expected, preview.FullOutput.ToArray(), "描かないときの確定段");
+        }
+
         // ───────────── 経路 ─────────────
 
         // 非破壊ビルドと同じ入口。窓が保存するのと同じく、編集用のマスクを保存形式(maskState)へ書いてから当てる。

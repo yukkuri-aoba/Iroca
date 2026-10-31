@@ -346,6 +346,18 @@ namespace Iroca
             ClearSceneHighlight();
         }
 
+        /// <summary>
+        /// 本体にプレビューを描かないとき(幅の狭い窓・別ウィンドウへ切り出している間)も、計算だけは進める。作り直しは
+        /// <see cref="Draw"/> の中から進むので、描かないと止まり、シーンのアバターの色(結果で変わる)が追従しなかった。
+        /// 届いた結果は表示の前の 1 枚だけが残る(<see cref="PreviewPipeline.TakePendingFrame"/>)。
+        /// </summary>
+        internal void TickWithoutDrawing()
+        {
+            var sourceTexture = _host.SourceTexture;
+            if (sourceTexture == null || SourceLoadDeferred || !EnsureTrueSource(sourceTexture)) return;
+            _pipeline.Tick(pointerHeld: GUIUtility.hotControl != 0);
+        }
+
         public void Draw()
         {
             // 見出し行はズーム率を右端に載せるため、ズーム率が確定した後で描く（DrawTitleRow 参照）。

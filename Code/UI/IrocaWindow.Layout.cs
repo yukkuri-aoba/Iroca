@@ -435,6 +435,9 @@ namespace Iroca
         // 押し出されて実用にならず、押した直後にまたこの案内へ戻るだけになるため。
         private void DrawPreviewDetachedSection(bool canReattach)
         {
+            // ここではプレビューを描かないが、シーンのアバターの色のために計算は進める。
+            _previewView.TickWithoutDrawing();
+
             EditorGUILayout.LabelField(
                 Localization.StepPrefixPreview + Localization.Preview, EditorStyles.boldLabel);
 
