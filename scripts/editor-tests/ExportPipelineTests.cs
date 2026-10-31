@@ -169,7 +169,17 @@ namespace Iroca.EditorTests
                 {
                     Assert.AreEqual(expectedKind, kind, path);
                     Assert.AreEqual((w, h), (got.Width, got.Height), path);
-                    CollectionAssert.AreEqual(expected, got.ToArray(), path);
+                    // 圧縮された取り込み済みテクスチャを GPU で展開すると、DXT は丸めで最大 1 段違う(PngFileDecoderTests)。
+                    int allowed = kind == ExportPipeline.SourceKind.ImportedTexture
+                        && SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null ? 1 : 0;
+                    var actual = got.ToArray();
+                    for (int i = 0; i < actual.Length; i++)
+                    {
+                        Assert.LessOrEqual(Math.Abs(expected[i].r - actual[i].r), allowed, path);
+                        Assert.LessOrEqual(Math.Abs(expected[i].g - actual[i].g), allowed, path);
+                        Assert.LessOrEqual(Math.Abs(expected[i].b - actual[i].b), allowed, path);
+                        Assert.LessOrEqual(Math.Abs(expected[i].a - actual[i].a), allowed, path);
+                    }
                 }
                 finally { got.Release(); }
             }

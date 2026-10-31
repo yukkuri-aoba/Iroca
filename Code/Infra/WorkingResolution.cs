@@ -120,14 +120,21 @@ namespace Iroca
         /// <see cref="PixelsOf"/> と同じ画素を、Mono のヒープの外(<see cref="NativePixels"/>。参照 1 で返す)に作る
         /// (メインスレッド)。プレビューの原本はエディタを開いている間ずっと持つので、管理配列にすると閉じた後も
         /// その分(4K で 64MB、8K で 256MB)がエディタのメモリに残る。8bit の非圧縮形式はテクスチャの生データから
-        /// 直接書き、管理配列の一時配列も作らない(それ以外の形式は GetPixels32 を経由する)。
+        /// 直接書き、管理配列の一時配列も作らない。圧縮された形式は GPU で展開して読む(<see cref="TryExpandOnGpu"/>)。
+        /// どちらもできなければ GetPixels32 を経由する。
         /// </summary>
         public static unsafe NativePixels NativePixelsOf(Texture2D decoded, Texture2D imported)
         {
             int fw = decoded.width, fh = decoded.height;
             Size(fw, fh, imported, out int w, out int h);
             if (!TryLayout(decoded.format, out var layout))
-                return NativePixels.CopyOf(PixelsOf(decoded, imported, out w, out h), w, h);
+            {
+                var expanded = TryExpandOnGpu(decoded);
+                if (expanded == null)
+                    return NativePixels.CopyOf(PixelsOf(decoded, imported, out w, out h), w, h);
+                try { return NativePixelsOf(expanded, imported); }
+                finally { UnityEngine.Object.DestroyImmediate(expanded); }
+            }
             var raw = decoded.GetPixelData<byte>(0);
             var dst = NativePixels.Allocate(w, h);
             try
@@ -141,6 +148,54 @@ namespace Iroca
                 throw;
             }
             return dst;
+        }
+
+        // GPU で展開するテクスチャの形式。GetPixels32 との差は、DXT1・DXT5(Crunch を含む)が GPU の丸めで最大 1 段、BC7 と RGBAHalf は 0
+        // (WorkingResolutionTests)。BC4・BC5 のように GPU と GetPixels32 でチャンネルの割り当てが違う形式は入れない。
+        private static bool ExpandsOnGpu(TextureFormat f)
+        {
+            switch (f)
+            {
+                case TextureFormat.DXT1:
+                case TextureFormat.DXT5:
+                case TextureFormat.DXT1Crunched:
+                case TextureFormat.DXT5Crunched:
+                case TextureFormat.BC7:
+                case TextureFormat.BC6H:
+                case TextureFormat.RGBAHalf:
+                case TextureFormat.RGBAFloat:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// 圧縮されたテクスチャを GPU で展開した RGBA32 のテクスチャ(呼ぶ側が破棄する)。GPU が無い(-nographics)・対象の形式でなければ null。
+        /// GetPixels32 は全画素の管理配列(4K で 64MB)を毎回作り、Mono のヒープは縮まない。領域を指定する GetPixels は同じ値を返すが、
+        /// 4K で 2 秒かかり、Crunch は読めない(GPU は 50ms)。
+        /// </summary>
+        private static Texture2D TryExpandOnGpu(Texture2D source)
+        {
+            if (!ExpandsOnGpu(source.format) || SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null) return null;
+            int w = source.width, h = source.height;
+            bool srgb = source.isDataSRGB;
+            var rt = RenderTexture.GetTemporary(w, h, 0, RenderTextureFormat.ARGB32,
+                srgb ? RenderTextureReadWrite.sRGB : RenderTextureReadWrite.Linear);
+            var active = RenderTexture.active;
+            try
+            {
+                Graphics.Blit(source, rt);
+                RenderTexture.active = rt;
+                var result = new Texture2D(w, h, TextureFormat.RGBA32, false, !srgb);
+                result.ReadPixels(new Rect(0, 0, w, h), 0, 0, false);
+                return result;
+            }
+            finally
+            {
+                RenderTexture.active = active;
+                RenderTexture.ReleaseTemporary(rt);
+            }
         }
 
         // 縮めないときの写し(GetPixels32 と同じ値。RGBA32 はそのまま写す)。
