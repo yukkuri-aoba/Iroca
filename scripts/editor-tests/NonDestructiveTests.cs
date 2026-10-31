@@ -15,6 +15,30 @@ namespace Iroca.EditorTests
     /// </summary>
     public class NonDestructiveTests
     {
+        // 消えたレシピへの参照は、空の欄(外している)と見分ける。
+        [Test]
+        public void LostRecipeReference_IsToldFromAnEmptySlot()
+        {
+            using (var assets = TestAssets.Create())
+            {
+                string tex = assets.WritePng("tex", TestAssets.Solid(4, 4, new Color32(200, 50, 50, 255)), 4, 4);
+                var recipe = RecipeStore.Create(AssetDatabase.LoadAssetAtPath<Texture2D>(tex), new IrocaSessionState(), assets.Folder);
+                string recipePath = AssetDatabase.GetAssetPath(recipe);
+                var go = new GameObject("lost-recipe");
+                try
+                {
+                    var component = go.AddComponent<IrocaRecolor>();
+                    component.recipes = new System.Collections.Generic.List<IrocaRecipe> { recipe, null };
+                    Assert.IsFalse(NonDestructiveApplier.IsLostReference(component, 0), "ある");
+                    Assert.IsFalse(NonDestructiveApplier.IsLostReference(component, 1), "空の欄");
+                    AssetDatabase.DeleteAsset(recipePath);
+                    Assert.IsTrue(NonDestructiveApplier.IsLostReference(component, 0), "消えた");
+                    Assert.IsFalse(NonDestructiveApplier.IsLostReference(component, 1), "空の欄");
+                }
+                finally { Object.DestroyImmediate(go); }
+            }
+        }
+
         private const int W = 64, H = 64;
 
         private TestAssets _assets;

@@ -19,6 +19,10 @@ namespace Iroca.NdmfIntegration
             ["iroca.texture_not_used:description"] = "{0} とその子のマテリアルに、レシピ {1} の元テクスチャを使っているものがありません。このレシピでは何も変わりませんでした。",
             ["iroca.texture_not_used:hint"] = "コンポーネントを衣装やアバターの親に置いてください。マテリアルが書き出し済みの _recolored.png を指している場合は、元のテクスチャに戻すと非破壊で扱えます。",
 
+            ["iroca.build_failed.lost_recipe"] = "いろか: レシピが見つかりません",
+            ["iroca.build_failed.lost_recipe:description"] = "{0} が指しているレシピがもうありません。そのため色替えできませんでした。",
+            ["iroca.build_failed.lost_recipe:hint"] = "レシピを元に戻す（Git など）か、いろかのウィンドウから登録し直してください。この色替えなしでアップロードするときは、コンポーネントの欄を外してください。",
+
             ["iroca.build_failed.no_source"] = "いろか: レシピに元テクスチャがありません",
             ["iroca.build_failed.no_source:description"] = "{0} のレシピ {1} に元テクスチャが設定されていないので、色替えできませんでした。",
             ["iroca.build_failed.no_source:hint"] = "レシピの「元テクスチャ」に色替え前のテクスチャを設定してください。",
@@ -37,6 +41,10 @@ namespace Iroca.NdmfIntegration
             ["iroca.texture_not_used"] = "Iroca: No material to recolor",
             ["iroca.texture_not_used:description"] = "No material under {0} uses the source texture of recipe {1}. Nothing was changed by this recipe.",
             ["iroca.texture_not_used:hint"] = "Place the component on the outfit or avatar root. If the material points to an exported _recolored.png, switch it back to the original texture.",
+
+            ["iroca.build_failed.lost_recipe"] = "Iroca: The recipe is missing",
+            ["iroca.build_failed.lost_recipe:description"] = "{0} points to a recipe that no longer exists, so it could not be recolored.",
+            ["iroca.build_failed.lost_recipe:hint"] = "Restore the recipe (for example with Git), or register again from the Iroca window. To upload without this recolor, remove the entry from the component.",
 
             ["iroca.build_failed.no_source"] = "Iroca: The recipe has no source texture",
             ["iroca.build_failed.no_source:description"] = "Recipe {1} of {0} has no source texture, so it could not be recolored.",
@@ -80,6 +88,8 @@ namespace Iroca.NdmfIntegration
             {
                 case NonDestructiveApplier.Problem.MissingRecipe:
                     return (default, null);
+                case NonDestructiveApplier.Problem.LostRecipe:
+                    return (ErrorSeverity.Error, "iroca.build_failed.lost_recipe");
                 case NonDestructiveApplier.Problem.TextureNotUsedInScope:
                     return (ErrorSeverity.NonFatal, "iroca.texture_not_used");
             }

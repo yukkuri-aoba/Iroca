@@ -37,6 +37,8 @@ namespace Iroca
         {
             /// <summary>コンポーネントにレシピが設定されていない。</summary>
             MissingRecipe,
+            /// <summary>設定したレシピのアセットが無い(Missing)。元の色のまま上がらないように止める。</summary>
+            LostRecipe,
             /// <summary>範囲内に元テクスチャを使うマテリアルが無い(何も変わらない)。</summary>
             TextureNotUsedInScope,
             /// <summary>色替え済みテクスチャを作れなかった(詳細は <see cref="RecipeTextureBuilder.Failure"/>)。</summary>
@@ -143,8 +145,14 @@ namespace Iroca
                             host.Report(Problem.MissingRecipe, component, null, RecipeTextureBuilder.Failure.None);
                         continue;
                     }
-                    foreach (var recipe in recipes)
-                        replaced += ApplyOne(component, recipe, host, state, stage);
+                    for (int i = 0; i < recipes.Count; i++)
+                    {
+                        // 消えたレシピへの参照は、空の欄(利用者が外している)と違って色替えしたかった印。
+                        if (recipes[i] == null && stage != Stage.Late && IsLostReference(component, i))
+                            host.Report(Problem.LostRecipe, component, null, RecipeTextureBuilder.Failure.None);
+                        else
+                            replaced += ApplyOne(component, recipes[i], host, state, stage);
+                    }
                 }
             }
             finally
@@ -157,6 +165,18 @@ namespace Iroca
                         if (c != null) Object.DestroyImmediate(c);
             }
             return replaced;
+        }
+
+        // 欄に参照はあるのにアセットが無い(Missing)か。
+        internal static bool IsLostReference(IrocaRecolor component, int index)
+        {
+            using (var so = new UnityEditor.SerializedObject(component))
+            {
+                var list = so.FindProperty(nameof(IrocaRecolor.recipes));
+                if (list == null || index >= list.arraySize) return false;
+                var element = list.GetArrayElementAtIndex(index);
+                return element.objectReferenceValue == null && element.objectReferenceInstanceIDValue != 0;
+            }
         }
 
         private static int ApplyOne(IrocaRecolor component, IrocaRecipe recipe, IHost host, BuildState state,
