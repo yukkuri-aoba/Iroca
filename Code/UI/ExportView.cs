@@ -482,7 +482,6 @@ namespace Iroca
                 discard: payload => payload.png.Dispose());
         }
 
-        /// <summary>エクスポート失敗をログ＋UI 通知へ流す（BG 側と apply 側で共有）。</summary>
         /// <summary>
         /// 「新しいファイルにしない」で保存するときの確認の文と、確定のボタン。
         /// 元が PNG なら真の上書き。非 PNG（.jpg/.tga 等）だと ChangeExtension は元ファイルを上書きせず隣に .png を作るだけで、
@@ -500,6 +499,7 @@ namespace Iroca
             return (Localization.OverwriteNonPngConfirm(Path.GetFileName(outputPath)), Localization.OK);
         }
 
+        /// <summary>エクスポート失敗をログ＋UI 通知へ流す（BG 側と apply 側で共有）。</summary>
         private void ReportExportFailure(System.Exception ex)
         {
             Debug.LogError($"[Iroca] Export failed: {ex.Message}\n{ex.StackTrace}");

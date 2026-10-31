@@ -86,12 +86,28 @@ namespace Iroca
             // このセッションでの空保存による削除・無退避上書きを抑止する。
             _maskLoadFailed = unreadable || fileState != null;
 
+            // レシピが結び付いていれば、同じ内容がレシピにある。読めないまま空で進むと、次の保存でレシピのマスクまで空になる
+            // (印が守るのはファイルだけ)。印は残すので、ファイルは次の保存で退避してから書き直す。
+            if (_maskLoadFailed && RestoreFromBoundRecipe()) return;
+
             // 2) ファイルが無ければ、旧 SessionState 形式（Phase 6 以前のデータ）からマイグレート。
             if (TryMigrateFromLegacySessionState(path))
             {
                 maskDirty = true;
                 return;
             }
+        }
+
+        // 結び付いたレシピのマスクを編集中のマスクへ展開する。レシピが無い・読めない・マスクが無ければ false。
+        private bool RestoreFromBoundRecipe()
+        {
+            var recipe = _host.BoundRecipe;
+            var state = recipe != null ? RecipeStore.Load(recipe) : null;
+            var masks = state?.maskState;
+            if (masks == null || masks.width <= 0 || masks.height <= 0) return false;
+            Workspace.DecodeFrom(masks);
+            maskDirty = true;
+            return true;
         }
 
         /// <summary>

@@ -4,6 +4,7 @@ using System.IO;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace Iroca.EditorTests
 {
@@ -59,6 +60,31 @@ namespace Iroca.EditorTests
                 foreach (var f in Directory.GetFiles(dir, _guid + "*")) File.Delete(f);
             }
             _assets.Dispose();
+        }
+
+        // 再読み込みのときにマスクのファイルが読めなくても(ウイルス対策ソフトのロックなど)、レシピの同じマスクを使う。
+        // 空のまま進むと、次の保存でレシピのマスクまで空になり、開き直すとファイルも消えて戻らなかった。
+        [Test]
+        public void MaskFileUnreadable_UsesTheRecipeMasks_AndKeepsThemInTheRecipe()
+        {
+            _win.Editing.Masks.Reset(4, 4);
+            _win.Editing.Masks.WritableCommon().Set(3, true);
+            Save();
+            StringAssert.StartsWith("R:", RecipeStore.Load(_recipe).maskState.commonMaskBase64, "テストの前提: レシピにマスクがある");
+
+            string file = Directory.GetFiles(MaskFileStore.CacheDir, _guid + "*")[0];
+            File.WriteAllText(file, "{ broken");
+            LogAssert.ignoreFailingMessages = true;
+            try
+            {
+                _win._maskView.RestoreFromSession();
+                Assert.IsNotNull(_win.Editing.Masks.Common, "レシピのマスクを使っていない");
+                Assert.IsTrue(_win.Editing.Masks.Common.Get(3));
+                Save();
+            }
+            finally { LogAssert.ignoreFailingMessages = false; }
+            StringAssert.StartsWith("R:", RecipeStore.Load(_recipe).maskState.commonMaskBase64, "保存でレシピのマスクが消えた");
+            Assert.AreEqual("{ broken", File.ReadAllText(file + ".bak"), "読めなかったファイルを退避していない");
         }
 
         [Test]
