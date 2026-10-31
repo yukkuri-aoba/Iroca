@@ -1639,7 +1639,7 @@ namespace Iroca
                 var wider = At(0.6f);
                 var widest = At(1f);
                 Check(Subset(standard, wider) && Subset(wider, widest), "広げる側は単調");
-                Check(wider[orange] && !wider[blue] && widest[blue], "広げるとスポイト色に近い素材から足す");
+                Check(!At(0.3f)[orange] && widest[orange], "広げると近い色の領域も入る");
             }
 
             // 地図の使い回し: 同じ原本なら作り直さず、Clear で手放す。使っている途中に Clear されても壊れない

@@ -55,6 +55,10 @@ namespace Iroca
         // 投票は、クリックした領域が見える画素のこの割合以下のときだけ(縁や点をクリックしたときの救い)。
         // 十分に大きな領域をクリックしたなら、その素材を選んだとみなす(提案が隣の部品を含むことがあるので)。
         internal const double VoteRegionShare = 1e-4;
+        // 広さを上げるときの、値から届く距離への曲線と、陰影の線に沿って進んだ長さの重み。
+        internal const double WidenPower = 1.5;
+        internal const double WidenAlongWeight = 0.5;
+        internal const double WidenAreaWeight = 1.5;
         // ツヤを足す条件: 選んだ領域との接触の割合、見える画素に対する領域の面積の割合、彩度の余裕、くり返しの回数。
         // 境目のはっきりした白は、ツヤとも別の部品とも言えるので、ごく小さいものだけ足す(GlintTinyArea)。
         // なだらかにつながるなら(選んだ領域との接触のうち GlintSoftContact 以上)ツヤなので GlintArea まで足す。
@@ -507,7 +511,7 @@ namespace Iroca
             for (int r = 1; r <= n; r++) selected[r] = wanted[MaterialOfRegion[r]];
             if (zone.materialTube != null && zone.materialTube.Length >= 3) ApplyTube(selected, zone.materialTube);
             AddGlints(selected);
-            WidenToNearMaterials(selected, wanted, zone);
+            WidenAlongShading(selected, zone);
             if (zone.useFloodFill && zone.seedUV.x >= 0f)
             {
                 int seed = HomeRegionOfUv(zone.seedUV, w, h);
@@ -699,7 +703,7 @@ namespace Iroca
 
         /// <summary>
         /// 広さ(許容のスライダー)を既定より下げたときの、スポイト色からの色の差の上限(RGB の最大の差)。既定以上なら -1。
-        /// 値に比例して狭まり、0 ならスポイト色そのものの画素だけになる。領域の中にも色の幅があるので、絞るのは画素単位。
+        /// 値に比例して狭まる。領域の中にも色の幅があるので、絞るのは画素単位。0 は何も選ばない(呼ぶ側で扱う)。
         /// </summary>
         public int NarrowLimit(bool[] selected, ColorZone zone)
         {
@@ -721,35 +725,51 @@ namespace Iroca
 
         private static int RoundByte(float c) => Clamp((int)(c * 255f + 0.5f), 256);
 
-        // 広さを既定より上げたとき: 素材の代表色(面積の重みの平均)がスポイト色から reach 以内の素材を足す。値に対して単調。
-        // 上げ始めは細かく動くように 2 乗にする(OkLab の距離は黒と白で約 1)。
-        private void WidenToNearMaterials(bool[] selected, bool[] wanted, ColorZone zone)
+        // 広さを既定より上げたとき: 選択につながる領域を、陰影の線に近い順に足す。少し上げれば近いツヤと影だけが入り、値に対して単調に広がる。
+        // 素材を丸ごと足すと途中で何も変わらず、ある値で一気に増える(スライダーでハイライトだけを足せない)。
+        private void WidenAlongShading(bool[] selected, ColorZone zone)
         {
             double width = zone.tolerance, standard = ZonesJsonDefaults.Tolerance;
             if (width <= standard) return;
             OkLab.RgbToOklab(zone.sampleColor.r, zone.sampleColor.g, zone.sampleColor.b, out float L, out float a, out float b);
-            RegionInfo* table = _regions.Regions;
-            double t = (width - standard) / (1.0 - standard);
-            double reach = t * t;
-            var weight = new double[Count + 1];
-            var sum = new double[(Count + 1) * 3];
+            double reach = Math.Pow((width - standard) / (1.0 - standard), WidenPower);
+            var stack = new Stack<int>();
             for (int r = 1; r < selected.Length; r++)
+                if (selected[r]) stack.Push(r);
+            while (stack.Count > 0)
             {
-                int m = MaterialOfRegion[r];
-                weight[m] += table[r].Area;
-                sum[m * 3] += table[r].Area * _lab[r * 3];
-                sum[m * 3 + 1] += table[r].Area * _lab[r * 3 + 1];
-                sum[m * 3 + 2] += table[r].Area * _lab[r * 3 + 2];
+                int r = stack.Pop();
+                for (int k = _neighborStart[r]; k < _neighborStart[r + 1]; k++)
+                {
+                    int nb = _neighbors[k];
+                    if (selected[nb]) continue;
+                    // 大きな領域は後回し(ツヤの白と背景の白は同じ色なので、色だけだと一緒に入る)。
+                    double late = WidenAreaWeight * _regions.Regions[nb].Area / Math.Max(1L, _visibleArea);
+                    if (ShadingCost(nb, L, a, b) + late > reach) continue;
+                    selected[nb] = true;
+                    stack.Push(nb);
+                }
             }
-            var add = new bool[Count + 1];
-            for (int m = 1; m <= Count; m++)
-            {
-                if (weight[m] <= 0.0 || wanted[m]) continue;
-                double dL = sum[m * 3] / weight[m] - L, da = sum[m * 3 + 1] / weight[m] - a, db = sum[m * 3 + 2] / weight[m] - b;
-                add[m] = dL * dL + da * da + db * db <= reach * reach;
-            }
-            for (int r = 1; r < selected.Length; r++)
-                if (add[MaterialOfRegion[r]]) selected[r] = true;
+        }
+
+        // 陰影の線(スポイト色と白、スポイト色と黒を結ぶ 2 本)からの離れ具合。線からの距離に、線に沿って進んだ長さを少し足す
+        // (線の上でも、スポイト色から遠い白や黒は後から入る)。
+        private double ShadingCost(int r, double L, double a, double b)
+        {
+            double pL = _lab[r * 3], pa = _lab[r * 3 + 1], pb = _lab[r * 3 + 2];
+            double toWhite = CostToward(pL, pa, pb, L, a, b, 1.0);
+            double toBlack = CostToward(pL, pa, pb, L, a, b, 0.0);
+            return Math.Min(toWhite, toBlack);
+        }
+
+        private static double CostToward(double pL, double pa, double pb, double L, double a, double b, double endL)
+        {
+            double dL = endL - L, da = -a, db = -b;
+            double length2 = dL * dL + da * da + db * db;
+            double t = length2 > 0.0 ? ((pL - L) * dL + (pa - a) * da + (pb - b) * db) / length2 : 0.0;
+            t = t < 0.0 ? 0.0 : t > 1.0 ? 1.0 : t;
+            double eL = pL - (L + t * dL), ea = pa - (a + t * da), eb = pb - (b + t * db);
+            return Math.Sqrt(eL * eL + ea * ea + eb * eb) + WidenAlongWeight * t * Math.Sqrt(length2);
         }
 
         private void ApplyTube(bool[] selected, float[] tube)

@@ -53,6 +53,8 @@ namespace Iroca
             byte sampleR = (byte)Mathf.Clamp(Mathf.RoundToInt(zone.sampleColor.r * 255f), 0, 255);
             byte sampleG = (byte)Mathf.Clamp(Mathf.RoundToInt(zone.sampleColor.g * 255f), 0, 255);
             byte sampleB = (byte)Mathf.Clamp(Mathf.RoundToInt(zone.sampleColor.b * 255f), 0, 255);
+            // 広さ 0 は何も塗らない(スポイト色と同じ画素だけを塗ると、グラデの等高線に沿った点々になる)。
+            if (zone.tolerance <= 0f) Array.Clear(selected, 0, selected.Length);
             bool WithinNarrow(Color32 c) => narrow < 0
                 || (Math.Abs(c.r - sampleR) <= narrow && Math.Abs(c.g - sampleG) <= narrow && Math.Abs(c.b - sampleB) <= narrow);
 
