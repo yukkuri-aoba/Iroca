@@ -395,6 +395,9 @@ namespace Iroca
                 // 前回のテクスチャを解決できなければ、今のテクスチャ（レイアウトのもの）のまま読む。
                 TryAutoLoadLastEditedTexture();
                 if (SourceTexture != null) LoadPersistedSessionForCurrentTexture();
+                // 新しく開いた窓の宛先は全ゾーン共通のまま。テクスチャを選び直したときと同じく、先頭のゾーンを直す対象にする
+                // (共通のままだと、右クリックにゾーン宛の項目が出ず、ブラシも全ゾーン共通へ塗る)。
+                _maskView.ResetActiveTarget();
             }
             else
             {
@@ -471,6 +474,7 @@ namespace Iroca
         {
             bool restored = Doc.ConsumeRestored();
             bool textureChanged = restored && SourceTexture != _editedTexture;
+            if (textureChanged) _maskView?.RememberTargetIdOf(_editedTexture);
             // 登録より前の記録まで戻って同じテクスチャのまま外れると、以後の編集はレシピに入らず、開き直すと古いレシピが正として読まれて、
             // その後の編集が消える(_recipeKeptOverUndo)。
             if (restored && !textureChanged && Doc.boundRecipe == null && _editedRecipe != null && _editedRecipe == _recipeKeptOverUndo)
@@ -515,6 +519,8 @@ namespace Iroca
             // 読めなかった印は戻す前のテクスチャのもの。残したままだと、読めなかったファイルを空の保存で削除する。
             RecheckSessionFile(adoptMissed: false);
             _maskView?.RecheckMaskFile();
+            // いま直しているゾーンは文書の外。
+            _maskView?.RestoreTargetOf(SourceTexture);
             // 書き出しの既定の名前。
             string path = CurrentTexturePath(SourceTexture);
             if (path != null) _exportView?.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(path));

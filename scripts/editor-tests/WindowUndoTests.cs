@@ -349,6 +349,76 @@ namespace Iroca.EditorTests
             Assert.IsFalse(_win.LastSaveFailed);
         }
 
+        // 開き直した窓の宛先は先頭のゾーン。全ゾーン共通のままだと、右クリックにゾーン宛の項目が出ず、ブラシも共通へ塗る。
+        [Test]
+        public void ReopenedWindow_TargetsTheFirstZone()
+        {
+            AddZones("服", "靴");
+            Assert.IsTrue(_win.SavePersistedSessionForCurrentTexture());
+            Object.DestroyImmediate(_win);
+            _win = ScriptableObject.CreateInstance<IrocaWindow>();
+
+            Assert.AreEqual(2, _win.Session.zones.Count, "テストの前提: 読み直している");
+            Assert.AreEqual(0, _win._maskView.activeMaskTarget, "全ゾーン共通になった");
+        }
+
+        // スポイト・シード指定を武装したらブラシを切る(残すと、カードは武装の色なのにクリックは塗りになる)。
+        [Test]
+        public void ArmingEyedropperOrSeed_TurnsTheBrushOff()
+        {
+            AddZones("服");
+            var zone = _win.Session.zones[0];
+            _win._maskView.ActivateBrush(erase: false);
+            _win.ArmEyedropper(zone.id);
+            Assert.IsFalse(_win._maskView.maskPaintActive);
+
+            _win._maskView.ActivateBrush(erase: false);
+            _win.ArmSeedPick(zone.id);
+            Assert.IsFalse(_win._maskView.maskPaintActive);
+            Assert.IsNull(_win.EyedropperZoneId, "スポイトと排他でない");
+        }
+
+        // 別の窓にフォーカスがあっても Esc で解除できる。
+        [Test]
+        public void GlobalEscape_ClearsTheModes()
+        {
+            AddZones("服");
+            _win.ArmEyedropper(_win.Session.zones[0].id);
+            _win.ClearModesOnEscape(EventType.KeyUp, KeyCode.Escape);
+            Assert.IsNotNull(_win.EyedropperZoneId, "押したときだけ解除する");
+            _win.ClearModesOnEscape(EventType.KeyDown, KeyCode.Escape);
+            Assert.IsNull(_win.EyedropperZoneId);
+        }
+
+        // テクスチャを選ぶ前に作ったゾーンは、そのテクスチャに編集内容が無ければ引き継ぐ。
+        [Test]
+        public void ZonesMadeWithoutTexture_AreCarriedToTheTexture()
+        {
+            var texture = _win.SourceTexture;
+            _win.SwitchSourceTexture(null);
+            AddZones("先に作った");
+            _win.SwitchSourceTexture(texture);
+            Assert.AreEqual(1, _win.Session.zones.Count, "作ったゾーンが消えた");
+            Assert.AreEqual("先に作った", _win.Session.zones[0].name);
+        }
+
+        // テクスチャの切り替えを Undo したら、そのテクスチャで直していたゾーンへ戻る。
+        [Test]
+        public void UndoOfTextureSwitch_RestoresTheTargetZone()
+        {
+            AddZones("服", "靴");
+            _win._maskView.activeMaskTarget = 1;
+            string other = _assets.WritePng("target-other", TestAssets.Solid(W, H, Color.white), W, H);
+            Undo.IncrementCurrentGroup();
+            _win.SwitchSourceTexture(AssetDatabase.LoadAssetAtPath<Texture2D>(other));
+            Undo.IncrementCurrentGroup();
+
+            Undo.PerformUndo();
+            Assert.AreEqual(_tex, AssetDatabase.GetAssetPath(_win.SourceTexture), "テストの前提: 戻っている");
+            Assert.AreEqual(1, _win._maskView.activeMaskTarget, "直していたゾーンへ戻らなかった");
+            CleanOther(other);
+        }
+
         // 自動調整を押した後に Ctrl+Z やテクスチャの切り替えをしたら、結果を当てない(押したときの状態はもう無い)。
         [Test]
         public void AutoTuneRunning_IsStoppedByUndo()

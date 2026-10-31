@@ -777,6 +777,42 @@ namespace Iroca
             maskDirty = true;
         }
 
+        // テクスチャごとの、離れたときに直していたゾーン(Undo でテクスチャが戻ったときに指し直す)。
+        [System.NonSerialized] private Dictionary<int, string> _targetByTexture;
+
+        /// <summary>テクスチャを離れる前に呼ぶ。いま直しているゾーンを、そのテクスチャのものとして覚える。</summary>
+        public void RememberTargetOf(Texture2D texture)
+        {
+            if (texture == null) return;
+            RememberActiveTarget();
+            (_targetByTexture ??= new Dictionary<int, string>())[texture.GetInstanceID()] = _activeTargetZoneId;
+        }
+
+        /// <summary>Undo で離れるテクスチャについて覚える。ゾーンの並びはもう戻っているので、描く前に覚えた id を使う。</summary>
+        public void RememberTargetIdOf(Texture2D texture)
+        {
+            if (texture != null) (_targetByTexture ??= new Dictionary<int, string>())[texture.GetInstanceID()] = _activeTargetZoneId;
+        }
+
+        /// <summary>Undo でテクスチャが戻った後に呼ぶ。そのテクスチャで直していたゾーンを指す(覚えていなければ先頭)。</summary>
+        public void RestoreTargetOf(Texture2D texture)
+        {
+            _activeTargetZoneId = null;
+            string id = null;
+            if (texture != null && _targetByTexture != null) _targetByTexture.TryGetValue(texture.GetInstanceID(), out id);
+            var zones = _host?.Session?.zones;
+            if (zones != null && !string.IsNullOrEmpty(id))
+                for (int i = 0; i < zones.Count; i++)
+                    if (zones[i]?.id == id)
+                    {
+                        activeMaskTarget = i;
+                        EnforceLayerConsistency();
+                        maskDirty = true;
+                        return;
+                    }
+            ResetActiveTarget();
+        }
+
         /// <summary>いま直しているゾーンを覚える。別ウィンドウも含めて、描く前に呼ぶ。</summary>
         public void RememberActiveTarget()
         {

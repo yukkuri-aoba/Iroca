@@ -78,6 +78,10 @@ namespace Iroca
                 ShowNotification(new GUIContent($"{Localization.Error}: {Localization.EditSaveFailed}"));
             // Session をまるごと差し替えるため、深い Undo (RegisterCompleteObjectUndo) を使う。
             Editing.RecordMaskEdit("Change Source Texture");
+            // テクスチャを選ぶ前に作ったゾーン・読んだプリセットは、そのテクスチャに編集内容が無ければ引き継ぐ。
+            var carried = SourceTexture == null && !SessionFileStore.IsEmpty(Session) ? Session : null;
+            // Undo でこのテクスチャへ戻ったときに、同じゾーンを直す対象へ戻す。
+            _maskView.RememberTargetOf(SourceTexture);
             SourceTexture = newTex;
             BindRecipe(recipe);
             _previewView.InvalidateSourceCache();
@@ -88,6 +92,11 @@ namespace Iroca
                 _exportView.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(path));
             }
             LoadPersistedSessionForCurrentTexture();
+            if (carried != null && SessionFileStore.IsEmpty(Session) && newTex != null)
+            {
+                Session = carried;
+                Editing.NotifyChanged(EditChange.Replaced);
+            }
             // 前のテクスチャのゾーン番号を引き継がない(別のゾーンを指してしまう)。先頭のゾーンを直す対象にする。
             _maskView.ResetActiveTarget();
             RememberLastEditedTexture();
