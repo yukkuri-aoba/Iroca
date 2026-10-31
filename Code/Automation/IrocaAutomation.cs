@@ -381,6 +381,7 @@ namespace Iroca
             { result.error = "failed to decode source image."; return result; }
 
             NativePixels originalPixels = null;
+            NativeMemoryLifecycle.WorkStarted();
             try
             {
                 int w = pixels.Width, h = pixels.Height;
@@ -411,6 +412,8 @@ namespace Iroca
             {
                 originalPixels?.Release();
                 pixels.Release();
+                NativeMemoryLifecycle.WorkEnded();
+                ReleaseMemoryIfNoWindow();
             }
         }
 

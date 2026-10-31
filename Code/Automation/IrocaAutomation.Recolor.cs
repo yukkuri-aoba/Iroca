@@ -147,7 +147,11 @@ namespace Iroca
             finally
             {
                 // 待たずに終わった(結果・エラーを返した)依頼の原本はここで返す。待つ依頼は仕上げ・取り消しで返す。
-                if (!ReferenceEquals(s_job, job)) job.ReleasePixels();
+                if (!ReferenceEquals(s_job, job))
+                {
+                    job.ReleasePixels();
+                    ReleaseMemoryIfNoWindow();
+                }
             }
         }
 
@@ -258,6 +262,7 @@ namespace Iroca
                 job.Cancel();
                 job.finalJson = FinishRecolor(job.r, $"{ex.GetType().Name}: {ex.Message}");
             }
+            ReleaseMemoryIfNoWindow();
             Unhook();
         }
 
@@ -272,7 +277,15 @@ namespace Iroca
         {
             s_job?.Cancel();
             s_job = null;
+            ReleaseMemoryIfNoWindow();
             Unhook();
+        }
+
+        // 窓があれば、作業配列は手を止めた 10 秒後に、色の表は窓を閉じるときに返る。窓が無いと次の計算があるとは限らないので、
+        // 依頼が終わったらここで返す(背景の計算が残っていれば、それが終わったときに返す)。
+        private static void ReleaseMemoryIfNoWindow()
+        {
+            if (!EditingSessionRegistry.Any) NativeMemoryLifecycle.ReleaseWhenIdle();
         }
 
         /// <summary>
@@ -458,7 +471,9 @@ namespace Iroca
             var state = job.state;
             var tex = job.tex;
             foreach (var z in state.zones) if (z != null) z.UpdateCacheIfNeeded();
-            FillResult(job, Compare(job.work, state, CancellationToken.None, keepAfter: false, out _));
+            NativeMemoryLifecycle.WorkStarted();
+            try { FillResult(job, Compare(job.work, state, CancellationToken.None, keepAfter: false, out _)); }
+            finally { NativeMemoryLifecycle.WorkEnded(); }
 
             // ── 反映 ──
             if (r.apply == ApplyAvatar)
@@ -580,6 +595,7 @@ namespace Iroca
             }
             var work = job.work.AddRef();   // 背景の仕上げが読む間の参照
             var ct = job.cts.Token;
+            NativeMemoryLifecycle.WorkStarted();   // 手を止めたときの縮小と、全部返す予約がこの計算を待つように
             // 取り消しのトークンは Task.Run に渡さない(始まる前に取り消されると中身が走らず、参照を返せない)。
             job.export = Task.Run(() =>
             {
@@ -607,6 +623,7 @@ namespace Iroca
                     after?.Release();
                     full?.Release();
                     work.Release();
+                    NativeMemoryLifecycle.WorkEnded();
                 }
             });
             return null;

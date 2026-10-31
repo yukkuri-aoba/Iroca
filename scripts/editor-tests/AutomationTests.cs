@@ -248,6 +248,42 @@ namespace Iroca.EditorTests
             Assert.AreEqual(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Pixels), "静的 API");
         }
 
+        // 窓が無いと、次にプレビューの計算が走るとは限らない。色替えが終わったら作業配列と色の表を OS へ返す
+        // (返さないと 8K で約 3GB が、次のスクリプトの読み込みまで残っていた)。
+        [TestCase("preview", "[{\"name\":\"red\",\"at\":[0.25,0.5],\"to\":\"#1A2B5C\"}]")]
+        [TestCase("png", "[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]")]
+        public void Recolor_WithoutWindow_ReturnsTheWorkArraysAndColorTable(string apply, string changes)
+        {
+            Assume.That(EditingSessionRegistry.Any, Is.False, "ほかのテストの窓が残っている");
+            string src = Halves();
+            PixelProcessor.ReleaseWorkBuffers();
+            RecolorOk(Request(src, apply, changes));
+            Assert.IsTrue(WaitForMemoryReturned(), "作業配列 " + IrocaNativeMemory.LiveBytesOf(NativeUsage.Work)
+                + " バイト・色の表 " + IrocaNativeMemory.LiveBytesOf(NativeUsage.Palette) + " バイトが残っている");
+        }
+
+        [Test]
+        public void RecolorByPreset_WithoutWindow_ReturnsTheWorkArraysAndColorTable()
+        {
+            Assume.That(EditingSessionRegistry.Any, Is.False, "ほかのテストの窓が残っている");
+            PixelProcessor.ReleaseWorkBuffers();
+            Run(RedToBlue(out _), out _);
+            Assert.IsTrue(WaitForMemoryReturned(), "作業配列 " + IrocaNativeMemory.LiveBytesOf(NativeUsage.Work)
+                + " バイト・色の表 " + IrocaNativeMemory.LiveBytesOf(NativeUsage.Palette) + " バイトが残っている");
+        }
+
+        // 返すのはスレッドプールで進むので、少し待つ。
+        private static bool WaitForMemoryReturned()
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (IrocaNativeMemory.LiveBytesOf(NativeUsage.Work) + IrocaNativeMemory.LiveBytesOf(NativeUsage.Palette) > 0)
+            {
+                if (watch.ElapsedMilliseconds > 5000) return false;
+                System.Threading.Thread.Sleep(20);
+            }
+            return true;
+        }
+
         [Test]
         public void Recolor_Png_ShrunkOnImport_WritesTheOriginalResolutionInTheBackground()
         {
