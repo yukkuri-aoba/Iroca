@@ -35,6 +35,22 @@ namespace Iroca.EditorTests
 
         private T Track<T>(T o) where T : Object { _created.Add(o); return o; }
 
+        // 選んだオブジェクトがアバターの外(複数のアバターをまとめた親など)なら、登録先にしない。
+        [Test]
+        public void SuggestTarget_SelectionOutsideAnAvatar_IsNotATarget()
+        {
+            if (DescriptorType() == null) Assert.Ignore("VRChat SDK の無いホストでは、アバターの内側かを見分けない");
+            var group = Track(new GameObject("avatars"));
+            var avatar = AvatarRoot("avatar");
+            avatar.transform.SetParent(group.transform, false);
+            var outfit = Track(new GameObject("outfit"));
+            outfit.transform.SetParent(avatar.transform, false);
+
+            Assert.IsNull(RecipeRegistration.SuggestTarget(null, group), "アバターの外の親を登録先にした");
+            Assert.AreSame(avatar, RecipeRegistration.SuggestTarget(null, avatar));
+            Assert.AreSame(outfit, RecipeRegistration.SuggestTarget(null, outfit));
+        }
+
         private Texture2D Tex(string name) => Track(new Texture2D(2, 2) { name = name });
 
         private IrocaRecipe Recipe(string name, Texture2D source)

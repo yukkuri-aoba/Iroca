@@ -12,14 +12,14 @@ namespace Iroca
     internal static class RecipeRegistration
     {
         /// <summary>
-        /// 登録先の候補。シーン上の GameObject が選ばれていればそれ。無ければ、開いているシーンで
+        /// 登録先の候補。シーン上の GameObject が選ばれていればそれ(アバターの外なら決めない)。無ければ、開いているシーンで
         /// <paramref name="texture"/>(か、それをいろかで書き出した画像)を使っている Renderer の共通の親
         /// (複数のアバター = ルートが複数にまたがるときや、共通の親がどのアバターの内側にも無いときは決めない)。
         /// 決まらなければ null。
         /// </summary>
         public static GameObject SuggestTarget(Texture2D texture, GameObject selected)
         {
-            if (selected != null) return IsSceneObject(selected) ? selected : null;
+            if (selected != null) return IsSceneObject(selected) && IsInsideAvatar(selected.transform) ? selected : null;
             if (texture == null) return null;
 
             var exports = ExportsOf(texture);

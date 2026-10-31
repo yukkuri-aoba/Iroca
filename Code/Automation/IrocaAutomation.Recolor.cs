@@ -379,6 +379,10 @@ namespace Iroca
                 {
                     job.target = FindSceneObject(req.avatar, out string findError);
                     if (job.target == null) return findError;
+                    if (!RecipeRegistration.IsInsideAvatar(job.target.transform))
+                        return $"'{req.avatar}' is not inside an avatar (no VRC Avatar Descriptor on it or its parents). "
+                            + "Registered there, the recolor would show in the scene preview but not in the upload. "
+                            + "Pass the avatar or an object under it.";
                 }
                 else
                 {

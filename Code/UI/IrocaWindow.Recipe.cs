@@ -312,6 +312,13 @@ namespace Iroca
                 EditorUtility.DisplayDialog(Localization.RegisterNonDestructive, Localization.RegisterNotInScene, Localization.OK);
                 return;
             }
+            // アバターの外に付けると、シーンのプレビューでは色が変わるのに、アップロードでは変わらない。
+            if (selected != null && !RecipeRegistration.IsInsideAvatar(selected.transform))
+            {
+                EditorUtility.DisplayDialog(Localization.RegisterNonDestructive,
+                    string.Format(Localization.RegisterOutsideAvatarFormat, selected.name), Localization.OK);
+                return;
+            }
             var target = RecipeRegistration.SuggestTarget(SourceTexture, selected);
             if (target == null)
             {

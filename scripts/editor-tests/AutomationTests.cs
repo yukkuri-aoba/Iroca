@@ -362,6 +362,24 @@ namespace Iroca.EditorTests
             }
         }
 
+        // アバターの外を明示されても登録しない(シーンのプレビューでは色が変わるのに、アップロードでは変わらない)。
+        [Test]
+        public void Recolor_Avatar_OutsideAnAvatar_IsRefused()
+        {
+            bool hasSdk = System.AppDomain.CurrentDomain.GetAssemblies()
+                .Any(a => a.GetType("VRC.SDK3.Avatars.Components.VRCAvatarDescriptor", false) != null);
+            if (!hasSdk) Assert.Ignore("VRChat SDK の無いホストでは、アバターの内側かを見分けない");
+            string src = Halves();
+            var root = new GameObject("IrocaOutsideTestGroup");
+            try
+            {
+                RecolorFails(Request(src, "avatar", "[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]",
+                    ",\"avatar\":\"IrocaOutsideTestGroup\""), "not inside an avatar");
+                Assert.IsNull(root.GetComponent<IrocaRecolor>());
+            }
+            finally { Object.DestroyImmediate(root); }
+        }
+
         [Test]
         public void Recolor_Avatar_RegistersRecipeAndReplacesZoneOfSameName()
         {
@@ -420,6 +438,7 @@ namespace Iroca.EditorTests
             bool hadIrocaFolder = UnityEditor.AssetDatabase.IsValidFolder("Assets/Iroca");
             var mat = new Material(Shader.Find("Standard")) { mainTexture = tex };
             var root = new GameObject("IrocaUndoTestAvatar");
+            MarkAsAvatar(root);
             string recipePath = null;
             try
             {
@@ -457,6 +476,7 @@ namespace Iroca.EditorTests
             bool hadIrocaFolder = UnityEditor.AssetDatabase.IsValidFolder("Assets/Iroca");
             var mat = new Material(Shader.Find("Standard")) { mainTexture = tex };
             var root = new GameObject("IrocaWaitTestAvatar");
+            MarkAsAvatar(root);
             string recipePath = null;
             try
             {
@@ -512,6 +532,8 @@ namespace Iroca.EditorTests
             var mat = new Material(Shader.Find("Standard")) { mainTexture = tex };
             var a = new GameObject("IrocaShareTestA");
             var b = new GameObject("IrocaShareTestB");
+            MarkAsAvatar(a);
+            MarkAsAvatar(b);
             var recipePaths = new System.Collections.Generic.List<string>();
             try
             {

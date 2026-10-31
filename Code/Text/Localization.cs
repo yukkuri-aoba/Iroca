@@ -1334,6 +1334,9 @@ namespace Iroca
         public static string RegisterNoZones => IsJapanese
             ? "有効なゾーンがありません。色替えするゾーンを作ってから登録してください。"
             : "There is no enabled zone. Create a zone to recolor before registering.";
+        public static string RegisterOutsideAvatarFormat => IsJapanese
+            ? "「{0}」はアバターの中にありません。ここに登録すると、シーンのプレビューでは色が変わりますが、アップロードでは変わりません。Hierarchy でアバターか衣装を選んでから押してください。"
+            : "\"{0}\" is not inside an avatar. Registered there, the recolor shows in the scene preview but not in the upload. Select the avatar or outfit in the Hierarchy and try again.";
         public static string RegisterNotInScene => IsJapanese
             ? "選んでいるのはシーン上のオブジェクトではありません。Hierarchy で選び直してください。"
             : "The selection is not an object in the scene. Select one in the Hierarchy.";
