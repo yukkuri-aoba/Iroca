@@ -41,7 +41,7 @@ namespace Iroca
         // 組のどちらかが、色の平面でこの半径以内(白に近い)のときだけ。色のある素材どうしはまとめない(肌と頬の赤みなど)。
         internal const double SoftMergeNeutralRadius = 0.75;
         // 組の色の平面の距離の上限。
-        internal const double SoftMergeDistance = 2.0;
+        internal const double MergeDistance = 2.0;
         // ぼかしの窓の半径(幅の何倍まで見るか)。
         internal const double KernelTruncate = 4.0;
         // これより小さい領域(縁・点)をクリックしたら、色の近い隣の大きい領域へ移る。
@@ -55,6 +55,12 @@ namespace Iroca
         // 投票は、クリックした領域が見える画素のこの割合以下のときだけ(縁や点をクリックしたときの救い)。
         // 十分に大きな領域をクリックしたなら、その素材を選んだとみなす(提案が隣の部品を含むことがあるので)。
         internal const double VoteRegionShare = 1e-4;
+        // 色の平面で近い組をまとめる条件(縞・市松の 2 トーン): 平面の距離、境界のうち相手との接触の割合、
+        // 接触の長さ(同じ面積の正方形の周の何倍か)、面積の釣り合い。
+        internal const double InterleaveDistance = 1.0;
+        internal const double InterleaveContact = 0.7;
+        internal const double InterleaveLength = 3.0;
+        internal const double InterleaveArea = 0.25;
         // 素材の内側を AI 提案の色で絞る管: 提案の中の領域の面積がこれ以上のときだけ。
         internal const double TubeMinEvidence = 64.0;
         // 管の線を引くときの、明度で分ける区間の数。
@@ -177,16 +183,18 @@ namespace Iroca
                 next += cuts.Count + 1;
             }
             Count = next - 1;
-            MergeSoftNearNeutral(planeA, planeB);
+            MergeMaterials(planeA, planeB);
         }
 
-        // 白に近い素材と、なだらかにつながる素材をまとめる(素材の番号は根の番号のまま。飛び番になる)。
-        private void MergeSoftNearNeutral(double[] planeA, double[] planeB)
+        // 素材をまとめる(素材の番号は根の番号のまま。飛び番になる)。色の平面で近い組のうち、次のどちらかを満たすもの:
+        // - 白に近い素材と、なだらかにつながる素材(白飛びへ続くツヤやグラデの続き)
+        // - 互いの境界のほとんどが相手との接触で、接触が面積に比べて長く、面積も釣り合う組(縞・市松の 2 トーン。別の素材ならここまで入り組まない)
+        private void MergeMaterials(double[] planeA, double[] planeB)
         {
             RegionInfo* table = _regions.Regions;
             int m = Count + 1;
             var border = new double[m];
-            var soft = new Dictionary<long, double>();
+            var pairs = new Dictionary<long, (double contact, double soft)>();
             foreach (var e in _regions.Adjacency)
             {
                 int a = MaterialOfRegion[e.A], b = MaterialOfRegion[e.B];
@@ -194,10 +202,10 @@ namespace Iroca
                 border[a] += e.Contact;
                 border[b] += e.Contact;
                 long key = (long)Math.Min(a, b) * m + Math.Max(a, b);
-                soft.TryGetValue(key, out double v);
-                soft[key] = v + e.SoftContact;
+                pairs.TryGetValue(key, out var v);
+                pairs[key] = (v.contact + e.Contact, v.soft + e.SoftContact);
             }
-            if (soft.Count == 0) return;
+            if (pairs.Count == 0) return;
 
             var weight = new double[m];
             var centerA = new double[m];
@@ -209,34 +217,14 @@ namespace Iroca
                 centerA[k] += table[r].Area * planeA[r];
                 centerB[k] += table[r].Area * planeB[r];
             }
+            var radius = new double[m];
             for (int k = 0; k < m; k++)
             {
                 double w = Math.Max(weight[k], 1e-6);
                 centerA[k] /= w;
                 centerB[k] /= w;
+                radius[k] = Math.Sqrt(centerA[k] * centerA[k] + centerB[k] * centerB[k]);
             }
-
-            var pairs = new List<(double share, int a, int b)>();
-            foreach (var kv in soft)
-            {
-                int a = (int)(kv.Key / m), b = (int)(kv.Key % m);
-                double share = kv.Value / Math.Max(1.0, Math.Min(border[a], border[b]));
-                if (share < SoftMergeContact) continue;
-                double radius = Math.Min(Math.Sqrt(centerA[a] * centerA[a] + centerB[a] * centerB[a]),
-                                         Math.Sqrt(centerA[b] * centerA[b] + centerB[b] * centerB[b]));
-                if (radius > SoftMergeNeutralRadius) continue;
-                double da = centerA[a] - centerA[b], db = centerB[a] - centerB[b];
-                if (Math.Sqrt(da * da + db * db) > SoftMergeDistance) continue;
-                pairs.Add((share, a, b));
-            }
-            if (pairs.Count == 0) return;
-            pairs.Sort((x, y) =>
-            {
-                int c = y.share.CompareTo(x.share);
-                if (c != 0) return c;
-                c = x.a.CompareTo(y.a);
-                return c != 0 ? c : x.b.CompareTo(y.b);
-            });
 
             var root = new int[m];
             for (int k = 0; k < m; k++) root[k] = k;
@@ -249,8 +237,20 @@ namespace Iroca
                 }
                 return k;
             }
-            foreach (var (_, a, b) in pairs)
+            var keys = new List<long>(pairs.Keys);
+            keys.Sort();
+            foreach (long key in keys)
             {
+                int a = (int)(key / m), b = (int)(key % m);
+                double da = centerA[a] - centerA[b], db = centerB[a] - centerB[b];
+                double distance = Math.Sqrt(da * da + db * db);
+                double smaller = Math.Min(weight[a], weight[b]);
+                bool softToWhite = distance <= MergeDistance && Math.Min(radius[a], radius[b]) <= SoftMergeNeutralRadius
+                    && pairs[key].soft >= SoftMergeContact * Math.Max(1.0, Math.Min(border[a], border[b]));
+                bool interleaved = distance <= InterleaveDistance && smaller >= InterleaveArea * Math.Max(weight[a], weight[b])
+                    && pairs[key].contact >= InterleaveContact * Math.Max(border[a], border[b])
+                    && pairs[key].contact >= InterleaveLength * 4.0 * Math.Sqrt(smaller);
+                if (!softToWhite && !interleaved) continue;
                 int ra = Find(a), rb = Find(b);
                 if (ra != rb) root[rb] = ra;
             }

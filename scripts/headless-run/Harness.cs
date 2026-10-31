@@ -1481,6 +1481,33 @@ namespace Iroca
                 Check(tuned.materialTube == null, "提案の中の領域が 1 つだけなら管を作らない");
             }
 
+            // 色の近い明度違いの組: 入り組んだ縞は 1 つの素材、接しているだけの 2 パーツは別の素材
+            const int Margin = Big / 8, StripeHeight = Big / 16;
+            using (var stripes = Build(TwoTones(interleaved: true), Big, Big, s0))
+            {
+                var map = MaterialMap.Build(stripes);
+                int dark = stripes.Labels[(Margin + 1) * Big + Big / 2], light = stripes.Labels[(Margin + StripeHeight + 1) * Big + Big / 2];
+                Check(dark != light && map.MaterialOfRegion[dark] == map.MaterialOfRegion[light], "入り組んだ 2 トーンの縞は同じ素材");
+            }
+            using (var parts = Build(TwoTones(interleaved: false), Big, Big, s0))
+            {
+                var map = MaterialMap.Build(parts);
+                int dark = parts.Labels[(Margin + 1) * Big + Big / 2], light = parts.Labels[(Big - Margin - 2) * Big + Big / 2];
+                Check(dark != light && map.MaterialOfRegion[dark] != map.MaterialOfRegion[light], "接しているだけの明度の違う 2 パーツは別の素材");
+            }
+            Color32[] TwoTones(bool interleaved)
+            {
+                var image = new Color32[Big * Big];
+                for (int y = 0; y < Big; y++)
+                    for (int x = 0; x < Big; x++)
+                    {
+                        bool inside = x >= Margin && x < Big - Margin && y >= Margin && y < Big - Margin;
+                        bool isDark = interleaved ? ((y - Margin) / StripeHeight) % 2 == 0 : y < Big / 2;
+                        image[y * Big + x] = !inside ? Rgb(255, 255, 255) : isDark ? Rgb(34, 67, 115) : Rgb(57, 111, 191);
+                    }
+                return image;
+            }
+
             // 管: 提案の中の領域が折れ線の区間より少なければ作らない。足りれば、提案の中の濃淡は残す
             const int Bands = MaterialMap.TubeSegments + 2;
             var shades = new Color32[Big * Big];
