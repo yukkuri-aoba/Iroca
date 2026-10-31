@@ -208,6 +208,24 @@ namespace Iroca.EditorTests
             return output.ToArray();
         }
 
+        // 原本を読めないときは例外で止まらず、書き出し欄に理由を出す。
+        [Test]
+        public void ExportWithLockedSource_ShowsTheReason()
+        {
+            var export = _win._exportView;
+            export.saveAsNewFile = true;
+            export.newFileName = "scene_locked";
+            UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
+            try
+            {
+                using (new FileStream(_path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                    export.ApplyRecolor();
+                Assert.IsFalse(export.IsExporting);
+                Assert.IsNotEmpty(export.LastError, "欄に理由が出ていない");
+            }
+            finally { UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false; }
+        }
+
         // 「適用して保存」(新しいファイルに保存)。確認の画面は出ない(出力先がまだ無い)。
         private Color32[] ExportFromWindow(string fileName)
         {

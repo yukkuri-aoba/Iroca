@@ -352,6 +352,12 @@ namespace Iroca
 
             // 重い処理のあとでキャンセルされると計算が全て無駄になるので、
             // 確認はユーザー入力の時点（＝処理前）に行う。
+            // パッケージの中へは書かない(取り込まれず、パッケージの更新で消える)。
+            if (!saveAsNewFile && !ExportPipeline.CanOverwriteInPlace(srcPath))
+            {
+                NotifyError(Localization.ExportCannotOverwritePackage);
+                return;
+            }
             string outputPath = ExportPipeline.SingleOutputPath(srcPath, saveAsNewFile, newFileName);
             if (saveAsNewFile)
             {
@@ -379,7 +385,18 @@ namespace Iroca
             // 色替えできるのに、作り込んだ後の「適用して保存」だけが失敗していた。
             // プレビューと同じく、読めないときは取り込み済みテクスチャの画素で書き出す。
             // 画素は Mono のヒープの外(ExportService)。ジョブの後始末(cleanup)で手放す。
-            var source = ExportService.ReadSource(srcPath, sourceTexture, out NativePixels pixels);
+            ExportPipeline.SourceKind source;
+            NativePixels pixels;
+            try
+            {
+                source = ExportService.ReadSource(srcPath, sourceTexture, out pixels);
+            }
+            catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException)
+            {
+                // ほかのソフトが開いている・オンライン専用のファイルなど。例外のままだと欄に理由が出ない。
+                NotifyError(string.Format(Localization.ExportSourceReadFailedFormat, e.Message));
+                return;
+            }
             if (source == ExportPipeline.SourceKind.Unavailable)
             {
                 // 原本も取り込み側も読めない。Read/Write を有効にすれば後者が使える。

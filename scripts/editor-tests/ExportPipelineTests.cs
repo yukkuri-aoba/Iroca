@@ -15,6 +15,14 @@ namespace Iroca.EditorTests
     /// </summary>
     public class ExportPipelineTests
     {
+        // 上書きできるのは Assets の下だけ。パッケージの中は取り込まれず、更新で消える。
+        [Test]
+        public void OverwritingInPlace_OnlyUnderAssets()
+        {
+            Assert.IsTrue(ExportPipeline.CanOverwriteInPlace("Assets/a/b.png"));
+            Assert.IsFalse(ExportPipeline.CanOverwriteInPlace("Packages/com.example/b.png"));
+        }
+
         private TestAssets _assets;
 
         [SetUp] public void SetUp() => _assets = TestAssets.Create();

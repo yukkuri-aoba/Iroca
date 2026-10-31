@@ -26,6 +26,10 @@ namespace Iroca
             Unavailable,
         }
 
+        /// <summary>元のファイルへ上書きして書き出せるか。書くのは Assets の下だけ(パッケージの中は取り込まれず、更新で消える)。</summary>
+        public static bool CanOverwriteInPlace(string srcPath) =>
+            PathUtils.ToAssetsRelativeOrNull(srcPath) != null;
+
         /// <summary>
         /// 単体書き出しの出力先。新規ファイルなら名前を <see cref="PathUtils.SanitizeFileName"/> で直して
         /// 元と同じフォルダへ（元が Assets の外なら <see cref="PathUtils.ExportFolderFor"/>）、上書きなら元の拡張子を

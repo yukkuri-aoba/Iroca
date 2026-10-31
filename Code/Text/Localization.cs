@@ -607,6 +607,13 @@ namespace Iroca
         public static string PresetLoadFailed   => IsJapanese ? "プリセットの読み込みに失敗しました" : "Failed to load preset";
         public static string PresetDeleted      => IsJapanese ? "プリセットを削除しました" : "Preset deleted";
         public static string PresetDeleteFailed => IsJapanese ? "プリセットの削除に失敗しました" : "Failed to delete preset";
+        public static string ExportCannotOverwritePackage => IsJapanese
+            ? "パッケージの中のテクスチャは上書きできません。「新規ファイルとして保存」を選んでください（Assets の下に書き出します）。"
+            : "A texture inside a package cannot be overwritten. Choose to save as a new file (it is written under Assets).";
+        // {0} = OS の理由。
+        public static string ExportSourceReadFailedFormat => IsJapanese
+            ? "元の画像を読めませんでした（{0}）。ほかのソフトで開いていれば閉じ、同期サービスのオンライン専用ファイルならこの PC に保存してから、もう一度試してください。"
+            : "The source image could not be read ({0}). If another app has it open, close it; if it is an online-only file of a sync service, keep it on this PC; then try again.";
         public static string EditSaveFailed     => IsJapanese ? "編集内容の保存に失敗しました" : "Failed to save your edits";
         // 窓の上の帯。保存の失敗は Console だけでは気づけない。
         public static string EditSaveFailedBanner => IsJapanese
