@@ -238,6 +238,33 @@ namespace Iroca.EditorTests
             Assert.AreSame(recipe, _win.BoundRecipe, "Undo で結び付きが外れた");
         }
 
+        // 自動調整を押した後に Ctrl+Z やテクスチャの切り替えをしたら、結果を当てない(押したときの状態はもう無い)。
+        [Test]
+        public void AutoTuneRunning_IsStoppedByUndo()
+        {
+            AddZones("服");
+            AddZones("靴");
+            var zone = _win.Session.zones[1];
+            _win.RunAutoTune(zone);
+            Assert.IsTrue(_win.IsJobBlockingUI, "テストの前提: 自動調整が走っている");
+
+            Undo.PerformUndo();
+            Assert.IsFalse(_win.IsJobBlockingUI, "Undo で止まっていない");
+        }
+
+        [Test]
+        public void AutoTuneRunning_IsStoppedByTextureChange()
+        {
+            string other = _assets.WritePng("other", TestAssets.Solid(W, H, new Color32(50, 200, 50, 255)), W, H);
+            AddZones("服");
+            _win.RunAutoTune(_win.Session.zones[0]);
+            Assert.IsTrue(_win.IsJobBlockingUI, "テストの前提: 自動調整が走っている");
+
+            _win.SwitchSourceTexture(AssetDatabase.LoadAssetAtPath<Texture2D>(other));
+            Assert.IsFalse(_win.IsJobBlockingUI, "テクスチャの切り替えで止まっていない");
+            CleanOther(other);
+        }
+
         private static void CleanOther(string otherTexturePath)
         {
             string guid = AssetDatabase.AssetPathToGUID(otherTexturePath);

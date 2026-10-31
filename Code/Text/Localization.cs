@@ -1014,6 +1014,9 @@ namespace Iroca
         public static string AutoTuneEvidenceTimeout => IsJapanese
             ? "AI の準備が終わらなかったため自動調整を中止しました。しばらくしてからもう一度お試しください"
             : "Auto-tune aborted: the AI did not get ready in time. Please try again later";
+        public static string AutoTuneCancelledByEdit => IsJapanese
+            ? "編集内容が戻った・切り替わったので自動調整を中止しました"
+            : "Auto-tune stopped because the edit was undone or replaced";
         public static string AutoTuneEvidenceCancelled => IsJapanese
             ? "AI 提案を取得できなかったため自動調整を中止しました"
             : "Auto-tune aborted: the AI suggestion could not be obtained";

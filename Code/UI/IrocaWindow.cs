@@ -411,6 +411,7 @@ namespace Iroca
             // 再生成を走らせない。
             if (!restored) return;
 
+            AbortAutoTuneForEditChange();
             // 文書のマスクの版の番号が Undo で戻ったら、編集中のマスクをその版へ戻してオーバーレイ・プレビューを更新させる。
             if (_maskView != null)
             {
@@ -541,7 +542,7 @@ namespace Iroca
         /// </summary>
         private void LoadPersistedSessionForCurrentTexture()
         {
-            AbortEvidenceWaitForSourceChange();
+            AbortAutoTuneForEditChange();
             _sessionLoadFailed = false;
             // 非破壊のレシピがあればそれが正(マスクも含めてレシピから読む)。
             if (TryLoadSessionFromRecipe()) return;

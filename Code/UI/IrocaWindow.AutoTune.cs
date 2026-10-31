@@ -60,7 +60,8 @@ namespace Iroca
             return _maskView.Workspace.CombinedExclusion(zone.id);
         }
 
-        private void RunAutoTune(ColorZone zone)
+        // internal は WindowUndoTests が走っている途中の Undo を確かめるため。
+        internal void RunAutoTune(ColorZone zone)
         {
             if (_autoTune != null || zone == null) return;
 
@@ -294,14 +295,14 @@ namespace Iroca
             run.Cancel();
         }
 
-        // テクスチャの切り替え・レシピの読み直し: 待っている証拠は前の元のものなので、待ちをやめて知らせる
-        // (前はコントローラが右クリックの提案と一緒に取り消していた)。解析が始まっていれば、そのまま当てる
-        // (当て先は id で引き直すので、別のテクスチャのゾーンには当たらない)。
-        private void AbortEvidenceWaitForSourceChange()
+        // テクスチャの切り替え・レシピの読み直し・Undo: 押したときの状態はもう無いので、待ちも解析も止めて知らせる。当て先は id で
+        // 引き直すが、プリセットやレシピの複製では別のテクスチャのゾーンも同じ id を持ち、Undo で戻したゾーンは
+        // 取り消した位置から導いた値で上書きされる。
+        private void AbortAutoTuneForEditChange()
         {
-            if (_autoTune == null || _autoTune.Status != AutoTuneService.Status.WaitingForEvidence) return;
+            if (_autoTune == null) return;
             CancelAutoTune();
-            ShowNotification(new GUIContent(Localization.AutoTuneEvidenceCancelled));
+            ShowNotification(new GUIContent(Localization.AutoTuneCancelledByEdit));
             Repaint();
         }
     }
