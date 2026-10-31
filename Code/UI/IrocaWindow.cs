@@ -337,7 +337,12 @@ namespace Iroca
                 if (SourceTexture != null) LoadPersistedSessionForCurrentTexture();
             }
             else
+            {
+                // 読めなかった印は再読み込みで消える(ここではセッションを読み直さない)ので、読めるかを確かめ直す。消えたままだと、
+                // 空のセッションの保存が読めなかったファイルを削除する。
+                SessionPersistence.LoadFromFile(SourceTexture, out _sessionLoadFailed);
                 _maskView.RestoreFromSession();
+            }
             // 今のマスクを Undo の履歴の起点にする。
             Editing.AdoptMasksAfterEnable();
 
@@ -495,7 +500,8 @@ namespace Iroca
         {
             var saved = Editing.ToSaveState();
             bool maskOk = _maskView == null || _maskView.SaveMasks(saved.maskState);
-            SessionPersistence.SaveToFile(SourceTexture, saved, _sessionLoadFailed);
+            // 中身を書けたら印を下ろす(立てたままだと、次の保存で .bak を新しい中身で上書きして元のファイルを失う)。
+            if (SessionPersistence.SaveToFile(SourceTexture, saved, _sessionLoadFailed)) _sessionLoadFailed = false;
             // 非破壊のレシピが結び付いていればそちらにも書く。
             SaveSessionToBoundRecipe(saved);
             return maskOk;

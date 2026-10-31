@@ -152,7 +152,7 @@ namespace Iroca
 
         // ゾーンが無ければ再着色は生まれない＝実質空。処理パラメータだけでは出力に影響しないため
         // 保存対象にしない（ファイルを無駄に増やさない）。
-        private static bool IsEmpty(IrocaSessionState state)
+        internal static bool IsEmpty(IrocaSessionState state)
             => state == null || state.zones == null || state.zones.Count == 0;
     }
 }

@@ -4,6 +4,7 @@ using System.IO;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace Iroca.EditorTests
 {
@@ -123,6 +124,42 @@ namespace Iroca.EditorTests
             Assert.IsFalse(_win.Editing.Masks.Common.Get(2));
             Undo.PerformUndo();
             Assert.IsFalse(_win.Editing.Masks.Common != null && _win.Editing.Masks.Common.Get(1), "Esc で閉じたストロークが戻らない");
+        }
+
+        // 読めなかったセッションのファイルは、新しい中身を書く前に .bak へ退避する。2 回目の保存で .bak を上書きしない。
+        [Test]
+        public void UnreadableSessionFile_BackupSurvivesTheNextSaves()
+        {
+            string other = _assets.WritePng("other", TestAssets.Solid(W, H, new Color32(50, 200, 50, 255)), W, H);
+            var otherTex = AssetDatabase.LoadAssetAtPath<Texture2D>(other);
+            var tex = _win.SourceTexture;
+            string file = Path.Combine(SessionFileStore.CacheDir, _guid + ".iroca-session.json");
+            _win.SwitchSourceTexture(otherTex);
+            Directory.CreateDirectory(SessionFileStore.CacheDir);
+            File.WriteAllText(file, "{ broken");
+            LogAssert.ignoreFailingMessages = true;
+            try
+            {
+                _win.SwitchSourceTexture(tex);
+                AddZones("a");
+                _win.SavePersistedSessionForCurrentTexture();
+                AddZones("b");
+                _win.SavePersistedSessionForCurrentTexture();
+            }
+            finally { LogAssert.ignoreFailingMessages = false; }
+            Assert.AreEqual("{ broken", File.ReadAllText(file + ".bak"), "読めなかった元のファイルが残っていない");
+            StringAssert.Contains("\"b\"", File.ReadAllText(file), "新しい中身は書く");
+            CleanOther(other);
+        }
+
+        private static void CleanOther(string otherTexturePath)
+        {
+            string guid = AssetDatabase.AssetPathToGUID(otherTexturePath);
+            foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir })
+            {
+                if (!Directory.Exists(dir)) continue;
+                foreach (var f in Directory.GetFiles(dir, guid + "*")) File.Delete(f);
+            }
         }
 
         [Test]
