@@ -3,6 +3,7 @@
 using System.Runtime.CompilerServices;
 
 // レシピの中身(IrocaRecipe.sessionJson)は Editor 側だけが読み書きする。
+[assembly: InternalsVisibleTo("com.yukkuri-aoba.iroca.Editor.Services")]
 [assembly: InternalsVisibleTo("com.yukkuri-aoba.iroca.Editor")]
 [assembly: InternalsVisibleTo("Iroca.NdmfIntegration")]
 // EditMode テスト（リポジトリの scripts/editor-tests。配布物には含まれない）。

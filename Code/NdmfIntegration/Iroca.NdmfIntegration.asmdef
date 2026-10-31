@@ -2,7 +2,8 @@
     "name": "Iroca.NdmfIntegration",
     "rootNamespace": "Iroca.NdmfIntegration",
     "references": [
-        "com.yukkuri-aoba.iroca.Editor",
+        "com.yukkuri-aoba.iroca.Editor.Core",
+        "com.yukkuri-aoba.iroca.Editor.Services",
         "com.yukkuri-aoba.iroca.Runtime",
         "nadena.dev.ndmf",
         "nadena.dev.ndmf.runtime"

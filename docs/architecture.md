@@ -45,7 +45,9 @@ Core         計算だけ（選択・マスクの適用・再着色・自動調�
   フォルダと検査と asmdef。
 - 守り方: `scripts/source_checks/test_layer_dependencies.py` が上の表と同じ許可表を持ち、フォルダごとに宣言した型の名前を
   ほかのフォルダのコードが書いていないかを見る。`test_core_no_editor_dependency.py` は Core が UnityEditor を参照しない
-  ことを見る。0.4.0 のフェーズ 6 で asmdef（`Editor.Core`・`Editor.Services`・`Editor`）に分けて、コンパイルで止める。
+  ことを見る。Core・Services・本体の間の向きは asmdef でコンパイルが止める: `Editor.Core`（Core・MaskSuggest/Ops）・
+  `Editor.Services`（Infra・Application・Text・MaskSuggest）・`Editor`（UI・Automation）。`scripts/build-check` の csproj も同じ境目で、
+  層とアセンブリの対応は同じ検査の `ASSEMBLY_OF_LAYER` が持つ。フォルダを足すときは asmref も足す（忘れると本体の asmdef に吸われて境目が消える）。
 
 ## 2. Core
 

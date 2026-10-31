@@ -1,6 +1,6 @@
 <!--
-  Unity を起動せずに Editor asmdef のコードを dotnet で型チェック・ビルドするための
-  最小プロジェクト。CI からも `dotnet build scripts/build-check/IrocaEditor.csproj`
+  Unity を起動せずに本体の asmdef（UI・Automation。下の Core・Services・Runtime は ProjectReference）を
+  dotnet で型チェック・ビルドするための最小プロジェクト。Unity の asmdef と同じ境目で分けてあるので、下の層が上の層を使うと落ちる。CI からも `dotnet build scripts/build-check/IrocaEditor.csproj`
   だけで構文・型エラーを検出できる。
 
   Unity DLL のパスはデフォルトで VRChat 標準の 2022.3.22f1 を見にいく。
@@ -18,58 +18,24 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.1</TargetFramework>
-    <LangVersion>9.0</LangVersion>
-    <!-- Core の作業配列はネイティブメモリ(ポインタ)で扱う(0.3.0)。Editor asmdef の allowUnsafeCode と対。 -->
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Nullable>disable</Nullable>
     <AssemblyName>com.yukkuri-aoba.iroca.Editor</AssemblyName>
-    <RootNamespace>Iroca</RootNamespace>
-    <OutputType>Library</OutputType>
-    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-    <!-- Unity が再生成する .csproj には警告抑止が入るので、CI ノイズを揃える -->
-    <NoWarn>0414;0649;CS0219;CS0169</NoWarn>
-    <!-- 利用者の Unity は nullable 文脈なしでコンパイルするので CS8632 が Console に出る。CI で止める -->
-    <WarningsAsErrors>CS8632</WarningsAsErrors>
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
-  <!-- Unity Editor のインストールパス解決 -->
-  <Import Project="UnityEditorPath.props" />
+  <Import Project="IrocaAssembly.props" />
 
-  <!-- ソースコード: Code/ 以下のみ。Code_Archive/ は除外。
-       Code/Debug/ は別 asmdef (IrocaEditor.Debug) 配下なので Unity の挙動に合わせて除外する。
-       Code/McpIntegration/ は MCPForUnity が導入された環境でのみコンパイルされる別 asmdef
-       (Iroca.McpIntegration, IROCA_MCP_PRESENT ゲート) で、MCPForUnity 型を参照するため
-       dotnet 単体では解決できない。Unity の挙動に合わせて除外する。
-       これらのフォルダを削除しても本体 csproj は単独でビルド可能。 -->
-  <!-- Code/SentisIntegration/ は com.unity.sentis 導入環境でのみコンパイルされる別 asmdef
-       (Iroca.SentisIntegration, IROCA_SENTIS_PRESENT ゲート)で、Unity.Sentis 型を参照するため
-       dotnet 単体では解決できない。McpIntegration と同じ理由で除外する
-       (コンパイル検証はホスト Unity プロジェクト側で行う)。 -->
-  <!-- Code/NdmfIntegration/ も nadena.dev.ndmf 導入環境でのみコンパイルされる別 asmdef
-       (Iroca.NdmfIntegration, IROCA_NDMF_PRESENT ゲート)なので同じ理由で除外する
-       (型チェックは IrocaNdmfCheck.csproj)。Code/Runtime/ は含める(NDMF 無しでも定義が要る)。 -->
+  <!-- Code/Debug・McpIntegration・SentisIntegration・NdmfIntegration は別の asmdef。Debug は IrocaEditor.Debug.csproj、
+       残りは導入環境でのみコンパイルされるので IrocaMcpCheck・IrocaSentisCheck・IrocaNdmfCheck で型チェックする。 -->
   <ItemGroup>
-    <Compile Include="..\..\Code\**\*.cs" Exclude="..\..\Code\Debug\**\*.cs;..\..\Code\McpIntegration\**\*.cs;..\..\Code\SentisIntegration\**\*.cs;..\..\Code\NdmfIntegration\**\*.cs" />
+    <Compile Include="..\..\Code\UI\**\*.cs" />
+    <Compile Include="..\..\Code\Automation\**\*.cs" />
+    <Compile Include="..\..\Code\AssemblyInfo.cs" />
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="UnityEngine">
-      <HintPath>$(UnityEditorPath)\UnityEngine.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEditor">
-      <HintPath>$(UnityEditorPath)\UnityEditor.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
+    <ProjectReference Include="IrocaEditor.Core.csproj" />
+    <ProjectReference Include="IrocaEditor.Services.csproj" />
+    <ProjectReference Include="IrocaEditor.Runtime.csproj" />
   </ItemGroup>
-
-  <!-- UnityEngine.dll が見つからないときの早期エラー -->
-  <Target Name="CheckUnityPath" BeforeTargets="ResolveAssemblyReferences">
-    <Error Condition="!Exists('$(UnityEditorPath)\UnityEngine.dll')"
-           Text="UnityEngine.dll が見つかりません: $(UnityEditorPath)\UnityEngine.dll&#xA;`-p:UnityVersion=` か `-p:UnityEditorPath=` で正しいパスを指定してください。" />
-  </Target>
 
 </Project>

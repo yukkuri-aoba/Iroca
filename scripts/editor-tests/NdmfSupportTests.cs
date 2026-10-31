@@ -64,10 +64,11 @@ namespace Iroca.EditorTests
             bool supported = state == NdmfSupportState.Supported;
             Check("com.yukkuri-aoba.iroca.Runtime", "IROCA_NDMF_PRESENT", supported);
             Check("com.yukkuri-aoba.iroca.Runtime", "IROCA_VRCSDK_BASE", vrcBase);
+            Check("com.yukkuri-aoba.iroca.Editor.Services", "IROCA_NDMF_PRESENT", supported);
+            Check("com.yukkuri-aoba.iroca.Editor.Services", "IROCA_NDMF_INSTALLED", ndmf != null);
+            Check("com.yukkuri-aoba.iroca.Editor.Services", "IROCA_NDMF_TOO_NEW", state == NdmfSupportState.TooNew);
+            Check("com.yukkuri-aoba.iroca.Editor.Services", "IROCA_VRCSDK_AVATARS", vrcAvatars);
             Check("com.yukkuri-aoba.iroca.Editor", "IROCA_NDMF_PRESENT", supported);
-            Check("com.yukkuri-aoba.iroca.Editor", "IROCA_NDMF_INSTALLED", ndmf != null);
-            Check("com.yukkuri-aoba.iroca.Editor", "IROCA_NDMF_TOO_NEW", state == NdmfSupportState.TooNew);
-            Check("com.yukkuri-aoba.iroca.Editor", "IROCA_VRCSDK_AVATARS", vrcAvatars);
             Check("Iroca.EditorTests", "IROCA_NDMF_PRESENT", supported);
             if (supported) Check("Iroca.NdmfIntegration", "IROCA_NDMF_PRESENT", true);
             Assert.AreEqual(state, NdmfSupport.State);

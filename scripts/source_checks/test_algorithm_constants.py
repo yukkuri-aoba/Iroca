@@ -32,6 +32,7 @@ LEDGER = REPO_ROOT / "docs" / "algorithm-constants.md"
 SCOPE_ROOTS = ["Code/Core", "Code/MaskSuggest/Ops"]
 SCOPE_EXCLUDE = {
     # 診断（計測・記録だけで出力を変えない）
+    "Code/Core/AssemblyInfo.cs": "アセンブリの属性",
     "Code/Core/DebugCaptureHooks.cs": "診断",
     "Code/Core/IDebugCapture.cs": "診断",
     "Code/Core/PerfReport.cs": "診断",

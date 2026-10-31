@@ -38,6 +38,9 @@
 
   <ItemGroup>
     <ProjectReference Include="IrocaEditor.csproj" />
+    <ProjectReference Include="IrocaEditor.Core.csproj" />
+    <ProjectReference Include="IrocaEditor.Services.csproj" />
+    <ProjectReference Include="IrocaEditor.Runtime.csproj" />
     <ProjectReference Include="unity-test-framework\UnityEngine.TestRunner.csproj" />
     <ProjectReference Include="unity-test-framework\UnityEditor.TestRunner.csproj" />
   </ItemGroup>

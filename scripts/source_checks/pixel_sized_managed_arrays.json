@@ -66,10 +66,6 @@
       "new Color32[dw * dh]": 2,
       "new byte[(long)stripRows * rowBytes]": 1
     },
-    "Code/MaskSuggest/MaskSuggestController.cs": {
-      ".GetPixels32()": 1,
-      "new Color32[rw * rh]": 1
-    },
     "Code/MaskSuggest/Ops/SamImageOps.cs": {
       "new float[3 * InputSize * InputSize]": 1
     },
@@ -91,6 +87,10 @@
     },
     "Code/UI/MaskPaintView.Overlay.cs": {
       "new Color32[w * h]": 2
+    },
+    "Code/UI/MaskSuggestController.cs": {
+      ".GetPixels32()": 1,
+      "new Color32[rw * rh]": 1
     },
     "Code/UI/PreviewView.ContextMenu.cs": {
       "new int[(x1 - x0 + 1) * (y1 - y0 + 1)]": 1

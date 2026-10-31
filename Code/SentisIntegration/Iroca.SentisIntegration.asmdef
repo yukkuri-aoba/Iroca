@@ -2,7 +2,8 @@
     "name": "Iroca.SentisIntegration",
     "rootNamespace": "Iroca.SentisIntegration",
     "references": [
-        "com.yukkuri-aoba.iroca.Editor",
+        "com.yukkuri-aoba.iroca.Editor.Core",
+        "com.yukkuri-aoba.iroca.Editor.Services",
         "Unity.Sentis",
         "Unity.InferenceEngine"
     ],

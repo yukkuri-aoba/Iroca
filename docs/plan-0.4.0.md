@@ -1233,6 +1233,12 @@ T5 で消える部分は作り直さない（1.5）。
 - `InternalsVisibleTo` を足す。`DebugCaptureHooks` の分割は 3-2 で済ませておく。EditorTests の asmdef にも参照を足す。
 - **`scripts/build-check` を asmdef ごとの csproj（ProjectReference つき）にする。** これをしないと CI は境目を見ない。
 - NDMF・ML（Sentis）・MCP の各ホストで、Unity の batchmode でコンパイルを確かめる。
+- 2026-10-31（手元）: 上のとおりに分けた。Core の asmdef は `Code/Core`（`Code/MaskSuggest/Ops` は asmref）、Services の asmdef は `Code/Application`（`Infra`・`Text`・`MaskSuggest` は asmref）。
+  AI 提案のウィンドウに描く部分（`MaskSuggestController`・`MaskSuggestSection`）は UI へ移した。層の検査の既知の違反は 7 → 2 件（残りは `IrocaAutomation` がウィンドウを読む所で、同じアセンブリの中）。
+  層とアセンブリの対応も検査する（`test_every_source_is_in_the_assembly_of_its_layer`。asmref を忘れると本体に吸われて境目が消えるので）。
+  `scripts/build-check` は同じ境目で分け、参照を推移させない（`IrocaAssembly.props`）。`IROCA_NDMF_PRESENT` 以外の define は Services だけに置いた。
+  検証: abcheck 1,380 件一致。Iroca_Dev（NDMF・Sentis・MCP・Debug が入っている）で実際にコンパイルしてウィンドウの描画エラー 0。2022.3 の EditMode は GPU あり 389 中 377 成功・失敗 0、GPU なし 364 成功・失敗 0。
+  Unity 6（Inference Engine）は 373 中 339 成功・失敗 1 で、失敗の `IsFullResolution_PngOver8192ShrunkOnImport_IsFalse` は GPU なしのときだけ（GPU ありは通る。8192 を超えるテクスチャを作れない）。分割の前から落ちていたかは確かめていない。
 
 ### フェーズ 7: 仕上げとリリース
 

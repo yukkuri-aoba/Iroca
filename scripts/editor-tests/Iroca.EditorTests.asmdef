@@ -2,6 +2,8 @@
     "name": "Iroca.EditorTests",
     "rootNamespace": "Iroca.EditorTests",
     "references": [
+        "com.yukkuri-aoba.iroca.Editor.Core",
+        "com.yukkuri-aoba.iroca.Editor.Services",
         "com.yukkuri-aoba.iroca.Editor",
         "com.yukkuri-aoba.iroca.Runtime",
         "Iroca.NdmfIntegration",

@@ -1,0 +1,25 @@
+<!--
+  Code/Infra・Application・Text と Code/MaskSuggest（Ops を除く）（asmdef は com.yukkuri-aoba.iroca.Editor.Services）。UI を知らない。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>com.yukkuri-aoba.iroca.Editor.Services</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <Import Project="IrocaAssembly.props" />
+
+  <ItemGroup>
+    <Compile Include="..\..\Code\Infra\**\*.cs" />
+    <Compile Include="..\..\Code\Application\**\*.cs" />
+    <Compile Include="..\..\Code\Text\**\*.cs" />
+    <Compile Include="..\..\Code\MaskSuggest\**\*.cs" Exclude="..\..\Code\MaskSuggest\Ops\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="IrocaEditor.Core.csproj" />
+    <ProjectReference Include="IrocaEditor.Runtime.csproj" />
+  </ItemGroup>
+
+</Project>

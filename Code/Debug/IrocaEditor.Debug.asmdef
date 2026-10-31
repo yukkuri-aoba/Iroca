@@ -2,6 +2,8 @@
     "name": "com.yukkuri-aoba.iroca.Editor.Debug",
     "rootNamespace": "Iroca.DebugTools",
     "references": [
+        "com.yukkuri-aoba.iroca.Editor.Core",
+        "com.yukkuri-aoba.iroca.Editor.Services",
         "com.yukkuri-aoba.iroca.Editor"
     ],
     "includePlatforms": [
