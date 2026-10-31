@@ -41,6 +41,7 @@ namespace Iroca.EditorTests
             {
                 name = "z",
                 mode = SelectionMode.ColorPick,
+                tolerance = ZonesJsonDefaults.Tolerance,
                 sampleColor = new Color(200f / 255f, 30f / 255f, 30f / 255f, 1f),
                 sampleUV = new Vector2(0.25f, 0.5f),
                 targetColor = new Color(30f / 255f, 200f / 255f, 30f / 255f, 1f),

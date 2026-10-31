@@ -1436,7 +1436,7 @@ namespace Iroca
                 evidence[red] = 10f;
                 Check(map.PickMaterial(red, evidence) == map.MaterialOfRegion[red], "十分に大きな領域をクリックしたなら投票しない");
 
-                var zone = new ColorZone { sampleColor = new Color(200f / 255f, 30f / 255f, 30f / 255f, 1f) };
+                var zone = new ColorZone { tolerance = ZonesJsonDefaults.Tolerance, sampleColor = new Color(200f / 255f, 30f / 255f, 30f / 255f, 1f) };
                 var selected = map.SelectedRegions(zone, N, N);
                 Check(selected[red] && selected[farRed], "スポイト色の素材は場所によらず選ぶ");
                 Check(!selected[blue] && !selected[white], "別の素材は選ばない");
@@ -1445,7 +1445,7 @@ namespace Iroca
                 Check(selected[red] && !selected[farRed], "シードがあれば、シードからつながる領域だけ");
                 zone.seedUV = new Vector2(-1f, -1f);
 
-                var tuned = new ColorZone { sampleColor = new Color(30f / 255f, 30f / 255f, 200f / 255f, 1f), sampleUV = new Vector2(0.9f, 0.1f) };
+                var tuned = new ColorZone { tolerance = ZonesJsonDefaults.Tolerance, sampleColor = new Color(30f / 255f, 30f / 255f, 200f / 255f, 1f), sampleUV = new Vector2(0.9f, 0.1f) };
                 map.TuneZone(tuned, N, N, null, 0, 0);
                 Check(map.SelectedRegions(tuned, N, N)[blue], "自動調整の後もクリックの素材");
                 Check(tuned.materialTube == null, "AI 提案が無ければ素材を絞らない");
@@ -1473,7 +1473,7 @@ namespace Iroca
                 evidence[small] = 500f;
                 Check(map.PickMaterial(small, evidence) == map.MaterialOfRegion[small], "提案の中で少数でなければクリックの素材");
 
-                var tuned = new ColorZone { sampleColor = new Color(30f / 255f, 200f / 255f, 30f / 255f, 1f), sampleUV = new Vector2(104.5f / Big, 104.5f / Big) };
+                var tuned = new ColorZone { tolerance = ZonesJsonDefaults.Tolerance, sampleColor = new Color(30f / 255f, 200f / 255f, 30f / 255f, 1f), sampleUV = new Vector2(104.5f / Big, 104.5f / Big) };
                 var votes = new bool[Big * Big];
                 for (int i = 0; i < votes.Length; i++) votes[i] = m.Labels[i] == blue;
                 map.TuneZone(tuned, Big, Big, votes, Big, Big);
@@ -1536,7 +1536,7 @@ namespace Iroca
                             votes[i] |= m.Labels[i] == bands[b];
                     return votes;
                 }
-                var tuned = new ColorZone { sampleColor = new Color(40f / 255f, 40f / 255f, 200f / 255f, 1f), sampleUV = new Vector2(0.25f, 0.01f) };
+                var tuned = new ColorZone { tolerance = ZonesJsonDefaults.Tolerance, sampleColor = new Color(40f / 255f, 40f / 255f, 200f / 255f, 1f), sampleUV = new Vector2(0.25f, 0.01f) };
                 map.TuneZone(tuned, Big, Big, VotesOf(MaterialMap.TubeSegments - 1), Big, Big);
                 Check(tuned.materialTube == null, "提案の中の領域が折れ線の区間より少なければ管を作らない");
                 map.TuneZone(tuned, Big, Big, VotesOf(Bands), Big, Big);
@@ -1572,6 +1572,43 @@ namespace Iroca
                 Check(m.AdjacencyCount > 4096, $"組が表の初期の大きさを超える({m.AdjacencyCount})");
                 Check(seen.Count == m.AdjacencyCount, "同じ組を 2 度入れない");
                 Check(contacts == expected, "接触の合計が隣り合う画素の組の数と合う");
+            }
+
+            // 広さ: 既定なら素材そのまま。下げると減り、上げると増える。どちらも単調
+            const int WidthSize = 256;
+            var widthImage = new Color32[WidthSize * WidthSize];
+            for (int y = 0; y < WidthSize; y++)
+                for (int x = 0; x < WidthSize; x++)
+                {
+                    int band = y * 4 / WidthSize;
+                    widthImage[y * WidthSize + x] = x < WidthSize / 2
+                        ? Rgb(200 - 15 * band, 40 - 3 * band, 40 - 3 * band)
+                        : x < WidthSize * 3 / 4 ? Rgb(150, 110, 30) : Rgb(30, 30, 200);
+                }
+            using (var m = Build(widthImage, WidthSize, WidthSize, s0))
+            {
+                var map = MaterialMap.Build(m);
+                int reds = m.Labels[1 * WidthSize + 1], redFar = m.Labels[(WidthSize - 2) * WidthSize + 1];
+                int orange = m.Labels[1 * WidthSize + WidthSize * 5 / 8], blue = m.Labels[1 * WidthSize + WidthSize - 2];
+                bool[] At(float width)
+                {
+                    var z = new ColorZone { tolerance = width, sampleColor = new Color(200f / 255f, 40f / 255f, 40f / 255f, 1f), sampleUV = new Vector2(1.5f / WidthSize, 1.5f / WidthSize) };
+                    return map.SelectedRegions(z, WidthSize, WidthSize);
+                }
+                bool Subset(bool[] x, bool[] y)
+                {
+                    for (int r = 1; r < x.Length; r++) if (x[r] && !y[r]) return false;
+                    return true;
+                }
+                var standard = At(ZonesJsonDefaults.Tolerance);
+                Check(map.MaterialOfRegion[reds] == map.MaterialOfRegion[redFar] && standard[reds] && standard[redFar] && !standard[orange] && !standard[blue], "既定の広さは素材そのまま");
+                var narrow = At(0f);
+                Check(narrow[reds] && !narrow[redFar], "いちばん狭いとスポイト色の領域だけ");
+                Check(Subset(narrow, At(0.1f)) && Subset(At(0.1f), standard), "狭める側は単調");
+                var wider = At(0.6f);
+                var widest = At(1f);
+                Check(Subset(standard, wider) && Subset(wider, widest), "広げる側は単調");
+                Check(wider[orange] && !wider[blue] && widest[blue], "広げるとスポイト色に近い素材から足す");
             }
 
             // 地図の使い回し: 同じ原本なら作り直さず、Clear で手放す。使っている途中に Clear されても壊れない

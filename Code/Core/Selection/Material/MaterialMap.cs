@@ -486,6 +486,7 @@ namespace Iroca
             var selected = new bool[n + 1];
             for (int r = 1; r <= n; r++) selected[r] = wanted[MaterialOfRegion[r]];
             if (zone.materialTube != null && zone.materialTube.Length >= 3) ApplyTube(selected, zone.materialTube);
+            ApplyWidth(selected, wanted, zone);
             if (zone.useFloodFill && zone.seedUV.x >= 0f)
             {
                 int seed = HomeRegionOfUv(zone.seedUV, w, h);
@@ -634,6 +635,51 @@ namespace Iroca
             return tube;
         }
 
+        // 広さ(許容のスライダー)。既定の値では素材そのまま。下げると素材の中でスポイト色から遠い領域から落とし、
+        // 上げるとスポイト色に近い別の素材から足す。どちらも値に対して単調で、選択はつながって広がる。
+        private void ApplyWidth(bool[] selected, bool[] wanted, ColorZone zone)
+        {
+            double width = zone.tolerance, standard = ZonesJsonDefaults.Tolerance;
+            if (width == standard) return;
+            OkLab.RgbToOklab(zone.sampleColor.r, zone.sampleColor.g, zone.sampleColor.b, out float L, out float a, out float b);
+            RegionInfo* table = _regions.Regions;
+            if (width < standard)
+            {
+                var kept = new List<(double value, double weight)>();
+                for (int r = 1; r < selected.Length; r++)
+                    if (selected[r]) kept.Add((DistanceTo(r, L, a, b), table[r].Area));
+                if (kept.Count == 0) return;
+                double limit = WeightedQuantile(kept, Math.Max(width, 0.0) / standard);
+                for (int r = 1; r < selected.Length; r++)
+                    if (selected[r] && DistanceTo(r, L, a, b) > limit) selected[r] = false;
+                return;
+            }
+
+            // 上げる側は、素材の代表色(面積の重みの平均)がスポイト色から reach 以内の素材を足す。
+            // 上げ始めは細かく動くように 2 乗にする(OkLab の距離は黒と白で約 1)。
+            double t = (width - standard) / (1.0 - standard);
+            double reach = t * t;
+            var weight = new double[Count + 1];
+            var sum = new double[(Count + 1) * 3];
+            for (int r = 1; r < selected.Length; r++)
+            {
+                int m = MaterialOfRegion[r];
+                weight[m] += table[r].Area;
+                sum[m * 3] += table[r].Area * _lab[r * 3];
+                sum[m * 3 + 1] += table[r].Area * _lab[r * 3 + 1];
+                sum[m * 3 + 2] += table[r].Area * _lab[r * 3 + 2];
+            }
+            var add = new bool[Count + 1];
+            for (int m = 1; m <= Count; m++)
+            {
+                if (weight[m] <= 0.0 || wanted[m]) continue;
+                double dL = sum[m * 3] / weight[m] - L, da = sum[m * 3 + 1] / weight[m] - a, db = sum[m * 3 + 2] / weight[m] - b;
+                add[m] = dL * dL + da * da + db * db <= reach * reach;
+            }
+            for (int r = 1; r < selected.Length; r++)
+                if (add[MaterialOfRegion[r]]) selected[r] = true;
+        }
+
         private void ApplyTube(bool[] selected, float[] tube)
         {
             for (int r = 1; r < selected.Length; r++)
@@ -677,6 +723,7 @@ namespace Iroca
             }
             int material = PickMaterial(home, perRegion);
             zone.materialTube = perRegion != null ? FitTube(material, perRegion) : null;
+            zone.tolerance = ZonesJsonDefaults.Tolerance;
             RegionInfo* table = _regions.Regions;
             int largest = 0;
             for (int r = 1; r <= n; r++)
