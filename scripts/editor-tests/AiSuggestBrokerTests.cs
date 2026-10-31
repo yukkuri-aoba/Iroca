@@ -37,6 +37,28 @@ namespace Iroca.EditorTests
         // 提案の範囲はヒープの外。受け取り先を呼んだ後に AiSuggestBroker が返す。
         private static MaskSuggestProposal P(int w) => new MaskSuggestProposal { mask = NativeBools.Allocate(w, 1), width = w, height = 1 };
 
+        // 原本を読み直したら、サービスにも古い原本の参照を手放させる(同じ鍵のまま持ち続けると、原本がもう 1 枚残る)。
+        [Test]
+        public void SourceInvalidated_MakesTheServiceReleaseTheOldPixels()
+        {
+            string prefKey = IrocaWindow.LastTextureGuidPrefKey;
+            string prefBefore = UnityEditor.EditorPrefs.HasKey(prefKey) ? UnityEditor.EditorPrefs.GetString(prefKey) : null;
+            UnityEditor.EditorPrefs.DeleteKey(prefKey);
+            var win = UnityEngine.ScriptableObject.CreateInstance<IrocaWindow>();
+            try
+            {
+                _ = win._maskView.SuggestController;
+                int before = _svc.cancelAlls;
+                win.InvalidateSourceAndRepaint();
+                Assert.Greater(_svc.cancelAlls, before, "サービスが古い原本を持ったまま");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(win);
+                if (prefBefore != null) UnityEditor.EditorPrefs.SetString(prefKey, prefBefore);
+            }
+        }
+
         [Test]
         public void ProposalsGoBackToWhoAskedInOrder()
         {

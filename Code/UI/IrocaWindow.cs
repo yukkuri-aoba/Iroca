@@ -205,6 +205,10 @@ namespace Iroca
         /// </summary>
         internal void InvalidateSourceAndRepaint()
         {
+            // 走っている自動調整と AI 提案の要求は、古い画素のもの。AI のサービスが持つ古い原本の参照も手放させる
+            // (同じ鍵のまま持ち続けると、原本がもう 1 枚残る。8K で 256MB)。
+            AbortAutoTuneForEditChange();
+            _maskView?.SuggestControllerIfCreated?.OnSourceChangedOrClosing();
             _previewView?.InvalidateSourceCache();
             MarkPreviewDirty();
             Repaint();
