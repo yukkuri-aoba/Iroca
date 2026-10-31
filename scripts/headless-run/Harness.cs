@@ -1433,9 +1433,7 @@ namespace Iroca
                 var evidence = new float[m.RegionCount + 1];
                 evidence[blue] = 1000f;
                 evidence[red] = 10f;
-                Check(map.PickMaterial(red, evidence) == map.MaterialOfRegion[blue], "提案の中で少数なら、提案の多数の素材へ");
-                evidence[red] = 500f;
-                Check(map.PickMaterial(red, evidence) == map.MaterialOfRegion[red], "提案の中で少数でなければクリックの素材");
+                Check(map.PickMaterial(red, evidence) == map.MaterialOfRegion[red], "十分に大きな領域をクリックしたなら投票しない");
 
                 var zone = new ColorZone { sampleColor = new Color(200f / 255f, 30f / 255f, 30f / 255f, 1f) };
                 var selected = map.SelectedRegions(zone, N, N);
@@ -1449,11 +1447,76 @@ namespace Iroca
                 var tuned = new ColorZone { sampleColor = new Color(30f / 255f, 30f / 255f, 200f / 255f, 1f), sampleUV = new Vector2(0.9f, 0.1f) };
                 map.TuneZone(tuned, N, N, null, 0, 0);
                 Check(map.SelectedRegions(tuned, N, N)[blue], "自動調整の後もクリックの素材");
-                var votes = new bool[N * N];
-                for (int i = 0; i < votes.Length; i++) votes[i] = m.Labels[i] == red;
-                map.TuneZone(tuned, N, N, votes, N, N);
-                var moved = map.SelectedRegions(tuned, N, N);
-                Check(moved[red] && !moved[blue], "投票で移ったら、地色もスポイト位置も移した素材へ");
+                Check(tuned.materialTube == null, "AI 提案が無ければ素材を絞らない");
+            }
+
+            // 投票: 見える画素の 1/10000 以下の領域をクリックしたときだけ、提案の多数の素材へ移る
+            const int Big = 1024;
+            var bigImage = new Color32[Big * Big];
+            for (int i = 0; i < bigImage.Length; i++) bigImage[i] = Rgb(40, 40, 200);
+            for (int y = 0; y < Big; y++)
+                for (int x = 0; x < Big / 2; x++)
+                    bigImage[y * Big + x] = Rgb(200, 30, 30);
+            for (int y = 100; y < 108; y++)
+                for (int x = 100; x < 108; x++)
+                    bigImage[y * Big + x] = Rgb(30, 200, 30);
+            using (var m = Build(bigImage, Big, Big, s0))
+            {
+                var map = MaterialMap.Build(m);
+                int small = m.Labels[104 * Big + 104], red = m.Labels[0], blue = m.Labels[Big - 1];
+                Check(map.MaterialOfRegion[small] != map.MaterialOfRegion[red], "小さな緑は別の素材");
+                var evidence = new float[m.RegionCount + 1];
+                evidence[blue] = 1000f;
+                evidence[small] = 10f;
+                Check(map.PickMaterial(small, evidence) == map.MaterialOfRegion[blue], "小さな領域のクリックで提案の中で少数なら、多数の素材へ");
+                evidence[small] = 500f;
+                Check(map.PickMaterial(small, evidence) == map.MaterialOfRegion[small], "提案の中で少数でなければクリックの素材");
+
+                var tuned = new ColorZone { sampleColor = new Color(30f / 255f, 200f / 255f, 30f / 255f, 1f), sampleUV = new Vector2(104.5f / Big, 104.5f / Big) };
+                var votes = new bool[Big * Big];
+                for (int i = 0; i < votes.Length; i++) votes[i] = m.Labels[i] == blue;
+                map.TuneZone(tuned, Big, Big, votes, Big, Big);
+                var moved = map.SelectedRegions(tuned, Big, Big);
+                Check(moved[blue] && !moved[small] && !moved[red], "投票で移ったら、地色もスポイト位置も移した素材へ");
+                Check(tuned.materialTube == null, "提案の中の領域が 1 つだけなら管を作らない");
+            }
+
+            // 管: 提案の中の領域が折れ線の区間より少なければ作らない。足りれば、提案の中の濃淡は残す
+            const int Bands = MaterialMap.TubeSegments + 2;
+            var shades = new Color32[Big * Big];
+            for (int y = 0; y < Big; y++)
+            {
+                int band = y * Bands / Big;
+                byte level = (byte)(200 - 15 * band), rest = (byte)(40 - 3 * band);
+                for (int x = 0; x < Big; x++)
+                    shades[y * Big + x] = x < Big / 2 ? Rgb(rest, rest, level) : Rgb(200, 30, 30);
+            }
+            using (var m = Build(shades, Big, Big, s0))
+            {
+                var map = MaterialMap.Build(m);
+                var bands = new int[Bands];
+                for (int b = 0; b < Bands; b++) bands[b] = m.Labels[(b * Big / Bands + 1) * Big + 1];
+                bool oneMaterial = true;
+                for (int b = 1; b < Bands; b++) oneMaterial &= bands[b] != bands[0] && map.MaterialOfRegion[bands[b]] == map.MaterialOfRegion[bands[0]];
+                Check(oneMaterial, "濃淡の帯はそれぞれ別の領域で、同じ素材");
+
+                bool[] VotesOf(int count)
+                {
+                    var votes = new bool[Big * Big];
+                    for (int i = 0; i < votes.Length; i++)
+                        for (int b = 0; b < count; b++)
+                            votes[i] |= m.Labels[i] == bands[b];
+                    return votes;
+                }
+                var tuned = new ColorZone { sampleColor = new Color(40f / 255f, 40f / 255f, 200f / 255f, 1f), sampleUV = new Vector2(0.25f, 0.01f) };
+                map.TuneZone(tuned, Big, Big, VotesOf(MaterialMap.TubeSegments - 1), Big, Big);
+                Check(tuned.materialTube == null, "提案の中の領域が折れ線の区間より少なければ管を作らない");
+                map.TuneZone(tuned, Big, Big, VotesOf(Bands), Big, Big);
+                Check(tuned.materialTube != null, "提案の中の領域が足りれば素材を絞る管を持つ");
+                var kept = map.SelectedRegions(tuned, Big, Big);
+                bool allKept = true;
+                foreach (int r in bands) allKept &= kept[r];
+                Check(allKept, "提案の中の濃淡は管の中に残る");
             }
 
             Check(IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection) == live0, "領域の用途の量が元へ戻る");
@@ -1790,6 +1853,7 @@ namespace Iroca
             else if (f.FieldType == typeof(float)) nv = (float)v + 0.1237f;
             else if (f.FieldType == typeof(int)) nv = (int)v + 1;
             else if (f.FieldType == typeof(string)) nv = ((string)v ?? "") + "_x";
+            else if (f.FieldType == typeof(float[])) nv = new[] { 0.1237f };
             else if (f.FieldType == typeof(Color))
             {
                 var c = (Color)v;

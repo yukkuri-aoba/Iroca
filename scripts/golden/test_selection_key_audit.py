@@ -45,6 +45,7 @@ SELECTION_IRRELEVANT = {
     "targetColorSet",  # UI の手順案内のみ(選択・再着色では未参照)
     "layerIndex",      # 非推奨(優先度はリスト並び順へ移行済み)
     "detailFoldout",   # UI 折りたたみ状態(NonSerialized)
+    "materialTube",    # 新しい選択(T5)の素材を絞る管。旧の選択は読まない(新しい選択は今のところキャッシュを使わない)
 }
 
 

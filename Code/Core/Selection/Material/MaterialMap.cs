@@ -16,6 +16,8 @@ namespace Iroca
     /// <item>(a, b) を明度で割り、半径だけ対数で縮めた平面で、領域の面積の分布の山に分ける。同じ素材の陰影は明度が変わっても
     ///   (a, b) / L があまり動かず、彩度の揺れは比で効くので、低彩度は細かく、高彩度は粗く見る平面になる。</item>
     /// <item>山の中を明度の分布の深い谷で分ける(白・灰・黒は同じ山に入る)。</item>
+    /// <item>白に近い素材と、なだらかにつながる素材をまとめる。白い布の影は色づくので、白と影が別の山に分かれるが、
+    ///   グラデの続きは同じ素材(なだらかな接触は <see cref="RegionAdjacency.SoftContact"/>)。</item>
     /// </list>
     /// </summary>
     internal sealed unsafe class MaterialMap
@@ -34,6 +36,12 @@ namespace Iroca
         internal const double LightBandwidth = 0.03;
         // 谷の深さ: 谷が両隣の山の低い方のこの割合より低いときだけ、素材を分ける。
         internal const double LightValleyRatio = 0.3;
+        // 白に近い素材のまとめ直し: なだらかな接触の長さ / 小さい方の素材の境界の長さ がこれ以上の組。
+        internal const double SoftMergeContact = 0.25;
+        // 組のどちらかが、色の平面でこの半径以内(白に近い)のときだけ。色のある素材どうしはまとめない(肌と頬の赤みなど)。
+        internal const double SoftMergeNeutralRadius = 0.75;
+        // 組の色の平面の距離の上限。
+        internal const double SoftMergeDistance = 2.0;
         // ぼかしの窓の半径(幅の何倍まで見るか)。
         internal const double KernelTruncate = 4.0;
         // これより小さい領域(縁・点)をクリックしたら、色の近い隣の大きい領域へ移る。
@@ -44,6 +52,23 @@ namespace Iroca
         internal const int AnchorHops = 3;
         // AI 提案の投票: クリックの素材が提案の中でこの割合より少なければ、提案の中でいちばん多い素材へ移る。
         internal const double VoteMinorityShare = 0.1;
+        // 投票は、クリックした領域が見える画素のこの割合以下のときだけ(縁や点をクリックしたときの救い)。
+        // 十分に大きな領域をクリックしたなら、その素材を選んだとみなす(提案が隣の部品を含むことがあるので)。
+        internal const double VoteRegionShare = 1e-4;
+        // 素材の内側を AI 提案の色で絞る管: 提案の中の領域の面積がこれ以上のときだけ。
+        internal const double TubeMinEvidence = 64.0;
+        // 管の線を引くときの、明度で分ける区間の数。
+        internal const int TubeSegments = 4;
+        // 管の幅と明度の範囲を測る分位(提案の縁に混じる少数の色を入れない)。
+        internal const double TubeQuantile = 0.95;
+        // 管の幅の倍率と下限、明度の範囲の余白。
+        internal const double TubeWidthScale = 1.5;
+        internal const double TubeWidthFloor = 0.02;
+        internal const double TubeLightMargin = 0.15;
+        // 彩度の高い素材は (a, b) の揺れも大きいので、管の幅は線の彩度のこの割合までは広げる。
+        internal const double TubeChromaShare = 0.4;
+        // ゼロ割りと重みの 0 を避ける小さな値。
+        private const double TubeGuard = 1e-3;
         // スポイト色がクリックの素材の色と言えるか(その素材のどこかの領域との OkLab の距離)。
         internal const double SampleOnMaterial = 0.03;
 
@@ -104,6 +129,8 @@ namespace Iroca
 
             // (1) 色の平面の山
             var cellOfRegion = new int[n + 1];
+            var planeA = new double[n + 1];
+            var planeB = new double[n + 1];
             var hist = new double[size * size];
             for (int r = 1; r <= n; r++)
             {
@@ -111,8 +138,10 @@ namespace Iroca
                 double a = _lab[r * 3 + 1] / light, b = _lab[r * 3 + 2] / light;
                 double radius = Math.Sqrt(a * a + b * b);
                 double scale = Math.Log(1.0 + radius / PlaneChromaScale) / Math.Max(radius, 1e-9);
-                int ix = Clamp((int)((a * scale + PlaneExtent) / PlaneCell), size);
-                int iy = Clamp((int)((b * scale + PlaneExtent) / PlaneCell), size);
+                planeA[r] = a * scale;
+                planeB[r] = b * scale;
+                int ix = Clamp((int)((planeA[r] + PlaneExtent) / PlaneCell), size);
+                int iy = Clamp((int)((planeB[r] + PlaneExtent) / PlaneCell), size);
                 cellOfRegion[r] = iy * size + ix;
                 hist[cellOfRegion[r]] += table[r].Area;
             }
@@ -148,6 +177,84 @@ namespace Iroca
                 next += cuts.Count + 1;
             }
             Count = next - 1;
+            MergeSoftNearNeutral(planeA, planeB);
+        }
+
+        // 白に近い素材と、なだらかにつながる素材をまとめる(素材の番号は根の番号のまま。飛び番になる)。
+        private void MergeSoftNearNeutral(double[] planeA, double[] planeB)
+        {
+            RegionInfo* table = _regions.Regions;
+            int m = Count + 1;
+            var border = new double[m];
+            var soft = new Dictionary<long, double>();
+            foreach (var e in _regions.Adjacency)
+            {
+                int a = MaterialOfRegion[e.A], b = MaterialOfRegion[e.B];
+                if (a == b) continue;
+                border[a] += e.Contact;
+                border[b] += e.Contact;
+                long key = (long)Math.Min(a, b) * m + Math.Max(a, b);
+                soft.TryGetValue(key, out double v);
+                soft[key] = v + e.SoftContact;
+            }
+            if (soft.Count == 0) return;
+
+            var weight = new double[m];
+            var centerA = new double[m];
+            var centerB = new double[m];
+            for (int r = 1; r <= _regions.RegionCount; r++)
+            {
+                int k = MaterialOfRegion[r];
+                weight[k] += table[r].Area;
+                centerA[k] += table[r].Area * planeA[r];
+                centerB[k] += table[r].Area * planeB[r];
+            }
+            for (int k = 0; k < m; k++)
+            {
+                double w = Math.Max(weight[k], 1e-6);
+                centerA[k] /= w;
+                centerB[k] /= w;
+            }
+
+            var pairs = new List<(double share, int a, int b)>();
+            foreach (var kv in soft)
+            {
+                int a = (int)(kv.Key / m), b = (int)(kv.Key % m);
+                double share = kv.Value / Math.Max(1.0, Math.Min(border[a], border[b]));
+                if (share < SoftMergeContact) continue;
+                double radius = Math.Min(Math.Sqrt(centerA[a] * centerA[a] + centerB[a] * centerB[a]),
+                                         Math.Sqrt(centerA[b] * centerA[b] + centerB[b] * centerB[b]));
+                if (radius > SoftMergeNeutralRadius) continue;
+                double da = centerA[a] - centerA[b], db = centerB[a] - centerB[b];
+                if (Math.Sqrt(da * da + db * db) > SoftMergeDistance) continue;
+                pairs.Add((share, a, b));
+            }
+            if (pairs.Count == 0) return;
+            pairs.Sort((x, y) =>
+            {
+                int c = y.share.CompareTo(x.share);
+                if (c != 0) return c;
+                c = x.a.CompareTo(y.a);
+                return c != 0 ? c : x.b.CompareTo(y.b);
+            });
+
+            var root = new int[m];
+            for (int k = 0; k < m; k++) root[k] = k;
+            int Find(int k)
+            {
+                while (root[k] != k)
+                {
+                    root[k] = root[root[k]];
+                    k = root[k];
+                }
+                return k;
+            }
+            foreach (var (_, a, b) in pairs)
+            {
+                int ra = Find(a), rb = Find(b);
+                if (ra != rb) root[rb] = ra;
+            }
+            for (int r = 1; r <= _regions.RegionCount; r++) MaterialOfRegion[r] = Find(MaterialOfRegion[r]);
         }
 
         private int LightBin(int r) => Clamp((int)(_lab[r * 3] * LightBins), LightBins);
@@ -374,6 +481,7 @@ namespace Iroca
             }
             var selected = new bool[n + 1];
             for (int r = 1; r <= n; r++) selected[r] = wanted[MaterialOfRegion[r]];
+            if (zone.materialTube != null && zone.materialTube.Length >= 3) ApplyTube(selected, zone.materialTube);
             if (zone.useFloodFill && zone.seedUV.x >= 0f)
             {
                 int seed = HomeRegionOfUv(zone.seedUV, w, h);
@@ -402,6 +510,136 @@ namespace Iroca
                 }
             }
             Array.Copy(reached, selected, selected.Length);
+        }
+
+        // 重みつきの分位(値の小さい順に重みを足し、q に届いた所の値)。
+        private static double WeightedQuantile(List<(double value, double weight)> sorted, double total, double q)
+        {
+            double target = q * total, sum = 0.0;
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                sum += sorted[i].weight;
+                if (sum >= target) return sorted[i].value;
+            }
+            return sorted[sorted.Count - 1].value;
+        }
+
+        private static double WeightedQuantile(List<(double value, double weight)> items, double q)
+        {
+            items.Sort((a, b) => a.value.CompareTo(b.value));
+            double total = 0.0;
+            foreach (var it in items) total += it.weight;
+            return WeightedQuantile(items, total, q);
+        }
+
+        // 折れ線からの (a, b) の距離。線の外は、暗い側は黒へ・明るい側は白へ向かう直線(黒・白との混色)で延ばす。
+        // tube = [幅, 明度の下限, 明度の上限, L0, a0, b0, L1, a1, b1, ...]。chroma はその明度での線の彩度。
+        private static double TubeResidual(float[] tube, double L, double a, double b, out double chroma)
+        {
+            int knots = (tube.Length - 3) / 3;
+            double ea, eb;
+            double firstL = tube[3], lastL = tube[3 + (knots - 1) * 3];
+            if (L < firstL)
+            {
+                double f = Math.Min(1.0, Math.Max(0.0, L / Math.Max(firstL, TubeGuard)));
+                ea = tube[4] * f;
+                eb = tube[5] * f;
+            }
+            else if (L > lastL)
+            {
+                double f = Math.Min(1.0, Math.Max(0.0, (1.0 - L) / Math.Max(1.0 - lastL, TubeGuard)));
+                ea = tube[3 + (knots - 1) * 3 + 1] * f;
+                eb = tube[3 + (knots - 1) * 3 + 2] * f;
+            }
+            else
+            {
+                int k = 0;
+                while (k < knots - 2 && L > tube[3 + (k + 1) * 3]) k++;
+                double L0 = tube[3 + k * 3], L1 = knots > 1 ? tube[3 + (k + 1) * 3] : L0;
+                double t = L1 > L0 ? (L - L0) / (L1 - L0) : 0.0;
+                int next = knots > 1 ? k + 1 : k;
+                ea = tube[3 + k * 3 + 1] + (tube[3 + next * 3 + 1] - tube[3 + k * 3 + 1]) * t;
+                eb = tube[3 + k * 3 + 2] + (tube[3 + next * 3 + 2] - tube[3 + k * 3 + 2]) * t;
+            }
+            chroma = Math.Sqrt(ea * ea + eb * eb);
+            double da = a - ea, db = b - eb;
+            return Math.Sqrt(da * da + db * db);
+        }
+
+        /// <summary>
+        /// 素材の内側を絞る管を、AI 提案の中にあるその素材の領域から作る(提案に無い色の別部品を落とす)。
+        /// 提案の中の領域が足りなければ null(素材を丸ごと選ぶ)。
+        /// </summary>
+        private float[] FitTube(int material, float[] perRegion)
+        {
+            RegionInfo* table = _regions.Regions;
+            var teach = new List<int>();
+            double evidence = 0.0;
+            for (int r = 1; r <= _regions.RegionCount; r++)
+            {
+                if (MaterialOfRegion[r] != material || perRegion[r] < 0.5f * Math.Max(table[r].Area, 1)) continue;
+                teach.Add(r);
+                evidence += perRegion[r];
+            }
+            // 領域が折れ線の区間より少ないと線を引けない(広い素材の一部の、ツヤの数領域だけが提案に入ったときなど)。
+            if (teach.Count < TubeSegments || evidence < TubeMinEvidence) return null;
+
+            var byL = new List<(double value, double weight)>(teach.Count);
+            foreach (int r in teach) byL.Add((_lab[r * 3], Math.Max(perRegion[r], TubeGuard)));
+            byL.Sort((x, y) => x.value.CompareTo(y.value));
+            double total = 0.0;
+            foreach (var it in byL) total += it.weight;
+
+            // 明度の区間ごとの中央の色をつないで折れ線にする
+            var knots = new List<float>();
+            double previousL = double.NegativeInfinity;
+            for (int seg = 0; seg < TubeSegments; seg++)
+            {
+                double lo = WeightedQuantile(byL, total, seg / (double)TubeSegments);
+                double hi = WeightedQuantile(byL, total, (seg + 1) / (double)TubeSegments);
+                var ls = new List<(double value, double weight)>();
+                var es = new List<(double value, double weight)>();
+                var bs = new List<(double value, double weight)>();
+                foreach (int r in teach)
+                {
+                    double L = _lab[r * 3];
+                    if (L < lo || L > hi) continue;
+                    double w = Math.Max(perRegion[r], TubeGuard);
+                    ls.Add((L, w));
+                    es.Add((_lab[r * 3 + 1], w));
+                    bs.Add((_lab[r * 3 + 2], w));
+                }
+                if (ls.Count == 0) continue;
+                double kL = WeightedQuantile(ls, 0.5);
+                if (kL - previousL <= 1e-5) continue;
+                knots.Add((float)kL);
+                knots.Add((float)WeightedQuantile(es, 0.5));
+                knots.Add((float)WeightedQuantile(bs, 0.5));
+                previousL = kL;
+            }
+            var tube = new float[3 + knots.Count];
+            knots.CopyTo(tube, 3);
+
+            var residuals = new List<(double value, double weight)>(teach.Count);
+            foreach (int r in teach)
+                residuals.Add((TubeResidual(tube, _lab[r * 3], _lab[r * 3 + 1], _lab[r * 3 + 2], out _), Math.Max(perRegion[r], TubeGuard)));
+            double width = Math.Max(WeightedQuantile(residuals, TubeQuantile) * TubeWidthScale, TubeWidthFloor);
+            tube[0] = (float)width;
+            tube[1] = (float)(WeightedQuantile(byL, total, 1.0 - TubeQuantile) - TubeLightMargin);
+            tube[2] = (float)(WeightedQuantile(byL, total, TubeQuantile) + TubeLightMargin);
+            return tube;
+        }
+
+        private void ApplyTube(bool[] selected, float[] tube)
+        {
+            for (int r = 1; r < selected.Length; r++)
+            {
+                if (!selected[r]) continue;
+                double L = _lab[r * 3];
+                double residual = TubeResidual(tube, L, _lab[r * 3 + 1], _lab[r * 3 + 2], out double chroma);
+                if (L < tube[1] || L > tube[2] || residual > Math.Max(tube[0], TubeChromaShare * chroma))
+                    selected[r] = false;
+            }
         }
 
         /// <summary>
@@ -434,6 +672,7 @@ namespace Iroca
                 perRegion[0] = 0f;
             }
             int material = PickMaterial(home, perRegion);
+            zone.materialTube = perRegion != null ? FitTube(material, perRegion) : null;
             RegionInfo* table = _regions.Regions;
             int largest = 0;
             for (int r = 1; r <= n; r++)
@@ -463,6 +702,10 @@ namespace Iroca
         {
             int mine = MaterialOfRegion[AnchorRegion(homeRegion)];
             if (evidencePerRegion == null) return mine;
+            RegionInfo* table = _regions.Regions;
+            long visible = 0;
+            for (int r = 1; r <= _regions.RegionCount; r++) visible += table[r].Area;
+            if (table[homeRegion].Area > VoteRegionShare * visible) return mine;
             var share = new double[Count + 1];
             double total = 0.0;
             int n = Math.Min(evidencePerRegion.Length - 1, _regions.RegionCount);

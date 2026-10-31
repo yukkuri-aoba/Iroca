@@ -70,6 +70,8 @@ namespace Iroca
         // （IrocaPresetData.WithoutSamplePositions / DropSamplePositions）。
         // カラーフィールドで色を変えたら UI 側が無効化する。
         public Vector2 sampleUV = new Vector2(-1f, -1f);
+        // 新しい選択(T5)の、素材の内側を絞る管(MaterialMap.TuneZone が作る)。無ければ素材を丸ごと選ぶ。
+        public float[] materialTube;
         public bool HasSampleUV => sampleUV.x >= 0f;
         public void ClearSampleUV() => sampleUV = new Vector2(-1f, -1f);
         // スポイト位置が選択結果に効く状態か（包絡ゲートのどれかが有効な連続領域モード）。
