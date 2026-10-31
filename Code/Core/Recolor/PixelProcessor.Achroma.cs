@@ -161,6 +161,8 @@ namespace Iroca
             int* pIdx = null; int* binOf = null;
             // 行 run 方式の連結成分ラベリングで使う配列(確保は run 数 R が確定してから)。
             int* runX0 = null, runX1 = null, runY = null, parent = null, comp = null, rootComp = null, order = null;
+            int* compStart = null, fillPos = null;
+            float* med = null, up = null;
             try
             {
             if (palette != null)
@@ -281,16 +283,19 @@ namespace Iroca
 
             // run を成分ごとに並べ(計数ソート)、成分ごとに並列でヒストグラムを取って代表 L を出す。
             // ヒストグラムは整数加算なので、run を辿る順序に依存しない(旧: 全画素の逐次ループ)。
-            var compStart = new int[compCount + 1];
+            compStart = s_intPool.Rent(compCount + 1);
+            new Span<int>(compStart, compCount + 1).Clear();
             for (int r = 0; r < R; r++) compStart[comp[r] + 1]++;
             for (int c = 0; c < compCount; c++) compStart[c + 1] += compStart[c];
             order = s_intPool.Rent(R);
-            var fillPos = new int[compCount];
-            Array.Copy(compStart, fillPos, compCount);
+            fillPos = s_intPool.Rent(compCount);
+            new Span<int>(compStart, compCount).CopyTo(new Span<int>(fillPos, compCount));
             for (int r = 0; r < R; r++) order[fillPos[comp[r]]++] = r;
 
-            var med = new float[compCount];
-            var up = new float[compCount];
+            med = s_floatPool.Rent(compCount);
+            up = s_floatPool.Rent(compCount);
+            int* compStartL = compStart;
+            float* medL = med, upL = up;
             var orderL = order; var runX0L = runX0; var runX1L = runX1; var runYL = runY;
             Parallel.For(0, compCount, bboxPo, () => (new int[256], new int[256]), (c, _, hs) =>
             {
@@ -298,7 +303,7 @@ namespace Iroca
                 Array.Clear(hist, 0, 256);
                 Array.Clear(histCore, 0, 256);
                 int size = 0, coreSize = 0;
-                for (int q = compStart[c]; q < compStart[c + 1]; q++)
+                for (int q = compStartL[c]; q < compStartL[c + 1]; q++)
                 {
                     int r = orderL[q];
                     int x0 = runX0L[r], x1 = runX1L[r];
@@ -324,14 +329,14 @@ namespace Iroca
                     }
                     size += x1 - x0 + 1;
                 }
-                med[c] = Histogram.ValueAtPercentile(hist, size, AchromaRefPercentile, 1f);
+                medL[c] = Histogram.ValueAtPercentile(hist, size, AchromaRefPercentile, 1f);
                 // 明部の幅はコアマッチ(strength≥AnchorStrengthMin)の画素だけで測る。AA 縁は素材と隣の色の
                 // 混色で、隣が明るいと芯より明るい画素が並ぶが、それは陰影ではない(アンカー推定と同じ除外)。
                 // コアが無い成分(全体が淡い縁など)は全画素で測る。
                 float hi = coreSize > 0
                     ? Histogram.ValueAtPercentile(histCore, coreSize, AchromaHeadroomPercentile, 1f)
                     : Histogram.ValueAtPercentile(hist, size, AchromaHeadroomPercentile, 1f);
-                up[c] = Mathf.Min(AchromaFormOffset, AchromaFormGain * Mathf.Max(0f, hi - med[c]));
+                upL[c] = Mathf.Min(AchromaFormOffset, AchromaFormGain * Mathf.Max(0f, hi - medL[c]));
                 return hs;
             }, _ => { });
 
@@ -356,8 +361,8 @@ namespace Iroca
                     int rb = (ly + minY) * w + minX;
                     for (int k = rowOff[ly]; k < rowOff[ly + 1]; k++)
                     {
-                        float v = med[comp[k]];
-                        float u = up[comp[k]];
+                        float v = medL[comp[k]];
+                        float u = upL[comp[k]];
                         int x1 = runX1[k];
                         for (int lx = runX0[k]; lx <= x1; lx++) { map[rb + lx] = v; umapL[rb + lx] = u; }
                     }
@@ -374,6 +379,10 @@ namespace Iroca
             }
             finally
             {
+                if (up != null) s_floatPool.Return(up);
+                if (med != null) s_floatPool.Return(med);
+                if (fillPos != null) s_intPool.Return(fillPos);
+                if (compStart != null) s_intPool.Return(compStart);
                 if (order != null) s_intPool.Return(order);
                 if (rootComp != null) s_intPool.Return(rootComp);
                 if (comp != null) s_intPool.Return(comp);

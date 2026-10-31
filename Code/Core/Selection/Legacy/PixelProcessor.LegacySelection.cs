@@ -88,21 +88,29 @@ namespace Iroca
                 _sub.Mark(SpAlloc);
                 // ColorPick のマッチは画素の色(と色から求めた HSV)だけで決まる(位置を見るのは
                 // Rect モードだけ)ので、色の表があれば色ごとに 1 回だけ求めて配る。
-                float[] palStrength = null, palPot = null, palConf = null;
+                // 色の数の長さ(ノイズの多い 4K で数百万色)なので、Mono のヒープに作らずプールから借りる。
+                float* palStrength = null, palPot = null, palConf = null;
+                try
+                {
                 if (palette != null && zone.mode == SelectionMode.ColorPick)
                 {
                     int pc = palette.Count;
-                    palStrength = new float[pc];
-                    palPot = new float[pc];
-                    palConf = new float[pc];
+                    palStrength = s_floatPool.Rent(pc);
+                    palPot = s_floatPool.Rent(pc);
+                    palConf = s_floatPool.Rent(pc);
                     Color32* pCol = palette.Colors;
                     float* pH = palette.H, pS = palette.S, pV = palette.V;
-                    float[] outS = palStrength, outPot = palPot, outConf = palConf;
+                    float* outS = palStrength, outPot = palPot, outConf = palConf;
                     ForEachPaletteChunk(pc, po, (k0, k1) =>
                     {
                         for (int k = k0; k < k1; k++)
+                        {
                             zone.GetMatchScoresPrecomputedHSV(pH[k], pS[k], pV[k], (Color)pCol[k],
-                                0, 0, w, h, out outS[k], out outPot[k], out outConf[k]);
+                                0, 0, w, h, out float ks, out float kp, out float kc);
+                            outS[k] = ks;
+                            outPot[k] = kp;
+                            outConf[k] = kc;
+                        }
                     });
                 }
                 int* palIdxMatch = palette != null ? palette.Index : null;
@@ -142,6 +150,13 @@ namespace Iroca
                         if (matchConfLocal != null) matchConfLocal[i] = mc;
                     }
                 });
+                }
+                finally
+                {
+                    if (palStrength != null) s_floatPool.Return(palStrength);
+                    if (palPot != null) s_floatPool.Return(palPot);
+                    if (palConf != null) s_floatPool.Return(palConf);
+                }
                 _sub.Mark(SpMatchLoop);
                 // 彩度天井ゲート(グレーモード以外では内部で no-op): 無彩素材の彩度包絡を
                 // 超える独立した高彩度の別素材(クリーム布等)を選択から除去する。素材自身の
