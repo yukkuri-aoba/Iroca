@@ -147,6 +147,11 @@ partial のまま置いた）、`Pipeline/`（入口の `PixelProcessor.cs`・�
 
 ## 4. メモリの持ち主
 
+元ファイルを読むのは `TextureIO.DecodeSourceFile` だけ。PNG はヒープの外へ直接デコードする（`PngFileDecoder`。Unity の `LoadImage` は
+管理配列しか受け取らない。結果は `LoadImage` と同じ画素で、扱わない形式と壊れたファイルは `LoadImage` へ回す）。JPG は `LoadImage`
+（ファイルの大きさの管理配列が残る）。PNG・JPG でなければファイルの中身を読まない。取り込み済みテクスチャの圧縮形式は GPU で展開する
+（`WorkingResolution.NativePixelsOf`。DXT は `GetPixels32` と最大 1 段違う。GPU が無いときと対象外の形式は `GetPixels32`）。
+
 **画素数に比例する大きさのバッファは、Mono のヒープに置かない。** Unity の Mono のヒープは一度広がると OS へ返らず、
 GC は大きな塊を動かせない。8K の原本は 6,700 万画素あり、`bool[]` 1 本で 67MB、`Color32[]` 1 本で 268MB が、
 1 度使っただけでエディタを閉じるまで常駐する。
