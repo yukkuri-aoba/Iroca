@@ -86,7 +86,9 @@ namespace Iroca
 
                 // 選択(旧の選択)。マスクを掛ける前の強度と後段の範囲を返す。強度の配列はゾーンの作業配列(zb)の
                 // 持ち物で、ゾーンの終わりに返す。
-                var sel = RunLegacySelection(run, zone, zb, zoneMask, zMixMode, sampH, sampS, sampV);
+                var sel = DebugCaptureHooks.UseMaterialSelection && zone.mode == SelectionMode.ColorPick
+                    ? RunMaterialSelection(run, zone, zb, zoneMask)
+                    : RunLegacySelection(run, zone, zb, zoneMask, zMixMode, sampH, sampS, sampV);
                 float* strength = sel.Strength;
 
                 // マスクの契約(除外の掛け直し・含める)。

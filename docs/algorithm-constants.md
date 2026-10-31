@@ -130,7 +130,9 @@
 | `Code/Core/Selection/Legacy/PixelProcessor.LegacySelection.cs` | 0 |
 | `Code/Core/Selection/Legacy/PixelProcessor.Selection.cs` | 2 |
 | `Code/Core/Selection/Legacy/PixelProcessor.SelectionKey.cs` | 0 |
+| `Code/Core/Selection/Decision/PixelProcessor.MaterialSelection.cs` | 0 |
 | `Code/Core/Selection/Material/ColorClusters.cs` | 0 |
+| `Code/Core/Selection/Material/MaterialMap.cs` | 0 |
 | `Code/Core/Selection/Regions/RegionMap.cs` | 0 |
 | `Code/Core/UvChartMap.cs` | 0 |
 | `Code/Core/ZoneAutoTuner.Evidence.cs` | 7 |
@@ -407,6 +409,27 @@ T5（選択の再設計）の L1。P0 の時点では製品の経路から呼ば
 | `MixThin` | `1` | 定義 | — | 画素の種類の値（混色でない小さな塊）。128 以上は被覆率 |
 | `Pending` | `-2` | 定義 | — | 割り当て待ちの画素の印（領域の番号は正、透明は 0） |
 | `InFrontier` | `-3` | 定義 | — | 次に割り当てる順番が来ている画素の印 |
+
+## `Code/Core/Selection/Material/MaterialMap.cs`
+
+T5 の L2。切り替え（`DebugCaptureHooks.UseMaterialSelection`）を立てたときだけ効く。
+
+| 定数 | 値 | 種類 | 段 | 根拠 |
+|---|---|---|---|---|
+| `PlaneChromaScale` | `0.01` | 実測 | — | 色の平面の半径を縮める幅。T5 の P1 の掃引（開発 33 被写体）で 0.0075〜0.015 が台地。アバターを 1 体ずつ外して選び直しても同じ値（dev_safe `docs/t5_p0_regions.md`） |
+| `PlaneLightFloor` | `0.1` | 設計 | — | 明度で割るときの下限。黒の近くの量子化で (a, b) / L が暴れないように。0.05〜0.2 で結果はほぼ同じ |
+| `PlaneBandwidth` | `0.3` | 実測 | — | 色の平面の分布のぼかしの幅。同じ掃引で 0.2〜0.3 が台地。アバターを外して選び直しても同じ値 |
+| `PlaneCell` | `0.05` | 近似 | — | 色の平面のマスの大きさ。ぼかしの幅より十分小さい |
+| `PlaneExtent` | `4.5` | 計算 | — | 色の平面の端。半径は log(1 + r / 0.01) で r = 1 でも 4.6 程度 |
+| `LightBins` | `128` | 近似 | — | 明度の分布のマスの数 |
+| `LightBandwidth` | `0.03` | 実測 | — | 明度の分布のぼかしの幅。同じ掃引で 0.02〜0.05 が台地 |
+| `LightValleyRatio` | `0.3` | 実測 | — | 明度の谷で素材を分ける深さ。同じ掃引で 0.2〜0.5 が台地 |
+| `KernelTruncate` | `4.0` | 近似 | — | ぼかしの窓の半径（幅の 4 倍で十分小さい） |
+| `AnchorArea` | `64` | 実測 | — | これより小さい領域を縁や点とみなし、地色へ移す。同じ掃引で 16〜1024 で結果はほぼ同じ |
+| `AnchorNear` | `0.05` | 設計 | — | 地色へ移るときの「色の近い隣」の距離 |
+| `AnchorHops` | `3` | 近似 | — | 地色へ移る回数の上限 |
+| `VoteMinorityShare` | `0.1` | 実測 | — | AI 提案の中でクリックの素材がこの割合より少なければ投票で移す。同じ掃引で 0.05〜0.2 が台地 |
+| `SampleOnMaterial` | `0.03` | 設計 | — | スポイト色がその素材の色と言える距離（目で近いと見える幅） |
 
 ## `Code/Core/UvChartMap.cs`
 

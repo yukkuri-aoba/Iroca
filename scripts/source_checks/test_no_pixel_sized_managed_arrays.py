@@ -48,6 +48,12 @@ _PIXEL_NAMES = re.compile(r"\blen\b|\bnWords\b|\bLength\b")
 
 # 見分け方が拾うが画素数の大きさでないもの。(ファイル, 式) → 理由。**理由を必ず書くこと。**
 NOT_PIXEL_SIZED: dict[tuple[str, str], str] = {
+    ("Code/Core/Selection/Material/MaterialMap.cs", "new double[size * size]"):
+        "色の平面のマス(181 x 181)の分布。画像の大きさに依らない",
+    ("Code/Core/Selection/Material/MaterialMap.cs", "new int[size * size]"):
+        "色の平面のマス(181 x 181)の峰の番号。画像の大きさに依らない",
+    ("Code/Core/Selection/Material/MaterialMap.cs", "new bool[selected.Length]"):
+        "領域の数の長さ(4K で多くて数万)。画素数ではない",
     ("Code/Automation/TextureColorSummary.cs", "new int[small.Length]"):
         "長辺 AnalysisMaxSide(256) 以下に縮めた画像の画素数。原本の大きさに依らず 6.6 万以下",
     ("Code/Automation/TextureColorSummary.cs", "new int[label.Length]"):

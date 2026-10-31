@@ -383,6 +383,10 @@ namespace Iroca
             if (Environment.GetEnvironmentVariable("IROCA_NO_PALETTE") == "1")
                 DebugCaptureHooks.DisablePalette = true;
 
+            // IROCA_MATERIAL_SELECTION=1: 新しい選択(T5)で動かす。旧と並べて測る切り替え。
+            if (Environment.GetEnvironmentVariable("IROCA_MATERIAL_SELECTION") == "1")
+                DebugCaptureHooks.UseMaterialSelection = true;
+
             // --batch <json>: 同一入力・複数ゾーン設定をまとめて処理する(テスト実行の高速化)。
             if (args.Length >= 2 && args[0] == "--batch")
                 return RunBatch(args[1]);
@@ -510,7 +514,15 @@ namespace Iroca
                         (evW, evH, evidence) = ReadMaskRaw(evPath);
                     // セッションから読むものは、前のゾーンの適用(全体設定の書き込み)の後の値(製品と同じ)。
                     var sessionInput = ZoneAutoTuner.SessionInput.From(session);
-                    var tune = evidence != null
+                    var tune = default(ZoneAutoTuner.TuneResult);
+                    if (DebugCaptureHooks.UseMaterialSelection)
+                    {
+                        unsafe { fixed (Color32* tunePixels = pixels)
+                            PixelProcessor.TuneZoneByMaterial(tunePixels, w, h, z, evidence, evW, evH); }
+                    }
+                    else
+                    {
+                    tune = evidence != null
                         ? ZoneAutoTuner.AnalyzeWithEvidence(pixels, w, h, z, sessionInput,
                             evidence, evW, evH,
                             excluded: useMask ? common : null,
@@ -522,6 +534,7 @@ namespace Iroca
                     // （正規化サンプル・内部マルチサンプル・globals を含む。ここに項目を並べ直さない）。
                     // globals は製品と同じくセッションへ書かれるので、ハーネスの設定 DTO へ写し戻す。
                     tune.ApplyTo(z, session);
+                    }
                     if (tune.applyGlobals)
                     {
                         st.antiAliasCleanup   = session.antiAliasCleanup;
@@ -1247,7 +1260,7 @@ namespace Iroca
                 {
                     foreach (var e in map.Adjacency)
                     {
-                        bw.Write(e.A); bw.Write(e.B); bw.Write(e.Contact); bw.Write(e.MixtureContact);
+                        bw.Write(e.A); bw.Write(e.B); bw.Write(e.Contact); bw.Write(e.MixtureContact); bw.Write(e.SoftContact);
                     }
                 }
                 // 7 つ目の引数(radius をカンマで区切る): 半径ごとの色の塊を <outPrefix>_clusters_<i>.bin に(領域 1 から順の塊の番号)。
@@ -1267,10 +1280,20 @@ namespace Iroca
                         for (int r = 1; r <= map.RegionCount; r++) bw.Write(clusters.ClusterOfRegion[r]);
                     }
                 }
+                // 素材の地図(L2)。領域 1 から順の素材の番号を <outPrefix>_materials.bin に。
+                var matSw = Stopwatch.StartNew();
+                var materials = MaterialMap.Build(map);
+                long materialMs = matSw.ElapsedMilliseconds;
+                using (var fs = new FileStream(prefix + "_materials.bin", FileMode.Create, FileAccess.Write))
+                using (var bw = new BinaryWriter(fs))
+                {
+                    for (int r = 1; r <= map.RegionCount; r++) bw.Write(materials.MaterialOfRegion[r]);
+                }
                 File.WriteAllText(prefix + "_info.json", JsonSerializer.Serialize(new
                 {
                     w, h,
                     clusterCounts, clusterMs,
+                    materialCount = materials.Count, materialMs,
                     stepMax = settings.StepMax, widthMax = settings.WidthMax, minArea = settings.MinArea,
                     regions = map.RegionCount, flat = map.FlatCount,
                     smallPixels = map.SmallPixels, mixturePixels = map.MixturePixels,
@@ -1314,6 +1337,7 @@ namespace Iroca
                 Check(m.Labels[0] != m.Labels[N - 1], "左右で別の領域");
                 Check(m.SmallPixels == 0, "小さな塊が無い");
                 Check(m.Adjacency.Count == 1 && m.Adjacency[0].Contact == N && m.Adjacency[0].MixtureContact == 0, "隣接は 1 組で辺は高さの数");
+                Check(m.Adjacency[0].SoftContact == 0, "硬い境目はなだらかな接触に入らない");
                 int l = m.Labels[0];
                 Check(m.Regions[l].Area == N * N / 2 && m.Regions[l].InteriorArea == N * N / 2, "面積");
                 Check(Mathf.Abs(m.Regions[l].R - 200f) < 0.01f, "平均の色");
@@ -1326,6 +1350,8 @@ namespace Iroca
             {
                 Check(m.RegionCount == 2, "縁の混色は領域にならない");
                 Check(m.MixturePixels == N / 2 && m.SmallPixels == N / 2, "縁の画素は全部混色");
+                Check(m.MixtureIndex[0] == N / 2, "混色の画素の位置を覚える");
+                Check(m.MixturePartner[0] > 0 && m.MixturePartner[0] != m.Labels[N / 2], "混色の相手は割り当てなかった側の領域");
                 int mixValue = m.Mix[N / 2];
                 Check(mixValue >= 128 && mixValue <= 140, "被覆率はおよそ半分");
                 Check(m.Labels[N / 2] > 0, "縁の画素はどちらかの領域に入る");
@@ -1340,6 +1366,9 @@ namespace Iroca
             using (var m = Build(grad, 256, 8, s0))
             {
                 Check(m.RegionCount >= 8 && m.RegionCount <= 32, $"グラデは帯に分かれる({m.RegionCount})");
+                bool allSoft = m.Adjacency.Count > 0;
+                foreach (var e in m.Adjacency) allSoft &= e.SoftContact == e.Contact;
+                Check(allSoft, "帯の境目は全部なだらかな接触");
                 bool narrow = true;
                 for (int r = 1; r <= m.RegionCount; r++)
                     narrow &= (m.Regions[r].BoxMax & 255) - (m.Regions[r].BoxMin & 255) <= 32;
@@ -1375,6 +1404,56 @@ namespace Iroca
                 Check(m.Labels[32 * N + 20] != m.Labels[0], "線は別の領域");
                 Check(m.Labels[8 * N + 8] == m.Labels[0], "点は周りの領域へ");
                 Check(m.Mix[8 * N + 8] == RegionMap.MixThin, "点は細い塊の印");
+            }
+
+            // 素材の地図: 色の離れた 2 色は別の素材、同じ色は離れていても同じ素材、白と黒は明度の谷で別の素材
+            var mats = new Color32[N * N];
+            for (int y = 0; y < N; y++)
+            {
+                for (int x = 0; x < N; x++)
+                {
+                    int cell = (x < N / 2 ? 0 : 1) + (y < N / 2 ? 0 : 2);
+                    mats[y * N + x] = cell == 0 ? Rgb(200, 30, 30) : cell == 1 ? Rgb(30, 30, 200)
+                        : cell == 2 ? Rgb(255, 255, 255) : Rgb(20, 20, 20);
+                }
+            }
+            for (int x = 0; x < 8; x++)
+                for (int y = 0; y < 8; y++)
+                    mats[(N / 2 + 8 + y) * N + 8 + x] = Rgb(200, 30, 30);   // 白の中の、離れた同じ赤
+            using (var m = Build(mats, N, N, s0))
+            {
+                var map = MaterialMap.Build(m);
+                int red = m.Labels[0], blue = m.Labels[N - 1], white = m.Labels[(N - 1) * N], black = m.Labels[(N - 1) * N + N - 1];
+                int farRed = m.Labels[(N / 2 + 10) * N + 10];
+                Check(map.MaterialOfRegion[red] != map.MaterialOfRegion[blue], "赤と青は別の素材");
+                Check(map.MaterialOfRegion[white] != map.MaterialOfRegion[black], "白と黒は明度の谷で別の素材");
+                Check(map.MaterialOfRegion[red] != map.MaterialOfRegion[white], "赤と白は別の素材");
+                Check(map.MaterialOfRegion[red] == map.MaterialOfRegion[farRed], "離れた同じ赤は同じ素材");
+                Check(map.PickMaterial(red, null) == map.MaterialOfRegion[red], "AI 提案が無ければクリックの素材");
+                var evidence = new float[m.RegionCount + 1];
+                evidence[blue] = 1000f;
+                evidence[red] = 10f;
+                Check(map.PickMaterial(red, evidence) == map.MaterialOfRegion[blue], "提案の中で少数なら、提案の多数の素材へ");
+                evidence[red] = 500f;
+                Check(map.PickMaterial(red, evidence) == map.MaterialOfRegion[red], "提案の中で少数でなければクリックの素材");
+
+                var zone = new ColorZone { sampleColor = new Color(200f / 255f, 30f / 255f, 30f / 255f, 1f) };
+                var selected = map.SelectedRegions(zone, N, N);
+                Check(selected[red] && selected[farRed], "スポイト色の素材は場所によらず選ぶ");
+                Check(!selected[blue] && !selected[white], "別の素材は選ばない");
+                zone.seedUV = new Vector2(0.1f, 0.1f);
+                selected = map.SelectedRegions(zone, N, N);
+                Check(selected[red] && !selected[farRed], "シードがあれば、シードからつながる領域だけ");
+                zone.seedUV = new Vector2(-1f, -1f);
+
+                var tuned = new ColorZone { sampleColor = new Color(30f / 255f, 30f / 255f, 200f / 255f, 1f), sampleUV = new Vector2(0.9f, 0.1f) };
+                map.TuneZone(tuned, N, N, null, 0, 0);
+                Check(map.SelectedRegions(tuned, N, N)[blue], "自動調整の後もクリックの素材");
+                var votes = new bool[N * N];
+                for (int i = 0; i < votes.Length; i++) votes[i] = m.Labels[i] == red;
+                map.TuneZone(tuned, N, N, votes, N, N);
+                var moved = map.SelectedRegions(tuned, N, N);
+                Check(moved[red] && !moved[blue], "投票で移ったら、地色もスポイト位置も移した素材へ");
             }
 
             Check(IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection) == live0, "領域の用途の量が元へ戻る");

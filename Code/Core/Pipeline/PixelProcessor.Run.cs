@@ -41,6 +41,8 @@ namespace Iroca
             public RunBuffers Buf;
             public IDebugCapture Debug;
             public SelectionCache SelectionCache;
+            // 新しい選択の領域と素材の地図(使うときに作り、処理の終わりに解放する)。
+            public MaterialScene Materials;
             // 計測(値・分岐は変えない)。
             public long[] PhaseTicks;
             public ZonePerfEntry[] PerfZones;   // ゾーンごとの時間(PerfCount 個まで書いた)

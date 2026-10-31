@@ -265,6 +265,7 @@ namespace Iroca
             // 色の種類の表(PixelProcessor.Palette.cs)。色だけで決まる計算を色ごとに 1 回で済ませる。
             // 種類が多い画像では null(画素ごとに計算する)。どちらでも出力はビット単位で同じ。
             ColorPalette palette = null;
+            RunContext runForCleanup = null;
             try
             {
             rb.Claimed = s_floatPool.Rent(len);
@@ -335,6 +336,7 @@ namespace Iroca
                 Debug = debug, SelectionCache = selectionCache,
                 PhaseTicks = _phaseTicks, PerfZones = _perfZones, Sub = _sub,
             };
+            runForCleanup = run;
 
             foreach (var zone in sortedZones)
                 RunZone(run, masks, zone);
@@ -342,6 +344,7 @@ namespace Iroca
             }
             finally
             {
+                runForCleanup?.Materials?.Dispose();
                 palette?.Release();
                 rb.ReturnAll();
                 if (hsvRented)

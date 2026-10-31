@@ -46,6 +46,11 @@ namespace Iroca
         public int Contact;
         /// <summary>そのうち、どちらかの画素が 2 つの領域の混色のもの。</summary>
         public int MixtureContact;
+        /// <summary>
+        /// そのうち、色の差が <see cref="RegionMapSettings.StepMax"/> 以下の辺(なだらかな接触)。幅の上限で帯に切れたグラデの境目はここに入る。
+        /// 同じ素材の陰影の強い手掛かり(別の素材の境目は、ふつう色が飛ぶか輪郭線を挟む)。
+        /// </summary>
+        public int SoftContact;
     }
 
     /// <summary>
@@ -80,6 +85,7 @@ namespace Iroca
         private readonly NativeBuffer _labels;
         private readonly NativeBuffer _mix;
         private NativeBuffer _regions;
+        private NativeBuffer _mixtureIndex, _mixturePartner;
 
         /// <summary>領域の数(番号は 1〜RegionCount)。</summary>
         public int RegionCount { get; private set; }
@@ -87,6 +93,10 @@ namespace Iroca
         public int* Labels => (int*)_labels.Ptr;
         /// <summary>画素の種類(<see cref="MixInterior"/>・<see cref="MixThin"/>・128 以上は被覆率)。</summary>
         public byte* Mix => (byte*)_mix.Ptr;
+        /// <summary>混色の画素の位置(<see cref="MixturePixels"/> 個)。</summary>
+        public int* MixtureIndex => _mixtureIndex != null ? (int*)_mixtureIndex.Ptr : null;
+        /// <summary>混色の画素の、割り当てなかった側の領域(<see cref="MixtureIndex"/> と同じ並び)。</summary>
+        public int* MixturePartner => _mixturePartner != null ? (int*)_mixturePartner.Ptr : null;
         /// <summary>領域の表。添字は領域の番号(0 は使わない)。</summary>
         public RegionInfo* Regions => (RegionInfo*)_regions.Ptr;
 
@@ -117,6 +127,9 @@ namespace Iroca
             _mix.Release();
             _regions?.Release();
             _regions = null;
+            _mixtureIndex?.Release();
+            _mixturePartner?.Release();
+            _mixtureIndex = _mixturePartner = null;
         }
 
         private static int Find(int* parent, int a)
@@ -171,7 +184,7 @@ namespace Iroca
                     map.PhaseMs[2] = sw.ElapsedMilliseconds;
                     sw.Restart();
                 }
-                map.BuildTables(px);
+                map.BuildTables(px, settings.StepMax);
                 map.PhaseMs[3] = sw.ElapsedMilliseconds;
                 return map;
             }
@@ -347,12 +360,14 @@ namespace Iroca
 
             // 窓の中で見るのは大きな領域の画素だけ(割り当ての順で結果が変わらないように、書き戻しは後で)。
             int mixture = 0;
+            int* partners = scratch.Int(small, clear: false);
             for (int k = 0; k < n; k++)
             {
                 int i = list[k];
-                if (TryMixture(px, labels, w, h, i % w, i / w, out int label, out byte coverage))
+                if (TryMixture(px, labels, w, h, i % w, i / w, out int label, out int partner, out byte coverage))
                 {
                     assigned[k] = label;
+                    partners[k] = partner;
                     mix[i] = coverage;
                     mixture++;
                 }
@@ -363,6 +378,19 @@ namespace Iroca
                 }
             }
             MixturePixels = mixture;
+            if (mixture > 0)
+            {
+                _mixtureIndex = new NativeBuffer((long)mixture * sizeof(int), NativeUsage.Selection);
+                _mixturePartner = new NativeBuffer((long)mixture * sizeof(int), NativeUsage.Selection);
+                int at = 0;
+                for (int k = 0; k < n; k++)
+                {
+                    if (mix[list[k]] < 128) continue;
+                    MixtureIndex[at] = list[k];
+                    MixturePartner[at] = partners[k];
+                    at++;
+                }
+            }
             for (int k = 0; k < n; k++)
                 labels[list[k]] = assigned[k];
 
@@ -442,9 +470,10 @@ namespace Iroca
         }
 
         // 窓の中の 2 つの領域の色(いちばん近い画素の色。グラデの中でもその場の色になる)を結ぶ線分に乗っていれば混色。
-        private static bool TryMixture(Color32* px, int* labels, int w, int h, int x, int y, out int label, out byte coverage)
+        private static bool TryMixture(Color32* px, int* labels, int w, int h, int x, int y, out int label, out int partner, out byte coverage)
         {
             label = 0;
+            partner = 0;
             coverage = 0;
             int* candLabel = stackalloc int[MaxMixtureCandidates];
             int* candDist = stackalloc int[MaxMixtureCandidates];
@@ -504,12 +533,13 @@ namespace Iroca
             }
             if (bestResidual > MixtureResidualMax) return false;
             label = bestT >= 0.5f ? bestA : bestB;
+            partner = bestT >= 0.5f ? bestB : bestA;
             float cover = Math.Max(bestT, 1f - bestT);
             coverage = (byte)Math.Max(128, Math.Min(255, (int)(cover * 255f + 0.5f)));
             return true;
         }
 
-        private void BuildTables(Color32* px)
+        private void BuildTables(Color32* px, int stepMax)
         {
             int w = Width, h = Height, count = RegionCount;
             int* labels = Labels;
@@ -557,8 +587,8 @@ namespace Iroca
                         info.BoxMax = Math.Max(info.BoxMax & 255, c.r) | (Math.Max((info.BoxMax >> 8) & 255, c.g) << 8)
                             | (Math.Max((info.BoxMax >> 16) & 255, c.b) << 16);
                     }
-                    if (x + 1 < w) NotePair(i, i + 1, labels, mix, pairs);
-                    if (y + 1 < h) NotePair(i, i + w, labels, mix, pairs);
+                    if (x + 1 < w) NotePair(px, i, i + 1, labels, mix, pairs, stepMax);
+                    if (y + 1 < h) NotePair(px, i, i + w, labels, mix, pairs, stepMax);
                 }
             }
             for (int r = 1; r <= count; r++)
@@ -573,24 +603,26 @@ namespace Iroca
             }
         }
 
-        private void NotePair(int i, int j, int* labels, byte* mix, Dictionary<long, int> pairs)
+        private void NotePair(Color32* px, int i, int j, int* labels, byte* mix, Dictionary<long, int> pairs, int stepMax)
         {
             int a = labels[i], b = labels[j];
             if (a == b || b <= 0) return;
             if (a > b) { int t = a; a = b; b = t; }
             long key = ((long)a << 32) | (uint)b;
             int isMixture = mix[i] >= 128 || mix[j] >= 128 ? 1 : 0;
+            int isSoft = ColorStep(px[i], px[j]) <= stepMax ? 1 : 0;
             if (pairs.TryGetValue(key, out int index))
             {
                 RegionAdjacency e = Adjacency[index];
                 e.Contact++;
                 e.MixtureContact += isMixture;
+                e.SoftContact += isSoft;
                 Adjacency[index] = e;
             }
             else
             {
                 pairs.Add(key, Adjacency.Count);
-                Adjacency.Add(new RegionAdjacency { A = a, B = b, Contact = 1, MixtureContact = isMixture });
+                Adjacency.Add(new RegionAdjacency { A = a, B = b, Contact = 1, MixtureContact = isMixture, SoftContact = isSoft });
             }
         }
     }

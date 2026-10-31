@@ -81,5 +81,11 @@ namespace Iroca
         /// ハーネスを IROCA_NO_PALETTE=1 で動かして確かめる(scripts/golden/test_palette_parity.py)。製品からは設定しない。
         /// </summary>
         internal static bool DisablePalette;
+
+        /// <summary>
+        /// true のとき新しい選択(T5 の領域と素材の地図)を使う。P1・P2 の間は旧と並べて測るための切り替えで、
+        /// ハーネスの IROCA_MATERIAL_SELECTION=1 と開発者向けの設定からだけ立てる。ゾーンには保存しない。
+        /// </summary>
+        internal static bool UseMaterialSelection;
     }
 }
