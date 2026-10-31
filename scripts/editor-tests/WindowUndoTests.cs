@@ -99,6 +99,32 @@ namespace Iroca.EditorTests
             Assert.AreEqual(4f, view.previewZoom, "やり直しでもズームは動かない");
         }
 
+        // 塗っている途中に Esc でブラシが切れると、マウスを離す処理へ来なくなる。ストロークはそこで閉じる
+        // (閉じないと、塗っている途中のままで自動保存が止まり、Undo が次のストロークとまとまる)。
+        [Test]
+        public void EscapeDuringStroke_FinishesTheStroke()
+        {
+            var masks = _win._maskView;
+            masks.maskPaintActive = true;
+            Undo.IncrementCurrentGroup();
+            masks.isPainting = true;
+            masks.BeginStroke();
+            _win.Editing.Masks.WritableCommon().Set(1, true);
+
+            Assert.IsTrue(_win.ClearPreviewInteractionModes());
+
+            Assert.IsFalse(masks.maskPaintActive);
+            Assert.IsFalse(masks.isPainting, "塗っている途中のまま");
+            Undo.IncrementCurrentGroup();
+            Stroke(2);
+
+            Undo.PerformUndo();
+            Assert.IsTrue(_win.Editing.Masks.Common.Get(1), "1 回目の Undo で Esc の前のストロークまで戻った");
+            Assert.IsFalse(_win.Editing.Masks.Common.Get(2));
+            Undo.PerformUndo();
+            Assert.IsFalse(_win.Editing.Masks.Common != null && _win.Editing.Masks.Common.Get(1), "Esc で閉じたストロークが戻らない");
+        }
+
         [Test]
         public void Undo_OfSliderEdit_RestoresTheValueAndAsksForAPreview()
         {

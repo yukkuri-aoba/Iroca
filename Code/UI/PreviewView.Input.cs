@@ -204,6 +204,8 @@ namespace Iroca
                     // 譲らないと、後段のパン処理へイベントが届く前にここで塗ってしまう。
                     if (e.button == 0 && isInRect && !e.alt)
                     {
+                        // マウスを離したイベントを受け取れなかった前のストロークが残っていれば、混ぜずに閉じる。
+                        maskView.FinishStroke();
                         GUIUtility.hotControl = controlId;
                         maskView.isPainting = true;
                         maskView._maskStrokeStarted = false;
@@ -226,11 +228,7 @@ namespace Iroca
                     if (e.button == 0 && GUIUtility.hotControl == controlId)
                     {
                         GUIUtility.hotControl = 0;
-                        maskView.isPainting = false;
-                        // ストローク終了: 編集中のマスクを新しい版にして、編集を知らせる。
-                        maskView.EndStroke();
-                        maskView.lastPaintUV = -Vector2.one;
-                        _host.Editing.NotifyChanged(EditChange.Masks);
+                        maskView.FinishStroke();
                         e.Use();
                         _host.RequestRepaint();
                     }

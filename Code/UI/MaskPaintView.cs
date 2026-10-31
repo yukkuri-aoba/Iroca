@@ -195,7 +195,24 @@ namespace Iroca
         /// <summary>ブラシペイントモードを OFF にする。</summary>
         public void DeactivateBrush()
         {
+            // 塗っている途中で切れる(Esc)と、マウスを離す処理(PreviewView.HandlePreviewPaintInput)へ来なくなる。
+            FinishStroke();
             maskPaintActive = false;
+        }
+
+        /// <summary>
+        /// 塗っている途中のストロークを閉じる(マウスを離した・その前にブラシが切れた)。閉じないと、塗った分が Undo の版にならず、
+        /// 塗っている途中のままなので自動保存と重ね表示の作り直しも止まる。塗っていなければ何もしない。
+        /// </summary>
+        public void FinishStroke()
+        {
+            if (!isPainting) return;
+            GUIUtility.hotControl = 0;
+            isPainting = false;
+            // ストローク終了: 編集中のマスクを新しい版にして、編集を知らせる。
+            EndStroke();
+            lastPaintUV = -Vector2.one;
+            _host.Editing.NotifyChanged(EditChange.Masks);
         }
 
         /// <summary>
