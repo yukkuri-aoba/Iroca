@@ -358,6 +358,8 @@ namespace Iroca
             Undo.undoRedoPerformed += OnUndoRedoPerformed;
             AssemblyReloadEvents.beforeAssemblyReload -= SpillMaskHistoryBeforeReload;
             AssemblyReloadEvents.beforeAssemblyReload += SpillMaskHistoryBeforeReload;
+            AssemblyReloadEvents.beforeAssemblyReload -= CancelExportBeforeReload;
+            AssemblyReloadEvents.beforeAssemblyReload += CancelExportBeforeReload;
             // 非破壊ビルドの直前に、編集中の内容を結び付いたレシピへ書き出す。
             NonDestructiveApplier.BeforeApply -= FlushToBoundRecipe;
             NonDestructiveApplier.BeforeApply += FlushToBoundRecipe;
@@ -378,6 +380,7 @@ namespace Iroca
         {
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
             AssemblyReloadEvents.beforeAssemblyReload -= SpillMaskHistoryBeforeReload;
+            AssemblyReloadEvents.beforeAssemblyReload -= CancelExportBeforeReload;
             NonDestructiveApplier.BeforeApply -= FlushToBoundRecipe;
             UnsubscribeEditChanges();   // ここで保存するので自動保存の予定は消す
             UninstallSceneClick();
@@ -395,6 +398,8 @@ namespace Iroca
             // 外すのは最後(閉じる途中の処理からは、まだ開いている編集として見える。型で探していたときと同じ)。
             EditingSessionRegistry.Unregister(this);
         }
+
+        private void CancelExportBeforeReload() => _exportView?.CancelForReload();
 
         private void OnUndoRedoPerformed()
         {

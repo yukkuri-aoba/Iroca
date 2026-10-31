@@ -146,6 +146,34 @@ namespace Iroca.EditorTests
             AssertSamePixels(replaced, after.ToArray(), "上書きした後の原本");
         }
 
+        // 書き出しの途中でスクリプトの再読み込みが始まると、書き込みの予定が消える。黙って失わず、止めて知らせる。
+        [Test]
+        public void ExportRunning_IsStoppedAndReportedBeforeReload()
+        {
+            var export = _win._exportView;
+            export.saveAsNewFile = true;
+            export.newFileName = "scene_reload";
+            string output = ExportPipeline.SingleOutputPath(_path, true, "scene_reload");
+            UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
+            try
+            {
+                export.ApplyRecolor();
+                Assert.IsTrue(export.IsExporting, "テストの前提: 書き出しが走っている");
+                export.CancelForReload();
+            }
+            finally { UnityEngine.TestTools.LogAssert.ignoreFailingMessages = false; }
+
+            Assert.IsFalse(export.IsExporting);
+            Assert.AreEqual(Localization.ExportInterruptedByReload, export.LastError);
+            var watch = Stopwatch.StartNew();
+            while (watch.ElapsedMilliseconds < 500)
+            {
+                PreviewJobMainThread.Drain();
+                Thread.Sleep(5);
+            }
+            Assert.IsFalse(File.Exists(output), "止めた書き出しが書いた");
+        }
+
         // ───────────── 経路 ─────────────
 
         // 非破壊ビルドと同じ入口。窓が保存するのと同じく、編集用のマスクを保存形式(maskState)へ書いてから当てる。

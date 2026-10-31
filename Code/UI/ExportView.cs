@@ -72,6 +72,23 @@ namespace Iroca
             _exportJob.Dispose();
         }
 
+        /// <summary>直近のエラー(欄に残している文)。無ければ null か空。</summary>
+        internal string LastError => _lastError;
+
+        /// <summary>
+        /// スクリプトの再読み込みが始まるときに呼ぶ。書き込みはメインスレッドへ戻ってから行うが、戻る予定は再読み込みで消えるので、
+        /// 走っている書き出しは止めて知らせる(知らせないと、ファイルが書かれないまま何も出ない)。文は保存されるので再読み込みの後も残る。
+        /// </summary>
+        internal void CancelForReload()
+        {
+            if (!_exportJob.IsRunning) return;
+            _exportJob.Cancel();
+            _lastError = Localization.ExportInterruptedByReload;
+            Debug.LogWarning("[Iroca] " + _lastError);
+            // 届いている結果(エンコード済みの PNG)を手放す。
+            PreviewJobMainThread.Drain();
+        }
+
         // 並びと高さは GetSectionHeight と対で保つ(食い違うとエクスポート欄が画面外へ押し出される)。
         public void DrawExportSection()
         {

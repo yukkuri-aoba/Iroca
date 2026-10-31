@@ -502,6 +502,9 @@ namespace Iroca
         // 原本ファイル（PSD/TGA/EXR 等）を直接デコードできず、取り込み済みテクスチャの画素で
         // 書き出したときの注意。取り込み側は maxTextureSize の縮小・圧縮を受けているので、
         // 出力が原本と同じ解像度・画質とは限らない。黙って書き出さないための表示。
+        public static string ExportInterruptedByReload => IsJapanese
+            ? "スクリプトの読み込みが始まったので書き出しを中止しました。ファイルは書かれていません。もう一度「適用して保存」を押してください。"
+            : "The export was stopped because scripts started to reload. No file was written. Press Apply and Save again.";
         public static string ExportFromImportedTexture(int w, int h) => IsJapanese
             ? $"元ファイルを直接読めないため、取り込み済みテクスチャ（{w}×{h}）から書き出しました。インポート設定の縮小・圧縮が反映されます。"
             : $"The source file could not be read directly, so the output came from the imported texture ({w}×{h}). Import downscaling and compression apply.";
