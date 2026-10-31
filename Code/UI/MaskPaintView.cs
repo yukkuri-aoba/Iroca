@@ -129,7 +129,8 @@ namespace Iroca
 
         public void Draw()
         {
-            maskFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(maskFoldout, Localization.ExclusionMask);
+            maskFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(maskFoldout,
+                TempContent.Of(Localization.ExclusionMask, Localization.ExclusionMaskTooltip));
             if (!maskFoldout)
             {
                 EditorGUILayout.EndFoldoutHeaderGroup();

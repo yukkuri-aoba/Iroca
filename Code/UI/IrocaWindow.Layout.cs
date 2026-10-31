@@ -807,7 +807,8 @@ namespace Iroca
 
         private void DrawProcessingSection()
         {
-            processingFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(processingFoldout, Localization.Processing);
+            processingFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(processingFoldout,
+                TempContent.Of(Localization.Processing, Localization.ProcessingTooltip));
             if (!processingFoldout)
             {
                 EditorGUILayout.EndFoldoutHeaderGroup();

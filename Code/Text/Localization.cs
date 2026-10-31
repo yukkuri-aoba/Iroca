@@ -138,6 +138,9 @@ namespace Iroca
             : "Hide this notice for this texture. It comes back the next time you open Unity.";
 
         public static string ColorZones => IsJapanese ? "カラーゾーン" : "Color Zones";
+        public static string ColorZonesTooltip => IsJapanese
+            ? "変えたい色と変えた後の色の組を並べます。重なったところは上のゾーンが優先されます。"
+            : "A list of colors to change and what to change them to. Where zones overlap, the upper one wins.";
         // 名前未設定ゾーンの表示名（マスク対象プルダウン・ドラッグゴースト等で使用）。
         public static string UnnamedZone => IsJapanese ? "ゾーン" : "Zone";
         // 色を足す入口は「スポイトで…」のボタン（StartWithEyedropper / AddColorWithEyedropper）。
@@ -182,6 +185,9 @@ namespace Iroca
             : "Keeps colorless areas (white/black/gray) out of the result when you pick a vivid color.\n0 = off, 1 = strict\nTurns itself off when the picked color is grayish.\nUse it after raising Tolerance a lot, to keep unrelated white or black out.\nDefault: 0";
 
         public static string Processing => IsJapanese ? "加工設定" : "Processing";
+        public static string ProcessingTooltip => IsJapanese
+            ? "全部のゾーンに共通の、塗りの縁と隙間の処理です。ふつうは変えなくて構いません。"
+            : "Edge and gap handling shared by all zones. You usually do not need to change these.";
         public static string EdgeFeather => IsJapanese ? "エッジぼかし" : "Edge Feather";
         public static string EdgeFeatherTooltip => IsJapanese
             ? "選択範囲の縁をぼかして、なめらかにつなぎます。\n0 = オフ"
@@ -314,6 +320,9 @@ namespace Iroca
 
         // 含めるマスク追加(2026-08)以降、このセクションは除外/含めるの両マスクを扱う。
         public static string ExclusionMask => IsJapanese ? "マスク" : "Masks";
+        public static string ExclusionMaskTooltip => IsJapanese
+            ? "塗る範囲を手で直します。塗らない所・必ず塗る所をブラシや右クリックで決めます。"
+            : "Adjust by hand where the color is applied: mark places not to paint or always to paint with the brush or the right-click menu.";
         public static string BrushSize => IsJapanese ? "ブラシサイズ" : "Brush Size";
         public static string Exclude => IsJapanese ? "除外" : "Exclude";
         public static string Include => IsJapanese ? "含める" : "Include";
@@ -574,6 +583,9 @@ namespace Iroca
         public static string GeneratingDetailPreview => IsJapanese ? "⟳ 詳細プレビュー生成中…" : "⟳ Generating detail preview...";
 
         public static string Presets              => IsJapanese ? "プリセット" : "Presets";
+        public static string PresetsTooltip       => IsJapanese
+            ? "ゾーンと加工設定に名前を付けて保存し、ほかのテクスチャでも読み込めます。"
+            : "Save the zones and processing settings under a name and load them on other textures.";
         public static string PresetName           => IsJapanese ? "プリセット名" : "Preset Name";
         public static string SavePreset           => IsJapanese ? "保存" : "Save";
         public static string LoadPreset           => IsJapanese ? "読込" : "Load";
@@ -1030,9 +1042,6 @@ namespace Iroca
         public static string AutoTuneEvidenceCancelled => IsJapanese
             ? "AI 提案を取得できなかったため自動調整を中止しました"
             : "Auto-tune aborted: the AI suggestion could not be obtained";
-        public static string AutoTuneEvidenceUnusable => IsJapanese
-            ? "AI 提案が背景まで広がっていたため、AI 提案を使わずに調整しました"
-            : "The AI suggestion spread into the background, so Auto-tune ran without it";
         public static string AnalyzingTexture => IsJapanese ? "テクスチャを解析中…" : "Analyzing texture…";
         public static string AutoTuneTooltip => IsJapanese
             ? "サンプルカラーと変更先カラーから、テクスチャを解析して許容範囲・彩度制限などのパラメータを自動的に決定します。\n上の 2 色（サンプルカラー・変更先カラー）を決めてから押してください。下の項目が結果で上書きされます。"

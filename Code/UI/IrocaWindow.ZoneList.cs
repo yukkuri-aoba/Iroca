@@ -153,8 +153,8 @@ namespace Iroca
             // 旧・上級限定のパラメータは、ゾーン側は「詳細設定」内の「マッチング距離の重み」、
             // 加工設定側は「詳細設定」の折りたたみへ移した。
             zonesFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(zonesFoldout,
-                Localization.StepPrefixZones + Localization.ColorZones
-                + (StepZonesDone ? Localization.StepDoneMark : ""));
+                TempContent.Of(Localization.StepPrefixZones + Localization.ColorZones
+                    + (StepZonesDone ? Localization.StepDoneMark : ""), Localization.ColorZonesTooltip));
             if (!zonesFoldout)
             {
                 EditorGUILayout.EndFoldoutHeaderGroup();

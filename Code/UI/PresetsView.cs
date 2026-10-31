@@ -33,7 +33,8 @@ namespace Iroca
 
         public void Draw()
         {
-            presetsFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(presetsFoldout, Localization.Presets);
+            presetsFoldout = EditorGUILayout.BeginFoldoutHeaderGroup(presetsFoldout,
+                TempContent.Of(Localization.Presets, Localization.PresetsTooltip));
             if (!presetsFoldout)
             {
                 EditorGUILayout.EndFoldoutHeaderGroup();
