@@ -85,6 +85,49 @@ namespace Iroca.EditorTests
             Assert.AreEqual(EditMode.Advanced, state.editMode, "表示の好みは写さない");
         }
 
+        // 並べ替えて保存したプリセットを読み直しても、古い優先度で並びが戻らない。
+        [Test]
+        public void LegacyPriorityMigration_RunsOnlyOnce()
+        {
+            var zones = new List<ColorZone> { Zone("a", 1), Zone("b", 5) };
+            PresetApplier.MigrateLegacyLayerPriority(zones);
+            Assert.AreEqual("b", zones[0].name);
+            Assert.AreEqual(0, zones[0].layerIndex);
+            zones.Reverse();
+            PresetApplier.MigrateLegacyLayerPriority(zones);
+            Assert.AreEqual("a", zones[0].name, "並べ替えた並びが戻った");
+        }
+
+        // 連続領域の起点は、同じテクスチャへ読むときだけ残す。
+        [Test]
+        public void Seed_IsKeptOnlyOnTheSameTexture()
+        {
+            var seed = new Vector2(0.25f, 0.5f);
+            IrocaPresetData Preset(string guid)
+            {
+                var z = Zone("a", 0);
+                z.seedUV = seed;
+                return new IrocaPresetData { sourceTextureGuid = guid, zones = { z } };
+            }
+            var state = IrocaSessionState.CreateDefault();
+            PresetApplier.ApplyZonesAndSettings(Preset("tex-a"), state, "tex-a");
+            Assert.AreEqual(seed, state.zones[0].seedUV);
+            PresetApplier.ApplyZonesAndSettings(Preset("tex-a"), state, "tex-b");
+            Assert.Less(state.zones[0].seedUV.x, 0f, "別のテクスチャへ起点を運んだ");
+            PresetApplier.ApplyZonesAndSettings(Preset(""), state, "tex-b");
+            Assert.Less(state.zones[0].seedUV.x, 0f, "どのテクスチャのものか分からない起点を運んだ");
+            Assert.IsFalse(PresetApplier.MadeForOtherTexture(Preset(""), "tex-b"), "古いプリセットは確かめない");
+            Assert.IsTrue(PresetApplier.MadeForOtherTexture(Preset("tex-a"), "tex-b"));
+        }
+
+        // プリセットでない JSON を渡しても、既存のゾーンを空で置き換えない。
+        [Test]
+        public void JsonWithoutZones_IsNotAPreset()
+        {
+            Assert.IsNull(PresetStore.Parse("{\"foo\":1}"));
+            Assert.IsNotNull(PresetStore.Parse("{\"zones\":[]}"));
+        }
+
         [Test]
         public void MaskStateOf_CopiesEntriesAndSkipsBlankIds()
         {

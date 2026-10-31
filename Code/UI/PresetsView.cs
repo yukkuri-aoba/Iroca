@@ -154,8 +154,12 @@ namespace Iroca
             var data = new IrocaPresetData
             {
                 name = presetName,
+                sourceTextureGuid = SessionPersistence.GuidOf(_host.SourceTexture),
                 zones = zonesCopy,
             };
+            // 優先度は並び順(古い layerIndex を残すと、読み込みの移行が保存した並びを戻す)。
+            foreach (var z in zonesCopy)
+                if (z != null) z.layerIndex = 0;
             // 編集モード(かんたん/通常/上級)は UI 表示の好みであり色設定ではないため、
             // プリセットには保存しない（読込で表示モードが勝手に変わらないように）。
             RecolorSettings.From(session).CopyTo(data);
@@ -168,6 +172,9 @@ namespace Iroca
             return data;
         }
 
+        // テストが確認の画面を出さずに答える(0 = マスクは読まない、1 = やめる、2 = マスクも読む。画面の戻り値と同じ)。
+        internal static System.Func<int> ForeignMaskChoiceForTests;
+
         // internal は OldFormatLoadTests が古い版のプリセットを読み込むため。
         internal void LoadPreset(string filePath)
         {
@@ -178,9 +185,20 @@ namespace Iroca
                 return;
             }
 
+            // 別のテクスチャで作ったプリセットのマスクは、このテクスチャの場所に合わない。今のマスクを置き換えてよいか確かめる。
+            bool applyMasks = presetApplyMasks;
+            if (applyMasks && PresetApplier.HasMasks(data)
+                && PresetApplier.MadeForOtherTexture(data, SessionPersistence.GuidOf(_host.SourceTexture)))
+            {
+                int choice = ForeignMaskChoiceForTests?.Invoke() ?? EditorUtility.DisplayDialogComplex(Localization.Confirm,
+                    Localization.PresetForeignMaskConfirm, Localization.PresetForeignMaskSkip, Localization.Cancel, Localization.PresetForeignMaskApply);
+                if (choice == 1) return;
+                applyMasks = choice == 2;
+            }
+
             // ゾーン・処理設定・(選んでいれば)マスクを 1 ステップの Undo で読み込む(EditingSession.ApplyPreset)。
             // 編集モードはプリセットで上書きしない（現在の表示モードを維持）。
-            if (_host.Editing.ApplyPreset(data, presetApplyMasks))
+            if (_host.Editing.ApplyPreset(data, applyMasks))
                 _host.SaveMasksToFile();
 
             _host.ResetActiveMaskTarget();

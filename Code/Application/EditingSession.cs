@@ -309,7 +309,7 @@ namespace Iroca
         internal bool ApplyPreset(IrocaPresetData preset, bool applyMasks)
         {
             RecordMaskEdit("Load Preset");
-            PresetApplier.ApplyZonesAndSettings(preset, State);
+            PresetApplier.ApplyZonesAndSettings(preset, State, SessionPersistence.GuidOf(Document.sourceTexture));
             bool masks = applyMasks && PresetApplier.HasMasks(preset);
             if (masks)
             {

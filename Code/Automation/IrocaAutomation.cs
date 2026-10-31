@@ -250,7 +250,10 @@ namespace Iroca
                 if (preset == null)
                     return Fail($"preset not found / parse failed: {presetPathOrNameOrJson}");
 
-                return Json(RunRecolorCore(sourceAssetPath, SessionFromPreset(preset), outputAssetPath, warnings));
+                string abs = ResolveExistingFile(sourceAssetPath);
+                string rel = abs != null ? PathUtils.ToAssetsRelativeOrNull(abs) : null;
+                string guid = rel != null ? AssetDatabase.AssetPathToGUID(rel) : "";
+                return Json(RunRecolorCore(sourceAssetPath, SessionFromPreset(preset, guid, warnings), outputAssetPath, warnings));
             }
             catch (Exception ex)
             {
@@ -580,11 +583,17 @@ namespace Iroca
         /// プリセットを新しい編集状態へ写す（ゾーン・処理設定・マスク）。UI でプリセットを読み込んだときと同じ規則
         /// （<see cref="PresetApplier"/>。古い優先順位の移行・id を含む）。
         /// advancedMode は UI 表示レベルのみで処理結果に影響しないため移送しない。
+        /// 別のテクスチャで作ったマスクは読まない(UI では確かめるが、ここでは聞けない。警告で知らせる)。
         /// </summary>
-        private static IrocaSessionState SessionFromPreset(IrocaPresetData p)
+        private static IrocaSessionState SessionFromPreset(IrocaPresetData p, string textureGuid, List<string> warnings)
         {
             var state = new IrocaSessionState();
-            PresetApplier.ApplyZonesAndSettings(p, state);
+            PresetApplier.ApplyZonesAndSettings(p, state, textureGuid);
+            if (PresetApplier.HasMasks(p) && PresetApplier.MadeForOtherTexture(p, textureGuid))
+            {
+                warnings.Add("the masks of this preset were made on another texture, so they were not used (zones and settings were).");
+                return state;
+            }
             state.maskState = PresetApplier.MaskStateOf(p);
             return state;
         }
@@ -608,7 +617,7 @@ namespace Iroca
             string trimmed = spec.TrimStart();
             if (trimmed.StartsWith("{"))
             {
-                try { return JsonUtility.FromJson<IrocaPresetData>(spec); }
+                try { return PresetStore.Parse(spec); }
                 catch { return null; }
             }
 

@@ -15,9 +15,12 @@ namespace Iroca
         /// <summary>
         /// プリセットのゾーン(古い優先順位を並び順へ直し、id を振る)と処理設定を <paramref name="state"/> へ写す。
         /// ゾーンのリストはプリセットのものをそのまま使う(読み込んだプリセットは使い捨て)。
+        /// 連続領域の起点はそのテクスチャ上の位置なので、<paramref name="textureGuid"/> で作ったプリセットと分かるときだけ残す
+        /// (別のテクスチャでは起点が無関係な場所を指す)。
         /// </summary>
-        internal static void ApplyZonesAndSettings(IrocaPresetData preset, IrocaSessionState state)
+        internal static void ApplyZonesAndSettings(IrocaPresetData preset, IrocaSessionState state, string textureGuid = null)
         {
+            if (string.IsNullOrEmpty(textureGuid) || preset.sourceTextureGuid != textureGuid) DropSeeds(preset);
             // Unity の JsonUtility は JSON に含まれないフィールドを「既定値で上書き」ではなく
             // 「クラスのフィールド初期化子の値を保持」するため、ここで `> 0 ? : default` のような
             // defaulting を行うとユーザーが明示的に 0 を保存したケース（UI レンジに 0 を含む
@@ -46,6 +49,17 @@ namespace Iroca
             CopyMaskEntries(preset.zoneIncludeMasks, ms.zoneIncludes);
             return ms;
         }
+
+        private static void DropSeeds(IrocaPresetData preset)
+        {
+            if (preset.zones == null) return;
+            foreach (var z in preset.zones)
+                if (z != null) z.seedUV = new UnityEngine.Vector2(-1f, -1f);
+        }
+
+        /// <summary>別のテクスチャで作ったと分かっているプリセットか(古いプリセットは分からないので false)。</summary>
+        internal static bool MadeForOtherTexture(IrocaPresetData preset, string textureGuid) =>
+            !string.IsNullOrEmpty(preset.sourceTextureGuid) && preset.sourceTextureGuid != textureGuid;
 
         /// <summary>プリセットがマスクを持つ(寸法が書かれている)か。</summary>
         internal static bool HasMasks(IrocaPresetData preset) => preset.maskWidth > 0 && preset.maskHeight > 0;
@@ -78,6 +92,8 @@ namespace Iroca
             var migrated = zones.OrderByDescending(z => z.layerIndex).ToList();
             zones.Clear();
             zones.AddRange(migrated);
+            // ここからは並び順が優先度。残すと、並べ替えて保存したプリセットを読み直すたびに元の並びへ戻る。
+            foreach (var z in zones) z.layerIndex = 0;
         }
     }
 }

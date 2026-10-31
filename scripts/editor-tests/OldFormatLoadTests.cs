@@ -74,8 +74,9 @@ namespace Iroca.EditorTests
                 "古い優先度(layerIndex の大きいほうが上)の並びにする");
             var expected = new[]
             {
-                V010Zone("skirt", Blue, Yellow, 0.375f, 2),
-                V010Zone("ribbon", Green, Purple, 0.25f, 1),
+                // 並べ替えたら古い優先度は 0 にする(残すと、並べ替えて保存したものを読み直すたびに戻る)。
+                V010Zone("skirt", Blue, Yellow, 0.375f, 0),
+                V010Zone("ribbon", Green, Purple, 0.25f, 0),
                 V010Zone("shirt", Red, Teal, 0.25f, 0),
             };
             for (int i = 0; i < expected.Length; i++)

@@ -16,6 +16,9 @@ namespace Iroca
         public int schemaVersion;
 
         public string name = "";
+        // 作ったテクスチャの GUID(無ければ空 = 古いプリセット・手書き)。マスクと連続領域の起点はそのテクスチャ上の位置なので、
+        // 別のテクスチャへ読むときに見る(PresetApplier)。
+        public string sourceTextureGuid = "";
         public List<ColorZone> zones = new List<ColorZone>();
         public float edgeFeather = RecolorSettings.DefaultEdgeFeather;
 

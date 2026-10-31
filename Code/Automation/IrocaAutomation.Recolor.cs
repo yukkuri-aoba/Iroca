@@ -428,7 +428,7 @@ namespace Iroca
             {
                 var preset = ResolvePreset(req.preset);
                 if (preset == null) return $"preset not found / parse failed: {req.preset}";
-                state = SessionFromPreset(preset);
+                state = SessionFromPreset(preset, SessionPersistence.GuidOf(tex), r.warnings);
             }
             else
             {

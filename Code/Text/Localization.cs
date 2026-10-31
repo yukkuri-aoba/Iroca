@@ -583,6 +583,11 @@ namespace Iroca
         public static string GeneratingDetailPreview => IsJapanese ? "⟳ 詳細プレビュー生成中…" : "⟳ Generating detail preview...";
 
         public static string Presets              => IsJapanese ? "プリセット" : "Presets";
+        public static string PresetForeignMaskConfirm => IsJapanese
+            ? "このプリセットのマスクは別のテクスチャで作られたものです。読み込むと、今のマスクが置き換わります（塗らない範囲がこのテクスチャの場所に合わないことがあります。Ctrl+Z で戻せます）。\n\nゾーンと加工設定だけ読み込むこともできます。"
+            : "This preset's masks were made on another texture. Loading them replaces the current masks (the areas may not fit this texture; Ctrl+Z brings them back).\n\nYou can also load only the zones and processing settings.";
+        public static string PresetForeignMaskSkip => IsJapanese ? "マスクは読まない" : "Without Masks";
+        public static string PresetForeignMaskApply => IsJapanese ? "マスクも読む" : "Load Masks Too";
         public static string PresetsTooltip       => IsJapanese
             ? "ゾーンと加工設定に名前を付けて保存し、ほかのテクスチャでも読み込めます。"
             : "Save the zones and processing settings under a name and load them on other textures.";

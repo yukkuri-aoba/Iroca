@@ -68,21 +68,26 @@ namespace Iroca
         /// 指定 JSON ファイルから <see cref="IrocaPresetData"/> を読み込む。
         /// 失敗時は <c>null</c>。
         /// </summary>
+        /// <summary>
+        /// プリセットの JSON を読む。プリセットでなければ null。JsonUtility はプリセットでない JSON でも例外を出さず、既定値のまま
+        /// 返す。読み込むと全ゾーンが空で置き換わるので、ゾーンの項目が無ければ読めなかったものとして扱う。
+        /// </summary>
+        public static IrocaPresetData Parse(string json)
+        {
+            var data = JsonUtility.FromJson<IrocaPresetData>(json);
+            if (data == null || json.IndexOf("\"zones\"", StringComparison.Ordinal) < 0) return null;
+            data.DropSamplePositions();
+            return data;
+        }
+
         public static IrocaPresetData Load(string filePath)
         {
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return null;
             try
             {
                 string json = File.ReadAllText(filePath);
-                var data = JsonUtility.FromJson<IrocaPresetData>(json);
-                // JsonUtility はプリセットでない JSON でも例外を出さず、既定値のまま返す。読み込むと全ゾーンが
-                // 空で置き換わるので、ゾーンの項目が無ければ読めなかったものとして扱う。
-                if (data == null || json.IndexOf("\"zones\"", StringComparison.Ordinal) < 0)
-                {
-                    Debug.LogWarning($"[Iroca] Not a preset file: {filePath}");
-                    return null;
-                }
-                data.DropSamplePositions();
+                var data = Parse(json);
+                if (data == null) Debug.LogWarning($"[Iroca] Not a preset file: {filePath}");
                 return data;
             }
             catch (Exception ex)
