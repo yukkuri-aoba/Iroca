@@ -19,6 +19,22 @@ namespace Iroca.EditorTests
     /// </summary>
     public class LivePreviewTests
     {
+        // 編集中のテクスチャが消えたら、シーンのプレビューの画素と RenderTexture を手放す。
+        [Test]
+        public void DestroyedSource_IsReleased()
+        {
+            var tex = new Texture2D(2, 2);
+            LivePreview.SetTarget(tex, null);
+            LivePreview.Push(tex, new Color32[4], 2, 2);
+            int before = LivePreview.SlotCount;
+            Assert.Greater(before, 0, "テストの前提: スロットがある");
+            Object.DestroyImmediate(tex);
+
+            LivePreview.PurgeDestroyedSources();
+            Assert.AreEqual(before - 1, LivePreview.SlotCount, "消えたテクスチャの画素が残っている");
+            Assert.IsNull(LivePreview.Current);
+        }
+
         private readonly List<Object> _created = new List<Object>();
         private LivePreview.Target _savedTarget;
 
@@ -237,6 +253,35 @@ namespace Iroca.EditorTests
             finally
             {
                 LivePreview.Release(tex);
+            }
+        }
+
+        // シーンのプレビューもビルドと同じく取り込み設定の Alpha Source を当てる。
+        [Test]
+        public void AlphaSourceNone_MakesThePreviewOpaque()
+        {
+            using (var assets = TestAssets.Create())
+            {
+                string path = assets.WritePng("alpha", TestAssets.Solid(8, 8, new Color32(200, 50, 50, 128)), 8, 8);
+                var importer = (TextureImporter)AssetImporter.GetAtPath(path);
+                importer.alphaSource = TextureImporterAlphaSource.None;
+                importer.SaveAndReimport();
+                var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+                LivePreview.SetTarget(tex, null);
+                var rt = LivePreview.Acquire(tex);
+                try
+                {
+                    var pixels = TestAssets.Solid(8, 8, new Color32(0, 200, 0, 128));
+                    LivePreview.Push(tex, pixels, 8, 8);
+                    Assert.AreEqual(128, pixels[0].a, "窓のプレビューも使う画素を書き換えた");
+                    if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null)
+                        Assert.AreEqual(255, ReadCenter((RenderTexture)rt).a, "Alpha Source を当てていない");
+                }
+                finally
+                {
+                    LivePreview.Release(tex);
+                    LivePreview.SetTarget(null, null);
+                }
             }
         }
 

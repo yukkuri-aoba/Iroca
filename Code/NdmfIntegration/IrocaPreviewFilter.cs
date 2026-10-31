@@ -50,6 +50,28 @@ namespace Iroca.NdmfIntegration
         private static readonly PublishedValue<LivePreview.Target> Live =
             new PublishedValue<LivePreview.Target>(null, "Iroca/LiveTarget");
 
+        // 借りたレシピの元テクスチャのパスと、それらが取り込み直された回数。取り込み直しはテクスチャのオブジェクトが変わらないので、
+        // NDMF の監視では気づけない。回数を見ているノードは作り直され、レシピのキャッシュの鍵(取り込みのハッシュを含む)も変わる。
+        private static readonly HashSet<string> WatchedSources = new HashSet<string>();
+        private static readonly PublishedValue<int> SourceImports = new PublishedValue<int>(0, "Iroca/SourceImports");
+
+        /// <summary>アセットが取り込まれたときに呼ぶ。監視中の元テクスチャが含まれていればノードを作り直させる。</summary>
+        internal static void OnAssetsImported(string[] importedAssets)
+        {
+            foreach (var path in importedAssets)
+                if (WatchedSources.Contains(path))
+                {
+                    SourceImports.Value++;
+                    return;
+                }
+        }
+
+        private sealed class SourceImportWatcher : UnityEditor.AssetPostprocessor
+        {
+            private static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets,
+                string[] movedAssets, string[] movedFromAssetPaths) => OnAssetsImported(importedAssets);
+        }
+
         // 監視の読み出しで使い回す入れ物(メインスレッドからしか使わない。毎フレーム配列を作らないため)。
         private static readonly List<Material> s_materials = new List<Material>();
         private static readonly List<int> s_textureIds = new List<int>();
@@ -424,6 +446,9 @@ namespace Iroca.NdmfIntegration
                 }
                 foreach (var recipe in _recipes)
                     context.Observe(recipe, r => r.sessionJson);
+                context.Observe(SourceImports, v => v, (a, b) => a == b);
+                foreach (var s in _slots)
+                    if (s.source != null) WatchedSources.Add(UnityEditor.AssetDatabase.GetAssetPath(s.source));
                 // ウィンドウがこのレシピを編集し始めた・やめた(ライブとレシピが入れ替わる)。差し替え先が変わるので
                 // NDMF はグループを作り直すが、作りかけを待つのをやめるきっかけにもする(StopWaiting)。
                 var watched = new HashSet<IrocaRecipe>();

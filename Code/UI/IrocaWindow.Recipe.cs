@@ -453,6 +453,8 @@ namespace Iroca
             {
                 if (path.EndsWith(".asset", System.StringComparison.OrdinalIgnoreCase)) { anyAsset = true; break; }
             }
+            // テクスチャが消えていたら、シーンのプレビューが持つ画素も手放す。
+            if (deletedAssets.Length > 0) LivePreview.PurgeDestroyedSources();
             foreach (var e in EditingSessionRegistry.Snapshot())
             {
                 if (!(e is IrocaWindow w)) continue;

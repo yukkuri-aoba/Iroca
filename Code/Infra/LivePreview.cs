@@ -57,6 +57,8 @@ namespace Iroca
             public NativePixels native;
             public int width, height;
             public Texture2D staging;
+            // Alpha Source を当てるときの取り込み設定(最後に届いた画素のテクスチャのもの)。
+            public TextureImporter importer;
 
             public bool HasPixels => pixels != null || native != null;
 
@@ -94,6 +96,7 @@ namespace Iroca
         {
             var next = source != null ? new Target(source, boundRecipe) : null;
             if (Equals(Current, next)) return;
+            PurgeDestroyedSources();
             var previous = Current;
             Current = next;
             // 前の元テクスチャの画素は、借り手が残っていなければもう使わない。
@@ -115,6 +118,7 @@ namespace Iroca
             slot.pixels = pixels;
             slot.width = width;
             slot.height = height;
+            slot.importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(source)) as TextureImporter;
             if (slot.rt != null) Upload(slot);
         }
 
@@ -131,6 +135,7 @@ namespace Iroca
             slot.native = pixels;
             slot.width = pixels.Width;
             slot.height = pixels.Height;
+            slot.importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(source)) as TextureImporter;
             if (slot.rt != null) Upload(slot);
         }
 
@@ -174,6 +179,34 @@ namespace Iroca
             if (slot.refs > 0) slot.refs--;
             DropIfUnused(source);
         }
+
+        /// <summary>
+        /// 元テクスチャが破棄された(Project で消した)スロットを手放す。破棄された後は null と比べて真になるので、
+        /// <see cref="Release"/> と <see cref="DropIfUnused"/> からは見つけられず、次の再読み込みまで画素と RenderTexture が残っていた
+        /// (8K で最大約 768MB)。
+        /// </summary>
+        internal static void PurgeDestroyedSources()
+        {
+            if (Current != null && Current.source == null)
+            {
+                Current = null;
+                TargetChanged?.Invoke();
+            }
+            List<Texture2D> gone = null;
+            foreach (var key in Slots.Keys)
+                if (key == null) (gone ??= new List<Texture2D>()).Add(key);
+            if (gone == null) return;
+            foreach (var key in gone)
+            {
+                var slot = Slots[key];
+                DestroyGpu(slot);
+                slot.DropPixels();
+                Slots.Remove(key);
+            }
+        }
+
+        /// <summary>テスト用: スロットの数。</summary>
+        internal static int SlotCount => Slots.Count;
 
         /// <summary>テスト用: 借りられている数。</summary>
         internal static int RefCount(Texture2D source) =>
@@ -262,6 +295,9 @@ namespace Iroca
                 slot.staging.LoadRawTextureData((IntPtr)slot.native.Ptr, slot.native.Length * 4);
             else
                 slot.staging.SetPixelData(slot.pixels, 0);
+            // ビルド(RecipeTextureBuilder)と同じく、出来上がりに取り込み設定の Alpha Source を当てる。届いた画素は窓のプレビューも
+            // 使うので、写した先で当てる。
+            RecipeTextureBuilder.ApplyAlphaSource(slot.staging, slot.importer);
             slot.staging.Apply(false, false);
 
             bool shrink = slot.width > slot.rt.width * 2 || slot.height > slot.rt.height * 2;

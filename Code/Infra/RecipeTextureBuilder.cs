@@ -499,7 +499,7 @@ namespace Iroca
         /// 色替えの後(出来上がり)に当てる。色替えした画像を同じ取り込み設定で取り込んだとき(書き出し)と同じになる。
         /// PSD・TGA などは取り込み済みテクスチャの画素を読むので、Unity が当て済み。
         /// </summary>
-        private static unsafe void ApplyAlphaSource(Texture2D tex, TextureImporter importer)
+        internal static unsafe void ApplyAlphaSource(Texture2D tex, TextureImporter importer)
         {
             if (importer == null || importer.alphaSource == TextureImporterAlphaSource.FromInput) return;
             if (tex.format != TextureFormat.RGBA32 || !ReadsSourceFile(importer.assetPath)) return;
@@ -663,6 +663,9 @@ namespace Iroca
                     bool linear = br.ReadBoolean();
                     int len = br.ReadInt32();
                     if (len < 0 || fs.Length - fs.Position < len) return null;   // 書きかけ
+                    // 計算の途中で元テクスチャの取り込み設定が変わると、前の設定の鍵で今の寸法の結果が入っていることがある。
+                    if (w != like.width || h != like.height || mipCount != like.mipmapCount)
+                        throw new InvalidDataException($"cache size {w}x{h} (mips {mipCount}) != texture {like.width}x{like.height} (mips {like.mipmapCount})");
                     tex = new Texture2D(w, h, (TextureFormat)fmt, mipCount, linear);
                     var raw = tex.GetRawTextureData<byte>();
                     if (raw.Length != len)
