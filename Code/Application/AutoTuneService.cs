@@ -73,9 +73,9 @@ namespace Iroca
         /// AI の元のキー(ウィンドウのプレビューと同じ形。窓が同じテクスチャを表示していれば埋め込みを使い回す)。
         /// null = AI と共有できる元が無い(この画素で同じキーを使うと、別の画素の埋め込みと取り違える)。
         /// </param>
-        /// <param name="excluded">除外マスク(共通 ∪ そのゾーン、true=除外)。null = マスク無し。</param>
+        /// <param name="excluded">除外マスク(共通 ∪ そのゾーン、true=除外)。null = マスク無し。持ち主は自動調整になり、終わったら返す。</param>
         internal static Run Start(ColorZone zone, IrocaSessionState session, NativePixels pixels, string sourceKey,
-            bool[] excluded, int maskW, int maskH)
+            NativeBools excluded, int maskW, int maskH)
         {
             zone.EnsureId();
             // 背景の解析には live の zone / session を直接渡さず、値等価コピーを渡す。解析中も Undo などでゾーンや
@@ -182,7 +182,8 @@ namespace Iroca
             private readonly ColorZone _zone;
             private readonly ZoneAutoTuner.SessionInput _session;
             private readonly string _sourceKey;
-            private readonly bool[] _excluded;
+            private NativeBools _excluded;
+            private readonly bool _maskUsed;
             private readonly int _mw, _mh;
             private readonly PreviewJobProgress _progress = new PreviewJobProgress();
             private readonly CancellationTokenSource _cts = new CancellationTokenSource();
@@ -197,13 +198,14 @@ namespace Iroca
             private int _evW, _evH;
 
             internal Run(ColorZone zone, ZoneAutoTuner.SessionInput session, NativePixels pixels, string sourceKey,
-                bool[] excluded, int maskW, int maskH)
+                NativeBools excluded, int maskW, int maskH)
             {
                 _zone = zone;
                 _session = session;
                 _pixels = pixels;
                 _sourceKey = sourceKey;
                 _excluded = excluded;
+                _maskUsed = excluded != null;
                 _mw = maskW;
                 _mh = maskH;
                 TextureWidth = pixels.Width;
@@ -319,7 +321,7 @@ namespace Iroca
             {
                 sample = _zone.sampleColor, target = _zone.targetColor,
                 evidence = _evidencePacked, evW = _evW, evH = _evH, texW = TextureWidth, texH = TextureHeight,
-                maskUsed = _excluded != null, applied = Result,
+                maskUsed = _maskUsed, applied = Result,
             };
 
             // 証拠の要求を(再)試行する。準備中(Busy)なら次の Advance で求め直す。
@@ -368,13 +370,12 @@ namespace Iroca
                 }
                 // 背景まで広がった提案は素材の証拠にならない。この場合だけは証拠なしで解析する。
                 if (proposal.floodWarning) StartAnalysis(null, 0, 0, ReasonEvidenceFlood);
-                // 提案の範囲は受け取りの間だけ使える(AiSuggestBroker が後で返す)。旧の解析(ZoneAutoTuner)は配列で
-                // 受け取って持つので、ここで写す(T5 の新しい層で置き換える。0.4.0 の計画の 3.4.3)。
-                else StartAnalysis(proposal.mask.ToArray(), proposal.width, proposal.height, null);
+                // 提案の範囲は受け取りの間だけ使える(AiSuggestBroker が後で返す)。解析が終わるまで持つので写す。
+                else StartAnalysis(proposal.mask.Clone(), proposal.width, proposal.height, null);
             }
 
             // evidence: 証拠マスク（true=このゾーンの素材そのもの。pixels と同じ下原点並び）。null なら従来導出。
-            private void StartAnalysis(bool[] evidence, int evW, int evH, string conventionalReason)
+            private void StartAnalysis(NativeBools evidence, int evW, int evH, string conventionalReason)
             {
                 Status = Status.Analyzing;
                 ConventionalReason = conventionalReason;
@@ -388,7 +389,8 @@ namespace Iroca
                 _pixels = null;
                 var zone = _zone;
                 var session = _session;
-                var excluded = _excluded;
+                var excluded = _excluded;   // ここから先は解析が返す
+                _excluded = null;
                 int mw = _mw, mh = _mh;
                 var ct = _cts.Token;
                 var progress = _progress;
@@ -402,10 +404,11 @@ namespace Iroca
                         progress.Report(0.10f);
                         // ct を Analyze へ渡す。取り消されたら各解析ステップ間で停止し、ゾンビ実行(CPU 2 倍)を防ぐ。
                         // 解析の各ステップから進捗を受け取る。渡さないと 0.10 → 1.00 の 2 点しか報告されない。
+                        bool* excludedPtr = excluded != null ? excluded.Ptr : null;
                         var result = evidence != null
-                            ? ZoneAutoTuner.AnalyzeWithEvidence(px.Ptr, px.Width, px.Height, zone, session,
-                                evidence, evW, evH, excluded, mw, mh, ct, progress.Report)
-                            : ZoneAutoTuner.Analyze(px.Ptr, px.Width, px.Height, zone, session, excluded, mw, mh, ct,
+                            ? ZoneAutoTuner.AnalyzeWithEvidenceCore(px.Ptr, px.Width, px.Height, zone, session,
+                                evidence.Ptr, evW, evH, excludedPtr, mw, mh, ct, progress.Report)
+                            : ZoneAutoTuner.AnalyzeCore(px.Ptr, px.Width, px.Height, zone, session, excludedPtr, mw, mh, ct,
                                 progress.Report);
                         // 適用後も持つ証拠(再現データ用)は 1bit/画素に詰めたもの。
                         _evidencePacked = MaskSnapshot.Pack(evidence);   // null は null
@@ -415,6 +418,8 @@ namespace Iroca
                     catch (Exception e) { return (default(ZoneAutoTuner.TuneResult), e); }
                     finally
                     {
+                        evidence?.Release();
+                        excluded?.Release();
                         px.Release();
                         NativeMemoryLifecycle.WorkEnded();
                     }
@@ -445,6 +450,8 @@ namespace Iroca
                 var px = _pixels;
                 _pixels = null;
                 px?.Release();
+                _excluded?.Release();
+                _excluded = null;
             }
         }
     }

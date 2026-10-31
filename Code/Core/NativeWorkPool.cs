@@ -264,7 +264,7 @@ namespace Iroca
     /// </summary>
     internal sealed unsafe class WorkScratch : IDisposable
     {
-        private List<IntPtr> _bools, _ints;
+        private List<IntPtr> _bools, _ints, _floats, _bytes;
 
         public bool* Bool(int n, bool clear)
         {
@@ -279,6 +279,22 @@ namespace Iroca
             int* p = WorkPools.Int.Rent(n);
             (_ints ??= new List<IntPtr>(8)).Add((IntPtr)p);
             if (clear) new Span<int>(p, n).Clear();
+            return p;
+        }
+
+        public float* Float(int n, bool clear)
+        {
+            float* p = WorkPools.Float.Rent(n);
+            (_floats ??= new List<IntPtr>(4)).Add((IntPtr)p);
+            if (clear) new Span<float>(p, n).Clear();
+            return p;
+        }
+
+        public byte* Byte(int n, bool clear)
+        {
+            byte* p = WorkPools.Byte.Rent(n);
+            (_bytes ??= new List<IntPtr>(4)).Add((IntPtr)p);
+            if (clear) new Span<byte>(p, n).Clear();
             return p;
         }
 
@@ -303,6 +319,8 @@ namespace Iroca
             if (IrocaNativeMemory.CurrentThreadAborting) return;
             if (_bools != null) { foreach (var p in _bools) WorkPools.Bool.Return((bool*)p); _bools = null; }
             if (_ints != null) { foreach (var p in _ints) WorkPools.Int.Return((int*)p); _ints = null; }
+            if (_floats != null) { foreach (var p in _floats) WorkPools.Float.Return((float*)p); _floats = null; }
+            if (_bytes != null) { foreach (var p in _bytes) WorkPools.Byte.Return((byte*)p); _bytes = null; }
         }
     }
 }

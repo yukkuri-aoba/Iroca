@@ -245,21 +245,39 @@ namespace Iroca
             bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
             System.Action<float> report = null)
         {
+            // 長さが足りない配列は無いものとして扱う(大きさの分かるのはここまで)。
+            if (evidence != null && evidence.Length < (long)evW * evH) evidence = null;
+            if (excluded != null && excluded.Length < (long)maskW * maskH) excluded = null;
+            fixed (bool* ev = evidence)
+            fixed (bool* ex = excluded)
+                return AnalyzeWithEvidenceCore(pixels, width, height, zone, session, ev, evW, evH, ex, maskW, maskH, ct, report);
+        }
+
+        /// <summary>
+        /// 証拠つきの解析の本体。evidence は evW*evH、excluded は maskW*maskH 要素以上を、解析が返るまで保つこと。
+        /// evidence が null なら証拠なしの解析へ落ちる。
+        /// </summary>
+        internal static TuneResult AnalyzeWithEvidenceCore(Color32* pixels, int width, int height,
+            ColorZone zone, SessionInput session,
+            bool* evidence, int evW, int evH,
+            bool* excluded, int maskW, int maskH, CancellationToken ct,
+            System.Action<float> report)
+        {
             bool canAnalyze = pixels != null
                 && width >= MinTextureDim && height >= MinTextureDim
-                && evidence != null && evW > 0 && evH > 0 && evidence.Length >= evW * evH;
+                && evidence != null && evW > 0 && evH > 0;
             if (!canAnalyze)
-                return Analyze(pixels, width, height, zone, session, excluded, maskW, maskH, ct, report);
+                return AnalyzeCore(pixels, width, height, zone, session, excluded, maskW, maskH, ct, report);
 
             void Progress(float v) { report?.Invoke(v); }
 
             var result = BuildHeuristicDefault(zone);
-            var hsv = BuildHsvGrid(pixels, width, height, ct);
+            using var hsv = BuildHsvGrid(pixels, width, height, ct);
             Progress(0.25f);
 
             // ── 証拠芯(収縮後)の格子リスト ──
             ct.ThrowIfCancellationRequested();
-            var core = ErodeMask(evidence, evW, evH, EvErodeR, ct);
+            bool* core = ErodeMask(hsv, evidence, evW, evH, EvErodeR, ct);
             var coreList = CollectGridIndices(pixels, width, height, hsv, core, evW, evH,
                 excluded, maskW, maskH);
             if (coreList.Count < EvMinErodedPixels)
@@ -270,14 +288,15 @@ namespace Iroca
                 core = evidence;
             }
             if (coreList.Count < MinNearSampleCount)
-                return Analyze(pixels, width, height, zone, session, excluded, maskW, maskH, ct, report);
+                return AnalyzeCore(pixels, width, height, zone, session, excluded, maskW, maskH, ct, report);
             Progress(0.40f);
 
             // 「証拠の中だけ」を見るための除外マスク(非証拠画素 ∪ 実際の除外)。
-            var notEvidence = new bool[evW * evH];
-            for (int i = 0; i < notEvidence.Length; i++) notEvidence[i] = !evidence[i];
+            int evLen = evW * evH;
+            bool* notEvidence = hsv.scratch.Bool(evLen, clear: false);
+            for (int i = 0; i < evLen; i++) notEvidence[i] = !evidence[i];
             if (excluded != null && maskW == evW && maskH == evH)
-                for (int i = 0; i < notEvidence.Length; i++) notEvidence[i] |= excluded[i];
+                for (int i = 0; i < evLen; i++) notEvidence[i] |= excluded[i];
 
             // ── 1. 地色 = スポイト位置の正規化を「母集団 = セグメント」で行う ──
             // 面積最頻の色をそのまま地色にすると、面積最大の暗部やベタ塗りに落ちる(実測: ゴーグル
@@ -346,7 +365,7 @@ namespace Iroca
             if (domain.Count < EvMinDomainPixels || contaminated)
             {
                 // ドメインが標本として足りない / 汚染セグメント(無彩: 0.80、有彩: 裾 1/10) → 従来導出へ。
-                var fallback = Analyze(pixels, width, height, zone, session, excluded, maskW, maskH,
+                var fallback = AnalyzeCore(pixels, width, height, zone, session, excluded, maskW, maskH,
                     ct, report);
                 fallback.evidenceDiag = (contaminated ? "fallback contaminated" : "fallback no-domain")
                     + $" materialFrac={materialFrac:F3}"
@@ -361,7 +380,7 @@ namespace Iroca
 
             // ── 以下、Analyze と同一の導出(母集団はクリック近傍窓)。違いは地色(aZone)だけ ──
             bool useMask = HasUsableMask(excluded, maskW, maskH);
-            bool[] clusterMask = useMask ? excluded : null;
+            bool* clusterMask = useMask ? excluded : null;
             if (TryAnalyzePixels(pixels, width, height, aZone, clusterMask, maskW, maskH, hsv, out var analyzed))
                 result = MergeAnalyzed(result, analyzed);
 
@@ -525,7 +544,7 @@ namespace Iroca
         private struct GridPt { public int x, y, gi; }
 
         private static List<GridPt> CollectGridIndices(Color32* pixels, int w, int h, HsvGrid hsv,
-            bool[] mask, int mW, int mH, bool[] excluded, int maskW, int maskH)
+            bool* mask, int mW, int mH, bool* excluded, int maskW, int maskH)
         {
             var list = new List<GridPt>();
             int stride = hsv.stride;
@@ -611,7 +630,7 @@ namespace Iroca
         // 証拠の中・芯の外(境界帯)にあり、その色が最寄りの芯の画素の色と無彩色の混色で説明できるとき、
         // その芯の画素の色と位置を返す。core は統計に使った芯(細いセグメントで収縮しなかったときは証拠そのもの)。
         private static bool TrySnapBoundaryClick(Color32* pixels, int w, int h, ColorZone zone,
-            bool[] evidence, bool[] core, int evW, int evH, bool[] excluded, int maskW, int maskH,
+            bool* evidence, bool* core, int evW, int evH, bool* excluded, int maskW, int maskH,
             out Color coreColor, out int coreX, out int coreY)
         {
             coreColor = zone.sampleColor;
@@ -788,7 +807,7 @@ namespace Iroca
         // 導出パラメータ(result)を実マッチャーに通し、全画面(不透明・非除外)で選択される画素数を
         // 返す(HSV 格子上の数)。追加サンプルの溢れ判定に使う。基底マッチのみ。
         private static int GlobalSelected(ColorZone aZone, in TuneResult result, HsvGrid hsv,
-            Color32* pixels, int w, int h, bool[] excluded, int maskW, int maskH)
+            Color32* pixels, int w, int h, bool* excluded, int maskW, int maskH)
         {
             var sim = BuildSimZone(aZone, result);
             sim.highlightRecovery = false;
@@ -820,15 +839,18 @@ namespace Iroca
 
         // ─────────────────── bool マスクの収縮(4 近傍) ───────────────────
 
-        private static bool[] ErodeMask(bool[] src, int w, int h, int r, CancellationToken ct)
+        // 結果は owner の配列(owner を手放すまで読める)。
+        private static bool* ErodeMask(HsvGrid owner, bool* src, int w, int h, int r, CancellationToken ct)
         {
-            var a = (bool[])src.Clone();
-            var b = new bool[w * h];
+            int len = w * h;
+            bool* a = owner.scratch.CopyOf(src, len);
+            bool* b = owner.scratch.Bool(len, clear: false);
             var po = new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism() };
             for (int pass = 0; pass < r; pass++)
             {
                 ct.ThrowIfCancellationRequested();
-                var s = a; var d = b;
+                bool* s = a;
+                bool* d = b;
                 Parallel.For(0, h, po, y =>
                 {
                     int row = y * w;
@@ -842,7 +864,8 @@ namespace Iroca
                         d[row + x] = c && l && rr && u && dn;
                     }
                 });
-                (a, b) = (b, a);
+                a = d;
+                b = s;
             }
             return a;
         }

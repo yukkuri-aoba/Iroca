@@ -75,6 +75,14 @@ namespace Iroca
         }
 
         /// <summary>中身を管理配列へ写す(旧の自動調整・テスト・ハーネスとの境目用)。</summary>
+        /// <summary>中身を写した新しいマスク(持ち主は呼び出し側)。</summary>
+        public NativeBools Clone()
+        {
+            var copy = AllocateUninitialized(Width, Height);
+            Buffer.MemoryCopy(Ptr, copy.Ptr, Length, Length);
+            return copy;
+        }
+
         public bool[] ToArray()
         {
             var a = new bool[Length];

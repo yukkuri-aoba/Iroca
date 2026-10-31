@@ -314,12 +314,13 @@ namespace Iroca
         /// <summary>
         /// 共通の除外とゾーンの除外を合わせた bool[](自動調整に「ユーザーが外した所」として渡す)。どちらも無ければ null。
         /// </summary>
-        public bool[] CombinedExclusion(string zoneId)
+        public NativeBools CombinedExclusion(string zoneId)
         {
             var zone = Layer(false, zoneId);
             if (_common == null && zone == null) return null;
             int len = Width * Height;
-            var combined = new bool[len];
+            var result = NativeBools.AllocateUninitialized(Width, Height);
+            bool* combined = result.Ptr;
             ulong* c = _common != null ? _common.Bits : null;
             ulong* z = zone != null ? zone.Bits : null;
             for (int i = 0; i < len; i++)
@@ -327,7 +328,7 @@ namespace Iroca
                 ulong bit = 1UL << (i & 63);
                 combined[i] = (c != null && (c[i >> 6] & bit) != 0UL) || (z != null && (z[i >> 6] & bit) != 0UL);
             }
-            return combined;
+            return result;
         }
     }
 }

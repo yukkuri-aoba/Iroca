@@ -47,7 +47,7 @@ namespace Iroca
         private sealed class BaseSelection
         {
             public float tolerance;
-            public bool[] sel;   // hsv.gw * hsv.gh
+            public bool* sel;   // hsv.gw * hsv.gh
             public int count;
         }
 
@@ -67,11 +67,11 @@ namespace Iroca
         }
 
         private static void VerifyHighlightRecoveryGrowth(Color32* pixels, int w, int h,
-            ColorZone zone, bool[] excluded, int maskW, int maskH, HsvGrid hsv,
-            bool[] evidence, int evW, int evH, BaseSelection baseOut, ref TuneResult result)
+            ColorZone zone, bool* excluded, int maskW, int maskH, HsvGrid hsv,
+            bool* evidence, int evW, int evH, BaseSelection baseOut, ref TuneResult result)
         {
             var sim = BuildSimZone(zone, result);
-            var selGrid = new bool[hsv.gw * hsv.gh];
+            bool* selGrid = hsv.scratch.Bool(hsv.gw * hsv.gh, clear: true);
 
             // 帯拡張(GrowHighlightBand)の候補条件は同じ判定(PixelProcessor.IsHighlightBandCandidate)を呼ぶ。
             // 連結性(コア連結 BFS)は模擬しない=候補は全て加算される上界。境界 AA が常に
@@ -141,7 +141,7 @@ namespace Iroca
         private static readonly float[] TolShrinkSteps = { 0.8f, 0.65f, 0.5f };
 
         private static void VerifyBrightForgivenessOvershoot(Color32* pixels, int w, int h,
-            ColorZone zone, bool[] excluded, int maskW, int maskH, HsvGrid hsv, BaseSelection baseSel,
+            ColorZone zone, bool* excluded, int maskW, int maskH, HsvGrid hsv, BaseSelection baseSel,
             ref TuneResult result)
         {
             var sim = BuildSimZone(zone, result);
@@ -154,7 +154,7 @@ namespace Iroca
             simNoForgive.simDisableBrightForgiveness = true;
             // near 窓に入るか(0=未判定, 1=入る, 2=入らない)。サンプルの窓だけで決まり tolerance に依らないので、
             // tolerance を変えて数え直すときもセルごとに 1 回だけ判定する。
-            var nearState = new byte[hsv.gw * hsv.gh];
+            byte* nearState = hsv.scratch.Byte(hsv.gw * hsv.gh, clear: true);
             float derived = result.tolerance;
 
             // (selWith, selWithout, evidenceCovered) を tolerance ごとに実マッチャーで数える。
@@ -165,9 +165,9 @@ namespace Iroca
                 sim.UpdateCacheIfNeeded();
                 simNoForgive.tolerance = tol;
                 simNoForgive.UpdateCacheIfNeeded();
-                bool[] known = baseSel.sel != null && baseSel.tolerance == tol ? baseSel.sel : null;
-                bool[] record = known == null && baseSel.sel == null && tol == derived
-                    ? new bool[hsv.gw * hsv.gh] : null;
+                bool* known = baseSel.sel != null && baseSel.tolerance == tol ? baseSel.sel : null;
+                bool* record = known == null && baseSel.sel == null && tol == derived
+                    ? hsv.scratch.Bool(hsv.gw * hsv.gh, clear: true) : null;
                 var caches = SampleWindows(sim);
                 int stride = hsv.stride;
                 var rowSw = new int[hsv.gh];
@@ -277,7 +277,7 @@ namespace Iroca
         private static readonly float[] SheenTolGrowSteps = { 1.15f, 1.3f, 1.5f };
 
         private static void VerifyBrightSheenRecall(Color32* pixels, int w, int h,
-            ColorZone zone, bool[] excluded, int maskW, int maskH, HsvGrid hsv, int vConnHiBin,
+            ColorZone zone, bool* excluded, int maskW, int maskH, HsvGrid hsv, int vConnHiBin,
             BaseSelection known, ref TuneResult result)
         {
             float derived = result.tolerance;
@@ -297,7 +297,7 @@ namespace Iroca
             // ── 基礎選択(導出 tolerance)のビットマスク ──
             // 先の検証が同じ tolerance で数えていればそれを使う(読むだけ)。
             bool reuse = known.sel != null && known.tolerance == derived;
-            var baseSel = reuse ? known.sel : new bool[hsv.gw * hsv.gh];
+            bool* baseSel = reuse ? known.sel : hsv.scratch.Bool(hsv.gw * hsv.gh, clear: true);
             int baseCount = reuse ? known.count : 0;
             if (!reuse)
             {

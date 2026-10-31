@@ -63,6 +63,18 @@ namespace Iroca
         /// </summary>
         internal static ulong[] NewBits(int len) => new ulong[(len + 63) >> 6];
 
+        /// <summary><see cref="Pack(bool[])"/> のヒープの外の版(自動調整の再現データ用。背景で呼ぶので並列にしない)。</summary>
+        public static ulong[] Pack(NativeBools mask)
+        {
+            if (mask == null) return null;
+            int len = mask.Length;
+            var packed = NewBits(len);
+            bool* p = mask.Ptr;
+            for (int i = 0; i < len; i++)
+                if (p[i]) packed[i >> 6] |= 1UL << (i & 63);
+            return packed;
+        }
+
         /// <summary>bool[](true=除外)を 1bit/画素の ulong[] にパックする。null は null を返す。</summary>
         public static ulong[] Pack(bool[] mask)
         {

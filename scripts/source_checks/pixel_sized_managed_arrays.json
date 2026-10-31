@@ -5,9 +5,6 @@
     "Code/Debug/": "開発者だけが使う診断(デバッグの記録・再現データの書き出し)。配布の zip に入らない(Build-VpmPackage.ps1 が除く)。2026-10-28 決定"
   },
   "allowed": {
-    "Code/Application/MaskWorkspace.cs": {
-      "new bool[len]": 1
-    },
     "Code/Application/SourcePixelCache.cs": {
       ".GetPixels32()": 1
     },
@@ -35,17 +32,6 @@
     "Code/Core/RecolorPreview.cs": {
       "new Color32[panelW * panelH]": 1,
       "new Color32[tw * th]": 2
-    },
-    "Code/Core/ZoneAutoTuner.Evidence.cs": {
-      "new bool[evW * evH]": 1,
-      "new bool[w * h]": 1
-    },
-    "Code/Core/ZoneAutoTuner.Verify.cs": {
-      "new bool[hsv.gw * hsv.gh]": 3,
-      "new byte[hsv.gw * hsv.gh]": 1
-    },
-    "Code/Core/ZoneAutoTuner.cs": {
-      "new float[gw * gh]": 3
     },
     "Code/Debug/DebugCaptureContext.cs": {
       "new byte[len]": 2

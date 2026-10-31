@@ -76,7 +76,7 @@ namespace Iroca
 
                 if (_run == null)
                 {
-                    bool[] excluded = CombinedExclusion(zone.id, out int mw, out int mh);
+                    NativeBools excluded = CombinedExclusion(zone.id, out int mw, out int mh);
                     _run = AutoTuneService.Start(zone, _state, _pixels, _key, excluded, mw, mh);
                     _askedAi |= _run.AskedAi;
                 }
@@ -143,7 +143,7 @@ namespace Iroca
         }
 
         // UI(IrocaWindow.BuildCombinedExclusionForZone)と同じ: 共通の除外 ∪ そのゾーンの除外。無ければ null。
-        private bool[] CombinedExclusion(string zoneId, out int mw, out int mh)
+        private NativeBools CombinedExclusion(string zoneId, out int mw, out int mh)
         {
             if (_masks == null)
             {

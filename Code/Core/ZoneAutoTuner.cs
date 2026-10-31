@@ -227,21 +227,24 @@ namespace Iroca
         /// ここで 1 回だけ並列に作って全パスで読む。同じ関数に同じ入力を与えた値を配列経由で
         /// 読むだけなので、各パスの判定・集計は従来と完全に同一 = 出力ビット不変。
         /// </summary>
-        internal sealed class HsvGrid
+        internal sealed class HsvGrid : IDisposable
         {
             public int stride, gw, gh;
-            public float[] h, s, v;
+            public float* h, s, v;
+            /// <summary>解析の間だけ使う作業配列(ヒープの外)。格子と一緒に返す。並列ループの中から借りないこと。</summary>
+            public readonly WorkScratch scratch = new WorkScratch();
+
+            public void Dispose() => scratch.Dispose();
         }
 
         private static HsvGrid BuildHsvGrid(Color32* pixels, int w, int h, CancellationToken ct)
         {
             int stride = (w <= 2048) ? 1 : 2;
             int gw = (w + stride - 1) / stride, gh = (h + stride - 1) / stride;
-            var grid = new HsvGrid
-            {
-                stride = stride, gw = gw, gh = gh,
-                h = new float[gw * gh], s = new float[gw * gh], v = new float[gw * gh],
-            };
+            var grid = new HsvGrid { stride = stride, gw = gw, gh = gh };
+            grid.h = grid.scratch.Float(gw * gh, clear: false);
+            grid.s = grid.scratch.Float(gw * gh, clear: false);
+            grid.v = grid.scratch.Float(gw * gh, clear: false);
             var po = new ParallelOptions
             {
                 // PixelProcessor と同じ規則を使う。直書きするとデバッグ時のスレッド数指定
@@ -249,17 +252,25 @@ namespace Iroca
                 MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(),
                 CancellationToken = ct,
             };
-            Parallel.For(0, gh, po, gy =>
+            try
             {
-                int row = (gy * stride) * w;
-                int grow = gy * gw;
-                for (int gx = 0; gx < gw; gx++)
+                Parallel.For(0, gh, po, gy =>
                 {
-                    Color32 c = pixels[row + gx * stride];
-                    Color.RGBToHSV(new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f),
-                        out grid.h[grow + gx], out grid.s[grow + gx], out grid.v[grow + gx]);
-                }
-            });
+                    int row = (gy * stride) * w;
+                    int grow = gy * gw;
+                    for (int gx = 0; gx < gw; gx++)
+                    {
+                        Color32 c = pixels[row + gx * stride];
+                        Color.RGBToHSV(new Color(c.r / 255f, c.g / 255f, c.b / 255f, 1f),
+                            out grid.h[grow + gx], out grid.s[grow + gx], out grid.v[grow + gx]);
+                    }
+                });
+            }
+            catch
+            {
+                grid.Dispose();   // 取り消し。呼び出し側はまだ受け取っていない
+                throw;
+            }
             return grid;
         }
 
@@ -293,6 +304,20 @@ namespace Iroca
             bool[] excluded = null, int maskW = 0, int maskH = 0, CancellationToken ct = default,
             Action<float> report = null)
         {
+            // 長さが足りないマスクは無いものとして扱う(大きさの分かるのはここまで)。
+            if (excluded != null && excluded.Length < (long)maskW * maskH) excluded = null;
+            fixed (bool* e = excluded)
+                return AnalyzeCore(pixels, width, height, zone, session, e, maskW, maskH, ct, report);
+        }
+
+        /// <summary>
+        /// 解析の本体。excluded は maskW*maskH 要素以上を、解析が返るまで保つこと(null = マスク無し)。
+        /// </summary>
+        internal static TuneResult AnalyzeCore(Color32* pixels, int width, int height,
+            ColorZone zone, SessionInput session,
+            bool* excluded, int maskW, int maskH, CancellationToken ct,
+            Action<float> report)
+        {
             // 進捗は「解析ステップの通過点」を単調増加で報告する。各ステップの実時間は
             // テクスチャ次第で読めないため、割合はステップ数ベースの目安。null 可(テスト等)。
             void Progress(float v) { report?.Invoke(v); }
@@ -312,10 +337,10 @@ namespace Iroca
                 // 除外したパーツの画素が shadowForgivenessSatMin / saturationStrictness /
                 // highlightRecovery 初期値へ混入するのを防ぐ(tolerance 導出側は元から尊重していた)。
                 bool useMask = HasUsableMask(excluded, maskW, maskH);
-                bool[] clusterMask = useMask ? excluded : null;
+                bool* clusterMask = useMask ? excluded : null;
 
                 // 全走査が共有する HSV 格子を 1 回だけ並列で作る(以降のパスは表引きするだけ)。
-                var hsv = BuildHsvGrid(pixels, width, height, ct);
+                using var hsv = BuildHsvGrid(pixels, width, height, ct);
                 Progress(0.30f);
 
                 // ── スポイト位置の正規化 ──
@@ -395,7 +420,7 @@ namespace Iroca
         /// </param>
         /// <param name="vConnHiBin">トーン連結域の V 上端 bin(明部ツヤ救済の上限に使う)。-1=未確定。</param>
         private static void DeriveToleranceAndTones(Color32* pixels, int width, int height,
-            ColorZone aZone, bool[] clusterMask, int maskW, int maskH, HsvGrid hsv,
+            ColorZone aZone, bool* clusterMask, int maskW, int maskH, HsvGrid hsv,
             bool achromatic, CancellationToken ct, Action<float> report, float progressAfterTones,
             ref TuneResult result, out bool foreignCapped, out int vConnHiBin)
         {
@@ -461,10 +486,10 @@ namespace Iroca
         /// <param name="evidence">証拠マスク(AI 提案のセグメント = クリックしたパーツ)。null = 証拠なし。
         /// ハイライト成長テストだけが使う(<see cref="VerifyHighlightRecoveryGrowth"/>)。</param>
         private static void RunClosedLoopVerification(Color32* pixels, int width, int height,
-            ColorZone aZone, bool[] excluded, int maskW, int maskH, HsvGrid hsv,
+            ColorZone aZone, bool* excluded, int maskW, int maskH, HsvGrid hsv,
             bool chromatic, bool foreignCapped, int vConnHiBin, CancellationToken ct,
             Action<float> report, float progressAfterGrowth, float progressAfterOvershoot,
-            bool[] evidence, int evW, int evH,
+            bool* evidence, int evW, int evH,
             ref TuneResult result)
         {
             ct.ThrowIfCancellationRequested();
@@ -540,7 +565,7 @@ namespace Iroca
         }
 
         private static bool TryAnalyzePixels(Color32* pixels, int w, int h, ColorZone zone,
-            bool[] excluded, int maskW, int maskH, HsvGrid hsv, out AnalysisStats stats)
+            bool* excluded, int maskW, int maskH, HsvGrid hsv, out AnalysisStats stats)
         {
             stats = new AnalysisStats
             {

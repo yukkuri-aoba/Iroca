@@ -52,7 +52,7 @@ namespace Iroca
 
         // 「パーツをユーザーが粗く囲った」情報を tolerance 導出に活用する。
         // マスク未使用なら null。
-        private bool[] BuildCombinedExclusionForZone(ColorZone zone, out int mw, out int mh)
+        private NativeBools BuildCombinedExclusionForZone(ColorZone zone, out int mw, out int mh)
         {
             mw = _maskView != null ? _maskView.maskWidth : 0;
             mh = _maskView != null ? _maskView.maskHeight : 0;
@@ -81,10 +81,11 @@ namespace Iroca
             // pixels の参照はここで持ち、最後に返す(自動調整は自分の参照を足す)。
             try
             {
-                bool[] excluded = BuildCombinedExclusionForZone(zone, out int mw, out int mh);
                 // 証拠の元のキーは、画素がプレビュー・右クリックの AI 提案と同じ原本のときだけ渡す
                 // (フォールバックの画素で同じキーを使うと、別の画素の埋め込みと取り違える)。
                 string key = trueSource && _previewView != null ? _previewView.TrueSourceCacheKey() : null;
+                // 除外マスクの持ち主は自動調整になる(終わったら返す)。
+                NativeBools excluded = BuildCombinedExclusionForZone(zone, out int mw, out int mh);
                 var run = AutoTuneService.Start(zone, Session, pixels, key, excluded, mw, mh);
                 if (run.Status == AutoTuneService.Status.Failed)
                 {

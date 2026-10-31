@@ -199,9 +199,13 @@ namespace Iroca.EditorTests
         public void CombinedExclusion_IsCommonOrZone()
         {
             var ws = Fill(out var common, out var zones, out _);
-            var got = ws.CombinedExclusion("za");
+            var native = ws.CombinedExclusion("za");
+            var got = native.ToArray();
+            native.Release();
             for (int i = 0; i < got.Length; i++) Assert.AreEqual(common[i] || zones["za"][i], got[i], i.ToString());
-            CollectionAssert.AreEqual(common, ws.CombinedExclusion("none"), "ゾーンの除外が無ければ共通だけ");
+            native = ws.CombinedExclusion("none");
+            CollectionAssert.AreEqual(common, native.ToArray(), "ゾーンの除外が無ければ共通だけ");
+            native.Release();
             ws.SetCommon(null);
             Assert.IsNull(ws.CombinedExclusion("none"), "どちらも無ければ null");
             ws.Clear();

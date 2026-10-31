@@ -92,7 +92,7 @@ namespace Iroca
         /// (証拠つき導出の寄せ直しだけが渡す。NormTintedChromaticPopFrac の説明参照)。</param>
         private static bool TryNormalizeSample(
             Color32* pixels, int w, int h, ColorZone zone,
-            bool[] excluded, int maskW, int maskH, HsvGrid hsv, out Color normalized,
+            bool* excluded, int maskW, int maskH, HsvGrid hsv, out Color normalized,
             out float clickT, bool edgeBypass = false, bool tintedChromatic = false)
         {
             normalized = zone.sampleColor;
@@ -153,7 +153,7 @@ namespace Iroca
         /// 外に居る、色味の乗ったグレーの寄せ直し用)。</param>
         private static bool TryNormalizeFromPopulation(
             Color32* pixels, int w, int h, ColorZone zone,
-            bool[] excluded, int maskW, int maskH, HsvGrid hsv,
+            bool* excluded, int maskW, int maskH, HsvGrid hsv,
             float sH, float sS, float sV, bool useHueBand, float satFloor, float satCeil,
             float satBinSpan, int satBins, int valBins, bool edgeBypass, out Color normalized,
             out float clickT, float minPopFrac = 0f)
