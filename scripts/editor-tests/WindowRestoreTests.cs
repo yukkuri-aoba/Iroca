@@ -44,6 +44,31 @@ namespace Iroca.EditorTests
             EditorPrefs.SetString(_prefKey, _guid);
         }
 
+        // Project でテクスチャを消しても編集内容のファイルをすぐには消さない(同じ GUID で戻せば読める)。
+        [Test]
+        public void DeletingTheTexture_KeepsEditsAsOrphan()
+        {
+            var state = new IrocaSessionState();
+            state.zones.Add(new ColorZone { name = "残す" });
+            Assert.IsTrue(SessionFileStore.SaveSession(_tex, state));
+            string sessionFile = Path.Combine(SessionFileStore.CacheDir, _guid + ".iroca-session.json");
+            Assert.IsTrue(File.Exists(sessionFile));
+            string bytes = File.ReadAllText(_tex + ".meta");
+            byte[] png = File.ReadAllBytes(_tex);
+
+            Assert.IsTrue(AssetDatabase.DeleteAsset(_tex));
+            Assert.IsFalse(File.Exists(sessionFile));
+            Assert.IsTrue(File.Exists(sessionFile + ".orphan"), "編集内容のファイルを消してしまった");
+
+            // 同じ GUID で戻す(Git やごみ箱から戻したとき)。
+            File.WriteAllBytes(_tex, png);
+            File.WriteAllText(_tex + ".meta", bytes);
+            AssetDatabase.ImportAsset(_tex, ImportAssetOptions.ForceSynchronousImport);
+            var loaded = SessionFileStore.LoadSession(_tex, out bool unreadable);
+            Assert.IsFalse(unreadable);
+            Assert.AreEqual("残す", loaded.zones[0].name);
+        }
+
         [TearDown]
         public void TearDown()
         {

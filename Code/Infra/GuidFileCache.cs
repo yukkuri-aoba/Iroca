@@ -65,15 +65,13 @@ namespace Iroca
         }
 
         /// <summary>
-        /// GUID 直接指定でファイルを削除する。
+        /// GUID 直接指定でファイルを <c>.orphan</c> へ退避する(無ければ何もしない)。
         /// </summary>
-        public void DeleteByGuid(string guid)
+        public void RetireByGuid(string guid)
         {
             if (string.IsNullOrEmpty(guid)) return;
             string path = Path.Combine(CacheDir, guid + _extension);
-            if (!File.Exists(path)) return;
-            try { File.Delete(path); }
-            catch (Exception ex) { Debug.LogWarning($"[Iroca] {_label} delete failed: {ex.Message}"); }
+            if (File.Exists(path)) RetireToOrphan(path);
         }
 
         /// <summary>

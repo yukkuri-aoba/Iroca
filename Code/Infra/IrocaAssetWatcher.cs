@@ -5,7 +5,8 @@ using UnityEditor;
 namespace Iroca
 {
     /// <summary>
-    /// テクスチャ削除に追従して、対応する MaskCache / SessionCache のゴミファイルを掃除する。
+    /// テクスチャ削除に追従して、対応する MaskCache / SessionCache のファイルを退避する(<c>.orphan</c>。30 日残す)。
+    /// 消してしまうと、Project での誤削除を Git やごみ箱で戻しても編集内容が戻らない。同じ GUID で戻れば読み込みのときに復元する。
     /// rename / move は GUID ベースで自動追従するため、ここでは扱わない。
     /// </summary>
     internal class IrocaAssetWatcher : AssetModificationProcessor
@@ -17,8 +18,8 @@ namespace Iroca
             string guid = AssetDatabase.AssetPathToGUID(assetPath);
             if (!string.IsNullOrEmpty(guid))
             {
-                MaskFileStore.DeleteMaskByGuid(guid);
-                SessionFileStore.DeleteSessionByGuid(guid);
+                MaskFileStore.RetireMaskByGuid(guid);
+                SessionFileStore.RetireSessionByGuid(guid);
             }
             // アセット本体の削除は Unity に続行させる。
             return AssetDeleteResult.DidNotDelete;

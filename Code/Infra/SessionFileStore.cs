@@ -168,10 +168,13 @@ namespace Iroca
         }
 
         /// <summary>
-        /// GUID 直接指定でセッションファイルを削除する。
-        /// テクスチャ削除フックなど、AssetPath が既に解決できないタイミングから呼ぶ用途。
+        /// GUID 直接指定でセッションファイルを <c>.orphan</c> へ退避する(テクスチャ削除フックから。<see cref="CleanupOrphans"/> の説明)。
         /// </summary>
-        public static void DeleteSessionByGuid(string guid) => Files.DeleteByGuid(guid);
+        public static void RetireSessionByGuid(string guid)
+        {
+            Files.RetireByGuid(guid);
+            BoundRecipeFiles.RetireByGuid(guid);
+        }
 
         /// <summary>
         /// SessionCache を走査し、対応するテクスチャ（GUID）が見つからないファイルを整理する。

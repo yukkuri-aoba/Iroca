@@ -120,10 +120,9 @@ namespace Iroca
         }
 
         /// <summary>
-        /// GUID 直接指定でマスクファイルを削除する。
-        /// テクスチャ削除フックなど、AssetPath が既に解決できないタイミングから呼ぶ用途。
+        /// GUID 直接指定でマスクファイルを <c>.orphan</c> へ退避する(テクスチャ削除フックから。<see cref="CleanupOrphans"/> の説明)。
         /// </summary>
-        public static void DeleteMaskByGuid(string guid) => Files.DeleteByGuid(guid);
+        public static void RetireMaskByGuid(string guid) => Files.RetireByGuid(guid);
 
         /// <summary>
         /// MaskCache を走査し、対応するテクスチャ（GUID）が見つからないファイルを整理する。
