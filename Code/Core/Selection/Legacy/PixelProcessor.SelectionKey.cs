@@ -64,7 +64,7 @@ namespace Iroca
         /// </summary>
         private static bool ExclusionChangeKeepsMatch(ColorZone zone, Color32* originalPixels, PixelHsv hsv,
             int w, int h, int[] colOf, int[] rowBase,
-            int maskW, int maskH, ulong[] oldCommon, ulong[] oldZone, ulong[] newCommon, ulong[] newZone,
+            int maskW, int maskH, ulong* oldCommon, ulong* oldZone, ulong* newCommon, ulong* newZone,
             bool usesMatchConf, ParallelOptions po)
         {
             if (colOf == null) return true;   // マスクの表が無い = どちらでも除外なし

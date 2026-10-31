@@ -28,8 +28,9 @@ namespace Iroca
             public PixelHsv Hsv;
             public float* PixH, PixS, PixV;
             public int* PixIdx;
-            // 共通の除外マスクと、作業座標 → マスクの画素の対応(マスクが無ければ null)。
-            public ulong[] CommonMask;
+            // 共通の除外マスク(持ち主は MaskSnapshot)と、作業座標 → マスクの画素の対応(マスクが無ければ null)。
+            public NativeBitMask CommonMask;
+            public ulong* CommonBits;
             public int MaskW, MaskH;
             public int[] MaskColOf, MaskRowBase;
             // 全体設定(RecolorSettings を展開したもの)。
@@ -121,7 +122,7 @@ namespace Iroca
         {
             public ColorZone Zone;
             public ZoneBuffers Buffers;          // このゾーンで借りた作業配列の持ち主
-            public ulong[] ZoneMask;            // ゾーン別の除外マスク(無ければ null)
+            public ulong* ZoneMask;             // ゾーン別の除外マスクの語(無ければ null。持ち主は MaskSnapshot)
             public bool MixMode;                // 混色帯モード(IsMixtureBandZone)
             public float SampH, SampS, SampV;   // サンプル色の HSV
             public bool* IncludedPx;            // 含めるマスクをテクスチャ解像度へ展開したもの(無ければ null)

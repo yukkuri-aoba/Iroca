@@ -21,8 +21,15 @@ namespace Iroca
         {
             var input = RecolorInput.FromSaved(state);
             if (input == null) return false;
-            PixelProcessor.ProcessPixelsArray(pixels, width, height, input.Masks, input.Zones,
-                input.Settings, cancellationToken);
+            try
+            {
+                PixelProcessor.ProcessPixelsArray(pixels, width, height, input.Masks, input.Zones,
+                    input.Settings, cancellationToken);
+            }
+            finally
+            {
+                input.ReleaseMasks();
+            }
             return true;
         }
 
@@ -35,8 +42,15 @@ namespace Iroca
         {
             var input = RecolorInput.FromSaved(state);
             if (input == null) return false;
-            PixelProcessor.ProcessPixelsNative(pixels, width, height, input.Masks, input.Zones,
-                input.Settings, cancellationToken);
+            try
+            {
+                PixelProcessor.ProcessPixelsNative(pixels, width, height, input.Masks, input.Zones,
+                    input.Settings, cancellationToken);
+            }
+            finally
+            {
+                input.ReleaseMasks();
+            }
             return true;
         }
     }

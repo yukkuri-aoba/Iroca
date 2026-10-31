@@ -17,7 +17,7 @@ namespace Iroca
         /// 計測の時刻は run.Tp で受け渡す。
         /// </summary>
         private static SelectionResult RunLegacySelection(RunContext run, ColorZone zone, ZoneBuffers zb,
-            ulong[] zoneMask, bool zMixMode, float sampH, float sampS, float sampV)
+            NativeBitMask zoneMaskLayer, bool zMixMode, float sampH, float sampS, float sampV)
         {
             // ProcessPixelsArrayCore と同じ名前のローカルへ展開する(切り出した本体をそのまま読めるように)。
             int w = run.W, h = run.H, len = run.Len;
@@ -28,7 +28,8 @@ namespace Iroca
             var hsv = run.Hsv;
             float* pixH = run.PixH, pixS = run.PixS, pixV = run.PixV;
             int* pixIdx = run.PixIdx;
-            ulong[] commonMask = run.CommonMask;
+            ulong* commonMask = run.CommonBits;
+            ulong* zoneMask = NativeBitMask.BitsOf(zoneMaskLayer);
             int maskW = run.MaskW, maskH = run.MaskH;
             int[] maskColOf = run.MaskColOf, maskRowBase = run.MaskRowBase;
             float edgeFeather = run.EdgeFeather, relaxedSatMin = run.RelaxedSatMin, relaxedSatRamp = run.RelaxedSatRamp;
@@ -66,7 +67,7 @@ namespace Iroca
             if (selKey != null)
             {
                 var zoneForCheck = zone;
-                selCached = selectionCache.TryCopy(zone.id, selKey, w, h, strength, commonMask, zoneMask,
+                selCached = selectionCache.TryCopy(zone.id, selKey, w, h, strength, run.CommonMask, zoneMaskLayer,
                     (oldCommon, oldZone) => ExclusionChangeKeepsMatch(zoneForCheck, originalPixels, hsv,
                         w, h, maskColOf, maskRowBase, maskW, maskH,
                         oldCommon, oldZone, commonMask, zoneMask, ffNeedsMatchConf, po),
@@ -435,7 +436,7 @@ namespace Iroca
                     Has = hasPostBox, MinX = ppMinX, MinY = ppMinY, MaxX = ppMaxX, MaxY = ppMaxY,
                 };
                 selectionCache.StoreFrom(zone.id, selKey, strength, box,
-                    commonMask, zoneMask, maskW, maskH, w, h, cancellationToken);
+                    run.CommonMask, zoneMaskLayer, maskW, maskH, w, h, cancellationToken);
             }
             _sub.Mark(SpSelCacheStore);
 

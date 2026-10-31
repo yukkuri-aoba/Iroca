@@ -74,7 +74,7 @@ namespace Iroca
         /// <summary>
         /// 保存形式から処理用スナップショットを作る。マスクが無ければ null
         /// (<see cref="PixelProcessor.ProcessPixelsArray"/> は null を「マスクなし」として扱う)。
-        /// 作業用の bool[] を経由せず、保存形式から詰めた形へ直接展開する(<see cref="MaskRle.DecodePacked"/>。
+        /// 作業用の bool[] を経由せず、保存形式からヒープの外のマスクへ直接展開する(<see cref="MaskRle.DecodeBits"/>。
         /// 非破壊ビルド・シーンのプレビュー・自動化の入口で、8K ならマスクごとに 64MB の配列を作らずに済む)。
         /// 結果は <see cref="Decode"/> してから <see cref="MaskSnapshot.FromBuffers"/> したものと同じ
         /// (読み飛ばす項目・同じゾーン id の扱い・全 false の含めるマスクを載せないことも同じ)。
@@ -87,24 +87,28 @@ namespace Iroca
             {
                 width = width,
                 height = height,
-                zones = new Dictionary<string, ulong[]>(),
+                zones = new Dictionary<string, NativeBitMask>(),
             };
             if (!string.IsNullOrEmpty(ms.commonMaskBase64))
                 snap.common = DecodePackedSized(ms.commonMaskBase64, width, height);
             ReadPackedEntries(ms.zones, snap.zones, width, height);
-            var includes = new Dictionary<string, ulong[]>();
+            var includes = new Dictionary<string, NativeBitMask>();
             ReadPackedEntries(ms.zoneIncludes, includes, width, height);
             foreach (var kv in includes)
             {
-                if (!MaskSnapshot.AnyBitSet(kv.Value)) continue;
-                if (snap.zoneIncludes == null) snap.zoneIncludes = new Dictionary<string, ulong[]>();
+                if (!kv.Value.Any())
+                {
+                    kv.Value.Release();
+                    continue;
+                }
+                if (snap.zoneIncludes == null) snap.zoneIncludes = new Dictionary<string, NativeBitMask>();
                 snap.zoneIncludes[kv.Key] = kv.Value;
             }
             return snap;
         }
 
         // ReadEntries の詰めた形の版(同じ項目を読み飛ばし、同じゾーン id は後のものが勝つ)。
-        private static void ReadPackedEntries(List<MaskZoneEntry> src, IDictionary<string, ulong[]> dst,
+        private static void ReadPackedEntries(List<MaskZoneEntry> src, IDictionary<string, NativeBitMask> dst,
             int width, int height)
         {
             if (src == null) return;
@@ -112,15 +116,19 @@ namespace Iroca
             {
                 if (entry == null || string.IsNullOrEmpty(entry.zoneId)) continue;
                 var bits = DecodePackedSized(entry.maskBase64, width, height);
-                if (bits != null) dst[entry.zoneId] = bits;
+                if (bits == null) continue;
+                if (dst.TryGetValue(entry.zoneId, out var earlier)) earlier.Release();
+                dst[entry.zoneId] = bits;
             }
         }
 
         // DecodeSized の詰めた形の版(寸法が保存形式の width/height と一致したときだけ採る)。
-        private static ulong[] DecodePackedSized(string encoded, int width, int height)
+        private static NativeBitMask DecodePackedSized(string encoded, int width, int height)
         {
-            var bits = MaskRle.DecodePacked(encoded, out int w, out int h);
-            return (bits != null && w == width && h == height) ? bits : null;
+            var bits = MaskRle.DecodeBits(encoded);
+            if (bits == null || (bits.Width == width && bits.Height == height)) return bits;
+            bits.Release();
+            return null;
         }
 
         private static void AppendEntries(List<MaskZoneEntry> dst,

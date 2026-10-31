@@ -15,12 +15,12 @@ namespace Iroca
         /// 画素へはみ出すことがある)、含めるマスクの画素を全強度で足す(除外優先は焼き込み済み)。
         /// ProcessPixelsArrayCore から中身を書き換えずに切り出したもの(0.4.0 の計画の 3-7a)。
         /// </summary>
-        private static void ApplyMaskContract(RunContext run, ColorZone zone, float* strength, ulong[] zoneMask,
+        private static void ApplyMaskContract(RunContext run, ColorZone zone, float* strength, ulong* zoneMask,
             bool* includedPx)
         {
             int w = run.W, h = run.H, len = run.Len;
             var po = run.Po;
-            ulong[] commonMask = run.CommonMask;
+            ulong* commonMask = run.CommonBits;
             int maskW = run.MaskW, maskH = run.MaskH;
             int[] maskColOf = run.MaskColOf, maskRowBase = run.MaskRowBase;
             var debug = run.Debug;
@@ -63,7 +63,7 @@ namespace Iroca
         /// <summary>作業座標 (x, y) が除外(共通 ∪ ゾーン)か。表は BuildMaskIndexMap(無ければ除外なし)。</summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         private static bool IsExcludedAt(int[] colOf, int[] rowBase, int x, int y,
-            ulong[] commonMask, ulong[] zoneMask)
+            ulong* commonMask, ulong* zoneMask)
         {
             if (colOf == null) return false;
             int idx = rowBase[y] + colOf[x];
@@ -75,7 +75,7 @@ namespace Iroca
         /// 除外と同じ表(BuildMaskIndexMap。無ければ含めるなし)。除外優先は呼び出し側が組む。
         /// </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        private static bool IsIncludedAt(int[] colOf, int[] rowBase, int x, int y, ulong[] includeMask)
+        private static bool IsIncludedAt(int[] colOf, int[] rowBase, int x, int y, ulong* includeMask)
             => colOf != null && MaskSnapshot.GetBit(includeMask, rowBase[y] + colOf[x]);
 
         /// <summary>
@@ -83,7 +83,7 @@ namespace Iroca
         /// 除外の立っていないマスクの行に当たる作業行は読まない(選択キャッシュのヒットでも毎回走るため)。
         /// </summary>
         private static void ReapplyExclusion(float* strength, int w, int h, int[] colOf, int[] rowBase,
-            int maskW, int maskH, ulong[] commonMask, ulong[] zoneMask, ParallelOptions po)
+            int maskW, int maskH, ulong* commonMask, ulong* zoneMask, ParallelOptions po)
         {
             if (colOf == null) return;
             var rows = new bool[maskH];
@@ -102,8 +102,7 @@ namespace Iroca
         private static int MaskWordCount(int maskW, int maskH) => (int)(((long)maskW * maskH + 63) >> 6);
 
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        private static ulong MaskWord(ulong[] packed, int wi) =>
-            packed != null && wi < packed.Length ? packed[wi] : 0UL;
+        private static ulong MaskWord(ulong* packed, int wi) => packed != null ? packed[wi] : 0UL;
 
         // 語 wi(画素 wi*64 .. wi*64+63)が触れるマスクの行に印をつける(語の中のどこが立っているかは見ない。
         // 印が多すぎても、印のある行は画素ごとに読み直すので結果は変わらない)。
@@ -120,7 +119,7 @@ namespace Iroca
         /// デコンタミ・混色帯・無彩フチ消しの 3 か所が、それぞれ自分の読む範囲だけをこれで埋める。
         /// </summary>
         private static void FillExcludedRect(bool* dst, int w, int x0, int y0, int x1, int y1,
-            int[] colOf, int[] rowBase, ulong[] commonMask, ulong[] zoneMask, ParallelOptions po)
+            int[] colOf, int[] rowBase, ulong* commonMask, ulong* zoneMask, ParallelOptions po)
         {
             Parallel.For(y0, y1 + 1, po, y =>
             {

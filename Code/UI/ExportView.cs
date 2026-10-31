@@ -482,7 +482,11 @@ namespace Iroca
                     if (releaseAfterExport) PixelProcessor.ReleaseWorkBuffersInBackground();
                 },
                 // 原本の画素は計算の後で(取り消されて計算しなかったときも)返す。
-                cleanup: () => pixels.Release(),
+                cleanup: () =>
+                {
+                    pixels.Release();
+                    input.ReleaseMasks();
+                },
                 // エンコードまで済んだが書き込まなかった(取り消し・破棄)PNG を手放す。
                 discard: payload => payload.png.Dispose());
         }
@@ -634,7 +638,11 @@ namespace Iroca
 
                         // リスト先頭のゾーンほど先に処理され、重なった領域を占有する(単体の書き出しと同じ組み立て)。
                         if (RecolorInput.CountEnabled(session.zones) > 0)
-                            ExportService.Recolor(pixels, RecolorInput.FromEditing(session, _host.BuildMaskSnapshot()));
+                        {
+                            var batchInput = RecolorInput.FromEditing(session, _host.BuildMaskSnapshot());
+                            try { ExportService.Recolor(pixels, batchInput); }
+                            finally { batchInput.ReleaseMasks(); }
+                        }
 
                         string outPath = ExportPipeline.BatchOutputPath(srcPath);
                         using (var png = ExportService.EncodePng(pixels))

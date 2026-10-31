@@ -12,28 +12,54 @@ using UnityEngine;
 namespace Iroca
 {
     /// <summary>
-    /// バックグラウンド処理に渡すためのマスク一式のイミュータブルスナップショット。
-    /// 配列は deep clone 済み（呼び出し側の書き換えと競合しない）。
+    /// バックグラウンド処理に渡すマスク一式のスナップショット。層(<see cref="NativeBitMask"/>。Mono のヒープの外)を
+    /// 参照で共有し、写さない(8K で 1 層 8MB を要求のたびに管理配列へ写していた。計画の B3)。編集側は書く前に
+    /// <see cref="NativeBitMask.Writable"/> で自分だけのものにするので、スナップショットの中身は変わらない。
+    /// 持ち方は参照の数で、作った側が 1 つ目を持つ。別スレッドの読み手は <see cref="AddRef"/> して持ち、使い終わったら
+    /// <see cref="Release"/> する(最後の Release で層の参照を返す。返さないと編集側が毎回写すことになる)。
     /// </summary>
-    internal class MaskSnapshot
+    internal sealed unsafe class MaskSnapshot
     {
-        // 1 画素 = 1 bit のビットパック表現(true=除外)。bool[] を deep clone すると 4K で 16.7MB/枚に
-        // なりプレビュー再生成・ペイントのたびに GC を圧迫するため、スナップショットは 1/8 サイズの
-        // ulong[] で保持する。idx 番目の画素は (arr[idx>>6] >> (idx&63)) & 1。範囲は width*height。
-        // 注: 編集中のマスク(MaskWorkspace)は同じ並びのヒープの外のマスク(NativeBitMask)、保存形式(MaskFileStore)は RLE。
-        //     ここはスレッドへ渡すスナップショットの表現(編集中のマスクから語ごとに写す)。
-        public ulong[] common;
+        // 1 画素 = 1 bit(true=除外)。画素 idx は語 idx >> 6 の idx & 63 ビット目。層の寸法はどれも width × height。
+        public NativeBitMask common;
         public int width;
         public int height;
-        public Dictionary<string, ulong[]> zones;
+        public Dictionary<string, NativeBitMask> zones;
         // ゾーン別「含める」マスク(true=強制的に選択へ含める)。key = ColorZone.id。
         // 除外(common/zones)と違い共通版は持たない(「どのゾーンの選択に含めるか」が
         // 定まらないため、含めるは常にゾーン単位)。除外と重なった画素は除外が勝つ。
-        public Dictionary<string, ulong[]> zoneIncludes;
+        public Dictionary<string, NativeBitMask> zoneIncludes;
+
+        private int _refs = 1;
+
+        /// <summary>参照を 1 つ足す。自分が参照を持っている間に呼ぶこと(解放済みなら投げる)。</summary>
+        public MaskSnapshot AddRef()
+        {
+            if (Interlocked.Increment(ref _refs) <= 1)
+            {
+                Interlocked.Decrement(ref _refs);
+                throw new ObjectDisposedException(nameof(MaskSnapshot));
+            }
+            return this;
+        }
+
+        /// <summary>参照を 1 つ返す。最後の参照なら、層の参照を返す。返しすぎは投げる。</summary>
+        public void Release()
+        {
+            int left = Interlocked.Decrement(ref _refs);
+            if (left > 0) return;
+            if (left < 0)
+            {
+                Interlocked.Increment(ref _refs);
+                throw new InvalidOperationException("MaskSnapshot の参照を返しすぎました");
+            }
+            common?.Release();
+            if (zones != null) foreach (var m in zones.Values) m?.Release();
+            if (zoneIncludes != null) foreach (var m in zoneIncludes.Values) m?.Release();
+        }
 
         /// <summary>
-        /// len 画素ぶんの 1 画素 1 ビットの配列(全部 0)。詰めた形の配列はここでだけ作る(保存形式からの直接の展開
-        /// <see cref="MaskRle.DecodePacked"/> も使う。ヒープの外の NativeBitMask へ置き換えるときの 1 か所。計画の 2-3)。
+        /// len 画素ぶんの 1 画素 1 ビットの配列(全部 0)。自動調整の証拠の詰めた形(<see cref="Pack"/>)が使う。
         /// </summary>
         internal static ulong[] NewBits(int len) => new ulong[(len + 63) >> 6];
 
@@ -78,12 +104,17 @@ namespace Iroca
             }
         }
 
-        // 詰めたマスクに立っているビットがあるか(null は false)。
-        internal static bool AnyBitSet(ulong[] packed)
+        // bool[] から層を作る(参照 1)。寸法が決まっていない・bool[] が null なら null。
+        // bool[] が短ければ足りない画素は false。
+        private static NativeBitMask ToLayer(bool[] mask, int width, int height)
         {
-            if (packed == null) return false;
-            for (int i = 0; i < packed.Length; i++) if (packed[i] != 0UL) return true;
-            return false;
+            if (mask == null || width <= 0 || height <= 0) return null;
+            var layer = NativeBitMask.Allocate(width, height);
+            int n = Math.Min(mask.Length, layer.Length);
+            ulong* bits = layer.Bits;
+            for (int i = 0; i < n; i++)
+                if (mask[i]) bits[i >> 6] |= 1UL << (i & 63);
+            return layer;
         }
 
         /// <summary>
@@ -101,28 +132,35 @@ namespace Iroca
             {
                 width = width,
                 height = height,
-                zones = new Dictionary<string, ulong[]>()
+                zones = new Dictionary<string, NativeBitMask>()
             };
-            snap.common = Pack(common);   // Pack(null) は null
+            snap.common = ToLayer(common, width, height);
             if (zones != null)
             {
                 foreach (var kv in zones)
                 {
-                    if (kv.Value == null) continue;
-                    snap.zones[kv.Key] = Pack(kv.Value);
+                    var layer = ToLayer(kv.Value, width, height);
+                    if (layer == null) continue;
+                    if (snap.zones.TryGetValue(kv.Key, out var earlier)) earlier.Release();
+                    snap.zones[kv.Key] = layer;
                 }
             }
             if (includes != null)
             {
                 foreach (var kv in includes)
                 {
-                    if (kv.Value == null) continue;
+                    var layer = ToLayer(kv.Value, width, height);
+                    if (layer == null) continue;
                     // 全 false かは詰めた後の語で見る(bool[] を先頭から 1 つずつ読み直さない)。
-                    var packed = Pack(kv.Value);
-                    if (!AnyBitSet(packed)) continue;
+                    if (!layer.Any())
+                    {
+                        layer.Release();
+                        continue;
+                    }
                     if (snap.zoneIncludes == null)
-                        snap.zoneIncludes = new Dictionary<string, ulong[]>();
-                    snap.zoneIncludes[kv.Key] = packed;
+                        snap.zoneIncludes = new Dictionary<string, NativeBitMask>();
+                    if (snap.zoneIncludes.TryGetValue(kv.Key, out var earlier)) earlier.Release();
+                    snap.zoneIncludes[kv.Key] = layer;
                 }
             }
             return snap;
@@ -144,5 +182,9 @@ namespace Iroca
             if (word < 0 || word >= packed.Length) return false;
             return (packed[word] & (1UL << (idx & 63))) != 0UL;
         }
+
+        /// <summary>層の語の idx 番目ビットを読む(null は false。範囲は呼び出し側が守る)。</summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        public static bool GetBit(ulong* bits, int idx) => bits != null && (bits[idx >> 6] & (1UL << (idx & 63))) != 0UL;
     }
 }

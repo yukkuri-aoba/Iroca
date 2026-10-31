@@ -446,8 +446,8 @@ namespace Iroca
             var (w, h, pixels) = ReadRgbaRaw(inPath);
 
             var (mw, mh, common) = ReadMaskRaw(maskPath);
-            // MaskSnapshot は packed ulong[]。autotune/exCount は下で bool[] common を使うので両方保持する。
-            var masks = new MaskSnapshot { common = MaskSnapshot.Pack(common), width = mw, height = mh, zones = null };
+            // MaskSnapshot はヒープの外の層。autotune/exCount は下で bool[] common を使うので両方保持する。
+            var masks = new MaskSnapshot { common = NativeBitMask.FromBools(common, mw, mh), width = mw, height = mh, zones = null };
 
             List<ColorZone> zoneList;
             SettingsCfg st;
@@ -644,15 +644,15 @@ namespace Iroca
             return state;
         }
 
-        private static bool[] UnpackMask(ulong[] packed, int n)
+        private static bool[] UnpackMask(NativeBitMask packed, int n)
         {
             if (packed == null) return null;
             var arr = new bool[n];
-            for (int i = 0; i < n; i++) arr[i] = MaskSnapshot.GetBit(packed, i);
+            for (int i = 0; i < n; i++) arr[i] = packed.Get(i);
             return arr;
         }
 
-        private static Dictionary<string, bool[]> UnpackMasks(Dictionary<string, ulong[]> packed, int n)
+        private static Dictionary<string, bool[]> UnpackMasks(Dictionary<string, NativeBitMask> packed, int n)
         {
             if (packed == null) return null;
             var dict = new Dictionary<string, bool[]>();
@@ -744,9 +744,10 @@ namespace Iroca
                         $"ゾーン別マスク寸法 {iw}x{ih} が mask.raw 寸法 {masks.width}x{masks.height} と不一致: {path}");
                 var arr = ToBoolMask(ibytes, iw * ih);
                 var dict = include
-                    ? (masks.zoneIncludes ??= new Dictionary<string, ulong[]>())
-                    : (masks.zones ??= new Dictionary<string, ulong[]>());
-                dict[zoneId] = MaskSnapshot.Pack(arr);
+                    ? (masks.zoneIncludes ??= new Dictionary<string, NativeBitMask>())
+                    : (masks.zones ??= new Dictionary<string, NativeBitMask>());
+                if (dict.TryGetValue(zoneId, out var earlier)) earlier.Release();
+                dict[zoneId] = NativeBitMask.FromBools(arr, iw, ih);
             }
         }
 
@@ -760,21 +761,20 @@ namespace Iroca
             var (w, h, basePixels) = ReadRgbaRaw(cfg.input);
 
             var (mw, mh, common) = ReadMaskRaw(cfg.mask);
-            var packed = MaskSnapshot.Pack(common);
-
             foreach (var c in cfg.cases)
             {
                 var (zoneList, st, zoneMasks, _) = LoadZones(c.zones);
                 var pixels = (Color32[])basePixels.Clone();
                 var masks = new MaskSnapshot
                 {
-                    common = (ulong[])packed.Clone(),
+                    common = NativeBitMask.FromBools(common, mw, mh),
                     width = mw,
                     height = mh,
                     zones = null,
                 };
                 AttachZoneMasks(masks, zoneMasks);
                 ProcessZones(pixels, w, h, masks, zoneList, st, source: basePixels);
+                masks.Release();
                 WriteRawRgba(c.@out, w, h, pixels);
                 Console.WriteLine($"OK {w}x{h} -> {c.@out} (zones={zoneList.Count})");
             }
@@ -803,7 +803,7 @@ namespace Iroca
                 var (mw, mh, common) = ReadMaskRaw(s.mask);
                 var masks = new MaskSnapshot
                 {
-                    common = MaskSnapshot.Pack(common),
+                    common = NativeBitMask.FromBools(common, mw, mh),
                     width = mw,
                     height = mh,
                     zones = null,
@@ -812,6 +812,7 @@ namespace Iroca
                 AttachZoneMasks(masks, zoneMasks);
                 var pixels = (Color32[])basePixels.Clone();
                 ProcessZones(pixels, w, h, masks, zoneList, st, selCache, source: basePixels);
+                masks.Release();
                 WriteRawRgba(s.@out, w, h, pixels);
                 Console.WriteLine($"OK-SESSION step={step} {w}x{h} -> {s.@out} (zones={zoneList.Count})");
                 step++;
@@ -1108,8 +1109,8 @@ namespace Iroca
                 var strengthIn = new float[SW * SH];
                 for (int i = 0; i < strengthIn.Length; i++) strengthIn[i] = (i % 97) / 97f;
                 var cache = new SelectionCache();
-                var storedCommon = new ulong[(SW * SH + 63) >> 6];
-                var otherCommon = new ulong[(SW * SH + 63) >> 6];
+                var storedCommon = NativeBitMask.Allocate(SW, SH);
+                var otherCommon = NativeBitMask.Allocate(SW, SH);
                 unsafe
                 {
                     fixed (float* sp = strengthIn)
@@ -1132,6 +1133,9 @@ namespace Iroca
                 Check(IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection) == 0,
                     $"selection: freed when the copy ends (live={IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection)})");
                 Check(!cache.TryGet("z", "k", SW, SH), "selection: cleared entry is gone");
+                Check(storedCommon.RefCount == 1 && otherCommon.RefCount == 1, "selection: masks are released with the entry");
+                storedCommon.Release();
+                otherCommon.Release();
                 unsafe
                 {
                     fixed (float* sp = strengthIn)
@@ -1243,8 +1247,8 @@ namespace Iroca
                 Check(MaskRle.EncodeBits(m) == viaBools, "EncodeBits equals Encode: " + label);
                 Check(MaskRle.EncodeBitsIfAny(m) == MaskRle.EncodeIfAny(b, w, h), "EncodeBitsIfAny equals EncodeIfAny: " + label);
                 var back = MaskRle.DecodeBits(viaBools);
-                Check(back != null && back.Width == w && back.Height == h && SameBits(back, MaskRle.DecodePacked(viaBools, out _, out _)),
-                    "DecodeBits equals DecodePacked: " + label);
+                Check(back != null && back.Width == w && back.Height == h && SameBits(back, MaskSnapshot.Pack(b)),
+                    "DecodeBits equals Pack: " + label);
                 Check(m.Any() == MaskSnapshot.AnyTrue(b), "Any: " + label);
                 back?.Release();
 
@@ -1382,7 +1386,7 @@ namespace Iroca
                 new Dictionary<string, bool[]>(), prevT);
             Check(wT == H && hT == W && !ReferenceEquals(cT, flat) && Same(cT, flat), "previous with other dimensions is not used");
 
-            // 4) 詰めた形への直接の展開(MaskRle.DecodePacked)は、bool[] へ展開してから詰めたもの(MaskSnapshot.Pack)と
+            // 4) 詰めた形への直接の展開(MaskRle.DecodeBits)は、bool[] へ展開してから詰めたもの(MaskSnapshot.Pack)と
             //    同じ配列になる。画素数が 64 の倍数でない・ランが語の境目をまたぐ・全部 true / false・旧 bitpack(最後の
             //    バイトの余りに 1 が立っている)・壊れた文字列も。
             bool SameBits(ulong[] a, ulong[] b)
@@ -1441,10 +1445,12 @@ namespace Iroca
             foreach (var (label, m, cw, ch) in cases)
             {
                 var expected = MaskSnapshot.Pack(m);
-                var rle = MaskRle.DecodePacked(MaskRle.Encode(m, cw, ch), out int rw, out int rh);
-                Check(rw == cw && rh == ch && SameBits(rle, expected), "packed decode (RLE) equals Pack(Decode): " + label);
-                var legacy = MaskRle.DecodePacked(Legacy(m, cw, ch), out int lw2, out int lh2);
-                Check(lw2 == cw && lh2 == ch && SameBits(legacy, expected), "packed decode (legacy bitpack) equals Pack(Decode): " + label);
+                var rle = MaskRle.DecodeBits(MaskRle.Encode(m, cw, ch));
+                Check(rle.Width == cw && rle.Height == ch && SameBits(rle.ToWords(), expected), "packed decode (RLE) equals Pack(Decode): " + label);
+                var legacy = MaskRle.DecodeBits(Legacy(m, cw, ch));
+                Check(legacy.Width == cw && legacy.Height == ch && SameBits(legacy.ToWords(), expected), "packed decode (legacy bitpack) equals Pack(Decode): " + label);
+                rle.Release();
+                legacy.Release();
                 Check(SameBits(MaskSnapshot.Pack(MaskRle.Decode(Legacy(m, cw, ch), out _, out _)), expected),
                     "legacy bitpack decode ignores the padding bits: " + label);
             }
@@ -1459,7 +1465,7 @@ namespace Iroca
                                                  ("short legacy", Convert.ToBase64String(new byte[9])) })
             {
                 Check(MaskRle.Decode(bad, out _, out _) == null, "bool decode rejects: " + label);
-                Check(MaskRle.DecodePacked(bad, out _, out _) == null, "packed decode rejects: " + label);
+                Check(MaskRle.DecodeBits(bad) == null, "packed decode rejects: " + label);
             }
 
             // 5) 保存形式から作るスナップショット(MaskStateCodec.ToSnapshot。非破壊ビルド・シーンのプレビューの入口)は、
@@ -1479,16 +1485,21 @@ namespace Iroca
             MaskStateCodec.Decode(msX, out int wx, out int hx, out bool[] cx, zx, ix);
             var viaBools = MaskSnapshot.FromBuffers(wx, hx, cx, zx, ix);
             var direct = MaskStateCodec.ToSnapshot(msX);
-            bool SameDict(Dictionary<string, ulong[]> a, Dictionary<string, ulong[]> b)
+            bool SameLayer(NativeBitMask a, NativeBitMask b)
+            {
+                if (a == null || b == null) return a == b;
+                return SameBits(a.ToWords(), b.ToWords());
+            }
+            bool SameDict(Dictionary<string, NativeBitMask> a, Dictionary<string, NativeBitMask> b)
             {
                 if (a == null || b == null) return a == b;
                 if (a.Count != b.Count) return false;
                 foreach (var kv in a)
-                    if (!b.TryGetValue(kv.Key, out var v) || !SameBits(kv.Value, v)) return false;
+                    if (!b.TryGetValue(kv.Key, out var v) || !SameLayer(kv.Value, v)) return false;
                 return true;
             }
             Check(direct != null && direct.width == viaBools.width && direct.height == viaBools.height, "snapshot dimensions");
-            Check(direct != null && SameBits(direct.common, viaBools.common), "snapshot common");
+            Check(direct != null && SameLayer(direct.common, viaBools.common), "snapshot common");
             Check(direct != null && SameDict(direct.zones, viaBools.zones) && direct.zones.Count == 3,
                 $"snapshot zones (count={direct?.zones?.Count})");
             Check(direct != null && SameDict(direct.zoneIncludes, viaBools.zoneIncludes) && direct.zoneIncludes.Count == 1,
@@ -1499,6 +1510,16 @@ namespace Iroca
                 "snapshot of a state without masks");
             Check(MaskStateCodec.ToSnapshot(new MaskState()) == null && MaskStateCodec.ToSnapshot(null) == null,
                 "no snapshot without dimensions");
+            long maskLive = IrocaNativeMemory.LiveBytesOf(NativeUsage.Mask);
+            viaBools.Release();
+            direct.Release();
+            noCommon.Release();
+            Check(IrocaNativeMemory.LiveBytesOf(NativeUsage.Mask) < maskLive || maskLive == 0, "releasing a snapshot returns its layers");
+            var shared = MaskSnapshot.FromBuffers(W, H, common, zones, includes);
+            var extra = shared.AddRef();
+            shared.Release();
+            Check(extra.common != null && extra.common.RefCount == 1, "the other reference still holds the layers");
+            extra.Release();
 
             Console.WriteLine(fails == 0 ? "MASKCODECSELFTEST ALL PASS" : $"MASKCODECSELFTEST {fails} FAILED");
             return fails == 0 ? 0 : 4;
@@ -1643,21 +1664,16 @@ namespace Iroca
                 Console.Error.WriteLine("SELCACHE-MASK skipped");
                 return;
             }
-            int words = (w * h + 63) >> 6;
-            ulong[] WithBlock(ulong[] src, int k)
+            NativeBitMask WithBlock(NativeBitMask src, int k)
             {
-                var dst = new ulong[words];
-                if (src != null) Array.Copy(src, dst, Math.Min(words, src.Length));
+                var dst = src != null ? src.Clone() : NativeBitMask.Allocate(w, h);
                 int x0 = (k % bx) * B, y0 = (k / bx) * B;
                 for (int y = y0; y < y0 + B; y++)
                     for (int x = x0; x < x0 + B; x++)
-                    {
-                        int i = y * w + x;
-                        dst[i >> 6] |= 1UL << (i & 63);
-                    }
+                        dst.Set(y * w + x, true);
                 return dst;
             }
-            MaskSnapshot With(ulong[] common, Dictionary<string, ulong[]> includes) => new MaskSnapshot
+            MaskSnapshot With(NativeBitMask common, Dictionary<string, NativeBitMask> includes) => new MaskSnapshot
             {
                 common = common, width = w, height = h, zones = masks.zones, zoneIncludes = includes,
             };
@@ -1677,12 +1693,12 @@ namespace Iroca
                         bool okA = cache.TryReadLatest(z.id, w, h, all, a), okB = rebuilt.TryReadLatest(z.id, w, h, all, b);
                         if (okA != okB) { latestDiff += all.Length; continue; }
                         if (!okA) continue;
-                        ulong[] zm = null;
+                        NativeBitMask zm = null;
                         m.zones?.TryGetValue(z.id, out zm);
                         for (int i = 0; i < all.Length; i++)
                         {
                             if (a[i] != b[i]) latestDiff++;
-                            if (a[i] != 0f && (MaskSnapshot.GetBit(m.common, i) || MaskSnapshot.GetBit(zm, i))) latestExcl++;
+                            if (a[i] != 0f && ((m.common != null && m.common.Get(i)) || (zm != null && zm.Get(i)))) latestExcl++;
                         }
                     }
                 }
@@ -1704,10 +1720,10 @@ namespace Iroca
             var quietCommon = WithBlock(masks.common, quiet);
             int dQuiet = Step(With(quietCommon, masks.zoneIncludes));
             int dBusy = Step(With(WithBlock(quietCommon, bestBusy), masks.zoneIncludes));
-            var backCommon = masks.common == null ? null : (ulong[])masks.common.Clone();
+            var backCommon = masks.common?.Clone();
             int dBack = Step(With(backCommon, masks.zoneIncludes));
             var includes = masks.zoneIncludes == null
-                ? new Dictionary<string, ulong[]>() : new Dictionary<string, ulong[]>(masks.zoneIncludes);
+                ? new Dictionary<string, NativeBitMask>() : new Dictionary<string, NativeBitMask>(masks.zoneIncludes);
             includes.TryGetValue(zones[0].id, out var inc0);
             includes[zones[0].id] = WithBlock(inc0, quiet);
             int dInclude = Step(With(backCommon, includes));

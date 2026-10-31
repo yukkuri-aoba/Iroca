@@ -22,14 +22,14 @@ namespace Iroca
                 Color32* originalPixels = run.Original;
                 var po = run.Po;
                 var cancellationToken = run.Ct;
-                ulong[] commonMask = run.CommonMask;
+                ulong* commonMask = run.CommonBits;
                 int[] maskColOf = run.MaskColOf, maskRowBase = run.MaskRowBase;
                 var rb = run.Buf;
                 var _phaseTicks = run.PhaseTicks;
                 var _sub = run.Sub;
                 long _tp = run.Tp;
                 var zone = z.Zone;
-                ulong[] zoneMask = z.ZoneMask;
+                ulong* zoneMask = z.ZoneMask;
                 float zAchromaWeight = z.AchromaWeight;
                 var strengthForRecolor = z.Strength;
                 var claimedLocal = rb.Claimed;
