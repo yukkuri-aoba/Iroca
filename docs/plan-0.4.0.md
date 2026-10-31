@@ -696,6 +696,8 @@ worktree で切る。`develop` は 0.3.x の急ぎの修正用に残し、`dev-0
   - `LoadImage` の代わりに管理配列を使わない読み込み方があるか（Unity 6 の `ReadOnlySpan` の口、
     `UnityWebRequestTexture` など）。今と同じ画素になるときだけ替える。出力が変わり、直しても合わせられないなら
     見送り、圧縮されたファイルの中身の分は T3 の例外として残す（2026-10-26 決定）。
+    → 2026-11-01: `UnityWebRequestTexture` はメインスレッドで待つと完了しないので使えなかった。PNG は自前の展開（`PngFileDecoder`。
+    実物 173 枚で全画素一致）に替えた。JPG は例外のまま。
   - Mono の `FileStream.Write(ReadOnlySpan)` は管理配列へ写すので使わない。
 
 ### フェーズ 3A: Core の作り替え（T4 の Core と、Core に残る T3。出力を変えない）
