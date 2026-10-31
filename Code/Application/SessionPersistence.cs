@@ -98,14 +98,17 @@ namespace Iroca
 
         /// <summary>
         /// テクスチャのセッションのファイルへ書く。<paramref name="loadFailed"/> はファイルが「存在するのに読めなかった」
-        /// 印で、立っている間は空保存での削除・無退避の上書きをしない。
-        /// 中身を書けたら(ファイルはもう読めるので)印を下ろしてよいときは true を返す。
+        /// 印で、立っている間は空保存での削除・無退避の上書きをしない。書けなかったときだけ false。
+        /// <paramref name="wroteContent"/> は中身を書けた(ファイルはもう読めるので、印を下ろしてよい)とき true。
         /// </summary>
-        internal static bool SaveToFile(Texture2D tex, IrocaSessionState state, bool loadFailed)
+        internal static bool SaveToFile(Texture2D tex, IrocaSessionState state, bool loadFailed, out bool wroteContent)
         {
+            wroteContent = false;
             string path = TexturePathOf(tex);
-            if (path == null || state == null) return false;
-            return SessionFileStore.SaveSession(path, state, loadFailed) && !SessionFileStore.IsEmpty(state);
+            if (path == null || state == null) return true;
+            bool ok = SessionFileStore.SaveSession(path, state, loadFailed);
+            wroteContent = ok && !SessionFileStore.IsEmpty(state);
+            return ok;
         }
 
         // ─────────────── 前回編集していたテクスチャ ───────────────

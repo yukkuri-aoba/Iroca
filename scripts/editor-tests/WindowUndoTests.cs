@@ -287,6 +287,68 @@ namespace Iroca.EditorTests
             Assert.AreEqual(2, _win.UnboundRecipeCount);
         }
 
+        // 読めないまま空で開いた後、再読み込みの間に読めるようになっても、空の保存でファイルを消さない。
+        [Test]
+        public void SessionFileThatBecameReadable_IsNotDeletedByReload()
+        {
+            string file = Path.Combine(SessionFileStore.CacheDir, _guid + ".iroca-session.json");
+            var state = new IrocaSessionState();
+            state.zones.Add(new ColorZone { name = "前の編集" });
+            string json = JsonUtility.ToJson(state);
+            Directory.CreateDirectory(SessionFileStore.CacheDir);
+            _win.SwitchSourceTexture(null);
+            File.WriteAllText(file, "{ broken");
+            LogAssert.ignoreFailingMessages = true;
+            _win.SwitchSourceTexture(AssetDatabase.LoadAssetAtPath<Texture2D>(_tex));
+            Assert.IsTrue(_win.SessionLoadFailed, "テストの前提: 読めない");
+            Assert.AreEqual(0, _win.Session.zones.Count);
+            LogAssert.ignoreFailingMessages = false;
+
+            File.WriteAllText(file, json);
+            _win.OnEnable();   // 再読み込み
+
+            Assert.AreEqual("前の編集", _win.Session.zones[0].name, "読めるようになった内容を読まなかった");
+            Assert.IsFalse(_win.SessionLoadFailed);
+            _win.SavePersistedSessionForCurrentTexture();
+            StringAssert.Contains("前の編集", File.ReadAllText(file));
+        }
+
+        // 再読み込みの前にマスクをファイルへ書けなくても、塗った分は履歴から戻る。
+        [Test]
+        public void MaskStrokeNotWrittenToFile_ComesBackFromHistoryAfterReload()
+        {
+            Stroke(3);
+            Assert.IsTrue(_win.SavePersistedSessionForCurrentTexture());
+            Stroke(5);   // ファイルにはまだ書いていない = 書けなかったときと同じ
+            _win.OnEnable();   // 再読み込み(ファイルのマスクを読み直す)
+
+            var common = _win.Editing.Masks.Common;
+            Assert.IsTrue(common.Get(3));
+            Assert.IsTrue(common.Get(5), "ファイルより新しい塗りが消えた");
+        }
+
+        // 保存に失敗したことを窓に出す印。直れば下りる。
+        [Test]
+        public void SaveFailure_IsKeptUntilASaveSucceeds()
+        {
+            AddZones("服");
+            string file = Path.Combine(SessionFileStore.CacheDir, _guid + ".iroca-session.json");
+            Directory.CreateDirectory(file);   // 同じ名前のフォルダがあるとファイルを書けない
+            try
+            {
+                LogAssert.ignoreFailingMessages = true;
+                Assert.IsFalse(_win.SavePersistedSessionForCurrentTexture());
+                Assert.IsTrue(_win.LastSaveFailed);
+            }
+            finally
+            {
+                LogAssert.ignoreFailingMessages = false;
+                Directory.Delete(file);
+            }
+            Assert.IsTrue(_win.SavePersistedSessionForCurrentTexture());
+            Assert.IsFalse(_win.LastSaveFailed);
+        }
+
         // 自動調整を押した後に Ctrl+Z やテクスチャの切り替えをしたら、結果を当てない(押したときの状態はもう無い)。
         [Test]
         public void AutoTuneRunning_IsStoppedByUndo()

@@ -73,6 +73,7 @@ namespace Iroca
         // true の間は空保存での削除・無退避の上書きを抑止する（一時的な読込失敗が
         // データ恒久消失に化けるのを防ぐ）。有効な内容を保存できたら解除。
         [System.NonSerialized] private bool _maskLoadFailed;
+        internal bool MaskLoadFailed => _maskLoadFailed;
 
         public const string CommonMaskKey = "__common__";
 

@@ -102,7 +102,7 @@ namespace Iroca
             if (!File.Exists(path)) return null;
             try
             {
-                var state = JsonUtility.FromJson<MaskState>(File.ReadAllText(path));
+                var state = JsonUtility.FromJson<MaskState>(AtomicFile.ReadAllText(path));
                 // JsonUtility は空文字や "null" で例外を投げずに null を返す。ここを見落とすと
                 // 「ファイルはあるのに読めなかった」を「マスク無し」と誤認し、破壊的保存の抑止
                 // (lastLoadFailed) が効かないまま空マスクで上書き＝手描きマスクの恒久喪失になる。
@@ -138,7 +138,7 @@ namespace Iroca
         /// </summary>
         public static void CleanupOrphans() => Files.CleanupOrphans();
 
-        private static bool IsEmpty(MaskState state)
+        internal static bool IsEmpty(MaskState state)
         {
             if (state == null) return true;
             bool hasCommon = !string.IsNullOrEmpty(state.commonMaskBase64);

@@ -97,6 +97,22 @@ namespace Iroca
         // セッション保存とテストがこれで失敗した。一時的なものなので、少し待って繰り返す(合計 1 秒弱)。
         private static readonly int[] RetryDelaysMs = { 15, 30, 60, 120, 250, 500 };
 
+        /// <summary>
+        /// テキストを読む。ほかのプロセスが一瞬つかんでいて読めないときは少し待って繰り返す(書くときと同じ)。読めないまま空で開くと、
+        /// 利用者には編集内容が消えたように見える。
+        /// </summary>
+        public static string ReadAllText(string path)
+        {
+            for (int attempt = 0; ; attempt++)
+            {
+                try { return File.ReadAllText(path); }
+                catch (Exception e) when (attempt < RetryDelaysMs.Length && IsTransient(e))
+                {
+                    Thread.Sleep(RetryDelaysMs[attempt]);
+                }
+            }
+        }
+
         private static void Write(string path, Action<string> writeTemp)
         {
             // 一時ファイルは必ず同一フォルダに置く（File.Replace/Move が同一ボリューム内で完結し

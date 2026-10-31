@@ -342,10 +342,13 @@ namespace Iroca
             }
             else
             {
-                // 読めなかった印は再読み込みで消える(ここではセッションを読み直さない)ので、読めるかを確かめ直す。消えたままだと、
-                // 空のセッションの保存が読めなかったファイルを削除する。
-                SessionPersistence.LoadFromFile(SourceTexture, out _sessionLoadFailed);
+                // 読めなかった印は再読み込みで消える(ここではセッションを読み直さない)ので、読めるかを確かめ直す。
+                RecheckSessionFile(adoptMissed: true);
                 _maskView.RestoreFromSession();
+                // 再読み込みの前にファイルへ書けなかったら、ファイルのマスクは古い。今の版は履歴にある。履歴も無ければ、保存の失敗でも
+                // レシピには書けているので、そちらを読む(古いファイルのマスクで続けると、次の保存でレシピも古くなる)。
+                if (Editing.RestoreCurrentMasksFromHistory()) _maskView.maskDirty = true;
+                else if (_lastSaveFailed) _maskView.RestoreMasksFromBoundRecipe();
             }
             // 今のマスクを Undo の履歴の起点にする。
             Editing.AdoptMasksAfterEnable();
@@ -452,7 +455,7 @@ namespace Iroca
         private void AfterTextureRestoredByUndo()
         {
             // 読めなかった印は戻す前のテクスチャのもの。残したままだと、読めなかったファイルを空の保存で削除する。
-            SessionPersistence.LoadFromFile(SourceTexture, out _sessionLoadFailed);
+            RecheckSessionFile(adoptMissed: false);
             _maskView?.RecheckMaskFile();
             // 書き出しの既定の名前。
             string path = CurrentTexturePath(SourceTexture);
@@ -531,12 +534,35 @@ namespace Iroca
         // SessionCache ファイルが「存在するのに読めなかった」フラグ。true の間は空保存での
         // 削除・無退避上書きを抑止する（MaskPaintView._maskLoadFailed と同じ防御）。
         [System.NonSerialized] private bool _sessionLoadFailed;
+        internal bool SessionLoadFailed => _sessionLoadFailed;
+
+        // 最後の保存でファイルに書けなかったか(直るまで窓に帯を出す)。再読み込みの後にマスクをどこから戻すかにも使うので直列化する。
+        [SerializeField] private bool _lastSaveFailed;
+        internal bool LastSaveFailed => _lastSaveFailed;
+
+        // セッションのファイルが読めるかを確かめ直す。読めても、編集中が空なのにファイルに中身があれば、編集中は読めなかったときのまま
+        // (空のセッションは保存でファイルごと消えるので、ふつうは食い違わない)。そのまま保存するとファイルを消すので、読めなかった印を
+        // 立てたままにする。adoptMissed ならファイルの中身を読む。レシピが結び付いていればレシピが正なので見ない。
+        private void RecheckSessionFile(bool adoptMissed)
+        {
+            var loaded = SessionPersistence.LoadFromFile(SourceTexture, out bool unreadable);
+            bool missed = loaded != null && !SessionFileStore.IsEmpty(loaded) && SessionFileStore.IsEmpty(Session) && BoundRecipe == null;
+            if (missed && adoptMissed)
+            {
+                Session = loaded;
+                Session.maskState = new MaskState();
+                EnsureAllZoneIds();
+                _sessionLoadFailed = false;
+                return;
+            }
+            _sessionLoadFailed = unreadable || missed;
+        }
 
         private static string CurrentTexturePath(Texture2D tex) => SessionPersistence.TexturePathOf(tex);
 
         /// <summary>
         /// 現在のテクスチャのマスク＋セッション（ゾーン/色/処理設定）をディスクへ保存する。
-        /// マスク保存に失敗したときだけ false（呼び出し側でユーザー通知に使う）。
+        /// ファイルに書けなかったら false（呼び出し側でユーザー通知に使う。窓の帯は <see cref="LastSaveFailed"/>）。
         /// internal は RecipeSyncTests が直接呼ぶため。
         /// </summary>
         internal bool SavePersistedSessionForCurrentTexture()
@@ -544,10 +570,20 @@ namespace Iroca
             var saved = Editing.ToSaveState();
             bool maskOk = _maskView == null || _maskView.SaveMasks(saved.maskState);
             // 中身を書けたら印を下ろす(立てたままだと、次の保存で .bak を新しい中身で上書きして元のファイルを失う)。
-            if (SessionPersistence.SaveToFile(SourceTexture, saved, _sessionLoadFailed)) _sessionLoadFailed = false;
+            bool sessionOk = SessionPersistence.SaveToFile(SourceTexture, saved, _sessionLoadFailed, out bool wroteContent);
+            if (wroteContent) _sessionLoadFailed = false;
             // 非破壊のレシピが結び付いていればそちらにも書く。
             SaveSessionToBoundRecipe(saved);
-            return maskOk;
+            bool ok = maskOk && sessionOk;
+            if (ok == _lastSaveFailed) RequestRepaintIfAlive();
+            _lastSaveFailed = !ok;
+            return ok;
+        }
+
+        // 閉じる途中(OnDestroy)の保存からも呼ばれる。
+        private void RequestRepaintIfAlive()
+        {
+            if (this != null) Repaint();
         }
 
         /// <summary>

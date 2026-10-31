@@ -152,7 +152,7 @@ namespace Iroca
             if (!File.Exists(path)) return null;
             try
             {
-                var state = JsonUtility.FromJson<IrocaSessionState>(File.ReadAllText(path));
+                var state = JsonUtility.FromJson<IrocaSessionState>(AtomicFile.ReadAllText(path));
                 if (state == null) { unreadable = true; return null; }
                 // 保存時に空へしているが、防御的に初期化して null 参照を避ける。
                 if (state.zones == null) state.zones = new List<ColorZone>();

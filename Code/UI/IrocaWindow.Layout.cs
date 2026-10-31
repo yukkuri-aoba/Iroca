@@ -693,6 +693,12 @@ namespace Iroca
             if (newTex != SourceTexture)
                 SwitchSourceTexture(newTex);
 
+            // 保存と読み込みの失敗は Console だけでは気づけないので、直るまで出す。
+            if (_lastSaveFailed)
+                EditorGUILayout.HelpBox(Localization.EditSaveFailedBanner, MessageType.Error);
+            if (_sessionLoadFailed || (_maskView != null && _maskView.MaskLoadFailed))
+                EditorGUILayout.HelpBox(Localization.EditLoadFailedBanner, MessageType.Warning);
+
             // どのレシピにも結び付いていないと、編集はレシピ(シーンのプレビューとアップロード)に入らない。
             if (_unboundRecipeCount >= 2)
                 EditorGUILayout.HelpBox(string.Format(Localization.UnboundRecipesFormat, _unboundRecipeCount), MessageType.Warning);

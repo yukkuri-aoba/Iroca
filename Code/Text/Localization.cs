@@ -595,7 +595,14 @@ namespace Iroca
         public static string PresetLoadFailed   => IsJapanese ? "プリセットの読み込みに失敗しました" : "Failed to load preset";
         public static string PresetDeleted      => IsJapanese ? "プリセットを削除しました" : "Preset deleted";
         public static string PresetDeleteFailed => IsJapanese ? "プリセットの削除に失敗しました" : "Failed to delete preset";
-        public static string MaskSaveFailed     => IsJapanese ? "マスクの保存に失敗しました" : "Failed to save mask";
+        public static string EditSaveFailed     => IsJapanese ? "編集内容の保存に失敗しました" : "Failed to save your edits";
+        // 窓の上の帯。保存の失敗は Console だけでは気づけない。
+        public static string EditSaveFailedBanner => IsJapanese
+            ? "編集内容をファイルに保存できていません。ディスクの空きと、プロジェクトの UserSettings フォルダの権限を確かめてください（直れば次の保存で書き込みます）。Unity を閉じると、保存していない編集は消えます。"
+            : "Your edits could not be saved to a file. Check the free disk space and the permissions of the project's UserSettings folder (they are written at the next save once fixed). Edits that are not saved are lost when Unity closes.";
+        public static string EditLoadFailedBanner => IsJapanese
+            ? "保存してあった編集内容のファイルを読めなかったので、読めた分だけで開いています（ほかのソフトが使っていた・壊れているなど）。元のファイルは残してあり、上書きするときは .bak に残します（場所: プロジェクトの UserSettings/Iroca）。読めるようになっていれば、テクスチャを選び直すと読み込めます。"
+            : "A saved file with your edits could not be read, so this opened with only what could be read (another program may have had it open, or it may be broken). The file is kept, and a .bak copy is made before it is overwritten (under UserSettings/Iroca in the project). If it becomes readable, select the texture again to load it.";
 
         public static string ResetSession => IsJapanese ? "リセット" : "Reset";
         public static string ResetSessionTooltip => IsJapanese

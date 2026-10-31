@@ -73,9 +73,9 @@ namespace Iroca
         /// </summary>
         internal void SwitchSourceTexture(Texture2D newTex, IrocaRecipe recipe = null)
         {
-            // マスク保存失敗時はユーザーに通知（黙って消えないように）。
+            // 保存の失敗はユーザーに通知（黙って消えないように）。
             if (!SavePersistedSessionForCurrentTexture())
-                ShowNotification(new GUIContent($"{Localization.Error}: {Localization.MaskSaveFailed}"));
+                ShowNotification(new GUIContent($"{Localization.Error}: {Localization.EditSaveFailed}"));
             // Session をまるごと差し替えるため、深い Undo (RegisterCompleteObjectUndo) を使う。
             Editing.RecordMaskEdit("Change Source Texture");
             SourceTexture = newTex;

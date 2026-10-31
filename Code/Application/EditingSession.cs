@@ -105,6 +105,17 @@ namespace Iroca
         }
 
         /// <summary>
+        /// 編集中のマスクを今の版の中身へ戻す(ドメインリロードの後。履歴はファイルより新しいことがある)。今の版が履歴に無ければ false。
+        /// </summary>
+        internal bool RestoreCurrentMasksFromHistory()
+        {
+            long revision = Document.maskRevision;
+            if (!MaskHistory.Contains(revision) || !MaskHistory.TryRestore(revision, Masks)) return false;
+            _appliedMaskRevision = revision;
+            return true;
+        }
+
+        /// <summary>
         /// 保存に渡す編集状態(ゾーンと設定は今のものを指す写しで、マスクを保存形式にして付けたもの)。書き込み規則(全 false は
         /// 書かない)は Core の MaskStateCodec と同じ(MaskWorkspace.EncodeTo)。
         /// </summary>
