@@ -132,7 +132,8 @@ Unity 6 の確認用に、VRChat SDK も NDMF も入れない検証ホストを 
 （リポジトリは無く、手元で作る）: `Iroca_U6`（6000.0.67f1・`com.unity.ai.inference` 2.4.1・test-framework 1.4.6）と
 `Iroca_U2022`（2022.3.22f1・`com.unity.sentis` 2.1.3・test-framework 1.1.33）。どちらも
 `Link-HostPackage.ps1 -WithEditorTests` で繋ぎ、`Run-EditorTests.ps1 -HostProject <ホスト> -UnityExe <その版の Unity.exe>`
-で EditMode テストを回す。
+で EditMode テストを回す。6.5 以降で必要になる修正の一覧と、最新の Unity の DLL でコンパイルを確かめる手順は
+`docs/unity-version-migration.md`。
 
 詳細（Unity 未インストール環境での DLL シム、batchmode でのコンパイル確認、
 `manifest.json` に本体ルートを書いてはいけない理由）は `docs/testing-architecture.md`。
