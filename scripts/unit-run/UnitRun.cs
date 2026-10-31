@@ -838,6 +838,29 @@ namespace Iroca.UnitRun
             Check.Equal(5, r.changed, "外 3 + 中の除外 1 + 外の含める 1");
         }
 
+        public static void MaskEdit_ClearHere_RemovesBothMasksInRegionOnly()
+        {
+            var ex = Layer(1, 4);
+            var inc = Layer(0, 5);
+            var common = Layer(2);
+            var r = Apply(MaskRegionOp.ClearHere, ex, inc, common);
+            Check.Equal("000010", Bits(ex), "範囲の中の除外だけ消える");
+            Check.Equal("000001", Bits(inc), "範囲の中の含めるだけ消える");
+            Check.Equal("001000", Bits(common), "共通の除外は触らない");
+            Check.Equal(2, r.changed, "除外 1 + 含める 1");
+        }
+
+        public static void MaskEdit_ClearHere_AllowsMissingLayers()
+        {
+            var common = Layer(0, 4);
+            var r = Apply(MaskRegionOp.ClearHere, common, null, null);
+            Check.Equal("000010", Bits(common), "共通宛: 範囲の中だけ消える");
+            Check.Equal(1, r.changed, "changed");
+            var inc = Layer(1);
+            Apply(MaskRegionOp.ClearHere, null, inc, null);
+            Check.Equal("000000", Bits(inc), "含めるだけの層");
+        }
+
         public static void MaskEdit_LaterInstructionWins()
         {
             // 塗る → 塗らない: 除外だけが残る(含めるが残っていても除外が勝つが、見た目と食い違わないよう消す)。

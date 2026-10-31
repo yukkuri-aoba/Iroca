@@ -48,8 +48,13 @@ namespace Iroca
                 (MaskRegionOp.PaintHere, Localization.CtxPaintHere),
                 (MaskRegionOp.DontPaintHere, Localization.CtxDontPaintHere),
                 (MaskRegionOp.OnlyThisPart, Localization.CtxOnlyThisPart),
+                (MaskRegionOp.ClearHere, Localization.CtxClearHere),
             }
-            : new[] { (MaskRegionOp.DontPaintHere, Localization.CtxDontPaintHereCommon) };
+            : new[]
+            {
+                (MaskRegionOp.DontPaintHere, Localization.CtxDontPaintHereCommon),
+                (MaskRegionOp.ClearHere, Localization.CtxClearHereCommon),
+            };
 
         // AI の部分の大きさを、その 1 回だけ変えるサブメニュー。直下の項目はマスク編集の「提案の粒度」(既定: 自動)。
         private static (MaskSuggestGranularity gran, string root)[] GranularitySubmenus() => new[]

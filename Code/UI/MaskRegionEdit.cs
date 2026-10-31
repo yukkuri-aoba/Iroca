@@ -15,6 +15,8 @@ namespace Iroca
         /// 範囲の中は今までどおり色で選ぶ(含めるには足さない)。
         /// </summary>
         OnlyThisPart,
+        /// <summary>ここのマスクを消す: 範囲の中の「含める」と除外の両方を消す(手入れ前の自動の判定に戻す)。</summary>
+        ClearHere,
     }
 
     /// <summary><see cref="MaskRegionEdit.Apply"/> の結果。</summary>
@@ -85,6 +87,17 @@ namespace Iroca
                         int w = i >> 6;
                         ulong bit = 1UL << (i & 63);
                         if ((exclude[w] & bit) == 0UL) { exclude[w] |= bit; r.changed++; }
+                        if (include != null && (include[w] & bit) != 0UL) { include[w] &= ~bit; r.changed++; }
+                    }
+                    break;
+
+                case MaskRegionOp.ClearHere:
+                    for (int i = 0; i < n; i++)
+                    {
+                        if (!region[i]) continue;
+                        int w = i >> 6;
+                        ulong bit = 1UL << (i & 63);
+                        if (exclude != null && (exclude[w] & bit) != 0UL) { exclude[w] &= ~bit; r.changed++; }
                         if (include != null && (include[w] & bit) != 0UL) { include[w] &= ~bit; r.changed++; }
                     }
                     break;

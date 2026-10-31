@@ -583,14 +583,22 @@ namespace Iroca
             NativeBitMask exclude, include = null, common = null;
             if (d.zoneId == null)
             {
-                if (d.op != MaskRegionOp.DontPaintHere) return false;
+                if (d.op != MaskRegionOp.DontPaintHere && d.op != MaskRegionOp.ClearHere) return false;
+                if (d.op == MaskRegionOp.ClearHere && Workspace.Common == null) return true;   // 消す物が無い
                 exclude = EnsureCommonMask();
             }
             else
             {
                 if (FindZone(d.zoneId) == null) return false;
                 common = Workspace.Common;
-                if (d.op == MaskRegionOp.PaintHere)
+                if (d.op == MaskRegionOp.ClearHere)
+                {
+                    // 消すだけなので層は作らない。どちらも無ければ何も変わらない。
+                    include = Workspace.WritableExistingLayer(true, d.zoneId);
+                    exclude = Workspace.WritableExistingLayer(false, d.zoneId);
+                    if (include == null && exclude == null) return true;
+                }
+                else if (d.op == MaskRegionOp.PaintHere)
                 {
                     include = EnsureZoneLayer(true, d.zoneId);
                     exclude = Workspace.WritableExistingLayer(false, d.zoneId);
@@ -601,7 +609,8 @@ namespace Iroca
                     include = Workspace.WritableExistingLayer(true, d.zoneId);
                 }
             }
-            if (d.op == MaskRegionOp.PaintHere ? include == null : exclude == null) return false;
+            if (d.op == MaskRegionOp.ClearHere) { }
+            else if (d.op == MaskRegionOp.PaintHere ? include == null : exclude == null) return false;
 
             BeginStroke();
             result = MaskRegionEdit.Apply(d.op, region, len, BitsOf(exclude), BitsOf(include), BitsOf(common));
@@ -625,6 +634,8 @@ namespace Iroca
             {
                 MaskRegionOp.PaintHere => string.Format(Localization.NotifyPaintHereFormat, name),
                 MaskRegionOp.OnlyThisPart => string.Format(Localization.NotifyOnlyThisPartFormat, name),
+                MaskRegionOp.ClearHere => zone == null ? Localization.NotifyClearHereCommon
+                                                       : string.Format(Localization.NotifyClearHereFormat, name),
                 _ => zone == null ? Localization.NotifyDontPaintHereCommon
                                   : string.Format(Localization.NotifyDontPaintHereFormat, name),
             };
