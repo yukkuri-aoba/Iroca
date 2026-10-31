@@ -38,6 +38,8 @@ REPRO_CS = REPO_ROOT / "Code" / "Debug" / "ReproDump.cs"
 SESSION_NON_SETTINGS = {"zones", "editMode", "maskState"}
 PRESET_NON_SETTINGS = {
     "schemaVersion", "name", "zones", "advancedMode",
+    # 作ったテクスチャの GUID。処理の設定ではなく、別のテクスチャへ位置を運ばないための記録。
+    "sourceTextureGuid",
     "maskWidth", "maskHeight", "commonMaskBase64", "zoneMasks", "zoneIncludeMasks",
 }
 
