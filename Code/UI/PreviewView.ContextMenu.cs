@@ -303,7 +303,15 @@ namespace Iroca
             var maskView = _host._maskView;
             var region = parts.RegionAt(uv.x, uv.y, kind);
             MaskRegionEditResult result = default;
-            bool ok = region != null && maskView.ApplyRegion(region, dest, out result);
+            bool ok;
+            try
+            {
+                ok = region != null && maskView.ApplyRegion(region, dest, out result);
+            }
+            finally
+            {
+                region?.Release();
+            }
             _host.ShowNotification(new GUIContent(maskView.DescribeRegionEdit(dest, ok, result)));
         }
 

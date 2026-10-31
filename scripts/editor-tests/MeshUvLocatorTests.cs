@@ -75,7 +75,7 @@ namespace Iroca.EditorTests
             Assert.AreEqual("scene", r.via);
             Assert.AreEqual(1, r.found.Count);
             Assert.IsTrue(r.found[0].matchedTexture);
-            var map = UvChartMap.Build(64, 64, r.Sources());
+            using var map = UvChartMap.Build(64, 64, r.Sources());
             Assert.AreEqual(2, map.ChartCount);
         }
 

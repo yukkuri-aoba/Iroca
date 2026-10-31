@@ -956,6 +956,7 @@ namespace Iroca
             _suggestController?.Shutdown();
             _suggestController = null;
             // メッシュの探索結果とチャート地図(4K で数十 MB)も手放す。次の右クリックで作り直す。
+            _meshParts?.ReleaseMap();
             _meshParts = null;
             _hostlessWorkspace?.Clear();
         }

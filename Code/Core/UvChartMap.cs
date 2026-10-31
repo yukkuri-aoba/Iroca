@@ -37,8 +37,9 @@ namespace Iroca
     /// 割り当てないと除外から漏れる(実測: パンツの除外で適合率 0.485 止まり → 割り当てて 1.000)。
     /// 引くにじみ代の半径が決まっているときは <see cref="AssignPaddingBaked"/> で、半径の外を落とした
     /// 持ち主の配列だけを持つ(4K で Raster・Owner・OwnerDistance の 192MB → 64MB)。
+    /// 画素ごとの配列はヒープの外に置くので、使い終わったら <see cref="Dispose"/> する。
     /// </summary>
-    internal sealed class UvChartMap
+    internal sealed unsafe class UvChartMap : System.IDisposable
     {
         /// <summary>UV を辺の同一判定に使うときの量子化(1e-5)。</summary>
         private const float UvQuant = 100000f;
@@ -55,47 +56,59 @@ namespace Iroca
         /// 画素ごとのチャート番号(ラスタライズした内側だけ。-1 = どのチャートにも乗らない)。
         /// <see cref="AssignPaddingBaked"/> の後は null(同じ配列を持ち主の配列に作り替えるので)。
         /// </summary>
-        public int[] Raster { get; private set; }
+        public int* Raster => _raster != null ? (int*)_raster.Ptr : null;
         /// <summary>
         /// 画素ごとの持ち主チャート(にじみ代を割り当てた後。-1 = 未割り当て)。AssignPadding 前は Raster と同じ。
         /// AssignPaddingBaked の後は、焼き込んだ半径より遠い画素も -1。
         /// </summary>
-        public int[] Owner { get; private set; }
+        public int* Owner => _owner != null ? (int*)_owner.Ptr : Raster;
         /// <summary>
         /// 画素から持ち主チャートの内側までの L1 距離(内側は 0)。AssignPadding 前は内側 0・外側 int.MaxValue
         /// (読んだときに作る。地図を引くだけなら作らない)。AssignPaddingBaked の後は null。
         /// </summary>
-        public int[] OwnerDistance
+        public int* OwnerDistance
         {
             get
             {
-                if (_ownerDistance == null && !_baked)
+                if (_distance == null && !_baked)
                 {
-                    var owner = Owner;
-                    var dist = new int[owner.Length];
-                    for (int i = 0; i < dist.Length; i++) dist[i] = owner[i] >= 0 ? 0 : int.MaxValue;
-                    _ownerDistance = dist;
+                    int len = Width * Height;
+                    _distance = new NativeBuffer((long)len * sizeof(int), NativeUsage.Other);
+                    int* owner = Owner, dist = (int*)_distance.Ptr;
+                    for (int i = 0; i < len; i++) dist[i] = owner[i] >= 0 ? 0 : int.MaxValue;
                 }
-                return _ownerDistance;
+                return _distance != null ? (int*)_distance.Ptr : null;
             }
         }
         /// <summary>チャート番号 → 元の <see cref="UvChartSource"/> の番号。</summary>
         public int[] ChartSource { get; }
         public int ChartCount => ChartSource.Length;
 
+        // チャート番号の配列。焼き込むと持ち主の配列になり(_owner へ移す)、null になる。
+        private NativeBuffer _raster;
+        // 持ち主の配列。null = Raster と同じ(にじみ代を割り当てていない)。
+        private NativeBuffer _owner;
         // null = にじみ代を割り当てていない(内側 0・外側 int.MaxValue と同じ。OwnerDistance を読むと作る)か、焼き込み済み。
-        private int[] _ownerDistance;
+        private NativeBuffer _distance;
         // AssignPaddingBaked 済みか。済みなら Owner は半径 _bakedRadius の外を -1 にしたもので、距離は持たない。
         private bool _baked;
         private int _bakedRadius;
 
-        private UvChartMap(int w, int h, int[] raster, int[] chartSource)
+        private UvChartMap(int w, int h, NativeBuffer raster, int[] chartSource)
         {
             Width = w;
             Height = h;
-            Raster = raster;
+            _raster = raster;
             ChartSource = chartSource;
-            Owner = raster;
+        }
+
+        /// <summary>ヒープの外の配列を解放する。何度呼んでもよい。</summary>
+        public void Dispose()
+        {
+            _raster?.Release();
+            _owner?.Release();
+            _distance?.Release();
+            _raster = _owner = _distance = null;
         }
 
         /// <summary>
@@ -106,28 +119,37 @@ namespace Iroca
         /// </summary>
         public static UvChartMap Build(int w, int h, IReadOnlyList<UvChartSource> sources)
         {
-            var raster = new int[w * h];
-            for (int i = 0; i < raster.Length; i++) raster[i] = -1;
-            var chartSource = new List<int>();
-            for (int s = 0; s < sources.Count; s++)
+            var mem = new NativeBuffer((long)w * h * sizeof(int), NativeUsage.Other);
+            try
             {
-                var src = sources[s];
-                if (src?.uv == null || src.triangles == null || src.triangles.Length < 3) continue;
-                int[] local = ComputeCharts(src.uv, src.triangles, out int n);
-                int baseId = chartSource.Count;
-                for (int c = 0; c < n; c++) chartSource.Add(s);
-
-                int triCount = src.triangles.Length / 3;
-                for (int t = 0; t < triCount; t++)
+                int* raster = (int*)mem.Ptr;
+                new System.Span<int>(raster, w * h).Fill(-1);
+                var chartSource = new List<int>();
+                for (int s = 0; s < sources.Count; s++)
                 {
-                    int a = src.triangles[t * 3], b = src.triangles[t * 3 + 1], c = src.triangles[t * 3 + 2];
-                    if ((uint)a >= (uint)src.uv.Length || (uint)b >= (uint)src.uv.Length
-                        || (uint)c >= (uint)src.uv.Length) continue;
-                    RasterizeTriangle(raster, w, h, Map(src, a, w, h), Map(src, b, w, h), Map(src, c, w, h),
-                                      baseId + local[t]);
+                    var src = sources[s];
+                    if (src?.uv == null || src.triangles == null || src.triangles.Length < 3) continue;
+                    int[] local = ComputeCharts(src.uv, src.triangles, out int n);
+                    int baseId = chartSource.Count;
+                    for (int c = 0; c < n; c++) chartSource.Add(s);
+
+                    int triCount = src.triangles.Length / 3;
+                    for (int t = 0; t < triCount; t++)
+                    {
+                        int a = src.triangles[t * 3], b = src.triangles[t * 3 + 1], c = src.triangles[t * 3 + 2];
+                        if ((uint)a >= (uint)src.uv.Length || (uint)b >= (uint)src.uv.Length
+                            || (uint)c >= (uint)src.uv.Length) continue;
+                        RasterizeTriangle(raster, w, h, Map(src, a, w, h), Map(src, b, w, h), Map(src, c, w, h),
+                                          baseId + local[t]);
+                    }
                 }
+                return new UvChartMap(w, h, mem, chartSource.ToArray());
             }
-            return new UvChartMap(w, h, raster, chartSource.ToArray());
+            catch
+            {
+                mem.Release();
+                throw;
+            }
         }
 
         private static Vector2 Map(UvChartSource s, int i, int w, int h)
@@ -201,7 +223,7 @@ namespace Iroca
         }
 
         /// <summary>画素中心 (x+0.5, y+0.5) が三角形の内側(辺上を含む)なら id を書く。向きは問わない。</summary>
-        private static void RasterizeTriangle(int[] raster, int w, int h, Vector2 p0, Vector2 p1, Vector2 p2, int id)
+        private static void RasterizeTriangle(int* raster, int w, int h, Vector2 p0, Vector2 p1, Vector2 p2, int id)
         {
             float area = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
             if (area == 0f || float.IsNaN(area)) return;
@@ -237,13 +259,26 @@ namespace Iroca
         public void AssignPadding(CancellationToken token = default)
         {
             if (_baked) throw new System.InvalidOperationException("padding is already baked");
-            var dist = new int[Width * Height];
-            var owner = new int[Width * Height];
-            ComputePadding(Raster, owner, dist, Width, Height, token);
-            for (int i = 0; i < dist.Length; i++)
-                if (dist[i] >= PaddingInf) dist[i] = int.MaxValue;
-            Owner = owner;
-            _ownerDistance = dist;
+            int len = Width * Height;
+            var distMem = new NativeBuffer((long)len * sizeof(int), NativeUsage.Other);
+            var ownerMem = new NativeBuffer((long)len * sizeof(int), NativeUsage.Other);
+            try
+            {
+                int* dist = (int*)distMem.Ptr;
+                ComputePadding(Raster, (int*)ownerMem.Ptr, dist, Width, Height, token);
+                for (int i = 0; i < len; i++)
+                    if (dist[i] >= PaddingInf) dist[i] = int.MaxValue;
+            }
+            catch
+            {
+                distMem.Release();
+                ownerMem.Release();
+                throw;
+            }
+            _owner?.Release();
+            _distance?.Release();
+            _owner = ownerMem;
+            _distance = distMem;
         }
 
         /// <summary>
@@ -256,14 +291,20 @@ namespace Iroca
         {
             if (_baked) throw new System.InvalidOperationException("padding is already baked");
             if (maxPadding < 0) throw new System.ArgumentOutOfRangeException(nameof(maxPadding));
-            var raster = Raster;
-            var dist = new int[raster.Length];
-            ComputePadding(raster, raster, dist, Width, Height, default);
-            for (int i = 0; i < dist.Length; i++)
-                if (dist[i] > maxPadding) raster[i] = -1;
-            Owner = raster;
-            Raster = null;
-            _ownerDistance = null;
+            int* raster = Raster;
+            int len = Width * Height;
+            using (var distMem = new NativeBuffer((long)len * sizeof(int), NativeUsage.Work))
+            {
+                int* dist = (int*)distMem.Ptr;
+                ComputePadding(raster, raster, dist, Width, Height, default);
+                for (int i = 0; i < len; i++)
+                    if (dist[i] > maxPadding) raster[i] = -1;
+            }
+            _owner?.Release();
+            _distance?.Release();
+            _owner = _raster;
+            _raster = null;
+            _distance = null;
             _baked = true;
             _bakedRadius = maxPadding;
         }
@@ -274,7 +315,7 @@ namespace Iroca
         /// にじみ代の距離変換。dist に距離(届かない画素は <see cref="PaddingInf"/>)、owner に持ち主を書く。
         /// owner は raster と同じ配列でもよい(チャート画素の値は変わらず、読むのはチャート画素の値だけ)。
         /// </summary>
-        private static void ComputePadding(int[] raster, int[] owner, int[] dist, int w, int h, CancellationToken token)
+        private static void ComputePadding(int* raster, int* owner, int* dist, int w, int h, CancellationToken token)
         {
             const int Inf = PaddingInf;
             var po = new ParallelOptions
@@ -351,28 +392,30 @@ namespace Iroca
             int c = Owner[i];
             if (_baked) return c;   // 半径の外はもう -1
             // にじみ代を割り当てる前(距離を作っていない)は、持ち主のある画素 = チャートの内側(距離 0)。
-            int d = _ownerDistance != null ? _ownerDistance[i] : (c >= 0 ? 0 : int.MaxValue);
+            int d = _distance != null ? ((int*)_distance.Ptr)[i] : (c >= 0 ? 0 : int.MaxValue);
             return d <= maxPadding ? c : -1;
         }
 
         /// <summary>
         /// 持ち主チャートが select を満たす画素を true にしたマスク(行 0 = 下端)。
-        /// maxPadding より遠いにじみ代は含めない。
+        /// maxPadding より遠いにじみ代は含めない。参照 1 で返す(呼び出し側が Release する)。
         /// </summary>
-        public bool[] MaskOf(System.Func<int, bool> select, int maxPadding)
+        public NativeBools MaskOf(System.Func<int, bool> select, int maxPadding)
         {
             RequireRadius(maxPadding);
-            var owner = Owner;
-            var dist = _ownerDistance;
+            int* owner = Owner;
+            int* dist = _distance != null ? (int*)_distance.Ptr : null;
             // 距離を持たないとき、持ち主のある画素は半径の内側(焼き込み済み)かチャートの内側(距離 0)。
             bool ownedWithin = _baked || maxPadding >= 0;
-            var mask = new bool[owner.Length];
             var chosen = new bool[ChartCount];
             for (int c = 0; c < chosen.Length; c++) chosen[c] = select(c);
-            for (int i = 0; i < mask.Length; i++)
+            var mask = NativeBools.AllocateUninitialized(Width, Height);
+            bool* m = mask.Ptr;
+            int len = Width * Height;
+            for (int i = 0; i < len; i++)
             {
                 int c = owner[i];
-                mask[i] = c >= 0 && (dist != null ? dist[i] <= maxPadding : ownedWithin) && chosen[c];
+                m[i] = c >= 0 && (dist != null ? dist[i] <= maxPadding : ownedWithin) && chosen[c];
             }
             return mask;
         }
@@ -386,8 +429,9 @@ namespace Iroca
 
         /// <summary>
         /// 「keepSources のメッシュだけ残す」除外マスク: 他のメッシュのチャート(とそのにじみ代)を true にする。
+        /// 参照 1 で返す(呼び出し側が Release する)。
         /// </summary>
-        public bool[] ExcludeOtherSources(ICollection<int> keepSources, int maxPadding)
+        public NativeBools ExcludeOtherSources(ICollection<int> keepSources, int maxPadding)
             => MaskOf(c => !keepSources.Contains(ChartSource[c]), maxPadding);
     }
 }

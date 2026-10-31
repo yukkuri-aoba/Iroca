@@ -113,7 +113,7 @@ namespace Iroca
         }
 
         /// <summary>島の塗りのテクスチャ(w×h、島の内側だけ色付き)。作れなければ null。</summary>
-        private Texture2D SceneFillTexture(SceneClickHighlight h, int w, int hgt)
+        private unsafe Texture2D SceneFillTexture(SceneClickHighlight h, int w, int hgt)
         {
             if (h.island?.triangles == null || h.island.triangles.Length < 3 || w <= 0 || hgt <= 0) return null;
             if (_sceneFillFor == h && _sceneFillTexture != null
@@ -121,7 +121,8 @@ namespace Iroca
                 return _sceneFillTexture;
             ReleaseSceneFill();
             // 島の内側の判定は右クリックの「この島」と同じラスタライズ(画素中心が三角形の内側か)
-            var raster = UvChartMap.Build(w, hgt, new[] { h.island }).Raster;
+            using var map = UvChartMap.Build(w, hgt, new[] { h.island });
+            int* raster = map.Raster;
             var c = IrocaColors.SceneHighlight;
             var on = new Color32((byte)(c.r * 255f), (byte)(c.g * 255f), (byte)(c.b * 255f), 255);
             var pixels = new Color32[w * hgt];

@@ -36,13 +36,6 @@
       "new Color32[panelW * panelH]": 1,
       "new Color32[tw * th]": 2
     },
-    "Code/Core/UvChartMap.cs": {
-      "new bool[owner.Length]": 1,
-      "new int[Width * Height]": 2,
-      "new int[owner.Length]": 1,
-      "new int[raster.Length]": 1,
-      "new int[w * h]": 1
-    },
     "Code/Core/ZoneAutoTuner.Evidence.cs": {
       "new bool[evW * evH]": 1,
       "new bool[w * h]": 1

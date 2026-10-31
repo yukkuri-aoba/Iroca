@@ -187,7 +187,7 @@ namespace Iroca
         private static readonly JsonSerializerOptions CaseInsensitiveJson =
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
-        private static int RunUvCharts(string dumpPath, string textureKey, int w, int h, string outPrefix)
+        private static unsafe int RunUvCharts(string dumpPath, string textureKey, int w, int h, string outPrefix)
         {
             using var doc = JsonDocument.Parse(File.ReadAllText(dumpPath));
             if (!doc.RootElement.TryGetProperty(textureKey, out var entry))
@@ -217,20 +217,18 @@ namespace Iroca
                 });
             }
             var sw = Stopwatch.StartNew();
-            var map = UvChartMap.Build(w, h, sources);
+            using var map = UvChartMap.Build(w, h, sources);
             long buildMs = sw.ElapsedMilliseconds;
             sw.Restart();
             map.AssignPadding();
             long padMs = sw.ElapsedMilliseconds;
 
-            void WriteInts(string path, int[] data)
+            void WriteInts(string path, int* data)
             {
                 using var fs = new FileStream(path, FileMode.Create, FileAccess.Write);
                 using var bw = new BinaryWriter(fs);
                 bw.Write(w); bw.Write(h);
-                var bytes = new byte[data.Length * 4];
-                Buffer.BlockCopy(data, 0, bytes, 0, bytes.Length);
-                bw.Write(bytes);
+                bw.Write(new ReadOnlySpan<byte>(data, w * h * sizeof(int)));
             }
             WriteInts(outPrefix + "_raster.raw", map.Raster);
             WriteInts(outPrefix + "_owner.raw", map.Owner);
