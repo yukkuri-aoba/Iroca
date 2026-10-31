@@ -220,6 +220,16 @@ namespace Iroca
         }
 
         /// <summary>
+        /// 開いているテクスチャが取り込み直されたら原本を読み直す。寸法が同じだと読み直しのきっかけが無く、プレビューは
+        /// 古い画素のままで、ファイルから読む書き出しと食い違っていた。
+        /// </summary>
+        internal void OnSourceAssetImported(string[] importedAssets)
+        {
+            string path = CurrentTexturePath(SourceTexture);
+            if (path != null && System.Array.IndexOf(importedAssets, path) >= 0) InvalidateSourceAndRepaint();
+        }
+
+        /// <summary>
         /// Undo/Redo の後に呼ぶ。結び付いたレシピの中身が、窓が前に同期したことのある中身へ戻っていれば
         /// (Undo でレシピも戻ったとき)、外からの変更ではないので同期した中身として覚え直す。
         /// internal は RecipeSyncTests が直接呼ぶため。
@@ -402,8 +412,9 @@ namespace Iroca
     }
 
     /// <summary>
-    /// アセット(.asset)の取り込み(git の pull・checkout・バックアップからの復元の後など)を、開いているいろかの窓へ
-    /// 知らせる(<see cref="IrocaWindow"/> の「外でのレシピの書き換え」)。取り込みの結果は変えない。
+    /// アセットの取り込みを、開いているいろかの窓へ知らせる。取り込みの結果は変えない。
+    /// .asset(git の pull・checkout・バックアップからの復元の後など)は <see cref="IrocaWindow"/> の「外でのレシピの書き換え」、
+    /// 開いているテクスチャは原本の読み直し(外のツールでの上書き・取り込み設定の変更)。
     /// </summary>
     internal sealed class RecipeImportWatcher : AssetPostprocessor
     {
@@ -415,9 +426,12 @@ namespace Iroca
             {
                 if (path.EndsWith(".asset", System.StringComparison.OrdinalIgnoreCase)) { anyAsset = true; break; }
             }
-            if (!anyAsset) return;
             foreach (var e in EditingSessionRegistry.Snapshot())
-                if (e is IrocaWindow w) w.OnRecipeAssetsImported();
+            {
+                if (!(e is IrocaWindow w)) continue;
+                if (anyAsset) w.OnRecipeAssetsImported();
+                w.OnSourceAssetImported(importedAssets);
+            }
         }
     }
 }

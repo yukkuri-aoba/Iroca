@@ -131,6 +131,21 @@ namespace Iroca.EditorTests
             AssertSamePixels(expected, preview.FullOutput.ToArray(), "描かないときの確定段");
         }
 
+        // 開いているテクスチャを外のツールで同じ寸法のまま上書きしたら、取り込み直しのときに原本を読み直す。
+        // 読み直さないと、プレビューは古い画素のままで、ファイルから読む書き出しと食い違う。
+        [Test]
+        public void SourceOverwrittenOutside_PreviewReadsTheNewPixels()
+        {
+            Assert.IsTrue(_win.Preview.TryGetTrueSourcePixels(_texture, out var before, out _, out _), "原本を読めない");
+            var replaced = before.ToArray();
+            for (int i = 0; i < replaced.Length; i++)
+                replaced[i] = new Color32((byte)(255 - replaced[i].r), (byte)(255 - replaced[i].g), (byte)(255 - replaced[i].b), 255);
+            _assets.WritePng("scene", replaced, W, H);
+
+            Assert.IsTrue(_win.Preview.TryGetTrueSourcePixels(_texture, out var after, out _, out _), "原本を読み直せない");
+            AssertSamePixels(replaced, after.ToArray(), "上書きした後の原本");
+        }
+
         // ───────────── 経路 ─────────────
 
         // 非破壊ビルドと同じ入口。窓が保存するのと同じく、編集用のマスクを保存形式(maskState)へ書いてから当てる。
