@@ -262,6 +262,21 @@ namespace Iroca.EditorTests
             Assert.IsNull(PresetStore.Load(path));
         }
 
+        // プリセットでない JSON を読むと、JsonUtility は既定値のまま返すので、全ゾーンが空で置き換わっていた。
+        [Test]
+        public void Preset_OtherJsonLoadsAsNull_ButAPresetWithoutZonesLoads()
+        {
+            string path = Path.Combine(TestAssets.Abs(_assets.Folder), "other.json");
+            File.WriteAllText(path, "{\"version\":1,\"dependencies\":{}}");
+            LogAssertIgnore();
+            Assert.IsNull(PresetStore.Load(path));
+
+            File.WriteAllText(path, "{\"name\":\"empty\",\"zones\":[]}");
+            var empty = PresetStore.Load(path);
+            Assert.IsNotNull(empty, "ゾーンが 0 個のプリセットは読める");
+            Assert.AreEqual(0, empty.zones.Count);
+        }
+
         // マスク画面に層を置く(寸法 w×h。各層は (ゾーン id, 含めるか, 画素))。使い終えたら Workspace.Clear() で返す。
         private static MaskPaintView MaskViewWith(int w, int h, params (string zoneId, bool include, bool[] mask)[] layers)
         {

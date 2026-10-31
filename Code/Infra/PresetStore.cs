@@ -75,7 +75,14 @@ namespace Iroca
             {
                 string json = File.ReadAllText(filePath);
                 var data = JsonUtility.FromJson<IrocaPresetData>(json);
-                data?.DropSamplePositions();
+                // JsonUtility はプリセットでない JSON でも例外を出さず、既定値のまま返す。読み込むと全ゾーンが
+                // 空で置き換わるので、ゾーンの項目が無ければ読めなかったものとして扱う。
+                if (data == null || json.IndexOf("\"zones\"", StringComparison.Ordinal) < 0)
+                {
+                    Debug.LogWarning($"[Iroca] Not a preset file: {filePath}");
+                    return null;
+                }
+                data.DropSamplePositions();
                 return data;
             }
             catch (Exception ex)
