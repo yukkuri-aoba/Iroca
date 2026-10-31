@@ -113,6 +113,36 @@ namespace Iroca.EditorTests
             Assert.GreaterOrEqual(iou, 0.9f, $"円を取れていない（IoU {iou:F3}, score {proposal.score:F3}）");
         }
 
+        // いろかのウィンドウを閉じるとワーカーを手放す。開き直して右クリックのメニューを開くと、モデルの準備
+        // (TryEnsureModels)を通らずに元だけが渡される(AiSuggestBroker.Prepare)。そのときも作り直して解析し、
+        // ワーカーが無いことを GPU の失敗と取り違えて CPU へ落ちない(落ちると次のリロードまで遅いまま)。
+        [UnityTest, Timeout(1200000)]
+        public IEnumerator SetSource_AfterReleasingTheWorkers_RecreatesThemWithTheSameBackend()
+        {
+            var svc = MaskSuggestBridge.Service;
+            if (svc == null) Assert.Ignore("AI 統合アセンブリが無い（Sentis / Inference Engine 未導入）");
+            if (!MaskSuggestBridge.ModelFilesPresent) Assert.Ignore("AI モデルが未配置");
+
+            LogAssert.ignoreFailingMessages = true;   // -nographics のときの GPU の失敗は上のテストと同じ
+            try
+            {
+                // 別の鍵で 1 回解析して、この環境で動くバックエンドに落ち着かせる。
+                yield return RunDiscSuggestion(svc, "iroca-test-disc-before-release");
+                bool cpuBefore = svc.UsesCpuBackend;
+
+                svc.ReleaseGpuResources();
+                var src = NativePixels.CopyOf(DiscImage(), Size, Size);
+                svc.SetSource("iroca-test-disc-prepare-" + System.Guid.NewGuid().ToString("N"), src);
+                src.Release();
+                yield return WaitFor(
+                    () => svc.Phase == MaskSuggestPhase.Idle || svc.Phase == MaskSuggestPhase.Error,
+                    "ワーカーを手放した後の解析");
+                Assert.AreEqual(MaskSuggestPhase.Idle, svc.Phase, svc.ErrorMessage);
+                Assert.AreEqual(cpuBefore, svc.UsesCpuBackend, "ワーカーが無いだけなのにバックエンドが変わった");
+            }
+            finally { LogAssert.ignoreFailingMessages = false; }
+        }
+
         [Test]
         public void LeftoverModelImportFolders_OnlyIrocasOwnAreRemoved()
         {

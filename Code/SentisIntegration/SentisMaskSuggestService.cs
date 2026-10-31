@@ -300,6 +300,13 @@ namespace Iroca.SentisIntegration
 
         void StartEncode()
         {
+            // ウィンドウを閉じてワーカーを手放した後は、TryEnsureModels を通らずに元だけが渡されることがある
+            // (右クリックのメニューを開いたときの先行)。無いまま進むと、null 参照を GPU の失敗と取り違えて CPU へ落ちる。
+            if ((_encoder == null || _decoder == null) && !TryCreateWorkers(out string workerErr))
+            {
+                SetPhase(MaskSuggestPhase.Error, error: workerErr);
+                return;
+            }
             SetPhase(MaskSuggestPhase.Encoding);
             _encodeStartedAt = MaskSuggestPerf.Now;
             var px = _sourcePixels.AddRef();   // 読む間の参照(後始末で返す)
