@@ -4,8 +4,6 @@
 進め方で、ここは作り替えたあとも残る決まりそのもの。テストの構成は `docs/testing-architecture.md`、アルゴリズムの
 定数は `docs/algorithm-constants.md` が正。
 
-0.4.0 の作り替えの途中なので、**目標の形と今の形が違う所がある**。その差は、下の検査が持つ「今ある違反の一覧」に
-すべて載っている（一覧は減らすことしかできない）。目標と書いた部分は、作り替えが進んだら今の形の説明へ書き換える。
 決まりを変えるときは、このファイルと検査を同じコミットで直す。
 
 ## 1. 層と依存の向き
@@ -32,7 +30,7 @@ Core         計算だけ（選択・マスクの適用・再着色・自動調�
 | `Code/Runtime` | 実行時（アバターに付けるコンポーネント） | Runtime |
 | `Code/Infra`・`Code/Text` | Infra | Core・Runtime・Infra・Text |
 | `Code/MaskSuggest`（Ops を除く） | Infra と同じ段（AI 提案の準備・窓口。待ち行列の持ち主 `AiSuggestBroker` もここ） | 上に MaskSuggest を足したもの |
-| `Code/Application`（4-2・4-3 で作った。`SourcePixelCache`・`EditingSession`・`IrocaEditingDocument`・`SessionPersistence`・`MaskWorkspace`・`MaskHistory`・`AutosaveSchedule`・`PresetApplier`・`RegistrationService`・`ExportService`・`AutoTuneService`） | Application | 上に Application を足したもの |
+| `Code/Application`（`SourcePixelCache`・`EditingSession`・`IrocaEditingDocument`・`SessionPersistence`・`MaskWorkspace`・`MaskHistory`・`AutosaveSchedule`・`PresetApplier`・`RegistrationService`・`ExportService`・`AutoTuneService`・`PreviewPipeline`・`EditingWindows`） | Application | 上に Application を足したもの |
 | `Code/Automation` | Automation | 上に Automation を足したもの |
 | `Code/UI` | UI | 上に UI を足したもの |
 | `Code/NdmfIntegration`・`Code/SentisIntegration` | 統合 | Application まで（UI と自動化は使わない） |
@@ -41,6 +39,8 @@ Core         計算だけ（選択・マスクの適用・再着色・自動調�
 
 - 統合（NDMF・Sentis・MCP・Debug）は別の asmdef で、任意のパッケージが入ったときだけコンパイルされる。本体から
   統合を呼ぶことはできない（asmdef が参照しないので、コンパイルが止める）。
+- 自動化がウィンドウを開く・表示中の編集を読むときは `EditingWindows.Current`（`IEditingWindows`。実体は UI が
+  起動時に登録する）を通す。自動化は `IrocaWindow` の型を知らない。
 - 名前空間は `Iroca` のまま変えない（変えても何も縛らず、ハーネス・テスト・Debug の書き換えが増えるだけ）。縛るのは
   フォルダと検査と asmdef。
 - 守り方: `scripts/source_checks/test_layer_dependencies.py` が上の表と同じ許可表を持ち、フォルダごとに宣言した型の名前を
@@ -61,26 +61,26 @@ headless ハーネス（`scripts/headless-run/Harness.csproj`、.NET 8）は Cor
 - 作り替え（移す・分ける・名前を変える）で出力を変えない。golden・abcheck（全モードのバイト比較）・Unity の
   `RuntimeParityTests` で一致を示す（`docs/testing-architecture.md`）。
 
-### 2.1 目標のフォルダ（0.4.0 の 3A で移す）
+### 2.1 フォルダ
 
 ```
 Code/Core/
-  Foundation/  並列度・画素の決まり・ヒープの外のメモリ・ビット列・ヒストグラム・PixelRect
-  Color/       色空間（OkLab）・PixelHsv・色の表とそのキャッシュ
-  Model/       ColorZone（データだけ）・RecolorSettings・セッション / プリセット / DTO・マスクの形と符号化
-  Pipeline/    PixelProcessor（今の入口の形のまま残す窓口）・RecolorPipeline（段を順に呼ぶだけ）・
-               RunContext / ZoneState / ZoneBuffers・SelectionResult（選択と再着色の境目）・SelectionCache
-  Selection/   Legacy（旧の選択。書き換えずに移すだけ）・Regions / Material / Decision（再設計の 3 層）
-  Masks/       除外・含めるの適用（製品の契約。旧と新で共通）
+  Foundation/  並列度・画素の決まり・使っていないメモリを返す窓口・ヒストグラム・ビット数
+  Color/       色空間（OkLab）・画素の HSV・色の表
+  Pipeline/    PixelProcessor（入口）・ゾーン 1 つ分の流れ・RunContext / RunBuffers / ZoneState / ZoneBuffers・
+               SelectionResult（選択と再着色の境目）・強度の範囲
+  Selection/   Legacy（今の選択の段。`ColorZone` の照合・選択キャッシュの鍵）
+  Masks/       除外・含めるの適用（製品の契約）
   Recolor/     再着色の段（無彩・デコンタミ・アンカーと明るさ・混色帯・カーネル・合成）
   Filters/     ぼかし
-  AutoTune/    Legacy（旧の自動調整）
-  Diagnostics/ 時間計測・デバッグ記録
-  Preview/     座標変換・縮小・RecolorPreview
-  Uv/          UvChartMap
+  （直下）     ヒープの外のメモリの部品・ColorZone・セッションとプリセット・マスクの形と符号化・自動調整（ZoneAutoTuner）・
+               UV の部位（UvChartMap）・座標変換と RecolorPreview
 ```
 
-移した所（2026-10-28 時点）: `Selection/Legacy/`（旧の選択の段・`ColorZone` の照合・選択キャッシュの鍵）、
+選択の再設計（T5。領域・素材の模型・尤度比の 3 層）は 0.4.0 から外した。枝 `dev-0.4.0-t5` に残っていて、再開するときの
+手がかりは dev_safe の `docs/t5_lessons.md`。下の `Selection/Legacy` の名前はそのときの名残りで、今の選択そのもの。
+
+各フォルダの中身: `Selection/Legacy/`（旧の選択の段・`ColorZone` の照合・選択キャッシュの鍵）、
 `Masks/`（マスクの契約と除外・含めるの判定）、`Filters/`（ぼかし）、`Foundation/`（並列度・画素の決まり・使っていない
 メモリを返す窓口・ヒストグラムの集計と分位点 `Histogram`・ビット数 `Bits`。`PixelProcessor` の並列度などの同名のものは
 転送役）、`Color/`（色空間の `OkLab`。自動化の手がかりも同じ変換を使う。画素の HSV と色の表は `PixelProcessor` の
@@ -89,16 +89,15 @@ partial のまま置いた）、`Pipeline/`（入口の `PixelProcessor.cs`・�
 `AchromaSolidifyStage` → `DecontamStage` → `RecolorStatsStage` → `MixtureBandStage` → `ComposeStage` →
 `AchromaFringeStage` と、その下回り・再着色の核・デバッグの分岐の観察者）。段は `PixelProcessor` の入れ子の static
 クラスで、`Run(RunContext, ZoneState)` を持つ（入れ子にしたのは、移した本体が `PixelProcessor` の private の下回りを
-そのまま呼べるようにするため）。旧の選択の外から使う下回りは `Legacy` に置かない
-（T5 の P3 で `Legacy` を丸ごと消すため）。強度の範囲（`PixelProcessor.Bounds.cs`）は再着色の段も使うので Core に残した。
+そのまま呼べるようにするため）。強度の範囲（`PixelProcessor.Bounds.cs`）は再着色の段も使うので `Pipeline/` に置いた。
 
 ### 2.2 段の書き方
 
-- パイプラインは `RecolorPipeline` が段を順に呼ぶだけにする（その 1 ファイルでパイプラインの仕様として読める）。
+- パイプラインは `PixelProcessor.Pipeline.cs` が段を順に呼ぶだけにする（その 1 ファイルでパイプラインの仕様として読める）。
   段は `DecontamStage.Run(RunContext r, ZoneState z)` のような static メソッド。段の順と条件分岐は出力のビット一致に
-  効くので、移すときに変えない。ゾーンごとの値は `ZoneParams` として 1 回だけ計算する。
+  効くので、移すときに変えない。
 - **選択と再着色の境目は `SelectionResult`。** 再着色が選択から読むもの（強度。内部は 1、縁は被覆率。混色帯の判定に
-  要るもの）だけを持つ。旧の選択と再設計の選択は同じ形で出し、切り替えて比べる。
+  要るもの）だけを持つ。
 - 時間計測とデバッグ記録は、段の境目で呼ぶ観察者にする。既定は何もしない。
 - 画素を回すループの中は、生の `T*` のローカル変数のまま書く。インターフェース・仮想呼び出し・`Span`・構造体の
   インデクサは使わない（Mono の Debug 最適化で 2〜4 倍遅かった。KernelBench）。段の入口で引数の構造体をローカルへ
@@ -106,7 +105,7 @@ partial のまま置いた）、`Pipeline/`（入口の `PixelProcessor.cs`・�
 - 定数は `docs/algorithm-constants.md` の台帳に種類と根拠を書く（`test_algorithm_constants.py` が Core と
   `MaskSuggest/Ops` のサブフォルダまで見る）。
 
-## 3. エディタ側（目標。0.4.0 のフェーズ 4 で作る）
+## 3. エディタ側
 
 | 部品 | 役割 |
 |---|---|
@@ -116,6 +115,7 @@ partial のまま置いた）、`Pipeline/`（入口の `PixelProcessor.cs`・�
 | `MaskHistory` | マスクの履歴。Undo に載るのは文書の版の番号だけで、中身はここがヒープの外に RLE で持つ。マスクを書き換える操作は `EditingSession.RecordMaskEdit` → 書き換え → `CommitMaskEdit` の順にする（記録を飛ばすと Undo で戻らない）。変わっていない層は前の版と共有する。再読み込みで Undo の記録が残るかは Unity の版で違う（2022.3 は捨て、Unity 6 は残す）ので、履歴はファイルへ退避して読み戻す（`UndoReloadScenario` を両方の版で回す） |
 | `SessionPersistence` | 復元の優先順（レシピ → セッションのファイル → 既定）・自動保存・外での書き換えの検出。今（4-2 の 5）は読み書きと判断だけで、編集状態の差し替え・Undo・マスクの同期はウィンドウ。自動保存の予定は `AutosaveSchedule`（4-2 の 8） |
 | `EditingSessionRegistry` | 開いている編集の一覧。ウィンドウを型で探す（`FindObjectsOfTypeAll<IrocaWindow>`）代わり。Infra の非破壊ビルドと更新の確認も使うので Infra に置いた（4-2） |
+| `EditingWindows` | 自動化がウィンドウを開く・表示中の編集を読む・読み直させる窓口（`IEditingWindows`）。実体は UI が登録する |
 | `SourcePixelCache` | 作業解像度の原本（参照の数で貸す） |
 | `RecolorInput` | 色替えの入力を組み立てる唯一の場所。プレビュー・書き出し・一括書き出し・NDMF・自動化が共通で使う。非破壊ビルドの土台と `SessionRecolor` も使うので Core に置いた（4-2） |
 | `PreviewPipeline` / `PreviewRenderer` | プレビューの計算（概要段・確定段・ドラッグの追従・選択キャッシュ・拡大表示の土台。`Code/Application/`）と、表示（テクスチャ・拡大表示のタイル・差分のシェーダー・「アバターの色」・画像の矩形への描画。`Code/UI/`）。4-4 で分けた。レイアウト・ズーム・入力は `PreviewView` |
@@ -148,9 +148,11 @@ partial のまま置いた）、`Pipeline/`（入口の `PixelProcessor.cs`・�
 GC は大きな塊を動かせない。8K の原本は 6,700 万画素あり、`bool[]` 1 本で 67MB、`Color32[]` 1 本で 268MB が、
 1 度使っただけでエディタを閉じるまで常駐する。
 
-- 新しく書くコードは、画素数の大きさの配列を管理配列で作らない。`test_no_pixel_sized_managed_arrays.py` が
-  `new T[w * h]` の形と Unity の API が返す画素の管理配列（`GetPixels32()` など）を数え、今ある分の一覧
-  （`scripts/source_checks/pixel_sized_managed_arrays.json`）から増えたら落とす。
+- 画素数の大きさの配列を管理配列で作らない。`test_no_pixel_sized_managed_arrays.py` が `new T[w * h]` の形と Unity の
+  API が返す画素の管理配列（`GetPixels32()` など）を数え、一覧（`scripts/source_checks/pixel_sized_managed_arrays.json`）
+  から増えたら落とす。一覧に残るのはテスト・ハーネス・デバッグの口と Unity の API の都合だけで、ファイルごとに理由を
+  書く（`reasons`）。製品の通常の経路には残っていない（0.4.0 の T3）。解像度に依らない大きさ（粗いグリッド・表示の
+  大きさ）は検査の `NOT_PIXEL_SIZED` に理由つきで載せる。
 - ヒープの外の部品（今）: 確保の窓口 `IrocaNativeMemory.Alloc(bytes, 用途)` / `Free`（用途 `NativeUsage` ごとに今の量・
   最大値・ファイナライザで解放した数を数える）、持ち主の型 `NativeBuffer`、作業配列のプール `NativeWorkPool<T>`
   （`Rent` / `Return`。中身は前の持ち主の値が残るので、借りた側が書いてから読む）、原本と出力の `NativePixels`、
@@ -170,11 +172,7 @@ GC は大きな塊を動かせない。8K の原本は 6,700 万画素あり、`
     残っていることがある）。持ち主の側では中断を見ない。
   - 返し忘れはファイナライザ（`SafeHandle`）が解放し、用途つきで数える（`IrocaNativeMemory.FinalizedCount`。
     `--nativememselftest` が 0 であることを確かめる）。
-- 目標（0.4.0 のフェーズ 2）:
-  - 境目では長さつきの `NativeSpan<T>` を渡す。範囲の検査は検証用のビルド定義（`IROCA_NATIVE_CHECKS`）のときだけ。
-    ループの中は `T*` のまま。
-  - マスクとビット列は `NativeBitMask`（1 画素 1 ビット、参照の数で持ち、書くときだけ写す。型と保存形式との直接の
-    変換は 2-3 で足した。編集中のマスク・スナップショットを移すのは 4-2）。
+- マスクとビット列は `NativeBitMask`（1 画素 1 ビット、参照の数で持ち、書くときだけ写す）。
 - 持ち主の範囲を決めて書く: 実行全体（`RunBuffers`）・ゾーンごと（`ZoneBuffers`。8K の最大量を増やさないよう、使い
   終わった所で早めに手放す）・段の中の一時（`WorkScratch`）。借りたものは同じ範囲の `finally` で返す。
 - **Unity との境目は Infra だけ。** `NativeArray` に見せる薄い変換（`TextureIO.NativeView<T>`）と、`TextureIO`（原本を読んで
@@ -212,7 +210,7 @@ GC は大きな塊を動かせない。8K の原本は 6,700 万画素あり、`
 
 | 検査 | 守るもの |
 |---|---|
-| `scripts/source_checks/test_layer_dependencies.py` | 1 章の依存の向き（許可表と、今ある違反の一覧） |
+| `scripts/source_checks/test_layer_dependencies.py` | 1 章の依存の向き（許可表。違反は 0 で、例外の一覧は持たない） |
 | `scripts/source_checks/test_core_no_editor_dependency.py` | Core が UnityEditor を参照しない |
 | `scripts/source_checks/test_no_pixel_sized_managed_arrays.py` | 4 章の、画素数の大きさの管理配列を増やさない |
 | `scripts/source_checks/test_event_subscription_symmetry.py` | 5 章の、static のイベントの購読と解除の対 |
@@ -224,4 +222,4 @@ GC は大きな塊を動かせない。8K の原本は 6,700 万画素あり、`
 | golden・abcheck・`RuntimeParityTests` | 作り替えで出力が変わらない（`docs/testing-architecture.md`） |
 
 `scripts/source_checks` は C# のソースを読むだけで、ハーネスも Unity も要らない。CI（`.github/workflows/ci.yml`）で
-毎回回る。違反の一覧は、直したら同じコミットで減らす（減ったのに一覧がそのままだと落ちる）。
+毎回回る。例外の一覧を持つ検査は、直したら同じコミットで減らす（減ったのに一覧がそのままだと落ちる）。

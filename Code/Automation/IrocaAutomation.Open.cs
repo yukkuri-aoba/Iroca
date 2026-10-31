@@ -34,8 +34,8 @@ namespace Iroca
                     r.error = error;
                     return JsonUtility.ToJson(r);
                 }
-                if (recipe != null) IrocaWindow.OpenRecipe(recipe);
-                else IrocaWindow.OpenTexture(tex);
+                if (recipe != null) EditingWindows.Current.OpenRecipe(recipe);
+                else EditingWindows.Current.OpenTexture(tex);
                 r.ok = true;
                 r.texture = AssetDatabase.GetAssetPath(tex);
                 r.recipe = recipe != null ? AssetDatabase.GetAssetPath(recipe) : "";

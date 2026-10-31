@@ -19,6 +19,19 @@ namespace Iroca
     /// </summary>
     public partial class IrocaWindow
     {
+        // 自動化 API の窓口の実体(EditingWindows。自動化は UI の型を知らない)。
+        private sealed class AutomationWindows : IEditingWindows
+        {
+            public void OpenRecipe(IrocaRecipe recipe) => IrocaWindow.OpenRecipe(recipe);
+            public void OpenTexture(Texture2D texture) => IrocaWindow.OpenTexture(texture);
+            public bool IsShowing(Texture2D texture, out IrocaRecipe boundRecipe) => IrocaWindow.IsShowing(texture, out boundRecipe);
+            public IrocaSessionState EditingStateOf(Texture2D texture) => IrocaWindow.EditingStateOf(texture);
+            public void ReloadFromRecipe(IrocaRecipe recipe, string undoName) => IrocaWindow.ReloadFromRecipe(recipe, undoName);
+        }
+
+        [InitializeOnLoadMethod]
+        private static void RegisterAutomationWindows() => EditingWindows.Current = new AutomationWindows();
+
         /// <summary>今のテクスチャに結び付いたレシピ(無ければ null)。</summary>
         internal IrocaRecipe BoundRecipe =>
             Doc.boundRecipe != null && SourceTexture != null && Doc.boundRecipe.sourceTexture == SourceTexture

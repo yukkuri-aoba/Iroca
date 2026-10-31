@@ -4,12 +4,12 @@
 最後に asmdef で固める）。名前空間はほぼ全部 `Iroca` なので `using` では層が分からない。そこで、フォルダごとに
 宣言している一番外側の型の名前を集め、ほかのフォルダのコードがその名前を書いている所を依存として数える。
 
-今ある違反は KNOWN_VIOLATIONS に載せてある。この一覧は**減らすことしかできない**: 載っていない違反が現れたら落ち、
-載っているのに無くなった違反も落ちる（一覧から外すこと）。ファイルを移したときは、一覧も同じコミットで直す。
+違反は 0（2026-10-31。0.4.0 のフェーズ 4 と 7 で無くした）なので、例外の一覧は持たない。許可表に無い向きの参照が
+現れたら落ちる。
 
 見分け方の限り:
   - 型の名前で見るので、同じ名前の型が複数の層にあるとき（partial の型を層をまたいで分けているときなど）は、
-    どれか 1 つが許可されていれば通す。層をまたぐ partial は SPLIT_TYPES に載せる（これも減らすことしかできない）。
+    どれか 1 つが許可されていれば通す。なので、層をまたいで同じ名前の型を宣言しない（test_no_split_types が見る）。
   - `x.Name` のようにドットの後ろに書いた名前はメンバーとみなして数えない（入れ子の型・名前空間つきの参照は
     見逃す）。拡張メソッドだけを使う依存も見えない。Core・Services・本体の間の向きは asmdef でも固めてある（フェーズ 6）ので、
     この検査はその中の層（Infra と Application、UI と Automation など）の向きを見る。
@@ -68,19 +68,6 @@ ASSEMBLY_OF_LAYER: dict[str, str] = {
     "SentisIntegration": "Iroca.SentisIntegration",
     "McpIntegration": "Iroca.McpIntegration",
     "Debug": "com.yukkuri-aoba.iroca.Editor.Debug",
-}
-
-# 今ある違反。(使う側のファイル, 使われる型) → 使われる型の層。**減らすことしかできない。**
-KNOWN_VIOLATIONS: dict[tuple[str, str], str] = {
-    # 4-2・4-3: 開いているウィンドウを探す・その状態を読む・窓口を借りるのを、EditingSessionRegistry・
-    # EditingSession・AutoTuneService・AiSuggestBroker を通す形にする。
-    ("Code/Automation/IrocaAutomation.Open.cs", "IrocaWindow"): "UI",
-    ("Code/Automation/IrocaAutomation.Recolor.cs", "IrocaWindow"): "UI",
-}
-
-# 層をまたいで宣言している型（partial の型を分けている・同じ名前の型が 2 つの層にある）。型 → 層の集合。
-SPLIT_TYPES: dict[str, set[str]] = {
-    # 3-2 で DebugCaptureHooks(Core)と DebugWindowHooks(UI)に分けたので空。
 }
 
 # 行コメント / ブロックコメント / 逐語的文字列 / 文字列 / 文字リテラル。改行は残して行番号を保つ。
@@ -205,34 +192,21 @@ def test_assembly_table_covers_every_layer():
 
 
 def test_no_new_layer_violations():
-    """許可表に無い向きの参照が、KNOWN_VIOLATIONS に載っている分しか無いこと。"""
+    """許可表に無い向きの参照が無いこと。"""
     sources = _sources()
     owners = _type_layers(sources)
     # 回帰の前提。読み方が壊れて型が集まらないと、空一致で通ってしまう。
     assert len(owners) >= 100, f"型の収集が異常です({len(owners)} 件)"
     found = _violations(sources, owners)
-    new = sorted((k, v) for k, v in found.items() if k not in KNOWN_VIOLATIONS)
+    new = sorted(found.items())
     assert not new, (
         "許可されていない向きの依存があります(使う側のファイル → 型 [型の層]):\n"
         + "\n".join(f"  {rel} → {name} [{lay}]" for (rel, name), lay in new)
         + "\n  下の層は上の層を知らない(計画の 3.1)。上の層へ知らせるのはイベントか、下の層の窓口を通す。")
 
 
-def test_known_violations_only_shrink():
-    """直した違反は一覧から外す（一覧が実際より大きいと、また増やせてしまう）。"""
-    sources = _sources()
-    found = _violations(sources, _type_layers(sources))
-    stale = sorted(k for k in KNOWN_VIOLATIONS if k not in found)
-    assert not stale, (
-        "KNOWN_VIOLATIONS に、もう無い違反が載っています(一覧から外すこと):\n"
-        + "\n".join(f"  {rel} → {name}" for rel, name in stale))
-
-
-def test_split_types_only_shrink():
-    """層をまたいで宣言している型が、SPLIT_TYPES の分から増えも減りもしないこと。"""
+def test_no_split_types():
+    """層をまたいで同じ名前の型を宣言していないこと（どの層の型か決められなくなる）。"""
     owners = _type_layers(_sources())
     split = {name: layers for name, layers in owners.items() if len(layers) > 1}
-    assert split == SPLIT_TYPES, (
-        "層をまたいで宣言している型が SPLIT_TYPES と食い違います:\n"
-        f"  今: {dict(sorted(split.items()))}\n  一覧: {dict(sorted(SPLIT_TYPES.items()))}\n"
-        "  新しく分けたなら、層ごとの型に分ける。直したなら一覧から外す。")
+    assert not split, f"層をまたいで宣言している型があります: {split}"

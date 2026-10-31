@@ -396,9 +396,9 @@ namespace Iroca
             // 窓の編集内容を土台にするのは、登録では窓が書き込み先と同じレシピを表示しているとき(どちらも無いときを
             // 含む)だけ。同じテクスチャのレシピを複製して色違いにしていると、窓で別のアバターのレシピを開いたまま
             // 頼まれることがあり、書き込み先のレシピがその中身で丸ごと置き換わっていた。
-            bool showing = IrocaWindow.IsShowing(tex, out var shown);
+            bool showing = EditingWindows.Current.IsShowing(tex, out var shown);
             bool useWindow = showing && (r.apply != ApplyAvatar || shown == job.recipe);
-            var windowState = useWindow ? IrocaWindow.EditingStateOf(tex) : null;
+            var windowState = useWindow ? EditingWindows.Current.EditingStateOf(tex) : null;
             if (r.apply == ApplyAvatar)
             {
                 // 自動調整を待つ間に窓やレシピが編集されたかを、仕上げで見分けるための依頼の時点の中身。
@@ -473,7 +473,7 @@ namespace Iroca
                 // 書き込み先と同じレシピ(どちらも無いときを含む)を表示している窓だけ、書いた後に読み直す。別のレシピを
                 // 表示している窓は、そちらへ保存するので古い内容で上書きする心配は無く、読み直すと窓の未保存の編集を捨てて
                 // 書き込み先へ結び替えてしまう。
-                bool reloadWindow = IrocaWindow.IsShowing(tex, out var shownRecipe) && shownRecipe == job.recipe;
+                bool reloadWindow = EditingWindows.Current.IsShowing(tex, out var shownRecipe) && shownRecipe == job.recipe;
                 // 新しく作るレシピは Undo に積まない(作ったアセットのファイルは Undo で消せない。UI の登録と同じ)。
                 // Ctrl+Z ではコンポーネントへの登録が外れるので、使われないレシピが残るだけになる。
                 // 既存のレシピの書き換えは、下の Undo グループに記録してから書く。
@@ -508,7 +508,7 @@ namespace Iroca
                     RecipeStore.Save(recipe, state);
                 }
                 // 窓の読み直し(読み直す前の窓を記録する)も同じグループに入れ、1 回の Ctrl+Z でレシピと窓がそろって戻るようにする。
-                if (reloadWindow) IrocaWindow.ReloadFromRecipe(recipe, UndoName);
+                if (reloadWindow) EditingWindows.Current.ReloadFromRecipe(recipe, UndoName);
                 // Attach が付ける名前(Iroca: Register Recolor)ではなく、外からの色替えだと分かる名前にする。
                 Undo.SetCurrentGroupName(UndoName);
                 Undo.CollapseUndoOperations(undoGroup);
@@ -524,13 +524,13 @@ namespace Iroca
         /// </summary>
         private static string EditedWhileWaiting(RecolorJob job)
         {
-            bool windowIsTarget = IrocaWindow.IsShowing(job.tex, out var shown) && shown == job.recipe;
+            bool windowIsTarget = EditingWindows.Current.IsShowing(job.tex, out var shown) && shown == job.recipe;
             if (job.windowJsonAtRequest != null)
             {
                 // 依頼の時点では、書き込み先と同じレシピの窓の中身を土台にした。窓の自動保存がその内容をレシピへ書くことは
                 // あるので、レシピではなく窓の中身を比べる(閉じた・切り替えたときは、閉じる前の手直しを確かめられない)。
                 if (!windowIsTarget) return "the Iroca window was closed or switched to another texture or recipe";
-                return JsonUtility.ToJson(IrocaWindow.EditingStateOf(job.tex)) != job.windowJsonAtRequest
+                return JsonUtility.ToJson(EditingWindows.Current.EditingStateOf(job.tex)) != job.windowJsonAtRequest
                     ? "the texture was edited in the Iroca window" : null;
             }
             if (job.recipe != null && job.recipe.sessionJson != job.recipeJsonAtRequest)
@@ -539,7 +539,7 @@ namespace Iroca
             {
                 // 待つ間に窓で開かれた。窓の中身が土台(レシピ)と同じでなければ、読み直しで窓の手直しを置き換えてしまう。
                 string expected = job.recipe != null ? JsonUtility.ToJson(RecipeStore.Load(job.recipe)) : null;
-                if (expected == null || JsonUtility.ToJson(IrocaWindow.EditingStateOf(job.tex)) != expected)
+                if (expected == null || JsonUtility.ToJson(EditingWindows.Current.EditingStateOf(job.tex)) != expected)
                     return "the texture was opened and edited in the Iroca window";
             }
             return null;
