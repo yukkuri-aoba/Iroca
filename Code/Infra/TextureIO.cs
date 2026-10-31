@@ -69,16 +69,32 @@ namespace Iroca
         /// 元ファイルを直接デコードできなければ(PSD・TGA・EXR など Unity が取り込みで変換するもの)null。そのときは
         /// 呼び出し側が取り込み済みテクスチャから読む。
         /// </summary>
-        public static NativePixels ReadSourceFile(string srcPath, Texture2D imported, bool workingSize)
+        // 取り込み済みテクスチャを渡さなければ作業解像度は元ファイルのまま(元の解像度)。
+        public static NativePixels ReadSourceFile(string srcPath, Texture2D imported, bool workingSize) =>
+            DecodeSourceFile(srcPath, workingSize ? imported : null);
+
+        /// <summary>
+        /// 元ファイルをデコードして、<paramref name="workingFor"/> の作業解像度(null なら元の解像度)の画素を返す(メインスレッド専用)。
+        /// PNG・JPG でなければ、ファイルの中身を読まずに null(PSD・TGA・EXR は数百 MB あることがあり、LoadImage は読めないのに、
+        /// 全部を管理配列へ読んでいた)。PNG はヒープの外へ直接デコードする(<see cref="PngFileDecoder"/>)。JPG と、PNG のうち
+        /// 扱わない形式は LoadImage で読む(管理配列しか受け取らないので、ファイルの大きさの配列を作る)。
+        /// </summary>
+        public static NativePixels DecodeSourceFile(string srcPath, Texture2D workingFor)
         {
+            var kind = SniffImage(srcPath);
+            if (kind == ImageKind.Other) return null;
+            if (kind == ImageKind.Png)
+            {
+                var decoded = PngFileDecoder.TryDecode(srcPath);
+                if (decoded != null) return WorkingResolution.FitToWorkingSize(decoded, workingFor);
+            }
             Texture2D loadTex = null;
             try
             {
                 byte[] srcBytes = File.ReadAllBytes(srcPath);
                 loadTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                // 取り込み済みテクスチャを渡さなければ作業解像度は元ファイルのまま(元の解像度)。
                 if (loadTex.LoadImage(srcBytes))
-                    return WorkingResolution.NativePixelsOf(loadTex, workingSize ? imported : null);
+                    return WorkingResolution.NativePixelsOf(loadTex, workingFor);
             }
             finally
             {
@@ -86,6 +102,26 @@ namespace Iroca
             }
             return null;
         }
+
+        private enum ImageKind { Png, Jpeg, Other }
+
+        // ファイルの先頭で見分ける(拡張子は当てにならない。中身が PNG の .tga や、大文字の .PNG がある)。
+        private static ImageKind SniffImage(string path)
+        {
+            var head = new byte[8];
+            int got = 0;
+            using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 8))
+            {
+                int n;
+                while (got < head.Length && (n = file.Read(head, got, head.Length - got)) > 0) got += n;
+            }
+            if (got < 8) return ImageKind.Other;
+            if (IsPngSignature(head)) return ImageKind.Png;
+            return head[0] == 0xFF && head[1] == 0xD8 && head[2] == 0xFF ? ImageKind.Jpeg : ImageKind.Other;
+        }
+
+        internal static bool IsPngSignature(byte[] h) =>
+            h[0] == 0x89 && h[1] == 0x50 && h[2] == 0x4E && h[3] == 0x47 && h[4] == 0x0D && h[5] == 0x0A && h[6] == 0x1A && h[7] == 0x0A;
 
         /// <summary>
         /// 画素を PNG にする(UI の ExportPipeline.EncodePng と同じバイト列)。返す PNG はヒープの外にあり、

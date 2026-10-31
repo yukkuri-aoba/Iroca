@@ -66,22 +66,8 @@ namespace Iroca
         /// </summary>
         public static SourceKind ReadWorkingPixelsNative(string srcPath, Texture2D imported, out NativePixels pixels)
         {
-            pixels = null;
-            Texture2D loadTex = null;
-            try
-            {
-                byte[] srcBytes = File.ReadAllBytes(srcPath);
-                loadTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                if (loadTex.LoadImage(srcBytes))
-                {
-                    pixels = WorkingResolution.NativePixelsOf(loadTex, imported);
-                    return SourceKind.File;
-                }
-            }
-            finally
-            {
-                if (loadTex != null) Object.DestroyImmediate(loadTex);
-            }
+            pixels = TextureIO.DecodeSourceFile(srcPath, imported);
+            if (pixels != null) return SourceKind.File;
             if (!TextureIO.IsReadable(imported)) return SourceKind.Unavailable;
             pixels = WorkingResolution.NativePixelsOf(imported, null);
             return SourceKind.ImportedTexture;

@@ -89,6 +89,34 @@ namespace Iroca
         }
 
         /// <summary>
+        /// デコード済みの元の解像度の画素(参照を受け取る)を、<paramref name="imported"/> の作業解像度にする。同じ寸法ならそのまま返し、
+        /// 違えば縮めた画素を返して受け取った参照を返す。縮小は <see cref="NativePixelsOf"/> と同じ。
+        /// </summary>
+        public static unsafe NativePixels FitToWorkingSize(NativePixels source, Texture2D imported)
+        {
+            int fw = source.Width, fh = source.Height;
+            Size(fw, fh, imported, out int w, out int h);
+            if (w == fw && h == fh) return source;
+            try
+            {
+                TryLayout(TextureFormat.RGBA32, out var layout);
+                var dst = NativePixels.Allocate(w, h);
+                try
+                {
+                    using (var view = TextureIO.NativeView<byte>.Over(source.Ptr, source.Length * sizeof(Color32)))
+                        ResizeArea(view.Array, layout, fw, fh, w, h, dst.Ptr);
+                }
+                catch
+                {
+                    dst.Release();
+                    throw;
+                }
+                return dst;
+            }
+            finally { source.Release(); }
+        }
+
+        /// <summary>
         /// <see cref="PixelsOf"/> と同じ画素を、Mono のヒープの外(<see cref="NativePixels"/>。参照 1 で返す)に作る
         /// (メインスレッド)。プレビューの原本はエディタを開いている間ずっと持つので、管理配列にすると閉じた後も
         /// その分(4K で 64MB、8K で 256MB)がエディタのメモリに残る。8bit の非圧縮形式はテクスチャの生データから
@@ -203,13 +231,9 @@ namespace Iroca
             }
         }
 
-        // 一度にマネージドへ写す元の行の量の目安(バイト)。
-        private const int BandBytes = 16 << 20;
-
         /// <summary>
         /// <see cref="ResizeArea(Color32[], int, int, int, int)"/> と同じ縮小を、テクスチャの生データ
-        /// (<paramref name="layout"/> の並び)から行う。元の行を帯ごとにマネージドの作業配列へ写し、
-        /// 出力の行ごとに並列で平均する(結果は行の順に依らない)。NativeArray はメインスレッドでだけ読む。
+        /// (<paramref name="layout"/> の並び)から行う。出力の行ごとに並列で平均する(結果は行の順に依らない)。
         /// </summary>
         internal static unsafe Color32[] ResizeArea(NativeArray<byte> src, Layout layout, int sw, int sh, int dw, int dh)
         {
@@ -222,43 +246,34 @@ namespace Iroca
         private static unsafe void ResizeArea(NativeArray<byte> src, Layout layout, int sw, int sh, int dw, int dh,
             Color32* dst)
         {
-            int rowBytes = sw * layout.bpp;
-            int rowsPerDst = (sh + dh - 1) / dh + 1;
-            int bandDst = Math.Max(1, Math.Min(dh, BandBytes / Math.Max(1, rowsPerDst * rowBytes)));
-            int stripRows = Math.Min(sh, (int)((long)bandDst * sh / dh) + 2);
-            var strip = new byte[(long)stripRows * rowBytes];
-            for (int yb = 0; yb < dh; yb += bandDst)
+            // 呼び出し元(メインスレッド)は返るまで待つので、テクスチャのデータはこの間ずっと読める。
+            byte* s = (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(src);
+            long rowBytes = (long)sw * layout.bpp;
+            Parallel.For(0, dh, y =>
             {
-                int ye = Math.Min(dh, yb + bandDst);
-                int sy0 = SrcRow0(yb, sh, dh);
-                int sy1 = SrcRow1(ye - 1, SrcRow0(ye - 1, sh, dh), sh, dh);
-                NativeArray<byte>.Copy(src, sy0 * rowBytes, strip, 0, (sy1 - sy0) * rowBytes);
-                Parallel.For(yb, ye, y =>
+                int bpp = layout.bpp, ro = layout.r, go = layout.g, bo = layout.b, ao = layout.a;
+                int y0 = SrcRow0(y, sh, dh), y1 = SrcRow1(y, y0, sh, dh);
+                for (int x = 0; x < dw; x++)
                 {
-                    int bpp = layout.bpp, ro = layout.r, go = layout.g, bo = layout.b, ao = layout.a;
-                    int y0 = SrcRow0(y, sh, dh), y1 = SrcRow1(y, y0, sh, dh);
-                    for (int x = 0; x < dw; x++)
+                    int x0 = (int)((long)x * sw / dw);
+                    int x1 = Math.Max(x0 + 1, (int)(((long)x + 1) * sw / dw));
+                    int r = 0, g = 0, b = 0, a = 0, n = 0;
+                    for (int yy = y0; yy < y1; yy++)
                     {
-                        int x0 = (int)((long)x * sw / dw);
-                        int x1 = Math.Max(x0 + 1, (int)(((long)x + 1) * sw / dw));
-                        int r = 0, g = 0, b = 0, a = 0, n = 0;
-                        for (int yy = y0; yy < y1; yy++)
+                        byte* row = s + yy * rowBytes;
+                        for (int xx = x0; xx < x1; xx++)
                         {
-                            int row = (yy - sy0) * rowBytes;
-                            for (int xx = x0; xx < x1; xx++)
-                            {
-                                int o = row + xx * bpp;
-                                r += strip[o + ro];
-                                g += strip[o + go];
-                                b += strip[o + bo];
-                                a += ao >= 0 ? strip[o + ao] : 255;
-                                n++;
-                            }
+                            byte* o = row + xx * bpp;
+                            r += o[ro];
+                            g += o[go];
+                            b += o[bo];
+                            a += ao >= 0 ? o[ao] : 255;
+                            n++;
                         }
-                        dst[(long)y * dw + x] = Average(r, g, b, a, n);
                     }
-                });
-            }
+                    dst[(long)y * dw + x] = Average(r, g, b, a, n);
+                }
+            });
         }
 
         // 出力の行 y が読む元の行 [y0, y1)。

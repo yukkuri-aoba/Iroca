@@ -57,24 +57,18 @@ namespace Iroca
             string path = AssetDatabase.GetAssetPath(tex);
             if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
             {
-                Texture2D tmp = null;
                 try
                 {
-                    byte[] bytes = System.IO.File.ReadAllBytes(path);
-                    tmp = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                    if (tmp.LoadImage(bytes))
+                    var decoded = TextureIO.DecodeSourceFile(path, tex);
+                    if (decoded != null)
                     {
-                        Set(tex, WorkingResolution.NativePixelsOf(tmp, tex), fromFile: true);
+                        Set(tex, decoded, fromFile: true);
                         return true;
                     }
                 }
                 catch (System.Exception ex)
                 {
                     Debug.LogWarning($"[Iroca] Source file load failed, falling back to imported texture: {ex.Message}");
-                }
-                finally
-                {
-                    if (tmp != null) Object.DestroyImmediate(tmp);
                 }
             }
 
