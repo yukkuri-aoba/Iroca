@@ -1019,9 +1019,8 @@ namespace Iroca
         public void SuspendTransientState()
         {
             _overlayJob.Cancel();
-            _pendingOverlayResult = null;
             _detailOverlayJob.Cancel();
-            _pendingDetailOverlay = null;
+            ClearPendingOverlays();
             _detailOverlayDirectPending = false;
             _detailApplied = default;
             TextureSlot.Release(ref detailMaskOverlayTexture);

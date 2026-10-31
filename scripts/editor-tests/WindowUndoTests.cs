@@ -419,6 +419,29 @@ namespace Iroca.EditorTests
             CleanOther(other);
         }
 
+        // マスクの重ね表示の画素(ヒープの外で作る)。塗った所だけ色が付き、ほかは透明。
+        [Test]
+        public void MaskOverlay_ShowsOnlyThePaintedPixels()
+        {
+            var view = _win._maskView;
+            _win.Editing.Masks.WritableCommon().Set(5, true);
+            view.RebuildMaskOverlay(W, H);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (view.maskOverlayTexture == null && watch.Elapsed.TotalSeconds < 10)
+            {
+                PreviewJobMainThread.Drain();
+                view.ApplyPendingOverlay();
+                System.Threading.Thread.Sleep(1);
+            }
+            Assert.IsNotNull(view.maskOverlayTexture, "重ね表示ができない");
+            var pixels = view.maskOverlayTexture.GetPixels32();
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                if (i == 5) Assert.Greater(pixels[i].a, 0, "塗った所に色が無い");
+                else Assert.AreEqual(0, pixels[i].a, $"塗っていない所 {i} に色がある");
+            }
+        }
+
         // 自動調整を押した後に Ctrl+Z やテクスチャの切り替えをしたら、結果を当てない(押したときの状態はもう無い)。
         [Test]
         public void AutoTuneRunning_IsStoppedByUndo()

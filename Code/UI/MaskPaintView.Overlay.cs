@@ -113,16 +113,47 @@ namespace Iroca
             if (tex != null) tex.Apply();
         }
 
-        // バックグラウンドで生成したオーバーレイ Color32[] をメインスレッドで Texture2D に
-        // 書き戻すまでの中継。SetPixels32 / Apply は Unity API なので必ずメインスレッド。
+        // バックグラウンドで生成したオーバーレイの画素(Mono のヒープの外。最大 2048² で 16MB × 2 枚を、マスクを変えるたびに作る)を
+        // メインスレッドで Texture2D に書き戻すまでの中継。Apply は Unity API なので必ずメインスレッド。
         private struct OverlayResult
         {
             public bool hasCommon;
-            public Color32[] commonPixels;
+            public NativePixels commonPixels;
             public bool hasZone;
-            public Color32[] zonePixels;
+            public NativePixels zonePixels;
             public int width;
             public int height;
+
+            // テクスチャへ写さなかった画素を返す(新しい結果が来た・取り消した・閉じた)。
+            public void Release()
+            {
+                commonPixels?.Release();
+                zonePixels?.Release();
+            }
+        }
+
+        // 全部透明の領域(new Color32[] と同じ初期値。Allocate は初期化しない)。
+        private static unsafe NativePixels AllocateClearOverlay(int w, int h)
+        {
+            var pixels = NativePixels.Allocate(w, h);
+            Unity.Collections.LowLevel.Unsafe.UnsafeUtility.MemClear(pixels.Ptr, (long)pixels.Length * sizeof(Color32));
+            return pixels;
+        }
+
+        // オーバーレイのテクスチャ(RGBA32・ミップなし)へ画素を写して手放す。
+        private static unsafe void UploadOverlay(Texture2D tex, NativePixels pixels)
+        {
+            tex.LoadRawTextureData((System.IntPtr)pixels.Ptr, pixels.Length * sizeof(Color32));
+            tex.Apply();
+            pixels.Release();
+        }
+
+        private void ClearPendingOverlays()
+        {
+            _pendingOverlayResult?.Release();
+            _pendingOverlayResult = null;
+            _pendingDetailOverlay?.overlay.Release();
+            _pendingDetailOverlay = null;
         }
 
         [System.NonSerialized] private readonly PreviewJob<OverlayResult> _overlayJob = new PreviewJob<OverlayResult>();
@@ -156,10 +187,12 @@ namespace Iroca
                 work: token => ComputeOverlayPixels(commonSnap, commonColor, zoneInfos, capW, capH, capMw, capMh, token),
                 apply: result =>
                 {
+                    _pendingOverlayResult?.Release();
                     _pendingOverlayResult = result;
                     _host.RequestRepaint();
                 },
-                cleanup: () => ReleaseOverlayLayers(commonSnap, zoneInfos));
+                cleanup: () => ReleaseOverlayLayers(commonSnap, zoneInfos),
+                discard: result => result.Release());
         }
 
         /// <summary>
@@ -235,26 +268,32 @@ namespace Iroca
             int w, int h, int mw, int mh, CancellationToken token)
         {
             var result = new OverlayResult { width = w, height = h };
-
-            if (common != null && mw > 0 && mh > 0)
+            try
             {
-                result.hasCommon = true;
-                result.commonPixels = RenderMaskCoverage(common, commonColor, null, w, h, mw, mh);
-                token.ThrowIfCancellationRequested();
-            }
-
-            if (zoneInfos != null && zoneInfos.Count > 0 && mw > 0 && mh > 0)
-            {
-                result.hasZone = true;
-                Color32[] pixels = null;
-                foreach (var (color, zm) in zoneInfos)
+                if (common != null && mw > 0 && mh > 0)
                 {
-                    pixels = RenderMaskCoverage(zm, color, pixels, w, h, mw, mh);
+                    result.hasCommon = true;
+                    result.commonPixels = AllocateClearOverlay(w, h);
+                    RenderMaskCoverage(common, commonColor, result.commonPixels, w, h, mw, mh);
                     token.ThrowIfCancellationRequested();
                 }
-                result.zonePixels = pixels;
-            }
 
+                if (zoneInfos != null && zoneInfos.Count > 0 && mw > 0 && mh > 0)
+                {
+                    result.hasZone = true;
+                    result.zonePixels = AllocateClearOverlay(w, h);
+                    foreach (var (color, zm) in zoneInfos)
+                    {
+                        RenderMaskCoverage(zm, color, result.zonePixels, w, h, mw, mh);
+                        token.ThrowIfCancellationRequested();
+                    }
+                }
+            }
+            catch
+            {
+                result.Release();
+                throw;
+            }
             return result;
         }
 
@@ -263,12 +302,12 @@ namespace Iroca
         /// マスクと表示が同解像度なら被覆率は 0/1 で従来の最近傍と同一出力。
         /// マスクの方が高解像度(例: 4096 マスク→2048 表示)のときは境界セルのアルファが
         /// 被覆率で階調化され、実体どおりの滑らかな縁に見える(二値ブロックの偽ギザギザを防ぐ)。
-        /// accumulate 非 null 時はその配列に上書き合成して返す(ゾーン重ね描き用)。
+        /// <paramref name="target"/> へ上書き合成する(ゾーン重ね描き用)。
         /// </summary>
-        private static unsafe Color32[] RenderMaskCoverage(
-            NativeBitMask mask, Color32 color, Color32[] accumulate, int w, int h, int mw, int mh)
+        private static unsafe void RenderMaskCoverage(
+            NativeBitMask mask, Color32 color, NativePixels target, int w, int h, int mw, int mh)
         {
-            var pixels = accumulate ?? new Color32[w * h];
+            Color32* pixels = target.Ptr;
             ulong* bits = mask.Bits;
             // 列のマスク範囲は行に依らないので前計算する(オーバーレイは表示倍率に応じて
             // OverlayMaxSize² まで大きくなるため、画素あたりの整数除算が効いてくる)。
@@ -312,11 +351,10 @@ namespace Iroca
                     }
                 }
             }
-            return pixels;
         }
 
         /// <summary>
-        /// バックグラウンドで生成された Color32[] をオーバーレイテクスチャに適用する。
+        /// バックグラウンドで生成された画素をオーバーレイテクスチャに適用する。
         /// PreviewView.Draw の冒頭から呼ばれる。
         /// </summary>
         public void ApplyPendingOverlay()
@@ -336,8 +374,7 @@ namespace Iroca
                 // 見えないよう、オーバーレイ側の解像度を表示倍率に合わせて上げてある
                 // (OverlayScale)。縮小表示のときだけ SyncOverlayFilter が Bilinear へ戻す。
                 TextureSlot.Resize(ref maskOverlayTexture, r.width, r.height, FilterMode.Point);
-                maskOverlayTexture.SetPixels32(r.commonPixels);
-                maskOverlayTexture.Apply();
+                UploadOverlay(maskOverlayTexture, r.commonPixels);
             }
             else
             {
@@ -347,8 +384,7 @@ namespace Iroca
             if (r.hasZone)
             {
                 TextureSlot.Resize(ref zoneMaskOverlayTexture, r.width, r.height, FilterMode.Point);
-                zoneMaskOverlayTexture.SetPixels32(r.zonePixels);
-                zoneMaskOverlayTexture.Apply();
+                UploadOverlay(zoneMaskOverlayTexture, r.zonePixels);
             }
             else
             {
@@ -416,31 +452,41 @@ namespace Iroca
                 work: token =>
                 {
                     var r = new OverlayResult { width = outW, height = outH };
-                    if (commonSnap != null)
+                    try
                     {
-                        r.hasCommon = true;
-                        r.commonPixels = RenderCoverageRanges(commonSnap, mx0, my0, cx0, cx1, cy0, cy1, outW, outH, commonColor, null);
-                        token.ThrowIfCancellationRequested();
-                    }
-                    if (zoneInfos.Count > 0)
-                    {
-                        r.hasZone = true;
-                        Color32[] pixels = null;
-                        foreach (var (color, zm) in zoneInfos)
+                        if (commonSnap != null)
                         {
-                            pixels = RenderCoverageRanges(zm, mx0, my0, cx0, cx1, cy0, cy1, outW, outH, color, pixels);
+                            r.hasCommon = true;
+                            r.commonPixels = AllocateClearOverlay(outW, outH);
+                            RenderCoverageRanges(commonSnap, mx0, my0, cx0, cx1, cy0, cy1, outW, outH, commonColor, r.commonPixels);
                             token.ThrowIfCancellationRequested();
                         }
-                        r.zonePixels = pixels;
+                        if (zoneInfos.Count > 0)
+                        {
+                            r.hasZone = true;
+                            r.zonePixels = AllocateClearOverlay(outW, outH);
+                            foreach (var (color, zm) in zoneInfos)
+                            {
+                                RenderCoverageRanges(zm, mx0, my0, cx0, cx1, cy0, cy1, outW, outH, color, r.zonePixels);
+                                token.ThrowIfCancellationRequested();
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        r.Release();
+                        throw;
                     }
                     return new DetailOverlayResult { overlay = r, range = range };
                 },
                 apply: result =>
                 {
+                    _pendingDetailOverlay?.overlay.Release();
                     _pendingDetailOverlay = result;
                     _host.RequestRepaint();
                 },
-                cleanup: () => ReleaseOverlayLayers(commonSnap, zoneInfos));
+                cleanup: () => ReleaseOverlayLayers(commonSnap, zoneInfos),
+                discard: result => result.overlay.Release());
         }
 
         /// <summary>
@@ -468,11 +514,11 @@ namespace Iroca
         /// <see cref="RenderMaskCoverage"/> と同じ被覆率アルファの描画を、前計算した列・行の範囲で行う。範囲は見えている
         /// 部分の始まり (offX, offY)(マスクの画素)からの座標。
         /// </summary>
-        private static unsafe Color32[] RenderCoverageRanges(NativeBitMask mask, int offX, int offY,
-                                                             int[] cx0, int[] cx1, int[] cy0, int[] cy1,
-                                                             int w, int h, Color32 color, Color32[] accumulate)
+        private static unsafe void RenderCoverageRanges(NativeBitMask mask, int offX, int offY,
+                                                        int[] cx0, int[] cx1, int[] cy0, int[] cy1,
+                                                        int w, int h, Color32 color, NativePixels target)
         {
-            var pixels = accumulate ?? new Color32[w * h];
+            Color32* pixels = target.Ptr;
             ulong* bits = mask.Bits;
             int stride = mask.Width;
             for (int y = 0; y < h; y++)
@@ -506,7 +552,6 @@ namespace Iroca
                     }
                 }
             }
-            return pixels;
         }
 
         /// <summary>
@@ -526,16 +571,14 @@ namespace Iroca
             {
                 TextureSlot.Resize(ref detailMaskOverlayTexture, r.width, r.height, filter);
                 detailMaskOverlayTexture.filterMode = filter;
-                detailMaskOverlayTexture.SetPixels32(r.commonPixels);
-                detailMaskOverlayTexture.Apply();
+                UploadOverlay(detailMaskOverlayTexture, r.commonPixels);
             }
             else TextureSlot.Release(ref detailMaskOverlayTexture);
             if (r.hasZone)
             {
                 TextureSlot.Resize(ref detailZoneOverlayTexture, r.width, r.height, filter);
                 detailZoneOverlayTexture.filterMode = filter;
-                detailZoneOverlayTexture.SetPixels32(r.zonePixels);
-                detailZoneOverlayTexture.Apply();
+                UploadOverlay(detailZoneOverlayTexture, r.zonePixels);
             }
             else TextureSlot.Release(ref detailZoneOverlayTexture);
             _detailApplied = p.range;

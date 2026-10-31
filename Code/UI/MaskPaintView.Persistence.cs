@@ -228,6 +228,7 @@ namespace Iroca
         public void ClearBuffersOnTextureChange()
         {
             _overlayJob.Cancel();
+            _pendingOverlayResult?.Release();
             _pendingOverlayResult = null;
             Workspace.Clear();
             isPainting = false;
