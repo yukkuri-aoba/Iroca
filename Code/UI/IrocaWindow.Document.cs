@@ -31,11 +31,35 @@ namespace Iroca
             }
         }
 
-        internal Texture2D SourceTexture { get => Doc.sourceTexture; set => Doc.sourceTexture = value; }
+        internal Texture2D SourceTexture
+        {
+            get => Doc.sourceTexture;
+            set
+            {
+                Doc.sourceTexture = value;
+                _editedTexture = value;
+            }
+        }
         internal IrocaSessionState Session { get => Doc.session; private set => Doc.session = value; }
 
         /// <summary>編集を Undo に記録する先。</summary>
         internal Object UndoTarget => Doc;
+
+        // いま編集しているテクスチャとレシピ。Undo は文書を直に書き戻す(ここを通らない)ので、これと比べて何が戻ったかを知る。
+        [System.NonSerialized] private Texture2D _editedTexture;
+        [System.NonSerialized] private IrocaRecipe _editedRecipe;
+
+        private void BindRecipe(IrocaRecipe recipe)
+        {
+            Doc.boundRecipe = recipe;
+            _editedRecipe = recipe;
+        }
+
+        private void RememberEditedTarget()
+        {
+            _editedTexture = Doc.sourceTexture;
+            _editedRecipe = Doc.boundRecipe;
+        }
 
         // ドメインリロードで控えに残った複製を手放す(次の保存の直前に指し直す)。0.3.x の控えにはマスクの文字列が入っているが、
         // マスクはこの後ファイルから読むので、文書には持たない。

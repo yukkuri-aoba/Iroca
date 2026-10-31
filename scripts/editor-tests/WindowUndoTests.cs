@@ -152,6 +152,92 @@ namespace Iroca.EditorTests
             CleanOther(other);
         }
 
+        // Undo で読めないファイルのテクスチャへ戻ったら、読めなかった印もそのテクスチャのものになる。残っていないと、空の保存で
+        // 読めなかったファイルを削除する。
+        [Test]
+        public void UndoBackToUnreadableTexture_DoesNotDeleteItsFile()
+        {
+            string other = _assets.WritePng("other", TestAssets.Solid(W, H, new Color32(50, 200, 50, 255)), W, H);
+            var otherTex = AssetDatabase.LoadAssetAtPath<Texture2D>(other);
+            string file = Path.Combine(SessionFileStore.CacheDir, _guid + ".iroca-session.json");
+            Directory.CreateDirectory(SessionFileStore.CacheDir);
+            LogAssert.ignoreFailingMessages = true;
+            try
+            {
+                // 読めない状態で A を開き直してから B へ切り替える。
+                _win.SwitchSourceTexture(otherTex);
+                File.WriteAllText(file, "{ broken");
+                _win.SwitchSourceTexture(AssetDatabase.LoadAssetAtPath<Texture2D>(_tex));
+                Undo.IncrementCurrentGroup();
+                _win.SwitchSourceTexture(otherTex);
+                Undo.IncrementCurrentGroup();
+
+                Undo.PerformUndo();
+                Assert.AreEqual(_tex, AssetDatabase.GetAssetPath(_win.SourceTexture), "テクスチャが戻っていない");
+                _win.SavePersistedSessionForCurrentTexture();
+            }
+            finally { LogAssert.ignoreFailingMessages = false; }
+            Assert.AreEqual("{ broken", File.ReadAllText(file), "読めなかったファイルを消した");
+            CleanOther(other);
+        }
+
+        // 履歴に無い版へテクスチャごと戻ったとき、前のテクスチャのマスクを残さない(次の保存で別のテクスチャへ書き込む)。
+        [Test]
+        public void UndoToMissingMaskVersion_WithTextureChange_ReadsTheSavedMasks()
+        {
+            string other = _assets.WritePng("other", TestAssets.Solid(W, H, new Color32(50, 200, 50, 255)), W, H);
+            var otherTex = AssetDatabase.LoadAssetAtPath<Texture2D>(other);
+            Stroke(1);
+            _win.SwitchSourceTexture(otherTex);   // ここで A のマスクを保存する
+            Undo.IncrementCurrentGroup();
+            _win.Editing.Masks.Reset(W, H);
+            Stroke(2);
+            _win.Editing.MaskHistory.Clear();     // 上限で手放した(Unity 6 で退避を読めなかった)のと同じ
+
+            LogAssert.ignoreFailingMessages = true;
+            try
+            {
+                Undo.PerformUndo();   // B のストローク
+                Undo.PerformUndo();   // テクスチャの切り替え
+            }
+            finally { LogAssert.ignoreFailingMessages = false; }
+
+            Assert.AreEqual(_tex, AssetDatabase.GetAssetPath(_win.SourceTexture), "テクスチャが戻っていない");
+            var common = _win.Editing.Masks.Common;
+            Assert.IsNotNull(common, "A のマスクを読んでいない");
+            Assert.IsTrue(common.Get(1), "A のマスクを読んでいない");
+            Assert.IsFalse(common.Get(2), "B のマスクが残っている");
+            CleanOther(other);
+        }
+
+        // テクスチャの切り替えを Undo したら、書き出しの既定の名前も戻す。
+        [Test]
+        public void UndoOfTextureChange_RestoresTheExportName()
+        {
+            string other = _assets.WritePng("other", TestAssets.Solid(W, H, new Color32(50, 200, 50, 255)), W, H);
+            _win.SwitchSourceTexture(AssetDatabase.LoadAssetAtPath<Texture2D>(other));
+            StringAssert.StartsWith("other", _win._exportView.newFileName);
+            Undo.PerformUndo();
+            StringAssert.StartsWith("tex", _win._exportView.newFileName);
+            CleanOther(other);
+        }
+
+        // レシピとの結び付きは編集内容ではない。登録より前の記録まで戻っても外さない(外れると、以後の編集がレシピに入らず、開き直すと
+        // 古いレシピが正として読まれて消える)。
+        [Test]
+        public void UndoBeforeRegistration_KeepsTheRecipeBinding()
+        {
+            AddZones("服");
+            var recipe = RecipeStore.Create(_win.SourceTexture, _win.Editing.ToSaveState(), _assets.Folder);
+            Undo.IncrementCurrentGroup();
+            IrocaWindow.ReloadFromRecipe(recipe, "bind");
+            Assert.AreSame(recipe, _win.BoundRecipe, "テストの前提: 結び付いている");
+            Undo.IncrementCurrentGroup();
+
+            Undo.PerformUndo();
+            Assert.AreSame(recipe, _win.BoundRecipe, "Undo で結び付きが外れた");
+        }
+
         private static void CleanOther(string otherTexturePath)
         {
             string guid = AssetDatabase.AssetPathToGUID(otherTexturePath);

@@ -345,6 +345,7 @@ namespace Iroca
             }
             // 今のマスクを Undo の履歴の起点にする。
             Editing.AdoptMasksAfterEnable();
+            RememberEditedTarget();
 
             // Play を始めたときのドメインリロードの直後は、原本の読み直しと色替えの計算し直しを、ウィンドウが
             // 操作されるまで待つ(PreviewView.SourceLoadDeferred)。Play 中以外は今までどおりすぐ読む。
@@ -397,26 +398,52 @@ namespace Iroca
 
         private void OnUndoRedoPerformed()
         {
+            bool restored = Doc.ConsumeRestored();
+            bool textureChanged = restored && SourceTexture != _editedTexture;
+            // レシピとの結び付きは編集内容ではない。登録より前の記録まで戻って同じテクスチャのまま外れると、以後の編集は
+            // レシピに入らず、開き直すと古いレシピが正として読まれて、その後の編集が消える。
+            if (restored && !textureChanged && Doc.boundRecipe == null && _editedRecipe != null)
+                Doc.boundRecipe = _editedRecipe;
+            if (restored) RememberEditedTarget();
             // レシピも Undo で前の中身へ戻ったなら、外での書き換えと取り違えない(窓の状態の書き戻しとは別に見る)。
             AdoptRecipeAfterUndo();
             // 関係ない Undo(シーンのオブジェクトの移動など)で、全マスクの再展開とフル解像度の
             // 再生成を走らせない。
-            if (!Doc.ConsumeRestored()) return;
+            if (!restored) return;
 
             // 文書のマスクの版の番号が Undo で戻ったら、編集中のマスクをその版へ戻してオーバーレイ・プレビューを更新させる。
             if (_maskView != null)
             {
                 if (!Editing.RestoreMasksAfterUndo())
+                {
                     ShowNotification(new GUIContent(Localization.NotifyMaskUndoTooOld));
+                    // テクスチャも戻ったのにマスクが残ると、次の保存で別のテクスチャのマスクを書き込む。保存済みのマスクを読む。
+                    if (textureChanged) _maskView.RestoreFromSession();
+                }
                 // ゾーンの並びが戻っても、いま直しているゾーンを指し続ける(番号は Undo で巻き戻らない)。
                 _maskView.FollowActiveTargetAfterUndo();
                 // 保留中の AI 提案は Undo 前の状態に対する提案なので重ねない
                 _maskView.SuggestControllerIfCreated?.OnUndoRedoPerformed();
             }
+            if (textureChanged) AfterTextureRestoredByUndo();
             // スポイト位置（ColorZone.sampleUV）はシリアライズ対象なので、sampleColor と対で
             // Undo が書き戻す。ここで手当てする必要はない。
             Editing.NotifyChanged(EditChange.Replaced);
             Repaint();
+        }
+
+        // Undo/Redo でテクスチャが戻ったとき、文書の外にあるテクスチャごとの状態を合わせる。
+        private void AfterTextureRestoredByUndo()
+        {
+            // 読めなかった印は戻す前のテクスチャのもの。残したままだと、読めなかったファイルを空の保存で削除する。
+            SessionPersistence.LoadFromFile(SourceTexture, out _sessionLoadFailed);
+            _maskView?.RecheckMaskFile();
+            // 書き出しの既定の名前。
+            string path = CurrentTexturePath(SourceTexture);
+            if (path != null) _exportView?.SetSourceTextureBaseName(Path.GetFileNameWithoutExtension(path));
+            // AI 提案の途中の要求は前のテクスチャのもの。
+            _maskView?.SuggestControllerIfCreated?.OnSourceChangedOrClosing();
+            RememberLastEditedTexture();
         }
 
         /// <summary>

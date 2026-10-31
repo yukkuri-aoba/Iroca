@@ -98,6 +98,17 @@ namespace Iroca
             }
         }
 
+        /// <summary>
+        /// いまのテクスチャのマスクのファイルが読めるかを確かめ直す(Undo でテクスチャが戻ったとき。読めなかった印はテクスチャごと)。
+        /// </summary>
+        public void RecheckMaskFile()
+        {
+            string path = MaskTexturePath();
+            if (path == null) { _maskLoadFailed = false; return; }
+            var fileState = MaskFileStore.LoadMask(path, out bool unreadable);
+            _maskLoadFailed = unreadable || (fileState != null && (fileState.width <= 0 || fileState.height <= 0));
+        }
+
         // 結び付いたレシピのマスクを編集中のマスクへ展開する。レシピが無い・読めない・マスクが無ければ false。
         private bool RestoreFromBoundRecipe()
         {

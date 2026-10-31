@@ -79,7 +79,7 @@ namespace Iroca
             // Session をまるごと差し替えるため、深い Undo (RegisterCompleteObjectUndo) を使う。
             Editing.RecordMaskEdit("Change Source Texture");
             SourceTexture = newTex;
-            Doc.boundRecipe = recipe;
+            BindRecipe(recipe);
             _previewView.InvalidateSourceCache();
             _maskView.ClearBuffersOnTextureChange();
             if (SourceTexture != null)
@@ -101,7 +101,7 @@ namespace Iroca
         /// </summary>
         private bool TryLoadSessionFromRecipe()
         {
-            Doc.boundRecipe = SessionPersistence.RecipeFor(SourceTexture, BoundRecipe);
+            BindRecipe(SessionPersistence.RecipeFor(SourceTexture, BoundRecipe));
             if (Doc.boundRecipe == null) return false;
 
             // 壊れたレシピは読まない(保存も BoundRecipe 経由で上書きしない)。
@@ -182,7 +182,7 @@ namespace Iroca
             var win = WindowShowing(recipe.sourceTexture);
             if (win == null) return;
             win.Editing.RecordMaskEdit(undoName);
-            win.Doc.boundRecipe = recipe;
+            win.BindRecipe(recipe);
             win.LoadPersistedSessionForCurrentTexture();
             win._maskView?.ResetActiveTarget();
             win.Repaint();
@@ -393,7 +393,7 @@ namespace Iroca
                 recipe = RecipeStore.Create(SourceTexture, saved);
             else
                 RecipeStore.Save(recipe, saved);
-            Doc.boundRecipe = recipe;
+            BindRecipe(recipe);
             SessionPersistence.MarkRecipeSynced(recipe);
 
             // マテリアルを戻すのとコンポーネントの登録を 1 回の Undo にまとめる。
