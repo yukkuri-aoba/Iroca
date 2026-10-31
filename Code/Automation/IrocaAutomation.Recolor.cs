@@ -748,10 +748,10 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 作業解像度で読んだ画素(<see cref="ExportPipeline.ReadSourcePixels"/> の workingSize: true)が、書き出しで読む
-        /// 元の解像度の画素(workingSize: false)と同じになるか。取り込み済みテクスチャから読んだとき(PSD・TGA など)は
+        /// 作業解像度で読んだ画素(<see cref="ExportPipeline.ReadWorkingPixelsNative"/>)が、書き出しで読む
+        /// 元の解像度の画素(<see cref="ExportService.ReadSource"/>)と同じになるか。取り込み済みテクスチャから読んだとき(PSD・TGA など)は
         /// どちらも同じ画素を読む。ファイルから読んだときは、寸法が元のファイルと同じなら縮めていない
-        /// (<see cref="WorkingResolution.PixelsOf"/> は寸法が同じならデコードした画素をそのまま返す)。
+        /// (<see cref="WorkingResolution.NativePixelsOf"/> は寸法が同じならデコードした画素をそのまま写す)。
         /// </summary>
         internal static bool IsFullResolution(ExportPipeline.SourceKind kind, Texture2D tex, int w, int h)
         {

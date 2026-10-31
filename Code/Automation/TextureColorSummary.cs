@@ -40,12 +40,12 @@ namespace Iroca
         /// <summary>
         /// 画素(下原点、w×h)を最大 maxColors 色に要約する。割合の大きい順。不透明な画素が無ければ空。
         /// </summary>
-        public static List<Entry> Summarize(Color32[] pixels, int w, int h, int maxColors)
+        public static List<Entry> Summarize(NativePixels pixels, int maxColors)
         {
             var result = new List<Entry>();
-            if (pixels == null || w <= 0 || h <= 0 || maxColors <= 0) return result;
+            if (pixels == null || maxColors <= 0) return result;
 
-            Downscale(pixels, w, h, out var small, out int sw, out int sh);
+            DownscaleTo(pixels, AnalysisMaxSide, out var small, out int sw, out int sh);
 
             // 不透明な画素と、その OKLab
             var index = new List<int>();
@@ -121,18 +121,17 @@ namespace Iroca
             return result;
         }
 
-        /// <summary>長辺が <see cref="AnalysisMaxSide"/> 以下なら複製せずそのまま、超えるなら面積平均で縮める。</summary>
-        internal static void Downscale(Color32[] pixels, int w, int h, out Color32[] small, out int sw, out int sh)
-            => DownscaleTo(pixels, w, h, AnalysisMaxSide, out small, out sw, out sh);
-
-        internal static void DownscaleTo(Color32[] pixels, int w, int h, int maxSide, out Color32[] small, out int sw, out int sh)
+        /// <summary>長辺が maxSide 以下の新しい配列にする(超えるなら面積平均で縮める、以下ならそのまま写す)。</summary>
+        internal static unsafe void DownscaleTo(NativePixels pixels, int maxSide, out Color32[] small, out int sw, out int sh)
         {
+            int w = pixels.Width, h = pixels.Height;
             int longSide = Math.Max(w, h);
-            if (longSide <= maxSide) { small = pixels; sw = w; sh = h; return; }
+            if (longSide <= maxSide) { small = pixels.ToArray(); sw = w; sh = h; return; }
             float s = maxSide / (float)longSide;
             sw = Math.Max(1, Mathf.RoundToInt(w * s));
             sh = Math.Max(1, Mathf.RoundToInt(h * s));
-            small = WorkingResolution.ResizeArea(pixels, w, h, sw, sh);
+            small = new Color32[sw * sh];
+            fixed (Color32* d = small) WorkingResolution.ResizeArea(pixels.Ptr, w, h, sw, sh, d);
         }
 
         // ─── k-means ───

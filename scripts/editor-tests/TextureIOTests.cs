@@ -33,7 +33,7 @@ namespace Iroca.EditorTests
             var imported = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
 
             Assert.AreEqual(ExportPipeline.SourceKind.File,
-                ExportPipeline.ReadSourcePixels(path, imported, out var expected, out int ew, out int eh, workingSize));
+                TestAssets.ReadSourcePixels(path, imported, out var expected, out int ew, out int eh, workingSize));
             var native = TextureIO.ReadSourceFile(path, imported, workingSize);
             Assert.IsNotNull(native, "元ファイルを読めない");
             try

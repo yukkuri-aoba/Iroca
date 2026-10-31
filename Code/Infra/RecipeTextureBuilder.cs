@@ -18,7 +18,7 @@ namespace Iroca
     /// レシピ(<see cref="IrocaRecipe"/>)から、非破壊ビルドで差し替える色替え済みテクスチャを作る。
     /// <list type="number">
     /// <item>原本の画素を「適用して保存」と同じ手順で読み、プレビューと同じ作業解像度(<see cref="WorkingResolution"/>。
-    ///   既定は取り込み後の寸法)にそろえる(<see cref="ExportPipeline.ReadSourcePixels"/>)。</item>
+    ///   既定は取り込み後の寸法)にそろえる(<see cref="ExportPipeline.ReadWorkingPixelsNative"/>)。</item>
     /// <item>保存済みの編集状態をそのまま当てる(<see cref="SessionRecolor.Apply"/>)。</item>
     /// <item>取り込み済みの元テクスチャと同じ寸法・圧縮形式・ミップ・色空間・サンプリング設定にそろえる。
     ///   そろえないと VRAM が増えてパフォーマンスランクが落ちる。形式はビルド対象(PC/Android)ごとに
@@ -493,7 +493,7 @@ namespace Iroca
 
         /// <summary>
         /// 原本ファイル(PNG・JPG)から読んだ画素に、取り込み設定の Alpha Source を取り込みと同じく当てる。原本ファイルは
-        /// 取り込み設定を通さずに読む(<see cref="ExportPipeline.ReadSourcePixels"/>)ので、当てないと None でも PNG の
+        /// 取り込み設定を通さずに読む(<see cref="ExportPipeline.ReadWorkingPixelsNative"/>)ので、当てないと None でも PNG の
         /// アルファが戻り、アルファを使うシェーダーで元には無かった透けや穴が出る。None ならアルファを捨てて不透明に、
         /// From Gray Scale なら RGB の平均をアルファにする(Unity の説明どおり)。色替えはアルファも見て選ぶので、
         /// 色替えの後(出来上がり)に当てる。色替えした画像を同じ取り込み設定で取り込んだとき(書き出し)と同じになる。

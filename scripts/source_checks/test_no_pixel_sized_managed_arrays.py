@@ -5,8 +5,9 @@
 1 回の確保がその後ずっとエディタの常駐量になる。画素数の大きさのバッファはヒープの外の部品
 （`NativeWorkPool`・`NativePixels`。計画の 3.4）で持つ。
 
-今ある分は PIXEL_SIZED_ALLOWED（`pixel_sized_managed_arrays.json`）に載せてある。この一覧は**減らすことしか
-できない**: 一覧に無い確保が現れたら落ち、一覧にあるのに無くなった（または減った）確保も落ちる（一覧を減らすこと）。
+残っている分は PIXEL_SIZED_ALLOWED（`pixel_sized_managed_arrays.json`）に、ファイルごとの理由（`reasons`）つきで
+載せてある。製品の通常の経路には残っていない（2026-10-31。テスト・ハーネスの口と Unity の API の都合だけ）。
+この一覧は**減らすことしかできない**: 一覧に無い確保が現れたら落ち、一覧にあるのに無くなった（または減った）確保も落ちる（一覧を減らすこと）。
 ファイルを移したときは、一覧のパスも同じコミットで直す。
 
 画素数の大きさかどうかは、大きさの式の形で見分ける（静的には正確に決められないので、このコードベースの書き方に
@@ -64,6 +65,32 @@ NOT_PIXEL_SIZED: dict[tuple[str, str], str] = {
         "ゾーンの数(strengths はゾーンごとの配列の配列)",
     ("Code/UI/PreviewView.Overlays.cs", "new Vector3[segs.Length]"):
         "重ね表示の線分の数",
+    ("Code/Automation/TextureColorSummary.cs", "new Color32[sw * sh]"):
+        "長辺 AnalysisMaxSide(256) か InspectThumbnailMaxSide(512) 以下に縮めた画像の画素数",
+    ("Code/Core/RecolorPreview.cs", "new Color32[panelW * panelH]"):
+        "タイル 3 枚の横並び。比較パネルのタイル。長辺は maxTile 以下に縮めるので、原本の大きさに依らない",
+    ("Code/Core/RecolorPreview.cs", "new Color32[tw * th]"):
+        "比較パネルのタイル。長辺は maxTile 以下に縮めるので、原本の大きさに依らない",
+    ("Code/Infra/WorkingResolution.cs", "new byte[(long)stripRows * rowBytes]"):
+        "縮小で一度に写す元の行の帯。BandBytes(16MB)で頭打ち",
+    ("Code/MaskSuggest/Ops/SamImageOps.cs", "new float[3 * InputSize * InputSize]"):
+        "SAM の入力の固定の大きさ(InputSize は定数)",
+    ("Code/MaskSuggest/Ops/SamMaskRefine.cs", "new bool[gw * gh]"):
+        "粗いグリッドのセルの数。セルの辺 d(BandHalfWidth)が長辺に比例するので、解像度に依らず 342² 前後",
+    ("Code/MaskSuggest/Ops/SamMaskRefine.cs", "new double[gw * gh * 3]"):
+        "粗いグリッドのセルの数。セルの辺 d(BandHalfWidth)が長辺に比例するので、解像度に依らず 342² 前後",
+    ("Code/MaskSuggest/Ops/SamMaskRefine.cs", "new double[gw * gh * 4]"):
+        "粗いグリッドのセルの数。セルの辺 d(BandHalfWidth)が長辺に比例するので、解像度に依らず 342² 前後",
+    ("Code/MaskSuggest/Ops/SamMaskRefine.cs", "new int[gw * gh]"):
+        "粗いグリッドのセルの数。セルの辺 d(BandHalfWidth)が長辺に比例するので、解像度に依らず 342² 前後",
+    ("Code/MaskSuggest/Ops/SamMaskRefine.cs", "new long[gw * gh * 3]"):
+        "粗いグリッドのセルの数。セルの辺 d(BandHalfWidth)が長辺に比例するので、解像度に依らず 342² 前後",
+    ("Code/MaskSuggest/Ops/SamMaskRefine.cs", "new long[gw * gh * 4]"):
+        "粗いグリッドのセルの数。セルの辺 d(BandHalfWidth)が長辺に比例するので、解像度に依らず 342² 前後",
+    ("Code/UI/MaskPaintView.Overlay.cs", "new Color32[w * h]"):
+        "重ね表示の寸法はプレビュー(IrocaConsts.Preview.MaxSize 以下)の整数倍で、OverlayMaxSize(2048)で頭打ち",
+    ("Code/UI/PreviewView.ContextMenu.cs", "new int[(x1 - x0 + 1) * (y1 - y0 + 1)]"):
+        "クリック位置の周りの小さな窓(半径 PaintingProbeRadius)",
 }
 
 
@@ -179,6 +206,14 @@ def test_allowed_list_only_shrinks():
         f"{ALLOWED_PATH.name} の数が実際より多い項目があります(ファイル, 式: 一覧の数 / 今の数):\n"
         + "\n".join(f"  {rel}: {expr}: {m} / {n}" for (rel, expr), m, n in stale)
         + "\n  減らした・移したなら、一覧の数を今の数へ下げる(0 なら項目ごと消す)。")
+
+
+def test_allowed_files_have_reasons():
+    """一覧のファイルごとに、なぜ残っているかが書いてあること(無くなったファイルの理由も残さない)。"""
+    doc = json.loads(ALLOWED_PATH.read_text(encoding="utf-8"))
+    allowed, reasons = set(doc["allowed"]), doc.get("reasons", {})
+    assert allowed == set(reasons), f"理由が足りない・余っている: {sorted(allowed ^ set(reasons))}"
+    assert all(r.strip() for r in reasons.values())
 
 
 def test_exempt_folders():

@@ -14,10 +14,9 @@ namespace Iroca
     /// Unity MCP / AI エージェントから Iroca をヘッドレス駆動するための自動化 API。
     ///
     /// UI（IrocaWindow / ExportView）を介さず、テクスチャ読込 → 再着色 → PNG 出力までを
-    /// 静的メソッド一発で実行できる。原本を <see cref="ExportPipeline.ReadSourcePixels"/> で読み、
+    /// 静的メソッド一発で実行できる。原本を <see cref="ExportPipeline.ReadWorkingPixelsNative"/> で読み、
     /// ゾーン・処理設定・マスクを編集状態（<see cref="IrocaSessionState"/>）にまとめて、非破壊ビルドと同じ入口
     /// <see cref="SessionRecolor.Apply"/> に通すので、製品の出力と一致する。
-    /// ただし ReadSourcePixels を imported=null で呼ぶので、取り込み済みテクスチャへのフォールバックはしない（PNG/JPG のみ）。
     ///
     /// 呼び出し経路は 3 つ。1 と 3 は同じ中核（<see cref="RunRecolorCore"/>）を、2 は同じ <see cref="SessionRecolor.Apply"/> を通る:
     ///   1. 静的 API: <see cref="RecolorByPreset"/> / <see cref="RecolorWithZones"/> 等。戻り値は JSON 文字列。

@@ -84,7 +84,7 @@ namespace Iroca
                 _failedFor = tex;
                 return false;
             }
-            Set(tex, NativePixels.CopyOf(tex.GetPixels32(), tex.width, tex.height), fromFile: false);
+            Set(tex, WorkingResolution.NativePixelsOf(tex, null), fromFile: false);
             return true;
         }
 

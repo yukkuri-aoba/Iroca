@@ -114,7 +114,7 @@ namespace Iroca.EditorTests
                 Step(c.name, "import", sw.Elapsed.TotalMilliseconds, $"{tex.width}x{tex.height} {tex.format} mips={tex.mipmapCount}");
 
                 sw.Restart();
-                var kind = ExportPipeline.ReadSourcePixels(path, tex, out var src, out int w, out int h);
+                var kind = TestAssets.ReadSourcePixels(path, tex, out var src, out int w, out int h);
                 Step(c.name, "readSource", sw.Elapsed.TotalMilliseconds, $"{kind} {w}x{h}");
                 Assert.AreEqual(ExportPipeline.SourceKind.File, kind);
 
@@ -153,7 +153,7 @@ namespace Iroca.EditorTests
                 Step(c.name, "writeImport", sw.Elapsed.TotalMilliseconds, $"{outTex.width}x{outTex.height} {outTex.format} max={((TextureImporter)AssetImporter.GetAtPath(outRel)).maxTextureSize}");
 
                 sw.Restart();
-                ExportPipeline.ReadSourcePixels(outRel, outTex, out var back, out int bw, out int bh);
+                TestAssets.ReadSourcePixels(outRel, outTex, out var back, out int bw, out int bh);
                 Assert.AreEqual((w, h), (bw, bh));
                 int diff = 0;
                 for (int i = 0; i < back.Length; i++)

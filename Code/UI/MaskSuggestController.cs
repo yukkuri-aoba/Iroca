@@ -232,39 +232,41 @@ namespace Iroca
                         // ビット同一 — 根拠は TryDeriveAaCropRect)。小パーツ提案でもマスク全
                         // 解像度の距離変換×最大 10 回が走っていた(実測 162-225ms のメイン停止)
                         // のを、画素取得ごとクロップ分に抑える。提案が空なら丸ごとスキップ。
+                        NativePixels texPx = null, cropPx = null;
                         try
                         {
-                            // 画素は GetPixels32 で取り(GetPixels(rect) の float→byte 丸めは
+                            // 画素はテクスチャの全面を GetPixels32 と同じ値で取り(GetPixels(rect) の float→byte 丸めは
                             // テクスチャ形式によって GetPixels32 と一致する保証がない)、
                             // クロップは行コピーで切り出す。
                             t = MaskSuggestPerf.Now;
-                            var texPx = tex.GetPixels32();
-                            Color32[] cropPx;
-                            if (rw == mw && rh == mh)
+                            texPx = WorkingResolution.NativePixelsOf(tex, null);
+                            Color32* cp = texPx.Ptr;
+                            if (rw != mw || rh != mh)
                             {
-                                cropPx = texPx;
-                            }
-                            else
-                            {
-                                cropPx = new Color32[rw * rh];
+                                cropPx = NativePixels.Allocate(rw, rh);
+                                long rowBytes = (long)rw * sizeof(Color32);
                                 for (int cy = 0; cy < rh; cy++)
-                                    System.Array.Copy(texPx, (ry0 + cy) * mw + rx0,
-                                                      cropPx, cy * rw, rw);
+                                    System.Buffer.MemoryCopy(texPx.Ptr + (long)(ry0 + cy) * mw + rx0,
+                                        cropPx.Ptr + (long)cy * rw, rowBytes, rowBytes);
+                                cp = cropPx.Ptr;
                             }
                             getPixelsMs = MaskSuggestPerf.MsSince(t);
                             t = MaskSuggestPerf.Now;
-                            fixed (Color32* cp = cropPx)
-                                SamMaskRefine.IncludeAaTransitionCropped(region.Ptr, mw, mh,
-                                    cp, rx0, ry0, rw, rh, aaD);
+                            SamMaskRefine.IncludeAaTransitionCropped(region.Ptr, mw, mh,
+                                cp, rx0, ry0, rw, rh, aaD);
                             // 細い描き込みの提案は、やり直した AA 包含が落ち影を「混色」として足し直すので、
                             // 精密化と同じく最後に地を外す(細い成分が無ければ外接矩形の距離変換 1 回で戻る)。
-                            fixed (Color32* tp = texPx)
-                                SamMaskRefine.PeelThinSpill(region.Ptr, tp, mw, mh);
+                            SamMaskRefine.PeelThinSpill(region.Ptr, texPx.Ptr, mw, mh);
                             aaMs = MaskSuggestPerf.MsSince(t);
                         }
                         catch (System.Exception)
                         {
                             // 画素を取得できない場合も、被覆保存転写だけで提案を適用できる。
+                        }
+                        finally
+                        {
+                            cropPx?.Release();
+                            texPx?.Release();
                         }
                     }
                 }

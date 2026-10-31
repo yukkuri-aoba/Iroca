@@ -64,7 +64,7 @@ namespace Iroca
 
         /// <summary>
         /// 原本の画素をヒープの外へ読む(メインスレッド専用。参照 1 で返すので、呼び出し側が Release する)。
-        /// 書き出しの原本の読み込み(Infra の ExportPipeline.ReadSourcePixels)と同じ画素で、<paramref name="workingSize"/> なら
+        /// <paramref name="workingSize"/> なら
         /// 編集の作業解像度(<see cref="WorkingResolution"/>)、そうでなければ元の解像度(書き出し)。
         /// 元ファイルを直接デコードできなければ(PSD・TGA・EXR など Unity が取り込みで変換するもの)null。そのときは
         /// 呼び出し側が取り込み済みテクスチャから読む。

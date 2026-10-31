@@ -97,7 +97,7 @@ namespace Iroca.EditorTests
             var imported = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
             Assert.AreEqual(32, imported.width, "前提: 取り込み側は縮小されている");
 
-            var kind = ExportPipeline.ReadSourcePixels(path, imported, out var got, out int w, out int h);
+            var kind = TestAssets.ReadSourcePixels(path, imported, out var got, out int w, out int h);
             Assert.AreEqual(ExportPipeline.SourceKind.File, kind);
             Assert.AreEqual((64, 64), (w, h));
             CollectionAssert.AreEqual(px, got);
@@ -108,7 +108,7 @@ namespace Iroca.EditorTests
         {
             string path = _assets.WriteBytes("src.tga", Tga(8, 4, new Color32(10, 200, 30, 255)), readable: true);
             var imported = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-            var kind = ExportPipeline.ReadSourcePixels(path, imported, out var got, out int w, out int h);
+            var kind = TestAssets.ReadSourcePixels(path, imported, out var got, out int w, out int h);
             Assert.AreEqual(ExportPipeline.SourceKind.ImportedTexture, kind, "TGA は LoadImage で読めないので取り込み済みを使う");
             Assert.AreEqual((8, 4), (w, h));
             Assert.AreEqual(new Color32(10, 200, 30, 255), got[0]);
@@ -120,7 +120,7 @@ namespace Iroca.EditorTests
             string path = _assets.WriteBytes("src.tga", Tga(8, 4, new Color32(10, 200, 30, 255)), readable: false);
             var imported = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
             Assert.AreEqual(ExportPipeline.SourceKind.Unavailable,
-                ExportPipeline.ReadSourcePixels(path, imported, out _, out _, out _));
+                TestAssets.ReadSourcePixels(path, imported, out _, out _, out _));
         }
 
         // 書き出し(「適用して保存」・一括)はヒープの外へ読む(ExportService.ReadSource)。上の管理配列の読み方と同じ画素・同じ区別。
@@ -138,7 +138,7 @@ namespace Iroca.EditorTests
             foreach (var path in new[] { png, tga })
             {
                 var imported = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-                var expectedKind = ExportPipeline.ReadSourcePixels(path, imported, out var expected, out int w, out int h);
+                var expectedKind = TestAssets.ReadSourcePixels(path, imported, out var expected, out int w, out int h);
                 var kind = ExportService.ReadSource(path, imported, out NativePixels got);
                 try
                 {

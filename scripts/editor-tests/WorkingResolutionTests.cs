@@ -136,13 +136,13 @@ namespace Iroca.EditorTests
 
             // 作業解像度: 辺が 8192 以下なので、取り込みで小さくなっても元ファイルのまま(取り込み済みの圧縮された
             // 画素は使わない)。
-            var kind = ExportPipeline.ReadSourcePixels(path, imported, out var got, out int w, out int h, workingSize: true);
+            var kind = TestAssets.ReadSourcePixels(path, imported, out var got, out int w, out int h, workingSize: true);
             Assert.AreEqual(ExportPipeline.SourceKind.File, kind);
             Assert.AreEqual((64, 48), (w, h));
             CollectionAssert.AreEqual(px, got);
 
             // 書き出し(workingSize なし)も元ファイルのまま。
-            ExportPipeline.ReadSourcePixels(path, imported, out got, out w, out h);
+            TestAssets.ReadSourcePixels(path, imported, out got, out w, out h);
             Assert.AreEqual((64, 48), (w, h));
             CollectionAssert.AreEqual(px, got);
         }

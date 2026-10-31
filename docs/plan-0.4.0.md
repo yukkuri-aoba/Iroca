@@ -915,7 +915,7 @@ T5 で消える部分は作り直さない（1.5）。
       （Infra の `RecipeTextureBuilder`）とその下の `SessionRecolor`（Core）からも使うので、Application に置くと層の
       向きに逆らう。組み立ては Core の型（ゾーン・`MaskSnapshot`・`RecolorSettings`・`IrocaSessionState`）だけで書ける。
     - **残したこと**: 原本の画素は入れていない。読み方が経路ごとに違う（プレビューは `SourcePixelCache`、書き出しは
-      `ExportPipeline.ReadSourcePixels`、非破壊ビルドは `TextureIO.ReadSourceFile`、自動化は自前）ので、そろえるのは
+      `ExportPipeline.ReadSourcePixels`（2026-10-31 に製品から無くなった）、非破壊ビルドは `TextureIO.ReadSourceFile`、自動化は自前）ので、そろえるのは
       `EditingSession`（4）と `ExportService`（4-3）のとき。
   - 2026-10-29（手元）: 3 の `EditingSessionRegistry` を作った。いろかのウィンドウが OnEnable の最初で登録し、OnDisable の
     最後で外す（閉じる途中の処理からは、まだ開いている編集として見える。型で探していたときと同じ）。ウィンドウを型で

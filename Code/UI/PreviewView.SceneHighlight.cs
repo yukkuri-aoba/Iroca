@@ -1,6 +1,7 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
+using Unity.Collections.LowLevel.Unsafe;
 using UnityEditor;
 using UnityEngine;
 
@@ -125,16 +126,17 @@ namespace Iroca
             int* raster = map.Raster;
             var c = IrocaColors.SceneHighlight;
             var on = new Color32((byte)(c.r * 255f), (byte)(c.g * 255f), (byte)(c.b * 255f), 255);
-            var pixels = new Color32[w * hgt];
-            for (int i = 0; i < pixels.Length; i++)
-                if (raster[i] >= 0) pixels[i] = on;
             _sceneFillTexture = new Texture2D(w, hgt, TextureFormat.RGBA32, false)
             {
                 hideFlags = HideFlags.HideAndDontSave,
                 wrapMode = TextureWrapMode.Clamp,
                 filterMode = FilterMode.Bilinear,
             };
-            _sceneFillTexture.SetPixels32(pixels);
+            // テクスチャの生データへ直接書く(プレビューの寸法の管理配列を作らない)。
+            var pixels = (Color32*)NativeArrayUnsafeUtility.GetUnsafePtr(_sceneFillTexture.GetRawTextureData<Color32>());
+            int count = w * hgt;
+            for (int i = 0; i < count; i++)
+                pixels[i] = raster[i] >= 0 ? on : default;
             _sceneFillTexture.Apply(false, true);
             _sceneFillFor = h;
             return _sceneFillTexture;

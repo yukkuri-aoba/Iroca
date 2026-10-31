@@ -54,50 +54,11 @@ namespace Iroca
         }
 
         /// <summary>
-        /// 原本の画素を読む（メインスレッド専用）。PNG/JPG はファイルを直接デコードするので
-        /// import 設定（maxTextureSize・圧縮・Read/Write）の影響を受けない。PSD/TGA/EXR 等は Unity が
-        /// 取り込み時に変換しているので LoadImage で読めず、取り込み済みテクスチャの画素を使う。
-        /// <paramref name="workingSize"/> なら編集の作業解像度(<see cref="WorkingResolution"/>。既定は
-        /// 取り込み後の寸法)へ縮めて返す。書き出しは元の解像度のまま読む(false)。
-        /// </summary>
-        public static SourceKind ReadSourcePixels(string srcPath, Texture2D imported,
-                                                  out Color32[] pixels, out int width, out int height,
-                                                  bool workingSize = false)
-        {
-            pixels = null; width = height = 0;
-            Texture2D loadTex = null;
-            try
-            {
-                byte[] srcBytes = File.ReadAllBytes(srcPath);
-                loadTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                if (loadTex.LoadImage(srcBytes))
-                {
-                    if (workingSize)
-                        pixels = WorkingResolution.PixelsOf(loadTex, imported, out width, out height);
-                    else
-                    {
-                        pixels = loadTex.GetPixels32();
-                        width = loadTex.width;
-                        height = loadTex.height;
-                    }
-                    return SourceKind.File;
-                }
-            }
-            finally
-            {
-                if (loadTex != null) Object.DestroyImmediate(loadTex);
-            }
-            if (!TextureIO.IsReadable(imported)) return SourceKind.Unavailable;
-            pixels = imported.GetPixels32();
-            width = imported.width;
-            height = imported.height;
-            return SourceKind.ImportedTexture;
-        }
-
-        /// <summary>
-        /// <see cref="ReadSourcePixels"/>(workingSize: true)と同じ画素を、Mono のヒープの外(<see cref="NativePixels"/>。
-        /// 参照 1 で返すので、呼び出し側が Release する)へ読む(メインスレッド専用)。非破壊ビルド・シーンのプレビューは
-        /// いろかのウィンドウを閉じた後にも走るので、管理配列で読むとその分(4K で 64MB)Mono のヒープが広がったまま残る。
+        /// 原本を編集の作業解像度(<see cref="WorkingResolution"/>。既定は取り込み後の寸法)で、Mono のヒープの外
+        /// (<see cref="NativePixels"/>。参照 1 で返すので、呼び出し側が Release する)へ読む(メインスレッド専用)。
+        /// PNG/JPG はファイルを直接デコードするので取り込み設定(maxTextureSize・圧縮・Read/Write)の影響を受けない。
+        /// PSD/TGA/EXR 等は Unity が取り込み時に変換しているので LoadImage で読めず、取り込み済みテクスチャの画素を使う。
+        /// 非破壊ビルドはいろかのウィンドウを閉じた後にも走るので、管理配列で読むとその分(4K で 64MB)Mono のヒープに残る。
         /// </summary>
         public static SourceKind ReadWorkingPixelsNative(string srcPath, Texture2D imported, out NativePixels pixels)
         {
@@ -118,7 +79,7 @@ namespace Iroca
                 if (loadTex != null) Object.DestroyImmediate(loadTex);
             }
             if (!TextureIO.IsReadable(imported)) return SourceKind.Unavailable;
-            pixels = NativePixels.CopyOf(imported.GetPixels32(), imported.width, imported.height);
+            pixels = WorkingResolution.NativePixelsOf(imported, null);
             return SourceKind.ImportedTexture;
         }
 

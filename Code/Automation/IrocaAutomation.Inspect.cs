@@ -191,28 +191,35 @@ namespace Iroca
 
             string abs = PhysicalPath(info.path);
             if (abs == null) { r.warnings.Add("texture file not found; colors are not available."); return; }
-            var kind = ExportPipeline.ReadSourcePixels(abs, tex, out Color32[] pixels, out int w, out int h, workingSize: true);
+            var kind = ExportPipeline.ReadWorkingPixelsNative(abs, tex, out NativePixels pixels);
             if (kind == ExportPipeline.SourceKind.Unavailable)
             {
                 r.warnings.Add("could not read the pixels (enable Read/Write in the import settings, or use a PNG/JPG source).");
                 return;
             }
-            info.workWidth = w;
-            info.workHeight = h;
-
-            var entries = TextureColorSummary.Summarize(pixels, w, h, maxColors);
-            foreach (var e in entries)
+            try
             {
-                info.colors.Add(new ColorInfo
+                info.workWidth = pixels.Width;
+                info.workHeight = pixels.Height;
+
+                var entries = TextureColorSummary.Summarize(pixels, maxColors);
+                foreach (var e in entries)
                 {
-                    hex = "#" + ColorUtility.ToHtmlStringRGB(e.color),
-                    rgb = new[] { e.color.r / 255f, e.color.g / 255f, e.color.b / 255f },
-                    coverage = e.fraction,
-                    uv = new[] { e.uv.x, e.uv.y },
-                    regionShare = e.regionShare,
-                });
+                    info.colors.Add(new ColorInfo
+                    {
+                        hex = "#" + ColorUtility.ToHtmlStringRGB(e.color),
+                        rgb = new[] { e.color.r / 255f, e.color.g / 255f, e.color.b / 255f },
+                        coverage = e.fraction,
+                        uv = new[] { e.uv.x, e.uv.y },
+                        regionShare = e.regionShare,
+                    });
+                }
+                info.thumbnail = WriteInspectThumbnail(pixels, entries, info.path, r.warnings);
             }
-            info.thumbnail = WriteInspectThumbnail(pixels, w, h, entries, info.path, r.warnings);
+            finally
+            {
+                pixels.Release();
+            }
         }
 
         private static TextureInfo NewTextureInfo(Texture2D tex)
@@ -233,13 +240,12 @@ namespace Iroca
 
         // 縮小画像に、各色の代表点の輪(外側が黒・内側が白)を描いて UserSettings/Iroca/mcp/inspect に書く。
         // Assets の外なので取り込まれない。失敗しても調べた結果は返す(warnings に残す)。
-        private static string WriteInspectThumbnail(Color32[] pixels, int w, int h,
+        private static string WriteInspectThumbnail(NativePixels pixels,
             List<TextureColorSummary.Entry> entries, string texturePath, List<string> warnings)
         {
             try
             {
-                TextureColorSummary.DownscaleTo(pixels, w, h, InspectThumbnailMaxSide, out var small, out int tw, out int th);
-                var img = ReferenceEquals(small, pixels) ? (Color32[])pixels.Clone() : small;
+                TextureColorSummary.DownscaleTo(pixels, InspectThumbnailMaxSide, out var img, out int tw, out int th);
                 foreach (var e in entries)
                 {
                     int cx = Mathf.Clamp((int)(e.uv.x * tw), 0, tw - 1);

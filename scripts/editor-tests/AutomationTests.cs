@@ -542,8 +542,8 @@ namespace Iroca.EditorTests
             string src = Halves();
             var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
             string abs = TestAssets.Abs(src);
-            var kind = ExportPipeline.ReadSourcePixels(abs, tex, out var work, out int w, out int h, workingSize: true);
-            ExportPipeline.ReadSourcePixels(abs, tex, out var full, out int fw, out int fh);
+            var kind = TestAssets.ReadSourcePixels(abs, tex, out var work, out int w, out int h, workingSize: true);
+            TestAssets.ReadSourcePixels(abs, tex, out var full, out int fw, out int fh);
             Assert.IsTrue(IrocaAutomation.IsFullResolution(kind, tex, w, h));
             Assert.AreEqual((fw, fh), (w, h));
             CollectionAssert.AreEqual(full, work);
@@ -560,7 +560,7 @@ namespace Iroca.EditorTests
             importer.maxTextureSize = 4096;
             importer.SaveAndReimport();
             var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
-            var kind = ExportPipeline.ReadSourcePixels(TestAssets.Abs(src), tex, out _, out int w, out int h, workingSize: true);
+            var kind = TestAssets.ReadSourcePixels(TestAssets.Abs(src), tex, out _, out int w, out int h, workingSize: true);
             Assert.AreEqual((tex.width, tex.height), (w, h), "テストの前提(作業解像度が取り込み後の寸法)");
             Assert.Less(w, fw, "テストの前提(取り込みで縮んでいる)");
             Assert.IsFalse(IrocaAutomation.IsFullResolution(kind, tex, w, h));
@@ -576,7 +576,7 @@ namespace Iroca.EditorTests
             importer.maxTextureSize = 32;
             importer.SaveAndReimport();
             var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
-            var kind = ExportPipeline.ReadSourcePixels(TestAssets.Abs(src), tex, out _, out int w, out int h, workingSize: true);
+            var kind = TestAssets.ReadSourcePixels(TestAssets.Abs(src), tex, out _, out int w, out int h, workingSize: true);
             Assert.AreEqual((32, 32), (tex.width, tex.height), "テストの前提(取り込みで縮んでいる)");
             Assert.AreEqual((64, 64), (w, h), "辺が 8192 以下は元の解像度で編集する");
             Assert.IsTrue(IrocaAutomation.IsFullResolution(kind, tex, w, h));
@@ -592,8 +592,8 @@ namespace Iroca.EditorTests
             string src = _assets.WriteBytes("src.tga", b, readable: true);
             var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
             string abs = TestAssets.Abs(src);
-            var kind = ExportPipeline.ReadSourcePixels(abs, tex, out var work, out int w, out int h, workingSize: true);
-            ExportPipeline.ReadSourcePixels(abs, tex, out var full, out _, out _);
+            var kind = TestAssets.ReadSourcePixels(abs, tex, out var work, out int w, out int h, workingSize: true);
+            TestAssets.ReadSourcePixels(abs, tex, out var full, out _, out _);
             Assert.AreEqual(ExportPipeline.SourceKind.ImportedTexture, kind);
             Assert.IsTrue(IrocaAutomation.IsFullResolution(kind, tex, w, h));
             CollectionAssert.AreEqual(full, work);

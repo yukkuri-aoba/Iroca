@@ -22,6 +22,44 @@ namespace Iroca.EditorTests
 
         private TestAssets(string folder) { Folder = folder; }
 
+        /// <summary>
+        /// 原本の画素を管理配列で読む(メインスレッド専用)。製品はヒープの外へ読むので
+        /// (<see cref="ExportPipeline.ReadWorkingPixelsNative"/>・<see cref="ExportService.ReadSource"/>)、
+        /// これは GetPixels32 の値と比べる基準と、配列のほうが書きやすいテストのためのもの。
+        /// </summary>
+        public static ExportPipeline.SourceKind ReadSourcePixels(string srcPath, Texture2D imported,
+            out Color32[] pixels, out int width, out int height, bool workingSize = false)
+        {
+            pixels = null; width = height = 0;
+            Texture2D loadTex = null;
+            try
+            {
+                byte[] srcBytes = File.ReadAllBytes(srcPath);
+                loadTex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (loadTex.LoadImage(srcBytes))
+                {
+                    if (workingSize)
+                        pixels = WorkingResolution.PixelsOf(loadTex, imported, out width, out height);
+                    else
+                    {
+                        pixels = loadTex.GetPixels32();
+                        width = loadTex.width;
+                        height = loadTex.height;
+                    }
+                    return ExportPipeline.SourceKind.File;
+                }
+            }
+            finally
+            {
+                if (loadTex != null) UnityEngine.Object.DestroyImmediate(loadTex);
+            }
+            if (!TextureIO.IsReadable(imported)) return ExportPipeline.SourceKind.Unavailable;
+            pixels = imported.GetPixels32();
+            width = imported.width;
+            height = imported.height;
+            return ExportPipeline.SourceKind.ImportedTexture;
+        }
+
         public static TestAssets Create()
         {
             if (!AssetDatabase.IsValidFolder(Root))

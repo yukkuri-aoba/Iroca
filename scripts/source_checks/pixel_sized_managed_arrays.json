@@ -5,9 +5,6 @@
     "Code/Debug/": "開発者だけが使う診断(デバッグの記録・再現データの書き出し)。配布の zip に入らない(Build-VpmPackage.ps1 が除く)。2026-10-28 決定"
   },
   "allowed": {
-    "Code/Application/SourcePixelCache.cs": {
-      ".GetPixels32()": 1
-    },
     "Code/Core/MaskRle.cs": {
       "new bool[len]": 2
     },
@@ -26,10 +23,6 @@
     "Code/Core/Recolor/PixelProcessor.RecolorBranchRecorder.cs": {
       "new byte[len]": 1
     },
-    "Code/Core/RecolorPreview.cs": {
-      "new Color32[panelW * panelH]": 1,
-      "new Color32[tw * th]": 2
-    },
     "Code/Debug/DebugCaptureContext.cs": {
       "new byte[len]": 2
     },
@@ -41,45 +34,30 @@
     "Code/Debug/ReproDump.cs": {
       "new Color32[w * h]": 1
     },
-    "Code/Infra/ExportPipeline.cs": {
-      ".GetPixels32()": 3
-    },
     "Code/Infra/WorkingResolution.cs": {
       ".GetPixels32()": 2,
-      "new Color32[dw * dh]": 2,
-      "new byte[(long)stripRows * rowBytes]": 1
-    },
-    "Code/MaskSuggest/Ops/SamImageOps.cs": {
-      "new float[3 * InputSize * InputSize]": 1
+      "new Color32[dw * dh]": 2
     },
     "Code/MaskSuggest/Ops/SamMaskRefine.cs": {
-      "new bool[dw * dh]": 1,
-      "new bool[gw * gh]": 7,
-      "new double[gw * gh * 3]": 2,
-      "new double[gw * gh * 4]": 5,
-      "new int[gw * gh]": 8,
-      "new long[gw * gh * 3]": 2,
-      "new long[gw * gh * 4]": 6
+      "new bool[dw * dh]": 1
     },
     "Code/MaskSuggest/Ops/SamZoomOps.cs": {
       "new Color32[side * side]": 1,
       "new bool[w * h]": 1
-    },
-    "Code/UI/IrocaWindow.AutoTune.cs": {
-      ".GetPixels32()": 1
-    },
-    "Code/UI/MaskPaintView.Overlay.cs": {
-      "new Color32[w * h]": 2
-    },
-    "Code/UI/MaskSuggestController.cs": {
-      ".GetPixels32()": 1,
-      "new Color32[rw * rh]": 1
-    },
-    "Code/UI/PreviewView.ContextMenu.cs": {
-      "new int[(x1 - x0 + 1) * (y1 - y0 + 1)]": 1
-    },
-    "Code/UI/PreviewView.SceneHighlight.cs": {
-      "new Color32[w * hgt]": 1
     }
+  },
+  "reasons": {
+    "Code/Core/MaskRle.cs": "bool[] への展開(MaskRle.Decode)。製品のマスクは 1 ビットの詰めた形で読むので、残る呼び出しはテストとハーネスと MaskStateCodec.Decode の口",
+    "Code/Core/MaskSnapshot.cs": "1 画素 1 ビットの配列。自動調整の再現データの証拠(8K で 8MB/ゾーン、ReproDump が読む)とハーネスの口",
+    "Code/Core/NativeBools.cs": "ToArray。テスト・ハーネスの口",
+    "Code/Core/NativePixels.cs": "ToArray。テスト・デバッグの口と、まれな形式の SetPixels32(Unity の API が管理配列しか受け取らない)",
+    "Code/Core/Pipeline/PixelProcessor.cs": "BoxDownsampleRegion の配列を返す口。ハーネスだけが使う(製品は BoxDownsampleRegionInto)",
+    "Code/Core/Recolor/PixelProcessor.RecolorBranchRecorder.cs": "デバッグの分岐の記録。取るときだけ確保する",
+    "Code/Debug/DebugCaptureContext.cs": "exempt のとおり",
+    "Code/Debug/DebugImaging.cs": "exempt のとおり",
+    "Code/Debug/ReproDump.cs": "exempt のとおり",
+    "Code/Infra/WorkingResolution.cs": "PixelsOf。圧縮された形式の読み取りは Unity の API(GetPixels32)が管理配列しか返さない。形式が非圧縮なら通らない",
+    "Code/MaskSuggest/Ops/SamMaskRefine.cs": "TransferCoverage の配列を返す口。ハーネスだけが使う(製品はポインタの版)",
+    "Code/MaskSuggest/Ops/SamZoomOps.cs": "ExtractCrop・PasteCrop の配列の口。ハーネスだけが使う(製品はヒープの外の版)"
   }
 }

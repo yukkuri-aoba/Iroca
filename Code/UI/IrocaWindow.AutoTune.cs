@@ -166,7 +166,7 @@ namespace Iroca
                     return;
                 }
 
-                pixels = NativePixels.CopyOf(tex.GetPixels32(), tex.width, tex.height);
+                pixels = TextureIO.IsReadable(tex) ? WorkingResolution.NativePixelsOf(tex, null) : null;
             }
             catch (UnityEngine.UnityException) { pixels = null; }
             finally { EditorUtility.ClearProgressBar(); }
