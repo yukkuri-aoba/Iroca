@@ -102,6 +102,7 @@ namespace Iroca
         private bool TryLoadSessionFromRecipe()
         {
             BindRecipe(SessionPersistence.RecipeFor(SourceTexture, BoundRecipe));
+            RefreshUnboundRecipeCount();
             if (Doc.boundRecipe == null) return false;
 
             // 壊れたレシピは読まない(保存も BoundRecipe 経由で上書きしない)。
@@ -114,6 +115,13 @@ namespace Iroca
             Editing.NotifyChanged(EditChange.Replaced);
             return true;
         }
+
+        // 結び付いていないテクスチャのレシピの数(2 つ以上なら窓に案内を出す。探すのはプロジェクトの走査なので毎回は数えない)。
+        [System.NonSerialized] private int _unboundRecipeCount;
+        internal int UnboundRecipeCount => _unboundRecipeCount;
+
+        private void RefreshUnboundRecipeCount() =>
+            _unboundRecipeCount = SourceTexture != null && BoundRecipe == null ? RecipeStore.FindForTexture(SourceTexture).Count : 0;
 
         /// <summary>結び付いたレシピへ今の編集内容を書く。<paramref name="saved"/> はマスク込みのもの(<see cref="EditingSession.ToSaveState"/>)。</summary>
         private void SaveSessionToBoundRecipe(IrocaSessionState saved)
@@ -183,6 +191,7 @@ namespace Iroca
             if (win == null) return;
             win.Editing.RecordMaskEdit(undoName);
             win.BindRecipe(recipe);
+            win._recipeKeptOverUndo = recipe;
             win.LoadPersistedSessionForCurrentTexture();
             win._maskView?.ResetActiveTarget();
             win.Repaint();
@@ -217,6 +226,7 @@ namespace Iroca
         internal void OnRecipeAssetsImported()
         {
             if (SessionPersistence.RecipeChangedOutside(BoundRecipe)) ScheduleRecipeReload();
+            RefreshUnboundRecipeCount();
         }
 
         /// <summary>
@@ -394,6 +404,7 @@ namespace Iroca
             else
                 RecipeStore.Save(recipe, saved);
             BindRecipe(recipe);
+            _recipeKeptOverUndo = recipe;
             SessionPersistence.MarkRecipeSynced(recipe);
 
             // マテリアルを戻すのとコンポーネントの登録を 1 回の Undo にまとめる。

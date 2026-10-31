@@ -31,15 +31,31 @@ namespace Iroca
 
         /// <summary>
         /// 開いたテクスチャのレシピを決める。既に結び付いているレシピ(<paramref name="bound"/>。レシピから開いた・
-        /// ドメインリロード)を優先し、無ければそのテクスチャのレシピがちょうど 1 つのときだけそれ。複数あって
-        /// 選ばれていなければ null(どれに書くか決められないため。インスペクタの「いろかで開く」で選ぶ)。
+        /// ドメインリロード)を優先し、無ければそのテクスチャのレシピがちょうど 1 つならそれ。複数あれば、このテクスチャで
+        /// 最後に結び付いたレシピ(開き直すと前と違う所へ保存しないように)。どれでもなければ null(どれに書くか決められないため。
+        /// インスペクタの「いろかで開く」で選ぶ。窓が案内を出す)。
         /// </summary>
         internal static IrocaRecipe RecipeFor(Texture2D tex, IrocaRecipe bound)
         {
             if (tex == null) return null;
             if (bound != null) return bound;
             var found = RecipeStore.FindForTexture(tex);
-            return found.Count == 1 ? found[0] : null;
+            if (found.Count == 1) return found[0];
+            if (found.Count == 0) return null;
+            string guid = SessionFileStore.LoadBoundRecipeGuid(TexturePathOf(tex));
+            if (string.IsNullOrEmpty(guid)) return null;
+            foreach (var recipe in found)
+                if (AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(recipe)) == guid) return recipe;
+            return null;
+        }
+
+        /// <summary>テクスチャに結び付いたレシピを覚える(<see cref="RecipeFor"/> が開き直したときに使う)。null なら忘れる。</summary>
+        internal static void RememberBoundRecipe(Texture2D tex, IrocaRecipe recipe)
+        {
+            string path = TexturePathOf(tex);
+            if (path == null) return;
+            string recipePath = recipe != null ? AssetDatabase.GetAssetPath(recipe) : null;
+            SessionFileStore.SaveBoundRecipeGuid(path, string.IsNullOrEmpty(recipePath) ? null : AssetDatabase.AssetPathToGUID(recipePath));
         }
 
         /// <summary>

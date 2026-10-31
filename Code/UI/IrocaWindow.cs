@@ -350,6 +350,7 @@ namespace Iroca
             // 今のマスクを Undo の履歴の起点にする。
             Editing.AdoptMasksAfterEnable();
             RememberEditedTarget();
+            RefreshUnboundRecipeCount();
 
             // Play を始めたときのドメインリロードの直後は、原本の読み直しと色替えの計算し直しを、ウィンドウが
             // 操作されるまで待つ(PreviewView.SourceLoadDeferred)。Play 中以外は今までどおりすぐ読む。
@@ -409,11 +410,16 @@ namespace Iroca
         {
             bool restored = Doc.ConsumeRestored();
             bool textureChanged = restored && SourceTexture != _editedTexture;
-            // レシピとの結び付きは編集内容ではない。登録より前の記録まで戻って同じテクスチャのまま外れると、以後の編集は
-            // レシピに入らず、開き直すと古いレシピが正として読まれて、その後の編集が消える。
-            if (restored && !textureChanged && Doc.boundRecipe == null && _editedRecipe != null)
+            // 登録より前の記録まで戻って同じテクスチャのまま外れると、以後の編集はレシピに入らず、開き直すと古いレシピが正として読まれて、
+            // その後の編集が消える(_recipeKeptOverUndo)。
+            if (restored && !textureChanged && Doc.boundRecipe == null && _editedRecipe != null && _editedRecipe == _recipeKeptOverUndo)
                 Doc.boundRecipe = _editedRecipe;
-            if (restored) RememberEditedTarget();
+            if (restored)
+            {
+                RememberEditedTarget();
+                SessionPersistence.RememberBoundRecipe(SourceTexture, Doc.boundRecipe);
+                RefreshUnboundRecipeCount();
+            }
             // レシピも Undo で前の中身へ戻ったなら、外での書き換えと取り違えない(窓の状態の書き戻しとは別に見る)。
             AdoptRecipeAfterUndo();
             // 関係ない Undo(シーンのオブジェクトの移動など)で、全マスクの再展開とフル解像度の

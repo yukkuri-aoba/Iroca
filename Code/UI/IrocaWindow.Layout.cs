@@ -693,6 +693,10 @@ namespace Iroca
             if (newTex != SourceTexture)
                 SwitchSourceTexture(newTex);
 
+            // どのレシピにも結び付いていないと、編集はレシピ(シーンのプレビューとアップロード)に入らない。
+            if (_unboundRecipeCount >= 2)
+                EditorGUILayout.HelpBox(string.Format(Localization.UnboundRecipesFormat, _unboundRecipeCount), MessageType.Warning);
+
             // Read/Write を求めるのは、原本ファイルからも画素を取れないときだけ（PSD/TGA 等）。
             // PNG/JPG は原本を直接読めるので、インポート設定を書き換える必要はない。
             if (SourceTexture != null && !CanReadSource(SourceTexture))

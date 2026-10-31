@@ -35,6 +35,42 @@ namespace Iroca
 
         private static string SessionFilePath(string texturePath) => Files.PathForAsset(texturePath);
 
+        // このテクスチャに最後に結び付いたレシピの GUID(1 行。SessionPersistence.RecipeFor)。セッションのファイルと同じ所に置くが、
+        // 編集内容ではないので別のファイル(空のセッションはファイルごと消す)。
+        private static readonly GuidFileCache BoundRecipeFiles =
+            new GuidFileCache(CacheDirRelative, ".iroca-recipe", "Bound recipe", "bound recipe");
+
+        /// <summary>テクスチャに最後に結び付いたレシピの GUID を覚える(null・空なら忘れる)。覚えられなくても編集は続けられるので、失敗は警告だけ。</summary>
+        public static void SaveBoundRecipeGuid(string texturePath, string recipeGuid)
+        {
+            string path = BoundRecipeFiles.PathForAsset(texturePath);
+            if (path == null) return;
+            try
+            {
+                if (string.IsNullOrEmpty(recipeGuid))
+                {
+                    if (File.Exists(path)) File.Delete(path);
+                    return;
+                }
+                Directory.CreateDirectory(CacheDir);
+                AtomicFile.WriteAllTextIfChanged(path, recipeGuid);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                Debug.LogWarning($"[Iroca] Could not remember the recipe of the texture: {ex.Message}");
+            }
+        }
+
+        /// <summary>テクスチャに最後に結び付いたレシピの GUID(無い・読めなければ null)。</summary>
+        public static string LoadBoundRecipeGuid(string texturePath)
+        {
+            BoundRecipeFiles.RestoreOrphanFor(texturePath);
+            string path = BoundRecipeFiles.PathForAsset(texturePath);
+            if (path == null || !File.Exists(path)) return null;
+            try { return File.ReadAllText(path).Trim(); }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { return null; }
+        }
+
         /// <summary>
         /// 指定テクスチャのセッションを保存する。
         /// ゾーンが無い（＝再着色を生まない実質空）セッションの場合は既存ファイルを削除して終わる。
@@ -149,7 +185,11 @@ namespace Iroca
         /// （<c>IrocaWindow.OnEnable</c>）ので、退避→復元は読み込み前に完了する。
         /// </para>
         /// </summary>
-        public static void CleanupOrphans() => Files.CleanupOrphans();
+        public static void CleanupOrphans()
+        {
+            Files.CleanupOrphans();
+            BoundRecipeFiles.CleanupOrphans();
+        }
 
         // ゾーンが無ければ再着色は生まれない＝実質空。処理パラメータだけでは出力に影響しないため
         // 保存対象にしない（ファイルを無駄に増やさない）。

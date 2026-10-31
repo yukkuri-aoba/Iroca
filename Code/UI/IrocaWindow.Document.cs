@@ -48,11 +48,16 @@ namespace Iroca
         // いま編集しているテクスチャとレシピ。Undo は文書を直に書き戻す(ここを通らない)ので、これと比べて何が戻ったかを知る。
         [System.NonSerialized] private Texture2D _editedTexture;
         [System.NonSerialized] private IrocaRecipe _editedRecipe;
+        // 登録と自動化が作った結び付き。編集内容ではないので、それより前の記録まで Undo で戻っても外さない(外れると、以後の編集は
+        // レシピに入らない)。「いろかで開く」の結び替えは読み込みと一緒に戻すので、ここには入れない(外さないと、開く前の内容で
+        // レシピを上書きする)。ドメインリロードの後の Undo でも見るので直列化する(文書でなく窓にあるので Undo では戻らない)。
+        [SerializeField] private IrocaRecipe _recipeKeptOverUndo;
 
         private void BindRecipe(IrocaRecipe recipe)
         {
             Doc.boundRecipe = recipe;
             _editedRecipe = recipe;
+            if (recipe != null) SessionPersistence.RememberBoundRecipe(SourceTexture, recipe);
         }
 
         private void RememberEditedTarget()

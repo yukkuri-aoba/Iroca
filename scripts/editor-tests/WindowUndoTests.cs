@@ -238,6 +238,55 @@ namespace Iroca.EditorTests
             Assert.AreSame(recipe, _win.BoundRecipe, "Undo で結び付きが外れた");
         }
 
+        // 「いろかで開く」は読み込みと一緒に Undo で戻る。結び付きだけ残すと、開く前の内容でレシピを上書きする。
+        [Test]
+        public void UndoOfOpeningRecipe_DoesNotOverwriteTheRecipe()
+        {
+            AddZones("開く前");
+            var texture = _win.SourceTexture;
+            var content = new IrocaSessionState();
+            content.zones.Add(new ColorZone { name = "レシピの内容" });
+            var a = RecipeStore.Create(texture, content, _assets.Folder);
+            var b = RecipeStore.Create(texture, content, _assets.Folder);
+            Assert.AreNotSame(a, b);
+            Undo.IncrementCurrentGroup();
+            _win.SwitchSourceTexture(texture, b);
+            Assert.AreSame(b, _win.BoundRecipe, "テストの前提: 結び付いている");
+            Assert.AreEqual("レシピの内容", _win.Session.zones[0].name);
+            Undo.IncrementCurrentGroup();
+
+            Undo.PerformUndo();
+            Assert.AreEqual("開く前", _win.Session.zones[0].name, "テストの前提: 内容が戻っている");
+            Assert.IsNull(_win.BoundRecipe, "読み込みを戻したのに結び付きが残っている");
+            _win.SavePersistedSessionForCurrentTexture();
+            Assert.AreEqual("レシピの内容", RecipeStore.Load(b).zones[0].name, "開く前の内容でレシピを上書きした");
+        }
+
+        // 複数のレシピがあるテクスチャは、最後に結び付いたレシピへ開き直す。Undo で外したら開き直しても結び付けない。
+        [Test]
+        public void ReopeningTextureWithSeveralRecipes_BindsTheLastOne()
+        {
+            var texture = _win.SourceTexture;
+            var content = new IrocaSessionState();
+            content.zones.Add(new ColorZone { name = "レシピの内容" });
+            var a = RecipeStore.Create(texture, content, _assets.Folder);
+            var b = RecipeStore.Create(texture, content, _assets.Folder);
+            _win.SwitchSourceTexture(texture);
+            Assert.IsNull(_win.BoundRecipe, "テストの前提: 選ばれていなければ結び付かない");
+            Assert.AreEqual(2, _win.UnboundRecipeCount, "窓が案内を出す数");
+            Undo.IncrementCurrentGroup();
+            _win.SwitchSourceTexture(texture, b);
+            Assert.AreEqual(0, _win.UnboundRecipeCount);
+            Undo.IncrementCurrentGroup();
+
+            Assert.AreSame(b, SessionPersistence.RecipeFor(texture, null), "最後に結び付いたレシピを覚えていない");
+
+            Undo.PerformUndo();
+            Assert.IsNull(_win.BoundRecipe);
+            Assert.IsNull(SessionPersistence.RecipeFor(texture, null), "外したレシピへ開き直してしまう");
+            Assert.AreEqual(2, _win.UnboundRecipeCount);
+        }
+
         // 自動調整を押した後に Ctrl+Z やテクスチャの切り替えをしたら、結果を当てない(押したときの状態はもう無い)。
         [Test]
         public void AutoTuneRunning_IsStoppedByUndo()
