@@ -119,6 +119,9 @@ namespace Iroca
         /// </summary>
         public static int Apply(GameObject root, IHost host) => Apply(root, host, new BuildState(), Stage.Single);
 
+        // テストがビルドせずに書き出しの合図を出す。
+        internal static void RaiseBeforeApplyForTests() => BeforeApply?.Invoke();
+
         public static int Apply(GameObject root, IHost host, BuildState state, Stage stage)
         {
             // 開いているいろかウィンドウの編集中の内容をレシピへ書き出させる(直前の編集をビルドに乗せる)。

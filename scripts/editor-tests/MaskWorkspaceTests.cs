@@ -55,6 +55,8 @@ namespace Iroca.EditorTests
             ws.EncodeTo(a);
             var b = new MaskState();
             MaskStateCodec.Encode(b, W, H, common, zones, includes);
+            // 版は編集中の文書の保存だけが刻む(レシピの中身を保存ごとにそろえるため)。
+            b.schemaVersion = MaskState.CurrentSchemaVersion;
             Assert.AreEqual(Json(b), Json(a), "同じ文字列・同じ項目の並び(全部 0 の層は書かない)");
             ws.Clear();
         }

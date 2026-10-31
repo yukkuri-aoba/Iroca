@@ -148,6 +148,27 @@ namespace Iroca.EditorTests
             return s;
         }
 
+        // 自動保存とビルド直前の書き出しでレシピの中身が揺れない(揺れると .asset の書き換えとキャッシュの作り直しが増える)。
+        [Test]
+        public void RecipeJson_IsTheSameEveryTime()
+        {
+            Save();
+            string saved = _recipe.sessionJson;
+            var state = RecipeStore.Load(_recipe);
+            Assert.AreEqual(0, state.maskState.width, "層が無ければ寸法を書かない");
+            _win.Editing.Masks.Reset(4, 4);
+            Save();
+            Assert.AreEqual(saved, _recipe.sessionJson, "マスクの無いレシピが保存で変わった");
+
+            _win.Editing.Masks.WritableCommon().Set(1, true);
+            Save();
+            string withMask = _recipe.sessionJson;
+            Assert.AreEqual(MaskState.CurrentSchemaVersion, RecipeStore.Load(_recipe).maskState.schemaVersion);
+            _win.Editing.ToSaveState();
+            NonDestructiveApplier.RaiseBeforeApplyForTests();
+            Assert.AreEqual(withMask, _recipe.sessionJson, "ビルド直前の書き出しで揺れた");
+        }
+
         private void ChangeOutside(string zoneName) => _recipe.sessionJson = JsonUtility.ToJson(State(zoneName));
 
         private string ZoneName() => _win.Session.zones[0].name;

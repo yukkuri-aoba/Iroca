@@ -197,6 +197,16 @@ namespace Iroca
             if (ms.zoneIncludes == null) ms.zoneIncludes = new List<MaskZoneEntry>();
             ms.zoneIncludes.Clear();
             AppendEntries(ms.zoneIncludes, _includes);
+
+            // 保存のたびに同じ文字列になるようにする。レシピの中身が揺れると .asset が書き換わり、シーンのプレビューとビルドのキャッシュの
+            // 鍵も変わって作り直しになる(版はファイルへ書くときだけ刻んでいた。層が無いのに寸法だけ書くと、開いて保存するだけで変わる)。
+            ms.schemaVersion = MaskState.CurrentSchemaVersion;
+            if (ms.commonMaskBase64.Length == 0 && ms.zones.Count == 0 && ms.zoneIncludes.Count == 0)
+            {
+                ms.width = 0;
+                ms.height = 0;
+                ms.schemaVersion = 0;
+            }
         }
 
         private static void AppendEntries(List<MaskZoneEntry> dst, Dictionary<string, NativeBitMask> src)
