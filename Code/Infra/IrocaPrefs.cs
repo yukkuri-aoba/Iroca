@@ -30,6 +30,7 @@ namespace Iroca
         internal const string UpdateCheckCheckedAtUtcPrefix = "Iroca.UpdateCheck.CheckedAtUtc:"; // + Unity の版(+ ":pre")
         // 開発者向け(Code/Debug)
         internal const string DebugEnableCapture = "Iroca.Debug.EnableCapture";
+        internal const string DebugMaterialSelection = "Iroca.Debug.MaterialSelection";
         internal const string DebugMasterEnabled = "Iroca.Debug.MasterEnabled";
         internal const string DebugWindowMode = "Iroca.Debug.Mode";
         internal const string DebugSelectedStage = "Iroca.Debug.SelectedStage";

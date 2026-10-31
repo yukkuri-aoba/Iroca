@@ -40,6 +40,7 @@ PREFS_KEYS = {
     "Iroca.UpdateCheck.CheckedAtUtc:",   # + Unity の版（+ ":pre"）
     "Iroca.Debug.EnableCapture",
     "Iroca.Debug.MasterEnabled",
+    "Iroca.Debug.MaterialSelection",
     "Iroca.Debug.Mode",
     "Iroca.Debug.SelectedStage",
     "Iroca.Debug.SelectedZone",

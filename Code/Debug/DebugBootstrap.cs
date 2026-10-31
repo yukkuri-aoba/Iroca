@@ -15,6 +15,7 @@ namespace Iroca.DebugTools
         private static void Init()
         {
             DebugCaptureHooks.Factory = DebugView.CurrentCaptureOrNull;
+            DebugCaptureHooks.UseMaterialSelection = EditorPrefs.GetBool(IrocaPrefs.DebugMaterialSelection, false);
             // ジョブ完了時（メインスレッド）に埋め終わったキャプチャを公開する。生成時公開だと
             // 背景ジョブの Snapshots.Add と DebugWindow の OnGUI foreach が競合するため。
             DebugCaptureHooks.OnCaptureComplete += DebugView.PublishCompletedCapture;

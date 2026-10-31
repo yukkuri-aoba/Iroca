@@ -192,6 +192,7 @@ namespace Iroca
             private bool _requested;
             // 解析は例外で終わらせず、例外も結果として返す(取り消した解析の例外を誰も見ないまま残さない)。
             private Task<(ZoneAutoTuner.TuneResult result, Exception error)> _analysis;
+            private ColorZone _materialTuned;
             // 解析に渡した証拠を 1bit/画素に詰めたもの(解析と同じ背景で詰める。終わった後にだけ読む)。
             private ulong[] _evidencePacked;
             private int _evW, _evH;
@@ -311,6 +312,14 @@ namespace Iroca
             public void ApplyTo(ColorZone zone, IrocaSessionState session)
             {
                 if (Status != Status.Done) throw new InvalidOperationException("auto-tune has not finished");
+                if (_materialTuned != null)
+                {
+                    zone.sampleColor = _materialTuned.sampleColor;
+                    zone.sampleUV = _materialTuned.sampleUV;
+                    zone.materialTube = _materialTuned.materialTube;
+                    zone.UpdateCacheIfNeeded();
+                    return;
+                }
                 Result.ApplyTo(zone, session);
             }
 
@@ -400,6 +409,16 @@ namespace Iroca
                     {
                         ct.ThrowIfCancellationRequested();
                         progress.Report(0.10f);
+                        if (DebugCaptureHooks.UseMaterialSelection)
+                        {
+                            // 新しい選択(T5。開発者向けの切り替えを立てたときだけ): 素材を選び、地色と管をゾーンへ書く。
+                            var tuned = zone.Clone();
+                            PixelProcessor.TuneZoneByMaterial(px.Ptr, px.Width, px.Height, tuned, evidence, evW, evH);
+                            _materialTuned = tuned;
+                            _evidencePacked = MaskSnapshot.Pack(evidence);
+                            progress.Report(1.0f);
+                            return (new ZoneAutoTuner.TuneResult { evidenceDiag = "material" }, (Exception)null);
+                        }
                         // ct を Analyze へ渡す。取り消されたら各解析ステップ間で停止し、ゾンビ実行(CPU 2 倍)を防ぐ。
                         // 解析の各ステップから進捗を受け取る。渡さないと 0.10 → 1.00 の 2 点しか報告されない。
                         var result = evidence != null

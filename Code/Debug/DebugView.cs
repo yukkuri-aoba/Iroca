@@ -73,6 +73,20 @@ namespace Iroca.DebugTools
         {
             EnsurePrefsLoaded();
 
+            bool materialSelection = EditorGUILayout.ToggleLeft(
+                new GUIContent(
+                    "新しい選択を使う (T5。開発中)",
+                    "領域と素材の地図で選ぶ、作り直し中の選択に切り替えます。旧の選択の詳細設定は効かなくなり、自動調整も新しい形になります。\n" +
+                    "切り替えた後は、スポイトと自動調整をやり直してください(前の自動調整の結果は新しい形を持っていません)。\n" +
+                    "この設定はこの PC の Unity にだけ保存され、レシピには保存されません。"),
+                DebugCaptureHooks.UseMaterialSelection);
+            if (materialSelection != DebugCaptureHooks.UseMaterialSelection)
+            {
+                DebugCaptureHooks.UseMaterialSelection = materialSelection;
+                EditorPrefs.SetBool(IrocaPrefs.DebugMaterialSelection, materialSelection);
+                host.MarkPreviewDirty();
+            }
+
             EditorGUI.BeginChangeCheck();
             bool prevEnabled = s_enableCapture;
             s_enableCapture = EditorGUILayout.ToggleLeft(
