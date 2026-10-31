@@ -279,9 +279,8 @@ namespace Iroca
                 // MinWidth(0): 狭い設定列でも右の「+ 空のゾーン」を押し出さず、こちらが縮む。
                 if (ArmedToggleButton(content, armed, height, GUILayout.MinWidth(0), GUILayout.ExpandWidth(true)))
                 {
-                    // トグル: 武装↔解除。シード指定と排他（どちらもプレビューの素のクリックを取る）。
-                    EyedropperZoneId = armed ? null : NewZoneEyedropperId;
-                    if (!armed) SeedPickZoneId = null;
+                    // トグル: 武装↔解除。
+                    ArmEyedropper(armed ? null : NewZoneEyedropperId);
                     Repaint();
                 }
             }
@@ -516,9 +515,7 @@ namespace Iroca
                         // トグル：武装↔解除。武装は id で保持し、並べ替え・削除で別ゾーンを指さないようにする
                         // （クリックで一発取得→自動解除）。
                         zone.EnsureId();
-                        EyedropperZoneId = armed ? null : zone.id;
-                        // シード指定と排他（どちらもプレビューの素のクリックを取る）。
-                        if (!armed) SeedPickZoneId = null;
+                        ArmEyedropper(armed ? null : zone.id);
                         Repaint();
                     }
                 }
@@ -598,9 +595,7 @@ namespace Iroca
                                 GUILayout.MinWidth(0)))
                         {
                             zone.EnsureId();
-                            SeedPickZoneId = seedArmed ? null : zone.id;
-                            // スポイトと排他（どちらもプレビューの素のクリックを取る）。
-                            if (!seedArmed) EyedropperZoneId = null;
+                            ArmSeedPick(seedArmed ? null : zone.id);
                             Repaint();
                         }
                     }

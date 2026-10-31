@@ -698,9 +698,12 @@ namespace Iroca
 
             HandlePreviewGlobalInput(zoomHitRect, maxZoom);
 
-            // スポイトとマスクペイントは排他。ペイントに入ったらスポイトを解除する。
-            if (maskView.maskPaintActive && !string.IsNullOrEmpty(_host.EyedropperZoneId))
-                _host.EyedropperZoneId = null;
+            // スポイト・シード指定とマスクペイントは排他。ペイントに入ったら解除する(武装は IrocaWindow.ArmEyedropper がブラシを切る)。
+            if (maskView.maskPaintActive)
+            {
+                if (!string.IsNullOrEmpty(_host.EyedropperZoneId)) _host.EyedropperZoneId = null;
+                if (!string.IsNullOrEmpty(_host.SeedPickZoneId)) _host.SeedPickZoneId = null;
+            }
 
             bool eyedropperArmed = !string.IsNullOrEmpty(_host.EyedropperZoneId) && !maskView.maskPaintActive;
             // シード指定の武装（ゾーンカードの「指定」ボタン）。スポイトと同じ one-shot で、

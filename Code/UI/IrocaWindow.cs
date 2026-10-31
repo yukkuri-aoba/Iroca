@@ -76,6 +76,27 @@ namespace Iroca
         }
 
         /// <summary>
+        /// スポイトを武装する(null で解除)。プレビューのクリックを取るほかのモードとは排他: シード指定を解除し、ブラシも切る
+        /// (ブラシが ON のままだと、カードは武装の色なのにクリックは塗りになる)。
+        /// </summary>
+        internal void ArmEyedropper(string zoneId)
+        {
+            EyedropperZoneId = zoneId;
+            if (string.IsNullOrEmpty(zoneId)) return;
+            SeedPickZoneId = null;
+            _maskView?.DeactivateBrush();
+        }
+
+        /// <summary>シード指定を武装する(null で解除)。排他は <see cref="ArmEyedropper"/> と同じ。</summary>
+        internal void ArmSeedPick(string zoneId)
+        {
+            SeedPickZoneId = zoneId;
+            if (string.IsNullOrEmpty(zoneId)) return;
+            EyedropperZoneId = null;
+            _maskView?.DeactivateBrush();
+        }
+
+        /// <summary>
         /// プレビュー上のクリックの意味を変える一時モード（スポイト・シード指定・
         /// マスクブラシ）と、AI 提案の推論待ちをすべて解除する。Esc キーの受け口。
         /// 戻り値 true = 実際に何かを解除した（呼び出し側がイベントを消費してよい）。
@@ -93,6 +114,41 @@ namespace Iroca
             }
             if (any) RequestRepaint();
             return any;
+        }
+
+        // 「Esc で解除」はプレビューの窓にフォーカスがあるときしか届かない。武装した後にパレットや Project を触ると効かなかったので、
+        // エディタ全体のキー入力を横から見る(消費しない)。公開の API ではないので、見つからなければ今までどおりプレビューの窓だけで効く。
+        private static readonly System.Reflection.FieldInfo s_globalEventHandler = typeof(EditorApplication).GetField("globalEventHandler",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+
+        private void InstallGlobalEscape()
+        {
+            if (s_globalEventHandler == null) return;
+            UninstallGlobalEscape();
+            var current = s_globalEventHandler.GetValue(null) as EditorApplication.CallbackFunction;
+            s_globalEventHandler.SetValue(null, current + OnGlobalEvent);
+        }
+
+        private void UninstallGlobalEscape()
+        {
+            if (s_globalEventHandler == null) return;
+            var current = s_globalEventHandler.GetValue(null) as EditorApplication.CallbackFunction;
+            s_globalEventHandler.SetValue(null, current - OnGlobalEvent);
+        }
+
+        private void OnGlobalEvent()
+        {
+            var e = Event.current;
+            if (e != null) ClearModesOnEscape(e.rawType, e.keyCode);
+        }
+
+        // internal はテストが直接呼ぶため(テストの中では Event.current を作れない)。
+        internal void ClearModesOnEscape(EventType type, KeyCode key)
+        {
+            if (type != EventType.KeyDown || key != KeyCode.Escape) return;
+            // 入力欄の Esc は打ちかけの取り消し。
+            if (EditorGUIUtility.editingTextField) return;
+            ClearPreviewInteractionModes();
         }
 
         /// <summary>
@@ -375,6 +431,7 @@ namespace Iroca
             CheckRecipeAfterEnable();
             // Scene でモデルをクリックした場所をプレビューで示す(クリックは横から見るだけで消費しない)。
             InstallSceneClick();
+            InstallGlobalEscape();
 
             // AI(Sentis + 配布モデル)の準備は、ウィンドウ上部の非モーダルな帯で案内する
             // (MaskSuggestSection.DrawSetupBanner)。以前はここで delayCall からモーダルを
@@ -392,6 +449,7 @@ namespace Iroca
             NonDestructiveApplier.BeforeApply -= FlushToBoundRecipe;
             UnsubscribeEditChanges();   // ここで保存するので自動保存の予定は消す
             UninstallSceneClick();
+            UninstallGlobalEscape();
             // ウィンドウを閉じたら、シーンのアバターへの編集中の表示もやめる(登録済みならレシピの表示に戻る)。
             LivePreview.SetTarget(null, null);
             // 自動調整は EditorApplication.update に張っているので、ドメインリロード・
