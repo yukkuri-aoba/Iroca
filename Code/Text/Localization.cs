@@ -356,6 +356,8 @@ namespace Iroca
         public static string CtxDontPaintHereCommon => IsJapanese ? "ここはどのゾーンでも塗らない" : "Don't paint here in any zone";
         public static string CtxClearHere => IsJapanese ? "ここのマスクを消す" : "Clear the mask here";
         public static string CtxClearHereCommon => IsJapanese ? "ここの共通マスクを消す" : "Clear the all-zones mask here";
+        // 消したいマスクの持ち主が、見出しのゾーン(塗っているゾーン)と違うとき。
+        public static string CtxClearHereZoneFormat => IsJapanese ? "ここの「{0}」のマスクを消す" : "Clear the \"{0}\" mask here";
         public static string CtxChangeZone => IsJapanese ? "直すゾーンを変える" : "Change the zone to fix";
         public static string CtxCommonTargetItem => IsJapanese ? "全部のゾーンに共通（塗らないだけ）" : "All zones (don't-paint only)";
         // AI の部分の大きさを、その 1 回だけ変えるサブメニュー(中身は「ここも塗る」などと同じ)。
@@ -395,6 +397,7 @@ namespace Iroca
             ? "「{0}」の、ここの塗る・塗らないの手入れを消しました（Ctrl+Z で戻せます）" : "Cleared the manual paint / don't-paint edits here for \"{0}\" (Ctrl+Z to undo)";
         public static string NotifyClearHereCommon => IsJapanese
             ? "ここの共通の「塗らない」を消しました（Ctrl+Z で戻せます）" : "Cleared the all-zones don't-paint mask here (Ctrl+Z to undo)";
+        public static string NotifyClearHereNothing => IsJapanese ? "ここに消すマスクはありません" : "There is no mask to clear here";
         public static string NotifyOnlyThisPartFormat => IsJapanese
             ? "「{0}」は、この部分だけを塗るようにしました（Ctrl+Z で戻せます）" : "\"{0}\" now paints only this part (Ctrl+Z to undo)";
         public static string NotifyCommonOverlap => IsJapanese

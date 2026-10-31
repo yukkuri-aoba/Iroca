@@ -544,13 +544,41 @@ namespace Iroca
             return zone.id;
         }
 
+        /// <summary>
+        /// 「ここのマスクを消す」を当てるゾーンの id。クリックした所にマスクがあるゾーンを選ぶ(規則は
+        /// <see cref="MaskRegionEdit.PickClearTarget"/>)。無効のゾーンと、ソロ表示で見えていないゾーンは見ない。
+        /// どのゾーンにもマスクが無ければ <paramref name="defaultZoneId"/>(ほかの操作と同じ宛先。ふつうは塗っているゾーン)。
+        /// </summary>
+        public unsafe string ClearTargetZoneIdAt(Vector2 uv, string activeZoneId, string defaultZoneId)
+        {
+            var zones = _host.Session?.zones;
+            int w = maskWidth, h = maskHeight;
+            if (zones == null || w <= 0 || h <= 0) return defaultZoneId;
+            PreviewCoords.UvToPixel(uv.x, uv.y, w, h, out int cx, out int cy);
+            var solo = _host.SoloZone;
+            var hasMask = new bool[zones.Count];
+            int painting = -1, active = -1;
+            for (int k = 0; k < zones.Count; k++)
+            {
+                var z = zones[k];
+                if (z == null) continue;
+                if (z.id == defaultZoneId) painting = k;
+                if (z.id == activeZoneId) active = k;
+                if (!z.enabled || (solo != null && z != solo)) continue;
+                hasMask[k] = MaskRegionEdit.AnyBitNear(BitsOf(Workspace.Layer(true, z.id)), w, h, cx, cy, MaskRegionEdit.ClearProbeRadius)
+                    || MaskRegionEdit.AnyBitNear(BitsOf(Workspace.Layer(false, z.id)), w, h, cx, cy, MaskRegionEdit.ClearProbeRadius);
+            }
+            int pick = MaskRegionEdit.PickClearTarget(hasMask, painting, active);
+            return pick >= 0 ? zones[pick].id : defaultZoneId;
+        }
+
         private ColorZone FindZone(string zoneId)
             => zoneId == null ? null : _host.Session?.zones?.Find(z => z != null && z.id == zoneId);
 
         /// <summary>
         /// 範囲(マスクと同じ寸法・下原点)に宛先の操作を当て、1 つの Undo ストロークにする
         /// (規則は <see cref="MaskRegionEdit"/>)。AI 提案と右クリックメニューの共通の出口。
-        /// 宛先のゾーンが消えた・共通に塗らない以外を当てようとした・寸法違いなら false。
+        /// 宛先のゾーンが消えた・共通に「塗らない」「消す」以外を当てようとした・寸法違いなら false。
         /// </summary>
         public unsafe bool ApplyRegion(bool[] region, MaskDestination d, out MaskRegionEditResult result)
         {
@@ -578,27 +606,20 @@ namespace Iroca
         {
             result = default;
             int len = maskWidth * maskHeight;
+            if (d.op == MaskRegionOp.ClearHere) return ClearRegion(region, len, d, out result);
 
             // 書く層は自分だけのものにしてから渡す(重ね表示のワーカーが読んでいれば写す)。共通は重なりを数えるだけ。
             NativeBitMask exclude, include = null, common = null;
             if (d.zoneId == null)
             {
-                if (d.op != MaskRegionOp.DontPaintHere && d.op != MaskRegionOp.ClearHere) return false;
-                if (d.op == MaskRegionOp.ClearHere && Workspace.Common == null) return true;   // 消す物が無い
+                if (d.op != MaskRegionOp.DontPaintHere) return false;
                 exclude = EnsureCommonMask();
             }
             else
             {
                 if (FindZone(d.zoneId) == null) return false;
                 common = Workspace.Common;
-                if (d.op == MaskRegionOp.ClearHere)
-                {
-                    // 消すだけなので層は作らない。どちらも無ければ何も変わらない。
-                    include = Workspace.WritableExistingLayer(true, d.zoneId);
-                    exclude = Workspace.WritableExistingLayer(false, d.zoneId);
-                    if (include == null && exclude == null) return true;
-                }
-                else if (d.op == MaskRegionOp.PaintHere)
+                if (d.op == MaskRegionOp.PaintHere)
                 {
                     include = EnsureZoneLayer(true, d.zoneId);
                     exclude = Workspace.WritableExistingLayer(false, d.zoneId);
@@ -609,11 +630,33 @@ namespace Iroca
                     include = Workspace.WritableExistingLayer(true, d.zoneId);
                 }
             }
-            if (d.op == MaskRegionOp.ClearHere) { }
-            else if (d.op == MaskRegionOp.PaintHere ? include == null : exclude == null) return false;
+            if (d.op == MaskRegionOp.PaintHere ? include == null : exclude == null) return false;
 
             BeginStroke();
             result = MaskRegionEdit.Apply(d.op, region, len, BitsOf(exclude), BitsOf(include), BitsOf(common));
+            EndStroke();
+            _host.NotifyMasksEditedFullRefine();
+            _host.RequestRepaint();
+            return true;
+        }
+
+        // 「ここのマスクを消す」の本体。消すだけなので層は作らない。範囲の中に消す物が無ければ何も書かない
+        // (層を写さず、Undo にも空の手を積まない。重なりだけ返す)。
+        private unsafe bool ClearRegion(bool* region, int len, MaskDestination d, out MaskRegionEditResult result)
+        {
+            result = default;
+            bool toCommon = d.zoneId == null;
+            if (!toCommon && FindZone(d.zoneId) == null) return false;
+            NativeBitMask common = toCommon ? null : Workspace.Common;
+            result = MaskRegionEdit.CountClear(region, len,
+                BitsOf(toCommon ? Workspace.Common : Workspace.Layer(false, d.zoneId)),
+                BitsOf(toCommon ? null : Workspace.Layer(true, d.zoneId)), BitsOf(common));
+            if (result.changed == 0) return true;
+
+            NativeBitMask exclude = toCommon ? Workspace.WritableCommon() : Workspace.WritableExistingLayer(false, d.zoneId);
+            NativeBitMask include = toCommon ? null : Workspace.WritableExistingLayer(true, d.zoneId);
+            BeginStroke();
+            result = MaskRegionEdit.Apply(MaskRegionOp.ClearHere, region, len, BitsOf(exclude), BitsOf(include), BitsOf(common));
             EndStroke();
             _host.NotifyMasksEditedFullRefine();
             _host.RequestRepaint();
@@ -627,7 +670,14 @@ namespace Iroca
         public string DescribeRegionEdit(MaskDestination d, bool ok, MaskRegionEditResult r)
         {
             if (!ok) return Localization.NotifyMaskNotAdded;
-            if (r.changed == 0) return Localization.NotifyMaskNoChange;
+            if (r.changed == 0)
+            {
+                if (d.op != MaskRegionOp.ClearHere) return Localization.NotifyMaskNoChange;
+                // 消す物が無い。共通の「塗らない」が重なっていれば、塗られない理由はそちらだと知らせる。
+                return r.commonOverlap > 0
+                    ? Localization.NotifyClearHereNothing + "\n" + Localization.NotifyCommonOverlap
+                    : Localization.NotifyClearHereNothing;
+            }
             var zone = FindZone(d.zoneId);
             string name = zone == null ? null : (string.IsNullOrEmpty(zone.name) ? Localization.UnnamedZone : zone.name);
             string msg = d.op switch

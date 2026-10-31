@@ -1,5 +1,6 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
@@ -41,20 +42,37 @@ namespace Iroca
         // 毎回の描画で EditorPrefs を読まないための控え。
         private static bool? s_contextMenuUsed;
 
-        // 右クリックで選べる操作(宛先のゾーンに当てる。宛先の決め方は ShowPreviewContextMenu)。全ゾーン共通にできるのは「塗らない」だけ。
-        private static (MaskRegionOp op, string label)[] ContextOps(bool zoneTarget) => zoneTarget
-            ? new[]
-            {
-                (MaskRegionOp.PaintHere, Localization.CtxPaintHere),
-                (MaskRegionOp.DontPaintHere, Localization.CtxDontPaintHere),
-                (MaskRegionOp.OnlyThisPart, Localization.CtxOnlyThisPart),
-                (MaskRegionOp.ClearHere, Localization.CtxClearHere),
-            }
-            : new[]
-            {
-                (MaskRegionOp.DontPaintHere, Localization.CtxDontPaintHereCommon),
-                (MaskRegionOp.ClearHere, Localization.CtxClearHereCommon),
-            };
+        // 右クリックで選べる操作(宛先のゾーンに当てる。宛先の決め方は ShowPreviewContextMenu)。全ゾーン共通にできるのは
+        // 「塗らない」と、それを消すことだけ。clearLabel が null なら「消す」は出さない(消す物が無い)。
+        private static List<(MaskRegionOp op, string label)> ContextOps(bool zoneTarget, string clearLabel)
+        {
+            var ops = zoneTarget
+                ? new List<(MaskRegionOp, string)>
+                {
+                    (MaskRegionOp.PaintHere, Localization.CtxPaintHere),
+                    (MaskRegionOp.DontPaintHere, Localization.CtxDontPaintHere),
+                    (MaskRegionOp.OnlyThisPart, Localization.CtxOnlyThisPart),
+                }
+                : new List<(MaskRegionOp, string)> { (MaskRegionOp.DontPaintHere, Localization.CtxDontPaintHereCommon) };
+            if (clearLabel != null) ops.Add((MaskRegionOp.ClearHere, clearLabel));
+            return ops;
+        }
+
+        // 「ここのマスクを消す」の宛先と項目の文字。宛先はマスクがあるゾーン(MaskPaintView.ClearTargetZoneIdAt)で、
+        // 見出しのゾーンと違うときは項目にゾーンの名前を出す。マスクが 1 枚も無ければ項目を出さない
+        // (選んでも、AI の結果を待った末に「消すマスクはありません」となるだけ)。
+        private (string zoneId, string label) ClearItem(MaskPaintView maskView, Vector2 uv, string activeZoneId, string zoneId)
+        {
+            var workspace = maskView.Workspace;
+            if (zoneId == null)
+                return (null, workspace.Common != null ? Localization.CtxClearHereCommon : null);
+            if (!workspace.HasLayers) return (zoneId, null);
+            string target = maskView.ClearTargetZoneIdAt(uv, activeZoneId, zoneId);
+            if (target == zoneId) return (zoneId, Localization.CtxClearHere);
+            var zone = _host.Session?.zones?.Find(z => z != null && z.id == target);
+            string name = string.IsNullOrEmpty(zone?.name) ? Localization.UnnamedZone : zone.name;
+            return (target, string.Format(Localization.CtxClearHereZoneFormat, MenuSafe(name)));
+        }
 
         // AI の部分の大きさを、その 1 回だけ変えるサブメニュー。直下の項目はマスク編集の「提案の粒度」(既定: 自動)。
         private static (MaskSuggestGranularity gran, string root)[] GranularitySubmenus() => new[]
@@ -80,12 +98,17 @@ namespace Iroca
             var uv = PreviewCoords.ScreenToUv(screenPos, previewRect);
             var zones = _host.Session?.zones;
             bool hasZone = zones != null && zones.Count > 0;
-            string zoneId = maskView.ActiveTargetZoneId();   // null = 全ゾーン共通(ゾーンが無いときも)
+            string activeZoneId = maskView.ActiveTargetZoneId();   // null = 全ゾーン共通(ゾーンが無いときも)
+            string zoneId = activeZoneId;
             // 「全部のゾーンに共通で直す」を選んでいるときは、選んだとおり共通に当てる。
             var painting = zoneId != null ? PaintingZoneAt(uv) : null;
             bool byPainting = painting != null && painting.id != zoneId;
             if (byPainting) zoneId = painting.id;
-            var ops = ContextOps(zoneId != null);
+            var (clearZoneId, clearLabel) = ClearItem(maskView, uv, activeZoneId, zoneId);
+            var ops = ContextOps(zoneId != null, clearLabel);
+            string targetZoneId = zoneId;
+            MaskPaintView.MaskDestination Dest(MaskRegionOp op) =>
+                new MaskPaintView.MaskDestination(op == MaskRegionOp.ClearHere ? clearZoneId : targetZoneId, op);
             var menu = new GenericMenu();
 
             // 見出し: どのゾーンを直すか。いま直しているゾーンと違うときは、なぜそのゾーンかを添える。
@@ -114,7 +137,7 @@ namespace Iroca
                     ai.PrepareSource(TrueSource, TrueSourceCacheKey());
                 foreach (var (op, label) in ops)
                 {
-                    var dest = new MaskPaintView.MaskDestination(zoneId, op);
+                    var dest = Dest(op);
                     menu.AddItem(new GUIContent(label), false, () => RequestAiSuggest(ai, uv, dest, null));
                 }
                 // この 1 回だけ大きさを変える。黒い服の上のファスナーのような描き込みは「自動」だと
@@ -123,7 +146,7 @@ namespace Iroca
                 {
                     foreach (var (op, label) in ops)
                     {
-                        var dest = new MaskPaintView.MaskDestination(zoneId, op);
+                        var dest = Dest(op);
                         menu.AddItem(new GUIContent(root + "/" + label), false, () => RequestAiSuggest(ai, uv, dest, gran));
                     }
                 }
@@ -147,7 +170,7 @@ namespace Iroca
                     string m = MenuSafe(mesh);
                     foreach (var (op, label) in ops)
                     {
-                        var dest = new MaskPaintView.MaskDestination(zoneId, op);
+                        var dest = Dest(op);
                         menu.AddItem(new GUIContent(meshRoot + string.Format(Localization.CtxMeshIslandFormat, label, m)),
                                      false, () => AddMeshPart(parts, uv, MeshPartController.Region.Island, dest));
                     }

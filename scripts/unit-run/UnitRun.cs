@@ -850,6 +850,70 @@ namespace Iroca.UnitRun
             Check.Equal(2, r.changed, "除外 1 + 含める 1");
         }
 
+        public static void MaskEdit_ClearHere_CountsCommonOverlap()
+        {
+            var ex = Layer(1);
+            var common = Layer(2, 5);
+            var r = Apply(MaskRegionOp.ClearHere, ex, null, common);
+            Check.Equal(1, r.commonOverlap, "範囲の中の共通の除外だけ数える");
+            Check.Equal("001001", Bits(common), "共通の除外は消さない");
+        }
+
+        private static unsafe MaskRegionEditResult CountClear(ulong[] ex, ulong[] inc, ulong[] common)
+        {
+            fixed (bool* region = Region)
+            fixed (ulong* e = ex, i = inc, c = common)
+                return MaskRegionEdit.CountClear(region, Region.Length, e, i, c);
+        }
+
+        public static void MaskEdit_CountClear_MatchesApplyWithoutWriting()
+        {
+            var ex = Layer(1, 4);
+            var inc = Layer(0, 1, 5);
+            var common = Layer(2);
+            var counted = CountClear(ex, inc, common);
+            Check.Equal("010010", Bits(ex), "数えるだけでは除外を書き換えない");
+            Check.Equal("110001", Bits(inc), "数えるだけでは含めるを書き換えない");
+            var applied = Apply(MaskRegionOp.ClearHere, ex, inc, common);
+            Check.Equal(applied.changed, counted.changed, "changed が当てたときと同じ");
+            Check.Equal(applied.commonOverlap, counted.commonOverlap, "commonOverlap が当てたときと同じ");
+            Check.Equal(3, counted.changed, "除外 1 + 含める 2");
+        }
+
+        public static void MaskEdit_CountClear_NothingToClearIsZero()
+        {
+            var r = CountClear(Layer(4), null, null);
+            Check.Equal(0, r.changed, "範囲の外にしかマスクが無い");
+            r = CountClear(null, null, null);
+            Check.Equal(0, r.changed, "層が無い");
+        }
+
+        public static void MaskEdit_PickClearTarget_PrefersPaintingThenActiveThenOrder()
+        {
+            Check.Equal(1, MaskRegionEdit.PickClearTarget(new[] { true, true, true }, 1, 2), "塗っているゾーンにマスクがあればそれ");
+            Check.Equal(2, MaskRegionEdit.PickClearTarget(new[] { true, false, true }, 1, 2), "無ければいま直しているゾーン");
+            Check.Equal(0, MaskRegionEdit.PickClearTarget(new[] { true, false, false }, 1, 2), "それも無ければ並びの順");
+            Check.Equal(-1, MaskRegionEdit.PickClearTarget(new[] { false, false }, 1, 0), "どこにも無ければ -1");
+            Check.Equal(1, MaskRegionEdit.PickClearTarget(new[] { false, true }, -1, -1), "塗っているゾーンが無い所");
+            Check.Equal(-1, MaskRegionEdit.PickClearTarget(null, 0, 0), "null");
+        }
+
+        private static unsafe bool AnyBitNear(ulong[] bits, int w, int h, int cx, int cy, int radius)
+        {
+            fixed (ulong* b = bits) return MaskRegionEdit.AnyBitNear(b, w, h, cx, cy, radius);
+        }
+
+        public static void MaskEdit_AnyBitNear_LooksInsideTheSquareOnly()
+        {
+            const int w = 8, h = 8;
+            var bits = PackBits(w * h, 3 * w + 3);   // (3, 3) だけ立っている
+            Check.Equal(true, AnyBitNear(bits, w, h, 3, 3, 0), "真上");
+            Check.Equal(true, AnyBitNear(bits, w, h, 1, 1, 2), "半径の角");
+            Check.Equal(false, AnyBitNear(bits, w, h, 0, 0, 2), "半径の外");
+            Check.Equal(false, AnyBitNear(bits, w, h, 7, 7, 2), "画像の端をまたいでも外へ読まない");
+            Check.Equal(false, AnyBitNear(null, w, h, 3, 3, 2), "層が無い");
+        }
+
         public static void MaskEdit_ClearHere_AllowsMissingLayers()
         {
             var common = Layer(0, 4);

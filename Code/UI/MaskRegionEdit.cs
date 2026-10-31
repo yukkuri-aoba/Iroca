@@ -15,7 +15,10 @@ namespace Iroca
         /// 範囲の中は今までどおり色で選ぶ(含めるには足さない)。
         /// </summary>
         OnlyThisPart,
-        /// <summary>ここのマスクを消す: 範囲の中の「含める」と除外の両方を消す(手入れ前の自動の判定に戻す)。</summary>
+        /// <summary>
+        /// ここのマスクを消す: 範囲の中の「含める」と除外の両方を消す(手入れ前の色の判定に戻す)。
+        /// ゾーン宛のとき、全ゾーン共通の除外は消さない(重なりは数える)。
+        /// </summary>
         ClearHere,
     }
 
@@ -47,7 +50,7 @@ namespace Iroca
     {
         /// <param name="op">当てる操作。</param>
         /// <param name="region">範囲(マスクと同じ寸法)。</param>
-        /// <param name="exclude">宛先の除外マスク。ゾーン宛ならゾーン別、共通宛なら共通。PaintHere では null 可(消す物が無い)。</param>
+        /// <param name="exclude">宛先の除外マスク。ゾーン宛ならゾーン別、共通宛なら共通。PaintHere と ClearHere では null 可(消す物が無い)。</param>
         /// <param name="include">宛先ゾーンの含めるマスク。PaintHere では必須、ほかは null 可(消す物が無い)。共通宛では null。</param>
         /// <param name="common">全ゾーン共通の除外(重なりを数えるだけ。null 可)。共通宛のときは null を渡す。</param>
         public static MaskRegionEditResult Apply(MaskRegionOp op, bool[] region,
@@ -92,15 +95,7 @@ namespace Iroca
                     break;
 
                 case MaskRegionOp.ClearHere:
-                    for (int i = 0; i < n; i++)
-                    {
-                        if (!region[i]) continue;
-                        int w = i >> 6;
-                        ulong bit = 1UL << (i & 63);
-                        if (exclude != null && (exclude[w] & bit) != 0UL) { exclude[w] &= ~bit; r.changed++; }
-                        if (include != null && (include[w] & bit) != 0UL) { include[w] &= ~bit; r.changed++; }
-                    }
-                    break;
+                    return ClearRegion(region, n, exclude, include, common, write: true);
 
                 case MaskRegionOp.OnlyThisPart:
                     for (int i = 0; i < n; i++)
@@ -119,6 +114,28 @@ namespace Iroca
                         }
                     }
                     break;
+            }
+            return r;
+        }
+
+        /// <summary>
+        /// <see cref="MaskRegionOp.ClearHere"/> を当てたときの結果を、マスクを書き換えずに求める。消す物が無いときに、
+        /// 層を写さず Undo に空の手も積まないよう、当てる前に数える。
+        /// </summary>
+        public static MaskRegionEditResult CountClear(bool* region, int n, ulong* exclude, ulong* include, ulong* common)
+            => region == null ? new MaskRegionEditResult() : ClearRegion(region, n, exclude, include, common, write: false);
+
+        private static MaskRegionEditResult ClearRegion(bool* region, int n, ulong* exclude, ulong* include, ulong* common, bool write)
+        {
+            var r = new MaskRegionEditResult();
+            for (int i = 0; i < n; i++)
+            {
+                if (!region[i]) continue;
+                int w = i >> 6;
+                ulong bit = 1UL << (i & 63);
+                if (exclude != null && (exclude[w] & bit) != 0UL) { if (write) exclude[w] &= ~bit; r.changed++; }
+                if (include != null && (include[w] & bit) != 0UL) { if (write) include[w] &= ~bit; r.changed++; }
+                if (common != null && (common[w] & bit) != 0UL) r.commonOverlap++;
             }
             return r;
         }
@@ -156,6 +173,45 @@ namespace Iroca
             for (int k = 0; k < share.Length; k++)
                 if (share[k] >= sampleCount * 0.5f && (best < 0 || share[k] > share[best])) best = k;
             return best;
+        }
+
+        /// <summary>「ここのマスクを消す」で、クリックした所にマスクがあるかを見る範囲(マスクの画素。細いマスクを外さないよう周りも見る)。</summary>
+        public const int ClearProbeRadius = 2;
+
+        /// <summary>中心 (cx, cy) から半径 radius の正方形の中に、立っている画素があるか。bits が null なら false。</summary>
+        public static bool AnyBitNear(ulong* bits, int w, int h, int cx, int cy, int radius)
+        {
+            if (bits == null) return false;
+            int y0 = System.Math.Max(0, cy - radius), y1 = System.Math.Min(h - 1, cy + radius);
+            int x0 = System.Math.Max(0, cx - radius), x1 = System.Math.Min(w - 1, cx + radius);
+            for (int y = y0; y <= y1; y++)
+            {
+                for (int x = x0; x <= x1; x++)
+                {
+                    int i = y * w + x;
+                    if ((bits[i >> 6] & (1UL << (i & 63))) != 0UL) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 「ここのマスクを消す」の宛先(並び順の番号)。hasMask[k] は、クリックした所に並び順 k のゾーンのマスクがあるか。
+        /// <para>
+        /// ほかの操作の宛先は「いま塗っているゾーン」(<see cref="PaintingZoneAt"/>)だが、消したいマスクの持ち主はそのゾーンとは
+        /// 限らない。ゾーン A が「塗らない」にした所を別のゾーン B が塗っていると、宛先が B になり、A のマスクが残る。
+        /// 塗っているゾーン(painting)→ いま直しているゾーン(active)→ 並びの順で、マスクを持つ最初のゾーンを選ぶ。
+        /// どのゾーンにも無ければ -1(呼び出し側は、ほかの操作と同じ宛先にする)。
+        /// </para>
+        /// </summary>
+        public static int PickClearTarget(bool[] hasMask, int painting, int active)
+        {
+            if (hasMask == null) return -1;
+            if (painting >= 0 && painting < hasMask.Length && hasMask[painting]) return painting;
+            if (active >= 0 && active < hasMask.Length && hasMask[active]) return active;
+            for (int k = 0; k < hasMask.Length; k++)
+                if (hasMask[k]) return k;
+            return -1;
         }
 
         /// <summary>
