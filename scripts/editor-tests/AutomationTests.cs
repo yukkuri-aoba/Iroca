@@ -555,6 +555,8 @@ namespace Iroca.EditorTests
             // 辺が 8192 を超える元ファイルは取り込み後の寸法で編集する(WorkingResolution)。そのときは、書き出しで
             // 元の解像度を読み直す。細長くして、画素数は小さく保つ。
             const int fw = WorkingResolution.MaxSourceSide + 8, fh = 4;
+            // Unity 6 の -nographics は 8192 より大きいテクスチャを作れない(GPU のあるホストでは通る)。
+            if (SystemInfo.maxTextureSize < fw) Assert.Ignore($"このホストのテクスチャの上限は {SystemInfo.maxTextureSize}");
             string src = _assets.WritePng("wide", Enumerable.Repeat(Red, fw * fh).ToArray(), fw, fh);
             var importer = (UnityEditor.TextureImporter)UnityEditor.AssetImporter.GetAtPath(src);
             importer.maxTextureSize = 4096;

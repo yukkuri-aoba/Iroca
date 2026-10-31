@@ -1251,7 +1251,7 @@ T5 で消える部分は作り直さない（1.5）。
 ### フェーズ 7: 仕上げとリリース
 
 - [x] 許可の一覧が 0 になった検査は、一覧なしの決まりにする。2026-10-31: 層の検査の例外を無くした（8bf470b。自動化はウィンドウを `EditingWindows` 経由で使う）。`KNOWN_VIOLATIONS`・`SPLIT_TYPES` を消した。画素数の配列の一覧は 0 にならないので、理由つきで残る。
-- [ ] 文書を直す: `docs/testing-architecture.md`（パス）・`docs/algorithm-constants.md`（ファイルの節）・
+- [x] （2026-10-31。実地確認は 51・52・55）文書を直す: `docs/testing-architecture.md`（パス）・`docs/algorithm-constants.md`（ファイルの節）・
   `docs/development-setup.md`・`docs/architecture.md`、マニュアル、CHANGELOG、`docs/release-smoke-test.md`
   （差分の追従・解像度の設定・メモリの確認を足す）。
 - [x] 0.3.1（`v0.3.1` タグ）と abcheck で比べる。わざと変えたもの以外は一致すること。T5 は出力を変えるので、
