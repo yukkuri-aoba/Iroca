@@ -43,7 +43,7 @@ namespace Iroca
             // 設定列(下限 320px)より広くなり、列全体がその幅で並べられて全行の右端(数値欄・ボタン)が
             // 切れていた。欄は狭くてもアイコンと名前の頭・ピッカーが見えれば使えるので、最小幅を詰める。
             var picked = EditorGUILayout.ObjectField(
-                new GUIContent(Localization.MeshSource, Localization.MeshSourceTooltip),
+                TempContent.Of(Localization.MeshSource, Localization.MeshSourceTooltip),
                 current, typeof(GameObject), true,
                 GUILayout.MinWidth(EditorGUIUtility.labelWidth + MinObjectFieldWidth));
             if (EditorGUI.EndChangeCheck() && picked != current)
@@ -64,7 +64,7 @@ namespace Iroca
                 }
                 host.RequestRepaint();
             }
-            if (GUILayout.Button(new GUIContent(Localization.MeshResearch, Localization.MeshResearchTooltip),
+            if (GUILayout.Button(TempContent.Of(Localization.MeshResearch, Localization.MeshResearchTooltip),
                     EditorStyles.miniButton, GUILayout.ExpandWidth(false)))
             {
                 parts.Research();
@@ -78,14 +78,14 @@ namespace Iroca
             var found = parts.Found;
             // 折り返す: 見つからない・読めないときの案内は設定列の幅に 1 行で入らず、末尾が欠けていた
             // （LabelField は 1 行の高さ固定）。行数が変わるのは状態が変わったときだけ。
-            GUILayout.Label(new GUIContent(StatusText(parts, found), MeshListTooltip(found)),
+            GUILayout.Label(TempContent.Of(StatusText(parts, found), MeshListTooltip(found)),
                             EditorStyles.wordWrappedMiniLabel);
 
             using (new EditorGUI.DisabledScope(!parts.HasMesh))
             {
                 EditorGUI.BeginChangeCheck();
                 bool show = EditorGUILayout.ToggleLeft(
-                    new GUIContent(Localization.MeshShowIslands, Localization.MeshShowIslandsTooltip), ShowIslands);
+                    TempContent.Of(Localization.MeshShowIslands, Localization.MeshShowIslandsTooltip), ShowIslands);
                 if (EditorGUI.EndChangeCheck())
                 {
                     ShowIslands = show;

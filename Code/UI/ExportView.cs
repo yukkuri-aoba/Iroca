@@ -83,7 +83,7 @@ namespace Iroca
             DrawRegister(primary: true);
             EditorGUILayout.Space(4);
             textureExportFoldout = EditorGUILayout.Foldout(textureExportFoldout,
-                new GUIContent(Localization.ExportAsTexture, Localization.ExportAsTextureTooltip), true);
+                TempContent.Of(Localization.ExportAsTexture, Localization.ExportAsTextureTooltip), true);
             if (textureExportFoldout)
                 DrawTextureExport(primary: false);
 #else
@@ -101,7 +101,7 @@ namespace Iroca
             if (!string.IsNullOrEmpty(_lastError))
             {
                 EditorGUILayout.HelpBox(_lastError, MessageType.Error);
-                if (GUILayout.Button(new GUIContent(Localization.DismissError, Localization.DismissErrorTooltip)))
+                if (GUILayout.Button(TempContent.Of(Localization.DismissError, Localization.DismissErrorTooltip)))
                     _lastError = null;
             }
 
@@ -111,8 +111,8 @@ namespace Iroca
         /// <summary>テクスチャへの書き出し(PNG)。primary のときだけ実行ボタンを大きくする。</summary>
         private void DrawTextureExport(bool primary)
         {
-            var saveAsNewContent = new GUIContent(Localization.SaveAsNewFile, Localization.SaveAsNewFileTooltip);
-            var inheritContent = new GUIContent(Localization.InheritImportSettings, Localization.InheritImportSettingsTooltip);
+            var saveAsNewContent = TempContent.Of(Localization.SaveAsNewFile, Localization.SaveAsNewFileTooltip);
+            var inheritContent = TempContent.Of(Localization.InheritImportSettings, Localization.InheritImportSettingsTooltip);
             // トグルのラベルが入りきる幅までラベル列を広げる。狭いウィンドウの既定のラベル幅（120）では
             // 「インポート設定を引き継ぐ」の末尾が欠ける。
             float prevLabelWidth = EditorGUIUtility.labelWidth;
@@ -127,7 +127,7 @@ namespace Iroca
             if (saveAsNewFile)
             {
                 newFileName = EditorGUILayout.TextField(
-                    new GUIContent(Localization.FileName, Localization.FileNameTooltip),
+                    TempContent.Of(Localization.FileName, Localization.FileNameTooltip),
                     newFileName);
             }
             EditorGUIUtility.labelWidth = prevLabelWidth;
@@ -137,14 +137,14 @@ namespace Iroca
             if (_host.SoloZone != null)
                 EditorGUILayout.HelpBox(Localization.ExportSoloWarning, MessageType.Info);
 
-            var applyContent = new GUIContent(Localization.ApplyAndSave, Localization.ApplyAndSaveTooltip);
+            var applyContent = TempContent.Of(Localization.ApplyAndSave, Localization.ApplyAndSaveTooltip);
             if (primary ? GUILayout.Button(applyContent, GUILayout.Height(PrimaryButtonHeight)) : GUILayout.Button(applyContent))
             {
                 ApplyRecolor();
             }
 
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(new GUIContent(Localization.OpenFolder, Localization.OpenFolderTooltip)))
+            if (GUILayout.Button(TempContent.Of(Localization.OpenFolder, Localization.OpenFolderTooltip)))
             {
                 string path = AssetDatabase.GetAssetPath(_host.SourceTexture);
                 if (!string.IsNullOrEmpty(path))
@@ -154,7 +154,7 @@ namespace Iroca
             // ファイルマネージャを開くだけで、マテリアルへ差し替える作業には使えなかった。
             using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(_lastSavedAssetPath)))
             {
-                if (GUILayout.Button(new GUIContent(Localization.RevealInProject, Localization.RevealInProjectTooltip)))
+                if (GUILayout.Button(TempContent.Of(Localization.RevealInProject, Localization.RevealInProjectTooltip)))
                     RevealLastSavedInProject();
             }
             EditorGUILayout.EndHorizontal();
@@ -163,7 +163,7 @@ namespace Iroca
         /// <summary>非破壊(NDMF)の登録。primary のときだけボタンを大きくする。</summary>
         private void DrawRegister(bool primary)
         {
-            var registerContent = new GUIContent(Localization.RegisterNonDestructive, Localization.RegisterNonDestructiveTooltip);
+            var registerContent = TempContent.Of(Localization.RegisterNonDestructive, Localization.RegisterNonDestructiveTooltip);
             if (primary ? GUILayout.Button(registerContent, GUILayout.Height(PrimaryButtonHeight)) : GUILayout.Button(registerContent))
                 _host.RegisterToAvatar();
             var bound = _host.BoundRecipe;
@@ -171,7 +171,7 @@ namespace Iroca
             {
                 // 表示だけ(差し替えは「いろかで開く」で行う。ここでドロップされても結び付けない)。
                 using (new EditorGUI.DisabledScope(true))
-                    EditorGUILayout.ObjectField(new GUIContent(Localization.BoundRecipe, Localization.BoundRecipeTooltip),
+                    EditorGUILayout.ObjectField(TempContent.Of(Localization.BoundRecipe, Localization.BoundRecipeTooltip),
                         bound, typeof(IrocaRecipe), false);
                 // 読めないレシピ(新しい版のいろかで作られた・壊れた)には保存も登録もしないので、そう知らせる。
                 if (BoundRecipeUnreadable(bound))
@@ -274,7 +274,7 @@ namespace Iroca
         private static float HelpBoxHeight(string text)
         {
             float textW = Mathf.Max(100f, EditorGUIUtility.currentViewWidth - 60f);
-            float measured = EditorStyles.helpBox.CalcHeight(new GUIContent(text), textW);
+            float measured = EditorStyles.helpBox.CalcHeight(TempContent.Of(text), textW);
             return Mathf.Max(40f, measured) + EditorGUIUtility.standardVerticalSpacing;
         }
 
@@ -545,7 +545,7 @@ namespace Iroca
                 EditorGUILayout.BeginHorizontal();
                 batchTextures[i] = (Texture2D)EditorGUILayout.ObjectField(
                     batchTextures[i], typeof(Texture2D), false);
-                if (GUILayout.Button(new GUIContent("×", Localization.RemoveBatchTextureTooltip),
+                if (GUILayout.Button(TempContent.Of("×", Localization.RemoveBatchTextureTooltip),
                         GUILayout.Width(IrocaUiConsts.Layout.RemoveButtonWidth)))
                     removeIdx = i;
                 EditorGUILayout.EndHorizontal();
@@ -554,12 +554,12 @@ namespace Iroca
 
             if (removeIdx >= 0) batchTextures.RemoveAt(removeIdx);
 
-            if (GUILayout.Button(new GUIContent(Localization.AddBatchTexture, Localization.AddBatchTextureTooltip)))
+            if (GUILayout.Button(TempContent.Of(Localization.AddBatchTexture, Localization.AddBatchTextureTooltip)))
                 batchTextures.Add(null);
 
             var session = _host.Session;
             EditorGUI.BeginDisabledGroup(batchTextures.Count == 0 || session.zones.Count == 0);
-            if (GUILayout.Button(new GUIContent(Localization.BatchApplyAndSave, Localization.BatchApplyAndSaveTooltip), GUILayout.Height(28)))
+            if (GUILayout.Button(TempContent.Of(Localization.BatchApplyAndSave, Localization.BatchApplyAndSaveTooltip), GUILayout.Height(28)))
                 RunBatchApply();
             EditorGUI.EndDisabledGroup();
 

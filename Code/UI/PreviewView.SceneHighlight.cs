@@ -197,11 +197,11 @@ namespace Iroca
             if (other != null)
             {
                 GUILayout.Label(
-                    new GUIContent(string.Format(Localization.SceneClickOtherTextureFormat, other.name),
+                    TempContent.Of(string.Format(Localization.SceneClickOtherTextureFormat, other.name),
                                    Localization.SceneClickOtherTextureTooltip),
                     // 文の長さだけ取り、「開く」をすぐ後ろに置く(広げると「開く」が行の右端へ離れる)
                     EditorStyles.miniLabel, GUILayout.MinWidth(0f), GUILayout.ExpandWidth(false));
-                if (GUILayout.Button(new GUIContent(Localization.SceneClickOpen, Localization.SceneClickOpenTooltip),
+                if (GUILayout.Button(TempContent.Of(Localization.SceneClickOpen, Localization.SceneClickOpenTooltip),
                                      SceneLinkStyle, GUILayout.ExpandWidth(false)))
                 {
                     // テクスチャの切り替えでプレビューの中身が変わるので、この描画の途中ではなく次の更新で行う
@@ -221,13 +221,13 @@ namespace Iroca
             // 色替えが済んで「同じ色の別の所まで変わった」と気づく頃に出す。
             if (_host.StepZonesDone && !ContextMenuUsed)
             {
-                GUILayout.Label(new GUIContent(Localization.ContextMenuHint, Localization.ContextMenuHintTooltip),
+                GUILayout.Label(TempContent.Of(Localization.ContextMenuHint, Localization.ContextMenuHintTooltip),
                                 EditorStyles.miniLabel, GUILayout.MinWidth(0f));
                 return;
             }
             bool used = IrocaWindow.SceneClickUsed;
             GUILayout.Label(
-                new GUIContent(used ? " " : Localization.SceneClickHint,
+                TempContent.Of(used ? " " : Localization.SceneClickHint,
                                used ? Localization.PreviewModeTooltip : Localization.SceneClickHintTooltip),
                 EditorStyles.miniLabel, GUILayout.MinWidth(0f));
         }

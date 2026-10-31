@@ -31,7 +31,7 @@ namespace Iroca
 
             serializedObject.Update();
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(IrocaRecolor.recipes)),
-                new GUIContent(Localization.RecipeField, Localization.RecipeFieldTooltip), true);
+                TempContent.Of(Localization.RecipeField, Localization.RecipeFieldTooltip), true);
             serializedObject.ApplyModifiedProperties();
 
             var recipes = component.recipes;
@@ -71,7 +71,7 @@ namespace Iroca
 
             using (new EditorGUI.DisabledScope(source == null))
             {
-                if (GUILayout.Button(new GUIContent(Localization.OpenInIroca, Localization.OpenInIrocaTooltip)))
+                if (GUILayout.Button(TempContent.Of(Localization.OpenInIroca, Localization.OpenInIrocaTooltip)))
                     IrocaWindow.OpenRecipe(recipe);
             }
         }
@@ -89,7 +89,7 @@ namespace Iroca
             var all = component.GetComponents<IrocaRecolor>();
             if (all.Length < 2) return;
             EditorGUILayout.HelpBox(string.Format(Localization.RecolorMergeFormat, all.Length), MessageType.Info);
-            if (GUILayout.Button(new GUIContent(Localization.RecolorMergeButton, Localization.RecolorMergeButtonTooltip)))
+            if (GUILayout.Button(TempContent.Of(Localization.RecolorMergeButton, Localization.RecolorMergeButtonTooltip)))
             {
                 RecipeRegistration.MergeComponents(component.gameObject);
                 // 表示中のコンポーネントが消えることがあるので、この回の描画はここで打ち切る。

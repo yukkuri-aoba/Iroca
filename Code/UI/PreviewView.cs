@@ -453,14 +453,14 @@ namespace Iroca
             // 常に出ていた。トグルは内容幅に縮め、生成状態は右端に置く。
             // ズーム率は見出し行にある（この行に並べると既定幅に収まらない。DrawTitleRow 参照）。
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Toggle(comparisonMode, new GUIContent(Localization.ComparisonMode, Localization.ComparisonModeTooltip), EditorStyles.miniButtonLeft, GUILayout.ExpandWidth(false)) != comparisonMode)
+            if (GUILayout.Toggle(comparisonMode, TempContent.Of(Localization.ComparisonMode, Localization.ComparisonModeTooltip), EditorStyles.miniButtonLeft, GUILayout.ExpandWidth(false)) != comparisonMode)
             {
                 comparisonMode = !comparisonMode;
                 if (comparisonMode) diffMode = false;
                 // 画像の並び(位置)が変わるので、拡大表示の切り出しを新しい並びで作り直す。
                 DetailView.OnViewMoved();
             }
-            if (GUILayout.Toggle(diffMode, new GUIContent(Localization.DiffMode, Localization.DiffModeTooltip), EditorStyles.miniButtonRight, GUILayout.ExpandWidth(false)) != diffMode)
+            if (GUILayout.Toggle(diffMode, TempContent.Of(Localization.DiffMode, Localization.DiffModeTooltip), EditorStyles.miniButtonRight, GUILayout.ExpandWidth(false)) != diffMode)
             {
                 diffMode = !diffMode;
                 // 拡大表示の差分は、変更後の切り出しと同じ範囲の変更前の切り出しから描く。今の切り出しの分は
@@ -474,7 +474,7 @@ namespace Iroca
             using (new EditorGUI.DisabledScope(comparisonMode || rawPreviewTexture == null))
             {
                 peekOriginal = GUILayout.RepeatButton(
-                    new GUIContent(Localization.PeekOriginal, Localization.PeekOriginalTooltip),
+                    TempContent.Of(Localization.PeekOriginal, Localization.PeekOriginalTooltip),
                     EditorStyles.miniButton, GUILayout.ExpandWidth(false));
             }
             peekOriginal &= !comparisonMode && rawPreviewTexture != null;
@@ -983,7 +983,7 @@ namespace Iroca
             EditorGUILayout.BeginHorizontal();
             if (mode != null)
             {
-                GUILayout.Label(new GUIContent(mode + Localization.PreviewModeEscHint, Localization.PreviewModeTooltip),
+                GUILayout.Label(TempContent.Of(mode + Localization.PreviewModeEscHint, Localization.PreviewModeTooltip),
                                 EditorStyles.miniLabel, GUILayout.MinWidth(0f));
             }
             else
@@ -1001,7 +1001,7 @@ namespace Iroca
                 string zoneName = string.IsNullOrEmpty(soloZone.name)
                     ? Localization.UnnamedZone : soloZone.name;
                 GUILayout.Label(
-                    new GUIContent(string.Format(Localization.PreviewSoloFormat, zoneName),
+                    TempContent.Of(string.Format(Localization.PreviewSoloFormat, zoneName),
                                    Localization.PreviewSoloTooltip),
                     EditorStyles.miniLabel, GUILayout.MinWidth(0f));
                 GUI.contentColor = prevContent;
@@ -1021,7 +1021,7 @@ namespace Iroca
         private void DrawTitleRow(bool showZoom, float maxZoom)
         {
             EditorGUILayout.BeginHorizontal();
-            var title = new GUIContent(Localization.StepPrefixPreview + Localization.Preview);
+            var title = TempContent.Of(Localization.StepPrefixPreview + Localization.Preview);
             GUILayout.Label(title, EditorStyles.boldLabel, GUILayout.ExpandWidth(false));
             if (showZoom)
             {
@@ -1029,8 +1029,8 @@ namespace Iroca
                 // ズームは Ctrl+スクロールのみ。拡大したあと初期表示へ戻す手段がスクロールを
                 // 戻し切ることしか無かったので、リセットボタンだけ置く（−／＋／全体の段階ボタンは
                 // 見た目が煩雑になったため 2026-09-14 に撤去）。
-                var reset = new GUIContent(Localization.ZoomReset, Localization.ZoomResetTooltip);
-                var zoom = new GUIContent(_cachedZoomLabel, Localization.ZoomHint);
+                var reset = TempContent.Of(Localization.ZoomReset, Localization.ZoomResetTooltip);
+                var zoom = TempContent.Of(_cachedZoomLabel, Localization.ZoomHint);
                 // 狭いカラムでは「(Ctrl+スクロール)」を省く。省かないと行がカラムより広くなり、
                 // 右端のリセットボタンが見えない位置へ押し出される(外側 ScrollView はカラムより広い
                 // 内容を黙って切る。frameW のコメント参照)。判定はカラム幅だけで決まるので、
@@ -1076,7 +1076,7 @@ namespace Iroca
             }
         }
 
-        private static GUIContent SmoothContent => new GUIContent(Localization.SmoothMagnify, Localization.SmoothMagnifyTooltip);
+        private static GUIContent SmoothContent => TempContent.Of(Localization.SmoothMagnify, Localization.SmoothMagnifyTooltip);
 
         // ── 拡大表示の解像度(表示だけの設定。確定段が縮めたものを作るかを決めるので、PreviewPipeline が持つ) ──
         internal const string DetailFullResolutionPrefKey = PreviewPipeline.DetailFullResolutionPrefKey;
@@ -1089,7 +1089,7 @@ namespace Iroca
         }
 
         private static GUIContent DetailFullResolutionContent
-            => new GUIContent(Localization.DetailFullResolution, Localization.DetailFullResolutionTooltip);
+            => TempContent.Of(Localization.DetailFullResolution, Localization.DetailFullResolutionTooltip);
 
         // 見出し行(題名・ズーム率・なめらか・元の解像度・リセット)がカラムの見えている幅に収まるか。
         // カラム幅を渡さないホストでは従来どおり省略しない。

@@ -289,7 +289,7 @@ namespace Iroca
         internal static bool DrawMissingHostNotice()
         {
             EditorGUILayout.HelpBox(Localization.BrushPaletteNoHost, MessageType.Info);
-            if (!GUILayout.Button(new GUIContent(Localization.OpenIrocaWindow, Localization.OpenIrocaWindowTooltip)))
+            if (!GUILayout.Button(TempContent.Of(Localization.OpenIrocaWindow, Localization.OpenIrocaWindowTooltip)))
                 return false;
             ShowWindow();
             return true;

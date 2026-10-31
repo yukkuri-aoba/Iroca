@@ -2,7 +2,6 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -706,7 +705,8 @@ namespace Iroca
             var session = editing.State;
             // 削除されたゾーンの選択キャッシュ(4K で 67MB/ゾーン)が恒久残留しないよう、セッションに
             // 現存するゾーン id 以外のエントリを毎回刈る(無効ゾーンは残す=再有効化で再計算を避ける)。
-            var liveZoneIds = new HashSet<string>(session.zones.Select(z => z.id));
+            var liveZoneIds = new HashSet<string>();
+            foreach (ColorZone zone in session.zones) liveZoneIds.Add(zone.id);
             // 自動調整の入力(証拠マスク)も同じ集合で刈る。
             _host.RetainZoneInputs(liveZoneIds);
             _selectionCache?.RetainOnly(liveZoneIds);
