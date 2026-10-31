@@ -158,6 +158,9 @@ namespace Iroca
             }
         }
 
+        /// <summary>切り出しを重ねなくなった(元の倍率へ戻した)。表示中の切り出しは残すが、切り出し用の作業 RenderTexture は持たない。</summary>
+        internal void ReleaseAppearanceScratch() => _appearance?.ReleaseScratch();
+
         // 拡大表示の切り出しが覆う範囲(土台の UV)。
         private Rect DetailUv() => new Rect(
             Detail.detailOriginX / (float)DetailW, Detail.detailOriginY / (float)DetailH,
@@ -283,7 +286,8 @@ namespace Iroca
             bool detailShown = d.Allowed && shownDetail != null;
             Texture peekDetail = detailShown && peekOriginal ? ShownDetailRaw() : null;
             // 差分表示の間は、変更前の切り出しを差分が読むので持っておく。
-            if (!peekOriginal && !diffMode) ReleaseDetailRaw();
+            // Repaint のときだけ見る(「元を表示」の RepeatButton は Layout で false を返すので、押している間も毎フレーム手放して作り直していた)。
+            if (Event.current.type == EventType.Repaint && !peekOriginal && !diffMode) ReleaseDetailRaw();
             if (detailShown && (!peekOriginal || peekDetail != null))
             {
                 EditorGUI.DrawPreviewTexture(rect, peekOriginal ? ShownRaw : ShownPreview);

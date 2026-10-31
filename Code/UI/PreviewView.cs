@@ -690,8 +690,11 @@ namespace Iroca
             if (detailActive)
                 TickDetailGeneration(detScale, effZoom, panelCount, srcW, srcH);
             else
-                // 拡大表示をやめている間は、縮めたタイルの控えを持たない(表示中の切り出しは残す)。
+            {
+                // 拡大表示をやめている間は、縮めたタイルの控えと、切り出し用の作業 RenderTexture を持たない(表示中の切り出しは残す)。
                 DetailView.ReleaseTiles();
+                _renderer.ReleaseAppearanceScratch();
+            }
 
             HandlePreviewGlobalInput(zoomHitRect, maxZoom);
 
