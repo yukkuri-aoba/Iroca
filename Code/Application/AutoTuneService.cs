@@ -74,15 +74,18 @@ namespace Iroca
         /// null = AI と共有できる元が無い(この画素で同じキーを使うと、別の画素の埋め込みと取り違える)。
         /// </param>
         /// <param name="excluded">除外マスク(共通 ∪ そのゾーン、true=除外)。null = マスク無し。持ち主は自動調整になり、終わったら返す。</param>
+        /// <param name="retryAiError">
+        /// 前の推論のエラーをなかったことにして試し直すか。何ゾーンもまとめて頼むときは最初の 1 回だけ(直らないエラーでゾーンごとに待たせない)。
+        /// </param>
         internal static Run Start(ColorZone zone, IrocaSessionState session, NativePixels pixels, string sourceKey,
-            NativeBools excluded, int maskW, int maskH)
+            NativeBools excluded, int maskW, int maskH, bool retryAiError = true)
         {
             zone.EnsureId();
             // 背景の解析には live の zone / session を直接渡さず、値等価コピーを渡す。解析中も Undo などでゾーンや
             // session が変異し得るため、live を渡すと sampleColor 変異で混成サンプルから無意味な tolerance を導出したり、
             // session.zones 列挙中の add/remove で InvalidOperationException になり得る。
             var run = new Run(zone.Clone(), ZoneAutoTuner.SessionInput.From(session), pixels.AddRef(), sourceKey,
-                excluded, maskW, maskH);
+                excluded, maskW, maskH) { _retryAiError = retryAiError };
             run.Begin();
             return run;
         }
@@ -182,6 +185,7 @@ namespace Iroca
             private readonly ColorZone _zone;
             private readonly ZoneAutoTuner.SessionInput _session;
             private readonly string _sourceKey;
+            internal bool _retryAiError = true;
             private NativeBools _excluded;
             private readonly bool _maskUsed;
             private readonly int _mw, _mh;
@@ -279,7 +283,7 @@ namespace Iroca
                 _progress.Report(0.02f);
                 // 前の推論のエラーが残っていても、押し直したら再試行する(残したままだと、右クリックで AI を選び直すか
                 // テクスチャを切り替えるまで、自動調整が毎回すぐ中止される)。
-                AiSuggestBroker.RetryAfterError();
+                if (_retryAiError) AiSuggestBroker.RetryAfterError();
                 RequestEvidence();
             }
 

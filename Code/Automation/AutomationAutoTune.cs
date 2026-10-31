@@ -77,7 +77,7 @@ namespace Iroca
                 if (_run == null)
                 {
                     NativeBools excluded = CombinedExclusion(zone.id, out int mw, out int mh);
-                    _run = AutoTuneService.Start(zone, _state, _pixels, _key, excluded, mw, mh);
+                    _run = AutoTuneService.Start(zone, _state, _pixels, _key, excluded, mw, mh, retryAiError: !_askedAi);
                     _askedAi |= _run.AskedAi;
                 }
                 _run.Advance();

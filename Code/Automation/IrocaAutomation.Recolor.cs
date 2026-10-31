@@ -853,7 +853,9 @@ namespace Iroca
             }
             zone.enabled = true;
             // 基準色が変わると、前の場所の調整で導いた内部サンプルは使えない(UI のスポイトと同じ。残すと前の場所も塗る)。
-            if (zone.sampleColor != from) zone.extraSamples?.Clear();
+            // 同じ場所を指したまま色だけ頼み直すなら残す(自動調整が基準色を変えていると、同じ場所でも色の比較は違う)。
+            bool samePlace = uv.x >= 0f && zone.sampleUV == uv;
+            if (!samePlace && zone.sampleColor != from) zone.extraSamples?.Clear();
             zone.sampleColor = from;
             zone.sampleColorSet = true;
             zone.targetColor = to;
