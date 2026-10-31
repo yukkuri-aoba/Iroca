@@ -267,6 +267,10 @@ namespace Iroca
             _prefetchJob.Cancel();
             _afterTiles.Retarget(grid, range.Version);
             if (needRaw) _beforeTiles.Retarget(grid, rawRange.Version);
+            // 範囲と先読みの 1 周(SchedulePrefetch)を控えられるように。
+            int tilesWanted = (range.C1 - range.C0 + 2) * (range.R1 - range.R0 + 2);
+            _afterTiles.EnsureCapacity(tilesWanted);
+            _beforeTiles.EnsureCapacity(tilesWanted);
             // 並べ終わるまで、土台の参照を持つ(使い回しにも渡されない)。後始末で返す。
             var outputForTask = output.AddRef();
             var sourceForTask = needRaw ? source.AddRef() : null;

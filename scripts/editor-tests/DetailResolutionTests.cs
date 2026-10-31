@@ -33,6 +33,41 @@ namespace Iroca.EditorTests
         private int _tileTexelsBefore;
         private IrocaWindow _win;
 
+        // 大きな枠では見えているタイルが多い。下限の枚数で切ると、先読みが見えているタイルを追い出して毎回作り直す。
+        [Test]
+        public void TileCache_KeepsWhatTheViewNeeds_AboveTheDefaultLimit()
+        {
+            int saved = DetailTileGrid.TileTexels;
+            DetailTileGrid.TileTexels = 2;
+            var px = NativePixels.Allocate(64, 64);
+            var cache = new DetailTileCache();
+            try
+            {
+                var grid = DetailTileGrid.For(64, 64, 0.5f);
+                Assert.Greater(grid.Columns * grid.Rows, DetailTileCache.MaxTiles, "テストの前提: 下限より多いタイル");
+                cache.Retarget(grid, 1);
+                cache.EnsureCapacity(grid.Columns * grid.Rows);
+                for (int r = 0; r < grid.Rows; r++)
+                    for (int c = 0; c < grid.Columns; c++)
+                        Assert.IsTrue(cache.Prefetch(grid, 1, c, r, px));
+                Assert.AreEqual(grid.Columns * grid.Rows, cache.Count, "求めた枚数を控えていない");
+
+                cache.Clear();
+                cache.EnsureCapacity(1);
+                cache.Retarget(grid, 1);
+                for (int r = 0; r < grid.Rows; r++)
+                    for (int c = 0; c < grid.Columns; c++)
+                        Assert.IsTrue(cache.Prefetch(grid, 1, c, r, px));
+                Assert.AreEqual(DetailTileCache.MaxTiles, cache.Count, "下限を守っていない");
+            }
+            finally
+            {
+                cache.Clear();
+                px.Release();
+                DetailTileGrid.TileTexels = saved;
+            }
+        }
+
         // 取り込みで縦横比が変わる(1500×1000 → 1024×1024)と、土台の 1 画素の画面の大きさが縦と横で違う。拡大表示は
         // 画像の矩形にちょうど重なる(1 つの倍率で置くと縦に 1.5 倍へ伸び、ブラシ・スポイトの位置とずれていた)。
         [Test]

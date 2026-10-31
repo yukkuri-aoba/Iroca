@@ -129,11 +129,13 @@ namespace Iroca
     /// </summary>
     internal sealed unsafe class DetailTileCache
     {
-        // 4K の土台で、見えている範囲(枠いっぱい＋余白)と先読みの 1 周を足しても収まる枚数。1 枚 256KB なので 16MB まで。
+        // 控える枚数の下限。4K の土台で、ふつうの枠(見えている範囲＋余白)と先読みの 1 周を足しても収まる。1 枚 256KB なので 16MB。
+        // 大きな枠で見ているときは EnsureCapacity で広げる(足りないと、先読みが見えているタイルを追い出して毎回作り直す)。
         internal const int MaxTiles = 64;
 
         private readonly object _gate = new object();
         private readonly Dictionary<long, Entry> _tiles = new Dictionary<long, Entry>();
+        private int _capacity = MaxTiles;
         private DetailTileGrid _grid;
         private int _version;
         private bool _targeted;
@@ -168,6 +170,12 @@ namespace Iroca
                 _version = version;
                 _targeted = true;
             }
+        }
+
+        /// <summary>これから作る範囲(見えている範囲と先読みの 1 周)の枚数を控えられるようにする。下限は <see cref="MaxTiles"/>。</summary>
+        internal void EnsureCapacity(int tiles)
+        {
+            lock (_gate) _capacity = System.Math.Max(MaxTiles, tiles);
         }
 
         /// <summary>控えを全部手放す(テクスチャを替えた・拡大表示をやめた・閉じた)。</summary>
@@ -226,7 +234,7 @@ namespace Iroca
                     return other.Pixels.AddRef();
                 }
                 _tiles[key] = new Entry { Pixels = made.AddRef(), Used = ++_tick };
-                if (_tiles.Count > MaxTiles) EvictOldestLocked();
+                if (_tiles.Count > _capacity) EvictOldestLocked();
                 return made;
             }
         }
