@@ -110,6 +110,7 @@ namespace Iroca
         public static IrocaSessionState LoadSession(string texturePath, out bool unreadable)
         {
             unreadable = false;
+            Files.RestoreOrphanFor(texturePath);
             string path = SessionFilePath(texturePath);
             if (string.IsNullOrEmpty(path)) return null;
             if (!File.Exists(path)) return null;

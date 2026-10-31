@@ -215,6 +215,38 @@ namespace Iroca.EditorTests
             }
         }
 
+        // 窓を開いたときの掃除の後で GUID が引けるようになったテクスチャでも、退避されたファイルを読む
+        // (読まないと空で始まり、次の掃除で退避が消えて以前の編集を失っていた)。
+        [Test]
+        public void OrphanedFiles_AreRestoredWhenTheTextureIsLoaded()
+        {
+            string tex = _assets.WritePng("orphan", TestAssets.Solid(4, 4, new Color32(1, 2, 3, 255)), 4, 4);
+            string guid = AssetDatabase.AssetPathToGUID(tex);
+            var state = IrocaSessionState.CreateDefault();
+            state.zones.Add(new ColorZone { name = "退避された編集" });
+            Assert.IsTrue(SessionFileStore.SaveSession(tex, state));
+            var masks = new MaskState { width = 4, height = 4, commonMaskBase64 = MaskRle.Encode(new bool[16], 4, 4) };
+            Assert.IsTrue(MaskFileStore.SaveMask(tex, masks));
+            try
+            {
+                foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir })
+                    foreach (var f in Directory.GetFiles(dir, guid + "*"))
+                        File.Move(f, f + ".orphan");
+
+                var loaded = SessionFileStore.LoadSession(tex, out bool unreadable);
+                Assert.IsFalse(unreadable);
+                Assert.IsNotNull(loaded, "退避されたセッションを読んでいない");
+                Assert.AreEqual("退避された編集", loaded.zones[0].name);
+                Assert.IsNotNull(MaskFileStore.LoadMask(tex, out _), "退避されたマスクを読んでいない");
+            }
+            finally
+            {
+                foreach (var dir in new[] { SessionFileStore.CacheDir, MaskFileStore.CacheDir })
+                    foreach (var f in Directory.GetFiles(dir, guid + "*"))
+                        File.Delete(f);
+            }
+        }
+
         // ─── プリセット ───
 
         [Test]

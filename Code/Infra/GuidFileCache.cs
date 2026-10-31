@@ -52,6 +52,19 @@ namespace Iroca
         }
 
         /// <summary>
+        /// このアセットのファイルが退避されたままなら元へ戻す(読み込みの前に呼ぶ)。掃除(<see cref="CleanupOrphans"/>)は窓を開いたときだけ
+        /// 走るので、その後で GUID が引けるようになった(同じ GUID でパッケージを入れ直した)テクスチャを開くと、ファイルが無いものとして
+        /// 空で始まり、次の掃除で退避が消えていた。
+        /// </summary>
+        public void RestoreOrphanFor(string assetPath)
+        {
+            string path = PathForAsset(assetPath);
+            if (path == null || File.Exists(path)) return;
+            string orphan = path + OrphanSuffix;
+            if (File.Exists(orphan)) RestoreFromOrphan(orphan, path);
+        }
+
+        /// <summary>
         /// GUID 直接指定でファイルを削除する。
         /// </summary>
         public void DeleteByGuid(string guid)
