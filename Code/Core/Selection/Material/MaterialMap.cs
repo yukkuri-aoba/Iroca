@@ -105,18 +105,20 @@ namespace Iroca
 
             // 隣の一覧
             _neighborStart = new int[n + 2];
-            foreach (var e in regions.Adjacency)
+            RegionAdjacency* adjacency = regions.Adjacency;
+            int pairCount = regions.AdjacencyCount;
+            for (int k = 0; k < pairCount; k++)
             {
-                _neighborStart[e.A + 1]++;
-                _neighborStart[e.B + 1]++;
+                _neighborStart[adjacency[k].A + 1]++;
+                _neighborStart[adjacency[k].B + 1]++;
             }
             for (int r = 1; r <= n + 1; r++) _neighborStart[r] += _neighborStart[r - 1];
             _neighbors = new int[_neighborStart[n + 1]];
             var fill = (int[])_neighborStart.Clone();
-            foreach (var e in regions.Adjacency)
+            for (int k = 0; k < pairCount; k++)
             {
-                _neighbors[fill[e.A]++] = e.B;
-                _neighbors[fill[e.B]++] = e.A;
+                _neighbors[fill[adjacency[k].A]++] = adjacency[k].B;
+                _neighbors[fill[adjacency[k].B]++] = adjacency[k].A;
             }
         }
 
@@ -195,8 +197,10 @@ namespace Iroca
             int m = Count + 1;
             var border = new double[m];
             var pairs = new Dictionary<long, (double contact, double soft)>();
-            foreach (var e in _regions.Adjacency)
+            RegionAdjacency* adjacency = _regions.Adjacency;
+            for (int k = 0; k < _regions.AdjacencyCount; k++)
             {
+                ref RegionAdjacency e = ref adjacency[k];
                 int a = MaterialOfRegion[e.A], b = MaterialOfRegion[e.B];
                 if (a == b) continue;
                 border[a] += e.Contact;

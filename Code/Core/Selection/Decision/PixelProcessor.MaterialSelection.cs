@@ -9,19 +9,31 @@ namespace Iroca
 {
     internal static unsafe partial class PixelProcessor
     {
-        /// <summary>1 回の処理の中で使い回す、領域と素材の地図(テクスチャの色だけで決まる)。</summary>
-        private sealed class MaterialScene : IDisposable
+        /// <summary>
+        /// 領域と素材の地図(テクスチャの色だけで決まる)。作るのが重いので、選択キャッシュがあれば原本が替わるまで使い回す
+        /// (<see cref="SelectionCache.AcquireScene"/>)。持ち方は参照の数: 作った側が 1 つ目を持ち、最後の <see cref="Dispose"/> で解放する。
+        /// </summary>
+        internal sealed class MaterialScene : IDisposable
         {
+            private int _refs = 1;
+            public readonly int Width, Height;
             public readonly RegionMap Regions;
             public readonly MaterialMap Materials;
 
             public MaterialScene(Color32* pixels, int w, int h)
             {
+                Width = w;
+                Height = h;
                 Regions = RegionMap.Build(pixels, w, h, RegionMapSettings.Default);
                 Materials = MaterialMap.Build(Regions);
             }
 
-            public void Dispose() => Regions.Dispose();
+            public void AddRef() => Interlocked.Increment(ref _refs);
+
+            public void Dispose()
+            {
+                if (Interlocked.Decrement(ref _refs) == 0) Regions.Dispose();
+            }
         }
 
         /// <summary>
@@ -31,7 +43,10 @@ namespace Iroca
         private static SelectionResult RunMaterialSelection(RunContext run, ColorZone zone, ZoneBuffers zb, ulong[] zoneMask)
         {
             int w = run.W, h = run.H, len = run.Len;
-            var scene = run.Materials ??= new MaterialScene(run.Original, w, h);
+            Color32* original = run.Original;
+            var scene = run.Materials ??= run.SelectionCache != null
+                ? run.SelectionCache.AcquireScene(w, h, () => new MaterialScene(original, w, h))
+                : new MaterialScene(original, w, h);
             RegionMap regions = scene.Regions;
             bool[] selected = scene.Materials.SelectedRegions(zone, w, h);
 

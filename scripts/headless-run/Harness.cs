@@ -1258,8 +1258,9 @@ namespace Iroca
                 using (var fs = new FileStream(prefix + "_adj.bin", FileMode.Create, FileAccess.Write))
                 using (var bw = new BinaryWriter(fs))
                 {
-                    foreach (var e in map.Adjacency)
+                    for (int pair = 0; pair < map.AdjacencyCount; pair++)
                     {
+                        RegionAdjacency e = map.Adjacency[pair];
                         bw.Write(e.A); bw.Write(e.B); bw.Write(e.Contact); bw.Write(e.MixtureContact); bw.Write(e.SoftContact);
                     }
                 }
@@ -1297,7 +1298,7 @@ namespace Iroca
                     stepMax = settings.StepMax, widthMax = settings.WidthMax, minArea = settings.MinArea,
                     regions = map.RegionCount, flat = map.FlatCount,
                     smallPixels = map.SmallPixels, mixturePixels = map.MixturePixels,
-                    adjacency = map.Adjacency.Count,
+                    adjacency = map.AdjacencyCount,
                     ms, phaseMs = map.PhaseMs, peakWork, peakSelection,
                     stepHistogram = map.StepHistogram,
                 }));
@@ -1336,7 +1337,7 @@ namespace Iroca
                 Check(m.RegionCount == 2, "硬い境目で 2 領域");
                 Check(m.Labels[0] != m.Labels[N - 1], "左右で別の領域");
                 Check(m.SmallPixels == 0, "小さな塊が無い");
-                Check(m.Adjacency.Count == 1 && m.Adjacency[0].Contact == N && m.Adjacency[0].MixtureContact == 0, "隣接は 1 組で辺は高さの数");
+                Check(m.AdjacencyCount == 1 && m.Adjacency[0].Contact == N && m.Adjacency[0].MixtureContact == 0, "隣接は 1 組で辺は高さの数");
                 Check(m.Adjacency[0].SoftContact == 0, "硬い境目はなだらかな接触に入らない");
                 int l = m.Labels[0];
                 Check(m.Regions[l].Area == N * N / 2 && m.Regions[l].InteriorArea == N * N / 2, "面積");
@@ -1355,7 +1356,7 @@ namespace Iroca
                 int mixValue = m.Mix[N / 2];
                 Check(mixValue >= 128 && mixValue <= 140, "被覆率はおよそ半分");
                 Check(m.Labels[N / 2] > 0, "縁の画素はどちらかの領域に入る");
-                Check(m.Adjacency.Count == 1 && m.Adjacency[0].MixtureContact > 0, "混色の接触を数える");
+                Check(m.AdjacencyCount == 1 && m.Adjacency[0].MixtureContact > 0, "混色の接触を数える");
             }
 
             // 長いグラデ(1 画素 1 階調): 幅の上限で帯に分かれ、上限が無ければ 1 つ
@@ -1366,8 +1367,8 @@ namespace Iroca
             using (var m = Build(grad, 256, 8, s0))
             {
                 Check(m.RegionCount >= 8 && m.RegionCount <= 32, $"グラデは帯に分かれる({m.RegionCount})");
-                bool allSoft = m.Adjacency.Count > 0;
-                foreach (var e in m.Adjacency) allSoft &= e.SoftContact == e.Contact;
+                bool allSoft = m.AdjacencyCount > 0;
+                for (int pair = 0; pair < m.AdjacencyCount; pair++) allSoft &= m.Adjacency[pair].SoftContact == m.Adjacency[pair].Contact;
                 Check(allSoft, "帯の境目は全部なだらかな接触");
                 bool narrow = true;
                 for (int r = 1; r <= m.RegionCount; r++)
@@ -1544,6 +1545,58 @@ namespace Iroca
                 bool allKept = true;
                 foreach (int r in bands) allKept &= kept[r];
                 Check(allKept, "提案の中の濃淡は管の中に残る");
+            }
+
+            // 組の多いテクスチャでも隣接の表が壊れない(表を広げる処理を通す): 1 画素ずつ違う市松の組
+            const int Many = 400;
+            var noisy = new Color32[Many * Many];
+            for (int y = 0; y < Many; y++)
+                for (int x = 0; x < Many; x++)
+                    noisy[y * Many + x] = ((x / 2 + y / 2) & 1) == 0 ? Rgb(40 + (x / 2 % 100) * 2, 200, 40 + (y / 2 % 100) * 2) : Rgb(200, 40 + (x / 2 % 100) * 2, 40 + (y / 2 % 100) * 2);
+            using (var m = Build(noisy, Many, Many, new RegionMapSettings { StepMax = 0, WidthMax = 0, MinArea = 1 }))
+            {
+                long contacts = 0;
+                var seen = new HashSet<(int, int)>();
+                for (int pair = 0; pair < m.AdjacencyCount; pair++)
+                {
+                    contacts += m.Adjacency[pair].Contact;
+                    seen.Add((m.Adjacency[pair].A, m.Adjacency[pair].B));
+                }
+                long expected = 0;
+                for (int y = 0; y < Many; y++)
+                    for (int x = 0; x < Many; x++)
+                    {
+                        if (x + 1 < Many && m.Labels[y * Many + x] != m.Labels[y * Many + x + 1]) expected++;
+                        if (y + 1 < Many && m.Labels[y * Many + x] != m.Labels[(y + 1) * Many + x]) expected++;
+                    }
+                Check(m.AdjacencyCount > 4096, $"組が表の初期の大きさを超える({m.AdjacencyCount})");
+                Check(seen.Count == m.AdjacencyCount, "同じ組を 2 度入れない");
+                Check(contacts == expected, "接触の合計が隣り合う画素の組の数と合う");
+            }
+
+            // 地図の使い回し: 同じ原本なら作り直さず、Clear で手放す。使っている途中に Clear されても壊れない
+            var sceneImage = new Color32[N * N];
+            for (int i = 0; i < sceneImage.Length; i++) sceneImage[i] = i % N < N / 2 ? Rgb(200, 30, 30) : Rgb(30, 30, 200);
+            fixed (Color32* scenePixels = sceneImage)
+            {
+                Color32* pixels = scenePixels;
+                int builds = 0;
+                Func<PixelProcessor.MaterialScene> build = () => { builds++; return new PixelProcessor.MaterialScene(pixels, N, N); };
+                var cache = new SelectionCache();
+                var first = cache.AcquireScene(N, N, build);
+                var second = cache.AcquireScene(N, N, build);
+                Check(ReferenceEquals(first, second) && builds == 1, "同じ原本なら地図を作り直さない");
+                second.Dispose();
+                cache.Clear();
+                Check(first.Regions.RegionCount == 2, "使っている途中に手放されても読める");
+                first.Dispose();
+                var third = cache.AcquireScene(N, N, build);
+                Check(builds == 2 && !ReferenceEquals(first, third), "Clear の後は作り直す");
+                third.Dispose();
+                cache.Dispose();
+                var afterDispose = cache.AcquireScene(N, N, build);
+                Check(builds == 3, "閉じた後は保存しない");
+                afterDispose.Dispose();
             }
 
             Check(IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection) == live0, "領域の用途の量が元へ戻る");

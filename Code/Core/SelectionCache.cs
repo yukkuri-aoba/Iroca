@@ -67,6 +67,7 @@ namespace Iroca
         private int _epoch;            // Clear・Dispose のたびに進める
         private bool _disposed;
         private int _maskReuseCount;
+        private PixelProcessor.MaterialScene _scene;
 
         /// <summary>除外マスクが保存時と違っていたが、判定を通って使い回した回数(検証用)。</summary>
         internal int MaskReuseCount => Volatile.Read(ref _maskReuseCount);
@@ -235,7 +236,41 @@ namespace Iroca
                 _epoch++;
                 foreach (var e in _byZone.Values) Detach(e);
                 _byZone.Clear();
+                ReleaseScene();
             }
+        }
+
+        /// <summary>
+        /// 新しい選択(T5)の領域と素材の地図を、原本が替わるまで使い回す。無ければ build で作る。返した物の参照は呼び出し側が持つ
+        /// (使い終わったら Dispose)。Clear の前に始まった計算の地図は保存しない(Clear の前の画素で作ったものなので)。
+        /// </summary>
+        internal PixelProcessor.MaterialScene AcquireScene(int w, int h, Func<PixelProcessor.MaterialScene> build)
+        {
+            int epoch;
+            lock (_gate)
+            {
+                if (_scene != null && _scene.Width == w && _scene.Height == h)
+                {
+                    _scene.AddRef();
+                    return _scene;
+                }
+                epoch = _epoch;
+            }
+            PixelProcessor.MaterialScene built = build();
+            lock (_gate)
+            {
+                if (_disposed || epoch != _epoch) return built;
+                ReleaseScene();
+                built.AddRef();
+                _scene = built;
+                return built;
+            }
+        }
+
+        private void ReleaseScene()
+        {
+            _scene?.Dispose();
+            _scene = null;
         }
 
         /// <summary>liveZoneIds に含まれない zoneId のエントリを一括破棄する。
@@ -268,6 +303,7 @@ namespace Iroca
                 _epoch++;
                 foreach (var e in _byZone.Values) Detach(e);
                 _byZone.Clear();
+                ReleaseScene();
             }
         }
 

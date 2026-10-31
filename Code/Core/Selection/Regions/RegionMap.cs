@@ -85,7 +85,7 @@ namespace Iroca
         private readonly NativeBuffer _labels;
         private readonly NativeBuffer _mix;
         private NativeBuffer _regions;
-        private NativeBuffer _mixtureIndex, _mixturePartner;
+        private NativeBuffer _mixtureIndex, _mixturePartner, _adjacency;
 
         /// <summary>領域の数(番号は 1〜RegionCount)。</summary>
         public int RegionCount { get; private set; }
@@ -100,8 +100,9 @@ namespace Iroca
         /// <summary>領域の表。添字は領域の番号(0 は使わない)。</summary>
         public RegionInfo* Regions => (RegionInfo*)_regions.Ptr;
 
-        /// <summary>隣り合う領域の組。</summary>
-        public readonly List<RegionAdjacency> Adjacency = new List<RegionAdjacency>();
+        /// <summary>隣り合う領域の組(<see cref="AdjacencyCount"/> 個)。</summary>
+        public RegionAdjacency* Adjacency => _adjacency != null ? (RegionAdjacency*)_adjacency.Ptr : null;
+        public int AdjacencyCount { get; private set; }
         /// <summary>隣り合う見える画素の組の、色の差の分布(添字が差)。テクスチャの揺れの推定に使う。</summary>
         public readonly long[] StepHistogram = new long[256];
         /// <summary>同じ色の塊の数。</summary>
@@ -129,7 +130,8 @@ namespace Iroca
             _regions = null;
             _mixtureIndex?.Release();
             _mixturePartner?.Release();
-            _mixtureIndex = _mixturePartner = null;
+            _adjacency?.Release();
+            _mixtureIndex = _mixturePartner = _adjacency = null;
         }
 
         private static int Find(int* parent, int a)
@@ -558,7 +560,7 @@ namespace Iroca
                 table[r].MaxY = -1;
                 table[r].BoxMin = 255 | (255 << 8) | (255 << 16);
             }
-            var pairs = new Dictionary<long, int>();
+            using var pairs = new PairTable();
             for (int y = 0, i = 0; y < h; y++)
             {
                 for (int x = 0; x < w; x++, i++)
@@ -601,29 +603,121 @@ namespace Iroca
                 info.G = sum[at + offset + 1] / n;
                 info.B = sum[at + offset + 2] / n;
             }
+            _adjacency = pairs.TakeEntries();
+            AdjacencyCount = pairs.Count;
         }
 
-        private void NotePair(Color32* px, int i, int j, int* labels, byte* mix, Dictionary<long, int> pairs, int stepMax)
+        private static void NotePair(Color32* px, int i, int j, int* labels, byte* mix, PairTable pairs, int stepMax)
         {
             int a = labels[i], b = labels[j];
             if (a == b || b <= 0) return;
             if (a > b) { int t = a; a = b; b = t; }
-            // 上位と下位に分けて詰めない(long の GetHashCode は両者の XOR で、番号の近い組がみな衝突する)。
-            long key = a * (RegionCount + 1L) + b;
-            int isMixture = mix[i] >= 128 || mix[j] >= 128 ? 1 : 0;
-            int isSoft = ColorStep(px[i], px[j]) <= stepMax ? 1 : 0;
-            if (pairs.TryGetValue(key, out int index))
+            RegionAdjacency* e = pairs.GetOrAdd(a, b);
+            e->Contact++;
+            if (mix[i] >= 128 || mix[j] >= 128) e->MixtureContact++;
+            if (ColorStep(px[i], px[j]) <= stepMax) e->SoftContact++;
+        }
+
+        // 隣り合う領域の組の表。組の数は領域の多いテクスチャで数百万になるのでヒープの外に置く(開番地のハッシュ表)。
+        // 組は最初に現れた順に並ぶので、結果は画素の並びだけで決まる。
+        private sealed class PairTable : IDisposable
+        {
+            private const int InitialBits = 12;
+            private NativeBuffer _slots;     // 組の添字 + 1。0 は空き
+            private NativeBuffer _entries;
+            private int _bits;
+            private int _entryCapacity;
+
+            public int Count { get; private set; }
+
+            public PairTable()
             {
-                RegionAdjacency e = Adjacency[index];
-                e.Contact++;
-                e.MixtureContact += isMixture;
-                e.SoftContact += isSoft;
-                Adjacency[index] = e;
+                AllocateSlots(InitialBits);
+                _entryCapacity = 1 << (InitialBits - 1);
+                _entries = new NativeBuffer((long)_entryCapacity * sizeof(RegionAdjacency), NativeUsage.Selection);
             }
-            else
+
+            private void AllocateSlots(int bits)
             {
-                pairs.Add(key, Adjacency.Count);
-                Adjacency.Add(new RegionAdjacency { A = a, B = b, Contact = 1, MixtureContact = isMixture, SoftContact = isSoft });
+                _bits = bits;
+                _slots?.Release();
+                _slots = new NativeBuffer((long)sizeof(int) << bits, NativeUsage.Work);
+                new Span<int>((void*)_slots.Ptr, 1 << bits).Clear();
+            }
+
+            private int SlotOf(int a, int b)
+            {
+                ulong key = ((ulong)(uint)a << 32) | (uint)b;
+                return (int)((key * 0x9E3779B97F4A7C15UL) >> (64 - _bits));
+            }
+
+            public RegionAdjacency* GetOrAdd(int a, int b)
+            {
+                int* slots = (int*)_slots.Ptr;
+                var entries = (RegionAdjacency*)_entries.Ptr;
+                int mask = (1 << _bits) - 1;
+                int at = SlotOf(a, b);
+                while (slots[at] != 0)
+                {
+                    RegionAdjacency* e = entries + (slots[at] - 1);
+                    if (e->A == a && e->B == b) return e;
+                    at = (at + 1) & mask;
+                }
+                if (Count == _entryCapacity) entries = GrowEntries();
+                // 半分より埋まったら広げる(開番地は埋まるほど遅くなる)。
+                if ((Count + 1) * 2L > 1L << _bits)
+                {
+                    GrowSlots();
+                    slots = (int*)_slots.Ptr;
+                    mask = (1 << _bits) - 1;
+                    at = SlotOf(a, b);
+                    while (slots[at] != 0) at = (at + 1) & mask;
+                }
+                slots[at] = Count + 1;
+                RegionAdjacency* added = entries + Count;
+                *added = new RegionAdjacency { A = a, B = b };
+                Count++;
+                return added;
+            }
+
+            private RegionAdjacency* GrowEntries()
+            {
+                int capacity = _entryCapacity * 2;
+                var grown = new NativeBuffer((long)capacity * sizeof(RegionAdjacency), NativeUsage.Selection);
+                Buffer.MemoryCopy((void*)_entries.Ptr, (void*)grown.Ptr, (long)capacity * sizeof(RegionAdjacency), (long)Count * sizeof(RegionAdjacency));
+                _entries.Release();
+                _entries = grown;
+                _entryCapacity = capacity;
+                return (RegionAdjacency*)grown.Ptr;
+            }
+
+            private void GrowSlots()
+            {
+                AllocateSlots(_bits + 1);
+                int* slots = (int*)_slots.Ptr;
+                var entries = (RegionAdjacency*)_entries.Ptr;
+                int mask = (1 << _bits) - 1;
+                for (int k = 0; k < Count; k++)
+                {
+                    int at = SlotOf(entries[k].A, entries[k].B);
+                    while (slots[at] != 0) at = (at + 1) & mask;
+                    slots[at] = k + 1;
+                }
+            }
+
+            /// <summary>組の並びを手放す(以後の持ち主が <see cref="NativeBuffer.Release"/> する)。</summary>
+            public NativeBuffer TakeEntries()
+            {
+                NativeBuffer taken = _entries;
+                _entries = null;
+                return taken;
+            }
+
+            public void Dispose()
+            {
+                _slots?.Release();
+                _entries?.Release();
+                _slots = _entries = null;
             }
         }
     }
