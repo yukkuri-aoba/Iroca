@@ -655,7 +655,8 @@ namespace Iroca
                 // 待つ間に、出力先へ別の書き出しがされていることがある。書く直前にもう一度確かめる(依頼の時点と同じ判定)。
                 string outError = ResolvePngOutput(job.req, r.texture, out string outAbs);
                 if (outError != null) return FinishRecolor(r, outError);
-                WritePngFile(export.png, outAbs);
+                // 取り込み設定は元から引き継ぐ(窓の書き出しの既定と同じ。既定の設定だと Max Size 2048 などで粗くなる)。
+                ExportService.WriteAndImport(outAbs, export.png, PhysicalPath(r.texture), inheritImportSettings: true);
                 r.output = outAbs;
                 return FinishRecolor(r, null);
             }
@@ -851,6 +852,8 @@ namespace Iroca
                 state.zones.Add(zone);
             }
             zone.enabled = true;
+            // 基準色が変わると、前の場所の調整で導いた内部サンプルは使えない(UI のスポイトと同じ。残すと前の場所も塗る)。
+            if (zone.sampleColor != from) zone.extraSamples?.Clear();
             zone.sampleColor = from;
             zone.sampleColorSet = true;
             zone.targetColor = to;

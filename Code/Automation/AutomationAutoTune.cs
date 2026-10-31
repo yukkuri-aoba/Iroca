@@ -121,13 +121,13 @@ namespace Iroca
                 case AutoTuneService.Failure.AiUnavailable:
                     How[zone.name] = "skipped: AI not available";
                     _warnings.Add($"auto-tune of '{zone.name}' was skipped because the AI (Unity Sentis and the model) is not installed; "
-                        + "it keeps the initial settings, so highlights or shadows may be missed. See the manual's AI chapter to install it.");
+                        + "it keeps its current settings, so highlights or shadows may be missed. See the manual's AI chapter to install it.");
                     return;
                 case AutoTuneService.Failure.AnalysisFailed:
                 {
                     var ex = run.Error;
                     How[zone.name] = "skipped: analysis failed";
-                    _warnings.Add($"auto-tune of '{zone.name}' failed ({ex?.GetType().Name}: {ex?.Message}); it keeps the initial settings.");
+                    _warnings.Add($"auto-tune of '{zone.name}' failed ({ex?.GetType().Name}: {ex?.Message}); it keeps its current settings.");
                     return;
                 }
             }
@@ -139,7 +139,7 @@ namespace Iroca
                 _ => "the AI returned no region",
             };
             How[zone.name] = "skipped: " + failure;
-            _warnings.Add($"auto-tune of '{zone.name}' was skipped ({failure}); it keeps the initial settings.");
+            _warnings.Add($"auto-tune of '{zone.name}' was skipped ({failure}); it keeps its current settings.");
         }
 
         // UI(IrocaWindow.BuildCombinedExclusionForZone)と同じ: 共通の除外 ∪ そのゾーンの除外。無ければ null。

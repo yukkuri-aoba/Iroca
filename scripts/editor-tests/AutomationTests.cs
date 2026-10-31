@@ -284,6 +284,47 @@ namespace Iroca.EditorTests
             return true;
         }
 
+        // 同じ名前で別の色を頼み直したら、前の場所の調整で導いた内部サンプルを残さない(残すと前の場所も塗る)。
+        // MCP の PNG も、窓の書き出しの既定と同じく取り込み設定を元から引き継ぐ(既定の Max Size 2048 では 4K が粗くなる)。
+        [Test]
+        public void Recolor_Png_InheritsTheImportSettings()
+        {
+            string src = Halves();
+            var importer = (UnityEditor.TextureImporter)UnityEditor.AssetImporter.GetAtPath(src);
+            importer.maxTextureSize = 8192;
+            importer.sRGBTexture = false;
+            importer.SaveAndReimport();
+
+            var r = RecolorOk(Request(src, "png", "[{\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]"));
+            var outImporter = (UnityEditor.TextureImporter)UnityEditor.AssetImporter.GetAtPath(_assets.Folder + "/halves_recolored.png");
+            Assert.AreEqual(TestAssets.Abs(_assets.Folder + "/halves_recolored.png"), r.output);
+            Assert.AreEqual(8192, outImporter.maxTextureSize);
+            Assert.IsFalse(outImporter.sRGBTexture);
+            Assert.AreNotEqual(UnityEditor.AssetDatabase.AssetPathToGUID(src),
+                UnityEditor.AssetDatabase.AssetPathToGUID(_assets.Folder + "/halves_recolored.png"), "GUID は別にする");
+        }
+
+        [Test]
+        public void Recolor_SameNameWithAnotherColor_DropsTheOldInternalSamples()
+        {
+            string src = Halves();
+            var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(src);
+            var state = IrocaSessionState.CreateDefault();
+            state.zones.Clear();
+            var zone = EditingSession.NewZone(state.zones, "x");
+            zone.sampleColor = new Color(0f, 1f, 0f);
+            zone.sampleColorSet = true;
+            zone.targetColor = new Color(0.1f, 0.2f, 0.4f);
+            zone.targetColorSet = true;
+            zone.extraSamples = new System.Collections.Generic.List<Color> { new Color(30 / 255f, 40 / 255f, 200 / 255f) };   // 右半分の青
+            state.zones.Add(zone);
+            RecipeStore.Create(tex, state, _assets.Folder);
+
+            // 基準を左半分の赤へ替える。青が残っていると全面(1.0)が変わる。
+            var r = RecolorOk(Request(src, "preview", "[{\"name\":\"x\",\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]"));
+            Assert.AreEqual(0.5f, r.changedFraction, 1e-4f, "前の場所も塗っている");
+        }
+
         [Test]
         public void Recolor_Png_ShrunkOnImport_WritesTheOriginalResolutionInTheBackground()
         {

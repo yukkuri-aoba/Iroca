@@ -473,7 +473,7 @@ namespace Iroca
             if (string.Equals(outAbs, srcAbs, StringComparison.OrdinalIgnoreCase))
                 return "output must differ from source "
                      + $"(recoloring in place would destroy the original irreversibly): {outputAssetPath}";
-            if (!TryWritePng(pixels, outAbs)) return "PNG encode failed.";
+            if (!TryWritePng(pixels, outAbs, srcAbs)) return "PNG encode failed.";
             return null;
         }
 
@@ -496,25 +496,15 @@ namespace Iroca
         /// <see cref="TryWritePng(Color32[],int,int,string)"/> のヒープの外の版(色替えした画素。PNG もヒープの外に作り、
         /// 書いたら手放す。バイト列は同じ)。
         /// </summary>
-        private static bool TryWritePng(NativePixels pixels, string abs)
+        private static bool TryWritePng(NativePixels pixels, string abs, string srcAbs)
         {
             NativeArray<byte> png;
             try { png = TextureIO.EncodePng(pixels); }
             catch (Exception) { return false; }
-            try { WritePngFile(png, abs); }
+            // 取り込み設定は元から引き継ぐ(窓の書き出しの既定と同じ)。
+            try { ExportService.WriteAndImport(abs, png, srcAbs, inheritImportSettings: true); }
             finally { png.Dispose(); }
             return true;
-        }
-
-        /// <summary>
-        /// ヒープの外の PNG を <paramref name="abs"/> へ書き、Assets 配下なら取り込む(メインスレッド)。書き方は
-        /// <see cref="WritePngFile(byte[],string)"/> と同じ(フォルダを作る・一時ファイルへ書き切ってから置き換える)。
-        /// </summary>
-        private static void WritePngFile(NativeArray<byte> png, string abs)
-        {
-            TextureIO.WriteAllBytes(abs, png);
-            string rel = PathUtils.ToAssetsRelativeOrNull(abs);
-            if (rel != null) AssetDatabase.ImportAsset(rel);
         }
 
         /// <summary>PNG のバイト列を <paramref name="abs"/> へ書き、Assets 配下なら取り込む(メインスレッド)。</summary>
