@@ -123,6 +123,18 @@ namespace Iroca.EditorTests
             Assert.AreEqual(1, _pixels.RefCount, "解析が足した参照は返す");
         }
 
+        // 前の推論のエラーが残っていても、自動調整を押し直せば AI をもう一度試す。
+        [Test]
+        public void ClickedZone_AfterAnAiError_RetriesTheAi()
+        {
+            _svc.Set(MaskSuggestPhase.Error);
+            var zone = RedZone(clicked: true);
+            var run = AutoTuneService.Start(zone, Session(zone), _pixels, "k", null, 0, 0);
+            Assert.AreEqual(AutoTuneService.Status.WaitingForEvidence, run.Status, run.Failure + " " + run.FailureDetail);
+            Assert.AreEqual(1, _svc.cancelAlls, "エラーを解いていない");
+            run.Cancel();
+        }
+
         [Test]
         public unsafe void ClickedZone_WaitsForTheAiAndUsesItsRegionAsEvidence()
         {

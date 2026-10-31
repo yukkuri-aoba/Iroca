@@ -277,6 +277,9 @@ namespace Iroca
                 AskedAi = true;
                 _deadline = EditorApplication.timeSinceStartup + EvidenceWaitSeconds;
                 _progress.Report(0.02f);
+                // 前の推論のエラーが残っていても、押し直したら再試行する(残したままだと、右クリックで AI を選び直すか
+                // テクスチャを切り替えるまで、自動調整が毎回すぐ中止される)。
+                AiSuggestBroker.RetryAfterError();
                 RequestEvidence();
             }
 

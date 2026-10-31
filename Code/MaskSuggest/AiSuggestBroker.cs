@@ -121,6 +121,17 @@ namespace Iroca
             UseSource(svc, sourceKey, pixels);
         }
 
+        /// <summary>
+        /// エラーのまま止まっているサービスを待機へ戻す(押し直した操作が再試行の導線。<see cref="Enqueue"/> と同じ)。
+        /// 自動調整を始めるときに 1 回だけ呼ぶ(<see cref="RequestWhenIdle"/> は待つ間に何度も呼ばれるので、そこで戻すと
+        /// 原因が直らないまま走り続ける)。
+        /// </summary>
+        internal static void RetryAfterError()
+        {
+            var svc = Service;
+            if (svc != null && svc.Phase == MaskSuggestPhase.Error) CancelAllOn(svc);
+        }
+
         /// <summary>サービスの状態の変化を受け取り始める(描き直しのために <see cref="StateChanged"/> を使う側が呼ぶ)。</summary>
         internal static void EnsureSubscribed() => _ = Service;
 
