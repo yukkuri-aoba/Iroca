@@ -75,18 +75,6 @@ NOT_PIXEL_SIZED: dict[tuple[str, str], str] = {
         "縮小で一度に写す元の行の帯。BandBytes(16MB)で頭打ち",
     ("Code/MaskSuggest/Ops/SamImageOps.cs", "new float[3 * InputSize * InputSize]"):
         "SAM の入力の固定の大きさ(InputSize は定数)",
-    ("Code/MaskSuggest/Ops/SamMaskRefine.cs", "new bool[gw * gh]"):
-        "粗いグリッドのセルの数。セルの辺 d(BandHalfWidth)が長辺に比例するので、解像度に依らず 342² 前後",
-    ("Code/MaskSuggest/Ops/SamMaskRefine.cs", "new double[gw * gh * 3]"):
-        "粗いグリッドのセルの数。セルの辺 d(BandHalfWidth)が長辺に比例するので、解像度に依らず 342² 前後",
-    ("Code/MaskSuggest/Ops/SamMaskRefine.cs", "new double[gw * gh * 4]"):
-        "粗いグリッドのセルの数。セルの辺 d(BandHalfWidth)が長辺に比例するので、解像度に依らず 342² 前後",
-    ("Code/MaskSuggest/Ops/SamMaskRefine.cs", "new int[gw * gh]"):
-        "粗いグリッドのセルの数。セルの辺 d(BandHalfWidth)が長辺に比例するので、解像度に依らず 342² 前後",
-    ("Code/MaskSuggest/Ops/SamMaskRefine.cs", "new long[gw * gh * 3]"):
-        "粗いグリッドのセルの数。セルの辺 d(BandHalfWidth)が長辺に比例するので、解像度に依らず 342² 前後",
-    ("Code/MaskSuggest/Ops/SamMaskRefine.cs", "new long[gw * gh * 4]"):
-        "粗いグリッドのセルの数。セルの辺 d(BandHalfWidth)が長辺に比例するので、解像度に依らず 342² 前後",
     ("Code/UI/MaskPaintView.Overlay.cs", "new Color32[w * h]"):
         "重ね表示の寸法はプレビュー(IrocaConsts.Preview.MaxSize 以下)の整数倍で、OverlayMaxSize(2048)で頭打ち",
     ("Code/UI/PreviewView.ContextMenu.cs", "new int[(x1 - x0 + 1) * (y1 - y0 + 1)]"):

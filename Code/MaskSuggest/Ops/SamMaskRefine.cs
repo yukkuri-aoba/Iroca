@@ -52,9 +52,9 @@ namespace Iroca
         /// mean[g*channels+k] = sum/cnt(double 除算)。SnapBoundary / ExtendFringe /
         /// IncludeAaTransition の各段が共有する(配列の確保と後段の無効化は呼び出し側)。
         /// </summary>
-        static void ComputeCellModes(long[] sum, int[] cnt, int channels, double[] mean, bool[] valid)
+        static void ComputeCellModes(long* sum, int* cnt, int cells, int channels, double* mean, bool* valid)
         {
-            for (int g = 0; g < cnt.Length; g++)
+            for (int g = 0; g < cells; g++)
             {
                 if (cnt[g] >= MinCellSamples)
                 {
@@ -301,10 +301,10 @@ namespace Iroca
             // 並列化はグリッド行単位: 1 タスク = 1 グリッド行(画素行 d 本)で、同一セルへの
             // 書き込みがタスク間で共有されない(long 加算の順序も行内逐次のまま=決定的)。
             int gw = (w + d - 1) / d, gh = (h + d - 1) / d;
-            var sum = new long[gw * gh * 3];
-            var cnt = new int[gw * gh];
-            var sumIn = new long[gw * gh * 3];
-            var cntIn = new int[gw * gh];
+            long* sum = scratch.Long(gw * gh * 3, clear: true);
+            int* cnt = scratch.Int(gw * gh, clear: true);
+            long* sumIn = scratch.Long(gw * gh * 3, clear: true);
+            int* cntIn = scratch.Int(gw * gh, clear: true);
             Parallel.For(0, gh, po, gy =>
             {
                 int gRow = gy * gw;
@@ -338,12 +338,12 @@ namespace Iroca
             // 行う: 窓プール平均だと隣接する別パーツの色が混入した瞬間に平均が実在しない
             // 中間色へずれ、素の背景画素が「背景から遠い=生地」と誤判定されて提案が
             // ギャップへ成長する(多峰背景の平均は無意味)。
-            var cellMean = new double[gw * gh * 3];
-            var cellValid = new bool[gw * gh];
-            var inMean = new double[gw * gh * 3];
-            var inValid = new bool[gw * gh];
-            ComputeCellModes(sum, cnt, 3, cellMean, cellValid);
-            ComputeCellModes(sumIn, cntIn, 3, inMean, inValid);
+            double* cellMean = scratch.Double(gw * gh * 3, clear: true);
+            bool* cellValid = scratch.Bool(gw * gh, clear: true);
+            double* inMean = scratch.Double(gw * gh * 3, clear: true);
+            bool* inValid = scratch.Bool(gw * gh, clear: true);
+            ComputeCellModes(sum, cnt, gw * gh, 3, cellMean, cellValid);
+            ComputeCellModes(sumIn, cntIn, gw * gh, 3, inMean, inValid);
 
             // 生地類似の外側モードを無効化: マスク直外の確信領域には SAM が切り落とした
             // 生地(房 strands)自体が含まれ得る。その色クラスタを背景モードとして信用すると
@@ -535,10 +535,10 @@ namespace Iroca
             // 並列化はグリッド行単位(1 タスク = 画素行 d 本)でセル書き込みを共有しない=決定的。
             var po = MakeParallelOptions(token);
             int gw = (w + d - 1) / d, gh = (h + d - 1) / d;
-            var sumIn = new long[gw * gh * 4];
-            var sumOut = new long[gw * gh * 4];
-            var cntIn = new int[gw * gh];
-            var cntOut = new int[gw * gh];
+            long* sumIn = scratch.Long(gw * gh * 4, clear: true);
+            long* sumOut = scratch.Long(gw * gh * 4, clear: true);
+            int* cntIn = scratch.Int(gw * gh, clear: true);
+            int* cntOut = scratch.Int(gw * gh, clear: true);
             Parallel.For(0, gh, po, gy =>
             {
                 int gRow = gy * gw;
@@ -573,12 +573,12 @@ namespace Iroca
             // セル単位モード(MinCellSamples 以上のセル)。判定はモードへの最近傍距離で行う:
             // プール平均は多峰統計(白ギャップ+隣接する別パーツ、柄の複数色)で実在しない
             // 中間色に潰れ、素の背景画素が「外側平均より内側平均に近い」と誤判定される。
-            var meanIn = new double[gw * gh * 4];
-            var meanOut = new double[gw * gh * 4];
-            var validIn = new bool[gw * gh];
-            var validOut = new bool[gw * gh];
-            ComputeCellModes(sumIn, cntIn, 4, meanIn, validIn);
-            ComputeCellModes(sumOut, cntOut, 4, meanOut, validOut);
+            double* meanIn = scratch.Double(gw * gh * 4, clear: true);
+            double* meanOut = scratch.Double(gw * gh * 4, clear: true);
+            bool* validIn = scratch.Bool(gw * gh, clear: true);
+            bool* validOut = scratch.Bool(gw * gh, clear: true);
+            ComputeCellModes(sumIn, cntIn, gw * gh, 4, meanIn, validIn);
+            ComputeCellModes(sumOut, cntOut, gw * gh, 4, meanOut, validOut);
 
             // 帯画素の再分類。元の mask を読みながら書き換えると統計自体は粗グリッド由来なので
             // 影響しない(確信領域は帯外で不変)。判定入力は mask0/統計(読み取り専用)、
@@ -837,8 +837,8 @@ namespace Iroca
             // 地色: マスクから d より離れた画素(確信外側)のセル単位モード(SnapBoundary と同じ粗グリッド・同じ
             // セルの位置)。矩形の外にマスク画素は無いので、マスクからの距離は矩形の中だけで求めれば同じ。
             var distOut = DistanceToOpposite(scratch, local, bw, bh, inside: false, token);
-            var sumOut = new long[gw * gh * 4];
-            var cntOut = new int[gw * gh];
+            long* sumOut = scratch.Long(gw * gh * 4, clear: true);
+            int* cntOut = scratch.Int(gw * gh, clear: true);
             int gy0r = oy / d, gy1r = (oy + bh - 1) / d;
             Parallel.For(gy0r, gy1r + 1, po, gy =>
             {
@@ -857,9 +857,9 @@ namespace Iroca
                     }
                 }
             });
-            var meanOut = new double[gw * gh * 4];
-            var validOut = new bool[gw * gh];
-            ComputeCellModes(sumOut, cntOut, 4, meanOut, validOut);
+            double* meanOut = scratch.Double(gw * gh * 4, clear: true);
+            bool* validOut = scratch.Bool(gw * gh, clear: true);
+            ComputeCellModes(sumOut, cntOut, gw * gh, 4, meanOut, validOut);
 
             // 扱う範囲(near): 細い成分から reach 以内(太い成分の画素は除く)。
             Parallel.For(0, bh, po, ly =>
@@ -1301,12 +1301,12 @@ namespace Iroca
             // 並列化はグリッド行単位(1 タスク = 画素行 d 本)でセル書き込みを共有しない=決定的。
             var po = MakeParallelOptions(token);
             int gw = (w + d - 1) / d, gh = (h + d - 1) / d;
-            var sumIn = new long[gw * gh * 4];
-            var sumOutNear = new long[gw * gh * 4];
-            var sumOutFar = new long[gw * gh * 4];
-            var cntIn = new int[gw * gh];
-            var cntOutNear = new int[gw * gh];
-            var cntOutFar = new int[gw * gh];
+            long* sumIn = scratch.Long(gw * gh * 4, clear: true);
+            long* sumOutNear = scratch.Long(gw * gh * 4, clear: true);
+            long* sumOutFar = scratch.Long(gw * gh * 4, clear: true);
+            int* cntIn = scratch.Int(gw * gh, clear: true);
+            int* cntOutNear = scratch.Int(gw * gh, clear: true);
+            int* cntOutFar = scratch.Int(gw * gh, clear: true);
             int farDist = 2 * d;
             Parallel.For(0, gh, po, gy =>
             {
@@ -1350,12 +1350,12 @@ namespace Iroca
             // 実在しない中間色(例: 暗色+白の灰)へずれ、素の背景画素が「原点→内側」軸上の
             // 実混合に見えて層状に吸収され続ける(実測: ギャップ突出の最大増幅段だった)。
             // 最近傍モードなら素の背景画素は原点そのもの(t≈0)で弾かれる。
-            var meanNear = new double[gw * gh * 4];
-            var meanFar = new double[gw * gh * 4];
-            var validNear = new bool[gw * gh];
-            var validFar = new bool[gw * gh];
-            ComputeCellModes(sumOutNear, cntOutNear, 4, meanNear, validNear);
-            ComputeCellModes(sumOutFar, cntOutFar, 4, meanFar, validFar);
+            double* meanNear = scratch.Double(gw * gh * 4, clear: true);
+            double* meanFar = scratch.Double(gw * gh * 4, clear: true);
+            bool* validNear = scratch.Bool(gw * gh, clear: true);
+            bool* validFar = scratch.Bool(gw * gh, clear: true);
+            ComputeCellModes(sumOutNear, cntOutNear, gw * gh, 4, meanNear, validNear);
+            ComputeCellModes(sumOutFar, cntOutFar, gw * gh, 4, meanFar, validFar);
 
             // 判定はパス開始時のマスク由来の distOut に対して行い、書き込みは追加のみ
             // (決定的・順序非依存。統計は確信領域=帯外なので追加書き込みの影響を受けない)。
@@ -1569,7 +1569,7 @@ namespace Iroca
         }
 
         /// <summary>事前計算済みセル平均(RGBA, オフセット o)との距離 2 乗。</summary>
-        static double Dist2Mean(Color32 c, double[] mean, int o)
+        static double Dist2Mean(Color32 c, double* mean, int o)
         {
             double dr = c.r - mean[o], dg = c.g - mean[o + 1],
                    db = c.b - mean[o + 2], da = c.a - mean[o + 3];

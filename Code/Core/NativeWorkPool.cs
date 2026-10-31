@@ -298,6 +298,11 @@ namespace Iroca
             return p;
         }
 
+        // long・double は使う所が少ないので、専用のプールを持たず byte のプールから借りる(どちらも 8 バイト。塊は揃っている)。
+        public long* Long(int n, bool clear) => (long*)Byte(checked(n * sizeof(long)), clear);
+
+        public double* Double(int n, bool clear) => (double*)Byte(checked(n * sizeof(double)), clear);
+
         /// <summary>src の先頭 n 個の写し((bool[])src.Clone() の代わり)。</summary>
         public bool* CopyOf(bool[] src, int n)
         {
