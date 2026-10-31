@@ -336,6 +336,7 @@ namespace Iroca
             EditorGUIUtility.labelWidth = prevLabelWidth;
             EditorGUILayout.EndVertical();
             EditorGUILayout.EndScrollView();
+            RecordSettingsScrollRect();
             EditorGUILayout.EndVertical();
 
             // ExpandHeight な ScrollView で囲うことで、プレビューが
@@ -424,6 +425,7 @@ namespace Iroca
 
             EditorGUIUtility.labelWidth = prevLabelWidth;
             EditorGUILayout.EndScrollView();
+            RecordSettingsScrollRect();
 
             // 一括適用は実装継続中のため当面 UI から非表示。
             // _exportView.DrawBatchSection();

@@ -19,9 +19,17 @@ namespace Iroca
         {
             var e = Event.current;
             if (e.type != EventType.ContextClick || !previewRect.Contains(e.mousePosition)) return;
+            // 拡大中は画像が枠より大きい。枠の外でも座標はスクロールの中へ写されるので、見えていない場所のメニューを開かないようにする。
+            if (_previewFrameScreenRect.width > 0f
+                && !_previewFrameScreenRect.Contains(GUIUtility.GUIToScreenPoint(e.mousePosition))) return;
+            // 書き出し・自動調整は始めたときの編集内容で動いていて、途中のマスクの変更は結果に入らない。
+            if (_host.IsJobBlockingUI) return;
             ShowPreviewContextMenu(e.mousePosition, previewRect);
             e.Use();
         }
+
+        // プレビューの枠の見えている範囲(画面座標。前の Repaint のもの)。
+        [System.NonSerialized] private Rect _previewFrameScreenRect;
 
         private const string ContextMenuUsedPrefKey = IrocaPrefs.ContextMenuUsed;
 
@@ -185,7 +193,7 @@ namespace Iroca
             }
             else if (found != null && found.unreadable > 0)
             {
-                menu.AddDisabledItem(new GUIContent(string.Format(Localization.CtxPartUnreadableFormat, found.unreadable)));
+                menu.AddDisabledItem(new GUIContent(MenuSafe(string.Format(Localization.CtxPartUnreadableFormat, found.unreadable))));
             }
             else
             {

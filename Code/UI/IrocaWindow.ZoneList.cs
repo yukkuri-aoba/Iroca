@@ -62,9 +62,55 @@ namespace Iroca
         // 誤並べ替え（＝優先度変更＝出力変化）が確定する事故を防ぐ。
         private int _dragControlId;
 
+        // 設定列のスクロールの見えている範囲(画面座標。前の Repaint のもの)。スクロールの外のクリックでも座標はスクロールの中へ
+        // 写されるので、これを見ないと、書き出し欄を押したのに隠れたカードが選ばれる。
+        [System.NonSerialized] private Rect _settingsScrollScreenRect;
+
+        private void RecordSettingsScrollRect()
+        {
+            if (Event.current.type != EventType.Repaint) return;
+            var r = GUILayoutUtility.GetLastRect();
+            _settingsScrollScreenRect = new Rect(GUIUtility.GUIToScreenPoint(r.position), r.size);
+        }
+
+        private bool MouseInSettingsScroll() =>
+            _settingsScrollScreenRect.width <= 0f
+            || _settingsScrollScreenRect.Contains(GUIUtility.GUIToScreenPoint(Event.current.mousePosition));
+
+        // ゾーンの並び(前に見たもの。下の ReleaseZoneFields)。
+        [System.NonSerialized] private int _zoneOrderHash;
+
+        private int ZoneOrderHash()
+        {
+            int hash = 17;
+            var list = zones;
+            if (list == null) return hash;
+            unchecked
+            {
+                foreach (var z in list) hash = hash * 31 + (z?.id?.GetHashCode() ?? 0);
+            }
+            return hash;
+        }
+
+        // 名前欄と色の窓は入力先をコントロールの番号で覚えていて、番号はカードの並びで決まる。並びが変わったら(並べ替え・削除・Undo・
+        // 読み込み)手放す。残すと、打ちかけの名前や選びかけの色が別のゾーンに入る。
+        private void ReleaseZoneFields()
+        {
+            int hash = ZoneOrderHash();
+            if (hash == _zoneOrderHash) return;
+            bool first = _zoneOrderHash == 0;
+            _zoneOrderHash = hash;
+            if (first) return;
+            GUIUtility.keyboardControl = 0;
+            EditorGUIUtility.editingTextField = false;
+            foreach (var w in Resources.FindObjectsOfTypeAll<EditorWindow>())
+                if (w.GetType().Name == "ColorPicker") w.Close();
+        }
+
         private void ProcessPendingZoneChanges()
         {
             if (Event.current.type != EventType.Layout) return;
+            ReleaseZoneFields();
 
             if (_pendingRemoveZoneIndex >= 0)
             {
@@ -95,6 +141,7 @@ namespace Iroca
                 if (Editing.MoveZone(from, to))
                     _maskView.OnZoneReordered(from, to);
             }
+            ReleaseZoneFields();
         }
 
         // ゾーンリストのヘッダ行は毎フレーム×ゾーン数で描画されるため、GUIStyle/GUIContent を
@@ -174,7 +221,7 @@ namespace Iroca
             // カードのどこかを押したら、そのゾーンを「いま直しているゾーン」にする。カードの中の操作より
             // 先に見るので、前の描画で記録した矩形で判定する(イベントは消費しない＝押した操作はそのまま効く)。
             var ev = Event.current;
-            if (ev.type == EventType.MouseDown && _zoneCardRects != null)
+            if (ev.type == EventType.MouseDown && _zoneCardRects != null && MouseInSettingsScroll())
             {
                 for (int i = 0; i < _zoneCardRects.Count && i < zones.Count; i++)
                 {
@@ -366,7 +413,7 @@ namespace Iroca
             Rect handleRect = GUILayoutUtility.GetLastRect();
             EditorGUIUtility.AddCursorRect(handleRect, MouseCursor.Pan);
             if (GUI.enabled && Event.current.type == EventType.MouseDown
-                && handleRect.Contains(Event.current.mousePosition))
+                && handleRect.Contains(Event.current.mousePosition) && MouseInSettingsScroll())
             {
                 _dragZoneIndex = index;
                 _dragGrabOffsetY = Event.current.mousePosition.y - handleRect.y;

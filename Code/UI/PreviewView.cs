@@ -752,6 +752,11 @@ namespace Iroca
             }
 
             EditorGUILayout.EndScrollView();
+            if (Event.current.type == EventType.Repaint)
+            {
+                var frame = GUILayoutUtility.GetLastRect();
+                _previewFrameScreenRect = new Rect(GUIUtility.GUIToScreenPoint(frame.position), frame.size);
+            }
 
             // スクロールビューの実幅を測り、次フレームの詳細クロップ可視範囲に使う。
             // Repaint 時のみ有効値が返るため、そのときだけ更新する。値が変わったら追い再描画を
