@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -277,6 +278,8 @@ namespace Iroca.EditorTests
 
             var cfg = JsonUtility.FromJson<CasesDto>(File.ReadAllText(casesPath));
             Assert.IsTrue(cfg != null && cfg.cases.Count > 0, "計測するケースがありません");
+            // AI の場面はフレームを回すので別のテストが測る(AiSuggestMemory)。同じ結果のファイルを上書きしない。
+            if (cfg.cases.All(c => c.scenario == AiScenario)) Assert.Ignore("AI の場面だけの回です");
 
             var sb = new StringBuilder();
             try

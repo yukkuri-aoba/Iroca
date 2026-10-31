@@ -40,6 +40,7 @@ namespace Iroca.EditorTests
                 case "recipeBuild": RunRecipeBuildScenario(c, cfg, sb); break;
                 case "autoTune": RunAutomationScenario(c, cfg, sb, autoTune: true); break;
                 case "mcpRecolor": RunAutomationScenario(c, cfg, sb, autoTune: false); break;
+                case AiScenario: break;   // フレームを回すので別のテスト(MemoryBenchTests.Ai.cs)
                 default: Assert.Fail($"{c.name}: 知らない場面です: {c.scenario}"); break;
             }
         }
