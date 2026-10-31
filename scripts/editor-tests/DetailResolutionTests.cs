@@ -33,6 +33,29 @@ namespace Iroca.EditorTests
         private int _tileTexelsBefore;
         private IrocaWindow _win;
 
+        // 取り込みで縦横比が変わる(1500×1000 → 1024×1024)と、土台の 1 画素の画面の大きさが縦と横で違う。拡大表示は
+        // 画像の矩形にちょうど重なる(1 つの倍率で置くと縦に 1.5 倍へ伸び、ブラシ・スポイトの位置とずれていた)。
+        [Test]
+        public void DetailRect_AspectChangedOnImport_StaysOnTheImageRect()
+        {
+            var dv = new DetailPreviewView();
+            var tex = new Texture2D(2, 2);
+            try
+            {
+                dv.detailPreviewTexture = tex;
+                dv.detailOriginX = dv.detailOriginY = 0;
+                dv.detailCropW = dv.detailCropH = 1024;
+                var image = new Rect(10f, 20f, 300f, 200f);   // 元の 3:2 の矩形
+                Assert.AreEqual(image, dv.ComputeDetailScreenRect(image, 1024, 1024), "全体を覆う切り出し");
+
+                // 行 0 は画像の下端なので、上半分の切り出しは原点の行が 512。
+                dv.detailOriginY = 512;
+                dv.detailCropH = 512;
+                Assert.AreEqual(new Rect(10f, 20f, 300f, 100f), dv.ComputeDetailScreenRect(image, 1024, 1024), "上半分の切り出し");
+            }
+            finally { Object.DestroyImmediate(tex); }
+        }
+
         [SetUp]
         public void SetUp()
         {

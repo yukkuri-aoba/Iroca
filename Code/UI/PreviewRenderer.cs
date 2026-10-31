@@ -10,18 +10,12 @@ namespace Iroca
     {
         // 拡大表示を重ねてよいか(倍率が足りている・ドラッグの追従で隠していない)。
         public readonly bool Allowed;
-        // 拡大表示の土台 1 画素あたりのプレビューテクスチャの画素数と、画面上の表示倍率。
-        public readonly float Scale, Zoom;
-        public readonly Vector2 Scroll;
         // 拡大表示の土台の寸法。
         public readonly int W, H;
 
-        public DetailPlacement(bool allowed, float scale, float zoom, Vector2 scroll, int w, int h)
+        public DetailPlacement(bool allowed, int w, int h)
         {
             Allowed = allowed;
-            Scale = scale;
-            Zoom = zoom;
-            Scroll = scroll;
             W = w;
             H = h;
         }
@@ -263,9 +257,9 @@ namespace Iroca
             Rect afterDetailRect = default;
             if (beforeDetail != null)
             {
-                GUI.DrawTexture(Detail.ComputeDetailScreenRect(rawRect, d.Scale, d.Zoom, d.Scroll, d.W, d.H),
+                GUI.DrawTexture(Detail.ComputeDetailScreenRect(rawRect, d.W, d.H),
                     beforeDetail, ScaleMode.StretchToFill, false);
-                afterDetailRect = Detail.ComputeDetailScreenRect(afterRect, d.Scale, d.Zoom, d.Scroll, d.W, d.H);
+                afterDetailRect = Detail.ComputeDetailScreenRect(afterRect, d.W, d.H);
                 GUI.DrawTexture(afterDetailRect, shownDetail, ScaleMode.StretchToFill, false);
             }
             if (beforeDetail != null && DetailOverlayMatches(mv, d))
@@ -294,7 +288,7 @@ namespace Iroca
             {
                 EditorGUI.DrawPreviewTexture(rect, peekOriginal ? ShownRaw : ShownPreview);
 
-                Rect detailScreenRect = Detail.ComputeDetailScreenRect(rect, d.Scale, d.Zoom, d.Scroll, d.W, d.H);
+                Rect detailScreenRect = Detail.ComputeDetailScreenRect(rect, d.W, d.H);
                 GUI.DrawTexture(detailScreenRect, peekOriginal ? peekDetail : shownDetail,
                     ScaleMode.StretchToFill, false);
 

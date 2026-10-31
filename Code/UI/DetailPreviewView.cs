@@ -163,29 +163,32 @@ namespace Iroca
 
         /// <summary>
         /// スクロールされたプレビューの対応するリージョンと正確に整列する詳細クロップをレンダリングする
-        /// スクリーン空間矩形を返します。displayZoom は画面上の表示倍率(PreviewView.EffectiveZoom)。
+        /// スクリーン空間矩形を返します。
         /// </summary>
-        public Rect ComputeDetailScreenRect(Rect activePreviewRect, float scale, float displayZoom, Vector2 previewScrollPos, int srcW, int srcH)
+        public Rect ComputeDetailScreenRect(Rect activePreviewRect, int srcW, int srcH)
         {
             if (detailPreviewTexture == null) return activePreviewRect;
 
-            // ソースピクセルあたりのディスプレイピクセル
-            float pxPerSrc = scale * displayZoom;
+            // ソースピクセルあたりのディスプレイピクセル。画像の矩形と土台の寸法から縦横それぞれに求める。取り込みで
+            // 縦横比が変わる(2 のべき乗へ丸める。1500×1000 → 1024×1024)と縦と横で違い、丸めだけでも少し違う。
+            // 1 つの倍率にすると、拡大表示が画像の矩形からはみ出してブラシ・スポイトの位置とずれる。
+            float pxPerSrcX = activePreviewRect.width / srcW;
+            float pxPerSrcY = activePreviewRect.height / srcH;
 
             // activePreviewRect は ScrollView 内のレイアウト座標（＝コンテンツ座標）で渡される。
             // この空間ではスクロール量はグループ変換側で吸収済みのため、ここで previewScrollPos を
             // 引いてはいけない（マスクペイントやズーム中心合わせも scrollPos を使っていない）。
             // 詳細クロップは元画像のピクセル detailOriginX から始まるので、画像左上
             // (activePreviewRect.x) からの相対位置をそのまま足す。
-            float left   = activePreviewRect.x + detailOriginX * pxPerSrc;
-            float width  = detailCropW * pxPerSrc;
-            float height = detailCropH * pxPerSrc;
+            float left   = activePreviewRect.x + detailOriginX * pxPerSrcX;
+            float width  = detailCropW * pxPerSrcX;
+            float height = detailCropH * pxPerSrcY;
 
             // Y はメモリ行(上向き)と画面 y(下向き)が反転している。detailOriginY はクロップ
             // 下端のメモリ行なので、クロップ上端のメモリ行(detailOriginY + 行数)を画面 y の
-            // 上端へ変換する: 画面上からの距離 = (srcH - 上端メモリ行) * pxPerSrc。
+            // 上端へ変換する: 画面上からの距離 = (srcH - 上端メモリ行) * pxPerSrcY。
             float top = activePreviewRect.y
-                + (srcH - (detailOriginY + detailCropH)) * pxPerSrc;
+                + (srcH - (detailOriginY + detailCropH)) * pxPerSrcY;
 
             return new Rect(left, top, width, height);
         }
@@ -216,18 +219,21 @@ namespace Iroca
             // 前後比較では変更前・変更後の 2 枚が並ぶので、それぞれの見えている範囲を合わせた範囲を切り出す
             // (同じ切り出しを両方に重ねる。変更前は EnsureDetailRaw が同じ範囲で作る)。
             int x0 = srcW, y0 = srcH, x1 = 0, y1 = 0;
-            float pxPerSrc = displayZoom * scale;
+            // 元の 1 画素の画面の大きさは、縦と横で違うことがある(ComputeDetailScreenRect)。
+            float pxPerSrcX = afterRect.width / srcW, pxPerSrcY = afterRect.height / srcH;
             var viewRect = ClampedViewRect(previewScrollPos, viewportW, viewportH, afterRect, beforeRect);
-            AddVisibleRange(afterRect, viewRect, pxPerSrc, srcW, srcH, ref x0, ref y0, ref x1, ref y1);
+            AddVisibleRange(afterRect, viewRect, pxPerSrcX, pxPerSrcY, srcW, srcH, ref x0, ref y0, ref x1, ref y1);
             if (beforeRect.width > 0f)
-                AddVisibleRange(beforeRect, viewRect, pxPerSrc, srcW, srcH, ref x0, ref y0, ref x1, ref y1);
+                AddVisibleRange(beforeRect, viewRect, pxPerSrcX, pxPerSrcY, srcW, srcH, ref x0, ref y0, ref x1, ref y1);
 
             if (x1 <= x0 || y1 <= y0) return;
             // 上下左右に少し余白を足す(小さなパンなら、作り直しが届くまでの間も新しく見えた端が粗くならない)。
             // 余白は画面の大きさで決めるので、切り出しの手間は倍率に依らず見えている範囲の数割増しで済む。
-            int margin = Mathf.CeilToInt(CropMarginPoints / pxPerSrc);
-            ScheduleRange(Mathf.Max(0, x0 - margin), Mathf.Max(0, y0 - margin),
-                Mathf.Min(srcW, x1 + margin), Mathf.Min(srcH, y1 + margin), pxPerSrc, latency, prepStart);
+            int marginX = Mathf.CeilToInt(CropMarginPoints / pxPerSrcX);
+            int marginY = Mathf.CeilToInt(CropMarginPoints / pxPerSrcY);
+            // タイルは細かく映る方の倍率で縮める(粗い方に合わせると、細かい方の軸がぼける)。
+            ScheduleRange(Mathf.Max(0, x0 - marginX), Mathf.Max(0, y0 - marginY),
+                Mathf.Min(srcW, x1 + marginX), Mathf.Min(srcH, y1 + marginY), Mathf.Max(pxPerSrcX, pxPerSrcY), latency, prepStart);
         }
 
         /// <summary>
@@ -364,21 +370,21 @@ namespace Iroca
         /// 画像の矩形 panel(スクロールビューの内容座標)のうち view(同じ座標の見えている範囲)に入る部分を、
         /// ソースの画素範囲([x0,x1)×[y0,y1)。y はメモリ行＝行 0 が画像下端)として足し合わせる。
         /// </summary>
-        private static void AddVisibleRange(Rect panel, Rect view, float pxPerSrc, int srcW, int srcH,
+        private static void AddVisibleRange(Rect panel, Rect view, float pxPerSrcX, float pxPerSrcY, int srcW, int srcH,
             ref int x0, ref int y0, ref int x1, ref int y1)
         {
-            if (pxPerSrc <= 0f) return;
+            if (pxPerSrcX <= 0f || pxPerSrcY <= 0f) return;
             float cx0 = Mathf.Max(view.xMin, panel.xMin), cx1 = Mathf.Min(view.xMax, panel.xMax);
             float cy0 = Mathf.Max(view.yMin, panel.yMin), cy1 = Mathf.Min(view.yMax, panel.yMax);
             if (cx1 <= cx0 || cy1 <= cy0) return;
-            float inv = 1f / pxPerSrc;
-            int px0 = Mathf.Clamp(Mathf.FloorToInt((cx0 - panel.x) * inv), 0, srcW);
-            int px1 = Mathf.Clamp(Mathf.CeilToInt((cx1 - panel.x) * inv), 0, srcW);
+            float invX = 1f / pxPerSrcX, invY = 1f / pxPerSrcY;
+            int px0 = Mathf.Clamp(Mathf.FloorToInt((cx0 - panel.x) * invX), 0, srcW);
+            int px1 = Mathf.Clamp(Mathf.CeilToInt((cx1 - panel.x) * invX), 0, srcW);
             // Y はソースのメモリ行(GetPixels32 は行0=画像下端の上向き)と、画面(下向き、上端=0)で上下が
             // 反転している。テクスチャは正立描画されるため、画面の上からの距離をメモリ行へ変換してから切り出す。
             // これをしないと、ビュー上端に画像下端のクロップが出る＝表示中の領域とズレる。
-            int py0 = Mathf.Clamp(Mathf.FloorToInt(srcH - (cy1 - panel.y) * inv), 0, srcH);
-            int py1 = Mathf.Clamp(Mathf.CeilToInt(srcH - (cy0 - panel.y) * inv), 0, srcH);
+            int py0 = Mathf.Clamp(Mathf.FloorToInt(srcH - (cy1 - panel.y) * invY), 0, srcH);
+            int py1 = Mathf.Clamp(Mathf.CeilToInt(srcH - (cy0 - panel.y) * invY), 0, srcH);
             if (px1 <= px0 || py1 <= py0) return;
             x0 = Mathf.Min(x0, px0);
             y0 = Mathf.Min(y0, py0);

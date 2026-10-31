@@ -416,8 +416,9 @@ namespace Iroca
                 ? IrocaConsts.Preview.MaxSize / (float)Mathf.Max(srcW, srcH)
                 : 1f;
             // 拡大表示の座標の土台(取り込み後の寸法で映すときはその寸法)と、その 1 画素あたりのプレビューテクスチャの画素数。
+            // 取り込みで縦横比が変わると縦と横で違うので、細かい方で拡大表示の要否を決める。
             int detW = DetailW, detH = DetailH;
-            float detScale = detW > 0 ? scale * srcW / detW : scale;
+            float detScale = detW > 0 && detH > 0 ? scale * Mathf.Min((float)srcW / detW, (float)srcH / detH) : scale;
 
             // プレビュー枠の幅は「カラムの見えている幅」に固定する。ExpandWidth(true) だと
             // GUILayout は外側 ScrollView の clientWidth をそのまま配るが、GUIScrollGroup は
@@ -621,7 +622,7 @@ namespace Iroca
             GUILayout.FlexibleSpace();
 
             // 拡大表示を重ねてよいか(倍率が足りていて、ドラッグの追従で隠していない)と、重ねる位置を求めるもの。
-            var detail = new DetailPlacement(detailActive && !_detailHiddenForDrag, detScale, effZoom, _previewScrollPos, detW, detH);
+            var detail = new DetailPlacement(detailActive && !_detailHiddenForDrag, detW, detH);
             if (comparisonMode && rawPreviewTexture != null)
             {
                 // 見出しの幅はラベルの左右マージンぶん詰める。画像と同じ幅にすると、マージンが
