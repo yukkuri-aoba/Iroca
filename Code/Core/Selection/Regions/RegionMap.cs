@@ -608,7 +608,8 @@ namespace Iroca
             int a = labels[i], b = labels[j];
             if (a == b || b <= 0) return;
             if (a > b) { int t = a; a = b; b = t; }
-            long key = ((long)a << 32) | (uint)b;
+            // 上位と下位に分けて詰めない(long の GetHashCode は両者の XOR で、番号の近い組がみな衝突する)。
+            long key = a * (RegionCount + 1L) + b;
             int isMixture = mix[i] >= 128 || mix[j] >= 128 ? 1 : 0;
             int isSoft = ColorStep(px[i], px[j]) <= stepMax ? 1 : 0;
             if (pairs.TryGetValue(key, out int index))
