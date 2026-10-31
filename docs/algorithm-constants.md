@@ -130,6 +130,8 @@
 | `Code/Core/Selection/Legacy/PixelProcessor.LegacySelection.cs` | 0 |
 | `Code/Core/Selection/Legacy/PixelProcessor.Selection.cs` | 2 |
 | `Code/Core/Selection/Legacy/PixelProcessor.SelectionKey.cs` | 0 |
+| `Code/Core/Selection/Material/ColorClusters.cs` | 0 |
+| `Code/Core/Selection/Regions/RegionMap.cs` | 0 |
 | `Code/Core/UvChartMap.cs` | 0 |
 | `Code/Core/ZoneAutoTuner.Evidence.cs` | 7 |
 | `Code/Core/ZoneAutoTuner.Normalize.cs` | 0 |
@@ -387,6 +389,24 @@
 | 定数 | 値 | 種類 | 段 | 根拠 |
 |---|---|---|---|---|
 | `fm` | `AchromaFringeExclusionMargin` | 設計 | — | 無彩フチ消しが読む範囲（照合半径＋背景窓）の局所別名 |
+
+## `Code/Core/Selection/Regions/RegionMap.cs`
+
+T5（選択の再設計）の L1。P0 の時点では製品の経路から呼ばれず、出力に効かない（ハーネスの計測だけ）。
+
+| 定数 | 値 | 種類 | 段 | 根拠 |
+|---|---|---|---|---|
+| `DefaultStepMax` | `12` | 実測 | — | 隣をつなぐ差の上限。T5 の P0 の掃引（開発 33 被写体）で 3〜20 は領域の上限がほぼ同じ台地。その中ほど。テクスチャの統計から決める案は、台地が広いので要らなかった（dev_safe `docs/t5_p0_regions.md`） |
+| `DefaultWidthMax` | `16` | 実測 | — | 領域の中の色の幅の上限。同じ掃引で 8〜24 が台地（平均 0.988〜0.990）、32 から下がり始め、上限なしは 0.77。分かれすぎは判断の単位が増えるだけで飲み込みは直せないので、台地の低い側 |
+| `DefaultMinArea` | `4` | 実測 | — | これより小さい塊を縁や点とみなす。同じ掃引で 2〜16 が台地。1 にすると領域が桁で増える |
+| `MixtureWindowRadius` | `2` | 設計 | — | 混色の相手を探す窓の半径。縁のにじみは 1〜3 画素 |
+| `MixtureResidualMax` | `8` | 設計 | — | 2 色を結ぶ線分からのずれの許容（RGB）。量子化と圧縮の揺れの分。掃引していない（P1 で測る） |
+| `MixtureEndsMin` | `24` | 設計 | — | 両端の色がこれより近いと、混色と揺れを区別できない。掃引していない（P1 で測る） |
+| `MaxMixtureCandidates` | `4` | 近似 | — | 窓の中で見る領域の数の上限。5×5 の窓に 5 つ以上の大きな領域が入ることはまれ |
+| `MixInterior` | `0` | 定義 | — | 画素の種類の値（領域の内側） |
+| `MixThin` | `1` | 定義 | — | 画素の種類の値（混色でない小さな塊）。128 以上は被覆率 |
+| `Pending` | `-2` | 定義 | — | 割り当て待ちの画素の印（領域の番号は正、透明は 0） |
+| `InFrontier` | `-3` | 定義 | — | 次に割り当てる順番が来ている画素の印 |
 
 ## `Code/Core/UvChartMap.cs`
 

@@ -330,6 +330,16 @@ namespace Iroca
             if (args.Length >= 1 && args[0] == "--bitmaskselftest")
                 return RunBitMaskSelfTest();
 
+            // --regionselftest: 入力画像不要。領域の地図(RegionMap)を合成画像で作り、平塗り・縁の混色・グラデの帯・
+            // 透明に囲まれた島・細い線の扱いと、ヒープの外のメモリが返ることを確かめる。
+            if (args.Length >= 1 && args[0] == "--regionselftest")
+                return RunRegionSelfTest();
+
+            // --regions <in.raw> <outPrefix> [stepMax widthMax minArea]: 領域の地図を実 C# で作って書き出す
+            // (<outPrefix>_labels.raw は int32、_mix.raw は 1 バイト、_regions.bin・_adj.bin・_info.json)。
+            if (args.Length >= 3 && args[0] == "--regions")
+                return RunRegions(args);
+
             // --samops-*: AI マスク提案の純計算層(SamImageOps/SamCoordMapper/SamMaskPostprocess/
             // MaskRle)を実 C# で駆動し、pytest の NumPy リファレンスと突き合わせる決定的検証モード。
             if (args.Length >= 1 && args[0].StartsWith("--samops-", StringComparison.Ordinal))
@@ -1185,6 +1195,192 @@ namespace Iroca
 
             Console.WriteLine(fails == 0 ? "NATIVEMEMSELFTEST ALL PASS" : $"NATIVEMEMSELFTEST {fails} FAILED");
             return fails == 0 ? 0 : 4;
+        }
+
+        private static unsafe int RunRegions(string[] args)
+        {
+            var (w, h, rgba) = ReadRaw(args[1], 4);
+            string prefix = args[2];
+            var settings = RegionMapSettings.Default;
+            if (args.Length >= 6)
+            {
+                settings.StepMax = int.Parse(args[3]);
+                settings.WidthMax = int.Parse(args[4]);
+                settings.MinArea = int.Parse(args[5]);
+            }
+            var sw = Stopwatch.StartNew();
+            IrocaNativeMemory.ResetPeaks();
+            fixed (byte* p = rgba)
+            using (var map = RegionMap.Build((Color32*)p, w, h, settings))
+            {
+                long ms = sw.ElapsedMilliseconds;
+                long peakWork = IrocaNativeMemory.PeakBytesOf(NativeUsage.Work);
+                long peakSelection = IrocaNativeMemory.PeakBytesOf(NativeUsage.Selection);
+                using (var fs = new FileStream(prefix + "_labels.raw", FileMode.Create, FileAccess.Write))
+                using (var bw = new BinaryWriter(fs))
+                {
+                    bw.Write(w);
+                    bw.Write(h);
+                    bw.Write(new ReadOnlySpan<byte>(map.Labels, w * h * sizeof(int)));
+                }
+                using (var fs = new FileStream(prefix + "_mix.raw", FileMode.Create, FileAccess.Write))
+                using (var bw = new BinaryWriter(fs))
+                {
+                    bw.Write(w);
+                    bw.Write(h);
+                    bw.Write(new ReadOnlySpan<byte>(map.Mix, w * h));
+                }
+                using (var fs = new FileStream(prefix + "_regions.bin", FileMode.Create, FileAccess.Write))
+                using (var bw = new BinaryWriter(fs))
+                {
+                    for (int r = 1; r <= map.RegionCount; r++)
+                    {
+                        RegionInfo info = map.Regions[r];
+                        bw.Write(info.Area); bw.Write(info.InteriorArea);
+                        bw.Write(info.MinX); bw.Write(info.MinY); bw.Write(info.MaxX); bw.Write(info.MaxY);
+                        bw.Write(info.R); bw.Write(info.G); bw.Write(info.B);
+                        bw.Write(info.BoxMin); bw.Write(info.BoxMax);
+                    }
+                }
+                using (var fs = new FileStream(prefix + "_adj.bin", FileMode.Create, FileAccess.Write))
+                using (var bw = new BinaryWriter(fs))
+                {
+                    foreach (var e in map.Adjacency)
+                    {
+                        bw.Write(e.A); bw.Write(e.B); bw.Write(e.Contact); bw.Write(e.MixtureContact);
+                    }
+                }
+                // 7 つ目の引数(radius をカンマで区切る): 半径ごとの色の塊を <outPrefix>_clusters_<i>.bin に(領域 1 から順の塊の番号)。
+                var clusterCounts = new List<int>();
+                long clusterMs = 0;
+                if (args.Length >= 7)
+                {
+                    var radii = args[6].Split(',');
+                    for (int k = 0; k < radii.Length; k++)
+                    {
+                        var csw = Stopwatch.StartNew();
+                        var clusters = ColorClusters.Build(map, float.Parse(radii[k], System.Globalization.CultureInfo.InvariantCulture));
+                        clusterMs = Math.Max(clusterMs, csw.ElapsedMilliseconds);
+                        clusterCounts.Add(clusters.Count);
+                        using var fs = new FileStream(prefix + $"_clusters_{k}.bin", FileMode.Create, FileAccess.Write);
+                        using var bw = new BinaryWriter(fs);
+                        for (int r = 1; r <= map.RegionCount; r++) bw.Write(clusters.ClusterOfRegion[r]);
+                    }
+                }
+                File.WriteAllText(prefix + "_info.json", JsonSerializer.Serialize(new
+                {
+                    w, h,
+                    clusterCounts, clusterMs,
+                    stepMax = settings.StepMax, widthMax = settings.WidthMax, minArea = settings.MinArea,
+                    regions = map.RegionCount, flat = map.FlatCount,
+                    smallPixels = map.SmallPixels, mixturePixels = map.MixturePixels,
+                    adjacency = map.Adjacency.Count,
+                    ms, phaseMs = map.PhaseMs, peakWork, peakSelection,
+                    stepHistogram = map.StepHistogram,
+                }));
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// --regionselftest: RegionMap を合成画像で確かめる。平塗り 2 色・1 画素の縁の混色・長いグラデの帯・透明に囲まれた島・
+        /// 細い線と小さな点。終わったときに領域の用途の量が元へ戻ること。
+        /// </summary>
+        private static unsafe int RunRegionSelfTest()
+        {
+            int fails = 0;
+            void Check(bool cond, string label)
+            {
+                Console.WriteLine($"REGIONSELFTEST {(cond ? "PASS" : "FAIL")} {label}");
+                if (!cond) fails++;
+            }
+            long live0 = IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection);
+            Color32 Rgb(int r, int g, int b) => new Color32((byte)r, (byte)g, (byte)b, 255);
+            RegionMap Build(Color32[] px, int w, int h, RegionMapSettings s)
+            {
+                fixed (Color32* p = px) return RegionMap.Build(p, w, h, s);
+            }
+            var s0 = new RegionMapSettings { StepMax = 12, WidthMax = 32, MinArea = 16 };
+            const int N = 64;
+
+            // 平塗り 2 色の硬い境目
+            var two = new Color32[N * N];
+            for (int y = 0; y < N; y++)
+                for (int x = 0; x < N; x++)
+                    two[y * N + x] = x < N / 2 ? Rgb(200, 30, 30) : Rgb(30, 30, 200);
+            using (var m = Build(two, N, N, s0))
+            {
+                Check(m.RegionCount == 2, "硬い境目で 2 領域");
+                Check(m.Labels[0] != m.Labels[N - 1], "左右で別の領域");
+                Check(m.SmallPixels == 0, "小さな塊が無い");
+                Check(m.Adjacency.Count == 1 && m.Adjacency[0].Contact == N && m.Adjacency[0].MixtureContact == 0, "隣接は 1 組で辺は高さの数");
+                int l = m.Labels[0];
+                Check(m.Regions[l].Area == N * N / 2 && m.Regions[l].InteriorArea == N * N / 2, "面積");
+                Check(Mathf.Abs(m.Regions[l].R - 200f) < 0.01f, "平均の色");
+            }
+
+            // 1 画素の縁の混色(50%)。高さが MinArea 以上だと縁の列が領域になるので、列を点線にして小さな塊にする
+            var seam = (Color32[])two.Clone();
+            for (int y = 0; y < N; y += 2) seam[y * N + N / 2] = Rgb(115, 30, 115);
+            using (var m = Build(seam, N, N, s0))
+            {
+                Check(m.RegionCount == 2, "縁の混色は領域にならない");
+                Check(m.MixturePixels == N / 2 && m.SmallPixels == N / 2, "縁の画素は全部混色");
+                int mixValue = m.Mix[N / 2];
+                Check(mixValue >= 128 && mixValue <= 140, "被覆率はおよそ半分");
+                Check(m.Labels[N / 2] > 0, "縁の画素はどちらかの領域に入る");
+                Check(m.Adjacency.Count == 1 && m.Adjacency[0].MixtureContact > 0, "混色の接触を数える");
+            }
+
+            // 長いグラデ(1 画素 1 階調): 幅の上限で帯に分かれ、上限が無ければ 1 つ
+            var grad = new Color32[256 * 8];
+            for (int y = 0; y < 8; y++)
+                for (int x = 0; x < 256; x++)
+                    grad[y * 256 + x] = Rgb(x, x, x);
+            using (var m = Build(grad, 256, 8, s0))
+            {
+                Check(m.RegionCount >= 8 && m.RegionCount <= 32, $"グラデは帯に分かれる({m.RegionCount})");
+                bool narrow = true;
+                for (int r = 1; r <= m.RegionCount; r++)
+                    narrow &= (m.Regions[r].BoxMax & 255) - (m.Regions[r].BoxMin & 255) <= 32;
+                Check(narrow, "どの帯も色の幅が上限以下");
+            }
+            var wide = s0;
+            wide.WidthMax = 255;
+            using (var m = Build(grad, 256, 8, wide))
+                Check(m.RegionCount == 1, "幅の上限が無ければグラデは 1 領域");
+
+            // 透明と、透明に囲まれた小さな島
+            var island = new Color32[N * N];
+            for (int y = 0; y < N; y++)
+                for (int x = 0; x < N; x++)
+                    island[y * N + x] = new Color32(0, 0, 0, 0);
+            for (int y = 2; y < 4; y++)
+                for (int x = 2; x < 4; x++)
+                    island[y * N + x] = Rgb(10, 200, 10);
+            using (var m = Build(island, N, N, s0))
+            {
+                Check(m.Labels[0] == 0, "透明は 0");
+                Check(m.RegionCount == 1 && m.Regions[1].Area == 4, "透明に囲まれた島は小さくても領域");
+            }
+
+            // 白の中の細い線(領域になる)と小さな点(周りへ入る)
+            var line = new Color32[N * N];
+            for (int i = 0; i < line.Length; i++) line[i] = Rgb(240, 240, 240);
+            for (int x = 8; x < 56; x++) line[32 * N + x] = Rgb(20, 20, 20);
+            line[8 * N + 8] = Rgb(120, 40, 40);
+            using (var m = Build(line, N, N, s0))
+            {
+                Check(m.RegionCount == 2, "細い線は領域・小さな点は領域にならない");
+                Check(m.Labels[32 * N + 20] != m.Labels[0], "線は別の領域");
+                Check(m.Labels[8 * N + 8] == m.Labels[0], "点は周りの領域へ");
+                Check(m.Mix[8 * N + 8] == RegionMap.MixThin, "点は細い塊の印");
+            }
+
+            Check(IrocaNativeMemory.LiveBytesOf(NativeUsage.Selection) == live0, "領域の用途の量が元へ戻る");
+            Check(WorkPools.Int.RentedCount == 0, "作業配列を全部返した");
+            Console.WriteLine(fails == 0 ? "REGIONSELFTEST ALL PASS" : $"REGIONSELFTEST {fails} FAILED");
+            return fails == 0 ? 0 : 1;
         }
 
         /// <summary>

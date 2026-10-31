@@ -86,6 +86,16 @@ def test_bit_mask_selftest(harness):
         f"最終行が ALL PASS ではありません:\n{r.stdout}")
 
 
+def test_region_map_selftest(harness):
+    """領域の地図(L1): 平塗り・縁の混色・グラデの帯・透明に囲まれた島・細い線の扱いと、メモリが返ること。"""
+    r = _run(harness, "--regionselftest")
+    lines = r.stdout.splitlines()
+    assert r.returncode == 0, (
+        f"--regionselftest が失敗 (exit={r.returncode}):\n{r.stdout}\n{r.stderr}")
+    assert lines and lines[-1] == "REGIONSELFTEST ALL PASS", (
+        f"最終行が ALL PASS ではありません:\n{r.stdout}")
+
+
 # ─────────────── AA 遷移包含: クロップ実行と全画像実行の一致 ───────────────
 _N = 1024          # 全体より小さいクロップ矩形が取れる大きさ（帯幅 d=3、パディング 15d）
 _RADIUS = 60.0
