@@ -39,7 +39,7 @@ namespace Iroca
         /// 保存時の除外マスク(共通・ゾーン。null は除外なし)のままでも、今の除外マスクで計算し直したのと同じ選択に
         /// なるか。true なら保存した選択を使う。
         /// </summary>
-        internal delegate bool MaskReuseCheck(ulong[] storedCommon, ulong[] storedZone);
+        internal delegate bool MaskReuseCheck(ulong* storedCommon, ulong* storedZone);
 
         /// <summary>後段(穴埋め・境界回復・ブラー・デコンタミ・統計)が走査する範囲。余白を足した後の値で、Has=false は空。</summary>
         internal struct PostBox
@@ -53,9 +53,9 @@ namespace Iroca
             public string Key;
             public NativeFloatBuffer Strength;   // マスクを掛ける直前の strength のコピー(len=w*h)。辞書が参照を 1 つ持つ
             public PostBox Box;
-            // この選択が正しい除外マスク(MaskSnapshot の配列。作り直さず読むだけなので参照で持つ)。
+            // この選択が正しい除外マスク(MaskSnapshot の層。参照を 1 つ持つ。編集側は書く前に写すので中身は変わらない)。
             // 判定を通って使い回したら、そのときのマスクに差し替える(次の判定の差分を小さくする)。
-            public ulong[] Common, ZoneMask;
+            public NativeBitMask Common, ZoneMask;
             public int MaskW, MaskH;   // Common・ZoneMask の寸法(マスクの寸法は選択の鍵に入るので、使い回しても変わらない)
             public int W, H;
         }
@@ -89,16 +89,18 @@ namespace Iroca
         /// true を返したときだけ使う(reusable が null なら使わない)。reusable は lock の外で呼ぶ。
         /// </summary>
         public bool TryCopy(string zoneId, string key, int w, int h, float* strengthDst,
-            ulong[] common, ulong[] zoneMask, MaskReuseCheck reusable, out PostBox box)
+            NativeBitMask common, NativeBitMask zoneMask, MaskReuseCheck reusable, out PostBox box)
         {
             box = default;
             if (string.IsNullOrEmpty(zoneId)) return false;
             Entry e;
-            ulong[] storedCommon, storedZone;
+            NativeBitMask storedCommon, storedZone;
             lock (_gate)
             {
                 if (!_byZone.TryGetValue(zoneId, out e) || e.Key != key || e.W != w || e.H != h) return false;
-                storedCommon = e.Common; storedZone = e.ZoneMask;
+                // 判定は lock の外なので、その間に辞書から外されても読めるよう参照を足す。
+                storedCommon = e.Common?.AddRef();
+                storedZone = e.ZoneMask?.AddRef();
                 e.Strength.AddRef();
             }
             bool reused = false;
@@ -106,7 +108,7 @@ namespace Iroca
             {
                 if (!ReferenceEquals(storedCommon, common) || !ReferenceEquals(storedZone, zoneMask))
                 {
-                    if (reusable == null || !reusable(storedCommon, storedZone)) return false;
+                    if (reusable == null || !reusable(NativeBitMask.BitsOf(storedCommon), NativeBitMask.BitsOf(storedZone))) return false;
                     reused = true;
                 }
                 if (strengthDst != null) e.Strength.CopyTo(strengthDst, w * h);
@@ -119,11 +121,14 @@ namespace Iroca
                     {
                         if (_byZone.TryGetValue(zoneId, out var cur) && ReferenceEquals(cur, e))
                         {
-                            e.Common = common;
-                            e.ZoneMask = zoneMask;
+                            ReleaseMasks(e);
+                            e.Common = common?.AddRef();
+                            e.ZoneMask = zoneMask?.AddRef();
                         }
                     }
                 }
+                storedCommon?.Release();
+                storedZone?.Release();
                 // 中断中に最後の参照だった場合は NativeBuffer が解放せずにアンロードまで持つ。
                 e.Strength.Release();
             }
@@ -142,11 +147,11 @@ namespace Iroca
 
         /// <summary>
         /// strength(長さ w*h 以上)を写して保存する。common・zoneMask は、この選択を計算したときの除外マスク
-        /// (MaskSnapshot の配列。参照で持つ)で、寸法は maskW×maskH。ct が取り消されていたら保存しない: 取り消した計算(テクスチャの
+        /// (MaskSnapshot の層。参照を足して持つ)で、寸法は maskW×maskH。ct が取り消されていたら保存しない: 取り消した計算(テクスチャの
         /// 読み直しの前の画素で作った選択)を、Clear の後に保存させないため。呼び出し側は Clear の前に必ず取り消す。
         /// </summary>
         public void StoreFrom(string zoneId, string key, float* strength,
-            in PostBox box, ulong[] common, ulong[] zoneMask, int maskW, int maskH, int w, int h,
+            in PostBox box, NativeBitMask common, NativeBitMask zoneMask, int maskW, int maskH, int w, int h,
             CancellationToken ct = default)
         {
             if (string.IsNullOrEmpty(zoneId)) return;
@@ -162,11 +167,13 @@ namespace Iroca
                 if (_byZone.TryGetValue(zoneId, out var old))
                 {
                     _byZone.Remove(zoneId);
+                    ReleaseMasks(old);
                     if (old.Strength.RefCount == 1 && old.Strength.Length == len) buf = old.Strength;
-                    else Detach(old);
+                    else old.Strength.Release();
                 }
             }
             bool published = false;
+            Entry pending = null;
             try
             {
                 buf ??= new NativeFloatBuffer(len);
@@ -174,8 +181,9 @@ namespace Iroca
                 var entry = new Entry
                 {
                     Key = key, Strength = buf, Box = box,
-                    Common = common, ZoneMask = zoneMask, MaskW = maskW, MaskH = maskH, W = w, H = h,
+                    Common = common?.AddRef(), ZoneMask = zoneMask?.AddRef(), MaskW = maskW, MaskH = maskH, W = w, H = h,
                 };
+                pending = entry;
                 lock (_gate)
                 {
                     // 取り消しは lock の外でも起きるが、呼び出し側は「取り消し → Clear」の順なので、Clear の後に
@@ -193,7 +201,11 @@ namespace Iroca
             {
                 // 載せなかった領域を返す(中断中は NativeBuffer が解放せずにアンロードまで持つ。並列で写している途中の
                 // 領域を、ほかのスレッドがまだ書いていることがある)。
-                if (!published) buf?.Release();
+                if (!published)
+                {
+                    buf?.Release();
+                    if (pending != null) ReleaseMasks(pending);
+                }
             }
         }
 
@@ -222,7 +234,7 @@ namespace Iroca
                         int x = indices[k] % w, y = indices[k] / w;
                         int mi = Math.Min(Math.Max(y * e.MaskH / h, 0), e.MaskH - 1) * e.MaskW
                                + Math.Min(Math.Max(x * e.MaskW / w, 0), e.MaskW - 1);
-                        if (MaskSnapshot.GetBit(e.Common, mi) || MaskSnapshot.GetBit(e.ZoneMask, mi)) dst[k] = 0f;
+                        if (MaskSnapshot.GetBit(NativeBitMask.BitsOf(e.Common), mi) || MaskSnapshot.GetBit(NativeBitMask.BitsOf(e.ZoneMask), mi)) dst[k] = 0f;
                     }
                 }
                 return true;
@@ -309,6 +321,17 @@ namespace Iroca
 
         // 辞書から外したエントリの、辞書の分の参照を返す(_gate の中で呼ぶ)。写している途中の読み手がいれば、
         // その読み手が返した時点で解放される。
-        private static void Detach(Entry e) => e.Strength.Release();
+        private static void Detach(Entry e)
+        {
+            ReleaseMasks(e);
+            e.Strength.Release();
+        }
+
+        private static void ReleaseMasks(Entry e)
+        {
+            e.Common?.Release();
+            e.ZoneMask?.Release();
+            e.Common = e.ZoneMask = null;
+        }
     }
 }

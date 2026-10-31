@@ -158,23 +158,9 @@ namespace Iroca
         }
 
         /// <summary>
-        /// <see cref="Decode"/> と同じ文字列を、1 画素 1 ビットに詰めた形(<see cref="MaskSnapshot"/> と同じ並び:
-        /// 画素 i は語 i &gt;&gt; 6 の i &amp; 63 ビット目。画素数より後ろのビットは 0)へ直接展開する。
-        /// <c>MaskSnapshot.Pack(Decode(...))</c> と同じ配列になる。bool[] を経由しないので、作る配列は 1/8 の大きさで済む
-        /// (8K で 64MB → 8MB。非破壊ビルド・シーンのプレビューはマスクごとにこれを作る)。失敗の条件も Decode と同じで、
-        /// そのときは null を返す。
-        /// </summary>
-        public static unsafe ulong[] DecodePacked(string encoded, out int w, out int h)
-        {
-            if (!TryParse(encoded, out byte[] bytes, out bool rle, out w, out h, out int len)) return null;
-            var bits = MaskSnapshot.NewBits(len);
-            fixed (ulong* p = bits) FillBits(bytes, rle, len, p);
-            return bits;
-        }
-
-        /// <summary>
-        /// <see cref="DecodePacked"/> と同じ展開を、ヒープの外のマスク(<see cref="NativeBitMask"/>。参照 1)へ行う。
-        /// 失敗したときは null。
+        /// <see cref="Decode"/> と同じ文字列を、ヒープの外のマスク(<see cref="NativeBitMask"/>。参照 1)へ直接展開する。
+        /// 結果は <see cref="Decode"/> した bool[] を詰めたものと同じ。bool[] を経由しないので、8K で 64MB の配列を作らずに済む
+        /// (非破壊ビルド・シーンのプレビューはマスクごとにこれを作る)。失敗したときは null。
         /// </summary>
         public static unsafe NativeBitMask DecodeBits(string encoded)
         {

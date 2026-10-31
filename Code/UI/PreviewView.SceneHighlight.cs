@@ -113,7 +113,7 @@ namespace Iroca
         }
 
         /// <summary>島の塗りのテクスチャ(w×h、島の内側だけ色付き)。作れなければ null。</summary>
-        private Texture2D SceneFillTexture(SceneClickHighlight h, int w, int hgt)
+        private unsafe Texture2D SceneFillTexture(SceneClickHighlight h, int w, int hgt)
         {
             if (h.island?.triangles == null || h.island.triangles.Length < 3 || w <= 0 || hgt <= 0) return null;
             if (_sceneFillFor == h && _sceneFillTexture != null
@@ -121,7 +121,8 @@ namespace Iroca
                 return _sceneFillTexture;
             ReleaseSceneFill();
             // 島の内側の判定は右クリックの「この島」と同じラスタライズ(画素中心が三角形の内側か)
-            var raster = UvChartMap.Build(w, hgt, new[] { h.island }).Raster;
+            using var map = UvChartMap.Build(w, hgt, new[] { h.island });
+            int* raster = map.Raster;
             var c = IrocaColors.SceneHighlight;
             var on = new Color32((byte)(c.r * 255f), (byte)(c.g * 255f), (byte)(c.b * 255f), 255);
             var pixels = new Color32[w * hgt];
@@ -196,11 +197,11 @@ namespace Iroca
             if (other != null)
             {
                 GUILayout.Label(
-                    new GUIContent(string.Format(Localization.SceneClickOtherTextureFormat, other.name),
+                    TempContent.Of(string.Format(Localization.SceneClickOtherTextureFormat, other.name),
                                    Localization.SceneClickOtherTextureTooltip),
                     // 文の長さだけ取り、「開く」をすぐ後ろに置く(広げると「開く」が行の右端へ離れる)
                     EditorStyles.miniLabel, GUILayout.MinWidth(0f), GUILayout.ExpandWidth(false));
-                if (GUILayout.Button(new GUIContent(Localization.SceneClickOpen, Localization.SceneClickOpenTooltip),
+                if (GUILayout.Button(TempContent.Of(Localization.SceneClickOpen, Localization.SceneClickOpenTooltip),
                                      SceneLinkStyle, GUILayout.ExpandWidth(false)))
                 {
                     // テクスチャの切り替えでプレビューの中身が変わるので、この描画の途中ではなく次の更新で行う
@@ -220,13 +221,13 @@ namespace Iroca
             // 色替えが済んで「同じ色の別の所まで変わった」と気づく頃に出す。
             if (_host.StepZonesDone && !ContextMenuUsed)
             {
-                GUILayout.Label(new GUIContent(Localization.ContextMenuHint, Localization.ContextMenuHintTooltip),
+                GUILayout.Label(TempContent.Of(Localization.ContextMenuHint, Localization.ContextMenuHintTooltip),
                                 EditorStyles.miniLabel, GUILayout.MinWidth(0f));
                 return;
             }
             bool used = IrocaWindow.SceneClickUsed;
             GUILayout.Label(
-                new GUIContent(used ? " " : Localization.SceneClickHint,
+                TempContent.Of(used ? " " : Localization.SceneClickHint,
                                used ? Localization.PreviewModeTooltip : Localization.SceneClickHintTooltip),
                 EditorStyles.miniLabel, GUILayout.MinWidth(0f));
         }

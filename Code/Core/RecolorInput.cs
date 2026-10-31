@@ -29,6 +29,9 @@ namespace Iroca
             Settings = settings;
         }
 
+        /// <summary>マスクの参照を返す(この入力の持ち主が、使い終わったら 1 回呼ぶ)。</summary>
+        public void ReleaseMasks() => Masks?.Release();
+
         /// <summary>適用するゾーンがあるか(無ければ色替えしない)。</summary>
         public bool HasZones => Zones.Count > 0;
 

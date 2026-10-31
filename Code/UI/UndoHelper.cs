@@ -31,7 +31,7 @@ namespace Iroca
         }
 
         public static float Slider(Object host, string label, float value, float min, float max, string undoName = DefaultUndoName)
-            => Slider(host, new GUIContent(label), value, min, max, undoName);
+            => Slider(host, TempContent.Of(label), value, min, max, undoName);
 
         public static int IntSlider(Object host, GUIContent content, int value, int min, int max, string undoName = DefaultUndoName)
         {

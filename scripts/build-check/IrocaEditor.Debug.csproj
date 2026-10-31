@@ -36,6 +36,9 @@
   <!-- 本体アセンブリを ProjectReference -->
   <ItemGroup>
     <ProjectReference Include="IrocaEditor.csproj" />
+    <ProjectReference Include="IrocaEditor.Core.csproj" />
+    <ProjectReference Include="IrocaEditor.Services.csproj" />
+    <ProjectReference Include="IrocaEditor.Runtime.csproj" />
   </ItemGroup>
 
   <ItemGroup>

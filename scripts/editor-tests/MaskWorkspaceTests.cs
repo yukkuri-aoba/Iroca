@@ -132,11 +132,37 @@ namespace Iroca.EditorTests
             var b = MaskSnapshot.FromBuffers(W, H, common, zones, includes);
             Assert.AreEqual(b.width, a.width);
             Assert.AreEqual(b.height, a.height);
-            CollectionAssert.AreEqual(b.common, a.common);
+            CollectionAssert.AreEqual(b.common.ToWords(), a.common.ToWords());
             CollectionAssert.AreEquivalent(b.zones.Keys, a.zones.Keys, "全部 0 の除外も載る");
-            foreach (var kv in b.zones) CollectionAssert.AreEqual(kv.Value, a.zones[kv.Key], kv.Key);
+            foreach (var kv in b.zones) CollectionAssert.AreEqual(kv.Value.ToWords(), a.zones[kv.Key].ToWords(), kv.Key);
             CollectionAssert.AreEquivalent(b.zoneIncludes.Keys, a.zoneIncludes.Keys, "全部 0 の含めるは載らない");
-            foreach (var kv in b.zoneIncludes) CollectionAssert.AreEqual(kv.Value, a.zoneIncludes[kv.Key], kv.Key);
+            foreach (var kv in b.zoneIncludes) CollectionAssert.AreEqual(kv.Value.ToWords(), a.zoneIncludes[kv.Key].ToWords(), kv.Key);
+            a.Release();
+            b.Release();
+            ws.Clear();
+        }
+
+        [Test]
+        public void ToSnapshot_SharesLayers_AndWritersCopyFirst()
+        {
+            var ws = Fill(out _, out var zones, out _);
+            string id = null;
+            foreach (var kv in zones) { id = kv.Key; break; }
+            var layer = ws.Layer(false, id);
+            int refs = layer.RefCount;
+            var snap = ws.ToSnapshot();
+            Assert.AreSame(layer, snap.zones[id], "写さずに同じ層を指す");
+            Assert.AreEqual(refs + 1, layer.RefCount);
+            bool before = layer.Get(0);
+
+            var writable = ws.WritableLayer(false, id);
+            Assert.AreNotSame(snap.zones[id], writable, "読み手がいれば、書く前に写す");
+            writable.Set(0, !before);
+            Assert.AreEqual(before, snap.zones[id].Get(0), "スナップショットの中身は変わらない");
+
+            snap.Release();
+            Assert.AreEqual(1, ws.Layer(false, id).RefCount);
+            Assert.AreSame(ws.Layer(false, id), ws.WritableLayer(false, id), "読み手がいなくなれば写さない");
             ws.Clear();
         }
 

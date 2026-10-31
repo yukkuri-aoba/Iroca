@@ -1,0 +1,19 @@
+<!--
+  Code/Core と Code/MaskSuggest/Ops（asmdef は com.yukkuri-aoba.iroca.Editor.Core）。いちばん下の層で、どの層も参照しない。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>com.yukkuri-aoba.iroca.Editor.Core</AssemblyName>
+    <!-- 作業配列はネイティブメモリ(ポインタ)で扱う。asmdef の allowUnsafeCode と対。 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <Import Project="IrocaAssembly.props" />
+
+  <ItemGroup>
+    <Compile Include="..\..\Code\Core\**\*.cs" />
+    <Compile Include="..\..\Code\MaskSuggest\Ops\**\*.cs" />
+  </ItemGroup>
+
+</Project>

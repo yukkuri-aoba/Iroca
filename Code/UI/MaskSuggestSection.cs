@@ -87,7 +87,7 @@ namespace Iroca
             else
                 DrawModelDownload(svc);
 
-            if (GUILayout.Button(new GUIContent(Localization.AiBannerDismiss, Localization.AiBannerDismissTooltip)))
+            if (GUILayout.Button(TempContent.Of(Localization.AiBannerDismiss, Localization.AiBannerDismissTooltip)))
                 SessionState.SetBool(BannerDismissedKey, true);
         }
 
@@ -103,15 +103,19 @@ namespace Iroca
 
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField(
-                new GUIContent(Localization.AiSuggestGranularity, Localization.AiSuggestGranularityTooltip),
+                TempContent.Of(Localization.AiSuggestGranularity, Localization.AiSuggestGranularityTooltip),
                 GUILayout.Width(70));
-            var granOptions = new[]
+            if (s_granularityOptions == null || s_granularityLang != Localization.CurrentLanguage)
             {
-                new GUIContent(Localization.AiSuggestGranularityAuto, Localization.AiSuggestGranularityAutoTooltip),
-                new GUIContent(Localization.AiSuggestGranularityFine, Localization.AiSuggestGranularityFineTooltip),
-                new GUIContent(Localization.AiSuggestGranularityCoarse, Localization.AiSuggestGranularityCoarseTooltip),
-            };
-            int gran = GUILayout.Toolbar((int)ctl.Granularity, granOptions);
+                s_granularityLang = Localization.CurrentLanguage;
+                s_granularityOptions = new[]
+                {
+                    new GUIContent(Localization.AiSuggestGranularityAuto, Localization.AiSuggestGranularityAutoTooltip),
+                    new GUIContent(Localization.AiSuggestGranularityFine, Localization.AiSuggestGranularityFineTooltip),
+                    new GUIContent(Localization.AiSuggestGranularityCoarse, Localization.AiSuggestGranularityCoarseTooltip),
+                };
+            }
+            int gran = GUILayout.Toolbar((int)ctl.Granularity, s_granularityOptions);
             if (gran != (int)ctl.Granularity)
                 ctl.Granularity = (MaskSuggestGranularity)gran;
             EditorGUILayout.EndHorizontal();
@@ -191,11 +195,11 @@ namespace Iroca
             {
                 DrawDownloadErrorIfAny();
                 EditorGUILayout.BeginHorizontal();
-                if (GUILayout.Button(new GUIContent(Localization.AiSuggestDownload,
+                if (GUILayout.Button(TempContent.Of(Localization.AiSuggestDownload,
                         string.Format(Localization.AiSuggestDownloadTooltip,
                                       MaskSuggestModelDownload.BaseUrl))))
                     MaskSuggestModelDownload.Start();
-                if (GUILayout.Button(new GUIContent(Localization.AiSuggestOpenModelFolder,
+                if (GUILayout.Button(TempContent.Of(Localization.AiSuggestOpenModelFolder,
                                                     Localization.AiSuggestOpenModelFolderTooltip)))
                 {
                     System.IO.Directory.CreateDirectory(MaskSuggestBridge.ModelsDirectory);
@@ -215,7 +219,7 @@ namespace Iroca
             var pr = EditorGUILayout.GetControlRect(false, 18f);
             EditorGUI.ProgressBar(pr, MaskSuggestModelDownload.Progress,
                                   Localization.AiSuggestDownloading);
-            if (GUILayout.Button(new GUIContent(Localization.AiSuggestDownloadCancel,
+            if (GUILayout.Button(TempContent.Of(Localization.AiSuggestDownloadCancel,
                                                 Localization.AiSuggestDownloadCancelTooltip),
                                  GUILayout.Width(IrocaWindow.FitButtonWidth(48f, Localization.AiSuggestDownloadCancel))))
                 MaskSuggestModelDownload.Cancel();
@@ -241,6 +245,8 @@ namespace Iroca
 
         // DrawToolControls が描いている状態（Layout のときの svc.Phase）。
         static MaskSuggestPhase s_drawnPhase;
+        static GUIContent[] s_granularityOptions;
+        static LanguageMode s_granularityLang;
 
         /// <summary>
         /// 状態の文言に、処理待ちのクリックの件数を同じ行で添える(件数が minCount 以上のとき)。
@@ -266,7 +272,7 @@ namespace Iroca
             EditorGUILayout.HelpBox(Localization.AiSuggestRestartRecommended, MessageType.Info);
             EditorGUILayout.BeginHorizontal();
             DrawRestartButton();
-            if (GUILayout.Button(new GUIContent(Localization.AiSuggestRestartLater,
+            if (GUILayout.Button(TempContent.Of(Localization.AiSuggestRestartLater,
                                                 Localization.AiSuggestRestartLaterTooltip),
                                  GUILayout.Width(80)))
                 SessionState.SetBool(MaskSuggestInstall.RestartRecommendedKey, false);
@@ -315,7 +321,7 @@ namespace Iroca
             if (_recheckForError != null && _recheckForError == currentError && _recheckFoundOk)
                 EditorGUILayout.HelpBox(Localization.AiSuggestModelsVerifiedOk, MessageType.Info);
 
-            if (!GUILayout.Button(new GUIContent(Localization.AiSuggestRecheckModels,
+            if (!GUILayout.Button(TempContent.Of(Localization.AiSuggestRecheckModels,
                                                  Localization.AiSuggestRecheckModelsTooltip)))
                 return;
             _recheckForError = currentError;
@@ -326,7 +332,7 @@ namespace Iroca
         /// <summary>Unity を再起動する(現在のプロジェクトを開き直す)ボタン。</summary>
         static void DrawRestartButton()
         {
-            if (!GUILayout.Button(new GUIContent(Localization.AiSuggestRestartNow,
+            if (!GUILayout.Button(TempContent.Of(Localization.AiSuggestRestartNow,
                                                  Localization.AiSuggestRestartNowTooltip)))
                 return;
             SessionState.SetBool(MaskSuggestInstall.RestartRecommendedKey, false);
@@ -378,7 +384,7 @@ namespace Iroca
             string label = replaced != null
                 ? string.Format(Localization.AiSuggestReplaceSentis, MaskSuggestInstall.SentisPackageVersion)
                 : Localization.AiSuggestInstallSentis;
-            if (GUILayout.Button(new GUIContent(
+            if (GUILayout.Button(TempContent.Of(
                     label,
                     string.Format(Localization.AiSuggestInstallSentisTooltip,
                                   MaskSuggestInstall.SentisPackageId,

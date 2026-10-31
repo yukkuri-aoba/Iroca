@@ -11,12 +11,14 @@
   - 型の名前で見るので、同じ名前の型が複数の層にあるとき（partial の型を層をまたいで分けているときなど）は、
     どれか 1 つが許可されていれば通す。層をまたぐ partial は SPLIT_TYPES に載せる（これも減らすことしかできない）。
   - `x.Name` のようにドットの後ろに書いた名前はメンバーとみなして数えない（入れ子の型・名前空間つきの参照は
-    見逃す）。拡張メソッドだけを使う依存も見えない。asmdef で固めるフェーズ 6 までのつなぎ。
+    見逃す）。拡張メソッドだけを使う依存も見えない。Core・Services・本体の間の向きは asmdef でも固めてある（フェーズ 6）ので、
+    この検査はその中の層（Infra と Application、UI と Automation など）の向きを見る。
 
 C# ソースを直接読むだけなのでハーネス不要・常時実行。
 """
 from __future__ import annotations
 
+import json
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -27,8 +29,8 @@ CODE_DIR = REPO_ROOT / "Code"
 _BASE = {"Core", "MaskSuggest/Ops"}
 _SERVICES = _BASE | {"Runtime", "Infra", "Text"}
 # 層 → その層のコードが使ってよい層（自分を含む）。計画の 3.1 の図の上から下への向き。
-# Application（計画の 3.3。4-2 で SourcePixelCache から作り始めた）・Text（文言。4-1 で UI の Localization を移した）。MaskSuggest（Ops を除く）は
-# フェーズ 6 で Infra・Application・Text と同じ Services の asmdef に入る。
+# Application（計画の 3.3。4-2 で SourcePixelCache から作り始めた）・Text（文言。4-1 で UI の Localization を移した）。
+# asmdef は Core（Core・MaskSuggest/Ops）・Services（Infra・Application・Text・MaskSuggest）・本体（UI・Automation）の 3 つ。
 ALLOWED: dict[str, set[str]] = {
     "Core": {"Core"},
     "MaskSuggest/Ops": {"MaskSuggest/Ops", "Core"},
@@ -47,18 +49,33 @@ ALLOWED: dict[str, set[str]] = {
     "(root)": {"(root)"},
 }
 
+# 層 → その層のコードが入るアセンブリ。ファイルを足した層がどの asmdef に入るかを固定する（フェーズ 6）。
+_CORE_ASM = "com.yukkuri-aoba.iroca.Editor.Core"
+_SERVICES_ASM = "com.yukkuri-aoba.iroca.Editor.Services"
+_EDITOR_ASM = "com.yukkuri-aoba.iroca.Editor"
+ASSEMBLY_OF_LAYER: dict[str, str] = {
+    "Core": _CORE_ASM,
+    "MaskSuggest/Ops": _CORE_ASM,
+    "Runtime": "com.yukkuri-aoba.iroca.Runtime",
+    "Infra": _SERVICES_ASM,
+    "Text": _SERVICES_ASM,
+    "MaskSuggest": _SERVICES_ASM,
+    "Application": _SERVICES_ASM,
+    "Automation": _EDITOR_ASM,
+    "UI": _EDITOR_ASM,
+    "(root)": _EDITOR_ASM,
+    "NdmfIntegration": "Iroca.NdmfIntegration",
+    "SentisIntegration": "Iroca.SentisIntegration",
+    "McpIntegration": "Iroca.McpIntegration",
+    "Debug": "com.yukkuri-aoba.iroca.Editor.Debug",
+}
+
 # 今ある違反。(使う側のファイル, 使われる型) → 使われる型の層。**減らすことしかできない。**
 KNOWN_VIOLATIONS: dict[tuple[str, str], str] = {
     # 4-2・4-3: 開いているウィンドウを探す・その状態を読む・窓口を借りるのを、EditingSessionRegistry・
     # EditingSession・AutoTuneService・AiSuggestBroker を通す形にする。
     ("Code/Automation/IrocaAutomation.Open.cs", "IrocaWindow"): "UI",
     ("Code/Automation/IrocaAutomation.Recolor.cs", "IrocaWindow"): "UI",
-    # フェーズ 6 の前: MaskSuggest のうちウィンドウに描く部分（コントローラ・セクション）を UI 側へ分ける。
-    ("Code/MaskSuggest/MaskSuggestController.cs", "IrocaWindow"): "UI",
-    ("Code/MaskSuggest/MaskSuggestController.cs", "MaskPaintView"): "UI",
-    ("Code/MaskSuggest/MaskSuggestController.cs", "MaskRegionEditResult"): "UI",
-    ("Code/MaskSuggest/MaskSuggestSection.cs", "IrocaWindow"): "UI",
-    ("Code/MaskSuggest/MaskSuggestSection.cs", "MaskPaintView"): "UI",
 }
 
 # 層をまたいで宣言している型（partial の型を分けている・同じ名前の型が 2 つの層にある）。型 → 層の集合。
@@ -158,6 +175,33 @@ def test_every_layer_is_in_the_table():
     layers = {layer_of(rel) for rel in _sources()}
     missing = sorted(layers - set(ALLOWED))
     assert not missing, f"ALLOWED に載っていない層があります: {missing}"
+
+
+def _assembly_of_folder(folder: Path) -> str:
+    """Unity と同じく、いちばん近い祖先の asmdef / asmref でフォルダのアセンブリを決める。"""
+    for d in [folder, *folder.parents]:
+        for f in d.glob("*.asmdef"):
+            return json.loads(f.read_text(encoding="utf-8-sig"))["name"]
+        for f in d.glob("*.asmref"):
+            return json.loads(f.read_text(encoding="utf-8-sig"))["reference"]
+        if d == CODE_DIR:
+            break
+    raise AssertionError(f"asmdef が見つかりません: {folder}")
+
+
+def test_every_source_is_in_the_assembly_of_its_layer():
+    """層とアセンブリの対応が表のとおりであること（asmref を忘れると、本体の asmdef に吸われて境目が消える）。"""
+    wrong = []
+    for path in CODE_DIR.rglob("*.cs"):
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        layer = layer_of(rel)
+        if _assembly_of_folder(path.parent) != ASSEMBLY_OF_LAYER[layer]:
+            wrong.append((rel, layer, _assembly_of_folder(path.parent)))
+    assert not wrong, f"層のアセンブリが表と違います(ファイル, 層, 入っているアセンブリ): {wrong[:10]}"
+
+
+def test_assembly_table_covers_every_layer():
+    assert set(ASSEMBLY_OF_LAYER) == set(ALLOWED)
 
 
 def test_no_new_layer_violations():

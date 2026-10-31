@@ -290,7 +290,7 @@ namespace Iroca
 
         /// <summary>
         /// 処理用のスナップショット(<see cref="MaskSnapshot.FromBuffers"/> と同じ組み立て: 共通は無ければ null、ゾーンの除外は
-        /// 全部、含めるは立っている画素がある層だけ)。中身は写しなので、この後に層を書き換えても変わらない。
+        /// 全部、含めるは立っている画素がある層だけ)。層は参照で共有し(写さない)、書く側が書く前に写すので、この後に層を書き換えても変わらない。
         /// </summary>
         public MaskSnapshot ToSnapshot()
         {
@@ -298,29 +298,17 @@ namespace Iroca
             {
                 width = Width,
                 height = Height,
-                zones = new Dictionary<string, ulong[]>(),
+                zones = new Dictionary<string, NativeBitMask>(),
             };
-            snap.common = CopyBits(_common);
-            foreach (var kv in _excludes) snap.zones[kv.Key] = CopyBits(kv.Value);
+            snap.common = _common?.AddRef();
+            foreach (var kv in _excludes) snap.zones[kv.Key] = kv.Value.AddRef();
             foreach (var kv in _includes)
             {
                 if (!kv.Value.Any()) continue;
-                if (snap.zoneIncludes == null) snap.zoneIncludes = new Dictionary<string, ulong[]>();
-                snap.zoneIncludes[kv.Key] = CopyBits(kv.Value);
+                if (snap.zoneIncludes == null) snap.zoneIncludes = new Dictionary<string, NativeBitMask>();
+                snap.zoneIncludes[kv.Key] = kv.Value.AddRef();
             }
             return snap;
-        }
-
-        private static ulong[] CopyBits(NativeBitMask m)
-        {
-            if (m == null) return null;
-            var bits = MaskSnapshot.NewBits(m.Length);
-            fixed (ulong* d = bits)
-            {
-                long bytes = (long)bits.Length * sizeof(ulong);
-                System.Buffer.MemoryCopy(m.Bits, d, bytes, bytes);
-            }
-            return bits;
         }
 
         /// <summary>

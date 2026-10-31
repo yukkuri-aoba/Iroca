@@ -138,9 +138,16 @@ namespace Iroca
         {
             _searched = false;
             _found = null;
-            _map = null;
+            ReleaseMap();
             _manualObject = null;
             _outline = null;
+        }
+
+        /// <summary>チャート地図(ヒープの外。4K で 64MB)を手放す。次に引くときに作り直す。</summary>
+        public void ReleaseMap()
+        {
+            _map?.Dispose();
+            _map = null;
         }
 
         /// <summary>
@@ -217,6 +224,7 @@ namespace Iroca
             if (w <= 0 || h <= 0) return null;
             if (_map == null || _map.Width != w || _map.Height != h)
             {
+                _map?.Dispose();
                 _map = UvChartMap.Build(w, h, _found.Sources());
                 // 引くのは既定の半径だけなので、半径の外を落とした持ち主だけを持つ(4K で 192MB → 64MB)。
                 _map.AssignPaddingBaked(_map.DefaultPaddingRadius);
@@ -244,8 +252,9 @@ namespace Iroca
 
         /// <summary>
         /// UV(下原点)の位置から、マスクと同じ寸法・下原点の領域を作る。島が無い場所なら null。
+        /// 参照 1 で返す(呼び出し側が Release する)。
         /// </summary>
-        public bool[] RegionAt(float u, float v, Region kind)
+        public NativeBools RegionAt(float u, float v, Region kind)
         {
             var map = Map();
             if (map == null) return null;

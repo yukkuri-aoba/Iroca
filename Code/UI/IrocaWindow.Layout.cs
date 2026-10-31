@@ -443,7 +443,7 @@ namespace Iroca
                 open ? Localization.PreviewDetachedActive : Localization.PreviewDetachedNarrowHint,
                 MessageType.Info);
 
-            if (GUILayout.Button(new GUIContent(
+            if (GUILayout.Button(TempContent.Of(
                     open ? Localization.FocusPreviewWindow : Localization.OpenPreviewWindow,
                     Localization.OpenPreviewWindowTooltip)))
             {
@@ -452,7 +452,7 @@ namespace Iroca
             }
 
             if (open && canReattach &&
-                GUILayout.Button(new GUIContent(
+                GUILayout.Button(TempContent.Of(
                     Localization.ReattachPreview, Localization.ReattachPreviewTooltip)))
             {
                 IrocaPreviewWindow.CloseIfOpen();
@@ -489,7 +489,7 @@ namespace Iroca
             float w = minWidth;
             var style = GUI.skin.button;
             foreach (var t in texts)
-                w = Mathf.Max(w, Mathf.Ceil(style.CalcSize(new GUIContent(t)).x));
+                w = Mathf.Max(w, Mathf.Ceil(style.CalcSize(TempContent.Of(t)).x));
             return w;
         }
 
@@ -503,7 +503,7 @@ namespace Iroca
             EditorGUILayout.Space(2);
             var rect = EditorGUILayout.GetControlRect(false, JobProgressBarHeight);
             EditorGUI.ProgressBar(rect, progress, label);
-            bool cancel = GUILayout.Button(new GUIContent(Localization.Cancel, Localization.CancelActionTooltip), GUILayout.Height(JobCancelButtonHeight));
+            bool cancel = GUILayout.Button(TempContent.Of(Localization.Cancel, Localization.CancelActionTooltip), GUILayout.Height(JobCancelButtonHeight));
             EditorGUILayout.Space(2);
             return cancel;
         }
@@ -517,14 +517,9 @@ namespace Iroca
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
 
-            var labels = new[]
-            {
-                new GUIContent(Localization.LangAuto, Localization.LanguageToolbarTooltip),
-                new GUIContent(Localization.LangJapanese, Localization.LanguageToolbarTooltip),
-                new GUIContent(Localization.LangEnglish, Localization.LanguageToolbarTooltip),
-            };
+            EnsureZoneListCache();
             int current = (int)Localization.CurrentLanguage;
-            int next = GUILayout.Toolbar(current, labels, EditorStyles.toolbarButton, GUILayout.ExpandWidth(false));
+            int next = GUILayout.Toolbar(current, s_languageLabels, EditorStyles.toolbarButton, GUILayout.ExpandWidth(false));
             if (next != current)
             {
                 Localization.CurrentLanguage = (LanguageMode)next;
@@ -540,7 +535,7 @@ namespace Iroca
             // セッションへ書き戻し、状態不整合を生み得るため。
             using (new EditorGUI.DisabledScope(SourceTexture == null || jobBlocking))
             {
-                if (GUILayout.Button(new GUIContent(Localization.ResetSession, Localization.ResetSessionTooltip),
+                if (GUILayout.Button(TempContent.Of(Localization.ResetSession, Localization.ResetSessionTooltip),
                         EditorStyles.toolbarButton, GUILayout.ExpandWidth(false)))
                 {
                     if (EditorUtility.DisplayDialog(
@@ -549,10 +544,10 @@ namespace Iroca
                 }
             }
 
-            if (GUILayout.Button(new GUIContent(Localization.Manual, Localization.ManualTooltip), EditorStyles.toolbarButton, GUILayout.ExpandWidth(false)))
+            if (GUILayout.Button(TempContent.Of(Localization.Manual, Localization.ManualTooltip), EditorStyles.toolbarButton, GUILayout.ExpandWidth(false)))
                 IrocaManual.Open();
 
-            if (GUILayout.Button(new GUIContent(Localization.Credit, Localization.CreditTooltip), EditorStyles.toolbarButton, GUILayout.ExpandWidth(false)))
+            if (GUILayout.Button(TempContent.Of(Localization.Credit, Localization.CreditTooltip), EditorStyles.toolbarButton, GUILayout.ExpandWidth(false)))
             {
                 if (EditorUtility.DisplayDialog(Localization.CreditTitle, Localization.CreditBody,
                         Localization.CreditOpenList, Localization.CreditClose))
@@ -663,7 +658,7 @@ namespace Iroca
             GUILayout.FlexibleSpace();
             // テクスチャ欄は変更の検出(プレビューの作り直し)に囲まれているので、閉じるだけでは立てない。
             bool changed = GUI.changed;
-            if (GUILayout.Button(new GUIContent(Localization.EnglishTranslationNoticeClose,
+            if (GUILayout.Button(TempContent.Of(Localization.EnglishTranslationNoticeClose,
                     Localization.EnglishTranslationNoticeCloseTooltip), GUILayout.ExpandWidth(false)))
                 Localization.CloseEnglishTranslationNotice();
             GUI.changed = changed;
@@ -686,7 +681,7 @@ namespace Iroca
                 EditorGUILayout.HelpBox(Localization.WorkflowHint, MessageType.Info);
 
             var newTex = (Texture2D)EditorGUILayout.ObjectField(
-                new GUIContent(Localization.Texture, Localization.TextureTooltip),
+                TempContent.Of(Localization.Texture, Localization.TextureTooltip),
                 SourceTexture, typeof(Texture2D), false,
                 // 1 行高に固定する。Texture2D の ObjectField は既定で 64px のサムネイル枠になり、
                 // 右端の小さな枠のために行の左側が 3 行ぶん空いて、下の設定列とプレビューの
@@ -701,7 +696,7 @@ namespace Iroca
             {
                 EditorGUILayout.HelpBox(Localization.ReadWriteError, MessageType.Error);
 
-                if (GUILayout.Button(new GUIContent(Localization.EnableReadWrite, Localization.EnableReadWriteTooltip)))
+                if (GUILayout.Button(TempContent.Of(Localization.EnableReadWrite, Localization.EnableReadWriteTooltip)))
                 {
                     TextureIO.EnableReadWrite(SourceTexture);
                 }
@@ -770,7 +765,7 @@ namespace Iroca
             else
                 text = string.Format(Localization.LargeSourceNoticeFormat, w, h, needGB, haveGB);
             EditorGUILayout.HelpBox(text, MessageType.Warning);
-            if (GUILayout.Button(new GUIContent(Localization.LargeSourceDismiss, Localization.LargeSourceDismissTooltip)))
+            if (GUILayout.Button(TempContent.Of(Localization.LargeSourceDismiss, Localization.LargeSourceDismissTooltip)))
                 SessionState.SetBool(key, true);
         }
 
@@ -807,15 +802,15 @@ namespace Iroca
             }
 
             edgeFeather = UndoHelper.Slider(UndoTarget,
-                new GUIContent(Localization.EdgeFeather, Localization.EdgeFeatherTooltip),
+                TempContent.Of(Localization.EdgeFeather, Localization.EdgeFeatherTooltip),
                 edgeFeather, 0f, 5f);
 
             antiAliasCleanup = UndoHelper.IntSlider(UndoTarget,
-                new GUIContent(Localization.AntiAliasCleanup, Localization.AntiAliasCleanupTooltip),
+                TempContent.Of(Localization.AntiAliasCleanup, Localization.AntiAliasCleanupTooltip),
                 antiAliasCleanup, 0, 5);
 
             useDecontamination = UndoHelper.Toggle(UndoTarget,
-                new GUIContent(Localization.UseDecontamination, Localization.UseDecontaminationTooltip),
+                TempContent.Of(Localization.UseDecontamination, Localization.UseDecontaminationTooltip),
                 useDecontamination);
 
             // 内部パラメータ（穴埋め・境界復元・α分解半径）は折りたたみの中へ。
@@ -826,27 +821,27 @@ namespace Iroca
             // 「畳まれた折りたたみを開く」の一段に統一する（2026-09-11 の UX 見直し）。
             EditorGUILayout.Space(2);
             processingDetailFoldout = EditorGUILayout.Foldout(processingDetailFoldout,
-                new GUIContent(Localization.ProcessingDetailFoldout, Localization.ProcessingDetailFoldoutTooltip),
+                TempContent.Of(Localization.ProcessingDetailFoldout, Localization.ProcessingDetailFoldoutTooltip),
                 true);
             if (processingDetailFoldout)
             {
                 using (new EditorGUI.IndentLevelScope())
                 {
                     holeFillPasses = UndoHelper.IntSlider(UndoTarget,
-                        new GUIContent(Localization.HoleFillPasses, Localization.HoleFillPassesTooltip),
+                        TempContent.Of(Localization.HoleFillPasses, Localization.HoleFillPassesTooltip),
                         holeFillPasses, 0, 10);
                     holeFillMinNeighbors = UndoHelper.IntSlider(UndoTarget,
-                        new GUIContent(Localization.HoleFillMinNeighbors, Localization.HoleFillMinNeighborsTooltip),
+                        TempContent.Of(Localization.HoleFillMinNeighbors, Localization.HoleFillMinNeighborsTooltip),
                         holeFillMinNeighbors, 1, 8);
                     relaxedSatMin = UndoHelper.Slider(UndoTarget,
-                        new GUIContent(Localization.RelaxedSatMin, Localization.RelaxedSatMinTooltip),
+                        TempContent.Of(Localization.RelaxedSatMin, Localization.RelaxedSatMinTooltip),
                         relaxedSatMin, 0f, 0.2f);
                     // relaxedSatRamp は出さない。緩和マッチで使わなくなり、動かしても何も変わらないため。
                     // 値は選択キャッシュのキーと、プリセット・セッションの保存形式の互換のために残している。
                     using (new EditorGUI.DisabledScope(!useDecontamination))
                     {
                         decontaminationRadius = UndoHelper.IntSlider(UndoTarget,
-                            new GUIContent(Localization.DecontaminationRadius, Localization.DecontaminationRadiusTooltip),
+                            TempContent.Of(Localization.DecontaminationRadius, Localization.DecontaminationRadiusTooltip),
                             decontaminationRadius,
                             RecolorSettings.MinDecontaminationRadius, RecolorSettings.MaxDecontaminationRadius);
                     }

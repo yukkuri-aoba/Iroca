@@ -254,7 +254,9 @@ namespace Iroca.EditorTests
             var t = output.GetType();
             int len = (int)t.GetProperty("Length").GetValue(output);
             // Mono の反射はポインタ型のプロパティを GetValue で読めない(型引数にできないと言って投げる)ので、確保した領域の IntPtr を読む。
-            var ptr = (Color32*)(IntPtr)BenchSeams.NativePixelsMemory(t).GetValue(output);
+            // 中身は版で違う(IntPtr か、0.4.0 の NativeBuffer)。
+            object mem = BenchSeams.NativePixelsMemory(t).GetValue(output);
+            var ptr = (Color32*)(mem is IntPtr raw ? raw : (IntPtr)mem.GetType().GetProperty("Ptr").GetValue(mem));
             ulong h = 14695981039346656037UL;
             for (int i = 0; i < len; i++)
             {

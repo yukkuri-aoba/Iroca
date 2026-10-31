@@ -154,6 +154,7 @@ namespace Iroca.EditorTests
             AssertV030Settings(loaded, withEditMode: true);
             var masks = MaskStateCodec.ToSnapshot(loaded.maskState);
             Assert.IsNotNull(masks, "マスクを読めない");
+            masks.Release();
             AssertRecolors(loaded, "v0.3.0 のレシピ");
 
             // 今の形で同じ中身を書いたものと、同じ画素になる(旧 bitpack のマスクも同じに読む)。

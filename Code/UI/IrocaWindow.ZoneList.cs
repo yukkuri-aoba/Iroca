@@ -103,6 +103,7 @@ namespace Iroca
         // 単一インスタンスの共有で問題ない。
         private static GUIStyle s_dragHandleStyle;
         private static LanguageMode s_zoneCacheLang = (LanguageMode)(-1);
+        private static GUIContent[] s_languageLabels;
         private static GUIContent s_dragHandleContent, s_zoneEnabledContent, s_zoneNameContent,
             s_removeZoneContent, s_zoneSoloContent,
             s_autoTuneEnabledContent, s_autoTuneDisabledContent,
@@ -123,6 +124,12 @@ namespace Iroca
             if (s_zoneCacheLang == Localization.CurrentLanguage && s_dragHandleContent != null)
                 return;
             s_zoneCacheLang = Localization.CurrentLanguage;
+            s_languageLabels = new[]
+            {
+                new GUIContent(Localization.LangAuto, Localization.LanguageToolbarTooltip),
+                new GUIContent(Localization.LangJapanese, Localization.LanguageToolbarTooltip),
+                new GUIContent(Localization.LangEnglish, Localization.LanguageToolbarTooltip),
+            };
             s_dragHandleContent       = new GUIContent("☰", Localization.ZoneDragHandleTooltip);
             s_zoneEnabledContent      = new GUIContent("", Localization.ZoneEnabledTooltip);
             s_zoneNameContent         = new GUIContent("", Localization.ZoneNameTooltip);
@@ -218,7 +225,7 @@ namespace Iroca
             EditorGUILayout.BeginHorizontal();
             using (new EditorGUI.DisabledScope(!canSample))
             {
-                var content = new GUIContent(
+                var content = TempContent.Of(
                     armed ? Localization.StartWithEyedropperActive
                           : first ? Localization.StartWithEyedropper : Localization.AddColorWithEyedropper,
                     Localization.StartWithEyedropperTooltip);
@@ -232,7 +239,7 @@ namespace Iroca
                 }
             }
 
-            if (GUILayout.Button(new GUIContent(Localization.AddZone, Localization.AddZoneTooltip),
+            if (GUILayout.Button(TempContent.Of(Localization.AddZone, Localization.AddZoneTooltip),
                     height, GUILayout.ExpandWidth(false)))
             {
                 _pendingAddZone = true;
@@ -295,7 +302,7 @@ namespace Iroca
             DrawZoneAutoTuneButton(zone);
 
             zone.tolerance = UndoHelper.Slider(UndoTarget,
-                new GUIContent(Localization.Tolerance, Localization.ToleranceTooltip),
+                TempContent.Of(Localization.Tolerance, Localization.ToleranceTooltip),
                 zone.tolerance, 0f, 1f);
 
             // UV矩形モードは実装継続中のため当面 UI から非表示。
@@ -316,10 +323,10 @@ namespace Iroca
             // 変更先カラーは自動調整の入力なのでボタンの上（採色の直下）へ移した。
             // ここには自動調整が書き換える出力系スライダーだけを残す。
             zone.valueBlend = UndoHelper.Slider(UndoTarget,
-                new GUIContent(Localization.PatternPreserve, Localization.PatternPreserveTooltip),
+                TempContent.Of(Localization.PatternPreserve, Localization.PatternPreserveTooltip),
                 zone.valueBlend, 0f, 1f);
             zone.outputSaturation = UndoHelper.Slider(UndoTarget,
-                new GUIContent(Localization.OutputSaturation, Localization.OutputSaturationTooltip),
+                TempContent.Of(Localization.OutputSaturation, Localization.OutputSaturationTooltip),
                 zone.outputSaturation, 0f, 1f);
 
             // 基本の項目（色・自動調整・許容範囲・模様保持・出力彩度）だけを常時見せ、
@@ -328,7 +335,7 @@ namespace Iroca
             EditorGUILayout.Space(2);
             zone.detailFoldout = EditorGUILayout.Foldout(
                 zone.detailFoldout,
-                new GUIContent(Localization.ZoneDetailFoldout, Localization.ZoneDetailFoldoutTooltip),
+                TempContent.Of(Localization.ZoneDetailFoldout, Localization.ZoneDetailFoldoutTooltip),
                 true);
             if (zone.detailFoldout)
                 DrawZoneAdvancedParams(zone);
@@ -428,7 +435,7 @@ namespace Iroca
             // MinWidth(0): 見出し行の名前欄と同じ理由（ラベル付きフィールドの最小幅＋スポイト
             // ボタン幅が狭いカラムの内容幅を超える）。カラーフィールド側を縮めて行を収める。
             zone.sampleColor = UndoHelper.ColorField(UndoTarget,
-                new GUIContent(Localization.SampleColor, Localization.SampleColorTooltip),
+                TempContent.Of(Localization.SampleColor, Localization.SampleColorTooltip),
                 zone.sampleColor,
                 GUILayout.MinWidth(0), GUILayout.ExpandWidth(true));
             if (zone.sampleColor != prevSampleColor)
@@ -477,7 +484,7 @@ namespace Iroca
             // 並べることで、入力が全てボタンの上・書き換わる項目が全て下に揃う。
             Color prevTargetColor = zone.targetColor;
             zone.targetColor = UndoHelper.ColorField(UndoTarget,
-                new GUIContent(Localization.TargetColor, Localization.TargetColorTooltip),
+                TempContent.Of(Localization.TargetColor, Localization.TargetColorTooltip),
                 zone.targetColor);
             // 変更先を選んだ＝手順案内を「自動調整」へ進める（白を選んだ場合も既定の白と区別する）。
             // UndoHelper.ColorField が代入前に記録済みなので、Undo で色とフラグが対で戻る。
@@ -511,7 +518,7 @@ namespace Iroca
             // 物理的に離れた同色パーツや背景へのにじみを自動除去する。シードは任意の上書き。
             bool prevUseFloodFill = zone.useFloodFill;
             zone.useFloodFill = UndoHelper.Toggle(UndoTarget,
-                new GUIContent(Localization.UseFloodFill, Localization.UseFloodFillTooltip),
+                TempContent.Of(Localization.UseFloodFill, Localization.UseFloodFillTooltip),
                 zone.useFloodFill);
             if (zone.useFloodFill != prevUseFloodFill) Editing.NotifyChanged(EditChange.Content);
 
@@ -527,8 +534,8 @@ namespace Iroca
                     // 途中で切れて読めなかった。MinWidth(0) は値テキストの実幅を行の最小幅に
                     // しないため（長い UV 文字列で行がカラムより広がり、右端が隠れる）。
                     EditorGUILayout.LabelField(
-                        new GUIContent(Localization.FloodFillSeedPoint, Localization.FloodFillSeedHint),
-                        new GUIContent(seedLabel, Localization.FloodFillSeedHint),
+                        TempContent.Of(Localization.FloodFillSeedPoint, Localization.FloodFillSeedHint),
+                        TempContent.Of(seedLabel, Localization.FloodFillSeedHint),
                         GUILayout.MinWidth(0), GUILayout.ExpandWidth(true));
 
                     // ボタン行は値と同じ列（ラベル幅ぶん右）から始め、どの項目の操作かを揃えて示す。
@@ -554,7 +561,7 @@ namespace Iroca
                     using (new EditorGUI.DisabledScope(zone.seedUV.x < 0f))
                     {
                         if (GUILayout.Button(
-                            new GUIContent(Localization.FloodFillClear, Localization.FloodFillClearTooltip),
+                            TempContent.Of(Localization.FloodFillClear, Localization.FloodFillClearTooltip),
                             GUILayout.MinWidth(0)))
                         {
                             Editing.ClearFloodFillSeed(zone);
@@ -630,16 +637,16 @@ namespace Iroca
             EditorGUILayout.LabelField(Localization.ZoneGroupSelection, EditorStyles.boldLabel);
             DrawZoneFloodFillParams(zone);
             zone.edgeSoftness = UndoHelper.Slider(UndoTarget,
-                new GUIContent(Localization.EdgeSoftness, Localization.EdgeSoftnessTooltip),
+                TempContent.Of(Localization.EdgeSoftness, Localization.EdgeSoftnessTooltip),
                 zone.edgeSoftness, 0f, 1f);
             zone.saturationStrictness = UndoHelper.Slider(UndoTarget,
-                new GUIContent(Localization.SaturationStrictness, Localization.SaturationStrictnessTooltip),
+                TempContent.Of(Localization.SaturationStrictness, Localization.SaturationStrictnessTooltip),
                 zone.saturationStrictness, 0f, 1f);
             zone.saturationGuard = UndoHelper.Slider(UndoTarget,
-                new GUIContent(Localization.SaturationGuard, Localization.SaturationGuardTooltip),
+                TempContent.Of(Localization.SaturationGuard, Localization.SaturationGuardTooltip),
                 zone.saturationGuard, 0f, 1f);
             zone.holeFillMargin = UndoHelper.Slider(UndoTarget,
-                new GUIContent(Localization.HoleFillMargin, Localization.HoleFillMarginTooltip),
+                TempContent.Of(Localization.HoleFillMargin, Localization.HoleFillMarginTooltip),
                 zone.holeFillMargin, 0f, 1f);
 
             // ── ハイライト（光沢・明部の拾い方と塗り方） ──
@@ -647,7 +654,7 @@ namespace Iroca
             EditorGUILayout.LabelField(Localization.ZoneGroupHighlight, EditorStyles.boldLabel);
 
             zone.highlightRecovery = UndoHelper.Toggle(UndoTarget,
-                new GUIContent(Localization.HighlightRecovery, Localization.HighlightRecoveryTooltip),
+                TempContent.Of(Localization.HighlightRecovery, Localization.HighlightRecoveryTooltip),
                 zone.highlightRecovery);
 
             // ハイライト帯の拡張は「ハイライト補助」が ON のときのみ有効なので、
@@ -656,7 +663,7 @@ namespace Iroca
             {
                 EditorGUI.indentLevel++;
                 zone.highlightBandExpand = UndoHelper.Toggle(UndoTarget,
-                    new GUIContent(Localization.HighlightBandExpand, Localization.HighlightBandExpandTooltip),
+                    TempContent.Of(Localization.HighlightBandExpand, Localization.HighlightBandExpandTooltip),
                     zone.highlightBandExpand);
                 EditorGUI.indentLevel--;
             }
@@ -665,7 +672,7 @@ namespace Iroca
             if (ShowDevParams(zone, "wash", HighlightWashIsDefault(zone)))
             {
                 zone.applyHighlightWash = UndoHelper.Toggle(UndoTarget,
-                    new GUIContent(Localization.ApplyHighlightWash, Localization.ApplyHighlightWashTooltip),
+                    TempContent.Of(Localization.ApplyHighlightWash, Localization.ApplyHighlightWashTooltip),
                     zone.applyHighlightWash);
 
                 // 俯瞰スポイト補正(wash サンプル自動導出)は「ハイライト白寄せ合成」が ON の
@@ -674,7 +681,7 @@ namespace Iroca
                 {
                     EditorGUI.indentLevel++;
                     zone.autoHighlightSample = UndoHelper.Toggle(UndoTarget,
-                        new GUIContent(Localization.AutoHighlightSample, Localization.AutoHighlightSampleTooltip),
+                        TempContent.Of(Localization.AutoHighlightSample, Localization.AutoHighlightSampleTooltip),
                         zone.autoHighlightSample);
                     EditorGUI.indentLevel--;
                 }
@@ -684,32 +691,32 @@ namespace Iroca
             EditorGUILayout.LabelField(Localization.ShadowHighlightSection, EditorStyles.boldLabel);
 
             zone.shadowDesaturation = UndoHelper.Slider(UndoTarget,
-                new GUIContent(Localization.ShadowDesaturation, Localization.ShadowDesaturationTooltip),
+                TempContent.Of(Localization.ShadowDesaturation, Localization.ShadowDesaturationTooltip),
                 zone.shadowDesaturation, 0f, 1f);
             zone.shadowForgivenessSatMin = UndoHelper.Slider(UndoTarget,
-                new GUIContent(Localization.ShadowForgivenessSatMin, Localization.ShadowForgivenessSatMinTooltip),
+                TempContent.Of(Localization.ShadowForgivenessSatMin, Localization.ShadowForgivenessSatMinTooltip),
                 zone.shadowForgivenessSatMin, 0f, 1f);
             zone.shadowValueFloor = UndoHelper.Slider(UndoTarget,
-                new GUIContent(Localization.ShadowValueFloor, Localization.ShadowValueFloorTooltip),
+                TempContent.Of(Localization.ShadowValueFloor, Localization.ShadowValueFloorTooltip),
                 zone.shadowValueFloor, 0f, 1f);
             zone.partSatCeiling = UndoHelper.Slider(UndoTarget,
-                new GUIContent(Localization.PartSatCeiling, Localization.PartSatCeilingTooltip),
+                TempContent.Of(Localization.PartSatCeiling, Localization.PartSatCeilingTooltip),
                 zone.partSatCeiling, 0f, 1f);
             zone.partHueBand = UndoHelper.Slider(UndoTarget,
-                new GUIContent(Localization.PartHueBand, Localization.PartHueBandTooltip),
+                TempContent.Of(Localization.PartHueBand, Localization.PartHueBandTooltip),
                 zone.partHueBand, 0f, 0.5f);
             zone.chromaThreshold = UndoHelper.Slider(UndoTarget,
-                new GUIContent(Localization.ChromaThreshold, Localization.ChromaThresholdTooltip),
+                TempContent.Of(Localization.ChromaThreshold, Localization.ChromaThresholdTooltip),
                 zone.chromaThreshold, 0f, 1f);
             zone.chromaCeiling = UndoHelper.Slider(UndoTarget,
-                new GUIContent(Localization.ChromaCeiling, Localization.ChromaCeilingTooltip),
+                TempContent.Of(Localization.ChromaCeiling, Localization.ChromaCeilingTooltip),
                 zone.chromaCeiling, 0f, 1f);
 
             // ── 色の写り方（選んだ画素をどう塗るか。選択範囲は変えない） ──
             EditorGUILayout.Space(2);
             EditorGUILayout.LabelField(Localization.ZoneGroupRecolor, EditorStyles.boldLabel);
             zone.autoRecolorAnchor = UndoHelper.Toggle(UndoTarget,
-                new GUIContent(Localization.AutoRecolorAnchor, Localization.AutoRecolorAnchorTooltip),
+                TempContent.Of(Localization.AutoRecolorAnchor, Localization.AutoRecolorAnchorTooltip),
                 zone.autoRecolorAnchor);
 
             // ── マッチング距離の重み（内部の距離式そのもの。開発者向け、ShowDeveloperSettings 参照） ──
@@ -718,18 +725,18 @@ namespace Iroca
                 EditorGUILayout.Space(2);
                 EditorGUILayout.LabelField(Localization.ZoneGroupMatching, EditorStyles.boldLabel);
                 zone.valueWeight = UndoHelper.Slider(UndoTarget,
-                    new GUIContent(Localization.ValueWeight, Localization.ValueWeightTooltip),
+                    TempContent.Of(Localization.ValueWeight, Localization.ValueWeightTooltip),
                     zone.valueWeight, 0f, 1f);
                 zone.satDistWeight = UndoHelper.Slider(UndoTarget,
-                    new GUIContent(Localization.SatDistWeight, Localization.SatDistWeightTooltip),
+                    TempContent.Of(Localization.SatDistWeight, Localization.SatDistWeightTooltip),
                     zone.satDistWeight, 0f, 1f);
                 zone.satRampScale = UndoHelper.Slider(UndoTarget,
-                    new GUIContent(Localization.SatRampScale, Localization.SatRampScaleTooltip),
+                    TempContent.Of(Localization.SatRampScale, Localization.SatRampScaleTooltip),
                     zone.satRampScale, 0.01f, 0.5f);
             }
 
             EditorGUILayout.Space(2);
-            if (GUILayout.Button(new GUIContent(Localization.ResetZoneTuning, Localization.ResetZoneTuningTooltip)))
+            if (GUILayout.Button(TempContent.Of(Localization.ResetZoneTuning, Localization.ResetZoneTuningTooltip)))
             {
                 Editing.ResetZoneTuning(zone);
             }
@@ -800,7 +807,7 @@ namespace Iroca
                 DrawRectOutline(swatch, new Color(0f, 0f, 0f, 0.4f), 1f);
                 string gname = string.IsNullOrEmpty(dz.name) ? Localization.UnnamedZone : dz.name;
                 GUI.Label(new Rect(swatch.xMax + 6f, ghost.y + 3f, ghost.width - 64f, EditorGUIUtility.singleLineHeight),
-                    new GUIContent("☰  " + gname), EditorStyles.boldLabel);
+                    TempContent.Of("☰  " + gname), EditorStyles.boldLabel);
             }
             else if (evt.type == EventType.MouseDrag)
             {

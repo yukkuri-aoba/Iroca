@@ -218,8 +218,8 @@ namespace Iroca
             if (sortedZones == null) throw new System.ArgumentNullException(nameof(sortedZones));
             long lenLong = (long)w * h;
 
-            // マスクスナップショットからローカル変数に展開(packed ulong[]、1bit/画素)
-            ulong[] commonMask = masks?.common;
+            // マスクスナップショットからローカル変数に展開(1bit/画素)
+            NativeBitMask commonMask = masks?.common;
             int maskW = masks?.width ?? 0;
             int maskH = masks?.height ?? 0;
             // マスク(除外・含める)の判定表(作業座標の列・行 → マスクの画素)。拡縮の割り算を画素ごとでなく
@@ -327,7 +327,7 @@ namespace Iroca
                 W = w, H = h, Len = len,
                 Original = originalPixels, Pixels = pixels, Po = po, Ct = cancellationToken,
                 Palette = palette, Hsv = hsv, PixH = pixH, PixS = pixS, PixV = pixV, PixIdx = pixIdx,
-                CommonMask = commonMask, MaskW = maskW, MaskH = maskH, MaskColOf = maskColOf, MaskRowBase = maskRowBase,
+                CommonMask = commonMask, CommonBits = NativeBitMask.BitsOf(commonMask), MaskW = maskW, MaskH = maskH, MaskColOf = maskColOf, MaskRowBase = maskRowBase,
                 EdgeFeather = edgeFeather, RelaxedSatMin = relaxedSatMin, RelaxedSatRamp = relaxedSatRamp,
                 AntiAliasCleanup = antiAliasCleanup, HoleFillPasses = holeFillPasses,
                 HoleFillMinNeighbors = holeFillMinNeighbors,

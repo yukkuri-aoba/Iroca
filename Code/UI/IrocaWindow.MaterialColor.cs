@@ -131,7 +131,7 @@ namespace Iroca
                         : name);
                 }
                 int choice = EditorGUILayout.Popup(
-                    new GUIContent(Localization.MaterialColorChoice, Localization.MaterialColorChoiceTooltip),
+                    TempContent.Of(Localization.MaterialColorChoice, Localization.MaterialColorChoiceTooltip),
                     _materialColorChoice, labels);
                 if (choice != _materialColorChoice)
                 {
@@ -141,7 +141,7 @@ namespace Iroca
                 }
             }
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button(new GUIContent(Localization.LargeSourceDismiss, Localization.MaterialColorDismissTooltip),
+            if (GUILayout.Button(TempContent.Of(Localization.LargeSourceDismiss, Localization.MaterialColorDismissTooltip),
                     GUILayout.ExpandWidth(false)))
                 SessionState.SetBool(key, true);
             EditorGUILayout.EndHorizontal();

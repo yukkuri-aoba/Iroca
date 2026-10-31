@@ -105,7 +105,7 @@ namespace Iroca.DebugTools
                 createdAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
             };
             if (snap != null)
-                WriteMaskPng(Path.Combine(dir, "mask_common.png"), snap.common, snap.width, snap.height);
+                WriteMaskPng(Path.Combine(dir, "mask_common.png"), snap.common?.ToWords(), snap.width, snap.height);
             for (int i = 0; i < zones.Count; i++)
             {
                 var zm = new ZoneMetaDto { name = zones[i].name, id = zones[i].id };
@@ -132,21 +132,22 @@ namespace Iroca.DebugTools
                 }
                 if (snap != null)
                 {
-                    ulong[] packed;
+                    NativeBitMask packed;
                     if (snap.zones != null && snap.zones.TryGetValue(zones[i].id, out packed) && packed != null)
                     {
                         zm.excludeMask = $"zone{i}_exclude.png";
-                        WriteMaskPng(Path.Combine(dir, zm.excludeMask), packed, snap.width, snap.height);
+                        WriteMaskPng(Path.Combine(dir, zm.excludeMask), packed.ToWords(), snap.width, snap.height);
                     }
                     if (snap.zoneIncludes != null && snap.zoneIncludes.TryGetValue(zones[i].id, out packed) && packed != null)
                     {
                         zm.includeMask = $"zone{i}_include.png";
-                        WriteMaskPng(Path.Combine(dir, zm.includeMask), packed, snap.width, snap.height);
+                        WriteMaskPng(Path.Combine(dir, zm.includeMask), packed.ToWords(), snap.width, snap.height);
                     }
                 }
                 meta.zones.Add(zm);
             }
             File.WriteAllText(Path.Combine(dir, "meta.json"), JsonUtility.ToJson(meta, true));
+            snap?.Release();
             return dir;
         }
 

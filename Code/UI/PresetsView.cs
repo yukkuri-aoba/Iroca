@@ -43,38 +43,38 @@ namespace Iroca
             // 使い方の説明は各コントロールのツールチップに委ね、常時表示の HelpBox は置かない。
 
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Toggle(presetStorageProject, new GUIContent(Localization.PresetStorageProject, Localization.PresetStorageProjectTooltip), EditorStyles.miniButtonLeft) && !presetStorageProject)
+            if (GUILayout.Toggle(presetStorageProject, TempContent.Of(Localization.PresetStorageProject, Localization.PresetStorageProjectTooltip), EditorStyles.miniButtonLeft) && !presetStorageProject)
                 presetStorageProject = true;
-            if (GUILayout.Toggle(!presetStorageProject, new GUIContent(Localization.PresetStorageUser, Localization.PresetStorageUserTooltip), EditorStyles.miniButtonRight) && presetStorageProject)
+            if (GUILayout.Toggle(!presetStorageProject, TempContent.Of(Localization.PresetStorageUser, Localization.PresetStorageUserTooltip), EditorStyles.miniButtonRight) && presetStorageProject)
                 presetStorageProject = false;
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.BeginHorizontal();
             presetSaveName = EditorGUILayout.TextField(
-                new GUIContent(Localization.PresetName, Localization.PresetNameTooltip),
+                TempContent.Of(Localization.PresetName, Localization.PresetNameTooltip),
                 presetSaveName);
-            if (GUILayout.Button(new GUIContent(Localization.SavePreset, Localization.SavePresetTooltip), GUILayout.Width(IrocaUiConsts.Layout.SmallButtonWidth)))
+            if (GUILayout.Button(TempContent.Of(Localization.SavePreset, Localization.SavePresetTooltip), GUILayout.Width(IrocaUiConsts.Layout.SmallButtonWidth)))
                 SavePreset(presetSaveName);
             EditorGUILayout.EndHorizontal();
 
             // 低頻度のオプション（マスク同梱/適用・JSON 入出力）は折りたたみへ。
             presetAdvancedFoldout = EditorGUILayout.Foldout(presetAdvancedFoldout,
-                new GUIContent(Localization.PresetAdvanced, Localization.PresetAdvancedTooltip), true);
+                TempContent.Of(Localization.PresetAdvanced, Localization.PresetAdvancedTooltip), true);
             if (presetAdvancedFoldout)
             {
                 using (new EditorGUI.IndentLevelScope())
                 {
                     presetIncludeMasks = EditorGUILayout.ToggleLeft(
-                        new GUIContent(Localization.PresetIncludeMasks, Localization.PresetIncludeMasksTooltip),
+                        TempContent.Of(Localization.PresetIncludeMasks, Localization.PresetIncludeMasksTooltip),
                         presetIncludeMasks);
                     presetApplyMasks = EditorGUILayout.ToggleLeft(
-                        new GUIContent(Localization.PresetApplyMasks, Localization.PresetApplyMasksTooltip),
+                        TempContent.Of(Localization.PresetApplyMasks, Localization.PresetApplyMasksTooltip),
                         presetApplyMasks);
 
                     EditorGUILayout.BeginHorizontal();
-                    if (GUILayout.Button(new GUIContent(Localization.ExportJson, Localization.ExportJsonTooltip)))
+                    if (GUILayout.Button(TempContent.Of(Localization.ExportJson, Localization.ExportJsonTooltip)))
                         ExportPresetJson();
-                    if (GUILayout.Button(new GUIContent(Localization.ImportJson, Localization.ImportJsonTooltip)))
+                    if (GUILayout.Button(TempContent.Of(Localization.ImportJson, Localization.ImportJsonTooltip)))
                         ImportPresetJson();
                     EditorGUILayout.EndHorizontal();
                 }
@@ -93,10 +93,10 @@ namespace Iroca
                     string pname = Path.GetFileNameWithoutExtension(file);
                     EditorGUILayout.BeginHorizontal();
                     EditorGUILayout.LabelField(pname, GUILayout.ExpandWidth(true));
-                    if (GUILayout.Button(new GUIContent(Localization.LoadPreset, Localization.LoadPresetTooltip),
+                    if (GUILayout.Button(TempContent.Of(Localization.LoadPreset, Localization.LoadPresetTooltip),
                             GUILayout.Width(IrocaWindow.FitButtonWidth(40f, Localization.LoadPreset))))
                         LoadPreset(file);
-                    if (GUILayout.Button(new GUIContent("×", Localization.DeletePresetTooltip), GUILayout.Width(IrocaUiConsts.Layout.RemoveButtonWidth)))
+                    if (GUILayout.Button(TempContent.Of("×", Localization.DeletePresetTooltip), GUILayout.Width(IrocaUiConsts.Layout.RemoveButtonWidth)))
                     {
                         if (EditorUtility.DisplayDialog(Localization.Confirm,
                             Localization.DeletePresetConfirm(pname), Localization.OK, Localization.Cancel))

@@ -4,6 +4,11 @@ Unity を起動せずに Editor asmdef (`Code/**/*.cs`) のコンパイルチェ
 走らせるための最小 csproj。Unity の `Library/` 生成や VPM パッケージ作成には
 **一切関与しない**。CI / エージェント / ローカルでの軽量な型チェック専用。
 
+## 分け方
+
+Unity の asmdef と同じ境目で csproj を分けてある（`IrocaEditor.Runtime`・`IrocaEditor.Core`・`IrocaEditor.Services`・`IrocaEditor`）。
+参照は asmdef と同じく推移させないので、下の層が上の層の型を使うと Unity と同じようにここで落ちる。共通の設定は `IrocaAssembly.props`。
+
 ## 前提
 
 - .NET SDK 6.0+ (`dotnet --version`)

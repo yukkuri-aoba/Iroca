@@ -21,7 +21,7 @@ namespace Iroca
             int w = run.W, h = run.H, len = run.Len;
             var po = run.Po;
             var cancellationToken = run.Ct;
-            ulong[] commonMask = run.CommonMask;
+            ulong* commonMask = run.CommonBits;
             int[] maskColOf = run.MaskColOf, maskRowBase = run.MaskRowBase;
             bool useDecontamination = run.UseDecontamination;
             float edgeFeather = run.EdgeFeather;
@@ -29,13 +29,15 @@ namespace Iroca
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            ulong[] zoneMask = null;
+            NativeBitMask zoneMaskLayer = null;
             if (masks != null && masks.zones != null && !string.IsNullOrEmpty(zone.id))
-                masks.zones.TryGetValue(zone.id, out zoneMask);
+                masks.zones.TryGetValue(zone.id, out zoneMaskLayer);
+            ulong* zoneMask = NativeBitMask.BitsOf(zoneMaskLayer);
             // 含めるマスク(ゾーン別のみ)。除外と重なった画素は除外が勝つ。
-            ulong[] zoneInclude = null;
+            NativeBitMask zoneIncludeLayer = null;
             if (masks != null && masks.zoneIncludes != null && !string.IsNullOrEmpty(zone.id))
-                masks.zoneIncludes.TryGetValue(zone.id, out zoneInclude);
+                masks.zoneIncludes.TryGetValue(zone.id, out zoneIncludeLayer);
+            ulong* zoneInclude = NativeBitMask.BitsOf(zoneIncludeLayer);
 
             // Parallel.For に入る前にキャッシュを確定させてホットループ内の条件分岐を排除
             zone.UpdateCacheIfNeeded();
@@ -87,8 +89,8 @@ namespace Iroca
                 // 選択(旧の選択)。マスクを掛ける前の強度と後段の範囲を返す。強度の配列はゾーンの作業配列(zb)の
                 // 持ち物で、ゾーンの終わりに返す。
                 var sel = DebugCaptureHooks.UseMaterialSelection && zone.mode == SelectionMode.ColorPick
-                    ? RunMaterialSelection(run, zone, zb, zoneMask)
-                    : RunLegacySelection(run, zone, zb, zoneMask, zMixMode, sampH, sampS, sampV);
+                    ? RunMaterialSelection(run, zone, zb, zoneMaskLayer)
+                    : RunLegacySelection(run, zone, zb, zoneMaskLayer, zMixMode, sampH, sampS, sampV);
                 float* strength = sel.Strength;
 
                 // マスクの契約(除外の掛け直し・含める)。

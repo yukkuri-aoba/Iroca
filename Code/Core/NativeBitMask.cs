@@ -102,6 +102,17 @@ namespace Iroca
             return false;
         }
 
+        /// <summary>先頭の語。マスクが無ければ null。</summary>
+        public static ulong* BitsOf(NativeBitMask mask) => mask != null ? mask.Bits : null;
+
+        /// <summary>語の写し(管理配列)。テストと確認の道具用で、製品の経路では使わない。</summary>
+        public ulong[] ToWords()
+        {
+            var words = new ulong[Words];
+            fixed (ulong* d = words) Buffer.MemoryCopy(Bits, d, (long)words.Length * sizeof(ulong), (long)words.Length * sizeof(ulong));
+            return words;
+        }
+
         /// <summary>bool[](先頭の Length 画素)から作る(参照 1)。作業用の bool[] から移す間だけ使う。</summary>
         public static NativeBitMask FromBools(bool[] mask, int width, int height)
         {

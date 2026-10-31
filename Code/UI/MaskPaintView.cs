@@ -143,14 +143,14 @@ namespace Iroca
             // 塗る前に別ウィンドウへ視線を往復することになる(2026-08-22 のユーザー指摘)。
             // ここに残すのは入口と、いま何を編集する状態かの読み取り専用サマリだけ。
             EditorGUILayout.LabelField(
-                new GUIContent(string.Format(Localization.MaskCurrentTargetFormat,
+                TempContent.Of(string.Format(Localization.MaskCurrentTargetFormat,
                                              ActiveTargetName(), ActiveLayerName()),
                                Localization.MaskCurrentTargetTooltip),
                 EditorStyles.miniLabel);
 
             var prevBg = GUI.backgroundColor;
             if (maskPaintActive) GUI.backgroundColor = IrocaColors.ActiveMaskTarget;
-            if (GUILayout.Button(new GUIContent(Localization.MaskEditOpen, Localization.MaskEditOpenTooltip)))
+            if (GUILayout.Button(TempContent.Of(Localization.MaskEditOpen, Localization.MaskEditOpenTooltip)))
             {
                 // 初回は「押せば塗れる」ようブラシを ON にする。
                 if (!maskPaintActive) ActivateBrush(erase: false);
@@ -251,7 +251,7 @@ namespace Iroca
             bool eraseActive = maskPaintActive && brushEraseMode;
             EditorGUILayout.BeginHorizontal();
             GUI.backgroundColor = paintActive ? IrocaColors.ExcludeButton : Color.white;
-            if (GUILayout.Button(new GUIContent(Localization.BrushPaint, Localization.BrushPaintTooltip),
+            if (GUILayout.Button(TempContent.Of(Localization.BrushPaint, Localization.BrushPaintTooltip),
                     EditorStyles.miniButtonLeft))
             {
                 if (paintActive) DeactivateBrush();
@@ -259,7 +259,7 @@ namespace Iroca
                 stateChanged = true;
             }
             GUI.backgroundColor = eraseActive ? IrocaColors.IncludeButton : Color.white;
-            if (GUILayout.Button(new GUIContent(Localization.BrushErase, Localization.BrushEraseTooltip),
+            if (GUILayout.Button(TempContent.Of(Localization.BrushErase, Localization.BrushEraseTooltip),
                     EditorStyles.miniButtonRight))
             {
                 if (eraseActive) DeactivateBrush();
@@ -271,7 +271,7 @@ namespace Iroca
 
             // 4. ブラシサイズ。
             brushSize = EditorGUILayout.IntSlider(
-                new GUIContent(Localization.BrushSize, Localization.BrushSizeTooltip),
+                TempContent.Of(Localization.BrushSize, Localization.BrushSizeTooltip),
                 brushSize, 1, 64);
 
             // 5. AI 提案(右クリックメニューから使う)の粒度と推論の状態。Sentis が載っているときだけ。
@@ -279,7 +279,7 @@ namespace Iroca
             {
                 EditorGUILayout.Space(2);
                 EditorGUILayout.LabelField(
-                    new GUIContent(Localization.AiSuggestSectionHeader, Localization.AiSuggestSectionHeaderTooltip),
+                    TempContent.Of(Localization.AiSuggestSectionHeader, Localization.AiSuggestSectionHeaderTooltip),
                     EditorStyles.boldLabel);
                 MaskSuggestSection.DrawToolControls(_host, this);
             }
@@ -291,7 +291,7 @@ namespace Iroca
             // ★ラベルは「マスクを元に戻す」にしないこと★ — PerformUndo の対象は直前の操作であり、
             // マスク編集とは限らない。マスク限定の Undo を名乗ると、スライダー変更やシーン編集が
             // 巻き戻ったときに破壊的なサプライズになる（Localization.UndoMask のコメント参照）。
-            if (GUILayout.Button(new GUIContent(Localization.UndoMask, Localization.UndoMaskTooltip)))
+            if (GUILayout.Button(TempContent.Of(Localization.UndoMask, Localization.UndoMaskTooltip)))
             {
                 Undo.PerformUndo();
             }
@@ -299,7 +299,7 @@ namespace Iroca
             // クリアは「対象 × 種類」で決まる 1 枚だけを消す操作なので、その 2 つを選ぶ
             // プルダウン/ボタンと同じウィンドウに置く(元はメインウィンドウ側にあり、
             // 何を消すのかがその場で確認できなかった)。
-            if (GUILayout.Button(new GUIContent(
+            if (GUILayout.Button(TempContent.Of(
                     string.Format(Localization.ClearMaskTargetFormat,
                                   ActiveTargetName(), ActiveLayerName()),
                     Localization.ClearMaskTooltip)))
@@ -330,11 +330,11 @@ namespace Iroca
             EnforceLayerConsistency();
             var prevBg = GUI.backgroundColor;
             EditorGUILayout.LabelField(
-                new GUIContent(Localization.MaskLayerKind, Localization.MaskLayerKindTooltip),
+                TempContent.Of(Localization.MaskLayerKind, Localization.MaskLayerKindTooltip),
                 EditorStyles.miniLabel);
             EditorGUILayout.BeginHorizontal();
             GUI.backgroundColor = !editIncludeLayer ? IrocaColors.ExcludeButton : Color.white;
-            if (GUILayout.Button(new GUIContent(Localization.Exclude, Localization.ExcludeTooltip),
+            if (GUILayout.Button(TempContent.Of(Localization.Exclude, Localization.ExcludeTooltip),
                     EditorStyles.miniButtonLeft)
                 && editIncludeLayer)
             {
@@ -346,7 +346,7 @@ namespace Iroca
             {
                 GUI.backgroundColor = editIncludeLayer ? IrocaColors.IncludeButton : Color.white;
                 if (GUILayout.Button(
-                        new GUIContent(Localization.Include, Localization.IncludeLayerTooltip),
+                        TempContent.Of(Localization.Include, Localization.IncludeLayerTooltip),
                         EditorStyles.miniButtonRight)
                     && !editIncludeLayer)
                 {
@@ -407,7 +407,7 @@ namespace Iroca
 
             int selectedIdx = Mathf.Clamp(activeMaskTarget + 1, 0, options.Length - 1);
             int next = EditorGUILayout.Popup(
-                new GUIContent(Localization.MaskTarget, Localization.MaskTargetTooltip),
+                TempContent.Of(Localization.MaskTarget, Localization.MaskTargetTooltip),
                 selectedIdx, options);
             if (next != selectedIdx)
             {
@@ -956,6 +956,7 @@ namespace Iroca
             _suggestController?.Shutdown();
             _suggestController = null;
             // メッシュの探索結果とチャート地図(4K で数十 MB)も手放す。次の右クリックで作り直す。
+            _meshParts?.ReleaseMap();
             _meshParts = null;
             _hostlessWorkspace?.Clear();
         }

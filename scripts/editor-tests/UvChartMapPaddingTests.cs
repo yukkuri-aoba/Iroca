@@ -12,8 +12,15 @@ namespace Iroca.EditorTests
     /// どの画素・どのマスクも同じになることを、ランダムな三角形で確かめる。
     /// AssignPadding 側(ハーネスが距離と持ち主を書き出す経路)のビット不変は refactor_abcheck の uvcharts が見る。
     /// </summary>
-    public class UvChartMapPaddingTests
+    public unsafe class UvChartMapPaddingTests
     {
+        private static bool[] Take(NativeBools mask)
+        {
+            var array = mask.ToArray();
+            mask.Release();
+            return array;
+        }
+
         // 離れた三角形と、辺を共有する四角(2 三角形で 1 チャート)を混ぜる。UV は 0..1 の外へ少しはみ出させる。
         private static List<UvChartSource> RandomSources(int seed)
         {
@@ -59,9 +66,9 @@ namespace Iroca.EditorTests
         public void Baked_MatchesAssignPaddingThenLookup(int w, int h, int seed, int radius)
         {
             var sources = RandomSources(seed);
-            var full = UvChartMap.Build(w, h, sources);
+            using var full = UvChartMap.Build(w, h, sources);
             full.AssignPadding();
-            var baked = UvChartMap.Build(w, h, sources);
+            using var baked = UvChartMap.Build(w, h, sources);
             if (radius < 0) radius = baked.DefaultPaddingRadius;
             baked.AssignPaddingBaked(radius);
 
@@ -78,18 +85,18 @@ namespace Iroca.EditorTests
 
             System.Func<int, bool>[] selects = { c => c == 0, c => c % 2 == 1, c => true };
             foreach (var sel in selects)
-                CollectionAssert.AreEqual(full.MaskOf(sel, radius), baked.MaskOf(sel, radius));
-            CollectionAssert.AreEqual(full.ExcludeOtherSources(new[] { 1 }, radius),
-                                      baked.ExcludeOtherSources(new[] { 1 }, radius));
+                CollectionAssert.AreEqual(Take(full.MaskOf(sel, radius)), Take(baked.MaskOf(sel, radius)));
+            CollectionAssert.AreEqual(Take(full.ExcludeOtherSources(new[] { 1 }, radius)),
+                                      Take(baked.ExcludeOtherSources(new[] { 1 }, radius)));
         }
 
         [Test]
         public void Baked_DropsArraysAndRejectsOtherRadius()
         {
-            var map = UvChartMap.Build(64, 64, RandomSources(5));
+            using var map = UvChartMap.Build(64, 64, RandomSources(5));
             map.AssignPaddingBaked(4);
-            Assert.IsNull(map.Raster);
-            Assert.IsNull(map.OwnerDistance);
+            Assert.IsTrue(map.Raster == null);
+            Assert.IsTrue(map.OwnerDistance == null);
             Assert.Throws<System.InvalidOperationException>(() => map.ChartAt(1, 1, 5));
             Assert.Throws<System.InvalidOperationException>(() => map.MaskOf(c => true, 3));
             Assert.Throws<System.InvalidOperationException>(() => map.AssignPadding());
@@ -99,14 +106,27 @@ namespace Iroca.EditorTests
         [TestCase(4)]
         public void Unpadded_LooksUpRasterOnly(int radius)
         {
-            var map = UvChartMap.Build(120, 90, RandomSources(6));
-            var raster = map.Raster;
+            using var map = UvChartMap.Build(120, 90, RandomSources(6));
+            int* raster = map.Raster;
             for (int y = 0; y < 90; y++)
                 for (int x = 0; x < 120; x++)
                     Assert.AreEqual(raster[y * 120 + x], map.ChartAt(x, y, radius), $"({x}, {y})");
-            var dist = map.OwnerDistance;
-            for (int i = 0; i < raster.Length; i++)
+            int* dist = map.OwnerDistance;
+            for (int i = 0; i < 120 * 90; i++)
                 Assert.AreEqual(raster[i] >= 0 ? 0 : int.MaxValue, dist[i]);
+        }
+
+        [Test]
+        public void Dispose_ReturnsTheMemory()
+        {
+            long before = IrocaNativeMemory.LiveBytesOf(NativeUsage.Other);
+            var map = UvChartMap.Build(64, 64, RandomSources(7));
+            map.AssignPadding();
+            Assert.AreEqual(1, map.OwnerDistance != null ? 1 : 0);
+            Assert.Greater(IrocaNativeMemory.LiveBytesOf(NativeUsage.Other), before);
+            map.Dispose();
+            map.Dispose();   // 何度呼んでもよい
+            Assert.AreEqual(before, IrocaNativeMemory.LiveBytesOf(NativeUsage.Other));
         }
     }
 }

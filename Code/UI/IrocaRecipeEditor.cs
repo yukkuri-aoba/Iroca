@@ -16,7 +16,7 @@ namespace Iroca
             var recipe = (IrocaRecipe)target;
             serializedObject.Update();
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(IrocaRecipe.sourceTexture)),
-                new GUIContent(Localization.RecipeSourceField, Localization.RecipeSourceFieldTooltip));
+                TempContent.Of(Localization.RecipeSourceField, Localization.RecipeSourceFieldTooltip));
             serializedObject.ApplyModifiedProperties();
 
             var state = _summary.Get(recipe);
@@ -35,7 +35,7 @@ namespace Iroca
 
             using (new EditorGUI.DisabledScope(recipe.sourceTexture == null))
             {
-                if (GUILayout.Button(new GUIContent(Localization.OpenInIroca, Localization.OpenInIrocaTooltip)))
+                if (GUILayout.Button(TempContent.Of(Localization.OpenInIroca, Localization.OpenInIrocaTooltip)))
                     IrocaWindow.OpenRecipe(recipe);
             }
         }

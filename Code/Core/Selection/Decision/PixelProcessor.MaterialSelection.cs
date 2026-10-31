@@ -40,7 +40,7 @@ namespace Iroca
         /// 新しい選択(T5 の L3)。ゾーンの素材の領域を塗り、縁の混色の画素は素材の側の被覆率にする。
         /// マスクを掛ける前の強度と後段の範囲を返す(<see cref="SelectionResult"/>。旧の選択と同じ形)。
         /// </summary>
-        private static SelectionResult RunMaterialSelection(RunContext run, ColorZone zone, ZoneBuffers zb, ulong[] zoneMask)
+        private static SelectionResult RunMaterialSelection(RunContext run, ColorZone zone, ZoneBuffers zb, NativeBitMask zoneMaskLayer)
         {
             int w = run.W, h = run.H, len = run.Len;
             Color32* original = run.Original;
@@ -53,7 +53,8 @@ namespace Iroca
             float* strength = zb.Strength = s_floatPool.Rent(len);
             var strengthLocal = strength;
             int* labels = regions.Labels;
-            ulong[] commonMask = run.CommonMask;
+            ulong* commonMask = run.CommonBits;
+            ulong* zoneMask = NativeBitMask.BitsOf(zoneMaskLayer);
             int[] maskColOf = run.MaskColOf, maskRowBase = run.MaskRowBase;
             Parallel.For(0, h, run.Po, y =>
             {

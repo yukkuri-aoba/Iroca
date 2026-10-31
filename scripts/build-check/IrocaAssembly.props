@@ -1,0 +1,48 @@
+<!--
+  build-check の本体側のアセンブリ（Runtime・Core・Services・本体）に共通の設定。Unity の asmdef と同じ境目で分けてコンパイルする。
+  ProjectReference は Unity の asmdef の references と同じく推移させない（DisableTransitiveProjectReferences）。
+  書いていない層の型を使うと、Unity と同じようにここでも落ちる。
+  各 csproj が AssemblyName を決めた後で Import する。
+-->
+<Project>
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <RootNamespace>Iroca</RootNamespace>
+    <OutputType>Library</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <DisableTransitiveProjectReferences>true</DisableTransitiveProjectReferences>
+    <!-- Unity が再生成する .csproj には警告抑止が入るので、CI ノイズを揃える -->
+    <NoWarn>0414;0649;CS0219;CS0169</NoWarn>
+    <!-- 利用者の Unity は nullable 文脈なしでコンパイルするので CS8632 が Console に出る。CI で止める -->
+    <WarningsAsErrors>CS8632</WarningsAsErrors>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <!-- Unity Editor のインストールパス解決 -->
+  <Import Project="UnityEditorPath.props" />
+
+  <ItemGroup>
+    <Reference Include="UnityEngine">
+      <HintPath>$(UnityEditorPath)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+  <!-- Runtime はプレイヤーにも入るので UnityEditor を見せない。 -->
+  <ItemGroup Condition="'$(IrocaRuntimeAssembly)' != 'true'">
+    <Reference Include="UnityEditor">
+      <HintPath>$(UnityEditorPath)\UnityEditor.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- UnityEngine.dll が見つからないときの早期エラー -->
+  <Target Name="CheckUnityPath" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(UnityEditorPath)\UnityEngine.dll')"
+           Text="UnityEngine.dll が見つかりません: $(UnityEditorPath)\UnityEngine.dll&#xA;`-p:UnityVersion=` か `-p:UnityEditorPath=` で正しいパスを指定してください。" />
+  </Target>
+
+</Project>

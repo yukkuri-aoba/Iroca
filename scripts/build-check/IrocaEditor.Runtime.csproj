@@ -1,0 +1,17 @@
+<!--
+  Code/Runtime（asmdef は com.yukkuri-aoba.iroca.Runtime）。プレイヤーにも入るアセンブリ。
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>com.yukkuri-aoba.iroca.Runtime</AssemblyName>
+    <IrocaRuntimeAssembly>true</IrocaRuntimeAssembly>
+  </PropertyGroup>
+
+  <Import Project="IrocaAssembly.props" />
+
+  <ItemGroup>
+    <Compile Include="..\..\Code\Runtime\**\*.cs" />
+  </ItemGroup>
+
+</Project>

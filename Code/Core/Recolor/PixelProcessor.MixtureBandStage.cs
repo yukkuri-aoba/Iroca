@@ -21,13 +21,13 @@ namespace Iroca
                 Color32* originalPixels = run.Original;
                 var po = run.Po;
                 var cancellationToken = run.Ct;
-                ulong[] commonMask = run.CommonMask;
+                ulong* commonMask = run.CommonBits;
                 int[] maskColOf = run.MaskColOf, maskRowBase = run.MaskRowBase;
                 int decontaminationRadius = run.DecontaminationRadius;
                 var rb = run.Buf;
                 var _sub = run.Sub;
                 var zone = z.Zone;
-                ulong[] zoneMask = z.ZoneMask;
+                ulong* zoneMask = z.ZoneMask;
                 bool zMixMode = z.MixMode;
                 bool* includedPx = z.IncludedPx;
                 var strengthForRecolor = z.Strength;

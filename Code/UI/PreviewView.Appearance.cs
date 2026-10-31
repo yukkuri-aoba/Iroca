@@ -40,7 +40,7 @@ namespace Iroca
         {
             if (!_appearanceAvailableAtLayout) return;
             bool on = GUILayout.Toggle(appearanceMode,
-                new GUIContent(Localization.AppearanceMode, Localization.AppearanceModeTooltip),
+                TempContent.Of(Localization.AppearanceMode, Localization.AppearanceModeTooltip),
                 EditorStyles.miniButton, GUILayout.ExpandWidth(false));
             if (on == appearanceMode) return;
             appearanceMode = on;

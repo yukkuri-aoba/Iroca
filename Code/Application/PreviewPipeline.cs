@@ -2,7 +2,6 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -333,7 +332,7 @@ namespace Iroca
             InvalidateFullOutput();
             // 寸法の違うテクスチャへ移ると使えないので、置いてある出力バッファも手放す。
             _outputBuffers?.Clear();
-            _dragReq = null;
+            SetDragRequest(null);
             _dragReqStale = true;
             _dragRunning = false;
 
@@ -706,7 +705,8 @@ namespace Iroca
             var session = editing.State;
             // 削除されたゾーンの選択キャッシュ(4K で 67MB/ゾーン)が恒久残留しないよう、セッションに
             // 現存するゾーン id 以外のエントリを毎回刈る(無効ゾーンは残す=再有効化で再計算を避ける)。
-            var liveZoneIds = new HashSet<string>(session.zones.Select(z => z.id));
+            var liveZoneIds = new HashSet<string>();
+            foreach (ColorZone zone in session.zones) liveZoneIds.Add(zone.id);
             // 自動調整の入力(証拠マスク)も同じ集合で刈る。
             _host.RetainZoneInputs(liveZoneIds);
             _selectionCache?.RetainOnly(liveZoneIds);
@@ -748,7 +748,7 @@ namespace Iroca
             if (dragOnly)
             {
                 // _skipProxyOnce はここでは消費しない(確定側で消える)。
-                _dragReq = req;
+                SetDragRequest(req);
                 _dragReqStale = false;
                 if (scale < 1f)
                     ScheduleProxyPreview(req, chainFull: false);
@@ -756,13 +756,21 @@ namespace Iroca
                     ScheduleFullPreview(req);
                 return;
             }
-            _dragReq = null;
+            SetDragRequest(null);
             bool skipProxy = _skipProxyOnce;
             _skipProxyOnce = false;
             if (scale < 1f && !skipProxy)
                 ScheduleProxyPreview(req, chainFull: true);
             else
                 ScheduleFullPreview(req);
+            req.ReleaseMasks();   // ジョブは予約するときに参照を足している
+        }
+
+        // 追従の入力を差し替える。入力が持つマスクの参照は、控えから外すときに返す(持ったままだと編集側が毎回写す)。
+        private void SetDragRequest(PreviewRequest req)
+        {
+            if (!ReferenceEquals(_dragReq, req)) _dragReq?.ReleaseMasks();
+            _dragReq = req;
         }
 
         /// <summary>
@@ -777,8 +785,9 @@ namespace Iroca
             _dragRunning = false;
             _skipProxyOnce = false;
             // 縮小しないテクスチャは、追従のときにフル段まで済んでいる。
-            if (req == null || req.latency.Full.Scheduled != 0) return;
-            ScheduleFullPreview(req);
+            if (req == null) return;
+            if (req.latency.Full.Scheduled == 0) ScheduleFullPreview(req);
+            req.ReleaseMasks();
         }
 
         // 段階的リファインの入力スナップショット。GeneratePreviewAsync が 1 回構築し、プロキシ段と
@@ -793,7 +802,15 @@ namespace Iroca
             public NativePixels rawDisplay;
             public float scale;
             public int prevW, prevH;
+            // マスク。入力が参照を 1 つ持ち(ReleaseMasks で返す)、ジョブは予約するときに足して後始末で返す。
             public MaskSnapshot maskSnap;
+            private bool _masksReleased;
+            public void ReleaseMasks()
+            {
+                if (_masksReleased) return;
+                _masksReleased = true;
+                maskSnap?.Release();
+            }
             public List<ColorZone> zonesSnapshot;
             public RecolorSettings settings;
             public IDebugCapture debugCap;
@@ -821,6 +838,10 @@ namespace Iroca
             // 縮小した控えが無いときだけジョブが原本を読む。読む間の参照を足し、後始末で返す。
             // 控えがあれば、ジョブが読む間の参照を足す(控えが差し替えられても消えない)。
             var src = cached == null ? req.srcPixels.AddRef() : null;
+            var jobMasks = req.maskSnap?.AddRef();
+            // 確定段へ続くときは、計算が終わったらマスクの参照を続き(メインスレッドの apply か discard)へ引き渡す。
+            // 後始末(cleanup)は計算スレッドで apply より先に走るので、そこで返すと確定段が足す参照が無くなる。
+            bool masksHandedOver = false;
             var cachedProxy = cached?.proxy.AddRef();
             var cachedDisplay = cached?.display.AddRef();
             _proxyJob.Schedule(
@@ -849,7 +870,7 @@ namespace Iroca
                         proxyPixels.CopyFrom(proxyRaw);
                         marks.CoreStart = PreviewLatencyCycle.Now;
                         // 控えた proxyRaw は処理前と同じ中身なので、Core の入力スナップショットにも使う(複製しない)。
-                        PixelProcessor.ProcessPixelsNative(proxyPixels.Ptr, proxyW, proxyH, req.maskSnap, req.zonesSnapshot,
+                        PixelProcessor.ProcessPixelsNative(proxyPixels.Ptr, proxyW, proxyH, jobMasks, req.zonesSnapshot,
                             req.settings, token,
                             debug: null, selectionCache: proxySelCache,
                             sourcePixels: proxyRaw.Ptr);
@@ -876,6 +897,7 @@ namespace Iroca
                         else rawForJob = proxyRaw.AddRef();
                         marks.WorkEnd = PreviewLatencyCycle.Now;
                         handedOff = true;
+                        masksHandedOver = chainFull;
                         return new ProxyResult { processed = processedDisplay, raw = rawForJob, proxy = proxyRaw };
                     }
                     finally
@@ -920,14 +942,20 @@ namespace Iroca
                     _host.RequestRepaint();
                     // 続けてフル解像度で確定(同一スナップショット)。
                     if (chainFull) ScheduleFullPreview(req);
+                    if (masksHandedOver) jobMasks?.Release();
                 },
                 cleanup: () =>
                 {
                     src?.Release();
                     cachedProxy?.Release();
                     cachedDisplay?.Release();
+                    if (!masksHandedOver) jobMasks?.Release();
                 },
-                discard: result => result.Release());
+                discard: result =>
+                {
+                    result.Release();
+                    if (masksHandedOver) jobMasks?.Release();
+                });
         }
 
         // 段階的リファイン第2段(=従来のフル解像度処理)。フル解像度で処理→表示解像度へ縮小し、
@@ -944,6 +972,7 @@ namespace Iroca
             // 原本と表示寸法の変更前の控えは、ジョブが読む間の参照を足し、後始末で返す。
             var src = req.srcPixels.AddRef();
             var rawCached = req.rawDisplay?.AddRef();
+            var jobMasks = req.maskSnap?.AddRef();
             // 拡大表示を取り込み後の寸法で映すなら、その寸法(非破壊ビルドと同じ面平均で縮める)。
             int dispW = _displaySource != null ? _displayW : 0, dispH = _displaySource != null ? _displayH : 0;
             bool workStarted = false;
@@ -968,7 +997,7 @@ namespace Iroca
                         marks.CoreStart = PreviewLatencyCycle.Now;
                         // 写し元のソース画素は誰も書き換えない(テクスチャが変われば別の画素になる)ので、
                         // Core の入力スナップショットにそのまま使う(4K で 64MB の複製を作らない)。
-                        PixelProcessor.ProcessPixelsNative(pixels.Ptr, req.srcW, req.srcH, req.maskSnap, req.zonesSnapshot,
+                        PixelProcessor.ProcessPixelsNative(pixels.Ptr, req.srcW, req.srcH, jobMasks, req.zonesSnapshot,
                             req.settings, token,
                             debug: req.debugCap, selectionCache: selCache,
                             sourcePixels: src.Ptr);
@@ -1067,6 +1096,7 @@ namespace Iroca
                 {
                     src.Release();
                     rawCached?.Release();
+                    jobMasks?.Release();
                     // 取り消されて計算しなかったときは、取り出した出力バッファを戻す。
                     if (!workStarted) RetireOutput(reused);
                 },
