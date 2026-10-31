@@ -46,6 +46,23 @@ namespace Iroca.EditorTests
             Assert.AreEqual("Assets/Tex/a.png", Norm(ExportPipeline.SingleOutputPath("Assets/Tex/a.jpg", false, null)));
         }
 
+        // 元が PNG 以外で隣に同じ名前の PNG があると、それを置き換える。「新規作成」と案内して黙って失わない。
+        [Test]
+        public void InPlaceSaveConfirm_NonPngWithExistingPng_AsksToReplaceIt()
+        {
+            var png = ExportView.InPlaceSaveConfirm("Assets/Tex/a.png", "Assets/Tex/a.png", outputExists: true);
+            Assert.AreEqual(Localization.OverwriteConfirm, png.message);
+            Assert.AreEqual(Localization.Overwrite, png.ok);
+
+            var psdAlone = ExportView.InPlaceSaveConfirm("Assets/Tex/a.psd", "Assets/Tex/a.png", outputExists: false);
+            Assert.AreEqual(Localization.OverwriteNonPngConfirm("a.png"), psdAlone.message);
+            Assert.AreEqual(Localization.OK, psdAlone.ok);
+
+            var psdWithPng = ExportView.InPlaceSaveConfirm("Assets/Tex/a.psd", "Assets/Tex/a.png", outputExists: true);
+            Assert.AreEqual(Localization.FileExistsConfirm("Assets/Tex/a.png"), psdWithPng.message);
+            Assert.AreEqual(Localization.Overwrite, psdWithPng.ok);
+        }
+
         [Test]
         public void SingleOutputPath_NewFileNameIsSanitized()
         {

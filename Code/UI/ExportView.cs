@@ -349,17 +349,8 @@ namespace Iroca
             }
             else
             {
-                // ソースが PNG なら真の上書き。非 PNG（.jpg/.tga 等）だと ChangeExtension は
-                // 元ファイルを上書きせず隣に .png を新規作成するだけで、マテリアルは旧ファイル参照の
-                // まま＝「色が変わらない」ように見える。ダイアログ文言も「上書き」で矛盾するので、
-                // 非 PNG のときは新規作成＋非自動切替を明示する専用ダイアログを出す。
-                bool srcIsPng = string.Equals(Path.GetExtension(srcPath), ".png", System.StringComparison.OrdinalIgnoreCase);
-                bool confirmed = srcIsPng
-                    ? EditorUtility.DisplayDialog(Localization.Confirm,
-                        Localization.OverwriteConfirm, Localization.Overwrite, Localization.Cancel)
-                    : EditorUtility.DisplayDialog(Localization.Confirm,
-                        Localization.OverwriteNonPngConfirm(Path.GetFileName(outputPath)), Localization.OK, Localization.Cancel);
-                if (!confirmed)
+                var (confirmMessage, confirmOk) = InPlaceSaveConfirm(srcPath, outputPath, File.Exists(outputPath));
+                if (!EditorUtility.DisplayDialog(Localization.Confirm, confirmMessage, confirmOk, Localization.Cancel))
                 {
                     return;
                 }
@@ -492,6 +483,23 @@ namespace Iroca
         }
 
         /// <summary>エクスポート失敗をログ＋UI 通知へ流す（BG 側と apply 側で共有）。</summary>
+        /// <summary>
+        /// 「新しいファイルにしない」で保存するときの確認の文と、確定のボタン。
+        /// 元が PNG なら真の上書き。非 PNG（.jpg/.tga 等）だと ChangeExtension は元ファイルを上書きせず隣に .png を作るだけで、
+        /// マテリアルは旧ファイル参照のまま＝「色が変わらない」ように見える。文言も「上書き」で矛盾するので、新規作成＋非自動切替を
+        /// 明示する。ただし隣に同じ名前の PNG があれば、それは元テクスチャとは別のファイルなので、「新規作成」と案内せず置き換えを確かめる
+        /// (PSD と書き出した PNG を並べて置いている素材は多く、黙って失っていた)。
+        /// internal は ExportPipelineTests が確かめるため(ダイアログはテストで押せない)。
+        /// </summary>
+        internal static (string message, string ok) InPlaceSaveConfirm(string srcPath, string outputPath, bool outputExists)
+        {
+            if (string.Equals(Path.GetExtension(srcPath), ".png", System.StringComparison.OrdinalIgnoreCase))
+                return (Localization.OverwriteConfirm, Localization.Overwrite);
+            if (outputExists)
+                return (Localization.FileExistsConfirm(outputPath), Localization.Overwrite);
+            return (Localization.OverwriteNonPngConfirm(Path.GetFileName(outputPath)), Localization.OK);
+        }
+
         private void ReportExportFailure(System.Exception ex)
         {
             Debug.LogError($"[Iroca] Export failed: {ex.Message}\n{ex.StackTrace}");
