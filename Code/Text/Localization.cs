@@ -1522,6 +1522,21 @@ namespace Iroca
         public static string RecipeFieldTooltip => IsJapanese
             ? "色替えの内容（元テクスチャ・色・マスク）。テクスチャごとに 1 つ。いろかウィンドウの「アバターに非破壊で登録」で足されます。同じテクスチャのレシピが重なったら上のものが使われます。"
             : "What to recolor (source texture, colors, masks), one per texture. Added by \"Register to avatar (non-destructive)\" in the Iroca window. If two recipes use the same texture, the upper one is used.";
+        public static string ShadowColorNoticeFormat => IsJapanese
+            ? "マテリアル「{0}」の影の色は元の色に合わせた色のままです。アバターの影の部分に、元の色味が残って見えることがあります。"
+            : "The shadow color of material \"{0}\" still matches the original color. The original tint can show in the shaded parts of the avatar.";
+        public static string ShadowColorMatchButton => IsJapanese ? "影の色も合わせる" : "Match shadow color";
+        public static string ShadowColorMatchButtonTooltip => IsJapanese
+            ? "影の色を変更先カラーに合わせる設定を「Iroca Recolor」に足します。シーンのプレビューと再生・アップロードにだけ効き、マテリアルそのものは変わりません。まだ登録していなければ、先に「アバターに非破壊で登録」します。"
+            : "Adds a setting to \"Iroca Recolor\" that matches the shadow color to the target color. It only affects the scene preview and play/upload; the material itself is not changed. If not registered yet, this registers to the avatar first.";
+        public static string ShadowColorDismissTooltip => IsJapanese
+            ? "このテクスチャではこの案内を表示しません。次に Unity を開いたときにまた出ます。"
+            : "Hide this notice for this texture. It comes back the next time you open Unity.";
+        public static string ShadowMatchHeader => IsJapanese ? "影の色を変更先カラーに合わせる" : "Match shadow color to target color";
+        public static string ShadowMatchToggleTooltip => IsJapanese
+            ? "オンにすると、シーンのプレビューと再生・アップロードで、このマテリアルの影の色を変更先カラーに合わせます。マテリアルそのものは変わりません。合わせる色は、レシピの最初の有効なゾーンの色から決まります。見本は左が元の 1 影の色、右が合わせた色です。"
+            : "When on, the shadow color of this material follows the target color in the scene preview and in play/upload. The material itself is not changed. The color comes from the first enabled zone of the recipe. The swatches show the original first shadow color (left) and the matched color (right).";
+
         public static string RecolorEmptyEntry => IsJapanese
             ? "空の欄があります。レシピを設定するか、欄を消してください。"
             : "There is an empty entry. Set a recipe or remove the entry.";

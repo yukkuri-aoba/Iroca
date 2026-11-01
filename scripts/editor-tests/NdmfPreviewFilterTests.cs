@@ -136,6 +136,80 @@ namespace Iroca.EditorTests
             Assert.IsTrue(swapped == null, "マテリアルの複製を捨てていない");
         }
 
+        private static void AssertColor(Color expected, Color actual, string message)
+        {
+            Assert.AreEqual(expected.r, actual.r, 1e-3f, message);
+            Assert.AreEqual(expected.g, actual.g, 1e-3f, message);
+            Assert.AreEqual(expected.b, actual.b, 1e-3f, message);
+        }
+
+        [Test]
+        public void ShadowMatch_AppliesToTheCloneOnly_AndFollowsTheWindow()
+        {
+            var shader = Shader.Find("lilToon");
+            if (shader == null) Assert.Ignore("lilToon が入っていないホスト");
+            var (src, _) = SourceAndMaterial();
+            var mat = Track(new Material(shader));
+            mat.SetTexture(MaterialColorSettings.MainTextureProperty(mat), src);
+            mat.SetFloat("_UseShadow", 1f);
+            var blue = new Color(0.606f, 0.693f, 0.784f, 1f);
+            mat.SetColor("_ShadowColor", blue);
+            var avatar = Track(new GameObject("avatar"));
+            var mesh = Mesh("mesh", mat, avatar);
+            var recipe = RedToGreen(src);
+            var component = avatar.AddComponent<IrocaRecolor>();
+            component.recipes.Add(recipe);
+
+            var filter = new IrocaPreviewFilter();
+            var plain = GroupOf(filter.FindTargets(new ComputeContext("test")), mesh);
+            component.shadowMatchMaterials.Add(mat);
+            var matching = GroupOf(filter.FindTargets(new ComputeContext("test")), mesh);
+            Assert.AreNotEqual(plain, matching, "設定を変えたのに同じグループ(NDMF がノードを作り直さない)");
+
+            // レシピの出来上がりを映すとき: レシピの色に合わせる。
+            MaterialShadowColors.TryGetColors(recipe, out var sample, out var target);
+            var proxy = ProxyOf(mesh);
+            var node = TestAssets.Wait(filter.Instantiate(matching, new List<(Renderer, Renderer)> { (mesh, proxy) },
+                new ComputeContext("node")));
+            try
+            {
+                Assert.AreNotSame(mat, proxy.sharedMaterial);
+                AssertColor(ShadowColorMatch.Compute(blue, sample, target), proxy.sharedMaterial.GetColor("_ShadowColor"), "レシピの色に合っていない");
+                AssertColor(blue, mat.GetColor("_ShadowColor"), "元のマテリアルを書き換えた");
+            }
+            finally
+            {
+                node.Dispose();
+            }
+
+            // ウィンドウで編集中: ウィンドウの色に追従し、NDMF の作り直しは要らない。
+            LivePreview.SetTarget(src, recipe);
+            LivePreview.SetShadowColors(true, sample, new Color(1f, 0.8f, 0.8f));
+            var liveProxy = ProxyOf(mesh);
+            var liveNode = TestAssets.Wait(filter.Instantiate(GroupOf(filter.FindTargets(new ComputeContext("test")), mesh),
+                new List<(Renderer, Renderer)> { (mesh, liveProxy) }, new ComputeContext("node")));
+            try
+            {
+                liveNode.OnFrame(mesh, liveProxy);
+                var clone = liveProxy.sharedMaterial;
+                AssertColor(ShadowColorMatch.Compute(blue, sample, new Color(1f, 0.8f, 0.8f)), clone.GetColor("_ShadowColor"), "ウィンドウの色に合っていない");
+
+                LivePreview.SetShadowColors(true, sample, target);
+                liveNode.OnFrame(mesh, liveProxy);
+                AssertColor(ShadowColorMatch.Compute(blue, sample, target), clone.GetColor("_ShadowColor"), "色の変更に追従していない");
+
+                LivePreview.SetShadowColors(false, default, default);
+                liveNode.OnFrame(mesh, liveProxy);
+                AssertColor(blue, clone.GetColor("_ShadowColor"), "色が決まらなくなったら元の影の色へ戻す");
+                Assert.IsInstanceOf<RenderTexture>(clone.mainTexture, "テクスチャまで戻した");
+            }
+            finally
+            {
+                liveNode.Dispose();
+                LivePreview.SetShadowColors(false, default, default);
+            }
+        }
+
         [Test]
         public void Registered_ShowsTheRecipeOnlyInsideTheComponent()
         {

@@ -162,6 +162,8 @@ namespace Iroca
             bool anyEnabled = SourceTexture != null && HasEnabledZone;
             if (anyEnabled) LivePreview.SetTarget(SourceTexture, BoundRecipe);
             else LivePreview.SetTarget(null, null);
+            bool hasColors = MaterialShadowColors.TryGetColors(Session?.zones, out var sample, out var target);
+            LivePreview.SetShadowColors(hasColors, sample, target);
         }
 
         // ───────────── 外(自動化 API・MCP)からの変更 ─────────────

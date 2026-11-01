@@ -50,6 +50,7 @@ PREFS_KEYS = {
     "Iroca.WindowEnabled.",              # + ウィンドウの InstanceID
     "Iroca.RecipeSynced.",               # + レシピの GUID
     "Iroca.MaterialColor.Dismissed:",    # + テクスチャのパス
+    "Iroca.ShadowColor.Dismissed:",      # + テクスチャのパス
     "Iroca.LargeSource.Dismissed:",      # + テクスチャのパス
     "Iroca.AiSetup.BannerDismissed",
     "Iroca.Burst.CompileFailed",

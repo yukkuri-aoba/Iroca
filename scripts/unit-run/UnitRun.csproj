@@ -51,6 +51,9 @@
     <Compile Include="..\..\Code\Infra\MetaFile.cs" />
     <!-- 「アバターの色」表示の、メインカラーの掛け算の表(sRGB と線形の変換を含む)。 -->
     <Compile Include="..\..\Code\Infra\ColorTintLut.cs" />
+    <!-- 影の色を塗り先に合わせる計算。 -->
+    <Compile Include="..\..\Code\Infra\ShadowColorMatch.cs" />
+    <Compile Include="..\..\Code\Core\Color\OkLab.cs" />
     <Compile Include="UnitRun.cs" />
   </ItemGroup>
 

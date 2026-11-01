@@ -9,6 +9,8 @@
 //   FAIL <名前>: <理由>
 // 終了コードは失敗件数。pytest(test_unit_run.py) はこの出力を件ごとに読む。
 using System;
+using Color = UnityEngine.Color;
+using Mathf = UnityEngine.Mathf;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -1179,6 +1181,65 @@ namespace Iroca.UnitRun
                 Check.True(UpdateCheck.MiniJson.Parse(json) == null, $"<{json}> rejected");
             // 深い入れ子でスタックを使い切らない。
             Check.True(UpdateCheck.MiniJson.Parse(new string('[', 10000) + new string(']', 10000)) == null, "deep nesting");
+        }
+
+        // ─── ShadowColorMatch（影の色を塗り先に合わせる） ───
+
+        private static readonly Color PaleBlue = new Color(0.676f, 0.851f, 0.998f);
+        private static readonly Color PaleGreen = new Color(0.904f, 1f, 0.896f);
+        private static readonly Color BlueShadow = new Color(0.606f, 0.693f, 0.784f, 0.75f);
+
+        private static float OkHue(Color c)
+        {
+            OkLab.RgbToOklab(c.r, c.g, c.b, out _, out float a, out float b);
+            return Mathf.Atan2(b, a);
+        }
+
+        private static float OkLight(Color c)
+        {
+            OkLab.RgbToOklab(c.r, c.g, c.b, out float L, out _, out _);
+            return L;
+        }
+
+        // 青い影 × 緑の塗り先: 色味の向きは塗り先へ回り、明るさと不透明度は変わらない。
+        public static void ShadowMatch_TurnsHueToTargetAndKeepsLightness()
+        {
+            var matched = ShadowColorMatch.Compute(BlueShadow, PaleBlue, PaleGreen);
+            Check.True(Mathf.Abs(OkHue(matched) - OkHue(PaleGreen)) < 0.05f, "hue follows target");
+            Check.True(Mathf.Abs(OkLight(matched) - OkLight(BlueShadow)) < 0.005f, "lightness kept");
+            Check.True(matched.a == BlueShadow.a, "alpha kept");
+            Check.True(ShadowColorMatch.Differs(BlueShadow, matched), "visible change");
+        }
+
+        // 無彩色の塗り先なら影も無彩色になる。
+        public static void ShadowMatch_GrayTargetGivesNeutralShadow()
+        {
+            var matched = ShadowColorMatch.Compute(BlueShadow, PaleBlue, new Color(0.5f, 0.5f, 0.5f));
+            Check.True(Mathf.Abs(matched.r - matched.g) < 0.01f && Mathf.Abs(matched.g - matched.b) < 0.01f, "neutral");
+        }
+
+        // 色味の無い影は、どの塗り先でも見て分かる色にならない(案内を出さない)。
+        public static void ShadowMatch_NeutralShadowStaysNeutral()
+        {
+            var gray = new Color(0.7f, 0.7f, 0.7f);
+            var matched = ShadowColorMatch.Compute(gray, PaleBlue, new Color(1f, 0f, 0f));
+            Check.True(!ShadowColorMatch.Differs(gray, matched), "no visible change");
+        }
+
+        // 同じ色相への色替えなら、影はほとんど変わらない(案内を出さない)。
+        public static void ShadowMatch_SameHueDoesNotDiffer()
+        {
+            var deeper = new Color(0.3f, 0.6f, 0.95f);
+            Check.True(!ShadowColorMatch.Differs(BlueShadow, ShadowColorMatch.Compute(BlueShadow, PaleBlue, deeper)), "same hue");
+        }
+
+        // 塗り先の方が鮮やかでも影を元より鮮やかにしない。
+        public static void ShadowMatch_DoesNotExceedOriginalChroma()
+        {
+            var matched = ShadowColorMatch.Compute(BlueShadow, PaleBlue, new Color(1f, 0f, 0f));
+            OkLab.RgbToOklab(BlueShadow.r, BlueShadow.g, BlueShadow.b, out _, out float a0, out float b0);
+            OkLab.RgbToOklab(matched.r, matched.g, matched.b, out _, out float a1, out float b1);
+            Check.True(a1 * a1 + b1 * b1 <= (a0 * a0 + b0 * b0) * 1.01f, "chroma not raised");
         }
 
         // ─── ColorTintLut（「アバターの色」表示: マテリアルのメインカラーの掛け算） ───

@@ -67,12 +67,50 @@ namespace Iroca
                 // 色替えを外している状態(ビルドでは NDMF Console に出さないので、ここで知らせる)。
                 EditorGUILayout.HelpBox(Localization.RecolorNoEnabledZones, MessageType.Info);
             else
+            {
                 DrawScope(component, source);
+                DrawShadowMatch(component, source, Summary(recipe).Get(recipe));
+            }
 
             using (new EditorGUI.DisabledScope(source == null))
             {
                 if (GUILayout.Button(TempContent.Of(Localization.OpenInIroca, Localization.OpenInIrocaTooltip)))
                     IrocaWindow.OpenRecipe(recipe);
+            }
+        }
+
+        // 範囲で元テクスチャをメインに使う、影のあるマテリアルごとの「影の色を合わせる」。設定はこのコンポーネントが持ち、
+        // マテリアルそのものは変えない。
+        private static void DrawShadowMatch(IrocaRecolor component, Texture2D source, IrocaSessionState state)
+        {
+            var materials = new List<Material>();
+            foreach (var r in component.GetComponentsInChildren<Renderer>(true))
+                foreach (var m in r.sharedMaterials)
+                    if (m != null && !materials.Contains(m) && MaterialShadowColors.IsEligible(m)
+                        && MaterialShadowColors.MainTextureIs(m, source))
+                        materials.Add(m);
+            if (materials.Count == 0) return;
+            bool hasColors = MaterialShadowColors.TryGetColors(state.zones, out var sample, out var target);
+
+            EditorGUILayout.LabelField(Localization.ShadowMatchHeader, EditorStyles.miniBoldLabel);
+            foreach (var m in materials)
+            {
+                bool on = component.shadowMatchMaterials != null && component.shadowMatchMaterials.Contains(m);
+                EditorGUILayout.BeginHorizontal();
+                bool next = EditorGUILayout.ToggleLeft(TempContent.Of(m.name, Localization.ShadowMatchToggleTooltip), on);
+                if (on && hasColors && MaterialShadowColors.TryGetPreview(m, sample, target, out var before, out var after))
+                {
+                    var rect = GUILayoutUtility.GetRect(48f, EditorGUIUtility.singleLineHeight, GUILayout.ExpandWidth(false));
+                    EditorGUI.DrawRect(new Rect(rect.x, rect.y + 2f, rect.width / 2f, rect.height - 4f), new Color(before.r, before.g, before.b, 1f));
+                    EditorGUI.DrawRect(new Rect(rect.x + rect.width / 2f, rect.y + 2f, rect.width / 2f, rect.height - 4f), new Color(after.r, after.g, after.b, 1f));
+                }
+                EditorGUILayout.EndHorizontal();
+                if (next == on) continue;
+                Undo.RecordObject(component, Localization.ShadowMatchHeader);
+                component.shadowMatchMaterials ??= new List<Material>();
+                if (next) component.shadowMatchMaterials.Add(m);
+                else component.shadowMatchMaterials.Remove(m);
+                EditorUtility.SetDirty(component);
             }
         }
 

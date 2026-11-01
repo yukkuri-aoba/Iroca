@@ -106,6 +106,25 @@ namespace Iroca
         }
 
         /// <summary>
+        /// 編集中の色(<see cref="MaterialShadowColors.TryGetColors(IList{ColorZone}, out Color, out Color)"/>)を知らせる
+        /// (ウィンドウは毎フレーム呼んでよい)。シーンのプレビューは、変わったらマテリアルの複製の影の色を塗り直す
+        /// (色を動かしている間に NDMF の作り直しを起こさないよう、<see cref="ShadowColorsVersion"/> で見る)。
+        /// </summary>
+        public static void SetShadowColors(bool has, Color sample, Color target)
+        {
+            if (has == HasShadowColors && (!has || (sample == ShadowSample && target == ShadowTarget))) return;
+            HasShadowColors = has;
+            ShadowSample = sample;
+            ShadowTarget = target;
+            ShadowColorsVersion++;
+        }
+
+        internal static bool HasShadowColors { get; private set; }
+        internal static Color ShadowSample { get; private set; }
+        internal static Color ShadowTarget { get; private set; }
+        internal static int ShadowColorsVersion { get; private set; }
+
+        /// <summary>
         /// 色替えの結果を置く。<paramref name="source"/> がいま編集中のものでなければ捨てる
         /// (テクスチャを切り替えた直後に届いた前のテクスチャの結果)。借り手がいればすぐ書き込む。
         /// </summary>

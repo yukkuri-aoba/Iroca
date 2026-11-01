@@ -27,12 +27,15 @@ namespace Iroca
             public readonly GameObject owner;
             public readonly IrocaRecipe recipe;
             public readonly Texture2D source;
+            /// <summary>影の色を合わせるマテリアル(<see cref="IrocaRecolor.shadowMatchMaterials"/> の写し。無ければ null)。</summary>
+            public readonly Material[] shadowMatch;
 
-            public Registered(GameObject owner, IrocaRecipe recipe, Texture2D source)
+            public Registered(GameObject owner, IrocaRecipe recipe, Texture2D source, Material[] shadowMatch = null)
             {
                 this.owner = owner;
                 this.recipe = recipe;
                 this.source = source;
+                this.shadowMatch = shadowMatch;
             }
         }
 
@@ -41,14 +44,20 @@ namespace Iroca
         {
             public readonly Texture2D source;
             public readonly IrocaRecipe recipe;
+            public readonly Material[] shadowMatch;
 
-            public Replacement(Texture2D source, IrocaRecipe recipe)
+            public Replacement(Texture2D source, IrocaRecipe recipe, Material[] shadowMatch = null)
             {
                 this.source = source;
                 this.recipe = recipe;
+                this.shadowMatch = shadowMatch;
             }
 
             public bool IsLive => recipe == null;
+
+            /// <summary>このマテリアルの影の色を塗り先に合わせるか。</summary>
+            public bool MatchesShadow(Material material)
+                => shadowMatch != null && System.Array.IndexOf(shadowMatch, material) >= 0;
         }
 
         internal sealed class Plan
@@ -100,7 +109,7 @@ namespace Iroca
                 foreach (var texture in _registeredSources)
                 {
                     if (!TryResolve(renderer, texture, out var replacement)) continue;
-                    if (replacement.IsLive && !usesLive) replacement = new Replacement(replacement.source, _liveRecipe);
+                    if (replacement.IsLive && !usesLive) replacement = new Replacement(replacement.source, _liveRecipe, replacement.shadowMatch);
                     found.Add((texture, replacement));
                 }
                 if (usesLive && ShowsLiveAnywhere && TryResolve(renderer, _liveSource, out var live))
@@ -130,7 +139,7 @@ namespace Iroca
                     {
                         if (c.source != texture) continue;
                         bool live = texture == _liveSource && _liveRecipe != null && c.recipe == _liveRecipe;
-                        replacement = new Replacement(c.source, live ? null : c.recipe);
+                        replacement = new Replacement(c.source, live ? null : c.recipe, c.shadowMatch);
                         return true;
                     }
                 }
@@ -192,9 +201,20 @@ namespace Iroca
                 {
                     if (!ReferenceEquals(_textures[i], other._textures[i])
                         || !ReferenceEquals(_replacements[i].source, other._replacements[i].source)
-                        || !ReferenceEquals(_replacements[i].recipe, other._replacements[i].recipe))
+                        || !ReferenceEquals(_replacements[i].recipe, other._replacements[i].recipe)
+                        || !SameMaterials(_replacements[i].shadowMatch, other._replacements[i].shadowMatch))
                         return false;
                 }
+                return true;
+            }
+
+            private static bool SameMaterials(Material[] a, Material[] b)
+            {
+                if (ReferenceEquals(a, b)) return true;
+                int count = a != null ? a.Length : 0;
+                if (count != (b != null ? b.Length : 0)) return false;
+                for (int i = 0; i < count; i++)
+                    if (!ReferenceEquals(a[i], b[i])) return false;
                 return true;
             }
 

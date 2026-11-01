@@ -42,6 +42,7 @@ namespace Iroca
         internal const string WindowEnabledPrefix = "Iroca.WindowEnabled.";               // + ウィンドウの InstanceID
         internal const string RecipeSyncedPrefix = "Iroca.RecipeSynced.";                 // + レシピの GUID
         internal const string MaterialColorDismissedPrefix = "Iroca.MaterialColor.Dismissed:"; // + テクスチャのパス
+        internal const string ShadowColorDismissedPrefix = "Iroca.ShadowColor.Dismissed:"; // + テクスチャのパス
         internal const string LargeSourceDismissedPrefix = "Iroca.LargeSource.Dismissed:";     // + テクスチャのパス
         internal const string AiSetupBannerDismissed = "Iroca.AiSetup.BannerDismissed";
         internal const string BurstCompileFailed = "Iroca.Burst.CompileFailed";

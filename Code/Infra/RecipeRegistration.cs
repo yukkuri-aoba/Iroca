@@ -159,6 +159,30 @@ namespace Iroca
             return keep;
         }
 
+        /// <summary>
+        /// <paramref name="component"/> の範囲で使っている <paramref name="materials"/> を、影の色を合わせるマテリアルに足す
+        /// (Undo 可。呼び出し側の Undo グループに入る)。範囲で使っていないものは足さない(ビルドで効かない)。足した数を返す。
+        /// </summary>
+        internal static int AddShadowMatch(IrocaRecolor component, IEnumerable<Material> materials)
+        {
+            var inScope = new HashSet<Material>();
+            foreach (var r in component.GetComponentsInChildren<Renderer>(true))
+                foreach (var m in r.sharedMaterials)
+                    if (m != null) inScope.Add(m);
+            int added = 0;
+            foreach (var m in materials)
+            {
+                if (!inScope.Contains(m) || (component.shadowMatchMaterials != null && component.shadowMatchMaterials.Contains(m)))
+                    continue;
+                if (added == 0) Undo.RecordObject(component, "Iroca: Match Shadow Color");
+                component.shadowMatchMaterials ??= new List<Material>();
+                component.shadowMatchMaterials.Add(m);
+                added++;
+            }
+            if (added > 0) EditorUtility.SetDirty(component);
+            return added;
+        }
+
         private static IEnumerable<IrocaRecipe> Recipes(IrocaRecolor[] components)
         {
             foreach (var c in components)

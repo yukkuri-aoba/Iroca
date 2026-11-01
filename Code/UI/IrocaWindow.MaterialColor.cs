@@ -148,6 +148,105 @@ namespace Iroca
             GUI.changed = changed;
         }
 
+        // ───────────── 影の色を塗り先に合わせる ─────────────
+
+        // 影の色が塗り先とずれていて、まだ合わせる設定になっていないマテリアル(案内に出す)。読み直しの間隔は上と同じ。
+        [System.NonSerialized] private List<Material> _shadowMismatch;
+        [System.NonSerialized] private double _shadowMismatchReadAt;
+
+        // Layout のときだけ読み直す(同じフレームの Repaint と並ぶ要素をそろえる)。シーンの部品を探すので毎フレームは読まない。
+        private void RefreshShadowMismatch()
+        {
+            if (Event.current.type != EventType.Layout) return;
+            double now = EditorApplication.timeSinceStartup;
+            if (now - _shadowMismatchReadAt < MaterialColorRereadSeconds) return;
+            _shadowMismatchReadAt = now;
+            _shadowMismatch = null;
+            var groups = _materialColorGroups;
+            var source = SourceTexture;
+            if (source == null || groups == null) return;
+            if (!MaterialShadowColors.TryGetColors(Session?.zones, out var sample, out var target)) return;
+            var components = Object.FindObjectsByType<IrocaRecolor>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var g in groups)
+            foreach (var r in g)
+            {
+                var m = r.material;
+                if (r.slot != MaterialColorSettings.Slot.Main || !MaterialShadowColors.MainTextureIs(m, source)
+                    || !MaterialShadowColors.NeedsMatch(m, sample, target) || IsShadowMatched(components, m, source))
+                    continue;
+                (_shadowMismatch ??= new List<Material>()).Add(m);
+            }
+        }
+
+        // このテクスチャのレシピを持つコンポーネントが、このマテリアルの影の色を合わせる設定になっているか。
+        private static bool IsShadowMatched(IrocaRecolor[] components, Material material, Texture2D source)
+        {
+            foreach (var c in components)
+            {
+                if (c.shadowMatchMaterials == null || !c.shadowMatchMaterials.Contains(material) || c.recipes == null) continue;
+                foreach (var recipe in c.recipes)
+                    if (recipe != null && recipe.sourceTexture == source) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 影の色の案内。マテリアルの影の色は色替えしてもそのままで、元の布に合わせた色だと白に近い所に色が残って見える。
+        /// ボタンで Iroca Recolor に設定を足す(マテリアルそのものは変えない)。閉じると、そのテクスチャでは Unity を閉じるまで出さない。
+        /// </summary>
+        private void DrawShadowColorNotice()
+        {
+            RefreshShadowMismatch();
+            var materials = _shadowMismatch;
+            if (materials == null || materials.Count == 0 || SourceTexture == null) return;
+            string key = IrocaPrefs.ShadowColorDismissedPrefix + CurrentTexturePath(SourceTexture);
+            if (SessionState.GetBool(key, false)) return;
+
+            EditorGUILayout.HelpBox(string.Format(Localization.ShadowColorNoticeFormat, materials[0].name), MessageType.Info);
+            bool changed = GUI.changed;
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            bool match = GUILayout.Button(TempContent.Of(Localization.ShadowColorMatchButton, Localization.ShadowColorMatchButtonTooltip),
+                GUILayout.ExpandWidth(false));
+            if (GUILayout.Button(TempContent.Of(Localization.LargeSourceDismiss, Localization.ShadowColorDismissTooltip),
+                    GUILayout.ExpandWidth(false)))
+                SessionState.SetBool(key, true);
+            EditorGUILayout.EndHorizontal();
+            GUI.changed = changed;
+            // 確認画面を出すことがあるので、描画の途中で開かない。
+            if (match)
+            {
+                var chosen = new List<Material>(materials);
+                EditorApplication.delayCall += () => { if (this != null) MatchShadowColors(chosen); };
+            }
+        }
+
+        /// <summary>
+        /// このテクスチャのレシピを持つ Iroca Recolor に、影の色を合わせる設定を足す(Undo 可)。まだ登録していなければ
+        /// 先に「アバターに非破壊で登録」する(設定の置き場がコンポーネントなので。確認画面でやめたら何もしない)。
+        /// </summary>
+        internal void MatchShadowColors(List<Material> materials)
+        {
+            var components = RegisteredComponents();
+            if (components.Count == 0)
+            {
+                RegisterToAvatar();
+                components = RegisteredComponents();
+                if (components.Count == 0) return;
+            }
+            Undo.IncrementCurrentGroup();
+            int group = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName(Localization.ShadowColorMatchButton);
+            foreach (var c in components)
+                RecipeRegistration.AddShadowMatch(c, materials);
+            Undo.CollapseUndoOperations(group);
+            _shadowMismatchReadAt = 0;
+            RequestRepaint();
+        }
+
+        // 結び付いたレシピを持つ、開いているシーンの Iroca Recolor。
+        private List<IrocaRecolor> RegisteredComponents() => RecipeRegistration.OtherUsers(BoundRecipe, null);
+
         /// <summary>案内の文面。warn は警告の色で出すか(プレビューに入っていない・見た目に出にくい設定がある)。</summary>
         internal static string MaterialColorNoticeText(MaterialColorSettings.Report r, bool appearanceOn, out bool warn)
         {

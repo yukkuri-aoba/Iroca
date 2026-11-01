@@ -37,6 +37,10 @@ namespace Iroca
         [Tooltip("色替えの内容(元テクスチャ・色・マスク)。テクスチャごとに 1 つ。いろかウィンドウの「アバターに非破壊で登録」で足される。")]
         public List<IrocaRecipe> recipes = new List<IrocaRecipe>();
 
+        // 影の色を塗り先の色に合わせるマテリアル。ビルドとシーンのプレビューの複製にだけ当てるので、ここにあっても
+        // マテリアルそのものは変わらない。インスペクタのチェックで出し入れするので、一覧のままは見せない。
+        [HideInInspector] public List<Material> shadowMatchMaterials = new List<Material>();
+
         // 旧版(1 コンポーネント = 1 レシピ)で保存された値。読み込んだら recipes の先頭へ移して空にする
         // (次に保存したとき新しい形で書かれる)。
         [SerializeField, HideInInspector] private IrocaRecipe recipe;

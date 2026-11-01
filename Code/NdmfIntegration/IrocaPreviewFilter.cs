@@ -309,8 +309,10 @@ namespace Iroca.NdmfIntegration
             {
                 if (component == null) continue;
                 var recipes = component.recipes != null ? component.recipes.ToArray() : System.Array.Empty<IrocaRecipe>();
-                // レシピの欄が変わったら選び直す。
-                context.Observe(component, c => SameRecipes(c, recipes), (a, b) => a == b);
+                var shadowMatch = component.shadowMatchMaterials != null && component.shadowMatchMaterials.Count > 0
+                    ? component.shadowMatchMaterials.ToArray() : null;
+                // レシピの欄・影の色を合わせるマテリアルが変わったら選び直す。
+                context.Observe(component, c => SameRecipes(c, recipes) && SameShadowMatch(c, shadowMatch), (a, b) => a == b);
                 // 付け替えると範囲が変わる(ObservePath は呼んだ時点で監視を始める)。
                 context.ObservePath(component.transform);
                 // 並び順のまま渡す(同じテクスチャのレシピが重なったら先が勝つ。ビルドと同じ)。
@@ -319,7 +321,7 @@ namespace Iroca.NdmfIntegration
                     if (recipe == null) continue;
                     var source = context.Observe(recipe, r => r.sourceTexture);
                     if (source == null) continue;
-                    registered.Add(new PreviewTargeting.Registered(component.gameObject, recipe, source));
+                    registered.Add(new PreviewTargeting.Registered(component.gameObject, recipe, source, shadowMatch));
                 }
             }
             return new PreviewTargeting.Plan(registered, live);
@@ -336,6 +338,17 @@ namespace Iroca.NdmfIntegration
             return true;
         }
 
+        // いまの影の色を合わせるマテリアルが expected と同じか(配列を作らずに比べる)。
+        private static bool SameShadowMatch(IrocaRecolor component, Material[] expected)
+        {
+            var materials = component.shadowMatchMaterials;
+            int count = materials != null ? materials.Count : 0;
+            if (count != (expected != null ? expected.Length : 0)) return false;
+            for (int i = 0; i < count; i++)
+                if (!ReferenceEquals(materials[i], expected[i])) return false;
+            return true;
+        }
+
         private sealed class Node : IRenderFilterNode
         {
             // 差し替え 1 つぶん: マテリアルのテクスチャ欄と、入れるテクスチャ(ライブは即時、レシピは作りかけのことがある)。
@@ -349,7 +362,13 @@ namespace Iroca.NdmfIntegration
                 // レシピから作るとき: 借りたレシピと鍵(待つのをやめるとき・要るかを確かめるときに使う)。
                 public IrocaRecipe recipeAsset;
                 public string key;
+                // 影の色を塗り先に合わせるか(メインテクスチャの欄で、利用者が選んだマテリアルのとき)。
+                public bool matchShadow;
             }
+
+            // ライブで影の色を合わせている複製(ウィンドウで色を動かしたら OnFrame で塗り直す)。
+            private readonly List<(Material clone, Material original)> _liveShadowClones = new List<(Material, Material)>();
+            private int _liveShadowVersion = -1;
 
             private readonly List<Slot> _slots = new List<Slot>();
             private readonly HashSet<Material> _borrowed = new HashSet<Material>();
@@ -397,6 +416,8 @@ namespace Iroca.NdmfIntegration
                 {
                     if (!routes.TryGet(material.GetTexture(id), out var replacement)) continue;
                     var slot = new Slot { material = material, property = id, source = replacement.source };
+                    slot.matchShadow = replacement.MatchesShadow(material)
+                                       && MaterialShadowColors.MainTextureIs(material, material.GetTexture(id));
                     if (replacement.IsLive)
                     {
                         slot.live = LivePreview.Acquire(replacement.source);
@@ -527,6 +548,12 @@ namespace Iroca.NdmfIntegration
                         Register(s.material, clone);
                     }
                     clone.SetTexture(s.property, texture);
+                    if (s.matchShadow)
+                    {
+                        if (s.recipe == null) _liveShadowClones.Add((clone, s.material));
+                        else if (MaterialShadowColors.TryGetColors(s.recipeAsset, out var sample, out var target))
+                            MaterialShadowColors.Apply(clone, s.material, sample, target);
+                    }
                     // レシピの出来上がり(Texture2D)は元テクスチャの置き換えとして知らせる(ビルドと同じ)。ライブの
                     // RenderTexture は知らせない(TexTransTool も RenderTexture は登録簿に載せない)。
                     if (s.recipe != null) Register(s.source, texture);
@@ -568,7 +595,25 @@ namespace Iroca.NdmfIntegration
             // (Instantiate で触るのは組み立て用のプロキシで、下流のノードに差し替えを見せるためのもの)。
             // なので描画のたびに、組み立て時に作った複製へ差し替え直す。上流のノードが差し替えたマテリアルも
             // 組み立て時と同じものなので、同じ対応表で引ける。
-            public void OnFrame(Renderer original, Renderer proxy) => Replace(proxy);
+            public void OnFrame(Renderer original, Renderer proxy)
+            {
+                UpdateLiveShadowColors();
+                Replace(proxy);
+            }
+
+            // ウィンドウで色を動かしたら、ライブの複製の影の色を塗り直す(NDMF の作り直しは起こさない)。
+            private void UpdateLiveShadowColors()
+            {
+                if (_liveShadowClones.Count == 0 || _liveShadowVersion == LivePreview.ShadowColorsVersion) return;
+                _liveShadowVersion = LivePreview.ShadowColorsVersion;
+                foreach (var (clone, source) in _liveShadowClones)
+                {
+                    if (LivePreview.HasShadowColors)
+                        MaterialShadowColors.Apply(clone, source, LivePreview.ShadowSample, LivePreview.ShadowTarget);
+                    else
+                        MaterialShadowColors.Restore(clone, source);
+                }
+            }
 
             private void Replace(Renderer proxy)
             {
@@ -589,6 +634,7 @@ namespace Iroca.NdmfIntegration
                 foreach (var clone in _clones.Values)
                     if (clone != null) Object.DestroyImmediate(clone);
                 _clones.Clear();
+                _liveShadowClones.Clear();
                 _slots.Clear();
                 foreach (var source in _live) LivePreview.Release(source);
                 _live.Clear();

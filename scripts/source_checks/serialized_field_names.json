@@ -316,7 +316,8 @@
     ],
     "IrocaRecolor": [
       "recipe",
-      "recipes"
+      "recipes",
+      "shadowMatchMaterials"
     ],
     "IrocaSessionState": [
       "antiAliasCleanup",

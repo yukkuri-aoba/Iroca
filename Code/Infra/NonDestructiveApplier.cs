@@ -27,6 +27,8 @@ namespace Iroca
     ///   (VRCFury は NDMF の前半と最適化段の間に動く)がトグルなどで元のマテリアルを入れ直すので、2 段目
     ///   (最適化段)で同じ規則をもう一度当てる。複製と色替え済みテクスチャは <see cref="BuildState"/> で
     ///   使い回し、同じテクスチャを 2 枚入れない。</item>
+    /// <item>コンポーネントの <see cref="IrocaRecolor.shadowMatchMaterials"/> にあるマテリアルは、複製の影の色も塗り先に
+    ///   合わせる(<see cref="MaterialShadowColors"/>)。</item>
     /// </list>
     /// 元のアセット(テクスチャ・マテリアル)には一切書き込まない。
     /// </para>
@@ -92,6 +94,14 @@ namespace Iroca
             /// </summary>
             internal readonly Dictionary<IrocaRecipe, Dictionary<Material, Material>> clones =
                 new Dictionary<IrocaRecipe, Dictionary<Material, Material>>();
+            /// <summary>
+            /// <see cref="clones"/> の、影の色を塗り先に合わせた複製の表(合わせるかはコンポーネントごとの設定なので、
+            /// 同じレシピでも合わせない複製とは分ける)。
+            /// </summary>
+            internal readonly Dictionary<IrocaRecipe, Dictionary<Material, Material>> shadowMatchedClones =
+                new Dictionary<IrocaRecipe, Dictionary<Material, Material>>();
+            /// <summary>複製 → 元のマテリアル(別のレシピの複製をさらに複製しても、利用者が選んだ元をたどれるように)。</summary>
+            internal readonly Dictionary<Material, Material> cloneRoots = new Dictionary<Material, Material>();
             /// <summary>範囲内で元テクスチャが使われた (コンポーネント, レシピ)。</summary>
             internal readonly HashSet<(IrocaRecolor, IrocaRecipe)> used = new HashSet<(IrocaRecolor, IrocaRecipe)>();
             /// <summary>
@@ -205,16 +215,28 @@ namespace Iroca
             var key = (component, recipe);
             if (!state.clones.TryGetValue(recipe, out var clones))
                 state.clones[recipe] = clones = new Dictionary<Material, Material>();
+            if (!state.shadowMatchedClones.TryGetValue(recipe, out var shadowMatched))
+                state.shadowMatchedClones[recipe] = shadowMatched = new Dictionary<Material, Material>();
             state.built.TryGetValue(recipe, out var recolored);
             bool failed = false;
             int replaced = 0;
+
+            // このコンポーネントで影の色を合わせると選ばれた、このレシピのメインテクスチャのマテリアルか。
+            bool MatchesShadow(Material material, out Material root)
+            {
+                root = state.cloneRoots.TryGetValue(material, out var r) ? r : material;
+                return component.shadowMatchMaterials != null && component.shadowMatchMaterials.Contains(root)
+                       && MaterialShadowColors.MainTextureIs(root, source);
+            }
 
             // 元テクスチャを参照していれば複製して差し替えたものを返す(参照していなければ null)。
             // Renderer の欄とアニメーションのキーフレームの両方から呼ぶ(同じマテリアルは同じ複製になる)。
             Material Swap(Material original)
             {
                 if (original == null || failed) return null;
-                if (clones.TryGetValue(original, out var known))
+                bool matchShadow = MatchesShadow(original, out var root);
+                var table = matchShadow ? shadowMatched : clones;
+                if (table.TryGetValue(original, out var known))
                 {
                     if (known != null) state.used.Add(key);   // 先に作られた複製を使った(このコンポーネントの範囲でも使われている)
                     return known;
@@ -246,11 +268,14 @@ namespace Iroca
                     clone = Object.Instantiate(original);
                     clone.name = original.name;
                     ReplaceTexture(clone, source, recolored);
+                    state.cloneRoots[clone] = root;
+                    if (matchShadow && MaterialShadowColors.TryGetColors(recipe, out var sample, out var target))
+                        MaterialShadowColors.Apply(clone, root, sample, target);
                     host.SaveAsset(clone);
                     host.RegisterReplaced(original, clone);
                     replaced++;
                 }
-                clones[original] = clone;
+                table[original] = clone;
                 return clone;
             }
 
