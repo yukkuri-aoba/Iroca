@@ -762,6 +762,168 @@ namespace Iroca
             return recovered;
         }
 
+        /// <summary>
+        /// 白へ抜ける淡いグラデーションの途中の「穴」を空間条件で塞ぐ(色のはっきりしたサンプル専用)。明部免除は彩度
+        /// ChromaGateActivateSat 未満の画素に効かないので、地色から白へなめらかに抜ける布では、ほぼ白の所が元の色味のまま
+        /// 選択から落ち、周りだけ塗られて境目で色相が反転し、変換前には無かった白い穴の輪郭に見える。
+        /// ほぼ白は余白の白と色では分けられない(許容を広げると余白まで塗る)ので、RecoverEnclosedNeutral と同じく
+        /// 選択に囲まれた閉領域だけを戻す。布の中の白い装飾(ロゴ・白目・暗い布の窓)は戻さない: 成分から 2〜4px 外側の選択
+        /// 画素が明るく、サンプルより十分に脱彩しているとき(周りも白へ抜けている途中のとき)だけ戻す。戻した所は周りと
+        /// 同じ扱いで塗られる(暗い塗り先では純白も明るさの上限まで下がる)。matchConf は触らない
+        /// (<see cref="RecoverEnclosedHighlight"/> と同じ理由)。戻り値は戻した画素数。
+        /// </summary>
+        private static int RecoverEnclosedNearWhite(
+            float* strength, Color32* pixels,
+            PixelHsv hsv, ColorZone zone, int w, int h,
+            CancellationToken ct = default)
+        {
+            float* pixS = hsv.S, pixV = hsv.V; int* pixIdx = hsv.Index;
+            Color.RGBToHSV(zone.sampleColor, out _, out float sS, out _);
+            // 色相を全面的に信用するサンプルだけ(それ以外の白に近いサンプルは明部免除が純白にも効く)。
+            if (sS < zone.chromaThreshold + ColorZone.ChromaConfidenceSpan) return 0;
+
+            int len = w * h;
+            var po = new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct };
+
+            // 前提: 色味のわずかに残った未選択の白(これが無ければ穴の輪郭は出ない)。選択画素の数も取る。
+            int selCount = 0, anyCand = 0;
+            Parallel.For(0, h, po, () => 0, (y, _, sel) =>
+            {
+                int rowOff = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    int i = rowOff + x;
+                    if (pixels[i].a < OpaqueAlphaMin) continue;
+                    if (strength[i] > ColorZone.MatchStrengthFloor) { sel++; continue; }
+                    float pS = pixS[HsvSlot(pixIdx, i)];
+                    if (pS > 0f && pS < ColorZone.ChromaGateActivateSat && pixV[HsvSlot(pixIdx, i)] >= ColorZone.HighlightValueMin)
+                        Volatile.Write(ref anyCand, 1);
+                }
+                return sel;
+            }, sel => Interlocked.Add(ref selCount, sel));
+            if (anyCand == 0 || selCount == 0) return 0;
+            int maxPixels = (int)(selCount * EnclosedHlMaxSelFrac);
+            if (maxPixels < EnclosedHlMinPixels) return 0;
+            float ringSatMax = sS * EnclosedHlSatFrac;
+
+            bool* free = s_boolPool.Rent(len);   // 未選択(閉領域探索の通路)
+            bool* open = s_boolPool.Rent(len);   // 画像端から到達できた未選択画素。成分走査後は「訪問済み」を兼ねる
+            int* stamp = s_intPool.Rent(len);    // +id=現在の成分, -id=その成分のリング判定済み
+            int* queue = s_intPool.Rent(len);    // 成分 flood のキュー(パック座標 (y<<16)|x)
+            int recovered = 0;
+            try
+            {
+                Parallel.For(0, h, po, y =>
+                {
+                    int rowOff = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = rowOff + x;
+                        free[i] = strength[i] <= ColorZone.MatchStrengthFloor;
+                        open[i] = false;
+                        stamp[i] = 0;
+                    }
+                });
+                MarkOpenFromBorder(free, open, w, h, ct);
+
+                var hS = new int[256];
+                var hV = new int[256];
+                int compId = 0;
+                for (int y0 = 0; y0 < h; y0++)
+                {
+                    int row0 = y0 * w;
+                    for (int x0 = 0; x0 < w; x0++)
+                    {
+                        int i0 = row0 + x0;
+                        if (!free[i0] || open[i0]) continue;
+                        ct.ThrowIfCancellationRequested();
+
+                        // 閉領域の成分を 4 近傍 flood で集める。
+                        compId++;
+                        int qHead = 0, qTail = 0;
+                        open[i0] = true; stamp[i0] = compId; queue[qTail++] = (y0 << 16) | x0;
+                        int nOpaque = 0;
+                        while (qHead < qTail)
+                        {
+                            int packed = queue[qHead++];
+                            int x = packed & 0xFFFF, y = packed >> 16;
+                            int i = y * w + x;
+                            if (pixels[i].a >= OpaqueAlphaMin) nOpaque++;
+                            if (x > 0 && free[i - 1] && !open[i - 1])
+                            { open[i - 1] = true; stamp[i - 1] = compId; queue[qTail++] = (y << 16) | (x - 1); }
+                            if (x < w - 1 && free[i + 1] && !open[i + 1])
+                            { open[i + 1] = true; stamp[i + 1] = compId; queue[qTail++] = (y << 16) | (x + 1); }
+                            if (y > 0 && free[i - w] && !open[i - w])
+                            { open[i - w] = true; stamp[i - w] = compId; queue[qTail++] = ((y - 1) << 16) | x; }
+                            if (y < h - 1 && free[i + w] && !open[i + w])
+                            { open[i + w] = true; stamp[i + w] = compId; queue[qTail++] = ((y + 1) << 16) | x; }
+                        }
+                        if (nOpaque < EnclosedHlMinPixels || nOpaque > maxPixels) continue;
+
+                        // 成分の色(中央値): ほぼ白。
+                        Array.Clear(hS, 0, 256); Array.Clear(hV, 0, 256);
+                        for (int k = 0; k < qTail; k++)
+                        {
+                            int packed = queue[k];
+                            int i = (packed >> 16) * w + (packed & 0xFFFF);
+                            if (pixels[i].a < OpaqueAlphaMin) continue;
+                            hS[Mathf.Clamp((int)(pixS[HsvSlot(pixIdx, i)] * 256f), 0, 255)]++;
+                            hV[Mathf.Clamp((int)(pixV[HsvSlot(pixIdx, i)] * 256f), 0, 255)]++;
+                        }
+                        if (HistogramMedian(hS, nOpaque, 256f) >= ColorZone.ChromaGateActivateSat) continue;
+                        if (HistogramMedian(hV, nOpaque, 256f) < ColorZone.HighlightValueMin) continue;
+
+                        // 周り(成分境界から Chebyshev 距離 2..R の選択画素)の平均 V・S。距離 1 は混色帯なので除く。
+                        double sumV = 0, sumS = 0; int ringN = 0;
+                        for (int k = 0; k < qTail; k++)
+                        {
+                            int packed = queue[k];
+                            int x = packed & 0xFFFF, y = packed >> 16;
+                            int i = y * w + x;
+                            bool boundary = x == 0 || y == 0 || x == w - 1 || y == h - 1
+                                || stamp[i - 1] != compId || stamp[i + 1] != compId
+                                || stamp[i - w] != compId || stamp[i + w] != compId;
+                            if (!boundary) continue;
+                            int yLo = Mathf.Max(0, y - EnclosedHlRingRadius), yHi = Mathf.Min(h - 1, y + EnclosedHlRingRadius);
+                            int xLo = Mathf.Max(0, x - EnclosedHlRingRadius), xHi = Mathf.Min(w - 1, x + EnclosedHlRingRadius);
+                            for (int yy = yLo; yy <= yHi; yy++)
+                            {
+                                int rowJ = yy * w;
+                                for (int xx = xLo; xx <= xHi; xx++)
+                                {
+                                    int j = rowJ + xx;
+                                    int sj = stamp[j];
+                                    if (sj == compId || sj == -compId) continue;
+                                    stamp[j] = -compId;   // この成分については判定済み
+                                    if (strength[j] <= ColorZone.MatchStrengthFloor || pixels[j].a < OpaqueAlphaMin) continue;
+                                    if (IsAdjacent8ToStamp(stamp, compId, xx, yy, w, h)) continue;
+                                    sumV += pixV[HsvSlot(pixIdx, j)]; sumS += pixS[HsvSlot(pixIdx, j)]; ringN++;
+                                }
+                            }
+                        }
+                        if (ringN == 0 || sumV / ringN < ColorZone.HighlightValueMin || sumS / ringN >= ringSatMax) continue;
+
+                        for (int k = 0; k < qTail; k++)
+                        {
+                            int packed = queue[k];
+                            int i = (packed >> 16) * w + (packed & 0xFFFF);
+                            if (pixels[i].a < OpaqueAlphaMin) continue;
+                            strength[i] = 1f;
+                            recovered++;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                s_intPool.Return(queue);
+                s_intPool.Return(stamp);
+                s_boolPool.Return(open);
+                s_boolPool.Return(free);
+            }
+            return recovered;
+        }
+
         // 画素 (x,y) の 8 近傍に stamp==id の画素があるか(成分に隣接する AA 混色帯の除外用)。
         private static bool IsAdjacent8ToStamp(int* stamp, int id, int x, int y, int w, int h)
         {

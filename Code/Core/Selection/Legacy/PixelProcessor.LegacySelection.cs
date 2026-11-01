@@ -215,6 +215,11 @@ namespace Iroca
                 _sub.Mark(SpHlEnclosed);
                 if (nForced > 0)
                     debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, ToManaged(strength, len), w, h);
+                // 白へ抜ける淡いグラデーションの途中で選択が切れた穴を塞ぐ(同じく閉領域だけ)。
+                int nNearWhite = RecoverEnclosedNearWhite(strength, originalPixels, hsv, zone, w, h, cancellationToken);
+                _sub.Mark(SpHlEnclosed);
+                if (nNearWhite > 0)
+                    debug?.RecordStage(zone.id, DebugStages.HighlightPropagate, ToManaged(strength, len), w, h);
             }
 
             _phaseTicks[PhHighlight] += Stopwatch.GetTimestamp() - _tp; _tp = Stopwatch.GetTimestamp();
