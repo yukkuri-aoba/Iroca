@@ -624,58 +624,12 @@ namespace Iroca
         private unsafe bool ApplyRegion(bool* region, MaskDestination d, out MaskRegionEditResult result)
         {
             result = default;
-            int len = maskWidth * maskHeight;
-            if (d.op == MaskRegionOp.ClearHere) return ClearRegion(region, len, d, out result);
-
-            // 書く層は自分だけのものにしてから渡す(重ね表示のワーカーが読んでいれば写す)。共通は重なりを数えるだけ。
-            NativeBitMask exclude, include = null, common = null;
-            if (d.zoneId == null)
-            {
-                if (d.op != MaskRegionOp.DontPaintHere) return false;
-                exclude = EnsureCommonMask();
-            }
-            else
-            {
-                if (FindZone(d.zoneId) == null) return false;
-                common = Workspace.Common;
-                if (d.op == MaskRegionOp.PaintHere)
-                {
-                    include = EnsureZoneLayer(true, d.zoneId);
-                    exclude = Workspace.WritableExistingLayer(false, d.zoneId);
-                }
-                else
-                {
-                    exclude = EnsureZoneLayer(false, d.zoneId);
-                    include = Workspace.WritableExistingLayer(true, d.zoneId);
-                }
-            }
-            if (d.op == MaskRegionOp.PaintHere ? include == null : exclude == null) return false;
-
-            BeginStroke();
-            result = MaskRegionEdit.Apply(d.op, region, len, BitsOf(exclude), BitsOf(include), BitsOf(common));
-            EndStroke();
-            _host.NotifyMasksEditedFullRefine();
-            _host.RequestRepaint();
-            return true;
-        }
-
-        // 「ここのマスクを消す」の本体。消すだけなので層は作らない。範囲の中に消す物が無ければ何も書かない
-        // (層を写さず、Undo にも空の手を積まない。重なりだけ返す)。
-        private unsafe bool ClearRegion(bool* region, int len, MaskDestination d, out MaskRegionEditResult result)
-        {
-            result = default;
-            bool toCommon = d.zoneId == null;
-            if (!toCommon && FindZone(d.zoneId) == null) return false;
-            NativeBitMask common = toCommon ? null : Workspace.Common;
-            result = MaskRegionEdit.CountClear(region, len,
-                BitsOf(toCommon ? Workspace.Common : Workspace.Layer(false, d.zoneId)),
-                BitsOf(toCommon ? null : Workspace.Layer(true, d.zoneId)), BitsOf(common));
-            if (result.changed == 0) return true;
-
-            NativeBitMask exclude = toCommon ? Workspace.WritableCommon() : Workspace.WritableExistingLayer(false, d.zoneId);
-            NativeBitMask include = toCommon ? null : Workspace.WritableExistingLayer(true, d.zoneId);
-            BeginStroke();
-            result = MaskRegionEdit.Apply(MaskRegionOp.ClearHere, region, len, BitsOf(exclude), BitsOf(include), BitsOf(common));
+            if (d.zoneId != null && FindZone(d.zoneId) == null) return false;
+            // 消す物が無かった「消す」は何も書かない(Undo にも空の手を積まない)。
+            bool wrote = false;
+            bool ok = Workspace.ApplyRegion(region, d.zoneId, d.op, () => { wrote = true; BeginStroke(); }, out result);
+            if (!ok) return false;
+            if (!wrote) return true;
             EndStroke();
             _host.NotifyMasksEditedFullRefine();
             _host.RequestRepaint();

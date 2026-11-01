@@ -179,6 +179,69 @@ namespace Iroca
             return dst;
         }
 
+        // ─────────────── 範囲に操作を当てる ───────────────
+
+        /// <summary>
+        /// 範囲(<see cref="Width"/> × <see cref="Height"/> 個。下原点)に操作を当てる(規則は <see cref="MaskRegionEdit"/>)。
+        /// 右クリック(ウィンドウ)と自動化の共通の入口。zoneId = null は全ゾーン共通で、共通にできるのは「塗らない」と「消す」だけ。
+        /// 書く直前に <paramref name="beforeWrite"/> を呼ぶ(ウィンドウの Undo の記録。書かないときは呼ばない)。
+        /// 「消す」は消す物が無ければ層を写さず、何も書かない(重なりだけ返す)。ゾーンが今もあるかは呼び出し側が確かめる。
+        /// 当てられない組み合わせなら false。
+        /// </summary>
+        public bool ApplyRegion(bool* region, string zoneId, MaskRegionOp op, System.Action beforeWrite,
+            out MaskRegionEditResult result)
+        {
+            result = default;
+            int len = Width * Height;
+            if (region == null || len <= 0) return false;
+            if (op == MaskRegionOp.ClearHere) return ClearRegion(region, len, zoneId, beforeWrite, out result);
+
+            // 書く層は自分だけのものにしてから渡す(重ね表示のワーカーが読んでいれば写す)。共通は重なりを数えるだけ。
+            NativeBitMask exclude, include = null, common = null;
+            if (zoneId == null)
+            {
+                if (op != MaskRegionOp.DontPaintHere) return false;
+                exclude = WritableCommon();
+            }
+            else
+            {
+                common = _common;
+                if (op == MaskRegionOp.PaintHere)
+                {
+                    include = WritableLayer(true, zoneId);
+                    exclude = WritableExistingLayer(false, zoneId);
+                }
+                else
+                {
+                    exclude = WritableLayer(false, zoneId);
+                    include = WritableExistingLayer(true, zoneId);
+                }
+            }
+            if (op == MaskRegionOp.PaintHere ? include == null : exclude == null) return false;
+
+            beforeWrite?.Invoke();
+            result = MaskRegionEdit.Apply(op, region, len, BitsOf(exclude), BitsOf(include), BitsOf(common));
+            return true;
+        }
+
+        private bool ClearRegion(bool* region, int len, string zoneId, System.Action beforeWrite, out MaskRegionEditResult result)
+        {
+            bool toCommon = zoneId == null;
+            NativeBitMask common = toCommon ? null : _common;
+            result = MaskRegionEdit.CountClear(region, len,
+                BitsOf(toCommon ? _common : Layer(false, zoneId)),
+                BitsOf(toCommon ? null : Layer(true, zoneId)), BitsOf(common));
+            if (result.changed == 0) return true;
+
+            NativeBitMask exclude = toCommon ? WritableCommon() : WritableExistingLayer(false, zoneId);
+            NativeBitMask include = toCommon ? null : WritableExistingLayer(true, zoneId);
+            beforeWrite?.Invoke();
+            result = MaskRegionEdit.Apply(MaskRegionOp.ClearHere, region, len, BitsOf(exclude), BitsOf(include), BitsOf(common));
+            return true;
+        }
+
+        private static ulong* BitsOf(NativeBitMask m) => m != null ? m.Bits : null;
+
         // ─────────────── 保存形式との変換 ───────────────
 
         /// <summary>
