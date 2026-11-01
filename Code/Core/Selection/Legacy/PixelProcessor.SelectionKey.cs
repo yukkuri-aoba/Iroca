@@ -46,6 +46,9 @@ namespace Iroca
             // 混色帯モード(IsMixtureBandZone)では穴埋め・境界回復を行わない = 選択そのものが変わる。
             // 境界クリーンアップの ON/OFF で切り替わるので、キーに入れる。
             B(mixtureBand);
+            // 白へ抜ける途中のほぼ白を戻すかは塗り先の色で変わる(RecoverEnclosedNearWhite の 2 回目)。ターゲット色そのものは
+            // 入れない(色を動かすたびにキャッシュが外れないように)。
+            B(NearWhiteRecolorIsGentle(z));
             // マスクの寸法。マスクは packed ulong[] で寸法が別持ちのため、寸法が変われば同じビット列でも
             // 指す画素が変わる（レビュー §4 低 / 監査 L-6）。除外マスクの比べ直しも同じ寸法どうしでしか成り立たない。
             I(maskW); I(maskH);

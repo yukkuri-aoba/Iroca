@@ -290,6 +290,10 @@
 | `EnclosedHlMaxSelFrac` | `0.05f` | 不明 | EH | 芯は本体の数% という見立てによる成分の上限（選択量比）。掃引なし |
 | `EnclosedHlSatFrac` | `0.60f` | 設計 | EH | 芯を脱彩とみなす彩度比。自動調整のツヤ署名 EvSheenSatFrac と同じ値にそろえた |
 | `EnclosedHlRingRadius` | `4` | 実測 | EH | 1px 隣は AA 混色で地色を表さないという観察から、2〜4px 外側をリングにした |
+| `EnclosedNearWhiteSolidPerBoundary` | `1.25f` | 実測 | EH | 白へ抜ける途中のほぼ白を戻す条件。成分の境界の画素 1 つあたりの周りの密な選択の画素の数。リング幅 3 で全周なら約 3、片側なら約 1.5。淡い布 1 枚で測ると、別の白い部品は 1.03 以下、白へ抜ける途中は 1.6 以上で、その間。手元の 1 体の値なので、外れたら最初に疑う |
+| `EnclosedNearWhiteSameValue` | `2f / 255f` | 設計 | EH | サンプルと同じ明るさとみなす幅。明度のヒストグラムのビンの中心とサンプルの丸めの分で 8bit の 2 段。これより明るさの違う白い部品を戻すと、暗い塗り先で 155 階調も変わった |
+| `EnclosedNearWhiteMaxChromaGain` | `2f` | 設計 | EH | ほぼ白の彩度(OkLab で 0.006 程度)の増幅の上限。2 倍で 0.012 と、見分けられる色差 0.02 より小さく収まる。超える塗り先では真っ白との境に硬い縁が出た |
+| `EnclosedNearWhiteMaxLightnessDrop` | `0.01f` | 設計 | EH | 模様保持を下げたときにほぼ白が下がる明るさの上限 (1 − valueBlend)(1 − tL)。見分けられる色差 0.02 の半分。超えるとほぼ白が暗くなり、真っ白との境に硬い縁が出た |
 | `matchThr` | `ColorZone.MatchStrengthFloor` | 設計 | EH | MatchStrengthFloor の局所別名 |
 | `hueGate` | `ColorZone.ForgivenessHueGate` | 設計 | EH | ForgivenessHueGate の局所別名 |
 | `R` | `EnclosedHlRingRadius` | 設計 | EH | EnclosedHlRingRadius の局所別名 |
