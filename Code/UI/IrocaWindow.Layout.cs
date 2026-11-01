@@ -763,6 +763,8 @@ namespace Iroca
             if (SourceTexture == null || _previewView == null) return;
             // Play 中のリロード直後で原本の読み直しを待っている間は、案内のために読まない。
             if (_previewView.SourceLoadDeferred) return;
+            // 別スレッドで読んでいる間は待たない(読み終えた後の再描画で出す)。
+            if (_previewView.PollSource(SourceTexture) != SourceState.Ready) return;
             if (!_previewView.TryGetTrueSourcePixels(SourceTexture, out _, out int ww, out int wh)) return;
             // 元ファイルの寸法。取り込み済みテクスチャから読んでいる(PSD など)ときは、書き出しもその寸法。
             int w = ww, h = wh;

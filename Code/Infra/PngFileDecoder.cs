@@ -3,6 +3,7 @@
 using System;
 using System.IO;
 using System.IO.Compression;
+using System.Threading;
 using UnityEngine;
 
 namespace Iroca
@@ -26,21 +27,41 @@ namespace Iroca
 
         /// <summary>
         /// PNG をデコードする(どのスレッドからでもよい)。扱わない形式・壊れたファイルは null。ファイルを開けない・読めないときは
-        /// IOException をそのまま投げる(LoadImage の経路の File.ReadAllBytes と同じ)。
+        /// IOException をそのまま投げる(LoadImage の経路の File.ReadAllBytes と同じ)。取り消されたら、次の行へ進む前に画素を手放して
+        /// OperationCanceledException を投げる(行ごとに見るので、大きな画像でも待たない)。
         /// </summary>
-        public static NativePixels TryDecode(string path)
+        public static NativePixels TryDecode(string path, CancellationToken cancel = default)
         {
             using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, ReadBufferBytes))
             {
-                try { return Decode(file); }
+                try { return Decode(file, cancel, headerOnly: false, out _); }
                 // 長さの足りないファイルも IOException の仲間なので、ここで分ける(開けないときの例外は上へ出す)。
                 catch (EndOfStreamException) { return null; }
                 catch (InvalidDataException) { return null; }
             }
         }
 
-        private static NativePixels Decode(Stream file)
+        /// <summary>
+        /// 画素の手前までを読んで、<see cref="TryDecode"/> が扱う PNG かを答える(画素の途中で壊れていれば、TryDecode は null を返す)。
+        /// 読み始める前に、メインスレッドの LoadImage が要るかを決めるためのもの。開けないときは IOException を投げる。
+        /// </summary>
+        public static bool CanDecode(string path)
         {
+            using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, ReadBufferBytes))
+            {
+                try
+                {
+                    Decode(file, default, headerOnly: true, out bool supported);
+                    return supported;
+                }
+                catch (EndOfStreamException) { return false; }
+                catch (InvalidDataException) { return false; }
+            }
+        }
+
+        private static NativePixels Decode(Stream file, CancellationToken cancel, bool headerOnly, out bool supportedHeader)
+        {
+            supportedHeader = false;
             var header = new byte[8];
             ReadExactly(file, header, 8);
             if (!TextureIO.IsPngSignature(header)) return null;
@@ -61,7 +82,9 @@ namespace Iroca
                     if (!haveHeader) return null;
                     if (colorType == ColorPalette && palette == null) return null;
                     if (colorKey) return null;
-                    return DecodeImage(new IdatStream(file, (int)length), width, height, bitDepth, colorType, palette);
+                    supportedHeader = true;
+                    if (headerOnly) return null;
+                    return DecodeImage(new IdatStream(file, (int)length), width, height, bitDepth, colorType, palette, cancel);
                 }
                 if (type == FourCc("IHDR"))
                 {
@@ -127,7 +150,8 @@ namespace Iroca
             }
         }
 
-        private static NativePixels DecodeImage(Stream idat, int width, int height, int bitDepth, int colorType, Color32[] palette)
+        private static NativePixels DecodeImage(Stream idat, int width, int height, int bitDepth, int colorType, Color32[] palette,
+            CancellationToken cancel)
         {
             // zlib の先頭 2 バイト。辞書付きは PNG では使えない。
             var zlib = new byte[2];
@@ -151,6 +175,7 @@ namespace Iroca
                 {
                     for (int y = 0; y < height; y++)
                     {
+                        cancel.ThrowIfCancellationRequested();
                         if (!ReadRow(inflate, cur)) return null;
                         fixed (byte* c = cur, p = prev)
                         {

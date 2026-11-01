@@ -361,27 +361,65 @@ namespace Iroca
         {
             var sources = Sources;
             if (tex == null || sources == null) return false;
+            var held = CheckHeldSource(tex, sources);
+            if (held != SourceState.Loading) return held == SourceState.Ready;
+            if (!sources.Load(tex)) return false;
+            OnSourceLoaded();
+            return true;
+        }
+
+        /// <summary>
+        /// <see cref="EnsureSource"/> の止まらない版。描くたびに呼ぶ所(プレビューの表示・可否判定)はこちらを使う。
+        /// 読み終えていなければ別スレッドで読み(<see cref="SourcePixelCache.LoadInBackground"/>)、
+        /// <see cref="SourceState.Loading"/> を返す。読み終えたら再描画を求める。
+        /// </summary>
+        internal SourceState PollSource(Texture2D tex)
+        {
+            var sources = Sources;
+            if (tex == null || sources == null) return SourceState.Unavailable;
+            var held = CheckHeldSource(tex, sources);
+            if (held != SourceState.Loading) return held;
+            var state = sources.LoadInBackground(tex, OnSourceFileRead);
+            if (state == SourceState.Ready) OnSourceLoaded();
+            return state;
+        }
+
+        // 持っている画素で足りるか(Ready)、取れないと分かっているか(Unavailable)、読む必要があるか(Loading)。
+        private SourceState CheckHeldSource(Texture2D tex, SourcePixelCache sources)
+        {
             if (sources.Texture == tex && sources.Pixels != null)
             {
-                if (sources.BasisWidth == tex.width && sources.BasisHeight == tex.height) return true;
+                if (sources.BasisWidth == tex.width && sources.BasisHeight == tex.height) return SourceState.Ready;
                 // 取り込み設定(Max Size)が変わって、作業解像度か拡大表示の寸法が変わり得る。
                 // 旧画素から導いた状態ごと捨てて読み直し、表示も作り直す。
                 InvalidateSourceCache();
                 MarkDirty();
             }
             // 失敗もテクスチャ単位で覚える(SourcePixelCache.IsKnownUnreadable)。
-            if (sources.IsKnownUnreadable(tex)) return false;
+            if (sources.IsKnownUnreadable(tex)) return SourceState.Unavailable;
             // 別のテクスチャの画素を持ったまま読み直す(SwitchSourceTexture を通らない切り替え)ときは、古い画素を
             // 指したままのジョブ・キャッシュ・ドラッグの追従の入力も捨てる(手放した画素へ参照を足しに行かないように)。
             if (sources.Pixels != null && sources.Texture != tex) InvalidateSourceCache();
+            return SourceState.Loading;
+        }
 
-            if (!sources.Load(tex)) return false;
+        // 別スレッドの読み込みが終わった(メインスレッドの tick)。描かれていなくても受け取るので、読み終えた画素が
+        // 受け取り手のいないまま残らない。読めなかったとき(PNG でないなど)は、次に描くときメインスレッドで読む。
+        private void OnSourceFileRead()
+        {
+            var sources = Sources;
+            if (sources == null) return;
+            if (sources.TryAdoptFinished(_host.SourceTexture)) OnSourceLoaded();
+            _host.RequestRepaint();
+        }
+
+        private void OnSourceLoaded()
+        {
             BumpDetailSource();
             // 拡大表示に映す寸法の原本もここで作る(取り込みで小さくなり、「元の解像度」の設定がオフのときだけ。
             // 4K→2K で数十 ms)。
             if (WantsDisplaySize(out int dw, out int dh)) BuildDisplaySource(dw, dh);
             _deferSourceLoad = false;
-            return true;
         }
 
         // 処理用の画素を手放し、どのテクスチャを読んだか・読めなかったかも忘れる。拡大表示に映す寸法の原本も手放す。
@@ -489,8 +527,9 @@ namespace Iroca
         /// Play 中のリロード直後で原本の読み直しを待っている間(<see cref="SourceLoadDeferred"/>)は、読まずに
         /// 取れるものとして答える(UI の可否判定のために読むと、待たせている意味が無くなる)。
         /// </summary>
+        /// 別スレッドで読んでいる間も、取れるものとして答える(読めなかったら読み終えた後の再描画で答えが変わる)。
         internal bool CanProvideSourcePixels(Texture2D tex) =>
-            tex != null && (SourceLoadDeferred || EnsureSource(tex));
+            tex != null && (SourceLoadDeferred || PollSource(tex) != SourceState.Unavailable);
 
         /// <summary>
         /// 自動調整など他ビューが、プレビューと同一の true source 画素(作業解像度)で解析する
@@ -531,6 +570,10 @@ namespace Iroca
 
         // ── 寿命 ─────────────────────────────────────────────
 
+        // 閉じるときに、取り消した原本の読み込みが抜けるのを待つ上限。デコードは行ごとに止まるので普通は数 ms で、
+        // 待つのが長くなるのは、8K より大きい画像を縮めている途中で取り消したときだけ。
+        private const int CancelledLoadWaitMilliseconds = 1000;
+
         public void Dispose()
         {
             Suspend();
@@ -546,6 +589,8 @@ namespace Iroca
         internal void Suspend()
         {
             InvalidateSourceCache();
+            // 読みかけの原本は取り消した。抜けるのを待てば、ここを出るときには OS へ戻っている(リロードの前にも効く)。
+            Sources?.WaitForCancelledLoads(CancelledLoadWaitMilliseconds);
             // 止めたジョブが後から返してくる出力も、置かずにすぐ手放す。
             _outputBuffers?.Close();
             _outputBuffers = null;

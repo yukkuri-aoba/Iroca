@@ -234,6 +234,8 @@ namespace Iroca
         internal bool SourceLoadDeferred => _pipeline != null && _pipeline.SourceLoadDeferred;
         // Draw が Layout のときに見た SourceLoadDeferred(同じフレームの他のイベントもそれで描く)。
         [System.NonSerialized] private bool _deferredAtLayout;
+        // Draw が Layout のときに見た、原本を別スレッドで読んでいる途中か(同じフレームの他のイベントもそれで描く)。
+        [System.NonSerialized] private bool _loadingAtLayout;
         internal void DeferSourceLoad() => _pipeline?.DeferSourceLoad();
         internal void EndSourceLoadDeferral() => _pipeline?.EndSourceLoadDeferral();
 
@@ -316,6 +318,9 @@ namespace Iroca
         /// <summary>このテクスチャから処理用の画素を取れるか(<see cref="PreviewPipeline.CanProvideSourcePixels"/>)。</summary>
         public bool CanProvideSourcePixels(Texture2D tex) => _pipeline != null && _pipeline.CanProvideSourcePixels(tex);
 
+        /// <summary>原本の今の状態。読み終えていなければ別スレッドで読み始める(<see cref="PreviewPipeline.PollSource"/>。止まらない)。</summary>
+        internal SourceState PollSource(Texture2D tex) => _pipeline != null ? _pipeline.PollSource(tex) : SourceState.Unavailable;
+
         /// <summary>
         /// 自動調整など他ビューが、プレビューと同一の true source 画素(作業解像度)で解析するための読み取り専用アクセサ
         /// (<see cref="PreviewPipeline.TryGetTrueSourcePixels"/>。参照は足さない)。
@@ -354,7 +359,7 @@ namespace Iroca
         internal void TickWithoutDrawing()
         {
             var sourceTexture = _host.SourceTexture;
-            if (sourceTexture == null || SourceLoadDeferred || !EnsureTrueSource(sourceTexture)) return;
+            if (sourceTexture == null || SourceLoadDeferred || PollSource(sourceTexture) != SourceState.Ready) return;
             _pipeline.Tick(pointerHeld: GUIUtility.hotControl != 0);
         }
 
@@ -382,9 +387,19 @@ namespace Iroca
             }
 
             // エクスポートと同じフル解像度ソースを確保（プレビュー＝実結果の一致のため）。
-            // EnsureTrueSource は原本が読めなければインポート済みテクスチャへ落ちるので、
+            // 原本が読めなければインポート済みテクスチャへ落ちるので、
             // ここで Read/Write を別途要求しない（PNG/JPG は Read/Write なしで表示できる）。
-            if (!EnsureTrueSource(sourceTexture))
+            // PNG は別スレッドで読み、読み終えるまでは案内だけを出す(エディタを止めない)。読んでいるかは Layout のときに
+            // 決める(同じフレームの他のイベントも同じものを描く)。
+            var sourceState = PollSource(sourceTexture);
+            if (Event.current.type == EventType.Layout) _loadingAtLayout = sourceState == SourceState.Loading;
+            if (_loadingAtLayout || sourceState == SourceState.Loading)
+            {
+                DrawTitleRow(false, 0f);
+                EditorGUILayout.LabelField(Localization.PreviewLoadingSource);
+                return;
+            }
+            if (sourceState == SourceState.Unavailable)
             {
                 DrawTitleRow(false, 0f);
                 return;

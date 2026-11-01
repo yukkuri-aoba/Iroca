@@ -2,6 +2,7 @@
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System;
 using System.IO;
+using System.Threading;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
@@ -101,6 +102,19 @@ namespace Iroca
                 if (loadTex != null) UnityEngine.Object.DestroyImmediate(loadTex);
             }
             return null;
+        }
+
+        /// <summary>
+        /// PNG を別スレッドで読む口(どのスレッドからでもよい。参照 1 で返す)。寸法は取り込み後の寸法から
+        /// <see cref="WorkingResolution"/> の規則で決める(0 を渡すと元の解像度)。
+        /// PNG でない・扱わない形式・壊れたファイルは null で、そのときはメインスレッドで <see cref="DecodeSourceFile"/> か
+        /// 取り込み済みテクスチャから読む(LoadImage と GPU の展開はメインスレッド専用)。読んでいる間、Mono のヒープには
+        /// 行の控えしか置かない。取り消されたら画素を手放して OperationCanceledException を投げる。
+        /// </summary>
+        public static NativePixels TryDecodePngOffMainThread(string srcPath, int importW, int importH, CancellationToken cancel)
+        {
+            var decoded = PngFileDecoder.TryDecode(srcPath, cancel);
+            return decoded == null ? null : WorkingResolution.FitToWorkingSize(decoded, importW, importH);
         }
 
         private enum ImageKind { Png, Jpeg, Other }

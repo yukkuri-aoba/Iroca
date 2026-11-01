@@ -291,7 +291,9 @@ namespace Iroca.EditorTests
             var px = new Color32[sw * sh];
             var r = new System.Random(3);
             for (int i = 0; i < px.Length; i++) px[i] = new Color32((byte)r.Next(256), (byte)r.Next(256), (byte)r.Next(256), (byte)r.Next(256));
-            string path = _assets.WritePng("wide", px, sw, sh);
+            // Texture2D を介さずに PNG を作る(Unity 6 の -nographics は 8192 より広い Texture2D を作れない)。
+            string path = _assets.WriteBytes("wide.png",
+                ImageConversion.EncodeArrayToPNG(px, UnityEngine.Experimental.Rendering.GraphicsFormat.R8G8B8A8_SRGB, sw, sh));
             var importer = (TextureImporter)AssetImporter.GetAtPath(path);
             importer.maxTextureSize = 1024;
             importer.SaveAndReimport();
@@ -302,7 +304,11 @@ namespace Iroca.EditorTests
             var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
             try
             {
-                Assert.IsTrue(tex.LoadImage(File.ReadAllBytes(path)));
+                bool loaded = tex.LoadImage(File.ReadAllBytes(path));
+                // 比べる相手が無い(Unity 6 の -nographics の LoadImage は 8192 より広い画像を読めない)。
+                if (!loaded && SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null)
+                    Assert.Ignore("LoadImage cannot read images wider than 8192 without a GPU on this Unity version");
+                Assert.IsTrue(loaded);
                 var expected = WorkingResolution.NativePixelsOf(tex, imported);
                 try
                 {

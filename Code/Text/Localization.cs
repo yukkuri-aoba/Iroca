@@ -480,6 +480,8 @@ namespace Iroca
         public static string PreviewDeferredInPlayMode => IsJapanese
             ? "再生中は、このウィンドウにマウスを乗せるとプレビューを表示します。"
             : "During Play mode, the preview appears when you move the mouse over this window.";
+        // 原本を別スレッドで読んでいる間のプレビューの案内(PreviewView.Draw)。
+        public static string PreviewLoadingSource => IsJapanese ? "画像を読み込み中…" : "Loading the image…";
 
         public static string PreviewWindowTitle => IsJapanese ? "いろか プレビュー" : "Iroca Preview";
         public static string OpenPreviewWindow => IsJapanese

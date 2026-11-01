@@ -92,19 +92,23 @@ namespace Iroca
         /// デコード済みの元の解像度の画素(参照を受け取る)を、<paramref name="imported"/> の作業解像度にする。同じ寸法ならそのまま返し、
         /// 違えば縮めた画素を返して受け取った参照を返す。縮小は <see cref="NativePixelsOf"/> と同じ。
         /// </summary>
-        public static unsafe NativePixels FitToWorkingSize(NativePixels source, Texture2D imported)
+        public static NativePixels FitToWorkingSize(NativePixels source, Texture2D imported) =>
+            imported == null ? source : FitToWorkingSize(source, imported.width, imported.height);
+
+        /// <summary>
+        /// 上と同じで、取り込み後の寸法を値で受け取る(Texture2D を触らないので、どのスレッドからでもよい)。
+        /// </summary>
+        public static unsafe NativePixels FitToWorkingSize(NativePixels source, int importW, int importH)
         {
             int fw = source.Width, fh = source.Height;
-            Size(fw, fh, imported, out int w, out int h);
+            Size(fw, fh, importW, importH, out int w, out int h);
             if (w == fw && h == fh) return source;
             try
             {
-                TryLayout(TextureFormat.RGBA32, out var layout);
                 var dst = NativePixels.Allocate(w, h);
                 try
                 {
-                    using (var view = TextureIO.NativeView<byte>.Over(source.Ptr, source.Length * sizeof(Color32)))
-                        ResizeArea(view.Array, layout, fw, fh, w, h, dst.Ptr);
+                    ResizeArea(source.Ptr, fw, fh, w, h, dst.Ptr);
                 }
                 catch
                 {
