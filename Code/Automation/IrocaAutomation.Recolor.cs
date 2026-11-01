@@ -21,6 +21,8 @@ namespace Iroca
             // テクスチャかマテリアル(メインテクスチャ)のアセットパス
             public string texture = "";
             public List<ChangeRequest> changes = new List<ChangeRequest>();
+            // 右クリックと同じマスク操作(changes の後・自動調整の前に、順に当てる)
+            public List<MaskRequest> masks = new List<MaskRequest>();
             // 消すゾーンの名前
             public List<string> remove = new List<string>();
             // true なら、今あるゾーンとマスクを捨ててから changes を足す
@@ -52,6 +54,36 @@ namespace Iroca
             public string to = "";
         }
 
+        /// <summary>プレビューの右クリックと同じマスク操作 1 件の依頼。</summary>
+        [Serializable]
+        internal class MaskRequest
+        {
+            // "paint"(ここも塗る) | "dont_paint"(ここは塗らない) | "only"(この部分だけ塗る) | "clear"(ここのマスクを消す)
+            public string op = "";
+            // 範囲を決める位置 [u, v](左下原点、0..1)
+            public float[] at;
+            // 当てるゾーンの名前。ゾーンが 1 つなら省略できる
+            public string zone = "";
+            // true なら全ゾーン共通(zone の代わり。dont_paint と clear だけ)
+            public bool common;
+            // 範囲の決め方: "ai"(既定。AI が判定した部分) | "island"(メッシュの UV の島) | "other_meshes"(そのメッシュ以外の全部。dont_paint だけ)
+            public string by = "";
+            // by=ai の部分の大きさ: "auto"(既定) | "fine"(小さめ) | "coarse"(大きめ)
+            public string size = "";
+        }
+
+        /// <summary>当てたマスク操作の結果。</summary>
+        [Serializable]
+        internal class MaskEditInfo
+        {
+            public string zone = "";       // 当てたゾーン(全ゾーン共通なら空)
+            public string op = "";
+            public string by = "";
+            public float[] at;
+            public float regionFraction;   // 範囲が画像全体に占める割合
+            public int changedPixels;      // 書き換えた画素数(含める・除外を合わせた延べ)。0 = 何も変わっていない
+        }
+
         [Serializable]
         internal class RecolorTextureResult
         {
@@ -64,6 +96,7 @@ namespace Iroca
             public string output = "";      // 書き出した PNG
             public string preview = "";     // 比較画像(左=前 / 中=後 / 右=変わった画素をマゼンタ)
             public List<ZoneInfo> zones = new List<ZoneInfo>();
+            public List<MaskEditInfo> maskEdits = new List<MaskEditInfo>();
             public float changedFraction;
             public float largestComponentFraction;
             public int changeComponentCount;
@@ -82,6 +115,11 @@ namespace Iroca
             public bool enabled;
             // 自動調整のかけ方("evidence" / "conventional" / "skipped: 理由")。この依頼で調整しなかったゾーンは空
             public string autoTune = "";
+            // このゾーンのマスクが画像全体に占める割合(除外・含める)
+            public float excludedFraction;
+            public float includedFraction;
+            // iroca_inspect の coverage・points のときだけ: 不透明な画素のうち、このゾーンが塗るおおよその割合。測っていなければ -1
+            public float approxCoverage = -1f;
         }
 
         /// <summary>自動調整を待っている間の途中経過(<see cref="Recolor"/> / <see cref="RecolorStatus"/> が返す)。</summary>
@@ -125,6 +163,8 @@ namespace Iroca
                 string error = PrepareRecolor(requestJson, job);
                 if (error != null) return FinishRecolor(job.r, error);
 
+                if (job.maskEditList.Count > 0)
+                    job.maskEdits = new AutomationMaskEdits(job.state, job.tex, job.work, job.maskEditList, job.r.warnings, job.r.maskEdits);
                 if (job.req.autoTune && job.changedZoneIds.Count > 0)
                     job.tune = new AutomationAutoTune(job.state, job.tex, job.work, job.changedZoneIds, job.r.warnings);
                 string done = AdvanceRecolor(job);
@@ -208,6 +248,8 @@ namespace Iroca
             public bool waited;
             public IrocaSessionState state;
             public readonly List<string> changedZoneIds = new List<string>();
+            public readonly List<AutomationMaskEdits.Edit> maskEditList = new List<AutomationMaskEdits.Edit>();
+            public AutomationMaskEdits maskEdits;
             public AutomationAutoTune tune;
             // png の仕上げ(比較画像・元の解像度の色替え・PNG 化)を背景で計算しているもの
             public Task<PngExport> export;
@@ -217,8 +259,10 @@ namespace Iroca
 
             public void Cancel()
             {
+                maskEdits?.Cancel();
                 tune?.Cancel();
                 tune?.ReleaseAiIfNoWindow();
+                maskEdits?.ReleaseAiIfNoWindow();
                 cts.Cancel();
                 if (export != null)
                 {
@@ -290,19 +334,30 @@ namespace Iroca
 
         /// <summary>
         /// 進められるところまで進める(メインスレッド)。終わったら最後の結果、まだ待つなら null。
-        /// 自動調整 → 仕上げの順。avatar・preview の仕上げ(作業解像度の比較画像と登録)はその場で行う。
+        /// マスク操作 → 自動調整 → 仕上げの順(自動調整はマスクで外した所を見ない)。avatar・preview の仕上げ(作業解像度の比較画像と登録)はその場で行う。
         /// png の仕上げは、元の解像度の色替えと PNG 化が重い(16K 級では MCP の 30 秒の時間切れを超え、
         /// その間エディタも止まる)ので、UI の書き出しと同じく計算を背景のスレッドへ回し、Unity の API
         /// (元の画素の読み込み・書き込み・取り込み)だけをメインスレッドで行う。
         /// </summary>
         private static string AdvanceRecolor(RecolorJob job)
         {
+            if (job.maskEdits != null)
+            {
+                job.maskEdits.Advance();
+                if (job.maskEdits.Error != null)
+                {
+                    job.maskEdits.ReleaseAiIfNoWindow();
+                    return FinishRecolor(job.r, job.maskEdits.Error);
+                }
+                if (!job.maskEdits.Done) return null;
+            }
             if (job.tune != null && !job.tune.Done)
             {
                 job.tune.Advance();
                 if (!job.tune.Done) return null;
                 job.tune.ReleaseAiIfNoWindow();
             }
+            job.maskEdits?.ReleaseAiIfNoWindow();
             if (job.r.apply != ApplyPng) return CompleteRecolor(job);
             if (job.export == null)
             {
@@ -315,12 +370,16 @@ namespace Iroca
 
         private static string PendingJson(RecolorJob job)
         {
+            bool editing = job.maskEdits != null && !job.maskEdits.Done;
             bool tuning = job.tune != null && !job.tune.Done;
             var p = new RecolorPending
             {
                 tunedZones = job.tune?.Finished ?? 0,
                 zonesToTune = job.tune?.Total ?? 0,
-                message = tuning
+                message = editing
+                    ? "Applying the mask operations (the first time on a texture, the AI prepares the image, which can take a while). "
+                      + "Call again to get the result."
+                    : tuning
                     ? "Auto-tuning the zones (the first time on a texture, the AI prepares the image, which can take a while). "
                       + "Call again to get the result."
                     : "Writing the recolored PNG (a large texture takes a while). Call again to get the result.",
@@ -465,8 +524,97 @@ namespace Iroca
             foreach (var z in state.zones) if (z != null) { z.EnsureId(); z.UpdateCacheIfNeeded(); }
             if (RecolorInput.CountEnabled(state.zones) == 0)
                 return "no enabled zones (add at least one entry to 'changes').";
+
+            // ── マスク操作(ゾーンの変更の後に確かめる。同じ依頼で作ったゾーンも宛先にできる) ──
+            foreach (var maskRequest in req.masks ?? new List<MaskRequest>())
+            {
+                string err = ParseMaskRequest(maskRequest, state, out var edit);
+                if (err != null) return err;
+                job.maskEditList.Add(edit);
+            }
             return null;
         }
+
+        // マスク操作の依頼を確かめて、当てる形にする。AI・メッシュが使えないことは、待つ前にここで断る。エラーなら文言、よければ null。
+        private static string ParseMaskRequest(MaskRequest m, IrocaSessionState state, out AutomationMaskEdits.Edit edit)
+        {
+            edit = null;
+            if (m == null) return "a mask operation is empty.";
+            string opName = (m.op ?? "").Trim().ToLowerInvariant();
+            MaskRegionOp op;
+            switch (opName)
+            {
+                case "paint": op = MaskRegionOp.PaintHere; break;
+                case "dont_paint": op = MaskRegionOp.DontPaintHere; break;
+                case "only": op = MaskRegionOp.OnlyThisPart; break;
+                case "clear": op = MaskRegionOp.ClearHere; break;
+                default: return $"unknown mask op '{m.op}' (use 'paint', 'dont_paint', 'only' or 'clear').";
+            }
+            if (m.at == null || m.at.Length < 2 || m.at[0] < 0f || m.at[0] > 1f || m.at[1] < 0f || m.at[1] > 1f)
+                return $"mask op '{opName}': 'at' must be [u, v] within 0..1 (bottom-left origin).";
+
+            string byName = string.IsNullOrWhiteSpace(m.by) ? "ai" : m.by.Trim().ToLowerInvariant();
+            AutomationMaskEdits.By by;
+            switch (byName)
+            {
+                case "ai": by = AutomationMaskEdits.By.Ai; break;
+                case "island": by = AutomationMaskEdits.By.Island; break;
+                case "other_meshes": by = AutomationMaskEdits.By.OtherMeshes; break;
+                default: return $"unknown mask 'by' '{m.by}' (use 'ai', 'island' or 'other_meshes').";
+            }
+            if (by == AutomationMaskEdits.By.OtherMeshes && op != MaskRegionOp.DontPaintHere)
+                return "by:'other_meshes' works only with op:'dont_paint'.";
+
+            string sizeName = string.IsNullOrWhiteSpace(m.size) ? "auto" : m.size.Trim().ToLowerInvariant();
+            MaskSuggestGranularity size;
+            switch (sizeName)
+            {
+                case "auto": size = MaskSuggestGranularity.Auto; break;
+                case "fine": size = MaskSuggestGranularity.Fine; break;
+                case "coarse": size = MaskSuggestGranularity.Coarse; break;
+                default: return $"unknown mask size '{m.size}' (use 'auto', 'fine' or 'coarse').";
+            }
+            if (by == AutomationMaskEdits.By.Ai && (MaskSuggestBridge.Service == null || MaskSuggestBridge.Service.Phase == MaskSuggestPhase.NoModel))
+                return "by:'ai' needs Unity Sentis and the AI model, which are not installed. Use by:'island' "
+                    + "(the mesh's UV island) instead, or ask the user to install them (see the manual's AI chapter).";
+
+            string zoneName = (m.zone ?? "").Trim();
+            ColorZone zone = null;
+            if (m.common)
+            {
+                if (zoneName.Length > 0) return "give either 'zone' or common:true, not both.";
+                if (op != MaskRegionOp.DontPaintHere && op != MaskRegionOp.ClearHere)
+                    return $"common:true works only with op:'dont_paint' or 'clear' (got '{opName}').";
+            }
+            else if (zoneName.Length > 0)
+            {
+                zone = state.zones.FirstOrDefault(z => z != null && z.name == zoneName);
+                if (zone == null) return $"no zone named '{zoneName}' (zones: {ZoneNames(state)}).";
+            }
+            else
+            {
+                var named = state.zones.Where(z => z != null).ToList();
+                if (named.Count != 1)
+                    return $"mask op '{opName}': pass 'zone' (zones: {ZoneNames(state)}) or common:true.";
+                zone = named[0];
+            }
+            zone?.EnsureId();
+            edit = new AutomationMaskEdits.Edit
+            {
+                zoneId = zone?.id,
+                zoneName = zone?.name ?? "",
+                op = op,
+                opName = opName,
+                by = by,
+                byName = byName,
+                size = size,
+                uv = new Vector2(m.at[0], m.at[1]),
+            };
+            return null;
+        }
+
+        private static string ZoneNames(IrocaSessionState state)
+            => string.Join(", ", state.zones.Where(z => z != null).Select(z => "'" + z.name + "'"));
 
         // avatar・preview の仕上げ: 比較画像を作り、登録まで行って、最後の結果を返す(png は StartPngExport)。
         private static string CompleteRecolor(RecolorJob job)
@@ -721,23 +869,51 @@ namespace Iroca
             r.largestComponentFraction = c.metrics.largestComponentFraction;
             r.changeComponentCount = c.metrics.componentCount;
             r.preview = WriteRecolorPanel(c, r.texture, r.warnings);
-            foreach (var z in job.state.zones)
+            AddZoneInfos(r.zones, job.state, z =>
             {
-                if (z == null) continue;
-                string how = "";
-                if (job.tune != null && job.tune.How.TryGetValue(z.name, out var h)) how = h;
-                else if (job.changedZoneIds.Contains(z.id) && !job.req.autoTune) how = "skipped: autoTune=false";
-                r.zones.Add(new ZoneInfo
+                if (job.tune != null && job.tune.How.TryGetValue(z.name, out var h)) return h;
+                return job.changedZoneIds.Contains(z.id) && !job.req.autoTune ? "skipped: autoTune=false" : "";
+            }, out _);
+        }
+
+        // 編集状態のゾーンの一覧を結果の形で足す(並びは優先度の順。先頭が最も高い)。commonExcludedFraction は全ゾーン共通の除外の割合。
+        private static void AddZoneInfos(List<ZoneInfo> dst, IrocaSessionState state, Func<ColorZone, string> autoTune,
+            out float commonExcludedFraction)
+        {
+            commonExcludedFraction = 0f;
+            var masks = new MaskWorkspace();
+            try
+            {
+                if (state.maskState != null) masks.DecodeFrom(state.maskState);
+                commonExcludedFraction = FractionOf(masks.Common);
+                foreach (var z in state.zones)
                 {
-                    name = z.name,
-                    from = "#" + ColorUtility.ToHtmlStringRGB(z.sampleColor),
-                    to = "#" + ColorUtility.ToHtmlStringRGB(z.targetColor),
-                    at = z.sampleUV.x >= 0f ? new[] { z.sampleUV.x, z.sampleUV.y } : new float[0],
-                    tolerance = z.tolerance,
-                    enabled = z.enabled,
-                    autoTune = how,
-                });
+                    if (z == null) continue;
+                    dst.Add(new ZoneInfo
+                    {
+                        name = z.name,
+                        from = "#" + ColorUtility.ToHtmlStringRGB(z.sampleColor),
+                        to = "#" + ColorUtility.ToHtmlStringRGB(z.targetColor),
+                        at = z.sampleUV.x >= 0f ? new[] { z.sampleUV.x, z.sampleUV.y } : new float[0],
+                        tolerance = z.tolerance,
+                        enabled = z.enabled,
+                        autoTune = autoTune != null ? autoTune(z) : "",
+                        excludedFraction = FractionOf(masks.Layer(false, z.id)),
+                        includedFraction = FractionOf(masks.Layer(true, z.id)),
+                    });
+                }
             }
+            finally { masks.Clear(); }
+        }
+
+        // 立っている画素の割合(無ければ 0)。
+        private static unsafe float FractionOf(NativeBitMask mask)
+        {
+            if (mask == null || mask.Width <= 0 || mask.Height <= 0) return 0f;
+            long on = 0;
+            ulong* bits = mask.Bits;
+            for (int i = 0; i < mask.Words; i++) on += Bits.PopCount(bits[i]);
+            return (float)on / mask.Length;
         }
 
         private const string UndoName = "Iroca: Recolor (automation)";
@@ -904,7 +1080,9 @@ namespace Iroca
             {
                 r.note = "Open 'preview' to check the result: left=before, middle=after, right=changed pixels (magenta). "
                     + "Magenta outside the intended part means over-selection; missing magenta inside it means it was missed. "
-                    + "To retry a part, send a change with the same 'name' (it replaces that zone).";
+                    + "To retry a part, send a change with the same 'name' (it replaces that zone). "
+                    + "To keep a same-colored part unpainted or paint only one part, use 'masks'. "
+                    + "To see which zone paints a spot and why, call iroca_inspect with 'points'.";
                 if (r.apply == ApplyAvatar)
                     r.note += " The recolor is registered non-destructively and shows in the Scene view (NDMF preview); "
                         + "the user can undo it with Ctrl+Z, or fine-tune it in the Iroca window (iroca_open).";

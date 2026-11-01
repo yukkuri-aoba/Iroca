@@ -26,9 +26,12 @@ namespace Iroca.McpIntegration
     [McpForUnityTool("iroca_inspect", Description =
         "Iroca (avatar texture recolor tool), step 1: find what to recolor. No target: lists the scene's avatars (root objects "
         + "with renderers). A scene object ('Avatar/Body', a unique name or '#instanceID'): lists the main textures under it with "
-        + "their materials and Iroca recipes. A texture or material asset path: returns its main colors (hex, coverage), a click "
-        + "position 'uv' (bottom-left origin) inside each, and 'thumbnail', a PNG with a ring at each uv. Open the thumbnail, then "
-        + "pass the uv of the part to change as 'at' to iroca_recolor.")]
+        + "their materials and Iroca recipes. A texture, material or recipe asset path: returns its main colors (hex, coverage), a click "
+        + "position 'uv' (bottom-left origin) inside each, 'thumbnail' (a PNG with a ring at each uv), the current zones and masks, and "
+        + "the meshes that use it. Open the thumbnail, then pass the uv of the part to change as 'at' to iroca_recolor. Every result also "
+        + "reports whether NDMF and the AI can be used, and the preset names. To check a result, pass 'points' ([[u,v],...]): for each spot it "
+        + "returns the color before and after, the zone painting it, each zone's selection strength and masks, and its mesh and UV island. "
+        + "'points' or coverage=true runs the recolor once, which takes a moment on a large texture.")]
     public static class IrocaInspectTool
     {
         public class Parameters
@@ -38,12 +41,43 @@ namespace Iroca.McpIntegration
 
             [ToolParameter("Maximum number of main colors to return for a texture (1-16, default 8).", Required = false)]
             public int? max_colors { get; set; }
+
+            [ToolParameter("Spots to examine on a texture: [[u,v],...] (bottom-left origin, up to 32).", Required = false)]
+            public JToken points { get; set; }
+
+            [ToolParameter("true = also return each zone's approximate share of the opaque pixels ('approxCoverage').", Required = false)]
+            public bool? coverage { get; set; }
         }
 
         public static object HandleCommand(JObject @params)
         {
             var p = @params != null ? @params.ToObject<Parameters>() : new Parameters();
-            return McpResponses.FromAutomationResult(IrocaAutomation.Inspect(p.target, p.max_colors ?? 0), "inspect failed");
+            if (!TryReadPoints(p.points, out float[] points))
+                return McpResponses.Error("'points' must be an array of [u, v] pairs, like [[0.5,0.25],[0.1,0.9]].");
+            return McpResponses.FromAutomationResult(
+                IrocaAutomation.Inspect(p.target, p.max_colors ?? 0, points, p.coverage ?? false), "inspect failed");
+        }
+
+        // [[u,v],...](文字列で送ってくるクライアントもある)を u, v の並びにする。
+        private static bool TryReadPoints(JToken token, out float[] points)
+        {
+            points = null;
+            if (token == null || token.Type == JTokenType.Null) return true;
+            try
+            {
+                if (token.Type == JTokenType.String) token = JToken.Parse((string)token);
+                if (!(token is JArray list)) return false;
+                var flat = new System.Collections.Generic.List<float>();
+                foreach (var item in list)
+                {
+                    if (!(item is JArray pair) || pair.Count != 2) return false;
+                    flat.Add((float)pair[0]);
+                    flat.Add((float)pair[1]);
+                }
+                points = flat.ToArray();
+                return true;
+            }
+            catch (System.Exception) { return false; }
         }
     }
 
@@ -54,7 +88,11 @@ namespace Iroca.McpIntegration
     [McpForUnityTool("iroca_recolor", Description =
         "Iroca step 2: recolor parts of a texture like the Iroca window does. Each 'changes' entry becomes one zone "
         + "{name, at:[u,v] or from:'#RRGGBB', to:'#RRGGBB'} and changes every pixel of that color (with its shading), not only "
-        + "the clicked spot; send the same name to redo a zone. Existing zones are kept unless reset=true. apply='avatar' "
+        + "the clicked spot; send the same name to redo a zone. Existing zones are kept unless reset=true. To limit a zone like the "
+        + "window's right-click menu, add 'masks': {op:'dont_paint' (keep this part unpainted), 'only' (paint only this part), 'paint' "
+        + "(also paint this part) or 'clear' (remove masks here), at:[u,v], zone:name} applies to the part the AI finds at that spot; "
+        + "by:'island' uses the mesh's UV island instead, and size:'fine'/'coarse' picks a smaller or larger AI part. Masks are applied "
+        + "after 'changes' and before auto-tune. apply='avatar' "
         + "(default) registers it on the avatar non-destructively (shows in the Scene view, applied at upload; needs NDMF, not in "
         + "Play mode; Ctrl+Z undoes it); 'png' writes a PNG under Assets/ (an existing file is replaced only with overwrite=true); "
         + "'preview' saves nothing. New zones are auto-tuned (uses the AI; the first run on a texture can take a minute). Open the "
@@ -70,6 +108,9 @@ namespace Iroca.McpIntegration
 
             [ToolParameter("[{\"name\":\"skirt\",\"at\":[u,v],\"to\":\"#1A2B5C\"}]. 'from':'#RRGGBB' instead of 'at' picks by color. Unity color names like \"navy\" also work.", Required = false)]
             public JToken changes { get; set; }
+
+            [ToolParameter("[{\"op\":\"dont_paint\",\"at\":[u,v],\"zone\":\"skirt\"}]. op: dont_paint, only, paint or clear. zone can be omitted if there is one zone; common:true targets all zones (dont_paint, clear). by: ai (default), island, or other_meshes (dont_paint only). size (ai): auto, fine or coarse.", Required = false)]
+            public JToken masks { get; set; }
 
             [ToolParameter("Zone names to remove.", Required = false)]
             public JToken remove { get; set; }
@@ -107,7 +148,7 @@ namespace Iroca.McpIntegration
                 return McpResponses.FromAutomationPendingOrResult(IrocaAutomation.RecolorStatus(), PollIntervalSeconds, "recolor failed");
 
             var request = @params != null ? (JObject)@params.DeepClone() : new JObject();
-            foreach (var key in new[] { "changes", "remove" })
+            foreach (var key in new[] { "changes", "masks", "remove" })
             {
                 if (request[key] is JValue v && v.Type == JTokenType.String)
                 {

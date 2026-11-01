@@ -27,6 +27,14 @@ namespace Iroca
             public string kind = "";
             public string target = "";
             public string version = "";
+            // 非破壊の登録に使う NDMF の状態("supported" / "missing" / "too_old" / "too_new")
+            public string ndmf = "";
+            // AI の状態("ready" / "not_loaded" / "no_sentis" / "no_model" / "error")。ready・not_loaded なら by:'ai' と自動調整が使える
+            public string ai = "";
+            // iroca_recolor が途中か(終わるまで次の色替えは断られる)
+            public bool recolorRunning;
+            // iroca_recolor の preset に渡せるプリセットの名前
+            public List<string> presets = new List<string>();
             public List<ObjectInfo> objects = new List<ObjectInfo>();
             public List<TextureInfo> textures = new List<TextureInfo>();
             public List<string> warnings = new List<string>();
@@ -57,6 +65,39 @@ namespace Iroca
             public string editableSource = "";
             public string thumbnail = "";
             public List<ColorInfo> colors = new List<ColorInfo>();
+            // 今の色替えの内容(いろかの窓かレシピから。並びは優先度の順で、先頭が最も高い)
+            public string zonesFrom = "";          // "window" か、レシピのパス。読むものが無ければ空
+            public List<ZoneInfo> zones = new List<ZoneInfo>();
+            public float commonExcludedFraction;   // 全ゾーン共通の除外が画像全体に占める割合
+            // このテクスチャを使っているメッシュ(by:'island'・'other_meshes' に使える)
+            public List<string> meshes = new List<string>();
+            // points で聞かれた場所(points を渡したときだけ)
+            public List<PointInfo> points = new List<PointInfo>();
+        }
+
+        /// <summary>指定した場所が今どうなっているか(<see cref="Inspect(string, int, float[], bool)"/> の points)。</summary>
+        [Serializable]
+        internal class PointInfo
+        {
+            public float[] uv;
+            public string hex = "";          // 元の色
+            public int alpha;                // 元の不透明度(0..255)
+            public string afterHex = "";     // 今の色替えの後の色
+            public bool changed;             // 色替えで変わるか
+            public string paintedBy = "";    // 主に塗っているゾーン(どれも塗っていなければ空)
+            public string mesh = "";         // その場所のメッシュ(UV の島が無ければ空)
+            public int island = -1;          // その場所の UV の島の番号(同じ番号なら同じ島。無ければ -1)
+            public bool commonExcluded;      // 全ゾーン共通の除外がかかっているか
+            public List<PointZoneInfo> zones = new List<PointZoneInfo>();
+        }
+
+        [Serializable]
+        internal class PointZoneInfo
+        {
+            public string name = "";
+            public float strength;           // マスクも含めた、このゾーンの選択の強さ(0..1)
+            public bool excluded;            // このゾーンの除外(ここは塗らない)がかかっているか
+            public bool included;            // このゾーンの含める(ここも塗る)がかかっているか
         }
 
         [Serializable]
@@ -73,15 +114,34 @@ namespace Iroca
         /// 色替えの対象を調べる。<paramref name="target"/> は次のどれか:
         ///   空 = 開いているシーンの、レンダラーを持つルート(アバターの一覧)。
         ///   シーンの GameObject(階層のパス "Avatar/Body"・名前・"#インスタンス ID")= その下で使っているテクスチャの一覧。
-        ///   テクスチャ・マテリアルのアセットパス = そのテクスチャ(マテリアルならメインテクスチャ)の主な色と代表点、
-        ///   印付きの縮小画像(thumbnail)。
+        ///   テクスチャ・マテリアル・レシピのアセットパス = そのテクスチャ(マテリアルならメインテクスチャ)の主な色と代表点、
+        ///   印付きの縮小画像(thumbnail)、今のゾーンとマスク、使っているメッシュ。
+        /// どの場合も、NDMF と AI の状態・プリセットの名前を返す。
         /// </summary>
         public static string Inspect(string target, int maxColors = DefaultInspectColors)
+            => Inspect(target, maxColors, null, false);
+
+        /// <summary>
+        /// <see cref="Inspect(string, int)"/> に、今の色替えの分析を足す(テクスチャ・マテリアル・レシピのとき)。
+        /// 窓を開かずに色替えを 1 回走らせるので、そのぶん時間とメモリを使う(ゾーンごとに画素数 × 4 バイト)。
+        /// </summary>
+        /// <param name="pointsUv">聞きたい場所(u, v の繰り返し。左下原点、0..1。最大 <see cref="MaxInspectPoints"/> か所)。null = 無し。</param>
+        /// <param name="coverage">true なら、各ゾーンが塗るおおよその割合(approxCoverage)を返す。points があれば同じ結果が付く。</param>
+        public static string Inspect(string target, int maxColors, float[] pointsUv, bool coverage)
         {
             var r = new InspectResult { target = target ?? "", version = ExtractVersion() };
             try
             {
+                FillEnvironment(r);
                 maxColors = Mathf.Clamp(maxColors <= 0 ? DefaultInspectColors : maxColors, 1, MaxInspectColors);
+                if (pointsUv != null)
+                {
+                    if (pointsUv.Length % 2 != 0 || pointsUv.Length / 2 > MaxInspectPoints)
+                        return Finish(r, $"'points' must be up to {MaxInspectPoints} [u, v] pairs.");
+                    foreach (float c in pointsUv)
+                        if (float.IsNaN(c) || c < 0f || c > 1f)
+                            return Finish(r, "'points' must be within 0..1 (bottom-left origin).");
+                }
                 if (string.IsNullOrWhiteSpace(target))
                 {
                     InspectScene(r);
@@ -89,16 +149,22 @@ namespace Iroca
                 }
 
                 var asset = LoadAssetByPath(target);
+                if (asset is IrocaRecipe recipe)
+                {
+                    if (recipe.sourceTexture == null) return Finish(r, $"the recipe has no source texture: {target}");
+                    InspectTexture(r, recipe.sourceTexture, maxColors, recipe, pointsUv, coverage);
+                    return Finish(r);
+                }
                 if (asset is Material mat)
                 {
                     var main = MeshUvLocator.MainTexture(mat) as Texture2D;
                     if (main == null) return Finish(r, $"material has no main texture: {target}");
-                    InspectTexture(r, main, maxColors);
+                    InspectTexture(r, main, maxColors, null, pointsUv, coverage);
                     return Finish(r);
                 }
                 if (asset is Texture2D tex)
                 {
-                    InspectTexture(r, tex, maxColors);
+                    InspectTexture(r, tex, maxColors, null, pointsUv, coverage);
                     return Finish(r);
                 }
                 if (asset != null)
@@ -167,7 +233,8 @@ namespace Iroca
             if (r.textures.Count == 0) r.warnings.Add("no renderer with a main texture under this object.");
         }
 
-        private static void InspectTexture(InspectResult r, Texture2D tex, int maxColors)
+        private static void InspectTexture(InspectResult r, Texture2D tex, int maxColors, IrocaRecipe recipe,
+            float[] pointsUv, bool coverage)
         {
             r.kind = "texture";
             var info = NewTextureInfo(tex);
@@ -188,6 +255,11 @@ namespace Iroca
             }
             if (!string.IsNullOrEmpty(info.editableSource))
                 r.warnings.Add($"this texture is an Iroca export; recolor its source instead: {info.editableSource}");
+
+            // 書き出し物の画素に、元のテクスチャのゾーンを当てても意味が無い(元を調べるように上で知らせている)。
+            var state = string.IsNullOrEmpty(info.editableSource) ? LoadInspectState(r, info, tex, recipe) : null;
+            if (state != null) AddZoneInfos(info.zones, state, null, out info.commonExcludedFraction);
+            AddMeshes(r, info, tex);
 
             string abs = PhysicalPath(info.path);
             if (abs == null) { r.warnings.Add("texture file not found; colors are not available."); return; }
@@ -215,6 +287,8 @@ namespace Iroca
                     });
                 }
                 info.thumbnail = WriteInspectThumbnail(pixels, entries, info.path, r.warnings);
+                if ((pointsUv != null && pointsUv.Length > 0) || coverage)
+                    AnalyzeCurrentRecolor(r, info, tex, pixels, state, pointsUv);
             }
             finally
             {

@@ -69,11 +69,15 @@
       "uv"
     ],
     "IrocaAutomation.InspectResult": [
+      "ai",
       "error",
       "kind",
+      "ndmf",
       "note",
       "objects",
       "ok",
+      "presets",
+      "recolorRunning",
       "target",
       "textures",
       "version",
@@ -85,6 +89,22 @@
       "preset",
       "source",
       "zones"
+    ],
+    "IrocaAutomation.MaskEditInfo": [
+      "at",
+      "by",
+      "changedPixels",
+      "op",
+      "regionFraction",
+      "zone"
+    ],
+    "IrocaAutomation.MaskRequest": [
+      "at",
+      "by",
+      "common",
+      "op",
+      "size",
+      "zone"
     ],
     "IrocaAutomation.ObjectInfo": [
       "isAvatar",
@@ -98,6 +118,24 @@
       "ok",
       "recipe",
       "texture"
+    ],
+    "IrocaAutomation.PointInfo": [
+      "afterHex",
+      "alpha",
+      "changed",
+      "commonExcluded",
+      "hex",
+      "island",
+      "mesh",
+      "paintedBy",
+      "uv",
+      "zones"
+    ],
+    "IrocaAutomation.PointZoneInfo": [
+      "excluded",
+      "included",
+      "name",
+      "strength"
     ],
     "IrocaAutomation.PresetEntry": [
       "name",
@@ -119,6 +157,7 @@
       "autoTune",
       "avatar",
       "changes",
+      "masks",
       "output",
       "overwrite",
       "preset",
@@ -149,6 +188,7 @@
       "changedFraction",
       "error",
       "largestComponentFraction",
+      "maskEdits",
       "note",
       "ok",
       "output",
@@ -180,16 +220,21 @@
     ],
     "IrocaAutomation.TextureInfo": [
       "colors",
+      "commonExcludedFraction",
       "editableSource",
       "height",
       "materials",
+      "meshes",
       "path",
+      "points",
       "recipes",
       "renderers",
       "thumbnail",
       "width",
       "workHeight",
-      "workWidth"
+      "workWidth",
+      "zones",
+      "zonesFrom"
     ],
     "IrocaAutomation.ZoneDto": [
       "applyHighlightWash",
@@ -220,10 +265,13 @@
       "valueBlend"
     ],
     "IrocaAutomation.ZoneInfo": [
+      "approxCoverage",
       "at",
       "autoTune",
       "enabled",
+      "excludedFraction",
       "from",
+      "includedFraction",
       "name",
       "to",
       "tolerance"
@@ -231,6 +279,12 @@
     "IrocaAutomation.ZonesRequest": [
       "settings",
       "zones"
+    ],
+    "IrocaEditingDocument": [
+      "boundRecipe",
+      "maskRevision",
+      "session",
+      "sourceTexture"
     ],
     "IrocaPresetData": [
       "advancedMode",
@@ -276,12 +330,6 @@
       "relaxedSatRamp",
       "useDecontamination",
       "zones"
-    ],
-    "IrocaEditingDocument": [
-      "boundRecipe",
-      "maskRevision",
-      "session",
-      "sourceTexture"
     ],
     "IrocaWindow": [
       "_boundRecipe",

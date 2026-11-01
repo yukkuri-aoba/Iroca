@@ -96,7 +96,7 @@ namespace Iroca
         /// 結果は onResult で 1 回だけ返る(取り消し・破棄のときは null)。
         /// </summary>
         internal static Request RequestWhenIdle(object owner, string sourceKey, NativePixels pixels, float u, float v,
-            Action<MaskSuggestProposal> onResult)
+            Action<MaskSuggestProposal> onResult, MaskSuggestGranularity granularity = MaskSuggestGranularity.Auto)
         {
             var svc = Service;
             if (svc == null || onResult == null) return Request.Unavailable;
@@ -106,7 +106,7 @@ namespace Iroca
             if (sourceKey != s_sourceKey && HasLive) return Request.Busy;
             UseSource(svc, sourceKey, pixels);
             if (svc.Phase != MaskSuggestPhase.Idle) return Request.Busy;
-            return Submit(svc, owner, u, v, MaskSuggestGranularity.Auto, onResult) ? Request.Started : Request.Unavailable;
+            return Submit(svc, owner, u, v, granularity, onResult) ? Request.Started : Request.Unavailable;
         }
 
         /// <summary>

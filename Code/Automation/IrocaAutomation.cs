@@ -174,11 +174,14 @@ namespace Iroca
                 {
                     "RecolorByPreset(sourceAssetPath, presetPathOrNameOrJson, outputAssetPath) -> RecolorResult",
                     "RecolorWithZones(sourceAssetPath, zonesRequestJson, outputAssetPath) -> RecolorResult",
-                    "Inspect(target, maxColors) -> { kind, objects, textures:[{path, colors:[{hex, uv}], thumbnail}] }"
-                        + "（target なしでシーンのアバター一覧、シーンのオブジェクトで使っているテクスチャ、テクスチャで主な色と代表点）",
-                    "Recolor(requestJson) -> { ok, texture, apply, avatar, recipe, output, preview, zones, warnings } か "
-                        + "{ pending:true }（依頼 JSON: texture, changes:[{name, at:[u,v] | from, to}], remove, reset, preset, "
-                        + "apply=avatar|png|preview, avatar, output, overwrite, autoTune）",
+                    "Inspect(target, maxColors, pointsUv, coverage) -> { kind, ndmf, ai, recolorRunning, presets, objects, "
+                        + "textures:[{path, colors:[{hex, uv}], thumbnail, zonesFrom, zones, commonExcludedFraction, meshes, points}] }"
+                        + "（target なしでシーンのアバター一覧、シーンのオブジェクトで使っているテクスチャ、テクスチャ・マテリアル・レシピで主な色と代表点・"
+                        + "今のゾーンとマスク。pointsUv（u, v の並び）で指定した場所の色・塗っているゾーン・マスク・UV の島。coverage でゾーンごとのおおよその割合）",
+                    "Recolor(requestJson) -> { ok, texture, apply, avatar, recipe, output, preview, zones, maskEdits, warnings } か "
+                        + "{ pending:true }（依頼 JSON: texture, changes:[{name, at:[u,v] | from, to}], "
+                        + "masks:[{op=paint|dont_paint|only|clear, at:[u,v], zone, common, by=ai|island|other_meshes, size=auto|fine|coarse}], "
+                        + "remove, reset, preset, apply=avatar|png|preview, avatar, output, overwrite, autoTune）",
                     "RecolorStatus() -> pending を返した Recolor の続き（終わるまで pending、終われば Recolor と同じ形）",
                     "Open(target) -> { ok, texture, recipe }（いろかの窓で開く。target はレシピ・テクスチャ・マテリアル・シーンのオブジェクト）",
                     "ListPresets() -> { presets:[{name,path,scope}] }",

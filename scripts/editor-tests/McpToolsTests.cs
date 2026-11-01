@@ -100,6 +100,38 @@ namespace Iroca.EditorTests
             Assert.AreEqual("True", Token(json, "success"), json);
         }
 
+        [Test]
+        public void Inspect_PassesPoints()
+        {
+            string src = _assets.WritePng("src", Fill(16, 8, new Color32(200, 30, 30, 255)), 16, 8);
+            string json = Call("IrocaInspectTool", "{\"target\":\"" + src + "\",\"points\":[[0.5,0.5]]}");
+            Assert.AreEqual("True", Token(json, "success"), json);
+            Assert.AreEqual("#C81E1E", Token(json, "data.textures[0].points[0].hex"), json);
+            json = Call("IrocaInspectTool", Args(("target", src), ("points", "[[0.5,0.5]]")));
+            Assert.AreEqual("#C81E1E", Token(json, "data.textures[0].points[0].hex"), json);
+        }
+
+        [Test]
+        public void Inspect_BadPoints_BecomeError()
+        {
+            string json = Call("IrocaInspectTool", "{\"points\":[0.5,0.5]}");
+            Assert.AreEqual("False", Token(json, "success"), json);
+            StringAssert.Contains("'points'", Token(json, "error"), json);
+        }
+
+        [Test]
+        public void Recolor_PassesMasks_AlsoWhenSentAsString()
+        {
+            // メッシュの無いテクスチャなので、依頼が届けばメッシュが無いと断る。
+            string src = _assets.WritePng("src", Fill(16, 8, new Color32(200, 30, 30, 255)), 16, 8);
+            string changes = "[{\"name\":\"red\",\"from\":\"#C81E1E\",\"to\":\"#1A2B5C\"}]";
+            string masks = "[{\"op\":\"dont_paint\",\"at\":[0.5,0.5],\"by\":\"island\"}]";
+            string json = Call("IrocaRecolorTool", "{\"texture\":\"" + src + "\",\"apply\":\"preview\",\"autoTune\":false,\"changes\":" + changes + ",\"masks\":" + masks + "}");
+            StringAssert.Contains("no readable mesh", Token(json, "error"), json);
+            json = Call("IrocaRecolorTool", Args(("texture", src), ("apply", "preview"), ("changes", changes), ("masks", masks)));
+            StringAssert.Contains("no readable mesh", Token(json, "error"), json);
+        }
+
         [UnityTest]
         public IEnumerator Recolor_AutoTune_RepliesPendingThenResultOnStatus()
         {
