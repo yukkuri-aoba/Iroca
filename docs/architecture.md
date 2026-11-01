@@ -152,6 +152,12 @@ partial のまま置いた）、`Pipeline/`（入口の `PixelProcessor.cs`・�
 （ファイルの大きさの管理配列が残る）。PNG・JPG でなければファイルの中身を読まない。取り込み済みテクスチャの圧縮形式は GPU で展開する
 （`WorkingResolution.NativePixelsOf`。DXT は `GetPixels32` と最大 1 段違う。GPU が無いときと対象外の形式は `GetPixels32`）。
 
+PNG は別スレッドで読む（`TextureIO.TryDecodePngOffMainThread`。プレビューは `SourcePixelCache.LoadInBackground`、書き出しと
+シーンのプレビューはジョブの中）。描くたびに呼ぶ所は `PreviewPipeline.PollSource` で、待たずに状態だけを受け取る。今すぐ画素が要る操作
+（自動調整・AI 提案）の `EnsureSource` は、読み終わるのを待って同じ読み込みを受け取る。読む途中で要らなくなったら、デコーダが行ごとに
+取り消しを見て読みかけの画素を手放す（閉じる前に `WaitForCancelledLoads` で抜けるのを待つ）。読み込みは 1 本ずつなので、読みかけが
+重ならない。JPG と GPU の展開はメインスレッド専用なので、読み込みの間だけ止まる（4K で約 100ms）。
+
 **画素数に比例する大きさのバッファは、Mono のヒープに置かない。** Unity の Mono のヒープは一度広がると OS へ返らず、
 GC は大きな塊を動かせない。8K の原本は 6,700 万画素あり、`bool[]` 1 本で 67MB、`Color32[]` 1 本で 268MB が、
 1 度使っただけでエディタを閉じるまで常駐する。
