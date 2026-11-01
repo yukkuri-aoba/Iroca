@@ -93,6 +93,10 @@ namespace Iroca
         /// 依存は Prefab を読み込まずに引ける(AssetDatabase.GetDependencies)。以前はフォルダの Prefab を
         /// 全部読み込んでから調べていたので、衣装やアバターをまとめたフォルダでは、テクスチャを開いただけで
         /// エディタが止まり、読み込んだ分だけメモリも増えていた。
+        /// 依存は Renderer のマテリアルへ届く種類だけをたどる(<see cref="MaterialCarriers"/>)。Unity に全部をたどらせると
+        /// (recursive)、アニメーションやシェーダーの先まで読むので、アバターの Prefab 1 つで約 0.3 秒かかり、
+        /// シーンにアバターが無いとテクスチャを開くたびにエディタが約 2 秒止まっていた(AssetDatabase はメインスレッド専用)。アバターの素材 69 枚で、
+        /// 見つかるメッシュが全部たどったときと同じことを確かめてある(2026-11-01。依存の探索は 2777ms → 68ms)。
         /// </summary>
         internal static List<string> PrefabsUsing(string root, HashSet<Texture> targets)
         {
@@ -106,18 +110,45 @@ namespace Iroca
             }
             if (targetPaths.Count == 0) return result;
 
+            // 同じ FBX・マテリアルを共有する Prefab が多いので、直接の依存は 1 回の探索の間だけ覚える。
+            var direct = new Dictionary<string, string[]>();
             foreach (var guid in AssetDatabase.FindAssets("t:Prefab", new[] { root }))
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
-                foreach (var dep in AssetDatabase.GetDependencies(path, true))
-                {
-                    if (!targetPaths.Contains(dep)) continue;
-                    result.Add(path);
-                    break;
-                }
+                if (ReachesAny(path, targetPaths, direct)) result.Add(path);
                 if (result.Count >= MaxProjectPrefabs) break;
             }
             return result;
+        }
+
+        // Renderer のマテリアルを持ち得る種類(Prefab・ネストした Prefab・モデルの既定マテリアル・マテリアルの親・
+        // ツールが .asset にまとめたマテリアル)。これ以外(.anim・.controller・.shader・.cs など)の先は、Renderer が
+        // 直接使うマテリアルではないので、たどっても Collect で落ちる。
+        private static readonly HashSet<string> MaterialCarriers = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
+        {
+            ".prefab", ".fbx", ".obj", ".dae", ".blend", ".3ds", ".max", ".ma", ".mb", ".dxf", ".mat", ".asset",
+        };
+
+        private static bool ReachesAny(string start, HashSet<string> targets, Dictionary<string, string[]> direct)
+        {
+            var seen = new HashSet<string> { start };
+            var stack = new Stack<string>();
+            stack.Push(start);
+            while (stack.Count > 0)
+            {
+                string current = stack.Pop();
+                if (!direct.TryGetValue(current, out var deps))
+                {
+                    deps = AssetDatabase.GetDependencies(current, false);
+                    direct.Add(current, deps);
+                }
+                foreach (var dep in deps)
+                {
+                    if (targets.Contains(dep)) return true;
+                    if (MaterialCarriers.Contains(Path.GetExtension(dep)) && seen.Add(dep)) stack.Push(dep);
+                }
+            }
+            return false;
         }
 
         /// <summary>

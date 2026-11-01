@@ -142,6 +142,72 @@ namespace Iroca.EditorTests
                 new[] { _assets.Folder + "/uses.prefab", _assets.Folder + "/uses_export.prefab" }, paths);
         }
 
+        private string[] PrefabsUsing(Texture2D tex) => MeshUvLocator.PrefabsUsing(
+            MeshUvLocator.AssetRoot(AssetDatabase.GetAssetPath(tex)), MeshUvLocator.TargetTextures(tex)).ToArray();
+
+        // 依存はマテリアルへ届く種類だけをたどる。ネストした Prefab の先のマテリアルは届く。
+        [Test]
+        public void PrefabCandidates_FollowNestedPrefabs()
+        {
+            var tex = Tex("tex");
+            var mesh = TwoQuads();
+            AssetDatabase.CreateAsset(mesh, _assets.Folder + "/mesh.asset");
+            var go = SceneObject(mesh, MaterialWith(tex, "mat"));
+            var inner = PrefabUtility.SaveAsPrefabAsset(go, _assets.Folder + "/inner.prefab");
+            Object.DestroyImmediate(_sceneObject);
+            _sceneObject = new GameObject("IrocaMeshUvLocatorTest");
+            ((GameObject)PrefabUtility.InstantiatePrefab(inner)).transform.SetParent(_sceneObject.transform);
+            PrefabUtility.SaveAsPrefabAsset(_sceneObject, _assets.Folder + "/outer.prefab");
+            Object.DestroyImmediate(_sceneObject);
+            _sceneObject = null;
+
+            CollectionAssert.AreEquivalent(
+                new[] { _assets.Folder + "/inner.prefab", _assets.Folder + "/outer.prefab" }, PrefabsUsing(tex));
+        }
+
+        // ツールがマテリアルを .asset にまとめていても届く。
+        [Test]
+        public void PrefabCandidates_FollowMaterialsInsideAssets()
+        {
+            var tex = Tex("tex");
+            var mesh = TwoQuads();
+            AssetDatabase.CreateAsset(mesh, _assets.Folder + "/bundle.asset");
+            var mat = new Material(Shader.Find("Standard")) { name = "inside", mainTexture = tex };
+            AssetDatabase.AddObjectToAsset(mat, mesh);
+            AssetDatabase.SaveAssets();
+            var go = SceneObject(mesh, mat);
+            PrefabUtility.SaveAsPrefabAsset(go, _assets.Folder + "/avatar.prefab");
+            Object.DestroyImmediate(_sceneObject);
+            _sceneObject = null;
+
+            CollectionAssert.AreEquivalent(new[] { _assets.Folder + "/avatar.prefab" }, PrefabsUsing(tex));
+            Assert.AreEqual(1, MeshUvLocator.FindForTexture(tex).found.Count);
+        }
+
+        // アニメーションの先のマテリアルは Renderer が使っているものではないので、候補にしない(候補の上限を使わない)。
+        [Test]
+        public void PrefabCandidates_DoNotFollowAnimations()
+        {
+            var tex = Tex("tex");
+            var other = Tex("other");
+            var swapped = MaterialWith(tex, "swapped");
+            var clip = new AnimationClip { legacy = true };
+            AnimationUtility.SetObjectReferenceCurve(clip,
+                EditorCurveBinding.PPtrCurve("", typeof(MeshRenderer), "m_Materials.Array.data[0]"),
+                new[] { new ObjectReferenceKeyframe { time = 0f, value = swapped } });
+            AssetDatabase.CreateAsset(clip, _assets.Folder + "/swap.anim");
+            var mesh = TwoQuads();
+            AssetDatabase.CreateAsset(mesh, _assets.Folder + "/mesh.asset");
+            var go = SceneObject(mesh, MaterialWith(other, "mat"));
+            go.AddComponent<Animation>().AddClip(clip, "swap");
+            PrefabUtility.SaveAsPrefabAsset(go, _assets.Folder + "/avatar.prefab");
+            Object.DestroyImmediate(_sceneObject);
+            _sceneObject = null;
+
+            Assert.IsEmpty(PrefabsUsing(tex));
+            CollectionAssert.AreEquivalent(new[] { _assets.Folder + "/avatar.prefab" }, PrefabsUsing(other));
+        }
+
         [Test]
         public void ManualObjectWithoutReferenceReturnsAllSubmeshesUnmatched()
         {
