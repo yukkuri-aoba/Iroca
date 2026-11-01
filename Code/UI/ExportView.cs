@@ -385,11 +385,16 @@ namespace Iroca
             // 色替えできるのに、作り込んだ後の「適用して保存」だけが失敗していた。
             // プレビューと同じく、読めないときは取り込み済みテクスチャの画素で書き出す。
             // 画素は Mono のヒープの外(ExportService)。ジョブの後始末(cleanup)で手放す。
-            ExportPipeline.SourceKind source;
-            NativePixels pixels;
+            // PNG はジョブの中で読む(4K で 150〜320ms、8K で 560ms メインスレッドを止めない。元の解像度のまま)。
+            // それ以外と扱わない PNG は LoadImage・GPU の展開が要るのでここで読む。
+            ExportPipeline.SourceKind source = ExportPipeline.SourceKind.File;
+            NativePixels pixels = null;
+            int texW = 0, texH = 0;
+            bool readInJob;
             try
             {
-                source = ExportService.ReadSource(srcPath, sourceTexture, out pixels);
+                readInJob = PngFileDecoder.CanDecode(srcPath);
+                if (!readInJob) source = ExportService.ReadSource(srcPath, sourceTexture, out pixels);
             }
             catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException)
             {
@@ -403,7 +408,11 @@ namespace Iroca
                 NotifyError(Localization.ExportSourceUnavailable);
                 return;
             }
-            int texW = pixels.Width, texH = pixels.Height;
+            if (pixels != null)
+            {
+                texW = pixels.Width;
+                texH = pixels.Height;
+            }
 
             if (source == ExportPipeline.SourceKind.ImportedTexture)
             {
@@ -428,8 +437,10 @@ namespace Iroca
             // 同じ大きさなので、終わっても手放さない(次の 1 手が作業配列と色の表を作り直さずに済む)。
             // 違う寸法(取り込み後の寸法で編集して元の解像度で書き出す)なら、その解像度の作業配列
             // (8K で約 3GB)を OS へ返す。
-            bool releaseAfterExport = !(_host?.Preview != null
-                && _host.Preview.TryGetWorkingSize(out int workW, out int workH) && workW == texW && workH == texH);
+            int workW = 0, workH = 0;
+            bool haveWorkSize = _host?.Preview != null && _host.Preview.TryGetWorkingSize(out workW, out workH);
+            // ジョブの中で読むときは、読み終えるまで書き出しの寸法が分からないので、終わったときに決める。
+            bool ReleaseAfterExport() => !(haveWorkSize && workW == texW && workH == texH);
 
             _exportProgress.Reset();
             _exportProgress.Report(0.05f);
@@ -437,6 +448,21 @@ namespace Iroca
             _exportJob.Schedule(
                 work: ct =>
                 {
+                    if (readInJob)
+                    {
+                        try
+                        {
+                            pixels = TextureIO.TryDecodePngOffMainThread(srcPath, 0, 0, ct);
+                        }
+                        catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException)
+                        {
+                            throw new System.Exception(string.Format(Localization.ExportSourceReadFailedFormat, e.Message), e);
+                        }
+                        // 見出しは読めたが画素の途中で壊れている。
+                        if (pixels == null) throw new System.Exception(Localization.ExportSourceUnavailable);
+                        texW = pixels.Width;
+                        texH = pixels.Height;
+                    }
                     _exportProgress.Report(0.10f);
                     // 取り消しに対応する(処理の中で ThrowIfCancellationRequested を呼ぶ)。
                     ExportService.Recolor(pixels, input, ct);
@@ -498,18 +524,18 @@ namespace Iroca
                     {
                         payload.png.Dispose();
                         // 書き出しの解像度の作業配列を OS へ返す(一括書き出しの末尾と同じ理由)。
-                        if (releaseAfterExport) PixelProcessor.ReleaseWorkBuffersInBackground();
+                        if (ReleaseAfterExport()) PixelProcessor.ReleaseWorkBuffersInBackground();
                     }
                 },
                 onError: ex =>
                 {
                     ReportExportFailure(ex);
-                    if (releaseAfterExport) PixelProcessor.ReleaseWorkBuffersInBackground();
+                    if (ReleaseAfterExport()) PixelProcessor.ReleaseWorkBuffersInBackground();
                 },
                 // 原本の画素は計算の後で(取り消されて計算しなかったときも)返す。
                 cleanup: () =>
                 {
-                    pixels.Release();
+                    pixels?.Release();
                     input.ReleaseMasks();
                 },
                 // エンコードまで済んだが書き込まなかった(取り消し・破棄)PNG を手放す。

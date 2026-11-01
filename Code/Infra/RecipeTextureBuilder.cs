@@ -204,7 +204,14 @@ namespace Iroca
             {
                 // 読む前に取り消された(待っていたプレビューがもう要らない)。
                 if (ct.IsCancellationRequested) { done(null); return; }
-                if (like == null || !TryReadPixels(like, out var pixels, out _)) { done(null); return; }
+                if (like == null) { done(null); return; }
+                // PNG は順番が来てから計算のスレッドで読む(4K で 0.2 秒ほどメインスレッドを止めないように。待っている間、
+                // 映すレシピの数だけ画素を持ち続けることもなくなる)。それ以外と扱わない PNG は LoadImage・GPU の展開が
+                // 要るのでここで読む。
+                string srcPath = AssetDatabase.GetAssetPath(like);
+                int importW = like.width, importH = like.height;
+                NativePixels pixels = null;
+                if (!CanReadOffMainThread(srcPath) && !TryReadPixels(like, out pixels, out _)) { done(null); return; }
                 // 計算は 1 本ずつ、前に投げた計算の後ろにつなぐ。シーンのプレビューは映すレシピの数だけ
                 // 同時にここへ来るので、並べて走らせると作業配列のプールがその組数ぶん膨らむ。
                 // 計算そのものが全コアを使うので、順番にしても合計の時間はほぼ同じ。
@@ -217,12 +224,17 @@ namespace Iroca
                         // 順番を待つ間に取り消されたら計算しない。計算中に取り消されたら、PixelProcessor が作業配列を
                         // プールへ返して OperationCanceledException で抜ける(画素はここで手放す)。
                         ct.ThrowIfCancellationRequested();
+                        if (pixels == null)
+                        {
+                            pixels = TextureIO.TryDecodePngOffMainThread(srcPath, importW, importH, ct);
+                            if (pixels == null) throw new InvalidDataException($"The PNG could not be decoded: {srcPath}");
+                        }
                         Recolor(pixels, state, ct);
                         return pixels;
                     }
                     catch
                     {
-                        pixels.Release();
+                        pixels?.Release();
                         throw;
                     }
                 }, CancellationToken.None, TaskContinuationOptions.DenyChildAttach, TaskScheduler.Default);
@@ -246,6 +258,17 @@ namespace Iroca
 
         // 最後に投げた計算(メインスレッドからしか触らない)。
         private static Task s_lastCompute = Task.CompletedTask;
+
+        // 別スレッドで読める PNG か。ファイルを開けないときは false(TryReadPixels が理由を記録して失敗にする)。
+        private static bool CanReadOffMainThread(string srcPath)
+        {
+            try { return PngFileDecoder.CanDecode(srcPath); }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
+                                       || ex is ArgumentException || ex is NotSupportedException)
+            {
+                return false;
+            }
+        }
 
         // メインスレッドの次の tick で work を回す。例外で抜けたら記録して done(null)(done は 1 回目だけ効く)。
         private static void PostOrFail(Action<Texture2D> done, Action work)
@@ -389,7 +412,8 @@ namespace Iroca
             return true;
         }
 
-        // 原本の画素を作業解像度で読む(4K で 0.2 秒ほど)。Unity の API を使うのでメインスレッドで呼ぶ。
+        // 原本の画素を作業解像度で読む(4K で 0.2 秒ほど)。Unity の API を使うのでメインスレッドで呼ぶ
+        // (シーンのプレビューの PNG は計算のスレッドで読むので、ここを通らない)。
         // 読めたら参照 1 の画素を返す(呼び出し側が Release する)。
         private static bool TryReadPixels(Texture2D src, out NativePixels pixels, out Failure failure)
         {
