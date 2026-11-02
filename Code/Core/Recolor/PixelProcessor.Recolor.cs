@@ -207,6 +207,44 @@ namespace Iroca
             return ok && anchorC / Mathf.Max(anchorL, 1e-4f) >= minSatr;
         }
 
+        // コア画素(地色の推定と同じ条件)の彩度の中央値。無ければ 0。色の表があれば彩度は表から読む(同じ色に同じ変換なので値は同じ)。
+        private static float ComputeCoreChromaMedian(
+            Color32* px, float* strength, int w,
+            int bbMinX, int bbMinY, int bbMaxX, int bbMaxY,
+            bool* statsExclude, CancellationToken ct, ColorPalette palette)
+        {
+            if (palette != null)
+                palette.EnsureOklab(new ParallelOptions { MaxDegreeOfParallelism = GetMaxParallelism(), CancellationToken = ct });
+            var palIdx = palette != null ? palette.Index : null;
+            var palC = palette != null ? palette.OkC : null;
+            var cHist = new int[256];
+            int count = Histogram.AccumulateParallelRows(bbMinY, bbMaxY + 1, cHist, (y0, y1, hist) =>
+            {
+                int n = 0;
+                for (int y = y0; y < y1; y++)
+                {
+                    int rowOff = y * w;
+                    for (int x = bbMinX; x <= bbMaxX; x++)
+                    {
+                        int i = rowOff + x;
+                        if (strength[i] < AnchorStrengthMin || px[i].a < OpaqueAlphaMin) continue;
+                        if (statsExclude != null && statsExclude[i]) continue;
+                        float c;
+                        if (palC != null) c = palC[palIdx[i]];
+                        else
+                        {
+                            OkLab.RgbToOklab(px[i].r, px[i].g, px[i].b, out _, out float a, out float b);
+                            c = Mathf.Sqrt(a * a + b * b);
+                        }
+                        hist[Mathf.Clamp((int)(c / AnchorChromaHistMax * 255f), 0, 255)]++;
+                        n++;
+                    }
+                }
+                return n;
+            }, ct);
+            return count > 0 ? Histogram.ValueAtPercentile(cHist, count, 0.5f, AnchorChromaHistMax) : 0f;
+        }
+
         // L ヒストグラム(256 ビン、count 画素)の P95−P05 が AnchorMinLSpread 未満(フラット領域)か。
         private static bool IsFlatL(int[] lHist, int count)
         {
@@ -547,30 +585,31 @@ namespace Iroca
             public readonly bool okGray;
             public readonly float okGa, okGb;
             public readonly float okSL, okTL, okSC;
-            public readonly bool okSplitChroma;   // 彩度を予想できる分と残りに分けて写すか(osat·tC > sC)
+            public readonly float okGateC;        // 明度の彩度ゲートの基準(地色の彩度。okSC は塗る範囲の中央値まで上がるが、こちらは上げない。上げると無彩に近い布で画素ごとの彩度の揺れが明度へ写り、織り目が強く出る)
+            public readonly bool okSplitChroma;  // 彩度を予想できる分と残りに分けて写すか(osat·tC > sC)
             public readonly float okInvTC;        // 1 / tC(okSplitChroma のときだけ使う)
             public readonly float valueBlend, shadowDesaturation;
             public readonly float sS, tR, tG, tB;
             public readonly float washR, washG, washB, washV;
             public readonly bool applyHighlightWash;
-            public readonly float achromaWeight, osat;
+            public readonly float achromaWeight, achromaSampleWeight, osat;
             public readonly bool hasRegL;
             public RecolorParams(
                 float okMagScale, float okTa, float okTb, bool okGray, float okGa, float okGb,
-                float okSL, float okTL, float okSC, bool okSplitChroma, float okInvTC,
+                float okSL, float okTL, float okSC, float okGateC, bool okSplitChroma, float okInvTC,
                 float valueBlend, float shadowDesaturation, float sS, float tR, float tG, float tB,
                 float washR, float washG, float washB, float washV, bool applyHighlightWash,
-                float achromaWeight, float osat, bool hasRegL)
+                float achromaWeight, float achromaSampleWeight, float osat, bool hasRegL)
             {
                 this.okMagScale = okMagScale; this.okTa = okTa; this.okTb = okTb;
                 this.okGray = okGray; this.okGa = okGa; this.okGb = okGb;
-                this.okSL = okSL; this.okTL = okTL; this.okSC = okSC;
+                this.okSL = okSL; this.okTL = okTL; this.okSC = okSC; this.okGateC = okGateC;
                 this.okSplitChroma = okSplitChroma; this.okInvTC = okInvTC;
                 this.valueBlend = valueBlend; this.shadowDesaturation = shadowDesaturation;
                 this.sS = sS; this.tR = tR; this.tG = tG; this.tB = tB;
                 this.washR = washR; this.washG = washG; this.washB = washB; this.washV = washV;
                 this.applyHighlightWash = applyHighlightWash;
-                this.achromaWeight = achromaWeight; this.osat = osat;
+                this.achromaWeight = achromaWeight; this.achromaSampleWeight = achromaSampleWeight; this.osat = osat;
                 this.hasRegL = hasRegL;
             }
         }
@@ -629,10 +668,13 @@ namespace Iroca
                     mag = Mathf.Max(0f, cHat * okMagScale + (oC - cHat) * okInvTC);
                 }
                 // 無彩パス: 無彩サンプルでは oC/sC が微小彩度ノイズを増幅(脚色)。uniform target 彩度
-                // (osat, oC 非依存)へ achromaWeight でフェードし増幅を止める。weight=0 で従来式。
+                // (osat, oC 非依存)へサンプルの無彩の重みでフェードし増幅を止める。weight=0 で従来式。
                 // weight=1 で mag=osat = okGray 経路(na=zTa·osat)と一致する。
-                if (achromaWeight > AchromaWeightActiveMin)
-                    mag = mag * (1f - achromaWeight) + osat * achromaWeight;
+                // 塗り先の無彩の重みは彩度に使わない(明度の無彩パスだけ)。一律の彩度は淡い所にも同じ色を乗せるので、
+                // 有彩のサンプルで淡い色へ塗ると元の濃淡が潰れる。塗り先が本当に無彩なら tC≈0 で、どちらでも色は付かない。
+                float chromaW = p.achromaSampleWeight;
+                if (chromaW > AchromaWeightActiveMin)
+                    mag = mag * (1f - chromaW) + osat * chromaW;
                 na = mag * okTa;
                 nb = mag * okTb;
             }
@@ -653,9 +695,9 @@ namespace Iroca
             // 相対量なので色非依存。
             // sample 無彩(okGray)時は従来どおり一律 remap。
             float effRemapL = remapL;
-            if (!okGray && okSC > 1e-4f)
+            if (!okGray && p.okGateC > 1e-4f)
             {
-                float chromaFrac = Mathf.Clamp01(oC / (okSC * OklabRemapFullChromaFrac));
+                float chromaFrac = Mathf.Clamp01(oC / (p.okGateC * OklabRemapFullChromaFrac));
                 effRemapL = oL + (remapL - oL) * chromaFrac;
             }
             // valueBlend を下げるほど target のフラットな明度へ寄せる。

@@ -109,6 +109,13 @@ namespace Iroca
             }
         }
 
+        /// <summary>サンプルが無彩な度合い(0..1)。彩度を塗り先へ一律にする重みに使う。</summary>
+        private static float ComputeAchromaSampleWeight(Color sample)
+        {
+            OkLab.RgbToOklab(sample.r, sample.g, sample.b, out _, out float sa, out float sb);
+            return Mathf.Clamp01(1f - Mathf.Sqrt(sa * sa + sb * sb) / AchromaSampleC);
+        }
+
         /// <summary>
         /// 無彩パス/AA フィデリティ用: 「無彩サンプル / 極端無彩ターゲット」の重み(0..1)を sample/target
         /// 色から求める。有彩サンプル×有彩ターゲットで 0。

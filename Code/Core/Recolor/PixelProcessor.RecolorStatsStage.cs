@@ -74,6 +74,7 @@ namespace Iroca
                 // target 色に一致する。マッチング(strength)・wash・デコンタミはスポイト色の
                 // まま＝再着色範囲は不変。フォールバック時(false)は従来挙動。
                 float zEffShadowDesat = zone.shadowDesaturation;
+                float zGateC = zSC;  // 明度の彩度ゲートの基準(倍率の基準を上げても動かさない。下の RecolorParams の okGateC)
                 if (zone.autoRecolorAnchor && !zOkGray &&
                     TryComputeRecolorAnchor(originalPixels, strength, w,
                         ppMinX, ppMinY, ppMaxX, ppMaxY, out float anchorL, out float anchorC,
@@ -82,7 +83,13 @@ namespace Iroca
                 {
                     float zSC0 = zSC;
                     zSL = anchorL;
-                    zSC = anchorC;
+                    zGateC = anchorC;
+                    // 彩度の倍率の基準は、塗る範囲の彩度の中央値より下げない。白へ抜ける布で少数の淡い面が基準に選ばれると、
+                    // その彩度を塗り先まで上げる倍率が布全体に掛かり、元の淡い所まで色が乗って濃淡の比が崩れる。淡い面が
+                    // 大半を占める素材(明るい髪など)では中央値が基準以下なので、これまでどおり面が塗り先の彩度に届く。
+                    // クリックの位置では決めない(濃い筋をクリックした髪が地味になり、結果がクリックに左右される)。
+                    zSC = Mathf.Max(anchorC, ComputeCoreChromaMedian(originalPixels, strength, w,
+                        ppMinX, ppMinY, ppMaxX, ppMaxY, includedPx, cancellationToken, palette));
                     // 暗部脱彩の領域相対化(アンカー採用時のみ): 絶対 V 閾値のままだと暗い
                     // パーツは全体が閾値未満になり一律最大50%脱彩される(=入力明度で出力彩度
                     // が変わる)。閾値に地色アンカーの V(地色の代表明度)を乗じ「パーツ内の
@@ -90,8 +97,8 @@ namespace Iroca
                     if (zEffShadowDesat > 0f)
                     {
                         OkLab.OklabToRgb(zSL,
-                            zSa / Mathf.Max(zSC0, 1e-9f) * zSC,
-                            zSb / Mathf.Max(zSC0, 1e-9f) * zSC,
+                            zSa / Mathf.Max(zSC0, 1e-9f) * zGateC,
+                            zSb / Mathf.Max(zSC0, 1e-9f) * zGateC,
                             out float aRr, out float aGg, out float aBb);
                         Color.RGBToHSV(new Color(aRr, aGg, aBb), out _, out _, out float repV);
                         zEffShadowDesat *= repV;
@@ -154,9 +161,9 @@ namespace Iroca
                 // ゾーン不変の再着色パラメータをループ前に 1 回だけ構築(in 渡しで per-pixel コピー回避)。
                 var rcParams = new RecolorParams(
                     zOkMagScale, zTa, zTb, zOkGray, zOkGa, zOkGb,
-                    zSL, zTL, zSC, zOkSplitChroma, zOkInvTC, zValueBlend, zEffShadowDesat,
+                    zSL, zTL, zSC, zGateC, zOkSplitChroma, zOkInvTC, zValueBlend, zEffShadowDesat,
                     sampS, zTR, zTG, zTB, zWR, zWG, zWB, zWV,
-                    zApplyWash, zAchromaWeight, zOsat, zHasRegL);
+                    zApplyWash, zAchromaWeight, ComputeAchromaSampleWeight(zone.sampleColor), zOsat, zHasRegL);
                 z.Params = rcParams;
                 z.RegLmid = zRegLmid;
                 z.RegMidMap = zRegMidMap;
