@@ -24,6 +24,8 @@ namespace Iroca
         // 偏差の増幅は AchromaFormGain(知覚補償、下の定数コメント参照)だけ。
         private const float AchromaSampleC  = 0.06f;  // sample OkLab chroma がこれ未満で無彩扱い(→1)
         private const float AchromaTargetC  = 0.06f;  // target OkLab chroma がこれ未満で無彩扱い
+        private const float AchromaNeutralTargetC = 0.01f;  // 明るい塗り先を「純白に近い」とみなす彩度(これ以上は色味が見える。OkLab の見分けの目安 0.02 の半分)
+        private const float OkLabMidL = 0.5f;  // 明るい塗り先と暗い塗り先の境(塗り先の極端さ 1 − 4·L·(1 − L) が 0 になる明度)
         // 形(立体感)維持版: 成分の地色基準を target 側 offset に置き、偏差を gain 倍して陰影を知覚可能に拡張。
         // rangeRemap = center + (oL−regLmid)·gain。gain は per-pixel 偏差 (oL−regLmid) を一律に倍すため、
         // 入力 L の**高周波(質感/圧縮ノイズ)まで gain 倍**されブロックノイズになる。害が最大化するのは
@@ -114,6 +116,22 @@ namespace Iroca
         {
             OkLab.RgbToOklab(sample.r, sample.g, sample.b, out _, out float sa, out float sb);
             return Mathf.Clamp01(1f - Mathf.Sqrt(sa * sa + sb * sb) / AchromaSampleC);
+        }
+
+        /// <summary>
+        /// 無彩パスの明度の重み(0..1)。明るい塗り先では、色味が見える(彩度が AchromaNeutralTargetC 以上の)ものには塗り先の
+        /// 重みを使わない。無彩パスの基準 regLmid は成分ごとなので、淡い色へ塗ると元が同じ色の部品が部品ごとに違う明るさになる。
+        /// 純白に近い塗り先は従来どおり(濃い布を白へ塗るときに、白に寄せる)。暗い塗り先は陰影を描く余白を作るために要る。
+        /// 塗り先の極端さは tL = 0.5 で 0 なので、明暗の切り替えに段差は無い。
+        /// </summary>
+        private static float ComputeAchromaLightWeight(Color sample, Color target)
+        {
+            OkLab.RgbToOklab(target.r, target.g, target.b, out float tL, out float ta, out float tb);
+            float full = ComputeAchromaWeight(sample, target);
+            if (tL <= OkLabMidL) return full;
+            float tC = Mathf.Sqrt(ta * ta + tb * tb);
+            float neutral = Mathf.Clamp01(1f - tC / AchromaNeutralTargetC);
+            return Mathf.Max(ComputeAchromaSampleWeight(sample), full * neutral);
         }
 
         /// <summary>

@@ -163,7 +163,8 @@ namespace Iroca
                     zOkMagScale, zTa, zTb, zOkGray, zOkGa, zOkGb,
                     zSL, zTL, zSC, zGateC, zOkSplitChroma, zOkInvTC, zValueBlend, zEffShadowDesat,
                     sampS, zTR, zTG, zTB, zWR, zWG, zWB, zWV,
-                    zApplyWash, zAchromaWeight, ComputeAchromaSampleWeight(zone.sampleColor), zOsat, zHasRegL);
+                    zApplyWash, zAchromaWeight, ComputeAchromaSampleWeight(zone.sampleColor),
+                    ComputeAchromaLightWeight(zone.sampleColor, zone.targetColor), zOsat, zHasRegL);
                 z.Params = rcParams;
                 z.RegLmid = zRegLmid;
                 z.RegMidMap = zRegMidMap;

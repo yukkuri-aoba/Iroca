@@ -592,14 +592,14 @@ namespace Iroca
             public readonly float sS, tR, tG, tB;
             public readonly float washR, washG, washB, washV;
             public readonly bool applyHighlightWash;
-            public readonly float achromaWeight, achromaSampleWeight, osat;
+            public readonly float achromaWeight, achromaSampleWeight, achromaLightWeight, osat;
             public readonly bool hasRegL;
             public RecolorParams(
                 float okMagScale, float okTa, float okTb, bool okGray, float okGa, float okGb,
                 float okSL, float okTL, float okSC, float okGateC, bool okSplitChroma, float okInvTC,
                 float valueBlend, float shadowDesaturation, float sS, float tR, float tG, float tB,
                 float washR, float washG, float washB, float washV, bool applyHighlightWash,
-                float achromaWeight, float achromaSampleWeight, float osat, bool hasRegL)
+                float achromaWeight, float achromaSampleWeight, float achromaLightWeight, float osat, bool hasRegL)
             {
                 this.okMagScale = okMagScale; this.okTa = okTa; this.okTb = okTb;
                 this.okGray = okGray; this.okGa = okGa; this.okGb = okGb;
@@ -609,7 +609,7 @@ namespace Iroca
                 this.sS = sS; this.tR = tR; this.tG = tG; this.tB = tB;
                 this.washR = washR; this.washG = washG; this.washB = washB; this.washV = washV;
                 this.applyHighlightWash = applyHighlightWash;
-                this.achromaWeight = achromaWeight; this.achromaSampleWeight = achromaSampleWeight; this.osat = osat;
+                this.achromaWeight = achromaWeight; this.achromaSampleWeight = achromaSampleWeight; this.achromaLightWeight = achromaLightWeight; this.osat = osat;
                 this.hasRegL = hasRegL;
             }
         }
@@ -734,7 +734,9 @@ namespace Iroca
                 float center = Mathf.Clamp(okTL, AchromaFormOffset, 1f - regUp);
                 float rangeRemap = Mathf.Clamp(center + (oL - regLmid) * AchromaFormGain, 0f, 1f);
                 float nLAchroma = okTL * (1f - valueBlend) + rangeRemap * valueBlend;
-                nL = nL * (1f - achromaWeight) + nLAchroma * achromaWeight;
+                // 明度の重みは ComputeAchromaLightWeight(色味のある淡い塗り先では、部品ごとの基準を使わない)。
+                float lW = p.achromaLightWeight;
+                nL = nL * (1f - lW) + nLAchroma * lW;
             }
 
             // 暗部脱彩 (旧 shadowDesaturation の OkLab 等価): 暗い画素の chroma を最大 50% 抑制。
