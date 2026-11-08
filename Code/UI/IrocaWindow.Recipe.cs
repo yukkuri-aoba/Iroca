@@ -27,6 +27,15 @@ namespace Iroca
             public bool IsShowing(Texture2D texture, out IrocaRecipe boundRecipe) => IrocaWindow.IsShowing(texture, out boundRecipe);
             public IrocaSessionState EditingStateOf(Texture2D texture) => IrocaWindow.EditingStateOf(texture);
             public void ReloadFromRecipe(IrocaRecipe recipe, string undoName) => IrocaWindow.ReloadFromRecipe(recipe, undoName);
+
+            public NativePixels ShareSourcePixels(Texture2D texture)
+            {
+                string path = texture != null ? AssetDatabase.GetAssetPath(texture) : null;
+                foreach (var w in EditingSessionRegistry.Snapshot())
+                    if (w is IrocaWindow win && win.Editing.Sources.ShareIfCurrent(texture, path) is NativePixels shared)
+                        return shared;
+                return null;
+            }
         }
 
         [InitializeOnLoadMethod]

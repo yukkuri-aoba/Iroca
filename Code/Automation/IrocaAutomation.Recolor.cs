@@ -415,7 +415,7 @@ namespace Iroca
             r.texture = AssetDatabase.GetAssetPath(tex);
             string abs = PhysicalPath(r.texture);
             if (abs == null) return $"texture file not found: {r.texture}";
-            var kind = ExportPipeline.ReadWorkingPixelsNative(abs, tex, out job.work);
+            var kind = ReadWorkingPixels(abs, tex, out job.work);
             if (kind == ExportPipeline.SourceKind.Unavailable)
                 return "could not read the pixels (enable Read/Write in the import settings, or use a PNG/JPG source).";
             job.w = job.work.Width;
@@ -943,6 +943,19 @@ namespace Iroca
             return $"apply='avatar' needs NDMF to recolor the avatar non-destructively, but {reason} "
                 + "(the recolor would not show, and the upload would be stopped). Use apply='png' to write a recolored "
                 + "image instead, or ask the user to install a supported NDMF (the Iroca installer adds it).";
+        }
+
+        /// <summary>
+        /// 作業解像度の原本を読む(<see cref="ExportPipeline.ReadWorkingPixelsNative"/>。参照 1 で返すので呼んだ側が Release する)。
+        /// いろかの窓が同じ元ファイルを読んだ画素を持っていて、読んだ後にファイルが変わっていなければ、デコードし直さずに
+        /// それを共有する(同じデコーダ・同じ作業解像度なので同じ画素。呼ぶたびにメインスレッドで 4K を読み直していた)。
+        /// 共有した画素は窓のプレビューも読んでいるので書き換えない(色替えは写してから。<see cref="Compare"/>)。
+        /// </summary>
+        private static ExportPipeline.SourceKind ReadWorkingPixels(string abs, Texture2D tex, out NativePixels pixels)
+        {
+            pixels = EditingWindows.Current?.ShareSourcePixels(tex);
+            if (pixels != null) return ExportPipeline.SourceKind.File;
+            return ExportPipeline.ReadWorkingPixelsNative(abs, tex, out pixels);
         }
 
         /// <summary>

@@ -25,6 +25,13 @@ namespace Iroca
 
         /// <summary>レシピのテクスチャを表示している窓に、レシピから読み直させる(Undo に積む)。</summary>
         void ReloadFromRecipe(IrocaRecipe recipe, string undoName);
+
+        /// <summary>
+        /// テクスチャを表示している窓が、その元ファイルを今読み直したのと同じ作業解像度の画素を持っていれば、参照を 1 つ
+        /// 足して返す(<see cref="SourcePixelCache.ShareIfCurrent"/>。呼んだ側が Release する。窓と共有なので書き換えない)。
+        /// 無ければ null(呼んだ側が読む)。
+        /// </summary>
+        NativePixels ShareSourcePixels(Texture2D texture);
     }
 
     internal static class EditingWindows
