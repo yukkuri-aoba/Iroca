@@ -711,6 +711,10 @@ namespace Iroca
             string previewSrcPath = _host.SourceTexture != null
                 ? AssetDatabase.GetAssetPath(_host.SourceTexture) : null;
             bool previewSourceOverwritten = false;
+            // マスクは編集中のもの 1 組をどのテクスチャにも当てる(ループの間に編集は変わらない)。1 枚ごとに作り直さず、
+            // 1 つ作って各テクスチャの入力が参照を 1 つずつ持つ。
+            bool anyZones = RecolorInput.CountEnabled(session.zones) > 0;
+            var masks = anyZones ? _host.BuildMaskSnapshot() : null;
             try
             {
                 AssetDatabase.StartAssetEditing();
@@ -750,9 +754,9 @@ namespace Iroca
                         }
 
                         // リスト先頭のゾーンほど先に処理され、重なった領域を占有する(単体の書き出しと同じ組み立て)。
-                        if (RecolorInput.CountEnabled(session.zones) > 0)
+                        if (anyZones)
                         {
-                            var batchInput = RecolorInput.FromEditing(session, _host.BuildMaskSnapshot());
+                            var batchInput = RecolorInput.FromEditing(session, masks?.AddRef());
                             try { ExportService.Recolor(pixels, batchInput); }
                             finally { batchInput.ReleaseMasks(); }
                         }
@@ -775,6 +779,7 @@ namespace Iroca
             }
             finally
             {
+                masks?.Release();
                 AssetDatabase.StopAssetEditing();
                 EditorUtility.ClearProgressBar();
             }
