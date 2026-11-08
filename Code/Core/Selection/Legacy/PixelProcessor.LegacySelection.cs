@@ -42,7 +42,7 @@ namespace Iroca
             long _tp = run.Tp;
             float* strength = null;
             float* highlightPot = null;
-            float* matchConf = null;
+            bool* matchConf = null;
 
             // 選択キャッシュ: ターゲット色など「再着色のみ」の変更では、マスクを掛ける直前の
             // strength(=生の選択)を復元して選択フェーズ(Match/Highlight/FloodFill/穴埋め/
@@ -80,7 +80,7 @@ namespace Iroca
                 // strength / highlightPot / matchConf は下のマッチのループが全画素に書く(除外マスクの
                 // 画素には 0)ので、先にゼロで埋めない(旧: 3 本とも単一スレッドの Array.Clear)。
                 if (zone.highlightRecovery) highlightPot = zb.HighlightPot = s_floatPool.Rent(len);
-                if (needMatchConf) matchConf = zb.MatchConf = s_floatPool.Rent(len);
+                if (needMatchConf) matchConf = zb.MatchConf = s_boolPool.Rent(len);
 
                 var strengthLocal = strength;
                 var highlightPotLocal = highlightPot;
@@ -124,7 +124,7 @@ namespace Iroca
                         {
                             strengthLocal[i] = 0f;
                             if (highlightPotLocal != null) highlightPotLocal[i] = 0f;
-                            if (matchConfLocal != null) matchConfLocal[i] = 0f;
+                            if (matchConfLocal != null) matchConfLocal[i] = false;
                             continue;
                         }
 
@@ -147,7 +147,7 @@ namespace Iroca
                         }
                         strengthLocal[i] = s;
                         if (highlightPotLocal != null) highlightPotLocal[i] = hPot;
-                        if (matchConfLocal != null) matchConfLocal[i] = mc;
+                        if (matchConfLocal != null) matchConfLocal[i] = mc > 0f;   // 読むのは「> 0 か」だけ
                     }
                 });
                 }
@@ -258,7 +258,7 @@ namespace Iroca
             // 借りる配列に回せるよう、ゾーンの終わりを待たずにプールへ返す(4K で 64MB)。
             if (matchConf != null)
             {
-                s_floatPool.Return(matchConf);
+                s_boolPool.Return(matchConf);
                 matchConf = zb.MatchConf = null;
             }
 

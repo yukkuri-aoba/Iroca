@@ -224,7 +224,7 @@ namespace Iroca
         /// 保護はコアからの 4 近傍 dilation を 1 回限りで行い、保護の連鎖はしない。
         /// </summary>
         private static void ApplyChromaCeilingGate(
-            float* strength, float* matchConf, PixelHsv hsv,
+            float* strength, bool* matchConf, PixelHsv hsv,
             float sS, float sV, float chromaThreshold, float chromaCeiling,
             int w, int h, CancellationToken ct = default)
         {
@@ -327,7 +327,7 @@ namespace Iroca
                         if (dist[lrb + lx] > R && pixS[HsvSlot(pixIdx, gi)] >= satCeil && strength[gi] > 0f)
                         {
                             strength[gi] = 0f;
-                            if (matchConf != null) matchConf[gi] = 0f;
+                            if (matchConf != null) matchConf[gi] = false;
                         }
                     }
                 });
@@ -365,7 +365,7 @@ namespace Iroca
         /// 閉領域が開領域と誤判定される。
         /// </summary>
         private static void RecoverEnclosedNeutral(
-            float* strength, float* matchConf, PixelHsv hsv, Color32* pixels,
+            float* strength, bool* matchConf, PixelHsv hsv, Color32* pixels,
             Color sampleColor, float tolerance, float sS, float sV, float chromaThreshold,
             int w, int h, CancellationToken ct = default)
         {
@@ -425,7 +425,7 @@ namespace Iroca
                         float rgbDist = Mathf.Sqrt(dr * dr + dg * dg + db * db) * ColorZone.InvSqrt3;
                         if (rgbDist > tolerance) continue;   // ゲート以外の理由で外れていた画素
                         strength[i] = 1f;
-                        if (matchConf != null) matchConf[i] = 1f;
+                        if (matchConf != null) matchConf[i] = true;
                     }
                 });
             }

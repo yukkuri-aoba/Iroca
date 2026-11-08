@@ -93,7 +93,7 @@ namespace Iroca
         {
             public float* Strength;        // 選択の強度(選択が借り、ぼかしで差し替わることがある)
             public float* HighlightPot;    // ハイライトの伝播の候補(選択の中で返す)
-            public float* MatchConf;       // 連結成分のコアの判定(選択の中で返す)
+            public bool* MatchConf;        // 連結成分のコアの判定 = 照合の確信度 > 0(選択の中で返す。値は「> 0 か」しか読まないので 1 画素 1 バイト)
             public bool* IncludedPx;       // 含めるマスクをテクスチャ解像度へ展開したもの(除外優先を焼き込み済み)
             public float* RegMidMap;       // 成分中央値の地図(再着色の統計がプールから借りたとき)
             public float* RegUpMap;        // 同、白側の余白の地図
@@ -110,13 +110,13 @@ namespace Iroca
                 if (RegUpMap != null) s_floatPool.Return(RegUpMap);
                 if (HighlightPot != null) s_floatPool.Return(HighlightPot);
                 if (Strength != null) s_floatPool.Return(Strength);
-                if (MatchConf != null) s_floatPool.Return(MatchConf);
+                if (MatchConf != null) s_boolPool.Return(MatchConf);
                 if (IncludedPx != null) s_boolPool.Return(IncludedPx);
                 if (PalRecolored != null) s_color32Pool.Return(PalRecolored);
                 if (DecontamPixels != null) s_color32Pool.Return(DecontamPixels);
                 if (DecontamAaMask != null) s_boolPool.Return(DecontamAaMask);
-                RegMidMap = RegUpMap = HighlightPot = Strength = MatchConf = null;
-                IncludedPx = DecontamAaMask = null;
+                RegMidMap = RegUpMap = HighlightPot = Strength = null;
+                IncludedPx = DecontamAaMask = MatchConf = null;
                 PalRecolored = DecontamPixels = null;
             }
         }

@@ -67,7 +67,7 @@ namespace Iroca
         /// 原因が見えて直せる。コア規則は変えない。
         /// </summary>
         private static void ApplyConnectedComponentMask(
-            float* strength, float* matchConf, Color32* px, int w, int h, int seedX, int seedY,
+            float* strength, bool* matchConf, Color32* px, int w, int h, int seedX, int seedY,
             PixelHsv hsv = default, float shadowValueFloor = 0f, float partSatCeiling = 0f,
             float partHueBand = 0f, float sampleH = 0f, float hueMinSat = 0f,
             int anchorX = -1, int anchorY = -1,
@@ -216,7 +216,7 @@ namespace Iroca
                         for (int lx = runX0C[k]; lx <= x1; lx++)
                         {
                             int gi = grb + lx;
-                            if (useConf ? matchConf[gi] > 0f : strength[gi] >= coreThr) { found = 1; break; }
+                            if (useConf ? matchConf[gi] : strength[gi] >= coreThr) { found = 1; break; }
                         }
                         runCoreL[k] = found;
                     }
