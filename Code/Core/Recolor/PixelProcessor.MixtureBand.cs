@@ -313,6 +313,7 @@ namespace Iroca
             int bitBytes = h * wpr * sizeof(ulong);
             ulong* selBits = null;
             ulong* anyBits = null;
+            ulong* innerBits = null;
             // 「面か」の覚え書き(0 = まだ調べていない、FlatYesB / FlatNoB = 調べた結果)。背景の候補を探す
             // 範囲 G だけ 0 にしてから使う。同じ画素を別の行のスレッドが同時に調べても、書く値は同じ(1 バイトの
             // 書き込みなので、途中の値が見えることもない)。
@@ -344,6 +345,31 @@ namespace Iroca
                             anyBits[wb + (x >> 6)] = wa;
                             ws = 0; wa = 0;
                         }
+                    }
+                });
+                // 「内側の選択画素」(3×3 が全部確かな選択)のビット列。素材の画素を探す窓の中で画素ごとに 3×3 を
+                // 数えていた(CountBitsInRect(…) &lt; 9)のを、行ごとに 1 回のビット演算にする。範囲 S の外と画像の外の
+                // ビットは 0 なので、3×3 を S で切って数えて 9 に届くことと、3×3 の 9 ビットが全部立つことは同じ。
+                // 窓が読むのは範囲 G の行だけなので、その行だけ作る。
+                innerBits = (ulong*)s_bytePool.Rent(bitBytes);
+                var innerL = innerBits; var selL = selBits;
+                Parallel.For(gy0, gy1 + 1, po, y =>
+                {
+                    int ob = y * wpr;
+                    for (int k = 0; k < wpr; k++)
+                    {
+                        ulong acc = ~0UL;
+                        for (int dy = -1; dy <= 1; dy++)
+                        {
+                            int yy = y + dy;
+                            if (yy < 0 || yy >= h) { acc = 0; break; }
+                            int o = yy * wpr;
+                            ulong s = selL[o + k];
+                            ulong left = (s << 1) | (k > 0 ? selL[o + k - 1] >> 63 : 0UL);         // ビット x に x-1 を
+                            ulong right = (s >> 1) | (k + 1 < wpr ? selL[o + k + 1] << 63 : 0UL);  // ビット x に x+1 を
+                            acc &= s & left & right;
+                        }
+                        innerL[ob + k] = acc;
                     }
                 });
                 var flatL = flatMemo;
@@ -440,8 +466,7 @@ namespace Iroca
                                             if (d > R && ady < d && (xx > x ? xx - x : x - xx) < d) continue;
                                             int j = r2 + xx;
                                             if (j == i || (selBits[yy * wpr + (xx >> 6)] & (1UL << (xx & 63))) == 0) continue;
-                                            if (pass == 0 && CountBitsInRect(selBits, wpr, sx0, sy0, sx1, sy1,
-                                                    xx - 1, yy - 1, xx + 1, yy + 1) < 9) continue;
+                                            if (pass == 0 && (innerL[yy * wpr + (xx >> 6)] & (1UL << (xx & 63))) == 0) continue;
                                             setIdx[setN++] = j;
                                         }
                                     }
@@ -634,6 +659,7 @@ namespace Iroca
             finally
             {
                 if (flatMemo != null) s_bytePool.Return(flatMemo);
+                if (innerBits != null) s_bytePool.Return((byte*)innerBits);
                 if (anyBits != null) s_bytePool.Return((byte*)anyBits);
                 if (selBits != null) s_bytePool.Return((byte*)selBits);
             }
