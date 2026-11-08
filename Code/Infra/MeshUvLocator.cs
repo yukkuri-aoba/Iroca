@@ -61,11 +61,12 @@ namespace Iroca
             if (texture == null) return null;
             var targets = TargetTextures(texture);
 
+            var reads = new MeshReads();
             var scene = new Result { via = "scene" };
             foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
                 if (EditorUtility.IsPersistent(r)) continue;
-                Collect(r, targets, scene, requireMatch: true, originPrefix: ScenePath(r.transform));
+                Collect(r, targets, scene, reads, requireMatch: true, originPrefix: ScenePath(r.transform));
             }
             if (scene.found.Count > 0) return Dedup(scene);
 
@@ -75,7 +76,7 @@ namespace Iroca
                 var go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
                 if (go == null) continue;
                 foreach (var r in go.GetComponentsInChildren<Renderer>(true))
-                    Collect(r, targets, project, requireMatch: true, originPrefix: path + ":" + r.name);
+                    Collect(r, targets, project, reads, requireMatch: true, originPrefix: path + ":" + r.name);
             }
             if (project.found.Count > 0) return Dedup(project);
             // 使っているメッシュはあったが読めなかった(Read/Write 無効など)。found は空で、件数だけ返す
@@ -166,23 +167,24 @@ namespace Iroca
             var targets = texture != null ? TargetTextures(texture) : new HashSet<Texture>();
             string prefix = EditorUtility.IsPersistent(go) ? AssetDatabase.GetAssetPath(go) + ":" : "";
 
+            var reads = new MeshReads();
             var matched = new Result { via = "manual" };
             foreach (var r in go.GetComponentsInChildren<Renderer>(true))
-                Collect(r, targets, matched, requireMatch: true, originPrefix: prefix + ScenePath(r.transform));
+                Collect(r, targets, matched, reads, requireMatch: true, originPrefix: prefix + ScenePath(r.transform));
             if (matched.found.Count > 0) return Dedup(matched);
 
             if (texture != null)
             {
                 var byName = new Result { via = "manual" };
                 foreach (var r in go.GetComponentsInChildren<Renderer>(true))
-                    Collect(r, targets, byName, requireMatch: true, originPrefix: prefix + ScenePath(r.transform),
-                            nameStem: texture.name);
+                    Collect(r, targets, byName, reads, requireMatch: true,
+                            originPrefix: prefix + ScenePath(r.transform), nameStem: texture.name);
                 if (byName.found.Count > 0) return Dedup(byName);
             }
 
             var all = new Result { via = "manual" };
             foreach (var r in go.GetComponentsInChildren<Renderer>(true))
-                Collect(r, targets, all, requireMatch: false, originPrefix: prefix + ScenePath(r.transform));
+                Collect(r, targets, all, reads, requireMatch: false, originPrefix: prefix + ScenePath(r.transform));
             return all.found.Count > 0 || all.unreadable > 0 ? Dedup(all) : null;
         }
 
@@ -236,9 +238,38 @@ namespace Iroca
             return parts[0] + "/" + parts[1];
         }
 
-        private static void Collect(Renderer r, HashSet<Texture> targets, Result result, bool requireMatch, string originPrefix,
-                                    string nameStem = null)
+        /// <summary>
+        /// 1 回の探索の間だけ、メッシュから読んだ UV と、結果ごとに見たサブメッシュを覚える。同じメッシュを
+        /// 複数の Renderer・複数のサブメッシュから読むたびに、頂点の数の UV を読み直していた。
+        /// </summary>
+        private sealed class MeshReads
         {
+            // メッシュ(インスタンス ID) → UV0(null = 読めなかった・空)
+            public readonly Dictionary<int, Vector2[]> uv = new Dictionary<int, Vector2[]>();
+            private readonly Dictionary<Result, Dictionary<(int, int), bool>> _seen =
+                new Dictionary<Result, Dictionary<(int, int), bool>>();
+
+            /// <summary>結果 result で見た (メッシュ, サブメッシュ) → 見つけたか(false = 読めなかった)。</summary>
+            public Dictionary<(int, int), bool> For(Result result)
+            {
+                if (!_seen.TryGetValue(result, out var seen)) _seen.Add(result, seen = new Dictionary<(int, int), bool>());
+                return seen;
+            }
+
+            public Vector2[] UvOf(Mesh mesh)
+            {
+                int id = mesh.GetInstanceID();
+                if (!uv.TryGetValue(id, out var arr)) uv.Add(id, arr = ReadUv(mesh));
+                return arr;
+            }
+        }
+
+        // reads: 同じ探索の中で読んだもの(MeshReads)。同じ (メッシュ, サブメッシュ) が 2 度目に来たら読み直さない:
+        // 見つけたものは Dedup が後から落とすので足さず、読めなかったものは読めない数だけを足す(以前と同じ数)。
+        private static void Collect(Renderer r, HashSet<Texture> targets, Result result, MeshReads reads,
+                                    bool requireMatch, string originPrefix, string nameStem = null)
+        {
+            var seen = reads.For(result);
             Mesh mesh = SharedMeshOf(r);
             if (mesh == null) return;
             var mats = r.sharedMaterials;
@@ -248,7 +279,14 @@ namespace Iroca
                 var mat = mats[s];
                 bool match = MainTextureOf(mat, targets, nameStem, out string prop);
                 if (requireMatch && !match) continue;
-                var src = Read(mesh, s);
+                var key = (mesh.GetInstanceID(), s);
+                if (seen.TryGetValue(key, out bool foundBefore))
+                {
+                    if (!foundBefore) result.unreadable++;
+                    continue;
+                }
+                var src = Read(mesh, s, reads);
+                seen.Add(key, src != null);
                 if (src == null) { result.unreadable++; continue; }
                 src.name = r.name + (mesh.subMeshCount > 1 ? "[" + s + "]" : "");
                 if (match && mat != null)
@@ -328,17 +366,35 @@ namespace Iroca
             return false;
         }
 
-        /// <summary>UV0 と三角形を読む。読めなければ null(Read/Write 無効の扱いは Unity の版で違うので例外で判定する)。</summary>
-        private static UvChartSource Read(Mesh mesh, int submesh)
+        /// <summary>
+        /// UV0 と三角形を読む。読めなければ null(Read/Write 無効の扱いは Unity の版で違うので例外で判定する)。
+        /// UV0 はメッシュで 1 つなので reads で 1 回だけ読み、同じメッシュのサブメッシュで同じ並びを共有する
+        /// (UvChartSource の UV は読むだけ)。
+        /// </summary>
+        private static UvChartSource Read(Mesh mesh, int submesh, MeshReads reads)
+        {
+            var uv = reads.UvOf(mesh);
+            if (uv == null) return null;
+            try
+            {
+                var tris = mesh.GetTriangles(submesh);
+                if (tris == null || tris.Length < 3) return null;
+                return new UvChartSource { uv = uv, triangles = tris };
+            }
+            catch (System.Exception)
+            {
+                return null;
+            }
+        }
+
+        // UV0(読めない・空なら null)。
+        private static Vector2[] ReadUv(Mesh mesh)
         {
             try
             {
                 var uv = new List<Vector2>();
                 mesh.GetUVs(0, uv);
-                if (uv.Count == 0) return null;
-                var tris = mesh.GetTriangles(submesh);
-                if (tris == null || tris.Length < 3) return null;
-                return new UvChartSource { uv = uv.ToArray(), triangles = tris };
+                return uv.Count == 0 ? null : uv.ToArray();
             }
             catch (System.Exception)
             {
