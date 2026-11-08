@@ -645,23 +645,98 @@ namespace Iroca
         internal static string CacheKey(IrocaRecipe recipe, Texture2D like)
         {
             string srcPath = AssetDatabase.GetAssetPath(like);
+            var depHash = AssetDatabase.GetAssetDependencyHash(srcPath);
+            string json = recipe.sessionJson;
+            int formatVersion = recipe.formatVersion;
+            int w = like.width, h = like.height, mips = like.mipmapCount;
+            var format = like.format;
+            var graphicsFormat = like.graphicsFormat;
+
+            // シーンのプレビューは差し替え枠ごと・入力が変わるたびにここを呼ぶ。sessionJson はマスクの base64 を含み
+            // 4K で数 MB あるので、同じ入力なら前に求めた鍵を返す。sessionJson は文字列の参照で見分ける(同じ参照なら
+            // 中身も同じ。弱い参照の表なので、レシピが文字列を手放せば覚えた分も消える)。ほかの入力(取り込み結果の
+            // ハッシュ・寸法・形式・ミップ・formatVersion)は毎回読んで比べ、1 つでも違えば計算し直す。
+            // MVID と作業解像度の上限はドメインの中で変わらない(リロードで static ごと作り直す)。
+            if (json != null && s_keyMemo.TryGetValue(json, out var memo)
+                && memo.depHash == depHash && memo.formatVersion == formatVersion
+                && memo.width == w && memo.height == h && memo.mipmapCount == mips
+                && memo.format == format && memo.graphicsFormat == graphicsFormat)
+                return memo.key;
+
             var sb = new StringBuilder();
             sb.Append(CacheFormatVersion).Append('|');
-            sb.Append(AssetDatabase.GetAssetDependencyHash(srcPath).ToString()).Append('|');
+            sb.Append(depHash.ToString()).Append('|');
             // いろかのコードが変われば出力も変わり得る。Editor アセンブリは再コンパイルのたびに MVID が変わる。
             sb.Append(typeof(SessionRecolor).Assembly.ManifestModule.ModuleVersionId).Append('|');
-            sb.Append(like.width).Append('x').Append(like.height).Append('|');
+            sb.Append(w).Append('x').Append(h).Append('|');
             // 作業解像度の規則(WorkingResolution)。2026-10-25 に、元ファイルの辺が上限以下なら元の解像度で処理する
             // ように変えた(それまでの "src" / "work" と別の鍵にして、前の規則で作った出来上がりを使わない)。
             sb.Append("src").Append(WorkingResolution.MaxSourceSide).Append('|');
-            sb.Append((int)like.format).Append('|').Append((int)like.graphicsFormat).Append('|');
-            sb.Append(like.mipmapCount).Append('|');
-            sb.Append(recipe.formatVersion).Append('|').Append(recipe.sessionJson);
+            sb.Append((int)format).Append('|').Append((int)graphicsFormat).Append('|');
+            sb.Append(mips).Append('|');
+            sb.Append(formatVersion).Append('|');
+            // 鍵は「前置き + sessionJson」をつないだ文字列の UTF-8 の SHA256(値は前と同じ)。sessionJson を
+            // つないだ写し・UTF-8 のバイト列を丸ごと作らず、小さい作業配列で少しずつハッシュにかける(Sha256Hex)。
+            string key = Sha256Hex(sb.ToString(), json);
+            if (json != null)
+            {
+                s_keyMemo.Remove(json);
+                s_keyMemo.Add(json, new KeyMemo
+                {
+                    depHash = depHash, formatVersion = formatVersion, width = w, height = h, mipmapCount = mips,
+                    format = format, graphicsFormat = graphicsFormat, key = key,
+                });
+            }
+            return key;
+        }
+
+        // CacheKey の覚え(sessionJson の文字列の参照 → そのとき使ったほかの入力と鍵)。メインスレッドからしか触らないが、
+        // ConditionalWeakTable はスレッド安全なのでどこから触っても壊れない。
+        private sealed class KeyMemo
+        {
+            public Hash128 depHash;
+            public int formatVersion, width, height, mipmapCount;
+            public TextureFormat format;
+            public GraphicsFormat graphicsFormat;
+            public string key;
+        }
+
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<string, KeyMemo> s_keyMemo =
+            new System.Runtime.CompilerServices.ConditionalWeakTable<string, KeyMemo>();
+
+        // a と b(null は空)をつないだ文字列の UTF-8 の SHA256 を小文字の 16 進で返す
+        // (= SHA256(Encoding.UTF8.GetBytes(a + b)))。4K 文字ずつ符号化してハッシュにかける。Encoder は区切りを
+        // またぐサロゲートの組を持ち越し、組になっていないものは GetBytes と同じく置き換え文字にする。
+        internal static string Sha256Hex(string a, string b)
+        {
+            const int CharChunk = 4096;
+            var encoding = Encoding.UTF8;
+            var encoder = encoding.GetEncoder();
+            var bytes = new byte[encoding.GetMaxByteCount(CharChunk)];
+            var chunk = new char[CharChunk];
             using (var sha = SHA256.Create())
             {
-                var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(sb.ToString()));
+                // 1 つの Encoder で続けて符号化し、最後だけ flush する(つないだ文字列を符号化するのと同じ)。
+                void Feed(string s, bool flushAtEnd)
+                {
+                    if (s == null) s = string.Empty;
+                    for (int i = 0; ;)
+                    {
+                        int n = Math.Min(chunk.Length, s.Length - i);
+                        s.CopyTo(i, chunk, 0, n);
+                        i += n;
+                        bool end = i >= s.Length;
+                        int count = encoder.GetBytes(chunk, 0, n, bytes, 0, flushAtEnd && end);
+                        if (count > 0) sha.TransformBlock(bytes, 0, count, null, 0);
+                        if (end) break;
+                    }
+                }
+                Feed(a, flushAtEnd: false);
+                Feed(b, flushAtEnd: true);
+                sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                var hash = sha.Hash;
                 var hex = new StringBuilder(hash.Length * 2);
-                foreach (var b in hash) hex.Append(b.ToString("x2"));
+                foreach (var x in hash) hex.Append(x.ToString("x2"));
                 return hex.ToString();
             }
         }
