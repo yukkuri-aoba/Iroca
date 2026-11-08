@@ -68,9 +68,28 @@ namespace Iroca
                     case LanguageMode.Japanese: return true;
                     case LanguageMode.English:  return false;
                     default: // Auto
-                        return System.Globalization.CultureInfo.CurrentUICulture
-                            .TwoLetterISOLanguageName == "ja";
+                        return AutoIsJapanese;
                 }
+            }
+        }
+
+        // 自動のときの判定(OS の表示言語が日本語か)。文言を読むたびに CultureInfo を見ないよう、最初に読んだ結果を
+        // 覚える(表示言語はエディタを起動し直さないと変わらない。言語の設定 CurrentLanguage を変えたときは、
+        // Auto 以外ならここを通らないので、覚えた結果を捨てる必要もない)。どのスレッドから読んでもよい
+        // (同時に初めて読んでも、同じ値を書くだけ)。-1 = まだ読んでいない、0 = 日本語でない、1 = 日本語。
+        private static int s_autoJapanese = -1;
+
+        private static bool AutoIsJapanese
+        {
+            get
+            {
+                int v = s_autoJapanese;
+                if (v < 0)
+                {
+                    v = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "ja" ? 1 : 0;
+                    s_autoJapanese = v;
+                }
+                return v == 1;
             }
         }
 
