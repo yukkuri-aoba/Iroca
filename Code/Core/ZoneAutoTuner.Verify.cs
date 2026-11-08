@@ -56,8 +56,9 @@ namespace Iroca
         // 読むだけ)、集計は整数の数え上げとセルごとのフラグだけなので、格子の行(または区間)ごとに
         // 並列に数え、行ごとの数を最後に順に足せば逐次と同じ値になる(整数の和は順序に依らない)。
         // 逐次のままだと自動調整 1 回のうち 4096² で 1〜1.5 秒をこのループが占めていた(2026-10-17 実測)。
-        private static ParallelOptions MatcherLoopOptions() =>
-            new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism() };
+        // 取り消しは格子(HsvGrid.ct)のものを渡す(以前は渡しておらず、取り消してもループが最後まで回っていた)。
+        private static ParallelOptions MatcherLoopOptions(HsvGrid hsv) =>
+            new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(), CancellationToken = hsv.ct };
 
         private static int SumCounts(int[] counts)
         {
@@ -88,7 +89,7 @@ namespace Iroca
             int stride = hsv.stride;
             var rowBase = new int[hsv.gh];
             var rowHlOnly = new int[hsv.gh];
-            Parallel.For(0, hsv.gh, MatcherLoopOptions(), gy =>
+            Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy =>
             {
                 int y = gy * stride;
                 int rowStart = y * w;
@@ -173,7 +174,7 @@ namespace Iroca
                 var rowSw = new int[hsv.gh];
                 var rowSwo = new int[hsv.gh];
                 var rowEc = new int[hsv.gh];
-                Parallel.For(0, hsv.gh, MatcherLoopOptions(), gy =>
+                Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy =>
                 {
                     int y = gy * stride;
                     int rowStart = y * w;
@@ -302,7 +303,7 @@ namespace Iroca
             if (!reuse)
             {
                 var rowCount = new int[hsv.gh];
-                Parallel.For(0, hsv.gh, MatcherLoopOptions(), gy =>
+                Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy =>
                 {
                     int y = gy * stride;
                     int rowStart = y * w;
@@ -336,7 +337,7 @@ namespace Iroca
                 sim.UpdateCacheIfNeeded();
                 var rowAdded = new int[hsv.gh];
                 var rowSig = new int[hsv.gh];
-                Parallel.For(0, hsv.gh, MatcherLoopOptions(), gy =>
+                Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy =>
                 {
                     int y = gy * stride;
                     int rowStart = y * w;

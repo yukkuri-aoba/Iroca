@@ -729,7 +729,7 @@ namespace Iroca
             const int Chunk = 4096;
             int n = domain.Count;
             var counts = new int[(n + Chunk - 1) / Chunk];
-            Parallel.For(0, counts.Length, MatcherLoopOptions(), ci =>
+            Parallel.For(0, counts.Length, MatcherLoopOptions(hsv), ci =>
             {
                 int end = Mathf.Min(n, (ci + 1) * Chunk);
                 int k = 0;
@@ -815,7 +815,7 @@ namespace Iroca
             int stride = hsv.stride;
             // 行ごとに並列に数えて足す(整数の和なので逐次と同じ値。MatcherLoopOptions の説明)。
             var rowCount = new int[hsv.gh];
-            Parallel.For(0, hsv.gh, MatcherLoopOptions(), gy =>
+            Parallel.For(0, hsv.gh, MatcherLoopOptions(hsv), gy =>
             {
                 int y = gy * stride;
                 int rowStart = y * w;

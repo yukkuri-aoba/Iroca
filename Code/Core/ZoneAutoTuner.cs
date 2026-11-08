@@ -230,6 +230,8 @@ namespace Iroca
         internal sealed class HsvGrid : IDisposable
         {
             public int stride, gw, gh;
+            /// <summary>解析の取り消し。格子をなめる並列ループ(照合の検証など)に渡し、ループの途中でも止める。</summary>
+            public CancellationToken ct;
             public float* h, s, v;
             /// <summary>解析の間だけ使う作業配列(ヒープの外)。格子と一緒に返す。並列ループの中から借りないこと。</summary>
             public readonly WorkScratch scratch = new WorkScratch();
@@ -241,7 +243,7 @@ namespace Iroca
         {
             int stride = (w <= 2048) ? 1 : 2;
             int gw = (w + stride - 1) / stride, gh = (h + stride - 1) / stride;
-            var grid = new HsvGrid { stride = stride, gw = gw, gh = gh };
+            var grid = new HsvGrid { stride = stride, gw = gw, gh = gh, ct = ct };
             grid.h = grid.scratch.Float(gw * gh, clear: false);
             grid.s = grid.scratch.Float(gw * gh, clear: false);
             grid.v = grid.scratch.Float(gw * gh, clear: false);
@@ -579,46 +581,82 @@ namespace Iroca
             Color.RGBToHSV(zone.targetColor, out _, out _, out stats.tV);
 
             int stride = hsv.stride;
+            float* gH = hsv.h, gS = hsv.s, gV = hsv.v;
+            int gw = hsv.gw;
+            float sHs = stats.sH, sSs = stats.sS, sVs = stats.sV;
+            float hlSatCeil = ColorZone.HighlightSaturationCeiling(sSs);
+            var ml = GridMaskLookup.Build(excluded, maskW, maskH, w, h, stride, gw, hsv.gh);
 
-            for (int y = 0, gy = 0; y < h; y += stride, gy++)
-            {
-                int rowStart = y * w;
-                int grow = gy * hsv.gw;
-                for (int x = 0, gx = 0; x < w; x += stride, gx++)
+            // 格子の行を並列に回し、スレッドごとに数えてから足し合わせる。数は整数の和、最も暗い所の彩度は最小値で、
+            // どちらも足す・比べる順に依らない(逐次の「より小さければ置き換える」と同じ値)。
+            var gate = new object();
+            var po = new ParallelOptions { MaxDegreeOfParallelism = PixelProcessor.GetMaxParallelism(), CancellationToken = hsv.ct };
+            var st = stats;
+            Parallel.For(0, hsv.gh, po,
+                () => new AnalysisStats
                 {
-                    Color32 c32 = pixels[rowStart + x];
-                    if (c32.a < PixelProcessor.OpaqueAlphaMin) continue;
-                    if (IsMaskExcluded(excluded, maskW, maskH, x, y, w, h)) continue; // マスク除外領域は対象外
-
-                    int gi = grow + gx;
-                    float pH = hsv.h[gi], pS = hsv.s[gi], pV = hsv.v[gi];
-
-                    float hDist = HueDistance(pH, stats.sH);
-
-                    // ハイライト復元候補（サンプル色と同系のハイライト領域）。
-                    // 条件は ColorZone のハイライト判定(HighlightSaturationCeiling で動的化)と
-                    // Verify.cs:GrowHighlightBand ミラーと同じ定数を共有する。
-                    if (pV > ColorZone.HighlightValueMin && pS < ColorZone.HighlightSaturationCeiling(stats.sS)
-                        && hDist < ColorZone.ForgivenessHueGate)
-                        stats.highlightCandidates++;
-
-                    if (hDist < NearHueDist &&
-                        Mathf.Abs(pS - stats.sS) < NearSatDist &&
-                        Mathf.Abs(pV - stats.sV) < NearValDist)
+                    hBins = new int[HistogramBins], sBins = new int[HistogramBins], vBins = new int[HistogramBins],
+                    darkestNearSampleS = 1f,
+                },
+                (gy, _, loc) =>
+                {
+                    int y = gy * stride;
+                    int rowStart = y * w;
+                    int grow = gy * gw;
+                    for (int x = 0, gx = 0; x < w; x += stride, gx++)
                     {
-                        stats.nearSampleCount++;
-                        stats.hBins[Mathf.Clamp((int)(pH * HistogramBins), 0, HistogramBins - 1)]++;
-                        stats.sBins[Mathf.Clamp((int)(pS * HistogramBins), 0, HistogramBins - 1)]++;
-                        stats.vBins[Mathf.Clamp((int)(pV * HistogramBins), 0, HistogramBins - 1)]++;
+                        Color32 c32 = pixels[rowStart + x];
+                        if (c32.a < PixelProcessor.OpaqueAlphaMin) continue;
+                        if (ml != null && excluded[ml.Row[gy] + ml.Col[gx]]) continue; // マスク除外領域は対象外
 
-                        if (pV < 0.4f && pS < stats.darkestNearSampleS)
+                        int gi = grow + gx;
+                        float pH = gH[gi], pS = gS[gi], pV = gV[gi];
+
+                        float hDist = HueDistance(pH, sHs);
+
+                        // ハイライト復元候補（サンプル色と同系のハイライト領域）。
+                        // 条件は ColorZone のハイライト判定(HighlightSaturationCeiling で動的化)と
+                        // Verify.cs:GrowHighlightBand ミラーと同じ定数を共有する。
+                        if (pV > ColorZone.HighlightValueMin && pS < hlSatCeil
+                            && hDist < ColorZone.ForgivenessHueGate)
+                            loc.highlightCandidates++;
+
+                        if (hDist < NearHueDist &&
+                            Mathf.Abs(pS - sSs) < NearSatDist &&
+                            Mathf.Abs(pV - sVs) < NearValDist)
                         {
-                            stats.darkestNearSampleS = pS;
-                            stats.darkSeen = true;
+                            loc.nearSampleCount++;
+                            loc.hBins[Mathf.Clamp((int)(pH * HistogramBins), 0, HistogramBins - 1)]++;
+                            loc.sBins[Mathf.Clamp((int)(pS * HistogramBins), 0, HistogramBins - 1)]++;
+                            loc.vBins[Mathf.Clamp((int)(pV * HistogramBins), 0, HistogramBins - 1)]++;
+
+                            if (pV < 0.4f && pS < loc.darkestNearSampleS)
+                            {
+                                loc.darkestNearSampleS = pS;
+                                loc.darkSeen = true;
+                            }
                         }
                     }
-                }
-            }
+                    return loc;
+                },
+                loc =>
+                {
+                    lock (gate)
+                    {
+                        st.highlightCandidates += loc.highlightCandidates;
+                        st.nearSampleCount += loc.nearSampleCount;
+                        for (int b = 0; b < HistogramBins; b++)
+                        {
+                            st.hBins[b] += loc.hBins[b]; st.sBins[b] += loc.sBins[b]; st.vBins[b] += loc.vBins[b];
+                        }
+                        if (loc.darkSeen)
+                        {
+                            st.darkSeen = true;
+                            if (loc.darkestNearSampleS < st.darkestNearSampleS) st.darkestNearSampleS = loc.darkestNearSampleS;
+                        }
+                    }
+                });
+            stats = st;
 
             return stats.nearSampleCount >= MinNearSampleCount;
         }
