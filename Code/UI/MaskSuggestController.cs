@@ -208,11 +208,13 @@ namespace Iroca
             NativeBools region = ProposalMaskRegion.ToMaskSize(src, mw, mh, _host?.SourceTexture, out bool ownRegion, out var timing);
             try
             {
-                int proposed = region.CountTrue(); // 提案そのものの画素数(0 = 推論が領域を返していない)
+                // 提案が空か(推論が領域を返していない)。要るのは空かどうかだけなので、全画素を数えずに最初の 1 画素で止める
+                // (以前は CountTrue でメインスレッドが 4K で 1600 万画素を毎回数えていた)。
+                bool proposedAny = AnyTrue(region);
                 LastClickFloodWarning = proposal.floodWarning;
-                LastProposalEmpty = proposed == 0;
+                LastProposalEmpty = !proposedAny;
                 // 空の提案で「この部分だけ」を当てると全体が除外になるので、当てずに止める。
-                if (proposed == 0) return;
+                if (!proposedAny) return;
 
                 t = MaskSuggestPerf.Now;
                 bool ok = false;
@@ -241,6 +243,18 @@ namespace Iroca
             {
                 if (ownRegion) region.Release();
             }
+        }
+
+        // 1 画素でも入っているか。8 画素(バイト)ずつ見て、最初に見つかったところで止める。
+        private static unsafe bool AnyTrue(NativeBools m)
+        {
+            byte* p = (byte*)m.Ptr;
+            long len = m.Length, i = 0;
+            for (; i + 8 <= len; i += 8)
+                if (*(ulong*)(p + i) != 0UL) return true;
+            for (; i < len; i++)
+                if (p[i] != 0) return true;
+            return false;
         }
 
         /// <summary>
