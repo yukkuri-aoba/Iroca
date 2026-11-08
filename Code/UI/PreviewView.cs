@@ -879,6 +879,8 @@ namespace Iroca
             // バックグラウンドで完了したオーバーレイ Color32[] を先に Texture2D へ適用する。
             maskView.ApplyPendingOverlay();
             maskView.ApplyPendingDetailOverlay();
+            // ブラシが直接書いたオーバーレイを、描く直前に 1 回だけ GPU へ上げる(ドラッグのイベントごとには上げない)。
+            if (Event.current.type == EventType.Repaint) maskView.FlushOverlayDirect();
 
             // マスクオーバーレイ再構築をスケジュール（バックグラウンド計算）。
             // ペイント中は MouseDrag が毎フレーム maskDirty を立てるため、

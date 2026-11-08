@@ -212,6 +212,8 @@ namespace Iroca
                         maskView.lastPaintUV = -Vector2.one;
                         PaintAtScreenPos(e.mousePosition, previewRect);
                         e.Use();
+                        // 塗った所を GPU へ上げるのは次の Repaint(TickMaskOverlay)なので、描き直しを頼む。
+                        _host.RequestPreviewRepaint();
                     }
                     break;
 
@@ -473,8 +475,7 @@ namespace Iroca
 
             maskView.PaintMask(currentUV, radiusPx);
             maskView.lastPaintUV = currentUV;
-            // 直接書き込みしたオーバーレイセルを、イベント 1 回分まとめて GPU へ反映。
-            maskView.FlushOverlayDirect();
+            // 直接書き込みしたオーバーレイを GPU へ上げるのは、描く直前に 1 フレーム 1 回(TickMaskOverlay)。
         }
     }
 }

@@ -55,10 +55,11 @@ namespace Iroca
         [System.NonSerialized] public int overlayBuiltW, overlayBuiltH;
 
         // ペイント中のオーバーレイ直接書き込み管理。
-        // _overlayDirectPendingApply: SetPixels32 済みで Apply 待ち(ドラッグイベント単位でまとめる)。
+        // _overlayDirectPendingApply: 中身へ直接書いて Apply 待ちの全体用オーバーレイ(無ければ null)。Apply は描く直前に
+        // 1 フレーム 1 回にまとめる(FlushOverlayDirect。ドラッグのイベントが 1 フレームに何回来ても 1 回)。
         // _strokeHadDirectOverlayWrite: このストロークで直接書き込みに成功したか。成功後は
         // 進行中の非同期再構築結果を適用しない(clone 時点より新しいスタンプが一瞬消えるため)。
-        [System.NonSerialized] private bool _overlayDirectPendingApply;
+        [System.NonSerialized] private Texture2D _overlayDirectPendingApply;
         [System.NonSerialized] private bool _strokeHadDirectOverlayWrite;
 
         [System.NonSerialized] public bool isPainting;
@@ -844,7 +845,7 @@ namespace Iroca
 
             if (direct)
             {
-                _overlayDirectPendingApply = true;
+                _overlayDirectPendingApply = overlayTex;
                 _strokeHadDirectOverlayWrite = true;
             }
             else
@@ -855,12 +856,17 @@ namespace Iroca
 
         /// <summary>
         /// オーバーレイのテクスチャへ円(中心・半径はテクセル単位)を直接書く。円の中にテクセルの中心が入る所
-        /// (円が小さければ中心のテクセル)を color にする。行ごとに SetPixels32。書いたら true。
+        /// (円が小さければ中心のテクセル)を color にする。書いたら true。GPU へ上げる(Apply)のは呼び出し側。
+        /// テクスチャの中身(RGBA32・ミップなし・行 0 = 下端。TextureSlot.Resize が作る)へそのまま書く。以前は行ごとに
+        /// 管理配列を作って SetPixels32 していた(スタンプ 1 回で円の行数ぶん、ドラッグ中ずっと)。
         /// </summary>
-        private static bool StampOverlayDisk(Texture2D tex, float cx, float cy, float r, Color32 color)
+        private static unsafe bool StampOverlayDisk(Texture2D tex, float cx, float cy, float r, Color32 color)
         {
             int w = tex.width, h = tex.height;
             if (w <= 0 || h <= 0) return false;
+            var data = tex.GetPixelData<Color32>(0);
+            if (data.Length < w * h) return false;
+            var px = (Color32*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafePtr(data);
             float r2 = r * r;
             int ccx = Mathf.FloorToInt(cx), ccy = Mathf.FloorToInt(cy);
             int ry0 = Mathf.Max(0, Mathf.FloorToInt(cy - r - 0.5f));
@@ -881,10 +887,8 @@ namespace Iroca
                 sx0 = Mathf.Max(0, sx0);
                 sx1 = Mathf.Min(w - 1, sx1);
                 if (sx1 < sx0) continue;
-                int n = sx1 - sx0 + 1;
-                var row = new Color32[n];
-                for (int k = 0; k < n; k++) row[k] = color;
-                tex.SetPixels32(sx0, y, n, 1, row);
+                Color32* row = px + (long)y * w;
+                for (int x = sx0; x <= sx1; x++) row[x] = color;
                 wrote = true;
             }
             return wrote;
@@ -975,13 +979,13 @@ namespace Iroca
             _overlayJob.Cancel();
             _detailOverlayJob.Cancel();
             ClearPendingOverlays();
-            _detailOverlayDirectPending = false;
+            _detailOverlayDirectPending = null;
             _detailApplied = default;
             TextureSlot.Release(ref detailMaskOverlayTexture);
             TextureSlot.Release(ref detailZoneOverlayTexture);
             isPainting = false;
             _maskStrokeStarted = false;
-            _overlayDirectPendingApply = false;
+            _overlayDirectPendingApply = null;
             _strokeHadDirectOverlayWrite = false;
             lastPaintUV = -Vector2.one;
             TextureSlot.Release(ref maskOverlayTexture);

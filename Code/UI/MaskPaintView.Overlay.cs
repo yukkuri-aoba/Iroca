@@ -96,21 +96,18 @@ namespace Iroca
         }
 
         /// <summary>
-        /// PaintMask のオーバーレイ直接書き込みを GPU へ反映する。スタンプごとではなく
-        /// ドラッグイベント 1 回分につき 1 回だけ Apply するため、呼び出し側
-        /// (PaintAtScreenPos)の末尾で呼ぶ。
+        /// PaintMask のオーバーレイ直接書き込みを GPU へ反映する。描く直前(PreviewView.TickMaskOverlay の Repaint)に呼び、
+        /// 1 フレームに何回ドラッグのイベントが来ても Apply は 1 回にする(以前はイベントごとに全面を上げていた。2048² で 16MB)。
+        /// 書いたテクスチャを覚えておき、その後に作り直された(破棄された)ものは上げない。
         /// </summary>
         public void FlushOverlayDirect()
         {
-            if (_detailOverlayDirectPending)
-            {
-                _detailOverlayDirectPending = false;
-                ActiveDetailOverlayTexture()?.Apply();
-            }
-            if (!_overlayDirectPendingApply) return;
-            _overlayDirectPendingApply = false;
-            var tex = ActiveOverlayTexture(out _);
-            if (tex != null) tex.Apply();
+            var detail = _detailOverlayDirectPending;
+            _detailOverlayDirectPending = null;
+            if (detail != null) detail.Apply(false);
+            var tex = _overlayDirectPendingApply;
+            _overlayDirectPendingApply = null;
+            if (tex != null) tex.Apply(false);
         }
 
         // バックグラウンドで生成したオーバーレイの画素(Mono のヒープの外。最大 2048² で 16MB × 2 枚を、マスクを変えるたびに作る)を
@@ -419,7 +416,8 @@ namespace Iroca
 
         // _detailApplied = いまのテクスチャの中身の範囲(直接書き込みと描画の照合に使う)。
         [System.NonSerialized] private DetailRange _detailApplied;
-        [System.NonSerialized] private bool _detailOverlayDirectPending;
+        // 中身へ直接書いて Apply 待ちの拡大表示用オーバーレイ(無ければ null。FlushOverlayDirect)。
+        [System.NonSerialized] private Texture2D _detailOverlayDirectPending;
         [System.NonSerialized] private readonly PreviewJob<DetailOverlayResult> _detailOverlayJob = new PreviewJob<DetailOverlayResult>();
         [System.NonSerialized] private DetailOverlayResult? _pendingDetailOverlay;
 
@@ -611,7 +609,7 @@ namespace Iroca
             float oy = (cy * toSrcY - a.y0) * toOutY;
             float orad = r * toSrcX * toOutX;
             if (ox + orad < 0f || oy + orad < 0f || ox - orad > tex.width || oy - orad > tex.height) return;
-            if (StampOverlayDisk(tex, ox, oy, orad, color)) _detailOverlayDirectPending = true;
+            if (StampOverlayDisk(tex, ox, oy, orad, color)) _detailOverlayDirectPending = tex;
         }
 
         /// <summary>
