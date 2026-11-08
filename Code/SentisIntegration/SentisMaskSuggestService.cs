@@ -100,6 +100,47 @@ namespace Iroca.SentisIntegration
         readonly Dictionary<string, NativeBuffer> _cropEmbeddingCache = new Dictionary<string, NativeBuffer>();
         readonly List<string> _cropLruOrder = new List<string>();
 
+        // デコーダに渡す埋め込みのテンソル(全体用と切り出し用に 1 つずつ。GPU では VRAM に 4MB ずつ)。
+        // ズームが走るクリックは全体 → 切り出しの順に使うので、1 つだけだと毎回上げ直しになる。
+        readonly EmbeddingTensorSlot _fullEmbTensor = new EmbeddingTensorSlot();
+        readonly EmbeddingTensorSlot _cropEmbTensor = new EmbeddingTensorSlot();
+
+        /// <summary>
+        /// デコーダに渡す埋め込みのテンソル。同じ埋め込み(同じ <see cref="NativeBuffer"/>)の間は作り直さずに使い回す。
+        /// GPU では最初の推論で Sentis が入力の中身をその場で GPU のデータに替えるので、2 回目からは上げ直さない
+        /// (以前はクリックのたびに 4MB を写して GPU へ上げ直していた。ズームが走ると 1 クリックで 2 回)。
+        /// 中身は埋め込みの写しで、推論は入力を書き換えないので、使い回しても推論の入力は同じ値。
+        /// 埋め込みは書き換えない約束なので、同じものかは参照で見る(写した後は元の参照を持たない)。
+        /// </summary>
+        sealed class EmbeddingTensorSlot
+        {
+            NativeBuffer _source;
+            Tensor<float> _tensor;
+
+            public Tensor<float> For(NativeBuffer embedding)
+            {
+                if (_tensor != null && ReferenceEquals(_source, embedding)) return _tensor;
+                Dispose();
+                using var view = SamNativeOps.FloatView(embedding, EmbeddingLength);
+                _tensor = new Tensor<float>(new TensorShape(1, 256, 64, 64), view.Array);
+                _source = embedding;
+                return _tensor;
+            }
+
+            public void Dispose()
+            {
+                _tensor?.Dispose();
+                _tensor = null;
+                _source = null;
+            }
+        }
+
+        void DisposeEmbeddingTensors()
+        {
+            _fullEmbTensor.Dispose();
+            _cropEmbTensor.Dispose();
+        }
+
         /// <summary>後処理ジョブの結果。第 1 段では提案ペイロード+ズーム計画、
         /// ズーム後処理では提案ペイロードのみ(hasCrop=false)。</summary>
         sealed class PostOutcome
@@ -737,9 +778,8 @@ namespace Iroca.SentisIntegration
                     embedding = _embedding;
                 }
                 if (embedding == null) throw new InvalidOperationException(Localization.AiErrEmptyResult);
-                // 埋め込みはテンソルへ写す間だけ NativeArray に見せる(写した後は手放してよい)。
-                using var embView = SamNativeOps.FloatView(embedding, EmbeddingLength);
-                using var emb = new Tensor<float>(new TensorShape(1, 256, 64, 64), embView.Array);
+                // 埋め込みのテンソルは同じ埋め込みの間は使い回す(EmbeddingTensorSlot。写した後は元を手放してよい)。
+                var emb = (cropRect.HasValue ? _cropEmbTensor : _fullEmbTensor).For(embedding);
                 using var pts = new Tensor<float>(new TensorShape(1, 2, 2), new[] { x, y, 0f, 0f });
                 using var lbl = new Tensor<float>(new TensorShape(1, 2), new[] { 1f, -1f });
                 _decoder.Schedule(emb, pts, lbl);
@@ -1041,6 +1081,8 @@ namespace Iroca.SentisIntegration
         {
             var old = _embedding;
             _embedding = embedding;
+            // 元が替わったら、前の元のテンソル(全体・切り出し)はもう使わないので VRAM を返す。
+            if (!ReferenceEquals(old, embedding)) DisposeEmbeddingTensors();
             old?.Release();
         }
 
@@ -1116,6 +1158,8 @@ namespace Iroca.SentisIntegration
         {
             _encoder?.Dispose(); _encoder = null;
             _decoder?.Dispose(); _decoder = null;
+            // 埋め込みのテンソルは前のバックエンドのデータ(GPU なら VRAM)なので一緒に返す(作り直しは次の推論で)。
+            DisposeEmbeddingTensors();
         }
 
         // スクリプトのリロード前と Unity の終了時に呼ばれる。ここから例外が漏れると、同じタイミングの他ツールの
