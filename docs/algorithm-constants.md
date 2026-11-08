@@ -267,6 +267,7 @@
 | `DecontamLineDistSqMax` | `3000f` | 不明 | — | 混色の線分からの距離² の上限（各 ch 約 31 階調）。由来の記録なし |
 | `DecontamDirectCostRatioFull` | `32` | 計算 | — | 直接足す経路への切り替えの目安。速さの損益分岐 45 の手前。出力は同じ |
 | `DecontamDirectCostRatioSolid` | `8` | 計算 | — | 密度だけの経路の切り替えの目安。損益分岐 13 の手前。出力は同じ |
+| `DecontamBandRows` | `128` | 計算 | — | 密な経路で窓和を求める行の帯の高さ。帯ごとに窓の上下を余分に足す分と並列の粒度の兼ね合い。整数の和で出力に効かない |
 | `FringeBgRadius` | `AchromaFringeBgRadius` | 設計 | — | AchromaFringeBgRadius のローカルな別名 |
 | `Band` | `64` | 計算 | — | 累積和の列方向を並列に分ける帯の幅。整数の加算で出力に効かない |
 | `MixSegment` | `32` | 計算 | — | 早い打ち切りをまとめて判定する行の区間。出力はビット単位で同じ |

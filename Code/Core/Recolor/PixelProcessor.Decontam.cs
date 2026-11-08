@@ -98,160 +98,9 @@ namespace Iroca
                 return;
             }
 
-            // 局所 BG 推定: strength=0 のピクセルだけを使った近傍和とその密度
-            // 0..255 のスケールで計算（後で divide で平均化）
-            // null 初期化してから try 内で Rent することでリークを防ぐ。
-            float* wR = null, wG = null, wB = null, wD = null;
-            float* bgDensity = null;
-            float* bgRSum = null, bgGSum = null, bgBSum = null;
-            try
-            {
-            // 内部の固めだけ(solidifyOnly)なら、要るのは背景の密度だけ。
-            // 色の窓和(bg*Sum)は新しく借りず、窓和を出し終えた作業配列を回す(下の BoxFilterSum の並び)。
-            if (!solidifyOnly)
-            {
-                wR = s_floatPool.Rent(len);
-                wG = s_floatPool.Rent(len);
-                wB = s_floatPool.Rent(len);
-            }
-            wD = s_floatPool.Rent(len);
-            bgDensity = s_floatPool.Rent(len);
-            // ドナー範囲だけを「行ごとにゼロ化 → ドナー画素だけ充填」する(Rent はゼロ初期化を
-            // 保証しない)。範囲外は BoxFilterSum から読まれないので未初期化のままでよい。
-            int donorSpan = donorX1 - donorX0 + 1;
-            Parallel.For(donorY0, donorY1 + 1, decontamPo, y =>
-            {
-                int rowOff = y * w;
-                int beg = rowOff + donorX0;
-                ClearWork(wD, beg, donorSpan);
-                if (!solidifyOnly)
-                {
-                    ClearWork(wR, beg, donorSpan);
-                    ClearWork(wG, beg, donorSpan);
-                    ClearWork(wB, beg, donorSpan);
-                }
-                for (int x = donorX0; x <= donorX1; x++)
-                {
-                    int i = rowOff + x;
-                    // アルファが0のピクセルはRGBがゴミデータ(黒など)の可能性が高いためBG推定から除外。
-                    // 除外マスク画素も除く: strength=0 だが背景ではなく「保護されたパーツ」(サンプル同色で
-                    // あり得る)ため、ドナーに入れると BG 推定がサンプル色側へ汚染され、α 分解の前提
-                    // (BG=非対象色)が崩れてマスク境界の外側に誤色の点ノイズを塗ってしまう。
-                    if (strength[i] <= 0f && originalPixels[i].a > 0 &&
-                        (maskExcluded == null || !maskExcluded[i]))
-                    {
-                        wD[i] = 1f;
-                        if (!solidifyOnly)
-                        {
-                            wR[i] = originalPixels[i].r;
-                            wG[i] = originalPixels[i].g;
-                            wB[i] = originalPixels[i].b;
-                        }
-                    }
-                }
-            });
-            // BG 推定(density/R/G/B)。各 ch を順に処理する(融合版は temp ストリームが 4 本同時に
-            // なりメモリ帯域律速のこの処理ではキャッシュスラッシングで遅くなったため単一版に戻した)。
-            // 窓和を出し終えた作業配列は、次の ch の窓和の出力先に回す(同時に持つ配列は BoxFilterSum の
-            // 作業 1 本を入れて 9 本 → 6 本。4K で 1 本 64MB)。BoxFilterSum が出力に書くのは処理矩形の中だけで、
-            // 下の再合成が読むのもそこだけなので、回した配列の矩形の外に残る値は読まれない。
-            BoxFilterSum(wD, bgDensity, w, h, radius, ct, boxMinX, boxMinY, boxMaxX, boxMaxY);
-            if (!solidifyOnly)
-            {
-                bgRSum = wD; wD = null;
-                BoxFilterSum(wR, bgRSum, w, h, radius, ct, boxMinX, boxMinY, boxMaxX, boxMaxY);
-                bgGSum = wR; wR = null;
-                BoxFilterSum(wG, bgGSum, w, h, radius, ct, boxMinX, boxMinY, boxMaxX, boxMaxY);
-                bgBSum = wG; wG = null;
-                BoxFilterSum(wB, bgBSum, w, h, radius, ct, boxMinX, boxMinY, boxMaxX, boxMaxY);
-                s_floatPool.Return(wB); wB = null;
-            }
-
-            float sR = sampleColor.r * 255f;
-            float sG = sampleColor.g * 255f;
-            float sB = sampleColor.b * 255f;
-            float tR = targetColor.r * 255f;
-            float tG = targetColor.g * 255f;
-            float tB = targetColor.b * 255f;
-
-            Parallel.For(boxMinY, boxMaxY + 1, decontamPo, y =>
-            {
-            int rowOff = y * w;
-            for (int x = boxMinX; x <= boxMaxX; x++)
-            {
-                int i = rowOff + x;
-                float s = strength[i];
-                if (s <= 0f || s >= interiorThreshold) continue;
-                float density = bgDensity[i];
-                if (density < interiorBgDensityMin)
-                {
-                    // 近傍 radius 内に背景(非選択)画素が実質無い = この弱AA画素は選択領域の「内部」。
-                    // 背景が無いので α 分解で再合成できないが、内部なら元色を残すべきでない。weak strength
-                    // のままだと再着色が部分的になり元色(例: 白文字×青地の縁の薄青)が残留する。full に
-                    // 固めて完全再着色する(SolidifyAchromaInterior の有彩ターゲット版・内部限定)。
-                    // 「実質無い」= 窓面積比 DecontamInteriorBgFrac 未満。点在ピンホール(偽ドナー)は
-                    // 内部扱いで固め、境界(背景に面し密度が高い縁)は従来どおり α 分解されるので
-                    // AA ソフトさは不変。
-                    strength[i] = 1f;
-                    continue;
-                }
-                if (solidifyOnly) continue;
-
-                float bR = bgRSum[i] / density;
-                float bG = bgGSum[i] / density;
-                float bB = bgBSum[i] / density;
-
-                float dirR = sR - bR;
-                float dirG = sG - bG;
-                float dirB = sB - bB;
-                float dirSq = dirR * dirR + dirG * dirG + dirB * dirB;
-                if (dirSq < DecontamDegenEps) continue; // sample ≈ BG → α が定義できない
-
-                float pR = originalPixels[i].r;
-                float pG = originalPixels[i].g;
-                float pB = originalPixels[i].b;
-
-                float dot = (pR - bR) * dirR + (pG - bG) * dirG + (pB - bB) * dirB;
-                float alpha = dot / dirSq;
-                bool beyondSample = alpha > 1f;
-                if (alpha < 0f) alpha = 0f;
-                else if (beyondSample) alpha = 1f;
-
-                // BG–sample 線分から大きく外れる色は、α 分解の前提が成り立たないためスキップする。
-                float projR = bR + alpha * dirR;
-                float projG = bG + alpha * dirG;
-                float projB = bB + alpha * dirB;
-                float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
-                if (distSq > DecontamLineDistSqMax) continue; // 許容誤差。各チャンネル約31のズレまで許容
-
-                // サンプルを BG と反対側へ越えた画素は素材そのもの(説明は DecontamBeyondSampleNote)。
-                if (beyondSample) { strength[i] = 1f; continue; }
-
-                float oneMinusAlpha = 1f - alpha;
-                float resR = alpha * tR + oneMinusAlpha * bR;
-                float resG = alpha * tG + oneMinusAlpha * bG;
-                float resB = alpha * tB + oneMinusAlpha * bB;
-
-                localAaMask[i] = true;
-                localDecontaminatedPixels[i] = new Color32(
-                    (byte)Mathf.Clamp(Mathf.RoundToInt(resR), 0, 255),
-                    (byte)Mathf.Clamp(Mathf.RoundToInt(resG), 0, 255),
-                    (byte)Mathf.Clamp(Mathf.RoundToInt(resB), 0, 255),
-                    originalPixels[i].a);
-            }
-            });
-            }
-            finally
-            {
-                if (bgDensity != null) s_floatPool.Return(bgDensity);
-                if (bgBSum   != null) s_floatPool.Return(bgBSum);
-                if (bgGSum   != null) s_floatPool.Return(bgGSum);
-                if (bgRSum   != null) s_floatPool.Return(bgRSum);
-                if (wD != null) s_floatPool.Return(wD);
-                if (wB != null) s_floatPool.Return(wB);
-                if (wG != null) s_floatPool.Return(wG);
-                if (wR != null) s_floatPool.Return(wR);
-            }
+            DecontaminateAaBanded(originalPixels, strength, w, h, sampleColor, targetColor, radius,
+                interiorThreshold, interiorBgDensityMin, aaMask, decontaminatedPixels, maskExcluded,
+                boxMinX, boxMinY, boxMaxX, boxMaxY, solidifyOnly, decontamPo);
         }
 
         // ‖sample - BG‖² の下限(≈1 階調)。これ未満は sample≈BG で α が定義できない。
@@ -385,6 +234,166 @@ namespace Iroca
                         originalPixels[i].a);
                 }
             });
+        }
+
+        // DecontaminateAaBanded の帯の行数。帯ごとに窓の上下 radius 行ぶん余分に足すので、窓より十分に高くする。
+        private const int DecontamBandRows = 128;
+
+        /// <summary>
+        /// DecontaminateAaBoundary の候補が密なときの経路。背景(ドナー)の窓和を、行の帯ごとに列の和を
+        /// 縦に滑らせ、行の中で横に滑らせて求める。以前は 4 ch の窓和を全画面の float 配列(作業 5 本と
+        /// BoxFilterSum の 1 本。4K で 384MB)に作っていた。足す値は 0..255 の整数(と個数)で、窓は
+        /// BoxFilterSum と同じく画像の端で切る。窓和は最大 (2·12+1)²·255 &lt; 2^24 なので浮動小数の窓和も常に
+        /// 正確な整数で、整数で数えた値を float にしたものと同じ=出力はビット単位で同じ。
+        /// ドナーの条件(strength ≤ 0)は候補(strength &gt; 0)を固める書き込みで変わらないので、
+        /// 帯を並行に処理しても読む値は同じ(DecontaminateAaDirect と同じ理由)。
+        /// </summary>
+        private static void DecontaminateAaBanded(
+            Color32* originalPixels, float* strength, int w, int h,
+            Color sampleColor, Color targetColor, int radius,
+            float interiorThreshold, float interiorBgDensityMin,
+            bool* aaMask, Color32* decontaminatedPixels, bool* maskExcluded,
+            int boxMinX, int boxMinY, int boxMaxX, int boxMaxY, bool solidifyOnly, ParallelOptions po)
+        {
+            float sR = sampleColor.r * 255f;
+            float sG = sampleColor.g * 255f;
+            float sB = sampleColor.b * 255f;
+            float tR = targetColor.r * 255f;
+            float tG = targetColor.g * 255f;
+            float tB = targetColor.b * 255f;
+            // 列の和を持つ範囲 = 横の窓が読む列(矩形 ± radius を画像の端で切る)。
+            int cx0 = Mathf.Max(0, boxMinX - radius), cx1 = Mathf.Min(w - 1, boxMaxX + radius);
+            int span = cx1 - cx0 + 1;
+            int nch = solidifyOnly ? 1 : 4;
+            int bandCount = (boxMaxY - boxMinY + DecontamBandRows) / DecontamBandRows;
+            Parallel.For(0, bandCount, po,
+                () => (IntPtr)s_intPool.Rent(span * nch),
+                (band, _, colsPtr) =>
+                {
+                    int* cols = (int*)colsPtr;
+                    int* colD = cols;
+                    int* colR = solidifyOnly ? null : cols + span;
+                    int* colG = solidifyOnly ? null : cols + 2 * span;
+                    int* colB = solidifyOnly ? null : cols + 3 * span;
+                    for (int k = 0; k < span * nch; k++) cols[k] = 0;
+                    int by0 = boxMinY + band * DecontamBandRows;
+                    int by1 = Math.Min(boxMaxY, by0 + DecontamBandRows - 1);
+                    // 行 yy のドナーを列の和へ足す(sign = +1)・引く(-1)。
+                    void AddRow(int yy, int sign)
+                    {
+                        int rb = yy * w;
+                        for (int x = cx0; x <= cx1; x++)
+                        {
+                            int j = rb + x;
+                            if (!(strength[j] <= 0f)) continue;
+                            Color32 o = originalPixels[j];
+                            if (o.a == 0) continue;
+                            if (maskExcluded != null && maskExcluded[j]) continue;
+                            int c = x - cx0;
+                            colD[c] += sign;
+                            if (colR != null) { colR[c] += sign * o.r; colG[c] += sign * o.g; colB[c] += sign * o.b; }
+                        }
+                    }
+                    for (int yy = Math.Max(0, by0 - radius), ye = Math.Min(h - 1, by0 + radius); yy <= ye; yy++) AddRow(yy, 1);
+                    for (int y = by0; y <= by1; y++)
+                    {
+                        if (y > by0)
+                        {
+                            int sub = y - 1 - radius, add = y + radius;
+                            if (sub >= 0) AddRow(sub, -1);
+                            if (add < h) AddRow(add, 1);
+                        }
+                        int rowOff = y * w;
+                        // 横の窓 [x-radius, x+radius] を画像の端で切った和を、x を進めながら滑らせる。
+                        int sumD = 0, sumR = 0, sumG = 0, sumB = 0;
+                        for (int xx = Math.Max(0, boxMinX - radius), xe = Math.Min(w - 1, boxMinX + radius); xx <= xe; xx++)
+                        {
+                            int c = xx - cx0;
+                            sumD += colD[c];
+                            if (colR != null) { sumR += colR[c]; sumG += colG[c]; sumB += colB[c]; }
+                        }
+                        for (int x = boxMinX; x <= boxMaxX; x++)
+                        {
+                            if (x > boxMinX)
+                            {
+                                int subX = x - 1 - radius, addX = x + radius;
+                                if (subX >= 0)
+                                {
+                                    int c = subX - cx0;
+                                    sumD -= colD[c];
+                                    if (colR != null) { sumR -= colR[c]; sumG -= colG[c]; sumB -= colB[c]; }
+                                }
+                                if (addX < w)
+                                {
+                                    int c = addX - cx0;
+                                    sumD += colD[c];
+                                    if (colR != null) { sumR += colR[c]; sumG += colG[c]; sumB += colB[c]; }
+                                }
+                            }
+                            int i = rowOff + x;
+                            float s = strength[i];
+                            if (s <= 0f || s >= interiorThreshold) continue;
+                            float density = sumD;
+                            if (density < interiorBgDensityMin)
+                            {
+                                // 近傍 radius 内に背景(非選択)画素が実質無い = この弱AA画素は選択領域の「内部」。
+                                // 背景が無いので α 分解で再合成できないが、内部なら元色を残すべきでない。weak strength
+                                // のままだと再着色が部分的になり元色(例: 白文字×青地の縁の薄青)が残留する。full に
+                                // 固めて完全再着色する(SolidifyAchromaInterior の有彩ターゲット版・内部限定)。
+                                // 「実質無い」= 窓面積比 DecontamInteriorBgFrac 未満。点在ピンホール(偽ドナー)は
+                                // 内部扱いで固め、境界(背景に面し密度が高い縁)は従来どおり α 分解されるので
+                                // AA ソフトさは不変。
+                                strength[i] = 1f;
+                                continue;
+                            }
+                            if (solidifyOnly) continue;
+
+                            float bR = (float)sumR / density;
+                            float bG = (float)sumG / density;
+                            float bB = (float)sumB / density;
+
+                            float dirR = sR - bR;
+                            float dirG = sG - bG;
+                            float dirB = sB - bB;
+                            float dirSq = dirR * dirR + dirG * dirG + dirB * dirB;
+                            if (dirSq < DecontamDegenEps) continue; // sample ≈ BG → α が定義できない
+
+                            float pR = originalPixels[i].r;
+                            float pG = originalPixels[i].g;
+                            float pB = originalPixels[i].b;
+
+                            float dot = (pR - bR) * dirR + (pG - bG) * dirG + (pB - bB) * dirB;
+                            float alpha = dot / dirSq;
+                            bool beyondSample = alpha > 1f;
+                            if (alpha < 0f) alpha = 0f;
+                            else if (beyondSample) alpha = 1f;
+
+                            // BG–sample 線分から大きく外れる色は、α 分解の前提が成り立たないためスキップする。
+                            float projR = bR + alpha * dirR;
+                            float projG = bG + alpha * dirG;
+                            float projB = bB + alpha * dirB;
+                            float distSq = (pR - projR) * (pR - projR) + (pG - projG) * (pG - projG) + (pB - projB) * (pB - projB);
+                            if (distSq > DecontamLineDistSqMax) continue; // 許容誤差。各チャンネル約31のズレまで許容
+
+                            // サンプルを BG と反対側へ越えた画素は素材そのもの(説明は DecontamBeyondSampleNote)。
+                            if (beyondSample) { strength[i] = 1f; continue; }
+
+                            float oneMinusAlpha = 1f - alpha;
+                            float resR = alpha * tR + oneMinusAlpha * bR;
+                            float resG = alpha * tG + oneMinusAlpha * bG;
+                            float resB = alpha * tB + oneMinusAlpha * bB;
+
+                            aaMask[i] = true;
+                            decontaminatedPixels[i] = new Color32(
+                                (byte)Mathf.Clamp(Mathf.RoundToInt(resR), 0, 255),
+                                (byte)Mathf.Clamp(Mathf.RoundToInt(resG), 0, 255),
+                                (byte)Mathf.Clamp(Mathf.RoundToInt(resB), 0, 255),
+                                originalPixels[i].a);
+                        }
+                    }
+                    return colsPtr;
+                },
+                colsPtr => s_intPool.Return((int*)colsPtr));
         }
 
         /// <summary>
