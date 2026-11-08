@@ -1,6 +1,7 @@
 // Copyright 2026 yukkuri__aoba https://github.com/yukkuri-aoba/Iroca
 // Licensed under PolyForm Shield License 1.0.0 https://polyformproject.org/licenses/shield/1.0.0
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -14,6 +15,9 @@ namespace Iroca
     /// (メニューは項目を無効表示にし、手動指定の導線だけを出す。色の処理は今まで通り)。
     /// 探索とチャート地図は重いので、テクスチャ単位でキャッシュする(マスク欄の「メッシュ」行か
     /// 初回の右クリックで作る)。開いているシーンが替わったり、使っていた Renderer が消えたりしたら探し直す。
+    /// 地図はメッシュが見つかった時点で背景で作り始める(4K で数百 ms。以前は初回の右クリックでメニューを
+    /// 作る前にメインスレッドで作っていた)。UV の読み取り(Unity の API)は探索の中でメインスレッドで済んでいて、
+    /// 背景でするのはラスタライズとにじみ代の割り当て(どちらも計算だけ)。
     /// </summary>
     internal sealed class MeshPartController
     {
@@ -24,6 +28,9 @@ namespace Iroca
         bool _searched;
         MeshUvLocator.Result _found;
         UvChartMap _map;
+        // 背景で作っている地図(寸法 _mapTaskW×_mapTaskH)。Map() が引き取る。捨てるときは作り終わってから手放す。
+        Task<UvChartMap> _mapTask;
+        int _mapTaskW, _mapTaskH;
         // 手動で指定した物(マスク欄の「メッシュ」行や右クリックの「選択中の…を使う」)。自動なら null。
         Object _manualObject;
         // UV の島の輪郭(プレビューの重ね表示用)。_found と同じ寿命。
@@ -55,6 +62,7 @@ namespace Iroca
                     _found = MeshUvLocator.FindForTexture(tex);
                     _sceneStamp = SceneStamp();
                     _searched = true;
+                    StartMapBuild();
                 }
                 return _found;
             }
@@ -131,6 +139,7 @@ namespace Iroca
             _searched = true;
             _manualObject = obj;
             _sceneStamp = SceneStamp();
+            StartMapBuild();
             return true;
         }
 
@@ -148,6 +157,7 @@ namespace Iroca
         {
             _map?.Dispose();
             _map = null;
+            DiscardMapTask();
         }
 
         /// <summary>
@@ -225,11 +235,74 @@ namespace Iroca
             if (_map == null || _map.Width != w || _map.Height != h)
             {
                 _map?.Dispose();
-                _map = UvChartMap.Build(w, h, _found.Sources());
-                // 引くのは既定の半径だけなので、半径の外を落とした持ち主だけを持つ(4K で 192MB → 64MB)。
-                _map.AssignPaddingBaked(_map.DefaultPaddingRadius);
+                _map = null;
+                // 背景で作り始めていれば、作り終わるのを待って引き取る(同じ寸法・同じメッシュなら同じ地図)。
+                _map = TakeBuiltMap(w, h) ?? BuildMap(w, h, _found.Sources());
             }
             return _map;
+        }
+
+        // 引くのは既定の半径だけなので、半径の外を落とした持ち主だけを持つ(4K で 192MB → 64MB)。
+        // 計算だけ(Unity の API を使わない)なので、背景のスレッドで呼んでよい。
+        static UvChartMap BuildMap(int w, int h, IReadOnlyList<UvChartSource> sources)
+        {
+            var map = UvChartMap.Build(w, h, sources);
+            try
+            {
+                map.AssignPaddingBaked(map.DefaultPaddingRadius);
+                return map;
+            }
+            catch
+            {
+                map.Dispose();
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 地図を背景で作り始める(メッシュが見つかったとき)。寸法は今のマスクの寸法で、まだ無ければ作らない
+        /// (右クリックのときに Map() が作る)。マスクの寸法がその後で変わったら、Map() が捨てて作り直す。
+        /// </summary>
+        void StartMapBuild()
+        {
+            if (_map != null || _mapTask != null || _maskView == null) return;
+            if (_found == null || _found.found.Count == 0) return;
+            int w = _maskView.maskWidth, h = _maskView.maskHeight;
+            if (w <= 0 || h <= 0) return;
+            var sources = _found.Sources();
+            _mapTaskW = w;
+            _mapTaskH = h;
+            NativeMemoryLifecycle.WorkStarted();
+            _mapTask = Task.Run(() =>
+            {
+                try { return BuildMap(w, h, sources); }
+                finally { NativeMemoryLifecycle.WorkEnded(); }
+            });
+        }
+
+        // 背景で作った地図を引き取る(作り終わっていなければ待つ)。寸法が違えば捨てて null。
+        UvChartMap TakeBuiltMap(int w, int h)
+        {
+            if (_mapTask == null) return null;
+            if (_mapTaskW != w || _mapTaskH != h)
+            {
+                DiscardMapTask();
+                return null;
+            }
+            var task = _mapTask;
+            _mapTask = null;
+            return task.GetAwaiter().GetResult();   // 失敗は同期で作ったときと同じく投げる
+        }
+
+        // 背景の地図を使わない(探し直し・閉じる)。作り終わってから手放す(作っている途中のものは止められない)。
+        void DiscardMapTask()
+        {
+            var task = _mapTask;
+            _mapTask = null;
+            task?.ContinueWith(t =>
+            {
+                if (t.Status == TaskStatus.RanToCompletion) t.Result?.Dispose();
+            }, TaskScheduler.Default);
         }
 
         /// <summary>右クリックで足す範囲。</summary>
