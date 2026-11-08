@@ -224,6 +224,13 @@ namespace Iroca {
             // カードのどこかを押したら、そのゾーンを「いま直しているゾーン」にする。カードの中の操作より
             // 先に見るので、前の描画で記録した矩形で判定する(イベントは消費しない＝押した操作はそのまま効く)。
             var ev = Event.current;
+
+            // 開いておくカードは Layout のときだけ決める。押したイベントの途中で畳む/開くを変えると、Layout で
+            // 並べた要素と食い違って IMGUI がエラーを出す。押した結果は次の Layout(Repaint の前)で開く。
+            if (ev.type == EventType.Layout) {
+                int cur = _maskView != null ? _maskView.activeMaskTarget : -1;
+                _expandedZoneIndex = zones.Count >= 2 && cur >= 0 && cur < zones.Count ? cur : -1;
+            }
             if (ev.type == EventType.MouseDown && _zoneCardRects != null && MouseInSettingsScroll()) {
                 for (int i = 0; i < _zoneCardRects.Count && i < zones.Count; i++) {
                     if (_zoneCardRects[i].Contains(ev.mousePosition)) { SetCurrentZoneIndex(i); break; }
@@ -315,8 +322,15 @@ namespace Iroca {
             return clicked;
         }
 
+        // 中身まで開いて描くカード(いま直しているゾーン)。-1 = 全部開く(ゾーンが 1 つ・全ゾーン共通を直しているとき)。
+        // 決めるのは Layout のときだけ(DrawZoneList)。
+        [System.NonSerialized] private int _expandedZoneIndex = -1;
+
         // 1 ゾーン分のカード（ヘッダ行＋採色/変更先＋自動調整＋許容範囲＋模様保持/出力彩度＋
         // 畳んだ詳細設定）を描画する。
+        // ゾーンが 2 つ以上あるときは、いま直しているゾーンのカードだけを開き、ほかは見出しの 1 行に畳む。
+        // 全部を開いたままだと 1 枚 8 行ほどあり、4〜5 色に増えると目的のゾーンまでスクロールが要った。開くのに
+        // 専用の操作は足さず、「カードを押すと、そのゾーンを直す」に相乗りする(押したカードが開く)。
         // 戻り値 true = このカードの削除(×)ボタンが押された。
         private bool DrawZoneCard(ColorZone zone, int index) {
             bool removeRequested = false;
@@ -325,6 +339,11 @@ namespace Iroca {
 
             if (DrawZoneHeaderRow(zone, index)) {
                 removeRequested = true;
+            }
+
+            if (_expandedZoneIndex >= 0 && index != _expandedZoneIndex) {
+                EditorGUILayout.EndVertical();
+                return removeRequested;
             }
 
             // ゾーン別マスクの編集は除外マスク欄の「編集対象」プルダウン＋「ブラシで編集」に
@@ -434,6 +453,9 @@ namespace Iroca {
                 zone.name,
                 GUILayout.MinWidth(0), GUILayout.ExpandWidth(true));
 
+            // 元の色 → 変更先の色の見本。畳んだカードでも、どのゾーンが何色を何色に変えるかが名前を読まずに分かる。
+            DrawZoneHeaderSwatches(zone, rowH);
+
             // ソロ表示: このゾーンだけでプレビューを作り直す。ゾーンが実際にどこを拾って
             // いるかを確かめる手段が差分表示（全ゾーン混在）しか無かったため追加した。
             // 表示専用で、保存内容には影響しない（Undo にも載せない＝編集ではない）。
@@ -456,6 +478,39 @@ namespace Iroca {
             }
             EditorGUILayout.EndHorizontal();
             return removeRequested;
+        }
+
+        // 見出しの色見本 1 つの幅と、2 つの間の矢印の幅。
+        private const float HeaderSwatchWidth = 14f;
+        private const float HeaderSwatchArrowWidth = 14f;
+
+        /// <summary>
+        /// カードの見出しに「元の色 → 変更先の色」の小さな見本を描く(表示だけ)。まだ決めていない色は枠だけにする。
+        /// </summary>
+        private static void DrawZoneHeaderSwatches(ColorZone zone, float rowH) {
+            var rect = GUILayoutUtility.GetRect(HeaderSwatchWidth * 2f + HeaderSwatchArrowWidth, rowH,
+                GUILayout.Width(HeaderSwatchWidth * 2f + HeaderSwatchArrowWidth), GUILayout.Height(rowH));
+            // ツールチップのためのラベル(描くのは下の見本と矢印)。
+            GUI.Label(rect, TempContent.Of("", Localization.ZoneHeaderSwatchTooltip));
+            if (Event.current.type != EventType.Repaint) {
+                return;
+            }
+            float pad = 3f;
+            var from = new Rect(rect.x, rect.y + pad, HeaderSwatchWidth, rect.height - pad * 2f);
+            var to = new Rect(rect.xMax - HeaderSwatchWidth, from.y, HeaderSwatchWidth, from.height);
+            DrawHeaderSwatch(from, zone.sampleColor, zone.HasSampleColor);
+            DrawHeaderSwatch(to, zone.targetColor, zone.HasTargetColor);
+            var arrow = new Rect(from.xMax, rect.y, HeaderSwatchArrowWidth, rect.height);
+            EditorStyles.centeredGreyMiniLabel.Draw(arrow, TempContent.Of("→"), false, false, false, false);
+        }
+
+        private static void DrawHeaderSwatch(Rect r, Color color, bool set) {
+            var edge = new Color(0f, 0f, 0f, 0.5f);
+            if (set) {
+                color.a = 1f;
+                EditorGUI.DrawRect(r, color);
+            }
+            DrawRectOutline(r, edge, 1f);
         }
 
         // カードの色の 2 行（サンプルカラー＋スポイト、変更先カラー）。

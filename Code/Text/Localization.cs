@@ -562,6 +562,9 @@ namespace Iroca {
         public static string ZoneDragHandleTooltip => IsJapanese
             ? "ドラッグで並べ替えます。重なった所は、上にあるゾーンだけが色替えします。"
             : "Drag to reorder. Where zones overlap, only the upper one recolors.";
+        public static string ZoneHeaderSwatchTooltip => IsJapanese
+            ? "左が変えたい色（サンプルカラー）、右が変更先の色です。枠だけのときはまだ決めていません。\nゾーンが 2 つ以上あるときは、いま直しているゾーンのカードだけを開きます。ほかのカードはどこかを押すと開きます。"
+            : "Left: the color to change (Sample Color). Right: the Target Color. An empty frame means it is not set yet.\nWith two or more zones, only the card of the zone you are working on is expanded. Click anywhere on another card to expand it.";
         public static string ZoomHint => IsJapanese
             ? "Ctrl+スクロールで拡大・縮小します。100% はテクスチャ全体が枠に収まる大きさで、1 画素が見えるところまで拡大できます。"
             : "Ctrl+scroll to zoom. 100% fits the whole texture in the frame; you can zoom in until single pixels are visible.";
