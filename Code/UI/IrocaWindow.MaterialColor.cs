@@ -18,14 +18,14 @@ namespace Iroca
         [System.NonSerialized] private List<List<MaterialColorSettings.Report>> _materialColorGroups;
         [System.NonSerialized] private Texture2D _materialColorsFor;
         [System.NonSerialized] private HashSet<Texture> _materialColorTargets;
-        [System.NonSerialized] private int _materialColorsScene;
+        [System.NonSerialized] private int _materialColorsScene, _materialColorsSceneVersion;
         [System.NonSerialized] private bool _materialColorsInScene;
         [System.NonSerialized] private double _materialColorsScannedAt, _materialColorsReadAt;
         // 表示に使う組の番号(テクスチャを替えたら先頭に戻す)。
         [System.NonSerialized] private int _materialColorChoice;
 
-        // 開いているシーンの Renderer を探し直す間隔(マテリアルの付け替えを追う)と、見つけたマテリアルの値を
-        // 読み直す間隔(インスペクタで色を変えたのを追う)。どちらもウィンドウを描いているときだけ。
+        // 開いているシーンの Renderer を探し直す最短の間隔(マテリアルの付け替えを追う。変化の通知があったときだけ)と、
+        // 見つけたマテリアルの値を読み直す間隔(インスペクタで色を変えたのを追う)。どちらもウィンドウを描いているときだけ。
         private const double MaterialColorRescanSeconds = 2.0;
         private const double MaterialColorRereadSeconds = 0.5;
         private const string MaterialColorDismissedKeyPrefix = IrocaPrefs.MaterialColorDismissedPrefix;
@@ -53,8 +53,12 @@ namespace Iroca
             int scene = MeshPartController.SceneStamp();
             bool retarget = tex != _materialColorsFor || scene != _materialColorsScene;
             List<MaterialColorSettings.Report> reports;
-            if (retarget || (_materialColorsInScene && now - _materialColorsScannedAt >= MaterialColorRescanSeconds))
+            // シーンで見つけていたら、Renderer が変わったかもしれないという通知(SceneRendererChanges)が来たときだけ
+            // 探し直す(通知が続いても間隔はあける)。
+            if (retarget || (_materialColorsInScene && SceneRendererChanges.Version != _materialColorsSceneVersion
+                             && now - _materialColorsScannedAt >= MaterialColorRescanSeconds))
             {
+                _materialColorsSceneVersion = SceneRendererChanges.Version;
                 if (tex != _materialColorsFor)
                 {
                     _materialColorChoice = 0;
