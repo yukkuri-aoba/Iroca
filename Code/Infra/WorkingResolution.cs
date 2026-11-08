@@ -214,7 +214,7 @@ namespace Iroca
             }
             int bpp = layout.bpp, ro = layout.r, go = layout.g, bo = layout.b, ao = layout.a;
             // 呼び出し元(メインスレッド)は返るまで待つので、テクスチャのデータはこの間ずっと読める。
-            Parallel.For(0, h, y =>
+            Parallel.For(0, h, WorkOptions(), y =>
             {
                 byte* row = s + (long)y * w * bpp;
                 Color32* d = dst + (long)y * w;
@@ -249,7 +249,7 @@ namespace Iroca
         /// </summary>
         internal static unsafe void ResizeArea(Color32* src, int sw, int sh, int dw, int dh, Color32* dst)
         {
-            Parallel.For(0, dh, y =>
+            Parallel.For(0, dh, WorkOptions(), y =>
             {
                 int y0 = SrcRow0(y, sh, dh), y1 = SrcRow1(y, y0, sh, dh);
                 for (int x = 0; x < dw; x++)
@@ -308,7 +308,7 @@ namespace Iroca
             // 呼び出し元(メインスレッド)は返るまで待つので、テクスチャのデータはこの間ずっと読める。
             byte* s = (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(src);
             long rowBytes = (long)sw * layout.bpp;
-            Parallel.For(0, dh, y =>
+            Parallel.For(0, dh, WorkOptions(), y =>
             {
                 int bpp = layout.bpp, ro = layout.r, go = layout.g, bo = layout.b, ao = layout.a;
                 int y0 = SrcRow0(y, sh, dh), y1 = SrcRow1(y, y0, sh, dh);
@@ -334,6 +334,11 @@ namespace Iroca
                 }
             });
         }
+
+        // 並列度は Core と同じ規則(CoreParallelism。メインスレッドと描画のぶんのコアをあける)。どの処理も出力の行ごとに
+        // 独立に書くので、並列度で結果は変わらない。
+        private static ParallelOptions WorkOptions()
+            => new ParallelOptions { MaxDegreeOfParallelism = CoreParallelism.Max() };
 
         // 出力の行 y が読む元の行 [y0, y1)。
         private static int SrcRow0(int y, int sh, int dh) => (int)((long)y * sh / dh);
