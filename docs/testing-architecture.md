@@ -347,8 +347,8 @@ $env:IROCA_HARNESS_CACHE = "0"; $env:IROCA_RESULT_CACHE = "0"; $env:IROCA_ROW_CA
 | ワーカー分離 | `dev_safe/_iou_csharp_work/<worker>/` に分けて並列実行の書き込み衝突を防ぐ。ハーネスのビルドはプロセス跨ぎのロックで直列化 | — |
 
 **キャッシュキーには DLL のダイジェストが入っている**ので、`Code/` を変更して再ビルドした
-時点で全エントリが自動的に無効化される（古い出力で緑になることはない）。容量は既定 24GB 上限で
-古い順に捨てる（`IROCA_HARNESS_CACHE_GB` で変更、`IROCA_HARNESS_CACHE_DIR` で移動）。
+時点で全エントリが自動的に無効化される（古い出力で緑になることはない）。容量は既定 150GB 上限（2026-11-08 に 24GB から。無効になった DLL の分は下の掃除が早く消すので、
+上限は有効な分を溜める大きさでよい）で古い順に捨てる（`IROCA_HARNESS_CACHE_GB` で変更、`IROCA_HARNESS_CACHE_DIR` で移動）。
 **上限は「スイート 1 周分が全部入る」大きさでないと意味が無い。** 2026-09-14 の計測では 1 周の
 作業集合が旧上限 8GB を超えており（4096² 出力 64MB × 300 件弱）、毎回古い順に捨てて次の周で
 作り直すスラッシングになっていた（全体 8 分 30 秒のうち相当分が再実行）。さらに外部マスクの
@@ -365,8 +365,12 @@ $env:IROCA_HARNESS_CACHE = "0"; $env:IROCA_RESULT_CACHE = "0"; $env:IROCA_ROW_CA
 `gt_tolerance/`）と作業ディレクトリ（`_sam_freeze_work/` `_sam_e2e_work/` `_spike/evidence/`
 `_iou_csharp_work/` など）は書きっぱなしだった。この時点で本体の dev_safe は 120GB を超え、
 そのうち 77GB は 3 日以上使われていなかった。いまは pytest の開始時（xdist なら親プロセスで 1 回、
-6 時間に 1 回まで）に、**キャッシュは 7 日、作業ファイルは 3 日、名前に `.tmp` を含む書きかけは
-1 日**使われなかったものを消す。「使った」は mtime で見る。キャッシュは当たったときに
+6 時間に 1 回まで）に、**キャッシュは 30 日（2026-11-08 に 7 日から）、作業ファイルは 3 日、名前に `.tmp` を含む書きかけは
+1 日**使われなかったものを消す。さらに実行キャッシュ（`*.raw`）は、**作った DLL が 1 日使われなくなったら日数を待たず消す**
+（`fixtures._mark_dll_used` が DLL を使うたびに `_harness_cache/dlls/<ダイジェスト>` の mtime を進め、
+`<key>.dllref` に DLL のダイジェストを書く。`cache_gc._sweep_dead_dll` が、印が `IROCA_CACHE_GC_DLL_DAYS`（既定 1）日
+動いていない DLL の `.raw` / `.aux.json` / `.dllref` を消す。ビルドを往復する A/B の間は印が進むので消えない。
+`.dllref` の無い古いエントリは日数で消える。結果キャッシュ `results/` `rows/` は未対応）。「使った」は mtime で見る。キャッシュは当たったときに
 `fixtures.touch` で mtime を進め、作業ファイルは使うたびに書き直されるか touch される
 （atime はウイルス対策の読み取りでも進むので使えない）。消したものがまた要れば計算し直すだけで、
 結果は変わらない。走査はふだん 0.2 秒程度。消すと pytest の要約に 1 行出て、
