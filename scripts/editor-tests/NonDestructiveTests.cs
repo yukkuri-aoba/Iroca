@@ -190,6 +190,22 @@ namespace Iroca.EditorTests
         }
 
         [Test]
+        public void Recipe_FindForTexture_UsesCurrentSourceEvenIfUnsaved()
+        {
+            // 探すときはファイルの参照先で絞ってから読む。保存前にインスペクタで元テクスチャを替えたレシピも、
+            // 今の中身(sourceTexture)で数える(全部を読んで比べていた頃と同じ結果)。
+            var src = ImportSource();
+            var other = AssetDatabase.LoadAssetAtPath<Texture2D>(_assets.WritePng("other", Bands(), W, H, false));
+            var saved = RecipeStore.Create(src, RedToGreenWithInclude(), _assets.Folder);
+            var moved = RecipeStore.Create(other, RedToGreenWithInclude(), _assets.Folder);
+            var stays = RecipeStore.Create(other, RedToGreenWithInclude(), _assets.Folder);
+            moved.sourceTexture = src;   // 保存しない(ファイルの参照先は other のまま)
+            EditorUtility.SetDirty(moved);
+            CollectionAssert.AreEquivalent(new[] { saved, moved }, RecipeStore.FindForTexture(src));
+            CollectionAssert.AreEquivalent(new[] { stays }, RecipeStore.FindForTexture(other));
+        }
+
+        [Test]
         public void Recipe_PathForNew_IsWhereCreatePutsIt()
         {
             // 別フォルダに同じ名前のテクスチャがあると、2 つ目のレシピは連番の名前になる。

@@ -85,8 +85,22 @@ namespace Iroca
             foreach (var guid in AssetDatabase.FindAssets("t:" + nameof(IrocaRecipe)))
                 paths.Add(AssetDatabase.GUIDToAssetPath(guid));
             paths.Sort(StringComparer.Ordinal);
+            // レシピはマスク込みの編集状態(4K で数 MB の文字列)を持つので、全部を読み込むと重い。読み込む前に、
+            // ファイルの参照先(GetDependencies。読み込まずに引ける)にテクスチャがあるものへ絞る。読み込み済みの
+            // レシピは、保存前にインスペクタで元テクスチャを替えたものもあるので、参照先によらず中身で確かめる
+            // (読み込み済みなので軽い)。最後はどれも今の中身(sourceTexture)で決めるので、結果は全部を読んだときと同じ。
+            string texturePath = AssetDatabase.GetAssetPath(texture);
+            HashSet<string> loaded = null;
+            foreach (var r in Resources.FindObjectsOfTypeAll<IrocaRecipe>())
+            {
+                string p = AssetDatabase.GetAssetPath(r);
+                if (!string.IsNullOrEmpty(p)) (loaded ??= new HashSet<string>(StringComparer.Ordinal)).Add(p);
+            }
             foreach (var path in paths)
             {
+                if (!string.IsNullOrEmpty(texturePath) && (loaded == null || !loaded.Contains(path))
+                    && Array.IndexOf(AssetDatabase.GetDependencies(path, false), texturePath) < 0)
+                    continue;
                 var recipe = AssetDatabase.LoadAssetAtPath<IrocaRecipe>(path);
                 if (recipe != null && recipe.sourceTexture == texture) found.Add(recipe);
             }
